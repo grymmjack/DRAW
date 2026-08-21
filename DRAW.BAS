@@ -8,11 +8,10 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-' === Build feature flags ======================================================
-' HWCURSOR gates the OS hardware-cursor path (_MOUSECURSOR), which only exists on
-' QB64-PE builds carrying a740g's GLFW work (PR #701). Set FALSE to build with the
-' default v450 compiler, which has no _MOUSECURSOR (mirrors the $IF WIN pattern).
-$LET HWCURSOR = TRUE
+' === Toolchain requirement ====================================================
+' DRAW REQUIRES a QB64-PE build with a740g's GLFW work (PR #701): the OS hardware
+' cursor (_MOUSECURSOR) is the sole cursor path. It will NOT compile on the default
+' v450 compiler (no _MOUSECURSOR). `make` uses the a740g build — see the Makefile.
 
 ' === Runtime error trap =======================================================
 ' An UNHANDLED QB64 runtime error opens a modal dialog and waits for a mouse
@@ -376,7 +375,6 @@ END IF
 ' === Render benchmark mode (--bench-render [layerCount]) — dev tool, GLFW builds ===
 ' Deterministically measures the render cost of a canvas mouse-move with/without
 ' the hardware-cursor cached-skip, in-process (no flaky GUI automation).
-$IF HWCURSOR THEN
 DIM benchLayers AS INTEGER, bi AS INTEGER
 benchLayers% = 0
 FOR bi% = 1 TO _COMMANDCOUNT
@@ -388,7 +386,6 @@ FOR bi% = 1 TO _COMMANDCOUNT
     END IF
 NEXT bi%
 IF benchLayers% > 0 THEN BENCH_render_run benchLayers%
-$END IF
 
 DO
     ' Deferred command line file loading (after first frame when everything is initialized).
@@ -621,18 +618,14 @@ DO
         IF NOT mouseOverCanvas% THEN
             GUI_NEEDS_REDRAW% = TRUE    ' Update hover highlights in toolbar/organizer/drawer/editbar/layerpanel
         END IF
-        ' Force full render path on canvas hover — the dirty-rect/STATUS-ONLY fast
-        ' paths cause visible cursor lag due to partial compositing overhead.
-        ' The full path (CLS → GUI → composite → scene cache → present) is actually
-        ' smoother because COMPOSITE_RESULT_VALID% caches the expensive layer merge
-        ' and the single full-frame window blit has less driver overhead.
-        '
-        ' EXCEPTION: when an OS hardware cursor is drawing the pointer for an
-        ' icon tool (POINTER.HW_ICON_ACTIVE%), the software-cursor lag that
-        ' motivated this full rebuild no longer exists — the compositor moves the
-        ' cursor. Skip the full scene rebuild so canvas mouse-moves take the cheap
-        ' cached path (coords still update) instead of recompositing every frame.
-        IF mouseOverCanvas% AND NOT POINTER.HW_ICON_ACTIVE% THEN SCENE_CHANGED% = TRUE
+        ' Canvas hover no longer forces a full scene rebuild. That override existed to
+        ' hide SOFTWARE-cursor lag by recompositing every frame; with the OS hardware
+        ' cursor the compositor moves the pointer render-free, so a bare canvas move
+        ' takes the cheap cached / dirty-rect path (coords still update, and the
+        ' brush/spray rings + custom-brush stamp still erase+redraw via the dirty rect,
+        ' whose pad scales with brush size × zoom — see POINTER_get_dirty_pad%).
+        ' Feedback that spans beyond the dirty rect (SHIFT crosshair, marquee, transform,
+        ' rubber-band) sets SCENE_CHANGED% through its own triggers below.
     END IF
     IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE   ' GUI-only updates should stay on the cached-scene path unless something else dirtied the scene
     IF STATUS_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE
@@ -966,7 +959,6 @@ SUB MAIN_shutdown ()
     IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
     IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
     IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
-    IF SCRN.CURSOR& < -1 THEN _FREEIMAGE SCRN.CURSOR&   ' top cursor overlay
     ' Font / glyph image caches (each holds _NEWIMAGE / _LOADIMAGE handles)
     FONT_PREVIEW_free_cache   ' cached font-preview strip images
     TDF_free_cache            ' TheDraw (.TDF) rasterised glyph blocks

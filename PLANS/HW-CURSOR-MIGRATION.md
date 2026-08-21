@@ -1,7 +1,20 @@
 # Hardware-cursor migration plan — make the OS cursor the default, retire the seams
 
-**Status:** proposal (analysis + plan only; no refactor code yet)
-**Branch context:** `glfw-tests`, `$LET HWCURSOR = TRUE` (`DRAW.BAS:15`), PR #701 GLFW build
+**Status:** ✅ IMPLEMENTED on branch `hw-cursor` (2026-08-21). Hardware cursor is now
+the sole icon-cursor path; software-cursor drawing, the top-overlay pipeline, both
+A/B toggles, the OS-stock `_MOUSESHOW` tool path, and the force-full-rebuild-on-move
+override are all deleted. GLFW-only (`$IF HWCURSOR` gating removed; Makefile default →
+a740g/qb64pe-regen). KEPT: brush/spray rings, custom-brush stamp, picker loupe, SHIFT
+crosshair, dirty-rect (feedback-ring erase), OS-stock crosshair/I-beam for the 2
+art-less states.
+
+**Measured result (`--bench-render 20`, 2026-08-21):** a canvas mouse-move went from
+**6.9ms/frame → 0.57ms/frame — 12× cheaper**; effective CPU while moving @60fps dropped
+from **41.4% → 3.4%** of a core. That ~6.3ms/frame was the large-canvas stutter; it's
+gone. QA gate + tool batch green (one intermittent tool-ellipse harness flake, passes
+in isolation — not a regression).
+
+**Branch context:** `hw-cursor` off `glfw-tests`, PR #701 GLFW build (now required)
 **Goal:** default DRAW to the OS hardware cursor for every icon cursor, delete the
 software-cursor code that only ever existed to hide software-cursor lag, and
 eventually remove the `HARDWARE_CURSOR` A/B toggle — **without** breaking the

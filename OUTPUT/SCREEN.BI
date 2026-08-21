@@ -16,7 +16,6 @@ TYPE SCREEN_OBJ
     bpp                           AS INTEGER
     CANVAS                        AS LONG
     PAINTING                      AS LONG
-    CURSOR                        AS LONG
     GUI                           AS LONG
     displayScale                  AS INTEGER ' Current display scale multiplier (1-8)
     zoom                          AS SINGLE  ' Current zoom level

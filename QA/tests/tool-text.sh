@@ -60,16 +60,19 @@ park_mouse
 snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-canvas-before-click"
 BEFORE_CLICK="$SNAP_RESULT"
 
-# Click canvas to start editing (creates new text layer, blinking cursor)
+# Click canvas to start editing (creates new text layer, blinking caret)
 click $CANVAS_CX $CANVAS_CY
-wait_for 0.8 "Text editing started (cursor should blink)"
+# The text CARET starts ON and toggles every 0.5s (DRAW.BAS blink timer). Snap inside
+# that first ON phase (< 0.5s) so we verify the CARET — not the mouse cursor, which is
+# now the OS hardware cursor (_MOUSECURSOR) and is never captured in a screenshot grab.
+wait_for 0.2 "Text editing started (caret is ON)"
 assert_no_crash
 
-# Snap canvas center AFTER clicking — cursor should be visible
+# Snap canvas center AFTER clicking — the blinking text caret should be visible
 park_mouse
 snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-canvas-after-click"
 AFTER_CLICK="$SNAP_RESULT"
-assert_regions_differ "$BEFORE_CLICK" "$AFTER_CLICK" "Cursor should appear on canvas after click"
+assert_regions_differ "$BEFORE_CLICK" "$AFTER_CLICK" "Text caret should appear on canvas after click"
 pass "Test 2: Click canvas starts text entry with cursor"
 
 # ---------------------------------------------------------------------------

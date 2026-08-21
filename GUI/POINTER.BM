@@ -33,36 +33,14 @@ END SUB
 
 
 ''
-' Render the pointer
-' 
-''
-' Returns the OS system cursor string for the current POINTER.CURSOR_ID% /
-' POINTER.CURSOR_FLIP% combination when CFG.SYSTEM_CURSORS_ENABLED% is TRUE.
-' Returns "" if no system cursor is available (use custom PNG instead).
-' @param cursorID INTEGER Cursor constant (CURSOR_RESIZE_VERT, CURSOR_RESIZE_HORIZ, CURSOR_RESIZE_CORNER)
-' @param cursorFlip INTEGER Flip state (0=none, 1=horizontal, 2=vertical, 3=both) to select diagonal direction
-' @return STRING - OS cursor name string (e.g. "VERTICAL", "TOPLEFT_BOTTOMRIGHT") or "" if unavailable
-'
-FUNCTION POINTER_system_cursor_string$ (cursorID AS INTEGER, cursorFlip AS INTEGER)
-    IF NOT CFG.SYSTEM_CURSORS_ENABLED% THEN EXIT FUNCTION
-    SELECT CASE cursorID%
-        CASE CURSOR_RESIZE_VERT
-            POINTER_system_cursor_string$ = "VERTICAL"
-        CASE CURSOR_RESIZE_HORIZ
-            POINTER_system_cursor_string$ = "HORIZONTAL"
-        CASE CURSOR_RESIZE_CORNER
-            IF cursorFlip% = 1 OR cursorFlip% = 2 THEN
-                POINTER_system_cursor_string$ = "TOPRIGHT_BOTTOMLEFT"
-            ELSE
-                POINTER_system_cursor_string$ = "TOPLEFT_BOTTOMRIGHT"
-            END IF
-        CASE CURSOR_BRUSH, CURSOR_SPRAY
-            ' Use OS crosshair for brush/spray tools so the pointing cursor
-            ' moves at hardware speed. The brush preview circle still draws
-            ' in software as a visual aid (slight lag is acceptable for a helper).
-            POINTER_system_cursor_string$ = "CROSSHAIR"
-    END SELECT
-END FUNCTION
+' Cursor policy (post hardware-cursor refactor, GLFW-only):
+'   * Every cursor with theme art (all CURSOR_* slots 0..CURSOR_COUNT, incl. the
+'     UI arrow, resize, brush, spray) is drawn by the OS HARDWARE cursor via
+'     _MOUSECURSOR — render-free, no per-frame software repaint.
+'   * The two art-less procedural states use OS-stock cursors (also render-free):
+'     shape tools (line/rect/ellipse) = "CROSSHAIR", text tool = "TEXT".
+'   * POINTER_draw no longer paints an icon (see USING_SYSTEM_CURSOR% guards); it
+'     only adds canvas-aware feedback (brush/spray rings, picker loupe, overlays).
 
 ''
 ' Render the pointer by building its visual state, selecting between OS
@@ -93,9 +71,8 @@ SUB POINTER_render ()
     ' Tools NOT listed stay untouched on purpose: move, picker, zoom, pan and
     ' marquee all remain legal on a group.
     '
-    ' POINTER_system_cursor_string$ has no case for CURSOR_DENIED, so sysCur$
-    ' stays "" and the PNG is drawn by POINTER_draw. If the asset is missing,
-    ' CURSOR_load leaves img >= -1 and POINTER_draw falls back — no crash.
+    ' CURSOR_DENIED has theme art (cursor-denied-large.png), so it installs as an
+    ' OS hardware cursor like any other slot below.
     IF POINTER.CURSOR_ID% <> CURSOR_NULL THEN
         IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= MAX_LAYERS THEN
             IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_GROUP THEN
@@ -104,26 +81,11 @@ SUB POINTER_render ()
                         ' Auto-add turns the attempt into a legal draw, so the
                         ' cursor must not claim it is forbidden.
                         IF NOT CFG.GROUP_DRAW_AUTO_LAYER% THEN
-                            ' Two presentations, picked by whether this tool has
-                            ' cursor art worth keeping:
-                            '
-                            '   composite  the tool's own PNG plus the SMALL
-                            '              badge, so you still see what you are
-                            '              holding (fill bucket, dropper, ...)
-                            '   replace    the LARGE X on its own, for tools
-                            '              drawn procedurally (-1) or mapped to
-                            '              an OS cursor. Those have no art to
-                            '              preserve, and an OS cursor is drawn
-                            '              by the compositor where nothing can
-                            '              be stamped on top of it.
-                            DIM pdSysCur AS STRING
-                            pdSysCur$ = POINTER_system_cursor_string$(POINTER.CURSOR_ID%, POINTER.CURSOR_FLIP%)
-                            IF POINTER.CURSOR_ID% = -1 OR pdSysCur$ <> "" THEN
-                                POINTER.CURSOR_ID%      = CURSOR_DENIED
-                                POINTER.DENIED_OVERLAY% = FALSE
-                            ELSE
-                                POINTER.DENIED_OVERLAY% = TRUE
-                            END IF
+                            ' Every cursor is now OS/hardware-drawn, so nothing can be
+                            ' stamped on top of it — a forbidden action always shows the
+                            ' standalone large "denied" X (itself a hardware cursor).
+                            POINTER.CURSOR_ID%      = CURSOR_DENIED
+                            POINTER.DENIED_OVERLAY% = FALSE
                         END IF
                 END SELECT
             END IF
@@ -132,33 +94,27 @@ SUB POINTER_render ()
 
     ' Decide: OS system cursor or hidden (custom drawn) cursor.
     ' CURSOR_NULL = UI areas — always system (arrow at display rate).
-    ' Other cursors with system equivalents (when SYSTEM_CURSORS enabled) also use OS.
-    ' Tool-specific cursors with no system equivalent (brush, dropper, fill, zoom
-    ' spray, marquee, wand) always use custom PNG.
+    ' Every cursor is OS-drawn now (render-free — the compositor moves it, so a bare
+    ' mouse move repaints nothing):
+    '   CURSOR_NULL (UI chrome) -> native OS arrow ("DEFAULT")
+    '   CURSOR_ID = -1          -> art-less procedural states: TOOL_TEXT = I-beam,
+    '                              shape tools (line/rect/ellipse) = crosshair (OS-stock)
+    '   any slot 0..CURSOR_COUNT-> OS HARDWARE cursor (_MOUSECURSOR) from its theme PNG
     DIM sysCur AS STRING
     IF POINTER.CURSOR_ID% = CURSOR_NULL THEN
-        ' UI areas (toolbar, menus, panels) — always OS arrow
         sysCur$ = "DEFAULT"
-    ELSEIF CFG.SYSTEM_CURSORS_ENABLED% THEN
-        ' Canvas area — only use OS cursors when POINTER_build left a procedural/system cursor
-        IF POINTER.CURSOR_ID% = -1 THEN
-            ' Procedural canvas cursors: text tool = I-beam, all others = crosshair
-            IF CURRENT_TOOL% = TOOL_TEXT THEN
-                sysCur$ = "TEXT"
-            ELSE
-                sysCur$ = "CROSSHAIR"
-            END IF
+    ELSEIF POINTER.CURSOR_ID% = -1 THEN
+        IF CURRENT_TOOL% = TOOL_TEXT THEN
+            sysCur$ = "TEXT"
         ELSE
-            sysCur$ = POINTER_system_cursor_string$(POINTER.CURSOR_ID%, POINTER.CURSOR_FLIP%)
-            ' Hide cursor entirely when painting with brush edges off —
-            ' the paint stroke provides sufficient position feedback.
-            IF sysCur$ = "CROSSHAIR" AND NOT BRUSH_SIZE.PREVIEW AND MOUSE.B1% THEN
-                sysCur$ = ""
-            END IF
+            sysCur$ = "CROSSHAIR"
+            ' Hide entirely when painting with brush edges off — the stroke is enough.
+            IF NOT BRUSH_SIZE.PREVIEW AND MOUSE.B1% THEN sysCur$ = ""
         END IF
     END IF
+
     IF sysCur$ <> "" THEN
-        ' Only call _MOUSESHOW when cursor type actually changed (SDL2 call)
+        ' OS-stock cursor (native arrow / crosshair / I-beam) — dedup the _MOUSESHOW.
         IF _TRIM$(POINTER.PREV_SYS_CURSOR$) <> sysCur$ THEN
             _MOUSESHOW sysCur$
             POINTER.PREV_SYS_CURSOR$ = sysCur$
@@ -166,13 +122,10 @@ SUB POINTER_render ()
         POINTER.USING_SYSTEM_CURSOR% = TRUE
         POINTER.PREV_HW_CURSOR_ID%   = -999 ' left the HW path; force re-set on return
     ELSE
-        ' No OS *named* cursor for this state. Prefer an OS HARDWARE cursor built
-        ' from the theme PNG (moves render-free via the compositor) when available;
-        ' otherwise hide the OS cursor and let POINTER_draw paint the software one.
+        ' Any slotted cursor (0..CURSOR_COUNT) -> OS HARDWARE cursor from its theme PNG.
         DIM hwSet AS INTEGER
         hwSet% = FALSE
-        $IF HWCURSOR THEN
-        IF CFG.HW_CURSOR_ENABLED% AND POINTER.CURSOR_ID% >= 0 AND POINTER.CURSOR_ID% <= CURSOR_COUNT THEN
+        IF POINTER.CURSOR_ID% >= 0 AND POINTER.CURSOR_ID% <= CURSOR_COUNT THEN
             IF CURSOR_ensure_hw%(POINTER.CURSOR_ID%) THEN
                 DIM hwScale AS INTEGER
                 hwScale% = SCRN.displayScale%
@@ -187,9 +140,8 @@ SUB POINTER_render ()
                 hwSet% = TRUE
             END IF
         END IF
-        $END IF
         IF NOT hwSet% THEN
-            ' Only call _MOUSEHIDE when transitioning from visible to hidden
+            ' No hardware art for this slot (shouldn't happen) — hide the OS cursor.
             IF _TRIM$(POINTER.PREV_SYS_CURSOR$) <> "" THEN
                 _MOUSEHIDE
                 POINTER.PREV_SYS_CURSOR$ = ""
@@ -205,14 +157,12 @@ SUB POINTER_render ()
     ' picker loupe, shape/marquee crosshairs, SHIFT crosshair), and we are not
     ' painting. UI chrome (CURSOR_NULL) is excluded so hover highlights still draw.
     POINTER.HW_ICON_ACTIVE% = FALSE
-    $IF HWCURSOR THEN
-    IF CFG.HW_CURSOR_ENABLED% AND POINTER.USING_SYSTEM_CURSOR% AND NOT MOUSE.B1% AND NOT MODIFIERS.shift% THEN
+    IF POINTER.USING_SYSTEM_CURSOR% AND NOT MOUSE.B1% AND NOT MODIFIERS.shift% THEN
         SELECT CASE POINTER.CURSOR_ID%
             CASE CURSOR_FILL, CURSOR_ZOOM, CURSOR_MOVE, CURSOR_HAND, CURSOR_MARQUEE, CURSOR_WAND, CURSOR_MARQUEE_RECT, CURSOR_MARQUEE_FREE, CURSOR_MARQUEE_POLY, CURSOR_MARQUEE_ELLIP
                 POINTER.HW_ICON_ACTIVE% = TRUE
         END SELECT
     END IF
-    $END IF
 
     POINTER_draw
 END SUB
@@ -827,24 +777,6 @@ END SUB
 ' @param mx INTEGER Screen X coordinate to draw the cursor at
 ' @param my INTEGER Screen Y coordinate to draw the cursor at
 '
-SUB POINTER_draw_pan (mx AS INTEGER, my AS INTEGER)
-    IF CURSORS(CURSOR_HAND).img& < -1 THEN
-        _PUTIMAGE (mx% - CURSORS(CURSOR_HAND).hotspot_pos_x%, my% - CURSORS(CURSOR_HAND).hotspot_pos_y%), CURSORS(CURSOR_HAND).img&, SCRN.CANVAS&
-        CURSOR_render_overlays CURSOR_HAND, mx% - CURSORS(CURSOR_HAND).hotspot_pos_x%, my% - CURSORS(CURSOR_HAND).hotspot_pos_y%, mx%, my%, 0, 0, 0, 0, 0, 0, 0, 0
-    ELSE
-        ' Fallback: procedural hand cursor
-        LINE (mx% - 3, my% + 2)-(mx% + 3, my% + 6), _RGB32(255, 255, 255), BF
-        LINE (mx% - 2, my% + 1)-(mx% + 2, my% + 1), _RGB32(255, 255, 255)
-        LINE (mx% - 2, my% - 3)-(mx% - 2, my% + 1), _RGB32(255, 255, 255)
-        LINE (mx%, my% - 4)-(mx%, my% + 1), _RGB32(255, 255, 255)
-        LINE (mx% + 2, my% - 3)-(mx% + 2, my% + 1), _RGB32(255, 255, 255)
-        LINE (mx% - 4, my% + 2)-(mx% - 4, my% + 4), _RGB32(255, 255, 255)
-        LINE (mx% - 4, my% + 1)-(mx% - 4, my% + 5), _RGB32(0, 0, 0)
-        LINE (mx% - 3, my%)-(mx% + 3, my%), _RGB32(0, 0, 0)
-        LINE (mx% + 4, my% + 1)-(mx% + 4, my% + 7), _RGB32(0, 0, 0)
-        LINE (mx% - 4, my% + 7)-(mx% + 4, my% + 7), _RGB32(0, 0, 0)
-    END IF
-END SUB
 
 
 ''
@@ -853,40 +785,6 @@ END SUB
 ' @param mx INTEGER Screen X coordinate to draw the cursor at
 ' @param my INTEGER Screen Y coordinate to draw the cursor at
 '
-SUB POINTER_draw_ui_cursor (mx AS INTEGER, my AS INTEGER)
-    IF CURSORS(CURSOR_NULL).img& < -1 THEN
-        _PUTIMAGE (mx% - CURSORS(CURSOR_NULL).hotspot_pos_x%, my% - CURSORS(CURSOR_NULL).hotspot_pos_y%), CURSORS(CURSOR_NULL).img&, SCRN.CANVAS&
-        CURSOR_render_overlays CURSOR_NULL, mx% - CURSORS(CURSOR_NULL).hotspot_pos_x%, my% - CURSORS(CURSOR_NULL).hotspot_pos_y%, mx%, my%, 0, 0, 0, 0, 0, 0, 0, 0
-    ELSE
-        ' Fallback: procedural arrow cursor (no PAINT, alpha-safe)
-        DIM arr_i AS INTEGER
-        FOR arr_i% = 0 TO 10
-            DIM arr_w AS INTEGER
-            IF arr_i% <= 7 THEN
-                arr_w% = arr_i%
-            ELSE
-                arr_w% = 3
-            END IF
-            ' Black outline
-            IF arr_i% <= 7 THEN
-                LINE (mx%, my% + arr_i%)-(mx% + arr_w% + 1, my% + arr_i%), _RGB32(0, 0, 0)
-            ELSE
-                LINE (mx%, my% + arr_i%)-(mx% + arr_w% + 1, my% + arr_i%), _RGB32(0, 0, 0)
-            END IF
-        NEXT arr_i%
-        ' White interior fill
-        FOR arr_i% = 1 TO 9
-            IF arr_i% <= 6 THEN
-                arr_w% = arr_i% - 1
-            ELSE
-                arr_w% = 2
-            END IF
-            IF arr_w% >= 1 THEN
-                LINE (mx% + 1, my% + arr_i%)-(mx% + arr_w%, my% + arr_i%), _RGB32(255, 255, 255)
-            END IF
-        NEXT arr_i%
-    END IF
-END SUB
 
 
 ''
@@ -932,32 +830,6 @@ END SUB
 ' @param mx INTEGER Screen X coordinate for the crosshair center
 ' @param my INTEGER Screen Y coordinate for the crosshair center
 '
-SUB POINTER_draw_shape_crosshair (mx AS INTEGER, my AS INTEGER)
-    DIM r AS INTEGER, g AS INTEGER, b AS INTEGER
-    ' Diagonal lines forming an X - black outline for visibility
-    LINE (mx% - 7, my% - 8)-(mx% - 2, my% - 3), _RGBA32(0, 0, 0, 180)
-    LINE (mx% - 8, my% - 7)-(mx% - 3, my% - 2), _RGBA32(0, 0, 0, 180)
-    LINE (mx% + 2, my% + 3)-(mx% + 7, my% + 8), _RGBA32(0, 0, 0, 180)
-    LINE (mx% + 3, my% + 2)-(mx% + 8, my% + 7), _RGBA32(0, 0, 0, 180)
-    LINE (mx% - 7, my% - 7)-(mx% - 2, my% - 2), _RGBA32(255, 255, 255, 240)
-    LINE (mx% + 2, my% + 2)-(mx% + 7, my% + 7), _RGBA32(255, 255, 255, 240)
-
-    LINE (mx% + 7, my% - 8)-(mx% + 2, my% - 3), _RGBA32(0, 0, 0, 180)
-    LINE (mx% + 8, my% - 7)-(mx% + 3, my% - 2), _RGBA32(0, 0, 0, 180)
-    LINE (mx% - 2, my% + 3)-(mx% - 7, my% + 8), _RGBA32(0, 0, 0, 180)
-    LINE (mx% - 3, my% + 2)-(mx% - 8, my% + 7), _RGBA32(0, 0, 0, 180)
-    LINE (mx% + 7, my% - 7)-(mx% + 2, my% - 2), _RGBA32(255, 255, 255, 240)
-    LINE (mx% - 2, my% + 2)-(mx% - 7, my% + 7), _RGBA32(255, 255, 255, 240)
-
-    r% = _RED32(PAINT_COLOR~&)
-    g% = _GREEN32(PAINT_COLOR~&)
-    b% = _BLUE32(PAINT_COLOR~&)
-    PSET (mx%, my%), _RGBA32(r%, g%, b%, 180)
-    PSET (mx% - 1, my%), _RGBA32(r%, g%, b%, 120)
-    PSET (mx% + 1, my%), _RGBA32(r%, g%, b%, 120)
-    PSET (mx%, my% - 1), _RGBA32(r%, g%, b%, 120)
-    PSET (mx%, my% + 1), _RGBA32(r%, g%, b%, 120)
-END SUB
 
 
 ''
@@ -965,27 +837,6 @@ END SUB
 ' @param mx INTEGER Screen X coordinate to draw the cursor at
 ' @param my INTEGER Screen Y coordinate to draw the cursor at
 '
-SUB POINTER_draw_picker (mx AS INTEGER, my AS INTEGER)
-    IF CURSORS(CURSOR_DROPPER).img& < -1 THEN
-        _PUTIMAGE (mx% - CURSORS(CURSOR_DROPPER).hotspot_pos_x%, my% - CURSORS(CURSOR_DROPPER).hotspot_pos_y%), CURSORS(CURSOR_DROPPER).img&, SCRN.CANVAS&
-        CURSOR_render_overlays CURSOR_DROPPER, mx% - CURSORS(CURSOR_DROPPER).hotspot_pos_x%, my% - CURSORS(CURSOR_DROPPER).hotspot_pos_y%, mx%, my%, 0, 0, 0, 0, 0, 0, 0, 0
-    ELSE
-        ' Fallback: procedural crosshair
-        LINE (mx% - 9, my% - 1)-(mx% - 2, my% - 1), _RGBA32(0, 0, 0, 180)
-        LINE (mx% - 9, my% + 1)-(mx% - 2, my% + 1), _RGBA32(0, 0, 0, 180)
-        LINE (mx% + 2, my% - 1)-(mx% + 9, my% - 1), _RGBA32(0, 0, 0, 180)
-        LINE (mx% + 2, my% + 1)-(mx% + 9, my% + 1), _RGBA32(0, 0, 0, 180)
-        LINE (mx% - 9, my%)-(mx% - 2, my%), _RGBA32(255, 255, 255, 240)
-        LINE (mx% + 2, my%)-(mx% + 9, my%), _RGBA32(255, 255, 255, 240)
-
-        LINE (mx% - 1, my% - 9)-(mx% - 1, my% - 2), _RGBA32(0, 0, 0, 180)
-        LINE (mx% + 1, my% - 9)-(mx% + 1, my% - 2), _RGBA32(0, 0, 0, 180)
-        LINE (mx% - 1, my% + 2)-(mx% + 1, my% + 9), _RGBA32(0, 0, 0, 180)
-        LINE (mx% + 1, my% + 2)-(mx% + 1, my% + 9), _RGBA32(0, 0, 0, 180)
-        LINE (mx%, my% - 9)-(mx%, my% - 2), _RGBA32(255, 255, 255, 240)
-        LINE (mx%, my% + 2)-(mx%, my% + 9), _RGBA32(255, 255, 255, 240)
-    END IF
-END SUB
 
 
 ''
@@ -1124,38 +975,6 @@ END SUB
 ' @param mx INTEGER Screen X coordinate to draw the cursor at
 ' @param my INTEGER Screen Y coordinate to draw the cursor at
 '
-SUB POINTER_draw_marquee (mx AS INTEGER, my AS INTEGER)
-    DIM marq_cursor_id AS INTEGER
-    marq_cursor_id% = POINTER.CURSOR_ID%
-    IF marq_cursor_id% >= 0 AND marq_cursor_id% <= CURSOR_COUNT THEN
-        IF CURSORS(marq_cursor_id%).img& < -1 THEN
-            ' Render PNG cursor with optional flip
-            DIM mq_dx AS INTEGER, mq_dy AS INTEGER
-            DIM mq_w  AS INTEGER, mq_h AS INTEGER
-            mq_w%  = CURSORS(marq_cursor_id%).w%
-            mq_h%  = CURSORS(marq_cursor_id%).h%
-            mq_dx% = mx% - CURSORS(marq_cursor_id%).hotspot_pos_x%
-            mq_dy% = my% - CURSORS(marq_cursor_id%).hotspot_pos_y%
-            SELECT CASE POINTER.CURSOR_FLIP%
-                CASE 1    ' Flip horizontal
-                    _PUTIMAGE (mq_dx% + mq_w% - 1, mq_dy%)-(mq_dx%, mq_dy% + mq_h% - 1), CURSORS(marq_cursor_id%).img&, SCRN.CANVAS&
-                CASE 2    ' Flip vertical
-                    _PUTIMAGE (mq_dx%, mq_dy% + mq_h% - 1)-(mq_dx% + mq_w% - 1, mq_dy%), CURSORS(marq_cursor_id%).img&, SCRN.CANVAS&
-                CASE 3    ' Flip both
-                    _PUTIMAGE (mq_dx% + mq_w% - 1, mq_dy% + mq_h% - 1)-(mq_dx%, mq_dy%), CURSORS(marq_cursor_id%).img&, SCRN.CANVAS&
-                CASE ELSE ' No flip
-                    _PUTIMAGE (mq_dx%, mq_dy%), CURSORS(marq_cursor_id%).img&, SCRN.CANVAS&
-            END SELECT
-            CURSOR_render_overlays marq_cursor_id%, mq_dx%, mq_dy%, mx%, my%, 0, 0, 0, 0, 0, 0, 0, 0
-        ELSE
-            ' Fallback: procedural dotted crosshair
-            POINTER_draw_marquee_cursor
-        END IF
-    ELSE
-        ' Cursor id out of range — draw procedural fallback
-        POINTER_draw_marquee_cursor
-    END IF
-END SUB
 
 
 ''
@@ -1163,77 +982,6 @@ END SUB
 ' @param mx INTEGER Screen X coordinate to draw the cursor at
 ' @param my INTEGER Screen Y coordinate to draw the cursor at
 '
-SUB POINTER_draw_move_cursor (mx AS INTEGER, my AS INTEGER)
-    DIM move_cid AS INTEGER
-    move_cid% = POINTER.CURSOR_ID%
-    
-    ' Handle resize cursors - PNG only, no procedural fallback, NO move cursor overlay
-    IF move_cid% = CURSOR_RESIZE_CORNER OR move_cid% = CURSOR_RESIZE_HORIZ OR move_cid% = CURSOR_RESIZE_VERT THEN
-        ' Only draw if PNG is available
-        IF CURSORS(move_cid%).img& < -1 THEN
-            DIM mc_dx AS INTEGER, mc_dy AS INTEGER
-            DIM mc_w  AS INTEGER, mc_h AS INTEGER
-            mc_w%  = CURSORS(move_cid%).w%
-            mc_h%  = CURSORS(move_cid%).h%
-            mc_dx% = mx% - CURSORS(move_cid%).hotspot_pos_x%
-            mc_dy% = my% - CURSORS(move_cid%).hotspot_pos_y%
-            SELECT CASE POINTER.CURSOR_FLIP%
-                CASE 1    ' Flip horizontal
-                    _PUTIMAGE (mc_dx% + mc_w% - 1, mc_dy%)-(mc_dx%, mc_dy% + mc_h% - 1), CURSORS(move_cid%).img&, SCRN.CANVAS&
-                CASE 2    ' Flip vertical
-                    _PUTIMAGE (mc_dx%, mc_dy% + mc_h% - 1)-(mc_dx% + mc_w% - 1, mc_dy%), CURSORS(move_cid%).img&, SCRN.CANVAS&
-                CASE 3    ' Flip both
-                    _PUTIMAGE (mc_dx% + mc_w% - 1, mc_dy% + mc_h% - 1)-(mc_dx%, mc_dy%), CURSORS(move_cid%).img&, SCRN.CANVAS&
-                CASE ELSE ' No flip
-                    _PUTIMAGE (mc_dx%, mc_dy%), CURSORS(move_cid%).img&, SCRN.CANVAS&
-            END SELECT
-            CURSOR_render_overlays move_cid%, mc_dx%, mc_dy%, mx%, my%, 0, 0, 0, 0, 0, 0, 0, 0
-        END IF
-        ' Critical: Exit immediately for resize cursors - never draw move cursor
-        EXIT SUB
-    END IF
-    
-    ' Handle move cursor ONLY if cursor ID is actually CURSOR_MOVE
-    IF move_cid% <> CURSOR_MOVE THEN EXIT SUB
-    
-    ' Now we know it's CURSOR_MOVE - draw PNG or procedural fallback
-    IF CURSORS(CURSOR_MOVE).img& < -1 THEN
-        ' Draw move cursor PNG
-        DIM mm_dx   AS INTEGER, mm_dy AS INTEGER
-        DIM mm_w    AS INTEGER, mm_h AS INTEGER
-        mm_w%  = CURSORS(CURSOR_MOVE).w%
-        mm_h%  = CURSORS(CURSOR_MOVE).h%
-        mm_dx% = mx% - CURSORS(CURSOR_MOVE).hotspot_pos_x%
-        mm_dy% = my% - CURSORS(CURSOR_MOVE).hotspot_pos_y%
-        _PUTIMAGE (mm_dx%, mm_dy%), CURSORS(CURSOR_MOVE).img&, SCRN.CANVAS&
-        CURSOR_render_overlays CURSOR_MOVE, mm_dx%, mm_dy%, mx%, my%, 0, 0, 0, 0, 0, 0, 0, 0
-    ELSE
-        ' Procedural 4-directional move arrow fallback
-        DIM move_mx AS INTEGER, move_my AS INTEGER
-        move_mx% = MOUSE.RAW_X%
-        move_my% = MOUSE.RAW_Y%
-        LINE (move_mx% - 1, move_my% - 6)-(move_mx% + 1, move_my% + 6), _RGB32(0, 0, 0), BF
-        LINE (move_mx%, move_my% - 5)-(move_mx%, move_my% + 5), _RGB32(255, 255, 255)
-        LINE (move_mx% - 6, move_my% - 1)-(move_mx% + 6, move_my% + 1), _RGB32(0, 0, 0), BF
-        LINE (move_mx% - 5, move_my%)-(move_mx% + 5, move_my%), _RGB32(255, 255, 255)
-        LINE (move_mx% - 3, move_my% - 4)-(move_mx%, move_my% - 7), _RGB32(0, 0, 0)
-        LINE (move_mx% + 3, move_my% - 4)-(move_mx%, move_my% - 7), _RGB32(0, 0, 0)
-        LINE (move_mx% - 2, move_my% - 4)-(move_mx%, move_my% - 6), _RGB32(255, 255, 255)
-        LINE (move_mx% + 2, move_my% - 4)-(move_mx%, move_my% - 6), _RGB32(255, 255, 255)
-        LINE (move_mx% - 3, move_my% + 4)-(move_mx%, move_my% + 7), _RGB32(0, 0, 0)
-        LINE (move_mx% + 3, move_my% + 4)-(move_mx%, move_my% + 7), _RGB32(0, 0, 0)
-        LINE (move_mx% - 2, move_my% + 4)-(move_mx%, move_my% + 6), _RGB32(255, 255, 255)
-        LINE (move_mx% + 2, move_my% + 4)-(move_mx%, move_my% + 6), _RGB32(255, 255, 255)
-        LINE (move_mx% - 4, move_my% - 3)-(move_mx% - 7, move_my%), _RGB32(0, 0, 0)
-        LINE (move_mx% - 4, move_my% + 3)-(move_mx% - 7, move_my%), _RGB32(0, 0, 0)
-        LINE (move_mx% - 4, move_my% - 2)-(move_mx% - 6, move_my%), _RGB32(255, 255, 255)
-        LINE (move_mx% - 4, move_my% + 2)-(move_mx% - 6, move_my%), _RGB32(255, 255, 255)
-        LINE (move_mx% + 4, move_my% - 3)-(move_mx% + 7, move_my%), _RGB32(0, 0, 0)
-        LINE (move_mx% + 4, move_my% + 3)-(move_mx% + 7, move_my%), _RGB32(0, 0, 0)
-        LINE (move_mx% + 4, move_my% - 2)-(move_mx% + 6, move_my%), _RGB32(255, 255, 255)
-        LINE (move_mx% + 4, move_my% + 2)-(move_mx% + 6, move_my%), _RGB32(255, 255, 255)
-    END IF
-END SUB
 
 
 ''
@@ -1241,18 +989,6 @@ END SUB
 ' @param mx INTEGER Screen X coordinate to draw the cursor at
 ' @param my INTEGER Screen Y coordinate to draw the cursor at
 '
-SUB POINTER_draw_fill_cursor (mx AS INTEGER, my AS INTEGER)
-    IF CURSORS(CURSOR_FILL).img& < -1 THEN
-        _PUTIMAGE (mx% - CURSORS(CURSOR_FILL).hotspot_pos_x%, my% - CURSORS(CURSOR_FILL).hotspot_pos_y%), CURSORS(CURSOR_FILL).img&, SCRN.CANVAS&
-        CURSOR_render_overlays CURSOR_FILL, mx% - CURSORS(CURSOR_FILL).hotspot_pos_x%, my% - CURSORS(CURSOR_FILL).hotspot_pos_y%, mx%, my%, 0, 0, 0, 0, 0, 0, 0, 0
-    ELSE
-        ' Fallback: procedural fill bucket
-        DIM fill_s AS STRING
-        fill_s$ = "B" + "M" + ns$(mx%) + "," + ns$(my%)
-        fill_s$ = fill_s$ + "C" + STR$(PAL_color(POINTER.O%)) + "M+2,+2R6D4L2D2L2U2L2U4M+3,+1R2"
-        DRAW fill_s$
-    END IF
-END SUB
 
 
 ''
@@ -1262,78 +998,6 @@ END SUB
 ' @param my INTEGER Screen Y coordinate to draw the arrow overlay at
 ' @param is_painting INTEGER TRUE when actively painting; suppresses arrow for brush/dot/eraser/spray tools
 '
-SUB POINTER_draw_arrow_overlay (mx AS INTEGER, my AS INTEGER, is_painting AS INTEGER)
-    ' OS cursor already provides position indicator — skip software arrow to
-    ' avoid a duplicate cursor that lags 1 frame behind the hardware one.
-    IF POINTER.USING_SYSTEM_CURSOR% THEN EXIT SUB
-
-    DIM show_arrow AS INTEGER
-    show_arrow% = FALSE
-
-    IF CURRENT_TOOL% = TOOL_PICKER OR CURRENT_TOOL% = TOOL_MARQUEE OR CURRENT_TOOL% = TOOL_MOVE OR CURRENT_TOOL% = TOOL_TEXT OR CURRENT_TOOL% = TOOL_LINE OR CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED OR CURRENT_TOOL% = TOOL_RECT OR CURRENT_TOOL% = TOOL_RECT_FILLED OR CURRENT_TOOL% = TOOL_ELLIPSE OR CURRENT_TOOL% = TOOL_ELLIPSE_FILLED OR CURRENT_TOOL% = TOOL_FILL THEN
-        show_arrow% = FALSE
-    ELSEIF CURRENT_TOOL% = TOOL_BRUSH OR CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_ERASER THEN
-        IF BRUSH_SIZE.PREVIEW AND NOT is_painting% THEN
-            show_arrow% = TRUE
-        END IF
-    ELSEIF CURRENT_TOOL% = TOOL_SPRAY THEN
-        IF NOT is_painting% THEN
-            show_arrow% = TRUE
-        END IF
-    ELSE
-        show_arrow% = TRUE
-    END IF
-
-    IF show_arrow% THEN
-        IF CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_BRUSH OR CURRENT_TOOL% = TOOL_ERASER THEN
-            ' For brush/dot/eraser: try PNG brush cursor, fallback to procedural arrow with FG chip
-            IF CURSORS(CURSOR_BRUSH).img& < -1 THEN
-                _PUTIMAGE (mx% - CURSORS(CURSOR_BRUSH).hotspot_pos_x%, my% - CURSORS(CURSOR_BRUSH).hotspot_pos_y%), CURSORS(CURSOR_BRUSH).img&, SCRN.CANVAS&
-                CURSOR_render_overlays CURSOR_BRUSH, mx% - CURSORS(CURSOR_BRUSH).hotspot_pos_x%, my% - CURSORS(CURSOR_BRUSH).hotspot_pos_y%, mx%, my%, 0, 0, 0, 0, 0, 0, 0, 0
-            ELSE
-                ' Fallback: procedural arrow with FG color chip
-                DIM i AS INTEGER, lineEnd AS INTEGER
-                LINE (mx%, my%)-(mx%, my% + 12), _RGB32(0, 0, 0)
-                LINE (mx%, my%)-(mx% + 8, my% + 8), _RGB32(0, 0, 0)
-                LINE (mx% + 8, my% + 8)-(mx% + 3, my% + 8), _RGB32(0, 0, 0)
-                LINE (mx% + 3, my% + 8)-(mx% + 3, my% + 12), _RGB32(0, 0, 0)
-                LINE (mx% + 3, my% + 12)-(mx%, my% + 12), _RGB32(0, 0, 0)
-                LINE (mx% - 1, my%)-(mx% - 1, my% + 13), _RGB32(0, 0, 0)
-                LINE (mx% + 4, my% + 13)-(mx% - 1, my% + 13), _RGB32(0, 0, 0)
-                LINE (mx% + 4, my% + 8)-(mx% + 4, my% + 13), _RGB32(0, 0, 0)
-                LINE (mx% + 9, my% + 8)-(mx% + 4, my% + 8), _RGB32(0, 0, 0)
-                LINE (mx%, my% - 1)-(mx% + 9, my% + 8), _RGB32(0, 0, 0)
-
-                FOR i% = 1 TO 11
-                    IF i% <= 7 THEN
-                        lineEnd% = i%
-                    ELSEIF i% <= 11 THEN
-                        lineEnd% = 3
-                    END IF
-                    LINE (mx% + 1, my% + i%)-(mx% + lineEnd%, my% + i%), _RGB32(255, 255, 255)
-                NEXT i%
-
-                LINE (mx% + 2, my% + 4)-(mx% + 4, my% + 6), PAINT_COLOR~&, BF
-            END IF
-        ELSE
-            ' Generic: try PNG cursor from POINTER.CURSOR_ID%, fallback to DRAW string
-            IF POINTER.CURSOR_ID% >= 0 AND POINTER.CURSOR_ID% <= CURSOR_COUNT THEN
-                IF CURSORS(POINTER.CURSOR_ID%).img& < -1 THEN
-                    _PUTIMAGE (mx% - CURSORS(POINTER.CURSOR_ID%).hotspot_pos_x%, my% - CURSORS(POINTER.CURSOR_ID%).hotspot_pos_y%), CURSORS(POINTER.CURSOR_ID%).img&, SCRN.CANVAS&
-                    CURSOR_render_overlays POINTER.CURSOR_ID%, mx% - CURSORS(POINTER.CURSOR_ID%).hotspot_pos_x%, my% - CURSORS(POINTER.CURSOR_ID%).hotspot_pos_y%, mx%, my%, 0, 0, 0, 0, 0, 0, 0, 0
-                ELSE
-                    DIM s AS STRING
-                    s$ = "B" + "M" + ns$(mx%) + "," + ns$(my%) + POINTER.S$
-                    DRAW s$
-                END IF
-            ELSE
-                DIM s2 AS STRING
-                s2$ = "B" + "M" + ns$(mx%) + "," + ns$(my%) + POINTER.S$
-                DRAW s2$
-            END IF
-        END IF
-    END IF
-END SUB
 
 
 ''
@@ -1350,116 +1014,58 @@ END SUB
 ' @param mx INTEGER Mouse X (raw screen)
 ' @param my INTEGER Mouse Y (raw screen)
 '
-SUB POINTER_draw_denied_badge (mx AS INTEGER, my AS INTEGER)
-    IF NOT POINTER.DENIED_OVERLAY% THEN EXIT SUB
-    IF CURSORS(CURSOR_DENIED_SMALL).img& >= -1 THEN EXIT SUB
 
-    DIM dbHost AS INTEGER
-    dbHost% = POINTER.CURSOR_ID%
-    IF dbHost% < 0 OR dbHost% > CURSOR_COUNT THEN dbHost% = CURSOR_NULL
 
-    _PUTIMAGE (mx% + CURSORS(dbHost%).denied_dx%, my% + CURSORS(dbHost%).denied_dy%), CURSORS(CURSOR_DENIED_SMALL).img&, SCRN.CANVAS&
-END SUB
-
+' Maps the active marquee variant to its cursor slot (all hardware-drawn).
+FUNCTION POINTER_marquee_cursor_for_variant% ()
+    SELECT CASE MARQUEE.VARIANT
+        CASE TOOL_SELECT_RECT    : POINTER_marquee_cursor_for_variant% = CURSOR_MARQUEE_RECT
+        CASE TOOL_SELECT_FREE    : POINTER_marquee_cursor_for_variant% = CURSOR_MARQUEE_FREE
+        CASE TOOL_SELECT_POLY    : POINTER_marquee_cursor_for_variant% = CURSOR_MARQUEE_POLY
+        CASE TOOL_SELECT_ELLIPSE : POINTER_marquee_cursor_for_variant% = CURSOR_MARQUEE_ELLIP
+        CASE TOOL_SELECT_WAND    : POINTER_marquee_cursor_for_variant% = CURSOR_WAND
+        CASE ELSE                : POINTER_marquee_cursor_for_variant% = CURSOR_MARQUEE
+    END SELECT
+END FUNCTION
 
 SUB POINTER_draw ()
-    DIM oldDest     AS LONG
-    DIM is_painting AS INTEGER
-    DIM mx          AS INTEGER, my AS INTEGER
+    ' The pointer ICON is drawn by the OS now (hardware cursor via _MOUSECURSOR, or
+    ' OS-stock crosshair/I-beam) — render-free. This SUB only adds the canvas-aware
+    ' FEEDBACK a fixed cursor bitmap can't express: brush/spray footprint rings and
+    ' the custom-brush stamp. (The picker loupe and SHIFT crosshair render elsewhere.)
+    DIM oldDest AS LONG, is_painting AS INTEGER, mx AS INTEGER, my AS INTEGER
+
+    ' No canvas feedback while panning, over UI chrome, over the preview window, or
+    ' during image-import placement.
+    IF SCRN.panning% THEN EXIT SUB
+    IF POINTER.CURSOR_ID% = CURSOR_NULL THEN EXIT SUB
+    IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND (PREVIEW_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) OR PREVIEW.resizing%) THEN EXIT SUB
+    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN EXIT SUB
 
     oldDest& = _DEST
     _DEST SCRN.CANVAS&
     _BLEND SCRN.CANVAS&
-
     mx% = MOUSE.RAW_X%
     my% = MOUSE.RAW_Y%
+    is_painting% = MOUSE.B1%
 
-    ' --- Early exits: panning, UI areas, custom brush ---
-    IF SCRN.panning% THEN
-        IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_pan mx%, my%
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-
-    DIM use_ui_cursor AS INTEGER
-    ' POINTER_build (called by POINTER_render just before POINTER_draw) already ran
-    ' all the UI-area hit tests and stored the result in POINTER.CURSOR_ID%.
-    ' CURSOR_NULL means "over UI" — skip all redundant function calls and exit.
-    use_ui_cursor% = (POINTER.CURSOR_ID% = CURSOR_NULL)
-
-    ' Preview window — POINTER_build sets CURSOR_HAND for preview content area;
-    ' skip custom tool drawing there (POINTER_render_cursor_overlay handles it after
-    ' PREVIEW_render so the correct cursor appears on top).
-    IF NOT use_ui_cursor% AND PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND (PREVIEW_hit_window%(mx%, my%) OR PREVIEW.resizing%) THEN
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-
-    IF use_ui_cursor% THEN
-        ' System cursor (_MOUSESHOW) is already showing — skip custom arrow drawing
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-
-    ' --- "Denied", replace presentation ---
-    ' POINTER_render chose the large X for a tool with no distinctive art. It
-    ' has to be handled HERE, before the per-tool dispatch below: that dispatch
-    ' switches on CURRENT_TOOL%, not on CURSOR_ID%, so a brush would still draw
-    ' its crosshair and arrow and the X would never appear. Draw the badge and
-    ' return so it stands alone.
-    IF POINTER.CURSOR_ID% = CURSOR_DENIED THEN
-        IF CURSORS(CURSOR_DENIED).img& < -1 THEN
-            _PUTIMAGE (mx% - CURSORS(CURSOR_DENIED).hotspot_pos_x%, my% - CURSORS(CURSOR_DENIED).hotspot_pos_y%), CURSORS(CURSOR_DENIED).img&, SCRN.CANVAS&
-        END IF
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-
-    IF CUSTOM_BRUSH_is_active% AND IMG_IMPORT.STATE <= IMPORT_STATE_IDLE THEN
-        ' Only show custom brush cursor for drawing and unfilled shape tools
+    ' Custom-brush stamp for drawing / unfilled-shape tools.
+    IF CUSTOM_BRUSH_is_active% THEN
         SELECT CASE CURRENT_TOOL%
             CASE TOOL_DOT, TOOL_BRUSH, TOOL_SPRAY, TOOL_LINE, TOOL_POLYGON, TOOL_RECT, TOOL_ELLIPSE, TOOL_RECT_FILLED, TOOL_ELLIPSE_FILLED, TOOL_POLYGON_FILLED
                 POINTER_draw_custom_brush mx%, my%
-                POINTER_draw_denied_badge mx%, my%
                 _DEST oldDest&
                 EXIT SUB
         END SELECT
     END IF
 
-    ' --- Image Import mode: skip tool-specific previews, cursor overlay handles PNG ---
-    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-
-    ' --- Tool-specific cursor rendering ---
-    is_painting% = MOUSE.B1%
-
+    ' Brush / spray footprint rings (size + position aid).
     SELECT CASE CURRENT_TOOL%
-        CASE TOOL_LINE, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
-            IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_shape_crosshair mx%, my%
-        CASE TOOL_PICKER
-            ' Skip the software dropper icon when the OS is drawing the pointer
-            ' (hardware/system cursor); the picker loupe still renders separately.
-            IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_picker mx%, my%
         CASE TOOL_BRUSH, TOOL_DOT, TOOL_ERASER
             POINTER_draw_brush_preview mx%, my%, is_painting%
         CASE TOOL_SPRAY
             POINTER_draw_spray_preview mx%, my%, is_painting%
-        CASE TOOL_MARQUEE
-            IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_marquee mx%, my%
-        CASE TOOL_MOVE
-            IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_move_cursor mx%, my%
-        CASE TOOL_TEXT
-            IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_ibeam_cursor
-        CASE TOOL_FILL
-            ' Skip the software fill-bucket icon when the OS draws the pointer.
-            IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_fill_cursor mx%, my%
     END SELECT
-
-    ' --- Arrow overlay for brush/spray/generic tools ---
-    POINTER_draw_arrow_overlay mx%, my%, is_painting%
-    POINTER_draw_denied_badge mx%, my%
 
     _DEST oldDest&
 END SUB
@@ -1479,88 +1085,10 @@ END SUB
 ' - Semi-transparent (33% opaque = 84/255 alpha)
 ' - White with black outline like brush cursor
 '
-SUB POINTER_draw_marquee_cursor ()
-    DIM i          AS INTEGER
-    DIM mx         AS INTEGER, my AS INTEGER
-    DIM white_semi AS _UNSIGNED LONG
-    DIM black_semi AS _UNSIGNED LONG
-    
-    ' Use viewport coordinates (already divided by displayScale in MOUSE_drain_update_state)
-    mx% = MOUSE.RAW_X%
-    my% = MOUSE.RAW_Y%
-    
-    ' Semi-transparent colors (33% opaque = 84/255 alpha)
-    white_semi~& = _RGBA32(255, 255, 255, 84)
-    black_semi~& = _RGBA32(0, 0, 0, 84)
-    
-    ' Draw dotted horizontal line (8 pixels total, 4 pixels on each side)
-    ' Black outline
-    FOR i% = -4 TO 4 STEP 2
-        IF i% <> 0 THEN ' Skip center
-            PSET (mx% + i%, my% - 1), black_semi~&
-            PSET (mx% + i%, my% + 1), black_semi~&
-        END IF
-    NEXT i%
-    
-    ' White dots
-    FOR i% = -4 TO 4 STEP 2
-        IF i% <> 0 THEN ' Skip center
-            PSET (mx% + i%, my%), white_semi~&
-        END IF
-    NEXT i%
-    
-    ' Draw dotted vertical line (8 pixels total, 4 pixels on each side)
-    ' Black outline
-    FOR i% = -4 TO 4 STEP 2
-        IF i% <> 0 THEN ' Skip center
-            PSET (mx% - 1, my% + i%), black_semi~&
-            PSET (mx% + 1, my% + i%), black_semi~&
-        END IF
-    NEXT i%
-    
-    ' White dots
-    FOR i% = -4 TO 4 STEP 2
-        IF i% <> 0 THEN ' Skip center
-            PSET (mx%, my% + i%), white_semi~&
-        END IF
-    NEXT i%
-    
-    ' Draw center pixel (white with black outline)
-    PSET (mx% - 1, my%), black_semi~&
-    PSET (mx% + 1, my%), black_semi~&
-    PSET (mx%, my% - 1), black_semi~&
-    PSET (mx%, my% + 1), black_semi~&
-    PSET (mx%, my%), white_semi~&
-END SUB
 
 ''
 ' Draw I-beam cursor for text tool
 '
-SUB POINTER_draw_ibeam_cursor ()
-    DIM mx      AS INTEGER, my AS INTEGER
-    DIM white_c AS _UNSIGNED LONG, black_c AS _UNSIGNED LONG
-    
-    ' Use viewport coordinates (already divided by displayScale in MOUSE_drain_update_state)
-    mx% = MOUSE.RAW_X%
-    my% = MOUSE.RAW_Y%
-    
-    ' Solid colors for I-beam
-    white_c~& = _RGB32(255, 255, 255)
-    black_c~& = _RGB32(0, 0, 0)
-    
-    ' I-beam cursor height (8 pixels by default, matches font height)
-    DIM beam_height AS INTEGER
-    beam_height = 8
-    
-    ' Draw vertical line
-    LINE (mx%, my%)-(mx%, my% + beam_height - 1), white_c~&
-    
-    ' Draw top horizontal bar (3 pixels wide)
-    LINE (mx% - 1, my%)-(mx% + 1, my%), white_c~&
-    
-    ' Draw bottom horizontal bar (3 pixels wide)
-    LINE (mx% - 1, my% + beam_height - 1)-(mx% + 1, my% + beam_height - 1), white_c~&
-END SUB
 
 
 ''
@@ -1569,16 +1097,6 @@ END SUB
 ' Falls back to generic CURSOR_MARQUEE if variant is unrecognized.
 ' @return INTEGER - Cursor index constant for the active marquee variant
 '
-FUNCTION POINTER_marquee_cursor_for_variant% ()
-    SELECT CASE MARQUEE.VARIANT
-        CASE TOOL_SELECT_RECT    : POINTER_marquee_cursor_for_variant% = CURSOR_MARQUEE_RECT
-        CASE TOOL_SELECT_FREE    : POINTER_marquee_cursor_for_variant% = CURSOR_MARQUEE_FREE
-        CASE TOOL_SELECT_POLY    : POINTER_marquee_cursor_for_variant% = CURSOR_MARQUEE_POLY
-        CASE TOOL_SELECT_ELLIPSE : POINTER_marquee_cursor_for_variant% = CURSOR_MARQUEE_ELLIP
-        CASE TOOL_SELECT_WAND    : POINTER_marquee_cursor_for_variant% = CURSOR_WAND
-        CASE ELSE                : POINTER_marquee_cursor_for_variant% = CURSOR_MARQUEE
-    END SELECT
-END FUNCTION
 
 
 ''
@@ -1624,205 +1142,4 @@ END FUNCTION
 '
 ' Does NOT draw brush previews - only the small cursor indicator.
 '
-SUB POINTER_render_cursor_overlay ()
-    DIM oldDest AS LONG
-    DIM mx      AS INTEGER, my AS INTEGER
 
-    ' The cursor draws into its OWN top overlay (SCRN.CURSOR&), not the canvas, so
-    ' POINTER_composite_cursor_to_screen0 can blit it on top AFTER the floating
-    ' windows — otherwise it is baked into the canvas before the upscale and buried
-    ' under the preview/mixer/browser. Clear the overlay every frame (even when
-    ' hidden) so it holds only this frame's cursor and never ghosts.
-    oldDest& = _DEST
-    _DEST SCRN.CURSOR&
-    _DONTBLEND SCRN.CURSOR&
-    CLS , _RGBA32(0, 0, 0, 0)
-    _BLEND SCRN.CURSOR&
-    IF POINTER.HIDDEN THEN
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-
-    mx% = MOUSE.RAW_X%
-    my% = MOUSE.RAW_Y%
-    
-    ' Panning mode - hand cursor
-    IF SCRN.panning% THEN
-        IF CURSORS(CURSOR_HAND).img& < -1 THEN
-            _PUTIMAGE (mx% - CURSORS(CURSOR_HAND).hotspot_pos_x%, my% - CURSORS(CURSOR_HAND).hotspot_pos_y%), CURSORS(CURSOR_HAND).img&, SCRN.CURSOR&
-        ELSE
-            LINE (mx% - 3, my% + 2)-(mx% + 3, my% + 6), _RGB32(255, 255, 255), BF
-        END IF
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-    
-    ' UI area — reuse POINTER_build's result: CURSOR_NULL means UI/arrow area.
-    ' POINTER_build (called by POINTER_render just before this sub) already ran
-    ' all hit-tests and stored the result in POINTER.CURSOR_ID%, so re-running
-    ' them here is pure waste — especially at low zoom where this fires every frame.
-    DIM use_ui_cursor AS INTEGER
-    use_ui_cursor% = (POINTER.CURSOR_ID% = CURSOR_NULL)
-
-    ' Preview window — draw correct resize/hand/arrow cursor ON TOP of preview.
-    ' The cursor draws into SCRN.CURSOR& and is composited to screen 0 AFTER the
-    ' preview/mixer/browser blits (POINTER_composite_cursor_to_screen0), so it is
-    ' genuinely on top — unlike before, when it was baked into the canvas pre-upscale
-    ' and buried by the floating windows.
-    IF NOT use_ui_cursor% AND PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND (PREVIEW_hit_window%(mx%, my%) OR PREVIEW.resizing%) THEN
-        DIM prevCID AS INTEGER : prevCID% = POINTER.CURSOR_ID%
-        ' CURSOR_NULL or OS system cursor already showing — skip custom draw
-        IF prevCID% = CURSOR_NULL OR POINTER.USING_SYSTEM_CURSOR% THEN
-            _DEST oldDest&
-            EXIT SUB
-        END IF
-        IF prevCID% >= 0 _ANDALSO prevCID% <= CURSOR_COUNT _ANDALSO CURSORS(prevCID%).img& < -1 THEN
-            DIM pov_w  AS INTEGER : pov_w% = CURSORS(prevCID%).w%
-            DIM pov_h  AS INTEGER : pov_h% = CURSORS(prevCID%).h%
-            DIM pov_dx AS INTEGER : pov_dx% = mx% - CURSORS(prevCID%).hotspot_pos_x%
-            DIM pov_dy AS INTEGER : pov_dy% = my% - CURSORS(prevCID%).hotspot_pos_y%
-            SELECT CASE POINTER.CURSOR_FLIP%
-                CASE 1    ' Flip horizontal
-                    _PUTIMAGE (pov_dx% + pov_w% - 1, pov_dy%)-(pov_dx%, pov_dy% + pov_h% - 1), CURSORS(prevCID%).img&, SCRN.CURSOR&
-                CASE 2    ' Flip vertical
-                    _PUTIMAGE (pov_dx%, pov_dy% + pov_h% - 1)-(pov_dx% + pov_w% - 1, pov_dy%), CURSORS(prevCID%).img&, SCRN.CURSOR&
-                CASE 3    ' Flip both
-                    _PUTIMAGE (pov_dx% + pov_w% - 1, pov_dy% + pov_h% - 1)-(pov_dx%, pov_dy%), CURSORS(prevCID%).img&, SCRN.CURSOR&
-                CASE ELSE ' No flip
-                    _PUTIMAGE (pov_dx%, pov_dy%), CURSORS(prevCID%).img&, SCRN.CURSOR&
-            END SELECT
-        ELSE
-            ' Fallback to arrow cursor
-            IF CURSORS(CURSOR_NULL).img& < -1 THEN
-                _PUTIMAGE (mx% - CURSORS(CURSOR_NULL).hotspot_pos_x%, my% - CURSORS(CURSOR_NULL).hotspot_pos_y%), CURSORS(CURSOR_NULL).img&, SCRN.CURSOR&
-            END IF
-        END IF
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-
-    IF use_ui_cursor% THEN
-        ' System cursor (_MOUSESHOW) is already showing — skip custom arrow drawing
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-
-    ' --- "Denied", replace presentation ---
-    ' POINTER_render chose the large X for a tool with no distinctive art. It
-    ' has to be handled HERE, before the per-tool dispatch below: that dispatch
-    ' switches on CURRENT_TOOL%, not on CURSOR_ID%, so a brush would still draw
-    ' its crosshair and arrow and the X would never appear. Draw the badge and
-    ' return so it stands alone.
-    IF POINTER.CURSOR_ID% = CURSOR_DENIED THEN
-        IF CURSORS(CURSOR_DENIED).img& < -1 THEN
-            _PUTIMAGE (mx% - CURSORS(CURSOR_DENIED).hotspot_pos_x%, my% - CURSORS(CURSOR_DENIED).hotspot_pos_y%), CURSORS(CURSOR_DENIED).img&, SCRN.CURSOR&
-        END IF
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-
-    ' System cursor handles this cursor type — skip custom PNG
-    IF POINTER.USING_SYSTEM_CURSOR% THEN
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-    
-    ' Custom brush - crosshair only (no brush preview)
-    IF CUSTOM_BRUSH_is_active% AND IMG_IMPORT.STATE <= IMPORT_STATE_IDLE THEN
-        LINE (mx% - 3, my%)-(mx% - 1, my%), _RGBA32(255, 255, 255, 240)
-        LINE (mx% + 1, my%)-(mx% + 3, my%), _RGBA32(255, 255, 255, 240)
-        LINE (mx%, my% - 3)-(mx%, my% - 1), _RGBA32(255, 255, 255, 240)
-        LINE (mx%, my% + 1)-(mx%, my% + 3), _RGBA32(255, 255, 255, 240)
-        PSET (mx%, my%), _RGBA32(255, 0, 0, 255)
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-    
-    ' Image Import mode - skip tool-specific crosshairs, go straight to PNG cursor rendering
-    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN GOTO OverlayCursorPNG
-    
-    ' Shape tools and brush - crosshair
-    IF CURRENT_TOOL% = TOOL_LINE OR CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED OR _
-       CURRENT_TOOL% = TOOL_RECT OR CURRENT_TOOL% = TOOL_RECT_FILLED OR _
-       CURRENT_TOOL% = TOOL_ELLIPSE OR CURRENT_TOOL% = TOOL_ELLIPSE_FILLED OR _
-       CURRENT_TOOL% = TOOL_BRUSH OR CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_ERASER OR CURRENT_TOOL% = TOOL_SPRAY THEN
-        ' Small crosshair
-        LINE (mx% - 4, my%)-(mx% - 1, my%), _RGBA32(0, 0, 0, 180)
-        LINE (mx% + 1, my%)-(mx% + 4, my%), _RGBA32(0, 0, 0, 180)
-        LINE (mx%, my% - 4)-(mx%, my% - 1), _RGBA32(0, 0, 0, 180)
-        LINE (mx%, my% + 1)-(mx%, my% + 4), _RGBA32(0, 0, 0, 180)
-        LINE (mx% - 3, my%)-(mx% - 1, my%), _RGBA32(255, 255, 255, 240)
-        LINE (mx% + 1, my%)-(mx% + 3, my%), _RGBA32(255, 255, 255, 240)
-        LINE (mx%, my% - 3)-(mx%, my% - 1), _RGBA32(255, 255, 255, 240)
-        LINE (mx%, my% + 1)-(mx%, my% + 3), _RGBA32(255, 255, 255, 240)
-        PSET (mx%, my%), _RGBA32(255, 0, 0, 255)
-        _DEST oldDest&
-        EXIT SUB
-    END IF
-    
-    OverlayCursorPNG:
-    ' Marquee/Move/Fill/Picker/Import - PNG cursor
-    ' Use POINTER.CURSOR_ID% which was set by POINTER_build to respect
-    ' resize handle detection (avoids drawing move/marquee cursor over resize cursors)
-    DIM cursor_id AS INTEGER
-    cursor_id% = POINTER.CURSOR_ID%
-    
-    ' If POINTER_build didn't set a specific cursor, fall back to tool default
-    IF cursor_id% = CURSOR_NULL OR cursor_id% < 0 THEN
-        SELECT CASE CURRENT_TOOL%
-            CASE TOOL_MARQUEE
-                IF MARQUEE.MAGIC_WAND_MODE% THEN
-                    cursor_id% = CURSOR_WAND
-                ELSE
-                    cursor_id% = CURSOR_MARQUEE
-                END IF
-            CASE TOOL_MOVE   : cursor_id% = CURSOR_MOVE
-            CASE TOOL_FILL   : cursor_id% = CURSOR_FILL
-            CASE TOOL_PICKER : cursor_id% = CURSOR_DROPPER
-            CASE TOOL_ZOOM   : cursor_id% = CURSOR_ZOOM
-            CASE TOOL_PAN    : cursor_id% = CURSOR_HAND
-            CASE TOOL_TEXT   : cursor_id% = -1 ' No PNG cursor — uses procedural I-beam
-            CASE ELSE        : cursor_id% = CURSOR_NULL
-        END SELECT
-    END IF
-    
-    IF cursor_id% >= 0 AND cursor_id% <= CURSOR_COUNT THEN
-        IF CURSORS(cursor_id%).img& < -1 THEN
-            DIM ov_dx AS INTEGER, ov_dy AS INTEGER
-            DIM ov_w  AS INTEGER, ov_h AS INTEGER
-            ov_w%  = CURSORS(cursor_id%).w%
-            ov_h%  = CURSORS(cursor_id%).h%
-            ov_dx% = mx% - CURSORS(cursor_id%).hotspot_pos_x%
-            ov_dy% = my% - CURSORS(cursor_id%).hotspot_pos_y%
-            SELECT CASE POINTER.CURSOR_FLIP%
-                CASE 1    ' Flip horizontal
-                    _PUTIMAGE (ov_dx% + ov_w% - 1, ov_dy%)-(ov_dx%, ov_dy% + ov_h% - 1), CURSORS(cursor_id%).img&, SCRN.CURSOR&
-                CASE 2    ' Flip vertical
-                    _PUTIMAGE (ov_dx%, ov_dy% + ov_h% - 1)-(ov_dx% + ov_w% - 1, ov_dy%), CURSORS(cursor_id%).img&, SCRN.CURSOR&
-                CASE 3    ' Flip both
-                    _PUTIMAGE (ov_dx% + ov_w% - 1, ov_dy% + ov_h% - 1)-(ov_dx%, ov_dy%), CURSORS(cursor_id%).img&, SCRN.CURSOR&
-                CASE ELSE ' No flip
-                    _PUTIMAGE (ov_dx%, ov_dy%), CURSORS(cursor_id%).img&, SCRN.CURSOR&
-            END SELECT
-        END IF
-    END IF
-
-    _DEST oldDest&
-END SUB
-
-'' Composite the top cursor overlay (SCRN.CURSOR&) onto screen 0, ON TOP of the
-'  upscaled canvas AND the floating windows. Call this at the end of every render
-'  path, AFTER the preview/mixer/browser blits. The overlay is viewport-sized and
-'  mostly transparent, so a blended full-frame blit lands only the cursor pixels
-'  (scaled to the window the same way the canvas is). This is what keeps the cursor
-'  from being buried under the floating windows.
-SUB POINTER_composite_cursor_to_screen0 ()
-    IF SCRN.CURSOR& >= -1 THEN EXIT SUB   ' overlay not allocated
-    IF POINTER.HIDDEN THEN EXIT SUB
-    DIM oldDest AS LONG
-    oldDest& = _DEST
-    _DEST 0
-    _BLEND 0
-    _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CURSOR&, 0
-    _DEST oldDest&
-END SUB

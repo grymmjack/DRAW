@@ -8,6 +8,13 @@ DRAW is a pixel art editor written in **QB64-PE** (QB64 Phoenix Edition). Single
 
 ## Build & Run
 
+> **Toolchain requirement (since the hardware-cursor refactor):** DRAW now REQUIRES a
+> QB64-PE build carrying a740g's GLFW work (PR #701) — the OS hardware cursor
+> (`_MOUSECURSOR`) is the sole cursor path, so DRAW no longer compiles on the default
+> v450 compiler. The Makefile default is the **a740g** build (`~/git/qb64pe-a740g-test/qb64pe-regen`
+> — the *regenerated* one; the plain binary predates `_MOUSECURSOR`). Until PR #701 ships
+> in a release, `make COMPILER=v450` will fail with a `_MOUSECURSOR` syntax error.
+
 ```bash
 # Default build (uses Makefile, auto-detects OS)
 make                # → DRAW.run (Linux/macOS) or DRAW.exe (Windows)
