@@ -34,6 +34,17 @@ All five diffed pixel-for-pixel against faithful BASIC copies (bench_imgfx2.bas)
 edgedetect required replicating QB64's exact FP promotion (SINGLE `strength/100`
 widened to DOUBLE in the sqrt multiply, `INT()`=floor) — verified bit-exact.
 
+## Render-path — DONE (the per-frame hot path; committed)
+
+| Kernel | native/ entry | replaces | speedup | mismatches |
+|---|---|---|---|---|
+| layer blend compositor | `blend.h` `gj_blend_composite` | `LAYER_blend_composite` + `LAYER_blend_composite_region` | 5.67× (19-mode sweep) | 0, all 19 modes |
+
+One kernel replaced BOTH the full-image and region compositors (their 18-mode switch +
+final Porter-Duff composite were mathematically identical), deduping ~330 lines to two
+thin wrappers. This is the every-non-idle-frame path, so it's the biggest *perceived*
+-speed win. Bit-exact across all 19 blend modes (bench_blend.bas).
+
 ## Tier 3 — lower priority (procedural / infrequent / churning)
 
 `cutout`, `corona`, `lightning`, `texnoise`, `addnoise`, glow dialogs — either run once
