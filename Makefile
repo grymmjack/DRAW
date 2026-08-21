@@ -46,7 +46,11 @@ ifeq ($(COMPILER),v440)
 else ifeq ($(COMPILER),v450)
     QB64PE := $(HOME)/git/qb64pe-450/qb64pe
 else ifeq ($(COMPILER),a740g)
-    QB64PE := $(HOME)/git/qb64pe-a740g-test/qb64pe
+    # NOTE: use the *regenerated* GLFW compiler. The plain `qb64pe` binary in that
+    # checkout was built from a committed qbx.cpp that predates _MOUSECURSOR, so it
+    # rejects the keyword with a bare "Syntax error" (see PLANS/GLFW-PR701-TEST-RESULTS.md,
+    # "Build gotcha"). qb64pe-regen was re-transpiled from source and knows it.
+    QB64PE := $(HOME)/git/qb64pe-a740g-test/qb64pe-regen
 else
     QB64PE ?= $(HOME)/git/qb64pe-450/qb64pe
 endif
