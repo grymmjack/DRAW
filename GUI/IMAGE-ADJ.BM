@@ -713,6 +713,14 @@ END SUB
 ' un-premultiplies. Shows a progress overlay on big images.
 '
 FUNCTION IMAGE_ADJ_blur_premul_rgba& (sourceImg AS LONG, radius AS INTEGER)
+    ' Separable premultiplied-alpha box blur. Hot loop lives in native/imgfx.h at
+    ' -O3 (this program's TU is -O0); gj_blur_premul owns the premul/hblur scratch
+    ' internally, so we only hand it src + a fresh zeroed dst. Bit-for-bit identical
+    ' to the former 3-step BASIC loop (verified: bench_imgfx.bas, 0 mismatches).
+    DECLARE LIBRARY "../native/imgfx"
+        SUB gj_blur_premul (BYVAL dst AS _OFFSET, BYVAL src AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL radius AS LONG)
+    END DECLARE
+
     IF NOT (sourceImg& < -1) THEN
         IMAGE_ADJ_blur_premul_rgba& = 0
         EXIT FUNCTION
@@ -726,102 +734,13 @@ FUNCTION IMAGE_ADJ_blur_premul_rgba& (sourceImg AS LONG, radius AS INTEGER)
         EXIT FUNCTION
     END IF
 
-    DIM bprShowProg AS INTEGER : bprShowProg% = (bprW& * bprH& >= 120000)
-
-    ' --- Step 1: premultiplied-alpha copy ---
-    DIM bprPremul AS LONG : bprPremul& = _NEWIMAGE(bprW&, bprH&, 32)
-    DIM bprHBlur AS LONG : bprHBlur& = _NEWIMAGE(bprW&, bprH&, 32)
     DIM bprResult AS LONG : bprResult& = _NEWIMAGE(bprW&, bprH&, 32)
-    DIM bprSrcM AS _MEM, bprPMM AS _MEM, bprHM AS _MEM, bprResM AS _MEM
-    bprSrcM = _MEMIMAGE(sourceImg&) : bprPMM = _MEMIMAGE(bprPremul&)
-    bprHM = _MEMIMAGE(bprHBlur&) : bprResM = _MEMIMAGE(bprResult&)
+    DIM bprSrcM AS _MEM, bprResM AS _MEM
+    bprSrcM = _MEMIMAGE(sourceImg&) : bprResM = _MEMIMAGE(bprResult&)
 
-    DIM bprOff AS _OFFSET, bprPx AS _UNSIGNED LONG
-    DIM bprR AS INTEGER, bprG AS INTEGER, bprB AS INTEGER, bprA AS INTEGER
-    FOR bprOff = 0 TO bprSrcM.SIZE - 4 STEP 4
-        _MEMGET bprSrcM, bprSrcM.OFFSET + bprOff, bprPx~&
-        bprA% = _ALPHA32(bprPx~&)
-        IF bprA% > 0 THEN
-            bprR% = _RED32(bprPx~&) * bprA% \ 255
-            bprG% = _GREEN32(bprPx~&) * bprA% \ 255
-            bprB% = _BLUE32(bprPx~&) * bprA% \ 255
-        ELSE
-            bprR% = 0 : bprG% = 0 : bprB% = 0
-        END IF
-        _MEMPUT bprPMM, bprPMM.OFFSET + bprOff, _RGBA32(bprR%, bprG%, bprB%, bprA%) AS _UNSIGNED LONG
-    NEXT bprOff
-    _MEMFREE bprSrcM
+    gj_blur_premul bprResM.OFFSET, bprSrcM.OFFSET, bprW&, bprH&, radius%
 
-    DIM bprX AS LONG, bprY AS LONG
-    DIM sumR AS LONG, sumG AS LONG, sumB AS LONG, sumA AS LONG, cnt AS LONG
-    DIM lo AS LONG, hi AS LONG, smp AS _UNSIGNED LONG, rowBase AS _OFFSET
-
-    ' --- Step 2: HORIZONTAL running-sum pass (premul -> hblur) ---
-    FOR bprY& = 0 TO bprH& - 1
-        rowBase = bprY& * bprW& * 4
-        sumR& = 0 : sumG& = 0 : sumB& = 0 : sumA& = 0 : cnt& = 0
-        hi& = radius% : IF hi& > bprW& - 1 THEN hi& = bprW& - 1
-        FOR bprX& = 0 TO hi&
-            _MEMGET bprPMM, bprPMM.OFFSET + rowBase + bprX& * 4, smp~&
-            sumR& = sumR& + _RED32(smp~&) : sumG& = sumG& + _GREEN32(smp~&)
-            sumB& = sumB& + _BLUE32(smp~&) : sumA& = sumA& + _ALPHA32(smp~&) : cnt& = cnt& + 1
-        NEXT bprX&
-        FOR bprX& = 0 TO bprW& - 1
-            IF cnt& > 0 THEN _MEMPUT bprHM, bprHM.OFFSET + rowBase + bprX& * 4, _RGBA32(sumR& \ cnt&, sumG& \ cnt&, sumB& \ cnt&, sumA& \ cnt&) AS _UNSIGNED LONG
-            lo& = bprX& - radius%
-            IF lo& >= 0 THEN
-                _MEMGET bprPMM, bprPMM.OFFSET + rowBase + lo& * 4, smp~&
-                sumR& = sumR& - _RED32(smp~&) : sumG& = sumG& - _GREEN32(smp~&)
-                sumB& = sumB& - _BLUE32(smp~&) : sumA& = sumA& - _ALPHA32(smp~&) : cnt& = cnt& - 1
-            END IF
-            hi& = bprX& + radius% + 1
-            IF hi& < bprW& THEN
-                _MEMGET bprPMM, bprPMM.OFFSET + rowBase + hi& * 4, smp~&
-                sumR& = sumR& + _RED32(smp~&) : sumG& = sumG& + _GREEN32(smp~&)
-                sumB& = sumB& + _BLUE32(smp~&) : sumA& = sumA& + _ALPHA32(smp~&) : cnt& = cnt& + 1
-            END IF
-        NEXT bprX&
-        IF bprShowProg% AND (bprY& AND 31) = 0 THEN IMGADJ_progress_tick "Blurring", (bprY& / bprH&) * 0.5
-    NEXT bprY&
-
-    ' --- Step 3: VERTICAL running-sum pass (hblur -> result, un-premultiply) ---
-    DIM ba AS INTEGER, fr AS INTEGER, fg AS INTEGER, fb AS INTEGER
-    FOR bprX& = 0 TO bprW& - 1
-        sumR& = 0 : sumG& = 0 : sumB& = 0 : sumA& = 0 : cnt& = 0
-        hi& = radius% : IF hi& > bprH& - 1 THEN hi& = bprH& - 1
-        FOR bprY& = 0 TO hi&
-            _MEMGET bprHM, bprHM.OFFSET + (bprY& * bprW& + bprX&) * 4, smp~&
-            sumR& = sumR& + _RED32(smp~&) : sumG& = sumG& + _GREEN32(smp~&)
-            sumB& = sumB& + _BLUE32(smp~&) : sumA& = sumA& + _ALPHA32(smp~&) : cnt& = cnt& + 1
-        NEXT bprY&
-        FOR bprY& = 0 TO bprH& - 1
-            IF cnt& > 0 THEN
-                ba% = sumA& \ cnt&
-                IF ba% > 0 THEN
-                    fr% = (sumR& \ cnt&) * 255 \ ba% : IF fr% > 255 THEN fr% = 255
-                    fg% = (sumG& \ cnt&) * 255 \ ba% : IF fg% > 255 THEN fg% = 255
-                    fb% = (sumB& \ cnt&) * 255 \ ba% : IF fb% > 255 THEN fb% = 255
-                    _MEMPUT bprResM, bprResM.OFFSET + (bprY& * bprW& + bprX&) * 4, _RGBA32(fr%, fg%, fb%, ba%) AS _UNSIGNED LONG
-                END IF
-            END IF
-            lo& = bprY& - radius%
-            IF lo& >= 0 THEN
-                _MEMGET bprHM, bprHM.OFFSET + (lo& * bprW& + bprX&) * 4, smp~&
-                sumR& = sumR& - _RED32(smp~&) : sumG& = sumG& - _GREEN32(smp~&)
-                sumB& = sumB& - _BLUE32(smp~&) : sumA& = sumA& - _ALPHA32(smp~&) : cnt& = cnt& - 1
-            END IF
-            hi& = bprY& + radius% + 1
-            IF hi& < bprH& THEN
-                _MEMGET bprHM, bprHM.OFFSET + (hi& * bprW& + bprX&) * 4, smp~&
-                sumR& = sumR& + _RED32(smp~&) : sumG& = sumG& + _GREEN32(smp~&)
-                sumB& = sumB& + _BLUE32(smp~&) : sumA& = sumA& + _ALPHA32(smp~&) : cnt& = cnt& + 1
-            END IF
-        NEXT bprY&
-        IF bprShowProg% AND (bprX& AND 31) = 0 THEN IMGADJ_progress_tick "Blurring", 0.5 + (bprX& / bprW&) * 0.5
-    NEXT bprX&
-
-    _MEMFREE bprPMM : _MEMFREE bprHM : _MEMFREE bprResM
-    SAFE_FREEIMAGE bprPremul& : SAFE_FREEIMAGE bprHBlur&
+    _MEMFREE bprSrcM : _MEMFREE bprResM
     IMAGE_ADJ_blur_premul_rgba& = bprResult&
 END FUNCTION
 
@@ -874,6 +793,15 @@ END SUB
 ' @return LONG  New blurred image handle, or 0 on error
 '
 FUNCTION IMAGE_ADJ_blur_alpha_aware& (sourceImg AS LONG, radius AS INTEGER)
+    ' Alpha-aware box blur (averages only non-transparent neighbors). The former
+    ' naive O(w·h·radius²) BASIC loop is now a SEPARABLE masked running-sum in
+    ' native/imgfx.h at -O3 (this TU is -O0) — O(w·h), bit-for-bit identical
+    ' (verified: bench_imgfx.bas, 0 mismatches; ~75x at radius 6). dst arrives as
+    ' a _COPYIMAGE of src; the kernel overwrites exactly where the BASIC did.
+    DECLARE LIBRARY "../native/imgfx"
+        SUB gj_blur_alpha_aware (BYVAL dst AS _OFFSET, BYVAL src AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL radius AS LONG)
+    END DECLARE
+
     IF NOT (sourceImg& < -1) THEN
         IMAGE_ADJ_blur_alpha_aware& = 0
         EXIT FUNCTION
@@ -893,49 +821,7 @@ FUNCTION IMAGE_ADJ_blur_alpha_aware& (sourceImg AS LONG, radius AS INTEGER)
     DIM baaW AS LONG, baaH AS LONG
     baaW& = _WIDTH(sourceImg&) : baaH& = _HEIGHT(sourceImg&)
 
-    DIM baaX     AS LONG, baaY AS LONG, baaDX AS INTEGER, baaDY AS INTEGER
-    DIM baaSX    AS LONG, baaSY AS LONG
-    DIM baaSumR  AS LONG, baaSumG AS LONG, baaSumB AS LONG, baaSumW AS LONG
-    DIM baaPx    AS _UNSIGNED LONG, baaA AS INTEGER
-    DIM baaCurPx AS _UNSIGNED LONG
-    DIM baaOutPx AS _UNSIGNED LONG
-
-    FOR baaY& = 0 TO baaH& - 1
-    IF (baaY& AND 15) = 0 THEN IMGADJ_progress_tick "Blur_alpha_aware", baaY& / baaH&
-        FOR baaX& = 0 TO baaW& - 1
-            baaCurPx~& = _MEMGET(baaSrc, baaSrc.OFFSET + (baaY& * baaW& + baaX&) * 4, _UNSIGNED LONG)
-            IF _ALPHA32(baaCurPx~&) > 0 THEN
-                baaSumR& = 0 : baaSumG& = 0 : baaSumB& = 0 : baaSumW& = 0
-                FOR baaDY% = -radius% TO radius%
-                    baaSY& = baaY& + baaDY%
-                    IF baaSY& >= 0 AND baaSY& < baaH& THEN
-                        FOR baaDX% = -radius% TO radius%
-                            baaSX& = baaX& + baaDX%
-                            IF baaSX& >= 0 AND baaSX& < baaW& THEN
-                                baaPx~& = _MEMGET(baaSrc, baaSrc.OFFSET + (baaSY& * baaW& + baaSX&) * 4, _UNSIGNED LONG)
-                                baaA%   = _ALPHA32(baaPx~&)
-                                IF baaA% > 0 THEN
-                                    baaSumR& = baaSumR& + _RED32(baaPx~&)
-                                    baaSumG& = baaSumG& + _GREEN32(baaPx~&)
-                                    baaSumB& = baaSumB& + _BLUE32(baaPx~&)
-                                    baaSumW& = baaSumW& + 1
-                                END IF
-                            END IF
-                        NEXT baaDX%
-                    END IF
-                NEXT baaDY%
-                IF baaSumW& > 0 THEN
-                    baaOutPx~& = _RGB32(baaSumR& \ baaSumW&, baaSumG& \ baaSumW&, baaSumB& \ baaSumW&)
-                    _MEMPUT baaRes, baaRes.OFFSET + (baaY& * baaW& + baaX&) * 4, baaOutPx~& AS _UNSIGNED LONG
-                END IF
-            ELSE
-                ' Transparent pixel — write RGB32(0,0,0) so apply_to_layer
-                ' overwrites cleanly; alpha restore will set alpha back to 0.
-                baaOutPx~& = _RGB32(0, 0, 0)
-                _MEMPUT baaRes, baaRes.OFFSET + (baaY& * baaW& + baaX&) * 4, baaOutPx~& AS _UNSIGNED LONG
-            END IF
-        NEXT baaX&
-    NEXT baaY&
+    gj_blur_alpha_aware baaRes.OFFSET, baaSrc.OFFSET, baaW&, baaH&, radius%
 
     _MEMFREE baaSrc
     _MEMFREE baaRes
