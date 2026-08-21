@@ -839,6 +839,12 @@ END FUNCTION
 ' @return LONG  New pixelated image handle, or 0 on error
 '
 FUNCTION IMAGE_ADJ_pixelate_alpha_aware& (sourceImg AS LONG, pixelSize AS INTEGER)
+    ' Block-average pixelate (alpha-aware). Hot loop -> -O3 kernel (native/imgfx.h),
+    ' bit-exact (bench_imgfx2.bas, 0 mismatches). dst arrives as a _COPYIMAGE of src.
+    DECLARE LIBRARY "../native/imgfx"
+        SUB gj_pixelate_alpha_aware (BYVAL dst AS _OFFSET, BYVAL src AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL blockSize AS LONG)
+    END DECLARE
+
     IF NOT (sourceImg& < -1) THEN
         IMAGE_ADJ_pixelate_alpha_aware& = 0
         EXIT FUNCTION
@@ -859,45 +865,7 @@ FUNCTION IMAGE_ADJ_pixelate_alpha_aware& (sourceImg AS LONG, pixelSize AS INTEGE
     paaSrc = _MEMIMAGE(sourceImg&)
     paaRes = _MEMIMAGE(paaResult&)
 
-    DIM paaBlockX   AS LONG, paaBlockY AS LONG
-    DIM paaX        AS LONG, paaY AS LONG
-    DIM paaSumR     AS LONG, paaSumG AS LONG, paaSumB AS LONG, paaSumW AS LONG
-    DIM paaPx       AS _UNSIGNED LONG, paaA AS INTEGER
-    DIM paaAvgColor AS _UNSIGNED LONG
-    DIM paaEndX     AS LONG, paaEndY AS LONG
-
-    FOR paaBlockY& = 0 TO paaH& - 1 STEP paaBlockSize%
-    IF (paaBlockY& AND 15) = 0 THEN IMGADJ_progress_tick "Pixelate_alpha_aware", paaBlockY& / paaH&
-        FOR paaBlockX& = 0 TO paaW& - 1 STEP paaBlockSize%
-            paaSumR& = 0 : paaSumG& = 0 : paaSumB& = 0 : paaSumW& = 0
-            paaEndY& = paaBlockY& + paaBlockSize% - 1
-            IF paaEndY& > paaH& - 1 THEN paaEndY& = paaH& - 1
-            paaEndX& = paaBlockX& + paaBlockSize% - 1
-            IF paaEndX& > paaW& - 1 THEN paaEndX& = paaW& - 1
-
-            FOR paaY& = paaBlockY& TO paaEndY&
-                FOR paaX& = paaBlockX& TO paaEndX&
-                    _MEMGET paaSrc, paaSrc.OFFSET + (paaY& * paaW& + paaX&) * 4, paaPx~&
-                    paaA% = _ALPHA32(paaPx~&)
-                    IF paaA% > 0 THEN
-                        paaSumR& = paaSumR& + _RED32(paaPx~&)
-                        paaSumG& = paaSumG& + _GREEN32(paaPx~&)
-                        paaSumB& = paaSumB& + _BLUE32(paaPx~&)
-                        paaSumW& = paaSumW& + 1
-                    END IF
-                NEXT paaX&
-            NEXT paaY&
-
-            IF paaSumW& > 0 THEN
-                paaAvgColor~& = _RGB32(paaSumR& \ paaSumW&, paaSumG& \ paaSumW&, paaSumB& \ paaSumW&)
-                FOR paaY& = paaBlockY& TO paaEndY&
-                    FOR paaX& = paaBlockX& TO paaEndX&
-                        _MEMPUT paaRes, paaRes.OFFSET + (paaY& * paaW& + paaX&) * 4, paaAvgColor~& AS _UNSIGNED LONG
-                    NEXT paaX&
-                NEXT paaY&
-            END IF
-        NEXT paaBlockX&
-    NEXT paaBlockY&
+    gj_pixelate_alpha_aware paaRes.OFFSET, paaSrc.OFFSET, paaW&, paaH&, paaBlockSize%
 
     _MEMFREE paaSrc
     _MEMFREE paaRes
@@ -914,6 +882,13 @@ END FUNCTION
 ' @return LONG - New sharpened image handle, or 0 on error
 '
 FUNCTION IMAGE_ADJ_apply_sharpen& (sourceImg AS LONG, amt AS INTEGER, radius AS INTEGER, threshold AS INTEGER)
+    ' Unsharp mask. Blur is the fast alpha-aware kernel; the per-pixel combine
+    ' (src + threshold-gated (src-blur)*amt/5, clamped) is a -O3 kernel too
+    ' (native/imgfx.h). Bit-exact (bench_imgfx2.bas, 0 mismatches).
+    DECLARE LIBRARY "../native/imgfx"
+        SUB gj_unsharp_combine (BYVAL dst AS _OFFSET, BYVAL src AS _OFFSET, BYVAL blur AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL amt AS LONG, BYVAL threshold AS LONG)
+    END DECLARE
+
     DIM usRad AS INTEGER : usRad% = radius% : IF usRad% < 1 THEN usRad% = 1
     DIM blurred AS LONG
     blurred& = IMAGE_ADJ_blur_alpha_aware&(sourceImg, usRad%)
@@ -926,49 +901,7 @@ FUNCTION IMAGE_ADJ_apply_sharpen& (sourceImg AS LONG, amt AS INTEGER, radius AS 
             mBlur = _MEMIMAGE(blurred&)
             mRes  = _MEMIMAGE(result&)
 
-            DIM totalPx AS LONG
-            totalPx& = _WIDTH(sourceImg) * _HEIGHT(sourceImg)
-
-            DIM i  AS LONG
-            DIM px AS _UNSIGNED LONG, bpx AS _UNSIGNED LONG
-            DIM r  AS INTEGER, g AS INTEGER, bl AS INTEGER, a AS INTEGER
-            DIM br AS INTEGER, bg2 AS INTEGER, bb2 AS INTEGER
-            DIM nr AS INTEGER, ng AS INTEGER, nb AS INTEGER
-
-            FOR i& = 0 TO totalPx& - 1
-                _MEMGET mSrc,  mSrc.OFFSET  + i& * 4, px~&
-                _MEMGET mBlur, mBlur.OFFSET + i& * 4, bpx~&
-
-                r  = _RED32(px~&)
-                g  = _GREEN32(px~&)
-                bl = _BLUE32(px~&)
-                a  = _ALPHA32(px~&)
-
-                br  = _RED32(bpx~&)
-                bg2 = _GREEN32(bpx~&)
-                bb2 = _BLUE32(bpx~&)
-
-                ' Unsharp-mask difference; THRESHOLD skips low-contrast pixels so
-                ' flat areas (and noise) aren't amplified (Photoshop "Threshold").
-                DIM ddr AS INTEGER, ddg AS INTEGER, ddb AS INTEGER
-                ddr = r - br : IF ABS(ddr) <= threshold% THEN ddr = 0
-                ddg = g - bg2 : IF ABS(ddg) <= threshold% THEN ddg = 0
-                ddb = bl - bb2 : IF ABS(ddb) <= threshold% THEN ddb = 0
-                nr = r  + ddr * amt% \ 5
-                ng = g  + ddg * amt% \ 5
-                nb = bl + ddb * amt% \ 5
-
-                IF nr < 0   THEN nr = 0
-                IF nr > 255 THEN nr = 255
-                IF ng < 0   THEN ng = 0
-                IF ng > 255 THEN ng = 255
-                IF nb < 0   THEN nb = 0
-                IF nb > 255 THEN nb = 255
-
-                DIM outPx AS _UNSIGNED LONG
-                outPx~& = _RGBA32(nr, ng, nb, a)
-                _MEMPUT mRes, mRes.OFFSET + i& * 4, outPx~&
-            NEXT i&
+            gj_unsharp_combine mRes.OFFSET, mSrc.OFFSET, mBlur.OFFSET, _WIDTH(sourceImg), _HEIGHT(sourceImg), amt%, threshold%
 
             _MEMFREE mSrc
             _MEMFREE mBlur
@@ -1950,6 +1883,13 @@ END SUB
 ' @return LONG  New despeckled image handle
 '
 FUNCTION IMAGE_ADJ_median& (sourceImg AS LONG)
+    ' 3x3 median / despeckle. Per-pixel 9-neighbor sort -> -O3 kernel
+    ' (native/imgfx.h); center pixel's alpha preserved. Bit-exact
+    ' (bench_imgfx2.bas, 0 mismatches; ~8x). dst arrives as a _COPYIMAGE of src.
+    DECLARE LIBRARY "../native/imgfx"
+        SUB gj_median3 (BYVAL dst AS _OFFSET, BYVAL src AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG)
+    END DECLARE
+
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_median& = 0 : EXIT FUNCTION
 
     DIM mdW AS LONG, mdH AS LONG
@@ -1960,45 +1900,7 @@ FUNCTION IMAGE_ADJ_median& (sourceImg AS LONG)
     srcM = _MEMIMAGE(sourceImg&)
     resM = _MEMIMAGE(result&)
 
-    DIM mx AS LONG, my AS LONG, dx AS INTEGER, dy AS INTEGER, nx AS LONG, ny AS LONG
-    DIM rV(0 TO 8) AS INTEGER, gV(0 TO 8) AS INTEGER, bV(0 TO 8) AS INTEGER
-    DIM n AS INTEGER, j AS INTEGER, tmp AS INTEGER
-    DIM px AS _UNSIGNED LONG, aHere AS _UNSIGNED _BYTE
-    FOR my& = 0 TO mdH& - 1
-    IF (my& AND 15) = 0 THEN IMGADJ_progress_tick "Median", my& / mdH&
-        FOR mx& = 0 TO mdW& - 1
-            n% = 0
-            FOR dy% = -1 TO 1
-                ny& = my& + dy% : IF ny& < 0 THEN ny& = 0 ELSE IF ny& >= mdH& THEN ny& = mdH& - 1
-                FOR dx% = -1 TO 1
-                    nx& = mx& + dx% : IF nx& < 0 THEN nx& = 0 ELSE IF nx& >= mdW& THEN nx& = mdW& - 1
-                    _MEMGET srcM, srcM.OFFSET + (ny& * mdW& + nx&) * 4, px~&
-                    rV(n%) = _RED32(px~&) : gV(n%) = _GREEN32(px~&) : bV(n%) = _BLUE32(px~&)
-                    n% = n% + 1
-                NEXT dx%
-            NEXT dy%
-            ' insertion sort each channel (9 elements)
-            FOR n% = 1 TO 8
-                tmp% = rV(n%) : j% = n% - 1
-                DO WHILE j% >= 0 : IF rV(j%) <= tmp% THEN EXIT DO
-                    rV(j% + 1) = rV(j%) : j% = j% - 1
-                LOOP
-                rV(j% + 1) = tmp%
-                tmp% = gV(n%) : j% = n% - 1
-                DO WHILE j% >= 0 : IF gV(j%) <= tmp% THEN EXIT DO
-                    gV(j% + 1) = gV(j%) : j% = j% - 1
-                LOOP
-                gV(j% + 1) = tmp%
-                tmp% = bV(n%) : j% = n% - 1
-                DO WHILE j% >= 0 : IF bV(j%) <= tmp% THEN EXIT DO
-                    bV(j% + 1) = bV(j%) : j% = j% - 1
-                LOOP
-                bV(j% + 1) = tmp%
-            NEXT n%
-            _MEMGET srcM, srcM.OFFSET + (my& * mdW& + mx&) * 4 + 3, aHere~%%
-            _MEMPUT resM, resM.OFFSET + (my& * mdW& + mx&) * 4, _RGBA32(rV(4), gV(4), bV(4), aHere~%%) AS _UNSIGNED LONG
-        NEXT mx&
-    NEXT my&
+    gj_median3 resM.OFFSET, srcM.OFFSET, mdW&, mdH&
 
     _MEMFREE srcM
     _MEMFREE resM
@@ -8756,6 +8658,9 @@ END SUB
 ' @return LONG  New embossed image handle
 '
 FUNCTION IMAGE_ADJ_emboss& (sourceImg AS LONG, strength AS INTEGER, angleDeg AS INTEGER)
+    DECLARE LIBRARY "../native/imgfx"
+        SUB gj_emboss (BYVAL dst AS _OFFSET, BYVAL src AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL odx AS LONG, BYVAL ody AS LONG, BYVAL strength AS LONG)
+    END DECLARE
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_emboss& = 0 : EXIT FUNCTION
 
     DIM emW AS LONG, emH AS LONG
@@ -8776,25 +8681,10 @@ FUNCTION IMAGE_ADJ_emboss& (sourceImg AS LONG, strength AS INTEGER, angleDeg AS 
     ody% = 0 : IF lcy! > 0.35 THEN ody% = 1 ELSE IF lcy! < -0.35 THEN ody% = -1
     IF odx% = 0 AND ody% = 0 THEN ody% = -1
 
-    REDIM lum(0 TO emW& * emH& - 1) AS INTEGER
-    DIM i AS LONG, px AS _UNSIGNED LONG
-    FOR i& = 0 TO emW& * emH& - 1
-        _MEMGET srcM, srcM.OFFSET + i& * 4, px~&
-        lum(i&) = (_RED32(px~&) * 30 + _GREEN32(px~&) * 59 + _BLUE32(px~&) * 11) \ 100
-    NEXT i&
-
-    DIM ex AS LONG, ey AS LONG, pxm AS LONG, pym AS LONG, dLum AS LONG, outv AS INTEGER
-    FOR ey& = 0 TO emH& - 1
-    IF (ey& AND 15) = 0 THEN IMGADJ_progress_tick "Emboss", ey& / emH&
-        pym& = ey& + ody% : IF pym& < 0 THEN pym& = 0 ELSE IF pym& >= emH& THEN pym& = emH& - 1
-        FOR ex& = 0 TO emW& - 1
-            pxm& = ex& + odx% : IF pxm& < 0 THEN pxm& = 0 ELSE IF pxm& >= emW& THEN pxm& = emW& - 1
-            dLum& = lum(ey& * emW& + ex&) - lum(pym& * emW& + pxm&)
-            outv% = 128 + dLum& * strength%
-            IF outv% < 0 THEN outv% = 0 ELSE IF outv% > 255 THEN outv% = 255
-            _MEMPUT resM, resM.OFFSET + (ey& * emW& + ex&) * 4, _RGB32(outv%, outv%, outv%) AS _UNSIGNED LONG
-        NEXT ex&
-    NEXT ey&
+    ' Luminance map + relief loop -> -O3 kernel (native/imgfx.h). The angle->offset
+    ' decision stays in BASIC (float trig, once); the kernel takes odx/ody. Bit-exact
+    ' (bench_imgfx2.bas, 0 mismatches). dst arrives as a _COPYIMAGE of src.
+    gj_emboss resM.OFFSET, srcM.OFFSET, emW&, emH&, odx%, ody%, strength%
 
     _MEMFREE srcM
     _MEMFREE resM
@@ -9409,6 +9299,14 @@ END SUB
 ' @return LONG  New greyscale edge image handle
 '
 FUNCTION IMAGE_ADJ_edgedetect& (sourceImg AS LONG, strength AS INTEGER, invert AS INTEGER)
+    ' Sobel edge detect (luminance map + 3x3 gradient magnitude) -> -O3 kernel
+    ' (native/imgfx.h). The kernel replicates QB64's exact FP promotion (SINGLE
+    ' strength/100 widened to DOUBLE in the sqrt multiply, INT()=floor), so it's
+    ' bit-exact (bench_imgfx2.bas, 0 mismatches; ~10x). dst = _COPYIMAGE of src.
+    DECLARE LIBRARY "../native/imgfx"
+        SUB gj_edgedetect (BYVAL dst AS _OFFSET, BYVAL src AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL strength AS LONG, BYVAL invert AS LONG)
+    END DECLARE
+
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_edgedetect& = 0 : EXIT FUNCTION
 
     DIM edW AS LONG, edH AS LONG
@@ -9420,45 +9318,7 @@ FUNCTION IMAGE_ADJ_edgedetect& (sourceImg AS LONG, strength AS INTEGER, invert A
     srcM = _MEMIMAGE(sourceImg&)
     resM = _MEMIMAGE(result&)
 
-    ' --- luminance map ---
-    REDIM lum(0 TO edW& * edH& - 1) AS INTEGER
-    DIM i AS LONG
-    DIM px AS _UNSIGNED LONG
-    FOR i& = 0 TO edW& * edH& - 1
-        _MEMGET srcM, srcM.OFFSET + i& * 4, px~&
-        lum(i&) = (_RED32(px~&) * 30 + _GREEN32(px~&) * 59 + _BLUE32(px~&) * 11) \ 100
-    NEXT i&
-
-    DIM ex AS LONG, ey AS LONG
-    DIM xm AS LONG, xp AS LONG, ym AS LONG, yp AS LONG
-    DIM tl AS LONG, tm AS LONG, tr AS LONG
-    DIM ml AS LONG, mr AS LONG
-    DIM bl AS LONG, bm AS LONG, br AS LONG
-    DIM gx AS LONG, gy AS LONG, mag AS LONG, outv AS INTEGER
-    DIM sf AS SINGLE : sf! = strength% / 100.0
-
-    FOR ey& = 0 TO edH& - 1
-    IF (ey& AND 15) = 0 THEN IMGADJ_progress_tick "Edgedetect", ey& / edH&
-        ym& = ey& - 1 : IF ym& < 0 THEN ym& = 0
-        yp& = ey& + 1 : IF yp& >= edH& THEN yp& = edH& - 1
-        FOR ex& = 0 TO edW& - 1
-            xm& = ex& - 1 : IF xm& < 0 THEN xm& = 0
-            xp& = ex& + 1 : IF xp& >= edW& THEN xp& = edW& - 1
-
-            tl& = lum(ym& * edW& + xm&) : tm& = lum(ym& * edW& + ex&) : tr& = lum(ym& * edW& + xp&)
-            ml& = lum(ey& * edW& + xm&) : mr& = lum(ey& * edW& + xp&)
-            bl& = lum(yp& * edW& + xm&) : bm& = lum(yp& * edW& + ex&) : br& = lum(yp& * edW& + xp&)
-
-            gx& = (tr& + 2 * mr& + br&) - (tl& + 2 * ml& + bl&)
-            gy& = (bl& + 2 * bm& + br&) - (tl& + 2 * tm& + tr&)
-            mag& = INT(SQR(gx& * gx& + gy& * gy&) * sf!)
-            IF mag& > 255 THEN mag& = 255
-            outv% = mag&
-            IF invert% THEN outv% = 255 - outv%
-
-            _MEMPUT resM, resM.OFFSET + (ey& * edW& + ex&) * 4, _RGB32(outv%, outv%, outv%) AS _UNSIGNED LONG
-        NEXT ex&
-    NEXT ey&
+    gj_edgedetect resM.OFFSET, srcM.OFFSET, edW&, edH&, strength%, invert%
 
     _MEMFREE srcM
     _MEMFREE resM
