@@ -20,6 +20,11 @@ XcursorImageLoadCursor / Wayland wl_pointer / Win CreateIconIndirect / mac NSCur
 - The compositor moves it, so we NEVER repaint under it — the software dirty-rect
   "erase old / draw new" dance is unnecessary for OS-cursor tools. (Freeze the whole
   render loop; cursor still glides.)
+- `_MOUSECURSOR` INSTALL cost is ~16.7ms and PLATFORM-INDEPENDENT: Linux Wayland
+  16.75, Linux X11+softGL 16.76, macOS Apple Silicon/NSCursor 16.72 — all ≈ one
+  60Hz frame (a QB64PE/GLFW cursor-set sync, ~1 render-thread tick). So the "dedup
+  install to icon-change only, never per-frame" guardrail is UNIVERSAL, not a
+  Linux/Wayland quirk. Verified via `HW_CURSOR_CROSSPLATFORM.bas` on all three.
 - **DRAW's canvas is 100% software surfaces** (`_NEWIMAGE(...,32)`); zero hardware
   images in shipping code (only in `DEV/EXPERIMENTS/*.BAS`). The canvas does NOT need
   to become hardware for the OS cursor to float above it.

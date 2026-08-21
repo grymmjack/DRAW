@@ -98,11 +98,14 @@ or present. Median µs, Linux/Wayland, real GPU (AMD RX 6600M), quiet machine,
 
 ### Guardrail this benchmark exposed
 
-`_MOUSECURSOR` install costs **~16.75ms, flat across all sizes AND all backends** —
-verified byte-identical on Wayland+GPU, X11+GPU, and forced software GL on an AMD
-RX 6600M (≈ exactly one 60Hz frame; a fixed QB64PE/GLFW cursor-set sync, **not** a
-rendering or offscreen artifact — it is that expensive on real hardware). It is paid
-**once per cursor-icon change**, deduped by
+`_MOUSECURSOR` install costs **~16.7ms, flat across all sizes AND all platforms** —
+measured within noise on Linux Wayland (16.75, AMD RX 6600M), Linux X11 + software GL
+(16.76, GitHub CI runner), and **macOS Apple Silicon / NSCursor (16.72)**. Four
+different cursor backends, one number ≈ exactly one 60Hz frame: it is a
+**platform-independent** QB64PE/GLFW cursor-set sync (`_MOUSECURSOR` blocking ~1
+render-thread tick), **not** a Wayland, per-OS, GPU, or offscreen artifact. Because
+it is the same everywhere, the dedup guardrail below is **universal** — it does not
+relax on any platform. It is paid **once per cursor-icon change**, deduped by
 `POINTER.PREV_HW_CURSOR_ID%`/`PREV_HW_CURSOR_SCALE%` (`POINTER.BM:180-185`). **That
 dedup is load-bearing:** if a refactor ever calls `_MOUSECURSOR` per frame it would be
 ~4× *worse* than the software cursor it replaced. Any migration MUST keep install gated
