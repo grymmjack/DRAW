@@ -19,14 +19,20 @@ double tax: no vectorization, and a real function call per `_MEMGET`/`_MEMPUT`.
 
 Making these two fast accelerates the entire spatial-effects menu, not just "Blur".
 
-## Tier 2 — strong, same shape (do if appetite holds)
+## Tier 2 — DONE (committed; bit-exact, measured @640×480)
 
-| Kernel | File:line | Complexity | Notes |
-|---|---|---|---|
-| `IMAGE_ADJ_median` | IMAGE-ADJ.BM:2066 | O(w·h·r²·log) | Per-pixel neighborhood sort — very hot |
-| `IMAGE_ADJ_apply_sharpen` | IMAGE-ADJ.BM:1030 | O(w·h) combine | Unsharp = blur (Tier 1) + per-pixel mix |
-| `IMAGE_ADJ_pixelate_alpha_aware` | IMAGE-ADJ.BM:955 | O(w·h) block-avg | Block average with alpha gate |
-| `IMAGE_ADJ_emboss` / `_edgedetect` | 8872 / 9525 | O(w·h) 3×3 conv | Fixed convolution kernels |
+All five diffed pixel-for-pixel against faithful BASIC copies (bench_imgfx2.bas):
+
+| Kernel | native/imgfx.h entry | BASIC→C++ | speedup | mismatches |
+|---|---|---|---|---|
+| `IMAGE_ADJ_median` | `gj_median3` | 146→18 ms | 8.1× | 0 |
+| `IMAGE_ADJ_edgedetect` | `gj_edgedetect` | 30→3 ms | 10.0× | 0 (FP-exact) |
+| `IMAGE_ADJ_apply_sharpen` (combine) | `gj_unsharp_combine` | 18→2 ms | 9.0× | 0 |
+| `IMAGE_ADJ_emboss` | `gj_emboss` | 13→2 ms | 6.5× | 0 |
+| `IMAGE_ADJ_pixelate_alpha_aware` | `gj_pixelate_alpha_aware` | 5→1 ms | 5.0× | 0 |
+
+edgedetect required replicating QB64's exact FP promotion (SINGLE `strength/100`
+widened to DOUBLE in the sqrt multiply, `INT()`=floor) — verified bit-exact.
 
 ## Tier 3 — lower priority (procedural / infrequent / churning)
 
