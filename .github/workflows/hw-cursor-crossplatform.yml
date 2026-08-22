@@ -13,15 +13,18 @@
 #   macOS   : untar, then clear Gatekeeper quarantine once:
 #               xattr -dr com.apple.quarantine HW_CURSOR_CROSSPLATFORM
 #               ./HW_CURSOR_CROSSPLATFORM
-#             Grab the artifact matching your Mac: -arm64 (Apple Silicon) or -x64 (Intel).
 #
-# Manual trigger only (Actions -> Run workflow). fail-fast off. First cut: the
-# QB64-PE from-source build (and Windows software-GL for the headless step) may
-# need iteration; the uploaded binaries don't depend on the headless run succeeding.
+# Manual trigger only. The "only" input lets you re-run a single OS cheaply.
 name: HW Cursor Cross-Platform
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Which OS(es) to run'
+        type: choice
+        default: all
+        options: [all, linux, macos, windows]
 
 env:
   QB64PE_REPO: https://github.com/QB64-Phoenix-Edition/QB64pe.git
@@ -32,6 +35,7 @@ env:
 jobs:
   # ------------------------------------------------------------------ Linux
   linux:
+    if: ${{ github.event.inputs.only == 'all' || github.event.inputs.only == 'linux' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -49,10 +53,18 @@ jobs:
           cd qb64pe-glfw && git fetch origin "pull/${QB64PE_PR}/head:pr" && git checkout pr
       - name: Build compiler + regenerate (adds _MOUSECURSOR)
         run: |
-          cd qb64pe-glfw && chmod +x ./setup_lnx.sh && ./setup_lnx.sh
-          ./qb64pe -x ./source/qb64pe.bas -o ./qb64pe-regen
+          # setup_lnx.sh writes a .desktop launcher into ~/.local/share/applications.
+          mkdir -p "$HOME/.local/share/applications" "$HOME/.local/share/icons"
+          cd qb64pe-glfw && chmod +x ./setup_lnx.sh
+          # Non-blank arg -> setup does NOT auto-launch the IDE (which needs a display and
+          # otherwise fails headless). See setup_lnx.sh: dont_run="$1"; if [ -z "$dont_run" ].
+          ./setup_lnx.sh nogui
+          test -x ./qb64pe || { echo "::error::qb64pe compiler was not built"; exit 1; }
+          # regen under a virtual display in case the GLFW compiler inits a window for -x
+          xvfb-run -a ./qb64pe -x ./source/qb64pe.bas -o ./qb64pe-regen
+          test -x ./qb64pe-regen || { echo "::error::qb64pe-regen was not built"; exit 1; }
       - name: Compile the test
-        run: ./qb64pe-glfw/qb64pe-regen -w -x -o HW_CURSOR_CROSSPLATFORM "$TEST_BAS"
+        run: xvfb-run -a ./qb64pe-glfw/qb64pe-regen -w -x -o HW_CURSOR_CROSSPLATFORM "$TEST_BAS"
       - name: Package binary (tar preserves +x)
         run: tar czf HW_CURSOR_CROSSPLATFORM-linux-x64.tar.gz HW_CURSOR_CROSSPLATFORM
       - name: Upload executable
@@ -66,7 +78,8 @@ jobs:
         continue-on-error: true
         run: |
           export LIBGL_ALWAYS_SOFTWARE=1
-          xvfb-run -a -s "-screen 0 1600x1000x24" ./HW_CURSOR_CROSSPLATFORM || true
+          # timeout + </dev/null: a window-init failure can never block the job.
+          timeout 240 xvfb-run -a -s "-screen 0 1600x1000x24" ./HW_CURSOR_CROSSPLATFORM </dev/null || true
           echo "----- log -----"; cat HW_CURSOR_CROSSPLATFORM-log.txt || true
       - name: Upload log
         if: always()
@@ -76,17 +89,10 @@ jobs:
           path: HW_CURSOR_CROSSPLATFORM-log.txt
           if-no-files-found: warn
 
-  # ------------------------------------------------------------------ macOS (both arches)
+  # ------------------------------------------------------------------ macOS (Apple Silicon)
   macos:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14   # Apple Silicon
-            arch: arm64
-          - runner: macos-13   # Intel
-            arch: x64
-    runs-on: ${{ matrix.runner }}
+    if: ${{ github.event.inputs.only == 'all' || github.event.inputs.only == 'macos' }}
+    runs-on: macos-14
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -96,34 +102,32 @@ jobs:
           cd qb64pe-glfw && git fetch origin "pull/${QB64PE_PR}/head:pr" && git checkout pr
       - name: Build compiler + regenerate (adds _MOUSECURSOR)
         run: |
-          cd qb64pe-glfw && chmod +x ./setup_osx.command && ./setup_osx.command
+          cd qb64pe-glfw && chmod +x ./setup_osx.command
+          # Non-blank arg -> setup does NOT auto-launch the IDE, which on a Mac runner
+          # (has a display) would OPEN and HANG the step. See setup_osx.command line 1.
+          ./setup_osx.command nogui
+          test -x ./qb64pe || { echo "::error::qb64pe compiler was not built"; exit 1; }
           ./qb64pe -x ./source/qb64pe.bas -o ./qb64pe-regen
+          test -x ./qb64pe-regen || { echo "::error::qb64pe-regen was not built"; exit 1; }
       - name: Compile the test
         run: ./qb64pe-glfw/qb64pe-regen -w -x -o HW_CURSOR_CROSSPLATFORM "$TEST_BAS"
       - name: Package binary (tar preserves +x)
-        run: tar czf HW_CURSOR_CROSSPLATFORM-macos-${{ matrix.arch }}.tar.gz HW_CURSOR_CROSSPLATFORM
+        run: tar czf HW_CURSOR_CROSSPLATFORM-macos-arm64.tar.gz HW_CURSOR_CROSSPLATFORM
       - name: Upload executable
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hwcursor-exe-macos-${{ matrix.arch }}
-          path: HW_CURSOR_CROSSPLATFORM-macos-${{ matrix.arch }}.tar.gz
+          name: hwcursor-exe-macos-arm64
+          path: HW_CURSOR_CROSSPLATFORM-macos-arm64.tar.gz
           if-no-files-found: warn
-      - name: Run headless for numbers
-        continue-on-error: true
-        run: |
-          ./HW_CURSOR_CROSSPLATFORM || true
-          echo "----- log -----"; cat HW_CURSOR_CROSSPLATFORM-log.txt || true
-      - name: Upload log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hwcursor-log-macos-${{ matrix.arch }}
-          path: HW_CURSOR_CROSSPLATFORM-log.txt
-          if-no-files-found: warn
+      # NOTE: no headless run on macOS. GH Mac runners can't create a GLFW window in
+      # this context, so the program fails window-init and BLOCKS on a "press enter"
+      # dialog -> hangs, burning expensive Mac minutes. The binary (uploaded above) is
+      # the deliverable; get macOS numbers by running it locally on a real display.
 
   # ------------------------------------------------------------------ Windows
   windows:
+    if: ${{ github.event.inputs.only == 'all' || github.event.inputs.only == 'windows' }}
     runs-on: windows-latest
     timeout-minutes: 50
     defaults:
@@ -143,8 +147,6 @@ jobs:
           qb64pe.exe -x .\source\qb64pe.bas -o .\qb64pe-regen.exe
       - name: Compile the test
         run: qb64pe-glfw\qb64pe-regen.exe -w -x -o HW_CURSOR_CROSSPLATFORM.exe %TEST_BAS:/=\%
-      # Upload the CLEAN exe now, BEFORE dropping in Mesa software-GL (which is only
-      # for the headless CI run; your real Windows GPU doesn't need it).
       - name: Upload executable
         if: always()
         uses: actions/upload-artifact@v4
@@ -167,7 +169,9 @@ jobs:
         shell: pwsh
         run: |
           $env:HWCUR_CI = "1"; $env:GALLIUM_DRIVER = "llvmpipe"
-          & .\HW_CURSOR_CROSSPLATFORM.exe
+          # Start + hard 4-min wait; kill if it blocks on a window-init dialog.
+          $p = Start-Process .\HW_CURSOR_CROSSPLATFORM.exe -PassThru -WindowStyle Hidden
+          if (-not $p.WaitForExit(240000)) { $p.Kill(); Write-Host "timeout - killed" }
           if (Test-Path HW_CURSOR_CROSSPLATFORM-log.txt) { Get-Content HW_CURSOR_CROSSPLATFORM-log.txt } else { Write-Host "no log produced" }
       - name: Upload log
         if: always()

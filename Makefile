@@ -38,17 +38,24 @@ LOGFILE   := $(BASENAME).log
 MAKE_LOG  := .claude/make.log
 
 # ---------- Compiler ----------------------------------------------------------
-# Default is v450 (QB64-PE v4.5.0). Pick an alternate build with
-# COMPILER=v440|v450|a740g, or override the path outright with QB64PE=/full/path.
+# Default is a740g (GLFW / PR #701, regenerated). DRAW now REQUIRES it: the hardware
+# cursor (_MOUSECURSOR) is the sole cursor path and does NOT compile on v450. Pick an
+# alternate with COMPILER=v440|v450|a740g, or override with QB64PE=/full/path (but
+# v440/v450 will fail on _MOUSECURSOR until PR #701 lands in a release).
 COMPILER ?=
 ifeq ($(COMPILER),v440)
     QB64PE := $(HOME)/git/qb64pe/qb64pe
 else ifeq ($(COMPILER),v450)
     QB64PE := $(HOME)/git/qb64pe-450/qb64pe
 else ifeq ($(COMPILER),a740g)
-    QB64PE := $(HOME)/git/qb64pe-a740g-test/qb64pe
+    # NOTE: use the *regenerated* GLFW compiler. The plain `qb64pe` binary in that
+    # checkout was built from a committed qbx.cpp that predates _MOUSECURSOR, so it
+    # rejects the keyword with a bare "Syntax error" (see PLANS/GLFW-PR701-TEST-RESULTS.md,
+    # "Build gotcha"). qb64pe-regen was re-transpiled from source and knows it.
+    QB64PE := $(HOME)/git/qb64pe-a740g-test/qb64pe-regen
 else
-    QB64PE ?= $(HOME)/git/qb64pe-450/qb64pe
+    # Default: the regenerated a740g/GLFW compiler (required for _MOUSECURSOR).
+    QB64PE ?= $(HOME)/git/qb64pe-a740g-test/qb64pe-regen
 endif
 THREADS   ?= 12
 QB64FLAGS := -w -x -f:MaxCompilerProcesses=$(THREADS)

@@ -179,3 +179,90 @@ FUNCTION PERF_format_ms$ (ms AS DOUBLE)
         PERF_format_ms$ = _TRIM$(STR$(INT(ms#))) + "ms"
     END IF
 END FUNCTION
+
+
+''
+' Deterministic in-app render benchmark (dev tool, GLFW builds).
+' Builds a realistic multi-layer scene in-process (no GUI/dialogs), then times
+' the render paths that a mouse-move over the canvas takes, so the hardware-cursor
+' win can be measured without flaky xdotool automation. Prints to $CONSOLE + exits.
+'
+' Invoked from DRAW.BAS when the CLI carries --bench-render [layerCount].
+'
+' @param nLayers INTEGER Number of semi-transparent content layers to stack
+'
+SUB BENCH_render_run (nLayers AS INTEGER)
+    DIM i AS INTEGER, li AS INTEGER, lw AS INTEGER, lh AS INTEGER
+    DIM oldDest AS LONG
+    DIM ITER AS INTEGER: ITER = 300
+    DIM t0 AS DOUBLE
+    DIM msSoft AS DOUBLE, msFull AS DOUBLE, msHw AS DOUBLE
+
+    ' --- Build the scene: N layers with semi-transparent content (real merge cost) ---
+    FOR i = 1 TO nLayers
+        li = LAYERS_new%
+        IF li = 0 THEN EXIT FOR
+        IF LAYERS(li).imgHandle& < -1 THEN
+            lw = _WIDTH(LAYERS(li).imgHandle&)
+            lh = _HEIGHT(LAYERS(li).imgHandle&)
+            oldDest = _DEST
+            _DEST LAYERS(li).imgHandle&
+            LINE (0, 0)-(lw - 1, lh - 1), _RGBA32((i * 37) MOD 256, (i * 71) MOD 256, (i * 113) MOD 256, 200), BF
+            _DEST oldDest
+            LAYERS(li).opacity%     = 170   ' < 255 => per-pixel opacity composite (real cost)
+            LAYERS(li).contentDirty% = TRUE
+        END IF
+    NEXT
+
+    ' Warm up all caches with one true full render
+    SCENE_DIRTY% = TRUE: COMPOSITE_RESULT_VALID% = FALSE: SCREEN_render
+
+    ' --- Path 1: software-cursor canvas move (full path, but layer merge is cached) ---
+    t0 = _UPTIME
+    FOR i = 1 TO ITER
+        SCENE_DIRTY% = TRUE
+        MOUSE.RAW_X% = 200 + (i MOD 200)
+        MOUSE.RAW_Y% = 150 + (i MOD 150)
+        SCREEN_render
+    NEXT
+    msSoft = (_UPTIME - t0) / ITER * 1000
+
+    ' --- Path 2: worst case, force a full layer re-merge every frame ---
+    t0 = _UPTIME
+    FOR i = 1 TO ITER
+        SCENE_DIRTY%            = TRUE
+        COMPOSITE_RESULT_VALID% = FALSE
+        MOUSE.RAW_X% = 200 + (i MOD 200)
+        MOUSE.RAW_Y% = 150 + (i MOD 150)
+        SCREEN_render
+    NEXT
+    msFull = (_UPTIME - t0) / ITER * 1000
+
+    ' --- Path 3: hardware-cursor canvas move (cached skip: SkipToPointer) ---
+    SCENE_DIRTY% = TRUE: COMPOSITE_RESULT_VALID% = FALSE: SCREEN_render ' rebuild cache once
+    t0 = _UPTIME
+    FOR i = 1 TO ITER
+        SCENE_DIRTY% = FALSE
+        MOUSE.RAW_X% = 200 + (i MOD 200)
+        MOUSE.RAW_Y% = 150 + (i MOD 150)
+        SCREEN_render
+    NEXT
+    msHw = (_UPTIME - t0) / ITER * 1000
+
+    ' Effective CPU% while moving the mouse at the CFG.FPS_CURSOR% cap:
+    '   work per second = ms/frame * fps; a frame period is 1000/fps ms, so
+    '   CPU% = (ms/frame) / (1000/fps) * 100, saturating at 100.
+    DIM fps AS INTEGER: fps = CFG.FPS_CURSOR%
+    DIM periodMs AS DOUBLE: periodMs = 1000.0 / fps
+    DIM cpuSoft AS DOUBLE, cpuHw AS DOUBLE
+    cpuSoft = msSoft / periodMs * 100: IF cpuSoft > 100 THEN cpuSoft = 100
+    cpuHw = msHw / periodMs * 100: IF cpuHw > 100 THEN cpuHw = 100
+
+    _ECHO "=== DRAW render benchmark: " + _TRIM$(STR$(nLayers)) + " content layers, " + _TRIM$(STR$(ITER)) + " iters/path ==="
+    _ECHO "  [soft] software-cursor move (full path, merge cached): " + PERF_format_ms$(msSoft) + "/frame"
+    _ECHO "  [hw]   hardware-cursor move (cached skip)            : " + PERF_format_ms$(msHw) + "/frame"
+    _ECHO "  [full] worst case, forced full layer re-merge        : " + PERF_format_ms$(msFull) + "/frame"
+    _ECHO "  per-move cost: hardware is " + _TRIM$(STR$(INT((msSoft / (msHw + 0.0001)) * 100) / 100)) + "x cheaper (saves " + PERF_format_ms$(msSoft - msHw) + "/frame)"
+    _ECHO "  effective CPU while moving @ FPS_CURSOR=" + _TRIM$(STR$(fps)) + ":  software " + _TRIM$(STR$(INT(cpuSoft * 10) / 10)) + "%   hardware " + _TRIM$(STR$(INT(cpuHw * 10) / 10)) + "%"
+    SYSTEM
+END SUB

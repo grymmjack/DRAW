@@ -45,8 +45,11 @@ SUB CURSOR_load_all ()
     ' Reset loaded flags so cursors reload with the correct path
     FOR i% = 0 TO CURSOR_COUNT
         SAFE_FREEIMAGE CURSORS(i%).img&
-        CURSORS(i%).img&    = 0
-        CURSORS(i%).loaded% = FALSE
+        CURSORS(i%).img&      = 0
+        SAFE_FREEIMAGE CURSORS(i%).hw_img&
+        CURSORS(i%).hw_img&   = 0
+        CURSORS(i%).hw_scale% = 0
+        CURSORS(i%).loaded%   = FALSE
     NEXT i%
     ' Pre-load every cursor that has a filename configured
     FOR i% = 0 TO CURSOR_COUNT
@@ -153,6 +156,68 @@ SUB CURSOR_load (idx AS INTEGER)
         END IF
     END IF
 END SUB
+
+
+''
+' Ensure a hardware-cursor image (pre-scaled to the current display scale) exists
+' for a cursor index, for use with _MOUSECURSOR (GLFW builds).
+'
+' The software cursor was drawn into SCRN.CANVAS& and then integer-upscaled by
+' SCRN.displayScale% along with the whole frame. A hardware cursor is drawn by
+' the OS at the image's native pixel size, so to match the old on-screen size we
+' pre-scale the source PNG by displayScale (nearest-neighbour) and cache it. The
+' cached image is rebuilt only when the display scale changes.
+'
+' @param idx INTEGER Cursor index
+' @return INTEGER TRUE when CURSORS(idx).hw_img& is a valid, current handle
+'
+FUNCTION CURSOR_ensure_hw% (idx AS INTEGER)
+    CURSOR_ensure_hw% = FALSE
+    IF idx% < 0 OR idx% > CURSOR_COUNT THEN EXIT FUNCTION
+    IF CURSORS(idx%).img& >= -1 THEN EXIT FUNCTION ' no source art loaded
+
+    DIM sc AS INTEGER
+    sc% = SCRN.displayScale%
+    IF sc% < 1 THEN sc% = 1
+
+    ' Already built at the current scale?
+    IF CURSORS(idx%).hw_img& < -1 AND CURSORS(idx%).hw_scale% = sc% THEN
+        CURSOR_ensure_hw% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    ' (Re)build the scaled image
+    SAFE_FREEIMAGE CURSORS(idx%).hw_img&
+    CURSORS(idx%).hw_img& = 0
+
+    DIM sw AS INTEGER, sh AS INTEGER
+    sw% = CURSORS(idx%).w% * sc%
+    sh% = CURSORS(idx%).h% * sc%
+    IF sw% < 1 OR sh% < 1 THEN EXIT FUNCTION
+
+    DIM newImg AS LONG, oldDest AS LONG
+    newImg& = _NEWIMAGE(sw%, sh%, 32)
+    IF newImg& >= -1 THEN EXIT FUNCTION ' allocation failed
+
+    oldDest& = _DEST
+    _DEST newImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    ' Nearest-neighbour integer scale (plain _PUTIMAGE stretch = hard pixels)
+    _PUTIMAGE (0, 0)-(sw% - 1, sh% - 1), CURSORS(idx%).img&, newImg&
+    _DEST oldDest&
+
+    CURSORS(idx%).hw_img&   = newImg&
+    CURSORS(idx%).hw_scale% = sc%
+    CURSORS(idx%).hw_hx%    = CURSORS(idx%).hotspot_pos_x% * sc%
+    CURSORS(idx%).hw_hy%    = CURSORS(idx%).hotspot_pos_y% * sc%
+    ' _MOUSECURSOR requires the hotspot to sit inside the image bounds
+    IF CURSORS(idx%).hw_hx% < 0 THEN CURSORS(idx%).hw_hx% = 0
+    IF CURSORS(idx%).hw_hy% < 0 THEN CURSORS(idx%).hw_hy% = 0
+    IF CURSORS(idx%).hw_hx% >= sw% THEN CURSORS(idx%).hw_hx% = sw% - 1
+    IF CURSORS(idx%).hw_hy% >= sh% THEN CURSORS(idx%).hw_hy% = sh% - 1
+
+    CURSOR_ensure_hw% = TRUE
+END FUNCTION
 
 
 ''
@@ -283,65 +348,6 @@ END FUNCTION
 ' @param nx INTEGER New X position (for transform template)
 ' @param ny INTEGER New Y position (for transform template)
 '
-SUB CURSOR_render_overlays (idx AS INTEGER, dx AS INTEGER, dy AS INTEGER, mouse_x AS INTEGER, mouse_y AS INTEGER, ow AS INTEGER, oh AS INTEGER, ox AS INTEGER, oy AS INTEGER, nw AS INTEGER, nh AS INTEGER, nx AS INTEGER, ny AS INTEGER)
-    IF idx% < 0 OR idx% > CURSOR_COUNT THEN EXIT SUB
-
-    ' Render FG color chip
-    IF CURSORS(idx%).uses_overlay_fg% THEN
-        IF CURSORS(idx%).fg_color_pw% > 0 AND CURSORS(idx%).fg_color_ph% > 0 THEN
-            DIM fg_x1 AS INTEGER, fg_y1 AS INTEGER
-            DIM fg_x2 AS INTEGER, fg_y2 AS INTEGER
-            fg_x1% = dx% + CURSORS(idx%).fg_color_px%
-            fg_y1% = dy% + CURSORS(idx%).fg_color_py%
-            fg_x2% = fg_x1% + CURSORS(idx%).fg_color_pw% - 1
-            fg_y2% = fg_y1% + CURSORS(idx%).fg_color_ph% - 1
-            LINE (fg_x1%, fg_y1%)-(fg_x2%, fg_y2%), PAINT_COLOR~&, BF
-        END IF
-    END IF
-
-    ' Render BG color chip
-    IF CURSORS(idx%).uses_overlay_bg% THEN
-        IF CURSORS(idx%).bg_color_pw% > 0 AND CURSORS(idx%).bg_color_ph% > 0 THEN
-            DIM bg_x1 AS INTEGER, bg_y1 AS INTEGER
-            DIM bg_x2 AS INTEGER, bg_y2 AS INTEGER
-            bg_x1% = dx% + CURSORS(idx%).bg_color_px%
-            bg_y1% = dy% + CURSORS(idx%).bg_color_py%
-            bg_x2% = bg_x1% + CURSORS(idx%).bg_color_pw% - 1
-            bg_y2% = bg_y1% + CURSORS(idx%).bg_color_ph% - 1
-            LINE (bg_x1%, bg_y1%)-(bg_x2%, bg_y2%), PAINT_BG_COLOR~&, BF
-        END IF
-    END IF
-
-    ' Render coords text overlay
-    IF CURSORS(idx%).uses_overlay_coords% THEN
-        IF LEN(CURSORS(idx%).overlay_coords_text$) > 0 THEN
-            DIM coords_text AS STRING
-            coords_text$ = CURSOR_format_text$(CURSORS(idx%).overlay_coords_text$, mouse_x%, mouse_y%, ow%, oh%, ox%, oy%, nw%, nh%, nx%, ny%)
-            DIM ct_x        AS INTEGER, ct_y AS INTEGER
-            ct_x% = dx% + CURSORS(idx%).overlay_coords_px%
-            ct_y% = dy% + CURSORS(idx%).overlay_coords_py%
-            ' Draw text with black shadow for readability
-            _PRINTSTRING (ct_x% + 1, ct_y% + 1), coords_text$
-            COLOR _RGB32(255, 255, 255)
-            _PRINTSTRING (ct_x%, ct_y%), coords_text$
-        END IF
-    END IF
-
-    ' Render transform text overlay
-    IF CURSORS(idx%).uses_overlay_transform% THEN
-        IF LEN(CURSORS(idx%).overlay_transform_text$) > 0 THEN
-            DIM transform_text AS STRING
-            transform_text$ = CURSOR_format_text$(CURSORS(idx%).overlay_transform_text$, mouse_x%, mouse_y%, ow%, oh%, ox%, oy%, nw%, nh%, nx%, ny%)
-            DIM tt_x           AS INTEGER, tt_y AS INTEGER
-            tt_x% = dx% + CURSORS(idx%).overlay_transform_px%
-            tt_y% = dy% + CURSORS(idx%).overlay_transform_py%
-            ' Draw text with black shadow for readability
-            _PRINTSTRING (tt_x% + 1, tt_y% + 1), transform_text$
-            COLOR _RGB32(255, 255, 255)
-            _PRINTSTRING (tt_x%, tt_y%), transform_text$
-        END IF
-    END IF
-END SUB
 
 
 ''
@@ -367,77 +373,6 @@ END SUB
 ' @param ny INTEGER New Y
 ' @return STRING - Formatted string with all variables replaced
 '
-FUNCTION CURSOR_format_text$ (template AS STRING, mouse_x AS INTEGER, mouse_y AS INTEGER, ow AS INTEGER, oh AS INTEGER, ox AS INTEGER, oy AS INTEGER, nw AS INTEGER, nh AS INTEGER, nx AS INTEGER, ny AS INTEGER)
-    DIM result AS STRING
-    result$ = template$
-
-    ' Replace all template variables (longest first to avoid partial matches)
-    ' Mouse position
-    DIM find_pos AS INTEGER
-    find_pos% = INSTR(result$, "%mx")
-    WHILE find_pos% > 0
-        result$   = LEFT$(result$, find_pos% - 1) + LTRIM$(STR$(mouse_x%)) + MID$(result$, find_pos% + 3)
-        find_pos% = INSTR(result$, "%mx")
-    WEND
-
-    find_pos% = INSTR(result$, "%my")
-    WHILE find_pos% > 0
-        result$   = LEFT$(result$, find_pos% - 1) + LTRIM$(STR$(mouse_y%)) + MID$(result$, find_pos% + 3)
-        find_pos% = INSTR(result$, "%my")
-    WEND
-
-    ' Old dimensions
-    find_pos% = INSTR(result$, "%ow")
-    WHILE find_pos% > 0
-        result$   = LEFT$(result$, find_pos% - 1) + LTRIM$(STR$(ow%)) + MID$(result$, find_pos% + 3)
-        find_pos% = INSTR(result$, "%ow")
-    WEND
-
-    find_pos% = INSTR(result$, "%oh")
-    WHILE find_pos% > 0
-        result$   = LEFT$(result$, find_pos% - 1) + LTRIM$(STR$(oh%)) + MID$(result$, find_pos% + 3)
-        find_pos% = INSTR(result$, "%oh")
-    WEND
-
-    find_pos% = INSTR(result$, "%ox")
-    WHILE find_pos% > 0
-        result$   = LEFT$(result$, find_pos% - 1) + LTRIM$(STR$(ox%)) + MID$(result$, find_pos% + 3)
-        find_pos% = INSTR(result$, "%ox")
-    WEND
-
-    find_pos% = INSTR(result$, "%oy")
-    WHILE find_pos% > 0
-        result$   = LEFT$(result$, find_pos% - 1) + LTRIM$(STR$(oy%)) + MID$(result$, find_pos% + 3)
-        find_pos% = INSTR(result$, "%oy")
-    WEND
-
-    ' New dimensions
-    find_pos% = INSTR(result$, "%nw")
-    WHILE find_pos% > 0
-        result$   = LEFT$(result$, find_pos% - 1) + LTRIM$(STR$(nw%)) + MID$(result$, find_pos% + 3)
-        find_pos% = INSTR(result$, "%nw")
-    WEND
-
-    find_pos% = INSTR(result$, "%nh")
-    WHILE find_pos% > 0
-        result$   = LEFT$(result$, find_pos% - 1) + LTRIM$(STR$(nh%)) + MID$(result$, find_pos% + 3)
-        find_pos% = INSTR(result$, "%nh")
-    WEND
-
-    find_pos% = INSTR(result$, "%nx")
-    WHILE find_pos% > 0
-        result$   = LEFT$(result$, find_pos% - 1) + LTRIM$(STR$(nx%)) + MID$(result$, find_pos% + 3)
-        find_pos% = INSTR(result$, "%nx")
-    WEND
-
-    find_pos% = INSTR(result$, "%ny")
-    WHILE find_pos% > 0
-        result$   = LEFT$(result$, find_pos% - 1) + LTRIM$(STR$(ny%)) + MID$(result$, find_pos% + 3)
-        find_pos% = INSTR(result$, "%ny")
-    WEND
-
-    CURSOR_format_text$ = result$
-END FUNCTION
 
 
 ''
@@ -448,9 +383,12 @@ SUB CURSOR_cleanup ()
     DIM i AS INTEGER
     FOR i% = 0 TO CURSOR_COUNT
         SAFE_FREEIMAGE CURSORS(i%).img&
-        CURSORS(i%).img&    = 0
-        CURSORS(i%).loaded% = FALSE
-        CURSORS(i%).w%      = 0
-        CURSORS(i%).h%      = 0
+        CURSORS(i%).img&      = 0
+        SAFE_FREEIMAGE CURSORS(i%).hw_img&
+        CURSORS(i%).hw_img&   = 0
+        CURSORS(i%).hw_scale% = 0
+        CURSORS(i%).loaded%   = FALSE
+        CURSORS(i%).w%        = 0
+        CURSORS(i%).h%        = 0
     NEXT i%
 END SUB

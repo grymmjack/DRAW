@@ -234,7 +234,7 @@ TYPE DRAW_CONFIG
     NUM_LAYERS                      AS INTEGER        ' Initial number of layers on new file
     FPS_LIMIT                       AS INTEGER        ' Maximum frames per second when active (default 60)
     FPS_IDLE                        AS INTEGER        ' Reduced FPS when idle (default 15)
-    FPS_CURSOR                      AS INTEGER        ' Reduced FPS cursor-only movement (default 20)
+    FPS_CURSOR                      AS INTEGER        ' Frame rate for cursor-only movement (default 60; hardware cursor makes high rates unnecessary)
     FPS_DIALOG                      AS INTEGER        ' FPS for modal dialogs (default 60)
     SCREEN_WIDTH                    AS INTEGER        ' Viewport width in pixels (0 = auto-detect)
     SCREEN_HEIGHT                   AS INTEGER        ' Viewport height in pixels (0 = auto-detect)
@@ -408,7 +408,6 @@ TYPE DRAW_CONFIG
     CANVAS_APRON_COLOR              AS _UNSIGNED LONG ' Background color around canvas when smaller than viewport
     APRON_ENABLED                   AS INTEGER        ' TRUE = preserve off-canvas pixels in per-layer apron buffer (Hybrid lazy-promote)
     APRON_SIZE_RATIO                AS SINGLE         ' Apron size as fraction of canvas (e.g. 0.5 = +50% on each side, total buffer = 2x canvas)
-    SYSTEM_CURSORS_ENABLED          AS INTEGER        ' TRUE = use OS system cursors for resize/hand/text/move
     DEVELOPER_MODE                  AS INTEGER        ' TRUE = enable inputs.log + audit + consistency checks (also via --developer CLI)
     CRASH_LOGS_ENABLED              AS INTEGER        ' TRUE = write crash reports to <Desktop>/DRAW-log/DRAW-crash-logs/ (Help > Capture Crash Logs)
     ' Tooltip settings

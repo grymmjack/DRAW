@@ -4782,202 +4782,21 @@ END SUB
 ' @param opacity INTEGER Source layer opacity (0-255)
 '
 SUB LAYER_blend_composite (dst AS LONG, src AS LONG, blendMode AS INTEGER, opacity AS INTEGER)
-    DIM dstMem   AS _MEM, srcMem AS _MEM
-    DIM pixOff   AS _OFFSET
-    DIM dstPix   AS _UNSIGNED LONG, srcPix AS _UNSIGNED LONG
-    DIM sA       AS LONG, sR AS LONG, sG AS LONG, sB AS LONG
-    DIM dA       AS LONG, dR AS LONG, dG AS LONG, dB AS LONG
-    DIM bR       AS LONG, bG AS LONG, bB AS LONG
-    DIM rR       AS LONG, rG AS LONG, rB AS LONG, rA AS LONG
-    DIM effAlpha AS LONG
-    
+    ' Full-image layer composite. Delegates to the -O3 kernel (native/blend.h) over
+    ' the whole image; identical math to the former inline 18-mode switch, bit-exact
+    ' (bench_blend.bas, all modes 0 mismatches). Shares one kernel with the region
+    ' variant below (dedup).
+    DECLARE LIBRARY "../native/blend"
+        SUB gj_blend_composite (BYVAL dst AS _OFFSET, BYVAL src AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL mode AS LONG, BYVAL opacity AS LONG, BYVAL rx1 AS LONG, BYVAL ry1 AS LONG, BYVAL rx2 AS LONG, BYVAL ry2 AS LONG)
+    END DECLARE
     IF dst& = 0 OR src& = 0 THEN EXIT SUB
     IF _WIDTH(dst&) <> _WIDTH(src&) OR _HEIGHT(dst&) <> _HEIGHT(src&) THEN EXIT SUB
-
-    dstMem = _MEMIMAGE(dst&)
-    srcMem = _MEMIMAGE(src&)
-
-    FOR pixOff = 0 TO srcMem.SIZE - 4 STEP 4
-        _MEMGET srcMem, srcMem.OFFSET + pixOff, srcPix~&
-        sA& = _ALPHA32(srcPix~&)
-        IF sA& = 0 THEN _CONTINUE ' Fully transparent - skip
-
-        ' Apply layer opacity to source alpha (integer math)
-        effAlpha& = (sA& * opacity%) \ 255
-        IF effAlpha& < = 0 THEN _CONTINUE
-
-        sR& = _RED32(srcPix~&)
-        sG& = _GREEN32(srcPix~&)
-        sB& = _BLUE32(srcPix~&)
-
-        _MEMGET dstMem, dstMem.OFFSET + pixOff, dstPix~&
-        dA& = _ALPHA32(dstPix~&)
-        dR& = _RED32(dstPix~&)
-        dG& = _GREEN32(dstPix~&)
-        dB& = _BLUE32(dstPix~&)
-
-        ' Apply blend formula to get blended RGB
-        SELECT CASE blendMode%
-            CASE BLEND_MULTIPLY
-                bR& = (dR& * sR&) \ 255
-                bG& = (dG& * sG&) \ 255
-                bB& = (dB& * sB&) \ 255
-
-            CASE BLEND_SCREEN
-                bR& = 255 - ((255 - dR&) * (255 - sR&)) \ 255
-                bG& = 255 - ((255 - dG&) * (255 - sG&)) \ 255
-                bB& = 255 - ((255 - dB&) * (255 - sB&)) \ 255
-
-            CASE BLEND_OVERLAY
-                IF dR& < 128 THEN bR& = (2 * dR& * sR&) \ 255 ELSE bR& = 255 - (2 * (255 - dR&) * (255 - sR&)) \ 255
-                IF dG& < 128 THEN bG& = (2 * dG& * sG&) \ 255 ELSE bG& = 255 - (2 * (255 - dG&) * (255 - sG&)) \ 255
-                IF dB& < 128 THEN bB& = (2 * dB& * sB&) \ 255 ELSE bB& = 255 - (2 * (255 - dB&) * (255 - sB&)) \ 255
-
-            CASE BLEND_ADD
-                bR& = dR& + sR& : IF bR& > 255 THEN bR& = 255
-                bG& = dG& + sG& : IF bG& > 255 THEN bG& = 255
-                bB& = dB& + sB& : IF bB& > 255 THEN bB& = 255
-
-            CASE BLEND_SUBTRACT
-                bR& = dR& - sR& : IF bR& < 0 THEN bR& = 0
-                bG& = dG& - sG& : IF bG& < 0 THEN bG& = 0
-                bB& = dB& - sB& : IF bB& < 0 THEN bB& = 0
-
-            CASE BLEND_DIFFERENCE
-                bR& = ABS(dR& - sR&)
-                bG& = ABS(dG& - sG&)
-                bB& = ABS(dB& - sB&)
-
-            CASE BLEND_DARKEN
-                IF dR& < sR& THEN bR& = dR& ELSE bR& = sR&
-                IF dG& < sG& THEN bG& = dG& ELSE bG& = sG&
-                IF dB& < sB& THEN bB& = dB& ELSE bB& = sB&
-
-            CASE BLEND_LIGHTEN
-                IF dR& > sR& THEN bR& = dR& ELSE bR& = sR&
-                IF dG& > sG& THEN bG& = dG& ELSE bG& = sG&
-                IF dB& > sB& THEN bB& = dB& ELSE bB& = sB&
-
-            CASE BLEND_COLOR_DODGE
-                ' d / (1 - s) = d * 255 / (255 - s), clamped
-                IF sR& >= 255 THEN bR& = 255 ELSE bR& = (dR& * 255) \ (255 - sR&) : IF bR& > 255 THEN bR& = 255
-                IF sG& >= 255 THEN bG& = 255 ELSE bG& = (dG& * 255) \ (255 - sG&) : IF bG& > 255 THEN bG& = 255
-                IF sB& >= 255 THEN bB& = 255 ELSE bB& = (dB& * 255) \ (255 - sB&) : IF bB& > 255 THEN bB& = 255
-
-            CASE BLEND_COLOR_BURN
-                ' 1 - (1 - d) / s = 255 - (255 - d) * 255 / s, clamped
-                IF sR& < = 0 THEN bR& = 0 ELSE bR& = 255 - ((255 - dR&) * 255) \ sR& : IF bR& < 0 THEN bR& = 0
-                IF sG& < = 0 THEN bG& = 0 ELSE bG& = 255 - ((255 - dG&) * 255) \ sG& : IF bG& < 0 THEN bG& = 0
-                IF sB& < = 0 THEN bB& = 0 ELSE bB& = 255 - ((255 - dB&) * 255) \ sB& : IF bB& < 0 THEN bB& = 0
-
-            CASE BLEND_HARD_LIGHT
-                ' Overlay with source and dest swapped
-                IF sR& < 128 THEN bR& = (2 * sR& * dR&) \ 255 ELSE bR& = 255 - (2 * (255 - sR&) * (255 - dR&)) \ 255
-                IF sG& < 128 THEN bG& = (2 * sG& * dG&) \ 255 ELSE bG& = 255 - (2 * (255 - sG&) * (255 - dG&)) \ 255
-                IF sB& < 128 THEN bB& = (2 * sB& * dB&) \ 255 ELSE bB& = 255 - (2 * (255 - sB&) * (255 - dB&)) \ 255
-
-            CASE BLEND_SOFT_LIGHT
-                ' Pegtop formula: (1-2s)*d^2/255 + 2s*d, all in 0-255 integer range
-                bR& = ((255 - 2 * sR&) * dR& * dR&) \ 65025 + (2 * sR& * dR&) \ 255
-                bG& = ((255 - 2 * sG&) * dG& * dG&) \ 65025 + (2 * sG& * dG&) \ 255
-                bB& = ((255 - 2 * sB&) * dB& * dB&) \ 65025 + (2 * sB& * dB&) \ 255
-                IF bR& < 0 THEN bR& = 0 ELSE IF bR& > 255 THEN bR& = 255
-                IF bG& < 0 THEN bG& = 0 ELSE IF bG& > 255 THEN bG& = 255
-                IF bB& < 0 THEN bB& = 0 ELSE IF bB& > 255 THEN bB& = 255
-
-            CASE BLEND_EXCLUSION
-                ' d + s - 2*d*s/255
-                bR& = dR& + sR& - (2 * dR& * sR&) \ 255
-                bG& = dG& + sG& - (2 * dG& * sG&) \ 255
-                bB& = dB& + sB& - (2 * dB& * sB&) \ 255
-
-            CASE BLEND_VIVID_LIGHT
-                ' Color Dodge if s > 128, Color Burn if s <= 128
-                IF sR& > 128 THEN
-                    DIM vr  AS LONG: vr& = 2 * (sR& - 128): IF vr& >= 255 THEN bR& = 255 ELSE bR& = (dR& * 255) \ (255 - vr&): IF bR& > 255 THEN bR& = 255
-                ELSE
-                    DIM vr2 AS LONG: vr2& = 2 * sR&: IF vr2& < = 0 THEN bR& = 0 ELSE bR& = 255 - ((255 - dR&) * 255) \ vr2&: IF bR& < 0 THEN bR& = 0
-                END IF
-                IF sG& > 128 THEN
-                    DIM vg  AS LONG: vg& = 2 * (sG& - 128): IF vg& >= 255 THEN bG& = 255 ELSE bG& = (dG& * 255) \ (255 - vg&): IF bG& > 255 THEN bG& = 255
-                ELSE
-                    DIM vg2 AS LONG: vg2& = 2 * sG&: IF vg2& < = 0 THEN bG& = 0 ELSE bG& = 255 - ((255 - dG&) * 255) \ vg2&: IF bG& < 0 THEN bG& = 0
-                END IF
-                IF sB& > 128 THEN
-                    DIM vb  AS LONG: vb& = 2 * (sB& - 128): IF vb& >= 255 THEN bB& = 255 ELSE bB& = (dB& * 255) \ (255 - vb&): IF bB& > 255 THEN bB& = 255
-                ELSE
-                    DIM vb2 AS LONG: vb2& = 2 * sB&: IF vb2& < = 0 THEN bB& = 0 ELSE bB& = 255 - ((255 - dB&) * 255) \ vb2&: IF bB& < 0 THEN bB& = 0
-                END IF
-
-            CASE BLEND_LINEAR_LIGHT
-                ' d + 2*s - 255, clamped
-                bR& = dR& + 2 * sR& - 255 : IF bR& < 0 THEN bR& = 0 ELSE IF bR& > 255 THEN bR& = 255
-                bG& = dG& + 2 * sG& - 255 : IF bG& < 0 THEN bG& = 0 ELSE IF bG& > 255 THEN bG& = 255
-                bB& = dB& + 2 * sB& - 255 : IF bB& < 0 THEN bB& = 0 ELSE IF bB& > 255 THEN bB& = 255
-
-            CASE BLEND_PIN_LIGHT
-                ' If s > 128: max(d, 2*s-255), else: min(d, 2*s)
-                IF sR& > 128 THEN
-                    DIM ps AS LONG: ps& = 2 * sR& - 255: IF dR& > ps& THEN bR& = dR& ELSE bR& = ps&
-                ELSE
-                    ps& = 2 * sR&: IF dR& < ps& THEN bR& = dR& ELSE bR& = ps&
-                END IF
-                IF sG& > 128 THEN
-                    ps& = 2 * sG& - 255: IF dG& > ps& THEN bG& = dG& ELSE bG& = ps&
-                ELSE
-                    ps& = 2 * sG&: IF dG& < ps& THEN bG& = dG& ELSE bG& = ps&
-                END IF
-                IF sB& > 128 THEN
-                    ps& = 2 * sB& - 255: IF dB& > ps& THEN bB& = dB& ELSE bB& = ps&
-                ELSE
-                    ps& = 2 * sB&: IF dB& < ps& THEN bB& = dB& ELSE bB& = ps&
-                END IF
-
-            CASE BLEND_COLOR
-                ' Source hue+saturation, dest luminosity (Rec. 601)
-                DIM srcLum AS LONG, dstLum AS LONG, deltaLum AS LONG
-                srcLum&   = (sR& * 77 + sG& * 150 + sB& * 29) \ 256
-                dstLum&   = (dR& * 77 + dG& * 150 + dB& * 29) \ 256
-                deltaLum& = dstLum& - srcLum&
-                bR&       = sR& + deltaLum& : IF bR& < 0 THEN bR& = 0 ELSE IF bR& > 255 THEN bR& = 255
-                bG&       = sG& + deltaLum& : IF bG& < 0 THEN bG& = 0 ELSE IF bG& > 255 THEN bG& = 255
-                bB&       = sB& + deltaLum& : IF bB& < 0 THEN bB& = 0 ELSE IF bB& > 255 THEN bB& = 255
-
-            CASE BLEND_LUMINOSITY
-                ' Source luminosity, dest hue+saturation (Rec. 601)
-                DIM srcLum2 AS LONG, dstLum2 AS LONG, deltaLum2 AS LONG
-                srcLum2&   = (sR& * 77 + sG& * 150 + sB& * 29) \ 256
-                dstLum2&   = (dR& * 77 + dG& * 150 + dB& * 29) \ 256
-                deltaLum2& = srcLum2& - dstLum2&
-                bR&        = dR& + deltaLum2& : IF bR& < 0 THEN bR& = 0 ELSE IF bR& > 255 THEN bR& = 255
-                bG&        = dG& + deltaLum2& : IF bG& < 0 THEN bG& = 0 ELSE IF bG& > 255 THEN bG& = 255
-                bB&        = dB& + deltaLum2& : IF bB& < 0 THEN bB& = 0 ELSE IF bB& > 255 THEN bB& = 255
-
-            CASE ELSE
-                ' Normal fallback (shouldn't reach here)
-                bR& = sR&: bG& = sG&: bB& = sB&
-        END SELECT
-
-        ' Mix blended result with base using effective alpha (Porter-Duff "over")
-        IF dA& = 0 THEN
-            ' No base - use blended color directly with blend alpha
-            rR& = bR&: rG& = bG&: rB& = bB&
-            rA& = effAlpha&
-        ELSE
-            ' Composite: result = blended * effAlpha + base * (1 - effAlpha/255)
-            rR& = dR& + ((bR& - dR&) * effAlpha&) \ 255
-            rG& = dG& + ((bG& - dG&) * effAlpha&) \ 255
-            rB& = dB& + ((bB& - dB&) * effAlpha&) \ 255
-            rA& = dA& + effAlpha& - (dA& * effAlpha&) \ 255
-            IF rA& > 255 THEN rA& = 255
-        END IF
-
-        ' Write result pixel
-        _MEMPUT dstMem, dstMem.OFFSET + pixOff, _RGBA32(rR&, rG&, rB&, rA&) AS _UNSIGNED LONG
-    NEXT pixOff
-
-    _MEMFREE srcMem
-    _MEMFREE dstMem
+    DIM lbcW AS LONG, lbcH AS LONG
+    lbcW& = _WIDTH(dst&): lbcH& = _HEIGHT(dst&)
+    DIM lbcDM AS _MEM, lbcSM AS _MEM
+    lbcDM = _MEMIMAGE(dst&): lbcSM = _MEMIMAGE(src&)
+    gj_blend_composite lbcDM.OFFSET, lbcSM.OFFSET, lbcW&, lbcH&, blendMode%, opacity%, 0, 0, lbcW& - 1, lbcH& - 1
+    _MEMFREE lbcSM: _MEMFREE lbcDM
 END SUB
 
 
@@ -4995,172 +4814,18 @@ END SUB
 ' @param ry2 INTEGER Bottom Y of the dirty region (clamped to image bounds)
 '
 SUB LAYER_blend_composite_region (dst AS LONG, src AS LONG, blendMode AS INTEGER, opacity AS INTEGER, rx1 AS INTEGER, ry1 AS INTEGER, rx2 AS INTEGER, ry2 AS INTEGER)
+    ' Region (dirty-rect) layer composite — the per-frame render hot path. Delegates
+    ' to the -O3 kernel (native/blend.h), which clamps the region and runs the same
+    ' 18-mode switch + final composite. Bit-exact (bench_blend.bas). gj_blend_composite
+    ' is DECLARE LIBRARY'd (globally) in LAYER_blend_composite above; both share it.
     IF dst& = 0 OR src& = 0 THEN EXIT SUB
-    DIM imgW AS INTEGER, imgH AS INTEGER
-    imgW% = _WIDTH(dst&)
-    imgH% = _HEIGHT(dst&)
-    IF imgW% <> _WIDTH(src&) OR imgH% <> _HEIGHT(src&) THEN EXIT SUB
-
-    ' Clamp region to image bounds
-    DIM cx1 AS INTEGER, cy1 AS INTEGER, cx2 AS INTEGER, cy2 AS INTEGER
-    cx1% = rx1%: cy1% = ry1%: cx2% = rx2%: cy2% = ry2%
-    IF cx1% < 0 THEN cx1% = 0
-    IF cy1% < 0 THEN cy1% = 0
-    IF cx2% >= imgW% THEN cx2% = imgW% - 1
-    IF cy2% >= imgH% THEN cy2% = imgH% - 1
-    IF cx2% < cx1% OR cy2% < cy1% THEN EXIT SUB
-
-    DIM dstMem   AS _MEM, srcMem AS _MEM
-    DIM pixOff   AS _OFFSET
-    DIM dstPix   AS _UNSIGNED LONG, srcPix AS _UNSIGNED LONG
-    DIM sA       AS LONG, sR AS LONG, sG AS LONG, sB AS LONG
-    DIM dA       AS LONG, dR AS LONG, dG AS LONG, dB AS LONG
-    DIM bR       AS LONG, bG AS LONG, bB AS LONG
-    DIM rR       AS LONG, rG AS LONG, rB AS LONG, rA AS LONG
-    DIM effAlpha AS LONG
-    DIM rowY     AS INTEGER, colX AS INTEGER
-    DIM rowOff   AS _OFFSET, stride AS _OFFSET
-
-    dstMem = _MEMIMAGE(dst&)
-    srcMem = _MEMIMAGE(src&)
-    stride = CLNG(imgW%) * 4
-
-    FOR rowY% = cy1% TO cy2%
-        rowOff = CLNG(rowY%) * stride
-        FOR colX% = cx1% TO cx2%
-            pixOff = rowOff + CLNG(colX%) * 4
-            _MEMGET srcMem, srcMem.OFFSET + pixOff, srcPix~&
-            sA& = _ALPHA32(srcPix~&)
-            IF sA& = 0 THEN _CONTINUE
-            effAlpha& = (sA& * opacity%) \ 255
-            IF effAlpha& < = 0 THEN _CONTINUE
-
-            sR& = _RED32(srcPix~&): sG& = _GREEN32(srcPix~&): sB& = _BLUE32(srcPix~&)
-            _MEMGET dstMem, dstMem.OFFSET + pixOff, dstPix~&
-            dA& = _ALPHA32(dstPix~&)
-            dR& = _RED32(dstPix~&): dG& = _GREEN32(dstPix~&): dB& = _BLUE32(dstPix~&)
-
-            SELECT CASE blendMode%
-                CASE BLEND_MULTIPLY
-                    bR& = (dR& * sR&) \ 255: bG& = (dG& * sG&) \ 255: bB& = (dB& * sB&) \ 255
-                CASE BLEND_SCREEN
-                    bR& = 255 - ((255 - dR&) * (255 - sR&)) \ 255: bG& = 255 - ((255 - dG&) * (255 - sG&)) \ 255: bB& = 255 - ((255 - dB&) * (255 - sB&)) \ 255
-                CASE BLEND_OVERLAY
-                    IF dR& < 128 THEN bR& = (2 * dR& * sR&) \ 255 ELSE bR& = 255 - (2 * (255 - dR&) * (255 - sR&)) \ 255
-                    IF dG& < 128 THEN bG& = (2 * dG& * sG&) \ 255 ELSE bG& = 255 - (2 * (255 - dG&) * (255 - sG&)) \ 255
-                    IF dB& < 128 THEN bB& = (2 * dB& * sB&) \ 255 ELSE bB& = 255 - (2 * (255 - dB&) * (255 - sB&)) \ 255
-                CASE BLEND_ADD
-                    bR& = dR& + sR& : IF bR& > 255 THEN bR& = 255
-                    bG& = dG& + sG& : IF bG& > 255 THEN bG& = 255
-                    bB& = dB& + sB& : IF bB& > 255 THEN bB& = 255
-                CASE BLEND_SUBTRACT
-                    bR& = dR& - sR& : IF bR& < 0 THEN bR& = 0
-                    bG& = dG& - sG& : IF bG& < 0 THEN bG& = 0
-                    bB& = dB& - sB& : IF bB& < 0 THEN bB& = 0
-                CASE BLEND_DIFFERENCE
-                    bR& = ABS(dR& - sR&): bG& = ABS(dG& - sG&): bB& = ABS(dB& - sB&)
-                CASE BLEND_DARKEN
-                    IF dR& < sR& THEN bR& = dR& ELSE bR& = sR&
-                    IF dG& < sG& THEN bG& = dG& ELSE bG& = sG&
-                    IF dB& < sB& THEN bB& = dB& ELSE bB& = sB&
-                CASE BLEND_LIGHTEN
-                    IF dR& > sR& THEN bR& = dR& ELSE bR& = sR&
-                    IF dG& > sG& THEN bG& = dG& ELSE bG& = sG&
-                    IF dB& > sB& THEN bB& = dB& ELSE bB& = sB&
-                CASE BLEND_COLOR_DODGE
-                    IF sR& >= 255 THEN bR& = 255 ELSE bR& = (dR& * 255) \ (255 - sR&) : IF bR& > 255 THEN bR& = 255
-                    IF sG& >= 255 THEN bG& = 255 ELSE bG& = (dG& * 255) \ (255 - sG&) : IF bG& > 255 THEN bG& = 255
-                    IF sB& >= 255 THEN bB& = 255 ELSE bB& = (dB& * 255) \ (255 - sB&) : IF bB& > 255 THEN bB& = 255
-                CASE BLEND_COLOR_BURN
-                    IF sR& < = 0 THEN bR& = 0 ELSE bR& = 255 - ((255 - dR&) * 255) \ sR& : IF bR& < 0 THEN bR& = 0
-                    IF sG& < = 0 THEN bG& = 0 ELSE bG& = 255 - ((255 - dG&) * 255) \ sG& : IF bG& < 0 THEN bG& = 0
-                    IF sB& < = 0 THEN bB& = 0 ELSE bB& = 255 - ((255 - dB&) * 255) \ sB& : IF bB& < 0 THEN bB& = 0
-                CASE BLEND_HARD_LIGHT
-                    IF sR& < 128 THEN bR& = (2 * sR& * dR&) \ 255 ELSE bR& = 255 - (2 * (255 - sR&) * (255 - dR&)) \ 255
-                    IF sG& < 128 THEN bG& = (2 * sG& * dG&) \ 255 ELSE bG& = 255 - (2 * (255 - sG&) * (255 - dG&)) \ 255
-                    IF sB& < 128 THEN bB& = (2 * sB& * dB&) \ 255 ELSE bB& = 255 - (2 * (255 - sB&) * (255 - dB&)) \ 255
-                CASE BLEND_SOFT_LIGHT
-                    bR& = ((255 - 2 * sR&) * dR& * dR&) \ 65025 + (2 * sR& * dR&) \ 255
-                    bG& = ((255 - 2 * sG&) * dG& * dG&) \ 65025 + (2 * sG& * dG&) \ 255
-                    bB& = ((255 - 2 * sB&) * dB& * dB&) \ 65025 + (2 * sB& * dB&) \ 255
-                    IF bR& < 0 THEN bR& = 0 ELSE IF bR& > 255 THEN bR& = 255
-                    IF bG& < 0 THEN bG& = 0 ELSE IF bG& > 255 THEN bG& = 255
-                    IF bB& < 0 THEN bB& = 0 ELSE IF bB& > 255 THEN bB& = 255
-                CASE BLEND_EXCLUSION
-                    bR& = dR& + sR& - (2 * dR& * sR&) \ 255
-                    bG& = dG& + sG& - (2 * dG& * sG&) \ 255
-                    bB& = dB& + sB& - (2 * dB& * sB&) \ 255
-                CASE BLEND_VIVID_LIGHT
-                    IF sR& > 128 THEN
-                        DIM vrr  AS LONG: vrr& = 2 * (sR& - 128): IF vrr& >= 255 THEN bR& = 255 ELSE bR& = (dR& * 255) \ (255 - vrr&): IF bR& > 255 THEN bR& = 255
-                    ELSE
-                        DIM vrr2 AS LONG: vrr2& = 2 * sR&: IF vrr2& < = 0 THEN bR& = 0 ELSE bR& = 255 - ((255 - dR&) * 255) \ vrr2&: IF bR& < 0 THEN bR& = 0
-                    END IF
-                    IF sG& > 128 THEN
-                        DIM vgr  AS LONG: vgr& = 2 * (sG& - 128): IF vgr& >= 255 THEN bG& = 255 ELSE bG& = (dG& * 255) \ (255 - vgr&): IF bG& > 255 THEN bG& = 255
-                    ELSE
-                        DIM vgr2 AS LONG: vgr2& = 2 * sG&: IF vgr2& < = 0 THEN bG& = 0 ELSE bG& = 255 - ((255 - dG&) * 255) \ vgr2&: IF bG& < 0 THEN bG& = 0
-                    END IF
-                    IF sB& > 128 THEN
-                        DIM vbr  AS LONG: vbr& = 2 * (sB& - 128): IF vbr& >= 255 THEN bB& = 255 ELSE bB& = (dB& * 255) \ (255 - vbr&): IF bB& > 255 THEN bB& = 255
-                    ELSE
-                        DIM vbr2 AS LONG: vbr2& = 2 * sB&: IF vbr2& < = 0 THEN bB& = 0 ELSE bB& = 255 - ((255 - dB&) * 255) \ vbr2&: IF bB& < 0 THEN bB& = 0
-                    END IF
-                CASE BLEND_LINEAR_LIGHT
-                    bR& = dR& + 2 * sR& - 255 : IF bR& < 0 THEN bR& = 0 ELSE IF bR& > 255 THEN bR& = 255
-                    bG& = dG& + 2 * sG& - 255 : IF bG& < 0 THEN bG& = 0 ELSE IF bG& > 255 THEN bG& = 255
-                    bB& = dB& + 2 * sB& - 255 : IF bB& < 0 THEN bB& = 0 ELSE IF bB& > 255 THEN bB& = 255
-                CASE BLEND_PIN_LIGHT
-                    IF sR& > 128 THEN
-                        DIM psr  AS LONG: psr& = 2 * sR& - 255: IF dR& > psr& THEN bR& = dR& ELSE bR& = psr&
-                    ELSE
-                        psr& = 2 * sR&: IF dR& < psr& THEN bR& = dR& ELSE bR& = psr&
-                    END IF
-                    IF sG& > 128 THEN
-                        psr& = 2 * sG& - 255: IF dG& > psr& THEN bG& = dG& ELSE bG& = psr&
-                    ELSE
-                        psr& = 2 * sG&: IF dG& < psr& THEN bG& = dG& ELSE bG& = psr&
-                    END IF
-                    IF sB& > 128 THEN
-                        psr& = 2 * sB& - 255: IF dB& > psr& THEN bB& = dB& ELSE bB& = psr&
-                    ELSE
-                        psr& = 2 * sB&: IF dB& < psr& THEN bB& = dB& ELSE bB& = psr&
-                    END IF
-                CASE BLEND_COLOR
-                    DIM srcLumR  AS LONG, dstLumR AS LONG, deltaLumR AS LONG
-                    srcLumR&   = (sR& * 77 + sG& * 150 + sB& * 29) \ 256
-                    dstLumR&   = (dR& * 77 + dG& * 150 + dB& * 29) \ 256
-                    deltaLumR& = dstLumR& - srcLumR&
-                    bR&        = sR& + deltaLumR& : IF bR& < 0 THEN bR& = 0 ELSE IF bR& > 255 THEN bR& = 255
-                    bG&        = sG& + deltaLumR& : IF bG& < 0 THEN bG& = 0 ELSE IF bG& > 255 THEN bG& = 255
-                    bB&        = sB& + deltaLumR& : IF bB& < 0 THEN bB& = 0 ELSE IF bB& > 255 THEN bB& = 255
-                CASE BLEND_LUMINOSITY
-                    DIM srcLumR2 AS LONG, dstLumR2 AS LONG, deltaLumR2 AS LONG
-                    srcLumR2&   = (sR& * 77 + sG& * 150 + sB& * 29) \ 256
-                    dstLumR2&   = (dR& * 77 + dG& * 150 + dB& * 29) \ 256
-                    deltaLumR2& = srcLumR2& - dstLumR2&
-                    bR&         = dR& + deltaLumR2& : IF bR& < 0 THEN bR& = 0 ELSE IF bR& > 255 THEN bR& = 255
-                    bG&         = dG& + deltaLumR2& : IF bG& < 0 THEN bG& = 0 ELSE IF bG& > 255 THEN bG& = 255
-                    bB&         = dB& + deltaLumR2& : IF bB& < 0 THEN bB& = 0 ELSE IF bB& > 255 THEN bB& = 255
-                CASE ELSE
-                    bR& = sR&: bG& = sG&: bB& = sB&
-            END SELECT
-
-            IF dA& = 0 THEN
-                rR& = bR&: rG& = bG&: rB& = bB&: rA& = effAlpha&
-            ELSE
-                rR& = dR& + ((bR& - dR&) * effAlpha&) \ 255
-                rG& = dG& + ((bG& - dG&) * effAlpha&) \ 255
-                rB& = dB& + ((bB& - dB&) * effAlpha&) \ 255
-                rA& = dA& + effAlpha& - (dA& * effAlpha&) \ 255
-                IF rA& > 255 THEN rA& = 255
-            END IF
-            _MEMPUT dstMem, dstMem.OFFSET + pixOff, _RGBA32(rR&, rG&, rB&, rA&) AS _UNSIGNED LONG
-        NEXT colX%
-    NEXT rowY%
-
-    _MEMFREE srcMem
-    _MEMFREE dstMem
+    IF _WIDTH(dst&) <> _WIDTH(src&) OR _HEIGHT(dst&) <> _HEIGHT(src&) THEN EXIT SUB
+    DIM lbrW AS LONG, lbrH AS LONG
+    lbrW& = _WIDTH(dst&): lbrH& = _HEIGHT(dst&)
+    DIM lbrDM AS _MEM, lbrSM AS _MEM
+    lbrDM = _MEMIMAGE(dst&): lbrSM = _MEMIMAGE(src&)
+    gj_blend_composite lbrDM.OFFSET, lbrSM.OFFSET, lbrW&, lbrH&, blendMode%, opacity%, rx1%, ry1%, rx2%, ry2%
+    _MEMFREE lbrSM: _MEMFREE lbrDM
 END SUB
 
 
