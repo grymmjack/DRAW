@@ -1,137 +1,23 @@
 # IDEAS
 
+_WINDOWSIZELIMIT [(minWidth, minHeight)] [- (maxWidth, maxHeight)] - Restricts the user-resizable dimensions of the window to minimum and/or maximum width and height bounds.
+
+we should implement this too. taking into consideration of the scaling, hdpi, etc. right now it is possible for a draw window to be resized so much downward/smaller that it hides controls completely, that's no bueno. 
+
 ## GUI SCALE independent of CANVAS scale
 - [ ] We need to be able to scale the GUI independent of the canvas
 - [ ] Currently it's unified
   - [ ] I had this before, but we removed it
   
-## Use GLFW Stuff:
-a740g — 5/16/26, 6:13 PM
-_CAPSLOCK, _NUMLOCK and _SCROLLLOCK now works on all platforms.
-Drag and drop works on all platforms.
-_desktopwidth and _desktopheight now works on all platforms.
-_SCREENMOVE now works on Linux
-_SCREENX and _SCREENY works on all platforms.
-
-a740g — 5/16/26, 6:20 PM
-Try the windowing functions that worked only on Windows before. _WINDOWHASFOCUS, _SCREENX, _SCREENY, _SCREENMOVE, _ACCEPTFILEDROP, _DROPPEDFILE, _TOTALDROPPEDFILES etc.
-Add drag and drop support in DRAW! 
-
-a740g — 5/16/26, 6:17 PM
-_WINDOWHANDLE works on all platforms.
-
-## Font Preview in popup ✅ SHIPPED (PR #97)
-- [x] Add setting: 
-  - [x] Checkbox - Enable font previews in menu
-    - [x] Font size: ___ [8] [16] [24] [32] (buttons for numbers to insert)
-    - [x] Max Width: ____ [32] [64] [128] (buttons for numbers to insert)
-    - [x] Max Height: ____ [16] [32] [64] (buttons for numbers to insert)
-    - [x] FG color: [ ] color chip picker
-    - [x] BG color: [ ] color chip picker
-    - [x] Divider color: [ ] color chip picker
-    - [x] Preview Text: {font|FONT|Font} {NumGlyphs} __________ [ABCabc123] [DRAW SoMeThiNG!] (buttons insert the text)
-      - [x] If {font|FONT|Font} - show that in the preview text of the font picker in the case accordingly
-      - [x] NumGlyphs = how many total glyphs in the font, including the entire range, unicode or otherwise.
-        - [x] Count only NON-Blank glyphs (via `FONT_count_ttf_range%` using `_UPRINTSTRING`)
-          - [x] Count can be part of font as it's cached for previews, etc.
-- When this is on:
-  - [x] Immediately on Apply:
-    - [x] Create previews for the dropdown font pickers
-    - [x] The previews should show the name of the font
-  - [x] Previews should be cached (`FONT_PREVIEW_*`, invalidated on font rescan)
-    - [x] Cache can be wherever DRAW already stores it
-  - [x] New fonts should be scanned/rendered on startup
-  - [x] If the popups don't fit on the screen, render as much as it can and use ... for telling user.
-    - [x] If popups don't fit in vertical space, use the same methods of scrolling/showing for the fonts that we already do for main menu, and mousehweel and arrowsa up/down, etc.
-
-Implementation: previews render **under** each font name in the submenu (compact
-12px main list, wide preview strip only in the flyout); TheDraw faces excluded
-from the picker; stale-popup and click-away close fixed; DRAW.cfg/THEME.cfg keys
-per the completed TEXT TOOL entry below. Shipped via the `font-previews` branch.
-
-## Add ANSI IMPORT/EXPORT SUPPORT ✅ SHIPPED v1.9.0 (PR #96)
-- [x] File -> Import ANSI | Export ANSI
-- [x] Using IMG2ANS style export (~/git/IMG2ANS)
-  - [x] Detect if EGA palette - automatically  *(auto-detects mode; ANS_detect_palette)*
-  - [x] Detect if RGB palette - automatically
-  - [x] Show preview in export dialog:
-    - [x] Source image on left
-    - [x] Exported ANSI on right  *(live split preview)*
-  - [x] Style (radio):
-    - [x] 8x8 Half block (only one choice now)
-  - [x] Mode (radio):
-    - [x] 16 Colors
-    - [x] iCE
-    - [x] 256 Colors (xbin)
-    - [x] RGB Colors (xterm)
-  - [x] Width: ____ [auto]  *(SIZE columns stepper + [auto])*
-  - [x] Height: ____ [auto]  *(derived to preserve aspect)*
-    - [x] Both are encoded as SAUCE
-    - [x] Including the font type
-- [x] Using kaleidotron style IMPORT for ANSI render to image -> Import (same funciton as import image)
-- Shipped beyond the original spec:
-  - [x] Export SOURCE: flattened document / current layer / marquee selection
-  - [x] Export CELLS: per-pixel (max detail) vs 1:1 8px (round-trips terminal art); FONT VGA 8x16 / VGA50 8x8
-  - [x] Import binary formats: BIN, XBIN (.xb/.xbin — palette/font/RLE), TundraDraw (.tnd)
-  - [x] Import 256-color + 24-bit truecolor .ans; UTF-8 block/box art auto-detected -> CP437
-  - [x] Import options dialog: 8/9-dot cell width, DOS aspect, 1-8x scale
-  - [x] Install XBIN embedded font -> user bitmap fonts; custom palette -> user .GPL
-  - [x] CLI open (`./DRAW.run art.xb`); validated against kaleidotron
-
 ## Animation Support
 - [ ] TBD (this needs deep thought)
 
 ## Tilemap Support
 - [ ] TBD (this needs deep thought)
 
-## CREATE DARK THEME
-- [ ] To test the theme mode, we need a dark theme
-
 ## ANTIALIAS MODE 
 - [ ] See plan: <a href="./ANTI-ALIASING-PLAN.md">Anti-Aliasing Plan</a>
 - [ ] Everything operates in anti-aliased mode. (this is a big one)
-
-
-## DRAW KITS
-- User sharable and exportable kits which contain all or one of:
-  - Themes
-  - Patterns
-  - Gradients
-  - Brushes
-  - Palettes
-  - Fonts
-    - Bitmap
-    - Truetype/etc.
-  - Text styles
-  - Templates
-
-### Install from zip
-- Choose zip
-- Show preview image
-- Show description
-- Show author information
-- Click install
-
-### Export to zip
-- Dialog with checkboxes of what to export in current state
-  - [ ] Themes
-  - [ ] Patterns
-  - [ ] Gradients
-  - [ ] Brushes
-  - [ ] Palettes
-  - [ ] Fonts
-    - [ ] Bitmap
-    - [ ] Truetype/etc.
-  - [ ] Text styles
-  - [ ] Templates
-- Name field
-- Description field
-- Screenshot chooser
-- Export button
-
-
-
-
 
 ## ADDITIONAL TABLE LAYOUT MODE
 
@@ -1247,4 +1133,102 @@ made this worse than it is for TTFs, so used faces are recorded in
 the next launch. That gives them the same index stability as any other installed
 font. Properly fixing font identity in `.draw` needs a versioned text-layer
 record and is its own task.
+
+## DRAW KITS
+- User sharable and exportable kits which contain all or one of:
+  - Themes
+  - Patterns
+  - Gradients
+  - Brushes
+  - Palettes
+  - Fonts
+    - Bitmap
+    - Truetype/etc.
+  - Text styles
+  - Templates
+
+### Install from zip
+- Choose zip
+- Show preview image
+- Show description
+- Show author information
+- Click install
+
+### Export to zip
+- Dialog with checkboxes of what to export in current state
+  - [x] Themes
+  - [x] Patterns
+  - [x] Gradients
+  - [x] Brushes
+  - [x] Palettes
+  - [x] Fonts
+    - [x] Bitmap
+    - [x] Truetype/etc.
+  - [x] Text styles
+  - [x] Templates
+- Name field
+- Description field
+- Screenshot chooser
+- Export button
+
+## Font Preview in popup ✅ SHIPPED (PR #97)
+- [x] Add setting: 
+  - [x] Checkbox - Enable font previews in menu
+    - [x] Font size: ___ [8] [16] [24] [32] (buttons for numbers to insert)
+    - [x] Max Width: ____ [32] [64] [128] (buttons for numbers to insert)
+    - [x] Max Height: ____ [16] [32] [64] (buttons for numbers to insert)
+    - [x] FG color: [ ] color chip picker
+    - [x] BG color: [ ] color chip picker
+    - [x] Divider color: [ ] color chip picker
+    - [x] Preview Text: {font|FONT|Font} {NumGlyphs} __________ [ABCabc123] [DRAW SoMeThiNG!] (buttons insert the text)
+      - [x] If {font|FONT|Font} - show that in the preview text of the font picker in the case accordingly
+      - [x] NumGlyphs = how many total glyphs in the font, including the entire range, unicode or otherwise.
+        - [x] Count only NON-Blank glyphs (via `FONT_count_ttf_range%` using `_UPRINTSTRING`)
+          - [x] Count can be part of font as it's cached for previews, etc.
+- When this is on:
+  - [x] Immediately on Apply:
+    - [x] Create previews for the dropdown font pickers
+    - [x] The previews should show the name of the font
+  - [x] Previews should be cached (`FONT_PREVIEW_*`, invalidated on font rescan)
+    - [x] Cache can be wherever DRAW already stores it
+  - [x] New fonts should be scanned/rendered on startup
+  - [x] If the popups don't fit on the screen, render as much as it can and use ... for telling user.
+    - [x] If popups don't fit in vertical space, use the same methods of scrolling/showing for the fonts that we already do for main menu, and mousehweel and arrowsa up/down, etc.
+
+Implementation: previews render **under** each font name in the submenu (compact
+12px main list, wide preview strip only in the flyout); TheDraw faces excluded
+from the picker; stale-popup and click-away close fixed; DRAW.cfg/THEME.cfg keys
+per the completed TEXT TOOL entry below. Shipped via the `font-previews` branch.
+
+## Add ANSI IMPORT/EXPORT SUPPORT ✅ SHIPPED v1.9.0 (PR #96)
+- [x] File -> Import ANSI | Export ANSI
+- [x] Using IMG2ANS style export (~/git/IMG2ANS)
+  - [x] Detect if EGA palette - automatically  *(auto-detects mode; ANS_detect_palette)*
+  - [x] Detect if RGB palette - automatically
+  - [x] Show preview in export dialog:
+    - [x] Source image on left
+    - [x] Exported ANSI on right  *(live split preview)*
+  - [x] Style (radio):
+    - [x] 8x8 Half block (only one choice now)
+  - [x] Mode (radio):
+    - [x] 16 Colors
+    - [x] iCE
+    - [x] 256 Colors (xbin)
+    - [x] RGB Colors (xterm)
+  - [x] Width: ____ [auto]  *(SIZE columns stepper + [auto])*
+  - [x] Height: ____ [auto]  *(derived to preserve aspect)*
+    - [x] Both are encoded as SAUCE
+    - [x] Including the font type
+- [x] Using kaleidotron style IMPORT for ANSI render to image -> Import (same funciton as import image)
+- Shipped beyond the original spec:
+  - [x] Export SOURCE: flattened document / current layer / marquee selection
+  - [x] Export CELLS: per-pixel (max detail) vs 1:1 8px (round-trips terminal art); FONT VGA 8x16 / VGA50 8x8
+  - [x] Import binary formats: BIN, XBIN (.xb/.xbin — palette/font/RLE), TundraDraw (.tnd)
+  - [x] Import 256-color + 24-bit truecolor .ans; UTF-8 block/box art auto-detected -> CP437
+  - [x] Import options dialog: 8/9-dot cell width, DOS aspect, 1-8x scale
+  - [x] Install XBIN embedded font -> user bitmap fonts; custom palette -> user .GPL
+  - [x] CLI open (`./DRAW.run art.xb`); validated against kaleidotron
+
+## CREATE DARK THEME
+- [x] To test the theme mode, we need a dark theme
 
