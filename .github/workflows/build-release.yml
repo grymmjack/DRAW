@@ -19,59 +19,195 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # DRAW requires _MOUSECURSOR (a740g GLFW work, PR #701), which is only in QB64-PE
+  # main — NO released tag has it yet (v4.6.0 predates the merge). So we build the
+  # compiler from main source on every runner rather than downloading a release
+  # asset (there is none for a branch). Mirrors hw-cursor-crossplatform.yml.
+  QB64PE_REPO: https://github.com/QB64-Phoenix-Edition/QB64pe.git
+  QB64PE_BRANCH: main
 
 jobs:
   build-linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-      
-      - name: Build for Linux
-        uses: grymmjack/qb64pe-docker@main
+
+      - name: Install build deps (QB64pe PR #752 set)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential x11-utils mesa-common-dev libglu1-mesa-dev libgl1-mesa-dri \
+            libasound2-dev libpng-dev pulseaudio dbus-x11 libportaudio2 \
+            libcurl4-openssl-dev libx11-dev libxcursor-dev libxrandr-dev \
+            libxinerama-dev libxi-dev libwayland-dev libxkbcommon-dev \
+            wayland-protocols xvfb rsync
+
+      - name: Build QB64-PE from main (GLFW / _MOUSECURSOR)
+        run: |
+          # setup_lnx.sh writes a .desktop launcher into these dirs.
+          mkdir -p "$HOME/.local/share/applications" "$HOME/.local/share/icons"
+          git clone --depth 1 --branch "$QB64PE_BRANCH" "$QB64PE_REPO" qb64pe
+          cd qb64pe && chmod +x ./setup_lnx.sh
+          # Non-blank arg -> setup does NOT auto-launch the IDE (needs a display).
+          ./setup_lnx.sh nogui
+          test -x ./qb64pe || { echo "::error::qb64pe compiler was not built"; exit 1; }
+          # Regenerate the compiler from source so _MOUSECURSOR is definitely known,
+          # regardless of the committed qbx.cpp state. Xvfb in case -x inits a window.
+          xvfb-run -a ./qb64pe -x ./source/qb64pe.bas -o ./qb64pe-regen
+          test -x ./qb64pe-regen || { echo "::error::qb64pe-regen was not built"; exit 1; }
+
+      - name: Compile DRAW
+        run: xvfb-run -a ./qb64pe/qb64pe-regen -w -x -o DRAW DRAW.BAS
+
+      - name: Package release (repo minus source + binary)
+        run: |
+          test -x ./DRAW || { echo "::error::DRAW binary was not produced"; exit 1; }
+          PKG=DRAW-package
+          mkdir -p "$PKG"
+          # .qb64pe-ignore drops sources, .git, submodules, docs, etc. (# lines are
+          # comments to rsync). Keeps ASSETS/, SAMPLES/, and the *.cfg defaults.
+          rsync -av --exclude='.git/' --exclude='qb64pe/' --exclude="$PKG/" \
+            --exclude-from='.qb64pe-ignore' ./ "$PKG/"
+          cp DRAW "$PKG/"
+          find "$PKG" -type d -empty -delete
+          tar -czf DRAW-lnx-x64.tar.gz -C "$PKG" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          platform: 'linux'
-          source-file: 'DRAW.BAS'
-          project-name: 'DRAW'
-          qb64pe-version: 'v4.5.0'
-          remove-empty-dirs: 'true' 
-  
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
-      
-      - name: Build for Windows
-        uses: grymmjack/qb64pe-docker@main
-        with:
-          platform: 'windows'
-          source-file: 'DRAW.BAS'
-          project-name: 'DRAW'
-          qb64pe-version: 'v4.5.0'
-          remove-empty-dirs: 'true' 
-  
+          name: DRAW-linux
+          path: DRAW-lnx-x64.tar.gz
+          if-no-files-found: error
+
   build-macos:
     runs-on: macos-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-      
-      - name: Build for macOS
-        uses: grymmjack/qb64pe-docker@main
+
+      - name: Build QB64-PE from main (GLFW / _MOUSECURSOR)
+        run: |
+          git clone --depth 1 --branch "$QB64PE_BRANCH" "$QB64PE_REPO" qb64pe
+          cd qb64pe && chmod +x ./setup_osx.command
+          # Non-blank arg -> setup does NOT auto-launch the IDE (would open+hang the step).
+          ./setup_osx.command nogui
+          test -x ./qb64pe || { echo "::error::qb64pe compiler was not built"; exit 1; }
+          ./qb64pe -x ./source/qb64pe.bas -o ./qb64pe-regen
+          test -x ./qb64pe-regen || { echo "::error::qb64pe-regen was not built"; exit 1; }
+
+      - name: Compile DRAW
+        run: ./qb64pe/qb64pe-regen -w -x -o DRAW DRAW.BAS
+
+      - name: Package release (repo minus source + binary)
+        run: |
+          test -x ./DRAW || { echo "::error::DRAW binary was not produced"; exit 1; }
+          PKG=DRAW-package
+          mkdir -p "$PKG"
+          rsync -av --exclude='.git/' --exclude='qb64pe/' --exclude="$PKG/" \
+            --exclude-from='.qb64pe-ignore' ./ "$PKG/"
+          cp DRAW "$PKG/"
+          find "$PKG" -type d -empty -delete
+          tar -czf DRAW-osx-x64.tar.gz -C "$PKG" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          platform: 'macos'
-          source-file: 'DRAW.BAS'
-          project-name: 'DRAW'
-          qb64pe-version: 'v4.5.0'
-          remove-empty-dirs: 'true'
-  
+          name: DRAW-macos
+          path: DRAW-osx-x64.tar.gz
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Clone QB64-PE main
+        shell: bash
+        run: git clone --depth 1 --branch "$QB64PE_BRANCH" "$QB64PE_REPO" qb64pe
+
+      - name: Build compiler (bundled MinGW) + regen
+        shell: cmd
+        run: |
+          cd qb64pe
+          call setup_win.cmd
+          qb64pe.exe -x .\source\qb64pe.bas -o .\qb64pe-regen.exe
+
+      - name: Compile DRAW
+        shell: cmd
+        run: qb64pe\qb64pe-regen.exe -w -x -o DRAW.exe DRAW.BAS
+
+      - name: Package release (repo minus source + binary)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "DRAW.exe")) { Write-Error "DRAW.exe was not produced"; exit 1 }
+          $packageDir = "DRAW-package"
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+
+          # Base excludes + .qb64pe-ignore (skip # comments / blanks). Mirrors the
+          # qb64pe-docker packaging so release contents match previous releases.
+          $excludePatterns = @('*.bas','*.bi','*.bm','*.frm','.git','.gitmodules','submodules','.qb64pe-ignore','*.7z','qb64pe')
+          if (Test-Path ".qb64pe-ignore") {
+            Get-Content ".qb64pe-ignore" | ForEach-Object {
+              $line = $_.Trim()
+              if ($line -and -not $line.StartsWith('#')) { $excludePatterns += $line.TrimEnd('/') }
+            }
+          }
+
+          function Test-ShouldExclude($relativePath, $name, $patterns) {
+            foreach ($pattern in $patterns) {
+              if ($pattern.Contains('*')) {
+                if ($name -like $pattern) { return $true }
+                if ($relativePath -like "*$pattern*") { return $true }
+              } else {
+                if ($name -eq $pattern) { return $true }
+                if (($relativePath -split '\\') -contains $pattern) { return $true }
+                if ($relativePath -like "$pattern\*" -or $relativePath -like "*\$pattern\*") { return $true }
+              }
+            }
+            return $false
+          }
+
+          Get-ChildItem -Path . -Recurse -Force |
+            Where-Object { $_.FullName -notlike "*$packageDir*" } |
+            ForEach-Object {
+              $relativePath = $_.FullName.Substring($PWD.Path.Length + 1)
+              if (-not (Test-ShouldExclude $relativePath $_.Name $excludePatterns)) {
+                $destPath = Join-Path $packageDir $relativePath
+                if ($_.PSIsContainer) {
+                  if (-not (Test-Path $destPath)) { New-Item -ItemType Directory -Force -Path $destPath | Out-Null }
+                } else {
+                  $destDir = Split-Path $destPath -Parent
+                  if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }
+                  Copy-Item $_.FullName -Destination $destPath -Force
+                }
+              }
+            }
+
+          Copy-Item "DRAW.exe" -Destination "$packageDir/" -Force
+          # Drop empty dirs left behind by the exclusions
+          Get-ChildItem -Path $packageDir -Recurse -Directory |
+            Where-Object { (Get-ChildItem $_.FullName -Force | Measure-Object).Count -eq 0 } |
+            Sort-Object -Property FullName -Descending | Remove-Item -Force
+          Compress-Archive -Path "$packageDir\*" -DestinationPath "DRAW-win-x64.zip" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DRAW-windows
+          path: DRAW-win-x64.zip
+          if-no-files-found: error
+
   release:
     name: Create Release
     needs: [build-linux, build-windows, build-macos]
@@ -79,48 +215,47 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || inputs.create_release == true
     permissions:
       contents: write
-    
+
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-      
+
       - name: List artifact contents (debug)
         run: find artifacts -type f | head -50
-      
+
       - name: Package release archives
         run: |
           mkdir -p release
-          
-          # Linux: find the tar.gz produced by qb64pe-docker
+
+          # Linux: the tar.gz produced by build-linux
           LINUX_ARCHIVE=$(find artifacts/DRAW-linux -name "*.tar.gz" -type f 2>/dev/null | head -1)
           if [ -n "$LINUX_ARCHIVE" ]; then
             cp "$LINUX_ARCHIVE" release/DRAW-lnx-x64.tar.gz
           else
-            # Fallback: package the artifact directory contents
             (cd artifacts/DRAW-linux && tar czf ../../release/DRAW-lnx-x64.tar.gz *)
           fi
-          
-          # Windows: find the zip produced by qb64pe-docker
+
+          # Windows: the zip produced by build-windows
           WIN_ARCHIVE=$(find artifacts/DRAW-windows -name "*.zip" -type f 2>/dev/null | head -1)
           if [ -n "$WIN_ARCHIVE" ]; then
             cp "$WIN_ARCHIVE" release/DRAW-win-x64.zip
           else
             (cd artifacts/DRAW-windows && zip -r ../../release/DRAW-win-x64.zip *)
           fi
-          
-          # macOS: package the regular build (flat archive)
+
+          # macOS: the tar.gz produced by build-macos
           MACOS_ARCHIVE=$(find artifacts/DRAW-macos -name "*.tar.gz" -type f 2>/dev/null | head -1)
           if [ -n "$MACOS_ARCHIVE" ]; then
             cp "$MACOS_ARCHIVE" release/DRAW-osx-x64.tar.gz
           else
             (cd artifacts/DRAW-macos && tar czf ../../release/DRAW-osx-x64.tar.gz *)
           fi
-          
+
           echo "Release archives:"
           ls -lh release/
-      
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
