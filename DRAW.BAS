@@ -58,12 +58,15 @@ THEME_load
 '$CONSOLE
 $EXEICON:'./ASSETS/ICONS/icon.ico'
 
-' Runtime window / taskbar icon. $EXEICON above only embeds an icon into the Windows
-' .exe (it is a no-op on Linux/macOS); _ICON sets the actual live window icon on every
-' platform (GLFW included). Load a 32-bit PNG and hand it to _ICON; the icon data is
-' copied, so the image can be freed immediately.
+' Runtime window / taskbar icon. SCREEN_init already calls _ICON, but that runs while
+' the window is still HIDDEN ($SCREENHIDE) and on GLFW an icon set on a hidden window
+' does not stick — the WM then falls back to a thumbnail of the window content (the
+' splash). Set it again HERE, now that the window is shown (after _SCREENSHOW /
+' _SCREENMOVE above), with a valid single-arg call (the PNG's alpha is the mask — do
+' NOT pass a second handle). Keep the image alive (do not _FREEIMAGE) so a deferred GLFW
+' icon upload still has valid pixels. $EXEICON above is Windows-.exe only (no-op here).
 DIM appIcon AS LONG : appIcon& = _LOADIMAGE("ASSETS/ICONS/icon-512.png", 32)
-IF appIcon& < -1 THEN _ICON appIcon& : _FREEIMAGE appIcon&
+IF appIcon& < -1 THEN _ICON appIcon&
 
 ' === Splash screen — show ASAP with fade-in while rest of startup loads ===
 DIM splashImg     AS LONG, splashStart AS DOUBLE
@@ -247,10 +250,7 @@ LAYER_PANEL_load_icons
 ' Set initial window title
 TITLE_update
 
-$IF WIN THEN
-    ' Windows: enable drag-and-drop file support
-    _ACCEPTFILEDROP
-$END IF
+_ACCEPTFILEDROP
 
 ' Seed RNG once at startup so music shuffle and any other RND calls are truly random
 RANDOMIZE TIMER
@@ -430,25 +430,23 @@ DO
         CMDLINE_FIRST_FRAME% = FALSE
     END IF
 
-    $IF WIN THEN
-        ' Windows: handle drag-and-drop files onto window
-        IF _TOTALDROPPEDFILES THEN
-            DIM dropFile$, dropExt$
-            dropFile$ = _DROPPEDFILE$(1)
-            _FINISHDROP
-            IF dropFile$ <> "" AND _FILEEXISTS(dropFile$) THEN
-                dropExt$ = LCASE$(RIGHT$(dropFile$, 5))
-                IF dropExt$ = ".draw" THEN
-                    DRW_load dropFile$
-                    SOUND_play SND_NEW_FILE
-                    CURRENT_DRW_FILENAME$ = dropFile$
-                ELSE
-                    DIM dropLoadResult%
-                    dropLoadResult% = IMAGE_IMPORT_load_file%(dropFile$)
-                END IF
+    IF _TOTALDROPPEDFILES THEN
+        DIM dropFile$, dropExt$
+        dropFile$ = _DROPPEDFILE$(1)
+        _FINISHDROP
+        IF dropFile$ <> "" AND _FILEEXISTS(dropFile$) THEN
+            dropExt$ = LCASE$(RIGHT$(dropFile$, 5))
+            IF dropExt$ = ".draw" THEN
+                DRW_load dropFile$
+                SOUND_play SND_NEW_FILE
+                CURRENT_DRW_FILENAME$ = dropFile$
+            ELSE
+                DIM dropLoadResult%
+                dropLoadResult% = IMAGE_IMPORT_load_file%(dropFile$)
             END IF
         END IF
-    $END IF
+    END IF
+
     ' OS-initiated window resize (maximize, drag, etc.): snap back to nearest
     ' integer scale so $RESIZE:STRETCH always produces a pixel-perfect result.
     ' Also run a settle watcher because some WMs can miss/lag _RESIZE while
