@@ -581,13 +581,23 @@ SUB IMAGE_ADJ_blend_last ()
     IF _WIDTH(bLayer&) <> _WIDTH(LAST_FX_AFTER&) OR _HEIGHT(bLayer&) <> _HEIGHT(LAST_FX_AFTER&) THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 210
+    DIALOG_init ctx, IMGDLG_W, 224   ' +14 over the base fade dialog for the ISOLATE button
 
     DIM opac AS INTEGER : opac% = 100
     DIM oOpac AS INTEGER
     STATIC mode AS INTEGER
     DIM oMode AS INTEGER
     DIM mvY AS INTEGER : mvY% = IMGDLG_track_y%(ctx, 0) + 26   ' mode dropdown box top
+
+    ' ISOLATE-to-new-layer button: extracts the current composited result onto a new
+    ' layer ABOVE the effect layer and reverts the effect layer to its pre-effect
+    ' state — turns a destructive effect into a non-destructive, separately-editable
+    ' layer. Sits between the MODE dropdown and the OK/RESET/CANCEL row.
+    DIM isolate  AS INTEGER : isolate%  = FALSE
+    DIM isoBtnX  AS INTEGER : isoBtnX%  = IMGDLG_SX
+    DIM isoBtnW  AS INTEGER : isoBtnW%  = IMGDLG_SW
+    DIM isoBtnH  AS INTEGER : isoBtnH%  = IMGDLG_BTN_H
+    DIM isoBtnY  AS INTEGER : isoBtnY%  = IMGDLG_track_y%(ctx, 0) + 70
 
     ' All layer blend modes 0..BLEND_MODE_COUNT-1 (PASS THROUGH is group-only, skipped).
     REDIM blModeLabels(0 TO BLEND_MODE_COUNT - 1) AS STRING
@@ -611,6 +621,10 @@ SUB IMAGE_ADJ_blend_last ()
         IF opac% <> oOpac% OR mode% <> oMode% THEN applied% = -2
         IMGDLG_check_ok_cancel ctx                                   ' OK / RESET / CANCEL buttons
         IF IMGDLG_RESET_CLICKED% THEN opac% = 100 : mode% = 0 : applied% = -2 : IMGDLG_RESET_CLICKED% = FALSE
+        ' ISOLATE: only when the MODE dropdown list isn't open over the button.
+        IF DIALOG_DD_OPEN% = 0 THEN
+            IF DIALOG_hit%(ctx, isoBtnX%, isoBtnY%, isoBtnW%, isoBtnH%) THEN isolate% = TRUE : ctx.done% = TRUE
+        END IF
 
         IF applied% <> 0 THEN
             IMGADJ_blend_compose bLayer&, LAST_FX_BEFORE&, LAST_FX_AFTER&, opac%, mode%
@@ -629,13 +643,47 @@ SUB IMAGE_ADJ_blend_last ()
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "OPACITY:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, opac%, 0, 100, "", ""
         DIALOG_dropdown_draw ctx, 1, IMGDLG_SX, mvY%, IMGDLG_SW, mode%, blModeLabels$(), BLEND_MODE_COUNT
+        DIALOG_draw_button ctx, isoBtnX%, isoBtnY%, isoBtnW%, isoBtnH%, "ISOLATE ONTO NEW LAYER", _RGB32(45, 70, 105), _RGB32(65, 100, 150), _RGB32(90, 140, 205)
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_dropdown_overlay ctx
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
-    IF ctx.result% THEN
+    IF isolate% THEN
+        ' NON-DESTRUCTIVE APPLY: lift the current composited result onto a new layer
+        ' ABOVE the effect layer, and revert the effect layer to its pre-effect (BEFORE)
+        ' pixels. One grouped Undo (revert base + drop the new layer) reverses both.
+        DIM isoOldD AS LONG : isoOldD& = _DEST
+        DIM isoComposed AS LONG : isoComposed& = _COPYIMAGE(bLayer&, 32)      ' what the user sees now
+        DIM isoApW AS INTEGER : isoApW% = LAYERS(LAST_FX_LAYER%).apronW%
+        DIM isoApH AS INTEGER : isoApH% = LAYERS(LAST_FX_LAYER%).apronH%
+        HISTORY_begin_group
+        ' 1) revert base layer; record its current (post-effect/faded) pixels for Undo
+        DIM isoBaseSnap AS LONG : isoBaseSnap& = _COPYIMAGE(bLayer&, 32)
+        IF isoBaseSnap& < -1 THEN HISTORY_record_transform LAYERS(LAST_FX_LAYER%).historyId&, LAST_FX_LAYER%, 0, isoBaseSnap&, "Isolate " + LAST_FX_LABEL$
+        _DEST bLayer& : _DONTBLEND bLayer& : _PUTIMAGE (0, 0), LAST_FX_BEFORE&, bLayer& : _BLEND bLayer& : _DEST isoOldD&
+        LAYERS(LAST_FX_LAYER%).contentDirty% = TRUE
+        ' 2) new canvas-sized layer directly above; paint the composited result into
+        '    it, mapping through the base layer's apron so canvas pixels line up
+        CURRENT_LAYER% = LAST_FX_LAYER%
+        DIM isoIdx AS INTEGER : isoIdx% = LAYERS_new%
+        IF isoIdx% > 0 AND isoComposed& < -1 THEN
+            DIM isoDest AS LONG : isoDest& = LAYERS(isoIdx%).imgHandle&
+            IF isoDest& < -1 THEN
+                DIM isoCW AS LONG : isoCW& = SCRN.canvasW&
+                DIM isoCH AS LONG : isoCH& = SCRN.canvasH&
+                _DEST isoDest& : _DONTBLEND isoDest& : CLS , _RGBA32(0, 0, 0, 0)
+                _PUTIMAGE (0, 0)-(isoCW& - 1, isoCH& - 1), isoComposed&, isoDest&, (isoApW%, isoApH%)-(isoApW% + isoCW& - 1, isoApH% + isoCH& - 1)
+                _BLEND isoDest& : _DEST isoOldD&
+                LAYERS(isoIdx%).contentDirty% = TRUE
+                HISTORY_refresh_layer_add_snapshot LAYERS(isoIdx%).historyId&
+            END IF
+        END IF
+        HISTORY_end_group
+        HISTORY_saved_this_frame% = TRUE
+        SAFE_FREEIMAGE isoComposed&
+    ELSEIF ctx.result% THEN
         DIM bSnap AS LONG : bSnap& = _COPYIMAGE(LAST_FX_BEFORE&, 32)
         IF bSnap& < -1 THEN HISTORY_record_transform LAYERS(LAST_FX_LAYER%).historyId&, LAST_FX_LAYER%, 0, bSnap&, "Fade " + LAST_FX_LABEL$
         HISTORY_saved_this_frame% = TRUE
