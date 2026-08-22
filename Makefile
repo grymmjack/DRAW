@@ -9,15 +9,15 @@
 #   make clean        Remove built binary and log files
 #   make clean-log    Remove log file only
 #
-# Compiler selection (default = $(HOME)/git/qb64pe-450/qb64pe — QB64-PE v4.5.0):
-#   make v440             Build with the v4.4.0 compiler ($(HOME)/git/qb64pe)
-#   make v450             Build with the v4.5.0 compiler ($(HOME)/git/qb64pe-450) [default]
-#   make a740g            Build with the a740g PR compiler
-#   make v440-run         Build & run with v440
+# Compiler selection (default = $(HOME)/git/qb64pe/qb64pe — QB64-PE main, v4.6.0+):
+#   make main             Build with the main-repo compiler ($(HOME)/git/qb64pe) [default]
+#   make v450             Build with the legacy v4.5.0 compiler ($(HOME)/git/qb64pe-450)
+#   make a740g            Build with the standalone a740g PR compiler (now redundant)
+#   make main-run         Build & run with main
 #   make v450-run         Build & run with v450
 #   make a740g-run        Build & run with a740g
-#   make COMPILER=v440 <target>    Combine with any other target
-#   make COMPILER=v440 clean       (e.g. clean using v440 build dir)
+#   make COMPILER=main <target>    Combine with any other target
+#   make COMPILER=main clean       (e.g. clean using main build dir)
 #   make QB64PE=/full/path         Override path directly
 #
 # Compile output is appended to .claude/make.log (project-local, gitignored)
@@ -38,24 +38,30 @@ LOGFILE   := $(BASENAME).log
 MAKE_LOG  := .claude/make.log
 
 # ---------- Compiler ----------------------------------------------------------
-# Default is a740g (GLFW / PR #701, regenerated). DRAW now REQUIRES it: the hardware
-# cursor (_MOUSECURSOR) is the sole cursor path and does NOT compile on v450. Pick an
-# alternate with COMPILER=v440|v450|a740g, or override with QB64PE=/full/path (but
-# v440/v450 will fail on _MOUSECURSOR until PR #701 lands in a release).
+# Default is the stock main-repo build ($(HOME)/git/qb64pe, QB64-PE v4.6.0+). The
+# a740g GLFW work (PR #701) — including the hardware cursor (_MOUSECURSOR), DRAW's
+# sole cursor path — has now merged upstream, so the ordinary compiler builds DRAW
+# again and the a740g checkout is no longer required. Pick an alternate with
+# COMPILER=v450|a740g, or override with QB64PE=/full/path.
 COMPILER ?=
-ifeq ($(COMPILER),v440)
+ifeq ($(COMPILER),main)
+    QB64PE := $(HOME)/git/qb64pe/qb64pe
+else ifeq ($(COMPILER),v440)
+    # Back-compat alias: this checkout is now main (v4.6.0+), not the old v4.4.0.
     QB64PE := $(HOME)/git/qb64pe/qb64pe
 else ifeq ($(COMPILER),v450)
+    # Legacy: last pre-GLFW release. FAILS on _MOUSECURSOR — testing only.
     QB64PE := $(HOME)/git/qb64pe-450/qb64pe
 else ifeq ($(COMPILER),a740g)
-    # NOTE: use the *regenerated* GLFW compiler. The plain `qb64pe` binary in that
-    # checkout was built from a committed qbx.cpp that predates _MOUSECURSOR, so it
-    # rejects the keyword with a bare "Syntax error" (see PLANS/GLFW-PR701-TEST-RESULTS.md,
-    # "Build gotcha"). qb64pe-regen was re-transpiled from source and knows it.
+    # The *regenerated* GLFW compiler from the standalone a740g test checkout, kept
+    # for parity testing. The plain `qb64pe` binary there predates _MOUSECURSOR and
+    # rejects it with a bare "Syntax error" (see PLANS/GLFW-PR701-TEST-RESULTS.md,
+    # "Build gotcha"); qb64pe-regen was re-transpiled from source and knows it. Now
+    # redundant — the default main compiler has _MOUSECURSOR too.
     QB64PE := $(HOME)/git/qb64pe-a740g-test/qb64pe-regen
 else
-    # Default: the regenerated a740g/GLFW compiler (required for _MOUSECURSOR).
-    QB64PE ?= $(HOME)/git/qb64pe-a740g-test/qb64pe-regen
+    # Default: the stock main-repo compiler (v4.6.0+, has _MOUSECURSOR).
+    QB64PE ?= $(HOME)/git/qb64pe/qb64pe
 endif
 THREADS   ?= 12
 QB64FLAGS := -w -x -f:MaxCompilerProcesses=$(THREADS)
@@ -109,7 +115,7 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
 
 # ---------- Targets -----------------------------------------------------------
 .PHONY: help all run run-logged run-log-bas clean clean-log \
-        v440 v450 a740g v440-run v450-run a740g-run
+        main v450 a740g main-run v450-run a740g-run
 .DEFAULT_GOAL := all
 
 # `make help` lists every target by scanning this file for TARGET-DEFINITION
@@ -119,7 +125,7 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
 help:  #: Show this help (targets + variable overrides)
 	@awk 'BEGIN{FS="[ \t]*#: "} /^[a-zA-Z][a-zA-Z0-9_-]*:([^=]|$$)/ && /#: / {name=$$1; sub(/:.*/,"",name); printf "  \033[36m%-12s\033[0m %s\n", name, $$2}' $(MAKEFILE_LIST) | sort
 	@printf '\nVariable overrides (append VAR=value to any target):\n'
-	@printf '  COMPILER=v440|v450|a740g  alternate qb64pe build (default v450)\n'
+	@printf '  COMPILER=main|v450|a740g  alternate qb64pe build (default main)\n'
 	@printf '  QB64PE=/full/path     override the compiler path directly\n'
 	@printf '  THREADS=N             parallel compiler processes (default 12)\n'
 
@@ -152,21 +158,21 @@ clean-log:  #: Remove the log file only
 
 # ---------- Compiler shortcuts ------------------------------------------------
 # Each shortcut recurses into make with COMPILER=<alias> so the ifeq chain
-# above resolves QB64PE to the matching path. Plain `make` already uses v450,
+# above resolves QB64PE to the matching path. Plain `make` already uses main,
 # so these select a non-default compiler (or make the default explicit).
-v440:  #: Build with the v4.4.0 compiler (~/git/qb64pe)
-	@$(MAKE) --no-print-directory COMPILER=v440 all
+main:  #: Build with the main-repo compiler (~/git/qb64pe, v4.6.0+) [default]
+	@$(MAKE) --no-print-directory COMPILER=main all
 
-v450:  #: Build with the v4.5.0 compiler (~/git/qb64pe-450) [current default]
+v450:  #: Build with the legacy v4.5.0 compiler (~/git/qb64pe-450; no _MOUSECURSOR)
 	@$(MAKE) --no-print-directory COMPILER=v450 all
 
-a740g:  #: Build with the a740g PR compiler
+a740g:  #: Build with the standalone a740g PR compiler (redundant with default)
 	@$(MAKE) --no-print-directory COMPILER=a740g all
 
-v440-run:  #: Build & run with the v4.4.0 compiler
-	@$(MAKE) --no-print-directory COMPILER=v440 run
+main-run:  #: Build & run with the main-repo compiler
+	@$(MAKE) --no-print-directory COMPILER=main run
 
-v450-run:  #: Build & run with the v4.5.0 compiler
+v450-run:  #: Build & run with the legacy v4.5.0 compiler
 	@$(MAKE) --no-print-directory COMPILER=v450 run
 
 a740g-run:  #: Build & run with the a740g compiler
