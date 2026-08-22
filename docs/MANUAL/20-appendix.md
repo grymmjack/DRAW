@@ -66,7 +66,7 @@ The complete, always-up-to-date list of keyboard shortcuts lives in [`CHEATSHEET
 | Action | Shortcut |
 | --- | --- |
 | Swap FG / BG | `X` |
-| Reset FG / BG | `Ctrl+D` |
+| Reset FG / BG | *Palette menu → Default Colors* |
 | BG = transparent | `Shift+Delete` |
 | Paint opacity | `0`–`9` |
 | Temp picker FG / BG | `Alt`+L-click / R-click |
@@ -91,7 +91,7 @@ The complete, always-up-to-date list of keyboard shortcuts lives in [`CHEATSHEET
 | Select All / Deselect | `Ctrl+A` / `Ctrl+D` |
 | Invert | `Ctrl+Shift+I` |
 | Copy / Cut / Paste | `Ctrl+C` / `X` / `V` |
-| Paste in Place | `Ctrl+Alt+Shift+V` |
+| Paste in Place | *Edit menu* |
 | Copy Merged | `Ctrl+Shift+C` |
 | Copy / Cut to New Layer | `Ctrl+Alt+C` / `X` |
 
@@ -103,7 +103,7 @@ The complete, always-up-to-date list of keyboard shortcuts lives in [`CHEATSHEET
 | Group / Ungroup | `Ctrl+G` / `Ctrl+Shift+U` |
 | Group selected | `Ctrl+Shift+G` |
 | Move up / down | `Ctrl+PgUp` / `Ctrl+PgDn` |
-| Move to top / bottom | `Ctrl+Home` / `Ctrl+End` |
+| Move to top / bottom | `Ctrl+Shift+]` / `Ctrl+Shift+[` |
 | Merge Down / Visible | `Ctrl+Alt+E` / `Ctrl+Alt+Shift+E` |
 
 ### History / Edit

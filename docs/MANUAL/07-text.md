@@ -101,7 +101,7 @@ Open with `Ctrl+M` for a 16×16 grid of all 256 glyphs in the active font.
 
 - Click a glyph to insert it (or use it as a custom brush).
 - Dock the panel left or right.
-- Toggle Unicode / CP437 mapping with `Ctrl+Shift+U`.
+- Toggle Unicode / CP437 mapping from the **View menu → Charmap Unicode/CP437 Toggle** (or the command palette).
 
 > 📸 **Screenshot needed — Character Map panel**
 > - **Setup:** Switch to VGA font, enable Character Mode, open `Ctrl+M`.

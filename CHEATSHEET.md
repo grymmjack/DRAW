@@ -72,7 +72,7 @@ status bar as `OP:nn%` when below 100%.
 | Key | Action |
 |-----|--------|
 | `X` | Swap foreground and background colors (including transparency state) |
-| `Ctrl+D` | Reset FG to white, BG to black (also deselects active selection) |
+| `Ctrl+D` | Deselect active selection |
 | `Shift+Delete` | Set BG to transparent (leave FG as-is) |
 | `Ctrl+Alt+R` | Load a random palette from available palettes |
 | `F1` | Drawer brush mode |

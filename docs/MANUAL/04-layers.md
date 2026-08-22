@@ -16,7 +16,7 @@ DRAW supports up to **64 layers** per canvas. The Layer Panel on the right lists
 | Duplicate Layer | `Ctrl+Shift+D` |
 | Delete Layer | `Ctrl+Shift+Delete` |
 | Move Up / Down in stack | `Ctrl+PgUp` / `Ctrl+PgDn` |
-| Move to top / bottom | `Ctrl+Home` / `Ctrl+End` |
+| Move to top / bottom | `Ctrl+Shift+]` / `Ctrl+Shift+[` |
 | Rename | Right-click → Rename |
 
 You can also **drag a layer row** with the left mouse button to reorder. **Right-click** any layer for the full context menu (rename, duplicate, delete, group, blend mode, etc.).

@@ -54,7 +54,7 @@ The **Move** tool (`V`, ![move](../../ASSETS/THEMES/DEFAULT/IMAGES/TOOLBOX/move.
 - **Drag** — move.
 - **Arrow keys** — nudge 1px (10px with `Shift`).
 - **Alt+Drag** — clone stamp; the original stays where it was and the dragged duplicate becomes a new layer.
-- **Ctrl+Arrows** — resize.
+- **Ctrl+Arrows** — move selection content 1px (`Ctrl+Shift+Arrows` for a larger step; hold `Alt` to clone). *(Ctrl+Arrows resizes only while placing an imported/pasted image.)*
 - **Shift+Click** — auto-select the topmost layer under the cursor.
 
 > Pro-tip: If you have an active selection, you can clone in Selection mode while holding `Ctrl+Alt`
@@ -65,8 +65,8 @@ When you move a layer, DRAW can render **Smart Guides** — temporary alignment 
 
 | Toggle | Shortcut |
 | --- | --- |
-| Show Smart Guides | `Ctrl+Shift+;` |
-| Snap to Smart Guides | `Ctrl+;` |
+| Show Smart Guides | *Grid menu* |
+| Snap to Smart Guides | *Grid menu* |
 
 Smart-guide colors and opacity are themeable.
 

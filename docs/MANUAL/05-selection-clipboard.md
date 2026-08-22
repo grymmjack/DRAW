@@ -61,7 +61,7 @@ DRAW has more clipboard verbs than most editors because it cares about both laye
 | Copy | `Ctrl+C` | Selection → clipboard. |
 | Cut | `Ctrl+X` | Copy + clear. |
 | Paste | `Ctrl+V` | Pastes at the cursor; **auto-engages the Move tool** so you can position before committing. |
-| Paste in Place | `Ctrl+Alt+Shift+V` | Paste at the *exact* original position. |
+| Paste in Place | *Edit menu* | Paste at the *exact* original position. |
 | Copy Merged | `Ctrl+Shift+C` | Copies the visible composite, not just the active layer. |
 | Copy to New Layer | `Ctrl+Alt+C` | One-step "duplicate selection onto a new layer above". |
 | Cut to New Layer | `Ctrl+Alt+X` | Same, but removes from the source. |

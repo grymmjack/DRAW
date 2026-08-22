@@ -71,7 +71,7 @@
 5. Navigate with the virtual cursor.
 6. `Alt+U` picks colors from any existing character cell.
 7. The DOT and RECT tools fill cells with the active glyph instead of pixels.
-8. Toggle CP437 mode (`Ctrl+Shift+U`) for the classic DOS feel.
+8. Toggle CP437 mode (View menu → Charmap Unicode/CP437 Toggle) for the classic DOS feel.
 
 <div class="page-break"></div>
 

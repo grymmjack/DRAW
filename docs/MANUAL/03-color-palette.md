@@ -13,7 +13,7 @@ The palette strip across the bottom of the screen is the fastest way to choose c
 | Action | Key / mouse |
 | --- | --- |
 | Swap FG and BG | `X` |
-| Reset to white FG / black BG | `Ctrl+D` |
+| Reset to white FG / black BG | *Palette menu → Default Colors* |
 | Set BG to transparent | `Shift+Delete` |
 | Scroll the palette strip | Mouse wheel over strip |
 | Fast-scroll 32 colors at a time | `Shift` + Mouse wheel |
