@@ -25,7 +25,7 @@ namespace gjimgfx {
         return ((uint32_t)(a & 0xFF) << 24) | ((uint32_t)(r & 0xFF) << 16)
              | ((uint32_t)(g & 0xFF) << 8)  |  (uint32_t)(b & 0xFF);      // _RGBA32
     }
-    static inline uint32_t RGB(int32_t r, int32_t g, int32_t b) {
+    static inline uint32_t mkRGB(int32_t r, int32_t g, int32_t b) {
         return 0xFF000000u | ((uint32_t)(r & 0xFF) << 16)
              | ((uint32_t)(g & 0xFF) << 8) | (uint32_t)(b & 0xFF);        // _RGB32
     }
@@ -186,9 +186,9 @@ extern "C" void gj_blur_alpha_aware(intptr_t dst_, intptr_t src_,
             int64_t o = (int64_t)y * w + x;
             uint32_t cur = src[o];
             if (A(cur) > 0) {
-                if (sW > 0) dst[o] = RGB(sR / sW, sG / sW, sB / sW);
+                if (sW > 0) dst[o] = mkRGB(sR / sW, sG / sW, sB / sW);
             } else {
-                dst[o] = RGB(0, 0, 0);
+                dst[o] = mkRGB(0, 0, 0);
             }
             int32_t lo = y - radius;
             if (lo >= 0) {
@@ -231,7 +231,7 @@ extern "C" void gj_pixelate_alpha_aware(intptr_t dst_, intptr_t src_,
                 }
             }
             if (sW > 0) {
-                uint32_t avg = RGB(sR / sW, sG / sW, sB / sW);
+                uint32_t avg = mkRGB(sR / sW, sG / sW, sB / sW);
                 for (int32_t y = by; y <= endY; ++y) {
                     uint32_t *row = dst + (int64_t)y * w;
                     for (int32_t x = bx; x <= endX; ++x) row[x] = avg;
@@ -328,7 +328,7 @@ extern "C" void gj_emboss(intptr_t dst_, intptr_t src_, int32_t w, int32_t h,
             int32_t dLum = lum[(int64_t)ey * w + ex] - lum[(int64_t)pym * w + pxm];
             int32_t outv = 128 + dLum * strength;
             if (outv < 0) outv = 0; else if (outv > 255) outv = 255;
-            dst[(int64_t)ey * w + ex] = RGB(outv, outv, outv);
+            dst[(int64_t)ey * w + ex] = mkRGB(outv, outv, outv);
         }
     }
     delete[] lum;
@@ -369,7 +369,7 @@ extern "C" void gj_edgedetect(intptr_t dst_, intptr_t src_, int32_t w, int32_t h
             if (mag > 255) mag = 255;
             int32_t outv = mag;
             if (invert) outv = 255 - outv;
-            dst[(int64_t)ey * w + ex] = RGB(outv, outv, outv);
+            dst[(int64_t)ey * w + ex] = mkRGB(outv, outv, outv);
         }
     }
     delete[] lum;
