@@ -26,8 +26,9 @@ TYPE DIALOG_CTX
     fontH        AS LONG    ' Loaded font handle
     mx           AS INTEGER ' Mouse X relative to dialog top-left
     my           AS INTEGER ' Mouse Y relative to dialog top-left
-    mb1          AS INTEGER ' Current left button state
-    omb1         AS INTEGER ' Previous left button state
+    mb1          AS INTEGER ' Current left button state (consumable: widgets/swallows may zero it)
+    omb1         AS INTEGER ' Previous RAW left button state (for edge detection)
+    mb1raw       AS INTEGER ' Current RAW physical button, immune to swallows — feeds omb1 next frame
     justClicked  AS INTEGER ' mb1 transitioned 0->1 this frame
     mwheel       AS INTEGER ' Accumulated mouse wheel delta this frame
     done         AS INTEGER ' TRUE when loop should exit
