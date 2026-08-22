@@ -37,11 +37,15 @@ TYPE FILL_ADJ_OBJ
     RECT_Y1        AS INTEGER
     RECT_X2        AS INTEGER
     RECT_Y2        AS INTEGER
+    RECT_HDIV      AS INTEGER ' shape parameterization: horizontal divisions
+    RECT_VDIV      AS INTEGER ' shape parameterization: vertical divisions
     ' Ellipse geometry
     ELL_CX         AS INTEGER
     ELL_CY         AS INTEGER
     ELL_RX         AS SINGLE
     ELL_RY         AS SINGLE
+    ELL_SLICES     AS INTEGER ' shape parameterization: pie slices
+    ELL_RINGS      AS INTEGER ' shape parameterization: concentric rings
     ' Polygon vertex count (vertices in FILL_ADJ_POLY_X/Y arrays)
     POLY_COUNT     AS INTEGER
     ' Flood fill mask (canvas-sized image: white=filled, transparent=skip)
