@@ -330,6 +330,7 @@ TYPE DRAW_CONFIG
     DEFAULT_TOOL                    AS INTEGER        ' Default tool on startup (1 = brush, 2 = fill, 3 = dot, etc.)
     DEFAULT_BRUSH_SIZE              AS INTEGER        ' Default brush size index (1-25)
     DEFAULT_BRUSH_SHAPE             AS INTEGER        ' Default brush shape (0 = circle, 1 = square)
+    DEFAULT_BRUSH_EDGES             AS INTEGER        ' TRUE = show brush edge preview (` toggle); persisted across restarts
     DEFAULT_DRAW_MODE               AS INTEGER        ' Default paint mode on startup (1 = color, 2 = gradient, 3 = pattern)
     DEFAULT_BIN_MODE                AS INTEGER        ' Default bins panel on startup (1 = brush, 2 = pattern, 3 = gradient)
     DEFAULT_LAYER_BG_COLOR          AS _UNSIGNED LONG ' Default layer background color
