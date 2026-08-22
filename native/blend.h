@@ -60,6 +60,22 @@ namespace gjblend {
     }
 }
 
+// Apply a layer/group opacity to a buffer's alpha channel in place:
+// for each pixel with alpha>0, alpha = alpha*opacity/255 (RGB untouched). Bit-for-bit
+// port of the ~9 identical `newAlpha = (alpha*opacity)\255` loops across SCREEN/FILL/
+// MARQUEE/LAYERS. pixelCount = w*h. opacity 0..255.
+extern "C" void gj_apply_opacity(intptr_t buf_, int32_t pixelCount, int32_t opacity) {
+    uint32_t *buf = reinterpret_cast<uint32_t *>(buf_);
+    for (int32_t i = 0; i < pixelCount; ++i) {
+        uint32_t p = buf[i];
+        int32_t a = (int32_t)((p >> 24) & 0xFFu);
+        if (a > 0) {
+            int32_t na = (a * opacity) / 255;
+            buf[i] = (p & 0x00FFFFFFu) | ((uint32_t)(na & 0xFF) << 24);
+        }
+    }
+}
+
 extern "C" void gj_blend_composite(intptr_t dst_, intptr_t src_, int32_t w, int32_t h,
                                    int32_t mode, int32_t opacity,
                                    int32_t rx1, int32_t ry1, int32_t rx2, int32_t ry2) {

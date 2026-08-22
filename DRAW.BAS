@@ -28,6 +28,13 @@ screen_shown = 0
 '$INCLUDE:'./_ALL.BI'
 $RESIZE:ON
 
+' Profiling-only (DRAW_GMON env set): install a SIGTERM->exit(0) handler so a gprof
+' (-pg) build flushes gmon.out when the QA harness sends SIGTERM. No effect otherwise.
+DECLARE LIBRARY "./native/profhook"
+    SUB gj_install_exit_on_sigterm ()
+END DECLARE
+IF LEN(ENVIRON$("DRAW_GMON")) > 0 THEN gj_install_exit_on_sigterm
+
 ' SCREEN_init (from SCREEN.BI, above) has created the window by now, so from
 ' this point a human can actually see and dismiss things. Deliberately keyed on
 ' "is a window up?" rather than a devmode/CLI-flag check — a curated list of
@@ -345,6 +352,41 @@ IF tsBase$ <> "" THEN
     THEME_reload_all
     FOR tsF% = 1 TO 12: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE: SCREEN_render: NEXT
     _SAVEIMAGE tsBase$ + "-after.png", 0
+    SYSTEM
+END IF
+
+' Dev: --profile-workload <N> builds a 6-layer blended + semi-transparent scene and
+' renders N frames, forcing contentDirty + a full composite every frame (worst case:
+' exercises the per-frame layer composite AND opacity-apply CPU loops). Run under an
+' external profiler, e.g.:  valgrind --tool=callgrind ./DRAW.run --profile-workload 150
+' then callgrind_annotate. Deterministic + re-runnable for before/after. Exits.
+DIM pwArg AS STRING : pwArg$ = KIT_get_flag_arg$("--profile-workload")
+IF pwArg$ <> "" THEN
+    DIM pwN AS LONG : pwN& = VAL(pwArg$) : IF pwN& < 1 THEN pwN& = 100
+    DIM pwI AS INTEGER, pwIdx AS INTEGER, pwOD AS LONG, pwj AS INTEGER, pwL AS INTEGER, pwFrame AS LONG
+    DIM pwModes(0 TO 5) AS INTEGER
+    pwModes(0) = BLEND_NORMAL : pwModes(1) = BLEND_MULTIPLY : pwModes(2) = BLEND_SCREEN
+    pwModes(3) = BLEND_OVERLAY : pwModes(4) = BLEND_SOFT_LIGHT : pwModes(5) = BLEND_LUMINOSITY
+    FOR pwI% = 0 TO 5
+        pwIdx% = LAYERS_new%
+        IF pwIdx% > 0 THEN
+            pwOD& = _DEST
+            _DEST LAYERS(pwIdx%).imgHandle&
+            FOR pwj% = 0 TO 40
+                LINE (pwj% * 13, 0)-(SCRN.canvasW& - pwj% * 7, SCRN.canvasH& - 1), _RGBA32(pwj% * 6, 255 - pwj% * 6, (pwj% * 11) AND 255, 200)
+            NEXT pwj%
+            _DEST pwOD&
+            LAYERS(pwIdx%).blendMode% = pwModes(pwI%)
+            LAYERS(pwIdx%).opacity% = 128 + pwI% * 20
+        END IF
+    NEXT pwI%
+    BLEND_invalidate_cache
+    FOR pwFrame& = 1 TO pwN&
+        FOR pwL% = 1 TO LAYER_COUNT% : LAYERS(pwL%).contentDirty% = TRUE : NEXT
+        BLEND_invalidate_cache
+        SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE : GUI_NEEDS_REDRAW% = TRUE
+        SCREEN_render
+    NEXT pwFrame&
     SYSTEM
 END IF
 
