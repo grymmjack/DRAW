@@ -58,6 +58,13 @@ THEME_load
 '$CONSOLE
 $EXEICON:'./ASSETS/ICONS/icon.ico'
 
+' Runtime window / taskbar icon. $EXEICON above only embeds an icon into the Windows
+' .exe (it is a no-op on Linux/macOS); _ICON sets the actual live window icon on every
+' platform (GLFW included). Load a 32-bit PNG and hand it to _ICON; the icon data is
+' copied, so the image can be freed immediately.
+DIM appIcon AS LONG : appIcon& = _LOADIMAGE("ASSETS/ICONS/icon-256.png", 32)
+IF appIcon& < -1 THEN _ICON appIcon& : _FREEIMAGE appIcon&
+
 ' === Splash screen — show ASAP with fade-in while rest of startup loads ===
 DIM splashImg     AS LONG, splashStart AS DOUBLE
 DIM splashDstW    AS LONG, splashDstH AS LONG
