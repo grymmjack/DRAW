@@ -3037,6 +3037,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                         SCALE_ORIGINAL_IMAGE = _COPYIMAGE(sdSrc&)
                         SCALE_ORIGINAL_LAYER = CURRENT_LAYER%
                         SCALE_FACTOR_LAYER   = 1.0
+                        CMD_ml_scale_reset ' fresh session — drop stale per-layer originals
                     END IF
                     SCALE_FACTOR_LAYER = SCALE_FACTOR_LAYER * 0.5
                     DIM sdLNW      AS INTEGER, sdLNH AS INTEGER
@@ -3219,6 +3220,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                         SCALE_ORIGINAL_IMAGE = _COPYIMAGE(suSrc&)
                         SCALE_ORIGINAL_LAYER = CURRENT_LAYER%
                         SCALE_FACTOR_LAYER   = 1.0
+                        CMD_ml_scale_reset ' fresh session — drop stale per-layer originals
                     END IF
                     SCALE_FACTOR_LAYER = SCALE_FACTOR_LAYER * 2.0
                     DIM suLNW      AS INTEGER, suLNH AS INTEGER
@@ -5802,13 +5804,23 @@ SUB CMD_ml_scale (layerIdx AS INTEGER, factor AS SINGLE, historyFlags AS LONG, h
     DIM mlSSrc    AS LONG    : mlSSrc& = LAYERS(layerIdx%).imgHandle&
     DIM mlSW      AS LONG    : mlSW& = _WIDTH(mlSSrc&)
     DIM mlSH      AS LONG    : mlSH& = _HEIGHT(mlSSrc&)
-    DIM mlSNW     AS INTEGER : mlSNW% = INT(mlSW& * factor!)
-    DIM mlSNH     AS INTEGER : mlSNH% = INT(mlSH& * factor!)
+    ' Non-destructive: capture this layer's pristine original on the first scale of the
+    ' session (the current-layer capture block resets these per-layer slots when a new
+    ' session begins), then ALWAYS resample from that original by the cumulative factor —
+    ' exactly like the active layer. Previously this resampled the live (already-scaled)
+    ' layer, so scaling down lost pixels the scale-up could never restore.
+    IF SCALE_ORIGINAL_IMAGE_L(layerIdx%) = 0 THEN
+        SCALE_ORIGINAL_IMAGE_L(layerIdx%) = _COPYIMAGE(mlSSrc&)
+        SCALE_FACTOR_LAYER_L(layerIdx%)   = 1.0
+    END IF
+    SCALE_FACTOR_LAYER_L(layerIdx%) = SCALE_FACTOR_LAYER_L(layerIdx%) * factor!
+    DIM mlSNW     AS INTEGER : mlSNW% = INT(mlSW& * SCALE_FACTOR_LAYER_L(layerIdx%))
+    DIM mlSNH     AS INTEGER : mlSNH% = INT(mlSH& * SCALE_FACTOR_LAYER_L(layerIdx%))
     IF mlSNW% < 1 THEN mlSNW% = 1
     IF mlSNH% < 1 THEN mlSNH% = 1
     DIM mlSTmp    AS LONG : mlSTmp& = _NEWIMAGE(mlSNW%, mlSNH%, 32)
     _DONTBLEND mlSTmp&
-    _PUTIMAGE (0, 0)-(mlSNW% - 1, mlSNH% - 1), mlSSrc&, mlSTmp&
+    _PUTIMAGE (0, 0)-(mlSNW% - 1, mlSNH% - 1), SCALE_ORIGINAL_IMAGE_L(layerIdx%), mlSTmp&
     DIM mlSOD     AS LONG : mlSOD& = _DEST
     _DEST mlSSrc&
     _DONTBLEND mlSSrc&
@@ -5834,6 +5846,20 @@ SUB CMD_ml_scale (layerIdx AS INTEGER, factor AS SINGLE, historyFlags AS LONG, h
         HISTORY_record_transform LAYERS(layerIdx%).historyId&, layerIdx%, historyFlags&, mlSBefore&, historyLabel$
     END IF
     LAYERS(layerIdx%).contentDirty% = TRUE
+END SUB
+
+''
+' Reset the per-layer non-destructive multi-select scale state. Frees every stored
+' original snapshot and clears its cumulative factor. Called when a new scale session
+' begins (the active-layer original is (re)captured) so stale originals are never reused.
+'
+SUB CMD_ml_scale_reset ()
+    DIM mlri AS INTEGER
+    FOR mlri% = 1 TO MAX_LAYERS
+        IF SCALE_ORIGINAL_IMAGE_L(mlri%) < -1 THEN _FREEIMAGE SCALE_ORIGINAL_IMAGE_L(mlri%)
+        SCALE_ORIGINAL_IMAGE_L(mlri%) = 0
+        SCALE_FACTOR_LAYER_L(mlri%)   = 1.0
+    NEXT mlri%
 END SUB
 
 ''

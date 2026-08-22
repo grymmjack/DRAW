@@ -69,6 +69,11 @@ REDIM SHARED MOVE_MULTI_PREVIEWS(1 TO MAX_LAYERS) AS LONG
 DIM SHARED SCALE_ORIGINAL_IMAGE AS LONG                    ' Backup of layer before first scale op
 DIM SHARED SCALE_ORIGINAL_LAYER AS INTEGER                 ' Which layer the backup belongs to
 DIM SHARED SCALE_FACTOR_LAYER   AS SINGLE                  ' Cumulative scale factor for layer scaling
+' Per-layer non-destructive scale state for MULTI-SELECT instant scale (page up/down).
+' The active layer uses the scalars above; every OTHER selected layer needs its own
+' pristine original + cumulative factor so scaling down then up restores it losslessly.
+DIM SHARED SCALE_ORIGINAL_IMAGE_L(1 TO MAX_LAYERS) AS LONG   ' per-layer original backup
+DIM SHARED SCALE_FACTOR_LAYER_L(1 TO MAX_LAYERS)   AS SINGLE ' per-layer cumulative factor
 SCALE_ORIGINAL_IMAGE = 0
 SCALE_ORIGINAL_LAYER = 0
 SCALE_FACTOR_LAYER   = 1.0
