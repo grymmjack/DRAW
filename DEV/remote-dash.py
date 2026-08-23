@@ -61,7 +61,10 @@ HOSTS = [
 LOG_LANES_LINES = 10  # lines shown per machine lane
 # Screen-share protocol per host (F-key launches this via remmina). Note this is the
 # DESKTOP's protocol, not the build type: daw is WSL (unix build) but a Windows desktop.
-SHARE = {"mac": "vnc", "titan": "vnc", "daw": "rdp", "thinkpad": "rdp"}
+SHARE = {"mac": "vnc", "titan": "rdp", "daw": "rdp", "thinkpad": "rdp"}
+# RDP login can differ from the SSH login (e.g. daw: SSH user "gj", Windows user "grymmjack").
+# Falls back to the resolved SSH user when a host isn't listed here.
+RDP_USER = {"daw": "grymmjack"}
 SSH_OPTS = ["-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
             "-o", "StrictHostKeyChecking=accept-new"]
 TAIL_N = 18
@@ -268,6 +271,9 @@ def build_table(results: dict) -> Table:
         else:
             keybadge = ("✗ no key", "red")
         login = Text.assemble((r.get("SSHUSER", "?"), ""), ("\n", ""), keybadge)
+        rdp_user = RDP_USER.get(name)
+        if rdp_user and rdp_user != r.get("SSHUSER"):
+            login.append(f"\nrdp: {rdp_user}", style="dim cyan")
 
         os_txt = Text(r.get("OSVER", "-") if up else "-",
                       style="" if up else "dim")
@@ -367,7 +373,7 @@ def share_open(name: str, r: dict):
         return
     proto = SHARE.get(name, "rdp")
     ip = r.get("IP", "")
-    user = r.get("SSHUSER", "")
+    user = RDP_USER.get(name, r.get("SSHUSER", ""))  # RDP login may differ from SSH login
     if proto == "vnc" or not user or user in ("?", ""):
         target = f"{proto}://{ip}"
     else:
