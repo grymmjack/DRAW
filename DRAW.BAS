@@ -462,11 +462,15 @@ DO
     ' (live but soft). Once the drag settles (no _RESIZE for a few frames) we snap
     ' ONCE to the nearest integer scale for a pixel-perfect result.
     IF _RESIZE THEN
-        IF SCREEN_DEFERRED_RESIZE% > 0 THEN
-            ' Absorb the _RESIZE echo from our own SCREEN _NEWIMAGE — not a user drag.
-            SCREEN_DEFERRED_RESIZE% = SCREEN_DEFERRED_RESIZE% - 1
+        ' Absorb the echo from our OWN SCREEN _NEWIMAGE only when its dimensions match
+        ' what we set (dimension-matched, not a blind counter) — so a genuine user resize
+        ' arriving mid-echo-window is never swallowed. This is what makes restore-from-
+        ' maximized redraw on [Windows], where the maximize's own echo never fires and a
+        ' blind counter would eat the restore event instead. See SCREEN.BI.
+        IF SCREEN_DEFERRED_RESIZE% > 0 AND _ResizeWidth = SCREEN_DEFERRED_W& AND _ResizeHeight = SCREEN_DEFERRED_H& THEN
+            SCREEN_DEFERRED_RESIZE% = 0        ' our echo — consumed, stop watching
         ELSE
-            ' User drag/maximize in progress: record target, repaint stretched, defer snap.
+            ' User drag/maximize/restore in progress: record target, repaint stretched, defer snap.
             resizePendingW&          = _ResizeWidth
             resizePendingH&          = _ResizeHeight
             resizePending%           = TRUE
@@ -484,6 +488,11 @@ DO
             INVALIDATE_scene
         END IF
     END IF
+
+    ' Expire the echo watch each frame so a self-resize whose echo never arrives
+    ' (e.g. [Windows] SCREEN _NEWIMAGE on a maximized window is a no-op) cannot leave a
+    ' stuck counter that swallows the next genuine resize.
+    IF SCREEN_DEFERRED_RESIZE% > 0 THEN SCREEN_DEFERRED_RESIZE% = SCREEN_DEFERRED_RESIZE% - 1
 
     ' Handle OS-initiated exit (window X button = bit 0, CTRL+BREAK = bit 1)
     ' Route through the standard exit action which handles unsaved-changes dialog + full cleanup.
