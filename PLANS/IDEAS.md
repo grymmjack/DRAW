@@ -1,8 +1,18 @@
 # IDEAS
 
-_WINDOWSIZELIMIT [(minWidth, minHeight)] [- (maxWidth, maxHeight)] - Restricts the user-resizable dimensions of the window to minimum and/or maximum width and height bounds.
+## MULTIPLE DRAW INSTANCE SUPPORT
+- [ ] Allow (by user setting preference) multiple copies of DRAW to run at the same time in isolation of one another but with shared clipboard support, drag layers back and forth, etc.
 
-we should implement this too. taking into consideration of the scaling, hdpi, etc. right now it is possible for a draw window to be resized so much downward/smaller that it hides controls completely, that's no bueno. 
+## IMPROVED DRAG AND DROP SUPPORT
+- [ ] FOR ALL Drop targets: If the image is larger than the current canvas, use the File -> Import Image workflow with pan, zoom, crop, etc. otherwise just place it where user drops it. IF holding shift while dropped, drop it in the direct center of the canvas, otherwise top left of canvas.
+- [ ] Drag onto layer panel to create new layer (new layer -> image import (for crop/pan/zoom/etc))
+- [ ] Drag onto brush bin to drop the image into a bin as a custom brush. If there are no bin slots free create new bins to hold in new blank bin page, etc. populating.
+- [ ] Drag onto canvas to drop into current layer (destructive, undoable)
+- [ ] Drag onto menu bar to open as new image, in separate DRAW instance
+
+## _WINDOWSIZELIMIT [(minWidth, minHeight)] [- (maxWidth, maxHeight)] 
+- [ ] Restricts the user-resizable dimensions of the window to minimum and/or maximum width and height bounds.
+- [ ] Taking into consideration of the scaling, hdpi, etc. right now it is possible for a draw window to be resized so much downward/smaller that it hides controls completely, that's no bueno. 
 
 ## GUI SCALE independent of CANVAS scale
 - [ ] We need to be able to scale the GUI independent of the canvas
