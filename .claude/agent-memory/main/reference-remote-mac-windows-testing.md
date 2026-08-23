@@ -67,3 +67,6 @@ physical 3456) but **doubles on Windows** (mode already *pixels* → 3840×2 = *
 on a 4K panel @200%). Upstream QB64-PE inconsistency; DRAW's auto-scale detect must
 divide the content scale back out on Windows. See [[hw-cursor-os-plane]] and the
 macOS cursor sizing (native-PNG, no displayScale, Cocoa Retina-doubles NSCursor).
+
+## ⛔ QB64-PE `$IF LINUX` is TRUE on macOS (2026-08-23 regression)
+macOS is QB64-PE's Unix/"LNX" build, so a bare `$IF LINUX THEN … $END IF` block **compiles into the Mac binary too**. A Linux-only check that inspects `ENVIRON$("DISPLAY")` then false-fires on macOS, which uses Cocoa and has **no DISPLAY env var** (a headless-guard shipped that made every Mac GUI launch print "no display" and exit). QB64-PE `$IF` has **no `NOT` and no `AND`/`OR`** (`$IF NOT MAC` / `$IF LINUX AND NOT MAC` both error "Invalid Resolution of $IF"); `$ELSE` and nesting DO work. To target **real Linux only**, nest: `$IF LINUX THEN` → `$IF MAC THEN $ELSE …real-linux… $END IF` → `$END IF`. DRAW already uses `$IF MAC` / `$IF WIN` everywhere for exactly this reason — never bare `$IF LINUX` for Linux-specific code.
