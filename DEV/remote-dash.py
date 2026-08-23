@@ -14,11 +14,12 @@ Run it with uv (auto-installs rich into an ephemeral env):
     uv run DEV/remote-dash.py --watch 5   # interactive, refresh every 5s
     uv run DEV/remote-dash.py --once      # single snapshot, no interaction
     uv run DEV/remote-dash.py --log thinkpad          # dump a host's newest full log
+    uv run DEV/remote-dash.py --exec titan "make"     # run on host + log to dash-activity.log
     uv run DEV/remote-dash.py --set thinkpad "run resize test"   # set NEXT note
     uv run DEV/remote-dash.py --clear thinkpad                   # clear NEXT note
 
 Interactive keys:
-    1..9         open that machine's newest log in the pager (scroll, q returns)
+    1..9         live-follow (tail -f) that machine's newest log; Ctrl+C returns
     Shift+1..9   SSH into that machine in a new terminal window
     F1..F9       remote desktop with remmina (RDP for Windows, VNC for mac/Linux)
     a            toggle auto-refresh          space/g  refresh now
@@ -56,7 +57,7 @@ HOSTS = [
     ("mac",      "unix", "$HOME/git/DRAW"),
     ("titan",    "unix", "$HOME/git/DRAW"),
     ("daw",      "unix", "/mnt/c/Users/grymm/git/DRAW"),
-    ("thinkpad", "win",  r"C:/Users/grymmjack/git/DRAW"),
+    ("thinkpad", "win",  r"C:/Users/grymmjack.thinkpad/git/DRAW"),
 ]
 LOG_LANES_LINES = 10  # lines shown per machine lane
 # Screen-share protocol per host (F-key launches this via remmina). Note this is the
@@ -330,7 +331,7 @@ def build_logs(results: dict):
 def build_help() -> Panel:
     body = Text()
     rows = [
-        ("1 - 9", "open that machine's newest log in the pager (scroll, q returns)"),
+        ("1 - 9", "LIVE-follow (tail -f) that machine's newest log; Ctrl+C returns"),
         ("Shift+1..9", "SSH into that machine in a new terminal window  (! @ # $ % ^ & * ()"),
         ("F1 - F9", "remote desktop with remmina (RDP for Windows, VNC for mac/Linux)"),
         ("a", "toggle auto-refresh on/off"),
@@ -441,7 +442,7 @@ def render(results: dict, interactive: bool = False, interval: float = 3.0,
                     else "[a]uto-refresh: OFF (space=refresh)")
         footer = Text(justify="center")
         footer.append("1-9", style="bold yellow")
-        footer.append(" log  ·  ", style="dim")
+        footer.append(" tail  ·  ", style="dim")
         footer.append("⇧1-9", style="bold yellow")
         footer.append(" ssh  ·  ", style="dim")
         footer.append("F1-9", style="bold yellow")
@@ -485,6 +486,39 @@ def dump_log(name: str):
     sys.stdout.write(fetch_full_log(name))
 
 
+ACTIVITY_LOG = "dash-activity.log"  # per-host running log the dashboard tails as newest
+
+
+def exec_on_host(name: str, cmd: str) -> int:
+    """Run cmd on a host AND append its output (timestamped) to <drawdir>/dash-activity.log,
+    so ad-hoc work shows up in that machine's dashboard lane like builds/runs do. Streams
+    output to the local terminal too. Route remote work through this to keep the dash a live
+    feed of activity on every box, not just during a build."""
+    host = next((h for h in HOSTS if h[0] == name), None)
+    if not host:
+        console.print(f"[red]unknown host: {name}[/]"); return 2
+    _, htype, d = host
+    if htype == "win":
+        # PowerShell: header + run via cmd.exe, tee (append) to the activity log.
+        inner = cmd.replace("'", "''")
+        ps = (f"Set-Location '{d}';"
+              f"$ts=Get-Date -Format 'HH:mm:ss';"
+              f"$hdr=\"`n=== $ts > {inner} ===\";"
+              f"$hdr | Tee-Object -FilePath '{ACTIVITY_LOG}' -Append;"
+              f"cmd /c '{inner}' 2>&1 | Tee-Object -FilePath '{ACTIVITY_LOG}' -Append")
+        enc = base64.b64encode(ps.encode("utf-16-le")).decode()
+        full = ["ssh", *SSH_OPTS, "-t", name, f"powershell -NoProfile -EncodedCommand {enc}"]
+    else:
+        sh = (f'cd "{d}" 2>/dev/null || cd "{d}";'
+              f'{{ echo; echo "=== $(date +%H:%M:%S) > {cmd} ==="; {cmd}; }} 2>&1 '
+              f'| tee -a "{d}/{ACTIVITY_LOG}"')
+        full = ["ssh", *SSH_OPTS, "-t", name, sh]
+    try:
+        return subprocess.run(full).returncode
+    except KeyboardInterrupt:
+        return 130
+
+
 def main():
     args = sys.argv[1:]
     STATUS_DIR.mkdir(parents=True, exist_ok=True)
@@ -497,6 +531,8 @@ def main():
         console.print(f"cleared NEXT for [bold]{args[1]}[/]"); return
     if args and args[0] == "--log" and len(args) >= 2:
         dump_log(args[1]); return
+    if args and args[0] == "--exec" and len(args) >= 3:
+        sys.exit(exec_on_host(args[1], " ".join(args[2:])))
 
     if args and args[0] == "--once":
         console.print(render(gather())); return
@@ -511,21 +547,31 @@ def main():
 
 
 def view_full_log(fd, cooked_attrs, host: str):
-    """Restore the terminal, show the host's full log in the pager (scrollable), then
-    return to raw mode for the dashboard loop."""
+    """Restore the terminal and LIVE-FOLLOW (tail -f) the host's newest log until the user
+    presses Ctrl+C, then return to the dashboard's raw mode. Shows the last 300 lines then
+    streams new ones as they are written — so builds/runs on that machine scroll in live."""
     termios.tcsetattr(fd, termios.TCSADRAIN, cooked_attrs)
-    text = fetch_full_log(host)
-    path = None
-    try:
-        with tempfile.NamedTemporaryFile("w", suffix=f"-{host}.log", delete=False) as tf:
-            tf.write(text); path = tf.name
-        pager = os.environ.get("PAGER", "less -R")
-        # +G opens at the end (newest log lines); user scrolls up. q returns.
-        subprocess.run(pager.split() + ["+G", path])
-    finally:
-        if path and os.path.exists(path):
-            os.unlink(path)
-        tty.setcbreak(fd)
+    h = next((x for x in HOSTS if x[0] == host), None)
+    if h:
+        _, htype, d = h
+        if htype == "win":
+            ps = (f"$l=Get-ChildItem (Join-Path '{d}' '*.log') -EA SilentlyContinue|"
+                  f"Sort LastWriteTime -Desc|Select -First 1;"
+                  f"if($l){{Write-Host ('== following '+$l.FullName+'   (Ctrl+C to return) ==');"
+                  f"Get-Content -LiteralPath $l.FullName -Tail 300 -Wait}}"
+                  f"else{{Write-Host '(no log yet on {host} - run/build to create one)';Start-Sleep 3}}")
+            enc = base64.b64encode(ps.encode("utf-16-le")).decode()
+            cmd = ["ssh", *SSH_OPTS, "-t", host, f"powershell -NoProfile -EncodedCommand {enc}"]
+        else:
+            sh = (f'l=$(ls -t "{d}"/*.log 2>/dev/null|head -1);'
+                  f'if [ -n "$l" ]; then echo "== following $l   (Ctrl+C to return) =="; '
+                  f'tail -n 300 -F "$l"; else echo "(no log yet on {host} - run/build to create one)"; sleep 3; fi')
+            cmd = ["ssh", *SSH_OPTS, "-t", host, sh]
+        try:
+            subprocess.run(cmd)
+        except KeyboardInterrupt:
+            pass
+    tty.setcbreak(fd)
 
 
 def interactive_loop(interval: float):
