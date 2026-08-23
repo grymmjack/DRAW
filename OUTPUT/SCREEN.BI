@@ -141,6 +141,14 @@ GRAYSCALE_PREVIEW_ACTIVE% = FALSE
 DIM SHARED SCREEN_DEFERRED_RESIZE AS INTEGER
 SCREEN_DEFERRED_RESIZE% = FALSE
 
+' [Windows] QB64-PE reports _DESKTOPWIDTH/_HEIGHT as (video-mode pixels * monitor
+' content scale). On macOS that yields true physical pixels (mode is in points);
+' on Windows the mode is ALREADY pixels, so it comes back DOUBLED at 200% (e.g.
+' 7680x4320 on a 3840x2160 panel). SCREEN_desktop_w&/h& divide this factor back
+' out so all sizing math sees true pixels. 1.0 on Linux/macOS (no correction).
+DIM SHARED SCREEN_DPI_DIVISOR AS SINGLE
+SCREEN_DPI_DIVISOR! = 1.0
+
 $IF WIN THEN
 ' [Windows] Opt the process into DPI awareness so _DESKTOPWIDTH/_DESKTOPHEIGHT and
 ' the window report TRUE physical pixels instead of the OS DPI-virtualized desktop
@@ -150,6 +158,7 @@ $IF WIN THEN
 ' Linux (real pixels) and macOS (Retina backing) need no equivalent call.
 DECLARE DYNAMIC LIBRARY "user32"
     FUNCTION DRAW_SetProcessDPIAware& ALIAS "SetProcessDPIAware" ()
+    FUNCTION DRAW_GetDpiForSystem~& ALIAS "GetDpiForSystem" ()
 END DECLARE
 $END IF
 
