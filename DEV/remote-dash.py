@@ -34,6 +34,7 @@ import base64
 import os
 import re
 import select
+import shlex
 import shutil
 import subprocess
 import sys
@@ -54,12 +55,13 @@ from rich.text import Text
 # type: "unix" (native Linux/macOS, builds DRAW.run) | "win" (native Windows, DRAW.exe)
 # daw is WSL2 but builds a native DRAW.exe on its Windows side via /mnt/c interop.
 HOSTS = [
+    ("local",    "local", "$HOME/git/DRAW"),   # this box (gyromite) — runs directly, no SSH
     ("mac",      "unix", "$HOME/git/DRAW"),
     ("titan",    "unix", "$HOME/git/DRAW"),
     ("daw",      "unix", "/mnt/c/Users/grymm/git/DRAW"),
     ("thinkpad", "win",  r"C:/Users/grymmjack.thinkpad/git/DRAW"),
 ]
-LOG_LANES_LINES = 10  # lines shown per machine lane
+LOG_LANES_LINES = 10  # fallback lines per lane (real count is computed to fit the window / #hosts)
 # Screen-share protocol per host (F-key launches this via remmina). Note this is the
 # DESKTOP's protocol, not the build type: daw is WSL (unix build) but a Windows desktop.
 SHARE = {"mac": "vnc", "titan": "rdp", "daw": "rdp", "thinkpad": "rdp"}
@@ -68,7 +70,7 @@ SHARE = {"mac": "vnc", "titan": "rdp", "daw": "rdp", "thinkpad": "rdp"}
 RDP_USER = {"daw": "grymmjack"}
 SSH_OPTS = ["-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
             "-o", "StrictHostKeyChecking=accept-new"]
-TAIL_N = 18
+TAIL_N = 60   # probe tails this many log lines; lanes then show as many as fit the window/#hosts
 STATUS_DIR = Path(__file__).resolve().parent.parent / ".claude" / "remote-status"
 
 console = Console()
@@ -173,10 +175,26 @@ def ssh_meta(name: str) -> dict:
             "IDFILE": os.path.basename(idfile) if idfile else ""}
 
 
+def local_meta() -> dict:
+    """Identity for the local box — no ssh -G; report the LAN IP + local user, no key needed."""
+    ip, user = "127.0.0.1", os.environ.get("USER", "?")
+    try:
+        out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=3).stdout
+        if out.split():
+            ip = out.split()[0]
+    except Exception:
+        pass
+    return {"IP": ip, "SSHUSER": user, "KEY": True, "IDFILE": "local"}
+
+
 def probe_host(host) -> dict:
     name, htype, drawdir = host
     try:
-        if htype == "win":
+        if htype == "local":
+            out = subprocess.run(
+                ["bash", "-s"], input=unix_probe(drawdir), capture_output=True,
+                text=True, errors="replace", timeout=20).stdout
+        elif htype == "win":
             enc = base64.b64encode(win_probe_ps(drawdir).encode("utf-16-le")).decode()
             out = subprocess.run(
                 ["ssh", *SSH_OPTS, name, f"powershell -NoProfile -EncodedCommand {enc}"],
@@ -189,7 +207,8 @@ def probe_host(host) -> dict:
                 errors="replace", timeout=20).stdout
     except Exception:
         out = ""
-    return {"name": name, "type": htype, **parse(out), **ssh_meta(name)}
+    meta = local_meta() if htype == "local" else ssh_meta(name)
+    return {"name": name, "type": htype, **parse(out), **meta}
 
 
 def parse(out: str) -> dict:
@@ -271,7 +290,9 @@ def build_table(results: dict) -> Table:
 
         # A successful BatchMode=yes probe proves key/agent auth (no password was possible).
         idf = r.get("IDFILE", "")
-        if up:
+        if r.get("type") == "local":
+            keybadge = ("✓ local", "green")   # this box — no SSH involved
+        elif up:
             keybadge = (f"✓ key ({idf})" if idf else "✓ key", "green")
         elif r.get("KEY"):
             keybadge = (f"key: {idf}" if idf else "key set", "yellow")
@@ -309,30 +330,46 @@ def build_table(results: dict) -> Table:
     return t
 
 
+def log_lane_body_lines() -> int:
+    """How many log lines each lane shows: the leftover window height (below the table +
+    footer) divided evenly by the number of boxes, minus each lane's 2 border rows. So the
+    log lanes always fill the window and share it equally, however many boxes are in the fleet."""
+    n = len(HOSTS) or 1
+    term_h = console.size.height
+    # table ≈ 5 header/border rows + 2 rows per host (cells are 2 lines tall); footer+margins ≈ 4
+    avail = term_h - (5 + 2 * n) - 4
+    body = (avail // n) - 2
+    if body < 3:
+        body = 3
+    if body > TAIL_N:
+        body = TAIL_N
+    return body
+
+
 def build_logs(results: dict):
     """One full-width vertical lane per machine, numbered [N] in the border title so the
-    interactive loop can open that host's full log in the pager on the matching key.
-    Lanes with no log collapse to a single line so a lone active log gets the room."""
+    interactive loop can open that host's full log on the matching key. All lanes share the
+    window height equally (height ÷ #boxes) so they always fit — see log_lane_body_lines()."""
+    body_lines = log_lane_body_lines()
     panels = []
     for i, (name, _, _) in enumerate(HOSTS, 1):
         r = results[name]
         has_log = r["REACH"] == "1" and r["LOG"]
         if r["REACH"] != "1":
-            body, tail, height = Text("(unreachable)", style="dim red"), name, 3
+            body, tail = Text("(unreachable)", style="dim red"), name
         elif not r["LOG"]:
-            body, tail, height = Text("(no recent log)", style="dim"), name, 3
+            body, tail = Text("(no recent log)", style="dim"), name
         else:
             body = Text(no_wrap=True, overflow="ellipsis")
-            for ln in r["LOG"][-LOG_LANES_LINES:]:
+            for ln in r["LOG"][-body_lines:]:
                 body.append(ln + "\n")
             tail = f"{name}: {os.path.basename(r['LOGFILE'])}"
-            height = LOG_LANES_LINES + 2
         title = Text.assemble((f"[{i}] ", "bold yellow"), (tail, "magenta"))
         if has_log and r.get("LOGMT"):
             title.append(f"   ·  updated {r['LOGMT']}", style="dim")
         panels.append(Panel(body, title=title, title_align="left",
                            border_style="magenta" if has_log else "dim",
-                           padding=(0, 1), height=height))
+                           padding=(0, 1), height=body_lines + 2))
     return panels
 
 
@@ -372,12 +409,19 @@ def open_terminal(cmd_list) -> bool:
 
 
 def ssh_open(name: str):
+    host = next((h for h in HOSTS if h[0] == name), None)
+    if host and host[1] == "local":
+        d = os.path.expandvars(host[2])                 # local box: open a shell in the DRAW dir
+        open_terminal(["bash", "-lc", f"cd {shlex.quote(d)} 2>/dev/null; exec bash"])
+        return
     open_terminal(["ssh", name])
 
 
 def share_open(name: str, r: dict):
     """Open a remote-desktop session to a host with remmina, using the host's protocol
     (RDP for Windows desktops, VNC for macOS/Linux). VNC ignores the username."""
+    if r.get("type") == "local":
+        return                                          # this box — no remote desktop needed
     if not shutil.which("remmina"):
         return
     proto = SHARE.get(name, "rdp")
@@ -480,7 +524,8 @@ def fetch_full_log(name: str) -> str:
         strip_cr = True
     else:
         sh = f'l=$(ls -t "{d}"/*.log 2>/dev/null|head -1); echo "== $l =="; [ -n "$l" ] && cat "$l"'
-        cmd = ["ssh", *SSH_OPTS, name, sh]
+        cmd = (["bash", "-c", sh] if htype == "local"
+               else ["ssh", *SSH_OPTS, name, sh])
         strip_cr = False
     try:
         out = subprocess.run(cmd, capture_output=True, text=True,
@@ -520,7 +565,8 @@ def exec_on_host(name: str, cmd: str) -> int:
         sh = (f'cd "{d}" 2>/dev/null || cd "{d}";'
               f'{{ echo; echo "=== $(date +%H:%M:%S) > {cmd} ==="; {cmd}; }} 2>&1 '
               f'| tee -a "{d}/{ACTIVITY_LOG}"')
-        full = ["ssh", *SSH_OPTS, "-t", name, sh]
+        full = (["bash", "-c", sh] if htype == "local"
+                else ["ssh", *SSH_OPTS, "-t", name, sh])
     try:
         return subprocess.run(full).returncode
     except KeyboardInterrupt:
@@ -574,7 +620,8 @@ def view_full_log(fd, cooked_attrs, host: str):
             sh = (f'l=$(ls -t "{d}"/*.log 2>/dev/null|head -1);'
                   f'if [ -n "$l" ]; then echo "== following $l   (Ctrl+C to return) =="; '
                   f'tail -n 300 -F "$l"; else echo "(no log yet on {host} - run/build to create one)"; sleep 3; fi')
-            cmd = ["ssh", *SSH_OPTS, "-t", host, sh]
+            cmd = (["bash", "-c", sh] if htype == "local"
+                   else ["ssh", *SSH_OPTS, "-t", host, sh])
         try:
             subprocess.run(cmd)
         except KeyboardInterrupt:
