@@ -18,6 +18,10 @@ REDIM SHARED SETTINGS_TAB_NAMES(0 TO 7) AS STRING
 SUB SETTINGS_show_dialog ()
     DIM savedTab AS INTEGER : savedTab% = SETTINGS_TAB_GENERAL
     DIM dlgW AS INTEGER, dlgH AS INTEGER   ' capped to fit the window (declared before the reopen label)
+    ' Live-resize tracking while the modal is open — mirrors the main loop's deferred snap
+    ' (DRAW.BAS). Declared before the reopen label so the state survives a re-layout.
+    DIM stResizePending AS INTEGER, stResizeSettle AS INTEGER
+    DIM stResizePendingW AS LONG, stResizePendingH AS LONG
     BROWSER_suspend_for_modal
 
     SETTINGS_show_reopen:
@@ -80,6 +84,36 @@ SUB SETTINGS_show_dialog ()
 
     DO
         stFrameIdle = -1 ' TRUE — assume idle
+
+        ' ---- Live window resize (dialog stays laid-out to the window) ----
+        ' The modal loop owns the frame, so the main loop's _RESIZE handler is dormant.
+        ' Mirror its deferred snap: absorb our own _NEWIMAGE echo (dimension-matched),
+        ' otherwise remember the target and wait for the drag to settle, then snap the
+        ' window and re-lay-out the dialog at the new capped size via the reopen path.
+        IF _RESIZE THEN
+            IF SCREEN_DEFERRED_RESIZE% > 0 AND _ResizeWidth = SCREEN_DEFERRED_W& AND _ResizeHeight = SCREEN_DEFERRED_H& THEN
+                SCREEN_DEFERRED_RESIZE% = 0        ' our echo — consumed, stop watching
+            ELSE
+                stResizePendingW& = _ResizeWidth
+                stResizePendingH& = _ResizeHeight
+                stResizePending%  = TRUE
+                stResizeSettle%   = 6
+            END IF
+            stFrameIdle = 0
+        ELSEIF stResizePending% THEN
+            IF stResizeSettle% > 0 THEN
+                stResizeSettle% = stResizeSettle% - 1
+                stFrameIdle = 0
+            ELSE
+                stResizePending% = FALSE
+                SCREEN_snap_window_to_scale stResizePendingW&, stResizePendingH&
+                savedTab% = SETTINGS.activeTab
+                _KEYCLEAR
+                DO WHILE _MOUSEINPUT: LOOP
+                GOTO SETTINGS_show_reopen
+            END IF
+        END IF
+        IF SCREEN_DEFERRED_RESIZE% > 0 THEN SCREEN_DEFERRED_RESIZE% = SCREEN_DEFERRED_RESIZE% - 1
 
         ' ---- Input phase ----
         DIALOG_poll_mouse SETTINGS.ctx
