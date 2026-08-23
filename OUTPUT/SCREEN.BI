@@ -135,6 +135,11 @@ CANVAS_CONTENT_SRC& = 0
 DIM SHARED GRAYSCALE_PREVIEW_ACTIVE AS INTEGER ' TRUE = apply grayscale filter to final output
 GRAYSCALE_PREVIEW_ACTIVE% = FALSE
 
+' Extra breathing-room padding (viewport px, so it scales with display scale) added to the
+' calculated chrome minimum in SCREEN_apply_window_size_limits — clears incidentals like
+' z-index overlaps of chrome elements right at the minimum window size.
+CONST WIN_MIN_PADDING = 100
+
 ' Programmatic resize echo suppression.
 ' Before a programmatic SCREEN _NEWIMAGE we record the target size in
 ' SCREEN_DEFERRED_W/H and set SCREEN_DEFERRED_RESIZE to a small frame budget. The
