@@ -47,6 +47,8 @@ qb64pe -w -x -o DRAW.run DRAW.BAS
 
 > **As of 2026-08-12, `QA/draw-qa.sh` is a thin wrapper** that forwards to the standalone [qa-harness](https://github.com/grymmjack/qa-harness) toolkit (`~/git/qa-harness`, override with `QA_HARNESS`) using its DRAW adapter. The CLI below is unchanged and DRAW's `QA/tests/*.sh` run verbatim, but the harness *implementation* (runner, region-diff asserts, driver, geometry) now lives in the toolkit — `core/`, `drivers/linux-x11/`, `adapters/draw/`. Runs default to **offscreen (Xvfb)**; add `--onscreen` to watch. The pre-extraction single-file harness is in git history (before this date). Details: `.claude/agent-memory/main/qa-harness-toolkit.md`.
 
+> **Headless / automation safety:** DRAW is a GUI app and needs an X11/Wayland display. A GUI launch with **no display now exits cleanly** (logs + a console message, exit code 3) instead of crashing into a desktop crash dialog that would hang automation behind an OK button. Set **`DRAW_HEADLESS=1`** to force that path on any OS; it also switches DRAW's crash notice from a blocking modal to a non-blocking auto-dismiss banner (same as `--developer`). Run the GUI under **Xvfb** (as `draw-qa.sh` does) for automated testing. Console-only flags (`--version`, `--help`, `--options-list`) always work headless.
+
 ```bash
 cd QA
 ./draw-qa.sh                     # whole suite
