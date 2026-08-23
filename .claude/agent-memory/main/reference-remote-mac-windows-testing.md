@@ -10,14 +10,22 @@ testing**, reachable over SSH from this Linux box (`~/.ssh/config`). Use them to
 build and eyeball-test platform-specific behavior (cursor, DPI, window resize) that
 Linux can't reproduce. `[Linux host]` = where these notes were written.
 
-## Hosts (`~/.ssh/config`)
-- `mac` — Apple Silicon, **Retina 2× macOS**. qb64pe at `~/git/qb64pe/qb64pe`; DRAW at `~/git/DRAW`.
-- `thinkpad` — `192.168.1.169`, **native Windows 11** (build 26200), 4K panel. THE Windows target.
-- `titan` — Linux (Debian). `daw` = **WSL2 Linux, NOT native Windows** (can't repro Windows GLFW/DPI).
+## Hosts (`~/.ssh/config`) — the 4-box "build army" (as of 2026-08-23)
+- `mac` — `192.168.1.120`, Apple Silicon, **Retina macOS**. Runs `/Users/grymmjack/git/DRAW/DRAW.run`; qb64pe `~/git/qb64pe`.
+- `titan` — `192.168.1.172`, Linux (Debian, **KDE Plasma/X11**, SDDM). Runs `/home/grymmjack/git/DRAW/DRAW.run`. **qb64pe is at `~/git/QB64pe` (capital B!)** — lowercase `~/git/qb64pe` exists but has no `.git`; build DRAW with `make QB64PE=$HOME/git/QB64pe/qb64pe`.
+- `thinkpad` — `192.168.1.169`, **native Windows** (build 26200), HiDPI 4K @200% (4× scale). THE HiDPI Windows target. See profile note below.
+- `daw` — `192.168.1.77`, **WSL2 on a Windows box (RTX 3070)**. **CORRECTION to old note: daw DOES produce valid native Windows builds** — WSL only launches the *native* Windows `qb64pe.exe` (`/mnt/c/Users/grymm/git/qb64pe/qb64pe.exe`) via interop; the resulting `C:\Users\grymm\git\DRAW\DRAW.exe` is a real native Win32/GLFW binary, byte-equivalent to a cmd.exe build. daw restore-from-maximized repro'd + verified the GLFW fix natively. WSL user is `gj`; the Windows profile is `grymm`; Rick RDPs in as `grymmjack` (so `C:\Users\grymmjack\git` is empty — DRAW lives under `grymm`).
 
-Build everywhere: `qb64pe -w -x -o OUT SRC.BAS`. Both `mac` and `thinkpad` run
-**today's qb64pe main/GLFW build** (has `_MOUSECURSOR`). Windows qb64pe:
-`%USERPROFILE%\git\qb64pe\qb64pe.exe`.
+**Whole fleet is pinned to qb64pe `v4.6.0-247-ge048bc093`** (unify via git checkout of that commit + rebuild). titan/daw were rebuilt to match; keep them in sync. `dc` note: `internal/version.txt` says `-UNKNOWN` on git builds — read the real version with `git -C <qb64pe> describe --tags`.
+
+Build everywhere: `qb64pe -w -x -o OUT SRC.BAS`. Windows qb64pe rebuild: **`setup_win.cmd`** run SYNCHRONOUSLY (backgrounded WSL→cmd.exe interop silently no-ops; and a running `qb64pe.exe` locks the output — `taskkill /F /IM qb64pe.exe` first).
+
+## ⛔ The dirty-repo stale-build trap (cost hours on 2026-08-23)
+Every "deploy" DRAW copy (mac, titan, thinkpad) had **uncommitted local edits** (stale scp/robocopy leftovers: `M DRAW.BAS`, `M SCREEN.BM`, …) that **silently block `git pull --ff-only`**. The pull fails, the build compiles OLD source, and the "fix doesn't work" — because the fix was never in the binary. titan was even **1541 commits behind** (Feb 2025) with an **uninitialized submodule**. Before building on ANY box to test a fix:
+1. `git stash push -u` → `git pull --ff-only origin main` → confirm `git rev-parse --short HEAD` is the expected commit.
+2. `git submodule update --init --recursive` (QB64_GJ_LIB; remote is HTTPS).
+3. **grep the source for a unique marker of your fix** (e.g. `SCREEN_DEFERRED_W`) and confirm it's present *before* trusting the build.
+4. **Verify the RIGHT binary runs:** QB64 bakes the compile-time source path into every log line (`INFO QB64 C:\Users\grymm\git\DRAW\OUTPUT/SCREEN.BM: ... 763: ...`). If the path/line numbers don't match the repo you built, Rick is running a different copy. Rick runs `~/git/DRAW/DRAW.run` (mac/linux/titan) and, on thinkpad, `C:\Users\grymm\git\DRAW\DRAW.exe` by habit though his home is `grymmjack.thinkpad` — point the fixed build where he actually launches.
 
 ## Windows SSH setup gotchas (all bit us once — 2026-08-22, Win11)
 - **Admin key file:** for an **administrator** account, sshd reads
