@@ -105,6 +105,11 @@ if [ -f "$bin" ]; then
 else echo "BINSZ=0"; echo "BINMT=-"; fi
 log=$(ls -t "$d"/*.log 2>/dev/null | head -1)
 echo "LOGFILE=$log"
+if [ -n "$log" ]; then
+  lmt=$(stat -c "%y" "$log" 2>/dev/null | awk '{{print $2}}' | cut -d. -f1)
+  [ -z "$lmt" ] && lmt=$(stat -f "%Sm" -t "%H:%M:%S" "$log" 2>/dev/null)
+  echo "LOGMT=$lmt"
+fi
 echo "LOGSTART"
 [ -n "$log" ] && tail -{TAIL_N} "$log" 2>/dev/null
 echo "LOGEND"
@@ -139,6 +144,7 @@ if (Test-Path $bin) {{ $f = Get-Item $bin; Write-Output ("BINSZ=" + $f.Length); 
 else {{ Write-Output "BINSZ=0"; Write-Output "BINMT=-" }}
 $log = Get-ChildItem (Join-Path $d '*.log') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 Write-Output ("LOGFILE=" + $(if ($log) {{ $log.FullName }} else {{ '' }}))
+Write-Output ("LOGMT=" + $(if ($log) {{ $log.LastWriteTime.ToString('HH:mm:ss') }} else {{ '' }}))
 Write-Output "LOGSTART"
 if ($log) {{ Get-Content $log.FullName -Tail {TAIL_N} }}
 Write-Output "LOGEND"
@@ -187,7 +193,7 @@ def probe_host(host) -> dict:
 
 
 def parse(out: str) -> dict:
-    d = {"REACH": "0", "BUILD": "", "BINSZ": "0", "BINMT": "-", "LOGFILE": "", "LOG": [],
+    d = {"REACH": "0", "BUILD": "", "BINSZ": "0", "BINMT": "-", "LOGFILE": "", "LOGMT": "", "LOG": [],
          "HOSTNAME": "-", "WHOAMI": "-", "OSVER": "-", "QBVER": "-", "CWD": "-", "BRANCH": "-"}
     in_log = False
     for line in out.splitlines():
@@ -322,6 +328,8 @@ def build_logs(results: dict):
             tail = f"{name}: {os.path.basename(r['LOGFILE'])}"
             height = LOG_LANES_LINES + 2
         title = Text.assemble((f"[{i}] ", "bold yellow"), (tail, "magenta"))
+        if has_log and r.get("LOGMT"):
+            title.append(f"   ·  updated {r['LOGMT']}", style="dim")
         panels.append(Panel(body, title=title, title_align="left",
                            border_style="magenta" if has_log else "dim",
                            padding=(0, 1), height=height))
