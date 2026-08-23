@@ -404,30 +404,6 @@ FOR bi% = 1 TO _COMMANDCOUNT
 NEXT bi%
 IF benchLayers% > 0 THEN BENCH_render_run benchLayers%
 
-' ── Headless / no-display guard (automation safety) ─────────────────────────────
-' An interactive GUI launch with no display would crash inside the first render
-' (GLFW never initialized) and, on a Linux desktop, pop a DE crash dialog the user
-' must click OK on — fatal for automation. Detect it HERE (all console/dev CLI ops
-' above have already SYSTEM'd, so this only affects a real GUI launch) and leave
-' cleanly via the log + console instead of crashing. Console ops (--version, --help,
-' --options-list) still work headless. Force this path anywhere with DRAW_HEADLESS=1.
-DIM hasDisplay AS INTEGER : hasDisplay% = TRUE
-$IF LINUX THEN
-    IF _TRIM$(ENVIRON$("DISPLAY")) = "" AND _TRIM$(ENVIRON$("WAYLAND_DISPLAY")) = "" THEN hasDisplay% = FALSE
-$END IF
-IF _TRIM$(ENVIRON$("DRAW_HEADLESS")) <> "" THEN hasDisplay% = FALSE
-IF NOT hasDisplay% THEN
-    _LOGERROR "DRAW: no display (headless) - cannot open the GUI. Exiting cleanly (no crash dialog)."
-    DIM hdOldDest AS LONG : hdOldDest& = _DEST
-    _DEST _CONSOLE
-    PRINT "DRAW: no display detected (headless environment)."
-    PRINT "  The DRAW GUI needs an X11 or Wayland display."
-    PRINT "  For automated/CI runs, launch under Xvfb (see QA/draw-qa.sh)."
-    PRINT "  Console-only flags (--version, --help, --options-list) work headless."
-    _DEST hdOldDest&
-    SYSTEM 3
-END IF
-
 DO
     ' Deferred command line file loading (after first frame when everything is initialized).
     ' Acts exactly like File -> Open: direct load, NO interactive placement.
