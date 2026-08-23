@@ -280,6 +280,8 @@ DIM ebPrevCanUndo           AS INTEGER, ebPrevCanRedo AS INTEGER
 DIM ebPrevHasClip           AS INTEGER, ebPrevHasSel AS INTEGER
 DIM resizeWatchLastW        AS LONG, resizeWatchLastH AS LONG
 DIM resizeWatchSettleFrames AS INTEGER
+DIM resizePendingW          AS LONG, resizePendingH AS LONG
+DIM resizePending           AS INTEGER
 exitConfirmed%           = FALSE
 prevShiftHeld%           = MODIFIERS.shift%
 prevCtrlHeld%            = MODIFIERS.ctrl%
@@ -292,6 +294,9 @@ ebPrevHasSel%            = FALSE
 resizeWatchLastW&        = _WIDTH(0)
 resizeWatchLastH&        = _HEIGHT(0)
 resizeWatchSettleFrames% = 0
+resizePendingW&          = 0
+resizePendingH&          = 0
+resizePending%           = FALSE
 
 ' === Dismiss splash screen with fade-out (after configurable hold) ===
 IF splashImg& < -1 THEN
@@ -447,46 +452,36 @@ DO
         END IF
     END IF
 
-    ' OS-initiated window resize (maximize, drag, etc.): snap back to nearest
-    ' integer scale so $RESIZE:STRETCH always produces a pixel-perfect result.
-    ' Also run a settle watcher because some WMs can miss/lag _RESIZE while
-    ' maximizing or after native dialogs, which can leave black gaps.
-    DIM resizeWinW      AS LONG, resizeWinH AS LONG
-    DIM resizeExpectedW AS LONG, resizeExpectedH AS LONG
-    resizeWinW&      = _WIDTH(0)
-    resizeWinH&      = _HEIGHT(0)
-    resizeExpectedW& = SCRN.w& * SCRN.displayScale%
-    resizeExpectedH& = SCRN.h& * SCRN.displayScale%
-
+    ' OS-initiated window resize (maximize, free drag, etc.).
+    '
+    ' DEFERRED SNAP (GLFW): during a live drag the user is setting the window size
+    ' every frame. Re-issuing SCREEN _NEWIMAGE on each _RESIZE (the old SDL2-era
+    ' behaviour) fights the in-progress GLFW drag — the window jumps / snaps back /
+    ' won't follow the cursor. So while _RESIZE keeps firing we only remember the
+    ' latest target size and let QB64 stretch the current frame to the window
+    ' (live but soft). Once the drag settles (no _RESIZE for a few frames) we snap
+    ' ONCE to the nearest integer scale for a pixel-perfect result.
     IF _RESIZE THEN
         IF SCREEN_DEFERRED_RESIZE% > 0 THEN
+            ' Absorb the _RESIZE echo from our own SCREEN _NEWIMAGE — not a user drag.
             SCREEN_DEFERRED_RESIZE% = SCREEN_DEFERRED_RESIZE% - 1
         ELSE
-            SCREEN_snap_window_to_scale _ResizeWidth, _ResizeHeight
+            ' User drag/maximize in progress: record target, repaint stretched, defer snap.
+            resizePendingW&          = _ResizeWidth
+            resizePendingH&          = _ResizeHeight
+            resizePending%           = TRUE
+            resizeWatchSettleFrames% = 6
             INVALIDATE_scene
         END IF
-        resizeWatchSettleFrames% = 6
-        resizeWatchLastW&        = resizeWinW&
-        resizeWatchLastH&        = resizeWinH&
-    ELSE
-        IF resizeWinW& <> resizeWatchLastW& OR resizeWinH& <> resizeWatchLastH& THEN
-            resizeWatchSettleFrames% = 6
-            resizeWatchLastW&        = resizeWinW&
-            resizeWatchLastH&        = resizeWinH&
-        ELSEIF resizeWatchSettleFrames% > 0 THEN
+    ELSEIF resizePending% THEN
+        ' No _RESIZE this frame — count down; snap once when the drag has settled.
+        IF resizeWatchSettleFrames% > 0 THEN
             resizeWatchSettleFrames% = resizeWatchSettleFrames% - 1
-            IF resizeWatchSettleFrames% = 0 THEN
-                IF SCREEN_DEFERRED_RESIZE% > 0 THEN
-                    SCREEN_DEFERRED_RESIZE% = SCREEN_DEFERRED_RESIZE% - 1
-                ELSEIF resizeWinW& <> resizeExpectedW& OR resizeWinH& <> resizeExpectedH& THEN
-                    _LOGINFO "Resize watcher: corrective snap window " + _TRIM$(STR$(resizeWinW&)) + "x" + _TRIM$(STR$(resizeWinH&)) + " expected " + _TRIM$(STR$(resizeExpectedW&)) + "x" + _TRIM$(STR$(resizeExpectedH&)) + " scale " + _TRIM$(STR$(SCRN.displayScale%)) + "x"
-                    SCREEN_snap_window_to_scale resizeWinW&, resizeWinH&
-                    INVALIDATE_scene
-                ELSE
-                    ' Same size but force a repaint after settle to flush stale black regions.
-                    INVALIDATE_scene
-                END IF
-            END IF
+        ELSE
+            resizePending% = FALSE
+            _LOGINFO "Resize (deferred snap): window " + _TRIM$(STR$(resizePendingW&)) + "x" + _TRIM$(STR$(resizePendingH&)) + " scale " + _TRIM$(STR$(SCRN.displayScale%)) + "x"
+            SCREEN_snap_window_to_scale resizePendingW&, resizePendingH&
+            INVALIDATE_scene
         END IF
     END IF
 
