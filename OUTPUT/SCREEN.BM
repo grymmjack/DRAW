@@ -82,6 +82,65 @@ FUNCTION SCREEN_effective_max_h& ()
     SCREEN_effective_max_h& = effMax&
 END FUNCTION
 
+
+''
+' Get effective MINIMUM viewport width — a chrome-safe floor so the window can never be
+' shrunk small enough to hide the docked controls. Toolbar (left, 4 icon columns) plus a
+' usable minimum canvas strip, floored by CFG.WIN_MIN_WIDTH and an absolute 320.
+' @return LONG - Minimum viewport width in pixels (viewport units, pre-displayScale)
+'
+FUNCTION SCREEN_effective_min_w& ()
+    DIM m AS LONG
+    m& = 96 + 160                       ' ~toolbar column band + minimum canvas strip
+    IF CFG.WIN_MIN_WIDTH% > m& THEN m& = CFG.WIN_MIN_WIDTH%
+    IF m& < 320 THEN m& = 320
+    SCREEN_effective_min_w& = m&
+END FUNCTION
+
+
+''
+' Get effective MINIMUM viewport height — chrome-safe floor. Menubar + status bar +
+' edit/advanced bar band + a usable minimum canvas strip, floored by CFG.WIN_MIN_HEIGHT
+' and an absolute 200. THEME.STATUS_height% is read at runtime (valid post-init).
+' @return LONG - Minimum viewport height in pixels (viewport units, pre-displayScale)
+'
+FUNCTION SCREEN_effective_min_h& ()
+    DIM m AS LONG, statusH AS LONG
+    statusH& = THEME.STATUS_height%
+    IF statusH& < 8 THEN statusH& = 11  ' guard against pre-init/zero
+    m& = MENU_BAR_HEIGHT + statusH& + 40 + 140  ' menubar + status + edit-bar band + min canvas
+    IF CFG.WIN_MIN_HEIGHT% > m& THEN m& = CFG.WIN_MIN_HEIGHT%
+    IF m& < 200 THEN m& = 200
+    SCREEN_effective_min_h& = m&
+END FUNCTION
+
+
+''
+' Apply OS-level window size limits via _WINDOWSIZELIMIT so the window manager itself
+' prevents dragging the window below the chrome-safe minimum (and above the effective max).
+' Limits are window pixels = viewport * displayScale; _WINDOWSIZELIMIT runs them through the
+' same content-scale conversion as window creation, so HiDPI is handled. A negative max =
+' GLFW_DONT_CARE (unlimited — the user can still maximize). QB64-PE ignores the call while
+' in fullscreen. Call after the window is shown and again whenever displayScale changes.
+'
+SUB SCREEN_apply_window_size_limits ()
+    DIM minW AS LONG, minH AS LONG, maxW AS LONG, maxH AS LONG, sc AS LONG
+
+    sc& = SCRN.displayScale%
+    IF sc& < 1 THEN sc& = 1
+
+    minW& = SCREEN_effective_min_w& * sc&
+    minH& = SCREEN_effective_min_h& * sc&
+
+    ' Cap the OS window only when a real max is configured; else -1 (GLFW_DONT_CARE) so
+    ' maximize / fill-screen still works.
+    IF CFG.WIN_MAX_WIDTH% > 0 THEN maxW& = SCREEN_effective_max_w& * sc& ELSE maxW& = -1
+    IF CFG.WIN_MAX_HEIGHT% > 0 THEN maxH& = SCREEN_effective_max_h& * sc& ELSE maxH& = -1
+
+    _WINDOWSIZELIMIT (minW&, minH&) - (maxW&, maxH&)
+    _LOGINFO "SCREEN_apply_window_size_limits: min " + _TRIM$(STR$(minW&)) + "x" + _TRIM$(STR$(minH&)) + " max " + _TRIM$(STR$(maxW&)) + "x" + _TRIM$(STR$(maxH&)) + " (scale " + _TRIM$(STR$(sc&)) + "x)"
+END SUB
+
 ''
 ' Detects the resolution of the desktop and sets the width and height to It
 ' 
@@ -423,6 +482,10 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
     POINTER_invalidate_os_cursor   ' new GLFW surface drops the HW cursor — force re-apply
     _DEST SCRN.CANVAS&
     _SCREENMOVE _MIDDLE
+
+    ' displayScale changed → the pixel size limits (min/max viewport * scale) changed too;
+    ' recompute and re-apply so the OS floor tracks the new scale.
+    SCREEN_apply_window_size_limits
 
     ' Reset input state after window resize
     MOUSE_cleanup_after_dialog FALSE

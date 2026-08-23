@@ -55,6 +55,11 @@ IF CFG.FULLSCREEN% THEN _FULLSCREEN _SQUAREPIXELS
 ' (which runs from SCREEN.BI, before THEME.BI is included in _ALL.BI).
 ' Re-apply runtime THEME.CFG overrides now that all BI includes are complete.
 THEME_load
+
+' Enforce OS-level window size limits now that the window is shown and THEME is loaded
+' (min = chrome-safe so controls can't be dragged off-screen; max = configured cap or
+' unlimited). HiDPI-aware via _WINDOWSIZELIMIT. Re-applied on any displayScale change.
+SCREEN_apply_window_size_limits
 '$CONSOLE
 $EXEICON:'./ASSETS/ICONS/icon.ico'
 

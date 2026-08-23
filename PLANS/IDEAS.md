@@ -10,9 +10,9 @@
 - [ ] Drag onto canvas to drop into current layer (destructive, undoable)
 - [ ] Drag onto menu bar to open as new image, in separate DRAW instance
 
-## _WINDOWSIZELIMIT [(minWidth, minHeight)] [- (maxWidth, maxHeight)] 
-- [ ] Restricts the user-resizable dimensions of the window to minimum and/or maximum width and height bounds.
-- [ ] Taking into consideration of the scaling, hdpi, etc. right now it is possible for a draw window to be resized so much downward/smaller that it hides controls completely, that's no bueno. 
+## _WINDOWSIZELIMIT [(minWidth, minHeight)] [- (maxWidth, maxHeight)]  ✅ DONE (branch window-size-limit)
+- [x] Restricts the user-resizable dimensions of the window to minimum and/or maximum width and height bounds. — `SCREEN_apply_window_size_limits` in OUTPUT/SCREEN.BM calls `_WINDOWSIZELIMIT` (OS-enforced via GLFW) at startup and on every displayScale change.
+- [x] Taking into consideration of the scaling, hdpi, etc. — min is a chrome-safe floor (`SCREEN_effective_min_w&/h&`: menubar+status+editbar+min-canvas, floored by CFG.WIN_MIN and 320×200) × displayScale; `_WINDOWSIZELIMIT` applies the same content-scale conversion as window creation, so HiDPI is handled. The window can no longer be shrunk small enough to hide the docked controls.
 
 ## GUI SCALE independent of CANVAS scale
 - [ ] We need to be able to scale the GUI independent of the canvas
