@@ -485,6 +485,9 @@ TYPE DRAW_CONFIG
     SMART_GUIDES_OPACITY            AS INTEGER        ' Opacity override (0 = use theme)
     ' Opacity slider settings
     OPACITY_WARN_THRESHOLD          AS INTEGER        ' Opacity level at or below which warning colors show (default 10)
+    ' Anti-aliasing (experimental) — coverage-weighted edge blending for drawing tools.
+    ' Default OFF to protect the hard-edged pixel-art identity; per-document toggle.
+    ANTIALIAS                       AS INTEGER        ' TRUE = soft (AA) edges on supported tools
     ' CRT overlay effect settings (presentation-only, never written to canvas)
     CRT_ENABLED                     AS INTEGER        ' Master on/off
     CRT_INTENSITY                   AS INTEGER        ' Global intensity 0-100 (scales scanlines, phosphor, vignette)
