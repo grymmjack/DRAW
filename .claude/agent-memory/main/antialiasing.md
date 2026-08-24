@@ -65,6 +65,16 @@ bezier/poly-close → Phase 2b must add the same `OR CFG.ANTIALIAS%` guard there
 intentional AA no-op** (axis-aligned; thick-brush rect corners already AA via the stamp). The SDF
 approach is the template for curved smart shapes. Drag previews stay hard (snap on commit, like Line).
 
+**Phase 2b (poly-line, bezier, poly-fill) shipped.** Thin poly-line/bezier had the same
+built-in-primitive bypass as the ellipse `CIRCLE` — fixed with `OR CFG.ANTIALIAS%` on their
+thin-line guards (poly-line MOUSE.BM 2218/3797; bezier `DRAWER_has_paint_mode%` guards
+BEZIER.BM 205/252) so thin lines route to `LINE_draw_resolved` (Wu). **Poly-fill** feathers
+its diagonal edges by overlaying `PAINT_wu_line` per edge in the fill color — done at the
+tool COMMIT site (INPUT/MOUSE.BM after `POLY_FILL_scanline`), NOT inside `POLY_FILL_scanline`
+itself, because that SUB is **also used to rasterize selection masks** (MARQUEE.BM) which must
+stay hard. Skips the transparent/erase case; targets the current layer (=polyfill_target&).
+Phase 2c remaining: curved smart shapes (reuse the SDF approach), spray, eraser coverage-subtract.
+
 **What the loop CANNOT verify:** AA-*on* visual quality. The QA test
 (`QA/tests/antialias-toggle.sh`) only checks the flag default, the source-route guard
 structure, and an AA-on non-crash smoke. A human must eyeball soft brush/line output.
