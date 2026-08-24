@@ -441,32 +441,14 @@ DO
     END IF
 
     IF _TOTALDROPPEDFILES THEN
-        DIM dropFile$, dropExt$, dropExtL$
+        DIM dropFile$
         dropFile$ = _DROPPEDFILE$(1)
         _FINISHDROP
-        IF dropFile$ <> "" AND _FILEEXISTS(dropFile$) THEN
-            dropExt$  = LCASE$(RIGHT$(dropFile$, 5))
-            dropExtL$ = LCASE$(RIGHT$(dropFile$, 10))
-            IF dropExtL$ = ".drawlayer" THEN
-                ' A saved cross-instance layer blob — import as a new layer.
-                DIM dropBlob$, dropLix%
-                dropBlob$ = LAYERXFER_read_bytes$(dropFile$)
-                IF dropBlob$ <> "" THEN
-                    dropLix% = LAYERXFER_deserialize%(dropBlob$)
-                    IF dropLix% > 0 THEN
-                        SOUND_play SND_NEW_LAYER
-                        CANVAS_DIRTY% = TRUE : SCENE_DIRTY% = TRUE : GUI_NEEDS_REDRAW% = TRUE
-                    END IF
-                END IF
-            ELSEIF dropExt$ = ".draw" THEN
-                DRW_load dropFile$
-                SOUND_play SND_NEW_FILE
-                CURRENT_DRW_FILENAME$ = dropFile$
-            ELSE
-                DIM dropLoadResult%
-                dropLoadResult% = IMAGE_IMPORT_load_file%(dropFile$)
-            END IF
-        END IF
+        ' Queue for deferred, target-aware dispatch (canvas / layer panel / brush bin /
+        ' menu bar) in INPUT/DROP.BM — dispatched by DROP_tick a couple of frames later,
+        ' once the cursor position is known (GLFW does not report it during the OS drag).
+        ' Only file #1 is consumed (multi-file drops discard the rest).
+        DROP_queue_dropped_file dropFile$
     END IF
 
     ' OS-initiated window resize (maximize, free drag, etc.).
@@ -552,6 +534,11 @@ DO
         SOUND_play SND_NEW_LAYER
         CANVAS_DIRTY% = TRUE : SCENE_DIRTY% = TRUE : GUI_NEEDS_REDRAW% = TRUE : FRAME_IDLE% = FALSE
     END IF
+    ' Dispatch any queued file-drop from the top of the loop (same position as the mailbox
+    ' receive above, which reliably forces a full-scene render). The 2-frame defer means
+    ' MOUSE.RAW_X/Y already holds the settled drop point by now (a prior MOUSE_input_handler
+    ' pumped _MOUSEINPUT). DROP_tick sets the dirty flags when it dispatches.
+    DROP_tick
     IF AI_FAIL_PENDING% THEN
         AI_FAIL_PENDING% = FALSE
         AI_JOB_report_failure

@@ -1390,6 +1390,22 @@ SUB DRAWER_run_deferred_action ()
 END SUB
 
 ''
+' Return the first empty brush slot (1..DRAWER_SLOT_COUNT) on the current page, or 0 if
+' all slots are full. A slot is empty when its image handle is invalid (>= -1); a valid
+' loaded brush handle is < -1. Used by drag-and-drop to fill the next free bin.
+'
+FUNCTION DRAWER_first_free_slot% ()
+    DIM i AS INTEGER
+    DRAWER_first_free_slot% = 0
+    FOR i% = 1 TO DRAWER_SLOT_COUNT
+        IF DRAWER_BRUSH_SLOTS(i%).IMG >= -1 THEN
+            DRAWER_first_free_slot% = i%
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+END FUNCTION
+
+''
 ' Import an image file directly into a drawer slot without opening a dialog.
 ' Used when files are dragged from the browser onto the drawer panel.
 ' @param filename STRING  Full path of the image file to load
@@ -4153,17 +4169,43 @@ SUB DRAWER_clear_active_set ()
 END SUB
 
 ''
+' Drag-and-drop helper: the brush bin is full, so start a NEW blank brush page and place
+' the dropped image in slot 1. Existing brushes are NOT lost — if the current set has
+' unsaved changes it is auto-saved to USER/DRAWER-SETS/autosave-brush-NN.dset first;
+' otherwise the prior brushes remain on disk (their .dset / theme defaults, reachable via
+' the drawer wheel). Always operates on the brush page.
+'
+SUB DRAWER_new_page_with_brush (brushFile$)
+    ' A brush drop shows brushes: make sure we are on the brush page.
+    IF DRAWER.mode% <> DRAWER_MODE_BRUSH THEN DRAWER_set_mode DRAWER_MODE_BRUSH
+
+    ' Preserve unsaved work before clearing to a blank page.
+    IF DRAWER_is_set_dirty% THEN
+        DRAWER_ensure_sets_dir
+        DIM baseDir AS STRING, autoPath AS STRING, n AS INTEGER
+        baseDir$ = DRAWER_sets_dir$ + "/"
+        n% = 1
+        DO
+            autoPath$ = baseDir$ + "autosave-brush-" + _TRIM$(STR$(n%)) + ".dset"
+            IF NOT _FILEEXISTS(autoPath$) THEN EXIT DO
+            n% = n% + 1
+        LOOP UNTIL n% > 999
+        DRAWER_save_set_to_file autoPath$
+        _LOGINFO "DROP: brush bin full — auto-saved current set to " + autoPath$
+    END IF
+
+    ' Fresh blank page, then drop the brush into slot 1.
+    DRAWER_clear_active_set
+    DRAWER_import_file_to_slot brushFile$, 1, DRAWER_MODE_BRUSH
+END SUB
+
+''
 ' Show a save dialog and export the current mode's slots as a .dset file.
 ' Gradient mode uses version 2 format with gradient definitions.
 '
 SUB DRAWER_export_set_dialog ()
-    DIM fh           AS INTEGER
     DIM modeName     AS STRING
     DIM filename     AS STRING
-    DIM magic        AS STRING * 4
-    DIM version      AS INTEGER
-    DIM selectedSlot AS INTEGER
-    DIM i            AS INTEGER
 
     IF DRAWER.mode% < DRAWER_MODE_BRUSH OR DRAWER.mode% > DRAWER_MODE_GRADIENT THEN
         POINTER_hide_for_dialog
@@ -4198,8 +4240,27 @@ SUB DRAWER_export_set_dialog ()
     LAST_DIRECTORY$            = CFG.LAST_DIR_EXPORT_BRUSH$
     CONFIG_save
 
+    DRAWER_save_set_to_file filename$
+END SUB
+
+''
+' Write the current drawer mode's slots to a .dset file WITHOUT any dialog (the
+' non-interactive core extracted from DRAWER_export_set_dialog). Updates the current-set
+' path + dirty state on success. Used by the export dialog and by drag-and-drop's
+' new-blank-page auto-save. No-op on an invalid mode or empty path.
+'
+SUB DRAWER_save_set_to_file (savePath$)
+    DIM fh           AS INTEGER
+    DIM magic        AS STRING * 4
+    DIM version      AS INTEGER
+    DIM selectedSlot AS INTEGER
+    DIM i            AS INTEGER
+
+    IF savePath$ = "" THEN EXIT SUB
+    IF DRAWER.mode% < DRAWER_MODE_BRUSH OR DRAWER.mode% > DRAWER_MODE_GRADIENT THEN EXIT SUB
+
     fh% = FREEFILE
-    OPEN filename$ FOR BINARY AS #fh%
+    OPEN savePath$ FOR BINARY AS #fh%
     magic$ = "DST1"
     IF DRAWER.mode% = DRAWER_MODE_GRADIENT THEN version% = 2 ELSE version% = 1
     PUT #fh%, , magic$
@@ -4258,7 +4319,7 @@ SUB DRAWER_export_set_dialog ()
     CLOSE #fh%
 
     DRAWER_clear_set_dirty DRAWER.mode%
-    DRAWER_set_current_path DRAWER.mode%, filename$
+    DRAWER_set_current_path DRAWER.mode%, savePath$
     DRAWER_invalidate_dset_cache
 END SUB
 

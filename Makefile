@@ -114,7 +114,7 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
                  QB64PE_LOG_FILE_PATH=$(LOGFILE)
 
 # ---------- Targets -----------------------------------------------------------
-.PHONY: help all run run-logged run-log-bas clean clean-log \
+.PHONY: help all run run-logged run-log-bas clean clean-log macos-app \
         main v450 a740g main-run v450-run a740g-run
 .DEFAULT_GOAL := all
 
@@ -155,6 +155,9 @@ clean:  #: Remove the built binary and log file
 
 clean-log:  #: Remove the log file only
 	$(RM) $(LOGFILE)
+
+macos-app: $(OUT)  #: [macOS] Bundle DRAW.run + icon into a self-contained DRAW.app
+	./DEV/make-macos-app.sh
 
 # ---------- Compiler shortcuts ------------------------------------------------
 # Each shortcut recurses into make with COMPILER=<alias> so the ifeq chain

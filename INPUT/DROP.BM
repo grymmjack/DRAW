@@ -1,0 +1,284 @@
+''
+' DRAW - INPUT/DROP.BM
+' =============================================================================
+' Implementation of the drag-and-drop dispatch. See INPUT/DROP.BI for the design
+' summary and PLANS/DRAG-DROP-PLAN.md for the full plan + code anchors.
+'
+$INCLUDEONCE
+
+''
+' Queue a dropped file for deferred dispatch. Called from the main loop when
+' _TOTALDROPPEDFILES fires. We cannot dispatch immediately: QB64-PE/GLFW does not sync
+' the cursor position during an external OS drag, so the drop point is unknown until the
+' drag releases and MOUSE_input_handler reads the cursor on a later frame. See DROP_tick.
+'
+SUB DROP_queue_dropped_file (dropFile$)
+    IF dropFile$ = "" THEN EXIT SUB
+    DROP_PENDING_FILE$   = dropFile$
+    DROP_PENDING_FRAMES% = 2          ' dispatch a couple of frames later (cursor settles)
+    ' Keep the render loop lively through the short defer so it dispatches promptly and the
+    ' placement frame is never skipped as idle.
+    FRAME_IDLE%          = FALSE
+    SCENE_DIRTY%         = TRUE
+    GUI_NEEDS_REDRAW%    = TRUE
+END SUB
+
+''
+' Per-frame tick — call from the TOP of the main loop (alongside the mailbox receive).
+' When a queued drop's short defer elapses, dispatch it; by now MOUSE.RAW_X/Y holds the
+' cursor's resting position, which for an OS drop is the drop point. After dispatching we
+' force a full-scene render frame (same flag set the mailbox receive uses), because the
+' placement happens outside normal mouse input and would otherwise wait for the next mouse
+' move to repaint.
+'
+SUB DROP_tick ()
+    IF DROP_PENDING_FRAMES% <= 0 THEN EXIT SUB
+    DROP_PENDING_FRAMES% = DROP_PENDING_FRAMES% - 1
+    ' Keep rendering while we wait out the defer so the loop never parks as idle.
+    FRAME_IDLE%       = FALSE
+    GUI_NEEDS_REDRAW% = TRUE
+    IF DROP_PENDING_FRAMES% > 0 THEN EXIT SUB
+
+    DIM pendingFile AS STRING
+    pendingFile$       = DROP_PENDING_FILE$
+    DROP_PENDING_FILE$ = ""
+    DROP_handle_dropped_file pendingFile$
+
+    ' Force a full-scene repaint this frame (placement is not driven by mouse input).
+    CANVAS_DIRTY%     = TRUE
+    SCENE_DIRTY%      = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+''
+' Handle one dropped file. Called (deferred) from DROP_tick after reading _DROPPEDFILE$(1).
+' Routing by extension:
+'   .drawlayer -> import as a new layer (cross-instance layer blob)
+'   .draw      -> load as the whole document
+'   else       -> treated as an image (see target dispatch below)
+'
+' The drop TARGET (which UI region the cursor is over) and the Shift state are
+' captured here for target-aware image handling. In this first phase they are only
+' logged; later boxes route images to canvas / layer panel / brush bin / menu bar.
+'
+SUB DROP_handle_dropped_file (dropFile$)
+    IF dropFile$ = "" THEN EXIT SUB
+    IF NOT _FILEEXISTS(dropFile$) THEN EXIT SUB
+
+    ' --- Capture drop context (cursor position = drop point; Shift modifier) ---
+    ' Dispatch is deferred (see DROP_queue_dropped_file / DROP_tick), so by the time we get
+    ' here MOUSE_input_handler has updated MOUSE.RAW_X/Y to the cursor's post-drop resting
+    ' position — the drop point. (An immediate read at drop time is stale: GLFW does not
+    ' sync the cursor during an external OS drag.) MOUSE.RAW_X/Y are already in REGION space.
+    DIM dropRawX AS INTEGER, dropRawY AS INTEGER, dropShift AS INTEGER, dropTarget AS INTEGER
+    dropRawX%   = MOUSE.RAW_X%
+    dropRawY%   = MOUSE.RAW_Y%
+    dropShift%  = MODIFIERS.shift%
+    dropTarget% = REGION_hit_test%(dropRawX%, dropRawY%)
+    _LOGINFO "DROP: file=" + dropFile$ + " raw=(" + _TRIM$(STR$(dropRawX%)) + "," + _TRIM$(STR$(dropRawY%)) + ") shift=" + _TRIM$(STR$(dropShift%)) + " region=" + _TRIM$(STR$(dropTarget%))
+
+    ' --- Dispatch by extension ---
+    DIM dropExt$, dropExtL$
+    dropExt$  = LCASE$(RIGHT$(dropFile$, 5))
+    dropExtL$ = LCASE$(RIGHT$(dropFile$, 10))
+
+    ' --- Menu-bar drop: open the file in a separate isolated window. A .drawlayer blob is
+    '     not an openable document, so it falls through to normal (layer) import instead. ---
+    IF dropTarget% = REGION_MENUBAR AND dropExtL$ <> ".drawlayer" THEN
+        INSTANCE_launch_new_with_file dropFile$
+        EXIT SUB
+    END IF
+
+    IF dropExtL$ = ".drawlayer" THEN
+        ' A saved cross-instance layer blob — import as a new layer.
+        DIM dropBlob$, dropLix%
+        dropBlob$ = LAYERXFER_read_bytes$(dropFile$)
+        IF dropBlob$ <> "" THEN
+            dropLix% = LAYERXFER_deserialize%(dropBlob$)
+            IF dropLix% > 0 THEN
+                SOUND_play SND_NEW_LAYER
+                CANVAS_DIRTY% = TRUE : SCENE_DIRTY% = TRUE : GUI_NEEDS_REDRAW% = TRUE
+            END IF
+        END IF
+    ELSEIF dropExt$ = ".draw" THEN
+        DRW_load dropFile$
+        SOUND_play SND_NEW_FILE
+        CURRENT_DRW_FILENAME$ = dropFile$
+    ELSE
+        ' Image file — route by drop target (canvas / layer panel / brush bin /
+        ' menu bar) and size. See DROP_handle_image.
+        DROP_handle_image dropFile$, dropTarget%, dropShift%, dropRawX%, dropRawY%
+    END IF
+END SUB
+
+''
+' Route a dropped IMAGE by target region and size. Images larger than the canvas
+' always fall back to the interactive Import Image placement (pan/zoom/crop). Smaller
+' images are placed directly per target. Targets not yet implemented fall back to the
+' interactive importer — the safe default.
+'
+SUB DROP_handle_image (dropFile$, target AS INTEGER, shiftHeld AS INTEGER, rawX AS INTEGER, rawY AS INTEGER)
+    ' Brush-bin (drawer) drop: add the image as a custom brush in a free slot. The
+    ' loader (DRAWER_import_file_to_slot) reads the file itself, so no local load here.
+    IF target% = REGION_DRAWER THEN
+        DIM binSlot AS INTEGER
+        binSlot% = DRAWER_slot_at%(rawX%, rawY%)
+        ' Use the hovered slot only when it is empty; otherwise the first free slot.
+        IF binSlot% >= 1 THEN
+            IF DRAWER_BRUSH_SLOTS(binSlot%).IMG < -1 THEN binSlot% = DRAWER_first_free_slot%
+        ELSE
+            binSlot% = DRAWER_first_free_slot%
+        END IF
+        IF binSlot% >= 1 THEN
+            DRAWER_import_file_to_slot dropFile$, binSlot%, DRAWER_MODE_BRUSH
+        ELSE
+            ' All slots full — start a fresh blank page (unsaved work auto-saved first).
+            DRAWER_new_page_with_brush dropFile$
+        END IF
+        SOUND_play SND_DRAG_DROP
+        EXIT SUB
+    END IF
+
+    ' Load once so we can measure the image and decide interactive vs. direct placement.
+    DIM srcImg AS LONG
+    srcImg& = _LOADIMAGE(dropFile$, 32)
+    IF srcImg& >= -1 THEN
+        ' Load failed — let the interactive importer surface the error.
+        DIM r0 AS INTEGER
+        r0% = IMAGE_IMPORT_load_file%(dropFile$)
+        EXIT SUB
+    END IF
+
+    DIM iw AS INTEGER, ih AS INTEGER, larger AS INTEGER
+    iw%     = _WIDTH(srcImg&)
+    ih%     = _HEIGHT(srcImg&)
+    larger% = (iw% > SCRN.canvasW& OR ih% > SCRN.canvasH&)
+
+    ' Canvas drop, image fits: stamp destructively onto the current layer.
+    IF target% = REGION_CANVAS AND NOT larger% THEN
+        DROP_place_on_current_layer srcImg&, shiftHeld%
+        SAFE_FREEIMAGE srcImg&
+        EXIT SUB
+    END IF
+
+    ' Layer-panel drop, image fits: drop it onto a brand-new layer.
+    IF target% = REGION_LAYER_PANEL AND NOT larger% THEN
+        DROP_place_on_new_layer srcImg&, shiftHeld%
+        SAFE_FREEIMAGE srcImg&
+        EXIT SUB
+    END IF
+
+    ' Everything else (larger-than-canvas, or a target not yet handled) → interactive
+    ' Import Image workflow. Free our measuring copy; the importer reloads from the path.
+    SAFE_FREEIMAGE srcImg&
+    DIM r1 AS INTEGER
+    r1% = IMAGE_IMPORT_load_file%(dropFile$)
+END SUB
+
+''
+' Stamp a loaded image destructively onto the current layer (undoable). Placed at the
+' canvas top-left, or centered on the canvas when Shift was held. The caller owns and
+' frees srcImg. Records a full-layer before-snapshot via HISTORY_record_brush so a single
+' Ctrl+Z restores the layer exactly.
+'
+SUB DROP_place_on_current_layer (srcImg AS LONG, centerOnCanvas AS INTEGER)
+    IF srcImg& >= -1 THEN EXIT SUB
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    DIM targetImg AS LONG
+    targetImg& = LAYER_current_image&
+    IF targetImg& >= -1 THEN EXIT SUB
+
+    DIM iw AS INTEGER, ih AS INTEGER, destX AS INTEGER, destY AS INTEGER
+    iw% = _WIDTH(srcImg&)
+    ih% = _HEIGHT(srcImg&)
+    IF centerOnCanvas% THEN
+        destX% = (SCRN.canvasW& - iw%) \ 2
+        destY% = (SCRN.canvasH& - ih%) \ 2
+    ELSE
+        destX% = 0
+        destY% = 0
+    END IF
+
+    ' Snapshot the whole layer BEFORE the edit; HISTORY_record_brush takes ownership.
+    DIM beforeImg AS LONG
+    beforeImg& = _COPYIMAGE(targetImg&, 32)
+
+    ' Map canvas coords into the (possibly apron-promoted) layer buffer, then stamp.
+    DIM bufX AS INTEGER, bufY AS INTEGER, oldDest AS LONG
+    bufX%    = LAYERS_canvas_to_buf_x%(destX%, CURRENT_LAYER%)
+    bufY%    = LAYERS_canvas_to_buf_y%(destY%, CURRENT_LAYER%)
+    oldDest& = _DEST
+    _DEST targetImg&
+    _BLEND targetImg&
+    _PUTIMAGE (bufX%, bufY%), srcImg&, targetImg&
+    _DEST oldDest&
+
+    IF NOT HISTORY_saved_this_frame% THEN
+        IF beforeImg& < -1 THEN
+            HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, _RGBA32(0, 0, 0, 0), 0, beforeImg&, "Drop Image"
+            HISTORY_saved_this_frame% = TRUE
+        END IF
+    ELSE
+        IF beforeImg& < -1 THEN SAFE_FREEIMAGE beforeImg&
+    END IF
+
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+    CANVAS_DIRTY%     = TRUE
+    SCENE_DIRTY%      = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    SOUND_play SND_DRAG_DROP
+END SUB
+
+''
+' Place a loaded image onto a NEW layer (undoable as a single layer-add). Positioned at
+' the canvas top-left, or centered when Shift was held. The caller owns and frees srcImg.
+' Mirrors LAYERXFER_add_layer%'s undo discipline: suppress LAYERS_new%'s empty auto
+' layer-add, fill the pixels, then record ONE layer-add so redo restores the layer WITH
+' its content.
+'
+SUB DROP_place_on_new_layer (srcImg AS LONG, centerOnCanvas AS INTEGER)
+    IF srcImg& >= -1 THEN EXIT SUB
+    IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN LAYERS_show_max_alert : EXIT SUB
+
+    DIM newIdx AS INTEGER, dst AS LONG, wasInProg AS INTEGER
+    DIM iw AS INTEGER, ih AS INTEGER, destX AS INTEGER, destY AS INTEGER, bufX AS INTEGER, bufY AS INTEGER
+    iw% = _WIDTH(srcImg&)
+    ih% = _HEIGHT(srcImg&)
+
+    ' Suppress the empty auto layer-add; we record one after the pixels are in.
+    wasInProg% = HISTORY_IN_PROGRESS%
+    HISTORY_IN_PROGRESS% = TRUE
+    newIdx% = LAYERS_new%
+    HISTORY_IN_PROGRESS% = wasInProg%
+    IF newIdx% = 0 THEN EXIT SUB
+
+    IF centerOnCanvas% THEN
+        destX% = (SCRN.canvasW& - iw%) \ 2
+        destY% = (SCRN.canvasH& - ih%) \ 2
+    ELSE
+        destX% = 0
+        destY% = 0
+    END IF
+
+    dst& = LAYERS(newIdx%).imgHandle&
+    IF dst& < -1 THEN
+        bufX% = LAYERS_canvas_to_buf_x%(destX%, newIdx%)
+        bufY% = LAYERS_canvas_to_buf_y%(destY%, newIdx%)
+        _DONTBLEND dst&
+        _PUTIMAGE (bufX%, bufY%), srcImg&, dst&
+        _BLEND dst&
+    END IF
+
+    LAYERS(newIdx%).contentDirty% = TRUE
+    IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_record_layer_add LAYERS(newIdx%).historyId&, newIdx%, LAYERS(newIdx%).zIndex%, "Drop Image"
+    LAYERS_select newIdx%
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+    CANVAS_DIRTY%     = TRUE
+    SCENE_DIRTY%      = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    SOUND_play SND_NEW_LAYER
+END SUB
