@@ -18,7 +18,7 @@ to the guard so AA routes to those SUBs (which already branch to the Wu line). A
 built-in `LINE`. Poly-fill instead overlays its edges as `PAINT_wu_line` in the fill color.
 
 ## 🔨 NOW — doing right now
-➡️ **4. Docs + QA.**
+_(all 4 boxes complete — Phase 2b done)_
 
 ## Tasks
 
@@ -28,6 +28,6 @@ built-in `LINE`. Poly-fill instead overlays its edges as `PAINT_wu_line` in the 
 
 - [x] **3. Poly-fill edge AA.** DONE — Wu-edge overlay at the tool commit site (MOUSE.BM after POLY_FILL_scanline), NOT inside the shared SUB (it also rasterizes selection masks → must stay hard). Skips transparent/erase; targets current layer (=polyfill_target&). AA-off byte-equal. Build clean. Commit 2db028d. **(Human: eyeball a filled polygon's diagonal edges.)**
 
-- [ ] **4. Docs + QA.** Extend `QA/tests/antialias-toggle.sh` with poly-line + poly-fill source-route guards. Update `CHEATSHEET.md` AA coverage (poly-line/bezier/poly-fill), `PLANS/IDEAS.md` Phase 2b status (and remaining 2c: smart shapes, spray, eraser), and `.claude/agent-memory/main/antialiasing.md`. Final `make` clean.
+- [x] **4. Docs + QA.** DONE — QA poly-line/bezier/poly-fill guards (8/8 pass); CHEATSHEET AA coverage updated; IDEAS Phase 2b done + 2c TODO; memory updated (poly-fill mask caveat). Final `make` clean (binary current).
 
 loop:on
