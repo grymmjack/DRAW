@@ -1376,6 +1376,7 @@ remainder.
 | Key | Function |
 |-----|----------|
 | `Ctrl+N` | New canvas (prompts to save unsaved changes, then resets to blank canvas) |
+| `Ctrl+Alt+N` | New Window — open another isolated DRAW instance (requires Settings > General > "Allow Multiple Instances") |
 | `Ctrl+O` | Open/import image file (PNG, BMP, JPG, GIF) |
 | `Ctrl+S` | Save (silently if previously saved, dialog if new) |
 | `Ctrl+Shift+S` | Save As (always prompts for filename) |
@@ -1503,6 +1504,8 @@ The layer panel is displayed on the left side of the screen and can be toggled w
 | `Ctrl+L` | Toggle layer panel visibility |
 | `Ctrl+Shift+N` | Create new layer (note: `Ctrl+N` creates new canvas) |
 | `Ctrl+Shift+D` | Duplicate current layer |
+| `Ctrl+Alt+Shift+C` | Copy Layer to the clipboard (pixels + name/opacity/blend) — for pasting into another DRAW window |
+| `Ctrl+Alt+Shift+V` | Paste Layer from the clipboard as a new layer (also accepts an image copied from any app) |
 | `Ctrl+Shift+R` | Rename current layer |
 | `Ctrl+Shift+Delete` | Delete current layer |
 | `Ctrl+PgUp` | Move layer up in stack |

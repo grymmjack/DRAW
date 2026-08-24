@@ -239,6 +239,7 @@ machine. Same convention is documented in the `grymmjack/qb64pe-mcp-server-bash`
 | `.claude/instructions/draw-sound.md` | Sound slots, music, SF2 MIDI |
 | `.claude/instructions/draw-text-tool.md` | Text tool state machine (points to `fix-text-tool-bug` skill) |
 | `.claude/instructions/draw-tdf-fonts.md` | TheDraw `.TDF` fonts: binary format, CP437 cell rasteriser, `.TDX` index, dedup repacker |
+| `.claude/instructions/draw-multi-instance.md` | Multiple isolated instances: heartbeat registry, seeded per-instance config, Copy/Paste/Send Layer (`CORE/INSTANCE`, `TOOLS/LAYERXFER`), QB64-PE IPC constraints |
 
 The `.claude/skills/` directory contains procedural workflows for common tasks (release prep, QA test generation, bug fixing with state diagrams, PDF manual build, image upscaling, mind-map generation, QB64-PE porting/debugging). Each subdirectory has a `SKILL.md` invoked as a slash command.
 

@@ -1,0 +1,239 @@
+''
+' DRAW - TOOLS/LAYERXFER.BM
+' =============================================================================
+' Implementation of cross-instance layer transfer. See TOOLS/LAYERXFER.BI.
+'
+$INCLUDEONCE
+
+''
+' Strip trailing padding (spaces + NULs) from a fixed-length layer name, and
+' neutralise the "|" field separator + newlines so it survives the metadata line.
+'
+FUNCTION LAYERXFER_sanitize$ (raw AS STRING)
+    DIM s AS STRING, i AS INTEGER, c AS INTEGER
+    s$ = raw$
+    ' trim trailing spaces / NULs (fixed-length STRING * 64 padding)
+    DO WHILE LEN(s$) > 0
+        c% = ASC(RIGHT$(s$, 1))
+        IF c% = 32 OR c% = 0 THEN s$ = LEFT$(s$, LEN(s$) - 1) ELSE EXIT DO
+    LOOP
+    ' replace separators/newlines
+    FOR i% = 1 TO LEN(s$)
+        c% = ASC(MID$(s$, i%, 1))
+        IF c% = ASC("|") OR c% = 13 OR c% = 10 THEN MID$(s$, i%, 1) = "/"
+    NEXT i%
+    LAYERXFER_sanitize$ = s$
+END FUNCTION
+
+''
+' Extract a layer's CANVAS-region pixels into a fresh canvas-sized 32-bit image
+' (apron-aware -- promoted layers store canvas pixels at buffer offset apronW/H).
+' Alpha is copied verbatim (_DONTBLEND). Returns a NEW image handle (caller frees),
+' or 0 on failure.
+'
+FUNCTION LAYERXFER_extract_layer& (idx AS INTEGER)
+    DIM src AS LONG, tmp AS LONG, oldDest AS LONG
+    DIM w AS INTEGER, h AS INTEGER, aw AS INTEGER, ah AS INTEGER
+    LAYERXFER_extract_layer& = 0
+    IF idx% < 1 OR idx% > MAX_LAYERS THEN EXIT FUNCTION
+    src& = LAYERS(idx%).imgHandle&
+    IF src& >= -1 THEN EXIT FUNCTION
+    w% = SCRN.canvasW& : h% = SCRN.canvasH&
+    IF w% < 1 OR h% < 1 THEN EXIT FUNCTION
+    aw% = LAYERS(idx%).apronW% : ah% = LAYERS(idx%).apronH%
+    tmp& = _NEWIMAGE(w%, h%, 32)
+    IF tmp& >= -1 THEN EXIT FUNCTION
+    oldDest& = _DEST
+    _DEST tmp&
+    _DONTBLEND tmp&
+    CLS , _RGBA32(0, 0, 0, 0)
+    ' copy the canvas region (source apron offset -> dest 0,0), verbatim
+    _PUTIMAGE (0, 0)-(w% - 1, h% - 1), src&, tmp&, (aw%, ah%)-(aw% + w% - 1, ah% + h% - 1)
+    _BLEND tmp&
+    _DEST oldDest&
+    LAYERXFER_extract_layer& = tmp&
+END FUNCTION
+
+''
+' Build the one-line metadata string for a layer: MAGIC|name|opacity|blend.
+'
+FUNCTION LAYERXFER_build_meta$ (idx AS INTEGER)
+    IF idx% < 1 OR idx% > MAX_LAYERS THEN LAYERXFER_build_meta$ = "" : EXIT FUNCTION
+    LAYERXFER_build_meta$ = LAYERXFER_META_MAGIC$ + "|" + LAYERXFER_sanitize$(LAYERS(idx%).name) + "|" + _TRIM$(STR$(LAYERS(idx%).opacity%)) + "|" + _TRIM$(STR$(LAYERS(idx%).blendMode%))
+END FUNCTION
+
+''
+' Return the Nth "|"-delimited field (1-based) of a metadata line, "" if absent.
+'
+FUNCTION LAYERXFER_field$ (meta AS STRING, n AS INTEGER)
+    DIM startP AS INTEGER, sepP AS INTEGER, cur AS INTEGER
+    startP% = 1
+    cur% = 1
+    DO
+        sepP% = INSTR(startP%, meta$, "|")
+        IF cur% = n% THEN
+            IF sepP% = 0 THEN
+                LAYERXFER_field$ = MID$(meta$, startP%)
+            ELSE
+                LAYERXFER_field$ = MID$(meta$, startP%, sepP% - startP%)
+            END IF
+            EXIT FUNCTION
+        END IF
+        IF sepP% = 0 THEN LAYERXFER_field$ = "" : EXIT FUNCTION
+        startP% = sepP% + 1
+        cur% = cur% + 1
+    LOOP
+END FUNCTION
+
+''
+' Create a NEW layer from a source image + optional metadata line, copying pixels
+' verbatim into the new (canvas-sized) layer buffer and applying name/opacity/blend
+' when the metadata carries the LAYERXFER magic. Selects the new layer. Returns the
+' new layer index, or 0 on failure. Does NOT free srcImg (caller owns it).
+'
+FUNCTION LAYERXFER_add_layer% (srcImg AS LONG, meta AS STRING)
+    DIM newIdx AS INTEGER, dst AS LONG, nm AS STRING, wasInProg AS INTEGER
+    DIM opv AS INTEGER, blv AS INTEGER
+    LAYERXFER_add_layer% = 0
+    IF srcImg& >= -1 THEN EXIT FUNCTION
+    IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN LAYERS_show_max_alert : EXIT FUNCTION
+    ' Suppress LAYERS_new%'s auto-recorded (empty) layer-add; we record ONE layer-add
+    ' AFTER filling the pixels, so undo removes the layer and redo restores it WITH its
+    ' content (the same approach LAYERS_duplicate uses).
+    wasInProg% = HISTORY_IN_PROGRESS%
+    HISTORY_IN_PROGRESS% = TRUE
+    newIdx% = LAYERS_new%
+    HISTORY_IN_PROGRESS% = wasInProg%
+    IF newIdx% = 0 THEN EXIT FUNCTION
+    dst& = LAYERS(newIdx%).imgHandle&
+    IF dst& < -1 THEN
+        _DONTBLEND dst&
+        _PUTIMAGE (0, 0), srcImg&, dst&
+        _BLEND dst&
+    END IF
+    ' Apply metadata when present (magic in field 1). layerType stays IMAGE.
+    IF LAYERXFER_field$(meta$, 1) = LAYERXFER_META_MAGIC$ THEN
+        nm$ = LAYERXFER_field$(meta$, 2)
+        IF nm$ <> "" THEN LAYERS(newIdx%).name = LEFT$(nm$, 64)
+        opv% = VAL(LAYERXFER_field$(meta$, 3))
+        IF opv% >= 0 AND opv% <= 255 THEN LAYERS(newIdx%).opacity% = opv%
+        blv% = VAL(LAYERXFER_field$(meta$, 4))
+        LAYERS(newIdx%).blendMode% = blv%
+    END IF
+    LAYERS(newIdx%).contentDirty% = TRUE
+    IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_record_layer_add LAYERS(newIdx%).historyId&, newIdx%, LAYERS(newIdx%).zIndex%, "Paste Layer"
+    LAYERS_select newIdx%
+    BLEND_invalidate_cache
+    LAYERXFER_add_layer% = newIdx%
+END FUNCTION
+
+''
+' Serialize a layer to a self-contained binary blob for the mailbox handoff:
+'   [MKI$(metaLen)][meta$][PNG bytes]
+' PNG is produced with _SAVEIMAGE to an instance-scoped temp file, then read back.
+' Returns "" on failure.
+'
+FUNCTION LAYERXFER_serialize$ (idx AS INTEGER)
+    DIM img AS LONG, meta AS STRING, tmpPng AS STRING, png AS STRING
+    LAYERXFER_serialize$ = ""
+    img& = LAYERXFER_extract_layer&(idx%)
+    IF img& >= -1 THEN EXIT FUNCTION
+    meta$ = LAYERXFER_build_meta$(idx%)
+    tmpPng$ = INSTANCE_scratch$("layerxfer_out.png")
+    _SAVEIMAGE tmpPng$, img&
+    _FREEIMAGE img&
+    png$ = LAYERXFER_read_bytes$(tmpPng$)
+    IF _FILEEXISTS(tmpPng$) THEN KILL tmpPng$
+    IF png$ = "" THEN EXIT FUNCTION
+    LAYERXFER_serialize$ = MKI$(LEN(meta$)) + meta$ + png$
+END FUNCTION
+
+''
+' Deserialize a mailbox blob and add it as a new layer. Returns the new layer index,
+' or 0 on failure.
+'
+FUNCTION LAYERXFER_deserialize% (blob AS STRING)
+    DIM metaLen AS INTEGER, meta AS STRING, png AS STRING, tmpPng AS STRING
+    DIM img AS LONG, r AS INTEGER
+    LAYERXFER_deserialize% = 0
+    IF LEN(blob$) < 2 THEN EXIT FUNCTION
+    metaLen% = CVI(LEFT$(blob$, 2))
+    IF metaLen% < 0 OR 2 + metaLen% > LEN(blob$) THEN EXIT FUNCTION
+    meta$ = MID$(blob$, 3, metaLen%)
+    png$ = MID$(blob$, 3 + metaLen%)
+    IF png$ = "" THEN EXIT FUNCTION
+    tmpPng$ = INSTANCE_scratch$("layerxfer_in.png")
+    IF LAYERXFER_write_bytes%(tmpPng$, png$) = 0 THEN EXIT FUNCTION
+    img& = _LOADIMAGE(tmpPng$, 32)
+    IF _FILEEXISTS(tmpPng$) THEN KILL tmpPng$
+    IF img& >= -1 THEN EXIT FUNCTION
+    r% = LAYERXFER_add_layer%(img&, meta$)
+    _FREEIMAGE img&
+    LAYERXFER_deserialize% = r%
+END FUNCTION
+
+''
+' Poll our mailbox inbox for layers sent by peer instances and add each as a new
+' layer. Self-throttled (INSTANCE_MAILPOLL_SECS). Fixed per-sender filenames are
+' probed with _FILEEXISTS (no directory enumeration); each is claimed by atomic
+' rename before reading so a concurrent re-send can't be half-read. Returns the
+' number of layers received this poll. Called from the DRAW.BAS main loop.
+'
+FUNCTION LAYERXFER_poll_mailbox% ()
+    DIM s AS INTEGER, f AS STRING, claim AS STRING, blob AS STRING, got AS INTEGER, r AS INTEGER
+    LAYERXFER_poll_mailbox% = 0
+    IF INST.active% = 0 THEN EXIT FUNCTION
+    IF INSTANCE_hb_age#(INST.lastMailPoll#) < INSTANCE_MAILPOLL_SECS THEN EXIT FUNCTION
+    INST.lastMailPoll# = TIMER
+    got% = 0
+    FOR s% = 1 TO INSTANCE_MAX
+        IF s% <> INST.id% THEN
+            f$ = INSTANCE_inbox_file$(INST.id%, s%)
+            IF _FILEEXISTS(f$) THEN
+                claim$ = f$ + ".claim"
+                IF _FILEEXISTS(claim$) THEN KILL claim$
+                NAME f$ AS claim$                     ' atomic claim (removes it from the inbox)
+                blob$ = LAYERXFER_read_bytes$(claim$)
+                IF _FILEEXISTS(claim$) THEN KILL claim$
+                IF blob$ <> "" THEN
+                    r% = LAYERXFER_deserialize%(blob$)
+                    IF r% > 0 THEN got% = got% + 1
+                END IF
+            END IF
+        END IF
+    NEXT s%
+    LAYERXFER_poll_mailbox% = got%
+END FUNCTION
+
+''
+' Read a whole file into a string ("" on failure / empty).
+'
+FUNCTION LAYERXFER_read_bytes$ (filePath AS STRING)
+    DIM fh AS INTEGER, sz AS LONG, buf AS STRING
+    LAYERXFER_read_bytes$ = ""
+    IF NOT _FILEEXISTS(filePath$) THEN EXIT FUNCTION
+    fh% = FREEFILE
+    OPEN filePath$ FOR BINARY AS #fh%
+    sz& = LOF(fh%)
+    IF sz& > 0 THEN
+        buf$ = SPACE$(sz&)
+        GET #fh%, 1, buf$
+    END IF
+    CLOSE #fh%
+    LAYERXFER_read_bytes$ = buf$
+END FUNCTION
+
+''
+' Write a string to a file (truncating). Returns TRUE on success.
+'
+FUNCTION LAYERXFER_write_bytes% (filePath AS STRING, payload AS STRING)
+    DIM fh AS INTEGER
+    LAYERXFER_write_bytes% = 0
+    fh% = FREEFILE
+    OPEN filePath$ FOR OUTPUT AS #fh% ' truncate any existing
+    CLOSE #fh%
+    OPEN filePath$ FOR BINARY AS #fh%
+    IF LEN(payload$) > 0 THEN PUT #fh%, 1, payload$
+    CLOSE #fh%
+    LAYERXFER_write_bytes% = _FILEEXISTS(filePath$)
+END FUNCTION
