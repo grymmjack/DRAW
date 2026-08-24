@@ -31,6 +31,11 @@ It honors the same gates as `PAINT_pset_with_symmetry`: `SELECTION_is_point_insi
   `MENUBAR.BM`), and a **" AA"** badge appended to `tool_name$` in `STATUS_render`.
 - AA brush: `PAINT_draw_filled_circle_aa` — solid core (`dist <= radius-0.5`) + 1px feather
   to `radius+0.5` via `PAINT_blend_pixel_sym`. Square stays hard (axis-aligned = nothing to AA).
+  **Brush sizes are odd-only** (`BRUSH_PIXEL_SIZES(i)=(i-1)*2+1` → 1,3,5,…). The two smallest
+  are special-cased: size 1 = single `PSET`, size 3 = a crisp plus-sign. When AA is on, size 3
+  falls through to the AA circle (added `AND NOT CFG.ANTIALIAS%` to both plus-sign branches in
+  `PAINT_on` + `PAINT_stamp_brush`). **Size 1 deliberately stays crisp** (Rick's call) — a single
+  pixel has no edge to feather; soft-dabbing it would just make a weak translucent dot.
 - AA line: `PAINT_wu_line` (Xiaolin Wu) via `PAINT_blend_pixel_sym`; `LINE_draw_clipped`/
   `_resolved` short-circuit to it when `CFG.ANTIALIAS% AND BRUSH_SIZE_pixels% <= 1`.
 
