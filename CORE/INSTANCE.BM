@@ -1,0 +1,325 @@
+''
+' DRAW - CORE/INSTANCE.BM
+' =============================================================================
+' Implementation of the multiple-instance registry. See CORE/INSTANCE.BI for the
+' design overview. All coordination is portable: fixed-range _FILEEXISTS probes
+' (slots 1..INSTANCE_MAX) instead of directory listing, and an in-file heartbeat
+' (TIMER value) instead of OS file locks / mtime.
+'
+' Error handling: DRAW arms a single global ON ERROR GOTO FatalError (RESUME NEXT)
+' in DRAW.BAS. QB64 forbids ON ERROR GOTO <label> inside a SUB (see CORE/CRASH.BI),
+' so this module NEVER sets a local handler -- it guards proactively with
+' _FILEEXISTS / _DIREXISTS and lets the global handler absorb the rare race.
+'
+$INCLUDEONCE
+
+''
+' Full path of the registry file for slot n.
+'
+FUNCTION INSTANCE_regfile$ (slotN AS INTEGER)
+    INSTANCE_regfile$ = INST.registryDir + _TRIM$(STR$(slotN%)) + ".instance"
+END FUNCTION
+
+''
+' Instance-scoped path for a transient cache scratch file. For the primary instance
+' (id 1) this is exactly PATHS_cache$(baseName). For a secondary instance it inserts
+' "-iN" before the extension (e.g. draw_font_scan.tmp -> draw_font_scan-i2.tmp) so two
+' instances running the same scan concurrently never clobber each other's scratch file.
+' (Scratch names carry a single dot, so first-dot = extension separator.)
+'
+FUNCTION INSTANCE_scratch$ (baseName AS STRING)
+    DIM dotp AS INTEGER, tag AS STRING
+    IF INST.id% <= 1 THEN INSTANCE_scratch$ = PATHS_cache$(baseName$) : EXIT FUNCTION
+    tag$ = "-i" + _TRIM$(STR$(INST.id%))
+    dotp% = INSTR(baseName$, ".")
+    IF dotp% > 0 THEN
+        INSTANCE_scratch$ = PATHS_cache$(LEFT$(baseName$, dotp% - 1) + tag$ + MID$(baseName$, dotp%))
+    ELSE
+        INSTANCE_scratch$ = PATHS_cache$(baseName$ + tag$)
+    END IF
+END FUNCTION
+
+''
+' Age in seconds of a heartbeat value vs now (TIMER), handling the midnight wrap.
+' A negative raw delta means TIMER rolled past midnight since the heartbeat.
+'
+FUNCTION INSTANCE_hb_age# (hb AS DOUBLE)
+    DIM d AS DOUBLE
+    d# = TIMER - hb#
+    IF d# < 0 THEN d# = d# + 86400
+    INSTANCE_hb_age# = d#
+END FUNCTION
+
+''
+' Read a "key=value" field from a registry/handoff file. Returns "" if absent.
+' Guarded by _FILEEXISTS; a torn read during a peer's rewrite simply yields "".
+'
+FUNCTION INSTANCE_read_field$ (filePath AS STRING, keyName AS STRING)
+    DIM result AS STRING, ln AS STRING, k AS STRING, eqp AS INTEGER
+    DIM fh AS INTEGER
+    result$ = ""
+    IF NOT _FILEEXISTS(filePath$) THEN INSTANCE_read_field$ = "" : EXIT FUNCTION
+    fh% = FREEFILE
+    OPEN filePath$ FOR INPUT AS #fh%
+    DO WHILE NOT EOF(fh%)
+        LINE INPUT #fh%, ln$
+        eqp% = INSTR(ln$, "=")
+        IF eqp% > 0 THEN
+            k$ = LEFT$(ln$, eqp% - 1)
+            IF k$ = keyName$ THEN result$ = MID$(ln$, eqp% + 1) : EXIT DO
+        END IF
+    LOOP
+    CLOSE #fh%
+    INSTANCE_read_field$ = result$
+END FUNCTION
+
+''
+' TRUE if the registry file for slot n exists but its heartbeat is stale (dead instance).
+'
+FUNCTION INSTANCE_slot_is_stale% (slotN AS INTEGER)
+    DIM f AS STRING, hb AS DOUBLE, hbs AS STRING
+    f$ = INSTANCE_regfile$(slotN%)
+    IF NOT _FILEEXISTS(f$) THEN INSTANCE_slot_is_stale% = 0 : EXIT FUNCTION
+    hbs$ = INSTANCE_read_field$(f$, "heartbeat")
+    IF hbs$ = "" THEN INSTANCE_slot_is_stale% = -1 : EXIT FUNCTION   ' malformed -> treat as stale
+    hb# = VAL(hbs$)
+    INSTANCE_slot_is_stale% = (INSTANCE_hb_age#(hb#) > INSTANCE_STALE_SECS)
+END FUNCTION
+
+''
+' TRUE if slot n has a LIVE (non-stale) registry file.
+'
+FUNCTION INSTANCE_slot_is_live% (slotN AS INTEGER)
+    DIM f AS STRING
+    f$ = INSTANCE_regfile$(slotN%)
+    IF NOT _FILEEXISTS(f$) THEN INSTANCE_slot_is_live% = 0 : EXIT FUNCTION
+    INSTANCE_slot_is_live% = (INSTANCE_slot_is_stale%(slotN%) = 0)
+END FUNCTION
+
+''
+' Delete registry files for any dead (stale-heartbeat) instances. Re-checks
+' existence right before KILL to shrink the check-then-act race.
+'
+SUB INSTANCE_reap_stale ()
+    DIM i AS INTEGER, f AS STRING
+    FOR i% = 1 TO INSTANCE_MAX
+        IF i% <> INST.id% THEN
+            IF INSTANCE_slot_is_stale%(i%) THEN
+                f$ = INSTANCE_regfile$(i%)
+                IF _FILEEXISTS(f$) THEN KILL f$
+            END IF
+        END IF
+    NEXT i%
+END SUB
+
+''
+' Count of live instances (including ourselves).
+'
+FUNCTION INSTANCE_live_count% ()
+    DIM i AS INTEGER, c AS INTEGER
+    c% = 0
+    FOR i% = 1 TO INSTANCE_MAX
+        IF INSTANCE_slot_is_live%(i%) THEN c% = c% + 1
+    NEXT i%
+    INSTANCE_live_count% = c%
+END FUNCTION
+
+''
+' Write our own registry file (we own our slot, so a direct truncating write is safe).
+' Records id, startToken, a fresh heartbeat, our title, and our mailbox dir.
+'
+SUB INSTANCE_write_reg ()
+    DIM fh AS INTEGER
+    fh% = FREEFILE
+    OPEN INST.myRegFile FOR OUTPUT AS #fh%
+    PRINT #fh%, "id=" + _TRIM$(STR$(INST.id%))
+    PRINT #fh%, "token=" + _TRIM$(STR$(INST.startToken#))
+    PRINT #fh%, "heartbeat=" + _TRIM$(STR$(TIMER))
+    PRINT #fh%, "title=" + INST.title
+    PRINT #fh%, "mailbox=" + INST.mailboxDir
+    CLOSE #fh%
+    INST.lastHeartbeat# = TIMER
+END SUB
+
+''
+' Claim slot n: write our reg file, then read it back and confirm our token is the
+' one that stuck (optimistic claim -- loses the slot to a racing peer, self-heals).
+' Returns TRUE if we own the slot.
+'
+FUNCTION INSTANCE_claim_slot% (slotN AS INTEGER)
+    DIM back AS STRING
+    INST.id% = slotN%
+    INST.myRegFile = INSTANCE_regfile$(slotN%)
+    INSTANCE_write_reg
+    back$ = INSTANCE_read_field$(INST.myRegFile, "token")
+    INSTANCE_claim_slot% = (back$ = _TRIM$(STR$(INST.startToken#)))
+END FUNCTION
+
+''
+' Resolve identity + isolation paths, reap stale peers, and claim a slot.
+' Called once at INCLUDE time from INSTANCE.BI (after PATHS_init, before CONFIG.BI).
+'
+SUB INSTANCE_bootstrap ()
+    DIM i AS INTEGER, wantId AS INTEGER
+    INST.startToken# = TIMER
+    INST.active% = FALSE
+    INST.explicitId% = FALSE
+    INST.id% = 0
+    INST.lastHeartbeat# = 0
+    INST.lastMailPoll# = 0
+    INST.title = "DRAW"
+
+    ' Registry + our mailbox live under the OS-native cache dir.
+    INST.registryDir = PATHS_cache$("instances" + PATHS_sep$)
+    PATHS_ensure_dir INST.registryDir
+    PATHS_ensure_dir INST.registryDir + "mailbox" + PATHS_sep$
+
+    ' Explicit --instance N (from a relaunch) wins; otherwise auto-assign.
+    wantId% = 0
+    FOR i% = 1 TO _COMMANDCOUNT
+        IF COMMAND$(i%) = "--instance" AND i% < _COMMANDCOUNT THEN
+            wantId% = VAL(COMMAND$(i% + 1))
+            INST.explicitId% = -1
+        END IF
+    NEXT i%
+
+    INSTANCE_reap_stale
+
+    IF wantId% >= 1 AND wantId% <= INSTANCE_MAX THEN
+        INST.id% = wantId%
+    ELSE
+        ' Lowest free (dead-or-absent) slot.
+        INST.id% = 1
+        FOR i% = 1 TO INSTANCE_MAX
+            IF INSTANCE_slot_is_live%(i%) = 0 THEN INST.id% = i% : EXIT FOR
+        NEXT i%
+    END IF
+
+    INST.mailboxDir = INST.registryDir + "mailbox" + PATHS_sep$ + _TRIM$(STR$(INST.id%)) + PATHS_sep$
+    PATHS_ensure_dir INST.mailboxDir
+    INST.myRegFile = INSTANCE_regfile$(INST.id%)
+
+    ' Claim the slot; if auto-assigned and a peer beat us to it, walk to the next free slot.
+    IF INSTANCE_claim_slot%(INST.id%) = 0 AND INST.explicitId% = 0 THEN
+        FOR i% = INST.id% + 1 TO INSTANCE_MAX
+            IF INSTANCE_slot_is_live%(i%) = 0 THEN
+                INST.mailboxDir = INST.registryDir + "mailbox" + PATHS_sep$ + _TRIM$(STR$(i%)) + PATHS_sep$
+                PATHS_ensure_dir INST.mailboxDir
+                IF INSTANCE_claim_slot%(i%) THEN EXIT FOR
+            END IF
+        NEXT i%
+    END IF
+    INSTANCE_clear_my_mailbox   ' don't inherit a crashed predecessor's undelivered layers
+    INST.active% = -1
+    INST.liveCount% = INSTANCE_live_count%
+END SUB
+
+''
+' Set/refresh the human-readable title stored in the registry (used by the
+' "Send Layer -> Instance N" menu on peer instances).
+'
+SUB INSTANCE_set_title (t AS STRING)
+    INST.title = t$
+END SUB
+
+''
+' Per-frame tick: periodic heartbeat (keeps our slot alive). Mailbox polling is
+' added by the layer-handoff phase. Cheap -- gated on INSTANCE_HEARTBEAT_SECS.
+'
+SUB INSTANCE_tick ()
+    IF INST.active% = 0 THEN EXIT SUB
+    IF INSTANCE_hb_age#(INST.lastHeartbeat#) >= INSTANCE_HEARTBEAT_SECS THEN
+        INSTANCE_write_reg
+        INST.liveCount% = INSTANCE_live_count%   ' refresh peer count for the title tag (cheap, throttled)
+    END IF
+END SUB
+
+''
+' Launch a fresh, isolated DRAW window (a peer instance). We pass NO --instance
+' flag: the child's INSTANCE_bootstrap auto-assigns the next free slot with its own
+' optimistic-claim race handling, which is safer than forcing a slot from here (two
+' quick New-Window clicks can't collide on one slot). COMMAND$(0) is our own exe path.
+' SHELL _DONTWAIT detaches; on non-Windows we also append " &" for full detachment.
+' Caller gates this on CFG.ALLOW_MULTIPLE_INSTANCES.
+'
+SUB INSTANCE_launch_new ()
+    DIM exe AS STRING, cmd AS STRING
+    exe$ = COMMAND$(0)
+    IF exe$ = "" THEN EXIT SUB
+    $IF WIN THEN
+        cmd$ = CHR$(34) + exe$ + CHR$(34)
+    $ELSE
+        cmd$ = CHR$(34) + exe$ + CHR$(34) + " &"
+    $END IF
+    SHELL _DONTWAIT cmd$
+END SUB
+
+''
+' Inbox directory for a given instance slot.
+'
+FUNCTION INSTANCE_mailbox_for$ (slotN AS INTEGER)
+    INSTANCE_mailbox_for$ = INST.registryDir + "mailbox" + PATHS_sep$ + _TRIM$(STR$(slotN%)) + PATHS_sep$
+END FUNCTION
+
+''
+' Purge our own inbox. Called at bootstrap so a fresh instance taking over a slot id
+' does NOT inherit layers a crashed previous tenant of that id never consumed.
+'
+SUB INSTANCE_clear_my_mailbox ()
+    DIM s AS INTEGER, f AS STRING
+    FOR s% = 1 TO INSTANCE_MAX
+        f$ = INSTANCE_inbox_file$(INST.id%, s%)
+        IF _FILEEXISTS(f$) THEN KILL f$
+        IF _FILEEXISTS(f$ + ".claim") THEN KILL f$ + ".claim"
+    NEXT s%
+END SUB
+
+''
+' Deliver a blob to one peer's inbox via atomic write-temp-then-NAME. A consumer only
+' ever sees the complete file under its final ".layerxfer" name. Returns TRUE on success.
+'
+' Fixed inbox filename a given sender writes into a target's mailbox. One pending
+' item per (sender -> target): a fixed name means the receiver can poll it with
+' _FILEEXISTS (no directory enumeration, matching the registry design). Sending a
+' second layer before the target consumes the first replaces it (acceptable).
+FUNCTION INSTANCE_inbox_file$ (targetSlot AS INTEGER, senderSlot AS INTEGER)
+    INSTANCE_inbox_file$ = INSTANCE_mailbox_for$(targetSlot%) + "from-" + _TRIM$(STR$(senderSlot%)) + ".layerxfer"
+END FUNCTION
+
+FUNCTION INSTANCE_deliver% (slotN AS INTEGER, blob AS STRING)
+    DIM dir AS STRING, tmp AS STRING, final AS STRING
+    INSTANCE_deliver% = 0
+    dir$ = INSTANCE_mailbox_for$(slotN%)
+    PATHS_ensure_dir dir$
+    tmp$ = dir$ + "from-" + _TRIM$(STR$(INST.id%)) + ".tmp"
+    final$ = INSTANCE_inbox_file$(slotN%, INST.id%)
+    IF LAYERXFER_write_bytes%(tmp$, blob$) = 0 THEN EXIT FUNCTION
+    IF _FILEEXISTS(final$) THEN KILL final$
+    NAME tmp$ AS final$
+    INSTANCE_deliver% = _FILEEXISTS(final$)
+END FUNCTION
+
+''
+' Broadcast a layer blob to every OTHER live instance's inbox. Returns the number of
+' peers it was delivered to. (2-instance case = a direct send; 3+ = broadcast. Named
+' per-instance targeting via a dynamic submenu is a future enhancement.)
+'
+FUNCTION INSTANCE_send_layer% (blob AS STRING)
+    DIM i AS INTEGER, c AS INTEGER
+    c% = 0
+    FOR i% = 1 TO INSTANCE_MAX
+        IF i% <> INST.id% AND INSTANCE_slot_is_live%(i%) THEN
+            IF INSTANCE_deliver%(i%, blob$) THEN c% = c% + 1
+        END IF
+    NEXT i%
+    INSTANCE_send_layer% = c%
+END FUNCTION
+
+''
+' Remove our registry file on graceful exit so the slot frees immediately.
+'
+SUB INSTANCE_shutdown ()
+    IF INST.active% = 0 THEN EXIT SUB
+    INST.active% = FALSE
+    IF _FILEEXISTS(INST.myRegFile) THEN KILL INST.myRegFile
+END SUB

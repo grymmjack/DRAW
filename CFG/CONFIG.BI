@@ -158,6 +158,29 @@ IF CMDLINE_CONFIG_ARG_COUNT% = 0 OR (CMDLINE_CONFIG_UPGRADE% AND CMDLINE_CONFIG_
     END IF
 END IF
 
+' --- Per-instance isolated config (multi-instance support) -----------------------
+' A secondary instance (INST.id > 1, from an in-app "New Window" or --instance N) gets
+' its OWN config file so concurrent instances never clobber each other's settings /
+' recent-files list (CONFIG_save truncate-rewrites at ~100 sites during normal use).
+' The file is SEEDED from the primary's current config on first launch, then diverges.
+' INST.id == 1 keeps the normal config path (100% backward compatible). An explicit
+' --config always wins (the user is managing isolation themselves).
+IF INST.id% > 1 AND CMDLINE_CONFIG_ARG_COUNT% = 0 THEN
+    DIM instBaseCfg$, instCfgPath$, instTag$
+    instBaseCfg$ = CONFIG_FILE_PATH$
+    instTag$ = ".instance-" + _TRIM$(STR$(INST.id%))
+    IF RIGHT$(UCASE$(instBaseCfg$), 4) = ".CFG" THEN
+        instCfgPath$ = LEFT$(instBaseCfg$, LEN(instBaseCfg$) - 4) + instTag$ + ".cfg"
+    ELSE
+        instCfgPath$ = instBaseCfg$ + instTag$
+    END IF
+    ' Seed from the primary's config on first launch (if the base exists and ours doesn't).
+    IF NOT _FILEEXISTS(instCfgPath$) THEN
+        IF _FILEEXISTS(instBaseCfg$) THEN PATHS_copy_file instBaseCfg$, instCfgPath$
+    END IF
+    CONFIG_FILE_PATH$ = instCfgPath$
+END IF
+
 ' --reset-defaults: delete existing config file so CONFIG_load regenerates from defaults
 IF CMDLINE_RESET_DEFAULTS% THEN
     IF _FILEEXISTS(CONFIG_FILE_PATH$) THEN
@@ -411,6 +434,7 @@ TYPE DRAW_CONFIG
     APRON_SIZE_RATIO                AS SINGLE         ' Apron size as fraction of canvas (e.g. 0.5 = +50% on each side, total buffer = 2x canvas)
     DEVELOPER_MODE                  AS INTEGER        ' TRUE = enable inputs.log + audit + consistency checks (also via --developer CLI)
     CRASH_LOGS_ENABLED              AS INTEGER        ' TRUE = write crash reports to <Desktop>/DRAW-log/DRAW-crash-logs/ (Help > Capture Crash Logs)
+    ALLOW_MULTIPLE_INSTANCES        AS INTEGER        ' TRUE = enable the in-app "New Window" command (run several isolated DRAW copies at once). A manually-launched 2nd copy is always allowed + auto-isolated regardless.
     ' Tooltip settings
     TOOLTIP_HOVER_DELAY_MS          AS INTEGER        ' Milliseconds before tooltip appears (default 500)
     TOOLTIPS_DISABLED               AS INTEGER        ' TRUE = hide toolbar tooltips entirely
