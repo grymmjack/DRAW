@@ -243,9 +243,9 @@ TOOLTIP_EB_LINE2$(25) = "Dynamically show guides related to geometric boundaries
 TOOLTIP_EB_LINE1$(26) = "Snap to Smart Guides ON/OFF"
 TOOLTIP_EB_LINE2$(26) = "Snap to Smart Guides related to geometric boundaries of neighboring layers."
 ' Slot 27: divider
-' Slot 28: Pixel Perfect
-TOOLTIP_EB_LINE1$(28) = "F6 - Pixel Perfect ON/OFF"
-TOOLTIP_EB_LINE2$(28) = "Remove corner pixels from brush strokes for clean pixel art lines."
+' Slot 28: Edge Mode (shared Pixel-Perfect / Anti-Aliasing button)
+TOOLTIP_EB_LINE1$(28) = "Edge Mode: Pixel-Perfect / Anti-Aliasing (only one at a time)"
+TOOLTIP_EB_LINE2$(28) = "L-CLICK toggle current mode ON/OFF. R-CLICK switch PP<->AA (AA tag shows AA face)."
 ' Slot 29: divider
 ' Slot 30: Flip Canvas Horizontal
 TOOLTIP_EB_LINE1$(30) = "Flip Canvas Horizontal"

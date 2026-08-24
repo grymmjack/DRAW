@@ -34,6 +34,20 @@ It honors the same gates as `PAINT_pset_with_symmetry`: `SELECTION_is_point_insi
 - AA line: `PAINT_wu_line` (Xiaolin Wu) via `PAINT_blend_pixel_sym`; `LINE_draw_clipped`/
   `_resolved` short-circuit to it when `CFG.ANTIALIAS% AND BRUSH_SIZE_pixels% <= 1`.
 
+**Edge Mode — PP/AA are mutually exclusive.** Pixel-Perfect and Anti-Aliasing are
+opposite edge treatments, so DRAW enforces **never both on**: enabling one turns the
+other off, in every path — `BRUSH_SIZE_toggle_pixel_perfect` (covers action 609 + F6)
+forces AA off; COMMAND.BM `CASE 958` forces PP off. A shared **Edit Bar button** (slot 28,
+action **959**) controls whichever is the current *target*: **left-click** toggles that
+target on/off, **right-click** (action **960**, wired via `EDITBAR_handle_right_click` +
+a new B2 branch in MOUSE.BM ~1104) switches the target PP↔AA (live-swapping if active).
+`EDGE_MODE_TARGET` (EDITBAR.BI, `EDGE_TARGET_PP`/`_AA`) only remembers which face shows;
+truth stays in `BRUSH_SIZE.PIXEL_PERFECT` / `CFG.ANTIALIAS%`. The button paints an "AA"
+tag (`EDITBAR_draw_aa_badge`, 8×8 font) when target=AA. Menu lives in **Edit**, not View
+(AA is a draw-time behavior, not a view overlay like CRT). NOTE: `EDITBAR_action_enabled%`
+uses the `funcname% = expr` return-assignment idiom in a one-line SELECT CASE — the MCP
+linter flags these as "self-reference SIGSEGV" **false positives**; they compile fine.
+
 **What the loop CANNOT verify:** AA-*on* visual quality. The QA test
 (`QA/tests/antialias-toggle.sh`) only checks the flag default, the source-route guard
 structure, and an AA-on non-crash smoke. A human must eyeball soft brush/line output.
