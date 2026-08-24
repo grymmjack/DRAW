@@ -1,8 +1,10 @@
 # IDEAS
 
-## IMPROVED DRAG AND DROP SUPPORT
-> Implemented on branch `drag-drop` (INPUT/DROP.BM). Dispatch reads MOUSE.RAW_X/Y at
-> drop time (QB64-PE gives no drop coords) and hit-tests REGIONs. Plan: PLANS/DRAG-DROP-PLAN.md
+## IMPROVED DRAG AND DROP SUPPORT — DONE (merged to main)
+> Shipped (INPUT/DROP.BM). QB64-PE gives no drop coords, so the drop is deferred one
+> frame and dispatched from the top of the loop once the cursor position is pumped, then
+> hit-tested against REGIONs. Plan/anchors: PLANS/DRAG-DROP-PLAN.md;
+> guide: .claude/instructions/draw-drag-drop.md.
 - [x] FOR ALL Drop targets: If the image is larger than the current canvas, use the File -> Import Image workflow with pan, zoom, crop, etc. otherwise just place it where user drops it. IF holding shift while dropped, drop it in the direct center of the canvas, otherwise top left of canvas.
 - [x] Drag onto layer panel to create new layer (new layer -> image import (for crop/pan/zoom/etc))
 - [x] Drag onto brush bin to drop the image into a bin as a custom brush. If there are no bin slots free create new bins to hold in new blank bin page, etc. populating.
