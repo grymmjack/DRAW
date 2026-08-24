@@ -330,14 +330,22 @@ def build_table(results: dict) -> Table:
     return t
 
 
-def log_lane_body_lines() -> int:
-    """How many log lines each lane shows: the leftover window height (below the table +
-    footer) divided evenly by the number of boxes, minus each lane's 2 border rows. So the
-    log lanes always fill the window and share it equally, however many boxes are in the fleet."""
+def measure_height(renderable) -> int:
+    """Actual rendered height (rows) of a renderable at the current console width. Used to
+    budget space precisely — estimating the table height is unreliable because the NEXT
+    column wraps to a variable number of rows, which used to push the footer off-screen."""
+    opts = console.options.update(height=None)
+    return len(console.render_lines(renderable, opts, pad=False))
+
+
+def log_lane_body_lines(reserved: int) -> int:
+    """How many log lines each lane shows: the window height LEFT OVER after the already-
+    measured fixed rows (table + footer + optional help) is divided evenly among the boxes,
+    minus each lane's 2 border rows. So the lanes fill the remaining space and the footer /
+    help are always guaranteed to fit. `reserved` is the measured height of everything that
+    is NOT a log lane."""
     n = len(HOSTS) or 1
-    term_h = console.size.height
-    # table ≈ 5 header/border rows + 2 rows per host (cells are 2 lines tall); footer+margins ≈ 4
-    avail = term_h - (5 + 2 * n) - 4
+    avail = console.size.height - reserved - 1   # -1 keeps a hair of slack so nothing clips
     body = (avail // n) - 2
     if body < 3:
         body = 3
@@ -346,11 +354,10 @@ def log_lane_body_lines() -> int:
     return body
 
 
-def build_logs(results: dict):
+def build_logs(results: dict, body_lines: int):
     """One full-width vertical lane per machine, numbered [N] in the border title so the
     interactive loop can open that host's full log on the matching key. All lanes share the
-    window height equally (height ÷ #boxes) so they always fit — see log_lane_body_lines()."""
-    body_lines = log_lane_body_lines()
+    leftover window height equally so they always fit and never crowd out the footer."""
     panels = []
     for i, (name, _, _) in enumerate(HOSTS, 1):
         r = results[name]
@@ -484,27 +491,45 @@ def gather() -> dict:
         return {r["name"]: r for r in ex.map(probe_host, HOSTS)}
 
 
+def build_footer(interval: float, auto: bool) -> Text:
+    """The keyboard-hint status line pinned at the bottom of the interactive dashboard."""
+    auto_txt = (f"[a]uto-refresh ({interval:g}s): ON" if auto
+                else "[a]uto-refresh: OFF (space=refresh)")
+    footer = Text(justify="center")
+    footer.append("1-9", style="bold yellow")
+    footer.append(" tail  ·  ", style="dim")
+    footer.append("⇧1-9", style="bold yellow")
+    footer.append(" ssh  ·  ", style="dim")
+    footer.append("F1-9", style="bold yellow")
+    footer.append(" remote  ·  ", style="dim")
+    footer.append(auto_txt, style="cyan" if auto else "yellow")
+    footer.append("  ·  ", style="dim")
+    footer.append("?", style="bold yellow")
+    footer.append(" help  ·  ", style="dim")
+    footer.append("q", style="bold yellow")
+    footer.append(" quit", style="dim")
+    return footer
+
+
 def render(results: dict, interactive: bool = False, interval: float = 3.0,
            auto: bool = True, show_help: bool = False):
-    parts = [build_table(results), *build_logs(results)]
-    if show_help:
-        parts.append(build_help())
-    if interactive:
-        auto_txt = (f"[a]uto-refresh ({interval:g}s): ON" if auto
-                    else "[a]uto-refresh: OFF (space=refresh)")
-        footer = Text(justify="center")
-        footer.append("1-9", style="bold yellow")
-        footer.append(" tail  ·  ", style="dim")
-        footer.append("⇧1-9", style="bold yellow")
-        footer.append(" ssh  ·  ", style="dim")
-        footer.append("F1-9", style="bold yellow")
-        footer.append(" remote  ·  ", style="dim")
-        footer.append(auto_txt, style="cyan" if auto else "yellow")
-        footer.append("  ·  ", style="dim")
-        footer.append("?", style="bold yellow")
-        footer.append(" help  ·  ", style="dim")
-        footer.append("q", style="bold yellow")
-        footer.append(" quit", style="dim")
+    # Build the FIXED (non-log-lane) rows first and measure their real height, so the log
+    # lanes take only what's left and the footer + help are always on-screen. (Estimating
+    # the table height failed because the NEXT column wraps to a variable row count.)
+    table  = build_table(results)
+    footer = build_footer(interval, auto) if interactive else None
+    help_p = build_help() if show_help else None
+
+    reserved = measure_height(table)
+    if help_p is not None:
+        reserved += measure_height(help_p)
+    if footer is not None:
+        reserved += measure_height(footer)
+
+    parts = [table, *build_logs(results, log_lane_body_lines(reserved))]
+    if help_p is not None:
+        parts.append(help_p)
+    if footer is not None:
         parts.append(footer)
     return Group(*parts)
 
