@@ -38,6 +38,7 @@ TYPE INSTANCE_OBJ
     myRegFile     AS STRING    ' <registryDir><id>.instance
     title         AS STRING    ' human label written into the registry (app + current filename)
     liveCount     AS INTEGER   ' number of live instances at last scan
+    isMusicOwner  AS INTEGER   ' TRUE if this is the lowest-id live instance (only it plays background music)
     lastHeartbeat AS DOUBLE    ' TIMER of our last heartbeat write
     lastMailPoll  AS DOUBLE    ' TIMER of our last mailbox poll
 END TYPE
