@@ -680,7 +680,7 @@ An optional **anti-aliasing mode** gives supported drawing tools soft, coverage-
 
 **Edge Mode (Pixel-Perfect ⟷ Anti-Aliasing):** these are opposite edge treatments — crisp single-pixel vs. soft blend — and are **mutually exclusive** (turning one on turns the other off). They share one Edit Bar button.
 
-**AA coverage so far:** **Brush/Dot** (soft round stamp, sizes 2px+), the **Line** tool (Xiaolin Wu line), and the **Ellipse/Circle** tool (outline + fill, soft edges). The **1px brush stays crisp** by design — a single pixel has no edge to feather — and **Rectangles stay crisp** because axis-aligned edges have nothing to anti-alias. Poly-line/bezier thin lines, poly-fill, smart shapes, spray, and the eraser follow in later phases. State persists in `DRAW.cfg` as `ANTIALIAS` (also settable via `--option ANTIALIAS=TRUE`).
+**AA coverage so far:** **Brush/Dot** (soft round stamp, sizes 2px+), **Line**, **Ellipse/Circle** (outline + fill), **Poly-line** and **Bezier** (thin + thick), and **Poly-fill** (feathered edges). The **1px brush stays crisp** by design — a single pixel has no edge to feather — and **Rectangles stay crisp** because axis-aligned edges have nothing to anti-alias. Curved smart shapes, spray, and the eraser follow in later phases. State persists in `DRAW.cfg` as `ANTIALIAS` (also settable via `--option ANTIALIAS=TRUE`).
 
 ## Color Mixer
 

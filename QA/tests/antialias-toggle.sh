@@ -45,6 +45,13 @@ if grep -q 'FUNCTION ELLIPSE_coverage!' "$DRAW_ROOT/TOOLS/ELLIPSE.BM" \
 else
     fail "ellipse AA helper or gate missing"
 fi
+# Phase 2b: poly-line/bezier thin-line guards route to AA; poly-fill feathers edges.
+if grep -q 'OR CFG.ANTIALIAS% THEN' "$DRAW_ROOT/TOOLS/BEZIER.BM" \
+   && grep -q 'PAINT_wu_line POLY_POINTS_X' "$DRAW_ROOT/INPUT/MOUSE.BM"; then
+    pass "phase 2b: bezier AA guard + poly-fill Wu-edge overlay present"
+else
+    fail "phase 2b bezier guard or poly-fill edge overlay missing"
+fi
 
 # --- 3. AA-on smoke (this test's instance launched with ANTIALIAS=TRUE) ---
 wait_for 1 "idle render with AA on"
