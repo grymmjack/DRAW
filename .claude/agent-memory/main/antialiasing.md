@@ -75,6 +75,18 @@ itself, because that SUB is **also used to rasterize selection masks** (MARQUEE.
 stay hard. Skips the transparent/erase case; targets the current layer (=polyfill_target&).
 Phase 2c remaining: curved smart shapes (reuse the SDF approach), spray, eraser coverage-subtract.
 
+**Phase 2c (smart shapes + soft eraser) shipped — Phase 2 COMPLETE.** All 10 smart shapes
+commit through two SS-COMMON chokepoints: **`SS_stroke_line`** (which `SS_stroke_polyline` AND
+`SS_stroke_arc` both call — so one Wu branch AA's every stroke/polyline/arc) and **`SS_fill_polygon`**
+(Wu edge overlay on commit only; preview stays hard). **Soft eraser** is the one genuinely new
+primitive: `PAINT_erase_pixel(x,y,coverage)` = coverage-SUBTRACT (`dstAlpha − coverage*255`, reads
+POINT on the current layer, selection-gated, opacity-lock does NOT gate erasing) + `_sym` +
+`PAINT_erase_circle_aa` (solid core + feather). `ERASER_draw_at` uses it for round brushes >1px when
+AA on; 1px/square/AA-off keep the verbatim hard `PAINT_stamp_brush` erase. **Intentional AA no-ops:**
+RECT + square brush/eraser (axis-aligned), 1px brush, **spray** (stochastic 1px stipple — nothing to
+feather). Remaining AA work is Phases 3-6 (fill/wand tolerance, feathered selection, bilinear
+transform/crop resample, text `aaActive%` wiring) — NOT the raster drawing tools, which are done.
+
 **What the loop CANNOT verify:** AA-*on* visual quality. The QA test
 (`QA/tests/antialias-toggle.sh`) only checks the flag default, the source-route guard
 structure, and an AA-on non-crash smoke. A human must eyeball soft brush/line output.
