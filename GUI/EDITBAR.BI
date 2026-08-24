@@ -19,6 +19,16 @@ CONST EDITBAR_ACTION_SLOTS = 25 ' Number of clickable icons
 CONST EDITBAR_DOCK_LEFT    = 0
 CONST EDITBAR_DOCK_RIGHT   = 1
 
+' --- Shared "edge mode" state (Pixel-Perfect / Anti-Aliasing) ---
+' PP and AA are opposite edge treatments (crisp 1px vs soft blend) and are kept
+' mutually exclusive — never both on. The shared Edit Bar button controls whichever
+' of the two is the current TARGET; right-click switches the target (see COMMAND.BM
+' actions 959/960). Truth for on/off still lives in BRUSH_SIZE.PIXEL_PERFECT and
+' CFG.ANTIALIAS%; EDGE_MODE_TARGET only remembers which face the button shows.
+CONST EDGE_TARGET_PP = 0
+CONST EDGE_TARGET_AA = 1
+DIM SHARED EDGE_MODE_TARGET AS INTEGER ' EDGE_TARGET_PP (default) or EDGE_TARGET_AA
+
 TYPE EDITBAR_ITEM_OBJ
     actionID       AS INTEGER     ' CMD action ID to execute on click (0 = divider)
     iconHandle     AS LONG        ' Loaded image handle (< -1 = valid)

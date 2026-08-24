@@ -9,6 +9,63 @@
 $INCLUDEONCE
 
 ''
+' Anti-aliasing coverage for a point relative to an ellipse boundary.
+' Uses a signed-distance field: for offset (dx,dy) from center with radii (rx,ry),
+' f = (dx/rx)^2 + (dy/ry)^2 is the implicit value (1 on the curve); dividing (sqrt(f)-1)
+' by the gradient magnitude of sqrt(f) converts it to an approximate pixel distance to
+' the boundary (negative inside, positive outside). For a circle this reduces exactly to
+' |offset| - r. Returns coverage in [0,1]:
+'   fill    (isOutline=FALSE): clamp(0.5 - sdf)   — half-pixel inside is full coverage
+'   outline (isOutline=TRUE) : clamp(1 - |sdf|)   — peak on the curve, fades over ~1px
+' Only used on the CFG.ANTIALIAS% path; the hard-edged algorithms are untouched.
+'
+' @param dx SINGLE X offset from ellipse center
+' @param dy SINGLE Y offset from ellipse center
+' @param rx SINGLE Horizontal radius
+' @param ry SINGLE Vertical radius
+' @param isOutline INTEGER TRUE = 1px outline coverage, FALSE = filled coverage
+' @return SINGLE Coverage in [0,1]
+'
+FUNCTION ELLIPSE_coverage! (dx AS SINGLE, dy AS SINGLE, rx AS SINGLE, ry AS SINGLE, isOutline AS INTEGER)
+    DIM f     AS SINGLE, sqrtf AS SINGLE
+    DIM gx    AS SINGLE, gy    AS SINGLE, grad AS SINGLE
+    DIM sdf   AS SINGLE, cov   AS SINGLE
+
+    IF rx! <= 0.0 OR ry! <= 0.0 THEN
+        ELLIPSE_coverage! = 0.0
+        EXIT FUNCTION
+    END IF
+
+    f!     = (dx! / rx!) * (dx! / rx!) + (dy! / ry!) * (dy! / ry!)
+    sqrtf! = SQR(f!)
+
+    ' grad = |gradient of sqrt(f)| * sqrt(f) = sqrt((dx/rx^2)^2 + (dy/ry^2)^2)
+    gx!   = dx! / (rx! * rx!)
+    gy!   = dy! / (ry! * ry!)
+    grad! = SQR(gx! * gx! + gy! * gy!)
+
+    IF grad! < 0.000001 THEN
+        ' Center / degenerate — deep inside for fill, off the 1px ring for outline.
+        IF isOutline% THEN cov! = 0.0 ELSE cov! = 1.0
+        ELLIPSE_coverage! = cov!
+        EXIT FUNCTION
+    END IF
+
+    ' Approximate signed distance to the boundary, in pixels (negative = inside).
+    sdf! = (sqrtf! - 1.0) * sqrtf! / grad!
+
+    IF isOutline% THEN
+        cov! = 1.0 - ABS(sdf!)
+    ELSE
+        cov! = 0.5 - sdf!
+    END IF
+    IF cov! < 0.0 THEN cov! = 0.0
+    IF cov! > 1.0 THEN cov! = 1.0
+
+    ELLIPSE_coverage! = cov!
+END FUNCTION
+
+''
 ' Resets ellipse tool state
 '
 SUB ELLIPSE_reset ()
@@ -147,7 +204,13 @@ END SUB
 '
 SUB ELLIPSE_draw_clipped_outline (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, col AS _UNSIGNED LONG)
     IF rx! <= 0 OR ry! <= 0 THEN EXIT SUB
-    
+
+    ' Anti-aliased outline (soft 1px ring). AA off = the verbatim midpoint algorithm below.
+    IF CFG.ANTIALIAS% THEN
+        ELLIPSE_draw_outline_aa cx%, cy%, rx!, ry!, col~&
+        EXIT SUB
+    END IF
+
     DIM AS INTEGER x, y
     DIM AS SINGLE rxSq, rySq, twoRxSq, twoRySq
     DIM AS SINGLE p
@@ -209,6 +272,37 @@ SUB ELLIPSE_draw_clipped_outline (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry
 END SUB
 
 ''
+' Anti-aliased ellipse outline (soft 1px ring). Walks the boundary band and draws each
+' pixel at its SDF outline coverage through PAINT_blend_pixel. Current-layer only (matches
+' the outline callers, which set _DEST to the layer). Reached only when CFG.ANTIALIAS% is on.
+'
+' @param cx INTEGER Center X
+' @param cy INTEGER Center Y
+' @param rx SINGLE Horizontal radius
+' @param ry SINGLE Vertical radius
+' @param col _UNSIGNED LONG Outline color (RGBA)
+'
+SUB ELLIPSE_draw_outline_aa (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, col AS _UNSIGNED LONG)
+    IF rx! <= 0.0 OR ry! <= 0.0 THEN EXIT SUB
+
+    DIM px  AS INTEGER, py AS INTEGER
+    DIM x0  AS INTEGER, x1 AS INTEGER, y0 AS INTEGER, y1 AS INTEGER
+    DIM cov AS SINGLE
+
+    x0% = cx% - INT(rx! + 0.5) - 1
+    x1% = cx% + INT(rx! + 0.5) + 1
+    y0% = cy% - INT(ry! + 0.5) - 1
+    y1% = cy% + INT(ry! + 0.5) + 1
+
+    FOR py% = y0% TO y1%
+        FOR px% = x0% TO x1%
+            cov! = ELLIPSE_coverage!(px% - cx%, py% - cy%, rx!, ry!, TRUE)
+            IF cov! > 0.0 THEN PAINT_blend_pixel px%, py%, col~&, cov!
+        NEXT px%
+    NEXT py%
+END SUB
+
+''
 ' Fills an ellipse using scanline algorithm (more reliable than PAINT).
 ' Respects selection clipping, opacity lock, and drawer paint modes.
 ' @param cx INTEGER Center X coordinate of the ellipse
@@ -220,7 +314,14 @@ END SUB
 '
 SUB ELLIPSE_fill_scanline (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, fill_color AS _UNSIGNED LONG, dest_image AS LONG)
     IF rx! <= 0 OR ry! <= 0 THEN EXIT SUB
-    
+
+    ' Anti-aliased fill (soft edge) — all callers commit to the current layer, which is
+    ' what PAINT_blend_pixel targets. AA off = the verbatim scanline path below.
+    IF CFG.ANTIALIAS% THEN
+        ELLIPSE_fill_scanline_aa cx%, cy%, rx!, ry!, fill_color~&
+        EXIT SUB
+    END IF
+
     DIM AS INTEGER y, x_left, x_right, scan_x
     DIM AS SINGLE dx
     DIM AS INTEGER y_start, y_end
@@ -285,6 +386,39 @@ SUB ELLIPSE_fill_scanline (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SIN
             END IF
         END IF
     NEXT y%
-    
+
     _DEST oldDest&
+END SUB
+
+''
+' Anti-aliased filled ellipse. Walks the bounding box (extended 1px for the fringe)
+' and draws each pixel at its SDF fill coverage through PAINT_blend_pixel (which honors
+' selection clip, opacity lock, resolved paint color, and coverage). Interior pixels get
+' coverage 1 = a solid write; only the boundary band is feathered. Current-layer only
+' (matches every ELLIPSE_fill_scanline caller). Reached only when CFG.ANTIALIAS% is on.
+'
+' @param cx INTEGER Center X
+' @param cy INTEGER Center Y
+' @param rx SINGLE Horizontal radius
+' @param ry SINGLE Vertical radius
+' @param fill_color _UNSIGNED LONG Fill color (RGBA), resolved per-pixel by PAINT_blend_pixel
+'
+SUB ELLIPSE_fill_scanline_aa (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, fill_color AS _UNSIGNED LONG)
+    IF rx! <= 0.0 OR ry! <= 0.0 THEN EXIT SUB
+
+    DIM px  AS INTEGER, py AS INTEGER
+    DIM x0  AS INTEGER, x1 AS INTEGER, y0 AS INTEGER, y1 AS INTEGER
+    DIM cov AS SINGLE
+
+    x0% = cx% - INT(rx! + 0.5) - 1
+    x1% = cx% + INT(rx! + 0.5) + 1
+    y0% = cy% - INT(ry! + 0.5) - 1
+    y1% = cy% + INT(ry! + 0.5) + 1
+
+    FOR py% = y0% TO y1%
+        FOR px% = x0% TO x1%
+            cov! = ELLIPSE_coverage!(px% - cx%, py% - cy%, rx!, ry!, FALSE)
+            IF cov! > 0.0 THEN PAINT_blend_pixel px%, py%, fill_color~&, cov!
+        NEXT px%
+    NEXT py%
 END SUB

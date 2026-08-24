@@ -1,15 +1,15 @@
 # IDEAS
 
-## IMPROVED DRAG AND DROP SUPPORT — DONE (merged to main)
-> Shipped (INPUT/DROP.BM). QB64-PE gives no drop coords, so the drop is deferred one
-> frame and dispatched from the top of the loop once the cursor position is pumped, then
-> hit-tested against REGIONs. Plan/anchors: PLANS/DRAG-DROP-PLAN.md;
-> guide: .claude/instructions/draw-drag-drop.md.
-- [x] FOR ALL Drop targets: If the image is larger than the current canvas, use the File -> Import Image workflow with pan, zoom, crop, etc. otherwise just place it where user drops it. IF holding shift while dropped, drop it in the direct center of the canvas, otherwise top left of canvas.
-- [x] Drag onto layer panel to create new layer (new layer -> image import (for crop/pan/zoom/etc))
-- [x] Drag onto brush bin to drop the image into a bin as a custom brush. If there are no bin slots free create new bins to hold in new blank bin page, etc. populating.
-- [x] Drag onto canvas to drop into current layer (destructive, undoable)
-- [x] Drag onto menu bar to open as new image, in separate DRAW instance
+## ANTIALIAS MODE 
+- [ ] See plan: <a href="./ANTI-ALIASING-PLAN.md">Anti-Aliasing Plan</a>
+- [ ] Everything operates in anti-aliased mode. (this is a big one)
+  - [x] **Phase 0 (foundation)** — `CFG.ANTIALIAS%` flag (default OFF), View → Anti-Aliasing toggle + status "AA" badge, `PAINT_blend_pixel`/`_sym` coverage primitive. *(experimental, branch `antialiasing`)*
+  - [x] **Phase 1 (primitives)** — soft-edge AA brush circle stamp + Xiaolin Wu line; Brush/Dot + Line tool routed through AA when enabled; AA-off stays byte-identical.
+  - [~] Phase 2 — remaining shape tools + eraser coverage-subtract. **2a done:** Ellipse/Circle outline+fill via SDF coverage; RECT confirmed intentional no-op (axis-aligned). **2b TODO:** poly-line/bezier thin lines (built-in `LINE` bypass — add `OR CFG.ANTIALIAS%` guards), poly-fill edges, curved smart shapes (reuse SDF approach), spray, eraser coverage-subtract.
+  - [ ] Phase 3 — fill/wand tolerance + soft fringe; de-binarize selection membership.
+  - [ ] Phase 4 — feathered selection / bilinear transform-resample / sub-pixel custom brush.
+  - [ ] Phase 5 — verify BAS/PNG/DRW/history round-trip; wire flag → text `aaActive%`.
+  - [ ] Phase 6 — settings section, tooltips, docs, golden-diff QA harness.
 
 ## GUI SCALE independent of CANVAS scale
 - [ ] We need to be able to scale the GUI independent of the canvas
@@ -21,10 +21,6 @@
 
 ## Tilemap Support
 - [ ] TBD (this needs deep thought)
-
-## ANTIALIAS MODE 
-- [ ] See plan: <a href="./ANTI-ALIASING-PLAN.md">Anti-Aliasing Plan</a>
-- [ ] Everything operates in anti-aliased mode. (this is a big one)
 
 ## ADDITIONAL TABLE LAYOUT MODE
 
@@ -1246,4 +1242,15 @@ per the completed TEXT TOOL entry below. Shipped via the `font-previews` branch.
 
 ## MULTIPLE DRAW INSTANCE SUPPORT
 - [x] Allow (by user setting preference) multiple copies of DRAW to run at the same time in isolation of one another but with shared clipboard support, drag layers back and forth, etc.
+
+## IMPROVED DRAG AND DROP SUPPORT — DONE (merged to main)
+> Shipped (INPUT/DROP.BM). QB64-PE gives no drop coords, so the drop is deferred one
+> frame and dispatched from the top of the loop once the cursor position is pumped, then
+> hit-tested against REGIONs. Plan/anchors: PLANS/DRAG-DROP-PLAN.md;
+> guide: .claude/instructions/draw-drag-drop.md.
+- [x] FOR ALL Drop targets: If the image is larger than the current canvas, use the File -> Import Image workflow with pan, zoom, crop, etc. otherwise just place it where user drops it. IF holding shift while dropped, drop it in the direct center of the canvas, otherwise top left of canvas.
+- [x] Drag onto layer panel to create new layer (new layer -> image import (for crop/pan/zoom/etc))
+- [x] Drag onto brush bin to drop the image into a bin as a custom brush. If there are no bin slots free create new bins to hold in new blank bin page, etc. populating.
+- [x] Drag onto canvas to drop into current layer (destructive, undoable)
+- [x] Drag onto menu bar to open as new image, in separate DRAW instance
 

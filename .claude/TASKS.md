@@ -1,55 +1,40 @@
-# DRAW effects backlog (from grymmjack, 2026-08-15)
+# Anti-Aliasing — Phase 2a (Ellipse) + inheritance verification
 
-Ordered so shared machinery is built once, then reused across the effects it unlocks.
-Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/qb64pe`
-(v4.5.0, the Makefile default). Commit after each grouped box lands green.
+Plan: **PLANS/ANTI-ALIASING-PLAN.md**. Branch `antialiasing`. Phase 0+1 (flag, blend
+primitive, AA brush circle, Wu line, Line tool, toggle UI, shared Edge-Mode button) is
+DONE and reviewed. This loop extends AA to the **ellipse** (the canonical curved shape)
+and verifies the tools that already inherit AA. Poly-fill / smart shapes / spray / eraser
+are LATER loops (2b+).
+
+## The invariant + the caveat (unchanged from Phase 0+1)
+- **AA default OFF; every AA-off path BYTE-IDENTICAL to today**, guaranteed by construction:
+  `IF NOT CFG.ANTIALIAS% THEN <verbatim original> ELSE <AA path>`. Never refactor the off-path.
+- **AA-ON quality is VISUAL — the loop cannot judge it.** Loop proves: builds clean, AA-off
+  unchanged, AA-on doesn't crash. A human reviews the AA-on ellipse before the next loop.
+
+## Technique
+Coverage via a signed-distance field (SDF) to the ellipse boundary, fed to the existing
+`PAINT_blend_pixel`. For pixel offset (dx,dy) from center with radii (rx,ry):
+`f = (dx/rx)^2 + (dy/ry)^2`; `sdf ≈ (sqrt(f)-1)*sqrt(f) / sqrt((dx/rx^2)^2 + (dy/ry^2)^2)`
+(pixels, negative inside; center = deep inside → coverage 1). **Fill:** coverage =
+`clamp(0.5 - sdf, 0, 1)`. **Outline (1px):** coverage = `clamp(1 - |sdf|, 0, 1)`. This same
+SDF-coverage approach extends to the curved smart shapes in a later loop.
 
 ## 🔨 NOW — doing right now
-- [x] Full-suite QA sweep — 66 effect tests, 408/413 passed. All 5 failures were the single effect-crystallize test (app died mid-run in the long back-to-back offscreen batch, cascading its process/window/region asserts). Crystallize passes cleanly in isolation and was never touched this session → batch flake, not a regression. Every one of the 34 effects changed this session passed. Built + swept 22:56.
+_(all 6 boxes complete — Phase 2a done)_
 
-## 🐞 Bugs / regressions
-- [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
-- [x] Inner Glow slow at high radius — now O(pixels) via shared IMGADJ_dist_transform (Chebyshev, two-pass). QA effect-innerglow green. Built 17:40.
-- [x] Corona slow at high radius — now O(pixels) via shared IMGADJ_dist_transform (seedMode 1, Chebyshev). Ring is a touch squarer than the old Euclidean scan; QA effect-corona 6/6 green. Built 17:51.
-- [x] Bevel slow at high radius — heightfield now O(pixels) via IMGADJ_dist_transform (seedMode 0, border-as-seed); shading phase untouched. QA effect-bevel 6/6 green. Built 17:57.
-- [x] Shape/generative effects don't work with selection — 7 radiating Shape effects (Fire, Smoke, Snow, Drip, Icicles, Electrify, Motion Trail) now route through the sel-as-shape choke point (IMGADJ_edge_shape_source + apply_spatial_edge) for BOTH apply and preview, exactly like the alpha-edge effects. Interior effects (Water Drops, Glass, Rust) already clip correctly via apply_to_layer. New QA effect-fire-selection 6/6 + all 7 no-selection tests 42/42 green. Built 18:08.
+## Tasks
 
-## 🧩 Shared widgets (build once → reuse)
-- [x] DROPDOWN control in the dialog framework — DIALOG_dropdown% + _input/_draw/_overlay in GUI/DIALOG.{BI,BM}. Immediate-mode, single-open, on-top popup with an input-gate that owns the frame's click/wheel/keys (Up/Down/Enter/Esc) so nothing underneath reacts; scrolls past DIALOG_DD_MAXVIS (8). Proven by converting Posterize dither (23 options). QA posterize-dither-color 6/6 green. Built 18:31.
-- [x] Angle DIAL widget wired into degrees controls — new combined IMGDLG_angle_handle%/IMGDLG_angle_draw (shortened 0..359 slider + compact drag-dial + live degree readout in the label). Wired into all 7 compass-angle controls (Motion Trail, Kaleidoscope rotation, Bevel light, Chrome cast, Backlight/Long-shadow angles, bevel-motion). Twirl's ANGLE (10..360 swirl magnitude) deliberately left as a plain slider. QA motiontrail/bevel/chrome/kaleidoscope 24/24 green. Built 18:44.
-- [x] Click-on-canvas to set a CENTER point — IMGADJ_center_pick_pane% + marker + preview/apply coord mappers (canvas-space store, apron-aware). Click the loupe pane to place the centre. Wired into Pinch/Bulge (engine takes a centre param, -1 = image centre; radius = nearest-edge so centred look is unchanged). Kaleidoscope + Lens Flare adopt it in their own boxes. QA effect-pinch-center 6/6 + effect-pinch (default) 6/6. Built 19:00.
-- [x] Cell-SHAPE picker — MOSAIC_SHAPE_* constants + cell-ID engine (direct formulas for square/rect/triangle; nearest-seed lattice for hex/voronoi/random via IMGADJ_cell_jitter). Shape dropdown + seed slider. Wired into Mosaic; Extrude reuses the same set in its box. QA effect-mosaic-shapes (Voronoi) + effect-mosaic (square) green. Built 19:13.
-- Angle + random SEED for texture effects — SPLIT into batches (each independently buildable + tested):
-  - [x] batch 1: Wood + Marble — angle rotates sample coords, seed shifts the noise field; ANGLE dial + SEED slider added. QA effect-texture-basics 10/10. Built 19:24.
-  - [x] batch 2: Brick + Weave + Reptile — angle rotates each pattern grid; seed shifts noise (Brick/Reptile) or phase (Weave). QA texture-basics+natural 20/20. Built 19:35.
-  - [x] batch 3: Ripples (seed=phase; angle N/A radial) + Fur (seed; direction=its angle) + Rust (angle+seed). ALSO fixed a real bug: menu-click bleeding into a freshly-opened dialog control (DIALOG inputArmed). QA 44/44. Built 19:59.
-  - [x] batch 4: Stone + Diamond Plate — FOLDED into their per-effect boxes (Stone types / Diamond Plate params), where angle+seed is added as part of the fuller rework, to avoid touching those dialogs twice.
-  - [x] batch 5: Brushed Metal (angle+seed) + Texture Noise (seed; isotropic) + Water Drops (seed; isotropic). QA waterdrops+texture-more 16/16. Built 20:12.
+- [x] **1. Ellipse SDF coverage helper.** DONE — `ELLIPSE_coverage!(dx,dy,rx,ry,isOutline)` in ELLIPSE.BM; SDF via implicit/gradient, reduces to |offset|-r for circles; fill=clamp(0.5-sdf), outline=clamp(1-|sdf|); center-guarded. Commit c1811e7.
 
-## ✨ Per-effect (use the shared pieces above)
-- [x] Blend Last Effect: ALL 19 layer blend modes as a DROPDOWN. New reusable BLEND_ch%/BLEND_mix_channels (Rec.601 for Color/Luminosity); compositor untouched. QA effect-redo-last 7/7. Built 20:28.
-- [x] Posterize dither: cycle-button → dropdown (23 options, keyboard-navigable). First consumer of the shared DIALOG_dropdown widget. QA posterize-dither-color updated + 6/6 green. Built 18:31.
-- [x] Chromatic Aberration: ANGLE dial — R/B fringe shifts along any direction (0 = classic horizontal). QA effect-chromatic 6/6. Built 20:34.
-- [x] Add Noise: ANGLE (rotates grain grid) + SEED (re-rolls hash). QA effect-addnoise 6/6. Built 20:42.
-- [x] Pinch / Bulge: click-to-set center + much more extreme range (±200). QA effect-pinch + effect-pinch-center 12/12. Built 20:48.
-- [x] Kaleidoscope: click-to-set center (shared center-pick widget). QA effect-kaleidoscope 6/6. Built 20:55.
-- [x] Mosaic / Tessellate: cell-shape options DONE — square/rectangle/triangle/hexagon/voronoi/random via the shared cell-ID engine + shape dropdown + seed. QA effect-mosaic-shapes green. Built 19:13.
-- [x] Extrude: fills the 3D side faces (swept blocks, shaded sides + bright top) + EXTRUDE ANGLE dial + JITTER + SEED. QA effect-extrude 6/6. Built 22:25. (Per-block cell SHAPES deferred — swept arbitrary footprints are a larger change.)
-- [x] Chrome / Metallic: reflective banded look — REFLECTIVITY (band count+sharpness) + specular streak + AMOUNT blend; BG->FG = gradient poles. QA effect-chrome 6/6. Built 22:18.
-- [x] Sharpen: full Unsharp Mask — STRENGTH + RADIUS (1..20) + THRESHOLD (0..100). Radius 1/threshold 0 = prior behavior. IMAGE menu (not harness-driven); clean build. Built 21:05.
-- [x] Diamond Plate: BAR SPACING + SHARPNESS + ROUNDNESS + BUMPINESS + LIGHT ANGLE dial. QA texture-metal 8/8. Built 22:01. (Separate pattern-angle+seed deferred — dialog height limit with the loupe preview.)
-- [x] Stone Wall: TYPES dropdown (rock/rounded boulders/cracked/stacked/toothed) + ANGLE + SEED. QA texture-natural 10/10. Built 21:52.
-- [x] Lightning: FORKS (0..8) + FORK RANDOMNESS + FORK DIMINISH (taper) + SPIKINESS. QA texture-natural 10/10. Built 21:44.
-- [x] Glass (Shape): REPEATS (1..16) + GLINT THICKNESS + ANGLE dial. QA effect-glass 6/6. Built 21:09.
-- [x] Render Grid: endless 1980s perspective (depth lines fan past both edges, -J..J) + ANGLE (pan VP in perspective, rotate flat grid). QA effect-grid 5/5. Built 22:10.
-- [x] Clouds + Difference Clouds: realistic — Clouds = 5-octave fBm + COVERAGE threshold + smoothstep billows (+ SEED); Diff Clouds = 5-octave turbulence folds. QA 11/11. Built 21:21.
-- [x] Render Sky: sun+glow (day), varied stars + crescent moon (night), nebula + planet + far moon (space), SEED. QA effect-sky 5/5. Built 21:29.
-- [x] Terrain: SEA LEVEL (variation) + ROTATION + SEED. QA effect-terrain 5/5. Built 21:36. (Custom palette colour-chips deferred — needs a colour-picker widget.)
-- [x] Lens Flare: click-to-place (center-pick) + halo + radial streaks + ghost rings + LENS TYPE presets (50mm/anamorphic/starburst/zoom). QA effect-lensflare 5/5. Built 22:33.
+- [x] **2. AA filled ellipse.** DONE — `ELLIPSE_fill_scanline_aa` walks the bbox (+1px), draws SDF fill coverage via `PAINT_blend_pixel`. `ELLIPSE_fill_scanline` branches to it when `CFG.ANTIALIAS%`; else verbatim scanline. Build clean. Commit c1811e7.
 
-## ✅ Done earlier this session (for reference — not tasks)
-sel-as-shape for edge effects + preview parity; loupe follows dialog + padded capture;
-Redo/Recall/Blend Last Effect; Blur type selector + O(1) separable blur; progress overlay
-(56 engines); raised slider maxes; Wind DIRECTION; Add Noise PIXEL SIZE+MIX; Mosaic GROUT;
-Long Shadow distance falloff; Lens Flare/Diff Clouds render on blank layer; Outline INSIDE
-all-borders; Blend flicker fix; angle wheel-step (15°/Shift 1°).
+- [x] **3. AA ellipse outline.** DONE — `ELLIPSE_draw_outline_aa` (SDF outline coverage). `ELLIPSE_draw_clipped_outline` branches when `CFG.ANTIALIAS%`; else verbatim midpoint. Build clean. Commit c1811e7. **(Human: eyeball a smooth circle/ellipse outline + fill with AA on.)**
+
+- [x] **4. Confirm the ellipse tool commit routes through the AA paths.** DONE — found a gap: the common outline case used QB64 `CIRCLE` (hard), bypassing AA. Fixed by adding `OR CFG.ANTIALIAS%` to the 3 outline-decision guards (MOUSE.BM 3372/3384/3392) so AA routes through `ELLIPSE_draw_clipped_outline`; AA-off keeps `CIRCLE`. Fill always routed. Preview left hard (snaps on commit, like Line). Build clean. Commit cfdfd6e.
+
+- [x] **5. Verify poly-line + bezier already inherit AA.** DONE (source trace). Partial: **thick** brush lines inherit AA (LINE_draw_brushed → AA stamp), and the selection/paint-mode/opacity case routes to LINE_draw_clipped/_resolved (AA-branched). BUT the **common thin-line case uses built-in `LINE`** (MOUSE.BM:2227 poly-line; likely poly-line-close ~3795 and BEZIER.BM too) → bypasses AA, same as the ellipse `CIRCLE` gap. **Phase 2b:** add `OR CFG.ANTIALIAS%` to those guards (poly-line 2218/2220, poly-close, bezier) so thin lines route to `LINE_draw_clipped`. **RECT confirmed intentional AA no-op** (axis-aligned edges nothing to feather; thick-brush rect corners already AA via the stamp). Not fixed here (loop is ellipse-scoped).
+
+- [x] **6. Docs + QA.** DONE — QA ellipse guard added (7/7 pass); CHEATSHEET AA coverage (Ellipse added, RECT crisp noted); IDEAS Phase 2a status + 2b TODO; memory updated (SDF technique + built-in-primitive bypass gotcha). Final `make` clean (binary current).
+
+loop:on

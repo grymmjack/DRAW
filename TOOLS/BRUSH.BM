@@ -85,8 +85,191 @@ SUB PAINT_pset_with_symmetry (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG,
     
     ' Restore blending if we disabled it
     IF is_transparent% THEN _BLEND targetImg&
-    
+
     _DEST oldDest&
+END SUB
+
+
+''
+' Anti-aliased pixel write (source-over coverage blend).
+' The single AA primitive: draws the RESOLVED paint color at fractional coverage,
+' honoring the SAME gates as PAINT_pset_with_symmetry (selection clip + opacity lock).
+'
+' Coverage is turned into an effective source alpha (alpha * coverage) and the pixel
+' is drawn with QB64's own _BLEND doing the composite (out = src*a + dst*(1-a)). At
+' coverage >= 1.0 the code takes the verbatim original PSET path, so an AA-OFF caller
+' (which always passes 1.0) is BYTE-IDENTICAL to today. Fractional coverage only ever
+' comes from AA geometry when CFG.ANTIALIAS% is on.
+'
+' @param x INTEGER - X coordinate
+' @param y INTEGER - Y coordinate
+' @param col _UNSIGNED LONG - Color to draw (resolved per-pixel through the drawer)
+' @param coverage SINGLE - Edge coverage in [0,1]; <=0 draws nothing, >=1 is a hard PSET
+'
+SUB PAINT_blend_pixel (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG, coverage AS SINGLE)
+    DIM oldDest        AS LONG
+    DIM targetImg      AS LONG
+    DIM is_transparent AS INTEGER
+    DIM resolvedCol    AS _UNSIGNED LONG
+    DIM cov            AS SINGLE
+    DIM a              AS INTEGER
+
+    cov! = coverage!
+    IF cov! <= 0.0 THEN EXIT SUB              ' no coverage — nothing to composite
+    IF cov! > 1.0 THEN cov! = 1.0
+
+    ' Same clipping as the hard-edged primitive: selection mask + opacity lock.
+    IF SELECTION_is_point_inside%(x%, y%) AND OPACITY_LOCK_allows_draw%(x%, y%) THEN
+        targetImg& = LAYER_current_image&
+        oldDest&   = _DEST
+        _DEST targetImg&
+
+        is_transparent% = (_ALPHA32(col~&) = 0)
+        IF is_transparent% THEN _DONTBLEND targetImg&
+
+        resolvedCol~& = DRAWER_resolve_paint_color~&(x%, y%, col~&)
+
+        IF cov! >= 1.0 THEN
+            ' Full coverage — verbatim original write (byte-identical to PSET path).
+            PSET (x%, y%), resolvedCol~&
+        ELSE
+            ' Partial coverage — scale source alpha; _BLEND composites over the dest.
+            a% = INT(_ALPHA32(resolvedCol~&) * cov! + 0.5)
+            IF a% > 255 THEN a% = 255
+            PSET (x%, y%), _RGBA32(_RED32(resolvedCol~&), _GREEN32(resolvedCol~&), _BLUE32(resolvedCol~&), a%)
+        END IF
+
+        IF is_transparent% THEN _BLEND targetImg&
+        _DEST oldDest&
+    END IF
+END SUB
+
+
+''
+' Symmetry-aware wrapper around PAINT_blend_pixel — mirrors the coverage write through
+' every SYMMETRY reflection, exactly like PAINT_pset_with_symmetry fans out its PSETs.
+'
+' @param x INTEGER - X coordinate
+' @param y INTEGER - Y coordinate
+' @param col _UNSIGNED LONG - Color to draw
+' @param coverage SINGLE - Edge coverage in [0,1]
+'
+SUB PAINT_blend_pixel_sym (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG, coverage AS SINGLE)
+    DIM mx(0 TO 7) AS INTEGER
+    DIM my(0 TO 7) AS INTEGER
+    DIM count      AS INTEGER
+    DIM i          AS INTEGER
+
+    ' Master stroke
+    PAINT_blend_pixel x%, y%, col~&, coverage!
+
+    ' Mirrored strokes (gates are re-checked per point inside PAINT_blend_pixel)
+    IF SYMMETRY.MODE > 0 THEN
+        SYMMETRY_get_mirrored_points x%, y%, mx%(), my%(), count%
+        FOR i% = 0 TO count% - 1
+            PAINT_blend_pixel mx%(i%), my%(i%), col~&, coverage!
+        NEXT i%
+    END IF
+END SUB
+
+
+''
+' Xiaolin Wu anti-aliased line. Standalone reusable primitive — plots coverage-
+' weighted pixels through PAINT_blend_pixel_sym (so it inherits selection clipping,
+' opacity lock, AND symmetry). No tool wiring here; callers route to this when AA is on.
+'
+' For each step along the major axis it lights the two pixels straddling the line's
+' fractional position, with complementary coverages (rfpart/fpart) that sum to 1 — the
+' AA analogue of Bresenham. Integer endpoints are the normal case (canvas pixel coords).
+'
+' @param x1 INTEGER Start X
+' @param y1 INTEGER Start Y
+' @param x2 INTEGER End X
+' @param y2 INTEGER End Y
+' @param col _UNSIGNED LONG Line color (resolved per-pixel by PAINT_blend_pixel)
+'
+SUB PAINT_wu_line (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, col AS _UNSIGNED LONG)
+    DIM steep    AS INTEGER
+    DIM ax0      AS SINGLE, ay0 AS SINGLE, ax1 AS SINGLE, ay1 AS SINGLE
+    DIM dx       AS SINGLE, dy  AS SINGLE, gradient AS SINGLE
+    DIM xend     AS SINGLE, yend AS SINGLE, xgap AS SINGLE, intery AS SINGLE
+    DIM xpxl1    AS INTEGER, ypxl1 AS INTEGER
+    DIM xpxl2    AS INTEGER, ypxl2 AS INTEGER
+    DIM xp       AS INTEGER
+    DIM fp       AS SINGLE, rfp AS SINGLE
+
+    ax0! = x1%: ay0! = y1%: ax1! = x2%: ay1! = y2%
+
+    ' Work along the major axis: for steep lines swap x/y so the loop steps in x.
+    steep% = (ABS(ay1! - ay0!) > ABS(ax1! - ax0!))
+    IF steep% THEN
+        SWAP ax0!, ay0!
+        SWAP ax1!, ay1!
+    END IF
+    IF ax0! > ax1! THEN
+        SWAP ax0!, ax1!
+        SWAP ay0!, ay1!
+    END IF
+
+    dx! = ax1! - ax0!
+    dy! = ay1! - ay0!
+    IF dx! = 0.0 THEN
+        gradient! = 1.0
+    ELSE
+        gradient! = dy! / dx!
+    END IF
+
+    ' --- first endpoint (with fractional end-cap coverage) ---
+    xend!  = INT(ax0! + 0.5)
+    yend!  = ay0! + gradient! * (xend! - ax0!)
+    xgap!  = 1.0 - ((ax0! + 0.5) - INT(ax0! + 0.5))
+    xpxl1% = INT(xend!)
+    ypxl1% = INT(yend!)
+    fp!    = yend! - INT(yend!)
+    rfp!   = 1.0 - fp!
+    IF steep% THEN
+        PAINT_blend_pixel_sym ypxl1%, xpxl1%, col~&, rfp! * xgap!
+        PAINT_blend_pixel_sym ypxl1% + 1, xpxl1%, col~&, fp! * xgap!
+    ELSE
+        PAINT_blend_pixel_sym xpxl1%, ypxl1%, col~&, rfp! * xgap!
+        PAINT_blend_pixel_sym xpxl1%, ypxl1% + 1, col~&, fp! * xgap!
+    END IF
+    intery! = yend! + gradient!
+
+    ' --- second endpoint ---
+    xend!  = INT(ax1! + 0.5)
+    yend!  = ay1! + gradient! * (xend! - ax1!)
+    xgap!  = (ax1! + 0.5) - INT(ax1! + 0.5)
+    xpxl2% = INT(xend!)
+    ypxl2% = INT(yend!)
+    fp!    = yend! - INT(yend!)
+    rfp!   = 1.0 - fp!
+    IF steep% THEN
+        PAINT_blend_pixel_sym ypxl2%, xpxl2%, col~&, rfp! * xgap!
+        PAINT_blend_pixel_sym ypxl2% + 1, xpxl2%, col~&, fp! * xgap!
+    ELSE
+        PAINT_blend_pixel_sym xpxl2%, ypxl2%, col~&, rfp! * xgap!
+        PAINT_blend_pixel_sym xpxl2%, ypxl2% + 1, col~&, fp! * xgap!
+    END IF
+
+    ' --- main span: two straddling pixels per column, coverages sum to 1 ---
+    IF steep% THEN
+        FOR xp% = xpxl1% + 1 TO xpxl2% - 1
+            fp!  = intery! - INT(intery!)
+            rfp! = 1.0 - fp!
+            PAINT_blend_pixel_sym INT(intery!), xp%, col~&, rfp!
+            PAINT_blend_pixel_sym INT(intery!) + 1, xp%, col~&, fp!
+            intery! = intery! + gradient!
+        NEXT xp%
+    ELSE
+        FOR xp% = xpxl1% + 1 TO xpxl2% - 1
+            fp!  = intery! - INT(intery!)
+            rfp! = 1.0 - fp!
+            PAINT_blend_pixel_sym xp%, INT(intery!), col~&, rfp!
+            PAINT_blend_pixel_sym xp%, INT(intery!) + 1, col~&, fp!
+            intery! = intery! + gradient!
+        NEXT xp%
+    END IF
 END SUB
 
 
@@ -236,14 +419,15 @@ SUB PAINT_on ()
                 END IF
             LOOP
         END IF
-    ELSEIF pixel_size% = 3 AND BRUSH_SIZE.SHAPE = 0 THEN
-        ' Plus sign for size 3 circle only
+    ELSEIF pixel_size% = 3 AND BRUSH_SIZE.SHAPE = 0 AND NOT CFG.ANTIALIAS% THEN
+        ' Plus sign for size 3 circle only (crisp mode). With AA on this size falls
+        ' through to the ELSE branch below, which stamps the soft AA circle instead.
         dx% = end_x% - start_x%
         dy% = end_y% - start_y%
-        
+
         steps% = INT(SQR(dx% * dx% + dy% * dy%)) + 1
         IF steps% < 1 THEN steps% = 1
-        
+
         FOR i% = 0 TO steps%
             t!  = i% / steps%
             cx% = start_x% + INT(dx% * t!)
@@ -274,7 +458,11 @@ SUB PAINT_on ()
             cx% = start_x% + INT(dx% * t!)
             cy% = start_y% + INT(dy% * t!)
             IF BRUSH_SIZE.SHAPE = 0 THEN
-                PAINT_draw_filled_circle cx%, cy%, radius%, DRAW_COLOR~&
+                IF CFG.ANTIALIAS% THEN
+                    PAINT_draw_filled_circle_aa cx%, cy%, radius%, DRAW_COLOR~&
+                ELSE
+                    PAINT_draw_filled_circle cx%, cy%, radius%, DRAW_COLOR~&
+                END IF
             ELSE
                 PAINT_draw_filled_square cx%, cy%, pixel_size%, DRAW_COLOR~&
             END IF
@@ -305,6 +493,42 @@ SUB PAINT_draw_filled_circle (x AS INTEGER, y AS INTEGER, radius AS INTEGER, col
             IF dist_sq! <= r_sq! THEN
                 PAINT_pset_with_symmetry cx%, cy%, col~&, TRUE
             END IF
+        NEXT cx%
+    NEXT cy%
+END SUB
+
+''
+' Anti-aliased filled circle (soft edge). Same solid interior as
+' PAINT_draw_filled_circle (dist <= radius-0.5 stays full coverage), plus a 1px
+' coverage feather across [radius-0.5, radius+0.5] drawn through PAINT_blend_pixel_sym.
+' Only reached when CFG.ANTIALIAS% is on; the hard-edged SUB above is the AA-off path.
+'
+' @param x INTEGER Center X coordinate
+' @param y INTEGER Center Y coordinate
+' @param radius INTEGER Circle radius
+' @param col _UNSIGNED LONG Color to fill with
+'
+SUB PAINT_draw_filled_circle_aa (x AS INTEGER, y AS INTEGER, radius AS INTEGER, col AS _UNSIGNED LONG)
+    DIM cx       AS INTEGER, cy AS INTEGER
+    DIM dist     AS SINGLE
+    DIM coverage AS SINGLE
+    DIM rInner   AS SINGLE, rOuter AS SINGLE
+
+    rInner! = radius% - 0.5                    ' full coverage inside this radius
+    rOuter! = radius% + 0.5                    ' zero coverage beyond this radius
+
+    ' Scan a bounding box extended by 1px so the feather ring is covered.
+    FOR cy% = y% - radius% - 1 TO y% + radius% + 1
+        FOR cx% = x% - radius% - 1 TO x% + radius% + 1
+            dist! = SQR((cx% - x%) * (cx% - x%) + (cy% - y%) * (cy% - y%))
+            IF dist! <= rInner! THEN
+                coverage! = 1.0
+            ELSEIF dist! >= rOuter! THEN
+                coverage! = 0.0
+            ELSE
+                coverage! = rOuter! - dist!    ' linear 1..0 across the 1px band
+            END IF
+            IF coverage! > 0.0 THEN PAINT_blend_pixel_sym cx%, cy%, col~&, coverage!
         NEXT cx%
     NEXT cy%
 END SUB
@@ -346,8 +570,9 @@ SUB PAINT_stamp_brush (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG)
     IF pixel_size% <= 1 THEN
         ' Single pixel
         PAINT_pset_with_symmetry x%, y%, col~&, TRUE
-    ELSEIF pixel_size% = 3 AND BRUSH_SIZE.SHAPE = 0 THEN
-        ' Plus sign for size 3 circle
+    ELSEIF pixel_size% = 3 AND BRUSH_SIZE.SHAPE = 0 AND NOT CFG.ANTIALIAS% THEN
+        ' Plus sign for size 3 circle (crisp mode). With AA on this falls through to
+        ' the ELSE branch below, which stamps the soft AA circle instead.
         DIM py AS INTEGER, px AS INTEGER
         FOR py% = y% - 1 TO y% + 1
             PAINT_pset_with_symmetry x%, py%, col~&, TRUE
@@ -359,7 +584,11 @@ SUB PAINT_stamp_brush (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG)
         ' Larger brush
         radius% = pixel_size% \ 2
         IF BRUSH_SIZE.SHAPE = 0 THEN
-            PAINT_draw_filled_circle x%, y%, radius%, col~&
+            IF CFG.ANTIALIAS% THEN
+                PAINT_draw_filled_circle_aa x%, y%, radius%, col~&
+            ELSE
+                PAINT_draw_filled_circle x%, y%, radius%, col~&
+            END IF
         ELSE
             PAINT_draw_filled_square x%, y%, pixel_size%, col~&
         END IF

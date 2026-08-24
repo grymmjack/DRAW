@@ -1,0 +1,76 @@
+---
+name: antialiasing
+description: DRAW's experimental anti-aliasing mode — flag, coverage primitive, and how AA-off stays byte-identical
+metadata:
+  type: project
+---
+
+DRAW is adding an optional **anti-aliasing mode** (branch `antialiasing`), shipped in
+phases behind one flag. Full plan + audited anchors: `PLANS/ANTI-ALIASING-PLAN.md`.
+Default **OFF** to protect the hard-edged pixel-art identity.
+
+**The invariant that governs every AA edit:** with AA off, every drawing path must be
+**byte-identical to before**. This is guaranteed *by construction*, not by testing — each
+chokepoint reads `IF CFG.ANTIALIAS% THEN <AA path> ELSE <verbatim original>`, and the AA
+primitive itself collapses to the original `PSET` at full coverage. Never refactor the
+off-path. See [[qb64pe-not-is-bitwise]] — the toggle uses `NOT CFG.ANTIALIAS%` which is
+safe only because the flag is a canonical 0/-1 boolean (matches the CRT toggle).
+
+**The one AA write primitive** (`TOOLS/BRUSH.BM`): `PAINT_blend_pixel (x,y,col,coverage!)`
++ `PAINT_blend_pixel_sym`. It does NOT hand-roll source-over — it scales the source
+alpha by `coverage` and lets QB64 `_BLEND` composite (`out = src*a + dst*(1-a)`). At
+`coverage >= 1.0` it takes the verbatim `PSET (x,y), resolvedCol~&` branch → byte-identical.
+It honors the same gates as `PAINT_pset_with_symmetry`: `SELECTION_is_point_inside%` +
+`OPACITY_LOCK_allows_draw%`, and composes the resolved color via `DRAWER_resolve_paint_color~&`.
+
+**Phase 0+1 shipped (experimental):**
+- `CFG.ANTIALIAS%` flag — 5 config sites modeled on `CRT_ENABLED` (CONFIG.BI/BM save+load,
+  `DRAW.cfg.default` `[ANTIALIAS]`). `--options-list` self-documents it; `--option ANTIALIAS=TRUE` works.
+- Toggle UI: **action 958** (was free — always grep first, gotcha #17), `CMD_register`
+  "Toggle Anti-Aliasing", View → **ANTI-ALIASING** checkable menu item (checked mirror in
+  `MENUBAR.BM`), and a **" AA"** badge appended to `tool_name$` in `STATUS_render`.
+- AA brush: `PAINT_draw_filled_circle_aa` — solid core (`dist <= radius-0.5`) + 1px feather
+  to `radius+0.5` via `PAINT_blend_pixel_sym`. Square stays hard (axis-aligned = nothing to AA).
+  **Brush sizes are odd-only** (`BRUSH_PIXEL_SIZES(i)=(i-1)*2+1` → 1,3,5,…). The two smallest
+  are special-cased: size 1 = single `PSET`, size 3 = a crisp plus-sign. When AA is on, size 3
+  falls through to the AA circle (added `AND NOT CFG.ANTIALIAS%` to both plus-sign branches in
+  `PAINT_on` + `PAINT_stamp_brush`). **Size 1 deliberately stays crisp** (Rick's call) — a single
+  pixel has no edge to feather; soft-dabbing it would just make a weak translucent dot.
+- AA line: `PAINT_wu_line` (Xiaolin Wu) via `PAINT_blend_pixel_sym`; `LINE_draw_clipped`/
+  `_resolved` short-circuit to it when `CFG.ANTIALIAS% AND BRUSH_SIZE_pixels% <= 1`.
+
+**Edge Mode — PP/AA are mutually exclusive.** Pixel-Perfect and Anti-Aliasing are
+opposite edge treatments, so DRAW enforces **never both on**: enabling one turns the
+other off, in every path — `BRUSH_SIZE_toggle_pixel_perfect` (covers action 609 + F6)
+forces AA off; COMMAND.BM `CASE 958` forces PP off. A shared **Edit Bar button** (slot 28,
+action **959**) controls whichever is the current *target*: **left-click** toggles that
+target on/off, **right-click** (action **960**, wired via `EDITBAR_handle_right_click` +
+a new B2 branch in MOUSE.BM ~1104) switches the target PP↔AA (live-swapping if active).
+`EDGE_MODE_TARGET` (EDITBAR.BI, `EDGE_TARGET_PP`/`_AA`) only remembers which face shows;
+truth stays in `BRUSH_SIZE.PIXEL_PERFECT` / `CFG.ANTIALIAS%`. The button paints an "AA"
+tag (`EDITBAR_draw_aa_badge`, 8×8 font) when target=AA. Menu lives in **Edit**, not View
+(AA is a draw-time behavior, not a view overlay like CRT). NOTE: `EDITBAR_action_enabled%`
+uses the `funcname% = expr` return-assignment idiom in a one-line SELECT CASE — the MCP
+linter flags these as "self-reference SIGSEGV" **false positives**; they compile fine.
+
+**Phase 2a (Ellipse/Circle) shipped.** `ELLIPSE_coverage!(dx,dy,rx,ry,isOutline)` (ELLIPSE.BM)
+= signed-distance-field AA: implicit `f=(dx/rx)²+(dy/ry)²`, divide `(√f−1)` by the gradient
+magnitude to get pixel distance to the boundary (reduces to `|offset|−r` for a circle).
+Fill=`clamp(0.5−sdf)`, outline=`clamp(1−|sdf|)`. `ELLIPSE_fill_scanline` / `ELLIPSE_draw_clipped_outline`
+branch to `_aa` variants (walk bbox+1px, draw via `PAINT_blend_pixel`) when `CFG.ANTIALIAS%`.
+**Gotcha found:** the ellipse *commit* (INPUT/MOUSE.BM) used QB64's built-in **`CIRCLE`** for the
+common outline case, bypassing AA — fixed by adding `OR CFG.ANTIALIAS%` to the 3 outline guards.
+Same **built-in-primitive bypass exists for poly-line** (`LINE` at MOUSE.BM:2227) and likely
+bezier/poly-close → Phase 2b must add the same `OR CFG.ANTIALIAS%` guard there. **RECT is an
+intentional AA no-op** (axis-aligned; thick-brush rect corners already AA via the stamp). The SDF
+approach is the template for curved smart shapes. Drag previews stay hard (snap on commit, like Line).
+
+**What the loop CANNOT verify:** AA-*on* visual quality. The QA test
+(`QA/tests/antialias-toggle.sh`) only checks the flag default, the source-route guard
+structure, and an AA-on non-crash smoke. A human must eyeball soft brush/line output.
+
+**Audit findings that de-scoped later phases:** no DRW bump (layer pixels already 32-bit,
+history `_COPYIMAGE(...,32)`, BAS already emits `_RGBA32`+`_BLEND`); selection mask is
+already a 32-bit image (`MARQUEE.SELECTION_MASK AS LONG`) so Phase 3/4 is de-binarizing
+reads, not a schema break; text already has a persisted per-layer `antialias` flag.
+Related: [[drag-drop-targets]] (same branch-then-fleet-test-then-merge workflow).

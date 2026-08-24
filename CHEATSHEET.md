@@ -669,6 +669,19 @@ Open via **View → CRT Effect Settings…** (or the Command Palette). Toggles a
 
 All CRT state persists in `DRAW.cfg` (`CRT_ENABLED`, `CRT_SCANLINES`, `CRT_PHOSPHOR`, `CRT_VIGNETTE`, etc.).
 
+## Anti-Aliasing (experimental)
+
+An optional **anti-aliasing mode** gives supported drawing tools soft, coverage-blended edges instead of hard pixels. It is **off by default** to preserve DRAW's hard-edged pixel-art output — with AA off, every tool draws exactly as before.
+
+| Action | Function |
+|--------|----------|
+| Edit → Anti-Aliasing | Toggle AA on/off (checkable). A **AA** badge appears in the status bar when on. |
+| Edit Bar — Edge Mode button | **L-CLICK** toggles the current edge mode on/off. **R-CLICK** switches the button between **Pixel-Perfect** and **Anti-Aliasing** (a small **AA** tag marks the AA face). |
+
+**Edge Mode (Pixel-Perfect ⟷ Anti-Aliasing):** these are opposite edge treatments — crisp single-pixel vs. soft blend — and are **mutually exclusive** (turning one on turns the other off). They share one Edit Bar button.
+
+**AA coverage so far:** **Brush/Dot** (soft round stamp, sizes 2px+), the **Line** tool (Xiaolin Wu line), and the **Ellipse/Circle** tool (outline + fill, soft edges). The **1px brush stays crisp** by design — a single pixel has no edge to feather — and **Rectangles stay crisp** because axis-aligned edges have nothing to anti-alias. Poly-line/bezier thin lines, poly-fill, smart shapes, spray, and the eraser follow in later phases. State persists in `DRAW.cfg` as `ANTIALIAS` (also settable via `--option ANTIALIAS=TRUE`).
+
 ## Color Mixer
 
 The **Color Mixer** panel provides a live RGB/HSV color editing workspace. Toggle via **View → Color Mixer** in the menu bar.
