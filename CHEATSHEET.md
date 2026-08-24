@@ -1709,6 +1709,27 @@ Each layer can use one of 19 blend modes. **Shift+Right-click** a layer row to c
 - The canvas offset adjusts when layer panel is visible
 - Export/save operations flatten all visible layers
 
+## Drag & Drop
+
+Drop an image file from your file manager onto DRAW. **Where** you drop it decides what happens (the target is the UI region under the cursor at the moment of the drop):
+
+| Drop target | Result |
+|-------------|--------|
+| **Canvas** | Places the image on the **current layer** (destructive, undoable with `Ctrl+Z`) |
+| **Layer panel** | Creates a **new layer** holding the image |
+| **Brush bin (drawer)** | Adds the image as a **custom brush** in the next free slot; when all 30 slots are full a **new blank page** is started (your current set is auto-saved first) |
+| **Menu bar** | Opens the file in a **separate DRAW window** (a new isolated instance) |
+
+Placement of a dropped image (canvas / layer-panel targets):
+
+| Modifier | Placement |
+|----------|-----------|
+| _(none)_ | Top-left of the canvas |
+| **Shift** | Centered on the canvas |
+
+- An image **larger than the canvas** always opens the interactive **Image Import** workflow (pan/zoom/crop) instead of being placed directly — regardless of target.
+- Dropping a `.draw` project loads it as the document; dropping a `.drawlayer` blob imports it as a layer.
+
 ## Image Import (Oversized Images)
 
 When loading an image larger than the canvas, DRAW enters **Image Import Mode** allowing you to interactively position, zoom, pan, and crop the image before placing it.
