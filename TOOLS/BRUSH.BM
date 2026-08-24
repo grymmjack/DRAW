@@ -274,9 +274,112 @@ END SUB
 
 
 ''
+' Coverage-subtract erase: softly erase a pixel by REDUCING its existing alpha by
+' coverage (instead of the hard alpha-0 clear the normal eraser does). Reads the current
+' layer's dest alpha, writes back max(0, dstAlpha - coverage*255) keeping RGB. Honors the
+' selection mask (opacity-lock does not gate erasing). At coverage>=1 the pixel is fully
+' erased (matching the hard eraser); fractional coverage gives a soft AA edge.
+'
+' @param x INTEGER - X coordinate
+' @param y INTEGER - Y coordinate
+' @param coverage SINGLE - Erase strength in [0,1]; <=0 does nothing
+'
+SUB PAINT_erase_pixel (x AS INTEGER, y AS INTEGER, coverage AS SINGLE)
+    DIM oldDest   AS LONG
+    DIM oldSource AS LONG
+    DIM targetImg AS LONG
+    DIM dstCol    AS _UNSIGNED LONG
+    DIM cov       AS SINGLE
+    DIM dstA      AS INTEGER, newA AS INTEGER
+
+    cov! = coverage!
+    IF cov! <= 0.0 THEN EXIT SUB
+    IF cov! > 1.0 THEN cov! = 1.0
+
+    IF SELECTION_is_point_inside%(x%, y%) THEN
+        targetImg& = LAYER_current_image&
+        oldDest&   = _DEST
+        oldSource& = _SOURCE
+        _DEST targetImg&
+        _SOURCE targetImg&
+
+        dstCol~& = POINT(x%, y%)
+        dstA%    = _ALPHA32(dstCol~&)
+        newA%    = dstA% - INT(cov! * 255.0 + 0.5)
+        IF newA% < 0 THEN newA% = 0
+
+        _DONTBLEND targetImg&
+        PSET (x%, y%), _RGBA32(_RED32(dstCol~&), _GREEN32(dstCol~&), _BLUE32(dstCol~&), newA%)
+        _BLEND targetImg&
+
+        _SOURCE oldSource&
+        _DEST oldDest&
+    END IF
+END SUB
+
+
+''
+' Symmetry-aware wrapper around PAINT_erase_pixel.
+'
+' @param x INTEGER - X coordinate
+' @param y INTEGER - Y coordinate
+' @param coverage SINGLE - Erase strength in [0,1]
+'
+SUB PAINT_erase_pixel_sym (x AS INTEGER, y AS INTEGER, coverage AS SINGLE)
+    DIM mx(0 TO 7) AS INTEGER
+    DIM my(0 TO 7) AS INTEGER
+    DIM count      AS INTEGER
+    DIM i          AS INTEGER
+
+    PAINT_erase_pixel x%, y%, coverage!
+
+    IF SYMMETRY.MODE > 0 THEN
+        SYMMETRY_get_mirrored_points x%, y%, mx%(), my%(), count%
+        FOR i% = 0 TO count% - 1
+            PAINT_erase_pixel mx%(i%), my%(i%), coverage!
+        NEXT i%
+    END IF
+END SUB
+
+
+''
+' Soft (anti-aliased) round eraser stamp: same solid interior as the hard eraser
+' (dist <= radius-0.5 fully erased) plus a 1px coverage-subtract feather to radius+0.5.
+' Mirror of PAINT_draw_filled_circle_aa but erasing via PAINT_erase_pixel_sym.
+'
+' @param x INTEGER Center X
+' @param y INTEGER Center Y
+' @param radius INTEGER Eraser radius
+'
+SUB PAINT_erase_circle_aa (x AS INTEGER, y AS INTEGER, radius AS INTEGER)
+    DIM cx       AS INTEGER, cy AS INTEGER
+    DIM dist     AS SINGLE
+    DIM coverage AS SINGLE
+    DIM rInner   AS SINGLE, rOuter AS SINGLE
+
+    rInner! = radius% - 0.5
+    rOuter! = radius% + 0.5
+
+    FOR cy% = y% - radius% - 1 TO y% + radius% + 1
+        FOR cx% = x% - radius% - 1 TO x% + radius% + 1
+            dist! = SQR((cx% - x%) * (cx% - x%) + (cy% - y%) * (cy% - y%))
+            IF dist! <= rInner! THEN
+                coverage! = 1.0
+            ELSEIF dist! >= rOuter! THEN
+                coverage! = 0.0
+            ELSE
+                coverage! = rOuter! - dist!
+            END IF
+            IF coverage! > 0.0 THEN PAINT_erase_pixel_sym cx%, cy%, coverage!
+        NEXT cx%
+    NEXT cy%
+END SUB
+
+
+''
 ' Turns painting on
 ' Draws circular brush strokes with interpolation for smooth lines
-' 
+'
 SUB PAINT_on ()
     ' If custom brush is active, use it instead of normal brush
     IF CUSTOM_BRUSH_is_active% THEN
