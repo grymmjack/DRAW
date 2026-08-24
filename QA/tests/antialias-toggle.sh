@@ -52,6 +52,14 @@ if grep -q 'OR CFG.ANTIALIAS% THEN' "$DRAW_ROOT/TOOLS/BEZIER.BM" \
 else
     fail "phase 2b bezier guard or poly-fill edge overlay missing"
 fi
+# Phase 2c: smart-shape stroke chokepoint routes to Wu; soft eraser primitive present.
+if grep -q 'PAINT_wu_line x0%, y0%, x1%, y1%' "$DRAW_ROOT/TOOLS/SS-COMMON.BM" \
+   && grep -q 'SUB PAINT_erase_pixel ' "$DRAW_ROOT/TOOLS/BRUSH.BM" \
+   && grep -q 'PAINT_erase_circle_aa' "$DRAW_ROOT/TOOLS/ERASER.BM"; then
+    pass "phase 2c: smart-shape AA stroke + coverage-subtract eraser present"
+else
+    fail "phase 2c smart-shape stroke route or soft eraser missing"
+fi
 
 # --- 3. AA-on smoke (this test's instance launched with ANTIALIAS=TRUE) ---
 wait_for 1 "idle render with AA on"

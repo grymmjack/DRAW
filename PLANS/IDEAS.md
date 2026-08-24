@@ -5,7 +5,7 @@
 - [ ] Everything operates in anti-aliased mode. (this is a big one)
   - [x] **Phase 0 (foundation)** — `CFG.ANTIALIAS%` flag (default OFF), View → Anti-Aliasing toggle + status "AA" badge, `PAINT_blend_pixel`/`_sym` coverage primitive. *(experimental, branch `antialiasing`)*
   - [x] **Phase 1 (primitives)** — soft-edge AA brush circle stamp + Xiaolin Wu line; Brush/Dot + Line tool routed through AA when enabled; AA-off stays byte-identical.
-  - [~] Phase 2 — remaining shape tools + eraser coverage-subtract. **2a done:** Ellipse/Circle outline+fill via SDF coverage; RECT confirmed intentional no-op (axis-aligned). **2b done:** poly-line + bezier thin lines routed to Wu; poly-fill edges feathered via Wu overlay. **2c TODO:** curved smart shapes (reuse SDF/coverage approach), spray, eraser coverage-subtract.
+  - [x] Phase 2 — remaining shape tools + eraser coverage-subtract. **2a:** Ellipse/Circle outline+fill via SDF coverage. **2b:** poly-line + bezier thin lines routed to Wu; poly-fill edges feathered. **2c:** all smart shapes via the SS_stroke_line + SS_fill_polygon chokepoints; soft coverage-subtract eraser (round 2px+). Intentional no-ops: RECT + square brush/eraser (axis-aligned), 1px brush, spray (stochastic stipple).
   - [ ] Phase 3 — fill/wand tolerance + soft fringe; de-binarize selection membership.
   - [ ] Phase 4 — feathered selection / bilinear transform-resample / sub-pixel custom brush.
   - [ ] Phase 5 — verify BAS/PNG/DRW/history round-trip; wire flag → text `aaActive%`.
