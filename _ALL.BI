@@ -102,6 +102,7 @@ $INCLUDEONCE
 '$INCLUDE:'./INPUT/MODIFIERS.BI'
 '$INCLUDE:'./INPUT/KEYBOARD.BI'
 '$INCLUDE:'./INPUT/MOUSE.BI'
+'$INCLUDE:'./INPUT/DROP.BI'
 '$INCLUDE:'./INPUT/API-LOSPEC.BI'
 
 ' OUTPUT ----------------------------------------------------------------------
