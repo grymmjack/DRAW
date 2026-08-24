@@ -14,6 +14,16 @@
 '
 ' Full design + code anchors: PLANS/DRAG-DROP-PLAN.md
 '
+' IMPORTANT: QB64-PE/GLFW does not report the cursor position during an external OS
+' drag, and _MOUSEX is not synced until the drag releases. So a dropped file is QUEUED
+' when _TOTALDROPPEDFILES fires and DISPATCHED a couple of frames later (DROP_tick, run
+' after MOUSE_input_handler), by which time MOUSE.RAW_X/Y holds the cursor's resting
+' position = the drop point. Dispatching immediately misroutes every non-canvas drop.
+'
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
+
+' Deferred-drop queue (see note above)
+DIM SHARED DROP_PENDING_FILE   AS STRING
+DIM SHARED DROP_PENDING_FRAMES AS INTEGER

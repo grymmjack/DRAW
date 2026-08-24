@@ -444,9 +444,11 @@ DO
         DIM dropFile$
         dropFile$ = _DROPPEDFILE$(1)
         _FINISHDROP
-        ' Target-aware dispatch (canvas / layer panel / brush bin / menu bar) lives
-        ' in INPUT/DROP.BM. Only file #1 is consumed (multi-file drops discard the rest).
-        DROP_handle_dropped_file dropFile$
+        ' Queue for deferred, target-aware dispatch (canvas / layer panel / brush bin /
+        ' menu bar) in INPUT/DROP.BM — dispatched by DROP_tick a couple of frames later,
+        ' once the cursor position is known (GLFW does not report it during the OS drag).
+        ' Only file #1 is consumed (multi-file drops discard the rest).
+        DROP_queue_dropped_file dropFile$
     END IF
 
     ' OS-initiated window resize (maximize, free drag, etc.).
@@ -549,6 +551,8 @@ DO
     PERF_start PERF_MOUSE_INPUT
     MOUSE_input_handler
     PALETTE_OPS_tick
+    ' Dispatch any queued file-drop now that MOUSE.RAW_X/Y reflects the drop point.
+    DROP_tick
     PERF_stop PERF_MOUSE_INPUT
     PERF_start PERF_KEYBOARD_INPUT
     KEYBOARD_input_handler

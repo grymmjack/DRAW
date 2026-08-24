@@ -7,7 +7,37 @@
 $INCLUDEONCE
 
 ''
-' Handle one dropped file. Called from the main loop after reading _DROPPEDFILE$(1).
+' Queue a dropped file for deferred dispatch. Called from the main loop when
+' _TOTALDROPPEDFILES fires. We cannot dispatch immediately: QB64-PE/GLFW does not sync
+' the cursor position during an external OS drag, so the drop point is unknown until the
+' drag releases and MOUSE_input_handler reads the cursor on a later frame. See DROP_tick.
+'
+SUB DROP_queue_dropped_file (dropFile$)
+    IF dropFile$ = "" THEN EXIT SUB
+    DROP_PENDING_FILE$   = dropFile$
+    DROP_PENDING_FRAMES% = 2          ' dispatch after MOUSE_input_handler has updated RAW_X/Y
+    FRAME_IDLE%          = FALSE       ' keep frames running so the defer elapses promptly
+    SCENE_DIRTY%         = TRUE
+END SUB
+
+''
+' Per-frame tick — call AFTER MOUSE_input_handler in the main loop. When a queued drop's
+' short defer elapses, dispatch it; by now MOUSE.RAW_X/Y holds the cursor's resting
+' position, which for an OS drop is the drop point.
+'
+SUB DROP_tick ()
+    IF DROP_PENDING_FRAMES% <= 0 THEN EXIT SUB
+    DROP_PENDING_FRAMES% = DROP_PENDING_FRAMES% - 1
+    IF DROP_PENDING_FRAMES% > 0 THEN EXIT SUB
+
+    DIM pendingFile AS STRING
+    pendingFile$       = DROP_PENDING_FILE$
+    DROP_PENDING_FILE$ = ""
+    DROP_handle_dropped_file pendingFile$
+END SUB
+
+''
+' Handle one dropped file. Called (deferred) from DROP_tick after reading _DROPPEDFILE$(1).
 ' Routing by extension:
 '   .drawlayer -> import as a new layer (cross-instance layer blob)
 '   .draw      -> load as the whole document
@@ -22,18 +52,13 @@ SUB DROP_handle_dropped_file (dropFile$)
     IF NOT _FILEEXISTS(dropFile$) THEN EXIT SUB
 
     ' --- Capture drop context (cursor position = drop point; Shift modifier) ---
-    ' Read the LIVE cursor position, not the cached MOUSE.RAW_X/Y: this drop handler runs
-    ' earlier in the main loop than MOUSE_input_handler, so MOUSE.RAW_X/Y still holds the
-    ' PREVIOUS frame's position. During an external OS drag DRAW receives no motion events,
-    ' so that cached value is frozen wherever the cursor last was inside DRAW (usually the
-    ' canvas) — which would misroute every non-canvas drop. _MOUSEX/_MOUSEY are GLFW's live
-    ' cursor position, synced at the drop event. Divide by displayScale to match REGION space.
+    ' Dispatch is deferred (see DROP_queue_dropped_file / DROP_tick), so by the time we get
+    ' here MOUSE_input_handler has updated MOUSE.RAW_X/Y to the cursor's post-drop resting
+    ' position — the drop point. (An immediate read at drop time is stale: GLFW does not
+    ' sync the cursor during an external OS drag.) MOUSE.RAW_X/Y are already in REGION space.
     DIM dropRawX AS INTEGER, dropRawY AS INTEGER, dropShift AS INTEGER, dropTarget AS INTEGER
-    DIM dropScale AS INTEGER
-    dropScale%  = SCRN.displayScale%
-    IF dropScale% < 1 THEN dropScale% = 1
-    dropRawX%   = _MOUSEX \ dropScale%
-    dropRawY%   = _MOUSEY \ dropScale%
+    dropRawX%   = MOUSE.RAW_X%
+    dropRawY%   = MOUSE.RAW_Y%
     dropShift%  = MODIFIERS.shift%
     dropTarget% = REGION_hit_test%(dropRawX%, dropRawY%)
     _LOGINFO "DROP: file=" + dropFile$ + " raw=(" + _TRIM$(STR$(dropRawX%)) + "," + _TRIM$(STR$(dropRawY%)) + ") shift=" + _TRIM$(STR$(dropShift%)) + " region=" + _TRIM$(STR$(dropTarget%))
