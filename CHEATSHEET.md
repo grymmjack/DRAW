@@ -675,7 +675,7 @@ An optional **anti-aliasing mode** gives supported drawing tools soft, coverage-
 
 | Action | Function |
 |--------|----------|
-| View → Anti-Aliasing | Toggle AA on/off (checkable). A **AA** badge appears in the status bar when on. |
+| Edit → Anti-Aliasing | Toggle AA on/off (checkable). A **AA** badge appears in the status bar when on. |
 
 **Coverage so far (Phase 0+1):** the **Brush/Dot** (soft round stamp) and the **Line** tool (Xiaolin Wu line). Other shape tools, fills, and selections follow in later phases. State persists in `DRAW.cfg` as `ANTIALIAS` (also settable via `--option ANTIALIAS=TRUE`).
 
