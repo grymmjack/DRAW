@@ -50,9 +50,99 @@ SUB DROP_handle_dropped_file (dropFile$)
         SOUND_play SND_NEW_FILE
         CURRENT_DRW_FILENAME$ = dropFile$
     ELSE
-        ' Image file. Target-aware handling arrives in later boxes; for now this
-        ' preserves the original behavior: interactive Import Image placement.
-        DIM dropLoadResult%
-        dropLoadResult% = IMAGE_IMPORT_load_file%(dropFile$)
+        ' Image file — route by drop target (canvas / layer panel / brush bin /
+        ' menu bar) and size. See DROP_handle_image.
+        DROP_handle_image dropFile$, dropTarget%, dropShift%
     END IF
+END SUB
+
+''
+' Route a dropped IMAGE by target region and size. Images larger than the canvas
+' always fall back to the interactive Import Image placement (pan/zoom/crop). Smaller
+' images are placed directly per target. Targets not yet implemented fall back to the
+' interactive importer — the safe default.
+'
+SUB DROP_handle_image (dropFile$, target AS INTEGER, shiftHeld AS INTEGER)
+    ' Load once so we can measure the image and decide interactive vs. direct placement.
+    DIM srcImg AS LONG
+    srcImg& = _LOADIMAGE(dropFile$, 32)
+    IF srcImg& >= -1 THEN
+        ' Load failed — let the interactive importer surface the error.
+        DIM r0 AS INTEGER
+        r0% = IMAGE_IMPORT_load_file%(dropFile$)
+        EXIT SUB
+    END IF
+
+    DIM iw AS INTEGER, ih AS INTEGER, larger AS INTEGER
+    iw%     = _WIDTH(srcImg&)
+    ih%     = _HEIGHT(srcImg&)
+    larger% = (iw% > SCRN.canvasW& OR ih% > SCRN.canvasH&)
+
+    ' Canvas drop, image fits: stamp destructively onto the current layer.
+    IF target% = REGION_CANVAS AND NOT larger% THEN
+        DROP_place_on_current_layer srcImg&, shiftHeld%
+        SAFE_FREEIMAGE srcImg&
+        EXIT SUB
+    END IF
+
+    ' Everything else (larger-than-canvas, or a target not yet handled) → interactive
+    ' Import Image workflow. Free our measuring copy; the importer reloads from the path.
+    SAFE_FREEIMAGE srcImg&
+    DIM r1 AS INTEGER
+    r1% = IMAGE_IMPORT_load_file%(dropFile$)
+END SUB
+
+''
+' Stamp a loaded image destructively onto the current layer (undoable). Placed at the
+' canvas top-left, or centered on the canvas when Shift was held. The caller owns and
+' frees srcImg. Records a full-layer before-snapshot via HISTORY_record_brush so a single
+' Ctrl+Z restores the layer exactly.
+'
+SUB DROP_place_on_current_layer (srcImg AS LONG, centerOnCanvas AS INTEGER)
+    IF srcImg& >= -1 THEN EXIT SUB
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    DIM targetImg AS LONG
+    targetImg& = LAYER_current_image&
+    IF targetImg& >= -1 THEN EXIT SUB
+
+    DIM iw AS INTEGER, ih AS INTEGER, destX AS INTEGER, destY AS INTEGER
+    iw% = _WIDTH(srcImg&)
+    ih% = _HEIGHT(srcImg&)
+    IF centerOnCanvas% THEN
+        destX% = (SCRN.canvasW& - iw%) \ 2
+        destY% = (SCRN.canvasH& - ih%) \ 2
+    ELSE
+        destX% = 0
+        destY% = 0
+    END IF
+
+    ' Snapshot the whole layer BEFORE the edit; HISTORY_record_brush takes ownership.
+    DIM beforeImg AS LONG
+    beforeImg& = _COPYIMAGE(targetImg&, 32)
+
+    ' Map canvas coords into the (possibly apron-promoted) layer buffer, then stamp.
+    DIM bufX AS INTEGER, bufY AS INTEGER, oldDest AS LONG
+    bufX%    = LAYERS_canvas_to_buf_x%(destX%, CURRENT_LAYER%)
+    bufY%    = LAYERS_canvas_to_buf_y%(destY%, CURRENT_LAYER%)
+    oldDest& = _DEST
+    _DEST targetImg&
+    _BLEND targetImg&
+    _PUTIMAGE (bufX%, bufY%), srcImg&, targetImg&
+    _DEST oldDest&
+
+    IF NOT HISTORY_saved_this_frame% THEN
+        IF beforeImg& < -1 THEN
+            HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, _RGBA32(0, 0, 0, 0), 0, beforeImg&, "Drop Image"
+            HISTORY_saved_this_frame% = TRUE
+        END IF
+    ELSE
+        IF beforeImg& < -1 THEN SAFE_FREEIMAGE beforeImg&
+    END IF
+
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+    CANVAS_DIRTY%     = TRUE
+    SCENE_DIRTY%      = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
 END SUB
