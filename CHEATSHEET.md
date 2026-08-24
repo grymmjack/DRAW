@@ -669,6 +669,16 @@ Open via **View → CRT Effect Settings…** (or the Command Palette). Toggles a
 
 All CRT state persists in `DRAW.cfg` (`CRT_ENABLED`, `CRT_SCANLINES`, `CRT_PHOSPHOR`, `CRT_VIGNETTE`, etc.).
 
+## Anti-Aliasing (experimental)
+
+An optional **anti-aliasing mode** gives supported drawing tools soft, coverage-blended edges instead of hard pixels. It is **off by default** to preserve DRAW's hard-edged pixel-art output — with AA off, every tool draws exactly as before.
+
+| Action | Function |
+|--------|----------|
+| View → Anti-Aliasing | Toggle AA on/off (checkable). A **AA** badge appears in the status bar when on. |
+
+**Coverage so far (Phase 0+1):** the **Brush/Dot** (soft round stamp) and the **Line** tool (Xiaolin Wu line). Other shape tools, fills, and selections follow in later phases. State persists in `DRAW.cfg` as `ANTIALIAS` (also settable via `--option ANTIALIAS=TRUE`).
+
 ## Color Mixer
 
 The **Color Mixer** panel provides a live RGB/HSV color editing workspace. Toggle via **View → Color Mixer** in the menu bar.
