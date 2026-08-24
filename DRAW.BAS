@@ -534,6 +534,11 @@ DO
         SOUND_play SND_NEW_LAYER
         CANVAS_DIRTY% = TRUE : SCENE_DIRTY% = TRUE : GUI_NEEDS_REDRAW% = TRUE : FRAME_IDLE% = FALSE
     END IF
+    ' Dispatch any queued file-drop from the top of the loop (same position as the mailbox
+    ' receive above, which reliably forces a full-scene render). The 2-frame defer means
+    ' MOUSE.RAW_X/Y already holds the settled drop point by now (a prior MOUSE_input_handler
+    ' pumped _MOUSEINPUT). DROP_tick sets the dirty flags when it dispatches.
+    DROP_tick
     IF AI_FAIL_PENDING% THEN
         AI_FAIL_PENDING% = FALSE
         AI_JOB_report_failure
@@ -551,8 +556,6 @@ DO
     PERF_start PERF_MOUSE_INPUT
     MOUSE_input_handler
     PALETTE_OPS_tick
-    ' Dispatch any queued file-drop now that MOUSE.RAW_X/Y reflects the drop point.
-    DROP_tick
     PERF_stop PERF_MOUSE_INPUT
     PERF_start PERF_KEYBOARD_INPUT
     KEYBOARD_input_handler
