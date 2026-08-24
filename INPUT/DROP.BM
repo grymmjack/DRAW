@@ -85,6 +85,13 @@ SUB DROP_handle_image (dropFile$, target AS INTEGER, shiftHeld AS INTEGER)
         EXIT SUB
     END IF
 
+    ' Layer-panel drop, image fits: drop it onto a brand-new layer.
+    IF target% = REGION_LAYER_PANEL AND NOT larger% THEN
+        DROP_place_on_new_layer srcImg&, shiftHeld%
+        SAFE_FREEIMAGE srcImg&
+        EXIT SUB
+    END IF
+
     ' Everything else (larger-than-canvas, or a target not yet handled) → interactive
     ' Import Image workflow. Free our measuring copy; the importer reloads from the path.
     SAFE_FREEIMAGE srcImg&
@@ -145,4 +152,55 @@ SUB DROP_place_on_current_layer (srcImg AS LONG, centerOnCanvas AS INTEGER)
     CANVAS_DIRTY%     = TRUE
     SCENE_DIRTY%      = TRUE
     GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Place a loaded image onto a NEW layer (undoable as a single layer-add). Positioned at
+' the canvas top-left, or centered when Shift was held. The caller owns and frees srcImg.
+' Mirrors LAYERXFER_add_layer%'s undo discipline: suppress LAYERS_new%'s empty auto
+' layer-add, fill the pixels, then record ONE layer-add so redo restores the layer WITH
+' its content.
+'
+SUB DROP_place_on_new_layer (srcImg AS LONG, centerOnCanvas AS INTEGER)
+    IF srcImg& >= -1 THEN EXIT SUB
+    IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN LAYERS_show_max_alert : EXIT SUB
+
+    DIM newIdx AS INTEGER, dst AS LONG, wasInProg AS INTEGER
+    DIM iw AS INTEGER, ih AS INTEGER, destX AS INTEGER, destY AS INTEGER, bufX AS INTEGER, bufY AS INTEGER
+    iw% = _WIDTH(srcImg&)
+    ih% = _HEIGHT(srcImg&)
+
+    ' Suppress the empty auto layer-add; we record one after the pixels are in.
+    wasInProg% = HISTORY_IN_PROGRESS%
+    HISTORY_IN_PROGRESS% = TRUE
+    newIdx% = LAYERS_new%
+    HISTORY_IN_PROGRESS% = wasInProg%
+    IF newIdx% = 0 THEN EXIT SUB
+
+    IF centerOnCanvas% THEN
+        destX% = (SCRN.canvasW& - iw%) \ 2
+        destY% = (SCRN.canvasH& - ih%) \ 2
+    ELSE
+        destX% = 0
+        destY% = 0
+    END IF
+
+    dst& = LAYERS(newIdx%).imgHandle&
+    IF dst& < -1 THEN
+        bufX% = LAYERS_canvas_to_buf_x%(destX%, newIdx%)
+        bufY% = LAYERS_canvas_to_buf_y%(destY%, newIdx%)
+        _DONTBLEND dst&
+        _PUTIMAGE (bufX%, bufY%), srcImg&, dst&
+        _BLEND dst&
+    END IF
+
+    LAYERS(newIdx%).contentDirty% = TRUE
+    IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_record_layer_add LAYERS(newIdx%).historyId&, newIdx%, LAYERS(newIdx%).zIndex%, "Drop Image"
+    LAYERS_select newIdx%
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+    CANVAS_DIRTY%     = TRUE
+    SCENE_DIRTY%      = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    SOUND_play SND_NEW_LAYER
 END SUB
