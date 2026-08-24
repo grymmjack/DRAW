@@ -38,6 +38,13 @@ if grep -q 'IF CFG.ANTIALIAS% AND (BRUSH_SIZE_pixels% <= 1) THEN' "$DRAW_ROOT/TO
 else
     fail "line tool AA route/guard missing"
 fi
+# Ellipse (Phase 2a): SDF coverage helper + AA gate with verbatim fallback.
+if grep -q 'FUNCTION ELLIPSE_coverage!' "$DRAW_ROOT/TOOLS/ELLIPSE.BM" \
+   && grep -q 'IF CFG.ANTIALIAS% THEN' "$DRAW_ROOT/TOOLS/ELLIPSE.BM"; then
+    pass "ellipse keeps SDF coverage helper + AA gate"
+else
+    fail "ellipse AA helper or gate missing"
+fi
 
 # --- 3. AA-on smoke (this test's instance launched with ANTIALIAS=TRUE) ---
 wait_for 1 "idle render with AA on"

@@ -53,6 +53,18 @@ tag (`EDITBAR_draw_aa_badge`, 8×8 font) when target=AA. Menu lives in **Edit**,
 uses the `funcname% = expr` return-assignment idiom in a one-line SELECT CASE — the MCP
 linter flags these as "self-reference SIGSEGV" **false positives**; they compile fine.
 
+**Phase 2a (Ellipse/Circle) shipped.** `ELLIPSE_coverage!(dx,dy,rx,ry,isOutline)` (ELLIPSE.BM)
+= signed-distance-field AA: implicit `f=(dx/rx)²+(dy/ry)²`, divide `(√f−1)` by the gradient
+magnitude to get pixel distance to the boundary (reduces to `|offset|−r` for a circle).
+Fill=`clamp(0.5−sdf)`, outline=`clamp(1−|sdf|)`. `ELLIPSE_fill_scanline` / `ELLIPSE_draw_clipped_outline`
+branch to `_aa` variants (walk bbox+1px, draw via `PAINT_blend_pixel`) when `CFG.ANTIALIAS%`.
+**Gotcha found:** the ellipse *commit* (INPUT/MOUSE.BM) used QB64's built-in **`CIRCLE`** for the
+common outline case, bypassing AA — fixed by adding `OR CFG.ANTIALIAS%` to the 3 outline guards.
+Same **built-in-primitive bypass exists for poly-line** (`LINE` at MOUSE.BM:2227) and likely
+bezier/poly-close → Phase 2b must add the same `OR CFG.ANTIALIAS%` guard there. **RECT is an
+intentional AA no-op** (axis-aligned; thick-brush rect corners already AA via the stamp). The SDF
+approach is the template for curved smart shapes. Drag previews stay hard (snap on commit, like Line).
+
 **What the loop CANNOT verify:** AA-*on* visual quality. The QA test
 (`QA/tests/antialias-toggle.sh`) only checks the flag default, the source-route guard
 structure, and an AA-on non-crash smoke. A human must eyeball soft brush/line output.
