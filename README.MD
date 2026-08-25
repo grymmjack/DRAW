@@ -5,9 +5,21 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v1.8.0
+Current release: v2.0.0
 
 ![DRAW GUI from v1.1.0](./GUI.png)
+
+## New in 2.0.0
+
+- **Massive Effects system** — a full Photoshop / Alien-Skin "Eye Candy"-style **EFFECTS** menu: SHAPE effects (Fire, Smoke, Snow, Water Drops, Electrify, Glass, Drip, Icicles, Motion Trail, Corona, Backlight, Cutout, Bevel, Chrome), TEXTURE engines (Wood, Marble, Brick, Weave, Reptile, Stone Wall, Diamond Plate, Lightning, Brushed Metal, Ripples, Fur, Rust), and RENDER engines (Sky, Grid, Terrain, Clouds, Lens Flare, Kaleidoscope) — every dialog with a live split preview, wheel sliders, an angle **dial**, **seed**, **MIX** (blend-with-original), and **Reset-to-Default**; effects can be **clipped to a selection** or run **selection-as-shape**.
+- **Anti-Aliasing mode** (default OFF, per-document) — soft, coverage-blended edges for Brush/Dot, Line, Ellipse, Poly-line, Bezier, Poly-fill, all Smart Shapes, and a soft **coverage-subtract Eraser**; toggle from Edit → Anti-Aliasing or the shared Edit Bar **Edge-Mode** button (Pixel-Perfect ⟷ AA). AA off is byte-for-byte identical to before.
+- **Kits** — export/install asset **kits** (ZIP bundles of fonts, palettes, brushes, and themes) with a manifest, per-type item picker, and headless export/install flags.
+- **Multiple instances** — run isolated DRAW windows with a shared clipboard and **Copy/Paste/Send Layer** between them; background music plays only in the primary window.
+- **Target-aware drag-and-drop** — drop an image on the canvas (stamp), the layer panel (new layer), the brush bin (custom brush), or the menu bar (open in a new window).
+- **OS hardware cursor** — icon cursors via `_MOUSECURSOR` for render-free canvas moves (toggle in Settings).
+- **Live theming** — a DARK theme, instant theme switching with no restart (`Ctrl+Shift+F5` to reload), and a `/create-draw-theme` workflow.
+- **User-installable fonts** — TDF / bitmap / Color Bitmap fonts with preview strips in the pickers.
+- **Config & CLI** — `--option KEY=VALUE` overrides and a `--options-list` registry; OS-enforced min/max window size (HiDPI-aware).
 
 ## Features
 
