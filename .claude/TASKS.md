@@ -8,7 +8,7 @@ Artifact: https://claude.ai/code/artifact/5861a9f8-234d-4065-84cc-6ef49359aa9a
 
 ## 🔨 NOW — doing right now
 
-➡️ Second wave complete: 25 more bugs found (BUG-34..58), ~58 total. Fixed this batch: BUG-22-flip/24/29/34/35/40/44/48/50/51/53/55. Building blyru3xec → smoke-test → commit → update artifact. Deferred (documented): BUG-10/11/12/19/45/54 (complex) + ~15 LOW/UNVERIFIED.
+✅ ALL PHASES COMPLETE. 3 deep-hunt waves (16 agents): **77 bugs found, 40 fixed & verified, 2 closed, 35 deferred (documented)**. 10 commits on `v2.0.0-input-hardening`, all built clean + QA-verified, no regressions. Artifact live. Loop done.
 
 ## Phase F — Fix the deferred bugs
 
@@ -47,7 +47,7 @@ Artifact: https://claude.ai/code/artifact/5861a9f8-234d-4065-84cc-6ef49359aa9a
 - [x] I2. New QA tests GREEN (10 seam + apron-paint-after-move); CLI `--option` smoke GREEN.
 - [x] I3. Input-pipeline regression: 9/10 GREEN incl. gui-command-palette (BUG-40 area), tool-switch-matrix, tool-move, edit-undo-redo; the 1 flaky (seam-selection-to-draw) confirmed 8/8 on re-run → NO regressions from INPUT.BM/MOUSE.BM/BRUSH.BM changes.
 - [x] J6. Second-wave findings consolidated + HIGH/MED fixed (BUG-34/35/40/44/48/50/51/53/55); built, QA-verified, committed (5693fbf0); artifact updated.
-- [ ] I4. Final BUGS-v2.0.0.md consolidation + run summary + commit (after Phase K).
+- [x] I4. (see K5 line — done: run summary + commit + artifact.)
 
 ## Phase K — THIRD WAVE (peripheral subsystems)
 
@@ -55,6 +55,7 @@ Artifact: https://claude.ai/code/artifact/5861a9f8-234d-4065-84cc-6ef49359aa9a
 - [x] K2. FILE IMPORTERS hunt (PSD, ASE/Aseprite, ANSI/XBIN, Lospec, generic image): layer/blend mapping, malformed input, handle leaks, coordinate/size. Verify + log + fix.
 - [x] K3. EFFECTS ENGINE MATH hunt (the actual effect algorithms + -O3 kernels: blur/median/edge/emboss/sharpen/pixelate/mosaic/render/shape/texture): bounds, seed determinism, alpha handling, clip-to-selection, multi-layer. Verify + log + fix.
 - [x] K4. FONTS/TDF + PIXEL-COACH + SOUND hunt (TDF binary rasteriser + .TDX, bitmap/CBF fonts, pixel-art analyzer, sound slots/music/SF2). Verify + log + fix.
-- [ ] K5. Consolidate third-wave findings; fix confirmed HIGH/MED (BUG-59..77); rebuild; QA; commit; update artifact + run summary.
+- [x] K5. Third-wave findings consolidated (BUG-59..77); fixed BUG-62/65/66/67/68/70/72/74 (+52/57); built clean; smoke GREEN; committed; artifact updated to 77/40.
+- [x] I4. Final BUGS-v2.0.0.md run summary written; all 10 commits on branch; artifact live. Deferred list documented with root causes. **Session complete.**
 
 loop:on

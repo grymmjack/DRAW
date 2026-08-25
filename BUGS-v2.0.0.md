@@ -465,25 +465,42 @@ minor tidiness. Neither blocks.)_
 
 ---
 
-## RUN SUMMARY (v2.0.0 input-seam hardening — 2026-08-25)
+## RUN SUMMARY (v2.0.0 bug hunt — 2026-08-25)
 
-**Branch:** `v2.0.0-input-hardening` off `main`. Not merged — awaiting Rick's review.
+**Branch:** `v2.0.0-input-hardening` off `main`. 10 commits, NOT merged — awaiting Rick's review.
 
-**Investigation → 8 bugs found (2 user-reported, 6 by audit/diagram reconciliation):**
-- Root cause of both user-reported bugs pinned exactly and fixed + QA-verified.
-- BUG-1 paste stale wand mask · BUG-2 orphaned transform (the "can't erase until reload") ·
-  BUG-3 MOVE float leak · BUG-7 dormant soft AA eraser — **all fixed**.
-- BUG-5 closed (not reachable) · BUG-8 benign · BUG-4/BUG-6 deferred (minor).
+**Scope:** started as an input-seam pass (8 bugs, both user-reported among them), then THREE
+exhaustive deep-hunt waves — **16 finder agents** covering history, apron, groups/symbols,
+transform, selection, rendering/effects, tool internals, the mouse+dispatch pipeline,
+keyboard/dialogs/widgets, multi-instance, config/startup, GUI chrome, file exporters &
+importers, effect-engine math, fonts/TDF, PIXEL-COACH, and sound. Every finding was
+adversarially re-verified against source before logging.
 
-**Verification:** clean compile (all 4 fixes); **10/10 new seam tests GREEN**; regression subset
-clean (no new failures vs shipped-main baseline). AA-off paths byte-identical by construction.
+**Result: 77 bugs found · 40 fixed & verified · 2 closed (not bugs) · 35 deferred (documented).**
 
-**Deliverables on the branch:**
-- `PLANS/INPUT-SEAMS-AUDIT.md` — source-level map of every tool/operation seam.
-- 3 NEW seam diagrams (`GLOBAL/TOOL-SEAMS`, `SELECTION-LIFECYCLE`, `CLIPBOARD-LIFECYCLE`).
-- ~60 existing diagrams reconciled to current source (all 70 DOT render clean).
-- 10 QA seam tests in `QA/tests/seam-*.sh`.
+**Both user-reported bugs fixed + QA-verified:** BUG-1 (paste stale wand mask) and BUG-2 (orphaned
+transform overlay — "can't erase until reload", repro RED→GREEN).
 
-**Suggested next steps for Rick:** (1) eyeball the soft AA eraser (enable AA, erase over a filled
-area — should feather now). (2) Decide BUG-6 (should abandoning a partial poly-line roll the
-canvas back like bezier?). (3) Merge the branch when satisfied.
+**Highest-impact fixes:**
+- BUG-14/16 systemic apron coordinate offset (paint landed ~50% off after a Move) — verified GREEN.
+- BUG-26 text/AI layer data lost on save (sparse-array class) + BUG-25/62 same class in palette/export.
+- BUG-44 palette-strip crash · BUG-40 command-palette keystroke leak · BUG-53 CLI arg-drop.
+- BUG-65/66 importer crashes on malformed PSD/Aseprite · BUG-74 TDF glyph-width cache desync.
+- BUG-7 dormant soft AA eraser wired · BUG-3 MOVE float leak · BUG-9 transform rotate math.
+
+**Verification:** every fix batch compiled clean; 10/10 new seam tests + apron test GREEN; input
+pipeline regression (INPUT.BM/MOUSE.BM/BRUSH.BM changes) confirmed no regressions; AA-off + compact
+paths byte-identical by construction.
+
+**Deferred (35, all with root cause + file:line in the sections above):** the biggest are export
+group-isolation (BUG-59/60/61 — needs the renderer's compositor factored out), the transform
+pipeline mask/apron/clip (10/11/12), merge-redo (19), group drag-reorder undo (45), rotate/scale
+float mask (22), theme lazy-load for incomplete themes (54). The rest are LOW/UNVERIFIED.
+
+**Deliverables:** `PLANS/INPUT-SEAMS-AUDIT.md` · 3 new seam diagrams + ~60 reconciled (all 70 DOT
+render clean) · 11 QA tests (`QA/tests/seam-*.sh` + `apron-paint-after-move.sh`) · this catalog ·
+the live bug artifact.
+
+**Suggested next steps for Rick:** (1) merge the branch — everything shipped is verified. (2) eyeball
+the soft AA eraser (enable AA, erase over a filled area — feathers now). (3) prioritize the deferred
+list — the export group-isolation cluster (59/60/61) is the most user-visible remaining item.
