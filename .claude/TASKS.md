@@ -39,7 +39,7 @@ Artifact: https://claude.ai/code/artifact/5861a9f8-234d-4065-84cc-6ef49359aa9a
 - [x] J3. MULTI-INSTANCE + cross-instance clipboard + DRAG-DROP hunt (LAYERXFER, INSTANCE registry, DROP routing, IPC). Verify + log + fix.
 - [x] J4. CONFIG + STARTUP + PATHS + CLI + THEME hunt (include-order, color-field types, round-trip, --option, migration). Verify + log + fix.
 - [x] J5. GUI-chrome panels hunt (preview/organizer/drawer/menubar/statusbar/palette/layer-panel — auto-hide, drag-reorder, flyouts, _DEST restore). Verify + log + fix.
-- [ ] J6. Consolidate second-wave findings; fix confirmed HIGH/MED (BUG-34/35/40/44/48/50/51); rebuild; QA; commit; update artifact.
+- [x] J6. (duplicate — see the checked J6 below; done: fixed + built + QA + committed 5693fbf0 + artifact updated.)
 
 ## Phase I — Verify & wrap
 
@@ -51,10 +51,10 @@ Artifact: https://claude.ai/code/artifact/5861a9f8-234d-4065-84cc-6ef49359aa9a
 
 ## Phase K — THIRD WAVE (peripheral subsystems)
 
-- [ ] K1. FILE EXPORTERS hunt (BAS/QB64-source, PNG/BMP/GIF/JPG/TGA/HDR/ICO/QOI, ANSI export): flatten fidelity, blend/opacity, selection region, palette, handle leaks, format edge cases. Verify + log + fix.
-- [ ] K2. FILE IMPORTERS hunt (PSD, ASE/Aseprite, ANSI/XBIN, Lospec, generic image): layer/blend mapping, malformed input, handle leaks, coordinate/size. Verify + log + fix.
-- [ ] K3. EFFECTS ENGINE MATH hunt (the actual effect algorithms + -O3 kernels: blur/median/edge/emboss/sharpen/pixelate/mosaic/render/shape/texture): bounds, seed determinism, alpha handling, clip-to-selection, multi-layer. Verify + log + fix.
-- [ ] K4. FONTS/TDF + PIXEL-COACH + SOUND hunt (TDF binary rasteriser + .TDX, bitmap/CBF fonts, pixel-art analyzer, sound slots/music/SF2). Verify + log + fix.
-- [ ] K5. Consolidate third-wave findings; fix confirmed HIGH/MED; rebuild; QA; commit; update artifact + run summary.
+- [x] K1. FILE EXPORTERS hunt (BAS/QB64-source, PNG/BMP/GIF/JPG/TGA/HDR/ICO/QOI, ANSI export): flatten fidelity, blend/opacity, selection region, palette, handle leaks, format edge cases. Verify + log + fix.
+- [x] K2. FILE IMPORTERS hunt (PSD, ASE/Aseprite, ANSI/XBIN, Lospec, generic image): layer/blend mapping, malformed input, handle leaks, coordinate/size. Verify + log + fix.
+- [x] K3. EFFECTS ENGINE MATH hunt (the actual effect algorithms + -O3 kernels: blur/median/edge/emboss/sharpen/pixelate/mosaic/render/shape/texture): bounds, seed determinism, alpha handling, clip-to-selection, multi-layer. Verify + log + fix.
+- [x] K4. FONTS/TDF + PIXEL-COACH + SOUND hunt (TDF binary rasteriser + .TDX, bitmap/CBF fonts, pixel-art analyzer, sound slots/music/SF2). Verify + log + fix.
+- [ ] K5. Consolidate third-wave findings; fix confirmed HIGH/MED (BUG-59..77); rebuild; QA; commit; update artifact + run summary.
 
 loop:on

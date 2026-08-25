@@ -403,7 +403,7 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
 ### BUG-49 [LOW] — b3-dblclick reset-zoom exclusion omits Char Map (`MOUSE.BM:1170`) — same class as BUG-48.
 ### BUG-50 [LOW] — Command-palette click never sets `UI_CHROME_CLICKED%` → release leaks to the tool behind (phantom Shift+RMB anchor). **FIX (applied):** set the flag on palette press (mirrors menubar).
 ### BUG-51 [LOW] — `MOUSE_init` doesn't init `OLD_B2` (`MOUSE.BM:218`). **FIX (applied):** add `MOUSE.OLD_B2% = FALSE`.
-### BUG-52 [LOW] — right-click / shift-constrain fire during an active pan (`MOUSE.BM:4969`, outside the `NOT SCRN.panning%` guard). **FIX PENDING**.
+### BUG-52 [LOW] — right-click / shift-constrain fire during an active pan (`MOUSE.BM:4969`). **FIXED** — `MOUSE_handle_right_click` early-returns when `SCRN.panning%`.
 
 ### BUG-53 [HIGH] — `--option`/`--developer`/`--instance` before a filename silently drops the file
 - `./DRAW.run --option THEME=DARK myfile.draw` never opens myfile. The file-arg scanner
@@ -413,8 +413,50 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
 ### BUG-54 [MED, latent] — THEME include-order (gotcha #11): `*_init` read `THEME.*` in `SCREEN_init` before `THEME.BI` defaults; safe only because shipped themes define every key. Breaks incomplete/kit themes. **FIX PENDING** (lazy-load, or re-run inits after final THEME_load).
 ### BUG-55 [MED-LOW] — `--option` ignored when `DRAW.cfg.default` is absent (`CONFIG.BM:376` EXIT SUB before `apply_cli_overrides`). **FIX (applied):** apply overrides + validate before the early exit.
 ### BUG-56 [LOW] — "0=use theme" sentinel lost on save/load for FONT_PREVIEW_FG/BG/DIVIDER + CANVAS_APRON_COLOR (saved as 000000 → loads as opaque black). **FIX PENDING** (guard `IF <>0` on write).
-### BUG-57 [LOW] — `--options-list` may print nothing on Windows (no `_CONSOLE ON`). **FIX PENDING**.
+### BUG-57 [LOW] — `--options-list` may print nothing on Windows. **FIXED** — added `_CONSOLE ON`.
 ### BUG-58 [LOW] — `PATHS_migrate` re-prompts every launch if the exe dir is read-only (marker written to CWD). **FIX PENDING**.
+
+## THIRD WAVE — peripheral subsystems (BUG-59+)
+
+Exporters, importers, effects math, fonts/TDF, PIXEL-COACH, sound. (Effects engine came back
+"exceptionally clean" — no HIGH there.)
+
+### BUG-65 [HIGH, CRASH] — PSD per-layer dimensions never validated → overflow / OOM crash
+- `PSD_get_layer_image&` (`QB64_GJ_LIB/PSD/PSD.BM:598-630`) computes `layW*layH` in a LONG and
+  `STRING$(pixelCount,0)` with no bounds check; a crafted/huge layer overflows → negative STRING$
+  (Illegal function call) or gigabyte alloc (OOM). Only the CANVAS dims are validated. **FIX (applied):**
+  clamp layW/layH and compute pixelCount in `_INTEGER64`, bail if oversize.
+
+### BUG-66 [HIGH, CRASH] — Aseprite palette `first_index` unclamped → negative `PAL()` subscript
+- `FILE-ASE.BM:604-621`: `firstIdx&` (from an _UNSIGNED LONG) can go negative; loop writes `PAL(-n)`
+  → subscript out of range. **FIX (applied):** clamp `firstIdx& < 0 → 0` + lower-bound the write.
+
+### BUG-62 [HIGH] — ANSI "current layer" export uses the sparse-slot guard → blank output
+- `FILE-ANS.BM:597`: `IF li <= LAYER_COUNT%` where `li = CURRENT_LAYER%` is a SLOT (sparse); a
+  high-slot current layer → blank export. Same class as BUG-25/26. **FIX (applied):** `<= MAX_LAYERS`
+  (+ same at `MOUSE.BM:4172/4422`).
+
+### BUG-74 [HIGH] — TDF glyph-width cache (`TDF_CACHE_GW`) not shifted on eviction → glyph widths desync
+- `TDF-FONT.BM:933-939` eviction shifts FACE/BLOCK/LOOK but not the parallel `TDF_CACHE_GW` memo →
+  after the 5th TheDraw face, glyphs report another face's widths (misaligned layout). CBF/TTF shift
+  all parallel arrays; this is the outlier. **FIX (applied):** add the missing GW inner shift.
+
+### BUG-68 [MED, CRASH] — Aseprite chunk count in an INTEGER overflows (`ASEPRITE.BM:1655`) — **FIX (applied):** LONG.
+### BUG-70 [LOW] — PSD layer-name truncation uses `MAX_LAYERS`(128) not 64 (`FILE-PSD.BM:425`) — **FIX (applied):** 64.
+### BUG-72 [LOW] — `IMAGE_ADJ_rust&` missing the `scaleP<4` div-by-zero guard its siblings have (`IMAGE-ADJ.BM:8153`) — **FIX (applied)**.
+### BUG-67 [MED] — ANSI import cursor-forward/down unbounded → INTEGER overflow/corruption (`FILE-ANS.BM:819`) — **FIX (applied):** clamp x/y.
+### BUG-60 [HIGH] — QB64/BAS export composites HIDDEN-group children (`FILE-QB64.BM:482`) — **FIX PENDING** (parent-chain visibility walk).
+
+### BUG-59 [HIGH] — `LAYERS_flatten&` ignores group opacity/blend/isolation → every raster export wrong for isolated groups. **FIX PENDING** (factor the renderer's group-stack compositor into a shared routine).
+### BUG-61 [MED] — `SAVE_selection` re-implements compositing → apron-squash + hidden-group bugs (`SAVE.BM:456`). **FIX PENDING** (crop from `LAYERS_flatten&`).
+### BUG-63 [LOW] — ANSI selection export ignores non-rectangular mask (`FILE-ANS.BM:581`).
+### BUG-64 [LOW] — QB64 export copies fonts via Unix `cp` (`FILE-QB64.BM:582`) — breaks on Windows.
+### BUG-69 [MED,UNVERIFIED] — Aseprite compressed-cel `expected_size` LONG overflow (adversarial).
+### BUG-71 [MED] — procedural-texture effects (wood/marble/…) preview phase ≠ applied (anchor to source-center; cosmetic).
+### BUG-73 [LOW,UNVERIFIED] — Crystallize can leave opaque black fringe on alpha edges.
+### BUG-75 [LOW] — `MUSIC_play_random_ext` stops music if the extension has 0 tracks (`SOUND.BM:419`).
+### BUG-76 [LOW,UNVERIFIED] — `.TDX` values trusted without bounds vs the `.TDF` (`TDF-FONT.BM:827`).
+### BUG-77 [LOW,UNVERIFIED] — PIXEL-COACH `imgW/imgH` INTEGER overflow on >32767px image.
 
 ## BLOCKED — needs a Rick decision
 
