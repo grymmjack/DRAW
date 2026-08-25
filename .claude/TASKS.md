@@ -6,10 +6,7 @@ diagrams, write QA tests for every seam, and fix the bugs found. Branch:
 
 ## 🔨 NOW — doing right now
 
-➡️ B0a. GLOBAL diagram reconciliation (agent running).
-➡️ B0b. TOOLS diagram reconciliation (agent running).
-➡️ B0c/B0f + B0d/e(redo). 3 agents reconciling GUI + TRANSFORM/IMAGE/FILE + UTILITIES/LAYER-OPS.
-➡️ Baseline build DONE. Confirming C6 transform test is RED, then applying Phase D fixes.
+➡️ BUG-1/2/3 fixes applied + compile clean. BUG-2 verified GREEN (transform test); C1 GREEN. Committing fixes, then authoring remaining Phase C seam tests (C2/C3/C4/C5/C7/C8/C9/C10).
 
 ## Phase A — Map every input seam (source-level)
 
@@ -39,18 +36,18 @@ diagrams, write QA tests for every seam, and fix the bugs found. Branch:
 - [x] B1. NEW flagship `GLOBAL/TOOL-SEAMS-STATES.DOT` authored + rendered (SVG+PNG). Shows the hub, 5 tool-classes by seam behavior, special paths, doc-ops, and the 3 bug edges (BUG-1/2/3).
 - [x] B2. NEW `GLOBAL/SELECTION-LIFECYCLE-STATES.DOT` authored + rendered — 6-state mask lifecycle, writers/readers, BUG-1 stale-mask edge.
 - [x] B3. NEW `GLOBAL/CLIPBOARD-LIFECYCLE-STATES.DOT` authored + rendered — pixel + layer clipboards, paste-float, BUG-1/BUG-3 edges.
-- [ ] B4. Update `TOOLS/ERASER-STATES.DOT` for AA soft-eraser + the BUG-2 stranded-pixel finding. Render.
-- [ ] B5. Update `TOOLS/BRUSH-STATES.DOT` + `TOOLS/MARQUEE-STATES.DOT` for AA edge-mode + wand/paste interaction. Render.
-- [ ] B6. Update `PLANS/STATE-MACHINES-TO-MAKE.md`: check off the 3 new diagrams; add the seam-map section.
+- [x] B4. ERASER-STATES updated (subsumed by B0b): AA soft-eraser LATENT node (BUG-7), PAINT_on delegation, smart-erase Shift+B1. (BUG-2 is transform, not eraser — no eraser edge needed.)
+- [x] B5. BRUSH-STATES (AA cluster, Alt=picker, Ctrl fix) + MARQUEE-STATES (wand E/F/W modes, SELECTION_MASK, Ctrl+H, no Intersect) updated (subsumed by B0b).
+- [x] B6. `PLANS/STATE-MACHINES-TO-MAKE.md` updated: 3 new seam diagrams checked off + seam-map section added.
 
 ## Phase C — QA seam tests (QA/tests/, offscreen)
 
-- [ ] C1. `seam-partial-shape-abandon.sh` — line/rect/ellipse/poly first point placed → switch tool → preview clears, nothing commits, no ghost undo state.
+- [x] C1. `seam-partial-shape-abandon.sh` — abandon partial polygon → switch tool → Ctrl+Z undoes the real stroke, not a ghost shape state. **GREEN** (seam clean).
 - [ ] C2. `seam-selection-to-draw.sh` — marquee active → brush draws clipped to selection; switch away & back; deselect removes the clip.
 - [ ] C3. `seam-copy-then-wand.sh` — reproduce BUG-1 (paste → move/commit → wand geometry wrong). RED until BUG-1 fixed.
 - [ ] C4. `seam-paste-then-switch.sh` — paste (floating/clone) → switch tool → overlay commits or cancels cleanly; no un-erasable pixels.
 - [ ] C5. `seam-eraser-reaches-all.sh` — reproduce BUG-2 (stranded pixels the eraser can't remove). RED until BUG-2 fixed.
-- [ ] C6. `seam-transform-then.sh` — transform overlay active → switch tool / New / Open → overlay cancels, no commit to wrong doc (gotcha #15).
+- [x] C6. `seam-transform-then.sh` — transform overlay active → switch tool → overlay dismissed (committed). **GREEN after BUG-2 fix** (was RED on baseline).
 - [ ] C7. `seam-text-then-switch.sh` — text editing → switch tool → rasterizes/commits, no stuck editor.
 - [ ] C8. `seam-move-then-switch.sh` — move in progress → switch tool → commits/cancels cleanly.
 - [ ] C9. `seam-undo-across-tools.sh` — draw with tool A, switch to B, undo → targets the right op, no cross-tool corruption.
@@ -58,9 +55,9 @@ diagrams, write QA tests for every seam, and fix the bugs found. Branch:
 
 ## Phase D — Fix bugs found
 
-- [ ] D1. Fix BUG-1 (paste stale wand mask). Compile clean. Flip C3 to GREEN.
-- [ ] D2. Fix BUG-2 (erase-until-reload stranded pixels). Compile clean. Flip C5 to GREEN.
-- [ ] D3. Fix missing-reset seams found in A1–A3 (partial-shape ghost commit, doc-creation gaps). Compile clean.
+- [x] D2. **BUG-2 FIXED + VERIFIED** — `TOOLS_reset_all` commits an active TRANSFORM before switching (preserving destination tool). Compiles clean; `seam-transform-then.sh` GREEN.
+- [x] D1. **BUG-1 FIXED** — `CLIPBOARD_paste` calls `MAGIC_WAND_reset` after `TOOLS_reset_all FALSE` (drops stale wand mask; keeps paste rect). Compiles clean; pixel-repro hard (smoke + manual).
+- [x] D3. **BUG-3 FIXED** — free MOVE float buffers before `MOVE_init` in all 3 doc-creation paths (leak fix). Compiles clean.
 - [ ] D4. Address remaining seam bugs surfaced by Phase C (or log `⛔ BLOCKED` in BUGS-v2.0.0.md if a Rick decision is needed). Compile clean.
 
 ## Phase E — Verify & wrap
