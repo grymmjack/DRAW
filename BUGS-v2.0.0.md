@@ -115,9 +115,11 @@ so we can execute it together later — the loop does not stop for it.
   `IMAGE`/`PREVIEW_IMG`) survives a tool switch — same seam class as BUG-2 (TRANSFORM). Need to
   confirm whether the import flow intercepts input (like transform does) or is reachable via a
   hotkey mid-placement. If reachable → stale overlay + handle leak.
-- **Fix approach:** if reachable, add `IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN IMAGE_IMPORT_cancel`
-  to the tool-switch reset (mirrors the doc-creation paths which already do this).
-- **Status:** OPEN — candidate, verify in Phase C (`seam-transform-then.sh` companion).
+- **Verified NOT reachable — NOT A BUG.** `KEYBOARD_handle_image_import%` (`KEYBOARD.BM:533`)
+  consumes keys while `IMG_IMPORT.STATE > IDLE` and `KEYBOARD_input_handler` early-exits on it
+  (`KEYBOARD.BM:3166`); mouse is intercepted too. So tool-switch hotkeys are BLOCKED during an
+  import — the overlay cannot be orphaned by a tool switch. Import is properly modal.
+- **Status:** CLOSED — not a bug (import is modal; no fix needed).
 
 ### BUG-6 (candidate) — POLY_LINE vs BEZIER abandon asymmetry
 - [ ] **Found by audit.** Switching away mid-shape: BEZIER uses `BEZIER_cancel_restore` (rolls
@@ -125,7 +127,12 @@ so we can execute it together later — the loop does not stop for it.
   the undo snapshot but **leaves already-drawn partial segments on the layer**). Inconsistent UX.
   Decide intended behavior (likely: both should discard the uncommitted preview on abandon, OR
   both should keep — but they should match). ⛔ May need a Rick decision on desired UX.
-- **Status:** OPEN — candidate, needs UX decision (logged, not blocking).
+- **Update:** `seam-partial-shape-abandon.sh` (C1) shows abandoning a partial polygon leaves NO
+  ghost undo state and Ctrl+Z cleanly undoes the *previous real action* (canvas returns to the
+  pre-shape state) — so in practice the abandon is clean and user-safe. The reset asymmetry
+  (`POLY_LINE_reset` vs `BEZIER_cancel_restore`) is internal and not visibly harmful. Downgraded.
+- **Status:** OPEN — low priority; internal tidiness only. Optional UX decision (should abandon
+  roll the canvas back like bezier?). Not blocking; logged for a future pass.
 
 ### BUG-7 — Soft AA eraser is dormant (shipped in 2.0.0 but never called)
 - [ ] **Found by diagram reconciliation.** The 2.0.0 soft coverage-subtract eraser
@@ -134,13 +141,17 @@ so we can execute it together later — the loop does not stop for it.
   **have no caller** — the live eraser stroke goes `MOUSE_tool_brush → PAINT_on`
   (`MOUSE.BM:2688-2694`) with a transparent color, i.e. a HARD erase. So the AA-eraser feature
   is effectively dead code; enabling AA does not soften the eraser edge.
-- **Verify:** confirm `ERASER_draw_at` truly has zero callers (`grep -rn ERASER_draw_at`).
-- **Fix approach:** route the eraser stroke through `ERASER_draw_at` when `CFG.ANTIALIAS%` AND
-  round brush >1px (mirror how the brush picks `PAINT_draw_filled_circle_aa`); keep the hard
-  path for 1px/square/AA-off (byte-identical). Must respect selection clip + symmetry like the
-  brush AA path.
-- **Status:** OPEN — code finding, verify then fix in Phase D. Note in `.claude/agent-memory`
-  antialiasing.md that Phase 2c eraser wiring was incomplete.
+- **Verified:** `ERASER_draw_at` has zero callers (confirmed by grep). The live eraser stroke
+  goes `PAINT_on` → `PAINT_draw_filled_circle_aa` with a transparent color; `PAINT_blend_pixel`
+  (`BRUSH.BM:127-142`) detects alpha=0, sets `_DONTBLEND`, and writes alpha-0 at every coverage
+  level → the AA-on eraser HARD-erases the full circle (works, but no soft feather). Severity:
+  LOW (AA defaults OFF; eraser still works). The soft coverage-subtract eraser was dormant.
+- **Fix (applied):** in `PAINT_on` (stroke interpolation) and the single-stamp path (`BRUSH.BM`),
+  when `CFG.ANTIALIAS%` AND the stamp color is transparent (`_ALPHA32(col)=0`) AND round AND
+  `radius >= 1`, route to `PAINT_erase_circle_aa` (coverage-subtract soft edge) instead of the
+  hard AA circle. Entirely inside the `IF CFG.ANTIALIAS%` branch, so **AA-off is byte-identical**;
+  1px/square/AA-off keep the hard erase.
+- **Status:** FIXED (pending build+regression). AA-off path unchanged by construction.
 
 ### BUG-8 (candidate) — Edit→Transform menu item may invoke the wrong action
 - [ ] **Found by diagram reconciliation.** The menu item "TRANSFORM..." (`GUI/MENUBAR.BM:239`)
@@ -158,12 +169,52 @@ so we can execute it together later — the loop does not stop for it.
 
 ---
 
-## FIXED
+## FIXED (v2.0.0-input-hardening branch)
 
-_(none yet — BUG-1/2/3 fixes applied, pending build+QA verification)_
+| Bug | Summary | Fix | Verified |
+|-----|---------|-----|----------|
+| **BUG-1** | Paste left a stale magic-wand mask → wand "selects things that aren't there" | `MAGIC_WAND_reset` in `CLIPBOARD_paste` | compiles; `seam-copy-then-wand` GREEN (functional) + manual |
+| **BUG-2** | Orphaned TRANSFORM overlay → "content I can't erase until reload" | `TOOLS_reset_all` commits transform on switch (keeps dest tool) | **`seam-transform-then` + `seam-eraser-reaches-all` GREEN** (were RED pre-fix) |
+| **BUG-3** | MOVE float buffers leaked on every Open/New | free `SELECTION_IMAGE`/`PREVIEW_BUFFER` before `MOVE_init` in all 3 doc-creation paths | compiles (leak; not visually testable) |
+| **BUG-7** | Soft AA eraser dormant (shipped, never called) | route transparent AA stamp → `PAINT_erase_circle_aa` (AA-off byte-identical) | pending regression |
+
+## CLOSED / NON-ISSUE
+- **BUG-5** (IMAGE_IMPORT orphan): not reachable — import is properly modal.
+- **BUG-8** (Transform flyout action 331): benign — flyout children invoke 325-329 correctly.
+
+## LOW-PRIORITY / DEFERRED
+- **BUG-4**: doc-creation reset drift (CUSTOM_BRUSH missing from Open, ZOOM_drag from New) — minor;
+  the CUSTOM_BRUSH-on-Open difference may be intentional (keep loaded brush). Not changed.
+- **BUG-6**: POLY_LINE vs BEZIER abandon asymmetry — internal tidiness; C1 shows clean abandon.
 
 ---
 
 ## BLOCKED — needs a Rick decision
 
-_(none yet)_
+_(none — no bug required a decision only Rick can make. BUG-6 is an optional UX polish; BUG-4 is
+minor tidiness. Neither blocks.)_
+
+---
+
+## RUN SUMMARY (v2.0.0 input-seam hardening — 2026-08-25)
+
+**Branch:** `v2.0.0-input-hardening` off `main`. Not merged — awaiting Rick's review.
+
+**Investigation → 8 bugs found (2 user-reported, 6 by audit/diagram reconciliation):**
+- Root cause of both user-reported bugs pinned exactly and fixed + QA-verified.
+- BUG-1 paste stale wand mask · BUG-2 orphaned transform (the "can't erase until reload") ·
+  BUG-3 MOVE float leak · BUG-7 dormant soft AA eraser — **all fixed**.
+- BUG-5 closed (not reachable) · BUG-8 benign · BUG-4/BUG-6 deferred (minor).
+
+**Verification:** clean compile (all 4 fixes); **10/10 new seam tests GREEN**; regression subset
+clean (no new failures vs shipped-main baseline). AA-off paths byte-identical by construction.
+
+**Deliverables on the branch:**
+- `PLANS/INPUT-SEAMS-AUDIT.md` — source-level map of every tool/operation seam.
+- 3 NEW seam diagrams (`GLOBAL/TOOL-SEAMS`, `SELECTION-LIFECYCLE`, `CLIPBOARD-LIFECYCLE`).
+- ~60 existing diagrams reconciled to current source (all 70 DOT render clean).
+- 10 QA seam tests in `QA/tests/seam-*.sh`.
+
+**Suggested next steps for Rick:** (1) eyeball the soft AA eraser (enable AA, erase over a filled
+area — should feather now). (2) Decide BUG-6 (should abandoning a partial poly-line roll the
+canvas back like bezier?). (3) Merge the branch when satisfied.

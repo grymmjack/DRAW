@@ -95,4 +95,15 @@ structure, and an AA-on non-crash smoke. A human must eyeball soft brush/line ou
 history `_COPYIMAGE(...,32)`, BAS already emits `_RGBA32`+`_BLEND`); selection mask is
 already a 32-bit image (`MARQUEE.SELECTION_MASK AS LONG`) so Phase 3/4 is de-binarizing
 reads, not a schema break; text already has a persisted per-layer `antialias` flag.
+**[2026-08-25 correction — BUG-7] The Phase 2c eraser wiring was INCOMPLETE.** The note above
+("`ERASER_draw_at` uses it for round brushes >1px") described the *intended* design, but
+`ERASER_draw_at` had **zero callers** — the live eraser stroke goes `MOUSE_tool_brush → PAINT_on`,
+which (AA on) stamped `PAINT_draw_filled_circle_aa` with the transparent color; `PAINT_blend_pixel`
+detects alpha=0, `_DONTBLEND`s, and writes alpha-0 at every coverage level → a HARD full-circle
+erase, not the soft coverage-subtract feather. So the soft AA eraser shipped dormant. Fixed on
+`v2.0.0-input-hardening`: `PAINT_on` (interpolation) AND the single-stamp path now route to
+`PAINT_erase_circle_aa` when `CFG.ANTIALIAS% AND _ALPHA32(col)=0 AND round AND radius>=1`. Entirely
+inside the `IF CFG.ANTIALIAS%` branch → AA-off byte-identical. Lesson: a dormant feature hides when
+the primitive exists and looks correct but nothing calls it — grep for callers, don't trust the SUB.
+
 Related: [[drag-drop-targets]] (same branch-then-fleet-test-then-merge workflow).

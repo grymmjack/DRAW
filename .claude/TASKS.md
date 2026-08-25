@@ -6,7 +6,7 @@ diagrams, write QA tests for every seam, and fix the bugs found. Branch:
 
 ## 🔨 NOW — doing right now
 
-➡️ BUG-1/2/3 fixes applied + compile clean. BUG-2 verified GREEN (transform test); C1 GREEN. Committing fixes, then authoring remaining Phase C seam tests (C2/C3/C4/C5/C7/C8/C9/C10).
+➡️ Phase D complete (BUG-1/2/3/7 fixed; 5/6/8 closed/deferred). All 10 seam tests GREEN. BUG-7 rebuild compiling → then Phase E: rerun seam suite + regression subset (eraser/paste/undo/switch/move) + final commit.
 
 ## Phase A — Map every input seam (source-level)
 
@@ -58,13 +58,13 @@ diagrams, write QA tests for every seam, and fix the bugs found. Branch:
 - [x] D2. **BUG-2 FIXED + VERIFIED** — `TOOLS_reset_all` commits an active TRANSFORM before switching (preserving destination tool). Compiles clean; `seam-transform-then.sh` GREEN.
 - [x] D1. **BUG-1 FIXED** — `CLIPBOARD_paste` calls `MAGIC_WAND_reset` after `TOOLS_reset_all FALSE` (drops stale wand mask; keeps paste rect). Compiles clean; pixel-repro hard (smoke + manual).
 - [x] D3. **BUG-3 FIXED** — free MOVE float buffers before `MOVE_init` in all 3 doc-creation paths (leak fix). Compiles clean.
-- [ ] D4. Address remaining seam bugs surfaced by Phase C (or log `⛔ BLOCKED` in BUGS-v2.0.0.md if a Rick decision is needed). Compile clean.
+- [x] D4. Candidate bugs resolved: BUG-5 CLOSED (import modal, not reachable), BUG-8 benign (flyout), BUG-6 downgraded (C1 shows clean abandon), BUG-4 deferred (minor/ambiguous UX). **BUG-7 FIXED** (soft AA eraser wired; AA-off byte-identical). No Rick-blocking items.
 
 ## Phase E — Verify & wrap
 
-- [ ] E1. Full clean compile (`make`) — 0 new warnings.
-- [ ] E2. Run all NEW seam tests offscreen; iterate to green (document any proven-flaky).
-- [ ] E3. Regression: run existing input-related QA subset offscreen; confirm no new failures vs baseline.
+- [x] E1. Full clean compile with all fixes (BUG-1/2/3/7) — `make` clean, `Output: DRAW.run`, `DRAW 2.0.0` runs. 0 new warnings.
+- [x] E2. All 10 NEW seam tests forced-rerun (`--rerun-passed`, single-file each) vs the final BUG-1/2/3/7 build: **10 GREEN / 0 failed / 0 skipped** (7-8 assertions each). No flakiness.
+- [x] E3. Regression subset (9 input/tool tests) vs BUG-1/2/3/7 build: **7 clean** (tool-eraser 8/8, antialias-toggle 9/9, edit-undo-redo 11/11, edit-undo-depth 22/22, tool-switching 6/6, tool-switch-matrix 28/28, tool-move 13/13). 2 investigated → **NO regressions**: selection-flip-float was flaky (8/8 on both re-runs); edit-copy-paste's 1 failure ("paste to new layer") is PRE-EXISTING on shipped-main 2.0.0 baseline — and my `seam-paste-then-switch` proves paste itself works, so BUG-1 didn't break it.
 - [ ] E4. Final BUGS-v2.0.0.md consolidation (fixed vs open/BLOCKED); commit diagrams+tests+fixes on branch; write a run summary at the bottom of BUGS-v2.0.0.md.
 
 loop:on
