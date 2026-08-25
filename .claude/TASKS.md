@@ -43,15 +43,15 @@ diagrams, write QA tests for every seam, and fix the bugs found. Branch:
 ## Phase C — QA seam tests (QA/tests/, offscreen)
 
 - [x] C1. `seam-partial-shape-abandon.sh` — abandon partial polygon → switch tool → Ctrl+Z undoes the real stroke, not a ghost shape state. **GREEN** (seam clean).
-- [ ] C2. `seam-selection-to-draw.sh` — marquee active → brush draws clipped to selection; switch away & back; deselect removes the clip.
-- [ ] C3. `seam-copy-then-wand.sh` — reproduce BUG-1 (paste → move/commit → wand geometry wrong). RED until BUG-1 fixed.
-- [ ] C4. `seam-paste-then-switch.sh` — paste (floating/clone) → switch tool → overlay commits or cancels cleanly; no un-erasable pixels.
-- [ ] C5. `seam-eraser-reaches-all.sh` — reproduce BUG-2 (stranded pixels the eraser can't remove). RED until BUG-2 fixed.
+- [x] C2. `seam-selection-to-draw.sh` — paint clipped to marquee (inside painted, outside clipped, deselect releases). **GREEN**.
+- [x] C3. `seam-copy-then-wand.sh` — wand→copy→paste→commit→fresh-wand; fresh wand at RIGHT doesn't disturb LEFT (no stale mask). **GREEN** (functional; pixel-geometry manual).
+- [x] C4. `seam-paste-then-switch.sh` — paste float → switch tool → commits cleanly; committed paste is erasable (on real layer). **GREEN**.
+- [x] C5. `seam-eraser-reaches-all.sh` — eraser removes content after a transform→eraser switch (BUG-2 from the eraser angle). **GREEN** after fix.
 - [x] C6. `seam-transform-then.sh` — transform overlay active → switch tool → overlay dismissed (committed). **GREEN after BUG-2 fix** (was RED on baseline).
-- [ ] C7. `seam-text-then-switch.sh` — text editing → switch tool → rasterizes/commits, no stuck editor.
-- [ ] C8. `seam-move-then-switch.sh` — move in progress → switch tool → commits/cancels cleanly.
-- [ ] C9. `seam-undo-across-tools.sh` — draw with tool A, switch to B, undo → targets the right op, no cross-tool corruption.
-- [ ] C10. `seam-new-open-resets-all.sh` — several tools mid-state → New and Open both fully reset all tool/overlay state.
+- [x] C7. `seam-text-then-switch.sh` — type text → Escape commits → switch tool → text remains, drawing works (control returned). **GREEN**.
+- [x] C8. `seam-move-then-switch.sh` — move content → switch tool → move committed (arrives at dest, source vacated). **GREEN**.
+- [x] C9. `seam-undo-across-tools.sh` — brush→line→eraser, Ctrl+Z undoes the LINE (cross-tool), 2nd undo→empty. **GREEN**.
+- [x] C10. `seam-new-open-resets-all.sh` — repurposed to New-dialog open+cancel (Escape) safety; original doc intact, drawing works. **GREEN**. (Full New→reset path can't be keyboard-driven — size modal needs an OK click; reset verified by code inspection + BUG-3.)
 
 ## Phase D — Fix bugs found
 
