@@ -374,7 +374,10 @@ SUB DRW_save_binary (filename AS STRING)
     DIM tlSaveCount AS INTEGER
     DIM tlSi        AS INTEGER
     tlSaveCount% = 0
-    FOR tlSi% = 1 TO LAYER_COUNT%
+    ' BUG-26: LAYERS() is SPARSE — iterate the full array (was 1 TO LAYER_COUNT%, which drops a
+    ' text layer sitting in a slot > LAYER_COUNT% after a mid-stack delete → its editable text is
+    ' lost on save). Both the count pass and the serialize pass below must match.
+    FOR tlSi% = 1 TO MAX_LAYERS
         IF LAYERS(tlSi%).layerType% = LAYER_TYPE_TEXT AND LAYERS(tlSi%).textDataIdx% >= 1 THEN
             DIM tlSPoolIdx AS INTEGER
             tlSPoolIdx% = LAYERS(tlSi%).textDataIdx%
@@ -383,14 +386,16 @@ SUB DRW_save_binary (filename AS STRING)
     NEXT tlSi%
     PUT #fh%, , tlSaveCount%
 
-    FOR tlSi% = 1 TO LAYER_COUNT%
+    FOR tlSi% = 1 TO MAX_LAYERS
         IF LAYERS(tlSi%).layerType% = LAYER_TYPE_TEXT AND LAYERS(tlSi%).textDataIdx% >= 1 THEN
             DIM tlSPool AS INTEGER
             tlSPool% = LAYERS(tlSi%).textDataIdx%
             IF NOT TEXT_LAYER_DATA(tlSPool%).used THEN _CONTINUE
 
-            ' Layer index (to map back to LAYERS array on load)
-            tmpInt% = tlSi%
+            ' Layer index (to map back to LAYERS array on load). BUG-26: store the SEQUENTIAL
+            ' write index (slotToSeq%), not the raw sparse slot — load reads layers into
+            ' contiguous slots 1..N, so a raw slot key attaches the text to the WRONG layer.
+            tmpInt% = slotToSeq%(tlSi%)
             PUT #fh%, , tmpInt%
             ' Text layer header
             tmpInt% = TEXT_LAYER_DATA(tlSPool%).startX
@@ -563,20 +568,21 @@ SUB DRW_save_binary (filename AS STRING)
     DIM aiSi        AS INTEGER
     DIM aiSPool     AS INTEGER
     aiSaveCount% = 0
-    FOR aiSi% = 1 TO LAYER_COUNT%
+    ' BUG-26: same sparse-array fix as the text layers above (loop MAX_LAYERS, store slotToSeq%).
+    FOR aiSi% = 1 TO MAX_LAYERS
         IF LAYERS(aiSi%).layerType% = LAYER_TYPE_AI AND LAYERS(aiSi%).aiDataIdx% >= 1 THEN
             IF AI_LAYER_DATA(LAYERS(aiSi%).aiDataIdx%).used THEN aiSaveCount% = aiSaveCount% + 1
         END IF
     NEXT aiSi%
     PUT #fh%, , aiSaveCount%
 
-    FOR aiSi% = 1 TO LAYER_COUNT%
+    FOR aiSi% = 1 TO MAX_LAYERS
         IF LAYERS(aiSi%).layerType% <> LAYER_TYPE_AI THEN _CONTINUE
         IF LAYERS(aiSi%).aiDataIdx% < 1 THEN _CONTINUE
         aiSPool% = LAYERS(aiSi%).aiDataIdx%
         IF NOT AI_LAYER_DATA(aiSPool%).used THEN _CONTINUE
 
-        tmpInt% = aiSi%
+        tmpInt% = slotToSeq%(aiSi%)
         PUT #fh%, , tmpInt%
         DIM aiSeedOut AS LONG
         aiSeedOut& = AI_LAYER_DATA(aiSPool%).seedVal
@@ -1641,6 +1647,12 @@ SUB DRW_load_binary (filename AS STRING)
     IF TRANSFORM.ACTIVE THEN TRANSFORM_cancel
     MARQUEE_reset
     BEZIER_reset
+    ' Free any paste/move float buffers before MOVE_init (BUG-3, v2.0.0). MOVE_init only
+    ' ZEROES MOVE.SELECTION_IMAGE/PREVIEW_BUFFER (it assumes MOVE_reset already freed them),
+    ' so opening a file while a paste/move float is live leaked these handles every time
+    ' (PREVIEW_BUFFER is canvas-sized). Free them here first.
+    IF MOVE.SELECTION_IMAGE < -1 THEN SAFE_FREEIMAGE MOVE.SELECTION_IMAGE
+    IF MOVE.PREVIEW_BUFFER < -1 THEN SAFE_FREEIMAGE MOVE.PREVIEW_BUFFER
     MOVE_init
     MAGIC_WAND_reset
     CROP_reset
@@ -1674,6 +1686,7 @@ SUB DRW_load_binary (filename AS STRING)
     PAN_reset
     FILL_ADJ_reset
     IMAGE_IMPORT_reset
+    IF CUSTOM_BRUSH_is_active% THEN CUSTOM_BRUSH_reset ' BUG-4: align with New/New-from-clip
 
     ' Smart shape sub-tools each keep their own drag state
     SS_POLYGON_reset
@@ -2493,6 +2506,11 @@ SUB DRW_new_canvas ()
 
     ' === RESET TOOL STATE ===
     MARQUEE_reset
+    ' Free any paste/move float buffers before MOVE_init (BUG-3, v2.0.0). MOVE_init only
+    ' ZEROES MOVE.SELECTION_IMAGE/PREVIEW_BUFFER (it assumes MOVE_reset already freed them),
+    ' so New / New-from-Clipboard with a live paste-float leaked these handles every time.
+    IF MOVE.SELECTION_IMAGE < -1 THEN SAFE_FREEIMAGE MOVE.SELECTION_IMAGE
+    IF MOVE.PREVIEW_BUFFER < -1 THEN SAFE_FREEIMAGE MOVE.PREVIEW_BUFFER
     MOVE_init
     MAGIC_WAND_reset
     CROP_reset
@@ -2515,6 +2533,7 @@ SUB DRW_new_canvas ()
     POLY_LINE_reset
     SPRAY_reset
     ERASER_reset
+    ZOOM_drag_reset                ' BUG-4: align with Open (drag rectangle only, not full ZOOM_reset)
     PAN_reset
     FILL_ADJ_reset
     PREVIEW_reset
@@ -2677,6 +2696,11 @@ SUB DRW_create_canvas_at_size (canvasW AS INTEGER, canvasH AS INTEGER)
 
     ' === RESET TOOL STATE ===
     MARQUEE_reset
+    ' Free any paste/move float buffers before MOVE_init (BUG-3, v2.0.0). MOVE_init only
+    ' ZEROES MOVE.SELECTION_IMAGE/PREVIEW_BUFFER (it assumes MOVE_reset already freed them),
+    ' so New / New-from-Clipboard with a live paste-float leaked these handles every time.
+    IF MOVE.SELECTION_IMAGE < -1 THEN SAFE_FREEIMAGE MOVE.SELECTION_IMAGE
+    IF MOVE.PREVIEW_BUFFER < -1 THEN SAFE_FREEIMAGE MOVE.PREVIEW_BUFFER
     MOVE_init
     MAGIC_WAND_reset
     CROP_reset
@@ -2699,6 +2723,7 @@ SUB DRW_create_canvas_at_size (canvasW AS INTEGER, canvasH AS INTEGER)
     POLY_LINE_reset
     SPRAY_reset
     ERASER_reset
+    ZOOM_drag_reset                ' BUG-4: align with Open (drag rectangle only, not full ZOOM_reset)
     PAN_reset
     FILL_ADJ_reset
     PREVIEW_reset

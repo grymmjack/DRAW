@@ -34,6 +34,9 @@ SUB MOVE_init ()
     MOVE.BG_FILL_ON_LIFT = FALSE
     MOVE.BG_FILL_COLOR~& = _RGBA32(0, 0, 0, 0)
     MOVE.SYMBOL_CHILD    = FALSE
+    MOVE.GROUP_ORIGIN    = 0            ' BUG-17: was read in MOVE_reset but never re-zeroed here, so a
+    '                                    stale group index kept re-selecting the old group header on
+    '                                    every tool switch → painting targeted the header (no pixels).
     MOVE.SYMBOL_ORIG_OX  = 0
     MOVE.SYMBOL_ORIG_OY  = 0
     MOVE.SYMBOL_ORIG_SX  = 1.0
@@ -781,7 +784,11 @@ SUB MOVE_apply_transform ()
                             IF clrX% < _WIDTH(MARQUEE.SELECTION_MASK) AND clrY% < _HEIGHT(MARQUEE.SELECTION_MASK) THEN
                                 _MEMGET clrMaskMem, clrMaskMem.OFFSET + (clrY% * clrMaskStride& + clrX% * 4), clrMaskPix~&
                                 IF _ALPHA32(clrMaskPix~&) > 0 THEN
-                                    _MEMPUT clrLayMem, clrLayMem.OFFSET + (clrY% * clrLayStride& + clrX% * 4), moveClearColor~& AS _UNSIGNED LONG
+                                    ' BUG-15: the mask is canvas-sized (read at canvas coords) but the
+                                    ' layer buffer is apron-extended — the WRITE must add (tgtAW,tgtAH),
+                                    ' exactly like the rectangular-clear branch below. Without it the
+                                    ' source region wasn't erased (ghost) and the apron got zeroed instead.
+                                    _MEMPUT clrLayMem, clrLayMem.OFFSET + ((clrY% + tgtAH%) * clrLayStride& + (clrX% + tgtAW%) * 4), moveClearColor~& AS _UNSIGNED LONG
                                 END IF
                             END IF
                         END IF
@@ -1032,7 +1039,14 @@ SUB MOVE_apply_transform ()
     DIM atDx AS INTEGER, atDy AS INTEGER
     atDx% = MOVE.CURRENT_X - MOVE.ORIGINAL_X
     atDy% = MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
-    IF (atDx% <> 0 OR atDy% <> 0) AND MARQUEE.SELECTION_MASK < -1 THEN
+    IF MARQUEE.SELECTION_MASK < -1 AND MOVE.CONTENT_FLIPPED THEN
+        ' BUG-22 (flip case): a flipped float's per-pixel wand mask can't be followed by a plain
+        ' (dx,dy) shift — it would keep the pre-flip silhouette and later masked ops (fill/clear/
+        ' effects) would act on the wrong shape. Drop the mask; the rectangular MARQUEE.BOX (which
+        ' the flip command DOES update) becomes the selection, matching the BUG-1 paste philosophy.
+        ' (Rotate/scale-of-float mask desync is still pending — needs the mask transformed too.)
+        MAGIC_WAND_reset
+    ELSEIF (atDx% <> 0 OR atDy% <> 0) AND MARQUEE.SELECTION_MASK < -1 THEN
         DIM atMaskW AS INTEGER, atMaskH AS INTEGER
         atMaskW% = _WIDTH(MARQUEE.SELECTION_MASK)
         atMaskH% = _HEIGHT(MARQUEE.SELECTION_MASK)

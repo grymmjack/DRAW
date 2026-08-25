@@ -1,5 +1,15 @@
 # STATE MACHINES TO CREATE
 
+> **2026-08-25 — v2.0.0 seam pass:** all existing diagrams below were reconciled against
+> current source (see `PLANS/INPUT-SEAMS-AUDIT.md`), and three NEW cross-cutting "seam"
+> diagrams were added to map the transitions BETWEEN tools/operations/states:
+> - [x] `GLOBAL/TOOL-SEAMS-STATES.DOT` — tool→tool transition permutation map (which resets fire; bug edges)
+> - [x] `GLOBAL/SELECTION-LIFECYCLE-STATES.DOT` — marquee/wand/float lifecycle + shared SELECTION_MASK
+> - [x] `GLOBAL/CLIPBOARD-LIFECYCLE-STATES.DOT` — copy/cut/paste/clone/commit lifecycle
+>
+> These are the "permutation" maps for input seams. Bugs found while drawing them are in
+> `BUGS-v2.0.0.md` (BUG-1..8).
+
 As state machines are so helpful for our work together for the text tool, I want you to create similar state machines for:
 
 ## GLOBAL

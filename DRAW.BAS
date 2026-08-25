@@ -180,6 +180,10 @@ $IF MAC THEN
                    LCASE$(macArgVal$) = "/h" OR LCASE$(macArgVal$) = "/help" OR _
                    LCASE$(macArgVal$) = "--version" OR LCASE$(macArgVal$) = "-v" THEN
                 macArgIdx% = macArgIdx% + 1 ' Defensive: HELP.BI should have exited already
+            ELSEIF LCASE$(macArgVal$) = "--option" OR LCASE$(macArgVal$) = "--instance" THEN
+                macArgIdx% = macArgIdx% + 2 ' BUG-53: 2-token flag (flag + value) — skip both
+            ELSEIF LEFT$(macArgVal$, 1) = "-" THEN
+                macArgIdx% = macArgIdx% + 1 ' BUG-53: any other unrecognized flag — skip, don't treat as the file
             ELSE
                 cmdArg$ = macArgVal$
                 EXIT DO
@@ -210,6 +214,10 @@ $ELSE
                LCASE$(argVal$) = "/h" OR LCASE$(argVal$) = "/help" OR _
                LCASE$(argVal$) = "--version" OR LCASE$(argVal$) = "-v" THEN
             argIdx% = argIdx% + 1 ' Defensive: HELP.BI should have exited already
+        ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" THEN
+            argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
+        ELSEIF LEFT$(argVal$, 1) = "-" THEN
+            argIdx% = argIdx% + 1 ' BUG-53: any other unrecognized flag (--developer/--dev/...) — skip it, don't treat it as the file
         ELSE
             cmdArg$ = argVal$
             EXIT DO
