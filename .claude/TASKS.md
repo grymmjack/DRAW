@@ -6,7 +6,7 @@ diagrams, write QA tests for every seam, and fix the bugs found. Branch:
 
 ## 🔨 NOW — doing right now
 
-➡️ Phase D complete (BUG-1/2/3/7 fixed; 5/6/8 closed/deferred). All 10 seam tests GREEN. BUG-7 rebuild compiling → then Phase E: rerun seam suite + regression subset (eraser/paste/undo/switch/move) + final commit.
+✅ ALL PHASES COMPLETE (A, B0, B, C, D, E). 8 bugs found (2 user-reported both fixed+verified); 4 fixed, 2 closed/benign, 2 deferred-minor. 3 new seam diagrams + ~60 reconciled. 10/10 seam tests GREEN. No regressions. Branch `v2.0.0-input-hardening` ready for review. Loop done.
 
 ## Phase A — Map every input seam (source-level)
 
@@ -65,6 +65,6 @@ diagrams, write QA tests for every seam, and fix the bugs found. Branch:
 - [x] E1. Full clean compile with all fixes (BUG-1/2/3/7) — `make` clean, `Output: DRAW.run`, `DRAW 2.0.0` runs. 0 new warnings.
 - [x] E2. All 10 NEW seam tests forced-rerun (`--rerun-passed`, single-file each) vs the final BUG-1/2/3/7 build: **10 GREEN / 0 failed / 0 skipped** (7-8 assertions each). No flakiness.
 - [x] E3. Regression subset (9 input/tool tests) vs BUG-1/2/3/7 build: **7 clean** (tool-eraser 8/8, antialias-toggle 9/9, edit-undo-redo 11/11, edit-undo-depth 22/22, tool-switching 6/6, tool-switch-matrix 28/28, tool-move 13/13). 2 investigated → **NO regressions**: selection-flip-float was flaky (8/8 on both re-runs); edit-copy-paste's 1 failure ("paste to new layer") is PRE-EXISTING on shipped-main 2.0.0 baseline — and my `seam-paste-then-switch` proves paste itself works, so BUG-1 didn't break it.
-- [ ] E4. Final BUGS-v2.0.0.md consolidation (fixed vs open/BLOCKED); commit diagrams+tests+fixes on branch; write a run summary at the bottom of BUGS-v2.0.0.md.
+- [x] E4. BUGS-v2.0.0.md consolidated (FIXED/CLOSED/DEFERRED tables + RUN SUMMARY). All work committed on `v2.0.0-input-hardening` (5 commits: audit+diagrams, reconcile, BUG-1/2/3 fix, seam tests, BUG-7 fix). Nothing BLOCKED. Branch ready for Rick's review/merge.
 
 loop:on
