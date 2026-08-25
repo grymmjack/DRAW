@@ -55,7 +55,17 @@ SUB PAINT_pset_with_symmetry (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG,
     targetImg& = LAYER_current_image&
     oldDest&   = _DEST
     _DEST targetImg&
-    
+
+    ' BUG-14/16: if the current layer is apron-promoted, its buffer is larger than the canvas —
+    ' canvas (x,y) maps to buffer (x+apronW, y+apronH). Offset the PSET writes; the selection
+    ' clip, opacity lock, symmetry mirror and color resolve stay in CANVAS coords.
+    DIM apW AS INTEGER, apH AS INTEGER
+    apW% = 0 : apH% = 0
+    IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= MAX_LAYERS THEN
+        apW% = LAYERS(CURRENT_LAYER%).apronW%
+        apH% = LAYERS(CURRENT_LAYER%).apronH%
+    END IF
+
     ' Check if drawing with transparent color (eraser mode)
     is_transparent% = (_ALPHA32(col~&) = 0)
     
@@ -66,7 +76,7 @@ SUB PAINT_pset_with_symmetry (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG,
     IF SELECTION_is_point_inside%(x%, y%) AND OPACITY_LOCK_allows_draw%(x%, y%) THEN
         resolvedCol~& = DRAWER_resolve_paint_color~&(x%, y%, col~&)
         ' Draw master stroke at full opacity
-        PSET (x%, y%), resolvedCol~&
+        PSET (x% + apW%, y% + apH%), resolvedCol~&
     END IF
     
     ' Apply symmetry if enabled and requested
@@ -78,7 +88,7 @@ SUB PAINT_pset_with_symmetry (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG,
         FOR i% = 0 TO count% - 1
             IF SELECTION_is_point_inside%(mx%(i%), my%(i%)) AND OPACITY_LOCK_allows_draw%(mx%(i%), my%(i%)) THEN
                 resolvedCol~& = DRAWER_resolve_paint_color~&(mx%(i%), my%(i%), col~&)
-                PSET (mx%(i%), my%(i%)), resolvedCol~&
+                PSET (mx%(i%) + apW%, my%(i%) + apH%), resolvedCol~&
             END IF
         NEXT i%
     END IF
@@ -124,6 +134,14 @@ SUB PAINT_blend_pixel (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG, covera
         oldDest&   = _DEST
         _DEST targetImg&
 
+        ' BUG-14/16: apron offset for a promoted layer (clip already checked in canvas coords).
+        DIM apW AS INTEGER, apH AS INTEGER
+        apW% = 0 : apH% = 0
+        IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= MAX_LAYERS THEN
+            apW% = LAYERS(CURRENT_LAYER%).apronW%
+            apH% = LAYERS(CURRENT_LAYER%).apronH%
+        END IF
+
         is_transparent% = (_ALPHA32(col~&) = 0)
         IF is_transparent% THEN _DONTBLEND targetImg&
 
@@ -131,12 +149,12 @@ SUB PAINT_blend_pixel (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG, covera
 
         IF cov! >= 1.0 THEN
             ' Full coverage — verbatim original write (byte-identical to PSET path).
-            PSET (x%, y%), resolvedCol~&
+            PSET (x% + apW%, y% + apH%), resolvedCol~&
         ELSE
             ' Partial coverage — scale source alpha; _BLEND composites over the dest.
             a% = INT(_ALPHA32(resolvedCol~&) * cov! + 0.5)
             IF a% > 255 THEN a% = 255
-            PSET (x%, y%), _RGBA32(_RED32(resolvedCol~&), _GREEN32(resolvedCol~&), _BLUE32(resolvedCol~&), a%)
+            PSET (x% + apW%, y% + apH%), _RGBA32(_RED32(resolvedCol~&), _GREEN32(resolvedCol~&), _BLUE32(resolvedCol~&), a%)
         END IF
 
         IF is_transparent% THEN _BLEND targetImg&
@@ -303,13 +321,22 @@ SUB PAINT_erase_pixel (x AS INTEGER, y AS INTEGER, coverage AS SINGLE)
         _DEST targetImg&
         _SOURCE targetImg&
 
-        dstCol~& = POINT(x%, y%)
+        ' BUG-14/16: apron offset for a promoted layer — the POINT read AND the PSET write both
+        ' target the offset buffer position (clip already checked in canvas coords).
+        DIM apW AS INTEGER, apH AS INTEGER
+        apW% = 0 : apH% = 0
+        IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= MAX_LAYERS THEN
+            apW% = LAYERS(CURRENT_LAYER%).apronW%
+            apH% = LAYERS(CURRENT_LAYER%).apronH%
+        END IF
+
+        dstCol~& = POINT(x% + apW%, y% + apH%)
         dstA%    = _ALPHA32(dstCol~&)
         newA%    = dstA% - INT(cov! * 255.0 + 0.5)
         IF newA% < 0 THEN newA% = 0
 
         _DONTBLEND targetImg&
-        PSET (x%, y%), _RGBA32(_RED32(dstCol~&), _GREEN32(dstCol~&), _BLUE32(dstCol~&), newA%)
+        PSET (x% + apW%, y% + apH%), _RGBA32(_RED32(dstCol~&), _GREEN32(dstCol~&), _BLUE32(dstCol~&), newA%)
         _BLEND targetImg&
 
         _SOURCE oldSource&

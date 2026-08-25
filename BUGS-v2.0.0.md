@@ -178,6 +178,24 @@ so we can execute it together later — the loop does not stop for it.
 | **BUG-3** | MOVE float buffers leaked on every Open/New | free `SELECTION_IMAGE`/`PREVIEW_BUFFER` before `MOVE_init` in all 3 doc-creation paths | compiles (leak; not visually testable) |
 | **BUG-7** | Soft AA eraser dormant (shipped, never called) | route transparent AA stamp → `PAINT_erase_circle_aa` (AA-off byte-identical) | pending regression |
 
+### Round 2 fixes (deep hunt)
+| Bug | Summary | Fix |
+|-----|---------|-----|
+| **BUG-9** | Body-drag rotate about a nonsense pivot | `TRANSFORM.BM:743` Y arg → `PY0` |
+| **BUG-14** | Paint tools wrote raw coords into a promoted apron buffer (systemic) | apron offset in the 3 pixel writers (`BRUSH.BM`) |
+| **BUG-15** | MOVE mask-clear ignored apron offset | `+tgtAW/tgtAH` on the `_MEMPUT` (`MOVE.BM:787`) |
+| **BUG-16** | Smart eraser sampled/erased other layers at raw coords | same 3-writer apron fix |
+| **BUG-17** | Stale `GROUP_ORIGIN` hijacked selection after a group move | `MOVE_init` zeroes it |
+| **BUG-18** | Duplicate Layer duplicated only 1 of a multi-selection | snapshot selection before the loop |
+| **BUG-23** | Invert Selection left marching-ants stale | set `WAND_EDGE_DIRTY` |
+| **BUG-25** | Palette-Ops replace skipped high-slot layers (sparse) | loop `1 TO MAX_LAYERS` |
+| **BUG-26** | Text/AI layer data lost/misattributed on save (sparse + raw slot key) | `MAX_LAYERS` + `slotToSeq%` (all sites) |
+| **BUG-27** | Lospec dialog `NOT id` bitwise → arrows double-acted | `IF tiConsumed% = 0` |
+| **BUG-28** | Custom-brush recolor stamp ignored SCALE | map src through ORIG/dest ratio |
+| **BUG-32** | Grayscale preview color-patch tracked the cursor | gate partial-present off when active |
+
+Plus **BUG-4/BUG-6** (deferred → fixed): reset-list alignment + poly-line `cancel_restore`.
+
 ## CLOSED / NON-ISSUE
 - **BUG-5** (IMAGE_IMPORT orphan): not reachable — import is properly modal.
 - **BUG-8** (Transform flyout action 331): benign — flyout children invoke 325-329 correctly.
@@ -186,6 +204,125 @@ so we can execute it together later — the loop does not stop for it.
 - **BUG-4**: doc-creation reset drift (CUSTOM_BRUSH missing from Open, ZOOM_drag from New) — minor;
   the CUSTOM_BRUSH-on-Open difference may be intentional (keep loaded brush). Not changed.
 - **BUG-6**: POLY_LINE vs BEZIER abandon asymmetry — internal tidiness; C1 shows clean abandon.
+
+---
+
+## ROUND 2 — DEEP HUNT (BUG-9+)
+
+Found by exhaustive multi-agent audit of state-interaction areas the seam pass didn't drill into.
+Each verified against source. Severity in brackets.
+
+### BUG-9 [HIGH] — Body-drag ROTATE computes angle about a nonsense pivot — **FIXED**
+- Transform → ROTATE, drag inside the quad (not a handle): `TRANSFORM.BM:743` used `TRANSFORM_PX0`
+  for BOTH `_ATAN2` args, measuring the angle about `(PX0,PX0)` instead of the pivot `(PX0,PY0)`.
+- **Fix:** Y arg → `TRANSFORM_PY0`. Corner-handle rotation was already correct.
+
+### BUG-14 [HIGH] — Paint tools write RAW canvas coords into a promoted (apron) buffer
+- After a Move promotes a layer to apron-extended (default `APRON_ENABLED=TRUE`), painting on it
+  lands shifted by `(apronW,apronH)` ≈ 50% of canvas — off the visible area. Systemic:
+  brush/dot/line/rect/ellipse/polygon/spray/bezier/eraser/smart-shapes + symmetry mirrors.
+- **Root cause:** `PAINT_pset_with_symmetry`/`PAINT_blend_pixel` (`BRUSH.BM:55,123`) write
+  `PSET(x,y)` in raw canvas coords to `LAYER_current_image&` (`LAYERS.BM:2118`, no apron offset).
+  The offset helpers `LAYERS_canvas_to_buf_x/y` (`LAYERS.BM:6557`) exist but are never used by the
+  paint primitives. These tools are on the apron whitelist (`MOUSE.BM:28-40`) so they DON'T demote.
+- **Fix approach:** route the low-level pixel writes through the apron offset (keep clip/symmetry
+  on canvas coords). Careful — hottest path.
+
+### BUG-15 [HIGH] — MOVE's non-rectangular clear ignores apron offset — **FIX PENDING**
+- Move a lasso/wand/ellipse selection on a promoted layer: the source region isn't erased where it
+  should be (ghost remains; wrong region zeroed).
+- **Root cause:** `MOVE.BM:777-790` mask-aware clear computes extended stride but indexes the write
+  with RAW canvas coords (no `+tgtAW/tgtAH`). The sibling rect-clear (`:796`) DOES offset.
+- **Fix:** add `tgtAW%`/`tgtAH%` to the `_MEMPUT` dest row/col.
+
+### BUG-16 [MED] — Smart eraser samples/erases OTHER layers at raw coords (ignores their apron)
+- `ERASER.BM:140-168` iterates all layers, `POINT(cx,cy)`/`PAINT_on` at raw coords; any
+  apron-extended layer is sampled/erased off by its own apron. Fix: offset per sampled layer.
+
+### BUG-17 [HIGH] — Stale MOVE.GROUP_ORIGIN hijacks selection after a group move — **FIX PENDING**
+- After moving a group, selecting a standalone layer + switching tools silently jumps selection back
+  to the group header → painting targets the header (no pixels).
+- **Root cause:** `MOVE.GROUP_ORIGIN` set in `MOVE_capture_selection` (`MOVE.BM:117/148`), read
+  UNCONDITIONALLY in `MOVE_reset` (`:77-85`) to force-select the header, but **never re-zeroed in
+  `MOVE_init`**. `TOOLS_reset_all`→`MOVE_reset` on every tool switch keeps re-selecting it.
+- **Fix:** `MOVE.GROUP_ORIGIN = 0` in `MOVE_init`.
+
+### BUG-18 [MED-HIGH] — Duplicate Layer with a multi-selection duplicates only ONE layer — **FIX PENDING**
+- `COMMAND.BM:1847-1853` iterates the live `MULTI_SELECT_LAYERS()` while `LAYERS_duplicate` →
+  `LAYERS_select` → `MULTI_SELECT_clear` wipes it. After the first dup the rest read FALSE.
+- **Fix:** snapshot selected slots into a local array first (like Delete/Merge-Selected do).
+
+### BUG-10 [MED] — TRANSFORM ignores non-rectangular selection masks → destroys unselected pixels
+- Transform of a wand/irregular selection transforms the whole bbox; pixels in-bbox-out-of-mask are
+  erased. `TRANSFORM_activate` (`TRANSFORM.BM:364`) uses only `MARQUEE.BOX`, never `SELECTION_MASK`;
+  commit erases the full rect (`:487`). `HISTORY_FLAG_CLIPPED` is set (`:482`) but never applied.
+
+### BUG-11 [MED] — Apron demote at transform-activate is destructive + not undoable
+- `TRANSFORM.BM:352-356` demotes (sacrifices apron pixels) BEFORE any history; early-outs leave the
+  demote permanent with nothing recorded. Undo can't restore off-canvas pixels.
+
+### BUG-12 [MED] — Transform result exceeding the canvas is silently clipped (no apron growth)
+- `TRANSFORM_compute_preview` clamps dest bbox to canvas (`TRANSFORM.BM:195-198`); rotate/scale/shear
+  that pushes a corner off-canvas loses it. Unlike MOVE, transform never grows an apron. (Recoverable
+  via undo, but the committed result loses data.) Partly by-design for a fixed canvas.
+
+### BUG-13 [LOW] — `>`/`<` keys dead in non-ROTATE transform modes
+- `KEYBOARD.BM:2238` routes to `TRANSFORM_rotate_step` which early-outs unless MODE=ROTATE
+  (`TRANSFORM.BM:526`); the ELSE fallback is unreachable while the overlay is active. Silent no-op.
+
+### BUG-19 [MED→HIGH] — Merge redo re-runs against LIVE state → wrong/lost content
+- Undo a Merge Visible/Group/Down, toggle a layer's visibility (records no history, doesn't truncate
+  redo), then Redo → the merge re-executes live (`HISTORY.BM:2632/2637/2646`) excluding the now-hidden
+  layer → data loss / desync. **FIX PENDING** (store the merged after-image, or have visibility/opacity
+  mutations discard the redo tail).
+
+### BUG-22 [HIGH] — Float-transform (flip/rotate/scale of a wand/lasso selection) desyncs the mask
+- Same class as BUG-1 but for flip/rotate/scale: `CMD_autofloat_for_transform` floats masked pixels,
+  transforms only the float, but the mask/bounds are never flipped/rotated/scaled (`COMMAND.BM:2830/3046/3751`);
+  commit only translates the mask (`MOVE.BM:1032`). Later masked ops act on the wrong silhouette.
+  **FIX PENDING** — stopgap: drop the wand mask on commit of a transformed float (like BUG-1).
+
+### BUG-23 [MED] — Invert Selection leaves marching-ants edge cache stale — **FIXED**
+- `MARQUEE.BM:2519` invert branch set bounds/BOX but not `WAND_EDGE_DIRTY` → ants kept the pre-invert
+  outline. **Fix:** set `WAND_EDGE_DIRTY = TRUE`.
+
+### BUG-25 [HIGH] — Palette-Ops color replace/delete SKIPS layers in high slots — **FIXED**
+- `PALETTE-OPS.BM:514` looped `1 TO LAYER_COUNT%` and indexed `LAYERS()` as a slot; the array is
+  SPARSE after a mid-stack delete. **Fix:** loop `1 TO MAX_LAYERS`.
+
+### BUG-26 [HIGH] — Text/AI layer data lost or misattributed on save (sparse array) — **FIXED**
+- `.draw` save (`DRW.BM:377/386/566/573`) looped `1 TO LAYER_COUNT%` AND stored the raw sparse slot as
+  the layer key; load reads into contiguous slots → editable text/AI data dropped or attached to the
+  WRONG layer. Same class in `HISTORY.BM:400`, `FILE-BAS.BM:149/1644/1717` (minor: export name/mode).
+  **Fix:** loop `1 TO MAX_LAYERS` + store `slotToSeq%()` (all sites).
+
+### BUG-27 [MED] — Lospec palette dialog: `NOT tiConsumed%` is bitwise (gotcha #19) — **FIXED**
+- `API-LOSPEC.BM:158` — `TI_process_key%` returns the focused widget ID, so `NOT id` is always truthy →
+  arrows double-acted (scrolled the list while editing the search box). **Fix:** `IF tiConsumed% = 0`.
+
+### BUG-28 [MED] — Custom-brush RECOLOR stamp ignores SCALE
+- `CUSTOM-BRUSH.BM:338-369` recolor branch maps `src_px = px` with no `ORIG_WIDTH/dest_w` ratio → stamps
+  at 1× while the cursor preview shows the scaled brush. **FIX PENDING** (mirror the eraser branch's ratio).
+
+### BUG-32 [MED] — Grayscale preview not re-applied in cursor-move fast paths
+- Grayscale is a present-time pass (`SCREEN.BM:3680`) not baked into the cache; the partial-present fast
+  paths (`:2976`, `:3217`) exit before it → a full-color patch tracks the cursor. **FIX PENDING**
+  (gate `so_can_partial%`/`can_partial_present%` off when `GRAYSCALE_PREVIEW_ACTIVE%`).
+
+### BUG-16 [MED] — Smart eraser samples/erases other layers at raw coords (apron)
+### BUG-24 [LOW] — Clear-Selection fills opaque BG on a float, transparent on a committed selection (`SELECTION.BM:408`)
+### BUG-29 [LOW] — `TEXT_apply` rasterizes empty text layers (no empty-delete like commit/cancel)
+### BUG-31 [LOW] — Palette-Ops batch delete = N separate undo groups
+### BUG-33 [LOW] — dead-code `_DEST 0` in `IMGADJ.BM:1994` test helper (latent gotcha #1)
+
+### Round-2 UNVERIFIED / LOW (need a closer look, logged not fixed)
+- **BUG-20** [MED, UNVERIFIED] group membership restored via raw slot index not stable id (`LAYERS.BI:78`).
+- **BUG-21** [LOW, UNVERIFIED] AI-generate undo shares the per-frame `HISTORY_saved_this_frame%` guard.
+- **BUG-30** [LOW, UNVERIFIED] `GRID_snap%` single-axis uses gridWidth for both axes (`GRID.BM:341`).
+- Merge-Visible may composite+delete a visible group header (1px), orphaning its hidden children.
+- Nested ungroup skips `LAYERS_enforce_group_contiguity` → possible non-contiguous z-range.
+- Direct delete of a symbol parent leaves children with a dangling `symbolParentId&` (benign: ids
+  never reused, child just freezes — but untracked).
 
 ---
 
