@@ -10,9 +10,9 @@ cursor, live theming, and a large pile of fixes and performance work.
 ### New Features
 
 **Effects — a full "Eye Candy"-style EFFECTS menu**
-- **SHAPE effects** (act on the layer's shape/silhouette): Fire, Smoke, Snow, Water Drops, Electrify, Glass, Drip, Icicles, Motion Trail, Corona, Backlight, Cutout, Bevel, Chrome, Extrude, Outer/Inner Glow, Drop/Perspective Shadow.
-- **TEXTURE engines**: Wood, Marble, Brick Wall, Weave, Reptile Skin, Stone Wall, Diamond Plate, Lightning, Brushed Metal, Ripples, Animal Fur, Texture Noise, Rust — most with type variants.
-- **RENDER engines**: Render Sky (day/night/space — sun, moon, stars, nebula), Render Grid (endless perspective), Terrain, Clouds & Difference Clouds (fBm), Lens Flare (click-to-place), Kaleidoscope (click-to-set mirror centre).
+- **SHAPE effects** (WIP - will be improved) (act on the layer's shape/silhouette): Fire, Smoke, Snow, Water Drops, Electrify, Glass, Drip, Icicles, Motion Trail, Corona, Backlight, Cutout, Bevel, Chrome, Extrude, Outer/Inner Glow, Drop/Perspective Shadow.
+- **TEXTURE engines**: (WIP - will be improved) Wood, Marble, Brick Wall, Weave, Reptile Skin, Stone Wall, Diamond Plate, Lightning, Brushed Metal, Ripples, Animal Fur, Texture Noise, Rust — most with type variants.
+- **RENDER engines**: (WIP - will be improved) Render Sky (day/night/space — sun, moon, stars, nebula), Render Grid (endless perspective), Terrain, Clouds & Difference Clouds (fBm), Lens Flare (click-to-place), Kaleidoscope (click-to-set mirror centre).
 - Every effect dialog has a **split ORIG/ADJ live preview loupe**, **mouse-wheel sliders**, a visual **angle dial**, a **seed**, a **MIX** (blend-with-original) slider, and a **Reset-to-Default** button.
 - **Blend/Fade Last Effect** exposes all 19 blend modes and an "Isolate onto new layer" option.
 - Effects can be **clipped to the active selection** or run **selection-as-shape**; effects are multi-layer aware with unified undo and a progress overlay.
@@ -30,7 +30,7 @@ cursor, live theming, and a large pile of fixes and performance work.
 
 **Target-aware drag-and-drop** — drop an image onto the **canvas** (stamp onto the current layer, undoable), the **layer panel** (new layer), the **brush bin** (custom brush, new page if full), or the **menu bar** (open in a new isolated window). Hold Shift to center; larger-than-canvas images route through the interactive import flow.
 
-**OS hardware cursor** — icon cursors via `_MOUSECURSOR` give render-free canvas moves; toggle in Settings → Cursors & Tooltips.
+**OS hardware cursor** — icon cursors via `_MOUSECURSOR` give render-free canvas moves.
 
 **Live theming** — a complete **DARK** theme, instant theme switching with no restart (`Ctrl+Shift+F5` to hot-reload colors + icons), a theme picker as the first Appearance option, and a reusable `/create-draw-theme` workflow.
 
