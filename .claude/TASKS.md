@@ -43,9 +43,18 @@ Artifact: https://claude.ai/code/artifact/5861a9f8-234d-4065-84cc-6ef49359aa9a
 
 ## Phase I — Verify & wrap
 
-- [ ] I1. Full clean compile (`make`) — 0 new warnings.
-- [ ] I2. Run new + affected QA tests offscreen (force `--rerun-passed` single-file); iterate to green (document proven-flaky).
-- [ ] I3. Regression: input/tool/history/layer QA subset — confirm no new failures vs baseline.
-- [ ] I4. Final BUGS-v2.0.0.md consolidation; commit all on branch; UPDATE the bug artifact with the full list; write a round-2 run summary.
+- [x] I1. Full clean compile — all fix batches built clean (exit 0), `DRAW 2.0.0` runs.
+- [x] I2. New QA tests GREEN (10 seam + apron-paint-after-move); CLI `--option` smoke GREEN.
+- [x] I3. Input-pipeline regression: 9/10 GREEN incl. gui-command-palette (BUG-40 area), tool-switch-matrix, tool-move, edit-undo-redo; the 1 flaky (seam-selection-to-draw) confirmed 8/8 on re-run → NO regressions from INPUT.BM/MOUSE.BM/BRUSH.BM changes.
+- [x] J6. Second-wave findings consolidated + HIGH/MED fixed (BUG-34/35/40/44/48/50/51/53/55); built, QA-verified, committed (5693fbf0); artifact updated.
+- [ ] I4. Final BUGS-v2.0.0.md consolidation + run summary + commit (after Phase K).
+
+## Phase K — THIRD WAVE (peripheral subsystems)
+
+- [ ] K1. FILE EXPORTERS hunt (BAS/QB64-source, PNG/BMP/GIF/JPG/TGA/HDR/ICO/QOI, ANSI export): flatten fidelity, blend/opacity, selection region, palette, handle leaks, format edge cases. Verify + log + fix.
+- [ ] K2. FILE IMPORTERS hunt (PSD, ASE/Aseprite, ANSI/XBIN, Lospec, generic image): layer/blend mapping, malformed input, handle leaks, coordinate/size. Verify + log + fix.
+- [ ] K3. EFFECTS ENGINE MATH hunt (the actual effect algorithms + -O3 kernels: blur/median/edge/emboss/sharpen/pixelate/mosaic/render/shape/texture): bounds, seed determinism, alpha handling, clip-to-selection, multi-layer. Verify + log + fix.
+- [ ] K4. FONTS/TDF + PIXEL-COACH + SOUND hunt (TDF binary rasteriser + .TDX, bitmap/CBF fonts, pixel-art analyzer, sound slots/music/SF2). Verify + log + fix.
+- [ ] K5. Consolidate third-wave findings; fix confirmed HIGH/MED; rebuild; QA; commit; update artifact + run summary.
 
 loop:on
