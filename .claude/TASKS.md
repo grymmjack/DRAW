@@ -8,7 +8,8 @@ diagrams, write QA tests for every seam, and fix the bugs found. Branch:
 
 ➡️ B0a. GLOBAL diagram reconciliation (agent running).
 ➡️ B0b. TOOLS diagram reconciliation (agent running).
-➡️ B0a/B0b agents running; next: apply their DOT corrections, then B4/B5/B6.
+➡️ B0c/B0f + B0d/e(redo). 3 agents reconciling GUI + TRANSFORM/IMAGE/FILE + UTILITIES/LAYER-OPS.
+➡️ Baseline build DONE. Confirming C6 transform test is RED, then applying Phase D fixes.
 
 ## Phase A — Map every input seam (source-level)
 
@@ -25,13 +26,13 @@ diagrams, write QA tests for every seam, and fix the bugs found. Branch:
 > category: verify every state/transition/guard against current source (fan out agents),
 > fix the `.DOT`, re-render SVG+PNG, and log corrections in `PLANS/INPUT-SEAMS-AUDIT.md`.
 
-- [ ] B0a. GLOBAL diagrams (MOUSE, KEYBOARD, UI, SOUND-MUSIC) — reconcile + re-render.
-- [ ] B0b. TOOLS diagrams (BRUSH, DOT, LINE, RECT, ELLIPSE, POLY-LINE, FILL, SPRAY, ERASER, MARQUEE, MOVE, PAN, ZOOM, CROP, PICKER, TEXT, SAVE-LOAD, CHEATSHEET) — reconcile + re-render.
-- [ ] B0c. GUI diagrams (MENUBAR, LAYERS-PANEL, TOOLBOX, ORGANIZER, DRAWER, TOOLTIP, EDITBAR, STATUSBAR, PALETTE-STRIP/OPS, COMMAND-PALETTE, PREVIEW, DIALOG, WIDGETS, CHARMAP, COLOR-MIXER, ABOUT, SETTINGS-DIALOG, SMART-GUIDES) — reconcile + re-render.
-- [ ] B0d. UTILITIES diagrams (ASSISTANTS, CROSSHAIR, PICKER-LOUPE, SYMMETRY, PATTERN-TILE, FILL-ADJUST, GRID, BRUSH-SIZE, COLOR-MODE, REFIMG) — reconcile + re-render.
-- [ ] B0e. LAYER-OPS diagrams (ADD-DELETE, MERGE, ARRANGE, ALIGN-DISTRIBUTE, MULTISELECT, SYMBOL) — reconcile + re-render.
-- [ ] B0f. TRANSFORM-OPS + IMAGE-OPS + FILE-OPS diagrams (QUICK-TRANSFORM, TRANSFORM-OVERLAY, IMAGE-RESIZE-CROP, IMAGE-ADJUSTMENT, IMAGE-IMPORT, EXTRACT-*, LOAD-RECENT) — reconcile + re-render.
-- [ ] B0g. Verify ALL diagrams render clean (`dot` no syntax errors across the whole `PLANS/diagrams` tree); regenerate any stale SVG/PNG; note any diagram that couldn't be fully verified.
+- [x] B0a. GLOBAL diagrams reconciled + re-rendered — KEYBOARD tool-table fixed (C/P/I/S/K/Q/W), MOUSE modal interceptors (TRANSFORM/flyout/loupe/drop), UI rebuilt as main-loop pipeline, SOUND (removed fictional pause, owner gate). BUG-7 confirmed (ERASER_draw_at has 0 callers).
+- [x] B0b. TOOLS diagrams reconciled + re-rendered. DRIFT fixed in BRUSH/LINE/RECT/ELLIPSE (AA + record_* + modifiers), POLY-LINE (cancel_restore), MARQUEE (no Intersect; wand E/F/W; SELECTION_MASK; Ctrl+H), MOVE (scale/clone/paste-float/nudge/group/flip), ERASER (BUG-7 latent), FILL/ZOOM/CROP/PICKER. TEXT/DOT/SPRAY/PAN/SAVE-LOAD/CHEATSHEET already accurate.
+- [x] B0c. GUI diagrams (14) reconciled + re-rendered — batches A/B/C. Fixed many drifts (preview F4 not F7, palette `?` not Ctrl+P, 71 real dialogs, settings shadow-copy modal, real menu list). Flagged BUG-8 candidate (Transform flyout action).
+- [x] B0d. UTILITIES diagrams (10) reconciled + re-rendered. Fixed fictional CAPS/SCROLL-LOCK triggers, F7 symmetry, brush-size presets 1/3/5/9, real GRID modes SQUARE/DIAG/ISO/HEX, etc.
+- [x] B0e. LAYER-OPS diagrams (6) reconciled + re-rendered — real action IDs, HISTORY_record_* names, align-to-selection (not canvas), removed fictional range-select.
+- [x] B0f. TRANSFORM-OPS + IMAGE-OPS + FILE-OPS diagrams (9) reconciled + re-rendered — quick-transform action IDs + autofloat, transform-overlay BUG-2 edge, EFFECTS system rewrite, format-sniff load.
+- [x] B0g. All 70 DOT files pass `dot` syntax check; every DOT has SVG+PNG; whole tree re-rendered fresh. No race corruption found.
 
 ## Phase B — State machine diagrams (DOT → SVG+PNG via `dot`)
 
