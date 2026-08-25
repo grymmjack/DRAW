@@ -1,0 +1,102 @@
+digraph TOOL_SEAMS {
+    label="TOOL / OPERATION SEAM STATE MACHINE\nTransitions BETWEEN tools & operations — what resets fire at each seam (v2.0.0)"
+    labelloc=t labeljust=c
+    ordering=out rankdir=TB
+    fontcolor=white fontsize=22.0 fontname="Cascadia Code PL"
+    splines=true compound=true
+    bgcolor=transparent
+    edge [
+        color=gray fontcolor="#aaaaaa" fontsize=9.0
+        fontname="Cascadia Code PL"
+    ];
+    node [
+        color=white shape=rect style=""
+        fontname="Cascadia Code PL" fontsize=11.0 fontcolor=cyan
+    ];
+
+    { node [shape=folder color=orange penwidth=2 fontcolor=orange fontsize=13.0];
+        HUB [label="TOOL SWITCH HUB"];
+        SPECIAL [label="SPECIAL PATHS"];
+        DOCOPS [label="DOCUMENT OPS"];
+    }
+
+    // ---- The central chokepoint ----
+    HUBNODE [label="TOOLS_reset_all(includeMarquee)\n─────────────────────────────\nGUI/GUI.BM:22\nCalled by: keyboard hotkeys (KEYBOARD.BM:127-274),\ntoolbar click (TOOLBAR.BM:362), subtool flyout (SUBTOOL-FLYOUT.BM:213)\n─────────────────────────────\nRESETS: LINE RECT ELLIPSE POLY_LINE BEZIER(cancel_restore)\nSS_*(x10) MOVE SPRAY ZOOM_drag TEXT ERASER\nFILL_deactivate PICKER_deactivate\nMARQUEE+WAND only if includeMarquee=TRUE\n─────────────────────────────\nMISSING: TRANSFORM  CUSTOM_BRUSH  IMAGE_IMPORT"
+        color="#ffcc00" fontcolor="#ffcc00" penwidth=2];
+
+    // ---- Source tool classes (grouped by seam behavior) ----
+    C_STATELESS [label="STATELESS\n─────────────────\nDOT · PAN · ZOOM · PICKER · FILL\nno in-progress buffer\nswitch is trivial"];
+    C_SHAPE [label="SHAPE-IN-PROGRESS\n─────────────────\nLINE RECT ELLIPSE POLY_LINE\nBEZIER · SMART SHAPES\npartial preview on canvas\ncommit only on release"];
+    C_FLOAT [label="FLOAT / EDIT\n─────────────────\nMOVE · PASTE(as move) · TEXT\nuncommitted floating content\nCOMMIT-on-reset (bakes to layer)"];
+    C_SELECT [label="SELECTION\n─────────────────\nMARQUEE (rect/free/poly/ellipse)\nMAGIC WAND\nSELECTION_MASK preserved as clip\n(only cleared if includeMarquee=TRUE)"];
+    C_OVERLAY [label="OVERLAY (menu-activated)\n─────────────────\nTRANSFORM · IMAGE_IMPORT\nfull-canvas overlay, own handles\nNOT in TOOLS_reset_all"
+        color="#ff6666" fontcolor="#ff8888"];
+
+    // ---- Seam transitions into the hub ----
+    C_STATELESS -> HUBNODE [label="  switch\n  nothing to lose" color="#66cc66"];
+    C_SHAPE -> HUBNODE [label="  switch mid-shape\n  BEZIER rolls back canvas;\n  POLY_LINE leaves pixels (BUG-6?)" color="#6699ff"];
+    C_FLOAT -> HUBNODE [label="  switch mid-float\n  MOVE_apply_transform / TEXT_commit\n  → work baked to layer" color="#cccc66"];
+    C_SELECT -> HUBNODE [label="  switch\n  mask KEPT as clip\n  (see SELECTION-LIFECYCLE)" color="#88aacc"];
+    C_OVERLAY -> HUBNODE [label="  switch while ACTIVE\n  ⚠ hub does NOT reset it\n  → orphaned overlay" color="#ff4444" penwidth=2 style=bold];
+
+    // ---- Hub output ----
+    HUBNODE -> DEST [label="  CURRENT_TOOL% = new tool\n  GUI_NEEDS_REDRAW%" color="#66cc66"];
+    DEST [label="NEW TOOL ACTIVE\n─────────────────\nclean state (for reset tools)\n+ any orphaned overlay still live"];
+
+    // ================= SPECIAL PATHS (bypass / abuse the hub) =================
+    subgraph cluster_special {
+        label="SPECIAL PATHS — bypass or abuse the reset guard" labelloc=t labeljust=l
+        fontcolor=orange fontsize=11.0 fontname="Cascadia Code PL"
+        color=orange style=dashed penwidth=1
+
+        SP_PASTE [label="CLIPBOARD_paste\n────────────\nSELECTION.BM:234\nCURRENT_TOOL%=TOOL_MOVE\nMOVE.ACTIVE, IS_PASTE=TRUE\nTOOLS_reset_all FALSE\n(preserves wand mask)" fontsize=10.0];
+        SP_STALE [label="⚠ BUG-1\n────────────\nstale WAND mask kept while\nMARQUEE.BOX overwritten;\nMOVE shifts stale mask\n(MOVE.BM:1035)" fontsize=10.0 color="#ff6666" fontcolor="#ff8888"];
+        SP_TRANS [label="Edit → TRANSFORM\n────────────\nTRANSFORM.ACTIVE=TRUE\noverlay baked into scene cache\nSCREEN.BM:3461" fontsize=10.0];
+        SP_ORPH [label="⚠ BUG-2\n────────────\nswitch tool → ACTIVE stays TRUE\noverlay un-erasable until reload;\nmouse hijacked (MOUSE.BM:4919)" fontsize=10.0 color="#ff6666" fontcolor="#ff8888"];
+
+        SP_PASTE -> SP_STALE [label=" move/commit\n or add-wand click" color="#ff4444" penwidth=2 style=bold fontsize=8.0];
+        SP_TRANS -> SP_ORPH [label=" press E/B or\n click a tool" color="#ff4444" penwidth=2 style=bold fontsize=8.0];
+    }
+
+    // ================= DOCUMENT OPS =================
+    subgraph cluster_docops {
+        label="DOCUMENT-CREATION SEAMS (New / Open / New-from-Clipboard)" labelloc=t labeljust=l
+        fontcolor=orange fontsize=11.0 fontname="Cascadia Code PL"
+        color=orange style=dashed penwidth=1
+
+        DC_OPEN [label="DRW_load_binary (Open)\n────────────\nDRW.BM:625\nresets ~20 subsystems\n(+TRANSFORM_cancel)\nMISSING: MOVE float, CUSTOM_BRUSH" fontsize=10.0];
+        DC_NEW [label="DRW_new_canvas (New)\n────────────\nDRW.BM:2385\nresets ~20 (+CUSTOM_BRUSH)\nMISSING: MOVE float, ZOOM_drag" fontsize=10.0];
+        DC_CLIP [label="DRW_create_canvas_at_size\n────────────\nDRW.BM:2607 (New-from-clip/AI)\nresets ~20 (+CUSTOM_BRUSH)\nMISSING: MOVE float, ZOOM_drag" fontsize=10.0];
+        DC_BUG [label="⚠ BUG-3\n────────────\nMOVE float survives → composites\nonto NEW doc on next Move select;\nuse MOVE_cancel_transform" fontsize=10.0 color="#ff6666" fontcolor="#ff8888"];
+
+        DC_OPEN -> DC_BUG [color="#ff4444" penwidth=2 style=bold];
+        DC_NEW -> DC_BUG [color="#ff4444" penwidth=2 style=bold];
+        DC_CLIP -> DC_BUG [color="#ff4444" penwidth=2 style=bold];
+    }
+
+    // ---- anchors ----
+    HUB -> HUBNODE [arrowhead=none color="#555555" style=dotted];
+    SPECIAL -> SP_PASTE [arrowhead=none color="#555555" style=dotted lhead=cluster_special];
+    DOCOPS -> DC_OPEN [arrowhead=none color="#555555" style=dotted lhead=cluster_docops];
+    { rank=min; HUB; SPECIAL; DOCOPS }
+    { rank=same; C_STATELESS; C_SHAPE; C_FLOAT; C_SELECT; C_OVERLAY }
+
+    // ---- Legend ----
+    subgraph cluster_legend {
+        label="LEGEND" labelloc=t labeljust=l
+        fontcolor=white fontsize=11.0 fontname="Cascadia Code PL"
+        color=white style=dashed penwidth=1
+        L1 [label="" shape=point width=0.01]; L2 [label="" shape=point width=0.01];
+        L3 [label="" shape=point width=0.01]; L4 [label="" shape=point width=0.01];
+        L5 [label="" shape=point width=0.01]; L6 [label="" shape=point width=0.01];
+        L7 [label="" shape=point width=0.01]; L8 [label="" shape=point width=0.01];
+        L9 [label="" shape=point width=0.01]; L10 [label="" shape=point width=0.01];
+        LB1 [label="" shape=point width=0.01]; LB2 [label="" shape=point width=0.01];
+        L1 -> L2 [label=" trivial / activate" arrowhead=normal color="#66cc66" fontsize=9.0];
+        L3 -> L4 [label=" abandon / cancel" arrowhead=normal color="#cc6666" style=dashed fontsize=9.0];
+        L5 -> L6 [label=" COMMIT-on-reset (bake)" arrowhead=normal color="#cccc66" fontsize=9.0];
+        L7 -> L8 [label=" mask kept / re-edit" arrowhead=normal color="#6699ff" fontsize=9.0];
+        L9 -> L10 [label=" preserve / self" arrowhead=normal color="#88aacc" fontsize=9.0];
+        LB1 -> LB2 [label=" ⚠ BUG — missing reset / stale state" arrowhead=normal color="#ff4444" penwidth=2 style=bold fontsize=9.0];
+    }
+}
