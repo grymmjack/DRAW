@@ -339,8 +339,8 @@ IF splashImg& < -1 THEN
 END IF
 
 ' Dev: --kit-screenshots <dir> renders the KIT export/install dialogs to PNGs and exits.
-DIM kitShotDir AS STRING : kitShotDir$ = KIT_get_screenshot_arg$
-IF kitShotDir$ <> "" THEN KIT_dev_screenshots kitShotDir$: SYSTEM
+DIM kitShotDir AS STRING                                  : kitShotDir$ = KIT_get_screenshot_arg$
+IF kitShotDir$ <> "" THEN KIT_dev_screenshots kitShotDir$ : SYSTEM
 
 ' Dev: --main-shot <file> renders one main-editor frame (current theme) to a PNG and exits.
 DIM mainShotFile AS STRING : mainShotFile$ = KIT_get_flag_arg$("--main-shot")
@@ -361,7 +361,7 @@ DIM tsBase AS STRING : tsBase$ = KIT_get_flag_arg$("--theme-switch-shot")
 IF tsBase$ <> "" THEN
     DIM tsTo AS STRING, tsF AS INTEGER
     tsTo$ = KIT_get_flag_arg$("--theme-to") : IF tsTo$ = "" THEN tsTo$ = "DARK"
-    FOR tsF% = 1 TO 8: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE: SCREEN_render: NEXT
+    FOR tsF% = 1 TO 8                       : SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE : GUI_NEEDS_REDRAW% = TRUE : SCREEN_render : NEXT
     _SAVEIMAGE tsBase$ + "-before.png", 0
     CFG.THEME = tsTo$
     THEME_reload_all
@@ -371,8 +371,8 @@ IF tsBase$ <> "" THEN
 END IF
 
 ' Dev: --kit-export <zip> writes a sample kit (1 of every asset type) and exits.
-DIM kitExportZip AS STRING : kitExportZip$ = KIT_get_flag_arg$("--kit-export")
-IF kitExportZip$ <> "" THEN KIT_dev_export kitExportZip$: SYSTEM
+DIM kitExportZip AS STRING                               : kitExportZip$ = KIT_get_flag_arg$("--kit-export")
+IF kitExportZip$ <> "" THEN KIT_dev_export kitExportZip$ : SYSTEM
 
 ' Dev: --kit-install <zip> installs a kit non-interactively (all types, skip conflicts) and exits.
 DIM kitInstallZip AS STRING : kitInstallZip$ = KIT_get_flag_arg$("--kit-install")
@@ -380,8 +380,8 @@ IF kitInstallZip$ <> "" THEN
     DIM kiMf AS KIT_MANIFEST, kiTy AS INTEGER
     IF KIT_load_kit_manifest%(kitInstallZip$, kiMf) THEN
         KIT_INSTALL_PATH$ = kitInstallZip$
-        FOR kiTy% = 0 TO KIT_TYPE_COUNT - 1: KIT_INSTALL_ON(kiTy%) = TRUE: NEXT
-        KIT_INSTALL_NONINTERACTIVE% = TRUE: KIT_INSTALL_AUTOCHOICE% = 1 ' skip conflicts
+        FOR kiTy% = 0 TO KIT_TYPE_COUNT - 1 : KIT_INSTALL_ON(kiTy%) = TRUE : NEXT
+        KIT_INSTALL_NONINTERACTIVE% = TRUE  : KIT_INSTALL_AUTOCHOICE% = 1 ' skip conflicts
         IF KIT_install_apply% THEN _LOGINFO "kit-install: done" ELSE _LOGINFO "kit-install: FAILED"
     ELSE
         _LOGINFO "kit-install: invalid kit " + kitInstallZip$
@@ -435,7 +435,7 @@ DO
             END IF
         END IF
         CANVAS_DIRTY%         = FALSE
-        CMDLINE_PENDING_FILE$ = "" ' Clear after loading
+        CMDLINE_PENDING_FILE$ = ""                                        ' Clear after loading
     ELSEIF CMDLINE_FIRST_FRAME% THEN
         CMDLINE_FIRST_FRAME% = FALSE
     END IF
@@ -467,7 +467,7 @@ DO
         ' maximized redraw on [Windows], where the maximize's own echo never fires and a
         ' blind counter would eat the restore event instead. See SCREEN.BI.
         IF SCREEN_DEFERRED_RESIZE% > 0 AND _ResizeWidth = SCREEN_DEFERRED_W& AND _ResizeHeight = SCREEN_DEFERRED_H& THEN
-            SCREEN_DEFERRED_RESIZE% = 0        ' our echo — consumed, stop watching
+            SCREEN_DEFERRED_RESIZE% = 0 ' our echo — consumed, stop watching
         ELSE
             ' User drag/maximize/restore in progress: record target, repaint stretched, defer snap.
             resizePendingW&          = _ResizeWidth
@@ -519,7 +519,7 @@ DO
     ' A dialog may have absorbed the window-close request while it was modal
     IF DIALOG_EXIT_PENDING% THEN
         DIALOG_EXIT_PENDING% = FALSE
-        CMD_execute_action 212     ' graceful exit, with unsaved-changes prompt
+        CMD_execute_action 212 ' graceful exit, with unsaved-changes prompt
     END IF
 
     LOOP_start
@@ -528,7 +528,7 @@ DO
     ' writing the report is itself trappable instead of an unhandled hang.
     IF CRASH.PENDING% THEN CRASH_flush_pending
     MUSIC_tick
-    AI_JOB_tick ' Poll any in-flight AI generation (self-throttled, no-op when idle)
+    AI_JOB_tick   ' Poll any in-flight AI generation (self-throttled, no-op when idle)
     INSTANCE_tick ' Multi-instance registry heartbeat (self-throttled, keeps our slot alive)
     IF LAYERXFER_poll_mailbox% > 0 THEN ' A peer instance sent us a layer — added; refresh
         SOUND_play SND_NEW_LAYER
@@ -982,11 +982,11 @@ SUB MAIN_shutdown ()
     IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
     IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
     ' Font / glyph image caches (each holds _NEWIMAGE / _LOADIMAGE handles)
-    FONT_PREVIEW_free_cache   ' cached font-preview strip images
-    TDF_free_cache            ' TheDraw (.TDF) rasterised glyph blocks
-    CBF_free_cache            ' colour bitmap font (DPaint .BMP) sheets
-    FONT_LIST_free_cache      ' cached _LOADFONT handles (size+style)
-    CHARMAP_free_cache        ' character-map glyph cache
+    FONT_PREVIEW_free_cache ' cached font-preview strip images
+    TDF_free_cache          ' TheDraw (.TDF) rasterised glyph blocks
+    CBF_free_cache          ' colour bitmap font (DPaint .BMP) sheets
+    FONT_LIST_free_cache    ' cached _LOADFONT handles (size+style)
+    CHARMAP_free_cache      ' character-map glyph cache
     ' SCRN.CURSOR& no longer allocated — cursors draw directly onto SCRN.CANVAS&
 
     ' =====================================================================
@@ -1069,7 +1069,7 @@ SUB MAIN_shutdown ()
     ' =====================================================================
     ' FREE CURSOR IMAGES + LAYER PANEL ICONS
     ' =====================================================================
-    _MOUSESHOW ' Ensure using default system cursor before freeing cursors
+    _MOUSESHOW              ' Ensure using default system cursor before freeing cursors
     CURSOR_cleanup
     LAYER_PANEL_cleanup_icons
 

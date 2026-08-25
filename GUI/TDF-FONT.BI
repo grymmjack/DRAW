@@ -36,50 +36,50 @@ CONST TDF_TYPE_BLOCK   = 1
 CONST TDF_TYPE_COLOR   = 2
 
 ' --- Format constants ------------------------------------------------------
-CONST TDF_FIRST_CHAR   = 33                          ' '!'  — first indexable glyph
-CONST TDF_LAST_CHAR    = 126                         ' '~'  — last indexable glyph
-CONST TDF_CHAR_TABLE   = 94                          ' TDF_LAST_CHAR - TDF_FIRST_CHAR + 1
-CONST TDF_NO_GLYPH     = 65535                       ' lookup entry for an undefined slot
-CONST TDF_BLOCK_OFFSET = 213                         ' record start -> glyph block start
-CONST TDF_LOOKUP_OFFSET = 25                         ' record start -> lookup table start
+CONST TDF_FIRST_CHAR    = 33    ' '!'  — first indexable glyph
+CONST TDF_LAST_CHAR     = 126   ' '~'  — last indexable glyph
+CONST TDF_CHAR_TABLE    = 94    ' TDF_LAST_CHAR - TDF_FIRST_CHAR + 1
+CONST TDF_NO_GLYPH      = 65535 ' lookup entry for an undefined slot
+CONST TDF_BLOCK_OFFSET  = 213   ' record start -> glyph block start
+CONST TDF_LOOKUP_OFFSET = 25    ' record start -> lookup table start
 
 ' Glyph stream control bytes
-CONST TDF_BYTE_END     = 0                           ' glyph terminator
-CONST TDF_BYTE_NEWLINE = 13                          ' end of a cell row
-CONST TDF_BYTE_MARKER  = 38                          ' '&' end marker (skipped)
-CONST TDF_BYTE_BLANK   = 255                         ' hard blank (occupies a cell, no ink)
+CONST TDF_BYTE_END     = 0      ' glyph terminator
+CONST TDF_BYTE_NEWLINE = 13     ' end of a cell row
+CONST TDF_BYTE_MARKER  = 38     ' '&' end marker (skipped)
+CONST TDF_BYTE_BLANK   = 255    ' hard blank (occupies a cell, no ink)
 
 ' --- Defensive limits ------------------------------------------------------
 ' The declared width/height bytes in the wild corpus lie: values as absurd as
 ' 244x223 appear, which at 8x16 px per cell would allocate a 1952x3568 image for
 ' ONE character. DRAW measures the true extent from the byte stream and clamps
 ' to these. The shipped corpus tops out at 55x41 cells.
-CONST TDF_MAX_CELLS_W  = 96
-CONST TDF_MAX_CELLS_H  = 64
-CONST TDF_GRID_MAX     = 6144                        ' TDF_MAX_CELLS_W * TDF_MAX_CELLS_H
+CONST TDF_MAX_CELLS_W = 96
+CONST TDF_MAX_CELLS_H = 64
+CONST TDF_GRID_MAX    = 6144    ' TDF_MAX_CELLS_W * TDF_MAX_CELLS_H
 
-CONST TDF_CELL_W       = 8                           ' CP437 cell width  (px)
-CONST TDF_CELL_H       = 16                          ' CP437 cell height (px)
-CONST TDF_TEXT_MAX_W   = 8192                        ' widest composed string (px)
+CONST TDF_CELL_W     = 8        ' CP437 cell width  (px)
+CONST TDF_CELL_H     = 16       ' CP437 cell height (px)
+CONST TDF_TEXT_MAX_W = 8192     ' widest composed string (px)
 
 ' --- Capacity --------------------------------------------------------------
-CONST TDF_BUNDLE_MAX   = 16                          ' .TDF files registered at once
-CONST TDF_FACE_MAX     = 8192                        ' faces across all bundles
-CONST TDF_CACHE_MAX    = 4                           ' glyph blocks held in memory
+CONST TDF_BUNDLE_MAX = 16       ' .TDF files registered at once
+CONST TDF_FACE_MAX   = 8192     ' faces across all bundles
+CONST TDF_CACHE_MAX  = 4        ' glyph blocks held in memory
 
 ' --- Outline styles --------------------------------------------------------
 CONST TDF_OUTLINE_STYLES = 19
-CONST TDF_OUTLINE_SLOTS  = 17                        ' placeholders 'A'..'Q'
+CONST TDF_OUTLINE_SLOTS  = 17   ' placeholders 'A'..'Q'
 
 ''
 ' One registered .TDF bundle.
 '
 TYPE TDF_BUNDLE_OBJ
-    filePath   AS STRING * 260
-    labelTxt   AS STRING * 32                        ' "COLOR", "BLOCK", "OUTLINE", or filename
-    firstFace  AS INTEGER                            ' index of its first face in TDF_FACE()
-    faceCount  AS INTEGER
-    isBundled  AS INTEGER                            ' TRUE when shipped in ASSETS/
+    filePath  AS STRING * 260
+    labelTxt  AS STRING * 32 ' "COLOR", "BLOCK", "OUTLINE", or filename
+    firstFace AS INTEGER     ' index of its first face in TDF_FACE()
+    faceCount AS INTEGER
+    isBundled AS INTEGER     ' TRUE when shipped in ASSETS/
 END TYPE
 
 ''
@@ -89,13 +89,13 @@ END TYPE
 '
 TYPE TDF_FACE_OBJ
     bundleIdx  AS INTEGER
-    fileOfs    AS LONG                               ' byte offset of the FF00AA55 record
-    blockSz    AS LONG                               ' glyph block length
-    faceType   AS INTEGER                            ' TDF_TYPE_*
-    gapDefault AS INTEGER                            ' the font's own inter-glyph spacing
-    glyphCnt   AS INTEGER                            ' defined glyphs, 0..94
-    cellsW     AS INTEGER                            ' true max glyph width  (cells)
-    cellsH     AS INTEGER                            ' true max glyph height (cells)
+    fileOfs    AS LONG    ' byte offset of the FF00AA55 record
+    blockSz    AS LONG    ' glyph block length
+    faceType   AS INTEGER ' TDF_TYPE_*
+    gapDefault AS INTEGER ' the font's own inter-glyph spacing
+    glyphCnt   AS INTEGER ' defined glyphs, 0..94
+    cellsW     AS INTEGER ' true max glyph width  (cells)
+    cellsH     AS INTEGER ' true max glyph height (cells)
     faceName   AS STRING * 16
     ' Face NAMES are not unique — 4419 collisions across the wild corpus, and
     ' even after content-deduplication a bundle still holds several genuinely
@@ -104,7 +104,7 @@ TYPE TDF_FACE_OBJ
     ' dupIndex is this one's 1-based position among them.
     dupIndex   AS INTEGER
     dupTotal   AS INTEGER
-    isFavorite AS INTEGER                            ' starred in the browser
+    isFavorite AS INTEGER ' starred in the browser
 END TYPE
 
 ' Favourites are stored by face KEY (the same "TDF://<BUNDLE>/<name>#<n>" string
@@ -153,10 +153,10 @@ END TYPE
 ' One rasterised CP437 cell.
 '
 TYPE TDF_CELL_OBJ
-    ch  AS _UNSIGNED _BYTE                           ' CP437 byte
-    fg  AS _UNSIGNED _BYTE                           ' VGA palette index 0-15
-    bg  AS _UNSIGNED _BYTE                           ' VGA palette index 0-7
-    ink AS _UNSIGNED _BYTE                           ' TRUE when this cell has visible ink
+    ch  AS _UNSIGNED _BYTE ' CP437 byte
+    fg  AS _UNSIGNED _BYTE ' VGA palette index 0-15
+    bg  AS _UNSIGNED _BYTE ' VGA palette index 0-7
+    ink AS _UNSIGNED _BYTE ' TRUE when this cell has visible ink
 END TYPE
 
 ' --- State -----------------------------------------------------------------
@@ -165,13 +165,13 @@ DIM SHARED TDF_BUNDLE_COUNT AS INTEGER
 
 DIM SHARED TDF_FACE(0 TO TDF_FACE_MAX - 1) AS TDF_FACE_OBJ
 DIM SHARED TDF_FACE_COUNT AS INTEGER
-DIM SHARED TDF_SCANNED    AS INTEGER                 ' TRUE after the first scan
+DIM SHARED TDF_SCANNED    AS INTEGER                          ' TRUE after the first scan
 
 ' Glyph-block cache. Decoding a glyph is pure memory work once its face's block
 ' is resident, so the cache granularity is one face's block (<= 64 KB, since the
 ' format stores blockSize as u16), not one glyph.
-DIM SHARED TDF_CACHE_FACE(0 TO TDF_CACHE_MAX - 1)  AS INTEGER    ' face index, -1 = empty
-DIM SHARED TDF_CACHE_BLOCK(0 TO TDF_CACHE_MAX - 1) AS STRING     ' raw glyph block bytes
+DIM SHARED TDF_CACHE_FACE(0 TO TDF_CACHE_MAX - 1)  AS INTEGER ' face index, -1 = empty
+DIM SHARED TDF_CACHE_BLOCK(0 TO TDF_CACHE_MAX - 1) AS STRING  ' raw glyph block bytes
 DIM SHARED TDF_CACHE_LOOK(0 TO TDF_CACHE_MAX - 1, 0 TO TDF_CHAR_TABLE - 1) AS LONG
 ' Per-glyph measured cell width, filled lazily (-1 = not yet measured). Without
 ' this, TEXT_LAYER_measure_char% would re-decode every glyph on every frame.
@@ -189,11 +189,11 @@ DIM SHARED TDF_OUTLINE_CHAR(0 TO TDF_OUTLINE_STYLES - 1, 0 TO TDF_OUTLINE_SLOTS 
 
 ' Render options (module-level so callers don't juggle a long argument list).
 TYPE TDF_OPTS_OBJ
-    outlineStyle AS INTEGER                          ' 0..18, for OUTLINE faces
-    extraSpacing AS INTEGER                          ' added to the face's own gap; may be negative
-    blackIsClear AS INTEGER                          ' TRUE: bg index 0 renders transparent
-    scalePct     AS INTEGER                          ' render size, TDF_SCALE_MIN..100 (%)
-    antialias    AS INTEGER                          ' TRUE: box-filter the downscale
+    outlineStyle AS INTEGER ' 0..18, for OUTLINE faces
+    extraSpacing AS INTEGER ' added to the face's own gap; may be negative
+    blackIsClear AS INTEGER ' TRUE: bg index 0 renders transparent
+    scalePct     AS INTEGER ' render size, TDF_SCALE_MIN..100 (%)
+    antialias    AS INTEGER ' TRUE: box-filter the downscale
 END TYPE
 DIM SHARED TDF_OPTS AS TDF_OPTS_OBJ
 
@@ -203,7 +203,7 @@ DIM SHARED TDF_OPTS AS TDF_OPTS_OBJ
 ' gradients; a box filter averages those cells down into real intermediate
 ' colours instead, which is what "downsize without losing information" means
 ' here. Scaling is applied per glyph AFTER rasterisation.
-CONST TDF_SCALE_MIN  = 10                            ' smallest render scale (%)
+CONST TDF_SCALE_MIN  = 10 ' smallest render scale (%)
 CONST TDF_SCALE_FULL = 100
 
 DECLARE SUB TDF_init ()

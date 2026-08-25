@@ -14,8 +14,8 @@ OPTION _EXPLICITARRAY
 ' Maximum number of commands and search results
 CONST CMD_MAX_COMMANDS = 512 ' generous headroom: CMD_init registers 260+ commands; the
                              ' old 256 cap silently dropped the last few (CMD_register EXIT SUB guard)
-CONST CMD_MAX_VISIBLE  = 15
-CONST CMD_MAX_SEARCH   = 64
+CONST CMD_MAX_VISIBLE = 15
+CONST CMD_MAX_SEARCH  = 64
 
 ' Command categories
 CONST CMD_CAT_TOOL   = 1
@@ -45,14 +45,14 @@ END TYPE
 
 ' Command palette state
 TYPE CMD_PALETTE_OBJ
-    visible      AS INTEGER     ' Is palette visible?
-    search       AS STRING * 64 ' Current search string
-    search_len   AS INTEGER     ' Length of search string
-    hover        AS INTEGER     ' Currently hovered item
-    scroll       AS INTEGER     ' Scroll offset
-    result_count AS INTEGER     ' Number of filtered results
-    mode         AS INTEGER     ' 0 = command palette, 1 = quick reference (no search)
-    suppress_click AS INTEGER   ' TRUE while the mouse button that OPENED the palette (e.g. a Help>Cheat Sheet menu click) is still held — ignore that click so it doesn't immediately close the palette
+    visible        AS INTEGER     ' Is palette visible?
+    search         AS STRING * 64 ' Current search string
+    search_len     AS INTEGER     ' Length of search string
+    hover          AS INTEGER     ' Currently hovered item
+    scroll         AS INTEGER     ' Scroll offset
+    result_count   AS INTEGER     ' Number of filtered results
+    mode           AS INTEGER     ' 0 = command palette, 1 = quick reference (no search)
+    suppress_click AS INTEGER     ' TRUE while the mouse button that OPENED the palette (e.g. a Help>Cheat Sheet menu click) is still held — ignore that click so it doesn't immediately close the palette
 END TYPE
 
 DIM SHARED CMD_PALETTE     AS CMD_PALETTE_OBJ

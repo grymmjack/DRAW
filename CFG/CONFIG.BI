@@ -168,7 +168,7 @@ END IF
 IF INST.id% > 1 AND CMDLINE_CONFIG_ARG_COUNT% = 0 THEN
     DIM instBaseCfg$, instCfgPath$, instTag$
     instBaseCfg$ = CONFIG_FILE_PATH$
-    instTag$ = ".instance-" + _TRIM$(STR$(INST.id%))
+    instTag$     = ".instance-" + _TRIM$(STR$(INST.id%))
     IF RIGHT$(UCASE$(instBaseCfg$), 4) = ".CFG" THEN
         instCfgPath$ = LEFT$(instBaseCfg$, LEN(instBaseCfg$) - 4) + instTag$ + ".cfg"
     ELSE

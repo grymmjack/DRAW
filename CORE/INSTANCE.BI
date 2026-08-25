@@ -23,24 +23,24 @@
 '
 $INCLUDEONCE
 
-CONST INSTANCE_MAX = 32                 ' highest instance slot we will ever assign (1..MAX)
-CONST INSTANCE_STALE_SECS = 12         ' a registry file whose heartbeat is older than this = dead
-CONST INSTANCE_HEARTBEAT_SECS = 3      ' rewrite our own registry file this often (updates heartbeat)
-CONST INSTANCE_MAILPOLL_SECS = 1       ' poll our mailbox inbox this often (see LAYERXFER handoff)
+CONST INSTANCE_MAX            = 32 ' highest instance slot we will ever assign (1..MAX)
+CONST INSTANCE_STALE_SECS     = 12 ' a registry file whose heartbeat is older than this = dead
+CONST INSTANCE_HEARTBEAT_SECS = 3  ' rewrite our own registry file this often (updates heartbeat)
+CONST INSTANCE_MAILPOLL_SECS  = 1  ' poll our mailbox inbox this often (see LAYERXFER handoff)
 
 TYPE INSTANCE_OBJ
-    id            AS INTEGER   ' this instance's slot (1..INSTANCE_MAX); 1 = first/primary (normal config)
-    explicitId    AS INTEGER   ' TRUE if id came from --instance N (vs auto-assigned)
-    active        AS INTEGER   ' TRUE once registered
-    startToken    AS DOUBLE    ' TIMER at startup -- uniqueness hint / claim tie-breaker
-    registryDir   AS STRING    ' <cache>/instances/
-    mailboxDir    AS STRING    ' <cache>/instances/mailbox/<id>/   (THIS instance's inbox)
-    myRegFile     AS STRING    ' <registryDir><id>.instance
-    title         AS STRING    ' human label written into the registry (app + current filename)
-    liveCount     AS INTEGER   ' number of live instances at last scan
-    isMusicOwner  AS INTEGER   ' TRUE if this is the lowest-id live instance (only it plays background music)
-    lastHeartbeat AS DOUBLE    ' TIMER of our last heartbeat write
-    lastMailPoll  AS DOUBLE    ' TIMER of our last mailbox poll
+    id            AS INTEGER ' this instance's slot (1..INSTANCE_MAX); 1 = first/primary (normal config)
+    explicitId    AS INTEGER ' TRUE if id came from --instance N (vs auto-assigned)
+    active        AS INTEGER ' TRUE once registered
+    startToken    AS DOUBLE  ' TIMER at startup -- uniqueness hint / claim tie-breaker
+    registryDir   AS STRING  ' <cache>/instances/
+    mailboxDir    AS STRING  ' <cache>/instances/mailbox/<id>/   (THIS instance's inbox)
+    myRegFile     AS STRING  ' <registryDir><id>.instance
+    title         AS STRING  ' human label written into the registry (app + current filename)
+    liveCount     AS INTEGER ' number of live instances at last scan
+    isMusicOwner  AS INTEGER ' TRUE if this is the lowest-id live instance (only it plays background music)
+    lastHeartbeat AS DOUBLE  ' TIMER of our last heartbeat write
+    lastMailPoll  AS DOUBLE  ' TIMER of our last mailbox poll
 END TYPE
 DIM SHARED INST AS INSTANCE_OBJ
 

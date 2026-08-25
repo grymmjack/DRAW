@@ -16,19 +16,19 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 '$DYNAMIC
 
-CONST TDFB_W = 700                                   ' dialog size (logical px)
+CONST TDFB_W = 700         ' dialog size (logical px)
 CONST TDFB_H = 490
 
-CONST TDFB_LIST_X    = 10                            ' face list pane
-CONST TDFB_LIST_Y    = 56
-CONST TDFB_LIST_W    = 200
-CONST TDFB_ROW_H     = 13
-CONST TDFB_ROWS      = 18                            ' visible rows
+CONST TDFB_LIST_X = 10     ' face list pane
+CONST TDFB_LIST_Y = 56
+CONST TDFB_LIST_W = 200
+CONST TDFB_ROW_H  = 13
+CONST TDFB_ROWS   = 18     ' visible rows
 
-CONST TDFB_PREV_X    = 220                           ' preview pane
-CONST TDFB_PREV_Y    = 56
-CONST TDFB_PREV_W    = 466
-CONST TDFB_PREV_H    = 250
+CONST TDFB_PREV_X = 220    ' preview pane
+CONST TDFB_PREV_Y = 56
+CONST TDFB_PREV_W = 466
+CONST TDFB_PREV_H = 250
 ' Widest surface the live preview will compose before trimming the sample.
 ' Bounded so a wide face cannot allocate tens of megabytes on every keystroke.
 CONST TDFB_PREV_MAX_W = 2048
@@ -45,8 +45,8 @@ CONST TDFB_PRE_Y    = 320
 CONST TDFB_PRE_ROWS = 6
 
 ' Bundle filter (matches TDF_TYPE_* plus these pseudo-filters)
-CONST TDFB_FILTER_ALL     = -1
-CONST TDFB_FILTER_FAV     = -2                       ' starred faces only
+CONST TDFB_FILTER_ALL = -1
+CONST TDFB_FILTER_FAV = -2 ' starred faces only
 
 TYPE TDFB_OBJ
     searchTxt    AS STRING * 32
@@ -54,19 +54,19 @@ TYPE TDFB_OBJ
     sampleTxt    AS STRING * 32
     sampleLen    AS INTEGER
     focusField   AS INTEGER
-    typeFilter   AS INTEGER                          ' TDFB_FILTER_ALL or TDF_TYPE_*
-    selRow       AS INTEGER                          ' index into the filtered list
+    typeFilter   AS INTEGER     ' TDFB_FILTER_ALL or TDF_TYPE_*
+    selRow       AS INTEGER     ' index into the filtered list
     scrollTop    AS INTEGER
     matchCount   AS INTEGER
-    listDirty    AS INTEGER                          ' re-run the filter
-    previewDirty AS INTEGER                          ' re-render the sample
+    listDirty    AS INTEGER     ' re-run the filter
+    previewDirty AS INTEGER     ' re-render the sample
     previewImg   AS LONG
-    previewDiv   AS INTEGER                          ' 1 = shown 1:1, N = reduced 1/N
-    chosenFace   AS INTEGER                          ' -1 until the user accepts
-    presetTxt    AS STRING * 24                      ' name field for save
+    previewDiv   AS INTEGER     ' 1 = shown 1:1, N = reduced 1/N
+    chosenFace   AS INTEGER     ' -1 until the user accepts
+    presetTxt    AS STRING * 24 ' name field for save
     presetLen    AS INTEGER
-    presetSel    AS INTEGER                          ' highlighted preset row, -1 = none
-    presetTop    AS INTEGER                          ' scroll offset in the preset list
+    presetSel    AS INTEGER     ' highlighted preset row, -1 = none
+    presetTop    AS INTEGER     ' scroll offset in the preset list
 END TYPE
 DIM SHARED TDFB AS TDFB_OBJ
 

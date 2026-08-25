@@ -31,27 +31,27 @@ END TYPE
 
 ' The kit's contents as parallel arrays (type + item identity), filled by the
 ' export picker or by parsing an installed kit's manifest.
-REDIM SHARED KIT_ITEM_TYPE(0) AS INTEGER ' KIT_TYPE_*
-REDIM SHARED KIT_ITEM_NAME(0) AS STRING  ' item identity (theme name, palette base, font filename, ...)
-DIM SHARED KIT_ITEM_COUNT% ' number of valid entries in the arrays above
+REDIM SHARED KIT_ITEM_TYPE(0) AS INTEGER                      ' KIT_TYPE_*
+REDIM SHARED KIT_ITEM_NAME(0) AS STRING                       ' item identity (theme name, palette base, font filename, ...)
+DIM SHARED KIT_ITEM_COUNT%                                    ' number of valid entries in the arrays above
 
 ' Enumeration output (KIT_enumerate fills these with the user's items of one type).
-REDIM SHARED KIT_ENUM_NAME(0) AS STRING ' item identity for the export picker
-DIM SHARED KIT_ENUM_COUNT% ' number of valid entries in KIT_ENUM_NAME
+REDIM SHARED KIT_ENUM_NAME(0) AS STRING                       ' item identity for the export picker
+DIM SHARED KIT_ENUM_COUNT%                                    ' number of valid entries in KIT_ENUM_NAME
 
 ' Internal scratch for directory draining (KIT_drain) — one _FILES$ sweep at a time.
 REDIM SHARED KIT_DRAIN_NAME(0) AS STRING
 DIM SHARED KIT_DRAIN_COUNT%
 
 ' Export/install dialog shared state.
-DIM SHARED KIT_TOTAL(0 TO KIT_TYPE_COUNT - 1) AS INTEGER ' cached enumerate totals per type
-DIM SHARED KIT_EXPORT_MF AS KIT_MANIFEST                 ' metadata edited in the export dialog
-DIM SHARED KIT_OUT_PATH$                                 ' chosen export .zip path
-DIM SHARED KIT_SHOT_SRC$                                 ' full path of chosen screenshot (source on disk)
+DIM SHARED KIT_TOTAL(0 TO KIT_TYPE_COUNT - 1) AS INTEGER      ' cached enumerate totals per type
+DIM SHARED KIT_EXPORT_MF AS KIT_MANIFEST                      ' metadata edited in the export dialog
+DIM SHARED KIT_OUT_PATH$                                      ' chosen export .zip path
+DIM SHARED KIT_SHOT_SRC$                                      ' full path of chosen screenshot (source on disk)
 DIM SHARED KIT_INSTALL_ON(0 TO KIT_TYPE_COUNT - 1) AS INTEGER ' install dialog: include this type?
-DIM SHARED KIT_INSTALL_PATH$                             ' chosen kit file to install
-DIM SHARED KIT_INSTALL_NONINTERACTIVE% ' TRUE = never open the conflict dialog (headless/scripted install)
-DIM SHARED KIT_INSTALL_AUTOCHOICE%     ' conflict choice when non-interactive: 0 overwrite / 1 skip / 2 keep-both
+DIM SHARED KIT_INSTALL_PATH$                                  ' chosen kit file to install
+DIM SHARED KIT_INSTALL_NONINTERACTIVE%                        ' TRUE = never open the conflict dialog (headless/scripted install)
+DIM SHARED KIT_INSTALL_AUTOCHOICE%                            ' conflict choice when non-interactive: 0 overwrite / 1 skip / 2 keep-both
 
 ' Dev screenshot mode (--kit-screenshots): when KIT_SHOT_PATH$ is set, a dialog
 ' saves its buffer to that PNG and closes after one frame; KIT_SHOT_SKIPPICK%

@@ -56,8 +56,8 @@ DIM SHARED MOVE AS MOVE_OBJ
 
 ' Multi-layer move: snapshot of multi-selected layers at capture time.
 ' When multiple layers are selected, translation propagates to all of them.
-REDIM SHARED MOVE_MULTI_LAYERS(1 TO MAX_LAYERS) AS INTEGER ' Layer indices (0 = unused slot)
-DIM SHARED MOVE_MULTI_COUNT AS INTEGER                     ' Count of snapshotted layers
+REDIM SHARED MOVE_MULTI_LAYERS(1 TO MAX_LAYERS) AS INTEGER   ' Layer indices (0 = unused slot)
+DIM SHARED MOVE_MULTI_COUNT AS INTEGER                       ' Count of snapshotted layers
 MOVE_MULTI_COUNT% = 0
 ' Per-layer original snapshots (canvas-sized copies taken at capture time)
 REDIM SHARED MOVE_MULTI_ORIGINALS(1 TO MAX_LAYERS) AS LONG
@@ -66,9 +66,9 @@ REDIM SHARED MOVE_MULTI_PREVIEWS(1 TO MAX_LAYERS) AS LONG
 
 
 ' Shared state for layer-level lossless scaling
-DIM SHARED SCALE_ORIGINAL_IMAGE AS LONG                    ' Backup of layer before first scale op
-DIM SHARED SCALE_ORIGINAL_LAYER AS INTEGER                 ' Which layer the backup belongs to
-DIM SHARED SCALE_FACTOR_LAYER   AS SINGLE                  ' Cumulative scale factor for layer scaling
+DIM SHARED SCALE_ORIGINAL_IMAGE AS LONG                      ' Backup of layer before first scale op
+DIM SHARED SCALE_ORIGINAL_LAYER AS INTEGER                   ' Which layer the backup belongs to
+DIM SHARED SCALE_FACTOR_LAYER   AS SINGLE                    ' Cumulative scale factor for layer scaling
 ' Per-layer non-destructive scale state for MULTI-SELECT instant scale (page up/down).
 ' The active layer uses the scalars above; every OTHER selected layer needs its own
 ' pristine original + cumulative factor so scaling down then up restores it losslessly.

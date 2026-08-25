@@ -32,10 +32,10 @@ DIM SHARED IMGDLG_RESET_CLICKED AS INTEGER
 ' pixels inside the selection change) or use it as the SHAPE (edge effects like
 ' glow/shadow/outline radiate from the selection edge, drawing inside AND outside
 ' it). CLIP is on by default; SEL_AS_SHAPE flips edge effects to selection-as-base.
-DIM SHARED EFFECT_CLIP_TO_SEL AS INTEGER
+DIM SHARED EFFECT_CLIP_TO_SEL  AS INTEGER
 DIM SHARED EFFECT_SEL_AS_SHAPE AS INTEGER
-EFFECT_CLIP_TO_SEL = -1   ' TRUE
-EFFECT_SEL_AS_SHAPE = 0   ' FALSE
+EFFECT_CLIP_TO_SEL  = -1 ' TRUE
+EFFECT_SEL_AS_SHAPE = 0  ' FALSE
 
 ' Native canvas-space top-left of the loupe preview crop, published by
 ' IMAGE_ADJ_update_loupe so the shared preview/clip code can map loupe pixels
@@ -52,13 +52,13 @@ CONST IMGADJ_LOUPE_PAD = 40
 ' Mosaic / Extrude cell shapes (shared cell-SHAPE picker). SQUARE keeps the classic
 ' behaviour; RECT/TRIANGLE use direct formulas; HEX/VORONOI/RANDOM use nearest-seed
 ' assignment (a seed lattice, odd rows offset for hex, hashed jitter for the others).
-CONST MOSAIC_SHAPE_SQUARE = 0
-CONST MOSAIC_SHAPE_RECT = 1
+CONST MOSAIC_SHAPE_SQUARE   = 0
+CONST MOSAIC_SHAPE_RECT     = 1
 CONST MOSAIC_SHAPE_TRIANGLE = 2
-CONST MOSAIC_SHAPE_HEX = 3
-CONST MOSAIC_SHAPE_VORONOI = 4
-CONST MOSAIC_SHAPE_RANDOM = 5
-CONST MOSAIC_SHAPE_COUNT = 6
+CONST MOSAIC_SHAPE_HEX      = 3
+CONST MOSAIC_SHAPE_VORONOI  = 4
+CONST MOSAIC_SHAPE_RANDOM   = 5
+CONST MOSAIC_SHAPE_COUNT    = 6
 
 ' Click-to-set-CENTER (Pinch/Bulge, Kaleidoscope, Lens Flare, …): the user clicks
 ' inside the loupe preview pane to place the effect's centre. Stored in CANVAS
@@ -81,12 +81,12 @@ DIM SHARED IMGADJ_SHAPE_THUMB AS LONG
 ' FX_PENDING_ACTION is set at the top of the effect dispatch in CMD_execute_action
 ' so the shared apply funcs know WHICH effect is committing. On commit they snapshot
 ' the layer BEFORE/AFTER (for Blend/Fade) and remember the action id + undo label.
-DIM SHARED FX_PENDING_ACTION AS INTEGER
-DIM SHARED LAST_FX_ACTION AS INTEGER
-DIM SHARED LAST_FX_LABEL AS STRING
-DIM SHARED LAST_FX_BEFORE AS LONG
-DIM SHARED LAST_FX_AFTER AS LONG
-DIM SHARED LAST_FX_LAYER AS INTEGER
+DIM SHARED FX_PENDING_ACTION  AS INTEGER
+DIM SHARED LAST_FX_ACTION     AS INTEGER
+DIM SHARED LAST_FX_LABEL      AS STRING
+DIM SHARED LAST_FX_BEFORE     AS LONG
+DIM SHARED LAST_FX_AFTER      AS LONG
+DIM SHARED LAST_FX_LAYER      AS INTEGER
 ' Instant-Redo replay blob: Layer-FX dialogs stash their final int params here (and
 ' set LAST_FX_REPLAYABLE = TRUE) so IMAGE_ADJ_redo_last can re-run the engine with no
 ' dialog; effects that don't stash fall back to re-opening the dialog (Recall). The
@@ -95,6 +95,6 @@ DIM SHARED LAST_FX_REPLAYABLE AS INTEGER
 DIM SHARED LAST_FX_P(0 TO 7) AS INTEGER
 ' TRUE while IMAGE_ADJ_blend_last is recompositing, so the apply hook doesn't treat
 ' the blend itself as a new "last effect".
-DIM SHARED FX_IN_BLEND AS INTEGER
+DIM SHARED FX_IN_BLEND        AS INTEGER
 
 ' ---- Slider dialogs ----------------------------------------------------------

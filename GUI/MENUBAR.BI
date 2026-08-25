@@ -22,8 +22,8 @@ OPTION _EXPLICITARRAY
 ' Max menu items across all menus. MENUBAR_register_item SILENTLY drops anything
 ' past this, so the overflow shows up as a menu entry that just isn't there —
 ' raised from 300 when the Help > crash-log items left only two spare slots.
-CONST MENU_MAX_ITEMS      = 400
-CONST MENU_MAX_ROOT       = 16 ' Max root-level menu entries. Must exceed the actual root
+CONST MENU_MAX_ITEMS = 400
+CONST MENU_MAX_ROOT  = 16      ' Max root-level menu entries. Must exceed the actual root
                                ' count: FILE..EFFECTS (10) + AI (optional) + HELP + AUDIO
                                ' = 13 with AI on. At 12 the register bounds-check dropped
                                ' the 13th root (AUDIO) silently once AI was enabled.

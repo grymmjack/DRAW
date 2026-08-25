@@ -15,7 +15,7 @@ OPTION _EXPLICITARRAY
 '   FONT_PREVIEW_STATE: 0 = not built, 1 = ready, -1 = none (TDF/failed)
 DIM SHARED FONT_PREVIEW_IMG(0 TO FONT_LIST_TOTAL_MAX - 1) AS LONG
 DIM SHARED FONT_PREVIEW_STATE(0 TO FONT_LIST_TOTAL_MAX - 1) AS INTEGER
-DIM SHARED FONT_PREVIEW_BUDGET AS INTEGER      ' remaining fresh renders this frame
-DIM SHARED FONT_PREVIEW_DIR_READY AS INTEGER   ' cache dir ensured once
+DIM SHARED FONT_PREVIEW_BUDGET      AS INTEGER ' remaining fresh renders this frame
+DIM SHARED FONT_PREVIEW_DIR_READY   AS INTEGER ' cache dir ensured once
 DIM SHARED FONT_PREVIEW_MAX_STRIP_W AS INTEGER ' widest strip rendered so far (px); sizes the dropdown so MAX_W is a CAP, not a forced width
 CONST FONT_PREVIEW_BUDGET_MAX = 4              ' cap fresh renders per frame
