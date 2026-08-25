@@ -8,7 +8,7 @@ Artifact: https://claude.ai/code/artifact/5861a9f8-234d-4065-84cc-6ef49359aa9a
 
 ## 🔨 NOW — doing right now
 
-➡️ Fixed 15 bugs (BUG-9/14/15/16/17/18/23/25/26/27/28/32 + BUG-4/6/7). Rebuilding apron/recolor/grayscale batch → then run apron QA test. Remaining: BUG-10/11/12 (transform mask/apron/clip), BUG-13/24/29 (contained), BUG-19/22 (complex — likely defer with docs).
+➡️ Second wave complete: 25 more bugs found (BUG-34..58), ~58 total. Fixed this batch: BUG-22-flip/24/29/34/35/40/44/48/50/51/53/55. Building blyru3xec → smoke-test → commit → update artifact. Deferred (documented): BUG-10/11/12/19/45/54 (complex) + ~15 LOW/UNVERIFIED.
 
 ## Phase F — Fix the deferred bugs
 
@@ -28,9 +28,18 @@ Artifact: https://claude.ai/code/artifact/5861a9f8-234d-4065-84cc-6ef49359aa9a
 ## Phase H — Fix confirmed bugs found by the hunt
 
 - [x] H1. Triaged — 25 bugs (BUG-9..33) logged with severity + root cause in BUGS-v2.0.0.md. Systemic sparse-array class (BUG-25/26) audited across all sites.
-- [ ] H2. Fix all confirmed HIGH-severity bugs. Compile clean after each.
-- [ ] H3. Fix all confirmed MED-severity bugs (or log LOW/needs-decision, not blocking). Compile clean.
-- [ ] H4. Add QA tests for the new fixes where deterministically testable.
+- [x] H2. Fixed all CLEAN HIGH bugs: BUG-9/14/15/16/17/25/26. Deferred as complex (need visual verification, documented in BUGS): BUG-10/11/12 (transform pipeline), BUG-19 (merge redo), BUG-22 (float-transform mask).
+- [x] H3. Fixed clean MED/LOW: BUG-18/23/24/27/28/32. Deferred LOW/UNVERIFIED (documented): BUG-13/20/21/29/30/31/33.
+- [x] H4. Added `apron-paint-after-move.sh` (BUG-14, GREEN). Verified BUG-14 fix + no paint regression; tool-eraser flakiness confirmed pre-existing harness noise.
+
+## Phase J — SECOND-WAVE HUNT (exhaustive continued)
+
+- [x] J1. MOUSE pipeline + INPUT dispatch hunt (UI_CHROME_CLICKED lifecycle, z-order precedence, drag/dblclick state machines, wheel/hover, deferred actions). Verify + log + fix.
+- [x] J2. KEYBOARD + modifiers + chords + DIALOGS/widgets/text-input hunt (bitwise-NOT sites, STATIC guards, hotkey conflicts, modal loops, TI-input). Verify + log + fix.
+- [x] J3. MULTI-INSTANCE + cross-instance clipboard + DRAG-DROP hunt (LAYERXFER, INSTANCE registry, DROP routing, IPC). Verify + log + fix.
+- [x] J4. CONFIG + STARTUP + PATHS + CLI + THEME hunt (include-order, color-field types, round-trip, --option, migration). Verify + log + fix.
+- [x] J5. GUI-chrome panels hunt (preview/organizer/drawer/menubar/statusbar/palette/layer-panel — auto-hide, drag-reorder, flyouts, _DEST restore). Verify + log + fix.
+- [ ] J6. Consolidate second-wave findings; fix confirmed HIGH/MED (BUG-34/35/40/44/48/50/51); rebuild; QA; commit; update artifact.
 
 ## Phase I — Verify & wrap
 

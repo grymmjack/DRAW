@@ -195,6 +195,9 @@ so we can execute it together later — the loop does not stop for it.
 | **BUG-32** | Grayscale preview color-patch tracked the cursor | gate partial-present off when active |
 
 Plus **BUG-4/BUG-6** (deferred → fixed): reset-list alignment + poly-line `cancel_restore`.
+Plus **BUG-22 (flip case only)** drop stale wand mask on a flipped commit · **BUG-24** clear-selection
+float now erases transparent (matches committed) · **BUG-29** `TEXT_apply` deletes empty text layers.
+Still pending: BUG-22 rotate/scale-float mask, BUG-10/11/12 transform, BUG-19 merge-redo.
 
 ## CLOSED / NON-ISSUE
 - **BUG-5** (IMAGE_IMPORT orphan): not reachable — import is properly modal.
@@ -325,6 +328,93 @@ Each verified against source. Severity in brackets.
   never reused, child just freezes — but untracked).
 
 ---
+
+### Second-wave fixes (applied, pending build verify)
+| Bug | Summary | Fix |
+|-----|---------|-----|
+| **BUG-44** [CRASH] | Palette-strip page-scroll → `PAL(-n)` out of range | modulo-normalize the scroll offset |
+| **BUG-40** [HIGH] | Command Palette typing leaked into global hotkeys | gate key-dispatch when palette open |
+| **BUG-53** [HIGH] | `--option`/`--dev`/`--instance` before a file dropped the file | skip flags in the arg scanner (both branches) |
+| **BUG-48** [MED] | Pan leaked through Drawer/EditBar/AdvBar/CharMap | additive `REGION_hit_test%` block |
+| **BUG-34** [HIGH] | Modal froze heartbeat → live instance reaped | `STALE_SECS` 12→60 |
+| **BUG-35** [MED] | LAYERXFER could send the PREVIOUS layer | clear temp before save + verify after |
+| **BUG-50/51** | palette-release tool leak / `OLD_B2` init | set `UI_CHROME_CLICKED%` / add init |
+| **BUG-55** [MED] | `--option` ignored with no config file | apply overrides before early exit |
+
+## SECOND WAVE — deep hunt continued (BUG-34+)
+
+Areas the first wave didn't cover (multi-instance, input pipeline, keyboard/dialogs, config, GUI chrome).
+Note: multi-instance is an advanced, off-by-default feature (Settings → Allow Multiple Instances).
+
+### BUG-34 [HIGH] — Modal dialogs freeze the instance heartbeat → live instance falsely reaped
+- With 2+ windows, leaving a modal (unsaved prompt, Save-As, message box, color picker) open >12s
+  freezes the heartbeat (`INSTANCE_tick` is only called from the main loop, `DRAW.BAS:532`; modal
+  loops like `MB_modal_loop` don't pump it). `INSTANCE_STALE_SECS=12` → peers reap the modal-blocked
+  instance → slot/config/mailbox collision (two instances share `.instance-N.cfg`), dropped
+  Send-Layer, double music. **FIX (applied): option (c)** — raise `STALE_SECS` well above modal
+  dwell + require consecutive stale reads before reaping.
+
+### BUG-35 [MED] — `LAYERXFER_serialize$` reuses a fixed temp + ignores `_SAVEIMAGE` failure → can send the PREVIOUS layer
+- `LAYERXFER.BM:136-149`: fixed temp `layerxfer_out.png`, no pre-delete, `_SAVEIMAGE` return unchecked.
+  On a silent save failure with a stale temp present, it reads the OLD PNG → broadcasts the wrong
+  layer. **FIX (applied):** KILL the temp before save + require `_FILEEXISTS` after before reading.
+
+### BUG-36 [MED] — File dropped while a modal is open dispatches to the wrong target later
+- Drops are queued only by the main loop (`DRAW.BAS:443`); with a modal open the drop is deferred, and
+  `DROP_tick` then routes by `MOUSE.RAW_X/Y` = the post-dialog cursor. **FIX PENDING** (discard drops
+  while modal, or capture coords at `_FINISHDROP`).
+
+### BUG-37 [LOW-MED] — INSTANCE bootstrap slot-walk: no mailbox re-clear on the claimed slot; can leave `INST.id` unowned
+- `INSTANCE.BM:216-231`: mailbox cleared only for the initial id; a walk-claimed higher slot inherits a
+  predecessor's undelivered layers; a fully-lost ~32-way race leaves an unowned id. **FIX PENDING**.
+
+### BUG-38 [LOW] — Canvas file-drop can do a non-undoable destructive stamp (`DROP.BM:214-224`) if `HISTORY_saved_this_frame%` already set.
+### BUG-39 [LOW, UNVERIFIED] — Paste/Send Layer stores `blendMode%` with no range clamp (`LAYERXFER.BM:120`).
+
+### BUG-40 [HIGH] — Command Palette typing leaks into the global hotkey dispatcher
+- Open Ctrl+P, type "line"/"rect"/"50" → the editor silently switches tools, changes opacity/brush
+  size, swaps FG/BG under you. `INPUT_dispatch_frame` runs unconditionally (`DRAW.BAS:568`) and
+  `CTX_COMMAND_PALETTE_OPEN` is SET (`INPUT.BM:788`) but **no binding uses it as `forbidCtx`**; the
+  legacy handler bails on palette-open but the new dispatcher doesn't. **FIX (applied):** gate key-event
+  dispatch in `INPUT_dispatch_frame` when the palette (or another free-text/inline-capture mode) is open.
+
+### BUG-44 [HIGH, CRASH] — Palette-strip page-scroll → negative offset → `PAL(-n)` out-of-range crash
+- 16-color palette (the norm) + Shift/Ctrl+wheel-up: `PALETTE-STRIP.BM:508-513` wraps with a one-shot
+  `IF offset<0` instead of modulo, so page-size (32/64) > pal_count (16) leaves offset negative;
+  render does `PAL((offset+i) MOD pal_count)` and QB64 MOD keeps the sign → `PAL(-15)` subscript OOR
+  → crash. **FIX (applied):** normalize `((offset MOD n)+n) MOD n` (+ defensive re-normalize).
+
+### BUG-45 [MED] — Undo/redo of a GROUP drag-reorder corrupts layer layout
+- `LAYER_PANEL_handle_drop` moves a group block but records a single-layer reorder (`LAYERS.BM:4361`);
+  undo relocates only the header, stranding children; parentGroupIdx changes unrecorded. **FIX PENDING**
+  (record a structural/block history entry).
+
+### BUG-41 [MED,UNVERIFIED] — open dropdown doesn't zero `ctx.mwheel` (`SETTINGS-WIDGETS.BM:827`) → wheel double-scrolls the dialog behind it.
+### BUG-42 [LOW] — new dispatcher ignores `KEYBOARD_SUPPRESS_FRAMES%` (mitigated by `_KEYCLEAR`).
+### BUG-43 [LOW] — TI Ctrl+symbol normalization overreaches letters range (`TI-INPUT.BM:522`) → Ctrl+[ acts as Escape.
+### BUG-46 [LOW] — Drawer "Load Images" batch wraps around clobbering earlier slots (`DRAWER.BM:4564`) instead of paging.
+### BUG-47 [LOW,UNVERIFIED] — Preview follow-mode Alt+click samples a stale canvas coord (`PREVIEW.BM:1617`).
+
+### BUG-48 [MED / HIGH-UX] — Canvas pan leaks through Drawer / Edit Bar / Adv Bar / Char Map / palette
+- `MOUSE_handle_panning` (`MOUSE.BM:1390-1424`) uses hand-maintained GUI-exclusion lists that OMIT
+  DRAWER/EDITBAR/ADVBAR/CHARMAP (drifted from the sibling b3-dblclick list). MMB / Space+drag over
+  those panels pans the canvas behind them. **FIX (applied):** gate the pan on
+  `REGION_hit_test% > REGION_CANVAS` (the canonical "over chrome" test), not the drifted lists.
+### BUG-49 [LOW] — b3-dblclick reset-zoom exclusion omits Char Map (`MOUSE.BM:1170`) — same class as BUG-48.
+### BUG-50 [LOW] — Command-palette click never sets `UI_CHROME_CLICKED%` → release leaks to the tool behind (phantom Shift+RMB anchor). **FIX (applied):** set the flag on palette press (mirrors menubar).
+### BUG-51 [LOW] — `MOUSE_init` doesn't init `OLD_B2` (`MOUSE.BM:218`). **FIX (applied):** add `MOUSE.OLD_B2% = FALSE`.
+### BUG-52 [LOW] — right-click / shift-constrain fire during an active pan (`MOUSE.BM:4969`, outside the `NOT SCRN.panning%` guard). **FIX PENDING**.
+
+### BUG-53 [HIGH] — `--option`/`--developer`/`--instance` before a filename silently drops the file
+- `./DRAW.run --option THEME=DARK myfile.draw` never opens myfile. The file-arg scanner
+  (`DRAW.BAS:189-218`) skips only a fixed flag whitelist; unrecognized flags fall into the ELSE that
+  sets `cmdArg$ = the flag` and stops. **FIX (applied):** skip any `--`/`-` token (and the value of the
+  2-token flags) in the scanner so the first non-flag token is the file.
+### BUG-54 [MED, latent] — THEME include-order (gotcha #11): `*_init` read `THEME.*` in `SCREEN_init` before `THEME.BI` defaults; safe only because shipped themes define every key. Breaks incomplete/kit themes. **FIX PENDING** (lazy-load, or re-run inits after final THEME_load).
+### BUG-55 [MED-LOW] — `--option` ignored when `DRAW.cfg.default` is absent (`CONFIG.BM:376` EXIT SUB before `apply_cli_overrides`). **FIX (applied):** apply overrides + validate before the early exit.
+### BUG-56 [LOW] — "0=use theme" sentinel lost on save/load for FONT_PREVIEW_FG/BG/DIVIDER + CANVAS_APRON_COLOR (saved as 000000 → loads as opaque black). **FIX PENDING** (guard `IF <>0` on write).
+### BUG-57 [LOW] — `--options-list` may print nothing on Windows (no `_CONSOLE ON`). **FIX PENDING**.
+### BUG-58 [LOW] — `PATHS_migrate` re-prompts every launch if the exe dir is read-only (marker written to CWD). **FIX PENDING**.
 
 ## BLOCKED — needs a Rick decision
 
