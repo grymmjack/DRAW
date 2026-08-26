@@ -12,9 +12,9 @@ Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercep
 
 ➡️ **Phases 0 + 1 COMPLETE** (8 commits): SHORTCUTS.md (curated + self-generating), CHEATSHEET retired, inventory/gap audit, MOD_PRIMARY + macOS ⌘, binding metadata, augment-generator + splice pipeline.
 
-⏸️ **PAUSED before Phase 2A — surfaced to Rick.** Investigating 2A.1 showed the migration is a delicate hot-path refactor: each binding needs its legacy handler removed AND its context guards (chord bits / text / tool-mode) replicated exactly onto the central binding, or input behavior changes. Example gnarl: action 316 (Flip V) is split across a `Ctrl+Shift+H` trigger and a context-dependent `V`-in-move-mode path; Flip-H (315) must replicate the `GRID_G_KEY_ARMED`/chord suppression. This is the class that reintroduces input regressions. Better done as a focused, QA-gated effort with Rick able to verify input FEEL than rushed autonomously. The doc (the stated priority) + full foundation are shipped & verified; Phase 2 is the rebinding-feature build, not the doc.
+➡️ Phase 2A: 2A.1 DONE (Flip H/V migrated to central dispatch + new QA test, GREEN). Finding: the remaining keyboard migrations need a small **dispatcher-infrastructure sub-phase** first (2A.2a) — CMD ids for menu-only actions, a key-alias/keyhit-alias for cross-platform + multi-trigger keys, a custom-brush context bit, and a clean modified-key legacy-removal helper. NOW: 2A.2a infra (each with a test), then 2A.2b migrations. Autonomous + QA-gated + expanding test coverage, on branch only.
 
-loop:off — awaiting Rick's go on how to run Phase 2 (all-at-once vs one batch at a time with him verifying feel; or hold). Flip to `loop:on` to resume.
+loop:on
 
 ## Phase 0 — SHORTCUTS.md (first deliverable + registry-gap audit)
 
@@ -38,8 +38,15 @@ loop:off — awaiting Rick's go on how to run Phase 2 (all-at-once vs one batch 
 ## Phase 2 — Migration to central dispatch (KEYBOARD FIRST, then mouse)
 
 ### 2A — Keyboard (ship first; makes keys rebindable)
-- [ ] 2A.1 Migrate the 4 keyboard `dispatched=FALSE` (Flip H 315, Flip V 316, Quit 212, Settings 2100) → TRUE; build + QA + commit.
-- [ ] 2A.2 Register + migrate unregistered keyboard legacy handlers, batched by subsystem: transforms (Home/End/PgUp/PgDn/>/<), custom-brush (F9/F12/`/`/Shift+O/Home/End/PgUp/PgDn), effects (Ctrl+F/Alt+F/Shift+F), music ({/}/*), recent files (Alt+1-0), grid/symmetry extras, display/misc — build + QA per batch.
+- [x] 2A.1 DONE (build + QA GREEN, new test) — **Flip H (315)** + **Flip V (316)** migrated to central dispatch. Skip-list handles the no-mod 'h' double-fire; chordHeld preserves legacy suppression; Ctrl+Shift+H was a DEAD binding now revived. New `QA/tests/seam-flip-central.sh` (8/8) doubles as a double-fire guard; tool-switch 28/28, undo/redo 11/11.
+  - [ ] ⚑ FLAGGED (not guessed) — **Quit (212, Ctrl+Q)** shares action 212 with a separate Alt+X legacy path; hard to QA (quits). **Settings (2100, Ctrl+,)** needs the cross-platform comma fallback (`_KEYDOWN(44)` OR `_KEYHIT 188`) which the plain central keycode won't replicate. Both need the dispatcher to support a key-alias / keyhit-alias before migrating. They still work via legacy — not blocking. Owes: revisit in a dispatcher-alias sub-task.
+- [ ] 2A.2a INFRA (prerequisite, discovered during 2A.1): the bulk of remaining keyboard migrations need dispatcher support first —
+      (i) a clean helper to remove/guard a modified-key legacy handler without double-fire (modified keys get no skip-list guard);
+      (ii) **CMD action ids** for menu-only actions the registry can't currently fire (Audio `{`/`}`/`*` → 427/428/433, recent-files);
+      (iii) a **key-alias / keyhit-alias** so a binding can carry the cross-platform comma fallback (`_KEYDOWN(44)` OR `_KEYHIT 188`) and Alt+X-style multi-trigger actions;
+      (iv) a **custom-brush-active context bit** so Home/End/PgUp/PgDn/`/` model "flip layer vs flip brush".
+      Build these, each with a test.
+- [ ] 2A.2b Migrate the now-modelable batches (effects Ctrl+F/Alt+F/Shift+F, then transforms, custom-brush, music, recent-files, grid/symmetry extras) — build + QA + new test per batch; FLAG any that still don't cleanly model.
 - [ ] 2A.3 Keyboard conflict audit clean (dev-mode `inputs.log`); commit → keyboard rebindable-ready.
 
 ### 2B — Mouse (second pass, after keyboard ships)
