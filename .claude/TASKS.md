@@ -6,17 +6,17 @@ commit. Mark genuinely-blocked items unchecked with a reason + who owes it, and 
 
 ## 🔨 NOW — doing right now
 
-➡️ Phase 0 kickoff — exhaustive shortcut extraction (keyboard + mouse + registry) to author SHORTCUTS.md.
+➡️ Phase 0 COMPLETE (SHORTCUTS.md authored + reconciled, CHEATSHEET retired, inventory/gap audit written, committed). Next: Phase 1 — registry completion + `--dump-shortcuts` generator (1.1 MOD_PRIMARY).
 
 ## Phase 0 — SHORTCUTS.md (first deliverable + registry-gap audit)
 
-- [ ] 0.1 Extract EVERY keyboard binding from `KEYBOARD.BM` + `DRAW.BAS` + `MODIFIERS.BM` → structured list (key, mods, context, action, category).
-- [ ] 0.2 Extract EVERY mouse / wheel / drag / hover binding from `MOUSE.BM` + per-tool BMs + `STICK.BM` → structured list (event, region, button/dir, mods, context, action).
-- [ ] 0.3 Extract the registered set from `INPUTS_register_all` (the 221) + action labels from `CMD_init` / `MENUBAR_init`.
-- [ ] 0.4 Reconcile 0.1–0.3 + `CHEATSHEET.md` into a master inventory; flag which bindings are NOT in the registry (= the Phase 2 migration cost number). Write inventory to `PLANS/SHORTCUTS-INVENTORY.md`.
-- [ ] 0.5 Author `SHORTCUTS.md` — full taxonomy, keyboard + mouse, logical Primary modifier rendered, CHEATSHEET tips merged in.
-- [ ] 0.6 Retire `CHEATSHEET.md` → redirect stub pointing to SHORTCUTS.md; update references (`CLAUDE.md`, `README.MD`, instruction files).
-- [ ] 0.7 Verify no broken doc references; commit Phase 0.
+- [x] 0.1 Keyboard extraction DONE (agent) — full inventory: tools, chords (G/M/Z/E/F/W held), transforms, text-editing, custom-brush, shape-modifiers, panel modes; with actionIDs + file:lines + UNCERTAIN list.
+- [x] 0.2 Mouse extraction DONE (agent) — full inventory: canvas per-tool, panels (layer/palette/toolbar/drawer/preview/charmap/status), wheel-over-region matrix, hold-key chords, special modes; SHORTCUT vs BEHAVIOR tagged.
+- [x] 0.3 Registry extraction DONE (agent) — `INPUTS_register_all` = 213 bindings (141 key + 72 mouse); 137 dispatched=TRUE / 76 FALSE; actionId→label/hotkey map; **registry GAPS** enumerated (Effects/Image/Audio/Align/Symbol/etc. have no central binding).
+- [x] 0.4 DONE — `PLANS/SHORTCUTS-INVENTORY.md`: coverage (213 registered, 137 TRUE / 76 FALSE), the ~150-action registry GAP (Effects/Image/Audio/Align/Symbol/custom-brush/mouse), parallel-id mismatches, menubar-only accelerators, and UNCERTAIN-confirm list. This scopes Phase 2.
+- [x] 0.5 DONE — `SHORTCUTS.md` authored (full taxonomy, kbd+mouse, Primary-modifier convention, macOS note, CHEATSHEET tips merged) + reconciled against agent data (added universal Home/End/PgUp/PgDn transforms, Ctrl+F/Alt+F/Shift+F last-effect, Z+digit zoom, M+/− selection, text formatting, pixel-analyzer overlay; fixed scale keys, D30).
+- [x] 0.6 DONE — `CHEATSHEET.md` replaced with a redirect stub → SHORTCUTS.md; CLAUDE.md key-files table updated. (In-app Help→Cheat Sheet opens the Command Palette, not the file — no code change needed.)
+- [x] 0.7 DONE — anchors/links sane; committing Phase 0.
 
 ## Phase 1 — Registry completion + `--dump-shortcuts` generator
 
