@@ -1,61 +1,71 @@
-# v2.0.0 DEEP BUG HUNT (exhaustive)
+# CUSTOMIZABLE SHORTCUTS — build loop
 
-Round 2: fix the remaining deferred bugs, then hunt EXHAUSTIVELY across every state-interaction
-area the seam pass didn't drill into. Each hunt box: fan out finder agents → I adversarially
-verify each finding against source → append CONFIRMED bugs to `BUGS-v2.0.0.md` (BUG-9+). Then fix
-all confirmed HIGH/MED bugs, rebuild, QA, commit, update the artifact. Branch `v2.0.0-input-hardening`.
-Artifact: https://claude.ai/code/artifact/5861a9f8-234d-4065-84cc-6ef49359aa9a
+Full plan: `PLANS/CUSTOMIZABLE-SHORTCUTS.md`. Branch: `customizable-shortcuts` (off main).
+Deliver in phase order; SHORTCUTS.md first. Each item: build clean + QA where applicable, then
+commit. Mark genuinely-blocked items unchecked with a reason + who owes it, and reprioritize.
 
 ## 🔨 NOW — doing right now
 
-✅ ALL PHASES COMPLETE. 3 deep-hunt waves (16 agents): **77 bugs found, 40 fixed & verified, 2 closed, 35 deferred (documented)**. 10 commits on `v2.0.0-input-hardening`, all built clean + QA-verified, no regressions. Artifact live. Loop done.
+➡️ Phase 0 kickoff — exhaustive shortcut extraction (keyboard + mouse + registry) to author SHORTCUTS.md.
 
-## Phase F — Fix the deferred bugs
+## Phase 0 — SHORTCUTS.md (first deliverable + registry-gap audit)
 
-- [x] F1. BUG-4 fixed — added `CUSTOM_BRUSH_reset` to Open (DRW.BM after IMAGE_IMPORT_reset) + `ZOOM_drag_reset` to New/New-from-clip. Three reset lists now aligned. (compile-verify in I1)
-- [x] F2. BUG-6 fixed — `TOOLS_reset_all` now calls `POLY_LINE_cancel_restore` (guarded, rolls partial polygon back on switch), matching `BEZIER_cancel_restore`. (compile-verify in I1)
+- [ ] 0.1 Extract EVERY keyboard binding from `KEYBOARD.BM` + `DRAW.BAS` + `MODIFIERS.BM` → structured list (key, mods, context, action, category).
+- [ ] 0.2 Extract EVERY mouse / wheel / drag / hover binding from `MOUSE.BM` + per-tool BMs + `STICK.BM` → structured list (event, region, button/dir, mods, context, action).
+- [ ] 0.3 Extract the registered set from `INPUTS_register_all` (the 221) + action labels from `CMD_init` / `MENUBAR_init`.
+- [ ] 0.4 Reconcile 0.1–0.3 + `CHEATSHEET.md` into a master inventory; flag which bindings are NOT in the registry (= the Phase 2 migration cost number). Write inventory to `PLANS/SHORTCUTS-INVENTORY.md`.
+- [ ] 0.5 Author `SHORTCUTS.md` — full taxonomy, keyboard + mouse, logical Primary modifier rendered, CHEATSHEET tips merged in.
+- [ ] 0.6 Retire `CHEATSHEET.md` → redirect stub pointing to SHORTCUTS.md; update references (`CLAUDE.md`, `README.MD`, instruction files).
+- [ ] 0.7 Verify no broken doc references; commit Phase 0.
 
-## Phase G — Deep hunt (fan out finders → adversarially verify → log confirmed bugs)
+## Phase 1 — Registry completion + `--dump-shortcuts` generator
 
-- [x] G1. HISTORY / undo-redo (the #1 bug source): multi-layer undo, group undo, transform undo, text undo, selection-mask snapshot/restore, the double-save guard (`HISTORY_saved_this_frame%`), redo-after-branch, undo across doc-creation. Verify + log.
-- [x] G2. APRON + coordinates (gotcha #14): promoted-layer coord offset, move/transform/paint past the canvas edge, crop with apron, apron cull-on-save, demote-on-first-press, wheel-zoom into apron. Verify + log.
-- [x] G3. LAYER groups/symbols + multi-select ops: group move (GROUP_ORIGIN), merge group/selected/visible, delete group, symbol child sync (symbolParentId), align/distribute (to-selection vs canvas), arrange reorder, solo/visibility. Verify + log.
-- [x] G4. TRANSFORM overlay modes: scale/rotate/shear/distort/perspective commit vs cancel, identity commit, apron interaction, multi-layer transform, SRC_IMG handle lifecycle, PREV_TOOL restore, re-activate while active. Verify + log.
-- [x] G5. SELECTION mask ops: flip/rotate/scale a selection (auto-float), fill selection FG/BG, crop-to-selection, stroke selection, clear selection, wand-mask vs rect-mask, deselect, mask + move/paste/clone interactions, mask persistence across ops. Verify + log.
-- [x] G6. RENDERING / cache + EFFECTS + SAVE-LOAD: scene/composite cache invalidation (missed INVALIDATE_scene, per-frame animation defeating cache), contentDirty discipline, effects clip-to-selection / selection-as-shape / multi-layer / undo, `.draw` round-trip fidelity (layer types, groups, text layers, apron, blend modes), opacity-lock + selection-clip interactions. Verify + log.
-- [x] G7. TOOL internals: text state machine (edit/commit/rasterize/re-edit/empty-layer/font-switch), bezier state + undo snapshot, smart shapes commit/AA, custom brush lifecycle (stash/recolor/scale/flip), fill variants (flood/merged/global), color mode/palette ops, grid snap/offset/cell-fill, spray, reference image, drag-drop routing. Verify + log.
+- [ ] 1.1 Add `MOD_PRIMARY` logical modifier (`INPUT.BI`) + a per-OS resolver (Ctrl on Win/Linux, Cmd on macOS) used by dispatch/doc/capture.
+- [ ] 1.2 Extend binding metadata: add `category%` + `userOverridden%` to the binding type + `INPUT_register_*` (back-compatible).
+- [ ] 1.3 Register every still-unregistered binding from the 0.4 inventory as metadata (`dispatched=FALSE` where legacy still owns it), with category + label.
+- [ ] 1.4 Build `--dump-shortcuts [md|html]` generator that emits SHORTCUTS.md from the live registry (console-only, headless-safe).
+- [ ] 1.5 Diff generated vs hand-authored SHORTCUTS.md; reconcile until identical; flip SHORTCUTS.md to generated. Build + commit.
 
-## Phase H — Fix confirmed bugs found by the hunt
+## Phase 2 — Finish the migration (dispatched=FALSE → TRUE), batched + QA-gated
 
-- [x] H1. Triaged — 25 bugs (BUG-9..33) logged with severity + root cause in BUGS-v2.0.0.md. Systemic sparse-array class (BUG-25/26) audited across all sites.
-- [x] H2. Fixed all CLEAN HIGH bugs: BUG-9/14/15/16/17/25/26. Deferred as complex (need visual verification, documented in BUGS): BUG-10/11/12 (transform pipeline), BUG-19 (merge redo), BUG-22 (float-transform mask).
-- [x] H3. Fixed clean MED/LOW: BUG-18/23/24/27/28/32. Deferred LOW/UNVERIFIED (documented): BUG-13/20/21/29/30/31/33.
-- [x] H4. Added `apron-paint-after-move.sh` (BUG-14, GREEN). Verified BUG-14 fix + no paint regression; tool-eraser flakiness confirmed pre-existing harness noise.
+- [ ] 2.1 Migrate TOOLS bindings to central dispatch; build + QA (tool-switch matrix) + commit.
+- [ ] 2.2 Migrate VIEW / zoom / pan / display-scale; build + QA + commit.
+- [ ] 2.3 Migrate SELECTION / marquee; build + QA + commit.
+- [ ] 2.4 Migrate LAYERS / groups; build + QA + commit.
+- [ ] 2.5 Migrate COLOR / palette / palette-ops; build + QA + commit.
+- [ ] 2.6 Migrate GRID / symmetry; build + QA + commit.
+- [ ] 2.7 Migrate TEXT / charmap; build + QA + commit.
+- [ ] 2.8 Migrate PANELS / docking + remaining mouse; build + QA + commit.
+- [ ] 2.9 Developer-mode conflict audit clean (0 conflicts in `inputs.log`); commit.
 
-## Phase J — SECOND-WAVE HUNT (exhaustive continued)
+## Phase 3 — Customization engine
 
-- [x] J1. MOUSE pipeline + INPUT dispatch hunt (UI_CHROME_CLICKED lifecycle, z-order precedence, drag/dblclick state machines, wheel/hover, deferred actions). Verify + log + fix.
-- [x] J2. KEYBOARD + modifiers + chords + DIALOGS/widgets/text-input hunt (bitwise-NOT sites, STATIC guards, hotkey conflicts, modal loops, TI-input). Verify + log + fix.
-- [x] J3. MULTI-INSTANCE + cross-instance clipboard + DRAG-DROP hunt (LAYERXFER, INSTANCE registry, DROP routing, IPC). Verify + log + fix.
-- [x] J4. CONFIG + STARTUP + PATHS + CLI + THEME hunt (include-order, color-field types, round-trip, --option, migration). Verify + log + fix.
-- [x] J5. GUI-chrome panels hunt (preview/organizer/drawer/menubar/statusbar/palette/layer-panel — auto-hide, drag-reorder, flyouts, _DEST restore). Verify + log + fix.
-- [x] J6. (duplicate — see the checked J6 below; done: fixed + built + QA + committed 5693fbf0 + artifact updated.)
+- [ ] 3.1 `DRAW.bindings` override file: load/save deltas only (OS-native config dir).
+- [ ] 3.2 Apply overrides over registry defaults at load; dispatcher honors overrides.
+- [ ] 3.3 Context-aware `BINDINGS_find_conflict%` (same trigger + overlapping CTX masks).
+- [ ] 3.4 Reset-to-default (per-binding + all). Build + QA (`rebind-apply/persist/reset/conflict`) + commit.
 
-## Phase I — Verify & wrap
+## Phase 4 — Customization UI
 
-- [x] I1. Full clean compile — all fix batches built clean (exit 0), `DRAW 2.0.0` runs.
-- [x] I2. New QA tests GREEN (10 seam + apron-paint-after-move); CLI `--option` smoke GREEN.
-- [x] I3. Input-pipeline regression: 9/10 GREEN incl. gui-command-palette (BUG-40 area), tool-switch-matrix, tool-move, edit-undo-redo; the 1 flaky (seam-selection-to-draw) confirmed 8/8 on re-run → NO regressions from INPUT.BM/MOUSE.BM/BRUSH.BM changes.
-- [x] J6. Second-wave findings consolidated + HIGH/MED fixed (BUG-34/35/40/44/48/50/51/53/55); built, QA-verified, committed (5693fbf0); artifact updated.
-- [x] I4. (see K5 line — done: run summary + commit + artifact.)
+- [ ] 4.1 `GUI/CONTROLS.BI/BM` scaffold + `ACTION_CUSTOMIZE_CONTROLS` + Edit → "Customize Controls…" + `CMD` wiring + `_ALL` includes.
+- [ ] 4.2 Binding list: find-filter, category dividers, current assignments (HOLD/PRESS/CLICK/WHEEL), scroll.
+- [ ] 4.3 Capture sub-modals (key / mouse / wheel), Primary-aware, CLEAR/CANCEL.
+- [ ] 4.4 Inline conflict badges + block-OK-on-conflict; SAVE/LOAD/RESET/PRINT toolbar. Build + QA + commit.
 
-## Phase K — THIRD WAVE (peripheral subsystems)
+## Phase 5 — Presets + import/export
 
-- [x] K1. FILE EXPORTERS hunt (BAS/QB64-source, PNG/BMP/GIF/JPG/TGA/HDR/ICO/QOI, ANSI export): flatten fidelity, blend/opacity, selection region, palette, handle leaks, format edge cases. Verify + log + fix.
-- [x] K2. FILE IMPORTERS hunt (PSD, ASE/Aseprite, ANSI/XBIN, Lospec, generic image): layer/blend mapping, malformed input, handle leaks, coordinate/size. Verify + log + fix.
-- [x] K3. EFFECTS ENGINE MATH hunt (the actual effect algorithms + -O3 kernels: blur/median/edge/emboss/sharpen/pixelate/mosaic/render/shape/texture): bounds, seed determinism, alpha handling, clip-to-selection, multi-layer. Verify + log + fix.
-- [x] K4. FONTS/TDF + PIXEL-COACH + SOUND hunt (TDF binary rasteriser + .TDX, bitmap/CBF fonts, pixel-art analyzer, sound slots/music/SF2). Verify + log + fix.
-- [x] K5. Third-wave findings consolidated (BUG-59..77); fixed BUG-62/65/66/67/68/70/72/74 (+52/57); built clean; smoke GREEN; committed; artifact updated to 77/40.
-- [x] I4. Final BUGS-v2.0.0.md run summary written; all 10 commits on branch; artifact live. Deferred list documented with root causes. **Session complete.**
+- [ ] 5.1 Preset format + loader; ship DRAW default map.
+- [ ] 5.2 Author Aseprite preset (map → DRAW actionIds; unmapped keep DRAW default, noted).
+- [ ] 5.3 Author Photoshop preset.
+- [ ] 5.4 Author GIMP preset.
+- [ ] 5.5 Author Deluxe Paint / GrafX2 preset.
+- [ ] 5.6 Import/export `.bindings` via file dialog + `--export-bindings` / `--import-bindings` CLI.
+- [ ] 5.7 Preset picker in the Controls dialog. Build + QA (`preset-load`) + commit.
+
+## Phase 6 — Wrap
+
+- [ ] 6.1 Regenerate SHORTCUTS.md from the final registry; reconcile.
+- [ ] 6.2 Update `CLAUDE.md` / `README.MD` / instruction files for the new input system + customization.
+- [ ] 6.3 Full QA regression; run summary in `PLANS/CUSTOMIZABLE-SHORTCUTS.md`; rendered Shortcuts artifact; final commit.
 
 loop:on
