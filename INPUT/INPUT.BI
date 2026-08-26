@@ -151,6 +151,7 @@ CONST CTX_POPUP_MENU_OPEN      = &H0000000000000100
 CONST CTX_COMMAND_PALETTE_OPEN = &H0000000000000200
 CONST CTX_TRANSFORM_ACTIVE     = &H0000000000000400
 CONST CTX_DRAWING_IN_PROGRESS  = &H0000000000000800
+CONST CTX_CUSTOM_BRUSH_ACTIVE  = &H0000000000001000 ' bit 12 — a custom brush is loaded; Home/End/PgUp/PgDn/`/` transform the brush, not the layer
 ' bits 12-19 reserved
 
 ' Held-key chord initiators (set by INPUT_update_context from raw key state)
