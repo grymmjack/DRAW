@@ -282,6 +282,18 @@ COLORMIXER_init         ' Initialise non-modal color mixer panel
 BROWSER_init            ' Initialise floating browser panel scaffold
 SMART_SHAPES_init       ' Register Smart Shapes flyout sub-tools
 INPUTS_init             ' Initialise input dispatch system + audit (DEV_MODE -> inputs.log)
+
+' --dump-shortcuts: emit the input registry as markdown binding tables, then exit.
+' Runs here (after INPUTS_init populates the registry). Console-only; use
+' DRAW_HEADLESS=1 to avoid the window. (Augment generator for SHORTCUTS.md.)
+DIM dumpShortcutsI AS INTEGER
+FOR dumpShortcutsI% = 1 TO _COMMANDCOUNT
+    IF LCASE$(_TRIM$(COMMAND$(dumpShortcutsI%))) = "--dump-shortcuts" THEN
+        SHORTCUTS_dump
+        SYSTEM
+    END IF
+NEXT dumpShortcutsI%
+
 GAMEPAD_init            ' Initialise gamepad subsystem (stub — mouse emulation)
 
 ' Main Loop

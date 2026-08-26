@@ -1,0 +1,191 @@
+''
+' DRAW - OUTPUT/SHORTCUTS-DUMP.BM
+' =============================================================================
+' `--dump-shortcuts` generator. Walks the INPUT registry (INPUT_BINDS) and emits
+' markdown binding TABLES grouped by category, for splicing into the curated
+' SHORTCUTS.md (the "augment" model — prose stays hand-authored, tables generated
+' so they can never drift from the registry).
+'
+' Console-only; runs before graphics (from CFG/CONFIG.BI's CLI scan) and SYSTEMs.
+' The `Primary` modifier renders per-OS (Ctrl on Win/Linux, Cmd on macOS).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' The platform "primary"/command modifier name for rendering.
+'
+FUNCTION SHORTCUTS_primaryname$ ()
+    $IF MAC THEN
+        SHORTCUTS_primaryname$ = "Cmd"
+    $ELSE
+        SHORTCUTS_primaryname$ = "Ctrl"
+    $END IF
+END FUNCTION
+
+''
+' Render a requireMods bitmask as a "Ctrl+Shift+" style prefix.
+'
+FUNCTION SHORTCUTS_modstr$ (m AS INTEGER)
+    DIM s AS STRING : s$ = ""
+    IF m AND MOD_PRIMARY THEN s$ = s$ + SHORTCUTS_primaryname$ + "+"
+    IF m AND MOD_CTRL THEN s$ = s$ + "Ctrl+"
+    IF m AND MOD_ALT THEN s$ = s$ + "Alt+"
+    IF m AND MOD_SHIFT THEN s$ = s$ + "Shift+"
+    SHORTCUTS_modstr$ = s$
+END FUNCTION
+
+''
+' Category id -> human header.
+'
+FUNCTION SHORTCUTS_catname$ (c AS INTEGER)
+    SELECT CASE c
+        CASE CAT_GLOBAL    : SHORTCUTS_catname$ = "Global / Application"
+        CASE CAT_FILE      : SHORTCUTS_catname$ = "File"
+        CASE CAT_EDIT      : SHORTCUTS_catname$ = "Edit / History / Clipboard"
+        CASE CAT_VIEW      : SHORTCUTS_catname$ = "View / Zoom / Pan"
+        CASE CAT_TOOLS     : SHORTCUTS_catname$ = "Tools"
+        CASE CAT_SELECTION : SHORTCUTS_catname$ = "Selection"
+        CASE CAT_LAYERS    : SHORTCUTS_catname$ = "Layers / Groups"
+        CASE CAT_COLOR     : SHORTCUTS_catname$ = "Color / Palette"
+        CASE CAT_GRID      : SHORTCUTS_catname$ = "Grid / Symmetry"
+        CASE CAT_TEXT      : SHORTCUTS_catname$ = "Text / Character Map"
+        CASE CAT_BRUSH     : SHORTCUTS_catname$ = "Brush / Custom Brush"
+        CASE CAT_TRANSFORM : SHORTCUTS_catname$ = "Transform"
+        CASE CAT_IMAGE     : SHORTCUTS_catname$ = "Image / Adjustments / Effects"
+        CASE CAT_PANELS    : SHORTCUTS_catname$ = "Panels"
+        CASE CAT_AUDIO     : SHORTCUTS_catname$ = "Audio"
+        CASE CAT_MOUSE     : SHORTCUTS_catname$ = "Mouse"
+        CASE ELSE          : SHORTCUTS_catname$ = "Other"
+    END SELECT
+END FUNCTION
+
+''
+' Physical keycode -> display name (covers every code DRAW registers).
+'
+FUNCTION SHORTCUTS_keyname$ (kc AS LONG)
+    DIM k AS LONG : k& = kc&
+    SELECT CASE k&
+        CASE 97 TO 122 : SHORTCUTS_keyname$ = CHR$(k& - 32)   ' a..z -> A..Z
+        CASE 48 TO 57  : SHORTCUTS_keyname$ = CHR$(k&)         ' 0..9
+        CASE 44        : SHORTCUTS_keyname$ = ","
+        CASE 46        : SHORTCUTS_keyname$ = "."
+        CASE 47        : SHORTCUTS_keyname$ = "/"
+        CASE 59        : SHORTCUTS_keyname$ = ";"
+        CASE 39        : SHORTCUTS_keyname$ = "'"
+        CASE 34        : SHORTCUTS_keyname$ = CHR$(34)          ' "
+        CASE 92        : SHORTCUTS_keyname$ = "\"
+        CASE 124       : SHORTCUTS_keyname$ = "|"
+        CASE 91        : SHORTCUTS_keyname$ = "["
+        CASE 93        : SHORTCUTS_keyname$ = "]"
+        CASE 61        : SHORTCUTS_keyname$ = "="
+        CASE 45        : SHORTCUTS_keyname$ = "-"
+        CASE 63        : SHORTCUTS_keyname$ = "?"
+        CASE 35        : SHORTCUTS_keyname$ = "#"
+        CASE 96        : SHORTCUTS_keyname$ = "`"
+        CASE 8         : SHORTCUTS_keyname$ = "Backspace"
+        CASE 9         : SHORTCUTS_keyname$ = "Tab"
+        CASE 13        : SHORTCUTS_keyname$ = "Enter"
+        CASE 27        : SHORTCUTS_keyname$ = "Esc"
+        CASE 32        : SHORTCUTS_keyname$ = "Space"
+        CASE 18432     : SHORTCUTS_keyname$ = "Up"
+        CASE 20480     : SHORTCUTS_keyname$ = "Down"
+        CASE 19200     : SHORTCUTS_keyname$ = "Left"
+        CASE 19712     : SHORTCUTS_keyname$ = "Right"
+        CASE 18176     : SHORTCUTS_keyname$ = "Home"
+        CASE 20224     : SHORTCUTS_keyname$ = "End"
+        CASE 18688     : SHORTCUTS_keyname$ = "PgUp"
+        CASE 20736     : SHORTCUTS_keyname$ = "PgDn"
+        CASE 21248     : SHORTCUTS_keyname$ = "Delete"
+        CASE 15104     : SHORTCUTS_keyname$ = "F1"
+        CASE 15360     : SHORTCUTS_keyname$ = "F2"
+        CASE 15616     : SHORTCUTS_keyname$ = "F3"
+        CASE 15872     : SHORTCUTS_keyname$ = "F4"
+        CASE 16128     : SHORTCUTS_keyname$ = "F5"
+        CASE 16384     : SHORTCUTS_keyname$ = "F6"
+        CASE 16640     : SHORTCUTS_keyname$ = "F7"
+        CASE 16896     : SHORTCUTS_keyname$ = "F8"
+        CASE 17152     : SHORTCUTS_keyname$ = "F9"
+        CASE 17408     : SHORTCUTS_keyname$ = "F10"
+        CASE 34048     : SHORTCUTS_keyname$ = "F11"
+        CASE 28416     : SHORTCUTS_keyname$ = "F12"
+        CASE 0         : SHORTCUTS_keyname$ = "(unassigned)"
+        CASE ELSE      : SHORTCUTS_keyname$ = "key#" + _TRIM$(STR$(k&))
+    END SELECT
+END FUNCTION
+
+''
+' Render a mouse binding row's trigger (button/wheel + region).
+'
+FUNCTION SHORTCUTS_mousetrigger$ (i AS INTEGER)
+    DIM t AS STRING : t$ = ""
+    SELECT CASE INPUT_BINDS(i%).eventType
+        CASE EVT_MOUSE_WHEEL
+            IF INPUT_BINDS(i%).wheelDir > 0 THEN t$ = "Wheel up" ELSE t$ = "Wheel down"
+        CASE EVT_MOUSE_HOVER_ENTER : t$ = "Hover enter"
+        CASE EVT_MOUSE_HOVER_LEAVE : t$ = "Hover leave"
+        CASE EVT_MOUSE_MOVE        : t$ = "Move"
+        CASE ELSE
+            SELECT CASE INPUT_BINDS(i%).button
+                CASE 1 : t$ = "L"
+                CASE 2 : t$ = "R"
+                CASE 3 : t$ = "M"
+                CASE ELSE : t$ = "?"
+            END SELECT
+            SELECT CASE INPUT_BINDS(i%).eventType
+                CASE EVT_MOUSE_DBLCLICK   : t$ = "Dbl " + t$ + "-Click"
+                CASE EVT_MOUSE_DRAG_START, EVT_MOUSE_DRAG_MOVE, EVT_MOUSE_DRAG_END : t$ = t$ + "-Drag"
+                CASE ELSE                 : t$ = t$ + "-Click"
+            END SELECT
+    END SELECT
+    IF LEN(SHORTCUTS_modstr$(INPUT_BINDS(i%).requireMods)) > 0 THEN
+        t$ = SHORTCUTS_modstr$(INPUT_BINDS(i%).requireMods) + t$
+    END IF
+    SHORTCUTS_mousetrigger$ = t$
+END FUNCTION
+
+''
+' Emit the whole registry as markdown tables grouped by category. Console-only.
+'
+SUB SHORTCUTS_dump ()
+    DIM md AS STRING, cat AS INTEGER, i AS INTEGER, n AS INTEGER, trig AS STRING, note AS STRING
+    DIM nl AS STRING : nl$ = CHR$(10)
+
+    md$ = "<!-- GENERATED by `DRAW --dump-shortcuts` from the input registry (" + _TRIM$(STR$(INPUT_BIND_COUNT)) + " bindings)." + nl$
+    md$ = md$ + "     Do not hand-edit between the BINDINGS markers in SHORTCUTS.md; edit the registry (INPUTS_register_all) instead. -->" + nl$ + nl$
+
+    FOR cat% = 1 TO 16
+        n% = 0
+        FOR i% = 1 TO INPUT_BIND_COUNT
+            IF INPUT_BINDS(i%).category = cat% THEN n% = n% + 1
+        NEXT i%
+
+        IF n% > 0 THEN
+            md$ = md$ + "### " + SHORTCUTS_catname$(cat%) + nl$ + nl$
+            md$ = md$ + "| Trigger | Action | Dispatch |" + nl$
+            md$ = md$ + "|---------|--------|----------|" + nl$
+            FOR i% = 1 TO INPUT_BIND_COUNT
+                IF INPUT_BINDS(i%).category = cat% THEN
+                    IF INPUT_BINDS(i%).device = DEVICE_MOUSE THEN
+                        trig$ = SHORTCUTS_mousetrigger$(i%)
+                    ELSE
+                        trig$ = SHORTCUTS_modstr$(INPUT_BINDS(i%).requireMods) + SHORTCUTS_keyname$(INPUT_BINDS(i%).keycode)
+                    END IF
+                    IF INPUT_BINDS(i%).dispatched THEN note$ = "central" ELSE note$ = "legacy"
+                    md$ = md$ + "| `" + trig$ + "` | " + _TRIM$(RTRIM$(INPUT_BINDS(i%).label)) + " | " + note$ + " |" + nl$
+                END IF
+            NEXT i%
+            md$ = md$ + nl$
+        END IF
+    NEXT cat%
+
+    ' Write the generated tables straight to a file (binary PUT — no PRINT, no _DEST).
+    DIM outPath AS STRING : outPath$ = "SHORTCUTS.tables.md"
+    IF _FILEEXISTS(outPath$) THEN KILL outPath$
+    DIM ff AS INTEGER : ff% = FREEFILE
+    OPEN outPath$ FOR BINARY AS #ff%
+    PUT #ff%, 1, md$
+    CLOSE #ff%
+    _LOGINFO "SHORTCUTS: wrote " + _TRIM$(STR$(INPUT_BIND_COUNT)) + " bindings to " + outPath$
+END SUB
