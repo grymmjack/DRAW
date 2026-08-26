@@ -14,11 +14,9 @@ Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercep
 
 ➡️ Phase 2A keyboard: **5 subsystems migrated to central dispatch + tested** — tools, Flip H/V, transforms (layer-vs-brush), effects, Quit. 17 commits; conflict audit 0/227; **5 new QA tests** GREEN. The cleanly-migratable-AND-Linux-verifiable keyboard work is COMPREHENSIVELY DONE.
 
-⏸️ Genuine boundary reached (loop:off). The remaining keyboard bindings are cross-platform-landmine-gated — can't be validated on Linux alone:
-  - **Settings** — Windows suppresses `_KEYDOWN(44)` under Ctrl; needs a keyhit-alias for `±188` + Windows verify.
-  - **Music `{`/`}`/`*`** — Shift-produced keycodes (123/125/42 vs Shift+[/]/8) are a keyboard-layout landmine.
-  - **F12** — legacy keycode 34304 vs registry 28416 variant.
-These need a Windows-in-the-loop pass, not more Linux-only flips. And **Phase 2B (mouse)** is the major refactor of the 6k-line `MOUSE.BM` pipeline — a big deliberate undertaking, not tail-of-marathon work. Awaiting Rick's steer on which to push next (mouse refactor · cross-platform keyboard finish · or jump to Phase 3 engine). loop:on to resume.
+➡️ Phase 2B (mouse) — Rick's pick. **2B.0 kickoff DONE**: scouted + reframed the phase (mouse ops are positional, not CMD actions → migrate only ~15-20 rebindable behaviors via MOUSE.BM registry-override, NOT a 6k-line rewrite); fixed backwards wheel metadata + an inherited doc error; build clean. 20 commits. NEXT: 2B.1 enumerate the rebindable-mouse set with accurate metadata, then 2B.2 wire MOUSE.BM to honor overrides one behavior at a time (build + QA + test each). Remaining keyboard (Settings/Music/F12) stays flagged — needs a Windows-in-the-loop pass. Autonomous + QA-gated, branch only.
+
+loop:on
 
 loop:on
 
@@ -59,7 +57,9 @@ loop:on
 - [x] 2A.3 (running audit) — dev-mode conflict audit **0 conflicts across 227 bindings** after the flip + transform-key migrations. Re-run after each future batch. Keyboard tools/flip/transform now rebindable-ready.
 
 ### 2B — Mouse (second pass, after keyboard ships)
-- [ ] 2B.1 Give the 72 mouse metadata rows real actionIds; route canvas + per-panel mouse through central dispatch, region by region; build + QA each.
+- [x] 2B.0 Kickoff DONE — scouted the mouse pipeline; **reframed the phase** (design in `PLANS/CUSTOMIZABLE-SHORTCUTS.md`): mouse ops are positional and mostly NOT discrete CMD actions, so do NOT route all 72 rows / the 6k-line pipeline through central dispatch. Migrate only the ~15-20 rebindable "input-preference" behaviors by having MOUSE.BM honor registry overrides; tool strokes + panel affordances stay put. Fixed the BACKWARDS canvas-wheel metadata (plain=zoom, Ctrl=brush-size) + an inherited CHEATSHEET doc error. Build clean; doc regenerated.
+- [ ] 2B.1 Enumerate the rebindable-mouse behavior set (button FG/BG, wheel zoom-vs-brush, Alt+click pick, Ctrl+click symmetry center, pan trigger, wheel-over-region) with accurate registry metadata + real actionIds where they map.
+- [ ] 2B.2 Wire MOUSE.BM to consult the registry for each rebindable behavior (one at a time), so a user override takes effect; build + QA + new test per behavior. FLAG any that don't cleanly model.
 - [ ] 2B.2 Mouse/wheel conflict audit clean; commit.
 
 ## Phase 3 — Customization engine
