@@ -8,7 +8,9 @@ commit. Mark genuinely-blocked items unchecked with a reason + who owes it, and 
 
 ➡️ Phase 0 done + committed. Rick steered (2026): **macOS ⌘ via GLFW interception**, **augment generator (tables spliced into curated prose)**, **keyboard-first migration**. Executing Phase 1. Starting 1.1a (GLFW ⌘ probe).
 
-Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercepted through the GLFW layer · generator emits binding TABLES that splice into the curated SHORTCUTS.md shell (prose stays) · Phase 2 migrates KEYBOARD first, then mouse as a 2nd pass.
+Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercepted through the (permanent) GLFW layer · generator emits binding TABLES that splice into the curated SHORTCUTS.md shell (prose stays) · Phase 2 migrates KEYBOARD first, then mouse as a 2nd pass.
+
+➡️ 1.1a/1.1b/1.2 DONE + committed (⌘ via stock _KEYDOWN, MOD_PRIMARY infra, binding metadata — all build+QA verified). NEXT: 1.3 — register the ~150 unregistered actions (see PLANS/SHORTCUTS-INVENTORY.md gap list) as metadata (dispatched=FALSE), keyboard-first; then 1.4 augment-generator.
 
 ## Phase 0 — SHORTCUTS.md (first deliverable + registry-gap audit)
 
@@ -22,10 +24,10 @@ Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercep
 
 ## Phase 1 — Registry completion + augment-generator + Primary/⌘
 
-- [ ] 1.1a Investigate + prototype **GLFW ⌘ interception on macOS**: can QB64-PE reach `GLFW_MOD_SUPER` / `glfwGetKey(GLFW_KEY_LEFT/RIGHT_SUPER)` via `DECLARE LIBRARY` against the GLFW backend (the same layer that gave us `_MOUSECURSOR`)? Probe standalone; macOS-only, Linux/Win unaffected.
-- [ ] 1.1b Add `MOD_PRIMARY` (`CORE/HELPERS.BI`). Feed it in `MODS_NOW%` from Ctrl (Win/Linux) or ⌘ (macOS via 1.1a). **AUDIT `MODS_only%` exact-match sites** so the extra bit can't break them (keep MOD_PRIMARY out of the exact-match snapshot, or update MODS_only%).
-- [ ] 1.2 Add `category%` + `userOverridden%` to `INPUT_BIND`; derive category (by actionId range or explicit). Back-compatible.
-- [ ] 1.3 Register the ~150 unregistered actions (0.4 inventory) as metadata (`dispatched=FALSE`) with category + label.
+- [x] 1.1a DONE (agent, conclusive + probe-verified) — **the GLFW backend already exposes ⌘/Super through stock `_KEYDOWN`**: `100311`=Left ⌘, `100312`=Right ⌘ (traced through qb64pe `keyboard.cpp`/`cocoa_window.m`; compiled+ran a probe). No `DECLARE LIBRARY`, no upstream patch. Fallback (unneeded): `CGEventSourceKeyState`. The `glfwGetKey` route is a dead end from BASIC (window ptr private, GL context not current on the BASIC thread).
+- [x] 1.1b DONE (build + QA verified) — `MOD_PRIMARY=8`, `KEY_LSUPER&/RSUPER&`, `MODIFIERS.cmd%/primary%` (Ctrl on Win/Linux; Ctrl-or-⌘ on macOS via `_KEYDOWN(100311/100312)`), fed into `MODS_NOW%`, `MODS_only%` masks it out. No regression (tool-switch 28/28, undo/redo 11/11). Binding reclassification deferred to 2A.
+- [x] 1.2 DONE (build-verified, `DRAW 2.0.0` runs) — added `category%` + `userOverridden%` to `INPUT_BIND` + `CAT_*` constants + `INPUT_category_for%(actionId)` (id-range mapper) wired into `INPUT_register%` (mouse → CAT_MOUSE by device).
+- [x] 1.3 DONE (build clean + conflict-audit clean) — registered the legacy-*triggered* CMD-backed keyboard bindings that were missing (Ctrl+F/Alt+F/Shift+F last-effect → 2350/2351/2352, Ctrl+Alt+O CRT → 950, Alt+O open → 206, Alt+X exit → 212) as `dispatched=FALSE` metadata. **Scope clarified vs the raw "~150":** truly-unbound menu actions (Effects/Image/Audio/Align/Symbol) have no trigger → they're "assignable but unassigned," listed by the rebind UI from the CMD table, NOT registered as fake bindings. Chords (Z+digit, G+arrow, M+=, Hold F/E/W) were ALREADY registered via `CTX_*_HELD`. Context-dependent keys (custom-brush/transform Home/End/PgUp/PgDn) + menubar-only non-CMD (Audio {/}/*) → Phase 2A.
 - [ ] 1.4 Build `--dump-shortcuts` → emits binding TABLES (markdown) grouped by category, Primary rendered per-OS. Add splice markers to SHORTCUTS.md's table regions (**augment**: prose stays hand-authored).
 - [ ] 1.5 Splice generated tables into SHORTCUTS.md; verify tables ↔ registry; build + commit.
 
