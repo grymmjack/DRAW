@@ -12,7 +12,13 @@ Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercep
 
 ➡️ **Phases 0 + 1 COMPLETE** (8 commits): SHORTCUTS.md (curated + self-generating), CHEATSHEET retired, inventory/gap audit, MOD_PRIMARY + macOS ⌘, binding metadata, augment-generator + splice pipeline.
 
-➡️ Phase 2A: **4 keyboard subsystems migrated to central dispatch + tested** — tools, Flip H/V, Home/End/PgUp/PgDn (layer-vs-brush), effects (Ctrl+F/Alt+F/Shift+F). 15 commits; conflict audit 0/227; 4 new QA tests GREEN (seam-flip-central, seam-transform-brush-context, seam-effects-central + the pre-existing suite). The cleanly-migratable keyboard work is DONE. Remaining keyboard batches (F12 keycode-variant, music, Quit/Settings) are all gated on a dispatcher-INFRA sub-project (CMD-ids + key/keyhit-alias). NEXT: build that infra (2A.2a-ii/iii), each a unit with a test; then Phase 2B (mouse). Autonomous + QA-gated, branch only.
+➡️ Phase 2A keyboard: **5 subsystems migrated to central dispatch + tested** — tools, Flip H/V, transforms (layer-vs-brush), effects, Quit. 17 commits; conflict audit 0/227; **5 new QA tests** GREEN. The cleanly-migratable-AND-Linux-verifiable keyboard work is COMPREHENSIVELY DONE.
+
+⏸️ Genuine boundary reached (loop:off). The remaining keyboard bindings are cross-platform-landmine-gated — can't be validated on Linux alone:
+  - **Settings** — Windows suppresses `_KEYDOWN(44)` under Ctrl; needs a keyhit-alias for `±188` + Windows verify.
+  - **Music `{`/`}`/`*`** — Shift-produced keycodes (123/125/42 vs Shift+[/]/8) are a keyboard-layout landmine.
+  - **F12** — legacy keycode 34304 vs registry 28416 variant.
+These need a Windows-in-the-loop pass, not more Linux-only flips. And **Phase 2B (mouse)** is the major refactor of the 6k-line `MOUSE.BM` pipeline — a big deliberate undertaking, not tail-of-marathon work. Awaiting Rick's steer on which to push next (mouse refactor · cross-platform keyboard finish · or jump to Phase 3 engine). loop:on to resume.
 
 loop:on
 
@@ -39,7 +45,8 @@ loop:on
 
 ### 2A — Keyboard (ship first; makes keys rebindable)
 - [x] 2A.1 DONE (build + QA GREEN, new test) — **Flip H (315)** + **Flip V (316)** migrated to central dispatch. Skip-list handles the no-mod 'h' double-fire; chordHeld preserves legacy suppression; Ctrl+Shift+H was a DEAD binding now revived. New `QA/tests/seam-flip-central.sh` (8/8) doubles as a double-fire guard; tool-switch 28/28, undo/redo 11/11.
-  - [ ] ⚑ FLAGGED (not guessed) — **Quit (212, Ctrl+Q)** shares action 212 with a separate Alt+X legacy path; hard to QA (quits). **Settings (2100, Ctrl+,)** needs the cross-platform comma fallback (`_KEYDOWN(44)` OR `_KEYHIT 188`) which the plain central keycode won't replicate. Both need the dispatcher to support a key-alias / keyhit-alias before migrating. They still work via legacy — not blocking. Owes: revisit in a dispatcher-alias sub-task.
+  - [x] **Quit (212, Ctrl+Q)** DONE (2A.2b) — was a DEAD binding (no legacy handler); revived via central dispatch. `seam-quit-central.sh` 6/6 (unsaved-dialog observable). Alt+X stays separate.
+  - [ ] ⚑ STILL GATED — **Settings (2100, Ctrl+,)** genuinely needs the keyhit-alias: legacy comment confirms `_KEYDOWN(44)` works on Linux/macOS while Ctrl held, but **Windows suppresses it** and delivers comma only via `_KEYHIT ±188`. Migrating with plain keycode-44 would regress Windows. Needs a keyhit-alias (iii) + Windows verification. Works via legacy today.
 - [x] 2A.2a-iv DONE — `CTX_CUSTOM_BRUSH_ACTIVE` context bit (set in `INPUT_update_context`); unblocked the transform-key batch. Remaining infra as-needed: (i) modified-key legacy-removal (the unconditional-GOTO-skip pattern proved clean — reusable), (ii) CMD ids for menu-only Audio `{`/`}`/`*` (427/428/433 not in `CMD_execute_action`), (iii) key/keyhit-alias for Ctrl+`,` (comma 188 fallback) + multi-trigger Quit.
 - [x] 2A.2b-transforms DONE (build + 3 tests GREEN) — **Home/End/PgUp/PgDn** migrated: two central bindings each (layer vs brush via `CTX_CUSTOM_BRUSH_ACTIVE`); legacy block disabled with a one-line `GOTO SkipTransformKeys`. New `seam-transform-brush-context.sh` (5/5) proves the brush-branch routing; `seam-flip-central` 8/8 + `transform-scale-2x` 7/7 cover the layer branch.
 - [x] 2A.2b-effects DONE (build + FIRE-log + test GREEN) — **Ctrl+F/Ctrl+Alt+F/Ctrl+Shift+F** (Redo/Recall/Blend last effect) migrated; legacy `_KEYDOWN` block removed. New `seam-effects-central.sh` (5/5) applies Glow then Ctrl+F re-applies it; `--developer` FIRE log confirms `action=2350`. (Learned: Image adjustments like Invert aren't tracked as "last effect" — only Effects-menu effects are.)
