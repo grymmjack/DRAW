@@ -46,10 +46,11 @@ FONT_STACK_TOP   = 0
 ' Modifier bitmask constants — also used by INPUT system
 ' (Defined here so HELPERS doesn't depend on INPUT.BI)
 '==============================================================================
-CONST MOD_NONE  = 0
-CONST MOD_CTRL  = 1
-CONST MOD_SHIFT = 2
-CONST MOD_ALT   = 4
+CONST MOD_NONE    = 0
+CONST MOD_CTRL    = 1
+CONST MOD_SHIFT   = 2
+CONST MOD_ALT     = 4
+CONST MOD_PRIMARY = 8   ' logical "command" modifier — Ctrl on Win/Linux, ⌘/Ctrl on macOS. Rendered per-OS in SHORTCUTS.md; NOT part of MODS_only%'s exact-match set.
 
 
 ' DECLARE SUB/FUNCTION blocks removed — QB64-PE auto-discovers SUBs and

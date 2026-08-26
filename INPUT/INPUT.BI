@@ -193,6 +193,28 @@ CONST DBLCLICK_WINDOW_S = 0.3                       ' seconds for double-click
 
 
 '==============================================================================
+' BINDING CATEGORIES (for SHORTCUTS.md grouping + the rebind UI)
+'==============================================================================
+CONST CAT_NONE      = 0
+CONST CAT_GLOBAL    = 1
+CONST CAT_FILE      = 2
+CONST CAT_EDIT      = 3
+CONST CAT_VIEW      = 4
+CONST CAT_TOOLS     = 5
+CONST CAT_SELECTION = 6
+CONST CAT_LAYERS    = 7
+CONST CAT_COLOR     = 8
+CONST CAT_GRID      = 9   ' grid + symmetry
+CONST CAT_TEXT      = 10
+CONST CAT_BRUSH     = 11  ' brush + custom brush
+CONST CAT_TRANSFORM = 12
+CONST CAT_IMAGE     = 13  ' image adjustments + effects
+CONST CAT_PANELS    = 14
+CONST CAT_AUDIO     = 15
+CONST CAT_MOUSE     = 16  ' any mouse/wheel binding (assigned by device, not id)
+
+
+'==============================================================================
 ' TYPES
 '==============================================================================
 
@@ -215,6 +237,8 @@ TYPE INPUT_BIND
     actionId    AS INTEGER              ' CMD_execute_action target
     dispatched  AS INTEGER              ' TRUE = new dispatcher fires; FALSE = legacy
     device      AS INTEGER              ' DEVICE_* (filled at registration)
+    category    AS INTEGER              ' CAT_* — for SHORTCUTS.md grouping + rebind UI (filled at registration)
+    userOverridden AS INTEGER           ' TRUE once a user rebind replaces the default (drives DRAW.bindings persistence)
     label       AS STRING * 48          ' for cheatsheet / audit / inputs.log
 END TYPE
 
