@@ -14,9 +14,14 @@ Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercep
 
 ➡️ Phase 2A keyboard: **5 subsystems migrated to central dispatch + tested** — tools, Flip H/V, transforms (layer-vs-brush), effects, Quit. 17 commits; conflict audit 0/227; **5 new QA tests** GREEN. The cleanly-migratable-AND-Linux-verifiable keyboard work is COMPREHENSIVELY DONE.
 
-➡️ Phase 2B (mouse) — Rick's pick. **2B.0 kickoff DONE**: scouted + reframed the phase (mouse ops are positional, not CMD actions → migrate only ~15-20 rebindable behaviors via MOUSE.BM registry-override, NOT a 6k-line rewrite); fixed backwards wheel metadata + an inherited doc error; build clean. 20 commits. NEXT: 2B.1 enumerate the rebindable-mouse set with accurate metadata, then 2B.2 wire MOUSE.BM to honor overrides one behavior at a time (build + QA + test each). Remaining keyboard (Settings/Music/F12) stays flagged — needs a Windows-in-the-loop pass. Autonomous + QA-gated, branch only.
+➡️ ALL cleanly-incremental work DONE (22 commits): the doc + foundation (Phases 0-1), **5 keyboard subsystems migrated to central dispatch + tested** (tools/flip/transforms/effects/quit), Phase 2B scouted + reframed + metadata fixed, and the plan re-sequenced (Phase 3 engine before mouse wiring — proven necessary).
 
-loop:on
+⏸️ Genuine boundary (loop:off). What remains is substantial FROM-SCRATCH subsystem work, best built as a focused effort, not tail-of-marathon:
+  - **Phase 3 — override engine** (new module: `DRAW.bindings` load/save deltas, apply-over-defaults so a rebind re-points a registry entry's trigger, context-aware conflict detection, reset). This is the payoff — makes the 5 migrated keyboard subsystems actually user-rebindable — and it's testable (rebind `h`→`j`, verify `j` flips).
+  - **Phase 2B.2** — MOUSE.BM registry-override wiring (needs Phase 3 to be testable).
+  - **Phase 4/5** — rebind UI dialog + presets (GIMP/Aseprite/Photoshop/DPaint).
+  - **Flagged keyboard** (Settings/Music/F12) — needs a Windows-in-the-loop pass.
+Awaiting Rick's steer: build the Phase 3 engine now, or resume the feature build fresh. loop:on to resume.
 
 loop:on
 
@@ -58,8 +63,8 @@ loop:on
 
 ### 2B — Mouse (second pass, after keyboard ships)
 - [x] 2B.0 Kickoff DONE — scouted the mouse pipeline; **reframed the phase** (design in `PLANS/CUSTOMIZABLE-SHORTCUTS.md`): mouse ops are positional and mostly NOT discrete CMD actions, so do NOT route all 72 rows / the 6k-line pipeline through central dispatch. Migrate only the ~15-20 rebindable "input-preference" behaviors by having MOUSE.BM honor registry overrides; tool strokes + panel affordances stay put. Fixed the BACKWARDS canvas-wheel metadata (plain=zoom, Ctrl=brush-size) + an inherited CHEATSHEET doc error. Build clean; doc regenerated.
-- [ ] 2B.1 Enumerate the rebindable-mouse behavior set (button FG/BG, wheel zoom-vs-brush, Alt+click pick, Ctrl+click symmetry center, pan trigger, wheel-over-region) with accurate registry metadata + real actionIds where they map.
-- [ ] 2B.2 Wire MOUSE.BM to consult the registry for each rebindable behavior (one at a time), so a user override takes effect; build + QA + new test per behavior. FLAG any that don't cleanly model.
+- [x] 2B.1 DONE (enumerated) — the rebindable-mouse set is: button FG/BG paint, wheel zoom-vs-brush-size, Alt+click pick FG/BG, Ctrl+click symmetry center, pan trigger (MMB/Space+drag), wheel-over-region. **Key finding:** most DON'T map to a dispatchable CMD action (symmetry-center 1003 and reset-pan 802 have NO CASE in `CMD_execute_action`; Alt+click-pick is a tool-mode, not an action). So mouse rebinding CANNOT reuse the keyboard "fire a CMD action" model — MOUSE.BM must become **registry-driven** (ask the registry "which button/modifier triggers FG-paint / pan / pick?" instead of hardcoding LMB/MMB).
+- [ ] ⚑ 2B.2 — ORDERING CONSTRAINT discovered: wiring MOUSE.BM to honor overrides is only *testable* once a user can actually rebind, i.e. after the **Phase 3 override engine**. A rebound mouse button can't be exercised without persistence + apply-over-defaults. So Phase 3 (engine) should come BEFORE 2B.2's per-behavior wiring. Re-sequence: Phase 3 engine (on the already-migrated keyboard bindings) → then 2B.2 mouse behaviors → then 4/5 UI+presets.
 - [ ] 2B.2 Mouse/wheel conflict audit clean; commit.
 
 ## Phase 3 — Customization engine
