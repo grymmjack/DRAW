@@ -162,7 +162,6 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+=` | Zoom in (25→50→100→200→300…800%) |
 | `Ctrl+-` | Zoom out |
 | `Wheel` | Zoom in/out at cursor |
-| `Ctrl+Wheel` | Zoom in/out (same snap levels) |
 | `Hold Z + 1…9` | Zoom preset 100 / 200 / 300 / 400 / 500 / 600 / 700 / 800 / 1600% |
 | `Hold Z + 0` | Zoom 3200% |
 | `Shift+Wheel` | Vertical pan |
