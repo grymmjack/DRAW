@@ -6,15 +6,9 @@ commit. Mark genuinely-blocked items unchecked with a reason + who owes it, and 
 
 ## 🔨 NOW — doing right now
 
-➡️ Phase 0 COMPLETE + committed. **Paused at Phase 1 — 2 design decisions + 1 blocker surfaced for Rick** (see below). Grinding the ~150-action input migration (Phase 2) ahead of these would be risky/wasteful. Non-blocked groundwork can proceed once steered.
+➡️ Phase 0 done + committed. Rick steered (2026): **macOS ⌘ via GLFW interception**, **augment generator (tables spliced into curated prose)**, **keyboard-first migration**. Executing Phase 1. Starting 1.1a (GLFW ⌘ probe).
 
-## ⛔ NEEDS RICK — decisions that gate Phase 1/2 (loop paused, not abandoned)
-
-- [ ] ⛔ **BLOCKED · macOS `Primary`=Cmd is toolchain-blocked** ⟵ QB64-PE does not detect ⌘ on macOS (CHEATSHEET line 2146), so the "logical Primary renders as Cmd on macOS" decision can't be realized at runtime yet — only in the doc (already done). DECISION: (a) ship Primary as a doc-only convention now + reserve the runtime bit for when GLFW/QB64-PE exposes Cmd, or (b) invest in intercepting Cmd via the GLFW layer as part of this work. Owes: Rick.
-- [ ] ⛔ **BLOCKED · generator: replace vs augment the curated doc** ⟵ `--dump-shortcuts` from the registry produces accurate but *sparse* tables; the hand-authored `SHORTCUTS.md` is rich (tips, per-tool mouse, workflows). DECISION: should the generated doc (1.5) REPLACE the curated one, or should the generator emit only the binding TABLES that get spliced into a curated shell (keeping the prose)? I recommend augment. Owes: Rick.
-- [ ] ⛔ **BLOCKED · Phase 2 migration go-ahead** ⟵ the inventory shows ~150 actions (all Effects/Image/Audio/Align/Symbol/custom-brush + all mouse) are NOT centrally dispatched; making them rebindable means migrating legacy handlers in the hottest code (KEYBOARD.BM 3.8k / MOUSE.BM 6k lines). This is the real cost + regression risk. CONFIRM scope/appetite before I start (all at once vs. keyboard-first). Owes: Rick.
-
-loop:off — Phase 0 (the priority) shipped; Phase 1+ gated on the 3 items above. Flip to `loop:on` after steering.
+Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercepted through the GLFW layer · generator emits binding TABLES that splice into the curated SHORTCUTS.md shell (prose stays) · Phase 2 migrates KEYBOARD first, then mouse as a 2nd pass.
 
 ## Phase 0 — SHORTCUTS.md (first deliverable + registry-gap audit)
 
@@ -26,25 +20,25 @@ loop:off — Phase 0 (the priority) shipped; Phase 1+ gated on the 3 items above
 - [x] 0.6 DONE — `CHEATSHEET.md` replaced with a redirect stub → SHORTCUTS.md; CLAUDE.md key-files table updated. (In-app Help→Cheat Sheet opens the Command Palette, not the file — no code change needed.)
 - [x] 0.7 DONE — anchors/links sane; committing Phase 0.
 
-## Phase 1 — Registry completion + `--dump-shortcuts` generator
+## Phase 1 — Registry completion + augment-generator + Primary/⌘
 
-- [ ] 1.1 Add `MOD_PRIMARY` logical modifier (`INPUT.BI`) + a per-OS resolver (Ctrl on Win/Linux, Cmd on macOS) used by dispatch/doc/capture.
-- [ ] 1.2 Extend binding metadata: add `category%` + `userOverridden%` to the binding type + `INPUT_register_*` (back-compatible).
-- [ ] 1.3 Register every still-unregistered binding from the 0.4 inventory as metadata (`dispatched=FALSE` where legacy still owns it), with category + label.
-- [ ] 1.4 Build `--dump-shortcuts [md|html]` generator that emits SHORTCUTS.md from the live registry (console-only, headless-safe).
-- [ ] 1.5 Diff generated vs hand-authored SHORTCUTS.md; reconcile until identical; flip SHORTCUTS.md to generated. Build + commit.
+- [ ] 1.1a Investigate + prototype **GLFW ⌘ interception on macOS**: can QB64-PE reach `GLFW_MOD_SUPER` / `glfwGetKey(GLFW_KEY_LEFT/RIGHT_SUPER)` via `DECLARE LIBRARY` against the GLFW backend (the same layer that gave us `_MOUSECURSOR`)? Probe standalone; macOS-only, Linux/Win unaffected.
+- [ ] 1.1b Add `MOD_PRIMARY` (`CORE/HELPERS.BI`). Feed it in `MODS_NOW%` from Ctrl (Win/Linux) or ⌘ (macOS via 1.1a). **AUDIT `MODS_only%` exact-match sites** so the extra bit can't break them (keep MOD_PRIMARY out of the exact-match snapshot, or update MODS_only%).
+- [ ] 1.2 Add `category%` + `userOverridden%` to `INPUT_BIND`; derive category (by actionId range or explicit). Back-compatible.
+- [ ] 1.3 Register the ~150 unregistered actions (0.4 inventory) as metadata (`dispatched=FALSE`) with category + label.
+- [ ] 1.4 Build `--dump-shortcuts` → emits binding TABLES (markdown) grouped by category, Primary rendered per-OS. Add splice markers to SHORTCUTS.md's table regions (**augment**: prose stays hand-authored).
+- [ ] 1.5 Splice generated tables into SHORTCUTS.md; verify tables ↔ registry; build + commit.
 
-## Phase 2 — Finish the migration (dispatched=FALSE → TRUE), batched + QA-gated
+## Phase 2 — Migration to central dispatch (KEYBOARD FIRST, then mouse)
 
-- [ ] 2.1 Migrate TOOLS bindings to central dispatch; build + QA (tool-switch matrix) + commit.
-- [ ] 2.2 Migrate VIEW / zoom / pan / display-scale; build + QA + commit.
-- [ ] 2.3 Migrate SELECTION / marquee; build + QA + commit.
-- [ ] 2.4 Migrate LAYERS / groups; build + QA + commit.
-- [ ] 2.5 Migrate COLOR / palette / palette-ops; build + QA + commit.
-- [ ] 2.6 Migrate GRID / symmetry; build + QA + commit.
-- [ ] 2.7 Migrate TEXT / charmap; build + QA + commit.
-- [ ] 2.8 Migrate PANELS / docking + remaining mouse; build + QA + commit.
-- [ ] 2.9 Developer-mode conflict audit clean (0 conflicts in `inputs.log`); commit.
+### 2A — Keyboard (ship first; makes keys rebindable)
+- [ ] 2A.1 Migrate the 4 keyboard `dispatched=FALSE` (Flip H 315, Flip V 316, Quit 212, Settings 2100) → TRUE; build + QA + commit.
+- [ ] 2A.2 Register + migrate unregistered keyboard legacy handlers, batched by subsystem: transforms (Home/End/PgUp/PgDn/>/<), custom-brush (F9/F12/`/`/Shift+O/Home/End/PgUp/PgDn), effects (Ctrl+F/Alt+F/Shift+F), music ({/}/*), recent files (Alt+1-0), grid/symmetry extras, display/misc — build + QA per batch.
+- [ ] 2A.3 Keyboard conflict audit clean (dev-mode `inputs.log`); commit → keyboard rebindable-ready.
+
+### 2B — Mouse (second pass, after keyboard ships)
+- [ ] 2B.1 Give the 72 mouse metadata rows real actionIds; route canvas + per-panel mouse through central dispatch, region by region; build + QA each.
+- [ ] 2B.2 Mouse/wheel conflict audit clean; commit.
 
 ## Phase 3 — Customization engine
 

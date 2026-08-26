@@ -29,6 +29,20 @@ on macOS, in both the doc and the binding engine.
 | Cross-platform | macOS Cmd vs Ctrl | **Logical `Primary` modifier**, resolved per-OS |
 | Presets | which keymaps to ship | **GIMP, Aseprite, Photoshop, Deluxe Paint/GrafX2** (+ DRAW default) |
 
+## Refinements (post-Phase-0 review)
+
+- **macOS `Primary` = real ⌘, intercepted via GLFW.** QB64-PE's stock `_KEYDOWN` doesn't
+  surface ⌘, but the **GLFW backend is now permanent** (merged into QB64-PE main; it's what
+  powers `_MOUSECURSOR`). So we intercept ⌘ through GLFW (`GLFW_MOD_SUPER` /
+  `glfwGetKey(GLFW_KEY_LEFT/RIGHT_SUPER)` via `DECLARE LIBRARY`) rather than treating Cmd as
+  unreachable. macOS-only path; Linux/Windows keep Ctrl. This is durable, not a gamble.
+- **Generator = augment, not replace.** `--dump-shortcuts` emits only the binding *tables*
+  (always registry-accurate) which splice into the curated `SHORTCUTS.md` shell; the tips,
+  per-tool mouse notes, and workflow prose stay hand-authored. Best of both; no drift on the
+  parts that matter for correctness, no loss of the parts that help users.
+- **Migration is keyboard-first.** Phase 2 splits: **2A keyboard** (the bulk of rebinding
+  value) ships first and independently; **2B mouse** is a second pass. Lower risk per step.
+
 ## Current state (as of this plan)
 
 - **`INPUT/INPUT.BM` → `INPUTS_register_all`**: 221 registered bindings — **137 `dispatched=TRUE`**
