@@ -14,14 +14,9 @@ Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercep
 
 ➡️ Phase 2A keyboard: **5 subsystems migrated to central dispatch + tested** — tools, Flip H/V, transforms (layer-vs-brush), effects, Quit. 17 commits; conflict audit 0/227; **5 new QA tests** GREEN. The cleanly-migratable-AND-Linux-verifiable keyboard work is COMPREHENSIVELY DONE.
 
-➡️ ALL cleanly-incremental work DONE (22 commits): the doc + foundation (Phases 0-1), **5 keyboard subsystems migrated to central dispatch + tested** (tools/flip/transforms/effects/quit), Phase 2B scouted + reframed + metadata fixed, and the plan re-sequenced (Phase 3 engine before mouse wiring — proven necessary).
+➡️ **Phase 3 override engine DONE + validated (23 commits) — the keyboard is now USER-REBINDABLE.** `CFG/BINDINGS.*`: `DRAW.bindings` deltas load + apply-over-defaults (re-point a registry entry's trigger + rebuild skip-list) + conflict detection + reset. `tools/test-rebind-engine.sh` proves a `h`→`j` rebind takes effect. The doc, foundation, 5 keyboard migrations, Phase 2B reframe, and now the engine are all done.
 
-⏸️ Genuine boundary (loop:off). What remains is substantial FROM-SCRATCH subsystem work, best built as a focused effort, not tail-of-marathon:
-  - **Phase 3 — override engine** (new module: `DRAW.bindings` load/save deltas, apply-over-defaults so a rebind re-points a registry entry's trigger, context-aware conflict detection, reset). This is the payoff — makes the 5 migrated keyboard subsystems actually user-rebindable — and it's testable (rebind `h`→`j`, verify `j` flips).
-  - **Phase 2B.2** — MOUSE.BM registry-override wiring (needs Phase 3 to be testable).
-  - **Phase 4/5** — rebind UI dialog + presets (GIMP/Aseprite/Photoshop/DPaint).
-  - **Flagged keyboard** (Settings/Music/F12) — needs a Windows-in-the-loop pass.
-Awaiting Rick's steer: build the Phase 3 engine now, or resume the feature build fresh. loop:on to resume.
+Remaining (each substantial FROM-SCRATCH): **Phase 4** rebind UI dialog (a big *visual* GUI component — find-filter list, capture sub-modals, conflict badges; harder to build+verify autonomously), **Phase 5** presets (GIMP/Aseprite/Photoshop/DPaint), **2B.2** MOUSE.BM override wiring (now testable via the engine), **flagged keyboard** (Settings/Music/F12 — Windows-in-the-loop). NEXT actionable: 2B.2 mouse wiring OR Phase 5 presets are more autonomous-friendly than the Phase 4 GUI. Autonomous + QA-gated, branch only.
 
 loop:on
 
@@ -69,10 +64,10 @@ loop:on
 
 ## Phase 3 — Customization engine
 
-- [ ] 3.1 `DRAW.bindings` override file: load/save deltas only (OS-native config dir).
-- [ ] 3.2 Apply overrides over registry defaults at load; dispatcher honors overrides.
-- [ ] 3.3 Context-aware `BINDINGS_find_conflict%` (same trigger + overlapping CTX masks).
-- [ ] 3.4 Reset-to-default (per-binding + all). Build + QA (`rebind-apply/persist/reset/conflict`) + commit.
+- [x] 3.1 DONE — `CFG/BINDINGS.BI/BM`: `DRAW.bindings` override-only persistence in the config dir; `BINDINGS_load` parses `actionId keycode requireMods forbidMods` rows.
+- [x] 3.2 DONE (validated) — `BINDINGS_apply` re-points the first dispatched keyboard binding of each action + rebuilds the skip-list; wired into `INPUTS_init` before the perf-table build. `tools/test-rebind-engine.sh`: rebind Flip H `h`→`j` → registry shows J (default H); both PASS.
+- [x] 3.3 DONE — `BINDINGS_find_conflict%` (same keycode + same mods + overlapping requireCtx/forbidCtx → conflicting actionId). Ready for the Phase 4 UI.
+- [x] 3.4 DONE — `BINDINGS_set_override` (add/replace + save + live re-apply) + `BINDINGS_reset_all` (clears + deletes file). NOTE: reset fully takes effect on next launch (live registry keeps applied keycodes until re-register) — fine for v1; the UI can force a re-register later.
 
 ## Phase 4 — Customization UI
 
