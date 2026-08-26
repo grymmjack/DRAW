@@ -12,7 +12,7 @@ Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercep
 
 ➡️ **Phases 0 + 1 COMPLETE** (8 commits): SHORTCUTS.md (curated + self-generating), CHEATSHEET retired, inventory/gap audit, MOD_PRIMARY + macOS ⌘, binding metadata, augment-generator + splice pipeline.
 
-➡️ Phase 2A progress (13 commits): **tools + Flip H/V + Home/End/PgUp/PgDn migrated to central dispatch**, all rebindable-ready; context-bit infra landed; **conflict audit 0/227**; 3 new QA tests GREEN. The cleanly-testable/modelable keyboard migrations are now largely DONE. 2A.2b-rest is flagged: each remaining batch needs either a harder QA fixture (effects — applied-effect flow), an id-conflict fix (F12), or the infra gaps (ii CMD-ids for music / iii key-alias for Quit+Settings). NEXT actionable: build the effects applied-effect QA fixture, then migrate Ctrl+F/Alt+F/Shift+F. Autonomous + QA-gated + expanding coverage, on branch only.
+➡️ Phase 2A: **4 keyboard subsystems migrated to central dispatch + tested** — tools, Flip H/V, Home/End/PgUp/PgDn (layer-vs-brush), effects (Ctrl+F/Alt+F/Shift+F). 15 commits; conflict audit 0/227; 4 new QA tests GREEN (seam-flip-central, seam-transform-brush-context, seam-effects-central + the pre-existing suite). The cleanly-migratable keyboard work is DONE. Remaining keyboard batches (F12 keycode-variant, music, Quit/Settings) are all gated on a dispatcher-INFRA sub-project (CMD-ids + key/keyhit-alias). NEXT: build that infra (2A.2a-ii/iii), each a unit with a test; then Phase 2B (mouse). Autonomous + QA-gated, branch only.
 
 loop:on
 
@@ -42,12 +42,13 @@ loop:on
   - [ ] ⚑ FLAGGED (not guessed) — **Quit (212, Ctrl+Q)** shares action 212 with a separate Alt+X legacy path; hard to QA (quits). **Settings (2100, Ctrl+,)** needs the cross-platform comma fallback (`_KEYDOWN(44)` OR `_KEYHIT 188`) which the plain central keycode won't replicate. Both need the dispatcher to support a key-alias / keyhit-alias before migrating. They still work via legacy — not blocking. Owes: revisit in a dispatcher-alias sub-task.
 - [x] 2A.2a-iv DONE — `CTX_CUSTOM_BRUSH_ACTIVE` context bit (set in `INPUT_update_context`); unblocked the transform-key batch. Remaining infra as-needed: (i) modified-key legacy-removal (the unconditional-GOTO-skip pattern proved clean — reusable), (ii) CMD ids for menu-only Audio `{`/`}`/`*` (427/428/433 not in `CMD_execute_action`), (iii) key/keyhit-alias for Ctrl+`,` (comma 188 fallback) + multi-trigger Quit.
 - [x] 2A.2b-transforms DONE (build + 3 tests GREEN) — **Home/End/PgUp/PgDn** migrated: two central bindings each (layer vs brush via `CTX_CUSTOM_BRUSH_ACTIVE`); legacy block disabled with a one-line `GOTO SkipTransformKeys`. New `seam-transform-brush-context.sh` (5/5) proves the brush-branch routing; `seam-flip-central` 8/8 + `transform-scale-2x` 7/7 cover the layer branch.
-- [ ] 2A.2b-rest — remaining keyboard batches, each with its specific wrinkle (flag-don't-guess):
-      - **effects** (Ctrl+F/Alt+F/Shift+F): modelable (modified keys, legacy removal via the proven GOTO-skip pattern) but a confirming test needs an *applied-effect* QA fixture (open Image menu → apply → Ctrl+F re-applies) — build the fixture, then migrate.
-      - **custom-brush F12** (export): has the `9999`(dev-dump)-vs-`1110` parallel-id conflict from the inventory — resolve the id first.
-      - **music `{`/`}`/`*`**: ⚑ infra-gated on (ii) — 427/428/433 aren't in `CMD_execute_action`.
-      - **Quit / Settings**: ⚑ infra-gated on (iii) — Alt+X multi-trigger + comma-`_KEYHIT 188` fallback need a key/keyhit-alias.
-      - **grid/symmetry extras** (908/910/911): no keyboard trigger — "assignable but unassigned", the rebind UI lists them; nothing to migrate.
+- [x] 2A.2b-effects DONE (build + FIRE-log + test GREEN) — **Ctrl+F/Ctrl+Alt+F/Ctrl+Shift+F** (Redo/Recall/Blend last effect) migrated; legacy `_KEYDOWN` block removed. New `seam-effects-central.sh` (5/5) applies Glow then Ctrl+F re-applies it; `--developer` FIRE log confirms `action=2350`. (Learned: Image adjustments like Invert aren't tracked as "last effect" — only Effects-menu effects are.)
+- [ ] ⚑ 2A.2b-rest — the cleanly-migratable keyboard subsystems are DONE (tools, flip, transforms, effects — 4 batches, all tested, audit 0/227). Each REMAINING batch is genuinely gated (flag-don't-guess), so they need the infra sub-project below, not more of the same:
+      - **custom-brush F12** (export): the legacy handler uses keycode **34304** while the registry dev-dump uses **28416** (the F12 keycode-variant landmine from the inventory's UNCERTAIN list) AND the `9999`-vs-`1110` id conflict. Needs the keycode-variant resolved first — do NOT guess.
+      - **music `{`/`}`/`*`**: infra-gated on (ii) — 427/428/433 aren't in `CMD_execute_action`.
+      - **Quit / Settings**: infra-gated on (iii) — Alt+X multi-trigger + comma `_KEYHIT 188` fallback need a key/keyhit-alias.
+      - **grid/symmetry extras** (908/910/911): no keyboard trigger — "assignable but unassigned"; the rebind UI lists them; nothing to migrate.
+      → NEXT real step is the infra sub-project (2A.2a-ii CMD-ids + 2A.2a-iii key/keyhit-alias + F12 keycode-variant helper), each a dedicated unit with a test. Substantial; not "more flips."
 - [x] 2A.3 (running audit) — dev-mode conflict audit **0 conflicts across 227 bindings** after the flip + transform-key migrations. Re-run after each future batch. Keyboard tools/flip/transform now rebindable-ready.
 
 ### 2B — Mouse (second pass, after keyboard ships)
