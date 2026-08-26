@@ -10,7 +10,11 @@ commit. Mark genuinely-blocked items unchecked with a reason + who owes it, and 
 
 Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercepted through the (permanent) GLFW layer · generator emits binding TABLES that splice into the curated SHORTCUTS.md shell (prose stays) · Phase 2 migrates KEYBOARD first, then mouse as a 2nd pass.
 
-➡️ Phase 1 nearly done: 1.1a/1.1b/1.2/1.3/1.4 committed (⌘ support, MOD_PRIMARY, metadata, legacy-binding registration, augment-generator all built+verified). NOW: 1.5 — add `<!-- BINDINGS -->` markers to SHORTCUTS.md + splice script/target, run it → Phase 1 complete. Then Phase 2A (keyboard migration).
+➡️ **Phases 0 + 1 COMPLETE** (8 commits): SHORTCUTS.md (curated + self-generating), CHEATSHEET retired, inventory/gap audit, MOD_PRIMARY + macOS ⌘, binding metadata, augment-generator + splice pipeline.
+
+⏸️ **PAUSED before Phase 2A — surfaced to Rick.** Investigating 2A.1 showed the migration is a delicate hot-path refactor: each binding needs its legacy handler removed AND its context guards (chord bits / text / tool-mode) replicated exactly onto the central binding, or input behavior changes. Example gnarl: action 316 (Flip V) is split across a `Ctrl+Shift+H` trigger and a context-dependent `V`-in-move-mode path; Flip-H (315) must replicate the `GRID_G_KEY_ARMED`/chord suppression. This is the class that reintroduces input regressions. Better done as a focused, QA-gated effort with Rick able to verify input FEEL than rushed autonomously. The doc (the stated priority) + full foundation are shipped & verified; Phase 2 is the rebinding-feature build, not the doc.
+
+loop:off — awaiting Rick's go on how to run Phase 2 (all-at-once vs one batch at a time with him verifying feel; or hold). Flip to `loop:on` to resume.
 
 ## Phase 0 — SHORTCUTS.md (first deliverable + registry-gap audit)
 
@@ -29,7 +33,7 @@ Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercep
 - [x] 1.2 DONE (build-verified, `DRAW 2.0.0` runs) — added `category%` + `userOverridden%` to `INPUT_BIND` + `CAT_*` constants + `INPUT_category_for%(actionId)` (id-range mapper) wired into `INPUT_register%` (mouse → CAT_MOUSE by device).
 - [x] 1.3 DONE (build clean + conflict-audit clean) — registered the legacy-*triggered* CMD-backed keyboard bindings that were missing (Ctrl+F/Alt+F/Shift+F last-effect → 2350/2351/2352, Ctrl+Alt+O CRT → 950, Alt+O open → 206, Alt+X exit → 212) as `dispatched=FALSE` metadata. **Scope clarified vs the raw "~150":** truly-unbound menu actions (Effects/Image/Audio/Align/Symbol) have no trigger → they're "assignable but unassigned," listed by the rebind UI from the CMD table, NOT registered as fake bindings. Chords (Z+digit, G+arrow, M+=, Hold F/E/W) were ALREADY registered via `CTX_*_HELD`. Context-dependent keys (custom-brush/transform Home/End/PgUp/PgDn) + menubar-only non-CMD (Audio {/}/*) → Phase 2A.
 - [x] 1.4 DONE (verified under xvfb — 219 bindings/13 categories) — `OUTPUT/SHORTCUTS-DUMP.BM` + `--dump-shortcuts` CLI (after INPUTS_init). Emits per-category markdown tables via binary file I/O (no PRINT / no _DEST; `_LOGINFO` status) → `SHORTCUTS.tables.md`. Per-OS Primary rendering + central/legacy status.
-- [ ] 1.5 Splice generated tables into SHORTCUTS.md; verify tables ↔ registry; build + commit.
+- [x] 1.5 DONE — added `<!-- BINDINGS -->` markers + a "Generated binding index" section to SHORTCUTS.md + `tools/gen-shortcuts.sh` (runs `--dump-shortcuts`, splices tables, leaves prose). Ran it: 219 rows spliced, curated prose intact. **Phase 1 COMPLETE.**
 
 ## Phase 2 — Migration to central dispatch (KEYBOARD FIRST, then mouse)
 
