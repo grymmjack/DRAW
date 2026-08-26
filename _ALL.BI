@@ -49,6 +49,7 @@ $INCLUDEONCE
 ' CONFIG ----------------------------------------------------------------------
 '$INCLUDE:'./CFG/CONFIG.BI'
 '$INCLUDE:'./CFG/CONFIG-THEME.BI'
+'$INCLUDE:'./CFG/BINDINGS.BI'
 
 ' GUI -------------------------------------------------------------------------
 '$INCLUDE:'./GUI/PALETTE.BI'

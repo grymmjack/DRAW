@@ -1,0 +1,29 @@
+''
+' DRAW - CFG/BINDINGS.BI
+' =============================================================================
+' User keyboard-binding OVERRIDES (Phase 3 customization engine).
+'
+' The compiled-in defaults live in INPUT/INPUT.BM (INPUTS_register_all). A user
+' rebind is stored as a delta keyed by actionId in DRAW.bindings (config dir);
+' at startup the deltas are applied ON TOP of the registered defaults by
+' re-pointing the matching INPUT_BINDS entry's trigger. Only overridden rows are
+' persisted (compact, forward-compatible).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+CONST BINDINGS_MAX_OVERRIDES = 256
+
+' One user override: re-point action `actionId`'s keyboard binding to a new trigger.
+TYPE BINDING_OVERRIDE
+    actionId    AS INTEGER   ' CMD action whose binding is remapped
+    keycode     AS LONG      ' new physical keycode
+    requireMods AS INTEGER   ' MOD_* bits required
+    forbidMods  AS INTEGER   ' MOD_* bits forbidden
+    active      AS INTEGER   ' TRUE = a real override row
+END TYPE
+
+DIM SHARED BINDING_OVERRIDES(1 TO BINDINGS_MAX_OVERRIDES) AS BINDING_OVERRIDE
+DIM SHARED BINDING_OVERRIDE_COUNT AS INTEGER
+DIM SHARED BINDINGS_FILE$          ' resolved path to DRAW.bindings (set in BINDINGS_init)
