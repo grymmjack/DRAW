@@ -10,7 +10,7 @@ commit. Mark genuinely-blocked items unchecked with a reason + who owes it, and 
 
 Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercepted through the (permanent) GLFW layer · generator emits binding TABLES that splice into the curated SHORTCUTS.md shell (prose stays) · Phase 2 migrates KEYBOARD first, then mouse as a 2nd pass.
 
-➡️ 1.1a/1.1b/1.2 DONE + committed (⌘ via stock _KEYDOWN, MOD_PRIMARY infra, binding metadata — all build+QA verified). NEXT: 1.3 — register the ~150 unregistered actions (see PLANS/SHORTCUTS-INVENTORY.md gap list) as metadata (dispatched=FALSE), keyboard-first; then 1.4 augment-generator.
+➡️ Phase 1 nearly done: 1.1a/1.1b/1.2/1.3/1.4 committed (⌘ support, MOD_PRIMARY, metadata, legacy-binding registration, augment-generator all built+verified). NOW: 1.5 — add `<!-- BINDINGS -->` markers to SHORTCUTS.md + splice script/target, run it → Phase 1 complete. Then Phase 2A (keyboard migration).
 
 ## Phase 0 — SHORTCUTS.md (first deliverable + registry-gap audit)
 
@@ -28,7 +28,7 @@ Decisions locked (were BLOCKED, now resolved): macOS Primary = real ⌘ intercep
 - [x] 1.1b DONE (build + QA verified) — `MOD_PRIMARY=8`, `KEY_LSUPER&/RSUPER&`, `MODIFIERS.cmd%/primary%` (Ctrl on Win/Linux; Ctrl-or-⌘ on macOS via `_KEYDOWN(100311/100312)`), fed into `MODS_NOW%`, `MODS_only%` masks it out. No regression (tool-switch 28/28, undo/redo 11/11). Binding reclassification deferred to 2A.
 - [x] 1.2 DONE (build-verified, `DRAW 2.0.0` runs) — added `category%` + `userOverridden%` to `INPUT_BIND` + `CAT_*` constants + `INPUT_category_for%(actionId)` (id-range mapper) wired into `INPUT_register%` (mouse → CAT_MOUSE by device).
 - [x] 1.3 DONE (build clean + conflict-audit clean) — registered the legacy-*triggered* CMD-backed keyboard bindings that were missing (Ctrl+F/Alt+F/Shift+F last-effect → 2350/2351/2352, Ctrl+Alt+O CRT → 950, Alt+O open → 206, Alt+X exit → 212) as `dispatched=FALSE` metadata. **Scope clarified vs the raw "~150":** truly-unbound menu actions (Effects/Image/Audio/Align/Symbol) have no trigger → they're "assignable but unassigned," listed by the rebind UI from the CMD table, NOT registered as fake bindings. Chords (Z+digit, G+arrow, M+=, Hold F/E/W) were ALREADY registered via `CTX_*_HELD`. Context-dependent keys (custom-brush/transform Home/End/PgUp/PgDn) + menubar-only non-CMD (Audio {/}/*) → Phase 2A.
-- [ ] 1.4 Build `--dump-shortcuts` → emits binding TABLES (markdown) grouped by category, Primary rendered per-OS. Add splice markers to SHORTCUTS.md's table regions (**augment**: prose stays hand-authored).
+- [x] 1.4 DONE (verified under xvfb — 219 bindings/13 categories) — `OUTPUT/SHORTCUTS-DUMP.BM` + `--dump-shortcuts` CLI (after INPUTS_init). Emits per-category markdown tables via binary file I/O (no PRINT / no _DEST; `_LOGINFO` status) → `SHORTCUTS.tables.md`. Per-OS Primary rendering + central/legacy status.
 - [ ] 1.5 Splice generated tables into SHORTCUTS.md; verify tables ↔ registry; build + commit.
 
 ## Phase 2 — Migration to central dispatch (KEYBOARD FIRST, then mouse)
