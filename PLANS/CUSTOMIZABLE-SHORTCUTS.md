@@ -125,6 +125,32 @@ maps (their actions → DRAW `actionId`s; unmapped actions keep DRAW defaults, n
 Regenerate SHORTCUTS.md; update `CLAUDE.md` / `README` / instruction files; QA tests for rebinding;
 full regression; run summary; a rendered **Shortcuts** artifact.
 
+## Phase 2B — Mouse migration design (scouted 2026)
+
+Scouting the mouse pipeline reframed this phase — the keyboard model ("flip to central,
+fire a CMD action") does NOT apply uniformly, because **mouse ops are positional and most
+are not discrete actions**:
+
+- **Not rebindable / stays in MOUSE.BM:** canvas tool strokes (LMB = paint with the *active
+  tool* — follows the tool, not a fixed action), drag state machines, and panel affordances
+  (layer-panel row click, toolbar button = UI, not a user preference).
+- **Rebindable ("input preferences") — the ~15–20 behaviors worth migrating:** which button
+  paints FG vs BG; wheel = zoom vs brush-size; modifier+click alternates (Alt+click = pick,
+  Ctrl+click = symmetry center); the pan trigger (MMB / Space+drag); wheel-over-region.
+- **Coords are available:** the dispatcher's `INPUT_EVENT` carries `mouseX/Y` + `canvasX/Y`,
+  and CMD actions read the `MOUSE.X/Y` globals (set each frame), so a centrally-dispatched
+  mouse action *can* act at the cursor.
+
+**Approach (sane + safe):** do NOT route all 72 mouse rows / the 6k-line pipeline through
+central dispatch. Instead (a) keep the metadata accurate (the doc + audit depend on it — the
+canvas wheel rows were BACKWARDS and are now fixed: plain wheel = zoom, Ctrl+wheel = brush
+size), and (b) define the small rebindable-behavior set and have MOUSE.BM consult the registry
+for *those specific* behaviors (which button/wheel/modifier maps to FG/BG/pan/pick/zoom), so a
+user override takes effect without rewriting tool dispatch. Region-by-region, QA-gated.
+
+**First step done:** corrected the canvas-wheel metadata. Next: enumerate the rebindable-mouse
+set, then wire MOUSE.BM to honor registry overrides for each, one behavior at a time.
+
 ## Testing
 - Each phase: clean compile + `QA/draw-qa.sh` regression subset.
 - New QA tests: `shortcuts-dump.sh` (generator output stable), `rebind-*.sh` (override applied,
