@@ -294,6 +294,15 @@ FOR dumpShortcutsI% = 1 TO _COMMANDCOUNT
     END IF
 NEXT dumpShortcutsI%
 
+' --load-preset <name>: apply a shipped keymap preset (writes DRAW.bindings), then exit.
+DIM loadPresetI AS INTEGER
+FOR loadPresetI% = 1 TO _COMMANDCOUNT
+    IF LCASE$(_TRIM$(COMMAND$(loadPresetI%))) = "--load-preset" AND loadPresetI% < _COMMANDCOUNT THEN
+        BINDINGS_load_preset _TRIM$(COMMAND$(loadPresetI% + 1))
+        SYSTEM
+    END IF
+NEXT loadPresetI%
+
 GAMEPAD_init            ' Initialise gamepad subsystem (stub — mouse emulation)
 
 ' Main Loop

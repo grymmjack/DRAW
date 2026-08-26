@@ -38,5 +38,21 @@ else
     echo "FAIL: default binding wrong (expected Flip horizontal on H)"; fail=1
 fi
 
+# 3. Preset loader: --load-preset writes DRAW.bindings, the override then applies
+printf '# test preset\n315 106 0 7\n' > ASSETS/PRESETS/_test.bindings
+rm -f "$TMPCFG/DRAW/DRAW.bindings"
+XDG_CONFIG_HOME="$TMPCFG" xvfb-run -a ./DRAW.run --load-preset _test >/dev/null 2>&1 || true
+if grep -qE '^315 106 0 7' "$TMPCFG/DRAW/DRAW.bindings" 2>/dev/null; then
+    dump "$TMPCFG"
+    if grep -qE '^\| `J` \| Flip horizontal ' SHORTCUTS.tables.md; then
+        echo "PASS: --load-preset applied (Flip H on J)"
+    else
+        echo "FAIL: preset wrote DRAW.bindings but override didn't apply"; fail=1
+    fi
+else
+    echo "FAIL: --load-preset did not write DRAW.bindings"; fail=1
+fi
+rm -f ASSETS/PRESETS/_test.bindings
+
 [ "$fail" -eq 0 ] && echo "test-rebind-engine: ALL PASS" || echo "test-rebind-engine: FAILURES"
 exit $fail
