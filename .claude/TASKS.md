@@ -6,7 +6,15 @@ commit. Mark genuinely-blocked items unchecked with a reason + who owes it, and 
 
 ## 🔨 NOW — doing right now
 
-➡️ Phase 0 COMPLETE (SHORTCUTS.md authored + reconciled, CHEATSHEET retired, inventory/gap audit written, committed). Next: Phase 1 — registry completion + `--dump-shortcuts` generator (1.1 MOD_PRIMARY).
+➡️ Phase 0 COMPLETE + committed. **Paused at Phase 1 — 2 design decisions + 1 blocker surfaced for Rick** (see below). Grinding the ~150-action input migration (Phase 2) ahead of these would be risky/wasteful. Non-blocked groundwork can proceed once steered.
+
+## ⛔ NEEDS RICK — decisions that gate Phase 1/2 (loop paused, not abandoned)
+
+- [ ] ⛔ **BLOCKED · macOS `Primary`=Cmd is toolchain-blocked** ⟵ QB64-PE does not detect ⌘ on macOS (CHEATSHEET line 2146), so the "logical Primary renders as Cmd on macOS" decision can't be realized at runtime yet — only in the doc (already done). DECISION: (a) ship Primary as a doc-only convention now + reserve the runtime bit for when GLFW/QB64-PE exposes Cmd, or (b) invest in intercepting Cmd via the GLFW layer as part of this work. Owes: Rick.
+- [ ] ⛔ **BLOCKED · generator: replace vs augment the curated doc** ⟵ `--dump-shortcuts` from the registry produces accurate but *sparse* tables; the hand-authored `SHORTCUTS.md` is rich (tips, per-tool mouse, workflows). DECISION: should the generated doc (1.5) REPLACE the curated one, or should the generator emit only the binding TABLES that get spliced into a curated shell (keeping the prose)? I recommend augment. Owes: Rick.
+- [ ] ⛔ **BLOCKED · Phase 2 migration go-ahead** ⟵ the inventory shows ~150 actions (all Effects/Image/Audio/Align/Symbol/custom-brush + all mouse) are NOT centrally dispatched; making them rebindable means migrating legacy handlers in the hottest code (KEYBOARD.BM 3.8k / MOUSE.BM 6k lines). This is the real cost + regression risk. CONFIRM scope/appetite before I start (all at once vs. keyboard-first). Owes: Rick.
+
+loop:off — Phase 0 (the priority) shipped; Phase 1+ gated on the 3 items above. Flip to `loop:on` after steering.
 
 ## Phase 0 — SHORTCUTS.md (first deliverable + registry-gap audit)
 
