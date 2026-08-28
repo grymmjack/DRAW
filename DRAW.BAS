@@ -216,6 +216,8 @@ $ELSE
             argIdx% = argIdx% + 1 ' Defensive: HELP.BI should have exited already
         ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" THEN
             argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
+        ELSEIF LCASE$(argVal$) = "--export-qb64" THEN
+            argIdx% = argIdx% + 2 ' 2-token flag (flag + output path) — skip both so the path is not mistaken for the input file
         ELSEIF LEFT$(argVal$, 1) = "-" THEN
             argIdx% = argIdx% + 1 ' BUG-53: any other unrecognized flag (--developer/--dev/...) — skip it, don't treat it as the file
         ELSE
@@ -302,6 +304,17 @@ FOR loadPresetI% = 1 TO _COMMANDCOUNT
         SYSTEM
     END IF
 NEXT loadPresetI%
+
+' --export-qb64 <path>: batch/CI export. Capture the target path here; the export
+' itself runs on the first frame (below), AFTER any command-line document has
+' loaded, then the process exits. Unlike --dump-shortcuts / --load-preset we do
+' NOT SYSTEM here — the doc must load first.
+DIM exportQb64I AS INTEGER
+FOR exportQb64I% = 1 TO _COMMANDCOUNT
+    IF LCASE$(_TRIM$(COMMAND$(exportQb64I%))) = "--export-qb64" AND exportQb64I% < _COMMANDCOUNT THEN
+        BATCH_EXPORT_QB64_PATH$ = _TRIM$(COMMAND$(exportQb64I% + 1))
+    END IF
+NEXT exportQb64I%
 
 GAMEPAD_init            ' Initialise gamepad subsystem (stub — mouse emulation)
 
@@ -467,6 +480,15 @@ DO
         CMDLINE_PENDING_FILE$ = ""                                        ' Clear after loading
     ELSEIF CMDLINE_FIRST_FRAME% THEN
         CMDLINE_FIRST_FRAME% = FALSE
+    END IF
+
+    ' --export-qb64 <path>: the command-line document (if any) has loaded by now.
+    ' Export a standalone QB64 project to <path> and exit — no dialog, no alert
+    ' (suppressed in FILE_QB64_export while BATCH_EXPORT_QB64_PATH$ is set).
+    IF BATCH_EXPORT_QB64_PATH$ <> "" THEN
+        FILE_QB64_export BATCH_EXPORT_QB64_PATH$
+        _LOGINFO "batch QB64 export written to: " + BATCH_EXPORT_QB64_PATH$
+        SYSTEM
     END IF
 
     IF _TOTALDROPPEDFILES THEN
