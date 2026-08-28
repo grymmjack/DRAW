@@ -96,8 +96,9 @@ TYPE MENU_BAR_OBJ
     randomW          AS INTEGER ' Random submenu width
     randomH          AS INTEGER ' Random submenu height
     randomItemIdx    AS INTEGER ' Child index of "RANDOM TRACK" item in parent dropdown
-    ' Transform submenu state
+    ' Transform submenu state (shared by Edit>Transform [pixels] and Select>Transform Selection)
     transformOpen    AS INTEGER ' TRUE when Transform submenu is showing
+    transformSelMode AS INTEGER ' TRUE = the open flyout targets the SELECTION (Select menu), FALSE = pixels (Edit menu)
     transformHover   AS INTEGER ' Hovered item in Transform submenu (-1 = none)
     transformX       AS INTEGER ' Transform submenu X position
     transformY       AS INTEGER ' Transform submenu Y position
