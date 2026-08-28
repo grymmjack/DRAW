@@ -641,13 +641,14 @@ SUB TRANSFORM_activate (mode AS INTEGER)
     TRANSFORM_PX    = TRANSFORM.SRC_X + TRANSFORM.SRC_W * 0.5!
     TRANSFORM_PY    = TRANSFORM.SRC_Y + TRANSFORM.SRC_H * 0.5!
 
-    TRANSFORM.MODE      = mode
-    TRANSFORM.ACTIVE    = TRUE
-    TRANSFORM.GRABBED   = -1
-    TRANSFORM.ANGLE     = 0.0!
-    TRANSFORM.SCALE_X   = 1.0!
-    TRANSFORM.SCALE_Y   = 1.0!
-    TRANSFORM.PREV_TOOL = CURRENT_TOOL%
+    TRANSFORM.MODE           = mode
+    TRANSFORM.ACTIVE         = TRUE
+    TRANSFORM.GRABBED        = -1
+    TRANSFORM.ANGLE          = 0.0!
+    TRANSFORM.SCALE_X        = 1.0!
+    TRANSFORM.SCALE_Y        = 1.0!
+    TRANSFORM.PREV_TOOL      = CURRENT_TOOL%
+    TRANSFORM.SELECTION_ONLY = FALSE ' this activation transforms PIXELS
 
     TRANSFORM_PREVIEW_IMG   = 0
     TRANSFORM_PREVIEW_DIRTY = TRUE
@@ -660,6 +661,87 @@ SUB TRANSFORM_activate (mode AS INTEGER)
 END SUB
 
 ''
+' Transform Selection (Photoshop's Select > Transform Selection): warp the SELECTION
+' MASK only, leaving layer pixels untouched. Reuses the same overlay/handles/warp as
+' the pixel transform; SRC_IMG is a translucent visualization of the mask so the live
+' preview shows the selection shape being moved. Commit rebuilds the mask via
+' TRANSFORM_warp_selection_mask. Requires a shaped (wand/lasso) selection.
+'
+SUB TRANSFORM_activate_selection (mode AS INTEGER)
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    IF TRANSFORM.ACTIVE THEN TRANSFORM_cancel
+    IF NOT SELECTION_has_active% THEN
+        DRAW_alert "Transform Selection", "Make a selection first (magic wand or lasso)."
+        EXIT SUB
+    END IF
+    IF NOT (MARQUEE.WAND_HAS_SELECTION _ANDALSO MARQUEE.SELECTION_MASK < -1) THEN
+        DRAW_alert "Transform Selection", "Transform Selection needs a shaped selection (magic wand / lasso), not a plain rectangle."
+        EXIT SUB
+    END IF
+
+    TRANSFORM.SRC_X = MARQUEE.BOX.x : TRANSFORM.SRC_Y = MARQUEE.BOX.y
+    TRANSFORM.SRC_W = MARQUEE.BOX.w : TRANSFORM.SRC_H = MARQUEE.BOX.h
+    IF TRANSFORM.SRC_W <= 0 OR TRANSFORM.SRC_H <= 0 THEN EXIT SUB
+
+    ' Snapshot the mask (canvas-sized) for the commit warp.
+    TRANSFORM.SRC_MASK = _COPYIMAGE(MARQUEE.SELECTION_MASK, 32)
+
+    ' Build SRC_IMG = translucent visualization of the mask so the preview shows the
+    ' selection shape being transformed (the pixels are never touched in this mode).
+    TRANSFORM.SRC_IMG = _NEWIMAGE(TRANSFORM.SRC_W, TRANSFORM.SRC_H, 32)
+    IF TRANSFORM.SRC_IMG >= -1 THEN
+        IF TRANSFORM.SRC_MASK < -1 THEN SAFE_FREEIMAGE TRANSFORM.SRC_MASK
+        TRANSFORM.SRC_MASK = 0
+        EXIT SUB
+    END IF
+    DIM tvOld AS LONG : tvOld& = _DEST
+    _DEST TRANSFORM.SRC_IMG : _DONTBLEND TRANSFORM.SRC_IMG : CLS , _RGBA32(0, 0, 0, 0) : _BLEND TRANSFORM.SRC_IMG : _DEST tvOld&
+    DIM tvMaskMem AS _MEM, tvSrcMem AS _MEM
+    DIM tvX AS INTEGER, tvY AS INTEGER, tvCX AS INTEGER, tvCY AS INTEGER
+    DIM tvMaskPix AS _UNSIGNED LONG, tvMaskW AS INTEGER, tvMaskH AS INTEGER
+    DIM tvFill AS _UNSIGNED LONG : tvFill = _RGBA32(0, 180, 255, 120)
+    tvMaskW% = _WIDTH(MARQUEE.SELECTION_MASK) : tvMaskH% = _HEIGHT(MARQUEE.SELECTION_MASK)
+    tvMaskMem = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+    tvSrcMem  = _MEMIMAGE(TRANSFORM.SRC_IMG)
+    FOR tvY% = 0 TO TRANSFORM.SRC_H - 1
+        tvCY% = TRANSFORM.SRC_Y + tvY%
+        FOR tvX% = 0 TO TRANSFORM.SRC_W - 1
+            tvCX% = TRANSFORM.SRC_X + tvX%
+            IF tvCX% >= 0 _ANDALSO tvCX% < tvMaskW% _ANDALSO tvCY% >= 0 _ANDALSO tvCY% < tvMaskH% THEN
+                _MEMGET tvMaskMem, tvMaskMem.OFFSET + (tvCY% * tvMaskW% * 4 + tvCX% * 4), tvMaskPix~&
+                IF _ALPHA32(tvMaskPix~&) > 0 THEN _MEMPUT tvSrcMem, tvSrcMem.OFFSET + (tvY% * TRANSFORM.SRC_W * 4 + tvX% * 4), tvFill~&
+            END IF
+        NEXT tvX%
+    NEXT tvY%
+    _MEMFREE tvMaskMem
+    _MEMFREE tvSrcMem
+
+    TRANSFORM_HX(0) = TRANSFORM.SRC_X : TRANSFORM_HY(0) = TRANSFORM.SRC_Y
+    TRANSFORM_HX(1) = TRANSFORM.SRC_X + TRANSFORM.SRC_W - 1 : TRANSFORM_HY(1) = TRANSFORM.SRC_Y
+    TRANSFORM_HX(2) = TRANSFORM.SRC_X + TRANSFORM.SRC_W - 1 : TRANSFORM_HY(2) = TRANSFORM.SRC_Y + TRANSFORM.SRC_H - 1
+    TRANSFORM_HX(3) = TRANSFORM.SRC_X : TRANSFORM_HY(3) = TRANSFORM.SRC_Y + TRANSFORM.SRC_H - 1
+    TRANSFORM_PX    = TRANSFORM.SRC_X + TRANSFORM.SRC_W * 0.5!
+    TRANSFORM_PY    = TRANSFORM.SRC_Y + TRANSFORM.SRC_H * 0.5!
+
+    TRANSFORM.MODE           = mode
+    TRANSFORM.ACTIVE         = TRUE
+    TRANSFORM.GRABBED        = -1
+    TRANSFORM.ANGLE          = 0.0!
+    TRANSFORM.SCALE_X        = 1.0!
+    TRANSFORM.SCALE_Y        = 1.0!
+    TRANSFORM.PREV_TOOL      = CURRENT_TOOL%
+    TRANSFORM.SELECTION_ONLY = TRUE ' this activation transforms the SELECTION, not pixels
+
+    TRANSFORM_PREVIEW_IMG   = 0
+    TRANSFORM_PREVIEW_DIRTY = TRUE
+    SOUND_play SND_SELECTION
+    SCENE_DIRTY%      = TRUE
+    FRAME_IDLE%       = FALSE
+    GUI_NEEDS_REDRAW% = TRUE
+    _LOGINFO "TRANSFORM_activate_selection: SRC (" + STR$(TRANSFORM.SRC_X) + "," + STR$(TRANSFORM.SRC_Y) + ") " + STR$(TRANSFORM.SRC_W) + "x" + STR$(TRANSFORM.SRC_H)
+END SUB
+
+''
 ' Cancel: discard transform without touching the layer.
 '
 SUB TRANSFORM_cancel ()
@@ -669,6 +751,7 @@ SUB TRANSFORM_cancel ()
     TRANSFORM.SRC_IMG = 0
     IF TRANSFORM.SRC_MASK < -1 THEN SAFE_FREEIMAGE TRANSFORM.SRC_MASK
     TRANSFORM.SRC_MASK = 0
+    TRANSFORM.SELECTION_ONLY = FALSE
     TRANSFORM_free_preview
     TRANSFORM.ACTIVE  = FALSE
     TRANSFORM.GRABBED = -1
@@ -691,6 +774,29 @@ SUB TRANSFORM_commit ()
 
     IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
     IF TRANSFORM.SRC_IMG >= -1 THEN TRANSFORM_cancel : EXIT SUB
+
+    ' Transform Selection: warp the MASK only, never the pixels. Record the selection
+    ' change so Ctrl+Z restores the old outline (HISTORY_selection_stage/commit).
+    IF TRANSFORM.SELECTION_ONLY THEN
+        HISTORY_selection_stage
+        TRANSFORM_warp_selection_mask
+        HISTORY_selection_commit
+        IF TRANSFORM.SRC_MASK < -1 THEN SAFE_FREEIMAGE TRANSFORM.SRC_MASK
+        TRANSFORM.SRC_MASK = 0
+        IF TRANSFORM.SRC_IMG < -1 THEN SAFE_FREEIMAGE TRANSFORM.SRC_IMG
+        TRANSFORM.SRC_IMG = 0
+        TRANSFORM.SELECTION_ONLY = FALSE
+        TRANSFORM_free_preview
+        TRANSFORM.ACTIVE  = FALSE
+        TRANSFORM.GRABBED = -1
+        CURRENT_TOOL%     = TRANSFORM.PREV_TOOL
+        IF SCENE_CACHE& < -1 THEN SAFE_FREEIMAGE SCENE_CACHE&
+        SCENE_CACHE&      = 0
+        SCENE_DIRTY%      = TRUE
+        FRAME_IDLE%       = FALSE
+        GUI_NEEDS_REDRAW% = TRUE
+        EXIT SUB
+    END IF
 
     transform_history_before& = 0
     transform_history_flags&  = 0

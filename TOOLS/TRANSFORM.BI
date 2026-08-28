@@ -55,6 +55,9 @@ TYPE TRANSFORM_OBJ
     SCALE_Y   AS SINGLE
     ' Restore on cancel / commit
     PREV_TOOL AS INTEGER
+    ' Transform Selection: TRUE = warp the SELECTION MASK only, leave layer pixels alone
+    ' (Photoshop's Select > Transform Selection). SRC_IMG is a mask visualization.
+    SELECTION_ONLY AS INTEGER
 END TYPE
 DIM SHARED TRANSFORM AS TRANSFORM_OBJ
 
