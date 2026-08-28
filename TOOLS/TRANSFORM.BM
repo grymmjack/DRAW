@@ -166,6 +166,26 @@ FUNCTION TRANSFORM_solve_homography% (dxArr() AS SINGLE, dyArr() AS SINGLE, sxAr
 END FUNCTION
 
 ''
+' Affine coefficients mapping a destination triangle back to a source triangle
+' (inverse map used by the warp: dest px -> src px). Returns the 6 coeffs by ref.
+' Identity on a degenerate (near-zero-area) triangle.
+'
+SUB TRANSFORM_tri_affine (d0x AS SINGLE, d0y AS SINGLE, d1x AS SINGLE, d1y AS SINGLE, d2x AS SINGLE, d2y AS SINGLE, s0x AS SINGLE, s0y AS SINGLE, s1x AS SINGLE, s1y AS SINGLE, s2x AS SINGLE, s2y AS SINGLE, a00 AS SINGLE, a01 AS SINGLE, a10 AS SINGLE, a11 AS SINGLE, t0 AS SINGLE, t1 AS SINGLE)
+    DIM dx1 AS SINGLE, dy1 AS SINGLE, dx2 AS SINGLE, dy2 AS SINGLE
+    DIM sx1 AS SINGLE, sy1 AS SINGLE, sx2 AS SINGLE, sy2 AS SINGLE, det AS SINGLE
+    dx1! = d1x! - d0x! : dy1! = d1y! - d0y! : dx2! = d2x! - d0x! : dy2! = d2y! - d0y!
+    sx1! = s1x! - s0x! : sy1! = s1y! - s0y! : sx2! = s2x! - s0x! : sy2! = s2y! - s0y!
+    det! = dx1! * dy2! - dx2! * dy1!
+    IF ABS(det!) > 0.0001! THEN
+        a00! = (sx1! * dy2! - sx2! * dy1!) / det! : a01! = (sx2! * dx1! - sx1! * dx2!) / det!
+        a10! = (sy1! * dy2! - sy2! * dy1!) / det! : a11! = (sy2! * dx1! - sy1! * dx2!) / det!
+        t0! = s0x! - a00! * d0x! - a01! * d0y! : t1! = s0y! - a10! * d0x! - a11! * d0y!
+    ELSE
+        a00! = 1.0! : a01! = 0.0! : a10! = 0.0! : a11! = 1.0! : t0! = 0.0! : t1! = 0.0!
+    END IF
+END SUB
+
+''
 ' Compute the warped preview image from current handle positions and store in
 ' TRANSFORM_PREVIEW_IMG.  Bounding-box origin stored in TRANSFORM_PREVIEW_OX/OY.
 '
@@ -260,64 +280,50 @@ SUB TRANSFORM_compute_preview ()
             NEXT hoy&
         END IF
     ELSE
-        ' Per-triangle affine (covers Scale, Rotate, Shear, Distort)
-        ' Triangle A: dst (0,1,2) -> src (TL,TR,BR)
-        DIM adx1 AS SINGLE, ady1 AS SINGLE, adx2 AS SINGLE, ady2 AS SINGLE
-        DIM asx1 AS SINGLE, asy1 AS SINGLE, asx2 AS SINGLE, asy2 AS SINGLE
-        DIM detA AS SINGLE
+        ' Per-triangle affine (Scale, Rotate, Shear, Distort). Split the quad into two
+        ' triangles along a diagonal. Always splitting 0-2 fails on an INWARD (concave)
+        ' distort — corner 1 or 3 lands on the wrong side of that diagonal, the triangles
+        ' overlap/invert, and the concave region doesn't warp. Pick the diagonal that
+        ' tiles the quad: 0-2 is valid iff corners 1 and 3 are on OPPOSITE sides of line
+        ' 0-2; otherwise use 1-3. Test BOTH triangles so pixels in the concave notch
+        ' (outside the quad) stay transparent instead of smearing.
+        DIM crs1 AS SINGLE, crs3 AS SINGLE, diag02 AS INTEGER
+        crs1! = (dc2x! - dc0x!) * (dc1y! - dc0y!) - (dc2y! - dc0y!) * (dc1x! - dc0x!)
+        crs3! = (dc2x! - dc0x!) * (dc3y! - dc0y!) - (dc2y! - dc0y!) * (dc3x! - dc0x!)
+        diag02% = ((crs1! >= 0.0!) <> (crs3! >= 0.0!))
+        DIM qdx(0 TO 3) AS SINGLE, qdy(0 TO 3) AS SINGLE, qsx(0 TO 3) AS SINGLE, qsy(0 TO 3) AS SINGLE
+        qdx(0) = dc0x! : qdy(0) = dc0y! : qdx(1) = dc1x! : qdy(1) = dc1y!
+        qdx(2) = dc2x! : qdy(2) = dc2y! : qdx(3) = dc3x! : qdy(3) = dc3y!
+        qsx(0) = sc0x! : qsy(0) = sc0y! : qsx(1) = sc1x! : qsy(1) = sc1y!
+        qsx(2) = sc2x! : qsy(2) = sc2y! : qsx(3) = sc3x! : qsy(3) = sc3y!
+        DIM ta0 AS INTEGER, ta1 AS INTEGER, ta2 AS INTEGER, tb0 AS INTEGER, tb1 AS INTEGER, tb2 AS INTEGER
+        IF diag02% THEN
+            ta0 = 0 : ta1 = 1 : ta2 = 2 : tb0 = 0 : tb1 = 2 : tb2 = 3
+        ELSE
+            ta0 = 0 : ta1 = 1 : ta2 = 3 : tb0 = 1 : tb1 = 2 : tb2 = 3
+        END IF
         DIM a00A AS SINGLE, a01A AS SINGLE, a10A AS SINGLE, a11A AS SINGLE, t0A AS SINGLE, t1A AS SINGLE
-        adx1! = dc1x! - dc0x! : ady1! = dc1y! - dc0y!
-        adx2! = dc2x! - dc0x! : ady2! = dc2y! - dc0y!
-        asx1! = sc1x! - sc0x! : asy1! = sc1y! - sc0y!
-        asx2! = sc2x! - sc0x! : asy2! = sc2y! - sc0y!
-        detA! = adx1! * ady2! - adx2! * ady1!
-        IF ABS(detA!) > 0.0001! THEN
-            a00A! = (asx1! * ady2! - asx2! * ady1!) / detA!
-            a01A! = (asx2! * adx1! - asx1! * adx2!) / detA!
-            a10A! = (asy1! * ady2! - asy2! * ady1!) / detA!
-            a11A! = (asy2! * adx1! - asy1! * adx2!) / detA!
-            t0A!  = sc0x! - a00A! * dc0x! - a01A! * dc0y!
-            t1A!  = sc0y! - a10A! * dc0x! - a11A! * dc0y!
-        END IF
-        ' Triangle B: dst (0,2,3) -> src (TL,BR,BL)
-        DIM bdx1 AS SINGLE, bdy1 AS SINGLE, bdx2 AS SINGLE, bdy2 AS SINGLE
-        DIM bsx1 AS SINGLE, bsy1 AS SINGLE, bsx2 AS SINGLE, bsy2 AS SINGLE
-        DIM detB AS SINGLE
         DIM a00B AS SINGLE, a01B AS SINGLE, a10B AS SINGLE, a11B AS SINGLE, t0B AS SINGLE, t1B AS SINGLE
-        bdx1! = dc2x! - dc0x! : bdy1! = dc2y! - dc0y!
-        bdx2! = dc3x! - dc0x! : bdy2! = dc3y! - dc0y!
-        bsx1! = sc2x! - sc0x! : bsy1! = sc2y! - sc0y!
-        bsx2! = sc3x! - sc0x! : bsy2! = sc3y! - sc0y!
-        detB! = bdx1! * bdy2! - bdx2! * bdy1!
-        IF ABS(detB!) > 0.0001! THEN
-            a00B! = (bsx1! * bdy2! - bsx2! * bdy1!) / detB!
-            a01B! = (bsx2! * bdx1! - bsx1! * bdx2!) / detB!
-            a10B! = (bsy1! * bdy2! - bsy2! * bdy1!) / detB!
-            a11B! = (bsy2! * bdx1! - bsy1! * bdx2!) / detB!
-            t0B!  = sc0x! - a00B! * dc0x! - a01B! * dc0y!
-            t1B!  = sc0y! - a10B! * dc0x! - a11B! * dc0y!
-        END IF
+        TRANSFORM_tri_affine qdx(ta0), qdy(ta0), qdx(ta1), qdy(ta1), qdx(ta2), qdy(ta2), qsx(ta0), qsy(ta0), qsx(ta1), qsy(ta1), qsx(ta2), qsy(ta2), a00A, a01A, a10A, a11A, t0A, t1A
+        TRANSFORM_tri_affine qdx(tb0), qdy(tb0), qdx(tb1), qdy(tb1), qdx(tb2), qdy(tb2), qsx(tb0), qsy(tb0), qsx(tb1), qsy(tb1), qsx(tb2), qsy(tb2), a00B, a01B, a10B, a11B, t0B, t1B
 
-        DIM aox   AS LONG, aoy AS LONG
-        DIM aSrcX AS SINGLE, aSrcY AS SINGLE
-        DIM aSix  AS LONG, aSiy AS LONG
-        DIM aPx   AS _UNSIGNED LONG, inA AS INTEGER
+        DIM aox AS LONG, aoy AS LONG, aSrcX AS SINGLE, aSrcY AS SINGLE
+        DIM aSix AS LONG, aSiy AS LONG, aPx AS _UNSIGNED LONG, inA AS INTEGER, inQuad AS INTEGER
         FOR aoy& = 0 TO bbH% - 1
             FOR aox& = 0 TO bbW% - 1
-                inA% = TRANSFORM_in_triangle%(CSNG(aox&), CSNG(aoy&), dc0x!, dc0y!, dc1x!, dc1y!, dc2x!, dc2y!)
+                inQuad% = 1
+                inA% = TRANSFORM_in_triangle%(CSNG(aox&), CSNG(aoy&), qdx(ta0), qdy(ta0), qdx(ta1), qdy(ta1), qdx(ta2), qdy(ta2))
                 IF inA% THEN
-                    aSrcX! = a00A! * aox& + a01A! * aoy& + t0A!
-                    aSrcY! = a10A! * aox& + a11A! * aoy& + t1A!
+                    aSrcX! = a00A! * aox& + a01A! * aoy& + t0A! : aSrcY! = a10A! * aox& + a11A! * aoy& + t1A!
+                ELSEIF TRANSFORM_in_triangle%(CSNG(aox&), CSNG(aoy&), qdx(tb0), qdy(tb0), qdx(tb1), qdy(tb1), qdx(tb2), qdy(tb2)) THEN
+                    aSrcX! = a00B! * aox& + a01B! * aoy& + t0B! : aSrcY! = a10B! * aox& + a11B! * aoy& + t1B!
                 ELSE
-                    aSrcX! = a00B! * aox& + a01B! * aoy& + t0B!
-                    aSrcY! = a10B! * aox& + a11B! * aoy& + t1B!
+                    inQuad% = 0
                 END IF
-                aSix& = INT(aSrcX! + 0.5!)
-                aSiy& = INT(aSrcY! + 0.5!)
-                IF aSix& >= 0 AND aSix& < sw% AND aSiy& >= 0 AND aSiy& < sh% THEN
-                    _MEMGET srcMem, srcMem.OFFSET + (aSiy& * sw% + aSix&) * 4, aPx~&
-                ELSE
-                    aPx~& = transparent~&
+                aPx~& = transparent~&
+                IF inQuad% = 1 THEN
+                    aSix& = INT(aSrcX! + 0.5!) : aSiy& = INT(aSrcY! + 0.5!)
+                    IF aSix& >= 0 AND aSix& < sw% AND aSiy& >= 0 AND aSiy& < sh% THEN _MEMGET srcMem, srcMem.OFFSET + (aSiy& * sw% + aSix&) * 4, aPx~&
                 END IF
                 _MEMPUT dstMem, dstMem.OFFSET + (aoy& * bbW% + aox&) * 4, aPx~&
             NEXT aox&
@@ -423,45 +429,48 @@ SUB TRANSFORM_warp_selection_mask ()
             NEXT moy&
         END IF
     ELSE
-        ' Per-triangle affine (Scale, Rotate, Shear, Distort)
-        DIM adx1 AS SINGLE, ady1 AS SINGLE, adx2 AS SINGLE, ady2 AS SINGLE
-        DIM asx1 AS SINGLE, asy1 AS SINGLE, asx2 AS SINGLE, asy2 AS SINGLE, detA AS SINGLE
+        ' Per-triangle affine (Scale, Rotate, Shear, Distort) — dynamic diagonal so an
+        ' INWARD (concave) distort tiles correctly, and both triangles are tested so the
+        ' concave notch stays unselected. Mirrors TRANSFORM_compute_preview.
+        DIM crs1 AS SINGLE, crs3 AS SINGLE, diag02 AS INTEGER
+        crs1! = (dc2x! - dc0x!) * (dc1y! - dc0y!) - (dc2y! - dc0y!) * (dc1x! - dc0x!)
+        crs3! = (dc2x! - dc0x!) * (dc3y! - dc0y!) - (dc2y! - dc0y!) * (dc3x! - dc0x!)
+        diag02% = ((crs1! >= 0.0!) <> (crs3! >= 0.0!))
+        DIM qdx(0 TO 3) AS SINGLE, qdy(0 TO 3) AS SINGLE, qsx(0 TO 3) AS SINGLE, qsy(0 TO 3) AS SINGLE
+        qdx(0) = dc0x! : qdy(0) = dc0y! : qdx(1) = dc1x! : qdy(1) = dc1y!
+        qdx(2) = dc2x! : qdy(2) = dc2y! : qdx(3) = dc3x! : qdy(3) = dc3y!
+        qsx(0) = sc0x! : qsy(0) = sc0y! : qsx(1) = sc1x! : qsy(1) = sc1y!
+        qsx(2) = sc2x! : qsy(2) = sc2y! : qsx(3) = sc3x! : qsy(3) = sc3y!
+        DIM ta0 AS INTEGER, ta1 AS INTEGER, ta2 AS INTEGER, tb0 AS INTEGER, tb1 AS INTEGER, tb2 AS INTEGER
+        IF diag02% THEN
+            ta0 = 0 : ta1 = 1 : ta2 = 2 : tb0 = 0 : tb1 = 2 : tb2 = 3
+        ELSE
+            ta0 = 0 : ta1 = 1 : ta2 = 3 : tb0 = 1 : tb1 = 2 : tb2 = 3
+        END IF
         DIM a00A AS SINGLE, a01A AS SINGLE, a10A AS SINGLE, a11A AS SINGLE, t0A AS SINGLE, t1A AS SINGLE
-        adx1! = dc1x! - dc0x! : ady1! = dc1y! - dc0y! : adx2! = dc2x! - dc0x! : ady2! = dc2y! - dc0y!
-        asx1! = sc1x! - sc0x! : asy1! = sc1y! - sc0y! : asx2! = sc2x! - sc0x! : asy2! = sc2y! - sc0y!
-        detA! = adx1! * ady2! - adx2! * ady1!
-        IF ABS(detA!) > 0.0001! THEN
-            a00A! = (asx1! * ady2! - asx2! * ady1!) / detA! : a01A! = (asx2! * adx1! - asx1! * adx2!) / detA!
-            a10A! = (asy1! * ady2! - asy2! * ady1!) / detA! : a11A! = (asy2! * adx1! - asy1! * adx2!) / detA!
-            t0A! = sc0x! - a00A! * dc0x! - a01A! * dc0y! : t1A! = sc0y! - a10A! * dc0x! - a11A! * dc0y!
-        END IF
-        DIM bdx1 AS SINGLE, bdy1 AS SINGLE, bdx2 AS SINGLE, bdy2 AS SINGLE
-        DIM bsx1 AS SINGLE, bsy1 AS SINGLE, bsx2 AS SINGLE, bsy2 AS SINGLE, detB AS SINGLE
         DIM a00B AS SINGLE, a01B AS SINGLE, a10B AS SINGLE, a11B AS SINGLE, t0B AS SINGLE, t1B AS SINGLE
-        bdx1! = dc2x! - dc0x! : bdy1! = dc2y! - dc0y! : bdx2! = dc3x! - dc0x! : bdy2! = dc3y! - dc0y!
-        bsx1! = sc2x! - sc0x! : bsy1! = sc2y! - sc0y! : bsx2! = sc3x! - sc0x! : bsy2! = sc3y! - sc0y!
-        detB! = bdx1! * bdy2! - bdx2! * bdy1!
-        IF ABS(detB!) > 0.0001! THEN
-            a00B! = (bsx1! * bdy2! - bsx2! * bdy1!) / detB! : a01B! = (bsx2! * bdx1! - bsx1! * bdx2!) / detB!
-            a10B! = (bsy1! * bdy2! - bsy2! * bdy1!) / detB! : a11B! = (bsy2! * bdx1! - bsy1! * bdx2!) / detB!
-            t0B! = sc0x! - a00B! * dc0x! - a01B! * dc0y! : t1B! = sc0y! - a10B! * dc0x! - a11B! * dc0y!
-        END IF
-        DIM aSrcX AS SINGLE, aSrcY AS SINGLE, inA AS INTEGER
+        TRANSFORM_tri_affine qdx(ta0), qdy(ta0), qdx(ta1), qdy(ta1), qdx(ta2), qdy(ta2), qsx(ta0), qsy(ta0), qsx(ta1), qsy(ta1), qsx(ta2), qsy(ta2), a00A, a01A, a10A, a11A, t0A, t1A
+        TRANSFORM_tri_affine qdx(tb0), qdy(tb0), qdx(tb1), qdy(tb1), qdx(tb2), qdy(tb2), qsx(tb0), qsy(tb0), qsx(tb1), qsy(tb1), qsx(tb2), qsy(tb2), a00B, a01B, a10B, a11B, t0B, t1B
+        DIM aSrcX AS SINGLE, aSrcY AS SINGLE, inA AS INTEGER, inQuad AS INTEGER
         FOR moy& = 0 TO bbH% - 1
             FOR mox& = 0 TO bbW% - 1
-                inA% = TRANSFORM_in_triangle%(CSNG(mox&), CSNG(moy&), dc0x!, dc0y!, dc1x!, dc1y!, dc2x!, dc2y!)
+                mSelBit% = 0 : inQuad% = 1
+                inA% = TRANSFORM_in_triangle%(CSNG(mox&), CSNG(moy&), qdx(ta0), qdy(ta0), qdx(ta1), qdy(ta1), qdx(ta2), qdy(ta2))
                 IF inA% THEN
                     aSrcX! = a00A! * mox& + a01A! * moy& + t0A! : aSrcY! = a10A! * mox& + a11A! * moy& + t1A!
-                ELSE
+                ELSEIF TRANSFORM_in_triangle%(CSNG(mox&), CSNG(moy&), qdx(tb0), qdy(tb0), qdx(tb1), qdy(tb1), qdx(tb2), qdy(tb2)) THEN
                     aSrcX! = a00B! * mox& + a01B! * moy& + t0B! : aSrcY! = a10B! * mox& + a11B! * moy& + t1B!
+                ELSE
+                    inQuad% = 0
                 END IF
-                mSix& = INT(aSrcX! + 0.5!) : mSiy& = INT(aSrcY! + 0.5!)
-                mSelBit% = 0
-                IF mSix& >= 0 AND mSix& < sw% AND mSiy& >= 0 AND mSiy& < sh% THEN
-                    mCanX& = TRANSFORM.SRC_X + mSix& : mCanY& = TRANSFORM.SRC_Y + mSiy&
-                    IF mCanX& >= 0 AND mCanX& < mMaskW% AND mCanY& >= 0 AND mCanY& < mMaskH% THEN
-                        _MEMGET mSrcMem, mSrcMem.OFFSET + (mCanY& * mMaskW% + mCanX&) * 4, mPix~&
-                        IF _ALPHA32(mPix~&) > 0 THEN mSelBit% = 1
+                IF inQuad% = 1 THEN
+                    mSix& = INT(aSrcX! + 0.5!) : mSiy& = INT(aSrcY! + 0.5!)
+                    IF mSix& >= 0 AND mSix& < sw% AND mSiy& >= 0 AND mSiy& < sh% THEN
+                        mCanX& = TRANSFORM.SRC_X + mSix& : mCanY& = TRANSFORM.SRC_Y + mSiy&
+                        IF mCanX& >= 0 AND mCanX& < mMaskW% AND mCanY& >= 0 AND mCanY& < mMaskH% THEN
+                            _MEMGET mSrcMem, mSrcMem.OFFSET + (mCanY& * mMaskW% + mCanX&) * 4, mPix~&
+                            IF _ALPHA32(mPix~&) > 0 THEN mSelBit% = 1
+                        END IF
                     END IF
                 END IF
                 IF mSelBit% = 1 THEN _MEMPUT mDstMem, mDstMem.OFFSET + (moy& * bbW% + mox&) * 4, sel~& ELSE _MEMPUT mDstMem, mDstMem.OFFSET + (moy& * bbW% + mox&) * 4, clr~&
