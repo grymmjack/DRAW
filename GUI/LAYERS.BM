@@ -2018,21 +2018,83 @@ FUNCTION LAYERS_flatten& ()
     DIM i       AS INTEGER, z AS INTEGER
     DIM oldDest AS LONG
     DIM tempImg AS LONG
-    
+
     result& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
-    
+
     oldDest& = _DEST
     _DEST result&
     CLS , _RGBA32(0, 0, 0, 0)
     _BLEND result&
     _DEST oldDest&
-    
+
+    ' === Group-aware flatten (fixes BUG-59) ==============================
+    ' Every export/flatten consumer (PNG/BMP/GIF/JPG/TGA, ANS, .drw merge,
+    ' AI {dimg}, extract tools, pixel analyzer) funnels through this one
+    ' function, so an ISOLATED group with reduced opacity / a blend mode must
+    ' fade & blend as a UNIT here exactly as it does on canvas. We mirror the
+    ' renderer's isolated-group stack (OUTPUT/SCREEN.BM RENDER_layers) — push a
+    ' per-group buffer when we enter an isolated group's children, flush it
+    ' (apply the group's own opacity/blend) when we hit the group header — but
+    ' with NONE of the live-render machinery (no per-frame caches, zoom,
+    ' region-dirty updates, or MOVE preview). Traversal is by zIndex, so group
+    ' header nodes sort ABOVE their children and the flush lands after the
+    ' children are composited, same invariant the renderer relies on.
+    DIM gBuf(1 TO MAX_GROUP_NESTING) AS LONG    ' isolated-group composite buffers
+    DIM gIdx(1 TO MAX_GROUP_NESTING) AS INTEGER ' group layer index at each stack level
+    DIM gTop AS INTEGER
+    DIM compTarget AS LONG
+    gTop% = 0
+    compTarget& = result&
+
     ' Composite visible layers bottom-to-top by zIndex
     DIM srcImg AS LONG, apronTmp AS LONG, oldSrc AS LONG, sx AS INTEGER, sy AS INTEGER
     FOR z% = 1 TO LAYER_COUNT%
         FOR i% = 1 TO MAX_LAYERS
-            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).visible% AND LAYERS(i%).zIndex% = z% THEN
-                ' Children of a hidden group must be skipped here too. The
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = z% THEN
+                ' ---- Group header node: flush its isolated buffer, then skip sentinel ----
+                IF LAYERS(i%).layerType% = LAYER_TYPE_GROUP THEN
+                    IF gTop% > 0 THEN
+                        IF gIdx(gTop%) = i% THEN
+                            DIM gfBuf AS LONG, gfTgt AS LONG, gfOp AS INTEGER, gfBl AS INTEGER
+                            gfBuf& = gBuf(gTop%)
+                            gfOp%  = LAYERS(i%).opacity%
+                            gfBl%  = LAYERS(i%).blendMode%
+                            IF gTop% > 1 THEN gfTgt& = gBuf(gTop% - 1) ELSE gfTgt& = result&
+                            IF gfBl% = BLEND_NORMAL AND gfOp% = 255 THEN
+                                oldDest& = _DEST: _DEST gfTgt&
+                                _PUTIMAGE , gfBuf&, gfTgt&
+                                _DEST oldDest&
+                            ELSEIF gfBl% = BLEND_NORMAL THEN
+                                DIM gMem AS _MEM, gOff AS _OFFSET, gPix AS _UNSIGNED LONG
+                                DIM gA AS _UNSIGNED _BYTE, gNewA AS INTEGER
+                                gMem = _MEMIMAGE(gfBuf&)
+                                FOR gOff = gMem.OFFSET TO gMem.OFFSET + gMem.SIZE - 4 STEP 4
+                                    _MEMGET gMem, gOff, gPix~&
+                                    gA~%% = _ALPHA32(gPix~&)
+                                    IF gA~%% > 0 THEN
+                                        gNewA% = (gA~%% * gfOp%) \ 255
+                                        _MEMPUT gMem, gOff + 3, gNewA% AS _UNSIGNED _BYTE
+                                    END IF
+                                NEXT gOff
+                                _MEMFREE gMem
+                                oldDest& = _DEST: _DEST gfTgt&
+                                _PUTIMAGE , gfBuf&, gfTgt&
+                                _DEST oldDest&
+                            ELSE
+                                LAYER_blend_composite gfTgt&, gfBuf&, gfBl%, gfOp%
+                            END IF
+                            SAFE_FREEIMAGE gBuf(gTop%)
+                            gIdx(gTop%) = 0
+                            gTop% = gTop% - 1
+                            IF gTop% > 0 THEN compTarget& = gBuf(gTop%) ELSE compTarget& = result&
+                        END IF
+                    END IF
+                    EXIT FOR   ' this zIndex handled; never composite the 1x1 group sentinel
+                END IF
+
+                IF LAYERS(i%).visible% = 0 THEN EXIT FOR   ' invisible leaf
+
+                ' Children of a hidden ANCESTOR group must be skipped too. The
                 ' screen renderer walks the parent chain, this did not — so a
                 ' hidden group's contents were absent on canvas but PRESENT in
                 ' every export and in the {dimg} steering image.
@@ -2051,7 +2113,54 @@ FUNCTION LAYERS_flatten& ()
                     flatGuard% = flatGuard% + 1
                     IF flatGuard% > MAX_LAYERS THEN EXIT DO
                 LOOP
-                IF flatHidden% THEN _CONTINUE
+                IF flatHidden% THEN EXIT FOR
+
+                ' ---- Pick composite target: isolated-group buffer, or main ----
+                DIM parentGrp AS INTEGER, isIso AS INTEGER
+                parentGrp% = LAYERS(i%).parentGroupIdx%
+                isIso% = FALSE
+                IF parentGrp% > 0 AND parentGrp% <= MAX_LAYERS THEN
+                    IF LAYERS(parentGrp%).imgHandle& <> 0 THEN
+                        IF LAYERS(parentGrp%).layerType% = LAYER_TYPE_GROUP THEN
+                            IF NOT LAYERS(parentGrp%).passThrough% THEN
+                                IF LAYERS(parentGrp%).visible% THEN isIso% = TRUE
+                            END IF
+                        END IF
+                    END IF
+                END IF
+                IF isIso% THEN
+                    ' Enter this isolated group: push a fresh buffer unless it's already active
+                    DIM needPush AS INTEGER
+                    needPush% = TRUE
+                    IF gTop% > 0 THEN
+                        IF gIdx(gTop%) = parentGrp% THEN needPush% = FALSE
+                    END IF
+                    IF needPush% AND gTop% < MAX_GROUP_NESTING THEN
+                        gTop% = gTop% + 1
+                        gIdx(gTop%) = parentGrp%
+                        gBuf(gTop%) = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+                        oldDest& = _DEST: _DEST gBuf(gTop%)
+                        _DONTBLEND gBuf(gTop%): CLS , _RGBA32(0, 0, 0, 0): _BLEND gBuf(gTop%)
+                        _DEST oldDest&
+                    END IF
+                    IF gTop% > 0 THEN compTarget& = gBuf(gTop%)
+                ELSE
+                    ' Not isolated: composite into an ancestor stacked group if present, else main
+                    IF gTop% > 0 THEN
+                        DIM inStack AS INTEGER, sscan AS INTEGER
+                        inStack% = FALSE
+                        FOR sscan% = gTop% TO 1 STEP -1
+                            IF gIdx(sscan%) = parentGrp% THEN
+                                compTarget& = gBuf(sscan%)
+                                inStack%    = TRUE
+                                EXIT FOR
+                            END IF
+                        NEXT sscan%
+                        IF NOT inStack% THEN compTarget& = result&
+                    ELSE
+                        compTarget& = result&
+                    END IF
+                END IF
 
                 ' APRON: extract canvas region into a compact temp if layer is extended.
                 apronTmp& = 0
@@ -2071,11 +2180,11 @@ FUNCTION LAYERS_flatten& ()
                 END IF
                 IF LAYERS(i%).blendMode% <> BLEND_NORMAL THEN
                     ' Non-Normal blend: use per-pixel blend composite
-                    LAYER_blend_composite result&, srcImg&, LAYERS(i%).blendMode%, LAYERS(i%).opacity%
+                    LAYER_blend_composite compTarget&, srcImg&, LAYERS(i%).blendMode%, LAYERS(i%).opacity%
                 ELSE
                     ' Normal blend: standard alpha composite via _PUTIMAGE
                     oldDest& = _DEST
-                    _DEST result&
+                    _DEST compTarget&
                     IF LAYERS(i%).opacity% < 255 THEN
                         ' Scale alpha per-pixel (not _SETALPHA which overwrites transparent pixels)
                         tempImg& = _COPYIMAGE(srcImg&, 32)
@@ -2106,7 +2215,41 @@ FUNCTION LAYERS_flatten& ()
             END IF
         NEXT i%
     NEXT z%
-    
+
+    ' Safety: flush any isolated groups still open (all headers should appear in
+    ' the zIndex walk, but never leak a buffer or drop a group if one didn't).
+    DO WHILE gTop% > 0
+        DIM sfBuf AS LONG, sfTgt AS LONG, sfOp AS INTEGER, sfBl AS INTEGER
+        sfBuf& = gBuf(gTop%)
+        sfOp%  = LAYERS(gIdx(gTop%)).opacity%
+        sfBl%  = LAYERS(gIdx(gTop%)).blendMode%
+        IF gTop% > 1 THEN sfTgt& = gBuf(gTop% - 1) ELSE sfTgt& = result&
+        IF sfBl% = BLEND_NORMAL THEN
+            IF sfOp% < 255 THEN
+                DIM sMem AS _MEM, sOff AS _OFFSET, sPix AS _UNSIGNED LONG
+                DIM sA AS _UNSIGNED _BYTE, sNewA AS INTEGER
+                sMem = _MEMIMAGE(sfBuf&)
+                FOR sOff = sMem.OFFSET TO sMem.OFFSET + sMem.SIZE - 4 STEP 4
+                    _MEMGET sMem, sOff, sPix~&
+                    sA~%% = _ALPHA32(sPix~&)
+                    IF sA~%% > 0 THEN
+                        sNewA% = (sA~%% * sfOp%) \ 255
+                        _MEMPUT sMem, sOff + 3, sNewA% AS _UNSIGNED _BYTE
+                    END IF
+                NEXT sOff
+                _MEMFREE sMem
+            END IF
+            oldDest& = _DEST: _DEST sfTgt&
+            _PUTIMAGE , sfBuf&, sfTgt&
+            _DEST oldDest&
+        ELSE
+            LAYER_blend_composite sfTgt&, sfBuf&, sfBl%, sfOp%
+        END IF
+        SAFE_FREEIMAGE gBuf(gTop%)
+        gIdx(gTop%) = 0
+        gTop% = gTop% - 1
+    LOOP
+
     LAYERS_flatten& = result&
 END FUNCTION
 

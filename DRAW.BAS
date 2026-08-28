@@ -561,6 +561,11 @@ DO
     ' state appears as real mouse state to downstream code.
     GAMEPAD_poll
 
+    ' Recover from a window-focus round-trip (alt-tab away & back) BEFORE mouse
+    ' handling: clears any button-release edge swallowed while unfocused, so a
+    ' latched MOUSE.OLD_B1% can't kill menubar/toolbar/panel clicks (BUG-78).
+    MOUSE_focus_guard
+
     PERF_start PERF_MOUSE_INPUT
     MOUSE_input_handler
     PALETTE_OPS_tick

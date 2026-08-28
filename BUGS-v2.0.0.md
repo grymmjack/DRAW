@@ -447,7 +447,7 @@ Exporters, importers, effects math, fonts/TDF, PIXEL-COACH, sound. (Effects engi
 ### BUG-67 [MED] — ANSI import cursor-forward/down unbounded → INTEGER overflow/corruption (`FILE-ANS.BM:819`) — **FIX (applied):** clamp x/y.
 ### BUG-60 [HIGH] — QB64/BAS export composites HIDDEN-group children (`FILE-QB64.BM:482`) — **FIX PENDING** (parent-chain visibility walk).
 
-### BUG-59 [HIGH] — `LAYERS_flatten&` ignores group opacity/blend/isolation → every raster export wrong for isolated groups. **FIX PENDING** (factor the renderer's group-stack compositor into a shared routine).
+### BUG-59 [HIGH] — `LAYERS_flatten&` ignores group opacity/blend/isolation → every raster export wrong for isolated groups. **FIX (applied 2026-08-28):** `LAYERS_flatten&` (`GUI/LAYERS.BM:2016`) is now group-aware — it mirrors the renderer's isolated-group stack (`OUTPUT/SCREEN.BM` `RENDER_layers`): push a per-group buffer on entering an isolated (non-pass-through) group's children, flush it applying the group's own opacity/blend when the group header is reached (zIndex walk puts headers above children, same invariant the renderer uses), with none of the live-render caches/zoom/region/MOVE machinery. Fixes **every** flatten consumer at once (PNG/BMP/GIF/JPG/TGA, ANS, `.drw` merge, AI `{dimg}`, extract tools, pixel analyzer) — also resolves the export half of BUG-61. Compiles clean.
 ### BUG-61 [MED] — `SAVE_selection` re-implements compositing → apron-squash + hidden-group bugs (`SAVE.BM:456`). **FIX PENDING** (crop from `LAYERS_flatten&`).
 ### BUG-63 [LOW] — ANSI selection export ignores non-rectangular mask (`FILE-ANS.BM:581`).
 ### BUG-64 [LOW] — QB64 export copies fonts via Unix `cp` (`FILE-QB64.BM:582`) — breaks on Windows.
@@ -457,6 +457,7 @@ Exporters, importers, effects math, fonts/TDF, PIXEL-COACH, sound. (Effects engi
 ### BUG-75 [LOW] — `MUSIC_play_random_ext` stops music if the extension has 0 tracks (`SOUND.BM:419`).
 ### BUG-76 [LOW,UNVERIFIED] — `.TDX` values trusted without bounds vs the `.TDF` (`TDF-FONT.BM:827`).
 ### BUG-77 [LOW,UNVERIFIED] — PIXEL-COACH `imgW/imgH` INTEGER overflow on >32767px image.
+### BUG-78 [HIGH] — Menu bar dropdowns stop opening after export + alt-tab away/back. **Repro (Rick, 2026-08-28):** File > Export PNG, then switch to another desktop window (Qwenview) to view the PNG, then return to DRAW — clicking a menu title (File) highlights it but the dropdown never opens; the click is audibly registered. **Root cause (confirmed):** DRAW had **no window-focus handling at all**. The export dialog is innocent (`MOUSE_cleanup_after_dialog` resets buttons on both OK/Cancel). Alt-tabbing to another window swallows the mouse-RELEASE edge while DRAW is unfocused → `MOUSE.OLD_B1%` latches TRUE → the menubar's press-edge guard `MOUSE.B1% AND NOT MOUSE.OLD_B1%` (`INPUT/MOUSE.BM:600`) can never fire again → dropdown highlights (hover has no button guard) but never opens. Same stuck edge would silently break toolbar/panel clicks too. **FIX (applied 2026-08-28):** new `MOUSE_focus_guard` (`INPUT/MOUSE.BM`) tracks `_WINDOWHASFOCUS` and, on the unfocused→focused transition, runs `MOUSE_cleanup_after_dialog` (forces B1/OLD_B1 up, drains `_MOUSEINPUT`, suppress frames, releases modifiers). Wired into the main loop before `MOUSE_input_handler` (`DRAW.BAS`).
 
 ## BLOCKED — needs a Rick decision
 
