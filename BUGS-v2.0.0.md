@@ -273,11 +273,20 @@ Each verified against source. Severity in brackets.
 - `KEYBOARD.BM:2238` routes to `TRANSFORM_rotate_step` which early-outs unless MODE=ROTATE
   (`TRANSFORM.BM:526`); the ELSE fallback is unreachable while the overlay is active. Silent no-op.
 
-### BUG-19 [MED→HIGH] — Merge redo re-runs against LIVE state → wrong/lost content
-- Undo a Merge Visible/Group/Down, toggle a layer's visibility (records no history, doesn't truncate
-  redo), then Redo → the merge re-executes live (`HISTORY.BM:2632/2637/2646`) excluding the now-hidden
-  layer → data loss / desync. **FIX PENDING** (store the merged after-image, or have visibility/opacity
-  mutations discard the redo tail).
+### BUG-19 [MED→HIGH] — Merge redo re-runs against LIVE state → wrong/lost content — **FIXED (2026-08-28), confirmed by Rick**
+- **Repro (Rick):** 3 layers A/B/C → Merge All → Ctrl+Z (A/B/C back) → hide C → Ctrl+Y → the redone merge
+  ran live and **removed layer B** (data loss).
+- **Root cause:** all three merge redos re-EXECUTE the merge against current state — `LAYERS_merge_down`
+  (`HISTORY.BM:2632`), `LAYERS_merge_visible` (`:2637`, the "Merge All" menu item), `LAYERS_merge_group`
+  (`:2646`) — so any visibility/opacity change made after the undo (which records no history and did NOT
+  truncate the redo tail) desyncs the replay: layers are re-merged/deleted against a stack that no longer
+  matches, losing content.
+- **FIX (applied):** treat a non-recorded document mutation after an undo as a timeline branch — when
+  `LAYERS_toggle_visibility` / `LAYERS_set_opacity` change state and a redo tail exists, call
+  `HISTORY_discard_redo_tail` (`GUI/LAYERS.BM`, guarded by `HISTORY_IN_PROGRESS% = 0` so it never fires
+  during replay). Hiding C now discards the stale merge future, so Ctrl+Y is a correct no-op instead of
+  destroying B. Covers all three merge kinds via the trigger side. (A fuller "replay the recorded merged
+  after-image" redo is a larger follow-up; this stops the data loss.)
 
 ### BUG-22 [HIGH] — Float-transform (flip/rotate/scale of a wand/lasso selection) desyncs the mask
 - Same class as BUG-1 but for flip/rotate/scale: `CMD_autofloat_for_transform` floats masked pixels,
