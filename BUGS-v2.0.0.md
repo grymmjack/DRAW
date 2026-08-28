@@ -255,10 +255,28 @@ Each verified against source. Severity in brackets.
   `LAYERS_select` → `MULTI_SELECT_clear` wipes it. After the first dup the rest read FALSE.
 - **Fix:** snapshot selected slots into a local array first (like Delete/Merge-Selected do).
 
-### BUG-10 [MED] — TRANSFORM ignores non-rectangular selection masks → destroys unselected pixels
+### BUG-10 [MED→HIGH] — TRANSFORM ignores non-rectangular selection masks → destroys unselected pixels
 - Transform of a wand/irregular selection transforms the whole bbox; pixels in-bbox-out-of-mask are
   erased. `TRANSFORM_activate` (`TRANSFORM.BM:364`) uses only `MARQUEE.BOX`, never `SELECTION_MASK`;
   commit erases the full rect (`:487`). `HISTORY_FLAG_CLIPPED` is set (`:482`) but never applied.
+- **Repro CONFIRMED by Rick (2026-08-28)** with two blobs (magenta + green), wand-select one, Scale, Enter.
+  Three distinct defects observed in one repro:
+  1. out-of-mask pixels (the other blob) get erased — the core BUG-10 (mask ignored on capture + commit);
+  2. the selection/mask did NOT scale with the transform — stayed at the old size (this is **BUG-22**:
+     the mask/bounds are never scaled/rotated/flipped, only translated on commit);
+  3. the cleared source region appeared BLACK — NOT a wrong clear-color: the commit already clears to
+     `_RGBA32(0,0,0,0)` (`TRANSFORM.BM:487`). The "black" was the transparent HOLE from #1 (the erased
+     neighbour) showing the backdrop below. So #3 is a symptom of #1, not a separate defect.
+  **FIX (applied 2026-08-28) — data loss (#1) + black (#3):** the transform now lifts and erases ONLY
+  masked pixels. `TRANSFORM_activate` snapshots the wand mask into a new `TRANSFORM.SRC_MASK` field and
+  knocks non-mask pixels out of the captured float; `TRANSFORM_commit` clears only masked source pixels
+  (mask-aware `_MEM` loop mirroring `MOVE.BM:770-799`) instead of the full-rect `LINE …BF`. The neighbour
+  blob is never captured or erased → no destruction, no transparent hole/black. `TRANSFORM_cancel` frees
+  the snapshot. Undo unaffected (full before-image still captured). Only the wand/lasso path changes;
+  rectangular-marquee and whole-layer transforms keep the full-rect clear.
+  **#2 / BUG-22 (mask doesn't scale) — stopgap applied:** on commit of a masked transform the now-stale
+  selection is dropped (`MAGIC_WAND_reset`, the BUG-1 precedent) so later masked ops don't act on the old
+  silhouette. Proper "warp the mask to follow the transform" is a separable follow-up (genuinely new code).
 
 ### BUG-11 [MED] — Apron demote at transform-activate is destructive + not undoable
 - `TRANSFORM.BM:352-356` demotes (sacrifices apron pixels) BEFORE any history; early-outs leave the

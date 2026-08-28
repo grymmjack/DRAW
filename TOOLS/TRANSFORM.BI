@@ -42,6 +42,9 @@ TYPE TRANSFORM_OBJ
     SRC_W     AS INTEGER
     SRC_H     AS INTEGER
     SRC_IMG   AS LONG    ' Copy of source pixels captured on activate
+    SRC_MASK  AS LONG    ' BUG-10: snapshot of the wand/lasso selection mask (canvas-sized) when
+                         ' transforming an irregular selection; 0 for rect / whole-layer. Used to
+                         ' lift & erase ONLY masked pixels so in-bbox/out-of-mask content survives.
     ' Drag state
     GRABBED   AS INTEGER ' -1 = none  0-3 = corner handle  4 = body drag
     DRAG_OFX  AS SINGLE  ' Offset from handle to mouse at press (canvas px)

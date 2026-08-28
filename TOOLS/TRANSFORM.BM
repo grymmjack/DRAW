@@ -330,6 +330,192 @@ SUB TRANSFORM_compute_preview ()
     TRANSFORM_PREVIEW_DIRTY = FALSE
 END SUB
 
+''
+' Warp the active selection mask (TRANSFORM.SRC_MASK snapshot) through the SAME
+' handle quad the pixels use, and rebuild MARQUEE.SELECTION_MASK + bounds so the
+' selection follows the transform (BUG-22), and so "Transform Selection" can move
+' the marching ants without touching pixels. Self-contained (does not disturb the
+' live-preview path): it re-derives the same bbox/quad/inverse-map as
+' TRANSFORM_compute_preview but sources the mask and writes a binary (opaque =
+' selected) result. No-op unless a mask snapshot exists.
+'
+SUB TRANSFORM_warp_selection_mask ()
+    IF TRANSFORM.SRC_MASK >= -1 THEN EXIT SUB
+
+    DIM sw AS INTEGER : sw% = TRANSFORM.SRC_W
+    DIM sh AS INTEGER : sh% = TRANSFORM.SRC_H
+
+    ' Destination bbox of the quad in canvas coords (same math as compute_preview)
+    DIM minX AS SINGLE, maxX AS SINGLE, minY AS SINGLE, maxY AS SINGLE, wi AS INTEGER
+    minX! = TRANSFORM_HX(0) : maxX! = TRANSFORM_HX(0)
+    minY! = TRANSFORM_HY(0) : maxY! = TRANSFORM_HY(0)
+    FOR wi% = 1 TO 3
+        IF TRANSFORM_HX(wi%) < minX! THEN minX! = TRANSFORM_HX(wi%)
+        IF TRANSFORM_HX(wi%) > maxX! THEN maxX! = TRANSFORM_HX(wi%)
+        IF TRANSFORM_HY(wi%) < minY! THEN minY! = TRANSFORM_HY(wi%)
+        IF TRANSFORM_HY(wi%) > maxY! THEN maxY! = TRANSFORM_HY(wi%)
+    NEXT wi%
+    DIM bbX AS INTEGER, bbY AS INTEGER, bbW AS INTEGER, bbH AS INTEGER
+    bbX% = INT(minX!) : bbY% = INT(minY!)
+    bbW% = INT(maxX!) - bbX% + 2 : bbH% = INT(maxY!) - bbY% + 2
+    IF bbX% < 0 THEN bbX% = 0
+    IF bbY% < 0 THEN bbY% = 0
+    IF bbX% + bbW% > SCRN.canvasW& THEN bbW% = SCRN.canvasW& - bbX%
+    IF bbY% + bbH% > SCRN.canvasH& THEN bbH% = SCRN.canvasH& - bbY%
+    IF bbW% <= 0 OR bbH% <= 0 THEN EXIT SUB
+
+    ' Dest corners relative to bbox origin; source corners in SRC-local coords
+    DIM dc0x AS SINGLE, dc0y AS SINGLE, dc1x AS SINGLE, dc1y AS SINGLE
+    DIM dc2x AS SINGLE, dc2y AS SINGLE, dc3x AS SINGLE, dc3y AS SINGLE
+    dc0x! = TRANSFORM_HX(0) - bbX% : dc0y! = TRANSFORM_HY(0) - bbY%
+    dc1x! = TRANSFORM_HX(1) - bbX% : dc1y! = TRANSFORM_HY(1) - bbY%
+    dc2x! = TRANSFORM_HX(2) - bbX% : dc2y! = TRANSFORM_HY(2) - bbY%
+    dc3x! = TRANSFORM_HX(3) - bbX% : dc3y! = TRANSFORM_HY(3) - bbY%
+    DIM sc0x AS SINGLE, sc0y AS SINGLE, sc1x AS SINGLE, sc1y AS SINGLE
+    DIM sc2x AS SINGLE, sc2y AS SINGLE, sc3x AS SINGLE, sc3y AS SINGLE
+    sc0x! = 0.0! : sc0y! = 0.0! : sc1x! = sw% - 1.0! : sc1y! = 0.0!
+    sc2x! = sw% - 1.0! : sc2y! = sh% - 1.0! : sc3x! = 0.0! : sc3y! = sh% - 1.0!
+
+    DIM warped AS LONG : warped& = _NEWIMAGE(bbW%, bbH%, 32)
+    IF warped& >= -1 THEN EXIT SUB
+    DIM wOldDest AS LONG : wOldDest& = _DEST
+    _DEST warped& : _DONTBLEND warped& : CLS , _RGBA32(0, 0, 0, 0) : _DEST wOldDest&
+
+    DIM mSrcMem AS _MEM : mSrcMem = _MEMIMAGE(TRANSFORM.SRC_MASK)
+    DIM mDstMem AS _MEM : mDstMem = _MEMIMAGE(warped&)
+    DIM mMaskW AS INTEGER, mMaskH AS INTEGER
+    mMaskW% = _WIDTH(TRANSFORM.SRC_MASK) : mMaskH% = _HEIGHT(TRANSFORM.SRC_MASK)
+    DIM sel AS _UNSIGNED LONG : sel = _RGBA32(255, 255, 255, 255)
+    DIM clr AS _UNSIGNED LONG : clr = _RGBA32(0, 0, 0, 0)
+
+    ' Inverse-map each dest pixel to a SRC-local coord, then to canvas coords to sample
+    ' the mask snapshot. Uses the same per-triangle affine (Scale/Rotate/Shear/Distort)
+    ' or full homography (Perspective) as TRANSFORM_compute_preview.
+    DIM mox AS LONG, moy AS LONG, mSix AS LONG, mSiy AS LONG
+    DIM mCanX AS LONG, mCanY AS LONG, mPix AS _UNSIGNED LONG, mSelBit AS INTEGER
+    IF TRANSFORM.MODE = TRANSFORM_MODE_PERSPECTIVE THEN
+        DIM dxArr(0 TO 3) AS SINGLE, dyArr(0 TO 3) AS SINGLE
+        DIM sxArr(0 TO 3) AS SINGLE, syArr(0 TO 3) AS SINGLE, hArr(0 TO 7) AS SINGLE
+        dxArr(0) = dc0x! : dyArr(0) = dc0y! : sxArr(0) = sc0x! : syArr(0) = sc0y!
+        dxArr(1) = dc1x! : dyArr(1) = dc1y! : sxArr(1) = sc1x! : syArr(1) = sc1y!
+        dxArr(2) = dc2x! : dyArr(2) = dc2y! : sxArr(2) = sc2x! : syArr(2) = sc2y!
+        dxArr(3) = dc3x! : dyArr(3) = dc3y! : sxArr(3) = sc3x! : syArr(3) = sc3y!
+        IF TRANSFORM_solve_homography%(dxArr(), dyArr(), sxArr(), syArr(), hArr()) THEN
+            DIM hDenom AS SINGLE, hSrcX AS SINGLE, hSrcY AS SINGLE
+            FOR moy& = 0 TO bbH% - 1
+                FOR mox& = 0 TO bbW% - 1
+                    hDenom! = hArr(6) * mox& + hArr(7) * moy& + 1.0!
+                    mSelBit% = 0
+                    IF hDenom! <> 0.0! THEN
+                        hSrcX! = (hArr(0) * mox& + hArr(1) * moy& + hArr(2)) / hDenom!
+                        hSrcY! = (hArr(3) * mox& + hArr(4) * moy& + hArr(5)) / hDenom!
+                        mSix& = INT(hSrcX! + 0.5!) : mSiy& = INT(hSrcY! + 0.5!)
+                        IF mSix& >= 0 AND mSix& < sw% AND mSiy& >= 0 AND mSiy& < sh% THEN
+                            mCanX& = TRANSFORM.SRC_X + mSix& : mCanY& = TRANSFORM.SRC_Y + mSiy&
+                            IF mCanX& >= 0 AND mCanX& < mMaskW% AND mCanY& >= 0 AND mCanY& < mMaskH% THEN
+                                _MEMGET mSrcMem, mSrcMem.OFFSET + (mCanY& * mMaskW% + mCanX&) * 4, mPix~&
+                                IF _ALPHA32(mPix~&) > 0 THEN mSelBit% = 1
+                            END IF
+                        END IF
+                    END IF
+                    IF mSelBit% = 1 THEN _MEMPUT mDstMem, mDstMem.OFFSET + (moy& * bbW% + mox&) * 4, sel~& ELSE _MEMPUT mDstMem, mDstMem.OFFSET + (moy& * bbW% + mox&) * 4, clr~&
+                NEXT mox&
+            NEXT moy&
+        END IF
+    ELSE
+        ' Per-triangle affine (Scale, Rotate, Shear, Distort)
+        DIM adx1 AS SINGLE, ady1 AS SINGLE, adx2 AS SINGLE, ady2 AS SINGLE
+        DIM asx1 AS SINGLE, asy1 AS SINGLE, asx2 AS SINGLE, asy2 AS SINGLE, detA AS SINGLE
+        DIM a00A AS SINGLE, a01A AS SINGLE, a10A AS SINGLE, a11A AS SINGLE, t0A AS SINGLE, t1A AS SINGLE
+        adx1! = dc1x! - dc0x! : ady1! = dc1y! - dc0y! : adx2! = dc2x! - dc0x! : ady2! = dc2y! - dc0y!
+        asx1! = sc1x! - sc0x! : asy1! = sc1y! - sc0y! : asx2! = sc2x! - sc0x! : asy2! = sc2y! - sc0y!
+        detA! = adx1! * ady2! - adx2! * ady1!
+        IF ABS(detA!) > 0.0001! THEN
+            a00A! = (asx1! * ady2! - asx2! * ady1!) / detA! : a01A! = (asx2! * adx1! - asx1! * adx2!) / detA!
+            a10A! = (asy1! * ady2! - asy2! * ady1!) / detA! : a11A! = (asy2! * adx1! - asy1! * adx2!) / detA!
+            t0A! = sc0x! - a00A! * dc0x! - a01A! * dc0y! : t1A! = sc0y! - a10A! * dc0x! - a11A! * dc0y!
+        END IF
+        DIM bdx1 AS SINGLE, bdy1 AS SINGLE, bdx2 AS SINGLE, bdy2 AS SINGLE
+        DIM bsx1 AS SINGLE, bsy1 AS SINGLE, bsx2 AS SINGLE, bsy2 AS SINGLE, detB AS SINGLE
+        DIM a00B AS SINGLE, a01B AS SINGLE, a10B AS SINGLE, a11B AS SINGLE, t0B AS SINGLE, t1B AS SINGLE
+        bdx1! = dc2x! - dc0x! : bdy1! = dc2y! - dc0y! : bdx2! = dc3x! - dc0x! : bdy2! = dc3y! - dc0y!
+        bsx1! = sc2x! - sc0x! : bsy1! = sc2y! - sc0y! : bsx2! = sc3x! - sc0x! : bsy2! = sc3y! - sc0y!
+        detB! = bdx1! * bdy2! - bdx2! * bdy1!
+        IF ABS(detB!) > 0.0001! THEN
+            a00B! = (bsx1! * bdy2! - bsx2! * bdy1!) / detB! : a01B! = (bsx2! * bdx1! - bsx1! * bdx2!) / detB!
+            a10B! = (bsy1! * bdy2! - bsy2! * bdy1!) / detB! : a11B! = (bsy2! * bdx1! - bsy1! * bdx2!) / detB!
+            t0B! = sc0x! - a00B! * dc0x! - a01B! * dc0y! : t1B! = sc0y! - a10B! * dc0x! - a11B! * dc0y!
+        END IF
+        DIM aSrcX AS SINGLE, aSrcY AS SINGLE, inA AS INTEGER
+        FOR moy& = 0 TO bbH% - 1
+            FOR mox& = 0 TO bbW% - 1
+                inA% = TRANSFORM_in_triangle%(CSNG(mox&), CSNG(moy&), dc0x!, dc0y!, dc1x!, dc1y!, dc2x!, dc2y!)
+                IF inA% THEN
+                    aSrcX! = a00A! * mox& + a01A! * moy& + t0A! : aSrcY! = a10A! * mox& + a11A! * moy& + t1A!
+                ELSE
+                    aSrcX! = a00B! * mox& + a01B! * moy& + t0B! : aSrcY! = a10B! * mox& + a11B! * moy& + t1B!
+                END IF
+                mSix& = INT(aSrcX! + 0.5!) : mSiy& = INT(aSrcY! + 0.5!)
+                mSelBit% = 0
+                IF mSix& >= 0 AND mSix& < sw% AND mSiy& >= 0 AND mSiy& < sh% THEN
+                    mCanX& = TRANSFORM.SRC_X + mSix& : mCanY& = TRANSFORM.SRC_Y + mSiy&
+                    IF mCanX& >= 0 AND mCanX& < mMaskW% AND mCanY& >= 0 AND mCanY& < mMaskH% THEN
+                        _MEMGET mSrcMem, mSrcMem.OFFSET + (mCanY& * mMaskW% + mCanX&) * 4, mPix~&
+                        IF _ALPHA32(mPix~&) > 0 THEN mSelBit% = 1
+                    END IF
+                END IF
+                IF mSelBit% = 1 THEN _MEMPUT mDstMem, mDstMem.OFFSET + (moy& * bbW% + mox&) * 4, sel~& ELSE _MEMPUT mDstMem, mDstMem.OFFSET + (moy& * bbW% + mox&) * 4, clr~&
+            NEXT mox&
+        NEXT moy&
+    END IF
+    _MEMFREE mSrcMem
+    _MEMFREE mDstMem
+
+    ' Rebuild a fresh canvas-sized selection mask with the warped shape stamped at bbox.
+    DIM newMask AS LONG : newMask& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+    IF newMask& >= -1 THEN SAFE_FREEIMAGE warped& : EXIT SUB
+    DIM nmOld AS LONG : nmOld& = _DEST
+    _DEST newMask& : _DONTBLEND newMask& : CLS , _RGBA32(0, 0, 0, 0)
+    _PUTIMAGE (bbX%, bbY%), warped&, newMask&
+    _BLEND newMask& : _DEST nmOld&
+
+    ' Tight bounds of the warped shape (scan the small warped image, offset by bbox).
+    DIM tMinX AS INTEGER, tMinY AS INTEGER, tMaxX AS INTEGER, tMaxY AS INTEGER
+    DIM scMem AS _MEM : scMem = _MEMIMAGE(warped&)
+    DIM scPix AS _UNSIGNED LONG, scX AS INTEGER, scY AS INTEGER, foundAny AS INTEGER
+    tMinX% = bbW% : tMinY% = bbH% : tMaxX% = -1 : tMaxY% = -1 : foundAny% = 0
+    FOR scY% = 0 TO bbH% - 1
+        FOR scX% = 0 TO bbW% - 1
+            _MEMGET scMem, scMem.OFFSET + (scY% * bbW% + scX%) * 4, scPix~&
+            IF _ALPHA32(scPix~&) > 0 THEN
+                foundAny% = 1
+                IF scX% < tMinX% THEN tMinX% = scX%
+                IF scX% > tMaxX% THEN tMaxX% = scX%
+                IF scY% < tMinY% THEN tMinY% = scY%
+                IF scY% > tMaxY% THEN tMaxY% = scY%
+            END IF
+        NEXT scX%
+    NEXT scY%
+    _MEMFREE scMem
+    SAFE_FREEIMAGE warped&
+
+    ' Install the new mask + bounds.
+    IF MARQUEE.SELECTION_MASK < -1 THEN SAFE_FREEIMAGE MARQUEE.SELECTION_MASK
+    MARQUEE.SELECTION_MASK = newMask&
+    IF foundAny% = 1 THEN
+        MARQUEE.WAND_MIN_X = bbX% + tMinX% : MARQUEE.WAND_MIN_Y = bbY% + tMinY%
+        MARQUEE.WAND_MAX_X = bbX% + tMaxX% : MARQUEE.WAND_MAX_Y = bbY% + tMaxY%
+        MARQUEE.WAND_HAS_SELECTION = TRUE
+        MARQUEE.BOX.x = MARQUEE.WAND_MIN_X : MARQUEE.BOX.y = MARQUEE.WAND_MIN_Y
+        MARQUEE.BOX.w = MARQUEE.WAND_MAX_X - MARQUEE.WAND_MIN_X + 1
+        MARQUEE.BOX.h = MARQUEE.WAND_MAX_Y - MARQUEE.WAND_MIN_Y + 1
+        MARQUEE.WAND_EDGE_DIRTY = TRUE
+    ELSE
+        ' Warp collapsed to nothing — drop the selection cleanly.
+        MAGIC_WAND_reset
+    END IF
+END SUB
+
 ' =============================================================================
 ' PUBLIC API
 ' =============================================================================
@@ -406,6 +592,43 @@ SUB TRANSFORM_activate (mode AS INTEGER)
     _BLEND TRANSFORM.SRC_IMG
     _DEST oldDst&
 
+    ' BUG-10: an irregular (wand/lasso) selection's captured rect includes in-bbox/
+    ' out-of-mask pixels (e.g. a neighbouring blob). Knock those out of the lifted
+    ' float so the transform carries ONLY the selected pixels, and snapshot the mask
+    ' so the commit erases exactly those same pixels — not the whole rect, which would
+    ' destroy the other blob and leave a transparent hole (the "black under it").
+    ' Apron was demoted above, so mask canvas coords and layer/SRC coords share a space.
+    TRANSFORM.SRC_MASK = 0
+    IF MARQUEE.WAND_HAS_SELECTION _ANDALSO MARQUEE.SELECTION_MASK < -1 THEN
+        TRANSFORM.SRC_MASK = _COPYIMAGE(MARQUEE.SELECTION_MASK, 32)
+        DIM tmMaskMem AS _MEM, tmSrcMem AS _MEM
+        DIM tmMaskStride AS LONG, tmSrcStride AS LONG
+        DIM tmX AS INTEGER, tmY AS INTEGER, tmCX AS INTEGER, tmCY AS INTEGER
+        DIM tmMaskPix AS _UNSIGNED LONG, tmSelected AS INTEGER
+        DIM tmMaskW AS INTEGER, tmMaskH AS INTEGER
+        tmMaskW% = _WIDTH(MARQUEE.SELECTION_MASK) : tmMaskH% = _HEIGHT(MARQUEE.SELECTION_MASK)
+        tmMaskMem     = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+        tmSrcMem      = _MEMIMAGE(TRANSFORM.SRC_IMG)
+        tmMaskStride& = tmMaskW% * 4
+        tmSrcStride&  = TRANSFORM.SRC_W * 4
+        FOR tmY% = 0 TO TRANSFORM.SRC_H - 1
+            tmCY% = TRANSFORM.SRC_Y + tmY%
+            FOR tmX% = 0 TO TRANSFORM.SRC_W - 1
+                tmCX% = TRANSFORM.SRC_X + tmX%
+                tmSelected% = FALSE
+                IF tmCX% >= 0 _ANDALSO tmCX% < tmMaskW% _ANDALSO tmCY% >= 0 _ANDALSO tmCY% < tmMaskH% THEN
+                    _MEMGET tmMaskMem, tmMaskMem.OFFSET + (tmCY% * tmMaskStride& + tmCX% * 4), tmMaskPix~&
+                    IF _ALPHA32(tmMaskPix~&) > 0 THEN tmSelected% = TRUE
+                END IF
+                IF tmSelected% = 0 THEN
+                    _MEMPUT tmSrcMem, tmSrcMem.OFFSET + (tmY% * tmSrcStride& + tmX% * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                END IF
+            NEXT tmX%
+        NEXT tmY%
+        _MEMFREE tmMaskMem
+        _MEMFREE tmSrcMem
+    END IF
+
     ' Initial handle positions = source rect corners (layer coords TL=0 TR=1 BR=2 BL=3)
     TRANSFORM_HX(0) = TRANSFORM.SRC_X
     TRANSFORM_HY(0) = TRANSFORM.SRC_Y
@@ -444,6 +667,8 @@ SUB TRANSFORM_cancel ()
     _LOGINFO "TRANSFORM_cancel: clearing state"
     IF TRANSFORM.SRC_IMG < -1 THEN SAFE_FREEIMAGE TRANSFORM.SRC_IMG
     TRANSFORM.SRC_IMG = 0
+    IF TRANSFORM.SRC_MASK < -1 THEN SAFE_FREEIMAGE TRANSFORM.SRC_MASK
+    TRANSFORM.SRC_MASK = 0
     TRANSFORM_free_preview
     TRANSFORM.ACTIVE  = FALSE
     TRANSFORM.GRABBED = -1
@@ -483,8 +708,42 @@ SUB TRANSFORM_commit ()
     END IF
     DIM oldDst AS LONG : oldDst& = _DEST
     _DEST layImg&
-    _DONTBLEND layImg&
-    LINE (TRANSFORM.SRC_X, TRANSFORM.SRC_Y)-(TRANSFORM.SRC_X + TRANSFORM.SRC_W - 1, TRANSFORM.SRC_Y + TRANSFORM.SRC_H - 1), _RGBA32(0,0,0,0), BF
+    IF TRANSFORM.SRC_MASK < -1 THEN
+        ' BUG-10: clear ONLY the masked source pixels (the lifted selection), not the
+        ' whole bbox — otherwise an in-bbox/out-of-mask neighbour is destroyed and leaves
+        ' a transparent hole (the "black under it"). Uses the mask snapshot from activate;
+        ' clears to transparent (same value as the rect-clear below).
+        DIM tcMaskMem AS _MEM, tcLayMem AS _MEM
+        DIM tcMaskStride AS LONG, tcLayStride AS LONG
+        DIM tcX AS INTEGER, tcY AS INTEGER
+        DIM tcMaskPix AS _UNSIGNED LONG
+        DIM tcLayW AS INTEGER, tcLayH AS INTEGER, tcMaskW AS INTEGER, tcMaskH AS INTEGER
+        tcLayW% = _WIDTH(layImg&) : tcLayH% = _HEIGHT(layImg&)
+        tcMaskW% = _WIDTH(TRANSFORM.SRC_MASK) : tcMaskH% = _HEIGHT(TRANSFORM.SRC_MASK)
+        tcMaskMem     = _MEMIMAGE(TRANSFORM.SRC_MASK)
+        tcLayMem      = _MEMIMAGE(layImg&)
+        tcMaskStride& = tcMaskW% * 4
+        tcLayStride&  = tcLayW% * 4
+        FOR tcY% = TRANSFORM.SRC_Y TO TRANSFORM.SRC_Y + TRANSFORM.SRC_H - 1
+            IF tcY% >= 0 _ANDALSO tcY% < tcLayH% _ANDALSO tcY% < tcMaskH% THEN
+                FOR tcX% = TRANSFORM.SRC_X TO TRANSFORM.SRC_X + TRANSFORM.SRC_W - 1
+                    IF tcX% >= 0 _ANDALSO tcX% < tcLayW% _ANDALSO tcX% < tcMaskW% THEN
+                        _MEMGET tcMaskMem, tcMaskMem.OFFSET + (tcY% * tcMaskStride& + tcX% * 4), tcMaskPix~&
+                        IF _ALPHA32(tcMaskPix~&) > 0 THEN
+                            _MEMPUT tcLayMem, tcLayMem.OFFSET + (tcY% * tcLayStride& + tcX% * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                        END IF
+                    END IF
+                NEXT tcX%
+            END IF
+        NEXT tcY%
+        _MEMFREE tcMaskMem
+        _MEMFREE tcLayMem
+    ELSE
+        ' Rectangular selection / whole-layer transform: clear the entire source bbox.
+        _DONTBLEND layImg&
+        LINE (TRANSFORM.SRC_X, TRANSFORM.SRC_Y)-(TRANSFORM.SRC_X + TRANSFORM.SRC_W - 1, TRANSFORM.SRC_Y + TRANSFORM.SRC_H - 1), _RGBA32(0,0,0,0), BF
+        _BLEND layImg&
+    END IF
     _BLEND layImg&
     _PUTIMAGE (TRANSFORM_PREVIEW_OX%, TRANSFORM_PREVIEW_OY%), TRANSFORM_PREVIEW_IMG, layImg&
     _DEST oldDst&
@@ -502,6 +761,14 @@ SUB TRANSFORM_commit ()
 
     IF TRANSFORM.SRC_IMG < -1 THEN SAFE_FREEIMAGE TRANSFORM.SRC_IMG
     TRANSFORM.SRC_IMG = 0
+    ' BUG-22: warp the selection to FOLLOW the transform (Photoshop-style) instead of
+    ' dropping it — run the mask snapshot through the same handle quad and rebuild
+    ' MARQUEE.SELECTION_MASK + bounds. Must run before freeing SRC_MASK (it reads it).
+    IF TRANSFORM.SRC_MASK < -1 THEN
+        TRANSFORM_warp_selection_mask
+        SAFE_FREEIMAGE TRANSFORM.SRC_MASK
+    END IF
+    TRANSFORM.SRC_MASK = 0
     TRANSFORM_free_preview
 
     TRANSFORM.ACTIVE  = FALSE
