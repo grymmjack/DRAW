@@ -1801,23 +1801,76 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     NEXT i%
     
     IF targetIndex% = 0 THEN EXIT SUB
-    
-    ' Record in unified history BEFORE merge (captures both layers' before-state)
+
+    ' (A) Guarantee a TEXT source is rasterized into imgHandle& BEFORE the history
+    '     snapshot (BUG-80). Text layers only get their pixels into imgHandle& during a
+    '     render pass; merge runs in the input phase, before that. HISTORY_record_layer_merge
+    '     stores a raw _COPYIMAGE of imgHandle& (TOOLS/HISTORY.BM) — so if we rasterized
+    '     AFTER it, undo would restore an empty layer and lose the text. ensure_apron can
+    '     REALLOCATE imgHandle& and set apronW/H, so it must run before both the snapshot
+    '     and the composite read below.
+    IF LAYERS(mrgSlot%).layerType% = LAYER_TYPE_TEXT _ANDALSO LAYERS(mrgSlot%).textDataIdx% > 0 THEN
+        TEXT_LAYER_ensure_apron mrgSlot%
+        TEXT_LAYER_render LAYERS(mrgSlot%).textDataIdx%, LAYERS(mrgSlot%).imgHandle&, LAYERS(mrgSlot%).apronW%, LAYERS(mrgSlot%).apronH%
+    END IF
+
+    ' Record in unified history BEFORE merge (captures both layers' before-state,
+    ' now including the rasterized text so undo restores it)
     HISTORY_record_layer_merge mrgSlot%, targetIndex%
     
-    ' Merge: composite current layer onto target respecting blend mode and opacity
+    ' Merge: composite current layer onto target respecting blend mode and opacity.
+    ' Text/apron-aware (BUG-80): a TEXT layer's pixels exist in imgHandle& only after
+    ' a raster pass, and an apron-promoted layer stores the canvas at an (apronW,apronH)
+    ' offset inside a LARGER buffer. A bare `_PUTIMAGE , imgHandle&` stretch-shrinks that
+    ' whole oversized buffer into the canvas-sized target, pushing the content out of the
+    ' visible region (the text "disappears"). So: rasterize text first, then normalize
+    ' both source and target to the canvas region before compositing — exactly as
+    ' LAYERS_flatten& does. All temps are canvas-sized so sizes always match.
+    ' (The text raster that guarantees imgHandle& is populated ran above, before the
+    ' history snapshot, so undo restores the text too.)
     oldDest& = _DEST
-    
+
+    ' (B) Canvas-sized SOURCE: extract the canvas region if the source is apron-promoted.
+    DIM mrgSrc AS LONG, mrgSrcTmp AS LONG, mrgOldSrc AS LONG, mrgOldDest AS LONG
+    DIM msx AS INTEGER, msy AS INTEGER
+    mrgSrcTmp& = 0
+    IF LAYERS(mrgSlot%).apronW% > 0 OR LAYERS(mrgSlot%).apronH% > 0 THEN
+        mrgSrcTmp& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+        mrgOldSrc& = _SOURCE : mrgOldDest& = _DEST : _DEST mrgSrcTmp&
+        msx% = LAYERS(mrgSlot%).apronW% : msy% = LAYERS(mrgSlot%).apronH%
+        _PUTIMAGE (0, 0)-(SCRN.canvasW& - 1, SCRN.canvasH& - 1), LAYERS(mrgSlot%).imgHandle&, mrgSrcTmp&, (msx%, msy%)-(msx% + SCRN.canvasW& - 1, msy% + SCRN.canvasH& - 1)
+        _DEST mrgOldDest& : _SOURCE mrgOldSrc&
+        mrgSrc& = mrgSrcTmp&
+    ELSE
+        mrgSrc& = LAYERS(mrgSlot%).imgHandle&
+    END IF
+
+    ' (C) Canvas-sized composite DEST: if the target is apron-promoted, composite into a
+    '     copy of its canvas region and blit back, preserving the target's apron border.
+    DIM mrgDst AS LONG, mrgDstTmp AS LONG, tApW AS INTEGER, tApH AS INTEGER
+    tApW% = LAYERS(targetIndex%).apronW% : tApH% = LAYERS(targetIndex%).apronH%
+    mrgDstTmp& = 0
+    IF tApW% > 0 OR tApH% > 0 THEN
+        mrgDstTmp& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+        mrgOldSrc& = _SOURCE : mrgOldDest& = _DEST : _DEST mrgDstTmp&
+        _PUTIMAGE (0, 0)-(SCRN.canvasW& - 1, SCRN.canvasH& - 1), LAYERS(targetIndex%).imgHandle&, mrgDstTmp&, (tApW%, tApH%)-(tApW% + SCRN.canvasW& - 1, tApH% + SCRN.canvasH& - 1)
+        _DEST mrgOldDest& : _SOURCE mrgOldSrc&
+        mrgDst& = mrgDstTmp&
+    ELSE
+        mrgDst& = LAYERS(targetIndex%).imgHandle&
+    END IF
+
+    ' Composite mrgSrc onto mrgDst (both canvas-sized) respecting blend mode + opacity.
     IF LAYERS(mrgSlot%).blendMode% <> BLEND_NORMAL THEN
         ' Non-Normal blend mode: use per-pixel blend composite (handles opacity internally)
-        LAYER_blend_composite LAYERS(targetIndex%).imgHandle&, LAYERS(mrgSlot%).imgHandle&, LAYERS(mrgSlot%).blendMode%, LAYERS(mrgSlot%).opacity%
+        LAYER_blend_composite mrgDst&, mrgSrc&, LAYERS(mrgSlot%).blendMode%, LAYERS(mrgSlot%).opacity%
     ELSEIF LAYERS(mrgSlot%).opacity% < 255 THEN
         ' Normal blend with partial opacity: scale alpha per-pixel
         ' _SETALPHA must NOT be used here — it overwrites ALL pixels' alpha including
         ' transparent ones, turning empty pixels into semi-transparent black.
         ' Instead, scale each non-transparent pixel's alpha by (origAlpha * opacity / 255),
         ' matching the same logic used by the renderer's opacity cache.
-        tempImg& = _COPYIMAGE(LAYERS(mrgSlot%).imgHandle&, 32)
+        tempImg& = _COPYIMAGE(mrgSrc&, 32)
         DIM mergeMem      AS _MEM
         DIM mergeOffset   AS _OFFSET
         DIM mergePixVal   AS _UNSIGNED LONG
@@ -1833,18 +1886,28 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
             END IF
         NEXT mergeOffset
         _MEMFREE mergeMem
-        _DEST LAYERS(targetIndex%).imgHandle&
-        _BLEND LAYERS(targetIndex%).imgHandle&
+        _DEST mrgDst& : _BLEND mrgDst&
         _PUTIMAGE , tempImg&
         SAFE_FREEIMAGE tempImg&
     ELSE
         ' Normal blend at full opacity
-        _DEST LAYERS(targetIndex%).imgHandle&
-        _BLEND LAYERS(targetIndex%).imgHandle&
-        _PUTIMAGE , LAYERS(mrgSlot%).imgHandle&
+        _DEST mrgDst& : _BLEND mrgDst&
+        _PUTIMAGE , mrgSrc&
     END IF
-    
+
+    ' If we composited into a target-region temp, write it back into the target's canvas
+    ' region (overwrite, not blend — mrgDst already holds the composited result).
+    IF mrgDstTmp& < -1 THEN
+        mrgOldSrc& = _SOURCE : mrgOldDest& = _DEST
+        _DEST LAYERS(targetIndex%).imgHandle& : _DONTBLEND LAYERS(targetIndex%).imgHandle&
+        _PUTIMAGE (tApW%, tApH%)-(tApW% + SCRN.canvasW& - 1, tApH% + SCRN.canvasH& - 1), mrgDstTmp&, LAYERS(targetIndex%).imgHandle&, (0, 0)-(SCRN.canvasW& - 1, SCRN.canvasH& - 1)
+        _BLEND LAYERS(targetIndex%).imgHandle&
+        _DEST mrgOldDest& : _SOURCE mrgOldSrc&
+    END IF
+
     _DEST oldDest&
+    SAFE_FREEIMAGE mrgSrcTmp&
+    SAFE_FREEIMAGE mrgDstTmp&
     
     ' Mark target layer content dirty (its pixels changed from merge)
     LAYERS(targetIndex%).contentDirty% = TRUE
@@ -1885,9 +1948,22 @@ SUB LAYERS_merge_visible ()
     NEXT z%
     
     IF sortCount% < 2 THEN EXIT SUB  ' Need at least 2 visible layers to merge
-    
-    ' Record in unified history BEFORE merge (captures all source layers' before-state)
-    ' Pass 0 as mergedResultSlot — updated after LAYERS_new% succeeds below.
+
+    ' Rasterize any TEXT sources into imgHandle& BEFORE the history snapshot (BUG-80):
+    ' text layers only get pixels into imgHandle& during a render pass, and the snapshot
+    ' is a raw pixel copy — so without this both the merged result AND undo lose the text.
+    ' ensure_apron may reallocate imgHandle&, so it must precede snapshot + composite.
+    DIM mvTextI AS INTEGER, mvTL AS INTEGER
+    FOR mvTextI% = 1 TO sortCount%
+        mvTL% = sortedLayers%(mvTextI%)
+        IF LAYERS(mvTL%).layerType% = LAYER_TYPE_TEXT _ANDALSO LAYERS(mvTL%).textDataIdx% > 0 THEN
+            TEXT_LAYER_ensure_apron mvTL%
+            TEXT_LAYER_render LAYERS(mvTL%).textDataIdx%, LAYERS(mvTL%).imgHandle&, LAYERS(mvTL%).apronW%, LAYERS(mvTL%).apronH%
+        END IF
+    NEXT mvTextI%
+
+    ' Record in unified history BEFORE merge (captures all source layers' before-state,
+    ' now including rasterized text so undo restores it)
     HISTORY_record_layer_merge_visible sortedLayers%(), sortCount%, 0
 
     ' Suppress history auto-saves from LAYERS_new% and LAYERS_delete
@@ -1929,16 +2005,34 @@ SUB LAYERS_merge_visible ()
     FOR i% = 1 TO sortCount%
         DIM srcIdx AS INTEGER
         srcIdx% = sortedLayers%(i%)
-        
+
+        ' Canvas-sized source: extract the canvas region if the source is apron-promoted
+        ' (BUG-80) — a bare `_PUTIMAGE , imgHandle&` would stretch-shrink the oversized
+        ' buffer into the canvas-sized merge target and drop the content. _DEST is left
+        ' pointing back at the merged layer after the extraction.
+        DIM mvSrc AS LONG, mvSrcTmp AS LONG, mvExtSrc AS LONG, mvExtDest AS LONG
+        DIM mvsx AS INTEGER, mvsy AS INTEGER
+        mvSrcTmp& = 0
+        IF LAYERS(srcIdx%).apronW% > 0 OR LAYERS(srcIdx%).apronH% > 0 THEN
+            mvSrcTmp& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            mvExtSrc& = _SOURCE : mvExtDest& = _DEST : _DEST mvSrcTmp&
+            mvsx% = LAYERS(srcIdx%).apronW% : mvsy% = LAYERS(srcIdx%).apronH%
+            _PUTIMAGE (0, 0)-(SCRN.canvasW& - 1, SCRN.canvasH& - 1), LAYERS(srcIdx%).imgHandle&, mvSrcTmp&, (mvsx%, mvsy%)-(mvsx% + SCRN.canvasW& - 1, mvsy% + SCRN.canvasH& - 1)
+            _DEST mvExtDest& : _SOURCE mvExtSrc&
+            mvSrc& = mvSrcTmp&
+        ELSE
+            mvSrc& = LAYERS(srcIdx%).imgHandle&
+        END IF
+
         IF LAYERS(srcIdx%).blendMode% <> BLEND_NORMAL THEN
             ' Non-Normal blend mode: use per-pixel blend composite (handles opacity internally)
             ' Must restore _DEST first since LAYER_blend_composite uses _MEMIMAGE, not _DEST
             _DEST oldDest&
-            LAYER_blend_composite LAYERS(newIndex%).imgHandle&, LAYERS(srcIdx%).imgHandle&, LAYERS(srcIdx%).blendMode%, LAYERS(srcIdx%).opacity%
+            LAYER_blend_composite LAYERS(newIndex%).imgHandle&, mvSrc&, LAYERS(srcIdx%).blendMode%, LAYERS(srcIdx%).opacity%
             _DEST LAYERS(newIndex%).imgHandle&
         ELSEIF LAYERS(srcIdx%).opacity% < 255 THEN
             ' Normal blend with partial opacity: scale alpha per-pixel
-            tempImg& = _COPYIMAGE(LAYERS(srcIdx%).imgHandle&, 32)
+            tempImg& = _COPYIMAGE(mvSrc&, 32)
             DIM mvMem      AS _MEM
             DIM mvOffset   AS _OFFSET
             DIM mvPixVal   AS _UNSIGNED LONG
@@ -1958,8 +2052,9 @@ SUB LAYERS_merge_visible ()
             SAFE_FREEIMAGE tempImg&
         ELSE
             ' Normal blend at full opacity
-            _PUTIMAGE , LAYERS(srcIdx%).imgHandle&
+            _PUTIMAGE , mvSrc&
         END IF
+        SAFE_FREEIMAGE mvSrcTmp&
     NEXT i%
     
     _DEST oldDest&
