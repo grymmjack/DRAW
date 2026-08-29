@@ -58,6 +58,17 @@ TYPE TRANSFORM_OBJ
     ' Transform Selection: TRUE = warp the SELECTION MASK only, leave layer pixels alone
     ' (Photoshop's Select > Transform Selection). SRC_IMG is a mask visualization.
     SELECTION_ONLY AS INTEGER
+    ' BUG-11: activate-time apron demote is destructive (off-canvas pixels sacrificed).
+    ' Stash the pre-demote buffer + apron dims so (a) commit records it as the undo
+    ' target — history restore rebuilds apronW/H from the image's dimensions — and
+    ' (b) cancel / any activate early-out rolls the demote back verbatim. Without
+    ' this, undo restored only the compact post-demote layer (apron content gone),
+    ' and an early-out demoted with nothing recorded at all — permanent loss.
+    HIST_BEFORE  AS LONG    ' pre-demote _COPYIMAGE of the layer (apron-extended); 0 = none
+    PRE_APRON_W  AS INTEGER ' apronW% before the demote (rollback target)
+    PRE_APRON_H  AS INTEGER ' apronH% before the demote (rollback target)
+    DID_DEMOTE   AS INTEGER ' TRUE if activate demoted the layer this session
+    DEMOTE_LAYER AS INTEGER ' layer slot that was demoted (rollback target)
 END TYPE
 DIM SHARED TRANSFORM AS TRANSFORM_OBJ
 

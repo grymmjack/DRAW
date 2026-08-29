@@ -543,9 +543,25 @@ SUB TRANSFORM_activate (mode AS INTEGER)
     ' APRON: TRANSFORM operates in canvas coords. If the current layer is
     ' apron-extended (from a prior MOVE), demote it back to compact so the
     ' bbox scan, source capture, and commit-time _PUTIMAGE all see the same
-    ' coordinate space. Apron pixels are sacrificed.
+    ' coordinate space.
+    ' BUG-11: the demote drops off-canvas apron pixels. Capture the exact
+    ' pre-demote buffer FIRST so a successful commit records it as the undo
+    ' target (history restore rebuilds apronW/H from the image's dimensions),
+    ' and any abort below (cancel / early-out) rolls the demote back verbatim.
+    TRANSFORM.HIST_BEFORE  = 0
+    TRANSFORM.DID_DEMOTE   = FALSE
+    TRANSFORM.DEMOTE_LAYER = 0
     IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= MAX_LAYERS THEN
         IF LAYERS(CURRENT_LAYER%).apronW% > 0 OR LAYERS(CURRENT_LAYER%).apronH% > 0 THEN
+            IF LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+                TRANSFORM.HIST_BEFORE = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+                IF TRANSFORM.HIST_BEFORE < -1 THEN
+                    TRANSFORM.PRE_APRON_W  = LAYERS(CURRENT_LAYER%).apronW%
+                    TRANSFORM.PRE_APRON_H  = LAYERS(CURRENT_LAYER%).apronH%
+                    TRANSFORM.DEMOTE_LAYER = CURRENT_LAYER%
+                    TRANSFORM.DID_DEMOTE   = TRUE
+                END IF
+            END IF
             LAYERS_demote_to_compact CURRENT_LAYER%
         END IF
     END IF
@@ -583,17 +599,18 @@ SUB TRANSFORM_activate (mode AS INTEGER)
         _MEMFREE scanMem
         IF oMaxX% < 0 THEN
             _LOGINFO "TRANSFORM_activate: layer entirely transparent, aborting"
+            TRANSFORM_rollback_demote ' BUG-11: don't leave the apron sacrificed on abort
             EXIT SUB ' Entirely transparent layer
         END IF
         _LOGINFO "TRANSFORM_activate: opaque bbox (" + STR$(oMinX%) + "," + STR$(oMinY%) + ")-(" + STR$(oMaxX%) + "," + STR$(oMaxY%) + ")"
         TRANSFORM.SRC_X = oMinX%              : TRANSFORM.SRC_Y = oMinY%
         TRANSFORM.SRC_W = oMaxX% - oMinX% + 1 : TRANSFORM.SRC_H = oMaxY% - oMinY% + 1
     END IF
-    IF TRANSFORM.SRC_W <= 0 OR TRANSFORM.SRC_H <= 0 THEN EXIT SUB
+    IF TRANSFORM.SRC_W <= 0 OR TRANSFORM.SRC_H <= 0 THEN TRANSFORM_rollback_demote : EXIT SUB ' BUG-11
 
     ' Capture source pixels
     TRANSFORM.SRC_IMG = _NEWIMAGE(TRANSFORM.SRC_W, TRANSFORM.SRC_H, 32)
-    IF TRANSFORM.SRC_IMG >= -1 THEN EXIT SUB
+    IF TRANSFORM.SRC_IMG >= -1 THEN TRANSFORM_rollback_demote : EXIT SUB ' BUG-11
     DIM oldDst AS LONG : oldDst& = _DEST
     _DONTBLEND TRANSFORM.SRC_IMG
     _PUTIMAGE (0,0)-(TRANSFORM.SRC_W-1, TRANSFORM.SRC_H-1), LAYERS(CURRENT_LAYER%).imgHandle&, TRANSFORM.SRC_IMG, _
@@ -762,11 +779,51 @@ SUB TRANSFORM_activate_selection (mode AS INTEGER)
 END SUB
 
 ''
+' BUG-11: undo the activate-time apron demote, restoring the exact pre-demote
+' buffer + apron dims. Called on every activate early-out and on cancel so that
+' aborting a transform never sacrifices off-canvas apron pixels. Ownership of the
+' saved buffer transfers back into the layer (no copy); a no-op unless the current
+' activation actually demoted (DID_DEMOTE) and the snapshot is valid.
+'
+SUB TRANSFORM_rollback_demote ()
+    IF NOT TRANSFORM.DID_DEMOTE THEN EXIT SUB
+    DIM slot AS INTEGER : slot% = TRANSFORM.DEMOTE_LAYER
+    IF TRANSFORM.HIST_BEFORE >= -1 THEN
+        ' Snapshot capture had failed — nothing to restore, just clear the flag.
+        TRANSFORM.DID_DEMOTE = FALSE
+        EXIT SUB
+    END IF
+    IF slot% >= 1 _ANDALSO slot% <= MAX_LAYERS THEN
+        IF LAYERS(slot%).imgHandle& < -1 THEN SAFE_FREEIMAGE LAYERS(slot%).imgHandle&
+        LAYERS(slot%).imgHandle& = TRANSFORM.HIST_BEFORE
+        LAYERS(slot%).imgWidth%  = _WIDTH(TRANSFORM.HIST_BEFORE)
+        LAYERS(slot%).imgHeight% = _HEIGHT(TRANSFORM.HIST_BEFORE)
+        LAYERS(slot%).apronW%    = TRANSFORM.PRE_APRON_W
+        LAYERS(slot%).apronH%    = TRANSFORM.PRE_APRON_H
+        LAYERS(slot%).contentDirty% = TRUE
+        ' Size/content changed — drop the derived caches so they rebuild.
+        SAFE_FREEIMAGE LAYERS(slot%).opacityCacheImg&
+        LAYERS(slot%).opacityCacheImg& = 0
+        SAFE_FREEIMAGE LAYERS(slot%).apronCacheImg&
+        LAYERS(slot%).apronCacheImg&   = 0
+        LAYERS(slot%).apronCacheValid% = FALSE
+        BLEND_invalidate_cache
+        CANVAS_DIRTY% = TRUE
+    ELSE
+        ' No valid layer to restore into — free the orphaned snapshot.
+        SAFE_FREEIMAGE TRANSFORM.HIST_BEFORE
+    END IF
+    TRANSFORM.HIST_BEFORE = 0
+    TRANSFORM.DID_DEMOTE  = FALSE
+END SUB
+
+''
 ' Cancel: discard transform without touching the layer.
 '
 SUB TRANSFORM_cancel ()
     IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
     _LOGINFO "TRANSFORM_cancel: clearing state"
+    TRANSFORM_rollback_demote ' BUG-11: restore any apron the activate demoted — cancel = full revert
     IF TRANSFORM.SRC_IMG < -1 THEN SAFE_FREEIMAGE TRANSFORM.SRC_IMG
     TRANSFORM.SRC_IMG = 0
     IF TRANSFORM.SRC_MASK < -1 THEN SAFE_FREEIMAGE TRANSFORM.SRC_MASK
@@ -829,7 +886,15 @@ SUB TRANSFORM_commit ()
 
     DIM layImg AS LONG : layImg& = LAYERS(CURRENT_LAYER%).imgHandle&
     IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND layImg& < -1 THEN
-        transform_history_before& = _COPYIMAGE(layImg&, 32)
+        IF TRANSFORM.HIST_BEFORE < -1 THEN
+            ' BUG-11: prefer the pre-demote buffer as the undo target — it still
+            ' holds the off-canvas apron pixels the demote dropped. Ownership moves
+            ' to the history record; restore rebuilds apronW/H from its dimensions.
+            transform_history_before& = TRANSFORM.HIST_BEFORE
+            TRANSFORM.HIST_BEFORE = 0
+        ELSE
+            transform_history_before& = _COPYIMAGE(layImg&, 32)
+        END IF
         IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN transform_history_flags& = transform_history_flags& OR HISTORY_FLAG_CLIPPED
     END IF
     DIM oldDst AS LONG : oldDst& = _DEST
@@ -884,6 +949,13 @@ SUB TRANSFORM_commit ()
         transform_recorded%       = TRUE
     END IF
     IF transform_recorded% THEN HISTORY_saved_this_frame% = TRUE
+
+    ' BUG-11: the demote is now the committed state. Drop the rollback snapshot if
+    ' it wasn't consumed as the undo image (e.g. history disabled), and clear the
+    ' demote flag so a later cancel doesn't try to roll a committed transform back.
+    IF TRANSFORM.HIST_BEFORE < -1 THEN SAFE_FREEIMAGE TRANSFORM.HIST_BEFORE
+    TRANSFORM.HIST_BEFORE = 0
+    TRANSFORM.DID_DEMOTE  = FALSE
 
     IF TRANSFORM.SRC_IMG < -1 THEN SAFE_FREEIMAGE TRANSFORM.SRC_IMG
     TRANSFORM.SRC_IMG = 0

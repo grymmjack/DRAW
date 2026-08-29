@@ -278,9 +278,24 @@ Each verified against source. Severity in brackets.
   selection is dropped (`MAGIC_WAND_reset`, the BUG-1 precedent) so later masked ops don't act on the old
   silhouette. Proper "warp the mask to follow the transform" is a separable follow-up (genuinely new code).
 
-### BUG-11 [MED] — Apron demote at transform-activate is destructive + not undoable
-- `TRANSFORM.BM:352-356` demotes (sacrifices apron pixels) BEFORE any history; early-outs leave the
+### BUG-11 [MED] — Apron demote at transform-activate is destructive + not undoable — **FIXED (2026-08-29), confirmed by Rick**
+- **Original:** `TRANSFORM_activate` demotes (sacrifices apron pixels) BEFORE any history; early-outs leave the
   demote permanent with nothing recorded. Undo can't restore off-canvas pixels.
+- **FIX part 1 (transform):** capture the pre-demote apron buffer FIRST (`TRANSFORM.HIST_BEFORE` + saved
+  apron dims). Commit records it as the undo image (history restore rebuilds apronW/H from the image's
+  dimensions); cancel and every activate early-out call `TRANSFORM_rollback_demote`, which transfers the
+  saved buffer back into the layer — so aborting a transform is byte-for-byte non-destructive (verified by
+  dumping the layer before demote and after rollback: identical). `TOOLS/TRANSFORM.BM` + `.BI`.
+- **FIX part 2 (the real culprit Rick kept seeing):** even with part 1, "cancel still clips" — because the
+  clip was actually the **move-back**, not the transform. A **whole-layer move** (`MOVE_capture_selection`,
+  no active marquee) lifted only the CANVAS region, blind to apron content. Normal moves happened to work
+  because the marquee left active by the prior move made the next move a *selection* move that tracked the
+  content into the apron; the transform dropped that marquee, so the move-back fell to the whole-layer path
+  and sheared off the off-canvas pixels. **Fix:** a whole-layer move of an already apron-extended layer now
+  lifts the FULL extended buffer (`MOVE.SELECTION_X/Y = -apronW/-apronH`, `W/H = canvas + 2*apron`), so
+  off-canvas content moves with the layer. A compact/fresh layer (`apronW/H = 0`) reduces to the canvas
+  region exactly as before — ordinary moves unchanged. `TOOLS/MOVE.BM`.
+- Diagnosed via PNG dumps of the captured buffer at each stage; both parts confirmed fixed by Rick.
 
 ### BUG-12 [MED] — Transform result exceeding the canvas is silently clipped (no apron growth)
 - `TRANSFORM_compute_preview` clamps dest bbox to canvas (`TRANSFORM.BM:195-198`); rotate/scale/shear
