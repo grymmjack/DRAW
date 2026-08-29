@@ -436,42 +436,24 @@ SUB SAVE_selection ()
         ' Refuse unwritable targets before compositing the whole canvas twice
         IF NOT SAVE_target_writable%(filename$) THEN EXIT SUB
 
-        ' Create a cropped image from the selection — composite merged (all visible layers)
+        ' BUG-61: crop the selection region from LAYERS_flatten& — the group-aware,
+        ' apron-correct flatten (fixed in BUG-59) — instead of re-compositing inline.
+        ' The old inline loop did `_PUTIMAGE , imgHandle&, canvasSizedBuffer`, which
+        ' STRETCHES an apron-extended layer (imgHandle& is larger than the canvas,
+        ' content offset by apronW/H) down to canvas size — squashing / mis-placing
+        ' the content — and it only checked per-layer visible%, so a hidden GROUP
+        ' with visible children still exported. Flatten handles apron offsets and
+        ' group visibility / isolation / blend / opacity exactly like the renderer.
         cropped_image& = _NEWIMAGE(MARQUEE.BOX.w, MARQUEE.BOX.h, 32)
 
-        DIM exportSrc   AS LONG
-        DIM mergedForEx AS LONG
-        DIM cwFlat      AS INTEGER, chFlat AS INTEGER
-        cwFlat%      = SCRN.canvasW&
-        chFlat%      = SCRN.canvasH&
-        mergedForEx& = _NEWIMAGE(cwFlat%, chFlat%, 32)
-        DIM oldDestFlat AS LONG
-        oldDestFlat& = _DEST
-        _DEST mergedForEx&
-        _DONTBLEND mergedForEx&
-        CLS , _RGBA32(0, 0, 0, 0)
-        _BLEND mergedForEx&
-        _DEST oldDestFlat&
+        DIM exportSrc AS LONG
+        exportSrc& = LAYERS_flatten&
+        IF exportSrc& >= -1 THEN
+            ' Flatten produced no valid image — nothing to export.
+            IF cropped_image& < -1 THEN SAFE_FREEIMAGE cropped_image&
+            EXIT SUB
+        END IF
 
-        ' Composite visible layers via render order (respects groups, blend modes, opacity)
-        IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
-        DIM flatLi AS INTEGER, flatLf AS INTEGER, flatSrc AS LONG
-        FOR flatLi% = 1 TO RENDER_ORDER_COUNT%
-            flatLf% = RENDER_ORDER%(flatLi%)
-            IF flatLf% > 0 _ANDALSO LAYERS(flatLf%).visible% THEN
-                flatSrc& = LAYERS(flatLf%).imgHandle&
-                IF flatSrc& < -1 THEN
-                    IF LAYERS(flatLf%).blendMode% <> BLEND_NORMAL OR LAYERS(flatLf%).opacity% < 255 THEN
-                        LAYER_blend_composite mergedForEx&, flatSrc&, LAYERS(flatLf%).blendMode%, LAYERS(flatLf%).opacity%
-                    ELSE
-                        _PUTIMAGE , flatSrc&, mergedForEx&
-                    END IF
-                END IF
-            END IF
-        NEXT flatLi%
-
-        exportSrc& = mergedForEx&
-        
         ' If mask-based selection, only export masked pixels
         IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
             DIM exp_old_src    AS LONG, exp_old_dest AS LONG
@@ -505,7 +487,7 @@ SUB SAVE_selection ()
         _SAVEIMAGE filename$, cropped_image&
 
         ' Free temporary images
-        IF mergedForEx& < -1 THEN SAFE_FREEIMAGE mergedForEx&
+        IF exportSrc& < -1 THEN SAFE_FREEIMAGE exportSrc&
         SAFE_FREEIMAGE cropped_image&
 
         ' Never announce "Export Complete" for a file that was not written
