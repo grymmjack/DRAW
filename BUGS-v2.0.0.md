@@ -297,10 +297,16 @@ Each verified against source. Severity in brackets.
   region exactly as before — ordinary moves unchanged. `TOOLS/MOVE.BM`.
 - Diagnosed via PNG dumps of the captured buffer at each stage; both parts confirmed fixed by Rick.
 
-### BUG-12 [MED] — Transform result exceeding the canvas is silently clipped (no apron growth)
-- `TRANSFORM_compute_preview` clamps dest bbox to canvas (`TRANSFORM.BM:195-198`); rotate/scale/shear
-  that pushes a corner off-canvas loses it. Unlike MOVE, transform never grows an apron. (Recoverable
-  via undo, but the committed result loses data.) Partly by-design for a fixed canvas.
+### BUG-12 [MED] — Transform result exceeding the canvas is silently clipped (no apron growth) — **FIXED (2026-08-29, Rick chose "grow an apron")**
+- **Was:** `TRANSFORM_compute_preview` clamped the dest bbox to canvas (`TRANSFORM.BM:215-218`); rotate/scale/shear
+  that pushed a corner off-canvas lost it. Unlike MOVE, transform never grew an apron.
+- **FIX:** `compute_preview` now clamps the dest bbox to the **apron-extended** bounds (`±APRON_W/H`) instead
+  of the canvas, so the warped result renders its off-canvas overflow into `TRANSFORM_PREVIEW_IMG`. On commit,
+  if the result overflows (`TRANSFORM_PREVIEW_OX/OY` negative or past canvas), the layer is promoted to an
+  apron-extended buffer (`LAYERS_promote_to_extended`) and the source-clear + result blit are shifted by the
+  apron offset `(aX,aY)`. Off-canvas transform results are now preserved up to the apron margin, like Move.
+  A fully on-canvas transform grows no apron (unchanged); apron disabled in config → still clips as before.
+  `TOOLS/TRANSFORM.BM`. Confirmed by Rick; on main.
 
 ### BUG-13 [LOW] — `>`/`<` keys dead in non-ROTATE transform modes
 - `KEYBOARD.BM:2238` routes to `TRANSFORM_rotate_step` which early-outs unless MODE=ROTATE

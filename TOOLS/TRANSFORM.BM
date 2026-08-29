@@ -212,10 +212,18 @@ SUB TRANSFORM_compute_preview ()
     bbX% = INT(minX!) : bbY% = INT(minY!)
     bbW% = INT(maxX!) - bbX% + 2
     bbH% = INT(maxY!) - bbY% + 2
-    IF bbX% < 0 THEN bbX% = 0
-    IF bbY% < 0 THEN bbY% = 0
-    IF bbX% + bbW% > SCRN.canvasW& THEN bbW% = SCRN.canvasW& - bbX%
-    IF bbY% + bbH% > SCRN.canvasH& THEN bbH% = SCRN.canvasH& - bbY%
+    ' BUG-12: allow the transform result to extend into the layer's apron margin
+    ' (like Move) instead of clipping at the canvas edge — commit promotes the
+    ' layer to an apron buffer to hold the overflow. Clamp to the apron-extended
+    ' bounds. When apron is disabled (APRON_W/H = 0) this reduces to the old
+    ' canvas clamp, so transform still clips exactly as before.
+    DIM apXlo AS INTEGER, apYlo AS INTEGER, apXhi AS INTEGER, apYhi AS INTEGER
+    apXlo% = -APRON_W%                 : apYlo% = -APRON_H%
+    apXhi% = SCRN.canvasW& + APRON_W%  : apYhi% = SCRN.canvasH& + APRON_H%
+    IF bbX% < apXlo% THEN bbW% = (bbX% + bbW%) - apXlo% : bbX% = apXlo%
+    IF bbY% < apYlo% THEN bbH% = (bbY% + bbH%) - apYlo% : bbY% = apYlo%
+    IF bbX% + bbW% > apXhi% THEN bbW% = apXhi% - bbX%
+    IF bbY% + bbH% > apYhi% THEN bbH% = apYhi% - bbY%
     IF bbW% <= 0 OR bbH% <= 0 THEN EXIT SUB
 
     TRANSFORM_PREVIEW_OX% = bbX%
@@ -897,6 +905,22 @@ SUB TRANSFORM_commit ()
         END IF
         IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN transform_history_flags& = transform_history_flags& OR HISTORY_FLAG_CLIPPED
     END IF
+
+    ' BUG-12: if the warped result extends past the canvas, promote the layer to an
+    ' apron-extended buffer so the off-canvas part is preserved (like Move) instead
+    ' of clipped. aX/aY then shift canvas coords into the promoted buffer for BOTH
+    ' the source-clear and the result blit below. No overflow → aX/aY stay 0 and the
+    ' layer stays compact, exactly as before.
+    DIM aX AS INTEGER, aY AS INTEGER : aX% = 0 : aY% = 0
+    IF TRANSFORM_PREVIEW_OX% < 0 OR TRANSFORM_PREVIEW_OY% < 0 OR _
+       TRANSFORM_PREVIEW_OX% + _WIDTH(TRANSFORM_PREVIEW_IMG) > SCRN.canvasW& OR _
+       TRANSFORM_PREVIEW_OY% + _HEIGHT(TRANSFORM_PREVIEW_IMG) > SCRN.canvasH& THEN
+        LAYERS_promote_to_extended CURRENT_LAYER%
+        layImg& = LAYERS(CURRENT_LAYER%).imgHandle&
+        aX%     = LAYERS(CURRENT_LAYER%).apronW%
+        aY%     = LAYERS(CURRENT_LAYER%).apronH%
+    END IF
+
     DIM oldDst AS LONG : oldDst& = _DEST
     _DEST layImg&
     IF TRANSFORM.SRC_MASK < -1 THEN
@@ -921,7 +945,9 @@ SUB TRANSFORM_commit ()
                     IF tcX% >= 0 _ANDALSO tcX% < tcLayW% _ANDALSO tcX% < tcMaskW% THEN
                         _MEMGET tcMaskMem, tcMaskMem.OFFSET + (tcY% * tcMaskStride& + tcX% * 4), tcMaskPix~&
                         IF _ALPHA32(tcMaskPix~&) > 0 THEN
-                            _MEMPUT tcLayMem, tcLayMem.OFFSET + (tcY% * tcLayStride& + tcX% * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                            ' BUG-12: layImg may now be apron-promoted — offset the write (tcX/tcY
+                            ' are canvas coords, bounded to the canvas-sized mask by the guards above).
+                            _MEMPUT tcLayMem, tcLayMem.OFFSET + ((tcY% + aY%) * tcLayStride& + (tcX% + aX%) * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
                         END IF
                     END IF
                 NEXT tcX%
@@ -931,12 +957,14 @@ SUB TRANSFORM_commit ()
         _MEMFREE tcLayMem
     ELSE
         ' Rectangular selection / whole-layer transform: clear the entire source bbox.
+        ' BUG-12: apron offset (aX,aY) — 0 unless the result promoted the layer above.
         _DONTBLEND layImg&
-        LINE (TRANSFORM.SRC_X, TRANSFORM.SRC_Y)-(TRANSFORM.SRC_X + TRANSFORM.SRC_W - 1, TRANSFORM.SRC_Y + TRANSFORM.SRC_H - 1), _RGBA32(0,0,0,0), BF
+        LINE (TRANSFORM.SRC_X + aX%, TRANSFORM.SRC_Y + aY%)-(TRANSFORM.SRC_X + aX% + TRANSFORM.SRC_W - 1, TRANSFORM.SRC_Y + aY% + TRANSFORM.SRC_H - 1), _RGBA32(0,0,0,0), BF
         _BLEND layImg&
     END IF
     _BLEND layImg&
-    _PUTIMAGE (TRANSFORM_PREVIEW_OX%, TRANSFORM_PREVIEW_OY%), TRANSFORM_PREVIEW_IMG, layImg&
+    ' BUG-12: blit the (possibly off-canvas) result at the apron-shifted origin.
+    _PUTIMAGE (TRANSFORM_PREVIEW_OX% + aX%, TRANSFORM_PREVIEW_OY% + aY%), TRANSFORM_PREVIEW_IMG, layImg&
     _DEST oldDst&
 
     LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
