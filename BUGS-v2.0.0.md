@@ -485,7 +485,16 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
   European layouts (AltGr = RightCtrl+RightAlt, which `_KEYDOWN` reads as Ctrl). Single normalization
   point in `TI_process_key%`; all five text dialogs (AI, file, color picker, msgbox, lospec) route
   through it. Confirmed by Rick.
-### BUG-46 [LOW] — Drawer "Load Images" batch wraps around clobbering earlier slots (`DRAWER.BM:4564`) instead of paging.
+### BUG-46 [LOW] — Drawer "Load Images" batch wraps around clobbering earlier slots (`DRAWER.BM:4564`) instead of paging. — **FIXED (2026-08-30), confirmed by Rick**
+- Guard-vs-index mismatch in `DRAWER_load_images_into_slots`: the loop stopped on files
+  LOADED (`loadCount% >= DRAWER_SLOT_COUNT`) while the slot pointer WRAPPED
+  (`IF slotIdx% > DRAWER_SLOT_COUNT THEN slotIdx% = 1`). They only agree when startSlot=1;
+  start at 20 and it filled 20..30 then wrapped to 1 and clobbered slots 1..9.
+- **FIX (applied):** the drawer is a flat DRAWER_SLOT_COUNT (30) strip with no paging, so
+  advance-and-STOP at the last slot (`EXIT FOR`, never wrap). Surplus files that don't fit are
+  skipped rather than overwriting earlier slots, and a non-blocking toast reports it
+  (`CRASH.NOTIFY_MSG$`): "Loaded into slots B-30; N image(s) didn't fit and were skipped
+  (earlier slots untouched)." Confirmed by Rick.
 ### BUG-47 [LOW,UNVERIFIED] — Preview follow-mode Alt+click samples a stale canvas coord (`PREVIEW.BM:1617`).
 
 ### BUG-48 [MED / HIGH-UX] — Canvas pan leaks through Drawer / Edit Bar / Adv Bar / Char Map / palette

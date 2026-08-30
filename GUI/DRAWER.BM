@@ -4489,7 +4489,9 @@ END SUB
 ''
 ' Show a multi-select file dialog and load images into consecutive drawer slots.
 ' Works for brush and pattern modes. Images are loaded starting from the
-' specified startSlot, filling forward and wrapping at DRAWER_SLOT_COUNT.
+' specified startSlot, filling forward and STOPPING at DRAWER_SLOT_COUNT (BUG-46:
+' never wraps to slot 1 — that clobbered already-filled earlier slots). Surplus
+' files that don't fit are skipped and reported via a non-blocking toast.
 ' @param startSlot INTEGER Slot index to begin loading into (1-based)
 '
 SUB DRAWER_load_images_into_slots (startSlot AS INTEGER)
@@ -4532,6 +4534,12 @@ SUB DRAWER_load_images_into_slots (startSlot AS INTEGER)
     slotIdx% = startSlot%
     IF slotIdx% < 1 OR slotIdx% > DRAWER_SLOT_COUNT THEN slotIdx% = 1
 
+    ' BUG-46: remember the (clamped) starting slot so we can report how many files
+    ' didn't fit. The drawer is a flat DRAWER_SLOT_COUNT strip with no paging, so
+    ' only (DRAWER_SLOT_COUNT - beginSlot + 1) slots are available going forward.
+    DIM beginSlot AS INTEGER
+    beginSlot% = slotIdx%
+
     loadCount% = 0
 
     ' Load each selected file into consecutive slots
@@ -4561,10 +4569,23 @@ SUB DRAWER_load_images_into_slots (startSlot AS INTEGER)
 
         loadCount% = loadCount% + 1
 
-        ' Advance to next slot, stop if we've filled all slots
+        ' BUG-46: advance to next slot and STOP at the end — never wrap to slot 1.
+        ' Wrapping overwrote already-filled earlier slots (start at 20, pick 20 files
+        ' -> filled 20..30 then clobbered 1..9). The drawer has no paging, so files
+        ' past the last slot are simply skipped and reported after the loop.
         slotIdx% = slotIdx% + 1
-        IF slotIdx% > DRAWER_SLOT_COUNT THEN slotIdx% = 1
+        IF slotIdx% > DRAWER_SLOT_COUNT THEN EXIT FOR
     NEXT fi%
+
+    ' BUG-46: if more files were picked than slots available from beginSlot onward,
+    ' the surplus was skipped (earlier slots left intact). Tell the user via the
+    ' non-blocking toast rather than silently dropping them.
+    DIM availSlots AS INTEGER
+    availSlots% = DRAWER_SLOT_COUNT - beginSlot% + 1
+    IF fileCount% > availSlots% THEN
+        CRASH.NOTIFY_MSG$   = "Loaded into slots" + STR$(beginSlot%) + "-" + LTRIM$(STR$(DRAWER_SLOT_COUNT)) + ";" + STR$(fileCount% - availSlots%) + " image(s) didn't fit and were skipped (earlier slots untouched)."
+        CRASH.NOTIFY_UNTIL# = TIMER(.001) + 6
+    END IF
 
     IF loadCount% > 0 THEN
         DRAWER_mark_set_dirty
