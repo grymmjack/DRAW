@@ -33,6 +33,16 @@ check_route "REGION_LAYER_PANEL"          "layer-panel drop → new layer"
 check_route "REGION_CANVAS"               "canvas drop → current layer"
 check_route "DROP_place_on_current_layer" "canvas destructive stamp helper"
 check_route "DROP_place_on_new_layer"     "layer-panel new-layer helper"
+check_route "DROP_discard_pending"        "modal-drop discard guard (BUG-36)"
+
+# BUG-36: a file dropped onto a blocking modal must be discarded when the modal
+# closes, NOT dispatched from the stale cursor position (now on the OK button).
+# The discard is wired at the one chokepoint every blocking dialog passes through.
+if grep -q "DROP_discard_pending" "$DRAW_ROOT/GUI/BROWSER.BM" 2>/dev/null; then
+    pass "BUG-36: DROP_discard_pending called from BROWSER_resume_after_modal"
+else
+    fail "BUG-36 regression: modal close no longer discards a queued drop (GUI/BROWSER.BM)"
+fi
 
 # The full-bin new-page + first-free-slot helpers live in the drawer module.
 if grep -q "FUNCTION DRAWER_first_free_slot%" "$DRAW_ROOT/GUI/DRAWER.BM" 2>/dev/null; then
@@ -54,3 +64,5 @@ info "  layers  : drop small image on the layer panel → new layer; Ctrl+Z remo
 info "  drawer  : drop image → custom brush in next free slot; fill 30 then drop → new page"
 info "  menubar : drop image on the menu bar → second isolated window opens it (title [2])"
 info "  large   : drop image larger than the canvas anywhere → interactive Import placement"
+info "  modal   : open File▸Save As, drop image over layer panel, dismiss → drop is IGNORED"
+info "            (amber banner shows; no canvas stamp, no new layer, no new window) [BUG-36]"

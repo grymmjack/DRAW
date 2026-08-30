@@ -407,10 +407,19 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
   On a silent save failure with a stale temp present, it reads the OLD PNG → broadcasts the wrong
   layer. **FIX (applied):** KILL the temp before save + require `_FILEEXISTS` after before reading.
 
-### BUG-36 [MED] — File dropped while a modal is open dispatches to the wrong target later
-- Drops are queued only by the main loop (`DRAW.BAS:443`); with a modal open the drop is deferred, and
-  `DROP_tick` then routes by `MOUSE.RAW_X/Y` = the post-dialog cursor. **FIX PENDING** (discard drops
-  while modal, or capture coords at `_FINISHDROP`).
+### BUG-36 [MED] — File dropped while a modal is open dispatches to the wrong target later — **FIXED (2026-08-29), confirmed by Rick**
+- A blocking modal (File dialog, message box, color picker, input box) runs its own loop, so a file
+  dropped onto it is held in the OS queue and only read by the main loop AFTER the modal returns — by
+  which point `MOUSE.RAW_X/Y` = the cursor resting on the dialog's OK button. `DROP_tick` then routes
+  from that stale position (canvas stamp / new instance / wrong panel). The true drop point is
+  unrecoverable (QB64-PE reports no drop coordinates).
+- **FIX (applied):** discard the drop when the modal closes. Every blocking dialog brackets itself with
+  `BROWSER_suspend_for_modal` / `BROWSER_resume_after_modal` (`GUI/GJ-DIALOG-SCALE.BM`); `resume` now
+  calls the new `DROP_discard_pending` (`INPUT/DROP.BM`), which drains the OS queue (`_FINISHDROP`) and
+  the deferred queue before the main loop's `_TOTALDROPPEDFILES` check can misroute it, and shows a
+  non-blocking amber banner ("File drop ignored – a dialog was open…") via the crash-toast surface.
+  Regression guard in `QA/tests/drag-drop-targets.sh` (source-route + manual per-OS check; OS drops
+  can't be synthesized headlessly).
 
 ### BUG-37 [LOW-MED] — INSTANCE bootstrap slot-walk: no mailbox re-clear on the claimed slot; can leave `INST.id` unowned
 - `INSTANCE.BM:216-231`: mailbox cleared only for the initial id; a walk-claimed higher slot inherits a

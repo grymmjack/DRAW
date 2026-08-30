@@ -52,6 +52,48 @@ SUB DROP_tick ()
 END SUB
 
 ''
+' Discard any pending OS file-drop and any queued deferred drop. Called when a BLOCKING
+' modal (File dialog, message box, color picker, input box — every DRAW_* wrapper in
+' GUI/GJ-DIALOG-SCALE.BM) closes.
+'
+' Why (BUG-36): target routing relies on "cursor-position-when-processed == drop point"
+' (see DROP.BI — QB64-PE reports no drop coordinates). A blocking modal breaks that
+' invariant: a file dropped onto the modal is held in the OS queue and only read by the
+' main loop AFTER the modal returns, by which point the cursor has moved to the dialog's
+' OK button. Dispatching then would stamp the canvas / spawn a new instance / mis-target
+' the layer panel from a cursor position that has nothing to do with where the drop landed.
+' Since the true drop point is unrecoverable, the honest choice is to DISCARD the drop and
+' tell the user with a non-blocking banner rather than act on a wrong target.
+'
+SUB DROP_discard_pending ()
+    DIM discarded AS INTEGER : discarded% = FALSE
+
+    ' Drain the OS drop queue so the main loop's _TOTALDROPPEDFILES check finds nothing.
+    IF _TOTALDROPPEDFILES THEN
+        _FINISHDROP
+        discarded% = TRUE
+    END IF
+
+    ' Also drop anything already sitting in the deferred queue (a drop that was mid-defer
+    ' when the modal opened — its cursor context is now equally invalid).
+    IF DROP_PENDING_FILE$ <> "" OR DROP_PENDING_FRAMES% > 0 THEN
+        DROP_PENDING_FILE$   = ""
+        DROP_PENDING_FRAMES% = 0
+        discarded% = TRUE
+    END IF
+
+    IF NOT discarded% THEN EXIT SUB
+
+    _LOGINFO "DROP: discarded a file dropped while a modal was open (BUG-36 guard)"
+
+    ' Reuse the non-blocking auto-dismiss banner (rendered by CRASH_render_toast every
+    ' frame). This does NOT touch CRASH.NOTIFIED% / the crash gate — it only borrows the
+    ' toast surface for a transient notice.
+    CRASH.NOTIFY_MSG$   = "File drop ignored - a dialog was open. Drop again over the canvas or layer panel."
+    CRASH.NOTIFY_UNTIL# = TIMER(.001) + 6
+END SUB
+
+''
 ' Handle one dropped file. Called (deferred) from DROP_tick after reading _DROPPEDFILE$(1).
 ' Routing by extension:
 '   .drawlayer -> import as a new layer (cross-instance layer blob)
