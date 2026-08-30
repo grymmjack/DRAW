@@ -483,7 +483,17 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
   (`DRAW.BAS:189-218`) skips only a fixed flag whitelist; unrecognized flags fall into the ELSE that
   sets `cmdArg$ = the flag` and stops. **FIX (applied):** skip any `--`/`-` token (and the value of the
   2-token flags) in the scanner so the first non-flag token is the file.
-### BUG-54 [MED, latent] — THEME include-order (gotcha #11): `*_init` read `THEME.*` in `SCREEN_init` before `THEME.BI` defaults; safe only because shipped themes define every key. Breaks incomplete/kit themes. **FIX PENDING** (lazy-load, or re-run inits after final THEME_load).
+### BUG-54 [MED] — incomplete theme → size-0 fonts (THEME include-order, gotcha #11) — **FIXED (2026-08-30), confirmed by Rick**
+- `THEME_load` runs once EARLY from `SCREEN_init`, before `_ALL.BI:181` includes `DEFAULT/THEME.BI`
+  (the compiled defaults) — so at that point every `THEME.*` field is 0. A complete theme sets all
+  keys in that window; an incomplete one left omitted keys (`GLOBAL_FONT_SIZE`, `STATUS_HEIGHT`, …) at
+  0, and any `*_init` that loaded a font / derived bar geometry during the include chain baked in a
+  size-0 font / zero-height bar. Shipped themes are complete, so they never tripped it.
+- **FIX (applied):** `THEME_load` now layers the COMPLETE DEFAULT theme as a base first, then overlays
+  the selected theme (parser extracted to `THEME_load_theme(name$)`, `CFG/CONFIG-THEME.BM`). Omitted
+  keys inherit DEFAULT's values regardless of include timing — the theme is now a diff against DEFAULT,
+  which is the intended model. Also fixes runtime theme switching to an incomplete theme
+  (`THEME_reload_all`). Confirmed by Rick.
 ### BUG-55 [MED-LOW] — `--option` ignored when `DRAW.cfg.default` is absent (`CONFIG.BM:376` EXIT SUB before `apply_cli_overrides`). **FIX (applied):** apply overrides + validate before the early exit.
 ### BUG-56 [LOW] — "0=use theme" sentinel lost on save/load for FONT_PREVIEW_FG/BG/DIVIDER + CANVAS_APRON_COLOR (saved as 000000 → loads as opaque black). **FIX PENDING** (guard `IF <>0` on write).
 ### BUG-57 [LOW] — `--options-list` may print nothing on Windows. **FIXED** — added `_CONSOLE ON`.
