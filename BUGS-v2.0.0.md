@@ -432,10 +432,19 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
   render does `PAL((offset+i) MOD pal_count)` and QB64 MOD keeps the sign → `PAL(-15)` subscript OOR
   → crash. **FIX (applied):** normalize `((offset MOD n)+n) MOD n` (+ defensive re-normalize).
 
-### BUG-45 [MED] — Undo/redo of a GROUP drag-reorder corrupts layer layout
-- `LAYER_PANEL_handle_drop` moves a group block but records a single-layer reorder (`LAYERS.BM:4361`);
-  undo relocates only the header, stranding children; parentGroupIdx changes unrecorded. **FIX PENDING**
-  (record a structural/block history entry).
+### BUG-45 [MED] — Undo/redo of a GROUP drag-reorder corrupts layer layout — **FIXED (2026-08-29), confirmed by Rick**
+- **The reported case self-heals (not reproducible):** dragging a group HEADER moves a block whose
+  children keep `parentGroupIdx = header`. Reorder undo/redo restores the header's z and then runs
+  `LAYERS_enforce_group_contiguity` (`HISTORY.BM:2505/2667`), which snaps the children back to the
+  header — so the "children stranded" fear never materializes for a block move. Rick couldn't reproduce it.
+- **The real adjacent gap (fixed):** the fall-through drop path recorded a **z-only** `HISTORY_record_layer_reorder`
+  (`LAYERS.BM`), so a single-layer drag that **auto-adopts into / orphans out of** a group (`parentGroupIdx`
+  change at `LAYERS.BM:4594-4606`) restored the z on undo but **not** the nesting. (The explicit into/out-of-group
+  paths were already fine — `LAYERS_move_into_group` / `_move_out_of_group` record their own
+  `HISTORY_record_group_reparent`.) **FIX:** capture the old parent at the top of `LAYER_PANEL_handle_drop`
+  and record the fall-through drop via `HISTORY_record_group_reparent` (parent+z) — a superset of the z-only
+  reorder: unchanged parent → plain z reorder, and its undo/redo run `enforce_group_contiguity` so the
+  self-healing block move is unaffected. Auto-adopt and auto-orphan are now undoable. Confirmed by Rick.
 
 ### BUG-41 [MED,UNVERIFIED] — open dropdown doesn't zero `ctx.mwheel` (`SETTINGS-WIDGETS.BM:827`) → wheel double-scrolls the dialog behind it.
 ### BUG-42 [LOW] — new dispatcher ignores `KEYBOARD_SUPPRESS_FRAMES%` (mitigated by `_KEYCLEAR`).
