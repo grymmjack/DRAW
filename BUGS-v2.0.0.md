@@ -475,7 +475,16 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
   `DIALOG_dropdown_input` (`GUI/DIALOG.BM:473`) already consumed unconditionally, so other dialogs were
   unaffected. Confirmed by Rick.
 ### BUG-42 [LOW] — new dispatcher ignores `KEYBOARD_SUPPRESS_FRAMES%` (mitigated by `_KEYCLEAR`).
-### BUG-43 [LOW] — TI Ctrl+symbol normalization overreaches letters range (`TI-INPUT.BM:522`) → Ctrl+[ acts as Escape.
+### BUG-43 [LOW] — TI Ctrl+symbol normalization overreaches letters range (`TI-INPUT.BM:522`) → Ctrl+[ acts as Escape. — **FIXED (2026-08-30), confirmed by Rick**
+- The Ctrl+letter→control-code normalizer gated on `k >= 65 AND k <= 122`, which straddles the six
+  punctuation chars between the alphabets (`[ \ ] ^ _ \``, codes 91–96). `Ctrl+[` (91) → `91-64 = 27`
+  = ESC → hit `CASE 27` → closed the field; `Ctrl+\`` (96) → `96-64 = 32` = SPACE → inserted a space;
+  `\ ] ^ _` were mangled to control codes 28–31 and silently eaten.
+- **FIX (applied):** gate on the two real letter ranges `((k>=65 AND k<=90) OR (k>=97 AND k<=122))`
+  only, so the punctuation gap falls through untouched. Also *restores* AltGr-typed `[ ] \ ^ _ \`` for
+  European layouts (AltGr = RightCtrl+RightAlt, which `_KEYDOWN` reads as Ctrl). Single normalization
+  point in `TI_process_key%`; all five text dialogs (AI, file, color picker, msgbox, lospec) route
+  through it. Confirmed by Rick.
 ### BUG-46 [LOW] — Drawer "Load Images" batch wraps around clobbering earlier slots (`DRAWER.BM:4564`) instead of paging.
 ### BUG-47 [LOW,UNVERIFIED] — Preview follow-mode Alt+click samples a stale canvas coord (`PREVIEW.BM:1617`).
 
