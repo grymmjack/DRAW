@@ -455,7 +455,14 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
   reorder: unchanged parent → plain z reorder, and its undo/redo run `enforce_group_contiguity` so the
   self-healing block move is unaffected. Auto-adopt and auto-orphan are now undoable. Confirmed by Rick.
 
-### BUG-41 [MED,UNVERIFIED] — open dropdown doesn't zero `ctx.mwheel` (`SETTINGS-WIDGETS.BM:827`) → wheel double-scrolls the dialog behind it.
+### BUG-41 [MED] — open dropdown doesn't zero `ctx.mwheel` → wheel double-scrolls the dialog behind it — **FIXED (2026-08-29), confirmed by Rick**
+- The Settings loop runs widget input BEFORE `SETTINGS_handle_scroll`, so a wheel widget under the
+  cursor claims the wheel by zeroing `ctx.mwheel` (every spinner does). `SW_dropdown_input%`
+  (`GUI/SETTINGS-WIDGETS.BM`) scrolled the open list on the wheel but never consumed it, so the panel
+  behind scrolled too. **FIX:** set `ctx.mwheel = 0` after scrolling the open list (consumed even for a
+  short non-scrollable list, so the panel never slides out from under the open dropdown). The generic
+  `DIALOG_dropdown_input` (`GUI/DIALOG.BM:473`) already consumed unconditionally, so other dialogs were
+  unaffected. Confirmed by Rick.
 ### BUG-42 [LOW] — new dispatcher ignores `KEYBOARD_SUPPRESS_FRAMES%` (mitigated by `_KEYCLEAR`).
 ### BUG-43 [LOW] — TI Ctrl+symbol normalization overreaches letters range (`TI-INPUT.BM:522`) → Ctrl+[ acts as Escape.
 ### BUG-46 [LOW] — Drawer "Load Images" batch wraps around clobbering earlier slots (`DRAWER.BM:4564`) instead of paging.
