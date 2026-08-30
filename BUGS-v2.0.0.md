@@ -502,7 +502,15 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
   DRAWER/EDITBAR/ADVBAR/CHARMAP (drifted from the sibling b3-dblclick list). MMB / Space+drag over
   those panels pans the canvas behind them. **FIX (applied):** gate the pan on
   `REGION_hit_test% > REGION_CANVAS` (the canonical "over chrome" test), not the drifted lists.
-### BUG-49 [LOW] — b3-dblclick reset-zoom exclusion omits Char Map (`MOUSE.BM:1170`) — same class as BUG-48.
+### BUG-49 [LOW] — b3-dblclick reset-zoom exclusion omits Char Map (`MOUSE.BM:1170`) — same class as BUG-48. — **FIXED (2026-08-30), confirmed by Rick**
+- `MOUSE_handle_b3_dblclick_reset_zoom` skips over GUI panels via a hand-maintained
+  exclusion list that had drifted — it omitted the Char Map — so a double-middle-click over
+  the Char Map fell through to the reset-zoom (SCRN.zoom=1, offset=0).
+- **FIX (applied):** appended the canonical catch-all used by the BUG-48 pan fix —
+  `IF REGION_hit_test%(mx%, my%) > REGION_CANVAS THEN EXIT SUB` — so the reset can't leak
+  through ANY registered chrome (Char Map registers `REGION_CHARMAP` at `ZORDER_PANEL`,
+  `SCREEN.BM:2628`). Self-heals for any future panel that registers a region. Double-middle-
+  click over the actual canvas still resets zoom. Confirmed by Rick.
 ### BUG-50 [LOW] — Command-palette click never sets `UI_CHROME_CLICKED%` → release leaks to the tool behind (phantom Shift+RMB anchor). **FIX (applied):** set the flag on palette press (mirrors menubar).
 ### BUG-51 [LOW] — `MOUSE_init` doesn't init `OLD_B2` (`MOUSE.BM:218`). **FIX (applied):** add `MOUSE.OLD_B2% = FALSE`.
 ### BUG-52 [LOW] — right-click / shift-constrain fire during an active pan (`MOUSE.BM:4969`). **FIXED** — `MOUSE_handle_right_click` early-returns when `SCRN.panning%`.
