@@ -518,7 +518,18 @@ Exporters, importers, effects math, fonts/TDF, PIXEL-COACH, sound. (Effects engi
 ### BUG-63 [LOW] — ANSI selection export ignores non-rectangular mask (`FILE-ANS.BM:581`).
 ### BUG-64 [LOW] — QB64 export copies fonts via Unix `cp` (`FILE-QB64.BM:582`) — breaks on Windows.
 ### BUG-69 [MED,UNVERIFIED] — Aseprite compressed-cel `expected_size` LONG overflow (adversarial).
-### BUG-71 [MED] — procedural-texture effects (wood/marble/…) preview phase ≠ applied (anchor to source-center; cosmetic).
+### BUG-71 [MED] — procedural-texture effects (wood/marble/…) preview phase ≠ applied — **FIXED (2026-08-29), confirmed by Rick**
+- Each generator (Wood/Marble/Terrain/Clouds/Brick) computed the pattern in its OWN buffer's
+  coordinate space — noise sampled from pixel (0,0), ring/rotation centre scaled by the buffer
+  size — so the small loupe CROP and the full-layer APPLY anchored a different patch at a different
+  feature density; the preview never matched. **FIX:** define the pattern once in CANVAS coordinate
+  space via new anchor globals (`IMGADJ_TEX_ORIGX/Y`, `IMGADJ_TEX_SPANW/H`, `GUI/IMAGE-ADJ.BI`) set
+  per call by `IMGADJ_tex_anchor_preview` (origin = loupe crop's canvas top-left) /
+  `IMGADJ_tex_anchor_apply` (origin = -layer apron); both then sample the identical global pattern,
+  so the loupe is a true window onto the applied result. Zero-span sentinel falls back to buffer
+  size (legacy-safe). **Bonus:** Wood was also rebuilt to actually read as wood — y-stretched
+  domain-warp so grain flows along the board, a dark early-wood-line → pale late-wood colour ramp,
+  and along-grain pore noise (replacing the old plasticky single-sine banding). Confirmed by Rick.
 ### BUG-73 [LOW,UNVERIFIED] — Crystallize can leave opaque black fringe on alpha edges.
 ### BUG-75 [LOW] — `MUSIC_play_random_ext` stops music if the extension has 0 tracks (`SOUND.BM:419`).
 ### BUG-76 [LOW,UNVERIFIED] — `.TDX` values trusted without bounds vs the `.TDF` (`TDF-FONT.BM:827`).

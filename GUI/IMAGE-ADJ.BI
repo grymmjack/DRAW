@@ -70,6 +70,25 @@ DIM SHARED IMGADJ_CENTER_SET%
 DIM SHARED IMGADJ_CENTER_CX AS LONG
 DIM SHARED IMGADJ_CENTER_CY AS LONG
 
+' Texture-pattern anchor (Wood / Marble / Terrain / Clouds / Brick). BUG-71: these
+' procedural generators used to compute the pattern in their OWN buffer's coordinate
+' space — noise sampled from pixel (0,0) and the ring/rotation centre scaled by the
+' buffer size — so the small loupe CROP and the full-layer APPLY each anchored a
+' DIFFERENT patch (and a different feature density) of the pattern, and the preview
+' never matched the result. Now the pattern is defined once in CANVAS coordinate
+' space: the generator maps its own pixel (ax,ay) -> canvas coord (ORIGX+ax, ORIGY+ay)
+' and uses SPANW/SPANH (the canvas size) for every size-relative anchor. Both paths
+' then sample the identical global pattern, so the crop shows exactly the patch under
+' it. Set per call via IMGADJ_tex_anchor_preview / IMGADJ_tex_anchor_apply:
+'   preview -> ORIG = IMGADJ_LOUPE_CROPX/Y (crop's canvas top-left)
+'   apply   -> ORIG = -(layer apron)       (buffer(apron,apron) = canvas(0,0))
+' SPANW/SPANH = SCRN.canvasW/H in both. If SPANW/H are 0 the generator falls back to
+' its buffer size + zero origin (legacy behaviour) so it is never divide-by-zero.
+DIM SHARED IMGADJ_TEX_ORIGX AS LONG
+DIM SHARED IMGADJ_TEX_ORIGY AS LONG
+DIM SHARED IMGADJ_TEX_SPANW AS LONG
+DIM SHARED IMGADJ_TEX_SPANH AS LONG
+
 ' Silhouette version of the loupe crop (same padded size as ctx.origThumb; alpha =
 ' selection coverage, RGB = layer) built by IMAGE_ADJ_update_loupe when a selection
 ' is active AND framed on the selection. Edge-effect dialogs run the engine on THIS
