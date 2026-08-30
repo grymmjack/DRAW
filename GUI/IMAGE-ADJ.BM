@@ -90,14 +90,22 @@ SUB IMAGE_ADJ_apply_to_layer (adjResult AS LONG, historyLabel AS STRING)
             IMGADJ_clip_to_selection adjLayerImg&, adjOrigSnap&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%
         END IF
 
-        IF adjOrigSnap& < -1 THEN
+        ' Phantom-undo guard (F3): an adjustment OK'd at identity settings (Brightness 0 /
+        ' Contrast 0 / etc.) — or applied to a layer it doesn't touch — leaves the pixels
+        ' unchanged; don't push an undo for it. Shared by every RGB adjustment command.
+        DIM adjChanged AS INTEGER : adjChanged% = FALSE
+        IF adjOrigSnap& < -1 THEN adjChanged% = HISTORY_image_differs%(adjOrigSnap&, adjLayerImg&)
+        IF adjChanged% THEN
             HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, 0, adjOrigSnap&, historyLabel$
             historyRecorded% = TRUE
         END IF
 
         IF historyRecorded% THEN HISTORY_saved_this_frame% = TRUE
 
+        ' capture_last_fx COPIES the snapshot (for Fade/Repeat), so run it before freeing.
         IMGADJ_capture_last_fx adjOrigSnap&, historyLabel$
+        ' No record taken (no-op adjustment) → we still own the snapshot, so free it.
+        IF NOT adjChanged% AND adjOrigSnap& < -1 THEN SAFE_FREEIMAGE adjOrigSnap& : adjOrigSnap& = 0
         LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
         INVALIDATE_layers
     END IF
@@ -11801,14 +11809,19 @@ SUB IMAGE_ADJ_remove_background_dialog ()
                 _DEST applyOldD&
                 SAFE_FREEIMAGE applyResult&
 
-                ' Record undo
+                ' Record undo — phantom-undo guard (F4): if no pixel matched the target
+                ' color within threshold (common on a co-selected layer that lacks that
+                ' color), the result is identical; don't push an undo.
                 IF applySnap& < -1 THEN
-                    HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, 0, applySnap&, "Remove Background"
-                    HISTORY_saved_this_frame% = TRUE
+                    IF HISTORY_image_differs%(applySnap&, applyLayerImg&) THEN
+                        HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, 0, applySnap&, "Remove Background"
+                        HISTORY_saved_this_frame% = TRUE
+                        LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                        INVALIDATE_layers
+                    ELSE
+                        SAFE_FREEIMAGE applySnap&
+                    END IF
                 END IF
-
-                LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
-                INVALIDATE_layers
             ELSE
                 ' Algorithm failed — free the snapshot
                 SAFE_FREEIMAGE applySnap&

@@ -1600,9 +1600,17 @@ SUB MOUSE_tool_fill ()
         ' Fill can affect the entire canvas — invalidate composite result cache
         ' so RENDER_layers does a full re-composite instead of a region-only update.
         COMPOSITE_RESULT_VALID% = FALSE
+        ' Phantom-undo guard (F1): a fill that paints nothing — clicking a pixel already
+        ' the fill color, or an area with no matching pixels — must NOT push an undo. Only
+        ' record when the layer actually changed; otherwise drop the snapshot.
         IF fill_history_before& < -1 THEN
-            HISTORY_record_fill LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(FILL.COLOR~&), fill_history_flags&, fill_history_before&, MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, fill_history_label$
-            fill_recorded% = TRUE
+            IF HISTORY_image_differs%(fill_history_before&, LAYERS(CURRENT_LAYER%).imgHandle&) THEN
+                HISTORY_record_fill LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(FILL.COLOR~&), fill_history_flags&, fill_history_before&, MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, fill_history_label$
+                fill_recorded% = TRUE
+            ELSE
+                SAFE_FREEIMAGE fill_history_before&
+                fill_history_before& = 0
+            END IF
         END IF
         IF fill_recorded% THEN HISTORY_saved_this_frame% = TRUE
     END IF
@@ -3628,10 +3636,17 @@ SUB MOUSE_release_spray ()
     SPRAY.ACTIVE = FALSE
     GRAD_CTX_clear
     STROKE_commit
+    ' Phantom-undo guard (F8): a brief spray click that scatters no pixels (or sprays the
+    ' same color onto matching pixels) leaves the layer unchanged.
     IF SPRAY.HISTORY_BEFORE_IMG < -1 THEN
-        HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(SPRAY.HISTORY_COLOR~&), spray_history_flags&, SPRAY.HISTORY_BEFORE_IMG&, "Spray"
-        SPRAY.HISTORY_BEFORE_IMG = 0
-        spray_recorded%          = TRUE
+        IF HISTORY_image_differs%(SPRAY.HISTORY_BEFORE_IMG&, LAYERS(CURRENT_LAYER%).imgHandle&) THEN
+            HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(SPRAY.HISTORY_COLOR~&), spray_history_flags&, SPRAY.HISTORY_BEFORE_IMG&, "Spray"
+            SPRAY.HISTORY_BEFORE_IMG = 0
+            spray_recorded%          = TRUE
+        ELSE
+            SAFE_FREEIMAGE SPRAY.HISTORY_BEFORE_IMG&
+            SPRAY.HISTORY_BEFORE_IMG = 0
+        END IF
     END IF
     IF spray_recorded% THEN HISTORY_saved_this_frame% = TRUE
     CANVAS_DIRTY% = TRUE
@@ -3889,12 +3904,19 @@ SUB MOUSE_handle_right_click ()
             _DEST SCRN.CANVAS&
             CANVAS_DIRTY% = TRUE
         END IF
-        ' Save undo AFTER polygon is complete (like LINE tool)
+        ' Save undo AFTER polygon is complete (like LINE tool). Phantom-undo guard (F8):
+        ' finishing a polyline with a single point / all-coincident points draws no segment,
+        ' so the layer is unchanged — require >= 2 points AND an actual pixel change.
         STROKE_commit
         IF POLY_LINE.HISTORY_BEFORE_IMG < -1 THEN
-            HISTORY_record_polyline LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(PAINT_COLOR~&), poly_history_flags&, POLY_LINE.HISTORY_BEFORE_IMG&, POLY_LINE.POINT_COUNT, POLY_POINTS_X%(), POLY_POINTS_Y%(), "Polyline"
-            POLY_LINE.HISTORY_BEFORE_IMG = 0
-            poly_history_recorded%       = TRUE
+            IF POLY_LINE.POINT_COUNT >= 2 _ANDALSO HISTORY_image_differs%(POLY_LINE.HISTORY_BEFORE_IMG&, LAYERS(CURRENT_LAYER%).imgHandle&) THEN
+                HISTORY_record_polyline LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(PAINT_COLOR~&), poly_history_flags&, POLY_LINE.HISTORY_BEFORE_IMG&, POLY_LINE.POINT_COUNT, POLY_POINTS_X%(), POLY_POINTS_Y%(), "Polyline"
+                POLY_LINE.HISTORY_BEFORE_IMG = 0
+                poly_history_recorded%       = TRUE
+            ELSE
+                SAFE_FREEIMAGE POLY_LINE.HISTORY_BEFORE_IMG&
+                POLY_LINE.HISTORY_BEFORE_IMG = 0
+            END IF
         END IF
         IF poly_history_recorded% THEN HISTORY_saved_this_frame% = TRUE
         SOUND_play SND_DRAG_DROP

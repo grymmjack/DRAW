@@ -33,6 +33,7 @@ CONST HISTORY_KIND_GROUP_REPARENT      = 16
 CONST HISTORY_KIND_MERGE_GROUP         = 17
 CONST HISTORY_KIND_CANVAS_RESIZE       = 18 ' Canvas or image resize (stores all layer pixels in payload)
 CONST HISTORY_KIND_BEZIER              = 19 ' Bezier curve path (reuses polyline record structure)
+CONST HISTORY_KIND_PALETTE             = 20 ' Palette state (colors/count/FG-BG) snapshot; before+after in payload
 
 CONST HISTORY_FLAG_FILLED       = 1
 CONST HISTORY_FLAG_CUSTOM_BRUSH = 2

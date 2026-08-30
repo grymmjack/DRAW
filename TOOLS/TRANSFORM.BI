@@ -69,6 +69,8 @@ TYPE TRANSFORM_OBJ
     PRE_APRON_H  AS INTEGER ' apronH% before the demote (rollback target)
     DID_DEMOTE   AS INTEGER ' TRUE if activate demoted the layer this session
     DEMOTE_LAYER AS INTEGER ' layer slot that was demoted (rollback target)
+    MODIFIED     AS INTEGER ' F5: TRUE once a handle drag / rotate actually changes the quad;
+                            ' commit skips the undo record when still FALSE (Enter with no edit)
 END TYPE
 DIM SHARED TRANSFORM AS TRANSFORM_OBJ
 

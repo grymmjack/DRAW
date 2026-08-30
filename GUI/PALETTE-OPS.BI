@@ -35,6 +35,10 @@ END TYPE
 
 DIM SHARED PALETTE_OPS AS PALETTE_OPS_OBJ
 DIM SHARED PALETTE_OPS_MARKED(0 TO 255) AS INTEGER        ' Per-color mark flags
+' BUG-31: TRUE while a batch delete (PALETTE_OPS_delete_marked) is running, so the
+' per-color PALETTE_OPS_delete_color skips its own undo group + palette snapshot and lets
+' the batch wrap the whole thing in ONE undo record instead.
+DIM SHARED PALETTE_OPS_BATCH AS INTEGER
 
 ' Document palette state - snapshot of modified palette for switching back
 DIM SHARED PALETTE_DOC_EXISTS AS INTEGER                  ' TRUE when document palette has been created

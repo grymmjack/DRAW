@@ -308,9 +308,10 @@ Each verified against source. Severity in brackets.
   A fully on-canvas transform grows no apron (unchanged); apron disabled in config → still clips as before.
   `TOOLS/TRANSFORM.BM`. Confirmed by Rick; on main.
 
-### BUG-13 [LOW] — `>`/`<` keys dead in non-ROTATE transform modes
+### BUG-13 [LOW] — `>`/`<` keys dead in non-ROTATE transform modes — **DECIDED: acceptable, no change (Rick, 2026-08-30)**
 - `KEYBOARD.BM:2238` routes to `TRANSFORM_rotate_step` which early-outs unless MODE=ROTATE
   (`TRANSFORM.BM:526`); the ELSE fallback is unreachable while the overlay is active. Silent no-op.
+- **Decision (Rick):** this is fine — `>`/`<` being rotate-only is acceptable; no fix.
 
 ### BUG-19 [MED→HIGH] — Merge redo re-runs against LIVE state → wrong/lost content — **FIXED (2026-08-28), confirmed by Rick**
 - **Repro (Rick):** 3 layers A/B/C → Merge All → Ctrl+Z (A/B/C back) → hide C → Ctrl+Y → the redone merge
@@ -363,7 +364,17 @@ Each verified against source. Severity in brackets.
 ### BUG-16 [MED] — Smart eraser samples/erases other layers at raw coords (apron)
 ### BUG-24 [LOW] — Clear-Selection fills opaque BG on a float, transparent on a committed selection (`SELECTION.BM:408`)
 ### BUG-29 [LOW] — `TEXT_apply` rasterizes empty text layers (no empty-delete like commit/cancel)
-### BUG-31 [LOW] — Palette-Ops batch delete = N separate undo groups
+### BUG-31 [LOW] — Palette-Ops undo (batch delete = N separate undos) — **FIXED (2026-08-30), confirmed by Rick + QA**
+- Diagnosis went deeper than the title: palette-ops undo was **never implemented** — nothing recorded the
+  PAL array / count / FG-BG indices (no `HISTORY_KIND_PALETTE`), so a delete only ever recorded the layer
+  PIXEL remap; deleting an unused color recorded nothing at all ("undo does nothing"). Extra phantom undos
+  also came from `PALETTE_OPS_activate`'s auto-remap recording a no-op per layer.
+- **FIX (applied):** new `HISTORY_KIND_PALETTE` snapshot record (before+after palette framed in the
+  payload, restored on undo/redo), grouped with the pixel-remap records so ONE Ctrl+Z restores palette
+  AND pixels. Single delete, batch delete, and color change all wrapped in one group. `PALETTE_OPS_BATCH%`
+  makes the batch emit ONE record. `PALETTE_LOADER_remap_to_palette_ex` now records only layers it
+  actually changed (no phantom undo on activating palette ops over a conformant image). Verified by QA
+  (`phantom-undo-*.sh`) + Rick.
 ### BUG-33 [LOW] — dead-code `_DEST 0` in `IMGADJ.BM:1994` test helper (latent gotcha #1)
 
 ### Round-2 UNVERIFIED / LOW (need a closer look, logged not fixed)

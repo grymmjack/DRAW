@@ -846,6 +846,7 @@ SUB PALETTE_LOADER_remap_to_palette_ex (ditherMode AS INTEGER, ditherStrength AS
     DIM li2                   AS INTEGER
     DIM remapped              AS INTEGER
     DIM remapUsedHistoryGroup AS INTEGER
+    DIM remapLayerChanged     AS INTEGER
     remapped%              = FALSE
     remapUsedHistoryGroup% = FALSE
 
@@ -853,9 +854,11 @@ SUB PALETTE_LOADER_remap_to_palette_ex (ditherMode AS INTEGER, ditherStrength AS
     cW2& = SCRN.canvasW&
     cH2& = SCRN.canvasH&
 
-    IF NOT HISTORY_IN_PROGRESS% THEN
+    ' Only own the group if none is already active (BUG-31: reading HISTORY_GROUP_ACTIVE%
+    ' after begin_group falsely claimed ownership when a caller had opened one).
+    IF NOT HISTORY_IN_PROGRESS% AND NOT HISTORY_GROUP_ACTIVE% THEN
         HISTORY_begin_group
-        remapUsedHistoryGroup% = HISTORY_GROUP_ACTIVE%
+        remapUsedHistoryGroup% = TRUE
     END IF
 
     ' Apply nearest-color remapping to each visible layer.
@@ -871,6 +874,7 @@ SUB PALETTE_LOADER_remap_to_palette_ex (ditherMode AS INTEGER, ditherStrength AS
             IF LAYERS(li2%).historyId& > 0 THEN
                 remapBefore& = _COPYIMAGE(LAYERS(li2%).imgHandle&, 32)
             END IF
+            remapLayerChanged% = FALSE ' BUG-31: only record if this layer actually changed
 
             DIM lMem      AS _MEM
             lMem = _MEMIMAGE(LAYERS(li2%).imgHandle)
@@ -941,16 +945,25 @@ SUB PALETTE_LOADER_remap_to_palette_ex (ditherMode AS INTEGER, ditherStrength AS
                     END IF
 
                     mappedColor~& = _RGBA32(_RED32(PAL(useIdx%).value~&), _GREEN32(PAL(useIdx%).value~&), _BLUE32(PAL(useIdx%).value~&), _ALPHA32(lpixColor~&))
+                    IF mappedColor~& <> lpixColor~& THEN remapLayerChanged% = TRUE
                     _MEMPUT lMem, lpixOfs, mappedColor~&
                 NEXT lpx&
             NEXT lpy&
             _MEMFREE lMem
 
-            LAYERS(li2%).contentDirty = TRUE
-            IF remapBefore& < -1 THEN
-                HISTORY_record_transform LAYERS(li2%).historyId&, li2%, 0, remapBefore&, "Remap to Palette"
+            ' BUG-31: only record an undo (and mark dirty) when the remap ACTUALLY changed
+            ' this layer's pixels. Activating palette ops auto-remaps to the current palette;
+            ' on an already-conformant image that's a no-op, and recording it produced undo
+            ' states with no visible impact ("undo feels broken"). Free the unused snapshot.
+            IF remapLayerChanged% THEN
+                LAYERS(li2%).contentDirty = TRUE
+                IF remapBefore& < -1 THEN
+                    HISTORY_record_transform LAYERS(li2%).historyId&, li2%, 0, remapBefore&, "Remap to Palette"
+                END IF
+                remapped% = TRUE
+            ELSE
+                IF remapBefore& < -1 THEN SAFE_FREEIMAGE remapBefore&
             END IF
-            remapped% = TRUE
         END IF
     NEXT li2%
 

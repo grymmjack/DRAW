@@ -475,6 +475,15 @@ SUB PALETTE_OPS_change_color (palIdx AS INTEGER)
     ' Reading it made a double-click color edit silently no-op with the mixer up.
     IF newColor~& = oldColor~& THEN EXIT SUB
 
+    ' BUG-31: snapshot the palette + group the change with its pixel-remap records so one
+    ' Ctrl+Z restores both the color and the remapped pixels.
+    DIM pccBefore AS STRING, pccOwns AS INTEGER : pccOwns% = FALSE
+    IF NOT HISTORY_IN_PROGRESS% AND NOT HISTORY_GROUP_ACTIVE% THEN
+        pccBefore$ = PALETTE_snapshot$
+        HISTORY_begin_group
+        pccOwns% = TRUE
+    END IF
+
     ' Update palette entry
     PAL(palIdx%).value~& = newColor~&
 
@@ -484,6 +493,11 @@ SUB PALETTE_OPS_change_color (palIdx AS INTEGER)
     ' Update FG/BG colors if they referenced this index
     IF PAL_FG_IDX% = palIdx% THEN PAINT_COLOR~& = newColor~&
     IF PAL_BG_IDX% = palIdx% THEN PAINT_BG_COLOR~& = newColor~&
+
+    IF pccOwns% THEN
+        HISTORY_record_palette pccBefore$, PALETTE_snapshot$, "Change Color"
+        HISTORY_end_group
+    END IF
 
     PALETTE_OPS_mark_document_palette
     CANVAS_DIRTY%     = TRUE
@@ -503,11 +517,18 @@ SUB PALETTE_OPS_replace_color_on_layers (oldColor AS _UNSIGNED LONG, newColor AS
     cW& = SCRN.canvasW&
     cH& = SCRN.canvasH&
 
+    ' Only open (and later close) a history group if WE own it. BUG-31: reading
+    ' usedGroup% from HISTORY_GROUP_ACTIVE% AFTER begin_group wrongly claimed ownership
+    ' when a caller had already opened a group (begin_group early-exits when one is
+    ' active) — so this SUB then CLOSED the caller's group after the first color, and a
+    ' batch delete fell back to N separate undos. Now claim ownership only when no group
+    ' was active on entry, so a caller (PALETTE_OPS_delete_marked) can wrap the whole
+    ' batch in one group and every replace here joins it.
     DIM usedGroup AS INTEGER
     usedGroup% = FALSE
-    IF NOT HISTORY_IN_PROGRESS% THEN
+    IF NOT HISTORY_IN_PROGRESS% AND NOT HISTORY_GROUP_ACTIVE% THEN
         HISTORY_begin_group
-        usedGroup% = HISTORY_GROUP_ACTIVE%
+        usedGroup% = TRUE
     END IF
 
     DIM li AS INTEGER
@@ -567,6 +588,53 @@ END SUB
 
 
 ''
+' BUG-31: serialize the full palette STATE for undo — every color (value + name) up to
+' PAL_COLOR_COUNT, plus the FG/BG indices, the transparent flags, and the resolved
+' PAINT_COLOR/PAINT_BG_COLOR. Header is 18 bytes: 5 x INTEGER (count, fg, bg, fgT, bgT)
+' + 2 x _UNSIGNED LONG (paint fg/bg); then per color: _UNSIGNED LONG value + INTEGER
+' name-length + name bytes. Paired with PALETTE_restore.
+'
+FUNCTION PALETTE_snapshot$
+    DIM s AS STRING, i AS INTEGER
+    s$ = MKI$(PAL_COLOR_COUNT%) + MKI$(PAL_FG_IDX%) + MKI$(PAL_BG_IDX%)
+    s$ = s$ + MKI$(PAL_FG_IS_TRANSPARENT%) + MKI$(PAL_BG_IS_TRANSPARENT%)
+    s$ = s$ + _MK$(_UNSIGNED LONG, PAINT_COLOR~&) + _MK$(_UNSIGNED LONG, PAINT_BG_COLOR~&)
+    FOR i% = 0 TO PAL_COLOR_COUNT% - 1
+        s$ = s$ + _MK$(_UNSIGNED LONG, PAL(i%).value~&)
+        s$ = s$ + MKI$(LEN(PAL(i%).name$)) + PAL(i%).name$
+    NEXT i%
+    PALETTE_snapshot$ = s$
+END FUNCTION
+
+''
+' Restore a palette state captured by PALETTE_snapshot$. Rebuilds PAL(), the count,
+' FG/BG indices + transparent flags, and the resolved paint colors.
+'
+SUB PALETTE_restore (snap AS STRING)
+    IF LEN(snap$) < 18 THEN EXIT SUB
+    DIM p AS LONG : p& = 1
+    DIM cnt AS INTEGER
+    cnt%                   = CVI(MID$(snap$, p&, 2)) : p& = p& + 2
+    PAL_FG_IDX%            = CVI(MID$(snap$, p&, 2)) : p& = p& + 2
+    PAL_BG_IDX%            = CVI(MID$(snap$, p&, 2)) : p& = p& + 2
+    PAL_FG_IS_TRANSPARENT% = CVI(MID$(snap$, p&, 2)) : p& = p& + 2
+    PAL_BG_IS_TRANSPARENT% = CVI(MID$(snap$, p&, 2)) : p& = p& + 2
+    PAINT_COLOR~&          = _CV(_UNSIGNED LONG, MID$(snap$, p&, 4)) : p& = p& + 4
+    PAINT_BG_COLOR~&       = _CV(_UNSIGNED LONG, MID$(snap$, p&, 4)) : p& = p& + 4
+    DIM i AS INTEGER, nlen AS INTEGER
+    FOR i% = 0 TO cnt% - 1
+        PAL(i%).value~& = _CV(_UNSIGNED LONG, MID$(snap$, p&, 4)) : p& = p& + 4
+        nlen%           = CVI(MID$(snap$, p&, 2)) : p& = p& + 2
+        IF nlen% > 0 THEN
+            PAL(i%).name$ = MID$(snap$, p&, nlen%) : p& = p& + nlen%
+        ELSE
+            PAL(i%).name$ = ""
+        END IF
+    NEXT i%
+    PAL_COLOR_COUNT% = cnt%
+END SUB
+
+''
 ' Delete a palette color. Pixels using it are remapped to nearest neighbor.
 '
 SUB PALETTE_OPS_delete_color (palIdx AS INTEGER)
@@ -574,6 +642,16 @@ SUB PALETTE_OPS_delete_color (palIdx AS INTEGER)
         _LOGWARN "PALETTE_OPS: Cannot delete — minimum 2 palette colors required"
         SOUND_play SND_TOOL_SELECT
         EXIT SUB
+    END IF
+
+    ' BUG-31: when deleting a single color (NOT inside a batch), snapshot the palette and
+    ' open one undo group so the color-state record + the pixel-remap records collapse into
+    ' a single Ctrl+Z. In a batch, PALETTE_OPS_delete_marked owns the group + snapshot.
+    DIM pdcBefore AS STRING, pdcOwns AS INTEGER : pdcOwns% = FALSE
+    IF NOT PALETTE_OPS_BATCH% THEN
+        pdcBefore$ = PALETTE_snapshot$
+        HISTORY_begin_group
+        pdcOwns% = TRUE
     END IF
 
     DIM deletedColor AS _UNSIGNED LONG
@@ -614,6 +692,11 @@ SUB PALETTE_OPS_delete_color (palIdx AS INTEGER)
         PAL_BG_IDX% = PAL_BG_IDX% - 1
     END IF
 
+    IF pdcOwns% THEN
+        HISTORY_record_palette pdcBefore$, PALETTE_snapshot$, "Delete Color"
+        HISTORY_end_group
+    END IF
+
     PALETTE_OPS_mark_document_palette
     SOUND_play SND_LAYER_OP
     CANVAS_DIRTY%     = TRUE
@@ -646,12 +729,30 @@ SUB PALETTE_OPS_delete_marked ()
         EXIT SUB
     END IF
 
+    ' BUG-31: batch the whole delete into ONE undo group + ONE palette-state record so a
+    ' single Ctrl+Z restores every deleted color AND its remapped pixels at once, instead of
+    ' N separate (previously non-restoring) undos. PALETTE_OPS_BATCH% tells each inner
+    ' PALETTE_OPS_delete_color to skip its own group/snapshot and join this one.
+    DIM opdBefore AS STRING, opdOwns AS INTEGER : opdOwns% = FALSE
+    IF NOT HISTORY_IN_PROGRESS% AND NOT HISTORY_GROUP_ACTIVE% THEN
+        opdBefore$ = PALETTE_snapshot$
+        HISTORY_begin_group
+        opdOwns% = TRUE
+    END IF
+
+    PALETTE_OPS_BATCH% = TRUE
     ' Delete from highest index to lowest to preserve indices
     FOR delIdx% = PAL_COLOR_COUNT% - 1 TO 0 STEP -1
         IF PALETTE_OPS_MARKED(delIdx%) THEN
             PALETTE_OPS_delete_color delIdx%
         END IF
     NEXT delIdx%
+    PALETTE_OPS_BATCH% = FALSE
+
+    IF opdOwns% THEN
+        HISTORY_record_palette opdBefore$, PALETTE_snapshot$, "Delete Colors"
+        HISTORY_end_group
+    END IF
 
     _LOGINFO "PALETTE_OPS: Deleted " + STR$(delCount%) + " marked colors"
 END SUB

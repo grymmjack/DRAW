@@ -525,6 +525,50 @@ SUB HISTORY_apply_layer_snapshot (layerId AS LONG, snapshotImg AS LONG)
 END SUB
 
 ''
+' Phantom-undo guard: return TRUE if two images differ (size or ANY pixel byte), FALSE
+' only when they are provably identical. Callers use it to suppress a no-op undo record —
+' an operation that produced no visible change (fill on same color, clear of already-empty
+' pixels, an adjustment OK'd at identity settings, a flip of a symmetric/empty layer, etc.).
+' Conservative: any uncertainty (invalid handle, unreadable memory) returns TRUE so a real
+' change is never silently dropped. Compares via a single native string memcmp (fast).
+'
+FUNCTION HISTORY_image_differs% (beforeImg AS LONG, curImg AS LONG)
+    IF beforeImg& >= -1 OR curImg& >= -1 THEN HISTORY_image_differs% = TRUE : EXIT FUNCTION
+    IF _WIDTH(beforeImg&) <> _WIDTH(curImg&) OR _HEIGHT(beforeImg&) <> _HEIGHT(curImg&) THEN
+        HISTORY_image_differs% = TRUE : EXIT FUNCTION
+    END IF
+    DIM ma AS _MEM, mb AS _MEM
+    ma = _MEMIMAGE(beforeImg&)
+    mb = _MEMIMAGE(curImg&)
+    DIM differ AS INTEGER : differ% = TRUE
+    IF ma.SIZE = mb.SIZE AND ma.SIZE > 0 THEN
+        DIM sa AS STRING, sb AS STRING
+        sa = SPACE$(ma.SIZE) : _MEMGET ma, ma.OFFSET, sa
+        sb = SPACE$(mb.SIZE) : _MEMGET mb, mb.OFFSET, sb
+        differ% = (sa <> sb)
+    END IF
+    _MEMFREE ma : _MEMFREE mb
+    HISTORY_image_differs% = differ%
+END FUNCTION
+
+''
+' BUG-31: record a palette-state change for undo/redo. beforeSnap/afterSnap come from
+' PALETTE_snapshot$ (GUI/PALETTE-OPS.BM). Both are framed into the record payload as
+' MKL$(len(before)) + before + after, so undo restores `before` and redo restores `after`.
+' Grouped with the accompanying pixel-remap records (HISTORY_KIND_TRANSFORM) by the caller
+' so one Ctrl+Z reverses the whole palette op — colors AND remapped pixels — at once.
+'
+SUB HISTORY_record_palette (beforeSnap AS STRING, afterSnap AS STRING, label AS STRING)
+    IF HISTORY_IN_PROGRESS% THEN EXIT SUB
+    DIM idx AS INTEGER
+    idx% = HISTORY_begin_record%(HISTORY_KIND_PALETTE, HISTORY_EXPORT_NONE, label$)
+    IF idx% = 0 THEN EXIT SUB
+    HISTORY_PAYLOADS(idx%)               = MKL$(LEN(beforeSnap$)) + beforeSnap$ + afterSnap$
+    HISTORY_RECORDS(idx%).payloadLength& = LEN(HISTORY_PAYLOADS(idx%))
+    HISTORY_commit_record idx%
+END SUB
+
+''
 ' Internal helper that records a shape operation (line, rect, or ellipse).
 ' Creates a history record with before/after images and shape coordinates.
 ' @param kind INTEGER Record kind (HISTORY_KIND_LINE, _RECT, or _ELLIPSE)
@@ -2495,6 +2539,16 @@ SUB HISTORY_undo ()
                         crUndoPos& = crUndoPos& + crUndoPixBytes&
                     NEXT crUndoI%
                 END IF
+            CASE HISTORY_KIND_PALETTE
+                ' Undo: restore the BEFORE palette (first framed half of the payload).
+                IF LEN(HISTORY_PAYLOADS(idx%)) >= 4 THEN
+                    DIM palUndoBLen AS LONG
+                    palUndoBLen& = CVL(MID$(HISTORY_PAYLOADS(idx%), 1, 4))
+                    PALETTE_restore MID$(HISTORY_PAYLOADS(idx%), 5, palUndoBLen&)
+                    PALETTE_OPS_mark_document_palette
+                    CANVAS_DIRTY% = TRUE : SCENE_DIRTY% = TRUE : GUI_NEEDS_REDRAW% = TRUE
+                    BLEND_invalidate_cache
+                END IF
         END SELECT
         idx% = idx% - 1
     LOOP
@@ -2656,6 +2710,16 @@ SUB HISTORY_redo ()
                     CANVAS_resize_with_content crRedoNewW%, crRedoNewH%
                 ELSE
                     CANVAS_resize crRedoNewW%, crRedoNewH%
+                END IF
+            CASE HISTORY_KIND_PALETTE
+                ' Redo: restore the AFTER palette (second framed half of the payload).
+                IF LEN(HISTORY_PAYLOADS(idx%)) >= 4 THEN
+                    DIM palRedoBLen AS LONG
+                    palRedoBLen& = CVL(MID$(HISTORY_PAYLOADS(idx%), 1, 4))
+                    PALETTE_restore MID$(HISTORY_PAYLOADS(idx%), 5 + palRedoBLen&)
+                    PALETTE_OPS_mark_document_palette
+                    CANVAS_DIRTY% = TRUE : SCENE_DIRTY% = TRUE : GUI_NEEDS_REDRAW% = TRUE
+                    BLEND_invalidate_cache
                 END IF
         END SELECT
         HISTORY.current% = idx%
