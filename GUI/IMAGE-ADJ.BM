@@ -2974,7 +2974,7 @@ FUNCTION IMAGE_ADJ_wind& (sourceImg AS LONG, strength AS INTEGER, dirDeg AS INTE
     resM = _MEMIMAGE(result&)
 
     DIM wx  AS LONG, wy AS LONG, k AS INTEGER
-    DIM cur AS _UNSIGNED LONG, prev AS _UNSIGNED LONG, dst AS _UNSIGNED LONG
+    DIM cur AS _UNSIGNED LONG, prev AS _UNSIGNED LONG, dst AS _UNSIGNED LONG, wSrc AS _UNSIGNED LONG
     DIM lc  AS INTEGER, lp AS INTEGER, fade AS SINGLE
     DIM nr  AS INTEGER, ng AS INTEGER, nb AS INTEGER, tx AS LONG, ty AS LONG, px AS LONG, py AS LONG
     FOR wy& = 0 TO wiH& - 1
@@ -2987,20 +2987,26 @@ FUNCTION IMAGE_ADJ_wind& (sourceImg AS LONG, strength AS INTEGER, dirDeg AS INTE
             lc% = (_RED32(cur~&) * 30 + _GREEN32(cur~&) * 59 + _BLUE32(cur~&) * 11) \ 100
             lp% = (_RED32(prev~&) * 30 + _GREEN32(prev~&) * 59 + _BLUE32(prev~&) * 11) \ 100
             IF ABS(lc% - lp%) > 28 THEN
+                ' Streak the MORE-OPAQUE of the two edge pixels downwind. The pixel
+                ' that detects a silhouette edge is the transparent one OUTSIDE the
+                ' shape (its upwind neighbour is opaque), so pushing `cur` would smear
+                ' transparency and paint nothing. Carrying the opaque colour outward is
+                ' what makes wind spill past the silhouette into transparency. BUG-G.
+                IF _ALPHA32(prev~&) > _ALPHA32(cur~&) THEN wSrc~& = prev~& ELSE wSrc~& = cur~&
                 FOR k% = 1 TO strength%
                     tx& = wx& + sdx% * k% : ty& = wy& + sdy% * k%
                     IF tx& < 0 OR tx& >= wiW& OR ty& < 0 OR ty& >= wiH& THEN EXIT FOR
                     fade! = (strength% - k% + 1) / (strength% + 0.0)
                     _MEMGET resM, resM.OFFSET + (ty& * wiW& + tx&) * 4, dst~&
-                    nr% = _RED32(dst~&) + (_RED32(cur~&) - _RED32(dst~&)) * fade!
-                    ng% = _GREEN32(dst~&) + (_GREEN32(cur~&) - _GREEN32(dst~&)) * fade!
-                    nb% = _BLUE32(dst~&) + (_BLUE32(cur~&) - _BLUE32(dst~&)) * fade!
+                    nr% = _RED32(dst~&) + (_RED32(wSrc~&) - _RED32(dst~&)) * fade!
+                    ng% = _GREEN32(dst~&) + (_GREEN32(wSrc~&) - _GREEN32(dst~&)) * fade!
+                    nb% = _BLUE32(dst~&) + (_BLUE32(wSrc~&) - _BLUE32(dst~&)) * fade!
                     ' Inner (default): keep the destination alpha, so streaks stay inside
                     ' the shape. Outer mode: blend alpha toward the source so a streak from
                     ' an opaque edge paints INTO the transparent area (a mask keeps/discards
                     ' the two halves afterward). BUG-G.
                     DIM wiA AS INTEGER : wiA% = _ALPHA32(dst~&)
-                    IF outerMode% THEN wiA% = _ALPHA32(dst~&) + (_ALPHA32(cur~&) - _ALPHA32(dst~&)) * fade!
+                    IF outerMode% THEN wiA% = _ALPHA32(dst~&) + (_ALPHA32(wSrc~&) - _ALPHA32(dst~&)) * fade!
                     IF wiA% < 0 THEN wiA% = 0 ELSE IF wiA% > 255 THEN wiA% = 255
                     _MEMPUT resM, resM.OFFSET + (ty& * wiW& + tx&) * 4, _RGBA32(nr%, ng%, nb%, wiA%) AS _UNSIGNED LONG
                 NEXT k%
@@ -4215,6 +4221,8 @@ SUB IMAGE_ADJ_pinch_dialog ()
 
     DIM k        AS LONG
     DIM d_amount AS INTEGER : d_amount% = 60
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, amount%, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -4248,7 +4256,10 @@ SUB IMAGE_ADJ_pinch_dialog ()
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, amount%, 0, 0, 0, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, amount%, 0, 0, 0, 0, 0, 0, 0
         DIM pnTargets(1 TO MAX_LAYERS) AS INTEGER, pnTgtCount AS INTEGER, pnT AS INTEGER
         DIM pnSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets pnTargets%(), pnTgtCount%
@@ -4339,6 +4350,8 @@ SUB IMAGE_ADJ_twirl_dialog ()
 
     DIM k       AS LONG
     DIM d_angle AS INTEGER : d_angle% = 120
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, angle%, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -4370,7 +4383,10 @@ SUB IMAGE_ADJ_twirl_dialog ()
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, angle%, 0, 0, 0, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, angle%, 0, 0, 0, 0, 0, 0, 0
         DIM twTargets(1 TO MAX_LAYERS) AS INTEGER, twTgtCount AS INTEGER, twT AS INTEGER
         DIM twSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets twTargets%(), twTgtCount%
@@ -9066,6 +9082,8 @@ SUB IMAGE_ADJ_solarize_dialog ()
 
     DIM k     AS LONG
     DIM d_thr AS INTEGER : d_thr% = 128
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, thr%, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -9097,7 +9115,10 @@ SUB IMAGE_ADJ_solarize_dialog ()
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, thr%, 0, 0, 0, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, thr%, 0, 0, 0, 0, 0, 0, 0
         DIM soTargets(1 TO MAX_LAYERS) AS INTEGER, soTgtCount AS INTEGER, soT AS INTEGER
         DIM soSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets soTargets%(), soTgtCount%
@@ -9180,6 +9201,8 @@ SUB IMAGE_ADJ_emboss_dialog ()
     DIM oStrength AS INTEGER, oAngle AS INTEGER
 
     DIM k AS LONG
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, strength%, angle%, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -9213,7 +9236,10 @@ SUB IMAGE_ADJ_emboss_dialog ()
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, strength%, angle%, 0, 0, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, strength%, angle%, 0, 0, 0, 0, 0, 0
         DIM emTargets(1 TO MAX_LAYERS) AS INTEGER, emTgtCount AS INTEGER, emT AS INTEGER
         DIM emSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets emTargets%(), emTgtCount%
@@ -11077,6 +11103,9 @@ SUB IMAGE_ADJ_blur_dialog ()
 
     DIM k        AS LONG, bName AS STRING
     DIM d_radius AS INTEGER : d_radius% = 3
+    ' BUG-K: reopen at last-used settings (Last-Set); RESET restores defaults.
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, radius%, bangle%, blurType%, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -11120,7 +11149,12 @@ SUB IMAGE_ADJ_blur_dialog ()
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    ' BUG-K: remember settings for next open (Last-Set), regardless of OK/Cancel.
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, radius%, bangle%, blurType%, 0, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        ' BUG-K: remember what was applied (Last-Applied) for Redo Last Effect.
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, radius%, bangle%, blurType%, 0, 0, 0, 0, 0
         DIM blTargets(1 TO MAX_LAYERS) AS INTEGER, blTgtCount AS INTEGER, blT AS INTEGER
         DIM blSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets blTargets%(), blTgtCount%
@@ -11160,6 +11194,9 @@ SUB IMAGE_ADJ_sharpen_dialog ()
 
     DIM k          AS LONG
     DIM d_strength AS INTEGER : d_strength% = 3
+    ' BUG-K: reopen at last-used settings (Last-Set); RESET restores defaults.
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, strength%, shRadius%, shThresh%, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -11199,7 +11236,11 @@ SUB IMAGE_ADJ_sharpen_dialog ()
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    ' BUG-K: remember settings (Last-Set) then Last-Applied for Redo.
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, strength%, shRadius%, shThresh%, 0, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, strength%, shRadius%, shThresh%, 0, 0, 0, 0, 0
         DIM shTargets(1 TO MAX_LAYERS) AS INTEGER, shTgtCount AS INTEGER, shT AS INTEGER
         DIM shSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets shTargets%(), shTgtCount%
@@ -11470,6 +11511,8 @@ SUB IMAGE_ADJ_glow_dialog ()
     DIM k          AS LONG
     DIM d_glRadius AS INTEGER : d_glRadius% = 5
     DIM d_glInten  AS INTEGER : d_glInten% = 60
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, glRadius%, glInten%, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -11505,7 +11548,10 @@ SUB IMAGE_ADJ_glow_dialog ()
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, glRadius%, glInten%, 0, 0, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, glRadius%, glInten%, 0, 0, 0, 0, 0, 0
         DIM glTargets(1 TO MAX_LAYERS) AS INTEGER, glTgtCount AS INTEGER, glT AS INTEGER
         DIM glSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets glTargets%(), glTgtCount%
@@ -11610,6 +11656,9 @@ SUB IMAGE_ADJ_vignette_dialog ()
 
     DIM k          AS LONG
     DIM d_strength AS INTEGER : d_strength% = 60
+    ' BUG-K: reopen at last-used settings; RESET restores defaults.
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, strength%, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -11641,7 +11690,10 @@ SUB IMAGE_ADJ_vignette_dialog ()
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, strength%, 0, 0, 0, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, strength%, 0, 0, 0, 0, 0, 0, 0
         DIM vgTargets(1 TO MAX_LAYERS) AS INTEGER, vgTgtCount AS INTEGER, vgT AS INTEGER
         DIM vgSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets vgTargets%(), vgTgtCount%
