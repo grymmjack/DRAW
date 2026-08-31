@@ -17,12 +17,18 @@ for n in 1 2 3 4; do key bracketright; done
 wait_for 0.2 "Brush enlarged"
 
 CHIP_Y=$(( VIEWPORT_H - STATUS_H - 6 ))
+# Fill the sample with MANY overlapping colour bands so Crystallize's Voronoi cells
+# visibly reshape the colour boundaries (flat single-colour strokes barely change,
+# since a cell of one colour crystallizes to the same colour). Green + red + blue
+# stripes packed across the sample give plenty of boundaries.
 click $(( 16 + 11*17 + 8 )) "$CHIP_Y" ; wait_for 0.2 "Green FG"
-drag $(( CANVAS_CX - 80 )) $(( CANVAS_CY )) $(( CANVAS_CX + 80 )) $(( CANVAS_CY ))
+for dy in -30 -12 6 24; do drag $(( CANVAS_CX - 80 )) $(( CANVAS_CY + dy )) $(( CANVAS_CX + 80 )) $(( CANVAS_CY + dy )); done
 click $(( 16 + 23*17 + 8 )) "$CHIP_Y" ; wait_for 0.2 "Red FG"
-drag "$CANVAS_CX" $(( CANVAS_CY - 50 )) "$CANVAS_CX" $(( CANVAS_CY + 50 ))
+for dy in -24 -6 12 30; do drag $(( CANVAS_CX - 80 )) $(( CANVAS_CY + dy )) $(( CANVAS_CX + 80 )) $(( CANVAS_CY + dy )); done
+click $(( 16 + 1*17 + 8 )) "$CHIP_Y" ; wait_for 0.2 "Blue FG"
+for dx in -40 0 40; do drag $(( CANVAS_CX + dx )) $(( CANVAS_CY - 40 )) $(( CANVAS_CX + dx )) $(( CANVAS_CY + 40 )); done
 key grave
-wait_for 0.3 "Content drawn"
+wait_for 0.3 "Multi-colour content drawn"
 assert_no_crash
 
 GX=$(( CANVAS_CX - 60 )); GY=$(( CANVAS_CY - 40 )); GW=120; GH=80
@@ -32,7 +38,10 @@ BEFORE="$SNAP_RESULT"
 
 open_effect 4 0 ; wait_for 0.5 "Crystallize dialog open"
 screenshot "crystallize-dialog"
-drag 400 317 560 317 ; wait_for 0.2 "Cell size up"
+# Drag CELL SIZE to the far right (large cells) so the striped sample collapses into
+# a couple of solid Voronoi cells — a dramatic, supra-threshold change. Slider spans
+# vp x≈359..599 at y≈310; drag from left to the right edge.
+drag 365 310 598 310 ; wait_for 0.2 "Cell size -> large"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash
 

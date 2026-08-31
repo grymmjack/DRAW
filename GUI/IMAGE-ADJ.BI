@@ -116,4 +116,22 @@ DIM SHARED LAST_FX_P(0 TO 7) AS INTEGER
 ' the blend itself as a new "last effect".
 DIM SHARED FX_IN_BLEND        AS INTEGER
 
+' ---- Per-effect settings memory (BUG-K): 3 slots per effect ------------------
+' Every effect dialog remembers its sliders/toggles in three slots, keyed by the
+' effect's action id (FX_PENDING_ACTION, set at dispatch). Up to 8 int params each:
+'   FX_SLOT_DEFAULT  — the factory defaults (RESET restores these)
+'   FX_SLOT_LASTSET  — the values when the dialog last closed (restored on reopen)
+'   FX_SLOT_APPLIED  — the values when the effect was last APPLIED (used by Redo)
+' A dialog: on open loads LASTSET (falling back to its own defaults), records the
+' defaults once, saves LASTSET on close and APPLIED on OK. Redo Last Effect (Ctrl+F)
+' replays FX_SLOT_APPLIED with no dialog. Params are INTEGER (angles, sizes, toggles,
+' 0/1 flags); colours are re-read from FG/BG at apply time, never stored here.
+CONST FX_SLOT_DEFAULT = 0
+CONST FX_SLOT_LASTSET = 1
+CONST FX_SLOT_APPLIED = 2
+CONST FX_ACTION_BASE  = 2001            ' effect action ids run 2001..2300
+CONST FX_ACTION_SPAN  = 300
+DIM SHARED FX_PRESET(0 TO FX_ACTION_SPAN - 1, 0 TO 2, 0 TO 7) AS INTEGER
+DIM SHARED FX_PRESET_HAS(0 TO FX_ACTION_SPAN - 1, 0 TO 2)     AS INTEGER
+
 ' ---- Slider dialogs ----------------------------------------------------------

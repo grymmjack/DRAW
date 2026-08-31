@@ -384,6 +384,73 @@ SUB IMAGE_ADJ_apply_spatial_edge (adjResult AS LONG, shapeSrc AS LONG, historyLa
     INVALIDATE_layers
 END SUB
 
+' -----------------------------------------------------------------------------
+' INSIDE / OUTSIDE masking  (BUG-F/G/L: Blow Inner / Blow Outer, Wave in/out, …)
+' -----------------------------------------------------------------------------
+' Some effects (Wind streaks, Extrude blocks, Wave/Ripple displacement) can reach
+' PAST the shape's silhouette into the transparent area. The effect engine runs in
+' "outer-capable" mode (it paints alpha into the transparent region); then this mask
+' keeps only the halves the user asked for, using the pre-effect alpha as the
+' silhouette: INSIDE = pixels the shape covered (origAlpha>0), OUTSIDE = the rest.
+'   keepInner+keepOuter = whole layer (no masking)
+'   keepInner only      = clip to the shape (classic behaviour)
+'   keepOuter only      = only the streaks/blocks that spilled outside
+
+''
+' Restore origSnap wherever the corresponding half is NOT kept. No-op when both
+' halves are kept. layerImg and origSnap must be the same dimensions.
+'
+SUB IMGADJ_apply_inout_mask (layerImg AS LONG, origSnap AS LONG, keepInner AS INTEGER, keepOuter AS INTEGER)
+    IF NOT (layerImg& < -1) OR NOT (origSnap& < -1) THEN EXIT SUB
+    IF keepInner% AND keepOuter% THEN EXIT SUB          ' whole layer -> nothing to mask
+    DIM lM AS _MEM, oM AS _MEM
+    lM = _MEMIMAGE(layerImg&) : oM = _MEMIMAGE(origSnap&)
+    DIM imOff AS _OFFSET, op AS _UNSIGNED LONG, oa AS _UNSIGNED _BYTE
+    FOR imOff = 0 TO lM.SIZE - 4 STEP 4
+        _MEMGET oM, oM.OFFSET + imOff + 3, oa~%%          ' original alpha = silhouette
+        IF oa~%% > 0 THEN
+            IF keepInner% THEN _CONTINUE                 ' inside kept
+        ELSE
+            IF keepOuter% THEN _CONTINUE                 ' outside kept
+        END IF
+        _MEMGET oM, oM.OFFSET + imOff, op~&              ' restore the original here
+        _MEMPUT lM, lM.OFFSET + imOff, op~& AS _UNSIGNED LONG
+    NEXT imOff
+    _MEMFREE lM : _MEMFREE oM
+END SUB
+
+''
+' Apply an effect result that may extend OUTSIDE the silhouette, keeping only the
+' inner/outer halves the user selected, then (if a selection is active) clipping to
+' it. Keeps the effect's own alpha (so outer pixels stay visible). Records undo.
+' @param adjResult LONG  Effect output run in outer-capable mode (freed here)
+' @param keepInner/keepOuter INTEGER  Which halves to keep
+' @param historyLabel STRING  Undo label
+'
+SUB IMAGE_ADJ_apply_inout (adjResult AS LONG, keepInner AS INTEGER, keepOuter AS INTEGER, historyLabel AS STRING)
+    IF NOT (adjResult& < -1) THEN EXIT SUB
+    DIM aiLayer AS LONG : aiLayer& = LAYERS(CURRENT_LAYER%).imgHandle&
+    DIM aiSnap  AS LONG : aiSnap&  = _COPYIMAGE(aiLayer&, 32)
+
+    DIM aiOldDest AS LONG : aiOldDest& = _DEST
+    _DEST aiLayer& : _DONTBLEND aiLayer& : CLS , _RGBA32(0, 0, 0, 0)
+    _PUTIMAGE , adjResult& : _BLEND aiLayer& : _DEST aiOldDest&
+    SAFE_FREEIMAGE adjResult&
+
+    ' Keep only the requested inner/outer halves (silhouette = pre-effect alpha).
+    IMGADJ_apply_inout_mask aiLayer&, aiSnap&, keepInner%, keepOuter%
+    ' Selection clip still applies on top (only the selected region changes).
+    IF EFFECT_CLIP_TO_SEL AND EFFECT_SEL_AS_SHAPE = 0 THEN
+        IMGADJ_clip_to_selection aiLayer&, aiSnap&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%
+    END IF
+
+    IF aiSnap& < -1 THEN HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, 0, aiSnap&, historyLabel$
+    HISTORY_saved_this_frame% = TRUE
+    IMGADJ_capture_last_fx aiSnap&, historyLabel$
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    INVALIDATE_layers
+END SUB
+
 ''
 ' Compute the canvas-space bounding box of the active selection (rect BOX or the
 ' per-pixel wand/lasso mask). Returns TRUE and fills x0..y1 when a selection is
@@ -513,9 +580,63 @@ END SUB
 ' settings. Layer-FX effects that stashed params replay through the engine; any
 ' other effect falls back to re-opening its dialog.
 '
+''
+' BUG-O: silently replay a K-wired effect from its Last-Applied preset (no dialog),
+' on the current layer. Returns TRUE if it handled the action; FALSE means the
+' caller should fall back (stashed-4 replay or reopening the dialog). Colours come
+' from the current FG/BG at replay time, like a fresh apply.
+'
+FUNCTION FX_redo_replay_preset% (action AS INTEGER)
+    FX_redo_replay_preset% = FALSE
+    DIM rk AS INTEGER : rk% = FX_preset_key%(action%)
+    IF rk% < 0 THEN EXIT FUNCTION
+    IF FX_PRESET_HAS(rk%, FX_SLOT_APPLIED) = 0 THEN EXIT FUNCTION
+    DIM p0 AS INTEGER, p1 AS INTEGER, p2 AS INTEGER, p3 AS INTEGER
+    DIM p4 AS INTEGER, p5 AS INTEGER, p6 AS INTEGER, p7 AS INTEGER
+    IF FX_preset_load%(action%, FX_SLOT_APPLIED, p0, p1, p2, p3, p4, p5, p6, p7) = 0 THEN EXIT FUNCTION
+
+    DIM rLayer AS LONG    : rLayer& = LAYERS(CURRENT_LAYER%).imgHandle&
+    DIM rApW   AS INTEGER : rApW%   = LAYERS(CURRENT_LAYER%).apronW%
+    DIM rApH   AS INTEGER : rApH%   = LAYERS(CURRENT_LAYER%).apronH%
+    DIM adjR   AS LONG, rEdge AS LONG, rSrc AS LONG
+    FX_PENDING_ACTION = action% ' re-capture so a chained Redo/Blend still works
+
+    SELECT CASE action%
+        CASE 2140 ' Crystallize: P0=cellSize
+            adjR& = IMAGE_ADJ_crystallize&(rLayer&, p0%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Crystallize"
+            FX_redo_replay_preset% = TRUE
+        CASE 2145 ' Wind: P0=strength P1=direction P2=blowInner P3=blowOuter
+            adjR& = IMAGE_ADJ_wind&(rLayer&, p0%, p1%, p3%)
+            IMAGE_ADJ_apply_inout adjR&, p2%, p3%, "Wind"
+            FX_redo_replay_preset% = TRUE
+        CASE 2160 ' Add Noise: P0=amt P1=pixSize P2=mix P3=angle P4=seed P5=mono
+            adjR& = IMAGE_ADJ_addnoise&(rLayer&, p0%, p5%, p1%, p2%, p3%, p4%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Add Noise"
+            FX_redo_replay_preset% = TRUE
+        CASE 2143 ' Extrude: P0=tile P1=depth P2=angle P3=jitter P4=seed P5=inner P6=outer
+            adjR& = IMAGE_ADJ_extrude&(rLayer&, p0%, p1%, p2%, p3%, p4%)
+            IMAGE_ADJ_apply_inout adjR&, p5%, p6%, "Extrude"
+            FX_redo_replay_preset% = TRUE
+        CASE 2170 ' Render Grid: P0=spacing P1=angle P2=perspective
+            adjR& = IMAGE_ADJ_grid&(rLayer&, p0%, p2%, PAINT_COLOR~&, p1%)
+            IMAGE_ADJ_apply_spatial adjR&, "Render Grid"
+            FX_redo_replay_preset% = TRUE
+        CASE 2230 ' Backlight: P0=rays P1=intensity (sel-as-shape aware)
+            rEdge& = IMGADJ_edge_shape_source&(rLayer&, rApW%, rApH%)
+            rSrc&  = rLayer& : IF rEdge& < -1 THEN rSrc& = rEdge&
+            adjR&  = IMAGE_ADJ_backlight&(rSrc&, p0%, p1%, PAINT_COLOR~&)
+            IMGADJ_replay_edge adjR&, rEdge&, "Backlight", 1
+            IF rEdge& < -1 THEN SAFE_FREEIMAGE rEdge&
+            FX_redo_replay_preset% = TRUE
+    END SELECT
+END FUNCTION
+
 SUB IMAGE_ADJ_redo_last ()
     IF LAST_FX_ACTION% = 0 THEN EXIT SUB
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    ' BUG-O: K-wired effects replay silently from their Last-Applied preset.
+    IF FX_redo_replay_preset%(LAST_FX_ACTION%) THEN EXIT SUB
     IF NOT LAST_FX_REPLAYABLE% THEN CMD_execute_action LAST_FX_ACTION% : EXIT SUB
 
     DIM rLayer AS LONG, rApW AS INTEGER, rApH AS INTEGER, rEdge AS LONG, adjR AS LONG
@@ -545,6 +666,52 @@ SUB IMAGE_ADJ_redo_last ()
     END SELECT
     IF rEdge& < -1 THEN SAFE_FREEIMAGE rEdge&
 END SUB
+
+' =============================================================================
+' PER-EFFECT SETTINGS MEMORY  (BUG-K)  —  3 slots keyed by effect action id
+' =============================================================================
+
+''
+' Map an effect action id to its FX_PRESET row, or -1 if out of the effect range.
+'
+FUNCTION FX_preset_key% (action AS INTEGER)
+    IF action% < FX_ACTION_BASE OR action% >= FX_ACTION_BASE + FX_ACTION_SPAN THEN
+        FX_preset_key% = -1
+    ELSE
+        FX_preset_key% = action% - FX_ACTION_BASE
+    END IF
+END FUNCTION
+
+''
+' Save up to 8 int params for one effect into one slot (DEFAULT/LASTSET/APPLIED).
+' Dialogs with fewer params pass 0 for the unused tail.
+'
+SUB FX_preset_store (action AS INTEGER, slot AS INTEGER, p0 AS INTEGER, p1 AS INTEGER, p2 AS INTEGER, p3 AS INTEGER, p4 AS INTEGER, p5 AS INTEGER, p6 AS INTEGER, p7 AS INTEGER)
+    DIM fpk AS INTEGER : fpk% = FX_preset_key%(action%)
+    IF fpk% < 0 OR slot% < 0 OR slot% > 2 THEN EXIT SUB
+    FX_PRESET(fpk%, slot%, 0) = p0% : FX_PRESET(fpk%, slot%, 1) = p1%
+    FX_PRESET(fpk%, slot%, 2) = p2% : FX_PRESET(fpk%, slot%, 3) = p3%
+    FX_PRESET(fpk%, slot%, 4) = p4% : FX_PRESET(fpk%, slot%, 5) = p5%
+    FX_PRESET(fpk%, slot%, 6) = p6% : FX_PRESET(fpk%, slot%, 7) = p7%
+    FX_PRESET_HAS(fpk%, slot%) = TRUE
+END SUB
+
+''
+' Load up to 8 int params for one effect+slot into the caller's variables (BYREF).
+' Returns TRUE only when that slot has been populated; on FALSE the caller keeps
+' its own defaults. Callers pass their real param lvalues + dummies for the tail.
+'
+FUNCTION FX_preset_load% (action AS INTEGER, slot AS INTEGER, p0 AS INTEGER, p1 AS INTEGER, p2 AS INTEGER, p3 AS INTEGER, p4 AS INTEGER, p5 AS INTEGER, p6 AS INTEGER, p7 AS INTEGER)
+    FX_preset_load% = FALSE
+    DIM fpk AS INTEGER : fpk% = FX_preset_key%(action%)
+    IF fpk% < 0 OR slot% < 0 OR slot% > 2 THEN EXIT FUNCTION
+    IF NOT FX_PRESET_HAS(fpk%, slot%) THEN EXIT FUNCTION
+    p0% = FX_PRESET(fpk%, slot%, 0) : p1% = FX_PRESET(fpk%, slot%, 1)
+    p2% = FX_PRESET(fpk%, slot%, 2) : p3% = FX_PRESET(fpk%, slot%, 3)
+    p4% = FX_PRESET(fpk%, slot%, 4) : p5% = FX_PRESET(fpk%, slot%, 5)
+    p6% = FX_PRESET(fpk%, slot%, 6) : p7% = FX_PRESET(fpk%, slot%, 7)
+    FX_preset_load% = TRUE
+END FUNCTION
 
 ''
 ' Composite BEFORE and AFTER for Blend/Fade: out = lerp(before, mode(before,after),
@@ -1311,7 +1478,12 @@ FUNCTION IMAGE_ADJ_backlight& (sourceImg AS LONG, rays AS INTEGER, intensity AS 
             ray! = 0.5 + 0.5 * COS(ang! * rays%)
             ray! = ray! * ray! ' sharpen the spokes
             fall! = 1.0 - rr! / maxR! : IF fall! < 0.0 THEN fall! = 0.0
-            br!   = ray! * fall! * iScale!
+            ' BUG-Q: the rays are semi-transparent white — visible over the dark
+            ' preview pane but nearly invisible when applied over a transparent/light
+            ' canvas, so the effect read as "does not render on apply". Boost the ray
+            ' level (~1.7x, clamped) so the applied sunburst is clearly visible on any
+            ' background while keeping the falloff shape.
+            br!   = ray! * fall! * iScale! * 1.7
             IF br! > 1.0 THEN br! = 1.0
             IF br! > 0.01 THEN
                 aOut% = INT(br! * 255)
@@ -1344,6 +1516,9 @@ SUB IMAGE_ADJ_backlight_dialog ()
     DIM k       AS LONG
     DIM d_rys   AS INTEGER : d_rys% = 16
     DIM d_inten AS INTEGER : d_inten% = 70
+    ' BUG-K: reopen at the last-used settings (Last-Set); RESET restores defaults.
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, rys%, inten%, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -1379,7 +1554,12 @@ SUB IMAGE_ADJ_backlight_dialog ()
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    ' BUG-K: remember settings for next open (Last-Set), regardless of OK/Cancel.
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, rys%, inten%, 0, 0, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        ' BUG-K: remember what was applied (Last-Applied) for Redo Last Effect.
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, rys%, inten%, 0, 0, 0, 0, 0, 0
         DIM blTargets(1 TO MAX_LAYERS) AS INTEGER, blTgtCount AS INTEGER, blT AS INTEGER
         DIM blSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets blTargets%(), blTgtCount%
@@ -1680,27 +1860,43 @@ FUNCTION IMAGE_ADJ_grid& (sourceImg AS LONG, spacing AS INTEGER, persp AS INTEGE
             NEXT fam%
         END IF
     ELSE
-        ' Endless 1980s floor grid. Depth lines fan from the vanishing point out past
-        ' BOTH screen edges (index -J..J), so the sides never "close"; the angle pans
+        ' Endless 1980s "Miami-Vice" floor grid. A single vanishing point on the
+        ' horizon; depth "spokes" splay from it out past BOTH screen edges (so the
+        ' sides never close), and horizontal rows recede at equal WORLD-depth steps
+        ' — crowding toward the horizon but stopping before hard 1px lines merge into
+        ' a solid band (which left the old grid a "truncated box"). The angle pans
         ' the vanishing point horizontally.
         DIM panA AS SINGLE : panA! = (((angle% + 180) MOD 360) - 180) / 180.0
-        DIM vpx  AS SINGLE, hy AS SINGLE
-        vpx! = grW& / 2.0 + panA! * grW& * 0.6 : hy! = grH& * 0.42
-        DIM jj   AS LONG, jMax AS LONG, bx AS SINGLE
-        jMax& = INT(grW& / spacing%) + 3
-        FOR jj& = -jMax& TO jMax&
-            bx! = vpx! + jj& * spacing%
+        DIM vpx  AS SINGLE, hy AS SINGLE, floorH AS SINGLE
+        hy!     = grH& * 0.50
+        vpx!    = grW& / 2.0 + panA! * grW& * 0.9
+        floorH! = (grH& - 1) - hy!
+        ' Depth spokes: evenly spaced in world space along the near (bottom) edge,
+        ' extended well past both edges, all converging to the vanishing point.
+        DIM half AS LONG : half& = INT(grW& / spacing%) + 6
+        DIM jj   AS LONG, bx AS SINGLE
+        FOR jj& = -half& TO half&
+            IF (jj& AND 15) = 0 THEN IMGADJ_progress_tick "Grid", (jj& + half&) / (2.0 * half&)
+            bx! = vpx! + jj& * spacing% * 2.2
             LINE (bx!, grH& - 1)-(vpx!, hy!), c~&
         NEXT jj&
-        ' horizontal receding lines (geometric spacing toward the horizon)
-        DIM yy   AS SINGLE, gap AS SINGLE
-        yy! = grH& - 1 : gap! = spacing%
-        DO WHILE yy! > hy! + 1
+        ' Horizontal receding rows: screen y = hy + floorH/(1 + n*rate). Stop once two
+        ' rows fall within 2px so they never merge into a solid bar at the horizon.
+        DIM nn    AS LONG, yy AS SINGLE, prevY AS SINGLE, denom AS SINGLE
+        DIM tRate AS SINGLE : tRate! = spacing% / floorH!
+        prevY! = grH& - 1 : nn& = 0
+        DO
+            nn&    = nn& + 1
+            denom! = 1.0 + nn& * tRate!
+            yy!    = hy! + floorH! / denom!
+            IF yy! <= hy! + 1.0 THEN EXIT DO
+            IF prevY! - yy! < 2.0 THEN EXIT DO
             LINE (0, yy!)-(grW& - 1, yy!), c~&
-            yy! = yy! - gap! : gap! = gap! * 0.8
-            IF gap! < 1.5 THEN EXIT DO
+            prevY! = yy!
+            IF nn& > 4000 THEN EXIT DO
         LOOP
-        LINE (0, hy!)-(grW& - 1, hy!), c~&
+        LINE (0, grH& - 1)-(grW& - 1, grH& - 1), c~& ' near edge
+        LINE (0, hy!)-(grW& - 1, hy!), c~&           ' horizon
     END IF
 
     _BLEND result& : _DEST oldDest&
@@ -1731,6 +1927,9 @@ SUB IMAGE_ADJ_grid_dialog ()
     DIM k         AS LONG
     DIM d_gspc    AS INTEGER : d_gspc% = 16
     DIM d_perspOn AS INTEGER : d_perspOn% = FALSE
+    ' BUG-K: reopen at last-used settings (Last-Set); RESET restores defaults.
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, gspc%, grAng%, perspOn%, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -1769,7 +1968,12 @@ SUB IMAGE_ADJ_grid_dialog ()
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    ' BUG-K: remember settings for next open (Last-Set), regardless of OK/Cancel.
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, gspc%, grAng%, perspOn%, 0, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        ' BUG-K: remember what was applied (Last-Applied) for Redo Last Effect.
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, gspc%, grAng%, perspOn%, 0, 0, 0, 0, 0
         DIM grTargets(1 TO MAX_LAYERS) AS INTEGER, grTgtCount AS INTEGER, grT AS INTEGER
         DIM grSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets grTargets%(), grTgtCount%
@@ -2091,6 +2295,9 @@ SUB IMAGE_ADJ_addnoise_dialog ()
     DIM d_npix   AS INTEGER : d_npix% = 1
     DIM d_nmix   AS INTEGER : d_nmix% = 100
     DIM d_monoOn AS INTEGER : d_monoOn% = FALSE
+    ' BUG-K: reopen at last-used settings (Last-Set); RESET restores defaults.
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, amt%, npix%, nmix%, anAngle%, anSeedP%, monoOn%, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -2141,7 +2348,12 @@ SUB IMAGE_ADJ_addnoise_dialog ()
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    ' BUG-K: remember settings for next open (Last-Set), regardless of OK/Cancel.
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, amt%, npix%, nmix%, anAngle%, anSeedP%, monoOn%, 0, 0
+
     IF ctx.result% THEN
+        ' BUG-K: remember what was applied (Last-Applied) for Redo Last Effect.
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, amt%, npix%, nmix%, anAngle%, anSeedP%, monoOn%, 0, 0
         DIM anTargets(1 TO MAX_LAYERS) AS INTEGER, anTgtCount AS INTEGER, anT AS INTEGER
         DIM anSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets anTargets%(), anTgtCount%
@@ -2741,7 +2953,7 @@ END SUB
 ' @param strength  INTEGER Streak length in px (2..20)
 ' @return LONG  New wind-streaked image handle
 '
-FUNCTION IMAGE_ADJ_wind& (sourceImg AS LONG, strength AS INTEGER, dirDeg AS INTEGER)
+FUNCTION IMAGE_ADJ_wind& (sourceImg AS LONG, strength AS INTEGER, dirDeg AS INTEGER, outerMode AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_wind& = 0 : EXIT FUNCTION
 
     DIM wiW    AS LONG, wiH AS LONG
@@ -2783,7 +2995,14 @@ FUNCTION IMAGE_ADJ_wind& (sourceImg AS LONG, strength AS INTEGER, dirDeg AS INTE
                     nr% = _RED32(dst~&) + (_RED32(cur~&) - _RED32(dst~&)) * fade!
                     ng% = _GREEN32(dst~&) + (_GREEN32(cur~&) - _GREEN32(dst~&)) * fade!
                     nb% = _BLUE32(dst~&) + (_BLUE32(cur~&) - _BLUE32(dst~&)) * fade!
-                    _MEMPUT resM, resM.OFFSET + (ty& * wiW& + tx&) * 4, _RGBA32(nr%, ng%, nb%, _ALPHA32(dst~&)) AS _UNSIGNED LONG
+                    ' Inner (default): keep the destination alpha, so streaks stay inside
+                    ' the shape. Outer mode: blend alpha toward the source so a streak from
+                    ' an opaque edge paints INTO the transparent area (a mask keeps/discards
+                    ' the two halves afterward). BUG-G.
+                    DIM wiA AS INTEGER : wiA% = _ALPHA32(dst~&)
+                    IF outerMode% THEN wiA% = _ALPHA32(dst~&) + (_ALPHA32(cur~&) - _ALPHA32(dst~&)) * fade!
+                    IF wiA% < 0 THEN wiA% = 0 ELSE IF wiA% > 255 THEN wiA% = 255
+                    _MEMPUT resM, resM.OFFSET + (ty& * wiW& + tx&) * 4, _RGBA32(nr%, ng%, nb%, wiA%) AS _UNSIGNED LONG
                 NEXT k%
             END IF
         NEXT wx&
@@ -2802,17 +3021,33 @@ SUB IMAGE_ADJ_wind_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 150
+    DIALOG_init ctx, IMGDLG_W, 178                        ' +28 for the BLOW INNER/OUTER toggles
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM stg   AS INTEGER : stg% = 10
     DIM oStg  AS INTEGER
     DIM wdir  AS INTEGER : wdir% = 0 ' 0=right .. 315, snapped to 8-way in engine
     DIM oWdir AS INTEGER
+    ' BUG-G: Blow Inner (streaks stay inside the shape) / Blow Outer (streaks spill
+    ' past the silhouette into the transparent area). Persist across opens; default
+    ' BOTH on — wind's whole point is streaking outward, and on a shape-on-transparent
+    ' layer Inner-only leaves the streaks invisible (they land in transparent pixels).
+    STATIC blowInner AS INTEGER, blowOuter AS INTEGER, wiInit AS INTEGER
+    IF wiInit% = 0 THEN blowInner% = -1 : blowOuter% = -1 : wiInit% = -1
+    DIM d_blowInner AS INTEGER : d_blowInner% = -1
+    DIM d_blowOuter AS INTEGER : d_blowOuter% = -1
 
     DIM k      AS LONG
     DIM d_stg  AS INTEGER : d_stg% = 10
     DIM d_wdir AS INTEGER : d_wdir% = 0
+    ' BUG-K: reopen at last-used settings (Last-Set); RESET restores defaults.
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, stg%, wdir%, blowInner%, blowOuter%, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
+
+    DIM tiX AS INTEGER, toX AS INTEGER, tglY AS INTEGER, tglW AS INTEGER, tglH AS INTEGER
+    tglW% = 116 : tglH% = 16
+    tiX%  = IMGDLG_SX : toX% = IMGDLG_SX + 124
+    tglY% = IMGDLG_track_y%(ctx, 1) + 26
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -2826,13 +3061,18 @@ SUB IMAGE_ADJ_wind_dialog ()
         wdir% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, wdir%, 0, 315)
         wdir% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, wdir%, 0, 315)
         IF stg% <> oStg% OR wdir% <> oWdir% THEN ctx.previewDirty% = TRUE
+        ' BUG-G: BLOW INNER / BLOW OUTER toggles (not while a dropdown is open over them).
+        IF DIALOG_hit%(ctx, tiX%, tglY%, tglW%, tglH%) THEN blowInner% = (blowInner% = 0) : ctx.previewDirty% = TRUE
+        IF DIALOG_hit%(ctx, toX%, tglY%, tglW%, tglH%) THEN blowOuter% = (blowOuter% = 0) : ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset2 ctx, stg%, wdir%, d_stg%, d_wdir%
+        IF IMGDLG_RESET_CLICKED% THEN blowInner% = d_blowInner% : blowOuter% = d_blowOuter% ' toggles reset too
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_wind&(ctx.origThumb, stg%, wdir%)
-            IMAGE_ADJ_mask_preview ctx
+            ctx.previewThumb = IMAGE_ADJ_wind&(ctx.origThumb, stg%, wdir%, blowOuter%)
+            ' Keep only the inner/outer halves the user picked (silhouette = origThumb alpha).
+            IMGADJ_apply_inout_mask ctx.previewThumb, ctx.origThumb, blowInner%, blowOuter%
             ctx.previewDirty% = FALSE
         END IF
 
@@ -2843,12 +3083,19 @@ SUB IMAGE_ADJ_wind_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, stg%, 2, 80, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "DIRECTION:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, wdir%, 0, 315, "", ""
+        DIALOG_draw_toggle ctx, tiX%, tglY%, tglW%, tglH%, "BLOW INNER", blowInner%
+        DIALOG_draw_toggle ctx, toX%, tglY%, tglW%, tglH%, "BLOW OUTER", blowOuter%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    ' BUG-K: remember settings for next open (Last-Set), regardless of OK/Cancel.
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, stg%, wdir%, blowInner%, blowOuter%, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        ' BUG-K: remember what was applied (Last-Applied) for Redo Last Effect.
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, stg%, wdir%, blowInner%, blowOuter%, 0, 0, 0, 0
         DIM wiTargets(1 TO MAX_LAYERS) AS INTEGER, wiTgtCount AS INTEGER, wiT AS INTEGER
         DIM wiSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets wiTargets%(), wiTgtCount%
@@ -2857,8 +3104,9 @@ SUB IMAGE_ADJ_wind_dialog ()
         DIM adjR     AS LONG
         FOR wiT% = 1 TO wiTgtCount%
             CURRENT_LAYER% = wiTargets%(wiT%)
-            adjR&          = IMAGE_ADJ_wind&(LAYERS(CURRENT_LAYER%).imgHandle&, stg%, wdir%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Wind"
+            adjR&          = IMAGE_ADJ_wind&(LAYERS(CURRENT_LAYER%).imgHandle&, stg%, wdir%, blowOuter%)
+            ' BUG-G: keep the requested inner/outer halves (also clips to selection).
+            IMAGE_ADJ_apply_inout adjR&, blowInner%, blowOuter%, "Wind"
         NEXT wiT%
         IF wiTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = wiSaveCL%
@@ -3099,7 +3347,7 @@ SUB IMAGE_ADJ_extrude_dialog ()
     ' 5 control tracks (Tile/Depth/Angle/Jitter/Seed): track 4 sits at prevH+188..202,
     ' so the OK/RESET/CANCEL row (ctx.h - IMGDLG_BTN_H - 16) needs ctx.h high enough to
     ' clear it. 224 put the button divider above the Seed slider -> overlap. 262 clears it.
-    DIALOG_init ctx, IMGDLG_W, 262
+    DIALOG_init ctx, IMGDLG_W, 290                       ' +28 for the EXTRUDE INNER/OUTER toggles
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM tsz    AS INTEGER : tsz% = 14
@@ -3108,10 +3356,24 @@ SUB IMAGE_ADJ_extrude_dialog ()
     DIM exJit  AS INTEGER : exJit% = 0
     DIM exSeed AS INTEGER : exSeed% = 0
     DIM oTsz   AS INTEGER, oDep AS INTEGER, oAng AS INTEGER, oJit AS INTEGER, oSeed AS INTEGER
+    ' BUG-F: Extrude Inner (blocks clip to the shape) / Extrude Outer (raised blocks
+    ' spill past the silhouette into the transparent area). Default Inner on/Outer off.
+    STATIC exInner AS INTEGER, exOuter AS INTEGER, exInit AS INTEGER
+    IF exInit% = 0 THEN exInner% = -1 : exOuter% = -1 : exInit% = -1
+    DIM d_exInner AS INTEGER : d_exInner% = -1
+    DIM d_exOuter AS INTEGER : d_exOuter% = -1
 
     DIM k     AS LONG
     DIM d_tsz AS INTEGER : d_tsz% = 14
     DIM d_dep AS INTEGER : d_dep% = 6
+    ' BUG-K: reopen at last-used settings (Last-Set); RESET restores defaults.
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, tsz%, dep%, exAng%, exJit%, exSeed%, exInner%, exOuter%, fxDummy) THEN ctx.previewDirty% = TRUE
+
+    DIM tiX AS INTEGER, toX AS INTEGER, tglY AS INTEGER, tglW AS INTEGER, tglH AS INTEGER
+    tglW% = 116 : tglH% = 16
+    tiX%  = IMGDLG_SX : toX% = IMGDLG_SX + 124
+    tglY% = IMGDLG_track_y%(ctx, 4) + 24
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -3130,13 +3392,18 @@ SUB IMAGE_ADJ_extrude_dialog ()
         exSeed% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, 14, exSeed%, 0, 99)
         exSeed% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, 14, exSeed%, 0, 99)
         IF tsz% <> oTsz% OR dep% <> oDep% OR exAng% <> oAng% OR exJit% <> oJit% OR exSeed% <> oSeed% THEN ctx.previewDirty% = TRUE
+        ' BUG-F: EXTRUDE INNER / EXTRUDE OUTER toggles.
+        IF DIALOG_hit%(ctx, tiX%, tglY%, tglW%, tglH%) THEN exInner% = (exInner% = 0) : ctx.previewDirty% = TRUE
+        IF DIALOG_hit%(ctx, toX%, tglY%, tglW%, tglH%) THEN exOuter% = (exOuter% = 0) : ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset2 ctx, tsz%, dep%, d_tsz%, d_dep%
+        IF IMGDLG_RESET_CLICKED% THEN exInner% = d_exInner% : exOuter% = d_exOuter%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
             ctx.previewThumb = IMAGE_ADJ_extrude&(ctx.origThumb, tsz%, dep%, exAng%, exJit%, exSeed%)
-            IMAGE_ADJ_mask_preview ctx
+            ' Preview honours the same inner/outer masking as apply.
+            IMGADJ_apply_inout_mask ctx.previewThumb, ctx.origThumb, exInner%, exOuter%
             ctx.previewDirty% = FALSE
         END IF
 
@@ -3152,12 +3419,19 @@ SUB IMAGE_ADJ_extrude_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, exJit%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 4), "SEED:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, exSeed%, 0, 99, "", ""
+        DIALOG_draw_toggle ctx, tiX%, tglY%, tglW%, tglH%, "EXTRUDE INNER", exInner%
+        DIALOG_draw_toggle ctx, toX%, tglY%, tglW%, tglH%, "EXTRUDE OUTER", exOuter%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    ' BUG-K: remember settings for next open (Last-Set), regardless of OK/Cancel.
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, tsz%, dep%, exAng%, exJit%, exSeed%, exInner%, exOuter%, 0
+
     IF ctx.result% THEN
+        ' BUG-K: remember what was applied (Last-Applied) for Redo Last Effect.
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, tsz%, dep%, exAng%, exJit%, exSeed%, exInner%, exOuter%, 0
         DIM exTargets(1 TO MAX_LAYERS) AS INTEGER, exTgtCount AS INTEGER, exT AS INTEGER
         DIM exSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets exTargets%(), exTgtCount%
@@ -3167,7 +3441,8 @@ SUB IMAGE_ADJ_extrude_dialog ()
         FOR exT% = 1 TO exTgtCount%
             CURRENT_LAYER% = exTargets%(exT%)
             adjR&          = IMAGE_ADJ_extrude&(LAYERS(CURRENT_LAYER%).imgHandle&, tsz%, dep%, exAng%, exJit%, exSeed%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Extrude"
+            ' BUG-F: keep the requested inner/outer halves (also clips to selection).
+            IMAGE_ADJ_apply_inout adjR&, exInner%, exOuter%, "Extrude"
         NEXT exT%
         IF exTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = exSaveCL%
@@ -3660,6 +3935,9 @@ SUB IMAGE_ADJ_crystallize_dialog ()
 
     DIM k     AS LONG
     DIM d_csz AS INTEGER : d_csz% = 12
+    ' BUG-K: reopen at the last-used settings (Last-Set slot); RESET still restores d_csz.
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, csz%, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -3691,7 +3969,12 @@ SUB IMAGE_ADJ_crystallize_dialog ()
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    ' BUG-K: remember settings for the next open (Last-Set), regardless of OK/Cancel.
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, csz%, 0, 0, 0, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        ' BUG-K: remember what was actually applied (Last-Applied) for Redo Last Effect.
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, csz%, 0, 0, 0, 0, 0, 0, 0
         DIM crTargets(1 TO MAX_LAYERS) AS INTEGER, crTgtCount AS INTEGER, crT AS INTEGER
         DIM crSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets crTargets%(), crTgtCount%
@@ -4160,16 +4443,31 @@ SUB IMAGE_ADJ_wave_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 140
+    DIALOG_init ctx, IMGDLG_W, 168                        ' +28 for the RIPPLE INNER/OUTER toggles
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM amp  AS INTEGER : amp% = 6
     DIM wl   AS INTEGER : wl% = 24
     DIM oAmp AS INTEGER, oWl AS INTEGER
+    ' BUG-L: preview used to clip to the shape while apply spilled displaced pixels
+    ' OUTSIDE it. Now both honour the same INNER/OUTER toggles (silhouette masking),
+    ' so preview == apply. Default Inner on / Outer off (clip, the tidy default).
+    STATIC ripInner AS INTEGER, ripOuter AS INTEGER, wvInit AS INTEGER
+    IF wvInit% = 0 THEN ripInner% = -1 : ripOuter% = -1 : wvInit% = -1
+    DIM d_ripInner AS INTEGER : d_ripInner% = -1
+    DIM d_ripOuter AS INTEGER : d_ripOuter% = -1
 
     DIM k     AS LONG
     DIM d_amp AS INTEGER : d_amp% = 6
     DIM d_wl  AS INTEGER : d_wl% = 24
+    ' BUG-K: reopen at last-used settings (Last-Set); RESET restores defaults.
+    DIM fxDummy AS INTEGER
+    IF FX_preset_load%(FX_PENDING_ACTION, FX_SLOT_LASTSET, amp%, wl%, ripInner%, ripOuter%, fxDummy, fxDummy, fxDummy, fxDummy) THEN ctx.previewDirty% = TRUE
+
+    DIM tiX AS INTEGER, toX AS INTEGER, tglY AS INTEGER, tglW AS INTEGER, tglH AS INTEGER
+    tglW% = 116 : tglH% = 16
+    tiX%  = IMGDLG_SX : toX% = IMGDLG_SX + 124
+    tglY% = IMGDLG_track_y%(ctx, 1) + 26
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -4183,13 +4481,18 @@ SUB IMAGE_ADJ_wave_dialog ()
         wl%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, wl%, 4, 300)
         wl%   = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, wl%, 4, 300)
         IF amp% <> oAmp% OR wl% <> oWl% THEN ctx.previewDirty% = TRUE
+        ' BUG-L: RIPPLE INNER / RIPPLE OUTER toggles.
+        IF DIALOG_hit%(ctx, tiX%, tglY%, tglW%, tglH%) THEN ripInner% = (ripInner% = 0) : ctx.previewDirty% = TRUE
+        IF DIALOG_hit%(ctx, toX%, tglY%, tglW%, tglH%) THEN ripOuter% = (ripOuter% = 0) : ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset2 ctx, amp%, wl%, d_amp%, d_wl%
+        IF IMGDLG_RESET_CLICKED% THEN ripInner% = d_ripInner% : ripOuter% = d_ripOuter%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
             ctx.previewThumb = IMAGE_ADJ_wave&(ctx.origThumb, amp%, wl%)
-            IMAGE_ADJ_mask_preview ctx
+            ' Preview honours the same inner/outer masking as apply (BUG-L parity).
+            IMGADJ_apply_inout_mask ctx.previewThumb, ctx.origThumb, ripInner%, ripOuter%
             ctx.previewDirty% = FALSE
         END IF
 
@@ -4200,12 +4503,19 @@ SUB IMAGE_ADJ_wave_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amp%, 1, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "WAVELENGTH:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, wl%, 4, 300, "", ""
+        DIALOG_draw_toggle ctx, tiX%, tglY%, tglW%, tglH%, "RIPPLE INNER", ripInner%
+        DIALOG_draw_toggle ctx, toX%, tglY%, tglW%, tglH%, "RIPPLE OUTER", ripOuter%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
+    ' BUG-K: remember settings for next open (Last-Set), regardless of OK/Cancel.
+    FX_preset_store FX_PENDING_ACTION, FX_SLOT_LASTSET, amp%, wl%, ripInner%, ripOuter%, 0, 0, 0, 0
+
     IF ctx.result% THEN
+        ' BUG-K: remember what was applied (Last-Applied) for Redo Last Effect.
+        FX_preset_store FX_PENDING_ACTION, FX_SLOT_APPLIED, amp%, wl%, ripInner%, ripOuter%, 0, 0, 0, 0
         DIM wvTargets(1 TO MAX_LAYERS) AS INTEGER, wvTgtCount AS INTEGER, wvT AS INTEGER
         DIM wvSaveCL AS INTEGER
         IMAGE_ADJ_collect_targets wvTargets%(), wvTgtCount%
@@ -4215,7 +4525,8 @@ SUB IMAGE_ADJ_wave_dialog ()
         FOR wvT% = 1 TO wvTgtCount%
             CURRENT_LAYER% = wvTargets%(wvT%)
             adjR&          = IMAGE_ADJ_wave&(LAYERS(CURRENT_LAYER%).imgHandle&, amp%, wl%)
-            IMAGE_ADJ_apply_spatial adjR&, "Wave"
+            ' BUG-L: keep only the requested inner/outer halves so preview == apply.
+            IMAGE_ADJ_apply_inout adjR&, ripInner%, ripOuter%, "Wave"
         NEXT wvT%
         IF wvTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = wvSaveCL%
@@ -10073,24 +10384,25 @@ SUB IMAGE_ADJ_update_loupe (ctx AS DIALOG_CTX)
     ' spatial feature by the view zoom; the interim fix centred on the canvas,
     ' which ignored the dialog position entirely — the loupe never moved.)
     '
-    ' Invert the canvas placement from SCREEN_render (OUTPUT/SCREEN.BM):
-    '   dx = (SCRN.w - canvasW*zoom)\2 + offsetX + panelShiftX ; screenX = dx + cx*zoom
-    ' The preview pane's top-left in SCREEN coords is (ctx.x+1, ctx.y+prevY).
-    DIM loupeDX   AS LONG, loupeDY AS LONG
-    loupeDX& = (SCRN.w& - SCRN.canvasW& * SCRN.zoom!) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
-    loupeDY& = (SCRN.h& - SCRN.canvasH& * SCRN.zoom!) \ 2 + SCRN.offsetY%
-    DIM loupeScrX AS LONG, loupeScrY AS LONG
-    loupeScrX& = ctx.x + 1
-    loupeScrY& = ctx.y + THEME.DIALOG_title_height% + 2
-    DIM cropX0    AS LONG, cropY0 AS LONG
-    ' canvas coord of the WINDOW top-left, then step back by the pad for capture
-    cropX0& = INT((loupeScrX& - loupeDX&) / SCRN.zoom!) - IMGADJ_LOUPE_PAD
-    cropY0& = INT((loupeScrY& - loupeDY&) / SCRN.zoom!) - IMGADJ_LOUPE_PAD
-
-    ' The loupe ALWAYS follows the dialog — a magnifier onto the canvas beneath it,
-    ' updating as you drag it. A selection does NOT reposition it. The sel-as-shape
-    ' silhouette below is built for whatever region the loupe currently sits over,
-    ' so dragging the dialog over the selection reveals the effect radiating there.
+    ' BUG-M: the loupe used to invert the LIVE zoom/pan projection from SCREEN_render
+    ' to pick the canvas patch sitting under the dialog. That coupled the preview to
+    ' the view zoom: at >100% the crop drifted off the artwork (shoved into a corner)
+    ' and the ADJ pane went empty, so effects like Crystallize/Add Noise "previewed
+    ' wrong" at non-100% (fine only at 100%). Anchor the crop to a FIXED canvas point
+    ' instead, so the preview frames the SAME region at every zoom — the selection
+    ' centre when a selection is active (so sel-as-shape previews on the selection),
+    ' else the canvas centre. tw/th are native px, so this is view-independent.
+    DIM cropX0 AS LONG, cropY0 AS LONG
+    DIM anchCX AS LONG, anchCY AS LONG
+    anchCX& = SCRN.canvasW& \ 2 : anchCY& = SCRN.canvasH& \ 2
+    IF IMGADJ_sel_active% THEN
+        DIM sbx0 AS LONG, sby0 AS LONG, sbx1 AS LONG, sby1 AS LONG
+        IF IMGADJ_sel_bbox%(sbx0&, sby0&, sbx1&, sby1&) THEN
+            anchCX& = (sbx0& + sbx1&) \ 2 : anchCY& = (sby0& + sby1&) \ 2
+        END IF
+    END IF
+    cropX0& = anchCX& - tw \ 2
+    cropY0& = anchCY& - th \ 2
 
     ' Publish the native crop origin so the shared preview/clip code (mask_preview)
     ' can map loupe pixels back to canvas — and thus selection — coordinates.

@@ -813,6 +813,31 @@ SUB CMD_execute_action (action_id AS INTEGER)
         FX_PENDING_ACTION = 0
     END IF
 
+    ' BUG-I: applying an image effect to a TEXT layer auto-rasterizes it first, so the
+    ' effect has real pixels to work on (before, the effect no-op'd or was clobbered on
+    ' the next text re-render). The rasterize + the effect are wrapped in ONE history
+    ' group so a single Ctrl+Z restores the EDITABLE text — HISTORY_record_rasterize
+    ' carries a serialized copy of the text that its undo handler deserializes back into
+    ' a fresh pool slot (layerType returns to TEXT). Only wrap the single-current-layer
+    ' case; a multi-layer effect opens its own group, so there we rasterize un-grouped
+    ' (its own undo covers the pixels; a second Ctrl+Z brings the text back).
+    DIM fxTextGroup AS INTEGER : fxTextGroup% = FALSE
+    IF action_id% >= 2001 AND action_id% <= 2281 THEN
+        IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= MAX_LAYERS THEN
+            IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_TEXT THEN
+                IF TEXT.ACTIVE AND TEXT.editingTextLayer% = CURRENT_LAYER% THEN TEXT_commit
+                DIM fxrTd AS INTEGER : fxrTd% = LAYERS(CURRENT_LAYER%).textDataIdx%
+                IF fxrTd% >= 1 AND fxrTd% <= TEXT_LAYER_POOL_SIZE THEN
+                    DIM fxrBefore  AS LONG   : fxrBefore&  = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+                    DIM fxrPayload AS STRING : fxrPayload$ = TEXT_LAYER_serialize$(fxrTd%)
+                    IF MULTI_SELECT_has_any% = 0 THEN HISTORY_begin_group : fxTextGroup% = TRUE
+                    TEXT_LAYER_rasterize CURRENT_LAYER%
+                    HISTORY_record_rasterize LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, fxrBefore&, fxrPayload$, "Effect on Text"
+                END IF
+            END IF
+        END IF
+    END IF
+
     ' Phase 6 migration: bump dispatch depth so the skip-list guard in
     ' KEYBOARD_tools (and future KEYBOARD_colors/brush_size guards) lets
     ' the action body call back into the legacy SUBs to do real work.
@@ -5593,6 +5618,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                        " ctx=" + _TRIM$(STR$(INPUT_EVENT.ctx)) + _
                        " mouseXY=(" + _TRIM$(STR$(INPUT_EVENT.mouseX)) + "," + _TRIM$(STR$(INPUT_EVENT.mouseY)) + ")"
     END SELECT
+
+    ' BUG-I: close the text-rasterize+effect group so the pair collapses to one undo.
+    IF fxTextGroup% THEN HISTORY_end_group
 
     ' Pair with the increment at the top — Phase 6 dispatch-depth guard
     IF INPUT_DISPATCH_DEPTH > 0 THEN INPUT_DISPATCH_DEPTH = INPUT_DISPATCH_DEPTH - 1
