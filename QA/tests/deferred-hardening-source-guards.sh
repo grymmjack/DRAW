@@ -25,8 +25,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 
 fails=0
-pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
-fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; fails=$((fails+1)); }
+# When SOURCED by the QA harness (runner.sh does `source "$test_file"`), use
+# ITS pass/fail so a missing guard bumps the suite's FAIL counter and registers
+# as a real failure. Define fallbacks ONLY for standalone `bash <this>` runs —
+# never redefine the harness's, or a failure would be invisible to the suite.
+declare -F pass >/dev/null || pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
+declare -F fail >/dev/null || fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; fails=$((fails+1)); }
 
 # assert_grep <bug> <file> <extended-regex> <human description>
 assert_grep() {
@@ -67,8 +71,10 @@ assert_grep  "BUG-69" "includes/QB64_GJ_LIB/ASEPRITE/ASEPRITE.BM" 'esz64 <= 0 OR
 echo "---------------------------------------------"
 if [ "$fails" -eq 0 ]; then
   echo -e "\033[32mALL GUARDS PRESENT\033[0m"
-  exit 0
 else
   echo -e "\033[31m$fails GUARD(S) MISSING — a hardening fix was removed\033[0m"
-  exit 1
 fi
+# Tests are SOURCED by the harness — an `exit` here would kill the runner
+# mid-suite (it aborted the whole suite at this test before this was fixed).
+# Only exit when run standalone; when sourced, pass/fail already recorded above.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then [ "$fails" -eq 0 ] && exit 0 || exit 1; fi
