@@ -569,7 +569,17 @@ Exporters, importers, effects math, fonts/TDF, PIXEL-COACH, sound. (Effects engi
 
 ### BUG-59 [HIGH] — `LAYERS_flatten&` ignores group opacity/blend/isolation → every raster export wrong for isolated groups. **FIX (applied 2026-08-28):** `LAYERS_flatten&` (`GUI/LAYERS.BM:2016`) is now group-aware — it mirrors the renderer's isolated-group stack (`OUTPUT/SCREEN.BM` `RENDER_layers`): push a per-group buffer on entering an isolated (non-pass-through) group's children, flush it applying the group's own opacity/blend when the group header is reached (zIndex walk puts headers above children, same invariant the renderer uses), with none of the live-render caches/zoom/region/MOVE machinery. Fixes **every** flatten consumer at once (PNG/BMP/GIF/JPG/TGA, ANS, `.drw` merge, AI `{dimg}`, extract tools, pixel analyzer) — also resolves the export half of BUG-61. Compiles clean.
 ### BUG-61 [MED] — `SAVE_selection` re-implements compositing → apron-squash + hidden-group bugs (`SAVE.BM:456`). — **FIXED (2026-08-29), confirmed by Rick.** The inline composite did `_PUTIMAGE , imgHandle&, canvasSizedBuffer` per visible layer, which **stretched an apron-extended layer** (imgHandle& larger than the canvas, content offset by apronW/H) down to canvas size — squashing / mis-placing the exported content — and it only checked per-layer `visible%`, so a **hidden GROUP with visible children still exported**. **FIX:** crop the selection region from `LAYERS_flatten&` (the group-aware, apron-correct flatten fixed in BUG-59) instead of re-compositing — one line replaces the whole inline loop, and the mask/rect crop below is unchanged. Both the apron-squash and hidden-group halves confirmed fixed by Rick (`TOOLS/SAVE.BM`).
-### BUG-63 [LOW] — ANSI selection export ignores non-rectangular mask (`FILE-ANS.BM:581`).
+### BUG-63 [LOW] — ANSI selection export ignores non-rectangular mask (`FILE-ANS.BM:581`). — **FIXED (2026-08-30), confirmed by Rick**
+- `ANS_get_source_image&` (ANS_SRC_SELECTION) copied the full `MARQUEE.BOX` bounding box via
+  `_PUTIMAGE`, ignoring the wand/lasso mask — so out-of-mask pixels were exported too.
+- **FIX (applied):** for a mask selection (`MARQUEE.WAND_HAS_SELECTION` + `SELECTION_MASK < -1`),
+  knock every pixel OUTSIDE the mask to transparent, mirroring the `CLIPBOARD_copy` reference
+  (`POINT` the mask, keep only white=inside pixels; `PSET _RGBA32(0,0,0,0)` otherwise under
+  `_DONTBLEND`). **JUDGE decision (Rick accepted):** the ANSI cell model (`ANS_build_cells`)
+  normalizes alpha away and has no per-cell transparency, so transparent renders as ANSI black —
+  the canonical background — exporting the selection SILHOUETTE. A true skip/space cell would
+  require reworking the half-block serializers (disproportionate for a LOW bug). Rectangular
+  marquee export unchanged. Confirmed by Rick.
 ### BUG-64 [LOW] — QB64 export copies fonts via Unix `cp` (`FILE-QB64.BM:582`) — breaks on Windows.
 ### BUG-69 [MED,UNVERIFIED] — Aseprite compressed-cel `expected_size` LONG overflow (adversarial).
 ### BUG-71 [MED] — procedural-texture effects (wood/marble/…) preview phase ≠ applied — **FIXED (2026-08-29), confirmed by Rick**
