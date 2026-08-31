@@ -551,7 +551,16 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
   renderer (`GUI/CHARMAP.BM` reads `THEME.CHAR_GRID_COLOR_FG`, not the CFG field) — a separate wiring
   gap; the sentinel fix was still applied for cfg round-trip consistency. Confirmed by Rick.
 ### BUG-57 [LOW] — `--options-list` may print nothing on Windows. **FIXED** — added `_CONSOLE ON`.
-### BUG-58 [LOW] — `PATHS_migrate` re-prompts every launch if the exe dir is read-only (marker written to CWD). **FIX PENDING**.
+### BUG-58 [LOW] — `PATHS_migrate` re-prompts every launch if the exe dir is read-only (marker written to CWD). — **FIXED (2026-08-31), confirmed by Rick**
+- The "already migrated" marker `MIGRATED_TO_NATIVE.txt` was written beside the exe
+  (`_CWD$`). A read-only exe dir silently failed the `OPEN ... FOR OUTPUT` (global
+  `ON ERROR RESUME NEXT`), so the `_FILEEXISTS` check at the top of `PATHS_migrate` never
+  passed → the migrate dialog re-prompted on every launch.
+- **FIX (applied):** write + check the marker in `PATHS_CONFIG_DIR$` — the OS-native config
+  dir `PATHS_init` already creates and guarantees writable (portable mode early-exits
+  migration, so this is never `_CWD$` here). The existence check ALSO honors a legacy `_CWD$`
+  marker (`_ORELSE`) so users who migrated before this fix aren't re-prompted once. Confirmed
+  by Rick.
 
 ## THIRD WAVE — peripheral subsystems (BUG-59+)
 
