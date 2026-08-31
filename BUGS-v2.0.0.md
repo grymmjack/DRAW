@@ -532,7 +532,24 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
   which is the intended model. Also fixes runtime theme switching to an incomplete theme
   (`THEME_reload_all`). Confirmed by Rick.
 ### BUG-55 [MED-LOW] — `--option` ignored when `DRAW.cfg.default` is absent (`CONFIG.BM:376` EXIT SUB before `apply_cli_overrides`). **FIX (applied):** apply overrides + validate before the early exit.
-### BUG-56 [LOW] — "0=use theme" sentinel lost on save/load for FONT_PREVIEW_FG/BG/DIVIDER + CANVAS_APRON_COLOR (saved as 000000 → loads as opaque black). **FIX PENDING** (guard `IF <>0` on write).
+### BUG-56 [LOW] — "0=use theme" sentinel lost on save/load for color fields (saved as 000000 → loads as opaque black). — **FIXED (2026-08-30), confirmed by Rick**
+- Lossy serialization: the cfg stores color as 6-hex RGB (no alpha); `_RGB32()` forces alpha 255 on
+  load, so the all-zero sentinel `0` round-trips to opaque black `0xFF000000` and the consumer's
+  `<> 0` theme-fallback test fails. A write-side `IF <>0` guard (the original plan) CANNOT fix it —
+  load already corrupts `0 → 0xFF000000`, so the in-memory value is never exactly 0 at save time.
+- **FIX (applied, LOAD side):** after each `_RGB32(...)` parse, map an all-zero RGB back to the exact
+  `0` sentinel — `IF (CFG.<field>~& AND &HFFFFFF) = 0 THEN CFG.<field>~& = 0`. Rick asked to sweep the
+  whole cfg: audited every color field and applied it to all 13 with a `<>0` theme-fallback consumer —
+  FONT_PREVIEW_FG/BG/DIVIDER, GRID_COLOR_FG, PIXELGRID_COLOR_FG, CROSSHAIR_FG / FONT_FG /
+  FONT_STROKE_FG / OUTLINE_FG, SMART_GUIDES_COLOR_FG, CRT_SCANLINE_COLOR, CRT_VIGNETTE_COLOR,
+  CHAR_GRID_COLOR_FG.
+- **Deliberately excluded:** `CRT_TINT_CUSTOM_COLOR` (consumer uses it literally, `EFFECTS/CRT.BM:55`,
+  so 000000=black is valid) and `CANVAS_APRON_COLOR` (no theme fallback — consumers use it directly,
+  000000=black is correct and round-trips stably). Numeric sentinels (opacity/size/angle/offset) were
+  never affected — `VAL()` stores `0` directly with no alpha involved.
+- **Follow-up surfaced (not this bug):** `CHAR_GRID_COLOR_FG`'s CFG value is never read by the char-grid
+  renderer (`GUI/CHARMAP.BM` reads `THEME.CHAR_GRID_COLOR_FG`, not the CFG field) — a separate wiring
+  gap; the sentinel fix was still applied for cfg round-trip consistency. Confirmed by Rick.
 ### BUG-57 [LOW] — `--options-list` may print nothing on Windows. **FIXED** — added `_CONSOLE ON`.
 ### BUG-58 [LOW] — `PATHS_migrate` re-prompts every launch if the exe dir is read-only (marker written to CWD). **FIX PENDING**.
 
