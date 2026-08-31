@@ -385,7 +385,30 @@ Each verified against source. Severity in brackets.
   behavior change — it was unreachable.
 
 ### Round-2 UNVERIFIED / LOW (need a closer look, logged not fixed)
-- **BUG-20** [MED, UNVERIFIED] group membership restored via raw slot index not stable id (`LAYERS.BI:78`).
+- **BUG-20** [MED] group membership restored via raw slot index not stable id (`LAYERS.BI:78`). — **FIXED (2026-08-31)**
+  - **Root cause:** `parentGroupIdx` is a raw LAYERS() slot index. HISTORY froze that slot number into undo
+    records (layer add/delete capture, group-reparent, merge-group MV backup) and restored it verbatim. Because
+    `LAYERS_new%` reuses freed slots, an undo performed after unrelated slot churn reattached the layer to
+    whatever now occupied that slot — a different layer, a non-group, or an empty slot.
+  - **Fix:** at every HISTORY boundary, store the parent group's **stable `historyId&`** (not its slot) and
+    resolve it back to a live slot on restore — the same idiom the symbol system uses (`symbolParentId`). Two
+    helpers added (`HISTORY_parent_slot_to_id&` / `HISTORY_parent_id_to_slot%`), two record fields
+    (`oldParentGroupId&`/`newParentGroupId&`) and one MV field (`parentGroupId&`). A missing parent (group
+    deleted and not itself restored) resolves to 0 → layer safely becomes top-level, matching `DRW_load`'s
+    orphan-on-missing. Merge-group undo resolves parents in a **second pass** so a child restored before its
+    group header still binds. The live in-session `parentGroupIdx` stays a slot index (hot-path fast, kept
+    consistent); only the persisted representation changed. `DRW.BM` was already safe (remaps via `slotToSeq%`).
+  - QA: `QA/tests/stable-id-group-membership-guards.sh` (source-regression guard, 16 assertions).
+- **BUG-20b** [MED] AI async paths held raw layer/group slots across generation (surfaced by the BUG-20 scan). — **FIXED (2026-08-31)**
+  - **Root cause:** `AI_JOB.layerIdx` (target layer) and `AI_BATCH.groupIdx` (destination group) are raw slot
+    indices held in long-lived globals that outlive **asynchronous** generation. Only a range check guarded
+    them (`AI-JOB.BM` `lyr% < 1 OR lyr% > LAYER_COUNT%`). If the target layer / group was deleted mid-run and
+    its slot recycled by `LAYERS_new%`, the range check passed and the AI result + undo snapshot were written
+    to — or parented into — the **wrong layer**.
+  - **Fix:** capture the target's `historyId&` at job/batch start (`AI_JOB.layerId&` / `AI_BATCH.groupId&`) and
+    resolve it back to a live slot on use via `HISTORY_find_layer_slot_by_id%`. Missing → the job fails cleanly
+    with the existing "target layer no longer exists" path (AI_JOB) / top-level placement (AI_BATCH). The raw
+    slot fields remain as live progress hints only. Same QA guard file covers these.
 - **BUG-21** [LOW] AI-generate undo shares the per-frame `HISTORY_saved_this_frame%` guard. — **FIXED (2026-08-31)** — same class as BUG-38. An async AI job completing is a discrete one-shot event, but `AI_JOB_finish` recorded its undo only `IF NOT HISTORY_saved_this_frame%`; if any unrelated action had already saved on the frame the job finished, the before-snapshot was freed and the AI overwrite became non-undoable. Now records unconditionally then sets the frame-flag (`AI/AI-JOB.BM`). `beforeImg&` is captured unconditionally at entry, so it is always valid.
 - **BUG-30** [LOW] `GRID_snap%` single-axis uses gridWidth for both axes (`GRID.BM:341`). — **RESOLVED (2026-08-31), dead code removed, disposition confirmed by Rick**
   - Unreachable: the single-axis `GRID_snap%` FUNCTION had ZERO callers repo-wide (verified

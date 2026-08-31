@@ -624,6 +624,34 @@ FUNCTION HISTORY_find_layer_slot_by_id% (layerId AS LONG)
 END FUNCTION
 
 ''
+' Converts a live parentGroupIdx SLOT into the parent group's STABLE historyId&
+' for storage in a history record. Group headers carry a 1x1 sentinel image, so
+' they resolve like any other layer. 0/invalid (top-level or empty slot) -> 0.
+' @param parentSlot INTEGER Current LAYERS() slot of the parent group (0 = top-level)
+' @return LONG - Parent group's historyId&, or 0 for top-level / no parent
+'
+FUNCTION HISTORY_parent_slot_to_id& (parentSlot AS INTEGER)
+    IF parentSlot% < 1 OR parentSlot% > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(parentSlot%).imgHandle& = 0 THEN EXIT FUNCTION
+    HISTORY_parent_slot_to_id& = LAYERS(parentSlot%).historyId&
+END FUNCTION
+
+''
+' Resolves a parent group's STABLE historyId& back to its current LAYERS() slot
+' at restore time. This is the fix for BUG-20: because we stored the parent by id
+' (not slot), slot reuse can't reattach the layer to the wrong group. If the
+' parent group no longer exists (deleted and not itself restored), this returns 0
+' and the layer safely becomes top-level — matching DRW_load's orphan-on-missing
+' behavior — instead of pointing at a stranger occupying the old slot.
+' @param parentId LONG Parent group's stored historyId& (0 = top-level)
+' @return INTEGER - Live slot of the parent group, or 0 for top-level / missing
+'
+FUNCTION HISTORY_parent_id_to_slot% (parentId AS LONG)
+    IF parentId& = 0 THEN EXIT FUNCTION
+    HISTORY_parent_id_to_slot% = HISTORY_find_layer_slot_by_id%(parentId&)
+END FUNCTION
+
+''
 ' Captures a layer's metadata and pixel data into a history record for undo.
 ' Stores name, opacity, visibility, opacity lock, blend mode, and a copy
 ' of the layer's image into the record's img field.
@@ -641,8 +669,11 @@ SUB HISTORY_capture_layer_payload (recordIndex AS INTEGER, layerSlot AS INTEGER)
     HISTORY_RECORDS(recordIndex%).oldOpacityLock% = LAYERS(layerSlot%).opacityLock%
     HISTORY_RECORDS(recordIndex%).oldBlendMode%   = LAYERS(layerSlot%).blendMode%
     HISTORY_RECORDS(recordIndex%).layerType%      = LAYERS(layerSlot%).layerType%
-    ' Save group membership fields for undo restoration
-    HISTORY_RECORDS(recordIndex%).x1% = LAYERS(layerSlot%).parentGroupIdx%
+    ' Save group membership for undo restoration. Store the parent group's STABLE
+    ' historyId& (not its slot — BUG-20: slots get reused, so a stored slot index
+    ' later points at a different layer). passThrough/collapsed are self-contained
+    ' booleans, safe to keep in y1/x2.
+    HISTORY_RECORDS(recordIndex%).oldParentGroupId& = HISTORY_parent_slot_to_id&(LAYERS(layerSlot%).parentGroupIdx%)
     HISTORY_RECORDS(recordIndex%).y1% = LAYERS(layerSlot%).passThrough%
     HISTORY_RECORDS(recordIndex%).x2% = LAYERS(layerSlot%).collapsed%
 
@@ -717,7 +748,7 @@ FUNCTION HISTORY_create_layer_from_record% (recordIndex AS INTEGER, targetZ AS I
     LAYERS(slotIndex%).opacityLock%    = HISTORY_RECORDS(recordIndex%).oldOpacityLock%
     LAYERS(slotIndex%).blendMode%      = HISTORY_RECORDS(recordIndex%).oldBlendMode%
     LAYERS(slotIndex%).layerType%      = HISTORY_RECORDS(recordIndex%).layerType%
-    LAYERS(slotIndex%).parentGroupIdx% = HISTORY_RECORDS(recordIndex%).x1%
+    LAYERS(slotIndex%).parentGroupIdx% = HISTORY_parent_id_to_slot%(HISTORY_RECORDS(recordIndex%).oldParentGroupId&)
     LAYERS(slotIndex%).collapsed%      = HISTORY_RECORDS(recordIndex%).x2%
     LAYERS(slotIndex%).passThrough%    = HISTORY_RECORDS(recordIndex%).y1%
     LAYERS(slotIndex%).textDataIdx%    = 0
@@ -1016,8 +1047,10 @@ SUB HISTORY_record_group_reparent (layerId AS LONG, layerSlot AS INTEGER, oldPar
     HISTORY_RECORDS(idx%).slotIndex%      = layerSlot%
     HISTORY_RECORDS(idx%).oldZIndex%      = oldZ%
     HISTORY_RECORDS(idx%).newZIndex%      = newZ%
-    HISTORY_RECORDS(idx%).x1%             = oldParent% ' old parentGroupIdx
-    HISTORY_RECORDS(idx%).y1%             = newParent% ' new parentGroupIdx
+    ' Store old/new parent as STABLE historyId&, not slot (BUG-20). Callers pass
+    ' slot indices; resolve them now, while both groups are still live.
+    HISTORY_RECORDS(idx%).oldParentGroupId& = HISTORY_parent_slot_to_id&(oldParent%)
+    HISTORY_RECORDS(idx%).newParentGroupId& = HISTORY_parent_slot_to_id&(newParent%)
     HISTORY_commit_record idx%
 END SUB
 
@@ -2213,6 +2246,7 @@ SUB HISTORY_record_merge_group (groupIdx AS INTEGER, childBuf() AS INTEGER, chil
         HISTORY_MV_DATA(mgMvSlot%, mgI%).blendMode%      = LAYERS(mgSrcIdx%).blendMode%
         HISTORY_MV_DATA(mgMvSlot%, mgI%).name$           = LAYERS(mgSrcIdx%).name$
         HISTORY_MV_DATA(mgMvSlot%, mgI%).parentGroupIdx% = LAYERS(mgSrcIdx%).parentGroupIdx%
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).parentGroupId&  = HISTORY_parent_slot_to_id&(LAYERS(mgSrcIdx%).parentGroupIdx%)
         HISTORY_MV_DATA(mgMvSlot%, mgI%).layerType%      = LAYERS(mgSrcIdx%).layerType%
         HISTORY_MV_DATA(mgMvSlot%, mgI%).passThrough%    = LAYERS(mgSrcIdx%).passThrough%
         HISTORY_MV_DATA(mgMvSlot%, mgI%).collapsed%      = LAYERS(mgSrcIdx%).collapsed%
@@ -2233,6 +2267,7 @@ SUB HISTORY_record_merge_group (groupIdx AS INTEGER, childBuf() AS INTEGER, chil
     HISTORY_MV_DATA(mgMvSlot%, mgTotal%).blendMode%      = LAYERS(groupIdx%).blendMode%
     HISTORY_MV_DATA(mgMvSlot%, mgTotal%).name$           = LAYERS(groupIdx%).name$
     HISTORY_MV_DATA(mgMvSlot%, mgTotal%).parentGroupIdx% = LAYERS(groupIdx%).parentGroupIdx%
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).parentGroupId&  = HISTORY_parent_slot_to_id&(LAYERS(groupIdx%).parentGroupIdx%)
     HISTORY_MV_DATA(mgMvSlot%, mgTotal%).layerType%      = LAYERS(groupIdx%).layerType%
     HISTORY_MV_DATA(mgMvSlot%, mgTotal%).passThrough%    = LAYERS(groupIdx%).passThrough%
     HISTORY_MV_DATA(mgMvSlot%, mgTotal%).collapsed%      = LAYERS(groupIdx%).collapsed%
@@ -2329,7 +2364,7 @@ SUB HISTORY_undo ()
                 DIM grpUndoSlot AS INTEGER
                 grpUndoSlot% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
                 IF grpUndoSlot% > 0 THEN
-                    LAYERS(grpUndoSlot%).parentGroupIdx% = HISTORY_RECORDS(idx%).x1%
+                    LAYERS(grpUndoSlot%).parentGroupIdx% = HISTORY_parent_id_to_slot%(HISTORY_RECORDS(idx%).oldParentGroupId&)
                     HISTORY_move_layer_to_z HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).oldZIndex%
                 END IF
             CASE HISTORY_KIND_LAYER_RENAME
@@ -2484,7 +2519,10 @@ SUB HISTORY_undo ()
                         LAYERS(mgUndoRestoreSlot%).visible%        = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).visible%
                         LAYERS(mgUndoRestoreSlot%).opacityLock%    = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).opacityLock%
                         LAYERS(mgUndoRestoreSlot%).blendMode%      = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).blendMode%
-                        LAYERS(mgUndoRestoreSlot%).parentGroupIdx% = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).parentGroupIdx%
+                        ' parentGroupIdx is resolved in a SECOND pass below — a child's
+                        ' parent group header may be restored LATER in this same loop, so
+                        ' its id can't be resolved to a slot yet (BUG-20).
+                        LAYERS(mgUndoRestoreSlot%).parentGroupIdx% = 0
                         LAYERS(mgUndoRestoreSlot%).layerType%      = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).layerType%
                         LAYERS(mgUndoRestoreSlot%).passThrough%    = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).passThrough%
                         LAYERS(mgUndoRestoreSlot%).collapsed%      = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).collapsed%
@@ -2497,6 +2535,17 @@ SUB HISTORY_undo ()
                         END IF
                     END IF
                 NEXT mgUndoI%
+                ' Second pass: now that every source layer (children + group header)
+                ' is back in a live slot, resolve each one's parent group by its
+                ' STABLE historyId& (BUG-20). Missing parent -> 0 = top-level.
+                DIM mgUndoP     AS INTEGER
+                DIM mgUndoPSlot AS INTEGER
+                FOR mgUndoP% = 1 TO HISTORY_MV_COUNT(mgUndoMvSlot%)
+                    mgUndoPSlot% = HISTORY_find_layer_slot_by_id%(HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoP%).layerId&)
+                    IF mgUndoPSlot% >= 1 THEN
+                        LAYERS(mgUndoPSlot%).parentGroupIdx% = HISTORY_parent_id_to_slot%(HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoP%).parentGroupId&)
+                    END IF
+                NEXT mgUndoP%
                 ' Select the group header (stored in x1%)
                 DIM mgUndoOrigSel     AS INTEGER
                 mgUndoOrigSel% = HISTORY_RECORDS(idx%).x1%
@@ -2640,7 +2689,7 @@ SUB HISTORY_redo ()
                 DIM grpRedoSlot AS INTEGER
                 grpRedoSlot% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
                 IF grpRedoSlot% > 0 THEN
-                    LAYERS(grpRedoSlot%).parentGroupIdx% = HISTORY_RECORDS(idx%).y1%
+                    LAYERS(grpRedoSlot%).parentGroupIdx% = HISTORY_parent_id_to_slot%(HISTORY_RECORDS(idx%).newParentGroupId&)
                     HISTORY_move_layer_to_z HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).newZIndex%
                 END IF
             CASE HISTORY_KIND_LAYER_RENAME

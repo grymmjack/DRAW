@@ -80,6 +80,13 @@ TYPE HISTORY_RECORD
     h                AS INTEGER
     colorFG          AS _UNSIGNED LONG
     colorBG          AS _UNSIGNED LONG
+    ' Group membership stored as the PARENT GROUP's stable historyId&, never a
+    ' raw slot index — slots are reused (LAYERS_new%), so a stored slot index
+    ' goes stale and reattaches the layer to whatever now occupies that slot
+    ' (BUG-20). 0 = top-level (no parent). Resolve to a live slot at restore
+    ' time with HISTORY_parent_id_to_slot%. See symbolParentId for the same idiom.
+    oldParentGroupId AS LONG                     ' LAYER_ADD/DELETE: the parent group. GROUP_REPARENT: old parent.
+    newParentGroupId AS LONG                     ' GROUP_REPARENT only: new parent group.
     payloadOffset    AS LONG
     payloadLength    AS LONG
     label            AS STRING * 32
@@ -152,7 +159,8 @@ TYPE HISTORY_MV_ENTRY
     blendMode      AS INTEGER
     img            AS LONG
     name           AS STRING * 64
-    parentGroupIdx AS INTEGER
+    parentGroupIdx AS INTEGER  ' DEPRECATED (raw slot, BUG-20) — kept for struct stability; restore reads parentGroupId&
+    parentGroupId  AS LONG     ' Parent group's stable historyId& (0 = top-level). Source of truth on restore.
     layerType      AS INTEGER
     passThrough    AS INTEGER
     collapsed      AS INTEGER

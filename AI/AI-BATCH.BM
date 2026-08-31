@@ -85,6 +85,10 @@ FUNCTION AI_BATCH_start% (count AS INTEGER, groupName AS STRING, dstX AS INTEGER
     AI_BATCH.total     = n%
     AI_BATCH.done      = 0
     AI_BATCH.groupIdx  = grp%
+    ' Capture the group's STABLE id — the batch outlives many async jobs and the
+    ' group's slot can be recycled between items; resolve this id per item.
+    AI_BATCH.groupId&  = 0
+    IF grp% >= 1 AND grp% <= MAX_LAYERS THEN AI_BATCH.groupId& = LAYERS(grp%).historyId&
     AI_BATCH.toolIdx   = AI_DLG_TOOL%
     AI_BATCH.styleIdx  = AI_DLG_STYLE%
     AI_BATCH.promptRaw = AI_DLG_PROMPT$
@@ -135,9 +139,13 @@ FUNCTION AI_BATCH_launch_next% ()
     AI_LAST_SEED& = itemSeed&
     AI_LAST_TOOL% = AI_BATCH.toolIdx
 
-    ' New layers inherit the current layer's group, so select the group first
-    IF AI_BATCH.groupIdx >= 1 AND AI_BATCH.groupIdx <= MAX_LAYERS THEN
-        CURRENT_LAYER% = AI_BATCH.groupIdx
+    ' New layers inherit the current layer's group, so select the group first.
+    ' Resolve the group by its STABLE id — its slot may have been recycled since
+    ' the batch began (0 = group gone, fall back to top-level placement).
+    DIM batchGrpSlot AS INTEGER
+    batchGrpSlot% = HISTORY_find_layer_slot_by_id%(AI_BATCH.groupId&)
+    IF batchGrpSlot% >= 1 THEN
+        CURRENT_LAYER% = batchGrpSlot%
     END IF
 
     DIM lyr AS INTEGER
@@ -161,8 +169,9 @@ FUNCTION AI_BATCH_launch_next% ()
     ' Put it in the group and label it by position in the batch.
     ' Setting parentGroupIdx alone is NOT enough — the panel nests by zIndex
     ' contiguity, so without this the layers render as siblings sitting above
-    ' the group header instead of inside it.
-    LAYERS(lyr%).parentGroupIdx% = AI_BATCH.groupIdx
+    ' the group header instead of inside it. Use the id-resolved slot (0 if the
+    ' group is gone → top-level), never the stale AI_BATCH.groupIdx.
+    LAYERS(lyr%).parentGroupIdx% = batchGrpSlot%
     LAYERS_enforce_group_contiguity
     DIM lblName AS STRING
     lblName$ = _TRIM$(STR$(idx%)) + "/" + _TRIM$(STR$(AI_BATCH.total)) + " " + RTRIM$(AI_BATCH.promptRaw)

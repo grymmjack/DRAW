@@ -80,7 +80,10 @@ END TYPE
 TYPE AI_JOB_OBJ
     state      AS INTEGER
     toolIdx    AS INTEGER
-    layerIdx   AS INTEGER      ' Target layer (created up-front so the panel can show progress)
+    layerIdx   AS INTEGER      ' Target layer SLOT — a live hint only (panel progress). Re-resolve from layerId& before writing.
+    layerId    AS LONG         ' Target layer's STABLE historyId&. Generation is async: the target slot can be freed
+                                ' and re-tenanted (LAYERS_new%) mid-run, so a slot index alone would land pixels on the
+                                ' wrong layer. AI_JOB_finish resolves this id to the current slot; missing = target gone.
     target     AS INTEGER      ' AI_TARGET_*
     outDir     AS STRING * 256 ' Temp dir handed to the tool as {outdir}
     outName    AS STRING * 64  ' Filename base handed to the tool as {outname}
@@ -139,7 +142,9 @@ TYPE AI_BATCH_OBJ
     active    AS INTEGER
     total     AS INTEGER
     done      AS INTEGER      ' Items already imported
-    groupIdx  AS INTEGER      ' Layer group the results go into
+    groupIdx  AS INTEGER      ' Destination group SLOT — a live hint; re-resolve from groupId& before each item.
+    groupId   AS LONG         ' Destination group's STABLE historyId& (0 = top-level). The batch spans many async
+                                ' jobs, so the group's slot can be recycled between items — resolve this id per item.
     toolIdx   AS INTEGER
     styleIdx  AS INTEGER
     promptRaw AS STRING * 512 ' Every item shares these parameters...
