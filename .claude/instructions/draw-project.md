@@ -362,6 +362,28 @@ require `CURRENT_LAYER%` to BE the group and have no else branch. `725` (Select
 All in Group) is the odd one out — it also accepts a child via
 `parentGroupIdx%`.
 
+### 28. Reference Layers by Stable `historyId&`, Never a Raw Slot, Across Time (BUG-20)
+
+A LAYERS() **slot index is not a durable identity** — `LAYERS_new%` reuses freed
+slots, so a slot number captured now can point at a *different* layer later. Any
+cross-layer reference that **outlives the moment it was taken** — frozen into a
+HISTORY undo record, or held in a long-lived global across an async job — must store
+the target's stable **`historyId&`** and resolve it back to a slot on use with
+`HISTORY_find_layer_slot_by_id%`. This is the idiom `symbolParentId` and every
+record's `primaryLayerId&` already use.
+
+This shipped as **BUG-20**: history stored group membership (`parentGroupIdx`) as a
+raw slot, so an undo after unrelated slot churn reattached the layer to whatever now
+occupied that slot. And in the AI async paths (`AI_JOB.layerIdx` / `AI_BATCH.groupIdx`),
+a raw slot guarded only by a range check let a job finishing after the target was
+deleted write onto the recycled slot's new tenant. Fixed by storing
+`oldParentGroupId&`/`newParentGroupId&` / `AI_JOB.layerId&` / `AI_BATCH.groupId&`
+and resolving on use (`HISTORY_parent_slot_to_id&` / `HISTORY_parent_id_to_slot%`).
+
+The **live, in-session** `parentGroupIdx` stays a slot index (hot path, kept
+consistent) — only **persisted / time-crossing** references convert to id. `DRW.BM`
+was already safe (remaps via `slotToSeq%`). Full detail in `draw-undo.md`.
+
 ---
 
 ## Main Loop Structure (DRAW.BAS)

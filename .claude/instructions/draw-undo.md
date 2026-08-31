@@ -58,9 +58,34 @@ DRAW uses a **unified history system** (`TOOLS/HISTORY.BI` / `HISTORY.BM`) for a
 | `HISTORY_record_layer_merge_visible` | Merge visible (backs up all source layers) |
 | `HISTORY_record_group_reparent` | Record group parent change |
 | `HISTORY_record_merge_group` | Record group merge |
+| `HISTORY_find_layer_slot_by_id%` | Resolve a stable `historyId&` to its current LAYERS() slot (0 = not found) |
+| `HISTORY_parent_slot_to_id&` / `HISTORY_parent_id_to_slot%` | Convert a `parentGroupIdx` slot ⟷ the parent group's stable `historyId&` at the history boundary (see Stable-ID References below) |
 | `HISTORY_selection_stage` | Snapshot selection state before mutation |
 | `HISTORY_selection_commit` | Save selection change if state differs from snapshot |
 | `HISTORY_begin_group` / `HISTORY_end_group` | Group multiple records as one undo step |
+
+### Stable-ID References (never raw slots) — BUG-20
+
+A layer's LAYERS() **slot index** is *not* a durable identity: `LAYERS_new%` reuses
+freed slots, so a slot number captured now can point at a *different* layer later.
+Any reference to another layer that **outlives the moment it was taken** — frozen
+into a history record, or held in a long-lived global across an async job — must
+store the target's stable **`historyId&`** and resolve it back to a slot on use
+(`HISTORY_find_layer_slot_by_id%`), exactly as `symbolParentId` and
+`primaryLayerId&` already do.
+
+- **Group membership in history** (`parentGroupIdx`): captured/restored via
+  `HISTORY_parent_slot_to_id&` / `HISTORY_parent_id_to_slot%` in the record fields
+  `oldParentGroupId&`/`newParentGroupId&` (and the MV backup's `parentGroupId&`).
+  A missing parent resolves to 0 → the layer safely becomes top-level. Merge-group
+  undo resolves parents in a **second pass**, after every source layer is back in a
+  slot, because a child may be restored before its group header.
+- The **live, in-session** `parentGroupIdx` stays a slot index (hot path, kept
+  consistent). Only the **persisted** representation is by-id. `DRW.BM` is a
+  separate persistence boundary and was already safe (remaps via `slotToSeq%`).
+- **AI async targets** (`AI_JOB.layerId&` / `AI_BATCH.groupId&`): generation is
+  asynchronous, so capture the target's `historyId&` at start and resolve on use —
+  a range check alone can't tell a recycled slot from the original layer.
 
 ### Double-Save Guard
 

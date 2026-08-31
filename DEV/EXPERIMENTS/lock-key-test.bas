@@ -13,15 +13,15 @@ SCREEN _NEWIMAGE(600, 380, 32)
 _TITLE "Lock Key Test — PR #701 GLFW"
 
 DIM session AS STRING, waylandDisp AS STRING
-session = ENVIRON$("XDG_SESSION_TYPE")
+session     = ENVIRON$("XDG_SESSION_TYPE")
 waylandDisp = ENVIRON$("WAYLAND_DISPLAY")
 IF session = "" THEN session = "(unset)"
 
-DIM caps AS INTEGER, num AS INTEGER, scroll AS INTEGER, foc AS INTEGER
+DIM caps      AS INTEGER, num AS INTEGER, scroll AS INTEGER, foc AS INTEGER
 DIM keyEvents AS LONG, lastKey AS LONG, k AS LONG
-DIM everCaps AS INTEGER, everNum AS INTEGER, everScroll AS INTEGER
-DIM pCaps AS INTEGER, pNum AS INTEGER, pScroll AS INTEGER, pFoc AS INTEGER
-DIM frame AS LONG, fh AS INTEGER
+DIM everCaps  AS INTEGER, everNum AS INTEGER, everScroll AS INTEGER
+DIM pCaps     AS INTEGER, pNum AS INTEGER, pScroll AS INTEGER, pFoc AS INTEGER
+DIM frame     AS LONG, fh AS INTEGER
 pCaps = -2: pNum = -2: pScroll = -2: pFoc = -2
 
 fh = FREEFILE
@@ -38,13 +38,13 @@ DO
         IF k = 0 THEN EXIT DO
         keyEvents = keyEvents + 1
         lastKey = k
-        fh = FREEFILE: OPEN "lock-key-test-log.txt" FOR APPEND AS #fh
+        fh      = FREEFILE: OPEN "lock-key-test-log.txt" FOR APPEND AS #fh
         PRINT #fh, "KEYEVENT frame="; frame; " code="; k; " (caps="; _CAPSLOCK; " num="; _NUMLOCK; " scroll="; _SCROLLLOCK; ")"
         CLOSE #fh
     LOOP
 
     caps = _CAPSLOCK: num = _NUMLOCK: scroll = _SCROLLLOCK
-    foc = _WINDOWHASFOCUS
+    foc  = _WINDOWHASFOCUS
     IF caps THEN everCaps = TRUE
     IF num THEN everNum = TRUE
     IF scroll THEN everScroll = TRUE

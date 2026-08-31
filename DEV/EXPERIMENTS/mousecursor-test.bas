@@ -13,7 +13,7 @@ _TITLE "Custom Cursor Test — PR #701 GLFW"
 
 ' Build a distinctive 24x24 cursor: red X + green ring, hotspot at center (12,12).
 DIM cur AS LONG, oldDest AS LONG
-cur = _NEWIMAGE(24, 24, 32)
+cur     = _NEWIMAGE(24, 24, 32)
 oldDest = _DEST
 _DEST cur
 CLS , _RGBA32(0, 0, 0, 0)
@@ -25,7 +25,7 @@ _DEST oldDest
 ' Install it as the hardware cursor with a centered hotspot.
 _MOUSECURSOR cur, (12, 12)
 
-DIM fh AS INTEGER
+DIM fh                                                    AS INTEGER
 fh = FREEFILE: OPEN "mousecursor-test-log.txt" FOR OUTPUT AS #fh
 PRINT #fh, "=== mousecursor-test  OS="; _OS$; "  session="; ENVIRON$("XDG_SESSION_TYPE"); " ==="
 PRINT #fh, "cursor image handle="; cur; "  set OK (no runtime error trapped)"

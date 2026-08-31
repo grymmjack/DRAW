@@ -50,13 +50,13 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 CONST TRUE = -1, FALSE = 0
 
-CONST NSIZE = 6, NOP = 8, NROUND = 31
+CONST NSIZE           = 6, NOP = 8, NROUND = 31
 CONST OP_RESTORE_FULL = 1, OP_RESTORE_DIRTY = 2, OP_OVL_CLS = 3, OP_CURSOR_BLIT = 4
-CONST OP_OVL_COMP = 5, OP_UPSCALE = 6, OP_DISPLAY = 7, OP_HWINSTALL = 8
+CONST OP_OVL_COMP     = 5, OP_UPSCALE = 6, OP_DISPLAY = 7, OP_HWINSTALL = 8
 
 DIM SHARED gCanvas AS LONG, gCache AS LONG, gOvl AS LONG, gCursor AS LONG
-DIM SHARED gCW AS LONG, gCH AS LONG, gWinW AS LONG, gWinH AS LONG
-DIM SHARED gDX1 AS LONG, gDY1 AS LONG, gDX2 AS LONG, gDY2 AS LONG
+DIM SHARED gCW     AS LONG, gCH AS LONG, gWinW AS LONG, gWinH AS LONG
+DIM SHARED gDX1    AS LONG, gDY1 AS LONG, gDX2 AS LONG, gDY2 AS LONG
 
 DIM SHARED meanUs(1 TO NSIZE, 1 TO NOP) AS DOUBLE
 DIM SHARED medUs(1 TO NSIZE, 1 TO NOP) AS DOUBLE
@@ -65,12 +65,12 @@ DIM SHARED minUs(1 TO NSIZE, 1 TO NOP) AS DOUBLE
 
 DIM SHARED szW(1 TO NSIZE) AS LONG, szH(1 TO NSIZE) AS LONG, szTag(1 TO NSIZE) AS STRING
 
-szW(1) = 320:  szH(1) = 200:  szTag(1) = "320x200"
-szW(2) = 640:  szH(2) = 480:  szTag(2) = "640x480"
-szW(3) = 1280: szH(3) = 800:  szTag(3) = "1280x800"
-szW(4) = 1920: szH(4) = 1080: szTag(4) = "1920x1080 (1080p)"
-szW(5) = 2560: szH(5) = 1440: szTag(5) = "2560x1440 (1440p)"
-szW(6) = 3840: szH(6) = 2160: szTag(6) = "3840x2160 (4K)"
+szW(1) = 320  : szH(1) = 200  : szTag(1) = "320x200"
+szW(2) = 640  : szH(2) = 480  : szTag(2) = "640x480"
+szW(3) = 1280 : szH(3) = 800  : szTag(3) = "1280x800"
+szW(4) = 1920 : szH(4) = 1080 : szTag(4) = "1920x1080 (1080p)"
+szW(5) = 2560 : szH(5) = 1440 : szTag(5) = "2560x1440 (1440p)"
+szW(6) = 3840 : szH(6) = 2160 : szTag(6) = "3840x2160 (4K)"
 
 gWinW = 1280: gWinH = 800
 SCREEN _NEWIMAGE(gWinW, gWinH, 32)
@@ -137,7 +137,7 @@ DIM taxF AS DOUBLE, taxD AS DOUBLE, ln AS STRING
 FOR si = 1 TO NSIZE
     taxF = (medUs(si, OP_RESTORE_FULL) + medUs(si, OP_OVL_CLS) + medUs(si, OP_CURSOR_BLIT) + medUs(si, OP_OVL_COMP)) / 1000#
     taxD = (medUs(si, OP_RESTORE_DIRTY) + medUs(si, OP_OVL_CLS) + medUs(si, OP_CURSOR_BLIT) + medUs(si, OP_OVL_COMP)) / 1000#
-    ln = LEFT_PAD$(szTag(si), 22)
+    ln   = LEFT_PAD$(szTag(si), 22)
     ln = ln + "  " + FMTMS$(taxF) + "  " + FMTMS$(taxD)
     ln = ln + "   |  full " + FMTPCT$(taxF * 60#) + " / dirty " + FMTPCT$(taxD * 60#)
     ln = ln + "   full " + FMTPCT$(taxF * 240#) + " / dirty " + FMTPCT$(taxD * 240#)
@@ -161,13 +161,13 @@ SYSTEM
 ' ============================================================================
 SUB ALLOC_SURFACES
     gCanvas = _NEWIMAGE(gCW, gCH, 32)
-    gCache = _NEWIMAGE(gCW, gCH, 32)
-    gOvl = _NEWIMAGE(gCW, gCH, 32)
+    gCache  = _NEWIMAGE(gCW, gCH, 32)
+    gOvl    = _NEWIMAGE(gCW, gCH, 32)
     ' Fill the cache with content (blit cost is content-independent, but be honest).
     DIM od AS LONG: od = _DEST
     _DEST gCache
     CLS , _RGB32(30, 40, 60)
-    DIM k AS INTEGER
+    DIM k  AS INTEGER
     FOR k = 0 TO 40
         LINE (k * (gCW \ 40), 0)-(gCW - 1, gCH - 1), _RGB32(60 + k, 90, 160 - k)
     NEXT
@@ -191,18 +191,18 @@ SUB DO_OP (opk AS INTEGER, iters AS LONG)
         CASE OP_RESTORE_DIRTY
             FOR i = 1 TO iters: _PUTIMAGE (gDX1, gDY1)-(gDX2, gDY2), gCache, gCanvas, (gDX1, gDY1)-(gDX2, gDY2): NEXT
         CASE OP_OVL_CLS
-            DIM od1 AS LONG: od1 = _DEST: _DEST gOvl
-            FOR i = 1 TO iters: CLS , _RGBA32(0, 0, 0, 0): NEXT
+            DIM od1 AS LONG    : od1 = _DEST               : _DEST gOvl
+            FOR i = 1 TO iters : CLS , _RGBA32(0, 0, 0, 0) : NEXT
             _DEST od1
         CASE OP_CURSOR_BLIT
-            DIM od2 AS LONG: od2 = _DEST: _DEST gOvl
-            FOR i = 1 TO iters: _PUTIMAGE (100, 100), gCursor, gOvl: NEXT
+            DIM od2 AS LONG    : od2 = _DEST                         : _DEST gOvl
+            FOR i = 1 TO iters : _PUTIMAGE (100, 100), gCursor, gOvl : NEXT
             _DEST od2
         CASE OP_OVL_COMP
             FOR i = 1 TO iters: _PUTIMAGE , gOvl, gCanvas: NEXT
         CASE OP_UPSCALE
-            DIM od3 AS LONG: od3 = _DEST: _DEST 0
-            FOR i = 1 TO iters: _PUTIMAGE (0, 0)-(gWinW - 1, gWinH - 1), gCanvas, 0: NEXT
+            DIM od3 AS LONG    : od3 = _DEST                                         : _DEST 0
+            FOR i = 1 TO iters : _PUTIMAGE (0, 0)-(gWinW - 1, gWinH - 1), gCanvas, 0 : NEXT
             _DEST od3
         CASE OP_DISPLAY
             FOR i = 1 TO iters: _DISPLAY: NEXT
@@ -213,8 +213,8 @@ END SUB
 
 SUB TIME_OP (szIdx AS INTEGER, opk AS INTEGER)
     DIM t0 AS DOUBLE, t1 AS DOUBLE, perOp AS DOUBLE, itn AS LONG, r AS INTEGER
-    DO_OP opk, 2 ' warm caches / code path
-    t0 = _UPTIME: DO_OP opk, 4: t1 = _UPTIME
+    DO_OP opk, 2        ' warm caches / code path
+    t0    = _UPTIME: DO_OP opk, 4: t1 = _UPTIME
     perOp = (t1 - t0) / 4#
     IF perOp <= 0# THEN perOp = 0.0000001#
     itn = 0.02# / perOp ' target ~20ms per round
@@ -223,17 +223,17 @@ SUB TIME_OP (szIdx AS INTEGER, opk AS INTEGER)
 
     DIM samp(1 TO NROUND) AS DOUBLE
     FOR r = 1 TO NROUND
-        t0 = _UPTIME: DO_OP opk, itn: t1 = _UPTIME
+        t0      = _UPTIME: DO_OP opk, itn: t1 = _UPTIME
         samp(r) = (t1 - t0) / itn * 1000000# ' microseconds per op
     NEXT
     SORT_D samp(), NROUND
 
     DIM s AS DOUBLE, i AS INTEGER
-    s = 0: FOR i = 1 TO NROUND: s = s + samp(i): NEXT
+    s                  = 0: FOR i = 1 TO NROUND: s = s + samp(i): NEXT
     meanUs(szIdx, opk) = s / NROUND
-    minUs(szIdx, opk) = samp(1)
-    medUs(szIdx, opk) = samp((NROUND + 1) \ 2)
-    p95Us(szIdx, opk) = samp(INT(0.95 * NROUND))
+    minUs(szIdx, opk)  = samp(1)
+    medUs(szIdx, opk)  = samp((NROUND + 1) \ 2)
+    p95Us(szIdx, opk)  = samp(INT(0.95 * NROUND))
 END SUB
 
 SUB SORT_D (a() AS DOUBLE, n AS INTEGER)
@@ -270,13 +270,13 @@ FUNCTION FMTFIX$ (x AS DOUBLE, dp AS INTEGER)
     ' fixed-decimal formatter via integer math — avoids STR$ binary-float noise
     DIM scaleF AS _INTEGER64, i AS INTEGER
     scaleF = 1
-    FOR i = 1 TO dp: scaleF = scaleF * 10: NEXT
-    DIM scaled AS _INTEGER64: scaled = INT(x * scaleF + 0.5#)
-    DIM whole AS _INTEGER64, frac AS _INTEGER64
-    whole = scaled \ scaleF: frac = scaled MOD scaleF
-    IF dp = 0 THEN FMTFIX$ = _TRIM$(STR$(whole)): EXIT FUNCTION
-    DIM fs AS STRING: fs = _TRIM$(STR$(frac))
-    DO WHILE LEN(fs) < dp: fs = "0" + fs: LOOP
+    FOR i = 1 TO dp          : scaleF = scaleF * 10 : NEXT
+    DIM scaled AS _INTEGER64 : scaled = INT(x * scaleF + 0.5#)
+    DIM whole  AS _INTEGER64, frac AS _INTEGER64
+    whole = scaled \ scaleF                      : frac = scaled MOD scaleF
+    IF dp = 0 THEN FMTFIX$ = _TRIM$(STR$(whole)) : EXIT FUNCTION
+    DIM fs     AS STRING                         : fs = _TRIM$(STR$(frac))
+    DO WHILE LEN(fs) < dp                        : fs = "0" + fs : LOOP
     FMTFIX$ = _TRIM$(STR$(whole)) + "." + fs
 END FUNCTION
 

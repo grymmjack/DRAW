@@ -33,7 +33,7 @@ TYPE PALETTE_OPS_OBJ
     DBLCLICK_IDX     AS INTEGER ' Last clicked palette index for double-click
 END TYPE
 
-DIM SHARED PALETTE_OPS AS PALETTE_OPS_OBJ
+DIM SHARED PALETTE_OPS       AS PALETTE_OPS_OBJ
 DIM SHARED PALETTE_OPS_MARKED(0 TO 255) AS INTEGER        ' Per-color mark flags
 ' BUG-31: TRUE while a batch delete (PALETTE_OPS_delete_marked) is running, so the
 ' per-color PALETTE_OPS_delete_color skips its own undo group + palette snapshot and lets

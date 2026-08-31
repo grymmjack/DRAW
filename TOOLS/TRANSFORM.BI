@@ -34,27 +34,27 @@ CONST TRANSFORM_HANDLE_RADIUS = 7 ' hit-test radius
 CONST TRANSFORM_HANDLE_HALF   = 5 ' draw half-size of square handle
 
 TYPE TRANSFORM_OBJ
-    ACTIVE    AS INTEGER ' TRUE while transform overlay is live
-    MODE      AS INTEGER ' TRANSFORM_MODE_*
+    ACTIVE         AS INTEGER ' TRUE while transform overlay is live
+    MODE           AS INTEGER ' TRANSFORM_MODE_*
     ' Source region on layer (layer pixel coords)
-    SRC_X     AS INTEGER
-    SRC_Y     AS INTEGER
-    SRC_W     AS INTEGER
-    SRC_H     AS INTEGER
-    SRC_IMG   AS LONG    ' Copy of source pixels captured on activate
-    SRC_MASK  AS LONG    ' BUG-10: snapshot of the wand/lasso selection mask (canvas-sized) when
+    SRC_X          AS INTEGER
+    SRC_Y          AS INTEGER
+    SRC_W          AS INTEGER
+    SRC_H          AS INTEGER
+    SRC_IMG        AS LONG    ' Copy of source pixels captured on activate
+    SRC_MASK       AS LONG    ' BUG-10: snapshot of the wand/lasso selection mask (canvas-sized) when
                          ' transforming an irregular selection; 0 for rect / whole-layer. Used to
                          ' lift & erase ONLY masked pixels so in-bbox/out-of-mask content survives.
     ' Drag state
-    GRABBED   AS INTEGER ' -1 = none  0-3 = corner handle  4 = body drag
-    DRAG_OFX  AS SINGLE  ' Offset from handle to mouse at press (canvas px)
-    DRAG_OFY  AS SINGLE
+    GRABBED        AS INTEGER ' -1 = none  0-3 = corner handle  4 = body drag
+    DRAG_OFX       AS SINGLE  ' Offset from handle to mouse at press (canvas px)
+    DRAG_OFY       AS SINGLE
     ' Status-bar display values
-    ANGLE     AS SINGLE  ' Degrees (ROTATE)
-    SCALE_X   AS SINGLE  ' (SCALE)
-    SCALE_Y   AS SINGLE
+    ANGLE          AS SINGLE  ' Degrees (ROTATE)
+    SCALE_X        AS SINGLE  ' (SCALE)
+    SCALE_Y        AS SINGLE
     ' Restore on cancel / commit
-    PREV_TOOL AS INTEGER
+    PREV_TOOL      AS INTEGER
     ' Transform Selection: TRUE = warp the SELECTION MASK only, leave layer pixels alone
     ' (Photoshop's Select > Transform Selection). SRC_IMG is a mask visualization.
     SELECTION_ONLY AS INTEGER
@@ -64,12 +64,12 @@ TYPE TRANSFORM_OBJ
     ' (b) cancel / any activate early-out rolls the demote back verbatim. Without
     ' this, undo restored only the compact post-demote layer (apron content gone),
     ' and an early-out demoted with nothing recorded at all — permanent loss.
-    HIST_BEFORE  AS LONG    ' pre-demote _COPYIMAGE of the layer (apron-extended); 0 = none
-    PRE_APRON_W  AS INTEGER ' apronW% before the demote (rollback target)
-    PRE_APRON_H  AS INTEGER ' apronH% before the demote (rollback target)
-    DID_DEMOTE   AS INTEGER ' TRUE if activate demoted the layer this session
-    DEMOTE_LAYER AS INTEGER ' layer slot that was demoted (rollback target)
-    MODIFIED     AS INTEGER ' F5: TRUE once a handle drag / rotate actually changes the quad;
+    HIST_BEFORE    AS LONG    ' pre-demote _COPYIMAGE of the layer (apron-extended); 0 = none
+    PRE_APRON_W    AS INTEGER ' apronW% before the demote (rollback target)
+    PRE_APRON_H    AS INTEGER ' apronH% before the demote (rollback target)
+    DID_DEMOTE     AS INTEGER ' TRUE if activate demoted the layer this session
+    DEMOTE_LAYER   AS INTEGER ' layer slot that was demoted (rollback target)
+    MODIFIED       AS INTEGER ' F5: TRUE once a handle drag / rotate actually changes the quad;
                             ' commit skips the undo record when still FALSE (Enter with no edit)
 END TYPE
 DIM SHARED TRANSFORM AS TRANSFORM_OBJ

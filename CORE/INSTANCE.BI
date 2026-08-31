@@ -23,15 +23,15 @@
 '
 $INCLUDEONCE
 
-CONST INSTANCE_MAX            = 32 ' highest instance slot we will ever assign (1..MAX)
-CONST INSTANCE_STALE_SECS     = 60 ' a registry file whose heartbeat is older than this = dead.
+CONST INSTANCE_MAX        = 32    ' highest instance slot we will ever assign (1..MAX)
+CONST INSTANCE_STALE_SECS = 60    ' a registry file whose heartbeat is older than this = dead.
 '                                    BUG-34: was 12s — shorter than a normal modal-dialog dwell,
 '                                    which freezes the heartbeat (INSTANCE_tick only runs in the
 '                                    main loop) → peers falsely reaped a live instance → slot/config
 '                                    collision, dropped Send-Layer, double music. 60s covers typical
 '                                    modal dwell. (Full fix would pump the heartbeat inside modal loops.)
-CONST INSTANCE_HEARTBEAT_SECS = 3  ' rewrite our own registry file this often (updates heartbeat)
-CONST INSTANCE_MAILPOLL_SECS  = 1  ' poll our mailbox inbox this often (see LAYERXFER handoff)
+CONST INSTANCE_HEARTBEAT_SECS = 3 ' rewrite our own registry file this often (updates heartbeat)
+CONST INSTANCE_MAILPOLL_SECS  = 1 ' poll our mailbox inbox this often (see LAYERXFER handoff)
 
 TYPE INSTANCE_OBJ
     id            AS INTEGER ' this instance's slot (1..INSTANCE_MAX); 1 = first/primary (normal config)

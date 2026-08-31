@@ -47,7 +47,7 @@ _TITLE "HW Cursor Z-Order / Freeze Test (PR #701)"
 ' Deliberately larger than a stock arrow so it is unmistakable which pointer is
 ' active and easy to see riding over the hardware panel. Hotspot = center.
 DIM cur AS LONG, oldDest AS LONG
-cur = _NEWIMAGE(28, 28, 32)
+cur     = _NEWIMAGE(28, 28, 32)
 oldDest = _DEST
 _DEST cur
 CLS , _RGBA32(0, 0, 0, 0)
@@ -69,7 +69,7 @@ CONST PANW = 320, PANH = 220
 DIM panelSrc AS LONG, hwPanel AS LONG
 panelSrc = _NEWIMAGE(PANW, PANH, 32)
 _DEST panelSrc
-DIM bx AS INTEGER, by AS INTEGER, c AS _UNSIGNED LONG
+DIM bx       AS INTEGER, by AS INTEGER, c AS _UNSIGNED LONG
 FOR by = 0 TO PANH - 1 STEP 20
     FOR bx = 0 TO PANW - 1 STEP 20
         IF ((bx \ 20) + (by \ 20)) MOD 2 = 0 THEN
@@ -103,12 +103,12 @@ PRINT #fh, "cursor handle = "; cur
 PRINT #fh, "hwPanel handle= "; hwPanel; "  (hardware image; large-negative handle, valid when < -1)"
 PRINT #fh, "_MOUSECURSOR set (no runtime error trapped)"
 
-DIM frozen AS INTEGER: frozen = FALSE
-DIM renderCount AS LONG: renderCount = 0
-DIM displayCount AS LONG: displayCount = 0
-DIM frameCount AS LONG: frameCount = 0
-DIM spaceLatch AS INTEGER: spaceLatch = FALSE
-DIM autoQuit AS LONG: autoQuit = 0
+DIM frozen       AS INTEGER : frozen = FALSE
+DIM renderCount  AS LONG    : renderCount = 0
+DIM displayCount AS LONG    : displayCount = 0
+DIM frameCount   AS LONG    : frameCount = 0
+DIM spaceLatch   AS INTEGER : spaceLatch = FALSE
+DIM autoQuit     AS LONG    : autoQuit = 0
 
 ' Headless auto-exit: if launched offscreen for a smoke run, quit after ~4s so
 ' the harness never strands a window. Live users just press ESC.
@@ -121,7 +121,7 @@ DO
     ' SPACE toggles freeze (edge-latched).
     IF _KEYDOWN(32) THEN
         IF NOT spaceLatch THEN
-            frozen = NOT frozen
+            frozen     = NOT frozen
             spaceLatch = TRUE
         END IF
     ELSE

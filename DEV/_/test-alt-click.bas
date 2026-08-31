@@ -27,26 +27,26 @@ $CONSOLE
 ' Press ESC to quit.
 ' =============================================================================
 
-CONST TRUE = -1
-CONST FALSE = 0
+CONST TRUE      = -1
+CONST FALSE     = 0
 CONST KEY_LALT& = 100308
 CONST KEY_RALT& = 100307
-CONST KEY_ESC& = 27
+CONST KEY_ESC&  = 27
 
 SCREEN _NEWIMAGE(900, 560, 32)
 _TITLE "Option+Click probe — hold Option, click L/R. ESC to quit."
 
-DIM SHARED macAltHeld AS INTEGER            ' _KEYHIT-tracked Option state
-DIM b1 AS INTEGER, b2 AS INTEGER, b3 AS INTEGER
-DIM ob1 AS INTEGER, ob2 AS INTEGER, ob3 AS INTEGER
-DIM mb1 AS INTEGER, mb2 AS INTEGER, mb3 AS INTEGER
-DIM k AS LONG, kdAlt AS INTEGER, khAlt AS INTEGER
+DIM SHARED macAltHeld AS INTEGER ' _KEYHIT-tracked Option state
+DIM b1                AS INTEGER, b2 AS INTEGER, b3 AS INTEGER
+DIM ob1               AS INTEGER, ob2 AS INTEGER, ob3 AS INTEGER
+DIM mb1               AS INTEGER, mb2 AS INTEGER, mb3 AS INTEGER
+DIM k                 AS LONG, kdAlt AS INTEGER, khAlt AS INTEGER
 DIM clickLog(1 TO 12) AS STRING
-DIM logCount AS INTEGER, i AS INTEGER
-DIM lastKeyhit AS LONG
+DIM logCount          AS INTEGER, i AS INTEGER
+DIM lastKeyhit        AS LONG
 
 macAltHeld = FALSE
-logCount = 0
+logCount   = 0
 
 DO
     ' --- drain keyboard, track Option via _KEYHIT (mirrors DRAW MAC path) ---
@@ -78,7 +78,7 @@ DO
 
     ' --- on a button-DOWN edge, record a CLICK line with the alt state ---
     IF (b1 AND NOT ob1) OR (b2 AND NOT ob2) OR (b3 AND NOT ob3) THEN
-        DIM which AS STRING
+        DIM which   AS STRING
         which$ = ""
         IF b1 AND NOT ob1 THEN which$ = which$ + "1 "
         IF b2 AND NOT ob2 THEN which$ = which$ + "2 "
@@ -88,7 +88,7 @@ DO
                 "  keydownAlt=" + onoff$(kdAlt) + _
                 "  keyhitAlt=" + onoff$(khAlt) + _
                 "  (B1=" + yn$(b1) + " B2=" + yn$(b2) + " B3=" + yn$(b3) + ")"
-        PRINT logLine$   ' to console
+        PRINT logLine$ ' to console
         ' scroll on-screen log
         IF logCount < 12 THEN logCount = logCount + 1
         FOR i = logCount TO 2 STEP -1

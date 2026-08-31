@@ -47,18 +47,18 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 CONST TRUE = -1, FALSE = 0
 
-CONST NSIZE = 2, NOP = 6, NROUND = 21
+CONST NSIZE           = 2, NOP = 6, NROUND = 21
 CONST OP_RESTORE_FULL = 1, OP_RESTORE_DIRTY = 2, OP_OVL_CLS = 3
-CONST OP_CURSOR_BLIT = 4, OP_OVL_COMP = 5, OP_HWINSTALL = 6
+CONST OP_CURSOR_BLIT  = 4, OP_OVL_COMP = 5, OP_HWINSTALL = 6
 
 DIM SHARED gCanvas AS LONG, gCache AS LONG, gOvl AS LONG, gCursor AS LONG
-DIM SHARED gCW AS LONG, gCH AS LONG
-DIM SHARED gDX1 AS LONG, gDY1 AS LONG, gDX2 AS LONG, gDY2 AS LONG
+DIM SHARED gCW     AS LONG, gCH AS LONG
+DIM SHARED gDX1    AS LONG, gDY1 AS LONG, gDX2 AS LONG, gDY2 AS LONG
 DIM SHARED medUs(1 TO NSIZE, 1 TO NOP) AS DOUBLE
 DIM SHARED szW(1 TO NSIZE) AS LONG, szH(1 TO NSIZE) AS LONG, szTag(1 TO NSIZE) AS STRING
 
-szW(1) = 1280: szH(1) = 800: szTag(1) = "1280x800"
-szW(2) = 1920: szH(2) = 1080: szTag(2) = "1920x1080"
+szW(1) = 1280 : szH(1) = 800  : szTag(1) = "1280x800"
+szW(2) = 1920 : szH(2) = 1080 : szTag(2) = "1920x1080"
 
 CONST WINW = 920, WINH = 600
 SCREEN _NEWIMAGE(WINW, WINH, 32)
@@ -152,7 +152,7 @@ CONST PANW = 300, PANH = 200
 DIM panelSrc AS LONG, hwPanel AS LONG
 panelSrc = _NEWIMAGE(PANW, PANH, 32)
 _DEST panelSrc
-DIM bx AS INTEGER, by AS INTEGER, cc AS _UNSIGNED LONG
+DIM bx       AS INTEGER, by AS INTEGER, cc AS _UNSIGNED LONG
 FOR by = 0 TO PANH - 1 STEP 20
     FOR bx = 0 TO PANW - 1 STEP 20
         IF ((bx \ 20) + (by \ 20)) MOD 2 = 0 THEN cc = _RGB32(40, 90, 160) ELSE cc = _RGB32(80, 150, 230)
@@ -171,11 +171,11 @@ IF panelSrc < -1 THEN _FREEIMAGE panelSrc
 _MOUSECURSOR gCursor, (14, 14)
 
 ' ---- interactive z-order + freeze proof
-DIM frozen AS INTEGER: frozen = FALSE
-DIM spaceLatch AS INTEGER: spaceLatch = FALSE
-DIM renders AS LONG: renders = 0
-DIM frames AS LONG: frames = 0
-DIM py AS INTEGER, gcol AS _UNSIGNED LONG
+DIM frozen     AS INTEGER : frozen = FALSE
+DIM spaceLatch AS INTEGER : spaceLatch = FALSE
+DIM renders    AS LONG    : renders = 0
+DIM frames     AS LONG    : frames = 0
+DIM py         AS INTEGER, gcol AS _UNSIGNED LONG
 DO
     frames = frames + 1
     IF _KEYDOWN(32) THEN
@@ -222,13 +222,13 @@ SYSTEM
 ' ============================================================================
 SUB ALLOC_SURFACES
     gCanvas = _NEWIMAGE(gCW, gCH, 32)
-    gCache = _NEWIMAGE(gCW, gCH, 32)
-    gOvl = _NEWIMAGE(gCW, gCH, 32)
-    DIM od AS LONG: od = _DEST
-    _DEST gCache: CLS , _RGB32(30, 40, 60)
-    DIM k AS INTEGER
-    FOR k = 0 TO 40: LINE (k * (gCW \ 40), 0)-(gCW - 1, gCH - 1), _RGB32(60 + k, 90, 160 - k): NEXT
-    _DEST gOvl: CLS , _RGBA32(0, 0, 0, 0)
+    gCache  = _NEWIMAGE(gCW, gCH, 32)
+    gOvl    = _NEWIMAGE(gCW, gCH, 32)
+    DIM od AS LONG : od = _DEST
+    _DEST gCache   : CLS , _RGB32(30, 40, 60)
+    DIM k  AS INTEGER
+    FOR k = 0 TO 40 : LINE (k * (gCW \ 40), 0)-(gCW - 1, gCH - 1), _RGB32(60 + k, 90, 160 - k) : NEXT
+    _DEST gOvl      : CLS , _RGBA32(0, 0, 0, 0)
     _DEST od
 END SUB
 
@@ -247,12 +247,12 @@ SUB DO_OP (opk AS INTEGER, iters AS LONG)
         CASE OP_RESTORE_DIRTY
             FOR i = 1 TO iters: _PUTIMAGE (gDX1, gDY1)-(gDX2, gDY2), gCache, gCanvas, (gDX1, gDY1)-(gDX2, gDY2): NEXT
         CASE OP_OVL_CLS
-            DIM oa AS LONG: oa = _DEST: _DEST gOvl
-            FOR i = 1 TO iters: CLS , _RGBA32(0, 0, 0, 0): NEXT
+            DIM oa AS LONG     : oa = _DEST                : _DEST gOvl
+            FOR i = 1 TO iters : CLS , _RGBA32(0, 0, 0, 0) : NEXT
             _DEST oa
         CASE OP_CURSOR_BLIT
-            DIM ob AS LONG: ob = _DEST: _DEST gOvl
-            FOR i = 1 TO iters: _PUTIMAGE (100, 100), gCursor, gOvl: NEXT
+            DIM ob AS LONG     : ob = _DEST                          : _DEST gOvl
+            FOR i = 1 TO iters : _PUTIMAGE (100, 100), gCursor, gOvl : NEXT
             _DEST ob
         CASE OP_OVL_COMP
             FOR i = 1 TO iters: _PUTIMAGE , gOvl, gCanvas: NEXT
@@ -264,7 +264,7 @@ END SUB
 SUB TIME_OP (szIdx AS INTEGER, opk AS INTEGER)
     DIM t0 AS DOUBLE, t1 AS DOUBLE, perOp AS DOUBLE, itn AS LONG, r AS INTEGER
     DO_OP opk, 2
-    t0 = _UPTIME: DO_OP opk, 4: t1 = _UPTIME
+    t0    = _UPTIME: DO_OP opk, 4: t1 = _UPTIME
     perOp = (t1 - t0) / 4#
     IF perOp <= 0# THEN perOp = 0.0000001#
     itn = 0.02# / perOp
@@ -272,7 +272,7 @@ SUB TIME_OP (szIdx AS INTEGER, opk AS INTEGER)
     IF itn > 20000 THEN itn = 20000
     DIM samp(1 TO NROUND) AS DOUBLE
     FOR r = 1 TO NROUND
-        t0 = _UPTIME: DO_OP opk, itn: t1 = _UPTIME
+        t0      = _UPTIME: DO_OP opk, itn: t1 = _UPTIME
         samp(r) = (t1 - t0) / itn * 1000000#
     NEXT
     SORT_D samp(), NROUND
@@ -304,16 +304,16 @@ FUNCTION FMT0$ (x AS DOUBLE)
 END FUNCTION
 
 FUNCTION FMT1$ (x AS DOUBLE)
-    DIM sc AS _INTEGER64: sc = INT(x * 10# + 0.5#)
-    DIM w AS _INTEGER64, f AS _INTEGER64: w = sc \ 10: f = sc MOD 10
+    DIM sc AS _INTEGER64                  : sc = INT(x * 10# + 0.5#)
+    DIM w  AS _INTEGER64, f AS _INTEGER64 : w = sc \ 10 : f = sc MOD 10
     FMT1$ = _TRIM$(STR$(w)) + "." + _TRIM$(STR$(f))
 END FUNCTION
 
 FUNCTION FMT3$ (x AS DOUBLE)
-    DIM sc AS _INTEGER64: sc = INT(x * 1000# + 0.5#)
-    DIM w AS _INTEGER64, f AS _INTEGER64: w = sc \ 1000: f = sc MOD 1000
-    DIM fs AS STRING: fs = _TRIM$(STR$(f))
-    DO WHILE LEN(fs) < 3: fs = "0" + fs: LOOP
+    DIM sc AS _INTEGER64                  : sc = INT(x * 1000# + 0.5#)
+    DIM w  AS _INTEGER64, f AS _INTEGER64 : w = sc \ 1000 : f = sc MOD 1000
+    DIM fs AS STRING                      : fs = _TRIM$(STR$(f))
+    DO WHILE LEN(fs) < 3                  : fs = "0" + fs : LOOP
     FMT3$ = _TRIM$(STR$(w)) + "." + fs
 END FUNCTION
 

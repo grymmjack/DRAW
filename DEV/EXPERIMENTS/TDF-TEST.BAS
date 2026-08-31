@@ -111,9 +111,9 @@ TEST_distinct_glyphs 197
 DIM dumpFace AS INTEGER, dumpChar AS INTEGER, dumpN AS INTEGER
 FOR dumpN% = 0 TO 59
     SELECT CASE dumpN% \ 20
-        CASE 0: dumpFace% = (dumpN% MOD 20) MOD 6                     ' OUTLINE 0-5
-        CASE 1: dumpFace% = 6 + ((dumpN% MOD 20) * 9) MOD 191         ' BLOCK
-        CASE ELSE: dumpFace% = 197 + ((dumpN% MOD 20) * 177) MOD 3560 ' COLOR
+        CASE 0    : dumpFace% = (dumpN% MOD 20) MOD 6                  ' OUTLINE 0-5
+        CASE 1    : dumpFace% = 6 + ((dumpN% MOD 20) * 9) MOD 191      ' BLOCK
+        CASE ELSE : dumpFace% = 197 + ((dumpN% MOD 20) * 177) MOD 3560 ' COLOR
     END SELECT
     dumpChar% = 33 + (dumpN% * 7) MOD 94
     TEST_dump_grid dumpFace%, dumpChar%
@@ -122,7 +122,7 @@ NEXT dumpN%
 ' --- Sweep EVERY face: decode 'A', assert nothing explodes ----------------
 PRINT
 PRINT "sweeping all faces..."
-DIM ok AS LONG, missing AS LONG, oversize AS LONG
+DIM ok  AS LONG, missing AS LONG, oversize AS LONG
 DIM wpx AS INTEGER
 ok& = 0: missing& = 0: oversize& = 0
 FOR i% = 0 TO TDF_FACE_COUNT% - 1
@@ -178,7 +178,7 @@ SUB TEST_distinct_glyphs (faceIdx%)
                 NEXT cx%
             NEXT cy%
             hashes(n%) = h&
-            defined%   = defined% + 1
+            defined% = defined% + 1
         END IF
     NEXT n%
 

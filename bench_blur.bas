@@ -8,12 +8,12 @@ DECLARE LIBRARY "./native/blur_kernel"
     SUB gj_box_blur (BYVAL dst AS _OFFSET, BYVAL src AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL radius AS LONG)
 END DECLARE
 
-CONST W = 1280
-CONST H = 720
+CONST W      = 1280
+CONST H      = 720
 CONST RADIUS = 6
 
 DIM src AS LONG, dstBAS AS LONG, dstCPP AS LONG
-src = _NEWIMAGE(W, H, 32)
+src    = _NEWIMAGE(W, H, 32)
 dstBAS = _NEWIMAGE(W, H, 32)
 dstCPP = _NEWIMAGE(W, H, 32)
 
@@ -41,19 +41,19 @@ DIM mS AS _MEM, mD AS _MEM
 mS = _MEMIMAGE(src)
 mD = _MEMIMAGE(dstBAS)
 
-DIM t0 AS DOUBLE, t1 AS DOUBLE
-DIM sy AS LONG, sx AS LONG, y0 AS LONG, y1 AS LONG, x0 AS LONG, x1 AS LONG
-DIM sr AS _UNSIGNED LONG, sg AS _UNSIGNED LONG, sb AS _UNSIGNED LONG, cnt AS LONG
+DIM t0  AS DOUBLE, t1 AS DOUBLE
+DIM sy  AS LONG, sx AS LONG, y0 AS LONG, y1 AS LONG, x0 AS LONG, x1 AS LONG
+DIM sr  AS _UNSIGNED LONG, sg AS _UNSIGNED LONG, sb AS _UNSIGNED LONG, cnt AS LONG
 DIM pix AS _UNSIGNED LONG, rowOff AS _OFFSET
 
 t0 = TIMER(0.001)
 FOR y = 0 TO H - 1
-    y0 = y - RADIUS: IF y0 < 0 THEN y0 = 0
-    y1 = y + RADIUS: IF y1 > H - 1 THEN y1 = H - 1
+    y0 = y - RADIUS : IF y0 < 0 THEN y0 = 0
+    y1 = y + RADIUS : IF y1 > H - 1 THEN y1 = H - 1
     FOR x = 0 TO W - 1
-        x0 = x - RADIUS: IF x0 < 0 THEN x0 = 0
-        x1 = x + RADIUS: IF x1 > W - 1 THEN x1 = W - 1
-        sr = 0: sg = 0: sb = 0: cnt = 0
+        x0 = x - RADIUS : IF x0 < 0 THEN x0 = 0
+        x1 = x + RADIUS : IF x1 > W - 1 THEN x1 = W - 1
+        sr = 0          : sg = 0 : sb = 0 : cnt = 0
         FOR sy = y0 TO y1
             rowOff = mS.OFFSET + (sy * W) * 4
             FOR sx = x0 TO x1
@@ -76,7 +76,7 @@ IF basMs < 0 THEN basMs = basMs + 86400000
 ' =====================================================================
 ' C++ kernel (-O3)
 ' =====================================================================
-DIM cS AS _MEM, cD AS _MEM
+DIM cS    AS _MEM, cD AS _MEM
 cS = _MEMIMAGE(src)
 cD = _MEMIMAGE(dstCPP)
 t0 = TIMER(0.001)

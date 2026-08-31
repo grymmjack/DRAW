@@ -5,9 +5,20 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.0.0
+Current release: v2.0.1
 
 ![DRAW GUI from v1.1.0](./GUI.png)
+
+## New in 2.0.1
+
+A stability patch — a deep bug-hunt closed 40+ defects across undo/redo, layer
+groups, transform/move, export, importers, and input handling.
+
+- **Crash fix** — dragging an off-canvas magic-wand selection no longer crashes (Critical Error #300 "Memory region out of range"); crash notices are now non-blocking instead of a modal you had to dismiss.
+- **Transform Selection** — warp just the selection mask (Photoshop-style) from **Select → Transform…**, a flyout with all five modes (Scale, Rotate, Shear, Distort, Perspective); Distort now honors inward (concave) drags.
+- **Undo/redo correctness** — layer group membership survives undo intact; a visibility/opacity change after an undo no longer strands a stale redo; palette edits undo cleanly with no phantom states.
+- **No data loss** — mask-aware transform keeps pixels outside the selection; Merge Down/Visible preserves text-layer content; off-canvas transform/move results grow an apron instead of clipping.
+- **Export & AI** — group-aware flatten (hidden-group children included), Export Selection honors apron + hidden groups, ANSI selection export honors non-rectangular masks, QB64 code export copies fonts natively on Windows; AI generate/batch can't write to the wrong layer if layers change mid-generation.
 
 ## New in 2.0.0
 
