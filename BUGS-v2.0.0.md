@@ -492,7 +492,20 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
   short non-scrollable list, so the panel never slides out from under the open dropdown). The generic
   `DIALOG_dropdown_input` (`GUI/DIALOG.BM:473`) already consumed unconditionally, so other dialogs were
   unaffected. Confirmed by Rick.
-### BUG-42 [LOW] — new dispatcher ignores `KEYBOARD_SUPPRESS_FRAMES%` (mitigated by `_KEYCLEAR`).
+### BUG-42 [LOW] — new dispatcher ignores `KEYBOARD_SUPPRESS_FRAMES%` (mitigated by `_KEYCLEAR`). — **FIXED (2026-08-31), confirmed by Rick**
+- `MOUSE_cleanup_after_dialog` sets `KEYBOARD_SUPPRESS_FRAMES% = 3` after a native dialog
+  (Save/Open/message box) so a key held or typed during the dialog can't fire a shortcut on
+  return. The legacy `KEYBOARD_input_handler` honors it (skips its handlers until it drains), but
+  the new central dispatcher `INPUT_detect_events` never read the flag — so a dispatched binding
+  (e.g. a held tool letter, or a filename letter) still fired a phantom edge. `_KEYCLEAR` can't
+  help: the dispatcher edges on physical `_KEYDOWN` + `KEY_DOWN_LAST`, not the `_KEYHIT` buffer
+  `_KEYCLEAR` drains. A partial-migration seam — the suppression invariant lived in only one of
+  the two key consumers.
+- **FIX (applied):** the dispatcher's key-enqueue condition now also requires
+  `KEYBOARD_SUPPRESS_FRAMES% <= 0`. Read-only there — the legacy handler OWNS the per-frame
+  decrement (decrementing in both would halve the window). `KEY_DOWN_LAST` still updates every
+  frame, so a key held across the suppression window isn't seen as a fresh edge once it lifts
+  (same discipline as the existing `CMD_PALETTE.visible%` guard).
 ### BUG-43 [LOW] — TI Ctrl+symbol normalization overreaches letters range (`TI-INPUT.BM:522`) → Ctrl+[ acts as Escape. — **FIXED (2026-08-30), confirmed by Rick**
 - The Ctrl+letter→control-code normalizer gated on `k >= 65 AND k <= 122`, which straddles the six
   punctuation chars between the alphabets (`[ \ ] ^ _ \``, codes 91–96). `Ctrl+[` (91) → `91-64 = 27`
