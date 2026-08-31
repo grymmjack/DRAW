@@ -837,6 +837,22 @@ SUB TDF_register_bundle (bundlePath$, labelTxt$, isBundled%)
     TDF_BUNDLE(bi%).firstFace = TDF_FACE_COUNT%
     TDF_BUNDLE(bi%).isBundled = isBundled%
 
+    ' BUG-76: the .TDX index is untrusted (may be corrupt or hand-crafted). Each
+    ' face record carries a fileOfs/blockSz into the .TDF/bundle; the render path
+    ' GETs 188 lookup bytes at fileOfs+TDF_LOOKUP_OFFSET and blockSz bytes at
+    ' fileOfs+TDF_BLOCK_OFFSET, and allocates SPACE$(blockSz). An out-of-range
+    ' offset/size would read past EOF (garbage glyphs) or allocate a huge string.
+    ' TDF_LOOKUP_OFFSET(25)+188 == TDF_BLOCK_OFFSET(213), so a single extent check
+    ' covers both reads. Grab the target file length once and skip any face whose
+    ' data does not lie fully within it.
+    DIM tdxTgtLen AS LONG : tdxTgtLen& = 0
+    IF _FILEEXISTS(bundlePath$) THEN
+        DIM tdxLenFh AS INTEGER : tdxLenFh% = FREEFILE
+        OPEN bundlePath$ FOR BINARY AS #tdxLenFh%
+        tdxTgtLen& = LOF(tdxLenFh%)
+        CLOSE #tdxLenFh%
+    END IF
+
     DIM rec   AS TDX_REC
     DIM i     AS LONG
     DIM added AS INTEGER
@@ -844,6 +860,9 @@ SUB TDF_register_bundle (bundlePath$, labelTxt$, isBundled%)
     FOR i& = 0 TO faceTotal& - 1
         IF TDF_FACE_COUNT% >= TDF_FACE_MAX THEN EXIT FOR
         GET #fh%, 13 + i& * LEN(rec), rec
+        ' BUG-76: reject a face whose data block falls outside the font file.
+        IF rec.fileOfs < 0 _ORELSE rec.blockSz < 1 THEN _CONTINUE
+        IF tdxTgtLen& > 0 _ANDALSO (rec.fileOfs + TDF_BLOCK_OFFSET + rec.blockSz) > tdxTgtLen& THEN _CONTINUE
         DIM fi AS INTEGER
         fi%                      = TDF_FACE_COUNT%
         TDF_FACE(fi%).bundleIdx  = bi%
@@ -960,6 +979,15 @@ FUNCTION TDF_cache_slot% (faceIdx%)
     DIM fh AS INTEGER
     fh% = FREEFILE
     OPEN bundlePath$ FOR BINARY AS #fh%
+
+    ' BUG-76: defense-in-depth — even though load-time validation skips bad face
+    ' records, re-check the extent here (the file could have changed on disk since
+    ' the index was read) so a stale/corrupt fileOfs can never GET past EOF.
+    IF TDF_FACE(faceIdx%).fileOfs < 0 _ORELSE _
+       (TDF_FACE(faceIdx%).fileOfs + TDF_BLOCK_OFFSET + blockSize&) > LOF(fh%) THEN
+        CLOSE #fh%
+        EXIT FUNCTION
+    END IF
 
     ' The lookup table sits TDF_LOOKUP_OFFSET bytes into the record; the glyph
     ' block TDF_BLOCK_OFFSET bytes in. SEEK positions are 1-based.

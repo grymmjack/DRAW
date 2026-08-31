@@ -216,15 +216,31 @@ SUB INSTANCE_bootstrap ()
 
     ' Claim the slot; if auto-assigned and a peer beat us to it, walk to the next free slot.
     IF INSTANCE_claim_slot%(INST.id%) = 0 AND INST.explicitId% = 0 THEN
+        DIM instWalkClaimed AS INTEGER : instWalkClaimed% = 0
         FOR i% = INST.id% + 1 TO INSTANCE_MAX
             IF INSTANCE_slot_is_live%(i%) = 0 THEN
                 INST.mailboxDir = INST.registryDir + "mailbox" + PATHS_sep$ + _TRIM$(STR$(i%)) + PATHS_sep$
                 PATHS_ensure_dir INST.mailboxDir
-                IF INSTANCE_claim_slot%(i%) THEN EXIT FOR
+                IF INSTANCE_claim_slot%(i%) THEN
+                    ' BUG-37: adopt the claimed slot as our identity. Without this
+                    ' INST.id% kept the slot we FAILED to claim, so myRegFile drifted
+                    ' from mailboxDir and INSTANCE_clear_my_mailbox (keyed on INST.id%)
+                    ' cleared the wrong slot — the walk-claimed slot then inherited its
+                    ' predecessor's undelivered layers. claim_slot already repointed
+                    ' myRegFile to i; sync INST.id% so all three agree.
+                    INST.id%         = i%
+                    instWalkClaimed% = -1
+                    EXIT FOR
+                END IF
             END IF
         NEXT i%
+        ' Fully-lost race (extreme ~INSTANCE_MAX-way): every slot was taken before we
+        ' could claim one. Just log it — INST.id% then still points at an unclaimed
+        ' slot, but that pre-existing edge is out of scope for the mailbox-inheritance
+        ' fix and not safe to re-plumb unattended.
+        IF instWalkClaimed% = 0 THEN _LOGWARN "INSTANCE: lost the slot race across all " + _TRIM$(STR$(INSTANCE_MAX)) + " slots; running degraded"
     END IF
-    INSTANCE_clear_my_mailbox ' don't inherit a crashed predecessor's undelivered layers
+    INSTANCE_clear_my_mailbox ' don't inherit a crashed predecessor's undelivered layers (now keyed on the claimed INST.id%)
     INST.active%       = -1
     INST.liveCount%    = INSTANCE_live_count%
     INST.isMusicOwner% = INSTANCE_is_music_owner%
