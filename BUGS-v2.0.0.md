@@ -595,7 +595,14 @@ Exporters, importers, effects math, fonts/TDF, PIXEL-COACH, sound. (Effects engi
   domain-warp so grain flows along the board, a dark early-wood-line → pale late-wood colour ramp,
   and along-grain pore noise (replacing the old plasticky single-sine banding). Confirmed by Rick.
 ### BUG-73 [LOW,UNVERIFIED] — Crystallize can leave opaque black fringe on alpha edges.
-### BUG-75 [LOW] — `MUSIC_play_random_ext` stops music if the extension has 0 tracks (`SOUND.BM:419`).
+### BUG-75 [LOW] — `MUSIC_play_random_ext` stops music if the extension has 0 tracks (`SOUND.BM:419`). — **FIXED (2026-08-30), confirmed by Rick**
+- Stop-before-you-can-replace ordering: the SUB `_SNDSTOP`/`_SNDCLOSE`d the current handle at the
+  TOP, then scanned the MUSIC dir. A filter matching no files hit the `fileCount% = 0` guard and
+  `EXIT SUB` with playback already dead (self-healed only on the next music tick's random pick).
+- **FIX (applied):** reordered so the destructive step — stop + `_SNDCLOSE`, prev-file bookkeeping,
+  and the `MUSIC_CURRENT_FILE$ = ""` reset — happens only AFTER the `fileCount=0` guard proves a
+  replacement exists. A no-match filter now leaves the current track playing untouched; the
+  scan-failure early-exit (`NOT _FILEEXISTS`) benefits too. Confirmed by Rick.
 ### BUG-76 [LOW,UNVERIFIED] — `.TDX` values trusted without bounds vs the `.TDF` (`TDF-FONT.BM:827`).
 ### BUG-77 [LOW,UNVERIFIED] — PIXEL-COACH `imgW/imgH` INTEGER overflow on >32767px image.
 ### BUG-78 [HIGH] — Menu bar dropdowns stop opening after export + alt-tab away/back. **Repro (Rick, 2026-08-28):** File > Export PNG, then switch to another desktop window (Qwenview) to view the PNG, then return to DRAW — clicking a menu title (File) highlights it but the dropdown never opens; the click is audibly registered. **Root cause (confirmed):** DRAW had **no window-focus handling at all**. The export dialog is innocent (`MOUSE_cleanup_after_dialog` resets buttons on both OK/Cancel). Alt-tabbing to another window swallows the mouse-RELEASE edge while DRAW is unfocused → `MOUSE.OLD_B1%` latches TRUE → the menubar's press-edge guard `MOUSE.B1% AND NOT MOUSE.OLD_B1%` (`INPUT/MOUSE.BM:600`) can never fire again → dropdown highlights (hover has no button guard) but never opens. Same stuck edge would silently break toolbar/panel clicks too. **FIX (applied 2026-08-28):** new `MOUSE_focus_guard` (`INPUT/MOUSE.BM`) tracks `_WINDOWHASFOCUS` and, on the unfocused→focused transition, runs `MOUSE_cleanup_after_dialog` (forces B1/OLD_B1 up, drains `_MOUSEINPUT`, suppress frames, releases modifiers). Wired into the main loop before `MOUSE_input_handler` (`DRAW.BAS`).
