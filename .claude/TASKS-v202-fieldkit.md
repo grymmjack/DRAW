@@ -10,6 +10,8 @@ Already shipped this bug-bash: A, B, C, D, E, H, R-menu (7).
 
 ## 🔨 NOW — doing right now
 
+- [x] Z. DONE. Two full 75-test regressions + targeted re-runs against the final clean binary. Triaged every FAIL from its screenshot: (1) effect-outerglow FAIL = splash/load flake (concurrent build stole CPU) → PASSES 632px isolated; (2) effect-inout-visual Wind FAIL = a REAL BUG-G engine defect the shallow effect-wind.sh masked (wind pushed each pixel's own colour downwind, but the silhouette edge is the *transparent* pixel outside the shape → pushed nothing). Fixed: carry max-alpha(cur,prev) downwind → outer spill 0px→294px, edge streak 7px→601px, confirmed visually. (3) Final full-run had 12 FAILs ALL in tool-text (test 75) from an Xvfb crash at the tail ("Failed creating new xdo instance") → tool-text re-run isolated = 79/79 PASS. NET: 74/74 effect+image-adj tests PASS, tool-text 79/79 PASS. Committed 5fb2b31a (Wind fix + K-breadth: 15 effects remember settings) + 876d6131 (BUGS-v2.0.2.md). Main builds clean (Output: DRAW.run).
+
 - [x] F/G/L. DONE — shared `IMGADJ_apply_inout_mask` + `IMAGE_ADJ_apply_inout`. G=Wind (engine `outerMode` paints streaks into transparent), L=Wave Ripple (preview now honours the same inout mask as apply → preview==apply), F=Extrude (raised blocks spill outside). INNER/OUTER toggles on each (default BOTH on per Rick's mockups), K-stored + O-replayable. Verified via QA on the clean build: effect-wind PASS (streaks now reach the transparent sample — was 0px, now 7px), effect-wave PASS (1162px), effect-extrude PASS (2197px). (Hit `off` reserved-word compile error → renamed `imOff`.)
 
 ## Wrap-note
@@ -33,6 +35,6 @@ Already shipped this bug-bash: A, B, C, D, E, H, R-menu (7).
 - [x] O. DONE — Ctrl+F/Ctrl+Alt+F keybindings were already correct; added `FX_redo_replay_preset%` so `redo_last` replays the K-wired effects (Crystallize/Wind/AddNoise/Extrude/Grid/Backlight) SILENTLY from FX_PRESET(APPLIED), no dialog. Verified: Ctrl+F re-applied Crystallize silently (3469px differ). Non-K-wired effects still fall back to the dialog.
 ## Wrap
 
-- [ ] ➡️ Z. Full BUGS-v2.0.2.md status update + final QA regression pass (tool-text, effects) + summary. Confirm main builds clean. Commit the cluster.
+(Z is active under 🔨 NOW at the top of this file.)
 
 loop:on
