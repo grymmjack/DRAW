@@ -24,7 +24,16 @@ TYPE POINTER_OBJ
     PREV_SYS_CURSOR      AS STRING * 24    ' Previous _MOUSESHOW string to skip redundant SDL calls
     PREV_HW_CURSOR_ID    AS INTEGER        ' Last cursor index set as an OS hardware cursor (-999 = none)
     PREV_HW_CURSOR_SCALE AS INTEGER        ' displayScale the last hardware cursor was built at
+    PREV_HW_CURSOR_FLIP  AS INTEGER        ' CURSOR_FLIP the last hardware cursor was issued with (so a corner change re-issues)
     HW_ICON_ACTIVE       AS INTEGER        ' TRUE this frame: HW icon cursor over canvas, no per-frame software feedback -> a bare mouse move needs NO render
+    ' Flipped-hardware-cursor cache — the OS cursor image is a single unflipped PNG, so
+    ' CURSOR_FLIP (used by every resize-corner) must be baked into a mirrored copy here.
+    FLIP_IMG             AS LONG           ' Cached flipped hw image (0 = none)
+    FLIP_IMG_ID          AS INTEGER        ' Cursor index the flip cache was built for
+    FLIP_IMG_VAL         AS INTEGER        ' CURSOR_FLIP value the cache was built for
+    FLIP_IMG_SCALE       AS INTEGER        ' displayScale the cache was built at
+    FLIP_HX              AS INTEGER        ' Hotspot X, reflected for the flip
+    FLIP_HY              AS INTEGER        ' Hotspot Y, reflected for the flip
 END TYPE
 
 DIM SHARED POINTER AS POINTER_OBJ

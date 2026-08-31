@@ -129,11 +129,22 @@ SUB POINTER_render ()
             IF CURSOR_ensure_hw%(POINTER.CURSOR_ID%) THEN
                 DIM hwScale AS INTEGER
                 hwScale% = SCRN.displayScale%
-                ' _MOUSECURSOR recreates the OS cursor each call — only on change.
-                IF POINTER.PREV_HW_CURSOR_ID% <> POINTER.CURSOR_ID% OR POINTER.PREV_HW_CURSOR_SCALE% <> hwScale% THEN
-                    _MOUSECURSOR CURSORS(POINTER.CURSOR_ID%).hw_img&, (CURSORS(POINTER.CURSOR_ID%).hw_hx%, CURSORS(POINTER.CURSOR_ID%).hw_hy%)
+                ' Resolve the image + hotspot for the current flip. CURSOR_FLIP is set
+                ' per corner (resize-corner) but the OS cursor is one unflipped PNG, so a
+                ' non-zero flip needs a mirrored copy (POINTER_ensure_flipped%). Without
+                ' this the right-side corners showed the wrong diagonal.
+                DIM hwImg AS LONG, hwHx AS INTEGER, hwHy AS INTEGER
+                IF POINTER.CURSOR_FLIP% <> 0 AND POINTER_ensure_flipped%(POINTER.CURSOR_ID%, POINTER.CURSOR_FLIP%, hwScale%) THEN
+                    hwImg& = POINTER.FLIP_IMG& : hwHx% = POINTER.FLIP_HX% : hwHy% = POINTER.FLIP_HY%
+                ELSE
+                    hwImg& = CURSORS(POINTER.CURSOR_ID%).hw_img& : hwHx% = CURSORS(POINTER.CURSOR_ID%).hw_hx% : hwHy% = CURSORS(POINTER.CURSOR_ID%).hw_hy%
+                END IF
+                ' _MOUSECURSOR recreates the OS cursor each call — only on change (id / scale / flip).
+                IF POINTER.PREV_HW_CURSOR_ID% <> POINTER.CURSOR_ID% OR POINTER.PREV_HW_CURSOR_SCALE% <> hwScale% OR POINTER.PREV_HW_CURSOR_FLIP% <> POINTER.CURSOR_FLIP% THEN
+                    _MOUSECURSOR hwImg&, (hwHx%, hwHy%)
                     POINTER.PREV_HW_CURSOR_ID%    = POINTER.CURSOR_ID%
                     POINTER.PREV_HW_CURSOR_SCALE% = hwScale%
+                    POINTER.PREV_HW_CURSOR_FLIP%  = POINTER.CURSOR_FLIP%
                     POINTER.PREV_SYS_CURSOR$      = "HWCUR"
                 END IF
                 POINTER.USING_SYSTEM_CURSOR% = TRUE
@@ -173,6 +184,66 @@ END SUB
 ' Renders one frame without the pointer, waits briefly so the
 ' user sees the pointer disappear, then shows the system cursor.
 '
+''
+' Ensure POINTER.FLIP_IMG holds a mirrored copy of a cursor's hardware image for a
+' given CURSOR_FLIP value (1=horiz, 2=vert, 3=both), pre-scaled to displayScale.
+' The OS hardware cursor (_MOUSECURSOR) takes one image, so a flipped corner cursor
+' needs a baked mirror — this caches it and rebuilds only when id / flip / scale change.
+' @return INTEGER TRUE when POINTER.FLIP_IMG is a valid, current mirror
+'
+FUNCTION POINTER_ensure_flipped% (idx AS INTEGER, flip AS INTEGER, sc AS INTEGER)
+    POINTER_ensure_flipped% = FALSE
+    IF idx% < 0 OR idx% > CURSOR_COUNT THEN EXIT FUNCTION
+    IF CURSORS(idx%).hw_img& >= -1 THEN EXIT FUNCTION ' no base hw image
+    IF flip% = 0 THEN EXIT FUNCTION
+
+    ' Cache hit?
+    IF POINTER.FLIP_IMG& < -1 AND POINTER.FLIP_IMG_ID% = idx% AND POINTER.FLIP_IMG_VAL% = flip% AND POINTER.FLIP_IMG_SCALE% = sc% THEN
+        POINTER_ensure_flipped% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    SAFE_FREEIMAGE POINTER.FLIP_IMG&
+    POINTER.FLIP_IMG& = 0
+
+    DIM w AS INTEGER, h AS INTEGER
+    w% = _WIDTH(CURSORS(idx%).hw_img&)
+    h% = _HEIGHT(CURSORS(idx%).hw_img&)
+    IF w% < 1 OR h% < 1 THEN EXIT FUNCTION
+
+    DIM nimg AS LONG, od AS LONG
+    nimg& = _NEWIMAGE(w%, h%, 32)
+    IF nimg& >= -1 THEN EXIT FUNCTION
+    od& = _DEST
+    _DEST nimg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    ' Mirror by reversing the source rectangle per axis (nearest-neighbour, hard pixels).
+    DIM sx1 AS INTEGER, sy1 AS INTEGER, sx2 AS INTEGER, sy2 AS INTEGER
+    sx1% = 0 : sy1% = 0 : sx2% = w% - 1 : sy2% = h% - 1
+    IF (flip% AND 1) THEN SWAP sx1%, sx2%
+    IF (flip% AND 2) THEN SWAP sy1%, sy2%
+    _PUTIMAGE (0, 0)-(w% - 1, h% - 1), CURSORS(idx%).hw_img&, nimg&, (sx1%, sy1%)-(sx2%, sy2%)
+    _DEST od&
+
+    POINTER.FLIP_IMG&       = nimg&
+    POINTER.FLIP_IMG_ID%    = idx%
+    POINTER.FLIP_IMG_VAL%   = flip%
+    POINTER.FLIP_IMG_SCALE% = sc%
+    ' Reflect the hotspot within bounds to match the mirrored image.
+    DIM hx AS INTEGER, hy AS INTEGER
+    hx% = CURSORS(idx%).hw_hx% : hy% = CURSORS(idx%).hw_hy%
+    IF (flip% AND 1) THEN hx% = (w% - 1) - hx%
+    IF (flip% AND 2) THEN hy% = (h% - 1) - hy%
+    IF hx% < 0 THEN hx% = 0
+    IF hy% < 0 THEN hy% = 0
+    IF hx% >= w% THEN hx% = w% - 1
+    IF hy% >= h% THEN hy% = h% - 1
+    POINTER.FLIP_HX% = hx%
+    POINTER.FLIP_HY% = hy%
+
+    POINTER_ensure_flipped% = TRUE
+END FUNCTION
+
 SUB POINTER_hide_for_dialog ()
     POINTER.HIDDEN = TRUE
     ' Render a frame so the custom pointer vanishes on-screen
