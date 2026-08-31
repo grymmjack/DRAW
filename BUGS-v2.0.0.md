@@ -375,7 +375,14 @@ Each verified against source. Severity in brackets.
   makes the batch emit ONE record. `PALETTE_LOADER_remap_to_palette_ex` now records only layers it
   actually changed (no phantom undo on activating palette ops over a conformant image). Verified by QA
   (`phantom-undo-*.sh`) + Rick.
-### BUG-33 [LOW] — dead-code `_DEST 0` in `IMGADJ.BM:1994` test helper (latent gotcha #1)
+### BUG-33 [LOW] — dead-code `_DEST 0` in `IMGADJ.BM:1994` test helper (latent gotcha #1) — **RESOLVED (2026-08-31), dead code removed at Rick's request**
+- The test helper `GJ_IMGADJ_CreateTestImageWithBlack` (DRAW's own `GUI/IMGADJ.BM`, not the
+  vendored submodule copy, which isn't in DRAW's include chain) had ZERO callers — verified by
+  invocation shape, case-insensitively. It ended with `_DEST 0`, which resets the render target
+  to the hardware screen (handle 0) instead of restoring the previous `_DEST` (gotcha #1/#3) — a
+  latent trap that would corrupt the active drawing destination mid-frame if ever wired up.
+- **Resolution:** deleted the dead function (no `DECLARE` to remove; QB64-PE auto-discovers). No
+  behavior change — it was unreachable.
 
 ### Round-2 UNVERIFIED / LOW (need a closer look, logged not fixed)
 - **BUG-20** [MED, UNVERIFIED] group membership restored via raw slot index not stable id (`LAYERS.BI:78`).
