@@ -380,7 +380,14 @@ Each verified against source. Severity in brackets.
 ### Round-2 UNVERIFIED / LOW (need a closer look, logged not fixed)
 - **BUG-20** [MED, UNVERIFIED] group membership restored via raw slot index not stable id (`LAYERS.BI:78`).
 - **BUG-21** [LOW, UNVERIFIED] AI-generate undo shares the per-frame `HISTORY_saved_this_frame%` guard.
-- **BUG-30** [LOW, UNVERIFIED] `GRID_snap%` single-axis uses gridWidth for both axes (`GRID.BM:341`).
+- **BUG-30** [LOW] `GRID_snap%` single-axis uses gridWidth for both axes (`GRID.BM:341`). — **RESOLVED (2026-08-31), dead code removed, disposition confirmed by Rick**
+  - Unreachable: the single-axis `GRID_snap%` FUNCTION had ZERO callers repo-wide (verified
+    case-insensitively for QB64 and by invocation shape `grid_snap%?\(` — the only reference was
+    the definition itself). It did hardcode `GRID.gridWidth%` for any axis, so a Y snap on a
+    non-square grid would have used the X step — but nothing called it. `GRID_snap_xy` is the sole
+    snap path and applies `gridWidth%`/`gridHeight%` per-axis correctly.
+  - **Resolution:** deleted the dead + latently-wrong function so it can't become a future footgun
+    if someone reached for `GRID_snap%(someY)`. No behavior change (it was unreachable).
 - Merge-Visible may composite+delete a visible group header (1px), orphaning its hidden children.
 - Nested ungroup skips `LAYERS_enforce_group_contiguity` → possible non-contiguous z-range.
 - Direct delete of a symbol parent leaves children with a dangling `symbolParentId&` (benign: ids
