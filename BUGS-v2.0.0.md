@@ -436,7 +436,18 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
 - `INSTANCE.BM:216-231`: mailbox cleared only for the initial id; a walk-claimed higher slot inherits a
   predecessor's undelivered layers; a fully-lost ~32-way race leaves an unowned id. **FIX PENDING**.
 
-### BUG-38 [LOW] — Canvas file-drop can do a non-undoable destructive stamp (`DROP.BM:214-224`) if `HISTORY_saved_this_frame%` already set.
+### BUG-38 [LOW] — Canvas file-drop can do a non-undoable destructive stamp (`DROP.BM:214-224`) if `HISTORY_saved_this_frame%` already set. — **FIXED (2026-08-31), confirmed by Rick**
+- `DROP_place_on_current_layer` recorded its full-layer before-snapshot only `IF NOT
+  HISTORY_saved_this_frame%`. That frame-flag is a dedupe for CONTINUOUS operations (a held
+  brush stroke saving once per gesture, not once per frame); a file-drop is a DISCRETE one-shot
+  action. If any unrelated action had already set the flag earlier in the same frame — e.g. a
+  brush stroke committing in `MOUSE_input_handler`, which runs BEFORE the drop is processed in
+  the main loop — the drop took the ELSE branch, freed the before-snapshot, and stamped the
+  pixels destructively with NO undo record. Timing-dependent, hence "occasionally."
+- **FIX (applied):** record the before-snapshot UNCONDITIONALLY, then set
+  `HISTORY_saved_this_frame% = TRUE` so nothing downstream double-saves on top. This mirrors the
+  new-layer path (`DROP_place_on_new_layer`), which already guards on `HISTORY_IN_PROGRESS%` —
+  the correct guard for a one-shot action (a drop is never inside a group transaction).
 ### BUG-39 [LOW, UNVERIFIED] — Paste/Send Layer stores `blendMode%` with no range clamp (`LAYERXFER.BM:120`).
 
 ### BUG-40 [HIGH] — Command Palette typing leaks into the global hotkey dispatcher
