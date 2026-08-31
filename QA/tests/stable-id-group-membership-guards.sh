@@ -42,35 +42,39 @@ assert_absent() {
 
 echo "=== Stable-id group/layer membership guards (BUG-20 + AI async) ==="
 
+# NOTE: patterns are whitespace-TOLERANT ( *=* / +AS +) on purpose — DEV/align-qb64pe.py
+# realigns the '=' and 'AS' columns, so any literal space count would false-fail the guard
+# after an align pass even though the code is unchanged. Match tokens, not indentation.
+
 # --- Shared helpers exist -----------------------------------------------------
 assert_grep  "BUG-20" "TOOLS/HISTORY.BM" 'FUNCTION HISTORY_parent_slot_to_id&' "slot->id helper present"
 assert_grep  "BUG-20" "TOOLS/HISTORY.BM" 'FUNCTION HISTORY_parent_id_to_slot%' "id->slot resolver present"
 
 # --- Record type carries the stable-id fields ---------------------------------
-assert_grep  "BUG-20" "TOOLS/HISTORY.BI" 'oldParentGroupId AS LONG' "record stores old parent as historyId&"
-assert_grep  "BUG-20" "TOOLS/HISTORY.BI" 'newParentGroupId AS LONG' "record stores new parent as historyId&"
-assert_grep  "BUG-20" "TOOLS/HISTORY.BI" 'parentGroupId  AS LONG'    "merge-visible backup stores parent as historyId&"
+assert_grep  "BUG-20" "TOOLS/HISTORY.BI" 'oldParentGroupId +AS +LONG' "record stores old parent as historyId&"
+assert_grep  "BUG-20" "TOOLS/HISTORY.BI" 'newParentGroupId +AS +LONG' "record stores new parent as historyId&"
+assert_grep  "BUG-20" "TOOLS/HISTORY.BI" 'parentGroupId +AS +LONG'    "merge-visible backup stores parent as historyId&"
 
 # --- Capture side stores the PARENT ID, not the slot --------------------------
-assert_grep  "BUG-20" "TOOLS/HISTORY.BM" 'oldParentGroupId& = HISTORY_parent_slot_to_id&' "layer add/delete capture stores parent id"
-assert_grep  "BUG-20" "TOOLS/HISTORY.BM" 'newParentGroupId& = HISTORY_parent_slot_to_id&' "group reparent stores new parent id"
+assert_grep  "BUG-20" "TOOLS/HISTORY.BM" 'oldParentGroupId& *= *HISTORY_parent_slot_to_id&' "layer add/delete capture stores parent id"
+assert_grep  "BUG-20" "TOOLS/HISTORY.BM" 'newParentGroupId& *= *HISTORY_parent_slot_to_id&' "group reparent stores new parent id"
 
 # --- Restore side RESOLVES the id back to a live slot -------------------------
 # Every parentGroupIdx% restore in HISTORY must go through the id resolver.
-assert_grep  "BUG-20" "TOOLS/HISTORY.BM" 'parentGroupIdx% = HISTORY_parent_id_to_slot%' "restore resolves parent by id"
+assert_grep  "BUG-20" "TOOLS/HISTORY.BM" 'parentGroupIdx% *= *HISTORY_parent_id_to_slot%' "restore resolves parent by id"
 # The old stale-slot restores must be GONE (these are the exact BUG-20 lines).
-assert_absent "BUG-20" "TOOLS/HISTORY.BM" 'parentGroupIdx% = HISTORY_RECORDS\(recordIndex%\)\.x1%' "no raw-slot restore in create_layer_from_record"
-assert_absent "BUG-20" "TOOLS/HISTORY.BM" 'parentGroupIdx% = HISTORY_RECORDS\(idx%\)\.(x1|y1)%'    "no raw-slot restore in reparent undo/redo"
+assert_absent "BUG-20" "TOOLS/HISTORY.BM" 'parentGroupIdx% *= *HISTORY_RECORDS\(recordIndex%\)\.x1%' "no raw-slot restore in create_layer_from_record"
+assert_absent "BUG-20" "TOOLS/HISTORY.BM" 'parentGroupIdx% *= *HISTORY_RECORDS\(idx%\)\.(x1|y1)%'    "no raw-slot restore in reparent undo/redo"
 
 # --- AI_JOB async target resolved by id, not the captured slot ----------------
-assert_grep  "AI-JOB"   "AI/AI.BI"        'layerId    AS LONG' "AI_JOB carries target historyId&"
-assert_grep  "AI-JOB"   "AI/AI-JOB.BM"    'lyr%      = HISTORY_find_layer_slot_by_id%\(AI_JOB\.layerId&\)' "finish resolves target by id"
-assert_absent "AI-JOB"  "AI/AI-JOB.BM"    'lyr%      = AI_JOB\.layerIdx' "finish no longer trusts the stale slot"
+assert_grep  "AI-JOB"   "AI/AI.BI"        'layerId +AS +LONG' "AI_JOB carries target historyId&"
+assert_grep  "AI-JOB"   "AI/AI-JOB.BM"    'lyr% *= *HISTORY_find_layer_slot_by_id%\(AI_JOB\.layerId&\)' "finish resolves target by id"
+assert_absent "AI-JOB"  "AI/AI-JOB.BM"    'lyr% *= *AI_JOB\.layerIdx' "finish no longer trusts the stale slot"
 
 # --- AI_BATCH group resolved by id per item -----------------------------------
-assert_grep  "AI-BATCH" "AI/AI.BI"        'groupId   AS LONG' "AI_BATCH carries group historyId&"
-assert_grep  "AI-BATCH" "AI/AI-BATCH.BM"  'batchGrpSlot% = HISTORY_find_layer_slot_by_id%\(AI_BATCH\.groupId&\)' "batch resolves group by id per item"
-assert_absent "AI-BATCH" "AI/AI-BATCH.BM" 'parentGroupIdx% = AI_BATCH\.groupIdx' "batch no longer parents by the stale slot"
+assert_grep  "AI-BATCH" "AI/AI.BI"        'groupId +AS +LONG' "AI_BATCH carries group historyId&"
+assert_grep  "AI-BATCH" "AI/AI-BATCH.BM"  'batchGrpSlot% *= *HISTORY_find_layer_slot_by_id%\(AI_BATCH\.groupId&\)' "batch resolves group by id per item"
+assert_absent "AI-BATCH" "AI/AI-BATCH.BM" 'parentGroupIdx% *= *AI_BATCH\.groupIdx' "batch no longer parents by the stale slot"
 
 echo "---------------------------------------------"
 if [ "$fails" -eq 0 ]; then
