@@ -683,7 +683,19 @@ Exporters, importers, effects math, fonts/TDF, PIXEL-COACH, sound. (Effects engi
   size (legacy-safe). **Bonus:** Wood was also rebuilt to actually read as wood — y-stretched
   domain-warp so grain flows along the board, a dark early-wood-line → pale late-wood colour ramp,
   and along-grain pore noise (replacing the old plasticky single-sine banding). Confirmed by Rick.
-### BUG-73 [LOW,UNVERIFIED] — Crystallize can leave opaque black fringe on alpha edges.
+### BUG-73 [LOW] — Crystallize can leave opaque black fringe on alpha edges. — **FIXED (2026-08-31), confirmed by Rick**
+- `IMAGE_ADJ_crystallize&` fills each output pixel with the full RGBA of its nearest Voronoi
+  seed, but the nearest-seed search is alpha-blind. Near an alpha edge a transparent-region pixel
+  could take its colour from a seed across the boundary — inheriting that seed's opaque alpha and
+  near-black edge RGB → an opaque black fringe bleeding into the transparent side, amplified to
+  cell size. (Mirror artifact: an opaque pixel whose nearest seed was transparent could pick up
+  the seed's black RGB.)
+- **FIX (applied):** decouple colour from alpha — take the crystal RGB from the seed but keep
+  THIS pixel's own original alpha, so the silhouette is untouched (no opaque fringe). And if the
+  chosen seed is itself fully transparent (RGB unreliable/black), keep this pixel's own colour so
+  no black leaks into opaque crystals. Fully-opaque images are byte-for-byte unchanged (alpha 255
+  in → 255 out), so only transparency-bearing layers are affected. General principle: a
+  point-sampling recolor filter on straight-alpha RGBA must recolor RGB but never move alpha.
 ### BUG-75 [LOW] — `MUSIC_play_random_ext` stops music if the extension has 0 tracks (`SOUND.BM:419`). — **FIXED (2026-08-30), confirmed by Rick**
 - Stop-before-you-can-replace ordering: the SUB `_SNDSTOP`/`_SNDCLOSE`d the current handle at the
   TOP, then scanned the MUSIC dir. A filter matching no files hit the `fileCount% = 0` guard and
