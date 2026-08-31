@@ -25,11 +25,16 @@ where a runtime repro confirmed the behavior.
 - **R** — verified working: texture clips to selection, shape effects radiate from it.
 - **I** — effect on a text layer auto-rasterizes first (existing HISTORY_KIND_RASTERIZE),
   grouped so a single Ctrl+Z restores the editable text.
-- **K** — shared 3-slot per-effect store (`FX_PRESET`), wired into 6 core effects; the rest
-  are a mechanical template extension.
+- **K** — shared 3-slot per-effect store (`FX_PRESET`), wired into **15 effects** (Crystallize,
+  Backlight, Wind, Grid, Add Noise, Extrude, Wave, Blur, Sharpen, Vignette, Twirl, Pinch,
+  Solarize, Glow, Emboss); load/store triplets audited; remaining niche effects are a
+  mechanical template extension.
 - **O** — Ctrl+F replays the K-wired effects silently from Last-Applied (no dialog).
-- **F/G/L** — shared `IMGADJ_apply_inout_mask` / `IMAGE_ADJ_apply_inout`; Wind (engine
-  `outerMode`), Wave Ripple (preview==apply), Extrude get INNER/OUTER toggles (default both on).
+- **F/G/L** — shared `IMGADJ_apply_inout_mask` / `IMAGE_ADJ_apply_inout`; Wind, Wave Ripple
+  (preview==apply), Extrude get INNER/OUTER toggles (default both on). **G also needed a real
+  wind-engine fix** — the streak loop pushed transparent pixels outward and never spilled the
+  shape's colour; now carries max-alpha(cur,prev) downwind (outer spill 0px→294px). Surfaced by
+  the final regression, which the shallower effect-wind.sh had masked.
 
 Also: corrected the QA harness Effects-menu offset (41→65px, stale since the R-menu change),
 which had been silently opening the wrong effect for every effect test.
@@ -81,6 +86,11 @@ which had been silently opening the wrong effect for every effect test.
   or color-only can omit it. Preserve current default behavior per effect.
 
 - 🏗 **BUG-G — Wind Inside/Outside** — instance of BUG-F (Effects → Stylize → Wind).
+  Needed a real engine fix beyond the shared inner/outer mask: the streak loop pushed
+  each pixel's own colour downwind, but the silhouette edge is detected by the transparent
+  pixel just outside the shape, so wind smeared transparency and never spilled colour past
+  the edge. Now carries the more-opaque of the two edge pixels downwind (max-alpha(cur,prev)).
+  QA: outer spill 0px → 294px (effect-inout-visual), edge streak 7px → 601px (effect-wind).
 
 - 🏗 **BUG-I — Running an effect on a text layer must rasterize it first.** Text layers are
   non-destructive (re-rendered from TEXT_LAYER_DATA every frame), so a pixel effect either
