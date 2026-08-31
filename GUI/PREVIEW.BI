@@ -41,6 +41,13 @@ TYPE PREVIEW_OBJ
 
     ' Follow-pointer magnifier mode
     followPointer AS INTEGER          ' TRUE = center on mouse position
+    ' BUG-47: the follow center is frozen at the last canvas position the cursor
+    ' actually hovered (REGION_CANVAS). While the cursor is over the preview
+    ' window (or any chrome), the magnifier must NOT keep re-centering onto the
+    ' coord under itself — otherwise the region you reached in to Alt+click slides
+    ' away and the pick samples a different pixel than the magnifier is showing.
+    followWorldX AS INTEGER           ' last on-canvas magnifier center (X)
+    followWorldY AS INTEGER           ' last on-canvas magnifier center (Y)
 
     ' Independent pan/zoom when followPointer = FALSE
     panX    AS SINGLE

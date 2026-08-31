@@ -495,7 +495,20 @@ Note: multi-instance is an advanced, off-by-default feature (Settings → Allow 
   skipped rather than overwriting earlier slots, and a non-blocking toast reports it
   (`CRASH.NOTIFY_MSG$`): "Loaded into slots B-30; N image(s) didn't fit and were skipped
   (earlier slots untouched)." Confirmed by Rick.
-### BUG-47 [LOW,UNVERIFIED] — Preview follow-mode Alt+click samples a stale canvas coord (`PREVIEW.BM:1617`).
+### BUG-47 [LOW] — Preview follow-mode Alt+click samples a stale canvas coord (`PREVIEW.BM:1617`). — **FIXED (2026-08-31), confirmed by Rick**
+- Follow mode centered the magnifier on `MOUSE.UNSNAPPED_X/Y`, recomputed live every frame from
+  the raw cursor with no notion of what it was over. To Alt+click a magnified pixel you must move
+  the cursor onto the preview window — and that motion dragged the follow-center onto the canvas
+  coord *under the preview*, so the displayed region AND the sampled pixel slid away from what you
+  were inspecting. (The scene cache could also hold the magnifier frozen at the last canvas view
+  while the live coord kept moving — same mismatch either way.)
+- **FIX (applied):** store the follow center in `PREVIEW.followWorldX/Y` (`GUI/PREVIEW.BI`) and
+  update it in `PREVIEW_render` ONLY while `REGION_hit_test%(rawX,rawY) = REGION_CANVAS` — i.e.
+  while the cursor is genuinely over the canvas. The instant it crosses onto the preview (or any
+  chrome) the center freezes at its last on-canvas value. Both the render and `PREVIEW_pick_color_at`
+  now read that one stored center instead of the live cursor coord, so the magnifier holds still
+  when you reach in to click it and the Alt+click samples exactly the pixel displayed. Invariant:
+  "you pick the pixel you see." Fields init to 0,0 (bounds-safe until the first on-canvas hover).
 
 ### BUG-48 [MED / HIGH-UX] — Canvas pan leaks through Drawer / Edit Bar / Adv Bar / Char Map / palette
 - `MOUSE_handle_panning` (`MOUSE.BM:1390-1424`) uses hand-maintained GUI-exclusion lists that OMIT
