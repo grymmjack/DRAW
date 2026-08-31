@@ -606,7 +606,19 @@ Exporters, importers, effects math, fonts/TDF, PIXEL-COACH, sound. (Effects engi
   the canonical background — exporting the selection SILHOUETTE. A true skip/space cell would
   require reworking the half-block serializers (disproportionate for a LOW bug). Rectangular
   marquee export unchanged. Confirmed by Rick.
-### BUG-64 [LOW] — QB64 export copies fonts via Unix `cp` (`FILE-QB64.BM:582`) — breaks on Windows.
+### BUG-64 [LOW] — QB64 export copies fonts via Unix `cp` (`FILE-QB64.BM:582`) — breaks on Windows. — **FIXED (2026-08-31), verified on real Windows**
+- The font-copy for text layers ran `SHELL _HIDE "cp " + src + " " + dst`. `cp` is a Unix
+  command; a clean Windows box has no `cp` (the shell builtin is `copy`), so under DRAW's global
+  `ON ERROR … RESUME NEXT` the copy failed silently, the font never reached the exported project's
+  `_ASSETS` folder, and the generated program's `_LOADFONT` targeted a missing file.
+- **FIX (applied):** replaced the `SHELL "cp"` with a call to the existing native
+  `PATHS_copy_file src$, dst$` (pure QB64 `GET`/`PUT` binary copy). Zero platform branches, no
+  shell, no quote-escaping pitfalls, handles spaces in paths — identical on Linux/macOS/Windows.
+- **Verified on real Windows** (ThinkPad, Windows 10, QB64 v4.6.0, over SSH): isolated the exact
+  copy path into a headless test. With Git-for-Windows `cp.exe` stripped from PATH (emulating a
+  real end-user), the OLD `SHELL "cp"` produced no destination file (bug reproduces) while the
+  native copy produced a byte-identical file (fix confirmed). Dev boxes hid the bug because Git
+  for Windows puts `cp.exe` on PATH.
 ### BUG-69 [MED,UNVERIFIED] — Aseprite compressed-cel `expected_size` LONG overflow (adversarial).
 ### BUG-71 [MED] — procedural-texture effects (wood/marble/…) preview phase ≠ applied — **FIXED (2026-08-29), confirmed by Rick**
 - Each generator (Wood/Marble/Terrain/Clouds/Brick) computed the pattern in its OWN buffer's
