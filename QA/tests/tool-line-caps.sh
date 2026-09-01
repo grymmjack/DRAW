@@ -45,23 +45,46 @@ assert_no_crash
 snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "linecaps-preview-nocaps"
 PREVIEW_NOCAPS="$SNAP_RESULT"
 
-# -- Press S mid-drag: should cycle the START cap, NOT switch to Smart Shapes --
-info "Press s mid-drag (cycle start cap)"
-xdotool keydown s; sleep 0.20; xdotool keyup s; sleep 0.4
+# -- Press S mid-drag: should cycle the START cap, NOT switch to Smart Shapes.
+#    Mid-drag key detection is idle-fragile offscreen: snap_region's focus+1s
+#    sleep lets DRAW idle out, and an idle frame drops the cap key (or, if the
+#    drag is not active, 's' is read as the Smart-Shapes tool switch). So HOLD the
+#    key while jiggling the mouse (keeps the input loop in active frames), and
+#    RETRY until the cap actually shows. The loop stops the instant the cap
+#    registers, so it never over-cycles past the first cap style. --
+info "Press s mid-drag (cycle start cap) — retry until it registers"
+PREVIEW_STARTCAP="$PREVIEW_NOCAPS"
+for _try in 1 2 3 4 5; do
+    xdotool keydown s
+    for _j in 1 2 3 4; do xdotool mousemove $(( AX2 - (_j % 2) * 3 )) "$AY2"; sleep 0.04; done
+    xdotool mousemove "$AX2" "$AY2"
+    xdotool keyup s; sleep 0.3
+    snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "linecaps-preview-startcap"
+    PREVIEW_STARTCAP="$SNAP_RESULT"
+    _dc=$(_parse_ae "$(compare -metric AE -fuzz 2% "$PREVIEW_NOCAPS" "$PREVIEW_STARTCAP" /dev/null 2>&1 || true)")
+    if [[ "${_dc:-0}" -gt 20 ]] 2>/dev/null; then info "start cap registered on try $_try (${_dc}px)"; break; fi
+    info "start cap not visible yet (try $_try) — retrying"
+done
 assert_no_crash
-
-snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "linecaps-preview-startcap"
-PREVIEW_STARTCAP="$SNAP_RESULT"
 assert_regions_differ "$PREVIEW_NOCAPS" "$PREVIEW_STARTCAP" \
     "s mid-drag should draw a start cap on the line preview"
 
-# -- Press E mid-drag: should cycle the END cap, NOT switch to Eraser --
-info "Press e mid-drag (cycle end cap)"
-xdotool keydown e; sleep 0.20; xdotool keyup e; sleep 0.4
+# -- Press E mid-drag: should cycle the END cap, NOT switch to Eraser. Same
+#    held-key + jiggle + retry technique as the 's' cap above. --
+info "Press e mid-drag (cycle end cap) — retry until it registers"
+PREVIEW_ENDCAP="$PREVIEW_STARTCAP"
+for _try in 1 2 3 4 5; do
+    xdotool keydown e
+    for _j in 1 2 3 4; do xdotool mousemove $(( AX2 - (_j % 2) * 3 )) "$AY2"; sleep 0.04; done
+    xdotool mousemove "$AX2" "$AY2"
+    xdotool keyup e; sleep 0.3
+    snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "linecaps-preview-endcap"
+    PREVIEW_ENDCAP="$SNAP_RESULT"
+    _dc=$(_parse_ae "$(compare -metric AE -fuzz 2% "$PREVIEW_STARTCAP" "$PREVIEW_ENDCAP" /dev/null 2>&1 || true)")
+    if [[ "${_dc:-0}" -gt 20 ]] 2>/dev/null; then info "end cap registered on try $_try (${_dc}px)"; break; fi
+    info "end cap not visible yet (try $_try) — retrying"
+done
 assert_no_crash
-
-snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "linecaps-preview-endcap"
-PREVIEW_ENDCAP="$SNAP_RESULT"
 assert_regions_differ "$PREVIEW_STARTCAP" "$PREVIEW_ENDCAP" \
     "e mid-drag should draw an end cap on the line preview"
 

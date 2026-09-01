@@ -26,7 +26,10 @@ key grave
 wait_for 0.3 "Content drawn"
 assert_no_crash
 
-BLK_X=$(( CANVAS_CX - 60 )); BLK_Y=$(( CANVAS_CY + 22 )); BLK_W=120; BLK_H=16
+# Tight CORE sample of the black stroke (drawn at CANVAS_CY+30, ~7px tall). The
+# old 120x16 band caught the stroke's AA edges + rounded ends + surrounding canvas,
+# which brighten and lifted the mean to ~16; the pure-black core stays 0.
+BLK_X=$(( CANVAS_CX - 40 )); BLK_Y=$(( CANVAS_CY + 28 )); BLK_W=80; BLK_H=4
 BLU_X=$(( CANVAS_CX - 60 )); BLU_Y=$(( CANVAS_CY - 38 )); BLU_W=120; BLU_H=16
 
 park_mouse

@@ -23,24 +23,35 @@ wait_for 0.2 "Brush size 6+"
 key apostrophe
 wait_for 0.3 "Grid on"
 
+# -- Verify via the STATUS BAR "G:NxN" readout, not the canvas: the grid overlay
+#    is not visibly rendered over the transparent QA canvas at 100%, so a canvas
+#    diff can't see a size change. The status bar shows the live grid size. --
+SB_Y=$(( VIEWPORT_H - STATUS_H ))
 park_mouse
-snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "grid-default-size"
+snap_region 100 "$SB_Y" 260 "$STATUS_H" "grid-default-size"
 DEFAULT_GRID="$SNAP_RESULT"
 assert_no_crash
 
-# -- Ctrl+Shift+/ = set grid size from brush size, enable snap+center align --
-# Note: keycode is `?` (63) which is Shift+/ on US layouts. The DRAW dispatcher
-# binding uses keycode 63 + MOD_CTRL|MOD_SHIFT — xdotool's "ctrl+shift+slash"
-# sends Ctrl held + Shift held + / pressed, which lands on keycode 63 in X.
-info "Ctrl+Shift+/ (match grid to brush size)"
-key ctrl+shift+slash
-wait_for 0.5 "Grid resized to brush size"
+# -- Invoke action 907 "Make Grid Match Brush Size" via the command palette.
+#    Its Ctrl+Shift+/ keychord binds _KEYHIT keycode 63 (`?`), which is unreliable
+#    for Ctrl combos on Linux/SDL2 (project gotcha #6) and does not dispatch under
+#    xdotool/Xvfb — every spelling (ctrl+shift+slash / ctrl+shift+question /
+#    ctrl+question) is dropped. The palette exercises the same action reliably, so
+#    the test guards the FEATURE; the keychord path can't be driven offscreen. --
+info "Make Grid Match Brush Size (action 907, via command palette)"
+key shift+slash
+wait_for 0.5 "Command palette open"
+type_text "Make Grid Match Brush"
+wait_for 0.5 "Filtered"
+key Return
+wait_for 0.6 "Grid resized to brush size"
 park_mouse
-snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "grid-matched"
+snap_region 100 "$SB_Y" 260 "$STATUS_H" "grid-matched"
 MATCHED="$SNAP_RESULT"
-assert_regions_differ "$DEFAULT_GRID" "$MATCHED" "Ctrl+Shift+/ should resize grid to brush size"
+assert_regions_differ "$DEFAULT_GRID" "$MATCHED" \
+    "Make Grid Match Brush Size should change the grid size (status bar G:NxN)"
 
-# -- Cleanup: reset grid + disable --
+# -- Cleanup: disable grid --
 key apostrophe
 wait_for 0.3 "Grid off"
 
