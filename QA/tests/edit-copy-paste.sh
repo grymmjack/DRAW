@@ -17,6 +17,15 @@ wait_for 0.2 "Brush size increased"
 key grave
 wait_for 0.1 "Pointer arrow hidden"
 
+# -- Blank baseline: the empty (transparent) canvas centre, before any content.
+#    We prove the paste populated the NEW layer by later hiding the Background
+#    and showing the region differs from this blank — an in-place whole-canvas
+#    paste sits exactly over the identical original showing through, so the only
+#    reliable proof is "content is on the new layer when Background is hidden". --
+park_mouse
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "copy-paste-blank"
+BLANK="$SNAP_RESULT"
+
 # -- Draw a brush stroke to have content to copy --
 info "Drawing brush stroke for copy source"
 drag $(( CANVAS_CX - 20 )) $CANVAS_CY $(( CANVAS_CX + 20 )) $CANVAS_CY
@@ -35,32 +44,41 @@ key ctrl+c
 wait_for 0.3 "Content copied"
 assert_no_crash
 
-# -- Add new layer --
+# -- Add new layer (goes on TOP: Layer 2 = row 0, Background = row 1) --
 info "New layer (Ctrl+Shift+N)"
 key ctrl+shift+n
 wait_for 0.5 "New layer created"
 assert_no_crash
 
-# -- Snap canvas before paste --
-park_mouse
-snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "copy-paste-before"
-BEFORE_PASTE="$SNAP_RESULT"
-
-# -- Paste --
-info "Paste (Ctrl+V)"
+# -- Paste onto the NEW layer while it is active (do this BEFORE touching the
+#    layer panel — clicking the panel first makes an in-place paste land nothing
+#    on the new layer). Commit the float by switching tools (key b →
+#    apply-transform), the proven paste-commit path (seam-paste-then-switch). --
+info "Paste (Ctrl+V) onto the new layer, commit via tool-switch"
 key ctrl+v
-wait_for 0.5 "Content pasted"
+wait_for 0.5 "Content pasted (floating)"
 assert_no_crash
+key b
+wait_for 0.4 "Float committed onto the new layer"
 
-# -- Snap canvas after paste --
+# -- Now hide the Background (row 1 eye @ (7,46); harness-calibration:
+#    ROW_N_Y = 26 + N*20, EYE_X = LP_X+7 = 7). The identical original that was
+#    showing through disappears; if the paste really populated the new layer the
+#    stroke REMAINS, so the region differs from the blank baseline. If paste had
+#    placed nothing, the canvas would go blank == baseline and this fails. --
+info "Hide Background (row 1 eye) — the pasted content must remain on the new layer"
+click 7 46
+wait_for 0.4 "Background hidden"
 park_mouse
-snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "copy-paste-after"
-AFTER_PASTE="$SNAP_RESULT"
-assert_regions_differ "$BEFORE_PASTE" "$AFTER_PASTE" "Paste should place content on new layer"
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "copy-paste-layer2only"
+LAYER2_ONLY="$SNAP_RESULT"
+assert_regions_differ "$BLANK" "$LAYER2_ONLY" "Paste should place content on the new layer (visible with Background hidden)"
 screenshot "copy-paste-result"
 
-# -- Clean up: undo paste, undo new layer, deselect, undo stroke --
-info "Cleaning up"
+# -- Restore Background visibility, then clean up --
+info "Cleaning up (restore Background, undo)"
+click 7 46
+wait_for 0.3 "Background shown"
 key ctrl+z
 wait_for 0.3 "Undo paste"
 key ctrl+z

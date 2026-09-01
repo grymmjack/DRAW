@@ -31,21 +31,30 @@ drag $(( CANVAS_CX - 15 )) $(( CANVAS_CY + 15 )) $(( CANVAS_CX + 15 )) $(( CANVA
 wait_for 0.3 "Filled area drawn"
 assert_no_crash
 
-# -- Select All via Ctrl+A (more reliable than drag-based marquee via XTEST) --
-info "Selecting entire canvas with Ctrl+A"
+# -- Make a DEFINED marquee rectangle in the centre (NOT a whole-canvas Ctrl+A).
+#    The stroke dialog defaults to TYPE=OUTSIDE, so a whole-canvas selection would
+#    stroke OUTSIDE the canvas (invisible); a defined interior rectangle strokes a
+#    clearly on-canvas outline we can capture. --
+info "Select a defined rectangle with the Marquee tool"
 key Escape
 wait_for 0.2 "Clear any active state"
-wake_draw
-key ctrl+a
-wait_for 0.5 "Select All applied"
+canvas_focus m
+wait_for 0.3 "Marquee tool"
+key grave
+drag $(( CANVAS_CX - 45 )) $(( CANVAS_CY - 32 )) $(( CANVAS_CX + 45 )) $(( CANVAS_CY + 32 ))
+wait_for 0.4 "Marquee selection made"
 assert_no_crash
 
-# -- Snap before stroke selection --
+# -- Snap before stroke selection (the centre region that the outline will cross) --
 park_mouse
-snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "stroke-sel-before"
+STROKE_X=$(( CANVAS_CX - 60 )); STROKE_Y=$(( CANVAS_CY - 45 )); STROKE_W=120; STROKE_H=90
+snap_region "$STROKE_X" "$STROKE_Y" "$STROKE_W" "$STROKE_H" "stroke-sel-before"
 BEFORE="$SNAP_RESULT"
 
-# -- Apply stroke selection via Command Palette --
+# -- Apply stroke selection via Command Palette, then in the STROKE SELECTION
+#    dialog set TYPE=ON (draw on the selection edge, on-canvas) and bump the WIDTH
+#    for a clear line, then OK. Dialog buttons (viewport): ON @ (480,261),
+#    WIDTH + @ (507,302), OK @ (414,337). --
 info "Opening Command Palette and invoking Stroke Selection"
 key shift+slash
 wait_for 0.5 "Command palette opened"
@@ -53,13 +62,20 @@ type_text "Stroke Selection"
 wait_for 0.5 "Typed stroke"
 key Return
 wait_for 1.0 "Stroke dialog opened"
-# The stroke selection shows a modal dialog — press Enter to confirm defaults
-key Return
-wait_for 1.0 "Stroke selection applied"
+click 480 261
+wait_for 0.2 "TYPE = ON"
+click 507 302
+wait_for 0.1 "Width +"
+click 507 302
+wait_for 0.1 "Width +"
+click 507 302
+wait_for 0.2 "Width bumped"
+click 414 337
+wait_for 1.0 "Stroke selection applied (OK)"
 assert_no_crash
 
 park_mouse
-snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "stroke-sel-after"
+snap_region "$STROKE_X" "$STROKE_Y" "$STROKE_W" "$STROKE_H" "stroke-sel-after"
 AFTER="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER" "Stroke selection should draw outline on canvas"
 screenshot "after-stroke-selection"
