@@ -34,8 +34,8 @@ DIM SHARED IMGDLG_RESET_CLICKED AS INTEGER
 ' it). CLIP is on by default; SEL_AS_SHAPE flips edge effects to selection-as-base.
 DIM SHARED EFFECT_CLIP_TO_SEL  AS INTEGER
 DIM SHARED EFFECT_SEL_AS_SHAPE AS INTEGER
-EFFECT_CLIP_TO_SEL  = -1 ' TRUE
-EFFECT_SEL_AS_SHAPE = 0  ' FALSE
+EFFECT_CLIP_TO_SEL  = -1     ' TRUE
+EFFECT_SEL_AS_SHAPE = 0      ' FALSE
 
 ' Native canvas-space top-left of the loupe preview crop, published by
 ' IMAGE_ADJ_update_loupe so the shared preview/clip code can map loupe pixels
@@ -129,7 +129,7 @@ DIM SHARED FX_IN_BLEND        AS INTEGER
 CONST FX_SLOT_DEFAULT = 0
 CONST FX_SLOT_LASTSET = 1
 CONST FX_SLOT_APPLIED = 2
-CONST FX_ACTION_BASE  = 2001            ' effect action ids run 2001..2300
+CONST FX_ACTION_BASE  = 2001 ' effect action ids run 2001..2300
 CONST FX_ACTION_SPAN  = 300
 DIM SHARED FX_PRESET(0 TO FX_ACTION_SPAN - 1, 0 TO 2, 0 TO 7) AS INTEGER
 DIM SHARED FX_PRESET_HAS(0 TO FX_ACTION_SPAN - 1, 0 TO 2)     AS INTEGER

@@ -76,9 +76,9 @@ DIM SHARED TEXT_UNDO_SEL_END(0 TO TEXT_UNDO_MAX - 1) AS INTEGER
 DIM SHARED TEXT_UNDO_SEL_ACTIVE(0 TO TEXT_UNDO_MAX - 1) AS INTEGER
 DIM SHARED TEXT_UNDO_CM_COL(0 TO TEXT_UNDO_MAX - 1) AS INTEGER
 DIM SHARED TEXT_UNDO_CM_ROW(0 TO TEXT_UNDO_MAX - 1) AS INTEGER
-DIM SHARED TEXT_UNDO_COUNT    AS INTEGER                     ' Number of states on stack
-DIM SHARED TEXT_UNDO_POS      AS INTEGER                     ' Current position in stack (0-based)
-DIM SHARED TEXT_UNDO_SUPPRESS AS INTEGER                     ' When TRUE, TEXT_UNDO_push is suppressed (for batch ops like paste)
+DIM SHARED TEXT_UNDO_COUNT       AS INTEGER                  ' Number of states on stack
+DIM SHARED TEXT_UNDO_POS         AS INTEGER                  ' Current position in stack (0-based)
+DIM SHARED TEXT_UNDO_SUPPRESS    AS INTEGER                  ' When TRUE, TEXT_UNDO_push is suppressed (for batch ops like paste)
 DIM SHARED TEXT_UNDO_LAST_PUSH_T AS DOUBLE                   ' TIMER of the last push, for coalescing multi-attr changes (BUG-E)
 
 
