@@ -5,9 +5,24 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.0.1
+Current release: v2.0.2
 
 ![DRAW GUI from v1.1.0](./GUI.png)
+
+## New in 2.0.2
+
+An effects-cluster polish pass — the whole EFFECTS pipeline got the fit-and-finish it
+was missing, plus a batch of text, cursor, and drawing fixes from field testing.
+
+- **Effects remember their settings** — every effect keeps three parameter sets: **Defaults** (RESET restores them), **Last Set** (restored when you reopen the dialog), and **Last Applied** (**Redo Last Effect / `Ctrl+F`** re-applies it silently, **Recall / `Ctrl+Alt+F`** reopens it pre-filled).
+- **Inside / Outside masking** — Wind, Wave Ripple, and Extrude expose `[x] Inside` `[x] Outside` toggles so an effect can clip to the silhouette, spill only outside it, or cover the whole layer; the dialog preview now matches the applied result.
+- **Synthwave Render Grid** — Grid → Perspective is now a true 1980s vapor-synth floor grid (a wide projected plane converging to a vanishing point) with **ZOOM / ELEVATION / ROTATION** camera sliders, instead of the old truncated horizon box.
+- **Effect fixes** — Backlight now applies (not just previews); Wind spills the shape's colour past its edge; Crystallize/Add Noise previews are anchored correctly at every zoom; running an effect on a **text layer auto-rasterizes it first** (a single `Ctrl+Z` restores the editable text).
+- **Angle dials** — double-click any effect angle dial to type an exact value instead of only dragging.
+- **Selection controls moved** — "Clip to Selection" and "Selection as Shape" now live in the **Effects** menu (clearly labelled), and shape/texture effects honour an active selection.
+- **Text tool** — per-character selection follows a raised/lowered baseline; underline and strikethrough scale with font size; a font change undoes cleanly and stays in sync when you re-edit.
+- **Cursor & marquee** — resize-corner cursors flip correctly on the right-side corners; hold **`Space`** while dragging out a marquee to reposition it without resizing.
+- **Apron drawing** — a stroke started on the apron (the area just outside the canvas) now begins cleanly at the canvas edge instead of being dropped.
 
 ## New in 2.0.1
 

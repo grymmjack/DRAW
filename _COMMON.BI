@@ -29,7 +29,7 @@ $END IF
 CONST KEY_CAPSLOCK& = 100301                               ' Not supported on Linux/macOS
 
 ' Application version
-CONST APP_VERSION$ = "2.0.1"
+CONST APP_VERSION$ = "2.0.2"
 
 ' Maximum number of layer slots (increased from 64 to support groups)
 CONST MAX_LAYERS = 128

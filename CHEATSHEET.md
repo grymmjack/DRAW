@@ -957,6 +957,7 @@ The Marquee (`M`) creates rectangular selections:
 | **Drag corner handle** | Resize selection from corner |
 | **Drag full edge** | Resize selection from that edge (grab anywhere along the full edge, not just the corner handle) |
 | **Drag inside** | Move selection |
+| **Hold `Space` while dragging out** | Reposition the in-progress selection without resizing — parity with Rect/Ellipse Space-move; works for all marquee variants (rectangle / ellipse / freehand / polygon) |
 
 ### Magic Wand Tool
 
