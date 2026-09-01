@@ -60,21 +60,33 @@ assert_regions_differ "$BLANK" "$LOADED" \
     "Launching with a .draw argument should load its artwork onto the canvas"
 screenshot "roundtrip-loaded"
 
+# The layers panel is fixed-position (zoom/pan-independent), so we verify the
+# persisted edit there. The canvas view can't be used: the sample loads zoomed
+# and Ctrl+0 doesn't reproduce an identical pan on reload, so a canvas diff is
+# dominated by view drift rather than the edit. Panel rows: ROW_N_Y = 26 + N*20. --
+LP_SNAP_X=0; LP_SNAP_Y=16; LP_SNAP_W=$LAYER_PANEL_W; LP_SNAP_H=90
+park_mouse
+snap_region "$LP_SNAP_X" "$LP_SNAP_Y" "$LP_SNAP_W" "$LP_SNAP_H" "rt-panel-loaded"
+PANEL_LOADED="$SNAP_RESULT"
+
 # ---------------------------------------------------------------------------
-# 2. Edit the canvas
-# ---------------------------------------------------------------------------
-canvas_focus b
-wait_for 0.3 "Brush tool ready"
-key grave
-wait_for 0.1 "Pointer arrow hidden"
-drag $(( CANVAS_CX - 35 )) $(( CANVAS_CY - 25 )) $(( CANVAS_CX + 35 )) $(( CANVAS_CY + 25 ))
-wait_for 0.4 "Edit stroke drawn"
+# 2. Edit the document — add a new layer (Ctrl+Shift+N). A brush stroke is a poor
+#    edit here: the sample loads zoomed with LOCKED layers, so a stroke at the
+#    default CANVAS_CX/CY neither lands nor commits, leaving the bytes identical.
+#    An eye-click is fragile too (the top row is a GROUP; its eye is shifted by the
+#    disclosure triangle). Adding a layer is coord-free, is a real persisted change
+#    (the .draw stores the layer set), and inserts a new row 0 in the panel. --
+info "Edit: add a layer (Ctrl+Shift+N) — a persisted, coord-free document change"
+wake_draw
+key ctrl+shift+n
+wait_for 0.6 "New layer added (new row 0)"
 assert_no_crash
 
 park_mouse
-snap_region "$RT_SNAP_X" "$RT_SNAP_Y" "$RT_SNAP_W" "$RT_SNAP_H" "rt-edited"
-EDITED="$SNAP_RESULT"
-assert_regions_differ "$LOADED" "$EDITED" "Brush stroke should change the loaded artwork"
+snap_region "$LP_SNAP_X" "$LP_SNAP_Y" "$LP_SNAP_W" "$LP_SNAP_H" "rt-panel-edited"
+PANEL_EDITED="$SNAP_RESULT"
+assert_regions_differ "$PANEL_LOADED" "$PANEL_EDITED" \
+    "Adding a layer should change the layers panel (new row)"
 
 # ---------------------------------------------------------------------------
 # 3. Ctrl+S — a known .draw path saves silently, no dialog
@@ -93,14 +105,14 @@ else
     fail "Ctrl+S did not rewrite $RT_FILE — file is byte-identical after editing and saving"
 fi
 
-# A save dialog would have covered the canvas; confirm we are still on it.
+# A save dialog would have covered the panel; confirm it is unchanged (silent save).
 park_mouse
-snap_region "$RT_SNAP_X" "$RT_SNAP_Y" "$RT_SNAP_W" "$RT_SNAP_H" "rt-after-save"
-assert_regions_same "$EDITED" "$SNAP_RESULT" \
-    "Ctrl+S on a known .draw path should save silently (no dialog over the canvas)"
+snap_region "$LP_SNAP_X" "$LP_SNAP_Y" "$LP_SNAP_W" "$LP_SNAP_H" "rt-panel-after-save"
+assert_regions_same "$PANEL_EDITED" "$SNAP_RESULT" \
+    "Ctrl+S on a known .draw path should save silently (no dialog over the workspace)"
 
 # ---------------------------------------------------------------------------
-# 4. Reload and compare
+# 4. Reload and compare — the persisted added layer must return
 # ---------------------------------------------------------------------------
 info "Relaunching to verify the edit persisted"
 draw_quit
@@ -109,9 +121,9 @@ wait_for 1.5 "Project reloaded"
 assert_no_crash
 
 park_mouse
-snap_region "$RT_SNAP_X" "$RT_SNAP_Y" "$RT_SNAP_W" "$RT_SNAP_H" "rt-reloaded"
-assert_regions_same "$EDITED" "$SNAP_RESULT" \
-    "Reloading the saved .draw should reproduce the edited canvas"
+snap_region "$LP_SNAP_X" "$LP_SNAP_Y" "$LP_SNAP_W" "$LP_SNAP_H" "rt-panel-reloaded"
+assert_regions_same "$PANEL_EDITED" "$SNAP_RESULT" \
+    "Reloading the saved .draw should reproduce the edit (the added layer persists)"
 screenshot "roundtrip-reloaded"
 
 # ---------------------------------------------------------------------------

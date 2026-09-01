@@ -47,7 +47,14 @@ assert_no_crash
 # Default Colors had won, the ants would remain.
 # ---------------------------------------------------------------------------
 info "B — Ctrl+D must Deselect (not Default Colors) — double-mapping seam"
-CN_X=314; CN_Y=135; CN_W=32; CN_H=32     # canvas top-left corner (marquee draws here)
+# The select-all marching-ants overlay renders reliably with a SELECTION tool
+# active (marginal under the brush), so drive this seam on the Marquee tool.
+canvas_focus m
+wait_for 0.3 "marquee tool"
+key grave
+# Canvas top-left corner — derive from live geometry (the canvas is centered),
+# never magic numbers; the perimeter ants draw exactly here.
+CN_X=$CANVAS_OFFSET_X; CN_Y=$CANVAS_OFFSET_Y; CN_W=32; CN_H=32
 park_mouse
 snap_region $CN_X $CN_Y $CN_W $CN_H "seam-corner-before"
 CORNER_BEFORE="$SNAP_RESULT"
@@ -70,6 +77,8 @@ assert_no_crash
 # and snap again: the cursor overlay must change.
 # ---------------------------------------------------------------------------
 info "C — Backtick toggles the brush cursor overlay"
+canvas_focus b
+wait_for 0.3 "back to brush tool"
 hover $CEN_X $CEN_Y
 wait_for 0.3 "cursor shown"
 snap_region $(( CEN_X - 20 )) $(( CEN_Y - 20 )) 40 40 "seam-cursor-on"

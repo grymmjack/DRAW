@@ -41,12 +41,14 @@ snap_region $CS_X $CS_Y $CS_W $CS_H "cheatsheet-closed"
 CLOSED="$SNAP_RESULT"
 assert_no_crash
 
-# -- Open via Help menu > CHEAT SHEET... (viewport coords: Help@387,6;
-#    the dropdown's 2nd item sits at ~440,37). --
+# -- Open via Help menu > CHEAT SHEET... The HELP root is RIGHT-ALIGNED to the
+#    menu-bar edge (GUI/MENUBAR.BM: barX+barW-pw-PAD), so it sits at viewport
+#    x~429, NOT the sequential ~387 (which now lands on EFFECTS). The dropdown
+#    opens at x~420..570; CHEAT SHEET... is the 2nd item at y~37. --
 info "Help menu > Cheat Sheet"
-click 387 6
+click 429 6
 wait_for 0.5 "Help menu open"
-click 440 37
+click 455 37
 wait_for 0.6 "Cheat Sheet dispatched"
 
 # -- The overlay MUST still be up: central band differs from the closed baseline.
