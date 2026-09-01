@@ -1,9 +1,47 @@
 ---
 name: qa-offscreen-fragile-tests
-description: 13 QA asserts fail offscreen from fragile pixel-diffs / stale coords, NOT product bugs — pending robust-assertion rewrite (post-v2.0.2)
+description: The 10 fragile offscreen tests were re-pinned + merged (2026-09-01); the full offscreen suite always surfaces ~12 DIFFERENT tail/load flakes per run — verify by re-running failures in isolation
 metadata:
   type: project
 ---
+
+**RESOLVED 2026-09-01** — all 10 fragile test files re-pinned on `hotfix/qa-realign`,
+merged to main (merge `9141a9b0`; commits `37491d4d`, `131ca9db`). Every fix was
+test-hygiene, no product code touched. Final full offscreen suite: **1782 pass /
+12 fail / 1 skip**, and **all 12 failures re-ran GREEN in isolation** (46/46).
+
+**KEY INSIGHT — the full offscreen suite is never green in one run.** Each ~216-test
+run surfaces a DIFFERENT set of ~12-13 failures: a tail-end Xvfb crash (`app process
+has died` cascade — was tool-text in the v2.0.2 run, util-assistants in this one) plus
+load-induced timing flakes. The FIRST run's 13 failures (10 files) and this run's 12
+(4 files) barely overlap. **Verification method: re-run each failing file in isolation
+(`draw-qa.sh --rerun-passed tests/X.sh`); if it passes alone, it's an environment/load
+flake, not a bug.** Don't chase "green in one full run" — it's not achievable offscreen.
+
+**Reusable QA-harness patterns learned (durable):**
+- **Layer-panel eye icons**: `EYE_X = LP_X + 7 = 7` (viewport); **x=16 hits the LOCK
+  icon, not the eye**. Row centres `ROW_N_Y = 26 + N*20` (row0=26, row1=46). New
+  layers (Ctrl+Shift+N) go on TOP = row 0. From `tests/harness-calibration.sh`.
+- **Menu bar HELP is RIGHT-ALIGNED** (`GUI/MENUBAR.BM:693`, `barX+barW-pw-PAD`) →
+  viewport x~429 in the QA window, NOT the sequential left-to-right position.
+- **Idle-fragile Ctrl keychords** (Ctrl+S=202, Ctrl+Shift+/=907): `_KEYHIT` is
+  unreliable for Ctrl combos on Linux/SDL2 (gotcha #6). Ctrl+S needs `wake_draw`
+  first; Ctrl+Shift+/ (keycode 63 `?`) won't dispatch offscreen AT ALL (every
+  xdotool spelling dropped) → invoke the action via the command palette instead.
+- **Paste onto a new layer**: Ctrl+V must land while the new layer is active —
+  clicking the panel FIRST makes an in-place paste place nothing. Commit a paste
+  float by switching tools (`key b` → apply-transform), not Enter (Enter re-centers).
+- **When a canvas overlay isn't visibly rendered** (grid over transparent canvas at
+  100%; select-all ants under a non-selection tool), verify via the STATUS BAR text
+  region or a functional proof (draw+delete), not a canvas pixel-diff. Select-all
+  ants DO render with the Marquee tool active.
+- **Mid-drag key detection** (line caps `s`/`e`): hold the key while jiggling the
+  mouse (forces active render frames that consume the key) + bounded retry.
+- **Complex sample docs** (`DEV/_/DRAW Splash.draw`): 20 locked layers, non-320x200
+  canvas, loads zoomed → brush edits at default CANVAS_CX/CY miss/don't commit. For
+  a save/reload roundtrip use a coord-free edit (add-layer) + verify via the panel.
+
+--- Original triage (2026-08-31), kept for the per-test fixes ---
 
 Full offscreen suite after v2.0.2 (2026-08-31): **1781 pass / 13 fail / 1 skip**.
 All 13 failures are **QA test-fragility, not product regressions** — features were
