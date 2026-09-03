@@ -1105,7 +1105,29 @@ SUB MAGIC_WAND_select_with_mode (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
     targetImg&  = LAYER_current_image&
     old_dest&   = _DEST
     old_source& = _SOURCE
-    
+
+    ' BUG-E (v2.0.3): the wand builds a CANVAS-sized mask and reads the click at
+    ' CANVAS coords, but a paste/move can APRON-PROMOTE the layer so its buffer is
+    ' larger than the canvas (gotcha #14: canvas (cx,cy) -> buffer (cx+apronW,
+    ' cy+apronH)). Flooding the raw apron buffer with canvas coords read the wrong
+    ' pixel and selected the wrong region ("wand fails after a paste/move cycle").
+    ' When an apron is present, flood a canvas-cropped copy so all coords are canvas
+    ' coords again. wandCropped& is freed on every exit path below.
+    DIM wandAW      AS INTEGER, wandAH AS INTEGER
+    DIM wandCropped AS LONG
+    wandAW%      = LAYERS(CURRENT_LAYER%).apronW%
+    wandAH%      = LAYERS(CURRENT_LAYER%).apronH%
+    wandCropped& = 0
+    IF (wandAW% > 0 OR wandAH% > 0) AND targetImg& < -1 THEN
+        wandCropped& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+        IF wandCropped& < -1 THEN
+            _DONTBLEND wandCropped&
+            _PUTIMAGE (0, 0), targetImg&, wandCropped&, (wandAW%, wandAH%)-(wandAW% + SCRN.canvasW& - 1, wandAH% + SCRN.canvasH& - 1)
+            _BLEND wandCropped&
+            targetImg& = wandCropped&
+        END IF
+    END IF
+
     _SOURCE targetImg&
     
     w% = _WIDTH(targetImg&)
@@ -1113,6 +1135,7 @@ SUB MAGIC_WAND_select_with_mode (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
     
     ' Bounds check
     IF x% < 0 OR x% >= w% OR y% < 0 OR y% >= h% THEN
+        SAFE_FREEIMAGE wandCropped&
         _SOURCE old_source&
         EXIT SUB
     END IF
@@ -1135,6 +1158,7 @@ SUB MAGIC_WAND_select_with_mode (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
     ' Create selection mask (white = selected, transparent = not selected)
     MARQUEE.SELECTION_MASK = _NEWIMAGE(w%, h%, 32)
     IF MARQUEE.SELECTION_MASK >= -1 THEN
+        SAFE_FREEIMAGE wandCropped&
         _SOURCE old_source&
         EXIT SUB                   ' Failed to create mask
     END IF
@@ -1320,6 +1344,7 @@ SUB MAGIC_WAND_select_with_mode (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
         ' Check if selection is empty after subtract
         IF mode% = SEL_MODE_SUBTRACT AND MARQUEE.WAND_MIN_X > MARQUEE.WAND_MAX_X THEN
             MAGIC_WAND_reset
+            SAFE_FREEIMAGE wandCropped&
             _SOURCE old_source&
             _DEST old_dest&
             EXIT SUB
@@ -1341,6 +1366,7 @@ SUB MAGIC_WAND_select_with_mode (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
     MARQUEE.USER_CREATED = TRUE ' User selected with magic wand
     
     _BLEND MARQUEE.SELECTION_MASK
+    SAFE_FREEIMAGE wandCropped&
     _SOURCE old_source&
     _DEST old_dest&
 END SUB
