@@ -6,18 +6,22 @@ root-caused against the current main build (v2.0.2). Branch: `bugfix-v2.0.3-past
 
 Status key: 🔎 reproducing · 🐛 confirmed+root-caused · 🔧 fixing · ✅ fixed (pending verify) · 🏗 shipped · ❔ not reproduced
 
-## Fix-pass status (UPDATE 2)
-- **A — FIXED + verified** (always-centre paste; Rick confirmed).
-- **B + D — refixed together** via **float-until-terminal**: a pasted float no longer
-  bakes onto the layer on every release. Rick's live repro corrected the diagnosis —
-  it was NOT stamping copies, it was DESTROYING content ("cuts itself away") each move
-  after the first, because the source-clear ate the underlying pixels. A paste is
-  new/unlifted content, so it now stays a pure FLOAT: each drag repositions it; it
-  composites onto the layer exactly ONCE when finalised (deselect / tool-switch / ESC /
-  next paste / save). That also removes D's ghost (no baked-unflipped layer under the
-  float when you flip). `MOUSE_release_move` + `SAVE_image` (finalise-before-save).
-- **C — FIXED** (blend, pending Rick's confirm).
-- **E — still pending** (stale wand mask; needs a live repro).
+## Fix-pass status — A/B/C/D DONE (Rick-confirmed 2026-09-02); E pending
+- **A — 🏗 FIXED + confirmed.** Paste always centres on the canvas (no mouse
+  dependency). `TOOLS/SELECTION.BM`.
+- **B — 🏗 FIXED + confirmed.** Rick's live repro corrected the diagnosis: it wasn't
+  stamping, it was DESTROYING content ("cuts itself away") each move after the first.
+  A pasted float now stays floating and composites ONCE when finalised
+  (deselect/tool-switch/ESC/next-paste/save) — no per-release bake. Plus an undo fix:
+  the terminal paste-commit now records a "Clone" history entry (wasPaste% in the
+  history guard). `INPUT/MOUSE.BM`, `TOOLS/MOVE.BM`, `TOOLS/SAVE.BM`.
+- **C — 🏗 FIXED + confirmed.** Float composites with `_BLEND` (was `_DONTBLEND`, which
+  let a paste's transparent bbox erase the picture). `TOOLS/MOVE.BM`.
+- **D — 🏗 FIXED + confirmed.** Fell out of the B float-until-terminal fix — nothing is
+  baked under the float, so flipping shows only the flipped result (no fusion).
+- **E — 🔎 still pending.** Wand fails after a paste/move/deselect cycle. Could NOT be
+  reproduced offscreen (Xvfb marquee-copies come back empty; the wand works on first
+  use). Needs a live repro from Rick to pin the stale-mask path (`SELECTION.BM:296`).
 
 ## Fix-pass status (2026-09-02, superseded above)
 - **A/B/C — FIXED** (commit e94e237b), build clean. Verification caveat: the
