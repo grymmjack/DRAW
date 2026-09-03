@@ -6,7 +6,20 @@ root-caused against the current main build (v2.0.2). Branch: `bugfix-v2.0.3-past
 
 Status key: 🔎 reproducing · 🐛 confirmed+root-caused · 🔧 fixing · ✅ fixed (pending verify) · 🏗 shipped · ❔ not reproduced
 
-## Fix-pass status (2026-09-02)
+## Fix-pass status (UPDATE 2)
+- **A — FIXED + verified** (always-centre paste; Rick confirmed).
+- **B + D — refixed together** via **float-until-terminal**: a pasted float no longer
+  bakes onto the layer on every release. Rick's live repro corrected the diagnosis —
+  it was NOT stamping copies, it was DESTROYING content ("cuts itself away") each move
+  after the first, because the source-clear ate the underlying pixels. A paste is
+  new/unlifted content, so it now stays a pure FLOAT: each drag repositions it; it
+  composites onto the layer exactly ONCE when finalised (deselect / tool-switch / ESC /
+  next paste / save). That also removes D's ghost (no baked-unflipped layer under the
+  float when you flip). `MOUSE_release_move` + `SAVE_image` (finalise-before-save).
+- **C — FIXED** (blend, pending Rick's confirm).
+- **E — still pending** (stale wand mask; needs a live repro).
+
+## Fix-pass status (2026-09-02, superseded above)
 - **A/B/C — FIXED** (commit e94e237b), build clean. Verification caveat: the
   offscreen Xvfb harness **cannot reliably drive this workflow** (mouse-event
   timing vs keyboard events, float grabbing, menu/selection coordinates all
