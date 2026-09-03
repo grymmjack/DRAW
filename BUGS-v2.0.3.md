@@ -6,7 +6,7 @@ root-caused against the current main build (v2.0.2). Branch: `bugfix-v2.0.3-past
 
 Status key: 🔎 reproducing · 🐛 confirmed+root-caused · 🔧 fixing · ✅ fixed (pending verify) · 🏗 shipped · ❔ not reproduced
 
-## Fix-pass status — A/B/C/D DONE (Rick-confirmed 2026-09-02); E pending
+## Fix-pass status — A/B/C/D Rick-confirmed 2026-09-02; E fixed, pending live verify
 - **A — 🏗 FIXED + confirmed.** Paste always centres on the canvas (no mouse
   dependency). `TOOLS/SELECTION.BM`.
 - **B — 🏗 FIXED + confirmed.** Rick's live repro corrected the diagnosis: it wasn't
@@ -19,9 +19,19 @@ Status key: 🔎 reproducing · 🐛 confirmed+root-caused · 🔧 fixing · ✅
   let a paste's transparent bbox erase the picture). `TOOLS/MOVE.BM`.
 - **D — 🏗 FIXED + confirmed.** Fell out of the B float-until-terminal fix — nothing is
   baked under the float, so flipping shows only the flipped result (no fusion).
-- **E — 🔎 still pending.** Wand fails after a paste/move/deselect cycle. Could NOT be
-  reproduced offscreen (Xvfb marquee-copies come back empty; the wand works on first
-  use). Needs a live repro from Rick to pin the stale-mask path (`SELECTION.BM:296`).
+- **E — ✅ FIXED, pending live verify.** ROOT CAUSE was NOT a stale mask — it was the
+  **apron offset** (gotcha #14). A paste/move apron-promotes the layer, so its
+  `imgHandle&` buffer is larger than the canvas: canvas `(cx,cy)` → buffer
+  `(cx+apronW, cy+apronH)`. The wand builds a canvas-sized mask and reads the click at
+  canvas coords, but flooded the raw apron buffer — reading the wrong pixel and
+  selecting a jagged, wrong region. Fix: when an apron is present,
+  `MAGIC_WAND_select_with_mode` floods a **canvas-cropped copy** so all coords are
+  canvas coords again (`wandCropped&`, freed at all 4 exit paths). `TOOLS/MARQUEE.BM`.
+  Commit `4c2b7d01`. Regression: tool-wand / wand-drag-offcanvas-crash /
+  wand-paste-drag-offcanvas-crash / seam-copy-then-wand — 33/33 asserts pass. Source
+  guard: `QA/tests/paste-move-wand-source-guards.sh`. **Needs Rick to run the full
+  wand → copy → paste → move → deselect → wand cycle on the real app** (can't be driven
+  offscreen).
 
 ## Fix-pass status (2026-09-02, superseded above)
 - **A/B/C — FIXED** (commit e94e237b), build clean. Verification caveat: the
