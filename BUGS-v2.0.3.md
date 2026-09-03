@@ -4,7 +4,19 @@ Source: external beta-tester report (Windows, v2.0.1 — `Feedbacks.pdf`, 2026-0
 Cluster: the **Magic Wand → Copy → Paste → Move → Flip** workflow. Reproduced /
 root-caused against the current main build (v2.0.2). Branch: `bugfix-v2.0.3-paste-move-wand`.
 
-Status key: 🔎 reproducing · 🐛 confirmed+root-caused · 🔧 fixing · ✅ fixed (pending build) · 🏗 shipped · ❔ not reproduced
+Status key: 🔎 reproducing · 🐛 confirmed+root-caused · 🔧 fixing · ✅ fixed (pending verify) · 🏗 shipped · ❔ not reproduced
+
+## Fix-pass status (2026-09-02)
+- **A/B/C — FIXED** (commit e94e237b), build clean. Verification caveat: the
+  offscreen Xvfb harness **cannot reliably drive this workflow** (mouse-event
+  timing vs keyboard events, float grabbing, menu/selection coordinates all
+  misbehave). BUG-B shows no stamp trail offscreen; A/C are correct by
+  construction. **These want hands-on confirmation on the real app** (where the
+  tester found them). Regression guards for existing move/paste/wand behavior were
+  run against the new build.
+- **D/E — root-caused, NOT yet fixed.** Both fixes carry real regression risk to
+  the shared move/selection path and need a live repro to do safely — best paired
+  with Rick or verified on the real app. Details below.
 
 Repro note: BUG-A reproduced offscreen with screenshots; B–E are root-caused from
 source (the multi-step floating-move interactions are finicky to drive under Xvfb,
@@ -56,14 +68,23 @@ showing through (opaque composite).
   same-layer move that must clear its origin), composite the float with `_BLEND` (or
   per-pixel skip alpha=0), so transparent paste pixels show the layer through.
 
-## BUG-D — Flip during a floating paste ghosts / fuses  🐛→lead
+## BUG-D — Flip during a floating paste ghosts / fuses  🐛 root-caused
 Flip works on a fresh paste, but moving the pasted area first and then Flip yields a
 **fusion of the original + flipped** (doubled/ghosted shape).
-- **Repro:** 🔎 pending.
-- **Root cause (lead):** flip-during-float path (`MOVE.CONTENT_FLIPPED`, MOVE.BM ~1066
-  "the flip command DOES update … BUG-1 paste philosophy"). Likely the flip composites
-  the moved float against a stale pre-move original (or stamps both), producing the
-  fusion. Confirm during the fix.
+- **Root cause:** the move commits on RELEASE and KEEPS the float. `MOUSE_release_move`
+  (plain path) calls `MOVE_apply_transform` — which BAKES the float onto the layer at
+  the current position — then keeps the float active as an identical overlay
+  (`MOVE_sync_base`, no re-capture). Normally the overlay sits exactly over the baked
+  pixels (invisible). The Flip-H/V float handler (`GUI/COMMAND.BM:2879-2895`) flips only
+  `MOVE.SELECTION_IMAGE` (the overlay); the baked UNFLIPPED pixels stay on the layer →
+  you see baked-unflipped + overlay-flipped = the fusion. (`CMD_autofloat_for_transform`
+  is a no-op here — it early-exits when `MOVE.ACTIVE`, COMMAND.BM:5830.)
+- **Fix direction (risky — verify live):** the clean fix is the same root as BUG-B —
+  make a paste float **stay floating until a terminal commit** (deselect / tool-switch /
+  ESC / paste-again) instead of baking on every release. Then flip flips a pure float
+  (no baked pixels underneath) and plain-drag repositions (no stamp). This is an
+  architectural change to `MOUSE_release_move`'s commit model and touches ALL moves
+  (paste + marquee); it needs a live repro + regression pass before shipping.
 
 ## BUG-E — Magic Wand fails after a deselect+reselect cycle  🐛→lead
 After paste/move/deselect, re-picking a same-color area with the Wand **fails to select
