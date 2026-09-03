@@ -6,7 +6,7 @@ root-caused against the current main build (v2.0.2). Branch: `bugfix-v2.0.3-past
 
 Status key: 🔎 reproducing · 🐛 confirmed+root-caused · 🔧 fixing · ✅ fixed (pending verify) · 🏗 shipped · ❔ not reproduced
 
-## Fix-pass status — A/B/C/D Rick-confirmed 2026-09-02; E fixed, pending live verify
+## Fix-pass status — A/B/C/D/E all Rick-confirmed (A–D 2026-09-02, E 2026-09-03) ✅
 - **A — 🏗 FIXED + confirmed.** Paste always centres on the canvas (no mouse
   dependency). `TOOLS/SELECTION.BM`.
 - **B — 🏗 FIXED + confirmed.** Rick's live repro corrected the diagnosis: it wasn't
@@ -29,9 +29,9 @@ Status key: 🔎 reproducing · 🐛 confirmed+root-caused · 🔧 fixing · ✅
   canvas coords again (`wandCropped&`, freed at all 4 exit paths). `TOOLS/MARQUEE.BM`.
   Commit `4c2b7d01`. Regression: tool-wand / wand-drag-offcanvas-crash /
   wand-paste-drag-offcanvas-crash / seam-copy-then-wand — 33/33 asserts pass. Source
-  guard: `QA/tests/paste-move-wand-source-guards.sh`. **Needs Rick to run the full
-  wand → copy → paste → move → deselect → wand cycle on the real app** (can't be driven
-  offscreen).
+  guard: `QA/tests/paste-move-wand-source-guards.sh`. **Rick-confirmed 2026-09-03** —
+  ran the full wand → copy → paste → move → deselect → wand cycle on the real app; the
+  fresh wand now selects the clean contiguous block.
 
 ## Fix-pass status (2026-09-02, superseded above)
 - **A/B/C — FIXED** (commit e94e237b), build clean. Verification caveat: the

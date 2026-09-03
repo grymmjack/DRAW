@@ -919,7 +919,7 @@ The default snap angle is **45°** (8 directions), configurable in `DRAW.cfg`:
 | `Ctrl+C` | Copy selection to clipboard |
 | `Ctrl+Shift+C` | Copy merged (all visible layers) |
 | `Ctrl+X` | Cut selection (copy + clear original with BG color) |
-| `Ctrl+V` | Paste clipboard at mouse cursor (centered, engages Move tool) |
+| `Ctrl+V` | Paste clipboard centered on the canvas (floats as a Move selection) |
 | `Ctrl+E` | Clear/erase selection (fill with BG color, or transparent for magic wand) |
 | `Ctrl+Alt+C` | Copy to new layer |
 | `Ctrl+Alt+X` | Cut to new layer |
@@ -927,9 +927,9 @@ The default snap angle is **45°** (8 directions), configurable in `DRAW.cfg`:
 **Workflow:**
 1. Use Marquee (`M`) or Magic Wand (`W`) to select an area
 2. Copy (`Ctrl+C`) or Cut (`Ctrl+X`) the selection
-3. Move mouse to desired location
-4. Paste (`Ctrl+V`) - creates selection centered on cursor, auto-engages Move tool
-5. Position content, press `Enter` to apply or `Escape` to cancel
+3. Paste (`Ctrl+V`) - floats the clipboard centered on the canvas, auto-engages Move tool
+4. Drag to reposition the floating selection (plain drag moves it; **Alt+drag** stamps copies)
+5. Press `Enter`/deselect/switch tool to apply, or `Escape` to cancel
 
 ## Marquee/Selection Controls
 
@@ -1034,7 +1034,7 @@ The stroke is applied to the current layer inside the selection bounds. Requires
 | `Ctrl+C` | Copy selection to clipboard |
 | `Ctrl+Shift+C` | Copy merged (all visible layers) |
 | `Ctrl+X` | Cut selection (copy + clear with BG color) |
-| `Ctrl+V` | Paste at mouse cursor |
+| `Ctrl+V` | Paste centered on the canvas (floats as a Move selection) |
 | `Ctrl+E` | Clear selection (fill with BG color, or transparent for magic wand) |
 | `Ctrl+Alt+C` | Copy to new layer |
 | `Ctrl+Alt+X` | Cut to new layer |

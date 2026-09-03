@@ -5,9 +5,21 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.0.2
+Current release: v2.0.3
 
 ![DRAW GUI from v1.1.0](./GUI.png)
+
+## New in 2.0.3
+
+A focused bug-fix patch for the **Magic Wand → Copy → Paste → Move → Flip** workflow,
+from a beta tester's field report.
+
+- **Paste lands where you can see it** — a pasted selection now always appears centred on the canvas as a floating selection, instead of jumping to the mouse/menu position (which could drop it off-canvas).
+- **Move repositions, it doesn't stamp** — dragging a pasted selection now moves the single instance; it no longer leaves a destructive trail of copies on every drag. Stamping still works on demand with **Alt+drag**.
+- **Paste keeps transparency** — a pasted selection's transparent pixels show the image underneath instead of punching a hole in it.
+- **Flip after move is clean** — flipping a pasted-then-moved selection shows only the flipped result, with no ghosted/doubled fusion.
+- **Magic Wand works after a paste/move** — re-selecting a same-colour area with the Wand after a paste/move/deselect cycle now grabs the correct contiguous shape instead of a jagged, wrong region.
+- **Paste is undoable** — a single `Ctrl+Z` removes a pasted selection.
 
 ## New in 2.0.2
 
@@ -307,7 +319,7 @@ groups, transform/move, export, importers, and input handling.
 
 * `Ctrl+C` (copy)
 * `Ctrl+X` (cut)
-* `Ctrl+V` (paste at cursor)
+* `Ctrl+V` (paste — floats centred on the canvas)
 * `Ctrl+E` (clear)
 
 **Files:** 
