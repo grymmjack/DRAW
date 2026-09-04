@@ -178,20 +178,18 @@ END FUNCTION
 ' Draw the FIND row (label + text box). 4.1: box drawn, typing wired in 4.2.
 '
 SUB CONTROLS_draw_find ()
-    DIM y AS INTEGER, boxX AS INTEGER, boxW AS INTEGER
+    DIM y AS INTEGER
     y = THEME.DIALOG_title_height% + 2
     COLOR THEME.DIALOG_label_fg~&
     _UPRINTSTRING (CTRL_COL_NAME_X, y + 5), "FIND:"
-    boxX = CTRL_COL_NAME_X + 40
-    boxW = CONTROLS.ctx.w - boxX - CTRL_COL_NAME_X
-    LINE (boxX, y + 2)-(boxX + boxW, y + CTRL_FIND_H - 4), THEME.DIALOG_toggle_bg~&, BF
-    LINE (boxX, y + 2)-(boxX + boxW, y + CTRL_FIND_H - 4), THEME.DIALOG_toggle_border~&, B
-    COLOR THEME.DIALOG_toggle_fg~&
-    IF CONTROLS.filterLen > 0 THEN
-        _UPRINTSTRING (boxX + 4, y + 5), LEFT$(CONTROLS.filter, CONTROLS.filterLen)
-    ELSE
-        COLOR THEME.DIALOG_border_inner~&
-        _UPRINTSTRING (boxX + 4, y + 5), "type to filter by name"
+    ' The FIND box is a real TI text-input widget (cursor, selection, editing,
+    ' clipboard) — it draws its own box/border/caret. Render it with the TI font set.
+    IF CONTROLS.findTI > 0 THEN
+        DIM of AS LONG
+        of& = _FONT
+        _FONT CONTROLS.findFont
+        TI_render CONTROLS.findTI, 0, 0
+        IF of& > 0 THEN _FONT of&
     END IF
 END SUB
 
@@ -313,10 +311,9 @@ SUB CONTROLS_draw_button_bar ()
     ' RESET ALL — left
     CTRL_draw_bar_btn CTRL_COL_NAME_X, by, bw, bh, "RESET ALL", (CONTROLS.ctx.mx >= CTRL_COL_NAME_X AND CONTROLS.ctx.mx <= CTRL_COL_NAME_X + bw AND CONTROLS.ctx.my >= by AND CONTROLS.ctx.my <= by + bh)
     IF DIALOG_hit%(CONTROLS.ctx, CTRL_COL_NAME_X, by, bw, bh) THEN
-        BINDINGS_reset_all
+        BINDINGS_reset_all      ' now restores defaults LIVE (see CFG/BINDINGS.BM)
+        CONTROLS_rebuild_vis    ' refresh the CURRENT KEY column to the restored keys
         CONTROLS.needsRedraw = TRUE
-        ' Note: cleared overrides take full effect on next launch (the live registry
-        ' keeps applied keycodes until re-register) — documented engine limitation.
     END IF
 
     ' CLOSE — right
@@ -373,39 +370,42 @@ SUB CONTROLS_handle_content_click ()
 END SUB
 
 
+''
+' Handle the FIND box's keys (TI text-input) + dialog-owned keys (Esc). TI gets
+' first refusal on every key so typing never triggers a dialog shortcut; Esc clears
+' a non-empty filter, else closes. Syncs the applied filter from the widget when its
+' text changed. Called each frame in the input phase.
+'
 SUB CONTROLS_handle_keyboard ()
-    DIM k AS LONG, cur AS STRING
+    DIM k AS LONG, tiAte AS INTEGER, ft AS STRING
     k& = _KEYHIT
     DO WHILE k& <> 0
-        IF k& = 27 THEN
-            ' Escape: clear the filter first, else close the dialog.
+        tiAte% = FALSE
+        IF k& <> 27 AND CONTROLS.findTI > 0 AND TI_focusedId = CONTROLS.findTI THEN
+            tiAte% = TI_process_key%(k&)
+        END IF
+        IF k& = 27 AND _NEGATE tiAte% THEN
             IF CONTROLS.filterLen > 0 THEN
-                CONTROLS.filterLen = 0
-                CONTROLS.filter = ""
-                CONTROLS_rebuild_vis
-                CONTROLS.needsRedraw = TRUE
+                IF CONTROLS.findTI > 0 THEN TI_set_text CONTROLS.findTI, ""
             ELSE
                 CONTROLS.ctx.result = FALSE
                 CONTROLS.ctx.done = TRUE
             END IF
-        ELSEIF k& = 8 THEN                         ' Backspace
-            IF CONTROLS.filterLen > 0 THEN
-                CONTROLS.filterLen = CONTROLS.filterLen - 1
-                CONTROLS.filter = LEFT$(CONTROLS.filter, CONTROLS.filterLen)
-                CONTROLS_rebuild_vis
-                CONTROLS.needsRedraw = TRUE
-            END IF
-        ELSEIF k& >= 32 AND k& < 127 THEN          ' printable — append to filter
-            IF CONTROLS.filterLen < 40 THEN
-                cur$ = LEFT$(CONTROLS.filter, CONTROLS.filterLen) + CHR$(k&)
-                CONTROLS.filter = cur$
-                CONTROLS.filterLen = LEN(cur$)
-                CONTROLS_rebuild_vis
-                CONTROLS.needsRedraw = TRUE
-            END IF
         END IF
         k& = _KEYHIT
     LOOP
+
+    ' Sync the applied filter from the widget whenever its text changed.
+    IF CONTROLS.findTI > 0 THEN
+        IF TI_inputs(CONTROLS.findTI).changed OR TI_inputs(CONTROLS.findTI).textLen <> CONTROLS.filterLen THEN
+            ft$ = TI_get_text$(CONTROLS.findTI)
+            CONTROLS.filter = ft$
+            CONTROLS.filterLen = LEN(ft$)
+            TI_inputs(CONTROLS.findTI).changed = FALSE
+            CONTROLS_rebuild_vis
+            CONTROLS.needsRedraw = TRUE
+        END IF
+    END IF
 END SUB
 
 
@@ -593,6 +593,46 @@ SUB CONTROLS_open ()
     IF CONTROLS.viewportH < 0 THEN CONTROLS.viewportH = 0
     CONTROLS_rebuild_vis
 
+    ' --- FIND box: a reusable TI text-input widget (dialog-local coords) ---
+    DIM findY AS INTEGER, boxX AS INTEGER, boxW AS INTEGER
+    DIM tiW AS INTEGER, tiH AS INTEGER, tiProbe AS LONG
+    findY = THEME.DIALOG_title_height% + 2 + 2
+    boxX  = CTRL_COL_NAME_X + 40
+    boxW  = dlgW - boxX - CTRL_COL_NAME_X
+    ' Load the theme font for the widget (proportional measuring happens outside the
+    ' render path, so it needs its own handle, per AI-DIALOG).
+    CONTROLS.findFont = _LOADFONT(THEME_font_path$(THEME.GLOBAL_FONT_FILE$), _IIF(THEME.DIALOG_font_size% < 1, 8, THEME.DIALOG_font_size%), "DONTBLEND")
+    tiW = 8 : tiH = 8
+    IF CONTROLS.findFont > 0 THEN
+        tiProbe& = _FONT : _FONT CONTROLS.findFont
+        tiW = _PRINTWIDTH("n") : tiH = _FONTHEIGHT(CONTROLS.findFont)
+        IF tiProbe& > 0 THEN _FONT tiProbe&
+    END IF
+    IF CONTROLS.findFont <= 0 OR tiW < 1 OR tiH < 1 THEN
+        IF CONTROLS.findFont > 0 THEN _FREEFONT CONTROLS.findFont
+        CONTROLS.findFont = 8 : tiW = 8 : tiH = 8
+    END IF
+    TI_set_font 8, tiW, tiH
+    CONTROLS.findTI = TI_create%(boxX, findY, boxW, CTRL_FIND_H - 4)
+    IF CONTROLS.findTI > 0 THEN
+        TI_inputs(CONTROLS.findTI).multiline    = FALSE
+        TI_inputs(CONTROLS.findTI).wordWrap     = FALSE
+        TI_inputs(CONTROLS.findTI).proportional = TRUE
+        TI_inputs(CONTROLS.findTI).placeholder  = "type to filter by name"
+        TI_inputs(CONTROLS.findTI).theme.fontHandle       = CONTROLS.findFont
+        TI_inputs(CONTROLS.findTI).theme.fontW            = tiW
+        TI_inputs(CONTROLS.findTI).theme.fontH            = tiH
+        TI_inputs(CONTROLS.findTI).theme.bgColor          = THEME.DIALOG_toggle_bg~&
+        TI_inputs(CONTROLS.findTI).theme.focusBgColor     = THEME.DIALOG_toggle_bg~&
+        TI_inputs(CONTROLS.findTI).theme.borderColor      = THEME.DIALOG_toggle_border~&
+        TI_inputs(CONTROLS.findTI).theme.focusBorderColor = THEME.DIALOG_toggle_sel_border~&
+        TI_inputs(CONTROLS.findTI).theme.textColor        = THEME.DIALOG_toggle_fg~&
+        TI_inputs(CONTROLS.findTI).theme.cursorColor      = THEME.DIALOG_toggle_fg~&
+        TI_inputs(CONTROLS.findTI).theme.selectionColor   = THEME.DIALOG_toggle_sel_bg~&
+        TI_inputs(CONTROLS.findTI).theme.placeholderColor = THEME.DIALOG_border_inner~&
+        TI_set_focus CONTROLS.findTI
+    END IF
+
     _KEYCLEAR
     DO WHILE _MOUSEINPUT: LOOP
 
@@ -603,6 +643,8 @@ SUB CONTROLS_open ()
         frameIdle = -1
 
         DIALOG_poll_mouse CONTROLS.ctx
+        TI_tick                                    ' cursor blink
+        IF CONTROLS.findTI > 0 THEN TI_process_mouse CONTROLS.ctx.mx, CONTROLS.ctx.my, CONTROLS.ctx.justClicked
         CONTROLS_handle_keyboard
         CONTROLS_handle_content_click
 
@@ -615,6 +657,7 @@ SUB CONTROLS_open ()
         IF CONTROLS.ctx.mx <> prevMX OR CONTROLS.ctx.my <> prevMY THEN frameIdle = 0
         IF CONTROLS.ctx.mb1 THEN frameIdle = 0
         IF CONTROLS.ctx.justClicked THEN frameIdle = 0
+        IF CONTROLS.findTI > 0 AND TI_inputs(CONTROLS.findTI).dirty THEN frameIdle = 0
         IF CONTROLS.needsRedraw THEN frameIdle = 0: CONTROLS.needsRedraw = FALSE
         prevMX = CONTROLS.ctx.mx : prevMY = CONTROLS.ctx.my
 
@@ -635,6 +678,11 @@ SUB CONTROLS_open ()
             _LIMIT 15
         END IF
     LOOP UNTIL CONTROLS.ctx.done
+
+    ' Tear down the FIND widget + its font before the dialog buffer goes away.
+    IF CONTROLS.findTI > 0 THEN TI_destroy CONTROLS.findTI : CONTROLS.findTI = 0
+    IF CONTROLS.findFont > 16 THEN _FREEFONT CONTROLS.findFont
+    CONTROLS.findFont = 0
 
     DIALOG_cleanup CONTROLS.ctx
 

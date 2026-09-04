@@ -60,6 +60,8 @@ TYPE CONTROLS_STATE
     viewportH   AS INTEGER     ' visible content height
     visCount    AS INTEGER     ' number of populated CTRL_VISROWS rows
     needsRedraw AS INTEGER
+    findTI      AS INTEGER     ' TI text-input widget id for the FIND box (0 = none)
+    findFont    AS LONG        ' font handle loaded for the FIND widget (freed on close)
 END TYPE
 
 DIM SHARED CONTROLS AS CONTROLS_STATE

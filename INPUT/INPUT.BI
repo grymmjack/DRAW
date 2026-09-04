@@ -240,6 +240,9 @@ TYPE INPUT_BIND
     device      AS INTEGER              ' DEVICE_* (filled at registration)
     category    AS INTEGER              ' CAT_* — for SHORTCUTS.md grouping + rebind UI (filled at registration)
     userOverridden AS INTEGER           ' TRUE once a user rebind replaces the default (drives DRAW.bindings persistence)
+    defKeycode     AS LONG              ' compiled-in default keycode (snapshot at registration; for reset + skip-list retention)
+    defRequireMods AS INTEGER           ' compiled-in default requireMods
+    defForbidMods  AS INTEGER           ' compiled-in default forbidMods
     label       AS STRING * 48          ' for cheatsheet / audit / inputs.log
 END TYPE
 
