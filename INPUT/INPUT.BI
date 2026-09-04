@@ -214,6 +214,17 @@ CONST CAT_PANELS    = 14
 CONST CAT_AUDIO     = 15
 CONST CAT_MOUSE     = 16  ' any mouse/wheel binding (assigned by device, not id)
 
+' Rebindable MOUSE BEHAVIOR ids (3001-3099). These are metadata-only mouse binds
+' (dispatched=FALSE): MOUSE.BM QUERIES them for which button drives each behavior,
+' rather than the dispatcher firing an action. They appear in Customize Controls
+' like any mouse bind and rebind via the same button-capture path.
+CONST MB_PAINT_FG   = 3001  ' paint with the foreground color
+CONST MB_PAINT_BG   = 3002  ' paint with the background color
+CONST MB_PAN        = 3003  ' pan the canvas (B2)
+CONST MB_PICK_FG    = 3004  ' eyedrop -> foreground (B2)
+CONST MB_PICK_BG    = 3005  ' eyedrop -> background (B2)
+CONST MB_SYM_CENTER = 3006  ' set symmetry center (B2)
+
 
 '==============================================================================
 ' TYPES
