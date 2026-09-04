@@ -522,6 +522,24 @@ Type to filter (subsequence/fuzzy) · `↑`/`↓` navigate · `Enter` execute ·
 | `Space + L-Drag` | Pan |
 | `Ctrl+L-Click` | Set symmetry center |
 
+### Rebindable mouse controls (Customize Controls)
+Open **Customize Controls** (command palette → "customize controls") and look under
+the **MOUSE** category. These rows can be reassigned with **SET…** → press the button
+(the defaults above are what ships):
+
+| Row | Default | Notes |
+|-----|---------|-------|
+| Paint with foreground color | `Left Button` | swap with BG to paint FG on the right |
+| Paint with background color | `Right Button` | |
+| Pan the canvas (drag) | `Middle Button` | whole pan drag follows the rebind |
+| Undo (mouse back button) | `Button 4 (Back)` | any button → any action |
+| Redo (mouse forward button) | `Button 5 (Fwd)` | |
+
+Extra buttons (back/forward and beyond, up to 8) are sampled from your device and can
+drive **any** action. Overrides persist in `DRAW.bindings` separately from keyboard
+overrides, so an action can keep both a key and a mouse trigger. **RESET ALL** restores
+every default. *(Wheel and Alt-pick / Ctrl-symmetry rebinding are not yet exposed.)*
+
 ### Per-tool (canvas)
 | Tool | Mouse |
 |------|-------|

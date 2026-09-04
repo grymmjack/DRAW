@@ -44,11 +44,33 @@ modal, FIND box = reused TI widget, warn+steal conflict, RESET ALL live. See git
   on B/E/M/W/V/T/I/Z/L; the real letter-key diffs all collide with DRAW draw-tools/chords → need
   Rick's tradeoff calls.
 
-**REMAINING (all genuinely gated):**
-- **2B.2 mouse rebinding** — Rick-gated. Design shipped (`PLANS/MOUSE-REBIND-2B2-DESIGN.md`):
-  centralize the ~dozens of scattered `MOUSE.B1/B2/B3` reads behind `MOUSE_intent_active%()`
-  (= DRY #1), override storage, mouse-capture UI (4.3). NOT wired unattended — core drawing hot
-  path, offscreen can't verify a paint stroke, and no UI yet to set a mouse override.
+**2B.2 mouse rebinding — LARGELY DONE this session (2026-09-04, loop `.claude/TASKS-2b2.md`).**
+The design's pessimism was overblown — the FG/BG choice turned out to be ONE central site
+(`MOUSE_update_draw_color`), not dozens, because stroke-start gates fire on either button.
+- **A1 (commit e595fe5f)** — extra buttons sampled 1..N via `_MOUSEBUTTON`, bounded by
+  `_LASTBUTTON(<[MOUSE] device>)` (⚠ `_MOUSEBUTTON(n)` past the device count raises ERR 5, NOT 0;
+  bare `_LASTBUTTON` also ERR 5 — needs the device number). Dispatcher button loop widened to
+  `MOUSE_MAX_BTN`. Defaults: back(4)→Undo, fwd(5)→Redo. **Rick-verified on real hardware.**
+  Extra buttons are NOT offscreen-testable (synthetic X11 button events don't map to GLFW
+  physical `_MOUSEBUTTON` indices) → source-guarded + real-HW.
+- **A2 (commit db4c787e)** — Customize Controls surfaces mouse rows + mouse-capture rebind;
+  overrides are device-discriminated (`device`+`button` in `BINDING_OVERRIDE`; `set_mouse_override`
+  / apply / save+parse 6-field back-compat / `defButton` reset). Screenshot-verified.
+- **B (commit 40c8700a)** — Paint FG/BG rebindable: `MB_PAINT_FG/BG` behavior binds
+  (dispatched=FALSE, QUERIED not dispatched) + `MOUSE_intent_button%`/`MOUSE_button_down%`;
+  `CTRL_bind_rebindable%` enables SET… for non-dispatched behaviors (else fake rows).
+- **B2 pan (commit 1b44e796)** — `MB_PAN` (default 3); one wire at `allowB3Pan%` covers the whole
+  pan lifecycle.
+- **Docs** — SHORTCUTS.md MOUSE rebind table; the CONTROLS export already walks mouse binds
+  (fixed `SHORTCUTS_mousetrigger$` to name buttons 4/5+).
+- **STILL OPEN (gated):** **B2b Pick-FG/BG + Sym-center** — need a design decision (pick is
+  multi-site: chrome-eyedrop/canvas-loupe/picker-tool; sym fires on Ctrl+EITHER button — neither
+  fits one button+mod without changing defaults). **C wheel zoom/brush** — needs a dispatch
+  migration or surgical wiring inside the ~300-line wheel ELSEIF chain + a wheel-capture UX
+  (deferred, not rushed). **C2 wheel-tilt via `_AXIS`** — undocumented new QB64-PE API; needs a
+  Rick real-HW probe. **⚑ Rick live tests pending:** paint FG/BG swap + pan drag.
+- **Rule learned:** every QB64 tool/probe gets `ON ERROR GOTO EH` (no blocking dialogs) —
+  [[feedback-no-error-dialogs]].
 - **Phase 5 preset letter-key content** — Rick's collision tradeoffs (G bucket, C crop, L lasso,
   P pen, GIMP R/E/F/M, H hand). See the decisions doc.
 - **Settings `Ctrl+,`** — ⛔ Windows-blocked: `_KEYDOWN(44)` works on Linux/macOS while Ctrl held
