@@ -27,16 +27,8 @@
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 
-fails=0
-declare -F pass >/dev/null || pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
-declare -F fail >/dev/null || fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; fails=$((fails+1)); }
-
-# assert_grep <tag> <file> <extended-regex> <human description>
-assert_grep() {
-  local tag="$1" file="$2" re="$3" desc="$4"
-  if [ ! -f "$ROOT/$file" ]; then fail "$tag: file missing: $file"; return; fi
-  if grep -Eq -- "$re" "$ROOT/$file"; then pass "$tag: $desc"; else fail "$tag: MISSING in $file — $desc"; fi
-}
+# Shared source-guard scaffolding (pass/fail/assert_grep/assert_absent/guard_footer).
+source "$(dirname "${BASH_SOURCE[0]}")/lib/source-guard.sh"
 
 echo "=== Customize Controls scroll + marker source guards ==="
 
@@ -56,10 +48,5 @@ assert_grep "MARKER" "GUI/CONTROLS.BM" 'modf = INPUT_BINDS\(bi\)\.userOverridden
 assert_grep "MARKER" "GUI/CONTROLS.BM" 'IF modf THEN LINE \(1, y\)-\(3'              "modified rows get a left accent stripe"
 assert_grep "MARKER" "GUI/CONTROLS.BM" '= changed from default'                      "button bar carries the marker legend"
 
-echo "---------------------------------------------"
-if [ "$fails" -eq 0 ]; then
-  echo -e "\033[32mALL GUARDS PRESENT\033[0m"
-else
-  echo -e "\033[31m$fails GUARD(S) MISSING — a Customize Controls polish fix was removed\033[0m"
-fi
+guard_footer "a Customize Controls polish fix was removed"
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then [ "$fails" -eq 0 ] && exit 0 || exit 1; fi
