@@ -229,9 +229,13 @@ SUB CONTROLS_draw_content ()
                 bi = CTRL_VISROWS(i).bindIdx
                 hov = (CONTROLS.ctx.my >= y AND CONTROLS.ctx.my < y + rh AND CONTROLS.ctx.mx < CONTROLS.ctx.w - CTRL_SCROLL_W - 2)
                 IF hov THEN LINE (1, y)-(CONTROLS.ctx.w - CTRL_SCROLL_W - 2, y + rh - 1), THEME.LAYER_PANEL_row_hover_bg~&, BF
+                ' Modified marker: left accent stripe on any row a user rebind changed.
+                DIM modf AS INTEGER
+                modf = INPUT_BINDS(bi).userOverridden
+                IF modf THEN LINE (1, y)-(3, y + rh - 1), THEME.DIALOG_toggle_sel_bg~&, BF
                 COLOR THEME.DIALOG_label_fg~&
                 _UPRINTSTRING (CTRL_COL_NAME_X, y + 2), CTRL_clip_label$(_TRIM$(RTRIM$(INPUT_BINDS(bi).label)), CTRL_COL_NAME_W)
-                COLOR THEME.DIALOG_toggle_fg~&
+                IF modf THEN COLOR THEME.DIALOG_toggle_sel_fg~& ELSE COLOR THEME.DIALOG_toggle_fg~&
                 _UPRINTSTRING (CTRL_COL_CUR_X, y + 2), CTRL_current_key$(bi)
                 ' Rebind button (inert in 4.1)
                 CTRL_draw_row_btn CTRL_COL_BTN_X, y + 1, CTRL_COL_BTN_W, rh - 2, "SET...", INPUT_BINDS(bi).dispatched
@@ -274,24 +278,84 @@ END SUB
 
 
 ''
-' Draw the scrollbar track + proportional thumb (drag wired in 4.2; wheel works now).
+' Shared scrollbar geometry (draw + drag input agree on the same thumb rect).
+' active = FALSE when the content fits the viewport (no thumb, no drag).
 '
-SUB CONTROLS_draw_scrollbar ()
-    DIM top AS INTEGER, bottom AS INTEGER, trackX AS INTEGER, trackH AS INTEGER
-    top = CTRL_content_top%
+SUB CTRL_scrollbar_metrics (trackX AS INTEGER, trackTop AS INTEGER, trackH AS INTEGER, thumbY AS INTEGER, thumbH AS INTEGER, maxScroll AS INTEGER, active AS INTEGER)
+    trackTop = CTRL_content_top%
+    DIM bottom AS INTEGER
     bottom = CONTROLS.ctx.h - CTRL_BTN_BAR_H
     trackX = CONTROLS.ctx.w - CTRL_SCROLL_W - 1
-    trackH = bottom - top
+    trackH = bottom - trackTop
+    thumbY = trackTop : thumbH = trackH : maxScroll = 0 : active = FALSE
     IF trackH <= 0 THEN EXIT SUB
-    LINE (trackX, top)-(trackX + CTRL_SCROLL_W - 1, bottom), THEME.DIALOG_slider_track_bg~&, BF
     IF CONTROLS.contentH <= CONTROLS.viewportH THEN EXIT SUB
-    DIM thumbH AS INTEGER, thumbY AS INTEGER, maxS AS INTEGER
     thumbH = (CONTROLS.viewportH * trackH) \ CONTROLS.contentH
     IF thumbH < 12 THEN thumbH = 12
-    maxS = CONTROLS.contentH - CONTROLS.viewportH
-    IF maxS < 1 THEN maxS = 1
-    thumbY = top + (CONTROLS.scrollY * (trackH - thumbH)) \ maxS
-    LINE (trackX, thumbY)-(trackX + CTRL_SCROLL_W - 1, thumbY + thumbH), THEME.DIALOG_slider_fill~&, BF
+    maxScroll = CONTROLS.contentH - CONTROLS.viewportH
+    IF maxScroll < 1 THEN maxScroll = 1
+    thumbY = trackTop + (CONTROLS.scrollY * (trackH - thumbH)) \ maxScroll
+    active = TRUE
+END SUB
+
+
+''
+' Draw the scrollbar track + proportional thumb. Thumb brightens while hovered/dragged.
+'
+SUB CONTROLS_draw_scrollbar ()
+    DIM trackX AS INTEGER, trackTop AS INTEGER, trackH AS INTEGER
+    DIM thumbY AS INTEGER, thumbH AS INTEGER, maxS AS INTEGER, active AS INTEGER
+    CTRL_scrollbar_metrics trackX, trackTop, trackH, thumbY, thumbH, maxS, active
+    IF trackH <= 0 THEN EXIT SUB
+    LINE (trackX, trackTop)-(trackX + CTRL_SCROLL_W - 1, trackTop + trackH), THEME.DIALOG_slider_track_bg~&, BF
+    IF NOT active THEN EXIT SUB
+    DIM hov AS INTEGER, tc AS _UNSIGNED LONG
+    hov = (CONTROLS.ctx.mx >= trackX AND CONTROLS.ctx.mx <= trackX + CTRL_SCROLL_W - 1 AND CONTROLS.ctx.my >= thumbY AND CONTROLS.ctx.my <= thumbY + thumbH)
+    IF CONTROLS.scrollDrag OR hov THEN tc~& = THEME.DIALOG_toggle_sel_bg~& ELSE tc~& = THEME.DIALOG_slider_fill~&
+    LINE (trackX, thumbY)-(trackX + CTRL_SCROLL_W - 1, thumbY + thumbH), tc~&, BF
+END SUB
+
+
+''
+' Scrollbar drag + track paging (input phase). A grab on the thumb consumes the
+' click so a row's SET... button can't also fire; clicking the track above/below
+' the thumb pages toward the click.
+'
+SUB CONTROLS_handle_scrollbar ()
+    DIM trackX AS INTEGER, trackTop AS INTEGER, trackH AS INTEGER
+    DIM thumbY AS INTEGER, thumbH AS INTEGER, maxS AS INTEGER, active AS INTEGER
+    CTRL_scrollbar_metrics trackX, trackTop, trackH, thumbY, thumbH, maxS, active
+
+    IF NOT CONTROLS.ctx.mb1raw THEN CONTROLS.scrollDrag = FALSE   ' release always ends a drag
+    IF NOT active THEN CONTROLS.scrollDrag = FALSE : EXIT SUB
+
+    DIM onTrackX AS INTEGER
+    onTrackX = (CONTROLS.ctx.mx >= trackX AND CONTROLS.ctx.mx <= trackX + CTRL_SCROLL_W - 1)
+
+    IF CONTROLS.ctx.justClicked AND onTrackX AND CONTROLS.ctx.my >= trackTop AND CONTROLS.ctx.my <= trackTop + trackH THEN
+        IF CONTROLS.ctx.my >= thumbY AND CONTROLS.ctx.my <= thumbY + thumbH THEN
+            CONTROLS.scrollDrag = TRUE
+            CONTROLS.scrollDragOff = CONTROLS.ctx.my - thumbY
+        ELSEIF CONTROLS.ctx.my < thumbY THEN
+            CONTROLS.scrollY = CONTROLS.scrollY - CONTROLS.viewportH   ' page up
+            CONTROLS_clamp_scroll
+        ELSE
+            CONTROLS.scrollY = CONTROLS.scrollY + CONTROLS.viewportH   ' page down
+            CONTROLS_clamp_scroll
+        END IF
+        CONTROLS.ctx.justClicked = FALSE   ' consume — don't also hit a row button
+        CONTROLS.needsRedraw = TRUE
+    END IF
+
+    IF CONTROLS.scrollDrag THEN
+        DIM newThumbY AS INTEGER, denom AS INTEGER
+        newThumbY = CONTROLS.ctx.my - CONTROLS.scrollDragOff
+        denom = trackH - thumbH
+        IF denom < 1 THEN denom = 1
+        CONTROLS.scrollY = ((newThumbY - trackTop) * maxS) \ denom
+        CONTROLS_clamp_scroll
+        CONTROLS.needsRedraw = TRUE
+    END IF
 END SUB
 
 
@@ -315,6 +379,16 @@ SUB CONTROLS_draw_button_bar ()
         CONTROLS_rebuild_vis    ' refresh the CURRENT KEY column to the restored keys
         CONTROLS.needsRedraw = TRUE
     END IF
+
+    ' Legend — centered: an accent swatch + "= changed from default".
+    DIM legTxt AS STRING, legW AS INTEGER, legX AS INTEGER, swW AS INTEGER
+    legTxt$ = "= changed from default"
+    swW% = 8
+    legW% = swW% + 4 + _PRINTWIDTH(legTxt$)
+    legX% = (CONTROLS.ctx.w - legW%) \ 2
+    LINE (legX%, by + 3)-(legX% + swW% - 1, by + bh - 3), THEME.DIALOG_toggle_sel_bg~&, BF
+    COLOR THEME.DIALOG_label_fg~&
+    _UPRINTSTRING (legX% + swW% + 4, by + (bh - 8) \ 2), legTxt$
 
     ' CLOSE — right
     DIM closeX AS INTEGER
@@ -646,6 +720,7 @@ SUB CONTROLS_open ()
         TI_tick                                    ' cursor blink
         IF CONTROLS.findTI > 0 THEN TI_process_mouse CONTROLS.ctx.mx, CONTROLS.ctx.my, CONTROLS.ctx.justClicked
         CONTROLS_handle_keyboard
+        CONTROLS_handle_scrollbar        ' thumb drag / track paging (may consume the click)
         CONTROLS_handle_content_click
 
         IF CONTROLS.ctx.mwheel <> 0 THEN
@@ -653,6 +728,8 @@ SUB CONTROLS_open ()
             CONTROLS_clamp_scroll
             frameIdle = 0
         END IF
+
+        IF CONTROLS.scrollDrag THEN frameIdle = 0   ' keep redrawing while dragging
 
         IF CONTROLS.ctx.mx <> prevMX OR CONTROLS.ctx.my <> prevMY THEN frameIdle = 0
         IF CONTROLS.ctx.mb1 THEN frameIdle = 0

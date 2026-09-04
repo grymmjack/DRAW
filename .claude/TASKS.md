@@ -76,10 +76,10 @@ loop:on
 
 ## Phase 4 — Customization UI
 
-- [ ] 4.1 `GUI/CONTROLS.BI/BM` scaffold + `ACTION_CUSTOMIZE_CONTROLS` + Edit → "Customize Controls…" + `CMD` wiring + `_ALL` includes.
-- [ ] 4.2 Binding list: find-filter, category dividers, current assignments (HOLD/PRESS/CLICK/WHEEL), scroll.
-- [ ] 4.3 Capture sub-modals (key / mouse / wheel), Primary-aware, CLEAR/CANCEL.
-- [ ] 4.4 Inline conflict badges + block-OK-on-conflict; SAVE/LOAD/RESET/PRINT toolbar. Build + QA + commit.
+- [x] 4.1 DONE (Rick-verified 2026-09-04) — `GUI/CONTROLS.BI/BM` scaffold + `ACTION_CUSTOMIZE_CONTROLS=2360` (2300 collided w/ ANS_ACT_EXPORT, gotcha #17) + Edit → "Customize Controls…" + `CMD` wiring + `_ALL` includes.
+- [x] 4.2 DONE (Rick-verified 2026-09-04) — Binding list by category, current-key column, wheel scroll; **FIND = reused TI text-input widget** (focus ring, real caret, selection) — not hand-rolled.
+- [~] 4.3 PARTIAL — **keyboard** capture modal DONE (Ctrl/Shift/Alt checkboxes + press-key, lowercase-normalised, CLEAR/CANCEL/OK, Esc). Mouse/wheel capture lives in 2B.2.
+- [~] 4.4 PARTIAL — inline conflict warning + **warn+steal** DONE (steal unbinds loser via keycode 0); **RESET ALL** wired to `BINDINGS_reset_all` (restores defaults LIVE). Remaining: scrollbar DRAG, overridden-row "modified" marker, SAVE/LOAD/PRINT toolbar. (Tracked in the Phase 4+ loop file.)
 
 ## Phase 5 — Presets + import/export
 

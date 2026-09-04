@@ -62,6 +62,8 @@ TYPE CONTROLS_STATE
     needsRedraw AS INTEGER
     findTI      AS INTEGER     ' TI text-input widget id for the FIND box (0 = none)
     findFont    AS LONG        ' font handle loaded for the FIND widget (freed on close)
+    scrollDrag  AS INTEGER     ' TRUE while dragging the scrollbar thumb
+    scrollDragOff AS INTEGER   ' mouse-Y minus thumb-top at grab (keeps grab point under cursor)
 END TYPE
 
 DIM SHARED CONTROLS AS CONTROLS_STATE
