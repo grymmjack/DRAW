@@ -43,6 +43,7 @@ CONST CTRL_COL_BTN_W  = 92
 
 ' Dropdown id (unique within the dialog) for the "Export as…" menu.
 CONST CTRL_DD_EXPORT  = 1
+CONST CTRL_DD_PRESET  = 2
 
 ' A flattened, filtered display row: either a category header or one binding.
 ' bindIdx = index into INPUT_BINDS (0 for a header row); cat = CAT_* for headers.

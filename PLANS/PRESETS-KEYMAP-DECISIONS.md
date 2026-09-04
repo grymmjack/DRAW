@@ -88,3 +88,28 @@ an already-used key goes to the collision table for Rick.
    behavior.
 
 Once decided, the colliding rows are added and re-verified against the audit the same way.
+
+## Update 2026-09-04 — picker + all 9 apps authored under the "safest" policy
+
+Rick chose (AskUserQuestion): **safest collision policy** (a row ships ONLY if its target
+key is currently UNBOUND in DRAW — no default displaced), **all 9 apps**, and an **in-app
+picker**. Delivered:
+
+- **In-app picker**: a "Load preset ▾" dropdown in Customize Controls loads any preset
+  LIVE (reuses `DIALOG_dropdown%`). `BINDINGS_load_preset` now restores defaults first
+  (`BINDINGS_restore_live_defaults`, DRY with RESET ALL), so switching presets REPLACES
+  rather than layers, and "DRAW default" truly resets.
+- **9 preset files** authored with collision blocks in each file header: photoshop, gimp,
+  aseprite, deluxepaint, krita, illustrator, procreate, mspaint, promotion.
+
+**The only provably-safe remaps that exist** (free keys in DRAW are just `Ctrl+I/J/K/U/W`):
+- `Ctrl+J` → **Copy to New Layer (321)** in photoshop.bindings.
+- `Ctrl+J` → **Duplicate Layer (707)** in krita.bindings.
+
+Everything else each app is known for (G bucket, C crop, P pen, GIMP's N/P/U/F tool
+letters, Illustrator's vector tools) **collides** with a DRAW tool/chord and is listed —
+NOT applied — in each file's COLLISIONS block, awaiting the same per-key yes/no decisions
+above. Procreate is gesture-based (no keys) and MS Paint/Pro Motion mostly already agree
+with DRAW, so those files are largely informational. Mouse behaviors (paint FG/BG, pan,
+extra buttons) are now rebindable too and a preset row can carry a `device button` pair,
+so a future preset could ship mouse defaults as well.
