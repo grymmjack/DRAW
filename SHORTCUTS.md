@@ -118,7 +118,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+C` | Copy selection |
 | `Ctrl+Shift+C` | Copy merged (all visible layers) |
 | `Ctrl+X` | Cut selection (copy + clear with BG) |
-| `Ctrl+V` | Paste at cursor (centered, engages Move) |
+| `Ctrl+V` | Paste centered on the canvas (floats as a Move selection) |
 | `Ctrl+Shift+V` | Paste from OS clipboard |
 | `Ctrl+E` | Clear/erase selection (BG color, or transparent for wand selections) |
 | `Ctrl+Alt+C` | Copy to new layer |
@@ -127,7 +127,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Backspace` | Fill with foreground color |
 | `Shift+Backspace` | Fill with background color |
 
-**Paste workflow:** select (`M`/`W`) → `Ctrl+C`/`Ctrl+X` → move mouse → `Ctrl+V` (auto-engages Move) → position → `Enter` apply / `Esc` cancel.
+**Paste workflow:** select (`M`/`W`) → `Ctrl+C`/`Ctrl+X` → `Ctrl+V` (floats centered on the canvas, auto-engages Move) → drag to reposition (`Alt+drag` stamps copies) → `Enter` apply / `Esc` cancel. (`Ctrl+Z` removes a paste.)
 
 ---
 
