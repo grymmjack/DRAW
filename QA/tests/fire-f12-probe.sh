@@ -1,44 +1,33 @@
 #!/bin/bash
 # =============================================================================
-# fire-f12-probe.sh — PROBE: does pressing F12 dispatch through central dispatch?
+# fire-f12-probe.sh — BEHAVIOURAL: F12 dispatches through central dispatch.
 #
-# The F12 keycode is a known variant landmine: the legacy custom-brush export
-# handler (INPUT/KEYBOARD.BM) uses _KEYDOWN(34304), while the registry binds F12
-# at keycode 28416 -> action 9999 (a dev-mode "proof of concept"). Since the
-# toolchain moved SDL2 -> GLFW, F12's real keycode may have changed, so this
-# CANNOT be assumed — it must be probed on the current build.
+# After the Phase 2A F12 migration, F12 (keycode 34304 — GLFW-probed; the old
+# registry 28416 never fired) dispatches:
+#   - no custom brush  -> action 9999 (dev-mode debug dump)
+#   - custom brush ON   -> action 1110 (Export Brush PNG)  [not exercised here:
+#                          needs a loaded custom brush + drives a save dialog]
 #
-# This probe presses F12 (no custom brush loaded) and reports whether action 9999
-# fired. It is DIAGNOSTIC: it does not fail the suite either way — it prints the
-# verdict so the F12 migration can use the RIGHT keycode instead of guessing.
+# This test presses F12 with NO custom brush and asserts action 9999 fired — the
+# end-to-end proof that the corrected keycode dispatches. (Before the migration
+# this FIRED NOTHING, because the binding sat on the wrong keycode 28416.)
 #
 # Run:  DRAW_EXTRA_ARGS=--developer ./draw-qa.sh tests/fire-f12-probe.sh
+# Skips harmlessly without developer mode.
 # =============================================================================
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/lib/fire-log.sh"
 
-info "=== F12 keycode probe (central dispatch) ==="
+info "=== F12 central-dispatch behavioural test ==="
 canvas_focus b
-wait_for 0.4 "canvas focused"
+wait_for 0.4 "canvas focused (no custom brush)"
 
-info "Press F12"
+info "Press F12 (no custom brush -> dev-dump 9999)"
 key F12
 wait_for 0.4 "dispatch F12"
 
-LG="$(_fire_log_path)"
-if [ -f "$LG" ]; then
-    if grep -Eq "\[FIRE\].*action=9999" "$LG"; then
-        info "VERDICT: F12 -> action=9999 FIRED — registry keycode 28416 is CORRECT for this build."
-    else
-        info "VERDICT: F12 did NOT fire action=9999 — registry keycode 28416 is WRONG for this build."
-        info "  Any FIRE lines around the F12 press:"
-        grep -E "\[FIRE\]" "$LG" | tail -5 | sed 's/^/    /'
-    fi
-    info "  (full inputs.log at $LG)"
-else
-    info "inputs.log absent — run with DRAW_EXTRA_ARGS=--developer"
-fi
+assert_action_fires 9999 "F12 (no brush) = dev debug dump"
 
 assert_no_crash
-info "=== F12 probe done ==="
+info "=== F12 behavioural test done ==="
