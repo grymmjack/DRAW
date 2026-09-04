@@ -55,6 +55,7 @@ END TYPE
 ' Immediate-mode single-open-at-a-time dropdown. Only one modal dialog runs at a
 ' time, so module globals are safe. DIALOG_init clears DIALOG_DD_OPEN.
 DIM SHARED DIALOG_DD_OPEN%             ' id of the currently-open dropdown (0 = none)
+DIM SHARED DIALOG_DD_UP%               ' TRUE = open list ABOVE the box (no room below); decided at open time
 DIM SHARED DIALOG_DD_X%, DIALOG_DD_Y%, DIALOG_DD_W%, DIALOG_DD_COUNT%
 DIM SHARED DIALOG_DD_SEL%              ' live selection while open (round-tripped to caller)
 DIM SHARED DIALOG_DD_SCROLL%           ' first visible row when list is taller than MAXVIS
