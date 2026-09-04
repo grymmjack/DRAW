@@ -323,15 +323,25 @@ DIM SHARED DETECTED_EVENT_COUNT AS INTEGER
 ' Edge-detection state for keys (indexed by binding index)
 DIM SHARED KEY_DOWN_LAST(1 TO INPUT_MAX_BINDS)       AS INTEGER
 
+' Highest mouse button DRAW samples + can bind. 1=L 2=R 3=M 4=back 5=forward
+' 6-8=extra. _MOUSEBUTTON(n) on an absent button returns 0, so oversampling is safe.
+CONST MOUSE_MAX_BTN = 8
+
+' Per-frame physical state of every button (1..MOUSE_MAX_BTN). Buttons 1-3 mirror
+' MOUSE.B1/B2/B3; 4+ are sampled straight from _MOUSEBUTTON in MOUSE_update_state.
+' The central dispatcher reads this so extra buttons can drive bound actions.
+DIM SHARED MOUSE_BTN(1 TO MOUSE_MAX_BTN)             AS INTEGER
+DIM SHARED MOUSE_BTN_AVAIL                           AS INTEGER ' buttons the device reports (_LASTBUTTON, clamped); for the rebind UI
+
 ' Edge-detection state for mouse buttons + drag state machine
-DIM SHARED MOUSE_BTN_DOWN_LAST(1 TO 3)               AS INTEGER
-DIM SHARED MOUSE_DOWN_REGION(1 TO 3)                 AS INTEGER
-DIM SHARED MOUSE_DOWN_X(1 TO 3)                      AS INTEGER
-DIM SHARED MOUSE_DOWN_Y(1 TO 3)                      AS INTEGER
-DIM SHARED MOUSE_DOWN_TIME(1 TO 3)                   AS DOUBLE
-DIM SHARED MOUSE_DRAG_STARTED(1 TO 3)                AS INTEGER
-DIM SHARED MOUSE_LAST_CLICK_TIME(1 TO 3)             AS DOUBLE
-DIM SHARED MOUSE_LAST_CLICK_REGION(1 TO 3)           AS INTEGER
+DIM SHARED MOUSE_BTN_DOWN_LAST(1 TO MOUSE_MAX_BTN)   AS INTEGER
+DIM SHARED MOUSE_DOWN_REGION(1 TO MOUSE_MAX_BTN)     AS INTEGER
+DIM SHARED MOUSE_DOWN_X(1 TO MOUSE_MAX_BTN)          AS INTEGER
+DIM SHARED MOUSE_DOWN_Y(1 TO MOUSE_MAX_BTN)          AS INTEGER
+DIM SHARED MOUSE_DOWN_TIME(1 TO MOUSE_MAX_BTN)       AS DOUBLE
+DIM SHARED MOUSE_DRAG_STARTED(1 TO MOUSE_MAX_BTN)    AS INTEGER
+DIM SHARED MOUSE_LAST_CLICK_TIME(1 TO MOUSE_MAX_BTN) AS DOUBLE
+DIM SHARED MOUSE_LAST_CLICK_REGION(1 TO MOUSE_MAX_BTN) AS INTEGER
 
 ' Hover state for enter/leave detection
 DIM SHARED HOVER_REGION_LAST AS INTEGER
