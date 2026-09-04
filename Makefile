@@ -94,7 +94,7 @@ OUT := $(BASENAME)$(EXT)
 # `make clean-log`, `make -n clean`, etc. take the cheap branch — no disk walk,
 # no scanning, no side effects. Standalone *.BAS programs under includes/ are
 # not part of DRAW, so we glob .BI/.BM only and name DRAW.BAS explicitly.
-COMPILE_GOALS := all run run-logged run-log-bas $(OUT)
+COMPILE_GOALS := all dev dev-run run run-logged run-log-bas $(OUT)
 GOALS         := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
 ifeq ($(filter $(COMPILE_GOALS),$(GOALS)),)
     SOURCES := $(SRC)
