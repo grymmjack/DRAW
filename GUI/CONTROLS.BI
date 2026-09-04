@@ -41,6 +41,9 @@ CONST CTRL_COL_CUR_W  = 130
 CONST CTRL_COL_BTN_X  = 448 ' rebind button (4.2+)
 CONST CTRL_COL_BTN_W  = 92
 
+' Dropdown id (unique within the dialog) for the "Export as…" menu.
+CONST CTRL_DD_EXPORT  = 1
+
 ' A flattened, filtered display row: either a category header or one binding.
 ' bindIdx = index into INPUT_BINDS (0 for a header row); cat = CAT_* for headers.
 TYPE CTRL_VISROW
@@ -64,6 +67,8 @@ TYPE CONTROLS_STATE
     findFont    AS LONG        ' font handle loaded for the FIND widget (freed on close)
     scrollDrag  AS INTEGER     ' TRUE while dragging the scrollbar thumb
     scrollDragOff AS INTEGER   ' mouse-Y minus thumb-top at grab (keeps grab point under cursor)
+    exportedMsg AS STRING * 96 ' transient "Exported to ..." status shown after EXPORT
+    exportedLen AS INTEGER     ' live length of exportedMsg (0 = none shown)
 END TYPE
 
 DIM SHARED CONTROLS AS CONTROLS_STATE

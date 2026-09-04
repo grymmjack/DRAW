@@ -296,6 +296,23 @@ FOR dumpShortcutsI% = 1 TO _COMMANDCOUNT
     END IF
 NEXT dumpShortcutsI%
 
+' --export-controls [dir]: write CONTROLS.md + CONTROLS.html (+ CONTROLS.pdf if pandoc
+' is present) from the LIVE registry — so user overrides (DRAW.bindings, applied in
+' INPUTS_init) are reflected — then exit. Console-only; DRAW_HEADLESS=1 avoids the window.
+DIM exportCtrlI AS INTEGER, exportCtrlDir AS STRING, exportCtrlN AS INTEGER
+FOR exportCtrlI% = 1 TO _COMMANDCOUNT
+    IF LCASE$(_TRIM$(COMMAND$(exportCtrlI%))) = "--export-controls" THEN
+        exportCtrlDir$ = ""
+        IF exportCtrlI% < _COMMANDCOUNT THEN
+            IF LEFT$(_TRIM$(COMMAND$(exportCtrlI% + 1)), 2) <> "--" THEN exportCtrlDir$ = _TRIM$(COMMAND$(exportCtrlI% + 1))
+        END IF
+        exportCtrlN% = SHORTCUTS_export_controls%(exportCtrlDir$)
+        _LOGINFO "CONTROLS export: " + _TRIM$(STR$(exportCtrlN%)) + " file(s) written (CONTROLS.md, CONTROLS.html)"
+        _LOGINFO "CONTROLS export: for PDF, open CONTROLS.html in a browser and Print -> Save as PDF"
+        SYSTEM
+    END IF
+NEXT exportCtrlI%
+
 ' --load-preset <name>: apply a shipped keymap preset (writes DRAW.bindings), then exit.
 DIM loadPresetI AS INTEGER
 FOR loadPresetI% = 1 TO _COMMANDCOUNT
