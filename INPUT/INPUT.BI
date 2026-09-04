@@ -243,6 +243,7 @@ TYPE INPUT_BIND
     defKeycode     AS LONG              ' compiled-in default keycode (snapshot at registration; for reset + skip-list retention)
     defRequireMods AS INTEGER           ' compiled-in default requireMods
     defForbidMods  AS INTEGER           ' compiled-in default forbidMods
+    defButton      AS INTEGER           ' compiled-in default mouse button (snapshot at registration; for mouse-bind reset)
     label       AS STRING * 48          ' for cheatsheet / audit / inputs.log
 END TYPE
 

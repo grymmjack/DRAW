@@ -18,9 +18,11 @@ CONST BINDINGS_MAX_OVERRIDES = 256
 ' One user override: re-point action `actionId`'s keyboard binding to a new trigger.
 TYPE BINDING_OVERRIDE
     actionId    AS INTEGER   ' CMD action whose binding is remapped
-    keycode     AS LONG      ' new physical keycode
+    keycode     AS LONG      ' new physical keycode (keyboard overrides)
     requireMods AS INTEGER   ' MOD_* bits required
     forbidMods  AS INTEGER   ' MOD_* bits forbidden
+    device      AS INTEGER   ' DEVICE_KEYBOARD or DEVICE_MOUSE — an action can have one of each
+    button      AS INTEGER   ' new mouse button (mouse overrides; 0 for keyboard)
     active      AS INTEGER   ' TRUE = a real override row
 END TYPE
 

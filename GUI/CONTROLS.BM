@@ -46,10 +46,65 @@ END FUNCTION
 ' Reuses the generator's shared keycode/mod renderers (OUTPUT/SHORTCUTS-DUMP.BM).
 '
 FUNCTION CTRL_current_key$ (bindIdx AS INTEGER)
+    ' Mouse bindings carry no keycode — render the button (or wheel) instead.
+    IF INPUT_BINDS(bindIdx).device = DEVICE_MOUSE THEN
+        CTRL_current_key$ = CTRL_mouse_bind_str$(bindIdx)
+        EXIT FUNCTION
+    END IF
     IF INPUT_BINDS(bindIdx).keycode = 0 THEN CTRL_current_key$ = "(unbound)": EXIT FUNCTION
     DIM s AS STRING
     s$ = SHORTCUTS_modstr$(INPUT_BINDS(bindIdx).requireMods) + SHORTCUTS_keyname$(INPUT_BINDS(bindIdx).keycode)
     CTRL_current_key$ = s$
+END FUNCTION
+
+
+''
+' Friendly name for a mouse button number (1-3 named; 4/5 the common thumb
+' buttons; higher generic).
+'
+FUNCTION CTRL_mouse_button_name$ (btn AS INTEGER)
+    SELECT CASE btn%
+        CASE 1: CTRL_mouse_button_name$ = "Left Button"
+        CASE 2: CTRL_mouse_button_name$ = "Right Button"
+        CASE 3: CTRL_mouse_button_name$ = "Middle Button"
+        CASE 4: CTRL_mouse_button_name$ = "Button 4 (Back)"
+        CASE 5: CTRL_mouse_button_name$ = "Button 5 (Fwd)"
+        CASE ELSE: CTRL_mouse_button_name$ = "Button" + STR$(btn%)
+    END SELECT
+END FUNCTION
+
+
+''
+' Render a mouse binding as a display string: "[mods+]Button N" or a wheel dir.
+'
+FUNCTION CTRL_mouse_bind_str$ (bindIdx AS INTEGER)
+    DIM nm AS STRING
+    IF INPUT_BINDS(bindIdx).eventType = EVT_MOUSE_WHEEL THEN
+        IF INPUT_BINDS(bindIdx).wheelDir > 0 THEN
+            nm$ = "Wheel Up"
+        ELSEIF INPUT_BINDS(bindIdx).wheelDir < 0 THEN
+            nm$ = "Wheel Down"
+        ELSE
+            nm$ = "Wheel"
+        END IF
+    ELSE
+        nm$ = CTRL_mouse_button_name$(INPUT_BINDS(bindIdx).button)
+    END IF
+    CTRL_mouse_bind_str$ = SHORTCUTS_modstr$(INPUT_BINDS(bindIdx).requireMods) + nm$
+END FUNCTION
+
+
+''
+' Should binding i appear as a rebindable row in the customizer? Keyboard bindings
+' (any real keycode) always; mouse bindings only when they are dispatched and carry
+' a real action (this hides the ~40 chrome metadata mouse binds with actionId 0).
+'
+FUNCTION CTRL_bind_visible% (i AS INTEGER)
+    IF INPUT_BINDS(i%).keycode <> 0 THEN CTRL_bind_visible% = TRUE: EXIT FUNCTION
+    IF INPUT_BINDS(i%).device = DEVICE_MOUSE _ANDALSO INPUT_BINDS(i%).dispatched _ANDALSO INPUT_BINDS(i%).actionId <> 0 THEN
+        CTRL_bind_visible% = TRUE: EXIT FUNCTION
+    END IF
+    CTRL_bind_visible% = FALSE
 END FUNCTION
 
 
@@ -122,7 +177,7 @@ SUB CONTROLS_rebuild_vis ()
     FOR cat = 1 TO 16
         hasAny = FALSE
         FOR i = 1 TO INPUT_BIND_COUNT
-            IF INPUT_BINDS(i).category = cat AND INPUT_BINDS(i).keycode <> 0 THEN
+            IF INPUT_BINDS(i).category = cat AND CTRL_bind_visible%(i) THEN
                 IF CTRL_row_matches%(i) THEN hasAny = TRUE: EXIT FOR
             END IF
         NEXT
@@ -132,7 +187,7 @@ SUB CONTROLS_rebuild_vis ()
             CTRL_VISROWS(n).cat = cat
             CTRL_VISROWS(n).bindIdx = 0
             FOR i = 1 TO INPUT_BIND_COUNT
-                IF INPUT_BINDS(i).category = cat AND INPUT_BINDS(i).keycode <> 0 THEN
+                IF INPUT_BINDS(i).category = cat AND CTRL_bind_visible%(i) THEN
                     IF CTRL_row_matches%(i) THEN
                         n = n + 1
                         CTRL_VISROWS(n).isHeader = FALSE
@@ -551,11 +606,16 @@ FUNCTION CTRL_assign_key% (bindIdx AS INTEGER)
     reqCtx = INPUT_BINDS(bindIdx%).requireCtx
     forCtx = INPUT_BINDS(bindIdx%).forbidCtx
 
-    DIM selCtrl AS INTEGER, selShift AS INTEGER, selAlt AS INTEGER, capKey AS LONG
+    ' Mouse bindings capture a BUTTON instead of a keycode. Wheel binds are shown
+    ' but not re-capturable here (no button to press) — treated as mouse for display.
+    DIM isMouse AS INTEGER : isMouse% = (INPUT_BINDS(bindIdx%).device = DEVICE_MOUSE)
+
+    DIM selCtrl AS INTEGER, selShift AS INTEGER, selAlt AS INTEGER, capKey AS LONG, capBtn AS INTEGER
     selCtrl%  = ((INPUT_BINDS(bindIdx%).requireMods AND MOD_CTRL) <> 0)
     selShift% = ((INPUT_BINDS(bindIdx%).requireMods AND MOD_SHIFT) <> 0)
     selAlt%   = ((INPUT_BINDS(bindIdx%).requireMods AND MOD_ALT) <> 0)
     capKey&   = INPUT_BINDS(bindIdx%).keycode
+    capBtn%   = INPUT_BINDS(bindIdx%).button
 
     DIM applied AS INTEGER, k AS LONG, mods AS INTEGER, confAct AS INTEGER
     DIM prevMX AS INTEGER, prevMY AS INTEGER, idle AS INTEGER, redraw AS INTEGER
@@ -563,6 +623,8 @@ FUNCTION CTRL_assign_key% (bindIdx AS INTEGER)
     DIM cbCtrlX AS INTEGER, cbShiftX AS INTEGER, cbAltX AS INTEGER
     DIM btnY AS INTEGER, btnH AS INTEGER, btnW AS INTEGER, clrX AS INTEGER, okX AS INTEGER, canX AS INTEGER
     DIM capY AS INTEGER, shownKey AS STRING, warn AS STRING
+    DIM rb AS INTEGER, rbNow AS INTEGER
+    DIM capBtnLast(1 TO MOUSE_MAX_BTN) AS INTEGER   ' raw button edge tracking for mouse capture
     applied% = FALSE : prevMX% = -1 : prevMY% = -1 : redraw% = TRUE : pad% = 12
 
     _KEYCLEAR
@@ -572,11 +634,13 @@ FUNCTION CTRL_assign_key% (bindIdx AS INTEGER)
         idle% = TRUE
         DIALOG_poll_mouse aCtx
 
-        ' --- key capture (Esc cancels; letters normalise to lowercase ASCII) ---
+        ' --- key capture (Esc always cancels; keys capture only for KEYBOARD binds) ---
         k& = _KEYHIT
         DO WHILE k& <> 0
             IF k& = 27 THEN
                 aCtx.done = TRUE : aCtx.result = FALSE
+            ELSEIF isMouse% THEN
+                ' a mouse bind never captures a key — ignore printable/extended keys
             ELSEIF k& >= 1 AND k& <= 26 THEN
                 capKey& = k& + 96 : selCtrl% = TRUE : redraw% = TRUE   ' Ctrl+letter
             ELSEIF k& >= 65 AND k& <= 90 THEN
@@ -597,6 +661,19 @@ FUNCTION CTRL_assign_key% (bindIdx AS INTEGER)
         btnY% = aCtx.h - 26 : btnH% = 18 : btnW% = 92
         clrX% = pad% : okX% = (aCtx.w - btnW%) \ 2 : canX% = aCtx.w - btnW% - pad%
 
+        ' --- mouse-button capture (mouse binds only): press a button while the
+        '     pointer is over the capture box. Bounded by MOUSE_BTN_AVAIL so we
+        '     never call _MOUSEBUTTON past the device count (ERR 5). ---
+        IF isMouse% THEN
+            FOR rb% = 1 TO MOUSE_BTN_AVAIL%
+                rbNow% = (_MOUSEBUTTON(rb%) <> 0)
+                IF rbNow% AND capBtnLast(rb%) = 0 THEN
+                    IF DIALOG_point_in%(aCtx, pad%, capY% + 14, aCtx.w - pad% * 2, 18) THEN capBtn% = rb% : redraw% = TRUE
+                END IF
+                capBtnLast(rb%) = rbNow%
+            NEXT rb%
+        END IF
+
         ' --- checkbox clicks ---
         IF DIALOG_hit%(aCtx, cbCtrlX%, cbY%, 52, 12) THEN selCtrl% = NOT selCtrl% : redraw% = TRUE
         IF DIALOG_hit%(aCtx, cbShiftX%, cbY%, 56, 12) THEN selShift% = NOT selShift% : redraw% = TRUE
@@ -612,19 +689,29 @@ FUNCTION CTRL_assign_key% (bindIdx AS INTEGER)
 
         ' --- button clicks ---
         IF DIALOG_hit%(aCtx, clrX%, btnY%, btnW%, btnH%) THEN
-            capKey& = 0 : selCtrl% = FALSE : selShift% = FALSE : selAlt% = FALSE : redraw% = TRUE
+            capKey& = 0 : capBtn% = 0 : selCtrl% = FALSE : selShift% = FALSE : selAlt% = FALSE : redraw% = TRUE
         END IF
         IF DIALOG_hit%(aCtx, canX%, btnY%, btnW%, btnH%) THEN
             aCtx.done = TRUE : aCtx.result = FALSE
         END IF
         IF DIALOG_hit%(aCtx, okX%, btnY%, btnW%, btnH%) THEN
-            BINDINGS_set_override actId%, capKey&, mods%, 0
-            ' Steal: unbind the conflicting action if it is dispatched (can be freed).
-            IF confAct% <> 0 AND confAct% <> actId% THEN
-                IF CTRL_action_dispatched%(confAct%) THEN BINDINGS_set_override confAct%, 0, 0, 0
+            IF isMouse% THEN
+                ' A mouse bind needs a real button (button 0 = "any" in the matcher,
+                ' which is never what the user means) — require one before applying.
+                IF capBtn% >= 1 THEN
+                    BINDINGS_set_mouse_override actId%, capBtn%, mods%
+                    applied% = TRUE
+                    aCtx.done = TRUE : aCtx.result = TRUE
+                END IF
+            ELSE
+                BINDINGS_set_override actId%, capKey&, mods%, 0
+                ' Steal: unbind the conflicting action if it is dispatched (can be freed).
+                IF confAct% <> 0 AND confAct% <> actId% THEN
+                    IF CTRL_action_dispatched%(confAct%) THEN BINDINGS_set_override confAct%, 0, 0, 0
+                END IF
+                applied% = TRUE
+                aCtx.done = TRUE : aCtx.result = TRUE
             END IF
-            applied% = TRUE
-            aCtx.done = TRUE : aCtx.result = TRUE
         END IF
 
         ' --- idle detection ---
@@ -637,7 +724,7 @@ FUNCTION CTRL_assign_key% (bindIdx AS INTEGER)
             _DEST aCtx.imgHandle
             _FONT aCtx.fontH
             _PRINTMODE _KEEPBACKGROUND
-            DIALOG_draw_frame aCtx, "REBIND KEY"
+            IF isMouse% THEN DIALOG_draw_frame aCtx, "REBIND MOUSE" ELSE DIALOG_draw_frame aCtx, "REBIND KEY"
 
             COLOR THEME.DIALOG_label_fg~&
             _UPRINTSTRING (pad%, ty%), CTRL_clip_label$(lbl$, aCtx.w - pad% * 2)
@@ -647,8 +734,17 @@ FUNCTION CTRL_assign_key% (bindIdx AS INTEGER)
             CTRL_draw_check cbAltX%, cbY%, "Alt", selAlt%
 
             COLOR THEME.DIALOG_label_fg~&
-            _UPRINTSTRING (pad%, capY%), "Press a key (Esc cancels):"
-            shownKey$ = CTRL_render_key$(capKey&, mods%)
+            IF isMouse% THEN
+                _UPRINTSTRING (pad%, capY%), "Press a mouse button below (Esc cancels):"
+                IF capBtn% >= 1 THEN
+                    shownKey$ = SHORTCUTS_modstr$(mods%) + CTRL_mouse_button_name$(capBtn%)
+                ELSE
+                    shownKey$ = "(press a button)"
+                END IF
+            ELSE
+                _UPRINTSTRING (pad%, capY%), "Press a key (Esc cancels):"
+                shownKey$ = CTRL_render_key$(capKey&, mods%)
+            END IF
             LINE (pad%, capY% + 14)-(aCtx.w - pad%, capY% + 32), THEME.DIALOG_toggle_bg~&, BF
             LINE (pad%, capY% + 14)-(aCtx.w - pad%, capY% + 32), THEME.DIALOG_toggle_border~&, B
             COLOR THEME.DIALOG_toggle_sel_fg~&
