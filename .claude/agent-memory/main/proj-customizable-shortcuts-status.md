@@ -67,8 +67,11 @@ The design's pessimism was overblown — the FG/BG choice turned out to be ONE c
   multi-site: chrome-eyedrop/canvas-loupe/picker-tool; sym fires on Ctrl+EITHER button — neither
   fits one button+mod without changing defaults). **C wheel zoom/brush** — needs a dispatch
   migration or surgical wiring inside the ~300-line wheel ELSEIF chain + a wheel-capture UX
-  (deferred, not rushed). **C2 wheel-tilt via `_AXIS`** — undocumented new QB64-PE API; needs a
-  Rick real-HW probe. **⚑ Rick live tests pending:** paint FG/BG swap + pan drag.
+  (deferred, not rushed). **C2 wheel-tilt — PROBE RESOLVED (2026-09-04):** Rick ran
+  `DEV/mouse-axis-probe.bas` on real HW → **horizontal wheel TILT drives `_WHEEL(4)`** (the 4th
+  wheel index on his mouse; vertical scroll is the usual wheel). "and it works." So wheel-tilt is
+  bindable via `_WHEEL(4)` (returns DOUBLE now) — remaining work is the same wheel-capture UX +
+  dispatch wiring as C, not a probe. **⚑ Rick live tests pending:** paint FG/BG swap + pan drag.
 - **Rule learned:** every QB64 tool/probe gets `ON ERROR GOTO EH` (no blocking dialogs) —
   [[feedback-no-error-dialogs]].
 - **Phase 5 preset letter-key content** — Rick's collision tradeoffs (G bucket, C crop, L lasso,
