@@ -80,7 +80,7 @@ By Rick Christy ([grymmjack](https://github.com/grymmjack)) · [github.com/grymm
 
 This manual is the companion reference to the DRAW pixel art editor. It mirrors the structure of the upcoming 55-episode video tutorial series and walks you from "I just installed DRAW" through real-world pixel-art workflows, advanced layer techniques, and the quirky touches that only DRAW offers — like exporting your artwork as runnable QB64 source code.
 
-You can read it cover-to-cover, jump to any chapter from the [Table of Contents](#table-of-contents), or use it as a quick-reference once you know your way around. Every chapter ends with practical exercises and every keyboard shortcut you'll see in the manual is also listed in the [appendix](MANUAL/20-appendix.md) and the live [`CHEATSHEET.md`](../CHEATSHEET.md).
+You can read it cover-to-cover, jump to any chapter from the [Table of Contents](#table-of-contents), or use it as a quick-reference once you know your way around. Every chapter ends with practical exercises and every keyboard shortcut you'll see in the manual is also listed in the [appendix](MANUAL/20-appendix.md) and the live, registry-generated [`SHORTCUTS.md`](../SHORTCUTS.md) (keyboard **and** mouse).
 
 ### Who this is for
 

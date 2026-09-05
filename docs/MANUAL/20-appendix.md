@@ -6,7 +6,7 @@
 
 ## Canonical reference
 
-The complete, always-up-to-date list of keyboard shortcuts lives in [`CHEATSHEET.md`](../../CHEATSHEET.md) at the repository root. The summary below is curated for quick visual scanning — when in doubt, the canonical file wins.
+The complete, always-up-to-date list of keyboard **and mouse** shortcuts lives in [`SHORTCUTS.md`](../../SHORTCUTS.md) at the repository root — generated directly from the input registry. The summary below is curated for quick visual scanning — when in doubt, the canonical file wins. All of these are rebindable via **Edit → Customize Controls** (see Chapter 16).
 
 ## Keyboard shortcut summary
 
@@ -52,10 +52,11 @@ The complete, always-up-to-date list of keyboard shortcuts lives in [`CHEATSHEET
 
 | Action | Shortcut |
 | --- | --- |
-| Zoom in / out | `Ctrl+=` / `Ctrl+-`, `Ctrl`+Wheel |
+| Zoom in / out | `Ctrl+=` / `Ctrl+-`, Mouse Wheel (Zoom tool: right-click zooms out) |
+| Brush size − / + | `[` / `]`, `Ctrl`+Wheel, wheel tilt left/right |
 | Reset zoom | `Ctrl+0` |
 | Reset pan + zoom | Double-middle-click |
-| Pan | Middle-drag, `Space`+drag |
+| Pan | Middle-drag, `Space`+drag (or bind the wheel/tilt to Pan in Customize Controls) |
 | Pattern tile | View menu / Advanced Bar |
 | Grayscale preview | `Ctrl+Alt+Shift+G` |
 | Reference image | `Ctrl+R` |

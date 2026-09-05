@@ -36,7 +36,7 @@ The Palette is grouped into categories that match the menus:
 
 > 🎯 **Goal:** Memorize the essential shortcuts.
 
-The full, authoritative list is in [`CHEATSHEET.md`](../../CHEATSHEET.md) at the repository root. Below are the essentials — what you'll use thousands of times a session.
+The full, authoritative list is in [`SHORTCUTS.md`](../../SHORTCUTS.md) at the repository root — generated directly from the input registry, so it never drifts from the app, and it covers **both keyboard and mouse**. Below are the essentials — what you'll use thousands of times a session.
 
 ### Tool selection (single key)
 
@@ -135,6 +135,42 @@ The following combos require holding a non-modifier key (not Ctrl/Alt/Shift) and
 > See also: Tool-specific sections for additional drag-time and context-sensitive combos (e.g., Smart Shapes, Line End Caps, etc.).
 
 For everything else, use the Command Palette or read the chapter where the feature is introduced.
+
+<div class="page-break"></div>
+
+## Customize Controls — Rebind Anything (New in 2.1.0)
+
+> 🎯 **Goal:** Make DRAW's controls match your muscle memory.
+
+Every shortcut in DRAW is now **rebindable** — keyboard *and* mouse. Open **Edit → Customize Controls** (or search "Customize Controls" in the Command Palette).
+
+**Rebinding a control**
+
+1. Type in the **FIND** box to filter the list by command name.
+2. Click **SET…** on a row to open the capture dialog.
+3. Press the new key, click a **mouse button**, spin the **wheel**, or **tilt** the wheel left/right — whatever you press is captured. Toggle the Ctrl/Shift/Alt checkboxes to require modifiers.
+4. If the input is already bound elsewhere, DRAW **warns and steals** it (the old binding is unbound). Click **OK** to apply — changes take effect immediately.
+
+Rows you've changed from the factory default show a marker and a "= changed from default" legend. **RESET ALL** restores every control to the shipped defaults instantly.
+
+**Mouse controls you can bind**
+
+| Control | Default | Notes |
+|---------|---------|-------|
+| Vertical wheel | Zoom in/out (cursor-centered) | Rebindable; can be set to canvas pan or brush size |
+| Wheel **tilt** (left/right) | Brush size − / + | Tilt right = bigger; rebind to **Pan Left/Right** for horizontal scroll |
+| `Ctrl` + wheel | Brush size | |
+| Thumb buttons (Back / Forward) | Undo / Redo | |
+| Right-click (Zoom tool) | Zoom **out** | Left-click zooms in |
+| Pan drag button | Middle / Space+drag | Rebindable |
+
+There are also dedicated **Pan Up / Down / Left / Right** actions you can bind to the wheel or tilt for scroll-to-pan.
+
+**Presets & export**
+
+- **Load preset** applies a full keymap in one click: *Aseprite, Photoshop, GIMP, Krita, Illustrator, Procreate, MS Paint, Pro Motion, DeluxePaint*.
+- **Export as…** writes your live keymap (including overrides) to **Markdown, HTML, or PDF**.
+- Bindings persist across sessions in `DRAW.bindings`; the CLI flag `--load-preset <name>` applies one at launch.
 
 ---
 

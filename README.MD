@@ -5,9 +5,21 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.0.3
+Current release: v2.1.0
 
 ![DRAW GUI from v1.1.0](./GUI.png)
+
+## New in 2.1.0
+
+**Customizable shortcuts** — DRAW's keyboard *and* mouse controls are now fully rebindable, backed by a registry-driven input system.
+
+- **Customize Controls dialog** (Edit → Customize Controls) — search any command in the FIND box, click **SET…** to capture a new key, mouse button, wheel direction, or mouse tilt, and rebind it live. Conflicts warn-and-steal; a **RESET ALL** button restores factory defaults instantly; rows changed from default are flagged with a marker.
+- **Keymap presets** — one click loads a shipped keymap: Aseprite, Photoshop, GIMP, Krita, Illustrator, Procreate, MS Paint, Pro Motion, or DeluxePaint.
+- **Export your keymap** to **Markdown, HTML, or PDF** straight from the dialog, reflecting your live overrides.
+- **Mouse wheel is bindable** — the vertical wheel (zoom by default), the mouse's horizontal **tilt**, the extra thumb buttons (Back/Forward → Undo/Redo by default), and the pan-drag button can all be reassigned. New **Pan Up/Down/Left/Right** actions can be bound to the wheel or tilt for scroll-to-pan.
+- **Right-click zooms out** with the Zoom tool (left-click still zooms in).
+- **SHORTCUTS.md** is now generated directly from the input registry, so the reference can never drift from the app. (The old `CHEATSHEET.md` now redirects here.)
+- Bindings persist across sessions in `DRAW.bindings`; override any of them from the CLI with `--load-preset`.
 
 ## New in 2.0.3
 
@@ -341,7 +353,7 @@ groups, transform/move, export, importers, and input handling.
 * `Ctrl+Z` (undo)
 * `Ctrl+Y` (redo)
 
-See [CHEATSHEET.md](CHEATSHEET.md) for complete controls reference.
+See [SHORTCUTS.md](SHORTCUTS.md) for the complete, registry-generated controls reference (keyboard **and** mouse) — all rebindable via **Edit → Customize Controls**.
 
 ## Command Line
 
