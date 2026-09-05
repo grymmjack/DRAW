@@ -14,7 +14,7 @@
 # QB64 project to <path> on the first frame, then exits) so there is no GUI dialog
 # to drive -- deterministic, not flaky. Run under xvfb (DRAW needs a display).
 set -uo pipefail
-cd "$(dirname "$0")/.." || exit 1
+cd "$(dirname "$0")/../.." || exit 1   # repo root (script lives in DEV/tools/)
 [ -x ./DRAW.run ] || { echo "test-qb64-export: build DRAW first (make)"; exit 1; }
 QB64="${QB64PE:-$HOME/git/qb64pe/qb64pe}"
 [ -x "$QB64" ] || { echo "test-qb64-export: qb64pe not found at $QB64 (set QB64PE=...)"; exit 1; }

@@ -8,7 +8,7 @@
 #
 # Needs a display (the generator runs after SCREEN_init); uses xvfb-run when headless.
 set -euo pipefail
-cd "$(dirname "$0")/.."   # repo root
+cd "$(dirname "$0")/../.."   # repo root (script lives in DEV/tools/)
 
 DRAW="${DRAW:-./DRAW.run}"
 [ -x "$DRAW" ] || { echo "gen-shortcuts: build DRAW first (make)"; exit 1; }

@@ -6,7 +6,7 @@
 # Flip Horizontal (action 315) from 'h'(104) to 'j'(106) must make the generated
 # table show the binding on J; with no override it must show H.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."   # repo root (script lives in DEV/tools/)
 [ -x ./DRAW.run ] || { echo "test-rebind-engine: build DRAW first (make)"; exit 1; }
 
 TMPCFG=$(mktemp -d)

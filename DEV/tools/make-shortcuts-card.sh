@@ -7,12 +7,12 @@
 # appendix, and command-line flags. Output: DRAW-Shortcuts.md + DRAW-Shortcuts.pdf
 # at the repo root.
 set -uo pipefail
-cd "$(dirname "$0")/.." || exit 1
+cd "$(dirname "$0")/../.." || exit 1   # repo root (script lives in DEV/tools/)
 
 SRC="SHORTCUTS.md"
 OUT_MD="DRAW-Shortcuts.md"
 OUT_PDF="DRAW-Shortcuts.pdf"
-CSS="tools/shortcuts-card.css"
+CSS="DEV/tools/shortcuts-card.css"
 [ -f "$SRC" ] || { echo "make-shortcuts-card: $SRC not found"; exit 1; }
 
 VERSION="$(grep -oE 'APP_VERSION\$[[:space:]]*=[[:space:]]*"[^"]+"' _COMMON.BI | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"

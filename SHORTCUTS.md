@@ -631,7 +631,7 @@ These are behaviors rather than user shortcuts, kept out of the tables above:
 ## Generated binding index
 
 > **Auto-generated** from the live input registry by `DRAW --dump-shortcuts`
-> (regenerate with `tools/gen-shortcuts.sh`). Everything between the `BINDINGS` markers
+> (regenerate with `DEV/tools/gen-shortcuts.sh`). Everything between the `BINDINGS` markers
 > is machine-written — to change it, edit the registry (`INPUT/INPUT.BM` → `INPUTS_register_all`),
 > not this file. The curated sections above stay hand-authored (the "augment" model).
 
@@ -959,4 +959,4 @@ These are behaviors rather than user shortcuts, kept out of the tables above:
 <!-- Reconciled against source extraction (agents over KEYBOARD.BM / MOUSE.BM / INPUTS_register_all /
      CMD_init / MENUBAR). Registry coverage + gap audit: PLANS/SHORTCUTS-INVENTORY.md.
      A handful of UNCERTAIN keycode/collision items are listed there for manual confirm in Phase 1.
-     The "Generated binding index" section below is spliced by tools/gen-shortcuts.sh from --dump-shortcuts. -->
+     The "Generated binding index" section below is spliced by DEV/tools/gen-shortcuts.sh from --dump-shortcuts. -->

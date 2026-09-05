@@ -20,7 +20,7 @@ binding index). The card keeps only the "Keys → what it does" activity tables.
 From the repo root:
 
 ```bash
-./tools/make-shortcuts-card.sh
+./DEV/tools/make-shortcuts-card.sh
 ```
 
 What it does:
@@ -35,7 +35,7 @@ What it does:
   notation), stamped with `APP_VERSION$` from `_COMMON.BI` and today's date.
 - Writes **`DRAW-Shortcuts.md`** (the Markdown card) at the repo root.
 - Renders **`DRAW-Shortcuts.pdf`** via `pandoc` → HTML (`--embed-resources`, so the
-  stylesheet is inlined) → headless Chrome, styled by `tools/shortcuts-card.css`
+  stylesheet is inlined) → headless Chrome, styled by `DEV/tools/shortcuts-card.css`
   (compact 2-column reference card: teal section headers, key badges, US Letter).
 
 If `pandoc` + a Chromium/Chrome are not both present, it still writes the `.md` and
@@ -89,11 +89,11 @@ The `.md` always builds. For the PDF the script needs **pandoc** plus a **Chromi
 
 - **Single source of truth.** The card is *derived* from `SHORTCUTS.md`; never hand-edit
   `DRAW-Shortcuts.md` — change `SHORTCUTS.md` (or, for the binding facts, the registry
-  via `tools/gen-shortcuts.sh`) and re-run this skill.
+  via `DEV/tools/gen-shortcuts.sh`) and re-run this skill.
 - **What's included vs not** is controlled by the section range in
-  `tools/make-shortcuts-card.sh` (the `awk` `## Global / Application` → `## Command Line`
+  `DEV/tools/make-shortcuts-card.sh` (the `awk` `## Global / Application` → `## Command Line`
   window). To add/drop a section on the card, adjust that window or the section headers
   in `SHORTCUTS.md`.
-- **Styling** lives in `tools/shortcuts-card.css` (column count, badge look, page size).
+- **Styling** lives in `DEV/tools/shortcuts-card.css` (column count, badge look, page size).
 - Both outputs are small; commit them alongside `SHORTCUTS.md` changes so the printable
   card never lags the source.
