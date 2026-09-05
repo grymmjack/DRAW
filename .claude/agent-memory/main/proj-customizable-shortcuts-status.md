@@ -103,8 +103,9 @@ The design's pessimism was overblown — the FG/BG choice turned out to be ONE c
   [[feedback-no-error-dialogs]].
 - **Phase 5 preset letter-key content** — Rick's collision tradeoffs (G bucket, C crop, L lasso,
   P pen, GIMP R/E/F/M, H hand). See the decisions doc.
-- **Settings `Ctrl+,`** — ⛔ Windows-blocked: `_KEYDOWN(44)` works on Linux/macOS while Ctrl held
-  but Windows delivers comma only via `_KEYHIT ±188`; needs a keyhit-alias + Windows verification.
+- **Settings `Ctrl+,`** — ✅ CONFIRMED working on Windows (2026-09-04, Rick, on the ThinkPad-built
+  DRAW.exe). The cross-platform alias in KEYBOARD.BM (`_KEYDOWN(44) OR LAST_KEYHIT_RAW& = ±188 / 44`)
+  handles all three OSes. No longer blocked.
 
 Reusable-lib / lint-first / zero-warnings / OS-native discipline throughout. See
 [[feedback-dry-reuse-libs]], [[feedback-lint-not-build]], [[feedback-zero-warnings-build]],
