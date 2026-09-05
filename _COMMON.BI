@@ -73,6 +73,15 @@ DIM SHARED RECENT_FILES(1 TO 10) AS STRING
 DIM SHARED RECENT_FILE_COUNT AS INTEGER
 RECENT_FILE_COUNT% = 0
 
+' Browser custom "Places" (user-editable favourite folders shown in the browser's
+' places bar, on top of the built-in DRAW/Samples/etc.). Persisted to config as
+' BROWSER_PLACE_<n>=Label|Path and applied in DRAW_FD_register_custom_places.
+CONST BROWSER_PLACES_MAX = 16
+DIM SHARED BROWSER_PLACE_LABEL(1 TO 16) AS STRING
+DIM SHARED BROWSER_PLACE_PATH(1 TO 16) AS STRING
+DIM SHARED BROWSER_PLACE_COUNT AS INTEGER
+BROWSER_PLACE_COUNT% = 0
+
 ' Recent preview images tracking (up to 10 recent preview images)
 CONST RECENT_PREVIEW_MAX = 10
 DIM SHARED RECENT_PREVIEW_FILES(1 TO 10) AS STRING

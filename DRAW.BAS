@@ -1015,20 +1015,26 @@ SUB MAIN_shutdown ()
         CFG.COLOR_MIXER_Y% = COLORMIXER.dispY%
     END IF
 
-    ' Persist browser panel state on exit
+    ' Persist browser panel state on exit.
+    ' Geometry is saved ONLY when Auto-Save Size/Position is on — otherwise the fixed
+    ' Width/Height/Left/Top the user set in Settings would be clobbered here with the
+    ' live panel size every time DRAW exits, so it never "sticks". With auto-save on we
+    ' record the live geometry so it is remembered next launch.
     ' BROWSER.dispW/H are viewport pixels after BROWSER_compute_display_size;
     ' CFG.BROWSER_WIDTH/HEIGHT must store FD native pixels for BROWSER_init.
     ' Use FD_STATE.dialogW/H when initialized (authoritative native size).
     CFG.BROWSER_VISIBLE% = BROWSER.visible%
-    CFG.BROWSER_POS_X%   = BROWSER.dispX%
-    CFG.BROWSER_POS_Y%   = BROWSER.dispY%
-    IF BROWSER.initialized% THEN
-        CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
-        CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
-    ELSE
-        ' Not initialized: dispW/H still hold native pixels from BROWSER_init
-        CFG.BROWSER_WIDTH%  = BROWSER.dispW%
-        CFG.BROWSER_HEIGHT% = BROWSER.dispH%
+    IF CFG.BROWSER_AUTOSAVE_GEOMETRY% THEN
+        CFG.BROWSER_POS_X% = BROWSER.dispX%
+        CFG.BROWSER_POS_Y% = BROWSER.dispY%
+        IF BROWSER.initialized% THEN
+            CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
+            CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+        ELSE
+            ' Not initialized: dispW/H still hold native pixels from BROWSER_init
+            CFG.BROWSER_WIDTH%  = BROWSER.dispW%
+            CFG.BROWSER_HEIGHT% = BROWSER.dispH%
+        END IF
     END IF
     CFG.BROWSER_LAST_DIR$             = BROWSER.lastDir$
     CFG.BROWSER_DEFAULT_VIEW_MODE%    = BROWSER.viewMode%

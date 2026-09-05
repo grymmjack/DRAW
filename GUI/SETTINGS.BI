@@ -22,7 +22,8 @@ CONST SETTINGS_TAB_AUDIO      = 4
 CONST SETTINGS_TAB_FONTS      = 5
 CONST SETTINGS_TAB_APPEARANCE = 6
 CONST SETTINGS_TAB_DIRS       = 7
-CONST SETTINGS_TAB_COUNT      = 8
+CONST SETTINGS_TAB_BROWSER    = 8
+CONST SETTINGS_TAB_COUNT      = 9
 
 ' --- Layout Constants --------------------------------------------------------
 
@@ -56,6 +57,7 @@ TYPE SETTINGS_CTX
     tabScrollY5    AS INTEGER    ' Fonts
     tabScrollY6    AS INTEGER    ' Appearance
     tabScrollY7    AS INTEGER    ' Directories
+    tabScrollY8    AS INTEGER    ' Browser
     contentH       AS INTEGER    ' Total content height for active tab
     viewportH      AS INTEGER    ' Visible content viewport height
     contentX       AS INTEGER    ' Content area left X in dialog coords
