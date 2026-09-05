@@ -355,6 +355,9 @@ SUB BROWSER_ensure_initialized ()
     IF FD_CFG.thumbSize < 32 THEN FD_CFG.thumbSize = 32
     IF FD_CFG.thumbSize > 256 THEN FD_CFG.thumbSize = 256
 
+    ' Show/hide dotfiles per the Settings > Browser preference.
+    IF CFG.BROWSER_SHOW_HIDDEN% THEN FD_CFG.showHidden = -1 ELSE FD_CFG.showHidden = 0
+
     ' CFG.BROWSER_WIDTH/HEIGHT are stored in FD native pixels (same role as
     ' CP_STATE.dialogW for Color Mixer). BROWSER.dispW/H hold those native values
     ' at init time.  Set FD dialog size first, then derive the viewport footprint.
@@ -363,7 +366,15 @@ SUB BROWSER_ensure_initialized ()
     IF FD_STATE.dialogW < BROWSER_MIN_W THEN FD_STATE.dialogW = BROWSER_MIN_W
     IF FD_STATE.dialogH < BROWSER_MIN_H THEN FD_STATE.dialogH = BROWSER_MIN_H
     BROWSER_apply_split_defaults
+    ' Preserve the position restored from CFG: compute_display_size recomputes
+    ' BROWSER.dispX/Y from FD_STATE.dialogX/Y, which FD_init just CENTERED — using it
+    ' as-is would discard the saved spot and open the browser centered instead (most
+    ' visible at display scale > 1). Keep dispX/Y; only the SIZE is derived here.
+    DIM keepDispX AS INTEGER : keepDispX% = BROWSER.dispX%
+    DIM keepDispY AS INTEGER : keepDispY% = BROWSER.dispY%
     BROWSER_compute_display_size ' BROWSER.dispW = FD.dialogW * ts/ds (viewport footprint)
+    BROWSER.dispX% = keepDispX%
+    BROWSER.dispY% = keepDispY%
     IF BROWSER.renderScale! <= 0 THEN BROWSER.renderScale! = 1
     BROWSER_clamp_size           ' clamp viewport footprint to available area
     ' Sync (possibly clamped) viewport back to FD native coords
@@ -471,7 +482,10 @@ SUB BROWSER_init ()
     BROWSER.renderScale! = 1!
     IF BROWSER.dispW% < BROWSER_MIN_W THEN BROWSER.dispW% = BROWSER_DEFAULT_W
     IF BROWSER.dispH% < BROWSER_MIN_H THEN BROWSER.dispH% = BROWSER_DEFAULT_H
-    BROWSER_clamp_size
+    ' NOTE: no BROWSER_clamp_size here — dispW/H currently hold FD NATIVE pixels, but
+    ' clamp_size clamps against VIEWPORT dimensions. At display scale > 1 native > viewport,
+    ' so clamping here would shrink a wide/tall browser. The size IS clamped correctly in
+    ' BROWSER_ensure_initialized (line ~371) once dispW/H are the viewport footprint.
 
     BROWSER.lastDir$ = ""
 
@@ -488,7 +502,11 @@ SUB BROWSER_init ()
         BROWSER.dispX%      = CFG.BROWSER_POS_X%
         BROWSER.dispY%      = CFG.BROWSER_POS_Y%
         BROWSER.positioned% = TRUE
-        BROWSER_clamp_to_work_area
+        ' NOTE: no clamp here. dispW/H still hold FD NATIVE pixels and the screen
+        ' layout (uiEdges, status/palette heights) is not final at init, so clamping
+        ' now would over-restrict the saved position at display scale > 1 (native >
+        ' viewport) — the browser opened above its saved Y. The position IS clamped on
+        ' the first render (needReClamp) once dispW/H are the viewport footprint.
     ELSE
         ' Visible on startup with no saved position: spawn in safe top-left work area.
         DIM sx AS INTEGER, sy AS INTEGER, ex AS INTEGER, ey AS INTEGER
@@ -522,6 +540,13 @@ SUB BROWSER_toggle ()
         SCRN.showBrowser%           = TRUE
         SCRN.browserManuallyHidden% = FALSE
         BROWSER_ensure_initialized
+        ' BUG (toolbox re-opens last image): the browser reuses the persistent
+        ' FILE_DIALOG singleton across show/hide. A confirmed-open result left in
+        ' FD_STATE from a *previous* session (done/resultPath/confirmed, or a
+        ' context-menu pendingOpenInDraw) would be picked up by the first
+        ' BROWSER_mouse_input after this show and re-open that file. A freshly-shown
+        ' browser must never auto-open anything, so discard any stale confirm state.
+        BROWSER_clear_pending_open
         IF NOT BROWSER.positioned% THEN
             BROWSER_auto_position
         ELSE
@@ -636,8 +661,10 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
             BROWSER_sync_fd_from_display
             BROWSER.maximized%  = FALSE
             BROWSER.positioned% = TRUE
-            CFG.BROWSER_POS_X%  = BROWSER.dispX%
-            CFG.BROWSER_POS_Y%  = BROWSER.dispY%
+            IF CFG.BROWSER_AUTOSAVE_GEOMETRY% THEN
+                CFG.BROWSER_POS_X% = BROWSER.dispX%
+                CFG.BROWSER_POS_Y% = BROWSER.dispY%
+            END IF
             FRAME_IDLE%         = FALSE
             SCENE_DIRTY%        = TRUE
         ELSE
@@ -697,10 +724,12 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
             BROWSER.maximized% = FALSE
 
             BROWSER.positioned% = TRUE
-            CFG.BROWSER_POS_X%  = BROWSER.dispX%
-            CFG.BROWSER_POS_Y%  = BROWSER.dispY%
-            CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
-            CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+            IF CFG.BROWSER_AUTOSAVE_GEOMETRY% THEN
+                CFG.BROWSER_POS_X%  = BROWSER.dispX%
+                CFG.BROWSER_POS_Y%  = BROWSER.dispY%
+                CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
+                CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+            END IF
             FRAME_IDLE%         = FALSE
             SCENE_DIRTY%        = TRUE
         ELSE
@@ -840,10 +869,12 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
     IF BROWSER.zoomLevel% < 1 THEN BROWSER.zoomLevel% = 1
     IF BROWSER.zoomLevel% > 8 THEN BROWSER.zoomLevel% = 8
 
-    CFG.BROWSER_POS_X%    = BROWSER.dispX%
-    CFG.BROWSER_POS_Y%    = BROWSER.dispY%
-    CFG.BROWSER_WIDTH%    = FD_STATE.dialogW
-    CFG.BROWSER_HEIGHT%   = FD_STATE.dialogH
+    IF CFG.BROWSER_AUTOSAVE_GEOMETRY% THEN
+        CFG.BROWSER_POS_X%  = BROWSER.dispX%
+        CFG.BROWSER_POS_Y%  = BROWSER.dispY%
+        CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
+        CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+    END IF
     CFG.BROWSER_LAST_DIR$ = BROWSER.lastDir$
 
     IF FD_STATE.done THEN
@@ -854,7 +885,9 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
         ' next re-show (e.g. Help > Examples). Consume + clear it here.
         DIM doneOpen AS STRING
         doneOpen$                   = FD_PLAT_trim_cstr$(FD_STATE.resultPath)
-        FD_STATE.resultPath         = ""
+        ' Clear ALL confirm/open state (done already reset above) so nothing re-fires
+        ' on the next show — resultPath, confirmed, resultCount, pendingOpenInDraw.
+        BROWSER_clear_pending_open
         BROWSER.visible%            = FALSE
         SCRN.showBrowser%           = FALSE
         SCRN.browserManuallyHidden% = TRUE
@@ -864,6 +897,114 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
 
     FRAME_IDLE%  = FALSE
     SCENE_DIRTY% = TRUE
+END SUB
+
+''
+' Discard any pending confirm/open state in the shared FILE_DIALOG singleton so a
+' stale result cannot auto-fire. Called when the browser is (re)shown and after an
+' open is consumed. Covers every field an open trigger reads: done + resultPath (the
+' double-click/Enter path) and pendingOpenInDraw (the context-menu path), plus the
+' confirm bookkeeping (confirmed/resultCount) so nothing downstream re-derives a
+' pending open.
+'
+SUB BROWSER_clear_pending_open ()
+    FD_STATE.done              = FALSE
+    FD_STATE.confirmed         = FALSE
+    FD_STATE.resultPath        = ""
+    FD_STATE.resultCount       = 0
+    FD_STATE.pendingOpenInDraw = ""
+END SUB
+
+''
+' Adopt the Settings > Browser appearance defaults (view mode, thumb size, sort,
+' preview pane, hidden files) into the LIVE browser. Called when those settings
+' change so the choice takes effect immediately instead of only on a fresh first
+' init — the browser normally preserves its live view/sort across show/hide (and
+' inherits FILE_DIALOG's own persisted ~/.file-dialog.cfg), so a changed default
+' would otherwise be ignored by an already-initialized browser.
+'
+SUB BROWSER_apply_defaults ()
+    BROWSER.viewMode%    = CFG.BROWSER_DEFAULT_VIEW_MODE%
+    BROWSER.zoomLevel%   = CFG.BROWSER_DEFAULT_ZOOM_LEVEL%
+    BROWSER.sortType%    = CFG.BROWSER_DEFAULT_SORT_TYPE%
+    BROWSER.sortOrder%   = CFG.BROWSER_DEFAULT_SORT_ORDER%
+    BROWSER.previewOpen% = CFG.BROWSER_DEFAULT_PREVIEW_OPEN%
+    IF BROWSER.viewMode% < 0 THEN BROWSER.viewMode% = 0
+    IF BROWSER.viewMode% > 2 THEN BROWSER.viewMode% = 2
+    IF BROWSER.zoomLevel% < 1 THEN BROWSER.zoomLevel% = 2
+    IF BROWSER.zoomLevel% > 8 THEN BROWSER.zoomLevel% = 8
+    IF BROWSER.sortType% < 0 OR BROWSER.sortType% > 3 THEN BROWSER.sortType% = 0
+    IF BROWSER.sortOrder% < 0 OR BROWSER.sortOrder% > 1 THEN BROWSER.sortOrder% = 0
+
+    ' Not initialized yet → the values above are enough; the next
+    ' BROWSER_ensure_initialized pushes them into FD_CFG at open time.
+    IF BROWSER.initialized% = 0 THEN EXIT SUB
+
+    ' Live browser open → push into the FILE_DIALOG config and relayout now.
+    FD_CFG.viewMode  = BROWSER.viewMode%
+    FD_CFG.sortField = BROWSER.sortType%
+    IF BROWSER.sortOrder% = 0 THEN FD_CFG.sortAscending = -1 ELSE FD_CFG.sortAscending = 0
+    IF BROWSER.previewOpen% THEN FD_CFG.showPreview = -1 ELSE FD_CFG.showPreview = 0
+    FD_CFG.thumbSize = BROWSER.zoomLevel% * 32
+    IF FD_CFG.thumbSize < 32 THEN FD_CFG.thumbSize = 32
+    IF FD_CFG.thumbSize > 256 THEN FD_CFG.thumbSize = 256
+    IF CFG.BROWSER_SHOW_HIDDEN% THEN FD_CFG.showHidden = -1 ELSE FD_CFG.showHidden = 0
+
+    BROWSER_apply_split_defaults          ' preview/places pane widths for the new showPreview
+    FD_LAYOUT_calculate
+    FD_FS_sort FD_CFG.sortField, FD_CFG.sortAscending
+    FD_FS_apply_filter                    ' re-filter for the new showHidden
+    FD_FS_recalc_scroll
+    FD_STATE.dirty = -1
+    SCENE_DIRTY%   = TRUE
+    FRAME_IDLE%    = FALSE
+END SUB
+
+''
+' Append a user Place (Settings > Browser). Strips '|' (the config field separator),
+' derives a label from the folder name when none is given, ignores duplicates by path,
+' and caps at BROWSER_PLACES_MAX. Takes effect on the next browser open; persisted by
+' the next CONFIG_save (Settings > OK).
+'
+SUB BROWSER_place_add (label AS STRING, atPath AS STRING)
+    DIM p AS STRING : p$ = _TRIM$(atPath$)
+    IF LEN(p$) = 0 THEN EXIT SUB
+    ' Normalise: drop trailing slash (except root), strip the reserved '|'.
+    IF LEN(p$) > 1 AND RIGHT$(p$, 1) = "/" THEN p$ = LEFT$(p$, LEN(p$) - 1)
+    DIM i AS INTEGER
+    WHILE INSTR(p$, "|") > 0 : p$ = LEFT$(p$, INSTR(p$, "|") - 1) + MID$(p$, INSTR(p$, "|") + 1) : WEND
+    ' De-dup by path.
+    FOR i% = 1 TO BROWSER_PLACE_COUNT%
+        IF RTRIM$(BROWSER_PLACE_PATH(i%)) = p$ THEN EXIT SUB
+    NEXT i%
+    IF BROWSER_PLACE_COUNT% >= BROWSER_PLACES_MAX THEN EXIT SUB
+
+    DIM lbl AS STRING : lbl$ = _TRIM$(label$)
+    WHILE INSTR(lbl$, "|") > 0 : lbl$ = LEFT$(lbl$, INSTR(lbl$, "|") - 1) + MID$(lbl$, INSTR(lbl$, "|") + 1) : WEND
+    IF LEN(lbl$) = 0 THEN
+        ' Derive label from the last path segment.
+        DIM sl AS INTEGER : sl% = _INSTRREV(p$, "/")
+        IF sl% > 0 AND sl% < LEN(p$) THEN lbl$ = MID$(p$, sl% + 1) ELSE lbl$ = p$
+    END IF
+
+    BROWSER_PLACE_COUNT% = BROWSER_PLACE_COUNT% + 1
+    BROWSER_PLACE_LABEL(BROWSER_PLACE_COUNT%) = lbl$
+    BROWSER_PLACE_PATH(BROWSER_PLACE_COUNT%)  = p$
+END SUB
+
+''
+' Remove the user Place at 1-based index idx, shifting the rest down.
+'
+SUB BROWSER_place_remove (idx AS INTEGER)
+    IF idx% < 1 OR idx% > BROWSER_PLACE_COUNT% THEN EXIT SUB
+    DIM i AS INTEGER
+    FOR i% = idx% TO BROWSER_PLACE_COUNT% - 1
+        BROWSER_PLACE_LABEL(i%) = BROWSER_PLACE_LABEL(i% + 1)
+        BROWSER_PLACE_PATH(i%)  = BROWSER_PLACE_PATH(i% + 1)
+    NEXT i%
+    BROWSER_PLACE_LABEL(BROWSER_PLACE_COUNT%) = ""
+    BROWSER_PLACE_PATH(BROWSER_PLACE_COUNT%)  = ""
+    BROWSER_PLACE_COUNT% = BROWSER_PLACE_COUNT% - 1
 END SUB
 
 ''

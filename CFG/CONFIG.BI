@@ -418,6 +418,8 @@ TYPE DRAW_CONFIG
     BROWSER_ICON_SCALE              AS INTEGER        ' Browser icon scale (1-4 explicit, 0=compact compat fallback)
     BROWSER_PLACES_MIN_W            AS INTEGER        ' Minimum places pane width in FD native pixels (0=auto)
     BROWSER_PREVIEW_MIN_W           AS INTEGER        ' Minimum preview pane width in FD native pixels (0=auto)
+    BROWSER_AUTOSAVE_GEOMETRY       AS INTEGER        ' TRUE = remember panel size/pos on move/resize; FALSE = always open at the fixed WIDTH/HEIGHT/POS below
+    BROWSER_SHOW_HIDDEN             AS INTEGER        ' TRUE = show dotfiles/hidden entries in the browser
     PIXEL_ANALYZER_CONFIDENCE       AS INTEGER        ' Pixel analyzer confidence threshold percent (10-90)
     EDIT_BAR_VISIBLE                AS INTEGER        ' TRUE = edit bar visible at startup
     EDIT_BAR_DOCK_POSITION          AS STRING         ' "LEFT" or "RIGHT"
