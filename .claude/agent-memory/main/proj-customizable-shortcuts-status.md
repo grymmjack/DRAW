@@ -1,8 +1,21 @@
 ---
 name: proj-customizable-shortcuts-status
-description: Status of the customizable-shortcuts branch (rebind system). Phases 0-4 done & Rick-verified; Phase 4 polish + more Phase 2A migrations (music, F12) + DRY infra done 2026-09-04. Remaining = 2B.2 mouse (Rick-gated), Phase 5 preset letter-keys (Rick), Settings Ctrl+, (Windows).
+description: SHIPPED — customizable-shortcuts merged to main (PR #105) and RELEASED as v2.1.0 on 2026-09-05. Registry-driven keyboard+mouse rebinding, Customize Controls dialog, presets, export, wheel/tilt/pan. Below = full history for reference.
 metadata:
   type: project
+---
+
+## ✅ SHIPPED 2026-09-05 — merged + released as v2.1.0
+
+The whole `customizable-shortcuts` feature merged to `main` via **PR #105** (merge commit
+`2a8fe913`), then released as **v2.1.0** (`git tag v2.1.0`, GitHub release with `DRAW-Manual.pdf`
+attached). Release commit `530fa8ae`. Optimized `make all` build green; binary reports "DRAW 2.1.0".
+Release-prep bundled: version bump, README "New in 2.1.0", manual Ch.16 "Customize Controls"
+section + appendix Ctrl+Wheel fix + PDF rebuild, `draw-ui.md` Pan actions (470-473),
+SHORTCUTS-DUMP reuse of `CTRL_wheel_dir_name$` (one source of truth) + legacy PANEL wheel binds'
+metadata wheelDir aligned to the physical convention (behavior-neutral), SHORTCUTS.md regenerated.
+Everything below is retained as the development history / reference.
+
 ---
 
 Feature branch **`customizable-shortcuts`** (off v2.0.3 main). Plan:
