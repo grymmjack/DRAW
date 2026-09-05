@@ -90,8 +90,9 @@ The design's pessimism was overblown — the FG/BG choice turned out to be ONE c
   buried the tilt and `_WHEEL(4)` read 0. `_MOUSEWHEEL(axis)` needs no device number, no
   `_LASTWHEEL` bound, no separate pump, no queue-sharing hazard. Config is now **`MOUSE_TILT_AXIS`**
   (default 1). Verified: `_MOUSEWHEEL(axis)` compiles (`DEV/mwaxis.run`), vertical wheel unbroken,
-  guard 22/22. ⚑ Rick to confirm axis 1 actually resizes brush on real HW. **LESSON:** for extra
-  mouse-wheel axes use `_MOUSEWHEEL(axis&)`, never the `_DEVICEINPUT`+`_WHEEL(n)` device API.
+  guard 22/22. **✅ Rick-CONFIRMED working on real HW (2026-09-04): tilt resizes brush.** Per-tilt
+  log gated to developer mode. **LESSON:** for extra mouse-wheel axes use `_MOUSEWHEEL(axis&)` (axis
+  0=vertical, 1=horizontal — newer QB64PE), never the `_DEVICEINPUT`+`_WHEEL(n)` device API.
 - **STILL OPEN (gated):** **B2b Pick-FG/BG + Sym-center** — need a design decision (pick is
   multi-site: chrome-eyedrop/canvas-loupe/picker-tool; sym fires on Ctrl+EITHER button — neither
   fits one button+mod without changing defaults). **C plain vertical wheel zoom/brush rebind** —
