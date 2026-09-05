@@ -7,8 +7,65 @@ metadata:
 
 Feature branch **`customizable-shortcuts`** (off v2.0.3 main). Plan:
 `PLANS/CUSTOMIZABLE-SHORTCUTS.md`. Loop record: `.claude/TASKS.md` +
-`.claude/TASKS-phase4plus.md`. Builds fully green (zero warnings/infos). Registry-driven
-rebinding on the central `INPUT/INPUT.BM` dispatch table + `CFG/BINDINGS.BM` override engine.
+`.claude/TASKS-phase4plus.md`. Builds fully green (zero warnings/infos, incl. Windows after
+the PATHS.BM homeDir$ fix). Registry-driven rebinding on the central `INPUT/INPUT.BM` dispatch
+table + `CFG/BINDINGS.BM` override engine. **All work pushed to origin/customizable-shortcuts.**
+
+## SESSION 2026-09-04 (late) — wheel rebind + pan + zoom-out + cross-platform verify
+
+**✅ DONE & pushed (HEAD ~718d9a9e):**
+- **Windows build GREEN** on ThinkPad (ssh `thinkpad`, `C:\Users\grymm\git\DRAW`, compiler
+  `C:\Users\grymm\git\qb64pe\qb64pe.exe`; ALWAYS `git submodule update --init --recursive` to
+  dodge the stale-submodule `TI_inputs().proportional` trap). `_MOUSEWHEEL(axis&)` compiles on
+  Windows. Fixed `PATHS.BM` unused-var `homeDir$` (declare only in the non-WIN `$ELSE` branch).
+- **Settings `Ctrl+,` CONFIRMED working on Windows** (Rick). No longer blocked.
+- **Right-click zoom-OUT on the Zoom tool** (`MOUSE_release_zoom`: B2 release → `ZOOM_out_at`).
+  Root cause of "no zoom out": Alt+Left-click existed but Linux WMs steal Alt+Left-click for
+  "move window", so it never reached DRAW. Guard: `zoom-tool-rightclick-source-guard.sh`.
+- **Vertical canvas wheel REBINDABLE** via an intent-query (kept zoom default — Rick's choice
+  in AskUserQuestion). `MOUSE_handle_wheel`'s two canvas branches (Ctrl→brush, else→zoom) now
+  call `WHEEL_dispatch_canvas(WHEEL_action_for%(SGN(MOUSE.SW%), mods))`. Helpers in MOUSE.BM:
+  `WHEEL_action_for%(wheelDir,mods)` (reverse-lookup canvas wheel bind → actionId, PREFERS
+  userOverridden so a rebind beats the default on the same dir), `WHEEL_zoom_at_cursor(zoomIn)`
+  (extracted cursor-centered zoom), `WHEEL_dispatch_canvas(actionId)` (routes 406/407→zoom,
+  601/602→brush, else→CMD_execute_action). Fixed a pre-existing registry sign inconsistency: the
+  601/602 brush binds' wheelDir was inverted vs 406/407 zoom — now all use `wheelDir=SGN(SW)`
+  (SW<0 = zoom-in/brush-increase side = -1). All 4 vertical wheel binds now VISIBLE+rebindable
+  rows (CONTROLS.BM `CTRL_bind_visible%`: any `device=MOUSE, actionId<>0, eventType=WHEEL`).
+- **Independent rebind rows** for the 601/602 double-trigger (each has a tilt ±2 bind AND a
+  vertical ±1 bind). `BINDING_OVERRIDE.defWheelDir` = the TARGET bind's compiled default dir;
+  `BINDINGS_set_wheel_override(actionId,wheelDir,requireMods,defWheelDir)` keys its slot on it;
+  modal passes `INPUT_BINDS(bindIdx).defWheelDir`; apply matches the bind by defWheelDir
+  (0=first-match=legacy). Save/parse now **9-field** (back-compat 4/6/8/9).
+- **4 PAN actions** 470-473 (Pan Canvas Up/Down/Left/Right, step `CANVAS_PAN_STEP=40` in
+  _COMMON.BI; handlers in COMMAND.BM adjust `SCRN.offsetX/Y`). In command palette (CMD_CAT_VIEW)
+  + registered as UNBOUND canvas wheel rows (wheelDir 0 = inert until assigned; label "Canvas:
+  Pan up (assign a wheel/tilt)", CURRENT KEY shows "(tilt or scroll)"). **Vertical wheel→pan
+  WORKS**: SET… a scroll on a Pan row → `WHEEL_action_for%` prefers the override → pans. Rick
+  keeps zoom-on-wheel by default. Screenshot-verified rows render.
+
+**🟡 PENDING RICK DECISION (the reason I stopped — do NOT do without his go):**
+**tilt→horizontal-pan.** Rick's real intent: wheel=vertical scroll (DONE), TILT=horizontal
+scroll, shift+wheel=zoom "or something". Tilt→pan does NOT work yet because tilt runs through
+the CENTRAL dispatcher (dispatched=TRUE tilt binds 601/602, emitted as EVT_MOUSE_WHEEL wheelDir
+±2 in INPUT_detect_events), a DIFFERENT path than the vertical wheel's intent-query. A pan bind
+(dispatched=FALSE) isn't seen by central. **Designed fix (awaiting Rick's greenlight since it
+RE-TOUCHES the confirmed-working tilt):** unify tilt into the intent-query — remove the central
+tilt emission, make 601/602 tilt binds dispatched=FALSE, and in MOUSE_handle_wheel dispatch
+`MOUSE_TILT%` via `WHEEL_dispatch_canvas(WHEEL_action_for%(MOUSE_TILT%*2, mods))` (guard
+`NOT TEXT.ACTIVE`; tilt handling must run OUTSIDE the `IF wheel_delta%<>0` guard since tilt-only
+frames have wheel_delta=0). Then prefer-override makes tilt→pan win. Rick would re-test
+tilt-brush (default) after. Alternative (rejected: reset-state complications) was mutating the
+pan bind's `dispatched` flag per tilt/vertical + prefer-override in the central dispatcher.
+
+**Rick's AskUserQuestion answers this session:** wheel default = "Keep zoom default" (add pan as
+rebindable, don't change default); 601/602 disambiguation = "Independent rows".
+
+**Also still open from before (unchanged):** B2b pick/sym rebinding (multi-site/either-button);
+paint FG/BG swap — **Rick CONFIRMED fg/bg swap works** this session; pan-drag live test.
+
+---
+
 
 **DONE + Rick-verified (2026-09-04, earlier):** Phases 0-3 + 4.1/4.2 UI
 (`GUI/CONTROLS.BI/BM`, Edit > Customize Controls / palette, action 2360). Rebind capture
