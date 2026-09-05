@@ -552,7 +552,7 @@ rebinding are not yet exposed.)*
 ### Per-tool (canvas)
 | Tool | Mouse |
 |------|-------|
-| Zoom | L-Click in · `Alt`+L-Click out · L-Drag zoom-to-region |
+| Zoom | L-Click in · **R-Click out** · `Alt`+L-Click out (if your WM doesn't grab Alt+click) · L-Drag zoom-to-region |
 | Picker | L/R-Click pick FG/BG · `Alt`+L/R-Click temporary pick (returns tool on Alt release) |
 | Dot | `Shift`+R-Click line from last point |
 | Marquee | drag handles resize · drag inside move · `Shift`/`Alt`+Drag add/subtract |

@@ -2908,8 +2908,8 @@ END SUB
 ' @param rawY INTEGER Raw screen Y coordinate of the mouse cursor
 '
 SUB MOUSE_tool_zoom (rawX AS INTEGER, rawY AS INTEGER)
-    ' Zoom tool: click to zoom in at cursor, alt+click to zoom out
-    ' Drag to zoom into a region
+    ' Zoom tool: LEFT-click zoom in at cursor, RIGHT-click zoom out (Alt+click also
+    ' zooms out where the WM allows). LEFT-drag zooms into a region.
     IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
         ' Mouse just pressed - start drag tracking
         ZOOM.DRAGGING = TRUE
@@ -2932,7 +2932,15 @@ END SUB
 ' @param rawY INTEGER Raw screen Y coordinate of the mouse cursor
 '
 SUB MOUSE_release_zoom (rawX AS INTEGER, rawY AS INTEGER)
-    ' Zoom tool release - check if it was a click or a drag
+    ' RIGHT-click (B2) = zoom OUT at cursor. Alt+Left-click also zooms out, but many
+    ' Linux window managers steal Alt+Left-click for "move window" so it never reaches
+    ' DRAW — right-click is the reliable zoom-out. B2 does no region drag.
+    IF MOUSE.OLD_B2% AND NOT MOUSE.B2% AND NOT ZOOM.DRAGGING THEN
+        ZOOM_out_at rawX%, rawY%
+        EXIT SUB
+    END IF
+
+    ' Zoom tool release - check if it was a click or a drag (LEFT button)
     IF ZOOM.DRAGGING THEN
         DIM zDragW AS INTEGER, zDragH AS INTEGER
         zDragW% = ABS(ZOOM.END_X - ZOOM.START_X)
@@ -2941,7 +2949,7 @@ SUB MOUSE_release_zoom (rawX AS INTEGER, rawY AS INTEGER)
             ' Drag was large enough - zoom to region
             ZOOM_to_region ZOOM.START_X, ZOOM.START_Y, ZOOM.END_X, ZOOM.END_Y
         ELSE
-            ' Small drag or click - zoom in/out at cursor
+            ' Small drag or click - zoom in at cursor (Alt = out, if the WM lets it through)
             DIM zScreenX AS INTEGER, zScreenY AS INTEGER
             zScreenX% = rawX%
             zScreenY% = rawY%
@@ -4020,6 +4028,117 @@ SUB MOUSE_handle_shift_constrain ()
     END IF
 END SUB
 
+
+''
+' Which CANVAS wheel action is bound to this (wheelDir, requireMods)? Reverse
+' lookup over the (possibly user-overridden) registry, so the legacy wheel handler
+' below stays context-aware yet honors Customize-Controls rebinds. 0 = unbound.
+'
+FUNCTION WHEEL_action_for% (wheelDir AS INTEGER, requireMods AS INTEGER)
+    DIM i AS INTEGER
+    FOR i% = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i%).device = DEVICE_MOUSE _ANDALSO _
+           INPUT_BINDS(i%).eventType = EVT_MOUSE_WHEEL _ANDALSO _
+           INPUT_BINDS(i%).region = REGION_CANVAS _ANDALSO _
+           INPUT_BINDS(i%).actionId <> 0 _ANDALSO _
+           INPUT_BINDS(i%).wheelDir = wheelDir% _ANDALSO _
+           INPUT_BINDS(i%).requireMods = requireMods% THEN
+            WHEEL_action_for% = INPUT_BINDS(i%).actionId
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+    WHEEL_action_for% = 0
+END FUNCTION
+
+''
+' Cursor-centered canvas zoom (one whole/quarter step). zoomIn TRUE = in, else out.
+' Extracted so the wheel handler can drive it via a rebindable action id (406/407)
+' rather than hard-coding the wheel direction.
+'
+SUB WHEEL_zoom_at_cursor (zoomIn AS INTEGER)
+    DIM oldZoom      AS SINGLE
+    DIM mouseScreenX AS INTEGER, mouseScreenY AS INTEGER
+    oldZoom! = SCRN.zoom!
+    mouseScreenX% = _MOUSEX \ SCRN.displayScale%
+    mouseScreenY% = _MOUSEY \ SCRN.displayScale%
+
+    IF zoomIn% THEN
+        IF SCRN.zoom! < 1.0 THEN
+            SCRN.zoom! = 1.0                   ' Snap to 100% from any fractional zoom
+        ELSE
+            SCRN.zoom! = INT(SCRN.zoom!) + 1.0 ' Next whole 100% (200%, 300%, etc.)
+        END IF
+        IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
+    ELSE
+        IF SCRN.zoom! > 1.0 THEN
+            SCRN.zoom! = INT(SCRN.zoom!) - 1.0 ' Above 100%: out by whole 100%
+        ELSE
+            SCRN.zoom! = SCRN.zoom! - 0.25     ' At/below 100%: out by 25%
+        END IF
+        IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
+    END IF
+
+    IF SCRN.zoom! <> oldZoom! THEN
+        GUI_NEEDS_REDRAW% = TRUE
+        SCENE_DIRTY%      = TRUE
+        FRAME_IDLE%       = FALSE
+        DIM old_zw       AS LONG, old_zh AS LONG
+        old_zw& = SCRN.canvasW& * oldZoom!
+        old_zh& = SCRN.canvasH& * oldZoom!
+        DIM old_center_x AS INTEGER, old_center_y AS INTEGER
+        old_center_x% = (SCRN.w& - old_zw&) \ 2
+        old_center_y% = (SCRN.h& - old_zh&) \ 2
+
+        DIM anchorX    AS INTEGER, anchorY AS INTEGER
+        DIM canvasLeft AS INTEGER, canvasTop AS INTEGER
+        canvasLeft% = old_center_x% + SCRN.offsetX%
+        canvasTop%  = old_center_y% + SCRN.offsetY%
+        IF mouseScreenX% >= canvasLeft% AND mouseScreenX% < canvasLeft% + old_zw& AND _
+           mouseScreenY% >= canvasTop%  AND mouseScreenY% < canvasTop%  + old_zh& THEN
+            anchorX% = mouseScreenX%
+            anchorY% = mouseScreenY%
+        ELSE
+            anchorX% = canvasLeft% + old_zw& \ 2
+            anchorY% = canvasTop%  + old_zh& \ 2
+        END IF
+
+        DIM canvasX AS SINGLE, canvasY AS SINGLE
+        canvasX! = (anchorX% - old_center_x% - SCRN.offsetX%) / oldZoom!
+        canvasY! = (anchorY% - old_center_y% - SCRN.offsetY%) / oldZoom!
+
+        DIM new_zw       AS LONG, new_zh AS LONG
+        new_zw& = SCRN.canvasW& * SCRN.zoom!
+        new_zh& = SCRN.canvasH& * SCRN.zoom!
+        DIM new_center_x AS INTEGER, new_center_y AS INTEGER
+        new_center_x% = (SCRN.w& - new_zw&) \ 2
+        new_center_y% = (SCRN.h& - new_zh&) \ 2
+
+        SCRN.offsetX% = anchorX% - new_center_x% - (canvasX! * SCRN.zoom!)
+        SCRN.offsetY% = anchorY% - new_center_y% - (canvasY! * SCRN.zoom!)
+    END IF
+END SUB
+
+''
+' Route a resolved CANVAS wheel action to its behavior. Zoom (406/407) keeps the
+' cursor-centered path; brush size (601/602) uses the direct calls; anything else
+' the user bound goes through the central command dispatcher. 0 = do nothing.
+'
+SUB WHEEL_dispatch_canvas (actionId AS INTEGER)
+    SELECT CASE actionId%
+        CASE 0
+            ' unbound — nothing
+        CASE 406
+            WHEEL_zoom_at_cursor -1        ' Zoom In
+        CASE 407
+            WHEEL_zoom_at_cursor 0         ' Zoom Out
+        CASE 601
+            BRUSH_SIZE_decrease
+        CASE 602
+            BRUSH_SIZE_increase
+        CASE ELSE
+            CMD_execute_action actionId%
+    END SELECT
+END SUB
 
 ''
 ' Mouse wheel handler (GUI scroll, brush size, zoom).
