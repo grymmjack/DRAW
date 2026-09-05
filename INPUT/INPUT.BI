@@ -346,14 +346,12 @@ CONST MOUSE_MAX_BTN = 8
 DIM SHARED MOUSE_BTN(1 TO MOUSE_MAX_BTN)             AS INTEGER
 DIM SHARED MOUSE_BTN_AVAIL                           AS INTEGER ' buttons the device reports (_LASTBUTTON, clamped); for the rebind UI
 
-' Horizontal wheel TILT support. The mouse exposes several _WHEEL(n) axes: 1/2 are
-' relative movement, 3 is the vertical scroll (also read via legacy _MOUSEWHEEL),
-' and a higher index (4 on Rick's mouse) is the left/right tilt. Reading _WHEEL(n)
-' needs the device pumped via _DEVICEINPUT(MOUSE_DEV) — done once per frame in
-' MOUSE_update_state. wheelDir in the bind table encodes tilt as ±2 (see the
-' WHEEL_* constants) so a single INTEGER carries both the vertical and tilt axes.
-DIM SHARED MOUSE_DEV                                 AS INTEGER ' [MOUSE] device number (0 = not yet detected)
-DIM SHARED MOUSE_TILT_WHEEL                          AS INTEGER ' which _WHEEL index is horizontal tilt (config MOUSE_TILT_WHEEL, default 4; 0 = disabled/unavailable)
+' Horizontal wheel TILT support. Read via _MOUSEWHEEL(axis) INSIDE DRAW's normal
+' _MOUSEINPUT drain: axis 0 = vertical (the classic _MOUSEWHEEL), axis 1 = horizontal
+' tilt. This replaced the _DEVICEINPUT/_WHEEL(n) device API, which read one event per
+' call and lost the tilt behind mouse-movement events. wheelDir in the bind table
+' encodes tilt as ±2 (WHEEL_TILT_* below) so one INTEGER carries vertical AND tilt.
+DIM SHARED MOUSE_TILT_AXIS                           AS INTEGER ' _MOUSEWHEEL axis for horizontal tilt (config MOUSE_TILT_AXIS, default 1; 0 = disable)
 DIM SHARED MOUSE_TILT                                AS INTEGER ' this frame's tilt: -1 = left, +1 = right, 0 = none
 CONST WHEEL_UP         =  1  ' vertical wheel up   (wheelDir)
 CONST WHEEL_DOWN       = -1  ' vertical wheel down (wheelDir)

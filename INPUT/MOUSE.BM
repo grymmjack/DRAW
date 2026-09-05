@@ -54,19 +54,13 @@ END FUNCTION
 SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
     wheel_delta% = 0
 
-    ' Sample the horizontal wheel TILT via _WHEEL — and do it BEFORE the _MOUSEINPUT
-    ' drain below. _DEVICEINPUT and _MOUSEINPUT pull from the SAME event queue, so if
-    ' the drain runs first it empties the queue and _WHEEL(tilt) always reads 0 (the
-    ' bug Rick hit). Pumping the device once here first captures the tilt, and the
-    ' probe proved one _DEVICEINPUT before the _MOUSEINPUT drain leaves the vertical
-    ' wheel intact. SGN = plain -1/0/+1 trigger (Rick's choice, not magnitude). Device
-    ' + index are detected lazily further down, so this is a no-op until frame 2.
+    ' Horizontal wheel TILT rides the SAME _MOUSEINPUT drain as the vertical wheel:
+    ' _MOUSEWHEEL(0) is vertical (default), _MOUSEWHEEL(MOUSE_TILT_AXIS) is horizontal
+    ' (axis 1). No _DEVICEINPUT / _WHEEL device API — that read one event per call and
+    ' lost the tilt behind mouse-movement events. Accumulate across the whole drain,
+    ' then SGN to a plain -1/0/+1 trigger (Rick's choice, not magnitude-aware).
+    DIM tilt_accum AS INTEGER : tilt_accum% = 0
     MOUSE_TILT% = 0
-    IF MOUSE_DEV% > 0 AND MOUSE_TILT_WHEEL% > 0 THEN
-        DIM devEvt AS INTEGER : devEvt% = _DEVICEINPUT(MOUSE_DEV%)
-        MOUSE_TILT% = SGN(_WHEEL(MOUSE_TILT_WHEEL%))
-        IF MOUSE_TILT% <> 0 AND CFG.DEVELOPER_MODE% THEN _LOGINFO "mouse-tilt: sampled dir=" + STR$(MOUSE_TILT%)
-    END IF
 
     $IF MAC THEN
         ' macOS: Capture button states during drain to fix trackpad tap-to-click
@@ -75,6 +69,7 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         mac_b1% = FALSE: mac_b2% = FALSE: mac_b3% = FALSE
         DO WHILE _MOUSEINPUT
             wheel_delta% = wheel_delta% + _MOUSEWHEEL
+            IF MOUSE_TILT_AXIS% > 0 THEN tilt_accum% = tilt_accum% + _MOUSEWHEEL(MOUSE_TILT_AXIS%)
             ' Capture any button presses during the drain
             IF _MOUSEBUTTON(1) THEN mac_b1% = TRUE
             IF _MOUSEBUTTON(2) THEN mac_b2% = TRUE
@@ -83,8 +78,11 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
     $ELSE
         DO WHILE _MOUSEINPUT
             wheel_delta% = wheel_delta% + _MOUSEWHEEL
+            IF MOUSE_TILT_AXIS% > 0 THEN tilt_accum% = tilt_accum% + _MOUSEWHEEL(MOUSE_TILT_AXIS%)
         LOOP
     $END IF
+    MOUSE_TILT% = SGN(tilt_accum%)
+    IF MOUSE_TILT% <> 0 THEN _LOGINFO "mouse-tilt: dir=" + _TRIM$(STR$(MOUSE_TILT%)) + " (axis=" + _TRIM$(STR$(MOUSE_TILT_AXIS%)) + ")"
 
     ' Get window coordinates and scale down by display scale to viewport coords
     rawX% = _MOUSEX \ SCRN.displayScale%
@@ -216,23 +214,13 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         NEXT
         IF mdv% > 0 THEN
             btnDetectDone = -1
-            MOUSE_DEV% = mdv%
             DIM lb AS INTEGER : lb% = _LASTBUTTON(mdv%)
             IF lb% >= 3 THEN MOUSE_BTN_AVAIL% = lb%
             IF MOUSE_BTN_AVAIL% > MOUSE_MAX_BTN THEN MOUSE_BTN_AVAIL% = MOUSE_MAX_BTN
             IF MOUSE_BTN_AVAIL% < 3 THEN MOUSE_BTN_AVAIL% = 3
             ' CFG is loaded by now (this runs on the first live poll, not at
-            ' include-time MOUSE_init), so honor the user's MOUSE_TILT_WHEEL override.
-            IF CFG.MOUSE_TILT_WHEEL% >= 0 THEN MOUSE_TILT_WHEEL% = CFG.MOUSE_TILT_WHEEL%
-            ' Bound the tilt wheel index to what this device actually reports —
-            ' _WHEEL(n) past _LASTWHEEL raises ERR 5 (like _MOUSEBUTTON). If the
-            ' configured index isn't available, disable tilt (0) rather than fault.
-            DIM lw AS INTEGER : lw% = _LASTWHEEL(mdv%)
-            IF MOUSE_TILT_WHEEL% > lw% THEN MOUSE_TILT_WHEEL% = 0
-            ' One-shot diagnostic (grep 'mouse-tilt' in DRAW.log) so a device whose
-            ' tilt sits on a different wheel index than 4 is diagnosable without HW here.
-            _LOGINFO "mouse-tilt: [MOUSE] dev#" + STR$(mdv%) + " _LASTWHEEL=" + STR$(lw%) + _
-                     " tiltWheel=" + STR$(MOUSE_TILT_WHEEL%) + " (0=disabled)"
+            ' include-time MOUSE_init), so honor the user's tilt-axis override.
+            IF CFG.MOUSE_TILT_AXIS% >= 0 THEN MOUSE_TILT_AXIS% = CFG.MOUSE_TILT_AXIS%
         END IF
     END IF
     MOUSE_BTN(1) = MOUSE.B1% : MOUSE_BTN(2) = MOUSE.B2% : MOUSE_BTN(3) = MOUSE.B3%
@@ -282,12 +270,10 @@ SUB MOUSE_init ()
     ' The dispatcher samples every button up to MOUSE_MAX_BTN regardless of this.
     MOUSE_BTN_AVAIL% = 5
 
-    ' Horizontal wheel tilt lives on _WHEEL(4) on a typical tilt-wheel mouse. The
-    ' real index is validated against _LASTWHEEL on first poll (disabled if absent);
-    ' CONFIG may override this via MOUSE_TILT_WHEEL for mice that differ.
-    MOUSE_DEV%        = 0
-    MOUSE_TILT_WHEEL% = 4
-    MOUSE_TILT%       = 0
+    ' Horizontal wheel tilt is _MOUSEWHEEL axis 1 (0 = vertical). CONFIG may override
+    ' via MOUSE_TILT_AXIS; 0 disables tilt. Read in the normal _MOUSEINPUT drain.
+    MOUSE_TILT_AXIS% = 1
+    MOUSE_TILT%      = 0
 END SUB
 
 

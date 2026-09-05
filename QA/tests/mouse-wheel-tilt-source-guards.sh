@@ -20,14 +20,13 @@ echo "=== Wheel-tilt source guards ==="
 assert_grep "STATE" "INPUT/INPUT.BI" 'CONST WHEEL_TILT_RIGHT'                 "tilt-right direction constant (+2)"
 assert_grep "STATE" "INPUT/INPUT.BI" 'CONST WHEEL_TILT_LEFT'                  "tilt-left direction constant (-2)"
 assert_grep "STATE" "INPUT/INPUT.BI" 'DIM SHARED MOUSE_TILT '                 "per-frame tilt state"
-assert_grep "STATE" "INPUT/INPUT.BI" 'DIM SHARED MOUSE_DEV '                  "[MOUSE] device number cache"
-assert_grep "STATE" "INPUT/INPUT.BI" 'DIM SHARED MOUSE_TILT_WHEEL '          "tilt wheel index"
+assert_grep "STATE" "INPUT/INPUT.BI" 'DIM SHARED MOUSE_TILT_AXIS '            "tilt axis index"
 
-# Sampling: device pump + tilt read, bounded by _LASTWHEEL, CFG override honored.
-assert_grep "SAMPLE" "INPUT/MOUSE.BM" '_DEVICEINPUT\(MOUSE_DEV%\)'             "device queue pumped for _WHEEL"
-assert_grep "SAMPLE" "INPUT/MOUSE.BM" 'SGN\(_WHEEL\(MOUSE_TILT_WHEEL%\)\)'       "tilt sampled via _WHEEL (plain-trigger SGN)"
-assert_grep "SAMPLE" "INPUT/MOUSE.BM" '_LASTWHEEL\(mdv%\)'                      "tilt index bounded by _LASTWHEEL (no ERR 5)"
-assert_grep "SAMPLE" "INPUT/MOUSE.BM" 'CFG.MOUSE_TILT_WHEEL%'                 "CFG override applied to tilt index"
+# Sampling: read _MOUSEWHEEL(axis) inside the normal _MOUSEINPUT drain (no device API).
+assert_grep "SAMPLE" "INPUT/MOUSE.BM" '_MOUSEWHEEL\(MOUSE_TILT_AXIS%\)'        "tilt sampled via _MOUSEWHEEL(axis)"
+assert_grep "SAMPLE" "INPUT/MOUSE.BM" 'MOUSE_TILT% = SGN\(tilt_accum%\)'       "plain -1/0/+1 trigger (accumulated over the drain)"
+assert_absent "SAMPLE" "INPUT/MOUSE.BM" '_DEVICEINPUT\('                       "no _DEVICEINPUT device-API call (obsolete path removed)"
+assert_grep "SAMPLE" "INPUT/MOUSE.BM" 'CFG.MOUSE_TILT_AXIS%'                   "CFG override applied to tilt axis"
 
 # Dispatch: tilt emitted as wheel event, default binds dispatched, def snapshot.
 assert_grep "DISPATCH" "INPUT/INPUT.BM" 'MOUSE_TILT% \* 2'                    "tilt encoded as wheelDir +/-2 in the event"
@@ -44,14 +43,14 @@ assert_grep "PERSIST" "CFG/BINDINGS.BM" 'INPUT_BINDS\(i%\).wheelDir.*= INPUT_BIN
 
 # Rebind UI: capture a tilt in the modal, persist, label it.
 assert_grep "UI" "GUI/CONTROLS.BM" 'isWheel% = \(INPUT_BINDS\(bindIdx%\).eventType = EVT_MOUSE_WHEEL\)' "modal detects a wheel row"
-assert_grep "UI" "GUI/CONTROLS.BM" 'SGN\(_WHEEL\(MOUSE_TILT_WHEEL%\)\)'          "modal captures a live tilt gesture"
+assert_grep "UI" "GUI/CONTROLS.BM" '_MOUSEWHEEL\(MOUSE_TILT_AXIS%\)'            "modal captures a live tilt gesture"
 assert_grep "UI" "GUI/CONTROLS.BM" 'BINDINGS_set_wheel_override actId%, capWheel%, mods%' "OK persists the wheel override"
 assert_grep "UI" "GUI/CONTROLS.BM" 'CTRL_wheel_dir_name\$'                   "wheel direction name helper"
 assert_grep "UI" "GUI/CONTROLS.BM" 'eventType = EVT_MOUSE_WHEEL _ANDALSO INPUT_BINDS\(i%\).dispatched' "dispatched wheel rows are visible"
 
-# Config: per-mouse tilt index key exists + documented.
-assert_grep "CONFIG" "CFG/CONFIG.BI"  'MOUSE_TILT_WHEEL'                      "CFG TYPE field"
-assert_grep "CONFIG" "DRAW.cfg.default" 'MOUSE_TILT_WHEEL=4'                  "default cfg entry (drives --options-list)"
+# Config: tilt-axis key exists + documented.
+assert_grep "CONFIG" "CFG/CONFIG.BI"  'MOUSE_TILT_AXIS'                       "CFG TYPE field"
+assert_grep "CONFIG" "DRAW.cfg.default" 'MOUSE_TILT_AXIS=1'                   "default cfg entry (drives --options-list)"
 
 guard_footer "a wheel-tilt guard was removed"
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then [ "$fails" -eq 0 ] && exit 0 || exit 1; fi

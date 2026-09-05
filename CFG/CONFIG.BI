@@ -254,7 +254,7 @@ TYPE DRAW_CONFIG
     FD_DIALOG_PLACES_MIN_W          AS INTEGER        ' Minimum modal file dialog places pane width (0 = library default)
     FD_DIALOG_PREVIEW_MIN_W         AS INTEGER        ' Minimum modal file dialog preview pane width (0 = library default)
     NUDGE_N                         AS INTEGER        ' Multi-pixel nudge distance (default 10)
-    MOUSE_TILT_WHEEL                AS INTEGER        ' Which _WHEEL(n) index is the horizontal wheel-tilt (default 4; 0 = disable tilt). Varies by mouse.
+    MOUSE_TILT_AXIS                 AS INTEGER        ' _MOUSEWHEEL axis for horizontal wheel-tilt (default 1 = horizontal; 0 = disable tilt).
     NUM_LAYERS                      AS INTEGER        ' Initial number of layers on new file
     FPS_LIMIT                       AS INTEGER        ' Maximum frames per second when active (default 60)
     FPS_IDLE                        AS INTEGER        ' Reduced FPS when idle (default 15)
