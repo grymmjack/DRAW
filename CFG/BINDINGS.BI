@@ -25,6 +25,7 @@ TYPE BINDING_OVERRIDE
     button      AS INTEGER   ' new mouse button (button overrides; 0 otherwise)
     wheelDir    AS INTEGER   ' new wheel direction ±1 vertical / ±2 tilt (wheel overrides; 0 otherwise)
     eventType   AS INTEGER   ' EVT_MOUSE_DOWN (button) or EVT_MOUSE_WHEEL (wheel); 0 in legacy files = button. Lets one action carry an independent button AND wheel override.
+    defWheelDir AS INTEGER   ' the TARGET wheel bind's compiled default dir — so an action with BOTH a tilt (±2) and a vertical (±1) bind rebinds the right one independently.
     active      AS INTEGER   ' TRUE = a real override row
 END TYPE
 

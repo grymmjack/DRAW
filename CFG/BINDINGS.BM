@@ -38,8 +38,8 @@ SUB BINDINGS_load ()
         LINE INPUT #ff%, ln$
         ln$ = _TRIM$(ln$)
         IF LEN(ln$) > 0 AND LEFT$(ln$, 1) <> "#" THEN
-            DIM a AS INTEGER, kc AS LONG, rm AS INTEGER, fm AS INTEGER, dv AS INTEGER, bt AS INTEGER, wd AS INTEGER, et AS INTEGER
-            IF BINDINGS_parse_row%(ln$, a, kc, rm, fm, dv, bt, wd, et) THEN
+            DIM a AS INTEGER, kc AS LONG, rm AS INTEGER, fm AS INTEGER, dv AS INTEGER, bt AS INTEGER, wd AS INTEGER, et AS INTEGER, dwd AS INTEGER
+            IF BINDINGS_parse_row%(ln$, a, kc, rm, fm, dv, bt, wd, et, dwd) THEN
                 IF BINDING_OVERRIDE_COUNT < BINDINGS_MAX_OVERRIDES THEN
                     BINDING_OVERRIDE_COUNT = BINDING_OVERRIDE_COUNT + 1
                     BINDING_OVERRIDES(BINDING_OVERRIDE_COUNT).actionId    = a%
@@ -50,6 +50,7 @@ SUB BINDINGS_load ()
                     BINDING_OVERRIDES(BINDING_OVERRIDE_COUNT).button      = bt%
                     BINDING_OVERRIDES(BINDING_OVERRIDE_COUNT).wheelDir    = wd%
                     BINDING_OVERRIDES(BINDING_OVERRIDE_COUNT).eventType   = et%
+                    BINDING_OVERRIDES(BINDING_OVERRIDE_COUNT).defWheelDir = dwd%
                     BINDING_OVERRIDES(BINDING_OVERRIDE_COUNT).active      = TRUE
                 END IF
             END IF
@@ -63,14 +64,14 @@ END SUB
 ' Parse "actionId keycode requireMods forbidMods" (space-separated ints).
 ' Returns TRUE on a valid 4-field row.
 '
-FUNCTION BINDINGS_parse_row% (row AS STRING, actionId AS INTEGER, keycode AS LONG, requireMods AS INTEGER, forbidMods AS INTEGER, device AS INTEGER, button AS INTEGER, wheelDir AS INTEGER, eventType AS INTEGER)
-    DIM parts(1 TO 8) AS STRING, n AS INTEGER, s AS STRING, i AS INTEGER, c AS STRING
+FUNCTION BINDINGS_parse_row% (row AS STRING, actionId AS INTEGER, keycode AS LONG, requireMods AS INTEGER, forbidMods AS INTEGER, device AS INTEGER, button AS INTEGER, wheelDir AS INTEGER, eventType AS INTEGER, defWheelDir AS INTEGER)
+    DIM parts(1 TO 9) AS STRING, n AS INTEGER, s AS STRING, i AS INTEGER, c AS STRING
     n% = 0 : s$ = ""
     DIM src AS STRING : src$ = _TRIM$(row$) + " "
     FOR i% = 1 TO LEN(src$)
         c$ = MID$(src$, i%, 1)
         IF c$ = " " OR c$ = CHR$(9) THEN
-            IF LEN(s$) > 0 AND n% < 8 THEN n% = n% + 1 : parts(n%) = s$ : s$ = ""
+            IF LEN(s$) > 0 AND n% < 9 THEN n% = n% + 1 : parts(n%) = s$ : s$ = ""
         ELSE
             s$ = s$ + c$
         END IF
@@ -96,6 +97,9 @@ FUNCTION BINDINGS_parse_row% (row AS STRING, actionId AS INTEGER, keycode AS LON
         wheelDir%  = 0
         eventType% = 0    ' 0 = legacy button/keyboard (never a wheel row)
     END IF
+    ' Field 9 (defWheelDir) optional — 8-field files predate the tilt/vertical split
+    ' (defWheelDir 0 = first-match apply, the old behavior).
+    IF n% >= 9 THEN defWheelDir% = VAL(parts(9)) ELSE defWheelDir% = 0
     IF actionId% = 0 THEN BINDINGS_parse_row% = FALSE : EXIT FUNCTION
     ' A keyboard row needs a keycode; a mouse WHEEL row needs a wheelDir; a mouse
     ' button row needs a button.
@@ -129,10 +133,15 @@ SUB BINDINGS_apply ()
                 ' sets button. Matching on eventType keeps the two independent. NOT
                 ' gated on `dispatched` — queried behaviors (paint FG/BG) accept it too.
                 DIM ovWheel AS INTEGER : ovWheel% = (BINDING_OVERRIDES(o%).eventType = EVT_MOUSE_WHEEL)
+                DIM ovDefWd AS INTEGER : ovDefWd% = BINDING_OVERRIDES(o%).defWheelDir
                 FOR i% = 1 TO INPUT_BIND_COUNT
                     IF INPUT_BINDS(i%).actionId = BINDING_OVERRIDES(o%).actionId _
                        AND INPUT_BINDS(i%).device = DEVICE_MOUSE _
-                       AND ((INPUT_BINDS(i%).eventType = EVT_MOUSE_WHEEL) = ovWheel%) THEN
+                       AND ((INPUT_BINDS(i%).eventType = EVT_MOUSE_WHEEL) = ovWheel%) _
+                       AND (ovDefWd% = 0 _ORELSE INPUT_BINDS(i%).defWheelDir = ovDefWd%) THEN
+                        ' defWheelDir disambiguates an action with BOTH a tilt (±2) and a
+                        ' vertical (±1) wheel bind (601/602): each rebinds independently.
+                        ' Legacy overrides carry defWheelDir 0 → first-match (old behavior).
                         IF ovWheel% THEN
                             INPUT_BINDS(i%).wheelDir    = BINDING_OVERRIDES(o%).wheelDir
                         ELSE
@@ -268,6 +277,7 @@ SUB BINDINGS_set_mouse_override (actionId AS INTEGER, button AS INTEGER, require
     BINDING_OVERRIDES(slot%).button      = button%
     BINDING_OVERRIDES(slot%).wheelDir    = 0
     BINDING_OVERRIDES(slot%).eventType   = EVT_MOUSE_DOWN
+    BINDING_OVERRIDES(slot%).defWheelDir = 0
     BINDING_OVERRIDES(slot%).active      = TRUE
     BINDINGS_save
     BINDINGS_apply
@@ -277,11 +287,14 @@ END SUB
 ' Wheel override: remap which wheel direction (±1 vertical / ±2 tilt, + mods)
 ' triggers an action. Parallel to the button override but in its own wheel row.
 '
-SUB BINDINGS_set_wheel_override (actionId AS INTEGER, wheelDir AS INTEGER, requireMods AS INTEGER)
+SUB BINDINGS_set_wheel_override (actionId AS INTEGER, wheelDir AS INTEGER, requireMods AS INTEGER, defWheelDir AS INTEGER)
+    ' Slot keyed by (actionId, MOUSE, WHEEL, defWheelDir) so an action's tilt (±2)
+    ' and vertical (±1) wheel binds each get their own override row.
     DIM o AS INTEGER, slot AS INTEGER : slot% = 0
     FOR o% = 1 TO BINDING_OVERRIDE_COUNT
         IF BINDING_OVERRIDES(o%).actionId = actionId% AND BINDING_OVERRIDES(o%).device = DEVICE_MOUSE _
-           AND BINDING_OVERRIDES(o%).eventType = EVT_MOUSE_WHEEL THEN slot% = o% : EXIT FOR
+           AND BINDING_OVERRIDES(o%).eventType = EVT_MOUSE_WHEEL _
+           AND BINDING_OVERRIDES(o%).defWheelDir = defWheelDir% THEN slot% = o% : EXIT FOR
     NEXT o%
     IF slot% = 0 THEN
         IF BINDING_OVERRIDE_COUNT >= BINDINGS_MAX_OVERRIDES THEN EXIT SUB
@@ -296,6 +309,7 @@ SUB BINDINGS_set_wheel_override (actionId AS INTEGER, wheelDir AS INTEGER, requi
     BINDING_OVERRIDES(slot%).button      = 0
     BINDING_OVERRIDES(slot%).wheelDir    = wheelDir%
     BINDING_OVERRIDES(slot%).eventType   = EVT_MOUSE_WHEEL
+    BINDING_OVERRIDES(slot%).defWheelDir = defWheelDir%
     BINDING_OVERRIDES(slot%).active      = TRUE
     BINDINGS_save
     BINDINGS_apply
@@ -308,7 +322,7 @@ SUB BINDINGS_save ()
     IF LEN(BINDINGS_FILE$) = 0 THEN EXIT SUB
     DIM outStr AS STRING, nl AS STRING, o AS INTEGER
     nl$ = CHR$(10)
-    outStr$ = "# DRAW binding overrides. Fields: actionId keycode requireMods forbidMods device button [wheelDir eventType]" + nl$
+    outStr$ = "# DRAW binding overrides. Fields: actionId keycode requireMods forbidMods device button [wheelDir eventType [defWheelDir]]" + nl$
     FOR o% = 1 TO BINDING_OVERRIDE_COUNT
         IF BINDING_OVERRIDES(o%).active THEN
             outStr$ = outStr$ + _TRIM$(STR$(BINDING_OVERRIDES(o%).actionId)) + " " _
@@ -318,7 +332,8 @@ SUB BINDINGS_save ()
                         + _TRIM$(STR$(BINDING_OVERRIDES(o%).device)) + " " _
                         + _TRIM$(STR$(BINDING_OVERRIDES(o%).button)) + " " _
                         + _TRIM$(STR$(BINDING_OVERRIDES(o%).wheelDir)) + " " _
-                        + _TRIM$(STR$(BINDING_OVERRIDES(o%).eventType)) + nl$
+                        + _TRIM$(STR$(BINDING_OVERRIDES(o%).eventType)) + " " _
+                        + _TRIM$(STR$(BINDING_OVERRIDES(o%).defWheelDir)) + nl$
         END IF
     NEXT o%
     IF _FILEEXISTS(BINDINGS_FILE$) THEN KILL BINDINGS_FILE$
@@ -375,12 +390,12 @@ SUB BINDINGS_load_preset (presetName AS STRING)
     BINDINGS_restore_live_defaults
     DIM ff AS INTEGER : ff% = FREEFILE
     OPEN path$ FOR INPUT AS #ff%
-    DIM ln AS STRING, a AS INTEGER, kc AS LONG, rm AS INTEGER, fm AS INTEGER, dv AS INTEGER, bt AS INTEGER, wd AS INTEGER, et AS INTEGER
+    DIM ln AS STRING, a AS INTEGER, kc AS LONG, rm AS INTEGER, fm AS INTEGER, dv AS INTEGER, bt AS INTEGER, wd AS INTEGER, et AS INTEGER, dwd AS INTEGER
     DO WHILE NOT EOF(ff%)
         LINE INPUT #ff%, ln$
         ln$ = _TRIM$(ln$)
         IF LEN(ln$) > 0 AND LEFT$(ln$, 1) <> "#" THEN
-            IF BINDINGS_parse_row%(ln$, a, kc, rm, fm, dv, bt, wd, et) THEN
+            IF BINDINGS_parse_row%(ln$, a, kc, rm, fm, dv, bt, wd, et, dwd) THEN
                 IF BINDING_OVERRIDE_COUNT < BINDINGS_MAX_OVERRIDES THEN
                     BINDING_OVERRIDE_COUNT = BINDING_OVERRIDE_COUNT + 1
                     BINDING_OVERRIDES(BINDING_OVERRIDE_COUNT).actionId    = a%
@@ -391,6 +406,7 @@ SUB BINDINGS_load_preset (presetName AS STRING)
                     BINDING_OVERRIDES(BINDING_OVERRIDE_COUNT).button      = bt%
                     BINDING_OVERRIDES(BINDING_OVERRIDE_COUNT).wheelDir    = wd%
                     BINDING_OVERRIDES(BINDING_OVERRIDE_COUNT).eventType   = et%
+                    BINDING_OVERRIDES(BINDING_OVERRIDE_COUNT).defWheelDir = dwd%
                     BINDING_OVERRIDES(BINDING_OVERRIDE_COUNT).active      = TRUE
                 END IF
             END IF
