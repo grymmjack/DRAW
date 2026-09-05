@@ -24,14 +24,14 @@ OPTION _EXPLICITARRAY
 CONST ACTION_CUSTOMIZE_CONTROLS = 2360
 
 ' --- Dialog geometry (logical px; DIALOG_init scales by USCALE.dialog%) --------
-CONST CTRL_W         = 560 ' dialog width
-CONST CTRL_H         = 420 ' dialog height
-CONST CTRL_FIND_H    = 22  ' FIND row height (below the title bar)
-CONST CTRL_HDR_H     = 15  ' column-header row height
-CONST CTRL_BTN_BAR_H = 30  ' bottom button-bar height
-CONST CTRL_ROW_H     = 16  ' per-binding content row height
-CONST CTRL_CAT_H     = 15  ' category separator row height
-CONST CTRL_SCROLL_W  = 10  ' scrollbar track width
+CONST CTRL_W         = 560  ' dialog width
+CONST CTRL_H         = 420  ' dialog height
+CONST CTRL_FIND_H    = 22   ' FIND row height (below the title bar)
+CONST CTRL_HDR_H     = 15   ' column-header row height
+CONST CTRL_BTN_BAR_H = 30   ' bottom button-bar height
+CONST CTRL_ROW_H     = 16   ' per-binding content row height
+CONST CTRL_CAT_H     = 15   ' category separator row height
+CONST CTRL_SCROLL_W  = 10   ' scrollbar track width
 
 ' --- Column layout (x offsets within the dialog buffer) -----------------------
 CONST CTRL_COL_NAME_X = 10  ' function/label column
@@ -42,8 +42,8 @@ CONST CTRL_COL_BTN_X  = 448 ' rebind button (4.2+)
 CONST CTRL_COL_BTN_W  = 92
 
 ' Dropdown id (unique within the dialog) for the "Export as…" menu.
-CONST CTRL_DD_EXPORT  = 1
-CONST CTRL_DD_PRESET  = 2
+CONST CTRL_DD_EXPORT = 1
+CONST CTRL_DD_PRESET = 2
 
 ' A flattened, filtered display row: either a category header or one binding.
 ' bindIdx = index into INPUT_BINDS (0 for a header row); cat = CAT_* for headers.
@@ -56,20 +56,20 @@ END TYPE
 ' Singleton dialog state. ctx nests DIALOG_CTX (all fixed fields — safe to nest,
 ' as SETTINGS does). filter is fixed-length so it can live in the TYPE.
 TYPE CONTROLS_STATE
-    ctx         AS DIALOG_CTX
-    filter      AS STRING * 40 ' current FIND text (trimmed on use)
-    filterLen   AS INTEGER     ' live length of filter text
-    scrollY     AS INTEGER     ' first visible pixel (content scroll offset)
-    contentH    AS INTEGER     ' total laid-out content height (for scroll clamp)
-    viewportH   AS INTEGER     ' visible content height
-    visCount    AS INTEGER     ' number of populated CTRL_VISROWS rows
-    needsRedraw AS INTEGER
-    findTI      AS INTEGER     ' TI text-input widget id for the FIND box (0 = none)
-    findFont    AS LONG        ' font handle loaded for the FIND widget (freed on close)
-    scrollDrag  AS INTEGER     ' TRUE while dragging the scrollbar thumb
-    scrollDragOff AS INTEGER   ' mouse-Y minus thumb-top at grab (keeps grab point under cursor)
-    exportedMsg AS STRING * 96 ' transient "Exported to ..." status shown after EXPORT
-    exportedLen AS INTEGER     ' live length of exportedMsg (0 = none shown)
+    ctx           AS DIALOG_CTX
+    filter        AS STRING * 40 ' current FIND text (trimmed on use)
+    filterLen     AS INTEGER     ' live length of filter text
+    scrollY       AS INTEGER     ' first visible pixel (content scroll offset)
+    contentH      AS INTEGER     ' total laid-out content height (for scroll clamp)
+    viewportH     AS INTEGER     ' visible content height
+    visCount      AS INTEGER     ' number of populated CTRL_VISROWS rows
+    needsRedraw   AS INTEGER
+    findTI        AS INTEGER     ' TI text-input widget id for the FIND box (0 = none)
+    findFont      AS LONG        ' font handle loaded for the FIND widget (freed on close)
+    scrollDrag    AS INTEGER     ' TRUE while dragging the scrollbar thumb
+    scrollDragOff AS INTEGER     ' mouse-Y minus thumb-top at grab (keeps grab point under cursor)
+    exportedMsg   AS STRING * 96 ' transient "Exported to ..." status shown after EXPORT
+    exportedLen   AS INTEGER     ' live length of exportedMsg (0 = none shown)
 END TYPE
 
 DIM SHARED CONTROLS AS CONTROLS_STATE

@@ -13,7 +13,7 @@
 ' ============================================================================
 '$DYNAMIC
 OPTION _EXPLICIT
-ON ERROR GOTO EH   ' MANDATORY: never let a runtime error pop QB64's blocking dialog
+ON ERROR GOTO EH                ' MANDATORY: never let a runtime error pop QB64's blocking dialog
 
 SCREEN _NEWIMAGE(760, 440, 32)
 _TITLE "Mouse button probe - press every button; roll/tilt wheel; ESC to quit"
@@ -27,13 +27,13 @@ NEXT
 IF mouseDev > 0 THEN nb = _LASTBUTTON(mouseDev)
 
 DIM b AS INTEGER, wheel AS INTEGER
-DIM everMB(1 TO 12) AS INTEGER    ' latch: _MOUSEBUTTON(n) ever seen down
-DIM everDev(1 TO 12) AS INTEGER   ' latch: _BUTTON(n) via _DEVICEINPUT ever seen down
+DIM everMB(1 TO 12) AS INTEGER  ' latch: _MOUSEBUTTON(n) ever seen down
+DIM everDev(1 TO 12) AS INTEGER ' latch: _BUTTON(n) via _DEVICEINPUT ever seen down
 
 DO
     ' Poll both input streams this frame.
     DO WHILE _MOUSEINPUT : wheel = wheel + _MOUSEWHEEL : LOOP
-    DIM di AS INTEGER : IF mouseDev > 0 THEN di = _DEVICEINPUT(mouseDev)
+    DIM di AS INTEGER    : IF mouseDev > 0 THEN di = _DEVICEINPUT(mouseDev)
 
     CLS
     COLOR _RGB32(255, 255, 0): _PRINTSTRING (10, 8), "MOUSE BUTTON PROBE   (ESC to quit)"
@@ -44,13 +44,13 @@ DO
     COLOR _RGB32(120, 220, 120): _PRINTSTRING (10, 74), "_MOUSEBUTTON(n)         _DEVICEINPUT/_BUTTON(n)"
     COLOR _RGB32(220, 220, 220)
     FOR b = 1 TO 8
-        DIM mbNow AS INTEGER : mbNow = (_MOUSEBUTTON(b) <> 0)
+        DIM mbNow  AS INTEGER : mbNow = (_MOUSEBUTTON(b) <> 0)
         IF mbNow THEN everMB(b) = -1
-        DIM devNow AS INTEGER : devNow = 0
-        IF mouseDev > 0 AND b <= nb THEN IF _BUTTON(b) THEN devNow = -1: everDev(b) = -1
+        DIM devNow AS INTEGER                                           : devNow = 0
+        IF mouseDev > 0 AND b <= nb THEN IF _BUTTON(b) THEN devNow = -1 : everDev(b) = -1
 
         DIM lineY AS INTEGER : lineY = 96 + (b - 1) * 22
-        DIM lcol AS _UNSIGNED LONG
+        DIM lcol  AS _UNSIGNED LONG
         IF mbNow THEN lcol = _RGB32(255, 255, 0) ELSE IF everMB(b) THEN lcol = _RGB32(90, 140, 90) ELSE lcol = _RGB32(90, 90, 90)
         COLOR lcol
         _PRINTSTRING (10, lineY), "btn" + STR$(b) + ":  " + _IIF(mbNow, "DOWN", _IIF(everMB(b), "(seen)", "  -  "))

@@ -15,14 +15,14 @@ ON ERROR GOTO EH
 SCREEN _NEWIMAGE(760, 300, 32)
 _TITLE "_MOUSEWHEEL(axis) probe - roll (vertical) and TILT (horizontal); ESC quits"
 
-DIM vAccum AS LONG, hAccum AS LONG      ' cumulative
-DIM vNow AS INTEGER, hNow AS INTEGER    ' this frame
+DIM vAccum AS LONG, hAccum AS LONG     ' cumulative
+DIM vNow   AS INTEGER, hNow AS INTEGER ' this frame
 
 DO
     vNow = 0 : hNow = 0
     DO WHILE _MOUSEINPUT
-        vNow = vNow + _MOUSEWHEEL         ' axis 0 (default) = vertical
-        hNow = hNow + _MOUSEWHEEL(1)      ' axis 1 = horizontal (tilt) — the test
+        vNow = vNow + _MOUSEWHEEL    ' axis 0 (default) = vertical
+        hNow = hNow + _MOUSEWHEEL(1) ' axis 1 = horizontal (tilt) — the test
     LOOP
     vAccum = vAccum + vNow
     hAccum = hAccum + hNow

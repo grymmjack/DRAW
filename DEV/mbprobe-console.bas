@@ -5,10 +5,10 @@
 '$DYNAMIC
 OPTION _EXPLICIT
 $CONSOLE:ONLY
-ON ERROR GOTO EH   ' MANDATORY: never let a runtime error pop QB64's blocking dialog
-SCREEN _NEWIMAGE(320, 240, 32)   ' a window is required for pointer input focus
+ON ERROR GOTO EH               ' MANDATORY: never let a runtime error pop QB64's blocking dialog
+SCREEN _NEWIMAGE(320, 240, 32) ' a window is required for pointer input focus
 _TITLE "mbpc"
-DIM b AS INTEGER, last(1 TO 9) AS INTEGER, startT AS DOUBLE
+DIM b    AS INTEGER, last(1 TO 9) AS INTEGER, startT AS DOUBLE
 startT = TIMER
 ' Detect the [MOUSE] device button count so we never sample past it (ERR 5).
 DIM mdev AS INTEGER, dd AS INTEGER, nb AS INTEGER

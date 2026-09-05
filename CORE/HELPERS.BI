@@ -50,7 +50,7 @@ CONST MOD_NONE    = 0
 CONST MOD_CTRL    = 1
 CONST MOD_SHIFT   = 2
 CONST MOD_ALT     = 4
-CONST MOD_PRIMARY = 8   ' logical "command" modifier — Ctrl on Win/Linux, ⌘/Ctrl on macOS. Rendered per-OS in SHORTCUTS.md; NOT part of MODS_only%'s exact-match set.
+CONST MOD_PRIMARY = 8 ' logical "command" modifier — Ctrl on Win/Linux, ⌘/Ctrl on macOS. Rendered per-OS in SHORTCUTS.md; NOT part of MODS_only%'s exact-match set.
 
 
 ' DECLARE SUB/FUNCTION blocks removed — QB64-PE auto-discovers SUBs and

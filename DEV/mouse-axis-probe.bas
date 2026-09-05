@@ -12,7 +12,7 @@
 ' ============================================================================
 '$DYNAMIC
 OPTION _EXPLICIT
-ON ERROR GOTO EH   ' MANDATORY: never let a runtime error pop QB64's blocking dialog
+ON ERROR GOTO EH ' MANDATORY: never let a runtime error pop QB64's blocking dialog
 
 SCREEN _NEWIMAGE(820, 520, 32)
 _TITLE "Mouse _AXIS / _WHEEL probe - tilt & roll the wheel, move the mouse; ESC to quit"
@@ -24,7 +24,7 @@ FOR d = 1 TO _DEVICES
     IF INSTR(_DEVICE$(d), "[MOUSE]") > 0 THEN mdev = d: EXIT FOR
 NEXT
 IF mdev > 0 THEN
-    naxes = _LASTAXIS(mdev)
+    naxes   = _LASTAXIS(mdev)
     nwheels = _LASTWHEEL(mdev)
 END IF
 IF naxes < 0 OR naxes > 16 THEN naxes = 0
@@ -41,8 +41,8 @@ DIM legacyWheelAccum AS DOUBLE
 
 DO
     ' Poll the device (updates _AXIS/_WHEEL) and the legacy mouse wheel for reference.
-    DIM di AS INTEGER : IF mdev > 0 THEN di = _DEVICEINPUT(mdev)
-    DO WHILE _MOUSEINPUT: legacyWheelAccum = legacyWheelAccum + _MOUSEWHEEL: LOOP
+    DIM di AS INTEGER    : IF mdev > 0 THEN di = _DEVICEINPUT(mdev)
+    DO WHILE _MOUSEINPUT : legacyWheelAccum = legacyWheelAccum + _MOUSEWHEEL : LOOP
 
     CLS
     COLOR _RGB32(255, 255, 0): _PRINTSTRING (10, 8), "MOUSE _AXIS / _WHEEL PROBE   (ESC to quit)"
@@ -50,12 +50,12 @@ DO
     _PRINTSTRING (10, 30), "[MOUSE] device #:" + STR$(mdev) + "   _LASTAXIS:" + STR$(naxes) + "   _LASTWHEEL:" + STR$(nwheels)
     _PRINTSTRING (10, 46), "Legacy _MOUSEWHEEL accum:" + STR$(legacyWheelAccum) + "   (roll the wheel; TILT it left/right; move the mouse)"
 
-    DIM y AS INTEGER : y = 78
-    COLOR _RGB32(120, 220, 120): _PRINTSTRING (10, y), "_AXIS(n) — analog axes (movement / tilt)": y = y + 20
+    DIM y AS INTEGER            : y = 78
+    COLOR _RGB32(120, 220, 120) : _PRINTSTRING (10, y), "_AXIS(n) — analog axes (movement / tilt)" : y = y + 20
     COLOR _RGB32(220, 220, 220)
     IF naxes = 0 THEN _PRINTSTRING (24, y), "(none reported)": y = y + 18
     FOR i = 1 TO naxes
-        DIM av AS DOUBLE : av = _AXIS(i)
+        DIM av  AS DOUBLE : av = _AXIS(i)
         IF av < axMin(i) THEN axMin(i) = av
         IF av > axMax(i) THEN axMax(i) = av
         DIM hot AS INTEGER : hot = (ABS(av) > 0.001)
@@ -70,7 +70,7 @@ DO
     COLOR _RGB32(220, 220, 220)
     IF nwheels = 0 THEN _PRINTSTRING (24, y), "(none reported)": y = y + 18
     FOR i = 1 TO nwheels
-        DIM wv AS DOUBLE : wv = _WHEEL(i)
+        DIM wv   AS DOUBLE : wv = _WHEEL(i)
         IF wv < whMin(i) THEN whMin(i) = wv
         IF wv > whMax(i) THEN whMax(i) = wv
         DIM whot AS INTEGER : whot = (ABS(wv) > 0.001)
