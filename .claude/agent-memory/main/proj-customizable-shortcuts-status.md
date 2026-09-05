@@ -44,19 +44,22 @@ table + `CFG/BINDINGS.BM` override engine. **All work pushed to origin/customiza
   WORKS**: SET… a scroll on a Pan row → `WHEEL_action_for%` prefers the override → pans. Rick
   keeps zoom-on-wheel by default. Screenshot-verified rows render.
 
-**🟡 PENDING RICK DECISION (the reason I stopped — do NOT do without his go):**
-**tilt→horizontal-pan.** Rick's real intent: wheel=vertical scroll (DONE), TILT=horizontal
-scroll, shift+wheel=zoom "or something". Tilt→pan does NOT work yet because tilt runs through
-the CENTRAL dispatcher (dispatched=TRUE tilt binds 601/602, emitted as EVT_MOUSE_WHEEL wheelDir
-±2 in INPUT_detect_events), a DIFFERENT path than the vertical wheel's intent-query. A pan bind
-(dispatched=FALSE) isn't seen by central. **Designed fix (awaiting Rick's greenlight since it
-RE-TOUCHES the confirmed-working tilt):** unify tilt into the intent-query — remove the central
-tilt emission, make 601/602 tilt binds dispatched=FALSE, and in MOUSE_handle_wheel dispatch
-`MOUSE_TILT%` via `WHEEL_dispatch_canvas(WHEEL_action_for%(MOUSE_TILT%*2, mods))` (guard
-`NOT TEXT.ACTIVE`; tilt handling must run OUTSIDE the `IF wheel_delta%<>0` guard since tilt-only
-frames have wheel_delta=0). Then prefer-override makes tilt→pan win. Rick would re-test
-tilt-brush (default) after. Alternative (rejected: reset-state complications) was mutating the
-pan bind's `dispatched` flag per tilt/vertical + prefer-override in the central dispatcher.
+**✅ DONE (2026-09-04) — tilt→horizontal-pan unified** (commit 633e138b). Rick greenlit
+("do the tilt→pan unification"). Tilt was the last wheel input on the CENTRAL dispatcher;
+now on the SAME intent-query as the vertical wheel:
+- `INPUT_detect_events` no longer emits a central `EVT_MOUSE_WHEEL` for tilt (that block removed).
+- Tilt binds 601/602 flipped `dispatched=TRUE`→`FALSE` (metadata only, like the vertical binds).
+- `MOUSE_handle_wheel` dispatches `MOUSE_TILT%` OUTSIDE the `IF wheel_delta%<>0` guard (tilt-only
+  frames have wheel_delta=0) via `WHEEL_dispatch_canvas WHEEL_action_for%(MOUSE_TILT%*2, heldMods)`,
+  region-scoped `REGION_hit_test%=REGION_CANVAS` + guarded `NOT TEXT.ACTIVE` (mirrors the old
+  binding's REGION_CANVAS + CTX_TEXT_ACTIVE forbid). heldMods built from MODIFIERS so a modifier
+  rebind matches exactly; no-mod tilt → requireMods=0 bind → brush (default preserved).
+Net: tilt keeps brush-size default, but rebinding tilt→Pan Left/Right now WINS (override-with-
+fallback). Completes Rick's scheme: wheel=vertical scroll, tilt=horizontal scroll. Build green,
+smoke passes, action-ID audit clean. **⚑ Rick real-HW re-test pending:** (1) default tilt still
+changes brush size, (2) rebinding tilt→Pan actually pans horizontally.
+Source guard mouse-wheel-tilt-source-guards.sh updated to pin the new path (asserts the intent-
+query dispatch + region/text guards present, central emission absent).
 
 **Rick's AskUserQuestion answers this session:** wheel default = "Keep zoom default" (add pan as
 rebindable, don't change default); 601/602 disambiguation = "Independent rows".
