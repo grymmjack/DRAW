@@ -11,6 +11,23 @@ Feature branch **`customizable-shortcuts`** (off v2.0.3 main). Plan:
 the PATHS.BM homeDir$ fix). Registry-driven rebinding on the central `INPUT/INPUT.BM` dispatch
 table + `CFG/BINDINGS.BM` override engine. **All work pushed to origin/customizable-shortcuts.**
 
+## SESSION 2026-09-04 (later) — tilt→pan unification + wheel/tilt rebind capture fix
+
+**✅ tilt→pan unified** (commit 633e138b) — see the updated block below (was "PENDING").
+
+**✅ FIXED: could not rebind wheel OR tilt in Customize Controls** (commit 034ab11e). Rick:
+"in customize control i cannot use tilt or wheel to rebind anything." **Root cause = double
+`_MOUSEINPUT` drain** (a classic QB64 trap worth remembering): the rebind capture modal
+(`CTRL_assign_key%` in GUI/CONTROLS.BM) calls `DIALOG_poll_mouse` every frame, which runs the
+frame's ONE `DO WHILE _MOUSEINPUT` drain and stored only the vertical wheel into `ctx.mwheel`
+(never the tilt axis). The modal's OWN wheel-capture `DO WHILE _MOUSEINPUT` then hit an empty
+queue → vwheel/hwheel always 0 → nothing captured. **`_MOUSEINPUT` is a DESTRUCTIVE queue pop;
+two drains in one frame = second sees nothing.** Fix: DIALOG_CTX got an `mtilt` field; both
+DIALOG_poll_mouse drain branches (MAC + non-MAC) now also do
+`ctx.mtilt = ctx.mtilt + _MOUSEWHEEL(MOUSE_TILT_AXIS%)`; the modal reads `aCtx.mtilt`/`aCtx.mwheel`
+instead of draining again. **⚑ Rick real-HW re-test:** open Customize Controls, pick a wheel/tilt
+row (or a Pan row), click SET, and spin wheel / tilt — it should now capture the direction.
+
 ## SESSION 2026-09-04 (late) — wheel rebind + pan + zoom-out + cross-platform verify
 
 **✅ DONE & pushed (HEAD ~718d9a9e):**
