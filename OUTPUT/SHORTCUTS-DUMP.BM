@@ -1,0 +1,422 @@
+''
+' DRAW - OUTPUT/SHORTCUTS-DUMP.BM
+' =============================================================================
+' `--dump-shortcuts` generator. Walks the INPUT registry (INPUT_BINDS) and emits
+' markdown binding TABLES grouped by category, for splicing into the curated
+' SHORTCUTS.md (the "augment" model — prose stays hand-authored, tables generated
+' so they can never drift from the registry).
+'
+' Console-only; runs before graphics (from CFG/CONFIG.BI's CLI scan) and SYSTEMs.
+' The `Primary` modifier renders per-OS (Ctrl on Win/Linux, Cmd on macOS).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' The platform "primary"/command modifier name for rendering.
+'
+FUNCTION SHORTCUTS_primaryname$ ()
+    $IF MAC THEN
+        SHORTCUTS_primaryname$ = "Cmd"
+    $ELSE
+        SHORTCUTS_primaryname$ = "Ctrl"
+    $END IF
+END FUNCTION
+
+''
+' Render a requireMods bitmask as a "Ctrl+Shift+" style prefix.
+'
+FUNCTION SHORTCUTS_modstr$ (m AS INTEGER)
+    DIM s AS STRING : s$ = ""
+    IF m AND MOD_PRIMARY THEN s$ = s$ + SHORTCUTS_primaryname$ + "+"
+    IF m AND MOD_CTRL THEN s$ = s$ + "Ctrl+"
+    IF m AND MOD_ALT THEN s$ = s$ + "Alt+"
+    IF m AND MOD_SHIFT THEN s$ = s$ + "Shift+"
+    SHORTCUTS_modstr$ = s$
+END FUNCTION
+
+''
+' Category id -> human header.
+'
+FUNCTION SHORTCUTS_catname$ (c AS INTEGER)
+    SELECT CASE c
+        CASE CAT_GLOBAL    : SHORTCUTS_catname$ = "Global / Application"
+        CASE CAT_FILE      : SHORTCUTS_catname$ = "File"
+        CASE CAT_EDIT      : SHORTCUTS_catname$ = "Edit / History / Clipboard"
+        CASE CAT_VIEW      : SHORTCUTS_catname$ = "View / Zoom / Pan"
+        CASE CAT_TOOLS     : SHORTCUTS_catname$ = "Tools"
+        CASE CAT_SELECTION : SHORTCUTS_catname$ = "Selection"
+        CASE CAT_LAYERS    : SHORTCUTS_catname$ = "Layers / Groups"
+        CASE CAT_COLOR     : SHORTCUTS_catname$ = "Color / Palette"
+        CASE CAT_GRID      : SHORTCUTS_catname$ = "Grid / Symmetry"
+        CASE CAT_TEXT      : SHORTCUTS_catname$ = "Text / Character Map"
+        CASE CAT_BRUSH     : SHORTCUTS_catname$ = "Brush / Custom Brush"
+        CASE CAT_TRANSFORM : SHORTCUTS_catname$ = "Transform"
+        CASE CAT_IMAGE     : SHORTCUTS_catname$ = "Image / Adjustments / Effects"
+        CASE CAT_PANELS    : SHORTCUTS_catname$ = "Panels"
+        CASE CAT_AUDIO     : SHORTCUTS_catname$ = "Audio"
+        CASE CAT_MOUSE     : SHORTCUTS_catname$ = "Mouse"
+        CASE ELSE          : SHORTCUTS_catname$ = "Other"
+    END SELECT
+END FUNCTION
+
+''
+' Physical keycode -> display name (covers every code DRAW registers).
+'
+FUNCTION SHORTCUTS_keyname$ (kc AS LONG)
+    DIM k AS LONG : k& = kc&
+    SELECT CASE k&
+        CASE 97 TO 122 : SHORTCUTS_keyname$ = CHR$(k& - 32)   ' a..z -> A..Z
+        CASE 48 TO 57  : SHORTCUTS_keyname$ = CHR$(k&)         ' 0..9
+        CASE 44        : SHORTCUTS_keyname$ = ","
+        CASE 46        : SHORTCUTS_keyname$ = "."
+        CASE 47        : SHORTCUTS_keyname$ = "/"
+        CASE 59        : SHORTCUTS_keyname$ = ";"
+        CASE 39        : SHORTCUTS_keyname$ = "'"
+        CASE 34        : SHORTCUTS_keyname$ = CHR$(34)          ' "
+        CASE 92        : SHORTCUTS_keyname$ = "\"
+        CASE 124       : SHORTCUTS_keyname$ = "|"
+        CASE 91        : SHORTCUTS_keyname$ = "["
+        CASE 93        : SHORTCUTS_keyname$ = "]"
+        CASE 61        : SHORTCUTS_keyname$ = "="
+        CASE 45        : SHORTCUTS_keyname$ = "-"
+        CASE 63        : SHORTCUTS_keyname$ = "?"
+        CASE 35        : SHORTCUTS_keyname$ = "#"
+        CASE 96        : SHORTCUTS_keyname$ = "`"
+        CASE 8         : SHORTCUTS_keyname$ = "Backspace"
+        CASE 9         : SHORTCUTS_keyname$ = "Tab"
+        CASE 13        : SHORTCUTS_keyname$ = "Enter"
+        CASE 27        : SHORTCUTS_keyname$ = "Esc"
+        CASE 32        : SHORTCUTS_keyname$ = "Space"
+        CASE 18432     : SHORTCUTS_keyname$ = "Up"
+        CASE 20480     : SHORTCUTS_keyname$ = "Down"
+        CASE 19200     : SHORTCUTS_keyname$ = "Left"
+        CASE 19712     : SHORTCUTS_keyname$ = "Right"
+        CASE 18176     : SHORTCUTS_keyname$ = "Home"
+        CASE 20224     : SHORTCUTS_keyname$ = "End"
+        CASE 18688     : SHORTCUTS_keyname$ = "PgUp"
+        CASE 20736     : SHORTCUTS_keyname$ = "PgDn"
+        CASE 21248     : SHORTCUTS_keyname$ = "Delete"
+        CASE 15104     : SHORTCUTS_keyname$ = "F1"
+        CASE 15360     : SHORTCUTS_keyname$ = "F2"
+        CASE 15616     : SHORTCUTS_keyname$ = "F3"
+        CASE 15872     : SHORTCUTS_keyname$ = "F4"
+        CASE 16128     : SHORTCUTS_keyname$ = "F5"
+        CASE 16384     : SHORTCUTS_keyname$ = "F6"
+        CASE 16640     : SHORTCUTS_keyname$ = "F7"
+        CASE 16896     : SHORTCUTS_keyname$ = "F8"
+        CASE 17152     : SHORTCUTS_keyname$ = "F9"
+        CASE 17408     : SHORTCUTS_keyname$ = "F10"
+        CASE 34048     : SHORTCUTS_keyname$ = "F11"
+        CASE 34304     : SHORTCUTS_keyname$ = "F12"  ' probed: F12 = 34304 (F11 34048 + 256); old 28416 was wrong
+        CASE 0         : SHORTCUTS_keyname$ = "(unassigned)"
+        CASE ELSE      : SHORTCUTS_keyname$ = "key#" + _TRIM$(STR$(k&))
+    END SELECT
+END FUNCTION
+
+''
+' Render a mouse binding row's trigger (button/wheel + region).
+'
+FUNCTION SHORTCUTS_mousetrigger$ (i AS INTEGER)
+    DIM t AS STRING : t$ = ""
+    SELECT CASE INPUT_BINDS(i%).eventType
+        CASE EVT_MOUSE_WHEEL
+            IF INPUT_BINDS(i%).wheelDir > 0 THEN t$ = "Wheel up" ELSE t$ = "Wheel down"
+        CASE EVT_MOUSE_HOVER_ENTER : t$ = "Hover enter"
+        CASE EVT_MOUSE_HOVER_LEAVE : t$ = "Hover leave"
+        CASE EVT_MOUSE_MOVE        : t$ = "Move"
+        CASE ELSE
+            DIM isExtra AS INTEGER : isExtra% = FALSE
+            SELECT CASE INPUT_BINDS(i%).button
+                CASE 1 : t$ = "L"
+                CASE 2 : t$ = "R"
+                CASE 3 : t$ = "M"
+                CASE 4 : t$ = "Back Button"    : isExtra% = TRUE
+                CASE 5 : t$ = "Fwd Button"     : isExtra% = TRUE
+                CASE ELSE : t$ = "Button" + STR$(INPUT_BINDS(i%).button) : isExtra% = TRUE
+            END SELECT
+            ' Extra buttons (4+) read as full names; L/R/M take the click/drag suffix.
+            IF isExtra% = 0 THEN
+                SELECT CASE INPUT_BINDS(i%).eventType
+                    CASE EVT_MOUSE_DBLCLICK   : t$ = "Dbl " + t$ + "-Click"
+                    CASE EVT_MOUSE_DRAG_START, EVT_MOUSE_DRAG_MOVE, EVT_MOUSE_DRAG_END : t$ = t$ + "-Drag"
+                    CASE ELSE                 : t$ = t$ + "-Click"
+                END SELECT
+            END IF
+    END SELECT
+    IF LEN(SHORTCUTS_modstr$(INPUT_BINDS(i%).requireMods)) > 0 THEN
+        t$ = SHORTCUTS_modstr$(INPUT_BINDS(i%).requireMods) + t$
+    END IF
+    SHORTCUTS_mousetrigger$ = t$
+END FUNCTION
+
+''
+' Emit the whole registry as markdown tables grouped by category. Console-only.
+'
+SUB SHORTCUTS_dump ()
+    DIM md AS STRING, cat AS INTEGER, i AS INTEGER, n AS INTEGER, trig AS STRING, note AS STRING
+    DIM nl AS STRING : nl$ = CHR$(10)
+
+    md$ = "<!-- GENERATED by `DRAW --dump-shortcuts` from the input registry (" + _TRIM$(STR$(INPUT_BIND_COUNT)) + " bindings)." + nl$
+    md$ = md$ + "     Do not hand-edit between the BINDINGS markers in SHORTCUTS.md; edit the registry (INPUTS_register_all) instead. -->" + nl$ + nl$
+
+    FOR cat% = 1 TO 16
+        n% = 0
+        FOR i% = 1 TO INPUT_BIND_COUNT
+            IF INPUT_BINDS(i%).category = cat% THEN n% = n% + 1
+        NEXT i%
+
+        IF n% > 0 THEN
+            md$ = md$ + "### " + SHORTCUTS_catname$(cat%) + nl$ + nl$
+            md$ = md$ + "| Trigger | Action | Dispatch |" + nl$
+            md$ = md$ + "|---------|--------|----------|" + nl$
+            FOR i% = 1 TO INPUT_BIND_COUNT
+                IF INPUT_BINDS(i%).category = cat% THEN
+                    IF INPUT_BINDS(i%).device = DEVICE_MOUSE THEN
+                        trig$ = SHORTCUTS_mousetrigger$(i%)
+                    ELSE
+                        trig$ = SHORTCUTS_modstr$(INPUT_BINDS(i%).requireMods) + SHORTCUTS_keyname$(INPUT_BINDS(i%).keycode)
+                    END IF
+                    IF INPUT_BINDS(i%).dispatched THEN note$ = "central" ELSE note$ = "legacy"
+                    md$ = md$ + "| `" + trig$ + "` | " + _TRIM$(RTRIM$(INPUT_BINDS(i%).label)) + " | " + note$ + " |" + nl$
+                END IF
+            NEXT i%
+            md$ = md$ + nl$
+        END IF
+    NEXT cat%
+
+    ' Write the generated tables straight to a file (binary PUT — no PRINT, no _DEST).
+    DIM outPath AS STRING : outPath$ = "SHORTCUTS.tables.md"
+    IF _FILEEXISTS(outPath$) THEN KILL outPath$
+    DIM ff AS INTEGER : ff% = FREEFILE
+    OPEN outPath$ FOR BINARY AS #ff%
+    PUT #ff%, 1, md$
+    CLOSE #ff%
+    _LOGINFO "SHORTCUTS: wrote " + _TRIM$(STR$(INPUT_BIND_COUNT)) + " bindings to " + outPath$
+END SUB
+
+
+''
+' HTML-escape a cell value (&, <, > only — enough for triggers/labels).
+'
+FUNCTION SHORTCUTS_htmlesc$ (s AS STRING)
+    DIM src AS STRING : src$ = s$
+    DIM esc AS STRING, i AS INTEGER, ch AS STRING
+    esc$ = ""
+    FOR i% = 1 TO LEN(src$)
+        ch$ = MID$(src$, i%, 1)
+        SELECT CASE ch$
+            CASE "&": esc$ = esc$ + "&amp;"
+            CASE "<": esc$ = esc$ + "&lt;"
+            CASE ">": esc$ = esc$ + "&gt;"
+            CASE ELSE: esc$ = esc$ + ch$
+        END SELECT
+    NEXT i%
+    SHORTCUTS_htmlesc$ = esc$
+END FUNCTION
+
+
+''
+' Build a STANDALONE controls-reference document from the LIVE registry (so any
+' user overrides in DRAW.bindings are reflected). Same per-category
+' Trigger / Action / Dispatch layout as the hotkey reference (SHORTCUTS.md), plus a
+' "Customized" mark (★) on rows a user rebind changed (INPUT_BINDS().userOverridden).
+' fmt: 0 = Markdown, 1 = HTML. Shares one iteration; only the row/header emit differs.
+'
+FUNCTION SHORTCUTS_controls_doc$ (fmt AS INTEGER)
+    DIM nl AS STRING : nl$ = CHR$(10)
+    DIM doc AS STRING, cat AS INTEGER, i AS INTEGER, n AS INTEGER
+    DIM trig AS STRING, note AS STRING, lbl AS STRING, mark AS STRING, rowcls AS STRING
+    DIM docTitle AS STRING : docTitle$ = "DRAW " + APP_VERSION$ + " — Controls Reference"
+
+    ' ---- document header ----
+    IF fmt% = 1 THEN
+        ' HTML attributes use SINGLE quotes: QB64-PE does not treat "" as an escaped
+        ' quote (it reads two juxtaposed string literals), and single quotes are valid
+        ' HTML — cleaner here than CHR$(34) everywhere.
+        doc$ = "<!doctype html><html lang='en'><head><meta charset='utf-8'>" + nl$
+        doc$ = doc$ + "<meta name='viewport' content='width=device-width, initial-scale=1'>" + nl$
+        doc$ = doc$ + "<title>" + SHORTCUTS_htmlesc$(docTitle$) + "</title>" + nl$
+        doc$ = doc$ + "<style>" + nl$
+        doc$ = doc$ + "body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1a1a1a;background:#faf9f7;margin:0;padding:2rem;max-width:60rem;margin:0 auto}" + nl$
+        doc$ = doc$ + "h1{font-size:1.6rem;margin:0 0 .25rem}h2{font-size:1.05rem;margin:2rem 0 .5rem;color:#7a3e12;border-bottom:2px solid #e7ddd0;padding-bottom:.25rem}" + nl$
+        doc$ = doc$ + ".meta{color:#777;font-size:.85rem;margin-bottom:1.5rem}" + nl$
+        doc$ = doc$ + "table{border-collapse:collapse;width:100%;margin:.25rem 0 1rem;font-variant-numeric:tabular-nums}" + nl$
+        doc$ = doc$ + "th,td{text-align:left;padding:.35rem .6rem;border-bottom:1px solid #ece5da}th{font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:#9a8f80}" + nl$
+        doc$ = doc$ + "td.k{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}kbd{background:#efe9e0;border:1px solid #ddd2c2;border-bottom-width:2px;border-radius:4px;padding:.05em .4em;font:inherit}" + nl$
+        doc$ = doc$ + ".c{color:#b8791f;font-weight:600}.disp{color:#999;font-size:.85rem}tr.mod td{background:#fbf5e9}" + nl$
+        doc$ = doc$ + "@media(prefers-color-scheme:dark){body{background:#17150f;color:#e8e2d6}h2{color:#e0a35a;border-color:#3a3226}th{color:#8a7f6e}td,th{border-color:#2c2619}kbd{background:#2a2417;border-color:#413827}tr.mod td{background:#241f12}.disp{color:#7a7160}}" + nl$
+        ' Print-to-PDF friendly (the no-extra-software PDF path): force light, avoid row splits.
+        doc$ = doc$ + "@media print{body{background:#fff;color:#000;max-width:none;padding:0;font-size:11px}h2{color:#000;border-color:#999}kbd{background:#eee;border-color:#999}tr.mod td{background:#f0f0f0}tr,h2{break-inside:avoid}.disp{color:#555}}" + nl$
+        doc$ = doc$ + "</style></head><body>" + nl$
+        doc$ = doc$ + "<h1>" + SHORTCUTS_htmlesc$(docTitle$) + "</h1>" + nl$
+        doc$ = doc$ + "<p class='meta'>Generated from the live input registry (" + _TRIM$(STR$(INPUT_BIND_COUNT)) + " bindings). ★ = customized from default.</p>" + nl$
+    ELSE
+        doc$ = "# " + docTitle$ + nl$ + nl$
+        doc$ = doc$ + "> Generated from the live input registry (" + _TRIM$(STR$(INPUT_BIND_COUNT)) + " bindings). ★ = customized from default." + nl$ + nl$
+    END IF
+
+    ' ---- per-category tables ----
+    FOR cat% = 1 TO 16
+        n% = 0
+        FOR i% = 1 TO INPUT_BIND_COUNT
+            IF INPUT_BINDS(i%).category = cat% THEN n% = n% + 1
+        NEXT i%
+        IF n% > 0 THEN
+            IF fmt% = 1 THEN
+                doc$ = doc$ + "<h2>" + SHORTCUTS_htmlesc$(SHORTCUTS_catname$(cat%)) + "</h2>" + nl$
+                doc$ = doc$ + "<table><thead><tr><th>Trigger</th><th>Action</th><th>Dispatch</th></tr></thead><tbody>" + nl$
+            ELSE
+                doc$ = doc$ + "## " + SHORTCUTS_catname$(cat%) + nl$ + nl$
+                doc$ = doc$ + "| Trigger | Action | Dispatch |" + nl$ + "|---------|--------|----------|" + nl$
+            END IF
+            FOR i% = 1 TO INPUT_BIND_COUNT
+                IF INPUT_BINDS(i%).category = cat% THEN
+                    IF INPUT_BINDS(i%).device = DEVICE_MOUSE THEN
+                        trig$ = SHORTCUTS_mousetrigger$(i%)
+                    ELSE
+                        trig$ = SHORTCUTS_modstr$(INPUT_BINDS(i%).requireMods) + SHORTCUTS_keyname$(INPUT_BINDS(i%).keycode)
+                    END IF
+                    IF INPUT_BINDS(i%).dispatched THEN note$ = "central" ELSE note$ = "legacy"
+                    lbl$ = _TRIM$(RTRIM$(INPUT_BINDS(i%).label))
+                    IF INPUT_BINDS(i%).userOverridden THEN mark$ = " ★" ELSE mark$ = ""
+                    IF fmt% = 1 THEN
+                        IF INPUT_BINDS(i%).userOverridden THEN rowcls$ = " class='mod'" ELSE rowcls$ = ""
+                        doc$ = doc$ + "<tr" + rowcls$ + "><td class='k'><kbd>" + SHORTCUTS_htmlesc$(trig$) + "</kbd>"
+                        IF INPUT_BINDS(i%).userOverridden THEN doc$ = doc$ + " <span class='c'>★</span>"
+                        doc$ = doc$ + "</td><td>" + SHORTCUTS_htmlesc$(lbl$) + "</td><td class='disp'>" + note$ + "</td></tr>" + nl$
+                    ELSE
+                        doc$ = doc$ + "| `" + trig$ + "`" + mark$ + " | " + lbl$ + " | " + note$ + " |" + nl$
+                    END IF
+                END IF
+            NEXT i%
+            IF fmt% = 1 THEN doc$ = doc$ + "</tbody></table>" + nl$ ELSE doc$ = doc$ + nl$
+        END IF
+    NEXT cat%
+
+    IF fmt% = 1 THEN doc$ = doc$ + "</body></html>" + nl$
+    SHORTCUTS_controls_doc$ = doc$
+END FUNCTION
+
+
+''
+' Normalise a directory to a trailing-slash prefix ("" = cwd).
+'
+FUNCTION SHORTCUTS_dirpfx$ (outDir AS STRING)
+    DIM d AS STRING : d$ = outDir$
+    IF LEN(d$) > 0 AND RIGHT$(d$, 1) <> "/" AND RIGHT$(d$, 1) <> "\" THEN d$ = d$ + "/"
+    SHORTCUTS_dirpfx$ = d$
+END FUNCTION
+
+''
+' Write one export file and return TRUE. fmtDoc: 0 = Markdown, 1 = HTML. Both are
+' generated natively in-process — NO external programs required.
+'
+FUNCTION SHORTCUTS_writedoc% (path AS STRING, fmtDoc AS INTEGER)
+    DIM body AS STRING : body$ = SHORTCUTS_controls_doc$(fmtDoc%)
+    IF _FILEEXISTS(path$) THEN KILL path$
+    DIM ff AS INTEGER : ff% = FREEFILE
+    OPEN path$ FOR BINARY AS #ff% : PUT #ff%, 1, body$ : CLOSE #ff%
+    _LOGINFO "CONTROLS export: wrote " + path$
+    SHORTCUTS_writedoc% = TRUE
+END FUNCTION
+
+''
+' Read the first line of a file ("" if missing/empty).
+'
+FUNCTION SHORTCUTS_firstline$ (path AS STRING)
+    IF NOT _FILEEXISTS(path$) THEN EXIT FUNCTION
+    DIM ff AS INTEGER : ff% = FREEFILE
+    OPEN path$ FOR INPUT AS #ff%
+    DIM ln AS STRING
+    IF NOT EOF(ff%) THEN LINE INPUT #ff%, ln$
+    CLOSE #ff%
+    SHORTCUTS_firstline$ = ln$
+END FUNCTION
+
+''
+' LAME-style optional-dependency probe: return the name of an available HTML→PDF
+' converter on PATH, or "" if none. Only true HTML→PDF tools are used —
+' wkhtmltopdf and weasyprint — which are self-contained and cannot hang on a
+' missing LaTeX engine (pandoc's default PDF path needs LaTeX and has hung the
+' export, so it is deliberately NOT used here). If nothing is found the caller
+' falls back to browser Print→PDF guidance — no tool is bundled or required.
+'
+FUNCTION SHORTCUTS_pdf_engine$ ()
+    DIM whichCmd AS STRING, nul AS STRING
+    IF INSTR(_OS$, "WIN") > 0 THEN whichCmd$ = "where " : nul$ = "NUL" ELSE whichCmd$ = "command -v " : nul$ = "/dev/null"
+    DIM tmp AS STRING : tmp$ = SHORTCUTS_dirpfx$(PATHS_CACHE_DIR$) + "_draw_pdfprobe.txt"
+    DIM cands(0 TO 1) AS STRING, i AS INTEGER, found AS STRING
+    cands(0) = "wkhtmltopdf" : cands(1) = "weasyprint"
+    found$ = ""
+    FOR i% = 0 TO 1
+        IF _FILEEXISTS(tmp$) THEN KILL tmp$
+        SHELL _HIDE whichCmd$ + cands(i%) + " > " + CHR$(34) + tmp$ + CHR$(34) + " 2>" + nul$
+        IF LEN(_TRIM$(SHORTCUTS_firstline$(tmp$))) > 0 THEN found$ = cands(i%) : EXIT FOR
+    NEXT
+    IF _FILEEXISTS(tmp$) THEN KILL tmp$
+    SHORTCUTS_pdf_engine$ = found$
+END FUNCTION
+
+''
+' Export ONE format the user picked from the dialog dropdown and return a short
+' STATUS string for the dialog. fmtSel: 0 = Markdown (.md), 1 = HTML (.html),
+' 2 = PDF. MD and HTML are self-contained (no external tools). PDF is optional/
+' LAME-style: if an HTML→PDF converter is on PATH it is used; otherwise the user
+' gets the print-styled HTML + guidance to Print → Save as PDF (or install a tool).
+'
+FUNCTION SHORTCUTS_export_fmt$ (fmtSel AS INTEGER, outDir AS STRING)
+    DIM pfx AS STRING : pfx$ = SHORTCUTS_dirpfx$(outDir$)
+    DIM Q AS STRING : Q$ = CHR$(34)
+    DIM r AS STRING
+    SELECT CASE fmtSel%
+        CASE 0
+            IF SHORTCUTS_writedoc%(pfx$ + "CONTROLS.md", 0) THEN r$ = "Saved CONTROLS.md -> " + outDir$
+        CASE 1
+            IF SHORTCUTS_writedoc%(pfx$ + "CONTROLS.html", 1) THEN r$ = "Saved CONTROLS.html -> " + outDir$
+        CASE 2
+            ' Always write the print-ready HTML (the source + the no-tool fallback).
+            IF SHORTCUTS_writedoc%(pfx$ + "CONTROLS.html", 1) = 0 THEN
+                r$ = "Export failed (could not write CONTROLS.html)"
+            ELSE
+                DIM eng AS STRING : eng$ = SHORTCUTS_pdf_engine$
+                IF LEN(eng$) > 0 THEN
+                    DIM htmlP AS STRING, pdfP AS STRING, cmd AS STRING, nul2 AS STRING
+                    htmlP$ = pfx$ + "CONTROLS.html" : pdfP$ = pfx$ + "CONTROLS.pdf"
+                    IF INSTR(_OS$, "WIN") > 0 THEN nul2$ = "NUL" ELSE nul2$ = "/dev/null"
+                    IF _FILEEXISTS(pdfP$) THEN KILL pdfP$
+                    IF eng$ = "weasyprint" THEN
+                        cmd$ = "weasyprint " + Q$ + htmlP$ + Q$ + " " + Q$ + pdfP$ + Q$
+                    ELSE
+                        cmd$ = "wkhtmltopdf -q " + Q$ + htmlP$ + Q$ + " " + Q$ + pdfP$ + Q$
+                    END IF
+                    ' Bound the run so a stuck converter can't freeze the dialog (unix).
+                    IF INSTR(_OS$, "WIN") = 0 THEN cmd$ = "timeout 60 " + cmd$
+                    SHELL _HIDE cmd$ + " 2>" + nul2$
+                    IF _FILEEXISTS(pdfP$) THEN
+                        r$ = "Saved CONTROLS.pdf (via " + eng$ + ") -> " + outDir$
+                    ELSE
+                        r$ = eng$ + " failed - open CONTROLS.html and Print -> Save as PDF"
+                    END IF
+                ELSE
+                    r$ = "No PDF tool found - open CONTROLS.html and Print -> Save as PDF"
+                END IF
+            END IF
+        CASE ELSE
+            r$ = "Unknown export format"
+    END SELECT
+    SHORTCUTS_export_fmt$ = r$
+END FUNCTION
+
+''
+' Write CONTROLS.md + CONTROLS.html into outDir (empty = cwd) natively (no external
+' tools). Returns the count of files written. Used by --export-controls.
+'
+FUNCTION SHORTCUTS_export_controls% (outDir AS STRING)
+    DIM pfx AS STRING : pfx$ = SHORTCUTS_dirpfx$(outDir$)
+    DIM cnt AS INTEGER : cnt% = 0
+    IF SHORTCUTS_writedoc%(pfx$ + "CONTROLS.md", 0)   THEN cnt% = cnt% + 1
+    IF SHORTCUTS_writedoc%(pfx$ + "CONTROLS.html", 1) THEN cnt% = cnt% + 1
+    SHORTCUTS_export_controls% = cnt%
+END FUNCTION

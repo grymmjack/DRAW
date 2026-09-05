@@ -124,6 +124,12 @@ SUB DIALOG_poll_mouse (ctx AS DIALOG_CTX)
     ' couple frames = the "close then spasm" while holding. mb1raw is never swallowed.
     ctx.omb1   = ctx.mb1raw
     ctx.mwheel = 0
+    ctx.mtilt  = 0
+    ' This is the ONE _MOUSEINPUT drain per modal frame — it must capture EVERYTHING a
+    ' modal might need, because a second drain elsewhere in the same frame sees an empty
+    ' queue. Accumulate BOTH the vertical wheel and the horizontal tilt here so the
+    ' rebind capture modal (CONTROLS.BM) can read a tilt/scroll gesture from ctx.* rather
+    ' than draining again (which is why wheel/tilt rebind captured nothing before).
     $IF MAC THEN
         ' macOS: Capture button presses during drain — trackpad tap-to-click
         ' can press+release within a single drain cycle.
@@ -131,11 +137,13 @@ SUB DIALOG_poll_mouse (ctx AS DIALOG_CTX)
         dlg_mac_b1% = FALSE
         DO WHILE _MOUSEINPUT
             ctx.mwheel = ctx.mwheel + _MOUSEWHEEL
+            IF MOUSE_TILT_AXIS% > 0 THEN ctx.mtilt = ctx.mtilt + _MOUSEWHEEL(MOUSE_TILT_AXIS%)
             IF _MOUSEBUTTON(1) THEN dlg_mac_b1% = TRUE
         LOOP
     $ELSE
         DO WHILE _MOUSEINPUT
             ctx.mwheel = ctx.mwheel + _MOUSEWHEEL
+            IF MOUSE_TILT_AXIS% > 0 THEN ctx.mtilt = ctx.mtilt + _MOUSEWHEEL(MOUSE_TILT_AXIS%)
         LOOP
     $END IF
     ctx.mx = (_MOUSEX \ ctx.scale) - ctx.x
@@ -219,6 +227,19 @@ FUNCTION DIALOG_hit% (ctx AS DIALOG_CTX, bx AS INTEGER, by AS INTEGER, bw AS INT
         END IF
     END IF
     DIALOG_hit% = FALSE
+END FUNCTION
+
+
+''
+' Non-consuming point test: TRUE when the dialog-local cursor is inside a rect,
+' regardless of button state. The sibling of DIALOG_hit% for HOVER highlighting
+' (draw phase) — use DIALOG_hit% when a click should be consumed, this when it
+' should not. Replaces hand-inlined `mx >= x AND mx <= x+w AND my >= y ...` tests.
+'
+FUNCTION DIALOG_point_in% (ctx AS DIALOG_CTX, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
+    DIM r AS INTEGER
+    r% = (ctx.mx >= bx AND ctx.mx <= bx + bw AND ctx.my >= by AND ctx.my <= by + bh)
+    DIALOG_point_in% = r%
 END FUNCTION
 
 
@@ -415,8 +436,9 @@ SUB DIALOG_dropdown_input (ctx AS DIALOG_CTX)
 
     DIM vis   AS INTEGER : vis% = DIALOG_DD_COUNT%
     IF vis% > DIALOG_DD_MAXVIS% THEN vis% = DIALOG_DD_MAXVIS%
-    DIM listY AS INTEGER : listY% = DIALOG_DD_Y% + DIALOG_DD_BOXH%
     DIM listH AS INTEGER : listH% = vis% * DIALOG_DD_ROWH%
+    DIM listY AS INTEGER
+    IF DIALOG_DD_UP% THEN listY% = DIALOG_DD_Y% - listH% ELSE listY% = DIALOG_DD_Y% + DIALOG_DD_BOXH%
 
     ' --- keyboard: only while open, so the dialog's own _KEYHIT (Enter=OK,
     '     Esc=Cancel) never fires on the same keystroke that drives the list ---
@@ -493,6 +515,18 @@ FUNCTION DIALOG_dropdown% (ctx AS DIALOG_CTX, id AS INTEGER, x AS INTEGER, y AS 
             DIALOG_DD_OPEN%  = id
             DIALOG_DD_X%     = x : DIALOG_DD_Y% = y : DIALOG_DD_W% = w
             DIALOG_DD_COUNT% = count
+            ' Decide open direction ONCE (input + overlay both read DIALOG_DD_UP%):
+            ' open DOWN by default, but flip UP when the list would spill past the
+            ' dialog's bottom edge (ctx.h) and there's room above. Guarantees the
+            ' hit-test rect and the drawn rect stay in agreement.
+            DIM openVis AS INTEGER : openVis% = count
+            IF openVis% > DIALOG_DD_MAXVIS% THEN openVis% = DIALOG_DD_MAXVIS%
+            DIM openLH AS INTEGER : openLH% = openVis% * DIALOG_DD_ROWH%
+            IF (y + DIALOG_DD_BOXH% + openLH% > ctx.h) _ANDALSO (y - openLH% >= 0) THEN
+                DIALOG_DD_UP% = TRUE
+            ELSE
+                DIALOG_DD_UP% = FALSE
+            END IF
             DIALOG_DD_SEL%   = value
             REDIM DIALOG_DD_LABELS$(0 TO count - 1)
             DIM i AS INTEGER
@@ -541,11 +575,11 @@ SUB DIALOG_dropdown_overlay (ctx AS DIALOG_CTX)
     DIM vis AS INTEGER : vis% = DIALOG_DD_COUNT%
     IF vis% > DIALOG_DD_MAXVIS% THEN vis% = DIALOG_DD_MAXVIS%
     DIM lx  AS INTEGER : lx% = DIALOG_DD_X%
-    DIM ly  AS INTEGER : ly% = DIALOG_DD_Y% + DIALOG_DD_BOXH%
     DIM lw  AS INTEGER : lw% = DIALOG_DD_W%
     DIM lh  AS INTEGER : lh% = vis% * DIALOG_DD_ROWH%
+    DIM ly  AS INTEGER
+    IF DIALOG_DD_UP% THEN ly% = DIALOG_DD_Y% - lh% ELSE ly% = DIALOG_DD_Y% + DIALOG_DD_BOXH%
     LINE (lx%, ly%)-(lx% + lw%, ly% + lh%), THEME.DIALOG_bg~&, BF
-    LINE (lx%, ly%)-(lx% + lw%, ly% + lh%), THEME.DIALOG_border_outer~&, B
     DIM fh  AS INTEGER : fh% = DIALOG_font_height%(ctx)
     DIM r   AS INTEGER, idx AS INTEGER, ry AS INTEGER, rowHover AS INTEGER
     FOR r% = 0 TO vis% - 1
@@ -569,6 +603,10 @@ SUB DIALOG_dropdown_overlay (ctx AS DIALOG_CTX)
         IF DIALOG_DD_SCROLL% > 0 THEN _UPRINTSTRING (lx% + lw% - 11, ly% + 1), CHR$(24)
         IF DIALOG_DD_SCROLL% < DIALOG_DD_COUNT% - vis% THEN _UPRINTSTRING (lx% + lw% - 11, ly% + lh% - fh% - 1), CHR$(25)
     END IF
+    ' Border LAST so no row fill (which starts at the same y as the top edge for
+    ' the first visible row) can overpaint it — was: missing top border on the
+    ' popup when row 0 is selected/hovered.
+    LINE (lx%, ly%)-(lx% + lw%, ly% + lh%), THEME.DIALOG_border_outer~&, B
 END SUB
 
 

@@ -161,11 +161,13 @@
      why:'Confirm the generated program renders the hidden group’s content (invisible on canvas). I can’t compile/run the exported program for you.',
      fixed:true, fixNote:'Fixed 2026-08-28 — two bugs in one repro: (1) the QB64 exporter now walks the parent chain and excludes children of a hidden ancestor group (FILE-QB64.BM sortedZ builder), so hidden-group content is no longer exported; (2) you also found the generated .BAS wouldn’t even compile (undefined SAFE_FREEIMAGE) — logged as BUG-79 and fixed by emitting a self-contained SAFE_FREEIMAGE helper into every export. Confirmed by Rick.'},
     {id:19,sev:'H',need:['reproduce'],t:'Merge redo re-runs against live state → lost pixels',
-     steps:['3 visible layers A, B, C with distinct content.','Layer ▸ Merge Visible → a “Merged” layer.','Ctrl+Z (undo) — A/B/C return, Merged gone, Redo still available.','Click the EYE on layer C to hide it.','Ctrl+Y (redo).'],
-     why:'Confirm the redone merge is MISSING C’s pixels (or does nothing / desyncs). Real data loss — I need you to watch it happen.'},
+     steps:['3 visible layers A, B, C with distinct content.','Layer ▸ Merge All (Ctrl+Alt+Shift+E) → a “Merged” layer. (This is the “merge visible” op — the menu label is Merge All.)','Ctrl+Z (undo) — A/B/C return, Merged gone, Redo still available.','Click the EYE on layer C to hide it.','Ctrl+Y (redo).'],
+     why:'Confirm the redone merge is MISSING C’s pixels (or does nothing / desyncs). Real data loss — I need you to watch it happen.',
+     fixed:true, fixNote:'Fixed 2026-08-28 — all three merge redos (Down/All/Group) re-ran the merge LIVE, so hiding a layer after an undo made Ctrl+Y destroy layers (it removed layer B). Now a visibility/opacity change made after an undo discards the stale redo tail (branches the timeline, like any real editor), so redo can’t replay a merge against a stack that no longer matches. Reproduced & confirmed fixed by Rick; on main.'},
     {id:10,sev:'M',need:['judge'],t:'Transform erases unselected pixels inside a mask’s bounding box',
      steps:['Draw TWO separate blobs, close together.','Magic-wand select just ONE (non-rectangular).','Edit ▸ Transform ▸ Scale; drag a handle; press Enter.'],
-     why:'Confirm pixels inside the selection’s bounding box but OUTSIDE the mask (part of the other blob) got erased.'},
+     why:'Confirm pixels inside the selection’s bounding box but OUTSIDE the mask (part of the other blob) got erased.',
+     fixed:true, fixNote:'Fixed 2026-08-28 — transform now lifts & erases ONLY masked pixels (a mask snapshot + mask-aware clear), so an in-bbox/out-of-mask neighbour is never captured or destroyed, and no transparent “black” hole is left. Reproduced & confirmed fixed by Rick. Bonus from the same repro: the selection now WARPS to follow the transform (BUG-22), there’s a new Select ▸ Transform... flyout that transforms the selection itself in all 5 modes, and distort now honors inward (concave) drags too. All on main.'},
     {id:11,sev:'M',need:['reproduce','judge'],t:'Transform sacrifices off-canvas (apron) pixels, non-undoably',
      steps:['Draw content.','Move it so part goes OFF the canvas edge (this promotes the layer’s apron).','Edit ▸ Transform anything; press Enter.','Ctrl+Z.'],
      why:'Confirm the off-canvas pixels do NOT come back after undo (the apron was sacrificed before history was recorded).'},
@@ -264,10 +266,18 @@
   var STATUS = {ok:'CONFIRMED', no:'NOT-REPRODUCED', dc:'DECISION', sk:'SKIP'};
   var LABEL  = {ok:'✓ Confirmed', no:'✗ Couldn’t reproduce', dc:'? Decision / discuss', sk:'⊘ Skip / can’t test'};
   var state = {}; // id -> {status, note}
+  // Persist marks/notes so a refresh (or an accidental reload) doesn't wipe them.
+  // Per-viewer only — this never leaves the browser; the Build-report paste is still
+  // how findings reach Claude. try/catch: private windows / storage disabled throw.
+  var SKEY = 'draw-fieldkit-v1';
+  function loadSaved(){ try{ var r = localStorage.getItem(SKEY); return r ? JSON.parse(r) : {}; }catch(e){ return {}; } }
+  function saveState(){ try{ localStorage.setItem(SKEY, JSON.stringify(state)); }catch(e){} }
+  var saved = loadSaved();
 
   var list = document.getElementById('list');
   BUGS.forEach(function(b){
-    state[b.id] = {status:null, note:''};
+    var sv = saved[b.id];
+    state[b.id] = {status:(sv && sv.status) || null, note:(sv && sv.note) || ''};
     var el = document.createElement('div');
     el.className = 'bug sev-'+b.sev+(b.fixed?' fixed':'');
     el.setAttribute('data-id', b.id);
@@ -295,6 +305,13 @@
       '<textarea class="notes" placeholder="Notes (what you saw / your decision) — optional"></textarea>';
     list.appendChild(el);
 
+    // Restore any persisted mark/note onto this card
+    if(state[b.id].status){
+      var rbSaved = el.querySelector('.rb[data-s="'+state[b.id].status+'"]');
+      if(rbSaved){ rbSaved.setAttribute('aria-pressed','true'); el.classList.add('marked'); }
+    }
+    if(state[b.id].note){ el.querySelector('.notes').value = state[b.id].note; }
+
     el.querySelectorAll('.rb').forEach(function(btn){
       btn.addEventListener('click', function(){
         var s = btn.getAttribute('data-s');
@@ -302,10 +319,10 @@
         el.querySelectorAll('.rb').forEach(function(x){x.setAttribute('aria-pressed','false');});
         if(cur === s){ state[b.id].status = null; el.classList.remove('marked'); }
         else { state[b.id].status = s; btn.setAttribute('aria-pressed','true'); el.classList.add('marked'); }
-        updProg();
+        updProg(); saveState();
       });
     });
-    el.querySelector('.notes').addEventListener('input', function(e){ state[b.id].note = e.target.value; });
+    el.querySelector('.notes').addEventListener('input', function(e){ state[b.id].note = e.target.value; saveState(); });
   });
 
   var prog = document.getElementById('prog');

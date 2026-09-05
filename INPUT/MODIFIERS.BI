@@ -26,6 +26,8 @@ TYPE MODIFIERS_OBJ
     ctrl         AS INTEGER ' TRUE if any Ctrl key is held
     shift        AS INTEGER ' TRUE if any Shift key is held
     alt          AS INTEGER ' TRUE if any Alt key is held
+    cmd          AS INTEGER ' TRUE if any Command/⌘/Super key is held (GLFW _KEYDOWN 100311/100312)
+    primary      AS INTEGER ' TRUE if the platform "primary" modifier is held: Ctrl on Win/Linux, Ctrl-or-⌘ on macOS
     ctrlOnly     AS INTEGER ' TRUE if ONLY Ctrl (no Shift or Alt)
     shiftOnly    AS INTEGER ' TRUE if ONLY Shift (no Ctrl or Alt)
     altOnly      AS INTEGER ' TRUE if ONLY Alt (no Ctrl or Shift)

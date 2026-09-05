@@ -114,7 +114,7 @@ Heavily-used globals: `SCRN`, `MOUSE`, `CFG`, `THEME`, `CURRENT_TOOL%`, `PAINT_C
 | `ASSETS/` | Fonts, icons, palettes (`.GPL`), themes (`THEMES/<name>/THEME.CFG` overrides compiled defaults at runtime), sounds, music |
 | `includes/QB64_GJ_LIB/` | Shared QB64 utility submodule: file dialog, color picker, message box, text input, Aseprite/PSD readers. Sub-files are included directly (not via leader files) due to `$INCLUDEONCE` path-normalization issues |
 | `PLANS/` | Design notes, state-machine diagrams, manual test plans (not packaged) |
-| `CHEATSHEET.md` | Authoritative keyboard reference (mirrored to `DRAW-Hotkeys.html`) |
+| `SHORTCUTS.md` | Authoritative keyboard + mouse reference (supersedes `CHEATSHEET.md`, now a redirect stub). Audit: `PLANS/SHORTCUTS-INVENTORY.md`; plan: `PLANS/CUSTOMIZABLE-SHORTCUTS.md` |
 
 ### Main loop (DRAW.BAS)
 

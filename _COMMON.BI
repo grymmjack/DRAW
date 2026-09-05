@@ -31,6 +31,9 @@ CONST KEY_CAPSLOCK& = 100301                               ' Not supported on Li
 ' Application version
 CONST APP_VERSION$ = "2.0.3"
 
+' Canvas pan step (pixels) for the Pan actions (470-473) — matches Shift+Wheel pan.
+CONST CANVAS_PAN_STEP = 40
+
 ' Maximum number of layer slots (increased from 64 to support groups)
 CONST MAX_LAYERS = 128
 
@@ -45,6 +48,8 @@ CONST KEY_LCTRL&     = 100305
 CONST KEY_RCTRL&     = 100306
 CONST KEY_RALT&      = 100307
 CONST KEY_LALT&      = 100308
+CONST KEY_LSUPER&    = 100311                              ' Left Command (⌘, macOS) / Windows / Super — GLFW backend
+CONST KEY_RSUPER&    = 100312                              ' Right Command (⌘, macOS) / Windows / Super — GLFW backend
 CONST KEY_DELETE&    = 21248                               ' DELETE key
 CONST KEY_BACKSPACE& = 8                                   ' BACKSPACE key
 CONST KEY_PGUP&      = 18688                               ' Page Up key

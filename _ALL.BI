@@ -49,6 +49,7 @@ $INCLUDEONCE
 ' CONFIG ----------------------------------------------------------------------
 '$INCLUDE:'./CFG/CONFIG.BI'
 '$INCLUDE:'./CFG/CONFIG-THEME.BI'
+'$INCLUDE:'./CFG/BINDINGS.BI'
 
 ' GUI -------------------------------------------------------------------------
 '$INCLUDE:'./GUI/PALETTE.BI'
@@ -96,6 +97,7 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/ABOUT.BI'
 '$INCLUDE:'./GUI/SETTINGS-WIDGETS.BI'
 '$INCLUDE:'./GUI/SETTINGS.BI'
+'$INCLUDE:'./GUI/CONTROLS.BI'
 
 ' INPUT -----------------------------------------------------------------------
 '$INCLUDE:'./INPUT/INPUT.BI'

@@ -1,0 +1,1048 @@
+''
+' DRAW - GUI/CONTROLS.BM
+' =============================================================================
+' Customize Controls dialog (Phase 4). Blocking modal on DIALOG_CTX, mirrors
+' SETTINGS_show_dialog. Reads the live input registry (INPUT_BINDS) and lists the
+' keyboard bindings by category with their current keys.
+'
+' 4.1 (this file): scaffold — open/close, registry read, category grouping,
+' wheel scroll, FIND box drawn, per-row rebind buttons drawn (inert). Rebind
+' capture + filter typing + conflict badges + persistence land in 4.2+.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Category display name. Local (no dependency on the generator's SUB-local names).
+'
+FUNCTION CTRL_cat_name$ (cat AS INTEGER)
+    DIM r AS STRING
+    SELECT CASE cat
+        CASE CAT_GLOBAL:    r$ = "GLOBAL / APPLICATION"
+        CASE CAT_FILE:      r$ = "FILE"
+        CASE CAT_EDIT:      r$ = "EDIT / HISTORY / CLIPBOARD"
+        CASE CAT_VIEW:      r$ = "VIEW / ZOOM / PAN"
+        CASE CAT_TOOLS:     r$ = "TOOLS"
+        CASE CAT_SELECTION: r$ = "SELECTION"
+        CASE CAT_LAYERS:    r$ = "LAYERS / GROUPS"
+        CASE CAT_COLOR:     r$ = "COLOR / PALETTE"
+        CASE CAT_GRID:      r$ = "GRID / SYMMETRY"
+        CASE CAT_TEXT:      r$ = "TEXT / CHARACTER MAP"
+        CASE CAT_BRUSH:     r$ = "BRUSH / CUSTOM BRUSH"
+        CASE CAT_TRANSFORM: r$ = "TRANSFORM"
+        CASE CAT_IMAGE:     r$ = "IMAGE / ADJUSTMENTS / EFFECTS"
+        CASE CAT_PANELS:    r$ = "PANELS"
+        CASE CAT_AUDIO:     r$ = "AUDIO"
+        CASE CAT_MOUSE:     r$ = "MOUSE"
+        CASE ELSE:          r$ = "OTHER"
+    END SELECT
+    CTRL_cat_name$ = r$
+END FUNCTION
+
+
+''
+' Rendered current key for a binding row: "Ctrl+Shift+H", "F12", etc.
+' Reuses the generator's shared keycode/mod renderers (OUTPUT/SHORTCUTS-DUMP.BM).
+'
+FUNCTION CTRL_current_key$ (bindIdx AS INTEGER)
+    ' Mouse bindings carry no keycode — render the button (or wheel) instead.
+    IF INPUT_BINDS(bindIdx).device = DEVICE_MOUSE THEN
+        CTRL_current_key$ = CTRL_mouse_bind_str$(bindIdx)
+        EXIT FUNCTION
+    END IF
+    IF INPUT_BINDS(bindIdx).keycode = 0 THEN CTRL_current_key$ = "(unbound)": EXIT FUNCTION
+    DIM s AS STRING
+    s$ = SHORTCUTS_modstr$(INPUT_BINDS(bindIdx).requireMods) + SHORTCUTS_keyname$(INPUT_BINDS(bindIdx).keycode)
+    CTRL_current_key$ = s$
+END FUNCTION
+
+
+''
+' Friendly name for a mouse button number (1-3 named; 4/5 the common thumb
+' buttons; higher generic).
+'
+''
+' Friendly name for a wheel direction code (±1 vertical, ±2 tilt).
+'
+FUNCTION CTRL_wheel_dir_name$ (dir AS INTEGER)
+    SELECT CASE dir%
+        CASE WHEEL_TILT_RIGHT : CTRL_wheel_dir_name$ = "Wheel Tilt Right"
+        CASE WHEEL_TILT_LEFT  : CTRL_wheel_dir_name$ = "Wheel Tilt Left"
+        CASE IS > 0           : CTRL_wheel_dir_name$ = "Wheel Down"   ' +1 = physical down
+        CASE IS < 0           : CTRL_wheel_dir_name$ = "Wheel Up"     ' -1 = physical up
+        CASE ELSE             : CTRL_wheel_dir_name$ = "(tilt or scroll)"
+    END SELECT
+END FUNCTION
+
+
+''
+' Friendly name for a mouse button number (1-3 named; 4/5 the common thumb
+' buttons; higher generic).
+'
+FUNCTION CTRL_mouse_button_name$ (btn AS INTEGER)
+    SELECT CASE btn%
+        CASE 1: CTRL_mouse_button_name$ = "Left Button"
+        CASE 2: CTRL_mouse_button_name$ = "Right Button"
+        CASE 3: CTRL_mouse_button_name$ = "Middle Button"
+        CASE 4: CTRL_mouse_button_name$ = "Button 4 (Back)"
+        CASE 5: CTRL_mouse_button_name$ = "Button 5 (Fwd)"
+        CASE ELSE: CTRL_mouse_button_name$ = "Button" + STR$(btn%)
+    END SELECT
+END FUNCTION
+
+
+''
+' Render a mouse binding as a display string: "[mods+]Button N" or a wheel dir.
+'
+FUNCTION CTRL_mouse_bind_str$ (bindIdx AS INTEGER)
+    DIM nm AS STRING
+    IF INPUT_BINDS(bindIdx).eventType = EVT_MOUSE_WHEEL THEN
+        nm$ = CTRL_wheel_dir_name$(INPUT_BINDS(bindIdx).wheelDir)
+    ELSE
+        nm$ = CTRL_mouse_button_name$(INPUT_BINDS(bindIdx).button)
+    END IF
+    CTRL_mouse_bind_str$ = SHORTCUTS_modstr$(INPUT_BINDS(bindIdx).requireMods) + nm$
+END FUNCTION
+
+
+''
+' Should binding i appear as a rebindable row in the customizer? Keyboard bindings
+' (any real keycode) always; mouse bindings only when they are dispatched and carry
+' a real action (this hides the ~40 chrome metadata mouse binds with actionId 0).
+'
+FUNCTION CTRL_bind_visible% (i AS INTEGER)
+    IF INPUT_BINDS(i%).keycode <> 0 THEN CTRL_bind_visible% = TRUE: EXIT FUNCTION
+    ' Mouse rows: a real action on a button-DOWN bind — covers dispatched button
+    ' actions (back/forward) AND queried behaviors (paint FG/BG). eventType gate
+    ' hides chrome (actionId 0) and wheel binds (surfaced once wheel-capture lands).
+    IF INPUT_BINDS(i%).device = DEVICE_MOUSE _ANDALSO INPUT_BINDS(i%).actionId <> 0 _ANDALSO INPUT_BINDS(i%).eventType = EVT_MOUSE_DOWN THEN
+        CTRL_bind_visible% = TRUE: EXIT FUNCTION
+    END IF
+    ' Wheel rows (tilt + vertical): any real-action canvas wheel bind is rebindable.
+    ' Tilt fires through the central dispatcher (dispatched=TRUE); the vertical
+    ' zoom/brush binds are dispatched=FALSE but MOUSE_handle_wheel resolves them
+    ' through the SAME registry via WHEEL_action_for%, so a rebind takes effect too.
+    ' actionId<>0 hides the region-scroll metadata (layer panel, palette, etc.).
+    IF INPUT_BINDS(i%).device = DEVICE_MOUSE _ANDALSO INPUT_BINDS(i%).actionId <> 0 _ANDALSO INPUT_BINDS(i%).eventType = EVT_MOUSE_WHEEL THEN
+        CTRL_bind_visible% = TRUE: EXIT FUNCTION
+    END IF
+    CTRL_bind_visible% = FALSE
+END FUNCTION
+
+
+''
+' Can this row's binding actually be rebound? Keyboard rows need a DISPATCHED bind
+' (legacy metadata keys can't be freed); every visible MOUSE row is rebindable —
+' dispatched button actions fire through the dispatcher, queried behaviors (paint
+' FG/BG, dispatched=FALSE) take effect because MOUSE.BM reads their button. Drives
+' the SET... button's enabled state AND whether a click opens the rebind modal.
+'
+FUNCTION CTRL_bind_rebindable% (i AS INTEGER)
+    CTRL_bind_rebindable% = (INPUT_BINDS(i%).dispatched OR INPUT_BINDS(i%).device = DEVICE_MOUSE)
+END FUNCTION
+
+
+''
+' Render an arbitrary (keycode, mods) pair as a display string ("(none)" for 0).
+'
+FUNCTION CTRL_render_key$ (keycode AS LONG, mods AS INTEGER)
+    IF keycode& = 0 THEN CTRL_render_key$ = "(none)": EXIT FUNCTION
+    CTRL_render_key$ = SHORTCUTS_modstr$(mods%) + SHORTCUTS_keyname$(keycode&)
+END FUNCTION
+
+
+''
+' First human label registered for an action id (for conflict messages).
+'
+FUNCTION CTRL_action_label$ (actionId AS INTEGER)
+    DIM i AS INTEGER
+    FOR i% = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i%).actionId = actionId% THEN
+            CTRL_action_label$ = _TRIM$(RTRIM$(INPUT_BINDS(i%).label))
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+    CTRL_action_label$ = "action " + _TRIM$(STR$(actionId%))
+END FUNCTION
+
+
+''
+' TRUE if an action has a dispatched keyboard binding (so the engine can rebind /
+' unbind it). Used to decide whether a stolen key can actually be freed.
+'
+FUNCTION CTRL_action_dispatched% (actionId AS INTEGER)
+    DIM i AS INTEGER
+    FOR i% = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i%).actionId = actionId% AND INPUT_BINDS(i%).device = DEVICE_KEYBOARD AND INPUT_BINDS(i%).dispatched THEN
+            CTRL_action_dispatched% = TRUE
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+    CTRL_action_dispatched% = FALSE
+END FUNCTION
+
+
+''
+' Does binding i pass the current FIND filter? Empty filter matches everything.
+'
+FUNCTION CTRL_row_matches% (bindIdx AS INTEGER)
+    DIM r AS INTEGER
+    r% = FALSE
+    IF CONTROLS.filterLen = 0 THEN
+        r% = TRUE
+    ELSE
+        DIM lbl AS STRING, flt AS STRING
+        lbl$ = LCASE$(_TRIM$(RTRIM$(INPUT_BINDS(bindIdx).label)))
+        flt$ = LCASE$(_TRIM$(LEFT$(CONTROLS.filter, CONTROLS.filterLen)))
+        IF INSTR(lbl$, flt$) > 0 THEN r% = TRUE
+    END IF
+    CTRL_row_matches% = r%
+END FUNCTION
+
+
+''
+' Rebuild the flattened, filtered display list (category headers + binding rows)
+' from the live registry. Keyboard bindings only (keycode <> 0), grouped by CAT_*.
+'
+SUB CONTROLS_rebuild_vis ()
+    REDIM CTRL_VISROWS(1 TO INPUT_BIND_COUNT + 20) AS CTRL_VISROW
+    DIM n AS INTEGER, cat AS INTEGER, i AS INTEGER, hasAny AS INTEGER
+    n = 0
+    FOR cat = 1 TO 16
+        hasAny = FALSE
+        FOR i = 1 TO INPUT_BIND_COUNT
+            IF INPUT_BINDS(i).category = cat AND CTRL_bind_visible%(i) THEN
+                IF CTRL_row_matches%(i) THEN hasAny = TRUE: EXIT FOR
+            END IF
+        NEXT
+        IF hasAny THEN
+            n = n + 1
+            CTRL_VISROWS(n).isHeader = TRUE
+            CTRL_VISROWS(n).cat = cat
+            CTRL_VISROWS(n).bindIdx = 0
+            FOR i = 1 TO INPUT_BIND_COUNT
+                IF INPUT_BINDS(i).category = cat AND CTRL_bind_visible%(i) THEN
+                    IF CTRL_row_matches%(i) THEN
+                        n = n + 1
+                        CTRL_VISROWS(n).isHeader = FALSE
+                        CTRL_VISROWS(n).cat = cat
+                        CTRL_VISROWS(n).bindIdx = i
+                    END IF
+                END IF
+            NEXT
+        END IF
+    NEXT
+    CONTROLS.visCount = n
+
+    DIM totH AS INTEGER
+    totH = 0
+    FOR i = 1 TO n
+        IF CTRL_VISROWS(i).isHeader THEN totH = totH + CTRL_CAT_H ELSE totH = totH + CTRL_ROW_H
+    NEXT
+    CONTROLS.contentH = totH
+    IF CONTROLS.scrollY > CONTROLS.contentH - CONTROLS.viewportH THEN CONTROLS.scrollY = CONTROLS.contentH - CONTROLS.viewportH
+    IF CONTROLS.scrollY < 0 THEN CONTROLS.scrollY = 0
+END SUB
+
+
+''
+' Clamp the scroll offset to the content range.
+'
+SUB CONTROLS_clamp_scroll ()
+    DIM maxS AS INTEGER
+    maxS = CONTROLS.contentH - CONTROLS.viewportH
+    IF maxS < 0 THEN maxS = 0
+    IF CONTROLS.scrollY > maxS THEN CONTROLS.scrollY = maxS
+    IF CONTROLS.scrollY < 0 THEN CONTROLS.scrollY = 0
+END SUB
+
+
+' --- Content-area top Y (below title + find + header rows) --------------------
+FUNCTION CTRL_content_top% ()
+    CTRL_content_top% = THEME.DIALOG_title_height% + 2 + CTRL_FIND_H + CTRL_HDR_H
+END FUNCTION
+
+
+''
+' Draw the FIND row (label + text box). 4.1: box drawn, typing wired in 4.2.
+'
+SUB CONTROLS_draw_find ()
+    DIM y AS INTEGER
+    y = THEME.DIALOG_title_height% + 2
+    COLOR THEME.DIALOG_label_fg~&
+    _UPRINTSTRING (CTRL_COL_NAME_X, y + 5), "FIND:"
+    ' The FIND box is a real TI text-input widget (cursor, selection, editing,
+    ' clipboard) — it draws its own box/border/caret. Render it with the TI font set.
+    IF CONTROLS.findTI > 0 THEN
+        DIM of AS LONG
+        of& = _FONT
+        _FONT CONTROLS.findFont
+        TI_render CONTROLS.findTI, 0, 0
+        IF of& > 0 THEN _FONT of&
+    END IF
+END SUB
+
+
+''
+' Draw the column-header row.
+'
+SUB CONTROLS_draw_headers ()
+    DIM y AS INTEGER
+    y = THEME.DIALOG_title_height% + 2 + CTRL_FIND_H
+    LINE (1, y)-(CONTROLS.ctx.w - 2, y + CTRL_HDR_H), THEME.DIALOG_title_bg~&, BF
+    COLOR THEME.DIALOG_label_fg~&
+    _UPRINTSTRING (CTRL_COL_NAME_X, y + 3), "FUNCTION"
+    _UPRINTSTRING (CTRL_COL_CUR_X, y + 3), "CURRENT KEY"
+    _UPRINTSTRING (CTRL_COL_BTN_X, y + 3), "REBIND"
+    LINE (1, y + CTRL_HDR_H)-(CONTROLS.ctx.w - 2, y + CTRL_HDR_H), THEME.DIALOG_border_inner~&
+END SUB
+
+
+''
+' Draw the scrolling content: category headers + binding rows within the viewport.
+'
+SUB CONTROLS_draw_content ()
+    DIM top AS INTEGER, bottom AS INTEGER, y AS INTEGER, i AS INTEGER, rh AS INTEGER
+    DIM bi AS INTEGER, hov AS INTEGER
+    top = CTRL_content_top%
+    bottom = CONTROLS.ctx.h - CTRL_BTN_BAR_H
+    y = top - CONTROLS.scrollY
+    FOR i = 1 TO CONTROLS.visCount
+        IF CTRL_VISROWS(i).isHeader THEN rh = CTRL_CAT_H ELSE rh = CTRL_ROW_H
+        IF y + rh > top AND y < bottom THEN
+            IF CTRL_VISROWS(i).isHeader THEN
+                LINE (1, y)-(CONTROLS.ctx.w - CTRL_SCROLL_W - 2, y + rh - 1), THEME.DIALOG_title_bg~&, BF
+                COLOR THEME.DIALOG_title_fg~&
+                _UPRINTSTRING (CTRL_COL_NAME_X, y + 2), CTRL_cat_name$(CTRL_VISROWS(i).cat)
+            ELSE
+                bi = CTRL_VISROWS(i).bindIdx
+                hov = (CONTROLS.ctx.my >= y AND CONTROLS.ctx.my < y + rh AND CONTROLS.ctx.mx < CONTROLS.ctx.w - CTRL_SCROLL_W - 2)
+                IF hov THEN LINE (1, y)-(CONTROLS.ctx.w - CTRL_SCROLL_W - 2, y + rh - 1), THEME.LAYER_PANEL_row_hover_bg~&, BF
+                ' Modified marker: left accent stripe on any row a user rebind changed.
+                DIM modf AS INTEGER
+                modf = INPUT_BINDS(bi).userOverridden
+                IF modf THEN LINE (1, y)-(3, y + rh - 1), THEME.DIALOG_toggle_sel_bg~&, BF
+                COLOR THEME.DIALOG_label_fg~&
+                _UPRINTSTRING (CTRL_COL_NAME_X, y + 2), CTRL_clip_label$(_TRIM$(RTRIM$(INPUT_BINDS(bi).label)), CTRL_COL_NAME_W)
+                IF modf THEN COLOR THEME.DIALOG_toggle_sel_fg~& ELSE COLOR THEME.DIALOG_toggle_fg~&
+                _UPRINTSTRING (CTRL_COL_CUR_X, y + 2), CTRL_current_key$(bi)
+                ' Rebind button (inert in 4.1)
+                CTRL_draw_row_btn CTRL_COL_BTN_X, y + 1, CTRL_COL_BTN_W, rh - 2, "SET...", CTRL_bind_rebindable%(bi)
+            END IF
+        END IF
+        y = y + rh
+    NEXT
+END SUB
+
+
+''
+' Clip a label to fit within maxW pixels, adding an ellipsis if truncated.
+'
+FUNCTION CTRL_clip_label$ (s AS STRING, maxW AS INTEGER)
+    IF _PRINTWIDTH(s$) <= maxW THEN CTRL_clip_label$ = s$: EXIT FUNCTION
+    DIM t AS STRING
+    t$ = s$
+    DO WHILE LEN(t$) > 1 AND _PRINTWIDTH(t$ + "...") > maxW
+        t$ = LEFT$(t$, LEN(t$) - 1)
+    LOOP
+    CTRL_clip_label$ = t$ + "..."
+END FUNCTION
+
+
+''
+' Draw a small in-row button. `enabled` FALSE renders it greyed (not rebindable yet).
+'
+SUB CTRL_draw_row_btn (bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER, lbl AS STRING, enabled AS INTEGER)
+    DIM bg AS _UNSIGNED LONG, fg AS _UNSIGNED LONG, br AS _UNSIGNED LONG
+    IF enabled THEN
+        bg~& = THEME.DIALOG_toggle_bg~& : fg~& = THEME.DIALOG_button_fg~& : br~& = THEME.DIALOG_toggle_border~&
+    ELSE
+        bg~& = THEME.DIALOG_bg~& : fg~& = THEME.DIALOG_border_inner~& : br~& = THEME.DIALOG_border_inner~&
+    END IF
+    LINE (bx, by)-(bx + bw, by + bh), bg~&, BF
+    LINE (bx, by)-(bx + bw, by + bh), br~&, B
+    COLOR fg~&
+    _UPRINTSTRING (bx + (bw - _PRINTWIDTH(lbl$)) \ 2, by + 2), lbl$
+END SUB
+
+
+''
+' Shared scrollbar geometry (draw + drag input agree on the same thumb rect).
+' active = FALSE when the content fits the viewport (no thumb, no drag).
+'
+SUB CTRL_scrollbar_metrics (trackX AS INTEGER, trackTop AS INTEGER, trackH AS INTEGER, thumbY AS INTEGER, thumbH AS INTEGER, maxScroll AS INTEGER, active AS INTEGER)
+    trackTop = CTRL_content_top%
+    DIM bottom AS INTEGER
+    bottom = CONTROLS.ctx.h - CTRL_BTN_BAR_H
+    trackX = CONTROLS.ctx.w - CTRL_SCROLL_W - 1
+    trackH = bottom - trackTop
+    thumbY = trackTop : thumbH = trackH : maxScroll = 0 : active = FALSE
+    IF trackH <= 0 THEN EXIT SUB
+    IF CONTROLS.contentH <= CONTROLS.viewportH THEN EXIT SUB
+    thumbH = (CONTROLS.viewportH * trackH) \ CONTROLS.contentH
+    IF thumbH < 12 THEN thumbH = 12
+    maxScroll = CONTROLS.contentH - CONTROLS.viewportH
+    IF maxScroll < 1 THEN maxScroll = 1
+    thumbY = trackTop + (CONTROLS.scrollY * (trackH - thumbH)) \ maxScroll
+    active = TRUE
+END SUB
+
+
+''
+' Draw the scrollbar track + proportional thumb. Thumb brightens while hovered/dragged.
+'
+SUB CONTROLS_draw_scrollbar ()
+    DIM trackX AS INTEGER, trackTop AS INTEGER, trackH AS INTEGER
+    DIM thumbY AS INTEGER, thumbH AS INTEGER, maxS AS INTEGER, active AS INTEGER
+    CTRL_scrollbar_metrics trackX, trackTop, trackH, thumbY, thumbH, maxS, active
+    IF trackH <= 0 THEN EXIT SUB
+
+    ' Match the app-wide scrollbar (Settings, layer panel, drawer): the user's
+    ' SCROLLBAR_BG / HANDLE_FG / OPACITY, track at half the thumb's alpha, a brighter
+    ' tint on drag/hover. Was the dialog-slider blue, which looked foreign here.
+    DIM sbOp AS INTEGER : sbOp% = CFG.SCROLLBAR_OPACITY%
+    IF sbOp% <= 0 THEN sbOp% = 180
+    DIM trkA AS INTEGER : trkA% = sbOp% \ 2
+    IF trkA% < 20 THEN trkA% = 20
+    DIM tR AS INTEGER, tG AS INTEGER, tB AS INTEGER
+    tR% = _RED32(CFG.SCROLLBAR_BG~&) : tG% = _GREEN32(CFG.SCROLLBAR_BG~&) : tB% = _BLUE32(CFG.SCROLLBAR_BG~&)
+    DIM hR AS INTEGER, hG AS INTEGER, hB AS INTEGER
+    hR% = _RED32(CFG.SCROLLBAR_HANDLE_FG~&) : hG% = _GREEN32(CFG.SCROLLBAR_HANDLE_FG~&) : hB% = _BLUE32(CFG.SCROLLBAR_HANDLE_FG~&)
+    IF hR% = 0 AND hG% = 0 AND hB% = 0 THEN hR% = 200 : hG% = 200 : hB% = 200   ' sentinel → default light gray
+
+    LINE (trackX, trackTop)-(trackX + CTRL_SCROLL_W - 1, trackTop + trackH), _RGBA32(tR%, tG%, tB%, trkA%), BF
+    IF NOT active THEN EXIT SUB
+    DIM hov AS INTEGER, tc AS _UNSIGNED LONG
+    hov = DIALOG_point_in%(CONTROLS.ctx, trackX, thumbY, CTRL_SCROLL_W - 1, thumbH)
+    IF CONTROLS.scrollDrag OR hov THEN
+        tc~& = _RGBA32(hR% + (255 - hR%) \ 2, hG% + (255 - hG%) \ 2, hB% + (255 - hB%) \ 2, 220)
+    ELSE
+        tc~& = _RGBA32(hR%, hG%, hB%, sbOp%)
+    END IF
+    LINE (trackX, thumbY)-(trackX + CTRL_SCROLL_W - 1, thumbY + thumbH), tc~&, BF
+END SUB
+
+
+''
+' Scrollbar drag + track paging (input phase). A grab on the thumb consumes the
+' click so a row's SET... button can't also fire; clicking the track above/below
+' the thumb pages toward the click.
+'
+SUB CONTROLS_handle_scrollbar ()
+    DIM trackX AS INTEGER, trackTop AS INTEGER, trackH AS INTEGER
+    DIM thumbY AS INTEGER, thumbH AS INTEGER, maxS AS INTEGER, active AS INTEGER
+    CTRL_scrollbar_metrics trackX, trackTop, trackH, thumbY, thumbH, maxS, active
+
+    IF NOT CONTROLS.ctx.mb1raw THEN CONTROLS.scrollDrag = FALSE   ' release always ends a drag
+    IF NOT active THEN CONTROLS.scrollDrag = FALSE : EXIT SUB
+
+    DIM onTrackX AS INTEGER
+    onTrackX = (CONTROLS.ctx.mx >= trackX AND CONTROLS.ctx.mx <= trackX + CTRL_SCROLL_W - 1)
+
+    IF CONTROLS.ctx.justClicked AND onTrackX AND CONTROLS.ctx.my >= trackTop AND CONTROLS.ctx.my <= trackTop + trackH THEN
+        IF CONTROLS.ctx.my >= thumbY AND CONTROLS.ctx.my <= thumbY + thumbH THEN
+            CONTROLS.scrollDrag = TRUE
+            CONTROLS.scrollDragOff = CONTROLS.ctx.my - thumbY
+        ELSEIF CONTROLS.ctx.my < thumbY THEN
+            CONTROLS.scrollY = CONTROLS.scrollY - CONTROLS.viewportH   ' page up
+            CONTROLS_clamp_scroll
+        ELSE
+            CONTROLS.scrollY = CONTROLS.scrollY + CONTROLS.viewportH   ' page down
+            CONTROLS_clamp_scroll
+        END IF
+        CONTROLS.ctx.justClicked = FALSE   ' consume — don't also hit a row button
+        CONTROLS.needsRedraw = TRUE
+    END IF
+
+    IF CONTROLS.scrollDrag THEN
+        DIM newThumbY AS INTEGER, denom AS INTEGER
+        newThumbY = CONTROLS.ctx.my - CONTROLS.scrollDragOff
+        denom = trackH - thumbH
+        IF denom < 1 THEN denom = 1
+        CONTROLS.scrollY = ((newThumbY - trackTop) * maxS) \ denom
+        CONTROLS_clamp_scroll
+        CONTROLS.needsRedraw = TRUE
+    END IF
+END SUB
+
+
+''
+' Draw the bottom button bar and hit-test its buttons. CLOSE ends the modal.
+' RESET ALL is drawn (inert in 4.1; wired to BINDINGS_reset_all in 4.2).
+'
+SUB CONTROLS_draw_button_bar ()
+    DIM barY AS INTEGER
+    barY = CONTROLS.ctx.h - CTRL_BTN_BAR_H
+    LINE (1, barY)-(CONTROLS.ctx.w - 2, barY), THEME.DIALOG_border_inner~&
+    LINE (1, barY + 1)-(CONTROLS.ctx.w - 2, CONTROLS.ctx.h - 2), THEME.DIALOG_title_bg~&, BF
+
+    DIM bw AS INTEGER, bh AS INTEGER, by AS INTEGER
+    bw = 84 : bh = CTRL_BTN_BAR_H - 10 : by = barY + 5
+
+    ' RESET ALL — left
+    CTRL_draw_bar_btn CTRL_COL_NAME_X, by, bw, bh, "RESET ALL", DIALOG_point_in%(CONTROLS.ctx, CTRL_COL_NAME_X, by, bw, bh)
+    IF DIALOG_hit%(CONTROLS.ctx, CTRL_COL_NAME_X, by, bw, bh) THEN
+        BINDINGS_reset_all      ' now restores defaults LIVE (see CFG/BINDINGS.BM)
+        CONTROLS_rebuild_vis    ' refresh the CURRENT KEY column to the restored keys
+        CONTROLS.exportedLen = 0
+        CONTROLS.needsRedraw = TRUE
+    END IF
+
+    ' EXPORT AS ▾ — a reused DIALOG dropdown (index 0 is a fixed "Export as…" label,
+    ' so the closed box always reads that; picking a format exports it in-process to
+    ' the user data dir, reflecting live overrides). No external programs needed.
+    DIM ddLabels(0 TO 3) AS STRING
+    ddLabels$(0) = "Export as..." : ddLabels$(1) = "HTML" : ddLabels$(2) = "Markdown" : ddLabels$(3) = "PDF (print)"
+    DIM ddX AS INTEGER, ddY AS INTEGER, ddW AS INTEGER, ddPick AS INTEGER
+    ddX% = CTRL_COL_NAME_X + bw + 8
+    ddW% = 108
+    ddY% = by + (bh - DIALOG_DD_BOXH%) \ 2
+    ddPick% = DIALOG_dropdown%(CONTROLS.ctx, CTRL_DD_EXPORT, ddX%, ddY%, ddW%, 0, ddLabels$(), 4)
+    IF DIALOG_DD_RESULT_ID% = CTRL_DD_EXPORT AND ddPick% >= 1 THEN
+        ' fmtSel: dropdown index 1=HTML, 2=Markdown, 3=PDF -> SHORTCUTS_export_fmt$ 1,0,2
+        DIM fmtSel AS INTEGER
+        SELECT CASE ddPick%
+            CASE 1: fmtSel% = 1   ' HTML
+            CASE 2: fmtSel% = 0   ' Markdown
+            CASE 3: fmtSel% = 2   ' PDF (print-to-PDF guidance)
+        END SELECT
+        DIM emsg AS STRING : emsg$ = SHORTCUTS_export_fmt$(fmtSel%, PATHS_DATA_DIR$)
+        CONTROLS.exportedMsg = emsg$
+        CONTROLS.exportedLen = LEN(emsg$)
+        CONTROLS.needsRedraw = TRUE
+    END IF
+    DIALOG_dropdown_draw CONTROLS.ctx, CTRL_DD_EXPORT, ddX%, ddY%, ddW%, 0, ddLabels$(), 4
+
+    ' LOAD PRESET ▾ — apply a shipped keymap (ASSETS/PRESETS/<name>.bindings) live.
+    ' Index 0 is a fixed label; picking a row loads it (writes DRAW.bindings, applies
+    ' immediately) and refreshes the CURRENT KEY column. Opens upward (button bar is
+    ' at the dialog bottom; DIALOG_DD_UP% handles the flip).
+    DIM pdLabels(0 TO 10) AS STRING
+    pdLabels$(0) = "Load preset..." : pdLabels$(1) = "DRAW default" : pdLabels$(2) = "Aseprite"
+    pdLabels$(3) = "Photoshop" : pdLabels$(4) = "GIMP" : pdLabels$(5) = "Krita"
+    pdLabels$(6) = "Illustrator" : pdLabels$(7) = "Procreate" : pdLabels$(8) = "MS Paint"
+    pdLabels$(9) = "Pro Motion" : pdLabels$(10) = "DeluxePaint"
+    DIM pdX AS INTEGER, pdW AS INTEGER, pdPick AS INTEGER
+    pdX% = ddX% + ddW% + 8
+    pdW% = 116
+    pdPick% = DIALOG_dropdown%(CONTROLS.ctx, CTRL_DD_PRESET, pdX%, ddY%, pdW%, 0, pdLabels$(), 11)
+    IF DIALOG_DD_RESULT_ID% = CTRL_DD_PRESET AND pdPick% >= 1 THEN
+        DIM pname AS STRING
+        SELECT CASE pdPick%
+            CASE 1: pname$ = "draw-default"
+            CASE 2: pname$ = "aseprite"
+            CASE 3: pname$ = "photoshop"
+            CASE 4: pname$ = "gimp"
+            CASE 5: pname$ = "krita"
+            CASE 6: pname$ = "illustrator"
+            CASE 7: pname$ = "procreate"
+            CASE 8: pname$ = "mspaint"
+            CASE 9: pname$ = "promotion"
+            CASE 10: pname$ = "deluxepaint"
+        END SELECT
+        BINDINGS_load_preset pname$
+        CONTROLS_rebuild_vis
+        DIM pmsg AS STRING : pmsg$ = "Loaded preset: " + pdLabels$(pdPick%)
+        CONTROLS.exportedMsg = pmsg$ : CONTROLS.exportedLen = LEN(pmsg$)
+        CONTROLS.needsRedraw = TRUE
+    END IF
+    DIALOG_dropdown_draw CONTROLS.ctx, CTRL_DD_PRESET, pdX%, ddY%, pdW%, 0, pdLabels$(), 11
+
+    ' CLOSE lives at the right; the status/legend sits in the GAP between the preset
+    ' dropdown's right edge and CLOSE (centred there, NOT in the whole bar — two
+    ' dropdowns now crowd the left, so a bar-centred legend would overlap them).
+    DIM closeX AS INTEGER
+    closeX = CONTROLS.ctx.w - bw - CTRL_COL_NAME_X
+    DIM gapL AS INTEGER, gapR AS INTEGER, gapW AS INTEGER, midX AS INTEGER
+    gapL% = pdX% + pdW% + 12
+    gapR% = closeX - 12
+    gapW% = gapR% - gapL%
+
+    IF CONTROLS.exportedLen > 0 THEN
+        DIM stTxt AS STRING : stTxt$ = CTRL_clip_label$(LEFT$(CONTROLS.exportedMsg, CONTROLS.exportedLen), gapW%)
+        COLOR THEME.DIALOG_toggle_sel_fg~&
+        midX% = gapL% + (gapW% - _PRINTWIDTH(stTxt$)) \ 2
+        _UPRINTSTRING (midX%, by + (bh - 8) \ 2), stTxt$
+    ELSE
+        DIM legTxt AS STRING, legW AS INTEGER, legX AS INTEGER, swW AS INTEGER
+        legTxt$ = "= changed from default"
+        swW% = 8
+        legW% = swW% + 4 + _PRINTWIDTH(legTxt$)
+        legX% = gapL% + (gapW% - legW%) \ 2
+        ' Only draw the legend if it actually fits the gap (hide it on a narrow dialog
+        ' rather than overlap the dropdowns).
+        IF legW% <= gapW% THEN
+            LINE (legX%, by + 3)-(legX% + swW% - 1, by + bh - 3), THEME.DIALOG_toggle_sel_bg~&, BF
+            COLOR THEME.DIALOG_label_fg~&
+            _UPRINTSTRING (legX% + swW% + 4, by + (bh - 8) \ 2), legTxt$
+        END IF
+    END IF
+
+    ' CLOSE — right
+    CTRL_draw_bar_btn closeX, by, bw, bh, "CLOSE", DIALOG_point_in%(CONTROLS.ctx, closeX, by, bw, bh)
+    IF DIALOG_hit%(CONTROLS.ctx, closeX, by, bw, bh) THEN
+        CONTROLS.ctx.result = TRUE
+        CONTROLS.ctx.done = TRUE
+    END IF
+END SUB
+
+
+''
+' Draw a labelled bar button with a hover state.
+'
+SUB CTRL_draw_bar_btn (bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER, lbl AS STRING, hov AS INTEGER)
+    DIM bg AS _UNSIGNED LONG
+    IF hov THEN bg~& = THEME.DIALOG_toggle_sel_bg~& ELSE bg~& = THEME.DIALOG_toggle_bg~&
+    LINE (bx, by)-(bx + bw, by + bh), bg~&, BF
+    LINE (bx, by)-(bx + bw, by + bh), THEME.DIALOG_toggle_border~&, B
+    COLOR THEME.DIALOG_button_fg~&
+    _UPRINTSTRING (bx + (bw - _PRINTWIDTH(lbl$)) \ 2, by + (bh - 8) \ 2), lbl$
+END SUB
+
+
+''
+' Keyboard: Escape closes. (Filter typing / row navigation arrive in 4.2.)
+'
+''
+' Input phase: hit-test the per-row SET... buttons (dispatched rows only) and open
+' the rebind capture modal. Mirrors CONTROLS_draw_content's row layout.
+'
+SUB CONTROLS_handle_content_click ()
+    IF NOT CONTROLS.ctx.justClicked THEN EXIT SUB
+    DIM top AS INTEGER, bottom AS INTEGER, y AS INTEGER, i AS INTEGER, rh AS INTEGER, bi AS INTEGER
+    top = CTRL_content_top%
+    bottom = CONTROLS.ctx.h - CTRL_BTN_BAR_H
+    y = top - CONTROLS.scrollY
+    DIM btnTop AS INTEGER, btnBot AS INTEGER
+    FOR i% = 1 TO CONTROLS.visCount
+        IF CTRL_VISROWS(i%).isHeader THEN rh% = CTRL_CAT_H ELSE rh% = CTRL_ROW_H
+        IF y% + rh% > top AND y% < bottom AND NOT CTRL_VISROWS(i%).isHeader THEN
+            bi% = CTRL_VISROWS(i%).bindIdx
+            IF CTRL_bind_rebindable%(bi%) THEN
+                ' Clamp the SET button's hit-rect to the VISIBLE band [top, bottom].
+                ' A row straddling the bottom edge has its lower half painted over by the
+                ' button bar (CLOSE overlaps this column in X), so without this clamp a
+                ' click on CLOSE also fired the occluded SET button behind it, opening a
+                ' random rebind modal. The header masks the top edge the same way.
+                btnTop% = y% + 1 : btnBot% = y% + rh% - 1
+                IF btnTop% < top THEN btnTop% = top
+                IF btnBot% > bottom THEN btnBot% = bottom
+                IF btnBot% > btnTop% THEN
+                    IF DIALOG_hit%(CONTROLS.ctx, CTRL_COL_BTN_X, btnTop%, CTRL_COL_BTN_W, btnBot% - btnTop%) THEN
+                        IF CTRL_assign_key%(bi%) THEN CONTROLS_rebuild_vis
+                        CONTROLS.needsRedraw = TRUE
+                        EXIT SUB
+                    END IF
+                END IF
+            END IF
+        END IF
+        y% = y% + rh%
+    NEXT i%
+END SUB
+
+
+''
+' Handle the FIND box's keys (TI text-input) + dialog-owned keys (Esc). TI gets
+' first refusal on every key so typing never triggers a dialog shortcut; Esc clears
+' a non-empty filter, else closes. Syncs the applied filter from the widget when its
+' text changed. Called each frame in the input phase.
+'
+SUB CONTROLS_handle_keyboard ()
+    DIM k AS LONG, tiAte AS INTEGER, ft AS STRING
+    k& = _KEYHIT
+    DO WHILE k& <> 0
+        tiAte% = FALSE
+        IF k& <> 27 AND CONTROLS.findTI > 0 AND TI_focusedId = CONTROLS.findTI THEN
+            tiAte% = TI_process_key%(k&)
+        END IF
+        IF k& = 27 AND _NEGATE tiAte% THEN
+            IF CONTROLS.filterLen > 0 THEN
+                IF CONTROLS.findTI > 0 THEN TI_set_text CONTROLS.findTI, ""
+            ELSE
+                CONTROLS.ctx.result = FALSE
+                CONTROLS.ctx.done = TRUE
+            END IF
+        END IF
+        k& = _KEYHIT
+    LOOP
+
+    ' Sync the applied filter from the widget whenever its text changed.
+    IF CONTROLS.findTI > 0 THEN
+        IF TI_inputs(CONTROLS.findTI).changed OR TI_inputs(CONTROLS.findTI).textLen <> CONTROLS.filterLen THEN
+            ft$ = TI_get_text$(CONTROLS.findTI)
+            CONTROLS.filter = ft$
+            CONTROLS.filterLen = LEN(ft$)
+            TI_inputs(CONTROLS.findTI).changed = FALSE
+            CONTROLS_rebuild_vis
+            CONTROLS.needsRedraw = TRUE
+        END IF
+    END IF
+END SUB
+
+
+''
+' Draw a labelled checkbox (drawn to the current _DEST).
+'
+SUB CTRL_draw_check (cx AS INTEGER, cy AS INTEGER, lbl AS STRING, checked AS INTEGER)
+    LINE (cx, cy)-(cx + 11, cy + 11), THEME.DIALOG_toggle_bg~&, BF
+    LINE (cx, cy)-(cx + 11, cy + 11), THEME.DIALOG_toggle_border~&, B
+    IF checked THEN
+        COLOR THEME.DIALOG_toggle_sel_fg~&
+        _UPRINTSTRING (cx + 2, cy + 1), "x"
+    END IF
+    COLOR THEME.DIALOG_label_fg~&
+    _UPRINTSTRING (cx + 16, cy + 1), lbl$
+END SUB
+
+
+''
+' Rebind capture modal for one keyboard binding (nested on DIALOG_CTX). The user
+' toggles Ctrl/Shift/Alt and presses a base key (letters normalised to lowercase to
+' match the registry). A conflicting binding is shown as a warning; on OK the new
+' binding is applied via BINDINGS_set_override and, per Rick's "warn + steal" choice,
+' the conflicting action is unbound (if it is dispatched and can be freed).
+' Returns TRUE if a change was applied (caller rebuilds the visible list).
+'
+FUNCTION CTRL_assign_key% (bindIdx AS INTEGER)
+    DIM aCtx AS DIALOG_CTX
+    DIALOG_init aCtx, 344, 188
+
+    DIM actId AS INTEGER, lbl AS STRING
+    DIM reqCtx AS _UNSIGNED _INTEGER64, forCtx AS _UNSIGNED _INTEGER64
+    actId% = INPUT_BINDS(bindIdx%).actionId
+    lbl$ = _TRIM$(RTRIM$(INPUT_BINDS(bindIdx%).label))
+    reqCtx = INPUT_BINDS(bindIdx%).requireCtx
+    forCtx = INPUT_BINDS(bindIdx%).forbidCtx
+
+    ' Mouse bindings capture a BUTTON instead of a keycode; WHEEL binds capture a
+    ' tilt/scroll DIRECTION. isMouse covers both (device=MOUSE); isWheel selects the
+    ' wheel-capture path (sample _WHEEL) over the button-capture path.
+    DIM isMouse AS INTEGER : isMouse% = (INPUT_BINDS(bindIdx%).device = DEVICE_MOUSE)
+    DIM isWheel AS INTEGER : isWheel% = (INPUT_BINDS(bindIdx%).eventType = EVT_MOUSE_WHEEL)
+
+    DIM selCtrl AS INTEGER, selShift AS INTEGER, selAlt AS INTEGER, capKey AS LONG, capBtn AS INTEGER, capWheel AS INTEGER
+    selCtrl%  = ((INPUT_BINDS(bindIdx%).requireMods AND MOD_CTRL) <> 0)
+    selShift% = ((INPUT_BINDS(bindIdx%).requireMods AND MOD_SHIFT) <> 0)
+    selAlt%   = ((INPUT_BINDS(bindIdx%).requireMods AND MOD_ALT) <> 0)
+    capKey&   = INPUT_BINDS(bindIdx%).keycode
+    capBtn%   = INPUT_BINDS(bindIdx%).button
+    capWheel% = INPUT_BINDS(bindIdx%).wheelDir
+
+    DIM applied AS INTEGER, k AS LONG, mods AS INTEGER, confAct AS INTEGER
+    DIM prevMX AS INTEGER, prevMY AS INTEGER, idle AS INTEGER, redraw AS INTEGER
+    DIM pad AS INTEGER, ty AS INTEGER, cbY AS INTEGER
+    DIM cbCtrlX AS INTEGER, cbShiftX AS INTEGER, cbAltX AS INTEGER
+    DIM btnY AS INTEGER, btnH AS INTEGER, btnW AS INTEGER, clrX AS INTEGER, okX AS INTEGER, canX AS INTEGER
+    DIM capY AS INTEGER, shownKey AS STRING, warn AS STRING
+    DIM rb AS INTEGER, rbNow AS INTEGER
+    DIM capBtnLast(1 TO MOUSE_MAX_BTN) AS INTEGER   ' raw button edge tracking for mouse capture
+    applied% = FALSE : prevMX% = -1 : prevMY% = -1 : redraw% = TRUE : pad% = 12
+
+    _KEYCLEAR
+    DO WHILE _MOUSEINPUT: LOOP
+
+    DO
+        idle% = TRUE
+        DIALOG_poll_mouse aCtx
+
+        ' --- key capture (Esc always cancels; keys capture only for KEYBOARD binds) ---
+        k& = _KEYHIT
+        DO WHILE k& <> 0
+            IF k& = 27 THEN
+                aCtx.done = TRUE : aCtx.result = FALSE
+            ELSEIF isMouse% THEN
+                ' a mouse bind never captures a key — ignore printable/extended keys
+            ELSEIF k& >= 1 AND k& <= 26 THEN
+                capKey& = k& + 96 : selCtrl% = TRUE : redraw% = TRUE   ' Ctrl+letter
+            ELSEIF k& >= 65 AND k& <= 90 THEN
+                capKey& = k& + 32 : redraw% = TRUE                     ' A-Z -> a-z
+            ELSEIF k& >= 32 AND k& < 127 THEN
+                capKey& = k& : redraw% = TRUE
+            ELSEIF k& > 127 THEN
+                capKey& = k& : redraw% = TRUE                          ' extended (Home/F-keys)
+            END IF
+            k& = _KEYHIT
+        LOOP
+
+        ' --- geometry ---
+        ty% = THEME.DIALOG_title_height% + 6
+        cbY% = ty% + 26
+        cbCtrlX% = pad% : cbShiftX% = pad% + 92 : cbAltX% = pad% + 184
+        capY% = cbY% + 22
+        btnY% = aCtx.h - 26 : btnH% = 18 : btnW% = 92
+        clrX% = pad% : okX% = (aCtx.w - btnW%) \ 2 : canX% = aCtx.w - btnW% - pad%
+
+        ' --- WHEEL capture (wheel binds): tilt or scroll to set the direction.
+        '     DIALOG_poll_mouse (above) owns the ONLY _MOUSEINPUT drain this frame and
+        '     already accumulated BOTH axes into ctx.mwheel (vertical ±1) and ctx.mtilt
+        '     (horizontal tilt). Read those — a second drain here would find the queue
+        '     empty (the old bug: wheel/tilt rebind captured nothing). Tilt is encoded
+        '     ±2. No pointer-in-box gate — a wheel has no press location. ---
+        IF isWheel% THEN
+            IF aCtx.mtilt <> 0 THEN
+                capWheel% = SGN(aCtx.mtilt) * 2 : redraw% = TRUE   ' tilt wins if both moved
+            ELSEIF aCtx.mwheel <> 0 THEN
+                capWheel% = SGN(aCtx.mwheel) : redraw% = TRUE
+            END IF
+        ELSEIF isMouse% THEN
+            ' --- mouse-button capture: press a button while the pointer is over the
+            '     capture box. Bounded by MOUSE_BTN_AVAIL so we never call
+            '     _MOUSEBUTTON past the device count (ERR 5). ---
+            FOR rb% = 1 TO MOUSE_BTN_AVAIL%
+                rbNow% = (_MOUSEBUTTON(rb%) <> 0)
+                IF rbNow% AND capBtnLast(rb%) = 0 THEN
+                    IF DIALOG_point_in%(aCtx, pad%, capY% + 14, aCtx.w - pad% * 2, 18) THEN capBtn% = rb% : redraw% = TRUE
+                END IF
+                capBtnLast(rb%) = rbNow%
+            NEXT rb%
+        END IF
+
+        ' --- checkbox clicks ---
+        IF DIALOG_hit%(aCtx, cbCtrlX%, cbY%, 52, 12) THEN selCtrl% = NOT selCtrl% : redraw% = TRUE
+        IF DIALOG_hit%(aCtx, cbShiftX%, cbY%, 56, 12) THEN selShift% = NOT selShift% : redraw% = TRUE
+        IF DIALOG_hit%(aCtx, cbAltX%, cbY%, 44, 12) THEN selAlt% = NOT selAlt% : redraw% = TRUE
+
+        ' --- current mods + live conflict ---
+        mods% = 0
+        IF selCtrl% THEN mods% = mods% OR MOD_CTRL
+        IF selShift% THEN mods% = mods% OR MOD_SHIFT
+        IF selAlt% THEN mods% = mods% OR MOD_ALT
+        confAct% = 0
+        IF capKey& <> 0 THEN confAct% = BINDINGS_find_conflict%(actId%, capKey&, mods%, reqCtx, forCtx)
+
+        ' --- button clicks ---
+        IF DIALOG_hit%(aCtx, clrX%, btnY%, btnW%, btnH%) THEN
+            capKey& = 0 : capBtn% = 0 : capWheel% = 0 : selCtrl% = FALSE : selShift% = FALSE : selAlt% = FALSE : redraw% = TRUE
+        END IF
+        IF DIALOG_hit%(aCtx, canX%, btnY%, btnW%, btnH%) THEN
+            aCtx.done = TRUE : aCtx.result = FALSE
+        END IF
+        IF DIALOG_hit%(aCtx, okX%, btnY%, btnW%, btnH%) THEN
+            IF isWheel% THEN
+                ' A wheel bind needs a real direction (0 = "any" — never intended).
+                ' Pass this bind's compiled default dir so an action that has BOTH a
+                ' tilt and a vertical wheel bind rebinds THIS row's trigger only.
+                IF capWheel% <> 0 THEN
+                    BINDINGS_set_wheel_override actId%, capWheel%, mods%, INPUT_BINDS(bindIdx%).defWheelDir
+                    applied% = TRUE
+                    aCtx.done = TRUE : aCtx.result = TRUE
+                END IF
+            ELSEIF isMouse% THEN
+                ' A mouse bind needs a real button (button 0 = "any" in the matcher,
+                ' which is never what the user means) — require one before applying.
+                IF capBtn% >= 1 THEN
+                    BINDINGS_set_mouse_override actId%, capBtn%, mods%
+                    applied% = TRUE
+                    aCtx.done = TRUE : aCtx.result = TRUE
+                END IF
+            ELSE
+                BINDINGS_set_override actId%, capKey&, mods%, 0
+                ' Steal: unbind the conflicting action if it is dispatched (can be freed).
+                IF confAct% <> 0 AND confAct% <> actId% THEN
+                    IF CTRL_action_dispatched%(confAct%) THEN BINDINGS_set_override confAct%, 0, 0, 0
+                END IF
+                applied% = TRUE
+                aCtx.done = TRUE : aCtx.result = TRUE
+            END IF
+        END IF
+
+        ' --- idle detection ---
+        IF aCtx.mx <> prevMX% OR aCtx.my <> prevMY% THEN idle% = FALSE
+        IF aCtx.justClicked THEN idle% = FALSE
+        IF redraw% THEN idle% = FALSE : redraw% = FALSE
+        prevMX% = aCtx.mx : prevMY% = aCtx.my
+
+        IF NOT idle% THEN
+            _DEST aCtx.imgHandle
+            _FONT aCtx.fontH
+            _PRINTMODE _KEEPBACKGROUND
+            IF isMouse% THEN DIALOG_draw_frame aCtx, "REBIND MOUSE" ELSE DIALOG_draw_frame aCtx, "REBIND KEY"
+
+            COLOR THEME.DIALOG_label_fg~&
+            _UPRINTSTRING (pad%, ty%), CTRL_clip_label$(lbl$, aCtx.w - pad% * 2)
+
+            CTRL_draw_check cbCtrlX%, cbY%, "Ctrl", selCtrl%
+            CTRL_draw_check cbShiftX%, cbY%, "Shift", selShift%
+            CTRL_draw_check cbAltX%, cbY%, "Alt", selAlt%
+
+            COLOR THEME.DIALOG_label_fg~&
+            IF isWheel% THEN
+                _UPRINTSTRING (pad%, capY%), "Tilt or scroll the wheel (Esc cancels):"
+                IF capWheel% <> 0 THEN
+                    shownKey$ = SHORTCUTS_modstr$(mods%) + CTRL_wheel_dir_name$(capWheel%)
+                ELSE
+                    shownKey$ = "(tilt or scroll)"
+                END IF
+            ELSEIF isMouse% THEN
+                _UPRINTSTRING (pad%, capY%), "Press a mouse button below (Esc cancels):"
+                IF capBtn% >= 1 THEN
+                    shownKey$ = SHORTCUTS_modstr$(mods%) + CTRL_mouse_button_name$(capBtn%)
+                ELSE
+                    shownKey$ = "(press a button)"
+                END IF
+            ELSE
+                _UPRINTSTRING (pad%, capY%), "Press a key (Esc cancels):"
+                shownKey$ = CTRL_render_key$(capKey&, mods%)
+            END IF
+            LINE (pad%, capY% + 14)-(aCtx.w - pad%, capY% + 32), THEME.DIALOG_toggle_bg~&, BF
+            LINE (pad%, capY% + 14)-(aCtx.w - pad%, capY% + 32), THEME.DIALOG_toggle_border~&, B
+            COLOR THEME.DIALOG_toggle_sel_fg~&
+            _UPRINTSTRING (pad% + 6, capY% + 18), shownKey$
+
+            IF confAct% <> 0 AND confAct% <> actId% THEN
+                COLOR _RGB32(240, 120, 90)
+                IF CTRL_action_dispatched%(confAct%) THEN
+                    warn$ = "! " + shownKey$ + " is " + CTRL_action_label$(confAct%) + " - it will be unbound"
+                ELSE
+                    warn$ = "! " + shownKey$ + " is " + CTRL_action_label$(confAct%) + " (built-in; may still fire)"
+                END IF
+                _UPRINTSTRING (pad%, capY% + 36), CTRL_clip_label$(warn$, aCtx.w - pad% * 2)
+            END IF
+
+            CTRL_draw_bar_btn clrX%, btnY%, btnW%, btnH%, "CLEAR", DIALOG_point_in%(aCtx, clrX%, btnY%, btnW%, btnH%)
+            CTRL_draw_bar_btn okX%, btnY%, btnW%, btnH%, "OK", DIALOG_point_in%(aCtx, okX%, btnY%, btnW%, btnH%)
+            CTRL_draw_bar_btn canX%, btnY%, btnW%, btnH%, "CANCEL", DIALOG_point_in%(aCtx, canX%, btnY%, btnW%, btnH%)
+
+            DIALOG_blit aCtx
+        ELSE
+            _LIMIT 15
+        END IF
+    LOOP UNTIL aCtx.done
+
+    DIALOG_cleanup aCtx
+    CTRL_assign_key% = applied%
+END FUNCTION
+
+
+''
+' Open the Customize Controls modal.
+'
+SUB CONTROLS_open ()
+    BROWSER_suspend_for_modal
+
+    DIM dlgW AS INTEGER, dlgH AS INTEGER
+    dlgW = CTRL_W : dlgH = CTRL_H
+    IF dlgW > SCRN.w& - 8 THEN dlgW = SCRN.w& - 8
+    IF dlgH > SCRN.h& - 8 THEN dlgH = SCRN.h& - 8
+    IF dlgW < 220 THEN dlgW = 220
+    IF dlgH < 180 THEN dlgH = 180
+    DIALOG_init CONTROLS.ctx, dlgW, dlgH
+
+    CONTROLS.filter = ""
+    CONTROLS.filterLen = 0
+    CONTROLS.scrollY = 0
+    CONTROLS.exportedLen = 0
+    CONTROLS.needsRedraw = TRUE
+    CONTROLS.viewportH = (dlgH - CTRL_BTN_BAR_H) - CTRL_content_top%
+    IF CONTROLS.viewportH < 0 THEN CONTROLS.viewportH = 0
+    CONTROLS_rebuild_vis
+
+    ' --- FIND box: a reusable TI text-input widget (dialog-local coords) ---
+    DIM findY AS INTEGER, boxX AS INTEGER, boxW AS INTEGER
+    DIM tiW AS INTEGER, tiH AS INTEGER, tiProbe AS LONG
+    findY = THEME.DIALOG_title_height% + 2 + 2
+    boxX  = CTRL_COL_NAME_X + 40
+    boxW  = dlgW - boxX - CTRL_COL_NAME_X
+    ' Load the theme font for the widget (proportional measuring happens outside the
+    ' render path, so it needs its own handle, per AI-DIALOG).
+    CONTROLS.findFont = _LOADFONT(THEME_font_path$(THEME.GLOBAL_FONT_FILE$), _IIF(THEME.DIALOG_font_size% < 1, 8, THEME.DIALOG_font_size%), "DONTBLEND")
+    tiW = 8 : tiH = 8
+    IF CONTROLS.findFont > 0 THEN
+        tiProbe& = _FONT : _FONT CONTROLS.findFont
+        tiW = _PRINTWIDTH("n") : tiH = _FONTHEIGHT(CONTROLS.findFont)
+        IF tiProbe& > 0 THEN _FONT tiProbe&
+    END IF
+    IF CONTROLS.findFont <= 0 OR tiW < 1 OR tiH < 1 THEN
+        IF CONTROLS.findFont > 0 THEN _FREEFONT CONTROLS.findFont
+        CONTROLS.findFont = 8 : tiW = 8 : tiH = 8
+    END IF
+    TI_set_font 8, tiW, tiH
+    CONTROLS.findTI = TI_create%(boxX, findY, boxW, CTRL_FIND_H - 4)
+    IF CONTROLS.findTI > 0 THEN
+        TI_inputs(CONTROLS.findTI).multiline    = FALSE
+        TI_inputs(CONTROLS.findTI).wordWrap     = FALSE
+        TI_inputs(CONTROLS.findTI).proportional = TRUE
+        TI_inputs(CONTROLS.findTI).placeholder  = "type to filter by name"
+        TI_inputs(CONTROLS.findTI).theme.fontHandle       = CONTROLS.findFont
+        TI_inputs(CONTROLS.findTI).theme.fontW            = tiW
+        TI_inputs(CONTROLS.findTI).theme.fontH            = tiH
+        TI_inputs(CONTROLS.findTI).theme.bgColor          = THEME.DIALOG_toggle_bg~&
+        TI_inputs(CONTROLS.findTI).theme.focusBgColor     = THEME.DIALOG_toggle_bg~&
+        TI_inputs(CONTROLS.findTI).theme.borderColor      = THEME.DIALOG_toggle_border~&
+        TI_inputs(CONTROLS.findTI).theme.focusBorderColor = THEME.DIALOG_toggle_sel_border~&
+        TI_inputs(CONTROLS.findTI).theme.textColor        = THEME.DIALOG_toggle_fg~&
+        TI_inputs(CONTROLS.findTI).theme.cursorColor      = THEME.DIALOG_toggle_fg~&
+        TI_inputs(CONTROLS.findTI).theme.selectionColor   = THEME.DIALOG_toggle_sel_bg~&
+        TI_inputs(CONTROLS.findTI).theme.placeholderColor = THEME.DIALOG_border_inner~&
+        TI_set_focus CONTROLS.findTI
+    END IF
+
+    _KEYCLEAR
+    DO WHILE _MOUSEINPUT: LOOP
+
+    DIM frameIdle AS INTEGER, prevMX AS INTEGER, prevMY AS INTEGER
+    prevMX = -1 : prevMY = -1
+
+    DO
+        frameIdle = -1
+
+        DIALOG_poll_mouse CONTROLS.ctx
+        DIALOG_dropdown_input CONTROLS.ctx        ' Export-as menu owns input while open
+        TI_tick                                    ' cursor blink
+        IF CONTROLS.findTI > 0 THEN TI_process_mouse CONTROLS.ctx.mx, CONTROLS.ctx.my, CONTROLS.ctx.justClicked
+        CONTROLS_handle_keyboard
+        CONTROLS_handle_scrollbar        ' thumb drag / track paging (may consume the click)
+        CONTROLS_handle_content_click
+
+        IF CONTROLS.ctx.mwheel <> 0 THEN
+            CONTROLS.scrollY = CONTROLS.scrollY + CONTROLS.ctx.mwheel * CTRL_ROW_H * 3
+            CONTROLS_clamp_scroll
+            frameIdle = 0
+        END IF
+
+        IF CONTROLS.scrollDrag THEN frameIdle = 0   ' keep redrawing while dragging
+        IF DIALOG_DD_OPEN% <> 0 OR DIALOG_DD_RESULT_ID% <> 0 THEN frameIdle = 0  ' export menu active
+
+        IF CONTROLS.ctx.mx <> prevMX OR CONTROLS.ctx.my <> prevMY THEN frameIdle = 0
+        IF CONTROLS.ctx.mb1 THEN frameIdle = 0
+        IF CONTROLS.ctx.justClicked THEN frameIdle = 0
+        IF CONTROLS.findTI > 0 AND TI_inputs(CONTROLS.findTI).dirty THEN frameIdle = 0
+        IF CONTROLS.needsRedraw THEN frameIdle = 0: CONTROLS.needsRedraw = FALSE
+        prevMX = CONTROLS.ctx.mx : prevMY = CONTROLS.ctx.my
+
+        IF NOT frameIdle THEN
+            _DEST CONTROLS.ctx.imgHandle
+            _FONT CONTROLS.ctx.fontH
+            _PRINTMODE _KEEPBACKGROUND
+
+            DIALOG_draw_frame CONTROLS.ctx, "CUSTOMIZE CONTROLS"
+            CONTROLS_draw_find
+            ' Content BEFORE the column header so a row scrolled partway under the
+            ' header (rows are 16px, the header band 15px) is masked by the header's
+            ' opaque band instead of bleeding over "FUNCTION / CURRENT KEY / REBIND".
+            CONTROLS_draw_content
+            CONTROLS_draw_headers
+            CONTROLS_draw_scrollbar
+            CONTROLS_draw_button_bar
+            DIALOG_dropdown_overlay CONTROLS.ctx     ' open Export-as list on top (last)
+
+            DIALOG_blit CONTROLS.ctx
+        ELSE
+            _LIMIT 15
+        END IF
+    LOOP UNTIL CONTROLS.ctx.done
+
+    ' Tear down the FIND widget + its font before the dialog buffer goes away.
+    IF CONTROLS.findTI > 0 THEN TI_destroy CONTROLS.findTI : CONTROLS.findTI = 0
+    IF CONTROLS.findFont > 16 THEN _FREEFONT CONTROLS.findFont
+    CONTROLS.findFont = 0
+
+    DIALOG_cleanup CONTROLS.ctx
+
+    SCENE_DIRTY%      = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+
+    BROWSER_resume_after_modal
+END SUB

@@ -29,22 +29,8 @@ fails=0
 # ITS pass/fail so a missing guard bumps the suite's FAIL counter and registers
 # as a real failure. Define fallbacks ONLY for standalone `bash <this>` runs —
 # never redefine the harness's, or a failure would be invisible to the suite.
-declare -F pass >/dev/null || pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
-declare -F fail >/dev/null || fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; fails=$((fails+1)); }
-
-# assert_grep <bug> <file> <extended-regex> <human description>
-assert_grep() {
-  local bug="$1" file="$2" re="$3" desc="$4"
-  if [ ! -f "$ROOT/$file" ]; then fail "$bug: file missing: $file"; return; fi
-  if grep -Eq -- "$re" "$ROOT/$file"; then pass "$bug: $desc"; else fail "$bug: MISSING in $file — $desc"; fi
-}
-
-# assert_absent <bug> <file> <extended-regex> <human description>
-assert_absent() {
-  local bug="$1" file="$2" re="$3" desc="$4"
-  if [ ! -f "$ROOT/$file" ]; then fail "$bug: file missing: $file"; return; fi
-  if grep -Eq -- "$re" "$ROOT/$file"; then fail "$bug: REGRESSED in $file — $desc"; else pass "$bug: $desc"; fi
-}
+# Shared source-guard scaffolding (pass/fail/assert_grep/assert_absent/guard_footer).
+source "$(dirname "${BASH_SOURCE[0]}")/lib/source-guard.sh"
 
 echo "=== Deferred hardening source guards (BUG-21/37/39/69/76/77) ==="
 
@@ -68,12 +54,7 @@ assert_grep  "BUG-77" "PIXEL-COACH/PRECOMPUTE.BM" 'coachRawW& > 32767 OR coachRa
 # BUG-69 — Aseprite cel size computed in 64-bit with an overflow guard (submodule).
 assert_grep  "BUG-69" "includes/QB64_GJ_LIB/ASEPRITE/ASEPRITE.BM" 'esz64 <= 0 OR esz64 > 2147483647' "64-bit overflow guard on expected_size"
 
-echo "---------------------------------------------"
-if [ "$fails" -eq 0 ]; then
-  echo -e "\033[32mALL GUARDS PRESENT\033[0m"
-else
-  echo -e "\033[31m$fails GUARD(S) MISSING — a hardening fix was removed\033[0m"
-fi
+guard_footer "a hardening fix was removed"
 # Tests are SOURCED by the harness — an `exit` here would kill the runner
 # mid-suite (it aborted the whole suite at this test before this was fixed).
 # Only exit when run standalone; when sourced, pass/fail already recorded above.

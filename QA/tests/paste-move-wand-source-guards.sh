@@ -38,15 +38,8 @@ fails=0
 # When SOURCED by the QA harness (runner.sh does `source "$test_file"`), use ITS
 # pass/fail so a missing guard bumps the suite's FAIL counter. Define fallbacks
 # ONLY for standalone `bash <this>` runs — never redefine the harness's.
-declare -F pass >/dev/null || pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
-declare -F fail >/dev/null || fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; fails=$((fails+1)); }
-
-# assert_grep <bug> <file> <extended-regex> <human description>
-assert_grep() {
-  local bug="$1" file="$2" re="$3" desc="$4"
-  if [ ! -f "$ROOT/$file" ]; then fail "$bug: file missing: $file"; return; fi
-  if grep -Eq -- "$re" "$ROOT/$file"; then pass "$bug: $desc"; else fail "$bug: MISSING in $file — $desc"; fi
-}
+# Shared source-guard scaffolding (pass/fail/assert_grep/assert_absent/guard_footer).
+source "$(dirname "${BASH_SOURCE[0]}")/lib/source-guard.sh"
 
 echo "=== Paste/Move/Wand source guards (v2.0.3 A/B/C/D/E) ==="
 
@@ -70,12 +63,7 @@ assert_grep  "BUG-C" "TOOLS/MOVE.BM"  '_BLEND targetImg&' "float composite blend
 assert_grep  "BUG-E" "TOOLS/MARQUEE.BM" 'wandCropped& = _NEWIMAGE\(SCRN\.canvasW&, SCRN\.canvasH&, 32\)' "wand apron-crops to canvas coords"
 assert_grep  "BUG-E" "TOOLS/MARQUEE.BM" 'SAFE_FREEIMAGE wandCropped&' "wand crop buffer is freed"
 
-echo "---------------------------------------------"
-if [ "$fails" -eq 0 ]; then
-  echo -e "\033[32mALL GUARDS PRESENT\033[0m"
-else
-  echo -e "\033[31m$fails GUARD(S) MISSING — a paste/move/wand fix was removed\033[0m"
-fi
+guard_footer "a paste/move/wand fix was removed"
 # Tests are SOURCED by the harness — an `exit` here would kill the runner
 # mid-suite. Only exit when run standalone.
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then [ "$fails" -eq 0 ] && exit 0 || exit 1; fi

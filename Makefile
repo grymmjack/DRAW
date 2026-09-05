@@ -94,7 +94,7 @@ OUT := $(BASENAME)$(EXT)
 # `make clean-log`, `make -n clean`, etc. take the cheap branch — no disk walk,
 # no scanning, no side effects. Standalone *.BAS programs under includes/ are
 # not part of DRAW, so we glob .BI/.BM only and name DRAW.BAS explicitly.
-COMPILE_GOALS := all run run-logged run-log-bas $(OUT)
+COMPILE_GOALS := all dev dev-run run run-logged run-log-bas $(OUT)
 GOALS         := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
 ifeq ($(filter $(COMPILE_GOALS),$(GOALS)),)
     SOURCES := $(SRC)
@@ -114,7 +114,7 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
                  QB64PE_LOG_FILE_PATH=$(LOGFILE)
 
 # ---------- Targets -----------------------------------------------------------
-.PHONY: help all run run-logged run-log-bas clean clean-log macos-app \
+.PHONY: help all dev dev-run run run-logged run-log-bas clean clean-log macos-app \
         main v450 a740g main-run v450-run a740g-run
 .DEFAULT_GOAL := all
 
@@ -129,7 +129,17 @@ help:  #: Show this help (targets + variable overrides)
 	@printf '  QB64PE=/full/path     override the compiler path directly\n'
 	@printf '  THREADS=N             parallel compiler processes (default 12)\n'
 
-all: $(OUT)  #: Build DRAW (default) -> DRAW.run, or DRAW.run.exe on Windows
+all: $(OUT)  #: Build DRAW (default, C++ optimized) -> DRAW.run / DRAW.run.exe
+
+# Fast DEV build: skip C++ -O (the g++ optimization of qbx.cpp + the giant generated
+# .cpp is the bulk of build time). Measured ~13min -> ~7min. NOT for release — the
+# binary is unoptimized; use `make all` (or a release build) for anything you ship.
+dev: QB64FLAGS += -f:OptimizeCppProgram=false
+dev: $(OUT)  #: Fast dev build — skip C++ -O (~2x faster); NOT for release
+	@printf '  \033[33m[dev build: C++ optimization OFF — testing only; use `make all` for release]\033[0m\n'
+
+dev-run: dev  #: Fast dev build, then run
+	./$(OUT)
 
 $(OUT): $(SOURCES)
 	$(RM) $(OUT)

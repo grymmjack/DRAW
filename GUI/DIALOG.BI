@@ -30,7 +30,8 @@ TYPE DIALOG_CTX
     omb1         AS INTEGER ' Previous RAW left button state (for edge detection)
     mb1raw       AS INTEGER ' Current RAW physical button, immune to swallows — feeds omb1 next frame
     justClicked  AS INTEGER ' mb1 transitioned 0->1 this frame
-    mwheel       AS INTEGER ' Accumulated mouse wheel delta this frame
+    mwheel       AS INTEGER ' Accumulated vertical mouse wheel delta this frame
+    mtilt        AS INTEGER ' Accumulated horizontal wheel TILT this frame (_MOUSEWHEEL(MOUSE_TILT_AXIS))
     done         AS INTEGER ' TRUE when loop should exit
     result       AS INTEGER ' TRUE = OK, FALSE = Cancel
     ' ---- Live preview / split view ----
@@ -55,6 +56,7 @@ END TYPE
 ' Immediate-mode single-open-at-a-time dropdown. Only one modal dialog runs at a
 ' time, so module globals are safe. DIALOG_init clears DIALOG_DD_OPEN.
 DIM SHARED DIALOG_DD_OPEN%             ' id of the currently-open dropdown (0 = none)
+DIM SHARED DIALOG_DD_UP%               ' TRUE = open list ABOVE the box (no room below); decided at open time
 DIM SHARED DIALOG_DD_X%, DIALOG_DD_Y%, DIALOG_DD_W%, DIALOG_DD_COUNT%
 DIM SHARED DIALOG_DD_SEL%              ' live selection while open (round-tripped to caller)
 DIM SHARED DIALOG_DD_SCROLL%           ' first visible row when list is taller than MAXVIS

@@ -54,6 +54,14 @@ END FUNCTION
 SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
     wheel_delta% = 0
 
+    ' Horizontal wheel TILT rides the SAME _MOUSEINPUT drain as the vertical wheel:
+    ' _MOUSEWHEEL(0) is vertical (default), _MOUSEWHEEL(MOUSE_TILT_AXIS) is horizontal
+    ' (axis 1). No _DEVICEINPUT / _WHEEL device API — that read one event per call and
+    ' lost the tilt behind mouse-movement events. Accumulate across the whole drain,
+    ' then SGN to a plain -1/0/+1 trigger (Rick's choice, not magnitude-aware).
+    DIM tilt_accum AS INTEGER : tilt_accum% = 0
+    MOUSE_TILT% = 0
+
     $IF MAC THEN
         ' macOS: Capture button states during drain to fix trackpad tap-to-click
         ' SDL2 on macOS doesn't always preserve button state after _MOUSEINPUT drain
@@ -61,6 +69,7 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         mac_b1% = FALSE: mac_b2% = FALSE: mac_b3% = FALSE
         DO WHILE _MOUSEINPUT
             wheel_delta% = wheel_delta% + _MOUSEWHEEL
+            IF MOUSE_TILT_AXIS% > 0 THEN tilt_accum% = tilt_accum% + _MOUSEWHEEL(MOUSE_TILT_AXIS%)
             ' Capture any button presses during the drain
             IF _MOUSEBUTTON(1) THEN mac_b1% = TRUE
             IF _MOUSEBUTTON(2) THEN mac_b2% = TRUE
@@ -69,8 +78,11 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
     $ELSE
         DO WHILE _MOUSEINPUT
             wheel_delta% = wheel_delta% + _MOUSEWHEEL
+            IF MOUSE_TILT_AXIS% > 0 THEN tilt_accum% = tilt_accum% + _MOUSEWHEEL(MOUSE_TILT_AXIS%)
         LOOP
     $END IF
+    MOUSE_TILT% = SGN(tilt_accum%)
+    IF MOUSE_TILT% <> 0 AND CFG.DEVELOPER_MODE% THEN _LOGINFO "mouse-tilt: dir=" + _TRIM$(STR$(MOUSE_TILT%)) + " (axis=" + _TRIM$(STR$(MOUSE_TILT_AXIS%)) + ")"
 
     ' Get window coordinates and scale down by display scale to viewport coords
     rawX% = _MOUSEX \ SCRN.displayScale%
@@ -186,6 +198,35 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         MOUSE.B3% = _MOUSEBUTTON(3)
     $END IF
 
+    ' Mirror buttons 1-3 into MOUSE_BTN() and sample any EXTRA buttons (back /
+    ' forward / etc.) so the central dispatcher can drive bound actions off them.
+    ' CRITICAL: _MOUSEBUTTON(n) for n GREATER than the device's real button count
+    ' raises ERR 5 (Illegal function call) — it does NOT return 0 — so we must
+    ' never sample past MOUSE_BTN_AVAIL (detected once below). A 3-button mouse
+    ' would otherwise fault every frame. Detection is lazy because the _DEVICES
+    ' table isn't ready during MOUSE_init; retry until a [MOUSE] device appears.
+    STATIC btnDetectDone AS INTEGER
+    IF btnDetectDone = 0 THEN
+        DIM mdv AS INTEGER, dvi AS INTEGER
+        mdv% = 0
+        FOR dvi% = 1 TO _DEVICES
+            IF INSTR(_DEVICE$(dvi%), "[MOUSE]") > 0 THEN mdv% = dvi%: EXIT FOR
+        NEXT
+        IF mdv% > 0 THEN
+            btnDetectDone = -1
+            DIM lb AS INTEGER : lb% = _LASTBUTTON(mdv%)
+            IF lb% >= 3 THEN MOUSE_BTN_AVAIL% = lb%
+            IF MOUSE_BTN_AVAIL% > MOUSE_MAX_BTN THEN MOUSE_BTN_AVAIL% = MOUSE_MAX_BTN
+            IF MOUSE_BTN_AVAIL% < 3 THEN MOUSE_BTN_AVAIL% = 3
+            ' CFG is loaded by now (this runs on the first live poll, not at
+            ' include-time MOUSE_init), so honor the user's tilt-axis override.
+            IF CFG.MOUSE_TILT_AXIS% >= 0 THEN MOUSE_TILT_AXIS% = CFG.MOUSE_TILT_AXIS%
+        END IF
+    END IF
+    MOUSE_BTN(1) = MOUSE.B1% : MOUSE_BTN(2) = MOUSE.B2% : MOUSE_BTN(3) = MOUSE.B3%
+    DIM extraBtn AS INTEGER
+    FOR extraBtn% = 4 TO MOUSE_BTN_AVAIL% : MOUSE_BTN(extraBtn%) = _MOUSEBUTTON(extraBtn%) : NEXT
+
     ' Detect button press starting on the apron (outside canvas screen bounds).
     ' In pattern tile mode the entire viewport wraps to canvas, so no apron exists.
     IF NOT SCRN.patternTileMode% THEN
@@ -221,6 +262,18 @@ SUB MOUSE_init ()
     MOUSE.DRAG$            = ""
     MOUSE.B3_CLICK_TIME#   = 0
     MOUSE.DEFERRED_ACTION% = 0
+
+    ' How many buttons to offer in the rebind UI. NOTE: bare _LASTBUTTON raises
+    ' ERR 5 — it needs the [MOUSE] device number (see MOUSE_detect_button_count%),
+    ' and the device table isn't reliably ready this early in init. Default to a
+    ' typical 5-button mouse; real detection happens lazily on first mouse poll.
+    ' The dispatcher samples every button up to MOUSE_MAX_BTN regardless of this.
+    MOUSE_BTN_AVAIL% = 5
+
+    ' Horizontal wheel tilt is _MOUSEWHEEL axis 1 (0 = vertical). CONFIG may override
+    ' via MOUSE_TILT_AXIS; 0 disables tilt. Read in the normal _MOUSEINPUT drain.
+    MOUSE_TILT_AXIS% = 1
+    MOUSE_TILT%      = 0
 END SUB
 
 
@@ -1426,9 +1479,10 @@ SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
     DIM panToolActive AS INTEGER
     panToolActive% = (CURRENT_TOOL% = TOOL_PAN AND MOUSE.B1% AND NOT TRANSFORM.ACTIVE)
 
-    ' Block MMB pan initiation when mouse is over any GUI element
+    ' Block pan-button initiation when mouse is over any GUI element. The pan button
+    ' is rebindable (MB_PAN, default 3 = middle); MOUSE_button_down% maps it to state.
     DIM allowB3Pan AS INTEGER
-    allowB3Pan% = MOUSE.B3%
+    allowB3Pan% = MOUSE_button_down%(MOUSE_intent_button%(MB_PAN, 3), FALSE)
     IF allowB3Pan% AND NOT SCRN.panning% THEN
         ' Only block on pan START (not while already panning)
         IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN allowB3Pan% = FALSE
@@ -2854,8 +2908,8 @@ END SUB
 ' @param rawY INTEGER Raw screen Y coordinate of the mouse cursor
 '
 SUB MOUSE_tool_zoom (rawX AS INTEGER, rawY AS INTEGER)
-    ' Zoom tool: click to zoom in at cursor, alt+click to zoom out
-    ' Drag to zoom into a region
+    ' Zoom tool: LEFT-click zoom in at cursor, RIGHT-click zoom out (Alt+click also
+    ' zooms out where the WM allows). LEFT-drag zooms into a region.
     IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
         ' Mouse just pressed - start drag tracking
         ZOOM.DRAGGING = TRUE
@@ -2878,7 +2932,15 @@ END SUB
 ' @param rawY INTEGER Raw screen Y coordinate of the mouse cursor
 '
 SUB MOUSE_release_zoom (rawX AS INTEGER, rawY AS INTEGER)
-    ' Zoom tool release - check if it was a click or a drag
+    ' RIGHT-click (B2) = zoom OUT at cursor. Alt+Left-click also zooms out, but many
+    ' Linux window managers steal Alt+Left-click for "move window" so it never reaches
+    ' DRAW — right-click is the reliable zoom-out. B2 does no region drag.
+    IF MOUSE.OLD_B2% AND NOT MOUSE.B2% AND NOT ZOOM.DRAGGING THEN
+        ZOOM_out_at rawX%, rawY%
+        EXIT SUB
+    END IF
+
+    ' Zoom tool release - check if it was a click or a drag (LEFT button)
     IF ZOOM.DRAGGING THEN
         DIM zDragW AS INTEGER, zDragH AS INTEGER
         zDragW% = ABS(ZOOM.END_X - ZOOM.START_X)
@@ -2887,7 +2949,7 @@ SUB MOUSE_release_zoom (rawX AS INTEGER, rawY AS INTEGER)
             ' Drag was large enough - zoom to region
             ZOOM_to_region ZOOM.START_X, ZOOM.START_Y, ZOOM.END_X, ZOOM.END_Y
         ELSE
-            ' Small drag or click - zoom in/out at cursor
+            ' Small drag or click - zoom in at cursor (Alt = out, if the WM lets it through)
             DIM zScreenX AS INTEGER, zScreenY AS INTEGER
             zScreenX% = rawX%
             zScreenY% = rawY%
@@ -3968,6 +4030,123 @@ END SUB
 
 
 ''
+' Which CANVAS wheel action is bound to this (wheelDir, requireMods)? Reverse
+' lookup over the (possibly user-overridden) registry, so the legacy wheel handler
+' below stays context-aware yet honors Customize-Controls rebinds. 0 = unbound.
+'
+FUNCTION WHEEL_action_for% (wheelDir AS INTEGER, requireMods AS INTEGER)
+    ' Prefer a USER-OVERRIDDEN match so a rebind (e.g. wheel-down -> Pan Down) beats
+    ' the compiled default that still sits on the same (wheelDir, mods). Falls back to
+    ' the first default match. wheelDir 0 never matches (unbound Pan rows stay inert).
+    DIM i AS INTEGER, firstHit AS INTEGER : firstHit% = 0
+    FOR i% = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i%).device = DEVICE_MOUSE _ANDALSO _
+           INPUT_BINDS(i%).eventType = EVT_MOUSE_WHEEL _ANDALSO _
+           INPUT_BINDS(i%).region = REGION_CANVAS _ANDALSO _
+           INPUT_BINDS(i%).actionId <> 0 _ANDALSO _
+           INPUT_BINDS(i%).wheelDir = wheelDir% _ANDALSO _
+           INPUT_BINDS(i%).requireMods = requireMods% THEN
+            IF INPUT_BINDS(i%).userOverridden THEN
+                WHEEL_action_for% = INPUT_BINDS(i%).actionId
+                EXIT FUNCTION
+            END IF
+            IF firstHit% = 0 THEN firstHit% = i%
+        END IF
+    NEXT i%
+    IF firstHit% > 0 THEN WHEEL_action_for% = INPUT_BINDS(firstHit%).actionId ELSE WHEEL_action_for% = 0
+END FUNCTION
+
+''
+' Cursor-centered canvas zoom (one whole/quarter step). zoomIn TRUE = in, else out.
+' Extracted so the wheel handler can drive it via a rebindable action id (406/407)
+' rather than hard-coding the wheel direction.
+'
+SUB WHEEL_zoom_at_cursor (zoomIn AS INTEGER)
+    DIM oldZoom      AS SINGLE
+    DIM mouseScreenX AS INTEGER, mouseScreenY AS INTEGER
+    oldZoom! = SCRN.zoom!
+    mouseScreenX% = _MOUSEX \ SCRN.displayScale%
+    mouseScreenY% = _MOUSEY \ SCRN.displayScale%
+
+    IF zoomIn% THEN
+        IF SCRN.zoom! < 1.0 THEN
+            SCRN.zoom! = 1.0                   ' Snap to 100% from any fractional zoom
+        ELSE
+            SCRN.zoom! = INT(SCRN.zoom!) + 1.0 ' Next whole 100% (200%, 300%, etc.)
+        END IF
+        IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
+    ELSE
+        IF SCRN.zoom! > 1.0 THEN
+            SCRN.zoom! = INT(SCRN.zoom!) - 1.0 ' Above 100%: out by whole 100%
+        ELSE
+            SCRN.zoom! = SCRN.zoom! - 0.25     ' At/below 100%: out by 25%
+        END IF
+        IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
+    END IF
+
+    IF SCRN.zoom! <> oldZoom! THEN
+        GUI_NEEDS_REDRAW% = TRUE
+        SCENE_DIRTY%      = TRUE
+        FRAME_IDLE%       = FALSE
+        DIM old_zw       AS LONG, old_zh AS LONG
+        old_zw& = SCRN.canvasW& * oldZoom!
+        old_zh& = SCRN.canvasH& * oldZoom!
+        DIM old_center_x AS INTEGER, old_center_y AS INTEGER
+        old_center_x% = (SCRN.w& - old_zw&) \ 2
+        old_center_y% = (SCRN.h& - old_zh&) \ 2
+
+        DIM anchorX    AS INTEGER, anchorY AS INTEGER
+        DIM canvasLeft AS INTEGER, canvasTop AS INTEGER
+        canvasLeft% = old_center_x% + SCRN.offsetX%
+        canvasTop%  = old_center_y% + SCRN.offsetY%
+        IF mouseScreenX% >= canvasLeft% AND mouseScreenX% < canvasLeft% + old_zw& AND _
+           mouseScreenY% >= canvasTop%  AND mouseScreenY% < canvasTop%  + old_zh& THEN
+            anchorX% = mouseScreenX%
+            anchorY% = mouseScreenY%
+        ELSE
+            anchorX% = canvasLeft% + old_zw& \ 2
+            anchorY% = canvasTop%  + old_zh& \ 2
+        END IF
+
+        DIM canvasX AS SINGLE, canvasY AS SINGLE
+        canvasX! = (anchorX% - old_center_x% - SCRN.offsetX%) / oldZoom!
+        canvasY! = (anchorY% - old_center_y% - SCRN.offsetY%) / oldZoom!
+
+        DIM new_zw       AS LONG, new_zh AS LONG
+        new_zw& = SCRN.canvasW& * SCRN.zoom!
+        new_zh& = SCRN.canvasH& * SCRN.zoom!
+        DIM new_center_x AS INTEGER, new_center_y AS INTEGER
+        new_center_x% = (SCRN.w& - new_zw&) \ 2
+        new_center_y% = (SCRN.h& - new_zh&) \ 2
+
+        SCRN.offsetX% = anchorX% - new_center_x% - (canvasX! * SCRN.zoom!)
+        SCRN.offsetY% = anchorY% - new_center_y% - (canvasY! * SCRN.zoom!)
+    END IF
+END SUB
+
+''
+' Route a resolved CANVAS wheel action to its behavior. Zoom (406/407) keeps the
+' cursor-centered path; brush size (601/602) uses the direct calls; anything else
+' the user bound goes through the central command dispatcher. 0 = do nothing.
+'
+SUB WHEEL_dispatch_canvas (actionId AS INTEGER)
+    SELECT CASE actionId%
+        CASE 0
+            ' unbound — nothing
+        CASE 406
+            WHEEL_zoom_at_cursor -1        ' Zoom In
+        CASE 407
+            WHEEL_zoom_at_cursor 0         ' Zoom Out
+        CASE 601
+            BRUSH_SIZE_decrease
+        CASE 602
+            BRUSH_SIZE_increase
+        CASE ELSE
+            CMD_execute_action actionId%
+    END SELECT
+END SUB
+
+''
 ' Mouse wheel handler (GUI scroll, brush size, zoom).
 '
 ' @param rawX INTEGER Raw screen X coordinate of the mouse cursor
@@ -4072,16 +4251,11 @@ SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
         ' Browser wheel is handled in MOUSE_handle_gui_panels (runs earlier)
         ELSEIF BROWSER_active_hit%(rawX%, rawY%) THEN
             MOUSE.SW% = 0    ' Consume — already handled in gui_panels
-        ' Check if CTRL is held for brush size adjustment
+        ' Check if CTRL is held — canvas Ctrl+wheel action (default brush size, but
+        ' rebindable via Customize Controls; resolved through the bind table).
         ELSEIF MODIFIERS.ctrl% THEN
-            ' CTRL+Wheel adjusts brush size
-            ' Wheel up (negative) should increase, wheel down (positive) should decrease
-            IF MOUSE.SW% < 0 THEN
-                BRUSH_SIZE_increase
-            ELSEIF MOUSE.SW% > 0 THEN
-                BRUSH_SIZE_decrease
-            END IF
-            MOUSE.SW% = 0    ' Consume wheel — brush resize doesn't change the scene
+            WHEEL_dispatch_canvas WHEEL_action_for%(SGN(MOUSE.SW%), MOD_CTRL)
+            MOUSE.SW% = 0    ' Consume — the routed action decides scene dirtiness
         ' Check if a Smart-Shape sub-tool is currently dragging — consume wheel
         ' so it never falls through to canvas zoom while the user is shaping.
         ' Three shapes have wheel-bound parameters per their tooltips:
@@ -4152,87 +4326,30 @@ SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
             FRAME_IDLE%       = FALSE
             MOUSE.SW%         = 0
         ELSE
-            ' Mouse wheel without CTRL: zoom in/out (only when over canvas)
-            ' Above 100%: Always use 100% increments (both in and out)
-            ' At/below 100%: Zoom IN snaps to 100%, Zoom OUT uses 25%
-            ' Zoom centered on mouse cursor position
-            DIM oldZoom      AS SINGLE
-            DIM mouseScreenX AS INTEGER, mouseScreenY AS INTEGER
-            oldZoom! = SCRN.zoom!
-
-            ' Get mouse screen position BEFORE zoom changes (scaled to viewport coords)
-            mouseScreenX% = _MOUSEX \ SCRN.displayScale%
-            mouseScreenY% = _MOUSEY \ SCRN.displayScale%
-
-            IF MOUSE.SW% < 0 THEN
-                ' Wheel down = zoom in
-                IF SCRN.zoom! < 1.0 THEN
-                    SCRN.zoom! = 1.0                   ' Snap to 100% from any fractional zoom
-                ELSE
-                    SCRN.zoom! = INT(SCRN.zoom!) + 1.0 ' Next whole 100% (200%, 300%, etc.)
-                END IF
-                IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
-            ELSEIF MOUSE.SW% > 0 THEN
-                ' Wheel up = zoom out
-                IF SCRN.zoom! > 1.0 THEN
-                    ' Above 100%: zoom out by whole 100% (200% → 100%, 300% → 200%)
-                    SCRN.zoom! = INT(SCRN.zoom!) - 1.0
-                ELSE
-                    ' At/below 100%: zoom out by 25% (100% → 75% → 50% → 25%)
-                    SCRN.zoom! = SCRN.zoom! - 0.25
-                END IF
-                IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
-            END IF
-
-            ' Adjust offset to keep mouse over same canvas point
-            IF SCRN.zoom! <> oldZoom! THEN
-                GUI_NEEDS_REDRAW% = TRUE
-                SCENE_DIRTY%      = TRUE
-                FRAME_IDLE%       = FALSE
-                ' Calculate canvas center offset at old zoom (canvas dimensions, centered in viewport)
-                DIM old_zw       AS LONG, old_zh AS LONG
-                old_zw& = SCRN.canvasW& * oldZoom!
-                old_zh& = SCRN.canvasH& * oldZoom!
-                DIM old_center_x AS INTEGER, old_center_y AS INTEGER
-                old_center_x% = (SCRN.w& - old_zw&) \ 2
-                old_center_y% = (SCRN.h& - old_zh&) \ 2
-
-                ' If mouse is over the apron (outside canvas bounds), use canvas center as anchor
-                ' to prevent zooming into negative apron space
-                DIM anchorX    AS INTEGER, anchorY AS INTEGER
-                DIM canvasLeft AS INTEGER, canvasTop AS INTEGER
-                canvasLeft% = old_center_x% + SCRN.offsetX%
-                canvasTop%  = old_center_y% + SCRN.offsetY%
-                IF mouseScreenX% >= canvasLeft% AND mouseScreenX% < canvasLeft% + old_zw& AND _
-                   mouseScreenY% >= canvasTop%  AND mouseScreenY% < canvasTop%  + old_zh& THEN
-                    anchorX% = mouseScreenX%
-                    anchorY% = mouseScreenY%
-                ELSE
-                    ' Pointer is on the apron — anchor to canvas center
-                    anchorX% = canvasLeft% + old_zw& \ 2
-                    anchorY% = canvasTop%  + old_zh& \ 2
-                END IF
-
-                ' Canvas position under anchor at old zoom
-                DIM canvasX AS SINGLE, canvasY AS SINGLE
-                canvasX! = (anchorX% - old_center_x% - SCRN.offsetX%) / oldZoom!
-                canvasY! = (anchorY% - old_center_y% - SCRN.offsetY%) / oldZoom!
-
-                ' Calculate new canvas center offset at new zoom (canvas dimensions, centered in viewport)
-                DIM new_zw       AS LONG, new_zh AS LONG
-                new_zw& = SCRN.canvasW& * SCRN.zoom!
-                new_zh& = SCRN.canvasH& * SCRN.zoom!
-                DIM new_center_x AS INTEGER, new_center_y AS INTEGER
-                new_center_x% = (SCRN.w& - new_zw&) \ 2
-                new_center_y% = (SCRN.h& - new_zh&) \ 2
-
-                ' Calculate new offset to keep canvas point at anchor screen position
-                SCRN.offsetX% = anchorX% - new_center_x% - (canvasX! * SCRN.zoom!)
-                SCRN.offsetY% = anchorY% - new_center_y% - (canvasY! * SCRN.zoom!)
-            END IF
-            MOUSE.SW% = 0 ' Consume — zoom applied, don't keep frame active
+            ' Plain canvas wheel action (default zoom in/out, cursor-centered;
+            ' rebindable via Customize Controls, resolved through the bind table).
+            WHEEL_dispatch_canvas WHEEL_action_for%(SGN(MOUSE.SW%), 0)
+            MOUSE.SW% = 0
         END IF
         MOUSE.OSW% = MOUSE.SW%
+    END IF
+
+    ' --- Horizontal wheel TILT → canvas action (intent-query, same as vertical) ---
+    ' Tilt lives OUTSIDE the wheel_delta% guard: a tilt can arrive with no vertical
+    ' scroll. MOUSE_TILT% is sampled from _MOUSEWHEEL(MOUSE_TILT_AXIS) in the drain.
+    ' Resolve it through WHEEL_action_for% exactly like the vertical wheel so a rebound
+    ' tilt (e.g. tilt-right -> Pan Right) wins over the compiled tilt->brush default.
+    ' Region-scoped to the canvas floor (mirrors the old REGION_CANVAS tilt binding) and
+    ' suppressed while editing text (mirrors the binding's CTX_TEXT_ACTIVE forbid).
+    IF MOUSE_TILT% <> 0 THEN
+        IF NOT TEXT.ACTIVE AND REGION_hit_test%(rawX%, rawY%) = REGION_CANVAS THEN
+            DIM tiltMods AS INTEGER : tiltMods% = 0
+            IF MODIFIERS.ctrl%  THEN tiltMods% = tiltMods% OR MOD_CTRL
+            IF MODIFIERS.shift% THEN tiltMods% = tiltMods% OR MOD_SHIFT
+            IF MODIFIERS.alt%   THEN tiltMods% = tiltMods% OR MOD_ALT
+            ' MOUSE_TILT% is ±1; *2 encodes WHEEL_TILT_RIGHT/LEFT (±2) for the lookup.
+            WHEEL_dispatch_canvas WHEEL_action_for%(MOUSE_TILT% * 2, tiltMods%)
+        END IF
     END IF
 END SUB
 
@@ -4605,12 +4722,46 @@ END SUB
 
 
 ''
-' Set drawing color based on active mouse button (B1=FG, B2=BG).
+' Which physical button drives a rebindable mouse behavior (MB_*). Reads the
+' metadata behavior bind's current button (honoring any user override applied by
+' BINDINGS_apply). Returns the fallback when the behavior isn't registered.
+'
+FUNCTION MOUSE_intent_button% (behaviorId AS INTEGER, fallback AS INTEGER)
+    DIM i AS INTEGER
+    FOR i% = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i%).device = DEVICE_MOUSE AND INPUT_BINDS(i%).actionId = behaviorId% THEN
+            MOUSE_intent_button% = INPUT_BINDS(i%).button
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+    MOUSE_intent_button% = fallback%
+END FUNCTION
+
+''
+' TRUE when physical button `btn` is down now (1/2/3 map to B1/B2/B3; 4+ read the
+' sampled MOUSE_BTN array). `orOld` also accepts the just-released frame.
+'
+FUNCTION MOUSE_button_down% (btn AS INTEGER, orOld AS INTEGER)
+    DIM d AS INTEGER : d% = FALSE
+    SELECT CASE btn%
+        CASE 1 : d% = MOUSE.B1% OR (orOld% AND MOUSE.OLD_B1%)
+        CASE 2 : d% = MOUSE.B2% OR (orOld% AND MOUSE.OLD_B2%)
+        CASE 3 : d% = MOUSE.B3% OR (orOld% AND MOUSE.OLD_B3%)
+        CASE IS >= 4 : IF btn% <= MOUSE_MAX_BTN THEN d% = MOUSE_BTN(btn%)
+    END SELECT
+    MOUSE_button_down% = d%
+END FUNCTION
+
+''
+' Set drawing color based on which button paints BG (rebindable via MB_PAINT_BG;
+' default button 2). Uses BG when that button is down OR was just released, so the
+' release-frame handlers still see the right color. Swapping FG/BG buttons in
+' Customize Controls flips this without touching the stroke-start gates (they fire
+' on either button).
 '
 SUB MOUSE_update_draw_color ()
-    ' Use BG color when B2 is pressed OR was just released (OLD_B2),
-    ' so release handlers still see the correct draw color on the release frame.
-    IF MOUSE.B2% OR MOUSE.OLD_B2% THEN
+    DIM bgBtn AS INTEGER : bgBtn% = MOUSE_intent_button%(MB_PAINT_BG, 2)
+    IF MOUSE_button_down%(bgBtn%, TRUE) THEN
         DRAW_COLOR~& = PAINT_BG_COLOR~&
     ELSE
         DRAW_COLOR~& = PAINT_COLOR~&

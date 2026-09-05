@@ -151,6 +151,7 @@ CONST CTX_POPUP_MENU_OPEN      = &H0000000000000100
 CONST CTX_COMMAND_PALETTE_OPEN = &H0000000000000200
 CONST CTX_TRANSFORM_ACTIVE     = &H0000000000000400
 CONST CTX_DRAWING_IN_PROGRESS  = &H0000000000000800
+CONST CTX_CUSTOM_BRUSH_ACTIVE  = &H0000000000001000 ' bit 12 — a custom brush is loaded; Home/End/PgUp/PgDn/`/` transform the brush, not the layer
 ' bits 12-19 reserved
 
 ' Held-key chord initiators (set by INPUT_update_context from raw key state)
@@ -193,6 +194,39 @@ CONST DBLCLICK_WINDOW_S = 0.3                       ' seconds for double-click
 
 
 '==============================================================================
+' BINDING CATEGORIES (for SHORTCUTS.md grouping + the rebind UI)
+'==============================================================================
+CONST CAT_NONE      = 0
+CONST CAT_GLOBAL    = 1
+CONST CAT_FILE      = 2
+CONST CAT_EDIT      = 3
+CONST CAT_VIEW      = 4
+CONST CAT_TOOLS     = 5
+CONST CAT_SELECTION = 6
+CONST CAT_LAYERS    = 7
+CONST CAT_COLOR     = 8
+CONST CAT_GRID      = 9   ' grid + symmetry
+CONST CAT_TEXT      = 10
+CONST CAT_BRUSH     = 11  ' brush + custom brush
+CONST CAT_TRANSFORM = 12
+CONST CAT_IMAGE     = 13  ' image adjustments + effects
+CONST CAT_PANELS    = 14
+CONST CAT_AUDIO     = 15
+CONST CAT_MOUSE     = 16  ' any mouse/wheel binding (assigned by device, not id)
+
+' Rebindable MOUSE BEHAVIOR ids (3001-3099). These are metadata-only mouse binds
+' (dispatched=FALSE): MOUSE.BM QUERIES them for which button drives each behavior,
+' rather than the dispatcher firing an action. They appear in Customize Controls
+' like any mouse bind and rebind via the same button-capture path.
+CONST MB_PAINT_FG   = 3001  ' paint with the foreground color
+CONST MB_PAINT_BG   = 3002  ' paint with the background color
+CONST MB_PAN        = 3003  ' pan the canvas (B2)
+CONST MB_PICK_FG    = 3004  ' eyedrop -> foreground (B2)
+CONST MB_PICK_BG    = 3005  ' eyedrop -> background (B2)
+CONST MB_SYM_CENTER = 3006  ' set symmetry center (B2)
+
+
+'==============================================================================
 ' TYPES
 '==============================================================================
 
@@ -215,6 +249,13 @@ TYPE INPUT_BIND
     actionId    AS INTEGER              ' CMD_execute_action target
     dispatched  AS INTEGER              ' TRUE = new dispatcher fires; FALSE = legacy
     device      AS INTEGER              ' DEVICE_* (filled at registration)
+    category    AS INTEGER              ' CAT_* — for SHORTCUTS.md grouping + rebind UI (filled at registration)
+    userOverridden AS INTEGER           ' TRUE once a user rebind replaces the default (drives DRAW.bindings persistence)
+    defKeycode     AS LONG              ' compiled-in default keycode (snapshot at registration; for reset + skip-list retention)
+    defRequireMods AS INTEGER           ' compiled-in default requireMods
+    defForbidMods  AS INTEGER           ' compiled-in default forbidMods
+    defButton      AS INTEGER           ' compiled-in default mouse button (snapshot at registration; for mouse-bind reset)
+    defWheelDir    AS INTEGER           ' compiled-in default wheel direction (snapshot; for wheel/tilt-bind reset)
     label       AS STRING * 48          ' for cheatsheet / audit / inputs.log
 END TYPE
 
@@ -295,15 +336,43 @@ DIM SHARED DETECTED_EVENT_COUNT AS INTEGER
 ' Edge-detection state for keys (indexed by binding index)
 DIM SHARED KEY_DOWN_LAST(1 TO INPUT_MAX_BINDS)       AS INTEGER
 
+' Highest mouse button DRAW samples + can bind. 1=L 2=R 3=M 4=back 5=forward
+' 6-8=extra. _MOUSEBUTTON(n) on an absent button returns 0, so oversampling is safe.
+CONST MOUSE_MAX_BTN = 8
+
+' Per-frame physical state of every button (1..MOUSE_MAX_BTN). Buttons 1-3 mirror
+' MOUSE.B1/B2/B3; 4+ are sampled straight from _MOUSEBUTTON in MOUSE_update_state.
+' The central dispatcher reads this so extra buttons can drive bound actions.
+DIM SHARED MOUSE_BTN(1 TO MOUSE_MAX_BTN)             AS INTEGER
+DIM SHARED MOUSE_BTN_AVAIL                           AS INTEGER ' buttons the device reports (_LASTBUTTON, clamped); for the rebind UI
+
+' Horizontal wheel TILT support. Read via _MOUSEWHEEL(axis) INSIDE DRAW's normal
+' _MOUSEINPUT drain: axis 0 = vertical (the classic _MOUSEWHEEL), axis 1 = horizontal
+' tilt. This replaced the _DEVICEINPUT/_WHEEL(n) device API, which read one event per
+' call and lost the tilt behind mouse-movement events. wheelDir in the bind table
+' encodes tilt as ±2 (WHEEL_TILT_* below) so one INTEGER carries vertical AND tilt.
+DIM SHARED MOUSE_TILT_AXIS                           AS INTEGER ' _MOUSEWHEEL axis for horizontal tilt (config MOUSE_TILT_AXIS, default 1; 0 = disable)
+DIM SHARED MOUSE_TILT                                AS INTEGER ' this frame's tilt: -1 = RIGHT, +1 = LEFT, 0 = none
+' wheelDir sign follows the PHYSICAL gesture as reported by _MOUSEWHEEL / _MOUSEWHEEL(axis):
+' vertical  — physical UP reads -1, physical DOWN reads +1 (per QB64 wiki; confirmed by
+'             zoom-in being bound to -1 and firing on a real wheel-up).
+' horizontal — physical RIGHT reads NEGATIVE, physical LEFT reads POSITIVE (confirmed on
+'             real hardware). Keep these constants matched to the physical direction so the
+'             on-screen labels (CTRL_wheel_dir_name$) and the default binds stay truthful.
+CONST WHEEL_UP         = -1  ' vertical wheel up   (physical up)
+CONST WHEEL_DOWN       =  1  ' vertical wheel down (physical down)
+CONST WHEEL_TILT_RIGHT = -2  ' horizontal tilt right (physical-right reads negative)
+CONST WHEEL_TILT_LEFT  =  2  ' horizontal tilt left  (physical-left reads positive)
+
 ' Edge-detection state for mouse buttons + drag state machine
-DIM SHARED MOUSE_BTN_DOWN_LAST(1 TO 3)               AS INTEGER
-DIM SHARED MOUSE_DOWN_REGION(1 TO 3)                 AS INTEGER
-DIM SHARED MOUSE_DOWN_X(1 TO 3)                      AS INTEGER
-DIM SHARED MOUSE_DOWN_Y(1 TO 3)                      AS INTEGER
-DIM SHARED MOUSE_DOWN_TIME(1 TO 3)                   AS DOUBLE
-DIM SHARED MOUSE_DRAG_STARTED(1 TO 3)                AS INTEGER
-DIM SHARED MOUSE_LAST_CLICK_TIME(1 TO 3)             AS DOUBLE
-DIM SHARED MOUSE_LAST_CLICK_REGION(1 TO 3)           AS INTEGER
+DIM SHARED MOUSE_BTN_DOWN_LAST(1 TO MOUSE_MAX_BTN)   AS INTEGER
+DIM SHARED MOUSE_DOWN_REGION(1 TO MOUSE_MAX_BTN)     AS INTEGER
+DIM SHARED MOUSE_DOWN_X(1 TO MOUSE_MAX_BTN)          AS INTEGER
+DIM SHARED MOUSE_DOWN_Y(1 TO MOUSE_MAX_BTN)          AS INTEGER
+DIM SHARED MOUSE_DOWN_TIME(1 TO MOUSE_MAX_BTN)       AS DOUBLE
+DIM SHARED MOUSE_DRAG_STARTED(1 TO MOUSE_MAX_BTN)    AS INTEGER
+DIM SHARED MOUSE_LAST_CLICK_TIME(1 TO MOUSE_MAX_BTN) AS DOUBLE
+DIM SHARED MOUSE_LAST_CLICK_REGION(1 TO MOUSE_MAX_BTN) AS INTEGER
 
 ' Hover state for enter/leave detection
 DIM SHARED HOVER_REGION_LAST AS INTEGER

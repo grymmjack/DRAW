@@ -216,6 +216,8 @@ $ELSE
             argIdx% = argIdx% + 1 ' Defensive: HELP.BI should have exited already
         ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" THEN
             argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
+        ELSEIF LCASE$(argVal$) = "--export-qb64" THEN
+            argIdx% = argIdx% + 2 ' 2-token flag (flag + output path) — skip both so the path is not mistaken for the input file
         ELSEIF LEFT$(argVal$, 1) = "-" THEN
             argIdx% = argIdx% + 1 ' BUG-53: any other unrecognized flag (--developer/--dev/...) — skip it, don't treat it as the file
         ELSE
@@ -282,6 +284,55 @@ COLORMIXER_init         ' Initialise non-modal color mixer panel
 BROWSER_init            ' Initialise floating browser panel scaffold
 SMART_SHAPES_init       ' Register Smart Shapes flyout sub-tools
 INPUTS_init             ' Initialise input dispatch system + audit (DEV_MODE -> inputs.log)
+
+' --dump-shortcuts: emit the input registry as markdown binding tables, then exit.
+' Runs here (after INPUTS_init populates the registry). Console-only; use
+' DRAW_HEADLESS=1 to avoid the window. (Augment generator for SHORTCUTS.md.)
+DIM dumpShortcutsI AS INTEGER
+FOR dumpShortcutsI% = 1 TO _COMMANDCOUNT
+    IF LCASE$(_TRIM$(COMMAND$(dumpShortcutsI%))) = "--dump-shortcuts" THEN
+        SHORTCUTS_dump
+        SYSTEM
+    END IF
+NEXT dumpShortcutsI%
+
+' --export-controls [dir]: write CONTROLS.md + CONTROLS.html (+ CONTROLS.pdf if pandoc
+' is present) from the LIVE registry — so user overrides (DRAW.bindings, applied in
+' INPUTS_init) are reflected — then exit. Console-only; DRAW_HEADLESS=1 avoids the window.
+DIM exportCtrlI AS INTEGER, exportCtrlDir AS STRING, exportCtrlN AS INTEGER
+FOR exportCtrlI% = 1 TO _COMMANDCOUNT
+    IF LCASE$(_TRIM$(COMMAND$(exportCtrlI%))) = "--export-controls" THEN
+        exportCtrlDir$ = ""
+        IF exportCtrlI% < _COMMANDCOUNT THEN
+            IF LEFT$(_TRIM$(COMMAND$(exportCtrlI% + 1)), 2) <> "--" THEN exportCtrlDir$ = _TRIM$(COMMAND$(exportCtrlI% + 1))
+        END IF
+        exportCtrlN% = SHORTCUTS_export_controls%(exportCtrlDir$)
+        _LOGINFO "CONTROLS export: " + _TRIM$(STR$(exportCtrlN%)) + " file(s) written (CONTROLS.md, CONTROLS.html)"
+        _LOGINFO "CONTROLS export: for PDF, open CONTROLS.html in a browser and Print -> Save as PDF"
+        SYSTEM
+    END IF
+NEXT exportCtrlI%
+
+' --load-preset <name>: apply a shipped keymap preset (writes DRAW.bindings), then exit.
+DIM loadPresetI AS INTEGER
+FOR loadPresetI% = 1 TO _COMMANDCOUNT
+    IF LCASE$(_TRIM$(COMMAND$(loadPresetI%))) = "--load-preset" AND loadPresetI% < _COMMANDCOUNT THEN
+        BINDINGS_load_preset _TRIM$(COMMAND$(loadPresetI% + 1))
+        SYSTEM
+    END IF
+NEXT loadPresetI%
+
+' --export-qb64 <path>: batch/CI export. Capture the target path here; the export
+' itself runs on the first frame (below), AFTER any command-line document has
+' loaded, then the process exits. Unlike --dump-shortcuts / --load-preset we do
+' NOT SYSTEM here — the doc must load first.
+DIM exportQb64I AS INTEGER
+FOR exportQb64I% = 1 TO _COMMANDCOUNT
+    IF LCASE$(_TRIM$(COMMAND$(exportQb64I%))) = "--export-qb64" AND exportQb64I% < _COMMANDCOUNT THEN
+        BATCH_EXPORT_QB64_PATH$ = _TRIM$(COMMAND$(exportQb64I% + 1))
+    END IF
+NEXT exportQb64I%
+
 GAMEPAD_init            ' Initialise gamepad subsystem (stub — mouse emulation)
 
 ' Main Loop
@@ -446,6 +497,15 @@ DO
         CMDLINE_PENDING_FILE$ = ""                                        ' Clear after loading
     ELSEIF CMDLINE_FIRST_FRAME% THEN
         CMDLINE_FIRST_FRAME% = FALSE
+    END IF
+
+    ' --export-qb64 <path>: the command-line document (if any) has loaded by now.
+    ' Export a standalone QB64 project to <path> and exit — no dialog, no alert
+    ' (suppressed in FILE_QB64_export while BATCH_EXPORT_QB64_PATH$ is set).
+    IF BATCH_EXPORT_QB64_PATH$ <> "" THEN
+        FILE_QB64_export BATCH_EXPORT_QB64_PATH$
+        _LOGINFO "batch QB64 export written to: " + BATCH_EXPORT_QB64_PATH$
+        SYSTEM
     END IF
 
     IF _TOTALDROPPEDFILES THEN
