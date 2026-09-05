@@ -53,7 +53,12 @@ assert_grep "PERSIST" "CFG/BINDINGS.BM" 'INPUT_BINDS\(i%\).wheelDir.*= INPUT_BIN
 
 # Rebind UI: capture a tilt in the modal, persist, label it.
 assert_grep "UI" "GUI/CONTROLS.BM" 'isWheel% = \(INPUT_BINDS\(bindIdx%\).eventType = EVT_MOUSE_WHEEL\)' "modal detects a wheel row"
-assert_grep "UI" "GUI/CONTROLS.BM" '_MOUSEWHEEL\(MOUSE_TILT_AXIS%\)'            "modal captures a live tilt gesture"
+# The modal reads the tilt/wheel that DIALOG_poll_mouse already drained into aCtx
+# (a second _MOUSEINPUT drain in the modal would find the queue empty — the old bug).
+assert_grep  "UI" "GUI/DIALOG.BI"   'mtilt        AS INTEGER'                   "DIALOG_CTX carries a tilt accumulator"
+assert_grep  "UI" "GUI/DIALOG.BM"   'ctx.mtilt = ctx.mtilt \+ _MOUSEWHEEL\(MOUSE_TILT_AXIS%\)' "poll drain captures the tilt axis"
+assert_grep  "UI" "GUI/CONTROLS.BM" 'aCtx.mtilt <> 0'                           "modal reads the captured tilt gesture"
+assert_absent "UI" "GUI/CONTROLS.BM" '_MOUSEWHEEL\('                            "modal no longer double-drains _MOUSEINPUT for the wheel"
 assert_grep "UI" "GUI/CONTROLS.BM" 'BINDINGS_set_wheel_override actId%, capWheel%, mods%' "OK persists the wheel override"
 assert_grep "UI" "GUI/CONTROLS.BM" 'CTRL_wheel_dir_name\$'                   "wheel direction name helper"
 assert_grep "UI" "GUI/CONTROLS.BM" 'actionId <> 0 _ANDALSO INPUT_BINDS\(i%\).eventType = EVT_MOUSE_WHEEL THEN' "wheel rows (tilt + vertical) are visible/rebindable"
