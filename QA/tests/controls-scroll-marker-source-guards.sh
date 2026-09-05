@@ -48,5 +48,15 @@ assert_grep "MARKER" "GUI/CONTROLS.BM" 'modf = INPUT_BINDS\(bi\)\.userOverridden
 assert_grep "MARKER" "GUI/CONTROLS.BM" 'IF modf THEN LINE \(1, y\)-\(3'              "modified rows get a left accent stripe"
 assert_grep "MARKER" "GUI/CONTROLS.BM" '= changed from default'                      "button bar carries the marker legend"
 
+# (3) SET-button hit-rect clamped to the visible band -------------------------
+# The REBIND (SET) column (x 448..540) overlaps CLOSE in X. A row straddling the
+# bottom edge is painted over by the button bar, but its SET hit-rect used to
+# extend under the bar, so clicking CLOSE also fired the occluded SET behind it
+# (a random rebind modal popped up). The clamp confines the hit-rect to [top,
+# bottom] so the under-bar (and under-header) region is inert.
+assert_grep  "CLAMP" "GUI/CONTROLS.BM" 'IF btnTop% < top THEN btnTop% = top'         "SET hit-rect clamped to viewport top (header occlusion)"
+assert_grep  "CLAMP" "GUI/CONTROLS.BM" 'IF btnBot% > bottom THEN btnBot% = bottom'   "SET hit-rect clamped to viewport bottom (button-bar occlusion)"
+assert_grep  "CLAMP" "GUI/CONTROLS.BM" 'IF btnBot% > btnTop% THEN'                    "no hit-test when nothing of the SET button is visible"
+
 guard_footer "a Customize Controls polish fix was removed"
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then [ "$fails" -eq 0 ] && exit 0 || exit 1; fi
