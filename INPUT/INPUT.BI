@@ -255,6 +255,7 @@ TYPE INPUT_BIND
     defRequireMods AS INTEGER           ' compiled-in default requireMods
     defForbidMods  AS INTEGER           ' compiled-in default forbidMods
     defButton      AS INTEGER           ' compiled-in default mouse button (snapshot at registration; for mouse-bind reset)
+    defWheelDir    AS INTEGER           ' compiled-in default wheel direction (snapshot; for wheel/tilt-bind reset)
     label       AS STRING * 48          ' for cheatsheet / audit / inputs.log
 END TYPE
 

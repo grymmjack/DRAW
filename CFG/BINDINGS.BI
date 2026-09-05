@@ -21,8 +21,10 @@ TYPE BINDING_OVERRIDE
     keycode     AS LONG      ' new physical keycode (keyboard overrides)
     requireMods AS INTEGER   ' MOD_* bits required
     forbidMods  AS INTEGER   ' MOD_* bits forbidden
-    device      AS INTEGER   ' DEVICE_KEYBOARD or DEVICE_MOUSE — an action can have one of each
-    button      AS INTEGER   ' new mouse button (mouse overrides; 0 for keyboard)
+    device      AS INTEGER   ' DEVICE_KEYBOARD or DEVICE_MOUSE
+    button      AS INTEGER   ' new mouse button (button overrides; 0 otherwise)
+    wheelDir    AS INTEGER   ' new wheel direction ±1 vertical / ±2 tilt (wheel overrides; 0 otherwise)
+    eventType   AS INTEGER   ' EVT_MOUSE_DOWN (button) or EVT_MOUSE_WHEEL (wheel); 0 in legacy files = button. Lets one action carry an independent button AND wheel override.
     active      AS INTEGER   ' TRUE = a real override row
 END TYPE
 
