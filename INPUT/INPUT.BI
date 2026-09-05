@@ -345,6 +345,20 @@ CONST MOUSE_MAX_BTN = 8
 DIM SHARED MOUSE_BTN(1 TO MOUSE_MAX_BTN)             AS INTEGER
 DIM SHARED MOUSE_BTN_AVAIL                           AS INTEGER ' buttons the device reports (_LASTBUTTON, clamped); for the rebind UI
 
+' Horizontal wheel TILT support. The mouse exposes several _WHEEL(n) axes: 1/2 are
+' relative movement, 3 is the vertical scroll (also read via legacy _MOUSEWHEEL),
+' and a higher index (4 on Rick's mouse) is the left/right tilt. Reading _WHEEL(n)
+' needs the device pumped via _DEVICEINPUT(MOUSE_DEV) — done once per frame in
+' MOUSE_update_state. wheelDir in the bind table encodes tilt as ±2 (see the
+' WHEEL_* constants) so a single INTEGER carries both the vertical and tilt axes.
+DIM SHARED MOUSE_DEV                                 AS INTEGER ' [MOUSE] device number (0 = not yet detected)
+DIM SHARED MOUSE_TILT_WHEEL                          AS INTEGER ' which _WHEEL index is horizontal tilt (config MOUSE_TILT_WHEEL, default 4; 0 = disabled/unavailable)
+DIM SHARED MOUSE_TILT                                AS INTEGER ' this frame's tilt: -1 = left, +1 = right, 0 = none
+CONST WHEEL_UP         =  1  ' vertical wheel up   (wheelDir)
+CONST WHEEL_DOWN       = -1  ' vertical wheel down (wheelDir)
+CONST WHEEL_TILT_RIGHT =  2  ' horizontal tilt right (wheelDir)
+CONST WHEEL_TILT_LEFT  = -2  ' horizontal tilt left  (wheelDir)
+
 ' Edge-detection state for mouse buttons + drag state machine
 DIM SHARED MOUSE_BTN_DOWN_LAST(1 TO MOUSE_MAX_BTN)   AS INTEGER
 DIM SHARED MOUSE_DOWN_REGION(1 TO MOUSE_MAX_BTN)     AS INTEGER
