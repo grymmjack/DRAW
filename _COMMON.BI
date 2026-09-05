@@ -31,6 +31,9 @@ CONST KEY_CAPSLOCK& = 100301                               ' Not supported on Li
 ' Application version
 CONST APP_VERSION$ = "2.0.3"
 
+' Canvas pan step (pixels) for the Pan actions (470-473) — matches Shift+Wheel pan.
+CONST CANVAS_PAN_STEP = 40
+
 ' Maximum number of layer slots (increased from 64 to support groups)
 CONST MAX_LAYERS = 128
 
