@@ -51,12 +51,15 @@ DO
     IF mdev > 0 THEN d = _DEVICEINPUT(mdev)
 
     ' Read wheels once each (reading resets the delta).
+    '   w1/w2 = relative X/Y MOVEMENT (fire on any mouse move — NOT tilt)
+    '   w3    = vertical scroll wheel
+    '   w4+   = horizontal TILT (the axis we care about)
+    ' So a real tilt = a wheel at index >= 4 moving. Movement (1/2) is ignored here.
     DIM anyTilt AS INTEGER : anyTilt = 0
     DIM tiltIdx AS INTEGER : tiltIdx = 0
     FOR i = 1 TO nwheels
         wv(i) = SGN(_WHEEL(i))
-        ' Wheel 3 is normally the vertical scroll; treat any OTHER moving wheel as a tilt.
-        IF wv(i) <> 0 AND i <> 3 THEN anyTilt = -1: tiltIdx = i
+        IF wv(i) <> 0 AND i >= 4 THEN anyTilt = -1: tiltIdx = i
     NEXT
 
     ' Live modifier state (same keycodes as DRAW).
