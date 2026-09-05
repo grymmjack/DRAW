@@ -81,6 +81,14 @@ The design's pessimism was overblown — the FG/BG choice turned out to be ONE c
   override) + 8-field save/parse (back-compat 4/6/8). Verified offscreen: controls-tilt-row.sh +
   mouse-wheel-tilt-source-guards.sh (24/24). **⚑ Rick real-HW test pending:** tilt actually
   resizes brush + the SET…→tilt capture round-trip (synthetic wheel can't reach GLFW under Xvfb).
+  **BUG FIXED (2026-09-04, Rick reported "tilt not working"):** the `_WHEEL` read sat AFTER the
+  `_MOUSEINPUT` drain in `MOUSE_drain_update_state` (the sampling lives there, NOT a
+  `MOUSE_update_state` — that name is only in comments). `_DEVICEINPUT`+`_MOUSEINPUT` SHARE the
+  event queue, so the drain emptied it before `_WHEEL(4)` was read → tilt always 0. Moved the
+  `_DEVICEINPUT` pump + `_WHEEL` read to BEFORE the drain (the probe's proven order); vertical wheel
+  still fine (effect-dropdown-wheel 829px). Diagnostics added: one-shot `_LOGINFO "mouse-tilt: …
+  _LASTWHEEL=… tiltWheel=…"` at detection + a `--developer` per-tilt "sampled dir=" log — so if a
+  device's tilt is on a different `_WHEEL` index, `DRAW.log` reveals it (set `MOUSE_TILT_WHEEL`).
 - **STILL OPEN (gated):** **B2b Pick-FG/BG + Sym-center** — need a design decision (pick is
   multi-site: chrome-eyedrop/canvas-loupe/picker-tool; sym fires on Ctrl+EITHER button — neither
   fits one button+mod without changing defaults). **C plain vertical wheel zoom/brush rebind** —
