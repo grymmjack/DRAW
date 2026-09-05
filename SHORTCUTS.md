@@ -534,11 +534,20 @@ the **MOUSE** category. These rows can be reassigned with **SET…** → press t
 | Pan the canvas (drag) | `Middle Button` | whole pan drag follows the rebind |
 | Undo (mouse back button) | `Button 4 (Back)` | any button → any action |
 | Redo (mouse forward button) | `Button 5 (Fwd)` | |
+| Canvas: Wheel tilt right - brush size increase | `Wheel Tilt Right` | horizontal wheel tilt (see below) |
+| Canvas: Wheel tilt left - brush size decrease | `Wheel Tilt Left` | |
 
 Extra buttons (back/forward and beyond, up to 8) are sampled from your device and can
 drive **any** action. Overrides persist in `DRAW.bindings` separately from keyboard
 overrides, so an action can keep both a key and a mouse trigger. **RESET ALL** restores
-every default. *(Wheel and Alt-pick / Ctrl-symmetry rebinding are not yet exposed.)*
+every default.
+
+**Horizontal wheel tilt** (mice with a tilt wheel): tilting the wheel left/right adjusts
+brush size by default, and is fully rebindable — **SET…** on a tilt row, then *tilt the
+wheel* to capture the direction. DRAW reads the tilt from `_WHEEL(4)` on a typical mouse;
+if yours differs, set `MOUSE_TILT_WHEEL` (see `--options-list`) to the right wheel index
+(`0` disables tilt). *(Vertical-wheel zoom / brush-size and Alt-pick / Ctrl-symmetry
+rebinding are not yet exposed.)*
 
 ### Per-tool (canvas)
 | Tool | Mouse |

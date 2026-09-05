@@ -63,15 +63,30 @@ The design's pessimism was overblown — the FG/BG choice turned out to be ONE c
   pan lifecycle.
 - **Docs** — SHORTCUTS.md MOUSE rebind table; the CONTROLS export already walks mouse binds
   (fixed `SHORTCUTS_mousetrigger$` to name buttons 4/5+).
+- **C2 wheel-tilt — DONE (2026-09-04, plain-trigger per Rick).** Horizontal tilt sampled via
+  `_WHEEL(MOUSE_TILT_WHEEL)` (index 4 on Rick's mouse, Rick-confirmed working) pumped through
+  `_DEVICEINPUT(MOUSE_DEV)` once/frame in `MOUSE_update_state` — a SEPARATE queue from
+  `_MOUSEINPUT`, so absolute x/y + legacy vertical `_MOUSEWHEEL` are undisturbed (verified:
+  effect-dropdown-wheel still scrolls). Tilt → `EVT_MOUSE_WHEEL` event, wheelDir encoded **±2**
+  (`WHEEL_TILT_RIGHT/LEFT` in INPUT.BI) so one INTEGER carries vertical (±1) AND tilt (±2), zero
+  schema change to the matcher. Greenfield (no legacy tilt handler) ⇒ two default binds
+  **dispatched=TRUE**: tilt-right→brush+ (602), tilt-left→brush- (601), over canvas. `SGN` =
+  plain trigger, not magnitude. Index validated vs `_LASTWHEEL` (disables if absent, avoids the
+  `_WHEEL`-past-count ERR 5 = same trap as `_MOUSEBUTTON`). Config key **`MOUSE_TILT_WHEEL`**
+  (default 4, 0=disable) for other mice — full 6-site wiring incl. `--options-list`. **Rebindable
+  + persisted** in Customize Controls: rows visible under MOUSE ("Wheel Tilt Right/Left", SET…
+  enabled), the rebind modal CAPTURES a tilt gesture (samples `_WHEEL` directly — its own loop,
+  so main-loop `MOUSE_TILT` is stale), persisted via new `BINDINGS_set_wheel_override` +
+  `wheelDir`/`eventType` on `BINDING_OVERRIDE` (an action can hold an independent button AND wheel
+  override) + 8-field save/parse (back-compat 4/6/8). Verified offscreen: controls-tilt-row.sh +
+  mouse-wheel-tilt-source-guards.sh (24/24). **⚑ Rick real-HW test pending:** tilt actually
+  resizes brush + the SET…→tilt capture round-trip (synthetic wheel can't reach GLFW under Xvfb).
 - **STILL OPEN (gated):** **B2b Pick-FG/BG + Sym-center** — need a design decision (pick is
   multi-site: chrome-eyedrop/canvas-loupe/picker-tool; sym fires on Ctrl+EITHER button — neither
-  fits one button+mod without changing defaults). **C wheel zoom/brush** — needs a dispatch
-  migration or surgical wiring inside the ~300-line wheel ELSEIF chain + a wheel-capture UX
-  (deferred, not rushed). **C2 wheel-tilt — PROBE RESOLVED (2026-09-04):** Rick ran
-  `DEV/mouse-axis-probe.bas` on real HW → **horizontal wheel TILT drives `_WHEEL(4)`** (the 4th
-  wheel index on his mouse; vertical scroll is the usual wheel). "and it works." So wheel-tilt is
-  bindable via `_WHEEL(4)` (returns DOUBLE now) — remaining work is the same wheel-capture UX +
-  dispatch wiring as C, not a probe. **⚑ Rick live tests pending:** paint FG/BG swap + pan drag.
+  fits one button+mod without changing defaults). **C plain vertical wheel zoom/brush rebind** —
+  still legacy-owned (MOUSE_handle_wheel, ~300-line ELSEIF chain, dispatched=FALSE metadata); needs
+  a dispatch migration or intent-query wiring — the risky part, deferred. Tilt (the new capability)
+  is the shipped piece. **⚑ Rick live tests pending:** paint FG/BG swap + pan drag.
 - **Rule learned:** every QB64 tool/probe gets `ON ERROR GOTO EH` (no blocking dialogs) —
   [[feedback-no-error-dialogs]].
 - **Phase 5 preset letter-key content** — Rick's collision tradeoffs (G bucket, C crop, L lasso,
