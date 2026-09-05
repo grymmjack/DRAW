@@ -352,11 +352,17 @@ DIM SHARED MOUSE_BTN_AVAIL                           AS INTEGER ' buttons the de
 ' call and lost the tilt behind mouse-movement events. wheelDir in the bind table
 ' encodes tilt as ±2 (WHEEL_TILT_* below) so one INTEGER carries vertical AND tilt.
 DIM SHARED MOUSE_TILT_AXIS                           AS INTEGER ' _MOUSEWHEEL axis for horizontal tilt (config MOUSE_TILT_AXIS, default 1; 0 = disable)
-DIM SHARED MOUSE_TILT                                AS INTEGER ' this frame's tilt: -1 = left, +1 = right, 0 = none
-CONST WHEEL_UP         =  1  ' vertical wheel up   (wheelDir)
-CONST WHEEL_DOWN       = -1  ' vertical wheel down (wheelDir)
-CONST WHEEL_TILT_RIGHT =  2  ' horizontal tilt right (wheelDir)
-CONST WHEEL_TILT_LEFT  = -2  ' horizontal tilt left  (wheelDir)
+DIM SHARED MOUSE_TILT                                AS INTEGER ' this frame's tilt: -1 = RIGHT, +1 = LEFT, 0 = none
+' wheelDir sign follows the PHYSICAL gesture as reported by _MOUSEWHEEL / _MOUSEWHEEL(axis):
+' vertical  — physical UP reads -1, physical DOWN reads +1 (per QB64 wiki; confirmed by
+'             zoom-in being bound to -1 and firing on a real wheel-up).
+' horizontal — physical RIGHT reads NEGATIVE, physical LEFT reads POSITIVE (confirmed on
+'             real hardware). Keep these constants matched to the physical direction so the
+'             on-screen labels (CTRL_wheel_dir_name$) and the default binds stay truthful.
+CONST WHEEL_UP         = -1  ' vertical wheel up   (physical up)
+CONST WHEEL_DOWN       =  1  ' vertical wheel down (physical down)
+CONST WHEEL_TILT_RIGHT = -2  ' horizontal tilt right (physical-right reads negative)
+CONST WHEEL_TILT_LEFT  =  2  ' horizontal tilt left  (physical-left reads positive)
 
 ' Edge-detection state for mouse buttons + drag state machine
 DIM SHARED MOUSE_BTN_DOWN_LAST(1 TO MOUSE_MAX_BTN)   AS INTEGER
