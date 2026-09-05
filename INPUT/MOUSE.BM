@@ -54,6 +54,20 @@ END FUNCTION
 SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
     wheel_delta% = 0
 
+    ' Sample the horizontal wheel TILT via _WHEEL — and do it BEFORE the _MOUSEINPUT
+    ' drain below. _DEVICEINPUT and _MOUSEINPUT pull from the SAME event queue, so if
+    ' the drain runs first it empties the queue and _WHEEL(tilt) always reads 0 (the
+    ' bug Rick hit). Pumping the device once here first captures the tilt, and the
+    ' probe proved one _DEVICEINPUT before the _MOUSEINPUT drain leaves the vertical
+    ' wheel intact. SGN = plain -1/0/+1 trigger (Rick's choice, not magnitude). Device
+    ' + index are detected lazily further down, so this is a no-op until frame 2.
+    MOUSE_TILT% = 0
+    IF MOUSE_DEV% > 0 AND MOUSE_TILT_WHEEL% > 0 THEN
+        DIM devEvt AS INTEGER : devEvt% = _DEVICEINPUT(MOUSE_DEV%)
+        MOUSE_TILT% = SGN(_WHEEL(MOUSE_TILT_WHEEL%))
+        IF MOUSE_TILT% <> 0 AND CFG.DEVELOPER_MODE% THEN _LOGINFO "mouse-tilt: sampled dir=" + STR$(MOUSE_TILT%)
+    END IF
+
     $IF MAC THEN
         ' macOS: Capture button states during drain to fix trackpad tap-to-click
         ' SDL2 on macOS doesn't always preserve button state after _MOUSEINPUT drain
@@ -215,22 +229,15 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
             ' configured index isn't available, disable tilt (0) rather than fault.
             DIM lw AS INTEGER : lw% = _LASTWHEEL(mdv%)
             IF MOUSE_TILT_WHEEL% > lw% THEN MOUSE_TILT_WHEEL% = 0
+            ' One-shot diagnostic (grep 'mouse-tilt' in DRAW.log) so a device whose
+            ' tilt sits on a different wheel index than 4 is diagnosable without HW here.
+            _LOGINFO "mouse-tilt: [MOUSE] dev#" + STR$(mdv%) + " _LASTWHEEL=" + STR$(lw%) + _
+                     " tiltWheel=" + STR$(MOUSE_TILT_WHEEL%) + " (0=disabled)"
         END IF
     END IF
     MOUSE_BTN(1) = MOUSE.B1% : MOUSE_BTN(2) = MOUSE.B2% : MOUSE_BTN(3) = MOUSE.B3%
     DIM extraBtn AS INTEGER
     FOR extraBtn% = 4 TO MOUSE_BTN_AVAIL% : MOUSE_BTN(extraBtn%) = _MOUSEBUTTON(extraBtn%) : NEXT
-
-    ' Sample the horizontal wheel TILT. _WHEEL needs the device queue pumped via
-    ' _DEVICEINPUT (separate from _MOUSEINPUT, so it doesn't disturb absolute x/y
-    ' or the legacy vertical _MOUSEWHEEL). One pump + one read per frame — same
-    ' pattern the DEV/mouse-axis-probe proved on real hardware. SGN collapses the
-    ' DOUBLE delta to a plain -1/0/+1 trigger (Rick's choice: not magnitude-aware).
-    MOUSE_TILT% = 0
-    IF MOUSE_DEV% > 0 AND MOUSE_TILT_WHEEL% > 0 THEN
-        DIM devEvt AS INTEGER : devEvt% = _DEVICEINPUT(MOUSE_DEV%)
-        MOUSE_TILT% = SGN(_WHEEL(MOUSE_TILT_WHEEL%))
-    END IF
 
     ' Detect button press starting on the apron (outside canvas screen bounds).
     ' In pattern tile mode the entire viewport wraps to canvas, so no apron exists.
