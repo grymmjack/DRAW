@@ -46,7 +46,7 @@ assert_grep "UI" "GUI/CONTROLS.BM" 'isWheel% = \(INPUT_BINDS\(bindIdx%\).eventTy
 assert_grep "UI" "GUI/CONTROLS.BM" '_MOUSEWHEEL\(MOUSE_TILT_AXIS%\)'            "modal captures a live tilt gesture"
 assert_grep "UI" "GUI/CONTROLS.BM" 'BINDINGS_set_wheel_override actId%, capWheel%, mods%' "OK persists the wheel override"
 assert_grep "UI" "GUI/CONTROLS.BM" 'CTRL_wheel_dir_name\$'                   "wheel direction name helper"
-assert_grep "UI" "GUI/CONTROLS.BM" 'eventType = EVT_MOUSE_WHEEL _ANDALSO INPUT_BINDS\(i%\).dispatched' "dispatched wheel rows are visible"
+assert_grep "UI" "GUI/CONTROLS.BM" 'actionId <> 0 _ANDALSO INPUT_BINDS\(i%\).eventType = EVT_MOUSE_WHEEL THEN' "wheel rows (tilt + vertical) are visible/rebindable"
 
 # Config: tilt-axis key exists + documented.
 assert_grep "CONFIG" "CFG/CONFIG.BI"  'MOUSE_TILT_AXIS'                       "CFG TYPE field"
