@@ -5,9 +5,19 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.1.0
+Current release: v2.1.1
 
 ![DRAW GUI from v1.1.0](./GUI.png)
+
+## New in 2.1.1
+
+A polish-and-fix patch — more beta-tester field reports (thanks TempodiBasic) plus a QA-harness deep dive and Image Browser improvements.
+
+- **Filled shapes no longer vanish after a move** — drawing a filled rectangle, ellipse, or polygon on a layer that had been moved (which promotes it to an apron-extended buffer) now lands correctly on the canvas instead of the invisible off-canvas apron border.
+- **Click outside a floating selection to drop it** — after copy/paste or a move, clicking outside the floating selection now finalises it once and deselects (Photoshop/GIMP/Krita style); it no longer stays "live" and re-stamps on the next drag. **Select All** and **Deselect** now appear in the **Edit** menu too (they were hotkey-only — `Ctrl+A` / `Ctrl+D` or `Esc`).
+- **Readable filenames in the Open dialog** — the Name column scales with the UI font, so long filenames are no longer clipped to a few characters at higher display scales.
+- **Image Browser — Settings → Browser tab** — configure the browser's geometry (auto-save or fixed size/position), starting directory, and appearance defaults (view mode, thumbnail size, show-hidden, preview pane, sort order), plus add/remove **Places** bookmarks; appearance changes apply to the live browser immediately. Browser window geometry now round-trips reliably across close/reopen, including at display scales above 1×.
+- **Browser fixes** — the toolbox no longer re-opens the last image (or drops a transparent canvas) from stale dialog state, and Controls presets now reflect in the CURRENT KEY column when loaded.
 
 ## New in 2.1.0
 
