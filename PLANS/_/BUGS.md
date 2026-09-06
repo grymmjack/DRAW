@@ -17,6 +17,22 @@
         filled shapes). Verified: ellipse failed pre-fix, all pass post-fix; tool-rect /
         tool-ellipse / tool-polygon-select / apron-paint-after-move — no regressions.
 
+## Clicking outside a paste/move float re-stamps instead of deselecting (FIXED 2026-09-06)
+- [x] TempodiBasic 2.0.3 report: after copy/paste (a float), clicking outside the
+      selection then dragging re-stamped the content ("these lasts stamps on the
+      pictures"), and there was no obvious way to null the selection.
+  - [x] Root cause: the MOVE tool's click-outside branch committed the float then
+        IMMEDIATELY re-captured + started transforming a NEW float, so it stayed
+        "live" — a subsequent drag moved/stamped it (INPUT/MOUSE.BM, MOVE press).
+  - [x] Fix: on a click outside the float, FINALIZE it once (MOVE_reset, honors
+        IS_PASTE) and DESELECT (MARQUEE_clear + MAGIC_WAND_reset + INVALIDATE_scene),
+        matching the marquee tools' click-to-deselect. No re-grab.
+  - [x] Discoverability: added "SELECT ALL" (Ctrl+A) and "DESELECT" (Ctrl+D) to the
+        Edit menu (GUI/MENUBAR.BM) — they existed only as hotkeys / command palette.
+  - [x] Regression test QA/tests/float-click-outside-deselect.sh (floats a block,
+        clicks+drags outside; pre-fix the content is dragged away, post-fix it stays).
+        Deselect answer for the reporter: Ctrl+D or Esc.
+
 ## Line tool pressing s and e does not change caps, but switches tools instead
 - [x] While drawing with line tool and in active drag state:
   - [x] Pressing s changes to smart shape
