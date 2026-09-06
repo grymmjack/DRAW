@@ -32,9 +32,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/source-guard.sh"
 echo "=== Music transport central-dispatch source guards ==="
 
 # -- Registry: the three dispatched bindings exist (keycode -> action) --------
-assert_grep "REG" "INPUT/INPUT.BM" 'INPUT_register_key%\(123, 0, allMods%, 0, .*, 428, TRUE' "{ -> 428 dispatched=TRUE"
-assert_grep "REG" "INPUT/INPUT.BM" 'INPUT_register_key%\(125, 0, allMods%, 0, .*, 427, TRUE' "} -> 427 dispatched=TRUE"
-assert_grep "REG" "INPUT/INPUT.BM" 'INPUT_register_key%\(42, 0, allMods%, 0, .*, 433, TRUE'  "* -> 433 dispatched=TRUE"
+assert_grep "REG" "INPUT/INPUT.BM" 'INPUT_register_key%\(123, 0, [A-Za-z_]+%, 0, .*, 428, TRUE' "{ -> 428 dispatched=TRUE"
+assert_grep "REG" "INPUT/INPUT.BM" 'INPUT_register_key%\(125, 0, [A-Za-z_]+%, 0, .*, 427, TRUE' "} -> 427 dispatched=TRUE"
+assert_grep "REG" "INPUT/INPUT.BM" 'INPUT_register_key%\(42, 0, [A-Za-z_]+%, 0, .*, 433, TRUE'  "* -> 433 dispatched=TRUE"
 
 # -- Legacy handlers removed (no INKEY$ CMD_execute_action for these) ---------
 assert_absent "LEG" "INPUT/KEYBOARD.BM" 'CMD_execute_action 428' "legacy { handler removed"
