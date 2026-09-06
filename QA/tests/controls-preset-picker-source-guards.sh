@@ -18,7 +18,7 @@ echo "=== Preset picker + loader source guards ==="
 assert_grep "UI" "GUI/CONTROLS.BI" 'CONST CTRL_DD_PRESET'                        "preset-dropdown id constant"
 assert_grep "UI" "GUI/CONTROLS.BM" 'DIALOG_dropdown%\(CONTROLS.ctx, CTRL_DD_PRESET' "Load-preset dropdown widget"
 assert_grep "UI" "GUI/CONTROLS.BM" 'BINDINGS_load_preset pname\$'                "picker loads the chosen preset live"
-assert_grep "UI" "GUI/CONTROLS.BM" 'CASE 5: pname\$ = "krita"'                   "picker lists the new apps (krita)"
+assert_grep "UI" "GUI/CONTROLS.BM" 'CASE 5 *: *pname\$ = "krita"'                "picker lists the new apps (krita)"
 
 # Loader: clean switch (restore defaults before applying).
 assert_grep "LOADER" "CFG/BINDINGS.BM" 'SUB BINDINGS_restore_live_defaults'      "DRY restore-defaults helper"

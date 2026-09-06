@@ -37,7 +37,7 @@ assert_grep "SCROLL" "GUI/CONTROLS.BI" 'scrollDrag  *AS INTEGER'                
 assert_grep "SCROLL" "GUI/CONTROLS.BI" 'scrollDragOff *AS INTEGER'                   "drag grab-offset field exists"
 assert_grep "SCROLL" "GUI/CONTROLS.BM" 'SUB CTRL_scrollbar_metrics'                  "shared thumb-geometry helper exists"
 assert_grep "SCROLL" "GUI/CONTROLS.BM" 'SUB CONTROLS_handle_scrollbar'              "drag/paging input handler exists"
-assert_grep "SCROLL" "GUI/CONTROLS.BM" 'CONTROLS\.scrollDrag = TRUE'                 "thumb grab starts a drag"
+assert_grep "SCROLL" "GUI/CONTROLS.BM" 'CONTROLS\.scrollDrag *= *TRUE'               "thumb grab starts a drag"
 assert_grep "SCROLL" "GUI/CONTROLS.BM" 'CONTROLS\.ctx\.justClicked = FALSE'          "grab consumes the click (no double-hit)"
 assert_grep "SCROLL" "GUI/CONTROLS.BM" 'CONTROLS_handle_scrollbar'                   "handler is wired into the modal loop"
 assert_grep "SCROLL" "GUI/CONTROLS.BM" 'CONTROLS\.viewportH   *' \
