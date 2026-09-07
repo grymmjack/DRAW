@@ -344,6 +344,7 @@ DIM ebPrevCanUndo           AS INTEGER, ebPrevCanRedo AS INTEGER
 DIM ebPrevHasClip           AS INTEGER, ebPrevHasSel AS INTEGER
 DIM resizeWatchLastW        AS LONG, resizeWatchLastH AS LONG
 DIM resizeWatchSettleFrames AS INTEGER
+DIM resizeLastEventTime     AS DOUBLE   ' TIMER(.001) of the most recent _RESIZE — drives the time-based settle
 DIM resizePendingW          AS LONG, resizePendingH AS LONG
 DIM resizePending           AS INTEGER
 exitConfirmed%           = FALSE
@@ -358,6 +359,7 @@ ebPrevHasSel%            = FALSE
 resizeWatchLastW&        = _WIDTH(0)
 resizeWatchLastH&        = _HEIGHT(0)
 resizeWatchSettleFrames% = 0
+resizeLastEventTime#     = 0
 resizePendingW&          = 0
 resizePendingH&          = 0
 resizePending%           = FALSE
@@ -538,21 +540,22 @@ DO
             SCREEN_DEFERRED_RESIZE% = 0 ' our echo — consumed, stop watching
         ELSE
             ' User drag/maximize/restore in progress: record target, repaint stretched, defer snap.
-            resizePendingW&          = _ResizeWidth
-            resizePendingH&          = _ResizeHeight
-            resizePending%           = TRUE
-            ' Settle gap before the pixel-perfect snap. The loop is forced to active
-            ' FPS while resizePending% (see idle detection), so these frames elapse at
-            ' CFG.FPS_LIMIT% (~30) rather than idle 15 — 4 frames ≈ 130ms, snappy but
-            ' still a wide-enough _RESIZE gap to confirm the drag has actually stopped.
-            resizeWatchSettleFrames% = 4
+            resizePendingW&      = _ResizeWidth
+            resizePendingH&      = _ResizeHeight
+            resizePending%       = TRUE
+            resizeLastEventTime# = TIMER(.001)   ' reset the quiet-period clock on every _RESIZE
             INVALIDATE_scene
         END IF
     ELSEIF resizePending% THEN
-        ' No _RESIZE this frame — count down; snap once when the drag has settled.
-        IF resizeWatchSettleFrames% > 0 THEN
-            resizeWatchSettleFrames% = resizeWatchSettleFrames% - 1
-        ELSE
+        ' TIME-BASED SETTLE: snap once _RESIZE has been quiet for RESIZE_SETTLE_SECS.
+        ' Frame-independent (a frame-count settle drags out at low FPS_LIMIT and gives
+        ' a different feel per config). While resizePending% the loop is forced active
+        ' AND sampled at 60 FPS (see idle detection + the _LIMIT block), so an 80ms
+        ' quiet period is detected within ~16ms — snappy, yet 80ms is longer than the
+        ' gap between _RESIZE events during any real drag (>=15Hz -> <=66ms), so it
+        ' won't snap mid-drag. Negative delta = TIMER midnight wrap -> treat as settled.
+        DIM resizeQuiet AS DOUBLE : resizeQuiet# = TIMER(.001) - resizeLastEventTime#
+        IF resizeQuiet# < 0 OR resizeQuiet# >= RESIZE_SETTLE_SECS! THEN
             resizePending% = FALSE
             _LOGINFO "Resize (deferred snap): window " + _TRIM$(STR$(resizePendingW&)) + "x" + _TRIM$(STR$(resizePendingH&)) + " scale " + _TRIM$(STR$(SCRN.displayScale%)) + "x"
             SCREEN_snap_window_to_scale resizePendingW&, resizePendingH&
@@ -881,6 +884,10 @@ DO
     PERF_start PERF_LIMIT_WAIT
     IF FRAME_IDLE% THEN
         _LIMIT CFG.FPS_IDLE%
+    ELSEIF resizePending% THEN
+        ' Sample _RESIZE finely during a live drag/maximize so the time-based settle
+        ' snaps promptly (a low FPS_LIMIT would otherwise coarsen the quiet-period check).
+        _LIMIT 60
     ELSEIF cursorOnlyMove% THEN
         _LIMIT CFG.FPS_CURSOR%
     ELSEIF MOVE.ACTIVE AND CURRENT_TOOL% = TOOL_MOVE THEN
