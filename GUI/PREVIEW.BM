@@ -704,57 +704,71 @@ SUB PREVIEW_render ()
             END IF
         ELSEIF SCRN.patternTileMode% AND PREVIEW.mode% <> PREVIEW_MODE_FLOAT THEN
             ' ====== TILED (SEAMLESS PATTERN) PREVIEW ======
-            ' The canvas is in seamless-tile mode, so mirror it here: fill the pane
-            ' with repeated whole-canvas copies, no grids, ignoring pan/zoom/follow.
-            ' Scale each tile so ~3 fit across the fitted dimension (enough to read
-            ' the repeat), floored so tiles never turn to mush and the per-axis tile
-            ' count capped so a tiny canvas can't spawn a runaway blit count.
-            DIM tvFit AS SINGLE : tvFit! = contentW% / canvasW&
-            IF (contentH% / canvasH&) < tvFit! THEN tvFit! = contentH% / canvasH&
-            DIM tvScale AS SINGLE : tvScale! = tvFit! / 3.0
-            DIM tvTW AS INTEGER : tvTW% = INT(canvasW& * tvScale!)
-            DIM tvTH AS INTEGER : tvTH% = INT(canvasH& * tvScale!)
-            IF tvTW% < 6 THEN tvTW% = 6
-            IF tvTH% < 6 THEN tvTH% = 6
-            ' Recompute the true scale from the (possibly floored) integer tile size,
-            ' so partial-edge source clipping below stays proportional.
-            DIM tvSclX AS SINGLE : tvSclX! = tvTW% / canvasW&
-            DIM tvSclY AS SINGLE : tvSclY! = tvTH% / canvasH&
-            DIM tvCols AS INTEGER : tvCols% = (contentW% + tvTW% - 1) \ tvTW%
-            DIM tvRows AS INTEGER : tvRows% = (contentH% + tvTH% - 1) \ tvTH%
-            IF tvCols% > 16 THEN tvCols% = 16
-            IF tvRows% > 16 THEN tvRows% = 16
-            DIM tvR AS INTEGER, tvC AS INTEGER
-            DIM tvDX1 AS INTEGER, tvDY1 AS INTEGER, tvDX2 AS INTEGER, tvDY2 AS INTEGER
-            DIM tvSX2 AS INTEGER, tvSY2 AS INTEGER
-            FOR tvR% = 0 TO tvRows% - 1
-                FOR tvC% = 0 TO tvCols% - 1
-                    tvDX1% = cx1% + tvC% * tvTW%
-                    tvDY1% = cy1% + tvR% * tvTH%
-                    tvDX2% = tvDX1% + tvTW% - 1
-                    tvDY2% = tvDY1% + tvTH% - 1
-                    tvSX2% = canvasW& - 1
-                    tvSY2% = canvasH& - 1
-                    ' Clip the right/bottom partial tiles to the pane, shrinking the
-                    ' source proportionally so the visible slice stays pixel-aligned
-                    ' with the full tiles (the pattern simply runs off the edge).
-                    IF tvDX2% > cx2% THEN
-                        tvSX2% = INT((cx2% - tvDX1% + 1) / tvSclX!) - 1 : tvDX2% = cx2%
-                    END IF
-                    IF tvDY2% > cy2% THEN
-                        tvSY2% = INT((cy2% - tvDY1% + 1) / tvSclY!) - 1 : tvDY2% = cy2%
-                    END IF
-                    IF tvSX2% < 0 THEN tvSX2% = 0
-                    IF tvSY2% < 0 THEN tvSY2% = 0
-                    _PUTIMAGE (tvDX1%, tvDY1%)-(tvDX2%, tvDY2%), pvSrcImg&, PREVIEW.imgHandle&, (0, 0)-(tvSX2%, tvSY2%)
-                NEXT tvC%
-            NEXT tvR%
+            ' The canvas is in seamless-tile mode, so mirror it here — simply, like
+            ' the canvas. We reuse the SAME source window (srcX1..srcY2) the pane
+            ' already derived from its own pan / zoom / follow state, so every
+            ' existing preview behaviour stays intact: zoom out to see more repeats,
+            ' zoom in for fewer, pan to scroll the tiling. Instead of one clamped
+            ' blit we draw the canvas at every canvasW/canvasH boundary that the
+            ' window crosses. Adjacent tiles share edges (tile i's right = tile i+1's
+            ' left), so the fill is seamless with no grids.
+            DIM tvSpanX AS SINGLE : tvSpanX! = srcX2! - srcX1! + 1
+            DIM tvSpanY AS SINGLE : tvSpanY! = srcY2! - srcY1! + 1
+            IF tvSpanX! < 0.0001 THEN tvSpanX! = 0.0001
+            IF tvSpanY! < 0.0001 THEN tvSpanY! = 0.0001
+            DIM tvSclX AS SINGLE : tvSclX! = contentW% / tvSpanX!   ' dest px per canvas px
+            DIM tvSclY AS SINGLE : tvSclY! = contentH% / tvSpanY!
+            DIM tvI0 AS INTEGER : tvI0% = INT(srcX1! / canvasW&)
+            DIM tvI1 AS INTEGER : tvI1% = INT(srcX2! / canvasW&)
+            DIM tvJ0 AS INTEGER : tvJ0% = INT(srcY1! / canvasH&)
+            DIM tvJ1 AS INTEGER : tvJ1% = INT(srcY2! / canvasH&)
+            ' Perf guard against a degenerate zoom producing a huge tile count.
+            IF tvI1% - tvI0% > 256 THEN tvI1% = tvI0% + 256
+            IF tvJ1% - tvJ0% > 256 THEN tvJ1% = tvJ0% + 256
+            DIM tvI AS INTEGER, tvJ AS INTEGER
+            DIM tvDX1 AS INTEGER, tvDX2 AS INTEGER, tvDY1 AS INTEGER, tvDY2 AS INTEGER
+            DIM tvSX1 AS INTEGER, tvSX2 AS INTEGER, tvSY1 AS INTEGER, tvSY2 AS INTEGER
+            DIM tvFullW AS INTEGER, tvFullH AS INTEGER
+            DIM tvCDX1 AS INTEGER, tvCDX2 AS INTEGER, tvCDY1 AS INTEGER, tvCDY2 AS INTEGER
+            FOR tvJ% = tvJ0% TO tvJ1%
+                tvDY1% = cy1% + INT((tvJ% * canvasH& - srcY1!) * tvSclY! + 0.5)
+                tvDY2% = cy1% + INT(((tvJ% + 1) * canvasH& - srcY1!) * tvSclY! + 0.5) - 1
+                IF tvDY2% >= cy1% AND tvDY1% <= cy2% THEN
+                    tvFullH% = tvDY2% - tvDY1% + 1
+                    FOR tvI% = tvI0% TO tvI1%
+                        tvDX1% = cx1% + INT((tvI% * canvasW& - srcX1!) * tvSclX! + 0.5)
+                        tvDX2% = cx1% + INT(((tvI% + 1) * canvasW& - srcX1!) * tvSclX! + 0.5) - 1
+                        IF tvDX2% >= cx1% AND tvDX1% <= cx2% AND tvFullH% > 0 THEN
+                            tvFullW% = tvDX2% - tvDX1% + 1
+                            IF tvFullW% > 0 THEN
+                                ' Full tile = whole canvas; clip partial edges to the pane,
+                                ' shrinking the source proportionally so the slice stays aligned.
+                                tvSX1% = 0 : tvSX2% = canvasW& - 1
+                                tvSY1% = 0 : tvSY2% = canvasH& - 1
+                                tvCDX1% = tvDX1% : tvCDX2% = tvDX2%
+                                tvCDY1% = tvDY1% : tvCDY2% = tvDY2%
+                                IF tvCDX1% < cx1% THEN tvSX1% = INT((cx1% - tvDX1%) / tvFullW% * canvasW&) : tvCDX1% = cx1%
+                                IF tvCDX2% > cx2% THEN tvSX2% = INT((cx2% - tvDX1% + 1) / tvFullW% * canvasW&) - 1 : tvCDX2% = cx2%
+                                IF tvCDY1% < cy1% THEN tvSY1% = INT((cy1% - tvDY1%) / tvFullH% * canvasH&) : tvCDY1% = cy1%
+                                IF tvCDY2% > cy2% THEN tvSY2% = INT((cy2% - tvDY1% + 1) / tvFullH% * canvasH&) - 1 : tvCDY2% = cy2%
+                                IF tvSX1% < 0 THEN tvSX1% = 0
+                                IF tvSY1% < 0 THEN tvSY1% = 0
+                                IF tvSX2% > canvasW& - 1 THEN tvSX2% = canvasW& - 1
+                                IF tvSY2% > canvasH& - 1 THEN tvSY2% = canvasH& - 1
+                                IF tvSX2% >= tvSX1% AND tvSY2% >= tvSY1% AND tvCDX2% >= tvCDX1% AND tvCDY2% >= tvCDY1% THEN
+                                    _PUTIMAGE (tvCDX1%, tvCDY1%)-(tvCDX2%, tvCDY2%), pvSrcImg&, PREVIEW.imgHandle&, (tvSX1%, tvSY1%)-(tvSX2%, tvSY2%)
+                                END IF
+                            END IF
+                        END IF
+                    NEXT tvI%
+                END IF
+            NEXT tvJ%
         ELSE
             _PUTIMAGE (cx1%, cy1%)-(cx2%, cy2%), pvSrcImg&, PREVIEW.imgHandle&, (srcX1!, srcY1!)-(srcX2!, srcY2!)
         END IF
 
         ' --- Center tracking crosshair in follow mode ---
-        IF PREVIEW.followPointer% AND PREVIEW.mode% = PREVIEW_MODE_FOLLOW AND NOT PREVIEW.binQuickLookActive% AND NOT SCRN.patternTileMode% THEN
+        IF PREVIEW.followPointer% AND PREVIEW.mode% = PREVIEW_MODE_FOLLOW AND NOT PREVIEW.binQuickLookActive% THEN
             DIM cdx  AS INTEGER        : cdx% = cx1% + contentW% \ 2
             DIM cdy  AS INTEGER        : cdy% = cy1% + contentH% \ 2
             DIM dotC AS _UNSIGNED LONG : dotC~& = THEME.PREVIEW_center_dot_color~&
