@@ -541,7 +541,11 @@ DO
             resizePendingW&          = _ResizeWidth
             resizePendingH&          = _ResizeHeight
             resizePending%           = TRUE
-            resizeWatchSettleFrames% = 6
+            ' Settle gap before the pixel-perfect snap. The loop is forced to active
+            ' FPS while resizePending% (see idle detection), so these frames elapse at
+            ' CFG.FPS_LIMIT% (~30) rather than idle 15 — 4 frames ≈ 130ms, snappy but
+            ' still a wide-enough _RESIZE gap to confirm the drag has actually stopped.
+            resizeWatchSettleFrames% = 4
             INVALIDATE_scene
         END IF
     ELSEIF resizePending% THEN
@@ -724,6 +728,7 @@ DO
     IF modifiersChanged% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Modifier overlays affect cached scene and must repaint on press/release
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE                             ' Panning active — only dirty scene when mouse moves
     IF SCRN.panning% AND mouseMoved% THEN SCENE_CHANGED% = TRUE
+    IF resizePending% THEN FRAME_IDLE% = FALSE                            ' Resize snap pending — run the settle countdown at active FPS (not idle 15), so the deferred snap lands ~fast instead of crawling for ~400ms
     IF MODIFIERS.shift% THEN
         FRAME_IDLE% = FALSE ' Keep render loop active for crosshair overlay
         IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Crosshair position changed — rebuild scene (crosshair is in scene cache)
