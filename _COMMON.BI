@@ -34,8 +34,9 @@ CONST APP_VERSION$ = "2.1.1"
 ' Canvas pan step (pixels) for the Pan actions (470-473) — matches Shift+Wheel pan.
 CONST CANVAS_PAN_STEP = 40
 
-' Maximum number of layer slots (increased from 64 to support groups)
-CONST MAX_LAYERS = 128
+' Maximum number of layer slots — hard array bound. The user-facing cap is
+' CFG.NUM_LAYERS (Settings > General > Maximum Layers), which can be set up to this.
+CONST MAX_LAYERS = 256
 
 ' Title bar tracking (only update _TITLE when state changes)
 DIM SHARED AS INTEGER TITLE_PREV_DIRTY                     ' Previous frame's dirty state

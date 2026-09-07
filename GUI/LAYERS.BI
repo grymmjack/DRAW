@@ -136,11 +136,11 @@ TYPE LAYER_PANEL_OBJ
     iconBtnGroup     AS LONG         ' New group button icon
     ' Solo mode state (alt+click on eye icon)
     soloLayer        AS INTEGER      ' Layer index currently soloed (0 = none)
-    savedVisibility  AS STRING * 128 ' Saved visibility states before solo
+    savedVisibility  AS STRING * MAX_LAYERS ' Saved visibility states before solo (one char per layer slot)
     ' Visibility swipe state (click+drag on eye icons)
     visSwiping       AS INTEGER      ' TRUE while swiping visibility
     visSwipeAction   AS INTEGER      ' 1 = show, 0 = hide (action applied during swipe)
-    visSwipedLayers  AS STRING * 128 ' Track which layers were already swiped (CHR$(1) = swiped)
+    visSwipedLayers  AS STRING * MAX_LAYERS ' Track which layers were already swiped (CHR$(1) = swiped)
     ' Scrollbar drag state
     scrollDragging   AS INTEGER      ' TRUE while dragging the scroll thumb
     scrollDragOffset AS INTEGER      ' Y offset from thumb top where drag started
