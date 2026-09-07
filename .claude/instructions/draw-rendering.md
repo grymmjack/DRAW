@@ -92,7 +92,7 @@ When only the cursor moved, `SCENE_DIRTY%` stays FALSE. The renderer copies the 
 | collapsed        | INTEGER    | TRUE if group is collapsed in layer panel               |
 | passThrough      | INTEGER    | TRUE = pass-through blend; FALSE = isolated group blend |
 
-Max 64 layers. 19 blend modes (Normal through Divide) plus Pass Through (`BLEND_PASS_THROUGH = -1`, group-only).
+Max `MAX_LAYERS` (256) layer slots; the user-facing cap is `CFG.NUM_LAYERS` (Settings → General → Maximum Layers, default 64). 19 blend modes (Normal through Divide) plus Pass Through (`BLEND_PASS_THROUGH = -1`, group-only).
 
 `LAYER_current_image&`: Returns `LAYERS(CURRENT_LAYER%).imgHandle&` or falls back to `SCRN.PAINTING&`.
 

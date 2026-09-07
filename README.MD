@@ -197,7 +197,7 @@ groups, transform/move, export, importers, and input handling.
 - Visual cursor feedback with current color
 
 ### Layer System
-- Up to 128 layer slots (default 32, set via `NUM_LAYERS`) with per-layer opacity, visibility, and blend mode
+- Up to 256 layer slots (default 64, set via `NUM_LAYERS` in Settings → General → Maximum Layers) with per-layer opacity, visibility, and blend mode
 - **19 blend modes**: Normal, Multiply, Screen, Overlay, Add, Subtract, Difference, Darken, Lighten, Color Dodge, Color Burn, Hard Light, Soft Light, Exclusion, Vivid Light, Linear Light, Pin Light, Color, Luminosity; plus **Pass Through** for layer groups
 - Solo layer (Alt+click eye icon) and visibility swipe (drag across eye icons)
 - Drag-and-drop layer reordering with visual feedback

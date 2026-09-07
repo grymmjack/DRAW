@@ -163,7 +163,7 @@ After native dialogs, call `MOUSE_cleanup_after_dialog` (drains buffer, forces b
 
 ### 11. `contentDirty%` vs `BLEND_invalidate_cache`
 
-`BLEND_invalidate_cache` does NOT mark layers `contentDirty%`. Only set `contentDirty% = TRUE` when actual pixel content changes on a specific layer. Blanket-marking all 64 layers causes O(n) per-pixel `_MEM` opacity recalculation every invalidation.
+`BLEND_invalidate_cache` does NOT mark layers `contentDirty%`. Only set `contentDirty% = TRUE` when actual pixel content changes on a specific layer. Blanket-marking all layers (up to `MAX_LAYERS` = 256) causes O(n) per-pixel `_MEM` opacity recalculation every invalidation.
 
 ### 12. Scene Cache Boundary for Animations
 
