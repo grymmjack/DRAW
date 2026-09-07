@@ -114,6 +114,7 @@ CONST REGION_TEXT_BAR             = 24
 CONST REGION_PALETTE_PICKER       = 25
 CONST REGION_FILL_ADJ             = 26
 CONST REGION_DIALOG_GENERIC       = 27              ' generic modal dialogs
+CONST REGION_ADV_COLOR_PICKER     = 28              ' Advanced Color Picker floating panel
 ' --- 28-63 reserved ---
 
 CONST REGION_TABLE_SIZE = 64                        ' max regions; bumps require type fitness check

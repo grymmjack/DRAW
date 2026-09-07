@@ -116,10 +116,12 @@ TOOLTIP_LINE2$(27) = "Drag and drop images onto layers, bins, and canvas."
 ' Organizer widget tooltip text arrays — indexed by ORG_* constants (0..10)
 DIM SHARED TOOLTIP_ORG_LINE1$(0 TO 10)
 DIM SHARED TOOLTIP_ORG_LINE2$(0 TO 10)
+DIM SHARED TOOLTIP_ORG_LINE3$(0 TO 10)          ' optional 3rd line (empty = not drawn)
 
 ' 0 = ORG_COLOR_MIXER
 TOOLTIP_ORG_LINE1$(0) = "COLOR MIXER - L-CLICK to show/hide color mixer panel."
 TOOLTIP_ORG_LINE2$(0) = "Mix and pick colors with HSV square, hue bar, and RGB/HSL sliders."
+TOOLTIP_ORG_LINE3$(0) = "M-CLICK: Toggle Advanced Color Picker."
 ' 1 = ORG_CANVAS_OPS (now Opacity Slider)
 TOOLTIP_ORG_LINE1$(1) = "OPACITY - Use 1-9 keys to set 10%-90% and 0 for 100% opacity."
 TOOLTIP_ORG_LINE2$(1) = "MWHEEL to adjust by 1%. SHIFT+MWHEEL to adjust by 10% increments."

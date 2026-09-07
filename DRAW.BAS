@@ -281,6 +281,7 @@ SOUND_play SND_NEW_FILE ' Startup chime (silent when sounds are disabled)
 MUSIC_init              ' Initialise background music (plays if CFG.MUSIC_ENABLED)
 IMAGE_ADJ_init          ' Initialise image adjustment library (IMGADJ)
 COLORMIXER_init         ' Initialise non-modal color mixer panel
+ADVCP_init              ' Initialise advanced color picker panel (hue ring + SV triangle)
 BROWSER_init            ' Initialise floating browser panel scaffold
 SMART_SHAPES_init       ' Register Smart Shapes flyout sub-tools
 INPUTS_init             ' Initialise input dispatch system + audit (DEV_MODE -> inputs.log)
