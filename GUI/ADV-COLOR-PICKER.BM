@@ -47,8 +47,10 @@ SUB ADVCP_ensure_initialized ()
 
     ACP_init initColor~&, ADVCP_WHEEL_NATIVE
 
-    ADVCP.panelW% = ADVCP_WHEEL_NATIVE
-    ADVCP.panelH% = ADVCP_TITLE_H + ADVCP_WHEEL_NATIVE
+    ' Panel = title bar + the full widget (wheel + shade rows). The widget owns
+    ' its own height (ACP_STATE.h includes the shade selector), so read it back.
+    ADVCP.panelW% = ACP_STATE.w%
+    ADVCP.panelH% = ADVCP_TITLE_H + ACP_STATE.h%
     IF ADVCP.panelImg& < -1 THEN _FREEIMAGE ADVCP.panelImg&
     ADVCP.panelImg& = _NEWIMAGE(ADVCP.panelW%, ADVCP.panelH%, 32)
 
@@ -211,6 +213,29 @@ SUB ADVCP_render ()
 
     ADVCP_sync_from_paint
 
+    ' Record the paint color into history when the user commits a draw stroke.
+    STATIC lastHistSaved AS INTEGER
+    IF HISTORY_saved_this_frame% AND NOT lastHistSaved% THEN
+        IF NOT PAL_FG_IS_TRANSPARENT% THEN ACP_history_push PAINT_COLOR~&
+    END IF
+    lastHistSaved% = HISTORY_saved_this_frame%
+
+    ' Push shade-selector config from CFG into the widget: patch count (pure
+    ' render param) + the line-set built from the preset + spreads (may resize).
+    ACP_STATE.shadePatches% = CFG.ADV_COLOR_PICKER_SHADE_PATCHES%
+    ADVCP_apply_shade_config
+
+    ' Quantize-to-steps (0 = off): setter rebuilds the ring + re-snaps only when
+    ' the value actually changes, so calling it every frame is cheap.
+    ACP_set_quantize CFG.ADV_COLOR_PICKER_QUANTIZE%
+
+    ' Selector background: custom color (theme-matched work) or the panel theme bg.
+    IF CFG.ADV_COLOR_PICKER_BG_CUSTOM% THEN
+        ACP_STATE.bgColor~& = CFG.ADV_COLOR_PICKER_BG_COLOR~&
+    ELSE
+        ACP_STATE.bgColor~& = THEME.CP_bg~&
+    END IF
+
     ' Render the wheel into ACP_STATE.imgHandle, then composite into panelImg.
     ACP_render_all
 
@@ -363,5 +388,55 @@ SUB ADVCP_mouse_input ()
         IF PAL_FG_IS_TRANSPARENT% THEN fg~& = _RGB32(0, 0, 0) ELSE fg~& = PAINT_COLOR~&
         ACP_set_rgb fg~&
         ADVCP.lastSyncColor~& = fg~&
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_apply_shade_config — Build the shade line-set from the CFG preset +
+' spread values, apply the layout, and resize the panel buffer if the widget
+' height changed. Called each render (cheap; reallocs only on a real change).
+'   Line model (widget): value = base + c*delta + shift, per HSV axis.
+'   Presets: 0 Basic (value/sat/hue), 1 +Warm/Cool, 2 Full.
+' ---------------------------------------------------------------------------
+SUB ADVCP_apply_shade_config ()
+    DIM sv AS SINGLE : sv! = CFG.ADV_COLOR_PICKER_SHADE_SPREAD_V% / 100.0
+    DIM ss AS SINGLE : ss! = CFG.ADV_COLOR_PICKER_SHADE_SPREAD_S% / 100.0
+    DIM sh AS SINGLE : sh! = CFG.ADV_COLOR_PICKER_SHADE_SPREAD_H%     ' degrees
+    DIM wc AS SINGLE : wc! = CFG.ADV_COLOR_PICKER_WARMCOOL%           ' degrees
+    DIM lc AS INTEGER
+
+    ACP_STATE.historyShow% = CFG.ADV_COLOR_PICKER_HISTORY%           ' affects widget height
+
+    ' Common first three lines: value, saturation, hue.
+    ACP_set_shade_line 0, 0.0, 0.0, sv!, 0.0, 0.0, 0.0
+    ACP_set_shade_line 1, 0.0, ss!, 0.0, 0.0, 0.0, 0.0
+    ACP_set_shade_line 2, sh!, 0.0, 0.0, 0.0, 0.0, 0.0
+
+    SELECT CASE CFG.ADV_COLOR_PICKER_SHADE_PRESET%
+        CASE 1  ' + Warm/Cool
+            ACP_set_shade_line 3, 0.0, 0.0, sv!, wc!, 0.0, 0.0    ' warm  (value ramp + warm hue shift)
+            ACP_set_shade_line 4, 0.0, 0.0, sv!, -wc!, 0.0, 0.0   ' cool
+            lc% = 5
+        CASE 2  ' Full
+            ACP_set_shade_line 3, 0.0, 0.0, sv!, wc!, 0.0, 0.0    ' warm
+            ACP_set_shade_line 4, 0.0, 0.0, sv!, -wc!, 0.0, 0.0   ' cool
+            ACP_set_shade_line 5, 0.0, -ss!, sv!, 0.0, 0.0, 0.0   ' rich shadow (darker = more saturated)
+            ACP_set_shade_line 6, sh! / 3.0, 0.0, 0.0, 0.0, 0.0, 0.0 ' fine hue
+            lc% = 7
+        CASE ELSE  ' 0 Basic
+            lc% = 3
+    END SELECT
+
+    ACP_STATE.shadeLineCount% = lc%
+    ACP_apply_shade_layout
+
+    ' Resize the panel buffer + display footprint if the widget height changed.
+    DIM wantH AS INTEGER : wantH% = ADVCP_TITLE_H + ACP_STATE.h%
+    IF wantH% <> ADVCP.panelH% THEN
+        ADVCP.panelH% = wantH%
+        IF ADVCP.panelImg& < -1 THEN _FREEIMAGE ADVCP.panelImg&
+        ADVCP.panelImg& = _NEWIMAGE(ADVCP.panelW%, ADVCP.panelH%, 32)
+        ADVCP_compute_display_size
+        ADVCP_clamp_to_work_area
     END IF
 END SUB

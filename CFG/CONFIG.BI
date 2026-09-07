@@ -404,6 +404,16 @@ TYPE DRAW_CONFIG
     ADV_COLOR_PICKER_VISIBLE        AS INTEGER        ' TRUE = advanced color picker panel open at startup
     ADV_COLOR_PICKER_X              AS INTEGER        ' Last panel X (-1 = auto-position)
     ADV_COLOR_PICKER_Y              AS INTEGER        ' Last panel Y (-1 = auto-position)
+    ADV_COLOR_PICKER_SHADE_PATCHES  AS INTEGER        ' Shade selector: patches per row (3-15)
+    ADV_COLOR_PICKER_SHADE_SPREAD_V AS INTEGER        ' Shade value ramp half-range, percent (0-100)
+    ADV_COLOR_PICKER_SHADE_SPREAD_S AS INTEGER        ' Shade saturation ramp half-range, percent (0-100)
+    ADV_COLOR_PICKER_SHADE_SPREAD_H AS INTEGER        ' Shade hue ramp half-range, degrees (0-180)
+    ADV_COLOR_PICKER_QUANTIZE       AS INTEGER        ' Quantize triangle S/V + hue ring to N steps (0=off, 2-32)
+    ADV_COLOR_PICKER_BG_CUSTOM      AS INTEGER        ' TRUE = draw the wheel/shades on a custom background color
+    ADV_COLOR_PICKER_BG_COLOR       AS _UNSIGNED LONG ' Custom selector background color
+    ADV_COLOR_PICKER_SHADE_PRESET   AS INTEGER        ' Shade line-set: 0=Basic, 1=+Warm/Cool, 2=Full
+    ADV_COLOR_PICKER_WARMCOOL       AS INTEGER        ' Warm/cool hue shift for those lines, degrees (0-60)
+    ADV_COLOR_PICKER_HISTORY        AS INTEGER        ' TRUE = show the recent-colors history strip
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)
