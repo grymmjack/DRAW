@@ -1,0 +1,367 @@
+''
+' DRAW - GUI/ADV-COLOR-PICKER.BM
+' =============================================================================
+' Advanced Color Picker — non-modal floating panel implementation.
+' Wraps the QB64_GJ_LIB ADV_COLOR_PICKER (ACP) widget. Live FG-color sync.
+' Renders to screen 0 at integer toolbar scale (same model as COLOR-MIXER).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+
+' ---------------------------------------------------------------------------
+' ADVCP_init — Defaults + config-driven initial visibility. Lazy CP init.
+' ---------------------------------------------------------------------------
+SUB ADVCP_init ()
+    ADVCP.visible%        = FALSE
+    ADVCP.positioned%     = FALSE
+    ADVCP.initialized%    = FALSE
+    ADVCP.autoHidden%     = FALSE
+    ADVCP.lastSyncColor~& = 0
+    ADVCP.editTarget%     = 0
+    ADVCP.renderScale!    = 1.0
+    ADVCP.dispX%          = 0
+    ADVCP.dispY%          = 0
+    ADVCP.dispW%          = 0
+    ADVCP.dispH%          = 0
+    ADVCP.panelImg&       = 0
+    ADVCP.panelW%         = ADVCP_WHEEL_NATIVE
+    ADVCP.panelH%         = ADVCP_TITLE_H + ADVCP_WHEEL_NATIVE
+    ADVCP.dragging%       = FALSE
+
+    IF CFG.ADV_COLOR_PICKER_VISIBLE% THEN ADVCP.visible% = TRUE
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_ensure_initialized — Lazy-init the ACP widget + panel buffer.
+' ---------------------------------------------------------------------------
+SUB ADVCP_ensure_initialized ()
+    IF ADVCP.initialized% THEN EXIT SUB
+
+    DIM initColor AS _UNSIGNED LONG
+    initColor~& = PAINT_COLOR~&
+    IF PAL_FG_IS_TRANSPARENT% THEN initColor~& = _RGB32(0, 0, 0)
+
+    ACP_init initColor~&, ADVCP_WHEEL_NATIVE
+
+    ADVCP.panelW% = ADVCP_WHEEL_NATIVE
+    ADVCP.panelH% = ADVCP_TITLE_H + ADVCP_WHEEL_NATIVE
+    IF ADVCP.panelImg& < -1 THEN _FREEIMAGE ADVCP.panelImg&
+    ADVCP.panelImg& = _NEWIMAGE(ADVCP.panelW%, ADVCP.panelH%, 32)
+
+    ' Load the same themed title font the Color Mixer uses (global chrome font).
+    IF ADVCP.titleFont& > 0 THEN _FREEFONT ADVCP.titleFont&
+    ADVCP.titleFont& = 0
+    DIM acpFontFile AS STRING : acpFontFile$ = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
+    DIM acpFontSize AS INTEGER : acpFontSize% = THEME.GLOBAL_FONT_SIZE%
+    IF acpFontSize% < 1 THEN acpFontSize% = 8
+    IF _FILEEXISTS(acpFontFile$) THEN
+        DIM acpFh AS LONG : acpFh& = _LOADFONT(acpFontFile$, acpFontSize%, "DONTBLEND")
+        IF acpFh& > 0 THEN ADVCP.titleFont& = acpFh&
+    END IF
+
+    ADVCP_compute_display_size
+
+    IF CFG.ADV_COLOR_PICKER_X% > -1 AND CFG.ADV_COLOR_PICKER_Y% > -1 THEN
+        ADVCP.dispX%      = CFG.ADV_COLOR_PICKER_X%
+        ADVCP.dispY%      = CFG.ADV_COLOR_PICKER_Y%
+        ADVCP.positioned% = TRUE
+    END IF
+
+    ADVCP.lastSyncColor~& = initColor~&
+    ADVCP.initialized%    = TRUE
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_cleanup — Free images.
+' ---------------------------------------------------------------------------
+SUB ADVCP_cleanup ()
+    IF ADVCP.initialized% THEN
+        ACP_cleanup
+        IF ADVCP.panelImg& < -1 THEN _FREEIMAGE ADVCP.panelImg&
+        ADVCP.panelImg&    = 0
+        IF ADVCP.titleFont& > 0 THEN _FREEFONT ADVCP.titleFont&
+        ADVCP.titleFont&   = 0
+        ADVCP.initialized% = FALSE
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_reset — Reset transient state after file load.
+' ---------------------------------------------------------------------------
+SUB ADVCP_reset ()
+    ADVCP.autoHidden% = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_toggle — Show/hide the panel (auto-place + sync on first open).
+' ---------------------------------------------------------------------------
+SUB ADVCP_toggle ()
+    IF ADVCP.visible% THEN
+        ADVCP.visible% = FALSE
+    ELSE
+        ADVCP.visible% = TRUE
+        ADVCP_ensure_initialized
+        IF NOT ADVCP.positioned% THEN ADVCP_auto_position
+        ADVCP_sync_from_paint
+    END IF
+    CFG.ADV_COLOR_PICKER_VISIBLE% = ADVCP.visible%
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE%  = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_compute_display_size — native -> viewport footprint (ts/ds scale).
+' ---------------------------------------------------------------------------
+SUB ADVCP_compute_display_size ()
+    DIM ts AS INTEGER, ds AS INTEGER
+    ts% = USCALE.mixer%      : IF ts% < 1 THEN ts% = 1
+    ds% = SCRN.displayScale% : IF ds% < 1 THEN ds% = 1
+    ADVCP.renderScale! = CSNG(ts%) / CSNG(ds%)
+    ADVCP.dispW%       = INT(CSNG(ADVCP.panelW%) * CSNG(ts%) / CSNG(ds%) + 0.5)
+    ADVCP.dispH%       = INT(CSNG(ADVCP.panelH%) * CSNG(ts%) / CSNG(ds%) + 0.5)
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_auto_position — Right side of work area, vertically centred.
+' ---------------------------------------------------------------------------
+SUB ADVCP_auto_position ()
+    ADVCP_ensure_initialized
+    DIM pad AS INTEGER : pad% = 8
+    DIM minY AS INTEGER, maxY AS INTEGER
+    DIM posX AS INTEGER, posY AS INTEGER
+    minY% = 0
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN minY% = MENU_BAR_HEIGHT
+    maxY% = SCRN.h&
+    IF SCRN.showStatus% THEN maxY% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+    posX% = SCRN.uiRightEdge% - ADVCP.dispW% - pad%
+    posY% = minY% + (maxY% - minY% - ADVCP.dispH%) \ 2
+    IF posX% < SCRN.uiLeftEdge% + pad% THEN posX% = SCRN.uiLeftEdge% + pad%
+    IF posY% < minY% + pad% THEN posY% = minY% + pad%
+    ADVCP.dispX%      = posX%
+    ADVCP.dispY%      = posY%
+    ADVCP.positioned% = TRUE
+    CFG.ADV_COLOR_PICKER_X% = ADVCP.dispX%
+    CFG.ADV_COLOR_PICKER_Y% = ADVCP.dispY%
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_clamp_to_work_area — Keep the panel inside the work area.
+' ---------------------------------------------------------------------------
+SUB ADVCP_clamp_to_work_area ()
+    IF NOT ADVCP.initialized% THEN EXIT SUB
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+    minX% = SCRN.uiLeftEdge%
+    maxX% = SCRN.uiRightEdge%
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN minY% = MENU_BAR_HEIGHT ELSE minY% = 0
+    IF SCRN.showStatus% THEN maxY% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% ELSE maxY% = SCRN.h&
+    IF ADVCP.dispX% < minX% THEN ADVCP.dispX% = minX%
+    IF ADVCP.dispX% + ADVCP.dispW% > maxX% THEN ADVCP.dispX% = maxX% - ADVCP.dispW%
+    IF ADVCP.dispX% < minX% THEN ADVCP.dispX% = minX%
+    IF ADVCP.dispY% < minY% THEN ADVCP.dispY% = minY%
+    DIM titleH AS INTEGER : titleH% = INT(ADVCP_TITLE_H * ADVCP.renderScale! + 0.5)
+    IF titleH% < 16 THEN titleH% = 16
+    IF ADVCP.dispY% + titleH% > maxY% THEN ADVCP.dispY% = maxY% - titleH%
+    IF ADVCP.dispY% + ADVCP.dispH% > maxY% THEN ADVCP.dispY% = maxY% - ADVCP.dispH%
+    IF ADVCP.dispY% < minY% THEN ADVCP.dispY% = minY%
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_hit_window% — Is the screen pixel inside the panel? (viewport coords)
+' ---------------------------------------------------------------------------
+FUNCTION ADVCP_hit_window% (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT ADVCP.initialized% THEN ADVCP_hit_window% = FALSE : EXIT FUNCTION
+    IF rawX% >= ADVCP.dispX% AND rawX% < ADVCP.dispX% + ADVCP.dispW% THEN
+        IF rawY% >= ADVCP.dispY% AND rawY% < ADVCP.dispY% + ADVCP.dispH% THEN
+            ADVCP_hit_window% = TRUE : EXIT FUNCTION
+        END IF
+    END IF
+    ADVCP_hit_window% = FALSE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' ADVCP_sync_from_paint — Pull external FG color changes into the widget.
+' ---------------------------------------------------------------------------
+SUB ADVCP_sync_from_paint ()
+    IF NOT ADVCP.initialized% THEN EXIT SUB
+    IF ADVCP.editTarget% = 1 THEN EXIT SUB      ' editing BG — keep the wheel on the BG color
+    DIM cur AS _UNSIGNED LONG
+    IF PAL_FG_IS_TRANSPARENT% THEN cur~& = _RGB32(0, 0, 0) ELSE cur~& = PAINT_COLOR~&
+    IF cur~& <> ADVCP.lastSyncColor~& THEN
+        ACP_set_rgb cur~&            ' recomputes hue/sat/val + marks triangle dirty
+        ADVCP.lastSyncColor~& = cur~&
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_render — Composite title bar + wheel; blit to screen 0.
+' Called from SCREEN_render after COLORMIXER_render (same z-tier).
+' ---------------------------------------------------------------------------
+SUB ADVCP_render ()
+    IF NOT ADVCP.visible% THEN EXIT SUB
+    IF ADVCP.autoHidden% THEN EXIT SUB
+
+    ADVCP_ensure_initialized
+    ADVCP_clamp_to_work_area
+
+    REGION_set_bounds REGION_ADV_COLOR_PICKER, ADVCP.dispX%, ADVCP.dispY%, ADVCP.dispW%, ADVCP.dispH%, ZORDER_FLOATING
+
+    ADVCP_sync_from_paint
+
+    ' Render the wheel into ACP_STATE.imgHandle, then composite into panelImg.
+    ACP_render_all
+
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST ADVCP.panelImg&
+    CLS , THEME.CP_bg~&
+
+    ' Title bar
+    LINE (0, 0)-(ADVCP.panelW% - 1, ADVCP_TITLE_H - 1), THEME.CP_title_bg~&, BF
+    DIM oldFont AS LONG : oldFont& = _FONT
+    IF ADVCP.titleFont& > 0 THEN _FONT ADVCP.titleFont& ELSE _FONT 8
+    DIM tfY AS INTEGER : tfY% = (ADVCP_TITLE_H - _UFONTHEIGHT) \ 2
+    IF tfY% < 0 THEN tfY% = 0
+    COLOR THEME.CP_title_fg~&, _RGBA32(0, 0, 0, 0)
+    _UPRINTSTRING (3, tfY%), "ADV COLOR"
+    ' Close X (right-aligned by its glyph width)
+    COLOR THEME.CP_close_fg~&, _RGBA32(0, 0, 0, 0)
+    _UPRINTSTRING (ADVCP.panelW% - _UPRINTWIDTH("X") - 3, tfY%), "X"
+    _FONT oldFont&
+
+    ' Wheel below the title bar
+    _PUTIMAGE (0, ADVCP_TITLE_H), ACP_STATE.imgHandle&
+
+    ' Panel border
+    LINE (0, 0)-(ADVCP.panelW% - 1, ADVCP.panelH% - 1), THEME.CP_border~&, B
+
+    _DEST oldDest&
+
+    ' Popups/menus must float above the panel
+    IF MENUBAR_is_open% THEN EXIT SUB
+    IF LAYER_PANEL.blendPopupOpen% THEN EXIT SUB
+    IF LAYER_PANEL.ctxMenuOpen% THEN EXIT SUB
+    IF DRAWER.contextMenuOpen% THEN EXIT SUB
+    IF CMD_PALETTE.visible THEN EXIT SUB
+
+    ' Blit to screen 0 at integer toolbar scale.
+    DIM ts AS INTEGER, ds AS INTEGER
+    ts% = USCALE.mixer%      : IF ts% < 1 THEN ts% = 1
+    ds% = SCRN.displayScale% : IF ds% < 1 THEN ds% = 1
+    DIM sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG
+    sx& = CLNG(ADVCP.dispX%) * ds%
+    sy& = CLNG(ADVCP.dispY%) * ds%
+    sw& = CLNG(ADVCP.panelW%) * ts%
+    sh& = CLNG(ADVCP.panelH%) * ts%
+    DIM oldDest2 AS LONG : oldDest2& = _DEST
+    _DEST 0
+    _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), ADVCP.panelImg&, 0
+    _DEST oldDest2&
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_mouse_input — Title-bar drag + feed wheel interactions.
+' Called from MOUSE_input_handler when over the panel or a drag is active.
+' ---------------------------------------------------------------------------
+SUB ADVCP_mouse_input ()
+    IF NOT ADVCP.visible% THEN EXIT SUB
+    IF ADVCP.autoHidden% THEN EXIT SUB
+    IF NOT ADVCP.initialized% THEN EXIT SUB
+
+    DIM localX AS INTEGER, localY AS INTEGER
+    localX% = MOUSE.RAW_X% - ADVCP.dispX%
+    localY% = MOUSE.RAW_Y% - ADVCP.dispY%
+
+    DIM nativeX AS INTEGER, nativeY AS INTEGER
+    IF ADVCP.renderScale! > 0 THEN
+        nativeX% = INT(localX% / ADVCP.renderScale!)
+        nativeY% = INT(localY% / ADVCP.renderScale!)
+    ELSE
+        nativeX% = localX% : nativeY% = localY%
+    END IF
+
+    DIM justPressed   AS INTEGER : justPressed%   = (MOUSE.B1% AND NOT MOUSE.OLD_B1%)
+    DIM justPressedB2 AS INTEGER : justPressedB2% = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+
+    ' Active title-bar drag
+    IF ADVCP.dragging% THEN
+        IF MOUSE.B1% THEN
+            ADVCP.dispX% = ADVCP.dragStartDX% + (MOUSE.RAW_X% - ADVCP.dragStartMX%)
+            ADVCP.dispY% = ADVCP.dragStartDY% + (MOUSE.RAW_Y% - ADVCP.dragStartMY%)
+            ADVCP_clamp_to_work_area
+            CFG.ADV_COLOR_PICKER_X% = ADVCP.dispX%
+            CFG.ADV_COLOR_PICKER_Y% = ADVCP.dispY%
+            SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE
+        ELSE
+            ADVCP.dragging% = FALSE
+            CFG.ADV_COLOR_PICKER_X% = ADVCP.dispX%
+            CFG.ADV_COLOR_PICKER_Y% = ADVCP.dispY%
+            SCENE_DIRTY% = TRUE
+        END IF
+        EXIT SUB
+    END IF
+
+    DIM overPanel AS INTEGER
+    overPanel% = (localX% >= 0 AND localX% < ADVCP.dispW% AND localY% >= 0 AND localY% < ADVCP.dispH%)
+
+    ' Title-bar press (left button only): close button, else start drag
+    IF justPressed% AND overPanel% AND nativeY% < ADVCP_TITLE_H THEN
+        IF nativeX% >= ADVCP.panelW% - 12 THEN
+            ADVCP_toggle
+            EXIT SUB
+        END IF
+        ADVCP.dragging%    = TRUE
+        ADVCP.dragStartMX% = MOUSE.RAW_X%
+        ADVCP.dragStartMY% = MOUSE.RAW_Y%
+        ADVCP.dragStartDX% = ADVCP.dispX%
+        ADVCP.dragStartDY% = ADVCP.dispY%
+        EXIT SUB
+    END IF
+
+    ' Choose the edit target on a fresh press over the wheel: LEFT = foreground,
+    ' RIGHT = background. On a right-press, load the current BG into the widget so
+    ' the ring/triangle edit BG in place (right-drag ring = BG hue, right-click
+    ' triangle = BG saturation/value).
+    IF overPanel% AND nativeY% >= ADVCP_TITLE_H THEN
+        IF justPressedB2% THEN
+            ADVCP.editTarget% = 1
+            DIM bg AS _UNSIGNED LONG
+            IF PAL_BG_IS_TRANSPARENT% THEN bg~& = _RGB32(0, 0, 0) ELSE bg~& = PAINT_BG_COLOR~&
+            ACP_set_rgb bg~&
+        ELSEIF justPressed% THEN
+            ADVCP.editTarget% = 0
+        END IF
+    END IF
+
+    ' Feed the wheel with the button matching the current edit target.
+    DIM activeDown AS INTEGER
+    IF ADVCP.editTarget% = 1 THEN activeDown% = MOUSE.B2% ELSE activeDown% = MOUSE.B1%
+    ACP_input_mouse nativeX%, nativeY% - ADVCP_TITLE_H, activeDown%
+
+    IF ACP_STATE.changed% THEN
+        DIM col AS _UNSIGNED LONG : col~& = ACP_get_rgb~&
+        IF ADVCP.editTarget% = 1 THEN
+            PAINT_BG_COLOR~&       = col~&
+            PAL_BG_IS_TRANSPARENT% = FALSE
+        ELSE
+            PAINT_COLOR~&          = col~&
+            DRAW_COLOR~&           = col~&
+            PAL_FG_IS_TRANSPARENT% = FALSE
+            ADVCP.lastSyncColor~&  = col~&
+        END IF
+        STATUS_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE%          = FALSE
+        SCENE_DIRTY%         = TRUE
+    END IF
+
+    ' Once the right button is released, revert the wheel display to the FG color.
+    IF ADVCP.editTarget% = 1 AND NOT MOUSE.B2% THEN
+        ADVCP.editTarget% = 0
+        DIM fg AS _UNSIGNED LONG
+        IF PAL_FG_IS_TRANSPARENT% THEN fg~& = _RGB32(0, 0, 0) ELSE fg~& = PAINT_COLOR~&
+        ACP_set_rgb fg~&
+        ADVCP.lastSyncColor~& = fg~&
+    END IF
+END SUB

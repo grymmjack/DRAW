@@ -401,6 +401,9 @@ TYPE DRAW_CONFIG
     COLOR_MIXER_VISIBLE             AS INTEGER        ' TRUE = color mixer panel open at startup
     COLOR_MIXER_X                   AS INTEGER        ' Last panel X (-1 = auto-position)
     COLOR_MIXER_Y                   AS INTEGER        ' Last panel Y (-1 = auto-position)
+    ADV_COLOR_PICKER_VISIBLE        AS INTEGER        ' TRUE = advanced color picker panel open at startup
+    ADV_COLOR_PICKER_X              AS INTEGER        ' Last panel X (-1 = auto-position)
+    ADV_COLOR_PICKER_Y              AS INTEGER        ' Last panel Y (-1 = auto-position)
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)
