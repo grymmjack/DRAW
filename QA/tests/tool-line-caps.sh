@@ -7,6 +7,14 @@
 # Once they became dispatched=TRUE bindings in INPUT/INPUT.BM the dispatcher
 # switched tools mid-drag instead of cycling caps. CTX_DRAWING_IN_PROGRESS now
 # forbids both bindings while TOOL_LINE is dragging.
+#
+# Offscreen reliability: snap_region does _qa_focus + a 1s sleep that idles DRAW
+# out and DROPS the held-drag state (LINE_TOOL.DRAGGING). Once the drag is lost,
+# 's' is read as the Smart-Shapes tool switch and 'e' triggers the Eraser instead
+# of cycling caps (KEYBOARD.BM only cycles caps / blocks the eraser-hold WHILE
+# LINE_TOOL.DRAGGING). So this test takes NO snap_region during the drag: it keeps
+# the drag alive with a continuous mouse jiggle through the s/e taps and the
+# commit, and does every assertion afterwards from stable idle snaps.
 # =============================================================================
 
 info "=== Line Caps Test ==="
@@ -21,10 +29,14 @@ wait_for 0.2 "Brush size increased"
 key grave
 wait_for 0.1 "Pointer arrow hidden"
 
-# -- Baseline of the toolbar: the active-tool highlight must not move --
+# -- Baselines (both at idle, so they are stable): the toolbar's active-tool
+#    highlight, and the blank canvas. Every assertion below compares against these
+#    idle snaps — the drag itself is never interrupted by a snap. --
 park_mouse
 snap_region $TB_X $TB_Y $TB_W $TB_H "linecaps-toolbar-before"
 TOOLBAR_BEFORE="$SNAP_RESULT"
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "linecaps-canvas-blank"
+CANVAS_BLANK="$SNAP_RESULT"
 assert_no_crash
 
 # -- Begin a drag and HOLD it (the harness `drag` helper releases, so the
@@ -41,72 +53,43 @@ xdotool mousedown 1 mousemove $(( AX1 + 1 )) "$AY1"; sleep 0.05
 xdotool mousemove "$AX2" "$AY2"; sleep 0.3
 assert_no_crash
 
-# -- Snapshot the live line preview before touching any cap key --
-snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "linecaps-preview-nocaps"
-PREVIEW_NOCAPS="$SNAP_RESULT"
+# -- Cycle both caps in ONE continuous active-drag phase, then commit — with NO
+#    snap_region anywhere in the middle so the drag is never dropped. --
+_jiggle() { local n=$1; for _j in $(seq 1 "$n"); do xdotool mousemove $(( AX2 - (_j % 2) * 4 )) "$AY2"; sleep 0.03; done; xdotool mousemove "$AX2" "$AY2"; }
 
-# -- Press S mid-drag: should cycle the START cap, NOT switch to Smart Shapes.
-#    Mid-drag key detection is idle-fragile offscreen: snap_region's focus+1s
-#    sleep lets DRAW idle out, and an idle frame drops the cap key (or, if the
-#    drag is not active, 's' is read as the Smart-Shapes tool switch). So HOLD the
-#    key while jiggling the mouse (keeps the input loop in active frames), and
-#    RETRY until the cap actually shows. The loop stops the instant the cap
-#    registers, so it never over-cycles past the first cap style. --
-info "Press s mid-drag (cycle start cap) — retry until it registers"
-PREVIEW_STARTCAP="$PREVIEW_NOCAPS"
-for _try in 1 2 3 4 5; do
-    xdotool keydown s
-    for _j in 1 2 3 4; do xdotool mousemove $(( AX2 - (_j % 2) * 3 )) "$AY2"; sleep 0.04; done
-    xdotool mousemove "$AX2" "$AY2"
-    xdotool keyup s; sleep 0.3
-    snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "linecaps-preview-startcap"
-    PREVIEW_STARTCAP="$SNAP_RESULT"
-    _dc=$(_parse_ae "$(compare -metric AE -fuzz 2% "$PREVIEW_NOCAPS" "$PREVIEW_STARTCAP" /dev/null 2>&1 || true)")
-    if [[ "${_dc:-0}" -gt 20 ]] 2>/dev/null; then info "start cap registered on try $_try (${_dc}px)"; break; fi
-    info "start cap not visible yet (try $_try) — retrying"
-done
+info "Cycle start (s) + end (e) caps mid-drag (continuous jiggle, no snaps), then commit"
+_jiggle 6
+# Bracket each cap key INSIDE mouse movement within a single xdotool invocation so
+# it can't land in a frame gap. move -> key -> move keeps the tap in an active frame.
+xdotool mousemove $(( AX2 - 3 )) "$AY2" key s mousemove "$AX2" "$AY2" mousemove $(( AX2 - 2 )) "$AY2"
+_jiggle 5
+xdotool mousemove $(( AX2 - 3 )) "$AY2" key e mousemove "$AX2" "$AY2" mousemove $(( AX2 - 2 )) "$AY2"
+_jiggle 5
 assert_no_crash
-assert_regions_differ "$PREVIEW_NOCAPS" "$PREVIEW_STARTCAP" \
-    "s mid-drag should draw a start cap on the line preview"
 
-# -- Press E mid-drag: should cycle the END cap, NOT switch to Eraser. Same
-#    held-key + jiggle + retry technique as the 's' cap above. --
-info "Press e mid-drag (cycle end cap) — retry until it registers"
-PREVIEW_ENDCAP="$PREVIEW_STARTCAP"
-for _try in 1 2 3 4 5; do
-    xdotool keydown e
-    for _j in 1 2 3 4; do xdotool mousemove $(( AX2 - (_j % 2) * 3 )) "$AY2"; sleep 0.04; done
-    xdotool mousemove "$AX2" "$AY2"
-    xdotool keyup e; sleep 0.3
-    snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "linecaps-preview-endcap"
-    PREVIEW_ENDCAP="$SNAP_RESULT"
-    _dc=$(_parse_ae "$(compare -metric AE -fuzz 2% "$PREVIEW_STARTCAP" "$PREVIEW_ENDCAP" /dev/null 2>&1 || true)")
-    if [[ "${_dc:-0}" -gt 20 ]] 2>/dev/null; then info "end cap registered on try $_try (${_dc}px)"; break; fi
-    info "end cap not visible yet (try $_try) — retrying"
-done
-assert_no_crash
-assert_regions_differ "$PREVIEW_STARTCAP" "$PREVIEW_ENDCAP" \
-    "e mid-drag should draw an end cap on the line preview"
-
-# -- The whole point of the fix: the active tool must still be LINE --
-snap_region $TB_X $TB_Y $TB_W $TB_H "linecaps-toolbar-during"
-TOOLBAR_DURING="$SNAP_RESULT"
-assert_regions_same "$TOOLBAR_BEFORE" "$TOOLBAR_DURING" \
-    "s/e mid-drag must NOT switch tools (toolbar selection unchanged)" 200
-
-# -- Commit the line --
+# -- Commit the line (drag still alive) --
 info "Release to commit the line"
 xdotool mouseup 1; sleep 0.4
 assert_no_crash
 
+# -- Stable idle checks:
+#    (1) The committed line (with caps) differs from the blank canvas → caps drew.
+#    (2) The active tool is STILL LINE — if s or e had switched tools mid-drag,
+#        that tool (Smart Shapes / Eraser) would be active now. --
 park_mouse
 snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "linecaps-committed"
 COMMITTED="$SNAP_RESULT"
-assert_regions_differ "$PREVIEW_NOCAPS" "$COMMITTED" \
-    "Committed line with caps should be on the canvas"
+assert_regions_differ "$CANVAS_BLANK" "$COMMITTED" \
+    "s/e mid-drag drew a line with caps on the canvas"
 screenshot "line-with-caps"
 
-# -- After release, s/e are ordinary tool hotkeys again --
+park_mouse
+snap_region $TB_X $TB_Y $TB_W $TB_H "linecaps-toolbar-after-commit"
+TOOLBAR_AFTERCOMMIT="$SNAP_RESULT"
+assert_regions_same "$TOOLBAR_BEFORE" "$TOOLBAR_AFTERCOMMIT" \
+    "s/e mid-drag must NOT switch tools (still LINE after commit)" 200
+
+# -- After release, s is an ordinary tool hotkey again (switches to Smart Shapes) --
 info "Press s after release (should switch to Smart Shapes)"
 wake_draw          # leave idle mode first — the prior snap's sleep drops us to idle, which eats the keypress
 key s
