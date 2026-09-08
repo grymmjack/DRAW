@@ -34,6 +34,11 @@ CONST APP_VERSION$ = "2.2.0"
 ' Canvas pan step (pixels) for the Pan actions (470-473) — matches Shift+Wheel pan.
 CONST CANVAS_PAN_STEP = 40
 
+' Deferred window-resize snap: seconds of _RESIZE silence before we snap the window
+' to a pixel-perfect integer scale. Kept just above the max inter-event gap of a real
+' drag so it never snaps mid-drag, but small enough to feel near-instant. See DRAW.BAS.
+CONST RESIZE_SETTLE_SECS! = .08
+
 ' Maximum number of layer slots — hard array bound. The user-facing cap is
 ' CFG.NUM_LAYERS (Settings > General > Maximum Layers), which can be set up to this.
 CONST MAX_LAYERS = 256
