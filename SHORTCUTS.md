@@ -143,6 +143,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Shift+F5` | Toggle advanced bar |
 | `Ctrl+Shift+F5` | Reload theme (hot-reload colors + icons) |
 | `Ctrl+M` | Toggle Character Map panel |
+| `Ctrl+Shift+M` | Toggle Advanced Color Picker panel |
 | `F10` | Toggle status bar |
 | `F11` | Toggle ALL UI |
 | `Ctrl+F11` | Toggle menu bar |
@@ -465,8 +466,8 @@ Follow / Floating-Image modes (View → Preview Window). `Alt+Click` pick FG (CP
 ### Drawer panel
 `F1/F2/F3` Brush/Gradient/Pattern mode · `L-Click slot` select · `Shift+L-Click` store current · `R-Click` context menu · `M-Click` cycle mode · `Shift+M-Click` clear slot · `Shift+R-Click` import into slot · `L/R-Click mini palette` set FG/BG.
 
-### Color Mixer / Image Browser
-View → Color Mixer (RGB/HSV sliders, hex). View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Dbl-Click title` maximize.
+### Color Mixer / Advanced Color Picker / Image Browser
+View → Color Mixer (RGB/HSV sliders, hex). **View → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Dbl-Click title` maximize.
 
 ---
 

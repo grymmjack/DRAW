@@ -20,10 +20,10 @@
 1. `_COMMON.BI` — core types and globals
 2. **CORE**: PERF, ERROR, IMAGE, PATHS
 3. **CFG**: CONFIG, CONFIG-THEME
-4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DITHER, DRAWER, PREVIEW, EDITBAR, ADVANCEDBAR, TOOLTIP, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, POPUP-MENU, STROKE-SEL, SMART-GUIDES, COLOR-MIXER, SYMBOL, BROWSER
+4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DITHER, DRAWER, PREVIEW, EDITBAR, ADVANCEDBAR, TOOLTIP, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, POPUP-MENU, STROKE-SEL, SMART-GUIDES, COLOR-MIXER, ADV-COLOR-PICKER, SYMBOL, BROWSER
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, FILE-ASE, FILE-PSD, FILE-ANS (ANSI text import), FILE-BINANSI (BIN/XBIN/TundraDraw), API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE, FILE-EXPORT, FILE-ANS (ANSI codec + export + dialog)
-7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D, TEXT_INPUT, MSG_BOX, COLOR_PICKER, FILE_DIALOG
+7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D, TEXT_INPUT, MSG_BOX, COLOR_PICKER, ADV_COLOR_PICKER, FILE_DIALOG
 8. **TOOLS**: 53 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, BEZIER, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, PICKER-LOUPE, HISTORY, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER, TRANSFORM, EXTRACT-IMAGES, EXTRACT-GRID, EXTRACT-LAYERS-GRID, SMART-SHAPES, SS-COMMON, SS-POLYGON, SS-PIE-DONUT, SS-ROUNDED-RECT, SS-TAB, SS-PILL, SS-PACMAN, SS-3D-CUBE, SS-BEVEL-RECT, SS-ARROW, SS-3D-TEXT)
 9. **THEME**: `ASSETS/THEMES/DEFAULT/THEME.BI`
 
@@ -472,6 +472,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `TOOLS/FILL-ADJ.BI/BM`   | Interactive Fill Adjustment overlay (F8) for custom brush and paint mode tiled fills; L-handle for independent X/Y scaling; rotation handle |
 | `GUI/SMART-GUIDES.BI/BM`  | Smart guide alignment lines for move tool; action IDs 910/911; rendered after selection overlay in SCREEN_render |
 | `GUI/COLOR-MIXER.BI/BM`  | Floating Color Mixer panel for live RGB/HSV color editing; toggle via View → Color Mixer (action 2021); visibility state persisted in cfg |
+| `GUI/ADV-COLOR-PICKER.BI/BM` | Floating Advanced Color Picker panel wrapping the `includes/QB64_GJ_LIB/ADV_COLOR_PICKER` widget (hue ring + SV triangle + shade selector + history); toggle via View → Advanced Color Picker (action 2023 / `Ctrl+Shift+M` / middle-click Color Mixer button); `REGION_ADV_COLOR_PICKER=28`; all config in `CFG.ADV_COLOR_PICKER_*` (Settings → Panels) |
 | `GUI/SYMBOL.BI/BM`       | Symbol layer system — parent/child linked layers with auto-sync, scaling, rasterize, and detach; `LAYER_TYPE_SYMBOL_PARENT` / `LAYER_TYPE_SYMBOL_CHILD` |
 | `GUI/CROSSHAIR.BI/BM`    | Crosshair assistant line rendering with configurable outline stroke |
 | `GUI/PALETTE-OPS.BI/BM`  | Palette Ops mode (on-strip palette editing: change, delete, insert, rearrange, wand select) with [DOCUMENT] palette auto-creation and snapshot/restore |
