@@ -414,6 +414,9 @@ TYPE DRAW_CONFIG
     ADV_COLOR_PICKER_SHADE_PRESET   AS INTEGER        ' Shade line-set: 0=Basic, 1=+Warm/Cool, 2=Full
     ADV_COLOR_PICKER_WARMCOOL       AS INTEGER        ' Warm/cool hue shift for those lines, degrees (0-60)
     ADV_COLOR_PICKER_HISTORY        AS INTEGER        ' TRUE = show the recent-colors history strip
+    ADV_COLOR_PICKER_SHADE_LABELS   AS INTEGER        ' TRUE = show a name label above each shade row
+    ADV_COLOR_PICKER_SHADE_CURVE    AS INTEGER        ' 0 = linear spread; 1 = exponential (ends more severe)
+    ADV_COLOR_PICKER_HUE_NEIGHBORS  AS INTEGER        ' Hue-neighbors ± range (deg); draggable on the ring
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)

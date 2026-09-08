@@ -31,6 +31,10 @@ SUB ADVCP_init ()
     ADVCP.panelW%         = ADVCP_WHEEL_NATIVE
     ADVCP.panelH%         = ADVCP_TITLE_H + ADVCP_WHEEL_NATIVE
     ADVCP.dragging%       = FALSE
+    ADVCP.labelFont&      = 0
+    ADVCP.cmOpen%         = FALSE
+    ADVCP.cmHover%        = -1
+    ADVCP.cmImg&          = 0
 
     IF CFG.ADV_COLOR_PICKER_VISIBLE% THEN ADVCP.visible% = TRUE
 END SUB
@@ -46,6 +50,9 @@ SUB ADVCP_ensure_initialized ()
     IF PAL_FG_IS_TRANSPARENT% THEN initColor~& = _RGB32(0, 0, 0)
 
     ACP_init initColor~&, ADVCP_WHEEL_NATIVE
+
+    ' Restore the draggable hue-neighbors range.
+    IF CFG.ADV_COLOR_PICKER_HUE_NEIGHBORS% > 0 THEN ACP_STATE.hueNeighborRange! = CFG.ADV_COLOR_PICKER_HUE_NEIGHBORS%
 
     ' Panel = title bar + the full widget (wheel + shade rows). The widget owns
     ' its own height (ACP_STATE.h includes the shade selector), so read it back.
@@ -63,6 +70,15 @@ SUB ADVCP_ensure_initialized ()
     IF _FILEEXISTS(acpFontFile$) THEN
         DIM acpFh AS LONG : acpFh& = _LOADFONT(acpFontFile$, acpFontSize%, "DONTBLEND")
         IF acpFh& > 0 THEN ADVCP.titleFont& = acpFh&
+    END IF
+
+    ' Tiny5 for the "COLOR HISTORY" label (small pixel font).
+    IF ADVCP.labelFont& > 0 THEN _FREEFONT ADVCP.labelFont&
+    ADVCP.labelFont& = 0
+    DIM tinyPath AS STRING : tinyPath$ = "./ASSETS/FONTS/Tiny5-Regular.ttf"
+    IF _FILEEXISTS(tinyPath$) THEN
+        DIM tinyFh AS LONG : tinyFh& = _LOADFONT(tinyPath$, 8, "DONTBLEND")
+        IF tinyFh& > 0 THEN ADVCP.labelFont& = tinyFh&
     END IF
 
     ADVCP_compute_display_size
@@ -87,6 +103,10 @@ SUB ADVCP_cleanup ()
         ADVCP.panelImg&    = 0
         IF ADVCP.titleFont& > 0 THEN _FREEFONT ADVCP.titleFont&
         ADVCP.titleFont&   = 0
+        IF ADVCP.labelFont& > 0 THEN _FREEFONT ADVCP.labelFont&
+        ADVCP.labelFont&   = 0
+        IF ADVCP.cmImg& < -1 THEN _FREEIMAGE ADVCP.cmImg&
+        ADVCP.cmImg&       = 0
         ADVCP.initialized% = FALSE
     END IF
 END SUB
@@ -185,6 +205,25 @@ FUNCTION ADVCP_hit_window% (rawX AS INTEGER, rawY AS INTEGER)
 END FUNCTION
 
 ' ---------------------------------------------------------------------------
+' ADVCP_over_history_raw% — TRUE if the viewport pixel is over the history
+' strip (used for the hover tooltip).
+' ---------------------------------------------------------------------------
+FUNCTION ADVCP_over_history_raw% (rawX AS INTEGER, rawY AS INTEGER)
+    ADVCP_over_history_raw% = FALSE
+    IF NOT ADVCP.initialized% THEN EXIT FUNCTION
+    IF NOT ADVCP_hit_window%(rawX%, rawY%) THEN EXIT FUNCTION
+    DIM lx AS INTEGER, ly AS INTEGER
+    lx% = rawX% - ADVCP.dispX% : ly% = rawY% - ADVCP.dispY%
+    DIM nx AS INTEGER, ny AS INTEGER
+    IF ADVCP.renderScale! > 0 THEN
+        nx% = INT(lx% / ADVCP.renderScale!) : ny% = INT(ly% / ADVCP.renderScale!)
+    ELSE
+        nx% = lx% : ny% = ly%
+    END IF
+    ADVCP_over_history_raw% = ACP_over_history%(nx%, ny% - ADVCP_TITLE_H)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
 ' ADVCP_sync_from_paint — Pull external FG color changes into the widget.
 ' ---------------------------------------------------------------------------
 SUB ADVCP_sync_from_paint ()
@@ -250,7 +289,7 @@ SUB ADVCP_render ()
     DIM tfY AS INTEGER : tfY% = (ADVCP_TITLE_H - _UFONTHEIGHT) \ 2
     IF tfY% < 0 THEN tfY% = 0
     COLOR THEME.CP_title_fg~&, _RGBA32(0, 0, 0, 0)
-    _UPRINTSTRING (3, tfY%), "ADV COLOR"
+    _UPRINTSTRING (3, tfY%), "ADVANCED COLOR PICKER"
     ' Close X (right-aligned by its glyph width)
     COLOR THEME.CP_close_fg~&, _RGBA32(0, 0, 0, 0)
     _UPRINTSTRING (ADVCP.panelW% - _UPRINTWIDTH("X") - 3, tfY%), "X"
@@ -258,6 +297,28 @@ SUB ADVCP_render ()
 
     ' Wheel below the title bar
     _PUTIMAGE (0, ADVCP_TITLE_H), ACP_STATE.imgHandle&
+
+    ' Per-shade-row labels (Tiny5) above each row.
+    IF CFG.ADV_COLOR_PICKER_SHADE_LABELS% THEN
+        DIM slOldF AS LONG : slOldF& = _FONT
+        IF ADVCP.labelFont& > 0 THEN _FONT ADVCP.labelFont& ELSE _FONT 8
+        COLOR THEME.CP_text_dim~&, _RGBA32(0, 0, 0, 0)
+        DIM sli AS INTEGER
+        FOR sli% = 0 TO ACP_shade_line_count% - 1
+            _UPRINTSTRING (ACP_SHADE_GAP + 1, ADVCP_TITLE_H + ACP_shade_row_label_y%(sli%)), ADVCP_lineName(sli%)
+        NEXT sli%
+        _FONT slOldF&
+    END IF
+
+    ' "COLOR HISTORY" label (Tiny5) above the history strip.
+    IF CFG.ADV_COLOR_PICKER_HISTORY% THEN
+        DIM lblY AS INTEGER : lblY% = ADVCP_TITLE_H + ACP_history_top%
+        DIM oldF AS LONG : oldF& = _FONT
+        IF ADVCP.labelFont& > 0 THEN _FONT ADVCP.labelFont& ELSE _FONT 8
+        COLOR THEME.CP_text_dim~&, _RGBA32(0, 0, 0, 0)
+        _UPRINTSTRING (ACP_SHADE_GAP + 1, lblY%), "COLOR HISTORY"
+        _FONT oldF&
+    END IF
 
     ' Panel border
     LINE (0, 0)-(ADVCP.panelW% - 1, ADVCP.panelH% - 1), THEME.CP_border~&, B
@@ -284,6 +345,8 @@ SUB ADVCP_render ()
     _DEST 0
     _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), ADVCP.panelImg&, 0
     _DEST oldDest2&
+
+    ADVCP_render_context_menu   ' on top of the panel
 END SUB
 
 ' ---------------------------------------------------------------------------
@@ -309,6 +372,19 @@ SUB ADVCP_mouse_input ()
 
     DIM justPressed   AS INTEGER : justPressed%   = (MOUSE.B1% AND NOT MOUSE.OLD_B1%)
     DIM justPressedB2 AS INTEGER : justPressedB2% = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+
+    ' Context menu open: it captures all input until dismissed.
+    IF ADVCP.cmOpen% THEN
+        ADVCP.cmHover% = ADVCP_cm_row%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+        IF justPressed% OR justPressedB2% THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            IF ADVCP.cmHover% >= 0 THEN ADVCP_context_menu_act ADVCP.cmHover%
+            ADVCP.cmOpen%  = FALSE
+            ADVCP.cmHover% = -1
+            SCENE_DIRTY%   = TRUE : FRAME_IDLE% = FALSE
+        END IF
+        EXIT SUB
+    END IF
 
     ' Active title-bar drag
     IF ADVCP.dragging% THEN
@@ -345,49 +421,32 @@ SUB ADVCP_mouse_input ()
         EXIT SUB
     END IF
 
-    ' Choose the edit target on a fresh press over the wheel: LEFT = foreground,
-    ' RIGHT = background. On a right-press, load the current BG into the widget so
-    ' the ring/triangle edit BG in place (right-drag ring = BG hue, right-click
-    ' triangle = BG saturation/value).
-    IF overPanel% AND nativeY% >= ADVCP_TITLE_H THEN
-        IF justPressedB2% THEN
-            ADVCP.editTarget% = 1
-            DIM bg AS _UNSIGNED LONG
-            IF PAL_BG_IS_TRANSPARENT% THEN bg~& = _RGB32(0, 0, 0) ELSE bg~& = PAINT_BG_COLOR~&
-            ACP_set_rgb bg~&
-        ELSEIF justPressed% THEN
-            ADVCP.editTarget% = 0
-        END IF
+    ' Right-click over the history strip opens the context menu (Create Palette /
+    ' Clear History). FG/BG swapping is the X key's job (more elegant), so the
+    ' picker no longer edits BG on right-click.
+    IF justPressedB2% AND overPanel% AND ACP_over_history%(nativeX%, nativeY% - ADVCP_TITLE_H) THEN
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        ADVCP_open_context_menu
+        EXIT SUB
     END IF
 
-    ' Feed the wheel with the button matching the current edit target.
-    DIM activeDown AS INTEGER
-    IF ADVCP.editTarget% = 1 THEN activeDown% = MOUSE.B2% ELSE activeDown% = MOUSE.B1%
-    ACP_input_mouse nativeX%, nativeY% - ADVCP_TITLE_H, activeDown%
-
+    ' Left-drag drives the wheel / triangle / shades / history -> sets the FG color.
+    ACP_input_mouse nativeX%, nativeY% - ADVCP_TITLE_H, MOUSE.B1%
     IF ACP_STATE.changed% THEN
         DIM col AS _UNSIGNED LONG : col~& = ACP_get_rgb~&
-        IF ADVCP.editTarget% = 1 THEN
-            PAINT_BG_COLOR~&       = col~&
-            PAL_BG_IS_TRANSPARENT% = FALSE
-        ELSE
-            PAINT_COLOR~&          = col~&
-            DRAW_COLOR~&           = col~&
-            PAL_FG_IS_TRANSPARENT% = FALSE
-            ADVCP.lastSyncColor~&  = col~&
-        END IF
-        STATUS_NEEDS_REDRAW% = TRUE
-        FRAME_IDLE%          = FALSE
-        SCENE_DIRTY%         = TRUE
+        PAINT_COLOR~&          = col~&
+        DRAW_COLOR~&           = col~&
+        PAL_FG_IS_TRANSPARENT% = FALSE
+        ADVCP.lastSyncColor~&  = col~&
+        STATUS_NEEDS_REDRAW%   = TRUE
+        FRAME_IDLE%            = FALSE
+        SCENE_DIRTY%           = TRUE
     END IF
 
-    ' Once the right button is released, revert the wheel display to the FG color.
-    IF ADVCP.editTarget% = 1 AND NOT MOUSE.B2% THEN
-        ADVCP.editTarget% = 0
-        DIM fg AS _UNSIGNED LONG
-        IF PAL_FG_IS_TRANSPARENT% THEN fg~& = _RGB32(0, 0, 0) ELSE fg~& = PAINT_COLOR~&
-        ACP_set_rgb fg~&
-        ADVCP.lastSyncColor~& = fg~&
+    ' Dragging a hue-neighbor marker changes the range (no color change), so
+    ' force a repaint of the shade rows.
+    IF ACP_STATE.dragging% = ACP_DRAG_NEIGHBOR THEN
+        SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE
     END IF
 END SUB
 
@@ -406,25 +465,37 @@ SUB ADVCP_apply_shade_config ()
     DIM lc AS INTEGER
 
     ACP_STATE.historyShow% = CFG.ADV_COLOR_PICKER_HISTORY%           ' affects widget height
+    ACP_STATE.shadeLabels% = CFG.ADV_COLOR_PICKER_SHADE_LABELS%      ' affects widget height
+    IF CFG.ADV_COLOR_PICKER_SHADE_CURVE% THEN ACP_STATE.shadeCurveExp! = 2.5 ELSE ACP_STATE.shadeCurveExp! = 1.0
 
-    ' Common first three lines: value, saturation, hue.
+    ' Per-line display names (only the first lc are shown).
+    ADVCP_lineName(0) = "VALUE"       : ADVCP_lineName(1) = "SATURATION"
+    ADVCP_lineName(2) = "HUE"         : ADVCP_lineName(3) = "HUE NEIGHBORS"
+    ADVCP_lineName(4) = "WARM"        : ADVCP_lineName(5) = "COOL"
+    ADVCP_lineName(6) = "RICH SHADOW" : ADVCP_lineName(7) = "FINE HUE"
+
+    ' Common lines in every preset: value, saturation, hue, hue-neighbors.
+    ' Hue Neighbors is a narrower hue spread (half the Hue Spread) so the left
+    ' patches step counter-clockwise to nearer hues and the right patches clockwise.
     ACP_set_shade_line 0, 0.0, 0.0, sv!, 0.0, 0.0, 0.0
     ACP_set_shade_line 1, 0.0, ss!, 0.0, 0.0, 0.0, 0.0
     ACP_set_shade_line 2, sh!, 0.0, 0.0, 0.0, 0.0, 0.0
+    ACP_set_shade_line 3, ACP_STATE.hueNeighborRange!, 0.0, 0.0, 0.0, 0.0, 0.0   ' draggable range
+    CFG.ADV_COLOR_PICKER_HUE_NEIGHBORS% = INT(ACP_STATE.hueNeighborRange! + 0.5)  ' persist drags
 
     SELECT CASE CFG.ADV_COLOR_PICKER_SHADE_PRESET%
         CASE 1  ' + Warm/Cool
-            ACP_set_shade_line 3, 0.0, 0.0, sv!, wc!, 0.0, 0.0    ' warm  (value ramp + warm hue shift)
-            ACP_set_shade_line 4, 0.0, 0.0, sv!, -wc!, 0.0, 0.0   ' cool
-            lc% = 5
+            ACP_set_shade_line 4, 0.0, 0.0, sv!, wc!, 0.0, 0.0    ' warm  (value ramp + warm hue shift)
+            ACP_set_shade_line 5, 0.0, 0.0, sv!, -wc!, 0.0, 0.0   ' cool
+            lc% = 6
         CASE 2  ' Full
-            ACP_set_shade_line 3, 0.0, 0.0, sv!, wc!, 0.0, 0.0    ' warm
-            ACP_set_shade_line 4, 0.0, 0.0, sv!, -wc!, 0.0, 0.0   ' cool
-            ACP_set_shade_line 5, 0.0, -ss!, sv!, 0.0, 0.0, 0.0   ' rich shadow (darker = more saturated)
-            ACP_set_shade_line 6, sh! / 3.0, 0.0, 0.0, 0.0, 0.0, 0.0 ' fine hue
-            lc% = 7
+            ACP_set_shade_line 4, 0.0, 0.0, sv!, wc!, 0.0, 0.0    ' warm
+            ACP_set_shade_line 5, 0.0, 0.0, sv!, -wc!, 0.0, 0.0   ' cool
+            ACP_set_shade_line 6, 0.0, -ss!, sv!, 0.0, 0.0, 0.0   ' rich shadow (darker = more saturated)
+            ACP_set_shade_line 7, sh! / 3.0, 0.0, 0.0, 0.0, 0.0, 0.0 ' fine hue
+            lc% = 8
         CASE ELSE  ' 0 Basic
-            lc% = 3
+            lc% = 4
     END SELECT
 
     ACP_STATE.shadeLineCount% = lc%
@@ -438,5 +509,128 @@ SUB ADVCP_apply_shade_config ()
         ADVCP.panelImg& = _NEWIMAGE(ADVCP.panelW%, ADVCP.panelH%, 32)
         ADVCP_compute_display_size
         ADVCP_clamp_to_work_area
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_open_context_menu — Open the history right-click menu at the mouse.
+' ---------------------------------------------------------------------------
+SUB ADVCP_open_context_menu ()
+    ADVCP.cmW% = 130                              ' native width
+    ADVCP.cmX% = MOUSE.RAW_X%                      ' viewport coords
+    ADVCP.cmY% = MOUSE.RAW_Y%
+    DIM mdw AS INTEGER : mdw% = INT(ADVCP.cmW% * ADVCP.renderScale! + 0.5)
+    DIM mdh AS INTEGER : mdh% = INT(ADVCP_CM_ITEMS * ADVCP_CM_ROW_H * ADVCP.renderScale! + 0.5)
+    IF ADVCP.cmX% + mdw% > SCRN.uiRightEdge% THEN ADVCP.cmX% = SCRN.uiRightEdge% - mdw%
+    IF ADVCP.cmY% + mdh% > SCRN.h& THEN ADVCP.cmY% = SCRN.h& - mdh%
+    IF ADVCP.cmX% < 0 THEN ADVCP.cmX% = 0
+    IF ADVCP.cmY% < 0 THEN ADVCP.cmY% = 0
+    IF ADVCP.cmImg& < -1 THEN _FREEIMAGE ADVCP.cmImg&
+    ADVCP.cmImg& = _NEWIMAGE(ADVCP.cmW%, ADVCP_CM_ITEMS * ADVCP_CM_ROW_H, 32)
+    ADVCP.cmOpen%  = TRUE
+    ADVCP.cmHover% = -1
+    SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_cm_row% — Which menu row is (rawX,rawY) over? -1 if none. Viewport.
+' ---------------------------------------------------------------------------
+FUNCTION ADVCP_cm_row% (rawX AS INTEGER, rawY AS INTEGER)
+    ADVCP_cm_row% = -1
+    IF NOT ADVCP.cmOpen% THEN EXIT FUNCTION
+    DIM mdw AS INTEGER : mdw% = INT(ADVCP.cmW% * ADVCP.renderScale! + 0.5)
+    IF rawX% < ADVCP.cmX% OR rawX% >= ADVCP.cmX% + mdw% THEN EXIT FUNCTION
+    DIM rowH AS SINGLE : rowH! = ADVCP_CM_ROW_H * ADVCP.renderScale!
+    IF rowH! < 1.0 THEN rowH! = 1.0
+    DIM rel AS INTEGER : rel% = rawY% - ADVCP.cmY%
+    IF rel% < 0 THEN EXIT FUNCTION
+    DIM r AS INTEGER : r% = INT(rel% / rowH!)
+    IF r% >= 0 AND r% < ADVCP_CM_ITEMS THEN ADVCP_cm_row% = r%
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' ADVCP_context_menu_act — Perform the chosen menu action.
+' ---------------------------------------------------------------------------
+SUB ADVCP_context_menu_act (row AS INTEGER)
+    SELECT CASE row%
+        CASE 0 : ADVCP_history_to_palette
+        CASE 1 : ACP_history_clear
+    END SELECT
+    GUI_NEEDS_REDRAW% = TRUE : SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_render_context_menu — Draw the menu into a native buffer, upscale to
+' screen 0 (same model as the panel).
+' ---------------------------------------------------------------------------
+SUB ADVCP_render_context_menu ()
+    IF NOT ADVCP.cmOpen% THEN EXIT SUB
+    IF ADVCP.cmImg& >= -1 THEN EXIT SUB
+
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST ADVCP.cmImg&
+    CLS , THEME.CP_bg~&
+    DIM oldF AS LONG : oldF& = _FONT
+    IF ADVCP.titleFont& > 0 THEN _FONT ADVCP.titleFont& ELSE _FONT 8
+    DIM i AS INTEGER, ry AS INTEGER, lbl AS STRING
+    FOR i% = 0 TO ADVCP_CM_ITEMS - 1
+        ry% = i% * ADVCP_CM_ROW_H
+        IF i% = ADVCP.cmHover% THEN LINE (0, ry%)-(ADVCP.cmW% - 1, ry% + ADVCP_CM_ROW_H - 1), THEME.CP_title_bg~&, BF
+        IF i% = 0 THEN lbl$ = "Create Palette" ELSE lbl$ = "Clear History"
+        COLOR THEME.CP_title_fg~&, _RGBA32(0, 0, 0, 0)
+        _UPRINTSTRING (4, ry% + (ADVCP_CM_ROW_H - _UFONTHEIGHT) \ 2), lbl$
+    NEXT i%
+    _FONT oldF&
+    LINE (0, 0)-(ADVCP.cmW% - 1, ADVCP_CM_ITEMS * ADVCP_CM_ROW_H - 1), THEME.CP_border~&, B
+    _DEST oldDest&
+
+    DIM ts AS INTEGER, ds AS INTEGER
+    ts% = USCALE.mixer%      : IF ts% < 1 THEN ts% = 1
+    ds% = SCRN.displayScale% : IF ds% < 1 THEN ds% = 1
+    DIM sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG
+    sx& = CLNG(ADVCP.cmX%) * ds% : sy& = CLNG(ADVCP.cmY%) * ds%
+    sw& = CLNG(ADVCP.cmW%) * ts% : sh& = CLNG(ADVCP_CM_ITEMS * ADVCP_CM_ROW_H) * ts%
+    DIM oldDest2 AS LONG : oldDest2& = _DEST
+    _DEST 0
+    _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), ADVCP.cmImg&, 0
+    _DEST oldDest2&
+END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_history_to_palette — Write the history colors to a .gpl palette, then
+' load it into the palette bar (switch to it), mirroring create-from-image.
+' ---------------------------------------------------------------------------
+SUB ADVCP_history_to_palette ()
+    IF ACP_STATE.historyCount% <= 0 THEN EXIT SUB
+    PALETTE_LOADER_ensure_user_dirs
+    DIM newPalName AS STRING : newPalName$ = "History " + _TRIM$(STR$(ACP_STATE.historyCount%))
+    DIM newFilePath AS STRING : newFilePath$ = PATHS_data$("PALETTES/CREATED/") + newPalName$ + ".gpl"
+
+    DIM fh AS INTEGER : fh% = FREEFILE
+    OPEN newFilePath$ FOR OUTPUT AS #fh%
+    PRINT #fh%, "GIMP Palette"
+    PRINT #fh%, "Name: " + newPalName$
+    PRINT #fh%, "Columns: 16"
+    PRINT #fh%, "#"
+    DIM i AS INTEGER, r AS INTEGER, g AS INTEGER, b AS INTEGER
+    FOR i% = 0 TO ACP_STATE.historyCount% - 1
+        r% = _RED32(ACP_history(i%)) : g% = _GREEN32(ACP_history(i%)) : b% = _BLUE32(ACP_history(i%))
+        PRINT #fh%, _TRIM$(STR$(r%)) + " " + _TRIM$(STR$(g%)) + " " + _TRIM$(STR$(b%)) + " Color " + _TRIM$(STR$(i% + 1))
+    NEXT i%
+    CLOSE #fh%
+
+    ' Reload the palette list and switch to the new palette.
+    PALETTE_LOADER_COUNT% = 0
+    PALETTE_LOADER_scan_folder "./ASSETS/PALETTES"
+    PALETTE_LOADER_scan_user_folders
+    PALETTE_PREVIEW_invalidate_all
+    DIM newIdx AS INTEGER : newIdx% = -1
+    DIM pi AS INTEGER
+    FOR pi% = 0 TO PALETTE_LOADER_COUNT% - 1
+        IF RTRIM$(PALETTE_LIST(pi%).filename) = newFilePath$ THEN newIdx% = pi% : EXIT FOR
+    NEXT pi%
+    IF newIdx% >= 0 THEN
+        DIM dummy AS INTEGER : dummy% = PALETTE_LOADER_load_by_index%(newIdx%)
+        GUI_NEEDS_REDRAW% = TRUE : SCENE_DIRTY% = TRUE
     END IF
 END SUB

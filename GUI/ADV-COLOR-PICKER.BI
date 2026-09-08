@@ -47,6 +47,23 @@ TYPE ADV_COLOR_PICKER_OBJ
     dragStartMY AS INTEGER
     dragStartDX AS INTEGER
     dragStartDY AS INTEGER
+
+    labelFont   AS LONG             ' Tiny5 font for the "COLOR HISTORY" label
+
+    ' Right-click context menu (on the history strip)
+    cmOpen  AS INTEGER              ' TRUE = menu open
+    cmX     AS INTEGER              ' top-left, viewport coords
+    cmY     AS INTEGER
+    cmW     AS INTEGER              ' native width
+    cmHover AS INTEGER              ' hovered row (-1 = none)
+    cmImg   AS LONG                 ' native menu buffer
 END TYPE
+
+' Context-menu item count + native row height.
+CONST ADVCP_CM_ITEMS  = 2
+CONST ADVCP_CM_ROW_H  = 14
+
+' Per-shade-row display names (set by ADVCP_apply_shade_config from the preset).
+DIM SHARED ADVCP_lineName(0 TO 11) AS STRING
 
 DIM SHARED ADVCP AS ADV_COLOR_PICKER_OBJ
