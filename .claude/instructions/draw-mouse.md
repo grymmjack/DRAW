@@ -86,6 +86,11 @@ rationale: `.claude/instructions/draw-zorder.md`.
 ### Drain-then-process pattern
 `MOUSE_drain_update_state` consumes ALL queued `_MOUSEINPUT` events in a tight loop, then one processing pass runs against the final state snapshot. **Critical for performance** — processing every event individually would cause multiple draw operations per frame.
 
+### Stroke anchoring — prime `MOUSE.OLD_X/Y` on press
+`PAINT_on`, `BRUSH_draw_custom` and `ERASER_smart_on` interpolate a Bresenham line from `MOUSE.OLD_X/Y` to `MOUSE.X/Y`, so any tool that paints on the press frame **must** set `MOUSE.OLD_X% = MOUSE.X%` / `MOUSE.OLD_Y% = MOUSE.Y%` in its press-transition branch. `OLD` is normally last frame's cursor position, but that only holds once the pointer has actually been sampled inside the window.
+
+`[macOS]` an unfocused window receives no motion events, so `OLD` still holds the `MOUSE_init` value `(1, 1)` when the first click after launch arrives — the stroke then streaked a line from the canvas corner to the press point. Switching tools and back appeared to "fix" it only because the trip to the toolbar generated the motion events that refreshed `OLD`. Both `MOUSE_tool_brush` (brush + eraser) and `MOUSE_tool_dot` prime `OLD` for this reason.
+
 ### SUPPRESS_FRAMES%
 Set to 2 by `MOUSE_force_buttons_up` / `MOUSE_cleanup_after_dialog`. SDL2 produces spurious button events 1-2 frames after a GTK/native dialog closes when the window regains focus. This suppression catches them.
 
