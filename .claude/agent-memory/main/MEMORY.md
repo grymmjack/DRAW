@@ -64,3 +64,4 @@
 - [Browser geometry native-vs-viewport scaling](browser-geometry-native-vs-viewport.md) — Browser dispX/Y in VIEWPORT px, FD_STATE.dialogW/H in NATIVE; don't mix; position last; test at scale>1
 - [Filled shapes off-canvas on promoted layer (RESOLVED)](qa-splash-startup-state-dependency.md) — filled rect/ellipse/polygon wrote raw coords → off-canvas on an apron-promoted layer (gotcha #14); fixed MOUSE/ELLIPSE/POLY-FILL + apron-fill-after-move test; keep splash ON in QA
 - [Advanced Color Picker feature](adv-color-picker-feature.md) — Krita-style hue-ring+SV-triangle; standalone GJ_LIB widget + DRAW panel; action 2023, Ctrl+Shift+M; ALL config goes in Settings dialog
+- [Save As .draw + FD absolute-path trap](save-as-draw-and-fd-abspath.md) — Save As routes .draw→DRW_save; FD filename field mangles absolute paths (QA: type basenames); file-save-readonly is a false pass

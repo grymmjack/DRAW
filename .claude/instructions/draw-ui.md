@@ -27,7 +27,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | Range     | Category     | Key Actions |
 | --------- | ------------ | ----------- |
 | 101–118   | Tools        | Brush, Dot, Fill, Picker, Line, Polygon, Rect, Ellipse, Marquee, Move, Text, MagicWand, Eraser |
-| 201–219   | File         | Open, Save, SaveAs, Export, ExportSelection, Import, New, Template, Revert, Recent, Exit, ExtractImages(214), OpenAseprite(215), OpenPSD(216), ExportAsFlyout(217), ExtractFromGrid(218), ExtractToLayersFromGrid(219) |
+| 201–219   | File         | Open, Save, SaveAs(204, image), SaveProjectAs(203, native .draw → DRW_save_dialog), Export, ExportSelection, Import, New, Template, Revert, Recent, Exit, ExtractImages(214), OpenAseprite(215), OpenPSD(216), ExportAsFlyout(217), ExtractFromGrid(218), ExtractToLayersFromGrid(219) |
 | 301–324   | Edit         | Undo, Redo, Copy, Cut, Paste, Clear, SelectAll, Fill FG/BG, Flip, Scale, Rotate, CopyToNewLayer, StrokeSelection |
 | 325–330   | Transform    | Overlay modes: Scale(325), Distort(326), Perspective(327), Rotate(328), Shear(329); 330=TRANSFORM_ACT_FLYOUT (opens the TRANSFORM... submenu) |
 | 401–451   | View/Audio   | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale (408=Up/409=Down/416=Reset), BrushCursorToggle(412), Preview Window (434=toggle), Edit Bar (435=toggle), Left/Right Side UI (436/437), Pattern Tile Mode (440=toggle), Canvas Border (441), Layout Submenu (442 parent, 443–448 dock left/right for Toolbox/LayerPanel/EditBar), Advanced Bar (449=toggle, 450/451 dock left/right), SFX/Music controls (427=NextTrack, 428=PrevTrack, 429=RandomMOD, 430=RandomIT, 431=RandomXM, 432=RandomRAD, 433=RandomAny) |
