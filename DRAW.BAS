@@ -854,21 +854,7 @@ DO
     ' up any movement that arrived during keyboard/idle-detection processing.
     ' Only updates RAW_X/Y (screen coords for cursor drawing) — button/wheel
     ' state was already processed by MOUSE_input_handler above.
-    ' NEVER run it while a mouse button is held. _MOUSEX/_MOUSEY only advance
-    ' when _MOUSEINPUT consumes an event, so every event this drain eats is one
-    ' MOUSE_drain_update_state will never see: it refreshes the screen-space
-    ' cursor and drops the canvas coords the tools read. A held button forces
-    ' FRAME_IDLE% = FALSE, so without this guard it ran on EVERY frame of a drag,
-    ' swallowing whatever had queued since the last real drain. That is the shape
-    ' of the macOS bug where every drag-driven tool collapsed to a single pixel
-    ' with MOUSE.X/Y pinned at the press point (2026-09-11) — and a standalone
-    ' probe cleared QB64-PE/GLFW there, which tracks the same drag fine, so the
-    ' events were being lost inside DRAW. The loss is not macOS-only
-    ' in principle — it depends on how much motion lands in the short window
-    ' between the two drains — so this is guarded everywhere, not under $IF MAC.
-    ' Outside a drag nothing is lost: the cursor is the only consumer of the
-    ' position then, so trimming its latency is free.
-    IF NOT FRAME_IDLE% AND NOT (MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3%) THEN
+    IF NOT FRAME_IDLE% THEN
         DIM lateDrained AS INTEGER
         lateDrained% = FALSE
         DO WHILE _MOUSEINPUT
