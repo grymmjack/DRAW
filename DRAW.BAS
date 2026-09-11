@@ -598,6 +598,7 @@ DO
         CMD_execute_action 212 ' graceful exit, with unsaved-changes prompt
     END IF
 
+    DIAG_FRAME = DIAG_FRAME + 1 ' TEMPORARY: drag-diagnostic frame counter
     LOOP_start
     ' Write out any error trapped by FatalError since the last frame. Deferred
     ' to here on purpose: error trapping is armed again, so a failure while
@@ -854,12 +855,30 @@ DO
     ' up any movement that arrived during keyboard/idle-detection processing.
     ' Only updates RAW_X/Y (screen coords for cursor drawing) — button/wheel
     ' state was already processed by MOUSE_input_handler above.
-    IF NOT FRAME_IDLE% THEN
+    IF NOT FRAME_IDLE% AND NOT LATE_DRAIN_DISABLED% THEN
         DIM lateDrained AS INTEGER
+        DIM lateCount   AS INTEGER
+        DIM lateBeforeX AS LONG, lateBeforeY AS LONG
         lateDrained% = FALSE
+        lateCount%   = 0
+        lateBeforeX& = _MOUSEX
+        lateBeforeY& = _MOUSEY
         DO WHILE _MOUSEINPUT
+            lateCount%   = lateCount% + 1
             lateDrained% = TRUE
         LOOP
+        ' TEMPORARY (macOS drag investigation): this drain runs on EVERY frame of
+        ' a drag (a held button forces FRAME_IDLE% = FALSE) and consumes the whole
+        ' queue, updating only RAW_X/Y. Log what it swallowed and whether _MOUSEX
+        ' moved as a result, so it can be confirmed or cleared as the reason
+        ' MOUSE_drain_update_state sees evts=0 on the following frame.
+        IF DEV_MODE% AND lateCount% > 0 THEN
+            INPUTS_log "[LATE] f=" + _TRIM$(STR$(DIAG_FRAME)) + _
+                       " ate=" + _TRIM$(STR$(lateCount%)) + _
+                       " mxBefore=" + _TRIM$(STR$(lateBeforeX&)) + "," + _TRIM$(STR$(lateBeforeY&)) + _
+                       " mxAfter=" + _TRIM$(STR$(_MOUSEX)) + "," + _TRIM$(STR$(_MOUSEY)) + _
+                       " b1=" + _TRIM$(STR$(MOUSE.B1%))
+        END IF
         IF lateDrained% THEN
             MOUSE.RAW_X% = _MOUSEX \ SCRN.displayScale%
             MOUSE.RAW_Y% = _MOUSEY \ SCRN.displayScale%
