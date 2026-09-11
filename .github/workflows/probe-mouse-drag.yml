@@ -10,14 +10,14 @@
 #              display and xdotool posts real XTEST press/move/release events,
 #              so the numbers are genuine. This is the CONTROL: it proves the
 #              rig measures a drag correctly where dragging is known to work.
-#   * macos  — builds an arm64 binary and uploads it, but does NOT measure.
-#              GH Mac runners cannot create a GLFW window in this context (see
-#              hw-cursor-crossplatform.yml, which learned this the expensive
-#              way), and synthetic CGEvents would need accessibility/TCC grants
-#              a runner does not have. The run step below is attempted anyway
-#              under a hard timeout purely as a cheap data point, and is
-#              expected to report no window. Get real macOS numbers by running
-#              the uploaded binary on a real display.
+#   * macos  — builds an arm64 binary and uploads it, but does NOT measure the
+#              drag. GH Mac runners cannot create a GLFW window in this context
+#              (see hw-cursor-crossplatform.yml, which learned this the
+#              expensive way), and synthetic CGEvents would need accessibility/
+#              TCC grants a runner does not have. The run step is attempted
+#              anyway, bounded, purely to record whether a window opens at all.
+#              Get real macOS numbers by running the uploaded binary on a real
+#              display.
 #
 # The probe itself is DEV/probe-mouse-drag.bas — standalone, no DRAW sources.
 # It scores each drag: samples / events / distinct / path / spread and a
@@ -191,19 +191,38 @@ jobs:
           path: probe-mouse-drag-macos-arm64.tar.gz
           if-no-files-found: warn
 
-      - name: Attempt a headless run (expected to find no window)
+      - name: Attempt a headless run (does a GLFW window open at all?)
         continue-on-error: true
         run: |
-          # Hard timeout + </dev/null so a window-init failure can never block or
-          # sit on a "press enter" prompt burning Mac minutes.
-          timeout 45 ./probe-mouse-drag </dev/null || true
-          echo "================ log (if any) ================"
-          cat probe-mouse-drag.log 2>/dev/null || echo "(no log written — no window, as expected)"
+          # NOTE: no `timeout` on macOS runners — that is GNU coreutils, and its
+          # absence silently skipped this step entirely on the first run. Use a
+          # background PID + sleep + kill, which is portable, and keep </dev/null
+          # so a "press enter" prompt can never block and burn Mac minutes.
+          ./probe-mouse-drag </dev/null >probe-stdout.txt 2>&1 &
+          PROBE_PID=$!
+          sleep 30
+          if kill -0 $PROBE_PID 2>/dev/null; then
+            echo "probe was still RUNNING after 30s (a window likely opened)"
+            kill $PROBE_PID 2>/dev/null || true
+          else
+            echo "probe EXITED on its own before 30s (window init likely failed)"
+          fi
+          wait $PROBE_PID 2>/dev/null || true
+          echo "================ probe stdout/stderr ================"
+          cat probe-stdout.txt 2>/dev/null || echo "(nothing captured)"
+          echo "================ probe log ================"
+          if [ -f probe-mouse-drag.log ]; then
+            cat probe-mouse-drag.log
+          else
+            echo "(no log file — the probe never reached its main loop)"
+          fi
 
       - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: probe-log-macos
-          path: probe-mouse-drag.log
+          path: |
+            probe-mouse-drag.log
+            probe-stdout.txt
           if-no-files-found: ignore
