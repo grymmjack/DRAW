@@ -4,6 +4,7 @@
 # Usage:
 #   make              Build DRAW (auto-detects OS)
 #   make run          Build and run
+#   make run ARGS=--developer     Pass DRAW's own CLI args to any run target
 #   make run-logged   Build and run with full QB64PE logging
 #   make run-log-bas  Build and run with basic logging
 #   make clean        Remove built binary and log files
@@ -102,6 +103,12 @@ else
     SOURCES := $(SRC) $(shell find . -type f \( -name '*.BI' -o -name '*.BM' \) -not -path './.git/*')
 endif
 
+# ---------- Runtime arguments -------------------------------------------------
+# Pass DRAW's own CLI args through any run target:
+#   make run ARGS=--developer
+#   make run-logged ARGS="--developer --config DRAW.linux.cfg"
+ARGS ?=
+
 # ---------- Logging env vars --------------------------------------------------
 LOG_ENV_FULL  := QB64PE_LOG_HANDLERS=console,file \
                  QB64PE_LOG_SCOPES=runtime,qb64,libqb,libqb-audio,libqb-image \
@@ -138,8 +145,8 @@ dev: QB64FLAGS += -f:OptimizeCppProgram=false
 dev: $(OUT)  #: Fast dev build — skip C++ -O (~2x faster); NOT for release
 	@printf '  \033[33m[dev build: C++ optimization OFF — testing only; use `make all` for release]\033[0m\n'
 
-dev-run: dev  #: Fast dev build, then run
-	./$(OUT)
+dev-run: dev  #: Fast dev build, then run (app args: ARGS=...)
+	./$(OUT) $(ARGS)
 
 $(OUT): $(SOURCES)
 	$(RM) $(OUT)
@@ -150,14 +157,14 @@ $(OUT): $(SOURCES)
 	    | grep --line-buffered -v '^\[[ .]*\][[:space:]]*[0-9]\+%' \
 	    | tee -a $(MAKE_LOG)
 
-run: $(OUT)  #: Build then run DRAW
-	./$(OUT)
+run: $(OUT)  #: Build then run DRAW (app args: ARGS=...)
+	./$(OUT) $(ARGS)
 
-run-logged: clean-log $(OUT)  #: Build & run with FULL QB64-PE logging -> DRAW.log
-	$(LOG_ENV_FULL) ./$(OUT)
+run-logged: clean-log $(OUT)  #: Build & run with FULL QB64-PE logging -> DRAW.log (app args: ARGS=...)
+	$(LOG_ENV_FULL) ./$(OUT) $(ARGS)
 
-run-log-bas: clean-log $(OUT)  #: Build & run with BASIC logging -> DRAW.log
-	$(LOG_ENV_BASIC) ./$(OUT)
+run-log-bas: clean-log $(OUT)  #: Build & run with BASIC logging -> DRAW.log (app args: ARGS=...)
+	$(LOG_ENV_BASIC) ./$(OUT) $(ARGS)
 
 clean:  #: Remove the built binary and log file
 	$(RM) $(OUT)
@@ -183,10 +190,10 @@ a740g:  #: Build with the standalone a740g PR compiler (redundant with default)
 	@$(MAKE) --no-print-directory COMPILER=a740g all
 
 main-run:  #: Build & run with the main-repo compiler
-	@$(MAKE) --no-print-directory COMPILER=main run
+	@$(MAKE) --no-print-directory COMPILER=main ARGS='$(ARGS)' run
 
 v450-run:  #: Build & run with the legacy v4.5.0 compiler
-	@$(MAKE) --no-print-directory COMPILER=v450 run
+	@$(MAKE) --no-print-directory COMPILER=v450 ARGS='$(ARGS)' run
 
 a740g-run:  #: Build & run with the a740g compiler
-	@$(MAKE) --no-print-directory COMPILER=a740g run
+	@$(MAKE) --no-print-directory COMPILER=a740g ARGS='$(ARGS)' run
