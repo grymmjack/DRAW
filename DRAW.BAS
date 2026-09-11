@@ -598,6 +598,7 @@ DO
         CMD_execute_action 212 ' graceful exit, with unsaved-changes prompt
     END IF
 
+    DIAG_FRAME = DIAG_FRAME + 1 ' TEMPORARY
     LOOP_start
     ' Write out any error trapped by FatalError since the last frame. Deferred
     ' to here on purpose: error trapping is armed again, so a failure while
@@ -870,10 +871,31 @@ DO
     ' position then, so trimming its latency is free.
     IF NOT FRAME_IDLE% AND NOT (MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3%) THEN
         DIM lateDrained AS INTEGER
+        DIM lateCount   AS INTEGER
+        DIM lateSawBtn  AS INTEGER
         lateDrained% = FALSE
+        lateCount%   = 0
+        lateSawBtn%  = FALSE
         DO WHILE _MOUSEINPUT
+            lateCount% = lateCount% + 1
+            ' TEMPORARY: does THIS drain swallow a button press? A trackpad tap is
+            ' a sub-frame pulse with no held state, so the guard above (which keys
+            ' on a button being HELD) cannot protect it. If lateSawBtn fires, this
+            ' drain is destroying clicks: it only ever updates RAW_X/Y, never
+            ' MOUSE.B1%, so the press is gone before any tool can see it.
+            IF _MOUSEBUTTON(1) THEN lateSawBtn% = TRUE
+            IF _MOUSEBUTTON(2) THEN lateSawBtn% = TRUE
+            IF _MOUSEBUTTON(3) THEN lateSawBtn% = TRUE
             lateDrained% = TRUE
         LOOP
+        IF DEV_MODE% AND lateCount% > 0 THEN
+            DIM lateTag AS STRING
+            IF lateSawBtn% THEN lateTag$ = "[LATE-ATE-CLICK]" ELSE lateTag$ = "[LATE]"
+            INPUTS_log lateTag$ + " f=" + _TRIM$(STR$(DIAG_FRAME)) + _
+                       " ate=" + _TRIM$(STR$(lateCount%)) + _
+                       " sawButton=" + _TRIM$(STR$(lateSawBtn%)) + _
+                       " mx=" + _TRIM$(STR$(_MOUSEX)) + "," + _TRIM$(STR$(_MOUSEY))
+        END IF
         IF lateDrained% THEN
             MOUSE.RAW_X% = _MOUSEX \ SCRN.displayScale%
             MOUSE.RAW_Y% = _MOUSEY \ SCRN.displayScale%
