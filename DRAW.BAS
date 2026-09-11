@@ -598,7 +598,6 @@ DO
         CMD_execute_action 212 ' graceful exit, with unsaved-changes prompt
     END IF
 
-    DIAG_FRAME = DIAG_FRAME + 1 ' TEMPORARY: drag-diagnostic frame counter
     LOOP_start
     ' Write out any error trapped by FatalError since the last frame. Deferred
     ' to here on purpose: error trapping is armed again, so a failure while
@@ -855,30 +854,25 @@ DO
     ' up any movement that arrived during keyboard/idle-detection processing.
     ' Only updates RAW_X/Y (screen coords for cursor drawing) — button/wheel
     ' state was already processed by MOUSE_input_handler above.
-    IF NOT FRAME_IDLE% AND NOT LATE_DRAIN_DISABLED% THEN
+    ' NEVER run it while a mouse button is held. _MOUSEX/_MOUSEY only advance
+    ' when _MOUSEINPUT consumes an event, so every event this drain eats is one
+    ' MOUSE_drain_update_state will never see: it refreshes the screen-space
+    ' cursor and drops the canvas coords the tools read. A held button forces
+    ' FRAME_IDLE% = FALSE, so during a drag this ran on EVERY frame, swallowed
+    ' the whole queue, and left the next frame's real drain with zero events and
+    ' MOUSE.X/Y pinned at the press point — every drag-driven tool collapsed to a
+    ' single pixel (found on macOS, 2026-09-11; a standalone probe cleared
+    ' QB64-PE/GLFW, which tracks the same drag fine). The loss is not macOS-only
+    ' in principle — it depends on how much motion lands in the short window
+    ' between the two drains — so this is guarded everywhere, not under $IF MAC.
+    ' Outside a drag nothing is lost: the cursor is the only consumer of the
+    ' position then, so trimming its latency is free.
+    IF NOT FRAME_IDLE% AND NOT (MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3%) THEN
         DIM lateDrained AS INTEGER
-        DIM lateCount   AS INTEGER
-        DIM lateBeforeX AS LONG, lateBeforeY AS LONG
         lateDrained% = FALSE
-        lateCount%   = 0
-        lateBeforeX& = _MOUSEX
-        lateBeforeY& = _MOUSEY
         DO WHILE _MOUSEINPUT
-            lateCount%   = lateCount% + 1
             lateDrained% = TRUE
         LOOP
-        ' TEMPORARY (macOS drag investigation): this drain runs on EVERY frame of
-        ' a drag (a held button forces FRAME_IDLE% = FALSE) and consumes the whole
-        ' queue, updating only RAW_X/Y. Log what it swallowed and whether _MOUSEX
-        ' moved as a result, so it can be confirmed or cleared as the reason
-        ' MOUSE_drain_update_state sees evts=0 on the following frame.
-        IF DEV_MODE% AND lateCount% > 0 THEN
-            INPUTS_log "[LATE] f=" + _TRIM$(STR$(DIAG_FRAME)) + _
-                       " ate=" + _TRIM$(STR$(lateCount%)) + _
-                       " mxBefore=" + _TRIM$(STR$(lateBeforeX&)) + "," + _TRIM$(STR$(lateBeforeY&)) + _
-                       " mxAfter=" + _TRIM$(STR$(_MOUSEX)) + "," + _TRIM$(STR$(_MOUSEY)) + _
-                       " b1=" + _TRIM$(STR$(MOUSE.B1%))
-        END IF
         IF lateDrained% THEN
             MOUSE.RAW_X% = _MOUSEX \ SCRN.displayScale%
             MOUSE.RAW_Y% = _MOUSEY \ SCRN.displayScale%
