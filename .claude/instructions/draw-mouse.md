@@ -91,6 +91,11 @@ rationale: `.claude/instructions/draw-zorder.md`.
 
 `[macOS]` an unfocused window receives no motion events, so `OLD` still holds the `MOUSE_init` value `(1, 1)` when the first click after launch arrives — the stroke then streaked a line from the canvas corner to the press point. Switching tools and back appeared to "fix" it only because the trip to the toolbar generated the motion events that refreshed `OLD`. Both `MOUSE_tool_brush` (brush + eraser) and `MOUSE_tool_dot` prime `OLD` for this reason.
 
+### The late drain must never run mid-drag
+`DRAW.BAS` runs a second `_MOUSEINPUT` drain just before `SCREEN_render` to trim cursor latency, refreshing `MOUSE.RAW_X/Y` only. `_MOUSEX`/`_MOUSEY` advance **only** when `_MOUSEINPUT` consumes an event, so every event this drain eats is one `MOUSE_drain_update_state` never sees — it keeps the screen-space cursor and discards the canvas coords the tools read. A held button forces `FRAME_IDLE% = FALSE`, so without a guard it runs on every frame of a drag. It is gated on `NOT (MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3%)`.
+
+Any new mid-frame `_MOUSEINPUT` drain has the same hazard: draining without also updating `MOUSE.X/Y` throws motion away. Outside a drag it is harmless, since the cursor is the only consumer of the position then.
+
 ### SUPPRESS_FRAMES%
 Set to 2 by `MOUSE_force_buttons_up` / `MOUSE_cleanup_after_dialog`. SDL2 produces spurious button events 1-2 frames after a GTK/native dialog closes when the window regains focus. This suppression catches them.
 

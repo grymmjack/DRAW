@@ -122,7 +122,6 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
 
 # ---------- Targets -----------------------------------------------------------
 .PHONY: help all dev dev-run run run-logged run-log-bas clean clean-log macos-app \
-        probe-mouse probe-mouse-run \
         main v450 a740g main-run v450-run a740g-run
 .DEFAULT_GOAL := all
 
@@ -177,14 +176,6 @@ clean-log:  #: Remove the log file only
 macos-app: $(OUT)  #: [macOS] Bundle DRAW.run + icon into a self-contained DRAW.app
 	./DEV/make-macos-app.sh
 
-# Standalone input probe — no DRAW sources, builds in seconds. Measures whether
-# a mouse drag is reported at all, across four different QB64-PE input APIs.
-# See the header of DEV/probe-mouse-drag.bas for the experiment.
-probe-mouse: DEV/probe-mouse-drag.bas  #: Build the standalone mouse-drag probe -> probe-mouse-drag
-	$(QB64PE) -w -x -o probe-mouse-drag DEV/probe-mouse-drag.bas
-
-probe-mouse-run: probe-mouse  #: Build & run the standalone mouse-drag probe
-	./probe-mouse-drag
 
 # ---------- Compiler shortcuts ------------------------------------------------
 # Each shortcut recurses into make with COMPILER=<alias> so the ifeq chain

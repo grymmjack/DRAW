@@ -858,11 +858,12 @@ DO
     ' when _MOUSEINPUT consumes an event, so every event this drain eats is one
     ' MOUSE_drain_update_state will never see: it refreshes the screen-space
     ' cursor and drops the canvas coords the tools read. A held button forces
-    ' FRAME_IDLE% = FALSE, so during a drag this ran on EVERY frame, swallowed
-    ' the whole queue, and left the next frame's real drain with zero events and
-    ' MOUSE.X/Y pinned at the press point — every drag-driven tool collapsed to a
-    ' single pixel (found on macOS, 2026-09-11; a standalone probe cleared
-    ' QB64-PE/GLFW, which tracks the same drag fine). The loss is not macOS-only
+    ' FRAME_IDLE% = FALSE, so without this guard it ran on EVERY frame of a drag,
+    ' swallowing whatever had queued since the last real drain. That is the shape
+    ' of the macOS bug where every drag-driven tool collapsed to a single pixel
+    ' with MOUSE.X/Y pinned at the press point (2026-09-11) — and a standalone
+    ' probe cleared QB64-PE/GLFW there, which tracks the same drag fine, so the
+    ' events were being lost inside DRAW. The loss is not macOS-only
     ' in principle — it depends on how much motion lands in the short window
     ' between the two drains — so this is guarded everywhere, not under $IF MAC.
     ' Outside a drag nothing is lost: the cursor is the only consumer of the
