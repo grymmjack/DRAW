@@ -354,6 +354,7 @@ DIM SHARED MOUSE_BTN_AVAIL AS INTEGER ' buttons the device reports (_LASTBUTTON,
 ' encodes tilt as ±2 (WHEEL_TILT_* below) so one INTEGER carries vertical AND tilt.
 DIM SHARED MOUSE_TILT_AXIS AS INTEGER ' _MOUSEWHEEL axis for horizontal tilt (config MOUSE_TILT_AXIS, default 1; 0 = disable)
 DIM SHARED MOUSE_TILT      AS INTEGER ' this frame's tilt: -1 = RIGHT, +1 = LEFT, 0 = none
+DIM SHARED DRAG_DIAG_EVENTS AS INTEGER ' TEMPORARY: _MOUSEINPUT events consumed this frame (drag diagnostic, --developer only)
 ' wheelDir sign follows the PHYSICAL gesture as reported by _MOUSEWHEEL / _MOUSEWHEEL(axis):
 ' vertical  — physical UP reads -1, physical DOWN reads +1 (per QB64 wiki; confirmed by
 '             zoom-in being bound to -1 and firing on a real wheel-up).
