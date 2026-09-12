@@ -198,35 +198,28 @@ END SUB
 
 
 ''
-' Estimates the highest TOOLBAR_SCALE that fits in the given viewport,
-' using PROPORTIONAL thresholds relative to the unscaled 12px menu bar.
+' Returns the chrome (toolbar-column) scale that will ACTUALLY render at a given
+' display scale, resolved the SAME way as SCALE_resolve_widgets: the master display
+' scale times SCALE_RATIO_TOOLBAR (default 0.5), or the explicit TOOLBAR_SCALE
+' override, clamped 1-4.
 '
-' The menu bar is always 12px (8px font + 4px padding).
-' TB=2 (22px buttons) gives a 1.8:1 ratio vs menu — good.
-' TB=3 (33px) gives 2.75:1 — only acceptable with very large viewports
-'   where the menu text looks tiny and bigger buttons help.
-' TB=4 (44px) gives 3.67:1 — only for huge viewports (scale=1 or 2 on 4K).
+' Fit/safety checks MUST use this, never a viewport-size guess. Since the unified
+' UI_SCALE collapse, the docked toolbar/organizer/drawer column is sized from this
+' ratio — chrome is ~half the display scale (TB=1 at scale 2, TB=2 at scale 3-4).
+' The old viewport-based estimate disagreed: it reported TB=2 for a mid-size
+' viewport that in reality renders TB=1, over-stating the chrome height by ~2x and
+' needlessly knocking the display scale down on short screens. That dropped 1366x768
+' (and every desktop shorter than ~900px) from 2x to 1x — tiny chrome, buried canvas.
+' Measuring against the ratio that actually renders keeps the fit math and the render
+' math in sync, so display scale only steps down when even the reduced chrome won't fit.
+' @param ds INTEGER Candidate display (master) scale
+' @return INTEGER - Chrome/toolbar scale that will render (1-4)
 '
-' These thresholds are intentionally high: TB=2 is the typical auto-detect
-' result. TB=3/4 require viewports so large that the 12px menu bar itself
-' appears proportionally small.
-' @param vpW LONG Viewport width in pixels
-' @param vpH LONG Viewport height in pixels
-' @return INTEGER - Recommended toolbar scale (1-4)
-'
-FUNCTION SCREEN_estimate_toolbar_scale% (vpW AS LONG, vpH AS LONG)
-    ' TB=4 only when viewport is enormous (e.g., 4K at 1x or 2x scale)
-    IF vpW& >= 1200 AND vpH& >= 900 THEN
-        SCREEN_estimate_toolbar_scale% = 4
-    ' TB=3 for large viewports (e.g., 1440p+ at 2x)
-    ELSEIF vpW& >= 900 AND vpH& >= 700 THEN
-        SCREEN_estimate_toolbar_scale% = 3
-    ' TB=2 is the standard for most auto-detect scenarios
-    ELSEIF vpW& >= 440 AND vpH& >= 300 THEN
-        SCREEN_estimate_toolbar_scale% = 2
-    ELSE
-        SCREEN_estimate_toolbar_scale% = 1
-    END IF
+FUNCTION SCREEN_effective_chrome_scale% (ds AS INTEGER)
+    DIM m AS INTEGER
+    m% = ds%
+    IF m% < 1 THEN m% = 1
+    SCREEN_effective_chrome_scale% = SCALE_resolve_one%(CFG.TOOLBAR_SCALE_OVR%, m%, CFG.SCALE_RATIO_TOOLBAR!, 1, 4)
 END FUNCTION
 
 
@@ -301,6 +294,53 @@ END FUNCTION
 
 
 ''
+' Minimum viewport WIDTH a scale must leave for the chrome to fit. `relaxed` picks the
+' floor policy: FALSE = the protective auto-detect floor (comfortable ~320px canvas,
+' SCREEN_chrome_min_w&); TRUE = an EXPLICIT user request — same docked-chrome width
+' (toolbox + layers + edit bar) but only a CHROME_MIN_CANVAS_RELAXED canvas, so the user
+' can force a larger scale on a small desktop instead of it reverting to 1x. WIN_MIN_*
+' still clamps on top at the call sites. See CHROME_MIN_CANVAS_RELAXED in SCREEN.BI.
+' @param tbScale INTEGER Toolbar/chrome scale that will render
+' @param relaxed INTEGER TRUE for an explicit user scale request, FALSE for auto-detect
+' @return LONG - Minimum viewport width in pixels
+'
+FUNCTION SCREEN_fit_min_w& (tbScale AS INTEGER, relaxed AS INTEGER)
+    IF relaxed% THEN
+        DIM toolboxW AS LONG
+        toolboxW&        = 4 * (11 * tbScale%) + 3 * (1 * tbScale%) + 2
+        SCREEN_fit_min_w& = toolboxW& + 100 + 20 + CHROME_MIN_CANVAS_RELAXED
+    ELSE
+        SCREEN_fit_min_w& = SCREEN_chrome_min_w&(tbScale%)
+    END IF
+END FUNCTION
+
+
+''
+' Minimum viewport HEIGHT a scale must leave for the chrome to fit. Companion to
+' SCREEN_fit_min_w&. The relaxed height still keeps the full toolbar-column height
+' (tbColH — the docked toolbar/organizer/drawer must render) and only shrinks the
+' canvas contribution, so the binding constraint on short screens stays the real chrome.
+' @param tbScale INTEGER Toolbar/chrome scale that will render
+' @param relaxed INTEGER TRUE for an explicit user scale request, FALSE for auto-detect
+' @return LONG - Minimum viewport height in pixels
+'
+FUNCTION SCREEN_fit_min_h& (tbScale AS INTEGER, relaxed AS INTEGER)
+    IF relaxed% THEN
+        DIM tbColH AS LONG, canvasColH AS LONG
+        tbColH&     = (196 * tbScale%) + 24
+        canvasColH& = 12 + CHROME_MIN_CANVAS_RELAXED + 11 + 12 ' menu + small canvas + status + palette
+        IF tbColH& > canvasColH& THEN
+            SCREEN_fit_min_h& = tbColH&
+        ELSE
+            SCREEN_fit_min_h& = canvasColH&
+        END IF
+    ELSE
+        SCREEN_fit_min_h& = SCREEN_chrome_min_h&(tbScale%)
+    END IF
+END FUNCTION
+
+
+''
 ' Detects optimal display scale based on desktop resolution.
 ' Chrome-aware: accounts for toolbar, organizer, drawer, layers panel,
 ' edit bar, menu bar, status bar, and palette strip when choosing scale.
@@ -361,8 +401,9 @@ FUNCTION SCREEN_detect_display_scale% ()
         vpW& = targetW& \ scale%
         vpH& = targetH& \ scale%
         
-        ' Estimate toolbar scale for this viewport
-        estTB% = SCREEN_estimate_toolbar_scale%(vpW&, vpH&)
+        ' Chrome scale that will actually render at this display scale (ratio-based,
+        ' matches SCALE_resolve_widgets), not a viewport-size guess.
+        estTB% = SCREEN_effective_chrome_scale%(scale%)
         
         ' Calculate chrome-aware minimums
         minW& = SCREEN_chrome_min_w&(estTB%)
@@ -438,9 +479,11 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
         newVpH& = ((SCREEN_desktop_h& * 9) \ 10) \ clampedScale%
         newVpW& = (newVpW& \ 2) * 2
         newVpH& = (newVpH& \ 2) * 2
-        estTB%  = SCREEN_estimate_toolbar_scale%(newVpW&, newVpH&)
-        minW&   = SCREEN_chrome_min_w&(estTB%)
-        minH&   = SCREEN_chrome_min_h&(estTB%)
+        estTB%  = SCREEN_effective_chrome_scale%(clampedScale%)
+        ' Explicit user request (Settings / hotkey): relaxed floor so a deliberate
+        ' larger scale is honoured on a small desktop instead of reverting to 1x.
+        minW&   = SCREEN_fit_min_w&(estTB%, -1)
+        minH&   = SCREEN_fit_min_h&(estTB%, -1)
         IF CFG.WIN_MIN_WIDTH% > minW& THEN minW& = CFG.WIN_MIN_WIDTH%
         IF CFG.WIN_MIN_HEIGHT% > minH& THEN minH& = CFG.WIN_MIN_HEIGHT%
         IF (newVpW& >= minW& AND newVpH& >= minH&) OR clampedScale% <= 1 THEN EXIT DO
@@ -757,9 +800,11 @@ SUB SCREEN_init ()
     ' Safety: if viewport went below chrome-aware minimum, reduce scale as last resort
     DIM minW     AS LONG, minH AS LONG
     DIM safetyTB AS INTEGER
-    safetyTB% = SCREEN_estimate_toolbar_scale%(SCRN.w&, SCRN.h&)
-    minW&     = SCREEN_chrome_min_w&(safetyTB%)
-    minH&     = SCREEN_chrome_min_h&(safetyTB%)
+    safetyTB% = SCREEN_effective_chrome_scale%(SCRN.displayScale%)
+    ' Explicit scale (UI_SCALE/DISPLAY_SCALE set) relaxes the min-canvas floor so a
+    ' saved explicit scale survives relaunch; pure Auto keeps the protective floor.
+    minW&     = SCREEN_fit_min_w&(safetyTB%, scaleIsExplicit%)
+    minH&     = SCREEN_fit_min_h&(safetyTB%, scaleIsExplicit%)
     IF CFG.WIN_MIN_WIDTH% > 0 AND CFG.WIN_MIN_WIDTH% > minW& THEN minW& = CFG.WIN_MIN_WIDTH%
     IF CFG.WIN_MIN_HEIGHT% > 0 AND CFG.WIN_MIN_HEIGHT% > minH& THEN minH& = CFG.WIN_MIN_HEIGHT%
     DO WHILE (SCRN.w& < minW& OR SCRN.h& < minH&) AND SCRN.displayScale% > 1
@@ -781,9 +826,9 @@ SUB SCREEN_init ()
             SCRN.h& = maxVpH&
         END IF
         ' Recompute chrome-aware minimums for the new viewport
-        safetyTB% = SCREEN_estimate_toolbar_scale%(SCRN.w&, SCRN.h&)
-        minW&     = SCREEN_chrome_min_w&(safetyTB%)
-        minH&     = SCREEN_chrome_min_h&(safetyTB%)
+        safetyTB% = SCREEN_effective_chrome_scale%(SCRN.displayScale%)
+        minW&     = SCREEN_fit_min_w&(safetyTB%, scaleIsExplicit%)
+        minH&     = SCREEN_fit_min_h&(safetyTB%, scaleIsExplicit%)
         IF CFG.WIN_MIN_WIDTH% > 0 AND CFG.WIN_MIN_WIDTH% > minW& THEN minW& = CFG.WIN_MIN_WIDTH%
         IF CFG.WIN_MIN_HEIGHT% > 0 AND CFG.WIN_MIN_HEIGHT% > minH& THEN minH& = CFG.WIN_MIN_HEIGHT%
         _LOGWARN "SCREEN_init: viewport too small at " + _TRIM$(STR$(SCRN.displayScale% + 1)) + "x, reducing scale to " + _TRIM$(STR$(SCRN.displayScale%)) + "x (viewport now " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&)) + ")"

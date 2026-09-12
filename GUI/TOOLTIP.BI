@@ -22,6 +22,14 @@ CONST TOOLTIP_SRC_SUBTOOL_FLYOUT = 10
 CONST TOOLTIP_SRC_LAYER_NO_PAINT = 11 ' Pencil-with-slash badge on a group header row
 CONST TOOLTIP_SRC_ACP_HISTORY    = 12 ' Advanced Color Picker — history strip
 
+' Readability cap on tooltip line length, in CHARACTERS (converted to pixels through
+' the current font, so it scales correctly whether the tooltip uses the fixed 8px
+' floating font or the UI-scaled dialog font). Renderers also clamp to their
+' container width, so a tooltip never overflows; this cap just stops lines from
+' growing uncomfortably long on wide containers. Most existing one-line tooltips are
+' shorter than this, so they are unaffected. Tunable.
+CONST TOOLTIP_MAX_CONTENT_CHARS  = 90
+
 TYPE TOOLTIP_OBJ
     ACTIVE        AS INTEGER ' TRUE when a tooltip is currently visible
     HOVER_BTN_IDX AS INTEGER ' Index into currently hovered element (-1 = none)
