@@ -33,6 +33,19 @@ screen_shown = 0
 '$INCLUDE:'./_ALL.BI'
 $RESIZE:ON
 
+' [macOS] Global cursor fallback (INPUT/cursorpos.h). macOS drops mouseDragged
+' events to a window until the app finishes activating after launch, so a drag
+' begun in that gap freezes _MOUSEX (every QB64-PE GLFW app hits this — it is a
+' platform bug, not DRAW's). CGEventGetLocation still reports the true cursor
+' regardless of activation, so MOUSE_drain_update_state falls back to it when the
+' _MOUSEINPUT motion stream stalls mid-drag. See PLANS / the drag-collapse notes.
+$IF MAC THEN
+    DECLARE LIBRARY "INPUT/cursorpos"
+        SUB DRAW_global_cursor (BYVAL px AS _OFFSET, BYVAL py AS _OFFSET)
+        FUNCTION DRAW_backing_scale#
+    END DECLARE
+$END IF
+
 ' SCREEN_init (from SCREEN.BI, above) has created the window by now, so from
 ' this point a human can actually see and dismiss things. Deliberately keyed on
 ' "is a window up?" rather than a devmode/CLI-flag check — a curated list of
