@@ -140,6 +140,14 @@ GRAYSCALE_PREVIEW_ACTIVE% = FALSE
 ' z-index overlaps of chrome elements right at the minimum window size.
 CONST WIN_MIN_PADDING = 100
 
+' Min-canvas floor (viewport px) used ONLY for an EXPLICIT user scale request (Settings
+' UI Scale, scale hotkeys). Auto-detect keeps the comfortable ~320px canvas in
+' SCREEN_chrome_min_w&/h&; when the user deliberately picks a larger scale on a small
+' desktop we honour it with a smaller canvas rather than silently reverting the scale
+' to 1x. The docked-chrome floor (toolbox/layers/edit-bar width; toolbar-column height)
+' and the configured WIN_MIN_* still apply, so the chrome always physically renders.
+CONST CHROME_MIN_CANVAS_RELAXED = 64
+
 ' Programmatic resize echo suppression.
 ' Before a programmatic SCREEN _NEWIMAGE we record the target size in
 ' SCREEN_DEFERRED_W/H and set SCREEN_DEFERRED_RESIZE to a small frame budget. The
