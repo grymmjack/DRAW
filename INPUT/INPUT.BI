@@ -411,6 +411,23 @@ DIM SHARED INPUT_DISPATCH_DEPTH AS INTEGER
 DIM SHARED DEV_MODE        AS INTEGER
 DIM SHARED INPUTS_LOG_PATH AS STRING
 
+' Count of _MOUSEINPUT events consumed by the main drain this frame. The macOS
+' global-cursor fallback (MOUSE_drain_update_state) uses it to tell a fresh
+' _MOUSEX (event arrived) from a stalled one (mouseDragged withheld during the
+' post-launch activation gap).
+DIM SHARED MOUSE_FRAME_EVTS AS INTEGER
+
+' [macOS] Global-cursor fallback calibration (see DRAW_global_cursor). Maps the
+' OS global cursor (physical pixels) onto DRAW's viewport coords. SCALE = global
+' units per viewport pixel = display backing scale / SCRN.displayScale (the backing
+' scale comes from DRAW_backing_scale). ORIG is captured whenever a real
+' _MOUSEINPUT event proves _MOUSEX is fresh, so the gap reconstruction lands under
+' the pointer regardless of Retina/UI scale.
+DIM SHARED MOUSE_MAC_CALIBRATED AS INTEGER
+DIM SHARED MOUSE_MAC_SCALE      AS SINGLE
+DIM SHARED MOUSE_MAC_ORIGX      AS SINGLE
+DIM SHARED MOUSE_MAC_ORIGY      AS SINGLE
+
 
 ' DECLARE SUB/FUNCTION blocks removed — QB64-PE auto-discovers SUBs and
 ' FUNCTIONs from the include chain. Only DECLARE LIBRARY still needs an

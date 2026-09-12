@@ -61,6 +61,7 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
     ' then SGN to a plain -1/0/+1 trigger (Rick's choice, not magnitude-aware).
     DIM tilt_accum AS INTEGER : tilt_accum% = 0
     MOUSE_TILT% = 0
+    MOUSE_FRAME_EVTS% = 0 ' events consumed by this frame's drain (see INPUT.BI)
 
     $IF MAC THEN
         ' macOS: capture button states DURING the drain so a trackpad tap-to-click
@@ -90,6 +91,7 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         DIM mac_b1 AS INTEGER, mac_b2 AS INTEGER, mac_b3 AS INTEGER
         mac_b1% = FALSE: mac_b2% = FALSE: mac_b3% = FALSE
         DO WHILE _MOUSEINPUT
+            MOUSE_FRAME_EVTS% = MOUSE_FRAME_EVTS% + 1
             wheel_delta% = wheel_delta% + _MOUSEWHEEL
             IF MOUSE_TILT_AXIS% > 0 THEN tilt_accum% = tilt_accum% + _MOUSEWHEEL(MOUSE_TILT_AXIS%)
             ' Capture any button presses during the drain
@@ -99,6 +101,7 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         LOOP
     $ELSE
         DO WHILE _MOUSEINPUT
+            MOUSE_FRAME_EVTS% = MOUSE_FRAME_EVTS% + 1
             wheel_delta% = wheel_delta% + _MOUSEWHEEL
             IF MOUSE_TILT_AXIS% > 0 THEN tilt_accum% = tilt_accum% + _MOUSEWHEEL(MOUSE_TILT_AXIS%)
         LOOP
@@ -106,9 +109,53 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
     MOUSE_TILT% = SGN(tilt_accum%)
     IF MOUSE_TILT% <> 0 AND CFG.DEVELOPER_MODE% THEN _LOGINFO "mouse-tilt: dir=" + _TRIM$(STR$(MOUSE_TILT%)) + " (axis=" + _TRIM$(STR$(MOUSE_TILT_AXIS%)) + ")"
 
-    ' Get window coordinates and scale down by display scale to viewport coords
-    rawX% = _MOUSEX \ SCRN.displayScale%
-    rawY% = _MOUSEY \ SCRN.displayScale%
+    ' Get window coordinates and scale down by display scale to viewport coords.
+    DIM evRawX AS INTEGER, evRawY AS INTEGER
+    evRawX% = _MOUSEX \ SCRN.displayScale%
+    evRawY% = _MOUSEY \ SCRN.displayScale%
+    $IF MAC THEN
+        ' [macOS] mouseDragged is withheld until the app finishes activating after
+        ' launch, so a drag begun in that gap freezes _MOUSEX (every QB64-PE GLFW
+        ' app hits this — a platform bug, not DRAW's). Whenever a real _MOUSEINPUT
+        ' event arrives, _MOUSEX is fresh: capture the window origin so the OS global
+        ' cursor (CGEventGetLocation, which tracks regardless of activation) maps onto
+        ' window coords. When the motion stream stalls MID-DRAG (no event but a button
+        ' is held), derive the position from the global cursor instead of the frozen
+        ' _MOUSEX, so the stroke follows the pointer.
+        DIM gcx AS DOUBLE, gcy AS DOUBLE
+        DRAW_global_cursor _OFFSET(gcx), _OFFSET(gcy)
+        DIM heldNow AS INTEGER
+        heldNow% = (_MOUSEBUTTON(1) OR _MOUSEBUTTON(2) OR _MOUSEBUTTON(3))
+        ' CGEventGetLocation reports screen POINTS; _MOUSEX reports backing pixels,
+        ' and evRawX = _MOUSEX \ displayScale. So global points per viewport pixel is
+        ' SCRN.displayScale / backingScale (e.g. 4/2 = 2 on this Retina setup).
+        ' Whenever a real _MOUSEINPUT event arrives, _MOUSEX is fresh: capture the
+        ' viewport origin in global space so the gap reconstruction lands exactly
+        ' under the pointer. When motion stalls mid-drag (button held, no event),
+        ' derive the viewport coord from the live global cursor.
+        IF MOUSE_MAC_SCALE! <= 0 THEN
+            DIM bScale AS DOUBLE : bScale# = DRAW_backing_scale#
+            IF bScale# <= 0 THEN bScale# = 1
+            MOUSE_MAC_SCALE! = SCRN.displayScale% / bScale#
+            IF MOUSE_MAC_SCALE! <= 0 THEN MOUSE_MAC_SCALE! = 1
+        END IF
+        IF MOUSE_FRAME_EVTS% > 0 OR NOT MOUSE_MAC_CALIBRATED% THEN
+            MOUSE_MAC_ORIGX!      = gcx - evRawX% * MOUSE_MAC_SCALE!
+            MOUSE_MAC_ORIGY!      = gcy - evRawY% * MOUSE_MAC_SCALE!
+            MOUSE_MAC_CALIBRATED% = TRUE
+            rawX% = evRawX%
+            rawY% = evRawY%
+        ELSEIF heldNow% THEN
+            rawX% = INT((gcx - MOUSE_MAC_ORIGX!) / MOUSE_MAC_SCALE!)
+            rawY% = INT((gcy - MOUSE_MAC_ORIGY!) / MOUSE_MAC_SCALE!)
+        ELSE
+            rawX% = evRawX%
+            rawY% = evRawY%
+        END IF
+    $ELSE
+        rawX% = evRawX%
+        rawY% = evRawY%
+    $END IF
 
     ' Store raw screen coordinates for GUI hover detection
     MOUSE.RAW_X% = rawX%
@@ -2837,6 +2884,12 @@ SUB MOUSE_tool_brush ()
             END IF
         END IF
         STROKE_begin
+        ' Anchor the stroke at the press point. PAINT_on interpolates OLD->current,
+        ' so a stale OLD (e.g. MOUSE_init's 1,1 or a post-dialog 0,0) streaks a line
+        ' from the canvas corner into the first frame of the very first stroke after
+        ' launch. MOUSE_tool_dot already primes this; do the same here.
+        MOUSE.OLD_X% = MOUSE.X%
+        MOUSE.OLD_Y% = MOUSE.Y%
         ' Initialize gradient context at stroke start for running bounds
         GRAD_CTX_set MOUSE.X%, MOUSE.Y%, MOUSE.X%, MOUSE.Y%
     END IF
