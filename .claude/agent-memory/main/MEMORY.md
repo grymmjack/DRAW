@@ -38,6 +38,8 @@
 - [Shared dynamic UDT array](qb64pe-shared-dynamic-udt-array.md) — share via `REDIM SHARED name(0,0) AS TYPE` in .BI, not `DIM SHARED name() AS TYPE`
 - [Command palette needs CMD_register](draw-command-palette-registration.md) — a MENUBAR action needs `CMD_register` in `CMD_init` to reach the `?` palette / be QA-testable
 - [qa-harness toolkit](qa-harness-toolkit.md) — QA harness extracted to `~/git/qa-harness` (core/driver/adapter seam); `draw-qa.sh` = reference wrapper
+- [Display-scale system](draw-display-scale-system.md) — unified `UI_SCALE`; chrome=0.5×display; fit checks must use `SCREEN_effective_chrome_scale%` not an estimate; relaxed floor for explicit scale (v2.3.2)
+- [Tooltip container-wrap](draw-tooltip-container-wrap.md) — 2 DRAW tooltip renderers + 1 in the lib; all wrap to their CONTAINER via `TOOLTIP_wrap_line`; char-based cap (v2.3.2)
 - [Deliver viewables as Artifacts](deliver-viewables-as-artifacts.md) — Rick runs remote/web CC; anything to view → publish as an Artifact, never a local file / SendUserFile
 - [macOS GLUT button emulation](macos-glut-button-emulation.md) — [macOS] Alt+left→button3 via Apple-GLUT Button Emulation (not a DRAW bug); check GLUT prefs
 - [CP_STATE.result clobber gotcha](gotcha-cp-state-result-clobber.md) — don't read `CP_STATE.result` after `DRAW_pick_color&` (re-init resets it); detect cancel by color compare
