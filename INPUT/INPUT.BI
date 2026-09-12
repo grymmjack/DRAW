@@ -423,10 +423,15 @@ DIM SHARED MOUSE_FRAME_EVTS AS INTEGER
 ' scale comes from DRAW_backing_scale). ORIG is captured whenever a real
 ' _MOUSEINPUT event proves _MOUSEX is fresh, so the gap reconstruction lands under
 ' the pointer regardless of Retina/UI scale.
-DIM SHARED MOUSE_MAC_CALIBRATED AS INTEGER
-DIM SHARED MOUSE_MAC_SCALE      AS SINGLE
-DIM SHARED MOUSE_MAC_ORIGX      AS SINGLE
-DIM SHARED MOUSE_MAC_ORIGY      AS SINGLE
+' These are read/written only inside $IF MAC blocks (see DRAW_global_cursor use in
+' INPUT/MOUSE.BM), so declare them only on macOS — otherwise Windows/Linux builds warn
+' "Unused variable" for four globals the non-mac code never touches.
+$IF MAC THEN
+    DIM SHARED MOUSE_MAC_CALIBRATED AS INTEGER
+    DIM SHARED MOUSE_MAC_SCALE      AS SINGLE
+    DIM SHARED MOUSE_MAC_ORIGX      AS SINGLE
+    DIM SHARED MOUSE_MAC_ORIGY      AS SINGLE
+$END IF
 
 
 ' DECLARE SUB/FUNCTION blocks removed — QB64-PE auto-discovers SUBs and
