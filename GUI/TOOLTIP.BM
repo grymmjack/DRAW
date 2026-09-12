@@ -406,6 +406,80 @@ END SUB
 ' Called from SCREEN_render after final overlay popups.
 ' @param target LONG Destination image handle to draw the tooltip onto
 '
+''
+' TOOLTIP_wrap_line — greedy word-wrap `text$` to at most `maxPixW%` pixels per
+' visual line using the CURRENT _FONT, appending each visual line to outRows() and
+' its bold flag to outBold() (fixed-size, 1-based arrays) while advancing rowCount%.
+'
+' Shared by every tooltip renderer -- the floating TOOLTIP_render and the Settings
+' dialog's SW_draw_tooltip -- so a tooltip wraps to fit WHATEVER container the caller
+' passes as maxPixW% (the window for floating tooltips, the dialog content area for
+' dialog tooltips) instead of assuming the screen and spilling off / clipping.
+'
+' Breaks on spaces; a single word wider than maxPixW% is hard-broken by character so
+' nothing ever exceeds the budget. Stops when outRows() is full. The caller sets the
+' font first (measurement uses it) and passes its running row total as rowCount%, so
+' several logical lines can be wrapped into one shared array.
+' @param text$    STRING  One logical line of tooltip text
+' @param isBold%  INTEGER Bold flag stamped on every visual row this line produces
+' @param maxPixW% INTEGER Max content width in pixels (the caller's container)
+' @param outRows() STRING  (out) visual rows appended here
+' @param outBold() INTEGER (out) per-row bold flag
+' @param rowCount% INTEGER (in/out) running row count
+'
+SUB TOOLTIP_wrap_line (text$, isBold%, maxPixW%, outRows() AS STRING, outBold() AS INTEGER, rowCount%)
+    IF LEN(text$) = 0 THEN EXIT SUB
+    DIM maxRows AS INTEGER : maxRows% = UBOUND(outRows)
+    IF rowCount% >= maxRows% THEN EXIT SUB
+    DIM budget AS INTEGER : budget% = maxPixW%
+    IF budget% < 8 THEN budget% = 8
+    DIM s AS STRING, curLine AS STRING, wrd AS STRING, testLine AS STRING
+    DIM sp AS INTEGER, cut AS INTEGER
+    s$ = text$ : curLine$ = ""
+    DO WHILE LEN(s$) > 0 _ANDALSO rowCount% < maxRows%
+        sp% = INSTR(s$, " ")
+        IF sp% = 0 THEN
+            wrd$ = s$ : s$ = ""
+        ELSE
+            wrd$ = LEFT$(s$, sp% - 1) : s$ = MID$(s$, sp% + 1)
+        END IF
+        IF LEN(wrd$) > 0 THEN
+            ' Hard-break a word too wide to ever fit on one line.
+            DO WHILE rowCount% < maxRows% _ANDALSO LEN(wrd$) > 1 _ANDALSO _PRINTWIDTH(wrd$) > budget%
+                cut% = LEN(wrd$) - 1
+                DO WHILE cut% > 1 _ANDALSO _PRINTWIDTH(LEFT$(wrd$, cut%)) > budget%
+                    cut% = cut% - 1
+                LOOP
+                IF LEN(curLine$) > 0 THEN
+                    rowCount% = rowCount% + 1 : outRows(rowCount%) = curLine$ : outBold(rowCount%) = isBold%
+                    curLine$ = ""
+                    IF rowCount% >= maxRows% THEN EXIT SUB
+                END IF
+                rowCount% = rowCount% + 1 : outRows(rowCount%) = LEFT$(wrd$, cut%) : outBold(rowCount%) = isBold%
+                wrd$ = MID$(wrd$, cut% + 1)
+            LOOP
+            IF rowCount% >= maxRows% THEN EXIT DO
+            IF LEN(curLine$) = 0 THEN
+                testLine$ = wrd$
+            ELSE
+                testLine$ = curLine$ + " " + wrd$
+            END IF
+            IF _PRINTWIDTH(testLine$) <= budget% THEN
+                curLine$ = testLine$
+            ELSE
+                IF LEN(curLine$) > 0 THEN
+                    rowCount% = rowCount% + 1 : outRows(rowCount%) = curLine$ : outBold(rowCount%) = isBold%
+                END IF
+                curLine$ = wrd$
+            END IF
+        END IF
+    LOOP
+    IF LEN(curLine$) > 0 _ANDALSO rowCount% < maxRows% THEN
+        rowCount% = rowCount% + 1 : outRows(rowCount%) = curLine$ : outBold(rowCount%) = isBold%
+    END IF
+END SUB
+
+
 SUB TOOLTIP_render (target&)
     ' Clear render bounds — prevents stale reblit if we exit early this frame.
     TOOLTIP.RENDER_W% = 0
@@ -531,36 +605,48 @@ SUB TOOLTIP_render (target&)
     oldFont& = _FONT
     IF TOOLTIP.FONT_HANDLE& > 0 THEN _FONT TOOLTIP.FONT_HANDLE&
 
-    ' Measure text widths
-    DIM w1    AS INTEGER, w2 AS INTEGER, w3 AS INTEGER, maxW AS INTEGER
     DIM fontH AS INTEGER
     fontH% = _UFONTHEIGHT
-    w1%    = _PRINTWIDTH(line1$)
-    IF LEN(line2$) > 0 THEN
-        w2% = _PRINTWIDTH(line2$)
-    ELSE
-        w2% = 0
-    END IF
-    IF LEN(line3$) > 0 THEN
-        w3% = _PRINTWIDTH(line3$)
-    ELSE
-        w3% = 0
-    END IF
-    maxW% = w1%
-    IF w2% > maxW% THEN maxW% = w2%
-    IF w3% > maxW% THEN maxW% = w3%
 
-    ' Calculate tooltip dimensions
     DIM pad AS INTEGER, bw AS INTEGER
     pad% = THEME.TOOLTIP_PADDING%
     IF pad% < 1 THEN pad% = 3
     bw% = THEME.TOOLTIP_BORDER_WIDTH%
     IF bw% < 0 THEN bw% = 1
 
+    ' Word-wrap each logical line to fit this tooltip's container (the window that
+    ' `target&` renders to), capped for readability. Long lines used to render past
+    ' the right edge; now they wrap. Line 1 stays bold, lines 2-3 normal.
+    DIM wrapW AS INTEGER, capPx AS INTEGER, avgCW AS INTEGER
+    avgCW% = _PRINTWIDTH("abcdefghijklmnopqrstuvwxyz") \ 26
+    IF avgCW% < 1 THEN avgCW% = 1
+    capPx% = avgCW% * TOOLTIP_MAX_CONTENT_CHARS
+    wrapW% = _WIDTH(target&) - 2 * (pad% + bw%) - 8
+    IF wrapW% > capPx% THEN wrapW% = capPx%
+    IF wrapW% < 40 THEN wrapW% = 40
+
+    DIM ttRows(1 TO 40) AS STRING, ttBold(1 TO 40) AS INTEGER
+    DIM rowCount AS INTEGER
+    rowCount% = 0
+    TOOLTIP_wrap_line line1$, -1, wrapW%, ttRows(), ttBold(), rowCount%
+    TOOLTIP_wrap_line line2$, 0, wrapW%, ttRows(), ttBold(), rowCount%
+    TOOLTIP_wrap_line line3$, 0, wrapW%, ttRows(), ttBold(), rowCount%
+    IF rowCount% = 0 THEN
+        IF oldFont& > 0 THEN _FONT oldFont&
+        _DEST oldDest&
+        EXIT SUB
+    END IF
+
+    ' Widest wrapped row → content width
+    DIM maxW AS INTEGER, mi AS INTEGER, rww AS INTEGER
+    maxW% = 0
+    FOR mi% = 1 TO rowCount%
+        rww% = _PRINTWIDTH(ttRows(mi%))
+        IF rww% > maxW% THEN maxW% = rww%
+    NEXT mi%
+
     DIM numLines AS INTEGER
-    numLines% = 1
-    IF LEN(line2$) > 0 THEN numLines% = numLines% + 1
-    IF LEN(line3$) > 0 THEN numLines% = numLines% + 1
+    numLines% = rowCount%
 
     DIM ttW AS INTEGER, ttH AS INTEGER
     ttW% = maxW% + pad% * 2 + bw% * 2
@@ -632,26 +718,16 @@ SUB TOOLTIP_render (target&)
     ' Draw text with transparent background (keep tooltip BG visible behind glyphs)
     _PRINTMODE _KEEPBACKGROUND
 
-    ' Draw line 1 (bold/hotkey color)
-    DIM textX AS INTEGER, textY AS INTEGER
+    ' Draw each wrapped row with its own colour (wrapped line-1 rows stay bold,
+    ' line-2/3 rows normal).
+    DIM textX AS INTEGER, textY AS INTEGER, dri AS INTEGER
     textX% = ttX% + pad% + bw%
     textY% = ttY% + pad% + bw%
-    COLOR boldColor~&
-    _UPRINTSTRING (textX%, textY%), line1$
-
-    ' Draw line 2 (normal color)
-    IF LEN(line2$) > 0 THEN
+    FOR dri% = 1 TO rowCount%
+        IF ttBold(dri%) THEN COLOR boldColor~& ELSE COLOR fgColor~&
+        _UPRINTSTRING (textX%, textY%), ttRows(dri%)
         textY% = textY% + fontH% + 1
-        COLOR fgColor~&
-        _UPRINTSTRING (textX%, textY%), line2$
-    END IF
-
-    ' Draw line 3 (normal color)
-    IF LEN(line3$) > 0 THEN
-        textY% = textY% + fontH% + 1
-        COLOR fgColor~&
-        _UPRINTSTRING (textX%, textY%), line3$
-    END IF
+    NEXT dri%
 
     ' Mark tooltip as rendered — allows idle detection to stop burning CPU
     TOOLTIP.NEEDS_REDRAW% = FALSE
