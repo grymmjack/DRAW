@@ -86,6 +86,9 @@ rationale: `.claude/instructions/draw-zorder.md`.
 ### Drain-then-process pattern
 `MOUSE_drain_update_state` consumes ALL queued `_MOUSEINPUT` events in a tight loop, then one processing pass runs against the final state snapshot. **Critical for performance** — processing every event individually would cause multiple draw operations per frame.
 
+### [macOS] Activation-gap drag recovery
+For ~1–2 s after launch, until macOS finishes *activating* the app, Cocoa withholds `mouseDragged` from the window, so `_MOUSEINPUT` delivers no motion while a button is held and `_MOUSEX`/`_MOUSEY` freeze — every drag tool collapses (the classic "first stroke draws a line until you switch tools and back"). This is a QB64-PE/GLFW platform bug, not DRAW's (upstream QB64pe#774). Fix lives in `MOUSE_drain_update_state` behind `$IF MAC`: whenever a real `_MOUSEINPUT` event arrives, `_MOUSEX` is fresh, so it calibrates the viewport origin in global-cursor space; when the motion stream stalls mid-drag (button held, zero events), it sources the position from the OS global cursor (`CGEventGetLocation` via the `DRAW_global_cursor` helper in `INPUT/cursorpos.h`) instead of the frozen `_MOUSEX`. Global points→viewport pixels scale is `SCRN.displayScale% / backingScale` (`MOUSE_MAC_SCALE!`). The `$ELSE` path (Linux/Windows) is the original `_MOUSEX \ displayScale%` — unchanged.
+
 ### SUPPRESS_FRAMES%
 Set to 2 by `MOUSE_force_buttons_up` / `MOUSE_cleanup_after_dialog`. SDL2 produces spurious button events 1-2 frames after a GTK/native dialog closes when the window regains focus. This suppression catches them.
 
