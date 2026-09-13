@@ -48,6 +48,7 @@
 - [HW cursor = OS plane, not a QB64PE layer](hw-cursor-os-plane.md) — `_MOUSECURSOR` composites above all layers; icon cursors OK OS-only, zoom rings/loupe stay software
 - [Remote Mac/Windows testing](reference-remote-mac-windows-testing.md) — mac (Retina) + thinkpad (Win11) over SSH; Win DPI needs interactive/console session; drive via scp'd `.ps1`
 - [Keep remote dashboard updated](feedback-keep-remote-dashboard-updated.md) — update remote-test dashboard NEXT notes each iteration (`uv run DEV/remote-dash.py --set <host> "note"`)
+- [Farm test builds via DRAW-fstest worktree](farm-test-worktrees-invisible-to-dash.md) — build branches in a `DRAW-fstest` worktree (init submodules!); `remote-dash.py` now shows them in a TEST BUILD column; state exact per-host binary paths
 - [Multiple-instance support](multi-instance-support.md) — several isolated windows (`ALLOW_MULTIPLE_INSTANCES`); heartbeat registry; Copy/Paste/Send Layer; CORE/INSTANCE + TOOLS/LAYERXFER
 - [_ACCEPTFILEDROP is cross-platform now](qb64pe-acceptfiledrop-cross-platform.md) — drag-IN works Lin/mac/Win (wiki stale "Windows only"); no drag-OUT on any platform
 - [Drag-and-drop targets](drag-drop-targets.md) — INPUT/DROP.BM routes a drop by region under cursor (no drop coords → MOUSE.RAW + REGION_hit_test); Shift=center
