@@ -105,6 +105,19 @@ if [ -f "$bin" ]; then
   [ -z "$mt" ] && mt=$(stat -f "%Sm" -t "%H:%M:%S" "$bin" 2>/dev/null)
   echo "BINSZ=$sz"; echo "BINMT=$mt"
 else echo "BINSZ=0"; echo "BINMT=-"; fi
+wt="${{d}}-fstest"
+if [ -e "$wt/.git" ]; then
+  echo "WTDIR=$wt"
+  echo "WTBRANCH=$(cd "$wt" 2>/dev/null && git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  echo "WTHEAD=$(cd "$wt" 2>/dev/null && git rev-parse --short HEAD 2>/dev/null)"
+  wbin="$wt/DRAW.run"; [ -f "$wbin" ] || wbin="$wt/DRAW.exe"
+  if [ -f "$wbin" ]; then
+    wsz=$(stat -c%s "$wbin" 2>/dev/null || stat -f%z "$wbin" 2>/dev/null)
+    wmt=$(stat -c "%y" "$wbin" 2>/dev/null | awk '{{print $2}}' | cut -d. -f1)
+    [ -z "$wmt" ] && wmt=$(stat -f "%Sm" -t "%H:%M:%S" "$wbin" 2>/dev/null)
+    echo "WTBINSZ=$wsz"; echo "WTBINMT=$wmt"
+  else echo "WTBINSZ=0"; echo "WTBINMT=-"; fi
+else echo "WTDIR="; fi
 log=$(ls -t "$d"/*.log 2>/dev/null | head -1)
 echo "LOGFILE=$log"
 if [ -n "$log" ]; then
@@ -144,6 +157,18 @@ Write-Output ("BUILD=" + $(if ($b) {{ 'building' }} else {{ 'idle' }}))
 $bin = Join-Path $d 'DRAW.exe'
 if (Test-Path $bin) {{ $f = Get-Item $bin; Write-Output ("BINSZ=" + $f.Length); Write-Output ("BINMT=" + $f.LastWriteTime.ToString('HH:mm:ss')) }}
 else {{ Write-Output "BINSZ=0"; Write-Output "BINMT=-" }}
+$wt = $d + '-fstest'
+if (Test-Path (Join-Path $wt '.git')) {{
+  Write-Output ("WTDIR=" + $wt)
+  $wbr = ''; $whd = ''
+  try {{ Push-Location $wt; $wbr = (git rev-parse --abbrev-ref HEAD 2>$null); $whd = (git rev-parse --short HEAD 2>$null); Pop-Location }} catch {{}}
+  Write-Output ("WTBRANCH=" + $wbr)
+  Write-Output ("WTHEAD=" + $whd)
+  $wbin = Join-Path $wt 'DRAW.exe'
+  if (-not (Test-Path $wbin)) {{ $wbin = Join-Path $wt 'DRAW.run' }}
+  if (Test-Path $wbin) {{ $wf = Get-Item $wbin; Write-Output ("WTBINSZ=" + $wf.Length); Write-Output ("WTBINMT=" + $wf.LastWriteTime.ToString('HH:mm:ss')) }}
+  else {{ Write-Output "WTBINSZ=0"; Write-Output "WTBINMT=-" }}
+}} else {{ Write-Output "WTDIR=" }}
 $log = Get-ChildItem (Join-Path $d '*.log') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 Write-Output ("LOGFILE=" + $(if ($log) {{ $log.FullName }} else {{ '' }}))
 Write-Output ("LOGMT=" + $(if ($log) {{ $log.LastWriteTime.ToString('HH:mm:ss') }} else {{ '' }}))
@@ -213,7 +238,8 @@ def probe_host(host) -> dict:
 
 def parse(out: str) -> dict:
     d = {"REACH": "0", "BUILD": "", "BINSZ": "0", "BINMT": "-", "LOGFILE": "", "LOGMT": "", "LOG": [],
-         "HOSTNAME": "-", "WHOAMI": "-", "OSVER": "-", "QBVER": "-", "CWD": "-", "BRANCH": "-"}
+         "HOSTNAME": "-", "WHOAMI": "-", "OSVER": "-", "QBVER": "-", "CWD": "-", "BRANCH": "-",
+         "WTDIR": "", "WTBRANCH": "", "WTHEAD": "", "WTBINSZ": "0", "WTBINMT": "-"}
     in_log = False
     for line in out.splitlines():
         if line == "LOGSTART":
@@ -280,6 +306,7 @@ def build_table(results: dict) -> Table:
     t.add_column("REACH", no_wrap=True)
     t.add_column("BUILD", no_wrap=True)
     t.add_column("BINARY", no_wrap=True)
+    t.add_column("TEST BUILD", no_wrap=True)
     t.add_column("NEXT (you)", overflow="fold")
     for i, (name, htype, _) in enumerate(HOSTS, 1):
         r = results[name]
@@ -324,9 +351,22 @@ def build_table(results: dict) -> Table:
         else:
             binary = Text("(none)", style="dim")
 
+        # TEST BUILD: a sibling DRAW-fstest git worktree (isolated branch build). Surfaced
+        # so a farm test binary is never invisible — shows its size, mtime, and branch/sha.
+        wt_dir = r.get("WTDIR", "")
+        if up and wt_dir and r.get("WTBINSZ", "0") not in ("0", ""):
+            wbr = r.get("WTBRANCH", "") or ""
+            wlabel = wbr if wbr not in ("", "-", "HEAD") else (r.get("WTHEAD", "") or "?")
+            testbuild = Text.assemble((human(r["WTBINSZ"]), "bold magenta"),
+                                      ("\n" + (r.get("WTBINMT", "-") or "-") + " · " + wlabel, "dim"))
+        elif up and wt_dir:
+            testbuild = Text("(no bin)", style="dim yellow")   # worktree exists, not built yet
+        else:
+            testbuild = Text("(none)", style="dim")
+
         msg, style = next_note(name, r)
         t.add_row(str(i), name, node, login, os_txt, qb_txt, loc,
-                  reach, build, binary, Text(msg, style=style))
+                  reach, build, binary, testbuild, Text(msg, style=style))
     return t
 
 
