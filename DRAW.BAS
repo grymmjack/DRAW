@@ -82,7 +82,18 @@ THEME_load
 ' (min = chrome-safe so controls can't be dragged off-screen; max = configured cap or
 ' unlimited). HiDPI-aware via _WINDOWSIZELIMIT. Re-applied on any displayScale change.
 SCREEN_apply_window_size_limits
-'$CONSOLE
+
+' Hide the console window now that we're committed to the GUI editor. $CONSOLE
+' (_COMMON.BI) opens a console at process start ONLY so console-only CLI ops
+' (--help / --version / --options-list / --config-upgrade) can print and SYSTEM
+' before the GUI ever shows; every one of those has already exited by this line, so
+' the editor itself never needs the console. On [Windows] that console is a SEPARATE
+' visible window that looked to end users like a stray debug window (tester report).
+' Keep it only in developer mode (--developer / DRAW_DEVELOPER=1 / CFG.DEVELOPER_MODE)
+' for live _LOG* output. Guard with "= 0" not "NOT" — NOT is bitwise (gotcha #19), and a
+' config-stored DEVELOPER_MODE=1 would make "IF NOT" wrongly keep the console.
+IF CFG.DEVELOPER_MODE% = 0 THEN _CONSOLE OFF
+
 $EXEICON:'./ASSETS/ICONS/icon.ico'
 
 ' Runtime window / taskbar icon. SCREEN_init already calls _ICON, but that runs while
