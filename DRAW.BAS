@@ -61,13 +61,15 @@ screen_shown = TRUE
 ' final-size window, then apply fullscreen if configured. (_SCREENMOVE raises
 ' ERR 5 on a hidden window, so it can't run during the early part of SCREEN_init.)
 _SCREENMOVE _MIDDLE
-' Alt+Enter fullscreen behaves like every other QB64-PE app, but locked to crisp
-' square pixels with NO antialiasing so pixel art stays sharp (the default Alt+Enter
-' mode is _STRETCH, which would blur the canvas). _ALLOWFULLSCREEN only governs the
-' Alt+Enter combo; the View > Fullscreen menu item toggles _FULLSCREEN directly and
-' is not bound by it. See DRAW.BAS main loop for the per-frame CFG.FULLSCREEN% sync.
-_ALLOWFULLSCREEN _SQUAREPIXELS, _OFF
-IF CFG.FULLSCREEN% THEN _FULLSCREEN _SQUAREPIXELS
+' Alt+Enter fullscreen behaves like every other QB64-PE app, locked to a single mode:
+' _SQUAREPIXELS (preserves aspect ratio, no stretch/distortion) with _SMOOTH
+' (antialiased scaling) so upscaled UI text is smooth instead of blocky/jagged on
+' HiDPI/Retina panels. Restricting to ONE mode also keeps Alt+Enter a clean 2-state
+' toggle (windowed <-> fullscreen). _ALLOWFULLSCREEN only governs the Alt+Enter combo;
+' the View > Fullscreen menu toggles _FULLSCREEN directly and is not bound by it. See
+' the DRAW.BAS main loop for the per-frame CFG.FULLSCREEN% sync.
+_ALLOWFULLSCREEN _SQUAREPIXELS, _SMOOTH
+IF CFG.FULLSCREEN% THEN _FULLSCREEN _SQUAREPIXELS, _SMOOTH
 
 ' THEME.BI (included above) runs at include-time and resets all THEME.* fields to
 ' compiled-in defaults, clobbering the values set by THEME_load inside SCREEN_init
