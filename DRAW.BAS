@@ -61,6 +61,12 @@ screen_shown = TRUE
 ' final-size window, then apply fullscreen if configured. (_SCREENMOVE raises
 ' ERR 5 on a hidden window, so it can't run during the early part of SCREEN_init.)
 _SCREENMOVE _MIDDLE
+' Alt+Enter fullscreen behaves like every other QB64-PE app, but locked to crisp
+' square pixels with NO antialiasing so pixel art stays sharp (the default Alt+Enter
+' mode is _STRETCH, which would blur the canvas). _ALLOWFULLSCREEN only governs the
+' Alt+Enter combo; the View > Fullscreen menu item toggles _FULLSCREEN directly and
+' is not bound by it. See DRAW.BAS main loop for the per-frame CFG.FULLSCREEN% sync.
+_ALLOWFULLSCREEN _SQUAREPIXELS, _OFF
 IF CFG.FULLSCREEN% THEN _FULLSCREEN _SQUAREPIXELS
 
 ' THEME.BI (included above) runs at include-time and resets all THEME.* fields to
@@ -544,7 +550,16 @@ DO
     ' latest target size and let QB64 stretch the current frame to the window
     ' (live but soft). Once the drag settles (no _RESIZE for a few frames) we snap
     ' ONCE to the nearest integer scale for a pixel-perfect result.
-    IF _RESIZE THEN
+    ' While fullscreen the OS magnifies a FIXED logical viewport with square pixels;
+    ' the logical canvas size never changes. Any _RESIZE that arrives refers to the
+    ' physical window, so snapping the logical viewport to it (below) would wreck the
+    ' layout. Drop any pending snap and consume _RESIZE so a stale flag can't fire on
+    ' the frame we drop back to windowed. (fsWin% read via assignment = the function.)
+    DIM fsWin AS INTEGER : fsWin% = _FULLSCREEN
+    IF fsWin% <> 0 THEN
+        resizePending% = FALSE
+        IF _RESIZE THEN INVALIDATE_scene
+    ELSEIF _RESIZE THEN
         ' Absorb the echo from our OWN SCREEN _NEWIMAGE only when its dimensions match
         ' what we set (dimension-matched, not a blind counter) — so a genuine user resize
         ' arriving mid-echo-window is never swallowed. This is what makes restore-from-
@@ -581,6 +596,19 @@ DO
     ' (e.g. [Windows] SCREEN _NEWIMAGE on a maximized window is a no-op) cannot leave a
     ' stuck counter that swallows the next genuine resize.
     IF SCREEN_DEFERRED_RESIZE% > 0 THEN SCREEN_DEFERRED_RESIZE% = SCREEN_DEFERRED_RESIZE% - 1
+
+    ' Keep CFG.FULLSCREEN% in step with the LIVE window state. The user can toggle
+    ' fullscreen two ways: the View > Fullscreen menu (routes through CMD 453) OR the
+    ' native Alt+Enter combo, which QB64-PE handles internally and never surfaces as a
+    ' key event. Polling _FULLSCREEN() every frame is the only way to notice the
+    ' Alt+Enter path, so this is the single source of truth: it refreshes the menu
+    ' checkmark and persists the choice across launches. fsLive% assigns the FUNCTION.
+    DIM fsLive AS INTEGER : fsLive% = _FULLSCREEN
+    IF (fsLive% <> 0) <> (CFG.FULLSCREEN% <> 0) THEN
+        CFG.FULLSCREEN%   = (fsLive% <> 0)
+        CONFIG_save
+        GUI_NEEDS_REDRAW% = TRUE
+    END IF
 
     ' Handle OS-initiated exit (window X button = bit 0, CTRL+BREAK = bit 1)
     ' Route through the standard exit action which handles unsaved-changes dialog + full cleanup.
