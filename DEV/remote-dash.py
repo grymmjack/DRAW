@@ -105,6 +105,20 @@ if [ -f "$bin" ]; then
   [ -z "$mt" ] && mt=$(stat -f "%Sm" -t "%H:%M:%S" "$bin" 2>/dev/null)
   echo "BINSZ=$sz"; echo "BINMT=$mt"
 else echo "BINSZ=0"; echo "BINMT=-"; fi
+wt="${{d}}-fstest"
+if [ -e "$wt/.git" ]; then
+  echo "WTDIR=$wt"
+  echo "WTBRANCH=$(cd "$wt" 2>/dev/null && git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  echo "WTHEAD=$(cd "$wt" 2>/dev/null && git rev-parse --short HEAD 2>/dev/null)"
+  echo "WTREF=$(cd "$wt" 2>/dev/null && git log -1 --format='%D' 2>/dev/null)"
+  wbin="$wt/DRAW.run"; [ -f "$wbin" ] || wbin="$wt/DRAW.exe"
+  if [ -f "$wbin" ]; then
+    wsz=$(stat -c%s "$wbin" 2>/dev/null || stat -f%z "$wbin" 2>/dev/null)
+    wmt=$(stat -c "%y" "$wbin" 2>/dev/null | awk '{{print $2}}' | cut -d. -f1)
+    [ -z "$wmt" ] && wmt=$(stat -f "%Sm" -t "%H:%M:%S" "$wbin" 2>/dev/null)
+    echo "WTBINSZ=$wsz"; echo "WTBINMT=$wmt"; echo "WTBIN=$wbin"
+  else echo "WTBINSZ=0"; echo "WTBINMT=-"; echo "WTBIN="; fi
+else echo "WTDIR="; fi
 log=$(ls -t "$d"/*.log 2>/dev/null | head -1)
 echo "LOGFILE=$log"
 if [ -n "$log" ]; then
@@ -144,6 +158,20 @@ Write-Output ("BUILD=" + $(if ($b) {{ 'building' }} else {{ 'idle' }}))
 $bin = Join-Path $d 'DRAW.exe'
 if (Test-Path $bin) {{ $f = Get-Item $bin; Write-Output ("BINSZ=" + $f.Length); Write-Output ("BINMT=" + $f.LastWriteTime.ToString('HH:mm:ss')) }}
 else {{ Write-Output "BINSZ=0"; Write-Output "BINMT=-" }}
+$wt = $d + '-fstest'
+if (Test-Path (Join-Path $wt '.git')) {{
+  Write-Output ("WTDIR=" + $wt)
+  $wbr = ''; $whd = ''
+  $wref = ''
+  try {{ Push-Location $wt; $wbr = (git rev-parse --abbrev-ref HEAD 2>$null); $whd = (git rev-parse --short HEAD 2>$null); $wref = (git log -1 --format='%D' 2>$null); Pop-Location }} catch {{}}
+  Write-Output ("WTBRANCH=" + $wbr)
+  Write-Output ("WTHEAD=" + $whd)
+  Write-Output ("WTREF=" + $wref)
+  $wbin = Join-Path $wt 'DRAW.exe'
+  if (-not (Test-Path $wbin)) {{ $wbin = Join-Path $wt 'DRAW.run' }}
+  if (Test-Path $wbin) {{ $wf = Get-Item $wbin; Write-Output ("WTBINSZ=" + $wf.Length); Write-Output ("WTBINMT=" + $wf.LastWriteTime.ToString('HH:mm:ss')); Write-Output ("WTBIN=" + $wbin) }}
+  else {{ Write-Output "WTBINSZ=0"; Write-Output "WTBINMT=-"; Write-Output "WTBIN=" }}
+}} else {{ Write-Output "WTDIR=" }}
 $log = Get-ChildItem (Join-Path $d '*.log') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 Write-Output ("LOGFILE=" + $(if ($log) {{ $log.FullName }} else {{ '' }}))
 Write-Output ("LOGMT=" + $(if ($log) {{ $log.LastWriteTime.ToString('HH:mm:ss') }} else {{ '' }}))
@@ -213,7 +241,9 @@ def probe_host(host) -> dict:
 
 def parse(out: str) -> dict:
     d = {"REACH": "0", "BUILD": "", "BINSZ": "0", "BINMT": "-", "LOGFILE": "", "LOGMT": "", "LOG": [],
-         "HOSTNAME": "-", "WHOAMI": "-", "OSVER": "-", "QBVER": "-", "CWD": "-", "BRANCH": "-"}
+         "HOSTNAME": "-", "WHOAMI": "-", "OSVER": "-", "QBVER": "-", "CWD": "-", "BRANCH": "-",
+         "WTDIR": "", "WTBRANCH": "", "WTHEAD": "", "WTBINSZ": "0", "WTBINMT": "-",
+         "WTBIN": "", "WTREF": ""}
     in_log = False
     for line in out.splitlines():
         if line == "LOGSTART":
@@ -240,6 +270,21 @@ def human(b: str) -> str:
     if n >= 1 << 10:
         return f"{n / (1 << 10):.0f}K"
     return f"{n}B"
+
+
+def wt_label(r: dict) -> str:
+    """Friendly branch name for the test worktree. It's checked out detached, so
+    `git rev-parse --abbrev-ref HEAD` is just "HEAD"; recover the real name from
+    `git log -1 --format=%D` (e.g. "HEAD, origin/fix/foo"), falling back to the sha."""
+    ref = r.get("WTREF", "") or ""
+    for part in ref.replace("->", ",").split(","):
+        c = part.strip()
+        if c and c != "HEAD" and not c.startswith("tag:"):
+            return c[len("origin/"):] if c.startswith("origin/") else c
+    br = r.get("WTBRANCH", "") or ""
+    if br and br not in ("HEAD", "-", ""):
+        return br
+    return r.get("WTHEAD", "") or "?"
 
 
 def derive_next(r: dict) -> str:
@@ -280,6 +325,7 @@ def build_table(results: dict) -> Table:
     t.add_column("REACH", no_wrap=True)
     t.add_column("BUILD", no_wrap=True)
     t.add_column("BINARY", no_wrap=True)
+    t.add_column("TEST BUILD", overflow="fold")   # folds so the ▶ run-path shows in full
     t.add_column("NEXT (you)", overflow="fold")
     for i, (name, htype, _) in enumerate(HOSTS, 1):
         r = results[name]
@@ -324,9 +370,25 @@ def build_table(results: dict) -> Table:
         else:
             binary = Text("(none)", style="dim")
 
+        # TEST BUILD: a sibling DRAW-fstest git worktree (isolated branch build). Surfaced
+        # so a farm test binary is never invisible — and, crucially, ACTIONABLE: it shows
+        # the branch it's on and the exact binary path to launch, not just a size + sha.
+        wt_dir = r.get("WTDIR", "")
+        wt_bin = r.get("WTBIN", "")
+        if up and wt_dir and r.get("WTBINSZ", "0") not in ("0", "") and wt_bin:
+            testbuild = Text.assemble(
+                (human(r["WTBINSZ"]) + "  ", "bold magenta"), (wt_label(r), "green"),
+                ("\n" + (r.get("WTBINMT", "-") or "-"), "dim"),
+                ("\n▶ " + wt_bin, "cyan"))          # exact path to run
+        elif up and wt_dir:
+            testbuild = Text.assemble(("(building…)\n", "yellow"),
+                                      (wt_dir + "/", "dim"))   # worktree exists, not built yet
+        else:
+            testbuild = Text("(none)", style="dim")
+
         msg, style = next_note(name, r)
         t.add_row(str(i), name, node, login, os_txt, qb_txt, loc,
-                  reach, build, binary, Text(msg, style=style))
+                  reach, build, binary, testbuild, Text(msg, style=style))
     return t
 
 
