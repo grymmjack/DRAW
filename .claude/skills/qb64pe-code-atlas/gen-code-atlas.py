@@ -378,6 +378,22 @@ html=(tpl.replace("__PROJECT__",NAME).replace("__REV__",REV).replace("__DATA__",
 out=A.out or os.path.join(ROOT, re.sub(r"[^\w.-]","_",NAME)+"-Code-Atlas.html")
 open(out,"w").write(html)
 
+# Safety gate: a syntax error in the page's inline JS blanks the whole report
+# (init never runs). If node is available, hard-fail here instead of shipping it.
+import shutil, tempfile
+if shutil.which("node"):
+    try:
+        i=html.rindex("<script>"); j=html.index("</script>", i)
+        tf=tempfile.NamedTemporaryFile("w", suffix=".js", delete=False); tf.write(html[i+8:j]); tf.close()
+        chk=subprocess.run(["node","--check",tf.name], capture_output=True, text=True); os.unlink(tf.name)
+        if chk.returncode!=0:
+            sys.stderr.write("gen-code-atlas: JS SYNTAX ERROR in generated page — not shipping:\n"+chk.stderr)
+            sys.exit(2)
+        print("JS syntax: OK")
+    except SystemExit: raise
+    except Exception as e:
+        print("JS syntax check skipped:", e)
+
 print(f"project={NAME}  rev={REV}" + (f"  ignoring={','.join(IGNORE)}" if IGNORE else ""))
 print(f"files={totals['files']} loc={totals['loc']} subs={nsub} funcs={nfun} "
       f"dead={totals['dead_candidates']}")
