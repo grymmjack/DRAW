@@ -111,6 +111,31 @@ def lib_of(path):
         if path == l or path.startswith(l + "/"): return l
     return None
 
+# ---- GitHub web links (best-effort; url stays None without a usable remote) --
+def gh_web(url):
+    if not url: return None
+    u = url.strip()
+    u = re.sub(r"^git@([^:]+):", r"https://\1/", u)   # git@github.com:owner/repo(.git)
+    u = re.sub(r"^ssh://git@", "https://", u)
+    u = re.sub(r"\.git$", "", u); u = re.sub(r"/+$", "", u)
+    return u if u.startswith("http") else None
+def git_out(args):
+    try: return subprocess.run(args, capture_output=True, text=True).stdout.strip()
+    except Exception: return ""
+REPO = {"url": gh_web(git_out(["git","-C",ROOT,"remote","get-url","origin"])),
+        "ref": git_out(["git","-C",ROOT,"rev-parse","HEAD"]) or None}
+gm_url = {}
+_gmp = os.path.join(ROOT, ".gitmodules")
+if os.path.exists(_gmp):
+    _cur = None
+    for _ln in open(_gmp, errors="replace"):
+        _mp = re.match(r"\s*path\s*=\s*(.+)", _ln); _mu = re.match(r"\s*url\s*=\s*(.+)", _ln)
+        if _mp: _cur = _mp.group(1).strip()
+        elif _mu and _cur: gm_url[_cur] = _mu.group(1).strip()
+LIB_REPO = {l: {"url": gh_web(gm_url.get(l)),
+                "ref": git_out(["git","-C",os.path.join(ROOT,l),"rev-parse","HEAD"]) or None}
+            for l in libs}
+
 # ---- helpers ----------------------------------------------------------------
 def is_code(line):
     t = line.lstrip()
@@ -243,11 +268,13 @@ for f in all_files:
             if libname is None: routines.append(rec)
             else: rec.update({"lib":libname,"byProject":None,"unused":False}); lib_routines.append(rec)
             continue
+        span = span_by.get((kind,name))
         base = SIGIL.sub("",name).lower()
-        own = own_count(p, span_by.get((kind,name)), base)
+        own = own_count(p, span, base)
         external = max(freq_all.get(base,0)-own, 0)
         rec={"file":p,"dir":d,"name":name,"kind":kind,"loc":loc,
              "refs":freq_all.get(base,0),"external":external,"dead":external==0}
+        if span: rec["line"]=span[0]+1; rec["endline"]=span[1]+1
         if libname is None:
             routines.append(rec)
         else:
@@ -280,6 +307,44 @@ totals.update({"subs":nsub,"functions":nfun,
     "module_loc":sum(r["loc"] for r in routines if r["kind"]=="MODULE"),
     "dead_candidates":sum(1 for r in routines if r["dead"])})
 
+# ---- 4b. native / FFI: DECLARE [DYNAMIC|CUSTOMTYPE] LIBRARY blocks ----------
+# Each STATIC DECLARE LIBRARY makes QB64-PE emit a probe program and compile it
+# first to resolve the C symbols/signatures (the "extra" transpile pass); DYNAMIC
+# LIBRARY is resolved at runtime and does not. Scanned over compiled files only.
+DECL_RE = re.compile(r"^\s*DECLARE\s+(DYNAMIC\s+LIBRARY|CUSTOMTYPE\s+LIBRARY|LIBRARY)\b\s*(?:\"([^\"]*)\")?", re.I)
+DECLEND_RE = re.compile(r"^\s*END\s+DECLARE\b", re.I)
+SUBFN_RE = re.compile(r"^\s*(SUB|FUNCTION)\b", re.I)
+CEXT = (".h",".c",".cpp",".hpp",".cc",".mm",".cxx",".a",".o",".so",".dll")
+def resolve_lib(name, from_file):
+    if not name: return []
+    base = name.strip().lstrip("./").replace("\\","/")
+    found = []
+    for d in (os.path.dirname(from_file), ""):
+        for ext in CEXT:
+            cand = os.path.normpath(os.path.join(d, base + ext))
+            if cand not in found and os.path.exists(os.path.join(ROOT, cand)):
+                found.append(cand)
+    return found
+natives = []
+for f in all_files:
+    p = f["path"]; raw = raw_by.get(p, []); i = 0
+    while i < len(raw):
+        if is_code(raw[i]):
+            m = DECL_RE.match(raw[i])
+            if m:
+                nm = m.group(2) or ""
+                decls = 0; j = i + 1
+                while j < len(raw) and not DECLEND_RE.match(raw[j]):
+                    if is_code(raw[j]) and SUBFN_RE.match(raw[j]): decls += 1
+                    j += 1
+                natives.append({"file": p, "dir": topdir(p), "line": i + 1,
+                    "kind": re.sub(r"\s+", " ", m.group(1).upper()),
+                    "name": nm, "refs": resolve_lib(nm, p), "decls": decls,
+                    "lib": f["lib"] is not None})
+                i = j
+        i += 1
+natives.sort(key=lambda n: (n["file"], n["line"]))
+
 lib_summary=[]
 for l in libs:
     lf=[f for f in lib_files if f["lib"]==l]
@@ -290,11 +355,12 @@ for l in libs:
         "files_present":len(pres),"loc_present":sum(r["loc"] for r in pres),
         "routines":len(lr),
         "used_by_project":sum(1 for r in lr if r["byProject"]),
-        "unused_by_project":sum(1 for r in lr if not r["byProject"])})
+        "unused_by_project":sum(1 for r in lr if not r["byProject"]),
+        "repo":LIB_REPO.get(l)})
 
 report={
  "generated":time.strftime("%Y-%m-%d %H:%M"),"project":NAME,"rev":REV,
- "ignored":IGNORE,
+ "ignored":IGNORE,"repo":REPO,
  "totals":totals,
  "dirs":sorted(dirs_list,key=lambda x:-x["loc"]),
  "files":sorted([{k:f[k] for k in ("path","dir","loc","lines","comments","blank","density")} for f in proj_files],key=lambda x:-x["loc"]),
@@ -302,6 +368,7 @@ report={
  "libs":lib_summary,
  "libFiles":sorted([{**{k:f[k] for k in ("path","dir","loc","lines","comments","blank","density")},"lib":f["lib"]} for f in lib_files],key=lambda x:-x["loc"]),
  "libRoutines":sorted(lib_routines,key=lambda x:-x["loc"]),
+ "natives":natives,
 }
 
 # ---- 6. splice into template + write ---------------------------------------
@@ -314,6 +381,12 @@ open(out,"w").write(html)
 print(f"project={NAME}  rev={REV}" + (f"  ignoring={','.join(IGNORE)}" if IGNORE else ""))
 print(f"files={totals['files']} loc={totals['loc']} subs={nsub} funcs={nfun} "
       f"dead={totals['dead_candidates']}")
+if natives:
+    stat=sum(1 for n in natives if n["kind"]=="LIBRARY")
+    dyn=sum(1 for n in natives if "DYNAMIC" in n["kind"])
+    hdrs=sorted({r for n in natives for r in n["refs"]})
+    print(f"native: {len(natives)} DECLARE blocks ({stat} static, {dyn} dynamic) · "
+          f"{len(hdrs)} C file(s): {', '.join(hdrs) if hdrs else '(none resolved)'}")
 for s in lib_summary:
     print(f"  dep {s['name']}: INCLUDED {s['files']}/{s['files_present']} files, "
           f"{s['loc']}/{s['loc_present']} LOC · {s['routines']} routines · "
