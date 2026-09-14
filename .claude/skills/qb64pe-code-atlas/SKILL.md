@@ -22,11 +22,14 @@ A single self-contained page ("<Project> Code Atlas") with:
 - **Dead-code candidates** tab — routines referenced 0× outside their own body
   (defined but never called by name), biggest first, with a verify-first caveat.
 - **Dependencies** tab — appears when the project has a git submodule (or a
-  `--lib` dir) containing QB64-PE source: its files/LOC/routines broken out, with a
-  **By project** column = how many times the host project's own code references each
-  dep routine (0 = the project never calls it directly). A color **legend** is on-page.
+  `--lib` dir) containing QB64-PE source: the files **actually compiled into the
+  build** ($INCLUDE-reachable) broken out, with a **By project** column = how many
+  times the host project's own code references each dep routine (0 = never called
+  directly). Shows included/present counts so you see how much of the submodule is used.
 
 Everything is client-side sort/filter/search; light+dark themed; no external data.
+A clickable **color legend** doubles as a filter (click a chip to jump/filter), and
+**tooltips** on every control, tab, column header and legend chip explain each term.
 
 ## How it works
 
@@ -50,6 +53,12 @@ source, excluding each routine's own body) and splices the result into the bundl
    - `--name` sets the display name (default: basename of ROOT).
    - Git **submodules are auto-detected** as dependencies; add more with `--lib`
      (repo-relative, repeatable) or disable auto-detect with `--no-auto-lib`.
+   - **Dependencies are measured compiled-only:** only the dependency files actually
+     reached via `$INCLUDE` from a project entry (a top-level `.BAS`, never the
+     dependency's own demo programs) are counted — a submodule usually ships far more
+     than a project uses (DRAW compiles 34 of QB64_GJ_LIB's 190 files). The
+     Dependencies tab shows *included / present* counts. Pass `--all-dep-files` to
+     measure every dependency file instead.
    - `--ignore-dirs` excludes repo-relative path prefixes that aren't part of the
      production build (comma-separated and/or repeated) — e.g. `--ignore-dirs DEV`
      drops experiment/bench sources. Ignored dirs are removed from the report **and**
