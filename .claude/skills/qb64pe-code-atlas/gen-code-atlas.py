@@ -38,6 +38,7 @@ IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 SIGIL = re.compile(r"[%&!#$~]+$")
 HEAD  = re.compile(r"^\s*(sub|function)\s+([A-Za-z_][A-Za-z0-9_]*[%&!#$~]*)", re.I)
 ENDR  = re.compile(r"^\s*end\s+(sub|function)\b", re.I)
+INC   = re.compile(r"\$INCLUDE\s*:\s*['\"]([^'\"]+)['\"]", re.I)
 
 def die(msg):
     sys.stderr.write("gen-code-atlas: " + msg + "\n"); sys.exit(1)
@@ -52,6 +53,7 @@ ap.add_argument("--name", default=None)
 ap.add_argument("--lib", action="append", default=[])
 ap.add_argument("--no-auto-lib", action="store_true")
 ap.add_argument("--ignore-dirs", action="append", default=[])
+ap.add_argument("--all-dep-files", action="store_true")
 ap.add_argument("--out", default=None)
 A = ap.parse_args()
 
@@ -144,12 +146,51 @@ proj_rows = [r for r in loc_by_file(ROOT) if not ignored(r["path"])]
 all_files = []   # {path(rel ROOT), loc,lines,comments,blank, lib(name or None)}
 for r in proj_rows:
     all_files.append({**r, "lib": None})
+lib_rows_all = {}   # lib -> ALL rows present in the dependency (before closure)
 for l in libs:
-    for r in loc_by_file(os.path.join(ROOT,l)):
+    rows = loc_by_file(os.path.join(ROOT, l))
+    lib_rows_all[l] = rows
+    for r in rows:
         all_files.append({**r, "path": l + "/" + r["path"], "lib": l})
 
 def topdir(p):
     return p.split("/",1)[0] if "/" in p else "(root)"
+
+# ---- 1b. read every source once + compute the $INCLUDE closure --------------
+# Only files reachable via $INCLUDE from a PROJECT entry (a top-level .BAS, never
+# a dependency's own demo programs) are compiled into the build. Dependencies are
+# restricted to that closure so we measure only what the project actually builds
+# (e.g. DRAW pulls 34 of QB64_GJ_LIB's 190 files). --all-dep-files keeps them all.
+raw_by = {}
+present = {f["path"] for f in all_files}
+for f in all_files:
+    try:
+        raw_by[f["path"]] = open(os.path.join(ROOT, f["path"]), errors="replace").read().splitlines()
+    except Exception:
+        raw_by[f["path"]] = []
+
+def inc_targets(p):
+    out = []
+    for ln in raw_by.get(p, []):
+        m = INC.search(ln)
+        if not m: continue
+        ip = m.group(1).strip().lstrip("./").replace("\\", "/")
+        for c in (os.path.normpath(os.path.join(os.path.dirname(p), ip)), os.path.normpath(ip)):
+            if c in present: out.append(c); break
+    return out
+
+entries = [f["path"] for f in all_files
+           if f["lib"] is None and f["path"].lower().endswith(".bas")]
+closure = set(); stack = list(entries)
+while stack:
+    x = stack.pop()
+    if x in closure: continue
+    closure.add(x)
+    for e in inc_targets(x):
+        if e not in closure: stack.append(e)
+
+if not A.all_dep_files:
+    all_files = [f for f in all_files if f["lib"] is None or f["path"] in closure]
 
 # ---- 2. per-routine LOC via loc-by-subfunc (skill) --------------------------
 skill_routines = defaultdict(list)   # path -> [(kind,name,loc)]
@@ -158,15 +199,13 @@ for f in all_files:
     for r in csv.DictReader(io.StringIO(out)):
         skill_routines[f["path"]].append((r["kind"], r["name"], int(r["loc"])))
 
-# ---- 3. parse spans + corpus (project + deps) -------------------------------
+# ---- 3. parse spans + corpus (project + INCLUDED deps) ----------------------
 freq_all = Counter()
 freq_proj = Counter()          # non-dependency files only
 file_lines = {}                # path -> stripped lines
 spans = defaultdict(list)      # path -> [(kind,name,start,end)]
 for f in all_files:
-    p = f["path"]
-    with open(os.path.join(ROOT,p), errors="replace") as fh:
-        raw = fh.read().splitlines()
+    p = f["path"]; raw = raw_by[p]
     stripped = [strip_comment(l) for l in raw]
     file_lines[p] = stripped
     isproj = f["lib"] is None
@@ -246,7 +285,9 @@ for l in libs:
     lf=[f for f in lib_files if f["lib"]==l]
     lr=[r for r in lib_routines if r.get("lib")==l and r["kind"]!="MODULE"]
     t=tot(lf)
+    pres=lib_rows_all.get(l,[])
     lib_summary.append({"name":l,"loc":t["loc"],"lines":t["lines"],"files":t["files"],
+        "files_present":len(pres),"loc_present":sum(r["loc"] for r in pres),
         "routines":len(lr),
         "used_by_project":sum(1 for r in lr if r["byProject"]),
         "unused_by_project":sum(1 for r in lr if not r["byProject"])})
@@ -274,6 +315,7 @@ print(f"project={NAME}  rev={REV}" + (f"  ignoring={','.join(IGNORE)}" if IGNORE
 print(f"files={totals['files']} loc={totals['loc']} subs={nsub} funcs={nfun} "
       f"dead={totals['dead_candidates']}")
 for s in lib_summary:
-    print(f"  dep {s['name']}: {s['files']}f {s['loc']} LOC, {s['routines']} routines, "
+    print(f"  dep {s['name']}: INCLUDED {s['files']}/{s['files_present']} files, "
+          f"{s['loc']}/{s['loc_present']} LOC · {s['routines']} routines · "
           f"{s['used_by_project']} used / {s['unused_by_project']} unused by project")
 print(f"OUT={out} ({os.path.getsize(out)} bytes)")
