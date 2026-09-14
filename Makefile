@@ -131,6 +131,7 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
 
 # ---------- Targets -----------------------------------------------------------
 .PHONY: help all dev dev-run run run-logged run-log-bas clean clean-log macos-app \
+        export-log-vars export-log-vars-basic \
         main v450 a740g main-run v450-run a740g-run
 .DEFAULT_GOAL := all
 
@@ -176,6 +177,17 @@ run-logged: clean-log $(OUT)  #: Build & run with FULL QB64-PE logging -> DRAW.l
 
 run-log-bas: clean-log $(OUT)  #: Build & run with BASIC logging -> DRAW.log (ARGS="...")
 	$(LOG_ENV_BASIC) ./$(OUT) $(ARGS)
+
+# Print the QB64PE_LOG_* vars (one KEY=VALUE per line, nothing else) so you can load
+# them into your shell and then run DRAW (or any build) directly with full logging:
+#   export $(make export-log-vars)      # bash/zsh — word-splits into 4 exports
+#   ./DRAW.run                          # now logs to DRAW.log
+# Use export-log-vars-basic for the lighter runtime,qb64 scope set.
+export-log-vars:  #: Print QB64PE_LOG_* (FULL) for `export $(make export-log-vars)`
+	@printf '%s\n' $(LOG_ENV_FULL)
+
+export-log-vars-basic:  #: Print QB64PE_LOG_* (BASIC) for `export $(make export-log-vars-basic)`
+	@printf '%s\n' $(LOG_ENV_BASIC)
 
 clean:  #: Remove the built binary and log file
 	$(RM) $(OUT)
