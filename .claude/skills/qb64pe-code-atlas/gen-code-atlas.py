@@ -54,6 +54,7 @@ ap.add_argument("--lib", action="append", default=[])
 ap.add_argument("--no-auto-lib", action="store_true")
 ap.add_argument("--ignore-dirs", action="append", default=[])
 ap.add_argument("--all-dep-files", action="store_true")
+ap.add_argument("--no-map", action="store_true", help="skip the code-map.json + tags sidecar")
 ap.add_argument("--out", default=None)
 A = ap.parse_args()
 
@@ -393,6 +394,65 @@ if shutil.which("node"):
     except SystemExit: raise
     except Exception as e:
         print("JS syntax check skipped:", e)
+
+# ---- 7. machine-readable sidecar: code-map.json + universal-ctags tags ------
+# A navigation index for tools/LLMs: symbol table (name -> file:line span, kind,
+# size, refs, dead), a best-effort call graph + reverse callers, the $INCLUDE DAG,
+# and the FFI list. Regex-derived (not a compiler): call edges can include false
+# positives (identifiers that aren't calls) and miss dispatch-by-id / string-built
+# names — verify at the definition, and regenerate after edits.
+if not A.no_map:
+    name_of_base = {}
+    for r in routines + lib_routines:
+        if r["kind"] == "MODULE": continue
+        name_of_base.setdefault(SIGIL.sub("", r["name"]).lower(), r["name"])
+    calls = {}; callers = defaultdict(set)
+    for r in routines + lib_routines:
+        if r["kind"] == "MODULE" or "line" not in r: continue
+        ownb = SIGIL.sub("", r["name"]).lower()
+        s = r["line"] - 1; e = r.get("endline", r["line"]) - 1
+        callees = set()
+        for ln in file_lines.get(r["file"], [])[s:e+1]:
+            for m in IDENT.finditer(ln):
+                b = m.group(0).lower()
+                if b != ownb and b in name_of_base: callees.add(name_of_base[b])
+        if callees:
+            calls[r["name"]] = sorted(callees)
+            for c in callees: callers[c].add(r["name"])
+    fileset = {f["path"] for f in all_files}
+    includes = {}
+    for f in all_files:
+        t = sorted({e for e in inc_targets(f["path"]) if e in fileset})
+        if t: includes[f["path"]] = t
+    symbols = [{"name":r["name"],"kind":r["kind"],"file":r["file"],
+                "line":r.get("line"),"endline":r.get("endline"),"loc":r["loc"],
+                "refs":r.get("refs"),"external":r.get("external"),"dead":r.get("dead"),
+                "byProject":r.get("byProject"),"lib":r.get("lib")}
+               for r in routines + lib_routines if r["kind"] != "MODULE"]
+    code_map = {
+        "meta": {"project":NAME,"rev":REV,"repo":REPO,"generated":report["generated"],
+                 "ignored":IGNORE,
+                 "caveats":"Regex-derived best-effort map, not a compiler. Call edges may "
+                           "include false positives (identifiers that aren't calls) and miss "
+                           "dispatch-by-id / string-built names. Line spans are 1-based, "
+                           "inclusive of the header and END lines. Verify at the definition; "
+                           "regenerate after code changes."},
+        "totals": totals, "symbols": symbols, "calls": calls,
+        "callers": {k:sorted(v) for k,v in callers.items()},
+        "includes": includes, "natives": natives, "libs": lib_summary,
+    }
+    mapdir = os.path.dirname(os.path.abspath(out)) or "."
+    mp = os.path.join(mapdir, "code-map.json")
+    open(mp,"w").write(json.dumps(code_map, separators=(",",":")))
+    tg = os.path.join(mapdir, "tags")
+    with open(tg,"w") as fh:
+        fh.write("!_TAG_FILE_FORMAT\t2\t/extended/\n")
+        fh.write("!_TAG_FILE_SORTED\t0\t/0=unsorted/\n")
+        fh.write("!_TAG_PROGRAM_NAME\tqb64pe-code-atlas\t//\n")
+        for s in symbols:
+            if not s["line"]: continue
+            fh.write(f'{s["name"]}\t{s["file"]}\t{s["line"]};"\t{"f" if s["kind"]=="FUNCTION" else "s"}\n')
+    print(f"MAP={mp}  TAGS={tg}  symbols={len(symbols)} calls={len(calls)} includes={len(includes)}")
 
 print(f"project={NAME}  rev={REV}" + (f"  ignoring={','.join(IGNORE)}" if IGNORE else ""))
 print(f"files={totals['files']} loc={totals['loc']} subs={nsub} funcs={nfun} "
