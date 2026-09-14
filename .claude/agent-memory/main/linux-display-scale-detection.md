@@ -29,6 +29,29 @@ sessions have no display-scale context. Compiles clean Linux+Windows.
 off-by-default = zero regression, always-logged, one flag to test. Flip the default only
 after visual verification on a real fractional-scaled KDE session.
 
+**[Linux] X11 vs Wayland is the crux (verified 2026-09-14).** The correction is X11-only by
+nature: on **X11** the server hands the app the full PHYSICAL grid, so a 150% desktop must
+divide down (`raw=3840x2160`→divisor 1.5). On **Wayland** (author's KDE 4K@150%) the
+compositor PRE-SCALES and `_DESKTOPWIDTH` already returns the LOGICAL `2560x1440` (=3840/1.5),
+so detection MUST return 1.0 — a divisor there would halve the UI (double-scale bug). Same
+code, opposite-but-correct per session. Wayland's fractional scale is a compositor-internal
+`wl_output` value a GLFW/QB64 app can't query, and it's NOT exported as QT_SCALE_FACTOR/Xft.dpi
+— so on Wayland detection correctly finds nothing. The env-var paths are what KDE/Qt-on-X11
+actually export; xrdb/Xft.dpi is the last-resort fallback.
+
+**MERGED to main via PR #121 (2026-09-14)** with the `VAL("TRUE")=0` parse fix and QA guard.
+Fullscreen branch `fix/fullscreen-and-toggle-all` merged main in cleanly (different SCREEN.BM
+regions — the single seam pays off).
+
+**Test technique (non-obvious, reusable):** `DRAW_HEADLESS=1` runs `SCREEN_init`'s HIDPI block
+(SCREEN.BM ~653, logs `detected display-scale=X -> divisor=Y`) and THEN clean-exits (code 3) at
+the no-display guard (~705) BEFORE opening a window — a perfect "init+log+exit" probe, no GUI,
+no teardown. Inject scale via env (`QT_SCALE_FACTOR=1.5` etc.) + `--option LINUX_HIDPI_SCALE=TRUE`,
+grep the log. QA test: `QA/tests/linux-display-scale.sh` (5 cases, passes offscreen). CAVEAT: a
+bare Xvfb (no WM/session) can't STORE X resources — `xrdb`/`xprop` writes to `RESOURCE_MANAGER`
+silently no-op — so the Xft.dpi fallback is NOT testable headless (headless skips it anyway);
+verify that one branch only on a real X11 session.
+
 **How to apply:** any DPI/scale work extends this ONE seam; never read raw `_DESKTOPWIDTH`
 for sizing. See [[draw-display-scale-system]] and [[thinkpad-two-windows-profiles]] (why
 SSH probes can't see the graphical scale context).
