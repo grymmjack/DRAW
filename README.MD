@@ -5,9 +5,19 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.1.1
+Current release: v2.3.3
 
 ![DRAW GUI from v1.1.0](./GUI.png)
+
+## New in 2.3.3
+
+A polish-and-fix patch focused on fullscreen and cross-platform display handling.
+
+- **Native fullscreen** — press **`Alt+Enter`**, use **View → Fullscreen**, or search *Toggle Fullscreen* in the command palette. It toggles live (no restart), remembers the state across launches, and enters antialiased so fullscreen text isn't jagged on high-DPI displays. (The old Settings checkbox is gone.)
+- **Hide/Show All (`F11`) now includes the Advanced Color Picker** — it was previously left visible when everything else hid.
+- **[Linux] Opt-in display-scale detection** — set `LINUX_HIDPI_SCALE=TRUE` and DRAW folds the desktop's display scale (`QT_SCALE_FACTOR` / `GDK_SCALE` / `Xft.dpi`, etc.) into its sizing math so the UI comes out right on KDE and other fractionally-scaled X11 desktops. Default off; Wayland needs no correction and gets none.
+- **[Windows] The stray console window is hidden** on normal launches (kept in developer mode).
+- **Tooltips wrap to their container** and the Open-dialog tooltip now renders at the dialog's scale.
 
 ## New in 2.1.1
 

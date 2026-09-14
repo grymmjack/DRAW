@@ -145,7 +145,8 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+M` | Toggle Character Map panel |
 | `Ctrl+Shift+M` | Toggle Advanced Color Picker panel |
 | `F10` | Toggle status bar |
-| `F11` | Toggle ALL UI |
+| `F11` | Toggle ALL UI (now also hides/shows the Advanced Color Picker) |
+| `Alt+Enter` | Toggle fullscreen (also **View → Fullscreen** / command palette; live, no restart, persists across launches) |
 | `Ctrl+F11` | Toggle menu bar |
 | `Ctrl+Shift+Up` | Hide/show menu bar (alt binding) |
 | `Ctrl+Shift+Down` | Hide/show status bar + color strip |
