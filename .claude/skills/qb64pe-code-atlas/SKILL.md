@@ -27,9 +27,16 @@ A single self-contained page ("<Project> Code Atlas") with:
   times the host project's own code references each dep routine (0 = never called
   directly). Shows included/present counts so you see how much of the submodule is used.
 
-Everything is client-side sort/filter/search; light+dark themed; no external data.
-A clickable **color legend** doubles as a filter (click a chip to jump/filter), and
-**tooltips** on every control, tab, column header and legend chip explain each term.
+- **C libraries** tab — every `DECLARE LIBRARY` (C interop) compiled into the build,
+  the C header/source each binds to, and static-vs-dynamic (static links drive
+  QB64-PE's extra pre-compile probe pass). Appears only when the build has FFI.
+
+Everything is client-side sort/filter/search (with a clear-× in the search box);
+light+dark themed; no external data. A clickable **color legend** doubles as a filter
+(click a chip to jump/filter); **tooltips** on every control, tab, column header, legend
+chip and row flag explain each term; and when a GitHub `origin` remote is present, file
+paths, directories and routines **link to GitHub** at the exact commit (and line range),
+resolving dependency files to the submodule's own repo + pinned SHA.
 
 ## How it works
 
