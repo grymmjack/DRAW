@@ -642,6 +642,22 @@ SUB SCREEN_init ()
         END IF
     $END IF
 
+    ' [Linux] Optional: detect the desktop's display-scale (KDE/Qt/GTK) and fold it into
+    ' the SAME true-pixel divisor Windows uses, so a fractionally-scaled desktop (e.g.
+    ' Kubuntu 150%) sizes DRAW's UI correctly instead of off the raw physical resolution.
+    ' Opt-in (CFG.LINUX_HIDPI_SCALE%, default off) since the X server reports full physical
+    ' pixels and the correct fix depends on the session; the detected value is always logged.
+    ' Runs before the first SCREEN_desktop_w& query, matching the Windows block above.
+    ' ($IF LINUX is also true on macOS, but the flag defaults off and detection returns 1.0
+    ' there — Retina is already handled — so this is a no-op on mac.)
+    $IF LINUX THEN
+        IF CFG.LINUX_HIDPI_SCALE% THEN
+            DIM lxScale AS SINGLE : lxScale! = SCREEN_detect_linux_dpi_scale!
+            IF lxScale! > 1.0 THEN SCREEN_DPI_DIVISOR! = lxScale!
+            _LOGINFO "SCREEN_init [Linux]: LINUX_HIDPI_SCALE on; detected display-scale=" + _TRIM$(STR$(lxScale!)) + " -> divisor=" + _TRIM$(STR$(SCREEN_DPI_DIVISOR!)) + " raw=" + _TRIM$(STR$(_DESKTOPWIDTH)) + "x" + _TRIM$(STR$(_DESKTOPHEIGHT))
+        END IF
+    $END IF
+
     ' Load runtime theme overrides from THEME.CFG (after CONFIG_load so CFG.THEME$ is known)
     THEME_load
 
@@ -3824,4 +3840,75 @@ FUNCTION SCREEN_desktop_h& ()
     ELSE
         SCREEN_desktop_h& = _DESKTOPHEIGHT
     END IF
+END FUNCTION
+
+''
+' Detect the Linux desktop's display-scale factor (1.0 = 100% / none / unknown).
+' On Linux the X server reports full physical pixels even when the desktop is
+' fractionally scaled (KDE "Global Scale", GNOME text-scaling), so DRAW's resolution
+' based auto-scale can come out wrong. This reads the scale the session advertises,
+' in order of reliability:
+'   1. Env vars (instant, no subprocess): QT_SCALE_FACTOR, GDK_DPI_SCALE, GDK_SCALE,
+'      QT_SCREEN_SCALE_FACTORS (first "=<factor>").
+'   2. Xft.dpi via `xrdb -query` (KDE/GTK X11 global-scale, 96=100% 144=150%) — a guarded
+'      subprocess that runs ONLY when a DISPLAY exists and not headless, writes to a temp
+'      file, and falls back to 1.0 on any failure (xrdb missing, no X, parse error).
+' Returns the first credible factor > 1.0, else 1.0. Called only from SCREEN_init's
+' $IF LINUX block when CFG.LINUX_HIDPI_SCALE% is on. Single return (never reads its own
+' name — that would recurse in QB64-PE).
+'
+FUNCTION SCREEN_detect_linux_dpi_scale! ()
+    DIM sc AS SINGLE : sc! = 1.0
+    DIM found AS INTEGER : found% = 0
+    DIM v AS STRING
+
+    v$ = _TRIM$(ENVIRON$("QT_SCALE_FACTOR"))
+    IF v$ <> "" _ANDALSO VAL(v$) > 1.0 THEN sc! = VAL(v$) : found% = TRUE
+
+    IF NOT found% THEN
+        v$ = _TRIM$(ENVIRON$("GDK_DPI_SCALE"))
+        IF v$ <> "" _ANDALSO VAL(v$) > 1.0 THEN sc! = VAL(v$) : found% = TRUE
+    END IF
+
+    IF NOT found% THEN
+        v$ = _TRIM$(ENVIRON$("GDK_SCALE"))
+        IF v$ <> "" _ANDALSO VAL(v$) > 1.0 THEN sc! = VAL(v$) : found% = TRUE
+    END IF
+
+    IF NOT found% THEN
+        ' QT_SCREEN_SCALE_FACTORS e.g. "DP-1=1.5;HDMI-1=1;" — take the first "=<factor>"
+        v$ = ENVIRON$("QT_SCREEN_SCALE_FACTORS")
+        IF v$ <> "" THEN
+            DIM eqp AS INTEGER : eqp% = INSTR(v$, "=")
+            IF eqp% > 0 THEN
+                DIM tail AS STRING : tail$ = MID$(v$, eqp% + 1)
+                DIM semi AS INTEGER : semi% = INSTR(tail$, ";")
+                IF semi% > 0 THEN tail$ = LEFT$(tail$, semi% - 1)
+                IF VAL(_TRIM$(tail$)) > 1.0 THEN sc! = VAL(_TRIM$(tail$)) : found% = TRUE
+            END IF
+        END IF
+    END IF
+
+    IF NOT found% THEN
+        ' Xft.dpi via xrdb (guarded). Only with a live DISPLAY and not headless.
+        IF _TRIM$(ENVIRON$("DISPLAY")) <> "" _ANDALSO _TRIM$(ENVIRON$("DRAW_HEADLESS")) = "" THEN
+            DIM tmp AS STRING : tmp$ = PATHS_CACHE_DIR$ + "xftdpi.tmp"
+            SHELL _HIDE "xrdb -query 2>/dev/null | grep -i " + CHR$(39) + "Xft.dpi" + CHR$(39) + " > " + CHR$(34) + tmp$ + CHR$(34) + " 2>/dev/null"
+            IF _FILEEXISTS(tmp$) THEN
+                DIM fh AS INTEGER : fh% = FREEFILE
+                DIM ln AS STRING : ln$ = ""
+                OPEN tmp$ FOR INPUT AS #fh%
+                IF NOT EOF(fh%) THEN LINE INPUT #fh%, ln$
+                CLOSE #fh%
+                KILL tmp$
+                DIM cp AS INTEGER : cp% = INSTR(ln$, ":")
+                IF cp% > 0 THEN
+                    DIM dpi AS SINGLE : dpi! = VAL(_TRIM$(MID$(ln$, cp% + 1)))
+                    IF dpi! >= 96.0 _ANDALSO dpi! / 96.0 > 1.0 THEN sc! = dpi! / 96.0
+                END IF
+            END IF
+        END IF
+    END IF
+
+    SCREEN_detect_linux_dpi_scale! = sc!
 END FUNCTION
