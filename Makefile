@@ -131,7 +131,7 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
 
 # ---------- Targets -----------------------------------------------------------
 .PHONY: help all dev dev-run run run-logged run-log-bas clean clean-log macos-app \
-        export-log-vars export-log-vars-basic \
+        export-log-vars export-log-vars-basic atlas \
         main v450 a740g main-run v450-run a740g-run
 .DEFAULT_GOAL := all
 
@@ -192,9 +192,18 @@ export-log-vars-basic:  #: Print QB64PE_LOG_* (BASIC) for `export $(make export-
 clean:  #: Remove the built binary and log file
 	$(RM) $(OUT)
 	$(RM) $(LOGFILE)
+	$(RM) $(ATLAS_OUT)
 
 clean-log:  #: Remove the log file only
 	$(RM) $(LOGFILE)
+
+# Code Atlas — interactive LOC & dead-code report (opens in a browser). DEV/ is
+# excluded (it is not part of the compiled build). Regenerate with `make atlas`,
+# then open $(ATLAS_OUT), or ask Claude to publish it as an Artifact.
+ATLAS_OUT ?= DRAW-Code-Atlas.html
+
+atlas:  #: Build the Code Atlas LOC/dead-code report -> $(ATLAS_OUT) (DEV excluded)
+	python3 .claude/skills/qb64pe-code-atlas/gen-code-atlas.py --name DRAW --ignore-dirs DEV --out $(ATLAS_OUT)
 
 macos-app: $(OUT)  #: [macOS] Bundle DRAW.run + icon into a self-contained DRAW.app
 	./DEV/make-macos-app.sh
