@@ -192,17 +192,19 @@ export-log-vars-basic:  #: Print QB64PE_LOG_* (BASIC) for `export $(make export-
 clean:  #: Remove the built binary and log file
 	$(RM) $(OUT)
 	$(RM) $(LOGFILE)
-	$(RM) $(ATLAS_OUT)
+	$(RM) $(ATLAS_OUT) code-map.json tags
 
 clean-log:  #: Remove the log file only
 	$(RM) $(LOGFILE)
 
 # Code Atlas — interactive LOC & dead-code report (opens in a browser). DEV/ is
 # excluded (it is not part of the compiled build). Regenerate with `make atlas`,
-# then open $(ATLAS_OUT), or ask Claude to publish it as an Artifact.
+# then open $(ATLAS_OUT), or ask Claude to publish it as an Artifact. Also writes
+# a machine-readable navigation sidecar: code-map.json (symbols + call graph +
+# reverse callers + $INCLUDE DAG + FFI) and a universal-ctags `tags` file.
 ATLAS_OUT ?= DRAW-Code-Atlas.html
 
-atlas:  #: Build the Code Atlas LOC/dead-code report -> $(ATLAS_OUT) (DEV excluded)
+atlas:  #: Build the Code Atlas report + code-map.json/tags sidecar (DEV excluded)
 	python3 .claude/skills/qb64pe-code-atlas/gen-code-atlas.py --name DRAW --ignore-dirs DEV --out $(ATLAS_OUT)
 
 macos-app: $(OUT)  #: [macOS] Bundle DRAW.run + icon into a self-contained DRAW.app

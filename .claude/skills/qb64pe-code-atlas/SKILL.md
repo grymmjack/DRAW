@@ -75,7 +75,30 @@ source, excluding each routine's own body) and splices the result into the bundl
      **prefer writing to the session scratchpad** so nothing lands in the repo, e.g.
      `--out "$SCRATCHPAD/<NAME>-Code-Atlas.html"`.
    It prints a summary (`files= loc= subs= funcs= dead=`, one line per dependency)
-   and `OUT=<path>`.
+   and `OUT=<path>`. It also writes a machine-readable **navigation sidecar** next
+   to the HTML (unless `--no-map`): `code-map.json` and a universal-ctags `tags` file
+   (`MAP=… TAGS=…`).
+
+### The code-map.json sidecar (for tools / LLM navigation)
+
+`code-map.json` is a compact index meant to save an LLM (or any tool) from
+searching+re-deriving structure. Query it with `jq` instead of grepping the tree:
+- `symbols` — every SUB/FUNCTION: `name → {file, line, endline, kind, loc, refs,
+  external, dead, byProject, lib}` (definition lookup + size + usage).
+- `calls` — best-effort call graph: `caller → [callees]`.
+- `callers` — the reverse index: `callee → [callers]`.
+- `includes` — the `$INCLUDE` DAG among compiled files.
+- `natives` / `libs` — the FFI inventory and dependency summary.
+
+Example: `jq '.callers.SCREEN_render' code-map.json` (who calls it),
+`jq '.calls.DRW_load_binary' code-map.json` (what it calls),
+`jq '.symbols[]|select(.dead)|.name' code-map.json` (dead-code candidates).
+The `tags` file lets editors/agents jump to any definition.
+
+**Caveat (in the file's `meta.caveats`):** it is regex-derived, not a compiler —
+call edges can include false positives and miss dispatch-by-id / string-built
+names; verify at the definition and regenerate after edits. Both sidecars are
+git-ignored by `make atlas`; commit them if you want them always available.
 2. **Publish that OUT file as an Artifact** — `title` = `"<Project> Code Atlas"`,
    `favicon` `📐`, `icon` `chart`. Give the user the URL.
 3. Relay the headline numbers and any striking findings (biggest file/routine,
