@@ -71,9 +71,12 @@ section{margin-top:26px}
 /* directory bars */
 .bars{background:var(--surface);border:1px solid var(--border);border-radius:12px;
   padding:16px 18px;box-shadow:var(--shadow)}
-.bar-row{display:grid;grid-template-columns:118px 1fr auto;align-items:center;gap:12px;padding:5px 0}
+.bar-row{display:grid;grid-template-columns:158px 1fr auto;align-items:center;gap:12px;padding:5px 0}
 .bar-row .dir{font-family:var(--mono);font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}
+.bar-row .depdot{font-family:var(--sans);font-size:9px;font-weight:600;color:var(--muted);
+  background:var(--surface-2);border:1px solid var(--border);border-radius:3px;padding:0 3px;margin-left:4px}
+.bar-fill.dep{background:linear-gradient(90deg,var(--faint),var(--muted))}
 .bar-track{background:var(--track);border-radius:5px;height:15px;overflow:hidden;position:relative}
 .bar-fill{background:linear-gradient(90deg,var(--accent),color-mix(in srgb,var(--accent) 72%,var(--accent-ink)));
   height:100%;border-radius:5px;min-width:2px}
@@ -210,7 +213,7 @@ footer{margin:34px 0 40px;color:var(--faint);font-size:11.5px;font-family:var(--
 
   <section>
     <div class="sec-head"><h2>Code by directory</h2>
-      <span class="hint">real code lines (blank &amp; comment excluded), largest first</span></div>
+      <span class="hint">real code lines (blank &amp; comment excluded), largest first · dependencies in grey</span></div>
     <div class="bars" id="dirBars"></div>
   </section>
 
@@ -361,11 +364,15 @@ $('#kpis').innerHTML = kpis.map(x=>`<div class="kpi ${x.cls||''}"${x.tip?` data-
 
 /* ---------- directory bars ---------- */
 (function(){
-  const max=Math.max(...DATA.dirs.map(d=>d.loc));
-  $('#dirBars').innerHTML = DATA.dirs.map(d=>{
+  const rows=DATA.dirs.map(d=>({dir:d.dir,loc:d.loc,files:d.files,dep:false}))
+    .concat((DATA.libs||[]).map(l=>({dir:l.name,loc:l.loc,files:l.files,dep:true})))
+    .sort((a,b)=>b.loc-a.loc);
+  const max=Math.max(...rows.map(d=>d.loc),1);
+  $('#dirBars').innerHTML = rows.map(d=>{
     const pct=(d.loc/max*100).toFixed(1);
-    return `<div class="bar-row"><div class="dir" title="${esc(d.dir)}">${esc(d.dir)}</div>
-      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+    return `<div class="bar-row"${d.dep?' data-tip="Dependency (submodule) code compiled into the build — shown for scale; not part of the project totals."':''}>
+      <div class="dir" title="${esc(d.dir)}">${esc(d.dir)}${d.dep?' <span class="depdot">dep</span>':''}</div>
+      <div class="bar-track"><div class="bar-fill${d.dep?' dep':''}" style="width:${pct}%"></div></div>
       <div class="val"><b>${fmt(d.loc)}</b> · ${d.files}f</div></div>`;
   }).join('');
 })();
@@ -451,22 +458,28 @@ function rowsFor(tab){
     (state.densBand==='dense'&&d>=0.7)||
     (state.densBand==='mid'&&d>=0.5&&d<0.7)||
     (state.densBand==='sparse'&&d<0.5);
+  const libSel=state.dir.indexOf('lib:')===0?state.dir.slice(4):null;
   if(tab==='files'){
-    return DATA.files.filter(f=>
-      (!state.dir||f.dir===state.dir)&&inLoc(f.loc)&&inDens(f.density)&&
+    const src=libSel?(DATA.libFiles||[]).filter(f=>f.lib===libSel)
+                    :DATA.files.filter(f=>!state.dir||f.dir===state.dir);
+    return src.filter(f=>inLoc(f.loc)&&inDens(f.density)&&
       (!state.q||f.path.toLowerCase().includes(state.q)));
   }
-  if(tab==='dirs') return DATA.dirs.map(d=>({...d,cmtpct:d.lines?Math.round(d.comments/d.lines*100):0}))
-    .filter(d=>!state.q||d.dir.toLowerCase().includes(state.q));
+  if(tab==='dirs'){
+    const proj=DATA.dirs.map(d=>({...d,cmtpct:d.lines?Math.round(d.comments/d.lines*100):0}));
+    const deps=(DATA.libs||[]).map(l=>({dir:l.name,loc:l.loc,files:l.files,lines:l.lines,
+      comments:l.comments||0,cmtpct:l.lines?Math.round((l.comments||0)/l.lines*100):0,_dep:true}));
+    return proj.concat(deps).filter(d=>!state.q||d.dir.toLowerCase().includes(state.q));
+  }
   if(tab==='deps') return (DATA.libRoutines||[]).filter(r=>r.kind!=='MODULE'&&
     inLoc(r.loc)&&
     (!state.unusedOnly||r.unused)&&
     (!state.q||r.name.toLowerCase().includes(state.q)||r.file.toLowerCase().includes(state.q)));
   // routines / dead
-  let rs=DATA.routines;
+  let rs=libSel?(DATA.libRoutines||[]).filter(r=>r.lib===libSel):DATA.routines;
   if(tab==='dead') rs=rs.filter(r=>r.dead);
   return rs.filter(r=>
-    (!state.dir||r.dir===state.dir)&&
+    (libSel||!state.dir||r.dir===state.dir)&&
     (tab==='dead'||!state.kind||r.kind===state.kind)&&
     inLoc(r.loc)&&
     (tab!=='routines'||!state.deadOnly||r.dead)&&
@@ -523,7 +536,7 @@ function render(){
     if(c.ext)return `<td class="num ${r.external===0?'ext0':''}">${r.external==null?'—':fmt(r.external)}</td>`;
     if(c.pct)return `<td class="num dim">${r.cmtpct}%</td>`;
     if(c.kind)return `<td><span class="kind ${r.kind}">${r.kind==='MODULE'?'module':r.kind}</span></td>`;
-    if(c.nm)return `<td class="name">${esc(r.name!=null?r.name:r.dir)}</td>`;
+    if(c.nm)return `<td class="name">${esc(r.name!=null?r.name:r.dir)}${r._dep?' <span class="flag sparse">dep</span>':''}</td>`;
     if(c.path)return `<td>${pathCell(r[c.filekey||'path'])}</td>`;
     if(c.id==='flags')return `<td>${tab==='files'?fileFlags(r):tab==='deps'?depFlags(r):routFlags(r)}</td>`;
     return `<td class="num dim">${fmt(r[c.id])}</td>`;
@@ -575,7 +588,11 @@ $('#cDirs').textContent=fmt(DATA.dirs.length);
 
 /* dir filter options */
 $('#dirSel').innerHTML='<option value="">all directories</option>'+
-  DATA.dirs.map(d=>`<option value="${esc(d.dir)}">${esc(d.dir)} (${d.files})</option>`).join('');
+  DATA.dirs.map(d=>`<option value="${esc(d.dir)}">${esc(d.dir)} (${d.files})</option>`).join('')+
+  ((DATA.libs&&DATA.libs.length)
+    ? '<option disabled>── dependencies ──</option>'+
+      DATA.libs.map(l=>`<option value="lib:${esc(l.name)}">${esc(l.name)} (${l.files})</option>`).join('')
+    : '');
 
 /* tab switching */
 function activateTab(name){
