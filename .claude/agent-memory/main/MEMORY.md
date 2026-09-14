@@ -50,6 +50,7 @@
 - [Keep remote dashboard updated](feedback-keep-remote-dashboard-updated.md) — update remote-test dashboard NEXT notes each iteration (`uv run DEV/remote-dash.py --set <host> "note"`)
 - [Farm test builds via DRAW-fstest worktree](farm-test-worktrees-invisible-to-dash.md) — build branches in a `DRAW-fstest` worktree (init submodules!); `remote-dash.py` now shows them in a TEST BUILD column; state exact per-host binary paths
 - [thinkpad two Windows profiles](thinkpad-two-windows-profiles.md) — SSH login `grymmjack.thinkpad` ≠ desktop login `grymm`; DRAW config resolves to the LOGIN user's `%APPDATA%` (`C:\Users\grymm\...`), so SSH probes see the wrong profile's config
+- [Linux display-scale detection](linux-display-scale-detection.md) — DPI seam `SCREEN_DPI_DIVISOR` (Win-only until now); added opt-in `LINUX_HIDPI_SCALE` KDE/Qt/GTK detection (branch `feature/linux-display-scale`); env half verified, xrdb/KDE path unverified on real hardware
 - [Multiple-instance support](multi-instance-support.md) — several isolated windows (`ALLOW_MULTIPLE_INSTANCES`); heartbeat registry; Copy/Paste/Send Layer; CORE/INSTANCE + TOOLS/LAYERXFER
 - [_ACCEPTFILEDROP is cross-platform now](qb64pe-acceptfiledrop-cross-platform.md) — drag-IN works Lin/mac/Win (wiki stale "Windows only"); no drag-OUT on any platform
 - [Drag-and-drop targets](drag-drop-targets.md) — INPUT/DROP.BM routes a drop by region under cursor (no drop coords → MOUSE.RAW + REGION_hit_test); Shift=center
