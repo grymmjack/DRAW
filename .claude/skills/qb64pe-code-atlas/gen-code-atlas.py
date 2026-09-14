@@ -51,8 +51,19 @@ ap.add_argument("root", nargs="?", default=None)
 ap.add_argument("--name", default=None)
 ap.add_argument("--lib", action="append", default=[])
 ap.add_argument("--no-auto-lib", action="store_true")
+ap.add_argument("--ignore-dirs", action="append", default=[])
 ap.add_argument("--out", default=None)
 A = ap.parse_args()
+
+# repo-relative path prefixes to exclude from the PROJECT (not the build, e.g. DEV/
+# experiments); excluded from the report AND the reference corpus so a routine called
+# only from an ignored dir still reads as unused. Comma-separated and/or repeated.
+IGNORE = []
+for it in A.ignore_dirs:
+    IGNORE += [x.strip().rstrip("/") for x in it.split(",") if x.strip()]
+IGNORE = list(dict.fromkeys(IGNORE))
+def ignored(p):
+    return any(p == e or p.startswith(e + "/") for e in IGNORE)
 
 # ---- resolve ROOT -----------------------------------------------------------
 ROOT = A.root or os.getcwd()
@@ -129,7 +140,7 @@ def loc_by_file(root):
     return rows
 
 # ---- 1. enumerate files: project (excludes submodules) + each dep -----------
-proj_rows = loc_by_file(ROOT)
+proj_rows = [r for r in loc_by_file(ROOT) if not ignored(r["path"])]
 all_files = []   # {path(rel ROOT), loc,lines,comments,blank, lib(name or None)}
 for r in proj_rows:
     all_files.append({**r, "lib": None})
@@ -242,6 +253,7 @@ for l in libs:
 
 report={
  "generated":time.strftime("%Y-%m-%d %H:%M"),"project":NAME,"rev":REV,
+ "ignored":IGNORE,
  "totals":totals,
  "dirs":sorted(dirs_list,key=lambda x:-x["loc"]),
  "files":sorted([{k:f[k] for k in ("path","dir","loc","lines","comments","blank","density")} for f in proj_files],key=lambda x:-x["loc"]),
@@ -258,7 +270,7 @@ html=(tpl.replace("__PROJECT__",NAME).replace("__REV__",REV).replace("__DATA__",
 out=A.out or os.path.join(ROOT, re.sub(r"[^\w.-]","_",NAME)+"-Code-Atlas.html")
 open(out,"w").write(html)
 
-print(f"project={NAME}  rev={REV}")
+print(f"project={NAME}  rev={REV}" + (f"  ignoring={','.join(IGNORE)}" if IGNORE else ""))
 print(f"files={totals['files']} loc={totals['loc']} subs={nsub} funcs={nfun} "
       f"dead={totals['dead_candidates']}")
 for s in lib_summary:

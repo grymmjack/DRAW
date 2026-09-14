@@ -43,12 +43,18 @@ source, excluding each routine's own body) and splices the result into the bundl
 1. **Run the generator from the project root** (foreground; a few seconds):
    ```bash
    python3 .claude/skills/qb64pe-code-atlas/gen-code-atlas.py [ROOT] \
-       [--name NAME] [--lib RELPATH]... [--no-auto-lib] [--out FILE]
+       [--name NAME] [--lib RELPATH]... [--no-auto-lib] \
+       [--ignore-dirs DIR,DIR]... [--out FILE]
    ```
    - `ROOT` defaults to the git top-level of the cwd (else cwd).
    - `--name` sets the display name (default: basename of ROOT).
    - Git **submodules are auto-detected** as dependencies; add more with `--lib`
      (repo-relative, repeatable) or disable auto-detect with `--no-auto-lib`.
+   - `--ignore-dirs` excludes repo-relative path prefixes that aren't part of the
+     production build (comma-separated and/or repeated) — e.g. `--ignore-dirs DEV`
+     drops experiment/bench sources. Ignored dirs are removed from the report **and**
+     the reference corpus, so a routine called only from an ignored dir still reads
+     as unused. (DRAW's convention: pass `--ignore-dirs DEV`.)
    - `--out` sets the output `.html` (default `<ROOT>/<NAME>-Code-Atlas.html`);
      **prefer writing to the session scratchpad** so nothing lands in the repo, e.g.
      `--out "$SCRATCHPAD/<NAME>-Code-Atlas.html"`.
