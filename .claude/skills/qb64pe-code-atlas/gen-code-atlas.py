@@ -286,7 +286,7 @@ for l in libs:
     lr=[r for r in lib_routines if r.get("lib")==l and r["kind"]!="MODULE"]
     t=tot(lf)
     pres=lib_rows_all.get(l,[])
-    lib_summary.append({"name":l,"loc":t["loc"],"lines":t["lines"],"files":t["files"],
+    lib_summary.append({"name":l,"loc":t["loc"],"lines":t["lines"],"comments":t["comments"],"files":t["files"],
         "files_present":len(pres),"loc_present":sum(r["loc"] for r in pres),
         "routines":len(lr),
         "used_by_project":sum(1 for r in lr if r["byProject"]),
