@@ -6,6 +6,10 @@
 #   make run          Build and run
 #   make run-logged   Build and run with full QB64PE logging
 #   make run-log-bas  Build and run with basic logging
+#
+#   Pass DRAW CLI flags to any run target via ARGS (quoted — Make eats bare --flags):
+#     make run-logged ARGS="--option LINUX_HIDPI_SCALE=TRUE"
+#     make run        ARGS="--developer"
 #   make clean        Remove built binary and log files
 #   make clean-log    Remove log file only
 #
@@ -66,6 +70,18 @@ endif
 THREADS   ?= 12
 QB64FLAGS := -w -x -f:MaxCompilerProcesses=$(THREADS)
 
+# ---------- Runtime arguments forwarded to DRAW -------------------------------
+# The run targets (run / run-logged / run-log-bas / dev-run) append $(ARGS) to the
+# DRAW invocation, so any DRAW CLI flag can be passed through. GNU Make consumes a
+# bare `--flag` on the command line as its OWN option, so DRAW flags CANNOT be typed
+# loose after the target — put them in ARGS (quoted):
+#   make run-logged ARGS="--option LINUX_HIDPI_SCALE=TRUE"
+#   make run        ARGS="--developer --config DRAW.linux.cfg"
+#   make run-logged ARGS="--option TOOLTIPS_DISABLED=TRUE --option GROUP_DRAW_AUTO_LAYER=TRUE"
+# ARGS is a command-line variable, so it also propagates to the *-run compiler
+# shortcuts (e.g. make main-run ARGS="--developer").
+ARGS ?=
+
 # ---------- OS detection ------------------------------------------------------
 # All recipes run under bash (SHELL := /bin/bash above) — including on Windows,
 # where that means Git Bash / MSYS2. So use bash's `rm` everywhere; cmd.exe's
@@ -125,6 +141,8 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
 help:  #: Show this help (targets + variable overrides)
 	@awk 'BEGIN{FS="[ \t]*#: "} /^[a-zA-Z][a-zA-Z0-9_-]*:([^=]|$$)/ && /#: / {name=$$1; sub(/:.*/,"",name); printf "  \033[36m%-12s\033[0m %s\n", name, $$2}' $(MAKEFILE_LIST) | sort
 	@printf '\nVariable overrides (append VAR=value to any target):\n'
+	@printf '  ARGS="--flag ..."     DRAW CLI flags for run targets (Make eats bare --flags)\n'
+	@printf '                        e.g. make run-logged ARGS="--option LINUX_HIDPI_SCALE=TRUE"\n'
 	@printf '  COMPILER=main|v450|a740g  alternate qb64pe build (default main)\n'
 	@printf '  QB64PE=/full/path     override the compiler path directly\n'
 	@printf '  THREADS=N             parallel compiler processes (default 12)\n'
@@ -139,7 +157,7 @@ dev: $(OUT)  #: Fast dev build — skip C++ -O (~2x faster); NOT for release
 	@printf '  \033[33m[dev build: C++ optimization OFF — testing only; use `make all` for release]\033[0m\n'
 
 dev-run: dev  #: Fast dev build, then run
-	./$(OUT)
+	./$(OUT) $(ARGS)
 
 $(OUT): $(SOURCES)
 	$(RM) $(OUT)
@@ -150,14 +168,14 @@ $(OUT): $(SOURCES)
 	    | grep --line-buffered -v '^\[[ .]*\][[:space:]]*[0-9]\+%' \
 	    | tee -a $(MAKE_LOG)
 
-run: $(OUT)  #: Build then run DRAW
-	./$(OUT)
+run: $(OUT)  #: Build then run DRAW (pass DRAW flags via ARGS="...")
+	./$(OUT) $(ARGS)
 
-run-logged: clean-log $(OUT)  #: Build & run with FULL QB64-PE logging -> DRAW.log
-	$(LOG_ENV_FULL) ./$(OUT)
+run-logged: clean-log $(OUT)  #: Build & run with FULL QB64-PE logging -> DRAW.log (ARGS="...")
+	$(LOG_ENV_FULL) ./$(OUT) $(ARGS)
 
-run-log-bas: clean-log $(OUT)  #: Build & run with BASIC logging -> DRAW.log
-	$(LOG_ENV_BASIC) ./$(OUT)
+run-log-bas: clean-log $(OUT)  #: Build & run with BASIC logging -> DRAW.log (ARGS="...")
+	$(LOG_ENV_BASIC) ./$(OUT) $(ARGS)
 
 clean:  #: Remove the built binary and log file
 	$(RM) $(OUT)
