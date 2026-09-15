@@ -24,7 +24,7 @@ TYPE ADV_COLOR_PICKER_OBJ
     visible           AS INTEGER        ' TRUE = panel shown
     positioned        AS INTEGER        ' TRUE once auto-positioned / restored
     initialized       AS INTEGER        ' TRUE after first ACP_init
-    autoHidden        AS INTEGER        ' Auto-hidden (reserved; unused in phase 2)
+    autoHidden        AS INTEGER        ' TRUE while temporarily hidden because the user is drawing over the panel (see MOUSE_handle_ui_autohide_restore)
     hiddenByToggleAll AS INTEGER        ' TRUE only when Toggle-All UI (F11) hid this panel
     lastSyncColor     AS _UNSIGNED LONG ' Last color synced to/from the widget
     editTarget        AS INTEGER        ' 0 = editing FG (left btn), 1 = editing BG (right btn)
