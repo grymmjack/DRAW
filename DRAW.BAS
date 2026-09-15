@@ -280,7 +280,7 @@ PATHS_migrate
 ' Apply config startup defaults (tool, brush size, directories)
 ' Must be called after all modules are initialized via includes
 CONFIG_apply_startup_defaults
-CRASH_init              ' Sync crash capture with CFG.CRASH_LOGS_ENABLED (Help menu toggle)
+CRASH_init                            ' Sync crash capture with CFG.CRASH_LOGS_ENABLED (Help menu toggle)
 ' HISTORY_init sets HISTORY.maxRecords%. Without it the field is 0, so the
 ' capacity guard in HISTORY_begin_record% (count >= maxRecords) is true on the
 ' very first record and every record is silently declined — undo does nothing
@@ -306,18 +306,18 @@ RANDOMIZE TIMER
 ' Enable OS-exit trapping — prevents X button / CTRL+BREAK from bypassing cleanup.
 ' The first call to _EXIT starts monitoring; any non-zero return means an exit was requested.
 DIM osExitTrap AS INTEGER
-osExitTrap% = _EXIT     ' Discard initial value; monitoring now active
+osExitTrap% = _EXIT                   ' Discard initial value; monitoring now active
 
 ' Initialise sound system (loads handles, applies volume; respects CFG.SOUNDS_ENABLED)
 SOUND_init
-SOUND_play SND_NEW_FILE ' Startup chime (silent when sounds are disabled)
-MUSIC_init              ' Initialise background music (plays if CFG.MUSIC_ENABLED)
-IMAGE_ADJ_init          ' Initialise image adjustment library (IMGADJ)
-COLORMIXER_init         ' Initialise non-modal color mixer panel
-ADVCP_init              ' Initialise advanced color picker panel (hue ring + SV triangle)
-BROWSER_init            ' Initialise floating browser panel scaffold
-SMART_SHAPES_init       ' Register Smart Shapes flyout sub-tools
-INPUTS_init             ' Initialise input dispatch system + audit (DEV_MODE -> inputs.log)
+SOUND_play SND_NEW_FILE               ' Startup chime (silent when sounds are disabled)
+MUSIC_init                            ' Initialise background music (plays if CFG.MUSIC_ENABLED)
+IMAGE_ADJ_init                        ' Initialise image adjustment library (IMGADJ)
+COLORMIXER_init                       ' Initialise non-modal color mixer panel
+ADVCP_init                            ' Initialise advanced color picker panel (hue ring + SV triangle)
+BROWSER_init                          ' Initialise floating browser panel scaffold
+SMART_SHAPES_init                     ' Register Smart Shapes flyout sub-tools
+INPUTS_init                           ' Initialise input dispatch system + audit (DEV_MODE -> inputs.log)
 
 ' --dump-shortcuts: emit the input registry as markdown binding tables, then exit.
 ' Runs here (after INPUTS_init populates the registry). Console-only; use
@@ -367,7 +367,7 @@ FOR exportQb64I% = 1 TO _COMMANDCOUNT
     END IF
 NEXT exportQb64I%
 
-GAMEPAD_init            ' Initialise gamepad subsystem (stub — mouse emulation)
+GAMEPAD_init                          ' Initialise gamepad subsystem (stub — mouse emulation)
 
 ' Main Loop
 DIM k                       AS LONG
@@ -378,7 +378,7 @@ DIM ebPrevCanUndo           AS INTEGER, ebPrevCanRedo AS INTEGER
 DIM ebPrevHasClip           AS INTEGER, ebPrevHasSel AS INTEGER
 DIM resizeWatchLastW        AS LONG, resizeWatchLastH AS LONG
 DIM resizeWatchSettleFrames AS INTEGER
-DIM resizeLastEventTime     AS DOUBLE   ' TIMER(.001) of the most recent _RESIZE — drives the time-based settle
+DIM resizeLastEventTime     AS DOUBLE ' TIMER(.001) of the most recent _RESIZE — drives the time-based settle
 DIM resizePendingW          AS LONG, resizePendingH AS LONG
 DIM resizePending           AS INTEGER
 exitConfirmed%           = FALSE
@@ -580,13 +580,13 @@ DO
         ' maximized redraw on [Windows], where the maximize's own echo never fires and a
         ' blind counter would eat the restore event instead. See SCREEN.BI.
         IF SCREEN_DEFERRED_RESIZE% > 0 AND _ResizeWidth = SCREEN_DEFERRED_W& AND _ResizeHeight = SCREEN_DEFERRED_H& THEN
-            SCREEN_DEFERRED_RESIZE% = 0 ' our echo — consumed, stop watching
+            SCREEN_DEFERRED_RESIZE% = 0        ' our echo — consumed, stop watching
         ELSE
             ' User drag/maximize/restore in progress: record target, repaint stretched, defer snap.
             resizePendingW&      = _ResizeWidth
             resizePendingH&      = _ResizeHeight
             resizePending%       = TRUE
-            resizeLastEventTime# = TIMER(.001)   ' reset the quiet-period clock on every _RESIZE
+            resizeLastEventTime# = TIMER(.001) ' reset the quiet-period clock on every _RESIZE
             INVALIDATE_scene
         END IF
     ELSEIF resizePending% THEN
@@ -619,7 +619,7 @@ DO
     ' checkmark and persists the choice across launches. fsLive% assigns the FUNCTION.
     DIM fsLive AS INTEGER : fsLive% = _FULLSCREEN
     IF (fsLive% <> 0) <> (CFG.FULLSCREEN% <> 0) THEN
-        CFG.FULLSCREEN%   = (fsLive% <> 0)
+        CFG.FULLSCREEN% = (fsLive% <> 0)
         CONFIG_save
         GUI_NEEDS_REDRAW% = TRUE
     END IF

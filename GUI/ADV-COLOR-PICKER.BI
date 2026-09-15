@@ -17,30 +17,30 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
 ' Native (pre-upscale) geometry of the panel.
-CONST ADVCP_TITLE_H      = 14    ' Title bar height (native px)
-CONST ADVCP_WHEEL_NATIVE = 190   ' Hue-ring + triangle wheel size (native px)
+CONST ADVCP_TITLE_H      = 14  ' Title bar height (native px)
+CONST ADVCP_WHEEL_NATIVE = 190 ' Hue-ring + triangle wheel size (native px)
 
 TYPE ADV_COLOR_PICKER_OBJ
-    visible       AS INTEGER        ' TRUE = panel shown
-    positioned    AS INTEGER        ' TRUE once auto-positioned / restored
-    initialized   AS INTEGER        ' TRUE after first ACP_init
-    autoHidden    AS INTEGER        ' Auto-hidden (reserved; unused in phase 2)
-    hiddenByToggleAll AS INTEGER    ' TRUE only when Toggle-All UI (F11) hid this panel
-    lastSyncColor AS _UNSIGNED LONG ' Last color synced to/from the widget
-    editTarget    AS INTEGER        ' 0 = editing FG (left btn), 1 = editing BG (right btn)
+    visible           AS INTEGER        ' TRUE = panel shown
+    positioned        AS INTEGER        ' TRUE once auto-positioned / restored
+    initialized       AS INTEGER        ' TRUE after first ACP_init
+    autoHidden        AS INTEGER        ' Auto-hidden (reserved; unused in phase 2)
+    hiddenByToggleAll AS INTEGER        ' TRUE only when Toggle-All UI (F11) hid this panel
+    lastSyncColor     AS _UNSIGNED LONG ' Last color synced to/from the widget
+    editTarget        AS INTEGER        ' 0 = editing FG (left btn), 1 = editing BG (right btn)
 
     ' Display geometry (viewport / canvas coords)
     dispX       AS INTEGER
     dispY       AS INTEGER
     dispW       AS INTEGER
     dispH       AS INTEGER
-    renderScale AS SINGLE           ' native -> viewport scale (ts/ds)
+    renderScale AS SINGLE               ' native -> viewport scale (ts/ds)
 
     ' Native panel composite buffer (title bar + wheel)
-    panelImg    AS LONG
-    panelW      AS INTEGER          ' native width
-    panelH      AS INTEGER          ' native height
-    titleFont   AS LONG             ' themed title-bar font (same as Color Mixer); 0 = built-in
+    panelImg  AS LONG
+    panelW    AS INTEGER                ' native width
+    panelH    AS INTEGER                ' native height
+    titleFont AS LONG                   ' themed title-bar font (same as Color Mixer); 0 = built-in
 
     ' Title-bar drag
     dragging    AS INTEGER
@@ -49,20 +49,20 @@ TYPE ADV_COLOR_PICKER_OBJ
     dragStartDX AS INTEGER
     dragStartDY AS INTEGER
 
-    labelFont   AS LONG             ' Tiny5 font for the "COLOR HISTORY" label
+    labelFont AS LONG                   ' Tiny5 font for the "COLOR HISTORY" label
 
     ' Right-click context menu (on the history strip)
-    cmOpen  AS INTEGER              ' TRUE = menu open
-    cmX     AS INTEGER              ' top-left, viewport coords
+    cmOpen  AS INTEGER                  ' TRUE = menu open
+    cmX     AS INTEGER                  ' top-left, viewport coords
     cmY     AS INTEGER
-    cmW     AS INTEGER              ' native width
-    cmHover AS INTEGER              ' hovered row (-1 = none)
-    cmImg   AS LONG                 ' native menu buffer
+    cmW     AS INTEGER                  ' native width
+    cmHover AS INTEGER                  ' hovered row (-1 = none)
+    cmImg   AS LONG                     ' native menu buffer
 END TYPE
 
 ' Context-menu item count + native row height.
-CONST ADVCP_CM_ITEMS  = 2
-CONST ADVCP_CM_ROW_H  = 14
+CONST ADVCP_CM_ITEMS = 2
+CONST ADVCP_CM_ROW_H = 14
 
 ' Per-shade-row display names (set by ADVCP_apply_shade_config from the preset).
 DIM SHARED ADVCP_lineName(0 TO 11) AS STRING

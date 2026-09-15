@@ -28,7 +28,7 @@ CONST TOOLTIP_SRC_ACP_HISTORY    = 12 ' Advanced Color Picker — history strip
 ' container width, so a tooltip never overflows; this cap just stops lines from
 ' growing uncomfortably long on wide containers. Most existing one-line tooltips are
 ' shorter than this, so they are unaffected. Tunable.
-CONST TOOLTIP_MAX_CONTENT_CHARS  = 90
+CONST TOOLTIP_MAX_CONTENT_CHARS = 90
 
 TYPE TOOLTIP_OBJ
     ACTIVE        AS INTEGER ' TRUE when a tooltip is currently visible
@@ -49,8 +49,8 @@ TOOLTIP.HOVER_BTN_IDX% = -1
 TOOLTIP.HOVER_SOURCE%  = TOOLTIP_SRC_NONE
 
 ' Tooltip text arrays — indexed by toolbar button order (0..TB_TOTAL-1)
-DIM SHARED TOOLTIP_LINE1$(0 TO 27) ' First line  : hotkey + tool name + description
-DIM SHARED TOOLTIP_LINE2$(0 TO 27) ' Second line : status/usage hints
+DIM SHARED TOOLTIP_LINE1$(0 TO 27)     ' First line  : hotkey + tool name + description
+DIM SHARED TOOLTIP_LINE2$(0 TO 27)     ' Second line : status/usage hints
 
 ' Row 0: MOVE, PAN, ZOOM, CROP
 TOOLTIP_LINE1$(0) = "m - MOVE - Position current selection or selected layers on the canvas."
@@ -125,7 +125,7 @@ TOOLTIP_LINE2$(27) = "Drag and drop images onto layers, bins, and canvas."
 ' Organizer widget tooltip text arrays — indexed by ORG_* constants (0..10)
 DIM SHARED TOOLTIP_ORG_LINE1$(0 TO 10)
 DIM SHARED TOOLTIP_ORG_LINE2$(0 TO 10)
-DIM SHARED TOOLTIP_ORG_LINE3$(0 TO 10)          ' optional 3rd line (empty = not drawn)
+DIM SHARED TOOLTIP_ORG_LINE3$(0 TO 10) ' optional 3rd line (empty = not drawn)
 
 ' 0 = ORG_COLOR_MIXER
 TOOLTIP_ORG_LINE1$(0) = "COLOR MIXER - L-CLICK to show/hide color mixer panel."

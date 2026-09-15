@@ -104,66 +104,66 @@ TYPE DRAW_LAYER
 END TYPE
 
 TYPE LAYER_PANEL_OBJ
-    visible          AS INTEGER      ' Panel visibility toggle
-    scrollOffset     AS INTEGER      ' Scroll offset for layer list
-    fontHandle       AS LONG         ' Tiny5 font handle for panel text
-    hoverRow         AS INTEGER      ' Currently hovered layer row (-1 = none)
-    draggingRow      AS INTEGER      ' Row being dragged for reorder (-1 = none)
-    dragStartY       AS INTEGER      ' Y position when drag started
-    dragStartX       AS INTEGER      ' X position when drag started (for threshold)
-    opacityDrag      AS INTEGER      ' TRUE if dragging opacity slider
-    opacityDragLayer AS INTEGER      ' Layer index being opacity-adjusted
+    visible          AS INTEGER             ' Panel visibility toggle
+    scrollOffset     AS INTEGER             ' Scroll offset for layer list
+    fontHandle       AS LONG                ' Tiny5 font handle for panel text
+    hoverRow         AS INTEGER             ' Currently hovered layer row (-1 = none)
+    draggingRow      AS INTEGER             ' Row being dragged for reorder (-1 = none)
+    dragStartY       AS INTEGER             ' Y position when drag started
+    dragStartX       AS INTEGER             ' X position when drag started (for threshold)
+    opacityDrag      AS INTEGER             ' TRUE if dragging opacity slider
+    opacityDragLayer AS INTEGER             ' Layer index being opacity-adjusted
     ' Layer drag-and-drop reordering state
-    dragPending      AS INTEGER      ' TRUE when mouse down but not yet moved threshold
-    isDragging       AS INTEGER      ' TRUE while actively dragging layer for reorder
-    dragLayerIdx     AS INTEGER      ' Layer index being dragged
-    dropTargetZIndex AS INTEGER      ' Target zIndex position for drop (-1 = no target)
-    dragOffsetY      AS INTEGER      ' Offset from row top where drag started
-    autoScrollTimer  AS SINGLE       ' Timer for auto-scroll delay at edges
-    dragPreviewY     AS INTEGER      ' Y position for drag preview cursor
-    dropOnButton     AS INTEGER      ' 0 = none, 4 = over Delete btn, 5 = over New btn during drag
+    dragPending      AS INTEGER             ' TRUE when mouse down but not yet moved threshold
+    isDragging       AS INTEGER             ' TRUE while actively dragging layer for reorder
+    dragLayerIdx     AS INTEGER             ' Layer index being dragged
+    dropTargetZIndex AS INTEGER             ' Target zIndex position for drop (-1 = no target)
+    dragOffsetY      AS INTEGER             ' Offset from row top where drag started
+    autoScrollTimer  AS SINGLE              ' Timer for auto-scroll delay at edges
+    dragPreviewY     AS INTEGER             ' Y position for drag preview cursor
+    dropOnButton     AS INTEGER             ' 0 = none, 4 = over Delete btn, 5 = over New btn during drag
     ' Layer icon handles (loaded from theme PNGs, fallback to text if < -1 check fails)
-    iconVisOn        AS LONG         ' Visibility on (eye open) image handle
-    iconVisOff       AS LONG         ' Visibility off (eye closed) image handle
-    iconLockOn       AS LONG         ' Lock on (locked) image handle
-    iconLockOff      AS LONG         ' Lock off (unlocked) image handle
-    iconNoPaint      AS LONG         ' "Not paintable" badge shown on group header rows
-    iconBtnUp        AS LONG         ' Move up button icon
-    iconBtnDown      AS LONG         ' Move down button icon
-    iconBtnMerge     AS LONG         ' Merge down button icon
-    iconBtnDelete    AS LONG         ' Delete layer button icon
-    iconBtnAdd       AS LONG         ' New layer button icon
-    iconBtnGroup     AS LONG         ' New group button icon
+    iconVisOn        AS LONG                ' Visibility on (eye open) image handle
+    iconVisOff       AS LONG                ' Visibility off (eye closed) image handle
+    iconLockOn       AS LONG                ' Lock on (locked) image handle
+    iconLockOff      AS LONG                ' Lock off (unlocked) image handle
+    iconNoPaint      AS LONG                ' "Not paintable" badge shown on group header rows
+    iconBtnUp        AS LONG                ' Move up button icon
+    iconBtnDown      AS LONG                ' Move down button icon
+    iconBtnMerge     AS LONG                ' Merge down button icon
+    iconBtnDelete    AS LONG                ' Delete layer button icon
+    iconBtnAdd       AS LONG                ' New layer button icon
+    iconBtnGroup     AS LONG                ' New group button icon
     ' Solo mode state (alt+click on eye icon)
-    soloLayer        AS INTEGER      ' Layer index currently soloed (0 = none)
+    soloLayer        AS INTEGER             ' Layer index currently soloed (0 = none)
     savedVisibility  AS STRING * MAX_LAYERS ' Saved visibility states before solo (one char per layer slot)
     ' Visibility swipe state (click+drag on eye icons)
-    visSwiping       AS INTEGER      ' TRUE while swiping visibility
-    visSwipeAction   AS INTEGER      ' 1 = show, 0 = hide (action applied during swipe)
+    visSwiping       AS INTEGER             ' TRUE while swiping visibility
+    visSwipeAction   AS INTEGER             ' 1 = show, 0 = hide (action applied during swipe)
     visSwipedLayers  AS STRING * MAX_LAYERS ' Track which layers were already swiped (CHR$(1) = swiped)
     ' Scrollbar drag state
-    scrollDragging   AS INTEGER      ' TRUE while dragging the scroll thumb
-    scrollDragOffset AS INTEGER      ' Y offset from thumb top where drag started
+    scrollDragging   AS INTEGER             ' TRUE while dragging the scroll thumb
+    scrollDragOffset AS INTEGER             ' Y offset from thumb top where drag started
     ' Blend mode popup state
-    blendPopupOpen   AS INTEGER      ' TRUE while blend popup is showing
-    blendPopupLayer  AS INTEGER      ' Layer index popup is for
-    blendPopupX      AS INTEGER      ' Popup screen X (top-left)
-    blendPopupY      AS INTEGER      ' Popup screen Y (top-left)
-    blendPopupHover  AS INTEGER      ' Currently hovered item index (-1 = none, 0 = Normal, 2..19 = mode idx+1 for divider)
+    blendPopupOpen   AS INTEGER             ' TRUE while blend popup is showing
+    blendPopupLayer  AS INTEGER             ' Layer index popup is for
+    blendPopupX      AS INTEGER             ' Popup screen X (top-left)
+    blendPopupY      AS INTEGER             ' Popup screen Y (top-left)
+    blendPopupHover  AS INTEGER             ' Currently hovered item index (-1 = none, 0 = Normal, 2..19 = mode idx+1 for divider)
     ' Layer context menu state (right-click on row)
-    ctxMenuOpen      AS INTEGER      ' TRUE while context menu is showing
-    ctxMenuLayer     AS INTEGER      ' Layer index the context menu was invoked on
-    ctxMenuX         AS INTEGER      ' Popup screen X (top-left)
-    ctxMenuY         AS INTEGER      ' Popup screen Y (top-left)
-    ctxMenuW         AS INTEGER      ' Popup width in pixels
-    ctxMenuHover     AS INTEGER      ' Currently hovered row (-1 = none)
-    ctxMenuItems     AS INTEGER      ' Number of items in current menu
+    ctxMenuOpen      AS INTEGER             ' TRUE while context menu is showing
+    ctxMenuLayer     AS INTEGER             ' Layer index the context menu was invoked on
+    ctxMenuX         AS INTEGER             ' Popup screen X (top-left)
+    ctxMenuY         AS INTEGER             ' Popup screen Y (top-left)
+    ctxMenuW         AS INTEGER             ' Popup width in pixels
+    ctxMenuHover     AS INTEGER             ' Currently hovered row (-1 = none)
+    ctxMenuItems     AS INTEGER             ' Number of items in current menu
     ' Opacity drag anchor
-    opacityDragRowY  AS INTEGER      ' Rendered Y (drawY%) of row top when vertical opacity drag started
+    opacityDragRowY  AS INTEGER             ' Rendered Y (drawY%) of row top when vertical opacity drag started
     ' Stored panel bounds (set each render, used for hit-testing next frame)
-    panelX1          AS INTEGER      ' Left edge of rendered panel (screen coords)
-    panelX2          AS INTEGER      ' Right edge of rendered panel (screen coords)
-    width            AS INTEGER      ' Panel width in pixels (mirrors CFG.LAYER_PANEL_WIDTH)
+    panelX1          AS INTEGER             ' Left edge of rendered panel (screen coords)
+    panelX2          AS INTEGER             ' Right edge of rendered panel (screen coords)
+    width            AS INTEGER             ' Panel width in pixels (mirrors CFG.LAYER_PANEL_WIDTH)
 END TYPE
 
 ' Global layer state
