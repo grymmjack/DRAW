@@ -35,8 +35,11 @@ Everything is client-side sort/filter/search (with a clear-× in the search box)
 light+dark themed; no external data. A clickable **color legend** doubles as a filter
 (click a chip to jump/filter); **tooltips** on every control, tab, column header, legend
 chip and row flag explain each term; and when a GitHub `origin` remote is present, file
-paths, directories and routines **link to GitHub** at the exact commit (and line range),
-resolving dependency files to the submodule's own repo + pinned SHA.
+paths, directories and routines **link to GitHub** on the default branch (e.g. `main`,
+resolved from `origin/HEAD` → current branch → SHA when detached), with line ranges,
+resolving dependency files to the submodule's own repo on its configured branch. Linking
+to a moving branch (rather than a pinned commit) keeps links working on github.com even
+for local commits that haven't been pushed yet.
 
 ## How it works
 

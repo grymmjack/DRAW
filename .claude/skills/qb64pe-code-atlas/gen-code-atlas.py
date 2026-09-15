@@ -123,18 +123,34 @@ def gh_web(url):
 def git_out(args):
     try: return subprocess.run(args, capture_output=True, text=True).stdout.strip()
     except Exception: return ""
+def link_ref(path, prefer=None):
+    # Branch/ref that GitHub deep links are built against. We prefer a MOVING
+    # branch (e.g. "main") over a pinned SHA so links resolve on github.com even
+    # for local commits that haven't been pushed. Preference order:
+    #   explicit branch (a submodule's .gitmodules `branch`) -> the remote's
+    #   default branch (origin/HEAD) -> the checked-out branch -> the SHA
+    #   (only when detached, so links still work). Reusable: yields master/trunk
+    #   on other projects, main here.
+    if prefer: return prefer
+    d = git_out(["git","-C",path,"symbolic-ref","--short","-q","refs/remotes/origin/HEAD"])
+    if d: return d.split("/",1)[1] if "/" in d else d
+    b = git_out(["git","-C",path,"rev-parse","--abbrev-ref","HEAD"])
+    if b and b != "HEAD": return b
+    return git_out(["git","-C",path,"rev-parse","HEAD"]) or None
 REPO = {"url": gh_web(git_out(["git","-C",ROOT,"remote","get-url","origin"])),
-        "ref": git_out(["git","-C",ROOT,"rev-parse","HEAD"]) or None}
-gm_url = {}
+        "ref": link_ref(ROOT)}
+gm_url = {}; gm_branch = {}
 _gmp = os.path.join(ROOT, ".gitmodules")
 if os.path.exists(_gmp):
     _cur = None
     for _ln in open(_gmp, errors="replace"):
         _mp = re.match(r"\s*path\s*=\s*(.+)", _ln); _mu = re.match(r"\s*url\s*=\s*(.+)", _ln)
+        _mb = re.match(r"\s*branch\s*=\s*(.+)", _ln)
         if _mp: _cur = _mp.group(1).strip()
         elif _mu and _cur: gm_url[_cur] = _mu.group(1).strip()
+        elif _mb and _cur: gm_branch[_cur] = _mb.group(1).strip()
 LIB_REPO = {l: {"url": gh_web(gm_url.get(l)),
-                "ref": git_out(["git","-C",os.path.join(ROOT,l),"rev-parse","HEAD"]) or None}
+                "ref": link_ref(os.path.join(ROOT,l), gm_branch.get(l))}
             for l in libs}
 
 # ---- helpers ----------------------------------------------------------------
