@@ -386,6 +386,34 @@ was already safe (remaps via `slotToSeq%`). Full detail in `draw-undo.md`.
 
 ---
 
+### 29. Define Multi-Dimensional Open-Array-Param Routines AFTER a Call Site (compile speed)
+
+A `SUB`/`FUNCTION` whose parameter is an **open multi-dimensional array**
+(`matrix() AS INTEGER` indexed `matrix(x, y)`, `labelArr()` indexed `labelArr(sx, sy)`)
+has a dimension count the transpiler can only learn from a **call site** — the
+definition alone doesn't say whether `arr()` is 1D, 2D or 3D. If the definition is
+compiled *before* any call site, QB64-PE emits C++ for the wrong dimensionality, then
+does a **full recompile pass** once a call reveals the real shape. Chains of such
+calls cost one repass each. **Fix: place the definition after at least one call site**
+in compile order (within the file, or later in the `_ALL.BM` chain).
+
+This is what mkilgore's (offbyone's) DRAW patch did: it moved `GJ_IMGADJ_ApplyOrderedMatrix&`
+below its `DitherOrdered2x2/4x4` callers in `GUI/IMGADJ.BM`, and `EXTRACT_save_component`
+below `EXTRACT_progress_dialog` in `TOOLS/EXTRACT-IMAGES.BM`. Paired with QB64-PE PR #778
+(the `compiler-speedup` branch, which recompiles **only** when a dimension can actually be
+resolved — `resolvable > 0`), it roughly halves transpile time.
+
+Scope note — **1D open arrays do NOT matter**: they're never "pinned" (1D is the
+compiler's default), so they never trigger a recompile. Only genuinely 2D+ array params
+are candidates. As of this writing DRAW has exactly two such routines and both are
+already ordered correctly; a new one is only a concern if you add a `SUB`/`FUNCTION`
+taking a 2D+ open array. The flattened debugger build (`.DRAW.debug.BAS`) preserves this
+ordering — the extension's `flatten` is faithful depth-first `$INCLUDE` expansion, no
+hoisting/sorting. See memory `draw-multidim-array-reorder-compile-speed` and
+`draw-build-speed`.
+
+---
+
 ## Main Loop Structure (DRAW.BAS)
 
 ```
