@@ -72,3 +72,4 @@
 - [Advanced Color Picker feature](adv-color-picker-feature.md) — Krita-style hue-ring+SV-triangle; standalone GJ_LIB widget + DRAW panel; action 2023, Ctrl+Shift+M; ALL config goes in Settings dialog
 - [Save As .draw + FD absolute-path trap](save-as-draw-and-fd-abspath.md) — Save As routes .draw→DRW_save; FD filename field mangles absolute paths (QA: type basenames); file-save-readonly is a false pass
 - [Multi-dim array-param reorder = compile speed](draw-multidim-array-reorder-compile-speed.md) — define 2D+ open-array-param SUB/FUNCs AFTER a call site (transpiler recompile pass); 1D never matters; only 2 such routines exist, both fixed (mkilgore + PR #778); flatten preserves order (gotcha #29)
+- [F5 debug build cost](draw-debug-build-cost.md) — F5 = qb64pe-vscode DEBUGGER (flatten+$DEBUG, one monolithic C++ TU, ~9min single-core), NOT tasks.json; MaxCompilerProcesses/OptimizeCppProgram do NOT help it; use fast tasks build for non-debug iteration

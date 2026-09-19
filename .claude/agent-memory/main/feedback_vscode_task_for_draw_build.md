@@ -6,7 +6,19 @@ metadata:
   type: feedback
 ---
 
-**User directive (explicit):** When the user wants me to "compile" or "build" DRAW, the canonical path is the VSCode task `.vscode/tasks.json` invoked via F5 → "EXECUTE: Run" (which does clean + compile + run). This always works for the user; the task's command output appears in their task pane.
+**⚠️ F5 CHANGED (2026-09-19):** Plain **F5 is no longer the `tasks.json` build**. The user
+commented out the `F5 → workbench.action.tasks.build` keybinding, so default F5 now starts
+the **qb64pe-vscode debugger** (`QB64DebugSession`): it flattens the whole program into
+`.DRAW.debug.BAS`, injects `$DEBUG`, and compiles that as one monolithic C++ TU — inherently
+**~2× slower** than a normal build (~9 min vs ~4:25 for DRAW) and NOT what you want for a plain
+"build". See [[draw-debug-build-cost]]. The fast **`tasks.json` "EXECUTE: Run"** build still
+exists (clean + compile + run, no `$DEBUG`) — it's just triggered via the Command Palette /
+its own hotkey now, not bare F5.
+
+**User directive (explicit):** When the user wants me to "compile" or "build" DRAW, use the
+fast non-`$DEBUG` build — the `.vscode/tasks.json` "EXECUTE: Run" command (clean + compile +
+run). Its output appears in the task pane. Only the **debugger** path (step/breakpoints) needs
+the slow flattened `$DEBUG` build.
 
 **Why my Bash invocation has been failing while user's F5 succeeds with the SAME compiler command:** Empirically, `qb64pe ... < /dev/null > log 2>&1` from Claude's Bash tool produces a fast-exit-with-no-binary result for code that compiles cleanly via VSCode's F5 task. Strong suspect: QB64-PE's compile phase reads from stdin somewhere (input/setup prompts) and EOF on /dev/null triggers an early bail. VSCode's task runner provides a real pty so the same code path doesn't fault. **Don't try to "fix" this from my end** — even removing `< /dev/null` doesn't help because the Bash tool's stdin is also not a tty. **The correct path: ask the user to F5 and paste any errors from the task pane.** Saves loops of failed `rm -f DRAW.run` cycles.
 
