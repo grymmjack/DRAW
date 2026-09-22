@@ -80,6 +80,178 @@ SUB ELLIPSE_reset ()
 END SUB
 
 ''
+' Resolves the pixel box an ellipse occupies from the tool's (center, radius) form.
+' Callers derive cx = (start + end) \ 2 and rx = |end - start| / 2, so rx is a whole
+' or half number and the box is exactly the dragged start..end span (w = 2rx + 1).
+' Any other radius (modifier rings) is rounded to the nearest whole-pixel box.
+'
+' @param cx INTEGER Center X            @param cy INTEGER Center Y
+' @param rx SINGLE Horizontal radius    @param ry SINGLE Vertical radius
+' @param x0 INTEGER (out) Box left      @param y0 INTEGER (out) Box top
+' @param w INTEGER (out) Box width      @param h INTEGER (out) Box height
+'
+SUB ELLIPSE_get_box (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, x0 AS INTEGER, y0 AS INTEGER, w AS INTEGER, h AS INTEGER)
+    w% = CINT(ABS(rx!) * 2) + 1
+    h% = CINT(ABS(ry!) * 2) + 1
+    x0% = cx% - (w% - 1) \ 2
+    y0% = cy% - (h% - 1) \ 2
+END SUB
+
+''
+' Computes the rows of a pixel-exact ellipse inscribed in a w x h pixel box into
+' ELLIPSE_INSET%(0 TO h-1): row j covers box columns inset .. w-1-inset.
+'
+' A pixel is inside when its CENTER lies inside the ideal ellipse whose edge is the
+' box's outer pixel edge (semi-axes w/2, h/2, pulled in 0.1px so tiny circles round
+' off their corners). Unlike a midpoint/angle-stepped walk around an integer center,
+' this never rounds a half-pixel radius outward at the four extremes, so there are
+' no single-pixel "ticks" on the top/bottom/left/right edges and even and odd sizes
+' are both symmetric and fill exactly the dragged box.
+'
+' @param w INTEGER Box width in pixels (>= 1)
+' @param h INTEGER Box height in pixels (>= 1)
+'
+SUB ELLIPSE_calc_insets (w AS INTEGER, h AS INTEGER)
+    DIM j   AS INTEGER, maxIns AS INTEGER
+    DIM a   AS DOUBLE, b AS DOUBLE, v AS DOUBLE, t AS DOUBLE, e AS DOUBLE
+
+    REDIM ELLIPSE_INSET(0 TO h% - 1) AS INTEGER
+    a# = w% / 2# - 0.1#
+    b# = h% / 2# - 0.1#
+    maxIns% = (w% - 1) \ 2
+
+    FOR j% = 0 TO h% - 1
+        v# = j% - (h% - 1) / 2#
+        t# = 1# - (v# / b#) * (v# / b#)
+        IF t# < 0# THEN t# = 0#
+        e# = a# * SQR(t#)
+        ELLIPSE_INSET(j%) = -INT(-((w% - 1) / 2# - e# - 0.000001#)) ' ceil
+        IF ELLIPSE_INSET(j%) < 0 THEN ELLIPSE_INSET(j%) = 0
+        IF ELLIPSE_INSET(j%) > maxIns% THEN ELLIPSE_INSET(j%) = maxIns%
+    NEXT j%
+
+    ' The middle row(s) always reach the box sides, so the shape spans the full drag.
+    ELLIPSE_INSET((h% - 1) \ 2) = 0
+    ELLIPSE_INSET(h% \ 2)       = 0
+END SUB
+
+''
+' Plots one outline pixel through the requested write path.
+'
+SUB ELLIPSE_plot_px (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG, mode AS INTEGER)
+    SELECT CASE mode%
+        CASE ELLIPSE_PLOT_PSET
+            PSET (x%, y%), col~&
+        CASE ELLIPSE_PLOT_CLIPPED
+            IF SELECTION_is_point_inside%(x%, y%) THEN
+                IF OPACITY_LOCK_allows_draw%(x%, y%) THEN PSET (x%, y%), DRAWER_resolve_paint_color~&(x%, y%, col~&)
+            END IF
+        CASE ELLIPSE_PLOT_BRUSH
+            PAINT_stamp_brush x%, y%, col~&
+        CASE ELLIPSE_PLOT_PREVIEW
+            PREVIEW_stamp_brush x%, y%, col~&
+    END SELECT
+END SUB
+
+''
+' Draws a 1px, 8-connected ellipse outline (no doubled corners, no edge ticks).
+' The outline is the boundary of the ELLIPSE_calc_insets fill: in each row, the
+' pixels whose row above or below is narrower. Every pixel is written exactly once,
+' so translucent colours don't darken where segments would otherwise overlap.
+'
+' @param cx INTEGER Center X            @param cy INTEGER Center Y
+' @param rx SINGLE Horizontal radius    @param ry SINGLE Vertical radius
+' @param col _UNSIGNED LONG Colour (RGBA)
+' @param mode INTEGER ELLIPSE_PLOT_* write path
+'
+SUB ELLIPSE_plot_outline (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, col AS _UNSIGNED LONG, mode AS INTEGER)
+    IF rx! < 0 OR ry! < 0 THEN EXIT SUB
+
+    DIM x0 AS INTEGER, y0 AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM j  AS INTEGER, x AS INTEGER, lft AS INTEGER, rgt AS INTEGER
+    DIM inner AS INTEGER, leftEnd AS INTEGER, rightStart AS INTEGER
+
+    ELLIPSE_get_box cx%, cy%, rx!, ry!, x0%, y0%, w%, h%
+    ELLIPSE_calc_insets w%, h%
+
+    FOR j% = 0 TO h% - 1
+        lft% = ELLIPSE_INSET(j%)
+        rgt% = w% - 1 - lft%
+
+        ' Inset of the narrower vertical neighbour (a row outside the box is empty = w).
+        inner% = w%
+        IF j% > 0 AND j% < h% - 1 THEN
+            inner% = ELLIPSE_INSET(j% - 1)
+            IF ELLIPSE_INSET(j% + 1) > inner% THEN inner% = ELLIPSE_INSET(j% + 1)
+        END IF
+
+        leftEnd% = inner% - 1
+        IF leftEnd% < lft% THEN leftEnd% = lft%
+        rightStart% = w% - 1 - leftEnd%
+
+        IF leftEnd% + 1 >= rightStart% THEN
+            FOR x% = lft% TO rgt%
+                ELLIPSE_plot_px x0% + x%, y0% + j%, col~&, mode%
+            NEXT x%
+        ELSE
+            FOR x% = lft% TO leftEnd%
+                ELLIPSE_plot_px x0% + x%, y0% + j%, col~&, mode%
+            NEXT x%
+            FOR x% = rightStart% TO rgt%
+                ELLIPSE_plot_px x0% + x%, y0% + j%, col~&, mode%
+            NEXT x%
+        END IF
+    NEXT j%
+END SUB
+
+''
+' Solid, unclipped filled ellipse onto _DEST (tool preview). Same pixels as
+' ELLIPSE_fill_scanline, one LINE per row so each pixel is written once.
+'
+' @param cx INTEGER Center X            @param cy INTEGER Center Y
+' @param rx SINGLE Horizontal radius    @param ry SINGLE Vertical radius
+' @param col _UNSIGNED LONG Fill colour (RGBA)
+'
+SUB ELLIPSE_fill_plain (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, col AS _UNSIGNED LONG)
+    IF rx! < 0 OR ry! < 0 THEN EXIT SUB
+
+    DIM x0 AS INTEGER, y0 AS INTEGER, w AS INTEGER, h AS INTEGER, j AS INTEGER
+
+    ELLIPSE_get_box cx%, cy%, rx!, ry!, x0%, y0%, w%, h%
+    ELLIPSE_calc_insets w%, h%
+    FOR j% = 0 TO h% - 1
+        LINE (x0% + ELLIPSE_INSET(j%), y0% + j%)-(x0% + w% - 1 - ELLIPSE_INSET(j%), y0% + j%), col~&
+    NEXT j%
+END SUB
+
+''
+' Draws one ellipse of the live tool preview onto _DEST (the shape overlay): filled
+' (drawer paint mode resolves each pixel like the commit) or 1px outline.
+'
+' @param cx INTEGER Center X            @param cy INTEGER Center Y
+' @param rx SINGLE Horizontal radius    @param ry SINGLE Vertical radius
+' @param col _UNSIGNED LONG Preview colour
+'
+SUB ELLIPSE_preview_one (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, col AS _UNSIGNED LONG)
+    DIM x0 AS INTEGER, y0 AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM j  AS INTEGER, x AS INTEGER
+
+    IF NOT ELLIPSE_TOOL.FILLED THEN
+        ELLIPSE_plot_outline cx%, cy%, rx!, ry!, col~&, ELLIPSE_PLOT_PSET
+    ELSEIF DRAWER_has_paint_mode% THEN
+        ELLIPSE_get_box cx%, cy%, rx!, ry!, x0%, y0%, w%, h%
+        ELLIPSE_calc_insets w%, h%
+        FOR j% = 0 TO h% - 1
+            FOR x% = x0% + ELLIPSE_INSET(j%) TO x0% + w% - 1 - ELLIPSE_INSET(j%)
+                PSET (x%, y0% + j%), DRAWER_resolve_paint_color~&(x%, y0% + j%, DRAW_COLOR~&)
+            NEXT x%
+        NEXT j%
+    ELSE
+        ELLIPSE_fill_plain cx%, cy%, rx!, ry!, col~&
+    END IF
+END SUB
+
+''
 ' Draw ellipse modifier lines (spokes and concentric rings).
 ' Called during preview and commit.
 '
@@ -95,9 +267,7 @@ SUB ELLIPSE_draw_modifiers (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SI
     DIM i      AS INTEGER
     DIM ang    AS SINGLE
     DIM spokex AS SINGLE, spokey AS SINGLE
-    DIM asp    AS SINGLE
     IF rx! = 0 AND ry! = 0 THEN EXIT SUB
-    IF rx! > 0 THEN asp! = ry! / rx! ELSE asp! = 1
 
     ' Radial spoke lines — n spokes through center at angles 0..PI*(n-1)/n
     IF slices% > 0 THEN
@@ -114,14 +284,14 @@ SUB ELLIPSE_draw_modifiers (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SI
         DIM scale AS SINGLE
         FOR i% = 1 TO rings%
             scale! = i% / (rings% + 1)
-            CIRCLE (cx%, cy%), rx! * scale!, col~&, , , asp!
+            ELLIPSE_plot_outline cx%, cy%, rx! * scale!, ry! * scale!, col~&, ELLIPSE_PLOT_PSET
         NEXT i%
     END IF
 END SUB
 
 
 ''
-' Draws a thick brush-stamped ellipse outline using midpoint algorithm.
+' Draws a thick brush-stamped ellipse outline (ELLIPSE_plot_outline path).
 ' Stamps the current brush shape at each pixel along the ellipse path.
 ' Symmetry, selection clipping, and opacity lock are handled by PAINT_stamp_brush.
 ' @param cx INTEGER Center X coordinate of the ellipse
@@ -131,70 +301,12 @@ END SUB
 ' @param col _UNSIGNED LONG Drawing color (RGBA)
 '
 SUB ELLIPSE_draw_brushed (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, col AS _UNSIGNED LONG)
-    IF rx! <= 0 OR ry! <= 0 THEN EXIT SUB
-
-    DIM AS INTEGER x, y
-    DIM AS SINGLE rxSq, rySq, twoRxSq, twoRySq
-    DIM AS SINGLE p
-
-    rxSq!    = rx! * rx!
-    rySq!    = ry! * ry!
-    twoRxSq! = 2 * rxSq!
-    twoRySq! = 2 * rySq!
-
-    ' Region 1
-    x% = 0
-    y% = INT(ry! + 0.5)
-
-    DIM AS SINGLE px, py
-    px! = 0
-    py! = twoRxSq! * y%
-
-    ' Draw initial points in 4 quadrants
-    PAINT_stamp_brush cx% + x%, cy% + y%, col~&
-    PAINT_stamp_brush cx% - x%, cy% + y%, col~&
-    PAINT_stamp_brush cx% + x%, cy% - y%, col~&
-    PAINT_stamp_brush cx% - x%, cy% - y%, col~&
-
-    p! = rySq! - (rxSq! * ry!) + (0.25 * rxSq!)
-
-    WHILE px! < py!
-        x% = x% + 1
-        px! = px! + twoRySq!
-        IF p! < 0 THEN
-            p! = p! + rySq! + px!
-        ELSE
-            y% = y% - 1
-            py! = py! - twoRxSq!
-            p! = p! + rySq! + px! - py!
-        END IF
-        PAINT_stamp_brush cx% + x%, cy% + y%, col~&
-        PAINT_stamp_brush cx% - x%, cy% + y%, col~&
-        PAINT_stamp_brush cx% + x%, cy% - y%, col~&
-        PAINT_stamp_brush cx% - x%, cy% - y%, col~&
-    WEND
-
-    ' Region 2
-    p! = rySq! * (x% + 0.5) * (x% + 0.5) + rxSq! * (y% - 1) * (y% - 1) - rxSq! * rySq!
-    WHILE y% >= 0
-        y% = y% - 1
-        py! = py! - twoRxSq!
-        IF p! > 0 THEN
-            p! = p! + rxSq! - py!
-        ELSE
-            x% = x% + 1
-            px! = px! + twoRySq!
-            p! = p! + rxSq! - py! + px!
-        END IF
-        PAINT_stamp_brush cx% + x%, cy% + y%, col~&
-        PAINT_stamp_brush cx% - x%, cy% + y%, col~&
-        PAINT_stamp_brush cx% + x%, cy% - y%, col~&
-        PAINT_stamp_brush cx% - x%, cy% - y%, col~&
-    WEND
+    IF rx! < 0 OR ry! < 0 THEN EXIT SUB
+    ELLIPSE_plot_outline cx%, cy%, rx!, ry!, col~&, ELLIPSE_PLOT_BRUSH
 END SUB
 
 ''
-' Draws an ellipse outline with selection clipping using midpoint algorithm.
+' Draws an ellipse outline with selection clipping (ELLIPSE_plot_outline path).
 ' Pixels are individually clipped against the active selection mask and opacity lock.
 ' @param cx INTEGER Center X coordinate of the ellipse
 ' @param cy INTEGER Center Y coordinate of the ellipse
@@ -203,72 +315,13 @@ END SUB
 ' @param col _UNSIGNED LONG Drawing color (RGBA)
 '
 SUB ELLIPSE_draw_clipped_outline (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, col AS _UNSIGNED LONG)
-    IF rx! <= 0 OR ry! <= 0 THEN EXIT SUB
-
-    ' Anti-aliased outline (soft 1px ring). AA off = the verbatim midpoint algorithm below.
+    ' Anti-aliased outline (soft 1px ring). AA off = the pixel-exact outline below.
     IF CFG.ANTIALIAS% THEN
         ELLIPSE_draw_outline_aa cx%, cy%, rx!, ry!, col~&
         EXIT SUB
     END IF
 
-    DIM AS INTEGER x, y
-    DIM AS SINGLE rxSq, rySq, twoRxSq, twoRySq
-    DIM AS SINGLE p
-    
-    rxSq!    = rx! * rx!
-    rySq!    = ry! * ry!
-    twoRxSq! = 2 * rxSq!
-    twoRySq! = 2 * rySq!
-    
-    ' Region 1
-    x% = 0
-    y% = INT(ry! + 0.5)
-    
-    DIM AS SINGLE px, py
-    px! = 0
-    py! = twoRxSq! * y%
-    
-    ' Draw initial points in 4 quadrants
-    IF SELECTION_is_point_inside%(cx% + x%, cy% + y%) AND OPACITY_LOCK_allows_draw%(cx% + x%, cy% + y%) THEN PSET (cx% + x%, cy% + y%), DRAWER_resolve_paint_color~&(cx% + x%, cy% + y%, col~&)
-    IF SELECTION_is_point_inside%(cx% - x%, cy% + y%) AND OPACITY_LOCK_allows_draw%(cx% - x%, cy% + y%) THEN PSET (cx% - x%, cy% + y%), DRAWER_resolve_paint_color~&(cx% - x%, cy% + y%, col~&)
-    IF SELECTION_is_point_inside%(cx% + x%, cy% - y%) AND OPACITY_LOCK_allows_draw%(cx% + x%, cy% - y%) THEN PSET (cx% + x%, cy% - y%), DRAWER_resolve_paint_color~&(cx% + x%, cy% - y%, col~&)
-    IF SELECTION_is_point_inside%(cx% - x%, cy% - y%) AND OPACITY_LOCK_allows_draw%(cx% - x%, cy% - y%) THEN PSET (cx% - x%, cy% - y%), DRAWER_resolve_paint_color~&(cx% - x%, cy% - y%, col~&)
-    
-    p! = rySq! - (rxSq! * ry!) + (0.25 * rxSq!)
-    
-    WHILE px! < py!
-        x% = x% + 1
-        px! = px! + twoRySq!
-        IF p! < 0 THEN
-            p! = p! + rySq! + px!
-        ELSE
-            y% = y% - 1
-            py! = py! - twoRxSq!
-            p! = p! + rySq! + px! - py!
-        END IF
-        IF SELECTION_is_point_inside%(cx% + x%, cy% + y%) AND OPACITY_LOCK_allows_draw%(cx% + x%, cy% + y%) THEN PSET (cx% + x%, cy% + y%), DRAWER_resolve_paint_color~&(cx% + x%, cy% + y%, col~&)
-        IF SELECTION_is_point_inside%(cx% - x%, cy% + y%) AND OPACITY_LOCK_allows_draw%(cx% - x%, cy% + y%) THEN PSET (cx% - x%, cy% + y%), DRAWER_resolve_paint_color~&(cx% - x%, cy% + y%, col~&)
-        IF SELECTION_is_point_inside%(cx% + x%, cy% - y%) AND OPACITY_LOCK_allows_draw%(cx% + x%, cy% - y%) THEN PSET (cx% + x%, cy% - y%), DRAWER_resolve_paint_color~&(cx% + x%, cy% - y%, col~&)
-        IF SELECTION_is_point_inside%(cx% - x%, cy% - y%) AND OPACITY_LOCK_allows_draw%(cx% - x%, cy% - y%) THEN PSET (cx% - x%, cy% - y%), DRAWER_resolve_paint_color~&(cx% - x%, cy% - y%, col~&)
-    WEND
-    
-    ' Region 2
-    p! = rySq! * (x% + 0.5) * (x% + 0.5) + rxSq! * (y% - 1) * (y% - 1) - rxSq! * rySq!
-    WHILE y% >= 0
-        y% = y% - 1
-        py! = py! - twoRxSq!
-        IF p! > 0 THEN
-            p! = p! + rxSq! - py!
-        ELSE
-            x% = x% + 1
-            px! = px! + twoRySq!
-            p! = p! + rxSq! - py! + px!
-        END IF
-        IF SELECTION_is_point_inside%(cx% + x%, cy% + y%) AND OPACITY_LOCK_allows_draw%(cx% + x%, cy% + y%) THEN PSET (cx% + x%, cy% + y%), DRAWER_resolve_paint_color~&(cx% + x%, cy% + y%, col~&)
-        IF SELECTION_is_point_inside%(cx% - x%, cy% + y%) AND OPACITY_LOCK_allows_draw%(cx% - x%, cy% + y%) THEN PSET (cx% - x%, cy% + y%), DRAWER_resolve_paint_color~&(cx% - x%, cy% + y%, col~&)
-        IF SELECTION_is_point_inside%(cx% + x%, cy% - y%) AND OPACITY_LOCK_allows_draw%(cx% + x%, cy% - y%) THEN PSET (cx% + x%, cy% - y%), DRAWER_resolve_paint_color~&(cx% + x%, cy% - y%, col~&)
-        IF SELECTION_is_point_inside%(cx% - x%, cy% - y%) AND OPACITY_LOCK_allows_draw%(cx% - x%, cy% - y%) THEN PSET (cx% - x%, cy% - y%), DRAWER_resolve_paint_color~&(cx% - x%, cy% - y%, col~&)
-    WEND
+    ELLIPSE_plot_outline cx%, cy%, rx!, ry!, col~&, ELLIPSE_PLOT_CLIPPED
 END SUB
 
 ''
@@ -316,15 +369,13 @@ SUB ELLIPSE_fill_scanline (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SIN
     IF rx! <= 0 OR ry! <= 0 THEN EXIT SUB
 
     ' Anti-aliased fill (soft edge) — all callers commit to the current layer, which is
-    ' what PAINT_blend_pixel targets. AA off = the verbatim scanline path below.
+    ' what PAINT_blend_pixel targets. AA off = the pixel-exact scanline path below.
     IF CFG.ANTIALIAS% THEN
         ELLIPSE_fill_scanline_aa cx%, cy%, rx!, ry!, fill_color~&
         EXIT SUB
     END IF
 
     DIM AS INTEGER y, x_left, x_right, scan_x
-    DIM AS SINGLE dx
-    DIM AS INTEGER y_start, y_end
     DIM oldDest          AS LONG
     DIM has_selection    AS INTEGER
     DIM use_drawer_paint AS INTEGER
@@ -349,51 +400,37 @@ SUB ELLIPSE_fill_scanline (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SIN
     has_selection%    = SELECTION_has_active%
     use_drawer_paint% = DRAWER_has_paint_mode%
     
-    ' Calculate y range with proper rounding to avoid missing scanlines
-    y_start% = cy% - INT(ry! + 0.5)
-    y_end%   = cy% + INT(ry! + 0.5)
-    
-    ' Ensure at least one scanline for very thin ellipses
-    IF y_start% = y_end% THEN y_end% = y_start% + 1
-    
+    ' Rows come from the same pixel-exact rasterizer as the outline, so the fill
+    ' covers exactly the dragged box with no edge ticks and lines up with the stroke.
+    DIM box_x0 AS INTEGER, box_y0 AS INTEGER, box_w AS INTEGER, box_h AS INTEGER
+    ELLIPSE_get_box cx%, cy%, rx!, ry!, box_x0%, box_y0%, box_w%, box_h%
+    ELLIPSE_calc_insets box_w%, box_h%
+
     ' For each scanline from top to bottom of ellipse
-    FOR y% = y_start% TO y_end%
-        ' Calculate x extent at this y using ellipse equation: (x/rx)^2 + (y/ry)^2 = 1
-        ' Solving for x: x = rx * sqrt(1 - (y/ry)^2)
-        DIM dy AS SINGLE
-        dy! = (y% - cy%) / ry!
-        
-        IF ABS(dy!) <= 1.0001 THEN ' Small tolerance for rounding errors
-            dx! = rx! * SQR(1 - dy! * dy!)
-            ' Use proper rounding instead of truncation
-            x_left%  = cx% - INT(dx! + 0.5)
-            x_right% = cx% + INT(dx! + 0.5)
-            
-            ' Ensure at least one pixel for very thin ellipses
-            IF x_left% > x_right% THEN x_left% = x_right%
-            
-            ' Draw horizontal line for this scanline
-            IF x_left% <= x_right% THEN
-                IF use_drawer_paint% OR has_selection% THEN
-                    ' Clipped paint/gradient fill — skip transparent to avoid erasing
+    FOR y% = box_y0% TO box_y0% + box_h% - 1
+        x_left%  = box_x0% + ELLIPSE_INSET(y% - box_y0%)
+        x_right% = box_x0% + box_w% - 1 - ELLIPSE_INSET(y% - box_y0%)
+        ' Draw horizontal line for this scanline
+        IF x_left% <= x_right% THEN
+            IF use_drawer_paint% OR has_selection% THEN
+                ' Clipped paint/gradient fill — skip transparent to avoid erasing
+                FOR scan_x% = x_left% TO x_right%
+                    IF (NOT has_selection% OR SELECTION_is_point_inside%(scan_x%, y%)) AND OPACITY_LOCK_allows_draw%(scan_x%, y%) THEN
+                        rc~& = DRAWER_resolve_paint_color~&(scan_x%, y%, fill_color~&)
+                        IF _ALPHA32(rc~&) > 0 THEN PSET (scan_x% + apW%, y% + apH%), rc~&
+                    END IF
+                NEXT scan_x%
+            ELSE
+                ' Solid fill - check opacity lock per pixel if enabled
+                IF LAYERS(CURRENT_LAYER%).opacityLock% THEN
                     FOR scan_x% = x_left% TO x_right%
-                        IF (NOT has_selection% OR SELECTION_is_point_inside%(scan_x%, y%)) AND OPACITY_LOCK_allows_draw%(scan_x%, y%) THEN
-                            rc~& = DRAWER_resolve_paint_color~&(scan_x%, y%, fill_color~&)
-                            IF _ALPHA32(rc~&) > 0 THEN PSET (scan_x% + apW%, y% + apH%), rc~&
+                        IF OPACITY_LOCK_allows_draw%(scan_x%, y%) THEN
+                            PSET (scan_x% + apW%, y% + apH%), DRAWER_resolve_paint_color~&(scan_x%, y%, fill_color~&)
                         END IF
                     NEXT scan_x%
                 ELSE
-                    ' Solid fill - check opacity lock per pixel if enabled
-                    IF LAYERS(CURRENT_LAYER%).opacityLock% THEN
-                        FOR scan_x% = x_left% TO x_right%
-                            IF OPACITY_LOCK_allows_draw%(scan_x%, y%) THEN
-                                PSET (scan_x% + apW%, y% + apH%), DRAWER_resolve_paint_color~&(scan_x%, y%, fill_color~&)
-                            END IF
-                        NEXT scan_x%
-                    ELSE
-                        ' Fast path - no selection or opacity lock
-                        LINE (x_left% + apW%, y% + apH%)-(x_right% + apW%, y% + apH%), fill_color~&
-                    END IF
+                    ' Fast path - no selection or opacity lock
+                    LINE (x_left% + apW%, y% + apH%)-(x_right% + apW%, y% + apH%), fill_color~&
                 END IF
             END IF
         END IF
