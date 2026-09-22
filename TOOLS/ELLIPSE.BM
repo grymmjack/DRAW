@@ -112,28 +112,39 @@ END SUB
 ' @param h INTEGER Box height in pixels (>= 1)
 '
 SUB ELLIPSE_calc_insets (w AS INTEGER, h AS INTEGER)
-    DIM j   AS INTEGER, maxIns AS INTEGER
-    DIM a   AS DOUBLE, b AS DOUBLE, v AS DOUBLE, t AS DOUBLE, e AS DOUBLE
-
+    DIM j AS INTEGER
     REDIM ELLIPSE_INSET(0 TO h% - 1) AS INTEGER
+    FOR j% = 0 TO h% - 1
+        ELLIPSE_INSET(j%) = ELLIPSE_row_inset%(w%, h%, j%)
+    NEXT j%
+END SUB
+
+''
+' Left inset of row j of the pixel-exact ellipse inscribed in a w x h box (see
+' ELLIPSE_calc_insets). The BAS/QB64 exporters emit this same routine verbatim as
+' EllipseInset% (FILE_BAS_write_ellipse_helpers) -- keep the two identical so
+' exported programs reproduce the drawing pixel for pixel.
+'
+' @param w INTEGER Box width in pixels (>= 1)
+' @param h INTEGER Box height in pixels (>= 1)
+' @param j INTEGER Row, 0 .. h-1
+' @return INTEGER Columns inset .. w-1-inset of the row are inside the ellipse
+'
+FUNCTION ELLIPSE_row_inset% (w AS INTEGER, h AS INTEGER, j AS INTEGER)
+    DIM a AS DOUBLE, b AS DOUBLE, v AS DOUBLE, t AS DOUBLE, e AS DOUBLE, ins AS INTEGER
+    ' The middle row(s) always reach the box sides, so the shape spans the full drag.
+    IF j% = (h% - 1) \ 2 _ORELSE j% = h% \ 2 THEN EXIT FUNCTION
     a# = w% / 2# - 0.1#
     b# = h% / 2# - 0.1#
-    maxIns% = (w% - 1) \ 2
-
-    FOR j% = 0 TO h% - 1
-        v# = j% - (h% - 1) / 2#
-        t# = 1# - (v# / b#) * (v# / b#)
-        IF t# < 0# THEN t# = 0#
-        e# = a# * SQR(t#)
-        ELLIPSE_INSET(j%) = -INT(-((w% - 1) / 2# - e# - 0.000001#)) ' ceil
-        IF ELLIPSE_INSET(j%) < 0 THEN ELLIPSE_INSET(j%) = 0
-        IF ELLIPSE_INSET(j%) > maxIns% THEN ELLIPSE_INSET(j%) = maxIns%
-    NEXT j%
-
-    ' The middle row(s) always reach the box sides, so the shape spans the full drag.
-    ELLIPSE_INSET((h% - 1) \ 2) = 0
-    ELLIPSE_INSET(h% \ 2)       = 0
-END SUB
+    v# = j% - (h% - 1) / 2#
+    t# = 1# - (v# / b#) * (v# / b#)
+    IF t# < 0# THEN t# = 0#
+    e# = a# * SQR(t#)
+    ins% = -INT(-((w% - 1) / 2# - e# - 0.000001#)) ' ceil
+    IF ins% < 0 THEN ins% = 0
+    IF ins% > (w% - 1) \ 2 THEN ins% = (w% - 1) \ 2
+    ELLIPSE_row_inset% = ins%
+END FUNCTION
 
 ''
 ' Plots one outline pixel through the requested write path.
@@ -336,20 +347,26 @@ END SUB
 ' @param col _UNSIGNED LONG Outline color (RGBA)
 '
 SUB ELLIPSE_draw_outline_aa (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, col AS _UNSIGNED LONG)
-    IF rx! <= 0.0 OR ry! <= 0.0 THEN EXIT SUB
+    IF rx! < 0.0 OR ry! < 0.0 THEN EXIT SUB
 
     DIM px  AS INTEGER, py AS INTEGER
-    DIM x0  AS INTEGER, x1 AS INTEGER, y0 AS INTEGER, y1 AS INTEGER
+    DIM x0  AS INTEGER, y0 AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM fcx AS SINGLE, fcy AS SINGLE, arx AS SINGLE, ary AS SINGLE
     DIM cov AS SINGLE
 
-    x0% = cx% - INT(rx! + 0.5) - 1
-    x1% = cx% + INT(rx! + 0.5) + 1
-    y0% = cy% - INT(ry! + 0.5) - 1
-    y1% = cy% + INT(ry! + 0.5) + 1
+    ' Centre the SDF on the true centre of the dragged pixel box (a half pixel for odd
+    ' spans), not the integer cx/cy: an off-centre SDF spills a half-alpha bump one
+    ' pixel outside the box at the extremes -- the AA version of the edge "tick".
+    ELLIPSE_get_box cx%, cy%, rx!, ry!, x0%, y0%, w%, h%
+    fcx! = x0% + (w% - 1) / 2
+    fcy! = y0% + (h% - 1) / 2
+    ' Outline: the ring peaks on the centres of the box's outermost pixels.
+    arx! = (w% - 1) / 2 : IF arx! < 0.5 THEN arx! = 0.5
+    ary! = (h% - 1) / 2 : IF ary! < 0.5 THEN ary! = 0.5
 
-    FOR py% = y0% TO y1%
-        FOR px% = x0% TO x1%
-            cov! = ELLIPSE_coverage!(px% - cx%, py% - cy%, rx!, ry!, TRUE)
+    FOR py% = y0% - 1 TO y0% + h%
+        FOR px% = x0% - 1 TO x0% + w%
+            cov! = ELLIPSE_coverage!(px% - fcx!, py% - fcy!, arx!, ary!, TRUE)
             IF cov! > 0.0 THEN PAINT_blend_pixel px%, py%, col~&, cov!
         NEXT px%
     NEXT py%
@@ -453,20 +470,26 @@ END SUB
 ' @param fill_color _UNSIGNED LONG Fill color (RGBA), resolved per-pixel by PAINT_blend_pixel
 '
 SUB ELLIPSE_fill_scanline_aa (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, fill_color AS _UNSIGNED LONG)
-    IF rx! <= 0.0 OR ry! <= 0.0 THEN EXIT SUB
+    IF rx! < 0.0 OR ry! < 0.0 THEN EXIT SUB
 
     DIM px  AS INTEGER, py AS INTEGER
-    DIM x0  AS INTEGER, x1 AS INTEGER, y0 AS INTEGER, y1 AS INTEGER
+    DIM x0  AS INTEGER, y0 AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM fcx AS SINGLE, fcy AS SINGLE, arx AS SINGLE, ary AS SINGLE
     DIM cov AS SINGLE
 
-    x0% = cx% - INT(rx! + 0.5) - 1
-    x1% = cx% + INT(rx! + 0.5) + 1
-    y0% = cy% - INT(ry! + 0.5) - 1
-    y1% = cy% + INT(ry! + 0.5) + 1
+    ' Centre the SDF on the true centre of the dragged pixel box (a half pixel for odd
+    ' spans), not the integer cx/cy: an off-centre SDF spills a half-alpha bump one
+    ' pixel outside the box at the extremes -- the AA version of the edge "tick".
+    ELLIPSE_get_box cx%, cy%, rx!, ry!, x0%, y0%, w%, h%
+    fcx! = x0% + (w% - 1) / 2
+    fcy! = y0% + (h% - 1) / 2
+    ' Fill: the edge is the box's outer pixel edge (half-coverage there).
+    arx! = w% / 2
+    ary! = h% / 2
 
-    FOR py% = y0% TO y1%
-        FOR px% = x0% TO x1%
-            cov! = ELLIPSE_coverage!(px% - cx%, py% - cy%, rx!, ry!, FALSE)
+    FOR py% = y0% - 1 TO y0% + h%
+        FOR px% = x0% - 1 TO x0% + w%
+            cov! = ELLIPSE_coverage!(px% - fcx!, py% - fcy!, arx!, ary!, FALSE)
             IF cov! > 0.0 THEN PAINT_blend_pixel px%, py%, fill_color~&, cov!
         NEXT px%
     NEXT py%
