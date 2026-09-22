@@ -41,6 +41,7 @@ CONST HISTORY_FLAG_THICK_BRUSH  = 4
 CONST HISTORY_FLAG_CLIPPED      = 8
 CONST HISTORY_FLAG_SYMMETRY     = 16
 CONST HISTORY_FLAG_PAINT_MODE   = 32        ' Drawer paint mode active (gradient/pattern) — forces raster export
+CONST HISTORY_FLAG_FORCE_RASTER = 4096      ' Pixels the vector op can't reproduce (anti-aliasing, ellipse spokes/rings) — forces raster export (bits 6-11 are line caps)
 
 ' Line end-cap types packed into bits 6-8 (start) and 9-11 (end) of flags LONG
 CONST HISTORY_FLAG_LINE_CAP_START_SHIFT = 6

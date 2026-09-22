@@ -32,3 +32,12 @@ ELLIPSE_TOOL.CENTER_Y = 0
 ELLIPSE_TOOL.FILLED   = FALSE
 ELLIPSE_TOOL.SLICES   = 0
 ELLIPSE_TOOL.RINGS    = 0
+
+' Pixel-exact ellipse rasterizer (ELLIPSE_plot_outline / ELLIPSE_fill_plain).
+' ELLIPSE_INSET%(row) = left inset of that row inside the ellipse's pixel box;
+' filled by ELLIPSE_calc_insets, read by every hard-edged ellipse path.
+CONST ELLIPSE_PLOT_PSET    = 0 ' plain PSET onto _DEST
+CONST ELLIPSE_PLOT_CLIPPED = 1 ' selection clip + opacity lock + drawer paint colour
+CONST ELLIPSE_PLOT_BRUSH   = 2 ' PAINT_stamp_brush (thick outline commit)
+CONST ELLIPSE_PLOT_PREVIEW = 3 ' PREVIEW_stamp_brush (thick outline preview)
+REDIM SHARED ELLIPSE_INSET(0 TO 0) AS INTEGER
