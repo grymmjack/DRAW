@@ -5,9 +5,29 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.3.3
+Current release: v2.4.0
 
 ![DRAW GUI from v1.1.0](./GUI.png)
+
+## New in 2.4.0
+
+A big font release — **620 bundled Color Bitmap Fonts** (up from 44), a reorganized font dropdown — plus grid-snapping, ellipse, and code-export fixes.
+
+- **~580 new Color Bitmap Fonts**, pixel-exact from the original game data or source sheets and sorted into their own dropdown groups:
+  - **COLOR_BITMAP/GAMES** (87) — DOOM / DOOM II, Doom 64, Heretic, Hexen, Strife (+ Veteran Edition), Quake, Quake 2, Duke Nukem 3D, Blood, Shadow Warrior, Redneck Rampage, PowerSlave Exhumed, Dark Forces, Outlaws and Daggerfall — HUD/message fonts, big menu fonts, and status-bar digit sets in each game's own palette, plus the remasters' native pixel fonts (`-EX`).
+  - **COLOR_BITMAP/DEMOS** (394) — Amiga demoscene scroller fonts from [ianhan/BitmapFonts](https://github.com/ianhan/BitmapFonts), with logos/credits cleaned out and split sheets merged.
+  - **COLOR_BITMAP/DPAINT** (16) — the Deluxe Paint IV/V and *Deluxe Paint Colour Fonts* Amiga ColorFonts (ChiselScript, MyraGold, LenaEmbossed, CoinedMetal, …) decoded with their own colour tables.
+  - **COLOR_BITMAP/MONO** (103) — single-colour fonts (Daggerfall, Outlaws, the Build engine and KEX console fonts, DPaint's UI font, …).
+  - **COLOR_BITMAP/APPLE][** (20) — the Apple ][ family, now grouped together.
+- **Sectioned font dropdown** — DRAW's own fonts on top, then a divider, your font folders, a second divider, and your installed system fonts at the bottom. Folder groups are sorted A–Z (case-insensitive), so related groups sit together.
+- **Mouse wheel follows the pointer** in the font dropdown — it scrolls the list you're over (main list or the open folder flyout).
+- **Dotfile fonts are hidden** — any font file or folder whose name starts with `.` is skipped in bundled, user and system font folders.
+- **Transform honors snap-to-grid** — with snap-to-grid on, dragging a Transform handle (Scale / Distort / Perspective / Shear) now snaps to grid points in every grid mode (square, diagonal, isometric, hex). Rotate is left angular (still 15° with **Shift**).
+- **Grid offset is honored when drawing** — snapping and cell-fill now line up with the rendered grid lines when the grid has an offset (square mode), instead of disagreeing by exactly the offset. Marquee drag-snap and single-cell fill are fixed the same way.
+- **Grid & Guides dialog polish** — the dialog now opens seeded from the *live* grid (so it reflects changes made via shortcuts, `G+O` offset pick, or crop-shift), and gains a **Reset to Defaults** button plus a square-size preset row (**8 · 10 · 16 · 32 · 48 · 64**) with the active size highlighted.
+- **Advanced Color Picker auto-hides** while you draw over it (matching the color mixer), and restores on release.
+- **Ellipse & circle edges are clean** — the lone 1px "tick" at the top/bottom/left/right of hard-edged ellipses is gone, odd-span ellipses now match their drag box exactly, and anti-aliased ellipses no longer leave a half-alpha bump outside the box.
+- **Pixel-exact ellipse export** — BAS and QB64 source exports now emit a pixel-exact ellipse rasterizer instead of `CIRCLE`, so exported programs match the canvas exactly (AA ellipses and ellipses with spokes/rings export as raster pixels).
 
 ## New in 2.3.3
 
@@ -115,7 +135,7 @@ groups, transform/move, export, importers, and input handling.
 - **Pan** - Dedicated canvas panning tool (hand)
 - **Zoom** - Click to zoom in, Alt+click to zoom out, drag to zoom region
 - **Clipboard** - Copy/Cut/Paste selections (Ctrl+C/X/V), Merged copy (Ctrl+Shift+C), Clear selection (Ctrl+E); mask-aware operations for magic wand and non-rectangular selections
-- **Text** - Text entry tool with text layers, font properties bar (VGA/Tiny5/custom TTF/OTF/bitmap/**color bitmap fonts**), rich per-character formatting (bold/italic/underline/strikethrough/outline/shadow), per-character FG/BG colors, cursor navigation, selection (including double/triple/quad-click for word/line/all), clipboard, auto-wrap, and sound feedback; **text-local undo/redo** (Ctrl+Z/Y within text mode, up to 128 states); **style presets** (save/load/update/delete named text styles); **style auto-sync** — toolbar formatting controls update live to reflect the style of the character at the cursor as you navigate; text layers persist in DRW files with full undo/redo support; click existing text layers to re-edit; **Character Mode** for ANSI/ASCII art with PabloDraw-style virtual cursor navigation, F1-F12 block character shortcuts, and font stickiness; **Color Bitmap Fonts (CBF)** — DPaint-style `.bmp` spritesheet fonts that preserve original pixel colors (44 bundled fonts, including a 20-font **APPLE ][** family with NTSC artifact colour and CRT scanline variants)
+- **Text** - Text entry tool with text layers, font properties bar (VGA/Tiny5/custom TTF/OTF/bitmap/**color bitmap fonts**), rich per-character formatting (bold/italic/underline/strikethrough/outline/shadow), per-character FG/BG colors, cursor navigation, selection (including double/triple/quad-click for word/line/all), clipboard, auto-wrap, and sound feedback; **text-local undo/redo** (Ctrl+Z/Y within text mode, up to 128 states); **style presets** (save/load/update/delete named text styles); **style auto-sync** — toolbar formatting controls update live to reflect the style of the character at the cursor as you navigate; text layers persist in DRW files with full undo/redo support; click existing text layers to re-edit; **Character Mode** for ANSI/ASCII art with PabloDraw-style virtual cursor navigation, F1-F12 block character shortcuts, and font stickiness; **Color Bitmap Fonts (CBF)** — DPaint-style `.bmp` spritesheet fonts that preserve original pixel colors (620 bundled fonts in category groups — GAMES, DEMOS, DPAINT, MONO and a 20-font **APPLE ][** family with NTSC artifact colour and CRT scanline variants)
 - **Character Map** - Dockable 16×16 glyph panel (`Ctrl+M`) showing all 256 font characters with hover/select/flash states; supports bitmap font rendering (Fontaption, PSF, BDF formats); click glyphs to insert or stamp as custom brush; Alt+U picks FG/BG colors from character under cursor; character grid overlay with snap-to-grid for precise text art alignment
 - **Eraser** - Dedicated eraser tool that paints transparent; shares brush size preview and custom brush support. **Smart Erase** (hold `Shift` while erasing) erases on every visible non-opacity-locked layer simultaneously
 - **Stroke Selection** - Apply a configurable stroke (inside/outside/center, adjustable width) around the active selection boundary via Edit → Stroke Selection

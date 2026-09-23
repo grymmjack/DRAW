@@ -102,6 +102,10 @@ CONST FONT_DD_FOLDER = 1                                            ' Row is a f
 DIM SHARED FONT_DD_TYPE(0 TO FONT_DD_MAX - 1)  AS INTEGER           ' FONT_DD_FONT or FONT_DD_FOLDER
 DIM SHARED FONT_DD_VALUE(0 TO FONT_DD_MAX - 1) AS INTEGER           ' fontIdx or folderIdx
 DIM SHARED FONT_DD_COUNT AS INTEGER
+DIM SHARED FONT_DD_USER_START AS INTEGER                             ' first USER-section row (divider drawn above it), -1 = none
+FONT_DD_USER_START = -1
+DIM SHARED FONT_DD_SYS_START AS INTEGER                              ' first USER root-font (OS TTF/OTF) row after the USER folders, -1 = none
+FONT_DD_SYS_START = -1
 
 ' Subfolder names (deduplicated, in order of first appearance after sort)
 CONST FONT_FOLDER_MAX = 64

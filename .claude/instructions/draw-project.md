@@ -320,7 +320,7 @@ and evaluate identically. They are correct — do not mass-rename ~7,300 uses.
 ### 26. Reserved Words Rejected as Identifiers
 
 `pos`, `palette`, `screen`, `color`, `scale`, `step`, `timer`, `width`,
-`height`, `key`, `line`, `point` and friends fail as a variable, parameter or
+`height`, `key`, `line`, `point`, `base` (from `OPTION BASE`) and friends fail as a variable, parameter or
 field name:
 
 ```
@@ -495,7 +495,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `TOOLS/TEXT.BI/BM`        | Text tool state machine and keyboard input handler for text entry on canvas |
 | `GUI/TEXT-BAR.BI/BM`      | Text tool property bar (font, size, bold/italic/underline/strikethrough, colors, spacing) |
 | `GUI/TEXT-LAYER.BI/BM`    | Text layer data storage, serialization/deserialization, and rendering |
-| `GUI/FONT-LIST.BI/BM`     | Font registry (VGA, Tiny5, custom TTF/OTF) with size management |
+| `GUI/FONT-LIST.BI/BM`     | Font registry (VGA, Tiny5, TTF/OTF, bitmap, CBF, TDF) with size management. Scans bundled/user/OS dirs (dot-named files/dirs skipped via `FONT_LIST_is_dotname%` / `FONT_LIST_has_hidden_part%`, checked only *below* each scan base); `COLOR_BITMAP/<sub>` folders become their own dropdown groups; `FONT_LIST_build_display_list` sorts groups A-Z and emits a DRAW section then a USER section, marking `FONT_DD_USER_START` / `FONT_DD_SYS_START` for the text bar's divider lines |
 | `GUI/CHARMAP.BI/BM`       | Character map panel (16×16 glyph grid), Character Mode (useChars), virtual cursor, bitmap font rendering, char grid overlay |
 | `TOOLS/FILL-ADJ.BI/BM`   | Interactive Fill Adjustment overlay (F8) for custom brush and paint mode tiled fills; L-handle for independent X/Y scaling; rotation handle |
 | `GUI/SMART-GUIDES.BI/BM`  | Smart guide alignment lines for move tool; action IDs 910/911; rendered after selection overlay in SCREEN_render |

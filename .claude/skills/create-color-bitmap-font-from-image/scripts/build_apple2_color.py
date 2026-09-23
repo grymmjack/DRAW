@@ -46,7 +46,7 @@ from ntsc import colorize_cell, PARAMS            # noqa: E402
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 TTF = os.path.join(REPO, "ASSETS", "FONTS", "COMPUTERS", "PrintChar21.ttf")
-FONT_DIR = os.path.join(REPO, "ASSETS", "FONTS", "COLOR_BITMAP")
+FONT_DIR = os.path.join(REPO, "ASSETS", "FONTS", "COLOR_BITMAP", "APPLE][")   # the family's own dropdown group
 
 CELL_W, CELL_H = 7, 8           # the Apple II text cell, 40- and 80-column alike
 
@@ -211,6 +211,7 @@ def build_family(out_dir, phase=0):
         kw = dict(kw)
         ph = kw.pop("phosphor", None)
         path = os.path.join(out_dir, name + ".bmp")
+        os.makedirs(out_dir, exist_ok=True)
         build(path, phase=phase, phosphor=PHOSPHORS[ph] if ph else None, **kw)
         made.append(path)
     return made

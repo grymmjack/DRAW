@@ -20,7 +20,7 @@ Press `T` to grab the Text tool, then click on the canvas to drop a text caret. 
 
 ### Bitmap fonts
 
-DRAW ships with **24 color bitmap fonts** in the DPaint-style `.bmp` spritesheet format. Their pixels are preserved verbatim — no antialiasing, no recoloring — at a fixed native height per font. PSF, BDF, and Fontaption formats are also supported.
+DRAW ships with **620 color bitmap fonts** in the DPaint-style `.bmp` spritesheet format. Their pixels are preserved verbatim — no antialiasing, no recoloring — at a fixed native height per font. PSF, BDF, and Fontaption formats are also supported.
 
 ### The Text Property Bar
 

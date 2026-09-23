@@ -67,7 +67,7 @@ else
     # Default: the stock main-repo compiler (v4.6.0+, has _MOUSECURSOR).
     QB64PE ?= $(HOME)/git/qb64pe/qb64pe
 endif
-THREADS   ?= 12
+THREADS   ?= 16
 QB64FLAGS := -w -x -f:MaxCompilerProcesses=$(THREADS)
 
 # ---------- Runtime arguments forwarded to DRAW -------------------------------

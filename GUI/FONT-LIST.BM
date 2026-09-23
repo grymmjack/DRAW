@@ -132,6 +132,43 @@ END SUB
 ' @param recursive% TRUE to recurse subdirectories (Linux/Mac use find)
 ' @param isBundled% TRUE if these are DRAW-bundled fonts
 '
+''
+' TRUE for a file/folder name that starts with "." (dotfiles like ._Foo.ttf,
+' .hidden/). Such fonts are skipped everywhere. "." and ".." are not hidden.
+'
+FUNCTION FONT_LIST_is_dotname% (nm$)
+    DIM dotNm AS STRING
+    dotNm$ = nm$
+    FONT_LIST_is_dotname% = (LEFT$(dotNm$, 1) = "." AND dotNm$ <> "." AND dotNm$ <> "..")
+END FUNCTION
+
+
+''
+' TRUE when any path component BELOW baseDir$ starts with ".". Only the part
+' after baseDir$ is checked, because base dirs themselves can live under a
+' dotted parent (the user font dir is ~/.local/share/DRAW/FONTS).
+'
+FUNCTION FONT_LIST_has_hidden_part% (fullPath$, baseDir$)
+    DIM rel  AS STRING
+    DIM part AS STRING
+    DIM ch   AS STRING
+    DIM hpI  AS INTEGER
+    rel$ = fullPath$
+    IF LEFT$(rel$, LEN(baseDir$)) = baseDir$ THEN rel$ = MID$(rel$, LEN(baseDir$) + 1)
+    FONT_LIST_has_hidden_part% = FALSE
+    part$ = ""
+    FOR hpI% = 1 TO LEN(rel$) + 1
+        IF hpI% <= LEN(rel$) THEN ch$ = MID$(rel$, hpI%, 1) ELSE ch$ = "/"
+        IF ch$ = "/" OR ch$ = "\" THEN
+            IF FONT_LIST_is_dotname%(part$) THEN FONT_LIST_has_hidden_part% = TRUE: EXIT FUNCTION
+            part$ = ""
+        ELSE
+            part$ = part$ + ch$
+        END IF
+    NEXT hpI%
+END FUNCTION
+
+
 SUB FONT_LIST_scan_dir (dir$, recursive%, isBundled%)
     IF NOT _DIREXISTS(dir$) THEN EXIT SUB
 
@@ -191,6 +228,8 @@ SUB FONT_LIST_scan_dir (dir$, recursive%, isBundled%)
                 fullPath$ = dir$ + "/" + lineIn$
             END IF
         $END IF
+
+        IF FONT_LIST_has_hidden_part%(fullPath$, dir$) THEN _CONTINUE
 
         IF _FILEEXISTS(fullPath$) THEN
             FONT_LIST_add_font fullPath$, isBundled%
@@ -839,6 +878,7 @@ SUB FONT_LIST_scan_subfolders (baseDir$, isBundled%, includeBitmap%)
         LINE INPUT #ff%, dirName$
         dirName$ = LTRIM$(RTRIM$(dirName$))
         IF LEN(dirName$) < 1 THEN _CONTINUE
+        IF FONT_LIST_is_dotname%(dirName$) THEN _CONTINUE
 
         ' Skip known non-font subdirectories
         DIM upperDir AS STRING
@@ -864,12 +904,13 @@ SUB FONT_LIST_scan_subfolders (baseDir$, isBundled%, includeBitmap%)
         ' Scan sub-subfolders (e.g. BITMAP/FONTRAPTION, WINDOWS FON/GRYMMJACK)
         FONT_LIST_scan_nested_subfolders dirPath$, dirName$, isBundled%, includeBitmap%
 
-        ' Tag newly added fonts with folder name
+        ' Tag newly added fonts with folder name. Fonts a nested scan already
+        ' tagged with their own group (COLOR_BITMAP/<sub>) keep that tag.
         addedSF% = FONT_LIST_COUNT% - startCountSF%
         IF addedSF% > 0 THEN
             DIM sf AS INTEGER
             FOR sf% = startCountSF% TO FONT_LIST_COUNT% - 1
-                FONT_LIST(sf%).folderName = dirName$
+                IF LEN(RTRIM$(FONT_LIST(sf%).folderName)) = 0 THEN FONT_LIST(sf%).folderName = dirName$
             NEXT sf%
             _LOGINFO "FONT_LIST_scan_subfolders: folder " + dirName$ + " added" + STR$(addedSF%) + " fonts"
         END IF
@@ -916,6 +957,7 @@ SUB FONT_LIST_scan_nested_subfolders (parentDir$, parentName$, isBundled%, inclu
         LINE INPUT #ff2%, subDirName$
         subDirName$ = LTRIM$(RTRIM$(subDirName$))
         IF LEN(subDirName$) < 1 THEN _CONTINUE
+        IF FONT_LIST_is_dotname%(subDirName$) THEN _CONTINUE
 
         DIM upperSubDir AS STRING
         upperSubDir$ = UCASE$(subDirName$)
@@ -929,8 +971,21 @@ SUB FONT_LIST_scan_nested_subfolders (parentDir$, parentName$, isBundled%, inclu
 
         IF NOT _DIREXISTS(subDirPath$) THEN _CONTINUE
 
+        DIM nestStart AS INTEGER
+        nestStart% = FONT_LIST_COUNT%
         FONT_LIST_scan_dir subDirPath$, 0, isBundled%
         IF includeBitmap% THEN FONT_LIST_scan_bitmap_dir subDirPath$, isBundled%
+
+        ' COLOR_BITMAP holds hundreds of color fonts sorted into category
+        ' subfolders (DOS GAMES, DEMO RIPS, ...), so each gets its own dropdown
+        ' group instead of merging into one huge COLOR_BITMAP submenu. Other
+        ' nested folders still merge into their parent (tagged by the caller).
+        IF UCASE$(parentName$) = "COLOR_BITMAP" THEN
+            DIM nestI AS INTEGER
+            FOR nestI% = nestStart% TO FONT_LIST_COUNT% - 1
+                FONT_LIST(nestI%).folderName = parentName$ + "/" + subDirName$
+            NEXT nestI%
+        END IF
     LOOP
 
     CLOSE #ff2%
@@ -972,32 +1027,89 @@ SUB FONT_LIST_build_display_list ()
         END IF
     NEXT i%
 
-    ' Pass 2: Add folder headers A-Z at top of display list
-    FOR fi% = 0 TO FONT_FOLDER_COUNT% - 1
-        IF FONT_DD_COUNT% < FONT_DD_MAX THEN
-            FONT_DD_TYPE(FONT_DD_COUNT%)  = FONT_DD_FOLDER
-            FONT_DD_VALUE(FONT_DD_COUNT%) = fi%
-            FONT_DD_COUNT% = FONT_DD_COUNT% + 1
-        END IF
-    NEXT fi%
+    ' Pass 1b: Sort folder names A-Z (case-insensitive). Pass 1 registers them
+    ' in the order their first font appears, which scatters related groups
+    ' (COLOR_BITMAP, COLOR_BITMAP/GAMES, ...) across the list. Fonts find their
+    ' folder by name, so reordering the name table is safe.
+    DIM sortI   AS INTEGER
+    DIM sortJ   AS INTEGER
+    DIM sortKey AS STRING
+    FOR sortI% = 1 TO FONT_FOLDER_COUNT% - 1
+        sortKey$ = FONT_FOLDER_NAME(sortI%)
+        sortJ%   = sortI% - 1
+        DO WHILE sortJ% >= 0
+            IF UCASE$(RTRIM$(FONT_FOLDER_NAME(sortJ%))) <= UCASE$(RTRIM$(sortKey$)) THEN EXIT DO
+            FONT_FOLDER_NAME(sortJ% + 1) = FONT_FOLDER_NAME(sortJ%)
+            sortJ% = sortJ% - 1
+        LOOP
+        FONT_FOLDER_NAME(sortJ% + 1) = sortKey$
+    NEXT sortI%
 
-    ' Pass 3: Add root-level fonts A-Z below folders
+    ' A folder belongs to the DRAW section if it holds any bundled font; user
+    ' data folders and OS font folders fall to the USER section.
+    DIM folderIsDraw(0 TO FONT_FOLDER_MAX - 1) AS INTEGER
     FOR i% = 0 TO FONT_LIST_COUNT% - 1
         IF FONT_LIST(i%).isTdfFont THEN _CONTINUE
+        IF FONT_LIST(i%).isBundled = 0 THEN _CONTINUE
         fn$     = RTRIM$(FONT_LIST(i%).folderName)
         nulPos% = INSTR(fn$, CHR$(0))
         IF nulPos% > 0 THEN fn$ = LEFT$(fn$, nulPos% - 1)
         fn$ = RTRIM$(fn$)
-        IF LEN(fn$) = 0 THEN
+        IF LEN(fn$) > 0 THEN
+            fi% = FONT_LIST_folder_index%(fn$)
+            IF fi% >= 0 THEN folderIsDraw(fi%) = TRUE
+        END IF
+    NEXT i%
+
+    ' Pass 2: two sections — DRAW (bundled folders, then favorites + bundled
+    ' root fonts) on top, USER (user/OS folders, then their root fonts) below.
+    ' Each section lists folders A-Z first, then root fonts in FONT_LIST order.
+    ' FONT_DD_USER_START marks the first USER row so the dropdown can draw the
+    ' dividing line; it stays -1 when either section is empty.
+    DIM sect     AS INTEGER
+    DIM wantDraw AS INTEGER
+    DIM isDraw   AS INTEGER
+    FONT_DD_USER_START% = -1
+    FONT_DD_SYS_START%  = -1
+    FOR sect% = 0 TO 1
+        wantDraw% = (sect% = 0)
+        IF sect% = 1 THEN FONT_DD_USER_START% = FONT_DD_COUNT%
+
+        FOR fi% = 0 TO FONT_FOLDER_COUNT% - 1
+            IF (folderIsDraw(fi%) <> 0) <> wantDraw% THEN _CONTINUE
+            IF FONT_DD_COUNT% < FONT_DD_MAX THEN
+                FONT_DD_TYPE(FONT_DD_COUNT%)  = FONT_DD_FOLDER
+                FONT_DD_VALUE(FONT_DD_COUNT%) = fi%
+                FONT_DD_COUNT% = FONT_DD_COUNT% + 1
+            END IF
+        NEXT fi%
+
+        ' USER section: second divider between its folders and its root-level
+        ' (OS-installed TTF/OTF) fonts.
+        IF sect% = 1 THEN FONT_DD_SYS_START% = FONT_DD_COUNT%
+
+        FOR i% = 0 TO FONT_LIST_COUNT% - 1
+            IF FONT_LIST(i%).isTdfFont THEN _CONTINUE
+            fn$     = RTRIM$(FONT_LIST(i%).folderName)
+            nulPos% = INSTR(fn$, CHR$(0))
+            IF nulPos% > 0 THEN fn$ = LEFT$(fn$, nulPos% - 1)
+            fn$ = RTRIM$(fn$)
+            IF LEN(fn$) > 0 THEN _CONTINUE
+            isDraw% = (FONT_LIST(i%).isBundled <> 0) OR (FONT_LIST(i%).isFavorite <> 0)
+            IF isDraw% <> wantDraw% THEN _CONTINUE
             IF FONT_DD_COUNT% < FONT_DD_MAX THEN
                 FONT_DD_TYPE(FONT_DD_COUNT%)  = FONT_DD_FONT
                 FONT_DD_VALUE(FONT_DD_COUNT%) = i%
                 FONT_DD_COUNT% = FONT_DD_COUNT% + 1
             END IF
-        END IF
-    NEXT i%
+        NEXT i%
+    NEXT sect%
+    ' Only a real boundary gets a divider: the USER section must have folders
+    ' before its root fonts, and the root fonts must exist.
+    IF FONT_DD_SYS_START% <= FONT_DD_USER_START% OR FONT_DD_SYS_START% >= FONT_DD_COUNT% THEN FONT_DD_SYS_START% = -1
+    IF FONT_DD_USER_START% <= 0 OR FONT_DD_USER_START% >= FONT_DD_COUNT% THEN FONT_DD_USER_START% = -1
 
-    _LOGINFO "FONT_LIST_build_display_list:" + STR$(FONT_DD_COUNT%) + " rows (" + STR$(FONT_FOLDER_COUNT%) + " folders)"
+    _LOGINFO "FONT_LIST_build_display_list:" + STR$(FONT_DD_COUNT%) + " rows (" + STR$(FONT_FOLDER_COUNT%) + " folders), user section at row" + STR$(FONT_DD_USER_START%) + ", user root fonts at row" + STR$(FONT_DD_SYS_START%)
 END SUB
 
 
@@ -1137,6 +1249,7 @@ SUB FONT_LIST_scan_bitmap_dir (dir$, isBundled%)
         LINE INPUT #ff%, lineIn$
         lineIn$ = LTRIM$(RTRIM$(lineIn$))
         IF LEN(lineIn$) < 3 THEN _CONTINUE
+        IF FONT_LIST_is_dotname%(lineIn$) THEN _CONTINUE
 
         upperLine$ = UCASE$(lineIn$)
 
