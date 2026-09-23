@@ -167,8 +167,10 @@ later glyph.
 Write to the category subfolder that fits — `ASSETS/FONTS/COLOR_BITMAP/<CATEGORY>/<NAME>.bmp`:
 `GAMES/` (extracted from game data), `DEMOS/` (demoscene sheets, e.g. ianhan/BitmapFonts),
 `DPAINT/` (Amiga DPaint colour fonts), `MONO/` (any sheet whose glyphs use exactly
-one colour), `APPLE][/` (the whole Apple ][ family from `build_apple2_color.py`, mono variants included).
-Keep folder names short — the dropdown shows 20 characters of `COLOR_BITMAP/<CATEGORY>`.
+one colour), `APPLE2/` (the whole Apple ][ family from `build_apple2_color.py`, mono variants included).
+Keep folder names short — the dropdown shows 20 characters of `COLOR_BITMAP/<CATEGORY>` — and never
+put `[`, `]`, `*` or `?` in a folder name: the Windows release packaging (PowerShell `Get-ChildItem`) reads
+them as wildcards and the build fails (`APPLE][` did; it is `APPLE2`). Filenames with `][` are fine.
 Each subfolder is its own group in the font dropdown (`COLOR_BITMAP/<CATEGORY>`); only one
 level of subfolder is scanned. Then bump the bundled-font count in `docs/MANUAL/07-text.md`
 ("DRAW ships with **N color bitmap fonts**"). No code change is needed — the scan finds it.

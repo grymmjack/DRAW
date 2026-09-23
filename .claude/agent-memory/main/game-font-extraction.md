@@ -59,3 +59,4 @@ so click/hover/nav code is untouched). Dotfile fonts/dirs are skipped everywhere
 FONT_LIST_has_hidden_part% checks only BELOW the scan base — the user font dir itself is under ~/.local).
 [Linux] GUI screenshots under Xvfb: brew ImageMagick has no X11 — use /usr/bin/import; xdotool clicks need
 mousedown/sleep 0.15/mouseup or DRAW's per-frame poll misses them.
+All 20 Apple ][ fonts moved from COLOR_BITMAP/APPLE][/ to COLOR_BITMAP/APPLE2/ (2026-09-23): the brackets broke the Windows CI packaging step (PowerShell Get-ChildItem treats [] as a wildcard). [Windows CI] Avoid [ ] in any bundled folder name.
