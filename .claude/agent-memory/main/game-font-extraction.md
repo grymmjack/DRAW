@@ -60,3 +60,12 @@ FONT_LIST_has_hidden_part% checks only BELOW the scan base — the user font dir
 [Linux] GUI screenshots under Xvfb: brew ImageMagick has no X11 — use /usr/bin/import; xdotool clicks need
 mousedown/sleep 0.15/mouseup or DRAW's per-frame poll misses them.
 All 20 Apple ][ fonts moved from COLOR_BITMAP/APPLE][/ to COLOR_BITMAP/APPLE2/ (2026-09-23): the brackets broke the Windows CI packaging step (PowerShell Get-ChildItem treats [] as a wildcard). [Windows CI] Avoid [ ] in any bundled folder name.
+Later (2026-09-23): font dropdown loose-font rows get a hover preview card (TEXT_BAR_render_font_hover_card;
+TEXT_BAR_CARD_SHOWN tracks it to force a scene rebuild on change — a SHARED var can't share a name with a
+FUNCTION, QB64 names are case-insensitive). Virtual FAVORITES group = FONT_FAV_FOLDER_IDX; all folder
+membership goes through FONT_LIST_in_folder%(fontIdx, folderIdx) — never compare folder names directly.
+FONT_FOLDER_MAX raised 64 -> 256 (60 groups already existed). Character Map: CHARMAP_fit_scale! caps the
+panel at 25% of screen width; CBF glyphs blit straight from the cache (no per-frame per-pixel tint copy) and
+are exempt from the 64px backstop up to CHARMAP_MAX_CBF_CELL=512. CFG.CHARMAP_DEFAULT_FONT is parsed but
+never used (dead option). [Linux] xdotool: hold modifiers (keydown ctrl / key / keyup) — `xdotool key ctrl+m`
+is too fast for DRAW's per-frame _KEYDOWN poll.

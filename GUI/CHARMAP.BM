@@ -153,7 +153,50 @@ END FUNCTION
 
 
 ''
-' Resolve effective cell width after CHARMAP_ZOOM_LEVEL scaling.
+' Shrink factor (<= 1) that keeps the docked panel within
+' CHARMAP_MAX_PANEL_FRAC of the screen width. Cell size comes from the font's
+' largest glyph, so without this a big colour font (160px Amiga ColorFonts,
+' TheDraw faces) makes the 16-column panel thousands of pixels wide and pushes
+' the rest of the UI off screen. Applied on top of CHARMAP_ZOOM_LEVEL, to both
+' axes (aspect kept); glyphs are drawn scaled by the same factor.
+'
+FUNCTION CHARMAP_fit_scale! ()
+    DIM z       AS SINGLE
+    DIM cw      AS INTEGER
+    DIM cp      AS INTEGER
+    DIM cols    AS INTEGER
+    DIM scrollW AS INTEGER
+    DIM fixedW  AS INTEGER
+    DIM maxW    AS INTEGER
+    DIM fs      AS SINGLE
+
+    z! = CFG.CHARMAP_ZOOM_LEVEL!
+    IF z! < 0.25 THEN z! = 0.25
+    IF z! > 4.0 THEN z! = 4.0
+    cw% = INT(CHARMAP.cellW% * z! + 0.5)
+    IF cw% < 2 THEN cw% = 2
+    cols%    = CHARMAP_cells_per_row%
+    cp%      = CHARMAP_cell_padding_effective%
+    scrollW% = THEME.CHARMAP_SCROLLBAR_WIDTH%
+    IF scrollW% < 1 THEN scrollW% = 1
+    IF scrollW% > 8 THEN scrollW% = 8
+    fixedW% = (cols% - 1) * cp% + 4 + 1 + scrollW% ' same terms as CHARMAP_panel_width%
+
+    maxW% = INT(SCRN.w& * CHARMAP_MAX_PANEL_FRAC)
+    IF maxW% < CHARMAP_MIN_PANEL_W THEN maxW% = CHARMAP_MIN_PANEL_W
+
+    fs! = 1
+    IF cols% * cw% + fixedW% > maxW% THEN
+        fs! = (maxW% - fixedW%) / (cols% * cw%)
+        IF fs! < 0.05 THEN fs! = 0.05
+    END IF
+    CHARMAP_fit_scale! = fs!
+END FUNCTION
+
+
+''
+' Resolve effective cell width after CHARMAP_ZOOM_LEVEL scaling and the
+' screen-fit clamp (CHARMAP_fit_scale!).
 '
 FUNCTION CHARMAP_cell_w_effective% ()
     DIM cw AS INTEGER
@@ -161,14 +204,15 @@ FUNCTION CHARMAP_cell_w_effective% ()
     z! = CFG.CHARMAP_ZOOM_LEVEL!
     IF z! < 0.25 THEN z! = 0.25
     IF z! > 4.0 THEN z! = 4.0
-    cw% = INT(CHARMAP.cellW% * z! + 0.5)
+    cw% = INT(CHARMAP.cellW% * z! * CHARMAP_fit_scale! + 0.5)
     IF cw% < 2 THEN cw% = 2
     CHARMAP_cell_w_effective% = cw%
 END FUNCTION
 
 
 ''
-' Resolve effective cell height after CHARMAP_ZOOM_LEVEL scaling.
+' Resolve effective cell height after CHARMAP_ZOOM_LEVEL scaling and the
+' screen-fit clamp (CHARMAP_fit_scale!).
 '
 FUNCTION CHARMAP_cell_h_effective% ()
     DIM ch AS INTEGER
@@ -176,7 +220,7 @@ FUNCTION CHARMAP_cell_h_effective% ()
     z! = CFG.CHARMAP_ZOOM_LEVEL!
     IF z! < 0.25 THEN z! = 0.25
     IF z! > 4.0 THEN z! = 4.0
-    ch% = INT(CHARMAP.cellH% * z! + 0.5)
+    ch% = INT(CHARMAP.cellH% * z! * CHARMAP_fit_scale! + 0.5)
     IF ch% < 2 THEN ch% = 2
     CHARMAP_cell_h_effective% = ch%
 END FUNCTION
@@ -965,7 +1009,13 @@ SUB CHARMAP_rebuild_cache_bitmap (fIdx AS INTEGER)
     ' build a ~2400px panel that swamps the whole UI. TheDraw faces are already
     ' rejected by TEXT_BAR_char_mode_font_is_safe%; this is the backstop so no
     ' future font kind can reintroduce the same failure.
-    IF gw% > CHARMAP_MAX_CELL_W OR gh% > CHARMAP_MAX_CELL_H THEN
+    ' Color bitmap fonts are exempt up to CHARMAP_MAX_CBF_CELL: CHARMAP_fit_scale!
+    ' keeps their panel on screen and they blit without the per-pixel tint copy
+    ' (big Amiga ColorFonts are 100-160px tall).
+    DIM capW AS INTEGER, capH AS INTEGER
+    capW% = CHARMAP_MAX_CELL_W                                              : capH% = CHARMAP_MAX_CELL_H
+    IF FONT_LIST(fIdx%).isColorBitmapFont THEN capW% = CHARMAP_MAX_CBF_CELL : capH% = CHARMAP_MAX_CBF_CELL
+    IF gw% > capW% OR gh% > capH% THEN
         _LOGWARN "CHARMAP: refusing oversize glyph metrics" + STR$(gw%) + "x" + STR$(gh%) + " from " + fontPath$
         EXIT SUB
     END IF
@@ -1442,12 +1492,23 @@ SUB CHARMAP_render ()
 
         ' Draw glyph (centered in cell)
         IF CHARMAP_GLYPH(idx%) < -1 THEN
-            DIM gw AS INTEGER, gh AS INTEGER
-            DIM gx AS INTEGER, gy AS INTEGER
+            DIM gw   AS INTEGER, gh AS INTEGER
+            DIM gx   AS INTEGER, gy AS INTEGER
             gw% = CHARMAP_GLYPH_W(idx%)
             gh% = CHARMAP_GLYPH_H(idx%)
-            gx% = cx% + (cw% - gw%) \ 2
-            gy% = cy% + CHARMAP_GLYPH_YOFF(idx%)
+            ' Drawn size: the glyph shrinks with the screen-fit clamp so an
+            ' oversized font still shows whole inside its (clamped) cell.
+            DIM fitS AS SINGLE
+            DIM dw   AS INTEGER, dh AS INTEGER
+            ' Cells are CHARMAP_ZOOM_LEVEL times the glyph box, so only shrink a
+            ' glyph when the fit-clamped cell is smaller than the glyph itself.
+            fitS! = CHARMAP_fit_scale! * CFG.CHARMAP_ZOOM_LEVEL!
+            IF fitS! > 1 THEN fitS! = 1
+            IF fitS! < 0.05 THEN fitS! = 0.05
+            dw% = INT(gw% * fitS! + 0.5) : IF dw% < 1 THEN dw% = 1
+            dh% = INT(gh% * fitS! + 0.5) : IF dh% < 1 THEN dh% = 1
+            gx% = cx% + (cw% - dw%) \ 2
+            gy% = cy% + INT(CHARMAP_GLYPH_YOFF(idx%) * fitS! + 0.5)
             IF gx% < cx% THEN gx% = cx%
             IF gy% < cy% THEN gy% = cy%
 
@@ -1466,32 +1527,38 @@ SUB CHARMAP_render ()
             IF CHARMAP.cacheFontIdx% >= 0 AND CHARMAP.cacheFontIdx% < FONT_LIST_COUNT% THEN
                 cmIsCbf% = FONT_LIST(CHARMAP.cacheFontIdx%).isColorBitmapFont
             END IF
-            glyphDest& = _NEWIMAGE(gw%, gh%, 32)
-            IF glyphDest& < -1 THEN
-                DIM gdOld AS LONG
-                gdOld& = _DEST
-                _DEST glyphDest&
-                CLS , _RGBA32(0, 0, 0, 0)
-                _DONTBLEND
-                DIM gdSrc AS LONG
-                gdSrc& = _SOURCE
-                _SOURCE CHARMAP_GLYPH(idx%)
-                FOR py% = 0 TO gh% - 1
-                    FOR px% = 0 TO gw% - 1
-                        srcColor~& = POINT(px%, py%)
-                        srcA%      = _ALPHA32(srcColor~&)
-                        IF srcA% > 0 THEN
-                            IF cmIsCbf% THEN
-                                PSET (px%, py%), srcColor~&
-                            ELSE
+            ' Color bitmap fonts keep their own colours, so the cached glyph is
+            ' blitted as-is — no per-frame copy. (That per-pixel copy made big
+            ' colour fonts cost millions of POINT/PSETs per frame.) Only mono
+            ' fonts are recoloured into a temp image with the cell colour.
+            IF cmIsCbf% THEN
+                glyphDest& = CHARMAP_GLYPH(idx%)
+            ELSE
+                glyphDest& = _NEWIMAGE(gw%, gh%, 32)
+                IF glyphDest& < -1 THEN
+                    DIM gdOld AS LONG
+                    gdOld& = _DEST
+                    _DEST glyphDest&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    _DONTBLEND
+                    DIM gdSrc AS LONG
+                    gdSrc& = _SOURCE
+                    _SOURCE CHARMAP_GLYPH(idx%)
+                    FOR py% = 0 TO gh% - 1
+                        FOR px% = 0 TO gw% - 1
+                            srcColor~& = POINT(px%, py%)
+                            srcA%      = _ALPHA32(srcColor~&)
+                            IF srcA% > 0 THEN
                                 PSET (px%, py%), _RGBA32(_RED32(cellFg~&), _GREEN32(cellFg~&), _BLUE32(cellFg~&), srcA%)
                             END IF
-                        END IF
-                    NEXT px%
-                NEXT py%
-                _SOURCE gdSrc&
-                _BLEND
-                _DEST gdOld&
+                        NEXT px%
+                    NEXT py%
+                    _SOURCE gdSrc&
+                    _BLEND
+                    _DEST gdOld&
+                END IF
+            END IF
+            IF glyphDest& < -1 THEN
 
                 ' Clip glyph blit to this cell so oversized glyphs cannot bleed
                 ' into adjacent UI columns (e.g., edit bar on the right).
@@ -1500,18 +1567,26 @@ SUB CHARMAP_render ()
                 clipX2% = cx% + cw% - 1
                 clipY2% = bgBottom%
 
-                srcX1% = 0       : srcY1% = 0
-                srcX2% = gw% - 1 : srcY2% = gh% - 1
+                ' Clip the drawn (dw x dh) rect to the cell, then map the
+                ' visible part back to source pixels (identity when fitS = 1).
+                DIM vX1 AS INTEGER, vY1 AS INTEGER, vX2 AS INTEGER, vY2 AS INTEGER
+                vX1% = gx%: vY1% = gy%: vX2% = gx% + dw% - 1: vY2% = gy% + dh% - 1
+                IF vX1% < clipX1% THEN vX1% = clipX1%
+                IF vY1% < clipY1% THEN vY1% = clipY1%
+                IF vX2% > clipX2% THEN vX2% = clipX2%
+                IF vY2% > clipY2% THEN vY2% = clipY2%
 
-                IF gx% < clipX1% THEN srcX1% = clipX1% - gx%
-                IF gy% < clipY1% THEN srcY1% = clipY1% - gy%
-                IF gx% + gw% - 1 > clipX2% THEN srcX2% = clipX2% - gx%
-                IF gy% + gh% - 1 > clipY2% THEN srcY2% = clipY2% - gy%
+                srcX1% = INT((vX1% - gx%) / fitS!)
+                srcY1% = INT((vY1% - gy%) / fitS!)
+                srcX2% = INT((vX2% - gx% + 1) / fitS! + 0.5) - 1
+                srcY2% = INT((vY2% - gy% + 1) / fitS! + 0.5) - 1
+                IF srcX2% > gw% - 1 THEN srcX2% = gw% - 1
+                IF srcY2% > gh% - 1 THEN srcY2% = gh% - 1
 
-                IF srcX1% <= srcX2% AND srcY1% <= srcY2% THEN
-                    _PUTIMAGE (gx% + srcX1%, gy% + srcY1%)-(gx% + srcX2%, gy% + srcY2%), glyphDest&, SCRN.GUI&, (srcX1%, srcY1%)-(srcX2%, srcY2%)
+                IF vX1% <= vX2% AND vY1% <= vY2% AND srcX1% <= srcX2% AND srcY1% <= srcY2% THEN
+                    _PUTIMAGE (vX1%, vY1%)-(vX2%, vY2%), glyphDest&, SCRN.GUI&, (srcX1%, srcY1%)-(srcX2%, srcY2%)
                 END IF
-                SAFE_FREEIMAGE glyphDest&
+                IF NOT cmIsCbf% THEN SAFE_FREEIMAGE glyphDest&   ' CBF blits the cache image itself — never free it here
             END IF
         END IF
 

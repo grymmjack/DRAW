@@ -29,6 +29,12 @@ CONST CHARMAP_PAGE_INDICATOR_H  = 14    ' Height of page nav bar in pixels
 ' CHARMAP_build_bitmap_cache.
 CONST CHARMAP_MAX_CELL_W = 64
 CONST CHARMAP_MAX_CELL_H = 64
+' The docked panel never takes more than this share of the screen width (and
+' never less than CHARMAP_MIN_PANEL_W px). Fonts whose glyphs are too big —
+' e.g. a 160px Amiga ColorFont — are drawn scaled down to fit (CHARMAP_fit_scale!).
+CONST CHARMAP_MAX_PANEL_FRAC = 0.25
+CONST CHARMAP_MIN_PANEL_W    = 120
+CONST CHARMAP_MAX_CBF_CELL   = 512      ' colour fonts: sanity cap on reported glyph size (mono bitmap fonts keep the 64px backstop)
 
 TYPE CHARMAP_OBJ
     visible          AS INTEGER ' TRUE when panel should render

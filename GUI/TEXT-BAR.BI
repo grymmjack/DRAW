@@ -209,7 +209,11 @@ TYPE TEXT_BAR_OBJ
     iconAAOff             AS LONG
 END TYPE
 
-DIM SHARED TEXT_BAR AS TEXT_BAR_OBJ
+DIM SHARED TEXT_BAR            AS TEXT_BAR_OBJ
+' Font index whose hover preview card is on screen (-1 = none). A change forces a
+' scene rebuild so a moved/closed card never ghosts over the canvas.
+DIM SHARED TEXT_BAR_CARD_SHOWN AS INTEGER
+TEXT_BAR_CARD_SHOWN = -1
 
 ' Preset size values
 DIM SHARED TEXT_BAR_SIZES(0 TO TEXT_BAR_SIZE_COUNT - 1) AS INTEGER

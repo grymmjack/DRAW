@@ -20,6 +20,9 @@ A big font release — **620 bundled Color Bitmap Fonts** (up from 44), a reorga
   - **COLOR_BITMAP/MONO** (103) — single-colour fonts (Daggerfall, Outlaws, the Build engine and KEX console fonts, DPaint's UI font, …).
   - **COLOR_BITMAP/APPLE2** (20) — the Apple ][ family, now grouped together.
 - **Sectioned font dropdown** — DRAW's own fonts on top, then a divider, your font folders, a second divider, and your installed system fonts at the bottom. Folder groups are sorted A–Z (case-insensitive), so related groups sit together.
+- **Font previews everywhere in the dropdown** — hovering a loose (non-folder) font pops out a preview card beside the list, like the folder flyouts.
+- **FAVORITES pop-out** — your favorite fonts get their own group with previews at the top of the dropdown (they also stay in their usual place).
+- **Character Map fits the screen** — the panel is capped at a quarter of the screen width and big fonts are drawn scaled down to fit, so a large colour font can no longer push the rest of the UI off screen. Large colour fonts now show in the map instead of an empty grid, and draw much faster.
 - **Mouse wheel follows the pointer** in the font dropdown — it scrolls the list you're over (main list or the open folder flyout).
 - **Dotfile fonts are hidden** — any font file or folder whose name starts with `.` is skipped in bundled, user and system font folders.
 - **Transform honors snap-to-grid** — with snap-to-grid on, dragging a Transform handle (Scale / Distort / Perspective / Shear) now snaps to grid points in every grid mode (square, diagonal, isometric, hex). Rotate is left angular (still 15° with **Shift**).

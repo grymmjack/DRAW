@@ -96,19 +96,21 @@ FONT_TDF_USED_FILE$ = PATHS_config$("DRAW_TDF_FONTS.txt")
 
 ' Font dropdown display list — maps visible row to font or folder header.
 ' Built after scan+sort by FONT_LIST_build_display_list.
-CONST FONT_DD_MAX    = FONT_LIST_TOTAL_MAX + 64                     ' font rows + FONT_FOLDER_MAX headroom
+CONST FONT_DD_MAX    = FONT_LIST_TOTAL_MAX + 256                    ' font rows + FONT_FOLDER_MAX headroom
 CONST FONT_DD_FONT   = 0                                            ' Row is a selectable font
 CONST FONT_DD_FOLDER = 1                                            ' Row is a folder header with submenu
 DIM SHARED FONT_DD_TYPE(0 TO FONT_DD_MAX - 1)  AS INTEGER           ' FONT_DD_FONT or FONT_DD_FOLDER
 DIM SHARED FONT_DD_VALUE(0 TO FONT_DD_MAX - 1) AS INTEGER           ' fontIdx or folderIdx
-DIM SHARED FONT_DD_COUNT AS INTEGER
-DIM SHARED FONT_DD_USER_START AS INTEGER                             ' first USER-section row (divider drawn above it), -1 = none
+DIM SHARED FONT_DD_COUNT       AS INTEGER
+DIM SHARED FONT_DD_USER_START  AS INTEGER                           ' first USER-section row (divider drawn above it), -1 = none
 FONT_DD_USER_START = -1
-DIM SHARED FONT_DD_SYS_START AS INTEGER                              ' first USER root-font (OS TTF/OTF) row after the USER folders, -1 = none
+DIM SHARED FONT_DD_SYS_START   AS INTEGER                           ' first USER root-font (OS TTF/OTF) row after the USER folders, -1 = none
 FONT_DD_SYS_START = -1
+DIM SHARED FONT_FAV_FOLDER_IDX AS INTEGER                           ' FONT_FOLDER_NAME index of the virtual FAVORITES group, -1 = none
+FONT_FAV_FOLDER_IDX = -1
 
 ' Subfolder names (deduplicated, in order of first appearance after sort)
-CONST FONT_FOLDER_MAX = 64
+CONST FONT_FOLDER_MAX = 256                                         ' was 64 — 60 groups already ship (bundled + typical user folders); more were dropped silently
 DIM SHARED FONT_FOLDER_NAME(0 TO FONT_FOLDER_MAX - 1) AS STRING * 64
 DIM SHARED FONT_FOLDER_COUNT AS INTEGER
 
