@@ -213,7 +213,7 @@ $IF MAC THEN
                    LCASE$(macArgVal$) = "/h" OR LCASE$(macArgVal$) = "/help" OR _
                    LCASE$(macArgVal$) = "--version" OR LCASE$(macArgVal$) = "-v" THEN
                 macArgIdx% = macArgIdx% + 1 ' Defensive: HELP.BI should have exited already
-            ELSEIF LCASE$(macArgVal$) = "--option" OR LCASE$(macArgVal$) = "--instance" THEN
+            ELSEIF LCASE$(macArgVal$) = "--option" OR LCASE$(macArgVal$) = "--instance" OR LCASE$(macArgVal$) = "--palette" THEN
                 macArgIdx% = macArgIdx% + 2 ' BUG-53: 2-token flag (flag + value) — skip both
             ELSEIF LEFT$(macArgVal$, 1) = "-" THEN
                 macArgIdx% = macArgIdx% + 1 ' BUG-53: any other unrecognized flag — skip, don't treat as the file
@@ -247,7 +247,7 @@ $ELSE
                LCASE$(argVal$) = "/h" OR LCASE$(argVal$) = "/help" OR _
                LCASE$(argVal$) = "--version" OR LCASE$(argVal$) = "-v" THEN
             argIdx% = argIdx% + 1 ' Defensive: HELP.BI should have exited already
-        ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" THEN
+        ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" OR LCASE$(argVal$) = "--palette" THEN
             argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
         ELSEIF LCASE$(argVal$) = "--export-qb64" THEN
             argIdx% = argIdx% + 2 ' 2-token flag (flag + output path) — skip both so the path is not mistaken for the input file
@@ -272,6 +272,20 @@ IF cmdArg$ <> "" THEN
         CMDLINE_PENDING_FILE$ = cmdArg$
     END IF
 END IF
+
+' --palette <file.gpl>: load an external GIMP palette into the palette strip.
+' Deferred like the document (applied in the main loop AFTER it loads) so a
+' .draw's embedded palette cannot override the one asked for explicitly.
+DIM paletteArgI AS INTEGER
+FOR paletteArgI% = 1 TO _COMMANDCOUNT - 1
+    IF LCASE$(_TRIM$(COMMAND$(paletteArgI%))) = "--palette" THEN
+        CMDLINE_PENDING_PALETTE$ = _TRIM$(COMMAND$(paletteArgI% + 1))
+        IF LEFT$(CMDLINE_PENDING_PALETTE$, 1) = CHR$(34) AND RIGHT$(CMDLINE_PENDING_PALETTE$, 1) = CHR$(34) THEN
+            CMDLINE_PENDING_PALETTE$ = MID$(CMDLINE_PENDING_PALETTE$, 2, LEN(CMDLINE_PENDING_PALETTE$) - 2)
+        END IF
+        EXIT FOR
+    END IF
+NEXT paletteArgI%
 
 ' Migrate old portable files to OS-native directories (shows dialog)
 ' Must be after SCREEN_init/THEME_load (needs GUI) but before CONFIG_apply
@@ -533,6 +547,14 @@ DO
         CMDLINE_PENDING_FILE$ = ""                                        ' Clear after loading
     ELSEIF CMDLINE_FIRST_FRAME% THEN
         CMDLINE_FIRST_FRAME% = FALSE
+    END IF
+    ' --palette: after the document, so it wins over any embedded palette.
+    ' Runs once — the pending path is cleared whether or not the load succeeds.
+    IF CMDLINE_PENDING_PALETTE$ <> "" THEN
+        DIM cmdPalLoaded AS INTEGER
+        cmdPalLoaded% = PALETTE_LOADER_load_external%(CMDLINE_PENDING_PALETTE$)
+        CMDLINE_PENDING_PALETTE$ = ""
+        GUI_NEEDS_REDRAW% = TRUE : SCENE_DIRTY% = TRUE
     END IF
 
     ' --export-qb64 <path>: the command-line document (if any) has loaded by now.

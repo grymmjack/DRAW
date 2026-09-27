@@ -97,6 +97,9 @@ RECENT_PREVIEW_COUNT% = 0
 ' Pending command line file to load (deferred until main loop)
 DIM SHARED CMDLINE_PENDING_FILE$
 CMDLINE_PENDING_FILE$ = ""
+' Pending --palette <file.gpl> to load into the palette strip (after the document)
+DIM SHARED CMDLINE_PENDING_PALETTE$
+CMDLINE_PENDING_PALETTE$ = ""
 DIM SHARED CMDLINE_FIRST_FRAME%
 CMDLINE_FIRST_FRAME% = TRUE
 

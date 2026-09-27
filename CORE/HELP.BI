@@ -60,6 +60,7 @@ IF HELP_showHelp% OR HELP_showVer% THEN
         PRINT "      --config-upgrade      Reconcile config with new defaults"
         PRINT "      --reset-defaults      Restore factory configuration"
         PRINT "      --canvas-size WxH     Override startup canvas size (e.g. 320x200)"
+        PRINT "      --palette FILE.gpl    Load a GIMP palette into the palette strip"
         PRINT "      --portable            Keep config/data beside the executable"
         PRINT "      --perf                Enable render-pipeline profiling (writes DRAW-perf.log)"
         PRINT
@@ -67,6 +68,7 @@ IF HELP_showHelp% OR HELP_showVer% THEN
         PRINT "  DRAW myproject.draw"
         PRINT "  DRAW --config DRAW.linux.cfg"
         PRINT "  DRAW --canvas-size 64x64"
+        PRINT "  DRAW art.png --palette art.gpl"
         PRINT
         PRINT "Docs: https://github.com/grymmjack/DRAW"
     END IF

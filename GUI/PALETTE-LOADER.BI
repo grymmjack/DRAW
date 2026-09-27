@@ -15,7 +15,7 @@ $INCLUDEONCE
 ' Palette info structure
 TYPE PALETTE_INFO
     pname    AS STRING * 64
-    filename AS STRING * 128
+    filename AS STRING * 260 ' full path for user/--palette entries (in-memory only, never serialized)
     count    AS INTEGER
 END TYPE
 
@@ -26,7 +26,8 @@ DIM SHARED PALETTE_EMBEDDED_NAME$        ' Name of embedded palette (when not fo
 DIM SHARED PALETTE_EMBEDDED_ACTIVE%      ' TRUE when using embedded palette from DRW file
 
 ' Tracks which palette entries are from user sources (for filtering)
-' 0=builtin ASSETS, 1=Lospec user download, 2=Created from image
+' 0=builtin ASSETS, 1=Lospec user download, 2=Created from image,
+' 3=external file given on the command line (--palette)
 DIM SHARED PALETTE_LIST_SOURCE(0 TO 255) AS INTEGER
 
 ' --- Palette color-chip preview cache (used by the palette dropdown menu) ---

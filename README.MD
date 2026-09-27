@@ -428,6 +428,7 @@ Supported formats:
 | `--config-upgrade` | Reconcile existing config with latest defaults (adds missing keys) |
 | `--reset-defaults` | Restore factory settings (overwrites config with built-in defaults) |
 | `--canvas-size WxH` | Set initial canvas size (e.g. `--canvas-size 1920x1080`) |
+| `--palette FILE.gpl` | Load a GIMP `.gpl` palette into the palette strip at startup, keeping its `Name:` (e.g. `DRAW art.png --palette art.gpl`) |
 | `--portable` | Use portable (local-directory) config paths instead of OS-native dirs |
 | `--perf` | Enable per-stage performance logging to `DRAW-perf.log` |
 ```bash
