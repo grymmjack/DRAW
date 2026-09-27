@@ -2285,17 +2285,19 @@ SUB DRAWER_render ()
         IF sourceW% > 1 AND sourceH% > 1 THEN
             ' Marker at the CENTER of the selected cell, using the same even-band
             ' mapping as the click hit-test (top-left of cell + half a cell).
+            ' Marker color contrasts with the swatch under it — a fixed white
+            ' marker vanished on white/light swatches (i.e. the default white FG).
             IF DRAWER.paletteFGX% >= 0 AND DRAWER.paletteFGY% >= 0 THEN
                 markerX% = miniX% + (DRAWER.paletteFGX% * miniCellW%) \ sourceW% + ((miniCellW% \ sourceW%) \ 2)
                 markerY% = miniY% + (DRAWER.paletteFGY% * miniCellH%) \ sourceH% + ((miniCellH% \ sourceH%) \ 2)
-                LINE (markerX%, markerY%)-(markerX% + 1, markerY% + 1), _RGB32(255, 255, 255), BF
+                LINE (markerX%, markerY%)-(markerX% + 1, markerY% + 1), DRAWER_marker_color~&(DRAWER.paletteFGX%, DRAWER.paletteFGY%), BF
             END IF
             IF DRAWER.paletteBGX% >= 0 AND DRAWER.paletteBGY% >= 0 THEN
                 markerX% = miniX% + (DRAWER.paletteBGX% * miniCellW%) \ sourceW% + ((miniCellW% \ sourceW%) \ 2)
                 markerY% = miniY% + (DRAWER.paletteBGY% * miniCellH%) \ sourceH% + ((miniCellH% \ sourceH%) \ 2)
                 markerY% = markerY% + uiScale%
                 IF markerY% > miniY% + miniCellH% - 2 THEN markerY% = miniY% + miniCellH% - 2
-                LINE (markerX%, markerY%)-(markerX% + 1, markerY% + 1), _RGB32(255, 255, 255), BF
+                LINE (markerX%, markerY%)-(markerX% + 1, markerY% + 1), DRAWER_marker_color~&(DRAWER.paletteBGX%, DRAWER.paletteBGY%), BF
             END IF
         END IF
     END IF
@@ -2751,6 +2753,24 @@ SUB DRAWER_handle_drop ()
 END SUB
 
 ''
+' Black or white — whichever contrasts with the mini-palette swatch at source
+' pixel (px, py) — for drawing the FG/BG markers on top of it.
+'
+FUNCTION DRAWER_marker_color~& (px AS INTEGER, py AS INTEGER)
+    DIM mcOld AS LONG
+    DIM mcC   AS _UNSIGNED LONG
+    DIM mcLum AS LONG
+    DRAWER_marker_color~& = _RGB32(255, 255, 255)
+    IF DRAWER_PALETTE_IMG& >= -1 THEN EXIT FUNCTION
+    mcOld& = _SOURCE
+    _SOURCE DRAWER_PALETTE_IMG&
+    mcC~& = POINT(px, py)
+    _SOURCE mcOld&
+    mcLum& = (299& * _RED32(mcC~&) + 587& * _GREEN32(mcC~&) + 114& * _BLUE32(mcC~&)) \ 1000
+    IF mcLum& > 140 THEN DRAWER_marker_color~& = _RGB32(0, 0, 0)
+END FUNCTION
+
+''
 ' Find the closest matching pixel in the mini palette image to a target color
 ' and update the FG or BG marker position accordingly.
 ' @param targetColor _UNSIGNED LONG Color to match against the palette image pixels
@@ -2777,6 +2797,17 @@ SUB DRAWER_sync_palette_marker (targetColor AS _UNSIGNED LONG, setBackground AS 
     srcH% = _HEIGHT(DRAWER_PALETTE_IMG&)
     IF srcW% < 1 OR srcH% < 1 THEN EXIT SUB
 
+    ' A transparent FG/BG has no swatch in the mini palette — hide its marker
+    ' instead of parking it on black (transparent is stored as RGBA 0,0,0,0).
+    IF (setBackground% AND PAL_BG_IS_TRANSPARENT%) OR (NOT setBackground% AND PAL_FG_IS_TRANSPARENT%) THEN
+        IF setBackground% THEN
+            DRAWER.paletteBGX% = -1: DRAWER.paletteBGY% = -1
+        ELSE
+            DRAWER.paletteFGX% = -1: DRAWER.paletteFGY% = -1
+        END IF
+        EXIT SUB
+    END IF
+
     bestDist&  = -1
     oldSource& = _SOURCE
     _SOURCE DRAWER_PALETTE_IMG&
@@ -2794,6 +2825,24 @@ SUB DRAWER_sync_palette_marker (targetColor AS _UNSIGNED LONG, setBackground AS 
             END IF
         NEXT px%
     NEXT py%
+
+    ' The palette image repeats some colors (black appears in three rows). If the
+    ' marker already sits on a cell that matches as well as the best one, keep
+    ' it — this runs every frame, and re-picking would yank a marker the user
+    ' just placed on the 2nd/3rd black back to the first.
+    DIM curX AS INTEGER, curY AS INTEGER
+    IF setBackground% THEN
+        curX% = DRAWER.paletteBGX%: curY% = DRAWER.paletteBGY%
+    ELSE
+        curX% = DRAWER.paletteFGX%: curY% = DRAWER.paletteFGY%
+    END IF
+    IF curX% >= 0 AND curX% < srcW% AND curY% >= 0 AND curY% < srcH% THEN
+        sampleColor~& = POINT(curX%, curY%)
+        dr%           = _RED32(targetColor~&) - _RED32(sampleColor~&)
+        dg%           = _GREEN32(targetColor~&) - _GREEN32(sampleColor~&)
+        db%           = _BLUE32(targetColor~&) - _BLUE32(sampleColor~&)
+        IF dr% * dr% + dg% * dg% + db% * db% <= bestDist& THEN bestX% = curX%: bestY% = curY%
+    END IF
     _SOURCE oldSource&
 
     IF setBackground% THEN
