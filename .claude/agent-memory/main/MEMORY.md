@@ -46,7 +46,7 @@
 - [Every fix needs a QA test](every-fix-needs-a-qa-test.md) — Rick's rule: every bug fix ships a QA test that fails on the buggy build, passes on the fixed; commit together
 - [Effect action-ID collisions](draw-effect-action-id-collisions.md) — effect IDs dodge ACTION_SETTINGS=2100, EXPORT 2201-2216; first CASE wins; SHAPE effects 2230-2260
 - [HW cursor = OS plane, not a QB64PE layer](hw-cursor-os-plane.md) — `_MOUSECURSOR` composites above all layers; icon cursors OK OS-only, zoom rings/loupe stay software
-- [Remote Mac/Windows testing](reference-remote-mac-windows-testing.md) — mac (Retina) + thinkpad (Win11) over SSH; Win DPI needs interactive/console session; drive via scp'd `.ps1`
+- [Remote Mac/Windows testing](reference-remote-mac-windows-testing.md) — mac (Retina) + thinkpad (Win11) over SSH; whole farm on qb64pe v4.7.0-GLFW self-hosted (2026-09-30); Win DPI needs interactive/console session; drive via scp'd `.ps1`
 - [Keep remote dashboard updated](feedback-keep-remote-dashboard-updated.md) — update remote-test dashboard NEXT notes each iteration (`uv run DEV/remote-dash.py --set <host> "note"`)
 - [Farm test builds via DRAW-fstest worktree](farm-test-worktrees-invisible-to-dash.md) — build branches in a `DRAW-fstest` worktree (init submodules!); `remote-dash.py` now shows them in a TEST BUILD column; state exact per-host binary paths
 - [Farm build recipes per host](farm-build-recipes-per-host.md) — exact qb64pe paths (titan=capital QB64pe, case-sensitive!); Windows builds over SSH call `qb64pe.exe -w -x` DIRECTLY (no make); daw needs full-path `/mnt/c/Windows/System32/cmd.exe`; qb64pe link "Permission denied" = stale qb64pe.exe locking itself (taskkill); force submodule to pinned sha or DRAW builds against wrong lib

@@ -41,6 +41,22 @@ WindowsApps). Invoke the compiler DIRECTLY — this compiles headless over SSH f
   qb64pe.exe child SURVIVES. Kill it explicitly: `cmd.exe /c "taskkill /IM qb64pe.exe /F"`,
   then relink. WSL↔Windows process trees don't cascade-kill.
 
+**Self-hosted compiler (user's standard since v4.7.0-GLFW, 2026-09-30).** After the
+`make ... BUILD_QB64=y` build, recompile the compiler with ITSELF so it's built from the
+current `source/*.bas` (the user calls this "the compiler optimizations"):
+`cd source && ../qb64pe -w -x qb64pe.bas -o <abs path>/source/qb64pe[.exe] && cp qb64pe[.exe] ..`
+Back up the make-built binary first (`qb64pe.make-v470[.exe]`). Result differs from the make
+build by hash (sizes can coincidentally match — compare md5, not size). All farm
+`settings/config.ini` (NOT `internal/config.ini`) match local: `OptimizeCppProgram=False`,
+`StripDebugSymbols=True`, empty Extra flags.
+- **Avoid the `setup_*` scripts over SSH** — they launch the IDE at the end, which puts a
+  window on the user's desktop (see [[farm-no-gui-popups-trap-crashes]]). Use
+  `make OS=osx|lnx clean` + `make OS=... BUILD_QB64=y` directly; on Windows
+  `internal\c\c_compiler\bin\mingw32-make.exe -j8 OS=win clean` then `... OS=win BUILD_QB64=y EXE=qb64pe.exe`.
+- [Windows/thinkpad] the user may have the IDE open on the desktop (session 1), which
+  locks `qb64pe.exe` — check `Get-Process qb64pe` first and ASK before closing it (unsaved work).
+- [macOS] `~/git/QB64pe` and `~/git/qb64pe` are the same dir (case-insensitive FS).
+
 **Submodule (QB64_GJ_LIB) — force it.** A host with local edits inside the submodule
 makes `git submodule update` ABORT ("Unable to checkout <sha>"), and the DRAW build
 then silently uses the WRONG submodule commit (mac was stuck at 909fac1 instead of the
