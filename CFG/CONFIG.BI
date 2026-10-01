@@ -430,12 +430,15 @@ TYPE DRAW_CONFIG
     COLOR_SPACE_3D_PITCH            AS INTEGER        ' View pitch, degrees (-89..89)
     COLOR_SPACE_3D_ZOOM             AS INTEGER        ' View zoom, percent (40-300)
     ' Color blending / ramps (QB64_GJ_LIB COLOR-SPACES)
-    GRADIENT_BLEND_SPACE            AS INTEGER        ' Gradient fill blend space: 0=sRGB, 1=OKLab (perceptual), 2=linear light
+    GRADIENT_BLEND_SPACE            AS INTEGER        ' Gradient fill blend space: 0=sRGB, 1=OKLab (perceptual), 2=linear light, 3=pigment
     RAMP_STEPS                      AS INTEGER        ' OKLCh ramp: colors generated (2-32)
     RAMP_L_MIN                      AS INTEGER        ' OKLCh ramp: darkest lightness, percent (0-100)
     RAMP_L_MAX                      AS INTEGER        ' OKLCh ramp: lightest lightness, percent (0-100)
     RAMP_HUE_SHIFT                  AS INTEGER        ' OKLCh ramp: hue shift at the ends, degrees (-60..60; + = warm lights/cool darks)
     RAMP_CHROMA_END                 AS INTEGER        ' OKLCh ramp: chroma kept at the ends, percent of the base (0-100)
+    BRUSH_MIX                       AS INTEGER        ' Mix brush: brush strokes mix with the colors under them like paint (pigment)
+    BRUSH_MIX_STRENGTH              AS INTEGER        ' Mix brush: paint's share of each mix, percent (1-100; 100 = plain paint)
+    BRUSH_MIX_PICKUP                AS INTEGER        ' Mix brush: percent of the color under the brush the paint picks up per dab (0 = none)
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)

@@ -1,0 +1,163 @@
+''
+' DRAW - TOOLS/BRUSH-MIX.BM
+' =============================================================================
+' Mix brush (pigment) implementation. See TOOLS/BRUSH-MIX.BI.
+'
+' Hooks:
+'   MOUSE_tool_brush (press)  -> BMIX_begin_stroke
+'   PAINT_on (each frame)     -> BMIX_pickup_path
+'   DRAWER_resolve_paint_color-> BMIX_apply (every painted pixel)
+'   MOUSE_release_brush       -> BMIX_end_stroke
+'
+$INCLUDEONCE
+
+''
+' Start a mixing stroke if Mix is on and the stroke qualifies: plain Brush tool
+' (not eraser / custom brush), opaque paint, valid layer.
+'
+SUB BMIX_begin_stroke ()
+    DIM layerImg AS LONG
+    BMIX_end_stroke
+    IF NOT CFG.BRUSH_MIX% THEN EXIT SUB
+    IF CURRENT_TOOL% <> TOOL_BRUSH THEN EXIT SUB
+    IF CUSTOM_BRUSH_is_active% THEN EXIT SUB
+    IF _ALPHA32(DRAW_COLOR~&) = 0 THEN EXIT SUB
+    IF CFG.BRUSH_MIX_STRENGTH% >= 100 THEN EXIT SUB
+    IF CURRENT_LAYER% < 1 OR CURRENT_LAYER% > MAX_LAYERS THEN EXIT SUB
+    layerImg& = LAYERS(CURRENT_LAYER%).imgHandle&
+    IF layerImg& >= -1 THEN EXIT SUB
+
+    BMIX.snap      = _COPYIMAGE(layerImg&, 32)
+    IF BMIX.snap >= -1 THEN BMIX.snap = 0: EXIT SUB
+    BMIX_MEM       = _MEMIMAGE(BMIX.snap)
+    BMIX.snapW     = _WIDTH(BMIX.snap)
+    BMIX.snapH     = _HEIGHT(BMIX.snap)
+    BMIX.apronW    = LAYERS(CURRENT_LAYER%).apronW%
+    BMIX.apronH    = LAYERS(CURRENT_LAYER%).apronH%
+    BMIX.reservoir = DRAW_COLOR~&
+    BMIX.usePickup = (CFG.BRUSH_MIX_PICKUP% > 0 _ANDALSO _NEGATE DRAWER_has_paint_mode%)
+    BMIX.hasLast   = FALSE
+    BMIX.inResolve = FALSE
+    BMIX.active    = TRUE
+END SUB
+
+
+''
+' End the stroke and free the snapshot. Safe to call when no stroke is active.
+'
+SUB BMIX_end_stroke ()
+    IF BMIX.snap < -1 THEN
+        _MEMFREE BMIX_MEM
+        _FREEIMAGE BMIX.snap
+    END IF
+    BMIX.snap      = 0
+    BMIX.active    = FALSE
+    BMIX.inResolve = FALSE
+    BMIX.hasLast   = FALSE
+END SUB
+
+
+''
+' Snapshot pixel under canvas (x, y), or transparent when off the buffer.
+'
+FUNCTION BMIX_under~& (x AS INTEGER, y AS INTEGER)
+    DIM bx AS LONG, by AS LONG
+    bx& = x% + BMIX.apronW
+    by& = y% + BMIX.apronH
+    IF bx& < 0 OR by& < 0 OR bx& >= BMIX.snapW OR by& >= BMIX.snapH THEN EXIT FUNCTION
+    BMIX_under~& = _MEMGET(BMIX_MEM, BMIX_MEM.OFFSET + (by& * BMIX.snapW + bx&) * 4, _UNSIGNED LONG)
+END FUNCTION
+
+
+''
+' Pigment-mix the paint (opaque RGB) over an existing pixel; memoized.
+' The existing pixel's weight scales with its alpha, so soft / semi-transparent
+' edges mix less and empty pixels take the plain paint.
+'
+FUNCTION BMIX_mix_rgb~& (under AS _UNSIGNED LONG, paintCol AS _UNSIGNED LONG, strength AS INTEGER)
+    DIM h AS LONG
+    DIM u AS _UNSIGNED LONG, p AS _UNSIGNED LONG
+    DIM s AS INTEGER
+    DIM wUnder AS SINGLE
+    u~& = under~&: p~& = paintCol~& OR &HFF000000~&: s% = strength%
+    h& = ((u~& MOD 4093) * 7 + (p~& MOD 4091) * 13 + s% * 3) MOD BMIX_CACHE_N
+    IF BMIX_C_S(h&) = s% + 1 _ANDALSO BMIX_C_UNDER(h&) = u~& _ANDALSO BMIX_C_PAINT(h&) = p~& THEN
+        BMIX_mix_rgb~& = BMIX_C_OUT(h&)
+        EXIT FUNCTION
+    END IF
+    wUnder! = (100 - s%) * (_ALPHA32(u~&) / 255!)
+    BMIX_C_OUT(h&)   = PGM_mix_w~&(u~& OR &HFF000000~&, wUnder!, p~&, s%) OR &HFF000000~&
+    BMIX_C_UNDER(h&) = u~&
+    BMIX_C_PAINT(h&) = p~&
+    BMIX_C_S(h&)     = s% + 1
+    BMIX_mix_rgb~& = BMIX_C_OUT(h&)
+END FUNCTION
+
+
+''
+' Resolver hook: turn the resolved paint color for canvas (x, y) into the
+' pigment mix of that paint with the pre-stroke pixel. Keeps the paint's alpha
+' (opacity / AA coverage are applied by the callers as usual).
+'
+FUNCTION BMIX_apply~& (x AS INTEGER, y AS INTEGER, resolved AS _UNSIGNED LONG)
+    DIM paintCol AS _UNSIGNED LONG, under AS _UNSIGNED LONG, m AS _UNSIGNED LONG
+    DIM a AS INTEGER, s AS INTEGER
+    paintCol~& = resolved~&
+    a% = _ALPHA32(paintCol~&)
+    IF a% = 0 THEN BMIX_apply~& = paintCol~&: EXIT FUNCTION
+    IF BMIX.usePickup THEN paintCol~& = BMIX.reservoir
+    under~& = BMIX_under~&(x%, y%)
+    IF _ALPHA32(under~&) = 0 THEN
+        BMIX_apply~& = _RGBA32(_RED32(paintCol~&), _GREEN32(paintCol~&), _BLUE32(paintCol~&), a%)
+        EXIT FUNCTION
+    END IF
+    s% = CFG.BRUSH_MIX_STRENGTH%
+    IF s% < 1 THEN s% = 1
+    IF s% > 100 THEN s% = 100
+    m~& = BMIX_mix_rgb~&(under~&, paintCol~&, s%)
+    BMIX_apply~& = _RGBA32(_RED32(m~&), _GREEN32(m~&), _BLUE32(m~&), a%)
+END FUNCTION
+
+
+''
+' Pickup: walk the brush path (canvas coords) and let the reservoir soak up
+' CFG.BRUSH_MIX_PICKUP% of the pre-stroke color at each dab spacing.
+'
+SUB BMIX_pickup_path (x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER)
+    DIM ax AS INTEGER, ay AS INTEGER, bx AS INTEGER, by AS INTEGER
+    DIM spacing AS SINGLE, dist AS SINGLE, d AS SINGLE, t AS SINGLE
+    DIM sx AS INTEGER, sy AS INTEGER
+    DIM under AS _UNSIGNED LONG
+    DIM pick AS SINGLE
+    IF NOT BMIX.active THEN EXIT SUB
+    IF NOT BMIX.usePickup THEN EXIT SUB
+    ax% = x0%: ay% = y0%: bx% = x1%: by% = y1%
+    pick! = CFG.BRUSH_MIX_PICKUP% / 100!
+    IF pick! > 1 THEN pick! = 1
+    spacing! = BRUSH_SIZE_pixels% / 2!
+    IF spacing! < 1 THEN spacing! = 1
+    IF BMIX.hasLast THEN
+        ax% = BMIX.lastX: ay% = BMIX.lastY
+    END IF
+    dist! = SQR(CSNG(bx% - ax%) ^ 2 + CSNG(by% - ay%) ^ 2)
+    ' Only sample once per dab spacing; the first press samples at the press point.
+    IF BMIX.hasLast _ANDALSO dist! < spacing! THEN EXIT SUB
+    IF NOT BMIX.hasLast THEN dist! = 0
+    d! = 0
+    IF BMIX.hasLast THEN d! = spacing! ' the last sample point was already taken
+    DO
+        IF dist! > 0 THEN t! = d! / dist! ELSE t! = 1
+        IF t! > 1 THEN t! = 1
+        sx% = INT(ax% + (bx% - ax%) * t! + 0.5)
+        sy% = INT(ay% + (by% - ay%) * t! + 0.5)
+        under~& = BMIX_under~&(sx%, sy%)
+        IF _ALPHA32(under~&) > 0 THEN
+            BMIX.reservoir = PGM_mix~&(BMIX.reservoir OR &HFF000000~&, under~& OR &HFF000000~&, pick! * _ALPHA32(under~&) / 255!)
+        END IF
+        BMIX.lastX = sx%: BMIX.lastY = sy%
+        IF t! >= 1 THEN EXIT DO
+        d! = d! + spacing!
+        IF d! > dist! THEN d! = dist!
+    LOOP
+    BMIX.hasLast = TRUE
+END SUB

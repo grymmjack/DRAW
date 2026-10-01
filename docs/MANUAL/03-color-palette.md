@@ -78,9 +78,22 @@ The panel auto-hides while you draw over it and is included in `F11` (hide/show 
 
 ### Perceptual Gradients & OKLCh Ramps
 
-Gradient fills blend in **OKLab** by default (`Settings → Panels → Color Blending + Ramps → Gradient Blend`). Plain RGB blends sag in the middle: red→green passes through a muddy olive. OKLab passes through a clean yellow-orange instead. Choose *sRGB (classic)* for the old behavior, or *Linear light* for physically mixed light.
+Gradient fills blend in **OKLab** by default (`Settings → Panels → Color Blending + Ramps → Gradient Blend`). Plain RGB blends sag in the middle: red→green passes through a muddy olive. OKLab passes through a clean yellow-orange instead. Choose *sRGB (classic)* for the old behavior, *Linear light* for physically mixed light, or *Pigment (paint)* to blend like mixed paint (see below).
 
 `Palette → Generate OKLCh Ramp from FG` turns the FG color into a new palette: an evenly spaced dark-to-light ramp of the same hue. It's saved under your *Created* palettes as `Ramp RRGGBB` and selected straight away. The same Settings section controls the number of colors, the darkest and lightest lightness, a hue shift at the ends (warmer lights and cooler darks), and how much color the ends keep.
+
+### Pigment Mixing — Mix Brush & Mix Palettes
+
+Light mixes additively, so on a screen blue + yellow makes gray. Paint mixes *subtractively*: each pigment absorbs part of the spectrum, so blue + yellow paint makes green. DRAW models paint with **Kubelka–Munk** pigment mixing, using a port of [Spectral.js](https://github.com/rvanwijnen/spectral.js).
+
+- **`Brush → Mix Colors (Pigment)`** turns on the mix brush. While it's on, Brush strokes mix with the colors already on the layer: blue over yellow paints green, and blue over red paints a deep brown. Empty pixels get the plain color.
+  - **Mix Strength** is how much of the mix is your paint. 100% means plain paint; lower values let more of the color underneath through.
+  - **Mix Pickup** makes the brush soak up the colors it passes over and drag them along, like wet paint (0% = off).
+  - Both live in `Settings → Panels → Color Blending + Ramps`.
+  - The eraser and custom brushes don't mix.
+  - Undo works as for any stroke.
+- **`Palette → Generate Pigment Mix FG > BG`** makes a palette that mixes the FG color into the BG color like paint. It's saved under *Created* palettes as `Mix RRGGBB-RRGGBB`. The number of colors comes from the *Ramp Colors* setting. The BG can't be transparent.
+- The *Pigment (paint)* gradient blend (above) applies the same mixing to gradient fills.
 
 > DRAW's various color widgets and doo-dads
 > ![Color Widgets](images/ch03-color-widgets.png)

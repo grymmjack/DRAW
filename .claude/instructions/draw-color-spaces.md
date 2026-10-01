@@ -8,6 +8,7 @@ wraps it in three places.
 | File | Prefix | Role |
 |------|--------|------|
 | `COLOR-SPACES.BI/BM` | `CLR_` | sRGB ↔ linear ↔ XYZ (D65) ↔ CIELAB/LCh ↔ OKLab/OKLCh; gamut test; OKLCh / CIELAB gamut mapping by chroma reduction (keeps L and h); `CLR_mix_oklab~&` / `CLR_mix_linear~&`; `CLR_oklch_ramp` |
+| `COLOR-PIGMENT.BI/BM` | `PGM_` | Pigment (paint) mixing: a Kubelka–Munk port of Spectral.js (MIT, credited in the header + `LICENSE-spectral.js.txt`). 38-band reflectance from 7 base spectra, K/S per color (256-slot cache), concentration = weight² × luminance, Spectral's own gamutMap. `PGM_mix~&(c1, c2, t)`, `PGM_mix_w~&(c1, w1, c2, w2)`. `COLOR-PIGMENT-TEST.BAS` checks 307 mixes against spectral.js output (exact) |
 | `COLOR-3D.BI/BM` | `C3D_` | Rotatable 3D gamut picker widget: software z-buffered raster into its own image + a per-pixel **pick buffer** (exact color under each pixel); per-pixel solved slice cap |
 | `COLOR.BI/BM` | — | Leaders for standalone programs. **DRAW includes the sub-files directly** (`_ALL.BI`/`_ALL.BM`) — sub-files never include each other (QB64-PE `$INCLUDEONCE` path-normalization; same rule as the other GJ_LIB modules) |
 | `COLOR-SPACES-TEST.BAS` | — | Reference-value + round-trip tests (exit code 1 on failure). Run after touching the math |
@@ -44,7 +45,7 @@ widget** (`C3D_`), and the wrapper only frames it.
 
 Every gradient sample in DRAW goes through this function (57 call sites).
 `CFG.GRADIENT_BLEND_SPACE`: 0 = sRGB (the old math, byte-for-byte), **1 = OKLab
-(default)**, 2 = linear light. Modes 1 and 2 quantize t to 1/1023 and memoize
+(default)**, 2 = linear light, 3 = pigment (`PGM_mix~&`). Modes 1–3 quantize t to 1/1023 and memoize
 results in `DRAWER_BLEND_*` (8192-entry direct-mapped cache keyed on c1, c2, t and
 space): about 0.13 s per 1M pixels. Gradient paint mode already forces raster BAS
 export, so exports are unaffected.
@@ -57,3 +58,38 @@ lists and selects it (the same flow as ADVCP's Create Palette).
 
 All options are in **Settings → Panels → Color Blending + Ramps** (dropdown id 62),
 following the standing rule that panel options live in Settings.
+
+## Pigment mixing (`PGM_`)
+
+### Mix brush: `TOOLS/BRUSH-MIX.BI/BM` (`BMIX`), action 2026
+
+`CFG.BRUSH_MIX` (Brush menu checkbox, command palette, Settings). Only the plain
+Brush tool mixes: not the eraser, a custom brush, or transparent paint.
+
+- `BMIX_begin_stroke` (in `MOUSE_tool_brush`'s press block): `_COPYIMAGE`s the layer
+  (`BMIX.snap` plus a `_MEMIMAGE` view) and fills the reservoir with `DRAW_COLOR`.
+  It also ORs `HISTORY_FLAG_PAINT_MODE` into the brush history flags, which forces
+  raster BAS/QB64 export.
+- **Hook** at the top of `DRAWER_resolve_paint_color~&`, after the alpha-0 early-out
+  and guarded by `BMIX.active AND CURRENT_TOOL = TOOL_BRUSH AND NOT BMIX.inResolve`:
+  - resolve the paint normally (gradient and pattern still work);
+  - then `BMIX_apply` mixes it with the **snapshot** pixel at canvas+apron.
+  - Mixing against the pre-stroke snapshot rather than the live layer keeps
+    overlapping dabs from compounding.
+  - Weight: `100 - CFG.BRUSH_MIX_STRENGTH` scaled by the pixel's alpha. An empty
+    pixel gets the plain paint.
+  - The paint's alpha is kept, so opacity and AA are unchanged.
+  - Results are memoized in `BMIX_C_*` (4096 entries).
+- **Pickup** (`CFG.BRUSH_MIX_PICKUP`, solid paint only): `BMIX_pickup_path` at the
+  top of `PAINT_on` walks the frame's segment every `size/2` px. At each step it
+  mixes `pickup%` of the snapshot color into the reservoir; the reservoir then
+  replaces the paint in `BMIX_apply`.
+  - Pickup is per frame, so a fast stroke smears in short bands.
+- `BMIX_end_stroke`: `MOUSE_release_brush`, after pixel-perfect cleanup. Also called
+  at the next begin and in all three document resets (`TOOLS/DRW.BM`).
+- Undo is the brush's normal before-image.
+
+### Pigment mix palette: action 2027 → `PALETTE_LOADER_create_pigment_mix`
+
+`CFG.RAMP_STEPS` colors `PGM_mix(FG, BG, i/(n-1))` → `Mix RRGGBB-RRGGBB.gpl` in
+PALETTES/CREATED, then selected. FG and BG must both be opaque.
