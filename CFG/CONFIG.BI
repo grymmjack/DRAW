@@ -418,6 +418,24 @@ TYPE DRAW_CONFIG
     ADV_COLOR_PICKER_SHADE_LABELS   AS INTEGER        ' TRUE = show a name label above each shade row
     ADV_COLOR_PICKER_SHADE_CURVE    AS INTEGER        ' 0 = linear spread; 1 = exponential (ends more severe)
     ADV_COLOR_PICKER_HUE_NEIGHBORS  AS INTEGER        ' Hue-neighbors ± range (deg); draggable on the ring
+    ' 3D Color Space picker (GUI/COLOR-SPACE-3D, QB64_GJ_LIB COLOR-3D widget)
+    COLOR_SPACE_3D_VISIBLE          AS INTEGER        ' TRUE = 3D color space panel open at startup
+    COLOR_SPACE_3D_X                AS INTEGER        ' Last panel X (-1 = auto-position)
+    COLOR_SPACE_3D_Y                AS INTEGER        ' Last panel Y (-1 = auto-position)
+    COLOR_SPACE_3D_SPACE            AS INTEGER        ' 0=OKLab, 1=CIELAB, 2=XYZ, 3=RGB
+    COLOR_SPACE_3D_VIEW             AS INTEGER        ' 0=solid, 1=point cloud
+    COLOR_SPACE_3D_SLICE_ON         AS INTEGER        ' TRUE = lightness slice cuts the solid
+    COLOR_SPACE_3D_SLICE            AS INTEGER        ' Slice lightness, percent (0-100)
+    COLOR_SPACE_3D_YAW              AS INTEGER        ' View yaw, degrees
+    COLOR_SPACE_3D_PITCH            AS INTEGER        ' View pitch, degrees (-89..89)
+    COLOR_SPACE_3D_ZOOM             AS INTEGER        ' View zoom, percent (40-300)
+    ' Color blending / ramps (QB64_GJ_LIB COLOR-SPACES)
+    GRADIENT_BLEND_SPACE            AS INTEGER        ' Gradient fill blend space: 0=sRGB, 1=OKLab (perceptual), 2=linear light
+    RAMP_STEPS                      AS INTEGER        ' OKLCh ramp: colors generated (2-32)
+    RAMP_L_MIN                      AS INTEGER        ' OKLCh ramp: darkest lightness, percent (0-100)
+    RAMP_L_MAX                      AS INTEGER        ' OKLCh ramp: lightest lightness, percent (0-100)
+    RAMP_HUE_SHIFT                  AS INTEGER        ' OKLCh ramp: hue shift at the ends, degrees (-60..60; + = warm lights/cool darks)
+    RAMP_CHROMA_END                 AS INTEGER        ' OKLCh ramp: chroma kept at the ends, percent of the base (0-100)
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)

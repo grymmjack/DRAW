@@ -57,6 +57,31 @@ The **Color Mixer panel** is a floating, persistent alternative to the modal pic
 
 Because the mixer is non-modal, you can keep it open while drawing and tweak colors live. Its visibility is persisted in `DRAW.cfg`.
 
+### 3D Color Space — OKLab, CIELAB, XYZ & RGB
+
+`View → 3D Color Space` opens a floating panel that shows every color your screen can display (the sRGB gamut) as a 3D solid. Different color spaces arrange those same colors differently:
+
+- **OKLAB** (default): a perceptual space (Björn Ottosson, 2020). Equal distances look like equal differences to your eye. It looks like a tilted droplet with black at the bottom and white at the top.
+- **LAB**: CIELAB (1976), the classic perceptual space.
+- **XYZ**: the CIE 1931 space that all the others are defined from.
+- **RGB**: the familiar RGB cube, standing on its black-white diagonal.
+
+How to use it:
+
+- **Left-click or left-drag on the solid** to pick the color under the cursor. It becomes your FG color, and what you see is exactly what you get.
+- **Right-drag or middle-drag**, or left-drag on empty space, to spin the view. The **wheel** zooms.
+- **SOLID / CLOUD** switches between the gamut's surface and a grid of color dots through the whole volume.
+- **SLICE** cuts the solid at a lightness you set with the slider. The cut face shows every color at that lightness, so interior colors become pickable.
+- The readout below the view shows the hovered (or current) color in hex/RGB, OKLab, OKLCh, CIELAB and XYZ.
+
+The panel auto-hides while you draw over it and is included in `F11` (hide/show all UI). The space, view, slice, rotation and zoom are remembered in `DRAW.cfg`.
+
+### Perceptual Gradients & OKLCh Ramps
+
+Gradient fills blend in **OKLab** by default (`Settings → Panels → Color Blending + Ramps → Gradient Blend`). Plain RGB blends sag in the middle: red→green passes through a muddy olive. OKLab passes through a clean yellow-orange instead. Choose *sRGB (classic)* for the old behavior, or *Linear light* for physically mixed light.
+
+`Palette → Generate OKLCh Ramp from FG` turns the FG color into a new palette: an evenly spaced dark-to-light ramp of the same hue. It's saved under your *Created* palettes as `Ramp RRGGBB` and selected straight away. The same Settings section controls the number of colors, the darkest and lightest lightness, a hue shift at the ends (warmer lights and cooler darks), and how much color the ends keep.
+
 > DRAW's various color widgets and doo-dads
 > ![Color Widgets](images/ch03-color-widgets.png)
 > 1. Color Mixer — `View → Color Mixer`

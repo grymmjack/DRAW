@@ -329,6 +329,7 @@ MUSIC_init                            ' Initialise background music (plays if CF
 IMAGE_ADJ_init                        ' Initialise image adjustment library (IMGADJ)
 COLORMIXER_init                       ' Initialise non-modal color mixer panel
 ADVCP_init                            ' Initialise advanced color picker panel (hue ring + SV triangle)
+CS3D_init                             ' Initialise 3D color space panel (OKLab / CIELAB / XYZ / RGB gamut)
 BROWSER_init                          ' Initialise floating browser panel scaffold
 SMART_SHAPES_init                     ' Register Smart Shapes flyout sub-tools
 INPUTS_init                           ' Initialise input dispatch system + audit (DEV_MODE -> inputs.log)
