@@ -86,12 +86,16 @@ Gradient fills blend in **OKLab** by default (`Settings → Panels → Color Ble
 
 Light mixes additively, so on a screen blue + yellow makes gray. Paint mixes *subtractively*: each pigment absorbs part of the spectrum, so blue + yellow paint makes green. DRAW models paint with **Kubelka–Munk** pigment mixing, using a port of [Spectral.js](https://github.com/rvanwijnen/spectral.js).
 
-- **`Brush → Mix Colors (Pigment)`** turns on the mix brush. While it's on, Brush strokes mix with the colors already on the layer: blue over yellow paints green, and blue over red paints a deep brown. Empty pixels get the plain color.
-  - **Mix Strength** is how much of the mix is your paint. 100% means plain paint; lower values let more of the color underneath through.
-  - **Mix Pickup** makes the brush soak up the colors it passes over and drag them along, like wet paint (0% = off).
-  - Both live in `Settings → Panels → Color Blending + Ramps`.
+- **`Brush → Mix Colors (Pigment)`** turns on the mix brush. The brush picks up the colors it crosses and smears them along, mixing them with your paint like wet paint (a smudge model after MyPaint's).
+  - Blue dragged through yellow paints green, and through red a deep brown.
+  - The brush stays wet: carry it off the paint and it keeps laying down the mixed color for a while.
+  - **Smudge** (default 50%) is how much of each dab is the picked-up color. 0% means plain paint; 100% is a pure smudge tool that only pushes existing paint around.
+  - **Smudge Length** (default 50%) is how long the brush holds a color. Low values follow the canvas closely; high values drag colors far; 100% keeps the first color picked up.
+  - **Smudge Radius** (default 100%) is how big an area under the brush is sampled.
+  - The brush samples the layer as it was when you started the stroke.
+  - All three are in `Settings → Panels → Color Blending + Ramps`.
   - The eraser and custom brushes don't mix.
-  - Undo works as for any stroke.
+  - Pixel-perfect mode and undo work as usual.
 - **`Palette → Generate Pigment Mix FG > BG`** makes a palette that mixes the FG color into the BG color like paint. It's saved under *Created* palettes as `Mix RRGGBB-RRGGBB`. The number of colors comes from the *Ramp Colors* setting. The BG can't be transparent.
 - The *Pigment (paint)* gradient blend (above) applies the same mixing to gradient fills.
 

@@ -436,9 +436,10 @@ TYPE DRAW_CONFIG
     RAMP_L_MAX                      AS INTEGER        ' OKLCh ramp: lightest lightness, percent (0-100)
     RAMP_HUE_SHIFT                  AS INTEGER        ' OKLCh ramp: hue shift at the ends, degrees (-60..60; + = warm lights/cool darks)
     RAMP_CHROMA_END                 AS INTEGER        ' OKLCh ramp: chroma kept at the ends, percent of the base (0-100)
-    BRUSH_MIX                       AS INTEGER        ' Mix brush: brush strokes mix with the colors under them like paint (pigment)
-    BRUSH_MIX_STRENGTH              AS INTEGER        ' Mix brush: paint's share of each mix, percent (1-100; 100 = plain paint)
-    BRUSH_MIX_PICKUP                AS INTEGER        ' Mix brush: percent of the color under the brush the paint picks up per dab (0 = none)
+    BRUSH_MIX                       AS INTEGER        ' Mix brush: the brush picks up and smears the colors it crosses, mixing like paint (pigment)
+    BRUSH_MIX_SMUDGE                AS INTEGER        ' Mix brush: smudge color's share of each dab, percent (0 = plain paint, 100 = pure smudge)
+    BRUSH_MIX_LENGTH                AS INTEGER        ' Mix brush: share of the smudge color kept at each sample, percent (0 = follows the canvas instantly, 100 = never changes)
+    BRUSH_MIX_RADIUS                AS INTEGER        ' Mix brush: canvas sample disc, percent of the brush radius (25-400)
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)

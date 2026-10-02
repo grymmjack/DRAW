@@ -66,25 +66,41 @@ following the standing rule that panel options live in Settings.
 `CFG.BRUSH_MIX` (Brush menu checkbox, command palette, Settings). Only the plain
 Brush tool mixes: not the eraser, a custom brush, or transparent paint.
 
-- `BMIX_begin_stroke` (in `MOUSE_tool_brush`'s press block): `_COPYIMAGE`s the layer
-  (`BMIX.snap` plus a `_MEMIMAGE` view) and fills the reservoir with `DRAW_COLOR`.
-  It also ORs `HISTORY_FLAG_PAINT_MODE` into the brush history flags, which forces
-  raster BAS/QB64 export.
+The smudge model follows libmypaint (ISC). The brush carries one **smudge color**
+(`BMIX.smudge`); each dab is drawn in
+`PGM_mix(smudge, paint)` with `CFG.BRUSH_MIX_SMUDGE`% smudge.
+
+- `BMIX_begin_stroke` (in `MOUSE_tool_brush`'s press block, before `STROKE_begin`)
+  `_COPYIMAGE`s the layer (`BMIX.snapImg` plus a `_MEMIMAGE` view, buffer coords
+  including the apron). It also ORs `HISTORY_FLAG_PAINT_MODE` into the brush
+  history flags, which forces raster BAS/QB64 export.
+- `BMIX_dab x, y` runs **before every dab** in `PAINT_on`'s four loops: the
+  pixel-perfect path, the 1px Bresenham path, the size-3 plus, and the larger
+  shapes.
+  - It acts only after the brush has moved `size/4` px since the last sample,
+    which is libmypaint's default of 2 dabs per radius. That keeps the result
+    independent of FPS and stroke speed.
+  - It takes an alpha-weighted, linear-light average of the **snapshot** over a
+    disc of `CFG.BRUSH_MIX_RADIUS`% of the brush radius.
+  - The first sample becomes the smudge color. After that,
+    `smudge = PGM_mix_w(smudge, keep, sample, (1-keep)*sampleAlpha)` with
+    `keep = CFG.BRUSH_MIX_LENGTH/100`, so 100 keeps the first pickup.
+  - Empty areas pick up nothing.
+- **Why the snapshot and not the live layer** (libmypaint samples live): MyPaint's
+  dabs are soft and translucent, so the canvas shows through. A hard pixel dab
+  re-samples mostly its own fresh paint, and the brush turns back into plain paint
+  within a few pixels. This was tried and seen under Xvfb.
 - **Hook** at the top of `DRAWER_resolve_paint_color~&`, after the alpha-0 early-out
   and guarded by `BMIX.active AND CURRENT_TOOL = TOOL_BRUSH AND NOT BMIX.inResolve`:
-  - resolve the paint normally (gradient and pattern still work);
-  - then `BMIX_apply` mixes it with the **snapshot** pixel at canvas+apron.
-  - Mixing against the pre-stroke snapshot rather than the live layer keeps
-    overlapping dabs from compounding.
-  - Weight: `100 - CFG.BRUSH_MIX_STRENGTH` scaled by the pixel's alpha. An empty
-    pixel gets the plain paint.
-  - The paint's alpha is kept, so opacity and AA are unchanged.
-  - Results are memoized in `BMIX_C_*` (4096 entries).
-- **Pickup** (`CFG.BRUSH_MIX_PICKUP`, solid paint only): `BMIX_pickup_path` at the
-  top of `PAINT_on` walks the frame's segment every `size/2` px. At each step it
-  mixes `pickup%` of the snapshot color into the reservoir; the reservoir then
-  replaces the paint in `BMIX_apply`.
-  - Pickup is per frame, so a fast stroke smears in short bands.
+  - it resolves the paint normally (gradient and pattern still work);
+  - then `BMIX_apply` mixes it with the smudge color, memoized in `BMIX_C_*`;
+  - the paint's alpha is kept, so opacity and AA apply as usual;
+  - before the first pickup it returns plain paint.
+- **Pixel perfect** restores the layer and redraws the filtered path at release.
+  `MOUSE_release_brush` calls `BMIX_begin_replay` first, which copies the finished
+  stroke. In replay mode `BMIX_apply` returns each pixel's own stroke color;
+  without it, the whole stroke would recolor to the final smudge color (verified
+  under Xvfb).
 - `BMIX_end_stroke`: `MOUSE_release_brush`, after pixel-perfect cleanup. Also called
   at the next begin and in all three document resets (`TOOLS/DRW.BM`).
 - Undo is the brush's normal before-image.
