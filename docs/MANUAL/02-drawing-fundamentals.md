@@ -36,6 +36,22 @@ The Organizer widget on the left contains **four brush size presets** (1, 3, 5, 
 
 <div class="page-break"></div>
 
+### Pen Tablets & Pressure
+
+DRAW reads **pen pressure** from a drawing tablet: Wacom, Huion, XP-Pen and Surface Pen are all supported, plus a Force Touch trackpad on a Mac. Press harder for a wider Brush or Eraser stroke, and lighter for a thinner one. The width changes smoothly within a single stroke. A mouse is never affected.
+
+- **Setup.** Install the tablet maker's driver.
+  - **Windows:** leave **Windows Ink** turned on in the driver's pen settings.
+  - **macOS:** keep the driver's tablet app running in the menu bar.
+  - **Linux:** most tablets work without any setup, and the maker's driver works too.
+- **Settings → General → Pen Tablet:**
+  - **Pen Pressure** turns the feature on or off.
+  - **Pressure Sets Brush Size** controls whether pressure changes the size. It applies to brushes bigger than 1px; a 1px pencil stays 1px.
+  - **Lightest Touch Size %** is the size at the lightest touch (default 20% of the brush).
+  - **Pressure Curve** sets how pressure maps to size. 100 is linear, lower makes light touches count more, and higher means you press harder.
+  - **Pressure Sets Mix Paint**: with the mix brush, a light touch smears and full pressure lays paint.
+- **Export.** Pressure-varied strokes export to BAS/QB64 as pixels.
+
 ## Lines, Rectangles & Ellipses
 
 > 🎯 **Goal:** Draw clean geometric shapes.

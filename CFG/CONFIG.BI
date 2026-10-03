@@ -440,6 +440,11 @@ TYPE DRAW_CONFIG
     BRUSH_MIX_SMUDGE                AS INTEGER        ' Mix brush: smudge color's share of each dab, percent (0 = plain paint, 100 = pure smudge)
     BRUSH_MIX_LENGTH                AS INTEGER        ' Mix brush: share of the smudge color kept at each sample, percent (0 = follows the canvas instantly, 100 = never changes)
     BRUSH_MIX_RADIUS                AS INTEGER        ' Mix brush: canvas sample disc, percent of the brush radius (25-400)
+    PEN_PRESSURE                    AS INTEGER        ' Pen tablet pressure (QB64_GJ_LIB PRESSURE_DEVICE); no effect with a mouse
+    PEN_PRESSURE_SIZE               AS INTEGER        ' Pressure scales the Brush / Eraser size per dab
+    PEN_MIN_SIZE                    AS INTEGER        ' Brush size at the lightest touch, percent of the brush size (0-100)
+    PEN_PRESSURE_CURVE              AS INTEGER        ' Pressure curve, gamma x100 (100 = linear, <100 = light touches heavier, >100 = lighter)
+    PEN_PRESSURE_MIX                AS INTEGER        ' Mix brush: a light touch smears more, full pressure lays the Smudge setting
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)

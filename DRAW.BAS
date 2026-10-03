@@ -514,6 +514,9 @@ FOR bi% = 1 TO _COMMANDCOUNT
 NEXT bi%
 IF benchLayers% > 0 THEN BENCH_render_run benchLayers%
 
+' Pen tablet pressure (INPUT/PEN, QB64_GJ_LIB PRESSURE_DEVICE). Needs the window.
+PEN_init
+
 DO
     ' Deferred command line file loading (after first frame when everything is initialized).
     ' Acts exactly like File -> Open: direct load, NO interactive placement.
@@ -706,6 +709,9 @@ DO
     ' Poll gamepad (mouse-emulated) BEFORE mouse drain so gamepad-driven
     ' state appears as real mouse state to downstream code.
     GAMEPAD_poll
+
+    ' Pen tablet pressure: collect pen events before the mouse is handled.
+    PEN_poll
 
     ' Recover from a window-focus round-trip (alt-tab away & back) BEFORE mouse
     ' handling: clears any button-release edge swallowed while unfocused, so a

@@ -107,7 +107,7 @@ Heavily-used globals: `SCRN`, `MOUSE`, `CFG`, `THEME`, `CURRENT_TOOL%`, `PAINT_C
 | `CFG/` | `CONFIG.BI/BM` (DRAW.cfg loader), `CONFIG-THEME.BI/BM`, `BINDINGS.BI/BM` (keyboard/mouse rebind storage) |
 | `CORE/` | `PERF` (frame counters), `ERROR`, `PATHS` (OS-native dirs migrated 2026-05-02), `SOUND`, `IMAGE` |
 | `GUI/` | All UI widgets: toolbar, menubar, palette strip, layer panel, drawer, preview window, organizer, edit/advanced bars, dialogs, command palette, color mixer, image browser, character map, smart guides, transparency checkerboard, popup menus, tooltips, controls dialog. Also the font backends: `FONT-LIST` (TTF/bitmap/CBF) and `TDF-FONT`/`TDF-BROWSER` (TheDraw) |
-| `INPUT/` | `MOUSE.BM` (~2600 lines — the central input pipeline), `KEYBOARD.BM`, `MODIFIERS.BM`, `STICK.BM`, Aseprite/PSD/Lospec loaders |
+| `INPUT/` | `MOUSE.BM` (~2600 lines — the central input pipeline), `PEN.BM` (tablet pressure), `KEYBOARD.BM`, `MODIFIERS.BM`, `STICK.BM`, Aseprite/PSD/Lospec loaders |
 | `OUTPUT/` | `SCREEN.BM` (the render pipeline — `SCREEN_render`), file exporters (BAS, PNG/BMP/GIF/JPG/TGA/HDR/ICO/QOI, QB64 source) |
 | `TOOLS/` | Per-tool BI/BM pairs (brush, dot, line, rect, ellipse, polygon, fill, marquee, picker, move, transform, crop, spray, zoom, text, smart shapes, bezier, eraser, extract, etc.), plus `HISTORY.BI/BM` (unified undo/redo) and `DRW.BI/BM` (.draw file format) |
 | `PIXEL-COACH/` | Pixel-art analyzer engine |
@@ -242,6 +242,7 @@ machine. Same convention is documented in the `grymmjack/qb64pe-mcp-server-bash`
 | `.claude/instructions/draw-multi-instance.md` | Multiple isolated instances: heartbeat registry, seeded per-instance config, Copy/Paste/Send Layer (`CORE/INSTANCE`, `TOOLS/LAYERXFER`), QB64-PE IPC constraints |
 | `.claude/instructions/draw-drag-drop.md` | Target-aware OS file-drop (`INPUT/DROP.BM`): no-drop-coords workaround, region routing to canvas/layer-panel/brush-bin/menu-bar, size gate + Shift placement |
 | `.claude/instructions/draw-color-spaces.md` | Color spaces: `QB64_GJ_LIB/COLOR` (CLR_ OKLab/CIELAB/XYZ math, C3D_ 3D picker widget), the `CS3D` 3D Color Space panel, OKLab/pigment gradient blending (`CFG.GRADIENT_BLEND_SPACE`, memo cache), OKLCh ramps (action 2025), `PGM_` Kubelka–Munk pigment mixing: mix brush `TOOLS/BRUSH-MIX` (action 2026) + FG→BG mix palette (2027) |
+| `.claude/instructions/draw-pen-pressure.md` | Pen tablet pressure: `QB64_GJ_LIB/PRESSURE_DEVICE` backends (Windows Ink / macOS sendEvent / XInput2), `INPUT/PEN` (`TABLET` state — `PEN` is a QB64 keyword), per-dab pressure sizing in `PAINT_on_pressure`, lift/land filter, mix-brush pressure, Settings → General → Pen Tablet |
 | `.claude/instructions/draw-adv-color-picker.md` | Advanced Color Picker: `ACP` library widget vs `ADVCP` wrapper split, panel states, mouse dispatch order, shade selector, color history + context menu, FG/BG model, config-in-Settings rule |
 
 The `.claude/skills/` directory contains procedural workflows for common tasks (release prep, QA test generation, bug fixing with state diagrams, PDF manual build, image upscaling, mind-map generation, QB64-PE porting/debugging). Each subdirectory has a `SKILL.md` invoked as a slash command.

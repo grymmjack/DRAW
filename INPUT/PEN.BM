@@ -1,0 +1,141 @@
+''
+' DRAW - INPUT/TABLET.BM
+' =============================================================================
+' Pen tablet pressure. See INPUT/TABLET.BI.
+'
+$INCLUDEONCE
+
+''
+' Start the pressure backend once (needs the window, so after SCREEN_init).
+'
+SUB PEN_init ()
+    IF TABLET.tried THEN EXIT SUB
+    IF NOT CFG.PEN_PRESSURE% THEN EXIT SUB
+    TABLET.tried = TRUE
+    TABLET.ready = PD_init%
+    IF TABLET.ready THEN
+        _LOGINFO "PEN: " + PD_backend_name$ + " - " + PD_status$
+    ELSE
+        _LOGINFO "PEN: no pressure backend (" + PD_status$ + ")"
+    END IF
+END SUB
+
+''
+' Once per frame, before mouse handling.
+'
+SUB PEN_poll ()
+    IF NOT CFG.PEN_PRESSURE% THEN EXIT SUB
+    IF NOT TABLET.tried THEN PEN_init
+    IF TABLET.ready THEN PD_poll
+END SUB
+
+''
+' TRUE when pressure should shape the current stroke: feature on, backend
+' running and the last pointer event came from a pen (or pressure trackpad).
+'
+FUNCTION PEN_active% ()
+    PEN_active% = FALSE
+    IF NOT CFG.PEN_PRESSURE% THEN EXIT FUNCTION
+    IF NOT TABLET.ready THEN EXIT FUNCTION
+    PEN_active% = (PD_source% <> PD_SRC_MOUSE)
+END FUNCTION
+
+''
+' Brush / eraser press: forget the previous stroke's pressure.
+'
+SUB PEN_stroke_begin ()
+    TABLET.lastValid = -1
+    TABLET.segP0     = -1
+    TABLET.segP1     = 1
+    TABLET.dabP      = 1
+    TABLET.usingPen  = FALSE
+END SUB
+
+''
+' Pressure for drawing right now, after the pressure curve. A reading below
+' PEN_MIN_VALID is the pen landing or lifting (it arrives a moment before or
+' after the button): hold the last real value instead, so strokes don't start
+' with a blob or end with a hairline flick.
+'
+FUNCTION PEN_stroke_pressure! ()
+    DIM p AS SINGLE
+    p! = PD_pressure!
+    IF p! >= PEN_MIN_VALID THEN
+        TABLET.lastValid = p!
+    ELSEIF TABLET.lastValid >= 0 THEN
+        p! = TABLET.lastValid
+    ELSE
+        p! = PEN_MIN_VALID
+    END IF
+    PEN_stroke_pressure! = PD_curve!(p!, CFG.PEN_PRESSURE_CURVE% / 100!)
+END FUNCTION
+
+''
+' Called by PAINT_on before a frame's segment: fixes the pressure at both ends
+' so each dab can interpolate between them.
+'
+SUB PEN_segment_begin ()
+    TABLET.usingPen = PEN_active%
+    IF NOT TABLET.usingPen THEN
+        TABLET.segP0 = 1: TABLET.segP1 = 1: TABLET.dabP = 1
+        EXIT SUB
+    END IF
+    TABLET.segP1 = PEN_stroke_pressure!
+    IF TABLET.segP0 < 0 THEN TABLET.segP0 = TABLET.segP1
+    TABLET.dabP = TABLET.segP1
+END SUB
+
+SUB PEN_segment_end ()
+    TABLET.segP0 = TABLET.segP1
+END SUB
+
+''
+' Pressure of the dab at fraction t (0..1) along the current segment.
+'
+FUNCTION PEN_dab_pressure! (t AS SINGLE)
+    PEN_dab_pressure! = TABLET.segP0 + (TABLET.segP1 - TABLET.segP0) * t!
+END FUNCTION
+
+''
+' TRUE when this stroke's brush size should follow pressure.
+'
+FUNCTION PEN_size_active% ()
+    PEN_size_active% = FALSE
+    IF NOT TABLET.usingPen THEN EXIT FUNCTION
+    IF NOT CFG.PEN_PRESSURE_SIZE% THEN EXIT FUNCTION
+    IF CURRENT_TOOL% <> TOOL_BRUSH AND CURRENT_TOOL% <> TOOL_ERASER THEN EXIT FUNCTION
+    IF CUSTOM_BRUSH_is_active% THEN EXIT FUNCTION
+    IF BRUSH_SIZE.PIXEL_PERFECT THEN EXIT FUNCTION
+    PEN_size_active% = (BRUSH_SIZE_pixels% > 1)
+END FUNCTION
+
+''
+' Brush size in pixels for a pressure: from PEN_MIN_SIZE % of the brush at the
+' lightest touch up to the full brush size at full pressure (never below 1).
+'
+FUNCTION PEN_scaled_size% (baseSize AS INTEGER, p AS SINGLE)
+    DIM f AS SINGLE, minF AS SINGLE, s AS INTEGER
+    minF! = CFG.PEN_MIN_SIZE% / 100!
+    IF minF! < 0 THEN minF! = 0
+    IF minF! > 1 THEN minF! = 1
+    f! = minF! + (1 - minF!) * p!
+    s% = INT(baseSize% * f! + 0.5)
+    IF s% < 1 THEN s% = 1
+    IF s% > baseSize% THEN s% = baseSize%
+    PEN_scaled_size% = s%
+END FUNCTION
+
+''
+' Mix brush: smudge share for the current dab. A light touch smears more, full
+' pressure uses the Smudge setting as is.
+'
+FUNCTION PEN_mix_smudge% (smudge AS INTEGER)
+    DIM s AS INTEGER
+    s% = smudge%
+    IF TABLET.usingPen _ANDALSO CFG.PEN_PRESSURE_MIX% THEN
+        s% = 100 - INT((100 - s%) * TABLET.dabP + 0.5)
+    END IF
+    IF s% < 0 THEN s% = 0
+    IF s% > 100 THEN s% = 100
+    PEN_mix_smudge% = s%
+END FUNCTION
