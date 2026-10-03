@@ -78,11 +78,14 @@ SUB PEN_segment_begin ()
     TABLET.usingPen = PEN_active%
     IF NOT TABLET.usingPen THEN
         TABLET.segP0 = 1: TABLET.segP1 = 1: TABLET.dabP = 1
+        IF TABLET.opStroke THEN TABLET.dabOp = PAINT_OPACITY% / 100!
         EXIT SUB
     END IF
     TABLET.segP1 = PEN_stroke_pressure!
     IF TABLET.segP0 < 0 THEN TABLET.segP0 = TABLET.segP1
     TABLET.dabP = TABLET.segP1
+    ' Paths that don't interpolate per dab (pixel perfect) use the segment's end.
+    IF TABLET.opStroke THEN TABLET.dabOp = PEN_opacity_for!(TABLET.segP1)
 END SUB
 
 SUB PEN_segment_end ()
@@ -126,16 +129,134 @@ FUNCTION PEN_scaled_size% (baseSize AS INTEGER, p AS SINGLE)
 END FUNCTION
 
 ''
-' Mix brush: smudge share for the current dab. A light touch smears more, full
-' pressure uses the Smudge setting as is.
+' Map a 0..1 pressure onto a lightest-touch..100% range: minPct at no
+' pressure, 1 at full pressure.
+'
+FUNCTION PEN_range! (p AS SINGLE, minPct AS INTEGER)
+    DIM f AS SINGLE
+    f! = minPct% / 100!
+    IF f! < 0 THEN f! = 0
+    IF f! > 1 THEN f! = 1
+    PEN_range! = f! + (1 - f!) * p!
+END FUNCTION
+
+''
+' Mix brush: smudge share for the current dab. The new paint each dab lays is
+' scaled by pressure (from PEN_MIX_MIN % at the lightest touch to the full
+' amount), so a light touch smears more.
 '
 FUNCTION PEN_mix_smudge% (smudge AS INTEGER)
     DIM s AS INTEGER
     s% = smudge%
     IF TABLET.usingPen _ANDALSO CFG.PEN_PRESSURE_MIX% THEN
-        s% = 100 - INT((100 - s%) * TABLET.dabP + 0.5)
+        s% = 100 - INT((100 - s%) * PEN_range!(TABLET.dabP, CFG.PEN_MIX_MIN%) + 0.5)
     END IF
     IF s% < 0 THEN s% = 0
     IF s% > 100 THEN s% = 100
     PEN_mix_smudge% = s%
 END FUNCTION
+
+
+' =============================================================================
+' Pressure -> opacity
+' =============================================================================
+
+''
+' Brush / Eraser press: start a pressure-opacity stroke when the option is on
+' and the pen is in use. Takes a layer snapshot and a per-pixel mask. Call
+' before STROKE_begin (which then stands aside: this stroke applies its
+' opacity live, the plain Opacity setting included).
+'
+SUB PEN_opacity_begin ()
+    DIM img AS LONG
+    PEN_opacity_end
+    IF NOT CFG.PEN_PRESSURE_OPACITY% THEN EXIT SUB
+    IF NOT PEN_active% THEN EXIT SUB
+    IF CURRENT_TOOL% <> TOOL_BRUSH AND CURRENT_TOOL% <> TOOL_ERASER THEN EXIT SUB
+    IF CUSTOM_BRUSH_is_active% THEN EXIT SUB
+    IF BRUSH_HISTORY_SMART% THEN EXIT SUB
+    IF BRUSH_SIZE.PIXEL_PERFECT AND BRUSH_SIZE_pixels% = 1 THEN EXIT SUB ' 1px pixel-perfect stays a plain pencil
+    IF CURRENT_LAYER% < 1 OR CURRENT_LAYER% > MAX_LAYERS THEN EXIT SUB
+    img& = LAYERS(CURRENT_LAYER%).imgHandle&
+    IF img& >= -1 THEN EXIT SUB
+    TABLET.opBakImg = _COPYIMAGE(img&, 32)
+    IF TABLET.opBakImg >= -1 THEN TABLET.opBakImg = 0: EXIT SUB
+    TABLET_BAK_MEM = _MEMIMAGE(TABLET.opBakImg)
+    TABLET.opW = _WIDTH(img&)
+    TABLET.opH = _HEIGHT(img&)
+    TABLET_MASK_MEM = _MEMNEW(TABLET.opW * TABLET.opH)
+    _MEMFILL TABLET_MASK_MEM, TABLET_MASK_MEM.OFFSET, TABLET_MASK_MEM.SIZE, 0 AS _UNSIGNED _BYTE
+    TABLET.dabOp    = PAINT_OPACITY% / 100!
+    TABLET.opStroke = TRUE
+    ' Per-pixel opacity can't be replayed as fixed brush calls: export as pixels.
+    BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
+END SUB
+
+''
+' End the pressure-opacity stroke and free its buffers. Safe to call any time.
+'
+SUB PEN_opacity_end ()
+    IF TABLET.opBakImg < -1 THEN
+        _MEMFREE TABLET_BAK_MEM
+        _FREEIMAGE TABLET.opBakImg
+        _MEMFREE TABLET_MASK_MEM
+    END IF
+    TABLET.opBakImg = 0
+    TABLET.opStroke = FALSE
+    TABLET.dabOp    = 1
+END SUB
+
+''
+' Opacity 0..1 for a dab at pressure p: Lightest Touch Opacity % .. 100%,
+' times the plain Opacity setting.
+'
+FUNCTION PEN_opacity_for! (p AS SINGLE)
+    PEN_opacity_for! = PEN_range!(p!, CFG.PEN_MIN_OPACITY%) * PAINT_OPACITY% / 100!
+END FUNCTION
+
+''
+' Write one pixel of a pressure-opacity stroke at BUFFER coords (bx, by) on
+' the current _DEST (the layer). The pixel becomes the stroke-start pixel with
+' col composited over it at the strongest opacity reached there this stroke
+' (TABLET.dabOp x coverage), composited straight-alpha source-over. A
+' transparent col (eraser) removes that share of the original alpha instead.
+' Leaves the layer in _BLEND, or _DONTBLEND for a transparent col.
+'
+SUB PEN_op_write (bx AS LONG, by AS LONG, col AS _UNSIGNED LONG, coverage AS SINGLE)
+    DIM idx AS LONG, m AS INTEGER, e AS INTEGER, a AS INTEGER
+    DIM bk AS _UNSIGNED LONG, c AS _UNSIGNED LONG
+    IF bx& < 0 OR by& < 0 OR bx& >= TABLET.opW OR by& >= TABLET.opH THEN EXIT SUB
+    c~& = col~&
+    idx& = by& * TABLET.opW + bx&
+    m% = _MEMGET(TABLET_MASK_MEM, TABLET_MASK_MEM.OFFSET + idx&, _UNSIGNED _BYTE)
+    e% = INT(TABLET.dabOp * coverage! * 255 + 0.5)
+    IF e% > 255 THEN e% = 255
+    IF e% > m% THEN
+        m% = e%
+        _MEMPUT TABLET_MASK_MEM, TABLET_MASK_MEM.OFFSET + idx&, m% AS _UNSIGNED _BYTE
+    END IF
+    bk~& = _MEMGET(TABLET_BAK_MEM, TABLET_BAK_MEM.OFFSET + idx& * 4, _UNSIGNED LONG)
+    _DONTBLEND
+    IF _ALPHA32(c~&) = 0 THEN
+        a% = INT(_ALPHA32(bk~&) * (255 - m%) / 255 + 0.5)
+        PSET (bx&, by&), _RGBA32(_RED32(bk~&), _GREEN32(bk~&), _BLUE32(bk~&), a%)
+        EXIT SUB
+    END IF
+    ' Source-over in straight alpha, done here rather than with _BLEND, which
+    ' mixes the RGB of a transparent destination (black) into the result and
+    ' darkens light strokes on empty pixels.
+    DIM sa AS SINGLE, da AS SINGLE, oa AS SINGLE, dw AS SINGLE
+    sa! = (_ALPHA32(c~&) / 255!) * (m% / 255!)
+    da! = _ALPHA32(bk~&) / 255!
+    oa! = sa! + da! * (1 - sa!)
+    IF oa! <= 0 THEN
+        PSET (bx&, by&), bk~&
+    ELSE
+        dw! = da! * (1 - sa!)
+        PSET (bx&, by&), _RGBA32(INT((_RED32(c~&) * sa! + _RED32(bk~&) * dw!) / oa! + 0.5), _
+                                 INT((_GREEN32(c~&) * sa! + _GREEN32(bk~&) * dw!) / oa! + 0.5), _
+                                 INT((_BLUE32(c~&) * sa! + _BLUE32(bk~&) * dw!) / oa! + 0.5), _
+                                 INT(oa! * 255 + 0.5))
+    END IF
+    _BLEND
+END SUB

@@ -330,6 +330,7 @@ IMAGE_ADJ_init                        ' Initialise image adjustment library (IMG
 COLORMIXER_init                       ' Initialise non-modal color mixer panel
 ADVCP_init                            ' Initialise advanced color picker panel (hue ring + SV triangle)
 CS3D_init                             ' Initialise 3D color space panel (OKLab / CIELAB / XYZ / RGB gamut)
+PENP_init                             ' Initialise Pen Pressure panel (View > Pen Pressure)
 BROWSER_init                          ' Initialise floating browser panel scaffold
 SMART_SHAPES_init                     ' Register Smart Shapes flyout sub-tools
 INPUTS_init                           ' Initialise input dispatch system + audit (DEV_MODE -> inputs.log)
@@ -812,6 +813,7 @@ DO
     END IF
     IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE   ' GUI-only updates should stay on the cached-scene path unless something else dirtied the scene
     IF STATUS_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE
+    IF PENP_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' Pen Pressure panel live meter
     IF CRASH.NOTIFY_UNTIL# > 0 THEN FRAME_IDLE% = FALSE   ' Crash banner up — keep painting so it shows and can self-dismiss
     IF modifiersChanged% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Modifier overlays affect cached scene and must repaint on press/release
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE                             ' Panning active — only dirty scene when mouse moves

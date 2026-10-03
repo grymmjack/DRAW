@@ -445,6 +445,12 @@ TYPE DRAW_CONFIG
     PEN_MIN_SIZE                    AS INTEGER        ' Brush size at the lightest touch, percent of the brush size (0-100)
     PEN_PRESSURE_CURVE              AS INTEGER        ' Pressure curve, gamma x100 (100 = linear, <100 = light touches heavier, >100 = lighter)
     PEN_PRESSURE_MIX                AS INTEGER        ' Mix brush: a light touch smears more, full pressure lays the Smudge setting
+    PEN_MIX_MIN                     AS INTEGER        ' Mix brush: paint laid at the lightest touch, percent of the full amount (0-100)
+    PEN_PRESSURE_OPACITY            AS INTEGER        ' Pressure scales the Brush / Eraser opacity (applied live, no compounding)
+    PEN_MIN_OPACITY                 AS INTEGER        ' Opacity at the lightest touch, percent (0-100)
+    PEN_PANEL_VISIBLE               AS INTEGER        ' TRUE = Pen Pressure panel open at startup
+    PEN_PANEL_X                     AS INTEGER        ' Last panel X (-1 = auto-position)
+    PEN_PANEL_Y                     AS INTEGER        ' Last panel Y (-1 = auto-position)
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)

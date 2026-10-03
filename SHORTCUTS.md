@@ -403,7 +403,7 @@ Middle-click the Text toolbar icon → load TTF/OTF. **TheDraw (TDF)** fonts: `[
 | Keys | Action |
 |------|--------|
 | `[` / `]` | Brush size − / + (fine, ±1) |
-| Pen pressure | With a drawing tablet, pressing harder widens the Brush / Eraser (Settings → General → Pen Tablet) |
+| Pen pressure | With a drawing tablet, pressure sets Brush / Eraser size and (optionally) opacity, and the mix brush's paint. **View → Pen Pressure** panel: live meter, per-target lightest-touch sliders, curve |
 | `Ctrl+Wheel` | Brush size presets (1/3/5/7) |
 | `` ` `` | Toggle brush preview / cursor visibility |
 | `\` | Toggle brush shape / cursor shape |

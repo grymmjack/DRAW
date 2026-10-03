@@ -38,7 +38,15 @@ The Organizer widget on the left contains **four brush size presets** (1, 3, 5, 
 
 ### Pen Tablets & Pressure
 
-DRAW reads **pen pressure** from a drawing tablet: Wacom, Huion, XP-Pen and Surface Pen are all supported, plus a Force Touch trackpad on a Mac. Press harder for a wider Brush or Eraser stroke, and lighter for a thinner one. The width changes smoothly within a single stroke. A mouse is never affected.
+DRAW reads **pen pressure** from a drawing tablet: Wacom, Huion, XP-Pen and Surface Pen are all supported, plus a Force Touch trackpad on a Mac. Pressure can change the Brush and Eraser **size** and **opacity**, and how much paint the mix brush lays down. It changes smoothly within a single stroke. A mouse is never affected.
+
+**View → Pen Pressure** opens a small panel with everything in one place:
+- **Live meter:** shows how hard you're pressing.
+- **Size, Opacity, Mix Paint:** each has a checkbox and a **LIGHT** slider, which is the value at the lightest touch. Full pressure always gives 100%.
+- **Curve slider:** shapes the response; 1.00 is linear.
+- **Response graph:** plots the curve, with a dot that follows your pen.
+
+Opacity by pressure shows live as you draw. Going over the same spot again never builds the paint up past the strongest pressure you used there.
 
 - **Setup.** Install the tablet maker's driver.
   - **Windows:** leave **Windows Ink** turned on in the driver's pen settings.
@@ -48,8 +56,9 @@ DRAW reads **pen pressure** from a drawing tablet: Wacom, Huion, XP-Pen and Surf
   - **Pen Pressure** turns the feature on or off.
   - **Pressure Sets Brush Size** controls whether pressure changes the size. It applies to brushes bigger than 1px; a 1px pencil stays 1px.
   - **Lightest Touch Size %** is the size at the lightest touch (default 20% of the brush).
-  - **Pressure Curve** sets how pressure maps to size. 100 is linear, lower makes light touches count more, and higher means you press harder.
-  - **Pressure Sets Mix Paint**: with the mix brush, a light touch smears and full pressure lays paint.
+  - **Pressure Curve** sets how pressure maps to size, opacity and paint. 100 is linear, lower makes light touches count more, and higher means you press harder.
+  - **Pressure Sets Opacity** and **Lightest Touch Opacity %** (default 10%): a light touch paints faintly. Off by default.
+  - **Pressure Sets Mix Paint** and **Lightest Touch Paint %**: with the mix brush, a light touch smears and full pressure lays paint.
 - **Export.** Pressure-varied strokes export to BAS/QB64 as pixels.
 
 ## Lines, Rectangles & Ellipses
