@@ -176,6 +176,8 @@ Why:
 | Undo broken after Palette Random | `_DEST _CONSOLE` debug prints corrupted `_DEST` | Remove all `_DEST _CONSOLE`; use `_LOGINFO` |
 | Double history states per brush stroke | Missing `HISTORY_saved_this_frame%` check | Always check flag before recording |
 | Dead undo step after no-op selection click | Selection history pushed before mutation, even when state did not change | Stage selection first, then commit only if the post-mutation state differs |
+| Undo / redo made soft edges and translucent strokes darker and fainter each time | `HISTORY_apply_layer_snapshot` cleared the layer, then `_PUTIMAGE`'d the snapshot with blending on. With both images blending, QB64 composites onto the cleared black, so RGB is multiplied by alpha (126 at 50% came back as 63) | `_DONTBLEND` the layer around the `_PUTIMAGE` so the snapshot is copied exactly. **Rule: restoring pixels is a copy, never a composite.** The PNG-import fallback in `DRW.BM` had the same bug |
+| 50% Opacity strokes on empty pixels stored as dark gray | `STROKE_commit` lerped RGB toward the transparent backup pixel's black | Interpolate in premultiplied space, then un-premultiply (LONG math: products reach 65025) |
 
 ---
 
