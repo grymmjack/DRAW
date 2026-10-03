@@ -448,6 +448,7 @@ TYPE DRAW_CONFIG
     PEN_MIX_MIN                     AS INTEGER        ' Mix brush: paint laid at the lightest touch, percent of the full amount (0-100)
     PEN_PRESSURE_OPACITY            AS INTEGER        ' Pressure scales the Brush / Eraser opacity (applied live, no compounding)
     PEN_MIN_OPACITY                 AS INTEGER        ' Opacity at the lightest touch, percent (0-100)
+    PEN_TIP_THRESHOLD               AS INTEGER        ' Pen draws only once pressure reaches this percent (0-50); ignores grazes that register as clicks
     PEN_PANEL_VISIBLE               AS INTEGER        ' TRUE = Pen Pressure panel open at startup
     PEN_PANEL_X                     AS INTEGER        ' Last panel X (-1 = auto-position)
     PEN_PANEL_Y                     AS INTEGER        ' Last panel Y (-1 = auto-position)

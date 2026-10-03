@@ -34,8 +34,12 @@ TYPE PEN_OBJ
     segP1     AS SINGLE  ' pressure at the end of the current segment
     dabP      AS SINGLE  ' pressure of the dab being drawn (read by the mix brush)
     usingPen  AS INTEGER ' the current segment is pen-driven (pressure applies)
+    skipSeg   AS INTEGER ' this segment is below the tip threshold: draw nothing
+    painted   AS INTEGER ' the current stroke has drawn at least one segment
+    penSeen   AS INTEGER ' the current stroke had at least one pen-driven segment
     ' Pressure -> opacity (one stroke at a time; see PEN_opacity_begin)
     opStroke  AS INTEGER ' TRUE while this stroke's opacity follows pressure
+    opErase   AS INTEGER ' TRUE when that stroke erases (Eraser / transparent paint)
     dabOp     AS SINGLE  ' opacity 0..1 of the dab being drawn (includes PAINT_OPACITY)
     opBakImg  AS LONG    ' layer snapshot at stroke start (buffer coords incl. apron)
     opW       AS LONG

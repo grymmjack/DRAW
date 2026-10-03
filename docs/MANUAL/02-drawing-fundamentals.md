@@ -44,6 +44,7 @@ DRAW reads **pen pressure** from a drawing tablet: Wacom, Huion, XP-Pen and Surf
 - **Live meter:** shows how hard you're pressing.
 - **Size, Opacity, Mix Paint:** each has a checkbox and a **LIGHT** slider, which is the value at the lightest touch. Full pressure always gives 100%.
 - **Curve slider:** shapes the response; 1.00 is linear.
+- **TIP slider:** the tip threshold. The pen draws only once it presses at least this hard (default 3%). It's shown as a red mark on the meter. This stops stray dots when the pen grazes the tablet and registers a click. A graze that never passes the threshold draws nothing and adds no undo step.
 - **Response graph:** plots the curve, with a dot that follows your pen.
 
 Opacity by pressure shows live as you draw. Going over the same spot again never builds the paint up past the strongest pressure you used there.
@@ -56,7 +57,8 @@ Opacity by pressure shows live as you draw. Going over the same spot again never
   - **Pen Pressure** turns the feature on or off.
   - **Pressure Sets Brush Size** controls whether pressure changes the size. It applies to brushes bigger than 1px; a 1px pencil stays 1px.
   - **Lightest Touch Size %** is the size at the lightest touch (default 20% of the brush).
-  - **Pressure Curve** sets how pressure maps to size, opacity and paint. 100 is linear, lower makes light touches count more, and higher means you press harder.
+  - **Pressure Curve** sets how pressure maps to size, opacity and paint.
+  - **Tip Threshold %** is the pressure the pen needs before it draws (default 3%). 100 is linear, lower makes light touches count more, and higher means you press harder.
   - **Pressure Sets Opacity** and **Lightest Touch Opacity %** (default 10%): a light touch paints faintly. Off by default.
   - **Pressure Sets Mix Paint** and **Lightest Touch Paint %**: with the mix brush, a light touch smears and full pressure lays paint.
 - **Export.** Pressure-varied strokes export to BAS/QB64 as pixels.

@@ -49,6 +49,9 @@ SUB PEN_stroke_begin ()
     TABLET.segP1     = 1
     TABLET.dabP      = 1
     TABLET.usingPen  = FALSE
+    TABLET.skipSeg   = FALSE
+    TABLET.painted   = FALSE
+    TABLET.penSeen   = FALSE
 END SUB
 
 ''
@@ -76,17 +79,37 @@ END FUNCTION
 '
 SUB PEN_segment_begin ()
     TABLET.usingPen = PEN_active%
+    TABLET.skipSeg  = FALSE
     IF NOT TABLET.usingPen THEN
         TABLET.segP0 = 1: TABLET.segP1 = 1: TABLET.dabP = 1
         IF TABLET.opStroke THEN TABLET.dabOp = PAINT_OPACITY% / 100!
+        TABLET.painted = TRUE
         EXIT SUB
     END IF
+    TABLET.penSeen = TRUE
+    ' Tip threshold: a pen that grazes the tablet can report a click at almost
+    ' no pressure. Draw nothing until the pen presses at least this hard.
+    IF CFG.PEN_TIP_THRESHOLD% > 0 _ANDALSO PD_pressure! < CFG.PEN_TIP_THRESHOLD% / 100! THEN
+        TABLET.skipSeg = TRUE
+        TABLET.segP0   = -1 ' resume from the real pressure, not a stale one
+        EXIT SUB
+    END IF
+    TABLET.painted = TRUE
     TABLET.segP1 = PEN_stroke_pressure!
     IF TABLET.segP0 < 0 THEN TABLET.segP0 = TABLET.segP1
     TABLET.dabP = TABLET.segP1
     ' Paths that don't interpolate per dab (pixel perfect) use the segment's end.
     IF TABLET.opStroke THEN TABLET.dabOp = PEN_opacity_for!(TABLET.segP1)
 END SUB
+
+''
+' TRUE when a pen stroke drew nothing (it never passed the tip threshold), so
+' no undo step should be recorded for it. Strokes that never ran a pen segment
+' (mouse, custom brush, smart erase) are never "empty".
+'
+FUNCTION PEN_stroke_empty% ()
+    PEN_stroke_empty% = TABLET.penSeen _ANDALSO NOT TABLET.painted
+END FUNCTION
 
 SUB PEN_segment_end ()
     TABLET.segP0 = TABLET.segP1
@@ -187,6 +210,7 @@ SUB PEN_opacity_begin ()
     TABLET_MASK_MEM = _MEMNEW(TABLET.opW * TABLET.opH)
     _MEMFILL TABLET_MASK_MEM, TABLET_MASK_MEM.OFFSET, TABLET_MASK_MEM.SIZE, 0 AS _UNSIGNED _BYTE
     TABLET.dabOp    = PAINT_OPACITY% / 100!
+    TABLET.opErase  = (_ALPHA32(DRAW_COLOR~&) = 0)
     TABLET.opStroke = TRUE
     ' Per-pixel opacity can't be replayed as fixed brush calls: export as pixels.
     BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
@@ -218,8 +242,9 @@ END FUNCTION
 ' Write one pixel of a pressure-opacity stroke at BUFFER coords (bx, by) on
 ' the current _DEST (the layer). The pixel becomes the stroke-start pixel with
 ' col composited over it at the strongest opacity reached there this stroke
-' (TABLET.dabOp x coverage), composited straight-alpha source-over. A
-' transparent col (eraser) removes that share of the original alpha instead.
+' (TABLET.dabOp x coverage), composited straight-alpha source-over. In an
+' erasing stroke a transparent col removes that share of the original alpha;
+' in a painting stroke it is a pattern hole and the pixel is left alone.
 ' Leaves the layer in _BLEND, or _DONTBLEND for a transparent col.
 '
 SUB PEN_op_write (bx AS LONG, by AS LONG, col AS _UNSIGNED LONG, coverage AS SINGLE)
@@ -227,6 +252,9 @@ SUB PEN_op_write (bx AS LONG, by AS LONG, col AS _UNSIGNED LONG, coverage AS SIN
     DIM bk AS _UNSIGNED LONG, c AS _UNSIGNED LONG
     IF bx& < 0 OR by& < 0 OR bx& >= TABLET.opW OR by& >= TABLET.opH THEN EXIT SUB
     c~& = col~&
+    ' A transparent color only erases in an erasing stroke. When painting, it is
+    ' a hole in a pattern / gradient: leave the pixel as it is (as plain PSET does).
+    IF _ALPHA32(c~&) = 0 _ANDALSO NOT TABLET.opErase THEN EXIT SUB
     idx& = by& * TABLET.opW + bx&
     m% = _MEMGET(TABLET_MASK_MEM, TABLET_MASK_MEM.OFFSET + idx&, _UNSIGNED _BYTE)
     e% = INT(TABLET.dabOp * coverage! * 255 + 0.5)

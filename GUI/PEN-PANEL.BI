@@ -29,6 +29,7 @@ CONST PENP_CTL_OPAC      = 5
 CONST PENP_CTL_MIX_ON    = 6
 CONST PENP_CTL_MIX       = 7
 CONST PENP_CTL_CURVE     = 8
+CONST PENP_CTL_TIP       = 9
 
 ' Layout (native px, y of each row's top)
 CONST PENP_Y_STATUS  = 18
@@ -38,9 +39,10 @@ CONST PENP_Y_SIZE    = 60
 CONST PENP_Y_OPAC    = 90
 CONST PENP_Y_MIX     = 120
 CONST PENP_Y_CURVE   = 150
-CONST PENP_Y_GRAPH   = 176
+CONST PENP_Y_TIP     = 175
+CONST PENP_Y_GRAPH   = 194
 CONST PENP_GRAPH_H   = 48
-CONST PENP_H         = 230 ' native panel height incl. title
+CONST PENP_H         = 248 ' native panel height incl. title
 CONST PENP_TRACK_X0  = 52  ' slider track (native x)
 CONST PENP_TRACK_X1  = 150
 

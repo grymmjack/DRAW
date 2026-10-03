@@ -48,6 +48,13 @@ because **`PEN` is a QB64 keyword**; using it fails with "Name already in use".
   before or after the button changes, which otherwise starts a stroke with a blob
   or ends it with a hairline flick. The curve `PD_curve!(p, PEN_PRESSURE_CURVE/100)`
   is applied after the filter.
+- **Tip threshold** (`CFG.PEN_TIP_THRESHOLD`, default 3%). A pen grazing the
+  tablet registers clicks at almost no pressure, which left stray dots along the
+  hover path. `PEN_segment_begin` sets `TABLET.skipSeg` while raw pressure is
+  below the threshold, and `PAINT_on` then draws nothing for that segment.
+  `PEN_stroke_empty%` (a pen stroke that never passed the threshold) suppresses
+  the undo record in `MOUSE_release_brush`. Strokes with no pen segment (mouse,
+  custom brush, smart erase) are never "empty".
 - **Mix brush.** `BMIX_apply` uses `PEN_mix_smudge%(CFG.BRUSH_MIX_SMUDGE)`: the
   paint each dab lays is scaled by `PEN_range!(dabP, CFG.PEN_MIX_MIN)`, so a light
   touch smears more.
@@ -60,8 +67,11 @@ because **`PEN` is a QB64 keyword**; using it fails with "Name already in use".
     keeps the **strongest** opacity reached at each pixel in the mask and
     recomposites the pixel from the snapshot: straight-alpha source-over, done in
     code because `_BLEND` mixes a transparent destination's black RGB in and
-    darkens light strokes. A transparent color erases that share of the original
-    alpha.
+    darkens light strokes. In an **erasing** stroke (`TABLET.opErase`: Eraser, or
+    transparent paint at press), a transparent color erases that share of the
+    original alpha. In a **painting** stroke, a transparent resolved color is a
+    pattern or gradient hole and leaves the pixel alone, as a plain PSET does.
+    (Treating holes as erase made pattern strokes punch holes and flicker.)
   - Overlaps never compound, and the result shows **live** while drawing.
   - `STROKE_begin` stands aside (`TABLET.opStroke`), and the plain Opacity
     setting is folded into `TABLET.dabOp`.
