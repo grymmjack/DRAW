@@ -500,6 +500,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `TOOLS/FILL-ADJ.BI/BM`   | Interactive Fill Adjustment overlay (F8) for custom brush and paint mode tiled fills; L-handle for independent X/Y scaling; rotation handle |
 | `GUI/SMART-GUIDES.BI/BM`  | Smart guide alignment lines for move tool; action IDs 910/911; rendered after selection overlay in SCREEN_render |
 | `GUI/COLOR-MIXER.BI/BM`  | Floating Color Mixer panel for live RGB/HSV color editing; toggle via View → Color Mixer (action 2021); visibility state persisted in cfg |
+| `GUI/COLOR-SPACE-3D.BI/BM` | Floating 3D Color Space panel wrapping the `includes/QB64_GJ_LIB/COLOR` COLOR-3D widget (sRGB gamut solid / point cloud in OKLab, CIELAB, XYZ, RGB; lightness slice; click → FG); action 2024; `REGION_COLOR_SPACE_3D=29`; view state in `CFG.COLOR_SPACE_3D_*`. See `.claude/instructions/draw-color-spaces.md` |
 | `GUI/ADV-COLOR-PICKER.BI/BM` | Floating Advanced Color Picker panel wrapping the `includes/QB64_GJ_LIB/ADV_COLOR_PICKER` widget (hue ring + SV triangle + shade selector + history); toggle via View → Advanced Color Picker (action 2023 / `Ctrl+Shift+M` / middle-click Color Mixer button); `REGION_ADV_COLOR_PICKER=28`; all config in `CFG.ADV_COLOR_PICKER_*` (Settings → Panels) |
 | `GUI/SYMBOL.BI/BM`       | Symbol layer system — parent/child linked layers with auto-sync, scaling, rasterize, and detach; `LAYER_TYPE_SYMBOL_PARENT` / `LAYER_TYPE_SYMBOL_CHILD` |
 | `GUI/CROSSHAIR.BI/BM`    | Crosshair assistant line rendering with configurable outline stroke |

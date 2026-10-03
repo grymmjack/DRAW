@@ -57,6 +57,48 @@ The **Color Mixer panel** is a floating, persistent alternative to the modal pic
 
 Because the mixer is non-modal, you can keep it open while drawing and tweak colors live. Its visibility is persisted in `DRAW.cfg`.
 
+### 3D Color Space — OKLab, CIELAB, XYZ & RGB
+
+`View → 3D Color Space` opens a floating panel that shows every color your screen can display (the sRGB gamut) as a 3D solid. Different color spaces arrange those same colors differently:
+
+- **OKLAB** (default): a perceptual space (Björn Ottosson, 2020). Equal distances look like equal differences to your eye. It looks like a tilted droplet with black at the bottom and white at the top.
+- **LAB**: CIELAB (1976), the classic perceptual space.
+- **XYZ**: the CIE 1931 space that all the others are defined from.
+- **RGB**: the familiar RGB cube, standing on its black-white diagonal.
+
+How to use it:
+
+- **Left-click or left-drag on the solid** to pick the color under the cursor. It becomes your FG color, and what you see is exactly what you get.
+- **Right-drag or middle-drag**, or left-drag on empty space, to spin the view. The **wheel** zooms.
+- **SOLID / CLOUD** switches between the gamut's surface and a grid of color dots through the whole volume.
+- **SLICE** cuts the solid at a lightness you set with the slider. The cut face shows every color at that lightness, so interior colors become pickable.
+- The readout below the view shows the hovered (or current) color in hex/RGB, OKLab, OKLCh, CIELAB and XYZ.
+
+The panel auto-hides while you draw over it and is included in `F11` (hide/show all UI). The space, view, slice, rotation and zoom are remembered in `DRAW.cfg`.
+
+### Perceptual Gradients & OKLCh Ramps
+
+Gradient fills blend in **OKLab** by default (`Settings → Panels → Color Blending + Ramps → Gradient Blend`). Plain RGB blends sag in the middle: red→green passes through a muddy olive. OKLab passes through a clean yellow-orange instead. Choose *sRGB (classic)* for the old behavior, *Linear light* for physically mixed light, or *Pigment (paint)* to blend like mixed paint (see below).
+
+`Palette → Generate OKLCh Ramp from FG` turns the FG color into a new palette: an evenly spaced dark-to-light ramp of the same hue. It's saved under your *Created* palettes as `Ramp RRGGBB` and selected straight away. The same Settings section controls the number of colors, the darkest and lightest lightness, a hue shift at the ends (warmer lights and cooler darks), and how much color the ends keep.
+
+### Pigment Mixing — Mix Brush & Mix Palettes
+
+Light mixes additively, so on a screen blue + yellow makes gray. Paint mixes *subtractively*: each pigment absorbs part of the spectrum, so blue + yellow paint makes green. DRAW models paint with **Kubelka–Munk** pigment mixing, using a port of [Spectral.js](https://github.com/rvanwijnen/spectral.js).
+
+- **`Brush → Mix Colors (Pigment)`** turns on the mix brush. The brush picks up the colors it crosses and smears them along, mixing them with your paint like wet paint (a smudge model after MyPaint's).
+  - Blue dragged through yellow paints green, and through red a deep brown.
+  - The brush stays wet: carry it off the paint and it keeps laying down the mixed color for a while.
+  - **Smudge** (default 50%) is how much of each dab is the picked-up color. 0% means plain paint; 100% is a pure smudge tool that only pushes existing paint around.
+  - **Smudge Length** (default 50%) is how long the brush holds a color. Low values follow the canvas closely; high values drag colors far; 100% keeps the first color picked up.
+  - **Smudge Radius** (default 100%) is how big an area under the brush is sampled.
+  - The brush samples the layer as it was when you started the stroke.
+  - All three are in `Settings → Panels → Color Blending + Ramps`.
+  - The eraser and custom brushes don't mix.
+  - Pixel-perfect mode and undo work as usual.
+- **`Palette → Generate Pigment Mix FG > BG`** makes a palette that mixes the FG color into the BG color like paint. It's saved under *Created* palettes as `Mix RRGGBB-RRGGBB`. The number of colors comes from the *Ramp Colors* setting. The BG can't be transparent.
+- The *Pigment (paint)* gradient blend (above) applies the same mixing to gradient fills.
+
 > DRAW's various color widgets and doo-dads
 > ![Color Widgets](images/ch03-color-widgets.png)
 > 1. Color Mixer — `View → Color Mixer`

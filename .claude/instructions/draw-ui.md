@@ -77,6 +77,11 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 2012–2020 | Preview Win  | PreviewWindowSubmenu(2012), FollowMode(2013), FloatingImageMode(2014), BinQuickLook(2015), AllowColorPicking(2016), LoadImage(2017), RecentImages(2018), ClearRecentImages(2019), GrayscalePreview(2020) |
 | 2021      | Color Mixer  | ToggleColorMixer(2021) |
 | 2023      | Advanced Color Picker | ToggleAdvColorPicker(2023) — View menu, `Ctrl+Shift+M`, middle-click the Color Mixer organizer button |
+| 2024      | 3D Color Space | Toggle3DColorSpace(2024) — View menu, command palette (`GUI/COLOR-SPACE-3D`) |
+| 2025      | OKLCh Ramp   | GenerateOklchRamp(2025) — Palette menu, command palette (`PALETTE_LOADER_create_oklch_ramp`) |
+| 2026      | Mix Brush    | ToggleMixBrush(2026) — Brush menu checkbox, command palette; `CFG.BRUSH_MIX%` (`TOOLS/BRUSH-MIX`) |
+| 2027      | Pigment Mix  | GeneratePigmentMix(2027) — Palette menu, command palette (`PALETTE_LOADER_create_pigment_mix`) |
+| 2028      | Pen Pressure | TogglePenPanel(2028) — View menu checkbox, command palette (`GUI/PEN-PANEL`, `PENP_toggle`) |
 | 2022      | Browser      | ToggleBrowser(2022) |
 | 2050–2054 | Character Map | ToggleCharMap(2050), DockLeft(2051), DockRight(2052), ToggleCharGrid(2053), ToggleSnapToCharGrid(2054) |
 | 2100      | Settings     | ACTION_SETTINGS — open Settings dialog (Ctrl+,; Ctrl+punctuation handled in `KEYBOARD_input_handler`, see CLAUDE.md gotcha #6); tabbed UI in `GUI/SETTINGS-TABS.BM` incl. Display tab's master UI Scale, and Panels tab's *Warn Drawing on Group* / *Auto-Add Layer to Group* (`CFG.GROUP_DRAW_NOTIFY%` / `CFG.GROUP_DRAW_AUTO_LAYER%`) |

@@ -836,6 +836,129 @@ END SUB
 
 
 ''
+' Palette > Generate OKLCh Ramp from FG: write a perceptually even dark -> light
+' ramp of the FG color's hue (QB64_GJ_LIB CLR_oklch_ramp; steps, lightness range,
+' end hue shift and end chroma from the CFG.RAMP_* settings) to
+' PALETTES/CREATED/Ramp RRGGBB.gpl, rescan, and switch to it.
+'
+SUB PALETTE_LOADER_create_oklch_ramp ()
+    DIM baseCol AS _UNSIGNED LONG
+    IF PAL_FG_IS_TRANSPARENT% THEN
+        ERR_info "OKLCh Ramp: the FG color is transparent; pick a color first"
+        EXIT SUB
+    END IF
+    baseCol~& = PAINT_COLOR~& OR &HFF000000~&
+
+    DIM steps AS INTEGER : steps% = CFG.RAMP_STEPS%
+    IF steps% < 2 THEN steps% = 2
+    IF steps% > 32 THEN steps% = 32
+    DIM lMin AS SINGLE, lMax AS SINGLE
+    lMin! = CFG.RAMP_L_MIN% / 100! : lMax! = CFG.RAMP_L_MAX% / 100!
+    IF lMin! < 0 THEN lMin! = 0
+    IF lMax! > 1 THEN lMax! = 1
+    IF lMax! <= lMin! THEN lMin! = 0.15 : lMax! = 0.95
+    DIM hueShift AS SINGLE : hueShift! = CFG.RAMP_HUE_SHIFT%
+    DIM chromaEnd AS SINGLE : chromaEnd! = CFG.RAMP_CHROMA_END% / 100!
+    IF chromaEnd! < 0 THEN chromaEnd! = 0
+    IF chromaEnd! > 1 THEN chromaEnd! = 1
+
+    DIM ramp(0 TO 31) AS _UNSIGNED LONG
+    CLR_oklch_ramp baseCol~&, steps%, lMin!, lMax!, hueShift!, chromaEnd!, ramp()
+
+    PALETTE_LOADER_ensure_user_dirs
+    DIM hexName     AS STRING : hexName$ = RIGHT$("000000" + HEX$(baseCol~& AND &HFFFFFF), 6)
+    DIM newPalName  AS STRING : newPalName$ = "Ramp " + hexName$
+    DIM newFilePath AS STRING : newFilePath$ = PATHS_data$("PALETTES/CREATED/") + newPalName$ + ".gpl"
+    DIM fh AS INTEGER : fh% = FREEFILE
+    OPEN newFilePath$ FOR OUTPUT AS #fh%
+    PRINT #fh%, "GIMP Palette"
+    PRINT #fh%, "Name: " + newPalName$
+    PRINT #fh%, "Columns: " + _TRIM$(STR$(steps%))
+    PRINT #fh%, "# OKLCh ramp of #" + hexName$ + " (DRAW, Palette > Generate OKLCh Ramp from FG)"
+    DIM i AS INTEGER
+    FOR i% = 0 TO steps% - 1
+        PRINT #fh%, _TRIM$(STR$(_RED32(ramp(i%)))) + " " + _TRIM$(STR$(_GREEN32(ramp(i%)))) + " " + _TRIM$(STR$(_BLUE32(ramp(i%)))) + " Ramp " + _TRIM$(STR$(i% + 1))
+    NEXT i%
+    CLOSE #fh%
+    _LOGINFO "PALETTE_LOADER_create_oklch_ramp: saved " + _TRIM$(STR$(steps%)) + " colors to " + newFilePath$
+
+    ' Reload the palette list and switch to the new palette.
+    PALETTE_LOADER_COUNT% = 0
+    PALETTE_LOADER_scan_folder "./ASSETS/PALETTES"
+    PALETTE_LOADER_scan_user_folders
+    PALETTE_PREVIEW_invalidate_all
+    DIM newIdx AS INTEGER : newIdx% = -1
+    DIM pi     AS INTEGER
+    FOR pi% = 0 TO PALETTE_LOADER_COUNT% - 1
+        IF RTRIM$(PALETTE_LIST(pi%).filename) = newFilePath$ THEN newIdx% = pi% : EXIT FOR
+    NEXT pi%
+    IF newIdx% >= 0 THEN
+        DIM dummy AS INTEGER : dummy% = PALETTE_LOADER_load_by_index%(newIdx%)
+        GUI_NEEDS_REDRAW% = TRUE
+        SCENE_DIRTY%      = TRUE
+    END IF
+END SUB
+
+
+''
+' Palette > Generate Pigment Mix FG > BG (action 2027): CFG.RAMP_STEPS colors
+' mixed from FG to BG like paint (QB64_GJ_LIB COLOR-PIGMENT, Kubelka-Munk), so
+' blue > yellow passes through green instead of gray. Saved as
+' "Mix RRGGBB-RRGGBB.gpl" in the user's PALETTES/CREATED folder and loaded.
+'
+SUB PALETTE_LOADER_create_pigment_mix ()
+    DIM fgCol AS _UNSIGNED LONG, bgCol AS _UNSIGNED LONG
+    IF PAL_FG_IS_TRANSPARENT% OR PAL_BG_IS_TRANSPARENT% THEN
+        ERR_info "Pigment Mix: FG and BG must both be colors (not transparent)"
+        EXIT SUB
+    END IF
+    fgCol~& = PAINT_COLOR~& OR &HFF000000~&
+    bgCol~& = PAINT_BG_COLOR~& OR &HFF000000~&
+
+    DIM steps AS INTEGER : steps% = CFG.RAMP_STEPS%
+    IF steps% < 2 THEN steps% = 2
+    IF steps% > 32 THEN steps% = 32
+    DIM mixCols(0 TO 31) AS _UNSIGNED LONG
+    DIM i AS INTEGER
+    FOR i% = 0 TO steps% - 1
+        mixCols(i%) = PGM_mix~&(fgCol~&, bgCol~&, i% / (steps% - 1))
+    NEXT i%
+
+    PALETTE_LOADER_ensure_user_dirs
+    DIM fgHex AS STRING : fgHex$ = RIGHT$("000000" + HEX$(fgCol~& AND &HFFFFFF), 6)
+    DIM bgHex AS STRING : bgHex$ = RIGHT$("000000" + HEX$(bgCol~& AND &HFFFFFF), 6)
+    DIM newPalName  AS STRING : newPalName$ = "Mix " + fgHex$ + "-" + bgHex$
+    DIM newFilePath AS STRING : newFilePath$ = PATHS_data$("PALETTES/CREATED/") + newPalName$ + ".gpl"
+    DIM fh AS INTEGER : fh% = FREEFILE
+    OPEN newFilePath$ FOR OUTPUT AS #fh%
+    PRINT #fh%, "GIMP Palette"
+    PRINT #fh%, "Name: " + newPalName$
+    PRINT #fh%, "Columns: " + _TRIM$(STR$(steps%))
+    PRINT #fh%, "# Pigment mix #" + fgHex$ + " > #" + bgHex$ + " (DRAW, Palette > Generate Pigment Mix FG > BG)"
+    FOR i% = 0 TO steps% - 1
+        PRINT #fh%, _TRIM$(STR$(_RED32(mixCols(i%)))) + " " + _TRIM$(STR$(_GREEN32(mixCols(i%)))) + " " + _TRIM$(STR$(_BLUE32(mixCols(i%)))) + " Mix " + _TRIM$(STR$(i% + 1))
+    NEXT i%
+    CLOSE #fh%
+    _LOGINFO "PALETTE_LOADER_create_pigment_mix: saved " + _TRIM$(STR$(steps%)) + " colors to " + newFilePath$
+
+    ' Reload the palette list and switch to the new palette.
+    PALETTE_LOADER_COUNT% = 0
+    PALETTE_LOADER_scan_folder "./ASSETS/PALETTES"
+    PALETTE_LOADER_scan_user_folders
+    PALETTE_PREVIEW_invalidate_all
+    DIM newIdx AS INTEGER : newIdx% = -1
+    DIM pi     AS INTEGER
+    FOR pi% = 0 TO PALETTE_LOADER_COUNT% - 1
+        IF RTRIM$(PALETTE_LIST(pi%).filename) = newFilePath$ THEN newIdx% = pi% : EXIT FOR
+    NEXT pi%
+    IF newIdx% >= 0 THEN
+        DIM dummy AS INTEGER : dummy% = PALETTE_LOADER_load_by_index%(newIdx%)
+        GUI_NEEDS_REDRAW% = TRUE
+        SCENE_DIRTY%      = TRUE
+    END IF
+END SUB
+
+''
 ' Show a modal dialog asking the user for the maximum number of colors to extract,
 ' then call PALETTE_LOADER_create_from_image.
 '

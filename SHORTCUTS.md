@@ -144,8 +144,9 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+Shift+F5` | Reload theme (hot-reload colors + icons) |
 | `Ctrl+M` | Toggle Character Map panel |
 | `Ctrl+Shift+M` | Toggle Advanced Color Picker panel |
+| — | Toggle 3D Color Space panel (View menu / command palette) |
 | `F10` | Toggle status bar |
-| `F11` | Toggle ALL UI (now also hides/shows the Advanced Color Picker) |
+| `F11` | Toggle ALL UI (also hides/shows the Advanced Color Picker and 3D Color Space panels) |
 | `Alt+Enter` | Toggle fullscreen (also **View → Fullscreen** / command palette; live, no restart, persists across launches) |
 | `Ctrl+F11` | Toggle menu bar |
 | `Ctrl+Shift+Up` | Hide/show menu bar (alt binding) |
@@ -402,6 +403,7 @@ Middle-click the Text toolbar icon → load TTF/OTF. **TheDraw (TDF)** fonts: `[
 | Keys | Action |
 |------|--------|
 | `[` / `]` | Brush size − / + (fine, ±1) |
+| Pen pressure | With a drawing tablet, pressure sets Brush / Eraser size and (optionally) opacity, and the mix brush's paint. **View → Pen Pressure** panel: live meter, per-target lightest-touch sliders, curve |
 | `Ctrl+Wheel` | Brush size presets (1/3/5/7) |
 | `` ` `` | Toggle brush preview / cursor visibility |
 | `\` | Toggle brush shape / cursor shape |
@@ -468,7 +470,7 @@ Follow / Floating-Image modes (View → Preview Window). `Alt+Click` pick FG (CP
 `F1/F2/F3` Brush/Gradient/Pattern mode · `L-Click slot` select · `Shift+L-Click` store current · `R-Click` context menu · `M-Click` cycle mode · `Shift+M-Click` clear slot · `Shift+R-Click` import into slot · `L/R-Click mini palette` set FG/BG.
 
 ### Color Mixer / Advanced Color Picker / Image Browser
-View → Color Mixer (RGB/HSV sliders, hex). **View → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Dbl-Click title` maximize.
+View → Color Mixer (RGB/HSV sliders, hex). **View → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. **View → 3D Color Space**: the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB — `L-Click`/drag the solid → set FG · `R-Drag`/`M-Drag` (or `L-Drag` off the solid) spin · `Wheel` zoom · SOLID/CLOUD · SLICE + slider cut at a lightness. **Palette → Generate OKLCh Ramp from FG** makes an even dark→light palette (Settings → Panels → Color Blending + Ramps). **Brush → Mix Colors (Pigment)** makes the brush pick up and smear the colors it crosses, mixing like wet paint (blue through yellow = green; Smudge / Smudge Length / Smudge Radius in Settings); **Palette → Generate Pigment Mix FG > BG** makes a paint-mixed FG→BG palette. View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Dbl-Click title` maximize.
 
 ---
 

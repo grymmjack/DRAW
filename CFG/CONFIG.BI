@@ -418,6 +418,40 @@ TYPE DRAW_CONFIG
     ADV_COLOR_PICKER_SHADE_LABELS   AS INTEGER        ' TRUE = show a name label above each shade row
     ADV_COLOR_PICKER_SHADE_CURVE    AS INTEGER        ' 0 = linear spread; 1 = exponential (ends more severe)
     ADV_COLOR_PICKER_HUE_NEIGHBORS  AS INTEGER        ' Hue-neighbors ± range (deg); draggable on the ring
+    ' 3D Color Space picker (GUI/COLOR-SPACE-3D, QB64_GJ_LIB COLOR-3D widget)
+    COLOR_SPACE_3D_VISIBLE          AS INTEGER        ' TRUE = 3D color space panel open at startup
+    COLOR_SPACE_3D_X                AS INTEGER        ' Last panel X (-1 = auto-position)
+    COLOR_SPACE_3D_Y                AS INTEGER        ' Last panel Y (-1 = auto-position)
+    COLOR_SPACE_3D_SPACE            AS INTEGER        ' 0=OKLab, 1=CIELAB, 2=XYZ, 3=RGB
+    COLOR_SPACE_3D_VIEW             AS INTEGER        ' 0=solid, 1=point cloud
+    COLOR_SPACE_3D_SLICE_ON         AS INTEGER        ' TRUE = lightness slice cuts the solid
+    COLOR_SPACE_3D_SLICE            AS INTEGER        ' Slice lightness, percent (0-100)
+    COLOR_SPACE_3D_YAW              AS INTEGER        ' View yaw, degrees
+    COLOR_SPACE_3D_PITCH            AS INTEGER        ' View pitch, degrees (-89..89)
+    COLOR_SPACE_3D_ZOOM             AS INTEGER        ' View zoom, percent (40-300)
+    ' Color blending / ramps (QB64_GJ_LIB COLOR-SPACES)
+    GRADIENT_BLEND_SPACE            AS INTEGER        ' Gradient fill blend space: 0=sRGB, 1=OKLab (perceptual), 2=linear light, 3=pigment
+    RAMP_STEPS                      AS INTEGER        ' OKLCh ramp: colors generated (2-32)
+    RAMP_L_MIN                      AS INTEGER        ' OKLCh ramp: darkest lightness, percent (0-100)
+    RAMP_L_MAX                      AS INTEGER        ' OKLCh ramp: lightest lightness, percent (0-100)
+    RAMP_HUE_SHIFT                  AS INTEGER        ' OKLCh ramp: hue shift at the ends, degrees (-60..60; + = warm lights/cool darks)
+    RAMP_CHROMA_END                 AS INTEGER        ' OKLCh ramp: chroma kept at the ends, percent of the base (0-100)
+    BRUSH_MIX                       AS INTEGER        ' Mix brush: the brush picks up and smears the colors it crosses, mixing like paint (pigment)
+    BRUSH_MIX_SMUDGE                AS INTEGER        ' Mix brush: smudge color's share of each dab, percent (0 = plain paint, 100 = pure smudge)
+    BRUSH_MIX_LENGTH                AS INTEGER        ' Mix brush: share of the smudge color kept at each sample, percent (0 = follows the canvas instantly, 100 = never changes)
+    BRUSH_MIX_RADIUS                AS INTEGER        ' Mix brush: canvas sample disc, percent of the brush radius (25-400)
+    PEN_PRESSURE                    AS INTEGER        ' Pen tablet pressure (QB64_GJ_LIB PRESSURE_DEVICE); no effect with a mouse
+    PEN_PRESSURE_SIZE               AS INTEGER        ' Pressure scales the Brush / Eraser size per dab
+    PEN_MIN_SIZE                    AS INTEGER        ' Brush size at the lightest touch, percent of the brush size (0-100)
+    PEN_PRESSURE_CURVE              AS INTEGER        ' Pressure curve, gamma x100 (100 = linear, <100 = light touches heavier, >100 = lighter)
+    PEN_PRESSURE_MIX                AS INTEGER        ' Mix brush: a light touch smears more, full pressure lays the Smudge setting
+    PEN_MIX_MIN                     AS INTEGER        ' Mix brush: paint laid at the lightest touch, percent of the full amount (0-100)
+    PEN_PRESSURE_OPACITY            AS INTEGER        ' Pressure scales the Brush / Eraser opacity (applied live, no compounding)
+    PEN_MIN_OPACITY                 AS INTEGER        ' Opacity at the lightest touch, percent (0-100)
+    PEN_TIP_THRESHOLD               AS INTEGER        ' Pen draws only once pressure reaches this percent (0-50); ignores grazes that register as clicks
+    PEN_PANEL_VISIBLE               AS INTEGER        ' TRUE = Pen Pressure panel open at startup
+    PEN_PANEL_X                     AS INTEGER        ' Last panel X (-1 = auto-position)
+    PEN_PANEL_Y                     AS INTEGER        ' Last panel Y (-1 = auto-position)
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)

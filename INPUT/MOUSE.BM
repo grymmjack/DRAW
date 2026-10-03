@@ -1351,6 +1351,8 @@ SUB MOUSE_handle_b3_dblclick_reset_zoom ()
     ' correct when panels are docked LEFT vs RIGHT.
     IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND PREVIEW_hit_window%(mx%, my%) THEN EXIT SUB
     IF COLORMIXER.visible% AND NOT COLORMIXER.autoHidden% AND COLORMIXER_hit_window%(mx%, my%) THEN EXIT SUB
+    IF CS3D_active_hit%(mx%, my%) THEN EXIT SUB
+    IF PENP_active_hit%(mx%, my%) THEN EXIT SUB
     IF BROWSER_active_hit%(mx%, my%) THEN EXIT SUB
     IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(mx%, my%) THEN EXIT SUB
     IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(mx%, my%) THEN EXIT SUB
@@ -1456,6 +1458,22 @@ SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
                 SCENE_DIRTY%           = TRUE
             END IF
         END IF
+        ' Auto-hide 3D color space panel while drawing over it
+        IF CS3D.visible% AND NOT CS3D.autoHidden% THEN
+            IF CS3D_hit_window%(rawX%, rawY%) THEN
+                CS3D.autoHidden%  = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                SCENE_DIRTY%      = TRUE
+            END IF
+        END IF
+        ' Auto-hide Pen Pressure panel while drawing over it
+        IF PENP.visible% AND NOT PENP.autoHidden% THEN
+            IF PENP_hit_window%(rawX%, rawY%) THEN
+                PENP.autoHidden%  = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                SCENE_DIRTY%      = TRUE
+            END IF
+        END IF
         ' Auto-hide advanced color picker while drawing over it
         IF ADVCP.visible% AND NOT ADVCP.autoHidden% THEN
             IF ADVCP_hit_window%(rawX%, rawY%) THEN
@@ -1544,6 +1562,15 @@ SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
             ADVCP.autoHidden% = FALSE
             uiRestored%       = TRUE
         END IF
+        ' Same for the 3D color space panel (set only by the draw-over hook).
+        IF CS3D.autoHidden% THEN
+            CS3D.autoHidden% = FALSE
+            uiRestored%      = TRUE
+        END IF
+        IF PENP.autoHidden% THEN
+            PENP.autoHidden% = FALSE
+            uiRestored%      = TRUE
+        END IF
         ' Restore browser if auto-hidden (not manually hidden by user)
         IF BROWSER.autoHidden% AND NOT SCRN.browserManuallyHidden% THEN
             BROWSER.autoHidden% = FALSE
@@ -1601,6 +1628,8 @@ SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
         IF SCRN.showMenubar% AND MENU_BAR.visible% AND MENUBAR_in_bounds%(rawX%, rawY%) THEN allowB3Pan% = FALSE
         IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND PREVIEW_hit_window%(rawX%, rawY%) THEN allowB3Pan% = FALSE
         IF COLORMIXER.visible% AND NOT COLORMIXER.autoHidden% AND COLORMIXER_hit_window%(rawX%, rawY%) THEN allowB3Pan% = FALSE
+        IF CS3D_active_hit%(rawX%, rawY%) THEN allowB3Pan% = FALSE ' middle-drag spins the 3D view
+        IF PENP_active_hit%(rawX%, rawY%) THEN allowB3Pan% = FALSE
         IF BROWSER_active_hit%(rawX%, rawY%) THEN allowB3Pan% = FALSE
         ' BUG-48: the per-panel list above drifted (omitted Drawer/EditBar/AdvBar/CharMap). Catch
         ' ANY registered chrome with the canonical hit test so pan can't leak through a panel.
@@ -1627,6 +1656,8 @@ SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
         IF SCRN.showMenubar% AND MENU_BAR.visible% AND MENUBAR_in_bounds%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND PREVIEW_hit_window%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         IF COLORMIXER.visible% AND NOT COLORMIXER.autoHidden% AND COLORMIXER_hit_window%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
+        IF CS3D_active_hit%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
+        IF PENP_active_hit%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         IF BROWSER_active_hit%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         ' BUG-48: same drift guard for Space+LMB / PAN-tool pan initiation.
         IF REGION_hit_test%(rawX%, rawY%) > REGION_CANVAS THEN allowCanvasPan% = FALSE
@@ -2894,6 +2925,12 @@ SUB MOUSE_tool_brush ()
         IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_CLIPPED
         IF SYMMETRY.MODE% > 0 THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_SYMMETRY
         IF DRAWER_has_paint_mode% THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
+        ' Pen pressure: forget the previous stroke's pressure; maybe start pressure opacity
+        PEN_stroke_begin
+        PEN_opacity_begin
+        ' Mix brush: snapshot the layer for pigment mixing; per-pixel colors force a raster export
+        BMIX_begin_stroke
+        IF BMIX.active THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
         IF NOT BRUSH_HISTORY_SMART% THEN
             IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
                 BRUSH_HISTORY_BEFORE_IMG = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
@@ -3717,8 +3754,12 @@ SUB MOUSE_release_brush ()
     brush_label$    = "Brush"
     IF CURRENT_TOOL% = TOOL_ERASER THEN brush_label$ = "Eraser"
     IF BRUSH_SIZE.PIXEL_PERFECT AND PP_STROKE_COUNT% > 0 THEN
+        BMIX_begin_replay ' mix brush: redraw each pixel in its own stroke color
+        TABLET.dabOp = 0  ' pressure opacity: the redraw keeps each pixel's own opacity
         PAINT_draw_pixel_perfect
     END IF
+    BMIX_end_stroke
+    PEN_opacity_end
     CANVAS_DIRTY% = TRUE
     SAFE_FREEIMAGE PP_BACKUP&: PP_BACKUP& = 0
     PP_STROKE_COUNT% = 0
@@ -3750,7 +3791,8 @@ SUB MOUSE_release_brush ()
         HISTORY_end_group
         HISTORY_saved_this_frame% = TRUE
     ELSE
-        IF BRUSH_HISTORY_BEFORE_IMG < -1 AND BRUSH_HISTORY_LAYER_ID& > 0 THEN
+        ' A pen stroke that never passed the tip threshold drew nothing: no undo step.
+        IF BRUSH_HISTORY_BEFORE_IMG < -1 AND BRUSH_HISTORY_LAYER_ID& > 0 AND NOT PEN_stroke_empty% THEN
             HISTORY_record_brush BRUSH_HISTORY_LAYER_ID&, BRUSH_HISTORY_LAYER%, PAINT_apply_opacity~&(BRUSH_HISTORY_COLOR~&), BRUSH_HISTORY_FLAGS&, BRUSH_HISTORY_BEFORE_IMG&, brush_label$
             BRUSH_HISTORY_BEFORE_IMG = 0
             brush_recorded%          = TRUE
@@ -4375,6 +4417,12 @@ SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
         ' Color mixer wheel is handled in MOUSE_handle_gui_panels (runs earlier)
         ELSEIF COLORMIXER.visible% AND NOT COLORMIXER.autoHidden% AND COLORMIXER_hit_window%(rawX%, rawY%) THEN
             MOUSE.SW% = 0    ' Consume — already handled in gui_panels
+        ' 3D color space wheel (zoom) is handled in MOUSE_handle_gui_panels
+        ELSEIF CS3D_active_hit%(rawX%, rawY%) THEN
+            MOUSE.SW% = 0    ' Consume — already handled in gui_panels
+        ' Pen Pressure panel: the wheel does nothing there, but must not reach the canvas
+        ELSEIF PENP_active_hit%(rawX%, rawY%) THEN
+            MOUSE.SW% = 0
         ' Browser wheel is handled in MOUSE_handle_gui_panels (runs earlier)
         ELSEIF BROWSER_active_hit%(rawX%, rawY%) THEN
             MOUSE.SW% = 0    ' Consume — already handled in gui_panels
@@ -5588,6 +5636,30 @@ SUB MOUSE_handle_gui_panels (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS IN
             END IF
             IF wheel_delta% <> 0 THEN
                 COLORMIXER_mouse_input wheel_delta%
+            END IF
+        END IF
+    END IF
+
+    ' 3D color space window (floats above the docked panels, like the pickers)
+    IF CS3D.visible% AND NOT CS3D.autoHidden% AND NOT BROWSER_owns_mouse%(rawX%, rawY%) THEN
+        IF CS3D.dragging% OR C3D_STATE.dragging <> C3D_DRAG_NONE OR CS3D_hit_window%(rawX%, rawY%) THEN
+            CS3D_mouse_input wheel_delta%
+        END IF
+        IF CS3D_hit_window%(rawX%, rawY%) THEN
+            IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) OR (MOUSE.B3% AND NOT MOUSE.OLD_B3%) THEN
+                MOUSE.UI_CHROME_CLICKED% = TRUE
+            END IF
+        END IF
+    END IF
+
+    ' Pen Pressure window (floats above the docked panels)
+    IF PENP.visible% AND NOT PENP.autoHidden% AND NOT BROWSER_owns_mouse%(rawX%, rawY%) THEN
+        IF PENP.dragging% OR PENP.sliding% <> PENP_CTL_NONE OR PENP_hit_window%(rawX%, rawY%) THEN
+            PENP_mouse_input
+        END IF
+        IF PENP_hit_window%(rawX%, rawY%) THEN
+            IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) OR (MOUSE.B3% AND NOT MOUSE.OLD_B3%) THEN
+                MOUSE.UI_CHROME_CLICKED% = TRUE
             END IF
         END IF
     END IF

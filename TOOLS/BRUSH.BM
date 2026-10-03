@@ -75,8 +75,12 @@ SUB PAINT_pset_with_symmetry (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG,
     ' Check selection clipping AND opacity lock for master stroke
     IF SELECTION_is_point_inside%(x%, y%) AND OPACITY_LOCK_allows_draw%(x%, y%) THEN
         resolvedCol~& = DRAWER_resolve_paint_color~&(x%, y%, col~&)
-        ' Draw master stroke at full opacity
-        PSET (x% + apW%, y% + apH%), resolvedCol~&
+        ' Draw master stroke at full opacity (pen pressure -> opacity composites instead)
+        IF TABLET.opStroke THEN
+            PEN_op_write x% + apW%, y% + apH%, resolvedCol~&, 1
+        ELSE
+            PSET (x% + apW%, y% + apH%), resolvedCol~&
+        END IF
     END IF
     
     ' Apply symmetry if enabled and requested
@@ -88,7 +92,11 @@ SUB PAINT_pset_with_symmetry (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG,
         FOR i% = 0 TO count% - 1
             IF SELECTION_is_point_inside%(mx%(i%), my%(i%)) AND OPACITY_LOCK_allows_draw%(mx%(i%), my%(i%)) THEN
                 resolvedCol~& = DRAWER_resolve_paint_color~&(mx%(i%), my%(i%), col~&)
-                PSET (mx%(i%) + apW%, my%(i%) + apH%), resolvedCol~&
+                IF TABLET.opStroke THEN
+                    PEN_op_write mx%(i%) + apW%, my%(i%) + apH%, resolvedCol~&, 1
+                ELSE
+                    PSET (mx%(i%) + apW%, my%(i%) + apH%), resolvedCol~&
+                END IF
             END IF
         NEXT i%
     END IF
@@ -147,7 +155,10 @@ SUB PAINT_blend_pixel (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG, covera
 
         resolvedCol~& = DRAWER_resolve_paint_color~&(x%, y%, col~&)
 
-        IF cov! >= 1.0 THEN
+        IF TABLET.opStroke THEN
+            ' Pen pressure -> opacity: coverage folds into the per-pixel max opacity.
+            PEN_op_write x% + apW%, y% + apH%, resolvedCol~&, cov!
+        ELSEIF cov! >= 1.0 THEN
             ' Full coverage — verbatim original write (byte-identical to PSET path).
             PSET (x% + apW%, y% + apH%), resolvedCol~&
         ELSE
@@ -330,14 +341,20 @@ SUB PAINT_erase_pixel (x AS INTEGER, y AS INTEGER, coverage AS SINGLE)
             apH% = LAYERS(CURRENT_LAYER%).apronH%
         END IF
 
-        dstCol~& = POINT(x% + apW%, y% + apH%)
-        dstA%    = _ALPHA32(dstCol~&)
-        newA%    = dstA% - INT(cov! * 255.0 + 0.5)
-        IF newA% < 0 THEN newA% = 0
+        IF TABLET.opStroke THEN
+            ' Pen pressure -> opacity: erase a pressure-scaled share of the original alpha.
+            PEN_op_write x% + apW%, y% + apH%, _RGBA32(0, 0, 0, 0), cov!
+            _BLEND targetImg&
+        ELSE
+            dstCol~& = POINT(x% + apW%, y% + apH%)
+            dstA%    = _ALPHA32(dstCol~&)
+            newA%    = dstA% - INT(cov! * 255.0 + 0.5)
+            IF newA% < 0 THEN newA% = 0
 
-        _DONTBLEND targetImg&
-        PSET (x% + apW%, y% + apH%), _RGBA32(_RED32(dstCol~&), _GREEN32(dstCol~&), _BLUE32(dstCol~&), newA%)
-        _BLEND targetImg&
+            _DONTBLEND targetImg&
+            PSET (x% + apW%, y% + apH%), _RGBA32(_RED32(dstCol~&), _GREEN32(dstCol~&), _BLUE32(dstCol~&), newA%)
+            _BLEND targetImg&
+        END IF
 
         _SOURCE oldSource&
         _DEST oldDest&
@@ -459,7 +476,22 @@ SUB PAINT_on ()
     
     DIM pixel_size AS INTEGER
     pixel_size% = BRUSH_SIZE_pixels%
+
     
+    ' Pen pressure (INPUT/PEN): fix the pressure at both ends of this segment;
+    ' with pressure size or opacity, every dab gets its own interpolated value.
+    PEN_segment_begin
+    IF TABLET.skipSeg THEN ' pen below the tip threshold: a graze, not a stroke
+        _DEST SCRN.CANVAS&
+        EXIT SUB
+    END IF
+    IF PEN_size_active% _ORELSE (TABLET.opStroke _ANDALSO NOT (pixel_size% = 1 AND BRUSH_SIZE.PIXEL_PERFECT)) THEN
+        PAINT_on_pressure start_x%, start_y%, end_x%, end_y%, pixel_size%
+        PEN_segment_end
+        _DEST SCRN.CANVAS&
+        EXIT SUB
+    END IF
+
     ' Pixel perfect mode only applies to single pixel (size 1) DOT/BRUSH tools
     DIM use_pixel_perfect AS INTEGER
     use_pixel_perfect% = FALSE
@@ -484,6 +516,7 @@ SUB PAINT_on ()
             
             ' Collect AND draw unfiltered (so user can see)
             DO
+                IF BMIX.active THEN BMIX_dab cx%, cy% ' mix brush: smudge pickup before the dab
                 ' Check if pixel was already drawn (not just last pixel)
                 _SOURCE targetImg&
                 DIM existing_color AS _UNSIGNED LONG
@@ -533,6 +566,7 @@ SUB PAINT_on ()
             cy% = start_y%
             
             DO
+                IF BMIX.active THEN BMIX_dab cx%, cy% ' mix brush: smudge pickup before the dab
                 PAINT_pset_with_symmetry cx%, cy%, DRAW_COLOR~&, TRUE
                 
                 IF cx% = end_x% AND cy% = end_y% THEN EXIT DO
@@ -562,6 +596,7 @@ SUB PAINT_on ()
             t!  = i% / steps%
             cx% = start_x% + INT(dx% * t!)
             cy% = start_y% + INT(dy% * t!)
+            IF BMIX.active THEN BMIX_dab cx%, cy% ' mix brush: smudge pickup before the dab
             ' Draw vertical line of plus
             FOR py% = cy% - 1 TO cy% + 1
                 PAINT_pset_with_symmetry cx%, py%, DRAW_COLOR~&, TRUE
@@ -587,6 +622,7 @@ SUB PAINT_on ()
             t!  = i% / steps%
             cx% = start_x% + INT(dx% * t!)
             cy% = start_y% + INT(dy% * t!)
+            IF BMIX.active THEN BMIX_dab cx%, cy% ' mix brush: smudge pickup before the dab
             IF BRUSH_SIZE.SHAPE = 0 THEN
                 IF CFG.ANTIALIAS% THEN
                     IF _ALPHA32(DRAW_COLOR~&) = 0 AND radius% >= 1 THEN
@@ -606,7 +642,42 @@ SUB PAINT_on ()
         NEXT i%
     END IF
     
+    PEN_segment_end
     _DEST SCRN.CANVAS&
+END SUB
+
+
+''
+' PAINT_on for pen-pressure brushes: dabs one pixel apart along the segment,
+' each sized (pressure size) and/or weighted (pressure opacity) from the
+' pressure interpolated between the segment's ends.
+'
+SUB PAINT_on_pressure (sx AS INTEGER, sy AS INTEGER, ex AS INTEGER, ey AS INTEGER, baseSize AS INTEGER)
+    DIM x0 AS INTEGER, y0 AS INTEGER, dx AS INTEGER, dy AS INTEGER
+    DIM steps AS INTEGER, i AS INTEGER, cx AS INTEGER, cy AS INTEGER, dabSize AS INTEGER, full AS INTEGER
+    DIM t AS SINGLE, p AS SINGLE, sizeOn AS INTEGER
+    x0% = sx%: y0% = sy%: full% = baseSize%
+    sizeOn% = PEN_size_active%
+    dx% = ex% - x0%
+    dy% = ey% - y0%
+    steps% = INT(SQR(dx% * dx% + dy% * dy%)) + 1
+    IF steps% < 1 THEN steps% = 1
+    FOR i% = 0 TO steps%
+        t! = i% / steps%
+        cx% = x0% + INT(dx% * t!)
+        cy% = y0% + INT(dy% * t!)
+        p! = PEN_dab_pressure!(t!)
+        TABLET.dabP = p!
+        dabSize% = full%
+        IF sizeOn% THEN dabSize% = PEN_scaled_size%(full%, p!)
+        IF TABLET.opStroke THEN
+            IF TABLET.usingPen THEN TABLET.dabOp = PEN_opacity_for!(p!) ELSE TABLET.dabOp = PAINT_OPACITY% / 100!
+        END IF
+        ' Variable-width strokes can't be replayed as fixed-size brush calls: export as pixels.
+        IF dabSize% <> full% THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
+        IF BMIX.active THEN BMIX_dab cx%, cy% ' mix brush: smudge pickup before the dab
+        PAINT_stamp_size cx%, cy%, dabSize%, DRAW_COLOR~&
+    NEXT i%
 END SUB
 
 
@@ -700,9 +771,24 @@ END SUB
 ' @param col _UNSIGNED LONG - Color to stamp with
 '
 SUB PAINT_stamp_brush (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG)
+    PAINT_stamp_size x%, y%, BRUSH_SIZE_pixels%, col~&
+END SUB
+
+
+''
+' Stamps the current brush shape at (x, y) at an explicit size in pixels.
+' PAINT_stamp_brush uses the brush size; the pen-pressure path passes a
+' pressure-scaled size per dab.
+'
+' @param x INTEGER - Center X coordinate
+' @param y INTEGER - Center Y coordinate
+' @param size INTEGER - Brush size in pixels (1 = single pixel)
+' @param col _UNSIGNED LONG - Color to stamp with
+'
+SUB PAINT_stamp_size (x AS INTEGER, y AS INTEGER, size AS INTEGER, col AS _UNSIGNED LONG)
     DIM pixel_size AS INTEGER
     DIM radius     AS INTEGER
-    pixel_size% = BRUSH_SIZE_pixels%
+    pixel_size% = size%
 
     IF pixel_size% <= 1 THEN
         ' Single pixel

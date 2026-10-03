@@ -1,0 +1,209 @@
+''
+' DRAW - TOOLS/BRUSH-MIX.BM
+' =============================================================================
+' Mix brush (pigment smudge) implementation. See TOOLS/BRUSH-MIX.BI.
+'
+' Hooks:
+'   MOUSE_tool_brush (press)    -> BMIX_begin_stroke
+'   PAINT_on (before each dab)  -> BMIX_dab
+'   DRAWER_resolve_paint_color  -> BMIX_apply (every painted pixel)
+'   MOUSE_release_brush         -> BMIX_begin_replay (pixel perfect), BMIX_end_stroke
+'
+$INCLUDEONCE
+
+''
+' Start a mixing stroke if Mix is on and the stroke qualifies: plain Brush tool
+' (not eraser / custom brush), opaque paint, valid layer, Smudge > 0.
+'
+SUB BMIX_begin_stroke ()
+    DIM i AS INTEGER
+    BMIX_end_stroke
+    IF NOT CFG.BRUSH_MIX% THEN EXIT SUB
+    IF CURRENT_TOOL% <> TOOL_BRUSH THEN EXIT SUB
+    IF CUSTOM_BRUSH_is_active% THEN EXIT SUB
+    IF _ALPHA32(DRAW_COLOR~&) = 0 THEN EXIT SUB
+    IF CFG.BRUSH_MIX_SMUDGE% <= 0 THEN EXIT SUB
+    IF CURRENT_LAYER% < 1 OR CURRENT_LAYER% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(CURRENT_LAYER%).imgHandle& >= -1 THEN EXIT SUB
+    IF NOT BMIX_LIN_READY THEN
+        FOR i% = 0 TO 255: BMIX_LIN(i%) = CLR_srgb_to_linear#(i% / 255#): NEXT i%
+        BMIX_LIN_READY = TRUE
+    END IF
+    BMIX_bind_layer
+    IF BMIX.snapImg >= -1 THEN EXIT SUB
+    BMIX.hasSmudge = FALSE
+    BMIX.hasLast   = FALSE
+    BMIX.inResolve = FALSE
+    BMIX.replay    = FALSE
+    BMIX.active    = TRUE
+END SUB
+
+
+''
+' Snapshot the current layer for sampling (buffer coords incl. apron).
+'
+SUB BMIX_bind_layer ()
+    DIM img AS LONG
+    img& = LAYERS(CURRENT_LAYER%).imgHandle&
+    IF img& >= -1 THEN EXIT SUB
+    BMIX.snapImg = _COPYIMAGE(img&, 32)
+    IF BMIX.snapImg >= -1 THEN BMIX.snapImg = 0: EXIT SUB
+    BMIX_MEM    = _MEMIMAGE(BMIX.snapImg)
+    BMIX.imgW   = _WIDTH(BMIX.snapImg)
+    BMIX.imgH   = _HEIGHT(BMIX.snapImg)
+    BMIX.apronW = LAYERS(CURRENT_LAYER%).apronW%
+    BMIX.apronH = LAYERS(CURRENT_LAYER%).apronH%
+END SUB
+
+
+''
+' End the stroke and release the _MEM views. Safe to call any time.
+'
+SUB BMIX_end_stroke ()
+    IF BMIX.snapImg < -1 THEN
+        _MEMFREE BMIX_MEM
+        _FREEIMAGE BMIX.snapImg
+    END IF
+    BMIX.snapImg = 0
+    IF BMIX.replayImg < -1 THEN
+        _MEMFREE BMIX_RMEM
+        _FREEIMAGE BMIX.replayImg
+    END IF
+    BMIX.replayImg = 0
+    BMIX.replay    = FALSE
+    BMIX.active    = FALSE
+    BMIX.inResolve = FALSE
+    BMIX.hasSmudge = FALSE
+    BMIX.hasLast   = FALSE
+END SUB
+
+
+''
+' Pixel-perfect mode restores the layer and redraws the filtered stroke at
+' release. Copy the finished stroke first so the redraw puts back each pixel's
+' own mixed color instead of re-mixing everything with the final smudge color.
+'
+SUB BMIX_begin_replay ()
+    IF NOT BMIX.active THEN EXIT SUB
+    IF CURRENT_LAYER% < 1 OR CURRENT_LAYER% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(CURRENT_LAYER%).imgHandle& >= -1 THEN EXIT SUB
+    BMIX.replayImg = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+    IF BMIX.replayImg >= -1 THEN BMIX.replayImg = 0: EXIT SUB
+    BMIX_RMEM   = _MEMIMAGE(BMIX.replayImg)
+    BMIX.replay = TRUE
+END SUB
+
+
+''
+' Layer pixel at canvas (x, y) from a _MEM view, or transparent off the buffer.
+'
+FUNCTION BMIX_pixel~& (m AS _MEM, x AS INTEGER, y AS INTEGER)
+    DIM bx AS LONG, by AS LONG
+    bx& = x% + BMIX.apronW
+    by& = y% + BMIX.apronH
+    IF bx& < 0 OR by& < 0 OR bx& >= BMIX.imgW OR by& >= BMIX.imgH THEN EXIT FUNCTION
+    BMIX_pixel~& = _MEMGET(m, m.OFFSET + (by& * BMIX.imgW + bx&) * 4, _UNSIGNED LONG)
+END FUNCTION
+
+
+''
+' Before each dab: sample the layer (as it was at stroke start) under the dab
+' and move the smudge
+' color toward it. Samples are spaced half a brush radius apart (libmypaint's
+' default 2 dabs per radius), so stroke speed and FPS don't change the result.
+'
+SUB BMIX_dab (x AS INTEGER, y AS INTEGER)
+    DIM cx AS INTEGER, cy AS INTEGER
+    DIM spacing AS SINGLE, r AS SINGLE, r2 AS SINGLE
+    DIM ir AS INTEGER, dx AS INTEGER, dy AS INTEGER
+    DIM px AS _UNSIGNED LONG, a AS SINGLE
+    DIM sumA AS SINGLE, sumR AS SINGLE, sumG AS SINGLE, sumB AS SINGLE, n AS LONG
+    DIM sampleCol AS _UNSIGNED LONG, sampleA AS SINGLE, keep AS SINGLE
+    IF NOT BMIX.active THEN EXIT SUB
+    IF BMIX.replay THEN EXIT SUB
+    cx% = x%: cy% = y%
+    spacing! = BRUSH_SIZE_pixels% / 4!
+    IF spacing! < 1 THEN spacing! = 1
+    IF BMIX.hasLast THEN
+        IF (cx% - BMIX.lastX) ^ 2 + (cy% - BMIX.lastY) ^ 2 < spacing! * spacing! THEN EXIT SUB
+    END IF
+    BMIX.lastX = cx%: BMIX.lastY = cy%: BMIX.hasLast = TRUE
+    IF BMIX.snapImg >= -1 THEN EXIT SUB
+
+    ' Alpha-weighted average in linear light over a disc around the dab center.
+    r! = (BRUSH_SIZE_pixels% / 2!) * CFG.BRUSH_MIX_RADIUS% / 100!
+    IF r! < 0.5 THEN r! = 0.5
+    r2! = r! * r!
+    ir% = INT(r!)
+    FOR dy% = -ir% TO ir%
+        FOR dx% = -ir% TO ir%
+            IF dx% * dx% + dy% * dy% <= r2! THEN
+                px~& = BMIX_pixel~&(BMIX_MEM, cx% + dx%, cy% + dy%)
+                a! = _ALPHA32(px~&) / 255!
+                sumA! = sumA! + a!
+                sumR! = sumR! + BMIX_LIN(_RED32(px~&)) * a!
+                sumG! = sumG! + BMIX_LIN(_GREEN32(px~&)) * a!
+                sumB! = sumB! + BMIX_LIN(_BLUE32(px~&)) * a!
+                n& = n& + 1
+            END IF
+        NEXT dx%
+    NEXT dy%
+    IF n& = 0 _ORELSE sumA! <= 0 THEN EXIT SUB          ' empty canvas: nothing to pick up
+    sampleA! = sumA! / n&
+    IF sampleA! < 0.01 THEN EXIT SUB
+    sampleCol~& = _RGB32(CINT(CLR_linear_to_srgb#(sumR! / sumA!) * 255), CINT(CLR_linear_to_srgb#(sumG! / sumA!) * 255), CINT(CLR_linear_to_srgb#(sumB! / sumA!) * 255))
+
+    IF NOT BMIX.hasSmudge THEN
+        BMIX.smudge    = sampleCol~&                    ' first pickup: take the sample
+        BMIX.hasSmudge = TRUE
+    ELSE
+        keep! = CFG.BRUSH_MIX_LENGTH% / 100!            ' share of the old smudge color kept
+        IF keep! < 0.01 THEN keep! = 0.01
+        IF keep! < 1 THEN BMIX.smudge = PGM_mix_w~&(BMIX.smudge, keep!, sampleCol~&, (1 - keep!) * sampleA!) OR &HFF000000~&
+    END IF
+END SUB
+
+
+''
+' Pigment mix of the smudge color with the paint (opaque RGB); memoized.
+' share = the paint's share in percent (0 = all smudge).
+'
+FUNCTION BMIX_mix_rgb~& (smudgeCol AS _UNSIGNED LONG, paintCol AS _UNSIGNED LONG, share AS INTEGER)
+    DIM h AS LONG
+    DIM sc AS _UNSIGNED LONG, pc AS _UNSIGNED LONG
+    DIM s AS INTEGER
+    sc~& = smudgeCol~& OR &HFF000000~&: pc~& = paintCol~& OR &HFF000000~&: s% = share%
+    h& = ((sc~& MOD 4093) * 7 + (pc~& MOD 4091) * 13 + s% * 3) MOD BMIX_CACHE_N
+    IF BMIX_C_S(h&) = s% + 1 _ANDALSO BMIX_C_A(h&) = sc~& _ANDALSO BMIX_C_B(h&) = pc~& THEN
+        BMIX_mix_rgb~& = BMIX_C_OUT(h&)
+        EXIT FUNCTION
+    END IF
+    BMIX_C_OUT(h&) = PGM_mix_w~&(sc~&, 100 - s%, pc~&, s%) OR &HFF000000~&
+    BMIX_C_A(h&)   = sc~&
+    BMIX_C_B(h&)   = pc~&
+    BMIX_C_S(h&)   = s% + 1
+    BMIX_mix_rgb~& = BMIX_C_OUT(h&)
+END FUNCTION
+
+
+''
+' Resolver hook: the color for canvas (x, y) is the pigment mix of the brush's
+' smudge color with the resolved paint (gradient / pattern paint still work).
+' Keeps the paint's alpha so opacity and AA coverage apply as usual.
+'
+FUNCTION BMIX_apply~& (x AS INTEGER, y AS INTEGER, resolved AS _UNSIGNED LONG)
+    DIM a AS INTEGER, s AS INTEGER, m AS _UNSIGNED LONG
+    a% = _ALPHA32(resolved~&)
+    IF a% = 0 THEN BMIX_apply~& = resolved~&: EXIT FUNCTION
+    IF BMIX.replay THEN
+        m~& = BMIX_pixel~&(BMIX_RMEM, x%, y%)
+        IF _ALPHA32(m~&) > 0 THEN BMIX_apply~& = m~& ELSE BMIX_apply~& = resolved~&
+        EXIT FUNCTION
+    END IF
+    IF NOT BMIX.hasSmudge THEN BMIX_apply~& = resolved~&: EXIT FUNCTION
+    s% = PEN_mix_smudge%(CFG.BRUSH_MIX_SMUDGE%) ' pen pressure: a light touch smears more
+    IF s% < 0 THEN s% = 0
+    IF s% > 100 THEN s% = 100
+    m~& = BMIX_mix_rgb~&(BMIX.smudge, resolved~&, 100 - s%)
+    BMIX_apply~& = _RGBA32(_RED32(m~&), _GREEN32(m~&), _BLUE32(m~&), a%)
+END FUNCTION

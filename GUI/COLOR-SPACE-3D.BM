@@ -1,0 +1,367 @@
+''
+' DRAW - GUI/COLOR-SPACE-3D.BM
+' =============================================================================
+' 3D Color Space picker — floating panel implementation (wraps C3D widget).
+' Renders to screen 0 at integer toolbar scale (same model as ADV-COLOR-PICKER).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+
+' ---------------------------------------------------------------------------
+' CS3D_init — Defaults + config-driven initial visibility. Lazy widget init.
+' ---------------------------------------------------------------------------
+SUB CS3D_init ()
+    CS3D.visible%        = FALSE
+    CS3D.positioned%     = FALSE
+    CS3D.initialized%    = FALSE
+    CS3D.autoHidden%     = FALSE
+    CS3D.lastSyncColor~& = 0
+    CS3D.renderScale!    = 1.0
+    CS3D.panelImg&       = 0
+    CS3D.dragging%       = FALSE
+    IF CFG.COLOR_SPACE_3D_VISIBLE% THEN CS3D.visible% = TRUE
+END SUB
+
+' ---------------------------------------------------------------------------
+' CS3D_ensure_initialized — Lazy-init the widget, panel buffer and fonts, and
+' restore the persisted view (space, view mode, slice, rotation, zoom).
+' ---------------------------------------------------------------------------
+SUB CS3D_ensure_initialized ()
+    IF CS3D.initialized% THEN EXIT SUB
+
+    DIM initColor AS _UNSIGNED LONG
+    initColor~& = PAINT_COLOR~&
+    IF PAL_FG_IS_TRANSPARENT% THEN initColor~& = _RGB32(0, 0, 0)
+
+    C3D_init initColor~&, CS3D_WIDGET_W
+    C3D_set_space CFG.COLOR_SPACE_3D_SPACE%
+    C3D_set_view CFG.COLOR_SPACE_3D_VIEW%
+    C3D_set_slice CFG.COLOR_SPACE_3D_SLICE_ON%, CFG.COLOR_SPACE_3D_SLICE% / 100!
+    C3D_set_rotation CFG.COLOR_SPACE_3D_YAW%, CFG.COLOR_SPACE_3D_PITCH%, CFG.COLOR_SPACE_3D_ZOOM% / 100!
+
+    CS3D.panelW% = C3D_STATE.w
+    CS3D.panelH% = CS3D_TITLE_H + C3D_STATE.h
+    IF CS3D.panelImg& < -1 THEN _FREEIMAGE CS3D.panelImg&
+    CS3D.panelImg& = _NEWIMAGE(CS3D.panelW%, CS3D.panelH%, 32)
+
+    ' Same themed title font as the Color Mixer / Advanced Color Picker.
+    IF CS3D.titleFont& > 0 THEN _FREEFONT CS3D.titleFont&
+    CS3D.titleFont& = 0
+    DIM fontFile AS STRING  : fontFile$ = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
+    DIM fontSize AS INTEGER : fontSize% = THEME.GLOBAL_FONT_SIZE%
+    IF fontSize% < 1 THEN fontSize% = 8
+    IF _FILEEXISTS(fontFile$) THEN
+        DIM fh AS LONG : fh& = _LOADFONT(fontFile$, fontSize%, "DONTBLEND")
+        IF fh& > 0 THEN CS3D.titleFont& = fh&
+    END IF
+
+    CS3D_compute_display_size
+    IF CFG.COLOR_SPACE_3D_X% > -1 AND CFG.COLOR_SPACE_3D_Y% > -1 THEN
+        CS3D.dispX%      = CFG.COLOR_SPACE_3D_X%
+        CS3D.dispY%      = CFG.COLOR_SPACE_3D_Y%
+        CS3D.positioned% = TRUE
+    END IF
+
+    CS3D.lastSyncColor~& = initColor~&
+    CS3D.initialized%    = TRUE
+END SUB
+
+' ---------------------------------------------------------------------------
+' CS3D_cleanup — Free images + fonts.
+' ---------------------------------------------------------------------------
+SUB CS3D_cleanup ()
+    IF NOT CS3D.initialized% THEN EXIT SUB
+    C3D_cleanup
+    IF CS3D.panelImg& < -1 THEN _FREEIMAGE CS3D.panelImg&
+    CS3D.panelImg& = 0
+    IF CS3D.titleFont& > 0 THEN _FREEFONT CS3D.titleFont&
+    CS3D.titleFont&   = 0
+    CS3D.initialized% = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' CS3D_reset — Reset transient state after a document load.
+' ---------------------------------------------------------------------------
+SUB CS3D_reset ()
+    CS3D.autoHidden% = FALSE
+    CS3D.dragging%   = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' CS3D_toggle — Show/hide the panel (auto-place + sync on first open).
+' ---------------------------------------------------------------------------
+SUB CS3D_toggle ()
+    IF CS3D.visible% THEN
+        CS3D.visible% = FALSE
+    ELSE
+        CS3D.visible%    = TRUE
+        CS3D.autoHidden% = FALSE
+        CS3D_ensure_initialized
+        IF NOT CS3D.positioned% THEN CS3D_auto_position
+        CS3D_sync_from_paint
+    END IF
+    CFG.COLOR_SPACE_3D_VISIBLE% = CS3D.visible%
+    SCENE_DIRTY%                = TRUE
+    FRAME_IDLE%                 = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' CS3D_compute_display_size — native -> viewport footprint (ts/ds scale).
+' ---------------------------------------------------------------------------
+SUB CS3D_compute_display_size ()
+    DIM ts AS INTEGER, ds AS INTEGER
+    ts%               = USCALE.mixer%      : IF ts% < 1 THEN ts% = 1
+    ds%               = SCRN.displayScale% : IF ds% < 1 THEN ds% = 1
+    CS3D.renderScale! = CSNG(ts%) / CSNG(ds%)
+    CS3D.dispW%       = INT(CSNG(CS3D.panelW%) * CSNG(ts%) / CSNG(ds%) + 0.5)
+    CS3D.dispH%       = INT(CSNG(CS3D.panelH%) * CSNG(ts%) / CSNG(ds%) + 0.5)
+END SUB
+
+' ---------------------------------------------------------------------------
+' CS3D_work_area — Vertical bounds of the work area (below menu, above status).
+' ---------------------------------------------------------------------------
+SUB CS3D_work_area (minY AS INTEGER, maxY AS INTEGER)
+    minY% = 0
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN minY% = MENU_BAR_HEIGHT
+    maxY% = SCRN.h&
+    IF SCRN.showStatus% THEN maxY% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+END SUB
+
+' ---------------------------------------------------------------------------
+' CS3D_auto_position — Left side of the work area, vertically centred (the
+' Advanced Color Picker takes the right side by default).
+' ---------------------------------------------------------------------------
+SUB CS3D_auto_position ()
+    CS3D_ensure_initialized
+    DIM pad  AS INTEGER : pad% = 8
+    DIM minY AS INTEGER, maxY AS INTEGER
+    CS3D_work_area minY%, maxY%
+    CS3D.dispX% = SCRN.uiLeftEdge% + pad%
+    CS3D.dispY% = minY% + (maxY% - minY% - CS3D.dispH%) \ 2
+    IF CS3D.dispY% < minY% + pad% THEN CS3D.dispY% = minY% + pad%
+    CS3D.positioned%      = TRUE
+    CFG.COLOR_SPACE_3D_X% = CS3D.dispX%
+    CFG.COLOR_SPACE_3D_Y% = CS3D.dispY%
+END SUB
+
+' ---------------------------------------------------------------------------
+' CS3D_clamp_to_work_area — Keep the panel (at least its title bar) on screen.
+' ---------------------------------------------------------------------------
+SUB CS3D_clamp_to_work_area ()
+    IF NOT CS3D.initialized% THEN EXIT SUB
+    DIM minX AS INTEGER, maxX AS INTEGER, minY AS INTEGER, maxY AS INTEGER
+    minX% = SCRN.uiLeftEdge%
+    maxX% = SCRN.uiRightEdge%
+    CS3D_work_area minY%, maxY%
+    IF CS3D.dispX% + CS3D.dispW% > maxX% THEN CS3D.dispX% = maxX% - CS3D.dispW%
+    IF CS3D.dispX% < minX% THEN CS3D.dispX% = minX%
+    DIM titleH AS INTEGER : titleH% = INT(CS3D_TITLE_H * CS3D.renderScale! + 0.5)
+    IF titleH% < 16 THEN titleH% = 16
+    IF CS3D.dispY% + CS3D.dispH% > maxY% THEN CS3D.dispY% = maxY% - CS3D.dispH%
+    IF CS3D.dispY% + titleH% > maxY% THEN CS3D.dispY% = maxY% - titleH%
+    IF CS3D.dispY% < minY% THEN CS3D.dispY% = minY%
+END SUB
+
+' ---------------------------------------------------------------------------
+' CS3D_hit_window% — Is the viewport pixel inside the panel?
+' ---------------------------------------------------------------------------
+FUNCTION CS3D_hit_window% (rawX AS INTEGER, rawY AS INTEGER)
+    CS3D_hit_window% = FALSE
+    IF NOT CS3D.initialized% THEN EXIT FUNCTION
+    IF rawX% >= CS3D.dispX% AND rawX% < CS3D.dispX% + CS3D.dispW% THEN
+        IF rawY% >= CS3D.dispY% AND rawY% < CS3D.dispY% + CS3D.dispH% THEN CS3D_hit_window% = TRUE
+    END IF
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' CS3D_active_hit% — Visible, not auto-hidden, and under the pointer.
+' ---------------------------------------------------------------------------
+FUNCTION CS3D_active_hit% (rawX AS INTEGER, rawY AS INTEGER)
+    CS3D_active_hit% = FALSE
+    IF NOT CS3D.visible% THEN EXIT FUNCTION
+    IF CS3D.autoHidden% THEN EXIT FUNCTION
+    CS3D_active_hit% = CS3D_hit_window%(rawX%, rawY%)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' CS3D_sync_from_paint — Pull external FG changes into the widget marker.
+' ---------------------------------------------------------------------------
+SUB CS3D_sync_from_paint ()
+    IF NOT CS3D.initialized% THEN EXIT SUB
+    DIM cur AS _UNSIGNED LONG
+    IF PAL_FG_IS_TRANSPARENT% THEN cur~& = _RGB32(0, 0, 0) ELSE cur~& = PAINT_COLOR~& OR &HFF000000~&
+    IF cur~& <> CS3D.lastSyncColor~& THEN
+        C3D_set_rgb cur~&
+        CS3D.lastSyncColor~& = cur~&
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' CS3D_render — Composite title bar + widget; blit to screen 0.
+' Called from SCREEN_render after ADVCP_render (same z-tier).
+' ---------------------------------------------------------------------------
+SUB CS3D_render ()
+    IF NOT CS3D.visible% THEN EXIT SUB
+    IF CS3D.autoHidden% THEN EXIT SUB
+
+    CS3D_ensure_initialized
+    IF NOT CS3D.positioned% THEN CS3D_auto_position ' opened at startup with no saved position
+    CS3D_clamp_to_work_area
+    REGION_set_bounds REGION_COLOR_SPACE_3D, CS3D.dispX%, CS3D.dispY%, CS3D.dispW%, CS3D.dispH%, ZORDER_FLOATING
+    CS3D_sync_from_paint
+
+    ' The widget only gets mouse input while the pointer is over the panel, so
+    ' clear its hover readout once the pointer leaves (else it shows a stale color).
+    IF C3D_STATE.hoverOn THEN
+        IF NOT CS3D_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN C3D_STATE.hoverOn = 0
+    END IF
+
+    ' Theme the widget like the other color panels.
+    C3D_STATE.bgColor    = THEME.CP_bg~&
+    C3D_STATE.textColor  = THEME.CP_text~&
+    C3D_STATE.dimColor   = THEME.CP_text_dim~&
+    C3D_STATE.btnColor   = THEME.CP_button_bg~&
+    C3D_STATE.btnOnColor = THEME.DIALOG_toggle_sel_bg~&    ' themed "selected" accent
+    C3D_render
+
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST CS3D.panelImg&
+    CLS , THEME.CP_bg~&
+    LINE (0, 0)-(CS3D.panelW% - 1, CS3D_TITLE_H - 1), THEME.CP_title_bg~&, BF
+    DIM oldFont AS LONG : oldFont& = _FONT
+    IF CS3D.titleFont& > 0 THEN _FONT CS3D.titleFont& ELSE _FONT 8
+    DIM tfY AS INTEGER : tfY% = (CS3D_TITLE_H - _UFONTHEIGHT) \ 2
+    IF tfY% < 0 THEN tfY% = 0
+    COLOR THEME.CP_title_fg~&, _RGBA32(0, 0, 0, 0)
+    _UPRINTSTRING (3, tfY%), "3D COLOR SPACE"
+    COLOR THEME.CP_close_fg~&, _RGBA32(0, 0, 0, 0)
+    _UPRINTSTRING (CS3D.panelW% - _UPRINTWIDTH("X") - 3, tfY%), "X"
+    _FONT oldFont&
+    _PUTIMAGE (0, CS3D_TITLE_H), C3D_STATE.imgHandle
+    LINE (0, 0)-(CS3D.panelW% - 1, CS3D.panelH% - 1), THEME.CP_border~&, B
+    _DEST oldDest&
+
+    ' Popups/menus float above the panel.
+    IF MENUBAR_is_open% THEN EXIT SUB
+    IF LAYER_PANEL.blendPopupOpen% THEN EXIT SUB
+    IF LAYER_PANEL.ctxMenuOpen% THEN EXIT SUB
+    IF DRAWER.contextMenuOpen% THEN EXIT SUB
+    IF CMD_PALETTE.visible THEN EXIT SUB
+    IF PALETTE_MENU_VISIBLE% THEN EXIT SUB
+
+    DIM ts AS INTEGER, ds AS INTEGER
+    ts% = USCALE.mixer%      : IF ts% < 1 THEN ts% = 1
+    ds% = SCRN.displayScale% : IF ds% < 1 THEN ds% = 1
+    DIM sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG
+    sx& = CLNG(CS3D.dispX%) * ds%
+    sy& = CLNG(CS3D.dispY%) * ds%
+    sw& = CLNG(CS3D.panelW%) * ts%
+    sh& = CLNG(CS3D.panelH%) * ts%
+    DIM oldDest2 AS LONG : oldDest2& = _DEST
+    _DEST 0
+    _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), CS3D.panelImg&, 0
+    _DEST oldDest2&
+END SUB
+
+' ---------------------------------------------------------------------------
+' CS3D_mouse_input — Title-bar drag/close, then feed the widget.
+' Called from MOUSE_handle_gui_panels when over the panel or a drag is active.
+'   wheelDelta: wheel ticks this frame (zooms the 3D view).
+' ---------------------------------------------------------------------------
+SUB CS3D_mouse_input (wheelDelta AS INTEGER)
+    IF NOT CS3D.visible% THEN EXIT SUB
+    IF CS3D.autoHidden% THEN EXIT SUB
+    IF NOT CS3D.initialized% THEN EXIT SUB
+
+    DIM localX AS INTEGER, localY AS INTEGER
+    localX% = MOUSE.RAW_X% - CS3D.dispX%
+    localY% = MOUSE.RAW_Y% - CS3D.dispY%
+    DIM nativeX AS INTEGER, nativeY AS INTEGER
+    IF CS3D.renderScale! > 0 THEN
+        nativeX% = INT(localX% / CS3D.renderScale!)
+        nativeY% = INT(localY% / CS3D.renderScale!)
+    ELSE
+        nativeX% = localX% : nativeY% = localY%
+    END IF
+
+    DIM justPressed AS INTEGER : justPressed% = (MOUSE.B1% AND NOT MOUSE.OLD_B1%)
+    DIM b2          AS INTEGER : b2% = (MOUSE.B2% OR MOUSE.B3%)
+    DIM justPressB2 AS INTEGER : justPressB2% = ((MOUSE.B2% AND NOT MOUSE.OLD_B2%) OR (MOUSE.B3% AND NOT MOUSE.OLD_B3%))
+
+    ' Active title-bar drag
+    IF CS3D.dragging% THEN
+        IF MOUSE.B1% THEN
+            CS3D.dispX% = CS3D.dragStartDX% + (MOUSE.RAW_X% - CS3D.dragStartMX%)
+            CS3D.dispY% = CS3D.dragStartDY% + (MOUSE.RAW_Y% - CS3D.dragStartMY%)
+            CS3D_clamp_to_work_area
+        ELSE
+            CS3D.dragging% = FALSE
+        END IF
+        CFG.COLOR_SPACE_3D_X% = CS3D.dispX%
+        CFG.COLOR_SPACE_3D_Y% = CS3D.dispY%
+        SCENE_DIRTY%          = TRUE : FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    DIM overPanel AS INTEGER
+    overPanel% = (localX% >= 0 AND localX% < CS3D.dispW% AND localY% >= 0 AND localY% < CS3D.dispH%)
+
+    ' Title-bar press: close button, else start a drag
+    IF justPressed% AND overPanel% AND nativeY% < CS3D_TITLE_H THEN
+        IF nativeX% >= CS3D.panelW% - 12 THEN
+            CS3D_toggle
+            EXIT SUB
+        END IF
+        CS3D.dragging%    = TRUE
+        CS3D.dragStartMX% = MOUSE.RAW_X%
+        CS3D.dragStartMY% = MOUSE.RAW_Y%
+        CS3D.dragStartDX% = CS3D.dispX%
+        CS3D.dragStartDY% = CS3D.dispY%
+        EXIT SUB
+    END IF
+
+    ' Buttons only reach the widget as a press made over it (or a drag it
+    ' already owns), so a stroke dragged in from the canvas never picks.
+    DIM wb1 AS INTEGER, wb2 AS INTEGER
+    IF C3D_STATE.dragging <> C3D_DRAG_NONE THEN
+        wb1% = MOUSE.B1% : wb2% = b2%
+    ELSE
+        IF justPressed% AND overPanel% THEN wb1% = TRUE
+        IF justPressB2% AND overPanel% THEN wb2% = TRUE
+    END IF
+    DIM wheel AS INTEGER
+    IF overPanel% THEN wheel% = wheelDelta%
+
+    DIM wasDirty AS INTEGER, hoverWas AS _UNSIGNED LONG, hoverOnWas AS INTEGER
+    hoverWas~& = C3D_STATE.hover : hoverOnWas% = C3D_STATE.hoverOn
+    C3D_input_mouse nativeX%, nativeY% - CS3D_TITLE_H, wb1%, wb2%, wheel%
+    wasDirty% = C3D_STATE.dirty
+
+    IF C3D_STATE.changed THEN
+        DIM col AS _UNSIGNED LONG : col~& = C3D_get_rgb~&
+        PAINT_COLOR~&          = col~&
+        DRAW_COLOR~&           = col~&
+        PAL_FG_IS_TRANSPARENT% = FALSE
+        CS3D.lastSyncColor~&   = col~&
+        STATUS_NEEDS_REDRAW%   = TRUE
+    END IF
+
+    ' Persist view changes (space/view/slice/rotation/zoom) into CFG.
+    IF wasDirty% THEN
+        CFG.COLOR_SPACE_3D_SPACE%    = C3D_STATE.spaceId
+        CFG.COLOR_SPACE_3D_VIEW%     = C3D_STATE.viewMode
+        CFG.COLOR_SPACE_3D_SLICE_ON% = C3D_STATE.sliceOn
+        CFG.COLOR_SPACE_3D_SLICE%    = INT(C3D_STATE.slice * 100 + 0.5)
+        CFG.COLOR_SPACE_3D_YAW%      = INT(C3D_STATE.yaw) MOD 360
+        CFG.COLOR_SPACE_3D_PITCH%    = INT(C3D_STATE.pitch)
+        CFG.COLOR_SPACE_3D_ZOOM%     = INT(C3D_STATE.zoom * 100 + 0.5)
+    END IF
+
+    IF wasDirty% OR C3D_STATE.changed OR hoverWas~& <> C3D_STATE.hover OR hoverOnWas% <> C3D_STATE.hoverOn THEN
+        SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE
+    END IF
+END SUB
