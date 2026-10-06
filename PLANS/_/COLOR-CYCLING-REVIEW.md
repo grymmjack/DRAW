@@ -61,6 +61,8 @@ git checkout palette-cycling && make
 
 ## Worth a look outside this feature
 
+- **Fixed (found during your review):** the new color cycling menu items pushed the menu table past `MENU_MAX_ITEMS` (400). `MENUBAR_register_item` dropped the overflow *silently*, so the Help menu, registered last, showed only "ABOUT DRAW". The limit is now 600, an overflow logs a `_LOGERROR`, and startup logs `MENUBAR: N of 600 menu items used` (422 with the AI menu off).
+
 - `SAFE_FREEIMAGE` (`CORE/HELPERS.BM`) **doesn't zero the handle**. Any `SAFE_FREEIMAGE h` followed by `IF h >= -1 THEN h = _NEWIMAGE(...)` keeps a freed handle. I zeroed my own uses; other call sites may have the same pattern.
 - `PAL_find_closest%` (`GUI/PALETTE.BM`) only searches palette entries 0–15. The new indexer has its own nearest-color search, but older callers use this one.
 
