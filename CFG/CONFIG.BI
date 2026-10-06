@@ -208,6 +208,7 @@ END IF
 
 TYPE DRAW_CONFIG
     THEME                           AS STRING         ' Active theme directory name (e.g. "DEFAULT")
+    WORKSPACE                       AS STRING         ' Last workspace id (CFG/WORKSPACE); DRAW reopens in it. "default" = no overlay
     FULLSCREEN                      AS INTEGER        ' TRUE = fullscreen, FALSE = windowed
     SPLASH_ENABLED                  AS INTEGER        ' TRUE = show splash screen on startup (default TRUE)
     UI_SCALE                        AS INTEGER        ' MASTER scale (0 = auto, 1-8). Drives DISPLAY_SCALE + TOOLBAR_SCALE; dialog/browser scales derive from it.

@@ -523,6 +523,9 @@ IF benchLayers% > 0 THEN BENCH_render_run benchLayers%
 ' Pen tablet pressure (INPUT/PEN, QB64_GJ_LIB PRESSURE_DEVICE). Needs the window.
 PEN_init
 
+' Reopen in the remembered workspace (CFG.WORKSPACE) - an overlay, GUI/WORKSPACE-APPLY.
+WS_startup
+
 DO
     ' Deferred command line file loading (after first frame when everything is initialized).
     ' Acts exactly like File -> Open: direct load, NO interactive placement.
@@ -1024,6 +1027,7 @@ DO
     MOUSE_input_handler_loop
     KEYBOARD_input_handler_loop
     STICK_input_handler_loop
+    WS_tick ' a workspace's [START] runs once the new chrome has been laid out
     PERF_stop PERF_POST_INPUT
     PERF_stop PERF_MAIN_LOOP_TOTAL
     PERF_frame_end
