@@ -147,6 +147,12 @@ SUB CONFIG_set_defaults ()
     CFG.HELP_CARD_ENABLED%        = TRUE                                                  ' Gesture help card on (Palette Ops strip hover)
     CFG.HELP_CARD_EDGE%           = 0                                                     ' Help card docked to the bottom of the canvas area
     CFG.HELP_CARD_DELAY_MS%       = 350                                                   ' Help card after 350ms hover
+    CFG.CAPTURE_BACKEND%          = 0                                                     ' Capture: pick the tool per OS/desktop
+    CFG.CAPTURE_COMMAND$          = ""                                                    ' Capture: no custom command
+    CFG.CAPTURE_DELAY_MS%         = 250                                                   ' Capture: let the window hide before grabbing
+    CFG.CAPTURE_HIDE_DRAW%        = TRUE                                                  ' Capture: keep DRAW out of the shot
+    CFG.CAPTURE_WORKSPACE$        = "annotate"                                            ' Capture: mark it up in Annotate
+    CFG.CAPTURE_SAVE_DIR$         = ""                                                    ' Capture: Pictures/DRAW Screenshots
     CFG.TOOLTIPS_DISABLED%        = FALSE                                                 ' Tooltips enabled by default
     CFG.SOUNDS_VOLUME%            = 10                                                    ' 10% volume default
     CFG.SOUNDS_MUTED%             = FALSE                                                 ' SFX not muted by default
@@ -445,6 +451,9 @@ SUB CONFIG_load ()
         END IF
     END IF
     
+    ' Which keys --option overrides (their file values are recorded below)
+    CFG_cli_collect
+
     ' Open config file for reading
     fh% = FREEFILE
     OPEN CONFIG_FILE_PATH$ FOR INPUT AS #fh%
@@ -488,6 +497,7 @@ SUB CONFIG_load ()
                 ' Apply configuration values
                 DIM cfgRecognized AS INTEGER
                 cfgRecognized% = CONFIG_apply_key%(configKey$, configValue$)
+                CFG_cli_note_file_value configKey$, configValue$
             END IF
         END IF
     LOOP
@@ -991,8 +1001,10 @@ SUB CONFIG_save ()
     DIM cs_i AS INTEGER
 
     ' A workspace overlay (GUI/WORKSPACE-APPLY) swaps the user's own values in
-    ' for the fields it touched, so workspaces never leak into DRAW.cfg.
+    ' for the fields it touched, so workspaces never leak into DRAW.cfg; the
+    ' same for --option overrides (this run only).
     WS_cfg_guard_begin
+    CFG_cli_guard_begin
 
     fh% = FREEFILE
     OPEN CONFIG_FILE_PATH$ FOR OUTPUT AS #fh%
@@ -1494,6 +1506,21 @@ SUB CONFIG_save ()
     PRINT #fh%, "HELP_CARD_DELAY=" + _TRIM$(STR$(CFG.HELP_CARD_DELAY_MS%))
     PRINT #fh%, ""
 
+    PRINT #fh%, "[CAPTURE]"
+    SELECT CASE CFG.CAPTURE_BACKEND%
+        CASE 1 : PRINT #fh%, "CAPTURE_BACKEND=NATIVE"
+        CASE 2 : PRINT #fh%, "CAPTURE_BACKEND=COMMAND"
+        CASE ELSE : PRINT #fh%, "CAPTURE_BACKEND=AUTO"
+    END SELECT
+    PRINT #fh%, "CAPTURE_COMMAND=" + CFG.CAPTURE_COMMAND$
+    IF CFG.CAPTURE_DELAY_MS% < 0    THEN CFG.CAPTURE_DELAY_MS% = 0
+    IF CFG.CAPTURE_DELAY_MS% > 5000 THEN CFG.CAPTURE_DELAY_MS% = 5000
+    PRINT #fh%, "CAPTURE_DELAY=" + _TRIM$(STR$(CFG.CAPTURE_DELAY_MS%))
+    PRINT #fh%, "CAPTURE_HIDE_DRAW=" + _IIF(CFG.CAPTURE_HIDE_DRAW%, "TRUE", "FALSE")
+    PRINT #fh%, "CAPTURE_WORKSPACE=" + CFG.CAPTURE_WORKSPACE$
+    PRINT #fh%, "CAPTURE_SAVE_DIR=" + CFG.CAPTURE_SAVE_DIR$
+    PRINT #fh%, ""
+
     PRINT #fh%, "[ANTIALIAS]"
     IF CFG.ANTIALIAS% THEN
         PRINT #fh%, "ANTIALIAS=TRUE"
@@ -1844,6 +1871,7 @@ SUB CONFIG_save ()
     PRINT #fh%, ""
 
     CLOSE #fh%
+    CFG_cli_guard_end
     WS_cfg_guard_end
 END SUB
 
@@ -2434,6 +2462,22 @@ FUNCTION CONFIG_apply_key% (configKey$, configValue$)
                             END SELECT
                         CASE "HELP_CARD_DELAY"
                             CFG.HELP_CARD_DELAY_MS% = VAL(configValue$)
+                        CASE "CAPTURE_BACKEND"
+                            SELECT CASE UCASE$(_TRIM$(configValue$))
+                                CASE "NATIVE", "1"  : CFG.CAPTURE_BACKEND% = 1
+                                CASE "COMMAND", "2" : CFG.CAPTURE_BACKEND% = 2
+                                CASE ELSE           : CFG.CAPTURE_BACKEND% = 0
+                            END SELECT
+                        CASE "CAPTURE_COMMAND"
+                            CFG.CAPTURE_COMMAND$ = configValue$
+                        CASE "CAPTURE_DELAY"
+                            CFG.CAPTURE_DELAY_MS% = VAL(configValue$)
+                        CASE "CAPTURE_HIDE_DRAW"
+                            CFG.CAPTURE_HIDE_DRAW% = (UCASE$(configValue$) = "TRUE" OR configValue$ = "1")
+                        CASE "CAPTURE_WORKSPACE"
+                            CFG.CAPTURE_WORKSPACE$ = LCASE$(_TRIM$(configValue$))
+                        CASE "CAPTURE_SAVE_DIR"
+                            CFG.CAPTURE_SAVE_DIR$ = configValue$
                             IF CFG.HELP_CARD_DELAY_MS% < 0 THEN CFG.HELP_CARD_DELAY_MS% = 0
                             IF CFG.HELP_CARD_DELAY_MS% > 5000 THEN CFG.HELP_CARD_DELAY_MS% = 5000
                         CASE "DEFAULT_BRUSH_EDGES"
@@ -2883,6 +2927,64 @@ FUNCTION CONFIG_apply_key% (configKey$, configValue$)
                             END IF
                     END SELECT
 END FUNCTION
+
+''
+' Collect the --option KEY=VALUE pairs (before the file is read, so
+' CFG_cli_note_file_value can record each key's on-disk value).
+SUB CFG_cli_collect ()
+    DIM i AS INTEGER, kv AS STRING, eq AS INTEGER
+    CFG_CLI_N = 0
+    FOR i = 1 TO _COMMANDCOUNT - 1
+        IF LCASE$(_TRIM$(COMMAND$(i))) = "--option" THEN
+            kv = _TRIM$(COMMAND$(i + 1))
+            eq = INSTR(kv, "=")
+            IF eq > 1 _ANDALSO CFG_CLI_N < CFG_CLI_MAX THEN
+                CFG_CLI_N = CFG_CLI_N + 1
+                CFG_CLI_KEY(CFG_CLI_N) = UCASE$(_TRIM$(LEFT$(kv, eq - 1)))
+                CFG_CLI_VAL(CFG_CLI_N) = _TRIM$(MID$(kv, eq + 1))
+                CFG_CLI_FILEVAL(CFG_CLI_N) = ""
+                CFG_CLI_INFILE(CFG_CLI_N) = FALSE
+            END IF
+        END IF
+    NEXT i
+END SUB
+
+''
+' CONFIG_load: remember the file's value for a key that --option overrides.
+SUB CFG_cli_note_file_value (cfgKey AS STRING, cfgValue AS STRING)
+    DIM i AS INTEGER, k AS STRING
+    IF CFG_CLI_N = 0 THEN EXIT SUB
+    k = UCASE$(_TRIM$(cfgKey))
+    FOR i = 1 TO CFG_CLI_N
+        IF CFG_CLI_KEY(i) = k THEN
+            CFG_CLI_FILEVAL(i) = cfgValue
+            CFG_CLI_INFILE(i) = TRUE
+        END IF
+    NEXT i
+END SUB
+
+''
+' CONFIG_save, before writing: overridden keys get their file values back.
+' (A key the file never had keeps the override - there is no value to restore.)
+SUB CFG_cli_guard_begin ()
+    DIM i AS INTEGER, ok AS INTEGER
+    IF CFG_CLI_N = 0 _ORELSE CFG_CLI_GUARD_ON THEN EXIT SUB
+    CFG_CLI_GUARD_ON = TRUE
+    FOR i = 1 TO CFG_CLI_N
+        IF CFG_CLI_INFILE(i) THEN ok = CONFIG_apply_key%(CFG_CLI_KEY(i), CFG_CLI_FILEVAL(i))
+    NEXT i
+END SUB
+
+''
+' ...and after: the overrides are live again for the rest of the run.
+SUB CFG_cli_guard_end ()
+    DIM i AS INTEGER, ok AS INTEGER
+    IF CFG_CLI_GUARD_ON = 0 THEN EXIT SUB
+    FOR i = 1 TO CFG_CLI_N
+        IF CFG_CLI_INFILE(i) THEN ok = CONFIG_apply_key%(CFG_CLI_KEY(i), CFG_CLI_VAL(i))
+    NEXT i
+    CFG_CLI_GUARD_ON = FALSE
+END SUB
 
 ''
 ' Apply CLI --option KEY=VALUE overrides (repeatable), on top of the loaded file.

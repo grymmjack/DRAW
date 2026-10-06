@@ -1,0 +1,194 @@
+''
+' DRAW - GUI/CAPTURE.BM
+' =============================================================================
+' Screen capture backends + the Capture Screen action. See GUI/CAPTURE.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' TRUE when a command-line tool is on PATH (POSIX only).
+FUNCTION CAP_have% (tool AS STRING)
+    $IF WIN THEN
+        CAP_have% = FALSE
+    $ELSE
+        CAP_have% = (_SHELLHIDE("command -v " + tool + " >/dev/null 2>&1") = 0)
+    $END IF
+END FUNCTION
+
+
+''
+' AUTO: the capture command for this OS/desktop ({file} placeholder), or ""
+' with CAP_LAST_ERROR set when no tool is installed. "NATIVE" on Windows.
+FUNCTION CAP_auto_command$ ()
+    DIM desk AS STRING, sess AS STRING
+    IF LEN(CAP_AUTO_CACHE) THEN CAP_auto_command$ = CAP_AUTO_CACHE: EXIT FUNCTION
+    $IF WIN THEN
+        CAP_AUTO_CACHE = "NATIVE"
+    $ELSEIF MAC THEN
+        CAP_AUTO_CACHE = "screencapture -x {file}"
+    $ELSE
+        desk = UCASE$(ENVIRON$("XDG_CURRENT_DESKTOP"))
+        sess = LCASE$(ENVIRON$("XDG_SESSION_TYPE"))
+        IF INSTR(desk, "KDE") _ANDALSO CAP_have%("spectacle") THEN
+            CAP_AUTO_CACHE = "spectacle -b -n -f -o {file}"
+        ELSEIF INSTR(desk, "GNOME") _ANDALSO CAP_have%("gnome-screenshot") THEN
+            CAP_AUTO_CACHE = "gnome-screenshot -f {file}"
+        ELSEIF sess = "wayland" _ANDALSO CAP_have%("grim") THEN
+            CAP_AUTO_CACHE = "grim {file}"
+        ELSEIF sess <> "wayland" _ANDALSO CAP_have%("maim") THEN
+            CAP_AUTO_CACHE = "maim {file}"
+        ELSEIF sess <> "wayland" _ANDALSO CAP_have%("scrot") THEN
+            CAP_AUTO_CACHE = "scrot {file}"
+        ELSEIF sess <> "wayland" _ANDALSO CAP_have%("import") THEN
+            CAP_AUTO_CACHE = "import -window root {file}"
+        ELSEIF CAP_have%("spectacle") THEN
+            CAP_AUTO_CACHE = "spectacle -b -n -f -o {file}"
+        ELSEIF CAP_have%("gnome-screenshot") THEN
+            CAP_AUTO_CACHE = "gnome-screenshot -f {file}"
+        ELSEIF CAP_have%("grim") THEN
+            CAP_AUTO_CACHE = "grim {file}"
+        END IF
+        IF LEN(CAP_AUTO_CACHE) = 0 THEN
+            CAP_LAST_ERROR = "No screen capture tool found. Install spectacle (KDE), gnome-screenshot (GNOME), grim (sway/Hyprland) or maim/scrot (X11), or set a Custom Command in Settings"
+        END IF
+    $END IF
+    CAP_auto_command$ = CAP_AUTO_CACHE
+END FUNCTION
+
+
+''
+' Grab the whole screen. Returns a 32-bit image handle (caller frees) or 0
+' with CAP_LAST_ERROR set. Does not hide DRAW - CAP_capture_screen does.
+FUNCTION CAP_grab& ()
+    DIM tmpl AS STRING, cmd AS STRING, f AS STRING, rc AS LONG, img AS LONG, p AS INTEGER
+    CAP_LAST_ERROR = ""
+    SELECT CASE CFG.CAPTURE_BACKEND%
+        CASE CAP_BACKEND_COMMAND
+            tmpl = _TRIM$(CFG.CAPTURE_COMMAND$)
+            IF LEN(tmpl) = 0 THEN
+                CAP_LAST_ERROR = "Capture is set to Custom Command but CAPTURE_COMMAND is empty (Settings > General > Screen Capture)"
+                EXIT FUNCTION
+            END IF
+        CASE CAP_BACKEND_NATIVE
+            tmpl = "NATIVE"
+        CASE ELSE
+            tmpl = CAP_auto_command$
+            IF LEN(tmpl) = 0 THEN EXIT FUNCTION
+    END SELECT
+    CAP_LAST_TOOL = tmpl
+
+    IF tmpl = "NATIVE" THEN
+        $IF WIN THEN
+            img = _SCREENIMAGE
+            IF img < -1 THEN CAP_grab& = img ELSE CAP_LAST_ERROR = "_SCREENIMAGE failed"
+        $ELSE
+            CAP_LAST_ERROR = "Native capture (_SCREENIMAGE) only works on Windows - choose Auto in Settings > General > Screen Capture"
+        $END IF
+        EXIT FUNCTION
+    END IF
+
+    f = PATHS_cache$("capture.png")
+    IF _FILEEXISTS(f) THEN KILL f
+    p = INSTR(tmpl, "{file}")
+    IF p THEN
+        cmd = LEFT$(tmpl, p - 1) + CHR$(34) + f + CHR$(34) + MID$(tmpl, p + 6)
+    ELSE
+        cmd = tmpl + " " + CHR$(34) + f + CHR$(34)
+    END IF
+    $IF WIN THEN
+        rc = _SHELLHIDE(cmd)
+    $ELSE
+        rc = _SHELLHIDE(cmd + " >/dev/null 2>&1")
+    $END IF
+    IF _FILEEXISTS(f) = 0 THEN
+        CAP_LAST_ERROR = "Capture command wrote no image (exit" + STR$(rc) + "): " + cmd
+        EXIT FUNCTION
+    END IF
+    img = _LOADIMAGE(f, 32)
+    KILL f
+    IF img >= -1 THEN
+        CAP_LAST_ERROR = "Could not read the captured image from " + f
+        EXIT FUNCTION
+    END IF
+    CAP_grab& = img
+END FUNCTION
+
+
+''
+' The capture as a new document, then the capture workspace. Owns img.
+SUB CAP_open_capture (img AS LONG)
+    DIM srcImg AS LONG, ok AS INTEGER, w AS LONG, h AS LONG, prevWs AS STRING
+    srcImg = img
+    w = _WIDTH(srcImg)
+    h = _HEIGHT(srcImg)
+    prevWs = WS_ACTIVE_ID
+    ok = DRW_new_from_image%(srcImg, "Capture Screen")
+    SAFE_FREEIMAGE srcImg
+    IF ok = 0 THEN EXIT SUB
+    CURRENT_FILENAME$ = ""
+    CURRENT_DRW_FILENAME$ = ""
+    SOUND_play SND_NEW_FILE
+    _LOGINFO "CAPTURE: new document" + STR$(w) + "x" + _TRIM$(STR$(h)) + " via " + CAP_LAST_TOOL
+    IF LEN(CFG.CAPTURE_WORKSPACE$) _ANDALSO LCASE$(CFG.CAPTURE_WORKSPACE$) <> WS_ACTIVE_ID THEN
+        CAP_PREV_WS = prevWs
+        ok = WS_apply%(CFG.CAPTURE_WORKSPACE$)
+    ELSE
+        WS_START_PENDING = WS_ACTIVE ' re-fit the new document in the current workspace
+    END IF
+    STATUS_flash "Captured" + STR$(w) + "x" + _TRIM$(STR$(h))
+END SUB
+
+
+''
+' Capture Screen: hide DRAW, wait, grab, show DRAW, open the capture.
+SUB CAP_capture_screen ()
+    DIM img AS LONG, hid AS INTEGER
+    MENUBAR_close_all
+    IF CFG.CAPTURE_HIDE_DRAW% THEN
+        _SCREENHIDE
+        hid = TRUE
+    END IF
+    IF CFG.CAPTURE_DELAY_MS% > 0 THEN _DELAY CFG.CAPTURE_DELAY_MS% / 1000
+    img = CAP_grab&
+    IF hid THEN _SCREENSHOW
+    MOUSE_cleanup_after_dialog FALSE
+    INVALIDATE_scene
+    IF img >= -1 THEN
+        STATUS_flash "Capture failed: " + CAP_LAST_ERROR
+        _LOGWARN "CAPTURE: " + CAP_LAST_ERROR
+        EXIT SUB
+    END IF
+    CAP_open_capture img
+END SUB
+
+
+''
+' Actions 2450-2459.
+SUB CAP_action (act AS INTEGER)
+    SELECT CASE act
+        CASE CAP_ACT_CAPTURE
+            CAP_capture_screen
+    END SELECT
+END SUB
+
+
+''
+' Startup: DRAW --capture grabs once the window is up (a couple of frames in).
+SUB CAP_startup ()
+    DIM i AS INTEGER
+    FOR i = 1 TO _COMMANDCOUNT
+        IF LCASE$(_TRIM$(COMMAND$(i))) = "--capture" THEN CAP_PENDING = 3
+    NEXT i
+END SUB
+
+
+''
+' Per frame (after render): count down a pending --capture.
+SUB CAP_tick ()
+    IF CAP_PENDING = 0 THEN EXIT SUB
+    CAP_PENDING = CAP_PENDING - 1
+    IF CAP_PENDING = 0 THEN CAP_capture_screen
+END SUB

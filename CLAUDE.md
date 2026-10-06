@@ -37,7 +37,7 @@ qb64pe -w -x -o DRAW.run DRAW.BAS
 ./DRAW.run --config-upgrade        # reconcile cfg with new defaults
 ./DRAW.run --reset-defaults        # restore factory cfg
 ./DRAW.run --options-list          # print every config option + default + description, then exit
-./DRAW.run --option KEY=VALUE      # override any config key from the CLI (repeatable; beats the .cfg)
+./DRAW.run --option KEY=VALUE      # override any config key for this run (repeatable; beats the .cfg, never saved)
 ./DRAW.run --option TOOLTIPS_DISABLED=TRUE --option GROUP_DRAW_AUTO_LAYER=TRUE
 ./DRAW.run --cfg                   # path of the config in use (vim $(./DRAW.run --cfg))
 ./DRAW.run --dirs                  # every DRAW directory; --dir-NAME prints one bare path

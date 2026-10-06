@@ -525,6 +525,8 @@ PEN_init
 
 ' Reopen in the remembered workspace (CFG.WORKSPACE) - an overlay, GUI/WORKSPACE-APPLY.
 WS_startup
+' DRAW --capture: grab the screen once the window is up (GUI/CAPTURE).
+CAP_startup
 
 DO
     ' Deferred command line file loading (after first frame when everything is initialized).
@@ -1028,6 +1030,7 @@ DO
     KEYBOARD_input_handler_loop
     STICK_input_handler_loop
     WS_tick ' a workspace's [START] runs once the new chrome has been laid out
+    CAP_tick ' DRAW --capture, a few frames after startup
     PERF_stop PERF_POST_INPUT
     PERF_stop PERF_MAIN_LOOP_TOTAL
     PERF_frame_end

@@ -50,6 +50,17 @@ CMDLINE_CONFIG_UPGRADE% = FALSE
 DIM SHARED CMDLINE_RESET_DEFAULTS%
 CMDLINE_RESET_DEFAULTS% = FALSE
 
+' --option KEY=VALUE overrides are for THIS RUN: CONFIG_save writes the value
+' the key had in the file (CFG_cli_guard_begin/_end), so a one-off override -
+' or a QA test's - never becomes permanent. Collected by CONFIG_load.
+CONST CFG_CLI_MAX = 64
+DIM SHARED CFG_CLI_N AS INTEGER
+DIM SHARED CFG_CLI_KEY(1 TO CFG_CLI_MAX)     AS STRING ' upper case
+DIM SHARED CFG_CLI_VAL(1 TO CFG_CLI_MAX)     AS STRING ' the override
+DIM SHARED CFG_CLI_FILEVAL(1 TO CFG_CLI_MAX) AS STRING ' the value in the config file
+DIM SHARED CFG_CLI_INFILE(1 TO CFG_CLI_MAX)  AS INTEGER ' the file had the key
+DIM SHARED CFG_CLI_GUARD_ON AS INTEGER
+
 ' Command-line canvas size override (--canvas-size WWWxHHH)
 DIM SHARED CMDLINE_CANVAS_W%
 DIM SHARED CMDLINE_CANVAS_H%
@@ -495,6 +506,13 @@ TYPE DRAW_CONFIG
     HELP_CARD_ENABLED               AS INTEGER        ' TRUE = gesture help card on hover (Palette Ops strip) (GUI/HELP-CARD)
     HELP_CARD_EDGE                  AS INTEGER        ' HCARD_EDGE_*: 0 bottom, 1 top, 2 left, 3 right of the canvas area
     HELP_CARD_DELAY_MS              AS INTEGER        ' Milliseconds of hover before the help card appears (default 350)
+    ' Screen capture (GUI/CAPTURE)
+    CAPTURE_BACKEND                 AS INTEGER        ' CAP_BACKEND_*: 0 auto (per OS/desktop), 1 native (_SCREENIMAGE, Windows), 2 custom command
+    CAPTURE_COMMAND                 AS STRING         ' Custom capture command; {file} = the PNG path DRAW reads back
+    CAPTURE_DELAY_MS                AS INTEGER        ' Wait after hiding DRAW before grabbing (0-5000, default 250)
+    CAPTURE_HIDE_DRAW               AS INTEGER        ' TRUE = hide DRAW's window during the grab
+    CAPTURE_WORKSPACE               AS STRING         ' Workspace to switch to after a capture ("" = stay)
+    CAPTURE_SAVE_DIR                AS STRING         ' Where Ctrl+S quick-saves captures ("" = Pictures/DRAW Screenshots)
     TOOLTIPS_DISABLED               AS INTEGER        ' TRUE = hide toolbar tooltips entirely
     ' Text tool default font settings
     FONT_DEFAULT_FONT               AS STRING         ' Default font name for text tool (empty = use Tiny5 Regular)
