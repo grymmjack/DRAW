@@ -45,7 +45,7 @@ git checkout palette-cycling && make
 ## Known limits
 
 - A pixel cycles **only when its RGB exactly matches a swatch inside a range**. Opacity below 100% and non-Normal blend modes produce in-between colors that don't cycle (the manual says so). Duplicates get a red checker band, and *Check Duplicate Colors* lists them.
-- **macOS:** GLUT turns **Ctrl+click into a right click** (see `INSTALL/MAC-USERS-README.md`). The Ctrl gestures on the strip will probably act as right-clicks on a Mac unless Button Emulation is turned off. The Palette → Color Cycling menu works everywhere. This is untested on macOS and Windows, and needs a look.
+- **macOS / Windows are untested.** On *GLUT* builds, macOS turns **Ctrl+click into a right click** (`INSTALL/MAC-USERS-README.md`), which would break the Ctrl gestures on the strip. The current GLFW toolchain shouldn't remap clicks, but I couldn't check it on a Mac. The Palette → Color Cycling menu works regardless.
 - **The animated GIF** loops exactly when the range periods fit within 60 s / 1000 frames (the samples loop every 2–4 s). Otherwise it's cut with a log warning. Times are rounded to 1/50 s.
 - **Not supported:** HAM, 24-bit ILBM, ANIM, LBM pixel aspect (320×200 opens square), GIFs without ranges keeping their palette (they load as plain images, as before).
 - **Third-party programs were checked at the file level only.** GrafX2-made `test.gif` round-trips its CRNG bytes exactly; ffmpeg and netpbm `ilbmtoppm` decode DRAW's GIF/ILBM/PBM pixel-exact; real PyDPainter files and Gold-Box-era DeluxePaint LBMs import correctly. I did **not** open DRAW's files in GrafX2's or DeluxePaint's own UI. That's the manual checklist's EXPORTS section.
