@@ -119,6 +119,8 @@ CONST WS_MAX_KEYS = 64
 DIM SHARED WS_KEY_N AS INTEGER
 DIM SHARED WS_KEY_CH(1 TO WS_MAX_KEYS)  AS STRING  ' exact key ("r" vs "R" = Shift+R)
 DIM SHARED WS_KEY_ACT(1 TO WS_MAX_KEYS) AS INTEGER ' CMD_execute_action id
+DIM SHARED WS_KEY_MODS(1 TO WS_MAX_KEYS) AS INTEGER ' MOD_CTRL / MOD_ALT the key needs (ctrl+s, ctrl+enter)
+DIM SHARED WS_KEY_DOWN_LAST(1 TO WS_MAX_KEYS) AS INTEGER ' edge state for keys the binding table does not watch
 DIM SHARED WS_CMD_HK_SAVE(0 TO 1023) AS STRING     ' command palette hotkeys before relabeling
 DIM SHARED WS_CMD_HK_N AS INTEGER
 DIM SHARED WS_MENUS_TOUCHED AS INTEGER ' [MENUS] filtered the menu bar (rebuilt on apply/restore)

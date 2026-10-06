@@ -23,6 +23,7 @@ TYPE LINE_TYPE
     SPOKES    AS INTEGER ' Extra radial lines from start point at equidistant angles (0=none)
     START_CAP AS INTEGER ' Cap shape at start point (LINE_CAP_*)
     END_CAP   AS INTEGER ' Cap shape at end point (LINE_CAP_*)
+    STICKY_END_CAP AS INTEGER ' End cap LINE_reset keeps (Annotate's Arrow tool: LINE_CAP_ARROW); 0 = none
 END TYPE
 
 DIM SHARED LINE_TOOL AS LINE_TYPE

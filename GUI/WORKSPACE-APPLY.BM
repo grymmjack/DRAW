@@ -245,6 +245,15 @@ FUNCTION WS_tool_action% (toolName AS STRING)
         CASE "spray":                       WS_tool_action% = 1702
         CASE "smart-shapes":                WS_tool_action% = 1706
         CASE "crop":                        WS_tool_action% = 1802 ' crop to selection, else interactive crop
+        CASE "arrow":                       WS_tool_action% = 2453 ' GUI/ANNOTATE
+        CASE "highlight", "highlighter":    WS_tool_action% = 2454
+        CASE "redact":                      WS_tool_action% = 2455
+        CASE "callout":                     WS_tool_action% = 2456
+        CASE "callout-reset":               WS_tool_action% = 2457
+        CASE "quick-save":                  WS_tool_action% = 2451
+        CASE "done":                        WS_tool_action% = 2452
+        CASE "copy-image", "copy-merged":   WS_tool_action% = 322
+        CASE "capture":                     WS_tool_action% = 2450
     END SELECT
 END FUNCTION
 
@@ -983,15 +992,33 @@ END FUNCTION
 
 
 SUB WS_apply_keys ()
-    DIM i AS INTEGER, k AS STRING, a AS INTEGER
+    DIM i AS INTEGER, k AS STRING, a AS INTEGER, m AS INTEGER, lk AS STRING
     WS_KEY_N = 0
     i = 0
     DO
         i = WS_next_in_section%("KEYS", i)
         IF i = 0 THEN EXIT DO
         k = WS_res_key_part$(i)
+        ' ctrl+ / alt+ prefixes; named keys enter, space, tab
+        m = 0
+        DO
+            lk = LCASE$(k)
+            IF LEFT$(lk, 5) = "ctrl+" THEN
+                m = m OR MOD_CTRL: k = MID$(k, 6)
+            ELSEIF LEFT$(lk, 4) = "alt+" THEN
+                m = m OR MOD_ALT: k = MID$(k, 5)
+            ELSE
+                EXIT DO
+            END IF
+        LOOP
+        SELECT CASE LCASE$(k)
+            CASE "enter", "return": k = CHR$(13)
+            CASE "space": k = " "
+            CASE "tab": k = CHR$(9)
+        END SELECT
+        IF m <> 0 _ANDALSO LEN(k) = 1 THEN k = LCASE$(k) ' ctrl+S = ctrl+s (Shift is separate)
         IF LEN(k) <> 1 THEN
-            _LOGWARN "WORKSPACE: [KEYS] '" + k + "' - only single keys (a, R, 1, ...) are supported"
+            _LOGWARN "WORKSPACE: [KEYS] '" + WS_res_key_part$(i) + "' - use one key (a, R, 1), ctrl+key, alt+key, enter, space or tab"
             _CONTINUE
         END IF
         a = WS_key_value_action%(WS_RES_VAL(i))
@@ -1003,6 +1030,7 @@ SUB WS_apply_keys ()
         WS_KEY_N = WS_KEY_N + 1
         WS_KEY_CH(WS_KEY_N) = k
         WS_KEY_ACT(WS_KEY_N) = a
+        WS_KEY_MODS(WS_KEY_N) = m
     LOOP
 END SUB
 
@@ -1020,21 +1048,22 @@ END SUB
 ''
 ' The workspace action for a key press, or 0 (let the binding table have it).
 FUNCTION WS_key_action% (keycode AS LONG, mods AS INTEGER, ctx AS _UNSIGNED _INTEGER64)
-    DIM ch AS STRING, i AS INTEGER, kc AS LONG
+    DIM ch AS STRING, i AS INTEGER, kc AS LONG, evMods AS INTEGER
     IF WS_KEY_N = 0 _ORELSE WS_ACTIVE = 0 THEN EXIT FUNCTION
-    IF (mods AND (MOD_CTRL OR MOD_ALT)) <> 0 THEN EXIT FUNCTION
+    evMods = mods AND (MOD_CTRL OR MOD_ALT)
     IF (ctx AND (CTX_TEXT_ACTIVE OR CTX_FILE_DIALOG_OPEN OR CTX_SETTINGS_OPEN OR CTX_POPUP_MENU_OPEN OR CTX_COMMAND_PALETTE_OPEN OR CTX_TRANSFORM_ACTIVE OR CTX_DRAWING_IN_PROGRESS OR CTX_OVER_DIALOG)) <> 0 THEN EXIT FUNCTION
     IF (ctx AND (CTX_G_HELD OR CTX_M_HELD OR CTX_Z_HELD OR CTX_E_HELD OR CTX_F_HELD OR CTX_W_HELD OR CTX_SPACE_HELD OR CTX_SS_DRAGGING)) <> 0 THEN EXIT FUNCTION
     IF MENU_BAR.openMenu% >= 0 THEN EXIT FUNCTION
     IF MOUSE.B1% _ORELSE MOUSE.B2% THEN EXIT FUNCTION ' never switch tools mid-stroke
     kc = keycode
-    IF kc < 32 _ORELSE kc > 126 THEN EXIT FUNCTION
+    IF kc = 10 THEN kc = 13 ' Ctrl+Enter can arrive as LF
+    IF kc <> 13 _ANDALSO kc <> 9 _ANDALSO (kc < 32 _ORELSE kc > 126) THEN EXIT FUNCTION
     ' letters: case comes from Shift (events may carry either case code)
     IF kc >= 65 _ANDALSO kc <= 90 THEN kc = kc + 32
     ch = CHR$(kc)
     IF kc >= 97 _ANDALSO kc <= 122 _ANDALSO (mods AND MOD_SHIFT) <> 0 THEN ch = UCASE$(ch)
     FOR i = 1 TO WS_KEY_N
-        IF WS_KEY_CH(i) = ch THEN WS_key_action% = WS_KEY_ACT(i): EXIT FUNCTION
+        IF WS_KEY_CH(i) = ch _ANDALSO WS_KEY_MODS(i) = evMods THEN WS_key_action% = WS_KEY_ACT(i): EXIT FUNCTION
     NEXT i
 END FUNCTION
 
@@ -1046,7 +1075,7 @@ FUNCTION WS_key_mapped% (lowerAscii AS INTEGER)
     DIM i AS INTEGER
     IF WS_KEY_N = 0 _ORELSE WS_ACTIVE = 0 THEN EXIT FUNCTION
     FOR i = 1 TO WS_KEY_N
-        IF LCASE$(WS_KEY_CH(i)) = CHR$(lowerAscii) THEN WS_key_mapped% = TRUE: EXIT FUNCTION
+        IF WS_KEY_MODS(i) = 0 _ANDALSO LCASE$(WS_KEY_CH(i)) = CHR$(lowerAscii) THEN WS_key_mapped% = TRUE: EXIT FUNCTION
     NEXT i
 END FUNCTION
 
@@ -1054,11 +1083,29 @@ END FUNCTION
 ''
 ' Hotkey label for a workspace key, as menus show them ("R", "Shift+R").
 FUNCTION WS_key_label$ (k AS STRING)
+    DIM lbl AS STRING
     IF k >= "A" _ANDALSO k <= "Z" THEN
-        WS_key_label$ = "Shift+" + k
+        lbl = "Shift+" + k
+    ELSEIF k = CHR$(13) THEN
+        lbl = "Enter"
+    ELSEIF k = " " THEN
+        lbl = "Space"
+    ELSEIF k = CHR$(9) THEN
+        lbl = "Tab"
     ELSE
-        WS_key_label$ = UCASE$(k)
+        lbl = UCASE$(k)
     END IF
+    WS_key_label$ = lbl
+END FUNCTION
+
+
+''
+' Label for workspace key i, with its Ctrl/Alt ("Ctrl+S").
+FUNCTION WS_key_full_label$ (i AS INTEGER)
+    DIM p AS STRING
+    IF WS_KEY_MODS(i) AND MOD_CTRL THEN p = p + "Ctrl+"
+    IF WS_KEY_MODS(i) AND MOD_ALT THEN p = p + "Alt+"
+    WS_key_full_label$ = p + WS_key_label$(WS_KEY_CH(i))
 END FUNCTION
 
 
@@ -1070,10 +1117,10 @@ FUNCTION WS_relabel$ (hk AS STRING, act AS INTEGER)
     DIM i AS INTEGER, t AS STRING
     t = _TRIM$(hk)
     FOR i = 1 TO WS_KEY_N
-        IF WS_KEY_ACT(i) = act THEN WS_relabel$ = WS_key_label$(WS_KEY_CH(i)): EXIT FUNCTION
+        IF WS_KEY_ACT(i) = act THEN WS_relabel$ = WS_key_full_label$(i): EXIT FUNCTION
     NEXT i
     FOR i = 1 TO WS_KEY_N
-        IF UCASE$(t) = UCASE$(WS_key_label$(WS_KEY_CH(i))) THEN WS_relabel$ = "": EXIT FUNCTION
+        IF UCASE$(t) = UCASE$(WS_key_full_label$(i)) THEN WS_relabel$ = "": EXIT FUNCTION
     NEXT i
     WS_relabel$ = hk
 END FUNCTION
@@ -1103,5 +1150,30 @@ SUB WS_menu_hotkeys_apply ()
     IF WS_KEY_N = 0 _ORELSE WS_ACTIVE = 0 THEN EXIT SUB
     FOR i = 0 TO MENU_ITEM_COUNT% - 1
         IF MENU_ITEMS(i).actionId% > 0 THEN MENU_ITEMS(i).hotkey = WS_relabel$(RTRIM$(MENU_ITEMS(i).hotkey), MENU_ITEMS(i).actionId%)
+    NEXT i
+END SUB
+
+
+
+''
+' Called from INPUT's key edge detection: the binding table only watches keys
+' that have bindings, so a workspace key without one (Enter for Ctrl+Enter)
+' would never produce an event. Same guards and one-event-per-key-per-frame
+' rule as the table loop.
+SUB WS_detect_keys ()
+    DIM i AS INTEGER, kc AS LONG, down AS INTEGER
+    FOR i = 1 TO WS_KEY_N
+        kc = ASC(LCASE$(WS_KEY_CH(i)))
+        down = (_KEYDOWN(kc) <> 0)
+        IF kc >= 97 _ANDALSO kc <= 122 THEN
+            IF _KEYDOWN(kc - 32) THEN down = TRUE
+        END IF
+        IF down _ANDALSO WS_KEY_DOWN_LAST(i) = 0 _ANDALSO CMD_PALETTE.visible% = 0 _ANDALSO KEYBOARD_SUPPRESS_FRAMES% <= 0 THEN
+            IF INPUT_KC_ENQUEUED(kc) <> INPUT_KC_FRAME THEN
+                INPUT_enqueue_event EVT_KEY_PRESS, REGION_GLOBAL, kc, 0, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_KEYBOARD, 0
+                INPUT_KC_ENQUEUED(kc) = INPUT_KC_FRAME
+            END IF
+        END IF
+        WS_KEY_DOWN_LAST(i) = down
     NEXT i
 END SUB

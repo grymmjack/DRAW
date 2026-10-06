@@ -1031,6 +1031,7 @@ DO
     STICK_input_handler_loop
     WS_tick ' a workspace's [START] runs once the new chrome has been laid out
     CAP_tick ' DRAW --capture, a few frames after startup
+    ANN_tick ' annotate Redact/Callout modes (GUI/ANNOTATE)
     PERF_stop PERF_POST_INPUT
     PERF_stop PERF_MAIN_LOOP_TOTAL
     PERF_frame_end
