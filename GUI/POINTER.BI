@@ -37,5 +37,10 @@ TYPE POINTER_OBJ
 END TYPE
 
 DIM SHARED POINTER AS POINTER_OBJ
+' POINTER.HIDDEN as it was before a dialog hid the pointer (POINTER_dialog_hide /
+' POINTER_dialog_unhide). HIDDEN doubles as the brush-edges-off state, so a
+' dialog must restore the old value, never force it either way.
+DIM SHARED POINTER_HIDDEN_PREV  AS INTEGER
+DIM SHARED POINTER_HIDDEN_SAVED AS INTEGER
 
 POINTER_init

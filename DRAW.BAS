@@ -1074,6 +1074,21 @@ FatalError:
 ' Runs at the start of the loop before any other code
 ' 
 SUB LOOP_start ()
+    ' A modal dialog (About, message boxes, pickers, file dialogs...) runs its
+    ' own loop and sets its own OS cursor, so the main loop stalls while it is
+    ' up. After any such stall, re-apply DRAW's cursor: POINTER_render only
+    ' issues _MOUSESHOW / _MOUSECURSOR when its cached cursor changes, so a
+    ' dialog that hid or replaced the cursor left the pointer missing until the
+    ' cursor id happened to change. Catches every dialog, including ones that
+    ' never call POINTER_show_after_dialog / MOUSE_cleanup_after_dialog.
+    STATIC lsLastT AS DOUBLE
+    DIM lsNow AS DOUBLE : lsNow# = TIMER(.001)
+    IF lsLastT# > 0 _ANDALSO (lsNow# - lsLastT# > 0.35 OR lsNow# < lsLastT#) THEN
+        POINTER_invalidate_os_cursor
+        GUI_NEEDS_REDRAW% = TRUE ' survives idle detection: render now so the cursor is re-applied
+    END IF
+    lsLastT# = lsNow#
+
     ' Reset undo save flag once per frame
     HISTORY_saved_this_frame% = FALSE
     ' Reset composite dirty rect for this frame
