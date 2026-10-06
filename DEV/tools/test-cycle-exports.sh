@@ -108,6 +108,47 @@ if command -v ffmpeg >/dev/null; then
     ffmpeg -v error -i "$OUT/anim.gif" -f null - && pass "ffmpeg decodes the animated GIF" || failx "ffmpeg cannot decode the animated GIF"
 fi
 
+# --- 7. DeluxePaint ILBM + PBM ---
+for out in bands.lbm bands.bbm; do
+    draw_batch "$OUT/bands.draw" --export "$OUT/$out" && [ -s "$OUT/$out" ] && pass "$out written" || failx "$out export"
+    if command -v ffmpeg >/dev/null; then
+        ffmpeg -v error -i "$OUT/$out" -frames:v 1 -y "$OUT/$out.png" 2>/dev/null
+        AE=$(/usr/bin/compare -metric AE "$OUT/bands.png" "$OUT/$out.png" null: 2>&1 | awk '{print int($1)}')
+        [ "$AE" = "0" ] && pass "$out decodes pixel-exact (ffmpeg)" || failx "$out pixels differ ($AE)"
+    fi
+    grep -aq "CRNG" "$OUT/$out" && pass "$out has CRNG chunks" || failx "$out has no CRNG"
+done
+draw_batch "$OUT/bands.lbm" --export "$OUT/from-lbm.draw"
+grep -aq "CYC 3: 9-13 PING 6.0/s" "$OUT/last.log" && grep -aq "CYC 1: 1-4 FWD 8.0/s" "$OUT/last.log" \
+    && pass "ILBM import restores exact ranges (DRCY)" || failx "ILBM import ranges"
+if command -v ilbmtoppm >/dev/null; then
+    ilbmtoppm "$OUT/bands.lbm" > "$OUT/bands.lbm.ppm" 2>/dev/null
+    /usr/bin/convert "$OUT/bands.png" -background black -alpha remove "$OUT/bands-flat.png"
+    AE=$(/usr/bin/compare -metric AE "$OUT/bands-flat.png" "$OUT/bands.lbm.ppm" null: 2>&1 | awk '{print int($1)}')
+    [ "$AE" = "0" ] && pass "netpbm ilbmtoppm reads DRAW's ILBM exactly" || failx "ilbmtoppm pixels differ ($AE)"
+fi
+# Optional: a real DeluxePaint-style file with CRNG (PyDPainter sample, if present locally)
+FIRE="$HOME/git/PyDPainter/iff_pics/fire.iff"
+if [ -f "$FIRE" ]; then
+    draw_batch "$FIRE" --export "$OUT/fire-re.lbm"
+    grep -aq "CYC 2: 20-31 REV 18.8/s" "$OUT/last.log" && pass "fire.iff ranges imported" || failx "fire.iff ranges"
+    python3 - "$FIRE" "$OUT/fire-re.lbm" <<'PY' && pass "fire.iff -> DRAW -> LBM keeps every active CRNG range" || failx "CRNG ranges changed in LBM round trip"
+import struct, sys
+def crng(fn):
+    d = open(fn, 'rb').read(); p = 12; out = set()
+    while p + 8 <= len(d):
+        cid = d[p:p+4]; n = struct.unpack('>I', d[p+4:p+8])[0]
+        if cid == b'CRNG':
+            _, rate, fl, lo, hi = struct.unpack('>HHHBB', d[p+8:p+16])
+            if hi > lo: out.add((rate, fl, lo, hi))
+        p += 8 + n + (n & 1)
+    return out
+sys.exit(0 if crng(sys.argv[1]) == crng(sys.argv[2]) else 1)
+PY
+else
+    echo "SKIP: $FIRE not present (PyDPainter sample round trip)"
+fi
+
 #@@MORE-CASES@@
 
 [ $fail = 0 ] && echo "test-cycle-exports: ALL PASS" || echo "test-cycle-exports: FAILURES"
