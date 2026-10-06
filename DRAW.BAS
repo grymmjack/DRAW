@@ -213,7 +213,9 @@ $IF MAC THEN
                    LCASE$(macArgVal$) = "/h" OR LCASE$(macArgVal$) = "/help" OR _
                    LCASE$(macArgVal$) = "--version" OR LCASE$(macArgVal$) = "-v" THEN
                 macArgIdx% = macArgIdx% + 1 ' Defensive: HELP.BI should have exited already
-            ELSEIF LCASE$(macArgVal$) = "--option" OR LCASE$(macArgVal$) = "--instance" OR LCASE$(macArgVal$) = "--palette" THEN
+            ELSEIF LCASE$(macArgVal$) = "--option" OR LCASE$(macArgVal$) = "--instance" OR LCASE$(macArgVal$) = "--palette" OR _
+                   LCASE$(macArgVal$) = "--export" OR LCASE$(macArgVal$) = "--export-anim" OR LCASE$(macArgVal$) = "--cycle" OR _
+                   LCASE$(macArgVal$) = "--export-qb64" THEN
                 macArgIdx% = macArgIdx% + 2 ' BUG-53: 2-token flag (flag + value) — skip both
             ELSEIF LEFT$(macArgVal$, 1) = "-" THEN
                 macArgIdx% = macArgIdx% + 1 ' BUG-53: any other unrecognized flag — skip, don't treat as the file
@@ -249,7 +251,8 @@ $ELSE
             argIdx% = argIdx% + 1 ' Defensive: HELP.BI should have exited already
         ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" OR LCASE$(argVal$) = "--palette" THEN
             argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
-        ELSEIF LCASE$(argVal$) = "--export-qb64" THEN
+        ELSEIF LCASE$(argVal$) = "--export-qb64" OR LCASE$(argVal$) = "--export" OR _
+               LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" THEN
             argIdx% = argIdx% + 2 ' 2-token flag (flag + output path) — skip both so the path is not mistaken for the input file
         ELSEIF LEFT$(argVal$, 1) = "-" THEN
             argIdx% = argIdx% + 1 ' BUG-53: any other unrecognized flag (--developer/--dev/...) — skip it, don't treat it as the file
@@ -382,6 +385,8 @@ FOR exportQb64I% = 1 TO _COMMANDCOUNT
         BATCH_EXPORT_QB64_PATH$ = _TRIM$(COMMAND$(exportQb64I% + 1))
     END IF
 NEXT exportQb64I%
+
+BATCH_parse_args                      ' --export / --export-anim / --cycle (run on the first frame)
 
 GAMEPAD_init                          ' Initialise gamepad subsystem (stub — mouse emulation)
 
@@ -569,6 +574,13 @@ DO
         FILE_QB64_export BATCH_EXPORT_QB64_PATH$
         _LOGINFO "batch QB64 export written to: " + BATCH_EXPORT_QB64_PATH$
         SYSTEM
+    END IF
+
+    ' --cycle / --export / --export-anim (OUTPUT/BATCH.BM): same timing as above.
+    IF BATCH_pending% THEN
+        DIM batchCode AS INTEGER
+        batchCode% = BATCH_run%
+        SYSTEM batchCode%
     END IF
 
     IF _TOTALDROPPEDFILES THEN

@@ -1,0 +1,134 @@
+''
+' DRAW - OUTPUT/BATCH.BM
+' =============================================================================
+' Command-line batch conversion. See BATCH.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Collect --export / --export-anim / --cycle from the command line.
+'
+SUB BATCH_parse_args ()
+    DIM i AS INTEGER, a AS STRING
+    FOR i% = 1 TO _COMMANDCOUNT - 1
+        a$ = LCASE$(_TRIM$(COMMAND$(i%)))
+        SELECT CASE a$
+            CASE "--export"      : BATCH_EXPORT_PATH$      = BATCH_unquote$(COMMAND$(i% + 1))
+            CASE "--export-anim" : BATCH_EXPORT_ANIM_PATH$ = BATCH_unquote$(COMMAND$(i% + 1))
+            CASE "--cycle"       : BATCH_CYCLE_SPECS$      = BATCH_CYCLE_SPECS$ + _TRIM$(COMMAND$(i% + 1)) + CHR$(0)
+        END SELECT
+    NEXT i%
+END SUB
+
+
+''
+' Strip surrounding double quotes.
+'
+FUNCTION BATCH_unquote$ (s AS STRING)
+    DIM t AS STRING
+    t$ = _TRIM$(s$)
+    IF LEN(t$) >= 2 _ANDALSO LEFT$(t$, 1) = CHR$(34) _ANDALSO RIGHT$(t$, 1) = CHR$(34) THEN t$ = MID$(t$, 2, LEN(t$) - 2)
+    BATCH_unquote$ = t$
+END FUNCTION
+
+
+''
+' TRUE when any batch work is pending (the caller exits after BATCH_run).
+'
+FUNCTION BATCH_pending% ()
+    BATCH_pending% = LEN(BATCH_EXPORT_PATH$) > 0 _ORELSE LEN(BATCH_EXPORT_ANIM_PATH$) > 0 _ORELSE LEN(BATCH_CYCLE_SPECS$) > 0
+END FUNCTION
+
+
+''
+' Add one --cycle range: "lo-hi[:sps[:fwd|rev|ping]]".
+'
+SUB BATCH_add_cycle (spec AS STRING)
+    DIM rng AS STRING, rest AS STRING, p AS INTEGER, lo AS INTEGER, hi AS INTEGER
+    DIM sps AS SINGLE, cm AS INTEGER, md AS STRING, r AS INTEGER
+    p% = INSTR(spec$, ":")
+    IF p% > 0 THEN rng$ = LEFT$(spec$, p% - 1) : rest$ = MID$(spec$, p% + 1) ELSE rng$ = spec$
+    p% = INSTR(rng$, "-")
+    IF p% = 0 THEN _LOGERROR "BATCH: bad --cycle range '" + spec$ + "'" : BATCH_FAILED% = TRUE : EXIT SUB
+    lo% = VAL(LEFT$(rng$, p% - 1)) : hi% = VAL(MID$(rng$, p% + 1))
+    sps! = 10 : cm% = PCYC_FWD
+    IF LEN(rest$) > 0 THEN
+        p% = INSTR(rest$, ":")
+        IF p% > 0 THEN
+            sps! = VAL(LEFT$(rest$, p% - 1)) : md$ = LCASE$(MID$(rest$, p% + 1))
+        ELSE
+            sps! = VAL(rest$)
+        END IF
+        IF sps! <= 0 THEN sps! = 10
+        SELECT CASE md$
+            CASE "rev", "reverse" : cm% = PCYC_REV
+            CASE "ping", "pingpong", "ping-pong" : cm% = PCYC_PING
+        END SELECT
+    END IF
+    r% = PCYC_add_range%(lo%, hi%, PCYC_rate_for&(sps!), cm%)
+    IF r% = 0 THEN
+        _LOGERROR "BATCH: --cycle " + spec$ + " refused (needs 2+ colors inside the palette)"
+        BATCH_FAILED% = TRUE
+    ELSE
+        _LOGINFO "BATCH: added " + PCYC_describe$(r%)
+    END IF
+END SUB
+
+
+''
+' Run the batch work, in order: --cycle ranges, --export, --export-anim.
+' Returns the process exit code.
+'
+FUNCTION BATCH_run% ()
+    DIM specs AS STRING, p AS LONG, ok AS INTEGER
+    specs$ = BATCH_CYCLE_SPECS$
+    DO WHILE LEN(specs$) > 0
+        p& = INSTR(specs$, CHR$(0))
+        IF p& = 0 THEN p& = LEN(specs$) + 1
+        IF p& > 1 THEN BATCH_add_cycle LEFT$(specs$, p& - 1)
+        specs$ = MID$(specs$, p& + 1)
+    LOOP
+    DIM r AS INTEGER
+    _LOGINFO "BATCH: document has" + STR$(PCYC.COUNT%) + " color cycling range(s)"
+    FOR r% = 1 TO PCYC.COUNT%
+        _LOGINFO "BATCH:   " + PCYC_describe$(r%)
+    NEXT r%
+    IF LEN(BATCH_EXPORT_PATH$) > 0 THEN
+        ok% = BATCH_export%(BATCH_EXPORT_PATH$, FALSE)
+        IF NOT ok% THEN BATCH_FAILED% = TRUE
+    END IF
+    IF LEN(BATCH_EXPORT_ANIM_PATH$) > 0 THEN
+        ok% = BATCH_export%(BATCH_EXPORT_ANIM_PATH$, TRUE)
+        IF NOT ok% THEN BATCH_FAILED% = TRUE
+    END IF
+    IF BATCH_FAILED% THEN BATCH_run% = 1 ELSE BATCH_run% = 0
+END FUNCTION
+
+
+''
+' Export the current document to path by extension. anim = animated GIF.
+' Returns TRUE when the file was written.
+'
+FUNCTION BATCH_export% (path AS STRING, anim AS INTEGER)
+    DIM ext AS STRING, d AS INTEGER
+    d% = _INSTRREV(path$, ".")
+    IF d% > 0 THEN ext$ = LCASE$(MID$(path$, d% + 1))
+    IF _FILEEXISTS(path$) THEN KILL path$
+    SELECT CASE ext$
+        CASE "draw"
+            DRW_save path$
+        CASE ELSE
+            _LOGERROR "BATCH: unsupported export type '." + ext$ + "' (" + path$ + ")"
+            BATCH_export% = FALSE
+            EXIT FUNCTION
+    END SELECT
+    BATCH_export% = _FILEEXISTS(path$)
+    IF _FILEEXISTS(path$) THEN
+        _LOGINFO "BATCH: wrote " + path$
+    ELSE
+        _LOGERROR "BATCH: failed to write " + path$
+    END IF
+END FUNCTION

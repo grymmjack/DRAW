@@ -61,6 +61,11 @@ IF HELP_showHelp% OR HELP_showVer% THEN
         PRINT "      --reset-defaults      Restore factory configuration"
         PRINT "      --canvas-size WxH     Override startup canvas size (e.g. 320x200)"
         PRINT "      --palette FILE.gpl    Load a GIMP palette into the palette strip"
+        PRINT "      --cycle LO-HI[:SPS[:fwd|rev|ping]]"
+        PRINT "                            Add a color cycling range (repeatable; batch)"
+        PRINT "      --export PATH         Export the document by extension and exit:"
+        PRINT "                            .draw .bas (cycling program) .gif (+CRNG) .lbm"
+        PRINT "      --export-anim PATH    Export an animated GIF of the color cycle and exit"
         PRINT "      --portable            Keep config/data beside the executable"
         PRINT "      --perf                Enable render-pipeline profiling (writes DRAW-perf.log)"
         PRINT
@@ -69,6 +74,7 @@ IF HELP_showHelp% OR HELP_showVer% THEN
         PRINT "  DRAW --config DRAW.linux.cfg"
         PRINT "  DRAW --canvas-size 64x64"
         PRINT "  DRAW art.png --palette art.gpl"
+        PRINT "  DRAW art.png --palette art.gpl --cycle 16-31:8:ping --export art.draw"
         PRINT
         PRINT "Docs: https://github.com/grymmjack/DRAW"
     END IF

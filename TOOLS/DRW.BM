@@ -614,6 +614,15 @@ SUB DRW_save_binary (filename AS STRING)
         IF tmpInt% > 0 THEN PUT #fh%, , aiStr$
     NEXT aiSi%
 
+    ' === COLOR CYCLING RANGES (v30+) ===
+    ' LONG byte length + PCYC_serialize$ (INTEGER count, 16 bytes per range).
+    ' Length-prefixed so a later layout can grow without another version gate.
+    DIM cycBlob AS STRING, cycLen AS LONG
+    cycBlob$ = PCYC_serialize$
+    cycLen&  = LEN(cycBlob$)
+    PUT #fh%, , cycLen&
+    IF cycLen& > 0 THEN PUT #fh%, , cycBlob$
+
     ' === UNIFIED HISTORY (v7+) ===
     HISTORY_save_binary fh%, SCRN.canvasW&, SCRN.canvasH&
 
@@ -1597,6 +1606,19 @@ SUB DRW_load_binary (filename AS STRING)
         NEXT aiLi%
     END IF
 
+    ' === COLOR CYCLING RANGES (v30+) ===
+    ' Read into a local: PALETTE_OPS_reset (below) clears the ranges, so they
+    ' are adopted after it.
+    DIM cycLoad AS STRING, cycLoadLen AS LONG
+    cycLoad$ = ""
+    IF version% >= 30 THEN
+        GET #fh%, , cycLoadLen&
+        IF cycLoadLen& > 0 AND cycLoadLen& < 65536 THEN
+            cycLoad$ = SPACE$(cycLoadLen&)
+            GET #fh%, , cycLoad$
+        END IF
+    END IF
+
     IF version% >= 7 THEN
         HISTORY_load_binary fh%, SCRN.canvasW&, SCRN.canvasH&, version%
         ' Recompute export modes BEFORE clearing history — the classify function
@@ -1660,7 +1682,12 @@ SUB DRW_load_binary (filename AS STRING)
     PREVIEW_reset                  ' Reset preview pan/zoom for new file
     COLORMIXER_reset               ' Reset color mixer transient state
     CHARMAP_reset                  ' Reset character map transient state
-    PALETTE_OPS_reset              ' Reset palette ops mode
+    PALETTE_OPS_reset              ' Reset palette ops mode (+ color cycling ranges)
+    IF LEN(cycLoad$) > 0 THEN      ' ...then adopt the file's cycle ranges (v30+)
+        DIM cycUsedLoad AS LONG
+        cycUsedLoad& = PCYC_deserialize&(cycLoad$, 1)
+        IF cycUsedLoad& = 0 THEN _LOGWARN "DRW_load_binary: bad color cycling block ignored"
+    END IF
 
     ' In-progress shape state. Every ordinary tool switch clears these via
     ' TOOLS_reset_all (32 call sites); loading a project did not, so a shape
@@ -2196,6 +2223,7 @@ SUB DRW_load_from_png (filename AS STRING)
             MARQUEE_reset
             MOVE_init
             MAGIC_WAND_reset
+            PALETTE_OPS_reset ' Color Ops + color cycling ranges belong to the old document
             LAYER_PANEL.scrollOffset%    = 0
             LAYER_PANEL.soloLayer%       = 0
             LAYER_PANEL.visSwiping%      = FALSE
