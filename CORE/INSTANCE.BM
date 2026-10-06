@@ -205,6 +205,27 @@ SUB INSTANCE_bootstrap ()
 
     INSTANCE_reap_stale
 
+    ' DRAW --capture while DRAW is already running (a desktop shortcut): hand the
+    ' capture to that window through its mailbox and exit - no second window.
+    IF wantId% = 0 THEN
+        FOR i% = 1 TO _COMMANDCOUNT
+            IF LCASE$(_TRIM$(COMMAND$(i%))) = "--capture" THEN
+                DIM capSlot AS INTEGER
+                FOR capSlot% = 1 TO INSTANCE_MAX
+                    IF INSTANCE_slot_is_live%(capSlot%) THEN
+                        IF INSTANCE_post_request%(capSlot%, "capture") THEN
+                            _LOGINFO "INSTANCE: --capture handed to running instance " + _TRIM$(STR$(capSlot%))
+                            _DEST _CONSOLE
+                            PRINT "DRAW: asked the running DRAW (window" + STR$(capSlot%) + ") to capture the screen"
+                            SYSTEM 0
+                        END IF
+                    END IF
+                NEXT capSlot%
+                EXIT FOR
+            END IF
+        NEXT i%
+    END IF
+
     IF wantId% >= 1 AND wantId% <= INSTANCE_MAX THEN
         INST.id% = wantId%
     ELSE
@@ -330,7 +351,41 @@ SUB INSTANCE_clear_my_mailbox ()
         IF _FILEEXISTS(f$) THEN KILL f$
         IF _FILEEXISTS(f$ + ".claim") THEN KILL f$ + ".claim"
     NEXT s%
+    ' a request a crashed predecessor never took (DRAW --capture) must not fire now
+    f$ = INSTANCE_mailbox_for$(INST.id%) + "capture.request"
+    IF _FILEEXISTS(f$) THEN KILL f$
 END SUB
+
+
+''
+' Post a one-word request (e.g. "capture") to an instance's mailbox, atomically
+' (write a temp name, then NAME it into place). Returns TRUE when it landed.
+FUNCTION INSTANCE_post_request% (slotN AS INTEGER, kind AS STRING)
+    DIM dir AS STRING, tmp AS STRING, final AS STRING, fh AS INTEGER
+    dir$ = INSTANCE_mailbox_for$(slotN%)
+    PATHS_ensure_dir dir$
+    tmp$ = dir$ + kind$ + ".request.tmp" + _TRIM$(STR$(INT(TIMER * 1000)))
+    final$ = dir$ + kind$ + ".request"
+    fh% = FREEFILE
+    OPEN tmp$ FOR OUTPUT AS #fh%
+    PRINT #fh%, kind$
+    CLOSE #fh%
+    IF _FILEEXISTS(final$) THEN KILL final$
+    NAME tmp$ AS final$
+    INSTANCE_post_request% = _FILEEXISTS(final$)
+END FUNCTION
+
+
+''
+' Take (consume) a pending request addressed to this instance. TRUE = there was one.
+FUNCTION INSTANCE_take_request% (kind AS STRING)
+    DIM f AS STRING
+    IF INST.active% = 0 THEN EXIT FUNCTION
+    f$ = INSTANCE_mailbox_for$(INST.id%) + kind$ + ".request"
+    IF _FILEEXISTS(f$) = 0 THEN EXIT FUNCTION
+    KILL f$
+    INSTANCE_take_request% = TRUE
+END FUNCTION
 
 ''
 ' Deliver a blob to one peer's inbox via atomic write-temp-then-NAME. A consumer only
