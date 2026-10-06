@@ -48,9 +48,6 @@ time — no window, work headless — and query runs never claim a multi-instanc
 Colored console output lives in `CORE/CLI.BM` (NO_COLOR / --no-color / non-tty → plain;
 `isatty` via `native/cli_tty.h`); `ASSETS/DRAW.ans` (if present) is printed above `--help`.
 
-```bash
-```
-
 ### QA
 
 `QA/draw-qa.sh` is an xdotool-driven GUI harness — ~97 test files in `QA/tests/`, each launched against a fresh DRAW using the pinned `QA/DRAW.qa.cfg` so runs never touch the user's own config.
