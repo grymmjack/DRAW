@@ -12,7 +12,7 @@ Open the settings dialog with `Ctrl+,` (comma) or `Edit → Settings`. The dialo
 
 | Tab | What it controls |
 | --- | --- |
-| **General** | Display scale, fullscreen toggle, FPS limit, UI scaling, tooltips and the **Help Card** (on/off, which edge of the canvas area it docks to, hover delay), **Enable AI Features**. |
+| **General** | Display scale, fullscreen toggle, FPS limit, UI scaling, tooltips and the **Help Card** (on/off, which edge of the canvas area it docks to, hover delay). **Tooltip Delay** and **Help Card Delay** work the same way: 0–5000 ms (0 = instant). The **−**/**+** buttons and the mouse wheel step by 50 ms, and you can click the number to type an exact value, **Enable AI Features**. |
 | **Grid** | Default grid size, geometry, alignment, snap state, crosshair appearance. |
 | **Palette** | Default palette, recent-palettes list size, Lospec UI visibility. |
 | **Panels** | Default visibility for Toolbox, Layers, Edit Bar, Advanced Bar, Preview, Character Map, Drawer, Color Mixer. |
