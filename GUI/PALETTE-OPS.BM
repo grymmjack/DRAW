@@ -703,7 +703,8 @@ END SUB
 ' PAL_COLOR_COUNT, plus the FG/BG indices, the transparent flags, and the resolved
 ' PAINT_COLOR/PAINT_BG_COLOR. Header is 18 bytes: 5 x INTEGER (count, fg, bg, fgT, bgT)
 ' + 2 x _UNSIGNED LONG (paint fg/bg); then per color: _UNSIGNED LONG value + INTEGER
-' name-length + name bytes. Paired with PALETTE_restore.
+' name-length + name bytes, then "CYC1" + PCYC_serialize$ (color cycling ranges;
+' optional on restore). Paired with PALETTE_restore.
 '
 FUNCTION PALETTE_snapshot$
     DIM s AS STRING, i AS INTEGER
@@ -714,6 +715,8 @@ FUNCTION PALETTE_snapshot$
         s$ = s$ + _MK$(_UNSIGNED LONG, PAL(i%).value~&)
         s$ = s$ + MKI$(LEN(PAL(i%).name$)) + PAL(i%).name$
     NEXT i%
+    ' Color cycling ranges ride along so every palette undo step restores them
+    s$ = s$ + "CYC1" + PCYC_serialize$
     PALETTE_snapshot$ = s$
 END FUNCTION
 
@@ -743,6 +746,12 @@ SUB PALETTE_restore (snap AS STRING)
         END IF
     NEXT i%
     PAL_COLOR_COUNT% = cnt%
+    ' Optional color cycling tail (snapshots from before cycling existed lack it
+    ' and leave the ranges alone)
+    IF MID$(snap$, p&, 4) = "CYC1" THEN
+        DIM cycUsed AS LONG
+        cycUsed& = PCYC_deserialize&(snap$, p& + 4)
+    END IF
 END SUB
 
 ''
@@ -786,6 +795,7 @@ SUB PALETTE_OPS_delete_color (palIdx AS INTEGER)
     NEXT pi%
     PAL_COLOR_COUNT% = PAL_COLOR_COUNT% - 1
     PALETTE_OPS_MARKED(PAL_COLOR_COUNT%) = FALSE
+    PCYC_on_delete palIdx% ' cycle ranges shift / shrink with the palette
     IF PALETTE_OPS.SEL_IDX% = palIdx% THEN
         PALETTE_OPS.SEL_IDX% = -1
     ELSEIF PALETTE_OPS.SEL_IDX% > palIdx% THEN
@@ -924,6 +934,7 @@ SUB PALETTE_OPS_insert_color (palIdx AS INTEGER)
     PAL(palIdx% + 1).name$          = ""
     PALETTE_OPS_MARKED(palIdx% + 1) = FALSE
     PAL_COLOR_COUNT% = PAL_COLOR_COUNT% + 1
+    PCYC_on_insert palIdx% + 1 ' cycle ranges shift / grow with the palette
 
     ' Adjust FG/BG/selected indices
     IF PAL_FG_IDX% > palIdx% THEN PAL_FG_IDX% = PAL_FG_IDX% + 1
@@ -1018,6 +1029,7 @@ SUB PALETTE_OPS_apply_order (order() AS INTEGER, label AS STRING)
     IF PAL_BG_IDX% >= 0 _ANDALSO PAL_BG_IDX% < cnt% THEN PAL_BG_IDX% = inv(PAL_BG_IDX%)
     IF PALETTE_OPS.SEL_IDX% >= 0 _ANDALSO PALETTE_OPS.SEL_IDX% < cnt% THEN PALETTE_OPS.SEL_IDX% = inv(PALETTE_OPS.SEL_IDX%)
     PALETTE_OPS.DBLCLICK_IDX% = -1
+    PCYC_on_reorder order(), cnt% ' ranges follow their colors when still contiguous
 
     HISTORY_record_palette aoBefore$, PALETTE_snapshot$, label$
     PALETTE_OPS_mark_document_palette

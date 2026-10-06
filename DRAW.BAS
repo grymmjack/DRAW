@@ -879,6 +879,12 @@ DO
         IF PREVIEW.floatTooltipHoverStart# > 0 AND NOT PREVIEW.floatTooltipActive% THEN FRAME_IDLE% = FALSE
         IF PREVIEW.floatTooltipActive% THEN FRAME_IDLE% = FALSE
     END IF
+    ' Palette cycling: stay live while it runs, but only rebuild the scene (and the
+    ' strip, whose chips cycle too) when a range actually steps — same discipline
+    ' as the text cursor blink above.
+    IF PCYC_tick% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE: GUI_NEEDS_REDRAW% = TRUE
+    STATUS_flash_tick
+    IF PCYC_running% THEN FRAME_IDLE% = FALSE
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
 
     ' Edit bar context-sensitive button states: force GUI redraw when any change

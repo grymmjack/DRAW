@@ -51,7 +51,7 @@ TYPE PCYC_OBJ
     MAP_VALID  AS INTEGER ' PCYC_OFF/SRC describe BUF's current base
     SIG        AS STRING  ' palette + ranges signature the map was built for
     APPLIED    AS STRING  ' per-index display colors last written into BUF
-    FRESH      AS INTEGER ' first RENDER_layers call of this frame (pattern tile = 9 calls)
+    BUILT_SEQ  AS LONG    ' SCREEN_RENDER_SEQ& the buffer was built for (pattern tile = 9 calls/frame)
     CLOCK_LAST AS DOUBLE  ' TIMER at the last PCYC_now# call (midnight wrap)
     CLOCK_BASE AS DOUBLE  ' accumulated midnight wraps (seconds)
     PREV_SHIFT AS STRING  ' shifts at the last tick (change detection)
