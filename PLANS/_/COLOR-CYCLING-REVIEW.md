@@ -56,7 +56,7 @@ git checkout palette-cycling && make
 - `QA/unit/pcyc-unit.bas`: 41/41
 - `DEV/tools/test-cycle-exports.sh`: ALL PASS. It covers the .draw round trip, the `.bas` compiling, animating and exiting with 0, GIF ImageMagick decoding and CRNG bytes, the GrafX2 fixture round trip, the animated GIF's exact 4 s loop in 48 frames, ILBM and PBM with ffmpeg and netpbm, and fire.iff through DRAW and back to LBM.
 - `QA/tests/palette-cycle-basic / -gestures / -strip`: 31/31 on two runs in a row. An earlier flake was the test sampling at exactly one loop period; it's fixed and explained in the test headers.
-- Existing-suite regression subset (27 tests around palette, menus, file I/O, undo, keyboard, drag-and-drop): see the F1 line in `.claude/TASKS-PALETTE-CYCLING.md` for the result.
+- Existing-suite regression subset: 27 tests covering palette, Palette Ops, menus, command palette, Preview, pattern tile, undo, file I/O, recent files, drag-and-drop, keyboard (including Tab → toolbar), status bar, CLI, zoom, opacity and fill. Result: **262 passed, 1 failed**. The failure is `seam-new-open-resets-all` (*Cancelling File>New must leave the original document intact*), and it is **pre-existing**: a `main` build fails it the same way (2,324 px). The snapshot after cancelling includes the marching ants and partial polygon the test itself set up.
 - The action-ID duplicate audit and the AND-guard audit are clean.
 
 ## Worth a look outside this feature
