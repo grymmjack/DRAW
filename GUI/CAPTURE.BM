@@ -135,8 +135,11 @@ SUB CAP_open_capture (img AS LONG)
     IF LEN(CFG.CAPTURE_WORKSPACE$) _ANDALSO LCASE$(CFG.CAPTURE_WORKSPACE$) <> WS_ACTIVE_ID THEN
         CAP_PREV_WS = prevWs
         ok = WS_apply%(CFG.CAPTURE_WORKSPACE$)
+    ELSEIF WS_ACTIVE THEN
+        WS_START_PENDING = TRUE ' re-fit the new document in the current workspace
     ELSE
-        WS_START_PENDING = WS_ACTIVE ' re-fit the new document in the current workspace
+        SCREEN_compute_layout
+        ZOOM_fit_canvas
     END IF
     STATUS_flash "Captured" + STR$(w) + "x" + _TRIM$(STR$(h))
 END SUB
@@ -145,7 +148,7 @@ END SUB
 ''
 ' Capture Screen: hide DRAW, wait, grab, show DRAW, open the capture.
 SUB CAP_capture_screen ()
-    DIM img AS LONG, hid AS INTEGER
+    DIM img AS LONG, hid AS INTEGER, picked AS LONG
     MENUBAR_close_all
     IF CFG.CAPTURE_HIDE_DRAW% THEN
         _SCREENHIDE
@@ -161,7 +164,14 @@ SUB CAP_capture_screen ()
         _LOGWARN "CAPTURE: " + CAP_LAST_ERROR
         EXIT SUB
     END IF
-    CAP_open_capture img
+    picked = CAP_pick_region&(img)
+    _FREEIMAGE img
+    IF picked >= -1 THEN
+        STATUS_flash "Capture cancelled"
+        EXIT SUB
+    END IF
+    picked = CAP_fit_4096&(picked)
+    CAP_open_capture picked
 END SUB
 
 
@@ -192,3 +202,302 @@ SUB CAP_tick ()
     CAP_PENDING = CAP_PENDING - 1
     IF CAP_PENDING = 0 THEN CAP_capture_screen
 END SUB
+
+
+' =============================================================================
+' Region picker: a modal overlay in DRAW's window showing the frozen capture.
+' Drag a box (then move it or pull its 8 handles); a loupe + readout follow
+' the pointer. Enter / double-click = use the box (no box = whole screen),
+' Space = whole screen, Esc / right-click = cancel. Draws on screen 0 at
+' native window pixels; text is drawn at UI scale.
+' =============================================================================
+
+''
+' UI text on screen 0 at display scale, on a dark plate. x,y native pixels;
+' x = -1 centers it. Returns nothing; uses the theme font when loaded.
+SUB CAP_text (x AS LONG, y AS LONG, txt AS STRING, ds AS INTEGER)
+    DIM tw AS LONG, th AS LONG, img AS LONG, oldDest AS LONG, px AS LONG
+    oldDest = _DEST
+    tw = LEN(txt) * 8 + 8
+    th = 20
+    img = _NEWIMAGE(tw, th, 32)
+    _DEST img
+    CLS , _RGBA32(16, 16, 20, 220)
+    COLOR _RGB32(240, 240, 240), _RGBA32(0, 0, 0, 0)
+    _PRINTSTRING (4, 2), txt
+    _DEST 0
+    px = x
+    IF px < 0 THEN px = (_WIDTH(0) - tw * ds) \ 2
+    _PUTIMAGE (px, y)-(px + tw * ds - 1, y + th * ds - 1), img, 0
+    _FREEIMAGE img
+    _DEST oldDest
+END SUB
+
+
+''
+' Which handle (1-8 clockwise from top-left, 0 = none) is under native (mx,my)
+' for the selection rect (native coords), given a grab radius.
+FUNCTION CAP_handle_at% (mx AS LONG, my AS LONG, x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, r AS LONG)
+    DIM hx(1 TO 8) AS LONG, hy(1 TO 8) AS LONG, i AS INTEGER
+    hx(1) = x1: hy(1) = y1
+    hx(2) = (x1 + x2) \ 2: hy(2) = y1
+    hx(3) = x2: hy(3) = y1
+    hx(4) = x2: hy(4) = (y1 + y2) \ 2
+    hx(5) = x2: hy(5) = y2
+    hx(6) = (x1 + x2) \ 2: hy(6) = y2
+    hx(7) = x1: hy(7) = y2
+    hx(8) = x1: hy(8) = (y1 + y2) \ 2
+    FOR i = 1 TO 8
+        IF ABS(mx - hx(i)) <= r _ANDALSO ABS(my - hy(i)) <= r THEN CAP_handle_at% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' Let the user pick a region of a capture. Returns a NEW image (the region,
+' or the whole capture) the caller frees, or 0 when cancelled. cap is kept.
+FUNCTION CAP_pick_region& (cap AS LONG)
+    DIM capImg AS LONG, cw AS LONG, ch AS LONG, ww AS LONG, wh AS LONG
+    DIM s AS SINGLE, ox AS LONG, oy AS LONG, dw AS LONG, dh AS LONG
+    DIM bg AS LONG, bgDim AS LONG, oldDest AS LONG, oldSource AS LONG
+    DIM ds AS INTEGER, k AS LONG, doneMode AS INTEGER
+    DIM mx AS LONG, my AS LONG, mb1 AS INTEGER, mb2 AS INTEGER, oldB1 AS INTEGER, oldB2 AS INTEGER
+    DIM hasSel AS INTEGER, sx1 AS LONG, sy1 AS LONG, sx2 AS LONG, sy2 AS LONG
+    DIM dragMode AS INTEGER, dragHandle AS INTEGER, ax AS LONG, ay AS LONG
+    DIM o1x AS LONG, o1y AS LONG, o2x AS LONG, o2y AS LONG
+    DIM cx AS LONG, cy AS LONG, lastClick AS DOUBLE, nx1 AS LONG, ny1 AS LONG, nx2 AS LONG, ny2 AS LONG
+    DIM t AS LONG, hr AS LONG, cell AS LONG, lcells AS LONG, lx AS LONG, ly AS LONG, lsx AS LONG, lsy AS LONG
+    DIM shiftDown AS INTEGER, stepPx AS LONG, outImg AS LONG, rw AS LONG, rh AS LONG, i AS INTEGER
+
+    capImg = cap
+    IF capImg >= -1 THEN EXIT FUNCTION
+    cw = _WIDTH(capImg): ch = _HEIGHT(capImg)
+    ww = _WIDTH(0): wh = _HEIGHT(0)
+    ds = SCRN.displayScale%
+    IF ds < 1 THEN ds = 1
+    oldDest = _DEST: oldSource = _SOURCE
+
+    ' Fit the capture in the window (never enlarge past 1:1)
+    s = ww / cw
+    IF wh / ch < s THEN s = wh / ch
+    IF s > 1 THEN s = 1
+    dw = INT(cw * s): dh = INT(ch * s)
+    ox = (ww - dw) \ 2: oy = (wh - dh) \ 2
+
+    ' Bright + dimmed copies at window size, built once
+    bg = _NEWIMAGE(ww, wh, 32)
+    _DEST bg
+    CLS , _RGB32(0, 0, 0)
+    _PUTIMAGE (ox, oy)-(ox + dw - 1, oy + dh - 1), capImg, bg
+    bgDim = _COPYIMAGE(bg, 32)
+    _DEST bgDim
+    LINE (0, 0)-(ww - 1, wh - 1), _RGBA32(0, 0, 0, 140), BF
+
+    POINTER_hide_for_dialog
+    _MOUSESHOW "CROSSHAIR"
+    ' Let go of whatever opened the picker (Ctrl+Shift+P keys, a menu click)
+    DO WHILE _MOUSEBUTTON(1) OR _MOUSEBUTTON(2)
+        WHILE _MOUSEINPUT: WEND
+        _LIMIT 60
+    LOOP
+    DO: k = _KEYHIT: LOOP UNTIL k = 0
+
+    hr = 6 * ds
+    lcells = 15
+    cell = 4 * ds
+    doneMode = 0 ' 1 accept, 2 whole screen, -1 cancel
+    DO
+        WHILE _MOUSEINPUT: WEND
+        mx = _MOUSEX: my = _MOUSEY
+        mb1 = _MOUSEBUTTON(1): mb2 = _MOUSEBUTTON(2)
+        shiftDown = (_KEYDOWN(100304) OR _KEYDOWN(100303))
+
+        ' capture pixel under the pointer
+        cx = INT((mx - ox) / s): cy = INT((my - oy) / s)
+        IF cx < 0 THEN cx = 0
+        IF cy < 0 THEN cy = 0
+        IF cx > cw - 1 THEN cx = cw - 1
+        IF cy > ch - 1 THEN cy = ch - 1
+
+        ' selection in native coords (for hit tests + drawing)
+        nx1 = ox + INT(sx1 * s): ny1 = oy + INT(sy1 * s)
+        nx2 = ox + INT((sx2 + 1) * s) - 1: ny2 = oy + INT((sy2 + 1) * s) - 1
+
+        ' --- mouse ---
+        IF mb2 _ANDALSO oldB2 = 0 THEN
+            IF dragMode THEN dragMode = 0 ELSE doneMode = -1
+        END IF
+        IF mb1 _ANDALSO oldB1 = 0 THEN
+            IF hasSel _ANDALSO TIMER - lastClick < 0.35 _ANDALSO mx >= nx1 _ANDALSO mx <= nx2 _ANDALSO my >= ny1 _ANDALSO my <= ny2 THEN
+                doneMode = 1
+            END IF
+            lastClick = TIMER
+            dragHandle = 0
+            IF hasSel THEN dragHandle = CAP_handle_at%(mx, my, nx1, ny1, nx2, ny2, hr)
+            IF dragHandle THEN
+                dragMode = 3
+            ELSEIF hasSel _ANDALSO mx >= nx1 _ANDALSO mx <= nx2 _ANDALSO my >= ny1 _ANDALSO my <= ny2 THEN
+                dragMode = 2
+            ELSE
+                dragMode = 1
+                hasSel = TRUE
+                sx1 = cx: sy1 = cy: sx2 = cx: sy2 = cy
+            END IF
+            ax = cx: ay = cy
+            o1x = sx1: o1y = sy1: o2x = sx2: o2y = sy2
+        END IF
+        IF mb1 _ANDALSO dragMode THEN
+            SELECT CASE dragMode
+                CASE 1 ' new box from the anchor
+                    sx1 = ax: sy1 = ay: sx2 = cx: sy2 = cy
+                CASE 2 ' move, kept inside the capture
+                    sx1 = o1x + cx - ax: sx2 = o2x + cx - ax
+                    sy1 = o1y + cy - ay: sy2 = o2y + cy - ay
+                    IF sx1 < 0 THEN sx2 = sx2 - sx1: sx1 = 0
+                    IF sy1 < 0 THEN sy2 = sy2 - sy1: sy1 = 0
+                    IF sx2 > cw - 1 THEN sx1 = sx1 - (sx2 - (cw - 1)): sx2 = cw - 1
+                    IF sy2 > ch - 1 THEN sy1 = sy1 - (sy2 - (ch - 1)): sy2 = ch - 1
+                CASE 3 ' pull a handle
+                    sx1 = o1x: sy1 = o1y: sx2 = o2x: sy2 = o2y
+                    IF dragHandle = 1 _ORELSE dragHandle = 7 _ORELSE dragHandle = 8 THEN sx1 = cx
+                    IF dragHandle >= 3 _ANDALSO dragHandle <= 5 THEN sx2 = cx
+                    IF dragHandle >= 1 _ANDALSO dragHandle <= 3 THEN sy1 = cy
+                    IF dragHandle >= 5 _ANDALSO dragHandle <= 7 THEN sy2 = cy
+            END SELECT
+        END IF
+        IF mb1 = 0 _ANDALSO oldB1 THEN
+            ' normalize; a click without a drag is no box
+            IF sx1 > sx2 THEN t = sx1: sx1 = sx2: sx2 = t
+            IF sy1 > sy2 THEN t = sy1: sy1 = sy2: sy2 = t
+            IF dragMode = 1 _ANDALSO sx2 - sx1 < 2 _ANDALSO sy2 - sy1 < 2 THEN hasSel = FALSE
+            dragMode = 0
+        END IF
+        oldB1 = mb1: oldB2 = mb2
+
+        ' --- keys ---
+        k = _KEYHIT
+        DO WHILE k
+            SELECT CASE k
+                CASE 27: doneMode = -1
+                CASE 13: IF hasSel THEN doneMode = 1 ELSE doneMode = 2
+                CASE 32: doneMode = 2
+                CASE 19200, 19712, 18432, 20480 ' arrows nudge the box (Shift = 10)
+                    IF hasSel THEN
+                        stepPx = 1
+                        IF shiftDown THEN stepPx = 10
+                        IF k = 19200 _ANDALSO sx1 - stepPx >= 0 THEN sx1 = sx1 - stepPx: sx2 = sx2 - stepPx
+                        IF k = 19712 _ANDALSO sx2 + stepPx <= cw - 1 THEN sx1 = sx1 + stepPx: sx2 = sx2 + stepPx
+                        IF k = 18432 _ANDALSO sy1 - stepPx >= 0 THEN sy1 = sy1 - stepPx: sy2 = sy2 - stepPx
+                        IF k = 20480 _ANDALSO sy2 + stepPx <= ch - 1 THEN sy1 = sy1 + stepPx: sy2 = sy2 + stepPx
+                    END IF
+            END SELECT
+            k = _KEYHIT
+        LOOP
+        IF doneMode THEN EXIT DO
+
+        ' --- draw ---
+        _DEST 0
+        _PUTIMAGE (0, 0), bgDim, 0
+        IF hasSel THEN
+            nx1 = ox + INT(_MIN(sx1, sx2) * s): ny1 = oy + INT(_MIN(sy1, sy2) * s)
+            nx2 = ox + INT((_MAX(sx1, sx2) + 1) * s) - 1: ny2 = oy + INT((_MAX(sy1, sy2) + 1) * s) - 1
+            _PUTIMAGE (nx1, ny1)-(nx2, ny2), bg, 0, (nx1, ny1)-(nx2, ny2)
+            LINE (nx1 - 1, ny1 - 1)-(nx2 + 1, ny2 + 1), _RGB32(255, 255, 255), B
+            LINE (nx1 - 2, ny1 - 2)-(nx2 + 2, ny2 + 2), _RGB32(0, 0, 0), B
+            IF dragMode <> 1 THEN
+                FOR i = 1 TO 8
+                    SELECT CASE i
+                        CASE 1: lx = nx1: ly = ny1
+                        CASE 2: lx = (nx1 + nx2) \ 2: ly = ny1
+                        CASE 3: lx = nx2: ly = ny1
+                        CASE 4: lx = nx2: ly = (ny1 + ny2) \ 2
+                        CASE 5: lx = nx2: ly = ny2
+                        CASE 6: lx = (nx1 + nx2) \ 2: ly = ny2
+                        CASE 7: lx = nx1: ly = ny2
+                        CASE 8: lx = nx1: ly = (ny1 + ny2) \ 2
+                    END SELECT
+                    LINE (lx - 2 * ds, ly - 2 * ds)-(lx + 2 * ds, ly + 2 * ds), _RGB32(255, 255, 255), BF
+                    LINE (lx - 2 * ds, ly - 2 * ds)-(lx + 2 * ds, ly + 2 * ds), _RGB32(0, 0, 0), B
+                NEXT i
+            END IF
+            rw = ABS(sx2 - sx1) + 1: rh = ABS(sy2 - sy1) + 1
+            ly = ny1 - 22 * ds
+            IF ly < 0 THEN ly = ny2 + 4 * ds
+            CAP_text nx1, ly, _TRIM$(STR$(rw)) + " x " + _TRIM$(STR$(rh)), ds
+        END IF
+
+        ' loupe: lcells x lcells capture pixels around the pointer, beside it
+        lsx = cx - lcells \ 2: lsy = cy - lcells \ 2
+        IF lsx < 0 THEN lsx = 0
+        IF lsy < 0 THEN lsy = 0
+        IF lsx + lcells > cw THEN lsx = cw - lcells
+        IF lsy + lcells > ch THEN lsy = ch - lcells
+        IF lsx < 0 THEN lsx = 0
+        IF lsy < 0 THEN lsy = 0
+        lx = mx + 20 * ds: ly = my + 20 * ds
+        IF lx + lcells * cell > ww THEN lx = mx - 20 * ds - lcells * cell
+        IF ly + lcells * cell + 22 * ds > wh THEN ly = my - 20 * ds - lcells * cell - 22 * ds
+        LINE (lx - 2, ly - 2)-(lx + lcells * cell + 1, ly + lcells * cell + 1), _RGB32(255, 255, 255), BF
+        _PUTIMAGE (lx, ly)-(lx + lcells * cell - 1, ly + lcells * cell - 1), capImg, 0, (lsx, lsy)-(lsx + lcells - 1, lsy + lcells - 1)
+        t = (cx - lsx) * cell: i = (cy - lsy) * cell
+        LINE (lx + t, ly + i)-(lx + t + cell - 1, ly + i + cell - 1), _RGB32(255, 32, 64), B
+        CAP_text lx, ly + lcells * cell + 4, _TRIM$(STR$(cx)) + "," + _TRIM$(STR$(cy)), ds
+
+        CAP_text -1, 8 * ds, "Drag a region - Enter/double-click: use it - Space: whole screen - Esc: cancel", ds
+        _DISPLAY
+        _LIMIT 60
+    LOOP
+
+    _MOUSESHOW "DEFAULT"
+    POINTER_show_after_dialog
+    DO WHILE _MOUSEBUTTON(1) OR _MOUSEBUTTON(2)
+        WHILE _MOUSEINPUT: WEND
+        _LIMIT 60
+    LOOP
+    MOUSE_cleanup_after_dialog TRUE
+    _FREEIMAGE bg
+    _FREEIMAGE bgDim
+    _DEST oldDest: _SOURCE oldSource
+    INVALIDATE_scene
+
+    SELECT CASE doneMode
+        CASE 1
+            IF sx1 > sx2 THEN t = sx1: sx1 = sx2: sx2 = t
+            IF sy1 > sy2 THEN t = sy1: sy1 = sy2: sy2 = t
+            rw = sx2 - sx1 + 1: rh = sy2 - sy1 + 1
+            outImg = _NEWIMAGE(rw, rh, 32)
+            _PUTIMAGE (0, 0), capImg, outImg, (sx1, sy1)-(sx2, sy2)
+            CAP_pick_region& = outImg
+        CASE 2
+            CAP_pick_region& = _COPYIMAGE(capImg, 32)
+    END SELECT
+END FUNCTION
+
+
+''
+' DRAW canvases top out at 4096: offer to scale a bigger region down to fit
+' (Yes) or crop it (No). Returns the image to use (may be img itself).
+FUNCTION CAP_fit_4096& (img AS LONG)
+    DIM srcImg AS LONG, w AS LONG, h AS LONG, ans AS LONG, f AS SINGLE, nw AS LONG, nh AS LONG, outImg AS LONG
+    srcImg = img
+    w = _WIDTH(srcImg): h = _HEIGHT(srcImg)
+    CAP_fit_4096& = srcImg
+    IF w <= 4096 _ANDALSO h <= 4096 THEN EXIT FUNCTION
+    POINTER_hide_for_dialog
+    ans = DRAW_message_box%("Capture Screen", "The capture is" + STR$(w) + " x" + STR$(h) + ". DRAW canvases go up to 4096. Scale it down to fit? (No = crop)", MB_BTN_YES_NO, MB_ICON_QUESTION)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    IF ans = MB_RESULT_1 THEN
+        f = 4096 / w
+        IF 4096 / h < f THEN f = 4096 / h
+        nw = INT(w * f): nh = INT(h * f)
+        outImg = _NEWIMAGE(nw, nh, 32)
+        _PUTIMAGE (0, 0)-(nw - 1, nh - 1), srcImg, outImg
+    ELSE
+        nw = _MIN(w, 4096): nh = _MIN(h, 4096)
+        outImg = _NEWIMAGE(nw, nh, 32)
+        _PUTIMAGE (0, 0), srcImg, outImg, (0, 0)-(nw - 1, nh - 1)
+    END IF
+    _FREEIMAGE srcImg
+    CAP_fit_4096& = outImg
+END FUNCTION

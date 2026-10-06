@@ -5,7 +5,8 @@
 ' palette, or DRAW --capture.
 '
 '   hide DRAW -> wait CAPTURE_DELAY -> grab the screen -> show DRAW
-'   -> new document from the grab -> switch to CAPTURE_WORKSPACE (annotate)
+'   -> region picker (CAP_pick_region&: drag a box over the frozen grab)
+'   -> new document from the region -> switch to CAPTURE_WORKSPACE (annotate)
 '
 ' QB64-PE's _SCREENIMAGE only works on Windows (the GLFW branch of libqb is
 ' a GLFW_TODO that returns a blank desktop-sized image - verified all black
