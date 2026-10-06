@@ -475,6 +475,10 @@ Supported formats:
 | `--palette FILE.gpl` | Load a GIMP `.gpl` palette into the palette strip at startup, keeping its `Name:` (e.g. `DRAW art.png --palette art.gpl`) |
 | `--portable` | Use portable (local-directory) config paths instead of OS-native dirs |
 | `--perf` | Enable per-stage performance logging to `DRAW-perf.log` |
+| `--no-color` | Plain console output (colors are also off when `NO_COLOR` is set or output is piped; `FORCE_COLOR=1` forces them) |
+| `--cfg` | Print the path of the config file DRAW is using, then exit (`vim $(DRAW --cfg)`) |
+| `--dirs` | Print every DRAW directory, labeled, then exit |
+| `--dir-NAME` | Print one directory as a bare absolute path, then exit (`cd $(DRAW --dir-data)`). NAME: `cfg` `data` `cache` `crash-logs` `templates` `brushes` `patterns` `gradients` `palettes` `fonts` `theme` `theme-images` `theme-sounds` `theme-music` `theme-cursors` `theme-fonts` |
 ```bash
 # Use a specific config file
 ./DRAW.run --config DRAW.macOS.cfg

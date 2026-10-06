@@ -39,7 +39,14 @@ qb64pe -w -x -o DRAW.run DRAW.BAS
 ./DRAW.run --options-list          # print every config option + default + description, then exit
 ./DRAW.run --option KEY=VALUE      # override any config key from the CLI (repeatable; beats the .cfg)
 ./DRAW.run --option TOOLTIPS_DISABLED=TRUE --option GROUP_DRAW_AUTO_LAYER=TRUE
+./DRAW.run --cfg                   # path of the config in use (vim $(./DRAW.run --cfg))
+./DRAW.run --dirs                  # every DRAW directory; --dir-NAME prints one bare path
 ```
+
+Path queries (`--cfg/--dirs/--dir-*`, CFG/CLI-QUERY.BI) and `--help` exit at include
+time — no window, work headless — and query runs never claim a multi-instance slot.
+Colored console output lives in `CORE/CLI.BM` (NO_COLOR / --no-color / non-tty → plain;
+`isatty` via `native/cli_tty.h`); `ASSETS/DRAW.ans` (if present) is printed above `--help`.
 
 ### QA
 

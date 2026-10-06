@@ -13,6 +13,7 @@ $INCLUDEONCE
 ' HELP ------------------------------------------------------------------------
 ' Must run before PATHS/CONFIG/SCREEN so --help / --version exit before any
 ' graphics window or directory side effects.
+'$INCLUDE:'./CORE/CLI.BI'
 '$INCLUDE:'./CORE/HELP.BI'
 
 ' CORE ------------------------------------------------------------------------
@@ -53,6 +54,7 @@ $INCLUDEONCE
 
 ' CONFIG ----------------------------------------------------------------------
 '$INCLUDE:'./CFG/CONFIG.BI'
+'$INCLUDE:'./CFG/CLI-QUERY.BI'
 '$INCLUDE:'./CFG/CONFIG-THEME.BI'
 '$INCLUDE:'./CFG/BINDINGS.BI'
 

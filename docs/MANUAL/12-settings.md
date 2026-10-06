@@ -62,6 +62,11 @@ CLI flags:
 - `--config-upgrade` — reconcile your existing config with any new defaults introduced by an upgrade. Recommended after each release.
 - `--option KEY=VALUE` — override any config key from the command line (repeatable; beats the `.cfg`). E.g. `--option FONTS_INCLUDE_USER_TDF=TRUE`.
 - `--options-list` — print every config key with its default and description, then exit.
+- `--cfg` — print the path of the config file DRAW is actually using (after `--config`, OS-specific files and `--portable` are taken into account), then exit. Handy as `vim $(DRAW --cfg)`.
+- `--dirs` — list every DRAW folder: config, data, cache, crash logs, templates, brush/pattern/gradient sets, palettes, fonts, and the current theme's images, sounds, music, cursors and fonts.
+- `--dir-NAME` — print one of those folders as a bare path, e.g. `cd $(DRAW --dir-theme-sounds)` or `ls $(DRAW --dir-crash-logs)`. Names: `cfg data cache crash-logs templates brushes patterns gradients palettes fonts theme theme-images theme-sounds theme-music theme-cursors theme-fonts`.
+
+`DRAW --help` is colored in a terminal (plain when piped, with `--no-color`, or when `NO_COLOR` is set). If `ASSETS/DRAW.ans` exists, the ANSI-art logo in it is printed above the help.
 
 <div class="page-break"></div>
 
