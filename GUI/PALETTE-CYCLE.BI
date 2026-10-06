@@ -59,6 +59,7 @@ TYPE PCYC_OBJ
     WHEEL_R    AS INTEGER ' range the burst applies to
     WHEEL_SNAP AS STRING  ' palette snapshot before the burst
     DRAG_ACTIVE AS INTEGER ' Ctrl+L-drag on the strip is defining a new range
+    DRAG_START AS INTEGER ' chip the Ctrl+L-drag started on
     DRAG_LO    AS INTEGER ' drag preview span (-1 = none)
     DRAG_HI    AS INTEGER
     BLOCKED_SIG AS STRING ' palette signature PCYC_BLOCKED() was computed for

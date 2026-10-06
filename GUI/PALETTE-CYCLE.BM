@@ -52,7 +52,11 @@ SUB PCYC_reset ()
     PCYC.SIG$        = ""
     PCYC.APPLIED$    = ""
     PCYC.PREV_SHIFT$ = ""
-    PCYC.WHEEL_R%    = 0
+    PCYC.WHEEL_R%    = 0 ' a pending speed burst belonged to the old document
+    PCYC.WHEEL_SNAP$ = ""
+    PCYC.DRAG_ACTIVE% = FALSE
+    PCYC.DRAG_LO%    = -1
+    PCYC.DRAG_HI%    = -1
     PCYC_BASE$       = ""
 END SUB
 
@@ -163,6 +167,7 @@ END SUB
 '
 FUNCTION PCYC_tick% ()
     DIM s AS STRING, r AS INTEGER, now AS DOUBLE
+    PCYC_wheel_flush FALSE
     PCYC_validate
     IF PCYC_running% THEN
         now# = PCYC_now#
@@ -746,6 +751,7 @@ END FUNCTION
 ' snapshot) and repaint.
 '
 SUB PCYC_commit (before AS STRING, label AS STRING)
+    PCYC_wheel_flush TRUE
     HISTORY_record_palette before$, PALETTE_snapshot$, label$
     PCYC.MAP_VALID%   = FALSE
     SCENE_DIRTY%      = TRUE
@@ -760,6 +766,7 @@ END SUB
 SUB PCYC_action (actionId AS INTEGER)
     DIM r AS INTEGER, before AS STRING, i AS INTEGER, lo AS INTEGER, hi AS INTEGER
     DIM slot AS INTEGER, flags(0 TO 255) AS INTEGER, n AS INTEGER, lst AS STRING
+    PCYC_wheel_flush TRUE ' a pending Ctrl+Wheel speed burst becomes its own undo step first
     SELECT CASE actionId%
         CASE 2060 ' toggle cycling
             PCYC_set_enabled NOT PCYC.ENABLED%
@@ -902,4 +909,142 @@ SUB PCYC_refresh_blocked ()
     IF sig$ = PCYC.BLOCKED_SIG$ THEN EXIT SUB
     PCYC.BLOCKED_SIG$ = sig$
     n% = PCYC_blocked_count%(PCYC_BLOCKED())
+END SUB
+
+
+' =============================================================================
+' Palette strip gestures (Color Ops mode + Ctrl)
+' =============================================================================
+
+''
+' Ctrl + mouse press on a strip chip in Color Ops mode:
+'   L  start a range drag (release: span = new range, click = next direction)
+'   R  pause / resume the range under the chip
+'   M  delete the range under the chip
+'
+SUB PCYC_strip_press (idx AS INTEGER)
+    DIM r AS INTEGER, before AS STRING, d AS STRING
+    IF idx% < 0 THEN EXIT SUB
+    IF MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3% THEN
+        PCYC.DRAG_ACTIVE% = TRUE
+        PCYC.DRAG_START%  = idx%
+        PCYC.DRAG_LO%     = idx%
+        PCYC.DRAG_HI%     = idx%
+    ELSEIF MOUSE.B2% AND NOT MOUSE.B1% THEN
+        r% = PCYC_range_at%(idx%)
+        IF r% = 0 THEN STATUS_flash "Ctrl+right-click a chip inside a cycle range to pause it" : EXIT SUB
+        before$ = PALETTE_snapshot$
+        PCYC_toggle_pause r%
+        PCYC_commit before$, "Pause Cycle Range"
+        STATUS_flash PCYC_describe$(r%)
+    ELSEIF MOUSE.B3% THEN
+        r% = PCYC_range_at%(idx%)
+        IF r% = 0 THEN STATUS_flash "Ctrl+middle-click a chip inside a cycle range to delete it" : EXIT SUB
+        before$ = PALETTE_snapshot$
+        d$ = PCYC_describe$(r%)
+        PCYC_delete_range r%
+        PCYC_commit before$, "Delete Cycle Range"
+        STATUS_flash "Deleted " + d$
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+
+''
+' Per frame while a Ctrl+L range drag is live. Returns TRUE while it owns
+' the mouse (caller blocks the canvas).
+'
+FUNCTION PCYC_strip_held% (x AS INTEGER, y AS INTEGER)
+    DIM idx AS INTEGER, r AS INTEGER, before AS STRING, lo AS INTEGER, hi AS INTEGER
+    PCYC_strip_held% = FALSE
+    IF NOT PCYC.DRAG_ACTIVE% THEN EXIT FUNCTION
+    PCYC_strip_held% = TRUE
+    IF MOUSE.B1% THEN
+        idx% = PALETTE_OPS_calc_strip_index%(x%, y%)
+        IF idx% >= 0 _ANDALSO PALETTE_STRIP_in_bounds%(x%, y%) THEN
+            lo% = PCYC.DRAG_START% : hi% = idx%
+            IF lo% > hi% THEN SWAP lo%, hi%
+            IF lo% <> PCYC.DRAG_LO% OR hi% <> PCYC.DRAG_HI% THEN
+                PCYC.DRAG_LO% = lo% : PCYC.DRAG_HI% = hi%
+                GUI_NEEDS_REDRAW% = TRUE
+            END IF
+        END IF
+        FRAME_IDLE% = FALSE
+        EXIT FUNCTION
+    END IF
+    ' Released
+    PCYC.DRAG_ACTIVE% = FALSE
+    lo% = PCYC.DRAG_LO% : hi% = PCYC.DRAG_HI%
+    PCYC.DRAG_LO% = -1 : PCYC.DRAG_HI% = -1
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+    IF lo% < 0 THEN EXIT FUNCTION
+    before$ = PALETTE_snapshot$
+    IF hi% = lo% THEN
+        r% = PCYC_range_at%(lo%)
+        IF r% = 0 THEN
+            STATUS_flash "Ctrl+drag across 2+ chips to make a cycle range"
+            EXIT FUNCTION
+        END IF
+        PCYC_next_mode r%
+        PCYC_commit before$, "Cycle Direction"
+        STATUS_flash PCYC_describe$(r%)
+    ELSE
+        r% = PCYC_add_range%(lo%, hi%, PCYC_DEFAULT_RATE, PCYC_FWD)
+        IF r% = 0 THEN STATUS_flash "Cannot add range (max " + _TRIM$(STR$(PCYC_MAX)) + ")" : EXIT FUNCTION
+        PCYC_commit before$, "Add Cycle Range"
+        STATUS_flash "Added " + PCYC_describe$(r%) + _IIF(PCYC.ENABLED%, "", "  (Shift+Tab to cycle)")
+    END IF
+END FUNCTION
+
+
+''
+' Ctrl+Wheel over a strip chip in Color Ops mode: change that range's speed
+' (Ctrl = speed table step, Ctrl+Shift = fine 5%). Returns TRUE when the
+' wheel was consumed. A burst of wheel steps is ONE undo step.
+'
+FUNCTION PCYC_strip_wheel% (x AS INTEGER, y AS INTEGER, wheel AS INTEGER)
+    DIM idx AS INTEGER, r AS INTEGER, slot AS INTEGER, sps AS SINGLE
+    PCYC_strip_wheel% = FALSE
+    IF NOT PALETTE_OPS.ACTIVE% _ORELSE NOT MODIFIERS.ctrl% _ORELSE wheel% = 0 THEN EXIT FUNCTION
+    idx% = PALETTE_OPS_calc_strip_index%(x%, y%)
+    IF idx% < 0 THEN EXIT FUNCTION
+    r% = PCYC_range_at%(idx%)
+    IF r% = 0 THEN EXIT FUNCTION
+    PCYC_strip_wheel% = TRUE
+    ' One undo step per burst: snapshot before the first step of a burst
+    IF PCYC.WHEEL_R% <> r% THEN
+        PCYC_wheel_flush TRUE
+        PCYC.WHEEL_SNAP$ = PALETTE_snapshot$
+        PCYC.WHEEL_R%    = r%
+    END IF
+    PCYC.WHEEL_T# = PCYC_now#
+    IF MODIFIERS.shift% THEN
+        sps! = PCYC_sps!(PCYC_R(r%).rate)
+        IF wheel% < 0 THEN sps! = sps! * 1.05 ELSE sps! = sps! / 1.05
+        PCYC_set_rate r%, PCYC_rate_for&(sps!)
+    ELSE
+        slot% = PCYC_speed_slot%(PCYC_R(r%).rate)
+        IF wheel% < 0 THEN slot% = slot% + 1 ELSE slot% = slot% - 1 ' wheel up = faster
+        IF slot% < 0 THEN slot% = 0
+        IF slot% > 15 THEN slot% = 15
+        PCYC_set_rate r%, PCYC_rate_for&(PCYC_SPEEDS(slot%))
+    END IF
+    STATUS_flash PCYC_describe$(r%)
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+END FUNCTION
+
+
+''
+' Record a finished Ctrl+Wheel speed burst as one undo step. force = flush
+' now; otherwise only once the wheel has been quiet for 0.7s.
+'
+SUB PCYC_wheel_flush (force AS INTEGER)
+    IF PCYC.WHEEL_R% = 0 THEN EXIT SUB
+    IF NOT force% _ANDALSO PCYC_now# - PCYC.WHEEL_T# < 0.7 THEN EXIT SUB
+    PCYC.WHEEL_R% = 0
+    HISTORY_record_palette PCYC.WHEEL_SNAP$, PALETTE_snapshot$, "Cycle Speed"
+    PCYC.WHEEL_SNAP$ = ""
 END SUB

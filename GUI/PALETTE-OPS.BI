@@ -22,6 +22,12 @@
 '   M-CLICK chip               → Delete it (a marked chip deletes ALL marked)
 '   M-DRAG across chips        → Delete the whole range (red preview until release)
 '   SHIFT+M-CLICK chip         → Insert the current FG color after it
+'   Color cycling (GUI/PALETTE-CYCLE.BM), Ctrl + :
+'     CTRL+L-DRAG chips        → New cycle range over the dragged span
+'     CTRL+L-CLICK range chip  → Direction FWD → REV → PING
+'     CTRL+R-CLICK range chip  → Pause / resume the range
+'     CTRL+M-CLICK range chip  → Delete the range
+'     CTRL+WHEEL over range    → Speed (table step); CTRL+SHIFT+WHEEL = fine 5%
 '   R-CLICK Color Ops button / ESC → leave Color Ops mode
 '
 ' On activation: auto-remaps canvas to current palette (no dialog).
