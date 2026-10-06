@@ -1,5 +1,7 @@
 <!-- Status: PLANNED (not started) — written 2026-10-06. Working copy also at ~/.claude/plans/let-s-think-about-how-rosy-cosmos.md -->
 
+> **Status (2026-10-06): implemented on branch `palette-cycling` — all phases. Review notes, decisions and known limits: `PLANS/_/COLOR-CYCLING-REVIEW.md`. Developer reference: `.claude/instructions/draw-color-cycling.md`.**
+
 # Palette color cycling for DRAW
 
 ## Context
@@ -57,7 +59,7 @@ Grymmjack wants DeluxePaint/GrafX2-style color cycling in DRAW. Ranges of palett
 - **Shift per step**, with `n = hi-lo+1`:
   - FWD: `k MOD n`
   - REV: `(n - k MOD n) MOD n`
-  - PING: `m = k MOD 2n`, `a = m if m <= n else 2n-m`, shift `a MOD n`
+  - PING: `m = k MOD 2(n-1)`, `shift = m if m <= n-1 else 2(n-1)-m` (implemented; the first draft's `2n` repeated the end colors)
   - Chip `lo+j` shows `PAL(lo + ((j-s) MOD n + n) MOD n)`.
 
 **Rendering (`OUTPUT/SCREEN.BM`, `RENDER_layers`)**
