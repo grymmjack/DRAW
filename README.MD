@@ -5,9 +5,15 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.5.0
+Current release: v2.5.1
 
-![DRAW GUI from v1.1.0](./GUI.png)
+![DRAW GUI from v2.5.0](./GUI.png)
+
+## New in 2.5.1
+
+A quick fix for laggy menus.
+
+- **Menus are snappy again with an image on the clipboard.** If the clipboard held an image, such as a screenshot, every hover update while a menu was open copied and decoded that image. The highlight and the hover sound trailed the pointer by about 100ms. DRAW now checks the clipboard once, when a menu opens, which brings each hover update back to about 1ms. A small periodic stutter while menus were closed is gone too.
 
 ## New in 2.5.0
 
