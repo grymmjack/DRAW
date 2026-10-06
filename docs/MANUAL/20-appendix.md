@@ -134,6 +134,19 @@ The complete, always-up-to-date list of keyboard **and mouse** shortcuts lives i
 
 See [Ch. 21 — AI Image Generation](21-ai-generation.md).
 
+### Workspaces & capture
+
+| Action | Shortcut |
+| --- | --- |
+| Workspace switcher | `Ctrl+Shift+W` |
+| Show what a workspace hid / hide it again | `F11` (inside a workspace) |
+| Capture Screen | `Ctrl+Shift+P` (or `DRAW --capture`) |
+| Annotate: rect / filled / ellipse / line / arrow / text | `R` / `Shift+R` / `O` / `L` / `A` / `T` |
+| Annotate: highlighter / redact / numbered callout / restart numbers | `H` / `X` / `N` / `Shift+N` |
+| Annotate: copy picture / quick save / done | `Ctrl+C` / `Ctrl+S` / `Ctrl+Enter` |
+
+The Annotate keys work only in the Annotate workspace. See [Ch. 22 — Workspaces & Screenshot Annotation](22-workspaces-capture.md).
+
 ---
 
 ## All 56 bundled palettes

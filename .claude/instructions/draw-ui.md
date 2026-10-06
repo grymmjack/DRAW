@@ -247,7 +247,7 @@ END IF
 
 Vertical icon bar with 26+ quick-access toggle buttons for view options, tool toggles, and feature controls. Dockable LEFT or RIGHT (independently from EditBar). Defaults to LEFT dock. Toggle with Shift+F5 or action ID 449.
 
-- **33 slots**: 26 action icons + 7 dividers, organized by category (View, Grid, Brush, Reference, Layer Distribution, Flip Canvas, etc.)
+- **30 slots** (`ADVBAR_TOTAL_SLOTS`): 24 action icons + 6 dividers, organized by category (View, Grid, Brush, Reference, Layer Distribution, etc.). A workspace's `[ADVANCED_BAR] BUTTONS=` filters them (`ADVBAR_SHOW()`, see draw-workspaces.md)
 - **Buttons include**: Char Map, Char Grid, Char Snap, Preview, EditBar, Tile Preview, Grid Cell Fill, Grid Show, Fill Adjust, Brush Edges, Angle Snap, Grayscale Preview, Ref Image controls, Distribute Layers, Crosshair, Smart Guides, and more
 - **Config**: `ADVANCEDBAR_VISIBLE%`, `ADVANCEDBAR_DOCK_POSITION$` ("LEFT"/"RIGHT")
 - **Theme fields**: `ADV_BAR_WIDTH%`, `ADV_BAR_*_BORDER_WIDTH%`, `ADV_BAR_ICON_PADDING%`, plus 26 `ADV_BAR_ICON_*$` filename strings and color fields (`ADV_BAR_BG~&`, `ADV_BAR_HOVER~&`, `ADV_BAR_BORDER*~&`)
