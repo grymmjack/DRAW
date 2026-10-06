@@ -159,6 +159,17 @@ DIM SHARED MENU_ROOT_X(MENU_MAX_ROOT) AS INTEGER         ' X position of each ro
 DIM SHARED MENU_ROOT_W(MENU_MAX_ROOT) AS INTEGER         ' Width of each root label area
 DIM SHARED MENU_ROOT_LABEL(MENU_MAX_ROOT) AS STRING * 16 ' Cached trimmed root labels
 DIM SHARED MENU_ROOT_COUNT AS INTEGER                    ' Number of root items
+' Workspace menu filter ([MENUS] ROOTS= / HIDE_ITEMS=, GUI/WORKSPACE-APPLY):
+' registration code names roots by their ORIGINAL ordinal (0=FILE, 1=EDIT ...);
+' MENU_ROOT_REMAP maps that to the registered ordinal, or -2 when a workspace
+' hides the root (its items are not registered). Post-registration code uses
+' MENU_ROOT_REMAP(n) / MENU_RT_AUDIO instead of literal root numbers.
+DIM SHARED MENU_ROOT_ORIG_N AS INTEGER                   ' roots offered so far (hidden ones too)
+DIM SHARED MENU_ROOT_REMAP(0 TO 31) AS INTEGER           ' original ordinal -> registered ordinal / -2
+DIM SHARED MENU_ROOT_LASTDIV(0 TO 31) AS INTEGER         ' last registered child was a divider (or none)
+DIM SHARED MENU_RT_AUDIO AS INTEGER                      ' registered ordinal of AUDIO (-2 hidden)
+DIM SHARED MENU_FILTER_ROOTS AS STRING                   ' workspace: shown root labels ("" = all)
+DIM SHARED MENU_FILTER_ITEMS AS STRING                   ' workspace: hidden item action ids / labels
 DIM SHARED MENU_ROOT_IDX(MENU_MAX_ROOT) AS INTEGER       ' Index into MENU_ITEMS for each root
 DIM SHARED MENU_ROOT_ENABLED(MENU_MAX_ROOT) AS INTEGER   ' Whether each root menu is enabled
 

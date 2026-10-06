@@ -23,6 +23,7 @@ SUB MENUBAR_init ()
     MENU_BAR.subItemCount% = 0
     MENU_ITEM_COUNT%       = 0
     MENU_ROOT_COUNT%       = 0
+    MENU_ROOT_ORIG_N%      = 0
 
     ' Load Tiny5 font with no blending for pixelated look
     IF MENU_BAR.fontHandle& > 0 THEN _FREEFONT MENU_BAR.fontHandle&
@@ -48,6 +49,33 @@ END SUB
 ' @param isDivider INTEGER TRUE if the item is a visual separator line
 '
 SUB MENUBAR_register_item (label AS STRING, hotkey AS STRING, parentIdx AS INTEGER, actionId AS INTEGER, hasCheckbox AS INTEGER, isDivider AS INTEGER)
+    ' Workspace menu filter: hidden roots/items are simply not registered; a
+    ' child's ORIGINAL root ordinal is translated to the registered one.
+    DIM regParent AS INTEGER, origRoot AS INTEGER
+    regParent% = parentIdx%
+    IF parentIdx% = -1 AND NOT isDivider% THEN
+        origRoot% = MENU_ROOT_ORIG_N%
+        MENU_ROOT_ORIG_N% = MENU_ROOT_ORIG_N% + 1
+        IF origRoot% <= UBOUND(MENU_ROOT_REMAP) THEN
+            IF MENUBAR_root_hidden%(label$) THEN
+                MENU_ROOT_REMAP(origRoot%) = -2
+                EXIT SUB
+            END IF
+            MENU_ROOT_REMAP(origRoot%) = MENU_ROOT_COUNT%
+            IF MENU_ROOT_COUNT% <= UBOUND(MENU_ROOT_LASTDIV) THEN MENU_ROOT_LASTDIV(MENU_ROOT_COUNT%) = TRUE
+        END IF
+    ELSEIF parentIdx% >= 0 AND parentIdx% <= UBOUND(MENU_ROOT_REMAP) THEN
+        IF parentIdx% >= MENU_ROOT_ORIG_N% THEN EXIT SUB
+        regParent% = MENU_ROOT_REMAP(parentIdx%)
+        IF regParent% < 0 THEN EXIT SUB
+        IF LEN(MENU_FILTER_ITEMS$) > 0 THEN
+            IF NOT isDivider% AND MENUBAR_item_hidden%(label$, actionId%) THEN EXIT SUB
+            ' no leading or doubled dividers once items are filtered out
+            IF isDivider% AND MENU_ROOT_LASTDIV(regParent%) THEN EXIT SUB
+        END IF
+        MENU_ROOT_LASTDIV(regParent%) = (isDivider% <> 0)
+    END IF
+
     IF MENU_ITEM_COUNT% >= MENU_MAX_ITEMS THEN
         ' Never silent again: a dropped item is a missing menu entry (Help first).
         _LOGERROR "MENUBAR: MENU_MAX_ITEMS (" + _TRIM$(STR$(MENU_MAX_ITEMS)) + ") exceeded - dropped '" + label$ + "'. Raise MENU_MAX_ITEMS in GUI/MENUBAR.BI."
@@ -60,7 +88,7 @@ SUB MENUBAR_register_item (label AS STRING, hotkey AS STRING, parentIdx AS INTEG
     MENU_ITEMS(idx%).label        = label$
     MENU_ITEMS(idx%).hotkey       = hotkey$
     MENU_ITEMS(idx%).statusText   = ""
-    MENU_ITEMS(idx%).parentIdx%   = parentIdx%
+    MENU_ITEMS(idx%).parentIdx%   = regParent%
     MENU_ITEMS(idx%).actionId%    = actionId%
     MENU_ITEMS(idx%).hasCheckbox% = hasCheckbox%
     MENU_ITEMS(idx%).checked%     = FALSE
@@ -96,6 +124,11 @@ FUNCTION MENUBAR_register_submenu_parent% (label AS STRING, parentIdx AS INTEGER
     DIM idx AS INTEGER
     idx% = MENU_ITEM_COUNT%
     MENUBAR_register_item label$, "", parentIdx%, -1, FALSE, FALSE
+    IF MENU_ITEM_COUNT% = idx% THEN
+        ' filtered out (workspace): its children must not attach to the next item
+        MENUBAR_register_submenu_parent% = -9
+        EXIT FUNCTION
+    END IF
     MENU_ITEMS(idx%).hasSubmenu%     = TRUE
     MENUBAR_register_submenu_parent% = idx%
 END FUNCTION
@@ -112,10 +145,30 @@ END FUNCTION
 '
 SUB MENUBAR_register_submenu_child (label AS STRING, hotkey AS STRING, parentIdx AS INTEGER, actionId AS INTEGER, subParentIdx AS INTEGER)
     DIM idx AS INTEGER
+    IF subParentIdx% < 0 THEN EXIT SUB ' its flyout parent was filtered out
     idx% = MENU_ITEM_COUNT%
     MENUBAR_register_item label$, hotkey$, parentIdx%, actionId%, FALSE, FALSE
+    IF MENU_ITEM_COUNT% = idx% THEN EXIT SUB
     MENU_ITEMS(idx%).subParent% = subParentIdx%
 END SUB
+
+
+''
+' Workspace filter: TRUE when [MENUS] ROOTS= is set and does not list <label>.
+FUNCTION MENUBAR_root_hidden% (label AS STRING)
+    IF LEN(MENU_FILTER_ROOTS$) = 0 THEN EXIT FUNCTION
+    ' (WS_list_has% compares lower case)
+    MENUBAR_root_hidden% = _NEGATE WS_list_has%(MENU_FILTER_ROOTS$, LCASE$(_TRIM$(label$)), 0)
+END FUNCTION
+
+
+''
+' Workspace filter: TRUE when [MENUS] HIDE_ITEMS= names this item (action id
+' or label, case-insensitive).
+FUNCTION MENUBAR_item_hidden% (label AS STRING, actionId AS INTEGER)
+    IF LEN(MENU_FILTER_ITEMS$) = 0 THEN EXIT FUNCTION
+    MENUBAR_item_hidden% = WS_list_has%(LCASE$(MENU_FILTER_ITEMS$), LCASE$(_TRIM$(label$)), actionId%)
+END FUNCTION
 
 
 ''
@@ -128,10 +181,20 @@ SUB MENUBAR_rebuild ()
     MENUBAR_close_all
     MENU_ITEM_COUNT%    = 0
     MENU_ROOT_COUNT%    = 0
+    MENU_ROOT_ORIG_N%   = 0
     MENU_BAR.openMenu%  = -1
     MENU_BAR.hoverRoot% = -1
     MENU_BAR.hoverSub%  = -1
     MENUBAR_register_all
+    ' Never leave a bar with no roots (geometry assumes >= 1): drop the filter
+    IF MENU_ROOT_COUNT% = 0 AND LEN(MENU_FILTER_ROOTS$) > 0 THEN
+        _LOGWARN "MENUBAR: workspace root filter matched no menu - showing all"
+        MENU_FILTER_ROOTS$  = ""
+        MENU_ITEM_COUNT%    = 0
+        MENU_ROOT_COUNT%    = 0
+        MENU_ROOT_ORIG_N%   = 0
+        MENUBAR_register_all
+    END IF
 END SUB
 
 
@@ -161,15 +224,17 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "PALETTE", "", -1, 0, FALSE, FALSE
     MENUBAR_register_item "IMAGE",  "", -1, 0, FALSE, FALSE
     MENUBAR_register_item "EFFECTS", "", -1, 0, FALSE, FALSE
+    ' (ORIGINAL ordinals: register_item maps them when a workspace hides roots)
     aiRoot% = -1
     IF aiOn% THEN
-        aiRoot% = MENU_ROOT_COUNT%
+        aiRoot% = MENU_ROOT_ORIG_N%
         MENUBAR_register_item "AI", "", -1, 0, FALSE, FALSE
     END IF
-    helpRoot% = MENU_ROOT_COUNT%
+    helpRoot% = MENU_ROOT_ORIG_N%
     MENUBAR_register_item "HELP",   "", -1, 0, FALSE, FALSE
-    audioRoot% = MENU_ROOT_COUNT%
+    audioRoot% = MENU_ROOT_ORIG_N%
     MENUBAR_register_item "AUDIO",  "", -1, 0, FALSE, FALSE
+    MENU_RT_AUDIO% = MENU_ROOT_REMAP(audioRoot%)
 
     ' ========== FILE MENU (parentIdx = 0) ==========
     MENUBAR_register_item "NEW", "Ctrl+N", 0, 209, FALSE, FALSE
@@ -806,8 +871,8 @@ SUB MENUBAR_update_checkboxes ()
     FOR i% = 0 TO MENU_ROOT_COUNT% - 1
         MENU_ROOT_ENABLED(i%) = TRUE ' Most roots are always enabled
     NEXT i%
-    ' Brush root (index 5) always enabled so users can discover submenu
-    MENU_ROOT_ENABLED(5) = TRUE
+    ' Brush root (original index 5) always enabled so users can discover submenu
+    IF MENU_ROOT_REMAP(5) >= 0 THEN MENU_ROOT_ENABLED(MENU_ROOT_REMAP(5)) = TRUE
 
     FOR i% = 0 TO MENU_ITEM_COUNT% - 1
         ' Update checkbox states
@@ -3954,32 +4019,32 @@ FUNCTION MENUBAR_is_cascading_item% (childPosition AS INTEGER)
         EXIT FUNCTION
     END IF
     ' RECENT (action 213) -> FILE (parent 0)
-    IF childPosition% = MENU_BAR.recentItemIdx% AND MENU_BAR.openMenu% = 0 THEN
+    IF childPosition% = MENU_BAR.recentItemIdx% AND MENU_BAR.openMenu% = MENU_ROOT_REMAP(0) THEN
         MENUBAR_is_cascading_item% = TRUE
         EXIT FUNCTION
     END IF
     ' TRANSFORM flyout parent -> EDIT>Transform (331, menu 1) or SELECT>Transform Selection (334, menu 3)
-    IF childPosition% = MENU_BAR.transformItemIdx% AND (MENU_BAR.openMenu% = 1 OR MENU_BAR.openMenu% = 3) THEN
+    IF childPosition% = MENU_BAR.transformItemIdx% AND (MENU_BAR.openMenu% = MENU_ROOT_REMAP(1) OR MENU_BAR.openMenu% = MENU_ROOT_REMAP(3)) THEN
         MENUBAR_is_cascading_item% = TRUE
         EXIT FUNCTION
     END IF
     ' LAYOUT (action 442) -> VIEW (parent 2)
-    IF childPosition% = MENU_BAR.layoutItemIdx% AND MENU_BAR.openMenu% = 2 THEN
+    IF childPosition% = MENU_BAR.layoutItemIdx% AND MENU_BAR.openMenu% = MENU_ROOT_REMAP(2) THEN
         MENUBAR_is_cascading_item% = TRUE
         EXIT FUNCTION
     END IF
     ' PREVIEW WINDOW (action 2012) -> VIEW (parent 2)
-    IF childPosition% = MENU_BAR.pvwItemIdx% AND MENU_BAR.openMenu% = 2 THEN
+    IF childPosition% = MENU_BAR.pvwItemIdx% AND MENU_BAR.openMenu% = MENU_ROOT_REMAP(2) THEN
         MENUBAR_is_cascading_item% = TRUE
         EXIT FUNCTION
     END IF
-    ' RANDOM TRACK (action 433) -> AUDIO (parent 10)
-    IF childPosition% = MENU_BAR.randomItemIdx% AND MENU_BAR.openMenu% = 10 THEN
+    ' RANDOM TRACK (action 433) -> AUDIO (was a stale literal 10; AUDIO is 11, 12 with AI)
+    IF childPosition% = MENU_BAR.randomItemIdx% AND MENU_BAR.openMenu% = MENU_RT_AUDIO% THEN
         MENUBAR_is_cascading_item% = TRUE
         EXIT FUNCTION
     END IF
     ' EXPORT AS... (action EXPORT_ACT_FLYOUT) -> FILE (parent 0)
-    IF childPosition% = MENU_BAR.exportItemIdx% AND MENU_BAR.openMenu% = 0 THEN
+    IF childPosition% = MENU_BAR.exportItemIdx% AND MENU_BAR.openMenu% = MENU_ROOT_REMAP(0) THEN
         MENUBAR_is_cascading_item% = TRUE
         EXIT FUNCTION
     END IF

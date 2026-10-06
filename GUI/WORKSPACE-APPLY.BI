@@ -113,6 +113,7 @@ DIM SHARED WS_OPT_ORIG(1 TO WS_MAX_OPTS) AS STRING
 DIM SHARED WS_OPT_HAD(1 TO WS_MAX_OPTS)  AS INTEGER ' the user's config had the key
 
 DIM SHARED WS_TB_TOUCHED AS INTEGER ' [TOOLBOX] rewrote the toolbar layout / icons
+DIM SHARED WS_MENUS_TOUCHED AS INTEGER ' [MENUS] filtered the menu bar (rebuilt on apply/restore)
 DIM SHARED WS_BARS_TOUCHED AS INTEGER ' [EDIT_BAR]/[ADVANCED_BAR]/[ORGANIZER] filtered buttons
 
 ' Actions 2400-2449 (CMD_execute_action -> WS_action)
