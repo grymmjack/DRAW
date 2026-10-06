@@ -114,6 +114,7 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/ABOUT.BI'
 '$INCLUDE:'./GUI/SETTINGS-WIDGETS.BI'
 '$INCLUDE:'./GUI/SETTINGS.BI'
+'$INCLUDE:'./GUI/WORKSPACE-CONFIG.BI'
 '$INCLUDE:'./GUI/CONTROLS.BI'
 
 ' INPUT -----------------------------------------------------------------------
