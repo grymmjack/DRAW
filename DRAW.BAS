@@ -1230,9 +1230,12 @@ SUB MAIN_shutdown ()
     ' =====================================================================
     ' FREE TOOLBAR BUTTON IMAGES (all used slots)
     ' =====================================================================
-    FOR i% = 0 TO TB_TOTAL
+    FOR i% = 0 TO UBOUND(GUI_TB) ' every button (TB_TOTAL stopped at 28 and leaked Smart Shapes, 29)
         IF GUI_TB(i%).iHnd& < -1 THEN _FREEIMAGE GUI_TB(i%).iHnd&
         IF GUI_TB(i%).iHndAlt& < -1 THEN _FREEIMAGE GUI_TB(i%).iHndAlt&
+        IF i% <= UBOUND(TB_ICON_OVR) THEN
+            IF TB_ICON_OVR(i%) < -1 THEN _FREEIMAGE TB_ICON_OVR(i%)
+        END IF
     NEXT i%
 
     ' =====================================================================
