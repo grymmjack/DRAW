@@ -58,6 +58,10 @@ TYPE PCYC_OBJ
     WHEEL_T    AS DOUBLE  ' time of the last Ctrl+Wheel speed step (burst undo)
     WHEEL_R    AS INTEGER ' range the burst applies to
     WHEEL_SNAP AS STRING  ' palette snapshot before the burst
+    DRAG_ACTIVE AS INTEGER ' Ctrl+L-drag on the strip is defining a new range
+    DRAG_LO    AS INTEGER ' drag preview span (-1 = none)
+    DRAG_HI    AS INTEGER
+    BLOCKED_SIG AS STRING ' palette signature PCYC_BLOCKED() was computed for
 END TYPE
 
 DIM SHARED PCYC                       AS PCYC_OBJ
@@ -76,6 +80,11 @@ DIM SHARED PCYC_LUT_IDX(1 TO 256)     AS INTEGER
 DIM SHARED PCYC_LUT_NEXT(1 TO 256)    AS INTEGER
 DIM SHARED PCYC_LUT_N                 AS INTEGER
 REDIM SHARED PCYC_A(0)                AS _UNSIGNED _BYTE ' original alpha of each cycling pixel
+
+' Strip band colors per range number, and chips whose color duplicates an
+' earlier chip (their pixels belong to that chip, so they cannot cycle).
+DIM SHARED PCYC_BAND_COLOR(1 TO PCYC_MAX) AS _UNSIGNED LONG
+DIM SHARED PCYC_BLOCKED(0 TO 255)         AS INTEGER
 
 ' Speed table for Ctrl+Wheel (steps per second)
 DIM SHARED PCYC_SPEEDS(0 TO 15) AS SINGLE
