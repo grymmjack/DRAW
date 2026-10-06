@@ -722,6 +722,7 @@ DO
     PERF_start PERF_MOUSE_INPUT
     MOUSE_input_handler
     PALETTE_OPS_tick
+    PALETTE_STRIP_watch_colors ' FG/BG changed elsewhere -> refresh the chip frames
     PERF_stop PERF_MOUSE_INPUT
     PERF_start PERF_KEYBOARD_INPUT
     KEYBOARD_input_handler

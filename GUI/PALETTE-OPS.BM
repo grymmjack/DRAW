@@ -20,10 +20,27 @@ SUB PALETTE_OPS_init ()
     PALETTE_OPS.WAND_SHOWING%     = FALSE
     PALETTE_OPS.DBLCLICK_TIME#    = 0
     PALETTE_OPS.DBLCLICK_IDX%     = -1
+    PALETTE_OPS_clear_transient
     DIM poi AS INTEGER
     FOR poi% = 0 TO 255
         PALETTE_OPS_MARKED(poi%) = FALSE
     NEXT poi%
+END SUB
+
+
+''
+' Clear the selected chip + in-flight drags (no undo record: callers commit
+' a live edit first with PALETTE_OPS_edit_commit when it should be kept).
+'
+SUB PALETTE_OPS_clear_transient ()
+    PALETTE_OPS.SEL_IDX%     = -1
+    PALETTE_OPS.MARK_DRAG%   = FALSE
+    PALETTE_OPS.DEL_DRAG%    = FALSE
+    PALETTE_OPS.DEL_START%   = -1
+    PALETTE_OPS.DEL_END%     = -1
+    PALETTE_OPS.DRAG_START_X% = 0
+    PALETTE_OPS.DRAG_START_Y% = 0
+    PALETTE_OPS.TOGGLE_PENDING% = FALSE
 END SUB
 
 
@@ -40,6 +57,7 @@ SUB PALETTE_OPS_activate ()
     PALETTE_OPS.WAND_SHOWING%     = FALSE
     PALETTE_OPS.DBLCLICK_TIME#    = 0
     PALETTE_OPS.DBLCLICK_IDX%     = -1
+    PALETTE_OPS_clear_transient
     DIM poi2 AS INTEGER
     FOR poi2% = 0 TO 255
         PALETTE_OPS_MARKED(poi2%) = FALSE
@@ -61,6 +79,11 @@ END SUB
 '
 SUB PALETTE_OPS_deactivate ()
     IF NOT PALETTE_OPS.ACTIVE% THEN EXIT SUB
+
+    ' Keep a live chip edit that is still open (one undo step), then drop the
+    ' selection and any in-flight drag.
+    PALETTE_OPS_edit_commit
+    PALETTE_OPS_clear_transient
 
     ' Clear wand selection if showing
     IF PALETTE_OPS.WAND_SHOWING% THEN
@@ -100,6 +123,8 @@ END SUB
 ' Reset palette ops (alias for deactivate, used by DRW_load_binary).
 '
 SUB PALETTE_OPS_reset ()
+    PALETTE_OPS_edit_discard ' document is being replaced: its layers are gone
+    PALETTE_OPS_clear_transient
     PALETTE_OPS.ACTIVE%           = FALSE
     PALETTE_OPS.DRAG_ACTIVE%      = FALSE
     PALETTE_OPS.DRAG_SRC_IDX%     = -1
@@ -141,6 +166,25 @@ END SUB
 '
 SUB PALETTE_OPS_tick ()
     IF NOT PALETTE_OPS.ACTIVE% THEN EXIT SUB
+
+    ' Selected chip follows FG: any FG change (color panels, picker, hex...)
+    ' edits the chip and its pixels live; mouse up commits one undo step.
+    IF PALETTE_OPS.SEL_IDX% >= PAL_COLOR_COUNT% THEN PALETTE_OPS_deselect
+    IF PALETTE_OPS.SEL_IDX% >= 0 _ANDALSO NOT PAL_FG_IS_TRANSPARENT% THEN
+        DIM selCur AS _UNSIGNED LONG : selCur~& = PAINT_COLOR~& OR &HFF000000~&
+        IF (selCur~& AND &HFFFFFF) <> (PALETTE_OPS.SEL_LAST~& AND &HFFFFFF) THEN
+            IF NOT PALETTE_OPS.EDIT_ACTIVE% _ANDALSO (PAL(PALETTE_OPS.SEL_IDX%).value~& AND &HFFFFFF) <> (PALETTE_OPS.SEL_LAST~& AND &HFFFFFF) THEN
+                ' The chip changed underneath us (undo / redo / color dialog):
+                ' that FG change is not an edit — just resync.
+                PALETTE_OPS.SEL_LAST~& = selCur~&
+            ELSE
+                PALETTE_OPS_edit_apply selCur~&
+            END IF
+        END IF
+    END IF
+    IF PALETTE_OPS.EDIT_ACTIVE% _ANDALSO NOT MOUSE.B1% _ANDALSO NOT MOUSE.B2% _ANDALSO NOT MOUSE.B3% THEN
+        PALETTE_OPS_edit_commit
+    END IF
 
     ' Handle delayed wand selection
     IF PALETTE_OPS.WAND_PENDING_IDX% >= 0 THEN
@@ -328,37 +372,59 @@ SUB PALETTE_OPS_handle_strip_click (x AS INTEGER, y AS INTEGER)
     ' Calculate which palette index was clicked
     DIM palIdx AS INTEGER
     palIdx% = PALETTE_OPS_calc_strip_index%(x%, y%)
-    IF palIdx% < 0 THEN EXIT SUB
+
+    ' Blank strip area (off the chips): L-click deselects everything
+    IF palIdx% < 0 THEN
+        IF MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3% THEN PALETTE_OPS_deselect_all
+        EXIT SUB
+    END IF
 
     ' Dispatch by button state
     IF MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3% THEN
-        ' LEFT CLICK — check for double-click first
         DIM clickTime AS DOUBLE
         clickTime# = TIMER
+
+        ' SHIFT: ramp from the selected chip to this one
+        IF MODIFIERS.shift% _ANDALSO PALETTE_OPS.SEL_IDX% >= 0 _ANDALSO palIdx% <> PALETTE_OPS.SEL_IDX% THEN
+            PALETTE_OPS_ramp PALETTE_OPS.SEL_IDX%, palIdx%
+            PALETTE_OPS.DBLCLICK_IDX% = -1
+            EXIT SUB
+        END IF
+
         IF palIdx% = PALETTE_OPS.DBLCLICK_IDX% AND _
            (clickTime# - PALETTE_OPS.DBLCLICK_TIME#) < 0.3 THEN
             ' DOUBLE-CLICK: Change color via OS dialog and replace on canvas
             PALETTE_OPS.DBLCLICK_IDX%     = -1
             PALETTE_OPS.DBLCLICK_TIME#    = 0
             PALETTE_OPS.WAND_PENDING_IDX% = -1 ' Cancel any pending wand
+            PALETTE_OPS.TOGGLE_PENDING%   = FALSE
+            PALETTE_OPS.DRAG_START_X%     = 0
+            PALETTE_OPS_select palIdx%
             PALETTE_OPS_change_color palIdx%
+            PALETTE_OPS.SEL_LAST~& = PAINT_COLOR~& OR &HFF000000~&
         ELSE
-            ' SINGLE CLICK: Start delayed wand selection
             PALETTE_OPS.DBLCLICK_TIME# = clickTime#
             PALETTE_OPS.DBLCLICK_IDX%  = palIdx%
 
-            ' Clear previous wand selection if showing
-            IF PALETTE_OPS.WAND_SHOWING% THEN
-                MAGIC_WAND_reset
-                MARQUEE.ACTIVE%           = FALSE
-                PALETTE_OPS.WAND_SHOWING% = FALSE
+            ' Clicking the selected chip deselects it — on release, so a drag
+            ' that starts on it still moves it.
+            IF palIdx% = PALETTE_OPS.SEL_IDX% THEN
+                PALETTE_OPS.TOGGLE_PENDING% = TRUE
+            ELSE
+                PALETTE_OPS.TOGGLE_PENDING% = FALSE
+                PALETTE_OPS_select palIdx%
+
+                ' Clear previous wand selection, start the 500ms wand delay
+                IF PALETTE_OPS.WAND_SHOWING% THEN
+                    MAGIC_WAND_reset
+                    MARQUEE.ACTIVE%           = FALSE
+                    PALETTE_OPS.WAND_SHOWING% = FALSE
+                END IF
+                PALETTE_OPS.WAND_PENDING_IDX% = palIdx%
+                PALETTE_OPS.WAND_TIMER#       = clickTime#
             END IF
 
-            ' Start the 500ms delay timer
-            PALETTE_OPS.WAND_PENDING_IDX% = palIdx%
-            PALETTE_OPS.WAND_TIMER#       = clickTime#
-
-            ' Also start the drag tracking
+            ' Drag tracking (PALETTE_OPS_handle_held)
             PALETTE_OPS.DRAG_START_X% = x%
             PALETTE_OPS.DRAG_START_Y% = y%
             PALETTE_OPS.DRAG_SRC_IDX% = palIdx%
@@ -366,93 +432,138 @@ SUB PALETTE_OPS_handle_strip_click (x AS INTEGER, y AS INTEGER)
         GUI_NEEDS_REDRAW% = TRUE
 
     ELSEIF MOUSE.B2% AND NOT MOUSE.B1% THEN
-        ' RIGHT CLICK: Toggle mark on this color
+        ' RIGHT: toggle this chip's mark; holding and dragging paints that
+        ' same state onto every chip passed over
         PALETTE_OPS_MARKED(palIdx%) = NOT PALETTE_OPS_MARKED(palIdx%)
-        IF PALETTE_OPS_MARKED(palIdx%) THEN
-            _LOGINFO "PALETTE_OPS: Marked color " + STR$(palIdx%)
-        ELSE
-            _LOGINFO "PALETTE_OPS: Unmarked color " + STR$(palIdx%)
-        END IF
+        PALETTE_OPS.MARK_VALUE%     = PALETTE_OPS_MARKED(palIdx%)
+        PALETTE_OPS.MARK_DRAG%      = TRUE
         SOUND_play SND_TOOL_SELECT
         GUI_NEEDS_REDRAW% = TRUE
         FRAME_IDLE%       = FALSE
 
     ELSEIF MOUSE.B3% THEN
-        ' MIDDLE CLICK
-        IF MODIFIERS.shift% THEN
-            ' SHIFT + MIDDLE: Insert blank color
-            PALETTE_OPS_insert_color palIdx%
-        ELSE
-            ' MIDDLE: Delete color (or batch delete if marked)
-            IF PALETTE_OPS_MARKED(palIdx%) THEN
-                PALETTE_OPS_delete_marked
-            ELSE
-                PALETTE_OPS_delete_color palIdx%
-            END IF
-        END IF
-    END IF
-END SUB
-
-
-''
-' Handle mouse drag on palette strip (called during hold).
-' Starts drag-reorder when mouse moves beyond threshold.
-'
-SUB PALETTE_OPS_handle_strip_drag (x AS INTEGER, y AS INTEGER)
-    IF NOT PALETTE_OPS.ACTIVE% THEN EXIT SUB
-    IF NOT MOUSE.B1% THEN EXIT SUB
-    IF PALETTE_OPS.DRAG_SRC_IDX% < 0 THEN EXIT SUB
-
-    DIM dx AS INTEGER, dy AS INTEGER
-    dx% = ABS(x% - PALETTE_OPS.DRAG_START_X%)
-    dy% = ABS(y% - PALETTE_OPS.DRAG_START_Y%)
-
-    IF NOT PALETTE_OPS.DRAG_ACTIVE% THEN
-        ' Start drag if moved beyond 3px threshold
-        IF dx% > 3 OR dy% > 3 THEN
-            PALETTE_OPS.DRAG_ACTIVE%      = TRUE
-            PALETTE_OPS.WAND_PENDING_IDX% = -1 ' Cancel pending wand
-            _LOGINFO "PALETTE_OPS: Drag started from idx " + STR$(PALETTE_OPS.DRAG_SRC_IDX%)
-        END IF
-    END IF
-
-    IF PALETTE_OPS.DRAG_ACTIVE% THEN
-        ' Update destination index based on current position
-        DIM dstIdx AS INTEGER
-        dstIdx% = PALETTE_OPS_calc_strip_index%(x%, y%)
-        IF dstIdx% >= 0 THEN
-            PALETTE_OPS.DRAG_DST_IDX% = dstIdx%
-        END IF
+        ' MIDDLE: start a delete range (acts on release — see handle_held)
+        PALETTE_OPS.DEL_DRAG%  = TRUE
+        PALETTE_OPS.DEL_START% = palIdx%
+        PALETTE_OPS.DEL_END%   = palIdx%
+        PALETTE_OPS.DEL_SHIFT% = MODIFIERS.shift%
         GUI_NEEDS_REDRAW% = TRUE
         FRAME_IDLE%       = FALSE
     END IF
 END SUB
 
 
-''
-' Handle mouse release on palette strip (completes drag-reorder).
 '
-SUB PALETTE_OPS_handle_strip_release (x AS INTEGER, y AS INTEGER)
-    IF NOT PALETTE_OPS.ACTIVE% THEN EXIT SUB
+' Per-frame strip interaction while a button that was pressed on the strip is
+' still held (or was just released): L-drag move, R-drag mark, M-drag delete.
+' Called every frame from MOUSE_input_handler while Color Ops is active.
+' Returns TRUE while it owns the mouse (caller blocks canvas tools).
+'
+FUNCTION PALETTE_OPS_handle_held% (x AS INTEGER, y AS INTEGER)
+    PALETTE_OPS_handle_held% = FALSE
+    IF NOT PALETTE_OPS.ACTIVE% THEN EXIT FUNCTION
+    DIM idx AS INTEGER
 
-    IF PALETTE_OPS.DRAG_ACTIVE% THEN
-        DIM finalDst AS INTEGER
-        finalDst% = PALETTE_OPS_calc_strip_index%(x%, y%)
-        IF finalDst% < 0 THEN finalDst% = PALETTE_OPS.DRAG_DST_IDX%
-
-        IF finalDst% >= 0 AND finalDst% <> PALETTE_OPS.DRAG_SRC_IDX% THEN
-            PALETTE_OPS_rearrange PALETTE_OPS.DRAG_SRC_IDX%, finalDst%
+    ' --- L: drag-move (marked chip moves every marked chip) ---
+    IF PALETTE_OPS.DRAG_START_X% > 0 THEN
+        IF MOUSE.B1% THEN
+            IF NOT PALETTE_OPS.DRAG_ACTIVE% THEN
+                IF ABS(x% - PALETTE_OPS.DRAG_START_X%) > 3 OR ABS(y% - PALETTE_OPS.DRAG_START_Y%) > 3 THEN
+                    PALETTE_OPS.DRAG_ACTIVE%      = TRUE
+                    PALETTE_OPS.DRAG_DST_IDX%     = PALETTE_OPS.DRAG_SRC_IDX%
+                    PALETTE_OPS.WAND_PENDING_IDX% = -1 ' Cancel pending wand
+                    PALETTE_OPS.TOGGLE_PENDING%   = FALSE
+                END IF
+            END IF
+            IF PALETTE_OPS.DRAG_ACTIVE% THEN
+                idx% = PALETTE_OPS_calc_strip_index%(x%, y%)
+                IF idx% >= 0 _ANDALSO idx% <> PALETTE_OPS.DRAG_DST_IDX% THEN
+                    PALETTE_OPS.DRAG_DST_IDX% = idx%
+                    GUI_NEEDS_REDRAW%         = TRUE
+                END IF
+                FRAME_IDLE% = FALSE
+                PALETTE_OPS_handle_held% = TRUE
+            END IF
+        ELSE
+            ' Released
+            IF PALETTE_OPS.DRAG_ACTIVE% THEN
+                idx% = PALETTE_OPS_calc_strip_index%(x%, y%)
+                IF idx% < 0 THEN idx% = PALETTE_OPS.DRAG_DST_IDX%
+                IF idx% >= 0 _ANDALSO idx% <> PALETTE_OPS.DRAG_SRC_IDX% THEN
+                    IF PALETTE_OPS_MARKED(PALETTE_OPS.DRAG_SRC_IDX%) THEN
+                        PALETTE_OPS_move_marked idx%
+                    ELSE
+                        PALETTE_OPS_rearrange PALETTE_OPS.DRAG_SRC_IDX%, idx%
+                    END IF
+                END IF
+                PALETTE_OPS_handle_held% = TRUE
+            ELSEIF PALETTE_OPS.TOGGLE_PENDING% THEN
+                PALETTE_OPS_deselect ' plain click on the selected chip
+            END IF
+            PALETTE_OPS.DRAG_ACTIVE%    = FALSE
+            PALETTE_OPS.DRAG_SRC_IDX%   = -1
+            PALETTE_OPS.DRAG_DST_IDX%   = -1
+            PALETTE_OPS.DRAG_START_X%   = 0
+            PALETTE_OPS.DRAG_START_Y%   = 0
+            PALETTE_OPS.TOGGLE_PENDING% = FALSE
+            GUI_NEEDS_REDRAW%           = TRUE
+            FRAME_IDLE%                 = FALSE
         END IF
-
-        PALETTE_OPS.DRAG_ACTIVE%  = FALSE
-        PALETTE_OPS.DRAG_SRC_IDX% = -1
-        PALETTE_OPS.DRAG_DST_IDX% = -1
-        GUI_NEEDS_REDRAW%         = TRUE
-        FRAME_IDLE%               = FALSE
-    ELSE
-        PALETTE_OPS.DRAG_SRC_IDX% = -1
     END IF
-END SUB
+
+    ' --- R: paint marks ---
+    IF PALETTE_OPS.MARK_DRAG% THEN
+        IF MOUSE.B2% THEN
+            idx% = PALETTE_OPS_calc_strip_index%(x%, y%)
+            IF idx% >= 0 _ANDALSO PALETTE_STRIP_in_bounds%(x%, y%) THEN
+                IF PALETTE_OPS_MARKED(idx%) <> PALETTE_OPS.MARK_VALUE% THEN
+                    PALETTE_OPS_MARKED(idx%) = PALETTE_OPS.MARK_VALUE%
+                    GUI_NEEDS_REDRAW%        = TRUE
+                END IF
+            END IF
+            FRAME_IDLE% = FALSE
+            PALETTE_OPS_handle_held% = TRUE
+        ELSE
+            PALETTE_OPS.MARK_DRAG% = FALSE
+        END IF
+    END IF
+
+    ' --- M: delete range (single chip = click semantics) ---
+    IF PALETTE_OPS.DEL_DRAG% THEN
+        IF MOUSE.B3% THEN
+            idx% = PALETTE_OPS_calc_strip_index%(x%, y%)
+            IF idx% >= 0 _ANDALSO PALETTE_STRIP_in_bounds%(x%, y%) _ANDALSO idx% <> PALETTE_OPS.DEL_END% THEN
+                PALETTE_OPS.DEL_END% = idx%
+                GUI_NEEDS_REDRAW%    = TRUE
+            END IF
+            FRAME_IDLE% = FALSE
+            PALETTE_OPS_handle_held% = TRUE
+        ELSE
+            DIM dS AS INTEGER, dE AS INTEGER, dShift AS INTEGER
+            dS% = PALETTE_OPS.DEL_START% : dE% = PALETTE_OPS.DEL_END% : dShift% = PALETTE_OPS.DEL_SHIFT%
+            PALETTE_OPS.DEL_DRAG%  = FALSE
+            PALETTE_OPS.DEL_START% = -1
+            PALETTE_OPS.DEL_END%   = -1
+            IF dS% >= 0 _ANDALSO dS% < PAL_COLOR_COUNT% THEN
+                IF dE% = dS% THEN
+                    IF dShift% THEN
+                        PALETTE_OPS_insert_color dS%
+                    ELSEIF PALETTE_OPS_MARKED(dS%) THEN
+                        PALETTE_OPS_delete_marked
+                    ELSE
+                        PALETTE_OPS_delete_color dS%
+                    END IF
+                ELSEIF dE% >= 0 _ANDALSO dE% < PAL_COLOR_COUNT% THEN
+                    IF dE% < dS% THEN SWAP dS%, dE%
+                    PALETTE_OPS_delete_range dS%, dE%
+                END IF
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE%       = FALSE
+            PALETTE_OPS_handle_held% = TRUE
+        END IF
+    END IF
+END FUNCTION
 
 
 ''
@@ -513,9 +624,7 @@ END SUB
 ' Records history for undo support.
 '
 SUB PALETTE_OPS_replace_color_on_layers (oldColor AS _UNSIGNED LONG, newColor AS _UNSIGNED LONG)
-    DIM cW AS LONG, cH AS LONG
-    cW& = SCRN.canvasW&
-    cH& = SCRN.canvasH&
+    DIM cW AS LONG, cH AS LONG ' per layer: a promoted layer's buffer is larger than the canvas (gotcha #14)
 
     ' Only open (and later close) a history group if WE own it. BUG-31: reading
     ' usedGroup% from HISTORY_GROUP_ACTIVE% AFTER begin_group wrongly claimed ownership
@@ -544,6 +653,8 @@ SUB PALETTE_OPS_replace_color_on_layers (oldColor AS _UNSIGNED LONG, newColor AS
                 repBefore& = _COPYIMAGE(LAYERS(li%).imgHandle&, 32)
             END IF
 
+            cW& = _WIDTH(LAYERS(li%).imgHandle)
+            cH& = _HEIGHT(LAYERS(li%).imgHandle)
             DIM repMem     AS _MEM
             repMem = _MEMIMAGE(LAYERS(li%).imgHandle)
             DIM rpx        AS LONG, rpy AS LONG
@@ -675,6 +786,11 @@ SUB PALETTE_OPS_delete_color (palIdx AS INTEGER)
     NEXT pi%
     PAL_COLOR_COUNT% = PAL_COLOR_COUNT% - 1
     PALETTE_OPS_MARKED(PAL_COLOR_COUNT%) = FALSE
+    IF PALETTE_OPS.SEL_IDX% = palIdx% THEN
+        PALETTE_OPS.SEL_IDX% = -1
+    ELSEIF PALETTE_OPS.SEL_IDX% > palIdx% THEN
+        PALETTE_OPS.SEL_IDX% = PALETTE_OPS.SEL_IDX% - 1
+    END IF
 
     ' Adjust FG/BG indices
     IF PAL_FG_IDX% = palIdx% THEN
@@ -708,18 +824,41 @@ END SUB
 
 
 ''
-' Delete all marked palette colors. Processes from highest index to lowest
-' to avoid index shifting issues.
+' Delete all marked palette colors (one undo step).
 '
 SUB PALETTE_OPS_delete_marked ()
+    DIM flags(0 TO 255) AS INTEGER, mi AS INTEGER
+    FOR mi% = 0 TO 255
+        flags(mi%) = PALETTE_OPS_MARKED(mi%)
+    NEXT mi%
+    PALETTE_OPS_delete_flags flags(), "Delete Colors"
+END SUB
+
+
+''
+' Delete palette colors lo..hi inclusive (M-drag range; one undo step).
+'
+SUB PALETTE_OPS_delete_range (lo AS INTEGER, hi AS INTEGER)
+    DIM flags(0 TO 255) AS INTEGER, ri AS INTEGER
+    FOR ri% = lo% TO hi%
+        IF ri% >= 0 _ANDALSO ri% <= 255 THEN flags(ri%) = TRUE
+    NEXT ri%
+    PALETTE_OPS_delete_flags flags(), "Delete Color Range"
+END SUB
+
+
+''
+' Delete every palette color whose flag is set. Processes from highest index
+' to lowest so lower indices stay valid; each deleted color's pixels remap to
+' its nearest surviving neighbor. flags() is a caller-owned copy (never
+' PALETTE_OPS_MARKED itself, which PALETTE_OPS_delete_color shifts as it goes).
+'
+SUB PALETTE_OPS_delete_flags (flags() AS INTEGER, label AS STRING)
     DIM delIdx   AS INTEGER
     DIM delCount AS INTEGER
-    delCount% = 0
-
-    ' Count marked colors — don't delete all
-    DIM mi AS INTEGER
+    DIM mi       AS INTEGER
     FOR mi% = 0 TO PAL_COLOR_COUNT% - 1
-        IF PALETTE_OPS_MARKED(mi%) THEN delCount% = delCount% + 1
+        IF flags(mi%) THEN delCount% = delCount% + 1
     NEXT mi%
 
     IF delCount% = 0 THEN EXIT SUB
@@ -728,11 +867,12 @@ SUB PALETTE_OPS_delete_marked ()
         SOUND_play SND_TOOL_SELECT
         EXIT SUB
     END IF
+    PALETTE_OPS_edit_commit
 
     ' BUG-31: batch the whole delete into ONE undo group + ONE palette-state record so a
-    ' single Ctrl+Z restores every deleted color AND its remapped pixels at once, instead of
-    ' N separate (previously non-restoring) undos. PALETTE_OPS_BATCH% tells each inner
-    ' PALETTE_OPS_delete_color to skip its own group/snapshot and join this one.
+    ' single Ctrl+Z restores every deleted color AND its remapped pixels at once.
+    ' PALETTE_OPS_BATCH% tells each inner PALETTE_OPS_delete_color to skip its own
+    ' group/snapshot and join this one.
     DIM opdBefore AS STRING, opdOwns AS INTEGER : opdOwns% = FALSE
     IF NOT HISTORY_IN_PROGRESS% AND NOT HISTORY_GROUP_ACTIVE% THEN
         opdBefore$ = PALETTE_snapshot$
@@ -741,31 +881,31 @@ SUB PALETTE_OPS_delete_marked ()
     END IF
 
     PALETTE_OPS_BATCH% = TRUE
-    ' Delete from highest index to lowest to preserve indices
     FOR delIdx% = PAL_COLOR_COUNT% - 1 TO 0 STEP -1
-        IF PALETTE_OPS_MARKED(delIdx%) THEN
-            PALETTE_OPS_delete_color delIdx%
-        END IF
+        IF flags(delIdx%) THEN PALETTE_OPS_delete_color delIdx%
     NEXT delIdx%
     PALETTE_OPS_BATCH% = FALSE
 
     IF opdOwns% THEN
-        HISTORY_record_palette opdBefore$, PALETTE_snapshot$, "Delete Colors"
+        HISTORY_record_palette opdBefore$, PALETTE_snapshot$, label$
         HISTORY_end_group
     END IF
 
-    _LOGINFO "PALETTE_OPS: Deleted " + STR$(delCount%) + " marked colors"
+    _LOGINFO "PALETTE_OPS: Deleted " + STR$(delCount%) + " colors"
 END SUB
 
 
 ''
-' Insert a blank (transparent) color after the specified index.
+' Insert the current FG color after the specified index (blank when FG is
+' transparent) — build a palette straight from the color panels. Undoable.
 '
 SUB PALETTE_OPS_insert_color (palIdx AS INTEGER)
     IF PAL_COLOR_COUNT% >= 256 THEN
         _LOGWARN "PALETTE_OPS: Palette full (256 colors), cannot insert"
         EXIT SUB
     END IF
+    PALETTE_OPS_edit_commit
+    DIM insBefore AS STRING : insBefore$ = PALETTE_snapshot$
 
     ' Shift palette entries up from the end
     DIM ii AS INTEGER
@@ -775,94 +915,403 @@ SUB PALETTE_OPS_insert_color (palIdx AS INTEGER)
         PALETTE_OPS_MARKED(ii%) = PALETTE_OPS_MARKED(ii% - 1)
     NEXT ii%
 
-    ' Insert blank color at palIdx + 1
-    PAL(palIdx% + 1).value~&        = _RGBA32(0, 0, 0, 0)
+    ' New entry at palIdx + 1
+    IF PAL_FG_IS_TRANSPARENT% THEN
+        PAL(palIdx% + 1).value~& = _RGBA32(0, 0, 0, 0)
+    ELSE
+        PAL(palIdx% + 1).value~& = PAINT_COLOR~& OR &HFF000000~&
+    END IF
     PAL(palIdx% + 1).name$          = ""
     PALETTE_OPS_MARKED(palIdx% + 1) = FALSE
     PAL_COLOR_COUNT% = PAL_COLOR_COUNT% + 1
 
-    ' Adjust FG/BG indices
+    ' Adjust FG/BG/selected indices
     IF PAL_FG_IDX% > palIdx% THEN PAL_FG_IDX% = PAL_FG_IDX% + 1
     IF PAL_BG_IDX% > palIdx% THEN PAL_BG_IDX% = PAL_BG_IDX% + 1
+    IF PALETTE_OPS.SEL_IDX% > palIdx% THEN PALETTE_OPS.SEL_IDX% = PALETTE_OPS.SEL_IDX% + 1
 
+    HISTORY_record_palette insBefore$, PALETTE_snapshot$, "Insert Color"
     PALETTE_OPS_mark_document_palette
     SOUND_play SND_NEW_LAYER
     GUI_NEEDS_REDRAW% = TRUE
     FRAME_IDLE%       = FALSE
-    _LOGINFO "PALETTE_OPS: Inserted blank color after idx " + STR$(palIdx%)
+    _LOGINFO "PALETTE_OPS: Inserted color after idx " + STR$(palIdx%)
 END SUB
 
 
 ''
-' Rearrange a palette color from srcIdx to dstIdx.
-' Shifts other entries to accommodate the move.
+' Rearrange a palette color from srcIdx to dstIdx (it lands AT dstIdx; the
+' colors between shift over). Undoable.
 '
 SUB PALETTE_OPS_rearrange (srcIdx AS INTEGER, dstIdx AS INTEGER)
     IF srcIdx% = dstIdx% THEN EXIT SUB
     IF srcIdx% < 0 OR srcIdx% >= PAL_COLOR_COUNT% THEN EXIT SUB
     IF dstIdx% < 0 OR dstIdx% >= PAL_COLOR_COUNT% THEN EXIT SUB
 
-    ' Save the source color
-    DIM savedColor AS _UNSIGNED LONG
-    DIM savedName  AS STRING
-    DIM savedMark  AS INTEGER
-    savedColor~& = PAL(srcIdx%).value~&
-    savedName$   = PAL(srcIdx%).name$
-    savedMark%   = PALETTE_OPS_MARKED(srcIdx%)
-
-    ' Shift entries
-    DIM si AS INTEGER
-    IF srcIdx% < dstIdx% THEN
-        ' Moving forward: shift entries left
-        FOR si% = srcIdx% TO dstIdx% - 1
-            PAL(si%).value~&        = PAL(si% + 1).value~&
-            PAL(si%).name$          = PAL(si% + 1).name$
-            PALETTE_OPS_MARKED(si%) = PALETTE_OPS_MARKED(si% + 1)
-        NEXT si%
-    ELSE
-        ' Moving backward: shift entries right
-        FOR si% = srcIdx% TO dstIdx% + 1 STEP -1
-            PAL(si%).value~&        = PAL(si% - 1).value~&
-            PAL(si%).name$          = PAL(si% - 1).name$
-            PALETTE_OPS_MARKED(si%) = PALETTE_OPS_MARKED(si% - 1)
-        NEXT si%
-    END IF
-
-    ' Place source at destination
-    PAL(dstIdx%).value~&        = savedColor~&
-    PAL(dstIdx%).name$          = savedName$
-    PALETTE_OPS_MARKED(dstIdx%) = savedMark%
-
-    ' Adjust FG/BG indices to follow the moved color
-    IF PAL_FG_IDX% = srcIdx% THEN
-        PAL_FG_IDX% = dstIdx%
-    ELSEIF srcIdx% < dstIdx% THEN
-        IF PAL_FG_IDX% > srcIdx% AND PAL_FG_IDX% <= dstIdx% THEN
-            PAL_FG_IDX% = PAL_FG_IDX% - 1
+    ' order(newPos) = oldIdx: the list without src, with src inserted at dst
+    DIM order(0 TO 255) AS INTEGER, n AS INTEGER, i AS INTEGER
+    FOR i% = 0 TO PAL_COLOR_COUNT% - 1
+        IF i% <> srcIdx% THEN
+            IF n% = dstIdx% THEN order(n%) = srcIdx% : n% = n% + 1
+            order(n%) = i% : n% = n% + 1
         END IF
-    ELSE
-        IF PAL_FG_IDX% >= dstIdx% AND PAL_FG_IDX% < srcIdx% THEN
-            PAL_FG_IDX% = PAL_FG_IDX% + 1
-        END IF
-    END IF
+    NEXT i%
+    IF n% = dstIdx% THEN order(n%) = srcIdx%
+    PALETTE_OPS_apply_order order(), "Move Color"
+    _LOGINFO "PALETTE_OPS: Rearranged color " + STR$(srcIdx%) + " -> " + STR$(dstIdx%)
+END SUB
 
-    IF PAL_BG_IDX% = srcIdx% THEN
-        PAL_BG_IDX% = dstIdx%
-    ELSEIF srcIdx% < dstIdx% THEN
-        IF PAL_BG_IDX% > srcIdx% AND PAL_BG_IDX% <= dstIdx% THEN
-            PAL_BG_IDX% = PAL_BG_IDX% - 1
-        END IF
-    ELSE
-        IF PAL_BG_IDX% >= dstIdx% AND PAL_BG_IDX% < srcIdx% THEN
-            PAL_BG_IDX% = PAL_BG_IDX% + 1
-        END IF
-    END IF
 
+''
+' Move every marked chip, as one block in its current order, to dstIdx:
+' dropped left of the block it lands before dstIdx, dropped right it lands
+' after it. Dropping onto a marked chip does nothing. Undoable.
+'
+SUB PALETTE_OPS_move_marked (dstIdx AS INTEGER)
+    IF dstIdx% < 0 OR dstIdx% >= PAL_COLOR_COUNT% THEN EXIT SUB
+    IF PALETTE_OPS_MARKED(dstIdx%) THEN EXIT SUB
+    DIM kept(0 TO 255) AS INTEGER, moved(0 TO 255) AS INTEGER
+    DIM nk AS INTEGER, nm AS INTEGER, i AS INTEGER, firstMarked AS INTEGER, p AS INTEGER
+    firstMarked% = -1
+    FOR i% = 0 TO PAL_COLOR_COUNT% - 1
+        IF PALETTE_OPS_MARKED(i%) THEN
+            moved(nm%) = i% : nm% = nm% + 1
+            IF firstMarked% < 0 THEN firstMarked% = i%
+        ELSE
+            IF i% < dstIdx% THEN p% = p% + 1
+            kept(nk%) = i% : nk% = nk% + 1
+        END IF
+    NEXT i%
+    IF nm% = 0 THEN EXIT SUB
+    IF dstIdx% > firstMarked% THEN p% = p% + 1 ' moving right: land after the target
+
+    DIM order(0 TO 255) AS INTEGER, n AS INTEGER
+    FOR i% = 0 TO p% - 1 : order(n%) = kept(i%) : n% = n% + 1 : NEXT i%
+    FOR i% = 0 TO nm% - 1 : order(n%) = moved(i%) : n% = n% + 1 : NEXT i%
+    FOR i% = p% TO nk% - 1 : order(n%) = kept(i%) : n% = n% + 1 : NEXT i%
+    PALETTE_OPS_apply_order order(), "Move Colors"
+    _LOGINFO "PALETTE_OPS: Moved " + STR$(nm%) + " marked colors to " + STR$(dstIdx%)
+END SUB
+
+
+''
+' Reorder the palette: order(newPos) = oldIdx for every color. Marks, FG/BG
+' and the selected chip follow their colors. Pixels are untouched (colors are
+' unchanged, only their slots). One palette undo record.
+'
+SUB PALETTE_OPS_apply_order (order() AS INTEGER, label AS STRING)
+    PALETTE_OPS_edit_commit
+    DIM aoBefore AS STRING : aoBefore$ = PALETTE_snapshot$
+    DIM cnt AS INTEGER : cnt% = PAL_COLOR_COUNT%
+    DIM v(0 TO 255) AS _UNSIGNED LONG, nm(0 TO 255) AS STRING, mk(0 TO 255) AS INTEGER, inv(0 TO 255) AS INTEGER
+    DIM i AS INTEGER
+    FOR i% = 0 TO cnt% - 1
+        v(i%) = PAL(i%).value~& : nm(i%) = PAL(i%).name$ : mk(i%) = PALETTE_OPS_MARKED(i%)
+    NEXT i%
+    FOR i% = 0 TO cnt% - 1
+        PAL(i%).value~&        = v(order(i%))
+        PAL(i%).name$          = nm(order(i%))
+        PALETTE_OPS_MARKED(i%) = mk(order(i%))
+        inv(order(i%))         = i%
+    NEXT i%
+    IF PAL_FG_IDX% >= 0 _ANDALSO PAL_FG_IDX% < cnt% THEN PAL_FG_IDX% = inv(PAL_FG_IDX%)
+    IF PAL_BG_IDX% >= 0 _ANDALSO PAL_BG_IDX% < cnt% THEN PAL_BG_IDX% = inv(PAL_BG_IDX%)
+    IF PALETTE_OPS.SEL_IDX% >= 0 _ANDALSO PALETTE_OPS.SEL_IDX% < cnt% THEN PALETTE_OPS.SEL_IDX% = inv(PALETTE_OPS.SEL_IDX%)
+    PALETTE_OPS.DBLCLICK_IDX% = -1
+
+    HISTORY_record_palette aoBefore$, PALETTE_snapshot$, label$
     PALETTE_OPS_mark_document_palette
     SOUND_play SND_DRAG_DROP
     GUI_NEEDS_REDRAW% = TRUE
     FRAME_IDLE%       = FALSE
-    _LOGINFO "PALETTE_OPS: Rearranged color " + STR$(srcIdx%) + " -> " + STR$(dstIdx%)
+END SUB
+
+
+''
+' Select a chip: it becomes FG and follows FG edits until deselected.
+'
+SUB PALETTE_OPS_select (idx AS INTEGER)
+    IF idx% < 0 OR idx% >= PAL_COLOR_COUNT% THEN EXIT SUB
+    PALETTE_OPS_edit_commit
+    PALETTE_OPS.SEL_IDX%   = idx%
+    PAL_FG_IS_TRANSPARENT% = FALSE
+    PAL_FG_IDX%            = idx%
+    PAINT_COLOR~&          = PAL(idx%).value~&
+    PALETTE_OPS.SEL_LAST~& = PAINT_COLOR~& OR &HFF000000~&
+    SOUND_play SND_TOOL_SELECT
+    STATUS_NEEDS_REDRAW% = TRUE
+    GUI_NEEDS_REDRAW%    = TRUE
+    FRAME_IDLE%          = FALSE
+END SUB
+
+
+''
+' Deselect the chip (FG keeps its color). Clears the chip's wand selection.
+'
+SUB PALETTE_OPS_deselect ()
+    PALETTE_OPS_edit_commit
+    PALETTE_OPS.SEL_IDX%          = -1
+    PALETTE_OPS.WAND_PENDING_IDX% = -1
+    IF PALETTE_OPS.WAND_SHOWING% THEN
+        MAGIC_WAND_reset
+        MARQUEE.ACTIVE%           = FALSE
+        PALETTE_OPS.WAND_SHOWING% = FALSE
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE
+    SCENE_DIRTY%      = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+
+''
+' Deselect the chip and clear every mark (L-click on a blank strip area).
+'
+SUB PALETTE_OPS_deselect_all ()
+    PALETTE_OPS_deselect
+    DIM i AS INTEGER
+    FOR i% = 0 TO 255
+        PALETTE_OPS_MARKED(i%) = FALSE
+    NEXT i%
+END SUB
+
+
+''
+' Live chip edit, step 1: record the chip's pixels. Every pixel (all visible
+' layers, alpha > 0) whose RGB is the chip's color is noted by byte offset,
+' so each later update rewrites exactly those pixels. Layers holding any get a
+' before-image for the undo record.
+'
+SUB PALETTE_OPS_edit_begin ()
+    DIM sel AS INTEGER : sel% = PALETTE_OPS.SEL_IDX%
+    PALETTE_OPS.EDIT_ORIG~& = PAL(sel%).value~&
+    DIM origRGB AS _UNSIGNED LONG : origRGB~& = PALETTE_OPS.EDIT_ORIG~& AND &HFFFFFF
+
+    ' Undo snapshot of the palette as it was. FG has already moved to the new
+    ' color by the time an edit is seen, so put the chip's color back as FG.
+    PALETTE_OPS_EDIT_BEFORE$ = PALETTE_snapshot$
+    MID$(PALETTE_OPS_EDIT_BEFORE$, 11, 4) = _MK$(_UNSIGNED LONG, PALETTE_OPS.EDIT_ORIG~&)
+
+    DIM li AS INTEGER, total AS LONG, pass AS INTEGER
+    DIM m AS _MEM, o AS _OFFSET, oEnd AS _OFFSET, px AS _UNSIGNED LONG, k AS LONG
+    FOR pass% = 1 TO 2 ' 1 = count, 2 = record offsets
+        IF pass% = 2 THEN
+            IF total& < 1 THEN total& = 1
+            REDIM PALETTE_OPS_EDIT_OFF(0 TO total& - 1) AS LONG
+            k& = 0
+        END IF
+        FOR li% = 1 TO MAX_LAYERS
+            IF pass% = 1 THEN PALETTE_OPS_EDIT_N(li%) = 0 : PALETTE_OPS_EDIT_IMG(li%) = 0
+            IF LAYERS(li%).imgHandle < -1 _ANDALSO LAYERS(li%).visible THEN
+                IF pass% = 2 THEN PALETTE_OPS_EDIT_FIRST(li%) = k&
+                m = _MEMIMAGE(LAYERS(li%).imgHandle)
+                o = m.OFFSET : oEnd = m.OFFSET + m.SIZE
+                DO WHILE o < oEnd
+                    _MEMGET m, o, px
+                    IF (px AND &HFF000000~&) <> 0 _ANDALSO (px AND &HFFFFFF) = origRGB~& THEN
+                        IF pass% = 1 THEN
+                            PALETTE_OPS_EDIT_N(li%) = PALETTE_OPS_EDIT_N(li%) + 1
+                            total& = total& + 1
+                        ELSE
+                            PALETTE_OPS_EDIT_OFF(k&) = o - m.OFFSET : k& = k& + 1
+                        END IF
+                    END IF
+                    o = o + 4
+                LOOP
+                _MEMFREE m
+                IF pass% = 2 _ANDALSO PALETTE_OPS_EDIT_N(li%) > 0 _ANDALSO LAYERS(li%).historyId& > 0 THEN
+                    PALETTE_OPS_EDIT_IMG(li%) = _COPYIMAGE(LAYERS(li%).imgHandle, 32)
+                END IF
+            END IF
+        NEXT li%
+    NEXT pass%
+    PALETTE_OPS.EDIT_COUNT& = k&
+    PALETTE_OPS.EDIT_ACTIVE% = TRUE
+END SUB
+
+
+''
+' Live chip edit, step 2: the chip and its recorded pixels become newColor
+' (each pixel keeps its own alpha). Runs every frame the FG changes.
+'
+SUB PALETTE_OPS_edit_apply (newColor AS _UNSIGNED LONG)
+    DIM sel AS INTEGER : sel% = PALETTE_OPS.SEL_IDX%
+    IF sel% < 0 OR sel% >= PAL_COLOR_COUNT% THEN EXIT SUB
+    IF NOT PALETTE_OPS.EDIT_ACTIVE% THEN PALETTE_OPS_edit_begin
+
+    DIM rgb AS _UNSIGNED LONG : rgb~& = newColor~& AND &HFFFFFF
+    PAL(sel%).value~& = newColor~& OR &HFF000000~&
+    PAL_FG_IDX% = sel%
+    IF PAL_BG_IDX% = sel% _ANDALSO NOT PAL_BG_IS_TRANSPARENT% THEN PAINT_BG_COLOR~& = PAL(sel%).value~&
+
+    DIM li AS INTEGER, k AS LONG, m AS _MEM, o AS _OFFSET, px AS _UNSIGNED LONG
+    FOR li% = 1 TO MAX_LAYERS
+        IF PALETTE_OPS_EDIT_N(li%) > 0 _ANDALSO LAYERS(li%).imgHandle < -1 THEN
+            m = _MEMIMAGE(LAYERS(li%).imgHandle)
+            FOR k& = PALETTE_OPS_EDIT_FIRST(li%) TO PALETTE_OPS_EDIT_FIRST(li%) + PALETTE_OPS_EDIT_N(li%) - 1
+                o = m.OFFSET + PALETTE_OPS_EDIT_OFF(k&)
+                _MEMGET m, o, px
+                px = (px AND &HFF000000~&) OR rgb~&
+                _MEMPUT m, o, px
+            NEXT k&
+            _MEMFREE m
+            LAYERS(li%).contentDirty = TRUE
+        END IF
+    NEXT li%
+    IF PALETTE_OPS.EDIT_COUNT& > 0 THEN BLEND_invalidate_cache
+
+    PALETTE_OPS.SEL_LAST~& = newColor~& OR &HFF000000~&
+    CANVAS_DIRTY%        = TRUE
+    SCENE_DIRTY%         = TRUE
+    GUI_NEEDS_REDRAW%    = TRUE
+    STATUS_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%          = FALSE
+END SUB
+
+
+''
+' Live chip edit, step 3: one undo step for the whole edit (palette state +
+' every changed layer), then forget the recorded pixels. No-op when no edit
+' is open or the chip ended back at its original color.
+'
+SUB PALETTE_OPS_edit_commit ()
+    IF NOT PALETTE_OPS.EDIT_ACTIVE% THEN EXIT SUB
+    PALETTE_OPS.EDIT_ACTIVE% = FALSE
+    DIM sel AS INTEGER : sel% = PALETTE_OPS.SEL_IDX%
+    DIM changed AS INTEGER
+    IF sel% >= 0 _ANDALSO sel% < PAL_COLOR_COUNT% THEN
+        changed% = ((PAL(sel%).value~& AND &HFFFFFF) <> (PALETTE_OPS.EDIT_ORIG~& AND &HFFFFFF))
+    END IF
+
+    DIM li AS INTEGER
+    IF changed% _ANDALSO NOT HISTORY_IN_PROGRESS% THEN
+        DIM owns AS INTEGER
+        IF NOT HISTORY_GROUP_ACTIVE% THEN HISTORY_begin_group : owns% = TRUE
+        FOR li% = 1 TO MAX_LAYERS
+            IF PALETTE_OPS_EDIT_IMG(li%) < -1 _ANDALSO LAYERS(li%).imgHandle < -1 THEN
+                HISTORY_record_transform LAYERS(li%).historyId&, li%, 0, PALETTE_OPS_EDIT_IMG(li%), "Palette Color Edit"
+                PALETTE_OPS_EDIT_IMG(li%) = 0 ' history owns it now
+            END IF
+        NEXT li%
+        HISTORY_record_palette PALETTE_OPS_EDIT_BEFORE$, PALETTE_snapshot$, "Edit Palette Color"
+        IF owns% THEN HISTORY_end_group
+        HISTORY_saved_this_frame% = TRUE
+        PALETTE_OPS_mark_document_palette
+        _LOGINFO "PALETTE_OPS: Edited color " + STR$(sel%) + " (" + _TRIM$(STR$(PALETTE_OPS.EDIT_COUNT&)) + " pixels)"
+    END IF
+    PALETTE_OPS_edit_discard
+END SUB
+
+
+''
+' Drop the live-edit bookkeeping without recording anything (document load).
+'
+SUB PALETTE_OPS_edit_discard ()
+    DIM li AS INTEGER
+    FOR li% = 1 TO MAX_LAYERS
+        IF PALETTE_OPS_EDIT_IMG(li%) < -1 THEN _FREEIMAGE PALETTE_OPS_EDIT_IMG(li%)
+        PALETTE_OPS_EDIT_IMG(li%) = 0
+        PALETTE_OPS_EDIT_N(li%)   = 0
+    NEXT li%
+    REDIM PALETTE_OPS_EDIT_OFF(0) AS LONG
+    PALETTE_OPS.EDIT_COUNT&  = 0
+    PALETTE_OPS.EDIT_ACTIVE% = FALSE
+    PALETTE_OPS_EDIT_BEFORE$ = ""
+END SUB
+
+
+''
+' Ramp: the chips strictly between fromIdx and toIdx become an interpolated
+' ramp from fromIdx's color to toIdx's (CFG.GRADIENT_BLEND_SPACE, same as the
+' gradient tools), and their pixels follow. toIdx becomes the selected chip.
+' One undo step.
+'
+SUB PALETTE_OPS_ramp (fromIdx AS INTEGER, toIdx AS INTEGER)
+    IF fromIdx% < 0 OR fromIdx% >= PAL_COLOR_COUNT% OR toIdx% < 0 OR toIdx% >= PAL_COLOR_COUNT% THEN EXIT SUB
+    PALETTE_OPS_edit_commit
+    DIM span AS INTEGER : span% = toIdx% - fromIdx%
+    IF ABS(span%) >= 2 THEN
+        DIM c1 AS _UNSIGNED LONG, c2 AS _UNSIGNED LONG
+        c1~& = PAL(fromIdx%).value~& OR &HFF000000~&
+        c2~& = PAL(toIdx%).value~& OR &HFF000000~&
+        DIM n AS INTEGER, i AS INTEGER, stp AS INTEGER, idx AS INTEGER
+        DIM oldC(1 TO 256) AS _UNSIGNED LONG, newC(1 TO 256) AS _UNSIGNED LONG
+        stp% = SGN(span%)
+        FOR idx% = fromIdx% + stp% TO toIdx% - stp% STEP stp%
+            n% = n% + 1
+            oldC(n%) = PAL(idx%).value~&
+            newC(n%) = DRAWER_gradient_lerp_color~&(c1~&, c2~&, (idx% - fromIdx%) / span%) OR &HFF000000~&
+        NEXT idx%
+
+        DIM rBefore AS STRING, owns AS INTEGER
+        rBefore$ = PALETTE_snapshot$
+        IF NOT HISTORY_IN_PROGRESS% _ANDALSO NOT HISTORY_GROUP_ACTIVE% THEN HISTORY_begin_group : owns% = TRUE
+        i% = 0
+        FOR idx% = fromIdx% + stp% TO toIdx% - stp% STEP stp%
+            i% = i% + 1
+            PAL(idx%).value~& = newC(i%)
+        NEXT idx%
+        PALETTE_OPS_remap_layers oldC(), newC(), n%, "Palette Ramp"
+        HISTORY_record_palette rBefore$, PALETTE_snapshot$, "Palette Ramp"
+        IF owns% THEN HISTORY_end_group
+        PALETTE_OPS_mark_document_palette
+        CANVAS_DIRTY% = TRUE
+        SCENE_DIRTY%  = TRUE
+        _LOGINFO "PALETTE_OPS: Ramp " + STR$(fromIdx%) + " ->" + STR$(toIdx%) + " (" + _TRIM$(STR$(n%)) + " colors)"
+    END IF
+    PALETTE_OPS_select toIdx%
+END SUB
+
+
+''
+' Remap pixel colors on every visible layer in ONE pass: a pixel (alpha > 0)
+' whose RGB is oldC(j) becomes newC(j)'s RGB with its own alpha (first match
+' wins, so swaps and chains never cascade). Records a transform per changed
+' layer; joins the caller's history group or opens its own.
+'
+SUB PALETTE_OPS_remap_layers (oldC() AS _UNSIGNED LONG, newC() AS _UNSIGNED LONG, n AS INTEGER, label AS STRING)
+    IF n% < 1 THEN EXIT SUB
+    DIM owns AS INTEGER
+    IF NOT HISTORY_IN_PROGRESS% _ANDALSO NOT HISTORY_GROUP_ACTIVE% THEN HISTORY_begin_group : owns% = TRUE
+
+    DIM li AS INTEGER, j AS INTEGER, changed AS INTEGER, before AS LONG
+    DIM m AS _MEM, o AS _OFFSET, oEnd AS _OFFSET, px AS _UNSIGNED LONG, rgb AS _UNSIGNED LONG
+    FOR li% = 1 TO MAX_LAYERS
+        IF LAYERS(li%).imgHandle < -1 _ANDALSO LAYERS(li%).visible THEN
+            before& = 0
+            IF LAYERS(li%).historyId& > 0 THEN before& = _COPYIMAGE(LAYERS(li%).imgHandle, 32)
+            changed% = FALSE
+            m = _MEMIMAGE(LAYERS(li%).imgHandle)
+            o = m.OFFSET : oEnd = m.OFFSET + m.SIZE
+            DO WHILE o < oEnd
+                _MEMGET m, o, px
+                IF (px AND &HFF000000~&) <> 0 THEN
+                    rgb~& = px AND &HFFFFFF
+                    FOR j% = 1 TO n%
+                        IF rgb~& = (oldC(j%) AND &HFFFFFF) THEN
+                            IF rgb~& <> (newC(j%) AND &HFFFFFF) THEN
+                                px = (px AND &HFF000000~&) OR (newC(j%) AND &HFFFFFF)
+                                _MEMPUT m, o, px
+                                changed% = TRUE
+                            END IF
+                            EXIT FOR
+                        END IF
+                    NEXT j%
+                END IF
+                o = o + 4
+            LOOP
+            _MEMFREE m
+            IF changed% THEN
+                LAYERS(li%).contentDirty = TRUE
+                IF before& < -1 THEN HISTORY_record_transform LAYERS(li%).historyId&, li%, 0, before&, label$
+            ELSE
+                IF before& < -1 THEN _FREEIMAGE before&
+            END IF
+        END IF
+    NEXT li%
+
+    IF owns% THEN HISTORY_end_group
+    HISTORY_saved_this_frame% = TRUE
+    BLEND_invalidate_cache
 END SUB
 
 
