@@ -332,7 +332,7 @@ FUNCTION WS_apply% (idOrTitle AS STRING)
     WS_restore
 
     IF WS_is_default%(WS_LIST(idx).id) THEN
-        CFG.WORKSPACE$ = WS_DEFAULT_ID$
+        IF WS_NO_REMEMBER = 0 THEN CFG.WORKSPACE$ = WS_DEFAULT_ID$
         CONFIG_save
         STATUS_flash "Workspace: Default"
         WS_apply% = TRUE
@@ -416,7 +416,7 @@ FUNCTION WS_apply% (idOrTitle AS STRING)
     NEXT i
     WS_START_PENDING = TRUE
 
-    CFG.WORKSPACE$ = WS_ACTIVE_ID
+    IF WS_NO_REMEMBER = 0 THEN CFG.WORKSPACE$ = WS_ACTIVE_ID
     CONFIG_save
     _LOGINFO "WORKSPACE: applied '" + WS_ACTIVE_ID + "' (" + WS_ACTIVE_TITLE + ")"
     STATUS_flash "Workspace: " + WS_ACTIVE_TITLE + "   (Ctrl+Shift+W switch, F11 show all)"
@@ -572,11 +572,120 @@ END SUB
 ''
 ' Startup: reopen in the remembered workspace (CFG.WORKSPACE).
 SUB WS_startup ()
-    DIM ok AS INTEGER
+    DIM ok AS INTEGER, i AS INTEGER
     WS_scan
-    IF WS_is_default%(CFG.WORKSPACE$) THEN EXIT SUB
-    ok = WS_apply%(CFG.WORKSPACE$)
-    IF ok = 0 THEN
-        CFG.WORKSPACE$ = WS_DEFAULT_ID$
+    ' --workspace NAME: this run only (CFG.WORKSPACE keeps the remembered one)
+    FOR i = 1 TO _COMMANDCOUNT - 1
+        IF LCASE$(_TRIM$(COMMAND$(i))) = "--workspace" THEN WS_CLI_NAME = _TRIM$(COMMAND$(i + 1))
+    NEXT i
+    IF LEN(WS_CLI_NAME) THEN
+        WS_NO_REMEMBER = TRUE
+        ok = WS_apply%(WS_CLI_NAME)
+        WS_NO_REMEMBER = FALSE
+    ELSEIF WS_is_default%(CFG.WORKSPACE$) = 0 THEN
+        ok = WS_apply%(CFG.WORKSPACE$)
+        IF ok = 0 THEN CFG.WORKSPACE$ = WS_DEFAULT_ID$
     END IF
+    WS_sync_commands
+    MENUBAR_rebuild
 END SUB
+
+
+''
+' Rebuild the command palette's "Workspace: <name>" entries from WS_LIST
+' (dropping the old ones first); the active one shows "active" as its hotkey.
+SUB WS_sync_commands ()
+    DIM i AS INTEGER, j AS INTEGER, a AS INTEGER
+    j = 0
+    FOR i = 0 TO CMD_COUNT - 1
+        a = CMD_LIST(i).action_id
+        IF a > WS_ACT_SLOT0 _ANDALSO a <= WS_ACT_SLOT0 + WS_MAX THEN _CONTINUE
+        IF j <> i THEN CMD_LIST(j) = CMD_LIST(i)
+        j = j + 1
+    NEXT i
+    CMD_COUNT = j
+    FOR i = 1 TO WS_COUNT
+        IF WS_LIST(i).id = WS_ACTIVE_ID THEN
+            CMD_register WS_CMD_PREFIX$ + WS_LIST(i).title, "active", CMD_CAT_VIEW, WS_ACT_SLOT0 + i
+        ELSE
+            CMD_register WS_CMD_PREFIX$ + WS_LIST(i).title, "", CMD_CAT_VIEW, WS_ACT_SLOT0 + i
+        END IF
+    NEXT i
+END SUB
+
+
+''
+' The escape hatch: the command palette, pre-filtered to the workspaces with
+' the active one highlighted. Typing narrows it ("ann" -> Annotate).
+SUB WS_open_switcher ()
+    DIM i AS INTEGER, q AS STRING
+    WS_sync_commands
+    CMD_show_palette
+    q = WS_CMD_PREFIX$
+    CMD_PALETTE.search = q
+    CMD_PALETTE.search_len = LEN(q)
+    CMD_update_search
+    FOR i = 0 TO CMD_PALETTE.result_count - 1
+        IF RTRIM$(CMD_LIST(CMD_RESULTS(i)).hotkey) = "active" THEN CMD_PALETTE.hover = i: EXIT FOR
+    NEXT i
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Rescan workspace files; the menu and palette follow. A workspace whose
+' file disappeared is left.
+SUB WS_reload ()
+    DIM activeId AS STRING
+    activeId = WS_ACTIVE_ID
+    WS_scan
+    IF WS_ACTIVE _ANDALSO WS_find%(activeId) = 0 THEN WS_restore
+    WS_sync_commands
+    MENUBAR_rebuild
+    STATUS_flash "Workspaces reloaded:" + STR$(WS_COUNT)
+END SUB
+
+
+''
+' Dispatch actions 2400-2449.
+SUB WS_action (act AS INTEGER)
+    DIM ok AS INTEGER, d AS STRING, n AS INTEGER
+    SELECT CASE act
+        CASE WS_ACT_SWITCHER
+            WS_open_switcher
+        CASE WS_ACT_CONFIGURE
+            ' The configurator dialog arrives in W6; until then the files are the editor
+            STATUS_flash "Workspace configurator is coming - edit the .workspace files for now (folder opened)"
+            WS_action WS_ACT_FOLDER
+        CASE WS_ACT_FOLDER
+            d = WS_user_dir$
+            PATHS_ensure_dir d + PATHS_sep$
+            ok = PATHS_open_in_file_manager%(d)
+        CASE WS_ACT_RELOAD
+            WS_reload
+        CASE WS_ACT_LEAVE
+            ok = WS_apply%(WS_DEFAULT_ID$)
+        CASE WS_ACT_SLOT0 + 1 TO WS_ACT_SLOT0 + WS_MAX
+            n = act - WS_ACT_SLOT0
+            IF n <= WS_COUNT THEN ok = WS_apply%(WS_LIST(n).id)
+    END SELECT
+    WS_sync_commands
+END SUB
+
+
+''
+' Menu checkmark for a workspace slot action.
+FUNCTION WS_slot_is_active% (act AS INTEGER)
+    DIM n AS INTEGER
+    n = act - WS_ACT_SLOT0
+    IF n < 1 _ORELSE n > WS_COUNT THEN EXIT FUNCTION
+    WS_slot_is_active% = (WS_LIST(n).id = WS_ACTIVE_ID)
+END FUNCTION
+
+
+''
+' Status-bar badge text ("" when Default is active).
+FUNCTION WS_badge$ ()
+    IF WS_ACTIVE = 0 THEN EXIT FUNCTION
+    WS_badge$ = "[WS: " + WS_ACTIVE_TITLE + "]"
+END FUNCTION

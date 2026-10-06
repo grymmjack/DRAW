@@ -105,3 +105,15 @@ DIM SHARED WS_OPT_KEY(1 TO WS_MAX_OPTS)  AS STRING
 DIM SHARED WS_OPT_VAL(1 TO WS_MAX_OPTS)  AS STRING
 DIM SHARED WS_OPT_ORIG(1 TO WS_MAX_OPTS) AS STRING
 DIM SHARED WS_OPT_HAD(1 TO WS_MAX_OPTS)  AS INTEGER ' the user's config had the key
+
+' Actions 2400-2449 (CMD_execute_action -> WS_action)
+CONST WS_ACT_SWITCHER  = 2400 ' Ctrl+Shift+W: command palette filtered to workspaces
+CONST WS_ACT_CONFIGURE = 2401 ' Configure Workspaces... (configurator: W6)
+CONST WS_ACT_FOLDER    = 2402 ' Open the user workspaces folder
+CONST WS_ACT_RELOAD    = 2403 ' Rescan workspace files (menu + palette rebuilt)
+CONST WS_ACT_LEAVE     = 2404 ' Back to Default
+CONST WS_ACT_SLOT0     = 2409 ' + n = switch to WS_LIST(n), n = 1..WS_MAX (2410-2441)
+CONST WS_CMD_PREFIX$   = "Workspace: "
+
+DIM SHARED WS_NO_REMEMBER AS INTEGER ' --workspace NAME: apply without changing CFG.WORKSPACE
+DIM SHARED WS_CLI_NAME    AS STRING  ' --workspace NAME from the command line ("" = none)

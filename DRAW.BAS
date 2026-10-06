@@ -249,7 +249,7 @@ $ELSE
                LCASE$(argVal$) = "/h" OR LCASE$(argVal$) = "/help" OR _
                LCASE$(argVal$) = "--version" OR LCASE$(argVal$) = "-v" THEN
             argIdx% = argIdx% + 1 ' Defensive: HELP.BI should have exited already
-        ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" OR LCASE$(argVal$) = "--palette" THEN
+        ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" OR LCASE$(argVal$) = "--palette" OR LCASE$(argVal$) = "--workspace" THEN
             argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
         ELSEIF LCASE$(argVal$) = "--export-qb64" OR LCASE$(argVal$) = "--export" OR _
                LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" THEN

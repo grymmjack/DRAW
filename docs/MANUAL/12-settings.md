@@ -119,6 +119,33 @@ Each can be docked **left or right** by `Ctrl+Shift`+clicking on the panel itsel
 
 DRAW also supports **auto-hide** while drawing: panels fade out so they don't obscure your work, then return when the cursor leaves the canvas.
 
+### Workspaces
+
+A **workspace** is a named layout preset: which panels show, where the toolbox and bars dock, and a few starting options. Switching to one is an *overlay* on your own setup. Leaving it puts every panel back exactly as it was, and nothing a workspace changes is saved to `DRAW.cfg`. DRAW remembers only which workspace you were in, so it reopens there.
+
+| Workspace | What it is |
+| --- | --- |
+| **Default** | Your own layout. No overlay. |
+| **Simple** | Everyday drawing with fewer panels |
+| **Annotate** | Marking up screenshots: toolbox on the left, edit bar, palette strip, the Rect tool in red, zoomed to fit |
+
+To switch:
+- **View → Workspace ▸** lists every workspace, with a check on the active one.
+- **`Ctrl+Shift+W`** opens the command palette filtered to the workspaces. Type a few letters (`ann`) and press `Enter`.
+- In the command palette, type `Workspace:`.
+- Click the **`[WS: name]`** badge at the right end of the status bar.
+- On the command line, `DRAW --workspace annotate shot.png` uses a workspace for that run only. `DRAW --workspaces` lists them.
+
+**F11 inside a workspace** shows everything the workspace hid, and a second `F11` hides it again. Combined with `Ctrl+Shift+W`, there is always a way back, whatever a workspace hides.
+
+Workspaces are plain `.workspace` text files (INI style):
+- The built-ins are in `ASSETS/WORKSPACES/`.
+- Yours go in the folder that `DRAW --dir-workspaces` prints (View → Workspace → Open Workspaces Folder). A file of yours with the same name replaces the built-in.
+- `BASED_ON=annotate` inherits another workspace and overrides only what you list.
+- After editing a file, use View → Workspace → Reload Workspaces.
+
+The built-in `annotate.workspace` documents every section. In this release, `[CHROME]` (`SHOW`/`HIDE`/`KEEP` per panel, plus `*_DOCK=LEFT|RIGHT`), `[OPTIONS]` (any `DRAW.cfg` key, for the session only) and `[START]` (`TOOL`, `FG`, `ZOOM=FIT|<percent>`) take effect. `[TOOLBOX]`, `[MENUS]`, `[EDIT_BAR]` and `[KEYS]` are read but not applied yet. A visual configurator is planned.
+
 ### Cursor system
 
 The cursor system uses your OS-native cursor for UI hovers and a custom-painted cursor for tool-specific feedback (crosshair on dot, brush footprint on brush, etc.). This is automatic and themeable.
