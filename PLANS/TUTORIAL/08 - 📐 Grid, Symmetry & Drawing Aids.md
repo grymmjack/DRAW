@@ -102,7 +102,7 @@
 
 ### Grayscale Preview (Ctrl+Alt+Shift+G) — check values
 
-### Pattern Tile Mode (Shift+Tab) — seamless texture preview
+### Pattern Tile Mode (View menu) — seamless texture preview
 
 ### Canvas border toggle (# key)
 

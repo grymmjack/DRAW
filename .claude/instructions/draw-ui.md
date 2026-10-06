@@ -82,6 +82,8 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 2026      | Mix Brush    | ToggleMixBrush(2026) — Brush menu checkbox, command palette; `CFG.BRUSH_MIX%` (`TOOLS/BRUSH-MIX`) |
 | 2027      | Pigment Mix  | GeneratePigmentMix(2027) — Palette menu, command palette (`PALETTE_LOADER_create_pigment_mix`) |
 | 2028      | Pen Pressure | TogglePenPanel(2028) — View menu checkbox, command palette (`GUI/PEN-PANEL`, `PENP_toggle`) |
+| 2060–2069 | Color Cycling | ToggleCycling(2060, `Shift+Tab`, Palette → Cycle Colors ✓), RangeFromMarked(2061), DeleteRange(2062), ClearRanges(2063), Direction(2064), PauseRange(2065), Faster(2066), Slower(2067), RestartAll(2068), CheckDuplicates(2069) — Palette → Color Cycling flyout, command palette, `PCYC_action`; whitelisted to keep Color Ops on |
+| 2330–2335 | Cycling I/O  | ExportCycleBas(2330), ExportGifCrng(2331), ExportAnimGif(2332), ExportILBM(2333), ExportPBM(2334), OpenDeluxePaintGrafX2(2335) — File → Color Cycling flyout, command palette, `CYCX_action` |
 | 2022      | Browser      | ToggleBrowser(2022) |
 | 2050–2054 | Character Map | ToggleCharMap(2050), DockLeft(2051), DockRight(2052), ToggleCharGrid(2053), ToggleSnapToCharGrid(2054) |
 | 2100      | Settings     | ACTION_SETTINGS — open Settings dialog (Ctrl+,; Ctrl+punctuation handled in `KEYBOARD_input_handler`, see CLAUDE.md gotcha #6); tabbed UI in `GUI/SETTINGS-TABS.BM` incl. Display tab's master UI Scale, and Panels tab's *Warn Drawing on Group* / *Auto-Add Layer to Group* (`CFG.GROUP_DRAW_NOTIFY%` / `CFG.GROUP_DRAW_AUTO_LAYER%`) |
