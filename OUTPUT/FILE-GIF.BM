@@ -1,0 +1,317 @@
+''
+' DRAW - OUTPUT/FILE-GIF.BM
+' =============================================================================
+' GIF89a writer/reader with color cycling ranges. See FILE-GIF.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+' =============================================================================
+' Small helpers
+' =============================================================================
+
+FUNCTION GIF_le16$ (v AS LONG)
+    GIF_le16$ = CHR$(v& AND 255) + CHR$((v& \ 256) AND 255)
+END FUNCTION
+
+FUNCTION GIF_be16$ (v AS LONG)
+    GIF_be16$ = CHR$((v& \ 256) AND 255) + CHR$(v& AND 255)
+END FUNCTION
+
+
+''
+' Bits per pixel needed for n colors (1..8).
+'
+FUNCTION GIF_color_bits% (n AS INTEGER)
+    DIM b AS INTEGER
+    b% = 1
+    DO WHILE (2 ^ b%) < n% AND b% < 8
+        b% = b% + 1
+    LOOP
+    GIF_color_bits% = b%
+END FUNCTION
+
+
+''
+' Split raw bytes into GIF data sub-blocks (<= 255 bytes each) + terminator.
+'
+FUNCTION GIF_subblocks$ (raw AS STRING)
+    DIM s AS STRING, p AS LONG, n AS LONG
+    p& = 1
+    DO WHILE p& <= LEN(raw$)
+        n& = LEN(raw$) - p& + 1
+        IF n& > 255 THEN n& = 255
+        s$ = s$ + CHR$(n&) + MID$(raw$, p&, n&)
+        p& = p& + n&
+    LOOP
+    GIF_subblocks$ = s$ + CHR$(0)
+END FUNCTION
+
+
+' =============================================================================
+' LZW encoder (port of the classic compress / Kevin Weiner GIF encoder)
+' =============================================================================
+
+SUB GIF_byte_out (b AS LONG)
+    IF GIF_OUT_N& >= LEN(GIF_OUT$) THEN GIF_OUT$ = GIF_OUT$ + SPACE$(LEN(GIF_OUT$) + 4096)
+    GIF_OUT_N& = GIF_OUT_N& + 1
+    ASC(GIF_OUT$, GIF_OUT_N&) = b& AND 255
+END SUB
+
+
+SUB GIF_code_out (code AS LONG)
+    IF GIF_ACC_BITS% > 0 THEN
+        GIF_ACC& = (GIF_ACC& AND (_SHL(1&, GIF_ACC_BITS%) - 1)) OR _SHL(code&, GIF_ACC_BITS%)
+    ELSE
+        GIF_ACC& = code&
+    END IF
+    GIF_ACC_BITS% = GIF_ACC_BITS% + GIF_NBITS%
+    DO WHILE GIF_ACC_BITS% >= 8
+        GIF_byte_out GIF_ACC& AND 255
+        GIF_ACC& = _SHR(GIF_ACC&, 8)
+        GIF_ACC_BITS% = GIF_ACC_BITS% - 8
+    LOOP
+    ' Grow the code width once the next code would not fit (or reset on clear)
+    IF GIF_FREE_ENT& > GIF_MAXCODE& OR GIF_CLEAR_FLG% THEN
+        IF GIF_CLEAR_FLG% THEN
+            GIF_NBITS%     = GIF_INIT_BITS%
+            GIF_MAXCODE&   = _SHL(1&, GIF_NBITS%) - 1
+            GIF_CLEAR_FLG% = FALSE
+        ELSE
+            GIF_NBITS% = GIF_NBITS% + 1
+            IF GIF_NBITS% = 12 THEN GIF_MAXCODE& = 4096 ELSE GIF_MAXCODE& = _SHL(1&, GIF_NBITS%) - 1
+        END IF
+    END IF
+    IF code& = GIF_EOF_CODE& THEN
+        DO WHILE GIF_ACC_BITS% > 0
+            GIF_byte_out GIF_ACC& AND 255
+            GIF_ACC& = _SHR(GIF_ACC&, 8)
+            GIF_ACC_BITS% = GIF_ACC_BITS% - 8
+        LOOP
+        GIF_ACC_BITS% = 0
+    END IF
+END SUB
+
+
+SUB GIF_clear_hash ()
+    DIM i AS LONG
+    FOR i& = 0 TO GIF_HSIZE - 1 : GIF_HTAB(i&) = -1 : NEXT i&
+END SUB
+
+
+''
+' LZW-compress palette indices (one byte per pixel). Returns the raw code
+' stream (not yet split into sub-blocks).
+'
+FUNCTION GIF_lzw$ (pix AS STRING, minCode AS INTEGER)
+    DIM n AS LONG, p AS LONG, c AS LONG, ent AS LONG, fcode AS LONG, i AS LONG, disp AS LONG
+    DIM hshift AS INTEGER, found AS INTEGER
+    n& = LEN(pix$)
+    GIF_OUT$ = SPACE$(n& \ 2 + 4096) : GIF_OUT_N& = 0
+    GIF_ACC& = 0 : GIF_ACC_BITS% = 0
+    GIF_INIT_BITS%  = minCode% + 1
+    GIF_NBITS%      = GIF_INIT_BITS%
+    GIF_MAXCODE&    = _SHL(1&, GIF_NBITS%) - 1
+    GIF_CLEAR_CODE& = _SHL(1&, minCode%)
+    GIF_EOF_CODE&   = GIF_CLEAR_CODE& + 1
+    GIF_FREE_ENT&   = GIF_CLEAR_CODE& + 2
+    GIF_CLEAR_FLG%  = FALSE
+    hshift% = 0
+    fcode& = GIF_HSIZE
+    DO WHILE fcode& < 65536 : hshift% = hshift% + 1 : fcode& = fcode& * 2 : LOOP
+    hshift% = 8 - hshift%
+    GIF_clear_hash
+    GIF_code_out GIF_CLEAR_CODE&
+    IF n& = 0 THEN GIF_code_out GIF_EOF_CODE& : GIF_lzw$ = LEFT$(GIF_OUT$, GIF_OUT_N&) : EXIT FUNCTION
+    ent& = ASC(pix$, 1)
+    FOR p& = 2 TO n&
+        c& = ASC(pix$, p&)
+        fcode& = _SHL(c&, 12) + ent&
+        i& = _SHL(c&, hshift%) XOR ent&
+        found% = FALSE
+        IF GIF_HTAB(i&) = fcode& THEN
+            ent& = GIF_CODETAB(i&) : found% = TRUE
+        ELSEIF GIF_HTAB(i&) >= 0 THEN
+            disp& = GIF_HSIZE - i&
+            IF i& = 0 THEN disp& = 1
+            DO
+                i& = i& - disp&
+                IF i& < 0 THEN i& = i& + GIF_HSIZE
+                IF GIF_HTAB(i&) = fcode& THEN ent& = GIF_CODETAB(i&) : found% = TRUE : EXIT DO
+            LOOP WHILE GIF_HTAB(i&) >= 0
+        END IF
+        IF NOT found% THEN
+            GIF_code_out ent&
+            ent& = c&
+            IF GIF_FREE_ENT& < 4096 THEN
+                GIF_CODETAB(i&) = GIF_FREE_ENT&
+                GIF_FREE_ENT&   = GIF_FREE_ENT& + 1
+                GIF_HTAB(i&)    = fcode&
+            ELSE
+                GIF_clear_hash
+                GIF_FREE_ENT&  = GIF_CLEAR_CODE& + 2
+                GIF_CLEAR_FLG% = TRUE
+                GIF_code_out GIF_CLEAR_CODE&
+            END IF
+        END IF
+    NEXT p&
+    GIF_code_out ent&
+    GIF_code_out GIF_EOF_CODE&
+    GIF_lzw$ = LEFT$(GIF_OUT$, GIF_OUT_N&)
+    GIF_OUT$ = ""
+END FUNCTION
+
+
+' =============================================================================
+' Blocks
+' =============================================================================
+
+''
+' Color table bytes (3 x 2^bits) for PAL 0..count-1; the transparent slot and
+' padding are black. displayOf(), when given (UBOUND >= 255), remaps each
+' entry i to PAL(displayOf(i)) - used by the animated GIF's per-frame tables.
+'
+FUNCTION GIF_color_table$ (bits AS INTEGER, displayOf() AS INTEGER, useMap AS INTEGER)
+    DIM s AS STRING, i AS INTEGER, c AS _UNSIGNED LONG, n AS INTEGER, src AS INTEGER
+    n% = 2 ^ bits%
+    s$ = STRING$(n% * 3, 0)
+    FOR i% = 0 TO PAL_COLOR_COUNT% - 1
+        IF i% >= n% THEN EXIT FOR
+        src% = i%
+        IF useMap% THEN src% = displayOf(i%)
+        c~& = PAL(src%).value~&
+        ASC(s$, i% * 3 + 1) = _RED32(c~&)
+        ASC(s$, i% * 3 + 2) = _GREEN32(c~&)
+        ASC(s$, i% * 3 + 3) = _BLUE32(c~&)
+    NEXT i%
+    GIF_color_table$ = s$
+END FUNCTION
+
+
+''
+' GrafX2-compatible CRNG application extension ("" when no ranges).
+' Ping-pong is written as forward (CRNG has no ping-pong bit); paused ranges
+' are written inactive.
+'
+FUNCTION GIF_crng_ext$ ()
+    DIM s AS STRING, r AS INTEGER, fl AS LONG
+    IF PCYC.COUNT% = 0 THEN GIF_crng_ext$ = "" : EXIT FUNCTION
+    FOR r% = 1 TO PCYC.COUNT%
+        fl& = 0
+        IF PCYC_R(r%).active THEN fl& = fl& OR 1
+        IF PCYC_R(r%).cmode = PCYC_REV THEN fl& = fl& OR 2
+        s$ = s$ + GIF_be16$(PCYC_R(r%).rate) + GIF_be16$(fl&) + CHR$(PCYC_R(r%).lo) + CHR$(PCYC_R(r%).hi)
+    NEXT r%
+    GIF_crng_ext$ = CHR$(&H21) + CHR$(&HFF) + CHR$(11) + "CRNG" + STRING$(4, 0) + "1.0" + GIF_subblocks$(s$)
+END FUNCTION
+
+
+''
+' DRAW's private extension: exact direction (incl. ping-pong), paused state
+' and held step per range, so a DRAW -> GIF -> DRAW round trip is lossless.
+' Payload: version(1)=1, count(1), per range lo(1) hi(1) rate(BE16) cmode(1)
+' active(1) heldStep(BE16) = 8 bytes.
+'
+FUNCTION GIF_drawcycl_ext$ ()
+    DIM s AS STRING, r AS INTEGER
+    IF PCYC.COUNT% = 0 THEN GIF_drawcycl_ext$ = "" : EXIT FUNCTION
+    s$ = CHR$(1) + CHR$(PCYC.COUNT%)
+    FOR r% = 1 TO PCYC.COUNT%
+        s$ = s$ + CHR$(PCYC_R(r%).lo) + CHR$(PCYC_R(r%).hi) + GIF_be16$(PCYC_R(r%).rate)
+        s$ = s$ + CHR$(PCYC_R(r%).cmode) + CHR$(-(PCYC_R(r%).active <> 0)) + GIF_be16$(PCYC_R(r%).heldStep AND &HFFFF&)
+    NEXT r%
+    GIF_drawcycl_ext$ = CHR$(&H21) + CHR$(&HFF) + CHR$(11) + "DRAWCYCL1.0" + GIF_subblocks$(s$)
+END FUNCTION
+
+
+''
+' Graphic Control Extension: delay in 1/100 s, transparent index (-1 none),
+' disposal method (0 none, 1 keep).
+'
+FUNCTION GIF_gce$ (delayCs AS LONG, transIdx AS INTEGER, disposal AS INTEGER)
+    DIM pk AS LONG
+    pk& = _SHL(disposal% AND 7, 2)
+    IF transIdx% >= 0 THEN pk& = pk& OR 1
+    GIF_gce$ = CHR$(&H21) + CHR$(&HF9) + CHR$(4) + CHR$(pk&) + GIF_le16$(delayCs&) + CHR$(_IIF(transIdx% >= 0, transIdx%, 0)) + CHR$(0)
+END FUNCTION
+
+
+''
+' Image descriptor + optional local color table + LZW data for a frame.
+'
+FUNCTION GIF_frame$ (x AS LONG, y AS LONG, w AS LONG, h AS LONG, pix AS STRING, bits AS INTEGER, lct AS STRING)
+    DIM pk AS LONG, minCode AS INTEGER
+    IF LEN(lct$) > 0 THEN pk& = &H80 OR (bits% - 1)
+    minCode% = bits% : IF minCode% < 2 THEN minCode% = 2
+    GIF_frame$ = CHR$(&H2C) + GIF_le16$(x&) + GIF_le16$(y&) + GIF_le16$(w&) + GIF_le16$(h&) + CHR$(pk&) + lct$ + CHR$(minCode%) + GIF_subblocks$(GIF_lzw$(pix$, minCode%))
+END FUNCTION
+
+
+' =============================================================================
+' Export
+' =============================================================================
+
+''
+' Write the document as a GIF. anim = FALSE: one frame + CRNG ranges.
+' anim = TRUE: the color cycle as an animated GIF (GIF_export_anim%).
+' Returns TRUE on success (else CYCX_LAST_ERROR$ says why).
+'
+FUNCTION GIF_export% (path AS STRING, anim AS INTEGER)
+    DIM flat AS LONG, w AS LONG, h AS LONG, transIdx AS INTEGER, nCol AS INTEGER, bits AS INTEGER
+    DIM pix AS STRING, g AS STRING, ff AS INTEGER, dummy(0 TO 255) AS INTEGER, bgIdx AS INTEGER
+
+    GIF_export% = FALSE
+    CYCX_LAST_ERROR$ = ""
+    PCYC_validate
+    flat& = LAYERS_flatten&
+    IF flat& >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document" : EXIT FUNCTION
+    w& = _WIDTH(flat&) : h& = _HEIGHT(flat&)
+    IF w& > 65535 OR h& > 65535 THEN SAFE_FREEIMAGE flat& : CYCX_LAST_ERROR$ = "image too large for GIF" : EXIT FUNCTION
+
+    transIdx% = -1
+    IF IDX_has_transparency%(flat&) THEN
+        transIdx% = IDX_transparent_slot%
+        IF transIdx% < 0 THEN _LOGWARN "GIF_export: 256-color palette has no free slot - transparency becomes the nearest color"
+    END IF
+    pix$ = IDX_index_image$(flat&, transIdx%)
+    SAFE_FREEIMAGE flat&
+    nCol% = PAL_COLOR_COUNT%
+    IF transIdx% >= 0 THEN nCol% = nCol% + 1
+    bits% = GIF_color_bits%(nCol%)
+    bgIdx% = 0
+    IF transIdx% >= 0 THEN bgIdx% = transIdx%
+
+    IF anim% THEN
+        g$ = GIF_anim_stream$(w&, h&, pix$, bits%, transIdx%)
+        IF g$ = "" THEN EXIT FUNCTION
+    ELSE
+        g$ = "GIF89a" + GIF_le16$(w&) + GIF_le16$(h&) + CHR$(&H80 OR &H70 OR (bits% - 1)) + CHR$(bgIdx%) + CHR$(0)
+        g$ = g$ + GIF_color_table$(bits%, dummy(), FALSE)
+        g$ = g$ + GIF_crng_ext$ + GIF_drawcycl_ext$
+        IF transIdx% >= 0 THEN g$ = g$ + GIF_gce$(0, transIdx%, 0)
+        g$ = g$ + GIF_frame$(0, 0, w&, h&, pix$, bits%, "")
+        g$ = g$ + CHR$(&H3B)
+        GIF_LAST_INFO$ = "1 frame"
+    END IF
+
+    IF _FILEEXISTS(path$) THEN KILL path$
+    ff% = FREEFILE
+    OPEN path$ FOR BINARY AS #ff%
+    PUT #ff%, , g$
+    CLOSE #ff%
+    IF NOT _FILEEXISTS(path$) THEN CYCX_LAST_ERROR$ = "could not write " + path$ : EXIT FUNCTION
+    IF IDX_QUANTIZED& > 0 THEN _LOGWARN "GIF_export: " + _TRIM$(STR$(IDX_QUANTIZED&)) + " pixel(s) were not palette colors and were mapped to the nearest one"
+    _LOGINFO "GIF_export: " + path$ + " (" + GIF_LAST_INFO$ + ", " + _TRIM$(STR$(nCol%)) + " colors, " + _TRIM$(STR$(PCYC.COUNT%)) + " cycle ranges)"
+    GIF_export% = TRUE
+END FUNCTION
+
+
+''
+' Animated GIF stream of the color cycle (Phase 4).
+'
+FUNCTION GIF_anim_stream$ (w AS LONG, h AS LONG, pix AS STRING, bits AS INTEGER, transIdx AS INTEGER)
+    CYCX_LAST_ERROR$ = "animated GIF export is not implemented yet"
+    GIF_anim_stream$ = ""
+END FUNCTION

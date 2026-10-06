@@ -61,6 +61,19 @@ else
     echo "SKIP: qb64pe not found at $QB64 (compile/run of the .bas)"
 fi
 
+# --- 3. GIF + GrafX2 CRNG ---
+draw_batch "$OUT/bands.draw" --export "$OUT/bands.gif" && [ -s "$OUT/bands.gif" ] && pass ".gif written" || failx ".gif export"
+if command -v identify >/dev/null; then
+    /usr/bin/convert "$OUT/bands.gif" "$OUT/bands-gif.png" 2>/dev/null
+    AE=$(/usr/bin/compare -metric AE "$OUT/bands.png" "$OUT/bands-gif.png" null: 2>&1 | awk '{print int($1)}')
+    [ "$AE" = "0" ] && pass "GIF decodes pixel-exact (ImageMagick)" || failx "GIF pixels differ from source ($AE)"
+fi
+# CRNG records: rate BE16, flags BE16, lo, hi  (8/s fwd 1-4, 4/s rev 5-8, ping 9-13 written fwd)
+HEX=$(xxd -p "$OUT/bands.gif" | tr -d '\n')
+echo "$HEX" | grep -q "21ff0b43524e4700000000312e301208890001010404440003050806660001090d00" \
+    && pass "GrafX2 CRNG extension bytes" || failx "CRNG extension missing/wrong"
+echo "$HEX" | grep -q "21ff0b4452415743594" && pass "DRAWCYCL extension present" || failx "DRAWCYCL extension missing"
+
 #@@MORE-CASES@@
 
 [ $fail = 0 ] && echo "test-cycle-exports: ALL PASS" || echo "test-cycle-exports: FAILURES"
