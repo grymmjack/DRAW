@@ -258,6 +258,23 @@ Vertical icon bar with 26+ quick-access toggle buttons for view options, tool to
 
 ---
 
+## Help card (`GUI/HELP-CARD.BI` / `GUI/HELP-CARD.BM`, prefix `HCARD_`)
+
+A gesture reference that is **not** a tooltip: docked to an edge of the canvas work area
+(`CFG.HELP_CARD_EDGE`: 0 bottom — just above the palette strip —, 1 top, 2 left, 3 right),
+colored gradient header, 2-column table of rows drawn as keycaps + a 9x13 mouse glyph
+(pressed button / wheel / drag arrow / "2x"). Cards: `HCARD_PALOPS` (hover the strip in Palette
+Ops) and `HCARD_CYCLE` (same, while `PCYC.ENABLED`): cycling gestures + live hovered-range line +
+band legend. Key names come from the live binding (`HCARD_key_for_action$`, follows rebinds).
+- `HCARD_update` runs right after `TOOLTIP_update` (DRAW.BAS); the idle block keeps frames live
+  while the delay counts (`HCARD.WANT <> NONE AND SHOWN = NONE`). Show/hide sets `SCENE_DIRTY`
+  (the card sits over the canvas).
+- `HCARD_render SCRN.CANVAS&` is called right before **each** of the 3 `TOOLTIP_render` sites,
+  `HCARD_reblit_to_screen0` before each `TOOLTIP_reblit_to_screen0` (above floating panels).
+- Config: `HELP_CARD_ENABLED`, `HELP_CARD_EDGE` (BOTTOM/TOP/LEFT/RIGHT), `HELP_CARD_DELAY`;
+  Settings → General → Cursors & Tooltips. QA: `palette-ops-help-card.sh`, `-top.sh`.
+- Adding a card: a `HCARD_*` const, rows in `HCARD_build`, a want-rule in `HCARD_update`.
+
 ## Settings Dialog (`GUI/SETTINGS.BI` / `GUI/SETTINGS.BM` / `GUI/SETTINGS-TABS.BM` / `GUI/SETTINGS-WIDGETS.BM`)
 
 GIMP-style tabbed settings dialog opened with `Ctrl+,` (action ID `ACTION_SETTINGS = 2100`). Modal dialog with left sidebar tabs and scrollable right content area.

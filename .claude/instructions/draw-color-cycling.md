@@ -121,6 +121,12 @@ reads it into a **local** and adopts it **after** `PALETTE_OPS_reset` (which cle
   so saving after opening a GIF/LBM/BMP overwrote it with project data. Now only
   `.draw`/`.png`; others set `CURRENT_FILENAME$` → companion `.draw`.
 
+## Help card
+
+In Palette Ops with cycling on, hovering the strip shows `HCARD_CYCLE` (GUI/HELP-CARD): Ctrl gestures, live
+`PCYC_describe$` of the hovered swatch (+ duplicate note), band legend, toggle key from the 2060 binding.
+See `draw-ui.md` → Help card.
+
 ## Tests
 
 - `QA/unit/pcyc-unit.bas` — headless unit test (shift math, bookkeeping, serialize, present,

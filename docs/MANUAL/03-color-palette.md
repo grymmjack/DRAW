@@ -151,6 +151,8 @@ A swatch works like an entry in an indexed palette: its pixels belong to it. Cha
 | Middle-drag across swatches | Delete the whole range. It's outlined in red until you release. |
 | `Shift`+Middle-click a swatch | Insert the **current foreground color** after it, so you can build a palette straight from the color panels. |
 
+> 💡 **Help card.** In Palette Ops, hover the palette strip for a moment and a **help card** pops up just above the strip, with every gesture in this table drawn as a mouse diagram plus its modifier keys. While color cycling is on, it shows the cycling gestures instead, along with the hovered swatch's range. You can turn the card off or move it to another edge of the canvas area (bottom, top, left or right) in **Settings → General → Help Card**.
+
 Undo and redo, and opening the color panels or the Preview, keep Palette Ops on. Other commands, switching tools, `Esc`, and right-clicking the Organizer button turn it off.
 
 When you first enter Palette Ops, DRAW automatically creates a **`[DOCUMENT]` palette** that snapshots the current state. This means experimentation is safe — you can hop back to the original palette at any time without losing your remapping.
@@ -196,7 +198,7 @@ Each range shows as a **band along the bottom of its swatches**:
 | Dimmed | The range is **paused** and holds its current step. |
 | Red checker | This swatch's color also appears **on an earlier swatch**, so its pixels belong to that swatch and can't cycle (see below). |
 
-Hover any swatch in a range and the status bar reads it out, for example `CYC 2: 32-47 REV 8.0/s`.
+Hover any swatch in a range and the status bar reads it out, for example `CYC 2: 32-47 REV 8.0/s`. In Palette Ops with cycling on, the help card above the strip shows the same readout, the gestures below, and this band legend.
 
 ### Ranges in Palette Ops (`Ctrl` gestures)
 
