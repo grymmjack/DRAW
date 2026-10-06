@@ -197,13 +197,13 @@ Finishing actions:
 
 The minimum to use capture is **W1 + C1 + C2**: an Annotate workspace with panel visibility only, plus the existing tools. W2–W6 make workspaces fully customizable, and C3 adds the new annotation tools.
 
-## Open decisions
+## Decisions (2026-10-06)
 
-1. **Order:** workspace engine first (W1), then capture (C1–C2), then the rest? (Recommended.)
-2. **Capture hotkey inside DRAW:** Print Screen is usually taken by the desktop. Proposed: **Ctrl+Shift+P**. On Plasma, bind a global shortcut to `DRAW --capture`.
-3. **Annotate letter keys:** R rect, O ellipse, L line, A arrow, T text, H highlight, X redact, N callout, C crop, V move. OK, or different letters?
-4. **After Ctrl+Enter (done):** return to the previous document and workspace (recommended), or stay?
-5. **Workspace files:** standalone `.workspace` files (recommended; shareable, could become a KIT item type), or keys inside `DRAW.cfg`?
+1. **Order:** workspaces first. W1 engine → C1–C2 capture + region picker → W2–W6 customization → C3–C4 annotation tools and background capture → D docs.
+2. **Capture hotkey in DRAW:** **Ctrl+Shift+P**. On Plasma, also bind a global shortcut to `DRAW --capture`.
+3. **Annotate keys** (only inside Annotate): R rect (Shift+R filled), O ellipse, L line, A arrow, T text, H highlighter, X redact, N numbered callout, C crop, V move.
+4. **Done (Ctrl+Enter):** copy, save, then return to the previous document and workspace.
+5. **Workspace files:** standalone `.workspace` files (default; not asked). They're shareable and can become a KIT item type later.
 
 ## Found along the way
 
