@@ -1,0 +1,413 @@
+''
+' DRAW - CORE/CLI.BM
+' =============================================================================
+' Command-line console output helpers. See CLI.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' TRUE when ANSI colors should be used on stdout. Decided once: FORCE_COLOR
+' forces them on; NO_COLOR (any value), --no-color, TERM=dumb or a stdout
+' that is not a terminal turn them off.
+'
+FUNCTION CLI_color% ()
+    DIM i AS INTEGER, onOff AS INTEGER
+    IF CLI_COLOR_STATE% = 0 THEN
+        onOff% = (gj_stdout_isatty& <> 0)
+        IF LEN(ENVIRON$("NO_COLOR")) > 0 THEN onOff% = FALSE
+        IF LCASE$(ENVIRON$("TERM")) = "dumb" THEN onOff% = FALSE
+        FOR i% = 1 TO _COMMANDCOUNT
+            IF LCASE$(_TRIM$(COMMAND$(i%))) = "--no-color" THEN onOff% = FALSE
+        NEXT i%
+        IF LEN(ENVIRON$("FORCE_COLOR")) > 0 _ANDALSO ENVIRON$("FORCE_COLOR") <> "0" THEN onOff% = TRUE
+        IF onOff% THEN
+            IF gj_console_prepare& = 0 THEN onOff% = FALSE ' old Windows console without ANSI
+        END IF
+        IF onOff% THEN CLI_COLOR_STATE% = 1 ELSE CLI_COLOR_STATE% = -1
+    END IF
+    CLI_color% = (CLI_COLOR_STATE% = 1)
+END FUNCTION
+
+
+''
+' ANSI SGR sequence ("" when colors are off). codes like "1;36".
+'
+FUNCTION CLI_c$ (codes AS STRING)
+    IF CLI_color% THEN CLI_c$ = CHR$(27) + "[" + codes$ + "m" ELSE CLI_c$ = ""
+END FUNCTION
+
+
+FUNCTION CLI_reset$ ()
+    CLI_reset$ = CLI_c$("0")
+END FUNCTION
+
+
+''
+' Print one line to the console (callers have _DEST _CONSOLE set).
+'
+SUB CLI_line (s AS STRING)
+    PRINT s$
+END SUB
+
+
+''
+' Prepare console output: show the console, make it the destination.
+'
+SUB CLI_begin ()
+    _CONSOLE ON
+    _DEST _CONSOLE
+END SUB
+
+
+''
+' Unicode code point for a CP437 byte >= 128.
+'
+FUNCTION CLI_cp437% (b AS INTEGER)
+    STATIC tbl(128 TO 255) AS LONG, ready AS INTEGER
+    DIM i AS INTEGER, s AS STRING
+    IF NOT ready% THEN
+        s$ = "00C7 00FC 00E9 00E2 00E4 00E0 00E5 00E7 00EA 00EB 00E8 00EF 00EE 00EC 00C4 00C5 "
+        s$ = s$ + "00C9 00E6 00C6 00F4 00F6 00F2 00FB 00F9 00FF 00D6 00DC 00A2 00A3 00A5 20A7 0192 "
+        s$ = s$ + "00E1 00ED 00F3 00FA 00F1 00D1 00AA 00BA 00BF 2310 00AC 00BD 00BC 00A1 00AB 00BB "
+        s$ = s$ + "2591 2592 2593 2502 2524 2561 2562 2556 2555 2563 2551 2557 255D 255C 255B 2510 "
+        s$ = s$ + "2514 2534 252C 251C 2500 253C 255E 255F 255A 2554 2569 2566 2560 2550 256C 2567 "
+        s$ = s$ + "2568 2564 2565 2559 2558 2552 2553 256B 256A 2518 250C 2588 2584 258C 2590 2580 "
+        s$ = s$ + "03B1 00DF 0393 03C0 03A3 03C3 00B5 03C4 03A6 0398 03A9 03B4 221E 03C6 03B5 2229 "
+        s$ = s$ + "2261 00B1 2265 2264 2320 2321 00F7 2248 00B0 2219 00B7 221A 207F 00B2 25A0 00A0 "
+        FOR i% = 128 TO 255
+            tbl(i%) = VAL("&H" + MID$(s$, (i% - 128) * 5 + 1, 4))
+        NEXT i%
+        ready% = TRUE
+    END IF
+    CLI_cp437% = tbl(b%)
+END FUNCTION
+
+
+''
+' UTF-8 encoding of a code point (< &H10000).
+'
+FUNCTION CLI_utf8$ (cp AS LONG)
+    IF cp& < &H80 THEN
+        CLI_utf8$ = CHR$(cp&)
+    ELSEIF cp& < &H800 THEN
+        CLI_utf8$ = CHR$(&HC0 OR (cp& \ 64)) + CHR$(&H80 OR (cp& AND 63))
+    ELSE
+        CLI_utf8$ = CHR$(&HE0 OR (cp& \ 4096)) + CHR$(&H80 OR ((cp& \ 64) AND 63)) + CHR$(&H80 OR (cp& AND 63))
+    END IF
+END FUNCTION
+
+
+''
+' Print ASSETS/DRAW.ans (when it exists and colors are on): CP437 -> UTF-8,
+' SAUCE record / EOF marker stripped, colors reset afterwards.
+'
+SUB CLI_print_logo ()
+    DIM f AS STRING, ff AS INTEGER, s AS STRING, o AS STRING, i AS LONG, b AS INTEGER, eofAt AS LONG
+    f$ = "ASSETS/DRAW.ans"
+    IF NOT CLI_color% THEN EXIT SUB
+    IF NOT _FILEEXISTS(f$) THEN EXIT SUB
+    ff% = FREEFILE
+    OPEN f$ FOR BINARY AS #ff%
+    s$ = SPACE$(LOF(ff%))
+    GET #ff%, 1, s$
+    CLOSE #ff%
+    eofAt& = INSTR(s$, CHR$(26)) ' SUB = end of art (SAUCE follows)
+    IF eofAt& > 0 THEN s$ = LEFT$(s$, eofAt& - 1)
+    FOR i& = 1 TO LEN(s$)
+        b% = ASC(s$, i&)
+        IF b% >= 128 THEN
+            o$ = o$ + CLI_utf8$(CLI_cp437%(b%))
+        ELSEIF b% <> 13 THEN
+            o$ = o$ + CHR$(b%)
+        END IF
+    NEXT i&
+    ' Line breaks: print each line so the console handles them
+    DO WHILE LEN(o$) > 0
+        i& = INSTR(o$, CHR$(10))
+        IF i& = 0 THEN PRINT o$ + CLI_reset$ : EXIT DO
+        PRINT LEFT$(o$, i& - 1) + CLI_reset$
+        o$ = MID$(o$, i& + 1)
+    LOOP
+    PRINT CLI_reset$
+END SUB
+
+
+''
+' One help row: flag (+ argument) in its colors, padded to the description
+' column (padding measured on the visible text, not the escape codes).
+'
+SUB CLI_help_row (flag AS STRING, arg AS STRING, desc AS STRING)
+    DIM vis AS INTEGER, pad AS INTEGER, s AS STRING
+    CONST COL = 28
+    s$ = "  " + CLI_c$("1;36") + flag$ + CLI_reset$
+    vis% = 2 + LEN(flag$)
+    IF LEN(arg$) > 0 THEN s$ = s$ + " " + CLI_c$("33") + arg$ + CLI_reset$ : vis% = vis% + 1 + LEN(arg$)
+    IF vis% >= COL THEN
+        PRINT s$
+        s$ = "" : vis% = 0
+    END IF
+    pad% = COL - vis%
+    PRINT s$ + SPACE$(pad%) + desc$
+END SUB
+
+
+''
+' Continuation line in the description column (dim).
+'
+SUB CLI_help_more (desc AS STRING)
+    PRINT SPACE$(28) + CLI_c$("2") + desc$ + CLI_reset$
+END SUB
+
+
+SUB CLI_help_section (title AS STRING)
+    PRINT
+    PRINT CLI_c$("1;35") + title$ + CLI_reset$
+END SUB
+
+
+SUB CLI_help_example (cmd AS STRING, note AS STRING)
+    DIM s AS STRING, w AS STRING, p AS INTEGER, rest AS STRING, first AS INTEGER
+    ' Color the words: DRAW green, --flags cyan, everything else default
+    rest$ = cmd$ : first% = TRUE
+    DO WHILE LEN(rest$) > 0
+        p% = INSTR(rest$, " ")
+        IF p% > 0 THEN w$ = LEFT$(rest$, p% - 1) : rest$ = MID$(rest$, p% + 1) ELSE w$ = rest$ : rest$ = ""
+        IF first% THEN
+            s$ = s$ + CLI_c$("1;32") + w$ + CLI_reset$
+        ELSEIF LEFT$(w$, 1) = "-" THEN
+            s$ = s$ + " " + CLI_c$("36") + w$ + CLI_reset$
+        ELSEIF LEFT$(w$, 2) = "$(" THEN
+            s$ = s$ + " " + CLI_c$("33") + w$ + CLI_reset$
+        ELSE
+            s$ = s$ + " " + w$
+        END IF
+        first% = FALSE
+    LOOP
+    IF LEN(note$) > 0 THEN s$ = s$ + "   " + CLI_c$("2") + "# " + note$ + CLI_reset$
+    PRINT "  " + s$
+END SUB
+
+
+''
+' The --help page.
+'
+SUB CLI_print_help ()
+    CLI_print_logo
+    PRINT CLI_c$("1;96") + "DRAW " + CLI_reset$ + CLI_c$("1;33") + APP_VERSION$ + CLI_reset$ + CLI_c$("2") + "  -  Pixel art editor (QB64-PE)" + CLI_reset$
+    PRINT
+    PRINT CLI_c$("1;35") + "Usage:" + CLI_reset$ + " " + CLI_c$("1;32") + "DRAW" + CLI_reset$ + " " + CLI_c$("33") + "[file]" + CLI_reset$ + " " + CLI_c$("36") + "[options]" + CLI_reset$
+    CLI_help_section "File"
+    CLI_help_row "file", "", "Open .draw .ase .psd .lbm/.iff .gif or any raster image"
+    CLI_help_section "Options"
+    CLI_help_row "-h, --help, /?", "", "Show this help and exit"
+    CLI_help_row "-v, --version", "", "Show version and exit"
+    CLI_help_row "-c, --config", "<path>", "Use a specific config file"
+    CLI_help_row "--config-upgrade", "", "Reconcile config with new defaults"
+    CLI_help_row "--reset-defaults", "", "Restore factory configuration"
+    CLI_help_row "--option", "KEY=VALUE", "Override any config option (repeatable)"
+    CLI_help_row "--options-list", "", "List every config option + default, then exit"
+    CLI_help_row "--canvas-size", "WxH", "Startup canvas size (e.g. 320x200)"
+    CLI_help_row "--palette", "FILE.gpl", "Load a GIMP palette into the palette strip"
+    CLI_help_row "--portable", "", "Keep config/data beside the executable"
+    CLI_help_row "--perf", "", "Render profiling (writes DRAW-perf.log)"
+    CLI_help_row "--no-color", "", "Plain console output (also: NO_COLOR=1)"
+    CLI_help_section "Batch / color cycling"
+    CLI_help_row "--cycle", "LO-HI[:SPS[:fwd|rev|ping]]", "Add a color cycling range (repeatable)"
+    CLI_help_row "--export", "PATH", "Export by extension and exit:"
+    CLI_help_more ".draw .bas (cycling program) .gif (+CRNG) .lbm .bbm (PBM)"
+    CLI_help_row "--export-anim", "PATH.gif", "Animated GIF of the color cycle, then exit"
+    CLI_help_row "--export-qb64", "PATH", "Export a QB64 project, then exit"
+    CLI_help_section "Where things are (prints the path, then exits)"
+    CLI_help_row "--cfg", "", "The config file DRAW is using"
+    CLI_help_row "--dirs", "", "Every directory below, labeled"
+    CLI_help_row "--dir-cfg", "", "Config directory"
+    CLI_help_row "--dir-data", "", "User data directory"
+    CLI_help_row "--dir-cache", "", "Cache directory"
+    CLI_help_row "--dir-crash-logs", "", "Crash reports"
+    CLI_help_row "--dir-templates", "", "New-from-template files"
+    CLI_help_row "--dir-brushes", "", "Brush sets (.dset)"
+    CLI_help_row "--dir-patterns", "", "Pattern sets (.dset)"
+    CLI_help_row "--dir-gradients", "", "Gradient sets (.dset)"
+    CLI_help_row "--dir-palettes", "", "Palettes (.gpl ...)"
+    CLI_help_row "--dir-fonts", "", "Fonts"
+    CLI_help_row "--dir-theme", "", "Current theme"
+    CLI_help_row "--dir-theme-images", "", "  ...its images"
+    CLI_help_row "--dir-theme-sounds", "", "  ...its sounds"
+    CLI_help_row "--dir-theme-music", "", "  ...its music"
+    CLI_help_row "--dir-theme-cursors", "", "  ...its cursors"
+    CLI_help_row "--dir-theme-fonts", "", "  ...its fonts"
+    CLI_help_section "Examples"
+    CLI_help_example "DRAW myproject.draw", ""
+    CLI_help_example "DRAW --canvas-size 64x64", ""
+    CLI_help_example "DRAW art.png --palette art.gpl --cycle 16-31:8:ping --export art.draw", ""
+    CLI_help_example "DRAW art.draw --export art.bas", "runnable color cycling program"
+    CLI_help_example "vim $(DRAW --cfg)", "edit the config"
+    CLI_help_example "cd $(DRAW --dir-theme-sounds)", "jump to a folder"
+    PRINT
+    PRINT CLI_c$("2") + "Docs: " + CLI_reset$ + CLI_c$("4;94") + "https://github.com/grymmjack/DRAW" + CLI_reset$
+END SUB
+
+
+' =============================================================================
+' --cfg / --dirs / --dir-* (CFG/CLI-QUERY.BI)
+' =============================================================================
+
+''
+' TRUE when this run is a path query (it prints and exits at include time).
+'
+FUNCTION CLI_is_query_run% ()
+    DIM i AS INTEGER, a AS STRING
+    FOR i% = 1 TO _COMMANDCOUNT
+        a$ = LCASE$(_TRIM$(COMMAND$(i%)))
+        IF a$ = "--cfg" _ORELSE a$ = "--dirs" _ORELSE LEFT$(a$, 6) = "--dir-" THEN CLI_is_query_run% = TRUE : EXIT FUNCTION
+    NEXT i%
+    CLI_is_query_run% = FALSE
+END FUNCTION
+
+''
+' Absolute form of a path (relative paths are relative to DRAW's folder,
+' which QB64 makes the working directory at startup). No trailing separator.
+'
+FUNCTION CLIQ_abs$ (p AS STRING)
+    DIM s AS STRING, sep AS STRING, cwd AS STRING
+    s$ = _TRIM$(p$)
+    IF s$ = "" THEN s$ = "."
+    cwd$ = _CWD$
+    DO WHILE LEN(cwd$) > 1 _ANDALSO (RIGHT$(cwd$, 1) = "/" _ORELSE RIGHT$(cwd$, 1) = "\")
+        cwd$ = LEFT$(cwd$, LEN(cwd$) - 1)
+    LOOP
+    $IF WIN THEN
+        sep$ = "\"
+        IF MID$(s$, 2, 1) <> ":" _ANDALSO LEFT$(s$, 2) <> "\\" _ANDALSO LEFT$(s$, 1) <> "\" _ANDALSO LEFT$(s$, 1) <> "/" THEN s$ = cwd$ + sep$ + s$
+    $ELSE
+        sep$ = "/"
+        IF LEFT$(s$, 1) = "~" THEN s$ = ENVIRON$("HOME") + MID$(s$, 2)
+        IF LEFT$(s$, 1) <> "/" THEN s$ = cwd$ + sep$ + s$
+        DO WHILE INSTR(s$, "//") > 0
+            s$ = LEFT$(s$, INSTR(s$, "//") - 1) + MID$(s$, INSTR(s$, "//") + 1)
+        LOOP
+    $END IF
+    ' tidy "/./" and trailing separators
+    DO WHILE INSTR(s$, sep$ + "." + sep$) > 0
+        MID$(s$, INSTR(s$, sep$ + "." + sep$)) = STRING$(2, 0)
+        s$ = LEFT$(s$, INSTR(s$, STRING$(2, 0)) - 1) + MID$(s$, INSTR(s$, STRING$(2, 0)) + 2)
+    LOOP
+    IF RIGHT$(s$, 2) = sep$ + "." THEN s$ = LEFT$(s$, LEN(s$) - 2)
+    DO WHILE LEN(s$) > 1 _ANDALSO (RIGHT$(s$, 1) = "/" _ORELSE RIGHT$(s$, 1) = "\")
+        s$ = LEFT$(s$, LEN(s$) - 1)
+    LOOP
+    CLIQ_abs$ = s$
+END FUNCTION
+
+
+''
+' Value of KEY=... in the active config file (falls back to DRAW.cfg.default),
+' or dflt$ when absent.
+'
+FUNCTION CLIQ_cfg_value$ (cfgKey AS STRING, dflt AS STRING)
+    DIM f AS STRING, ff AS INTEGER, ln AS STRING, eqp AS INTEGER, pass AS INTEGER
+    FOR pass% = 1 TO 2
+        IF pass% = 1 THEN f$ = CONFIG_FILE_PATH$ ELSE f$ = CONFIG_DEFAULT_FILE$
+        IF _FILEEXISTS(f$) THEN
+            ff% = FREEFILE
+            OPEN f$ FOR INPUT AS #ff%
+            DO WHILE NOT EOF(ff%)
+                LINE INPUT #ff%, ln$
+                ln$ = _TRIM$(ln$)
+                eqp% = INSTR(ln$, "=")
+                IF eqp% > 1 _ANDALSO LEFT$(ln$, 1) <> "#" _ANDALSO LEFT$(ln$, 1) <> ";" THEN
+                    IF UCASE$(_TRIM$(LEFT$(ln$, eqp% - 1))) = UCASE$(cfgKey$) THEN
+                        CLOSE #ff%
+                        CLIQ_cfg_value$ = _TRIM$(MID$(ln$, eqp% + 1))
+                        EXIT FUNCTION
+                    END IF
+                END IF
+            LOOP
+            CLOSE #ff%
+        END IF
+    NEXT pass%
+    CLIQ_cfg_value$ = dflt$
+END FUNCTION
+
+
+''
+' Directory part of a file path (or the path itself when it is a directory).
+'
+FUNCTION CLIQ_dir_of$ (p AS STRING, fallback AS STRING)
+    DIM s AS STRING, k AS INTEGER
+    s$ = _TRIM$(p$)
+    IF s$ = "" THEN CLIQ_dir_of$ = fallback$ : EXIT FUNCTION
+    IF _DIREXISTS(s$) THEN CLIQ_dir_of$ = s$ : EXIT FUNCTION
+    k% = _INSTRREV(s$, "/")
+    IF _INSTRREV(s$, "\") > k% THEN k% = _INSTRREV(s$, "\")
+    IF k% > 1 THEN CLIQ_dir_of$ = LEFT$(s$, k% - 1) ELSE CLIQ_dir_of$ = fallback$
+END FUNCTION
+
+
+''
+' Absolute path for a query name ("cfg", "data", "theme-sounds", ...), or ""
+' when the name is unknown.
+'
+FUNCTION CLIQ_dir$ (nm AS STRING)
+    DIM theme AS STRING
+    theme$ = CLIQ_cfg_value$("THEME", "DEFAULT")
+    IF theme$ = "" THEN theme$ = "DEFAULT"
+    SELECT CASE nm$
+        CASE "cfg"            : CLIQ_dir$ = CLIQ_abs$(PATHS_CONFIG_DIR$)
+        CASE "data"           : CLIQ_dir$ = CLIQ_abs$(PATHS_DATA_DIR$)
+        CASE "cache"          : CLIQ_dir$ = CLIQ_abs$(PATHS_CACHE_DIR$)
+        CASE "crash-logs"     : CLIQ_dir$ = CLIQ_abs$(CRASH_log_dir$)
+        CASE "templates"      : CLIQ_dir$ = CLIQ_abs$(CLIQ_cfg_value$("TEMPLATE_DIR", "ASSETS/TEMPLATES"))
+        CASE "brushes"        : CLIQ_dir$ = CLIQ_abs$(CLIQ_dir_of$(CLIQ_cfg_value$("DEFAULT_DSET_BRUSHES_FILE", ""), "ASSETS/DSETS/BRUSHES"))
+        CASE "patterns"       : CLIQ_dir$ = CLIQ_abs$(CLIQ_dir_of$(CLIQ_cfg_value$("DEFAULT_DSET_PATTERNS_FILE", ""), "ASSETS/DSETS/PATTERNS"))
+        CASE "gradients"      : CLIQ_dir$ = CLIQ_abs$(CLIQ_dir_of$(CLIQ_cfg_value$("DEFAULT_DSET_GRADIENTS_FILE", ""), "ASSETS/DSETS/GRADIENTS"))
+        CASE "palettes"       : CLIQ_dir$ = CLIQ_abs$("ASSETS/PALETTES")
+        CASE "fonts"          : CLIQ_dir$ = CLIQ_abs$("ASSETS/FONTS")
+        CASE "theme"          : CLIQ_dir$ = CLIQ_abs$("ASSETS/THEMES/" + theme$)
+        CASE "theme-images"   : CLIQ_dir$ = CLIQ_abs$("ASSETS/THEMES/" + theme$ + "/IMAGES")
+        CASE "theme-sounds"   : CLIQ_dir$ = CLIQ_abs$("ASSETS/THEMES/" + theme$ + "/SOUNDS")
+        CASE "theme-music"    : CLIQ_dir$ = CLIQ_abs$("ASSETS/THEMES/" + theme$ + "/MUSIC")
+        CASE "theme-cursors"  : CLIQ_dir$ = CLIQ_abs$("ASSETS/THEMES/" + theme$ + "/CURSORS")
+        CASE "theme-fonts"    : CLIQ_dir$ = CLIQ_abs$("ASSETS/THEMES/" + theme$ + "/FONTS")
+        CASE ELSE             : CLIQ_dir$ = ""
+    END SELECT
+END FUNCTION
+
+
+''
+' Run a --cfg / --dirs / --dir-NAME query; returns the process exit code
+' (0 ok, 2 unknown name).
+'
+FUNCTION CLIQ_run% (arg AS STRING)
+    DIM names AS STRING, nm AS STRING, p AS INTEGER, d AS STRING, cfgPath AS STRING
+    CLI_begin
+    cfgPath$ = CLIQ_abs$(CONFIG_FILE_PATH$)
+    names$ = "cfg data cache crash-logs templates brushes patterns gradients palettes fonts theme theme-images theme-sounds theme-music theme-cursors theme-fonts"
+    SELECT CASE arg$
+        CASE "--cfg"
+            PRINT cfgPath$
+            CLIQ_run% = 0
+        CASE "--dirs"
+            PRINT CLI_c$("1;35") + "config file    " + CLI_reset$ + CLI_c$("33") + cfgPath$ + CLI_reset$
+            DO WHILE LEN(names$) > 0
+                p% = INSTR(names$, " ")
+                IF p% > 0 THEN nm$ = LEFT$(names$, p% - 1) : names$ = MID$(names$, p% + 1) ELSE nm$ = names$ : names$ = ""
+                d$ = CLIQ_dir$(nm$)
+                PRINT CLI_c$("1;36") + LEFT$(nm$ + SPACE$(15), 15) + CLI_reset$ + d$ + _IIF(_DIREXISTS(d$), "", CLI_c$("2") + "  (missing)" + CLI_reset$)
+            LOOP
+            CLIQ_run% = 0
+        CASE ELSE ' --dir-NAME
+            nm$ = MID$(arg$, 7)
+            d$ = CLIQ_dir$(nm$)
+            IF d$ = "" THEN
+                PRINT "DRAW: unknown directory '" + nm$ + "'. Known: " + names$
+                CLIQ_run% = 2
+            ELSE
+                PRINT d$
+                CLIQ_run% = 0
+            END IF
+    END SELECT
+END FUNCTION

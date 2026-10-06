@@ -45,38 +45,7 @@ IF HELP_showHelp% OR HELP_showVer% THEN
     IF HELP_showVer% THEN
         PRINT "DRAW " + APP_VERSION$
     ELSE
-        PRINT "DRAW " + APP_VERSION$ + " - Pixel art editor (QB64-PE)"
-        PRINT
-        PRINT "Usage: DRAW [file] [options]"
-        PRINT
-        PRINT "Positional:"
-        PRINT "  file                      Open .draw, .ase, .psd, or raster image at startup"
-        PRINT
-        PRINT "Options:"
-        PRINT "  -h, --help, /?            Show this help and exit"
-        PRINT "      -?, /h, /help         (aliases for --help)"
-        PRINT "  -v, --version             Show version and exit"
-        PRINT "  -c, --config <path>       Use a specific config file"
-        PRINT "      --config-upgrade      Reconcile config with new defaults"
-        PRINT "      --reset-defaults      Restore factory configuration"
-        PRINT "      --canvas-size WxH     Override startup canvas size (e.g. 320x200)"
-        PRINT "      --palette FILE.gpl    Load a GIMP palette into the palette strip"
-        PRINT "      --cycle LO-HI[:SPS[:fwd|rev|ping]]"
-        PRINT "                            Add a color cycling range (repeatable; batch)"
-        PRINT "      --export PATH         Export the document by extension and exit:"
-        PRINT "                            .draw .bas (cycling program) .gif (+CRNG) .lbm"
-        PRINT "      --export-anim PATH    Export an animated GIF of the color cycle and exit"
-        PRINT "      --portable            Keep config/data beside the executable"
-        PRINT "      --perf                Enable render-pipeline profiling (writes DRAW-perf.log)"
-        PRINT
-        PRINT "Examples:"
-        PRINT "  DRAW myproject.draw"
-        PRINT "  DRAW --config DRAW.linux.cfg"
-        PRINT "  DRAW --canvas-size 64x64"
-        PRINT "  DRAW art.png --palette art.gpl"
-        PRINT "  DRAW art.png --palette art.gpl --cycle 16-31:8:ping --export art.draw"
-        PRINT
-        PRINT "Docs: https://github.com/grymmjack/DRAW"
+        CLI_print_help ' CORE/CLI.BM: colored page (+ ASSETS/DRAW.ans logo when present)
     END IF
     SYSTEM
 END IF
