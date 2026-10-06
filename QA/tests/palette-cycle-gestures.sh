@@ -28,19 +28,24 @@ chip_x() { echo $(( 16 + $1 * (CHIP_W + 1) + CHIP_W / 2 )); }
 CHIP_Y=$(( VIEWPORT_H - STATUS_H - 6 ))
 ART_X=$(( CANVAS_CX - 60 )); ART_Y=$(( CANVAS_CY - 40 ))
 
-# -- FG = chip #2, filled rect --
-info "FG = chip 2, draw filled rect"
+# -- FG = chip #2, flood-fill the (transparent) canvas with it: one click,
+#    deterministic (a rect drag occasionally lands before the tool switch) --
+info "FG = chip 2, fill the canvas"
+park_mouse
+snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "cyc-empty"
+EMPTY="$SNAP_RESULT"
 click $(chip_x 2) $CHIP_Y
 wait_for 0.2 "FG picked"
-key shift+r
-wait_for 0.2 "Rect filled tool"
-drag $ART_X $ART_Y $(( ART_X + 120 )) $(( ART_Y + 80 ))
-wait_for 0.4 "Rect drawn"
+key f
+wait_for 0.3 "Fill tool"
+click $CANVAS_CX $CANVAS_CY
+wait_for 0.5 "Canvas filled"
 assert_no_crash
 
 park_mouse
 snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "cyc-art"
 ART="$SNAP_RESULT"
+assert_regions_differ "$EMPTY" "$ART" "Setup: the canvas must be filled with chip 2"
 
 # helper: two canvas snaps a beat apart -> sets A_SNAP / B_SNAP
 two_snaps() {
