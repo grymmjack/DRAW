@@ -597,19 +597,41 @@ END SUB
 
 
 ''
-' Scan the base composite (PCYC_BASE$, BGRA bytes) and record every pixel
-' whose color belongs to a palette index inside a range.
+' Scan the cycled buffer's base (a copy of the composite) and record every
+' pixel whose color belongs to a palette index inside a range. Opaque ones go
+' into the 8-bit overlay PCYC.OVL (one index per range color, 0 = clear), so
+' a step is a palette change + one _PUTIMAGE; partly transparent ones (and
+' everything when the ranges hold more than 255 colors) go into the
+' per-pixel lists PCYC_OFF/SRC/A, which keep their alpha.
 '
 SUB PCYC_build_map ()
-    DIM inRange(0 TO 255) AS INTEGER, i AS INTEGER, r AS INTEGER
-    DIM m AS _MEM, total AS LONG, o AS LONG, v AS _UNSIGNED LONG
-    DIM e AS INTEGER, n AS LONG, cap AS LONG, idx AS INTEGER
+    DIM inRange(0 TO 255) AS INTEGER, i AS INTEGER, r AS INTEGER, k AS INTEGER
+    DIM m AS _MEM, total AS LONG, o AS LONG, v AS _UNSIGNED LONG, w AS LONG, h AS LONG
+    DIM e AS INTEGER, n AS LONG, cap AS LONG, idx AS INTEGER, ovb AS STRING, om AS _MEM
+    FOR i% = 0 TO 255 : PCYC_OVL_IDX(i%) = 0 : NEXT i%
+    k% = 0
     FOR r% = 1 TO PCYC.COUNT%
         FOR i% = PCYC_R(r%).lo TO PCYC_R(r%).hi
-            IF i% >= 0 _ANDALSO i% <= 255 THEN inRange(i%) = TRUE
+            IF i% >= 0 _ANDALSO i% <= 255 THEN
+                inRange(i%) = TRUE
+                k% = k% + 1
+                PCYC_OVL_IDX(i%) = k%
+            END IF
         NEXT i%
     NEXT r%
+    PCYC.OVL_OK% = (k% <= 255)
     PCYC_build_lut
+    w& = _WIDTH(PCYC.BUF&) : h& = _HEIGHT(PCYC.BUF&)
+    IF PCYC.OVL_OK% THEN
+        IF PCYC.OVL& < -1 THEN
+            IF _WIDTH(PCYC.OVL&) <> w& OR _HEIGHT(PCYC.OVL&) <> h& THEN SAFE_FREEIMAGE PCYC.OVL& : PCYC.OVL& = 0
+        END IF
+        IF PCYC.OVL& >= -1 THEN
+            PCYC.OVL& = _NEWIMAGE(w&, h&, 256)
+            _CLEARCOLOR 0, PCYC.OVL&
+        END IF
+        ovb$ = STRING$(w& * h&, 0)
+    END IF
     cap& = UBOUND(PCYC_OFF) + 1
     IF cap& < 4096 THEN
         cap& = 4096
@@ -627,16 +649,20 @@ SUB PCYC_build_map ()
                 IF PCYC_LUT_RGB(e%) = (v~& AND &HFFFFFF~&) THEN
                     idx% = PCYC_LUT_IDX(e%)
                     IF inRange(idx%) THEN
-                        IF n& >= cap& THEN
-                            cap& = cap& * 2
-                            REDIM _PRESERVE PCYC_OFF(0 TO cap& - 1) AS LONG
-                            REDIM _PRESERVE PCYC_SRC(0 TO cap& - 1) AS _UNSIGNED _BYTE
-                            REDIM _PRESERVE PCYC_A(0 TO cap& - 1) AS _UNSIGNED _BYTE
+                        IF PCYC.OVL_OK% _ANDALSO v~& >= &HFF000000~& THEN
+                            ASC(ovb$, o& \ 4 + 1) = PCYC_OVL_IDX(idx%)
+                        ELSE
+                            IF n& >= cap& THEN
+                                cap& = cap& * 2
+                                REDIM _PRESERVE PCYC_OFF(0 TO cap& - 1) AS LONG
+                                REDIM _PRESERVE PCYC_SRC(0 TO cap& - 1) AS _UNSIGNED _BYTE
+                                REDIM _PRESERVE PCYC_A(0 TO cap& - 1) AS _UNSIGNED _BYTE
+                            END IF
+                            PCYC_OFF(n&) = o&
+                            PCYC_SRC(n&) = idx%
+                            PCYC_A(n&)   = v~& \ &H1000000~&
+                            n& = n& + 1
                         END IF
-                        PCYC_OFF(n&) = o&
-                        PCYC_SRC(n&) = idx%
-                        PCYC_A(n&)   = v~& \ &H1000000~&
-                        n& = n& + 1
                     END IF
                     EXIT DO
                 END IF
@@ -646,6 +672,11 @@ SUB PCYC_build_map ()
     NEXT o&
     _MEMFREE m
     PCYC.MAP_N& = n&
+    IF PCYC.OVL_OK% THEN
+        om = _MEMIMAGE(PCYC.OVL&)
+        _MEMPUT om, om.OFFSET, ovb$
+        _MEMFREE om
+    END IF
 END SUB
 
 
@@ -655,10 +686,7 @@ END SUB
 ' its current color). comp& is never modified.
 '
 FUNCTION PCYC_present& (comp AS LONG)
-    DIM w AS LONG, h AS LONG, m AS _MEM, bm AS _MEM, sig AS STRING
-    DIM disp AS STRING, dispC(0 TO 255) AS _UNSIGNED LONG, chg(0 TO 255) AS INTEGER
-    DIM i AS LONG, idx AS INTEGER, rebuilt AS INTEGER, anyChg AS INTEGER, oldDisp AS STRING
-    DIM pv AS _UNSIGNED LONG
+    DIM w AS LONG, h AS LONG, m AS _MEM, bm AS _MEM, sig AS STRING, rebuilt AS INTEGER
 
     PCYC_present& = comp&
     IF NOT PCYC_running% THEN EXIT FUNCTION
@@ -672,7 +700,7 @@ FUNCTION PCYC_present& (comp AS LONG)
     PCYC.BUILT_SEQ& = SCREEN_RENDER_SEQ&
 
     IF PCYC.BUF& < -1 THEN
-        IF _WIDTH(PCYC.BUF&) <> w& OR _HEIGHT(PCYC.BUF&) <> h& THEN SAFE_FREEIMAGE PCYC.BUF&
+        IF _WIDTH(PCYC.BUF&) <> w& OR _HEIGHT(PCYC.BUF&) <> h& THEN SAFE_FREEIMAGE PCYC.BUF& : PCYC.BUF& = 0 ' SAFE_FREEIMAGE does not zero the handle
     END IF
     IF PCYC.BUF& >= -1 THEN
         PCYC.BUF&       = _NEWIMAGE(w&, h&, 32)
@@ -680,6 +708,7 @@ FUNCTION PCYC_present& (comp AS LONG)
     END IF
 
     ' Rebuild the map when the composite or the palette/ranges changed
+    PCYC.LAST_FULL# = PCYC_now#
     sig$ = PCYC_signature$
     m = _MEMIMAGE(comp&)
     IF LEN(PCYC_CUR$) <> m.SIZE THEN PCYC_CUR$ = SPACE$(m.SIZE)
@@ -697,12 +726,25 @@ FUNCTION PCYC_present& (comp AS LONG)
         rebuilt% = TRUE
     END IF
 
+    PCYC_apply_display rebuilt%
+    PCYC_present& = PCYC.BUF&
+END FUNCTION
+
+
+''
+' Write the current display colors into the cycling pixels of PCYC.BUF
+' (only the pixels whose color changed since the last write, unless the map
+' was just rebuilt).
+'
+SUB PCYC_apply_display (rebuilt AS INTEGER)
+    DIM bm AS _MEM, disp AS STRING, dispC(0 TO 255) AS _UNSIGNED LONG, chg(0 TO 255) AS INTEGER
+    DIM i AS LONG, idx AS INTEGER, anyChg AS INTEGER, ovlChg AS INTEGER, oldDisp AS STRING, pv AS _UNSIGNED LONG
     ' Display color per palette index for the current shifts
     FOR idx% = 0 TO PAL_COLOR_COUNT% - 1
         dispC(idx%) = PAL(PCYC_display_index%(idx%)).value~& AND &HFFFFFF~&
         disp$ = disp$ + MKL$(dispC(idx%))
     NEXT idx%
-    IF disp$ = PCYC.APPLIED$ THEN PCYC_present& = PCYC.BUF& : EXIT FUNCTION
+    IF disp$ = PCYC.APPLIED$ THEN EXIT SUB
     oldDisp$ = PCYC.APPLIED$
     FOR idx% = 0 TO PAL_COLOR_COUNT% - 1
         IF rebuilt% _ORELSE LEN(oldDisp$) < idx% * 4 + 4 THEN
@@ -710,10 +752,20 @@ FUNCTION PCYC_present& (comp AS LONG)
         ELSE
             chg(idx%) = (CVL(MID$(oldDisp$, idx% * 4 + 1, 4)) <> CVL(MID$(disp$, idx% * 4 + 1, 4)))
         END IF
-        IF chg(idx%) THEN anyChg% = TRUE
+        IF chg(idx%) THEN
+            anyChg% = TRUE
+            ' Opaque cycling pixels: just recolor their overlay entry
+            IF PCYC.OVL_OK% _ANDALSO PCYC_OVL_IDX(idx%) > 0 THEN
+                _PALETTECOLOR PCYC_OVL_IDX(idx%), dispC(idx%) OR &HFF000000~&, PCYC.OVL&
+                ovlChg% = TRUE
+            END IF
+        END IF
     NEXT idx%
     PCYC.APPLIED$ = disp$
-    IF anyChg% THEN
+    IF ovlChg% _ANDALSO PCYC.OVL& < -1 THEN _PUTIMAGE (0, 0), PCYC.OVL&, PCYC.BUF& ' index 0 is clear
+    IF anyChg% _ANDALSO PCYC.MAP_N& > 0 THEN
+        ' Partly transparent cycling pixels (or every pixel when the overlay
+        ' cannot hold the ranges): rewrite them one by one, keeping alpha
         bm = _MEMIMAGE(PCYC.BUF&)
         FOR i& = 0 TO PCYC.MAP_N& - 1
             idx% = PCYC_SRC(i&)
@@ -725,7 +777,37 @@ FUNCTION PCYC_present& (comp AS LONG)
         NEXT i&
         _MEMFREE bm
     END IF
-    PCYC_present& = PCYC.BUF&
+END SUB
+
+
+''
+' TRUE when this frame may skip compositing: the only scene change is a
+' cycle step, the buffer + pixel map are current for this canvas and palette,
+' and a full composite check ran within the last 0.5 s (safety net for any
+' path that edits layers without dirtying the scene).
+'
+FUNCTION PCYC_step_only_ok% ()
+    PCYC_step_only_ok% = FALSE
+    IF NOT PCYC.STEP_ONLY% THEN EXIT FUNCTION
+    IF NOT PCYC_running% THEN EXIT FUNCTION
+    IF PCYC.BUF& >= -1 _ORELSE NOT PCYC.MAP_VALID% THEN EXIT FUNCTION
+    IF _WIDTH(PCYC.BUF&) <> SCRN.canvasW& _ORELSE _HEIGHT(PCYC.BUF&) <> SCRN.canvasH& THEN EXIT FUNCTION
+    IF PCYC_now# - PCYC.LAST_FULL# > 0.5 THEN EXIT FUNCTION
+    IF PCYC_signature$ <> PCYC.SIG$ THEN EXIT FUNCTION
+    PCYC_step_only_ok% = TRUE
+END FUNCTION
+
+
+''
+' Step-only frame: advance the colors in the existing cycled buffer and
+' return it (no layer compositing). Once per frame (pattern tile).
+'
+FUNCTION PCYC_present_step& ()
+    IF PCYC.BUILT_SEQ& <> SCREEN_RENDER_SEQ& THEN
+        PCYC.BUILT_SEQ& = SCREEN_RENDER_SEQ&
+        PCYC_apply_display FALSE
+    END IF
+    PCYC_present_step& = PCYC.BUF&
 END FUNCTION
 
 
@@ -973,8 +1055,14 @@ FUNCTION PCYC_strip_held% (x AS INTEGER, y AS INTEGER)
         FRAME_IDLE% = FALSE
         EXIT FUNCTION
     END IF
-    ' Released
+    ' Released. Include the release point: a fast flick can move and release
+    ' within one frame, before any held frame sampled the new chip.
     PCYC.DRAG_ACTIVE% = FALSE
+    idx% = PALETTE_OPS_calc_strip_index%(x%, y%)
+    IF idx% >= 0 _ANDALSO PALETTE_STRIP_in_bounds%(x%, y%) _ANDALSO PCYC.DRAG_START% >= 0 THEN
+        PCYC.DRAG_LO% = PCYC.DRAG_START% : PCYC.DRAG_HI% = idx%
+        IF PCYC.DRAG_LO% > PCYC.DRAG_HI% THEN SWAP PCYC.DRAG_LO%, PCYC.DRAG_HI%
+    END IF
     lo% = PCYC.DRAG_LO% : hi% = PCYC.DRAG_HI%
     PCYC.DRAG_LO% = -1 : PCYC.DRAG_HI% = -1
     GUI_NEEDS_REDRAW% = TRUE

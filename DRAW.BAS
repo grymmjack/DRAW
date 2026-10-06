@@ -894,7 +894,15 @@ DO
     ' Palette cycling: stay live while it runs, but only rebuild the scene (and the
     ' strip, whose chips cycle too) when a range actually steps — same discipline
     ' as the text cursor blink above.
-    IF PCYC_tick% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE: GUI_NEEDS_REDRAW% = TRUE
+    ' A frame whose ONLY scene change is a cycle step may skip layer compositing
+    ' (RENDER_layers -> PCYC_present_step&); see PCYC_step_only_ok%.
+    DIM pcycOther AS INTEGER
+    pcycOther% = SCENE_CHANGED% OR SCENE_DIRTY%
+    PCYC.STEP_ONLY% = FALSE
+    IF PCYC_tick% THEN
+        FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE: GUI_NEEDS_REDRAW% = TRUE
+        IF NOT pcycOther% THEN PCYC.STEP_ONLY% = TRUE
+    END IF
     STATUS_flash_tick
     IF PCYC_running% THEN FRAME_IDLE% = FALSE
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE

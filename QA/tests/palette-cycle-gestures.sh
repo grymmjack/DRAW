@@ -8,6 +8,10 @@
 #   Ctrl+Wheel over a chip   -> speed changes (status readout changes)
 #   Ctrl+M-click a chip      -> range deleted (true colors while cycling on)
 #   Ctrl+Z                   -> range back (animates again)
+#
+# Snaps meant to catch motion are 0.15 s apart on purpose: a 4-color range at
+# 10 steps/s repeats every 0.4 s, so snaps ~0.4 s apart can land on the same
+# frame of the loop and look "identical" (also at 12/15 steps/s after Ctrl+Wheel).
 # =============================================================================
 
 info "=== Palette Cycle Gestures Test ==="
@@ -50,7 +54,7 @@ assert_regions_differ "$EMPTY" "$ART" "Setup: the canvas must be filled with chi
 # helper: two canvas snaps a beat apart -> sets A_SNAP / B_SNAP
 two_snaps() {
     snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "$1-a"; A_SNAP="$SNAP_RESULT"
-    wait_for 0.35 "$1: a few steps later"
+    wait_for 0.15 "$1: a few steps later"
     snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "$1-b"; B_SNAP="$SNAP_RESULT"
 }
 

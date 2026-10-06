@@ -6,6 +6,10 @@
 #   Ctrl+L-click (direction REV)  -> the band pattern changes (solid -> dash-dot)
 #   Shift+Tab                     -> the strip swatches themselves animate
 #   Shift+Tab off                 -> the strip is still again
+#
+# Snaps meant to catch motion are 0.15 s apart on purpose: a 4-color range at
+# 10 steps/s repeats every 0.4 s, so snaps ~0.4 s apart can land on the same
+# frame of the loop and look "identical" (also at 12/15 steps/s after Ctrl+Wheel).
 # =============================================================================
 
 info "=== Palette Cycle Strip Test ==="
@@ -48,7 +52,7 @@ assert_regions_differ "$EMPTY" "$ART" "Setup: the canvas must be filled with chi
 # helper: two canvas snaps a beat apart -> sets A_SNAP / B_SNAP
 two_snaps() {
     snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "$1-a"; A_SNAP="$SNAP_RESULT"
-    wait_for 0.35 "$1: a few steps later"
+    wait_for 0.15 "$1: a few steps later"
     snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "$1-b"; B_SNAP="$SNAP_RESULT"
 }
 
@@ -79,7 +83,7 @@ info "Shift+Tab -> swatches animate"
 with_mods shift key Tab
 wait_for 0.3 "Cycling"
 snap_strip "strip-cyc-a"; A="$STRIP_SNAP"
-wait_for 0.35 "later"
+wait_for 0.15 "later"
 snap_strip "strip-cyc-b"; B="$STRIP_SNAP"
 screenshot "cyc-strip"
 assert_regions_differ "$A" "$B" "Range swatches must cycle on the strip"
@@ -88,7 +92,7 @@ info "Shift+Tab off -> strip still"
 with_mods shift key Tab
 wait_for 0.4 "Cycling off"
 snap_strip "strip-off-a"; A="$STRIP_SNAP"
-wait_for 0.35 "later"
+wait_for 0.15 "later"
 snap_strip "strip-off-b"; B="$STRIP_SNAP"
 assert_regions_same "$A" "$B" "Strip is still with cycling off"
 assert_regions_same "$S_REV" "$A" "Strip shows the true colors again"

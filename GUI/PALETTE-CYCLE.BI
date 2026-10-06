@@ -52,6 +52,10 @@ TYPE PCYC_OBJ
     SIG        AS STRING  ' palette + ranges signature the map was built for
     APPLIED    AS STRING  ' per-index display colors last written into BUF
     BUILT_SEQ  AS LONG    ' SCREEN_RENDER_SEQ& the buffer was built for (pattern tile = 9 calls/frame)
+    OVL        AS LONG    ' 8-bit overlay: opaque cycling pixels (index 0 = clear); stepped by _PALETTECOLOR
+    OVL_OK     AS INTEGER ' overlay in use (range colors fit in 255 overlay indices)
+    STEP_ONLY  AS INTEGER ' this frame's only scene change is a cycle step (set by DRAW.BAS)
+    LAST_FULL  AS DOUBLE  ' clock of the last full composite check (step-only frames re-verify every 0.5 s)
     CLOCK_LAST AS DOUBLE  ' TIMER at the last PCYC_now# call (midnight wrap)
     CLOCK_BASE AS DOUBLE  ' accumulated midnight wraps (seconds)
     PREV_SHIFT AS STRING  ' shifts at the last tick (change detection)
@@ -80,7 +84,8 @@ DIM SHARED PCYC_LUT_RGB(1 TO 256)     AS _UNSIGNED LONG
 DIM SHARED PCYC_LUT_IDX(1 TO 256)     AS INTEGER
 DIM SHARED PCYC_LUT_NEXT(1 TO 256)    AS INTEGER
 DIM SHARED PCYC_LUT_N                 AS INTEGER
-REDIM SHARED PCYC_A(0)                AS _UNSIGNED _BYTE ' original alpha of each cycling pixel
+REDIM SHARED PCYC_A(0)                AS _UNSIGNED _BYTE ' original alpha of each (partly transparent) cycling pixel
+DIM SHARED PCYC_OVL_IDX(0 TO 255)     AS INTEGER         ' overlay index of each palette index (0 = not cycling)
 
 ' Strip band colors per range number, and chips whose color duplicates an
 ' earlier chip (their pixels belong to that chip, so they cannot cycle).

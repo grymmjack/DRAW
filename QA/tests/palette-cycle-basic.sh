@@ -8,6 +8,10 @@
 #                    differ from the uncycled art)
 #   Shift+Tab OFF -> the canvas shows the true colors again (== before)
 #   Ctrl+Z        -> the range is gone: Shift+Tab no longer animates
+#
+# Snaps meant to catch motion are 0.15 s apart on purpose: a 4-color range at
+# 10 steps/s repeats every 0.4 s, so snaps ~0.4 s apart can land on the same
+# frame of the loop and look "identical" (also at 12/15 steps/s after Ctrl+Wheel).
 # =============================================================================
 
 info "=== Palette Cycle Basic Test ==="
@@ -69,7 +73,7 @@ with_mods shift key Tab
 wait_for 0.25 "Cycling"
 snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "cyc-on-a"
 ON_A="$SNAP_RESULT"
-wait_for 0.33 "a few steps later"
+wait_for 0.15 "a few steps later"
 snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "cyc-on-b"
 ON_B="$SNAP_RESULT"
 screenshot "cyc-on"
@@ -91,7 +95,7 @@ with_mods shift key Tab
 wait_for 0.25 "Cycling on (no ranges)"
 snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "cyc-undo-a"
 U_A="$SNAP_RESULT"
-wait_for 0.33 "later"
+wait_for 0.15 "later"
 snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "cyc-undo-b"
 U_B="$SNAP_RESULT"
 assert_regions_same "$U_A" "$U_B" "After undoing the range nothing cycles"
