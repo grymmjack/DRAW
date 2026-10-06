@@ -134,23 +134,31 @@ Palette workflows DRAW supports natively:
 
 > 🎯 **Goal:** Modify palette colors and remap on canvas.
 
-**Palette Ops mode** is one of DRAW's signature features. Toggle it from the Organizer panel. Once active, the palette strip becomes editable *and the canvas is remapped live as you change the palette*.
+**Palette Ops mode** is one of DRAW's signature features. Toggle it from the Organizer panel. Once it's on, the palette strip becomes editable, and the canvas follows every change you make to the palette.
 
-| Gesture on a palette swatch | Effect |
+A swatch works like an entry in an indexed palette: its pixels belong to it. Change the swatch and every pixel of that color on the canvas changes with it.
+
+| Gesture on the palette strip | Effect |
 | --- | --- |
-| Double-click | Open color picker; new color is **substituted on the canvas** wherever the old one appeared. |
-| Right-click | Place a marker / indicator on the swatch (visual bookmarking). |
-| Middle-click | Delete the color and remap matching pixels to the nearest remaining color. |
-| `Shift`+Middle-click | Insert a transparent (alpha 0) entry at this index. |
-| Drag onto another swatch | Rearrange palette order. |
-| Left-click | Magic-wand select all matching pixels on the active layer. |
+| Left-click a swatch | **Select** it (yellow frame). It becomes the foreground color. While it's selected, **any** color change edits the swatch and its pixels live: the Color Mixer, Advanced Color Picker, 3D Color Space, picker tool or hex input. One `Ctrl`+`Z` undoes the whole edit. Half a second after the click, the matching pixels are also wand-selected. |
+| Left-click the selected swatch | Deselect it. |
+| Left-click an empty part of the strip | Deselect the swatch and clear every marker. |
+| `Shift`+Left-click another swatch | **Ramp**: the swatches between the selected one and this one become a smooth blend between the two colors, and their pixels follow. The blend uses the *Gradient Blend* setting. |
+| Double-click a swatch | Open the color picker for that swatch. |
+| Drag a swatch | Move it to a new position. Dragging a **marked** swatch moves *all* marked swatches together. |
+| Right-click, or right-drag across swatches | Mark or unmark them. A drag gives every swatch it passes the same state as the first one. |
+| Middle-click a swatch | Delete it and remap its pixels to the nearest remaining color. On a **marked** swatch, this deletes every marked swatch. |
+| Middle-drag across swatches | Delete the whole range. It's outlined in red until you release. |
+| `Shift`+Middle-click a swatch | Insert the **current foreground color** after it, so you can build a palette straight from the color panels. |
+
+Undo and redo, and opening the color panels or the Preview, keep Palette Ops on. Other commands, switching tools, `Esc`, and right-clicking the Organizer button turn it off.
 
 When you first enter Palette Ops, DRAW automatically creates a **`[DOCUMENT]` palette** that snapshots the current state. This means experimentation is safe — you can hop back to the original palette at any time without losing your remapping.
 
 > 🎨 **Try it — colorway exploration**
 > 1. Open a finished sprite.
 > 2. Toggle Palette Ops.
-> 3. Double-click each palette swatch in turn and shift the hue.
+> 3. Click a swatch, then drag in the Color Mixer to shift its hue. The sprite updates as you drag.
 > 4. Compare colorways. When one feels right, exit Palette Ops to bake it in.
 
 ---

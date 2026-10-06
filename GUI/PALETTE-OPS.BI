@@ -4,13 +4,25 @@
 ' Palette Ops mode - transforms palette strip into a palette management tool.
 ' Toggle via the organizer Palette Ops button.
 '
-' When active:
-'   L-CLICK strip color       → 500ms delayed magic-wand select all matching pixels
-'   Double L-CLICK strip color → OS color dialog, replace old color across canvas
-'   R-CLICK strip color       → Toggle mark indicator on color
-'   M-CLICK strip color       → Delete color (remap to nearest neighbor)
-'   SHIFT+M-CLICK strip color → Insert blank color at position
-'   DRAG strip color           → Rearrange palette order
+' When active (palette index semantics: a chip IS its pixels — editing a chip
+' recolors every pixel of that color, the basis for indexed color / cycling):
+'   L-CLICK chip              → Select it (yellow frame) and make it FG. While
+'                               selected, ANY FG change (mixer, ACP, 3D panel,
+'                               picker, hex...) edits the chip live and recolors
+'                               its pixels; one undo step per edit (mouse up).
+'                               500ms later the chip's pixels are wand-selected.
+'   L-CLICK selected chip      → Deselect it
+'   L-CLICK blank strip area   → Deselect chip + clear all marks + wand
+'   SHIFT+L-CLICK chip         → Ramp: chips between the selected chip and this
+'                               one become an interpolated ramp (Gradient Blend
+'                               space), pixels follow; this chip becomes selected
+'   Double L-CLICK chip        → OS color dialog for that chip
+'   L-DRAG chip                → Move it (a marked chip moves ALL marked chips)
+'   R-CLICK / R-DRAG chips     → Mark / unmark (drag paints the first chip's new state)
+'   M-CLICK chip               → Delete it (a marked chip deletes ALL marked)
+'   M-DRAG across chips        → Delete the whole range (red preview until release)
+'   SHIFT+M-CLICK chip         → Insert the current FG color after it
+'   R-CLICK Color Ops button / ESC → leave Color Ops mode
 '
 ' On activation: auto-remaps canvas to current palette (no dialog).
 ' Deactivates on any tool switch or menu action.
@@ -31,6 +43,24 @@ TYPE PALETTE_OPS_OBJ
     WAND_SHOWING     AS INTEGER ' TRUE if wand selection is currently displayed
     DBLCLICK_TIME    AS DOUBLE  ' Last L-click time for double-click detection
     DBLCLICK_IDX     AS INTEGER ' Last clicked palette index for double-click
+    TOGGLE_PENDING   AS INTEGER ' L-press landed on the selected chip: deselect on release unless dragged
+
+    ' Selected chip (L-click): FG edits recolor it + its pixels (-1 = none)
+    SEL_IDX          AS INTEGER
+    SEL_LAST         AS _UNSIGNED LONG ' FG value last synced with the selected chip
+    EDIT_ACTIVE      AS INTEGER        ' TRUE while a live chip edit is uncommitted
+    EDIT_ORIG        AS _UNSIGNED LONG ' chip color when the live edit began
+    EDIT_COUNT       AS LONG           ' pixels recorded in PALETTE_OPS_EDIT_OFF()
+
+    ' R-drag marking
+    MARK_DRAG        AS INTEGER ' TRUE while B2 is held after a strip press
+    MARK_VALUE       AS INTEGER ' mark state the drag paints (TRUE / FALSE)
+
+    ' M-drag range delete
+    DEL_DRAG         AS INTEGER ' TRUE while B3 is held after a strip press
+    DEL_START        AS INTEGER ' palette index where the press landed
+    DEL_END          AS INTEGER ' palette index under the pointer now
+    DEL_SHIFT        AS INTEGER ' Shift was held at the press (insert instead)
 END TYPE
 
 DIM SHARED PALETTE_OPS       AS PALETTE_OPS_OBJ
@@ -39,6 +69,17 @@ DIM SHARED PALETTE_OPS_MARKED(0 TO 255) AS INTEGER        ' Per-color mark flags
 ' per-color PALETTE_OPS_delete_color skips its own undo group + palette snapshot and lets
 ' the batch wrap the whole thing in ONE undo record instead.
 DIM SHARED PALETTE_OPS_BATCH AS INTEGER
+
+' Live chip edit (PALETTE_OPS_edit_*): every pixel that had the chip's color
+' when the edit began, recorded once so later updates rewrite exactly those
+' pixels (dragging the color through another chip's color never merges them).
+' Per layer slot: before-image for undo (0 = layer has none of the color) and
+' the [first, first+count) span of its pixel byte offsets in EDIT_OFF().
+DIM SHARED PALETTE_OPS_EDIT_BEFORE$
+DIM SHARED PALETTE_OPS_EDIT_IMG(1 TO MAX_LAYERS) AS LONG
+DIM SHARED PALETTE_OPS_EDIT_FIRST(1 TO MAX_LAYERS) AS LONG
+DIM SHARED PALETTE_OPS_EDIT_N(1 TO MAX_LAYERS) AS LONG
+REDIM SHARED PALETTE_OPS_EDIT_OFF(0) AS LONG
 
 ' Document palette state - snapshot of modified palette for switching back
 DIM SHARED PALETTE_DOC_EXISTS AS INTEGER                  ' TRUE when document palette has been created
@@ -53,5 +94,8 @@ PALETTE_OPS.WAND_PENDING_IDX% = -1
 PALETTE_OPS.WAND_SHOWING%     = FALSE
 PALETTE_OPS.DBLCLICK_TIME#    = 0
 PALETTE_OPS.DBLCLICK_IDX%     = -1
+PALETTE_OPS.SEL_IDX%          = -1
+PALETTE_OPS.DEL_START%        = -1
+PALETTE_OPS.DEL_END%          = -1
 
 ' Declarations

@@ -197,6 +197,24 @@ SUB PALETTE_STRIP_render ()
     END IF
     _UPRINTSTRING (arrow_left_x% + 4, y% + (strip_height% \ 2) - 3), CHR$(17)  ' Left arrow centered
     
+    ' Which chips get the FG / BG frame: only one whose color IS the current
+    ' FG / BG. PAL_FG_IDX% keeps pointing at the last chip clicked, so after a
+    ' color panel / picker sets a color that is not in the palette the old
+    ' chip must not stay framed; if the color is elsewhere in the palette,
+    ' frame that chip instead.
+    DIM fgShow AS INTEGER, bgShow AS INTEGER
+    fgShow% = PALETTE_STRIP_chip_for_color%(PAL_FG_IDX%, PAINT_COLOR~&, PAL_FG_IS_TRANSPARENT%, pal_count%)
+    bgShow% = PALETTE_STRIP_chip_for_color%(PAL_BG_IDX%, PAINT_BG_COLOR~&, PAL_BG_IS_TRANSPARENT%, pal_count%)
+
+    ' Color Ops: middle-drag delete range preview
+    DIM delLo AS INTEGER, delHi AS INTEGER
+    delLo% = -1 : delHi% = -2
+    IF PALETTE_OPS.ACTIVE% _ANDALSO PALETTE_OPS.DEL_DRAG% _ANDALSO PALETTE_OPS.DEL_START% >= 0 THEN
+        delLo% = PALETTE_OPS.DEL_START% : delHi% = PALETTE_OPS.DEL_END%
+        IF delHi% < delLo% THEN SWAP delLo%, delHi%
+        IF PALETTE_OPS.DEL_SHIFT% THEN delLo% = -1 : delHi% = -2 ' Shift+M = insert, not delete
+    END IF
+
     ' Draw color swatches (dynamic rows based on palette size)
     
     DIM row      AS INTEGER
@@ -216,12 +234,12 @@ SUB PALETTE_STRIP_render ()
         
         ' Draw selection indicator for FG/BG colors (only if not transparent)
         ' pal_idx% is already the correct absolute palette index at this visible position
-        IF NOT PAL_FG_IS_TRANSPARENT% AND pal_idx% = PAL_FG_IDX% THEN
+        IF pal_idx% = fgShow% THEN
             ' Foreground color - white outline for visibility
             LINE (x%, swatch_y%)-(x% + sw% - 1, swatch_y% + sh% - 1), THEME.PALETTE_STRIP_sel_border_outer~&, B
             LINE (x% + 1, swatch_y% + 1)-(x% + sw% - 2, swatch_y% + sh% - 2), THEME.PALETTE_STRIP_sel_border_inner~&, B
         END IF
-        IF NOT PAL_BG_IS_TRANSPARENT% AND pal_idx% = PAL_BG_IDX% THEN
+        IF pal_idx% = bgShow% THEN
             ' Background color - dark grey outline for visibility
             LINE (x%, swatch_y%)-(x% + sw% - 1, swatch_y% + sh% - 1), THEME.PALETTE_STRIP_inact_border_outer~&, B
             LINE (x% + 1, swatch_y% + 1)-(x% + sw% - 2, swatch_y% + sh% - 2), THEME.PALETTE_STRIP_inact_border_inner~&, B
@@ -244,6 +262,20 @@ SUB PALETTE_STRIP_render ()
             dotX% = x% + sw% - 4
             dotY% = swatch_y% + 1
             LINE (dotX%, dotY%)-(dotX% + 2, dotY% + 2), _RGB32(255, 0, 0), BF
+        END IF
+
+        ' Color Ops: selected chip (edited by the color panels) — yellow frame
+        IF PALETTE_OPS.ACTIVE% _ANDALSO pal_idx% = PALETTE_OPS.SEL_IDX% THEN
+            LINE (x%, swatch_y%)-(x% + sw% - 1, swatch_y% + sh% - 1), _RGB32(255, 210, 0), B
+            LINE (x% + 1, swatch_y% + 1)-(x% + sw% - 2, swatch_y% + sh% - 2), _RGB32(255, 210, 0), B
+            LINE (x% + 2, swatch_y% + 2)-(x% + sw% - 3, swatch_y% + sh% - 3), _RGB32(0, 0, 0), B
+        END IF
+
+        ' Color Ops: chips in the middle-drag delete range — red frame + cross
+        IF pal_idx% >= delLo% _ANDALSO pal_idx% <= delHi% THEN
+            LINE (x%, swatch_y%)-(x% + sw% - 1, swatch_y% + sh% - 1), _RGB32(255, 40, 40), B
+            LINE (x% + 2, swatch_y% + 2)-(x% + sw% - 3, swatch_y% + sh% - 3), _RGB32(255, 40, 40)
+            LINE (x% + 2, swatch_y% + sh% - 3)-(x% + sw% - 3, swatch_y% + 2), _RGB32(255, 40, 40)
         END IF
 
         ' Palette Ops: draw drag destination indicator
@@ -475,6 +507,47 @@ SUB PALETTE_STRIP_handle_click (x AS INTEGER, y AS INTEGER)
         END IF
     END IF
 END SUB
+
+
+''
+' Redraw the strip when FG / BG change from anywhere (color panels, picker,
+' hex input...). Those only ask for a status-bar refresh, which skips the
+' strip, so the chip frames (PALETTE_STRIP_chip_for_color%) would go stale.
+' Called once per main-loop frame.
+'
+SUB PALETTE_STRIP_watch_colors ()
+    STATIC lastFG AS _UNSIGNED LONG, lastBG AS _UNSIGNED LONG, lastFT AS INTEGER, lastBT AS INTEGER
+    IF PAINT_COLOR~& <> lastFG~& OR PAINT_BG_COLOR~& <> lastBG~& OR PAL_FG_IS_TRANSPARENT% <> lastFT% OR PAL_BG_IS_TRANSPARENT% <> lastBT% THEN
+        lastFG~& = PAINT_COLOR~& : lastBG~& = PAINT_BG_COLOR~&
+        lastFT% = PAL_FG_IS_TRANSPARENT% : lastBT% = PAL_BG_IS_TRANSPARENT%
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE%       = FALSE
+    END IF
+END SUB
+
+
+''
+' The chip to frame for a FG/BG color: idxHint when that chip IS the color,
+' else the first chip with exactly that color, else -1 (no frame).
+'
+FUNCTION PALETTE_STRIP_chip_for_color% (idxHint AS INTEGER, c AS _UNSIGNED LONG, isTransparent AS INTEGER, palCount AS INTEGER)
+    PALETTE_STRIP_chip_for_color% = -1
+    IF isTransparent% THEN EXIT FUNCTION
+    DIM rgb AS _UNSIGNED LONG : rgb~& = c~& AND &HFFFFFF
+    IF idxHint% >= 0 _ANDALSO idxHint% < palCount% THEN
+        IF (PAL(idxHint%).value~& AND &HFFFFFF) = rgb~& _ANDALSO (PAL(idxHint%).value~& AND &HFF000000~&) <> 0 THEN
+            PALETTE_STRIP_chip_for_color% = idxHint%
+            EXIT FUNCTION
+        END IF
+    END IF
+    DIM i AS INTEGER
+    FOR i% = 0 TO palCount% - 1
+        IF (PAL(i%).value~& AND &HFFFFFF) = rgb~& _ANDALSO (PAL(i%).value~& AND &HFF000000~&) <> 0 THEN
+            PALETTE_STRIP_chip_for_color% = i%
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+END FUNCTION
 
 
 ''
