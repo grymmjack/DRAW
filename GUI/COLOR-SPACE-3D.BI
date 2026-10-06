@@ -9,6 +9,8 @@
 '
 ' Same panel model as ADV-COLOR-PICKER: the widget owns all picker behavior,
 ' this wrapper only frames it (title bar, drag, close, region, FG sync).
+' Look (font, title bar, chips, slider) is shared via GUI/FLOAT-PANEL so it
+' matches the Color Mixer.
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
@@ -17,8 +19,6 @@ $INCLUDEONCE
 OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
-CONST CS3D_TITLE_H      = 14  ' Title bar height (native px)
-CONST CS3D_WIDGET_W     = 240 ' Widget native width (the 3D view is square)
 
 TYPE COLOR_SPACE_3D_OBJ
     visible           AS INTEGER        ' TRUE = panel shown
@@ -37,7 +37,8 @@ TYPE COLOR_SPACE_3D_OBJ
     panelImg  AS LONG                   ' native composite (title bar + widget)
     panelW    AS INTEGER
     panelH    AS INTEGER
-    titleFont AS LONG                   ' themed title font; 0 = built-in
+    bodyX     AS INTEGER                ' widget origin inside the panel (native px)
+    bodyY     AS INTEGER
 
     dragging    AS INTEGER              ' title-bar drag
     dragStartMX AS INTEGER

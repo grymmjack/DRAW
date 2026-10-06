@@ -17,8 +17,7 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
 ' Native (pre-upscale) geometry of the panel.
-CONST ADVCP_TITLE_H      = 14  ' Title bar height (native px)
-CONST ADVCP_WHEEL_NATIVE = 190 ' Hue-ring + triangle wheel size (native px)
+CONST ADVCP_WHEEL_NATIVE = 190 ' Placeholder footprint until ACP_init (real width = FPANEL_panel_w%)
 
 TYPE ADV_COLOR_PICKER_OBJ
     visible           AS INTEGER        ' TRUE = panel shown

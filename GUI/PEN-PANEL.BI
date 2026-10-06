@@ -7,7 +7,9 @@
 ' paint), plus the pressure curve. Toggle via View > Pen Pressure (action
 ' 2028). Same frame model as GUI/COLOR-SPACE-3D (title bar, drag, close,
 ' region, auto-hide while drawing over it, F11). All values are CFG.PEN_*,
-' shared with Settings > General > Pen Tablet.
+' shared with Settings > General > Pen Tablet. Look (font, title bar,
+' sliders, checkboxes) is shared via GUI/FLOAT-PANEL so it matches the Color
+' Mixer; the layout is derived from that font in PENP_layout.
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
@@ -15,9 +17,6 @@ $INCLUDEONCE
 
 OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
-
-CONST PENP_W       = 200 ' native panel width
-CONST PENP_TITLE_H = 14  ' title bar height (native px)
 
 ' Controls (PENP_hit% ids)
 CONST PENP_CTL_NONE      = 0
@@ -30,21 +29,9 @@ CONST PENP_CTL_MIX_ON    = 6
 CONST PENP_CTL_MIX       = 7
 CONST PENP_CTL_CURVE     = 8
 CONST PENP_CTL_TIP       = 9
+CONST PENP_CTL_COUNT     = 9
 
-' Layout (native px, y of each row's top)
-CONST PENP_Y_STATUS  = 18
-CONST PENP_Y_ON      = 30
-CONST PENP_Y_METER   = 44
-CONST PENP_Y_SIZE    = 60
-CONST PENP_Y_OPAC    = 90
-CONST PENP_Y_MIX     = 120
-CONST PENP_Y_CURVE   = 150
-CONST PENP_Y_TIP     = 175
-CONST PENP_Y_GRAPH   = 194
-CONST PENP_GRAPH_H   = 48
-CONST PENP_H         = 248 ' native panel height incl. title
-CONST PENP_TRACK_X0  = 52  ' slider track (native x)
-CONST PENP_TRACK_X1  = 150
+CONST PENP_GRAPH_H   = 44  ' response graph height (native px)
 
 TYPE PEN_PANEL_OBJ
     visible           AS INTEGER ' TRUE = panel shown
@@ -59,8 +46,19 @@ TYPE PEN_PANEL_OBJ
     dispH       AS INTEGER
     renderScale AS SINGLE        ' native -> viewport scale (ts/ds)
 
-    panelImg  AS LONG            ' native panel image
-    titleFont AS LONG            ' themed title font; 0 = built-in
+    panelImg   AS LONG           ' native panel image
+    panelW     AS INTEGER        ' native panel width (shared floating-panel width)
+    panelH     AS INTEGER        ' native panel height (font-derived, PENP_layout)
+    hoverCtl   AS INTEGER        ' PENP_CTL_* under the pointer (hover highlight)
+    closeHover AS INTEGER        ' pointer is on the close box
+
+    ' Layout (native px, from PENP_layout): row tops + slider track span
+    yStatus  AS INTEGER
+    yMeter   AS INTEGER
+    yGraph   AS INTEGER
+    subX     AS INTEGER          ' x of a checkbox's label (sub-slider labels align here)
+    trackX0  AS INTEGER
+    trackX1  AS INTEGER
 
     dragging    AS INTEGER       ' title-bar drag
     dragStartMX AS INTEGER
@@ -72,3 +70,4 @@ TYPE PEN_PANEL_OBJ
 END TYPE
 
 DIM SHARED PENP AS PEN_PANEL_OBJ
+DIM SHARED PENP_ctlY(1 TO PENP_CTL_COUNT) AS INTEGER ' native top of each control row (PENP_layout)

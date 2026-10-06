@@ -186,6 +186,29 @@ Floating live preview panel toggled with `F4` / action ID `434`.
 
 ---
 
+## Floating panel look (`GUI/FLOAT-PANEL.BI` / `GUI/FLOAT-PANEL.BM`)
+
+Hand-drawn floating panels (3D Color Space, Pen Pressure) must look like the Color Mixer. `FPANEL_*` holds that look in one place: the themed UI font (`THEME.GLOBAL_FONT_*`, loaded once, shared) and the mixer's geometry, derived from the font height exactly like `CP_THEME_scale_geometry` (`FPANEL.titleH/rowH/sliderH/gap/section/pad`). The drawing helpers mirror the CP library's renderers and use `THEME.CP_*` colors: `FPANEL_title_bar` (close box with hover), `FPANEL_chip` (posterize-chip states), `FPANEL_track` (slider well + fill + thumb) and `FPANEL_checkbox`.
+
+- Wrap panel drawing in `oldFont& = FPANEL_begin&` … `_FONT oldFont&`. Never draw panel text with `_FONT 8`, which is the blocky built-in font the mixer doesn't use.
+- Derive layout from `FPANEL.*`, never fixed pixel constants (see `PENP_layout`), so a theme font change re-flows the panel.
+- Library widgets take the font via their own hook; for example, `C3D_set_font FPANEL.font&` resizes the C3D rows to fit it.
+- **One title bar everywhere.** The Advanced Color Picker and the Preview window use `FPANEL_title_bar` too: `ADVCP_title_h%` and `PREVIEW_title_h%` return `FPANEL.titleH`, so `THEME.PREVIEW_title_height%`/`button_*` no longer drive the Preview. The Preview adds a minimize box (one `titleH` square left of the close box) and its FP/CP `FPANEL_checkbox` after the title (`PREVIEW_cb_x%`/`PREVIEW_cb_w%`). The close button everywhere is the drawn cross `FPANEL_close_icon`, and the Color Mixer's comes from the same cross in `CP_RENDER_title_bar`.
+- **One width.** The color / pen panels share `FPANEL_panel_w%`, which is the Color Mixer's CP `dialogW`. The ACP wheel, the C3D widget (inside `pad`) and `PENP.panelW` are all sized from it.
+
+**Placement (snap + no overlap).** All six floating windows run their title-bar drag through `FPANEL_place`: the Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Image Browser and Preview (see `FPANEL_float_region%`).
+
+- **Snapping.** Edges snap within `FPANEL_SNAP` (6 viewport px), and the nearest target wins. Targets are: butting against another floating window's side, top or bottom (when the rows or columns overlap, or come within the snap distance); lining up with any other window's left, right, top or bottom edge, wherever it is; and the work-area chrome edges.
+- **No overlap.** A spot that overlaps another floating window is replaced by the nearest free spot, whose edges touch an obstacle or the work area, so a dragged window slides along what it hits. If nothing is free, the window keeps its previous spot.
+- **Where the rects come from.** Other windows' rectangles are read from `REGION_BOUNDS_TABLE`. Input runs before the next render, so it holds last frame's footprints, and hidden windows never block.
+- **Drag pattern.** Remember prev x/y → set desired → own clamp → `FPANEL_place` → own clamp.
+- **Opening.** The four color/pen panels also call `FPANEL_place` when toggled open.
+- **Startup.** `FPANEL_settle_once`, after the first `SCREEN_render` in `DRAW.BAS`, pulls apart windows restored from overlapping saved positions.
+- **Adding a floating window.** Add it to `FPANEL_float_region%`, `FPANEL_get_pos` and `FPANEL_set_pos`, and bump `FPANEL_FLOAT_COUNT`.
+- **Not covered.** Resizing (Preview, Image Browser) is not constrained.
+
+---
+
 ## Edit Bar (`GUI/EDITBAR.BI` / `GUI/EDITBAR.BM`)
 
 Vertical icon bar that mirrors Edit menu actions as clickable icon buttons. Dockable LEFT (adjacent to layers panel) or RIGHT (adjacent to toolbox/drawer). Toggle with F5 or action ID 435.

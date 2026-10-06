@@ -2,7 +2,8 @@
 ' DRAW - GUI/PEN-PANEL.BM
 ' =============================================================================
 ' Pen Pressure panel implementation. See GUI/PEN-PANEL.BI.
-' Renders to screen 0 at integer toolbar scale (same model as COLOR-SPACE-3D).
+' Renders to screen 0 at integer toolbar scale (same model as COLOR-SPACE-3D);
+' font, title bar and controls come from GUI/FLOAT-PANEL (Color Mixer look).
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
@@ -23,27 +24,20 @@ SUB PENP_init ()
     PENP.panelImg&    = 0
     PENP.dragging%    = FALSE
     PENP.sliding%     = PENP_CTL_NONE
+    PENP.hoverCtl%    = PENP_CTL_NONE
+    PENP.closeHover%  = FALSE
     PENP.lastP!       = -1
     IF CFG.PEN_PANEL_VISIBLE% THEN PENP.visible% = TRUE
 END SUB
 
 ' ---------------------------------------------------------------------------
-' PENP_ensure_initialized — panel buffer, title font, restored position.
+' PENP_ensure_initialized — layout + panel buffer, restored position.
 ' ---------------------------------------------------------------------------
 SUB PENP_ensure_initialized ()
     IF PENP.initialized% THEN EXIT SUB
+    PENP_layout
     IF PENP.panelImg& < -1 THEN _FREEIMAGE PENP.panelImg&
-    PENP.panelImg& = _NEWIMAGE(PENP_W, PENP_H, 32)
-
-    IF PENP.titleFont& > 0 THEN _FREEFONT PENP.titleFont&
-    PENP.titleFont& = 0
-    DIM fontFile AS STRING  : fontFile$ = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
-    DIM fontSize AS INTEGER : fontSize% = THEME.GLOBAL_FONT_SIZE%
-    IF fontSize% < 1 THEN fontSize% = 8
-    IF _FILEEXISTS(fontFile$) THEN
-        DIM fh AS LONG : fh& = _LOADFONT(fontFile$, fontSize%, "DONTBLEND")
-        IF fh& > 0 THEN PENP.titleFont& = fh&
-    END IF
+    PENP.panelImg& = _NEWIMAGE(PENP.panelW%, PENP.panelH%, 32)
 
     PENP_compute_display_size
     IF CFG.PEN_PANEL_X% > -1 AND CFG.PEN_PANEL_Y% > -1 THEN
@@ -55,12 +49,61 @@ SUB PENP_ensure_initialized ()
 END SUB
 
 ' ---------------------------------------------------------------------------
+' PENP_layout — Row tops and slider track span from the Color Mixer font
+' metrics (FPANEL), spaced like the mixer's slider rows and sections:
+'   status / USE PEN PRESSURE + meter / three checkbox + LIGHT slider pairs /
+'   CURVE + TIP / response graph.
+' ---------------------------------------------------------------------------
+SUB PENP_layout ()
+    FPANEL_ensure
+    PENP.panelW% = FPANEL_panel_w%
+    DIM f AS INTEGER, g AS INTEGER, sec AS INTEGER, sh AS INTEGER, y AS INTEGER
+    f%   = FPANEL.fontH%
+    g%   = FPANEL.gap%
+    sec% = FPANEL.section%
+    sh%  = FPANEL.sliderH%
+
+    y% = FPANEL.titleH% + FPANEL.pad%
+    PENP.yStatus% = y%                    : y% = y% + f% + sec%
+    PENP_ctlY(PENP_CTL_ON) = y%           : y% = y% + f% + g%
+    PENP.yMeter% = y%                     : y% = y% + sh% + sec% + g%
+    PENP_ctlY(PENP_CTL_SIZE_ON) = y%      : y% = y% + f% + g%
+    PENP_ctlY(PENP_CTL_SIZE) = y%         : y% = y% + sh% + sec%
+    PENP_ctlY(PENP_CTL_OPAC_ON) = y%      : y% = y% + f% + g%
+    PENP_ctlY(PENP_CTL_OPAC) = y%         : y% = y% + sh% + sec%
+    PENP_ctlY(PENP_CTL_MIX_ON) = y%       : y% = y% + f% + g%
+    PENP_ctlY(PENP_CTL_MIX) = y%          : y% = y% + sh% + sec% + g%
+    PENP_ctlY(PENP_CTL_CURVE) = y%        : y% = y% + sh% + g%
+    PENP_ctlY(PENP_CTL_TIP) = y%          : y% = y% + sh% + sec% + g%
+    PENP.yGraph% = y%                     : y% = y% + PENP_GRAPH_H + FPANEL.pad%
+    PENP.panelH% = y%
+
+    ' Track span: after the widest label (sub-slider labels sit under their
+    ' checkbox's text), before a value column wide enough for "100%".
+    DIM oldDest AS LONG : oldDest& = _DEST
+    DIM probe   AS LONG : probe& = _NEWIMAGE(8, 8, 32)
+    _DEST probe&
+    DIM oldFont AS LONG : oldFont& = FPANEL_begin&
+    DIM bs      AS INTEGER : bs% = FPANEL.fontH% - 1
+    IF bs% < 7 THEN bs% = 7
+    PENP.subX% = FPANEL.pad% + bs% + 4
+    DIM lw AS INTEGER : lw% = PENP.subX% + _UPRINTWIDTH("LIGHT")
+    IF FPANEL.pad% + _UPRINTWIDTH("CURVE") > lw% THEN lw% = FPANEL.pad% + _UPRINTWIDTH("CURVE")
+    PENP.trackX0% = lw% + 6
+    PENP.trackX1% = PENP.panelW% - FPANEL.pad% - _UPRINTWIDTH("100%") - 6
+    _FONT oldFont&
+    _DEST oldDest&
+    _FREEIMAGE probe&
+END SUB
+
+' ---------------------------------------------------------------------------
 ' PENP_reset — Reset transient state after a document load.
 ' ---------------------------------------------------------------------------
 SUB PENP_reset ()
     PENP.autoHidden% = FALSE
     PENP.dragging%   = FALSE
     PENP.sliding%    = PENP_CTL_NONE
+    PENP.hoverCtl%   = PENP_CTL_NONE
 END SUB
 
 ' ---------------------------------------------------------------------------
@@ -74,6 +117,10 @@ SUB PENP_toggle ()
         PENP.autoHidden% = FALSE
         PENP_ensure_initialized
         IF NOT PENP.positioned% THEN PENP_auto_position
+        ' Open beside, not on top of, any other floating window
+        FPANEL_place REGION_PEN_PANEL, PENP.dispX%, PENP.dispY%, PENP.dispW%, PENP.dispH%, PENP.dispX%, PENP.dispY%
+        CFG.PEN_PANEL_X% = PENP.dispX%
+        CFG.PEN_PANEL_Y% = PENP.dispY%
     END IF
     CFG.PEN_PANEL_VISIBLE% = PENP.visible%
     SCENE_DIRTY%           = TRUE
@@ -88,8 +135,8 @@ SUB PENP_compute_display_size ()
     ts%               = USCALE.mixer%      : IF ts% < 1 THEN ts% = 1
     ds%               = SCRN.displayScale% : IF ds% < 1 THEN ds% = 1
     PENP.renderScale! = CSNG(ts%) / CSNG(ds%)
-    PENP.dispW%       = INT(CSNG(PENP_W) * CSNG(ts%) / CSNG(ds%) + 0.5)
-    PENP.dispH%       = INT(CSNG(PENP_H) * CSNG(ts%) / CSNG(ds%) + 0.5)
+    PENP.dispW%       = INT(CSNG(PENP.panelW%) * CSNG(ts%) / CSNG(ds%) + 0.5)
+    PENP.dispH%       = INT(CSNG(PENP.panelH%) * CSNG(ts%) / CSNG(ds%) + 0.5)
 END SUB
 
 ' ---------------------------------------------------------------------------
@@ -118,7 +165,7 @@ SUB PENP_clamp_to_work_area ()
     CS3D_work_area minY%, maxY%
     IF PENP.dispX% + PENP.dispW% > maxX% THEN PENP.dispX% = maxX% - PENP.dispW%
     IF PENP.dispX% < minX% THEN PENP.dispX% = minX%
-    DIM titleH AS INTEGER : titleH% = INT(PENP_TITLE_H * PENP.renderScale! + 0.5)
+    DIM titleH AS INTEGER : titleH% = INT(FPANEL.titleH% * PENP.renderScale! + 0.5)
     IF titleH% < 16 THEN titleH% = 16
     IF PENP.dispY% + PENP.dispH% > maxY% THEN PENP.dispY% = maxY% - PENP.dispH%
     IF PENP.dispY% + titleH% > maxY% THEN PENP.dispY% = maxY% - titleH%
@@ -190,51 +237,50 @@ FUNCTION PENP_slider_text$ (ctl AS INTEGER)
 END FUNCTION
 
 ' ---------------------------------------------------------------------------
-' PENP_hit% — Control under a native panel point (PENP_CTL_*).
-' Checkbox rows are 10px tall; slider rows sit 12px under their checkbox.
+' PENP_track_frac! — Native x -> 0..1 along the slider track (matches the
+' fill/thumb geometry of FPANEL_track).
 ' ---------------------------------------------------------------------------
-FUNCTION PENP_hit% (nx AS INTEGER, ny AS INTEGER)
-    PENP_hit% = PENP_CTL_NONE
-    IF nx% < 2 OR nx% >= PENP_W - 2 THEN EXIT FUNCTION
-    DIM onTrack AS INTEGER
-    onTrack% = (nx% >= PENP_TRACK_X0 - 6 AND nx% <= PENP_TRACK_X1 + 6)
-    IF ny% >= PENP_Y_ON AND ny% < PENP_Y_ON + 10 THEN PENP_hit% = PENP_CTL_ON
-    IF ny% >= PENP_Y_SIZE AND ny% < PENP_Y_SIZE + 10 THEN PENP_hit% = PENP_CTL_SIZE_ON
-    IF ny% >= PENP_Y_OPAC AND ny% < PENP_Y_OPAC + 10 THEN PENP_hit% = PENP_CTL_OPAC_ON
-    IF ny% >= PENP_Y_MIX AND ny% < PENP_Y_MIX + 10 THEN PENP_hit% = PENP_CTL_MIX_ON
-    IF onTrack% THEN
-        IF ny% >= PENP_Y_SIZE + 11 AND ny% < PENP_Y_SIZE + 24 THEN PENP_hit% = PENP_CTL_SIZE
-        IF ny% >= PENP_Y_OPAC + 11 AND ny% < PENP_Y_OPAC + 24 THEN PENP_hit% = PENP_CTL_OPAC
-        IF ny% >= PENP_Y_MIX + 11 AND ny% < PENP_Y_MIX + 24 THEN PENP_hit% = PENP_CTL_MIX
-        IF ny% >= PENP_Y_CURVE + 6 AND ny% < PENP_Y_CURVE + 20 THEN PENP_hit% = PENP_CTL_CURVE
-        IF ny% >= PENP_Y_TIP - 3 AND ny% < PENP_Y_TIP + 11 THEN PENP_hit% = PENP_CTL_TIP
-    END IF
+FUNCTION PENP_track_frac! (nx AS INTEGER)
+    PENP_track_frac! = (nx% - PENP.trackX0% - 1) / (PENP.trackX1% - PENP.trackX0% - 1)
 END FUNCTION
 
 ' ---------------------------------------------------------------------------
-' Drawing helpers (into the panel image, native coords, _FONT 8).
+' PENP_hit% — Control under a native panel point (PENP_CTL_*).
+' Checkbox rows are clickable across the panel; sliders on (or just past)
+' their track, with half the row gap of slack above and below.
 ' ---------------------------------------------------------------------------
-SUB PENP_draw_checkbox (x AS INTEGER, y AS INTEGER, checked AS INTEGER, label AS STRING, enabled AS INTEGER)
-    DIM fg AS _UNSIGNED LONG
-    IF enabled% THEN fg~& = THEME.CP_text~& ELSE fg~& = THEME.CP_text_dim~&
-    LINE (x%, y% + 1)-(x% + 7, y% + 8), THEME.CP_button_bg~&, BF
-    LINE (x%, y% + 1)-(x% + 7, y% + 8), fg~&, B
-    IF checked% THEN LINE (x% + 2, y% + 3)-(x% + 5, y% + 6), THEME.DIALOG_toggle_sel_bg~&, BF
-    COLOR fg~&, _RGBA32(0, 0, 0, 0)
-    _PRINTSTRING (x% + 12, y% + 1), label$
+FUNCTION PENP_hit% (nx AS INTEGER, ny AS INTEGER)
+    PENP_hit% = PENP_CTL_NONE
+    IF nx% < 2 OR nx% >= PENP.panelW% - 2 THEN EXIT FUNCTION
+    DIM onTrack AS INTEGER, c AS INTEGER, y AS INTEGER, slack AS INTEGER
+    onTrack% = (nx% >= PENP.trackX0% - 4 AND nx% <= PENP.trackX1% + 4)
+    slack%   = FPANEL.gap% \ 2 + 1
+    FOR c% = 1 TO PENP_CTL_COUNT
+        y% = PENP_ctlY(c%)
+        SELECT CASE c%
+            CASE PENP_CTL_ON, PENP_CTL_SIZE_ON, PENP_CTL_OPAC_ON, PENP_CTL_MIX_ON
+                IF ny% >= y% - 1 AND ny% < y% + FPANEL.fontH% + 1 THEN PENP_hit% = c%
+            CASE ELSE
+                IF onTrack% AND ny% >= y% - slack% AND ny% < y% + FPANEL.sliderH% + slack% THEN PENP_hit% = c%
+        END SELECT
+    NEXT c%
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Drawing helpers (into the panel image, native coords, FPANEL font).
+' ---------------------------------------------------------------------------
+SUB PENP_draw_checkbox (ctl AS INTEGER, checked AS INTEGER, label AS STRING, enabled AS INTEGER)
+    FPANEL_checkbox FPANEL.pad%, PENP_ctlY(ctl%), checked%, label$, enabled%, PENP.hoverCtl% = ctl%
 END SUB
 
-SUB PENP_draw_slider (ctl AS INTEGER, y AS INTEGER, label AS STRING, enabled AS INTEGER)
-    DIM fg AS _UNSIGNED LONG, kx AS INTEGER, cy AS INTEGER
+SUB PENP_draw_slider (ctl AS INTEGER, labelX AS INTEGER, label AS STRING, enabled AS INTEGER)
+    DIM fg AS _UNSIGNED LONG, y AS INTEGER, ty AS INTEGER
     IF enabled% THEN fg~& = THEME.CP_text~& ELSE fg~& = THEME.CP_text_dim~&
-    cy% = y% + 4
-    COLOR fg~&, _RGBA32(0, 0, 0, 0)
-    _PRINTSTRING (6, y%), label$
-    LINE (PENP_TRACK_X0, cy% - 1)-(PENP_TRACK_X1, cy% + 1), THEME.CP_button_bg~&, BF
-    kx% = PENP_TRACK_X0 + INT(PENP_slider_frac!(ctl%) * (PENP_TRACK_X1 - PENP_TRACK_X0) + 0.5)
-    IF enabled% THEN LINE (PENP_TRACK_X0, cy% - 1)-(kx%, cy% + 1), THEME.DIALOG_toggle_sel_bg~&, BF
-    LINE (kx% - 2, cy% - 4)-(kx% + 2, cy% + 4), fg~&, BF
-    _PRINTSTRING (PENP_TRACK_X1 + 8, y%), PENP_slider_text$(ctl%)
+    y%  = PENP_ctlY(ctl%)
+    ty% = y% + (FPANEL.sliderH% - FPANEL.fontH%) \ 2
+    FPANEL_text labelX%, ty%, label$, fg~&
+    FPANEL_track PENP.trackX0%, y%, PENP.trackX1% - PENP.trackX0% + 1, PENP_slider_frac!(ctl%), THEME.CP_text~&, enabled%
+    FPANEL_text PENP.trackX1% + 6, ty%, PENP_slider_text$(ctl%), fg~&
 END SUB
 
 ' ---------------------------------------------------------------------------
@@ -271,75 +317,77 @@ SUB PENP_render ()
         status$ = UCASE$(PD_backend_name$) + " - " + UCASE$(PD_source_name$(src%))
     END IF
 
-    DIM oldDest AS LONG : oldDest& = _DEST
-    DIM oldFont AS LONG
-    _DEST PENP.panelImg&
-    oldFont& = _FONT
-    CLS , THEME.CP_bg~&
-
-    ' Title bar
-    LINE (0, 0)-(PENP_W - 1, PENP_TITLE_H - 1), THEME.CP_title_bg~&, BF
-    IF PENP.titleFont& > 0 THEN _FONT PENP.titleFont& ELSE _FONT 8
-    DIM tfY AS INTEGER : tfY% = (PENP_TITLE_H - _UFONTHEIGHT) \ 2
-    IF tfY% < 0 THEN tfY% = 0
-    COLOR THEME.CP_title_fg~&, _RGBA32(0, 0, 0, 0)
-    _UPRINTSTRING (3, tfY%), "PEN PRESSURE"
-    COLOR THEME.CP_close_fg~&, _RGBA32(0, 0, 0, 0)
-    _UPRINTSTRING (PENP_W - _UPRINTWIDTH("X") - 3, tfY%), "X"
-
-    _FONT 8
-    COLOR THEME.CP_text_dim~&, _RGBA32(0, 0, 0, 0)
-    _PRINTSTRING (6, PENP_Y_STATUS), LEFT$(status$, 23)
-
-    PENP_draw_checkbox 6, PENP_Y_ON, penOn%, "USE PEN PRESSURE", TRUE
-
-    ' Live meter: raw pen pressure (bar) and the value after the curve (tick)
-    DIM mx0 AS INTEGER, mx1 AS INTEGER, mw AS INTEGER
-    mx0% = 6 : mx1% = PENP_W - 7 : mw% = mx1% - mx0%
-    LINE (mx0%, PENP_Y_METER)-(mx1%, PENP_Y_METER + 8), THEME.CP_button_bg~&, BF
-    IF raw! > 0 THEN LINE (mx0%, PENP_Y_METER)-(mx0% + INT(raw! * mw%), PENP_Y_METER + 8), THEME.DIALOG_toggle_sel_bg~&, BF
-    LINE (mx0% + INT(curved! * mw%), PENP_Y_METER - 2)-(mx0% + INT(curved! * mw%), PENP_Y_METER + 10), THEME.CP_text~&
-    ' Tip threshold: pressure left of this mark draws nothing
-    IF CFG.PEN_TIP_THRESHOLD% > 0 THEN
-        DIM tx AS INTEGER : tx% = mx0% + INT(CFG.PEN_TIP_THRESHOLD% / 100! * mw%)
-        LINE (tx%, PENP_Y_METER)-(tx%, PENP_Y_METER + 8), THEME.CP_close_fg~&
+    ' Hover: control / close box under the pointer (none while dragging)
+    PENP.hoverCtl%   = PENP_CTL_NONE
+    PENP.closeHover% = FALSE
+    IF PENP_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) _ANDALSO NOT PENP.dragging% _ANDALSO PENP.sliding% = PENP_CTL_NONE _ANDALSO PENP.renderScale! > 0 THEN
+        DIM hx AS INTEGER, hy AS INTEGER
+        hx% = INT((MOUSE.RAW_X% - PENP.dispX%) / PENP.renderScale!)
+        hy% = INT((MOUSE.RAW_Y% - PENP.dispY%) / PENP.renderScale!)
+        PENP.closeHover% = FPANEL_over_close%(hx%, hy%, PENP.panelW%)
+        PENP.hoverCtl%   = PENP_hit%(hx%, hy%)
     END IF
-    COLOR THEME.CP_text~&, _RGBA32(0, 0, 0, 0)
-    _PRINTSTRING (mx1% - 32, PENP_Y_METER + 1), LEFT$(_TRIM$(STR$(INT(raw! * 100 + 0.5))) + "%   ", 4)
+
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST PENP.panelImg&
+    DIM oldFont AS LONG : oldFont& = FPANEL_begin&
+    CLS , THEME.CP_bg~&
+    FPANEL_title_bar PENP.panelW%, "PEN PRESSURE", PENP.closeHover%
+
+    DIM pad AS INTEGER, f AS INTEGER, slH AS INTEGER
+    pad% = FPANEL.pad% : f% = FPANEL.fontH% : slH% = FPANEL.sliderH%
+    FPANEL_text pad%, PENP.yStatus%, LEFT$(status$, 32), THEME.CP_text_dim~&
+
+    PENP_draw_checkbox PENP_CTL_ON, penOn%, "USE PEN PRESSURE", TRUE
+
+    ' Live meter (a slider well, same span as the tracks' left edge to their
+    ' right edge): raw pen pressure fills it, the value after the curve is the
+    ' bright tick, the tip threshold the red mark.
+    DIM mx0 AS INTEGER, mx1 AS INTEGER, mw AS INTEGER, my AS INTEGER
+    mx0% = pad% : mx1% = PENP.trackX1% : mw% = mx1% - mx0% - 2 : my% = PENP.yMeter%
+    LINE (mx0%, my%)-(mx1%, my% + slH% - 1), THEME.CP_slider_bg~&, BF
+    LINE (mx0%, my%)-(mx1%, my% + slH% - 1), THEME.CP_slider_border~&, B
+    IF raw! > 0 THEN LINE (mx0% + 1, my% + 1)-(mx0% + 1 + INT(raw! * mw%), my% + slH% - 2), THEME.CP_text_dim~&, BF
+    IF CFG.PEN_TIP_THRESHOLD% > 0 THEN
+        DIM tx AS INTEGER : tx% = mx0% + 1 + INT(CFG.PEN_TIP_THRESHOLD% / 100! * mw%)
+        LINE (tx%, my% + 1)-(tx%, my% + slH% - 2), THEME.CP_close_fg~&
+    END IF
+    DIM cx AS INTEGER : cx% = mx0% + 1 + INT(curved! * mw%)
+    LINE (cx% - 1, my% - 1)-(cx% + 1, my% + slH%), THEME.CP_text_bright~&, BF
+    FPANEL_text PENP.trackX1% + 6, my% + (slH% - f%) \ 2, _TRIM$(STR$(INT(raw! * 100 + 0.5))) + "%", THEME.CP_text~&
 
     ' Size / opacity / mix: a checkbox and its lightest-touch slider each
-    PENP_draw_checkbox 6, PENP_Y_SIZE, CFG.PEN_PRESSURE_SIZE%, "SIZE BY PRESSURE", penOn%
-    PENP_draw_slider PENP_CTL_SIZE, PENP_Y_SIZE + 13, "LIGHT", penOn% _ANDALSO CFG.PEN_PRESSURE_SIZE%
-    PENP_draw_checkbox 6, PENP_Y_OPAC, CFG.PEN_PRESSURE_OPACITY%, "OPACITY BY PRESSURE", penOn%
-    PENP_draw_slider PENP_CTL_OPAC, PENP_Y_OPAC + 13, "LIGHT", penOn% _ANDALSO CFG.PEN_PRESSURE_OPACITY%
-    PENP_draw_checkbox 6, PENP_Y_MIX, CFG.PEN_PRESSURE_MIX%, "MIX PAINT BY PRESSURE", penOn%
-    PENP_draw_slider PENP_CTL_MIX, PENP_Y_MIX + 13, "LIGHT", penOn% _ANDALSO CFG.PEN_PRESSURE_MIX%
-    PENP_draw_slider PENP_CTL_CURVE, PENP_Y_CURVE + 9, "CURVE", penOn%
-    PENP_draw_slider PENP_CTL_TIP, PENP_Y_TIP, "TIP", penOn%
+    PENP_draw_checkbox PENP_CTL_SIZE_ON, CFG.PEN_PRESSURE_SIZE%, "SIZE BY PRESSURE", penOn%
+    PENP_draw_slider PENP_CTL_SIZE, PENP.subX%, "LIGHT", penOn% _ANDALSO CFG.PEN_PRESSURE_SIZE%
+    PENP_draw_checkbox PENP_CTL_OPAC_ON, CFG.PEN_PRESSURE_OPACITY%, "OPACITY BY PRESSURE", penOn%
+    PENP_draw_slider PENP_CTL_OPAC, PENP.subX%, "LIGHT", penOn% _ANDALSO CFG.PEN_PRESSURE_OPACITY%
+    PENP_draw_checkbox PENP_CTL_MIX_ON, CFG.PEN_PRESSURE_MIX%, "MIX PAINT BY PRESSURE", penOn%
+    PENP_draw_slider PENP_CTL_MIX, PENP.subX%, "LIGHT", penOn% _ANDALSO CFG.PEN_PRESSURE_MIX%
+    PENP_draw_slider PENP_CTL_CURVE, pad%, "CURVE", penOn%
+    PENP_draw_slider PENP_CTL_TIP, pad%, "TIP", penOn%
 
     ' Response graph: pressure (x) -> value used (y), with the live point
-    DIM gx0 AS INTEGER, gx1 AS INTEGER, gy0 AS INTEGER, gy1 AS INTEGER, gw AS INTEGER
+    DIM gx0 AS INTEGER, gx1 AS INTEGER, gy0 AS INTEGER, gy1 AS INTEGER, gw AS INTEGER, gh AS INTEGER
     DIM i AS INTEGER, px AS INTEGER, py AS INTEGER, lx AS INTEGER, ly AS INTEGER
-    gx0% = 6 : gx1% = PENP_W - 7 : gw% = gx1% - gx0%
-    gy0% = PENP_Y_GRAPH : gy1% = PENP_Y_GRAPH + PENP_GRAPH_H
-    LINE (gx0%, gy0%)-(gx1%, gy1%), THEME.CP_button_bg~&, BF
-    LINE (gx0%, gy1%)-(gx1%, gy0%), THEME.CP_text_dim~&, , &HCCCC ' linear reference
+    gx0% = pad% : gx1% = PENP.panelW% - pad% - 1 : gw% = gx1% - gx0% - 2
+    gy0% = PENP.yGraph% : gy1% = PENP.yGraph% + PENP_GRAPH_H - 1 : gh% = gy1% - gy0% - 2
+    LINE (gx0%, gy0%)-(gx1%, gy1%), THEME.CP_slider_bg~&, BF
+    LINE (gx0% + 1, gy1% - 1)-(gx1% - 1, gy0% + 1), THEME.CP_text_dim~&, , &HCCCC ' linear reference
     FOR i% = 0 TO gw%
-        px% = gx0% + i%
-        py% = gy1% - INT(PD_curve!(i% / gw%, gamma!) * PENP_GRAPH_H + 0.5)
-        IF i% > 0 THEN LINE (lx%, ly%)-(px%, py%), THEME.DIALOG_toggle_sel_bg~&
+        px% = gx0% + 1 + i%
+        py% = gy1% - 1 - INT(PD_curve!(i% / gw%, gamma!) * gh% + 0.5)
+        IF i% > 0 THEN LINE (lx%, ly%)-(px%, py%), THEME.CP_text~&
         lx% = px% : ly% = py%
     NEXT i%
     IF live% _ANDALSO src% <> PD_SRC_MOUSE THEN
-        px% = gx0% + INT(raw! * gw%)
-        py% = gy1% - INT(curved! * PENP_GRAPH_H)
-        LINE (px% - 2, py% - 2)-(px% + 2, py% + 2), THEME.CP_text~&, BF
+        px% = gx0% + 1 + INT(raw! * gw%)
+        py% = gy1% - 1 - INT(curved! * gh%)
+        LINE (px% - 2, py% - 2)-(px% + 2, py% + 2), THEME.CP_text_bright~&, BF
     END IF
-    LINE (gx0%, gy0%)-(gx1%, gy1%), THEME.CP_border~&, B
-    COLOR THEME.CP_text_dim~&, _RGBA32(0, 0, 0, 0)
-    _PRINTSTRING (gx0% + 3, gy0% + 3), "RESPONSE"
+    LINE (gx0%, gy0%)-(gx1%, gy1%), THEME.CP_slider_border~&, B
+    FPANEL_text gx0% + 3, gy0% + 3, "RESPONSE", THEME.CP_text_dim~&
 
-    LINE (0, 0)-(PENP_W - 1, PENP_H - 1), THEME.CP_border~&, B
+    FPANEL_frame PENP.panelW%, PENP.panelH%
     _FONT oldFont&
     _DEST oldDest&
 
@@ -357,8 +405,8 @@ SUB PENP_render ()
     DIM sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG
     sx& = CLNG(PENP.dispX%) * ds%
     sy& = CLNG(PENP.dispY%) * ds%
-    sw& = CLNG(PENP_W) * ts%
-    sh& = CLNG(PENP_H) * ts%
+    sw& = CLNG(PENP.panelW%) * ts%
+    sh& = CLNG(PENP.panelH%) * ts%
     DIM oldDest2 AS LONG : oldDest2& = _DEST
     _DEST 0
     _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), PENP.panelImg&, 0
@@ -401,8 +449,12 @@ SUB PENP_mouse_input ()
     ' Active title-bar drag
     IF PENP.dragging% THEN
         IF MOUSE.B1% THEN
+            DIM ppPrevX AS INTEGER, ppPrevY AS INTEGER
+            ppPrevX% = PENP.dispX% : ppPrevY% = PENP.dispY%
             PENP.dispX% = PENP.dragStartDX% + (MOUSE.RAW_X% - PENP.dragStartMX%)
             PENP.dispY% = PENP.dragStartDY% + (MOUSE.RAW_Y% - PENP.dragStartMY%)
+            PENP_clamp_to_work_area
+            FPANEL_place REGION_PEN_PANEL, PENP.dispX%, PENP.dispY%, PENP.dispW%, PENP.dispH%, ppPrevX%, ppPrevY%
             PENP_clamp_to_work_area
         ELSE
             PENP.dragging% = FALSE
@@ -417,7 +469,7 @@ SUB PENP_mouse_input ()
     ' Active slider drag
     IF PENP.sliding% <> PENP_CTL_NONE THEN
         IF MOUSE.B1% THEN
-            PENP_slider_set PENP.sliding%, (nativeX% - PENP_TRACK_X0) / (PENP_TRACK_X1 - PENP_TRACK_X0)
+            PENP_slider_set PENP.sliding%, PENP_track_frac!(nativeX%)
         ELSE
             PENP.sliding% = PENP_CTL_NONE
             CONFIG_save
@@ -430,8 +482,8 @@ SUB PENP_mouse_input ()
     IF localX% < 0 OR localX% >= PENP.dispW% OR localY% < 0 OR localY% >= PENP.dispH% THEN EXIT SUB
 
     ' Title bar: close button, else start a drag
-    IF nativeY% < PENP_TITLE_H THEN
-        IF nativeX% >= PENP_W - 12 THEN
+    IF nativeY% < FPANEL.titleH% THEN
+        IF FPANEL_over_close%(nativeX%, nativeY%, PENP.panelW%) THEN
             PENP_toggle
             CONFIG_save
             EXIT SUB
@@ -453,7 +505,7 @@ SUB PENP_mouse_input ()
         CASE PENP_CTL_MIX_ON:  CFG.PEN_PRESSURE_MIX% = NOT CFG.PEN_PRESSURE_MIX% : CONFIG_save
         CASE PENP_CTL_SIZE, PENP_CTL_OPAC, PENP_CTL_MIX, PENP_CTL_CURVE, PENP_CTL_TIP
             PENP.sliding% = ctl%
-            PENP_slider_set ctl%, (nativeX% - PENP_TRACK_X0) / (PENP_TRACK_X1 - PENP_TRACK_X0)
+            PENP_slider_set ctl%, PENP_track_frac!(nativeX%)
     END SELECT
     IF ctl% <> PENP_CTL_NONE THEN SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE
 END SUB

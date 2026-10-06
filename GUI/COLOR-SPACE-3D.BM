@@ -27,7 +27,7 @@ SUB CS3D_init ()
 END SUB
 
 ' ---------------------------------------------------------------------------
-' CS3D_ensure_initialized — Lazy-init the widget, panel buffer and fonts, and
+' CS3D_ensure_initialized — Lazy-init the widget, panel buffer and font, and
 ' restore the persisted view (space, view mode, slice, rotation, zoom).
 ' ---------------------------------------------------------------------------
 SUB CS3D_ensure_initialized ()
@@ -37,27 +37,25 @@ SUB CS3D_ensure_initialized ()
     initColor~& = PAINT_COLOR~&
     IF PAL_FG_IS_TRANSPARENT% THEN initColor~& = _RGB32(0, 0, 0)
 
-    C3D_init initColor~&, CS3D_WIDGET_W
+    ' Panel is the shared floating-panel width; the widget (and its square 3D
+    ' view) fills it inside the padding.
+    FPANEL_ensure
+    C3D_init initColor~&, FPANEL_panel_w% - FPANEL.pad% * 2
     C3D_set_space CFG.COLOR_SPACE_3D_SPACE%
     C3D_set_view CFG.COLOR_SPACE_3D_VIEW%
     C3D_set_slice CFG.COLOR_SPACE_3D_SLICE_ON%, CFG.COLOR_SPACE_3D_SLICE% / 100!
     C3D_set_rotation CFG.COLOR_SPACE_3D_YAW%, CFG.COLOR_SPACE_3D_PITCH%, CFG.COLOR_SPACE_3D_ZOOM% / 100!
 
-    CS3D.panelW% = C3D_STATE.w
-    CS3D.panelH% = CS3D_TITLE_H + C3D_STATE.h
+    ' Color Mixer font + geometry; the widget's rows resize to the font.
+    FPANEL_ensure
+    C3D_set_font FPANEL.font&
+
+    CS3D.bodyX%  = FPANEL.pad%
+    CS3D.bodyY%  = FPANEL.titleH% + FPANEL.pad%
+    CS3D.panelW% = C3D_STATE.w + FPANEL.pad% * 2
+    CS3D.panelH% = CS3D.bodyY% + C3D_STATE.h + FPANEL.pad% \ 2
     IF CS3D.panelImg& < -1 THEN _FREEIMAGE CS3D.panelImg&
     CS3D.panelImg& = _NEWIMAGE(CS3D.panelW%, CS3D.panelH%, 32)
-
-    ' Same themed title font as the Color Mixer / Advanced Color Picker.
-    IF CS3D.titleFont& > 0 THEN _FREEFONT CS3D.titleFont&
-    CS3D.titleFont& = 0
-    DIM fontFile AS STRING  : fontFile$ = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
-    DIM fontSize AS INTEGER : fontSize% = THEME.GLOBAL_FONT_SIZE%
-    IF fontSize% < 1 THEN fontSize% = 8
-    IF _FILEEXISTS(fontFile$) THEN
-        DIM fh AS LONG : fh& = _LOADFONT(fontFile$, fontSize%, "DONTBLEND")
-        IF fh& > 0 THEN CS3D.titleFont& = fh&
-    END IF
 
     CS3D_compute_display_size
     IF CFG.COLOR_SPACE_3D_X% > -1 AND CFG.COLOR_SPACE_3D_Y% > -1 THEN
@@ -71,15 +69,13 @@ SUB CS3D_ensure_initialized ()
 END SUB
 
 ' ---------------------------------------------------------------------------
-' CS3D_cleanup — Free images + fonts.
+' CS3D_cleanup — Free images (the font belongs to FPANEL).
 ' ---------------------------------------------------------------------------
 SUB CS3D_cleanup ()
     IF NOT CS3D.initialized% THEN EXIT SUB
     C3D_cleanup
     IF CS3D.panelImg& < -1 THEN _FREEIMAGE CS3D.panelImg&
-    CS3D.panelImg& = 0
-    IF CS3D.titleFont& > 0 THEN _FREEFONT CS3D.titleFont&
-    CS3D.titleFont&   = 0
+    CS3D.panelImg&    = 0
     CS3D.initialized% = FALSE
 END SUB
 
@@ -102,6 +98,10 @@ SUB CS3D_toggle ()
         CS3D.autoHidden% = FALSE
         CS3D_ensure_initialized
         IF NOT CS3D.positioned% THEN CS3D_auto_position
+        ' Open beside, not on top of, any other floating window
+        FPANEL_place REGION_COLOR_SPACE_3D, CS3D.dispX%, CS3D.dispY%, CS3D.dispW%, CS3D.dispH%, CS3D.dispX%, CS3D.dispY%
+        CFG.COLOR_SPACE_3D_X% = CS3D.dispX%
+        CFG.COLOR_SPACE_3D_Y% = CS3D.dispY%
         CS3D_sync_from_paint
     END IF
     CFG.COLOR_SPACE_3D_VISIBLE% = CS3D.visible%
@@ -159,7 +159,7 @@ SUB CS3D_clamp_to_work_area ()
     CS3D_work_area minY%, maxY%
     IF CS3D.dispX% + CS3D.dispW% > maxX% THEN CS3D.dispX% = maxX% - CS3D.dispW%
     IF CS3D.dispX% < minX% THEN CS3D.dispX% = minX%
-    DIM titleH AS INTEGER : titleH% = INT(CS3D_TITLE_H * CS3D.renderScale! + 0.5)
+    DIM titleH AS INTEGER : titleH% = INT(FPANEL.titleH% * CS3D.renderScale! + 0.5)
     IF titleH% < 16 THEN titleH% = 16
     IF CS3D.dispY% + CS3D.dispH% > maxY% THEN CS3D.dispY% = maxY% - CS3D.dispH%
     IF CS3D.dispY% + titleH% > maxY% THEN CS3D.dispY% = maxY% - titleH%
@@ -215,34 +215,43 @@ SUB CS3D_render ()
     CS3D_sync_from_paint
 
     ' The widget only gets mouse input while the pointer is over the panel, so
-    ' clear its hover readout once the pointer leaves (else it shows a stale color).
-    IF C3D_STATE.hoverOn THEN
-        IF NOT CS3D_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN C3D_STATE.hoverOn = 0
+    ' clear its hover readout / button highlight once the pointer leaves (else
+    ' it shows a stale color).
+    DIM overPanel AS INTEGER : overPanel% = CS3D_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    IF NOT overPanel% THEN
+        C3D_STATE.hoverOn  = 0
+        C3D_STATE.hoverBtn = -1
     END IF
 
-    ' Theme the widget like the other color panels.
-    C3D_STATE.bgColor    = THEME.CP_bg~&
-    C3D_STATE.textColor  = THEME.CP_text~&
-    C3D_STATE.dimColor   = THEME.CP_text_dim~&
-    C3D_STATE.btnColor   = THEME.CP_button_bg~&
-    C3D_STATE.btnOnColor = THEME.DIALOG_toggle_sel_bg~&    ' themed "selected" accent
+    ' Theme the widget with the Color Mixer's colors (chips, slider well).
+    C3D_STATE.bgColor         = THEME.CP_bg~&
+    C3D_STATE.textColor       = THEME.CP_text~&
+    C3D_STATE.dimColor        = THEME.CP_text_dim~&
+    C3D_STATE.btnColor        = THEME.CP_button_secondary~&
+    C3D_STATE.btnHoverColor   = THEME.CP_button_sec_hover~&
+    C3D_STATE.btnOnColor      = THEME.CP_button_bg~&
+    C3D_STATE.btnTextColor    = THEME.CP_button_sec_text~&
+    C3D_STATE.btnOnTextColor  = THEME.CP_button_text~&
+    C3D_STATE.sliderBgColor   = THEME.CP_slider_bg~&
+    C3D_STATE.sliderEdgeColor = THEME.CP_slider_border~&
+    C3D_STATE.sliderFillColor = THEME.CP_text~&
+    C3D_STATE.thumbColor      = THEME.CP_text_bright~&
     C3D_render
+
+    ' Close-box hover, in native panel coords
+    DIM closeHover AS INTEGER
+    IF overPanel% _ANDALSO CS3D.renderScale! > 0 THEN
+        closeHover% = FPANEL_over_close%(INT((MOUSE.RAW_X% - CS3D.dispX%) / CS3D.renderScale!), INT((MOUSE.RAW_Y% - CS3D.dispY%) / CS3D.renderScale!), CS3D.panelW%)
+    END IF
 
     DIM oldDest AS LONG : oldDest& = _DEST
     _DEST CS3D.panelImg&
+    DIM oldFont AS LONG : oldFont& = FPANEL_begin&
     CLS , THEME.CP_bg~&
-    LINE (0, 0)-(CS3D.panelW% - 1, CS3D_TITLE_H - 1), THEME.CP_title_bg~&, BF
-    DIM oldFont AS LONG : oldFont& = _FONT
-    IF CS3D.titleFont& > 0 THEN _FONT CS3D.titleFont& ELSE _FONT 8
-    DIM tfY AS INTEGER : tfY% = (CS3D_TITLE_H - _UFONTHEIGHT) \ 2
-    IF tfY% < 0 THEN tfY% = 0
-    COLOR THEME.CP_title_fg~&, _RGBA32(0, 0, 0, 0)
-    _UPRINTSTRING (3, tfY%), "3D COLOR SPACE"
-    COLOR THEME.CP_close_fg~&, _RGBA32(0, 0, 0, 0)
-    _UPRINTSTRING (CS3D.panelW% - _UPRINTWIDTH("X") - 3, tfY%), "X"
+    FPANEL_title_bar CS3D.panelW%, "3D COLOR SPACE", closeHover%
+    _PUTIMAGE (CS3D.bodyX%, CS3D.bodyY%), C3D_STATE.imgHandle
+    FPANEL_frame CS3D.panelW%, CS3D.panelH%
     _FONT oldFont&
-    _PUTIMAGE (0, CS3D_TITLE_H), C3D_STATE.imgHandle
-    LINE (0, 0)-(CS3D.panelW% - 1, CS3D.panelH% - 1), THEME.CP_border~&, B
     _DEST oldDest&
 
     ' Popups/menus float above the panel.
@@ -295,8 +304,12 @@ SUB CS3D_mouse_input (wheelDelta AS INTEGER)
     ' Active title-bar drag
     IF CS3D.dragging% THEN
         IF MOUSE.B1% THEN
+            DIM c3PrevX AS INTEGER, c3PrevY AS INTEGER
+            c3PrevX% = CS3D.dispX% : c3PrevY% = CS3D.dispY%
             CS3D.dispX% = CS3D.dragStartDX% + (MOUSE.RAW_X% - CS3D.dragStartMX%)
             CS3D.dispY% = CS3D.dragStartDY% + (MOUSE.RAW_Y% - CS3D.dragStartMY%)
+            CS3D_clamp_to_work_area
+            FPANEL_place REGION_COLOR_SPACE_3D, CS3D.dispX%, CS3D.dispY%, CS3D.dispW%, CS3D.dispH%, c3PrevX%, c3PrevY%
             CS3D_clamp_to_work_area
         ELSE
             CS3D.dragging% = FALSE
@@ -311,8 +324,8 @@ SUB CS3D_mouse_input (wheelDelta AS INTEGER)
     overPanel% = (localX% >= 0 AND localX% < CS3D.dispW% AND localY% >= 0 AND localY% < CS3D.dispH%)
 
     ' Title-bar press: close button, else start a drag
-    IF justPressed% AND overPanel% AND nativeY% < CS3D_TITLE_H THEN
-        IF nativeX% >= CS3D.panelW% - 12 THEN
+    IF justPressed% AND overPanel% AND nativeY% < FPANEL.titleH% THEN
+        IF FPANEL_over_close%(nativeX%, nativeY%, CS3D.panelW%) THEN
             CS3D_toggle
             EXIT SUB
         END IF
@@ -336,9 +349,9 @@ SUB CS3D_mouse_input (wheelDelta AS INTEGER)
     DIM wheel AS INTEGER
     IF overPanel% THEN wheel% = wheelDelta%
 
-    DIM wasDirty AS INTEGER, hoverWas AS _UNSIGNED LONG, hoverOnWas AS INTEGER
-    hoverWas~& = C3D_STATE.hover : hoverOnWas% = C3D_STATE.hoverOn
-    C3D_input_mouse nativeX%, nativeY% - CS3D_TITLE_H, wb1%, wb2%, wheel%
+    DIM wasDirty AS INTEGER, hoverWas AS _UNSIGNED LONG, hoverOnWas AS INTEGER, hoverBtnWas AS INTEGER
+    hoverWas~& = C3D_STATE.hover : hoverOnWas% = C3D_STATE.hoverOn : hoverBtnWas% = C3D_STATE.hoverBtn
+    C3D_input_mouse nativeX% - CS3D.bodyX%, nativeY% - CS3D.bodyY%, wb1%, wb2%, wheel%
     wasDirty% = C3D_STATE.dirty
 
     IF C3D_STATE.changed THEN
@@ -361,7 +374,7 @@ SUB CS3D_mouse_input (wheelDelta AS INTEGER)
         CFG.COLOR_SPACE_3D_ZOOM%     = INT(C3D_STATE.zoom * 100 + 0.5)
     END IF
 
-    IF wasDirty% OR C3D_STATE.changed OR hoverWas~& <> C3D_STATE.hover OR hoverOnWas% <> C3D_STATE.hoverOn THEN
+    IF wasDirty% OR C3D_STATE.changed OR hoverWas~& <> C3D_STATE.hover OR hoverOnWas% <> C3D_STATE.hoverOn OR hoverBtnWas% <> C3D_STATE.hoverBtn THEN
         SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE
     END IF
 END SUB

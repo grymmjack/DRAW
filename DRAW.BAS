@@ -955,6 +955,7 @@ DO
     ' Skip full render when idle — previous frame remains on display
     IF NOT FRAME_IDLE% THEN
         SCREEN_render
+        FPANEL_settle_once ' first frame: pull restored floating windows apart
     END IF
     
     ' (deferred glutReshapeWindow removed — SCREEN _NEWIMAGE in SCREEN_init

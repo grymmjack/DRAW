@@ -1,0 +1,474 @@
+''
+' DRAW - GUI/FLOAT-PANEL.BM
+' =============================================================================
+' Shared floating-panel style. See GUI/FLOAT-PANEL.BI.
+' All drawing helpers draw into the current _DEST in native panel pixels and
+' expect FPANEL_begin to have selected the panel font.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+
+' ---------------------------------------------------------------------------
+' FPANEL_ensure — Load the themed UI font once and derive the geometry from
+' its height, scaled from the Color Picker's 8x16 defaults (CP-THEME.BI).
+' Lazy so THEME.* is valid (include-order timing, gotcha #11).
+' ---------------------------------------------------------------------------
+SUB FPANEL_ensure ()
+    IF FPANEL.ready% THEN EXIT SUB
+
+    FPANEL.font& = 0
+    DIM fontFile AS STRING  : fontFile$ = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
+    DIM fontSize AS INTEGER : fontSize% = THEME.GLOBAL_FONT_SIZE%
+    IF fontSize% < 1 THEN fontSize% = 8
+    IF _FILEEXISTS(fontFile$) THEN
+        DIM fh AS LONG : fh& = _LOADFONT(fontFile$, fontSize%, "DONTBLEND")
+        IF fh& > 0 THEN FPANEL.font& = fh& ELSE _LOGWARN "FPANEL: _LOADFONT failed for " + fontFile$
+    END IF
+
+    ' Measure on a scratch image so the caller's _DEST/_FONT are untouched.
+    DIM oldDest AS LONG : oldDest& = _DEST
+    DIM probe   AS LONG : probe& = _NEWIMAGE(8, 8, 32)
+    _DEST probe&
+    IF FPANEL.font& > 0 THEN _FONT FPANEL.font& ELSE _FONT 8
+    FPANEL.fontH% = _FONTHEIGHT
+    FPANEL.fontW% = _UPRINTWIDTH("M")
+    _DEST oldDest&
+    _FREEIMAGE probe&
+    IF FPANEL.fontH% < 1 THEN FPANEL.fontH% = 8
+    IF FPANEL.fontW% < 1 THEN FPANEL.fontW% = 8
+
+    ' Same proportions + minimums as CP_THEME_scale_geometry.
+    DIM s AS SINGLE : s! = CSNG(FPANEL.fontH%) / CSNG(CP_DEFAULT_FONT_H)
+    FPANEL.titleH%  = INT(CSNG(CP_TITLE_BAR_H) * s! + 0.5)
+    FPANEL.rowH%    = INT(CSNG(CP_POSTERIZE_ROW_H) * s! + 0.5)
+    FPANEL.sliderH% = INT(CSNG(CP_SLIDER_H) * s! + 0.5)
+    FPANEL.gap%     = INT(CSNG(CP_SLIDER_GAP) * s! + 0.5)
+    FPANEL.section% = INT(CSNG(CP_SECTION_GAP) * s! + 0.5)
+    FPANEL.pad%     = INT(CSNG(CP_PADDING) * s! + 0.5)
+    IF FPANEL.titleH%  < FPANEL.fontH% + 4 THEN FPANEL.titleH% = FPANEL.fontH% + 4
+    IF FPANEL.rowH%    < FPANEL.fontH% + 4 THEN FPANEL.rowH% = FPANEL.fontH% + 4
+    IF FPANEL.sliderH% < FPANEL.fontH% THEN FPANEL.sliderH% = FPANEL.fontH%
+    IF FPANEL.gap%     < 2 THEN FPANEL.gap% = 2
+    IF FPANEL.section% < 4 THEN FPANEL.section% = 4
+    IF FPANEL.pad%     < 4 THEN FPANEL.pad% = 4
+
+    FPANEL.ready% = TRUE
+END SUB
+
+' ---------------------------------------------------------------------------
+' FPANEL_panel_w% — Native width shared by the color / pen panels (Color
+' Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure) so they line up
+' when stacked. It is the Color Mixer's width, which the Color Picker library
+' derives from the theme font (SV square + hue bar + padding), so the mixer is
+' initialized (not shown) to read it. Cached after the first call.
+' ---------------------------------------------------------------------------
+FUNCTION FPANEL_panel_w% ()
+    IF FPANEL.panelW% < 1 THEN
+        COLORMIXER_ensure_initialized
+        FPANEL.panelW% = CP_STATE.dialogW
+        IF FPANEL.panelW% < 160 THEN FPANEL.panelW% = 160 ' C3D widget minimum
+    END IF
+    FPANEL_panel_w% = FPANEL.panelW%
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' FPANEL_begin — Select the panel font on the current _DEST.
+' Returns the previous font so the caller can restore it with _FONT.
+' ---------------------------------------------------------------------------
+FUNCTION FPANEL_begin& ()
+    FPANEL_ensure
+    FPANEL_begin& = _FONT
+    IF FPANEL.font& > 0 THEN _FONT FPANEL.font& ELSE _FONT 8
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' FPANEL_text — Print text with a transparent background.
+' ---------------------------------------------------------------------------
+SUB FPANEL_text (x AS INTEGER, y AS INTEGER, txt AS STRING, clr AS _UNSIGNED LONG)
+    COLOR clr~&, _RGBA32(0, 0, 0, 0)
+    _UPRINTSTRING (x%, y%), txt$
+END SUB
+
+' ---------------------------------------------------------------------------
+' FPANEL_title_bar — CP_RENDER_title_bar: title text, close box with hover.
+' ---------------------------------------------------------------------------
+SUB FPANEL_title_bar (w AS INTEGER, title AS STRING, closeHover AS INTEGER)
+    DIM th AS INTEGER, bx AS INTEGER
+    th% = FPANEL.titleH%
+    LINE (0, 0)-(w% - 1, th% - 1), THEME.CP_title_bg~&, BF
+    FPANEL_text FPANEL_title_text_x%, FPANEL_title_text_y%, title$, THEME.CP_title_fg~&
+    bx% = w% - th%
+    IF closeHover% THEN LINE (bx%, 0)-(w% - 1, th% - 1), THEME.CP_close_hover_bg~&, BF
+    FPANEL_close_icon bx% + th% \ 2, th% \ 2, THEME.CP_close_fg~&
+END SUB
+
+' ---------------------------------------------------------------------------
+' FPANEL_title_text_x% / _y% — Where title-bar text sits (CP_RENDER_title_bar).
+' ---------------------------------------------------------------------------
+FUNCTION FPANEL_title_text_x% ()
+    FPANEL_title_text_x% = FPANEL.pad% \ 2 + 2
+END FUNCTION
+
+FUNCTION FPANEL_title_text_y% ()
+    FPANEL_title_text_y% = (FPANEL.titleH% - FPANEL.fontH%) \ 2 + 1
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' FPANEL_close_icon — The Preview window's drawn close cross (two diagonals),
+' centered on (cx,cy); arm grows with the title bar (2px at 12px).
+' ---------------------------------------------------------------------------
+SUB FPANEL_close_icon (cx AS INTEGER, cy AS INTEGER, clr AS _UNSIGNED LONG)
+    DIM a AS INTEGER : a% = FPANEL.titleH% \ 6
+    IF a% < 2 THEN a% = 2
+    LINE (cx% - a%, cy% - a%)-(cx% + a%, cy% + a%), clr~&
+    LINE (cx% - a%, cy% + a%)-(cx% + a%, cy% - a%), clr~&
+END SUB
+
+' ---------------------------------------------------------------------------
+' FPANEL_text_w% — Width of txt$ in the panel font (measured off-screen).
+' ---------------------------------------------------------------------------
+FUNCTION FPANEL_text_w% (txt AS STRING)
+    STATIC probe AS LONG
+    FPANEL_ensure
+    IF probe& >= -1 THEN probe& = _NEWIMAGE(8, 8, 32)
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST probe&
+    IF FPANEL.font& > 0 THEN _FONT FPANEL.font& ELSE _FONT 8
+    FPANEL_text_w% = _UPRINTWIDTH(txt$)
+    _DEST oldDest&
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' FPANEL_over_close% — Native point is on the title bar's close box.
+' ---------------------------------------------------------------------------
+FUNCTION FPANEL_over_close% (nx AS INTEGER, ny AS INTEGER, w AS INTEGER)
+    FPANEL_over_close% = (ny% >= 0 _ANDALSO ny% < FPANEL.titleH% _ANDALSO nx% >= w% - FPANEL.titleH% _ANDALSO nx% < w%)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' FPANEL_frame — Outer panel border (drawn last, over the content).
+' ---------------------------------------------------------------------------
+SUB FPANEL_frame (w AS INTEGER, h AS INTEGER)
+    LINE (0, 0)-(w% - 1, h% - 1), THEME.CP_border~&, B
+END SUB
+
+' ---------------------------------------------------------------------------
+' FPANEL_track — CP_RENDER_slider's track: bordered well, filled portion,
+' bright thumb. frac! is 0..1; a disabled track shows a dim fill and thumb.
+' ---------------------------------------------------------------------------
+SUB FPANEL_track (x AS INTEGER, y AS INTEGER, w AS INTEGER, frac AS SINGLE, fillClr AS _UNSIGNED LONG, enabled AS INTEGER)
+    DIM h AS INTEGER, f AS SINGLE, fillW AS INTEGER, thumbX AS INTEGER
+    h% = FPANEL.sliderH%
+    f! = frac!
+    IF f! < 0 THEN f! = 0
+    IF f! > 1 THEN f! = 1
+    LINE (x%, y%)-(x% + w% - 1, y% + h% - 1), THEME.CP_slider_bg~&, BF
+    LINE (x%, y%)-(x% + w% - 1, y% + h% - 1), THEME.CP_slider_border~&, B
+    fillW% = INT(f! * CSNG(w% - 2))
+    IF fillW% > 0 THEN
+        IF enabled% THEN
+            LINE (x% + 1, y% + 1)-(x% + fillW%, y% + h% - 2), fillClr~&, BF
+        ELSE
+            LINE (x% + 1, y% + 1)-(x% + fillW%, y% + h% - 2), THEME.CP_text_dim~&, BF
+        END IF
+    END IF
+    thumbX% = x% + 1 + fillW%
+    IF thumbX% > x% + w% - 2 THEN thumbX% = x% + w% - 2
+    IF enabled% THEN
+        LINE (thumbX% - 1, y%)-(thumbX% + 1, y% + h% - 1), THEME.CP_text_bright~&, BF
+    ELSE
+        LINE (thumbX% - 1, y%)-(thumbX% + 1, y% + h% - 1), THEME.CP_text_dim~&, BF
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' FPANEL_chip — CP_RENDER_posterize_row chip: active / hover / idle.
+' ---------------------------------------------------------------------------
+SUB FPANEL_chip (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, label AS STRING, active AS INTEGER, hover AS INTEGER)
+    DIM bg AS _UNSIGNED LONG, fg AS _UNSIGNED LONG
+    IF active% THEN
+        bg~& = THEME.CP_button_bg~& : fg~& = THEME.CP_button_text~&
+    ELSEIF hover% THEN
+        bg~& = THEME.CP_button_sec_hover~& : fg~& = THEME.CP_text_bright~&
+    ELSE
+        bg~& = THEME.CP_button_secondary~& : fg~& = THEME.CP_button_sec_text~&
+    END IF
+    LINE (x%, y%)-(x% + w% - 1, y% + h% - 1), bg~&, BF
+    FPANEL_text x% + (w% - _UPRINTWIDTH(label$)) \ 2, y% + (h% - FPANEL.fontH%) \ 2, label$, fg~&
+END SUB
+
+' ---------------------------------------------------------------------------
+' FPANEL_checkbox — Slider-well box + label in a fontH-tall row at y.
+' The box is a track well (CP_slider_bg / CP_slider_border) so it reads as
+' the same family as the sliders; checked = bright inset square. The font's
+' caps sit ~2px into its cell, so the box starts 1px down to centre on them.
+' ---------------------------------------------------------------------------
+SUB FPANEL_checkbox (x AS INTEGER, y AS INTEGER, checked AS INTEGER, label AS STRING, enabled AS INTEGER, hover AS INTEGER)
+    DIM bs AS INTEGER, by AS INTEGER, fg AS _UNSIGNED LONG, edge AS _UNSIGNED LONG
+    bs% = FPANEL.fontH% - 1
+    IF bs% < 7 THEN bs% = 7
+    by% = y% + 1
+    IF enabled% THEN fg~& = THEME.CP_text~& ELSE fg~& = THEME.CP_text_dim~&
+    IF hover% THEN edge~& = THEME.CP_text~& ELSE edge~& = THEME.CP_slider_border~&
+    LINE (x%, by%)-(x% + bs% - 1, by% + bs% - 1), THEME.CP_slider_bg~&, BF
+    LINE (x%, by%)-(x% + bs% - 1, by% + bs% - 1), edge~&, B
+    IF checked% THEN
+        IF enabled% THEN
+            LINE (x% + 2, by% + 2)-(x% + bs% - 3, by% + bs% - 3), THEME.CP_text_bright~&, BF
+        ELSE
+            LINE (x% + 2, by% + 2)-(x% + bs% - 3, by% + bs% - 3), THEME.CP_text_dim~&, BF
+        END IF
+    END IF
+    IF hover% _ANDALSO enabled% THEN fg~& = THEME.CP_text_bright~&
+    FPANEL_text x% + bs% + 4, y%, label$, fg~&
+END SUB
+
+' ===========================================================================
+' Placement: snap + no-overlap for floating windows (viewport coords).
+' Other windows' rects come from REGION_BOUNDS_TABLE: each floating window
+' registers its on-screen footprint there while rendering, and input runs
+' before the next render, so during a drag the table holds every OTHER
+' visible window exactly as the user sees it (hidden / auto-hidden windows
+' don't register, so they never block or attract).
+' ===========================================================================
+
+' ---------------------------------------------------------------------------
+' FPANEL_float_region% — The i-th (1..FPANEL_FLOAT_COUNT) floating region.
+' ---------------------------------------------------------------------------
+FUNCTION FPANEL_float_region% (i AS INTEGER)
+    SELECT CASE i%
+        CASE 1: FPANEL_float_region% = REGION_COLOR_MIXER
+        CASE 2: FPANEL_float_region% = REGION_ADV_COLOR_PICKER
+        CASE 3: FPANEL_float_region% = REGION_COLOR_SPACE_3D
+        CASE 4: FPANEL_float_region% = REGION_PEN_PANEL
+        CASE 5: FPANEL_float_region% = REGION_IMAGE_BROWSER
+        CASE 6: FPANEL_float_region% = REGION_PREVIEW
+        CASE ELSE: FPANEL_float_region% = -1
+    END SELECT
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' FPANEL_other% — Rect of the i-th floating window if it is shown and is not
+' selfRegion. Returns FALSE (rect untouched) otherwise.
+' ---------------------------------------------------------------------------
+FUNCTION FPANEL_other% (selfRegion AS INTEGER, i AS INTEGER, ox AS INTEGER, oy AS INTEGER, ow AS INTEGER, oh AS INTEGER)
+    DIM r AS INTEGER : r% = FPANEL_float_region%(i%)
+    FPANEL_other% = FALSE
+    IF r% < 0 _ORELSE r% = selfRegion% THEN EXIT FUNCTION
+    IF NOT REGION_BOUNDS_TABLE(r%).active THEN EXIT FUNCTION
+    IF REGION_BOUNDS_TABLE(r%).w <= 0 _ORELSE REGION_BOUNDS_TABLE(r%).h <= 0 THEN EXIT FUNCTION
+    ox% = REGION_BOUNDS_TABLE(r%).x : oy% = REGION_BOUNDS_TABLE(r%).y
+    ow% = REGION_BOUNDS_TABLE(r%).w : oh% = REGION_BOUNDS_TABLE(r%).h
+    FPANEL_other% = TRUE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' FPANEL_work_area — Area floating windows live in: between the docked side
+' chrome, below the menu bar, above the status bar + palette strip.
+' ---------------------------------------------------------------------------
+SUB FPANEL_work_area (minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER)
+    minX% = SCRN.uiLeftEdge%
+    maxX% = SCRN.uiRightEdge%
+    CS3D_work_area minY%, maxY%
+END SUB
+
+' ---------------------------------------------------------------------------
+' FPANEL_free% — TRUE when (x,y,w,h) overlaps no other floating window and
+' sits inside the work area (an axis the window is too big for is ignored).
+' ---------------------------------------------------------------------------
+FUNCTION FPANEL_free% (selfRegion AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+    DIM i AS INTEGER, ox AS INTEGER, oy AS INTEGER, ow AS INTEGER, oh AS INTEGER
+    FPANEL_free% = FALSE
+    FPANEL_work_area minX%, minY%, maxX%, maxY%
+    IF w% <= maxX% - minX% THEN
+        IF x% < minX% _ORELSE x% + w% > maxX% THEN EXIT FUNCTION
+    END IF
+    IF h% <= maxY% - minY% THEN
+        IF y% < minY% _ORELSE y% + h% > maxY% THEN EXIT FUNCTION
+    END IF
+    FOR i% = 1 TO FPANEL_FLOAT_COUNT
+        IF FPANEL_other%(selfRegion%, i%, ox%, oy%, ow%, oh%) THEN
+            IF x% < ox% + ow% _ANDALSO x% + w% > ox% _ANDALSO y% < oy% + oh% _ANDALSO y% + h% > oy% THEN EXIT FUNCTION
+        END IF
+    NEXT i%
+    FPANEL_free% = TRUE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' FPANEL_snap_try — Keep cand% as the best snap target when it is within
+' FPANEL_SNAP of atPos% and closer than the best so far.
+' ---------------------------------------------------------------------------
+SUB FPANEL_snap_try (atPos AS INTEGER, cand AS INTEGER, best AS INTEGER, bestD AS INTEGER)
+    DIM d AS INTEGER : d% = ABS(cand% - atPos%)
+    IF d% <= FPANEL_SNAP _ANDALSO d% < bestD% THEN best% = cand% : bestD% = d%
+END SUB
+
+' ---------------------------------------------------------------------------
+' FPANEL_place — Settle a floating window at (x,y), size w x h:
+'   1. Snap: each axis pulls to the nearest edge within FPANEL_SNAP: butting
+'      against another floating window's side / top / bottom, lining up with
+'      its left / right / top / bottom edge, or the work-area chrome edges.
+'   2. No overlap: if that spot overlaps another floating window, move to the
+'      nearest free spot whose edges touch an obstacle or the work area (so a
+'      dragged window slides along what it bumps into); if nothing is free,
+'      fall back to (prevX,prevY) when that is free, else leave it.
+' x/y are updated in place. selfRegion is the window's own REGION_* (skipped).
+' ---------------------------------------------------------------------------
+SUB FPANEL_place (selfRegion AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, prevX AS INTEGER, prevY AS INTEGER)
+    ' Locals first: callers pass their own SHARED position fields (gotcha #13).
+    DIM self AS INTEGER : self% = selfRegion%
+    DIM px AS INTEGER, py AS INTEGER, pw AS INTEGER, ph AS INTEGER, ox0 AS INTEGER, oy0 AS INTEGER
+    px% = x% : py% = y% : pw% = w% : ph% = h% : ox0% = prevX% : oy0% = prevY%
+    IF pw% <= 0 _ORELSE ph% <= 0 THEN EXIT SUB
+
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+    FPANEL_work_area minX%, minY%, maxX%, maxY%
+    DIM i AS INTEGER, ox AS INTEGER, oy AS INTEGER, ow AS INTEGER, oh AS INTEGER
+
+    ' --- 1. snap ---
+    DIM sx AS INTEGER, sy AS INTEGER, dX AS INTEGER, dY AS INTEGER
+    sx% = px% : sy% = py% : dX% = FPANEL_SNAP + 1 : dY% = FPANEL_SNAP + 1
+    FPANEL_snap_try px%, minX%, sx%, dX%
+    FPANEL_snap_try px%, maxX% - pw%, sx%, dX%
+    FPANEL_snap_try py%, minY%, sy%, dY%
+    FPANEL_snap_try py%, maxY% - ph%, sy%, dY%
+    FOR i% = 1 TO FPANEL_FLOAT_COUNT
+        IF FPANEL_other%(self%, i%, ox%, oy%, ow%, oh%) THEN
+            ' Side by side: rows overlap (or nearly, so corners catch too) ->
+            ' butt left/right edges together
+            IF py% < oy% + oh% + FPANEL_SNAP _ANDALSO py% + ph% > oy% - FPANEL_SNAP THEN
+                FPANEL_snap_try px%, ox% - pw%, sx%, dX%
+                FPANEL_snap_try px%, ox% + ow%, sx%, dX%
+            END IF
+            ' Stacked: columns overlap (or nearly) -> butt top/bottom edges together
+            IF px% < ox% + ow% + FPANEL_SNAP _ANDALSO px% + pw% > ox% - FPANEL_SNAP THEN
+                FPANEL_snap_try py%, oy% - ph%, sy%, dY%
+                FPANEL_snap_try py%, oy% + oh%, sy%, dY%
+            END IF
+            ' Edge alignment with any other window, wherever it is: left/right
+            ' sides line up with its sides, tops/bottoms with its top/bottom
+            FPANEL_snap_try px%, ox%, sx%, dX%
+            FPANEL_snap_try px%, ox% + ow% - pw%, sx%, dX%
+            FPANEL_snap_try py%, oy%, sy%, dY%
+            FPANEL_snap_try py%, oy% + oh% - ph%, sy%, dY%
+        END IF
+    NEXT i%
+
+    IF FPANEL_free%(self%, sx%, sy%, pw%, ph%) THEN x% = sx% : y% = sy% : EXIT SUB
+
+    ' --- 2. nearest free spot: candidate x's / y's are the snapped spot plus
+    '        every obstacle / work-area edge; try every combination ---
+    DIM cx(0 TO 2 + FPANEL_FLOAT_COUNT * 2) AS INTEGER, cy(0 TO 2 + FPANEL_FLOAT_COUNT * 2) AS INTEGER
+    DIM nx AS INTEGER, ny AS INTEGER
+    cx(0) = sx% : cx(1) = minX% : cx(2) = maxX% - pw% : nx% = 3
+    cy(0) = sy% : cy(1) = minY% : cy(2) = maxY% - ph% : ny% = 3
+    FOR i% = 1 TO FPANEL_FLOAT_COUNT
+        IF FPANEL_other%(self%, i%, ox%, oy%, ow%, oh%) THEN
+            cx(nx%) = ox% - pw% : cx(nx% + 1) = ox% + ow% : nx% = nx% + 2
+            cy(ny%) = oy% - ph% : cy(ny% + 1) = oy% + oh% : ny% = ny% + 2
+        END IF
+    NEXT i%
+
+    DIM a AS INTEGER, b AS INTEGER, found AS INTEGER
+    DIM d AS LONG, bestD AS LONG, bx AS INTEGER, by AS INTEGER
+    FOR a% = 0 TO nx% - 1
+        FOR b% = 0 TO ny% - 1
+            d& = CLNG(cx(a%) - sx%) * (cx(a%) - sx%) + CLNG(cy(b%) - sy%) * (cy(b%) - sy%)
+            IF NOT found% _ORELSE d& < bestD& THEN
+                IF FPANEL_free%(self%, cx(a%), cy(b%), pw%, ph%) THEN
+                    bx% = cx(a%) : by% = cy(b%) : bestD& = d& : found% = TRUE
+                END IF
+            END IF
+        NEXT b%
+    NEXT a%
+
+    IF found% THEN
+        x% = bx% : y% = by%
+    ELSEIF FPANEL_free%(self%, ox0%, oy0%, pw%, ph%) THEN
+        x% = ox0% : y% = oy0%
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' FPANEL_get_pos / FPANEL_set_pos — A floating window's position by region
+' (set_pos also persists it the way the window's own drag does).
+' ---------------------------------------------------------------------------
+SUB FPANEL_get_pos (region AS INTEGER, x AS INTEGER, y AS INTEGER)
+    SELECT CASE region%
+        CASE REGION_COLOR_MIXER:       x% = COLORMIXER.dispX% : y% = COLORMIXER.dispY%
+        CASE REGION_ADV_COLOR_PICKER:  x% = ADVCP.dispX%      : y% = ADVCP.dispY%
+        CASE REGION_COLOR_SPACE_3D:    x% = CS3D.dispX%       : y% = CS3D.dispY%
+        CASE REGION_PEN_PANEL:         x% = PENP.dispX%       : y% = PENP.dispY%
+        CASE REGION_IMAGE_BROWSER:     x% = BROWSER.dispX%    : y% = BROWSER.dispY%
+        CASE REGION_PREVIEW:           x% = PREVIEW.x%        : y% = PREVIEW.y%
+    END SELECT
+END SUB
+
+SUB FPANEL_set_pos (region AS INTEGER, x AS INTEGER, y AS INTEGER)
+    SELECT CASE region%
+        CASE REGION_COLOR_MIXER
+            COLORMIXER.dispX% = x% : COLORMIXER.dispY% = y%
+            CFG.COLOR_MIXER_X% = x% : CFG.COLOR_MIXER_Y% = y%
+        CASE REGION_ADV_COLOR_PICKER
+            ADVCP.dispX% = x% : ADVCP.dispY% = y%
+            CFG.ADV_COLOR_PICKER_X% = x% : CFG.ADV_COLOR_PICKER_Y% = y%
+        CASE REGION_COLOR_SPACE_3D
+            CS3D.dispX% = x% : CS3D.dispY% = y%
+            CFG.COLOR_SPACE_3D_X% = x% : CFG.COLOR_SPACE_3D_Y% = y%
+        CASE REGION_PEN_PANEL
+            PENP.dispX% = x% : PENP.dispY% = y%
+            CFG.PEN_PANEL_X% = x% : CFG.PEN_PANEL_Y% = y%
+        CASE REGION_IMAGE_BROWSER
+            BROWSER.dispX% = x% : BROWSER.dispY% = y%
+            BROWSER_sync_fd_from_display
+            IF CFG.BROWSER_AUTOSAVE_GEOMETRY% THEN CFG.BROWSER_POS_X% = x% : CFG.BROWSER_POS_Y% = y%
+        CASE REGION_PREVIEW
+            PREVIEW.x% = x% : PREVIEW.y% = y%
+            CFG.PREVIEW_X% = x% : CFG.PREVIEW_Y% = y%
+    END SELECT
+END SUB
+
+' ---------------------------------------------------------------------------
+' FPANEL_settle_once — After the first rendered frame, move any floating
+' window restored on top of another (saved positions predate the no-overlap
+' rule, or the window size changed) to the nearest free spot. Windows earlier
+' in FPANEL_float_region% order keep their place. Runs once per session.
+' ---------------------------------------------------------------------------
+SUB FPANEL_settle_once ()
+    STATIC done AS INTEGER
+    IF done% THEN EXIT SUB
+    done% = TRUE
+
+    DIM i AS INTEGER, r AS INTEGER, moved AS INTEGER
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, nx AS INTEGER, ny AS INTEGER
+    FOR i% = 1 TO FPANEL_FLOAT_COUNT
+        r% = FPANEL_float_region%(i%)
+        IF REGION_BOUNDS_TABLE(r%).active THEN
+            x% = REGION_BOUNDS_TABLE(r%).x : y% = REGION_BOUNDS_TABLE(r%).y
+            w% = REGION_BOUNDS_TABLE(r%).w : h% = REGION_BOUNDS_TABLE(r%).h
+            IF NOT FPANEL_free%(r%, x%, y%, w%, h%) THEN
+                nx% = x% : ny% = y%
+                FPANEL_place r%, nx%, ny%, w%, h%, x%, y%
+                IF nx% <> x% OR ny% <> y% THEN
+                    DIM px AS INTEGER, py AS INTEGER
+                    FPANEL_get_pos r%, px%, py%
+                    ' Region x/y can differ from the stored position (e.g. a
+                    ' border); shift the stored position by the same amount.
+                    FPANEL_set_pos r%, px% + nx% - x%, py% + ny% - y%
+                    REGION_BOUNDS_TABLE(r%).x = nx%
+                    REGION_BOUNDS_TABLE(r%).y = ny%
+                    moved% = TRUE
+                END IF
+            END IF
+        END IF
+    NEXT i%
+    IF moved% THEN
+        SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE
+        _LOGINFO "FPANEL: moved overlapping floating windows apart at startup"
+    END IF
+END SUB

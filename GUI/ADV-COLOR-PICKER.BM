@@ -29,7 +29,7 @@ SUB ADVCP_init ()
     ADVCP.dispH%          = 0
     ADVCP.panelImg&       = 0
     ADVCP.panelW%         = ADVCP_WHEEL_NATIVE
-    ADVCP.panelH%         = ADVCP_TITLE_H + ADVCP_WHEEL_NATIVE
+    ADVCP.panelH%         = ADVCP_title_h% + ADVCP_WHEEL_NATIVE
     ADVCP.dragging%       = FALSE
     ADVCP.labelFont&      = 0
     ADVCP.cmOpen%         = FALSE
@@ -49,7 +49,7 @@ SUB ADVCP_ensure_initialized ()
     initColor~& = PAINT_COLOR~&
     IF PAL_FG_IS_TRANSPARENT% THEN initColor~& = _RGB32(0, 0, 0)
 
-    ACP_init initColor~&, ADVCP_WHEEL_NATIVE
+    ACP_init initColor~&, FPANEL_panel_w% ' same width as the other color panels
 
     ' Restore the draggable hue-neighbors range.
     IF CFG.ADV_COLOR_PICKER_HUE_NEIGHBORS% > 0 THEN ACP_STATE.hueNeighborRange! = CFG.ADV_COLOR_PICKER_HUE_NEIGHBORS%
@@ -57,7 +57,7 @@ SUB ADVCP_ensure_initialized ()
     ' Panel = title bar + the full widget (wheel + shade rows). The widget owns
     ' its own height (ACP_STATE.h includes the shade selector), so read it back.
     ADVCP.panelW% = ACP_STATE.w%
-    ADVCP.panelH% = ADVCP_TITLE_H + ACP_STATE.h%
+    ADVCP.panelH% = ADVCP_title_h% + ACP_STATE.h%
     IF ADVCP.panelImg& < -1 THEN _FREEIMAGE ADVCP.panelImg&
     ADVCP.panelImg& = _NEWIMAGE(ADVCP.panelW%, ADVCP.panelH%, 32)
 
@@ -129,12 +129,24 @@ SUB ADVCP_toggle ()
         ADVCP.autoHidden% = FALSE ' clear any stale draw-over auto-hide on re-open
         ADVCP_ensure_initialized
         IF NOT ADVCP.positioned% THEN ADVCP_auto_position
+        ' Open beside, not on top of, any other floating window
+        FPANEL_place REGION_ADV_COLOR_PICKER, ADVCP.dispX%, ADVCP.dispY%, ADVCP.dispW%, ADVCP.dispH%, ADVCP.dispX%, ADVCP.dispY%
+        CFG.ADV_COLOR_PICKER_X% = ADVCP.dispX%
+        CFG.ADV_COLOR_PICKER_Y% = ADVCP.dispY%
         ADVCP_sync_from_paint
     END IF
     CFG.ADV_COLOR_PICKER_VISIBLE% = ADVCP.visible%
     SCENE_DIRTY%                  = TRUE
     FRAME_IDLE%                   = FALSE
 END SUB
+
+' ---------------------------------------------------------------------------
+' ADVCP_title_h% — Title bar height (shared floating-panel style).
+' ---------------------------------------------------------------------------
+FUNCTION ADVCP_title_h% ()
+    FPANEL_ensure
+    ADVCP_title_h% = FPANEL.titleH%
+END FUNCTION
 
 ' ---------------------------------------------------------------------------
 ' ADVCP_compute_display_size — native -> viewport footprint (ts/ds scale).
@@ -185,7 +197,7 @@ SUB ADVCP_clamp_to_work_area ()
     IF ADVCP.dispX% + ADVCP.dispW% > maxX% THEN ADVCP.dispX% = maxX% - ADVCP.dispW%
     IF ADVCP.dispX% < minX% THEN ADVCP.dispX% = minX%
     IF ADVCP.dispY% < minY% THEN ADVCP.dispY% = minY%
-    DIM titleH AS INTEGER : titleH% = INT(ADVCP_TITLE_H * ADVCP.renderScale! + 0.5)
+    DIM titleH AS INTEGER : titleH% = INT(ADVCP_title_h% * ADVCP.renderScale! + 0.5)
     IF titleH% < 16 THEN titleH% = 16
     IF ADVCP.dispY% + titleH% > maxY% THEN ADVCP.dispY% = maxY% - titleH%
     IF ADVCP.dispY% + ADVCP.dispH% > maxY% THEN ADVCP.dispY% = maxY% - ADVCP.dispH%
@@ -221,7 +233,7 @@ FUNCTION ADVCP_over_history_raw% (rawX AS INTEGER, rawY AS INTEGER)
     ELSE
         nx% = lx% : ny% = ly%
     END IF
-    ADVCP_over_history_raw% = ACP_over_history%(nx%, ny% - ADVCP_TITLE_H)
+    ADVCP_over_history_raw% = ACP_over_history%(nx%, ny% - ADVCP_title_h%)
 END FUNCTION
 
 ' ---------------------------------------------------------------------------
@@ -283,21 +295,17 @@ SUB ADVCP_render ()
     _DEST ADVCP.panelImg&
     CLS , THEME.CP_bg~&
 
-    ' Title bar
-    LINE (0, 0)-(ADVCP.panelW% - 1, ADVCP_TITLE_H - 1), THEME.CP_title_bg~&, BF
-    DIM oldFont AS LONG : oldFont& = _FONT
-    IF ADVCP.titleFont& > 0 THEN _FONT ADVCP.titleFont& ELSE _FONT 8
-    DIM tfY     AS INTEGER : tfY% = (ADVCP_TITLE_H - _UFONTHEIGHT) \ 2
-    IF tfY% < 0 THEN tfY% = 0
-    COLOR THEME.CP_title_fg~&, _RGBA32(0, 0, 0, 0)
-    _UPRINTSTRING (3, tfY%), "ADVANCED COLOR PICKER"
-    ' Close X (right-aligned by its glyph width)
-    COLOR THEME.CP_close_fg~&, _RGBA32(0, 0, 0, 0)
-    _UPRINTSTRING (ADVCP.panelW% - _UPRINTWIDTH("X") - 3, tfY%), "X"
+    ' Title bar (shared floating-panel style, close box hover in native coords)
+    DIM closeHover AS INTEGER
+    IF ADVCP.renderScale! > 0 _ANDALSO ADVCP_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
+        closeHover% = FPANEL_over_close%(INT((MOUSE.RAW_X% - ADVCP.dispX%) / ADVCP.renderScale!), INT((MOUSE.RAW_Y% - ADVCP.dispY%) / ADVCP.renderScale!), ADVCP.panelW%)
+    END IF
+    DIM oldFont AS LONG : oldFont& = FPANEL_begin&
+    FPANEL_title_bar ADVCP.panelW%, "ADVANCED COLOR PICKER", closeHover%
     _FONT oldFont&
 
     ' Wheel below the title bar
-    _PUTIMAGE (0, ADVCP_TITLE_H), ACP_STATE.imgHandle&
+    _PUTIMAGE (0, ADVCP_title_h%), ACP_STATE.imgHandle&
 
     ' Per-shade-row labels (Tiny5) above each row.
     IF CFG.ADV_COLOR_PICKER_SHADE_LABELS% THEN
@@ -306,14 +314,14 @@ SUB ADVCP_render ()
         COLOR THEME.CP_text_dim~&, _RGBA32(0, 0, 0, 0)
         DIM sli    AS INTEGER
         FOR sli% = 0 TO ACP_shade_line_count% - 1
-            _UPRINTSTRING (ACP_SHADE_GAP + 1, ADVCP_TITLE_H + ACP_shade_row_label_y%(sli%)), ADVCP_lineName(sli%)
+            _UPRINTSTRING (ACP_SHADE_GAP + 1, ADVCP_title_h% + ACP_shade_row_label_y%(sli%)), ADVCP_lineName(sli%)
         NEXT sli%
         _FONT slOldF&
     END IF
 
     ' "COLOR HISTORY" label (Tiny5) above the history strip.
     IF CFG.ADV_COLOR_PICKER_HISTORY% THEN
-        DIM lblY AS INTEGER : lblY% = ADVCP_TITLE_H + ACP_history_top%
+        DIM lblY AS INTEGER : lblY% = ADVCP_title_h% + ACP_history_top%
         DIM oldF AS LONG    : oldF& = _FONT
         IF ADVCP.labelFont& > 0 THEN _FONT ADVCP.labelFont& ELSE _FONT 8
         COLOR THEME.CP_text_dim~&, _RGBA32(0, 0, 0, 0)
@@ -391,8 +399,12 @@ SUB ADVCP_mouse_input ()
     ' Active title-bar drag
     IF ADVCP.dragging% THEN
         IF MOUSE.B1% THEN
+            DIM acPrevX AS INTEGER, acPrevY AS INTEGER
+            acPrevX% = ADVCP.dispX% : acPrevY% = ADVCP.dispY%
             ADVCP.dispX% = ADVCP.dragStartDX% + (MOUSE.RAW_X% - ADVCP.dragStartMX%)
             ADVCP.dispY% = ADVCP.dragStartDY% + (MOUSE.RAW_Y% - ADVCP.dragStartMY%)
+            ADVCP_clamp_to_work_area
+            FPANEL_place REGION_ADV_COLOR_PICKER, ADVCP.dispX%, ADVCP.dispY%, ADVCP.dispW%, ADVCP.dispH%, acPrevX%, acPrevY%
             ADVCP_clamp_to_work_area
             CFG.ADV_COLOR_PICKER_X% = ADVCP.dispX%
             CFG.ADV_COLOR_PICKER_Y% = ADVCP.dispY%
@@ -410,8 +422,8 @@ SUB ADVCP_mouse_input ()
     overPanel% = (localX% >= 0 AND localX% < ADVCP.dispW% AND localY% >= 0 AND localY% < ADVCP.dispH%)
 
     ' Title-bar press (left button only): close button, else start drag
-    IF justPressed% AND overPanel% AND nativeY% < ADVCP_TITLE_H THEN
-        IF nativeX% >= ADVCP.panelW% - 12 THEN
+    IF justPressed% AND overPanel% AND nativeY% < ADVCP_title_h% THEN
+        IF FPANEL_over_close%(nativeX%, nativeY%, ADVCP.panelW%) THEN
             ADVCP_toggle
             EXIT SUB
         END IF
@@ -426,14 +438,14 @@ SUB ADVCP_mouse_input ()
     ' Right-click over the history strip opens the context menu (Create Palette /
     ' Clear History). FG/BG swapping is the X key's job (more elegant), so the
     ' picker no longer edits BG on right-click.
-    IF justPressedB2% AND overPanel% AND ACP_over_history%(nativeX%, nativeY% - ADVCP_TITLE_H) THEN
+    IF justPressedB2% AND overPanel% AND ACP_over_history%(nativeX%, nativeY% - ADVCP_title_h%) THEN
         MOUSE.UI_CHROME_CLICKED% = TRUE
         ADVCP_open_context_menu
         EXIT SUB
     END IF
 
     ' Left-drag drives the wheel / triangle / shades / history -> sets the FG color.
-    ACP_input_mouse nativeX%, nativeY% - ADVCP_TITLE_H, MOUSE.B1%
+    ACP_input_mouse nativeX%, nativeY% - ADVCP_title_h%, MOUSE.B1%
     IF ACP_STATE.changed% THEN
         DIM col AS _UNSIGNED LONG : col~& = ACP_get_rgb~&
         PAINT_COLOR~&          = col~&
@@ -504,7 +516,7 @@ SUB ADVCP_apply_shade_config ()
     ACP_apply_shade_layout
 
     ' Resize the panel buffer + display footprint if the widget height changed.
-    DIM wantH AS INTEGER : wantH% = ADVCP_TITLE_H + ACP_STATE.h%
+    DIM wantH AS INTEGER : wantH% = ADVCP_title_h% + ACP_STATE.h%
     IF wantH% <> ADVCP.panelH% THEN
         ADVCP.panelH% = wantH%
         IF ADVCP.panelImg& < -1 THEN _FREEIMAGE ADVCP.panelImg&
