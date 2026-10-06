@@ -36,6 +36,13 @@ Grymmjack wants DeluxePaint/GrafX2-style color cycling in DRAW. Ranges of palett
 4. An 8-bit overlay with `_CLEARCOLOR` and `_PALETTECOLOR`, drawn onto a 32-bit screen.
 5. That the new field names compile (gotcha #20: reserved words).
 
+**Phase 0 results (2026-10-06, [Linux] QB64-PE main / GLFW, Xvfb):**
+1. **Shift+Tab = keycode 9 with Shift held** (`_KEYHIT` 100304 then 9; `_KEYDOWN(9)` true, `_KEYDOWN(3840)` never). Register as `INPUT_register_key%(9, MOD_SHIFT, MOD_CTRL OR MOD_ALT, …)`; plain Tab (401) already forbids all modifiers, so no conflict.
+2. **`_LOADIMAGE(gif, 256)` does NOT keep the file palette.** It remaps to QB64's default VGA palette (index 1 = `FF0000AA`, while the file's index 1 is `0000A3`). GIF import therefore needs its own LZW decoder (Phase 3b).
+3. `_DEFLATE$` → `_BASE64ENCODE$` → `_BASE64DECODE$` → `_INFLATE$` round-trips byte-exact (5007 bytes → 52 chars for a run). `_MEMPUT m, m.OFFSET, str$` writes BGRA straight into a 32-bit image.
+4. An 8-bit overlay with `_CLEARCOLOR 0, ov` composited by `_PUTIMAGE` onto a 32-bit image leaves index-0 pixels untouched; a later `_PALETTECOLOR i, c, ov` plus a re-`_PUTIMAGE` shows the new color. This confirms the `.BAS` design.
+5. `TYPE PCYC_RANGE` with `lo/hi/rate/cmode/active/origin/lastShift` compiles.
+
 ## Phase 1 — cycling in the editor (first shippable)
 
 **New module `GUI/PALETTE-CYCLE.BI/BM` (prefix `PCYC_`)**
