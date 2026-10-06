@@ -54,6 +54,8 @@ $INCLUDEONCE
 
 ' CONFIG ----------------------------------------------------------------------
 '$INCLUDE:'./CFG/CONFIG.BI'
+' WORKSPACE before CLI-QUERY: --workspaces runs at include time and needs its arrays.
+'$INCLUDE:'./CFG/WORKSPACE.BI'
 '$INCLUDE:'./CFG/CLI-QUERY.BI'
 '$INCLUDE:'./CFG/CONFIG-THEME.BI'
 '$INCLUDE:'./CFG/BINDINGS.BI'
