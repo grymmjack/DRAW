@@ -50,7 +50,15 @@ Speed changes and unpausing **rebase** the origin so the current step is kept (`
 - `PCYC_present&` keeps a persistent `PCYC.BUF`. It `_MEMGET`s the composite into a string and
   compares with the last base; only when the composite **or** the palette/range signature
   changed does it copy + rebuild the pixel map (64K low-16-bit-RGB hash, first index wins).
-  Each step rewrites only the recorded cycling pixels whose display color changed (alpha kept).
+- **Opaque** cycling pixels go into an 8-bit overlay `PCYC.OVL` (`_CLEARCOLOR 0`, one overlay
+  index per range color, `PCYC_OVL_IDX()`); a step = `_PALETTECOLOR` on the changed entries +
+  one `_PUTIMAGE OVL -> BUF` (C-speed). Partly transparent cycling pixels (or all of them when
+  ranges hold > 255 colors) use the per-pixel lists `PCYC_OFF/SRC/A`, which keep alpha.
+- **Step-only frames**: DRAW.BAS sets `PCYC.STEP_ONLY` when the cycle step is the frame's only
+  scene change; `RENDER_layers` then calls `PCYC_present_step&` and skips compositing entirely
+  (`PCYC_step_only_ok%`: buffer/map/palette current, last full check < 0.5 s ago).
+  Measured [Linux, Xvfb software GL]: 1920x1080 full-screen range at 30 steps/s went from
+  30 ms to 4 ms of layer time per frame; 320x200 CPU equals any other non-idle state.
 - Pattern tile mode calls `RENDER_layers` 9×; `PCYC.BUILT_SEQ = SCREEN_RENDER_SEQ&` makes the
   later calls reuse the buffer.
 
@@ -105,6 +113,10 @@ reads it into a **local** and adopts it **after** `PALETTE_OPS_reset` (which cle
 - QA in **zsh**: `$args` does not word-split — use `${=args}` or arrays, or DRAW gets one
   giant argument and starts as a normal GUI session (looks like a hang).
 - `DRAW_EXTRA_ARGS` in the QA harness is word-split: no spaces in the path.
+- `SAFE_FREEIMAGE` does **not** zero the handle — set it to 0 yourself before an
+  `IF h >= -1 THEN h = _NEWIMAGE(...)` re-create check.
+- QA motion checks: two snaps exactly one loop period apart look identical (a 4-color range at
+  10/s loops every 0.4 s) — space motion snaps ~0.15 s apart.
 - Open dialog used to make **any** opened file the Ctrl+S target (`CURRENT_DRW_FILENAME$`),
   so saving after opening a GIF/LBM/BMP overwrote it with project data. Now only
   `.draw`/`.png`; others set `CURRENT_FILENAME$` → companion `.draw`.
