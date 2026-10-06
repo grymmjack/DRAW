@@ -244,6 +244,7 @@ FUNCTION WS_tool_action% (toolName AS STRING)
         CASE "zoom":                        WS_tool_action% = 1701
         CASE "spray":                       WS_tool_action% = 1702
         CASE "smart-shapes":                WS_tool_action% = 1706
+        CASE "crop":                        WS_tool_action% = 1802 ' crop to selection, else interactive crop
     END SELECT
 END FUNCTION
 
@@ -316,11 +317,13 @@ SUB WS_restore ()
     WS_TB_TOUCHED = FALSE
     IF WS_BARS_TOUCHED THEN WS_bars_reset
     WS_BARS_TOUCHED = FALSE
+    IF WS_KEY_N > 0 THEN WS_keys_reset
     IF WS_MENUS_TOUCHED THEN
         MENU_FILTER_ROOTS$ = ""
         MENU_FILTER_ITEMS$ = ""
-        MENUBAR_rebuild
     END IF
+    IF WS_MENUS_TOUCHED _ORELSE WS_CMD_HK_N > 0 THEN MENUBAR_rebuild
+    WS_CMD_HK_N = 0
     WS_MENUS_TOUCHED = FALSE
     WS_ACTIVE = FALSE
     WS_REVEALED = FALSE
@@ -427,7 +430,9 @@ FUNCTION WS_apply% (idOrTitle AS STRING)
     NEXT dk
     WS_apply_toolbox
     WS_apply_bars
+    WS_apply_keys
     WS_apply_menus
+    WS_relabel_hotkeys
     FOR i = 1 TO WS_OPT_N
         IF WS_OPT_HAD(i) THEN
             ok = CONFIG_apply_key%(WS_OPT_KEY(i), WS_OPT_VAL(i))
@@ -957,4 +962,148 @@ SUB WS_apply_menus ()
     MENU_FILTER_ITEMS$ = items
     MENUBAR_rebuild
     WS_MENUS_TOUCHED = TRUE
+END SUB
+
+
+
+' =============================================================================
+' [KEYS] - single-key overlay (key=tool name | action id). Lives in the
+' dispatcher (INPUT_dispatch_frame -> WS_key_action%) ahead of the binding
+' table; never fires while typing, in a dialog/menu/palette, with Ctrl/Alt,
+' during a stroke or chord.
+' =============================================================================
+
+''
+' A [KEYS] value -> action id: a number, a tool name (WS_tool_action%), 0 = bad.
+FUNCTION WS_key_value_action% (v AS STRING)
+    DIM t AS STRING
+    t = LCASE$(_TRIM$(v))
+    IF LEN(t) = 0 THEN EXIT FUNCTION
+    IF VAL(t) > 0 THEN WS_key_value_action% = VAL(t): EXIT FUNCTION
+    WS_key_value_action% = WS_tool_action%(t)
+END FUNCTION
+
+
+SUB WS_apply_keys ()
+    DIM i AS INTEGER, k AS STRING, a AS INTEGER
+    WS_KEY_N = 0
+    i = 0
+    DO
+        i = WS_next_in_section%("KEYS", i)
+        IF i = 0 THEN EXIT DO
+        k = WS_res_key_part$(i)
+        IF LEN(k) <> 1 THEN
+            _LOGWARN "WORKSPACE: [KEYS] '" + k + "' - only single keys (a, R, 1, ...) are supported"
+            _CONTINUE
+        END IF
+        a = WS_key_value_action%(WS_RES_VAL(i))
+        IF a = 0 THEN
+            _LOGINFO "WORKSPACE: [KEYS] " + k + "=" + WS_RES_VAL(i) + " - no such tool/action (yet) - skipped"
+            _CONTINUE
+        END IF
+        IF WS_KEY_N >= WS_MAX_KEYS THEN EXIT DO
+        WS_KEY_N = WS_KEY_N + 1
+        WS_KEY_CH(WS_KEY_N) = k
+        WS_KEY_ACT(WS_KEY_N) = a
+    LOOP
+END SUB
+
+
+SUB WS_keys_reset ()
+    DIM i AS INTEGER
+    WS_KEY_N = 0
+    ' command palette hotkeys back (static entries keep their indices)
+    FOR i = 0 TO WS_CMD_HK_N - 1
+        IF i < CMD_COUNT THEN CMD_LIST(i).hotkey = WS_CMD_HK_SAVE(i)
+    NEXT i
+END SUB
+
+
+''
+' The workspace action for a key press, or 0 (let the binding table have it).
+FUNCTION WS_key_action% (keycode AS LONG, mods AS INTEGER, ctx AS _UNSIGNED _INTEGER64)
+    DIM ch AS STRING, i AS INTEGER, kc AS LONG
+    IF WS_KEY_N = 0 _ORELSE WS_ACTIVE = 0 THEN EXIT FUNCTION
+    IF (mods AND (MOD_CTRL OR MOD_ALT)) <> 0 THEN EXIT FUNCTION
+    IF (ctx AND (CTX_TEXT_ACTIVE OR CTX_FILE_DIALOG_OPEN OR CTX_SETTINGS_OPEN OR CTX_POPUP_MENU_OPEN OR CTX_COMMAND_PALETTE_OPEN OR CTX_TRANSFORM_ACTIVE OR CTX_DRAWING_IN_PROGRESS OR CTX_OVER_DIALOG)) <> 0 THEN EXIT FUNCTION
+    IF (ctx AND (CTX_G_HELD OR CTX_M_HELD OR CTX_Z_HELD OR CTX_E_HELD OR CTX_F_HELD OR CTX_W_HELD OR CTX_SPACE_HELD OR CTX_SS_DRAGGING)) <> 0 THEN EXIT FUNCTION
+    IF MENU_BAR.openMenu% >= 0 THEN EXIT FUNCTION
+    IF MOUSE.B1% _ORELSE MOUSE.B2% THEN EXIT FUNCTION ' never switch tools mid-stroke
+    kc = keycode
+    IF kc < 32 _ORELSE kc > 126 THEN EXIT FUNCTION
+    ' letters: case comes from Shift (events may carry either case code)
+    IF kc >= 65 _ANDALSO kc <= 90 THEN kc = kc + 32
+    ch = CHR$(kc)
+    IF kc >= 97 _ANDALSO kc <= 122 _ANDALSO (mods AND MOD_SHIFT) <> 0 THEN ch = UCASE$(ch)
+    FOR i = 1 TO WS_KEY_N
+        IF WS_KEY_CH(i) = ch THEN WS_key_action% = WS_KEY_ACT(i): EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' TRUE when the workspace maps this letter (either case): its held-chord
+' context (M/Z/E/F/W held) is then not raised, so the key is just the key.
+FUNCTION WS_key_mapped% (lowerAscii AS INTEGER)
+    DIM i AS INTEGER
+    IF WS_KEY_N = 0 _ORELSE WS_ACTIVE = 0 THEN EXIT FUNCTION
+    FOR i = 1 TO WS_KEY_N
+        IF LCASE$(WS_KEY_CH(i)) = CHR$(lowerAscii) THEN WS_key_mapped% = TRUE: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' Hotkey label for a workspace key, as menus show them ("R", "Shift+R").
+FUNCTION WS_key_label$ (k AS STRING)
+    IF k >= "A" _ANDALSO k <= "Z" THEN
+        WS_key_label$ = "Shift+" + k
+    ELSE
+        WS_key_label$ = UCASE$(k)
+    END IF
+END FUNCTION
+
+
+''
+' New hotkey text for an entry that shows <hk> for action <act> while the
+' key overlay is on: its workspace key, "" when its old key now does
+' something else, or unchanged.
+FUNCTION WS_relabel$ (hk AS STRING, act AS INTEGER)
+    DIM i AS INTEGER, t AS STRING
+    t = _TRIM$(hk)
+    FOR i = 1 TO WS_KEY_N
+        IF WS_KEY_ACT(i) = act THEN WS_relabel$ = WS_key_label$(WS_KEY_CH(i)): EXIT FUNCTION
+    NEXT i
+    FOR i = 1 TO WS_KEY_N
+        IF UCASE$(t) = UCASE$(WS_key_label$(WS_KEY_CH(i))) THEN WS_relabel$ = "": EXIT FUNCTION
+    NEXT i
+    WS_relabel$ = hk
+END FUNCTION
+
+
+''
+' Menus + command palette show the workspace's keys (MENUBAR_rebuild calls
+' this too, so a rebuild keeps them).
+SUB WS_relabel_hotkeys ()
+    DIM i AS INTEGER
+    IF WS_KEY_N = 0 _ORELSE WS_ACTIVE = 0 THEN EXIT SUB
+    IF WS_CMD_HK_N = 0 THEN
+        WS_CMD_HK_N = _MIN(CMD_COUNT, UBOUND(WS_CMD_HK_SAVE) + 1)
+        FOR i = 0 TO WS_CMD_HK_N - 1
+            WS_CMD_HK_SAVE(i) = CMD_LIST(i).hotkey
+        NEXT i
+    END IF
+    FOR i = 0 TO WS_CMD_HK_N - 1
+        CMD_LIST(i).hotkey = WS_relabel$(RTRIM$(WS_CMD_HK_SAVE(i)), CMD_LIST(i).action_id)
+    NEXT i
+    WS_menu_hotkeys_apply
+END SUB
+
+
+SUB WS_menu_hotkeys_apply ()
+    DIM i AS INTEGER
+    IF WS_KEY_N = 0 _ORELSE WS_ACTIVE = 0 THEN EXIT SUB
+    FOR i = 0 TO MENU_ITEM_COUNT% - 1
+        IF MENU_ITEMS(i).actionId% > 0 THEN MENU_ITEMS(i).hotkey = WS_relabel$(RTRIM$(MENU_ITEMS(i).hotkey), MENU_ITEMS(i).actionId%)
+    NEXT i
 END SUB

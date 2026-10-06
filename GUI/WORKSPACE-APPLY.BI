@@ -113,6 +113,14 @@ DIM SHARED WS_OPT_ORIG(1 TO WS_MAX_OPTS) AS STRING
 DIM SHARED WS_OPT_HAD(1 TO WS_MAX_OPTS)  AS INTEGER ' the user's config had the key
 
 DIM SHARED WS_TB_TOUCHED AS INTEGER ' [TOOLBOX] rewrote the toolbar layout / icons
+' [KEYS]: single-key overlay, checked by INPUT_dispatch_frame BEFORE the
+' binding table (so it wins), only while this workspace is active.
+CONST WS_MAX_KEYS = 64
+DIM SHARED WS_KEY_N AS INTEGER
+DIM SHARED WS_KEY_CH(1 TO WS_MAX_KEYS)  AS STRING  ' exact key ("r" vs "R" = Shift+R)
+DIM SHARED WS_KEY_ACT(1 TO WS_MAX_KEYS) AS INTEGER ' CMD_execute_action id
+DIM SHARED WS_CMD_HK_SAVE(0 TO 1023) AS STRING     ' command palette hotkeys before relabeling
+DIM SHARED WS_CMD_HK_N AS INTEGER
 DIM SHARED WS_MENUS_TOUCHED AS INTEGER ' [MENUS] filtered the menu bar (rebuilt on apply/restore)
 DIM SHARED WS_BARS_TOUCHED AS INTEGER ' [EDIT_BAR]/[ADVANCED_BAR]/[ORGANIZER] filtered buttons
 
