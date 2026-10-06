@@ -885,19 +885,68 @@ END FUNCTION
 ' =============================================================================
 
 ''
+' Path row geometry, shared by the draw and input functions so they agree.
+' Layout: [label][path box][OPEN?][...?]. OPEN only while SW_PATH_OPEN is set.
+' openX / browseX are -1 when that button is absent.
+'
+SUB SW_path_row_geom (x AS INTEGER, y AS INTEGER, w AS INTEGER, hasBrowse AS INTEGER, px AS INTEGER, py AS INTEGER, pw AS INTEGER, openX AS INTEGER, browseX AS INTEGER)
+    px% = x + SW_LABEL_W : py% = y + (SW_ROW_H - SW_SPINNER_H) \ 2
+    pw% = w - SW_LABEL_W
+    openX% = -1 : browseX% = -1
+    IF hasBrowse% THEN pw% = pw% - SW_BROWSE_BTN_W - 2
+    IF SW_PATH_OPEN% THEN pw% = pw% - SW_OPEN_BTN_W - 2
+    IF SW_PATH_OPEN% THEN openX% = px% + pw% + 2
+    IF hasBrowse% THEN
+        IF SW_PATH_OPEN% THEN browseX% = openX% + SW_OPEN_BTN_W + 2 ELSE browseX% = px% + pw% + 2
+    END IF
+END SUB
+
+''
+' Draw a path row's small button ("OPEN" / "..."); dimmed when disabled.
+'
+SUB SW_draw_path_button (ctx AS DIALOG_CTX, bx AS INTEGER, py AS INTEGER, bw AS INTEGER, caption AS STRING, enabled AS INTEGER)
+    DIM hov AS INTEGER
+    hov% = enabled% _ANDALSO (ctx.mx >= bx% AND ctx.mx <= bx% + bw% AND ctx.my >= py% AND ctx.my <= py% + SW_SPINNER_H)
+    IF hov% THEN
+        LINE (bx%, py%)-(bx% + bw%, py% + SW_SPINNER_H), THEME.DIALOG_toggle_sel_bg~&, BF
+    ELSE
+        LINE (bx%, py%)-(bx% + bw%, py% + SW_SPINNER_H), THEME.DIALOG_toggle_bg~&, BF
+    END IF
+    LINE (bx%, py%)-(bx% + bw%, py% + SW_SPINNER_H), THEME.DIALOG_toggle_border~&, B
+    IF enabled% THEN COLOR THEME.DIALOG_button_fg~& ELSE COLOR THEME.DIALOG_preview_label_fg~&
+    _UPRINTSTRING (bx% + (bw% - _PRINTWIDTH(caption$)) \ 2, py% + 3), caption$
+END SUB
+
+''
+' [OPEN] click on a path row: show that folder in the OS file manager.
+' Call after the row's draw SUB while SW_PATH_OPEN is set. hasBrowse must
+' match the row (file picker = TRUE, read-only path = FALSE).
+'
+SUB SW_path_open_input (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w AS INTEGER, path AS STRING, hasBrowse AS INTEGER)
+    IF NOT SW_PATH_OPEN% THEN EXIT SUB
+    IF NOT ctx.justClicked THEN EXIT SUB
+    IF LEN(_TRIM$(path$)) = 0 THEN EXIT SUB
+    DIM px AS INTEGER, py AS INTEGER, pw AS INTEGER, ox AS INTEGER, bx AS INTEGER
+    SW_path_row_geom x, y, w, hasBrowse%, px%, py%, pw%, ox%, bx%
+    IF ctx.mx >= ox% AND ctx.mx <= ox% + SW_OPEN_BTN_W AND ctx.my >= py% AND ctx.my <= py% + SW_SPINNER_H THEN
+        IF NOT PATHS_open_in_file_manager%(path$) THEN SOUND_play SND_TOOL_SELECT
+    END IF
+END SUB
+
+
+''
 ' Draw a file/folder path display with a [Browse] button.
 '
 SUB SW_draw_file_picker (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w AS INTEGER, path AS STRING, label AS STRING)
     DIM fontH AS INTEGER : fontH% = DIALOG_font_height%(ctx)
-    DIM px    AS INTEGER, py AS INTEGER, pw AS INTEGER
+    DIM px    AS INTEGER, py AS INTEGER, pw AS INTEGER, ox AS INTEGER, bx AS INTEGER
 
     ' Label
     COLOR THEME.DIALOG_label_fg~&
     _UPRINTSTRING (x, y + (SW_ROW_H - fontH%) \ 2), label
 
     ' Path display
-    px% = x + SW_LABEL_W : py% = y + (SW_ROW_H - SW_SPINNER_H) \ 2
-    pw% = w - SW_LABEL_W - SW_BROWSE_BTN_W - 2
+    SW_path_row_geom x, y, w, TRUE, px%, py%, pw%, ox%, bx%
 
     LINE (px%, py%)-(px% + pw%, py% + SW_SPINNER_H), THEME.DIALOG_slider_track_bg~&, BF
     LINE (px%, py%)-(px% + pw%, py% + SW_SPINNER_H), THEME.DIALOG_slider_track_border~&, B
@@ -915,18 +964,9 @@ SUB SW_draw_file_picker (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w AS INT
     COLOR THEME.DIALOG_slider_value_fg~&
     _UPRINTSTRING (px% + 3, py% + 3), dispPath$
 
-    ' [Browse] button
-    DIM bx      AS INTEGER : bx% = px% + pw% + 2
-    DIM hoverBr AS INTEGER
-    hoverBr% = (ctx.mx >= bx% AND ctx.mx <= bx% + SW_BROWSE_BTN_W AND ctx.my >= py% AND ctx.my <= py% + SW_SPINNER_H)
-    IF hoverBr% THEN
-        LINE (bx%, py%)-(bx% + SW_BROWSE_BTN_W, py% + SW_SPINNER_H), THEME.DIALOG_toggle_sel_bg~&, BF
-    ELSE
-        LINE (bx%, py%)-(bx% + SW_BROWSE_BTN_W, py% + SW_SPINNER_H), THEME.DIALOG_toggle_bg~&, BF
-    END IF
-    LINE (bx%, py%)-(bx% + SW_BROWSE_BTN_W, py% + SW_SPINNER_H), THEME.DIALOG_toggle_border~&, B
-    COLOR THEME.DIALOG_button_fg~&
-    _UPRINTSTRING (bx% + (SW_BROWSE_BTN_W - _PRINTWIDTH("...")) \ 2, py% + 3), "..."
+    ' [OPEN] (Directories tab) + [Browse] buttons
+    IF ox% >= 0 THEN SW_draw_path_button ctx, ox%, py%, SW_OPEN_BTN_W, "OPEN", LEN(_TRIM$(path)) > 0
+    SW_draw_path_button ctx, bx%, py%, SW_BROWSE_BTN_W, "...", TRUE
 
     ' Tooltip
     SW_check_tooltip ctx, x, y, w, SW_ROW_H
@@ -942,10 +982,8 @@ FUNCTION SW_file_picker_folder_input% (ctx AS DIALOG_CTX, x AS INTEGER, y AS INT
     SW_file_picker_folder_input% = SW_NO_CHANGE
     IF NOT ctx.justClicked THEN EXIT FUNCTION
 
-    DIM px AS INTEGER, py AS INTEGER, pw AS INTEGER
-    px% = x + SW_LABEL_W : py% = y + (SW_ROW_H - SW_SPINNER_H) \ 2
-    pw% = w - SW_LABEL_W - SW_BROWSE_BTN_W - 2
-    DIM bx AS INTEGER : bx% = px% + pw% + 2
+    DIM px AS INTEGER, py AS INTEGER, pw AS INTEGER, ox AS INTEGER, bx AS INTEGER
+    SW_path_row_geom x, y, w, TRUE, px%, py%, pw%, ox%, bx%
 
     IF ctx.mx >= bx% AND ctx.mx <= bx% + SW_BROWSE_BTN_W AND ctx.my >= py% AND ctx.my <= py% + SW_SPINNER_H THEN
         DIM result AS STRING
@@ -967,10 +1005,8 @@ FUNCTION SW_file_picker_file_input% (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEG
     SW_file_picker_file_input% = SW_NO_CHANGE
     IF NOT ctx.justClicked THEN EXIT FUNCTION
 
-    DIM px AS INTEGER, py AS INTEGER, pw AS INTEGER
-    px% = x + SW_LABEL_W : py% = y + (SW_ROW_H - SW_SPINNER_H) \ 2
-    pw% = w - SW_LABEL_W - SW_BROWSE_BTN_W - 2
-    DIM bx AS INTEGER : bx% = px% + pw% + 2
+    DIM px AS INTEGER, py AS INTEGER, pw AS INTEGER, ox AS INTEGER, bx AS INTEGER
+    SW_path_row_geom x, y, w, TRUE, px%, py%, pw%, ox%, bx%
 
     IF ctx.mx >= bx% AND ctx.mx <= bx% + SW_BROWSE_BTN_W AND ctx.my >= py% AND ctx.my <= py% + SW_SPINNER_H THEN
         DIM startDir AS STRING
@@ -1289,15 +1325,14 @@ END SUB
 '
 SUB SW_draw_readonly_path (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w AS INTEGER, path AS STRING, label AS STRING)
     DIM fontH AS INTEGER : fontH% = DIALOG_font_height%(ctx)
-    DIM px    AS INTEGER, py AS INTEGER, pw AS INTEGER
+    DIM px    AS INTEGER, py AS INTEGER, pw AS INTEGER, ox AS INTEGER, bx AS INTEGER
 
     ' Label
     COLOR THEME.DIALOG_label_fg~&
     _UPRINTSTRING (x, y + (SW_ROW_H - fontH%) \ 2), label
 
-    ' Path display (read-only, no browse button — full width for path)
-    px% = x + SW_LABEL_W : py% = y + (SW_ROW_H - SW_SPINNER_H) \ 2
-    pw% = w - SW_LABEL_W
+    ' Path display (read-only, no browse button; [OPEN] on the Directories tab)
+    SW_path_row_geom x, y, w, FALSE, px%, py%, pw%, ox%, bx%
 
     LINE (px%, py%)-(px% + pw%, py% + SW_SPINNER_H), THEME.DIALOG_slider_track_bg~&, BF
     LINE (px%, py%)-(px% + pw%, py% + SW_SPINNER_H), THEME.DIALOG_slider_track_border~&, B
@@ -1313,6 +1348,8 @@ SUB SW_draw_readonly_path (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w AS I
     END IF
     COLOR THEME.DIALOG_slider_value_fg~&
     _UPRINTSTRING (px% + 3, py% + 3), dispPath$
+
+    IF ox% >= 0 THEN SW_draw_path_button ctx, ox%, py%, SW_OPEN_BTN_W, "OPEN", LEN(_TRIM$(path)) > 0
 
     ' Tooltip
     SW_check_tooltip ctx, x, y, w, SW_ROW_H

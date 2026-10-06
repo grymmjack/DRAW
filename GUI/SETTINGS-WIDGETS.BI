@@ -26,6 +26,7 @@ CONST SW_COLOR_CHIP_W     = 24  ' Color chip swatch width
 CONST SW_COLOR_CHIP_H     = 16  ' Color chip swatch height
 CONST SW_SLIDER_H         = 14  ' Slider track height
 CONST SW_BROWSE_BTN_W     = 50  ' File picker [Browse] button width
+CONST SW_OPEN_BTN_W       = 50  ' Path row [OPEN] (show in file manager) button width
 CONST SW_DROPDOWN_ITEM_H  = 18  ' Dropdown item row height
 CONST SW_DROPDOWN_MAX_VIS = 8   ' Max visible dropdown items before scroll
 CONST SW_KEYBIND_W        = 120 ' Key binding display width
@@ -70,6 +71,10 @@ DIM SHARED SW_KB AS SW_KEYBIND_STATE
 
 DIM SHARED SW_ZERO_TEXT AS STRING ' e.g., "Auto" — shown when spinner value = 0
 DIM SHARED SW_TOOLTIP   AS STRING ' Tooltip text shown on hover over the widget
+' TRUE while drawing path rows that get an [OPEN] button (show the folder in
+' the OS file manager). Set by the caller around a block of rows (the
+' Directories tab); read by the path-row draw + input functions.
+DIM SHARED SW_PATH_OPEN AS INTEGER
 
 ' --- Tooltip Rendering State -------------------------------------------------
 
