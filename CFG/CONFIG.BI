@@ -491,6 +491,9 @@ TYPE DRAW_CONFIG
     ALLOW_MULTIPLE_INSTANCES        AS INTEGER        ' TRUE = enable the in-app "New Window" command (run several isolated DRAW copies at once). A manually-launched 2nd copy is always allowed + auto-isolated regardless.
     ' Tooltip settings
     TOOLTIP_HOVER_DELAY_MS          AS INTEGER        ' Milliseconds before tooltip appears (default 500)
+    HELP_CARD_ENABLED               AS INTEGER        ' TRUE = gesture help card on hover (Palette Ops strip) (GUI/HELP-CARD)
+    HELP_CARD_EDGE                  AS INTEGER        ' HCARD_EDGE_*: 0 bottom, 1 top, 2 left, 3 right of the canvas area
+    HELP_CARD_DELAY_MS              AS INTEGER        ' Milliseconds of hover before the help card appears (default 350)
     TOOLTIPS_DISABLED               AS INTEGER        ' TRUE = hide toolbar tooltips entirely
     ' Text tool default font settings
     FONT_DEFAULT_FONT               AS STRING         ' Default font name for text tool (empty = use Tiny5 Regular)

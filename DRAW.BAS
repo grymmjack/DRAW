@@ -754,6 +754,7 @@ DO
     
     ' Update tooltip state (must run before idle detection so hover keeps loop alive)
     TOOLTIP_update
+    HCARD_update ' gesture help card (Palette Ops strip hover)
 
     ' Idle detection: reduce FPS when nothing is happening to save CPU
     ' Check if anything needs updating this frame
@@ -886,6 +887,7 @@ DO
     ' Tooltip hover: only keep frames active while delay is counting or tooltip
     ' needs one more frame to render. Once displayed and static, allow idle.
     IF TOOLTIP.HOVER_BTN_IDX% >= 0 AND (NOT TOOLTIP.ACTIVE% OR TOOLTIP.NEEDS_REDRAW%) THEN FRAME_IDLE% = FALSE
+    IF HCARD.WANT% <> HCARD_NONE _ANDALSO HCARD.SHOWN% = HCARD_NONE THEN FRAME_IDLE% = FALSE ' help card delay counting
     ' Preview tooltip: keep render loop active while hover timer counts or tooltip is shown
     IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
         IF PREVIEW.floatTooltipHoverStart# > 0 AND NOT PREVIEW.floatTooltipActive% THEN FRAME_IDLE% = FALSE
