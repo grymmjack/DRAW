@@ -126,6 +126,7 @@ $INCLUDEONCE
 '$INCLUDE:'./OUTPUT/FILE-EXPORT.BI'
 '$INCLUDE:'./OUTPUT/FILE-ANS.BI'
 '$INCLUDE:'./OUTPUT/FILE-QB64.BI'
+'$INCLUDE:'./OUTPUT/PAL-INDEX.BI'
 '$INCLUDE:'./OUTPUT/BATCH.BI'
 
 ' EFFECTS ---------------------------------------------------------------------
