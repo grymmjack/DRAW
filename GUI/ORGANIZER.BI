@@ -30,6 +30,7 @@ CONST ORG_GRID_VIS      = 8
 CONST ORG_GRID_SNAP     = 9
 CONST ORG_COLOR_MODE    = 10
 CONST ORG_WIDGET_COUNT  = 11
+DIM SHARED ORG_HIDDEN(0 TO ORG_WIDGET_COUNT - 1) AS INTEGER ' workspace [ORGANIZER] WIDGETS= filter: blanked, no hit box
 
 ' Widget cell dimensions (unscaled, native pixel sizes)
 CONST ORG_COL_W   = 11 ' Column width (all columns)
