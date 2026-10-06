@@ -92,6 +92,22 @@ if command -v identify >/dev/null; then
     [ "$AE" = "0" ] && pass "GrafX2 GIF pixels kept (within 1 level: duplicate colors are made unique)" || failx "GrafX2 GIF pixels differ ($AE)"
 fi
 
+# --- 6. animated GIF of the cycle ---
+draw_batch "$OUT/bands.draw" --export-anim "$OUT/anim.gif" && [ -s "$OUT/anim.gif" ] && pass "animated .gif written" || failx "animated gif export"
+if command -v identify >/dev/null; then
+    NF=$(identify "$OUT/anim.gif" | wc -l); TOT=$(identify -format "%T\n" "$OUT/anim.gif" | awk '{s+=$1} END {print s}')
+    # 8/s fwd n=4 (0.5 s), 4/s rev n=4 (1 s), 6/s ping n=5 (8 steps = 1.333 s) -> LCM 4 s
+    [ "$NF" = "48" ] && [ "$TOT" = "400" ] && pass "animated GIF: exact 4 s loop in $NF frames" || failx "animated GIF frames=$NF total=${TOT}cs (want 48 / 400)"
+    /usr/bin/convert "$OUT/anim.gif" -coalesce "$OUT/anim-%03d.png" 2>/dev/null
+    AE=$(/usr/bin/compare -metric AE "$OUT/bands.png" "$OUT/anim-000.png" null: 2>&1 | awk '{print int($1)}')
+    [ "$AE" = "0" ] && pass "animated GIF frame 1 == the art" || failx "animated GIF frame 1 differs ($AE)"
+    AE=$(/usr/bin/compare -metric AE "$OUT/anim-000.png" "$OUT/anim-001.png" null: 2>&1 | awk '{print int($1)}')
+    [ "${AE:-0}" -gt 0 ] && pass "animated GIF frame 2 is cycled" || failx "animated GIF frame 2 unchanged"
+fi
+if command -v ffmpeg >/dev/null; then
+    ffmpeg -v error -i "$OUT/anim.gif" -f null - && pass "ffmpeg decodes the animated GIF" || failx "ffmpeg cannot decode the animated GIF"
+fi
+
 #@@MORE-CASES@@
 
 [ $fail = 0 ] && echo "test-cycle-exports: ALL PASS" || echo "test-cycle-exports: FAILURES"

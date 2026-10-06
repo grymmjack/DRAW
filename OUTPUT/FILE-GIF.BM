@@ -309,11 +309,146 @@ END FUNCTION
 
 
 ''
-' Animated GIF stream of the color cycle (Phase 4).
+' Greatest common divisor / least common multiple (LONG, capped).
+'
+FUNCTION GIF_gcd& (a AS LONG, b AS LONG)
+    DIM x AS LONG, y AS LONG, t AS LONG
+    x& = ABS(a&) : y& = ABS(b&)
+    DO WHILE y& <> 0 : t& = x& MOD y& : x& = y& : y& = t& : LOOP
+    GIF_gcd& = x&
+END FUNCTION
+
+
+''
+' Display map for every palette index at tick t (2-cs ticks): dispOf(i) =
+' the palette index whose color index i shows. Paused ranges hold their step.
+'
+SUB GIF_display_map (t AS LONG, spt() AS DOUBLE, dispOf() AS INTEGER)
+    DIM i AS INTEGER, r AS INTEGER, n AS INTEGER, s AS INTEGER, j AS INTEGER, k AS LONG
+    FOR i% = 0 TO 255 : dispOf(i%) = i% : NEXT i%
+    FOR r% = 1 TO PCYC.COUNT%
+        ' spt = steps per tick; the step comes from absolute time, so a range
+        ' whose step is not a whole number of ticks still keeps its speed
+        IF PCYC_R(r%).active THEN k& = PCYC_R(r%).heldStep + INT(t& * spt(r%) + 0.000001#) ELSE k& = PCYC_R(r%).heldStep
+        s% = PCYC_shift_at%(r%, k&)
+        n% = PCYC_R(r%).hi - PCYC_R(r%).lo + 1
+        FOR j% = 0 TO n% - 1
+            dispOf(PCYC_R(r%).lo + j%) = PCYC_R(r%).lo + (((j% - s%) MOD n%) + n%) MOD n%
+        NEXT j%
+    NEXT r%
+END SUB
+
+
+''
+' Animated GIF of the color cycle. Frame 1 = the whole image; every later
+' frame = only the bounding box of the cycling pixels (same LZW data every
+' time, encoded once) with a local color table holding that step's colors.
+' Time is quantized to 2-cs ticks (GIF delays are 1/100 s; most viewers
+' clamp faster frames). The loop is the least common multiple of the range
+' periods, capped at 60 s / 1000 frames (warned when cut short).
 '
 FUNCTION GIF_anim_stream$ (w AS LONG, h AS LONG, pix AS STRING, bits AS INTEGER, transIdx AS INTEGER)
-    CYCX_LAST_ERROR$ = "animated GIF export is not implemented yet"
-    GIF_anim_stream$ = ""
+    CONST TICK_CS = 2, MAX_TICKS = 3000, MAX_FRAMES = 1000
+    DIM spt(1 TO PCYC_MAX) AS DOUBLE, r AS INTEGER, perTicks AS LONG, loopT AS LONG, capped AS INTEGER
+    DIM inRange(0 TO 255) AS INTEGER, i AS LONG, k AS INTEGER, x AS LONG, y AS LONG
+    DIM bx1 AS LONG, by1 AS LONG, bx2 AS LONG, by2 AS LONG, bw AS LONG, bh AS LONG, bpix AS STRING, blzw AS STRING
+    DIM dispOf(0 TO 255) AS INTEGER, prevMap AS STRING, curMap AS STRING, g AS STRING
+    DIM t AS LONG, frames AS LONG, lastT AS LONG, lastMap AS STRING, minCode AS INTEGER, anyActive AS INTEGER
+    DIM sps AS SINGLE, delayCs AS LONG
+
+    ' Steps per tick per range (speed snapped to 0.01 steps/s: CRNG rates are
+    ' integers, so "4/s" is stored as 3.999/s), and the loop length = LCM of
+    ' each range's full period in ticks.
+    loopT& = 1
+    FOR r% = 1 TO PCYC.COUNT%
+        sps! = INT(PCYC_sps!(PCYC_R(r%).rate) * 100 + 0.5) / 100
+        IF sps! <= 0 THEN sps! = 0.01
+        IF sps! > 100 / TICK_CS THEN sps! = 100 / TICK_CS ' at most one step per tick
+        spt(r%) = sps! * TICK_CS / 100#
+        IF PCYC_R(r%).active THEN
+            anyActive% = TRUE
+            ' The pattern of range r repeats after L ticks when L * S / 5000 is a
+            ' multiple of its period P (S = speed in 0.01 steps/s, 50 ticks/s):
+            ' L must be a multiple of P*5000 / gcd(P*5000, S).
+            DIM pS AS LONG, pP AS LONG
+            pS& = CLNG(sps! * 100) : pP& = PCYC_period&(r%) * (10000 \ TICK_CS)
+            perTicks& = pP& \ GIF_gcd&(pP&, pS&)
+            IF perTicks& < 1 THEN perTicks& = 1
+            IF loopT& <= MAX_TICKS THEN loopT& = (loopT& \ GIF_gcd&(loopT&, perTicks&)) * perTicks&
+        END IF
+        FOR k% = PCYC_R(r%).lo TO PCYC_R(r%).hi : inRange(k%) = TRUE : NEXT k%
+    NEXT r%
+    IF loopT& > MAX_TICKS THEN loopT& = MAX_TICKS : capped% = TRUE
+
+    ' Bounding box of the cycling pixels (indices inside ranges)
+    bx1& = w& : by1& = h& : bx2& = -1 : by2& = -1
+    FOR i& = 0 TO w& * h& - 1
+        IF inRange(ASC(pix$, i& + 1)) THEN
+            x& = i& MOD w& : y& = i& \ w&
+            IF x& < bx1& THEN bx1& = x&
+            IF x& > bx2& THEN bx2& = x&
+            IF y& < by1& THEN by1& = y&
+            IF y& > by2& THEN by2& = y&
+        END IF
+    NEXT i&
+
+    ' Header + frame 1 (whole image, global table = the colors at t = 0)
+    GIF_display_map 0, spt(), dispOf()
+    g$ = "GIF89a" + GIF_le16$(w&) + GIF_le16$(h&) + CHR$(&H80 OR &H70 OR (bits% - 1)) + CHR$(_IIF(transIdx% >= 0, transIdx%, 0)) + CHR$(0)
+    g$ = g$ + GIF_color_table$(bits%, dispOf(), TRUE)
+    g$ = g$ + CHR$(&H21) + CHR$(&HFF) + CHR$(11) + "NETSCAPE2.0" + CHR$(3) + CHR$(1) + GIF_le16$(0) + CHR$(0) ' loop forever
+
+    IF NOT anyActive% _ORELSE bx2& < 0 THEN
+        ' Nothing moves: a single still frame
+        g$ = g$ + GIF_gce$(0, transIdx%, 1) + GIF_frame$(0, 0, w&, h&, pix$, bits%, "") + CHR$(&H3B)
+        GIF_LAST_INFO$ = "1 frame (no active cycling pixels)"
+        GIF_anim_stream$ = g$
+        EXIT FUNCTION
+    END IF
+
+    bw& = bx2& - bx1& + 1 : bh& = by2& - by1& + 1
+    bpix$ = SPACE$(bw& * bh&)
+    FOR y& = 0 TO bh& - 1
+        MID$(bpix$, y& * bw& + 1, bw&) = MID$(pix$, (by1& + y&) * w& + bx1& + 1, bw&)
+    NEXT y&
+    minCode% = bits% : IF minCode% < 2 THEN minCode% = 2
+    blzw$ = CHR$(minCode%) + GIF_subblocks$(GIF_lzw$(bpix$, minCode%))
+
+    ' Walk the ticks; emit a frame whenever the colors change. Each frame's
+    ' delay is known only when the next change is found, so frames are
+    ' buffered one behind.
+    DIM pendFrame AS STRING, pendT AS LONG, haveFirst AS INTEGER, frameBody AS STRING
+    lastMap$ = ""
+    FOR t& = 0 TO loopT& - 1
+        GIF_display_map t&, spt(), dispOf()
+        curMap$ = ""
+        FOR k% = 0 TO 255 : curMap$ = curMap$ + CHR$(dispOf(k%)) : NEXT k%
+        IF curMap$ <> lastMap$ THEN
+            IF t& = 0 THEN
+                frameBody$ = GIF_frame$(0, 0, w&, h&, pix$, bits%, "")
+            ELSE
+                frameBody$ = CHR$(&H2C) + GIF_le16$(bx1&) + GIF_le16$(by1&) + GIF_le16$(bw&) + GIF_le16$(bh&) + CHR$(&H80 OR (bits% - 1)) + GIF_color_table$(bits%, dispOf(), TRUE) + blzw$
+            END IF
+            IF haveFirst% THEN
+                g$ = g$ + GIF_gce$((t& - pendT&) * TICK_CS, transIdx%, 1) + pendFrame$
+                frames& = frames& + 1
+            END IF
+            pendFrame$ = frameBody$ : pendT& = t& : haveFirst% = TRUE
+            lastMap$ = curMap$
+            IF frames& >= MAX_FRAMES - 1 THEN capped% = TRUE : loopT& = t& + 1 : EXIT FOR
+        END IF
+    NEXT t&
+    delayCs& = (loopT& - pendT&) * TICK_CS
+    IF delayCs& < TICK_CS THEN delayCs& = TICK_CS
+    g$ = g$ + GIF_gce$(delayCs&, transIdx%, 1) + pendFrame$ + CHR$(&H3B)
+    frames& = frames& + 1
+
+    GIF_LAST_INFO$ = _TRIM$(STR$(frames&)) + " frames, " + _TRIM$(STR$(loopT& * TICK_CS / 100)) + "s loop"
+    IF capped% THEN
+        GIF_LAST_INFO$ = GIF_LAST_INFO$ + " (cut short: the full cycle is longer than 60 s / 1000 frames)"
+        _LOGWARN "GIF_anim_stream: full cycle exceeds the cap - the loop will jump at the end"
+    END IF
+    GIF_anim_stream$ = g$
 END FUNCTION
 
 
