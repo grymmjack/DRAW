@@ -74,6 +74,24 @@ echo "$HEX" | grep -q "21ff0b43524e4700000000312e3012088900010104044400030508066
     && pass "GrafX2 CRNG extension bytes" || failx "CRNG extension missing/wrong"
 echo "$HEX" | grep -q "21ff0b4452415743594" && pass "DRAWCYCL extension present" || failx "DRAWCYCL extension missing"
 
+# --- 4. GIF import: DRAW's own GIF (DRAWCYCL keeps ping-pong) ---
+draw_batch "$OUT/bands.gif" --export "$OUT/from-gif.draw"
+grep -aq "CYC 3: 9-13 PING 6.0/s" "$OUT/last.log" && grep -aq "CYC 2: 5-8 REV 4.0/s" "$OUT/last.log" \
+    && pass "GIF import restores exact ranges (DRAWCYCL)" || failx "GIF import ranges"
+
+# --- 5. GIF import: a real GrafX2 file (CRNG only) -> re-export keeps the CRNG bytes ---
+draw_batch QA/fixtures/grafx2-crng.gif --export "$OUT/grafx2-re.gif"
+grep -aq "CYC 1: 1-3 FWD" "$OUT/last.log" && grep -aq "CYC 2: 32-47 REV" "$OUT/last.log" \
+    && pass "GrafX2 GIF ranges imported (1-3 fwd, 32-47 rev)" || failx "GrafX2 GIF ranges"
+CR_ORIG=$(xxd -p QA/fixtures/grafx2-crng.gif | tr -d '\n' | grep -o "21ff0b43524e4700000000312e300c[0-9a-f]\{24\}00")
+CR_RE=$(xxd -p "$OUT/grafx2-re.gif" | tr -d '\n' | grep -o "21ff0b43524e4700000000312e300c[0-9a-f]\{24\}00")
+[ -n "$CR_ORIG" ] && [ "$CR_ORIG" = "$CR_RE" ] && pass "GrafX2 CRNG bytes identical after DRAW round trip" || failx "CRNG bytes changed ($CR_ORIG vs $CR_RE)"
+if command -v identify >/dev/null; then
+    /usr/bin/convert QA/fixtures/grafx2-crng.gif "$OUT/g-orig.png"; /usr/bin/convert "$OUT/grafx2-re.gif" "$OUT/g-re.png"
+    AE=$(/usr/bin/compare -fuzz 1% -metric AE "$OUT/g-orig.png" "$OUT/g-re.png" null: 2>&1 | awk '{print int($1)}')
+    [ "$AE" = "0" ] && pass "GrafX2 GIF pixels kept (within 1 level: duplicate colors are made unique)" || failx "GrafX2 GIF pixels differ ($AE)"
+fi
+
 #@@MORE-CASES@@
 
 [ $fail = 0 ] && echo "test-cycle-exports: ALL PASS" || echo "test-cycle-exports: FAILURES"
