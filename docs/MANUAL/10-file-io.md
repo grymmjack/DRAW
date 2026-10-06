@@ -1,6 +1,6 @@
 # Ch. 10  💾 File I/O & Export
 
-> **What you'll learn:** Every way to get artwork in and out of DRAW — the native `.draw` format, nine raster export formats, the famous QB64 source-code export, and the Extract Images sprite-decomposition tools.
+> **What you'll learn:** Every way to get artwork in and out of DRAW — the native `.draw` format, nine raster export formats, the famous QB64 source-code export, color-cycling formats (QB64 program, GrafX2 GIF, animated GIF, DeluxePaint LBM), and the Extract Images sprite-decomposition tools.
 
 ---
 
@@ -16,6 +16,8 @@
 | Project (`.draw`) | `Alt+O` |
 | Aseprite (`.ase` / `.aseprite`) | File → Open Aseprite |
 | Photoshop (`.psd`) | File → Open Photoshop |
+| DeluxePaint (`.lbm` / `.iff`, ILBM or PBM) with cycle ranges | `Ctrl+O`, or File → Color Cycling → Open DeluxePaint / GrafX2 File |
+| GrafX2 GIF with cycle ranges | `Ctrl+O` (the ranges come along automatically) |
 | Import Image (oversized, interactive placement) | File → Import Image |
 | Drag-and-drop file onto window | Windows |
 | Command-line argument | `DRAW path/to/file.draw` |
@@ -85,6 +87,53 @@ The signature feature: export your artwork as a self-contained `.bas` program. T
 <div align="center">
   <img src="images/ch04-symbol-layers.png" alt="Chapter 10 - QB64PE Project Export Source Code" style="max-width: 6.0in; width: 90%; height: auto;" />
 </div>
+
+<div class="page-break"></div>
+
+## Color Cycling Formats — Share the Motion
+
+> 🎯 **Goal:** Get color-cycling art out of DRAW in a form other people and programs can play, and bring cycling art in from DeluxePaint and GrafX2.
+
+Cycle ranges ([Chapter 3](03-color-palette.md#color-cycling--animate-the-palette)) are saved in every `.draw` file. To take them anywhere else, use **File → Color Cycling**:
+
+| Command | Writes | Plays in |
+| --- | --- | --- |
+| **Export Cycling QB64 Program (.bas)…** | One self-contained `.bas` file | QB64-PE: `qb64pe -x art.bas` |
+| **Export GIF + Cycle Ranges (GrafX2)…** | A still `.gif` with GrafX2 `CRNG` ranges | GrafX2, and DRAW (ranges load back); other viewers show the still image |
+| **Export Animated GIF of the Cycle…** | An animated `.gif` of one full loop | Any browser, chat app or image viewer |
+| **Export DeluxePaint ILBM (.lbm)…** | IFF ILBM (planar) with `CRNG` chunks | DeluxePaint (Amiga), GrafX2, PyDPainter, Pro Motion, and DRAW |
+| **Export DeluxePaint PBM (.lbm, PC)…** | IFF PBM (chunky), as saved by DeluxePaint II Enhanced on the PC | DeluxePaint for DOS, GrafX2, and DRAW |
+| **Open DeluxePaint / GrafX2 File…** | — | Opens `.lbm` / `.iff` / `.gif` with the file's palette and ranges |
+
+### The cycling QB64 program
+
+The exported `.bas` needs no image files. A single `DATA` block, deflated and base64-encoded, holds the palette, the ranges, your art as a 32-bit image, and an 8-bit overlay containing only the cycling pixels. The program draws the art, then rotates the overlay's palette with `_PALETTECOLOR`. Each range runs on its own clock, in the same speed units and directions DRAW uses. It opens at the largest whole-number zoom that fits your screen. **Space** pauses, **`+`** / **`-`** change the speed, **R** restarts and **Esc** quits. The comments at the top list every range and explain the technique, so it also works as a lesson in palette animation.
+
+### Formats and what they keep
+
+- **Speeds** use DeluxePaint's `CRNG` unit (16384 = 60 steps per second), so ranges move from DRAW to `.lbm` and GIF and back without drifting.
+- **Ping-pong and paused ranges** are DRAW extras that `CRNG` can't express. DRAW writes ping-pong as forward and a paused range as inactive, then adds a small private block (`DRAWCYCL` in GIFs, `DRCY` in LBMs) that other programs skip and DRAW reads back exactly.
+- **Transparency** becomes the GIF transparent color, or the LBM transparent color when the palette has a free slot.
+- **Off-palette pixels** are mapped to the nearest palette color that is *not* in a cycle range, so they never start cycling by accident. The log reports how many there were.
+- **Importing** a DeluxePaint or GrafX2 file creates a new document with the file's exact palette and pixel indices. A swatch must own its pixels, so when the file repeats a color that matters, DRAW nudges the later copy by one or two levels. Inactive ranges and ranges with speed 0 import as paused. Old 4-bit Amiga palettes are rescaled. Extra-Halfbrite images become 64 colors. HAM images aren't supported.
+- **Saving** an opened `.lbm` or `.gif` with `Ctrl+S` writes a companion `.draw` next to it. The original file is never overwritten.
+
+### The animated GIF
+
+Frame 1 is the whole picture. Each later frame holds only the box around the cycling pixels plus that step's colors, so the files stay small. The loop is the exact least common multiple of your ranges' periods. Speeds whose periods divide evenly loop in a few seconds; very mismatched speeds are cut at 60 seconds or 1000 frames, with a note in the log. Times are rounded to GIF's 1/50-second steps.
+
+### Batch conversion from the command line
+
+Every format above is also available without opening a window:
+
+```bash
+DRAW art.png --palette art.gpl --cycle 16-31:8 --cycle 40-47:12:ping --export art.draw
+DRAW art.draw --export art.bas           # .bas  .gif  .lbm (ILBM)  .bbm or .pbm.lbm (PBM)
+DRAW art.draw --export-anim art-anim.gif
+DRAW old.lbm  --export old.draw          # DeluxePaint -> DRAW, ranges included
+```
+
+`--cycle LO-HI[:STEPS_PER_SECOND[:fwd|rev|ping]]` adds a range and can be repeated. DRAW exits after the work is done, with status 0 on success. `DEV/tools/make-cycle-examples.sh` builds the scenes in `SAMPLES/COLOR CYCLING/` this way.
 
 <div class="page-break"></div>
 
