@@ -68,6 +68,10 @@ When only the cursor moved, `SCENE_DIRTY%` stays FALSE. The renderer copies the 
 - **Opacity cache**: Per-layer `opacityCacheImg&` + `opacityCacheVal%` + `contentDirty%`. Cache hit skips expensive per-pixel `_MEM` opacity loop. Only mark `contentDirty% = TRUE` when pixel content actually changes.
 - **`contentDirty%` discipline**: `BLEND_invalidate_cache` does NOT mark layers `contentDirty%`. It only sets `BLEND_COMPOSITE_DIRTY%`, `RENDER_ORDER_DIRTY%`, `SCENE_DIRTY%`, and `COMPOSITE_BELOW_VALID% = FALSE`.
 - **Blend composite cache**: `COMPOSITE_BELOW_CACHE&` stores composited layers below `CURRENT_LAYER%`. When only the current layer changes, layers below are restored from cache instead of re-composited.
+- **Menu-open partial present** (`SCREEN_present_canvas`): the final `SCRN.CANVAS&` → window upscale is the dominant per-frame cost at high display scale. [Linux] Measured 2026-10-05 at 4× scale (864×516 viewport, 3456×2064 window) under Xvfb: ~25ms of a 33ms frame. While a menu stays open across consecutive renders, only the bounding rect of canvas pixels that changed since the last present is upscaled, found by a row-string diff against `SCREEN_PRESENT_PREV&`. With that, menu hover drops to ~0.6ms.
+  - It is safe because every floating screen-0 overlay hides while `MENUBAR_is_open%`.
+  - The copy is kept only while a menu is open, and is used only when `SCREEN_PRESENT_SEQ& = SCREEN_RENDER_SEQ& - 1`, so any other present path in between forces a full upscale.
+  - Any new screen-0 overlay that stays visible while a menu is open breaks that assumption, so check it here.
 
 ---
 

@@ -133,6 +133,14 @@ DIM SHARED CANVAS_CONTENT_SRC AS LONG
 CANVAS_CONTENT_SRC& = 0
 
 DIM SHARED GRAYSCALE_PREVIEW_ACTIVE AS INTEGER ' TRUE = apply grayscale filter to final output
+
+' Menu-open partial present (SCREEN_present_canvas): the final full-window
+' upscale of SCRN.CANVAS& costs ~25ms at 4x display scale, so while a menu
+' stays open only the canvas rect that changed since the last present is
+' upscaled. PRESENT_PREV& is a native-size copy of the last presented canvas.
+DIM SHARED SCREEN_RENDER_SEQ    AS LONG ' SCREEN_render calls (wraps harmlessly)
+DIM SHARED SCREEN_PRESENT_SEQ   AS LONG ' SCREEN_RENDER_SEQ of the render that filled PRESENT_PREV&
+DIM SHARED SCREEN_PRESENT_PREV  AS LONG ' last presented canvas copy (0 = none)
 GRAYSCALE_PREVIEW_ACTIVE% = FALSE
 
 ' Extra breathing-room padding (viewport px, so it scales with display scale) added to the

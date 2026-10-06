@@ -2726,11 +2726,114 @@ SUB RENDER_gui_elements ()
     _DEST SCRN.CANVAS&
 END SUB
 
+' ---------------------------------------------------------------------------
+' SCREEN_present_canvas — Upscale SCRN.CANVAS& to the window (screen 0).
+' Normally the whole canvas. While a menu stays open across consecutive
+' renders, only the bounding rect of canvas pixels that changed since the
+' last present is upscaled: hovering menu items changes a few rows, but the
+' full-window upscale is ~7M pixels at 4x (the menu-lag hot spot). Safe then
+' because every floating screen-0 overlay hides while a menu is open, so the
+' window is exactly the upscaled canvas. Any other frame (menu closed, first
+' menu frame, another present path ran in between, size change, tooltip,
+' non-integer window) takes the full upscale.
+' ---------------------------------------------------------------------------
+SUB SCREEN_present_canvas ()
+    DIM sc AS INTEGER : sc% = SCRN.displayScale%
+    IF sc% < 1 THEN sc% = 1
+    DIM menuOpen AS INTEGER : menuOpen% = MENUBAR_is_open%
+    DIM partial  AS INTEGER : partial% = FALSE
+
+    IF menuOpen% _ANDALSO SCREEN_PRESENT_PREV& < -1 _ANDALSO SCREEN_PRESENT_SEQ& = SCREEN_RENDER_SEQ& - 1 _ANDALSO NOT TOOLTIP.ACTIVE% THEN
+        IF _WIDTH(SCREEN_PRESENT_PREV&) = SCRN.w& _ANDALSO _HEIGHT(SCREEN_PRESENT_PREV&) = SCRN.h& _ANDALSO _
+           _WIDTH(0) = SCRN.w& * sc% _ANDALSO _HEIGHT(0) = SCRN.h& * sc% THEN partial% = TRUE
+    END IF
+
+    IF partial% THEN
+        ' Dirty rect: rows whose bytes differ, then the differing column span
+        ' within those rows (8-byte steps from each side).
+        DIM mNew AS _MEM : mNew = _MEMIMAGE(SCRN.CANVAS&)
+        DIM mOld AS _MEM : mOld = _MEMIMAGE(SCREEN_PRESENT_PREV&)
+        DIM rowB AS LONG : rowB& = SCRN.w& * 4
+        DIM rNew AS STRING, rOld AS STRING
+        rNew$ = SPACE$(rowB&) : rOld$ = SPACE$(rowB&)
+        DIM y AS LONG, rowOff AS _OFFSET, qN AS LONG
+        DIM aN AS _INTEGER64, aO AS _INTEGER64
+        DIM x1 AS LONG, x2 AS LONG, y1 AS LONG, y2 AS LONG, qa AS LONG, qb AS LONG
+        x1& = SCRN.w& : x2& = -1 : y1& = -1 : y2& = -1
+        qN& = rowB& \ 8
+        FOR y& = 0 TO SCRN.h& - 1
+            rowOff = mNew.OFFSET + y& * rowB&
+            _MEMGET mNew, rowOff, rNew$
+            _MEMGET mOld, mOld.OFFSET + y& * rowB&, rOld$
+            IF rNew$ <> rOld$ THEN
+                IF y1& < 0 THEN y1& = y&
+                y2& = y&
+                qa& = 0
+                DO WHILE qa& < qN& - 1
+                    _MEMGET mNew, rowOff + qa& * 8, aN
+                    _MEMGET mOld, mOld.OFFSET + y& * rowB& + qa& * 8, aO
+                    IF aN <> aO THEN EXIT DO
+                    qa& = qa& + 1
+                LOOP
+                qb& = qN& - 1
+                DO WHILE qb& > qa&
+                    _MEMGET mNew, rowOff + qb& * 8, aN
+                    _MEMGET mOld, mOld.OFFSET + y& * rowB& + qb& * 8, aO
+                    IF aN <> aO THEN EXIT DO
+                    qb& = qb& - 1
+                LOOP
+                IF qa& * 2 < x1& THEN x1& = qa& * 2
+                IF qb& * 2 + 1 > x2& THEN x2& = qb& * 2 + 1
+            END IF
+        NEXT y&
+        IF x2& > SCRN.w& - 1 THEN x2& = SCRN.w& - 1 ' odd width: last 8-byte step runs past it
+        IF y1& >= 0 THEN
+            _PUTIMAGE (x1& * sc%, y1& * sc%)-((x2& + 1) * sc% - 1, (y2& + 1) * sc% - 1), SCRN.CANVAS&, 0, (x1&, y1&)-(x2&, y2&)
+        END IF
+        ' Odd-width rows leave a trailing 4-byte pixel past the last 8-byte
+        ' step: compare it on its own so a change there is never missed.
+        IF SCRN.w& MOD 2 = 1 THEN
+            DIM lastX AS LONG : lastX& = SCRN.w& - 1
+            DIM pN AS _UNSIGNED LONG, pO AS _UNSIGNED LONG
+            FOR y& = 0 TO SCRN.h& - 1
+                _MEMGET mNew, mNew.OFFSET + y& * rowB& + lastX& * 4, pN
+                _MEMGET mOld, mOld.OFFSET + y& * rowB& + lastX& * 4, pO
+                IF pN <> pO THEN _PUTIMAGE (lastX& * sc%, y& * sc%)-((lastX& + 1) * sc% - 1, (y& + 1) * sc% - 1), SCRN.CANVAS&, 0, (lastX&, y&)-(lastX&, y&)
+            NEXT y&
+        END IF
+        _MEMFREE mNew
+        _MEMFREE mOld
+    ELSE
+        _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
+    END IF
+
+    ' Keep a copy of what was just presented, but only while a menu is open
+    ' (the only time it is compared) — zero cost otherwise.
+    IF menuOpen% THEN
+        IF SCREEN_PRESENT_PREV& < -1 THEN
+            IF _WIDTH(SCREEN_PRESENT_PREV&) <> SCRN.w& OR _HEIGHT(SCREEN_PRESENT_PREV&) <> SCRN.h& THEN
+                _FREEIMAGE SCREEN_PRESENT_PREV&
+                SCREEN_PRESENT_PREV& = 0
+            END IF
+        END IF
+        IF SCREEN_PRESENT_PREV& >= -1 THEN SCREEN_PRESENT_PREV& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+        DIM mSrc AS _MEM : mSrc = _MEMIMAGE(SCRN.CANVAS&)
+        DIM mDst AS _MEM : mDst = _MEMIMAGE(SCREEN_PRESENT_PREV&)
+        _MEMCOPY mSrc, mSrc.OFFSET, mSrc.SIZE TO mDst, mDst.OFFSET
+        _MEMFREE mSrc
+        _MEMFREE mDst
+        SCREEN_PRESENT_SEQ& = SCREEN_RENDER_SEQ&
+    ELSE
+        SCREEN_PRESENT_SEQ& = 0
+    END IF
+END SUB
+
 ''
 ' Draws screen
 ' 
 SUB SCREEN_render ()
     PERF_start PERF_RENDER_TOTAL
+    SCREEN_RENDER_SEQ& = SCREEN_RENDER_SEQ& + 1
     DIM so_used_fallback AS INTEGER ' TRUE when STATUS-ONLY fallback routes to SkipToPointer
 
     ' --- Input region housekeeping: clear all region bounds at start of render.
@@ -3731,7 +3834,7 @@ SUB SCREEN_render ()
             _MEMFREE grsFrame
         END IF
     END IF
-    _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
+    SCREEN_present_canvas
     PERF_stop PERF_FINAL_SCALE
 
     ' ==== FLOATING OVERLAYS (after canvas upscale, draw directly to screen 0) ====
