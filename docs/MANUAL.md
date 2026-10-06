@@ -33,7 +33,7 @@ By Rick Christy ([grymmjack](https://github.com/grymmjack)) · [github.com/grymm
 2. **[Ch. 02  🖌️ Core Drawing Fundamentals](MANUAL/02-drawing-fundamentals.md)**  
     Brush, dot, lines, shapes, polygons, fills, spray and eraser.
 3. **[Ch. 03  🎨 Color & Palette Mastery](MANUAL/03-color-palette.md)**  
-    FG/BG, color picker, mixer, 56 built-in palettes, palette ops.
+    FG/BG, color picker, mixer, 56 built-in palettes, palette ops, color cycling.
 4. **[Ch. 04  📚 Layer System Deep Dive](MANUAL/04-layers.md)**  
     64 layers, opacity, 19 blend modes, groups, symbols.
 5. **[Ch. 05  ✂️ Selection & Clipboard](MANUAL/05-selection-clipboard.md)**  
@@ -47,7 +47,7 @@ By Rick Christy ([grymmjack](https://github.com/grymmjack)) · [github.com/grymm
 9. **[Ch. 09  🪄 Custom Brushes & Drawer Panel](MANUAL/09-brushes-drawer.md)**  
     Capture, transform, recolor, 30-slot drawer, dithering.
 10. **[Ch. 10  💾 File I/O & Export](MANUAL/10-file-io.md)**  
-    Open/save, the `.draw` format, 9 export formats, sprite extraction.
+    Open/save, the `.draw` format, 9 export formats, color cycling formats (QB64, GIF, LBM), sprite extraction.
 11. **[Ch. 11  🖥️ Canvas & View Controls](MANUAL/11-canvas-view.md)**  
     Zoom, pan, preview window, tile mode, reference image.
 12. **[Ch. 12  ⚙️ UI Customization & Settings](MANUAL/12-settings.md)**  

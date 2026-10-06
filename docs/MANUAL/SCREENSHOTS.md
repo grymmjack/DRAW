@@ -49,6 +49,11 @@ When all items are checked off, the manual is fully illustrated.
   - Action: Adjust H slider mid-range so swatch is vivid blue/purple.
   - Capture: Full window crop.
 
+- [x] **`images/ch03-color-cycling.png`** — Color cycling running (captured 2026-10-06 under Xvfb by the QA harness).
+  - Setup: Open `SAMPLES/COLOR CYCLING/waterfall.draw`, turn on Palette Ops, press `Shift`+`Tab`.
+  - Action: Hover a swatch inside the water range so the status bar shows `CYC 1: 27-42 FWD 16.0/s`.
+  - Capture: Full window (range bands on the palette strip, `[CYC]` badge).
+
 ### Chapter 4 — Layers
 
 - [ ] **`images/ch04-symbol-layers.png`** — Symbol layers in action.

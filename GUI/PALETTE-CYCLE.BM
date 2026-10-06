@@ -1,0 +1,1138 @@
+''
+' DRAW - GUI/PALETTE-CYCLE.BM
+' =============================================================================
+' Palette color cycling implementation. See PALETTE-CYCLE.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Initialize cycling state (include time) + the Ctrl+Wheel speed table.
+'
+SUB PCYC_init ()
+    PCYC.ENABLED%   = FALSE
+    PCYC.COUNT%     = 0
+    PCYC.BUF&       = 0
+    PCYC.MAP_N&     = 0
+    PCYC.MAP_VALID% = FALSE
+    PCYC.SIG$       = ""
+    PCYC.APPLIED$   = ""
+    PCYC.BUILT_SEQ& = -1
+    PCYC.PREV_SHIFT$ = ""
+    PCYC.WHEEL_R%   = 0
+    PCYC_SPEEDS(0)  = 0.5 : PCYC_SPEEDS(1)  = 1   : PCYC_SPEEDS(2)  = 1.5 : PCYC_SPEEDS(3)  = 2
+    PCYC_SPEEDS(4)  = 3   : PCYC_SPEEDS(5)  = 4   : PCYC_SPEEDS(6)  = 5   : PCYC_SPEEDS(7)  = 6
+    PCYC_SPEEDS(8)  = 8   : PCYC_SPEEDS(9)  = 10  : PCYC_SPEEDS(10) = 12  : PCYC_SPEEDS(11) = 15
+    PCYC_SPEEDS(12) = 20  : PCYC_SPEEDS(13) = 30  : PCYC_SPEEDS(14) = 40  : PCYC_SPEEDS(15) = 60
+    PCYC.DRAG_LO% = -1 : PCYC.DRAG_HI% = -1
+    ' Distinct, bright band colors (cycled by range number)
+    PCYC_BAND_COLOR(1)  = _RGB32(255, 220, 0)   : PCYC_BAND_COLOR(2)  = _RGB32(0, 220, 255)
+    PCYC_BAND_COLOR(3)  = _RGB32(255, 80, 200)  : PCYC_BAND_COLOR(4)  = _RGB32(80, 255, 80)
+    PCYC_BAND_COLOR(5)  = _RGB32(255, 140, 0)   : PCYC_BAND_COLOR(6)  = _RGB32(150, 120, 255)
+    PCYC_BAND_COLOR(7)  = _RGB32(255, 255, 255) : PCYC_BAND_COLOR(8)  = _RGB32(0, 255, 170)
+    PCYC_BAND_COLOR(9)  = _RGB32(255, 220, 0)   : PCYC_BAND_COLOR(10) = _RGB32(0, 220, 255)
+    PCYC_BAND_COLOR(11) = _RGB32(255, 80, 200)  : PCYC_BAND_COLOR(12) = _RGB32(80, 255, 80)
+    PCYC_BAND_COLOR(13) = _RGB32(255, 140, 0)   : PCYC_BAND_COLOR(14) = _RGB32(150, 120, 255)
+    PCYC_BAND_COLOR(15) = _RGB32(255, 255, 255) : PCYC_BAND_COLOR(16) = _RGB32(0, 255, 170)
+END SUB
+
+
+''
+' Document is being replaced (called from PALETTE_OPS_reset, which every
+' new/open/import path runs): drop the ranges and the pixel map. ENABLED is
+' view state and survives, so a document that has ranges cycles on open
+' when cycling was left on.
+'
+SUB PCYC_reset ()
+    PCYC.COUNT%      = 0
+    PCYC.MAP_VALID%  = FALSE
+    PCYC.MAP_N&      = 0
+    PCYC.SIG$        = ""
+    PCYC.APPLIED$    = ""
+    PCYC.PREV_SHIFT$ = ""
+    PCYC.WHEEL_R%    = 0 ' a pending speed burst belonged to the old document
+    PCYC.WHEEL_SNAP$ = ""
+    PCYC.DRAG_ACTIVE% = FALSE
+    PCYC.DRAG_LO%    = -1
+    PCYC.DRAG_HI%    = -1
+    PCYC_BASE$       = ""
+END SUB
+
+
+''
+' Monotonic seconds (TIMER wraps at midnight).
+'
+FUNCTION PCYC_now# ()
+    DIM t AS DOUBLE
+    t# = TIMER(0.001)
+    IF t# < PCYC.CLOCK_LAST# - 1 THEN PCYC.CLOCK_BASE# = PCYC.CLOCK_BASE# + 86400#
+    PCYC.CLOCK_LAST# = t#
+    PCYC_now# = PCYC.CLOCK_BASE# + t#
+END FUNCTION
+
+
+''
+' Steps per second for a CRNG rate (16384 = 60/s, linear).
+'
+FUNCTION PCYC_sps! (rate AS LONG)
+    PCYC_sps! = rate& * 60! / PCYC_RATE_UNIT
+END FUNCTION
+
+
+''
+' CRNG rate for a steps/s value (clamped to the 16-bit field).
+'
+FUNCTION PCYC_rate_for& (sps AS SINGLE)
+    DIM r AS LONG
+    r& = CLNG(sps! * PCYC_RATE_UNIT / 60!)
+    IF r& < 1 THEN r& = 1
+    IF r& > 65535 THEN r& = 65535
+    PCYC_rate_for& = r&
+END FUNCTION
+
+
+''
+' TRUE while cycling is on and there is something to cycle.
+'
+FUNCTION PCYC_running% ()
+    PCYC_running% = PCYC.ENABLED% _ANDALSO PCYC.COUNT% > 0
+END FUNCTION
+
+
+''
+' Steps in one full period of a range (FWD/REV: n, PING: 2(n-1)).
+'
+FUNCTION PCYC_period& (r AS INTEGER)
+    DIM n AS LONG
+    n& = PCYC_R(r%).hi - PCYC_R(r%).lo + 1
+    IF n& < 2 THEN PCYC_period& = 1 : EXIT FUNCTION
+    IF PCYC_R(r%).cmode = PCYC_PING THEN PCYC_period& = 2 * (n& - 1) ELSE PCYC_period& = n&
+END FUNCTION
+
+
+''
+' Rotation of range r at step k (0..n-1). Chip lo+j then shows color
+' PAL(lo + ((j - shift) MOD n + n) MOD n): FWD moves colors toward higher
+' indices, REV toward lower, PING bounces between the two ends.
+'
+FUNCTION PCYC_shift_at% (r AS INTEGER, k AS LONG)
+    DIM n AS LONG, m AS LONG
+    n& = PCYC_R(r%).hi - PCYC_R(r%).lo + 1
+    IF n& < 2 THEN PCYC_shift_at% = 0 : EXIT FUNCTION
+    SELECT CASE PCYC_R(r%).cmode
+        CASE PCYC_REV
+            PCYC_shift_at% = (n& - (k& MOD n&)) MOD n&
+        CASE PCYC_PING
+            m& = k& MOD (2 * (n& - 1))
+            IF m& > n& - 1 THEN m& = 2 * (n& - 1) - m&
+            PCYC_shift_at% = m&
+        CASE ELSE
+            PCYC_shift_at% = k& MOD n&
+    END SELECT
+END FUNCTION
+
+
+''
+' Current step of range r (absolute time, never drifts).
+'
+FUNCTION PCYC_step& (r AS INTEGER, now AS DOUBLE)
+    DIM sps AS SINGLE, k AS DOUBLE
+    IF NOT PCYC_R(r%).active THEN PCYC_step& = PCYC_R(r%).heldStep : EXIT FUNCTION
+    sps! = PCYC_sps!(PCYC_R(r%).rate)
+    IF sps! <= 0 THEN PCYC_step& = PCYC_R(r%).heldStep : EXIT FUNCTION
+    k# = (now# - PCYC_R(r%).origin) * sps!
+    IF k# < 0 THEN k# = 0
+    PCYC_step& = INT(k# - 2147483647# * INT(k# / 2147483647#)) ' wrap safely in LONG
+END FUNCTION
+
+
+''
+' Rebase range r so it continues from step k at the current speed.
+'
+SUB PCYC_rebase (r AS INTEGER, k AS LONG)
+    DIM sps AS SINGLE
+    sps! = PCYC_sps!(PCYC_R(r%).rate)
+    IF sps! <= 0 THEN sps! = 1
+    PCYC_R(r%).origin   = PCYC_now# - k& / sps!
+    PCYC_R(r%).heldStep = k&
+END SUB
+
+
+''
+' Per-frame: recompute every range's shift. Returns TRUE when any shift (or
+' the cycling on/off state) changed since the last call, so the caller only
+' dirties the scene on a real step (same discipline as the text cursor blink).
+'
+FUNCTION PCYC_tick% ()
+    DIM s AS STRING, r AS INTEGER, now AS DOUBLE
+    PCYC_wheel_flush FALSE
+    PCYC_validate
+    IF PCYC_running% THEN
+        now# = PCYC_now#
+        FOR r% = 1 TO PCYC.COUNT%
+            PCYC_R(r%).shift = PCYC_shift_at%(r%, PCYC_step&(r%, now#))
+            s$ = s$ + MKI$(PCYC_R(r%).lo) + MKI$(PCYC_R(r%).shift)
+        NEXT r%
+        s$ = "R" + s$
+    ELSE
+        FOR r% = 1 TO PCYC.COUNT%
+            PCYC_R(r%).shift = 0
+        NEXT r%
+    END IF
+    ' A palette/range edit that moved no pixels (reorder, rate) still changes
+    ' what the cycled buffer must show.
+    IF PCYC_running% THEN s$ = s$ + PCYC_signature$
+    IF s$ <> PCYC.PREV_SHIFT$ THEN
+        PCYC.PREV_SHIFT$ = s$
+        PCYC_tick% = TRUE
+    ELSE
+        PCYC_tick% = FALSE
+    END IF
+END FUNCTION
+
+
+''
+' Range number (1..COUNT) containing palette index idx, or 0.
+'
+FUNCTION PCYC_range_at% (idx AS INTEGER)
+    DIM r AS INTEGER
+    FOR r% = 1 TO PCYC.COUNT%
+        IF idx% >= PCYC_R(r%).lo _ANDALSO idx% <= PCYC_R(r%).hi THEN PCYC_range_at% = r% : EXIT FUNCTION
+    NEXT r%
+    PCYC_range_at% = 0
+END FUNCTION
+
+
+''
+' Palette index whose color chip/pixels of index idx currently SHOW (identity
+' when cycling is off or idx is in no range).
+'
+FUNCTION PCYC_display_index% (idx AS INTEGER)
+    DIM r AS INTEGER, n AS INTEGER, j AS INTEGER
+    PCYC_display_index% = idx%
+    IF NOT PCYC_running% THEN EXIT FUNCTION
+    r% = PCYC_range_at%(idx%)
+    IF r% = 0 THEN EXIT FUNCTION
+    n% = PCYC_R(r%).hi - PCYC_R(r%).lo + 1
+    j% = idx% - PCYC_R(r%).lo
+    PCYC_display_index% = PCYC_R(r%).lo + (((j% - PCYC_R(r%).shift) MOD n%) + n%) MOD n%
+END FUNCTION
+
+
+''
+' Clip ranges to the current palette size; drop ones under 2 colors.
+'
+SUB PCYC_validate ()
+    DIM r AS INTEGER, w AS INTEGER
+    FOR r% = 1 TO PCYC.COUNT%
+        IF PCYC_R(r%).hi > PAL_COLOR_COUNT% - 1 THEN PCYC_R(r%).hi = PAL_COLOR_COUNT% - 1
+        IF PCYC_R(r%).hi - PCYC_R(r%).lo >= 1 THEN
+            w% = w% + 1
+            IF w% <> r% THEN PCYC_R(w%) = PCYC_R(r%)
+        END IF
+    NEXT r%
+    PCYC.COUNT% = w%
+END SUB
+
+
+''
+' Sort ranges by lo and drop any that overlap an earlier one.
+'
+SUB PCYC_normalize ()
+    DIM i AS INTEGER, j AS INTEGER, t AS PCYC_RANGE, w AS INTEGER
+    FOR i% = 2 TO PCYC.COUNT%
+        t = PCYC_R(i%)
+        j% = i% - 1
+        DO WHILE j% >= 1
+            IF PCYC_R(j%).lo <= t.lo THEN EXIT DO
+            PCYC_R(j% + 1) = PCYC_R(j%)
+            j% = j% - 1
+        LOOP
+        PCYC_R(j% + 1) = t
+    NEXT i%
+    w% = 0
+    FOR i% = 1 TO PCYC.COUNT%
+        IF PCYC_R(i%).hi - PCYC_R(i%).lo >= 1 THEN
+            IF w% = 0 _ORELSE PCYC_R(i%).lo > PCYC_R(w%).hi THEN
+                w% = w% + 1
+                IF w% <> i% THEN PCYC_R(w%) = PCYC_R(i%)
+            END IF
+        END IF
+    NEXT i%
+    PCYC.COUNT% = w%
+END SUB
+
+
+''
+' Add range lo..hi (any order). Ranges it overlaps are replaced. Returns the
+' new range number, or 0 when refused (< 2 colors, or 16 ranges already).
+'
+FUNCTION PCYC_add_range% (a AS INTEGER, b AS INTEGER, rate AS LONG, cmode AS INTEGER)
+    DIM lo AS INTEGER, hi AS INTEGER, r AS INTEGER, w AS INTEGER
+    lo% = a% : hi% = b%
+    IF lo% > hi% THEN SWAP lo%, hi%
+    IF lo% < 0 THEN lo% = 0
+    IF hi% > PAL_COLOR_COUNT% - 1 THEN hi% = PAL_COLOR_COUNT% - 1
+    IF hi% - lo% < 1 THEN PCYC_add_range% = 0 : EXIT FUNCTION
+    ' Drop overlapped ranges
+    FOR r% = 1 TO PCYC.COUNT%
+        IF PCYC_R(r%).hi < lo% _ORELSE PCYC_R(r%).lo > hi% THEN
+            w% = w% + 1
+            IF w% <> r% THEN PCYC_R(w%) = PCYC_R(r%)
+        END IF
+    NEXT r%
+    PCYC.COUNT% = w%
+    IF PCYC.COUNT% >= PCYC_MAX THEN PCYC_add_range% = 0 : EXIT FUNCTION
+    PCYC.COUNT% = PCYC.COUNT% + 1
+    r% = PCYC.COUNT%
+    PCYC_R(r%).lo       = lo%
+    PCYC_R(r%).hi       = hi%
+    PCYC_R(r%).rate     = rate&
+    PCYC_R(r%).cmode    = cmode%
+    PCYC_R(r%).active   = TRUE
+    PCYC_R(r%).heldStep = 0
+    PCYC_R(r%).shift    = 0
+    PCYC_rebase r%, 0
+    PCYC_normalize
+    PCYC_add_range% = PCYC_range_at%(lo%)
+END FUNCTION
+
+
+''
+' Delete range r.
+'
+SUB PCYC_delete_range (r AS INTEGER)
+    DIM i AS INTEGER
+    IF r% < 1 OR r% > PCYC.COUNT% THEN EXIT SUB
+    FOR i% = r% TO PCYC.COUNT% - 1
+        PCYC_R(i%) = PCYC_R(i% + 1)
+    NEXT i%
+    PCYC.COUNT% = PCYC.COUNT% - 1
+END SUB
+
+
+''
+' Change the speed of range r, keeping its current step (no jump).
+'
+SUB PCYC_set_rate (r AS INTEGER, rate AS LONG)
+    DIM k AS LONG
+    IF r% < 1 OR r% > PCYC.COUNT% THEN EXIT SUB
+    k& = PCYC_step&(r%, PCYC_now#)
+    PCYC_R(r%).rate = rate&
+    IF PCYC_R(r%).rate < 1 THEN PCYC_R(r%).rate = 1
+    IF PCYC_R(r%).rate > 65535 THEN PCYC_R(r%).rate = 65535
+    PCYC_rebase r%, k&
+END SUB
+
+
+''
+' Pause / resume range r (a paused range holds its current step).
+'
+SUB PCYC_toggle_pause (r AS INTEGER)
+    DIM k AS LONG
+    IF r% < 1 OR r% > PCYC.COUNT% THEN EXIT SUB
+    k& = PCYC_step&(r%, PCYC_now#)
+    PCYC_R(r%).active = NOT PCYC_R(r%).active
+    PCYC_rebase r%, k&
+END SUB
+
+
+''
+' Cycle the direction of range r: FWD -> REV -> PING -> FWD.
+'
+SUB PCYC_next_mode (r AS INTEGER)
+    IF r% < 1 OR r% > PCYC.COUNT% THEN EXIT SUB
+    PCYC_R(r%).cmode = (PCYC_R(r%).cmode + 1) MOD 3
+END SUB
+
+
+''
+' Restart every range from step 0 (all ranges back in phase).
+'
+SUB PCYC_restart ()
+    DIM r AS INTEGER
+    FOR r% = 1 TO PCYC.COUNT%
+        PCYC_rebase r%, 0
+    NEXT r%
+END SUB
+
+
+''
+' Turn cycling on/off. Off shows the true palette again.
+'
+SUB PCYC_set_enabled (onOff AS INTEGER)
+    PCYC.ENABLED%     = onOff%
+    PCYC.BUILT_SEQ&   = -1
+    SCENE_DIRTY%      = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+
+''
+' Speed-table slot nearest a CRNG rate (Ctrl+Wheel steps through the table).
+'
+FUNCTION PCYC_speed_slot% (rate AS LONG)
+    DIM i AS INTEGER, best AS INTEGER, d AS SINGLE, bd AS SINGLE, sps AS SINGLE
+    sps! = PCYC_sps!(rate&)
+    bd! = 1E+30
+    FOR i% = 0 TO 15
+        d! = ABS(PCYC_SPEEDS(i%) - sps!)
+        IF d! < bd! THEN bd! = d! : best% = i%
+    NEXT i%
+    PCYC_speed_slot% = best%
+END FUNCTION
+
+
+''
+' Human-readable description of range r, e.g. "CYC 2: 32-47 REV 8.0/s".
+'
+FUNCTION PCYC_describe$ (r AS INTEGER)
+    DIM m AS STRING, s AS STRING
+    IF r% < 1 OR r% > PCYC.COUNT% THEN PCYC_describe$ = "" : EXIT FUNCTION
+    SELECT CASE PCYC_R(r%).cmode
+        CASE PCYC_REV  : m$ = "REV"
+        CASE PCYC_PING : m$ = "PING"
+        CASE ELSE      : m$ = "FWD"
+    END SELECT
+    s$ = _TRIM$(STR$(INT(PCYC_sps!(PCYC_R(r%).rate) * 10 + 0.5) / 10))
+    IF INSTR(s$, ".") = 0 THEN s$ = s$ + ".0"
+    IF LEFT$(s$, 1) = "." THEN s$ = "0" + s$
+    s$ = "CYC " + _TRIM$(STR$(r%)) + ": " + _TRIM$(STR$(PCYC_R(r%).lo)) + "-" + _TRIM$(STR$(PCYC_R(r%).hi)) + " " + m$ + " " + s$ + "/s"
+    IF NOT PCYC_R(r%).active THEN s$ = s$ + " PAUSED"
+    PCYC_describe$ = s$
+END FUNCTION
+
+
+' =============================================================================
+' Serialization (undo tail + .draw v30)
+' =============================================================================
+
+''
+' Ranges as bytes: INTEGER count, then per range lo, hi (INTEGER), rate (LONG),
+' cmode, active (INTEGER), heldStep (LONG) = 16 bytes each.
+'
+FUNCTION PCYC_serialize$ ()
+    DIM s AS STRING, r AS INTEGER
+    s$ = MKI$(PCYC.COUNT%)
+    FOR r% = 1 TO PCYC.COUNT%
+        s$ = s$ + MKI$(PCYC_R(r%).lo) + MKI$(PCYC_R(r%).hi) + MKL$(PCYC_R(r%).rate)
+        s$ = s$ + MKI$(PCYC_R(r%).cmode) + MKI$(PCYC_R(r%).active) + MKL$(PCYC_R(r%).heldStep)
+    NEXT r%
+    PCYC_serialize$ = s$
+END FUNCTION
+
+
+''
+' Restore ranges from PCYC_serialize$ bytes. Returns bytes consumed (0 = bad).
+'
+FUNCTION PCYC_deserialize& (s AS STRING, startPos AS LONG)
+    DIM p AS LONG, n AS INTEGER, r AS INTEGER
+    p& = startPos&
+    IF LEN(s$) < p& + 1 THEN PCYC_deserialize& = 0 : EXIT FUNCTION
+    n% = CVI(MID$(s$, p&, 2)) : p& = p& + 2
+    IF n% < 0 OR n% > PCYC_MAX THEN PCYC_deserialize& = 0 : EXIT FUNCTION
+    IF LEN(s$) < p& - 1 + n% * 16 THEN PCYC_deserialize& = 0 : EXIT FUNCTION
+    PCYC.COUNT% = n%
+    FOR r% = 1 TO n%
+        PCYC_R(r%).lo       = CVI(MID$(s$, p&, 2))      : p& = p& + 2
+        PCYC_R(r%).hi       = CVI(MID$(s$, p&, 2))      : p& = p& + 2
+        PCYC_R(r%).rate     = CVL(MID$(s$, p&, 4))      : p& = p& + 4
+        PCYC_R(r%).cmode    = CVI(MID$(s$, p&, 2))      : p& = p& + 2
+        PCYC_R(r%).active   = CVI(MID$(s$, p&, 2)) <> 0 : p& = p& + 2
+        PCYC_R(r%).heldStep = CVL(MID$(s$, p&, 4))      : p& = p& + 4
+        IF PCYC_R(r%).cmode < PCYC_FWD OR PCYC_R(r%).cmode > PCYC_PING THEN PCYC_R(r%).cmode = PCYC_FWD
+        IF PCYC_R(r%).rate < 1 THEN PCYC_R(r%).rate = PCYC_DEFAULT_RATE
+        PCYC_R(r%).shift = 0
+        PCYC_rebase r%, PCYC_R(r%).heldStep
+    NEXT r%
+    PCYC_normalize
+    PCYC.MAP_VALID% = FALSE
+    PCYC_deserialize& = p& - startPos&
+END FUNCTION
+
+
+' =============================================================================
+' Range bookkeeping when Color Ops edits the palette
+' =============================================================================
+
+''
+' Palette index d was removed (entries above it shifted down).
+'
+SUB PCYC_on_delete (d AS INTEGER)
+    DIM r AS INTEGER
+    FOR r% = 1 TO PCYC.COUNT%
+        IF PCYC_R(r%).lo > d% THEN
+            PCYC_R(r%).lo = PCYC_R(r%).lo - 1
+            PCYC_R(r%).hi = PCYC_R(r%).hi - 1
+        ELSEIF PCYC_R(r%).hi >= d% THEN
+            PCYC_R(r%).hi = PCYC_R(r%).hi - 1 ' inside the range: it shrinks
+        END IF
+    NEXT r%
+    PCYC_normalize ' drops ranges left with < 2 colors
+END SUB
+
+
+''
+' A new palette entry was inserted AT index q (entries from q shifted up).
+' Inserting strictly inside a range grows it; at/before its start shifts it.
+'
+SUB PCYC_on_insert (q AS INTEGER)
+    DIM r AS INTEGER
+    FOR r% = 1 TO PCYC.COUNT%
+        IF PCYC_R(r%).lo >= q% THEN
+            PCYC_R(r%).lo = PCYC_R(r%).lo + 1
+            PCYC_R(r%).hi = PCYC_R(r%).hi + 1
+        ELSEIF PCYC_R(r%).hi >= q% THEN
+            PCYC_R(r%).hi = PCYC_R(r%).hi + 1
+        END IF
+    NEXT r%
+END SUB
+
+
+''
+' The palette was reordered: order(newPos) = oldIdx for cnt colors. A range
+' whose colors are still contiguous follows them; otherwise it keeps its
+' index span (DeluxePaint behavior). Overlaps created by the move are dropped.
+'
+SUB PCYC_on_reorder (order() AS INTEGER, cnt AS INTEGER)
+    DIM inv(0 TO 255) AS INTEGER, i AS INTEGER, r AS INTEGER
+    DIM mn AS INTEGER, mx AS INTEGER, p AS INTEGER
+    IF PCYC.COUNT% = 0 THEN EXIT SUB
+    FOR i% = 0 TO cnt% - 1
+        IF order(i%) >= 0 _ANDALSO order(i%) <= 255 THEN inv(order(i%)) = i%
+    NEXT i%
+    FOR r% = 1 TO PCYC.COUNT%
+        mn% = 999 : mx% = -1
+        FOR i% = PCYC_R(r%).lo TO PCYC_R(r%).hi
+            IF i% < cnt% THEN
+                p% = inv(i%)
+                IF p% < mn% THEN mn% = p%
+                IF p% > mx% THEN mx% = p%
+            END IF
+        NEXT i%
+        IF mx% - mn% = PCYC_R(r%).hi - PCYC_R(r%).lo THEN
+            PCYC_R(r%).lo = mn%
+            PCYC_R(r%).hi = mx%
+        END IF
+    NEXT r%
+    PCYC_normalize
+END SUB
+
+
+''
+' Count palette indices inside ranges that cannot cycle because an EARLIER
+' palette index has the same RGB (their pixels belong to that chip). When
+' flags() is given (UBOUND >= 255) each blocked index is flagged TRUE.
+'
+FUNCTION PCYC_blocked_count% (flags() AS INTEGER)
+    DIM i AS INTEGER, j AS INTEGER, n AS INTEGER, rgb AS _UNSIGNED LONG
+    FOR i% = 0 TO 255 : flags(i%) = FALSE : NEXT i%
+    FOR i% = 0 TO PAL_COLOR_COUNT% - 1
+        IF PCYC_range_at%(i%) > 0 THEN
+            rgb~& = PAL(i%).value~& AND &HFFFFFF~&
+            FOR j% = 0 TO i% - 1
+                IF (PAL(j%).value~& AND &HFFFFFF~&) = rgb~& THEN
+                    flags(i%) = TRUE
+                    n% = n% + 1
+                    EXIT FOR
+                END IF
+            NEXT j%
+        END IF
+    NEXT i%
+    PCYC_blocked_count% = n%
+END FUNCTION
+
+
+' =============================================================================
+' Rendering: cycled copy of the composite
+' =============================================================================
+
+''
+' Signature of everything the pixel map depends on: palette colors and the
+' range spans (not shifts or speeds).
+'
+FUNCTION PCYC_signature$ ()
+    DIM s AS STRING, i AS INTEGER
+    s$ = MKI$(PAL_COLOR_COUNT%)
+    FOR i% = 0 TO PAL_COLOR_COUNT% - 1
+        s$ = s$ + MKL$(PAL(i%).value~& AND &HFFFFFF~&)
+    NEXT i%
+    FOR i% = 1 TO PCYC.COUNT%
+        s$ = s$ + MKI$(PCYC_R(i%).lo) + MKI$(PCYC_R(i%).hi)
+    NEXT i%
+    PCYC_signature$ = s$
+END FUNCTION
+
+
+''
+' Rebuild the color lookup: first palette index per RGB wins.
+'
+SUB PCYC_build_lut ()
+    DIM i AS INTEGER, rgb AS _UNSIGNED LONG, h AS LONG, e AS INTEGER, dup AS INTEGER
+    FOR e% = 1 TO PCYC_LUT_N%
+        PCYC_LUT_HEAD(PCYC_LUT_RGB(e%) AND &HFFFF~&) = 0
+    NEXT e%
+    PCYC_LUT_N% = 0
+    FOR i% = 0 TO PAL_COLOR_COUNT% - 1
+        rgb~& = PAL(i%).value~& AND &HFFFFFF~&
+        h& = rgb~& AND &HFFFF~&
+        dup% = FALSE
+        e% = PCYC_LUT_HEAD(h&)
+        DO WHILE e% > 0
+            IF PCYC_LUT_RGB(e%) = rgb~& THEN dup% = TRUE : EXIT DO
+            e% = PCYC_LUT_NEXT(e%)
+        LOOP
+        IF NOT dup% THEN
+            PCYC_LUT_N% = PCYC_LUT_N% + 1
+            PCYC_LUT_RGB(PCYC_LUT_N%)  = rgb~&
+            PCYC_LUT_IDX(PCYC_LUT_N%)  = i%
+            PCYC_LUT_NEXT(PCYC_LUT_N%) = PCYC_LUT_HEAD(h&)
+            PCYC_LUT_HEAD(h&)          = PCYC_LUT_N%
+        END IF
+    NEXT i%
+END SUB
+
+
+''
+' Scan the cycled buffer's base (a copy of the composite) and record every
+' pixel whose color belongs to a palette index inside a range. Opaque ones go
+' into the 8-bit overlay PCYC.OVL (one index per range color, 0 = clear), so
+' a step is a palette change + one _PUTIMAGE; partly transparent ones (and
+' everything when the ranges hold more than 255 colors) go into the
+' per-pixel lists PCYC_OFF/SRC/A, which keep their alpha.
+'
+SUB PCYC_build_map ()
+    DIM inRange(0 TO 255) AS INTEGER, i AS INTEGER, r AS INTEGER, k AS INTEGER
+    DIM m AS _MEM, total AS LONG, o AS LONG, v AS _UNSIGNED LONG, w AS LONG, h AS LONG
+    DIM e AS INTEGER, n AS LONG, cap AS LONG, idx AS INTEGER, ovb AS STRING, om AS _MEM
+    FOR i% = 0 TO 255 : PCYC_OVL_IDX(i%) = 0 : NEXT i%
+    k% = 0
+    FOR r% = 1 TO PCYC.COUNT%
+        FOR i% = PCYC_R(r%).lo TO PCYC_R(r%).hi
+            IF i% >= 0 _ANDALSO i% <= 255 THEN
+                inRange(i%) = TRUE
+                k% = k% + 1
+                PCYC_OVL_IDX(i%) = k%
+            END IF
+        NEXT i%
+    NEXT r%
+    PCYC.OVL_OK% = (k% <= 255)
+    PCYC_build_lut
+    w& = _WIDTH(PCYC.BUF&) : h& = _HEIGHT(PCYC.BUF&)
+    IF PCYC.OVL_OK% THEN
+        IF PCYC.OVL& < -1 THEN
+            IF _WIDTH(PCYC.OVL&) <> w& OR _HEIGHT(PCYC.OVL&) <> h& THEN SAFE_FREEIMAGE PCYC.OVL& : PCYC.OVL& = 0
+        END IF
+        IF PCYC.OVL& >= -1 THEN
+            PCYC.OVL& = _NEWIMAGE(w&, h&, 256)
+            _CLEARCOLOR 0, PCYC.OVL&
+        END IF
+        ovb$ = STRING$(w& * h&, 0)
+    END IF
+    cap& = UBOUND(PCYC_OFF) + 1
+    IF cap& < 4096 THEN
+        cap& = 4096
+        REDIM PCYC_OFF(0 TO cap& - 1) AS LONG
+        REDIM PCYC_SRC(0 TO cap& - 1) AS _UNSIGNED _BYTE
+        REDIM PCYC_A(0 TO cap& - 1) AS _UNSIGNED _BYTE
+    END IF
+    m = _MEMIMAGE(PCYC.BUF&)
+    total& = m.SIZE
+    FOR o& = 0 TO total& - 4 STEP 4
+        v~& = _MEMGET(m, m.OFFSET + o&, _UNSIGNED LONG)
+        IF v~& > &HFFFFFF~& THEN ' alpha > 0
+            e% = PCYC_LUT_HEAD(v~& AND &HFFFF~&)
+            DO WHILE e% > 0
+                IF PCYC_LUT_RGB(e%) = (v~& AND &HFFFFFF~&) THEN
+                    idx% = PCYC_LUT_IDX(e%)
+                    IF inRange(idx%) THEN
+                        IF PCYC.OVL_OK% _ANDALSO v~& >= &HFF000000~& THEN
+                            ASC(ovb$, o& \ 4 + 1) = PCYC_OVL_IDX(idx%)
+                        ELSE
+                            IF n& >= cap& THEN
+                                cap& = cap& * 2
+                                REDIM _PRESERVE PCYC_OFF(0 TO cap& - 1) AS LONG
+                                REDIM _PRESERVE PCYC_SRC(0 TO cap& - 1) AS _UNSIGNED _BYTE
+                                REDIM _PRESERVE PCYC_A(0 TO cap& - 1) AS _UNSIGNED _BYTE
+                            END IF
+                            PCYC_OFF(n&) = o&
+                            PCYC_SRC(n&) = idx%
+                            PCYC_A(n&)   = v~& \ &H1000000~&
+                            n& = n& + 1
+                        END IF
+                    END IF
+                    EXIT DO
+                END IF
+                e% = PCYC_LUT_NEXT(e%)
+            LOOP
+        END IF
+    NEXT o&
+    _MEMFREE m
+    PCYC.MAP_N& = n&
+    IF PCYC.OVL_OK% THEN
+        om = _MEMIMAGE(PCYC.OVL&)
+        _MEMPUT om, om.OFFSET, ovb$
+        _MEMFREE om
+    END IF
+END SUB
+
+
+''
+' Return the image to display for composite comp&: comp& itself when not
+' cycling, else PCYC.BUF (a copy of comp& with every cycling pixel showing
+' its current color). comp& is never modified.
+'
+FUNCTION PCYC_present& (comp AS LONG)
+    DIM w AS LONG, h AS LONG, m AS _MEM, bm AS _MEM, sig AS STRING, rebuilt AS INTEGER
+
+    PCYC_present& = comp&
+    IF NOT PCYC_running% THEN EXIT FUNCTION
+    IF comp& >= -1 THEN EXIT FUNCTION
+    w& = _WIDTH(comp&) : h& = _HEIGHT(comp&)
+
+    ' Pattern tile: later calls of the same frame reuse the buffer
+    IF PCYC.BUILT_SEQ& = SCREEN_RENDER_SEQ& _ANDALSO PCYC.BUF& < -1 _ANDALSO PCYC.MAP_VALID% THEN
+        IF _WIDTH(PCYC.BUF&) = w& _ANDALSO _HEIGHT(PCYC.BUF&) = h& THEN PCYC_present& = PCYC.BUF& : EXIT FUNCTION
+    END IF
+    PCYC.BUILT_SEQ& = SCREEN_RENDER_SEQ&
+
+    IF PCYC.BUF& < -1 THEN
+        IF _WIDTH(PCYC.BUF&) <> w& OR _HEIGHT(PCYC.BUF&) <> h& THEN SAFE_FREEIMAGE PCYC.BUF& : PCYC.BUF& = 0 ' SAFE_FREEIMAGE does not zero the handle
+    END IF
+    IF PCYC.BUF& >= -1 THEN
+        PCYC.BUF&       = _NEWIMAGE(w&, h&, 32)
+        PCYC.MAP_VALID% = FALSE
+    END IF
+
+    ' Rebuild the map when the composite or the palette/ranges changed
+    PCYC.LAST_FULL# = PCYC_now#
+    sig$ = PCYC_signature$
+    m = _MEMIMAGE(comp&)
+    IF LEN(PCYC_CUR$) <> m.SIZE THEN PCYC_CUR$ = SPACE$(m.SIZE)
+    _MEMGET m, m.OFFSET, PCYC_CUR$
+    _MEMFREE m
+    IF NOT PCYC.MAP_VALID% _ORELSE sig$ <> PCYC.SIG$ _ORELSE PCYC_CUR$ <> PCYC_BASE$ THEN
+        PCYC_BASE$ = PCYC_CUR$
+        PCYC.SIG$  = sig$
+        bm = _MEMIMAGE(PCYC.BUF&)
+        _MEMPUT bm, bm.OFFSET, PCYC_BASE$
+        _MEMFREE bm
+        PCYC_build_map
+        PCYC.MAP_VALID% = TRUE
+        PCYC.APPLIED$   = ""
+        rebuilt% = TRUE
+    END IF
+
+    PCYC_apply_display rebuilt%
+    PCYC_present& = PCYC.BUF&
+END FUNCTION
+
+
+''
+' Write the current display colors into the cycling pixels of PCYC.BUF
+' (only the pixels whose color changed since the last write, unless the map
+' was just rebuilt).
+'
+SUB PCYC_apply_display (rebuilt AS INTEGER)
+    DIM bm AS _MEM, disp AS STRING, dispC(0 TO 255) AS _UNSIGNED LONG, chg(0 TO 255) AS INTEGER
+    DIM i AS LONG, idx AS INTEGER, anyChg AS INTEGER, ovlChg AS INTEGER, oldDisp AS STRING, pv AS _UNSIGNED LONG
+    ' Display color per palette index for the current shifts
+    FOR idx% = 0 TO PAL_COLOR_COUNT% - 1
+        dispC(idx%) = PAL(PCYC_display_index%(idx%)).value~& AND &HFFFFFF~&
+        disp$ = disp$ + MKL$(dispC(idx%))
+    NEXT idx%
+    IF disp$ = PCYC.APPLIED$ THEN EXIT SUB
+    oldDisp$ = PCYC.APPLIED$
+    FOR idx% = 0 TO PAL_COLOR_COUNT% - 1
+        IF rebuilt% _ORELSE LEN(oldDisp$) < idx% * 4 + 4 THEN
+            chg(idx%) = TRUE
+        ELSE
+            chg(idx%) = (CVL(MID$(oldDisp$, idx% * 4 + 1, 4)) <> CVL(MID$(disp$, idx% * 4 + 1, 4)))
+        END IF
+        IF chg(idx%) THEN
+            anyChg% = TRUE
+            ' Opaque cycling pixels: just recolor their overlay entry
+            IF PCYC.OVL_OK% _ANDALSO PCYC_OVL_IDX(idx%) > 0 THEN
+                _PALETTECOLOR PCYC_OVL_IDX(idx%), dispC(idx%) OR &HFF000000~&, PCYC.OVL&
+                ovlChg% = TRUE
+            END IF
+        END IF
+    NEXT idx%
+    PCYC.APPLIED$ = disp$
+    IF ovlChg% _ANDALSO PCYC.OVL& < -1 THEN _PUTIMAGE (0, 0), PCYC.OVL&, PCYC.BUF& ' index 0 is clear
+    IF anyChg% _ANDALSO PCYC.MAP_N& > 0 THEN
+        ' Partly transparent cycling pixels (or every pixel when the overlay
+        ' cannot hold the ranges): rewrite them one by one, keeping alpha
+        bm = _MEMIMAGE(PCYC.BUF&)
+        FOR i& = 0 TO PCYC.MAP_N& - 1
+            idx% = PCYC_SRC(i&)
+            IF chg(idx%) THEN
+                pv~& = PCYC_A(i&)
+                pv~& = (pv~& * &H1000000~&) OR dispC(idx%)
+                _MEMPUT bm, bm.OFFSET + PCYC_OFF(i&), pv~&
+            END IF
+        NEXT i&
+        _MEMFREE bm
+    END IF
+END SUB
+
+
+''
+' TRUE when this frame may skip compositing: the only scene change is a
+' cycle step, the buffer + pixel map are current for this canvas and palette,
+' and a full composite check ran within the last 0.5 s (safety net for any
+' path that edits layers without dirtying the scene).
+'
+FUNCTION PCYC_step_only_ok% ()
+    PCYC_step_only_ok% = FALSE
+    IF NOT PCYC.STEP_ONLY% THEN EXIT FUNCTION
+    IF NOT PCYC_running% THEN EXIT FUNCTION
+    IF PCYC.BUF& >= -1 _ORELSE NOT PCYC.MAP_VALID% THEN EXIT FUNCTION
+    IF _WIDTH(PCYC.BUF&) <> SCRN.canvasW& _ORELSE _HEIGHT(PCYC.BUF&) <> SCRN.canvasH& THEN EXIT FUNCTION
+    IF PCYC_now# - PCYC.LAST_FULL# > 0.5 THEN EXIT FUNCTION
+    IF PCYC_signature$ <> PCYC.SIG$ THEN EXIT FUNCTION
+    PCYC_step_only_ok% = TRUE
+END FUNCTION
+
+
+''
+' Step-only frame: advance the colors in the existing cycled buffer and
+' return it (no layer compositing). Once per frame (pattern tile).
+'
+FUNCTION PCYC_present_step& ()
+    IF PCYC.BUILT_SEQ& <> SCREEN_RENDER_SEQ& THEN
+        PCYC.BUILT_SEQ& = SCREEN_RENDER_SEQ&
+        PCYC_apply_display FALSE
+    END IF
+    PCYC_present_step& = PCYC.BUF&
+END FUNCTION
+
+
+' =============================================================================
+' Commands (actions 2060-2069) + undo
+' =============================================================================
+
+''
+' The range a command applies to: the hovered strip chip's range, else the
+' Color Ops selected chip's, else the FG color's. 0 = none.
+'
+FUNCTION PCYC_target_range% ()
+    DIM r AS INTEGER
+    IF PALETTE_STRIP_HOVER_IDX% >= 0 THEN r% = PCYC_range_at%(PALETTE_STRIP_HOVER_IDX%)
+    IF r% = 0 _ANDALSO PALETTE_OPS.ACTIVE% _ANDALSO PALETTE_OPS.SEL_IDX% >= 0 THEN r% = PCYC_range_at%(PALETTE_OPS.SEL_IDX%)
+    IF r% = 0 _ANDALSO NOT PAL_FG_IS_TRANSPARENT% THEN r% = PCYC_range_at%(PAL_FG_IDX%)
+    PCYC_target_range% = r%
+END FUNCTION
+
+
+''
+' Record a range edit as one palette undo step (ranges ride on the palette
+' snapshot) and repaint.
+'
+SUB PCYC_commit (before AS STRING, label AS STRING)
+    PCYC_wheel_flush TRUE
+    HISTORY_record_palette before$, PALETTE_snapshot$, label$
+    PCYC.MAP_VALID%   = FALSE
+    SCENE_DIRTY%      = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+
+''
+' Execute a color cycling command (CMD_execute_action 2060-2069).
+'
+SUB PCYC_action (actionId AS INTEGER)
+    DIM r AS INTEGER, before AS STRING, i AS INTEGER, lo AS INTEGER, hi AS INTEGER
+    DIM slot AS INTEGER, flags(0 TO 255) AS INTEGER, n AS INTEGER, lst AS STRING
+    PCYC_wheel_flush TRUE ' a pending Ctrl+Wheel speed burst becomes its own undo step first
+    SELECT CASE actionId%
+        CASE 2060 ' toggle cycling
+            PCYC_set_enabled NOT PCYC.ENABLED%
+            IF PCYC.ENABLED% THEN
+                IF PCYC.COUNT% = 0 THEN
+                    STATUS_flash "COLOR CYCLING ON - no ranges yet (Palette Ops: mark chips, Palette > Color Cycling > Range From Marked Chips, or Ctrl+drag)"
+                ELSE
+                    STATUS_flash "COLOR CYCLING ON (" + _TRIM$(STR$(PCYC.COUNT%)) + " range" + _IIF(PCYC.COUNT% = 1, "", "s") + ")"
+                END IF
+            ELSE
+                STATUS_flash "COLOR CYCLING OFF"
+            END IF
+
+        CASE 2061 ' range from marked chips
+            lo% = -1 : hi% = -1
+            FOR i% = 0 TO PAL_COLOR_COUNT% - 1
+                IF PALETTE_OPS_MARKED(i%) THEN
+                    IF lo% < 0 THEN lo% = i%
+                    hi% = i%
+                END IF
+            NEXT i%
+            IF hi% - lo% < 1 THEN
+                STATUS_flash "Mark 2+ chips first (Palette Ops: right-click / right-drag chips)"
+                EXIT SUB
+            END IF
+            before$ = PALETTE_snapshot$
+            r% = PCYC_add_range%(lo%, hi%, PCYC_DEFAULT_RATE, PCYC_FWD)
+            IF r% = 0 THEN STATUS_flash "Cannot add range (max " + _TRIM$(STR$(PCYC_MAX)) + ")" : EXIT SUB
+            PCYC_commit before$, "Add Cycle Range"
+            STATUS_flash "Added " + PCYC_describe$(r%)
+
+        CASE 2062 ' delete range
+            r% = PCYC_target_range%
+            IF r% = 0 THEN STATUS_flash "No cycle range at the hovered / selected / FG color" : EXIT SUB
+            before$ = PALETTE_snapshot$
+            lst$ = PCYC_describe$(r%)
+            PCYC_delete_range r%
+            PCYC_commit before$, "Delete Cycle Range"
+            STATUS_flash "Deleted " + lst$
+
+        CASE 2063 ' clear all ranges
+            IF PCYC.COUNT% = 0 THEN STATUS_flash "No cycle ranges" : EXIT SUB
+            before$ = PALETTE_snapshot$
+            PCYC.COUNT% = 0
+            PCYC_commit before$, "Clear Cycle Ranges"
+            STATUS_flash "Cleared all cycle ranges"
+
+        CASE 2064, 2065, 2066, 2067 ' direction / pause / faster / slower
+            r% = PCYC_target_range%
+            IF r% = 0 THEN STATUS_flash "No cycle range at the hovered / selected / FG color" : EXIT SUB
+            before$ = PALETTE_snapshot$
+            SELECT CASE actionId%
+                CASE 2064 : PCYC_next_mode r%                 : lst$ = "Cycle Direction"
+                CASE 2065 : PCYC_toggle_pause r%              : lst$ = "Pause Cycle Range"
+                CASE 2066, 2067
+                    slot% = PCYC_speed_slot%(PCYC_R(r%).rate)
+                    IF actionId% = 2066 THEN slot% = slot% + 1 ELSE slot% = slot% - 1
+                    IF slot% < 0 THEN slot% = 0
+                    IF slot% > 15 THEN slot% = 15
+                    PCYC_set_rate r%, PCYC_rate_for&(PCYC_SPEEDS(slot%))
+                    lst$ = "Cycle Speed"
+            END SELECT
+            PCYC_commit before$, lst$
+            STATUS_flash PCYC_describe$(r%)
+
+        CASE 2068 ' restart all (phase only - not an undo step)
+            PCYC_restart
+            STATUS_flash "Cycle ranges restarted in phase"
+
+        CASE 2069 ' duplicate colors that block cycling
+            n% = PCYC_blocked_count%(flags())
+            IF n% = 0 THEN
+                STATUS_flash "No duplicate colors block cycling"
+            ELSE
+                FOR i% = 0 TO 255
+                    IF flags(i%) THEN lst$ = lst$ + " " + _TRIM$(STR$(i%))
+                NEXT i%
+                STATUS_flash _TRIM$(STR$(n%)) + " range color(s) duplicate an earlier chip and cannot cycle:" + lst$
+            END IF
+    END SELECT
+END SUB
+
+
+' =============================================================================
+' Palette strip range bands
+' =============================================================================
+
+''
+' Draw the range band inside one strip chip (bottom 2px; 1px for chips under
+' 7px tall) onto the current _DEST. FWD = solid, REV = dash-dot, PING =
+' dashed; a paused range is dimmed; a chip whose color duplicates an earlier
+' chip (cannot cycle) gets a red/black checker; the Ctrl+drag preview span is
+' white. A 1px black line separates the band from the chip color.
+'
+' @param idx palette index of the chip
+' @param x, y, w, h chip rectangle
+'
+SUB PCYC_draw_band (idx AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    DIM r AS INTEGER, bh AS INTEGER, by AS INTEGER, c AS _UNSIGNED LONG, px AS INTEGER, py AS INTEGER
+    DIM onPx AS INTEGER, cm AS INTEGER, preview AS INTEGER
+    IF PCYC.DRAG_ACTIVE% _ANDALSO idx% >= PCYC.DRAG_LO% _ANDALSO idx% <= PCYC.DRAG_HI% THEN preview% = TRUE
+    r% = PCYC_range_at%(idx%)
+    IF r% = 0 _ANDALSO NOT preview% THEN EXIT SUB
+    IF h% < 4 OR w% < 2 THEN EXIT SUB
+    IF h% >= 7 THEN bh% = 2 ELSE bh% = 1
+    by% = y% + h% - bh%
+    LINE (x%, by% - 1)-(x% + w% - 1, by% - 1), _RGB32(0, 0, 0)
+    IF preview% THEN
+        LINE (x%, by%)-(x% + w% - 1, by% + bh% - 1), _RGB32(255, 255, 255), BF
+        EXIT SUB
+    END IF
+    IF PCYC_BLOCKED(idx%) THEN
+        FOR py% = by% TO by% + bh% - 1
+            FOR px% = x% TO x% + w% - 1
+                IF ((px% + py%) AND 1) = 0 THEN PSET (px%, py%), _RGB32(255, 40, 40) ELSE PSET (px%, py%), _RGB32(0, 0, 0)
+            NEXT px%
+        NEXT py%
+        EXIT SUB
+    END IF
+    c~& = PCYC_BAND_COLOR(r%)
+    IF NOT PCYC_R(r%).active THEN c~& = _RGB32(_RED32(c~&) \ 3, _GREEN32(c~&) \ 3, _BLUE32(c~&) \ 3)
+    cm% = PCYC_R(r%).cmode
+    FOR px% = x% TO x% + w% - 1
+        SELECT CASE cm%
+            CASE PCYC_REV  : onPx% = (px% MOD 3) <> 2          ' dash-dot
+            CASE PCYC_PING : onPx% = (px% AND 2) = 0           ' dashed 2 on / 2 off
+            CASE ELSE      : onPx% = TRUE                      ' solid
+        END SELECT
+        IF onPx% THEN LINE (px%, by%)-(px%, by% + bh% - 1), c~& ELSE LINE (px%, by%)-(px%, by% + bh% - 1), _RGB32(0, 0, 0)
+    NEXT px%
+END SUB
+
+
+''
+' Refresh PCYC_BLOCKED() when the palette or ranges changed (strip render).
+'
+SUB PCYC_refresh_blocked ()
+    DIM sig AS STRING, n AS INTEGER
+    sig$ = PCYC_signature$
+    IF sig$ = PCYC.BLOCKED_SIG$ THEN EXIT SUB
+    PCYC.BLOCKED_SIG$ = sig$
+    n% = PCYC_blocked_count%(PCYC_BLOCKED())
+END SUB
+
+
+' =============================================================================
+' Palette strip gestures (Color Ops mode + Ctrl)
+' =============================================================================
+
+''
+' Ctrl + mouse press on a strip chip in Color Ops mode:
+'   L  start a range drag (release: span = new range, click = next direction)
+'   R  pause / resume the range under the chip
+'   M  delete the range under the chip
+'
+SUB PCYC_strip_press (idx AS INTEGER)
+    DIM r AS INTEGER, before AS STRING, d AS STRING
+    IF idx% < 0 THEN EXIT SUB
+    IF MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3% THEN
+        PCYC.DRAG_ACTIVE% = TRUE
+        PCYC.DRAG_START%  = idx%
+        PCYC.DRAG_LO%     = idx%
+        PCYC.DRAG_HI%     = idx%
+    ELSEIF MOUSE.B2% AND NOT MOUSE.B1% THEN
+        r% = PCYC_range_at%(idx%)
+        IF r% = 0 THEN STATUS_flash "Ctrl+right-click a chip inside a cycle range to pause it" : EXIT SUB
+        before$ = PALETTE_snapshot$
+        PCYC_toggle_pause r%
+        PCYC_commit before$, "Pause Cycle Range"
+        STATUS_flash PCYC_describe$(r%)
+    ELSEIF MOUSE.B3% THEN
+        r% = PCYC_range_at%(idx%)
+        IF r% = 0 THEN STATUS_flash "Ctrl+middle-click a chip inside a cycle range to delete it" : EXIT SUB
+        before$ = PALETTE_snapshot$
+        d$ = PCYC_describe$(r%)
+        PCYC_delete_range r%
+        PCYC_commit before$, "Delete Cycle Range"
+        STATUS_flash "Deleted " + d$
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+
+''
+' Per frame while a Ctrl+L range drag is live. Returns TRUE while it owns
+' the mouse (caller blocks the canvas).
+'
+FUNCTION PCYC_strip_held% (x AS INTEGER, y AS INTEGER)
+    DIM idx AS INTEGER, r AS INTEGER, before AS STRING, lo AS INTEGER, hi AS INTEGER
+    PCYC_strip_held% = FALSE
+    IF NOT PCYC.DRAG_ACTIVE% THEN EXIT FUNCTION
+    PCYC_strip_held% = TRUE
+    IF MOUSE.B1% THEN
+        idx% = PALETTE_OPS_calc_strip_index%(x%, y%)
+        IF idx% >= 0 _ANDALSO PALETTE_STRIP_in_bounds%(x%, y%) THEN
+            lo% = PCYC.DRAG_START% : hi% = idx%
+            IF lo% > hi% THEN SWAP lo%, hi%
+            IF lo% <> PCYC.DRAG_LO% OR hi% <> PCYC.DRAG_HI% THEN
+                PCYC.DRAG_LO% = lo% : PCYC.DRAG_HI% = hi%
+                GUI_NEEDS_REDRAW% = TRUE
+            END IF
+        END IF
+        FRAME_IDLE% = FALSE
+        EXIT FUNCTION
+    END IF
+    ' Released. Include the release point: a fast flick can move and release
+    ' within one frame, before any held frame sampled the new chip.
+    PCYC.DRAG_ACTIVE% = FALSE
+    idx% = PALETTE_OPS_calc_strip_index%(x%, y%)
+    IF idx% >= 0 _ANDALSO PALETTE_STRIP_in_bounds%(x%, y%) _ANDALSO PCYC.DRAG_START% >= 0 THEN
+        PCYC.DRAG_LO% = PCYC.DRAG_START% : PCYC.DRAG_HI% = idx%
+        IF PCYC.DRAG_LO% > PCYC.DRAG_HI% THEN SWAP PCYC.DRAG_LO%, PCYC.DRAG_HI%
+    END IF
+    lo% = PCYC.DRAG_LO% : hi% = PCYC.DRAG_HI%
+    PCYC.DRAG_LO% = -1 : PCYC.DRAG_HI% = -1
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+    IF lo% < 0 THEN EXIT FUNCTION
+    before$ = PALETTE_snapshot$
+    IF hi% = lo% THEN
+        r% = PCYC_range_at%(lo%)
+        IF r% = 0 THEN
+            STATUS_flash "Ctrl+drag across 2+ chips to make a cycle range"
+            EXIT FUNCTION
+        END IF
+        PCYC_next_mode r%
+        PCYC_commit before$, "Cycle Direction"
+        STATUS_flash PCYC_describe$(r%)
+    ELSE
+        r% = PCYC_add_range%(lo%, hi%, PCYC_DEFAULT_RATE, PCYC_FWD)
+        IF r% = 0 THEN STATUS_flash "Cannot add range (max " + _TRIM$(STR$(PCYC_MAX)) + ")" : EXIT FUNCTION
+        PCYC_commit before$, "Add Cycle Range"
+        STATUS_flash "Added " + PCYC_describe$(r%) + _IIF(PCYC.ENABLED%, "", "  (Shift+Tab to cycle)")
+    END IF
+END FUNCTION
+
+
+''
+' Ctrl+Wheel over a strip chip in Color Ops mode: change that range's speed
+' (Ctrl = speed table step, Ctrl+Shift = fine 5%). Returns TRUE when the
+' wheel was consumed. A burst of wheel steps is ONE undo step.
+'
+FUNCTION PCYC_strip_wheel% (x AS INTEGER, y AS INTEGER, wheel AS INTEGER)
+    DIM idx AS INTEGER, r AS INTEGER, slot AS INTEGER, sps AS SINGLE
+    PCYC_strip_wheel% = FALSE
+    IF NOT PALETTE_OPS.ACTIVE% _ORELSE NOT MODIFIERS.ctrl% _ORELSE wheel% = 0 THEN EXIT FUNCTION
+    idx% = PALETTE_OPS_calc_strip_index%(x%, y%)
+    IF idx% < 0 THEN EXIT FUNCTION
+    r% = PCYC_range_at%(idx%)
+    IF r% = 0 THEN EXIT FUNCTION
+    PCYC_strip_wheel% = TRUE
+    ' One undo step per burst: snapshot before the first step of a burst
+    IF PCYC.WHEEL_R% <> r% THEN
+        PCYC_wheel_flush TRUE
+        PCYC.WHEEL_SNAP$ = PALETTE_snapshot$
+        PCYC.WHEEL_R%    = r%
+    END IF
+    PCYC.WHEEL_T# = PCYC_now#
+    IF MODIFIERS.shift% THEN
+        sps! = PCYC_sps!(PCYC_R(r%).rate)
+        IF wheel% < 0 THEN sps! = sps! * 1.05 ELSE sps! = sps! / 1.05
+        PCYC_set_rate r%, PCYC_rate_for&(sps!)
+    ELSE
+        slot% = PCYC_speed_slot%(PCYC_R(r%).rate)
+        IF wheel% < 0 THEN slot% = slot% + 1 ELSE slot% = slot% - 1 ' wheel up = faster
+        IF slot% < 0 THEN slot% = 0
+        IF slot% > 15 THEN slot% = 15
+        PCYC_set_rate r%, PCYC_rate_for&(PCYC_SPEEDS(slot%))
+    END IF
+    STATUS_flash PCYC_describe$(r%)
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+END FUNCTION
+
+
+''
+' Record a finished Ctrl+Wheel speed burst as one undo step. force = flush
+' now; otherwise only once the wheel has been quiet for 0.7s.
+'
+SUB PCYC_wheel_flush (force AS INTEGER)
+    IF PCYC.WHEEL_R% = 0 THEN EXIT SUB
+    IF NOT force% _ANDALSO PCYC_now# - PCYC.WHEEL_T# < 0.7 THEN EXIT SUB
+    PCYC.WHEEL_R% = 0
+    HISTORY_record_palette PCYC.WHEEL_SNAP$, PALETTE_snapshot$, "Cycle Speed"
+    PCYC.WHEEL_SNAP$ = ""
+END SUB

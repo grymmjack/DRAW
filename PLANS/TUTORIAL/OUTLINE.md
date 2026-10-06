@@ -799,7 +799,7 @@
 
 ### Grayscale Preview (Ctrl+Alt+Shift+G) — check values
 
-### Pattern Tile Mode (Shift+Tab) — seamless texture preview
+### Pattern Tile Mode (View menu) — seamless texture preview
 
 ### Canvas border toggle (# key)
 
@@ -1005,7 +1005,7 @@
 - Independent zoom/pan
 - Resizable and repositionable
 
-### Pattern Tile Mode (Shift+Tab) — 3×3 tiled, up to 512×512
+### Pattern Tile Mode (View menu) — 3×3 tiled, up to 512×512
 
 ### Grayscale Preview (Ctrl+Alt+Shift+G)
 
@@ -1303,7 +1303,7 @@
 ### Step-by-Step
 
 - 1. New canvas: 32×32 or 64×64
-- 2. Enable Pattern Tile Mode (Shift+Tab)
+- 2. Enable Pattern Tile Mode (View menu)
 - 3. Draw base pattern (see 3×3 repeat live)
 - 4. Fix seams at edges using tile preview
 - 5. Custom brush from tile → tiled fill test

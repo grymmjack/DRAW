@@ -1,0 +1,346 @@
+''
+' DRAW - OUTPUT/FILE-CYCLE-BAS.BM
+' =============================================================================
+' Color cycling exports hub + single-file QB64 cycling program. See .BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Save dialog shared by the color cycling exporters. Returns "" on cancel.
+'
+FUNCTION CYCX_save_dialog$ (title AS STRING, filterStr AS STRING, ext AS STRING)
+    DIM filename AS STRING, default_path AS STRING, baseNm AS STRING
+    IF CFG.LAST_DIR_SAVE$ <> "" THEN
+        default_path$ = CFG.LAST_DIR_SAVE$ + "/"
+    ELSEIF LAST_DIRECTORY$ <> "" THEN
+        default_path$ = LAST_DIRECTORY$ + "/"
+    ELSEIF CFG.DEFAULT_SAVE_DIR$ <> "" THEN
+        default_path$ = CFG.DEFAULT_SAVE_DIR$ + "/"
+    END IF
+    ' Suggest the document's name with the new extension
+    baseNm$ = CURRENT_DRW_FILENAME$
+    IF baseNm$ = "" THEN baseNm$ = CURRENT_FILENAME$
+    IF baseNm$ <> "" THEN
+        baseNm$ = MID$(baseNm$, _INSTRREV(baseNm$, "/") + 1)
+        baseNm$ = MID$(baseNm$, _INSTRREV(baseNm$, "\") + 1)
+        IF _INSTRREV(baseNm$, ".") > 1 THEN baseNm$ = LEFT$(baseNm$, _INSTRREV(baseNm$, ".") - 1)
+        default_path$ = default_path$ + baseNm$ + ext$
+    END IF
+
+    POINTER_hide_for_dialog
+    filename$ = DRAW_save_file$(title$, default_path$, filterStr$, 0, "", ext$)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+
+    IF filename$ = "" THEN CYCX_save_dialog$ = "" : EXIT FUNCTION
+    filename$ = EXPORT_trim_trailing_dots_spaces$(filename$)
+    CFG.LAST_DIR_SAVE$ = CONFIG_extract_dir$(filename$)
+    LAST_DIRECTORY$    = CFG.LAST_DIR_SAVE$
+    CONFIG_save
+    IF LCASE$(RIGHT$(filename$, LEN(ext$))) <> LCASE$(ext$) THEN filename$ = filename$ + ext$
+    IF NOT SAVE_target_writable%(filename$) THEN CYCX_save_dialog$ = "" : EXIT FUNCTION
+    CYCX_save_dialog$ = filename$
+END FUNCTION
+
+
+''
+' Report an export result in the status bar (and the log).
+'
+SUB CYCX_report (ok AS INTEGER, what AS STRING, path AS STRING)
+    DIM nm AS STRING
+    nm$ = MID$(path$, _INSTRREV(path$, "/") + 1)
+    IF ok% THEN
+        STATUS_flash "Exported " + what$ + ": " + nm$
+        SOUND_play SND_NEW_FILE
+    ELSE
+        STATUS_flash what$ + " export failed: " + CYCX_LAST_ERROR$
+        _LOGERROR "CYCX: " + what$ + " export failed: " + CYCX_LAST_ERROR$
+    END IF
+END SUB
+
+
+''
+' File > Color Cycling actions (2330-2335).
+'
+SUB CYCX_action (actionId AS INTEGER)
+    DIM f AS STRING, ok AS INTEGER
+    SELECT CASE actionId%
+        CASE CYCX_ACT_BAS
+            IF PCYC.COUNT% = 0 THEN STATUS_flash "Add a color cycling range first (Palette > Color Cycling)" : EXIT SUB
+            f$ = CYCX_save_dialog$("Export Color Cycling QB64 Program", "QB64 source (*.bas)|*.bas", ".bas")
+            IF f$ = "" THEN EXIT SUB
+            ok% = CYCX_export_bas%(f$)
+            CYCX_report ok%, "cycling .bas", f$
+        CASE CYCX_ACT_GIF
+            f$ = CYCX_save_dialog$("Export GIF + Cycle Ranges", "GIF (*.gif)|*.gif", ".gif")
+            IF f$ = "" THEN EXIT SUB
+            ok% = GIF_export%(f$, FALSE)
+            CYCX_report ok%, "GIF", f$
+        CASE CYCX_ACT_ANIM_GIF
+            IF PCYC.COUNT% = 0 THEN STATUS_flash "Add a color cycling range first (Palette > Color Cycling)" : EXIT SUB
+            f$ = CYCX_save_dialog$("Export Animated GIF of the Cycle", "GIF (*.gif)|*.gif", ".gif")
+            IF f$ = "" THEN EXIT SUB
+            ok% = GIF_export%(f$, TRUE)
+            CYCX_report ok%, "animated GIF", f$
+        CASE CYCX_ACT_ILBM, CYCX_ACT_PBM
+            f$ = CYCX_save_dialog$("Export DeluxePaint " + _IIF(actionId% = CYCX_ACT_PBM, "PBM (chunky)", "ILBM"), "DeluxePaint (*.lbm)|*.lbm|IFF (*.iff)|*.iff", ".lbm")
+            IF f$ = "" THEN EXIT SUB
+            ok% = LBM_export%(f$, actionId% = CYCX_ACT_PBM)
+            CYCX_report ok%, "LBM", f$
+        CASE CYCX_ACT_OPEN
+            CYCX_open_dialog
+    END SELECT
+END SUB
+
+
+''
+' File > Color Cycling > Open DeluxePaint / GrafX2 file: an Open dialog
+' filtered to the formats that carry cycle ranges. Opens as a new document;
+' Ctrl+S then writes a companion .draw (the original is never overwritten).
+'
+SUB CYCX_open_dialog ()
+    DIM filename AS STRING, default_path AS STRING
+    IF CFG.LAST_DIR_OPEN$ <> "" THEN default_path$ = CFG.LAST_DIR_OPEN$ + "/" ELSE IF LAST_DIRECTORY$ <> "" THEN default_path$ = LAST_DIRECTORY$ + "/"
+    POINTER_hide_for_dialog
+    filename$ = DRAW_open_file$("Open DeluxePaint / GrafX2 File", default_path$, "Color Cycling Images|*.lbm|*.iff|*.ilbm|*.bbm|*.gif|DeluxePaint|*.lbm|*.iff|*.ilbm|*.bbm|GIF|*.gif|All Files|*.*", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+    IF filename$ = "" THEN EXIT SUB
+    CFG.LAST_DIR_OPEN$ = CONFIG_extract_dir$(filename$)
+    LAST_DIRECTORY$    = CFG.LAST_DIR_OPEN$
+    CONFIG_save
+    DRW_load filename$
+    SOUND_play SND_NEW_FILE
+    RECENT_add_file filename$
+    CURRENT_FILENAME$     = filename$
+    CURRENT_DRW_FILENAME$ = ""
+    CANVAS_DIRTY%         = FALSE
+    IF PCYC.COUNT% > 0 THEN STATUS_flash _TRIM$(STR$(PCYC.COUNT%)) + " color cycling range(s) loaded - Shift+Tab to cycle"
+END SUB
+
+
+''
+' Append one line of generated source. A backtick stands for a double quote,
+' so the template below stays readable.
+'
+SUB CYCX_L (s AS STRING)
+    DIM t AS STRING, i AS LONG
+    t$ = s$
+    DO
+        i& = INSTR(t$, "`")
+        IF i& = 0 THEN EXIT DO
+        MID$(t$, i&, 1) = CHR$(34)
+    LOOP
+    CYCX_BAS_LINES$ = CYCX_BAS_LINES$ + t$ + CHR$(10)
+END SUB
+
+
+''
+' Write the self-contained color cycling program for the current document.
+' Returns TRUE on success (else CYCX_LAST_ERROR$ says why).
+'
+FUNCTION CYCX_export_bas% (path AS STRING)
+    DIM flat AS LONG, w AS LONG, h AS LONG, m AS _MEM, artBytes AS STRING, ovl AS STRING
+    DIM r AS INTEGER, i AS LONG, ix AS INTEGER, k AS INTEGER, v AS _UNSIGNED LONG
+    DIM ovlOf(0 TO 255) AS INTEGER, rOvl(1 TO PCYC_MAX) AS INTEGER
+    DIM blob AS STRING, b64 AS STRING, nm AS STRING, ff AS INTEGER, cyc AS LONG
+
+    CYCX_export_bas% = FALSE
+    CYCX_LAST_ERROR$ = ""
+    PCYC_validate
+    IF PCYC.COUNT% = 0 THEN CYCX_LAST_ERROR$ = "no color cycling ranges" : EXIT FUNCTION
+
+    ' Overlay indices: each range's colors packed into 1..K (0 = clear)
+    k% = 1
+    FOR r% = 1 TO PCYC.COUNT%
+        rOvl(r%) = k%
+        FOR ix% = PCYC_R(r%).lo TO PCYC_R(r%).hi
+            ovlOf(ix%) = k% : k% = k% + 1
+        NEXT ix%
+    NEXT r%
+    IF k% > 256 THEN CYCX_LAST_ERROR$ = "ranges cover all 256 colors (need one free index)" : EXIT FUNCTION
+
+    flat& = LAYERS_flatten&
+    IF flat& >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document" : EXIT FUNCTION
+    w& = _WIDTH(flat&) : h& = _HEIGHT(flat&)
+    m = _MEMIMAGE(flat&)
+    artBytes$ = SPACE$(m.SIZE)
+    _MEMGET m, m.OFFSET, artBytes$
+    _MEMFREE m
+    SAFE_FREEIMAGE flat&
+
+    ' Cycling pixels: exact first-index match inside a range, alpha >= 128
+    IDX_prepare
+    ovl$ = STRING$(w& * h&, 0)
+    FOR i& = 0 TO w& * h& - 1
+        v~& = CVL(MID$(artBytes$, i& * 4 + 1, 4))
+        IF v~& >= &H80000000~& THEN
+            ix% = IDX_exact%(v~& AND &HFFFFFF~&)
+            IF ix% >= 0 _ANDALSO ovlOf(ix%) > 0 THEN
+                ASC(ovl$, i& + 1) = ovlOf(ix%)
+                cyc& = cyc& + 1
+            END IF
+        END IF
+    NEXT i&
+    IF cyc& = 0 THEN _LOGWARN "CYCX_export_bas: no pixels use a cycling color - the program will show still art"
+
+    ' Data blob
+    blob$ = "DCYC" + MKI$(1) + MKI$(w&) + MKI$(h&) + MKI$(PAL_COLOR_COUNT%)
+    FOR ix% = 0 TO PAL_COLOR_COUNT% - 1
+        blob$ = blob$ + MKL$(PAL(ix%).value~& OR &HFF000000~&)
+    NEXT ix%
+    blob$ = blob$ + MKI$(PCYC.COUNT%)
+    FOR r% = 1 TO PCYC.COUNT%
+        blob$ = blob$ + MKI$(PCYC_R(r%).lo) + MKI$(PCYC_R(r%).hi) + MKI$(rOvl(r%))
+        blob$ = blob$ + MKL$(PCYC_R(r%).rate) + MKI$(PCYC_R(r%).cmode) + MKI$(PCYC_R(r%).active) + MKL$(PCYC_R(r%).heldStep)
+    NEXT r%
+    blob$ = blob$ + artBytes$ + ovl$
+    b64$ = _BASE64ENCODE$(_DEFLATE$(blob$))
+
+    nm$ = MID$(path$, _INSTRREV(path$, "/") + 1)
+    nm$ = MID$(nm$, _INSTRREV(nm$, "\") + 1)
+    DO WHILE INSTR(nm$, CHR$(34)) : MID$(nm$, INSTR(nm$, CHR$(34)), 1) = "'" : LOOP
+    DO WHILE INSTR(nm$, "`") : MID$(nm$, INSTR(nm$, "`"), 1) = "'" : LOOP
+
+    CYCX_BAS_LINES$ = ""
+    CYCX_L "' " + nm$ + " - palette color cycling"
+    CYCX_L "' Exported by DRAW " + APP_VERSION$ + " (https://github.com/grymmjack/DRAW) on " + DATE$
+    CYCX_L "' " + _TRIM$(STR$(w&)) + "x" + _TRIM$(STR$(h&)) + ", " + _TRIM$(STR$(PAL_COLOR_COUNT%)) + " colors, " + _TRIM$(STR$(PCYC.COUNT%)) + " cycle range(s):"
+    FOR r% = 1 TO PCYC.COUNT%
+        CYCX_L "'   " + MID$(PCYC_describe$(r%), 5)
+    NEXT r%
+    CYCX_L "' Keys: SPACE pause/resume, + / - speed, R restart, ESC quit"
+    CYCX_L "'"
+    CYCX_L "' How it works: the art is drawn from a 32-bit image, then an 8-bit overlay"
+    CYCX_L "' holding only the cycling pixels is drawn on top (overlay index 0 is clear)."
+    CYCX_L "' Each step the overlay's palette entries are rotated with _PALETTECOLOR -"
+    CYCX_L "' the pixels never change, only the colors they point at. Speeds use the"
+    CYCX_L "' DeluxePaint CRNG unit: 16384 = 60 steps per second."
+    CYCX_L "' Compile: qb64pe -x " + nm$
+    CYCX_L ""
+    CYCX_L "OPTION _EXPLICIT"
+    CYCX_L "OPTION _EXPLICITARRAY"
+    CYCX_L "CONST CRNG_UNIT = 16384"
+    CYCX_L ""
+    CYCX_L "' --- unpack the DATA blob (deflate + base64) ---"
+    CYCX_L "DIM blob AS STRING, b64 AS STRING, chunk AS STRING"
+    CYCX_L "DO"
+    CYCX_L "    READ chunk"
+    CYCX_L "    IF chunk = `*` THEN EXIT DO"
+    CYCX_L "    b64 = b64 + chunk"
+    CYCX_L "LOOP"
+    CYCX_L "blob = _INFLATE$(_BASE64DECODE$(b64))"
+    CYCX_L "IF LEFT$(blob, 4) <> `DCYC` THEN PRINT `Bad cycling data`: END"
+    CYCX_L ""
+    CYCX_L "DIM p AS LONG, i AS INTEGER, j AS INTEGER, rate AS LONG"
+    CYCX_L "DIM imgW AS INTEGER, imgH AS INTEGER, nCol AS INTEGER, nRng AS INTEGER"
+    CYCX_L "p = 7 ' after magic + version"
+    CYCX_L "imgW = CVI(MID$(blob, p, 2)): p = p + 2"
+    CYCX_L "imgH = CVI(MID$(blob, p, 2)): p = p + 2"
+    CYCX_L "nCol = CVI(MID$(blob, p, 2)): p = p + 2"
+    CYCX_L "DIM pal(0 TO 255) AS _UNSIGNED LONG"
+    CYCX_L "FOR i = 0 TO nCol - 1"
+    CYCX_L "    pal(i) = _CV(_UNSIGNED LONG, MID$(blob, p, 4)): p = p + 4"
+    CYCX_L "NEXT"
+    CYCX_L "nRng = CVI(MID$(blob, p, 2)): p = p + 2"
+    CYCX_L "DIM rLo(1 TO 16) AS INTEGER, rHi(1 TO 16) AS INTEGER, rOvl(1 TO 16) AS INTEGER"
+    CYCX_L "DIM rSps(1 TO 16) AS SINGLE, rMode(1 TO 16) AS INTEGER, rOn(1 TO 16) AS INTEGER"
+    CYCX_L "DIM rPhase(1 TO 16) AS DOUBLE, rShift(1 TO 16) AS INTEGER"
+    CYCX_L "FOR i = 1 TO nRng"
+    CYCX_L "    rLo(i) = CVI(MID$(blob, p, 2)): p = p + 2"
+    CYCX_L "    rHi(i) = CVI(MID$(blob, p, 2)): p = p + 2"
+    CYCX_L "    rOvl(i) = CVI(MID$(blob, p, 2)): p = p + 2"
+    CYCX_L "    rate = CVL(MID$(blob, p, 4)): p = p + 4"
+    CYCX_L "    rSps(i) = rate * 60 / CRNG_UNIT ' steps per second"
+    CYCX_L "    rMode(i) = CVI(MID$(blob, p, 2)): p = p + 2 ' 0 forward, 1 reverse, 2 ping-pong"
+    CYCX_L "    rOn(i) = CVI(MID$(blob, p, 2)): p = p + 2 ' 0 = paused"
+    CYCX_L "    rPhase(i) = CVL(MID$(blob, p, 4)): p = p + 4"
+    CYCX_L "    rShift(i) = -1"
+    CYCX_L "NEXT"
+    CYCX_L ""
+    CYCX_L "' --- the art (32-bit) and the cycling overlay (8-bit, index 0 clear) ---"
+    CYCX_L "DIM art AS LONG, ovl AS LONG, frame AS LONG, m AS _MEM, px AS STRING"
+    CYCX_L "art = _NEWIMAGE(imgW, imgH, 32)"
+    CYCX_L "px = MID$(blob, p, imgW * imgH * 4): p = p + imgW * imgH * 4"
+    CYCX_L "m = _MEMIMAGE(art): _MEMPUT m, m.OFFSET, px: _MEMFREE m"
+    CYCX_L "ovl = _NEWIMAGE(imgW, imgH, 256)"
+    CYCX_L "px = MID$(blob, p, imgW * imgH)"
+    CYCX_L "m = _MEMIMAGE(ovl): _MEMPUT m, m.OFFSET, px: _MEMFREE m"
+    CYCX_L "_CLEARCOLOR 0, ovl"
+    CYCX_L "frame = _NEWIMAGE(imgW, imgH, 32)"
+    CYCX_L ""
+    CYCX_L "' --- window: the largest whole-number zoom that fits the desktop ---"
+    CYCX_L "DIM zoom AS INTEGER: zoom = 1"
+    CYCX_L "DO WHILE imgW * (zoom + 1) <= _DESKTOPWIDTH * 0.9 AND imgH * (zoom + 1) <= _DESKTOPHEIGHT * 0.85"
+    CYCX_L "    zoom = zoom + 1"
+    CYCX_L "LOOP"
+    CYCX_L "SCREEN _NEWIMAGE(imgW * zoom, imgH * zoom, 32)"
+    CYCX_L "_TITLE `" + nm$ + " - color cycling (SPACE pause, +/- speed, ESC quit)`"
+    CYCX_L ""
+    CYCX_L "' --- main loop: rotate each range on its own clock ---"
+    CYCX_L "DIM lastT AS DOUBLE, nowT AS DOUBLE, dt AS DOUBLE, speed AS SINGLE"
+    CYCX_L "DIM paused AS INTEGER, changed AS INTEGER, n AS INTEGER, s AS INTEGER, k AS LONG, kh AS LONG"
+    CYCX_L "speed = 1: lastT = TIMER(.001): changed = -1"
+    CYCX_L "DO"
+    CYCX_L "    nowT = TIMER(.001): dt = nowT - lastT: lastT = nowT"
+    CYCX_L "    IF dt < 0 OR dt > 1 THEN dt = 0 ' midnight wrap / stall"
+    CYCX_L "    FOR i = 1 TO nRng"
+    CYCX_L "        n = rHi(i) - rLo(i) + 1"
+    CYCX_L "        IF rOn(i) <> 0 AND paused = 0 THEN rPhase(i) = rPhase(i) + dt * rSps(i) * speed"
+    CYCX_L "        k = INT(rPhase(i))"
+    CYCX_L "        SELECT CASE rMode(i)"
+    CYCX_L "            CASE 1 ' reverse"
+    CYCX_L "                s = (n - (k MOD n)) MOD n"
+    CYCX_L "            CASE 2 ' ping-pong: 0, 1 .. n-1 .. 1, 0"
+    CYCX_L "                s = k MOD (2 * (n - 1))"
+    CYCX_L "                IF s > n - 1 THEN s = 2 * (n - 1) - s"
+    CYCX_L "            CASE ELSE ' forward"
+    CYCX_L "                s = k MOD n"
+    CYCX_L "        END SELECT"
+    CYCX_L "        IF s <> rShift(i) THEN"
+    CYCX_L "            rShift(i) = s: changed = -1"
+    CYCX_L "            FOR j = 0 TO n - 1 ' overlay color j shows palette color (j - s) of the range"
+    CYCX_L "                _PALETTECOLOR rOvl(i) + j, pal(rLo(i) + ((j - s) MOD n + n) MOD n), ovl"
+    CYCX_L "            NEXT"
+    CYCX_L "        END IF"
+    CYCX_L "    NEXT"
+    CYCX_L "    IF changed THEN"
+    CYCX_L "        _DEST frame: CLS , _RGB32(0, 0, 0)"
+    CYCX_L "        _PUTIMAGE , art, frame"
+    CYCX_L "        _PUTIMAGE , ovl, frame"
+    CYCX_L "        _DEST 0"
+    CYCX_L "        _PUTIMAGE , frame, 0"
+    CYCX_L "        _DISPLAY"
+    CYCX_L "        changed = 0"
+    CYCX_L "    END IF"
+    CYCX_L "    kh = _KEYHIT"
+    CYCX_L "    SELECT CASE kh"
+    CYCX_L "        CASE 27: SYSTEM"
+    CYCX_L "        CASE 32: paused = NOT paused"
+    CYCX_L "        CASE 43, 61: IF speed < 8 THEN speed = speed * 1.25"
+    CYCX_L "        CASE 45, 95: IF speed > 0.1 THEN speed = speed / 1.25"
+    CYCX_L "        CASE 82, 114"
+    CYCX_L "            FOR i = 1 TO nRng: rPhase(i) = 0: NEXT"
+    CYCX_L "    END SELECT"
+    CYCX_L "    _LIMIT 120"
+    CYCX_L "LOOP"
+    CYCX_L ""
+    CYCX_L "' --- palette, ranges, art and overlay: deflate + base64 ---"
+    FOR i& = 1 TO LEN(b64$) STEP 100
+        CYCX_L "DATA `" + MID$(b64$, i&, 100) + "`"
+    NEXT i&
+    CYCX_L "DATA *"
+
+    ff% = FREEFILE
+    IF _FILEEXISTS(path$) THEN KILL path$
+    OPEN path$ FOR BINARY AS #ff%
+    PUT #ff%, , CYCX_BAS_LINES$
+    CLOSE #ff%
+    CYCX_BAS_LINES$ = ""
+    IF NOT _FILEEXISTS(path$) THEN CYCX_LAST_ERROR$ = "could not write " + path$ : EXIT FUNCTION
+    _LOGINFO "CYCX_export_bas: " + path$ + " (" + _TRIM$(STR$(cyc&)) + " cycling pixels, " + _TRIM$(STR$(LEN(b64$))) + " base64 chars)"
+    CYCX_export_bas% = TRUE
+END FUNCTION

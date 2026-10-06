@@ -50,7 +50,7 @@
   
 - Resizable and repositionable
   
-### Pattern Tile Mode (Shift+Tab) — 3×3 tiled, up to 512×512
+### Pattern Tile Mode (View menu) — 3×3 tiled, up to 512×512
 
 ### Grayscale Preview (Ctrl+Alt+Shift+G)
 

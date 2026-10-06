@@ -1,0 +1,149 @@
+''
+' DRAW - OUTPUT/PAL-INDEX.BM
+' =============================================================================
+' Image -> palette index mapping. See PAL-INDEX.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Build the exact-match lookup for the current palette and clear the
+' nearest-color cache.
+'
+SUB IDX_prepare ()
+    DIM i AS INTEGER, e AS INTEGER, rgb AS _UNSIGNED LONG, h AS LONG, dup AS INTEGER
+    FOR e% = 1 TO IDX_LUT_N%
+        IDX_LUT_HEAD(IDX_LUT_RGB(e%) AND &HFFFF~&) = 0
+    NEXT e%
+    IDX_LUT_N% = 0
+    FOR i% = 0 TO PAL_COLOR_COUNT% - 1
+        rgb~& = PAL(i%).value~& AND &HFFFFFF~&
+        h& = rgb~& AND &HFFFF~&
+        dup% = FALSE
+        e% = IDX_LUT_HEAD(h&)
+        DO WHILE e% > 0
+            IF IDX_LUT_RGB(e%) = rgb~& THEN dup% = TRUE : EXIT DO
+            e% = IDX_LUT_NEXT(e%)
+        LOOP
+        IF NOT dup% THEN
+            IDX_LUT_N% = IDX_LUT_N% + 1
+            IDX_LUT_RGB(IDX_LUT_N%)  = rgb~&
+            IDX_LUT_IDX(IDX_LUT_N%)  = i%
+            IDX_LUT_NEXT(IDX_LUT_N%) = IDX_LUT_HEAD(h&)
+            IDX_LUT_HEAD(h&)         = IDX_LUT_N%
+        END IF
+    NEXT i%
+    FOR h& = 0 TO 65535 : IDX_NEAR_KEY(h&) = 0 : NEXT h&
+END SUB
+
+
+''
+' Exact palette index for an RGB (first index wins), or -1.
+'
+FUNCTION IDX_exact% (rgb AS _UNSIGNED LONG)
+    DIM e AS INTEGER
+    e% = IDX_LUT_HEAD(rgb~& AND &HFFFF~&)
+    DO WHILE e% > 0
+        IF IDX_LUT_RGB(e%) = rgb~& THEN IDX_exact% = IDX_LUT_IDX(e%) : EXIT FUNCTION
+        e% = IDX_LUT_NEXT(e%)
+    LOOP
+    IDX_exact% = -1
+END FUNCTION
+
+
+''
+' Nearest palette index for an RGB, skipping indices inside cycle ranges and
+' the transparent index (unless nothing else is left). Cached.
+'
+FUNCTION IDX_nearest% (rgb AS _UNSIGNED LONG, transIdx AS INTEGER)
+    DIM h AS LONG, i AS INTEGER, best AS INTEGER, bestAny AS INTEGER
+    DIM d AS LONG, bd AS LONG, bdAny AS LONG, dr AS LONG, dg AS LONG, db AS LONG, c AS _UNSIGNED LONG
+    h& = rgb~& AND &HFFFF~&
+    IF IDX_NEAR_KEY(h&) = rgb~& + &H1000000~& THEN IDX_nearest% = IDX_NEAR_VAL(h&) : EXIT FUNCTION
+    best% = -1 : bestAny% = 0 : bd& = &H7FFFFFFF : bdAny& = &H7FFFFFFF
+    FOR i% = 0 TO PAL_COLOR_COUNT% - 1
+        IF i% <> transIdx% THEN
+            c~& = PAL(i%).value~&
+            dr& = _RED32(c~&) - _RED32(rgb~&)
+            dg& = _GREEN32(c~&) - _GREEN32(rgb~&)
+            db& = _BLUE32(c~&) - _BLUE32(rgb~&)
+            d& = dr& * dr& * 3 + dg& * dg& * 4 + db& * db& * 2 ' cheap perceptual weighting
+            IF d& < bdAny& THEN bdAny& = d& : bestAny% = i%
+            IF PCYC_range_at%(i%) = 0 _ANDALSO d& < bd& THEN bd& = d& : best% = i%
+        END IF
+    NEXT i%
+    IF best% < 0 THEN best% = bestAny%
+    IDX_NEAR_KEY(h&) = rgb~& + &H1000000~&
+    IDX_NEAR_VAL(h&) = best%
+    IDX_nearest% = best%
+END FUNCTION
+
+
+''
+' TRUE when img& has any pixel with alpha < 128.
+'
+FUNCTION IDX_has_transparency% (img AS LONG)
+    DIM m AS _MEM, o AS LONG, a AS _UNSIGNED _BYTE
+    m = _MEMIMAGE(img&)
+    FOR o& = 3 TO m.SIZE - 1 STEP 4
+        a~%% = _MEMGET(m, m.OFFSET + o&, _UNSIGNED _BYTE)
+        IF a~%% < 128 THEN IDX_has_transparency% = TRUE : _MEMFREE m : EXIT FUNCTION
+    NEXT o&
+    _MEMFREE m
+    IDX_has_transparency% = FALSE
+END FUNCTION
+
+
+''
+' Index for transparent pixels: the first free slot after the palette when
+' it has fewer than 256 colors (the exporter adds that entry), else -1 (the
+' caller maps transparency to the nearest color of black).
+'
+FUNCTION IDX_transparent_slot% ()
+    IF PAL_COLOR_COUNT% < 256 THEN IDX_transparent_slot% = PAL_COLOR_COUNT% ELSE IDX_transparent_slot% = -1
+END FUNCTION
+
+
+''
+' Index every pixel of img& (32-bit): returns width*height bytes, row-major.
+' transIdx = index for alpha < 128 (-1 = treat as opaque). Fills
+' IDX_QUANTIZED / IDX_TRANSPARENT / IDX_USED().
+'
+FUNCTION IDX_index_image$ (img AS LONG, transIdx AS INTEGER)
+    DIM m AS _MEM, n AS LONG, i AS LONG, v AS _UNSIGNED LONG, rgb AS _UNSIGNED LONG
+    DIM ixOut AS STRING, idx AS INTEGER, lastRgb AS _UNSIGNED LONG, lastIdx AS INTEGER
+    IDX_prepare
+    IDX_QUANTIZED& = 0 : IDX_TRANSPARENT& = 0
+    FOR i& = 0 TO 255 : IDX_USED(i&) = 0 : NEXT i&
+    m = _MEMIMAGE(img&)
+    n& = m.SIZE \ 4
+    ixOut$ = STRING$(n&, 0)
+    lastIdx% = -1
+    FOR i& = 0 TO n& - 1
+        v~& = _MEMGET(m, m.OFFSET + i& * 4, _UNSIGNED LONG)
+        IF transIdx% >= 0 _ANDALSO v~& < &H80000000~& THEN
+            idx% = transIdx%
+            IDX_TRANSPARENT& = IDX_TRANSPARENT& + 1
+        ELSE
+            rgb~& = v~& AND &HFFFFFF~&
+            IF lastIdx% >= 0 _ANDALSO rgb~& = lastRgb~& THEN
+                idx% = lastIdx%
+            ELSE
+                idx% = IDX_exact%(rgb~&)
+                IF idx% < 0 THEN
+                    idx% = IDX_nearest%(rgb~&, transIdx%)
+                    lastIdx% = -1
+                ELSE
+                    lastIdx% = idx% : lastRgb~& = rgb~&
+                END IF
+            END IF
+            IF lastIdx% < 0 THEN IDX_QUANTIZED& = IDX_QUANTIZED& + 1
+        END IF
+        ASC(ixOut$, i& + 1) = idx%
+        IDX_USED(idx%) = IDX_USED(idx%) + 1
+    NEXT i&
+    _MEMFREE m
+    IDX_index_image$ = ixOut$
+END FUNCTION

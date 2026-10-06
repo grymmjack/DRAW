@@ -1,0 +1,432 @@
+''
+' DRAW - GUI/HELP-CARD.BM
+' =============================================================================
+' Help card implementation. See HELP-CARD.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Display text of the current KEY binding for an action ("Shift+Tab"), or ""
+' when it has none - so the card follows a user rebind.
+'
+FUNCTION HCARD_key_for_action$ (actionId AS INTEGER)
+    DIM i AS INTEGER
+    FOR i% = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i%).actionId = actionId% _ANDALSO INPUT_BINDS(i%).eventType = EVT_KEY_PRESS THEN
+            HCARD_key_for_action$ = SHORTCUTS_modstr$(INPUT_BINDS(i%).requireMods) + SHORTCUTS_keyname$(INPUT_BINDS(i%).keycode)
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+    HCARD_key_for_action$ = ""
+END FUNCTION
+
+
+SUB HCARD_add (glyph AS INTEGER, mods AS STRING, desc AS STRING)
+    IF HCARD_ROW_N% >= 16 THEN EXIT SUB
+    HCARD_ROW_N% = HCARD_ROW_N% + 1
+    HCARD_ROWS(HCARD_ROW_N%).glyph = glyph%
+    HCARD_ROWS(HCARD_ROW_N%).mods  = mods$
+    HCARD_ROWS(HCARD_ROW_N%).desc  = desc$
+END SUB
+
+
+''
+' Fill HCARD_ROWS() for a card.
+'
+SUB HCARD_build (card AS INTEGER)
+    HCARD_ROW_N% = 0
+    SELECT CASE card%
+        CASE HCARD_PALOPS
+            HCARD_add HCARD_G_L, "", "Select swatch - any color panel then edits it + its pixels"
+            HCARD_add HCARD_G_LDBL, "", "Change the swatch color in a dialog"
+            HCARD_add HCARD_G_L, "SHIFT", "Ramp from the selected swatch to this one"
+            HCARD_add HCARD_G_LDRAG, "", "Move swatch (a marked one moves all marked)"
+            HCARD_add HCARD_G_RDRAG, "", "Mark / unmark swatches (click or drag)"
+            HCARD_add HCARD_G_M, "", "Delete swatch (marked: all marked) - pixels remap"
+            HCARD_add HCARD_G_MDRAG, "", "Delete a whole range of swatches"
+            HCARD_add HCARD_G_M, "SHIFT", "Insert the FG color after this swatch"
+            HCARD_add HCARD_G_L, "", "...on empty strip: deselect + clear marks"
+            HCARD_add HCARD_G_KEY, "ESC", "Leave Palette Ops (or R-click its button)"
+        CASE HCARD_CYCLE
+            HCARD_add HCARD_G_LDRAG, "CTRL", "New cycle range across the swatches"
+            HCARD_add HCARD_G_L, "CTRL", "Direction: forward > reverse > ping-pong"
+            HCARD_add HCARD_G_R, "CTRL", "Pause / resume the range"
+            HCARD_add HCARD_G_M, "CTRL", "Delete the range"
+            HCARD_add HCARD_G_WHEEL, "CTRL", "Speed (wheel up = faster)"
+            HCARD_add HCARD_G_WHEEL, "CTRL+SHIFT", "Fine speed, 5% per notch"
+            HCARD_add HCARD_G_RDRAG, "", "Mark swatches, then Palette > Color Cycling"
+            HCARD_add HCARD_G_KEY, HCARD_key_for_action$(2060), "Color cycling on / off"
+    END SELECT
+END SUB
+
+
+''
+' Live line for the cycling card: the hovered swatch's range.
+'
+FUNCTION HCARD_cycle_info$ ()
+    DIM idx AS INTEGER, r AS INTEGER, s AS STRING
+    idx% = PALETTE_STRIP_HOVER_IDX%
+    IF idx% < 0 THEN HCARD_cycle_info$ = "Hover a swatch to see its range" : EXIT FUNCTION
+    r% = PCYC_range_at%(idx%)
+    IF r% = 0 THEN
+        s$ = "Swatch #" + _TRIM$(STR$(idx%)) + " is not in a range - Ctrl+drag across swatches to make one"
+    ELSE
+        s$ = "Swatch #" + _TRIM$(STR$(idx%)) + " - " + PCYC_describe$(r%)
+        IF PCYC_BLOCKED(idx%) THEN s$ = s$ + "  (duplicate color: cannot cycle)"
+    END IF
+    HCARD_cycle_info$ = s$
+END FUNCTION
+
+
+''
+' Per frame (before idle detection): decide which card the hover asks for,
+' run the show delay and keep the loop awake while it counts.
+'
+SUB HCARD_update ()
+    DIM want AS INTEGER, info AS STRING
+    want% = HCARD_NONE
+    IF CFG.HELP_CARD_ENABLED% _ANDALSO PALETTE_OPS.ACTIVE% _ANDALSO SCRN.showStatus% THEN
+        IF PALETTE_STRIP_in_bounds%(MOUSE.RAW_X%, MOUSE.RAW_Y%) _ANDALSO NOT PALETTE_MENU_VISIBLE% THEN
+            IF NOT (MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3%) _ANDALSO MENU_BAR.openMenu% < 0 _ANDALSO NOT CMD_PALETTE.visible THEN
+                IF PCYC.ENABLED% THEN want% = HCARD_CYCLE ELSE want% = HCARD_PALOPS
+            END IF
+        END IF
+    END IF
+
+    IF want% <> HCARD.WANT% THEN
+        HCARD.WANT%    = want%
+        HCARD.HOVER_T# = TIMER
+        IF want% = HCARD_NONE _ORELSE (HCARD.SHOWN% <> HCARD_NONE) THEN HCARD_set_shown want% ' hide at once; swap at once
+    END IF
+    IF HCARD.WANT% <> HCARD_NONE _ANDALSO HCARD.SHOWN% = HCARD_NONE THEN
+        FRAME_IDLE% = FALSE ' delay is counting
+        IF TIMER - HCARD.HOVER_T# >= CFG.HELP_CARD_DELAY_MS% / 1000# _ORELSE TIMER < HCARD.HOVER_T# THEN HCARD_set_shown HCARD.WANT%
+    END IF
+    ' Live readout: repaint when the hovered swatch's text changes
+    IF HCARD.SHOWN% = HCARD_CYCLE THEN
+        info$ = HCARD_cycle_info$
+        IF info$ <> HCARD.LAST_INFO$ THEN HCARD.LAST_INFO$ = info$ : GUI_NEEDS_REDRAW% = TRUE : SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE
+    END IF
+END SUB
+
+
+SUB HCARD_set_shown (card AS INTEGER)
+    IF card% = HCARD.SHOWN% THEN EXIT SUB
+    HCARD.SHOWN%      = card%
+    HCARD.LAST_INFO$  = ""
+    IF card% <> HCARD_NONE THEN HCARD_build card%
+    ' The card sits over the canvas: a full repaint shows / erases it
+    SCENE_DIRTY%      = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+
+''
+' Keycap ("CTRL") at x,y; returns its width.
+'
+FUNCTION HCARD_keycap% (x AS INTEGER, y AS INTEGER, t AS STRING, fh AS INTEGER)
+    DIM w AS INTEGER
+    w% = _PRINTWIDTH(t$) + 5
+    LINE (x%, y%)-(x% + w% - 1, y% + fh% + 1), _RGB32(52, 52, 72), BF
+    LINE (x%, y%)-(x% + w% - 1, y% + fh% + 1), _RGB32(135, 135, 170), B
+    LINE (x% + 1, y% + fh% + 1)-(x% + w% - 2, y% + fh% + 1), _RGB32(25, 25, 35) ' key depth
+    COLOR _RGB32(255, 228, 140)
+    _UPRINTSTRING (x% + 3, y% + 1), t$
+    HCARD_keycap% = w%
+END FUNCTION
+
+
+''
+' 9x13 mouse glyph at x,y with the gesture highlighted in accent; returns
+' the width used (glyph + its drag arrow / "2x" / wheel arrows).
+'
+FUNCTION HCARD_mouse% (x AS INTEGER, y AS INTEGER, glyph AS INTEGER, accent AS _UNSIGNED LONG, fh AS INTEGER)
+    DIM body AS _UNSIGNED LONG, line1 AS _UNSIGNED LONG, w AS INTEGER, my AS INTEGER
+    body~& = _RGB32(70, 70, 92) : line1~& = _RGB32(200, 200, 215)
+    my% = y% + (fh% + 2 - 13) \ 2
+    IF my% < y% - 1 THEN my% = y% - 1
+    ' body
+    LINE (x%, my% + 1)-(x% + 8, my% + 11), body~&, BF
+    LINE (x% + 1, my%)-(x% + 7, my% + 12), body~&, BF
+    ' pressed parts
+    SELECT CASE glyph%
+        CASE HCARD_G_L, HCARD_G_LDRAG, HCARD_G_LDBL
+            LINE (x% + 1, my% + 1)-(x% + 3, my% + 4), accent~&, BF
+        CASE HCARD_G_R, HCARD_G_RDRAG
+            LINE (x% + 5, my% + 1)-(x% + 7, my% + 4), accent~&, BF
+    END SELECT
+    ' outline + button split + wheel
+    LINE (x% + 1, my%)-(x% + 7, my%), line1~&
+    LINE (x% + 1, my% + 12)-(x% + 7, my% + 12), line1~&
+    LINE (x%, my% + 1)-(x%, my% + 11), line1~&
+    LINE (x% + 8, my% + 1)-(x% + 8, my% + 11), line1~&
+    LINE (x% + 1, my% + 5)-(x% + 7, my% + 5), line1~&
+    LINE (x% + 4, my% + 1)-(x% + 4, my% + 4), line1~&
+    IF glyph% = HCARD_G_M _ORELSE glyph% = HCARD_G_MDRAG _ORELSE glyph% = HCARD_G_WHEEL THEN
+        LINE (x% + 3, my% + 1)-(x% + 5, my% + 4), accent~&, BF
+    END IF
+    w% = 10
+    COLOR _RGB32(150, 150, 175)
+    SELECT CASE glyph%
+        CASE HCARD_G_LDRAG, HCARD_G_RDRAG, HCARD_G_MDRAG ' drag arrow
+            LINE (x% + 11, my% + 6)-(x% + 17, my% + 6), accent~&
+            LINE (x% + 15, my% + 4)-(x% + 17, my% + 6), accent~&
+            LINE (x% + 15, my% + 8)-(x% + 17, my% + 6), accent~&
+            w% = 19
+        CASE HCARD_G_LDBL
+            _UPRINTSTRING (x% + 11, y% + 1), "2x"
+            w% = 11 + _PRINTWIDTH("2x") + 1
+        CASE HCARD_G_WHEEL ' up/down arrows
+            LINE (x% + 13, my% + 1)-(x% + 13, my% + 11), accent~&
+            LINE (x% + 11, my% + 3)-(x% + 13, my% + 1), accent~&
+            LINE (x% + 15, my% + 3)-(x% + 13, my% + 1), accent~&
+            LINE (x% + 11, my% + 9)-(x% + 13, my% + 11), accent~&
+            LINE (x% + 15, my% + 9)-(x% + 13, my% + 11), accent~&
+            w% = 17
+    END SELECT
+    HCARD_mouse% = w%
+END FUNCTION
+
+
+''
+' Width of a row's gesture column (keycaps + "+" + mouse glyph).
+'
+FUNCTION HCARD_gesture_w% (r AS INTEGER)
+    DIM m AS STRING, w AS INTEGER, p AS INTEGER, part AS STRING
+    m$ = RTRIM$(HCARD_ROWS(r%).mods)
+    DO WHILE LEN(m$) > 0
+        p% = INSTR(m$, "+")
+        IF p% > 0 THEN part$ = LEFT$(m$, p% - 1) : m$ = MID$(m$, p% + 1) ELSE part$ = m$ : m$ = ""
+        w% = w% + _PRINTWIDTH(part$) + 5 + 2
+    LOOP
+    IF HCARD_ROWS(r%).glyph <> HCARD_G_KEY THEN
+        SELECT CASE HCARD_ROWS(r%).glyph
+            CASE HCARD_G_LDRAG, HCARD_G_RDRAG, HCARD_G_MDRAG : w% = w% + 19
+            CASE HCARD_G_LDBL : w% = w% + 12 + _PRINTWIDTH("2x")
+            CASE HCARD_G_WHEEL : w% = w% + 17
+            CASE ELSE : w% = w% + 10
+        END SELECT
+    END IF
+    HCARD_gesture_w% = w%
+END FUNCTION
+
+
+''
+' Draw one row's gesture (keycaps then mouse) at x,y.
+'
+SUB HCARD_draw_gesture (r AS INTEGER, x AS INTEGER, y AS INTEGER, accent AS _UNSIGNED LONG, fh AS INTEGER)
+    DIM m AS STRING, p AS INTEGER, part AS STRING, cx AS INTEGER, w AS INTEGER
+    cx% = x%
+    m$ = RTRIM$(HCARD_ROWS(r%).mods)
+    DO WHILE LEN(m$) > 0
+        p% = INSTR(m$, "+")
+        IF p% > 0 THEN part$ = LEFT$(m$, p% - 1) : m$ = MID$(m$, p% + 1) ELSE part$ = m$ : m$ = ""
+        w% = HCARD_keycap%(cx%, y%, part$, fh%)
+        cx% = cx% + w% + 2
+    LOOP
+    IF HCARD_ROWS(r%).glyph <> HCARD_G_KEY THEN w% = HCARD_mouse%(cx%, y%, HCARD_ROWS(r%).glyph, accent~&, fh%)
+END SUB
+
+
+''
+' Shorten text to fit maxW pixels (".." suffix).
+'
+FUNCTION HCARD_fit$ (t AS STRING, maxW AS INTEGER)
+    DIM s AS STRING
+    s$ = t$
+    IF _PRINTWIDTH(s$) <= maxW% THEN HCARD_fit$ = s$ : EXIT FUNCTION
+    DO WHILE LEN(s$) > 1 _ANDALSO _PRINTWIDTH(s$ + "..") > maxW%
+        s$ = LEFT$(s$, LEN(s$) - 1)
+    LOOP
+    HCARD_fit$ = s$ + ".."
+END FUNCTION
+
+
+''
+' Render the shown card onto target& (SCRN.CANVAS&), docked to the
+' configured edge of the canvas work area.
+'
+SUB HCARD_render (target AS LONG)
+    DIM oldDest AS LONG, oldFont AS LONG, fh AS INTEGER, rowH AS INTEGER, hdrH AS INTEGER
+    DIM ax1 AS INTEGER, ax2 AS INTEGER, ay1 AS INTEGER, ay2 AS INTEGER, cw AS INTEGER, ch AS INTEGER
+    DIM cols AS INTEGER, perCol AS INTEGER, extra AS INTEGER, x AS INTEGER, y AS INTEGER, edge AS INTEGER
+    DIM accent AS _UNSIGNED LONG, accent2 AS _UNSIGNED LONG, i AS INTEGER, c AS INTEGER, rr AS INTEGER
+    DIM gW AS INTEGER, colW AS INTEGER, rx AS INTEGER, ry AS INTEGER, t AS STRING, title AS STRING
+    DIM k AS INTEGER, hx AS INTEGER, lx AS INTEGER, kname AS STRING
+
+    HCARD.RW% = 0
+    IF HCARD.SHOWN% = HCARD_NONE _ORELSE HCARD_ROW_N% = 0 THEN EXIT SUB
+    IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN EXIT SUB
+    oldDest& = _DEST : oldFont& = _FONT
+    _DEST target&
+    IF TOOLTIP.FONT_HANDLE& > 0 THEN _FONT TOOLTIP.FONT_HANDLE&
+    fh% = _UFONTHEIGHT
+    rowH% = fh% + 5 : IF rowH% < 15 THEN rowH% = 15
+    hdrH% = fh% + 8
+    _PRINTMODE _KEEPBACKGROUND
+
+    ' Work area (between side panels, under the menu bar, above strip+status)
+    ax1% = SCRN.uiLeftEdge% : ax2% = SCRN.uiRightEdge%
+    ay1% = 0
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN ay1% = MENU_BAR_HEIGHT
+    IF TEXT_BAR.visible% THEN ay1% = TEXT_BAR.barY% + TEXT_BAR.barH%
+    ay2% = SCRN.h& - 1
+    IF SCRN.showStatus% THEN ay2% = SCRN.h& - 1 - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+    IF ax2% - ax1% < 120 THEN ax1% = 0 : ax2% = SCRN.w& - 1
+
+    edge% = CFG.HELP_CARD_EDGE%
+    IF edge% = HCARD_EDGE_LEFT _ORELSE edge% = HCARD_EDGE_RIGHT THEN
+        cols% = 1
+        cw% = 330 : IF cw% > (ax2% - ax1%) - 8 THEN cw% = (ax2% - ax1%) - 8
+    ELSE
+        cw% = (ax2% - ax1%) - 16 : IF cw% > 780 THEN cw% = 780
+        IF cw% >= 520 THEN cols% = 2 ELSE cols% = 1
+    END IF
+    perCol% = (HCARD_ROW_N% + cols% - 1) \ cols%
+    IF HCARD.SHOWN% = HCARD_CYCLE THEN extra% = 2 ELSE extra% = 1
+    ch% = 4 + hdrH% + 4 + perCol% * rowH% + extra% * rowH% + 4
+
+    SELECT CASE edge%
+        CASE HCARD_EDGE_TOP    : x% = ax1% + ((ax2% - ax1%) - cw%) \ 2 : y% = ay1% + 6
+        CASE HCARD_EDGE_LEFT   : x% = ax1% + 4 : y% = ay2% - ch% - 4
+        CASE HCARD_EDGE_RIGHT  : x% = ax2% - cw% - 4 : y% = ay2% - ch% - 4
+        CASE ELSE              : x% = ax1% + ((ax2% - ax1%) - cw%) \ 2 : y% = ay2% - ch% - 4
+    END SELECT
+    IF y% < ay1% + 2 THEN y% = ay1% + 2
+    IF x% < 0 THEN x% = 0
+
+    ' Colors
+    IF HCARD.SHOWN% = HCARD_CYCLE THEN
+        accent~& = _RGB32(255, 70, 200) : accent2~& = _RGB32(0, 210, 255)
+        title$ = "COLOR CYCLING  -  palette strip gestures (Palette Ops)"
+    ELSE
+        accent~& = _RGB32(255, 190, 40) : accent2~& = _RGB32(255, 120, 30)
+        title$ = "PALETTE OPS  -  a swatch IS its pixels"
+    END IF
+
+    ' Panel + shadow + border
+    LINE (x% + 3, y% + 3)-(x% + cw% + 2, y% + ch% + 2), _RGBA32(0, 0, 0, 120), BF
+    LINE (x%, y%)-(x% + cw% - 1, y% + ch% - 1), _RGBA32(14, 14, 22, 245), BF
+    LINE (x%, y%)-(x% + cw% - 1, y% + ch% - 1), accent~&, B
+    ' Header: gradient bar
+    FOR i% = 0 TO cw% - 3
+        LINE (x% + 1 + i%, y% + 1)-(x% + 1 + i%, y% + hdrH%), HCARD_mix~&(accent~&, accent2~&, i% / (cw% - 3))
+    NEXT i%
+    LINE (x% + 1, y% + hdrH% + 1)-(x% + cw% - 2, y% + hdrH% + 1), _RGB32(0, 0, 0)
+    ' Header icon: six live swatches (they cycle with the palette)
+    hx% = x% + 6
+    FOR k% = 0 TO 5
+        IF k% < PAL_COLOR_COUNT% THEN
+            i% = k%
+            IF HCARD.SHOWN% = HCARD_CYCLE _ANDALSO PCYC.COUNT% > 0 THEN i% = PCYC_R(1).lo + (k% MOD (PCYC_R(1).hi - PCYC_R(1).lo + 1))
+            LINE (hx% + k% * 6, y% + 4)-(hx% + k% * 6 + 4, y% + hdrH% - 3), PAL(PCYC_display_index%(i%)).value~& OR &HFF000000~&, BF
+            LINE (hx% + k% * 6, y% + 4)-(hx% + k% * 6 + 4, y% + hdrH% - 3), _RGB32(0, 0, 0), B
+        END IF
+    NEXT k%
+    COLOR _RGB32(0, 0, 0)
+    _UPRINTSTRING (hx% + 40, y% + 5), HCARD_fit$(title$, cw% - 50)
+    COLOR _RGB32(255, 255, 255)
+    _UPRINTSTRING (hx% + 39, y% + 4), HCARD_fit$(title$, cw% - 50)
+
+    ' Rows: gesture column aligned per card
+    gW% = 0
+    FOR i% = 1 TO HCARD_ROW_N%
+        IF HCARD_gesture_w%(i%) > gW% THEN gW% = HCARD_gesture_w%(i%)
+    NEXT i%
+    colW% = (cw% - 12) \ cols%
+    FOR i% = 1 TO HCARD_ROW_N%
+        c% = (i% - 1) \ perCol% : rr% = (i% - 1) MOD perCol%
+        rx% = x% + 6 + c% * colW%
+        ry% = y% + hdrH% + 6 + rr% * rowH%
+        IF rr% MOD 2 = 1 THEN LINE (rx% - 2, ry% - 1)-(rx% + colW% - 6, ry% + rowH% - 3), _RGBA32(255, 255, 255, 10), BF
+        HCARD_draw_gesture i%, rx%, ry%, accent~&, fh%
+        COLOR _RGB32(225, 225, 235)
+        t$ = RTRIM$(HCARD_ROWS(i%).desc)
+        IF HCARD_ROWS(i%).glyph = HCARD_G_KEY _ANDALSO LEN(RTRIM$(HCARD_ROWS(i%).mods)) = 0 THEN t$ = t$ + " (unbound)"
+        _UPRINTSTRING (rx% + gW% + 8, ry% + 1), HCARD_fit$(t$, colW% - gW% - 16)
+    NEXT i%
+
+    ' Footer / live lines
+    ry% = y% + hdrH% + 6 + perCol% * rowH%
+    LINE (x% + 6, ry% - 2)-(x% + cw% - 7, ry% - 2), _RGBA32(255, 255, 255, 40)
+    IF HCARD.SHOWN% = HCARD_CYCLE THEN
+        COLOR accent2~&
+        HCARD.LAST_INFO$ = HCARD_cycle_info$
+        _UPRINTSTRING (x% + 8, ry% + 1), HCARD_fit$(HCARD.LAST_INFO$, cw% - 16)
+        ' Band legend
+        ry% = ry% + rowH%
+        lx% = x% + 8
+        lx% = HCARD_legend%(lx%, ry%, 0, "forward", fh%)
+        lx% = HCARD_legend%(lx%, ry%, 1, "reverse", fh%)
+        lx% = HCARD_legend%(lx%, ry%, 2, "ping-pong", fh%)
+        lx% = HCARD_legend%(lx%, ry%, 3, "paused", fh%)
+        lx% = HCARD_legend%(lx%, ry%, 4, "duplicate color (can't cycle)", fh%)
+    ELSE
+        kname$ = HCARD_key_for_action$(2060)
+        COLOR _RGB32(160, 160, 185)
+        IF LEN(kname$) > 0 THEN
+            t$ = "Color cycling: press " + kname$ + ", then hover the strip for the cycling gestures"
+        ELSE
+            t$ = "Color cycling: Palette > Cycle Colors, then hover the strip for the cycling gestures"
+        END IF
+        _UPRINTSTRING (x% + 8, ry% + 1), HCARD_fit$(t$, cw% - 16)
+    END IF
+
+    HCARD.RX% = x% : HCARD.RY% = y% : HCARD.RW% = cw% + 3 : HCARD.RH% = ch% + 3
+    IF oldFont& > 0 THEN _FONT oldFont&
+    _DEST oldDest&
+END SUB
+
+
+''
+' One band-legend entry (same patterns as the strip bands); returns next x.
+' kind: 0 FWD, 1 REV, 2 PING, 3 paused, 4 duplicate.
+'
+FUNCTION HCARD_legend% (x AS INTEGER, y AS INTEGER, kind AS INTEGER, label AS STRING, fh AS INTEGER)
+    DIM px AS INTEGER, by AS INTEGER, c AS _UNSIGNED LONG, onPx AS INTEGER
+    by% = y% + fh% \ 2
+    c~& = _RGB32(255, 220, 0)
+    IF kind% = 3 THEN c~& = _RGB32(85, 73, 0)
+    FOR px% = 0 TO 17
+        SELECT CASE kind%
+            CASE 1 : onPx% = ((x% + px%) MOD 3) <> 2
+            CASE 2 : onPx% = ((x% + px%) AND 2) = 0
+            CASE ELSE : onPx% = TRUE
+        END SELECT
+        IF kind% = 4 THEN
+            PSET (x% + px%, by%), _IIF(((px%) AND 1) = 0, _RGB32(255, 40, 40), _RGB32(0, 0, 0))
+            PSET (x% + px%, by% + 1), _IIF(((px% + 1) AND 1) = 0, _RGB32(255, 40, 40), _RGB32(0, 0, 0))
+        ELSEIF onPx% THEN
+            LINE (x% + px%, by%)-(x% + px%, by% + 1), c~&
+        END IF
+    NEXT px%
+    COLOR _RGB32(190, 190, 210)
+    _UPRINTSTRING (x% + 21, y% + 1), label$
+    HCARD_legend% = x% + 21 + _PRINTWIDTH(label$) + 12
+END FUNCTION
+
+
+FUNCTION HCARD_mix~& (a AS _UNSIGNED LONG, b AS _UNSIGNED LONG, t AS SINGLE)
+    HCARD_mix~& = _RGB32(_RED32(a~&) + (_RED32(b~&) - _RED32(a~&)) * t!, _GREEN32(a~&) + (_GREEN32(b~&) - _GREEN32(a~&)) * t!, _BLUE32(a~&) + (_BLUE32(b~&) - _BLUE32(a~&)) * t!)
+END FUNCTION
+
+
+''
+' Re-composite the card from SCRN.CANVAS& onto screen 0 after the floating
+' panels (same reason as TOOLTIP_reblit_to_screen0).
+'
+SUB HCARD_reblit_to_screen0 ()
+    DIM ds AS INTEGER, sd AS LONG, x2 AS LONG, y2 AS LONG
+    IF HCARD.RW% <= 0 THEN EXIT SUB
+    ds% = SCRN.displayScale% : IF ds% < 1 THEN ds% = 1
+    x2& = HCARD.RX% + HCARD.RW% - 1 : IF x2& > SCRN.w& - 1 THEN x2& = SCRN.w& - 1
+    y2& = HCARD.RY% + HCARD.RH% - 1 : IF y2& > SCRN.h& - 1 THEN y2& = SCRN.h& - 1
+    sd& = _DEST
+    _DEST 0
+    _PUTIMAGE (CLNG(HCARD.RX%) * ds%, CLNG(HCARD.RY%) * ds%)-((x2& + 1) * ds% - 1, (y2& + 1) * ds% - 1), SCRN.CANVAS&, 0, (HCARD.RX%, HCARD.RY%)-(x2&, y2&)
+    _DEST sd&
+END SUB

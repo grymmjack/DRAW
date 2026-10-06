@@ -30,7 +30,7 @@
 
 - 1. New canvas: 32×32 or 64×64
   
-- 2. Enable Pattern Tile Mode (Shift+Tab)
+- 2. Enable Pattern Tile Mode (View menu)
   
 - 3. Draw base pattern (see 3×3 repeat live)
   

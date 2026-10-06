@@ -151,6 +151,8 @@ A swatch works like an entry in an indexed palette: its pixels belong to it. Cha
 | Middle-drag across swatches | Delete the whole range. It's outlined in red until you release. |
 | `Shift`+Middle-click a swatch | Insert the **current foreground color** after it, so you can build a palette straight from the color panels. |
 
+> 💡 **Help card.** In Palette Ops, hover the palette strip for a moment and a **help card** pops up just above the strip, with every gesture in this table drawn as a mouse diagram plus its modifier keys. While color cycling is on, it shows the cycling gestures instead, along with the hovered swatch's range. You can turn the card off or move it to another edge of the canvas area (bottom, top, left or right) in **Settings → General → Help Card**.
+
 Undo and redo, and opening the color panels or the Preview, keep Palette Ops on. Other commands, switching tools, `Esc`, and right-clicking the Organizer button turn it off.
 
 When you first enter Palette Ops, DRAW automatically creates a **`[DOCUMENT]` palette** that snapshots the current state. This means experimentation is safe — you can hop back to the original palette at any time without losing your remapping.
@@ -160,6 +162,73 @@ When you first enter Palette Ops, DRAW automatically creates a **`[DOCUMENT]` pa
 > 2. Toggle Palette Ops.
 > 3. Click a swatch, then drag in the Color Mixer to shift its hue. The sprite updates as you drag.
 > 4. Compare colorways. When one feels right, exit Palette Ops to bake it in.
+
+<div class="page-break"></div>
+
+## Color Cycling — Animate the Palette
+
+> 🎯 **Goal:** Make art move by rotating palette colors, the way DeluxePaint and GrafX2 do, without redrawing a pixel.
+
+Color cycling turns a run of palette swatches into a loop. While it runs, the colors in that run rotate one step at a time, so every pixel painted with them appears to move. Waterfalls flow, fire rises, chase lights run, and a spiral turns. The pixels never change, only the colors they show. That is why one still picture can carry a whole animation.
+
+<div align="center">
+  <img src="images/ch03-color-cycling.png" alt="Chapter 3 - Color cycling: range bands on the palette strip and the CYC status readout" style="max-width: 6.0in; width: 90%; height: auto;" />
+</div>
+
+### Turn it on and off
+
+Press **`Shift`+`Tab`**, or choose **Palette → Cycle Colors**. The status bar shows **`[CYC]`** while cycling runs. The canvas, the Preview window and the palette strip animate together. Press `Shift`+`Tab` again to see the true colors.
+
+Cycling is a **view**: it never changes your layers. Saving, exporting a PNG and flattening all use the real colors. The cycle ranges themselves are saved in the `.draw` file.
+
+### Make a cycle range
+
+A **range** is a run of neighboring swatches, such as chips 16–31. You can have up to 16 ranges, and they can't overlap. A new range replaces any range it overlaps. There are two ways to make one, both in **Palette Ops** mode:
+
+1. **Mark and convert.** Right-click or right-drag the swatches to mark them, then choose **Palette → Color Cycling → Range From Marked Chips**. The range runs from the first marked swatch to the last.
+2. **`Ctrl`+drag.** Hold `Ctrl` and left-drag across the swatches. A white band previews the span, and the range is created when you release.
+
+Each range shows as a **band along the bottom of its swatches**:
+
+| Band | Meaning |
+| --- | --- |
+| Solid | **Forward**: colors move toward higher swatch numbers. |
+| Dash-dot | **Reverse**: colors move toward lower swatch numbers. |
+| Dashed | **Ping-pong**: colors move forward to the end of the range, then back. |
+| Dimmed | The range is **paused** and holds its current step. |
+| Red checker | This swatch's color also appears **on an earlier swatch**, so its pixels belong to that swatch and can't cycle (see below). |
+
+Hover any swatch in a range and the status bar reads it out, for example `CYC 2: 32-47 REV 8.0/s`. In Palette Ops with cycling on, the help card above the strip shows the same readout, the gestures below, and this band legend.
+
+### Ranges in Palette Ops (`Ctrl` gestures)
+
+| Gesture on a swatch inside a range | Effect |
+| --- | --- |
+| `Ctrl`+Left-drag across swatches | Create a new range over the span. |
+| `Ctrl`+Left-click | Change direction: Forward → Reverse → Ping-pong. |
+| `Ctrl`+Right-click | Pause or resume the range. |
+| `Ctrl`+Middle-click | Delete the range. |
+| `Ctrl`+Wheel | Change speed through a table from 0.5 to 60 steps/s. Wheel up is faster. |
+| `Ctrl`+`Shift`+Wheel | Fine speed control, 5% per notch. |
+
+The same commands are in **Palette → Color Cycling**: *Delete Range*, *Clear All Ranges*, *Change Direction*, *Pause / Resume Range*, *Faster*, *Slower*, *Restart All* and *Check Duplicate Colors*. A menu command acts on the range under the hovered swatch, then the selected swatch, then the foreground color. Every range edit can be undone with `Ctrl`+`Z`. A burst of wheel steps counts as a single undo step.
+
+### What cycles, and what doesn't
+
+- **A pixel cycles when its color exactly matches a swatch inside a range.** This is the Palette Ops rule: a swatch *is* its pixels.
+- **Duplicate colors.** When two swatches share a color, the **first** one owns the pixels. A duplicate inside a range gets the red checker band and its pixels don't move. Use **Check Duplicate Colors** to list them, then give each one a slightly different color in Palette Ops.
+- **Opacity and blend modes.** A pixel drawn at partial opacity, or changed by a blend mode, no longer matches a palette color exactly, so it doesn't cycle. Paint cycling areas at 100% opacity on Normal layers.
+- **Editing the palette.** Ranges follow Palette Ops edits. Deleting a swatch shrinks the range around it, inserting a swatch inside a range grows it, and moving swatches drags the range along when its colors stay together.
+
+> 🎨 **Try it: a waterfall in a minute**
+> 1. Pick eight blues that run light → dark → light, and put them next to each other in the palette.
+> 2. Paint a waterfall with vertical streaks that step through those blues from top to bottom.
+> 3. Turn on Palette Ops, `Ctrl`+drag across the eight blues, and press `Shift`+`Tab`. The water falls.
+> 4. `Ctrl`+Wheel over the range to set the speed. Hold `Shift` as well for fine control.
+>
+> Or open one of the finished scenes in **`SAMPLES/COLOR CYCLING/`**: waterfall, fire, tunnel, marquee, ocean-sunset and pinwheel.
+
+To share cycling art as a runnable QB64 program, a GrafX2 GIF, an animated GIF or a DeluxePaint LBM, see [Chapter 10 — Color Cycling Formats](10-file-io.md#color-cycling-formats--share-the-motion).
 
 ---
 

@@ -19,10 +19,12 @@ OPTION _EXPLICITARRAY
 '$DYNAMIC
 
 ' Menu bar constants
-' Max menu items across all menus. MENUBAR_register_item SILENTLY drops anything
-' past this, so the overflow shows up as a menu entry that just isn't there —
-' raised from 300 when the Help > crash-log items left only two spare slots.
-CONST MENU_MAX_ITEMS = 400
+' Max menu items across all menus. MENUBAR_register_item drops anything past
+' this (and logs a _LOGERROR), so an overflow shows up as menu entries that just
+' aren't there — the LAST menu (Help) loses items first. Raised 300 -> 400 for the
+' Help > crash-log items, then 400 -> 600 when the color cycling items (File +
+' Palette flyouts) truncated Help to "ABOUT DRAW" only.
+CONST MENU_MAX_ITEMS = 600
 CONST MENU_MAX_ROOT  = 16      ' Max root-level menu entries. Must exceed the actual root
                                ' count: FILE..EFFECTS (10) + AI (optional) + HELP + AUDIO
                                ' = 13 with AI on. At 12 the register bounds-check dropped

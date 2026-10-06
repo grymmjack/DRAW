@@ -213,7 +213,9 @@ $IF MAC THEN
                    LCASE$(macArgVal$) = "/h" OR LCASE$(macArgVal$) = "/help" OR _
                    LCASE$(macArgVal$) = "--version" OR LCASE$(macArgVal$) = "-v" THEN
                 macArgIdx% = macArgIdx% + 1 ' Defensive: HELP.BI should have exited already
-            ELSEIF LCASE$(macArgVal$) = "--option" OR LCASE$(macArgVal$) = "--instance" OR LCASE$(macArgVal$) = "--palette" THEN
+            ELSEIF LCASE$(macArgVal$) = "--option" OR LCASE$(macArgVal$) = "--instance" OR LCASE$(macArgVal$) = "--palette" OR _
+                   LCASE$(macArgVal$) = "--export" OR LCASE$(macArgVal$) = "--export-anim" OR LCASE$(macArgVal$) = "--cycle" OR _
+                   LCASE$(macArgVal$) = "--export-qb64" THEN
                 macArgIdx% = macArgIdx% + 2 ' BUG-53: 2-token flag (flag + value) — skip both
             ELSEIF LEFT$(macArgVal$, 1) = "-" THEN
                 macArgIdx% = macArgIdx% + 1 ' BUG-53: any other unrecognized flag — skip, don't treat as the file
@@ -249,7 +251,8 @@ $ELSE
             argIdx% = argIdx% + 1 ' Defensive: HELP.BI should have exited already
         ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" OR LCASE$(argVal$) = "--palette" THEN
             argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
-        ELSEIF LCASE$(argVal$) = "--export-qb64" THEN
+        ELSEIF LCASE$(argVal$) = "--export-qb64" OR LCASE$(argVal$) = "--export" OR _
+               LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" THEN
             argIdx% = argIdx% + 2 ' 2-token flag (flag + output path) — skip both so the path is not mistaken for the input file
         ELSEIF LEFT$(argVal$, 1) = "-" THEN
             argIdx% = argIdx% + 1 ' BUG-53: any other unrecognized flag (--developer/--dev/...) — skip it, don't treat it as the file
@@ -382,6 +385,8 @@ FOR exportQb64I% = 1 TO _COMMANDCOUNT
         BATCH_EXPORT_QB64_PATH$ = _TRIM$(COMMAND$(exportQb64I% + 1))
     END IF
 NEXT exportQb64I%
+
+BATCH_parse_args                      ' --export / --export-anim / --cycle (run on the first frame)
 
 GAMEPAD_init                          ' Initialise gamepad subsystem (stub — mouse emulation)
 
@@ -571,6 +576,13 @@ DO
         SYSTEM
     END IF
 
+    ' --cycle / --export / --export-anim (OUTPUT/BATCH.BM): same timing as above.
+    IF BATCH_pending% THEN
+        DIM batchCode AS INTEGER
+        batchCode% = BATCH_run%
+        SYSTEM batchCode%
+    END IF
+
     IF _TOTALDROPPEDFILES THEN
         DIM dropFile$
         dropFile$ = _DROPPEDFILE$(1)
@@ -742,6 +754,7 @@ DO
     
     ' Update tooltip state (must run before idle detection so hover keeps loop alive)
     TOOLTIP_update
+    HCARD_update ' gesture help card (Palette Ops strip hover)
 
     ' Idle detection: reduce FPS when nothing is happening to save CPU
     ' Check if anything needs updating this frame
@@ -874,11 +887,26 @@ DO
     ' Tooltip hover: only keep frames active while delay is counting or tooltip
     ' needs one more frame to render. Once displayed and static, allow idle.
     IF TOOLTIP.HOVER_BTN_IDX% >= 0 AND (NOT TOOLTIP.ACTIVE% OR TOOLTIP.NEEDS_REDRAW%) THEN FRAME_IDLE% = FALSE
+    IF HCARD.WANT% <> HCARD_NONE _ANDALSO HCARD.SHOWN% = HCARD_NONE THEN FRAME_IDLE% = FALSE ' help card delay counting
     ' Preview tooltip: keep render loop active while hover timer counts or tooltip is shown
     IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
         IF PREVIEW.floatTooltipHoverStart# > 0 AND NOT PREVIEW.floatTooltipActive% THEN FRAME_IDLE% = FALSE
         IF PREVIEW.floatTooltipActive% THEN FRAME_IDLE% = FALSE
     END IF
+    ' Palette cycling: stay live while it runs, but only rebuild the scene (and the
+    ' strip, whose chips cycle too) when a range actually steps — same discipline
+    ' as the text cursor blink above.
+    ' A frame whose ONLY scene change is a cycle step may skip layer compositing
+    ' (RENDER_layers -> PCYC_present_step&); see PCYC_step_only_ok%.
+    DIM pcycOther AS INTEGER
+    pcycOther% = SCENE_CHANGED% OR SCENE_DIRTY%
+    PCYC.STEP_ONLY% = FALSE
+    IF PCYC_tick% THEN
+        FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE: GUI_NEEDS_REDRAW% = TRUE
+        IF NOT pcycOther% THEN PCYC.STEP_ONLY% = TRUE
+    END IF
+    STATUS_flash_tick
+    IF PCYC_running% THEN FRAME_IDLE% = FALSE
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
 
     ' Edit bar context-sensitive button states: force GUI redraw when any change

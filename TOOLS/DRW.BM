@@ -614,6 +614,15 @@ SUB DRW_save_binary (filename AS STRING)
         IF tmpInt% > 0 THEN PUT #fh%, , aiStr$
     NEXT aiSi%
 
+    ' === COLOR CYCLING RANGES (v30+) ===
+    ' LONG byte length + PCYC_serialize$ (INTEGER count, 16 bytes per range).
+    ' Length-prefixed so a later layout can grow without another version gate.
+    DIM cycBlob AS STRING, cycLen AS LONG
+    cycBlob$ = PCYC_serialize$
+    cycLen&  = LEN(cycBlob$)
+    PUT #fh%, , cycLen&
+    IF cycLen& > 0 THEN PUT #fh%, , cycBlob$
+
     ' === UNIFIED HISTORY (v7+) ===
     HISTORY_save_binary fh%, SCRN.canvasW&, SCRN.canvasH&
 
@@ -1597,6 +1606,19 @@ SUB DRW_load_binary (filename AS STRING)
         NEXT aiLi%
     END IF
 
+    ' === COLOR CYCLING RANGES (v30+) ===
+    ' Read into a local: PALETTE_OPS_reset (below) clears the ranges, so they
+    ' are adopted after it.
+    DIM cycLoad AS STRING, cycLoadLen AS LONG
+    cycLoad$ = ""
+    IF version% >= 30 THEN
+        GET #fh%, , cycLoadLen&
+        IF cycLoadLen& > 0 AND cycLoadLen& < 65536 THEN
+            cycLoad$ = SPACE$(cycLoadLen&)
+            GET #fh%, , cycLoad$
+        END IF
+    END IF
+
     IF version% >= 7 THEN
         HISTORY_load_binary fh%, SCRN.canvasW&, SCRN.canvasH&, version%
         ' Recompute export modes BEFORE clearing history — the classify function
@@ -1660,7 +1682,12 @@ SUB DRW_load_binary (filename AS STRING)
     PREVIEW_reset                  ' Reset preview pan/zoom for new file
     COLORMIXER_reset               ' Reset color mixer transient state
     CHARMAP_reset                  ' Reset character map transient state
-    PALETTE_OPS_reset              ' Reset palette ops mode
+    PALETTE_OPS_reset              ' Reset palette ops mode (+ color cycling ranges)
+    IF LEN(cycLoad$) > 0 THEN      ' ...then adopt the file's cycle ranges (v30+)
+        DIM cycUsedLoad AS LONG
+        cycUsedLoad& = PCYC_deserialize&(cycLoad$, 1)
+        IF cycUsedLoad& = 0 THEN _LOGWARN "DRW_load_binary: bad color cycling block ignored"
+    END IF
 
     ' In-progress shape state. Every ordinary tool switch clears these via
     ' TOOLS_reset_all (32 call sites); loading a project did not, so a shape
@@ -2005,6 +2032,22 @@ SUB DRW_load (filename AS STRING)
     ' PNG signature: 89 50 4E 47 0D 0A 1A 0A
     pngSig$ = CHR$(137) + CHR$(80) + CHR$(78) + CHR$(71) + CHR$(13) + CHR$(10) + CHR$(26) + CHR$(10)
 
+    ' GIF carrying color cycling ranges (GrafX2 CRNG / DRAW DRAWCYCL): decode it
+    ' natively so the file's own palette, true indices and ranges survive.
+    ' Any other GIF falls through to the plain image load below.
+    IF LEFT$(header$, 4) = "GIF8" THEN
+        IF GIF_load_cycling%(filename$) THEN EXIT SUB
+    END IF
+
+    ' DeluxePaint IFF (FORM ILBM / PBM) with palette + CRNG cycle ranges
+    IF LBM_is_lbm_file%(filename$) THEN
+        IF NOT LBM_load%(filename$) THEN
+            _LOGWARN "DRW_load: " + filename$ + ": " + LBM_LAST_ERROR$
+            STATUS_flash "Cannot open " + MID$(filename$, _INSTRREV(filename$, "/") + 1) + ": " + LBM_LAST_ERROR$
+        END IF
+        EXIT SUB
+    END IF
+
     IF LEFT$(header$, 8) = pngSig$ THEN
         ' PNG format - extract drAw chunk and load project data
         _LOGINFO "DRW_load: Detected PNG format: " + filename$
@@ -2196,6 +2239,7 @@ SUB DRW_load_from_png (filename AS STRING)
             MARQUEE_reset
             MOVE_init
             MAGIC_WAND_reset
+            PALETTE_OPS_reset ' Color Ops + color cycling ranges belong to the old document
             LAYER_PANEL.scrollOffset%    = 0
             LAYER_PANEL.soloLayer%       = 0
             LAYER_PANEL.visSwiping%      = FALSE
@@ -2348,7 +2392,7 @@ SUB DRW_open_dialog ()
 
     ' Show open file dialog
     POINTER_hide_for_dialog
-    filename$ = DRAW_open_file$("Open DRAW Project", default_path$, "All Supported|*.draw|*.ase|*.aseprite|*.bmp|*.png|*.jpg|*.jpeg|*.gif|*.psd|*.tga|*.qoi|*.hdr|DRAW Projects|*.draw|Aseprite|*.ase|*.aseprite|Images|*.bmp|*.png|*.jpg|*.jpeg|*.gif|*.psd|*.tga|*.qoi|*.hdr|All Files|*.*", 0)
+    filename$ = DRAW_open_file$("Open DRAW Project", default_path$, "All Supported|*.draw|*.ase|*.aseprite|*.bmp|*.png|*.jpg|*.jpeg|*.gif|*.psd|*.tga|*.qoi|*.hdr|*.lbm|*.iff|*.ilbm|DRAW Projects|*.draw|Aseprite|*.ase|*.aseprite|Images|*.bmp|*.png|*.jpg|*.jpeg|*.gif|*.psd|*.tga|*.qoi|*.hdr|DeluxePaint|*.lbm|*.iff|*.ilbm|All Files|*.*", 0)
     POINTER_show_after_dialog
     MOUSE_cleanup_after_dialog TRUE ' Clear buffers and center mouse
 
@@ -2377,8 +2421,18 @@ SUB DRW_open_dialog ()
             DRW_load filename$
             SOUND_play SND_NEW_FILE
 
-            ' Store current filename
-            CURRENT_DRW_FILENAME$ = filename$
+            ' Store current filename. Only a .draw (or .png, the .draw container)
+            ' becomes the quick-save target; any other format (GIF, LBM/IFF, BMP...)
+            ' is remembered as the source image so Ctrl+S writes a companion
+            ' .draw next to it instead of overwriting the original with project data.
+            DIM opExt AS STRING
+            opExt$ = LCASE$(MID$(filename$, _INSTRREV(filename$, ".") + 1))
+            IF opExt$ = "draw" OR opExt$ = "png" THEN
+                CURRENT_DRW_FILENAME$ = filename$
+            ELSE
+                CURRENT_DRW_FILENAME$ = ""
+                CURRENT_FILENAME$     = filename$
+            END IF
 
             ' Add to recent files
             RECENT_add_file filename$

@@ -49,8 +49,9 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 | Symbol Child Rotation | per-layer: symbolRotation(2) — 0=none, 1=90CW, 2=180, 3=270CW | v27+ |
 | Layer Name Width | Layer name field expanded from 16 bytes to 64 bytes (allows longer layer names up to 63 chars) | v28+ |
 | AI Layer Data | aiLayerCount(2), then per AI layer: layerIdx(2), seedVal(4), genW(2), genH(2), and four **length-prefixed** strings — prompt, styleName, toolName, modelName (each: len(2) + bytes, written only when len > 0) | v29+ |
+| Color Cycling Ranges | blobLen(4), then `PCYC_serialize$`: count(2), per range lo(2), hi(2), rate(4, ILBM CRNG units: 16384 = 60 steps/s), cmode(2: 0 FWD, 1 REV, 2 PING), active(2), heldStep(4). Read into a local and adopted **after** `PALETTE_OPS_reset` (which clears ranges) | v30+ |
 
-Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 29`, `DRW_CHUNK_VERSION% = 1`
+Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 30`, `DRW_CHUNK_VERSION% = 1`
 
 **AI layer strings are length-prefixed, not fixed-width.** `AI_LAYER_OBJ` declares
 `prompt AS STRING * 512` and friends, but writing those fixed widths would add ~670

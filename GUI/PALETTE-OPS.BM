@@ -84,6 +84,8 @@ SUB PALETTE_OPS_deactivate ()
     ' selection and any in-flight drag.
     PALETTE_OPS_edit_commit
     PALETTE_OPS_clear_transient
+    PCYC.DRAG_ACTIVE% = FALSE : PCYC.DRAG_LO% = -1 : PCYC.DRAG_HI% = -1 ' cancel a Ctrl+drag range
+    PCYC_wheel_flush TRUE
 
     ' Clear wand selection if showing
     IF PALETTE_OPS.WAND_SHOWING% THEN
@@ -138,6 +140,7 @@ SUB PALETTE_OPS_reset ()
     ' restores PALETTE_DOC_EXISTS% from the loaded file
     PALETTE_DOC_EXISTS% = FALSE
     PALETTE_DOC_COUNT%  = 0
+    PCYC_reset ' color cycling ranges belong to the document being replaced
 END SUB
 
 
@@ -379,6 +382,12 @@ SUB PALETTE_OPS_handle_strip_click (x AS INTEGER, y AS INTEGER)
         EXIT SUB
     END IF
 
+    ' Ctrl = color cycling range gestures (GUI/PALETTE-CYCLE.BM)
+    IF MODIFIERS.ctrl% THEN
+        PCYC_strip_press palIdx%
+        EXIT SUB
+    END IF
+
     ' Dispatch by button state
     IF MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3% THEN
         DIM clickTime AS DOUBLE
@@ -463,6 +472,12 @@ FUNCTION PALETTE_OPS_handle_held% (x AS INTEGER, y AS INTEGER)
     PALETTE_OPS_handle_held% = FALSE
     IF NOT PALETTE_OPS.ACTIVE% THEN EXIT FUNCTION
     DIM idx AS INTEGER
+
+    ' --- Ctrl+L: color cycling range drag ---
+    IF PCYC.DRAG_ACTIVE% THEN
+        PALETTE_OPS_handle_held% = PCYC_strip_held%(x%, y%)
+        EXIT FUNCTION
+    END IF
 
     ' --- L: drag-move (marked chip moves every marked chip) ---
     IF PALETTE_OPS.DRAG_START_X% > 0 THEN
@@ -703,7 +718,8 @@ END SUB
 ' PAL_COLOR_COUNT, plus the FG/BG indices, the transparent flags, and the resolved
 ' PAINT_COLOR/PAINT_BG_COLOR. Header is 18 bytes: 5 x INTEGER (count, fg, bg, fgT, bgT)
 ' + 2 x _UNSIGNED LONG (paint fg/bg); then per color: _UNSIGNED LONG value + INTEGER
-' name-length + name bytes. Paired with PALETTE_restore.
+' name-length + name bytes, then "CYC1" + PCYC_serialize$ (color cycling ranges;
+' optional on restore). Paired with PALETTE_restore.
 '
 FUNCTION PALETTE_snapshot$
     DIM s AS STRING, i AS INTEGER
@@ -714,6 +730,8 @@ FUNCTION PALETTE_snapshot$
         s$ = s$ + _MK$(_UNSIGNED LONG, PAL(i%).value~&)
         s$ = s$ + MKI$(LEN(PAL(i%).name$)) + PAL(i%).name$
     NEXT i%
+    ' Color cycling ranges ride along so every palette undo step restores them
+    s$ = s$ + "CYC1" + PCYC_serialize$
     PALETTE_snapshot$ = s$
 END FUNCTION
 
@@ -743,6 +761,12 @@ SUB PALETTE_restore (snap AS STRING)
         END IF
     NEXT i%
     PAL_COLOR_COUNT% = cnt%
+    ' Optional color cycling tail (snapshots from before cycling existed lack it
+    ' and leave the ranges alone)
+    IF MID$(snap$, p&, 4) = "CYC1" THEN
+        DIM cycUsed AS LONG
+        cycUsed& = PCYC_deserialize&(snap$, p& + 4)
+    END IF
 END SUB
 
 ''
@@ -786,6 +810,7 @@ SUB PALETTE_OPS_delete_color (palIdx AS INTEGER)
     NEXT pi%
     PAL_COLOR_COUNT% = PAL_COLOR_COUNT% - 1
     PALETTE_OPS_MARKED(PAL_COLOR_COUNT%) = FALSE
+    PCYC_on_delete palIdx% ' cycle ranges shift / shrink with the palette
     IF PALETTE_OPS.SEL_IDX% = palIdx% THEN
         PALETTE_OPS.SEL_IDX% = -1
     ELSEIF PALETTE_OPS.SEL_IDX% > palIdx% THEN
@@ -924,6 +949,7 @@ SUB PALETTE_OPS_insert_color (palIdx AS INTEGER)
     PAL(palIdx% + 1).name$          = ""
     PALETTE_OPS_MARKED(palIdx% + 1) = FALSE
     PAL_COLOR_COUNT% = PAL_COLOR_COUNT% + 1
+    PCYC_on_insert palIdx% + 1 ' cycle ranges shift / grow with the palette
 
     ' Adjust FG/BG/selected indices
     IF PAL_FG_IDX% > palIdx% THEN PAL_FG_IDX% = PAL_FG_IDX% + 1
@@ -1018,6 +1044,7 @@ SUB PALETTE_OPS_apply_order (order() AS INTEGER, label AS STRING)
     IF PAL_BG_IDX% >= 0 _ANDALSO PAL_BG_IDX% < cnt% THEN PAL_BG_IDX% = inv(PAL_BG_IDX%)
     IF PALETTE_OPS.SEL_IDX% >= 0 _ANDALSO PALETTE_OPS.SEL_IDX% < cnt% THEN PALETTE_OPS.SEL_IDX% = inv(PALETTE_OPS.SEL_IDX%)
     PALETTE_OPS.DBLCLICK_IDX% = -1
+    PCYC_on_reorder order(), cnt% ' ranges follow their colors when still contiguous
 
     HISTORY_record_palette aoBefore$, PALETTE_snapshot$, label$
     PALETTE_OPS_mark_document_palette

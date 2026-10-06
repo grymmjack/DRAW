@@ -56,6 +56,8 @@ When only the cursor moved, `SCENE_DIRTY%` stays FALSE. The renderer copies the 
 
 **Rule**: Per-frame animations MUST render after `SkipToPointer:`. Placing them before forces `SCENE_DIRTY% = TRUE` every frame, defeating the cache.
 
+**Exception — palette color cycling** (`draw-color-cycling.md`): it changes canvas content, so it *does* dirty the scene, but **only on a frame where a range actually steps** (`PCYC_tick%`), never every frame. `RENDER_layers` shows `PCYC_present&(compositeImg&)` (a cycled copy); the composite and its caches stay uncycled, and the trivial single-layer path is skipped while cycling.
+
 **Overlay rule**: Any overlay that must remain visible above the recomposited GUI layer belongs after the second GUI composite. The picker loupe and final popup overlays are the current examples. The preview window is the counterexample: it renders before the second GUI composite so menus, status overlays, and pickers can remain on top of it.
 
 ### Performance Patterns

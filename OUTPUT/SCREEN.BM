@@ -1021,10 +1021,21 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
 
         ' Check if we need per-pixel blending (any non-Normal blend mode)
         ' Also force composite when preview window is visible (needs native-res buffer)
-        useComposite% = BLEND_needs_composite% OR PREVIEW.visible%
+        ' Palette cycling remaps the finished composite (PCYC_present&), so it needs one.
+        useComposite% = BLEND_needs_composite% OR PREVIEW.visible% OR PCYC_running%
 
         ' Rebuild render order lookup table if dirty
         IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
+
+        ' Palette cycling step-only frame: nothing but the colors moved, so reuse
+        ' the cycled buffer instead of compositing every layer again.
+        IF PCYC_step_only_ok% THEN
+            DIM stepImg AS LONG
+            stepImg& = PCYC_present_step&
+            _PUTIMAGE (dx&, dy&)-(dx& + zw& - 1, dy& + zh& - 1), stepImg&, SCRN.CANVAS&
+            CANVAS_CONTENT_SRC& = stepImg&
+            EXIT SUB
+        END IF
 
         ' === Trivial single-layer fast path ===
         ' When the only reason useComposite is TRUE is PREVIEW visibility and
@@ -1038,7 +1049,7 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
         DIM trivialVisibleCount AS INTEGER
         trivialOnlyLayer%    = 0
         trivialVisibleCount% = 0
-        IF useComposite% AND NOT BLEND_needs_composite% AND NOT BLEND_HAS_ISOLATED_GROUPS% AND NOT MOVE.ACTIVE THEN
+        IF useComposite% AND NOT BLEND_needs_composite% AND NOT BLEND_HAS_ISOLATED_GROUPS% AND NOT MOVE.ACTIVE AND NOT PCYC_running% THEN
             DIM trivI AS INTEGER, trivLayer AS INTEGER
             FOR trivI% = 1 TO RENDER_ORDER_COUNT%
                 trivLayer% = RENDER_ORDER%(trivI%)
@@ -1567,9 +1578,13 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
 
         ' If using composite, render the final composite to canvas with zoom
         IF useComposite% THEN
-            _PUTIMAGE (dx&, dy&)-(dx& + zw& - 1, dy& + zh& - 1), compositeImg&, SCRN.CANVAS&
+            ' Palette cycling: show a cycled COPY of the composite (compositeImg& and
+            ' the composite caches stay uncycled; returns compositeImg& when off).
+            DIM shownImg AS LONG
+            shownImg& = PCYC_present&(compositeImg&)
+            _PUTIMAGE (dx&, dy&)-(dx& + zw& - 1, dy& + zh& - 1), shownImg&, SCRN.CANVAS&
             ' compositeImg& is persistent (COMPOSITE_BUFFER&), do NOT free it
-            CANVAS_CONTENT_SRC& = compositeImg& ' Where PREVIEW reads from
+            CANVAS_CONTENT_SRC& = shownImg& ' Where PREVIEW reads from
 
             ' Save completed composite for next frame's region-based path.
             ' The cache feeds the region path (line ~828), which only triggers
@@ -3054,6 +3069,7 @@ SUB SCREEN_render ()
 
             SCROLLBAR_render
             RENDER_crosshair_and_command_palette
+            HCARD_render SCRN.CANVAS&
             TOOLTIP_render SCRN.CANVAS&
 
             POINTER.PREV_DRAW_X% = so_nx%
@@ -3090,6 +3106,7 @@ SUB SCREEN_render ()
             PENP_render
             BROWSER_render
             PREVIEW_render_tooltip
+            HCARD_reblit_to_screen0
             TOOLTIP_reblit_to_screen0
 
             IF NOT SCREEN_SUPPRESS_DISPLAY% THEN _DISPLAY
@@ -3293,6 +3310,7 @@ SUB SCREEN_render ()
             END IF
 
             ' --- Redraw cursor on top of GUI ---
+            HCARD_render SCRN.CANVAS&
             TOOLTIP_render SCRN.CANVAS&
             CRASH_render_toast SCRN.CANVAS&
 
@@ -3335,6 +3353,7 @@ SUB SCREEN_render ()
                 PREVIEW_render_loupe SCRN.CANVAS&
             END IF
             PREVIEW_render_tooltip
+            HCARD_reblit_to_screen0
             TOOLTIP_reblit_to_screen0
 
             PERF_stop PERF_DIRTY_RECT_PATH
@@ -3777,6 +3796,7 @@ SUB SCREEN_render ()
     ' ==== TOOLTIP (on top of everything, including cursor and UI chrome) ====
     ' (PREVIEW_render_tooltip is a screen-0 overlay — drawn after the upscale.)
     DRAWER_wheel_tooltip_render SCRN.CANVAS&
+    HCARD_render SCRN.CANVAS&
     TOOLTIP_render SCRN.CANVAS&
     CRASH_render_toast SCRN.CANVAS&
 
@@ -3851,6 +3871,7 @@ SUB SCREEN_render ()
         PREVIEW_render_loupe SCRN.CANVAS&
     END IF
     PREVIEW_render_tooltip
+    HCARD_reblit_to_screen0
     TOOLTIP_reblit_to_screen0
 
     PERF_start PERF_DISPLAY_CALL

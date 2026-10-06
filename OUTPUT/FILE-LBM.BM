@@ -1,0 +1,163 @@
+''
+' DRAW - OUTPUT/FILE-LBM.BM
+' =============================================================================
+' DeluxePaint IFF writer: FORM ILBM (planar, the Amiga/GrafX2 default) or
+' FORM PBM (chunky, DeluxePaint II Enhanced on the PC). The document is
+' flattened and indexed onto the palette (OUTPUT/PAL-INDEX). Chunks: BMHD,
+' CMAP, CRNG (max(4, ranges) like DeluxePaint), DRAW's private DRCY (exact
+' ping-pong / paused / step; other readers skip it), BODY (ByteRun1).
+' Reader + format notes: INPUT/FILE-LBM.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+FUNCTION LBM_mk32$ (v AS LONG)
+    LBM_mk32$ = CHR$(_SHR(v&, 24) AND 255) + CHR$(_SHR(v&, 16) AND 255) + CHR$(_SHR(v&, 8) AND 255) + CHR$(v& AND 255)
+END FUNCTION
+
+
+''
+' IFF chunk: id + BE32 length + data (+ pad byte to an even length).
+'
+FUNCTION LBM_chunk$ (cid AS STRING, dat AS STRING)
+    DIM s AS STRING
+    s$ = cid$ + LBM_mk32$(LEN(dat$)) + dat$
+    IF LEN(dat$) AND 1 THEN s$ = s$ + CHR$(0)
+    LBM_chunk$ = s$
+END FUNCTION
+
+
+''
+' ByteRun1 (PackBits) one row: runs of 3+ equal bytes become repeat codes.
+'
+FUNCTION LBM_pack_row$ (row AS STRING)
+    DIM res AS STRING, i AS LONG, j AS LONG, n AS LONG, k AS LONG, st AS LONG, b AS INTEGER
+    n& = LEN(row$) : i& = 1
+    DO WHILE i& <= n&
+        b% = ASC(row$, i&)
+        j& = i&
+        DO WHILE j& < n& _ANDALSO j& - i& < 127
+            IF ASC(row$, j& + 1) <> b% THEN EXIT DO
+            j& = j& + 1
+        LOOP
+        IF j& - i& + 1 >= 3 THEN
+            res$ = res$ + CHR$(257 - (j& - i& + 1)) + CHR$(b%)
+            i& = j& + 1
+        ELSE
+            st& = i& : k& = i&
+            DO WHILE k& <= n& _ANDALSO k& - st& < 128
+                IF k& + 2 <= n& THEN
+                    IF ASC(row$, k&) = ASC(row$, k& + 1) _ANDALSO ASC(row$, k&) = ASC(row$, k& + 2) THEN EXIT DO
+                END IF
+                k& = k& + 1
+            LOOP
+            res$ = res$ + CHR$(k& - st& - 1) + MID$(row$, st&, k& - st&)
+            i& = k&
+        END IF
+    LOOP
+    LBM_pack_row$ = res$
+END FUNCTION
+
+
+''
+' Write the document as a DeluxePaint IFF. chunky = TRUE writes FORM PBM.
+' Returns TRUE on success (else CYCX_LAST_ERROR$ says why).
+'
+FUNCTION LBM_export% (path AS STRING, chunky AS INTEGER)
+    DIM flat AS LONG, w AS LONG, h AS LONG, transIdx AS INTEGER, nCol AS INTEGER, planes AS INTEGER
+    DIM pix AS STRING, bmhd AS STRING, cmap AS STRING, crng AS STRING, body AS STRING, form AS STRING
+    DIM r AS INTEGER, i AS INTEGER, c AS _UNSIGNED LONG, nTab AS INTEGER, fl AS LONG, nChunks AS INTEGER
+    DIM rowBytes AS LONG, y AS LONG, x AS LONG, pl AS INTEGER, row AS STRING, b AS INTEGER, ff AS INTEGER
+    DIM ax AS INTEGER, ay AS INTEGER
+
+    LBM_export% = FALSE
+    CYCX_LAST_ERROR$ = ""
+    PCYC_validate
+    flat& = LAYERS_flatten&
+    IF flat& >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document" : EXIT FUNCTION
+    w& = _WIDTH(flat&) : h& = _HEIGHT(flat&)
+    IF w& > 32767 OR h& > 32767 THEN SAFE_FREEIMAGE flat& : CYCX_LAST_ERROR$ = "image too large" : EXIT FUNCTION
+    transIdx% = -1
+    IF IDX_has_transparency%(flat&) THEN transIdx% = IDX_transparent_slot%
+    pix$ = IDX_index_image$(flat&, transIdx%)
+    SAFE_FREEIMAGE flat&
+    nCol% = PAL_COLOR_COUNT%
+    IF transIdx% >= 0 THEN nCol% = nCol% + 1
+    IF chunky% THEN planes% = 8 ELSE planes% = GIF_color_bits%(nCol%)
+    nTab% = 2 ^ planes%
+
+    ' BMHD (20 bytes). DeluxePaint's 320x200 aspect is 10:11.
+    ax% = 1 : ay% = 1
+    IF w& = 320 _ANDALSO h& = 200 THEN ax% = 10 : ay% = 11
+    bmhd$ = GIF_be16$(w&) + GIF_be16$(h&) + GIF_be16$(0) + GIF_be16$(0)
+    bmhd$ = bmhd$ + CHR$(planes%) + CHR$(_IIF(transIdx% >= 0, 2, 0)) + CHR$(1) + CHR$(0)
+    bmhd$ = bmhd$ + GIF_be16$(_IIF(transIdx% >= 0, transIdx%, 0)) + CHR$(ax%) + CHR$(ay%) + GIF_be16$(w&) + GIF_be16$(h&)
+
+    ' CMAP: the whole 2^planes table (DeluxePaint style); extras are black
+    cmap$ = STRING$(nTab% * 3, 0)
+    FOR i% = 0 TO PAL_COLOR_COUNT% - 1
+        IF i% >= nTab% THEN EXIT FOR
+        c~& = PAL(i%).value~&
+        ASC(cmap$, i% * 3 + 1) = _RED32(c~&) : ASC(cmap$, i% * 3 + 2) = _GREEN32(c~&) : ASC(cmap$, i% * 3 + 3) = _BLUE32(c~&)
+    NEXT i%
+
+    ' CRNG: one chunk per range, at least 4 (empty ones zeroed) like DeluxePaint
+    nChunks% = PCYC.COUNT% : IF nChunks% < 4 THEN nChunks% = 4
+    FOR r% = 1 TO nChunks%
+        IF r% <= PCYC.COUNT% THEN
+            fl& = 0
+            IF PCYC_R(r%).active THEN fl& = fl& OR 1
+            IF PCYC_R(r%).cmode = PCYC_REV THEN fl& = fl& OR 2
+            crng$ = crng$ + LBM_chunk$("CRNG", GIF_be16$(0) + GIF_be16$(PCYC_R(r%).rate) + GIF_be16$(fl&) + CHR$(PCYC_R(r%).lo) + CHR$(PCYC_R(r%).hi))
+        ELSE
+            crng$ = crng$ + LBM_chunk$("CRNG", STRING$(8, 0))
+        END IF
+    NEXT r%
+    IF PCYC.COUNT% > 0 THEN
+        DIM dcy AS STRING
+        dcy$ = GIF_drawcycl_ext$ ' 21 FF 0B "DRAWCYCL1.0" <sub-blocks>: reuse the payload
+        dcy$ = GIF_read_subblocks$(dcy$, 15)
+        crng$ = crng$ + LBM_chunk$("DRCY", dcy$)
+    END IF
+
+    ' BODY
+    IF chunky% THEN
+        rowBytes& = w& + (w& AND 1)
+        FOR y& = 0 TO h& - 1
+            row$ = MID$(pix$, y& * w& + 1, w&)
+            IF w& AND 1 THEN row$ = row$ + CHR$(0)
+            body$ = body$ + LBM_pack_row$(row$)
+        NEXT y&
+    ELSE
+        rowBytes& = ((w& + 15) \ 16) * 2
+        DIM srcRow AS STRING
+        FOR y& = 0 TO h& - 1
+            srcRow$ = MID$(pix$, y& * w& + 1, w&)
+            FOR pl% = 0 TO planes% - 1
+                row$ = STRING$(rowBytes&, 0)
+                FOR x& = 0 TO w& - 1
+                    IF ASC(srcRow$, x& + 1) AND _SHL(1, pl%) THEN
+                        b% = (x& \ 8) + 1
+                        ASC(row$, b%) = ASC(row$, b%) OR _SHR(128, x& AND 7)
+                    END IF
+                NEXT x&
+                body$ = body$ + LBM_pack_row$(row$)
+            NEXT pl%
+        NEXT y&
+    END IF
+
+    form$ = _IIF(chunky%, "PBM ", "ILBM") + LBM_chunk$("BMHD", bmhd$) + LBM_chunk$("CMAP", cmap$) + crng$ + LBM_chunk$("BODY", body$)
+    form$ = "FORM" + LBM_mk32$(LEN(form$)) + form$
+
+    IF _FILEEXISTS(path$) THEN KILL path$
+    ff% = FREEFILE
+    OPEN path$ FOR BINARY AS #ff%
+    PUT #ff%, , form$
+    CLOSE #ff%
+    IF NOT _FILEEXISTS(path$) THEN CYCX_LAST_ERROR$ = "could not write " + path$ : EXIT FUNCTION
+    IF IDX_QUANTIZED& > 0 THEN _LOGWARN "LBM_export: " + _TRIM$(STR$(IDX_QUANTIZED&)) + " pixel(s) were not palette colors and were mapped to the nearest one"
+    _LOGINFO "LBM_export: " + path$ + " (" + _IIF(chunky%, "PBM", "ILBM") + ", " + _TRIM$(STR$(planes%)) + " planes, " + _TRIM$(STR$(nCol%)) + " colors, " + _TRIM$(STR$(PCYC.COUNT%)) + " cycle ranges)"
+    LBM_export% = TRUE
+END FUNCTION

@@ -1,7 +1,21 @@
 #!/usr/bin/env bash
+# Sync docs/MANUAL into the GitHub wiki (../DRAW.wiki): rewrite links/images,
+# then commit + push the wiki.
+#
+#   DEV/wiki.sh                    # real sync (git pull, commit, push)
+#   DEV/wiki.sh --dry-run DIR      # convert into DIR (a copy of the wiki) - no git at all
 set -e
 
 WIKI_DIR="/home/grymmjack/git/DRAW.wiki"
+DRY_RUN=0
+if [ "${1:-}" = "--dry-run" ]; then
+    DRY_RUN=1
+    DRY_DIR="${2:?usage: DEV/wiki.sh --dry-run DIR}"
+    mkdir -p "$DRY_DIR"
+    # start from the current wiki contents so the result is a true preview
+    [ -d "$WIKI_DIR" ] && cp -r "$WIKI_DIR"/. "$DRY_DIR"/ && rm -rf "$DRY_DIR/.git"
+    WIKI_DIR="$(cd "$DRY_DIR" && pwd)"
+fi
 DOCS_DIR="$(cd "$(dirname "$0")/../docs/MANUAL" && pwd)"
 REPO="grymmjack/DRAW"
 BRANCH="main"
@@ -14,7 +28,7 @@ APP_VERSION=$(grep -m1 'APP_VERSION\$' "$(dirname "$0")/../_COMMON.BI" | sed 's/
 TODAY=$(date +%Y-%m-%d)
 
 cd "$WIKI_DIR"
-git pull
+[ "$DRY_RUN" = 1 ] || git pull
 
 # Convert filename slug to "01 - Proper Case Title"
 # e.g. "03-color-palette" → "03 - Color Palette"
@@ -39,8 +53,9 @@ build_link_rewrites() {
         local new_title encoded_title
         new_title=$(format_title "$old_slug")
         encoded_title="${new_title// /%20}"
-        # bare slug (with or without .md)
+        # bare slug (with or without .md), and with a #section anchor
         echo "-e s|]($old_slug\\.md)|]($encoded_title)|g"
+        echo "-e s|]($old_slug\\.md#|]($encoded_title#|g"
         echo "-e s|]($old_slug)|]($encoded_title)|g"
         # MANUAL/-prefixed slug (Home.md ToC)
         echo "-e s|](MANUAL/$old_slug\\.md)|]($encoded_title)|g"
@@ -101,6 +116,11 @@ rewrite_for_wiki "$(dirname "$DOCS_DIR")/MANUAL.md" "$WIKI_DIR/Home.md"
         echo "- [[$title]]"
     done
 } > "$WIKI_DIR/_Sidebar.md"
+
+if [ "$DRY_RUN" = 1 ]; then
+    echo "wiki.sh: dry run written to $WIKI_DIR (no git pull/commit/push)"
+    exit 0
+fi
 
 git add -A
 git commit -m "Sync manual v${APP_VERSION} from docs/ [${TODAY}]" || echo "Nothing to commit"
