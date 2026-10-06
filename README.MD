@@ -5,9 +5,41 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.4.0
+Current release: v2.5.0
 
 ![DRAW GUI from v1.1.0](./GUI.png)
+
+## New in 2.5.0
+
+A color release: 3D color spaces, paint that mixes like real pigment, pen tablet pressure, and a reworked Color Ops mode where palette swatches are their pixels. The floating panels also got one shared look.
+
+- **3D Color Space** (View → 3D Color Space) shows the whole sRGB gamut as a solid you can spin, zoom, slice and pick from. Choose OKLab, CIELAB, XYZ or the RGB cube. Readouts give the color in hex, OKLab, OKLCh, CIELAB and XYZ.
+- **Perceptual and paint-like gradients.** *Gradient Blend* (Settings) can be OKLab (perceptual, the new default), linear light, or Pigment. Pigment mixes like paint: blue into yellow gives green. sRGB is still there and works exactly as before.
+- **Brush → Mix Colors (Pigment)** picks up and smears the colors it crosses, mixing them like wet paint. Adjust it with *Smudge*, *Smudge Length* and *Smudge Radius*.
+- **New palette generators**: **Palette → Generate OKLCh Ramp from FG** builds an even dark-to-light ramp, and **Generate Pigment Mix FG > BG** builds a paint-mixed ramp. Both are saved as palettes.
+- **Pen tablet pressure** works on Windows, macOS and Linux. It can control brush and eraser **size**, **opacity**, and **how much paint the mix brush lays down**, each with a lightest-touch setting, plus a pressure curve.
+  - A **tip threshold** keeps a pen that grazes the tablet from leaving stray dots.
+  - The ends of each stroke are cleaned up, so there's no blob where the pen lands and no flick where it lifts.
+  - A mouse is never affected.
+- **Pen Pressure panel** (View → Pen Pressure): a live pressure meter and a response graph, plus every pen setting. The same settings are also in Settings → General → Pen Tablet.
+- **Color Ops: a swatch is its pixels.**
+  - Click a swatch to select it. Any color panel then edits it live, the Color Mixer, Advanced Color Picker, 3D Color Space, the picker or hex input, and every pixel of that color updates with it. Each edit is one undo step.
+  - **Shift+click** another swatch to blend a ramp between the two.
+  - **Right-drag** to mark several swatches, then drag one to move them all.
+  - **Middle-drag** across swatches to delete a range. **Shift+middle-click** inserts the current foreground color.
+  - Reordering and inserting can now be undone, and undo no longer drops you out of Color Ops.
+- **The palette strip only frames a swatch that is your current color**, so picking a color that isn't in the palette no longer leaves the last swatch looking selected.
+- **One look for every floating panel.** The 3D Color Space, Pen Pressure, Advanced Color Picker and Preview windows now use the Color Mixer's font, title bar, close button, buttons and sliders. The color and pen panels share one width.
+- **Floating panels snap and never overlap.** Drag a panel and its edges snap to the other floating panels and to the toolbars and bars around the canvas, and it won't slide over another panel. Saved overlapping layouts are pulled apart on startup.
+- **Faster menus on 4K screens.** While a menu is open, only the part of the screen that changed is redrawn. At 4× display scale this cut the menu's redraw time from about 25ms to under 1ms per frame.
+- **`--palette FILE.gpl`** loads a GIMP palette at startup.
+- **Fixes:**
+  - Undo and redo no longer darken translucent pixels.
+  - Strokes below 100% opacity are no longer stored too dark.
+  - The Advanced Color Picker's hue ring has no stray pixels at its edges.
+  - Palette recolors now work on moved layers.
+  - A rare crash while loading sounds at startup is gone.
+  - The drawer's FG/BG markers stay visible on light swatches.
 
 ## New in 2.4.0
 
@@ -196,9 +228,10 @@ groups, transform/move, export, importers, and input handling.
 - **Palette Dropdown** - Click palette name to switch between available palettes
 - **Palette Color Chips** - Every row in the palette dropdown previews that palette's actual colors as chips beside its name (up to 64, with `...and N more` for larger palettes); parsing is cached and budgeted per frame so opening the menu over a large Lospec collection never stalls. Toggle via **Palette → Show Color Chips in Menu** (`PALETTE_MENU_SHOW_CHIPS`)
 - **Palette Workflows** - Load downloadable palettes from Lospec, create palettes from images, remap artwork to the active palette, and optionally include downloaded/user-created palettes in the picker
-- **Palette Ops Mode** - Toggle via organizer button to manage palette directly on the strip: double-click to change color (replaces on canvas), right-click to mark, middle-click to delete (remaps to nearest neighbor), shift+middle to insert, drag to rearrange, single-click for magic wand select
+- **Palette Ops Mode** - Toggle via the organizer button to manage the palette directly on the strip, where a swatch *is* its pixels. Click a swatch to select it: any color panel then edits it live and recolors its pixels, with one undo step per edit. Shift+click ramps between two swatches. Right-drag marks swatches, and dragging a marked one moves them all. Middle-click or middle-drag deletes (pixels remap to the nearest neighbor), and Shift+middle inserts the foreground color. Double-click opens a color dialog. Clicking a blank area of the strip deselects
 - **[DOCUMENT] Palette** - Auto-created when palette ops modifies colors; embedded in DRW files; switch back via palette dropdown
-- **Palette Import/Export** - Import and export palettes as GIMP Palette (.gpl) files via the Palette menu
+- **Palette Import/Export** - Import and export palettes as GIMP Palette (.gpl) files via the Palette menu; load one at startup with `--palette FILE.gpl`
+- **Color spaces** - Gradients blend in sRGB, OKLab (perceptual, default), linear light, or Pigment (Kubelka–Munk paint mixing) via *Gradient Blend*; **Generate OKLCh Ramp from FG** and **Generate Pigment Mix FG > BG** build palettes
 - **Left-click swatch** - Select foreground color
 - **Right-click swatch** - Select background color
 - **Mouse wheel on strip** - Scroll through palette colors
@@ -227,6 +260,8 @@ groups, transform/move, export, importers, and input handling.
 - Preview mode: `` ` `` or `~` (shows outline + color preview)
 - Pixel perfect mode: `F6` (removes L-corners for cleaner strokes)
 - 4 brush size presets via the organizer widget and command palette
+- **Mix Colors (Pigment)** - The brush picks up and smears the colors it crosses, mixing like wet paint (*Smudge* / *Smudge Length* / *Smudge Radius*)
+- **Pen tablet pressure** (Windows / macOS / Linux) - Size, opacity and mix-paint by pressure, each with a lightest-touch setting, a pressure curve, and a tip threshold against grazes; a mouse is never affected
 - Visual cursor feedback with current color
 
 ### Layer System
@@ -279,6 +314,9 @@ groups, transform/move, export, importers, and input handling.
 ### User Interface
 - **Color Mixer** - Floating panel for live color mixing with RGB and HSV channel controls and hex input (View → Color Mixer)
 - **Advanced Color Picker** - Krita-style floating picker (View → Advanced Color Picker, `Ctrl+Shift+M`, or middle-click the Color Mixer button): hue **ring** + saturation/value **triangle**; a configurable **shade selector** (Basic / +Warm-Cool / Full line-sets with Value, Saturation, Hue, Hue-Neighbors, Warm, Cool, Rich-Shadow, Fine-Hue rows; linear or exponential spread curve; per-row labels); **draggable hue-neighbor** range markers on the ring; **quantize-to-steps** for limited palettes; **custom selector background**; and a **color-history** strip with right-click **Create Palette** (loads into the palette bar) / **Clear History**. Every option lives in Settings → Panels → Advanced Color Picker. Built as a reusable QB64_GJ_LIB widget
+- **3D Color Space** - Floating panel (View → 3D Color Space) showing the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB: spin, zoom, slice and click to pick; hex / OKLab / OKLCh / CIELAB / XYZ readouts
+- **Pen Pressure panel** - Floating panel (View → Pen Pressure) with a live pressure meter, response graph, and every pen setting
+- **Floating panels** - The color panels, Pen Pressure, Image Browser and Preview share one look, snap edge to edge (and to the surrounding chrome), and never overlap each other
 - **Image Browser** - Floating, resizable file browser panel (View → Browser) for navigating and loading image files; supports multi-select, drag-and-drop files directly onto the canvas, drawer slots, or layer panel; panel size and position persisted in config
 - **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets (including 1-bit patterns with opaque background support); `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu (including Load Images to batch-import images into slots), middle-click cycles modes, `Shift+Middle Click` clears a slot, `Shift+Right Click` imports into a slot, and drag-and-drop to reorder bins
 - **Character map panel** - Dockable left/right 16×16 glyph grid with dynamic cell count (4-16 per row), mouse wheel scrolling, configurable theme colors, and bitmap font rendering

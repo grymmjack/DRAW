@@ -149,6 +149,12 @@ Special case: Active polygon in-progress is cancelled instead of undoing.
 - `LAYERS_new_group%`, `LAYERS_group_from_selection%`, `LAYERS_ungroup`, `LAYERS_merge_group`
 - `LAYERS_move_into_group`, `LAYERS_move_out_of_group` (reparent operations)
 
+**Palette Ops** (`GUI/PALETTE-OPS.BM`): a palette edit that changes pixels is one history group: `HISTORY_record_palette` (`PALETTE_snapshot$` before/after) plus a `HISTORY_record_transform` for each changed layer.
+- **Live chip edit:** `PALETTE_OPS_edit_begin` / `_apply` / `_commit`. It commits on mouse up, and `HISTORY_undo` / `HISTORY_redo` call `PALETTE_OPS_edit_commit` first, so an open edit is always closed before history moves.
+- **Change color, delete:** `PALETTE_OPS_change_color`, `PALETTE_OPS_delete_flags` (marked or range). These existed before; `delete_flags` now covers both cases.
+- **Ramp and multi-color remap:** `PALETTE_OPS_ramp` and `PALETTE_OPS_remap_layers`, which is one pass that remaps several colors.
+- **Palette-only records** (no pixels change): `PALETTE_OPS_apply_order` (reorders and marked-block moves) and `PALETTE_OPS_insert_color`.
+
 ---
 
 ## Selection Undo Pattern

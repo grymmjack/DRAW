@@ -20,7 +20,7 @@
 1. `_COMMON.BI` — core types and globals
 2. **CORE**: PERF, ERROR, IMAGE, PATHS
 3. **CFG**: CONFIG, CONFIG-THEME
-4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DITHER, DRAWER, PREVIEW, EDITBAR, ADVANCEDBAR, TOOLTIP, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, POPUP-MENU, STROKE-SEL, SMART-GUIDES, COLOR-MIXER, ADV-COLOR-PICKER, SYMBOL, BROWSER
+4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DITHER, DRAWER, PREVIEW, EDITBAR, ADVANCEDBAR, TOOLTIP, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, POPUP-MENU, STROKE-SEL, SMART-GUIDES, COLOR-MIXER, ADV-COLOR-PICKER, FLOAT-PANEL, COLOR-SPACE-3D, PEN-PANEL, SYMBOL, BROWSER
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, FILE-ASE, FILE-PSD, FILE-ANS (ANSI text import), FILE-BINANSI (BIN/XBIN/TundraDraw), API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE, FILE-EXPORT, FILE-ANS (ANSI codec + export + dialog)
 7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D, TEXT_INPUT, MSG_BOX, COLOR_PICKER, ADV_COLOR_PICKER, FILE_DIALOG
@@ -500,6 +500,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `TOOLS/FILL-ADJ.BI/BM`   | Interactive Fill Adjustment overlay (F8) for custom brush and paint mode tiled fills; L-handle for independent X/Y scaling; rotation handle |
 | `GUI/SMART-GUIDES.BI/BM`  | Smart guide alignment lines for move tool; action IDs 910/911; rendered after selection overlay in SCREEN_render |
 | `GUI/COLOR-MIXER.BI/BM`  | Floating Color Mixer panel for live RGB/HSV color editing; toggle via View → Color Mixer (action 2021); visibility state persisted in cfg |
+| `GUI/FLOAT-PANEL.BI/BM`  | Shared floating-panel look and placement. `FPANEL_*` draws the Color Mixer style (theme font, title bar + drawn close cross, chips, slider wells, checkboxes) with geometry derived from the font, and `FPANEL_panel_w%` gives the color / pen panels their shared width. `FPANEL_place` snaps a dragged floating window to the others and to the chrome, and prevents overlap. `FPANEL_settle_once` pulls overlapping windows apart at startup. See `draw-ui.md` |
 | `GUI/COLOR-SPACE-3D.BI/BM` | Floating 3D Color Space panel wrapping the `includes/QB64_GJ_LIB/COLOR` COLOR-3D widget (sRGB gamut solid / point cloud in OKLab, CIELAB, XYZ, RGB; lightness slice; click → FG); action 2024; `REGION_COLOR_SPACE_3D=29`; view state in `CFG.COLOR_SPACE_3D_*`. See `.claude/instructions/draw-color-spaces.md` |
 | `GUI/ADV-COLOR-PICKER.BI/BM` | Floating Advanced Color Picker panel wrapping the `includes/QB64_GJ_LIB/ADV_COLOR_PICKER` widget (hue ring + SV triangle + shade selector + history); toggle via View → Advanced Color Picker (action 2023 / `Ctrl+Shift+M` / middle-click Color Mixer button); `REGION_ADV_COLOR_PICKER=28`; all config in `CFG.ADV_COLOR_PICKER_*` (Settings → Panels) |
 | `GUI/SYMBOL.BI/BM`       | Symbol layer system — parent/child linked layers with auto-sync, scaling, rasterize, and detach; `LAYER_TYPE_SYMBOL_PARENT` / `LAYER_TYPE_SYMBOL_CHILD` |

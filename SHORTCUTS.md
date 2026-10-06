@@ -316,13 +316,17 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `F1` / `F2` / `F3` | Drawer Brush / Gradient / Pattern mode |
 
 ### Palette strip mouse
-`L-Click swatch` set FG · `R-Click swatch` set BG · `Wheel` scroll · `Shift+Wheel` fast scroll (32) · `Click ◄/►` scroll · `Click palette name` switch-palette dropdown · letter keys (in picker) jump to palette.
+`L-Click swatch` set FG · `R-Click swatch` set BG (the FG/BG frames only mark a swatch that *is* the current color) · `Wheel` scroll · `Shift+Wheel` fast scroll (32) · `Click ◄/►` scroll · `Click palette name` switch-palette dropdown · letter keys (in picker) jump to palette.
 
 ### Status-bar swatches
 `Click FG swatch` / `Click BG swatch` → open color picker.
 
 ### Palette-Ops mode (toggle via organizer button)
-`L-Click swatch` wand-select matching pixels · `Dbl L-Click` change color (replaces on canvas) · `R-Click` toggle mark · `M-Click` delete color (remap to nearest) · `M-Click marked` batch-delete marked · `Shift+M-Click` insert blank transparent · `Drag` reorder · `Esc` exit.
+A swatch *is* its pixels: changing a swatch recolors every pixel of that color.
+
+`L-Click swatch` select it (yellow frame) and make it FG. While selected, **any** color change edits the swatch and its pixels live: the Color Mixer, Advanced Color Picker, 3D Color Space, picker or hex input. Each edit is one `Ctrl+Z`. The matching pixels are also wand-selected after 0.5s.
+
+`L-Click selected swatch` / `L-Click blank strip area` deselect (the blank area also clears marks) · `Shift+L-Click swatch` ramp between the selected swatch and this one (Gradient Blend space; pixels follow) · `Dbl L-Click` change color in a dialog · `Drag` move swatch (a **marked** swatch moves all marked ones) · `R-Click` / `R-Drag` mark/unmark · `M-Click` delete color (remap to nearest; on a marked swatch, all marked) · `M-Drag` delete range · `Shift+M-Click` insert current FG color · `Esc` / `R-Click` organizer button exit. Undo/redo and opening the color panels keep Palette-Ops on.
 
 ---
 
@@ -470,7 +474,7 @@ Follow / Floating-Image modes (View → Preview Window). `Alt+Click` pick FG (CP
 `F1/F2/F3` Brush/Gradient/Pattern mode · `L-Click slot` select · `Shift+L-Click` store current · `R-Click` context menu · `M-Click` cycle mode · `Shift+M-Click` clear slot · `Shift+R-Click` import into slot · `L/R-Click mini palette` set FG/BG.
 
 ### Color Mixer / Advanced Color Picker / Image Browser
-View → Color Mixer (RGB/HSV sliders, hex). **View → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. **View → 3D Color Space**: the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB — `L-Click`/drag the solid → set FG · `R-Drag`/`M-Drag` (or `L-Drag` off the solid) spin · `Wheel` zoom · SOLID/CLOUD · SLICE + slider cut at a lightness. **Palette → Generate OKLCh Ramp from FG** makes an even dark→light palette (Settings → Panels → Color Blending + Ramps). **Brush → Mix Colors (Pigment)** makes the brush pick up and smear the colors it crosses, mixing like wet paint (blue through yellow = green; Smudge / Smudge Length / Smudge Radius in Settings); **Palette → Generate Pigment Mix FG > BG** makes a paint-mixed FG→BG palette. View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Dbl-Click title` maximize.
+View → Color Mixer (RGB/HSV sliders, hex). **View → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. **View → 3D Color Space**: the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB — `L-Click`/drag the solid → set FG · `R-Drag`/`M-Drag` (or `L-Drag` off the solid) spin · `Wheel` zoom · SOLID/CLOUD · SLICE + slider cut at a lightness. **Palette → Generate OKLCh Ramp from FG** makes an even dark→light palette (Settings → Panels → Color Blending + Ramps). **Brush → Mix Colors (Pigment)** makes the brush pick up and smear the colors it crosses, mixing like wet paint (blue through yellow = green; Smudge / Smudge Length / Smudge Radius in Settings); **Palette → Generate Pigment Mix FG > BG** makes a paint-mixed FG→BG palette. View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Dbl-Click title` maximize. **Floating windows** (Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Image Browser, Preview): drag a title bar to move. Edges snap to other floating windows and to the surrounding chrome, and windows can't overlap one another.
 
 ---
 
