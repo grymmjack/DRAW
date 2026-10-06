@@ -547,36 +547,35 @@ END FUNCTION
 
 
 ''
-' Nudge palette entry i one step at a time until its RGB is unique among
-' 0..n-1 (darker colors step up, lighter step down; B, then G, then R).
+' Move palette entry i to the NEAREST free RGB (offsets within +/-3 per
+' channel, closest first by L1 distance) so it no longer equals any other
+' entry 0..n-1. Many copies of one color stay within a level or two.
 '
 SUB GIF_nudge_unique (i AS INTEGER, n AS INTEGER)
-    DIM j AS INTEGER, tries AS INTEGER, dupe AS INTEGER, c AS _UNSIGNED LONG
-    DIM r AS INTEGER, g AS INTEGER, b AS INTEGER, d AS INTEGER
-    DO
-        dupe% = FALSE
-        FOR j% = 0 TO n% - 1
-            IF j% <> i% _ANDALSO (PAL(j%).value~& AND &HFFFFFF~&) = (PAL(i%).value~& AND &HFFFFFF~&) THEN dupe% = TRUE : EXIT FOR
-        NEXT j%
-        IF NOT dupe% THEN EXIT SUB
-        tries% = tries% + 1
-        c~& = PAL(i%).value~&
-        r% = _RED32(c~&) : g% = _GREEN32(c~&) : b% = _BLUE32(c~&)
-        d% = 1
-        IF b% + g% + r% > 384 THEN d% = -1
-        SELECT CASE tries% MOD 3
-            CASE 1 : b% = b% + d%
-            CASE 2 : g% = g% + d%
-            CASE 0 : r% = r% + d%
-        END SELECT
-        IF r% < 0 THEN r% = 0
-        IF r% > 255 THEN r% = 255
-        IF g% < 0 THEN g% = 0
-        IF g% > 255 THEN g% = 255
-        IF b% < 0 THEN b% = 0
-        IF b% > 255 THEN b% = 255
-        PAL(i%).value~& = _RGB32(r%, g%, b%)
-    LOOP UNTIL tries% > 90
+    DIM j AS INTEGER, c AS _UNSIGNED LONG, r0 AS INTEGER, g0 AS INTEGER, b0 AS INTEGER
+    DIM dist AS INTEGER, dr AS INTEGER, dg AS INTEGER, db AS INTEGER, rr AS INTEGER, gg AS INTEGER, bb AS INTEGER
+    DIM cand AS _UNSIGNED LONG, taken AS INTEGER
+    c~& = PAL(i%).value~&
+    r0% = _RED32(c~&) : g0% = _GREEN32(c~&) : b0% = _BLUE32(c~&)
+    FOR dist% = 0 TO 9
+        FOR dr% = -3 TO 3
+            FOR dg% = -3 TO 3
+                FOR db% = -3 TO 3
+                    IF ABS(dr%) + ABS(dg%) + ABS(db%) = dist% THEN
+                        rr% = r0% + dr% : gg% = g0% + dg% : bb% = b0% + db%
+                        IF rr% >= 0 _ANDALSO rr% <= 255 _ANDALSO gg% >= 0 _ANDALSO gg% <= 255 _ANDALSO bb% >= 0 _ANDALSO bb% <= 255 THEN
+                            cand~& = _RGB32(rr%, gg%, bb%) AND &HFFFFFF~&
+                            taken% = FALSE
+                            FOR j% = 0 TO n% - 1
+                                IF j% <> i% _ANDALSO (PAL(j%).value~& AND &HFFFFFF~&) = cand~& THEN taken% = TRUE : EXIT FOR
+                            NEXT j%
+                            IF NOT taken% THEN PAL(i%).value~& = _RGB32(rr%, gg%, bb%) : EXIT SUB
+                        END IF
+                    END IF
+                NEXT db%
+            NEXT dg%
+        NEXT dr%
+    NEXT dist%
 END SUB
 
 
@@ -652,9 +651,10 @@ END SUB
 
 ''
 ' Finish an indexed import: make the colors that matter unique, write the
-' pixels (transIdx = transparent index or -1) and settle the palette state.
+' pixels (transIdx = transparent index or -1; alphaMask$ = optional byte
+' per pixel, 0 = transparent) and settle the palette state.
 '
-SUB CYCX_adopt_finish (w AS LONG, h AS LONG, idx AS STRING, transIdx AS INTEGER)
+SUB CYCX_adopt_finish (w AS LONG, h AS LONG, idx AS STRING, transIdx AS INTEGER, alphaMask AS STRING)
     DIM i AS LONG, m AS _MEM, px AS STRING, c AS _UNSIGNED LONG, k AS INTEGER, nudged AS INTEGER
     DIM needed(0 TO 255) AS INTEGER, r AS INTEGER
     FOR i& = 1 TO LEN(idx$)
@@ -676,6 +676,9 @@ SUB CYCX_adopt_finish (w AS LONG, h AS LONG, idx AS STRING, transIdx AS INTEGER)
             c~& = 0
         ELSE
             c~& = PAL(k%).value~& OR &HFF000000~&
+        END IF
+        IF LEN(alphaMask$) > 0 THEN
+            IF ASC(alphaMask$, i& + 1) = 0 THEN c~& = 0
         END IF
         MID$(px$, i& * 4 + 1, 4) = MKL$(c~&)
     NEXT i&
@@ -699,7 +702,8 @@ END SUB
 ''
 ' Add ranges from CRNG records (6 bytes: rate BE16, flags BE16, lo, hi -
 ' the GIF form; ILBM chunks carry 2 pad bytes before these). Empty ranges
-' (lo >= hi) are skipped; inactive ones are imported paused.
+' (lo >= hi) are skipped; inactive or rate-0 ones are imported paused (at
+' the default speed when the rate is 0) so the artist's ranges survive.
 '
 SUB CYCX_add_crng_records (rec AS STRING)
     DIM p AS LONG, rate AS LONG, fl AS LONG, lo AS INTEGER, hi AS INTEGER, r AS INTEGER
@@ -708,9 +712,9 @@ SUB CYCX_add_crng_records (rec AS STRING)
         fl&   = ASC(rec$, p& + 2) * 256& + ASC(rec$, p& + 3)
         lo%   = ASC(rec$, p& + 4)
         hi%   = ASC(rec$, p& + 5)
-        IF hi% > lo% _ANDALSO rate& > 0 THEN
-            r% = PCYC_add_range%(lo%, hi%, rate&, _IIF((fl& AND 2) <> 0, PCYC_REV, PCYC_FWD))
-            IF r% > 0 _ANDALSO (fl& AND 1) = 0 THEN PCYC_R(r%).active = FALSE
+        IF hi% > lo% THEN
+            r% = PCYC_add_range%(lo%, hi%, _IIF(rate& > 0, rate&, PCYC_DEFAULT_RATE), _IIF((fl& AND 2) <> 0, PCYC_REV, PCYC_FWD))
+            IF r% > 0 _ANDALSO ((fl& AND 1) = 0 _ORELSE rate& = 0) THEN PCYC_R(r%).active = FALSE
         END IF
     NEXT p&
 END SUB
@@ -861,7 +865,7 @@ FUNCTION GIF_load_cycling% (filename AS STRING)
 
     CYCX_adopt_begin w&, h&, pal$, nCol%, "(GIF)"
     IF LEN(dcy$) > 0 THEN CYCX_add_drawcycl dcy$ ELSE CYCX_add_crng_records crng$
-    CYCX_adopt_finish w&, h&, canvas$, transIdx%
+    CYCX_adopt_finish w&, h&, canvas$, transIdx%, ""
     _LOGINFO "GIF_load_cycling: " + filename$ + " " + _TRIM$(STR$(w&)) + "x" + _TRIM$(STR$(h&)) + ", " + _TRIM$(STR$(nCol%)) + " colors, " + _TRIM$(STR$(PCYC.COUNT%)) + " cycle ranges"
     GIF_load_cycling% = TRUE
 END FUNCTION

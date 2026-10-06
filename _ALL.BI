@@ -129,6 +129,7 @@ $INCLUDEONCE
 '$INCLUDE:'./OUTPUT/PAL-INDEX.BI'
 '$INCLUDE:'./OUTPUT/FILE-CYCLE-BAS.BI'
 '$INCLUDE:'./OUTPUT/FILE-GIF.BI'
+'$INCLUDE:'./INPUT/FILE-LBM.BI'
 '$INCLUDE:'./OUTPUT/BATCH.BI'
 
 ' EFFECTS ---------------------------------------------------------------------

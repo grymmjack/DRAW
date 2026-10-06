@@ -1,0 +1,184 @@
+''
+' DRAW - INPUT/FILE-LBM.BM
+' =============================================================================
+' DeluxePaint ILBM / PBM reader. See FILE-LBM.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+FUNCTION LBM_be32& (s AS STRING, p AS LONG)
+    LBM_be32& = ASC(s$, p&) * 16777216 + ASC(s$, p& + 1) * 65536& + ASC(s$, p& + 2) * 256& + ASC(s$, p& + 3)
+END FUNCTION
+
+FUNCTION LBM_be16& (s AS STRING, p AS LONG)
+    LBM_be16& = ASC(s$, p&) * 256& + ASC(s$, p& + 1)
+END FUNCTION
+
+
+''
+' TRUE when the file starts with an IFF FORM of type ILBM or PBM.
+'
+FUNCTION LBM_is_lbm_file% (filename AS STRING)
+    DIM ff AS INTEGER, h AS STRING
+    LBM_is_lbm_file% = FALSE
+    IF NOT _FILEEXISTS(filename$) THEN EXIT FUNCTION
+    ff% = FREEFILE
+    OPEN filename$ FOR BINARY AS #ff%
+    IF LOF(ff%) >= 12 THEN
+        h$ = SPACE$(12)
+        GET #ff%, 1, h$
+        IF LEFT$(h$, 4) = "FORM" _ANDALSO (MID$(h$, 9, 4) = "ILBM" _ORELSE MID$(h$, 9, 4) = "PBM ") THEN LBM_is_lbm_file% = TRUE
+    END IF
+    CLOSE #ff%
+END FUNCTION
+
+
+''
+' ByteRun1 (PackBits) decompression of body$ up to want bytes.
+'
+FUNCTION LBM_unpack$ (body AS STRING, want AS LONG)
+    DIM res AS STRING, ip AS LONG, op AS LONG, n AS INTEGER, k AS INTEGER, b AS STRING
+    res$ = STRING$(want&, 0)
+    ip& = 1 : op& = 0
+    DO WHILE ip& <= LEN(body$) _ANDALSO op& < want&
+        n% = ASC(body$, ip&) : ip& = ip& + 1
+        IF n% < 128 THEN
+            k% = n% + 1 ' literal run
+            IF op& + k% > want& THEN k% = want& - op&
+            MID$(res$, op& + 1, k%) = MID$(body$, ip&, k%)
+            ip& = ip& + n% + 1 : op& = op& + k%
+        ELSEIF n% > 128 THEN
+            k% = 257 - n% ' repeat run
+            IF op& + k% > want& THEN k% = want& - op&
+            b$ = MID$(body$, ip&, 1) : ip& = ip& + 1
+            MID$(res$, op& + 1, k%) = STRING$(k%, b$)
+            op& = op& + k%
+        END IF ' 128 = no-op
+    LOOP
+    LBM_unpack$ = res$
+END FUNCTION
+
+
+''
+' Load a DeluxePaint ILBM/PBM as a new indexed document with its palette and
+' cycle ranges. Returns FALSE (LBM_LAST_ERROR$ says why) when the file cannot
+' be used; nothing is changed in that case.
+'
+FUNCTION LBM_load% (filename AS STRING)
+    DIM s AS STRING, ff AS INTEGER, p AS LONG, n AS LONG, cid AS STRING, ftype AS STRING
+    DIM w AS LONG, h AS LONG, nPlanes AS INTEGER, masking AS INTEGER, comp AS INTEGER, transColor AS INTEGER
+    DIM cmap AS STRING, camg AS LONG, crng AS STRING, drcy AS STRING, body AS STRING, haveBMHD AS INTEGER
+    DIM raw AS STRING, idx AS STRING, alpha AS STRING, rowBytes AS LONG, planesTotal AS INTEGER
+    DIM x AS LONG, y AS LONG, pl AS INTEGER, v AS INTEGER, rowOff AS LONG, nCol AS INTEGER, i AS LONG
+    DIM all4 AS INTEGER, c AS INTEGER, transIdx AS INTEGER
+
+    LBM_load% = FALSE
+    LBM_LAST_ERROR$ = ""
+    ff% = FREEFILE
+    OPEN filename$ FOR BINARY AS #ff%
+    s$ = SPACE$(LOF(ff%))
+    GET #ff%, 1, s$
+    CLOSE #ff%
+    IF LEN(s$) < 12 _ORELSE LEFT$(s$, 4) <> "FORM" THEN LBM_LAST_ERROR$ = "not an IFF file" : EXIT FUNCTION
+    ftype$ = MID$(s$, 9, 4)
+    IF ftype$ <> "ILBM" _ANDALSO ftype$ <> "PBM " THEN LBM_LAST_ERROR$ = "IFF FORM " + ftype$ + " is not an image" : EXIT FUNCTION
+
+    p& = 13
+    DO WHILE p& + 7 <= LEN(s$)
+        cid$ = MID$(s$, p&, 4)
+        n& = LBM_be32&(s$, p& + 4)
+        IF n& < 0 _ORELSE p& + 8 + n& - 1 > LEN(s$) THEN n& = LEN(s$) - p& - 7 ' truncated file: take what is there
+        SELECT CASE cid$
+            CASE "BMHD"
+                IF n& >= 20 THEN
+                    w& = LBM_be16&(s$, p& + 8) : h& = LBM_be16&(s$, p& + 10)
+                    nPlanes% = ASC(s$, p& + 16) : masking% = ASC(s$, p& + 17) : comp% = ASC(s$, p& + 18)
+                    transColor% = LBM_be16&(s$, p& + 20)
+                    haveBMHD% = TRUE
+                END IF
+            CASE "CMAP" : cmap$ = MID$(s$, p& + 8, n&)
+            CASE "CAMG" : IF n& >= 4 THEN camg& = LBM_be32&(s$, p& + 8)
+            CASE "CRNG" : IF n& >= 8 THEN crng$ = crng$ + MID$(s$, p& + 10, 6) ' skip the pad word
+            CASE "DRCY" : drcy$ = MID$(s$, p& + 8, n&)
+            CASE "BODY" : body$ = MID$(s$, p& + 8, n&)
+        END SELECT
+        p& = p& + 8 + n& + (n& AND 1)
+    LOOP
+
+    IF NOT haveBMHD% THEN LBM_LAST_ERROR$ = "no BMHD header" : EXIT FUNCTION
+    IF w& < 1 OR h& < 1 OR w& > 4096 OR h& > 4096 THEN LBM_LAST_ERROR$ = "unsupported size" : EXIT FUNCTION
+    IF camg& AND &H800 THEN LBM_LAST_ERROR$ = "HAM (hold-and-modify) images are not supported" : EXIT FUNCTION
+    IF nPlanes% < 1 OR nPlanes% > 8 THEN LBM_LAST_ERROR$ = _TRIM$(STR$(nPlanes%)) + "-plane (true color) ILBM is not supported" : EXIT FUNCTION
+    IF LEN(body$) = 0 THEN LBM_LAST_ERROR$ = "no BODY" : EXIT FUNCTION
+
+    ' Palette: rescale old 4-bit CMAPs (every byte a multiple of 16), expand EHB
+    nCol% = LEN(cmap$) \ 3
+    IF nCol% > 256 THEN nCol% = 256
+    all4% = (nCol% > 0)
+    FOR i& = 1 TO nCol% * 3
+        IF ASC(cmap$, i&) AND 15 THEN all4% = FALSE : EXIT FOR
+    NEXT i&
+    IF all4% THEN
+        FOR i& = 1 TO nCol% * 3
+            c% = ASC(cmap$, i&) : ASC(cmap$, i&) = c% OR (c% \ 16)
+        NEXT i&
+    END IF
+    IF (camg& AND &H80) <> 0 _ANDALSO nPlanes% = 6 _ANDALSO nCol% <= 32 THEN
+        cmap$ = LEFT$(cmap$ + STRING$(96, 0), 96)
+        FOR i& = 1 TO 96
+            cmap$ = cmap$ + CHR$(ASC(cmap$, i&) \ 2)
+        NEXT i&
+        nCol% = 64
+    END IF
+    IF nCol% = 0 THEN
+        ' No CMAP: a grey ramp
+        nCol% = 2 ^ nPlanes%
+        FOR i& = 0 TO nCol% - 1
+            c% = (i& * 255) \ (nCol% - 1)
+            cmap$ = cmap$ + CHR$(c%) + CHR$(c%) + CHR$(c%)
+        NEXT i&
+    END IF
+
+    ' Decode BODY -> one index per pixel
+    idx$ = STRING$(w& * h&, 0)
+    IF ftype$ = "PBM " THEN
+        rowBytes& = w& + (w& AND 1)
+        IF comp% = 1 THEN raw$ = LBM_unpack$(body$, rowBytes& * h&) ELSE raw$ = LEFT$(body$ + STRING$(rowBytes& * h&, 0), rowBytes& * h&)
+        FOR y& = 0 TO h& - 1
+            MID$(idx$, y& * w& + 1, w&) = MID$(raw$, y& * rowBytes& + 1, w&)
+        NEXT y&
+    ELSE
+        rowBytes& = ((w& + 15) \ 16) * 2
+        planesTotal% = nPlanes% - (masking% = 1) ' + mask plane
+        IF comp% = 1 THEN raw$ = LBM_unpack$(body$, rowBytes& * planesTotal% * h&) ELSE raw$ = LEFT$(body$ + STRING$(rowBytes& * planesTotal% * h&, 0), rowBytes& * planesTotal% * h&)
+        IF masking% = 1 THEN alpha$ = STRING$(w& * h&, 255)
+        DIM plRow AS STRING
+        FOR y& = 0 TO h& - 1
+            FOR pl% = 0 TO planesTotal% - 1
+                rowOff& = (y& * planesTotal% + pl%) * rowBytes&
+                plRow$ = MID$(raw$, rowOff& + 1, rowBytes&)
+                FOR x& = 0 TO w& - 1
+                    IF (ASC(plRow$, (x& \ 8) + 1) AND _SHR(128, x& AND 7)) <> 0 THEN
+                        IF pl% < nPlanes% THEN
+                            i& = y& * w& + x& + 1
+                            ASC(idx$, i&) = ASC(idx$, i&) OR _SHL(1, pl%)
+                        END IF
+                    ELSEIF pl% = nPlanes% THEN
+                        ASC(alpha$, y& * w& + x& + 1) = 0 ' mask plane bit clear = transparent
+                    END IF
+                NEXT x&
+            NEXT pl%
+        NEXT y&
+    END IF
+
+    transIdx% = -1
+    IF masking% = 2 THEN transIdx% = transColor%
+
+    CYCX_adopt_begin w&, h&, cmap$, nCol%, "(" + _IIF(ftype$ = "PBM ", "PBM", "ILBM") + ")"
+    IF LEN(drcy$) > 0 THEN CYCX_add_drawcycl drcy$ ELSE CYCX_add_crng_records crng$
+    CYCX_adopt_finish w&, h&, idx$, transIdx%, alpha$
+    _LOGINFO "LBM_load: " + filename$ + " " + RTRIM$(ftype$) + " " + _TRIM$(STR$(w&)) + "x" + _TRIM$(STR$(h&)) + " x" + _TRIM$(STR$(nPlanes%)) + " planes, " + _TRIM$(STR$(nCol%)) + " colors, " + _TRIM$(STR$(PCYC.COUNT%)) + " cycle ranges"
+    LBM_load% = TRUE
+END FUNCTION
