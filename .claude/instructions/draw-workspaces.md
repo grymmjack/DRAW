@@ -52,5 +52,5 @@ Plan + decisions: `PLANS/_/WORKSPACES-AND-CAPTURE-PLAN.md`; review notes:
 
 - QB64 identifiers are case-insensitive: `SUB WSC_tab_panels` collides with `CONST WSC_TAB_PANELS` ("Name already in use"). `chain` and `base` are reserved too.
 - `--option KEY=VALUE` used to be persisted by the first `CONFIG_save` (and leaked QA-OPTIONS into later tests in a run). Now `CFG_cli_guard_begin/_end` write the file's own value for overridden keys.
-- Command palette: `CMD_execute_selected` hides the palette and presents a clean frame *before* running the action (modal dialogs used to open over it; a trailing `CMD_hide` closed a palette the action re-opened).
+- Command palette: `CMD_execute_selected` hides the palette *before* running the action (a trailing `CMD_hide` closed a palette the action re-opened — Workspace Switcher). Do NOT also `SCREEN_render` there: rendering mid key-handler broke Stroke Selection from the palette.
 - [Linux] QA drags: DRAW idles at 15 fps; the harness's quick `drag` can put press + move in one frame (zero-length line). Use a slow multi-frame drag (`mouse_down`/`hover`/`mouse_up`) for shape tools.
