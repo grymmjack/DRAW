@@ -226,7 +226,7 @@ The same commands are in **Palette → Color Cycling**: *Delete Range*, *Clear A
 > 3. Turn on Palette Ops, `Ctrl`+drag across the eight blues, and press `Shift`+`Tab`. The water falls.
 > 4. `Ctrl`+Wheel over the range to set the speed. Hold `Shift` as well for fine control.
 >
-> Or open one of the finished scenes in **`SAMPLES/COLOR CYCLING/`**: waterfall, fire, tunnel, marquee, ocean-sunset and pinwheel.
+> Or open one of the finished scenes in **`SAMPLES/COLOR CYCLING/`**: waterfall, fire, tunnel, marquee, ocean-sunset, pinwheel, candles, hanukkah, halloween, skull, snake, christmas, new-year, valentine and st-patricks.
 
 To share cycling art as a runnable QB64 program, a GrafX2 GIF, an animated GIF or a DeluxePaint LBM, see [Chapter 10 — Color Cycling Formats](10-file-io.md#color-cycling-formats--share-the-motion).
 
