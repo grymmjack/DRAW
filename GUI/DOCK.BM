@@ -559,6 +559,10 @@ SUB DOCK_change_begin ()
         WS_DOCK_USER_SNAP = DOCK_snapshot$
         WS_DOCK_TOUCHED = TRUE
     END IF
+    ' from here the tree is custom: DOCK_layout must stop rebuilding the
+    ' default one from the dock keys (a live drag would be undone every frame)
+    DOCK_CUSTOM = TRUE
+    DOCK_READY = TRUE
 END SUB
 
 
@@ -631,6 +635,103 @@ FUNCTION DOCK_handle_chrome% (mx AS INTEGER, my AS INTEGER)
             DOCK_menu_open DOCK_slot_panel%(s), mx, my
             MOUSE.UI_CHROME_CLICKED% = TRUE
             DOCK_handle_chrome% = TRUE
+        END IF
+    END IF
+END FUNCTION
+
+
+
+' =============================================================================
+' Slot dividers (P3): the boundary between two stacked flexible slots
+' =============================================================================
+
+FUNCTION DOCK_slot_flex% (s AS INTEGER)
+    DIM id AS INTEGER
+    IF DOCK_SLOT(s).used = 0 _ORELSE DOCK_SLOT(s).vis = 0 _ORELSE DOCK_SLOT(s).collapsed THEN EXIT FUNCTION
+    id = DOCK_slot_panel%(s)
+    IF id THEN DOCK_slot_flex% = (DPANEL(id).hmode = DP_H_FLEX)
+END FUNCTION
+
+
+''
+' The divider under (mx, my): slot above in a, below in b (TRUE when found).
+' Two showing flex slots next to each other in one column.
+FUNCTION DOCK_divider_at% (mx AS INTEGER, my AS INTEGER, a AS INTEGER, b AS INTEGER)
+    DIM c AS INTEGER, o AS INTEGER, s AS INTEGER, prev AS INTEGER
+    IF DOCK_ui_busy% THEN EXIT FUNCTION
+    FOR c = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(c).used _ANDALSO DOCK_COL(c).vis THEN
+            IF mx >= DOCK_COL(c).x _ANDALSO mx < DOCK_COL(c).x + DOCK_COL(c).w THEN
+                prev = 0
+                FOR o = 1 TO DOCK_MAX_SLOTS
+                    s = DOCK_slot_at%(c, o)
+                    IF s = 0 THEN EXIT FOR
+                    IF DOCK_SLOT(s).vis THEN
+                        IF prev _ANDALSO DOCK_slot_flex%(prev) _ANDALSO DOCK_slot_flex%(s) THEN
+                            IF my >= DOCK_SLOT(s).y - 2 _ANDALSO my <= DOCK_SLOT(s).y + 1 THEN
+                                a = prev: b = s
+                                DOCK_divider_at% = TRUE
+                                EXIT FUNCTION
+                            END IF
+                        END IF
+                        prev = s
+                    END IF
+                NEXT o
+            END IF
+        END IF
+    NEXT c
+END FUNCTION
+
+
+''
+' Turn the shares of column c's flex slots into their current pixel heights,
+' so moving one divider leaves every other slot where it is.
+SUB DOCK_shares_to_px (c AS INTEGER)
+    DIM o AS INTEGER, s AS INTEGER
+    FOR o = 1 TO DOCK_MAX_SLOTS
+        s = DOCK_slot_at%(c, o)
+        IF s = 0 THEN EXIT FOR
+        IF DOCK_slot_flex%(s) THEN DOCK_SLOT(s).share = _MAX(1, DOCK_SLOT(s).h)
+    NEXT o
+END SUB
+
+
+''
+' DOCK_handle_mouse%: grab / drag / drop a divider. TRUE when it took the frame.
+FUNCTION DOCK_handle_divider% (mx AS INTEGER, my AS INTEGER)
+    DIM a AS INTEGER, b AS INTEGER, ha AS INTEGER, minA AS INTEGER, minB AS INTEGER
+    IF DOCK_UI.divA THEN
+        a = DOCK_UI.divA: b = DOCK_UI.divB
+        minA = _MAX(DOCK_MIN_FLEX_H, DOCK_min_h%(DOCK_slot_panel%(a)))
+        minB = _MAX(DOCK_MIN_FLEX_H, DOCK_min_h%(DOCK_slot_panel%(b)))
+        ha = my - DOCK_UI.divTop
+        IF ha < minA THEN ha = minA
+        IF ha > DOCK_UI.divTotal - minB THEN ha = DOCK_UI.divTotal - minB
+        IF ha <> DOCK_SLOT(a).share _ORELSE DOCK_UI.divTotal - ha <> DOCK_SLOT(b).share THEN
+            DOCK_SLOT(a).share = ha
+            DOCK_SLOT(b).share = DOCK_UI.divTotal - ha
+            DOCK_redraw
+        END IF
+        IF MOUSE.B1% = 0 THEN
+            DOCK_UI.divA = 0
+            DOCK_change_commit ""
+        END IF
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        DOCK_handle_divider% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 THEN
+        DOCK_UI.divHover = DOCK_divider_at%(mx, my, a, b)
+    END IF
+    IF MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0 THEN
+        IF DOCK_divider_at%(mx, my, a, b) THEN
+            DOCK_change_begin
+            DOCK_shares_to_px DOCK_SLOT(a).col
+            DOCK_UI.divA = a: DOCK_UI.divB = b
+            DOCK_UI.divTop = DOCK_SLOT(a).y
+            DOCK_UI.divTotal = DOCK_SLOT(a).h + DOCK_SLOT(b).h
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            DOCK_handle_divider% = TRUE
         END IF
     END IF
 END FUNCTION

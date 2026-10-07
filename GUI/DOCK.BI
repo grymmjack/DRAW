@@ -136,5 +136,12 @@ TYPE DOCK_UI_OBJ
     menuW     AS INTEGER
     menuN     AS INTEGER
     menuHover AS INTEGER
+    ' slot divider drag (the boundary between two stacked flex slots)
+    divA      AS INTEGER ' slot above (0 = no divider drag)
+    divB      AS INTEGER ' slot below
+    divTop    AS INTEGER ' top of A when grabbed
+    divTotal  AS INTEGER ' A + B heights when grabbed
+    divHover  AS INTEGER ' a divider is under the pointer
 END TYPE
 DIM SHARED DOCK_UI AS DOCK_UI_OBJ
+CONST DOCK_MIN_FLEX_H = 24 ' a flexible slot never shrinks below this by a divider drag
