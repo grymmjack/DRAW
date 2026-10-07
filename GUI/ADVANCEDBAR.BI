@@ -35,6 +35,7 @@ END TYPE
 TYPE ADVBAR_OBJ
     visible      AS INTEGER ' TRUE when advanced bar should render
     dockSide     AS INTEGER ' ADVBAR_DOCK_LEFT or ADVBAR_DOCK_RIGHT
+    slotW        AS INTEGER ' width of the rect the layout gave it (0 = not laid out: own width)
     panelX1      AS INTEGER ' Left edge of panel (for hit testing)
     panelX2      AS INTEGER ' Right edge of panel
     panelY1      AS INTEGER ' Top (below menubar)

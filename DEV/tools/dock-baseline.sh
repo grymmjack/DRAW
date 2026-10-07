@@ -26,6 +26,7 @@ SHOTS=(
   "cols6|WORKSPACE=default $DOCKS TOOLBOX_COLUMNS=6|"
   "charmap|WORKSPACE=default CHARMAP_VISIBLE=1|"
   "nostatus|WORKSPACE=default $DOCKS|key F10; wait_for 0.5 status"
+  "stacked|WORKSPACE=stacked|"
 )
 
 shoot() {

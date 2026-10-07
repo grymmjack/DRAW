@@ -271,6 +271,7 @@ DIM SHARED TOOLBOX_PANEL_W AS INTEGER ' toolbox column width in px (toolbar, org
 ' the top of the first button row (its 1px border sits just above, as before).
 DIM SHARED TB_RECT_X AS INTEGER
 DIM SHARED TB_RECT_Y AS INTEGER
+DIM SHARED TB_RECT_W AS INTEGER ' width of its slot (0 = not laid out: TOOLBOX_PANEL_W)
 TB_LIVE_COUNT = TB_TOTAL
 TB_LIVE_COLS  = TB_COLS
 TB_LIVE_ROWS  = TB_ROWS

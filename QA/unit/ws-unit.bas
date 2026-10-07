@@ -70,8 +70,8 @@ CHECK WS_get$("KEYS.q", "?") = "rect", "child key"
 CHECK WS_get$("KEYS.r", "?") = "rect", "inherited key r"
 CHECK WS_get$("KEYS.R", "?") = "rect-filled", "KEYS keep case: R"
 CHECK WS_get$("WORKSPACE.NAME", "?") = "Child", "name from child"
-CHECK WS_list_count%(WS_get$("TOOLBOX.BUTTONS", "")) = 12, "12 annotate buttons"
-CHECK WS_list_item$(WS_get$("TOOLBOX.BUTTONS", ""), 6) = "arrow", "6th button arrow"
+CHECK WS_list_count%(WS_get$("TOOLBOX.BUTTONS", "")) = 8, "8 annotate buttons"
+CHECK WS_list_item$(WS_get$("TOOLBOX.BUTTONS", ""), 6) = "text", "6th button text"
 CHECK WS_list_item$("a, b ,c", 2) = "b", "list item trimmed"
 CHECK WS_list_item$("a,b", 3) = "", "past end"
 CHECK WS_list_count%("") = 0, "empty list"
@@ -81,7 +81,7 @@ DO
     IF i = 0 THEN EXIT DO
     n = n + 1
 LOOP
-CHECK n = 12, "12 keys (11 annotate + q), got" + STR$(n)
+CHECK n = 16, "16 keys (15 annotate + q), got" + STR$(n)
 
 ' cycle terminates and still resolves both files
 CHECK WS_resolve%("loopa"), "cycle resolves"

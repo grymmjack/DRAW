@@ -83,6 +83,31 @@ DOCK_clear
 DOCK_add_stack DOCK_RIGHT, "1,2,3"
 CHECK DOCK_describe$ = "RIGHT.1: toolbox | organizer | drawer" + CHR$(10), "add_stack"
 
+' --- snapshots ----------------------------------------------------------------
+DIM snap AS STRING, snap2 AS STRING
+DOCK_clear
+c = DOCK_parse_col%(DOCK_RIGHT, "WIDTH:120; layers | *preview+colormixer@2")
+c = DOCK_parse_col%(DOCK_LEFT, "toolbox | organizer")
+id = DOCK_parse_float%("pen", "10,20,30,40")
+DOCK_CUSTOM = TRUE
+snap = DOCK_snapshot$
+CHECK INSTR(snap, "CUSTOM=1") = 1, "snapshot starts with CUSTOM"
+CHECK INSTR(snap, "LEFT.1=AUTO; toolbox | organizer") > 0 _ANDALSO INSTR(snap, "RIGHT.1=WIDTH:120;") > 0 _ANDALSO INSTR(snap, "FLOAT.pen=10,20,30,40") > 0, "snapshot lines, got [" + snap + "]"
+DOCK_clear: DPANEL(DP_PEN).fl = FALSE: DOCK_CUSTOM = FALSE
+DOCK_load_snapshot snap
+CHECK DOCK_CUSTOM, "loaded snapshot is custom"
+snap2 = DOCK_snapshot$
+CHECK snap2 = snap, "snapshot round trip, got [" + snap2 + "]"
+CHECK DPANEL(DP_PEN).fl _ANDALSO DPANEL(DP_PEN).fw = 30, "float restored"
+DOCK_load_snapshot "CUSTOM=0" + CHR$(10)
+CHECK DOCK_CUSTOM = FALSE _ANDALSO DOCK_col_at%(DOCK_LEFT, 1) = 0, "CUSTOM=0 = default tree"
+CHECK DPANEL(DP_PEN).fl = FALSE, "floats cleared"
+snap = DOCK_snap_set$("CUSTOM=1" + CHR$(10) + "LEFT.1=toolbox" + CHR$(10), "LEFT.1", "layers")
+CHECK DOCK_snap_get$(snap, "left.1") = "layers", "snap_set replaces, get is case-insensitive"
+snap = DOCK_snap_set$(snap, "RIGHT.1", "editbar")
+snap = DOCK_snap_set$(snap, "LEFT.1", "")
+CHECK DOCK_snap_get$(snap, "LEFT.1") = "" _ANDALSO DOCK_snap_get$(snap, "RIGHT.1") = "editbar", "snap_set adds and removes"
+
 PRINT "dock-unit:"; PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1
 SYSTEM 0

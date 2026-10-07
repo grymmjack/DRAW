@@ -528,11 +528,11 @@ IF benchLayers% > 0 THEN BENCH_render_run benchLayers%
 ' Pen tablet pressure (INPUT/PEN, QB64_GJ_LIB PRESSURE_DEVICE). Needs the window.
 PEN_init
 
+' The dock tree (GUI/DOCK): DRAW.cfg's arrangement, else the default tree
+IF LEN(CFG_DOCK_SPEC) THEN DOCK_load_snapshot CFG_DOCK_SPEC ELSE DOCK_build_default
+_LOGINFO "DOCK: tree" + CHR$(10) + DOCK_describe$
 ' Reopen in the remembered workspace (CFG.WORKSPACE) - an overlay, GUI/WORKSPACE-APPLY.
 WS_startup
-' The dock tree (GUI/DOCK): log the arrangement once at startup
-DOCK_build_default
-_LOGINFO "DOCK: tree" + CHR$(10) + DOCK_describe$
 ' DRAW --capture: grab the screen once the window is up (GUI/CAPTURE).
 CAP_startup
 

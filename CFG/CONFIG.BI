@@ -587,3 +587,8 @@ END TYPE
 DIM SHARED CFG AS DRAW_CONFIG
 DIM SHARED CONFIG_NEEDS_INITIAL_SAVE% ' Deferred save flag: set when config file doesn't exist yet
 
+
+' The dock arrangement saved in DRAW.cfg (DOCK_* keys -> a GUI/DOCK-TREE snapshot:
+' CUSTOM=1, LEFT.1=..., FLOAT.pen=...). Empty = the default tree from the
+' *_DOCK_EDGE keys. Not a CFG field: the key set is open-ended.
+DIM SHARED CFG_DOCK_SPEC AS STRING
