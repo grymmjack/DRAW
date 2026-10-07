@@ -113,6 +113,7 @@ DIM SHARED WS_OPT_ORIG(1 TO WS_MAX_OPTS) AS STRING
 DIM SHARED WS_OPT_HAD(1 TO WS_MAX_OPTS)  AS INTEGER ' the user's config had the key
 
 DIM SHARED WS_TB_TOUCHED AS INTEGER ' [TOOLBOX] rewrote the toolbar layout / icons
+DIM SHARED WS_LW_TOUCHED AS INTEGER ' [CHROME] LAYER_PANEL_WIDTH set the layers panel width
 ' [KEYS]: single-key overlay, checked by INPUT_dispatch_frame BEFORE the
 ' binding table (so it wins), only while this workspace is active.
 CONST WS_MAX_KEYS = 64
@@ -132,6 +133,8 @@ CONST WS_ACT_CONFIGURE = 2401 ' Configure Workspaces... (configurator: W6)
 CONST WS_ACT_FOLDER    = 2402 ' Open the user workspaces folder
 CONST WS_ACT_RELOAD    = 2403 ' Rescan workspace files (menu + palette rebuilt)
 CONST WS_ACT_LEAVE     = 2404 ' Back to Default
+CONST WS_ACT_SAVE_AS   = 2405 ' Save Current Layout As... (new workspace from what is on screen)
+CONST WS_ACT_UPDATE    = 2406 ' Update the active workspace from the current layout
 CONST WS_ACT_SLOT0     = 2409 ' + n = switch to WS_LIST(n), n = 1..WS_MAX (2410-2441)
 CONST WS_CMD_PREFIX$   = "Workspace: "
 

@@ -28,10 +28,21 @@ Plan + decisions: `PLANS/_/WORKSPACES-AND-CAPTURE-PLAN.md`; review notes:
 
 ## Customization layers
 
-- **Toolbox (W2):** the 4×7 grid is the DEFAULT; slots go to 40 (`TB_MAX_SLOTS`). Every loop/geometry reads `TB_LIVE_COUNT/COLS/ROWS`, never `TB_TOTAL/TB_COLS/TB_ROWS`. Panel width = `TOOLBAR_panel_cols%` (≥ 4 while the organizer or drawer shows). Tooltip text is keyed by the button's *default* slot (`TOOLBAR_default_slot%`). Names → buttons: `TOOLBAR_button_by_name%`.
+- **Toolbox (W2):** the 4×7 grid is the DEFAULT; slots go to 40 (`TB_MAX_SLOTS`). Every loop/geometry reads `TB_LIVE_COUNT/COLS/ROWS`, never `TB_TOTAL/TB_COLS/TB_ROWS`. Columns: `TB_WANT_COLS` is what was asked for (`CFG.TOOLBOX_COLUMNS`, `[TOOLBOX] COLUMNS`, an edge drag; 0 = take the cfg on the first layout); `TOOLBAR_reflow` (start of `SCREEN_compute_layout`) sets `TB_LIVE_COLS/ROWS`, adding columns while buttons + organizer + a usable drawer don't fit the height, and `TOOLBOX_PANEL_W` (px) = those columns, never narrower than one organizer stack / one drawer bin. Tooltip text is keyed by the button's *default* slot (`TOOLBAR_default_slot%`). Names → buttons: `TOOLBAR_button_by_name%`.
 - **Bars (W3):** `EDITBAR_SHOW()` / `ADVBAR_SHOW()` / `ORG_HIDDEN()` filters (no reordering; dividers only between kept groups). Names: `WS_editbar_name$` / `WS_advbar_name$` / `WS_org_name$` keyed by action id. `PALETTE_STRIP_HIDDEN` makes `PALETTE_STRIP_get_height%` 0 (43 layout callers follow).
 - **Menus (W4):** registration is positional and children name their root by a literal ordinal. `MENUBAR_register_item` translates through `MENU_ROOT_REMAP(orig)` (−2 = hidden root → child skipped). Post-registration code must use `MENU_ROOT_REMAP(n)` / `MENU_RT_AUDIO`, never literal root numbers. Filtered flyout parents return −9 so their children are skipped. A rebuild that would leave zero roots drops the filter.
 - **Keys (W5):** `WS_key_action%` runs in `INPUT_dispatch_frame` *before* the first-match table (so nothing in the table is swapped). Guards: text active, dialogs/settings/popups/palette/menu, chord-held keys, a held mouse button. Ctrl/Alt combos via `WS_KEY_MODS`. Keys with no table binding get edges from `WS_detect_keys` (the table loop only watches bound keycodes — Enter had none). Mapped letters don't raise their held-chord ctx. Menus + palette relabel hotkeys (`WS_relabel_hotkeys`, re-applied by `MENUBAR_rebuild`).
+
+## Flexible side docks (branch `workspace-flexible-chrome`, 2026-10-07)
+
+Only the LEFT/RIGHT screen edges dock; the menu bar is always on top, the status bar + color strip always at the bottom.
+
+- **Everything in the toolbox column reflows to `TOOLBOX_PANEL_W`.** Organizer: 4 widget *stacks* (`ORGANIZER_stack_of%`) placed by `ORGANIZER_layout%` in as many columns as fit (centered; a stack whose widgets are all hidden takes no room); its background spans the whole panel. Drawer: `DRAWER_layout` picks `DRAWER_COLS` (classic 3 up to the default 4-column width, up to `DRAWER_MAX_COLS` = 6 in a wider one), `DRAWER_STACKED` (mini palette under the bins when one bin doesn't fit beside the rail), `DRAWER_VIS_ROWS` and `DRAWER_ROW0` (Shift+wheel scrolls; the plain wheel still switches `.dset` sets). Slot index = `(row + DRAWER_ROW0) * DRAWER_COLS + col + 1` everywhere (`DRAWER_slot_at%`, render, drag highlights, tooltip). `TOOLBOX_fill_column` paints the column below the stack as panel when the drawer doesn't fill it.
+- **Edit / advanced bars:** `EDITBAR_cols%` / `ADVBAR_cols%` (live `EDITBAR_NCOLS` / `ADVBAR_NCOLS`, 0 = `CFG.EDIT_BAR_COLUMNS` / `ADV_BAR_COLUMNS`), width `*_width%`; icons flow left→right, a divider ends the row. A variable can't share a FUNCTION's name (case-insensitive), hence `_NCOLS`.
+- **Layers width:** `[CHROME] LAYER_PANEL_WIDTH` sets `LAYER_PANEL.width%` (`WS_LW_TOUCHED`, restored from `CFG.LAYER_PANEL_WIDTH`); `LAYERS_clamp_width%` = 60-400.
+- **Edge drag (`GUI/DOCK-RESIZE`):** `SCREEN_compute_layout` registers each side panel's inner edge (`DOCK_set_edge`). `DOCK_handle_mouse%` runs in `MOUSE_process_frame` before `MOUSE_handle_gui_early%` (the press must not also be a panel click); `DOCK_edge_at%` is inert under menus, popups, palettes, flyouts and anything whose `REGION_hit_test%` isn't a docked panel / the canvas / GLOBAL. Live: `DOCK_apply_value`; drop: `DOCK_save_value` → `WSC_save_key` (active workspace, user copy of a built-in) or CFG + `CONFIG_save` (Default). Cursor: `DOCK_wants_cursor%` in `POINTER_build`.
+- **Save Current Layout (2405) / Update Workspace From Layout (2406):** `WSC_capture_layout` writes every panel's SHOW/HIDE, the docks, the columns and the layers width into the WSC store (buttons, menus, keys, options, [START] stay); `WSC_save_and_use` saves, re-applies the workspace and cancels its `[START]`.
+- QA: `tests/dock-resize.sh` (Default, greps QA/DRAW.qa.cfg). Workspace saves write the user's workspaces folder, so they are only checked by hand with `XDG_DATA_HOME` pointed at a scratch dir.
 
 ## Capture
 
@@ -46,12 +57,12 @@ Plan + decisions: `PLANS/_/WORKSPACES-AND-CAPTURE-PLAN.md`; review notes:
 
 | Range | Owner |
 |-------|-------|
-| 2400 switcher · 2401 configure · 2402 folder · 2403 reload · 2404 leave · 2410-2441 workspace slot n | WORKSPACE-APPLY |
+| 2400 switcher · 2401 configure · 2402 folder · 2403 reload · 2404 leave · 2405 save current layout as · 2406 update from layout · 2410-2441 workspace slot n | WORKSPACE-APPLY |
 | 2450 capture · 2451 quick save · 2452 done · 2453 arrow · 2454 highlighter · 2455 redact · 2456 callout · 2457 restart numbers | CAPTURE / ANNOTATE |
 
 ## Gotchas met on the way
 
-- QB64 identifiers are case-insensitive: `SUB WSC_tab_panels` collides with `CONST WSC_TAB_PANELS` ("Name already in use"). `chain` and `base` are reserved too.
+- QB64 identifiers are case-insensitive: `SUB WSC_tab_panels` collides with `CONST WSC_TAB_PANELS` ("Name already in use"), and `DIM SHARED EDITBAR_COLS` with `FUNCTION EDITBAR_cols%`. `chain` and `base` are reserved too.
 - `--option KEY=VALUE` used to be persisted by the first `CONFIG_save` (and leaked QA-OPTIONS into later tests in a run). Now `CFG_cli_guard_begin/_end` write the file's own value for overridden keys.
 - Command palette: `CMD_execute_selected` hides the palette *before* running the action (a trailing `CMD_hide` closed a palette the action re-opened — Workspace Switcher). Do NOT also `SCREEN_render` there: rendering mid key-handler broke Stroke Selection from the palette.
 - [Linux] QA drags: DRAW idles at 15 fps; the harness's quick `drag` can put press + move in one frame (zero-length line). Use a slow multi-frame drag (`mouse_down`/`hover`/`mouse_up`) for shape tools.

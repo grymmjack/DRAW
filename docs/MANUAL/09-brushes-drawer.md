@@ -92,6 +92,14 @@ The drawer state can be saved as a `.dset` file and reloaded later — a clean w
 
 The Drawer also hosts a **mini palette** for quick FG / BG selection without hopping back to the main palette strip.
 
+### Narrow and wide toolboxes
+
+The drawer fits the toolbox column's width (drag the toolbox's inner edge, or
+set its columns in a workspace):
+- **Wider than the default 4 columns:** up to 6 bin columns, so fewer rows.
+- **Narrow:** fewer bin columns. When even one bin can't sit beside the mini palette, the palette moves under the bins.
+- **Not every row fits:** **`Shift`+wheel** over the bins scrolls them. The plain wheel still switches `.dset` sets.
+
 ### 1-bit patterns
 
 Patterns can be stored with **opaque backgrounds** (1-bit black/white) so that flooding with a 1-bit pattern under a colored FG produces classic Aldus PageMaker / DPaint dither patterns.

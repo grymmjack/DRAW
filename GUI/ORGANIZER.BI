@@ -39,7 +39,15 @@ CONST ORG_ROW1_H  = 10 ' Row 1 height (row 0 + gap + row 1 = 21 for brush-size)
 CONST ORG_ROW2_H  = 10 ' Row 2 height
 CONST ORG_BRUSH_H = 21 ' Brush size image height (spans rows 0+1)
 CONST ORG_PADDING = 1  ' Padding between cells
-CONST ORG_COLS    = 4  ' Number of columns
+CONST ORG_COLS    = 4  ' Number of columns (and widget stacks) in the full layout
+
+' The widgets form 4 vertical STACKS (one per column of the full layout). A
+' narrower toolbox panel reflows the stacks into fewer columns (ORGANIZER_layout):
+'   stack 0: Color Mixer / Palette Ops / Symmetry   stack 1: Opacity / Grid Visibility
+'   stack 2: Brush Size / Grid Snap                 stack 3: Pattern / Gradient / Color Mode
+CONST ORG_STACKS  = 4
+DIM SHARED ORG_STACK_X(0 TO ORG_STACKS - 1) AS INTEGER ' top-left of each stack (screen px)
+DIM SHARED ORG_STACK_Y(0 TO ORG_STACKS - 1) AS INTEGER
 
 TYPE ORGANIZER_WIDGET
     imgHandles AS LONG    ' Array of image handles (up to 4 states) - primary

@@ -300,6 +300,7 @@ TYPE DRAW_CONFIG
     GROUP_DRAW_AUTO_LAYER           AS INTEGER        ' TRUE = auto-create a layer inside the group and draw on that instead
     LAYERS_PANEL_DOCK_EDGE          AS STRING         ' "LEFT" or "RIGHT" (default : "LEFT")
     TOOLBOX_DOCK_EDGE               AS STRING         ' "LEFT" or "RIGHT" (default : "RIGHT")
+    TOOLBOX_COLUMNS                 AS INTEGER        ' Toolbox button columns (1-8, default 4; more are added when the buttons don't fit the height)
     ' Grid settings
     GRID_COLOR_FG                   AS _UNSIGNED LONG ' Grid foreground color (hex RGB, 0 = use theme)
     GRID_OPACITY                    AS INTEGER        ' Grid line opacity 0-255 (0 = use theme)
@@ -488,6 +489,8 @@ TYPE DRAW_CONFIG
     EDIT_BAR_DOCK_POSITION          AS STRING         ' "LEFT" or "RIGHT"
     ADV_BAR_VISIBLE                 AS INTEGER        ' TRUE = advanced bar visible at startup
     ADV_BAR_DOCK_POSITION           AS STRING         ' "LEFT" or "RIGHT"
+    EDIT_BAR_COLUMNS                AS INTEGER        ' Edit bar icon columns (1-4, default 1)
+    ADV_BAR_COLUMNS                 AS INTEGER        ' Advanced bar icon columns (1-4, default 1)
     ' Default drawer set files (path to .dset, empty = use built-in samples)
     DEFAULT_DSET_BRUSHES_FILE       AS STRING         ' Default brush drawer set (.dset)
     DEFAULT_DSET_PATTERNS_FILE      AS STRING         ' Default pattern drawer set (.dset)

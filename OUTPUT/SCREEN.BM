@@ -2529,6 +2529,30 @@ END SUB
 
 
 ''
+' The toolbox column below whatever it holds (buttons, organizer, drawer) is
+' still docked chrome: paint it as panel, not as a black void, when the drawer
+' doesn't fill it (a workspace hid the drawer and/or organizer).
+SUB TOOLBOX_fill_column ()
+    DIM AS INTEGER x1, x2, y1, y2
+    IF DRAWER.visible% _ANDALSO DRAWER.mode% <> DRAWER_MODE_NONE THEN EXIT SUB
+    x1 = SCRN.toolboxX%
+    x2 = x1 + TOOLBOX_PANEL_W - 1
+    y1 = ORGANIZER.panelY2% + 1
+    y2 = SCRN.h& - SCREEN_bottom_bars_h% - 1
+    IF y2 < y1 THEN EXIT SUB
+    LINE (x1, y1)-(x2, y2), THEME.TOOLBAR_bg~&, BF
+    LINE (x1, y1 - 1)-(x2, y2), THEME.TOOLBAR_border_fg~&, B
+END SUB
+
+
+''
+' Height of the bottom chrome (status bar + palette strip; they show together).
+FUNCTION SCREEN_bottom_bars_h% ()
+    IF SCRN.showStatus% THEN SCREEN_bottom_bars_h% = THEME.STATUS_height% + PALETTE_STRIP_get_height%
+END FUNCTION
+
+
+''
 ' Compute panel layout geometry from config and current visibility.
 ' Sets SCRN.layerPanelX%, SCRN.toolboxX%, SCRN.uiLeftEdge%, SCRN.uiRightEdge%.
 ' Must be called once per render pass before any panel renders.
@@ -2545,14 +2569,23 @@ SUB SCREEN_compute_layout ()
     scale% = CFG.TOOLBAR_SCALE%
     IF scale% < 1 THEN scale% = 1
     IF scale% > 4 THEN scale% = 4
-    ' Toolbox panel width follows the live layout (a workspace may use fewer columns)
-    toolboxW% = TOOLBAR_panel_cols% * (TB_BTN_W * scale%) + (TOOLBAR_panel_cols% - 1) * (TB_BTN_PADDING * scale%) + 2
-    editBarW% = THEME.EDIT_BAR_WIDTH% + THEME.EDIT_BAR_LEFT_BORDER_WIDTH% + THEME.EDIT_BAR_RIGHT_BORDER_WIDTH%
+    ' Toolbox column: its own button columns (wrapping to fit the height); the
+    ' organizer and drawer reflow into the same width (TOOLBAR_reflow)
+    TOOLBAR_reflow
+    toolboxW% = TOOLBOX_PANEL_W
+    editBarW% = EDITBAR_width%
     DIM advBarW AS INTEGER
-    advBarW% = THEME.EDIT_BAR_WIDTH% + THEME.EDIT_BAR_LEFT_BORDER_WIDTH% + THEME.EDIT_BAR_RIGHT_BORDER_WIDTH%
+    advBarW% = ADVBAR_width%
 
     leftX%  = 0
     rightX% = SCRN.w& - 1
+
+    ' Inner edges of the side docks (drag-resize, GUI/DOCK-RESIZE)
+    DIM dockY2 AS INTEGER, barY1 AS INTEGER
+    dockY2% = SCRN.h& - SCREEN_bottom_bars_h% - 1
+    barY1% = 0
+    IF SCRN.showMenubar% THEN barY1% = MENU_BAR_HEIGHT
+    DOCK_clear_edges
 
     ' Predict text bar visibility for top chrome geometry.
     IF SCRN.textBarHiddenByToggleAll% THEN
@@ -2569,20 +2602,24 @@ SUB SCREEN_compute_layout ()
     IF UCASE$(_TRIM$(CFG.LAYERS_PANEL_DOCK_EDGE)) = "LEFT" AND LAYER_PANEL.visible% THEN
         SCRN.layerPanelX% = leftX%
         leftX% = leftX% + LAYER_PANEL.width%
+        DOCK_set_edge DOCK_LAYERS, SCRN.layerPanelX%, LAYER_PANEL.width%, TRUE, 0, dockY2%
     END IF
     IF UCASE$(_TRIM$(CFG.TOOLBOX_DOCK_EDGE)) = "LEFT" AND SCRN.showToolbar% THEN
         SCRN.toolboxX% = leftX%
         leftX% = leftX% + toolboxW%
+        DOCK_set_edge DOCK_TOOLBOX, SCRN.toolboxX%, toolboxW%, TRUE, 0, dockY2%
     END IF
 
     ' ---------- RIGHT side: layers (outermost) > toolbox > editbar (innermost) ----------
     IF UCASE$(_TRIM$(CFG.LAYERS_PANEL_DOCK_EDGE)) = "RIGHT" AND LAYER_PANEL.visible% THEN
         rightX% = rightX% - LAYER_PANEL.width%
         SCRN.layerPanelX% = rightX% + 1
+        DOCK_set_edge DOCK_LAYERS, SCRN.layerPanelX%, LAYER_PANEL.width%, FALSE, 0, dockY2%
     END IF
     IF UCASE$(_TRIM$(CFG.TOOLBOX_DOCK_EDGE)) = "RIGHT" AND SCRN.showToolbar% THEN
         rightX% = rightX% - toolboxW%
         SCRN.toolboxX% = rightX% + 1
+        DOCK_set_edge DOCK_TOOLBOX, SCRN.toolboxX%, toolboxW%, FALSE, 0, dockY2%
     END IF
 
     ' Menubar spans over bar columns, so save edges before both bars
@@ -2593,20 +2630,24 @@ SUB SCREEN_compute_layout ()
     IF ADV_BAR.dockSide% = ADVBAR_DOCK_LEFT AND SCRN.showAdvBar% THEN
         SCRN.advBarX% = leftX%
         leftX% = leftX% + advBarW%
+        DOCK_set_edge DOCK_ADVBAR, SCRN.advBarX%, advBarW%, TRUE, barY1%, dockY2%
     END IF
     IF ADV_BAR.dockSide% = ADVBAR_DOCK_RIGHT AND SCRN.showAdvBar% THEN
         rightX% = rightX% - advBarW%
         SCRN.advBarX% = rightX% + 1
+        DOCK_set_edge DOCK_ADVBAR, SCRN.advBarX%, advBarW%, FALSE, barY1%, dockY2%
     END IF
 
     ' Edit Bar (innermost of the two bars — closer to canvas)
     IF EDIT_BAR.dockSide% = EDITBAR_DOCK_LEFT AND SCRN.showEditBar% THEN
         SCRN.editBarX% = leftX%
         leftX% = leftX% + editBarW%
+        DOCK_set_edge DOCK_EDITBAR, SCRN.editBarX%, editBarW%, TRUE, barY1%, dockY2%
     END IF
     IF EDIT_BAR.dockSide% = EDITBAR_DOCK_RIGHT AND SCRN.showEditBar% THEN
         rightX% = rightX% - editBarW%
         SCRN.editBarX% = rightX% + 1
+        DOCK_set_edge DOCK_EDITBAR, SCRN.editBarX%, editBarW%, FALSE, barY1%, dockY2%
     END IF
 
     ' Character Map panel docking (inside editbar)
@@ -2698,6 +2739,7 @@ SUB RENDER_gui_elements ()
             org_tb_y2% = TB_TOP + (TB_LIVE_ROWS * TB_BTN_H * org_scale%) + ((TB_LIVE_ROWS - 1) * TB_BTN_PADDING * org_scale%)
             ORGANIZER_render org_tb_y2%
             DRAWER_render
+            TOOLBOX_fill_column
         END IF
         IF SCRN.showEditBar% THEN
             EDITBAR_render
@@ -2888,6 +2930,7 @@ SUB SCREEN_render ()
             org_ty2% = TB_TOP + (TB_LIVE_ROWS * TB_BTN_H * org_s2%) + ((TB_LIVE_ROWS - 1) * TB_BTN_PADDING * org_s2%)
             ORGANIZER_render org_ty2%
             DRAWER_render
+            TOOLBOX_fill_column
         END IF
         IF SCRN.showEditBar% THEN
             EDITBAR_render
