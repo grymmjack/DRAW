@@ -1,7 +1,8 @@
 # Docking plan: Photoshop/GIMP-style panels
 
-Status: **plan only**, for Rick to review before anything is built. Written
-2026-10-07 on branch `workspace-flexible-chrome`, which ships the first step:
+Status: **plan, design decided** (Rick answered the open questions on
+2026-10-07, below). Not built yet. Written 2026-10-07 on branch
+`workspace-flexible-chrome`, which ships the first step:
 side docks with flexible widths and content that reflows.
 
 ## Goal
@@ -21,6 +22,22 @@ Panels you can arrange the way Photoshop, GIMP or Krita allow:
 - The everyday path is **arrange, then save** (View → Workspace → Save Current
   Layout As…). The configurator is for what can't be arranged by hand: toolbox
   buttons, menus, keys and starting options.
+
+## Decisions (Rick, 2026-10-07)
+
+| Question | Answer | What it means for the build |
+| --- | --- | --- |
+| Are the organizer and drawer separate panels? | **Yes** | The toolbox column becomes three panels (toolbox, organizer, drawer) in one column. Each can move, tab, float or hide on its own. Default keeps them stacked in today's order. |
+| Can the thin edit and advanced bars share a column with wide panels? | **Yes** | A bar is an ordinary panel. In a wide column it reflows into more icon columns to fill the width (the column flow from this branch). A column's width is its own setting, not its narrowest panel's. |
+| Do floating windows keep their look and gain a way to dock? | **Yes** | Title bar, snapping and no-overlap (`FPANEL_place`) stay as they are. Add a dock button to the title bar, and dragging the title bar over a dock target shows the drop preview. Docked, the window draws without its frame, under its slot's title or tab. |
+| Collapsible panels that shrink to their title, like GIMP's? | **Yes** | A slot can collapse to its title strip: a chevron on the title, or double-click it. Its height share goes to the other slots in the column. Saved in `[DOCK]` as a `!` before the panel name (`!browser`). |
+
+### Consequences
+
+- **Title strips:** moving, tabbing and collapsing all need a handle. Docked slots get a thin title strip with the panel's name, a collapse chevron and a float button.
+- **Default stays identical:** toolbox, organizer, drawer and the two bars render **chromeless** (no title strip) in the built-in Default layout, as today. Their handle appears only while the pointer is over the panel's top edge: a few pixels tall, drawn after `SkipToPointer:` so it doesn't dirty the scene cache. Their right-click menu also has Float, Collapse and Move to Left/Right.
+- **P1 grows:** splitting the toolbox column into three panels is part of the panel contract. The organizer and drawer stop positioning themselves under the toolbar (`ORGANIZER_render tbPanelY2`, `DRAWER_layout` reading `ORGANIZER.panelY2%`).
+- **The `[DOCK]` grammar** gains `!` for collapsed slots. Its width rule: `COLUMNS:n` snaps to toolbox button columns when the column holds the toolbox; otherwise it's `WIDTH:px`.
 
 ## Where things stand after this branch
 
@@ -123,11 +140,11 @@ pen=640,120,220,300           ; x,y,w,h (viewport px)
 
 | # | Phase | Shippable alone |
 | --- | --- | --- |
-| P1 | Panel contract for layers, bars and character map (render into a rect, hit-test inside it) | Yes: no visible change |
+| P1 | Panel contract for layers, bars, character map, **organizer and drawer as their own panels** (render into a rect, hit-test inside it) | Yes: no visible change |
 | P2 | Layout engine + `[DOCK]` reproducing today's layout exactly; old keys as fallback | Yes: same look, new engine |
 | P3 | Slot dividers, and moving whole docked panels between columns / sides by drag | Yes |
-| P4 | Tabs | Yes |
-| P5 | Dock floating windows; float docked ones (frameless mode for the floating panels) | Yes |
+| P4 | Tabs, and collapsing a slot to its title | Yes |
+| P5 | Dock floating windows (dock button + drag the title onto a target; they keep their look while floating); float docked ones | Yes |
 | P6 | Configurator Dock tab, Save Current Layout writes `[DOCK]`, manual, QA | With P3+ |
 
 ## Risks
@@ -136,10 +153,3 @@ pen=640,120,220,300           ; x,y,w,h (viewport px)
 - Auto-hide restore (`MOUSE_handle_ui_autohide_restore`), F11 and `Ctrl+Shift+Left/Right` all assume today's fixed panels.
 - The workspace overlay snapshot (`WS_EL_*`, `WS_DK_*`) must grow into a tree snapshot.
 - Small windows: the layout needs a "doesn't fit" rule (collapse slots to tabs, then hide the outermost column).
-
-## Open questions for Rick
-
-1. Are the organizer and drawer separate panels, or do they stay part of a "Toolbox" panel?
-2. Can the edit and advanced bars (thin icon strips) share a column with wide panels, or stay their own columns?
-3. Should floating windows keep their current look (title bar, snapping) and only gain a dock button and drag-to-dock?
-4. Is a collapsed slot (title only) wanted, like GIMP's iconified docks?
