@@ -34,7 +34,8 @@ CONST WSC_TAB_MENUS   = 2
 CONST WSC_TAB_BARS    = 3
 CONST WSC_TAB_KEYS    = 4
 CONST WSC_TAB_OPTIONS = 5
-CONST WSC_TAB_ITEMS$  = "Panels|Toolbox|Menus|Bars|Keys|Options"
+CONST WSC_TAB_DOCK    = 6 ' the [DOCK] / [FLOAT] arrangement (GUI/DOCK)
+CONST WSC_TAB_ITEMS$  = "Panels|Toolbox|Menus|Bars|Keys|Options|Dock"
 
 TYPE WSC_STATE
     ctx         AS DIALOG_CTX

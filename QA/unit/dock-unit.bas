@@ -136,6 +136,14 @@ CHECK DOCK_SLOT(s).ntabs = 1 _ANDALSO DOCK_SLOT(s).act = 1, "tab removed"
 s = DOCK_move_to_slot%(DP_ORGANIZER, DOCK_col_at%(DOCK_RIGHT, 2), 1)
 CHECK s = 0, "into a column that vanished when the panel left it: no move"
 
+' a panel's side, and a whole column moving edges (legacy dock-edge actions)
+CHECK DOCK_panel_side%(DP_EDITBAR) = DOCK_LEFT _ANDALSO DOCK_panel_side%(DP_LAYERS) = DOCK_RIGHT, "panel sides"
+DOCK_detach_panel DP_ORGANIZER
+CHECK DOCK_panel_side%(DP_ORGANIZER) = 0, "undocked panel has no side"
+DOCK_move_col_side DOCK_col_at%(DOCK_LEFT, 2), DOCK_RIGHT
+CHECK DOCK_describe$ = "LEFT.1: editbar" + CHR$(10) + "RIGHT.1: layers" + CHR$(10) + "RIGHT.2: toolbox" + CHR$(10), "toolbox column to the right edge, innermost, got [" + DOCK_describe$ + "]"
+CHECK DOCK_panel_side%(DP_TOOLBOX) = DOCK_RIGHT, "toolbox now right"
+
 PRINT "dock-unit:"; PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1
 SYSTEM 0
