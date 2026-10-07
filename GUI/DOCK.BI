@@ -147,6 +147,9 @@ TYPE DOCK_UI_OBJ
     divHover  AS INTEGER ' a divider is under the pointer
     ' moving a panel by its handle
     mvPanel   AS INTEGER ' panel pressed on (0 = none)
+    mvSlot    AS INTEGER ' slot whose handle was pressed
+    lastClick AS DOUBLE  ' time of the last title click (double-click = collapse)
+    lastSlot  AS INTEGER
     mvActive  AS INTEGER ' past the drag threshold: a real move
     mvX0      AS INTEGER
     mvY0      AS INTEGER
