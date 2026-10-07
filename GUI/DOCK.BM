@@ -233,3 +233,308 @@ FUNCTION DOCK_slot_at% (col AS INTEGER, o AS INTEGER)
         IF DOCK_SLOT(i).used _ANDALSO DOCK_SLOT(i).col = col _ANDALSO DOCK_SLOT(i).ord = o THEN DOCK_slot_at% = i: EXIT FUNCTION
     NEXT i
 END FUNCTION
+
+
+' =============================================================================
+' Layout: the tree -> rects -> panels
+' =============================================================================
+
+''
+' Is slot s showing this frame, and which of its tabs is? A tab whose panel is
+' hidden is skipped; a slot with no shown tab takes no room.
+FUNCTION DOCK_slot_panel% (s AS INTEGER)
+    DIM t AS INTEGER
+    IF s < 1 THEN EXIT FUNCTION
+    IF DOCK_SLOT(s).act >= 1 _ANDALSO DOCK_SLOT(s).act <= DOCK_SLOT(s).ntabs THEN
+        IF DOCK_panel_shown%(DOCK_TAB(s, DOCK_SLOT(s).act)) THEN DOCK_slot_panel% = DOCK_TAB(s, DOCK_SLOT(s).act): EXIT FUNCTION
+    END IF
+    FOR t = 1 TO DOCK_SLOT(s).ntabs
+        IF DOCK_panel_shown%(DOCK_TAB(s, t)) THEN DOCK_slot_panel% = DOCK_TAB(s, t): EXIT FUNCTION
+    NEXT t
+END FUNCTION
+
+
+''
+' Fixed height (px, borders included) of a DP_H_FIXED panel in a column w wide.
+FUNCTION DOCK_fixed_h% (id AS INTEGER, w AS INTEGER)
+    DIM scl AS INTEGER
+    SELECT CASE id
+        CASE DP_TOOLBOX
+            scl = CFG.TOOLBAR_SCALE%
+            IF scl < 1 THEN scl = 1
+            IF scl > 4 THEN scl = 4
+            ' button rows + the bottom border row (the top border row sits just above)
+            DOCK_fixed_h% = TB_LIVE_ROWS * TB_BTN_H * scl + (TB_LIVE_ROWS - 1) * TB_BTN_PADDING * scl + 1
+        CASE DP_ORGANIZER
+            DOCK_fixed_h% = ORGANIZER_height_for%(w)
+    END SELECT
+END FUNCTION
+
+
+''
+' Smallest height a flex panel accepts (it overflows the column rather than
+' shrink below it).
+FUNCTION DOCK_min_h% (id AS INTEGER)
+    DIM dScl AS INTEGER
+    IF id = DP_DRAWER THEN
+        dScl = USCALE.drawer%
+        IF dScl < 1 THEN dScl = 1
+        IF dScl > 4 THEN dScl = 4
+        DOCK_min_h% = 32 * dScl
+    END IF
+END FUNCTION
+
+
+''
+' Stack column c's showing slots top to bottom inside its rect: fixed panels
+' take their own height (two bordered panels share their frame row), flex
+' panels share what is left by weight.
+SUB DOCK_stack_column (c AS INTEGER)
+    DIM o AS INTEGER, s AS INTEGER, id AS INTEGER, y AS INTEGER, bottom AS INTEGER
+    DIM fixedSum AS INTEGER, shareSum AS INTEGER, flexH AS INTEGER, h AS INTEGER, prevBordered AS INTEGER
+    DIM n AS INTEGER, lastFlex AS INTEGER, usedFlex AS INTEGER
+    bottom = DOCK_COL(c).y + DOCK_COL(c).h - 1
+    ' sizes first
+    prevBordered = FALSE
+    FOR o = 1 TO DOCK_MAX_SLOTS
+        s = DOCK_slot_at%(c, o)
+        IF s = 0 THEN EXIT FOR
+        id = DOCK_slot_panel%(s)
+        DOCK_SLOT(s).vis = (id <> DP_NONE)
+        IF id THEN
+            IF DPANEL(id).hmode = DP_H_FIXED THEN
+                fixedSum = fixedSum + DOCK_fixed_h%(id, DOCK_COL(c).w)
+                IF prevBordered _ANDALSO DPANEL(id).bordered THEN fixedSum = fixedSum - 1
+            ELSE
+                shareSum = shareSum + DOCK_SLOT(s).share
+                lastFlex = s
+            END IF
+            prevBordered = DPANEL(id).bordered
+        END IF
+    NEXT o
+    flexH = DOCK_COL(c).h - fixedSum
+    ' then positions
+    y = DOCK_COL(c).y
+    prevBordered = FALSE
+    FOR o = 1 TO DOCK_MAX_SLOTS
+        s = DOCK_slot_at%(c, o)
+        IF s = 0 THEN EXIT FOR
+        IF DOCK_SLOT(s).vis THEN
+            id = DOCK_slot_panel%(s)
+            IF prevBordered _ANDALSO DPANEL(id).bordered THEN y = y - 1 ' share the frame row
+            IF DPANEL(id).hmode = DP_H_FIXED THEN
+                h = DOCK_fixed_h%(id, DOCK_COL(c).w)
+            ELSEIF s = lastFlex THEN
+                h = flexH - usedFlex ' the last flex slot takes the rounding
+            ELSE
+                h = (flexH * DOCK_SLOT(s).share) \ shareSum
+                usedFlex = usedFlex + h
+            END IF
+            IF DPANEL(id).hmode = DP_H_FLEX _ANDALSO h < DOCK_min_h%(id) THEN h = DOCK_min_h%(id)
+            DOCK_SLOT(s).x = DOCK_COL(c).x
+            DOCK_SLOT(s).w = DOCK_COL(c).w
+            DOCK_SLOT(s).y = y
+            DOCK_SLOT(s).h = h
+            y = y + h
+            prevBordered = DPANEL(id).bordered
+            n = n + 1
+        END IF
+    NEXT o
+END SUB
+
+
+''
+' Hand slot s's rect to its panel (the panel-specific fields old code reads).
+SUB DOCK_apply_panel (s AS INTEGER, side AS INTEGER, dockY2 AS INTEGER)
+    DIM id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dockLeft AS INTEGER
+    id = DOCK_slot_panel%(s)
+    IF id = DP_NONE THEN EXIT SUB
+    x = DOCK_SLOT(s).x: y = DOCK_SLOT(s).y: w = DOCK_SLOT(s).w: h = DOCK_SLOT(s).h
+    dockLeft = (side = DOCK_LEFT)
+    DPANEL(id).rVis = TRUE
+    DPANEL(id).rx = x: DPANEL(id).ry = y: DPANEL(id).rw = w: DPANEL(id).rh = h
+    SELECT CASE id
+        CASE DP_TOOLBOX
+            SCRN.toolboxX% = x
+            TB_RECT_X = x
+            TB_RECT_Y = y
+        CASE DP_ORGANIZER
+            ORG_RECT_X = x: ORG_RECT_W = w
+            ORG_RECT_Y = y: ORG_RECT_H = h
+        CASE DP_DRAWER
+            DRW_RECT_X = x: DRW_RECT_W = w
+            DRW_RECT_Y = y: DRW_RECT_Y2 = y + h - 1
+        CASE DP_LAYERS
+            SCRN.layerPanelX% = x
+            LAYER_PANEL.panelY1% = y: LAYER_PANEL.panelY2% = y + h - 1
+        CASE DP_EDITBAR
+            SCRN.editBarX% = x
+            EDIT_BAR.panelY1% = y: EDIT_BAR.panelY2% = y + h - 1
+        CASE DP_ADVBAR
+            SCRN.advBarX% = x
+            ADV_BAR.panelY1% = y: ADV_BAR.panelY2% = y + h - 1
+        CASE DP_CHARMAP
+            SCRN.charMapX% = x
+            CHARMAP.panelX1% = x
+            CHARMAP.panelX2% = x + w - 1
+            CHARMAP.panelY1% = y
+            CHARMAP.panelY2% = y + h - 1
+            REGION_set_bounds REGION_CHARMAP, CHARMAP.panelX1%, CHARMAP.panelY1%, CHARMAP.panelX2% - CHARMAP.panelX1% + 1, CHARMAP.panelY2% - CHARMAP.panelY1% + 1, ZORDER_PANEL
+            IF CHARMAP.panelY2% < CHARMAP.panelY1% THEN CHARMAP.panelY2% = CHARMAP.panelY1%
+            CHARMAP.panelW% = w
+            CHARMAP.gridX% = CHARMAP.panelX1% + 2
+            CHARMAP.gridY% = CHARMAP.panelY1% + 2
+    END SELECT
+END SUB
+
+
+''
+' The drag-resize id (GUI/DOCK-RESIZE) a column's inner edge drives: the column's
+' main panel (toolbox > layers > advanced bar > edit bar; none for the charmap).
+FUNCTION DOCK_col_resize_id% (c AS INTEGER)
+    DIM o AS INTEGER, s AS INTEGER, t AS INTEGER, id AS INTEGER, best AS INTEGER, r AS INTEGER, rank AS INTEGER, bestRank AS INTEGER
+    FOR o = 1 TO DOCK_MAX_SLOTS
+        s = DOCK_slot_at%(c, o)
+        IF s = 0 THEN EXIT FOR
+        FOR t = 1 TO DOCK_SLOT(s).ntabs
+            id = DOCK_TAB(s, t)
+            IF DOCK_panel_shown%(id) THEN
+                SELECT CASE id
+                    CASE DP_TOOLBOX: r = DOCK_TOOLBOX: rank = 4
+                    CASE DP_LAYERS: r = DOCK_LAYERS: rank = 3
+                    CASE DP_ADVBAR: r = DOCK_ADVBAR: rank = 2
+                    CASE DP_EDITBAR: r = DOCK_EDITBAR: rank = 1
+                    CASE ELSE: r = DOCK_NONE: rank = 0
+                END SELECT
+                IF rank > bestRank THEN bestRank = rank: best = r
+            END IF
+        NEXT t
+    NEXT o
+    DOCK_col_resize_id% = best
+END FUNCTION
+
+
+''
+' Place one column (pass: full-height columns first, then the ones under the
+' menu bar) from the outside in on its side; advances DOCK_LX / DOCK_RX.
+SUB DOCK_place_columns (wantFull AS INTEGER, barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
+    DIM side AS INTEGER, o AS INTEGER, c AS INTEGER, so AS INTEGER, s AS INTEGER, first AS INTEGER, rid AS INTEGER
+    FOR side = DOCK_LEFT TO DOCK_RIGHT
+        FOR o = 1 TO DOCK_MAX_COLS
+            c = DOCK_col_at%(side, o)
+            IF c = 0 THEN EXIT FOR
+            IF DOCK_COL(c).vis _ANDALSO DOCK_COL(c).full = wantFull THEN
+                IF side = DOCK_LEFT THEN
+                    DOCK_COL(c).x = DOCK_LX
+                    DOCK_LX = DOCK_LX + DOCK_COL(c).w
+                ELSE
+                    DOCK_RX = DOCK_RX - DOCK_COL(c).w
+                    DOCK_COL(c).x = DOCK_RX + 1
+                END IF
+                IF wantFull THEN
+                    DOCK_COL(c).y = 0
+                ELSE
+                    ' under the menu bar; the character map keeps its own rule
+                    ' (menu bar shown at all, not whether it is auto-hidden)
+                    DOCK_COL(c).y = barY1
+                    first = DOCK_slot_panel%(DOCK_slot_at%(c, 1))
+                    IF first = DP_CHARMAP THEN DOCK_COL(c).y = charTop
+                END IF
+                DOCK_COL(c).h = dockY2 - DOCK_COL(c).y + 1
+                DOCK_stack_column c
+                FOR so = 1 TO DOCK_MAX_SLOTS
+                    s = DOCK_slot_at%(c, so)
+                    IF s = 0 THEN EXIT FOR
+                    IF DOCK_SLOT(s).vis THEN DOCK_apply_panel s, side, dockY2
+                NEXT so
+                rid = DOCK_col_resize_id%(c)
+                IF rid THEN DOCK_set_edge rid, DOCK_COL(c).x, DOCK_COL(c).w, (side = DOCK_LEFT), DOCK_COL(c).y, dockY2
+            END IF
+        NEXT o
+    NEXT side
+END SUB
+
+
+''
+' The whole side layout (SCREEN_compute_layout): columns get widths from their
+' panels, full-height columns go outermost, the menu bar spans the rest.
+' Leaves DOCK_LX/DOCK_RX (the canvas edges) and DOCK_MENU_LX/RX.
+SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
+    DIM c AS INTEGER, so AS INTEGER, s AS INTEGER, id AS INTEGER, w AS INTEGER, t AS INTEGER, i AS INTEGER
+    IF DOCK_CUSTOM = 0 _ORELSE DOCK_READY = 0 THEN DOCK_build_default
+    FOR i = 1 TO DP_COUNT: DPANEL(i).rVis = FALSE: NEXT i
+    FOR c = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(c).used THEN
+            DOCK_COL(c).vis = FALSE
+            DOCK_COL(c).full = FALSE
+            w = 0
+            FOR so = 1 TO DOCK_MAX_SLOTS
+                s = DOCK_slot_at%(c, so)
+                IF s = 0 THEN EXIT FOR
+                id = DOCK_slot_panel%(s)
+                IF id THEN
+                    DOCK_COL(c).vis = TRUE
+                    FOR t = 1 TO DOCK_SLOT(s).ntabs
+                        IF DOCK_panel_shown%(DOCK_TAB(s, t)) THEN
+                            IF DPANEL(DOCK_TAB(s, t)).tall THEN DOCK_COL(c).full = TRUE
+                            IF DOCK_panel_w%(DOCK_TAB(s, t)) > w THEN w = DOCK_panel_w%(DOCK_TAB(s, t))
+                        END IF
+                    NEXT t
+                END IF
+            NEXT so
+            IF DOCK_COL(c).wpx > 0 THEN w = DOCK_COL(c).wpx
+            DOCK_COL(c).w = w
+        END IF
+    NEXT c
+    DOCK_LX = 0
+    DOCK_RX = SCRN.w& - 1
+    DOCK_place_columns TRUE, barY1, charTop, dockY2
+    DOCK_MENU_LX = DOCK_LX
+    DOCK_MENU_RX = DOCK_RX
+    DOCK_place_columns FALSE, barY1, charTop, dockY2
+END SUB
+
+
+''
+' Render pass: paint the part of each column no panel covers as panel (and a
+' drawer that has nothing to show), with the side bars' color and a border on
+' the column's inner edge - never a black hole.
+SUB DOCK_fill_columns ()
+    DIM c AS INTEGER, so AS INTEGER, s AS INTEGER, lastY AS INTEGER, y2 AS INTEGER, id AS INTEGER
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST SCRN.GUI&
+    FOR c = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(c).used _ANDALSO DOCK_COL(c).vis THEN
+            lastY = DOCK_COL(c).y - 1
+            y2 = DOCK_COL(c).y + DOCK_COL(c).h - 1
+            FOR so = 1 TO DOCK_MAX_SLOTS
+                s = DOCK_slot_at%(c, so)
+                IF s = 0 THEN EXIT FOR
+                IF DOCK_SLOT(s).vis THEN
+                    id = DOCK_slot_panel%(s)
+                    IF id = DP_DRAWER _ANDALSO DRAWER.mode% = DRAWER_MODE_NONE THEN
+                        DOCK_fill_rect c, DOCK_SLOT(s).y, _MIN(DOCK_SLOT(s).y + DOCK_SLOT(s).h - 1, y2)
+                    END IF
+                    lastY = DOCK_SLOT(s).y + DOCK_SLOT(s).h - 1
+                END IF
+            NEXT so
+            IF lastY < y2 THEN DOCK_fill_rect c, lastY + 1, y2
+        END IF
+    NEXT c
+    _DEST oldDest&
+END SUB
+
+
+SUB DOCK_fill_rect (c AS INTEGER, y1 AS INTEGER, y2 AS INTEGER)
+    DIM x1 AS INTEGER, x2 AS INTEGER
+    IF y2 < y1 THEN EXIT SUB
+    x1 = DOCK_COL(c).x
+    x2 = x1 + DOCK_COL(c).w - 1
+    LINE (x1, y1)-(x2, y2), THEME.EDIT_BAR_BG_COLOR~&, BF
+    IF DOCK_COL(c).side = DOCK_RIGHT THEN
+        LINE (x1, y1)-(x1, y2), THEME.EDIT_BAR_LEFT_BORDER_COLOR~&
+    ELSE
+        LINE (x2, y1)-(x2, y2), THEME.EDIT_BAR_RIGHT_BORDER_COLOR~&
+    END IF
+END SUB

@@ -100,4 +100,10 @@ END TYPE
 DIM SHARED DOCK_SLOT(1 TO DOCK_MAX_SLOTS) AS DOCK_SLOT_OBJ
 DIM SHARED DOCK_TAB(1 TO DOCK_MAX_SLOTS, 1 TO DOCK_MAX_TABS) AS INTEGER ' panel ids
 
-DIM SHARED DOCK_READY AS INTEGER ' the tree has been built (DOCK_build_default)
+DIM SHARED DOCK_READY  AS INTEGER ' the tree has been built (DOCK_build_default)
+DIM SHARED DOCK_CUSTOM AS INTEGER ' a [DOCK] arrangement is in effect (else the default tree is rebuilt from the dock keys every layout)
+' DOCK_layout results: the canvas edges and the menu bar's span
+DIM SHARED DOCK_LX AS INTEGER
+DIM SHARED DOCK_RX AS INTEGER
+DIM SHARED DOCK_MENU_LX AS INTEGER
+DIM SHARED DOCK_MENU_RX AS INTEGER
