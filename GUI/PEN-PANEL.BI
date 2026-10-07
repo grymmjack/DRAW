@@ -40,6 +40,7 @@ TYPE PEN_PANEL_OBJ
     autoHidden        AS INTEGER ' TRUE while hidden because the user is drawing over it
     hiddenByToggleAll AS INTEGER ' TRUE only when Toggle-All UI (F11) hid this panel
 
+    docked      AS INTEGER ' in a dock slot (GUI/DOCK): the slot places it; no clamp
     dispX       AS INTEGER       ' viewport coords
     dispY       AS INTEGER
     dispW       AS INTEGER
