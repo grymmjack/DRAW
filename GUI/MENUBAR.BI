@@ -42,7 +42,7 @@ CONST MENU_CHECK_WIDTH    = 12 ' Width reserved for checkbox area
 
 ' Menu item structure
 TYPE MENU_ITEM_OBJ
-    label       AS STRING * 32 ' Display name ("---" = divider)
+    label       AS STRING * 64 ' Display name ("---" = divider); was 32, which cut long flyout labels
     hotkey      AS STRING * 24 ' Hotkey display string
     statusText  AS STRING * 48 ' Status bar text (optional)
     parentIdx   AS INTEGER     ' -1 = root item, else index of parent root
