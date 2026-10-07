@@ -49,6 +49,12 @@ TYPE DOCK_PANEL_OBJ
     bordered AS INTEGER ' draws its own 1px frame: shares the frame row with a bordered neighbour above
     floats   AS INTEGER ' has its own floating window (P5)
     slot     AS INTEGER ' DOCK_SLOT index it sits in (0 = not docked)
+    ' floating ([FLOAT] in workspaces; P5): its window rect in viewport px
+    fl       AS INTEGER ' floating
+    fx       AS INTEGER
+    fy       AS INTEGER
+    fw       AS INTEGER
+    fh       AS INTEGER
     ' the rect DOCK_layout gave it this frame (valid while rVis)
     rVis     AS INTEGER
     rx       AS INTEGER
@@ -101,6 +107,7 @@ DIM SHARED DOCK_SLOT(1 TO DOCK_MAX_SLOTS) AS DOCK_SLOT_OBJ
 DIM SHARED DOCK_TAB(1 TO DOCK_MAX_SLOTS, 1 TO DOCK_MAX_TABS) AS INTEGER ' panel ids
 
 DIM SHARED DOCK_READY  AS INTEGER ' the tree has been built (DOCK_build_default)
+DIM SHARED DOCK_PARSE_NOTE AS STRING ' what the last DOCK_parse_col% skipped (unknown / repeated panel names), "" = nothing
 DIM SHARED DOCK_CUSTOM AS INTEGER ' a [DOCK] arrangement is in effect (else the default tree is rebuilt from the dock keys every layout)
 ' DOCK_layout results: the canvas edges and the menu bar's span
 DIM SHARED DOCK_LX AS INTEGER

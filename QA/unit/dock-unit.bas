@@ -1,0 +1,99 @@
+' =============================================================================
+' QA/unit/dock-unit.bas - headless unit test for GUI/DOCK-TREE.BM: the dock
+' tree (columns, slots, tabs) and its [DOCK] / [FLOAT] grammar. Run from the
+' repo root:
+'   ~/git/qb64pe/qb64pe -w -x -o QA/unit/dock-unit.run QA/unit/dock-unit.bas && QA/unit/dock-unit.run
+' Exit code 0 = all pass.
+' =============================================================================
+$CONSOLE:ONLY
+OPTION _EXPLICIT
+CONST TRUE = -1, FALSE = 0
+DIM SHARED PATHS_DATA_DIR AS STRING
+DIM SHARED FAILS AS INTEGER, PASSES AS INTEGER
+'$INCLUDE:'../../CFG/WORKSPACE.BI'
+'$INCLUDE:'../../GUI/DOCK.BI'
+
+DIM c AS INTEGER, c2 AS INTEGER, s AS INTEGER, d AS STRING, spec AS STRING, id AS INTEGER
+
+DOCK_init_panels
+CHECK DOCK_panel_by_name%("Layers") = DP_LAYERS, "panel names are case-insensitive"
+CHECK DOCK_panel_by_name%("nope") = 0, "unknown panel name"
+
+' --- parse a column -----------------------------------------------------------
+DOCK_clear
+c = DOCK_parse_col%(DOCK_LEFT, "WIDTH:150; layers@3 | browser")
+CHECK c > 0, "column parsed"
+CHECK DOCK_COL(c).wpx = 150, "WIDTH:150"
+CHECK DOCK_COL(c).ord = 1, "outermost"
+s = DOCK_slot_at%(c, 1)
+CHECK DOCK_TAB(s, 1) = DP_LAYERS _ANDALSO DOCK_SLOT(s).share = 3, "layers@3"
+s = DOCK_slot_at%(c, 2)
+CHECK DOCK_TAB(s, 1) = DP_BROWSER _ANDALSO DOCK_SLOT(s).share = 1, "browser, share 1"
+CHECK DPANEL(DP_LAYERS).slot = DOCK_slot_at%(c, 1), "panel knows its slot"
+
+' tabs, active tab, collapsed, AUTO width, second column order
+c2 = DOCK_parse_col%(DOCK_LEFT, "AUTO; !*preview+colormixer@2 | editbar")
+CHECK c2 > 0 _ANDALSO DOCK_COL(c2).ord = 2 _ANDALSO DOCK_COL(c2).wpx = 0, "AUTO, second column"
+s = DOCK_slot_at%(c2, 1)
+CHECK DOCK_SLOT(s).ntabs = 2, "two tabs"
+CHECK DOCK_SLOT(s).act = 1, "active = preview (first, starred)"
+CHECK DOCK_SLOT(s).collapsed, "! collapsed"
+CHECK DOCK_SLOT(s).share = 2, "@2 on a tabbed slot"
+
+' --- round trip ---------------------------------------------------------------
+CHECK DOCK_col_spec$(c) = "WIDTH:150; layers@3 | browser", "write column 1, got [" + DOCK_col_spec$(c) + "]"
+CHECK DOCK_col_spec$(c2) = "AUTO; !*preview+colormixer@2 | editbar", "write column 2, got [" + DOCK_col_spec$(c2) + "]"
+d = DOCK_describe$
+CHECK d = "LEFT.1: layers | browser" + CHR$(10) + "LEFT.2: preview+colormixer | editbar" + CHR$(10), "describe, got [" + d + "]"
+
+' a non-first active tab survives a round trip
+DOCK_clear
+c = DOCK_parse_col%(DOCK_RIGHT, "AUTO; preview+*colormixer+advcolorpicker")
+s = DOCK_slot_at%(c, 1)
+CHECK DOCK_SLOT(s).act = 2, "active = second tab"
+spec = DOCK_col_spec$(c)
+CHECK spec = "AUTO; preview+*colormixer+advcolorpicker", "active tab written, got [" + spec + "]"
+DOCK_clear
+c = DOCK_parse_col%(DOCK_RIGHT, spec)
+CHECK DOCK_SLOT(DOCK_slot_at%(c, 1)).act = 2, "re-parsed active tab"
+
+' --- bad input ----------------------------------------------------------------
+DOCK_clear
+DOCK_PARSE_NOTE = ""
+c = DOCK_parse_col%(DOCK_LEFT, "AUTO; ghost | toolbox | toolbox+organizer")
+CHECK c > 0, "column with a bad name still parses"
+CHECK DOCK_slot_at%(c, 1) > 0 _ANDALSO DOCK_TAB(DOCK_slot_at%(c, 1), 1) = DP_TOOLBOX, "empty slot (ghost) dropped"
+CHECK DOCK_SLOT(DOCK_slot_at%(c, 2)).ntabs = 1 _ANDALSO DOCK_TAB(DOCK_slot_at%(c, 2), 1) = DP_ORGANIZER, "repeated toolbox skipped"
+CHECK INSTR(DOCK_PARSE_NOTE, "unknown:ghost") > 0 _ANDALSO INSTR(DOCK_PARSE_NOTE, "repeated:toolbox") > 0, "notes, got [" + DOCK_PARSE_NOTE + "]"
+c2 = DOCK_parse_col%(DOCK_LEFT, "AUTO; ghost")
+CHECK c2 = 0, "a column with nothing usable is dropped"
+CHECK DOCK_col_at%(DOCK_LEFT, 2) = 0, "dropped column not counted"
+c2 = DOCK_parse_col%(DOCK_LEFT, "layers")
+CHECK c2 > 0 _ANDALSO DOCK_COL(c2).ord = 2, "no width part = AUTO, order continues"
+CHECK DOCK_field$("a | b|c", "|", 2) = "b" _ANDALSO DOCK_fields%("a | b|c", "|") = 3 _ANDALSO DOCK_fields%("  ", "|") = 0, "tokenizer"
+
+' --- [FLOAT] ------------------------------------------------------------------
+id = DOCK_parse_float%("pen", "640, 120,220,300")
+CHECK id = DP_PEN _ANDALSO DPANEL(DP_PEN).fl _ANDALSO DPANEL(DP_PEN).fy = 120, "float parsed"
+CHECK DOCK_float_spec$(DP_PEN) = "640,120,220,300", "float written"
+CHECK DOCK_parse_float%("pen", "1,2,3") = 0, "float needs 4 numbers"
+
+' --- editing helpers ----------------------------------------------------------
+DOCK_clear
+DOCK_add_stack DOCK_RIGHT, "1,2,3"
+CHECK DOCK_describe$ = "RIGHT.1: toolbox | organizer | drawer" + CHR$(10), "add_stack"
+
+PRINT "dock-unit:"; PASSES; "passed,"; FAILS; "failed"
+IF FAILS THEN SYSTEM 1
+SYSTEM 0
+
+SUB CHECK (ok AS INTEGER, msg AS STRING)
+    IF ok THEN PASSES = PASSES + 1 ELSE FAILS = FAILS + 1: PRINT "FAIL: "; msg
+END SUB
+
+FUNCTION PATHS_sep$ ()
+    PATHS_sep$ = "/"
+END FUNCTION
+
+'$INCLUDE:'../../CFG/WORKSPACE.BM'
+'$INCLUDE:'../../GUI/DOCK-TREE.BM'
