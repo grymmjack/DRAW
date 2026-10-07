@@ -1,0 +1,393 @@
+''
+' DRAW - CFG/WORKSPACE.BM
+' =============================================================================
+' Workspace files: scan built-in + user folders, parse the INI format,
+' flatten BASED_ON chains and look values up. See CFG/WORKSPACE.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Built-in workspaces folder (no trailing separator).
+FUNCTION WS_builtin_dir$ ()
+    WS_builtin_dir$ = _CWD$ + PATHS_sep$ + "ASSETS" + PATHS_sep$ + "WORKSPACES"
+END FUNCTION
+
+
+''
+' User workspaces folder (no trailing separator). Not created here - the
+' configurator creates it on first save.
+FUNCTION WS_user_dir$ ()
+    WS_user_dir$ = PATHS_DATA_DIR$ + "WORKSPACES"
+END FUNCTION
+
+
+''
+' Strip an inline "; note" / "# note" from a value - only when the ; or #
+' follows whitespace, so FG=#FF2040 and paths with # stay intact (same rule
+' as CONFIG_load).
+FUNCTION WS_strip_comment$ (v AS STRING)
+    DIM i AS INTEGER, ch AS STRING, prev AS STRING
+    FOR i = 2 TO LEN(v)
+        ch = MID$(v, i, 1)
+        IF ch = ";" _ORELSE ch = "#" THEN
+            prev = MID$(v, i - 1, 1)
+            IF prev = " " _ORELSE prev = CHR$(9) THEN
+                WS_strip_comment$ = _TRIM$(LEFT$(v, i - 1))
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT i
+    WS_strip_comment$ = v
+END FUNCTION
+
+
+''
+' Normalize a lookup key: "SECTION.KEY" upper case, except a [KEYS] key
+' keeps its case ("KEYS.r" and "KEYS.R" are different bindings).
+FUNCTION WS_norm_key$ (sec AS STRING, k AS STRING)
+    DIM s AS STRING
+    s = UCASE$(_TRIM$(sec))
+    IF s = "KEYS" THEN
+        WS_norm_key$ = s + "." + _TRIM$(k)
+    ELSE
+        WS_norm_key$ = s + "." + UCASE$(_TRIM$(k))
+    END IF
+END FUNCTION
+
+
+''
+' Split "SECTION.KEY" style input from callers: WS_get$("chrome.menubar").
+FUNCTION WS_norm_full$ (fullKey AS STRING)
+    DIM d AS INTEGER
+    d = INSTR(fullKey, ".")
+    IF d = 0 THEN
+        WS_norm_full$ = UCASE$(_TRIM$(fullKey))
+    ELSE
+        WS_norm_full$ = WS_norm_key$(LEFT$(fullKey, d - 1), MID$(fullKey, d + 1))
+    END IF
+END FUNCTION
+
+
+''
+' Read just the [WORKSPACE] header of a file into an info record.
+SUB WS_read_header (fpath AS STRING, info AS WS_INFO)
+    DIM fh AS INTEGER, ln AS STRING, sec AS STRING, eq AS INTEGER
+    DIM k AS STRING, v AS STRING, rb AS INTEGER
+    IF _FILEEXISTS(fpath) = 0 THEN EXIT SUB
+    fh = FREEFILE
+    OPEN fpath FOR INPUT AS #fh
+    DO WHILE NOT EOF(fh)
+        LINE INPUT #fh, ln
+        ln = _TRIM$(ln)
+        IF LEN(ln) = 0 THEN _CONTINUE
+        IF LEFT$(ln, 1) = ";" _ORELSE LEFT$(ln, 1) = "#" THEN _CONTINUE
+        IF LEFT$(ln, 1) = "[" THEN
+            rb = INSTR(ln, "]")
+            IF rb > 1 THEN sec = UCASE$(_TRIM$(MID$(ln, 2, rb - 2)))
+            IF sec <> "WORKSPACE" _ANDALSO LEN(info.title) > 0 THEN EXIT DO
+            _CONTINUE
+        END IF
+        IF sec <> "WORKSPACE" THEN _CONTINUE
+        eq = INSTR(ln, "=")
+        IF eq < 2 THEN _CONTINUE
+        k = UCASE$(_TRIM$(LEFT$(ln, eq - 1)))
+        v = WS_strip_comment$(_TRIM$(MID$(ln, eq + 1)))
+        SELECT CASE k
+            CASE "NAME":        info.title = v
+            CASE "DESCRIPTION": info.desc = v
+            CASE "BASED_ON":    info.basedOn = LCASE$(v)
+        END SELECT
+    LOOP
+    CLOSE #fh
+END SUB
+
+
+''
+' Add or update a list entry for <id> found in <fpath>.
+SUB WS_list_add (id AS STRING, fpath AS STRING, isUser AS INTEGER)
+    DIM i AS INTEGER, slot AS INTEGER
+    slot = 0
+    FOR i = 1 TO WS_COUNT
+        IF WS_LIST(i).id = id THEN slot = i: EXIT FOR
+    NEXT i
+    IF slot = 0 THEN
+        IF WS_COUNT >= WS_MAX THEN
+            _LOGWARN "WORKSPACE: more than" + STR$(WS_MAX) + " workspaces, ignoring " + fpath
+            EXIT SUB
+        END IF
+        WS_COUNT = WS_COUNT + 1
+        slot = WS_COUNT
+        WS_LIST(slot).id = id
+        WS_LIST(slot).builtin = FALSE
+        WS_LIST(slot).userFile = FALSE
+    END IF
+    ' The winning file supplies the header (user over built-in)
+    WS_LIST(slot).title = ""
+    WS_LIST(slot).desc = ""
+    WS_LIST(slot).basedOn = ""
+    WS_LIST(slot).fpath = fpath
+    IF isUser THEN WS_LIST(slot).userFile = TRUE ELSE WS_LIST(slot).builtin = TRUE
+    WS_read_header fpath, WS_LIST(slot)
+    IF LEN(WS_LIST(slot).title) = 0 THEN WS_LIST(slot).title = id
+    IF WS_LIST(slot).basedOn = id THEN WS_LIST(slot).basedOn = ""
+END SUB
+
+
+''
+' Add every *.workspace in a folder.
+SUB WS_scan_dir (dirPath AS STRING, isUser AS INTEGER)
+    DIM entry AS STRING, id AS STRING
+    IF _DIREXISTS(dirPath) = 0 THEN EXIT SUB
+    entry = _FILES$(dirPath + PATHS_sep$ + "*" + WS_EXT$)
+    DO WHILE LEN(entry) > 0
+        IF LCASE$(RIGHT$(entry, LEN(WS_EXT$))) = WS_EXT$ THEN
+            id = LCASE$(LEFT$(entry, LEN(entry) - LEN(WS_EXT$)))
+            IF LEN(id) > 0 THEN WS_list_add id, dirPath + PATHS_sep$ + entry, isUser
+        END IF
+        entry = _FILES$
+    LOOP
+END SUB
+
+
+''
+' (Re)build WS_LIST: default first, then the rest by title.
+SUB WS_scan ()
+    DIM i AS INTEGER, j AS INTEGER, tmp AS WS_INFO
+    WS_COUNT = 1
+    WS_LIST(1).id = WS_DEFAULT_ID$
+    WS_LIST(1).title = "Default"
+    WS_LIST(1).desc = "Everything, as you configured it"
+    WS_LIST(1).basedOn = ""
+    WS_LIST(1).fpath = ""
+    WS_LIST(1).builtin = TRUE
+    WS_LIST(1).userFile = FALSE
+
+    WS_scan_dir WS_builtin_dir$, FALSE
+    WS_scan_dir WS_user_dir$, TRUE
+
+    ' Default stays first and never inherits
+    WS_LIST(1).basedOn = ""
+
+    ' Insertion sort 2..n by title, case-insensitive
+    FOR i = 3 TO WS_COUNT
+        tmp = WS_LIST(i)
+        j = i - 1
+        DO WHILE j >= 2
+            IF UCASE$(WS_LIST(j).title) <= UCASE$(tmp.title) THEN EXIT DO
+            WS_LIST(j + 1) = WS_LIST(j)
+            j = j - 1
+        LOOP
+        WS_LIST(j + 1) = tmp
+    NEXT i
+
+    WS_SCANNED = TRUE
+    _LOGINFO "WORKSPACE: " + _TRIM$(STR$(WS_COUNT)) + " workspaces (built-in " + WS_builtin_dir$ + ", user " + WS_user_dir$ + ")"
+END SUB
+
+
+''
+' Index of a workspace by id or title (case-insensitive), 0 = not found.
+FUNCTION WS_find% (idOrTitle AS STRING)
+    DIM i AS INTEGER, q AS STRING
+    IF WS_SCANNED = 0 THEN WS_scan
+    q = LCASE$(_TRIM$(idOrTitle))
+    IF RIGHT$(q, LEN(WS_EXT$)) = WS_EXT$ THEN q = LEFT$(q, LEN(q) - LEN(WS_EXT$))
+    IF LEN(q) = 0 THEN EXIT FUNCTION
+    FOR i = 1 TO WS_COUNT
+        IF WS_LIST(i).id = q THEN WS_find% = i: EXIT FUNCTION
+    NEXT i
+    FOR i = 1 TO WS_COUNT
+        IF LCASE$(WS_LIST(i).title) = q THEN WS_find% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' TRUE when <id> is the no-overlay Default workspace.
+FUNCTION WS_is_default% (id AS STRING)
+    WS_is_default% = (LCASE$(_TRIM$(id)) = WS_DEFAULT_ID$)
+END FUNCTION
+
+
+''
+' Set (or replace) one resolved pair.
+SUB WS_res_set (nk AS STRING, v AS STRING)
+    DIM i AS INTEGER
+    FOR i = 1 TO WS_RES_N
+        IF WS_RES_KEY(i) = nk THEN WS_RES_VAL(i) = v: EXIT SUB
+    NEXT i
+    IF WS_RES_N >= WS_MAX_KV THEN
+        _LOGWARN "WORKSPACE: too many keys, ignoring " + nk
+        EXIT SUB
+    END IF
+    WS_RES_N = WS_RES_N + 1
+    WS_RES_KEY(WS_RES_N) = nk
+    WS_RES_VAL(WS_RES_N) = v
+END SUB
+
+
+''
+' Merge one file's sections into the resolved store (later files win).
+SUB WS_merge_file (fpath AS STRING)
+    DIM fh AS INTEGER, ln AS STRING, sec AS STRING, eq AS INTEGER, rb AS INTEGER
+    DIM k AS STRING, v AS STRING
+    IF LEN(fpath) = 0 THEN EXIT SUB
+    IF _FILEEXISTS(fpath) = 0 THEN EXIT SUB
+    fh = FREEFILE
+    OPEN fpath FOR INPUT AS #fh
+    DO WHILE NOT EOF(fh)
+        LINE INPUT #fh, ln
+        ln = _TRIM$(ln)
+        IF LEN(ln) = 0 THEN _CONTINUE
+        IF LEFT$(ln, 1) = ";" _ORELSE LEFT$(ln, 1) = "#" THEN _CONTINUE
+        IF LEFT$(ln, 1) = "[" THEN
+            rb = INSTR(ln, "]")
+            IF rb > 1 THEN sec = UCASE$(_TRIM$(MID$(ln, 2, rb - 2)))
+            _CONTINUE
+        END IF
+        eq = INSTR(ln, "=")
+        IF eq < 2 THEN _CONTINUE
+        IF LEN(sec) = 0 THEN _CONTINUE
+        k = _TRIM$(LEFT$(ln, eq - 1))
+        v = WS_strip_comment$(_TRIM$(MID$(ln, eq + 1)))
+        WS_res_set WS_norm_key$(sec, k), v
+    LOOP
+    CLOSE #fh
+END SUB
+
+
+''
+' Resolve a workspace into WS_RES_*: walk BASED_ON up to the root, then
+' merge root-first so the child wins. Returns TRUE on success; on failure
+' WS_LAST_ERROR says why and the store is left empty.
+FUNCTION WS_resolve% (idOrTitle AS STRING)
+    DIM hops(1 TO WS_MAX_DEPTH) AS INTEGER, n AS INTEGER
+    DIM idx AS INTEGER, i AS INTEGER, j AS INTEGER, parentId AS STRING
+    WS_LAST_ERROR = ""
+    WS_RES_N = 0
+    WS_RES_ID = ""
+    idx = WS_find%(idOrTitle)
+    IF idx = 0 THEN
+        WS_LAST_ERROR = "no workspace named '" + idOrTitle + "'"
+        EXIT FUNCTION
+    END IF
+
+    n = 0
+    DO WHILE idx > 0
+        FOR j = 1 TO n
+            IF hops(j) = idx THEN
+                _LOGWARN "WORKSPACE: BASED_ON cycle at '" + WS_LIST(idx).id + "', stopping"
+                idx = 0
+                EXIT FOR
+            END IF
+        NEXT j
+        IF idx = 0 THEN EXIT DO
+        IF n >= WS_MAX_DEPTH THEN
+            _LOGWARN "WORKSPACE: BASED_ON chain deeper than" + STR$(WS_MAX_DEPTH) + ", stopping"
+            EXIT DO
+        END IF
+        n = n + 1
+        hops(n) = idx
+        parentId = WS_LIST(idx).basedOn
+        IF LEN(parentId) = 0 THEN EXIT DO
+        idx = WS_find%(parentId)
+        IF idx = 0 THEN _LOGWARN "WORKSPACE: '" + WS_LIST(hops(n)).id + "' is BASED_ON missing '" + parentId + "'"
+    LOOP
+
+    ' Default is the empty overlay: merging it adds only its header
+    FOR i = n TO 1 STEP -1
+        WS_merge_file WS_LIST(hops(i)).fpath
+    NEXT i
+
+    idx = hops(1)
+    WS_RES_ID = WS_LIST(idx).id
+    WS_res_set "WORKSPACE.NAME", WS_LIST(idx).title
+    WS_res_set "WORKSPACE.DESCRIPTION", WS_LIST(idx).desc
+    WS_res_set "WORKSPACE.BASED_ON", WS_LIST(idx).basedOn
+    WS_resolve% = TRUE
+END FUNCTION
+
+
+''
+' Resolved value for "SECTION.KEY", or dflt when the workspace leaves it unset.
+FUNCTION WS_get$ (fullKey AS STRING, dflt AS STRING)
+    DIM i AS INTEGER, nk AS STRING
+    nk = WS_norm_full$(fullKey)
+    FOR i = 1 TO WS_RES_N
+        IF WS_RES_KEY(i) = nk THEN WS_get$ = WS_RES_VAL(i): EXIT FUNCTION
+    NEXT i
+    WS_get$ = dflt
+END FUNCTION
+
+
+''
+' TRUE when the resolved workspace sets "SECTION.KEY".
+FUNCTION WS_has% (fullKey AS STRING)
+    DIM i AS INTEGER, nk AS STRING
+    nk = WS_norm_full$(fullKey)
+    FOR i = 1 TO WS_RES_N
+        IF WS_RES_KEY(i) = nk THEN WS_has% = TRUE: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' Iterate one section: returns the next WS_RES_* index after <afterIdx> whose
+' key is in <sec>, 0 when done. Read WS_res_key_part$(i) / WS_RES_VAL(i).
+'   i = 0: DO: i = WS_next_in_section%("OPTIONS", i): IF i = 0 THEN EXIT DO ...
+FUNCTION WS_next_in_section% (sec AS STRING, afterIdx AS INTEGER)
+    DIM i AS INTEGER, pfx AS STRING
+    pfx = UCASE$(_TRIM$(sec)) + "."
+    FOR i = afterIdx + 1 TO WS_RES_N
+        IF LEFT$(WS_RES_KEY(i), LEN(pfx)) = pfx THEN WS_next_in_section% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' The KEY part of resolved pair i ("CHROME.MENUBAR" -> "MENUBAR").
+FUNCTION WS_res_key_part$ (i AS INTEGER)
+    DIM d AS INTEGER
+    IF i < 1 _ORELSE i > WS_RES_N THEN EXIT FUNCTION
+    d = INSTR(WS_RES_KEY(i), ".")
+    WS_res_key_part$ = MID$(WS_RES_KEY(i), d + 1)
+END FUNCTION
+
+
+''
+' Item <n> (1-based) of a comma list, trimmed; "" past the end.
+FUNCTION WS_list_item$ (csv AS STRING, n AS INTEGER)
+    DIM startAt AS INTEGER, c AS INTEGER, cnt AS INTEGER
+    startAt = 1
+    cnt = 0
+    DO
+        c = INSTR(startAt, csv, ",")
+        cnt = cnt + 1
+        IF cnt = n THEN
+            IF c = 0 THEN
+                WS_list_item$ = _TRIM$(MID$(csv, startAt))
+            ELSE
+                WS_list_item$ = _TRIM$(MID$(csv, startAt, c - startAt))
+            END IF
+            EXIT FUNCTION
+        END IF
+        IF c = 0 THEN EXIT FUNCTION
+        startAt = c + 1
+    LOOP
+END FUNCTION
+
+
+''
+' Number of items in a comma list ("" = 0).
+FUNCTION WS_list_count% (csv AS STRING)
+    DIM i AS INTEGER, cnt AS INTEGER
+    IF LEN(_TRIM$(csv)) = 0 THEN EXIT FUNCTION
+    cnt = 1
+    FOR i = 1 TO LEN(csv)
+        IF MID$(csv, i, 1) = "," THEN cnt = cnt + 1
+    NEXT i
+    WS_list_count% = cnt
+END FUNCTION

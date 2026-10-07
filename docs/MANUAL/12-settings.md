@@ -119,6 +119,10 @@ Each can be docked **left or right** by `Ctrl+Shift`+clicking on the panel itsel
 
 DRAW also supports **auto-hide** while drawing: panels fade out so they don't obscure your work, then return when the cursor leaves the canvas.
 
+### Workspaces
+
+A **workspace** is a layout preset that DRAW overlays on your own setup. It can set which panels show, the toolbox, the menus, the bars and extra keys. Leaving it puts everything back, and nothing it changes is saved to `DRAW.cfg`. Switch with **View → Workspace**, **`Ctrl+Shift+W`**, or the `[WS: name]` status badge. Inside a workspace, `F11` shows what it hid. See **[Chapter 22 — Workspaces & Screenshot Annotation](22-workspaces-capture.md)**.
+
 ### Cursor system
 
 The cursor system uses your OS-native cursor for UI hovers and a custom-painted cursor for tool-specific feedback (crosshair on dot, brush footprint on brush, etc.). This is automatic and themeable.

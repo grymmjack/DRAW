@@ -24,6 +24,7 @@ CONST PALETTE_MENU_MORE_COL_W = 76  ' Width reserved for the "...and N more" lab
 CONST PALETTE_MENU_CHIP_GAP   = 4   ' Gap between the name column and the chips
 
 ' Palette menu state
+DIM SHARED PALETTE_STRIP_HIDDEN AS INTEGER ' a workspace hid the strip (status bar stays): 0 height, no render/input
 DIM SHARED PALETTE_MENU_VISIBLE%
 DIM SHARED PALETTE_MENU_X%
 DIM SHARED PALETTE_MENU_Y%

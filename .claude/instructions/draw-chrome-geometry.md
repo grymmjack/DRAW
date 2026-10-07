@@ -190,8 +190,8 @@ TOTAL = (196 × TB) + 24
 | `MENU_SUB_PAD_RIGHT`| 8     | Submenu right padding             |
 | `MENU_SUB_HOTKEY_GAP`| 16   | Gap: label → hotkey column        |
 | `MENU_CHECK_WIDTH`  | 12    | Checkbox column width             |
-| `MENU_MAX_ITEMS`    | 256   | Max total menu items              |
-| `MENU_MAX_ROOT`     | 12    | Max root-level entries            |
+| `MENU_MAX_ITEMS`    | 600   | Max total menu items (overflow is logged, not silent) |
+| `MENU_MAX_ROOT`     | 16    | Max root-level entries            |
 
 ---
 

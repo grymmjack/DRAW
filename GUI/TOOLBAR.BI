@@ -43,7 +43,8 @@ CONST TB_BTN_PADDING      = 1
 CONST TB_TOP              = 0
 CONST TB_COLS             = 4
 CONST TB_ROWS             = 7
-CONST TB_TOTAL            = 28
+CONST TB_TOTAL            = 28 ' slots in the DEFAULT 4x7 grid
+CONST TB_MAX_SLOTS        = 40 ' slots a workspace [TOOLBOX] BUTTONS= list may use
 ' TB_RIGHT, TB_CENTER and TB_LEFT are now calculated dynamically in TOOLBAR_render()
 ' to align toolbar to the right edge of the screen
 
@@ -56,7 +57,9 @@ CONST TB_TOTAL            = 28
 ' Row 4: LINE          | POLYLINE      | POLYFILL      | SAVE
 ' Row 5: QB64/CODE     | RECT          | RECT FILLED   | EXPORT SEL
 ' Row 6: HELP          | ELLIPSE       | ELLIPSE FILL  | OPEN
-DIM SHARED TOOLBAR_BUTTON_ORDER(27) AS INTEGER
+DIM SHARED TOOLBAR_BUTTON_ORDER(TB_MAX_SLOTS - 1) AS INTEGER ' slot -> TB_* button (-1 = empty cell)
+DIM TB_slotInit AS INTEGER
+FOR TB_slotInit = 0 TO TB_MAX_SLOTS - 1: TOOLBAR_BUTTON_ORDER(TB_slotInit) = -1: NEXT
 ' Row 0: Navigation/Transform
 TOOLBAR_BUTTON_ORDER(0) = TB_MOVE
 TOOLBAR_BUTTON_ORDER(1) = TB_HAND
@@ -94,7 +97,8 @@ TOOLBAR_BUTTON_ORDER(26) = TB_CIRCLE_FILLED
 TOOLBAR_BUTTON_ORDER(27) = TB_OPEN
 
 ' Map toolbar button positions to tool constants
-DIM SHARED TOOLBAR_BUTTON_TO_TOOL(27) AS INTEGER
+DIM SHARED TOOLBAR_BUTTON_TO_TOOL(TB_MAX_SLOTS - 1) AS INTEGER ' slot -> TOOL_* constant
+FOR TB_slotInit = 0 TO TB_MAX_SLOTS - 1: TOOLBAR_BUTTON_TO_TOOL(TB_slotInit) = -1: NEXT
 ' Row 0
 TOOLBAR_BUTTON_TO_TOOL(0) = TOOL_MOVE
 TOOLBAR_BUTTON_TO_TOOL(1) = TOOL_PAN
@@ -251,3 +255,27 @@ GUI_TB(TB_BEZIER).evt$  = "BEZIER"
 GUI_TB(TB_SMART_SHAPES).iSrc$ = "smartshape.png"
 GUI_TB(TB_SMART_SHAPES).tip$  = "s - SMART SHAPES - L-Click and hold to select a shape from flyout menu."
 GUI_TB(TB_SMART_SHAPES).evt$  = "SMART_SHAPES"
+
+' --- Live toolbox layout -------------------------------------------------------
+' The grid above is the DEFAULT layout. A workspace's [TOOLBOX] (BUTTONS=,
+' COLUMNS=) rewrites the slot arrays and these live sizes; TOOLBAR_layout_restore
+' puts the default back. Every loop/geometry reads the live values, never
+' TB_TOTAL/TB_COLS/TB_ROWS directly.
+DIM SHARED TB_LIVE_COUNT AS INTEGER ' slots in use (0..TB_LIVE_COUNT-1)
+DIM SHARED TB_LIVE_COLS  AS INTEGER ' buttons per row
+DIM SHARED TB_LIVE_ROWS  AS INTEGER ' rows = ceil(count / cols)
+TB_LIVE_COUNT = TB_TOTAL
+TB_LIVE_COLS  = TB_COLS
+TB_LIVE_ROWS  = TB_ROWS
+
+' Copy of the default layout (restore + tooltip lookup, which is keyed by
+' default slot)
+DIM SHARED TOOLBAR_DEF_ORDER(TB_TOTAL - 1)   AS INTEGER
+DIM SHARED TOOLBAR_DEF_TO_TOOL(TB_TOTAL - 1) AS INTEGER
+FOR TB_slotInit = 0 TO TB_TOTAL - 1
+    TOOLBAR_DEF_ORDER(TB_slotInit)   = TOOLBAR_BUTTON_ORDER(TB_slotInit)
+    TOOLBAR_DEF_TO_TOOL(TB_slotInit) = TOOLBAR_BUTTON_TO_TOOL(TB_slotInit)
+NEXT
+
+' Per-button icon override from a workspace (ICON.<name>=file.png); 0 = none
+DIM SHARED TB_ICON_OVR(0 TO 29) AS LONG

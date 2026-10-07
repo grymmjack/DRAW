@@ -48,7 +48,8 @@ DIM SHARED TOOLTIP AS TOOLTIP_OBJ
 TOOLTIP.HOVER_BTN_IDX% = -1
 TOOLTIP.HOVER_SOURCE%  = TOOLTIP_SRC_NONE
 
-' Tooltip text arrays — indexed by toolbar button order (0..TB_TOTAL-1)
+' Tooltip text arrays — indexed by DEFAULT toolbar slot (0..TB_TOTAL-1); a
+' reordered (workspace) toolbox looks text up via TOOLBAR_default_slot%
 DIM SHARED TOOLTIP_LINE1$(0 TO 27)     ' First line  : hotkey + tool name + description
 DIM SHARED TOOLTIP_LINE2$(0 TO 27)     ' Second line : status/usage hints
 

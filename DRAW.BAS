@@ -115,7 +115,12 @@ DIM splashBg      AS _UNSIGNED LONG, splashBgR AS INTEGER, splashBgG AS INTEGER,
 ' Splash is gated on CFG.SPLASH_ENABLED% (Settings > General > Startup Defaults).
 ' When disabled, splashImg& stays 0 so the fade-in/hold/fade-out blocks below
 ' (all guarded by `splashImg& < -1`) are skipped entirely — no side effects.
-IF CFG.SPLASH_ENABLED% THEN splashImg& = _LOADIMAGE("ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/splash.png", 32)
+' Also skipped for DRAW --capture: a screenshot launch should get to the grab at once.
+DIM splashArgI AS INTEGER, splashSkip AS INTEGER
+FOR splashArgI = 1 TO _COMMANDCOUNT
+    IF LCASE$(_TRIM$(COMMAND$(splashArgI))) = "--capture" THEN splashSkip = -1
+NEXT splashArgI
+IF CFG.SPLASH_ENABLED% AND NOT splashSkip THEN splashImg& = _LOADIMAGE("ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/splash.png", 32)
 DIM splashVerFont AS LONG: splashVerFont& = 0
 DIM splashVerStr  AS STRING
 DIM splashVerDstX AS LONG, splashVerDstY AS LONG
@@ -249,7 +254,7 @@ $ELSE
                LCASE$(argVal$) = "/h" OR LCASE$(argVal$) = "/help" OR _
                LCASE$(argVal$) = "--version" OR LCASE$(argVal$) = "-v" THEN
             argIdx% = argIdx% + 1 ' Defensive: HELP.BI should have exited already
-        ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" OR LCASE$(argVal$) = "--palette" THEN
+        ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" OR LCASE$(argVal$) = "--palette" OR LCASE$(argVal$) = "--workspace" THEN
             argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
         ELSEIF LCASE$(argVal$) = "--export-qb64" OR LCASE$(argVal$) = "--export" OR _
                LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" THEN
@@ -522,6 +527,11 @@ IF benchLayers% > 0 THEN BENCH_render_run benchLayers%
 
 ' Pen tablet pressure (INPUT/PEN, QB64_GJ_LIB PRESSURE_DEVICE). Needs the window.
 PEN_init
+
+' Reopen in the remembered workspace (CFG.WORKSPACE) - an overlay, GUI/WORKSPACE-APPLY.
+WS_startup
+' DRAW --capture: grab the screen once the window is up (GUI/CAPTURE).
+CAP_startup
 
 DO
     ' Deferred command line file loading (after first frame when everything is initialized).
@@ -1024,6 +1034,9 @@ DO
     MOUSE_input_handler_loop
     KEYBOARD_input_handler_loop
     STICK_input_handler_loop
+    WS_tick ' a workspace's [START] runs once the new chrome has been laid out
+    CAP_tick ' DRAW --capture, a few frames after startup
+    ANN_tick ' annotate Redact/Callout modes (GUI/ANNOTATE)
     PERF_stop PERF_POST_INPUT
     PERF_stop PERF_MAIN_LOOP_TOTAL
     PERF_frame_end
@@ -1223,9 +1236,12 @@ SUB MAIN_shutdown ()
     ' =====================================================================
     ' FREE TOOLBAR BUTTON IMAGES (all used slots)
     ' =====================================================================
-    FOR i% = 0 TO TB_TOTAL
+    FOR i% = 0 TO UBOUND(GUI_TB) ' every button (TB_TOTAL stopped at 28 and leaked Smart Shapes, 29)
         IF GUI_TB(i%).iHnd& < -1 THEN _FREEIMAGE GUI_TB(i%).iHnd&
         IF GUI_TB(i%).iHndAlt& < -1 THEN _FREEIMAGE GUI_TB(i%).iHndAlt&
+        IF i% <= UBOUND(TB_ICON_OVR) THEN
+            IF TB_ICON_OVR(i%) < -1 THEN _FREEIMAGE TB_ICON_OVR(i%)
+        END IF
     NEXT i%
 
     ' =====================================================================

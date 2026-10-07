@@ -173,3 +173,7 @@ dialog offers to open it for you.
 4. Run a batch of 4 and compare the variations — same prompt, four seeds.
 5. Open the **[?]** macro reference and find three macros whose current values
    change when you switch tool or palette.
+
+---
+
+➡️ Next: [Chapter 22 — Workspaces & Screenshot Annotation](22-workspaces-capture.md)

@@ -37,10 +37,12 @@ qb64pe -w -x -o DRAW.run DRAW.BAS
 ./DRAW.run --config-upgrade        # reconcile cfg with new defaults
 ./DRAW.run --reset-defaults        # restore factory cfg
 ./DRAW.run --options-list          # print every config option + default + description, then exit
-./DRAW.run --option KEY=VALUE      # override any config key from the CLI (repeatable; beats the .cfg)
+./DRAW.run --option KEY=VALUE      # override any config key for this run (repeatable; beats the .cfg, never saved)
 ./DRAW.run --option TOOLTIPS_DISABLED=TRUE --option GROUP_DRAW_AUTO_LAYER=TRUE
 ./DRAW.run --cfg                   # path of the config in use (vim $(./DRAW.run --cfg))
 ./DRAW.run --dirs                  # every DRAW directory; --dir-NAME prints one bare path
+./DRAW.run --workspace annotate    # start in a workspace (this run only); --workspaces lists them
+./DRAW.run --capture               # grab the screen -> region -> Annotate (hands off to a running DRAW)
 ```
 
 Path queries (`--cfg/--dirs/--dir-*`, CFG/CLI-QUERY.BI) and `--help` exit at include
@@ -252,6 +254,7 @@ machine. Same convention is documented in the `grymmjack/qb64pe-mcp-server-bash`
 | `.claude/instructions/draw-pen-pressure.md` | Pen tablet pressure: `QB64_GJ_LIB/PRESSURE_DEVICE` backends (Windows Ink / macOS sendEvent / XInput2), `INPUT/PEN` (`TABLET` state — `PEN` is a QB64 keyword), per-dab pressure sizing in `PAINT_on_pressure`, live non-compounding pressure opacity (`PEN_op_write`), lift/land filter, mix-brush pressure, Pen Pressure panel `GUI/PEN-PANEL` (action 2028), Settings → General → Pen Tablet. [Linux] never select XI_Motion on DRAW's window — it steals hover motion |
 | `.claude/instructions/draw-adv-color-picker.md` | Advanced Color Picker: `ACP` library widget vs `ADVCP` wrapper split, panel states, mouse dispatch order, shade selector, color history + context menu, FG/BG model, config-in-Settings rule |
 | `.claude/instructions/draw-color-cycling.md` | Palette color cycling: RGBA "chip IS its pixels" model, `PCYC_` ranges (CRNG units, FWD/REV/PING), render hook + idle rule, undo tail / Color Ops bookkeeping, .draw v30, GIF (GrafX2 CRNG) / animated GIF / ILBM-PBM / single-file .bas exporters + importers, batch CLI `--cycle/--export`, tests |
+| `.claude/instructions/draw-workspaces.md` | Workspaces + screen capture + annotate tools: `CFG/WORKSPACE` (WS_ file layer, BASED_ON), `GUI/WORKSPACE-APPLY` overlay (snapshot/apply/restore, `CONFIG_save` guard, F11 reveal, toolbox/bars/menus/keys appliers, `MENU_ROOT_REMAP`), `GUI/WORKSPACE-CONFIG` configurator, `GUI/CAPTURE` backends + region picker + `--capture` mailbox handoff, `GUI/ANNOTATE` arrow/highlighter/redact/callout/Done; action ids 2400-2457 |
 
 The `.claude/skills/` directory contains procedural workflows for common tasks (release prep, QA test generation, bug fixing with state diagrams, PDF manual build, image upscaling, mind-map generation, QB64-PE porting/debugging). Each subdirectory has a `SKILL.md` invoked as a slash command.
 

@@ -68,6 +68,14 @@ SUB CMD_init ()
     ' ========== FILE ==========
     CMD_register "New Canvas", "Ctrl+N", CMD_CAT_FILE, 209
     CMD_register "New Window", "Ctrl+Alt+N", CMD_CAT_FILE, 718
+    CMD_register "Capture Screen", "Ctrl+Shift+P", CMD_CAT_FILE, CAP_ACT_CAPTURE
+    CMD_register "Annotate: Arrow", "", CMD_CAT_TOOL, ANN_ACT_ARROW
+    CMD_register "Annotate: Highlighter", "", CMD_CAT_TOOL, ANN_ACT_HIGHLIGHT
+    CMD_register "Annotate: Redact (pixelate a box)", "", CMD_CAT_TOOL, ANN_ACT_REDACT
+    CMD_register "Annotate: Numbered Callout", "", CMD_CAT_TOOL, ANN_ACT_CALLOUT
+    CMD_register "Annotate: Restart Callout Numbers", "", CMD_CAT_TOOL, ANN_ACT_CALLOUT_RESET
+    CMD_register "Capture: Quick Save PNG", "", CMD_CAT_FILE, ANN_ACT_QUICKSAVE
+    CMD_register "Capture: Done (save, copy, go back)", "", CMD_CAT_FILE, ANN_ACT_DONE
     CMD_register "Open Image", "Ctrl+O", CMD_CAT_FILE, 201
     CMD_register "Save Image", "Ctrl+S", CMD_CAT_FILE, 202
     CMD_register "Save As...", "Ctrl+Shift+S", CMD_CAT_FILE, 204
@@ -148,6 +156,10 @@ SUB CMD_init ()
     CMD_register "Toggle Toolbar", "Tab", CMD_CAT_VIEW, 401
     CMD_register "Toggle Status Bar", "F10", CMD_CAT_VIEW, 402
     CMD_register "Toggle All UI", "F11", CMD_CAT_VIEW, 403
+    CMD_register "Workspace Switcher", "Ctrl+Shift+W", CMD_CAT_VIEW, WS_ACT_SWITCHER
+    CMD_register "Configure Workspaces...", "", CMD_CAT_VIEW, WS_ACT_CONFIGURE
+    CMD_register "Open Workspaces Folder", "", CMD_CAT_VIEW, WS_ACT_FOLDER
+    CMD_register "Reload Workspaces", "", CMD_CAT_VIEW, WS_ACT_RELOAD
     CMD_register "Toggle Layer Panel", "Ctrl+L", CMD_CAT_VIEW, 404
     CMD_register "Reset Zoom", "Ctrl+0", CMD_CAT_VIEW, 405
     CMD_register "Zoom In", "Ctrl+=", CMD_CAT_VIEW, 406
@@ -677,9 +689,8 @@ SUB CMD_handle_key (keypress AS STRING)
         CASE 27        ' ESC - close
             CMD_hide
             
-        CASE 13        ' Enter - execute selected
+        CASE 13        ' Enter - execute selected (closes the palette itself)
             CMD_execute_selected
-            CMD_hide
             
         CASE 8         ' Backspace - delete character
             IF CMD_PALETTE.search_len > 0 THEN
@@ -736,7 +747,6 @@ SUB CMD_handle_click (x AS INTEGER, y AS INTEGER)
         IF item_idx% >= 0 AND item_idx% < CMD_PALETTE.result_count THEN
             CMD_PALETTE.hover = item_idx%
             CMD_execute_selected
-            CMD_hide
         END IF
     END IF
 END SUB
@@ -819,6 +829,11 @@ SUB CMD_execute_selected ()
     
     DIM idx AS INTEGER
     idx% = CMD_RESULTS(CMD_PALETTE.hover)
+    ' Close the palette FIRST and present a clean frame: a modal action (Settings,
+    ' Configure Workspaces) would otherwise open over a palette still on screen,
+    ' and hiding it afterwards would close a palette the action re-opened
+    ' (Workspace Switcher).
+    CMD_hide
     CMD_execute_action CMD_LIST(idx%).action_id
 END SUB
 
@@ -1176,6 +1191,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
             GUI_NEEDS_REDRAW%          = TRUE
             SCENE_DIRTY%               = TRUE
         CASE 403      ' Toggle All UI
+            ' Inside a workspace that hides things, F11 reveals/re-hides those instead
+            IF WS_f11% THEN EXIT SELECT
             IF SCRN.showToolbar% OR SCRN.showStatus% OR LAYER_PANEL.visible% OR (SCRN.showMenubar% AND MENU_BAR.visible%) OR PREVIEW.visible% OR SCRN.showEditBar% OR SCRN.showAdvBar% OR TEXT_BAR.visible% OR SCRN.showCharMap% OR SCRN.showColorMixer% OR ADVCP.visible% OR SCRN.showBrowser% THEN
                 SCRN.showToolbar%    = FALSE
                 SCRN.showStatus%     = FALSE
@@ -1374,6 +1391,10 @@ SUB CMD_execute_action (action_id AS INTEGER)
             CONFIG_save
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE%       = FALSE
+        CASE 2450 TO 2459 ' File > Capture Screen (GUI/CAPTURE.BM)
+            CAP_action action_id%
+        CASE 2400 TO 2449 ' View > Workspace (GUI/WORKSPACE-APPLY.BM)
+            WS_action action_id%
         CASE 2060 TO 2069 ' Palette > Color Cycling (GUI/PALETTE-CYCLE.BM)
             PCYC_action action_id%
         CASE 2330 TO 2335 ' File > Color Cycling exports (OUTPUT/FILE-CYCLE-BAS.BM)
@@ -2564,37 +2585,14 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 _LOGWARN "CMD 2058: No image in OS clipboard"
                 EXIT SUB
             END IF
-            DIM ncbW   AS INTEGER, ncbH AS INTEGER
+            DIM ncbW AS INTEGER, ncbH AS INTEGER, ncbOk AS INTEGER
             ncbW% = _WIDTH(ncbImg&)
             ncbH% = _HEIGHT(ncbImg&)
-            ' Prompt to save if dirty
-            IF CANVAS_DIRTY% THEN
-                POINTER_hide_for_dialog
-                DIM ncbSave AS LONG
-                ncbSave& = DRAW_message_box%("New from Clipboard", "You have unsaved changes. Continue without saving?", MB_BTN_YES_NO, MB_ICON_WARNING)
-                POINTER_show_after_dialog
-                MOUSE_cleanup_after_dialog FALSE
-                IF ncbSave& <> MB_RESULT_1 THEN
-                    SAFE_FREEIMAGE ncbImg&
-                    EXIT SUB
-                END IF
-            END IF
-            ' Create canvas at clipboard dimensions
-            DRW_create_canvas_at_size ncbW%, ncbH%
-            ' Paste clipboard pixels directly into Background layer
-            DIM ncbOldDest AS LONG
-            ncbOldDest& = _DEST
-            _DEST LAYERS(1).imgHandle&
-            _PUTIMAGE , ncbImg&
-            _DEST ncbOldDest&
-            LAYERS(1).contentDirty% = TRUE
+            ' Unsaved-changes prompt + new canvas + paste (TOOLS/DRW.BM)
+            ncbOk% = DRW_new_from_image%(ncbImg&, "New from Clipboard")
             SAFE_FREEIMAGE ncbImg&
-            CANVAS_DIRTY% = TRUE
+            IF ncbOk% = 0 THEN EXIT SUB
             SOUND_play SND_CLIPBOARD
-            BLEND_invalidate_cache
-            SCENE_DIRTY%      = TRUE
-            FRAME_IDLE%       = FALSE
-            GUI_NEEDS_REDRAW% = TRUE
             _LOGINFO "CMD 2058: New from Clipboard " + STR$(ncbW%) + "x" + STR$(ncbH%)
         CASE 210                     ' New from Template
             ' Prompt to save if dirty

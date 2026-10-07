@@ -71,6 +71,8 @@ By Rick Christy ([grymmjack](https://github.com/grymmjack)) · [github.com/grymm
 
 21. **[Ch. 21  🤖 AI Image Generation](MANUAL/21-ai-generation.md)**  
     Optional and off by default. External generators, prompts, styles, batches.
+22. **[Ch. 22  🧰 Workspaces & Screenshot Annotation](MANUAL/22-workspaces-capture.md)**  
+    Layout presets (panels, toolbox, menus, keys), the configurator, Capture Screen and the Annotate tools.
 
 </div>
 
@@ -111,7 +113,7 @@ You can read it cover-to-cover, jump to any chapter from the [Table of Contents]
 docs/
 ├── MANUAL.md            ← this cover + master TOC
 └── MANUAL/
-    ├── 01-introduction.md       … 21-ai-generation.md
+    ├── 01-introduction.md       … 22-workspaces-capture.md
     ├── SCREENSHOTS.md   ← capture checklist for missing visuals
     └── images/          ← captured screenshots + placeholder.svg
 ```

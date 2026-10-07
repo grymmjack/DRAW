@@ -1,0 +1,319 @@
+''
+' DRAW - GUI/ANNOTATE.BM
+' =============================================================================
+' Screenshot annotation tools. See GUI/ANNOTATE.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Pick the layer a raster edit should land on: the current one, unless it is
+' the Highlight layer (redact/callout belong on the picture under it).
+FUNCTION ANN_target_layer% ()
+    DIM i AS INTEGER, best AS INTEGER, bestZ AS INTEGER
+    ANN_target_layer% = CURRENT_LAYER%
+    IF CURRENT_LAYER% < 1 _ORELSE CURRENT_LAYER% > MAX_LAYERS THEN EXIT FUNCTION
+    IF UCASE$(RTRIM$(LAYERS(CURRENT_LAYER%).name)) <> UCASE$(ANN_HIGHLIGHT_LAYER$) THEN EXIT FUNCTION
+    bestZ = 32767
+    FOR i = 1 TO MAX_LAYERS
+        IF LAYERS(i).imgHandle& < -1 _ANDALSO i <> CURRENT_LAYER% THEN
+            IF LAYERS(i).zIndex% < bestZ THEN bestZ = LAYERS(i).zIndex%: best = i
+        END IF
+    NEXT i
+    IF best > 0 THEN ANN_target_layer% = best
+END FUNCTION
+
+
+''
+' Undo snapshot of a layer before an annotation edit (caller records it).
+FUNCTION ANN_snapshot& (layerIdx AS INTEGER)
+    IF layerIdx < 1 _ORELSE layerIdx > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(layerIdx).imgHandle& >= -1 THEN EXIT FUNCTION
+    ANN_snapshot& = _COPYIMAGE(LAYERS(layerIdx).imgHandle&, 32)
+END FUNCTION
+
+
+SUB ANN_commit (layerIdx AS INTEGER, snap AS LONG, label AS STRING)
+    DIM s AS LONG
+    s = snap
+    IF s < -1 THEN
+        HISTORY_record_transform LAYERS(layerIdx).historyId&, layerIdx, 0, s, label
+        HISTORY_saved_this_frame% = TRUE
+    END IF
+    LAYERS(layerIdx).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+END SUB
+
+
+' -----------------------------------------------------------------------------
+' Redact: pixelate a canvas box on the target layer
+' -----------------------------------------------------------------------------
+SUB ANN_redact_box (bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
+    DIM li AS INTEGER, img AS LONG, ax AS INTEGER, ay AS INTEGER, snap AS LONG
+    DIM x1 AS INTEGER, y1 AS INTEGER, w AS INTEGER, h AS INTEGER, region AS LONG, pix AS LONG, blk AS INTEGER, oldDest AS LONG
+    li = ANN_target_layer%
+    IF li < 1 THEN EXIT SUB
+    img = LAYERS(li).imgHandle&
+    IF img >= -1 THEN EXIT SUB
+    x1 = bx: y1 = by: w = bw: h = bh
+    IF x1 < 0 THEN w = w + x1: x1 = 0
+    IF y1 < 0 THEN h = h + y1: y1 = 0
+    IF x1 + w > SCRN.canvasW& THEN w = SCRN.canvasW& - x1
+    IF y1 + h > SCRN.canvasH& THEN h = SCRN.canvasH& - y1
+    IF w < 2 _ORELSE h < 2 THEN EXIT SUB
+    ax = LAYERS(li).apronW%: ay = LAYERS(li).apronH%
+    snap = ANN_snapshot&(li)
+    oldDest = _DEST
+    region = _NEWIMAGE(w, h, 32)
+    _PUTIMAGE (0, 0), img, region, (x1 + ax, y1 + ay)-(x1 + ax + w - 1, y1 + ay + h - 1)
+    blk = _MIN(w, h) \ 6
+    IF blk < 4 THEN blk = 4
+    IF blk > 16 THEN blk = 16
+    pix = IMAGE_ADJ_pixelate_alpha_aware&(region, blk)
+    IF pix < -1 THEN
+        _DONTBLEND img
+        _PUTIMAGE (x1 + ax, y1 + ay), pix, img
+        _BLEND img
+        _FREEIMAGE pix
+    END IF
+    _FREEIMAGE region
+    _DEST oldDest
+    ANN_commit li, snap, "Redact"
+    STATUS_flash "Redacted" + STR$(w) + " x" + STR$(h)
+END SUB
+
+
+' -----------------------------------------------------------------------------
+' Numbered callout: a filled circle with the next number, centered at (cx, cy)
+' -----------------------------------------------------------------------------
+SUB ANN_place_callout (cx AS INTEGER, cy AS INTEGER)
+    DIM li AS INTEGER, img AS LONG, ax AS INTEGER, ay AS INTEGER, snap AS LONG, oldDest AS LONG
+    DIM r AS INTEGER, dy AS INTEGER, dx AS INTEGER, px AS INTEGER, py AS INTEGER, col AS _UNSIGNED LONG, ink AS _UNSIGNED LONG
+    DIM txt AS STRING, tImg AS LONG, tw AS INTEGER, th AS INTEGER, sc AS SINGLE, lum AS SINGLE
+    li = ANN_target_layer%
+    IF li < 1 THEN EXIT SUB
+    img = LAYERS(li).imgHandle&
+    IF img >= -1 THEN EXIT SUB
+    ax = LAYERS(li).apronW%: ay = LAYERS(li).apronH%
+    r = _MIN(SCRN.canvasW&, SCRN.canvasH&) \ 45
+    IF r < 6 THEN r = 6
+    IF r > 40 THEN r = 40
+    ANN_CALLOUT_N = ANN_CALLOUT_N + 1
+    col = PAINT_COLOR~& OR &HFF000000~&
+    IF PAL_FG_IS_TRANSPARENT% THEN col = _RGB32(255, 32, 64)
+    lum = 0.299 * _RED32(col) + 0.587 * _GREEN32(col) + 0.114 * _BLUE32(col)
+    IF lum > 150 THEN ink = _RGB32(0, 0, 0) ELSE ink = _RGB32(255, 255, 255)
+
+    snap = ANN_snapshot&(li)
+    oldDest = _DEST
+    _DEST img
+    px = cx + ax: py = cy + ay
+    FOR dy = -r TO r
+        dx = INT(SQR(r * r - dy * dy))
+        LINE (px - dx, py + dy)-(px + dx, py + dy), col
+    NEXT dy
+    CIRCLE (px, py), r, ink
+    ' the number, from the 8x16 font, scaled to ~1.1x the radius
+    txt = _TRIM$(STR$(ANN_CALLOUT_N))
+    tw = LEN(txt) * 8: th = 16
+    tImg = _NEWIMAGE(tw, th, 32)
+    _DEST tImg
+    CLS , _RGBA32(0, 0, 0, 0)
+    COLOR ink, _RGBA32(0, 0, 0, 0)
+    _PRINTMODE _KEEPBACKGROUND
+    _PRINTSTRING (0, 0), txt
+    _DEST img
+    sc = (r * 1.15) / th
+    IF tw * sc > r * 1.6 THEN sc = (r * 1.6) / tw
+    _PUTIMAGE (px - (tw * sc) / 2, py - (th * sc) / 2)-(px + (tw * sc) / 2, py + (th * sc) / 2), tImg, img
+    _FREEIMAGE tImg
+    _DEST oldDest
+    ANN_commit li, snap, "Callout " + txt
+END SUB
+
+
+' -----------------------------------------------------------------------------
+' Highlighter: brush on a Multiply "Highlight" layer, yellow
+' -----------------------------------------------------------------------------
+SUB ANN_highlighter ()
+    DIM i AS INTEGER, found AS INTEGER
+    FOR i = 1 TO MAX_LAYERS
+        IF LAYERS(i).imgHandle& < -1 THEN
+            IF UCASE$(RTRIM$(LAYERS(i).name)) = UCASE$(ANN_HIGHLIGHT_LAYER$) THEN found = i: EXIT FOR
+        END IF
+    NEXT i
+    IF found = 0 THEN
+        found = LAYERS_new_at_top%
+        IF found < 1 THEN STATUS_flash "Highlighter: no room for another layer": EXIT SUB
+        LAYERS(found).name = ANN_HIGHLIGHT_LAYER$
+        LAYERS(found).blendMode% = BLEND_MULTIPLY
+        RENDER_ORDER_DIRTY% = TRUE
+        BLEND_invalidate_cache
+        INVALIDATE_layers
+    END IF
+    LAYERS_select found
+    CMD_execute_action 101 ' brush
+    IF BRUSH_SIZE.CURRENT < 8 THEN BRUSH_SIZE_set 8
+    PAINT_COLOR~& = _RGB32(255, 226, 32)
+    PAL_FG_IS_TRANSPARENT% = FALSE
+    STATUS_flash "Highlighter: yellow brush on the Multiply layer '" + ANN_HIGHLIGHT_LAYER$ + "'"
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+' -----------------------------------------------------------------------------
+' Quick save + Done
+' -----------------------------------------------------------------------------
+FUNCTION ANN_save_dir$ ()
+    DIM d AS STRING, home AS STRING
+    d = _TRIM$(CFG.CAPTURE_SAVE_DIR$)
+    IF LEN(d) THEN ANN_save_dir$ = d: EXIT FUNCTION
+    $IF WIN THEN
+        home = ENVIRON$("USERPROFILE")
+    $ELSE
+        home = ENVIRON$("HOME")
+    $END IF
+    ANN_save_dir$ = home + PATHS_sep$ + "Pictures" + PATHS_sep$ + "DRAW Screenshots"
+END FUNCTION
+
+
+''
+' Flattened PNG, no dialog. First save of a capture picks
+' DRAW-YYYYMMDD-HHMMSS.png; later saves overwrite it. Returns the path or "".
+FUNCTION ANN_quick_save$ ()
+    DIM d AS STRING, f AS STRING, merged AS LONG, dt AS STRING, tm AS STRING
+    d = ANN_save_dir$
+    PATHS_ensure_dir d + PATHS_sep$
+    IF LEN(CAP_QUICK_PATH) = 0 THEN
+        dt = DATE$ ' mm-dd-yyyy
+        tm = TIME$ ' hh:mm:ss
+        CAP_QUICK_PATH = d + PATHS_sep$ + "DRAW-" + MID$(dt, 7, 4) + LEFT$(dt, 2) + MID$(dt, 4, 2) + "-" + LEFT$(tm, 2) + MID$(tm, 4, 2) + MID$(tm, 7, 2) + ".png"
+    END IF
+    f = CAP_QUICK_PATH
+    merged = LAYERS_flatten&
+    IF merged >= -1 THEN STATUS_flash "Quick save failed: nothing to save": EXIT FUNCTION
+    _SAVEIMAGE f, merged
+    _FREEIMAGE merged
+    IF _FILEEXISTS(f) = 0 THEN STATUS_flash "Quick save failed: " + f: EXIT FUNCTION
+    CANVAS_DIRTY% = FALSE
+    STATUS_flash "Saved " + f
+    _LOGINFO "ANNOTATE: quick-saved " + f
+    ANN_quick_save$ = f
+END FUNCTION
+
+
+''
+' Done: save + copy the whole image, then back to what you had before.
+SUB ANN_done ()
+    DIM f AS STRING, ok AS INTEGER, backWs AS STRING
+    f = ANN_quick_save$
+    CLIPBOARD_copy_merged
+    IF CAP_STASHED _ANDALSO _FILEEXISTS(CAP_STASH_FILE) THEN
+        DRW_load CAP_STASH_FILE
+        CURRENT_FILENAME$ = CAP_STASH_NAME
+        CURRENT_DRW_FILENAME$ = CAP_STASH_DRW
+        CANVAS_DIRTY% = CAP_STASH_DIRTY
+        IF CAP_STASH_ZOOM > 0 THEN
+            SCRN.zoom! = CAP_STASH_ZOOM
+            SCRN.offsetX% = CAP_STASH_OX
+            SCRN.offsetY% = CAP_STASH_OY
+        END IF
+        KILL CAP_STASH_FILE
+    END IF
+    CAP_STASHED = FALSE
+    CAP_QUICK_PATH = ""
+    ANN_CALLOUT_N = 0
+    backWs = CAP_PREV_WS
+    CAP_PREV_WS = ""
+    WS_NO_REMEMBER = TRUE
+    IF LEN(backWs) _ANDALSO backWs <> WS_ACTIVE_ID THEN ok = WS_apply%(backWs)
+    WS_NO_REMEMBER = FALSE
+    IF LEN(f) THEN STATUS_flash "Saved + copied: " + f
+    ' DRAW was started by --capture: done means done. A few frames first so the
+    ' desktop's clipboard manager can take the image before DRAW (its owner) exits.
+    IF CAP_ONE_SHOT _ANDALSO LEN(f) > 0 THEN
+        CAP_ONE_SHOT = FALSE
+        ANN_EXIT_FRAMES = 10
+    END IF
+    INVALIDATE_scene
+END SUB
+
+
+' -----------------------------------------------------------------------------
+' Actions + per-frame tick
+' -----------------------------------------------------------------------------
+SUB ANN_action (act AS INTEGER)
+    DIM f AS STRING
+    SELECT CASE act
+        CASE ANN_ACT_ARROW
+            CMD_execute_action 105 ' line tool (resets caps)
+            LINE_TOOL.STICKY_END_CAP = LINE_CAP_ARROW
+            LINE_TOOL.END_CAP = LINE_CAP_ARROW
+            ANN_ARROW_ON = TRUE
+            STATUS_flash "Arrow: drag a line (S / E while dragging change the caps)"
+        CASE ANN_ACT_HIGHLIGHT
+            ANN_highlighter
+        CASE ANN_ACT_REDACT
+            CMD_execute_action 112 ' rect marquee
+            ANN_REDACT_ARMED = TRUE
+            STATUS_flash "Redact: drag a box - it is pixelated when you let go"
+        CASE ANN_ACT_CALLOUT
+            TOOLS_reset_all FALSE
+            CURRENT_TOOL% = TOOL_NULL
+            ANN_CALLOUT_ARMED = TRUE
+            GUI_NEEDS_REDRAW% = TRUE
+            STATUS_flash "Callout: click to place " + _TRIM$(STR$(ANN_CALLOUT_N + 1)) + " (Shift+N restarts at 1)"
+        CASE ANN_ACT_CALLOUT_RESET
+            ANN_CALLOUT_N = 0
+            STATUS_flash "Callout numbers restart at 1"
+        CASE ANN_ACT_QUICKSAVE
+            f = ANN_quick_save$
+        CASE ANN_ACT_DONE
+            ANN_done
+    END SELECT
+END SUB
+
+
+SUB ANN_tick ()
+    DIM b1 AS INTEGER, pressed AS INTEGER
+    IF ANN_EXIT_FRAMES > 0 THEN
+        ANN_EXIT_FRAMES = ANN_EXIT_FRAMES - 1
+        FRAME_IDLE% = FALSE
+        IF ANN_EXIT_FRAMES = 0 THEN CMD_execute_action 212 ' graceful exit (asks only if unsaved)
+    END IF
+    ' Arrow lasts while the line tool stays picked
+    IF ANN_ARROW_ON _ANDALSO CURRENT_TOOL% <> TOOL_LINE THEN
+        ANN_ARROW_ON = FALSE
+        LINE_TOOL.STICKY_END_CAP = LINE_CAP_NONE
+    END IF
+
+    b1 = MOUSE.B1%
+    pressed = (b1 <> 0 _ANDALSO ANN_PREV_B1 = 0)
+
+    ' Redact: a finished, user-drawn rect selection is pixelated, then dropped
+    IF ANN_REDACT_ARMED THEN
+        IF CURRENT_TOOL% <> TOOL_MARQUEE THEN
+            ANN_REDACT_ARMED = FALSE
+        ELSEIF b1 = 0 _ANDALSO ANN_PREV_B1 <> 0 THEN
+            IF MARQUEE.ACTIVE _ANDALSO MARQUEE.USER_CREATED _ANDALSO MARQUEE.DRAGGING = 0 THEN
+                IF MARQUEE.BOX.w > 1 _ANDALSO MARQUEE.BOX.h > 1 THEN
+                    ANN_redact_box MARQUEE.BOX.x, MARQUEE.BOX.y, MARQUEE.BOX.w, MARQUEE.BOX.h
+                    CMD_execute_action 307 ' deselect, ready for the next box
+                END IF
+            END IF
+        END IF
+    END IF
+
+    ' Callout: click on the canvas places the next number
+    IF ANN_CALLOUT_ARMED THEN
+        IF CURRENT_TOOL% <> TOOL_NULL THEN
+            ANN_CALLOUT_ARMED = FALSE
+        ELSEIF pressed _ANDALSO (INPUT_CONTEXT AND CTX_OVER_CANVAS) <> 0 _ANDALSO MOUSE.UI_CHROME_CLICKED% = 0 THEN
+            ANN_place_callout MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
+        END IF
+    END IF
+    ANN_PREV_B1 = b1
+END SUB

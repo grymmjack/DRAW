@@ -1,0 +1,787 @@
+''
+' DRAW - GUI/WORKSPACE-CONFIG.BM
+' =============================================================================
+' Workspace configurator dialog. See GUI/WORKSPACE-CONFIG.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+' =============================================================================
+' Edit store
+' =============================================================================
+
+FUNCTION WSC_get$ (fullKey AS STRING, dflt AS STRING)
+    DIM i AS INTEGER, nk AS STRING
+    nk = WS_norm_full$(fullKey)
+    FOR i = 1 TO WSC_N
+        IF WSC_K(i) = nk THEN
+            IF LEN(WSC_V(i)) THEN WSC_get$ = WSC_V(i) ELSE WSC_get$ = dflt
+            EXIT FUNCTION
+        END IF
+    NEXT i
+    WSC_get$ = dflt
+END FUNCTION
+
+
+''
+' Set a value ("" unsets it). Marks the editor dirty.
+SUB WSC_set (fullKey AS STRING, v AS STRING)
+    DIM i AS INTEGER, nk AS STRING, j AS INTEGER
+    nk = WS_norm_full$(fullKey)
+    WSC.dirty = TRUE
+    FOR i = 1 TO WSC_N
+        IF WSC_K(i) = nk THEN
+            IF LEN(v) THEN
+                WSC_V(i) = v
+            ELSE
+                FOR j = i TO WSC_N - 1
+                    WSC_K(j) = WSC_K(j + 1): WSC_V(j) = WSC_V(j + 1)
+                NEXT j
+                WSC_N = WSC_N - 1
+            END IF
+            EXIT SUB
+        END IF
+    NEXT i
+    IF LEN(v) = 0 _ORELSE WSC_N >= WSC_MAX_KV THEN EXIT SUB
+    WSC_N = WSC_N + 1
+    WSC_K(WSC_N) = nk
+    WSC_V(WSC_N) = v
+END SUB
+
+
+''
+' Load WS_LIST(idx) into the editor (its BASED_ON chain flattened).
+SUB WSC_load (idx AS INTEGER)
+    DIM i AS INTEGER, ok AS INTEGER
+    WSC_N = 0
+    WSC.sel = idx
+    WSC.dirty = FALSE
+    WSC.scrollY = 0
+    SW_DD.openId = -1
+    IF idx < 1 _ORELSE idx > WS_COUNT THEN EXIT SUB
+    WSC_ID = WS_LIST(idx).id
+    IF WS_is_default%(WSC_ID) THEN EXIT SUB
+    ok = WS_resolve%(WSC_ID)
+    FOR i = 1 TO WS_RES_N
+        IF WS_RES_KEY(i) = "WORKSPACE.BASED_ON" THEN _CONTINUE
+        IF WSC_N < WSC_MAX_KV THEN
+            WSC_N = WSC_N + 1
+            WSC_K(WSC_N) = WS_RES_KEY(i)
+            WSC_V(WSC_N) = WS_RES_VAL(i)
+        END IF
+    NEXT i
+    WSC.dirty = FALSE
+END SUB
+
+
+''
+' Comma list helpers for checkbox groups: a missing key means "all".
+FUNCTION WSC_in_list% (fullKey AS STRING, nm AS STRING)
+    DIM lst AS STRING
+    lst = WSC_get$(fullKey, "")
+    IF LEN(lst) = 0 THEN WSC_in_list% = TRUE: EXIT FUNCTION
+    WSC_in_list% = WS_list_has%(LCASE$(lst), LCASE$(nm), 0)
+END FUNCTION
+
+
+SUB WSC_list_toggle (fullKey AS STRING, allNames AS STRING, nm AS STRING, onNow AS INTEGER)
+    DIM lst AS STRING, outL AS STRING, i AS INTEGER, it AS STRING, n AS INTEGER, have AS INTEGER
+    lst = WSC_get$(fullKey, "")
+    IF LEN(lst) = 0 THEN lst = allNames
+    n = WS_list_count%(lst)
+    FOR i = 1 TO n
+        it = WS_list_item$(lst, i)
+        IF LCASE$(it) = LCASE$(nm) THEN
+            have = TRUE
+            IF onNow = 0 THEN _CONTINUE
+        END IF
+        IF LEN(outL) THEN outL = outL + ","
+        outL = outL + it
+    NEXT i
+    IF onNow _ANDALSO have = 0 THEN
+        IF LEN(outL) THEN outL = outL + ","
+        outL = outL + nm
+    END IF
+    ' everything on again = no filter
+    IF WS_list_count%(outL) = WS_list_count%(allNames) _ANDALSO LCASE$(outL) = LCASE$(allNames) THEN outL = ""
+    WSC_set fullKey, outL
+END SUB
+
+
+''
+' "My Thing!" -> "my-thing"; unique among WS_LIST.
+FUNCTION WSC_slug$ (title AS STRING)
+    DIM s AS STRING, i AS INTEGER, ch AS STRING, stem AS STRING, n AS INTEGER
+    FOR i = 1 TO LEN(title)
+        ch = LCASE$(MID$(title, i, 1))
+        IF (ch >= "a" _ANDALSO ch <= "z") _ORELSE (ch >= "0" _ANDALSO ch <= "9") THEN
+            s = s + ch
+        ELSEIF RIGHT$(s, 1) <> "-" _ANDALSO LEN(s) THEN
+            s = s + "-"
+        END IF
+    NEXT i
+    DO WHILE RIGHT$(s, 1) = "-": s = LEFT$(s, LEN(s) - 1): LOOP
+    IF LEN(s) = 0 THEN s = "workspace"
+    stem = s
+    n = 1
+    DO WHILE WS_find%(s) > 0
+        n = n + 1
+        s = stem + "-" + _TRIM$(STR$(n))
+    LOOP
+    WSC_slug$ = s
+END FUNCTION
+
+
+''
+' Write the editor to <user dir>/<WSC_ID>.workspace. Returns TRUE on success.
+FUNCTION WSC_save% ()
+    DIM fh AS INTEGER, f AS STRING, d AS STRING, s AS INTEGER, i AS INTEGER
+    DIM secs AS STRING, sec AS STRING, wrote AS INTEGER, k AS STRING
+    IF LEN(WSC_ID) = 0 _ORELSE WS_is_default%(WSC_ID) THEN EXIT FUNCTION
+    d = WS_user_dir$
+    PATHS_ensure_dir d + PATHS_sep$
+    f = d + PATHS_sep$ + WSC_ID + WS_EXT$
+    fh = FREEFILE
+    OPEN f FOR OUTPUT AS #fh
+    PRINT #fh, "; DRAW workspace - " + WSC_get$("WORKSPACE.NAME", WSC_ID)
+    PRINT #fh, "; Written by View > Workspace > Configure Workspaces. Format: ASSETS/WORKSPACES/annotate.workspace"
+    PRINT #fh, ""
+    PRINT #fh, "[WORKSPACE]"
+    PRINT #fh, "NAME=" + WSC_get$("WORKSPACE.NAME", WSC_ID)
+    IF LEN(WSC_get$("WORKSPACE.DESCRIPTION", "")) THEN PRINT #fh, "DESCRIPTION=" + WSC_get$("WORKSPACE.DESCRIPTION", "")
+    secs = "CHROME,TOOLBOX,MENUS,EDIT_BAR,ADVANCED_BAR,ORGANIZER,KEYS,OPTIONS,START"
+    FOR s = 1 TO WS_list_count%(secs)
+        sec = WS_list_item$(secs, s)
+        wrote = FALSE
+        FOR i = 1 TO WSC_N
+            IF LEFT$(WSC_K(i), LEN(sec) + 1) = sec + "." _ANDALSO LEN(WSC_V(i)) THEN
+                IF wrote = 0 THEN PRINT #fh, "": PRINT #fh, "[" + sec + "]": wrote = TRUE
+                k = MID$(WSC_K(i), LEN(sec) + 2)
+                PRINT #fh, k + "=" + WSC_V(i)
+            END IF
+        NEXT i
+    NEXT s
+    CLOSE #fh
+    WSC.dirty = FALSE
+    IF WSC_ID = WS_ACTIVE_ID THEN WSC.reapply = TRUE
+    WSC_rescan WSC_ID
+    _LOGINFO "WORKSPACE: saved " + f
+    WSC_save% = TRUE
+END FUNCTION
+
+
+''
+' Rescan the folders and keep <id> selected (menu + palette follow).
+SUB WSC_rescan (keepId AS STRING)
+    DIM idx AS INTEGER
+    WS_scan
+    WS_sync_commands
+    MENUBAR_rebuild
+    idx = WS_find%(keepId)
+    IF idx = 0 THEN idx = 1
+    WSC.sel = idx
+END SUB
+
+
+''
+' Prompt for text (DRAW_input_box_ex$), restoring the dialog's drawing state.
+FUNCTION WSC_prompt$ (title AS STRING, msg AS STRING, dflt AS STRING, placeholder AS STRING)
+    DIM savedDest AS LONG, r AS STRING
+    savedDest = _DEST
+    r = DRAW_input_box_ex$(title, msg, dflt, placeholder, -1)
+    WSC_after_modal savedDest
+    WSC_prompt$ = r
+END FUNCTION
+
+
+FUNCTION WSC_confirm% (title AS STRING, msg AS STRING)
+    DIM savedDest AS LONG, r AS LONG
+    savedDest = _DEST
+    r = DRAW_message_box%(title, msg, MB_BTN_YES_NO, MB_ICON_WARNING)
+    WSC_after_modal savedDest
+    WSC_confirm% = (r = MB_RESULT_1)
+END FUNCTION
+
+
+SUB WSC_after_modal (savedDest AS LONG)
+    DO WHILE _MOUSEBUTTON(1) OR _MOUSEBUTTON(2) OR _MOUSEBUTTON(3)
+        DO WHILE _MOUSEINPUT: LOOP
+        _LIMIT 60
+    LOOP
+    DO WHILE _MOUSEINPUT: LOOP
+    _KEYCLEAR
+    WSC.ctx.mb1 = FALSE
+    WSC.ctx.omb1 = FALSE
+    WSC.ctx.justClicked = FALSE
+    WSC.ctx.mwheel = 0
+    _MOUSESHOW
+    _DEST savedDest
+    _FONT WSC.ctx.fontH
+    _PRINTMODE _KEEPBACKGROUND
+    WSC.needsRedraw = TRUE
+END SUB
+
+
+' =============================================================================
+' Bottom-bar commands
+' =============================================================================
+
+SUB WSC_cmd_new (duplicate AS INTEGER)
+    DIM t AS STRING, ok AS INTEGER
+    IF duplicate THEN
+        t = WSC_prompt$("Duplicate Workspace", "Name for the copy:", WS_LIST(WSC.sel).title + " Copy", "")
+    ELSE
+        t = WSC_prompt$("New Workspace", "Name:", "", "My Workspace")
+    END IF
+    t = _TRIM$(t)
+    IF LEN(t) = 0 THEN EXIT SUB
+    IF duplicate = 0 _ORELSE WS_is_default%(WSC_ID) THEN WSC_N = 0
+    WSC_ID = WSC_slug$(t)
+    WSC_set "WORKSPACE.NAME", t
+    ok = WSC_save%
+    WSC_load WSC.sel
+END SUB
+
+
+SUB WSC_cmd_rename ()
+    DIM t AS STRING
+    IF WS_is_default%(WSC_ID) THEN EXIT SUB
+    t = _TRIM$(WSC_prompt$("Rename Workspace", "Name (the file keeps its id '" + WSC_ID + "'):", WSC_get$("WORKSPACE.NAME", WSC_ID), ""))
+    IF LEN(t) THEN WSC_set "WORKSPACE.NAME", t
+END SUB
+
+
+SUB WSC_cmd_delete ()
+    DIM f AS STRING, w AS WS_INFO
+    IF WSC.sel < 1 _ORELSE WSC.sel > WS_COUNT THEN EXIT SUB
+    w = WS_LIST(WSC.sel)
+    IF w.userFile = 0 THEN EXIT SUB ' built-ins / Default: nothing of yours to remove
+    f = WS_user_dir$ + PATHS_sep$ + w.id + WS_EXT$
+    IF w.builtin THEN
+        IF WSC_confirm%("Reset Workspace", "Remove your changes to '" + w.title + "' and go back to the built-in version?") = 0 THEN EXIT SUB
+    ELSE
+        IF WSC_confirm%("Delete Workspace", "Delete your workspace '" + w.title + "'? (" + f + ")") = 0 THEN EXIT SUB
+    END IF
+    IF _FILEEXISTS(f) THEN KILL f
+    IF w.id = WS_ACTIVE_ID THEN
+        IF w.builtin THEN WSC.reapply = TRUE ELSE WSC.applyId = WS_DEFAULT_ID$
+    END IF
+    WSC_rescan w.id
+    WSC_load WSC.sel
+END SUB
+
+
+' =============================================================================
+' Tab content (drawn into the clipped, scrolled content buffer)
+' =============================================================================
+
+SUB WSC_row (y AS INTEGER)
+    y = y + SW_ROW_H + SW_ROW_GAP
+END SUB
+
+
+FUNCTION WSC_el_label$ (el AS INTEGER)
+    SELECT CASE el
+        CASE WS_EL_MENUBAR:          WSC_el_label$ = "Menu Bar"
+        CASE WS_EL_TOOLBOX:          WSC_el_label$ = "Toolbox"
+        CASE WS_EL_LAYER_PANEL:      WSC_el_label$ = "Layer Panel"
+        CASE WS_EL_EDIT_BAR:         WSC_el_label$ = "Edit Bar"
+        CASE WS_EL_ADVANCED_BAR:     WSC_el_label$ = "Advanced Bar"
+        CASE WS_EL_STATUS_BAR:       WSC_el_label$ = "Status Bar"
+        CASE WS_EL_PREVIEW:          WSC_el_label$ = "Preview"
+        CASE WS_EL_COLOR_MIXER:      WSC_el_label$ = "Color Mixer"
+        CASE WS_EL_CHARMAP:          WSC_el_label$ = "Character Map"
+        CASE WS_EL_COLOR_SPACE_3D:   WSC_el_label$ = "3D Color Space"
+        CASE WS_EL_ADV_COLOR_PICKER: WSC_el_label$ = "Adv Color Picker"
+        CASE WS_EL_PEN_PANEL:        WSC_el_label$ = "Pen Pressure"
+        CASE WS_EL_BROWSER:          WSC_el_label$ = "Browser"
+        CASE WS_EL_ORGANIZER:        WSC_el_label$ = "Organizer"
+        CASE WS_EL_DRAWER:           WSC_el_label$ = "Drawer"
+        CASE WS_EL_PALETTE_STRIP:    WSC_el_label$ = "Palette Strip"
+    END SELECT
+END FUNCTION
+
+
+SUB WSC_render_panels (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTEGER, outH AS INTEGER)
+    DIM y AS INTEGER, el AS INTEGER, dk AS INTEGER, v AS STRING, sel AS INTEGER
+    y = cy
+    SW_draw_section_header ctx, cx, y, cw, "Panels (Keep = leave them as you have them)"
+    WSC_row y
+    FOR el = 1 TO WS_EL_COUNT
+        v = UCASE$(WSC_get$("CHROME." + WS_EL_NAME(el), "KEEP"))
+        sel = 0
+        IF WS_parse_vis%(v) = 1 THEN sel = 1
+        IF WS_parse_vis%(v) = 0 THEN sel = 2
+        SW_TOOLTIP$ = "[CHROME] " + WS_EL_NAME(el)
+        SW_draw_dropdown ctx, cx, y, cw, 100 + el, "Keep|Show|Hide", sel, WSC_el_label$(el)
+        IF SW_dropdown_input%(ctx, cx, y, cw, 100 + el, "Keep|Show|Hide", sel) THEN
+            SELECT CASE sel
+                CASE 0: WSC_set "CHROME." + WS_EL_NAME(el), ""
+                CASE 1: WSC_set "CHROME." + WS_EL_NAME(el), "SHOW"
+                CASE 2: WSC_set "CHROME." + WS_EL_NAME(el), "HIDE"
+            END SELECT
+        END IF
+        WSC_row y
+    NEXT el
+    y = y + SW_SECTION_GAP
+    SW_draw_section_header ctx, cx, y, cw, "Dock edges"
+    WSC_row y
+    FOR dk = 1 TO WS_DK_COUNT
+        v = UCASE$(WSC_get$("CHROME." + WS_DK_NAME(dk), ""))
+        sel = 0
+        IF v = "LEFT" THEN sel = 1
+        IF v = "RIGHT" THEN sel = 2
+        SW_TOOLTIP$ = "[CHROME] " + WS_DK_NAME(dk)
+        SW_draw_dropdown ctx, cx, y, cw, 130 + dk, "Keep|Left|Right", sel, LCASE$(WS_DK_NAME(dk))
+        IF SW_dropdown_input%(ctx, cx, y, cw, 130 + dk, "Keep|Left|Right", sel) THEN
+            SELECT CASE sel
+                CASE 0: WSC_set "CHROME." + WS_DK_NAME(dk), ""
+                CASE 1: WSC_set "CHROME." + WS_DK_NAME(dk), "LEFT"
+                CASE 2: WSC_set "CHROME." + WS_DK_NAME(dk), "RIGHT"
+            END SELECT
+        END IF
+        WSC_row y
+    NEXT dk
+    SW_draw_dropdown_overlay ctx
+    outH = y - cy + WSC_PAD
+END SUB
+
+
+''
+' A block of checkboxes in two columns over a comma list key.
+SUB WSC_check_list (ctx AS DIALOG_CTX, cx AS INTEGER, y AS INTEGER, cw AS INTEGER, fullKey AS STRING, allNames AS STRING)
+    DIM n AS INTEGER, i AS INTEGER, nm AS STRING, v AS INTEGER, colX AS INTEGER, half AS INTEGER
+    n = WS_list_count%(allNames)
+    half = (n + 1) \ 2
+    FOR i = 1 TO n
+        nm = WS_list_item$(allNames, i)
+        IF i <= half THEN colX = cx ELSE colX = cx + cw \ 2
+        v = WSC_in_list%(fullKey, nm)
+        SW_TOOLTIP$ = ""
+        SW_draw_checkbox ctx, colX, y + ((i - 1) MOD half) * (SW_ROW_H + SW_ROW_GAP), nm, v
+        IF SW_checkbox_input%(ctx, colX, y + ((i - 1) MOD half) * (SW_ROW_H + SW_ROW_GAP), nm, v) THEN WSC_list_toggle fullKey, allNames, nm, v
+    NEXT i
+    y = y + half * (SW_ROW_H + SW_ROW_GAP)
+END SUB
+
+
+SUB WSC_render_toolbox (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTEGER, outH AS INTEGER)
+    DIM y AS INTEGER, cols AS INTEGER, order AS STRING
+    y = cy
+    SW_draw_section_header ctx, cx, y, cw, "Layout"
+    WSC_row y
+    cols = VAL(WSC_get$("TOOLBOX.COLUMNS", "0"))
+    SW_TOOLTIP$ = "Buttons per row (0 = the default 4)"
+    SW_draw_spinner ctx, cx, y, cw, cols, "Columns"
+    IF SW_spinner_input%(ctx, cx, y, cw, cols, 0, 8) THEN
+        IF cols = 0 THEN WSC_set "TOOLBOX.COLUMNS", "" ELSE WSC_set "TOOLBOX.COLUMNS", _TRIM$(STR$(cols))
+    END IF
+    WSC_row y
+    order = WSC_get$("TOOLBOX.BUTTONS", "")
+    SW_TOOLTIP$ = "Button order, comma separated ( - = empty cell). '-' alone = default"
+    SW_draw_text_field ctx, cx, y, cw, order, "Order"
+    IF SW_text_field_input%(ctx, cx, y, cw, order, "Toolbox Buttons", "Comma-separated names in order; - = empty cell. A single - resets to the default grid.", "rect,ellipse,line,text") THEN
+        IF _TRIM$(order) = "-" THEN order = ""
+        WSC_set "TOOLBOX.BUTTONS", order
+    END IF
+    WSC_row y
+    y = y + SW_SECTION_GAP
+    SW_draw_section_header ctx, cx, y, cw, "Buttons shown (unticking keeps the rest in order)"
+    WSC_row y
+    WSC_check_list ctx, cx, y, cw, "TOOLBOX.BUTTONS", WSC_TB_NAMES$
+    outH = y - cy + WSC_PAD
+END SUB
+
+
+SUB WSC_render_menus (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTEGER, outH AS INTEGER)
+    DIM y AS INTEGER, hid AS STRING
+    y = cy
+    SW_draw_section_header ctx, cx, y, cw, "Menus on the menu bar"
+    WSC_row y
+    WSC_check_list ctx, cx, y, cw, "MENUS.ROOTS", WSC_ROOT_NAMES$
+    y = y + SW_SECTION_GAP
+    SW_draw_section_header ctx, cx, y, cw, "Hidden menu items"
+    WSC_row y
+    hid = WSC_get$("MENUS.HIDE_ITEMS", "")
+    SW_TOOLTIP$ = "Action ids or item labels, comma separated (- = none)"
+    SW_draw_text_field ctx, cx, y, cw, hid, "Hide Items"
+    IF SW_text_field_input%(ctx, cx, y, cw, hid, "Hidden Menu Items", "Action ids or labels, comma separated. A single - clears.", "209,NEW WINDOW") THEN
+        IF _TRIM$(hid) = "-" THEN hid = ""
+        WSC_set "MENUS.HIDE_ITEMS", hid
+    END IF
+    WSC_row y
+    outH = y - cy + WSC_PAD
+END SUB
+
+
+SUB WSC_render_bars (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTEGER, outH AS INTEGER)
+    DIM y AS INTEGER, i AS INTEGER, names AS STRING, nm AS STRING
+    y = cy
+    names = ""
+    FOR i = 0 TO EDITBAR_TOTAL_SLOTS - 1
+        nm = WS_editbar_name$(EDIT_BAR_ITEMS(i).actionID%)
+        IF LEN(nm) THEN
+            IF LEN(names) THEN names = names + ","
+            names = names + nm
+        END IF
+    NEXT i
+    SW_draw_section_header ctx, cx, y, cw, "Edit bar buttons"
+    WSC_row y
+    WSC_check_list ctx, cx, y, cw, "EDIT_BAR.BUTTONS", names
+    y = y + SW_SECTION_GAP
+    names = ""
+    FOR i = 0 TO ADVBAR_TOTAL_SLOTS - 1
+        nm = WS_advbar_name$(ADV_BAR_ITEMS(i).actionID%)
+        IF LEN(nm) THEN
+            IF LEN(names) THEN names = names + ","
+            names = names + nm
+        END IF
+    NEXT i
+    SW_draw_section_header ctx, cx, y, cw, "Advanced bar buttons"
+    WSC_row y
+    WSC_check_list ctx, cx, y, cw, "ADVANCED_BAR.BUTTONS", names
+    y = y + SW_SECTION_GAP
+    names = ""
+    FOR i = 0 TO ORG_WIDGET_COUNT - 1
+        IF LEN(names) THEN names = names + ","
+        names = names + WS_org_name$(i)
+    NEXT i
+    SW_draw_section_header ctx, cx, y, cw, "Organizer widgets"
+    WSC_row y
+    WSC_check_list ctx, cx, y, cw, "ORGANIZER.WIDGETS", names
+    outH = y - cy + WSC_PAD
+END SUB
+
+
+''
+' Rows for every SECTION.* entry as "key = value" text fields, plus an add
+' row taking "key=value". A value of - deletes the entry.
+SUB WSC_kv_rows (ctx AS DIALOG_CTX, cx AS INTEGER, y AS INTEGER, cw AS INTEGER, sec AS STRING, addTitle AS STRING, addHint AS STRING)
+    DIM i AS INTEGER, k AS STRING, v AS STRING, eq AS INTEGER, addV AS STRING, pfx AS STRING
+    pfx = sec + "."
+    i = 1
+    DO WHILE i <= WSC_N
+        IF LEFT$(WSC_K(i), LEN(pfx)) = pfx THEN
+            k = MID$(WSC_K(i), LEN(pfx) + 1)
+            v = WSC_V(i)
+            SW_TOOLTIP$ = "Click to change; - removes it"
+            SW_draw_text_field ctx, cx, y, cw, v, k
+            IF SW_text_field_input%(ctx, cx, y, cw, v, "[" + sec + "] " + k, "New value (- removes it)", "") THEN
+                IF _TRIM$(v) = "-" THEN v = ""
+                WSC_set sec + "." + k, v
+            END IF
+            WSC_row y
+        END IF
+        i = i + 1
+    LOOP
+    addV = "(add...)"
+    SW_TOOLTIP$ = addHint
+    SW_draw_text_field ctx, cx, y, cw, addV, "+ add"
+    IF SW_text_field_input%(ctx, cx, y, cw, addV, addTitle, addHint, "") THEN
+        eq = INSTR(addV, "=")
+        IF eq > 1 THEN WSC_set sec + "." + _TRIM$(LEFT$(addV, eq - 1)), _TRIM$(MID$(addV, eq + 1))
+    END IF
+    WSC_row y
+END SUB
+
+
+SUB WSC_render_keys (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTEGER, outH AS INTEGER)
+    DIM y AS INTEGER
+    y = cy
+    SW_draw_section_header ctx, cx, y, cw, "Single-key overlay (only while this workspace is active)"
+    WSC_row y
+    WSC_kv_rows ctx, cx, y, cw, "KEYS", "Add Key", "key=tool or action id, e.g. o=ellipse, R=rect-filled, k=1702"
+    outH = y - cy + WSC_PAD
+END SUB
+
+
+SUB WSC_text_row (ctx AS DIALOG_CTX, cx AS INTEGER, y AS INTEGER, cw AS INTEGER, fullKey AS STRING, label AS STRING, hint AS STRING, placeholder AS STRING)
+    DIM v AS STRING
+    v = WSC_get$(fullKey, "")
+    SW_TOOLTIP$ = hint
+    SW_draw_text_field ctx, cx, y, cw, v, label
+    IF SW_text_field_input%(ctx, cx, y, cw, v, label, hint + " (- clears)", placeholder) THEN
+        IF _TRIM$(v) = "-" THEN v = ""
+        WSC_set fullKey, v
+    END IF
+    WSC_row y
+END SUB
+
+
+SUB WSC_render_options (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTEGER, outH AS INTEGER)
+    DIM y AS INTEGER
+    y = cy
+    SW_draw_section_header ctx, cx, y, cw, "Workspace"
+    WSC_row y
+    WSC_text_row ctx, cx, y, cw, "WORKSPACE.NAME", "Name", "Shown in menus and the switcher", "My Workspace"
+    WSC_text_row ctx, cx, y, cw, "WORKSPACE.DESCRIPTION", "Description", "One line about it", ""
+    y = y + SW_SECTION_GAP
+    SW_draw_section_header ctx, cx, y, cw, "Start (applied when you switch to it)"
+    WSC_row y
+    WSC_text_row ctx, cx, y, cw, "START.TOOL", "Tool", "Tool to select: rect, brush, line ...", "rect"
+    WSC_text_row ctx, cx, y, cw, "START.FG", "FG Color", "#RRGGBB", "#FF2040"
+    WSC_text_row ctx, cx, y, cw, "START.ZOOM", "Zoom", "FIT or a percent (100 = 1:1)", "FIT"
+    y = y + SW_SECTION_GAP
+    SW_draw_section_header ctx, cx, y, cw, "DRAW.cfg options (this workspace only, never saved to DRAW.cfg)"
+    WSC_row y
+    WSC_kv_rows ctx, cx, y, cw, "OPTIONS", "Add Option", "KEY=VALUE, any DRAW.cfg key (DRAW --options-list)"
+    outH = y - cy + WSC_PAD
+END SUB
+
+
+SUB WSC_draw_active_tab (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTEGER)
+    DIM h AS INTEGER
+    SELECT CASE WSC.tabIdx
+        CASE WSC_TAB_PANELS:  WSC_render_panels ctx, cx, cy, cw, h
+        CASE WSC_TAB_TOOLBOX: WSC_render_toolbox ctx, cx, cy, cw, h
+        CASE WSC_TAB_MENUS:   WSC_render_menus ctx, cx, cy, cw, h
+        CASE WSC_TAB_BARS:    WSC_render_bars ctx, cx, cy, cw, h
+        CASE WSC_TAB_KEYS:    WSC_render_keys ctx, cx, cy, cw, h
+        CASE WSC_TAB_OPTIONS: WSC_render_options ctx, cx, cy, cw, h
+    END SELECT
+    WSC.contentH = h
+END SUB
+
+
+' =============================================================================
+' Dialog chrome
+' =============================================================================
+
+SUB WSC_draw_list ()
+    DIM i AS INTEGER, ry AS INTEGER, fh AS INTEGER, t AS STRING
+    fh = DIALOG_font_height%(WSC.ctx)
+    LINE (1, WSC_TITLE_H + 1)-(WSC_LIST_W - 1, WSC.ctx.h - WSC_BAR_H - 1), _RGB32(42, 42, 52), BF
+    FOR i = 1 TO WS_COUNT
+        ry = WSC_TITLE_H + 2 + (i - 1) * WSC_ROW_H
+        IF ry + WSC_ROW_H > WSC.ctx.h - WSC_BAR_H THEN EXIT FOR
+        IF i = WSC.sel THEN
+            LINE (1, ry)-(WSC_LIST_W - 1, ry + WSC_ROW_H - 1), THEME.DIALOG_toggle_sel_bg~&, BF
+            COLOR THEME.DIALOG_toggle_sel_fg~&
+        ELSEIF DIALOG_point_in%(WSC.ctx, 1, ry, WSC_LIST_W - 2, WSC_ROW_H) THEN
+            LINE (1, ry)-(WSC_LIST_W - 1, ry + WSC_ROW_H - 1), THEME.DIALOG_toggle_bg~&, BF
+            COLOR THEME.DIALOG_toggle_fg~&
+        ELSE
+            COLOR THEME.DIALOG_label_fg~&
+        END IF
+        t = WS_LIST(i).title
+        IF WS_LIST(i).id = WS_ACTIVE_ID THEN t = CHR$(251) + " " + t ELSE t = "  " + t
+        IF WS_LIST(i).userFile THEN t = t + " *"
+        _UPRINTSTRING (4, ry + (WSC_ROW_H - fh) \ 2), t
+        IF DIALOG_hit%(WSC.ctx, 1, ry, WSC_LIST_W - 2, WSC_ROW_H) THEN
+            IF i <> WSC.sel THEN WSC_load i
+        END IF
+    NEXT i
+    COLOR THEME.DIALOG_label_fg~&
+    _UPRINTSTRING (4, WSC.ctx.h - WSC_BAR_H - fh - 4), "* = yours"
+    LINE (WSC_LIST_W, WSC_TITLE_H + 1)-(WSC_LIST_W, WSC.ctx.h - WSC_BAR_H - 1), THEME.DIALOG_border_inner~&
+END SUB
+
+
+SUB WSC_draw_header ()
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, src AS STRING, t AS STRING
+    x = WSC.contentX + WSC_PAD
+    y = WSC_TITLE_H + 4
+    w = WSC.contentW - WSC_PAD * 2
+    LINE (WSC.contentX, WSC_TITLE_H + 1)-(WSC.ctx.w - 2, WSC.contentY - 1), THEME.DIALOG_bg~&, BF
+    IF WSC.sel < 1 _ORELSE WSC.sel > WS_COUNT THEN EXIT SUB
+    IF WS_LIST(WSC.sel).userFile _ANDALSO WS_LIST(WSC.sel).builtin THEN
+        src = "your copy of a built-in"
+    ELSEIF WS_LIST(WSC.sel).userFile THEN
+        src = "yours"
+    ELSE
+        src = "built-in (saving makes your own copy)"
+    END IF
+    t = WSC_get$("WORKSPACE.NAME", WS_LIST(WSC.sel).title)
+    IF WSC.dirty THEN t = t + "  (unsaved)"
+    COLOR THEME.DIALOG_label_fg~&
+    _UPRINTSTRING (x, y), t + "   [" + WS_LIST(WSC.sel).id + ", " + src + "]"
+    IF WS_is_default%(WSC_ID) THEN EXIT SUB
+    SW_draw_btn_group WSC.ctx, x - SW_LABEL_W, y + 16, w + SW_LABEL_W, WSC.tabIdx, WSC_TAB_ITEMS$, ""
+    IF SW_btn_group_input%(WSC.ctx, x - SW_LABEL_W, y + 16, w + SW_LABEL_W, WSC.tabIdx, WSC_TAB_ITEMS$) THEN
+        WSC.scrollY = 0
+        SW_DD.openId = -1
+    END IF
+    LINE (WSC.contentX, WSC.contentY - 1)-(WSC.ctx.w - 2, WSC.contentY - 1), THEME.DIALOG_border_inner~&
+END SUB
+
+
+SUB WSC_draw_content ()
+    DIM clipX1 AS INTEGER, clipY1 AS INTEGER, clipX2 AS INTEGER, clipY2 AS INTEGER
+    DIM clipImg AS LONG, savedJC AS INTEGER, saveMx AS INTEGER, saveMy AS INTEGER, fh AS INTEGER
+    clipX1 = WSC.contentX
+    clipY1 = WSC.contentY
+    clipX2 = WSC.contentX + WSC.contentW + WSC_SCROLL_W - 2
+    clipY2 = WSC.contentY + WSC.viewportH
+    LINE (clipX1, clipY1)-(clipX2, clipY2), THEME.DIALOG_bg~&, BF
+
+    IF WS_is_default%(WSC_ID) THEN
+        fh = DIALOG_font_height%(WSC.ctx)
+        COLOR THEME.DIALOG_label_fg~&
+        _UPRINTSTRING (clipX1 + WSC_PAD, clipY1 + WSC_PAD), "Default is your own layout - no overlay, nothing to edit."
+        _UPRINTSTRING (clipX1 + WSC_PAD, clipY1 + WSC_PAD + fh + 4), "Use NEW (blank) or DUPLICATE to start a workspace of your own."
+        WSC.contentH = 0
+        EXIT SUB
+    END IF
+
+    savedJC = WSC.ctx.justClicked
+    IF NOT (WSC.ctx.mx >= clipX1 AND WSC.ctx.mx <= clipX2 AND WSC.ctx.my >= clipY1 AND WSC.ctx.my < clipY2) THEN WSC.ctx.justClicked = FALSE
+    clipImg = _NEWIMAGE(clipX2 - clipX1, clipY2 - clipY1, 32)
+    _DEST clipImg
+    _FONT WSC.ctx.fontH
+    _PRINTMODE _KEEPBACKGROUND
+    CLS , THEME.DIALOG_bg~&
+    saveMx = WSC.ctx.mx: saveMy = WSC.ctx.my
+    WSC.ctx.mx = WSC.ctx.mx - clipX1
+    WSC.ctx.my = WSC.ctx.my - clipY1
+    WSC_draw_active_tab WSC.ctx, WSC_PAD, WSC_PAD - WSC.scrollY, WSC.contentW - WSC_PAD * 2
+    WSC.ctx.mx = saveMx: WSC.ctx.my = saveMy
+    SW_draw_tooltip WSC.ctx
+    _DEST WSC.ctx.imgHandle
+    _PUTIMAGE (clipX1, clipY1)-(clipX2 - 1, clipY2 - 1), clipImg
+    _FREEIMAGE clipImg
+    WSC.ctx.justClicked = savedJC
+
+    ' scrollbar thumb
+    IF WSC.contentH > WSC.viewportH THEN
+        DIM sbX AS INTEGER, th AS INTEGER, ty AS INTEGER
+        sbX = WSC.contentX + WSC.contentW
+        LINE (sbX, clipY1)-(sbX + WSC_SCROLL_W - 1, clipY2 - 1), _RGBA32(60, 60, 70, 120), BF
+        th = WSC.viewportH * WSC.viewportH \ WSC.contentH
+        IF th < 16 THEN th = 16
+        ty = clipY1 + WSC.scrollY * (WSC.viewportH - th) \ (WSC.contentH - WSC.viewportH)
+        LINE (sbX + 1, ty)-(sbX + WSC_SCROLL_W - 2, ty + th - 1), _RGBA32(200, 200, 210, 180), BF
+    END IF
+END SUB
+
+
+SUB WSC_handle_scroll ()
+    DIM maxS AS INTEGER
+    IF WSC.ctx.mx < WSC.contentX _ORELSE WSC.ctx.my < WSC.contentY _ORELSE WSC.ctx.my > WSC.contentY + WSC.viewportH THEN EXIT SUB
+    IF WSC.ctx.mwheel = 0 THEN EXIT SUB
+    maxS = WSC.contentH - WSC.viewportH
+    IF maxS < 0 THEN maxS = 0
+    SW_DD.openId = -1
+    WSC.scrollY = WSC.scrollY + WSC.ctx.mwheel * SW_ROW_H
+    IF WSC.scrollY < 0 THEN WSC.scrollY = 0
+    IF WSC.scrollY > maxS THEN WSC.scrollY = maxS
+END SUB
+
+
+SUB WSC_draw_bar ()
+    DIM barY AS INTEGER, bY AS INTEGER, x AS INTEGER, bw AS INTEGER, gap AS INTEGER, delLbl AS STRING
+    DIM isDef AS INTEGER, ok AS INTEGER, w AS WS_INFO
+    barY = WSC.ctx.h - WSC_BAR_H
+    LINE (1, barY)-(WSC.ctx.w - 2, barY), THEME.DIALOG_border_inner~&
+    LINE (1, barY + 1)-(WSC.ctx.w - 2, WSC.ctx.h - 2), THEME.DIALOG_bg~&, BF
+    bY = barY + (WSC_BAR_H - 20) \ 2
+    gap = 4
+    bw = 66
+    isDef = WS_is_default%(WSC_ID)
+    w = WS_LIST(WSC.sel)
+    delLbl = "DELETE"
+    IF w.builtin _ANDALSO w.userFile THEN delLbl = "RESET"
+
+    x = WSC_PAD
+    DIALOG_draw_button WSC.ctx, x, bY, bw, 20, "NEW", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_toggle_border~&
+    IF DIALOG_hit%(WSC.ctx, x, bY, bw, 20) THEN WSC_cmd_new FALSE
+    x = x + bw + gap
+    DIALOG_draw_button WSC.ctx, x, bY, bw + 14, 20, "DUPLICATE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_toggle_border~&
+    IF DIALOG_hit%(WSC.ctx, x, bY, bw + 14, 20) THEN WSC_cmd_new TRUE
+    x = x + bw + 14 + gap
+    IF isDef = 0 THEN
+        DIALOG_draw_button WSC.ctx, x, bY, bw, 20, "RENAME", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_toggle_border~&
+        IF DIALOG_hit%(WSC.ctx, x, bY, bw, 20) THEN WSC_cmd_rename
+    END IF
+    x = x + bw + gap
+    IF w.userFile THEN
+        DIALOG_draw_button WSC.ctx, x, bY, bw, 20, delLbl, THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_toggle_border~&
+        IF DIALOG_hit%(WSC.ctx, x, bY, bw, 20) THEN WSC_cmd_delete
+    END IF
+
+    x = WSC.ctx.w - WSC_PAD - 56
+    DIALOG_draw_button WSC.ctx, x, bY, 56, 20, "CLOSE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_toggle_border~&
+    IF DIALOG_hit%(WSC.ctx, x, bY, 56, 20) THEN WSC.ctx.done = TRUE
+    x = x - 56 - gap
+    DIALOG_draw_button WSC.ctx, x, bY, 56, 20, "USE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_toggle_border~&
+    IF DIALOG_hit%(WSC.ctx, x, bY, 56, 20) THEN
+        IF WSC.dirty THEN ok = WSC_save%
+        WSC.applyId = WSC_ID
+        WSC.ctx.done = TRUE
+    END IF
+    IF isDef = 0 THEN
+        x = x - 56 - gap
+        DIALOG_draw_button WSC.ctx, x, bY, 56, 20, "SAVE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_toggle_border~&
+        IF DIALOG_hit%(WSC.ctx, x, bY, 56, 20) THEN ok = WSC_save%
+    END IF
+END SUB
+
+
+' =============================================================================
+' The dialog
+' =============================================================================
+
+SUB WSC_show_dialog ()
+    DIM dlgW AS INTEGER, dlgH AS INTEGER, k AS LONG, idle AS INTEGER, pmx AS INTEGER, pmy AS INTEGER, ok AS INTEGER
+    BROWSER_suspend_for_modal
+    MENUBAR_close_all
+    IF WS_SCANNED = 0 THEN WS_scan
+
+    dlgW = WSC_W: dlgH = WSC_H
+    IF dlgW > SCRN.w& - 8 THEN dlgW = SCRN.w& - 8
+    IF dlgH > SCRN.h& - 8 THEN dlgH = SCRN.h& - 8
+    IF dlgW < 420 THEN dlgW = 420
+    IF dlgH < 220 THEN dlgH = 220
+    DIALOG_init WSC.ctx, dlgW, dlgH
+    WSC.contentX = WSC_LIST_W + 1
+    WSC.contentY = WSC_TITLE_H + WSC_TABS_H
+    WSC.contentW = dlgW - WSC_LIST_W - 2 - WSC_SCROLL_W
+    WSC.viewportH = dlgH - WSC.contentY - WSC_BAR_H - 1
+    WSC.tabIdx = WSC_TAB_PANELS
+    WSC.applyId = ""
+    WSC.reapply = FALSE
+    WSC.needsRedraw = TRUE
+    SW_init_state
+    WSC_load _MAX(1, WS_find%(WS_ACTIVE_ID))
+
+    _KEYCLEAR
+    DO WHILE _MOUSEINPUT: LOOP
+    pmx = -1: pmy = -1
+    DO
+        idle = TRUE
+        DIALOG_poll_mouse WSC.ctx
+        k = _KEYHIT
+        IF k = 27 THEN WSC.ctx.done = TRUE
+        IF WSC.ctx.mx <> pmx _ORELSE WSC.ctx.my <> pmy _ORELSE WSC.ctx.mb1 _ORELSE WSC.ctx.mwheel <> 0 _ORELSE WSC.ctx.justClicked THEN idle = FALSE
+        IF WSC.needsRedraw _ORELSE SETTINGS.needsRedraw THEN idle = FALSE: WSC.needsRedraw = FALSE: SETTINGS.needsRedraw = FALSE
+        pmx = WSC.ctx.mx: pmy = WSC.ctx.my
+        IF idle = 0 THEN
+            _DEST WSC.ctx.imgHandle
+            _FONT WSC.ctx.fontH
+            _PRINTMODE _KEEPBACKGROUND
+            DIALOG_draw_frame WSC.ctx, "WORKSPACES"
+            WSC_draw_list
+            WSC_draw_header
+            WSC_draw_content
+            WSC_draw_bar
+            WSC_handle_scroll
+            DIALOG_blit WSC.ctx
+        ELSE
+            _LIMIT 15
+        END IF
+    LOOP UNTIL WSC.ctx.done
+    DIALOG_cleanup WSC.ctx
+    INVALIDATE_scene
+    BROWSER_resume_after_modal
+
+    ' What to switch to now the dialog is gone (the UI can change under it)
+    IF LEN(WSC.applyId) THEN
+        ok = WS_apply%(WSC.applyId)
+    ELSEIF WSC.reapply _ANDALSO WS_ACTIVE THEN
+        ok = WS_apply%(WS_ACTIVE_ID)
+    ELSEIF WS_ACTIVE THEN
+        ok = WS_resolve%(WS_ACTIVE_ID) ' the editor used the shared resolve store
+    END IF
+    WS_sync_commands
+END SUB
