@@ -55,6 +55,11 @@ TYPE DOCK_PANEL_OBJ
     fy       AS INTEGER
     fw       AS INTEGER
     fh       AS INTEGER
+    ' where it was docked, for "dock back" (not saved: falls back to the nearest side)
+    hside    AS INTEGER
+    hcol     AS INTEGER ' column order on that side
+    hslot    AS INTEGER ' slot order in that column
+    halone   AS INTEGER ' it was the column's only slot (dock back = a column of its own again)
     ' the rect DOCK_layout gave it this frame (valid while rVis)
     rVis     AS INTEGER
     rx       AS INTEGER
@@ -121,6 +126,7 @@ DIM SHARED DOCK_MENU_RX AS INTEGER
 ' --- slot chrome (P3) -----------------------------------------------------------
 CONST DOCK_GRIP_H  = 3  ' hover grip at the top of a chromeless panel (viewport px)
 CONST DOCK_TITLE_H = 11 ' title / tab strip of a titled slot (tabbed, collapsed, docked window)
+CONST DOCK_ACT_DOCKBACK = 6
 CONST DOCK_MENU_ITEM_H = 12
 
 ' handle menu actions
@@ -148,6 +154,9 @@ TYPE DOCK_UI_OBJ
     ' moving a panel by its handle
     mvPanel   AS INTEGER ' panel pressed on (0 = none)
     mvSlot    AS INTEGER ' slot whose handle was pressed
+    mvFloat   AS INTEGER ' the panel pressed on is a floating one (its title bar)
+    mvOffX    AS INTEGER ' grab offset inside its window
+    mvOffY    AS INTEGER
     lastClick AS DOUBLE  ' time of the last title click (double-click = collapse)
     lastSlot  AS INTEGER
     mvActive  AS INTEGER ' past the drag threshold: a real move
