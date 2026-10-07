@@ -264,9 +264,13 @@ GUI_TB(TB_SMART_SHAPES).evt$  = "SMART_SHAPES"
 DIM SHARED TB_LIVE_COUNT AS INTEGER ' slots in use (0..TB_LIVE_COUNT-1)
 DIM SHARED TB_LIVE_COLS  AS INTEGER ' buttons per row
 DIM SHARED TB_LIVE_ROWS  AS INTEGER ' rows = ceil(count / cols)
+DIM SHARED TB_WANT_COLS  AS INTEGER ' columns asked for (CFG.TOOLBOX_COLUMNS / workspace COLUMNS / an edge drag);
+                                    ' TOOLBAR_reflow adds more when the buttons don't fit the height
+DIM SHARED TOOLBOX_PANEL_W AS INTEGER ' toolbox column width in px (toolbar, organizer and drawer share it)
 TB_LIVE_COUNT = TB_TOTAL
 TB_LIVE_COLS  = TB_COLS
 TB_LIVE_ROWS  = TB_ROWS
+TB_WANT_COLS  = 0 ' 0 = take CFG.TOOLBOX_COLUMNS on the first layout (CONFIG_load runs later, in SCREEN_init)
 
 ' Copy of the default layout (restore + tooltip lookup, which is keyed by
 ' default slot)

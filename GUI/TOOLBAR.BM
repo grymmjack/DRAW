@@ -37,7 +37,7 @@ SUB TOOLBAR_render(xPos%, btnRangeStart%, btnRangeEnd%)
     TB_COL0  = SCRN.toolboxX% + 1
     TB_COL1  = TB_COL0 + scaled_w% + scaled_padding%
     TB_COL2  = TB_COL1 + scaled_w% + scaled_padding%
-    TB_RIGHT = TB_COL0 + (TOOLBAR_panel_cols% - 1) * (scaled_w% + scaled_padding%)
+    TB_RIGHT = SCRN.toolboxX% + TOOLBOX_PANEL_W - 1 - scaled_w% ' panel_x2 = TB_RIGHT + scaled_w
     
     ' Draw toolbar background panel with border
     TOOLBAR_draw_background TB_COL0, TB_RIGHT, btnRangeStart%, btnRangeEnd%
@@ -750,7 +750,7 @@ FUNCTION TOOLBAR_is_over_area%(mouseX%, mouseY%)
     DIM AS INTEGER TB_COL2, TB_COL1
     TB_COL1  = TB_COL0 + scaled_w% + scaled_padding%
     TB_COL2  = TB_COL1 + scaled_w% + scaled_padding%
-    TB_RIGHT = TB_COL0 + (TOOLBAR_panel_cols% - 1) * (scaled_w% + scaled_padding%)
+    TB_RIGHT = SCRN.toolboxX% + TOOLBOX_PANEL_W - 1 - scaled_w% ' panel_x2 = TB_RIGHT + scaled_w
     
     ' Calculate number of rows
     num_rows% = TB_LIVE_ROWS
@@ -776,14 +776,64 @@ END FUNCTION
 ' =============================================================================
 
 ''
-' Columns the toolbox PANEL spans: the toolbar's own columns, but at least the
-' organizer/drawer's 4 when either is shown (they are 4 columns wide).
-FUNCTION TOOLBAR_panel_cols% ()
-    DIM c AS INTEGER
-    c = TB_LIVE_COLS
+' Width in px of a toolbox panel holding c button columns (incl. 1px borders).
+FUNCTION TOOLBAR_cols_w% (c AS INTEGER)
+    DIM scl AS INTEGER
+    scl = CFG.TOOLBAR_SCALE%
+    IF scl < 1 THEN scl = 1
+    IF scl > 4 THEN scl = 4
+    TOOLBAR_cols_w% = c * TB_BTN_W * scl + (c - 1) * TB_BTN_PADDING * scl + 2
+END FUNCTION
+
+
+''
+' Height in px of the toolbar buttons block at TB_LIVE_ROWS.
+FUNCTION TOOLBAR_rows_h% ()
+    DIM scl AS INTEGER
+    scl = CFG.TOOLBAR_SCALE%
+    IF scl < 1 THEN scl = 1
+    IF scl > 4 THEN scl = 4
+    TOOLBAR_rows_h% = TB_LIVE_ROWS * TB_BTN_H * scl + (TB_LIVE_ROWS - 1) * TB_BTN_PADDING * scl
+END FUNCTION
+
+
+''
+' Fit the toolbox column to its content (called by SCREEN_compute_layout):
+'   * TB_WANT_COLS button columns, plus more while the buttons, the organizer
+'     and a usable drawer don't fit the window height;
+'   * TOOLBOX_PANEL_W = those columns' width, but never narrower than one
+'     organizer stack / one drawer bin (their scales can be larger).
+' The organizer and drawer reflow into whatever width results.
+SUB TOOLBAR_reflow ()
+    DIM AS INTEGER c, n, availH, need, minW, orgScl, drwScl
+    n = TB_LIVE_COUNT
+    IF n < 1 THEN n = 1
+    IF TB_WANT_COLS = 0 THEN TB_WANT_COLS = CFG.TOOLBOX_COLUMNS%
+    c = TB_WANT_COLS
     IF c < 1 THEN c = 1
-    IF (ORGANIZER.visible% <> 0 _ORELSE DRAWER.visible% <> 0) _ANDALSO c < 4 THEN c = 4
-    TOOLBAR_panel_cols% = c
+    IF c > 8 THEN c = 8
+    orgScl = USCALE.organizer%: IF orgScl < 1 THEN orgScl = 1
+    drwScl = USCALE.drawer%: IF drwScl < 1 THEN drwScl = 1
+    IF ORGANIZER.visible% THEN minW = ORG_COL_W * orgScl + 2
+    IF DRAWER.visible% _ANDALSO minW < DRAWER_min_w% THEN minW = DRAWER_min_w%
+    availH = SCRN.h& - SCREEN_bottom_bars_h%
+    DO
+        TB_LIVE_COLS = c
+        TB_LIVE_ROWS = (n + c - 1) \ c
+        TOOLBOX_PANEL_W = TOOLBAR_cols_w%(c)
+        IF TOOLBOX_PANEL_W < minW THEN TOOLBOX_PANEL_W = minW
+        need = TB_TOP + TOOLBAR_rows_h% + 1 + ORGANIZER_height_for%
+        IF DRAWER.visible% THEN need = need + 40 * drwScl
+        IF need <= availH _ORELSE c >= 8 _ORELSE c >= n THEN EXIT DO
+        c = c + 1
+    LOOP
+END SUB
+
+
+''
+' Kept for callers: the toolbox's live button columns.
+FUNCTION TOOLBAR_panel_cols% ()
+    TOOLBAR_panel_cols% = TB_LIVE_COLS
 END FUNCTION
 
 
@@ -862,8 +912,10 @@ SUB TOOLBAR_layout_restore ()
         END IF
     NEXT i
     TB_LIVE_COUNT = TB_TOTAL
-    TB_LIVE_COLS = TB_COLS
-    TB_LIVE_ROWS = TB_ROWS
+    TB_WANT_COLS = CFG.TOOLBOX_COLUMNS%
+    IF TB_WANT_COLS < 1 _ORELSE TB_WANT_COLS > 8 THEN TB_WANT_COLS = TB_COLS
+    TB_LIVE_COLS = TB_WANT_COLS
+    TB_LIVE_ROWS = (TB_LIVE_COUNT + TB_LIVE_COLS - 1) \ TB_LIVE_COLS
     FOR i = 0 TO 29
         IF TB_ICON_OVR(i) < -1 THEN _FREEIMAGE TB_ICON_OVR(i)
         TB_ICON_OVR(i) = 0
@@ -904,9 +956,11 @@ FUNCTION TOOLBAR_layout_apply% (buttons AS STRING, cols AS INTEGER)
         END IF
     NEXT i
     c = cols ' (by-reference param: work on a copy)
+    IF c < 1 THEN c = CFG.TOOLBOX_COLUMNS%
     IF c < 1 THEN c = TB_COLS
     IF c > 8 THEN c = 8
     TB_LIVE_COUNT = used
+    TB_WANT_COLS = c
     TB_LIVE_COLS = c
     TB_LIVE_ROWS = (used + c - 1) \ c
     TOOLTIP_reset

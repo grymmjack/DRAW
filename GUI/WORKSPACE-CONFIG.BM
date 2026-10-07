@@ -146,7 +146,7 @@ FUNCTION WSC_save% ()
     fh = FREEFILE
     OPEN f FOR OUTPUT AS #fh
     PRINT #fh, "; DRAW workspace - " + WSC_get$("WORKSPACE.NAME", WSC_ID)
-    PRINT #fh, "; Written by View > Workspace > Configure Workspaces. Format: ASSETS/WORKSPACES/annotate.workspace"
+    PRINT #fh, "; Saved by DRAW (Configure Workspaces, Save Current Layout, or a dragged panel edge). Format: ASSETS/WORKSPACES/annotate.workspace"
     PRINT #fh, ""
     PRINT #fh, "[WORKSPACE]"
     PRINT #fh, "NAME=" + WSC_get$("WORKSPACE.NAME", WSC_ID)
@@ -170,6 +170,100 @@ FUNCTION WSC_save% ()
     _LOGINFO "WORKSPACE: saved " + f
     WSC_save% = TRUE
 END FUNCTION
+
+
+''
+' Set one key in workspace <wsId> and save it (a built-in gets a user copy),
+' without the configurator: a dragged dock edge, Save Current Layout. The live
+' overlay already shows the value, so nothing is re-applied.
+SUB WSC_save_key (wsId AS STRING, fullKey AS STRING, v AS STRING)
+    DIM idx AS INTEGER, ok AS INTEGER
+    idx = WS_find%(wsId)
+    IF idx = 0 _ORELSE WS_is_default%(wsId) THEN EXIT SUB
+    WSC_load idx
+    WSC_set fullKey, v
+    ok = WSC_save%
+    WSC.reapply = FALSE
+    ok = WS_resolve%(wsId) ' keep the resolved store (WS_get$) in step with the file
+END SUB
+
+
+''
+' Write what is on screen into the editor store: every panel's SHOW/HIDE, the
+' dock edges, the toolbox / bar columns and the layers width. Buttons, menus,
+' keys, options and [START] are left as they are (those live in the
+' configurator).
+SUB WSC_capture_layout ()
+    DIM el AS INTEGER, dk AS INTEGER
+    FOR el = 1 TO WS_EL_COUNT
+        IF WS_el_get%(el) THEN WSC_set "CHROME." + WS_EL_NAME(el), "SHOW" ELSE WSC_set "CHROME." + WS_EL_NAME(el), "HIDE"
+    NEXT el
+    FOR dk = 1 TO WS_DK_COUNT
+        WSC_set "CHROME." + WS_DK_NAME(dk), WS_dk_get$(dk)
+    NEXT dk
+    WSC_set "TOOLBOX.COLUMNS", _TRIM$(STR$(TB_WANT_COLS))
+    WSC_set "EDIT_BAR.COLUMNS", _TRIM$(STR$(EDITBAR_cols%))
+    WSC_set "ADVANCED_BAR.COLUMNS", _TRIM$(STR$(ADVBAR_cols%))
+    WSC_set "CHROME.LAYER_PANEL_WIDTH", _TRIM$(STR$(LAYER_PANEL.width%))
+END SUB
+
+
+''
+' Save the file and switch to it without replaying its [START] (the layout is
+' already on screen; a re-zoom or tool change would be a surprise).
+SUB WSC_save_and_use (id AS STRING, msg AS STRING)
+    DIM ok AS INTEGER
+    ok = WSC_save%
+    WSC.reapply = FALSE
+    IF ok = 0 THEN STATUS_flash "Could not save the workspace": EXIT SUB
+    WSC_rescan id
+    ok = WS_apply%(id)
+    WS_START_PENDING = FALSE
+    WS_sync_commands
+    STATUS_flash msg
+END SUB
+
+
+''
+' View > Workspace > Save Current Layout As...: a new workspace from what is on
+' screen. Started from the active workspace (its buttons, menus and keys come
+' along), or from nothing in Default.
+SUB WSC_save_layout_as ()
+    DIM t AS STRING, baseIdx AS INTEGER
+    POINTER_hide_for_dialog
+    t = DRAW_input_box_ex$("Save Current Layout", "Name for this workspace (panels, docks, columns and widths as they are now):", "", "My Layout", -1)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    t = _TRIM$(t)
+    IF LEN(t) = 0 THEN EXIT SUB
+    baseIdx = 0
+    IF WS_ACTIVE THEN baseIdx = WS_find%(WS_ACTIVE_ID)
+    IF baseIdx THEN WSC_load baseIdx ELSE WSC_N = 0
+    WSC_ID = WSC_slug$(t)
+    WSC_set "WORKSPACE.NAME", t
+    WSC_set "WORKSPACE.DESCRIPTION", "Saved from the layout on screen"
+    WSC_capture_layout
+    WSC_save_and_use WSC_ID, "Workspace saved: " + t
+END SUB
+
+
+''
+' View > Workspace > Update Workspace From Layout: overwrite the active
+' workspace's layout keys with what is on screen (a built-in gets a user copy;
+' Configure Workspaces > Reset brings the original back).
+SUB WSC_update_from_layout ()
+    DIM idx AS INTEGER, t AS STRING
+    IF WS_ACTIVE = 0 THEN
+        STATUS_flash "Default isn't a workspace file - use Save Current Layout As..."
+        EXIT SUB
+    END IF
+    idx = WS_find%(WS_ACTIVE_ID)
+    IF idx = 0 THEN EXIT SUB
+    t = WS_ACTIVE_TITLE
+    WSC_load idx
+    WSC_capture_layout
+    WSC_save_and_use WSC_ID, "Workspace updated: " + t
+END SUB
 
 
 ''
@@ -344,6 +438,18 @@ SUB WSC_render_panels (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS IN
         END IF
         WSC_row y
     NEXT dk
+    y = y + SW_SECTION_GAP
+    SW_draw_section_header ctx, cx, y, cw, "Sizes (or drag a panel's inner edge)"
+    WSC_row y
+    DIM lw AS INTEGER
+    lw = VAL(WSC_get$("CHROME.LAYER_PANEL_WIDTH", "0"))
+    SW_TOOLTIP$ = "[CHROME] LAYER_PANEL_WIDTH: 60-400 px, 0 = keep yours (DRAW.cfg LAYER_PANEL_WIDTH)"
+    SW_draw_spinner ctx, cx, y, cw, lw, "Layers width"
+    IF SW_spinner_input%(ctx, cx, y, cw, lw, 0, 400) THEN
+        IF lw > 0 _ANDALSO lw < 60 THEN lw = 60
+        IF lw = 0 THEN WSC_set "CHROME.LAYER_PANEL_WIDTH", "" ELSE WSC_set "CHROME.LAYER_PANEL_WIDTH", _TRIM$(STR$(lw))
+    END IF
+    WSC_row y
     SW_draw_dropdown_overlay ctx
     outH = y - cy + WSC_PAD
 END SUB
@@ -373,7 +479,7 @@ SUB WSC_render_toolbox (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS I
     SW_draw_section_header ctx, cx, y, cw, "Layout"
     WSC_row y
     cols = VAL(WSC_get$("TOOLBOX.COLUMNS", "0"))
-    SW_TOOLTIP$ = "Buttons per row (0 = the default 4)"
+    SW_TOOLTIP$ = "Buttons per row, 1-8 (0 = keep yours: DRAW.cfg TOOLBOX_COLUMNS). More are added when the buttons don't fit the height"
     SW_draw_spinner ctx, cx, y, cw, cols, "Columns"
     IF SW_spinner_input%(ctx, cx, y, cw, cols, 0, 8) THEN
         IF cols = 0 THEN WSC_set "TOOLBOX.COLUMNS", "" ELSE WSC_set "TOOLBOX.COLUMNS", _TRIM$(STR$(cols))
@@ -427,7 +533,15 @@ SUB WSC_render_bars (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTE
             names = names + nm
         END IF
     NEXT i
-    SW_draw_section_header ctx, cx, y, cw, "Edit bar buttons"
+    DIM bc AS INTEGER
+    SW_draw_section_header ctx, cx, y, cw, "Edit bar"
+    WSC_row y
+    bc = VAL(WSC_get$("EDIT_BAR.COLUMNS", "0"))
+    SW_TOOLTIP$ = "Icon columns, 1-4 (0 = keep yours: DRAW.cfg EDIT_BAR_COLUMNS)"
+    SW_draw_spinner ctx, cx, y, cw, bc, "Columns"
+    IF SW_spinner_input%(ctx, cx, y, cw, bc, 0, 4) THEN
+        IF bc = 0 THEN WSC_set "EDIT_BAR.COLUMNS", "" ELSE WSC_set "EDIT_BAR.COLUMNS", _TRIM$(STR$(bc))
+    END IF
     WSC_row y
     WSC_check_list ctx, cx, y, cw, "EDIT_BAR.BUTTONS", names
     y = y + SW_SECTION_GAP
@@ -439,7 +553,14 @@ SUB WSC_render_bars (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTE
             names = names + nm
         END IF
     NEXT i
-    SW_draw_section_header ctx, cx, y, cw, "Advanced bar buttons"
+    SW_draw_section_header ctx, cx, y, cw, "Advanced bar"
+    WSC_row y
+    bc = VAL(WSC_get$("ADVANCED_BAR.COLUMNS", "0"))
+    SW_TOOLTIP$ = "Icon columns, 1-4 (0 = keep yours: DRAW.cfg ADV_BAR_COLUMNS)"
+    SW_draw_spinner ctx, cx, y, cw, bc, "Columns"
+    IF SW_spinner_input%(ctx, cx, y, cw, bc, 0, 4) THEN
+        IF bc = 0 THEN WSC_set "ADVANCED_BAR.COLUMNS", "" ELSE WSC_set "ADVANCED_BAR.COLUMNS", _TRIM$(STR$(bc))
+    END IF
     WSC_row y
     WSC_check_list ctx, cx, y, cw, "ADVANCED_BAR.BUTTONS", names
     y = y + SW_SECTION_GAP

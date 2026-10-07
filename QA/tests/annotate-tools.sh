@@ -1,7 +1,8 @@
 #!/bin/bash
 # =============================================================================
 # annotate-tools.sh — QA test: the Annotate tools on a fake capture (640x400
-# fixture, fit 1:1, canvas origin at viewport 273,51 in the Annotate layout).
+# fixture, fit 1:1, canvas origin at viewport 202,51 in the Annotate layout:
+# measured with its 1-column toolbox, 2026-10-07).
 #   x + drag   Redact pixelates the box at once
 #   n + click  Numbered callout; Ctrl+Z removes it again
 #   a + drag   Arrow (line with an arrowhead)
@@ -38,7 +39,7 @@ key space
 wait_for 2.0 "capture document in Annotate"
 park_mouse
 wait_for 0.3 "settle"
-OX=273; OY=51
+OX=202; OY=51
 cv() { echo $(( OX + $1 )) $(( OY + $2 )); }
 # A drag spread over several frames: DRAW idles at 15 fps, and the harness's
 # quick drag can land press + move in one frame (a zero-length line).

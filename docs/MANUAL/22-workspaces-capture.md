@@ -27,7 +27,7 @@ only remembers *which* workspace you were in, so it reopens there.
 | --- | --- |
 | **Default** | Your own layout. No overlay. Always there; can't be deleted. |
 | **Simple** | Everyday drawing: a 2-column toolbox of 10 tools, File / Edit / View / Help menus, no advanced bar or power panels. |
-| **Annotate** | Screenshot markup: a 2-column annotation toolbox docked left, a trimmed edit bar, the palette strip, single-key annotation tools, Rect in red, zoomed to fit. Capture Screen lands here. |
+| **Annotate** | Screenshot markup: a 1-column annotation toolbox docked left, a trimmed edit bar, the palette strip, single-key annotation tools, Rect in red, zoomed to fit. Capture Screen lands here. |
 
 ### Switching
 
@@ -46,7 +46,41 @@ only remembers *which* workspace you were in, so it reopens there.
 - Hidden commands keep their keys. Hiding means "not shown", not "disabled".
 
 Things you toggle while in a workspace (opening the Color Mixer, say) last for
-that session. To make a change part of the workspace, use the configurator.
+that session. To make them part of the workspace, save the layout (below).
+
+### Arranging and saving a layout
+
+Panels dock on the **left and right** edges of the window. The menu bar always
+stays on top, and the status bar and color strip always stay at the bottom.
+
+**Drag a docked panel's inner edge** (the edge facing the canvas) to resize it.
+The pointer turns into a ↔ arrow over the edge. The panel snaps as you drag:
+
+| Panel | Dragging changes |
+| --- | --- |
+| **Toolbox** | Button columns (1 to 8) |
+| **Edit bar**, **advanced bar** | Icon columns (1 to 4) |
+| **Layers** | Width in pixels (60 to 400) |
+
+When you let go, the new size is saved:
+- **In a workspace:** into that workspace. A built-in gets your own copy, which **RESET** in the configurator removes.
+- **In Default:** into `DRAW.cfg` (`TOOLBOX_COLUMNS`, `EDIT_BAR_COLUMNS`, `ADV_BAR_COLUMNS`, `LAYER_PANEL_WIDTH`).
+
+Everything in the toolbox column follows its width:
+- **Toolbox buttons:** more columns are added when the buttons don't fit the window height. A 1-column toolbox of 28 tools in a short window becomes 2 columns.
+- **Organizer:** its four widget stacks fit into 1 to 4 columns.
+- **Drawer:** as many bin columns as fit. In a narrow toolbox, the mini palette moves under the bins, and **`Shift`+wheel** over the bins scrolls them.
+- **Empty space:** when a workspace hides the organizer and drawer, the column under the buttons is drawn as panel, not as a black gap.
+
+**Save what's on screen** from **View → Workspace ▸**:
+
+| Item | Does |
+| --- | --- |
+| **Save Current Layout As…** | Asks for a name and saves a new workspace exactly as you see it: which panels show, dock sides, columns and widths. When you're in a workspace, its toolbox buttons, menus and keys come along. DRAW switches to it. |
+| **Update Workspace From Layout** | Saves the current layout into the active workspace (a user copy for a built-in) |
+
+Use the configurator only for what you can't arrange by hand: which toolbox
+buttons and menus exist, the keys, and the starting options.
 
 ### The configurator
 
@@ -57,10 +91,10 @@ that session. To make a change part of the workspace, use the configurator.
 
   | Tab | Edits |
   | --- | --- |
-  | **Panels** | Keep / Show / Hide for each of the 16 panels and bars, plus Keep / Left / Right dock edges. *Keep* means "leave it however you have it". |
-  | **Toolbox** | Columns (0 = the default 4), the button order (typed), and a checkbox per toolbox button |
+  | **Panels** | Keep / Show / Hide for each of the 16 panels and bars, Keep / Left / Right dock edges, and the layers width (0 = keep yours). *Keep* means "leave it however you have it". |
+  | **Toolbox** | Columns (0 = keep yours, from `TOOLBOX_COLUMNS`), the button order (typed), and a checkbox per toolbox button |
   | **Menus** | A checkbox per menu on the bar, and hidden menu items (action ids or labels) |
-  | **Bars** | Checkboxes for the edit bar, advanced bar and organizer widgets |
+  | **Bars** | Columns and button checkboxes for the edit bar and advanced bar, and organizer widget checkboxes |
   | **Keys** | The workspace's single-key overlay (`key = tool`), plus an add row |
   | **Options** | Name, description, `[START]` tool / color / zoom, and `DRAW.cfg` overrides for this workspace |
 
@@ -100,9 +134,10 @@ TOOLBOX=SHOW
 TOOLBOX_DOCK=LEFT         ; *_DOCK = LEFT | RIGHT
 LAYER_PANEL=HIDE
 PALETTE_STRIP=SHOW        ; independent of STATUS_BAR
+LAYER_PANEL_WIDTH=180     ; px, 60-400
 
 [TOOLBOX]
-COLUMNS=2
+COLUMNS=2                 ; 1-8; more are added when the buttons don't fit the height
 BUTTONS=move,marquee,rect,ellipse,line,text,picker,crop   ; - = empty cell
 ICON.crop=my-crop.png     ; theme TOOLBOX folder, a path, or your workspaces folder
 
@@ -112,9 +147,11 @@ HIDE_ITEMS=209,NEW WINDOW ; action ids or labels
 
 [EDIT_BAR]
 BUTTONS=undo,redo,copy,paste
+COLUMNS=2                 ; icon columns, 1-4
 
 [ADVANCED_BAR]
 BUTTONS=preview,grayscale
+COLUMNS=1
 
 [ORGANIZER]
 WIDGETS=color-mixer,brush-size,grid

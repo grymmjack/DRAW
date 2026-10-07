@@ -11,8 +11,17 @@ CONST DRAWER_MODE_BRUSH    = 1
 CONST DRAWER_MODE_PATTERN  = 2
 CONST DRAWER_MODE_GRADIENT = 3
 CONST DRAWER_SLOT_COUNT    = 30
-CONST DRAWER_GRID_COLS     = 3
+CONST DRAWER_GRID_COLS     = 3 ' the classic layout; DRAWER_layout reflows to the panel width
 CONST DRAWER_GRID_ROWS     = 10
+CONST DRAWER_MAX_COLS      = 6
+' Live bin grid (DRAWER_layout): columns, rows on screen, first row shown
+' (Shift+wheel scrolls when the rows don't fit), and whether the mini palette
+' sits UNDER the bins (panel too narrow for the side rail).
+DIM SHARED DRAWER_COLS     AS INTEGER
+DIM SHARED DRAWER_VIS_ROWS AS INTEGER
+DIM SHARED DRAWER_ROW0     AS INTEGER
+DIM SHARED DRAWER_STACKED  AS INTEGER
+DRAWER_COLS = DRAWER_GRID_COLS: DRAWER_VIS_ROWS = DRAWER_GRID_ROWS
 
 ' Maximum color/opacity stops per gradient definition
 CONST GRADIENT_MAX_STOPS = 16

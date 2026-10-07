@@ -1,0 +1,215 @@
+''
+' DRAW - GUI/DOCK-RESIZE.BM
+' =============================================================================
+' Drag-resize for the side-docked panels. See DOCK-RESIZE.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' SCREEN_compute_layout: forget last layout's edges.
+SUB DOCK_clear_edges ()
+    DIM i AS INTEGER
+    FOR i = 1 TO DOCK_COUNT
+        DOCK_EDGES(i).active = FALSE
+    NEXT i
+END SUB
+
+
+''
+' SCREEN_compute_layout: panel `which` sits at x1 with width w, docked on the
+' left (dockLeft TRUE) or the right edge; it spans y1..y2.
+SUB DOCK_set_edge (which AS INTEGER, x1 AS INTEGER, w AS INTEGER, dockLeft AS INTEGER, y1 AS INTEGER, y2 AS INTEGER)
+    DOCK_EDGES(which).active = TRUE
+    DOCK_EDGES(which).w = w
+    DOCK_EDGES(which).y1 = y1
+    DOCK_EDGES(which).y2 = y2
+    IF dockLeft THEN
+        DOCK_EDGES(which).side = 1
+        DOCK_EDGES(which).bx = x1 + w
+    ELSE
+        DOCK_EDGES(which).side = -1
+        DOCK_EDGES(which).bx = x1
+    END IF
+END SUB
+
+
+''
+' Something floats over the docks (menus, popups, palettes, flyouts): edges
+' stay inert so the click goes to it.
+FUNCTION DOCK_ui_busy% ()
+    IF MENU_BAR.openMenu% >= 0 _ORELSE CMD_PALETTE.visible _ORELSE PALETTE_MENU_VISIBLE% THEN DOCK_ui_busy% = TRUE: EXIT FUNCTION
+    IF DRAWER.contextMenuOpen% _ORELSE LAYER_PANEL.ctxMenuOpen% _ORELSE LAYER_PANEL.blendPopupOpen% THEN DOCK_ui_busy% = TRUE: EXIT FUNCTION
+    IF SUBTOOL_FLYOUT.ACTIVE THEN DOCK_ui_busy% = TRUE
+END FUNCTION
+
+
+''
+' The dock edge under (mx, my), or DOCK_NONE. Only where a docked panel, the
+' canvas or the empty toolbox column is on top - never through a floating
+' window, popup or the menu bar.
+FUNCTION DOCK_edge_at% (mx AS INTEGER, my AS INTEGER)
+    DIM i AS INTEGER, best AS INTEGER, bestD AS INTEGER, d AS INTEGER, rg AS INTEGER
+    IF DOCK_ui_busy% THEN EXIT FUNCTION
+    rg = REGION_hit_test%(mx, my)
+    SELECT CASE rg
+        CASE REGION_GLOBAL, REGION_CANVAS, REGION_TOOLBAR, REGION_ORGANIZER, REGION_DRAWER, _
+             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL
+        CASE ELSE
+            EXIT FUNCTION
+    END SELECT
+    bestD = 99
+    FOR i = 1 TO DOCK_COUNT
+        IF DOCK_EDGES(i).active THEN
+            IF my >= DOCK_EDGES(i).y1 _ANDALSO my <= DOCK_EDGES(i).y2 THEN
+                d = mx - DOCK_EDGES(i).bx ' boundary px is the first one outside the panel
+                IF d >= -DOCK_GRAB _ANDALSO d < DOCK_GRAB THEN
+                    IF ABS(d) < bestD THEN bestD = ABS(d): best = i
+                END IF
+            END IF
+        END IF
+    NEXT i
+    DOCK_edge_at% = best
+END FUNCTION
+
+
+''
+' Current value of a dock: columns, or px for the layers panel.
+FUNCTION DOCK_value% (which AS INTEGER)
+    SELECT CASE which
+        CASE DOCK_TOOLBOX: DOCK_value% = TB_WANT_COLS
+        CASE DOCK_EDITBAR: DOCK_value% = EDITBAR_cols%
+        CASE DOCK_ADVBAR: DOCK_value% = ADVBAR_cols%
+        CASE DOCK_LAYERS: DOCK_value% = LAYER_PANEL.width%
+    END SELECT
+END FUNCTION
+
+
+''
+' Value a panel of width w px would have (columns snap to the nearest).
+FUNCTION DOCK_value_for_width% (which AS INTEGER, w AS INTEGER)
+    DIM scl AS INTEGER, pitch AS INTEGER, v AS INTEGER, bw AS INTEGER
+    SELECT CASE which
+        CASE DOCK_TOOLBOX
+            scl = CFG.TOOLBAR_SCALE%
+            IF scl < 1 THEN scl = 1
+            IF scl > 4 THEN scl = 4
+            pitch = (TB_BTN_W + TB_BTN_PADDING) * scl
+            v = (w - 2 + TB_BTN_PADDING * scl + pitch \ 2) \ pitch
+            IF v < 1 THEN v = 1
+            IF v > 8 THEN v = 8
+        CASE DOCK_EDITBAR, DOCK_ADVBAR
+            bw = THEME.EDIT_BAR_LEFT_BORDER_WIDTH% + THEME.EDIT_BAR_RIGHT_BORDER_WIDTH%
+            pitch = THEME.EDIT_BAR_WIDTH%
+            IF pitch < 1 THEN pitch = 1
+            v = (w - bw + pitch \ 2) \ pitch
+            IF v < 1 THEN v = 1
+            IF v > 4 THEN v = 4
+        CASE DOCK_LAYERS
+            v = LAYERS_clamp_width%(w)
+    END SELECT
+    DOCK_value_for_width% = v
+END FUNCTION
+
+
+''
+' Apply a value live (no saving).
+SUB DOCK_apply_value (which AS INTEGER, v AS INTEGER)
+    SELECT CASE which
+        CASE DOCK_TOOLBOX: TB_WANT_COLS = v
+        CASE DOCK_EDITBAR: EDITBAR_NCOLS = v
+        CASE DOCK_ADVBAR: ADVBAR_NCOLS = v
+        CASE DOCK_LAYERS: LAYER_PANEL.width% = v
+    END SELECT
+    TOOLTIP_reset
+    INVALIDATE_scene
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+FUNCTION DOCK_label$ (which AS INTEGER, v AS INTEGER)
+    DIM u AS STRING
+    u = " columns"
+    IF v = 1 THEN u = " column"
+    SELECT CASE which
+        CASE DOCK_TOOLBOX: DOCK_label$ = "Toolbox: " + _TRIM$(STR$(v)) + u
+        CASE DOCK_EDITBAR: DOCK_label$ = "Edit bar: " + _TRIM$(STR$(v)) + u
+        CASE DOCK_ADVBAR: DOCK_label$ = "Advanced bar: " + _TRIM$(STR$(v)) + u
+        CASE DOCK_LAYERS: DOCK_label$ = "Layers: " + _TRIM$(STR$(v)) + " px"
+    END SELECT
+END FUNCTION
+
+
+''
+' Keep a dropped value: in the active workspace (its user file), else DRAW.cfg.
+SUB DOCK_save_value (which AS INTEGER, v AS INTEGER)
+    DIM sv AS STRING, where AS STRING
+    sv = _TRIM$(STR$(v))
+    IF WS_ACTIVE THEN
+        SELECT CASE which
+            CASE DOCK_TOOLBOX: WSC_save_key WS_ACTIVE_ID, "TOOLBOX.COLUMNS", sv: WS_TB_TOUCHED = TRUE
+            CASE DOCK_EDITBAR: WSC_save_key WS_ACTIVE_ID, "EDIT_BAR.COLUMNS", sv: WS_BARS_TOUCHED = TRUE
+            CASE DOCK_ADVBAR: WSC_save_key WS_ACTIVE_ID, "ADVANCED_BAR.COLUMNS", sv: WS_BARS_TOUCHED = TRUE
+            CASE DOCK_LAYERS: WSC_save_key WS_ACTIVE_ID, "CHROME.LAYER_PANEL_WIDTH", sv: WS_LW_TOUCHED = TRUE
+        END SELECT
+        where = " (workspace " + WS_ACTIVE_TITLE + ")"
+    ELSE
+        SELECT CASE which
+            CASE DOCK_TOOLBOX: CFG.TOOLBOX_COLUMNS% = v
+            CASE DOCK_EDITBAR: CFG.EDIT_BAR_COLUMNS% = v: EDITBAR_NCOLS = 0
+            CASE DOCK_ADVBAR: CFG.ADV_BAR_COLUMNS% = v: ADVBAR_NCOLS = 0
+            CASE DOCK_LAYERS: CFG.LAYER_PANEL_WIDTH% = v
+        END SELECT
+        CONFIG_save
+        where = ""
+    END IF
+    STATUS_flash DOCK_label$(which, v) + where
+END SUB
+
+
+''
+' MOUSE_process_frame, before the panels see the click. Grabbing an edge,
+' dragging it and dropping it all return TRUE (the frame is consumed).
+FUNCTION DOCK_handle_mouse% (mx AS INTEGER, my AS INTEGER)
+    DIM e AS INTEGER, v AS INTEGER, w AS INTEGER
+    IF DOCK_DRAG.which THEN
+        e = DOCK_DRAG.which
+        w = DOCK_DRAG.startW + (mx - DOCK_DRAG.startX) * DOCK_EDGES(e).side
+        v = DOCK_value_for_width%(e, w)
+        IF v <> DOCK_DRAG.lastV THEN
+            DOCK_apply_value e, v
+            DOCK_DRAG.lastV = v
+            STATUS_flash DOCK_label$(e, v)
+        END IF
+        IF MOUSE.B1% = 0 THEN
+            IF v <> DOCK_DRAG.grabV THEN DOCK_save_value e, v
+            DOCK_DRAG.which = DOCK_NONE
+        END IF
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        DOCK_handle_mouse% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0 THEN
+        e = DOCK_edge_at%(mx, my)
+        IF e THEN
+            DOCK_DRAG.which = e
+            DOCK_DRAG.startX = mx
+            DOCK_DRAG.startW = DOCK_EDGES(e).w
+            DOCK_DRAG.lastV = DOCK_value%(e)
+            DOCK_DRAG.grabV = DOCK_DRAG.lastV
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            DOCK_handle_mouse% = TRUE
+        END IF
+    END IF
+END FUNCTION
+
+
+''
+' POINTER_build: the horizontal-resize cursor while over or dragging an edge.
+FUNCTION DOCK_wants_cursor% (mx AS INTEGER, my AS INTEGER)
+    IF DOCK_DRAG.which THEN DOCK_wants_cursor% = TRUE: EXIT FUNCTION
+    IF MOUSE.B1% _ORELSE MOUSE.B2% _ORELSE MOUSE.B3% THEN EXIT FUNCTION ' not mid-stroke elsewhere
+    DOCK_wants_cursor% = (DOCK_edge_at%(mx, my) <> DOCK_NONE)
+END FUNCTION
