@@ -8,7 +8,7 @@ can write with its cycle ranges:
 | `NAME.draw` | The DRAW document. Open it and press **Shift+Tab** to cycle. |
 | `NAME.bas` | A single-file QB64 program that plays the cycle: `qb64pe -x NAME.bas`. SPACE pauses, `+`/`-` change speed, R restarts, ESC quits. |
 | `NAME.gif` | A still GIF carrying GrafX2 `CRNG` cycle ranges. It cycles in GrafX2 and loads back into DRAW with its ranges. |
-| `NAME-anim.gif` | An animated GIF of one full cycle loop, for browsers and chat. |
+| `ANIMATED_GIF_VERSION/NAME-anim.gif` | An animated GIF of one full cycle loop, for browsers and chat. It is a recording, not a cycling document: it has no ranges, so opening it in DRAW won't cycle. |
 | `NAME.lbm` | A DeluxePaint ILBM with `CRNG` chunks, for DeluxePaint, GrafX2, PyDPainter and others. |
 
 | Scene | Ranges |
