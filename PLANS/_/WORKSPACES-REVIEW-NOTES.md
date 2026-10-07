@@ -36,7 +36,7 @@ User docs: `docs/MANUAL/22-workspaces-capture.md`. Dev notes: `.claude/instructi
 ## Fixes found along the way (outside the feature)
 
 - `--option KEY=VALUE` was written into the config by the first `CONFIG_save`. It is now this run only, as documented. This also leaked a test's `QA-OPTIONS` into the later tests of a QA run.
-- Command palette: running a command now closes the palette first. Settings used to open over a palette still on screen (the "palette lingers behind Settings" issue), and Workspace Switcher run from the palette closed itself.
+- Command palette: running a command now closes the palette first, so Workspace Switcher run from the palette no longer closes itself. (Rendering a clean frame before the action as well broke Stroke Selection's dialog flow, so it was dropped; the palette can still show behind a modal dialog, as on main.)
 - `GUI_TB(29)` (Smart Shapes) was never freed at shutdown.
 - The AUDIO menu's Random Track cascade checked a stale literal root `10`.
 - Doc drift: `MENU_MAX_*` values, advanced bar slot count.
@@ -53,6 +53,10 @@ User docs: `docs/MANUAL/22-workspaces-capture.md`. Dev notes: `.claude/instructi
 
 - **QA (Xvfb):** ws-unit 37/37; workspace-annotate-f11, workspace-switch-restore, workspace-keys, workspace-configurator, workspace-simple, capture-screen-fake, capture-handoff, annotate-tools. Also regression: smoke, calibration, drawer, tooltip, crop, marquee, line, line caps, ellipse, cheat sheet, command palette, settings open/close, effect settings.
 - **[Linux] real Plasma 6.3 Wayland (XWayland):** `--capture` with AUTO picks spectacle and grabs 3840×2160. DRAW's window unmaps during the delay and comes back.
+
+## Full QA suite (2026-10-06, Xvfb)
+
+2137 passed, 10 failed, 1 skipped. Rerunning the 10 alone: 4 passed (timing flakes). Of the other 6, 5 fail the same on a `main` build (pre-existing): effect-fire-selection, posterize-dither-color, seam-new-open-resets-all, seam-selection-to-draw, tool-text. The sixth, edit-stroke-selection, was a regression from the palette change and is fixed (see above). The run also showed `--capture` could hand off to a window that had just quit; it now picks the freshest heartbeat.
 
 ## Please try by hand
 

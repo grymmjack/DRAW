@@ -5,7 +5,7 @@
 # a fixed 640x400 PNG), so it never touches the real display. Expect: the
 # region picker over the frozen capture; a dragged box + Enter opens just
 # that region as a new document in the Annotate workspace; Esc cancels.
-# QA-OPTIONS: CAPTURE_BACKEND=COMMAND CAPTURE_COMMAND=QA/fixtures/fake-capture.sh CAPTURE_DELAY=0 CAPTURE_HIDE_DRAW=FALSE CAPTURE_WORKSPACE=annotate
+# QA-OPTIONS: WORKSPACE=default CAPTURE_BACKEND=COMMAND CAPTURE_COMMAND=QA/fixtures/fake-capture.sh CAPTURE_DELAY=0 CAPTURE_HIDE_DRAW=FALSE CAPTURE_WORKSPACE=annotate
 # =============================================================================
 
 info "=== Capture Screen (fake backend) Test ==="

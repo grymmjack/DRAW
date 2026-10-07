@@ -4,7 +4,7 @@
 # desktop shortcut) hands the capture to the running window through its
 # mailbox (CORE/INSTANCE capture.request) and exits at once without opening
 # a second window; the running DRAW then shows the region picker.
-# QA-OPTIONS: CAPTURE_BACKEND=COMMAND CAPTURE_COMMAND=QA/fixtures/fake-capture.sh CAPTURE_DELAY=0 CAPTURE_HIDE_DRAW=FALSE CAPTURE_WORKSPACE=annotate
+# QA-OPTIONS: WORKSPACE=default CAPTURE_BACKEND=COMMAND CAPTURE_COMMAND=QA/fixtures/fake-capture.sh CAPTURE_DELAY=0 CAPTURE_HIDE_DRAW=FALSE CAPTURE_WORKSPACE=annotate
 # =============================================================================
 
 info "=== Capture handoff (DRAW --capture to the running window) Test ==="
