@@ -1,0 +1,235 @@
+''
+' DRAW - GUI/DOCK.BM
+' =============================================================================
+' The dock tree (see DOCK.BI): panel registry, tree editing, the default tree
+' built from today's dock keys, and DOCK_layout.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' =============================================================================
+' Panel registry
+' =============================================================================
+
+SUB DOCK_panel_def (id AS INTEGER, nm AS STRING, title AS STRING, hmode AS INTEGER, tall AS INTEGER, bordered AS INTEGER, floats AS INTEGER)
+    DPANEL(id).nm = nm
+    DPANEL(id).title = title
+    DPANEL(id).hmode = hmode
+    DPANEL(id).tall = tall
+    DPANEL(id).bordered = bordered
+    DPANEL(id).floats = floats
+END SUB
+
+
+SUB DOCK_init_panels ()
+    DOCK_panel_def DP_TOOLBOX, "toolbox", "Toolbox", DP_H_FIXED, TRUE, TRUE, FALSE
+    DOCK_panel_def DP_ORGANIZER, "organizer", "Organizer", DP_H_FIXED, TRUE, TRUE, FALSE
+    DOCK_panel_def DP_DRAWER, "drawer", "Drawer", DP_H_FLEX, TRUE, FALSE, FALSE
+    DOCK_panel_def DP_LAYERS, "layers", "Layers", DP_H_FLEX, TRUE, FALSE, FALSE
+    DOCK_panel_def DP_EDITBAR, "editbar", "Edit Bar", DP_H_FLEX, FALSE, FALSE, FALSE
+    DOCK_panel_def DP_ADVBAR, "advbar", "Advanced Bar", DP_H_FLEX, FALSE, FALSE, FALSE
+    DOCK_panel_def DP_CHARMAP, "charmap", "Character Map", DP_H_FLEX, FALSE, FALSE, FALSE
+    DOCK_panel_def DP_PREVIEW, "preview", "Preview", DP_H_FLEX, FALSE, FALSE, TRUE
+    DOCK_panel_def DP_MIXER, "colormixer", "Color Mixer", DP_H_FLEX, FALSE, FALSE, TRUE
+    DOCK_panel_def DP_ADVCP, "advcolorpicker", "Advanced Color Picker", DP_H_FLEX, FALSE, FALSE, TRUE
+    DOCK_panel_def DP_CS3D, "colorspace3d", "3D Color Space", DP_H_FLEX, FALSE, FALSE, TRUE
+    DOCK_panel_def DP_PEN, "pen", "Pen Pressure", DP_H_FLEX, FALSE, FALSE, TRUE
+    DOCK_panel_def DP_BROWSER, "browser", "Browser", DP_H_FLEX, FALSE, FALSE, TRUE
+END SUB
+
+
+FUNCTION DOCK_panel_by_name% (nm AS STRING)
+    DIM i AS INTEGER, k AS STRING
+    k = LCASE$(_TRIM$(nm))
+    FOR i = 1 TO DP_COUNT
+        IF DPANEL(i).nm = k THEN DOCK_panel_by_name% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' Is panel id showing (its own visibility flag)? The organizer and drawer
+' follow the toolbar's Tab toggle too, as they always have.
+FUNCTION DOCK_panel_shown% (id AS INTEGER)
+    SELECT CASE id
+        CASE DP_TOOLBOX: DOCK_panel_shown% = (SCRN.showToolbar% <> 0)
+        CASE DP_ORGANIZER: DOCK_panel_shown% = (SCRN.showToolbar% <> 0 _ANDALSO ORGANIZER.visible% <> 0)
+        CASE DP_DRAWER: DOCK_panel_shown% = (SCRN.showToolbar% <> 0 _ANDALSO DRAWER.visible% <> 0)
+        CASE DP_LAYERS: DOCK_panel_shown% = (LAYER_PANEL.visible% <> 0)
+        CASE DP_EDITBAR: DOCK_panel_shown% = (SCRN.showEditBar% <> 0)
+        CASE DP_ADVBAR: DOCK_panel_shown% = (SCRN.showAdvBar% <> 0)
+        CASE DP_CHARMAP: DOCK_panel_shown% = (SCRN.showCharMap% <> 0)
+    END SELECT
+END FUNCTION
+
+
+''
+' The width a panel wants (px) at its current setting.
+FUNCTION DOCK_panel_w% (id AS INTEGER)
+    SELECT CASE id
+        CASE DP_TOOLBOX, DP_ORGANIZER, DP_DRAWER: DOCK_panel_w% = TOOLBOX_PANEL_W
+        CASE DP_LAYERS: DOCK_panel_w% = LAYER_PANEL.width%
+        CASE DP_EDITBAR: DOCK_panel_w% = EDITBAR_width%
+        CASE DP_ADVBAR: DOCK_panel_w% = ADVBAR_width%
+        CASE DP_CHARMAP: DOCK_panel_w% = CHARMAP_panel_width%
+    END SELECT
+END FUNCTION
+
+
+' =============================================================================
+' Tree editing
+' =============================================================================
+
+SUB DOCK_clear ()
+    DIM i AS INTEGER, j AS INTEGER
+    FOR i = 1 TO DOCK_MAX_COLS: DOCK_COL(i).used = FALSE: NEXT i
+    FOR i = 1 TO DOCK_MAX_SLOTS
+        DOCK_SLOT(i).used = FALSE
+        FOR j = 1 TO DOCK_MAX_TABS: DOCK_TAB(i, j) = DP_NONE: NEXT j
+    NEXT i
+    FOR i = 1 TO DP_COUNT: DPANEL(i).slot = 0: NEXT i
+END SUB
+
+
+''
+' A new innermost column on a side; returns its index (0 = table full).
+FUNCTION DOCK_add_col% (side AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER, free AS INTEGER
+    FOR i = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(i).used THEN
+            IF DOCK_COL(i).side = side THEN n = n + 1
+        ELSEIF free = 0 THEN
+            free = i
+        END IF
+    NEXT i
+    IF free = 0 THEN EXIT FUNCTION
+    DOCK_COL(free).used = TRUE
+    DOCK_COL(free).side = side
+    DOCK_COL(free).ord = n + 1
+    DOCK_COL(free).wpx = 0
+    DOCK_add_col% = free
+END FUNCTION
+
+
+''
+' A new bottom slot in a column; returns its index (0 = table full).
+FUNCTION DOCK_add_slot% (col AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER, free AS INTEGER, j AS INTEGER
+    FOR i = 1 TO DOCK_MAX_SLOTS
+        IF DOCK_SLOT(i).used THEN
+            IF DOCK_SLOT(i).col = col THEN n = n + 1
+        ELSEIF free = 0 THEN
+            free = i
+        END IF
+    NEXT i
+    IF free = 0 THEN EXIT FUNCTION
+    DOCK_SLOT(free).used = TRUE
+    DOCK_SLOT(free).col = col
+    DOCK_SLOT(free).ord = n + 1
+    DOCK_SLOT(free).share = 1
+    DOCK_SLOT(free).collapsed = FALSE
+    DOCK_SLOT(free).ntabs = 0
+    DOCK_SLOT(free).act = 1
+    FOR j = 1 TO DOCK_MAX_TABS: DOCK_TAB(free, j) = DP_NONE: NEXT j
+    DOCK_add_slot% = free
+END FUNCTION
+
+
+SUB DOCK_slot_add_tab (slot AS INTEGER, id AS INTEGER)
+    IF slot < 1 _ORELSE id < 1 THEN EXIT SUB
+    IF DOCK_SLOT(slot).ntabs >= DOCK_MAX_TABS THEN EXIT SUB
+    DOCK_SLOT(slot).ntabs = DOCK_SLOT(slot).ntabs + 1
+    DOCK_TAB(slot, DOCK_SLOT(slot).ntabs) = id
+    DPANEL(id).slot = slot
+END SUB
+
+
+''
+' A column on side with one slot per panel in ids (comma list of DP_ ids).
+SUB DOCK_add_stack (side AS INTEGER, ids AS STRING)
+    DIM c AS INTEGER, s AS INTEGER, i AS INTEGER, n AS INTEGER
+    c = DOCK_add_col%(side)
+    IF c = 0 THEN EXIT SUB
+    n = WS_list_count%(ids)
+    FOR i = 1 TO n
+        s = DOCK_add_slot%(c)
+        DOCK_slot_add_tab s, VAL(WS_list_item$(ids, i))
+    NEXT i
+END SUB
+
+
+' =============================================================================
+' The default tree: today's fixed order, from the dock keys
+' =============================================================================
+
+''
+' Each side, outermost first: layers, the toolbox column (toolbox / organizer /
+' drawer), advanced bar, edit bar, character map. Which side each one is on
+' comes from the existing keys, read live, so every old way of switching sides
+' (Ctrl+Shift+click a dock edge, workspace *_DOCK keys) keeps working.
+SUB DOCK_build_default ()
+    DIM side AS INTEGER, tbSide AS INTEGER, lpSide AS INTEGER, ebSide AS INTEGER, abSide AS INTEGER, cmSide AS INTEGER
+    IF DPANEL(DP_TOOLBOX).nm = "" THEN DOCK_init_panels
+    DOCK_clear
+    IF UCASE$(_TRIM$(CFG.TOOLBOX_DOCK_EDGE)) = "RIGHT" THEN tbSide = DOCK_RIGHT ELSE tbSide = DOCK_LEFT
+    IF UCASE$(_TRIM$(CFG.LAYERS_PANEL_DOCK_EDGE)) = "LEFT" THEN lpSide = DOCK_LEFT ELSE lpSide = DOCK_RIGHT
+    IF EDIT_BAR.dockSide% = EDITBAR_DOCK_RIGHT THEN ebSide = DOCK_RIGHT ELSE ebSide = DOCK_LEFT
+    IF ADV_BAR.dockSide% = ADVBAR_DOCK_RIGHT THEN abSide = DOCK_RIGHT ELSE abSide = DOCK_LEFT
+    IF CHARMAP.dockSide% = CHARMAP_DOCK_LEFT THEN cmSide = DOCK_LEFT ELSE cmSide = DOCK_RIGHT
+    FOR side = DOCK_LEFT TO DOCK_RIGHT
+        IF lpSide = side THEN DOCK_add_stack side, _TRIM$(STR$(DP_LAYERS))
+        IF tbSide = side THEN DOCK_add_stack side, _TRIM$(STR$(DP_TOOLBOX)) + "," + _TRIM$(STR$(DP_ORGANIZER)) + "," + _TRIM$(STR$(DP_DRAWER))
+        IF abSide = side THEN DOCK_add_stack side, _TRIM$(STR$(DP_ADVBAR))
+        IF ebSide = side THEN DOCK_add_stack side, _TRIM$(STR$(DP_EDITBAR))
+        IF cmSide = side THEN DOCK_add_stack side, _TRIM$(STR$(DP_CHARMAP))
+    NEXT side
+    DOCK_READY = TRUE
+END SUB
+
+
+''
+' One line per column for the log / tests: "LEFT.1: layers | ..." (P2 adds the
+' full [DOCK] writer; this is the debugging view).
+FUNCTION DOCK_describe$ ()
+    DIM side AS INTEGER, o AS INTEGER, c AS INTEGER, s AS INTEGER, so AS INTEGER, t AS INTEGER, r AS STRING, ln AS STRING
+    FOR side = DOCK_LEFT TO DOCK_RIGHT
+        FOR o = 1 TO DOCK_MAX_COLS
+            c = DOCK_col_at%(side, o)
+            IF c = 0 THEN EXIT FOR
+            IF side = DOCK_LEFT THEN ln = "LEFT." ELSE ln = "RIGHT."
+            ln = ln + _TRIM$(STR$(o)) + ":"
+            FOR so = 1 TO DOCK_MAX_SLOTS
+                s = DOCK_slot_at%(c, so)
+                IF s = 0 THEN EXIT FOR
+                IF so > 1 THEN ln = ln + " |"
+                FOR t = 1 TO DOCK_SLOT(s).ntabs
+                    IF t > 1 THEN ln = ln + "+" ELSE ln = ln + " "
+                    ln = ln + DPANEL(DOCK_TAB(s, t)).nm
+                NEXT t
+            NEXT so
+            r = r + ln + CHR$(10)
+        NEXT o
+    NEXT side
+    DOCK_describe$ = r
+END FUNCTION
+
+
+''
+' Column of a side at order o (0 = none).
+FUNCTION DOCK_col_at% (side AS INTEGER, o AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(i).used _ANDALSO DOCK_COL(i).side = side _ANDALSO DOCK_COL(i).ord = o THEN DOCK_col_at% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' Slot of a column at order o from the top (0 = none).
+FUNCTION DOCK_slot_at% (col AS INTEGER, o AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 1 TO DOCK_MAX_SLOTS
+        IF DOCK_SLOT(i).used _ANDALSO DOCK_SLOT(i).col = col _ANDALSO DOCK_SLOT(i).ord = o THEN DOCK_slot_at% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION

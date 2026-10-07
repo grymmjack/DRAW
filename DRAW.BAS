@@ -530,6 +530,9 @@ PEN_init
 
 ' Reopen in the remembered workspace (CFG.WORKSPACE) - an overlay, GUI/WORKSPACE-APPLY.
 WS_startup
+' The dock tree (GUI/DOCK): log the arrangement once at startup
+DOCK_build_default
+_LOGINFO "DOCK: tree" + CHR$(10) + DOCK_describe$
 ' DRAW --capture: grab the screen once the window is up (GUI/CAPTURE).
 CAP_startup
 
