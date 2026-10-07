@@ -35,3 +35,4 @@ DIM SHARED CAP_LAST_TOOL   AS STRING  ' the command template the last grab used
 DIM SHARED CAP_AUTO_CACHE  AS STRING  ' AUTO's choice, resolved once per session
 DIM SHARED CAP_PENDING     AS INTEGER ' DRAW --capture: frames to wait before grabbing (0 = none)
 DIM SHARED CAP_PREV_WS     AS STRING  ' workspace active before the capture (Done returns to it)
+DIM SHARED CAP_ONE_SHOT    AS INTEGER ' DRAW was started by --capture: Done (or cancelling) closes DRAW

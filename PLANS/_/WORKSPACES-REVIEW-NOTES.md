@@ -33,6 +33,11 @@ User docs: `docs/MANUAL/22-workspaces-capture.md`. Dev notes: `.claude/instructi
 - **Redact** and **Callout** are armed modes on the marquee / null tool, polled after each frame, not new `TOOL_*` tools.
 - **Done** returns to the previous document by saving it to the cache when the capture starts. This also replaces the "discard unsaved changes?" question for captures.
 
+## After review (Rick, 2026-10-06)
+
+- A cold `DRAW --capture` is one-shot: no splash, `Ctrl+Enter` saves + copies + closes DRAW, `Esc` in the picker closes it. A capture's switch to Annotate is no longer remembered for the next launch.
+- After a capture the status bar says what `Ctrl+Enter` does.
+
 ## Fixes found along the way (outside the feature)
 
 - `--option KEY=VALUE` was written into the config by the first `CONFIG_save`. It is now this run only, as documented. This also leaked a test's `QA-OPTIONS` into the later tests of a QA run.

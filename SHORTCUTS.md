@@ -621,7 +621,7 @@ Hold a **non-modifier** key, then click/press/drag. Easy to miss:
 | `C` / `V` | Crop / Move |
 | `Ctrl+C` | Copy the selection or the whole picture |
 | `Ctrl+S` | Quick save PNG (no dialog) |
-| `Ctrl+Enter` | Done — save, copy, back to the previous document + workspace |
+| `Ctrl+Enter` | Done — save, copy, back to the previous document + workspace (a cold `DRAW --capture` launch closes DRAW instead) |
 
 A workspace's `[KEYS]` can remap any of these; menus and the command palette show the active workspace's keys.
 

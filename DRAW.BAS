@@ -115,7 +115,12 @@ DIM splashBg      AS _UNSIGNED LONG, splashBgR AS INTEGER, splashBgG AS INTEGER,
 ' Splash is gated on CFG.SPLASH_ENABLED% (Settings > General > Startup Defaults).
 ' When disabled, splashImg& stays 0 so the fade-in/hold/fade-out blocks below
 ' (all guarded by `splashImg& < -1`) are skipped entirely — no side effects.
-IF CFG.SPLASH_ENABLED% THEN splashImg& = _LOADIMAGE("ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/splash.png", 32)
+' Also skipped for DRAW --capture: a screenshot launch should get to the grab at once.
+DIM splashArgI AS INTEGER, splashSkip AS INTEGER
+FOR splashArgI = 1 TO _COMMANDCOUNT
+    IF LCASE$(_TRIM$(COMMAND$(splashArgI))) = "--capture" THEN splashSkip = -1
+NEXT splashArgI
+IF CFG.SPLASH_ENABLED% AND NOT splashSkip THEN splashImg& = _LOADIMAGE("ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/splash.png", 32)
 DIM splashVerFont AS LONG: splashVerFont& = 0
 DIM splashVerStr  AS STRING
 DIM splashVerDstX AS LONG, splashVerDstY AS LONG

@@ -39,6 +39,7 @@ Plan + decisions: `PLANS/_/WORKSPACES-AND-CAPTURE-PLAN.md`; review notes:
 - Tests use `CAPTURE_BACKEND=COMMAND` + `QA/fixtures/fake-capture.sh` (fixed 640×400 PNG) so they never touch the display.
 - The picker draws on screen 0 at native pixels (`_MOUSEX` is native), text at UI scale (`CAP_text`).
 - Capture stashes a named/changed document to `<cache>/capture-previous.draw` (+ zoom/pan) instead of the discard prompt; Done reloads it.
+- A cold `--capture` launch is one-shot (`CAP_ONE_SHOT`): no splash (DRAW.BAS), Done → `ANN_EXIT_FRAMES` (10 frames so a clipboard manager can take the image) → action 212; Esc in the picker → exit too. Capture/Done workspace switches use `WS_NO_REMEMBER` (not the next launch's workspace). Test: `DRAW_EXTRA_ARGS=--capture ./draw-qa.sh tests/capture-oneshot.sh`.
 - `--capture` with a live instance: `INSTANCE_bootstrap` posts `capture.request` to that slot's mailbox *before claiming a slot* and exits; `CAP_tick` polls (`INSTANCE_take_request%`, ~0.3 s).
 
 ## Action ids

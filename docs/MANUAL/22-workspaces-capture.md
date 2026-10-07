@@ -196,7 +196,7 @@ changes, it is set aside in DRAW's cache (no "discard changes?" question), and
 | `V` | Move |
 | `Ctrl+C` | Copy the selection, or the whole picture, to the clipboard |
 | `Ctrl+S` | **Quick save** a PNG to the screenshots folder, no dialog. The first save is named `DRAW-YYYYMMDD-HHMMSS.png`; later saves overwrite it. |
-| `Ctrl+Enter` | **Done**: quick save + copy to the clipboard + go back to the document and workspace you had before the capture |
+| `Ctrl+Enter` | **Done**: quick save + copy to the clipboard + go back to the document and workspace you had before the capture. When DRAW was started by `DRAW --capture`, Done **closes DRAW** instead (Shottr-style) |
 
 These tools are also under **Tools → Annotate** and in the command palette
 (`Annotate:`), so they work in any workspace.
@@ -220,7 +220,13 @@ These tools are also under **Tools → Annotate** and in the command palette
 ### A global capture shortcut
 
 `DRAW --capture` hands the capture to a running DRAW (no second window) or
-starts DRAW if it is not running. Bind it to a key:
+starts DRAW if it is not running. Started that way, DRAW is **one-shot**:
+- No splash screen; it goes straight to the grab.
+- `Ctrl+Enter` saves, copies and closes DRAW.
+- `Esc` in the region picker closes DRAW too.
+
+So a shortcut gives you capture → mark up → `Ctrl+Enter`, and you're back where
+you were. Bind it to a key:
 
 - **KDE Plasma:** System Settings → Keyboard → Shortcuts → **Add New → Command or Script**. Command: `/path/to/DRAW.run --capture`. Then press the shortcut you want, for example `Meta+Shift+S`.
 - **GNOME:** Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts → **+**. Command: `/path/to/DRAW.run --capture`.
@@ -238,6 +244,7 @@ starts DRAW if it is not running. Bind it to a key:
 | Capture says "no screen capture tool found" | Install the tool for your desktop (see the table above) or set a Custom Command |
 | The capture includes DRAW's window | Raise the Capture Delay (the window may need longer to fade on your desktop) |
 | A workspace key does nothing | It only works in that workspace, not while typing, and not while a mouse button is held |
+| How do I leave Annotate after a capture? | `Ctrl+Enter` (Done). Or `Ctrl+Shift+W` → Default to keep the screenshot open. `Esc` belongs to the tools. |
 
 ---
 

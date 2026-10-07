@@ -34,6 +34,7 @@ DIM SHARED ANN_REDACT_ARMED  AS INTEGER
 DIM SHARED ANN_CALLOUT_ARMED AS INTEGER
 DIM SHARED ANN_CALLOUT_N     AS INTEGER ' last number placed
 DIM SHARED ANN_PREV_B1       AS INTEGER
+DIM SHARED ANN_EXIT_FRAMES   AS INTEGER ' >0: quit DRAW after this many frames (one-shot --capture Done)
 
 ' Capture document bookkeeping (GUI/CAPTURE fills it): Done returns here
 DIM SHARED CAP_STASHED       AS INTEGER ' the previous document was saved to the cache
