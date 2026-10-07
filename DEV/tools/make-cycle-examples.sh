@@ -9,7 +9,9 @@
 #   NAME.draw        the DRAW document (open it, press Shift+Tab)
 #   NAME.bas         single-file QB64 program (qb64pe -x NAME.bas)
 #   NAME.gif         still GIF + GrafX2 CRNG ranges (cycles in GrafX2)
-#   NAME-anim.gif    animated GIF of the cycle (any browser / viewer)
+#   ANIMATED_GIF_VERSION/NAME-anim.gif
+#                    animated GIF of the cycle (any browser / viewer) - kept in
+#                    its own folder: it is a recording, not a cycling document
 #   NAME.lbm         DeluxePaint ILBM + CRNG (DeluxePaint, GrafX2, PyDPainter...)
 set -euo pipefail
 cd "$(dirname "$0")/../.." || exit 1
@@ -19,9 +21,10 @@ QACFG="QA/DRAW.qa.cfg"
 [ -f "$QACFG" ] || { echo "$QACFG missing (run QA/draw-qa.sh once)"; exit 1; }
 
 DEST="SAMPLES/COLOR CYCLING"
+ANIM="$DEST/ANIMATED_GIF_VERSION"
 WORK=$(mktemp -d); TMPCFG=$(mktemp -d); mkdir -p "$TMPCFG/DRAW"
 trap 'rm -rf "$WORK" "$TMPCFG"' EXIT
-mkdir -p "$DEST"
+mkdir -p "$DEST" "$ANIM"
 
 draw() { XDG_CONFIG_HOME="$TMPCFG" xvfb-run -a ./DRAW.run --config "$QACFG" "$@" >/dev/null 2>&1; }
 
@@ -34,8 +37,8 @@ for png in "$WORK"/*.png; do
     draw "$png" --palette "$WORK/$name.gpl" "${args[@]}" --export "$DEST/$name.draw"
     draw "$DEST/$name.draw" --export "$DEST/$name.bas"
     draw "$DEST/$name.draw" --export "$DEST/$name.gif"
-    draw "$DEST/$name.draw" --export-anim "$DEST/$name-anim.gif"
+    draw "$DEST/$name.draw" --export-anim "$ANIM/$name-anim.gif"
     draw "$DEST/$name.draw" --export "$DEST/$name.lbm"
-    ls -la "$DEST/$name".* "$DEST/$name"-anim.gif | awk '{print "   ", $5, $NF}'
+    ls -la "$DEST/$name".* "$ANIM/$name"-anim.gif | awk '{print "   ", $5, $NF}'
 done
 echo "done -> $DEST"
