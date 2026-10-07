@@ -481,6 +481,7 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 | `L-Drag` the line between two stacked panels | Move height between them |
 | `L-Click` a tab | Show that panel |
 | `L-Click` the chevron / `Dbl-Click` a title strip | Collapse the slot to its title / expand it |
+| `L-Click` a collapsed title | Open it (on the tab you clicked) |
 | `R-Click` a handle | Move to Left / Right Edge · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement |
 | `L-Drag` a floating window's title bar onto a dock target | Dock it (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Browser) |
 | `Dbl-Click` a floating panel's title | Dock it back where it was |

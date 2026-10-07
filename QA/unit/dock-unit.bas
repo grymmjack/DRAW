@@ -136,6 +136,22 @@ CHECK DOCK_SLOT(s).ntabs = 1 _ANDALSO DOCK_SLOT(s).act = 1, "tab removed"
 s = DOCK_move_to_slot%(DP_ORGANIZER, DOCK_col_at%(DOCK_RIGHT, 2), 1)
 CHECK s = 0, "into a column that vanished when the panel left it: no move"
 
+' a slot inserted into a column gets the column's average share (px shares
+' after a divider drag would leave a share of 1 a sliver)
+DOCK_clear
+c = DOCK_parse_col%(DOCK_RIGHT, "layers@200 | editbar@300")
+s = DOCK_insert_slot%(c, 1)
+CHECK DOCK_SLOT(s).share = 250, "inserted slot share = column average, got" + STR$(DOCK_SLOT(s).share)
+DOCK_clear
+c = DOCK_parse_col%(DOCK_LEFT, "toolbox | organizer | drawer")
+c = DOCK_parse_col%(DOCK_RIGHT, "layers")
+c = DOCK_parse_col%(DOCK_RIGHT, "editbar")
+c = DOCK_move_to_new_col%(DP_ORGANIZER, DOCK_RIGHT, 99)
+s = DOCK_move_to_slot%(DP_EDITBAR, DOCK_col_at%(DOCK_RIGHT, 1), 2)
+s = DOCK_move_to_tab%(DP_DRAWER, DPANEL(DP_LAYERS).slot)
+c = DOCK_move_to_new_col%(DP_EDITBAR, DOCK_LEFT, 1)
+DOCK_detach_panel DP_DRAWER
+
 ' a panel's side, and a whole column moving edges (legacy dock-edge actions)
 CHECK DOCK_panel_side%(DP_EDITBAR) = DOCK_LEFT _ANDALSO DOCK_panel_side%(DP_LAYERS) = DOCK_RIGHT, "panel sides"
 DOCK_detach_panel DP_ORGANIZER

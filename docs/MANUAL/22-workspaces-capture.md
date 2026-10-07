@@ -95,6 +95,7 @@ Pressure and Browser windows.
 | **Drag the line between two stacked panels** | Moves height between them (the pointer turns into ↕) |
 | **Click a tab** | Shows that panel |
 | **Click the chevron**, or **double-click a title** | Collapses the slot to its title strip; its height goes to the others |
+| **Click a collapsed title** | Opens it again (click one of its tabs to open on that tab) |
 | **Double-click a floating panel's title** | Docks it back where it was |
 | **Right-click a handle** | Move to Left Edge / Move to Right Edge, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement |
 
