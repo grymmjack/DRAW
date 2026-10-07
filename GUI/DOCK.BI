@@ -114,3 +114,27 @@ DIM SHARED DOCK_LX AS INTEGER
 DIM SHARED DOCK_RX AS INTEGER
 DIM SHARED DOCK_MENU_LX AS INTEGER
 DIM SHARED DOCK_MENU_RX AS INTEGER
+
+' --- slot chrome (P3) -----------------------------------------------------------
+CONST DOCK_GRIP_H  = 3  ' hover grip at the top of a chromeless panel (viewport px)
+CONST DOCK_TITLE_H = 11 ' title / tab strip of a titled slot (tabbed, collapsed, docked window)
+CONST DOCK_MENU_ITEM_H = 12
+
+' handle menu actions
+CONST DOCK_ACT_LEFT  = 1
+CONST DOCK_ACT_RIGHT = 2
+CONST DOCK_ACT_RESET = 3
+CONST DOCK_ACT_COLLAPSE = 4
+CONST DOCK_ACT_FLOAT = 5
+
+TYPE DOCK_UI_OBJ
+    hoverSlot AS INTEGER ' slot whose handle the pointer is over (0 = none)
+    menuOpen  AS INTEGER
+    menuPanel AS INTEGER ' panel the menu acts on
+    menuX     AS INTEGER
+    menuY     AS INTEGER
+    menuW     AS INTEGER
+    menuN     AS INTEGER
+    menuHover AS INTEGER
+END TYPE
+DIM SHARED DOCK_UI AS DOCK_UI_OBJ

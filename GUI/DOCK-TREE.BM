@@ -439,3 +439,147 @@ SUB DOCK_load_snapshot (snap AS STRING)
     DOCK_CUSTOM = (DOCK_snap_get$(snap, "CUSTOM") <> "0") _ANDALSO (DOCK_col_at%(DOCK_LEFT, 1) <> 0 _ORELSE DOCK_col_at%(DOCK_RIGHT, 1) <> 0)
     DOCK_READY = DOCK_CUSTOM
 END SUB
+
+
+' =============================================================================
+' Moving panels (P3): detach, insert, move
+' =============================================================================
+
+''
+' Renumber the columns of a side and the slots of a column 1..n (after a removal).
+SUB DOCK_compact ()
+    DIM side AS INTEGER, o AS INTEGER, c AS INTEGER, n AS INTEGER, i AS INTEGER, best AS INTEGER, bestOrd AS INTEGER, s AS INTEGER
+    DIM done(1 TO DOCK_MAX_SLOTS) AS INTEGER, doneC(1 TO DOCK_MAX_COLS) AS INTEGER
+    FOR side = DOCK_LEFT TO DOCK_RIGHT
+        n = 0
+        DO
+            best = 0: bestOrd = 32767
+            FOR i = 1 TO DOCK_MAX_COLS
+                IF DOCK_COL(i).used _ANDALSO DOCK_COL(i).side = side _ANDALSO doneC(i) = 0 _ANDALSO DOCK_COL(i).ord < bestOrd THEN best = i: bestOrd = DOCK_COL(i).ord
+            NEXT i
+            IF best = 0 THEN EXIT DO
+            n = n + 1
+            DOCK_COL(best).ord = n
+            doneC(best) = TRUE
+        LOOP
+    NEXT side
+    FOR c = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(c).used THEN
+            n = 0
+            DO
+                best = 0: bestOrd = 32767
+                FOR s = 1 TO DOCK_MAX_SLOTS
+                    IF DOCK_SLOT(s).used _ANDALSO DOCK_SLOT(s).col = c _ANDALSO done(s) = 0 _ANDALSO DOCK_SLOT(s).ord < bestOrd THEN best = s: bestOrd = DOCK_SLOT(s).ord
+                NEXT s
+                IF best = 0 THEN EXIT DO
+                n = n + 1
+                DOCK_SLOT(best).ord = n
+                done(best) = TRUE
+            LOOP
+        END IF
+    NEXT c
+END SUB
+
+
+''
+' Take panel id out of the tree (its tab; an emptied slot and column go too).
+SUB DOCK_detach_panel (id AS INTEGER)
+    DIM s AS INTEGER, t AS INTEGER, k AS INTEGER, c AS INTEGER, o AS INTEGER, slotsLeft AS INTEGER
+    s = DPANEL(id).slot
+    DPANEL(id).slot = 0
+    IF s < 1 THEN EXIT SUB
+    FOR t = 1 TO DOCK_SLOT(s).ntabs
+        IF DOCK_TAB(s, t) = id THEN
+            FOR k = t TO DOCK_SLOT(s).ntabs - 1: DOCK_TAB(s, k) = DOCK_TAB(s, k + 1): NEXT k
+            DOCK_TAB(s, DOCK_SLOT(s).ntabs) = DP_NONE
+            DOCK_SLOT(s).ntabs = DOCK_SLOT(s).ntabs - 1
+            IF DOCK_SLOT(s).act > t _ORELSE DOCK_SLOT(s).act > DOCK_SLOT(s).ntabs THEN DOCK_SLOT(s).act = DOCK_SLOT(s).act - 1
+            IF DOCK_SLOT(s).act < 1 THEN DOCK_SLOT(s).act = 1
+            EXIT FOR
+        END IF
+    NEXT t
+    IF DOCK_SLOT(s).ntabs = 0 THEN
+        c = DOCK_SLOT(s).col
+        DOCK_SLOT(s).used = FALSE
+        slotsLeft = FALSE
+        FOR o = 1 TO DOCK_MAX_SLOTS
+            IF DOCK_SLOT(o).used _ANDALSO DOCK_SLOT(o).col = c THEN slotsLeft = TRUE
+        NEXT o
+        IF slotsLeft = 0 THEN DOCK_COL(c).used = FALSE
+    END IF
+    DOCK_compact
+END SUB
+
+
+''
+' A new empty column at order ord on side (1 = outermost; past the end =
+' innermost); later columns shift inward. Returns its index (0 = full).
+FUNCTION DOCK_insert_col% (side AS INTEGER, ord AS INTEGER)
+    DIM i AS INTEGER, c AS INTEGER
+    FOR i = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(i).used _ANDALSO DOCK_COL(i).side = side _ANDALSO DOCK_COL(i).ord >= ord THEN DOCK_COL(i).ord = DOCK_COL(i).ord + 1
+    NEXT i
+    c = DOCK_add_col%(side)
+    IF c = 0 THEN DOCK_compact: EXIT FUNCTION
+    DOCK_COL(c).ord = ord
+    DOCK_compact
+    DOCK_insert_col% = c
+END FUNCTION
+
+
+''
+' A new empty slot at order ord in column c (1 = top); later slots shift down.
+FUNCTION DOCK_insert_slot% (c AS INTEGER, ord AS INTEGER)
+    DIM i AS INTEGER, s AS INTEGER
+    FOR i = 1 TO DOCK_MAX_SLOTS
+        IF DOCK_SLOT(i).used _ANDALSO DOCK_SLOT(i).col = c _ANDALSO DOCK_SLOT(i).ord >= ord THEN DOCK_SLOT(i).ord = DOCK_SLOT(i).ord + 1
+    NEXT i
+    s = DOCK_add_slot%(c)
+    IF s = 0 THEN DOCK_compact: EXIT FUNCTION
+    DOCK_SLOT(s).ord = ord
+    DOCK_compact
+    DOCK_insert_slot% = s
+END FUNCTION
+
+
+''
+' Move panel id to a new column at ord on side.
+FUNCTION DOCK_move_to_new_col% (id AS INTEGER, side AS INTEGER, ord AS INTEGER)
+    DIM c AS INTEGER, s AS INTEGER
+    DOCK_detach_panel id
+    c = DOCK_insert_col%(side, ord)
+    IF c = 0 THEN EXIT FUNCTION
+    s = DOCK_add_slot%(c)
+    DOCK_slot_add_tab s, id
+    DPANEL(id).fl = FALSE
+    DOCK_move_to_new_col% = c
+END FUNCTION
+
+
+''
+' Move panel id into column c as a new slot at ord (split).
+FUNCTION DOCK_move_to_slot% (id AS INTEGER, c AS INTEGER, ord AS INTEGER)
+    DIM s AS INTEGER
+    IF c < 1 THEN EXIT FUNCTION
+    DOCK_detach_panel id ' column c may lose a slot, or vanish if id was all it held
+    IF DOCK_COL(c).used = 0 THEN EXIT FUNCTION
+    s = DOCK_insert_slot%(c, ord)
+    IF s = 0 THEN EXIT FUNCTION
+    DOCK_slot_add_tab s, id
+    DPANEL(id).fl = FALSE
+    DOCK_move_to_slot% = s
+END FUNCTION
+
+
+''
+' Move panel id into slot s as a tab (it becomes the active one).
+FUNCTION DOCK_move_to_tab% (id AS INTEGER, s AS INTEGER)
+    IF s < 1 THEN EXIT FUNCTION
+    IF DPANEL(id).slot = s THEN EXIT FUNCTION
+    DOCK_detach_panel id
+    IF DOCK_SLOT(s).used = 0 THEN EXIT FUNCTION
+    DOCK_slot_add_tab s, id
+    DOCK_SLOT(s).act = DOCK_SLOT(s).ntabs
+    DPANEL(id).fl = FALSE
+    DOCK_move_to_tab% = s
+END FUNCTION

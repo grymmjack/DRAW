@@ -117,14 +117,26 @@ END FUNCTION
 
 
 ''
+' Does slot s draw a title / tab strip? Tabs, a collapsed slot, and a docked
+' floating window (it lost its own title bar) do; the rest are chromeless.
+FUNCTION DOCK_slot_titled% (s AS INTEGER)
+    DIM id AS INTEGER
+    IF DOCK_SLOT(s).ntabs > 1 _ORELSE DOCK_SLOT(s).collapsed THEN DOCK_slot_titled% = TRUE: EXIT FUNCTION
+    id = DOCK_slot_panel%(s)
+    IF id THEN DOCK_slot_titled% = (DPANEL(id).floats <> 0)
+END FUNCTION
+
+
+''
 ' Stack column c's showing slots top to bottom inside its rect: fixed panels
 ' take their own height (two bordered panels share their frame row), flex
-' panels share what is left by weight.
+' panels share what is left by weight; a titled slot adds its strip, a
+' collapsed one is only its strip. Slot rects include the strip; the panel
+' gets the part below it (DOCK_apply_panel).
 SUB DOCK_stack_column (c AS INTEGER)
-    DIM o AS INTEGER, s AS INTEGER, id AS INTEGER, y AS INTEGER, bottom AS INTEGER
+    DIM o AS INTEGER, s AS INTEGER, id AS INTEGER, y AS INTEGER
     DIM fixedSum AS INTEGER, shareSum AS INTEGER, flexH AS INTEGER, h AS INTEGER, prevBordered AS INTEGER
-    DIM n AS INTEGER, lastFlex AS INTEGER, usedFlex AS INTEGER
-    bottom = DOCK_COL(c).y + DOCK_COL(c).h - 1
+    DIM lastFlex AS INTEGER, usedFlex AS INTEGER, th AS INTEGER, isFlex AS INTEGER
     ' sizes first
     prevBordered = FALSE
     FOR o = 1 TO DOCK_MAX_SLOTS
@@ -133,14 +145,20 @@ SUB DOCK_stack_column (c AS INTEGER)
         id = DOCK_slot_panel%(s)
         DOCK_SLOT(s).vis = (id <> DP_NONE)
         IF id THEN
-            IF DPANEL(id).hmode = DP_H_FIXED THEN
-                fixedSum = fixedSum + DOCK_fixed_h%(id, DOCK_COL(c).w)
-                IF prevBordered _ANDALSO DPANEL(id).bordered THEN fixedSum = fixedSum - 1
+            th = 0
+            IF DOCK_slot_titled%(s) THEN th = DOCK_TITLE_H
+            IF DOCK_SLOT(s).collapsed THEN
+                fixedSum = fixedSum + th
+                prevBordered = FALSE
+            ELSEIF DPANEL(id).hmode = DP_H_FIXED THEN
+                fixedSum = fixedSum + th + DOCK_fixed_h%(id, DOCK_COL(c).w)
+                IF prevBordered _ANDALSO DPANEL(id).bordered _ANDALSO th = 0 THEN fixedSum = fixedSum - 1
+                prevBordered = DPANEL(id).bordered
             ELSE
                 shareSum = shareSum + DOCK_SLOT(s).share
                 lastFlex = s
+                prevBordered = DPANEL(id).bordered
             END IF
-            prevBordered = DPANEL(id).bordered
         END IF
     NEXT o
     flexH = DOCK_COL(c).h - fixedSum
@@ -152,23 +170,27 @@ SUB DOCK_stack_column (c AS INTEGER)
         IF s = 0 THEN EXIT FOR
         IF DOCK_SLOT(s).vis THEN
             id = DOCK_slot_panel%(s)
-            IF prevBordered _ANDALSO DPANEL(id).bordered THEN y = y - 1 ' share the frame row
-            IF DPANEL(id).hmode = DP_H_FIXED THEN
-                h = DOCK_fixed_h%(id, DOCK_COL(c).w)
+            th = 0
+            IF DOCK_slot_titled%(s) THEN th = DOCK_TITLE_H
+            isFlex = (DPANEL(id).hmode = DP_H_FLEX _ANDALSO DOCK_SLOT(s).collapsed = 0)
+            IF prevBordered _ANDALSO DPANEL(id).bordered _ANDALSO th = 0 THEN y = y - 1 ' share the frame row
+            IF DOCK_SLOT(s).collapsed THEN
+                h = th
+            ELSEIF DPANEL(id).hmode = DP_H_FIXED THEN
+                h = th + DOCK_fixed_h%(id, DOCK_COL(c).w)
             ELSEIF s = lastFlex THEN
                 h = flexH - usedFlex ' the last flex slot takes the rounding
             ELSE
                 h = (flexH * DOCK_SLOT(s).share) \ shareSum
                 usedFlex = usedFlex + h
             END IF
-            IF DPANEL(id).hmode = DP_H_FLEX _ANDALSO h < DOCK_min_h%(id) THEN h = DOCK_min_h%(id)
+            IF isFlex _ANDALSO h - th < DOCK_min_h%(id) THEN h = th + DOCK_min_h%(id)
             DOCK_SLOT(s).x = DOCK_COL(c).x
             DOCK_SLOT(s).w = DOCK_COL(c).w
             DOCK_SLOT(s).y = y
             DOCK_SLOT(s).h = h
             y = y + h
-            prevBordered = DPANEL(id).bordered
-            n = n + 1
+            IF DOCK_SLOT(s).collapsed THEN prevBordered = FALSE ELSE prevBordered = DPANEL(id).bordered
         END IF
     NEXT o
 END SUB
@@ -179,8 +201,9 @@ END SUB
 SUB DOCK_apply_panel (s AS INTEGER, side AS INTEGER, dockY2 AS INTEGER)
     DIM id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dockLeft AS INTEGER
     id = DOCK_slot_panel%(s)
-    IF id = DP_NONE THEN EXIT SUB
+    IF id = DP_NONE _ORELSE DOCK_SLOT(s).collapsed THEN EXIT SUB
     x = DOCK_SLOT(s).x: y = DOCK_SLOT(s).y: w = DOCK_SLOT(s).w: h = DOCK_SLOT(s).h
+    IF DOCK_slot_titled%(s) THEN y = y + DOCK_TITLE_H: h = h - DOCK_TITLE_H
     dockLeft = (side = DOCK_LEFT)
     DPANEL(id).rVis = TRUE
     DPANEL(id).rx = x: DPANEL(id).ry = y: DPANEL(id).rw = w: DPANEL(id).rh = h
@@ -373,3 +396,241 @@ SUB DOCK_fill_rect (c AS INTEGER, y1 AS INTEGER, y2 AS INTEGER)
         LINE (x2, y1)-(x2, y2), THEME.EDIT_BAR_RIGHT_BORDER_COLOR~&
     END IF
 END SUB
+
+
+
+' =============================================================================
+' Slot chrome: handles, title strips, the handle menu (P3)
+' =============================================================================
+
+''
+' The handle of slot s: its title strip, the layers' own header, or the thin
+' hover grip at the top of a chromeless panel. Returns FALSE when none.
+FUNCTION DOCK_handle_rect% (s AS INTEGER, hx AS INTEGER, hy AS INTEGER, hw AS INTEGER, hh AS INTEGER)
+    DIM id AS INTEGER
+    IF DOCK_SLOT(s).used = 0 _ORELSE DOCK_SLOT(s).vis = 0 THEN EXIT FUNCTION
+    id = DOCK_slot_panel%(s)
+    IF id = DP_NONE THEN EXIT FUNCTION
+    hx = DOCK_SLOT(s).x: hy = DOCK_SLOT(s).y: hw = DOCK_SLOT(s).w
+    IF DOCK_slot_titled%(s) THEN
+        hh = DOCK_TITLE_H
+    ELSEIF id = DP_LAYERS THEN
+        hh = THEME.LAYER_PANEL_header_height%
+    ELSE
+        hh = DOCK_GRIP_H
+    END IF
+    DOCK_handle_rect% = TRUE
+END FUNCTION
+
+
+''
+' Slot whose handle is under (mx, my), 0 = none. Same guards as the edges:
+' nothing floating over it, no menu or popup open.
+FUNCTION DOCK_handle_at% (mx AS INTEGER, my AS INTEGER)
+    DIM s AS INTEGER, hx AS INTEGER, hy AS INTEGER, hw AS INTEGER, hh AS INTEGER, rg AS INTEGER
+    IF DOCK_ui_busy% THEN EXIT FUNCTION
+    rg = REGION_hit_test%(mx, my)
+    SELECT CASE rg
+        CASE REGION_GLOBAL, REGION_CANVAS, REGION_TOOLBAR, REGION_ORGANIZER, REGION_DRAWER, _
+             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP
+        CASE ELSE
+            EXIT FUNCTION
+    END SELECT
+    FOR s = 1 TO DOCK_MAX_SLOTS
+        IF DOCK_handle_rect%(s, hx, hy, hw, hh) THEN
+            IF mx >= hx _ANDALSO mx < hx + hw _ANDALSO my >= hy _ANDALSO my < hy + hh THEN DOCK_handle_at% = s: EXIT FUNCTION
+        END IF
+    NEXT s
+END FUNCTION
+
+
+''
+' Render pass (with the panels): title strips of titled slots.
+SUB DOCK_render_titles ()
+    DIM s AS INTEGER, id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, t AS INTEGER, tx AS INTEGER, lbl AS STRING
+    DIM oldDest AS LONG, oldFont AS LONG
+    oldDest& = _DEST
+    oldFont& = _FONT
+    _DEST SCRN.GUI&
+    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+    FOR s = 1 TO DOCK_MAX_SLOTS
+        IF DOCK_SLOT(s).used _ANDALSO DOCK_SLOT(s).vis THEN
+            IF DOCK_slot_titled%(s) THEN
+                x = DOCK_SLOT(s).x: y = DOCK_SLOT(s).y: w = DOCK_SLOT(s).w
+                LINE (x, y)-(x + w - 1, y + DOCK_TITLE_H - 1), THEME.LAYER_PANEL_header_bg~&, BF
+                LINE (x, y + DOCK_TITLE_H - 1)-(x + w - 1, y + DOCK_TITLE_H - 1), THEME.LAYER_PANEL_border~&
+                ' chevron: open / collapsed
+                COLOR THEME.MENU_BAR_FG~&, 0
+                IF DOCK_SLOT(s).collapsed THEN lbl = ">" ELSE lbl = "v"
+                _PRINTMODE _KEEPBACKGROUND
+                _UPRINTSTRING (x + 2, y + 1), lbl
+                tx = x + 10
+                FOR t = 1 TO DOCK_SLOT(s).ntabs
+                    id = DOCK_TAB(s, t)
+                    lbl = DPANEL(id).title
+                    IF DOCK_SLOT(s).ntabs > 1 _ANDALSO t = DOCK_SLOT(s).act THEN
+                        LINE (tx - 2, y)-(tx + _UPRINTWIDTH(lbl) + 1, y + DOCK_TITLE_H - 2), THEME.LAYER_PANEL_bg~&, BF
+                    END IF
+                    _UPRINTSTRING (tx, y + 1), lbl
+                    tx = tx + _UPRINTWIDTH(lbl) + 8
+                    IF tx > x + w - 4 THEN EXIT FOR
+                NEXT t
+            END IF
+        END IF
+    NEXT s
+    _FONT oldFont&
+    _DEST oldDest&
+END SUB
+
+
+''
+' Overlay pass (after SkipToPointer): the hover grip and the handle menu.
+SUB DOCK_overlay_render ()
+    DIM s AS INTEGER, hx AS INTEGER, hy AS INTEGER, hw AS INTEGER, hh AS INTEGER, i AS INTEGER, font AS LONG
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST SCRN.CANVAS&
+    s = DOCK_UI.hoverSlot
+    IF s _ANDALSO DOCK_UI.menuOpen = 0 _ANDALSO DOCK_DRAG.which = 0 THEN
+        IF DOCK_handle_rect%(s, hx, hy, hw, hh) THEN
+            IF hh = DOCK_GRIP_H THEN
+                LINE (hx, hy)-(hx + hw - 1, hy + hh - 1), THEME.EDIT_BAR_ICON_MOUSE_OUTLINE_COLOR~&, BF
+                FOR i = hx + hw \ 2 - 6 TO hx + hw \ 2 + 6 STEP 3
+                    PSET (i, hy + 1), THEME.EDIT_BAR_BG_COLOR~&
+                NEXT i
+            ELSE
+                LINE (hx, hy)-(hx + hw - 1, hy + hh - 1), THEME.EDIT_BAR_ICON_MOUSE_OUTLINE_COLOR~&, B
+            END IF
+        END IF
+    END IF
+    IF DOCK_UI.menuOpen THEN
+        DOCK_menu_build DOCK_UI.menuPanel
+        IF MENU_BAR.fontHandle& > 0 THEN font = MENU_BAR.fontHandle&
+        POPUP_MENU_render SCRN.CANVAS&, DOCK_UI.menuX, DOCK_UI.menuY, DOCK_UI.menuW, DOCK_UI.menuN, DOCK_MENU_ITEM_H, DOCK_UI.menuHover, font
+    END IF
+    _DEST oldDest&
+END SUB
+
+
+''
+' The handle menu's rows for panel id (POPUP_MENU_* arrays).
+SUB DOCK_menu_build (id AS INTEGER)
+    DIM n AS INTEGER, side AS INTEGER, s AS INTEGER, fl AS INTEGER
+    POPUP_MENU_clear_items
+    s = DPANEL(id).slot
+    IF s > 0 THEN side = DOCK_COL(DOCK_SLOT(s).col).side
+    POPUP_MENU_set_item n, DPANEL(id).title, "", -1, POPUP_MENU_FLAG_DISABLED: n = n + 1
+    POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    POPUP_MENU_set_item n, "Move to Left Edge", "", DOCK_ACT_LEFT, 0: n = n + 1
+    POPUP_MENU_set_item n, "Move to Right Edge", "", DOCK_ACT_RIGHT, 0: n = n + 1
+    POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    POPUP_MENU_set_item n, "Reset Arrangement", "", DOCK_ACT_RESET, 0: n = n + 1
+    DOCK_UI.menuN = n
+END SUB
+
+
+SUB DOCK_menu_open (id AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    DIM font AS LONG, ph AS INTEGER, px AS INTEGER, py AS INTEGER
+    DOCK_menu_build id
+    IF MENU_BAR.fontHandle& > 0 THEN font = MENU_BAR.fontHandle&
+    DOCK_UI.menuW = POPUP_MENU_measure_width%(DOCK_UI.menuN, font)
+    POPUP_MENU_place mx, my, DOCK_UI.menuW, DOCK_UI.menuN, DOCK_MENU_ITEM_H, px, py, ph
+    DOCK_UI.menuX = px: DOCK_UI.menuY = py
+    DOCK_UI.menuPanel = id
+    DOCK_UI.menuHover = -1
+    DOCK_UI.menuOpen = TRUE
+    DOCK_redraw
+END SUB
+
+
+SUB DOCK_redraw ()
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    INVALIDATE_scene
+END SUB
+
+
+''
+' Before changing the arrangement: inside a workspace that has not replaced it
+' yet, remember the user's own so leaving the workspace puts it back.
+SUB DOCK_change_begin ()
+    IF DOCK_READY = 0 THEN DOCK_build_default
+    IF WS_ACTIVE _ANDALSO WS_DOCK_TOUCHED = 0 THEN
+        WS_DOCK_USER_SNAP = DOCK_snapshot$
+        WS_DOCK_TOUCHED = TRUE
+    END IF
+END SUB
+
+
+''
+' After changing it: it is custom now (not rebuilt from the dock keys) and is
+' saved - into the active workspace, else DRAW.cfg.
+SUB DOCK_change_commit (msg AS STRING)
+    DOCK_CUSTOM = TRUE
+    DOCK_READY = TRUE
+    IF WS_ACTIVE THEN WSC_save_dock WS_ACTIVE_ID ELSE CONFIG_save
+    IF LEN(msg) THEN STATUS_flash msg
+    DOCK_redraw
+END SUB
+
+
+SUB DOCK_menu_do (act AS INTEGER)
+    DIM id AS INTEGER, c AS INTEGER
+    id = DOCK_UI.menuPanel
+    SELECT CASE act
+        CASE DOCK_ACT_LEFT, DOCK_ACT_RIGHT
+            DOCK_change_begin
+            IF act = DOCK_ACT_LEFT THEN
+                c = DOCK_move_to_new_col%(id, DOCK_LEFT, DOCK_MAX_COLS + 1)
+            ELSE
+                c = DOCK_move_to_new_col%(id, DOCK_RIGHT, DOCK_MAX_COLS + 1)
+            END IF
+            DOCK_change_commit DPANEL(id).title + " moved"
+        CASE DOCK_ACT_RESET
+            DOCK_change_begin
+            DOCK_CUSTOM = FALSE
+            DOCK_READY = FALSE
+            DOCK_build_default
+            IF WS_ACTIVE THEN WSC_save_dock WS_ACTIVE_ID ELSE CONFIG_save
+            STATUS_flash "Panel arrangement reset"
+            DOCK_redraw
+    END SELECT
+END SUB
+
+
+''
+' MOUSE_process_frame (via DOCK_handle_mouse%): the handle menu and handles.
+' Returns TRUE when it took the click.
+FUNCTION DOCK_handle_chrome% (mx AS INTEGER, my AS INTEGER)
+    DIM hit AS INTEGER, s AS INTEGER, hv AS INTEGER
+    IF DOCK_UI.menuOpen THEN
+        hv = POPUP_MENU_hover_row%(DOCK_UI.menuX, DOCK_UI.menuY, DOCK_UI.menuW, DOCK_UI.menuN, DOCK_MENU_ITEM_H, mx, my)
+        IF hv <> DOCK_UI.menuHover THEN DOCK_UI.menuHover = hv: FRAME_IDLE% = FALSE
+        IF (MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0) _ORELSE (MOUSE.B2% _ANDALSO MOUSE.OLD_B2% = 0) THEN
+            DOCK_menu_build DOCK_UI.menuPanel
+            hit = POPUP_MENU_hit_value%(DOCK_UI.menuX, DOCK_UI.menuY, DOCK_UI.menuW, DOCK_UI.menuN, DOCK_MENU_ITEM_H, mx, my)
+            IF hit <> -1 THEN
+                DOCK_UI.menuOpen = FALSE
+                DOCK_redraw
+                IF hit > 0 THEN DOCK_menu_do hit
+            END IF
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            DOCK_handle_chrome% = TRUE
+        END IF
+        EXIT FUNCTION
+    END IF
+    ' hover (no buttons held): which handle is under the pointer
+    IF MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 THEN
+        s = DOCK_handle_at%(mx, my)
+        IF s <> DOCK_UI.hoverSlot THEN DOCK_UI.hoverSlot = s: FRAME_IDLE% = FALSE
+    END IF
+    ' right-click a handle: the dock menu for its panel
+    IF MOUSE.B2% _ANDALSO MOUSE.OLD_B2% = 0 THEN
+        s = DOCK_handle_at%(mx, my)
+        IF s THEN
+            DOCK_menu_open DOCK_slot_panel%(s), mx, my
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            DOCK_handle_chrome% = TRUE
+        END IF
+    END IF
+END FUNCTION

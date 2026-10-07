@@ -108,6 +108,34 @@ snap = DOCK_snap_set$(snap, "RIGHT.1", "editbar")
 snap = DOCK_snap_set$(snap, "LEFT.1", "")
 CHECK DOCK_snap_get$(snap, "LEFT.1") = "" _ANDALSO DOCK_snap_get$(snap, "RIGHT.1") = "editbar", "snap_set adds and removes"
 
+' --- moves --------------------------------------------------------------------
+DOCK_clear
+c = DOCK_parse_col%(DOCK_LEFT, "toolbox | organizer | drawer")
+c = DOCK_parse_col%(DOCK_RIGHT, "layers")
+c = DOCK_parse_col%(DOCK_RIGHT, "editbar")
+' organizer to a new innermost right column
+c = DOCK_move_to_new_col%(DP_ORGANIZER, DOCK_RIGHT, 99)
+CHECK c > 0, "move to new column"
+CHECK DOCK_describe$ = "LEFT.1: toolbox | drawer" + CHR$(10) + "RIGHT.1: layers" + CHR$(10) + "RIGHT.2: editbar" + CHR$(10) + "RIGHT.3: organizer" + CHR$(10), "organizer moved, got [" + DOCK_describe$ + "]"
+' editbar under the layers (split)
+s = DOCK_move_to_slot%(DP_EDITBAR, DOCK_col_at%(DOCK_RIGHT, 1), 2)
+CHECK s > 0, "move into column"
+CHECK DOCK_describe$ = "LEFT.1: toolbox | drawer" + CHR$(10) + "RIGHT.1: layers | editbar" + CHR$(10) + "RIGHT.2: organizer" + CHR$(10), "editbar column emptied and removed, got [" + DOCK_describe$ + "]"
+' drawer as a tab of the layers
+s = DOCK_move_to_tab%(DP_DRAWER, DPANEL(DP_LAYERS).slot)
+CHECK DOCK_SLOT(s).ntabs = 2 _ANDALSO DOCK_SLOT(s).act = 2, "tab added and active"
+CHECK DOCK_describe$ = "LEFT.1: toolbox" + CHR$(10) + "RIGHT.1: layers+drawer | editbar" + CHR$(10) + "RIGHT.2: organizer" + CHR$(10), "tabbed, got [" + DOCK_describe$ + "]"
+' a new outermost left column pushes the toolbox inward
+c = DOCK_move_to_new_col%(DP_EDITBAR, DOCK_LEFT, 1)
+CHECK DOCK_describe$ = "LEFT.1: editbar" + CHR$(10) + "LEFT.2: toolbox" + CHR$(10) + "RIGHT.1: layers+drawer" + CHR$(10) + "RIGHT.2: organizer" + CHR$(10), "outermost insert, got [" + DOCK_describe$ + "]"
+' detaching the active tab leaves the other active
+DOCK_detach_panel DP_DRAWER
+s = DPANEL(DP_LAYERS).slot
+CHECK DOCK_SLOT(s).ntabs = 1 _ANDALSO DOCK_SLOT(s).act = 1, "tab removed"
+' moving a panel into its own lone column keeps the tree valid
+s = DOCK_move_to_slot%(DP_ORGANIZER, DOCK_col_at%(DOCK_RIGHT, 2), 1)
+CHECK s = 0, "into a column that vanished when the panel left it: no move"
+
 PRINT "dock-unit:"; PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1
 SYSTEM 0
