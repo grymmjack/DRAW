@@ -23,6 +23,7 @@ TYPE PREVIEW_OBJ
     visible    AS INTEGER             ' TRUE = window is shown
     minimized  AS INTEGER             ' TRUE = collapsed to title bar
     positioned AS INTEGER             ' TRUE once smart-placement has run
+    docked     AS INTEGER             ' in a dock slot (GUI/DOCK): x/y/w/h come from the slot; no clamp, own drag or resize
 
     ' Window geometry
     x AS INTEGER                      ' Screen X of top-left corner

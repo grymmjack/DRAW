@@ -20,6 +20,7 @@ FUNCTION DOCK_panel_shown% (id AS INTEGER)
         CASE DP_EDITBAR: DOCK_panel_shown% = (SCRN.showEditBar% <> 0)
         CASE DP_ADVBAR: DOCK_panel_shown% = (SCRN.showAdvBar% <> 0)
         CASE DP_CHARMAP: DOCK_panel_shown% = (SCRN.showCharMap% <> 0)
+        CASE DP_PREVIEW: DOCK_panel_shown% = (PREVIEW.visible% <> 0 _ANDALSO PREVIEW.autoHidden% = 0)
     END SELECT
 END FUNCTION
 
@@ -33,6 +34,7 @@ FUNCTION DOCK_panel_w% (id AS INTEGER)
         CASE DP_EDITBAR: DOCK_panel_w% = EDITBAR_width%
         CASE DP_ADVBAR: DOCK_panel_w% = ADVBAR_width%
         CASE DP_CHARMAP: DOCK_panel_w% = CHARMAP_panel_width%
+        CASE DP_PREVIEW: DOCK_panel_w% = PREVIEW.dispW%
     END SELECT
 END FUNCTION
 
@@ -121,9 +123,7 @@ END FUNCTION
 ' floating window (it lost its own title bar) do; the rest are chromeless.
 FUNCTION DOCK_slot_titled% (s AS INTEGER)
     DIM id AS INTEGER
-    IF DOCK_SLOT(s).ntabs > 1 _ORELSE DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN DOCK_slot_titled% = TRUE: EXIT FUNCTION
-    id = DOCK_slot_panel%(s)
-    IF id THEN DOCK_slot_titled% = (DPANEL(id).floats <> 0)
+    IF DOCK_SLOT(s).ntabs > 1 _ORELSE DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN DOCK_slot_titled% = TRUE
 END FUNCTION
 
 
@@ -295,6 +295,16 @@ SUB DOCK_apply_rect (id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h 
             CHARMAP.panelW% = w
             CHARMAP.gridX% = CHARMAP.panelX1% + 2
             CHARMAP.gridY% = CHARMAP.panelY1% + 2
+        CASE DP_PREVIEW
+            DIM pvRs AS SINGLE
+            PREVIEW_compute_display
+            pvRs = PREVIEW.renderScale!
+            IF pvRs <= 0 THEN pvRs = 1
+            PREVIEW.docked% = TRUE
+            PREVIEW.x% = x: PREVIEW.y% = y
+            PREVIEW.w% = _MAX(PREVIEW_MIN_W, INT(w / pvRs))
+            PREVIEW.h% = _MAX(PREVIEW_MIN_H, INT(h / pvRs))
+            PREVIEW_compute_display
     END SELECT
 END SUB
 
@@ -374,6 +384,7 @@ SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
     DIM c AS INTEGER, so AS INTEGER, s AS INTEGER, id AS INTEGER, w AS INTEGER, t AS INTEGER, i AS INTEGER
     IF DOCK_CUSTOM = 0 _ORELSE DOCK_READY = 0 THEN DOCK_build_default
     FOR i = 1 TO DP_COUNT: DPANEL(i).rVis = FALSE: NEXT i
+    DOCK_native_reset_docked
     FOR c = 1 TO DOCK_MAX_COLS
         IF DOCK_COL(c).used THEN
             DOCK_COL(c).vis = FALSE
@@ -401,6 +412,22 @@ SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
     FOR c = 1 TO DOCK_MAX_COLS
         IF DOCK_COL(c).autoh THEN DOCK_COL(c).vis = FALSE
     NEXT c
+    ' full height spreads outward: a column outside a full-height one is full
+    ' height too, so the menu bar (spanning the rest) stays one piece and the
+    ' columns sit in their saved order
+    DIM fside AS INTEGER, fo AS INTEGER, innerFull AS INTEGER, fc AS INTEGER
+    FOR fside = DOCK_LEFT TO DOCK_RIGHT
+        innerFull = 0
+        FOR fo = 1 TO DOCK_MAX_COLS
+            fc = DOCK_col_at%(fside, fo)
+            IF fc = 0 THEN EXIT FOR
+            IF DOCK_COL(fc).vis _ANDALSO DOCK_COL(fc).full THEN innerFull = fo
+        NEXT fo
+        FOR fo = 1 TO innerFull
+            fc = DOCK_col_at%(fside, fo)
+            IF fc THEN DOCK_COL(fc).full = TRUE
+        NEXT fo
+    NEXT fside
     DOCK_LAID_OUT = TRUE
     DOCK_LX = 0
     DOCK_RX = SCRN.w& - 1
@@ -501,6 +528,10 @@ FUNCTION DOCK_handle_rect% (s AS INTEGER, hx AS INTEGER, hy AS INTEGER, hw AS IN
     id = DOCK_slot_panel%(s)
     IF id = DP_NONE THEN EXIT FUNCTION
     hx = DOCK_SLOT(s).x: hy = DOCK_SLOT(s).y: hw = DOCK_SLOT(s).w
+    IF DOCK_slot_titled%(s) = 0 _ANDALSO DPANEL(id).floats THEN
+        DOCK_handle_rect% = DOCK_native_grab%(id, hx, hy, hw, hh)
+        EXIT FUNCTION
+    END IF
     IF DOCK_slot_titled%(s) THEN
         hh = DOCK_TITLE_H
     ELSEIF id = DP_LAYERS THEN
@@ -516,16 +547,19 @@ END FUNCTION
 ' Slot whose handle is under (mx, my), 0 = none. Same guards as the edges:
 ' nothing floating over it, no menu or popup open.
 FUNCTION DOCK_handle_at% (mx AS INTEGER, my AS INTEGER)
-    DIM s AS INTEGER, hx AS INTEGER, hy AS INTEGER, hw AS INTEGER, hh AS INTEGER, rg AS INTEGER
+    DIM s AS INTEGER, hx AS INTEGER, hy AS INTEGER, hw AS INTEGER, hh AS INTEGER, rg AS INTEGER, only AS INTEGER
     IF DOCK_ui_busy% THEN EXIT FUNCTION
     rg = REGION_hit_test%(mx, my)
     SELECT CASE rg
         CASE REGION_GLOBAL, REGION_CANVAS, REGION_TOOLBAR, REGION_ORGANIZER, REGION_DRAWER, _
              REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP
         CASE ELSE
-            EXIT FUNCTION
+            ' over a native window: only its own handle (when it is docked)
+            only = DOCK_native_for_region%(rg)
+            IF only = 0 THEN EXIT FUNCTION
     END SELECT
     FOR s = 1 TO DOCK_MAX_SLOTS
+        IF only _ANDALSO DOCK_slot_panel%(s) <> only THEN _CONTINUE
         IF DOCK_handle_rect%(s, hx, hy, hw, hh) THEN
             IF mx >= hx _ANDALSO mx < hx + hw _ANDALSO my >= hy _ANDALSO my < hy + hh THEN DOCK_handle_at% = s: EXIT FUNCTION
         END IF
@@ -612,6 +646,12 @@ SUB DOCK_menu_build (id AS INTEGER)
     IF s > 0 THEN side = DOCK_COL(DOCK_SLOT(s).col).side
     POPUP_MENU_set_item n, DPANEL(id).title, "", -1, POPUP_MENU_FLAG_DISABLED: n = n + 1
     POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    IF DPANEL(id).floats _ANDALSO s = 0 THEN
+        POPUP_MENU_set_item n, "Dock Left", "", DOCK_ACT_LEFT, 0: n = n + 1
+        POPUP_MENU_set_item n, "Dock Right", "", DOCK_ACT_RIGHT, 0: n = n + 1
+        DOCK_UI.menuN = n
+        EXIT SUB
+    END IF
     POPUP_MENU_set_item n, "Move to Left Edge", "", DOCK_ACT_LEFT, 0: n = n + 1
     POPUP_MENU_set_item n, "Move to Right Edge", "", DOCK_ACT_RIGHT, 0: n = n + 1
     IF s > 0 THEN
@@ -693,7 +733,7 @@ SUB DOCK_menu_do (act AS INTEGER)
         CASE DOCK_ACT_COLLAPSE
             DOCK_toggle_collapse DPANEL(id).slot
         CASE DOCK_ACT_FLOAT
-            DOCK_float_panel id, DOCK_LX + 40, 60
+            IF DPANEL(id).floats THEN DOCK_native_undock id, DOCK_LX + 40, 60 ELSE DOCK_float_panel id, DOCK_LX + 40, 60
         CASE DOCK_ACT_DOCKBACK
             DOCK_dock_back id
         CASE DOCK_ACT_RESET
@@ -736,6 +776,13 @@ FUNCTION DOCK_handle_chrome% (mx AS INTEGER, my AS INTEGER)
     END IF
     ' right-click a handle: the dock menu for its panel
     IF MOUSE.B2% _ANDALSO MOUSE.OLD_B2% = 0 THEN
+        s = DOCK_native_float_title_at%(mx, my)
+        IF s THEN
+            DOCK_menu_open s, mx, my
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            DOCK_handle_chrome% = TRUE
+            EXIT FUNCTION
+        END IF
         s = DOCK_float_title_at%(mx, my)
         IF s THEN
             DOCK_menu_open s, mx, my
@@ -945,7 +992,11 @@ SUB DOCK_drop_apply ()
     mv = DOCK_UI.mvPanel
     IF DOCK_UI.tgtKind = DOCK_TGT_NONE THEN EXIT SUB
     IF DOCK_UI.tgtKind = DOCK_TGT_FLOAT THEN
-        IF DOCK_floating%(mv) = 0 THEN DOCK_float_panel mv, DOCK_UI.tgtX, DOCK_UI.tgtY
+        IF DPANEL(mv).floats THEN
+            IF DPANEL(mv).slot > 0 THEN DOCK_native_undock mv, DOCK_UI.tgtX, DOCK_UI.tgtY
+        ELSEIF DOCK_floating%(mv) = 0 THEN
+            DOCK_float_panel mv, DOCK_UI.tgtX, DOCK_UI.tgtY
+        END IF
         EXIT SUB
     END IF
     DOCK_change_begin
@@ -969,6 +1020,7 @@ END SUB
 ' TRUE when it took the frame.
 FUNCTION DOCK_handle_move% (mx AS INTEGER, my AS INTEGER)
     DIM s AS INTEGER
+    IF DOCK_UI.mvNative THEN EXIT FUNCTION ' its own drag code runs it
     IF DOCK_UI.mvPanel THEN
         IF DOCK_UI.mvActive = 0 THEN
             IF ABS(mx - DOCK_UI.mvX0) + ABS(my - DOCK_UI.mvY0) >= DOCK_DRAG_START THEN DOCK_UI.mvActive = TRUE
@@ -1044,6 +1096,7 @@ END FUNCTION
 SUB DOCK_move_render ()
     DIM lbl AS STRING, tx AS INTEGER, ty AS INTEGER
     IF DOCK_UI.mvActive = 0 THEN EXIT SUB
+    IF DOCK_UI.mvNative _ANDALSO DOCK_UI.tgtKind = DOCK_TGT_NONE THEN EXIT SUB ' an ordinary window drag
     IF DOCK_UI.tgtKind <> DOCK_TGT_NONE THEN
         LINE (DOCK_UI.tgtX, DOCK_UI.tgtY)-(DOCK_UI.tgtX + DOCK_UI.tgtW - 1, DOCK_UI.tgtY + DOCK_UI.tgtH - 1), _RGBA32(80, 160, 255, 80), BF
         LINE (DOCK_UI.tgtX, DOCK_UI.tgtY)-(DOCK_UI.tgtX + DOCK_UI.tgtW - 1, DOCK_UI.tgtY + DOCK_UI.tgtH - 1), _RGBA32(120, 190, 255, 220), B
@@ -1307,5 +1360,107 @@ FUNCTION DOCK_panel_region% (id AS INTEGER)
         CASE DP_EDITBAR: DOCK_panel_region% = REGION_EDIT_BAR
         CASE DP_ADVBAR: DOCK_panel_region% = REGION_ADV_BAR
         CASE DP_CHARMAP: DOCK_panel_region% = REGION_CHARMAP
+    END SELECT
+END FUNCTION
+
+
+
+' =============================================================================
+' Native floating windows in docks (P5): Preview, Color Mixer, Advanced Color
+' Picker, 3D Color Space, Pen Pressure, Browser. They keep their own look and
+' input; docked, a slot sets their position and size and their title bar
+' (left of its buttons) is the dock handle.
+' =============================================================================
+
+SUB DOCK_native_reset_docked ()
+    PREVIEW.docked% = FALSE
+END SUB
+
+
+''
+' The grab part of a native window's title bar (viewport rect), FALSE = none.
+FUNCTION DOCK_native_grab% (id AS INTEGER, gx AS INTEGER, gy AS INTEGER, gw AS INTEGER, gh AS INTEGER)
+    DIM rs AS SINGLE
+    SELECT CASE id
+        CASE DP_PREVIEW
+            IF PREVIEW.visible% = 0 _ORELSE PREVIEW.autoHidden% THEN EXIT FUNCTION
+            PREVIEW_compute_display
+            rs = PREVIEW.renderScale!: IF rs <= 0 THEN rs = 1
+            gx = PREVIEW.x%: gy = PREVIEW.y%
+            gw = INT(PREVIEW_cb_x% * rs) ' up to its FP checkbox
+            gh = INT(PREVIEW_title_h% * rs + 0.5)
+            DOCK_native_grab% = TRUE
+    END SELECT
+END FUNCTION
+
+
+''
+' A FLOATING native window whose grab area is under (mx, my), 0 = none.
+FUNCTION DOCK_native_float_title_at% (mx AS INTEGER, my AS INTEGER)
+    DIM id AS INTEGER, gx AS INTEGER, gy AS INTEGER, gw AS INTEGER, gh AS INTEGER
+    FOR id = DP_PREVIEW TO DP_COUNT
+        IF DPANEL(id).slot = 0 THEN
+            IF DOCK_native_grab%(id, gx, gy, gw, gh) THEN
+                IF mx >= gx _ANDALSO mx < gx + gw _ANDALSO my >= gy _ANDALSO my < gy + gh THEN DOCK_native_float_title_at% = id: EXIT FUNCTION
+            END IF
+        END IF
+    NEXT id
+END FUNCTION
+
+
+''
+' The window's own drag (floating): track the dock target under the pointer so
+' the preview shows; a FLOAT target means "keep floating".
+SUB DOCK_native_drag (id AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    DOCK_UI.mvPanel = id
+    DOCK_UI.mvNative = TRUE
+    DOCK_UI.mvActive = TRUE
+    DOCK_drop_target mx, my
+    IF DOCK_UI.tgtKind = DOCK_TGT_FLOAT THEN DOCK_UI.tgtKind = DOCK_TGT_NONE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' The window's own drag ended: dock it if it was over a target. TRUE = docked.
+FUNCTION DOCK_native_drag_end% (id AS INTEGER)
+    DIM k AS INTEGER
+    k = DOCK_UI.tgtKind
+    DOCK_UI.mvNative = FALSE: DOCK_UI.mvActive = FALSE
+    IF DOCK_UI.mvPanel = id _ANDALSO k <> DOCK_TGT_NONE _ANDALSO k <> DOCK_TGT_FLOAT THEN
+        DOCK_drop_apply
+        DOCK_UI.mvPanel = 0: DOCK_UI.tgtKind = DOCK_TGT_NONE
+        DOCK_native_drag_end% = TRUE
+    END IF
+    DOCK_UI.mvPanel = 0: DOCK_UI.tgtKind = DOCK_TGT_NONE
+END FUNCTION
+
+
+''
+' Undock a native window: back to its own floating size at (x, y).
+SUB DOCK_native_undock (id AS INTEGER, x AS INTEGER, y AS INTEGER)
+    DOCK_change_begin
+    DOCK_detach_panel id
+    SELECT CASE id
+        CASE DP_PREVIEW
+            PREVIEW.docked% = FALSE
+            PREVIEW.w% = CFG.PREVIEW_W%: PREVIEW.h% = CFG.PREVIEW_H%
+            PREVIEW.x% = x: PREVIEW.y% = y
+            PREVIEW_clamp_to_work_area
+            CFG.PREVIEW_X% = PREVIEW.x%: CFG.PREVIEW_Y% = PREVIEW.y%
+    END SELECT
+    DOCK_change_commit DPANEL(id).title + " floating"
+END SUB
+
+
+
+FUNCTION DOCK_native_for_region% (rg AS INTEGER)
+    SELECT CASE rg
+        CASE REGION_PREVIEW: DOCK_native_for_region% = DP_PREVIEW
+        CASE REGION_COLOR_MIXER: DOCK_native_for_region% = DP_MIXER
+        CASE REGION_ADV_COLOR_PICKER: DOCK_native_for_region% = DP_ADVCP
+        CASE REGION_COLOR_SPACE_3D: DOCK_native_for_region% = DP_CS3D
+        CASE REGION_PEN_PANEL: DOCK_native_for_region% = DP_PEN
+        CASE REGION_IMAGE_BROWSER: DOCK_native_for_region% = DP_BROWSER
     END SELECT
 END FUNCTION

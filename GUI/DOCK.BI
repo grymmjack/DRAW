@@ -155,6 +155,7 @@ TYPE DOCK_UI_OBJ
     mvPanel   AS INTEGER ' panel pressed on (0 = none)
     mvSlot    AS INTEGER ' slot whose handle was pressed
     mvFloat   AS INTEGER ' the panel pressed on is a floating one (its title bar)
+    mvNative  AS INTEGER ' a native floating window is dragging itself (its own code moves it; DOCK only targets)
     mvOffX    AS INTEGER ' grab offset inside its window
     mvOffY    AS INTEGER
     lastClick AS DOUBLE  ' time of the last title click (double-click = collapse)
