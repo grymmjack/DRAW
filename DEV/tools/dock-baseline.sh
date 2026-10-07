@@ -27,6 +27,7 @@ SHOTS=(
   "charmap|WORKSPACE=default CHARMAP_VISIBLE=1|"
   "nostatus|WORKSPACE=default $DOCKS|key F10; wait_for 0.5 status"
   "stacked|WORKSPACE=stacked|"
+  "tabs|WORKSPACE=tabs|"
 )
 
 shoot() {

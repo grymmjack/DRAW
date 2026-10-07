@@ -121,7 +121,7 @@ END FUNCTION
 ' floating window (it lost its own title bar) do; the rest are chromeless.
 FUNCTION DOCK_slot_titled% (s AS INTEGER)
     DIM id AS INTEGER
-    IF DOCK_SLOT(s).ntabs > 1 _ORELSE DOCK_SLOT(s).collapsed THEN DOCK_slot_titled% = TRUE: EXIT FUNCTION
+    IF DOCK_SLOT(s).ntabs > 1 _ORELSE DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN DOCK_slot_titled% = TRUE: EXIT FUNCTION
     id = DOCK_slot_panel%(s)
     IF id THEN DOCK_slot_titled% = (DPANEL(id).floats <> 0)
 END FUNCTION
@@ -137,6 +137,26 @@ SUB DOCK_stack_column (c AS INTEGER)
     DIM o AS INTEGER, s AS INTEGER, id AS INTEGER, y AS INTEGER
     DIM fixedSum AS INTEGER, shareSum AS INTEGER, flexH AS INTEGER, h AS INTEGER, prevBordered AS INTEGER
     DIM lastFlex AS INTEGER, usedFlex AS INTEGER, th AS INTEGER, isFlex AS INTEGER
+    DIM need AS INTEGER
+    ' too short for everything: collapse slots to their strips from the bottom
+    ' (not the first one) until it fits - the layout's own collapse, not saved
+    FOR o = 1 TO DOCK_MAX_SLOTS
+        s = DOCK_slot_at%(c, o)
+        IF s = 0 THEN EXIT FOR
+        DOCK_SLOT(s).autoc = FALSE
+    NEXT o
+    DO
+        need = DOCK_column_need%(c)
+        IF need <= DOCK_COL(c).h THEN EXIT DO
+        id = 0
+        FOR o = DOCK_MAX_SLOTS TO 2 STEP -1
+            s = DOCK_slot_at%(c, o)
+            IF s THEN
+                IF DOCK_slot_panel%(s) _ANDALSO DOCK_SLOT(s).collapsed = 0 _ANDALSO DOCK_SLOT(s).autoc = 0 THEN DOCK_SLOT(s).autoc = TRUE: id = s: EXIT FOR
+            END IF
+        NEXT o
+        IF id = 0 THEN EXIT DO ' nothing left to collapse
+    LOOP
     ' sizes first
     prevBordered = FALSE
     FOR o = 1 TO DOCK_MAX_SLOTS
@@ -147,7 +167,7 @@ SUB DOCK_stack_column (c AS INTEGER)
         IF id THEN
             th = 0
             IF DOCK_slot_titled%(s) THEN th = DOCK_TITLE_H
-            IF DOCK_SLOT(s).collapsed THEN
+            IF DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN
                 fixedSum = fixedSum + th
                 prevBordered = FALSE
             ELSEIF DPANEL(id).hmode = DP_H_FIXED THEN
@@ -172,9 +192,9 @@ SUB DOCK_stack_column (c AS INTEGER)
             id = DOCK_slot_panel%(s)
             th = 0
             IF DOCK_slot_titled%(s) THEN th = DOCK_TITLE_H
-            isFlex = (DPANEL(id).hmode = DP_H_FLEX _ANDALSO DOCK_SLOT(s).collapsed = 0)
+            isFlex = (DPANEL(id).hmode = DP_H_FLEX _ANDALSO DOCK_SLOT(s).collapsed = 0 _ANDALSO DOCK_SLOT(s).autoc = 0)
             IF prevBordered _ANDALSO DPANEL(id).bordered _ANDALSO th = 0 THEN y = y - 1 ' share the frame row
-            IF DOCK_SLOT(s).collapsed THEN
+            IF DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN
                 h = th
             ELSEIF DPANEL(id).hmode = DP_H_FIXED THEN
                 h = th + DOCK_fixed_h%(id, DOCK_COL(c).w)
@@ -190,10 +210,37 @@ SUB DOCK_stack_column (c AS INTEGER)
             DOCK_SLOT(s).y = y
             DOCK_SLOT(s).h = h
             y = y + h
-            IF DOCK_SLOT(s).collapsed THEN prevBordered = FALSE ELSE prevBordered = DPANEL(id).bordered
+            IF DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN prevBordered = FALSE ELSE prevBordered = DPANEL(id).bordered
         END IF
     NEXT o
 END SUB
+
+
+''
+' Height column c needs at least: fixed panels + titles + flex minimums.
+FUNCTION DOCK_column_need% (c AS INTEGER)
+    DIM o AS INTEGER, s AS INTEGER, id AS INTEGER, need AS INTEGER, th AS INTEGER, prevB AS INTEGER
+    FOR o = 1 TO DOCK_MAX_SLOTS
+        s = DOCK_slot_at%(c, o)
+        IF s = 0 THEN EXIT FOR
+        id = DOCK_slot_panel%(s)
+        IF id THEN
+            th = 0
+            IF DOCK_slot_titled%(s) THEN th = DOCK_TITLE_H
+            IF DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN
+                need = need + th: prevB = FALSE
+            ELSEIF DPANEL(id).hmode = DP_H_FIXED THEN
+                need = need + th + DOCK_fixed_h%(id, DOCK_COL(c).w)
+                IF prevB _ANDALSO DPANEL(id).bordered _ANDALSO th = 0 THEN need = need - 1
+                prevB = DPANEL(id).bordered
+            ELSE
+                need = need + th + _MAX(DOCK_min_h%(id), DOCK_MIN_FLEX_H)
+                prevB = DPANEL(id).bordered
+            END IF
+        END IF
+    NEXT o
+    DOCK_column_need% = need
+END FUNCTION
 
 
 ''
@@ -201,7 +248,7 @@ END SUB
 SUB DOCK_apply_panel (s AS INTEGER, side AS INTEGER, dockY2 AS INTEGER)
     DIM id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dockLeft AS INTEGER
     id = DOCK_slot_panel%(s)
-    IF id = DP_NONE _ORELSE DOCK_SLOT(s).collapsed THEN EXIT SUB
+    IF id = DP_NONE _ORELSE DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN EXIT SUB
     x = DOCK_SLOT(s).x: y = DOCK_SLOT(s).y: w = DOCK_SLOT(s).w: h = DOCK_SLOT(s).h
     IF DOCK_slot_titled%(s) THEN y = y + DOCK_TITLE_H: h = h - DOCK_TITLE_H
     dockLeft = (side = DOCK_LEFT)
@@ -344,6 +391,11 @@ SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
             DOCK_COL(c).w = w
         END IF
     NEXT c
+    DOCK_hide_for_width
+    FOR c = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(c).autoh THEN DOCK_COL(c).vis = FALSE
+    NEXT c
+    DOCK_LAID_OUT = TRUE
     DOCK_LX = 0
     DOCK_RX = SCRN.w& - 1
     DOCK_place_columns TRUE, barY1, charTop, dockY2
@@ -452,7 +504,7 @@ SUB DOCK_render_titles ()
     oldDest& = _DEST
     oldFont& = _FONT
     _DEST SCRN.GUI&
-    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+    IF LAYER_PANEL.fontHandle& > 0 THEN _FONT LAYER_PANEL.fontHandle& ELSE IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
     FOR s = 1 TO DOCK_MAX_SLOTS
         IF DOCK_SLOT(s).used _ANDALSO DOCK_SLOT(s).vis THEN
             IF DOCK_slot_titled%(s) THEN
@@ -460,7 +512,7 @@ SUB DOCK_render_titles ()
                 LINE (x, y)-(x + w - 1, y + DOCK_TITLE_H - 1), THEME.LAYER_PANEL_header_bg~&, BF
                 LINE (x, y + DOCK_TITLE_H - 1)-(x + w - 1, y + DOCK_TITLE_H - 1), THEME.LAYER_PANEL_border~&
                 ' chevron: open / collapsed
-                COLOR THEME.MENU_BAR_FG~&, 0
+                COLOR THEME.LAYER_PANEL_header_fg~&, _RGBA32(0, 0, 0, 0)
                 IF DOCK_SLOT(s).collapsed THEN lbl = ">" ELSE lbl = "v"
                 _PRINTMODE _KEEPBACKGROUND
                 _UPRINTSTRING (x + 2, y + 1), lbl
@@ -471,6 +523,7 @@ SUB DOCK_render_titles ()
                     IF DOCK_SLOT(s).ntabs > 1 _ANDALSO t = DOCK_SLOT(s).act THEN
                         LINE (tx - 2, y)-(tx + _UPRINTWIDTH(lbl) + 1, y + DOCK_TITLE_H - 2), THEME.LAYER_PANEL_bg~&, BF
                     END IF
+                    IF DOCK_SLOT(s).ntabs > 1 _ANDALSO t <> DOCK_SLOT(s).act THEN COLOR THEME.LAYER_PANEL_header_fg_dim~&, _RGBA32(0, 0, 0, 0) ELSE COLOR THEME.LAYER_PANEL_header_fg~&, _RGBA32(0, 0, 0, 0)
                     _UPRINTSTRING (tx, y + 1), lbl
                     tx = tx + _UPRINTWIDTH(lbl) + 8
                     IF tx > x + w - 4 THEN EXIT FOR
@@ -905,3 +958,63 @@ SUB DOCK_move_render ()
     _PRINTMODE _KEEPBACKGROUND
     _UPRINTSTRING (tx, ty), lbl
 END SUB
+
+
+
+''
+' Small windows: while the dock columns would leave the canvas narrower than
+' DOCK_MIN_CANVAS_W, hide the outermost column of the wider side (this frame
+' only; the arrangement is not changed).
+SUB DOCK_hide_for_width ()
+    DIM c AS INTEGER, used AS INTEGER, wl AS INTEGER, wr AS INTEGER, side AS INTEGER, o AS INTEGER, hid AS INTEGER
+    FOR c = 1 TO DOCK_MAX_COLS: DOCK_COL(c).autoh = FALSE: NEXT c
+    DO
+        wl = 0: wr = 0
+        FOR c = 1 TO DOCK_MAX_COLS
+            IF DOCK_COL(c).used _ANDALSO DOCK_COL(c).vis _ANDALSO DOCK_COL(c).autoh = 0 THEN
+                IF DOCK_COL(c).side = DOCK_LEFT THEN wl = wl + DOCK_COL(c).w ELSE wr = wr + DOCK_COL(c).w
+            END IF
+        NEXT c
+        IF SCRN.w& - wl - wr >= DOCK_MIN_CANVAS_W _ORELSE wl + wr = 0 THEN EXIT DO
+        IF wl >= wr THEN side = DOCK_LEFT ELSE side = DOCK_RIGHT
+        ' the outermost column of the wider side - but the toolbox's column
+        ' last: without it there are no tools
+        hid = DOCK_hide_outermost%(side, FALSE)
+        IF hid = 0 THEN hid = DOCK_hide_outermost%(3 - side, FALSE)
+        IF hid = 0 THEN hid = DOCK_hide_outermost%(side, TRUE)
+        IF hid = 0 THEN hid = DOCK_hide_outermost%(3 - side, TRUE)
+        IF hid = 0 THEN EXIT DO
+    LOOP
+END SUB
+
+
+
+''
+' Is panel id laid out this frame (a rect to draw and hit-test in)? FALSE for
+' a collapsed slot, an inactive tab, a column hidden for a small window, or a
+' panel that is not docked. Before the first layout everything counts as live.
+FUNCTION DOCK_live% (id AS INTEGER)
+    IF DOCK_LAID_OUT = 0 THEN DOCK_live% = TRUE: EXIT FUNCTION
+    DOCK_live% = DPANEL(id).rVis
+END FUNCTION
+
+
+
+''
+' Hide the outermost showing column on side (DOCK_hide_for_width); with
+' toolboxToo FALSE the toolbox's column is skipped. TRUE when one was hidden.
+FUNCTION DOCK_hide_outermost% (side AS INTEGER, toolboxToo AS INTEGER)
+    DIM o AS INTEGER, c AS INTEGER, hasTb AS INTEGER
+    FOR o = 1 TO DOCK_MAX_COLS
+        c = DOCK_col_at%(side, o)
+        IF c = 0 THEN EXIT FOR
+        IF DOCK_COL(c).vis _ANDALSO DOCK_COL(c).autoh = 0 THEN
+            hasTb = (DPANEL(DP_TOOLBOX).slot > 0 _ANDALSO DOCK_SLOT(DPANEL(DP_TOOLBOX).slot).col = c)
+            IF toolboxToo _ORELSE hasTb = 0 THEN
+                DOCK_COL(c).autoh = TRUE
+                DOCK_hide_outermost% = TRUE
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT o
+END FUNCTION

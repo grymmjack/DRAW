@@ -76,6 +76,7 @@ TYPE DOCK_COL_OBJ
     wpx   AS INTEGER ' width in px set for the column (0 = the panels' own width)
     ' this frame's layout
     vis   AS INTEGER ' has a visible slot
+    autoh AS INTEGER ' hidden by the layout this frame (the window is too narrow) - not saved
     full  AS INTEGER ' FULL height (holds a tall panel)
     x     AS INTEGER
     y     AS INTEGER
@@ -94,6 +95,7 @@ TYPE DOCK_SLOT_OBJ
     ord       AS INTEGER ' 1 = top
     share     AS INTEGER ' height weight among the flex slots (default 1)
     collapsed AS INTEGER ' only its title strip shows
+    autoc     AS INTEGER ' collapsed by the layout this frame (the column is too short) - not saved
     ntabs     AS INTEGER
     act       AS INTEGER ' active tab (1..ntabs)
     ' this frame's layout
@@ -110,6 +112,7 @@ DIM SHARED DOCK_READY  AS INTEGER ' the tree has been built (DOCK_build_default)
 DIM SHARED DOCK_PARSE_NOTE AS STRING ' what the last DOCK_parse_col% skipped (unknown / repeated panel names), "" = nothing
 DIM SHARED DOCK_CUSTOM AS INTEGER ' a [DOCK] arrangement is in effect (else the default tree is rebuilt from the dock keys every layout)
 ' DOCK_layout results: the canvas edges and the menu bar's span
+DIM SHARED DOCK_LAID_OUT AS INTEGER ' DOCK_layout has run (DOCK_live% is meaningful)
 DIM SHARED DOCK_LX AS INTEGER
 DIM SHARED DOCK_RX AS INTEGER
 DIM SHARED DOCK_MENU_LX AS INTEGER
@@ -165,5 +168,6 @@ CONST DOCK_TGT_NEWCOL = 1 ' a new column (tgtSide, tgtOrd)
 CONST DOCK_TGT_SPLIT  = 2 ' a new slot in a column (tgtCol, tgtOrd)
 CONST DOCK_TGT_TAB    = 3 ' a tab in a slot (tgtSlot)
 CONST DOCK_TGT_FLOAT  = 4 ' a floating window (P5)
+CONST DOCK_MIN_CANVAS_W = 160 ' narrower than this and the outermost dock columns hide (small windows)
 CONST DOCK_EDGE_ZONE  = 16 ' px from a screen edge / column side that means "new column here"
 CONST DOCK_DRAG_START = 5  ' px the pointer travels before a press on a handle becomes a move
