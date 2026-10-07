@@ -163,6 +163,8 @@ TYPE LAYER_PANEL_OBJ
     ' Stored panel bounds (set each render, used for hit-testing next frame)
     panelX1          AS INTEGER             ' Left edge of rendered panel (screen coords)
     panelX2          AS INTEGER             ' Right edge of rendered panel (screen coords)
+    panelY1          AS INTEGER             ' Top of the panel's rect (set by the layout, SCREEN_compute_layout)
+    panelY2          AS INTEGER             ' Bottom of the panel's rect, inclusive (0 = not laid out yet)
     width            AS INTEGER             ' Panel width in pixels (mirrors CFG.LAYER_PANEL_WIDTH)
 END TYPE
 
