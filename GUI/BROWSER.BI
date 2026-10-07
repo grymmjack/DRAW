@@ -22,6 +22,7 @@ TYPE BROWSER_OBJ
     settingsLoaded AS INTEGER       ' TRUE after first-ever defaults load; survives suspend/resume
     needReClamp    AS INTEGER       ' TRUE until first render after startup (deferred work-area clamp)
     autoHidden     AS INTEGER
+    docked         AS INTEGER       ' in a dock slot (GUI/DOCK): the slot sets dispX/Y/W/H; no clamp, resize or maximize
 
     dispW       AS INTEGER
     dispH       AS INTEGER

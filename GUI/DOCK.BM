@@ -25,6 +25,7 @@ FUNCTION DOCK_panel_shown% (id AS INTEGER)
         CASE DP_ADVCP: DOCK_panel_shown% = (ADVCP.visible% <> 0 _ANDALSO ADVCP.autoHidden% = 0 _ANDALSO ADVCP.initialized% <> 0)
         CASE DP_CS3D: DOCK_panel_shown% = (CS3D.visible% <> 0 _ANDALSO CS3D.autoHidden% = 0 _ANDALSO CS3D.initialized% <> 0)
         CASE DP_PEN: DOCK_panel_shown% = (PENP.visible% <> 0 _ANDALSO PENP.autoHidden% = 0 _ANDALSO PENP.initialized% <> 0)
+        CASE DP_BROWSER: DOCK_panel_shown% = (BROWSER.visible% <> 0 _ANDALSO BROWSER.autoHidden% = 0)
     END SELECT
 END FUNCTION
 
@@ -43,6 +44,7 @@ FUNCTION DOCK_panel_w% (id AS INTEGER)
         CASE DP_ADVCP: DOCK_panel_w% = ADVCP.dispW%
         CASE DP_CS3D: DOCK_panel_w% = CS3D.dispW%
         CASE DP_PEN: DOCK_panel_w% = PENP.dispW%
+        CASE DP_BROWSER: DOCK_panel_w% = _MAX(BROWSER.dispW%, BROWSER_MIN_W)
     END SELECT
 END FUNCTION
 
@@ -333,6 +335,12 @@ SUB DOCK_apply_rect (id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h 
             PREVIEW.w% = _MAX(PREVIEW_MIN_W, INT(w / pvRs))
             PREVIEW.h% = _MAX(PREVIEW_MIN_H, INT(h / pvRs))
             PREVIEW_compute_display
+        CASE DP_BROWSER
+            BROWSER.docked% = TRUE
+            BROWSER.maximized% = FALSE
+            BROWSER.dispX% = x: BROWSER.dispY% = y
+            BROWSER.dispW% = w: BROWSER.dispH% = h
+            IF BROWSER.initialized% THEN BROWSER_sync_fd_from_display ' its file-dialog rect follows (native px)
     END SELECT
 END SUB
 
@@ -1138,6 +1146,14 @@ SUB DOCK_move_render ()
         CASE ELSE: lbl = lbl + ": drop on a dock"
     END SELECT
     tx = MOUSE.RAW_X% + 10: ty = MOUSE.RAW_Y% + 10
+    ' a native window draws over the canvas (and is held inside the work area,
+    ' so it may lag the pointer): put the label above its title bar
+    IF DOCK_UI.mvNative THEN
+        DIM gx AS INTEGER, gy AS INTEGER, gw AS INTEGER, gh AS INTEGER
+        IF DOCK_native_grab%(DOCK_UI.mvPanel, gx, gy, gw, gh) THEN
+            IF gy - _UFONTHEIGHT - 6 >= 2 THEN ty = gy - _UFONTHEIGHT - 6
+        END IF
+    END IF
     IF tx + _UPRINTWIDTH(lbl) + 6 > SCRN.w& THEN tx = SCRN.w& - _UPRINTWIDTH(lbl) - 6
     LINE (tx - 3, ty - 2)-(tx + _UPRINTWIDTH(lbl) + 2, ty + _UFONTHEIGHT + 1), _RGBA32(20, 24, 32, 230), BF
     COLOR _RGB32(230, 235, 245), 0
@@ -1401,12 +1417,24 @@ END FUNCTION
 ' =============================================================================
 
 SUB DOCK_native_reset_docked ()
-    PREVIEW.docked% = FALSE
-    COLORMIXER.docked% = FALSE
-    ADVCP.docked% = FALSE
-    CS3D.docked% = FALSE
-    PENP.docked% = FALSE
+    ' docked = in the tree: one in a collapsed slot or an inactive tab gets no
+    ' rect this frame but must not fall back to floating (DOCK_native_off%)
+    PREVIEW.docked% = (DPANEL(DP_PREVIEW).slot > 0)
+    COLORMIXER.docked% = (DPANEL(DP_MIXER).slot > 0)
+    ADVCP.docked% = (DPANEL(DP_ADVCP).slot > 0)
+    CS3D.docked% = (DPANEL(DP_CS3D).slot > 0)
+    PENP.docked% = (DPANEL(DP_PEN).slot > 0)
+    BROWSER.docked% = (DPANEL(DP_BROWSER).slot > 0)
 END SUB
+
+
+''
+' A docked native window with no rect this frame (collapsed slot, inactive tab,
+' hidden column): it neither draws nor takes the mouse.
+FUNCTION DOCK_native_off% (id AS INTEGER)
+    IF DPANEL(id).slot = 0 THEN EXIT FUNCTION
+    DOCK_native_off% = (DOCK_live%(id) = 0)
+END FUNCTION
 
 
 ''
@@ -1449,6 +1477,13 @@ FUNCTION DOCK_native_grab% (id AS INTEGER, gx AS INTEGER, gy AS INTEGER, gw AS I
             gx = PENP.dispX%: gy = PENP.dispY%
             gh = INT(FPANEL.titleH% * rs + 0.5)
             gw = PENP.dispW% - gh ' left of the close box
+            DOCK_native_grab% = TRUE
+        CASE DP_BROWSER
+            IF DOCK_panel_shown%(DP_BROWSER) = 0 THEN EXIT FUNCTION
+            rs = BROWSER.renderScale!: IF rs <= 0 THEN rs = 1
+            gx = BROWSER.dispX%: gy = BROWSER.dispY%
+            gh = INT(FD_STATE.titleBarH * rs + 0.5)
+            gw = BROWSER.dispW% - gh ' left of the close box
             DOCK_native_grab% = TRUE
     END SELECT
 END FUNCTION
@@ -1528,6 +1563,17 @@ SUB DOCK_native_undock (id AS INTEGER, x AS INTEGER, y AS INTEGER)
             PENP.dispX% = x: PENP.dispY% = y
             PENP_clamp_to_work_area
             CFG.PEN_PANEL_X% = PENP.dispX%: CFG.PEN_PANEL_Y% = PENP.dispY%
+        CASE DP_BROWSER
+            DIM brRs AS SINGLE
+            BROWSER.docked% = FALSE
+            brRs = BROWSER.renderScale!: IF brRs <= 0 THEN brRs = 1
+            BROWSER.dispW% = INT(CSNG(_MAX(CFG.BROWSER_WIDTH%, BROWSER_MIN_W)) * brRs + 0.5) ' its floating size (native px; kept while docked)
+            BROWSER.dispH% = INT(CSNG(_MAX(CFG.BROWSER_HEIGHT%, BROWSER_MIN_H)) * brRs + 0.5)
+            BROWSER.dispX% = x: BROWSER.dispY% = y
+            BROWSER_clamp_size
+            BROWSER_clamp_to_work_area
+            IF BROWSER.initialized% THEN BROWSER_sync_fd_from_display
+            CFG.BROWSER_POS_X% = BROWSER.dispX%: CFG.BROWSER_POS_Y% = BROWSER.dispY%
     END SELECT
     DOCK_change_commit DPANEL(id).title + " floating"
 END SUB
