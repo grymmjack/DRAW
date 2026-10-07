@@ -142,6 +142,28 @@ TYPE DOCK_UI_OBJ
     divTop    AS INTEGER ' top of A when grabbed
     divTotal  AS INTEGER ' A + B heights when grabbed
     divHover  AS INTEGER ' a divider is under the pointer
+    ' moving a panel by its handle
+    mvPanel   AS INTEGER ' panel pressed on (0 = none)
+    mvActive  AS INTEGER ' past the drag threshold: a real move
+    mvX0      AS INTEGER
+    mvY0      AS INTEGER
+    tgtKind   AS INTEGER ' DOCK_TGT_*
+    tgtSide   AS INTEGER
+    tgtCol    AS INTEGER
+    tgtOrd    AS INTEGER
+    tgtSlot   AS INTEGER
+    tgtX      AS INTEGER ' drop preview rect
+    tgtY      AS INTEGER
+    tgtW      AS INTEGER
+    tgtH      AS INTEGER
 END TYPE
 DIM SHARED DOCK_UI AS DOCK_UI_OBJ
 CONST DOCK_MIN_FLEX_H = 24 ' a flexible slot never shrinks below this by a divider drag
+' drop targets for a panel being moved
+CONST DOCK_TGT_NONE   = 0
+CONST DOCK_TGT_NEWCOL = 1 ' a new column (tgtSide, tgtOrd)
+CONST DOCK_TGT_SPLIT  = 2 ' a new slot in a column (tgtCol, tgtOrd)
+CONST DOCK_TGT_TAB    = 3 ' a tab in a slot (tgtSlot)
+CONST DOCK_TGT_FLOAT  = 4 ' a floating window (P5)
+CONST DOCK_EDGE_ZONE  = 16 ' px from a screen edge / column side that means "new column here"
+CONST DOCK_DRAG_START = 5  ' px the pointer travels before a press on a handle becomes a move

@@ -491,7 +491,7 @@ SUB DOCK_overlay_render ()
     oldDest& = _DEST
     _DEST SCRN.CANVAS&
     s = DOCK_UI.hoverSlot
-    IF s _ANDALSO DOCK_UI.menuOpen = 0 _ANDALSO DOCK_DRAG.which = 0 THEN
+    IF s _ANDALSO DOCK_UI.menuOpen = 0 _ANDALSO DOCK_DRAG.which = 0 _ANDALSO DOCK_UI.mvActive = 0 THEN
         IF DOCK_handle_rect%(s, hx, hy, hw, hh) THEN
             IF hh = DOCK_GRIP_H THEN
                 LINE (hx, hy)-(hx + hw - 1, hy + hh - 1), THEME.EDIT_BAR_ICON_MOUSE_OUTLINE_COLOR~&, BF
@@ -503,6 +503,7 @@ SUB DOCK_overlay_render ()
             END IF
         END IF
     END IF
+    DOCK_move_render
     IF DOCK_UI.menuOpen THEN
         DOCK_menu_build DOCK_UI.menuPanel
         IF MENU_BAR.fontHandle& > 0 THEN font = MENU_BAR.fontHandle&
@@ -735,3 +736,172 @@ FUNCTION DOCK_handle_divider% (mx AS INTEGER, my AS INTEGER)
         END IF
     END IF
 END FUNCTION
+
+
+
+' =============================================================================
+' Moving a panel by its handle (P3): drop targets, preview, apply
+' =============================================================================
+
+''
+' What dropping the panel being moved at (mx, my) would do: fills the
+' DOCK_UI.tgt* fields (kind + where + the preview rect).
+SUB DOCK_drop_target (mx AS INTEGER, my AS INTEGER)
+    DIM c AS INTEGER, s AS INTEGER, third AS INTEGER, side AS INTEGER, o AS INTEGER, y1 AS INTEGER, y2 AS INTEGER
+    DIM pw AS INTEGER, mv AS INTEGER, inner AS INTEGER
+    mv = DOCK_UI.mvPanel
+    DOCK_UI.tgtKind = DOCK_TGT_NONE
+    y1 = 0
+    y2 = SCRN.h& - SCREEN_bottom_bars_h% - 1
+    pw = DOCK_panel_w%(mv)
+    IF pw < 16 THEN pw = 16
+    ' the screen edges: a new outermost column
+    IF mx < DOCK_EDGE_ZONE _ORELSE mx >= SCRN.w& - DOCK_EDGE_ZONE THEN
+        DOCK_UI.tgtKind = DOCK_TGT_NEWCOL
+        IF mx < DOCK_EDGE_ZONE THEN
+            DOCK_UI.tgtSide = DOCK_LEFT: DOCK_UI.tgtX = 0
+        ELSE
+            DOCK_UI.tgtSide = DOCK_RIGHT: DOCK_UI.tgtX = SCRN.w& - pw
+        END IF
+        DOCK_UI.tgtOrd = 1
+        DOCK_UI.tgtY = y1: DOCK_UI.tgtW = pw: DOCK_UI.tgtH = y2 - y1 + 1
+        EXIT SUB
+    END IF
+    ' over a column
+    FOR c = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(c).used _ANDALSO DOCK_COL(c).vis THEN
+            IF mx >= DOCK_COL(c).x _ANDALSO mx < DOCK_COL(c).x + DOCK_COL(c).w THEN
+                side = DOCK_COL(c).side
+                ' near the column's inner side: a new column next to it, toward the canvas
+                IF side = DOCK_LEFT THEN inner = (mx >= DOCK_COL(c).x + DOCK_COL(c).w - 6) ELSE inner = (mx < DOCK_COL(c).x + 6)
+                IF inner THEN
+                    DOCK_UI.tgtKind = DOCK_TGT_NEWCOL
+                    DOCK_UI.tgtSide = side
+                    DOCK_UI.tgtOrd = DOCK_COL(c).ord + 1
+                    IF side = DOCK_LEFT THEN DOCK_UI.tgtX = DOCK_COL(c).x + DOCK_COL(c).w - pw \ 2 ELSE DOCK_UI.tgtX = DOCK_COL(c).x - pw \ 2
+                    DOCK_UI.tgtY = DOCK_COL(c).y: DOCK_UI.tgtW = pw: DOCK_UI.tgtH = DOCK_COL(c).h
+                    EXIT SUB
+                END IF
+                ' over one of its slots: split above / tab / split below
+                FOR o = 1 TO DOCK_MAX_SLOTS
+                    s = DOCK_slot_at%(c, o)
+                    IF s = 0 THEN EXIT FOR
+                    IF DOCK_SLOT(s).vis _ANDALSO my >= DOCK_SLOT(s).y _ANDALSO my < DOCK_SLOT(s).y + DOCK_SLOT(s).h THEN
+                        third = DOCK_SLOT(s).h \ 3
+                        IF third < 4 THEN third = 4
+                        DOCK_UI.tgtX = DOCK_SLOT(s).x: DOCK_UI.tgtW = DOCK_SLOT(s).w
+                        IF my < DOCK_SLOT(s).y + third THEN
+                            DOCK_UI.tgtKind = DOCK_TGT_SPLIT: DOCK_UI.tgtCol = c: DOCK_UI.tgtOrd = DOCK_SLOT(s).ord
+                            DOCK_UI.tgtY = DOCK_SLOT(s).y: DOCK_UI.tgtH = third
+                        ELSEIF my >= DOCK_SLOT(s).y + DOCK_SLOT(s).h - third THEN
+                            DOCK_UI.tgtKind = DOCK_TGT_SPLIT: DOCK_UI.tgtCol = c: DOCK_UI.tgtOrd = DOCK_SLOT(s).ord + 1
+                            DOCK_UI.tgtY = DOCK_SLOT(s).y + DOCK_SLOT(s).h - third: DOCK_UI.tgtH = third
+                        ELSE
+                            DOCK_UI.tgtKind = DOCK_TGT_TAB: DOCK_UI.tgtSlot = s
+                            DOCK_UI.tgtY = DOCK_SLOT(s).y: DOCK_UI.tgtH = DOCK_SLOT(s).h
+                        END IF
+                        ' onto its own slot: only a split that changes nothing - no target
+                        IF DOCK_SLOT(s).ntabs = 1 _ANDALSO DOCK_TAB(s, 1) = mv THEN DOCK_UI.tgtKind = DOCK_TGT_NONE
+                        EXIT SUB
+                    END IF
+                NEXT o
+            END IF
+        END IF
+    NEXT c
+    ' next to the canvas side of the innermost column: a new innermost column
+    IF mx >= DOCK_LX _ANDALSO mx < DOCK_LX + DOCK_EDGE_ZONE THEN
+        DOCK_UI.tgtKind = DOCK_TGT_NEWCOL: DOCK_UI.tgtSide = DOCK_LEFT: DOCK_UI.tgtOrd = DOCK_MAX_COLS + 1
+        DOCK_UI.tgtX = DOCK_LX: DOCK_UI.tgtY = y1: DOCK_UI.tgtW = pw: DOCK_UI.tgtH = y2 - y1 + 1
+    ELSEIF mx <= DOCK_RX _ANDALSO mx > DOCK_RX - DOCK_EDGE_ZONE THEN
+        DOCK_UI.tgtKind = DOCK_TGT_NEWCOL: DOCK_UI.tgtSide = DOCK_RIGHT: DOCK_UI.tgtOrd = DOCK_MAX_COLS + 1
+        DOCK_UI.tgtX = DOCK_RX - pw + 1: DOCK_UI.tgtY = y1: DOCK_UI.tgtW = pw: DOCK_UI.tgtH = y2 - y1 + 1
+    END IF
+END SUB
+
+
+''
+' Drop the panel being moved on the current target.
+SUB DOCK_drop_apply ()
+    DIM mv AS INTEGER, r AS INTEGER, c AS INTEGER, s AS INTEGER
+    mv = DOCK_UI.mvPanel
+    IF DOCK_UI.tgtKind = DOCK_TGT_NONE _ORELSE DOCK_UI.tgtKind = DOCK_TGT_FLOAT THEN EXIT SUB
+    DOCK_change_begin
+    SELECT CASE DOCK_UI.tgtKind
+        CASE DOCK_TGT_NEWCOL
+            r = DOCK_move_to_new_col%(mv, DOCK_UI.tgtSide, DOCK_UI.tgtOrd)
+        CASE DOCK_TGT_SPLIT
+            ' the target column may renumber when the panel leaves it (same column)
+            c = DOCK_UI.tgtCol
+            IF DPANEL(mv).slot > 0 _ANDALSO DOCK_SLOT(DPANEL(mv).slot).col = c _ANDALSO DOCK_SLOT(DPANEL(mv).slot).ntabs = 1 _ANDALSO DOCK_SLOT(DPANEL(mv).slot).ord < DOCK_UI.tgtOrd THEN DOCK_UI.tgtOrd = DOCK_UI.tgtOrd - 1
+            r = DOCK_move_to_slot%(mv, c, DOCK_UI.tgtOrd)
+        CASE DOCK_TGT_TAB
+            r = DOCK_move_to_tab%(mv, DOCK_UI.tgtSlot)
+    END SELECT
+    DOCK_change_commit DPANEL(mv).title + " moved"
+END SUB
+
+
+''
+' DOCK_handle_mouse%: press on a handle, drag past the threshold, drop.
+' TRUE when it took the frame.
+FUNCTION DOCK_handle_move% (mx AS INTEGER, my AS INTEGER)
+    DIM s AS INTEGER
+    IF DOCK_UI.mvPanel THEN
+        IF DOCK_UI.mvActive = 0 THEN
+            IF ABS(mx - DOCK_UI.mvX0) + ABS(my - DOCK_UI.mvY0) >= DOCK_DRAG_START THEN DOCK_UI.mvActive = TRUE
+        END IF
+        IF DOCK_UI.mvActive THEN
+            DOCK_drop_target mx, my
+            FRAME_IDLE% = FALSE
+        END IF
+        ' right button cancels a move
+        IF MOUSE.B2% _ANDALSO MOUSE.OLD_B2% = 0 THEN
+            DOCK_UI.mvPanel = 0: DOCK_UI.mvActive = FALSE: DOCK_UI.tgtKind = DOCK_TGT_NONE
+            STATUS_flash "Move cancelled"
+            DOCK_redraw
+        ELSEIF MOUSE.B1% = 0 THEN
+            IF DOCK_UI.mvActive THEN DOCK_drop_apply
+            DOCK_UI.mvPanel = 0: DOCK_UI.mvActive = FALSE: DOCK_UI.tgtKind = DOCK_TGT_NONE
+            DOCK_redraw
+        END IF
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        DOCK_handle_move% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0 THEN
+        s = DOCK_handle_at%(mx, my)
+        IF s THEN
+            DOCK_UI.mvPanel = DOCK_slot_panel%(s)
+            DOCK_UI.mvActive = FALSE
+            DOCK_UI.mvX0 = mx: DOCK_UI.mvY0 = my
+            DOCK_UI.tgtKind = DOCK_TGT_NONE
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            DOCK_handle_move% = TRUE
+        END IF
+    END IF
+END FUNCTION
+
+
+''
+' Overlay: the drop preview while a panel is being moved.
+SUB DOCK_move_render ()
+    DIM lbl AS STRING, tx AS INTEGER, ty AS INTEGER
+    IF DOCK_UI.mvActive = 0 THEN EXIT SUB
+    IF DOCK_UI.tgtKind <> DOCK_TGT_NONE THEN
+        LINE (DOCK_UI.tgtX, DOCK_UI.tgtY)-(DOCK_UI.tgtX + DOCK_UI.tgtW - 1, DOCK_UI.tgtY + DOCK_UI.tgtH - 1), _RGBA32(80, 160, 255, 80), BF
+        LINE (DOCK_UI.tgtX, DOCK_UI.tgtY)-(DOCK_UI.tgtX + DOCK_UI.tgtW - 1, DOCK_UI.tgtY + DOCK_UI.tgtH - 1), _RGBA32(120, 190, 255, 220), B
+    END IF
+    lbl = DPANEL(DOCK_UI.mvPanel).title
+    SELECT CASE DOCK_UI.tgtKind
+        CASE DOCK_TGT_NEWCOL: lbl = lbl + ": new column"
+        CASE DOCK_TGT_SPLIT: lbl = lbl + ": stack here"
+        CASE DOCK_TGT_TAB: lbl = lbl + ": add as a tab"
+        CASE ELSE: lbl = lbl + ": drop on a dock"
+    END SELECT
+    tx = MOUSE.RAW_X% + 10: ty = MOUSE.RAW_Y% + 10
+    IF tx + _UPRINTWIDTH(lbl) + 6 > SCRN.w& THEN tx = SCRN.w& - _UPRINTWIDTH(lbl) - 6
+    LINE (tx - 3, ty - 2)-(tx + _UPRINTWIDTH(lbl) + 2, ty + _UFONTHEIGHT + 1), _RGBA32(20, 24, 32, 230), BF
+    COLOR _RGB32(230, 235, 245), 0
+    _PRINTMODE _KEEPBACKGROUND
+    _UPRINTSTRING (tx, ty), lbl
+END SUB
