@@ -111,6 +111,15 @@ Anything you can theme — UI palette, transform-overlay frame, smart-guide colo
 
 Each can be docked **left or right** by `Ctrl+Shift`+clicking on the panel itself.
 
+Beyond left and right, panels can be **stacked** in one column, **tabbed**,
+**collapsed** to their title, **floated** in their own window and docked back.
+Drag a panel by its handle (its title strip, the layers header, or the thin
+grip that appears on a panel's top edge), and right-click a handle for Move to
+Left/Right Edge, Collapse, Float and Reset Arrangement. The floating windows
+(Preview, Color Mixer, the color pickers, Pen Pressure, Browser) dock by
+dragging their title bar onto a dock target. See **[Chapter 22 — Moving,
+stacking, tabbing and floating panels](22-workspaces-capture.md#moving-stacking-tabbing-and-floating-panels)**.
+
 ### UI master toggles
 
 - `F11` — toggle **all** UI (canvas-only mode).

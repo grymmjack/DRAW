@@ -473,6 +473,21 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 ### Docking
 `Ctrl+Shift+Click` a panel → toggle dock side (left ↔ right). Panels: Toolbox, Layer Panel, Edit Bar, Advanced Bar, Character Map (View → Layout menu).
 
+**Arranging panels** — the *handle* is a panel's title strip, the layers header, or the thin grip that appears when you hover the top edge of the toolbox, organizer, drawer or a bar.
+
+| Mouse | Action |
+|------|--------|
+| `L-Drag` a handle | Move the panel: drop on a screen edge / between columns = new column · top or bottom third of a panel = stack above/below · middle = add as a tab · anywhere else = float |
+| `L-Drag` the line between two stacked panels | Move height between them |
+| `L-Click` a tab | Show that panel |
+| `L-Click` the chevron / `Dbl-Click` a title strip | Collapse the slot to its title / expand it |
+| `R-Click` a handle | Move to Left / Right Edge · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement |
+| `L-Drag` a floating window's title bar onto a dock target | Dock it (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Browser) |
+| `Dbl-Click` a floating panel's title | Dock it back where it was |
+| `R-Click` (while dragging) | Cancel the move |
+
+Arrangements save to the active workspace (or `DRAW.cfg` in Default); a workspace keeps them in `[DOCK]` / `[FLOAT]`.
+
 ### Preview window (`F4`)
 Follow / Floating-Image modes (View → Preview Window). `Alt+Click` pick FG (CP enabled) · `Alt+R-Click` pick BG · `Wheel` zoom preview · drag title move · drag handle resize.
 

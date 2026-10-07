@@ -44,6 +44,14 @@ Only the LEFT/RIGHT screen edges dock; the menu bar is always on top, the status
 - **Save Current Layout (2405) / Update Workspace From Layout (2406):** `WSC_capture_layout` writes every panel's SHOW/HIDE, the docks, the columns and the layers width into the WSC store (buttons, menus, keys, options, [START] stay); `WSC_save_and_use` saves, re-applies the workspace and cancels its `[START]`.
 - QA: `tests/dock-resize.sh` (Default, greps QA/DRAW.qa.cfg). Workspace saves write the user's workspaces folder, so they are only checked by hand with `XDG_DATA_HOME` pointed at a scratch dir.
 
+## The dock tree in workspaces (branch `docking`, 2026-10)
+
+Full guide: `.claude/instructions/draw-docking.md`.
+
+- **`[DOCK]` / `[FLOAT]`** sections (`WS_apply_dock`): loaded as a custom tree over the user's; `WS_DOCK_USER_SNAP` + `WS_DOCK_TOUCHED` put the user's tree back in `WS_restore`. A workspace with `*_DOCK` keys but no `[DOCK]` gets the default tree (built from the keys) so its sides apply.
+- **Saves:** any hand arrangement in a workspace → `WSC_save_dock` (user copy of a built-in); `WSC_capture_layout` (2405/2406) writes `[DOCK]` via `WSC_store_dock DOCK_snapshot$` (a `CUSTOM=0` snapshot stores none). Configurator tab **Dock** (`WSC_TAB_DOCK` = 6, appended so older tab indices stay): kv rows for `DOCK.*` / `FLOAT.*` + Use current / Default.
+- **Side keys vs tree:** the overlay snapshots only the `WS_DK_*` keys a workspace touches, so nothing may write dock keys from the tree (a mirror would leak into DRAW.cfg). Readers use `DOCK_side_now%`; writers call `DOCK_side_request` after setting a key.
+
 ## Capture
 
 - `_SCREENIMAGE` is Windows-only (GLFW_TODO elsewhere → blank). [Linux] Plasma 6.3 Wayland via XWayland: `spectacle -b -n -f -o` (0.47 s, 4K); `grim` refused by KWin; `_SCREENHIDE` unmaps the XWayland window during the delay.
