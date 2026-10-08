@@ -51,6 +51,7 @@ TYPE WSC_STATE
     needsRedraw AS INTEGER
     applyId     AS STRING  ' switch to this workspace after closing ("" = none)
     reapply     AS INTEGER ' the active workspace was saved: re-apply it after closing
+    openEditor  AS INTEGER ' open Customize Toolbars on this panel (BL_*) after closing
 END TYPE
 DIM SHARED WSC AS WSC_STATE
 

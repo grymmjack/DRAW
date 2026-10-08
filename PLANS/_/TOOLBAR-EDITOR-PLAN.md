@@ -1,6 +1,8 @@
 # Toolbar editor plan: customize the toolbox, edit bar and advanced bar
 
-Status: **plan** (2026-10-08, branch `toolbar-editor`, after #157 merged).
+Status: **built** (2026-10-08, branch `toolbar-editor`, T1-T5). Implementation notes: `.claude/instructions/draw-toolbar-editor.md`; user docs: manual Ch. 22 "Customizing toolbars", SHORTCUTS.md "Customize Toolbars"; tests: `QA/tests/tbed-*.sh`.
+
+As built, beyond the plan: menu-only commands (Paste in Place, Flip, ...) are offered too, named by their menu label; the window's lists are `BL()` lists for the bars and a working copy of `TOOLBAR_BUTTON_ORDER` for the toolbox; `--option WORKSPACES_DIR=` keeps the QA tests out of the user's workspaces folder.
 
 ## What Rick asked for
 

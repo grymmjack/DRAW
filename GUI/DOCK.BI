@@ -137,6 +137,7 @@ CONST DOCK_ACT_COLLAPSE = 4
 CONST DOCK_ACT_FLOAT = 5
 CONST DOCK_ACT_BAND_TOP = 7    ' the Browser only: dock along the top / bottom
 CONST DOCK_ACT_BAND_BOTTOM = 8
+CONST DOCK_ACT_CUSTOMIZE = 9   ' toolbox / bars: open Customize Toolbars on that panel
 
 TYPE DOCK_UI_OBJ
     hoverSlot AS INTEGER ' slot whose handle the pointer is over (0 = none)

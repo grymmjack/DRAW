@@ -49,3 +49,16 @@ DIM SHARED BL_TILE_ACT(0 TO BL_TILE_MAX - 1) AS INTEGER
 DIM SHARED BL_TILE_IMG(0 TO BL_TILE_MAX - 1) AS LONG
 DIM SHARED BL_TILE_DIM(0 TO BL_TILE_MAX - 1) AS LONG
 DIM SHARED BL_TILE_N AS INTEGER
+
+' Command art from the theme (BL_cmd_file_icon&): a command with no bar icon
+' looks for IMAGES/COMMANDS/<name>.png (16x16: bars, lists, toolbox fallback)
+' and IMAGES/COMMANDS/TOOLBOX/<name>.png (11x11, the toolbox's own size), in
+' the theme and then DEFAULT. <name> = BL_cmd_slug$ (the command's name,
+' lower case, - between words) or cmd-<action id>. The tile is the fallback.
+' Cached per (action, kind), misses too, so the disk is read once.
+CONST BL_FICON_MAX = 512
+DIM SHARED BL_FICON_ACT(0 TO BL_FICON_MAX - 1) AS INTEGER
+DIM SHARED BL_FICON_KIND(0 TO BL_FICON_MAX - 1) AS INTEGER ' 0 = 16px, 1 = toolbox 11px
+DIM SHARED BL_FICON_IMG(0 TO BL_FICON_MAX - 1) AS LONG    ' 0 = no file
+DIM SHARED BL_FICON_DIM(0 TO BL_FICON_MAX - 1) AS LONG
+DIM SHARED BL_FICON_N AS INTEGER

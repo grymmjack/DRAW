@@ -11,7 +11,7 @@
 ' the integer toolbar scale (USCALE.mixer) like COLORMIXER_render.
 '
 ' Placement: every floating window (Color Mixer, Advanced Color Picker, 3D
-' Color Space, Pen Pressure, Image Browser, Preview) runs its drag through
+' Color Space, Pen Pressure, Image Browser, Preview, Customize Toolbars) runs its drag through
 ' FPANEL_place, which snaps its edges to the other floating windows and the
 ' work-area chrome and keeps it from overlapping another floating window.
 '
@@ -23,7 +23,7 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
 CONST FPANEL_SNAP         = 6 ' snap distance (viewport px)
-CONST FPANEL_FLOAT_COUNT  = 6 ' floating windows taking part in placement (FPANEL_float_region%)
+CONST FPANEL_FLOAT_COUNT  = 7 ' floating windows taking part in placement (FPANEL_float_region%)
 
 TYPE FLOAT_PANEL_STYLE_OBJ
     ready     AS INTEGER ' TRUE once FPANEL_ensure has loaded the font

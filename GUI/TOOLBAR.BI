@@ -44,7 +44,7 @@ CONST TB_TOP              = 0
 CONST TB_COLS             = 4
 CONST TB_ROWS             = 7
 CONST TB_TOTAL            = 28 ' slots in the DEFAULT 4x7 grid
-CONST TB_MAX_SLOTS        = 40 ' slots a workspace [TOOLBOX] BUTTONS= list may use
+CONST TB_MAX_SLOTS        = 96 ' slots a workspace [TOOLBOX] BUTTONS= list may use
 ' TB_RIGHT, TB_CENTER and TB_LEFT are now calculated dynamically in TOOLBAR_render()
 ' to align toolbar to the right edge of the screen
 
@@ -58,6 +58,12 @@ CONST TB_MAX_SLOTS        = 40 ' slots a workspace [TOOLBOX] BUTTONS= list may u
 ' Row 5: QB64/CODE     | RECT          | RECT FILLED   | EXPORT SEL
 ' Row 6: HELP          | ELLIPSE       | ELLIPSE FILL  | OPEN
 DIM SHARED TOOLBAR_BUTTON_ORDER(TB_MAX_SLOTS - 1) AS INTEGER ' slot -> TB_* button (-1 = empty cell)
+' besides TB_* buttons and -1 (an empty cell), a slot can hold a divider (it
+' ends the row) or a command placed by the toolbar editor (TB_CMD_BASE + id)
+CONST TB_DIV_CODE = -2
+CONST TB_CMD_BASE = 1000
+DIM SHARED TB_SLOT_X(TB_MAX_SLOTS - 1) AS INTEGER ' where each slot was drawn (hit tests)
+DIM SHARED TB_SLOT_Y(TB_MAX_SLOTS - 1) AS INTEGER
 DIM TB_slotInit AS INTEGER
 FOR TB_slotInit = 0 TO TB_MAX_SLOTS - 1: TOOLBAR_BUTTON_ORDER(TB_slotInit) = -1: NEXT
 ' Row 0: Navigation/Transform

@@ -122,6 +122,68 @@ FUNCTION BL_cmd_icon& (act AS INTEGER, disabled AS INTEGER)
             EXIT FUNCTION
         END IF
     NEXT i
+    ' no bar icon: the theme's command art, if it has some
+    BL_cmd_icon& = BL_cmd_file_icon&(act, 0, disabled)
+END FUNCTION
+
+
+''
+' A command's file name stem for theme art: its name in lower case, words
+' joined by - ("New Layer" -> new-layer); cmd-<id> when it has no name.
+FUNCTION BL_cmd_slug$ (act AS INTEGER)
+    DIM t AS STRING, s AS STRING, i AS INTEGER, ch AS STRING
+    t = LCASE$(BL_cmd_label$(act))
+    FOR i = 1 TO LEN(t)
+        ch = MID$(t, i, 1)
+        IF (ch >= "a" _ANDALSO ch <= "z") _ORELSE (ch >= "0" _ANDALSO ch <= "9") THEN
+            s = s + ch
+        ELSEIF LEN(s) _ANDALSO RIGHT$(s, 1) <> "-" THEN
+            s = s + "-"
+        END IF
+    NEXT i
+    DO WHILE RIGHT$(s, 1) = "-": s = LEFT$(s, LEN(s) - 1): LOOP
+    IF LEN(s) = 0 THEN s = "cmd-" + _TRIM$(STR$(act))
+    BL_cmd_slug$ = s
+END FUNCTION
+
+
+''
+' Theme art for command act (kind 0 = 16px, 1 = toolbox 11px); 0 = none.
+FUNCTION BL_cmd_file_icon& (act AS INTEGER, kind AS INTEGER, disabled AS INTEGER)
+    DIM i AS INTEGER, img AS LONG, dimg AS LONG, subDir AS STRING, f AS STRING, th AS STRING, nm AS STRING, k AS INTEGER
+    IF act <= 0 THEN EXIT FUNCTION
+    FOR i = 0 TO BL_FICON_N - 1
+        IF BL_FICON_ACT(i) = act _ANDALSO BL_FICON_KIND(i) = kind THEN
+            IF disabled _ANDALSO BL_FICON_DIM(i) < -1 THEN BL_cmd_file_icon& = BL_FICON_DIM(i) ELSE BL_cmd_file_icon& = BL_FICON_IMG(i)
+            EXIT FUNCTION
+        END IF
+    NEXT i
+    IF BL_FICON_N >= BL_FICON_MAX THEN EXIT FUNCTION
+    IF kind = 1 THEN subDir = "/IMAGES/COMMANDS/TOOLBOX/" ELSE subDir = "/IMAGES/COMMANDS/"
+    th = _TRIM$(CFG.THEME$)
+    FOR k = 1 TO 4
+        SELECT CASE k
+            CASE 1: f = "ASSETS/THEMES/" + th + subDir + BL_cmd_slug$(act) + ".png"
+            CASE 2: f = "ASSETS/THEMES/" + th + subDir + "cmd-" + _TRIM$(STR$(act)) + ".png"
+            CASE 3: f = "ASSETS/THEMES/DEFAULT" + subDir + BL_cmd_slug$(act) + ".png"
+            CASE 4: f = "ASSETS/THEMES/DEFAULT" + subDir + "cmd-" + _TRIM$(STR$(act)) + ".png"
+        END SELECT
+        IF _FILEEXISTS(f) THEN nm = f: EXIT FOR
+    NEXT k
+    IF LEN(nm) THEN
+        img = _LOADIMAGE(nm, 32)
+        IF img < -1 THEN
+            dimg = _COPYIMAGE(img)
+            BL_dim_image dimg
+        ELSE
+            _LOGWARN "Command icon " + nm + " could not be loaded"
+            img = 0
+        END IF
+    END IF
+    BL_FICON_ACT(BL_FICON_N) = act: BL_FICON_KIND(BL_FICON_N) = kind
+    BL_FICON_IMG(BL_FICON_N) = img: BL_FICON_DIM(BL_FICON_N) = dimg
+    BL_FICON_N = BL_FICON_N + 1
+    IF disabled _ANDALSO dimg < -1 THEN BL_cmd_file_icon& = dimg ELSE BL_cmd_file_icon& = img
 END FUNCTION
 
 
@@ -149,12 +211,15 @@ END SUB
 
 
 ''
-' The command palette's name for action act ("" when it has none).
+' The command palette's name for action act, else its menu label ("" when it
+' has neither).
 FUNCTION BL_cmd_label$ (act AS INTEGER)
     DIM i AS INTEGER
     FOR i = 0 TO UBOUND(CMD_LIST)
         IF CMD_LIST(i).action_id = act _ANDALSO LEN(_TRIM$(CMD_LIST(i).name)) THEN BL_cmd_label$ = _TRIM$(CMD_LIST(i).name): EXIT FUNCTION
     NEXT i
+    i = BL_menu_item%(act)
+    IF i >= 0 THEN BL_cmd_label$ = _TRIM$(MENU_ITEMS(i).label)
 END FUNCTION
 
 
@@ -162,6 +227,21 @@ FUNCTION BL_cmd_hotkey$ (act AS INTEGER)
     DIM i AS INTEGER
     FOR i = 0 TO UBOUND(CMD_LIST)
         IF CMD_LIST(i).action_id = act _ANDALSO LEN(_TRIM$(CMD_LIST(i).name)) THEN BL_cmd_hotkey$ = _TRIM$(CMD_LIST(i).hotkey): EXIT FUNCTION
+    NEXT i
+    i = BL_menu_item%(act)
+    IF i >= 0 THEN BL_cmd_hotkey$ = _TRIM$(MENU_ITEMS(i).hotkey)
+END FUNCTION
+
+
+''
+' The menu row that runs action act (-1 = none): commands the palette does
+' not list (Paste in Place, Flip Horizontal, ...) are named by their menu.
+FUNCTION BL_menu_item% (act AS INTEGER)
+    DIM i AS INTEGER
+    BL_menu_item% = -1
+    IF act <= 0 THEN EXIT FUNCTION
+    FOR i = 0 TO MENU_ITEM_COUNT - 1
+        IF MENU_ITEMS(i).actionId = act _ANDALSO MENU_ITEMS(i).isDivider = 0 _ANDALSO MENU_ITEMS(i).hasSubmenu = 0 THEN BL_menu_item% = i: EXIT FUNCTION
     NEXT i
 END FUNCTION
 
@@ -215,16 +295,26 @@ FUNCTION BL_parse_name% (nm AS STRING, kind AS INTEGER, id AS INTEGER)
     END IF
     IF VAL(n) > 0 _ANDALSO LTRIM$(STR$(VAL(n))) = n THEN kind = BL_CMD: id = VAL(n): BL_parse_name% = TRUE: EXIT FUNCTION
     ' a bar button's name
-    FOR i = 0 TO EDITBAR_TOTAL_SLOTS - 1
-        IF EDIT_BAR_ITEMS(i).isDivider% = 0 _ANDALSO WS_editbar_name$(EDIT_BAR_ITEMS(i).actionID%) = n THEN kind = BL_CMD: id = EDIT_BAR_ITEMS(i).actionID%: BL_parse_name% = TRUE: EXIT FUNCTION
-    NEXT i
-    FOR i = 0 TO ADVBAR_TOTAL_SLOTS - 1
-        IF ADV_BAR_ITEMS(i).isDivider% = 0 _ANDALSO WS_advbar_name$(ADV_BAR_ITEMS(i).actionID%) = n THEN kind = BL_CMD: id = ADV_BAR_ITEMS(i).actionID%: BL_parse_name% = TRUE: EXIT FUNCTION
-    NEXT i
+    i = BL_bar_cmd_by_name%(n)
+    IF i THEN kind = BL_CMD: id = i: BL_parse_name% = TRUE: EXIT FUNCTION
     ' a toolbox tool's name
     IF TOOLBAR_button_by_name%(n, btn, tool) THEN
         IF btn >= 0 THEN kind = BL_TOOL: id = btn: BL_parse_name% = TRUE
     END IF
+END FUNCTION
+
+
+''
+' The action of the bar button named nm (undo, preview, ...), 0 = none.
+FUNCTION BL_bar_cmd_by_name% (nm AS STRING)
+    DIM i AS INTEGER, n AS STRING
+    n = LCASE$(_TRIM$(nm))
+    FOR i = 0 TO EDITBAR_TOTAL_SLOTS - 1
+        IF EDIT_BAR_ITEMS(i).isDivider% = 0 _ANDALSO WS_editbar_name$(EDIT_BAR_ITEMS(i).actionID%) = n THEN BL_bar_cmd_by_name% = EDIT_BAR_ITEMS(i).actionID%: EXIT FUNCTION
+    NEXT i
+    FOR i = 0 TO ADVBAR_TOTAL_SLOTS - 1
+        IF ADV_BAR_ITEMS(i).isDivider% = 0 _ANDALSO WS_advbar_name$(ADV_BAR_ITEMS(i).actionID%) = n THEN BL_bar_cmd_by_name% = ADV_BAR_ITEMS(i).actionID%: EXIT FUNCTION
+    NEXT i
 END FUNCTION
 
 
@@ -300,23 +390,26 @@ FUNCTION BL_bar_draw% (panel AS INTEGER, x1 AS INTEGER, w AS INTEGER, y1 AS INTE
             _CONTINUE
         END IF
         img = 0: dimg = 0: lit = TRUE
+        IF BL(panel, i).kind = BL_TOOL THEN img = BL_tool_icon&(BL(panel, i).id)
         IF BL(panel, i).kind = BL_CMD THEN
             img = BL_cmd_icon&(BL(panel, i).id, FALSE)
             dimg = BL_cmd_icon&(BL(panel, i).id, TRUE)
             IF img >= -1 THEN img = BL_cmd_tile&(BL(panel, i).id, FALSE): dimg = BL_cmd_tile&(BL(panel, i).id, TRUE) ' no icon: its text tile
             lit = BL_cmd_enabled%(BL(panel, i).id)
         END IF
-        IF img < -1 THEN
+        IF img < -1 _ANDALSO BL(panel, i).kind <> BL_TOOL THEN
             iconW = _WIDTH(img): iconH = _HEIGHT(img)
         ELSE
-            iconW = 16: iconH = 16
+            iconW = 16: iconH = 16 ' (a tool: its 11px toolbox button centred in a 16px cell)
         END IF
         iconX = x1 + colK * barColW + (barColW - iconW) \ 2
         IF iconH > rowH THEN rowH = iconH
         ' only whole icons: a partial one would spill past the panel's rect
         IF curY >= y1 _ANDALSO curY + iconH - 1 <= y2 _ANDALSO BL(panel, i).kind <> BL_GAP THEN
             BL(panel, i).x = iconX: BL(panel, i).y = curY: BL(panel, i).w = iconW: BL(panel, i).h = iconH
-            IF lit = 0 _ANDALSO dimg < -1 THEN
+            IF BL(panel, i).kind = BL_TOOL THEN
+                BL_draw_tool_button BL(panel, i).id, iconX, curY
+            ELSEIF lit = 0 _ANDALSO dimg < -1 THEN
                 _PUTIMAGE (iconX, curY), dimg
             ELSEIF img < -1 THEN
                 _PUTIMAGE (iconX, curY), img
@@ -366,6 +459,7 @@ SUB BL_bar_click (panel AS INTEGER, i AS INTEGER)
     IF i < 0 _ORELSE i >= BL_N(panel) THEN EXIT SUB
     SELECT CASE BL(panel, i).kind
         CASE BL_CMD: CMD_execute_action BL(panel, i).id
+        CASE BL_TOOL: IF TOOLBAR_activate_tool%(BL_tool_of%(BL(panel, i).id)) THEN MOUSE.UI_CHROME_CLICKED% = TRUE
     END SELECT
 END SUB
 
@@ -500,4 +594,51 @@ SUB BL_free_tiles ()
         BL_TILE_IMG(i) = 0: BL_TILE_DIM(i) = 0: BL_TILE_ACT(i) = 0
     NEXT i
     BL_TILE_N = 0
+    FOR i = 0 TO BL_FICON_N - 1
+        IF BL_FICON_IMG(i) < -1 THEN _FREEIMAGE BL_FICON_IMG(i)
+        IF BL_FICON_DIM(i) < -1 THEN _FREEIMAGE BL_FICON_DIM(i)
+        BL_FICON_IMG(i) = 0: BL_FICON_DIM(i) = 0: BL_FICON_ACT(i) = 0
+    NEXT i
+    BL_FICON_N = 0
+END SUB
+
+
+' =============================================================================
+' Tools on the bars
+' =============================================================================
+
+''
+' The tool (TOOL_*) of toolbox button btn (TB_*), -1 = none.
+FUNCTION BL_tool_of% (btn AS INTEGER)
+    DIM slot AS INTEGER
+    BL_tool_of% = -1
+    slot = TOOLBAR_default_slot%(btn)
+    IF slot >= 0 THEN BL_tool_of% = TOOLBAR_DEF_TO_TOOL(slot)
+END FUNCTION
+
+
+''
+' Toolbox button btn's icon, loaded if the toolbox has not drawn it yet.
+FUNCTION BL_tool_icon& (btn AS INTEGER)
+    IF btn < 0 _ORELSE btn > UBOUND(GUI_TB) THEN EXIT FUNCTION
+    IF GUI_TB(btn).iHnd& = 0 THEN GUI_TB(btn).iHnd& = _LOADIMAGE("ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/IMAGES/TOOLBOX/" + GUI_TB(btn).iSrc$, 32)
+    BL_tool_icon& = GUI_TB(btn).iHnd&
+END FUNCTION
+
+
+''
+' A toolbox button on a bar: its 11px button centred in a 16px cell at (x, y),
+' with the toolbox's active-tool mark when its tool is the current one.
+SUB BL_draw_tool_button (btn AS INTEGER, x AS INTEGER, y AS INTEGER)
+    DIM img AS LONG, bx AS INTEGER, by AS INTEGER, t AS INTEGER, act AS INTEGER
+    img = BL_tool_icon&(btn)
+    bx = x + (16 - TB_BTN_W) \ 2: by = y + (16 - TB_BTN_H) \ 2
+    IF img < -1 THEN _PUTIMAGE (bx, by), img, , (0, 0)-(TB_BTN_W - 1, TB_BTN_H - 1)
+    t = BL_tool_of%(btn)
+    act = (t >= 0 _ANDALSO t = TOOLBAR_active_tool_id%)
+    IF t = TOOL_SMART_SHAPES _ANDALSO SMART_SHAPES_is_active% THEN act = TRUE
+    IF act THEN
+        LINE (bx, by)-(bx + TB_BTN_W - 1, by + TB_BTN_H - 1), THEME.TOOLBAR_btn_overlay~&, BF
+        LINE (bx, by)-(bx + TB_BTN_W - 1, by + TB_BTN_H - 1), THEME.TOOLBAR_btn_stroke~&, B
+    END IF
 END SUB

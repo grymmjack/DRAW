@@ -484,13 +484,31 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 | `L-Drag` the Browser's title to the top / bottom of the canvas | Dock it in a band along the top / bottom (drag the band's edge to resize it) |
 | `L-Click` the chevron / `Dbl-Click` a title strip | Collapse the slot to its title / expand it |
 | `L-Click` a collapsed title | Open it (on the tab you clicked) |
-| `R-Click` a handle | Move to Left / Right Edge · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement |
+| `R-Click` a handle | Move to Left / Right Edge · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement · Customize Buttons… (toolbox / bars) |
 | `L-Drag` a floating window's title bar onto a dock target | Dock it (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Browser) |
 | `Dbl-Click` a floating panel's title | Dock it back where it was |
 | `L-Drag` a floating panel's right / bottom edge or corner | Resize it (a floating bar adds icon columns as it widens). Floating bars have a slim grip strip instead of a title |
 | `R-Click` (while dragging) | Cancel the move |
 
 Arrangements save to the active workspace (or `DRAW.cfg` in Default); a workspace keeps them in `[DOCK]` / `[FLOAT]`.
+
+### Customize Toolbars (View → Customize Toolbars…)
+Edits the toolbox, edit bar and advanced bar: any tool or command, in any order, on any of them. Changes save into the active workspace (Default asks for a name and makes one).
+
+| Input | Action |
+| --- | --- |
+| `L-Click` a tab | Edit that panel (Toolbox / Edit Bar / Advanced Bar) |
+| Type in **Search…** | Filter the Available list (`Esc` clears, `Enter` ends) |
+| `Dbl-Click` an Available row / **→** | Add it after the selected button |
+| **←** / `Delete` | Remove the selected button |
+| **↑ / ↓** | Move the selected button |
+| **+ DIV** / **+ GAP** | Insert a divider (new row) / an empty cell |
+| **RESET** · **COLUMNS − / +** | The panel's default buttons · its columns |
+| `L-Drag` a row in the right list / onto Available | Reorder it / remove it |
+| `L-Drag` an Available row onto the right list or a panel | Add it there |
+| `Wheel` over a list | Scroll it |
+| **While the window is open:** `L-Click` a toolbox / bar button | Select it (nothing runs) |
+| **While the window is open:** `L-Drag` a toolbox / bar button | Move it (same panel or another); drop it off every panel to remove it |
 
 ### Preview window (`F4`)
 Follow / Floating-Image modes (View → Preview Window). `Alt+Click` pick FG (CP enabled) · `Alt+R-Click` pick BG · `Wheel` zoom preview · drag title move · drag handle resize.
@@ -499,7 +517,7 @@ Follow / Floating-Image modes (View → Preview Window). `Alt+Click` pick FG (CP
 `F1/F2/F3` Brush/Gradient/Pattern mode · `L-Click slot` select · `Shift+L-Click` store current · `R-Click` context menu · `M-Click` cycle mode · `Shift+M-Click` clear slot · `Shift+R-Click` import into slot · `L/R-Click mini palette` set FG/BG · `Wheel` over the bins switches `.dset` sets · `Shift+Wheel` over the bins scrolls them when a narrow drawer can't show every row.
 
 ### Color Mixer / Advanced Color Picker / Image Browser
-View → Color Mixer (RGB/HSV sliders, hex). **View → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. **View → 3D Color Space**: the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB — `L-Click`/drag the solid → set FG · `R-Drag`/`M-Drag` (or `L-Drag` off the solid) spin · `Wheel` zoom · SOLID/CLOUD · SLICE + slider cut at a lightness. **Palette → Generate OKLCh Ramp from FG** makes an even dark→light palette (Settings → Panels → Color Blending + Ramps). **Brush → Mix Colors (Pigment)** makes the brush pick up and smear the colors it crosses, mixing like wet paint (blue through yellow = green; Smudge / Smudge Length / Smudge Radius in Settings); **Palette → Generate Pigment Mix FG > BG** makes a paint-mixed FG→BG palette. View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Dbl-Click title` maximize. **Floating windows** (Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Image Browser, Preview): drag a title bar to move. Edges snap to other floating windows and to the surrounding chrome, and windows can't overlap one another.
+View → Color Mixer (RGB/HSV sliders, hex). **View → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. **View → 3D Color Space**: the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB — `L-Click`/drag the solid → set FG · `R-Drag`/`M-Drag` (or `L-Drag` off the solid) spin · `Wheel` zoom · SOLID/CLOUD · SLICE + slider cut at a lightness. **Palette → Generate OKLCh Ramp from FG** makes an even dark→light palette (Settings → Panels → Color Blending + Ramps). **Brush → Mix Colors (Pigment)** makes the brush pick up and smear the colors it crosses, mixing like wet paint (blue through yellow = green; Smudge / Smudge Length / Smudge Radius in Settings); **Palette → Generate Pigment Mix FG > BG** makes a paint-mixed FG→BG palette. View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Dbl-Click title` maximize. **Floating windows** (Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Image Browser, Preview, Customize Toolbars): drag a title bar to move. Edges snap to other floating windows and to the surrounding chrome, and windows can't overlap one another.
 
 ---
 
