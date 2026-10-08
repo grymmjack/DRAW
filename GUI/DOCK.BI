@@ -135,6 +135,8 @@ CONST DOCK_ACT_RIGHT = 2
 CONST DOCK_ACT_RESET = 3
 CONST DOCK_ACT_COLLAPSE = 4
 CONST DOCK_ACT_FLOAT = 5
+CONST DOCK_ACT_BAND_TOP = 7    ' the Browser only: dock along the top / bottom
+CONST DOCK_ACT_BAND_BOTTOM = 8
 
 TYPE DOCK_UI_OBJ
     hoverSlot AS INTEGER ' slot whose handle the pointer is over (0 = none)
@@ -172,6 +174,7 @@ TYPE DOCK_UI_OBJ
     tgtY      AS INTEGER
     tgtW      AS INTEGER
     tgtH      AS INTEGER
+    mvGroup   AS INTEGER ' pressed on a tab strip outside its tabs: the whole slot (every tab) moves
     mvCancel  AS INTEGER ' a right-click cancelled docking for this window drag (it just moves)
     lbX       AS INTEGER ' the drop label as last drawn (re-blitted above the native windows)
     lbY       AS INTEGER
@@ -186,6 +189,7 @@ CONST DOCK_TGT_NEWCOL = 1 ' a new column (tgtSide, tgtOrd)
 CONST DOCK_TGT_SPLIT  = 2 ' a new slot in a column (tgtCol, tgtOrd)
 CONST DOCK_TGT_TAB    = 3 ' a tab in a slot (tgtSlot)
 CONST DOCK_TGT_FLOAT  = 4 ' a floating window (P5)
+CONST DOCK_TGT_BAND   = 5 ' the Browser's top / bottom band (tgtSide = DOCK_BAND_*)
 CONST DOCK_MIN_CANVAS_W = 160 ' narrower than this and the outermost dock columns hide (small windows)
 CONST DOCK_EDGE_ZONE  = 16 ' px from a screen edge / column side that means "new column here"
 CONST DOCK_DRAG_START = 5  ' px the pointer travels before a press on a handle becomes a move
@@ -210,3 +214,24 @@ DIM SHARED DOCK_RZ AS DOCK_RZ_OBJ
 DIM SHARED DOCK_DUMP_PATH AS STRING
 DIM SHARED DOCK_DUMP_LAST AS STRING
 DIM SHARED DOCK_DUMP_SEQ AS LONG
+
+' --- the Browser's band (an exception to "only the left and right edges dock") --
+' The Browser alone can also dock in a band along the top (under the menu bar)
+' or the bottom (above the palette strip) of the canvas area, between the side
+' docks. Saved as BAND=TOP|BOTTOM,<height> in the arrangement.
+CONST DOCK_BAND_TOP    = 1
+CONST DOCK_BAND_BOTTOM = 2
+CONST DOCK_BAND_MIN_H  = 80
+DIM SHARED DOCK_BAND_SIDE AS INTEGER ' 0 = the Browser is not in a band
+DIM SHARED DOCK_BAND_H    AS INTEGER ' the band's height (px)
+DIM SHARED DOCK_BAND_X    AS INTEGER ' this frame's band rect (valid while DOCK_BAND_W > 0)
+DIM SHARED DOCK_BAND_Y    AS INTEGER
+DIM SHARED DOCK_BAND_W    AS INTEGER
+DIM SHARED DOCK_BAND_HH   AS INTEGER ' this frame's band height (DOCK_BAND_H clamped to the room)
+DIM SHARED DOCK_SHIFT_Y   AS INTEGER ' the canvas centre's vertical shift for the band (SCRN.panelShiftY)
+DIM SHARED DOCK_TOPBAR_H  AS INTEGER ' height of the text bar under the menu bar this frame (set by SCREEN_compute_layout)
+DIM SHARED DOCK_L_BARY1   AS INTEGER ' the last layout's dock top / bottom (drop targets)
+DIM SHARED DOCK_L_DOCKY2  AS INTEGER
+DIM SHARED DOCK_RZ_BAND   AS INTEGER ' dragging the band's inner edge
+DIM SHARED DOCK_RZ_BY0    AS INTEGER
+DIM SHARED DOCK_RZ_BH0    AS INTEGER

@@ -793,7 +793,7 @@ DO
         idleZH& = SCRN.canvasH& * SCRN.zoom!
     END IF
     idleDX% = (SCRN.w& - idleZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
-    idleDY% = (SCRN.h& - idleZH&) \ 2 + SCRN.offsetY%
+    idleDY% = (SCRN.h& - idleZH&) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%
     IF MOUSE.RAW_X% >= idleDX% AND MOUSE.RAW_X% < idleDX% + idleZW& AND MOUSE.RAW_Y% >= idleDY% AND MOUSE.RAW_Y% < idleDY% + idleZH& THEN
         mouseOverCanvas% = TRUE
     END IF

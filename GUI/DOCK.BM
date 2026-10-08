@@ -44,7 +44,12 @@ FUNCTION DOCK_panel_w% (id AS INTEGER)
         CASE DP_ADVCP: DOCK_panel_w% = ADVCP.dispW%
         CASE DP_CS3D: DOCK_panel_w% = CS3D.dispW%
         CASE DP_PEN: DOCK_panel_w% = PENP.dispW%
-        CASE DP_BROWSER: DOCK_panel_w% = _MAX(BROWSER.dispW%, BROWSER_MIN_W)
+        CASE DP_BROWSER
+            ' its floating width (CFG.BROWSER_WIDTH, native px - never the slot's or
+            ' band's size it has while docked, or a column would inherit a band's width)
+            DIM brW AS SINGLE
+            brW = BROWSER.renderScale!: IF brW <= 0 THEN brW = 1
+            DOCK_panel_w% = _MAX(INT(CSNG(_MAX(CFG.BROWSER_WIDTH%, BROWSER_MIN_W)) * brW + 0.5), BROWSER_MIN_W)
     END SELECT
 END FUNCTION
 
@@ -539,9 +544,88 @@ SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
     DOCK_MENU_LX = DOCK_LX
     DOCK_MENU_RX = DOCK_RX
     DOCK_place_columns FALSE, barY1, charTop, dockY2
+    DOCK_place_band barY1, dockY2
     DOCK_place_floats barY1, dockY2
     IF LEN(DOCK_DUMP_PATH) THEN DOCK_dump_write barY1, dockY2
 END SUB
+
+
+''
+' The Browser's band: across the canvas area (between the side docks), under
+' the menu (and text) bar or above the bottom bars. The canvas re-centres in
+' what is left (DOCK_SHIFT_Y -> SCRN.panelShiftY). The room stays reserved
+' while the Browser is auto-hidden by a stroke, so the canvas never jumps.
+SUB DOCK_place_band (barY1 AS INTEGER, dockY2 AS INTEGER)
+    DIM y1 AS INTEGER, y2 AS INTEGER, h AS INTEGER, maxH AS INTEGER
+    DOCK_L_BARY1 = barY1: DOCK_L_DOCKY2 = dockY2
+    DOCK_BAND_W = 0: DOCK_SHIFT_Y = 0
+    IF DOCK_BAND_SIDE = 0 _ORELSE BROWSER.visible% = 0 THEN EXIT SUB
+    y1 = barY1 + DOCK_TOPBAR_H: y2 = dockY2
+    maxH = (y2 - y1 + 1) - 60 ' leave the canvas some room
+    h = DOCK_BAND_H
+    IF h > maxH THEN h = maxH
+    IF h < DOCK_BAND_MIN_H THEN h = DOCK_BAND_MIN_H
+    IF h > y2 - y1 + 1 THEN EXIT SUB ' no room at all
+    DOCK_BAND_X = DOCK_LX: DOCK_BAND_W = DOCK_RX - DOCK_LX + 1: DOCK_BAND_HH = h
+    IF DOCK_BAND_SIDE = DOCK_BAND_TOP THEN
+        DOCK_BAND_Y = y1
+        DOCK_SHIFT_Y = h \ 2
+    ELSE
+        DOCK_BAND_Y = y2 - h + 1
+        DOCK_SHIFT_Y = -(h \ 2)
+    END IF
+    IF DOCK_panel_shown%(DP_BROWSER) THEN DOCK_apply_rect DP_BROWSER, DOCK_BAND_X, DOCK_BAND_Y, DOCK_BAND_W, h
+END SUB
+
+
+''
+' The Browser docked in its band: is (mx, my) on its title bar (left of its
+' close box)? Inert under menus / popups.
+FUNCTION DOCK_band_title_at% (mx AS INTEGER, my AS INTEGER)
+    DIM gx AS INTEGER, gy AS INTEGER, gw AS INTEGER, gh AS INTEGER
+    IF DOCK_BAND_SIDE = 0 _ORELSE DOCK_BAND_W = 0 _ORELSE DOCK_ui_busy% THEN EXIT FUNCTION
+    IF DOCK_native_grab%(DP_BROWSER, gx, gy, gw, gh) = 0 THEN EXIT FUNCTION
+    DOCK_band_title_at% = (mx >= gx _ANDALSO mx < gx + gw _ANDALSO my >= gy _ANDALSO my < gy + gh)
+END FUNCTION
+
+
+''
+' The band's inner edge (the side facing the canvas) under (mx, my)?
+FUNCTION DOCK_band_edge_at% (mx AS INTEGER, my AS INTEGER)
+    DIM ey AS INTEGER
+    IF DOCK_BAND_SIDE = 0 _ORELSE DOCK_BAND_W = 0 _ORELSE DOCK_ui_busy% THEN EXIT FUNCTION
+    IF mx < DOCK_BAND_X _ORELSE mx >= DOCK_BAND_X + DOCK_BAND_W THEN EXIT FUNCTION
+    IF DOCK_BAND_SIDE = DOCK_BAND_BOTTOM THEN ey = DOCK_BAND_Y ELSE ey = DOCK_BAND_Y + DOCK_BAND_HH - 1
+    DOCK_band_edge_at% = (my >= ey - 2 _ANDALSO my <= ey + 1)
+END FUNCTION
+
+
+''
+' DOCK_handle_mouse%: drag the band's inner edge to change its height.
+FUNCTION DOCK_handle_band_resize% (mx AS INTEGER, my AS INTEGER)
+    DIM h AS INTEGER
+    IF DOCK_RZ_BAND THEN
+        IF DOCK_BAND_SIDE = DOCK_BAND_BOTTOM THEN h = DOCK_RZ_BH0 - (my - DOCK_RZ_BY0) ELSE h = DOCK_RZ_BH0 + (my - DOCK_RZ_BY0)
+        IF h < DOCK_BAND_MIN_H THEN h = DOCK_BAND_MIN_H
+        IF h <> DOCK_BAND_H THEN DOCK_BAND_H = h: DOCK_redraw
+        IF MOUSE.B1% = 0 THEN
+            DOCK_RZ_BAND = FALSE
+            DOCK_BAND_H = DOCK_BAND_HH ' what the room allowed
+            DOCK_change_begin
+            DOCK_change_commit "Browser band:" + STR$(DOCK_BAND_H) + " px"
+        END IF
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        DOCK_handle_band_resize% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0 THEN
+        IF DOCK_band_edge_at%(mx, my) THEN
+            DOCK_RZ_BAND = TRUE: DOCK_RZ_BY0 = my: DOCK_RZ_BH0 = DOCK_BAND_HH
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            DOCK_handle_band_resize% = TRUE
+        END IF
+    END IF
+END FUNCTION
 
 
 ''
@@ -689,7 +773,7 @@ END FUNCTION
 ''
 ' Render pass (with the panels): title strips of titled slots.
 SUB DOCK_render_titles ()
-    DIM s AS INTEGER, id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, t AS INTEGER, tx AS INTEGER, lbl AS STRING
+    DIM s AS INTEGER, id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, t AS INTEGER, tx AS INTEGER, tw AS INTEGER, lbl AS STRING
     DIM oldDest AS LONG, oldFont AS LONG
     oldDest& = _DEST
     oldFont& = _FONT
@@ -706,17 +790,17 @@ SUB DOCK_render_titles ()
                 IF DOCK_SLOT(s).collapsed THEN lbl = ">" ELSE lbl = "v"
                 _PRINTMODE _KEEPBACKGROUND
                 _UPRINTSTRING (x + 2, y + 1), lbl
-                tx = x + 10
                 FOR t = 1 TO DOCK_SLOT(s).ntabs
                     id = DOCK_TAB(s, t)
-                    lbl = DPANEL(id).title
-                    IF DOCK_SLOT(s).ntabs > 1 _ANDALSO t = DOCK_SLOT(s).act THEN
-                        LINE (tx - 2, y)-(tx + _UPRINTWIDTH(lbl) + 1, y + DOCK_TITLE_H - 2), THEME.LAYER_PANEL_bg~&, BF
+                    IF DOCK_tab_rect%(s, t, tx, tw) THEN
+                        ' (a narrow column: the label is cut to its share of the strip)
+                        lbl = DOCK_fit_text$(DPANEL(id).title, tw)
+                        IF DOCK_SLOT(s).ntabs > 1 _ANDALSO t = DOCK_SLOT(s).act THEN
+                            LINE (tx - 1, y)-(_MIN(tx + tw, x + w - 1), y + DOCK_TITLE_H - 2), THEME.LAYER_PANEL_bg~&, BF
+                        END IF
+                        IF DOCK_SLOT(s).ntabs > 1 _ANDALSO t <> DOCK_SLOT(s).act THEN COLOR THEME.LAYER_PANEL_header_fg_dim~&, _RGBA32(0, 0, 0, 0) ELSE COLOR THEME.LAYER_PANEL_header_fg~&, _RGBA32(0, 0, 0, 0)
+                        IF LEN(lbl) THEN _UPRINTSTRING (tx, y + 1), lbl
                     END IF
-                    IF DOCK_SLOT(s).ntabs > 1 _ANDALSO t <> DOCK_SLOT(s).act THEN COLOR THEME.LAYER_PANEL_header_fg_dim~&, _RGBA32(0, 0, 0, 0) ELSE COLOR THEME.LAYER_PANEL_header_fg~&, _RGBA32(0, 0, 0, 0)
-                    _UPRINTSTRING (tx, y + 1), lbl
-                    tx = tx + _UPRINTWIDTH(lbl) + 8
-                    IF tx > x + w - 4 THEN EXIT FOR
                 NEXT t
             END IF
         END IF
@@ -768,6 +852,11 @@ SUB DOCK_menu_build (id AS INTEGER)
     IF DPANEL(id).floats _ANDALSO s = 0 THEN
         POPUP_MENU_set_item n, "Dock Left", "", DOCK_ACT_LEFT, 0: n = n + 1
         POPUP_MENU_set_item n, "Dock Right", "", DOCK_ACT_RIGHT, 0: n = n + 1
+        IF id = DP_BROWSER THEN
+            IF DOCK_BAND_SIDE <> DOCK_BAND_TOP THEN POPUP_MENU_set_item n, "Dock Along the Top", "", DOCK_ACT_BAND_TOP, 0: n = n + 1
+            IF DOCK_BAND_SIDE <> DOCK_BAND_BOTTOM THEN POPUP_MENU_set_item n, "Dock Along the Bottom", "", DOCK_ACT_BAND_BOTTOM, 0: n = n + 1
+            IF DOCK_BAND_SIDE THEN POPUP_MENU_set_item n, "Float", "", DOCK_ACT_FLOAT, 0: n = n + 1
+        END IF
         DOCK_UI.menuN = n
         EXIT SUB
     END IF
@@ -776,6 +865,10 @@ SUB DOCK_menu_build (id AS INTEGER)
     IF s > 0 THEN
         IF DOCK_SLOT(s).collapsed THEN POPUP_MENU_set_item n, "Expand", "", DOCK_ACT_COLLAPSE, 0 ELSE POPUP_MENU_set_item n, "Collapse to Title", "", DOCK_ACT_COLLAPSE, 0
         n = n + 1
+    END IF
+    IF id = DP_BROWSER THEN
+        POPUP_MENU_set_item n, "Dock Along the Top", "", DOCK_ACT_BAND_TOP, 0: n = n + 1
+        POPUP_MENU_set_item n, "Dock Along the Bottom", "", DOCK_ACT_BAND_BOTTOM, 0: n = n + 1
     END IF
     IF DOCK_floating%(id) THEN
         POPUP_MENU_set_item n, "Dock Back", "", DOCK_ACT_DOCKBACK, 0: n = n + 1
@@ -843,12 +936,20 @@ SUB DOCK_menu_do (act AS INTEGER)
     SELECT CASE act
         CASE DOCK_ACT_LEFT, DOCK_ACT_RIGHT
             DOCK_change_begin
+            IF id = DP_BROWSER THEN DOCK_BAND_SIDE = 0
             IF act = DOCK_ACT_LEFT THEN
                 c = DOCK_move_to_new_col%(id, DOCK_LEFT, DOCK_MAX_COLS + 1)
             ELSE
                 c = DOCK_move_to_new_col%(id, DOCK_RIGHT, DOCK_MAX_COLS + 1)
             END IF
             DOCK_change_commit DPANEL(id).title + " moved"
+        CASE DOCK_ACT_BAND_TOP, DOCK_ACT_BAND_BOTTOM
+            DOCK_change_begin
+            IF DPANEL(id).slot THEN DOCK_detach_panel id
+            DPANEL(id).fl = FALSE
+            IF act = DOCK_ACT_BAND_TOP THEN DOCK_BAND_SIDE = DOCK_BAND_TOP ELSE DOCK_BAND_SIDE = DOCK_BAND_BOTTOM
+            IF DOCK_BAND_H < DOCK_BAND_MIN_H THEN DOCK_BAND_H = 220
+            DOCK_change_commit DPANEL(id).title + " docked along the " + _IIF(act = DOCK_ACT_BAND_TOP, "top", "bottom")
         CASE DOCK_ACT_COLLAPSE
             DOCK_toggle_collapse DPANEL(id).slot
         CASE DOCK_ACT_FLOAT
@@ -935,6 +1036,14 @@ END FUNCTION
 ''
 ' The divider under (mx, my): slot above in a, below in b (TRUE when found).
 ' Two showing flex slots next to each other in one column.
+''
+' Slot s's handle is the 3px hover grip on its top edge (a chromeless panel).
+FUNCTION DOCK_slot_grip% (s AS INTEGER)
+    DIM hx AS INTEGER, hy AS INTEGER, hw AS INTEGER, hh AS INTEGER
+    IF DOCK_handle_rect%(s, hx, hy, hw, hh) THEN DOCK_slot_grip% = (hh = DOCK_GRIP_H)
+END FUNCTION
+
+
 FUNCTION DOCK_divider_at% (mx AS INTEGER, my AS INTEGER, a AS INTEGER, b AS INTEGER)
     DIM c AS INTEGER, o AS INTEGER, s AS INTEGER, prev AS INTEGER
     IF DOCK_ui_busy% THEN EXIT FUNCTION
@@ -948,9 +1057,14 @@ FUNCTION DOCK_divider_at% (mx AS INTEGER, my AS INTEGER, a AS INTEGER, b AS INTE
                     IF DOCK_SLOT(s).vis THEN
                         IF prev _ANDALSO DOCK_slot_flex%(prev) _ANDALSO DOCK_slot_flex%(s) THEN
                             IF my >= DOCK_SLOT(s).y - 2 _ANDALSO my <= DOCK_SLOT(s).y + 1 THEN
-                                a = prev: b = s
-                                DOCK_divider_at% = TRUE
-                                EXIT FUNCTION
+                                ' the lower panel's 3px grip (a chromeless panel's
+                                ' handle) starts at the boundary: it wins there,
+                                ' or a stacked drawer / bar could never be moved
+                                IF my < DOCK_SLOT(s).y _ORELSE DOCK_slot_grip%(s) = 0 THEN
+                                    a = prev: b = s
+                                    DOCK_divider_at% = TRUE
+                                    EXIT FUNCTION
+                                END IF
                             END IF
                         END IF
                         prev = s
@@ -1033,10 +1147,20 @@ SUB DOCK_drop_target (mx AS INTEGER, my AS INTEGER)
     y2 = SCRN.h& - SCREEN_bottom_bars_h% - 1
     pw = DOCK_panel_w%(mv)
     IF pw < 16 THEN pw = 16
-    ' the screen edges: a new outermost column
-    IF mx < DOCK_EDGE_ZONE _ORELSE mx >= SCRN.w& - DOCK_EDGE_ZONE THEN
+    ' the screen edges: a new outermost column. Where a column already lines
+    ' the edge only its outer 4px count, or a narrow bar docked there (20px)
+    ' could never be stacked onto or tabbed with.
+    DIM zl AS INTEGER, zr AS INTEGER
+    zl = DOCK_EDGE_ZONE: zr = DOCK_EDGE_ZONE
+    FOR c = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(c).used _ANDALSO DOCK_COL(c).vis _ANDALSO DOCK_COL(c).autoh = 0 _ANDALSO DOCK_COL(c).w > 0 THEN
+            IF DOCK_COL(c).side = DOCK_LEFT _ANDALSO DOCK_COL(c).x <= 0 THEN zl = 4
+            IF DOCK_COL(c).side = DOCK_RIGHT _ANDALSO DOCK_COL(c).x + DOCK_COL(c).w >= SCRN.w& THEN zr = 4
+        END IF
+    NEXT c
+    IF mx < zl _ORELSE mx >= SCRN.w& - zr THEN
         DOCK_UI.tgtKind = DOCK_TGT_NEWCOL
-        IF mx < DOCK_EDGE_ZONE THEN
+        IF mx < zl THEN
             DOCK_UI.tgtSide = DOCK_LEFT: DOCK_UI.tgtX = 0
         ELSE
             DOCK_UI.tgtSide = DOCK_RIGHT: DOCK_UI.tgtX = SCRN.w& - pw
@@ -1080,6 +1204,7 @@ SUB DOCK_drop_target (mx AS INTEGER, my AS INTEGER)
                         END IF
                         ' onto its own slot: only a split that changes nothing - no target
                         IF DOCK_SLOT(s).ntabs = 1 _ANDALSO DOCK_TAB(s, 1) = mv THEN DOCK_UI.tgtKind = DOCK_TGT_NONE
+                        IF DOCK_UI.mvGroup _ANDALSO s = DPANEL(mv).slot THEN DOCK_UI.tgtKind = DOCK_TGT_NONE ' a whole slot onto itself
                         EXIT SUB
                     END IF
                 NEXT o
@@ -1102,6 +1227,24 @@ SUB DOCK_drop_target (mx AS INTEGER, my AS INTEGER)
             END IF
         END IF
     NEXT c
+    ' the Browser alone: its band along the top / bottom of the canvas area
+    IF mv = DP_BROWSER _ANDALSO mx >= DOCK_LX _ANDALSO mx <= DOCK_RX THEN
+        DIM bandH AS INTEGER, bTop AS INTEGER
+        bandH = DOCK_BAND_H: IF bandH < DOCK_BAND_MIN_H THEN bandH = 220
+        bTop = DOCK_L_BARY1 + DOCK_TOPBAR_H
+        IF my < bTop + DOCK_EDGE_ZONE _ANDALSO DOCK_BAND_SIDE <> DOCK_BAND_TOP THEN
+            DOCK_UI.tgtKind = DOCK_TGT_BAND: DOCK_UI.tgtSide = DOCK_BAND_TOP
+            DOCK_UI.tgtX = DOCK_LX: DOCK_UI.tgtW = DOCK_RX - DOCK_LX + 1
+            DOCK_UI.tgtY = bTop: DOCK_UI.tgtH = bandH
+            EXIT SUB
+        END IF
+        IF my > DOCK_L_DOCKY2 - DOCK_EDGE_ZONE _ANDALSO DOCK_BAND_SIDE <> DOCK_BAND_BOTTOM THEN
+            DOCK_UI.tgtKind = DOCK_TGT_BAND: DOCK_UI.tgtSide = DOCK_BAND_BOTTOM
+            DOCK_UI.tgtX = DOCK_LX: DOCK_UI.tgtW = DOCK_RX - DOCK_LX + 1
+            DOCK_UI.tgtY = DOCK_L_DOCKY2 - bandH + 1: DOCK_UI.tgtH = bandH
+            EXIT SUB
+        END IF
+    END IF
     ' next to the canvas side of the innermost column: a new innermost column
     ' (elsewhere over the canvas: float it there)
     IF mx >= DOCK_LX + DOCK_EDGE_ZONE _ANDALSO mx <= DOCK_RX - DOCK_EDGE_ZONE THEN
@@ -1123,9 +1266,31 @@ END SUB
 ''
 ' Drop the panel being moved on the current target.
 SUB DOCK_drop_apply ()
-    DIM mv AS INTEGER, r AS INTEGER, c AS INTEGER, s AS INTEGER
+    DIM mv AS INTEGER, r AS INTEGER, c AS INTEGER, s AS INTEGER, n AS INTEGER, i AS INTEGER, newS AS INTEGER
+    DIM grp(1 TO DOCK_MAX_TABS) AS INTEGER
     mv = DOCK_UI.mvPanel
     IF DOCK_UI.tgtKind = DOCK_TGT_NONE THEN EXIT SUB
+    IF DOCK_UI.tgtKind = DOCK_TGT_BAND THEN
+        DOCK_change_begin
+        IF DPANEL(mv).slot THEN DOCK_detach_panel mv
+        DPANEL(mv).fl = FALSE
+        DOCK_BAND_SIDE = DOCK_UI.tgtSide
+        IF DOCK_BAND_H < DOCK_BAND_MIN_H THEN DOCK_BAND_H = 220
+        IF DOCK_BAND_SIDE = DOCK_BAND_TOP THEN DOCK_change_commit DPANEL(mv).title + " docked along the top" ELSE DOCK_change_commit DPANEL(mv).title + " docked along the bottom"
+        EXIT SUB
+    END IF
+    ' the Browser leaving its band for a column or a float (a float undocks it
+    ' like a window in a column: its floating size back, saved)
+    IF mv = DP_BROWSER _ANDALSO DOCK_BAND_SIDE THEN
+        IF DOCK_UI.tgtKind = DOCK_TGT_FLOAT THEN DOCK_native_undock mv, DOCK_UI.tgtX, DOCK_UI.tgtY: EXIT SUB
+        DOCK_BAND_SIDE = 0
+    END IF
+    ' moving a whole slot: remember its tabs (the active one moves first)
+    IF DOCK_UI.mvGroup _ANDALSO DPANEL(mv).slot > 0 _ANDALSO DOCK_UI.tgtKind <> DOCK_TGT_FLOAT THEN
+        s = DPANEL(mv).slot
+        n = DOCK_SLOT(s).ntabs
+        FOR i = 1 TO n: grp(i) = DOCK_TAB(s, i): NEXT i
+    END IF
     IF DOCK_UI.tgtKind = DOCK_TGT_FLOAT THEN
         IF DPANEL(mv).floats THEN
             IF DPANEL(mv).slot > 0 THEN DOCK_native_undock mv, DOCK_UI.tgtX, DOCK_UI.tgtY
@@ -1146,6 +1311,18 @@ SUB DOCK_drop_apply ()
         CASE DOCK_TGT_TAB
             r = DOCK_move_to_tab%(mv, DOCK_UI.tgtSlot)
     END SELECT
+    ' a whole slot: its other tabs follow the active one, in their order
+    IF n > 1 _ANDALSO DPANEL(mv).slot > 0 THEN
+        FOR i = 1 TO n
+            IF grp(i) <> mv THEN r = DOCK_move_to_tab%(grp(i), DPANEL(mv).slot)
+        NEXT i
+        newS = DPANEL(mv).slot
+        FOR i = 1 TO DOCK_SLOT(newS).ntabs
+            IF DOCK_TAB(newS, i) = mv THEN DOCK_SLOT(newS).act = i
+        NEXT i
+        DOCK_change_commit DPANEL(mv).title + " and its tabs moved"
+        EXIT SUB
+    END IF
     DOCK_change_commit DPANEL(mv).title + " moved"
 END SUB
 
@@ -1199,8 +1376,18 @@ FUNCTION DOCK_handle_move% (mx AS INTEGER, my AS INTEGER)
         ' a floating panel's title bar
         s = DOCK_float_title_at%(mx, my)
         IF s THEN
-            DOCK_UI.mvPanel = s: DOCK_UI.mvSlot = 0: DOCK_UI.mvFloat = TRUE
+            DOCK_UI.mvPanel = s: DOCK_UI.mvSlot = 0: DOCK_UI.mvFloat = TRUE: DOCK_UI.mvGroup = FALSE
             DOCK_UI.mvOffX = mx - DPANEL(s).fx: DOCK_UI.mvOffY = my - DPANEL(s).fy
+            DOCK_UI.mvActive = FALSE
+            DOCK_UI.mvX0 = mx: DOCK_UI.mvY0 = my
+            DOCK_UI.tgtKind = DOCK_TGT_NONE
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            DOCK_handle_move% = TRUE
+            EXIT FUNCTION
+        END IF
+        ' the Browser in its band: its title bar is the handle
+        IF DOCK_band_title_at%(mx, my) THEN
+            DOCK_UI.mvPanel = DP_BROWSER: DOCK_UI.mvSlot = 0: DOCK_UI.mvFloat = FALSE: DOCK_UI.mvGroup = FALSE
             DOCK_UI.mvActive = FALSE
             DOCK_UI.mvX0 = mx: DOCK_UI.mvY0 = my
             DOCK_UI.tgtKind = DOCK_TGT_NONE
@@ -1211,9 +1398,14 @@ FUNCTION DOCK_handle_move% (mx AS INTEGER, my AS INTEGER)
         s = DOCK_handle_at%(mx, my)
         IF s THEN
             DOCK_UI.mvFloat = FALSE
+            DOCK_UI.mvGroup = FALSE
             DOCK_UI.mvPanel = DOCK_slot_panel%(s)
             IF DOCK_slot_titled%(s) THEN
-                IF DOCK_tab_at%(s, mx) > 0 THEN DOCK_UI.mvPanel = DOCK_TAB(s, DOCK_tab_at%(s, mx))
+                IF DOCK_tab_at%(s, mx) > 0 THEN
+                    DOCK_UI.mvPanel = DOCK_TAB(s, DOCK_tab_at%(s, mx))
+                ELSEIF DOCK_SLOT(s).ntabs > 1 _ANDALSO mx >= DOCK_SLOT(s).x + 10 THEN
+                    DOCK_UI.mvGroup = TRUE ' the strip past its tabs: move the whole slot
+                END IF
             END IF
             DOCK_UI.mvSlot = s
             DOCK_UI.mvActive = FALSE
@@ -1306,11 +1498,14 @@ SUB DOCK_move_render ()
     ' the target rect itself is drawn by DOCK_reblit_to_screen0, on the window
     ' after the native windows (it may lie over one: a docked Color Mixer)
     lbl = DPANEL(DOCK_UI.mvPanel).title
+    IF DOCK_UI.mvGroup _ANDALSO DPANEL(DOCK_UI.mvPanel).slot > 0 THEN lbl = lbl + " +" + STR$(DOCK_SLOT(DPANEL(DOCK_UI.mvPanel).slot).ntabs - 1) + " tab(s)"
     SELECT CASE DOCK_UI.tgtKind
         CASE DOCK_TGT_NEWCOL: lbl = lbl + ": new column"
         CASE DOCK_TGT_SPLIT: lbl = lbl + ": stack here"
         CASE DOCK_TGT_TAB: lbl = lbl + ": add as a tab"
         CASE DOCK_TGT_FLOAT: lbl = lbl + ": float here"
+        CASE DOCK_TGT_BAND
+            IF DOCK_UI.tgtSide = DOCK_BAND_TOP THEN lbl = lbl + ": dock along the top" ELSE lbl = lbl + ": dock along the bottom"
         CASE ELSE: lbl = lbl + ": drop on a dock"
     END SELECT
     ' the native windows draw over the canvas (this overlay included), so the
@@ -1355,21 +1550,49 @@ END SUB
 
 
 ''
-' Tab t of titled slot s: its x and width on the title strip (DOCK_tab_at%'s
-' geometry). FALSE when the slot shows no tabs.
+' Tab t of titled slot s on its strip: x and width. Tabs take their label's
+' width; when those don't fit the strip (a narrow column) they share it evenly
+' and their labels are cut (DOCK_fit_text$). Never past the slot's right edge.
+' FALSE when the slot shows no tabs.
 FUNCTION DOCK_tab_rect% (s AS INTEGER, t AS INTEGER, tx AS INTEGER, tw AS INTEGER)
-    DIM k AS INTEGER, x AS INTEGER, wdt AS INTEGER, oldDest AS LONG, oldFont AS LONG
+    DIM k AS INTEGER, x0 AS INTEGER, avail AS INTEGER, total AS INTEGER, x AS INTEGER, wdt AS INTEGER, each AS INTEGER
+    DIM oldDest AS LONG, oldFont AS LONG
     IF DOCK_slot_titled%(s) = 0 _ORELSE t < 1 _ORELSE t > DOCK_SLOT(s).ntabs THEN EXIT FUNCTION
     oldDest& = _DEST: oldFont& = _FONT
     _DEST SCRN.GUI&
     IF LAYER_PANEL.fontHandle& > 0 THEN _FONT LAYER_PANEL.fontHandle& ELSE IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
-    x = DOCK_SLOT(s).x + 10
-    FOR k = 1 TO t
-        wdt = _UPRINTWIDTH(DPANEL(DOCK_TAB(s, k)).title)
-        IF k = t THEN tx = x: tw = wdt + 4: DOCK_tab_rect% = TRUE
-        x = x + wdt + 8
+    x0 = DOCK_SLOT(s).x + 10
+    avail = DOCK_SLOT(s).x + DOCK_SLOT(s).w - 2 - x0
+    IF avail < DOCK_SLOT(s).ntabs THEN avail = DOCK_SLOT(s).ntabs
+    FOR k = 1 TO DOCK_SLOT(s).ntabs
+        total = total + _UPRINTWIDTH(DPANEL(DOCK_TAB(s, k)).title) + 8
     NEXT k
+    IF total - 4 <= avail THEN
+        x = x0
+        FOR k = 1 TO t
+            wdt = _UPRINTWIDTH(DPANEL(DOCK_TAB(s, k)).title)
+            IF k = t THEN tx = x: tw = wdt + 4
+            x = x + wdt + 8
+        NEXT k
+    ELSE
+        each = avail \ DOCK_SLOT(s).ntabs
+        tx = x0 + (t - 1) * each
+        tw = each - 2: IF tw < 1 THEN tw = 1
+    END IF
     _FONT oldFont&: _DEST oldDest&
+    DOCK_tab_rect% = TRUE
+END FUNCTION
+
+
+''
+' lbl cut to fit w px in the current font ("" when not one character fits).
+FUNCTION DOCK_fit_text$ (lbl AS STRING, w AS INTEGER)
+    DIM r AS STRING
+    r = lbl
+    DO WHILE LEN(r) > 0 _ANDALSO _UPRINTWIDTH(r) > w
+        r = LEFT$(r, LEN(r) - 1)
+    LOOP
+    DOCK_fit_text$ = r
 END FUNCTION
 
 
@@ -1377,8 +1600,9 @@ END FUNCTION
 ' The QA layout dump (DOCK_DUMP_PATH, see DOCK.BI). Lines:
 '   TREE <describe, columns joined by " ; ">
 '   SCR  <w> <h> <canvas left x> <canvas right x> <dock top y> <dock bottom y>
-'   COL  <col> <side> <ord> <x> <y> <w> <h> <vis>
-'   SLOT <slot> <col> <ord> <x> <y> <w> <h> <vis> <collapsed> <act> <panels,...>
+'   BAND <side 0/1 top/2 bottom> <x> <y> <w> <h> <canvas shift y>   (the Browser's band)
+'   COL  <col> <side> <ord> <x> <y> <w> <h> <vis> <hidden for width>
+'   SLOT <slot> <col> <ord> <x> <y> <w> <h> <vis> <collapsed> <act> <autocollapsed> <panels,...>
 '   P    <name> <shown> <live> <x> <y> <w> <h> <slot> <floating> <fx> <fy> <fw> <fh> <hx> <hy> <hw> <hh> <tabx> <tabw>
 ' (handle = what to press to move it: its slot's handle, a floating title or
 '  grip, or a floating window's title bar; tab = its tab on a tab strip.)
@@ -1388,9 +1612,10 @@ SUB DOCK_dump_write (barY1 AS INTEGER, dockY2 AS INTEGER)
     IF LEN(DOCK_DUMP_PATH) = 0 THEN EXIT SUB
     lf = CHR$(10)
     d = "TREE " + DOCK_dump_tree$ + lf
+    d = d + "BAND" + DOCK_n$(DOCK_BAND_SIDE) + DOCK_n$(DOCK_BAND_X) + DOCK_n$(DOCK_BAND_Y) + DOCK_n$(DOCK_BAND_W) + DOCK_n$(DOCK_BAND_HH) + DOCK_n$(SCRN.panelShiftY%) + lf
     d = d + "SCR" + DOCK_n$(SCRN.w&) + DOCK_n$(SCRN.h&) + DOCK_n$(DOCK_LX) + DOCK_n$(DOCK_RX) + DOCK_n$(barY1) + DOCK_n$(dockY2) + lf
     FOR c = 1 TO DOCK_MAX_COLS
-        IF DOCK_COL(c).used THEN d = d + "COL" + DOCK_n$(c) + DOCK_n$(DOCK_COL(c).side) + DOCK_n$(DOCK_COL(c).ord) + DOCK_n$(DOCK_COL(c).x) + DOCK_n$(DOCK_COL(c).y) + DOCK_n$(DOCK_COL(c).w) + DOCK_n$(DOCK_COL(c).h) + DOCK_n$(DOCK_COL(c).vis <> 0) + lf
+        IF DOCK_COL(c).used THEN d = d + "COL" + DOCK_n$(c) + DOCK_n$(DOCK_COL(c).side) + DOCK_n$(DOCK_COL(c).ord) + DOCK_n$(DOCK_COL(c).x) + DOCK_n$(DOCK_COL(c).y) + DOCK_n$(DOCK_COL(c).w) + DOCK_n$(DOCK_COL(c).h) + DOCK_n$(DOCK_COL(c).vis <> 0) + DOCK_n$(DOCK_COL(c).autoh <> 0) + lf
     NEXT c
     FOR s = 1 TO DOCK_MAX_SLOTS
         IF DOCK_SLOT(s).used THEN
@@ -1399,13 +1624,13 @@ SUB DOCK_dump_write (barY1 AS INTEGER, dockY2 AS INTEGER)
                 IF t > 1 THEN lst = lst + ","
                 lst = lst + DPANEL(DOCK_TAB(s, t)).nm
             NEXT t
-            d = d + "SLOT" + DOCK_n$(s) + DOCK_n$(DOCK_SLOT(s).col) + DOCK_n$(DOCK_SLOT(s).ord) + DOCK_n$(DOCK_SLOT(s).x) + DOCK_n$(DOCK_SLOT(s).y) + DOCK_n$(DOCK_SLOT(s).w) + DOCK_n$(DOCK_SLOT(s).h) + DOCK_n$(DOCK_SLOT(s).vis <> 0) + DOCK_n$(DOCK_SLOT(s).collapsed <> 0) + DOCK_n$(DOCK_SLOT(s).act) + " " + lst + lf
+            d = d + "SLOT" + DOCK_n$(s) + DOCK_n$(DOCK_SLOT(s).col) + DOCK_n$(DOCK_SLOT(s).ord) + DOCK_n$(DOCK_SLOT(s).x) + DOCK_n$(DOCK_SLOT(s).y) + DOCK_n$(DOCK_SLOT(s).w) + DOCK_n$(DOCK_SLOT(s).h) + DOCK_n$(DOCK_SLOT(s).vis <> 0) + DOCK_n$(DOCK_SLOT(s).collapsed <> 0) + DOCK_n$(DOCK_SLOT(s).act) + DOCK_n$(DOCK_SLOT(s).autoc <> 0) + " " + lst + lf
         END IF
     NEXT s
     FOR id = 1 TO DP_COUNT
         hx = 0: hy = 0: hw = 0: hh = 0: tx = 0: tw = 0
         s = DPANEL(id).slot
-        fl = DOCK_floating%(id) _ORELSE (DPANEL(id).floats <> 0 _ANDALSO s = 0)
+        fl = DOCK_floating%(id) _ORELSE (DPANEL(id).floats <> 0 _ANDALSO s = 0 _ANDALSO NOT (id = DP_BROWSER _ANDALSO DOCK_BAND_SIDE <> 0))
         IF s > 0 THEN
             IF DOCK_handle_rect%(s, hx, hy, hw, hh) = 0 THEN hx = 0: hy = 0: hw = 0: hh = 0
             FOR t = 1 TO DOCK_SLOT(s).ntabs
@@ -1527,18 +1752,13 @@ END FUNCTION
 ' Tab of titled slot s under x (1..ntabs), 0 = the chevron / none. Same
 ' measurement as DOCK_render_titles (the layers header font).
 FUNCTION DOCK_tab_at% (s AS INTEGER, mx AS INTEGER)
-    DIM tx AS INTEGER, t AS INTEGER, wdt AS INTEGER, oldDest AS LONG, oldFont AS LONG
+    DIM t AS INTEGER, tx AS INTEGER, tw AS INTEGER
     IF mx < DOCK_SLOT(s).x + 10 THEN EXIT FUNCTION
-    oldDest& = _DEST: oldFont& = _FONT
-    _DEST SCRN.GUI&
-    IF LAYER_PANEL.fontHandle& > 0 THEN _FONT LAYER_PANEL.fontHandle& ELSE IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
-    tx = DOCK_SLOT(s).x + 10
     FOR t = 1 TO DOCK_SLOT(s).ntabs
-        wdt = _UPRINTWIDTH(DPANEL(DOCK_TAB(s, t)).title)
-        IF mx >= tx - 2 _ANDALSO mx < tx + wdt + 6 THEN DOCK_tab_at% = t: EXIT FOR
-        tx = tx + wdt + 8
+        IF DOCK_tab_rect%(s, t, tx, tw) THEN
+            IF mx >= tx - 2 _ANDALSO mx < tx + tw + 2 THEN DOCK_tab_at% = t: EXIT FUNCTION
+        END IF
     NEXT t
-    _FONT oldFont&: _DEST oldDest&
 END FUNCTION
 
 
@@ -1852,7 +2072,7 @@ SUB DOCK_native_reset_docked ()
     ADVCP.docked% = (DPANEL(DP_ADVCP).slot > 0)
     CS3D.docked% = (DPANEL(DP_CS3D).slot > 0)
     PENP.docked% = (DPANEL(DP_PEN).slot > 0)
-    BROWSER.docked% = (DPANEL(DP_BROWSER).slot > 0)
+    BROWSER.docked% = (DPANEL(DP_BROWSER).slot > 0 _ORELSE DOCK_BAND_SIDE <> 0) ' a column or its band
 END SUB
 
 
@@ -2021,6 +2241,7 @@ SUB DOCK_native_undock (id AS INTEGER, x AS INTEGER, y AS INTEGER)
             CFG.PEN_PANEL_X% = PENP.dispX%: CFG.PEN_PANEL_Y% = PENP.dispY%
         CASE DP_BROWSER
             DIM brRs AS SINGLE
+            DOCK_BAND_SIDE = 0
             BROWSER.docked% = FALSE
             brRs = BROWSER.renderScale!: IF brRs <= 0 THEN brRs = 1
             BROWSER.dispW% = INT(CSNG(_MAX(CFG.BROWSER_WIDTH%, BROWSER_MIN_W)) * brRs + 0.5) ' its floating size (native px; kept while docked)
