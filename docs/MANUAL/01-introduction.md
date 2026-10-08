@@ -78,7 +78,7 @@ A second tier of **hidden panels** can be summoned on demand:
 - **Preview Window** (`F4`) — magnifier or floating image.
 - **Character Map** (`Ctrl+M`) — 16×16 glyph grid for text-mode work.
 
-Every dockable panel can be flipped to the opposite side with **Ctrl+Shift+Click** on its title or icon area. `F11` toggles *all* UI for distraction-free drawing; `Ctrl+F11` keeps only the menu bar; `Tab` toggles the toolbar alone.
+Every dockable panel can be flipped to the opposite side with **Ctrl+Shift+Click** on its title or icon area. Panels can also be dragged by their title into stacks, tabs and floating windows, and the floating windows dock beside them (see [Chapter 22](22-workspaces-capture.md#moving-stacking-tabbing-and-floating-panels)). `F11` toggles *all* UI for distraction-free drawing; `Ctrl+F11` keeps only the menu bar; `Tab` toggles the toolbar alone.
 
 <div class="page-break"></div>
 

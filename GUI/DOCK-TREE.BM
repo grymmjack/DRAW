@@ -1,0 +1,623 @@
+''
+' DRAW - GUI/DOCK-TREE.BM
+' =============================================================================
+' The dock tree's pure half (no screen, config or panel state): the panel
+' registry, tree editing, and the [DOCK] / [FLOAT] grammar. QA/unit/dock-unit.bas
+' includes it on its own. Layout and panel glue live in DOCK.BM.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' =============================================================================
+' Panel registry
+' =============================================================================
+
+SUB DOCK_panel_def (id AS INTEGER, nm AS STRING, title AS STRING, hmode AS INTEGER, tall AS INTEGER, bordered AS INTEGER, floats AS INTEGER)
+    DPANEL(id).nm = nm
+    DPANEL(id).title = title
+    DPANEL(id).hmode = hmode
+    DPANEL(id).tall = tall
+    DPANEL(id).bordered = bordered
+    DPANEL(id).floats = floats
+END SUB
+
+
+SUB DOCK_init_panels ()
+    DOCK_panel_def DP_TOOLBOX, "toolbox", "Toolbox", DP_H_FIXED, TRUE, TRUE, FALSE
+    DOCK_panel_def DP_ORGANIZER, "organizer", "Organizer", DP_H_FIXED, TRUE, TRUE, FALSE
+    DOCK_panel_def DP_DRAWER, "drawer", "Drawer", DP_H_FLEX, TRUE, FALSE, FALSE
+    DOCK_panel_def DP_LAYERS, "layers", "Layers", DP_H_FLEX, TRUE, FALSE, FALSE
+    DOCK_panel_def DP_EDITBAR, "editbar", "Edit Bar", DP_H_FLEX, FALSE, FALSE, FALSE
+    DOCK_panel_def DP_ADVBAR, "advbar", "Advanced Bar", DP_H_FLEX, FALSE, FALSE, FALSE
+    DOCK_panel_def DP_CHARMAP, "charmap", "Character Map", DP_H_FLEX, FALSE, FALSE, FALSE
+    DOCK_panel_def DP_PREVIEW, "preview", "Preview", DP_H_FLEX, FALSE, FALSE, TRUE
+    DOCK_panel_def DP_MIXER, "colormixer", "Color Mixer", DP_H_FIXED, FALSE, FALSE, TRUE ' fixed size: its own height
+    DOCK_panel_def DP_ADVCP, "advcolorpicker", "Advanced Color Picker", DP_H_FIXED, FALSE, FALSE, TRUE ' fixed size: its own height
+    DOCK_panel_def DP_CS3D, "colorspace3d", "3D Color Space", DP_H_FIXED, FALSE, FALSE, TRUE ' fixed size: its own height
+    DOCK_panel_def DP_PEN, "pen", "Pen Pressure", DP_H_FIXED, FALSE, FALSE, TRUE ' fixed size: its own height
+    DOCK_panel_def DP_BROWSER, "browser", "Browser", DP_H_FLEX, FALSE, FALSE, TRUE
+END SUB
+
+
+FUNCTION DOCK_panel_by_name% (nm AS STRING)
+    DIM i AS INTEGER, k AS STRING
+    k = LCASE$(_TRIM$(nm))
+    FOR i = 1 TO DP_COUNT
+        IF DPANEL(i).nm = k THEN DOCK_panel_by_name% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+' =============================================================================
+' Tree editing
+' =============================================================================
+
+SUB DOCK_clear ()
+    DIM i AS INTEGER, j AS INTEGER
+    FOR i = 1 TO DOCK_MAX_COLS: DOCK_COL(i).used = FALSE: NEXT i
+    FOR i = 1 TO DOCK_MAX_SLOTS
+        DOCK_SLOT(i).used = FALSE
+        FOR j = 1 TO DOCK_MAX_TABS: DOCK_TAB(i, j) = DP_NONE: NEXT j
+    NEXT i
+    FOR i = 1 TO DP_COUNT: DPANEL(i).slot = 0: NEXT i
+END SUB
+
+
+''
+' A new innermost column on a side; returns its index (0 = table full).
+FUNCTION DOCK_add_col% (side AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER, free AS INTEGER
+    FOR i = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(i).used THEN
+            IF DOCK_COL(i).side = side THEN n = n + 1
+        ELSEIF free = 0 THEN
+            free = i
+        END IF
+    NEXT i
+    IF free = 0 THEN EXIT FUNCTION
+    DOCK_COL(free).used = TRUE
+    DOCK_COL(free).side = side
+    DOCK_COL(free).ord = n + 1
+    DOCK_COL(free).wpx = 0
+    DOCK_add_col% = free
+END FUNCTION
+
+
+''
+' A new bottom slot in a column; returns its index (0 = table full).
+FUNCTION DOCK_add_slot% (col AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER, free AS INTEGER, j AS INTEGER
+    FOR i = 1 TO DOCK_MAX_SLOTS
+        IF DOCK_SLOT(i).used THEN
+            IF DOCK_SLOT(i).col = col THEN n = n + 1
+        ELSEIF free = 0 THEN
+            free = i
+        END IF
+    NEXT i
+    IF free = 0 THEN EXIT FUNCTION
+    DOCK_SLOT(free).used = TRUE
+    DOCK_SLOT(free).col = col
+    DOCK_SLOT(free).ord = n + 1
+    DOCK_SLOT(free).share = 1
+    DOCK_SLOT(free).collapsed = FALSE
+    DOCK_SLOT(free).ntabs = 0
+    DOCK_SLOT(free).act = 1
+    FOR j = 1 TO DOCK_MAX_TABS: DOCK_TAB(free, j) = DP_NONE: NEXT j
+    DOCK_add_slot% = free
+END FUNCTION
+
+
+SUB DOCK_slot_add_tab (slot AS INTEGER, id AS INTEGER)
+    IF slot < 1 _ORELSE id < 1 THEN EXIT SUB
+    IF DOCK_SLOT(slot).ntabs >= DOCK_MAX_TABS THEN EXIT SUB
+    DOCK_SLOT(slot).ntabs = DOCK_SLOT(slot).ntabs + 1
+    DOCK_TAB(slot, DOCK_SLOT(slot).ntabs) = id
+    DPANEL(id).slot = slot
+END SUB
+
+
+''
+' A column on side with one slot per panel in ids (comma list of DP_ ids).
+SUB DOCK_add_stack (side AS INTEGER, ids AS STRING)
+    DIM c AS INTEGER, s AS INTEGER, i AS INTEGER, n AS INTEGER
+    c = DOCK_add_col%(side)
+    IF c = 0 THEN EXIT SUB
+    n = WS_list_count%(ids)
+    FOR i = 1 TO n
+        s = DOCK_add_slot%(c)
+        DOCK_slot_add_tab s, VAL(WS_list_item$(ids, i))
+    NEXT i
+END SUB
+
+
+''
+' One line per column for the log / tests: "LEFT.1: layers | ..." (P2 adds the
+' full [DOCK] writer; this is the debugging view).
+FUNCTION DOCK_describe$ ()
+    DIM side AS INTEGER, o AS INTEGER, c AS INTEGER, s AS INTEGER, so AS INTEGER, t AS INTEGER, r AS STRING, ln AS STRING
+    FOR side = DOCK_LEFT TO DOCK_RIGHT
+        FOR o = 1 TO DOCK_MAX_COLS
+            c = DOCK_col_at%(side, o)
+            IF c = 0 THEN EXIT FOR
+            IF side = DOCK_LEFT THEN ln = "LEFT." ELSE ln = "RIGHT."
+            ln = ln + _TRIM$(STR$(o)) + ":"
+            FOR so = 1 TO DOCK_MAX_SLOTS
+                s = DOCK_slot_at%(c, so)
+                IF s = 0 THEN EXIT FOR
+                IF so > 1 THEN ln = ln + " |"
+                FOR t = 1 TO DOCK_SLOT(s).ntabs
+                    IF t > 1 THEN ln = ln + "+" ELSE ln = ln + " "
+                    ln = ln + DPANEL(DOCK_TAB(s, t)).nm
+                NEXT t
+            NEXT so
+            r = r + ln + CHR$(10)
+        NEXT o
+    NEXT side
+    DOCK_describe$ = r
+END FUNCTION
+
+
+''
+' Column of a side at order o (0 = none).
+FUNCTION DOCK_col_at% (side AS INTEGER, o AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(i).used _ANDALSO DOCK_COL(i).side = side _ANDALSO DOCK_COL(i).ord = o THEN DOCK_col_at% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' Slot of a column at order o from the top (0 = none).
+FUNCTION DOCK_slot_at% (col AS INTEGER, o AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 1 TO DOCK_MAX_SLOTS
+        IF DOCK_SLOT(i).used _ANDALSO DOCK_SLOT(i).col = col _ANDALSO DOCK_SLOT(i).ord = o THEN DOCK_slot_at% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+
+
+' =============================================================================
+' [DOCK] / [FLOAT] grammar
+' =============================================================================
+'
+'   [DOCK]
+'   LEFT.1=WIDTH:150; layers@3 | browser
+'   LEFT.2=AUTO; toolbox | organizer | drawer
+'   RIGHT.1=AUTO; !*preview+colormixer@2 | editbar
+'
+'   one line per column, outermost first (LEFT.1, LEFT.2 ... / RIGHT.1 ...)
+'   width   AUTO (the panels' own width) or WIDTH:px
+'   |       between slots, top to bottom
+'   +       between the tabs of a slot;  * = the active tab
+'   @n      the slot's height share among the flexible slots (default 1)
+'   !       before a slot: collapsed to its title
+'
+'   [FLOAT]
+'   pen=640,120,220,300      a floating panel's window: x,y,w,h (viewport px)
+
+''
+' Field n (1-based) of s split on delim, trimmed; DOCK_fields% counts them.
+FUNCTION DOCK_field$ (s AS STRING, delim AS STRING, n AS INTEGER)
+    DIM i AS INTEGER, k AS INTEGER, st AS INTEGER, p AS INTEGER
+    st = 1
+    FOR i = 1 TO n - 1
+        p = INSTR(st, s, delim)
+        IF p = 0 THEN EXIT FUNCTION
+        st = p + LEN(delim)
+    NEXT i
+    k = INSTR(st, s, delim)
+    IF k = 0 THEN k = LEN(s) + 1
+    DOCK_field$ = _TRIM$(MID$(s, st, k - st))
+END FUNCTION
+
+FUNCTION DOCK_fields% (s AS STRING, delim AS STRING)
+    DIM n AS INTEGER, p AS INTEGER, st AS INTEGER
+    IF LEN(_TRIM$(s)) = 0 THEN EXIT FUNCTION
+    n = 1: st = 1
+    DO
+        p = INSTR(st, s, delim)
+        IF p = 0 THEN EXIT DO
+        n = n + 1: st = p + LEN(delim)
+    LOOP
+    DOCK_fields% = n
+END FUNCTION
+
+
+FUNCTION DOCK_side_name$ (side AS INTEGER)
+    IF side = DOCK_RIGHT THEN DOCK_side_name$ = "RIGHT" ELSE DOCK_side_name$ = "LEFT"
+END FUNCTION
+
+
+''
+' The [DOCK] value for column c ("WIDTH:150; layers@3 | !*a+b").
+FUNCTION DOCK_col_spec$ (c AS INTEGER)
+    DIM r AS STRING, o AS INTEGER, s AS INTEGER, t AS INTEGER, sl AS STRING
+    IF DOCK_COL(c).wpx > 0 THEN r = "WIDTH:" + _TRIM$(STR$(DOCK_COL(c).wpx)) ELSE r = "AUTO"
+    r = r + ";"
+    FOR o = 1 TO DOCK_MAX_SLOTS
+        s = DOCK_slot_at%(c, o)
+        IF s = 0 THEN EXIT FOR
+        sl = ""
+        IF DOCK_SLOT(s).collapsed THEN sl = "!"
+        FOR t = 1 TO DOCK_SLOT(s).ntabs
+            IF t > 1 THEN sl = sl + "+"
+            IF DOCK_SLOT(s).ntabs > 1 _ANDALSO t = DOCK_SLOT(s).act THEN sl = sl + "*"
+            sl = sl + DPANEL(DOCK_TAB(s, t)).nm
+        NEXT t
+        IF DOCK_SLOT(s).share <> 1 THEN sl = sl + "@" + _TRIM$(STR$(DOCK_SLOT(s).share))
+        IF o > 1 THEN r = r + " |"
+        r = r + " " + sl
+    NEXT o
+    DOCK_col_spec$ = r
+END FUNCTION
+
+
+''
+' Add a column (innermost so far on side) from a [DOCK] value. Unknown panel
+' names, and panels already placed, are skipped (noted in DOCK_PARSE_NOTE); a
+' slot or column left empty is dropped. Returns the column index (0 = none).
+FUNCTION DOCK_parse_col% (side AS INTEGER, spec AS STRING)
+    DIM widthPart AS STRING, slotsPart AS STRING, p AS INTEGER, c AS INTEGER, nSlots AS INTEGER, i AS INTEGER
+    DIM slotSpec AS STRING, collapsed AS INTEGER, share AS INTEGER, nTabs AS INTEGER, t AS INTEGER, tabName AS STRING
+    DIM act AS INTEGER, id AS INTEGER, s AS INTEGER, k AS INTEGER, starred AS INTEGER
+    DIM ids(1 TO DOCK_MAX_TABS) AS INTEGER, nIds AS INTEGER
+    IF DPANEL(DP_TOOLBOX).nm = "" THEN DOCK_init_panels
+    p = INSTR(spec, ";")
+    IF p THEN
+        widthPart = UCASE$(_TRIM$(LEFT$(spec, p - 1)))
+        slotsPart = MID$(spec, p + 1)
+    ELSE
+        widthPart = "AUTO"
+        slotsPart = spec
+    END IF
+    c = DOCK_add_col%(side)
+    IF c = 0 THEN EXIT FUNCTION
+    IF LEFT$(widthPart, 6) = "WIDTH:" THEN DOCK_COL(c).wpx = VAL(MID$(widthPart, 7))
+    IF DOCK_COL(c).wpx < 0 THEN DOCK_COL(c).wpx = 0
+    nSlots = DOCK_fields%(slotsPart, "|")
+    FOR i = 1 TO nSlots
+        slotSpec = DOCK_field$(slotsPart, "|", i)
+        collapsed = (LEFT$(slotSpec, 1) = "!")
+        IF collapsed THEN slotSpec = _TRIM$(MID$(slotSpec, 2))
+        share = 1
+        k = _INSTRREV(slotSpec, "@")
+        IF k THEN
+            share = VAL(MID$(slotSpec, k + 1))
+            IF share < 1 THEN share = 1
+            slotSpec = _TRIM$(LEFT$(slotSpec, k - 1))
+        END IF
+        nIds = 0: act = 1
+        nTabs = DOCK_fields%(slotSpec, "+")
+        FOR t = 1 TO nTabs
+            tabName = DOCK_field$(slotSpec, "+", t)
+            starred = (LEFT$(tabName, 1) = "*")
+            IF starred THEN tabName = _TRIM$(MID$(tabName, 2))
+            id = DOCK_panel_by_name%(tabName)
+            IF id = 0 THEN
+                DOCK_PARSE_NOTE = DOCK_PARSE_NOTE + " unknown:" + tabName
+            ELSEIF DPANEL(id).slot <> 0 THEN
+                DOCK_PARSE_NOTE = DOCK_PARSE_NOTE + " repeated:" + tabName
+            ELSEIF nIds < DOCK_MAX_TABS THEN
+                nIds = nIds + 1
+                ids(nIds) = id
+                DPANEL(id).slot = -1 ' claimed (set for real below)
+                IF starred THEN act = nIds
+            END IF
+        NEXT t
+        IF nIds > 0 THEN
+            s = DOCK_add_slot%(c)
+            IF s THEN
+                FOR t = 1 TO nIds: DOCK_slot_add_tab s, ids(t): NEXT t
+                DOCK_SLOT(s).act = act
+                DOCK_SLOT(s).share = share
+                DOCK_SLOT(s).collapsed = collapsed
+            END IF
+        END IF
+    NEXT i
+    IF DOCK_slot_at%(c, 1) = 0 THEN
+        DOCK_COL(c).used = FALSE ' nothing usable in it
+        EXIT FUNCTION
+    END IF
+    DOCK_parse_col% = c
+END FUNCTION
+
+
+''
+' [FLOAT] value for a floating panel ("x,y,w,h"), and its parser.
+FUNCTION DOCK_float_spec$ (id AS INTEGER)
+    DOCK_float_spec$ = _TRIM$(STR$(DPANEL(id).fx)) + "," + _TRIM$(STR$(DPANEL(id).fy)) + "," + _TRIM$(STR$(DPANEL(id).fw)) + "," + _TRIM$(STR$(DPANEL(id).fh))
+END FUNCTION
+
+FUNCTION DOCK_parse_float% (nm AS STRING, spec AS STRING)
+    DIM id AS INTEGER
+    IF DPANEL(DP_TOOLBOX).nm = "" THEN DOCK_init_panels
+    id = DOCK_panel_by_name%(nm)
+    IF id = 0 _ORELSE DOCK_fields%(spec, ",") <> 4 THEN EXIT FUNCTION
+    DPANEL(id).fl = TRUE
+    DPANEL(id).fx = VAL(DOCK_field$(spec, ",", 1))
+    DPANEL(id).fy = VAL(DOCK_field$(spec, ",", 2))
+    DPANEL(id).fw = VAL(DOCK_field$(spec, ",", 3))
+    DPANEL(id).fh = VAL(DOCK_field$(spec, ",", 4))
+    DOCK_parse_float% = id
+END FUNCTION
+
+
+' =============================================================================
+' Snapshots: the whole arrangement as text (DRAW.cfg, workspace overlay)
+' =============================================================================
+'
+'   CUSTOM=1            a [DOCK] arrangement is in effect (0 = the default tree)
+'   LEFT.1=<column>     one per column, as in [DOCK]
+'   FLOAT.pen=x,y,w,h   floating panels
+'   lines joined by CHR$(10)
+
+FUNCTION DOCK_snapshot$ ()
+    DIM r AS STRING, side AS INTEGER, o AS INTEGER, c AS INTEGER, i AS INTEGER
+    IF DOCK_CUSTOM THEN r = "CUSTOM=1" ELSE r = "CUSTOM=0"
+    r = r + CHR$(10)
+    FOR side = DOCK_LEFT TO DOCK_RIGHT
+        FOR o = 1 TO DOCK_MAX_COLS
+            c = DOCK_col_at%(side, o)
+            IF c = 0 THEN EXIT FOR
+            r = r + DOCK_side_name$(side) + "." + _TRIM$(STR$(o)) + "=" + DOCK_col_spec$(c) + CHR$(10)
+        NEXT o
+    NEXT side
+    FOR i = 1 TO DP_COUNT
+        IF DPANEL(i).fl THEN r = r + "FLOAT." + DPANEL(i).nm + "=" + DOCK_float_spec$(i) + CHR$(10)
+    NEXT i
+    IF DOCK_BAND_SIDE = DOCK_BAND_TOP THEN r = r + "BAND=TOP," + _TRIM$(STR$(DOCK_BAND_H)) + CHR$(10)
+    IF DOCK_BAND_SIDE = DOCK_BAND_BOTTOM THEN r = r + "BAND=BOTTOM," + _TRIM$(STR$(DOCK_BAND_H)) + CHR$(10)
+    DOCK_snapshot$ = r
+END FUNCTION
+
+
+''
+' Value of KEY in a snapshot ("" = absent). Keys compare case-insensitively.
+FUNCTION DOCK_snap_get$ (snap AS STRING, k AS STRING)
+    DIM n AS INTEGER, i AS INTEGER, ln AS STRING, p AS INTEGER
+    n = DOCK_fields%(snap, CHR$(10))
+    FOR i = 1 TO n
+        ln = DOCK_field$(snap, CHR$(10), i)
+        p = INSTR(ln, "=")
+        IF p > 1 THEN
+            IF UCASE$(_TRIM$(LEFT$(ln, p - 1))) = UCASE$(k) THEN DOCK_snap_get$ = _TRIM$(MID$(ln, p + 1)): EXIT FUNCTION
+        END IF
+    NEXT i
+END FUNCTION
+
+
+''
+' Replace (or add) KEY=value in a snapshot; "" removes the line.
+FUNCTION DOCK_snap_set$ (snap AS STRING, k AS STRING, v AS STRING)
+    DIM n AS INTEGER, i AS INTEGER, ln AS STRING, p AS INTEGER, r AS STRING, done AS INTEGER
+    n = DOCK_fields%(snap, CHR$(10))
+    FOR i = 1 TO n
+        ln = DOCK_field$(snap, CHR$(10), i)
+        IF LEN(ln) THEN
+            p = INSTR(ln, "=")
+            IF p > 1 _ANDALSO UCASE$(_TRIM$(LEFT$(ln, p - 1))) = UCASE$(k) THEN
+                IF LEN(v) THEN r = r + k + "=" + v + CHR$(10)
+                done = TRUE
+            ELSE
+                r = r + ln + CHR$(10)
+            END IF
+        END IF
+    NEXT i
+    IF done = 0 _ANDALSO LEN(v) THEN r = r + k + "=" + v + CHR$(10)
+    DOCK_snap_set$ = r
+END FUNCTION
+
+
+''
+' Replace the arrangement with a snapshot. Columns are read LEFT.1, LEFT.2 ...
+' then RIGHT.1 ... (a gap ends a side). CUSTOM=0 (or no columns) means the
+' default tree, rebuilt from the dock keys by DOCK_layout.
+SUB DOCK_load_snapshot (snap AS STRING)
+    DIM side AS INTEGER, o AS INTEGER, v AS STRING, c AS INTEGER, i AS INTEGER, n AS INTEGER, ln AS STRING, p AS INTEGER, k AS STRING
+    IF DPANEL(DP_TOOLBOX).nm = "" THEN DOCK_init_panels
+    DOCK_clear
+    FOR i = 1 TO DP_COUNT: DPANEL(i).fl = FALSE: NEXT i
+    DOCK_PARSE_NOTE = ""
+    FOR side = DOCK_LEFT TO DOCK_RIGHT
+        FOR o = 1 TO DOCK_MAX_COLS
+            v = DOCK_snap_get$(snap, DOCK_side_name$(side) + "." + _TRIM$(STR$(o)))
+            IF LEN(v) = 0 THEN EXIT FOR
+            c = DOCK_parse_col%(side, v)
+        NEXT o
+    NEXT side
+    n = DOCK_fields%(snap, CHR$(10))
+    FOR i = 1 TO n
+        ln = DOCK_field$(snap, CHR$(10), i)
+        p = INSTR(ln, "=")
+        IF p > 7 THEN
+            k = UCASE$(_TRIM$(LEFT$(ln, p - 1)))
+            IF LEFT$(k, 6) = "FLOAT." THEN c = DOCK_parse_float%(MID$(k, 7), MID$(ln, p + 1))
+        END IF
+    NEXT i
+    ' the Browser's band: BAND=TOP|BOTTOM,<height>
+    v = UCASE$(DOCK_snap_get$(snap, "BAND"))
+    DOCK_BAND_SIDE = 0
+    IF LEFT$(v, 3) = "TOP" THEN DOCK_BAND_SIDE = DOCK_BAND_TOP
+    IF LEFT$(v, 6) = "BOTTOM" THEN DOCK_BAND_SIDE = DOCK_BAND_BOTTOM
+    IF DOCK_BAND_SIDE THEN
+        DOCK_BAND_H = VAL(MID$(v, INSTR(v, ",") + 1))
+        IF DOCK_BAND_H < DOCK_BAND_MIN_H THEN DOCK_BAND_H = 220
+        IF DPANEL(DP_BROWSER).slot THEN DOCK_detach_panel DP_BROWSER
+    END IF
+    DOCK_CUSTOM = (DOCK_snap_get$(snap, "CUSTOM") <> "0") _ANDALSO (DOCK_col_at%(DOCK_LEFT, 1) <> 0 _ORELSE DOCK_col_at%(DOCK_RIGHT, 1) <> 0)
+    DOCK_READY = DOCK_CUSTOM
+END SUB
+
+
+' =============================================================================
+' Moving panels (P3): detach, insert, move
+' =============================================================================
+
+''
+' Renumber the columns of a side and the slots of a column 1..n (after a removal).
+SUB DOCK_compact ()
+    DIM side AS INTEGER, o AS INTEGER, c AS INTEGER, n AS INTEGER, i AS INTEGER, best AS INTEGER, bestOrd AS INTEGER, s AS INTEGER
+    DIM done(1 TO DOCK_MAX_SLOTS) AS INTEGER, doneC(1 TO DOCK_MAX_COLS) AS INTEGER
+    FOR side = DOCK_LEFT TO DOCK_RIGHT
+        n = 0
+        DO
+            best = 0: bestOrd = 32767
+            FOR i = 1 TO DOCK_MAX_COLS
+                IF DOCK_COL(i).used _ANDALSO DOCK_COL(i).side = side _ANDALSO doneC(i) = 0 _ANDALSO DOCK_COL(i).ord < bestOrd THEN best = i: bestOrd = DOCK_COL(i).ord
+            NEXT i
+            IF best = 0 THEN EXIT DO
+            n = n + 1
+            DOCK_COL(best).ord = n
+            doneC(best) = TRUE
+        LOOP
+    NEXT side
+    FOR c = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(c).used THEN
+            n = 0
+            DO
+                best = 0: bestOrd = 32767
+                FOR s = 1 TO DOCK_MAX_SLOTS
+                    IF DOCK_SLOT(s).used _ANDALSO DOCK_SLOT(s).col = c _ANDALSO done(s) = 0 _ANDALSO DOCK_SLOT(s).ord < bestOrd THEN best = s: bestOrd = DOCK_SLOT(s).ord
+                NEXT s
+                IF best = 0 THEN EXIT DO
+                n = n + 1
+                DOCK_SLOT(best).ord = n
+                done(best) = TRUE
+            LOOP
+        END IF
+    NEXT c
+END SUB
+
+
+''
+' Take panel id out of the tree (its tab; an emptied slot and column go too).
+SUB DOCK_detach_panel (id AS INTEGER)
+    DIM s AS INTEGER, t AS INTEGER, k AS INTEGER, c AS INTEGER, o AS INTEGER, slotsLeft AS INTEGER
+    s = DPANEL(id).slot
+    DPANEL(id).slot = 0
+    IF s < 1 THEN EXIT SUB
+    FOR t = 1 TO DOCK_SLOT(s).ntabs
+        IF DOCK_TAB(s, t) = id THEN
+            FOR k = t TO DOCK_SLOT(s).ntabs - 1: DOCK_TAB(s, k) = DOCK_TAB(s, k + 1): NEXT k
+            DOCK_TAB(s, DOCK_SLOT(s).ntabs) = DP_NONE
+            DOCK_SLOT(s).ntabs = DOCK_SLOT(s).ntabs - 1
+            IF DOCK_SLOT(s).act > t _ORELSE DOCK_SLOT(s).act > DOCK_SLOT(s).ntabs THEN DOCK_SLOT(s).act = DOCK_SLOT(s).act - 1
+            IF DOCK_SLOT(s).act < 1 THEN DOCK_SLOT(s).act = 1
+            EXIT FOR
+        END IF
+    NEXT t
+    IF DOCK_SLOT(s).ntabs = 0 THEN
+        c = DOCK_SLOT(s).col
+        DOCK_SLOT(s).used = FALSE
+        slotsLeft = FALSE
+        FOR o = 1 TO DOCK_MAX_SLOTS
+            IF DOCK_SLOT(o).used _ANDALSO DOCK_SLOT(o).col = c THEN slotsLeft = TRUE
+        NEXT o
+        IF slotsLeft = 0 THEN DOCK_COL(c).used = FALSE
+    END IF
+    DOCK_compact
+END SUB
+
+
+''
+' A new empty column at order ord on side (1 = outermost; past the end =
+' innermost); later columns shift inward. Returns its index (0 = full).
+FUNCTION DOCK_insert_col% (side AS INTEGER, ord AS INTEGER)
+    DIM i AS INTEGER, c AS INTEGER
+    FOR i = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(i).used _ANDALSO DOCK_COL(i).side = side _ANDALSO DOCK_COL(i).ord >= ord THEN DOCK_COL(i).ord = DOCK_COL(i).ord + 1
+    NEXT i
+    c = DOCK_add_col%(side)
+    IF c = 0 THEN DOCK_compact: EXIT FUNCTION
+    DOCK_COL(c).ord = ord
+    DOCK_compact
+    DOCK_insert_col% = c
+END FUNCTION
+
+
+''
+' A new empty slot at order ord in column c (1 = top); later slots shift down.
+FUNCTION DOCK_insert_slot% (c AS INTEGER, ord AS INTEGER)
+    DIM i AS INTEGER, s AS INTEGER, tot AS LONG, n AS INTEGER
+    FOR i = 1 TO DOCK_MAX_SLOTS
+        IF DOCK_SLOT(i).used _ANDALSO DOCK_SLOT(i).col = c THEN
+            tot = tot + DOCK_SLOT(i).share: n = n + 1
+            IF DOCK_SLOT(i).ord >= ord THEN DOCK_SLOT(i).ord = DOCK_SLOT(i).ord + 1
+        END IF
+    NEXT i
+    s = DOCK_add_slot%(c)
+    IF s = 0 THEN DOCK_compact: EXIT FUNCTION
+    DOCK_SLOT(s).ord = ord
+    ' the column's average share: after a divider drag the shares are px
+    ' heights, and a plain 1 would leave the newcomer a sliver
+    IF n > 0 THEN DOCK_SLOT(s).share = _MAX(1, tot \ n)
+    DOCK_compact
+    DOCK_insert_slot% = s
+END FUNCTION
+
+
+''
+' Move panel id to a new column at ord on side.
+''
+' The edge panel id is docked on (DOCK_LEFT / DOCK_RIGHT), 0 = not docked.
+FUNCTION DOCK_panel_side% (id AS INTEGER)
+    IF id < 1 _ORELSE id > DP_COUNT THEN EXIT FUNCTION
+    IF DPANEL(id).slot = 0 THEN EXIT FUNCTION
+    DOCK_panel_side% = DOCK_COL(DOCK_SLOT(DPANEL(id).slot).col).side
+END FUNCTION
+
+
+''
+' Move column c, slots and all, to the other edge as its innermost column.
+SUB DOCK_move_col_side (c AS INTEGER, side AS INTEGER)
+    IF c < 1 _ORELSE c > DOCK_MAX_COLS THEN EXIT SUB
+    IF DOCK_COL(c).used = 0 _ORELSE DOCK_COL(c).side = side THEN EXIT SUB
+    DOCK_COL(c).side = side
+    DOCK_COL(c).ord = 32000 ' after every column on that side; compact renumbers
+    DOCK_compact
+END SUB
+
+
+FUNCTION DOCK_move_to_new_col% (id AS INTEGER, side AS INTEGER, ord AS INTEGER)
+    DIM c AS INTEGER, s AS INTEGER
+    DOCK_detach_panel id
+    c = DOCK_insert_col%(side, ord)
+    IF c = 0 THEN EXIT FUNCTION
+    s = DOCK_add_slot%(c)
+    DOCK_slot_add_tab s, id
+    DPANEL(id).fl = FALSE
+    DOCK_move_to_new_col% = c
+END FUNCTION
+
+
+''
+' Move panel id into column c as a new slot at ord (split).
+FUNCTION DOCK_move_to_slot% (id AS INTEGER, c AS INTEGER, ord AS INTEGER)
+    DIM s AS INTEGER
+    IF c < 1 THEN EXIT FUNCTION
+    DOCK_detach_panel id ' column c may lose a slot, or vanish if id was all it held
+    IF DOCK_COL(c).used = 0 THEN EXIT FUNCTION
+    s = DOCK_insert_slot%(c, ord)
+    IF s = 0 THEN EXIT FUNCTION
+    DOCK_slot_add_tab s, id
+    DPANEL(id).fl = FALSE
+    DOCK_move_to_slot% = s
+END FUNCTION
+
+
+''
+' Move panel id into slot s as a tab (it becomes the active one).
+FUNCTION DOCK_move_to_tab% (id AS INTEGER, s AS INTEGER)
+    IF s < 1 THEN EXIT FUNCTION
+    IF DPANEL(id).slot = s THEN EXIT FUNCTION
+    DOCK_detach_panel id
+    IF DOCK_SLOT(s).used = 0 THEN EXIT FUNCTION
+    DOCK_slot_add_tab s, id
+    DOCK_SLOT(s).act = DOCK_SLOT(s).ntabs
+    DPANEL(id).fl = FALSE
+    DOCK_move_to_tab% = s
+END FUNCTION

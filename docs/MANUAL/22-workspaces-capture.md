@@ -72,6 +72,59 @@ Everything in the toolbox column follows its width:
 - **Drawer:** as many bin columns as fit. In a narrow toolbox, the mini palette moves under the bins, and **`Shift`+wheel** over the bins scrolls them.
 - **Empty space:** when a workspace hides the organizer and drawer, the column under the buttons is drawn as panel, not as a black gap.
 
+### Moving, stacking, tabbing and floating panels
+
+Every panel can be arranged by hand, the way Photoshop, GIMP or Krita allow:
+the toolbox, organizer, drawer, layers, edit bar, advanced bar and character
+map, and the Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen
+Pressure and Browser windows.
+
+**The handle** is what you grab:
+- a panel with a title strip (a tab, a collapsed slot, a docked window): the strip;
+- the layers panel: its header;
+- a floating edit bar or advanced bar: the slim grip strip on top (they are too narrow for a title);
+- the toolbox, organizer, drawer and bars, which have no title: hover the panel's
+  **top edge** and a thin grip appears.
+
+| Do this | And |
+| --- | --- |
+| **Drag a handle** | A blue preview shows where the panel will land, with a label: *new column*, *stack here*, *add as a tab* or *float here* |
+| …drop on a **screen edge**, or between two columns | It gets a column of its own there |
+| …drop on the **top or bottom third** of a panel | It stacks above or below that panel in the same column |
+| …drop on the **middle** of a panel | It becomes a **tab** next to it |
+| …drop anywhere else | It **floats** in its own window |
+| **Drag the line between two stacked panels** | Moves height between them (the pointer turns into ↕) |
+| **Click a tab** | Shows that panel |
+| **Drag a tab strip past its tabs** | Moves the whole group (every tab) |
+| **Click the chevron**, or **double-click a title** | Collapses the slot to its title strip; its height goes to the others |
+| **Click a collapsed title** | Opens it again (click one of its tabs to open on that tab) |
+| **Double-click a floating panel's title** | Docks it back where it was |
+| **Drag a floating panel's right or bottom edge, or its corner** | Resizes it; a bar adds icon columns as it gets wider |
+| **Right-click a handle** | Move to Left Edge / Move to Right Edge, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement |
+
+**The Browser can also dock along the top or bottom** of the canvas area (the one
+exception to left/right docking): drag its title bar to the top or bottom of
+the canvas and a full-width band appears. Drag the band's inner edge to make it
+taller or shorter; the canvas re-centres in the room left. Its right-click menu
+has *Dock Along the Top* / *Dock Along the Bottom*.
+
+The floating windows (Preview, Color Mixer, Advanced Color Picker, 3D Color
+Space, Pen Pressure, Browser) keep their own title bar. **Drag the title bar
+onto a dock target** to dock one; docked, its title bar is the handle, and
+dropping it anywhere off the docks floats it again at its old size.
+
+**Small windows:** when a column is too short, its lowest panels collapse to
+their titles; when the window is too narrow, the outermost columns hide (the
+toolbox's column last) so the canvas keeps some room. Nothing is changed in
+your arrangement; widen the window and they come back.
+
+**Reset Arrangement** (right-click any handle) returns to the classic layout,
+where each panel's side follows View → Layout and `Ctrl+Shift+Click`.
+
+Arrangements save like widths: into the active workspace (a built-in gets your
+copy), or into `DRAW.cfg` in Default (`DOCK_*` keys). In a workspace file they
+are the `[DOCK]` and `[FLOAT]` sections (see [Workspace files](#workspace-files)).
+
 **Save what's on screen** from **View → Workspace ▸**:
 
 | Item | Does |
@@ -97,6 +150,7 @@ buttons and menus exist, the keys, and the starting options.
   | **Bars** | Columns and button checkboxes for the edit bar and advanced bar, and organizer widget checkboxes |
   | **Keys** | The workspace's single-key overlay (`key = tool`), plus an add row |
   | **Options** | Name, description, `[START]` tool / color / zoom, and `DRAW.cfg` overrides for this workspace |
+  | **Dock** | The `[DOCK]` / `[FLOAT]` arrangement line by line; **Use current** takes it from the screen, **Default** removes it |
 
 - **Buttons:**
 
@@ -169,7 +223,20 @@ ANGLE_SNAP_DEGREES=45
 TOOL=rect
 FG=#FF2040
 ZOOM=FIT                  ; or a percent, 100 = 1:1
+
+[DOCK]                    ; the arrangement, one line per column, outermost first
+LEFT.1=AUTO; toolbox | organizer | drawer
+RIGHT.1=WIDTH:180; layers@2 | *preview+colormixer | !browser
+                          ; AUTO or WIDTH:px; | stacks, + tabs, * active tab,
+                          ; @n height share, ! collapsed to its title
+
+[FLOAT]                   ; floating panels: x,y,w,h in window pixels
+pen=640,120,220,300
 ```
+
+You rarely type `[DOCK]` yourself: arrange the panels by hand and use **Update
+Workspace From Layout**. A workspace without `[DOCK]` uses the classic layout,
+with each side from the `*_DOCK` keys.
 
 **Names you can use**
 
@@ -177,6 +244,7 @@ ZOOM=FIT                  ; or a percent, 100 = 1:1
 | --- | --- |
 | `[CHROME]` panels | `MENUBAR` `TOOLBOX` `LAYER_PANEL` `EDIT_BAR` `ADVANCED_BAR` `STATUS_BAR` `PALETTE_STRIP` `PREVIEW` `COLOR_MIXER` `CHARMAP` `COLOR_SPACE_3D` `ADV_COLOR_PICKER` `PEN_PANEL` `BROWSER` `ORGANIZER` `DRAWER` |
 | `[CHROME]` docks | `TOOLBOX_DOCK` `LAYER_PANEL_DOCK` `EDIT_BAR_DOCK` `ADVANCED_BAR_DOCK` `CHARMAP_DOCK` |
+| `[DOCK]` / `[FLOAT]` panels | `toolbox organizer drawer layers editbar advbar charmap preview colormixer advcolorpicker colorspace3d pen browser` |
 | Toolbox buttons | `move hand zoom crop marquee marquee-free marquee-poly marquee-ellipse wand picker text eraser dot brush spray fill line polygon polygon-filled save bezier rect rect-filled export-sel smart-shapes ellipse ellipse-filled open` |
 | Menu roots | `FILE EDIT VIEW SELECT TOOLS BRUSH LAYER PALETTE IMAGE EFFECTS AI HELP AUDIO` |
 | Edit bar | `undo redo cut copy copy-merged paste paste-in-place cut-to-layer copy-to-layer clear fill-fg fill-bg stroke flip-h flip-v scale-down scale-up rotate-cw rotate-ccw smart-guides smart-guides-snap edge-mode flip-canvas-h flip-canvas-v` |

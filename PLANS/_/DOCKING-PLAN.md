@@ -1,9 +1,34 @@
 # Docking plan: Photoshop/GIMP-style panels
 
-Status: **plan, design decided** (Rick answered the open questions on
-2026-10-07, below). Not built yet. Written 2026-10-07 on branch
-`workspace-flexible-chrome`, which ships the first step:
-side docks with flexible widths and content that reflows.
+Status: **built** on branch `docking` (2026-10-07), all six phases (P1–P6).
+Rick answered the open questions on 2026-10-07 (below). The plan was written
+on branch `workspace-flexible-chrome`, which shipped the first step: side docks
+with flexible widths and content that reflows. Implementation guide:
+`.claude/instructions/draw-docking.md`.
+
+### What changed from the plan while building
+
+- **`[DOCK]` widths:** `AUTO` or `WIDTH:px` only. Toolbox and bar **column
+  counts** stay in their own keys (`TOOLBOX_COLUMNS`, `EDIT_BAR_COLUMNS`,
+  `ADV_BAR_COLUMNS`); `COLUMNS:n` was dropped from the grammar.
+- **Old keys:** the `*_DOCK_EDGE` keys are not replaced. With no arrangement
+  (`DOCK_CUSTOM = FALSE`) the tree is rebuilt from them every layout, so
+  Default looks exactly as before. Ctrl+Shift+click, View → Layout and Hide
+  Left/Right Side read the side from the tree and move an arranged one.
+- **DRAW.cfg** stores the user's own arrangement as `DOCK_CUSTOM`,
+  `DOCK_LEFT_n`, `DOCK_RIGHT_n`, `DOCK_FLOAT_name`.
+- **Floating windows** dock by dragging their own title bar onto a target
+  (no separate dock button); docked, the title bar is the handle.
+- **The Browser's band (Rick, 2026-10-07):** the Browser alone can also dock along the top or bottom of the canvas area, an exception to left/right only.
+- **Configurator:** a Dock tab (the `[DOCK]`/`[FLOAT]` lines, Use current /
+  Default) instead of a tree view.
+
+### Known limitations
+
+- `--option DOCK_*` overrides are not guarded as "this run only" like other
+  `--option` keys; an arrangement change during that run saves them.
+- Auto-hide while drawing over a docked panel collapses its column for the
+  stroke (the canvas re-centers), as it already did for the layers panel.
 
 ## Goal
 

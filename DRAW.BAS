@@ -528,6 +528,9 @@ IF benchLayers% > 0 THEN BENCH_render_run benchLayers%
 ' Pen tablet pressure (INPUT/PEN, QB64_GJ_LIB PRESSURE_DEVICE). Needs the window.
 PEN_init
 
+' The dock tree (GUI/DOCK): DRAW.cfg's arrangement, else the default tree
+IF LEN(CFG_DOCK_SPEC) THEN DOCK_load_snapshot CFG_DOCK_SPEC ELSE DOCK_build_default
+_LOGINFO "DOCK: tree" + CHR$(10) + DOCK_describe$
 ' Reopen in the remembered workspace (CFG.WORKSPACE) - an overlay, GUI/WORKSPACE-APPLY.
 WS_startup
 ' DRAW --capture: grab the screen once the window is up (GUI/CAPTURE).
@@ -790,7 +793,7 @@ DO
         idleZH& = SCRN.canvasH& * SCRN.zoom!
     END IF
     idleDX% = (SCRN.w& - idleZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
-    idleDY% = (SCRN.h& - idleZH&) \ 2 + SCRN.offsetY%
+    idleDY% = (SCRN.h& - idleZH&) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%
     IF MOUSE.RAW_X% >= idleDX% AND MOUSE.RAW_X% < idleDX% + idleZW& AND MOUSE.RAW_Y% >= idleDY% AND MOUSE.RAW_Y% < idleDY% + idleZH& THEN
         mouseOverCanvas% = TRUE
     END IF

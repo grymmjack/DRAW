@@ -48,6 +48,12 @@ CONST ORG_COLS    = 4  ' Number of columns (and widget stacks) in the full layou
 CONST ORG_STACKS  = 4
 DIM SHARED ORG_STACK_X(0 TO ORG_STACKS - 1) AS INTEGER ' top-left of each stack (screen px)
 DIM SHARED ORG_STACK_Y(0 TO ORG_STACKS - 1) AS INTEGER
+' The organizer panel's rect, set by the layout (TOOLBOX_layout_rects): its own
+' panel, no longer placed under the toolbar by the toolbar's geometry.
+DIM SHARED ORG_RECT_X AS INTEGER ' left
+DIM SHARED ORG_RECT_Y AS INTEGER ' top (the border row)
+DIM SHARED ORG_RECT_W AS INTEGER
+DIM SHARED ORG_RECT_H AS INTEGER ' height incl. borders (1 = hidden: just the shared border row)
 
 TYPE ORGANIZER_WIDGET
     imgHandles AS LONG    ' Array of image handles (up to 4 states) - primary

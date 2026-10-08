@@ -151,7 +151,7 @@ FUNCTION WSC_save% ()
     PRINT #fh, "[WORKSPACE]"
     PRINT #fh, "NAME=" + WSC_get$("WORKSPACE.NAME", WSC_ID)
     IF LEN(WSC_get$("WORKSPACE.DESCRIPTION", "")) THEN PRINT #fh, "DESCRIPTION=" + WSC_get$("WORKSPACE.DESCRIPTION", "")
-    secs = "CHROME,TOOLBOX,MENUS,EDIT_BAR,ADVANCED_BAR,ORGANIZER,KEYS,OPTIONS,START"
+    secs = "CHROME,TOOLBOX,MENUS,EDIT_BAR,ADVANCED_BAR,ORGANIZER,DOCK,FLOAT,KEYS,OPTIONS,START"
     FOR s = 1 TO WS_list_count%(secs)
         sec = WS_list_item$(secs, s)
         wrote = FALSE
@@ -205,6 +205,48 @@ SUB WSC_capture_layout ()
     WSC_set "EDIT_BAR.COLUMNS", _TRIM$(STR$(EDITBAR_cols%))
     WSC_set "ADVANCED_BAR.COLUMNS", _TRIM$(STR$(ADVBAR_cols%))
     WSC_set "CHROME.LAYER_PANEL_WIDTH", _TRIM$(STR$(LAYER_PANEL.width%))
+    ' the arrangement itself ([DOCK] / [FLOAT]), replacing any the file had
+    IF DOCK_READY = 0 THEN DOCK_build_default
+    WSC_store_dock DOCK_snapshot$
+END SUB
+
+
+''
+' Put a dock snapshot (DOCK_snapshot$) into the editor store as [DOCK] /
+' [FLOAT] keys, replacing the old ones. A CUSTOM=0 snapshot stores none (the
+' workspace then follows the dock keys, like a file without [DOCK]).
+SUB WSC_store_dock (snap AS STRING)
+    DIM i AS INTEGER, n AS INTEGER, ln AS STRING, p AS INTEGER, k AS STRING
+    FOR i = WSC_N TO 1 STEP -1
+        IF LEFT$(WSC_K(i), 5) = "DOCK." _ORELSE LEFT$(WSC_K(i), 6) = "FLOAT." THEN WSC_set WSC_K(i), ""
+    NEXT i
+    IF DOCK_snap_get$(snap, "CUSTOM") = "0" THEN EXIT SUB
+    n = DOCK_fields%(snap, CHR$(10))
+    FOR i = 1 TO n
+        ln = DOCK_field$(snap, CHR$(10), i)
+        p = INSTR(ln, "=")
+        IF p > 1 THEN
+            k = UCASE$(LEFT$(ln, p - 1))
+            IF k <> "CUSTOM" THEN
+                IF LEFT$(k, 6) = "FLOAT." THEN WSC_set k, MID$(ln, p + 1) ELSE WSC_set "DOCK." + k, MID$(ln, p + 1)
+            END IF
+        END IF
+    NEXT i
+END SUB
+
+
+''
+' Save the live arrangement into workspace wsId (a built-in gets a user copy),
+' without the configurator: a panel moved by hand in that workspace.
+SUB WSC_save_dock (wsId AS STRING)
+    DIM idx AS INTEGER, ok AS INTEGER
+    idx = WS_find%(wsId)
+    IF idx = 0 _ORELSE WS_is_default%(wsId) THEN EXIT SUB
+    WSC_load idx
+    WSC_store_dock DOCK_snapshot$
+    ok = WSC_save%
+    WSC.reapply = FALSE
+    ok = WS_resolve%(wsId)
 END SUB
 
 
@@ -652,6 +694,35 @@ SUB WSC_render_options (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS I
 END SUB
 
 
+''
+' The arrangement ([DOCK] / [FLOAT]). The everyday way to set it is by hand:
+' drag panels by their title strips, then View > Workspace > Update. Here it
+' can be taken from the screen, cleared, or edited line by line.
+SUB WSC_render_dock (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTEGER, outH AS INTEGER)
+    DIM y AS INTEGER, act AS INTEGER
+    y = cy
+    SW_draw_section_header ctx, cx, y, cw, "Arrangement (or drag panels by their titles, then View > Workspace > Update)"
+    WSC_row y
+    act = -1
+    SW_TOOLTIP$ = "Use current: the panels as they are on screen now. Default: no [DOCK]; the panels follow the dock edges on the Panels tab."
+    SW_draw_btn_group ctx, cx, y, cw, act, "Use current|Default", "Set to"
+    IF SW_btn_group_input%(ctx, cx, y, cw, act, "Use current|Default") THEN
+        IF DOCK_READY = 0 THEN DOCK_build_default
+        IF act = 0 THEN WSC_store_dock DOCK_snapshot$ ELSE WSC_store_dock "CUSTOM=0"
+    END IF
+    WSC_row y
+    y = y + SW_SECTION_GAP
+    SW_draw_section_header ctx, cx, y, cw, "[DOCK] one line per column, outermost first"
+    WSC_row y
+    WSC_kv_rows ctx, cx, y, cw, "DOCK", "Add Column", "LEFT.1=AUTO; layers@2 | editbar   (WIDTH:px; tabs a+b, * active, @n share, ! collapsed)"
+    y = y + SW_SECTION_GAP
+    SW_draw_section_header ctx, cx, y, cw, "[FLOAT] floating panels: x,y,w,h in viewport px"
+    WSC_row y
+    WSC_kv_rows ctx, cx, y, cw, "FLOAT", "Add Floating Panel", "layers=300,80,200,300"
+    outH = y - cy + WSC_PAD
+END SUB
+
+
 SUB WSC_draw_active_tab (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTEGER)
     DIM h AS INTEGER
     SELECT CASE WSC.tabIdx
@@ -661,6 +732,7 @@ SUB WSC_draw_active_tab (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS 
         CASE WSC_TAB_BARS:    WSC_render_bars ctx, cx, cy, cw, h
         CASE WSC_TAB_KEYS:    WSC_render_keys ctx, cx, cy, cw, h
         CASE WSC_TAB_OPTIONS: WSC_render_options ctx, cx, cy, cw, h
+        CASE WSC_TAB_DOCK:    WSC_render_dock ctx, cx, cy, cw, h
     END SELECT
     WSC.contentH = h
 END SUB

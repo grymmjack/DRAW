@@ -28,6 +28,7 @@ TYPE COLOR_SPACE_3D_OBJ
     hiddenByToggleAll AS INTEGER        ' TRUE only when Toggle-All UI (F11) hid this panel
     lastSyncColor     AS _UNSIGNED LONG ' Last FG color pushed into the widget
 
+    docked      AS INTEGER ' in a dock slot (GUI/DOCK): the slot places it; no clamp
     dispX       AS INTEGER              ' viewport coords
     dispY       AS INTEGER
     dispW       AS INTEGER

@@ -159,6 +159,8 @@ SUB BROWSER_toggle_maximize ()
 
     BROWSER_get_work_area minX%, minY%, maxX%, maxY%
 
+    IF BROWSER.docked% THEN EXIT SUB ' a docked browser fills its slot
+
     IF BROWSER.maximized% THEN
         BROWSER.dispX%     = BROWSER.restoreX%
         BROWSER.dispY%     = BROWSER.restoreY%
@@ -192,6 +194,7 @@ SUB BROWSER_toggle_maximize ()
 END SUB
 
 SUB BROWSER_suspend_for_modal ()
+    FD_CFG.flatClose = FALSE ' the modal file dialog keeps its own close button
     IF BROWSER.suspendDepth% = 0 THEN
         BROWSER.suspendWasVisible% = (BROWSER.visible% AND SCRN.showBrowser%)
 
@@ -213,8 +216,10 @@ SUB BROWSER_suspend_for_modal ()
             BROWSER.dispY% = INT(CSNG(FD_STATE.dialogY) * BROWSER.renderScale! + 0.5)
             ' Also persist native size so BROWSER_init would restore correctly
             ' if the browser were fully re-created (e.g. settings change).
-            CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
-            CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+            IF BROWSER.docked% = 0 THEN ' docked: keep the floating size
+                CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
+                CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+            END IF
 
             IF FD_STATE.imgHandle& < -1 THEN
                 SAFE_FREEIMAGE FD_STATE.imgHandle&
@@ -262,6 +267,7 @@ SUB BROWSER_resume_after_modal ()
 END SUB
 
 SUB BROWSER_clamp_size ()
+    IF BROWSER.docked% THEN EXIT SUB ' the dock slot sizes it
     DIM availW AS INTEGER, availH AS INTEGER
     DIM topY   AS INTEGER, bottomPad AS INTEGER
     DIM maxW   AS INTEGER, maxH AS INTEGER
@@ -398,6 +404,7 @@ SUB BROWSER_ensure_initialized ()
 END SUB
 
 SUB BROWSER_clamp_to_work_area ()
+    IF BROWSER.docked% THEN EXIT SUB ' the dock slot places it
     DIM minX AS INTEGER, maxX AS INTEGER
     DIM minY AS INTEGER, maxY AS INTEGER
 
@@ -562,6 +569,7 @@ SUB BROWSER_toggle ()
 END SUB
 
 FUNCTION BROWSER_hit_window% (rawX AS INTEGER, rawY AS INTEGER)
+    IF DOCK_native_off%(DP_BROWSER) THEN EXIT FUNCTION ' docked in a slot that shows nothing this frame
     BROWSER_hit_window% = FALSE
     IF NOT BROWSER.visible% THEN EXIT FUNCTION
     IF BROWSER.autoHidden% THEN EXIT FUNCTION
@@ -659,6 +667,7 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
             brPrevX% = BROWSER.dispX% : brPrevY% = BROWSER.dispY%
             BROWSER.dispX% = BROWSER.dragStartDX% + (MOUSE.RAW_X% - BROWSER.dragStartMX%)
             BROWSER.dispY% = BROWSER.dragStartDY% + (MOUSE.RAW_Y% - BROWSER.dragStartMY%)
+            DOCK_native_drag DP_BROWSER, MOUSE.RAW_X%, MOUSE.RAW_Y%
             BROWSER_clamp_to_work_area
             ' Snap to / don't overlap other floating windows
             FPANEL_place REGION_IMAGE_BROWSER, BROWSER.dispX%, BROWSER.dispY%, BROWSER.dispW%, BROWSER.dispH%, brPrevX%, brPrevY%
@@ -674,6 +683,7 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
             SCENE_DIRTY% = TRUE
         ELSE
             BROWSER.dragging% = FALSE
+            IF DOCK_native_drag_end%(DP_BROWSER) THEN EXIT SUB
         END IF
         EXIT SUB
     END IF
@@ -746,7 +756,8 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
 
     IF justPressed% AND overPanel% THEN
         DIM edgeHit AS INTEGER
-        edgeHit% = FD_INPUT_hit_resize_edge%(nativeX%, nativeY%)
+        edgeHit% = FD_RESIZE_NONE
+        IF BROWSER.docked% = 0 THEN edgeHit% = FD_INPUT_hit_resize_edge%(nativeX%, nativeY%) ' docked: the slot sizes it
         IF edgeHit% <> FD_RESIZE_NONE THEN
             BROWSER.resizing%      = TRUE
             BROWSER.resizeEdge%    = edgeHit%
@@ -763,7 +774,7 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
         DIM nowT       AS DOUBLE
         titleBarPx% = INT(CSNG(FD_STATE.titleBarH) * BROWSER.renderScale! + 0.5)
         closeX%     = FD_STATE.dialogW - FD_STATE.titleBarH
-        IF localY% < titleBarPx% AND nativeX% < closeX% THEN
+        IF localY% < titleBarPx% AND nativeX% < closeX% AND BROWSER.docked% = 0 THEN
             nowT# = TIMER
             IF nowT# - BROWSER.titleClickTime# <= .30 THEN
                 BROWSER.titleClickTime# = 0
@@ -874,7 +885,7 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
     IF BROWSER.zoomLevel% < 1 THEN BROWSER.zoomLevel% = 1
     IF BROWSER.zoomLevel% > 8 THEN BROWSER.zoomLevel% = 8
 
-    IF CFG.BROWSER_AUTOSAVE_GEOMETRY% THEN
+    IF CFG.BROWSER_AUTOSAVE_GEOMETRY% _ANDALSO BROWSER.docked% = 0 THEN ' docked: keep the floating geometry
         CFG.BROWSER_POS_X%  = BROWSER.dispX%
         CFG.BROWSER_POS_Y%  = BROWSER.dispY%
         CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
@@ -1320,6 +1331,11 @@ SUB BROWSER_create_browser_dsets (mode AS INTEGER)
 END SUB
 
 SUB BROWSER_render ()
+    ' its close button looks like the other floating windows' (a cross, no
+    ' red block or tooltip); a modal file dialog keeps its own (suspend resets it)
+    FD_CFG.flatClose = TRUE
+    FD_CFG.closeFg = THEME.CP_close_fg~&
+    FD_CFG.closeHoverBg = THEME.CP_close_hover_bg~&
     IF NOT BROWSER.visible% OR BROWSER.autoHidden% THEN EXIT SUB
     BROWSER_ensure_initialized
 

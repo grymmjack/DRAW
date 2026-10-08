@@ -23,6 +23,7 @@ TYPE COLOR_MIXER_OBJ
     renderScale   AS SINGLE         ' Scale factor for display (<= 1.0)
     dispW         AS INTEGER        ' Displayed width on SCRN.CANVAS
     dispH         AS INTEGER        ' Displayed height on SCRN.CANVAS
+    docked      AS INTEGER ' in a dock slot (GUI/DOCK): the slot places it; no clamp
     dispX         AS INTEGER        ' Displayed X (viewport coords)
     dispY         AS INTEGER        ' Displayed Y (viewport coords)
     dragging      AS INTEGER        ' TRUE while title-bar drag is active

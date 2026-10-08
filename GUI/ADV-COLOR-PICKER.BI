@@ -29,6 +29,7 @@ TYPE ADV_COLOR_PICKER_OBJ
     editTarget        AS INTEGER        ' 0 = editing FG (left btn), 1 = editing BG (right btn)
 
     ' Display geometry (viewport / canvas coords)
+    docked      AS INTEGER ' in a dock slot (GUI/DOCK): the slot places it; no clamp
     dispX       AS INTEGER
     dispY       AS INTEGER
     dispW       AS INTEGER

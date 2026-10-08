@@ -267,6 +267,11 @@ DIM SHARED TB_LIVE_ROWS  AS INTEGER ' rows = ceil(count / cols)
 DIM SHARED TB_WANT_COLS  AS INTEGER ' columns asked for (CFG.TOOLBOX_COLUMNS / workspace COLUMNS / an edge drag);
                                     ' TOOLBAR_reflow adds more when the buttons don't fit the height
 DIM SHARED TOOLBOX_PANEL_W AS INTEGER ' toolbox column width in px (toolbar, organizer and drawer share it)
+' The toolbar panel's rect, set by the layout (TOOLBOX_layout_rects): left x and
+' the top of the first button row (its 1px border sits just above, as before).
+DIM SHARED TB_RECT_X AS INTEGER
+DIM SHARED TB_RECT_Y AS INTEGER
+DIM SHARED TB_RECT_W AS INTEGER ' width of its slot (0 = not laid out: TOOLBOX_PANEL_W)
 TB_LIVE_COUNT = TB_TOTAL
 TB_LIVE_COLS  = TB_COLS
 TB_LIVE_ROWS  = TB_ROWS

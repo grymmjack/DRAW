@@ -114,6 +114,8 @@ DIM SHARED WS_OPT_HAD(1 TO WS_MAX_OPTS)  AS INTEGER ' the user's config had the 
 
 DIM SHARED WS_TB_TOUCHED AS INTEGER ' [TOOLBOX] rewrote the toolbar layout / icons
 DIM SHARED WS_LW_TOUCHED AS INTEGER ' [CHROME] LAYER_PANEL_WIDTH set the layers panel width
+DIM SHARED WS_DOCK_TOUCHED AS INTEGER ' the workspace replaced the dock arrangement ([DOCK], or classic sides over a custom tree)
+DIM SHARED WS_DOCK_USER_SNAP AS STRING ' the user's arrangement from before (DOCK_snapshot$), put back by WS_restore
 ' [KEYS]: single-key overlay, checked by INPUT_dispatch_frame BEFORE the
 ' binding table (so it wins), only while this workspace is active.
 CONST WS_MAX_KEYS = 64

@@ -46,6 +46,7 @@ TYPE SCREEN_OBJ
     uiLeftEdge                    AS INTEGER ' Canvas work area left X (after all left panels)
     uiRightEdge                   AS INTEGER ' Canvas work area right X (before all right panels)
     panelShiftX                   AS INTEGER ' Horizontal pixel offset to center canvas between panels
+    panelShiftY                   AS INTEGER ' Vertical pixel offset to center canvas beside the Browser's top / bottom band (GUI/DOCK)
     layerPanelX                   AS INTEGER ' Left edge of layer panel (position varies by dock side)
     toolboxX                      AS INTEGER ' Left edge of toolbox stack background
     editBarX                      AS INTEGER ' Left edge of edit bar (position varies by dock side)
