@@ -303,6 +303,7 @@ FUNCTION BL_bar_draw% (panel AS INTEGER, x1 AS INTEGER, w AS INTEGER, y1 AS INTE
         IF BL(panel, i).kind = BL_CMD THEN
             img = BL_cmd_icon&(BL(panel, i).id, FALSE)
             dimg = BL_cmd_icon&(BL(panel, i).id, TRUE)
+            IF img >= -1 THEN img = BL_cmd_tile&(BL(panel, i).id, FALSE): dimg = BL_cmd_tile&(BL(panel, i).id, TRUE) ' no icon: its text tile
             lit = BL_cmd_enabled%(BL(panel, i).id)
         END IF
         IF img < -1 THEN
@@ -375,4 +376,128 @@ END SUB
 SUB BL_bar_right_click (panel AS INTEGER, i AS INTEGER)
     IF i < 0 _ORELSE i >= BL_N(panel) THEN EXIT SUB
     IF BL(panel, i).kind = BL_CMD _ANDALSO BL(panel, i).id = 959 THEN CMD_execute_action 960
+END SUB
+
+
+' =============================================================================
+' Text tiles (a command with no icon)
+' =============================================================================
+
+''
+' Up to 3 letters for command act: its name's first word (after a leading
+' TOGGLE / SHOW), its first letter then its next consonants (FLATTEN -> FLT,
+' MERGE -> MRG); short words borrow the next words' initials.
+FUNCTION BL_tile_text$ (act AS INTEGER)
+    DIM nm AS STRING, w(1 TO 8) AS STRING, n AS INTEGER, i AS INTEGER, ch AS STRING, cur AS STRING, r AS STRING, k AS INTEGER, first AS INTEGER
+    nm = UCASE$(BL_cmd_label$(act))
+    IF LEN(nm) = 0 THEN BL_tile_text$ = LEFT$(_TRIM$(STR$(act)), 3): EXIT FUNCTION
+    FOR i = 1 TO LEN(nm) + 1
+        IF i <= LEN(nm) THEN ch = MID$(nm, i, 1) ELSE ch = " "
+        IF (ch >= "A" _ANDALSO ch <= "Z") _ORELSE (ch >= "0" _ANDALSO ch <= "9") THEN
+            cur = cur + ch
+        ELSEIF LEN(cur) THEN
+            IF n < 8 THEN n = n + 1: w(n) = cur
+            cur = ""
+        END IF
+    NEXT i
+    IF n = 0 THEN BL_tile_text$ = "?": EXIT FUNCTION
+    first = 1
+    IF n > 1 _ANDALSO (w(1) = "TOGGLE" _ORELSE w(1) = "SHOW") THEN first = 2
+    ' a short first word (NEW, ADD...): its initial, then the next word's letters
+    IF LEN(w(first)) <= 3 _ANDALSO n > first THEN
+        r = LEFT$(w(first), 1) + LEFT$(w(first + 1), 1)
+        FOR i = 2 TO LEN(w(first + 1))
+            IF LEN(r) >= 3 THEN EXIT FOR
+            ch = MID$(w(first + 1), i, 1)
+            IF INSTR("AEIOU", ch) = 0 _ANDALSO ch <> RIGHT$(r, 1) THEN r = r + ch
+        NEXT i
+        BL_tile_text$ = r
+        EXIT FUNCTION
+    END IF
+    r = LEFT$(w(first), 1)
+    FOR i = 2 TO LEN(w(first))
+        IF LEN(r) >= 3 THEN EXIT FOR
+        ch = MID$(w(first), i, 1)
+        IF INSTR("AEIOU", ch) = 0 _ANDALSO ch <> RIGHT$(r, 1) THEN r = r + ch
+    NEXT i
+    FOR k = first + 1 TO n
+        IF LEN(r) >= 3 THEN EXIT FOR
+        r = r + LEFT$(w(k), 1)
+    NEXT k
+    IF LEN(r) < 2 _ANDALSO LEN(w(first)) > 1 THEN r = LEFT$(w(first), 3)
+    BL_tile_text$ = r
+END FUNCTION
+
+
+''
+' The tile image of command act (disabled = its dimmed copy), built once.
+FUNCTION BL_cmd_tile& (act AS INTEGER, disabled AS INTEGER)
+    DIM i AS INTEGER, img AS LONG, dimg AS LONG, t AS STRING, c AS _UNSIGNED LONG, oldDest AS LONG, oldFont AS LONG
+    DIM tw AS INTEGER, th AS INTEGER
+    FOR i = 0 TO BL_TILE_N - 1
+        IF BL_TILE_ACT(i) = act THEN
+            IF disabled THEN BL_cmd_tile& = BL_TILE_DIM(i) ELSE BL_cmd_tile& = BL_TILE_IMG(i)
+            EXIT FUNCTION
+        END IF
+    NEXT i
+    IF BL_TILE_N >= BL_TILE_MAX THEN EXIT FUNCTION
+    oldDest& = _DEST: oldFont& = _FONT
+    DIM tileW AS INTEGER
+    c = _RGB32(202, 202, 202) ' the bar icons' line color
+    tileW = _MAX(16, THEME.EDIT_BAR_WIDTH%) ' a bar column's full width: room for 3 letters
+    img = _NEWIMAGE(tileW, 16, 32)
+    _DEST img
+    CLS , _RGBA32(0, 0, 0, 0)
+    LINE (1, 0)-(tileW - 2, 0), c: LINE (1, 15)-(tileW - 2, 15), c
+    LINE (0, 1)-(0, 14), c: LINE (tileW - 1, 1)-(tileW - 1, 14), c
+    IF LAYER_PANEL.fontHandle& > 0 THEN _FONT LAYER_PANEL.fontHandle& ELSE _FONT 8
+    t = BL_tile_text$(act)
+    DO WHILE LEN(t) > 1 _ANDALSO _UPRINTWIDTH(t) > tileW - 4
+        t = LEFT$(t, LEN(t) - 1)
+    LOOP
+    tw = _UPRINTWIDTH(t): th = _UFONTHEIGHT
+    COLOR c, _RGBA32(0, 0, 0, 0)
+    _PRINTMODE _KEEPBACKGROUND
+    _UPRINTSTRING ((tileW - tw + 1) \ 2, (16 - th) \ 2), t
+    _FONT 16
+    _DEST oldDest&: _FONT oldFont&
+    ' dimmed copy, as the bars dim their icons
+    dimg = _COPYIMAGE(img)
+    BL_dim_image dimg
+    BL_TILE_ACT(BL_TILE_N) = act: BL_TILE_IMG(BL_TILE_N) = img: BL_TILE_DIM(BL_TILE_N) = dimg
+    BL_TILE_N = BL_TILE_N + 1
+    IF disabled THEN BL_cmd_tile& = dimg ELSE BL_cmd_tile& = img
+END FUNCTION
+
+
+''
+' Scale an image's alpha like the bars' disabled icons.
+SUB BL_dim_image (img AS LONG)
+    DIM m AS _MEM, offs AS _OFFSET, px AS _UNSIGNED LONG, a AS INTEGER, k AS SINGLE
+    IF img >= -1 THEN EXIT SUB
+    k = (255 - THEME.EDIT_BAR_ICON_DISABLED_ALPHA%) / 255!
+    IF k < 0 THEN k = 0
+    IF k > 1 THEN k = 1
+    m = _MEMIMAGE(img)
+    offs = m.OFFSET
+    DO WHILE offs < m.OFFSET + m.SIZE
+        px = _MEMGET(m, offs, _UNSIGNED LONG)
+        a = _ALPHA32(px)
+        IF a > 0 THEN _MEMPUT m, offs, _RGBA32(_RED32(px), _GREEN32(px), _BLUE32(px), INT(a * k)) AS _UNSIGNED LONG
+        offs = offs + 4
+    LOOP
+    _MEMFREE m
+END SUB
+
+
+''
+' Free the tiles (a theme reload rebuilds them on next use).
+SUB BL_free_tiles ()
+    DIM i AS INTEGER
+    FOR i = 0 TO BL_TILE_N - 1
+        IF BL_TILE_IMG(i) < -1 THEN _FREEIMAGE BL_TILE_IMG(i)
+        IF BL_TILE_DIM(i) < -1 THEN _FREEIMAGE BL_TILE_DIM(i)
+        BL_TILE_IMG(i) = 0: BL_TILE_DIM(i) = 0: BL_TILE_ACT(i) = 0
+    NEXT i
+    BL_TILE_N = 0
 END SUB
