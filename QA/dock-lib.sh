@@ -8,8 +8,9 @@
 #   SEQ  n                                   (bumped on every change)
 #   TREE LEFT.1: layers ; RIGHT.1: toolbox | organizer | drawer ; ...
 #   SCR  w h canvasLX canvasRX dockTop dockBottom
-#   COL  id side ord x y w h vis             (side 1 = left, 2 = right)
-#   SLOT id col ord x y w h vis collapsed act panel,panel
+#   BAND side x y w h shiftY                (the Browser's top/bottom band; side 0 none, 1 top, 2 bottom)
+#   COL  id side ord x y w h vis hidden      (side 1 = left, 2 = right; hidden = by the small-window rule)
+#   SLOT id col ord x y w h vis collapsed act autocollapsed panel,panel
 #   P    name shown live x y w h slot floating fx fy fw fh hx hy hw hh tabx tabw
 # Booleans are QB64's -1 / 0. Coordinates are viewport px (what click/hover use).
 #
@@ -23,6 +24,7 @@
 #       tab OTHER                    a tab in OTHER's slot
 #       bottom OTHER                 the empty rest of OTHER's column (stack at the end)
 #       float [X Y]                  float it (default: the canvas center)
+#       band-top | band-bottom       the Browser only: its band along the top / bottom
 #   dk_check LABEL                 invariants after a step (see below)
 #   dk_expect_tree REGEX LABEL     the TREE line matches REGEX
 # =============================================================================
@@ -33,6 +35,7 @@ DK_NATIVE=" preview colormixer advcolorpicker colorspace3d pen browser "
 dk_seq()  { if [[ -f "$DK_DUMP" ]]; then awk 'NR==1 {print $2}' "$DK_DUMP"; else echo 0; fi; }
 dk_tree() { sed -n 's/^TREE //p' "$DK_DUMP" 2>/dev/null; }
 dk_scr()  { read -r _ SCR_W SCR_H CAN_LX CAN_RX DOCK_TOP DOCK_BOT <<< "$(grep '^SCR ' "$DK_DUMP")"; }
+dk_band() { read -r _ B_SIDE B_X B_Y B_W B_H B_SHIFT <<< "$(grep '^BAND ' "$DK_DUMP")"; }
 
 # wait until the layout stops changing (DRAW idles at 15 fps)
 dk_settle() {
@@ -47,10 +50,12 @@ dk_p() {
     line=$(grep "^P $1 " "$DK_DUMP" 2>/dev/null) || return 1
     read -r _ _ P_SHOWN P_LIVE P_X P_Y P_W P_H P_SLOT P_FL P_FX P_FY P_FW P_FH P_HX P_HY P_HW P_HH P_TX P_TW <<< "$line"
 }
-dk_slot() { read -r _ _ S_COL S_ORD S_X S_Y S_W S_H S_VIS S_COLL S_ACT S_PANELS <<< "$(grep "^SLOT $1 " "$DK_DUMP")"; }
-dk_col()  { read -r _ _ C_SIDE C_ORD C_X C_Y C_W C_H C_VIS <<< "$(grep "^COL $1 " "$DK_DUMP")"; }
+dk_slot() { read -r _ _ S_COL S_ORD S_X S_Y S_W S_H S_VIS S_COLL S_ACT S_AUTOC S_PANELS <<< "$(grep "^SLOT $1 " "$DK_DUMP")"; }
+dk_col()  { read -r _ _ C_SIDE C_ORD C_X C_Y C_W C_H C_VIS C_HID <<< "$(grep "^COL $1 " "$DK_DUMP")"; }
 
 dk_docked()   { dk_p "$1" && (( P_SLOT > 0 )); }
+# docked AND laid out on screen (its column not hidden by the small-window rule)
+dk_visible()  { dk_p "$1" || return 1; (( P_SLOT > 0 )) || return 1; dk_slot "$P_SLOT"; dk_col "$S_COL"; (( S_VIS != 0 && C_VIS != 0 && ${C_HID:-0} == 0 )); }
 dk_floating() { dk_p "$1" && (( P_FL != 0 )); }
 dk_side_of()  { dk_p "$1" || return 1; if (( P_SLOT == 0 )); then return 1; fi; dk_slot "$P_SLOT"; dk_col "$S_COL"; echo "$C_SIDE"; }
 
@@ -75,12 +80,16 @@ dk_point() {
     case "$kind" in
         edge-left)  TX=2; TY=$(( (DOCK_TOP + DOCK_BOT) / 2 )) ;;
         edge-right) TX=$(( SCR_W - 3 )); TY=$(( (DOCK_TOP + DOCK_BOT) / 2 )) ;;
+        band-top)    TX=$(( (CAN_LX + CAN_RX) / 2 )); TY=$(( DOCK_TOP + 4 )) ;;
+        band-bottom) TX=$(( (CAN_LX + CAN_RX) / 2 )); TY=$(( DOCK_BOT - 4 )) ;;
         float)
             if [[ -n "${2:-}" ]]; then TX=$2; TY=${3:-$2}; else TX=$(( (CAN_LX + CAN_RX) / 2 )); TY=$(( (DOCK_TOP + DOCK_BOT) / 2 )); fi ;;
         newcol|above|below|tab|bottom)
             dk_p "$other" || return 1
             if (( P_SLOT == 0 )); then return 1; fi
             dk_slot "$P_SLOT"; dk_col "$S_COL"
+            # not on screen (a hidden column, a collapsed / inactive slot): its rect is stale
+            if (( S_VIS == 0 || C_VIS == 0 || ${C_HID:-0} != 0 )); then return 1; fi
             case "$kind" in
                 newcol)
                     if (( C_SIDE == 1 )); then TX=$(( C_X + C_W - 3 )); else TX=$(( C_X + 2 )); fi
@@ -210,6 +219,12 @@ dk_check() {
             if [[ "$DK_NATIVE" == *" $nm "* ]]; then continue; fi
             if ! grep -qi "^DOCK_FLOAT_${nm}=" "$QA_CFG"; then bad+=" floating $nm not saved;"; fi
         done < <(grep '^P ' "$DK_DUMP")
+        # the Browser's band
+        dk_band
+        local sb; sb=$(grep -m1 '^DOCK_BAND=' "$QA_CFG" | tr -d '\r' | cut -d= -f2 | cut -d, -f1)
+        if (( B_SIDE == 1 )) && [[ "$sb" != TOP ]]; then bad+=" band top not saved ($sb);"; fi
+        if (( B_SIDE == 2 )) && [[ "$sb" != BOTTOM ]]; then bad+=" band bottom not saved ($sb);"; fi
+        if (( B_SIDE == 0 )) && [[ -n "$sb" ]]; then bad+=" a band saved ($sb) but none on screen;"; fi
     fi
     if [[ -z "$bad" ]]; then pass "$label: invariants hold [$t]"; else fail "$label:$bad"; fi
     assert_no_crash
@@ -225,4 +240,80 @@ dk_begin() {
     if [[ ! -f "$DK_DUMP" ]]; then fail "no dock dump at $DK_DUMP (QA-OPTIONS needs DOCK_DUMP=QA/.dock-dump.txt)"; fi
     dk_park
     dk_settle
+}
+
+# dk_move_expect NAME KIND [OTHER] — dk_move, then the outcome that KIND means:
+#   edge-left/right  docked on that side     newcol OTHER  docked on OTHER's side
+#   above/below      stacked over/under OTHER tab OTHER    tabs of one slot
+#   bottom OTHER     last in OTHER's column  float         floating
+dk_move_expect() {
+    local name=$1 kind=$2 other=${3:-} side
+    dk_move "$name" "$kind" "${@:3}" || return 1
+    case "$kind" in
+        edge-left)  dk_expect_side "$name" 1 ;;
+        edge-right) dk_expect_side "$name" 2 ;;
+        newcol)     side=$(dk_side_of "$other"); dk_expect_side "$name" "${side:-0}" ;;
+        above)      dk_expect_stacked "$name" "$other" ;;
+        below)      dk_expect_stacked "$other" "$name" ;;
+        tab)        dk_expect_tabs "$other" "$name" ;;
+        bottom)     dk_expect_last "$name" "$other" ;;
+        float)      dk_expect_floating "$name" ;;
+        band-top)    dk_expect_band 1 ;;
+        band-bottom) dk_expect_band 2 ;;
+    esac
+}
+
+# NAME is the last slot of OTHER's column
+dk_expect_last() {
+    local n1=$1 n2=$2 a=0 b=0 ca cb oa maxo=0 o
+    if dk_p "$n1"; then a=$P_SLOT; fi
+    if dk_p "$n2"; then b=$P_SLOT; fi
+    if (( a == 0 || b == 0 )); then fail "$n1 / $n2 not both docked [$(dk_tree)]"; return 0; fi
+    dk_slot "$a"; ca=$S_COL; oa=$S_ORD; dk_slot "$b"; cb=$S_COL
+    for o in $(awk -v c="$cb" '$1=="SLOT" && $3==c {print $4}' "$DK_DUMP"); do
+        if (( o > maxo )); then maxo=$o; fi
+    done
+    if (( ca == cb && oa == maxo )); then pass "$n1 at the bottom of $n2's column"; else fail "$n1 not last in $n2's column [$(dk_tree)]"; fi
+}
+
+# A seeded chain of N random moves among PANELS (deterministic: the same seed
+# makes the same moves, so a failure reproduces). dk_check after every move.
+dk_fuzz() {
+    local seed=$1 steps=$2; shift 2
+    local panels=("$@") kinds=(edge-left edge-right newcol above below tab bottom float) i src kind other tries
+    RANDOM=$seed
+    for (( i = 1; i <= steps; i++ )); do
+        tries=0
+        while :; do
+            src=${panels[RANDOM % ${#panels[@]}]}
+            kind=${kinds[RANDOM % ${#kinds[@]}]}
+            other=${panels[RANDOM % ${#panels[@]}]}
+            tries=$((tries + 1))
+            [[ "$other" == "$src" && "$kind" != edge-* && "$kind" != float ]] && { (( tries < 50 )) && continue; kind=edge-left; }
+            # the Browser can also take its band
+            if [[ "$src" == browser ]] && (( RANDOM % 4 == 0 )); then
+                if (( RANDOM % 2 )); then kind=band-top; else kind=band-bottom; fi
+            fi
+            case "$kind" in edge-*|float|band-*) other="" ;; esac
+            # targets that need OTHER docked, and a source that can be grabbed
+            if [[ -n "$other" ]] && ! dk_visible "$other"; then (( tries < 50 )) && continue; kind=edge-right; other=""; fi
+            if [[ "$kind" == bottom ]] && ! dk_point bottom "$other"; then (( tries < 50 )) && continue; kind=edge-left; other=""; fi
+            dk_grab_point "$src" && break
+            (( tries < 50 )) || break
+        done
+        info "fuzz $seed step $i: $src $kind $other"
+        dk_move_expect "$src" "$kind" $other
+        dk_check "fuzz $seed step $i ($src $kind $other)"
+    done
+}
+
+# the Browser in its band on SIDE (1 top, 2 bottom): laid out, not in the tree,
+# not floating, and the canvas shifted away from it
+dk_expect_band() {
+    dk_band; dk_p browser
+    if (( B_SIDE == $1 && B_H > 0 && P_SLOT == 0 && P_FL == 0 )) && { (( $1 == 1 && B_SHIFT > 0 )) || (( $1 == 2 && B_SHIFT < 0 )); }; then
+        pass "browser in its band (side $1, y $B_Y, h $B_H, canvas shift $B_SHIFT)"
+    else
+        fail "browser not in band $1 (band side=$B_SIDE h=$B_H shift=$B_SHIFT; slot=$P_SLOT floating=$P_FL)"
+    fi
 }

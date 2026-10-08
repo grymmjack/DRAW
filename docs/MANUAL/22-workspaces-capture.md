@@ -95,11 +95,18 @@ Pressure and Browser windows.
 | …drop anywhere else | It **floats** in its own window |
 | **Drag the line between two stacked panels** | Moves height between them (the pointer turns into ↕) |
 | **Click a tab** | Shows that panel |
+| **Drag a tab strip past its tabs** | Moves the whole group (every tab) |
 | **Click the chevron**, or **double-click a title** | Collapses the slot to its title strip; its height goes to the others |
 | **Click a collapsed title** | Opens it again (click one of its tabs to open on that tab) |
 | **Double-click a floating panel's title** | Docks it back where it was |
 | **Drag a floating panel's right or bottom edge, or its corner** | Resizes it; a bar adds icon columns as it gets wider |
 | **Right-click a handle** | Move to Left Edge / Move to Right Edge, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement |
+
+**The Browser can also dock along the top or bottom** of the canvas area (the one
+exception to left/right docking): drag its title bar to the top or bottom of
+the canvas and a full-width band appears. Drag the band's inner edge to make it
+taller or shorter; the canvas re-centres in the room left. Its right-click menu
+has *Dock Along the Top* / *Dock Along the Bottom*.
 
 The floating windows (Preview, Color Mixer, Advanced Color Picker, 3D Color
 Space, Pen Pressure, Browser) keep their own title bar. **Drag the title bar

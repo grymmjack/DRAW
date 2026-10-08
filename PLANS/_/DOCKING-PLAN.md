@@ -19,6 +19,7 @@ with flexible widths and content that reflows. Implementation guide:
   `DOCK_LEFT_n`, `DOCK_RIGHT_n`, `DOCK_FLOAT_name`.
 - **Floating windows** dock by dragging their own title bar onto a target
   (no separate dock button); docked, the title bar is the handle.
+- **The Browser's band (Rick, 2026-10-07):** the Browser alone can also dock along the top or bottom of the canvas area, an exception to left/right only.
 - **Configurator:** a Dock tab (the `[DOCK]`/`[FLOAT]` lines, Use current /
   Default) instead of a tree view.
 

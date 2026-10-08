@@ -4,7 +4,7 @@ Photoshop/GIMP-style panel arrangement: dock, stack, tab, collapse, float, dock
 back. Plan and decisions: `PLANS/_/DOCKING-PLAN.md`. Built on branch `docking`
 (2026-10), on top of the flexible widths in `GUI/DOCK-RESIZE` (#156).
 
-**Fixed rules:** only the LEFT and RIGHT edges dock. The menu bar (and text bar)
+**Fixed rules:** only the LEFT and RIGHT edges dock - except the Browser, which can also dock in a band along the top or bottom of the canvas area (below). The menu bar (and text bar)
 is always on top; the status bar and color strip are always at the bottom.
 
 ## Files
@@ -75,6 +75,10 @@ Hide Left/Right Side UI (436/437) and the Layout checkmarks predate the tree.
 - **After setting** a key, call `DOCK_side_request id, side`: a custom tree moves the panel (its whole column when the column holds nothing else; the toolbox counts its organizer + drawer), the default tree follows the keys by itself.
 - Do **not** mirror the tree into the keys: the workspace overlay only snapshots keys a workspace touches, so a mirror would leak into the user's DRAW.cfg.
 
+## The Browser's band (top / bottom)
+
+`DOCK_BAND_SIDE` (0 / `DOCK_BAND_TOP` / `DOCK_BAND_BOTTOM`) + `DOCK_BAND_H`; saved as `BAND=TOP|BOTTOM,<h>` in the snapshot (`DOCK_BAND` in DRAW.cfg, `BAND` in `[DOCK]`). The Browser is then not in the tree and not floating; `BROWSER.docked` covers both. `DOCK_place_band` (in `DOCK_layout`, after the columns) lays it across `DOCK_LX..DOCK_RX` under the menu + text bar (`DOCK_TOPBAR_H`) or above `dockY2`, and sets `DOCK_SHIFT_Y` -> **`SCRN.panelShiftY%`**, added to every vertical canvas-position expression (the twin of `panelShiftX%`; 38 sites, `(SCRN.h& - zh&) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%`). The room stays reserved while a stroke auto-hides the Browser. Drop targets `DOCK_TGT_BAND` (Browser only, within `DOCK_EDGE_ZONE` of the canvas area's top / bottom), its title bar is the handle (`DOCK_band_title_at%`), its inner edge resizes it (`DOCK_handle_band_resize%`, vertical cursor), menu actions 7 / 8. Any move of the Browser elsewhere clears the band.
+
 ## Persistence
 
 Snapshot text (`DOCK_snapshot$` / `DOCK_load_snapshot`): `CUSTOM=0|1`, `LEFT.n=`, `RIGHT.n=`, `FLOAT.name=x,y,w,h`.
@@ -95,6 +99,16 @@ pen=640,120,220,300
 `AUTO` or `WIDTH:px`; slots `|`; tabs `+`; `*` active tab; `@n` share; `!` collapsed. Toolbox and bar **column counts** stay in their own keys (`TOOLBOX_COLUMNS`, …), not in `[DOCK]`.
 
 ## Testing
+
+**Live layout dump:** `--option DOCK_DUMP=<path>` (QA-OPTIONS `DOCK_DUMP=QA/.dock-dump.txt`) makes `DOCK_layout` write `SEQ / TREE / BAND / SCR / COL / SLOT / P` lines (every rect, handle rect, tab rect, auto-collapse) whenever they change (`DOCK_dump_write`). `QA/dock-lib.sh` reads it: `dk_move NAME TARGET` (edge-left/right, newcol, above, below, tab, bottom, float, band-top/bottom), `dk_move_expect`, `dk_check` invariants (each panel once, docked <=> in the tree, on screen, no overlaps, saved == on screen, floats + band saved), `dk_fuzz SEED STEPS PANELS...` (seeded random chains). Tests: `dock-separate*`, `dock-combine-<panel>` x6, `dock-after-combine`, `dock-fuzz-*`, `dock-windows*`, `dock-persist`, `dock-browser-band`, `dock-float-bar`, `dock-startup`, `dock-small`, `dock-tabs`, `dock-arrange`.
+
+### Bugs these tests found (all fixed)
+- A stacked chromeless panel's 3px grip sat on the divider above it - the divider won, so the panel could never be moved (`DOCK_slot_grip%`).
+- A narrow bar docked on a screen edge could not be stacked onto / tabbed with: the 16px screen-edge zone covered it (now 4px where a column lines the edge).
+- Dragging a tab strip moved only the active tab (now the whole slot: `DOCK_UI.mvGroup`).
+- Tab strips ran past narrow columns (and off-screen): `DOCK_tab_rect%` fits them, labels are cut (`DOCK_fit_text$`).
+- A slot inserted into a column after a divider drag got share 1 next to px shares (a sliver): it takes the column's average.
+
 
 - `DEV/tools/dock-baseline.sh shoot DIR` / `compare BASE NEW`: 12 pixel shots via the QA harness with fixtures in `QA/fixtures/workspaces/` (scratch `XDG_DATA_HOME`). Refactors must stay AE = 0 against a main-branch baseline.
 - `QA/unit/dock-unit.bas` (tree), `QA/unit/ws-unit.bas` (workspace files).

@@ -480,6 +480,8 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 | `L-Drag` a handle | Move the panel: drop on a screen edge / between columns = new column · top or bottom third of a panel = stack above/below · middle = add as a tab · anywhere else = float |
 | `L-Drag` the line between two stacked panels | Move height between them |
 | `L-Click` a tab | Show that panel |
+| `L-Drag` a tab strip past its tabs | Move the whole tab group |
+| `L-Drag` the Browser's title to the top / bottom of the canvas | Dock it in a band along the top / bottom (drag the band's edge to resize it) |
 | `L-Click` the chevron / `Dbl-Click` a title strip | Collapse the slot to its title / expand it |
 | `L-Click` a collapsed title | Open it (on the tab you clicked) |
 | `R-Click` a handle | Move to Left / Right Edge · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement |

@@ -19,7 +19,7 @@ park_mouse
 wait_for 0.3 "settle"
 
 COLX=$(( VIEWPORT_W - LP_W / 2 ))   # middle of the outermost right column (layers width)
-DIVY=328                            # layers@2 | editbar boundary at 958x514
+DIVY=326                            # 2px above the layers@2 | editbar boundary (y=328 at 958x514): the divider; the boundary itself is the edit bar's grip
 
 cfg_dock() { grep -m1 "^$1=" "$QA_CFG" | cut -d= -f2- | tr -d '\r'; }
 
