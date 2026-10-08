@@ -257,3 +257,122 @@ FUNCTION BL_from_csv% (panel AS INTEGER, csv AS STRING)
     NEXT i
     BL_from_csv% = BL_N(panel)
 END FUNCTION
+
+
+' =============================================================================
+' The bars: lay out, draw, hit-test and click from the lists
+' =============================================================================
+
+''
+' A command button is lit (not dimmed): both bars' availability rules (each is
+' TRUE for the commands it does not know).
+FUNCTION BL_cmd_enabled% (act AS INTEGER)
+    BL_cmd_enabled% = (EDITBAR_action_enabled%(act) <> 0) _ANDALSO (ADVBAR_action_enabled%(act) <> 0)
+END FUNCTION
+
+
+''
+' Lay out and draw a bar's buttons inside its inner area (x1, width w) between
+' y1 and y2, scrolled up by scrollOff px, in cols icon columns (more when the
+' area is wider: the column flow). Icons flow left to right; a divider ends
+' the row. Only whole icons are drawn. Records each entry's rect for
+' BL_bar_hit%. Returns the content height (for scrolling).
+FUNCTION BL_bar_draw% (panel AS INTEGER, x1 AS INTEGER, w AS INTEGER, y1 AS INTEGER, y2 AS INTEGER, scrollOff AS INTEGER, cols AS INTEGER, hoverIdx AS INTEGER)
+    DIM i AS INTEGER, padding AS INTEGER, curY AS INTEGER, contentH AS INTEGER
+    DIM barCols AS INTEGER, barColW AS INTEGER, colK AS INTEGER, rowH AS INTEGER
+    DIM img AS LONG, dimg AS LONG, iconW AS INTEGER, iconH AS INTEGER, iconX AS INTEGER, lit AS INTEGER
+    BL_ensure panel
+    padding = THEME.EDIT_BAR_ICON_PADDING%
+    curY = y1 + 1 + padding - scrollOff ' just below the top edge
+    barColW = THEME.EDIT_BAR_WIDTH%
+    barCols = cols
+    IF barColW > 0 _ANDALSO w \ barColW > barCols THEN barCols = w \ barColW
+    IF barCols < 1 THEN barCols = 1
+    FOR i = 0 TO BL_N(panel) - 1
+        BL(panel, i).x = 0: BL(panel, i).y = 0: BL(panel, i).w = 0: BL(panel, i).h = 0
+        IF BL(panel, i).kind = BL_DIV THEN
+            IF colK > 0 THEN
+                curY = curY + rowH + padding: contentH = contentH + rowH + padding
+                colK = 0: rowH = 0
+            END IF
+            curY = curY + THEME.EDIT_BAR_DIVIDER_VERT_MARGIN%
+            contentH = contentH + THEME.EDIT_BAR_DIVIDER_VERT_MARGIN%
+            _CONTINUE
+        END IF
+        img = 0: dimg = 0: lit = TRUE
+        IF BL(panel, i).kind = BL_CMD THEN
+            img = BL_cmd_icon&(BL(panel, i).id, FALSE)
+            dimg = BL_cmd_icon&(BL(panel, i).id, TRUE)
+            lit = BL_cmd_enabled%(BL(panel, i).id)
+        END IF
+        IF img < -1 THEN
+            iconW = _WIDTH(img): iconH = _HEIGHT(img)
+        ELSE
+            iconW = 16: iconH = 16
+        END IF
+        iconX = x1 + colK * barColW + (barColW - iconW) \ 2
+        IF iconH > rowH THEN rowH = iconH
+        ' only whole icons: a partial one would spill past the panel's rect
+        IF curY >= y1 _ANDALSO curY + iconH - 1 <= y2 _ANDALSO BL(panel, i).kind <> BL_GAP THEN
+            BL(panel, i).x = iconX: BL(panel, i).y = curY: BL(panel, i).w = iconW: BL(panel, i).h = iconH
+            IF lit = 0 _ANDALSO dimg < -1 THEN
+                _PUTIMAGE (iconX, curY), dimg
+            ELSEIF img < -1 THEN
+                _PUTIMAGE (iconX, curY), img
+            END IF
+            ' the shared Edge-Mode button shows "AA" when its target is Anti-Aliasing
+            IF BL(panel, i).kind = BL_CMD _ANDALSO BL(panel, i).id = 959 _ANDALSO EDGE_MODE_TARGET = EDGE_TARGET_AA THEN EDITBAR_draw_aa_badge iconX, curY, iconW, iconH
+            IF lit _ANDALSO i = hoverIdx THEN LINE (iconX - 1, curY - 1)-(iconX + iconW, curY + iconH), THEME.EDIT_BAR_ICON_MOUSE_OUTLINE_COLOR~&, B
+        END IF
+        colK = colK + 1
+        IF colK >= barCols THEN
+            curY = curY + rowH + padding: contentH = contentH + rowH + padding
+            colK = 0: rowH = 0
+        END IF
+    NEXT i
+    IF colK > 0 THEN contentH = contentH + rowH + padding
+    BL_bar_draw% = contentH
+END FUNCTION
+
+
+''
+' The bar entry (a button) under (mx, my), -1 = none.
+FUNCTION BL_bar_hit% (panel AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    DIM i AS INTEGER
+    BL_bar_hit% = -1
+    FOR i = 0 TO BL_N(panel) - 1
+        IF BL(panel, i).w > 0 _ANDALSO (BL(panel, i).kind = BL_CMD _ORELSE BL(panel, i).kind = BL_TOOL) THEN
+            IF mx >= BL(panel, i).x _ANDALSO mx < BL(panel, i).x + BL(panel, i).w _ANDALSO my >= BL(panel, i).y _ANDALSO my < BL(panel, i).y + BL(panel, i).h THEN BL_bar_hit% = i: EXIT FUNCTION
+        END IF
+    NEXT i
+END FUNCTION
+
+
+''
+' Entry i of panel is lit (hover sound / outline): a lit command, or a tool.
+FUNCTION BL_entry_lit% (panel AS INTEGER, i AS INTEGER)
+    IF i < 0 _ORELSE i >= BL_N(panel) THEN EXIT FUNCTION
+    SELECT CASE BL(panel, i).kind
+        CASE BL_CMD: BL_entry_lit% = BL_cmd_enabled%(BL(panel, i).id)
+        CASE BL_TOOL: BL_entry_lit% = TRUE
+    END SELECT
+END FUNCTION
+
+
+''
+' A click on entry i of panel.
+SUB BL_bar_click (panel AS INTEGER, i AS INTEGER)
+    IF i < 0 _ORELSE i >= BL_N(panel) THEN EXIT SUB
+    SELECT CASE BL(panel, i).kind
+        CASE BL_CMD: CMD_execute_action BL(panel, i).id
+    END SELECT
+END SUB
+
+
+''
+' A right-click on entry i of panel: only the shared Edge-Mode button has one
+' (it switches its target Pixel-Perfect <-> Anti-Aliasing, action 960).
+SUB BL_bar_right_click (panel AS INTEGER, i AS INTEGER)
+    IF i < 0 _ORELSE i >= BL_N(panel) THEN EXIT SUB
+    IF BL(panel, i).kind = BL_CMD _ANDALSO BL(panel, i).id = 959 THEN CMD_execute_action 960
+END SUB

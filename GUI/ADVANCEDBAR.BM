@@ -267,95 +267,8 @@ SUB ADVBAR_render ()
     DIM innerW  AS INTEGER
     innerW% = innerX2% - innerX1% + 1
 
-    curY% = abY1% + 1 + padding% - ADV_BAR.scrollOffset% ' Start just below top edge
-
-    ' Track total content height for scroll clamping
-    DIM abContentH AS INTEGER
-    abContentH% = 0
-
-    ' Icons flow left to right in ADVBAR_cols% columns (a divider starts a new row)
-    DIM barCols AS INTEGER, barColW AS INTEGER, colK AS INTEGER, rowH AS INTEGER
-    barColW% = THEME.EDIT_BAR_WIDTH%
-    barCols% = ADVBAR_cols%
-    ' in a slot wider than the bar's own columns, fill it with more columns
-    IF barColW% > 0 _ANDALSO innerW% \ barColW% > barCols% THEN barCols% = innerW% \ barColW%
-    colK% = 0: rowH% = 0
-
-    FOR i% = 0 TO ADVBAR_TOTAL_SLOTS - 1
-        ' Filtered out by a workspace: no space, no hit box
-        IF ADVBAR_SHOW(i%) = 0 THEN
-            ADV_BAR_ITEMS(i%).w% = 0
-            ADV_BAR_ITEMS(i%).h% = 0
-            GOTO ADVBAR_render_next_item
-        END IF
-        IF ADV_BAR_ITEMS(i%).isDivider% THEN
-            ' Add vertical spacing for divider
-            IF colK% > 0 THEN
-                curY% = curY% + rowH% + padding%
-                abContentH% = abContentH% + rowH% + padding%
-                colK% = 0: rowH% = 0
-            END IF
-            curY% = curY% + THEME.EDIT_BAR_DIVIDER_VERT_MARGIN%
-            abContentH% = abContentH% + THEME.EDIT_BAR_DIVIDER_VERT_MARGIN%
-            GOTO ADVBAR_render_next_item
-        END IF
-
-        ' Determine icon dimensions
-        IF ADV_BAR_ITEMS(i%).iconHandle& < -1 THEN
-            iconW% = _WIDTH(ADV_BAR_ITEMS(i%).iconHandle&)
-            iconH% = _HEIGHT(ADV_BAR_ITEMS(i%).iconHandle&)
-        ELSE
-            iconW% = 16
-            iconH% = 16
-        END IF
-
-        ' Center icon horizontally within its column
-        iconX% = innerX1% + colK% * barColW% + (barColW% - iconW%) \ 2
-        IF iconH% > rowH% THEN rowH% = iconH%
-
-        ' Clip items fully outside the visible panel band — zero out hit box so
-        ' hit-test ignores them, but still advance curY for proper layout.
-        IF curY% < abY1% OR curY% + iconH% - 1 > abY2% THEN ' only whole icons: a partial one would spill past the panel's rect
-            ADV_BAR_ITEMS(i%).x% = 0
-            ADV_BAR_ITEMS(i%).y% = 0
-            ADV_BAR_ITEMS(i%).w% = 0
-            ADV_BAR_ITEMS(i%).h% = 0
-            GOTO ADVBAR_advance_col
-        END IF
-
-        ' Store position for hit testing
-        ADV_BAR_ITEMS(i%).x% = iconX%
-        ADV_BAR_ITEMS(i%).y% = curY%
-        ADV_BAR_ITEMS(i%).w% = iconW%
-        ADV_BAR_ITEMS(i%).h% = iconH%
-
-        ' Draw icon (use pre-computed dimmed copy when disabled)
-        DIM ab_enabled AS INTEGER
-        ab_enabled% = ADVBAR_action_enabled%(ADV_BAR_ITEMS(i%).actionID%)
-        IF NOT ab_enabled% AND ADV_BAR_ITEMS(i%).disabledHandle& < -1 THEN
-            _PUTIMAGE (iconX%, curY%), ADV_BAR_ITEMS(i%).disabledHandle&
-        ELSEIF ADV_BAR_ITEMS(i%).iconHandle& < -1 THEN
-            _PUTIMAGE (iconX%, curY%), ADV_BAR_ITEMS(i%).iconHandle&
-        END IF
-
-        ' Draw hover/click outline (suppressed on disabled items)
-        IF ab_enabled% AND i% = ADV_BAR.hoverIndex% THEN
-            LINE (iconX% - 1, curY% - 1)-(iconX% + iconW%, curY% + iconH%), THEME.EDIT_BAR_ICON_MOUSE_OUTLINE_COLOR~&, B
-        END IF
-
-        ADVBAR_advance_col:
-        colK% = colK% + 1
-        IF colK% >= barCols% THEN
-            curY% = curY% + rowH% + padding%
-            abContentH% = abContentH% + rowH% + padding%
-            colK% = 0: rowH% = 0
-        END IF
-
-        ADVBAR_render_next_item:
-    NEXT i%
-    IF colK% > 0 THEN abContentH% = abContentH% + rowH% + padding%
-
-    ADV_BAR.contentH% = abContentH%
+    ' the buttons, in the order of the advanced bar's list (GUI/BUTTON-LIST)
+    ADV_BAR.contentH% = BL_bar_draw%(BL_ADVBAR, innerX1%, innerW%, abY1%, abY2%, ADV_BAR.scrollOffset%, ADVBAR_cols%, ADV_BAR.hoverIndex%)
 END SUB
 
 
@@ -380,13 +293,7 @@ END SUB
 ' @param rawY INTEGER Raw screen Y
 '
 SUB ADVBAR_handle_click (rawX AS INTEGER, rawY AS INTEGER)
-    DIM idx AS INTEGER
-    idx% = ADVBAR_hit_test%(rawX%, rawY%)
-    IF idx% >= 0 THEN
-        IF NOT ADV_BAR_ITEMS(idx%).isDivider% THEN
-            CMD_execute_action ADV_BAR_ITEMS(idx%).actionID%
-        END IF
-    END IF
+    BL_bar_click BL_ADVBAR, ADVBAR_hit_test%(rawX%, rawY%)
 END SUB
 
 
@@ -410,9 +317,7 @@ SUB ADVBAR_update_hover (rawX AS INTEGER, rawY AS INTEGER)
     IF newHover% <> oldHover% THEN
         ADV_BAR.hoverIndex% = newHover%
         IF newHover% >= 0 THEN
-            IF ADVBAR_action_enabled%(ADV_BAR_ITEMS(newHover%).actionID%) THEN
-                SOUND_play SND_MENU_HOVER
-            END IF
+            IF BL_entry_lit%(BL_ADVBAR, newHover%) THEN SOUND_play SND_MENU_HOVER
         END IF
         GUI_NEEDS_REDRAW% = TRUE
         FRAME_IDLE%       = FALSE
@@ -446,23 +351,7 @@ END FUNCTION
 ' @return INTEGER Item index (0-32) or -1
 '
 FUNCTION ADVBAR_hit_test% (mouseX AS INTEGER, mouseY AS INTEGER)
-    DIM i AS INTEGER
-    ADVBAR_hit_test% = -1
-
-    FOR i% = 0 TO ADVBAR_TOTAL_SLOTS - 1
-        IF ADV_BAR_ITEMS(i%).isDivider% THEN GOTO ADVBAR_hit_next
-        IF ADV_BAR_ITEMS(i%).w% = 0 THEN GOTO ADVBAR_hit_next
-
-        IF mouseX% >= ADV_BAR_ITEMS(i%).x% AND _
-           mouseX% < ADV_BAR_ITEMS(i%).x% + ADV_BAR_ITEMS(i%).w% AND _
-           mouseY% >= ADV_BAR_ITEMS(i%).y% AND _
-           mouseY% < ADV_BAR_ITEMS(i%).y% + ADV_BAR_ITEMS(i%).h% THEN
-            ADVBAR_hit_test% = i%
-            EXIT FUNCTION
-        END IF
-
-        ADVBAR_hit_next:
-    NEXT i%
+    ADVBAR_hit_test% = BL_bar_hit%(BL_ADVBAR, mouseX%, mouseY%) ' an entry of the advanced bar's list
 END FUNCTION
 
 
