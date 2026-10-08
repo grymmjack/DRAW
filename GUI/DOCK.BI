@@ -201,3 +201,12 @@ TYPE DOCK_RZ_OBJ
     h0    AS INTEGER
 END TYPE
 DIM SHARED DOCK_RZ AS DOCK_RZ_OBJ
+
+' --- test hook ----------------------------------------------------------------
+' DOCK_DUMP=<path> (--option only; never saved): DOCK_layout writes the live tree,
+' every column / slot rect and every panel's rect + handle rect to <path> when
+' they change, with a sequence number - the QA dock tests read it to find where
+' to grab and drop (QA/dock-lib.sh).
+DIM SHARED DOCK_DUMP_PATH AS STRING
+DIM SHARED DOCK_DUMP_LAST AS STRING
+DIM SHARED DOCK_DUMP_SEQ AS LONG
