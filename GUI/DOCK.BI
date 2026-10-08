@@ -184,3 +184,15 @@ CONST DOCK_TGT_FLOAT  = 4 ' a floating window (P5)
 CONST DOCK_MIN_CANVAS_W = 160 ' narrower than this and the outermost dock columns hide (small windows)
 CONST DOCK_EDGE_ZONE  = 16 ' px from a screen edge / column side that means "new column here"
 CONST DOCK_DRAG_START = 5  ' px the pointer travels before a press on a handle becomes a move
+CONST DOCK_FLOAT_GRIP_H = 6 ' a floating thin bar's handle: a grip strip, no title (the title wouldn't fit)
+CONST DOCK_FLOAT_EDGE = 3   ' px inside a floating panel's right / bottom border that resize it
+' resizing a floating panel by its right / bottom edge or corner
+TYPE DOCK_RZ_OBJ
+    id    AS INTEGER ' panel being resized (0 = none)
+    edge  AS INTEGER ' 1 = right, 2 = bottom, 3 = corner
+    x0    AS INTEGER
+    y0    AS INTEGER
+    w0    AS INTEGER
+    h0    AS INTEGER
+END TYPE
+DIM SHARED DOCK_RZ AS DOCK_RZ_OBJ

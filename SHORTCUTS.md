@@ -485,6 +485,7 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 | `R-Click` a handle | Move to Left / Right Edge · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement |
 | `L-Drag` a floating window's title bar onto a dock target | Dock it (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Browser) |
 | `Dbl-Click` a floating panel's title | Dock it back where it was |
+| `L-Drag` a floating panel's right / bottom edge or corner | Resize it (a floating bar adds icon columns as it widens). Floating bars have a slim grip strip instead of a title |
 | `R-Click` (while dragging) | Cancel the move |
 
 Arrangements save to the active workspace (or `DRAW.cfg` in Default); a workspace keeps them in `[DOCK]` / `[FLOAT]`.

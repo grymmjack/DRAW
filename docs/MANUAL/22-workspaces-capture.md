@@ -82,6 +82,7 @@ Pressure and Browser windows.
 **The handle** is what you grab:
 - a panel with a title strip (a tab, a collapsed slot, a docked window): the strip;
 - the layers panel: its header;
+- a floating edit bar or advanced bar: the slim grip strip on top (they are too narrow for a title);
 - the toolbox, organizer, drawer and bars, which have no title: hover the panel's
   **top edge** and a thin grip appears.
 
@@ -97,6 +98,7 @@ Pressure and Browser windows.
 | **Click the chevron**, or **double-click a title** | Collapses the slot to its title strip; its height goes to the others |
 | **Click a collapsed title** | Opens it again (click one of its tabs to open on that tab) |
 | **Double-click a floating panel's title** | Docks it back where it was |
+| **Drag a floating panel's right or bottom edge, or its corner** | Resizes it; a bar adds icon columns as it gets wider |
 | **Right-click a handle** | Move to Left Edge / Move to Right Edge, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement |
 
 The floating windows (Preview, Color Mixer, Advanced Color Picker, 3D Color

@@ -549,7 +549,7 @@ SUB DOCK_place_floats (barY1 AS INTEGER, dockY2 AS INTEGER)
         IF DPANEL(id).fl _ANDALSO DPANEL(id).slot = 0 _ANDALSO DPANEL(id).floats = 0 THEN
             IF DOCK_panel_shown%(id) THEN
                 DOCK_float_clamp id, barY1, dockY2
-                DOCK_apply_rect id, DPANEL(id).fx + 1, DPANEL(id).fy + DOCK_TITLE_H, DPANEL(id).fw - 2, DPANEL(id).fh - DOCK_TITLE_H - 1
+                DOCK_apply_rect id, DPANEL(id).fx + 1, DPANEL(id).fy + DOCK_float_title_h%(id), DPANEL(id).fw - 2, DPANEL(id).fh - DOCK_float_title_h%(id) - 1
             END IF
         END IF
     NEXT id
@@ -560,7 +560,7 @@ SUB DOCK_float_clamp (id AS INTEGER, barY1 AS INTEGER, dockY2 AS INTEGER)
     DIM minW AS INTEGER
     minW = DOCK_panel_w%(id) + 2
     IF DPANEL(id).fw < minW THEN DPANEL(id).fw = minW
-    IF DPANEL(id).fh < DOCK_TITLE_H + 24 THEN DPANEL(id).fh = DOCK_TITLE_H + 24
+    IF DPANEL(id).fh < DOCK_float_title_h%(id) + 24 THEN DPANEL(id).fh = DOCK_float_title_h%(id) + 24
     IF DPANEL(id).fw > DOCK_RX - DOCK_LX + 1 THEN DPANEL(id).fw = DOCK_RX - DOCK_LX + 1
     IF DPANEL(id).fh > dockY2 - barY1 + 1 THEN DPANEL(id).fh = dockY2 - barY1 + 1
     IF DPANEL(id).fx < DOCK_LX THEN DPANEL(id).fx = DOCK_LX
@@ -1073,7 +1073,7 @@ SUB DOCK_drop_target (mx AS INTEGER, my AS INTEGER)
     IF mx >= DOCK_LX + DOCK_EDGE_ZONE _ANDALSO mx <= DOCK_RX - DOCK_EDGE_ZONE THEN
         DOCK_UI.tgtKind = DOCK_TGT_FLOAT
         DOCK_UI.tgtX = mx - 8: DOCK_UI.tgtY = my - 4
-        DOCK_UI.tgtW = DOCK_panel_w%(mv) + 2: DOCK_UI.tgtH = _MIN(260, _MAX(60, DPANEL(mv).rh)) + DOCK_TITLE_H + 1
+        DOCK_UI.tgtW = DOCK_panel_w%(mv) + 2: DOCK_UI.tgtH = DOCK_float_content_h%(mv) + DOCK_float_title_h%(mv) + 1
         EXIT SUB
     END IF
     IF mx >= DOCK_LX _ANDALSO mx < DOCK_LX + DOCK_EDGE_ZONE THEN
@@ -1412,6 +1412,102 @@ END SUB
 ' Floating docked panels (P5): float, move, dock back
 ' =============================================================================
 
+''
+' Height of a floating panel's handle strip: a grip for the thin bars (and
+' anything too narrow for its title), a title bar for the rest.
+FUNCTION DOCK_float_title_h% (id AS INTEGER)
+    IF id = DP_EDITBAR _ORELSE id = DP_ADVBAR _ORELSE DPANEL(id).fw < 64 THEN
+        DOCK_float_title_h% = DOCK_FLOAT_GRIP_H
+    ELSE
+        DOCK_float_title_h% = DOCK_TITLE_H
+    END IF
+END FUNCTION
+
+
+''
+' Content height a panel floats at: a bar shows all its icons, anything else
+' its docked height within 60..260 px (the work-area clamp trims either).
+FUNCTION DOCK_float_content_h% (id AS INTEGER)
+    DIM h AS INTEGER
+    SELECT CASE id
+        CASE DP_EDITBAR: h = EDIT_BAR.contentH% + THEME.EDIT_BAR_ICON_PADDING% + 2
+        CASE DP_ADVBAR: h = ADV_BAR.contentH% + THEME.EDIT_BAR_ICON_PADDING% + 2
+        CASE ELSE: h = _MIN(260, _MAX(60, DPANEL(id).rh))
+    END SELECT
+    IF h < 60 THEN h = 60
+    DOCK_float_content_h% = h
+END FUNCTION
+
+
+''
+' The resize edge of a floating panel under (mx, my): 1 right, 2 bottom,
+' 3 corner, 0 none; id = the panel.
+FUNCTION DOCK_float_edge_at% (mx AS INTEGER, my AS INTEGER, id AS INTEGER)
+    DIM i AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, e AS INTEGER
+    IF DOCK_ui_busy% THEN EXIT FUNCTION
+    SELECT CASE REGION_hit_test%(mx, my) ' inert under menus, popups and native windows
+        CASE REGION_GLOBAL, REGION_CANVAS, REGION_TOOLBAR, REGION_ORGANIZER, REGION_DRAWER, _
+             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP
+        CASE ELSE: EXIT FUNCTION
+    END SELECT
+    FOR i = DP_COUNT TO 1 STEP -1
+        IF DOCK_floating%(i) _ANDALSO DPANEL(i).rVis THEN
+            x2 = DPANEL(i).fx + DPANEL(i).fw - 1: y2 = DPANEL(i).fy + DPANEL(i).fh - 1
+            IF mx >= DPANEL(i).fx _ANDALSO mx <= x2 + 1 _ANDALSO my >= DPANEL(i).fy _ANDALSO my <= y2 + 1 THEN
+                e = 0
+                IF mx >= x2 - DOCK_FLOAT_EDGE + 1 THEN e = 1
+                IF my >= y2 - DOCK_FLOAT_EDGE + 1 THEN e = e + 2
+                IF e = 1 _ANDALSO my < DPANEL(i).fy + DOCK_float_title_h%(i) THEN e = 0 ' the title bar moves it
+                id = i
+                DOCK_float_edge_at% = e
+                EXIT FUNCTION ' the topmost panel under the pointer decides
+            END IF
+        END IF
+    NEXT i
+END FUNCTION
+
+
+''
+' DOCK_handle_mouse%: grab / drag / drop a floating panel's resize edge.
+FUNCTION DOCK_handle_float_resize% (mx AS INTEGER, my AS INTEGER)
+    DIM e AS INTEGER, id AS INTEGER
+    IF DOCK_RZ.id THEN
+        id = DOCK_RZ.id
+        IF DOCK_RZ.edge AND 1 THEN DPANEL(id).fw = DOCK_RZ.w0 + mx - DOCK_RZ.x0
+        IF DOCK_RZ.edge AND 2 THEN DPANEL(id).fh = DOCK_RZ.h0 + my - DOCK_RZ.y0
+        DOCK_redraw
+        IF MOUSE.B1% = 0 THEN
+            DOCK_RZ.id = 0
+            DOCK_change_begin
+            DOCK_change_commit ""
+        END IF
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        DOCK_handle_float_resize% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0 THEN
+        e = DOCK_float_edge_at%(mx, my, id)
+        IF e THEN
+            DOCK_RZ.id = id: DOCK_RZ.edge = e
+            DOCK_RZ.x0 = mx: DOCK_RZ.y0 = my
+            DOCK_RZ.w0 = DPANEL(id).fw: DOCK_RZ.h0 = DPANEL(id).fh
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            DOCK_handle_float_resize% = TRUE
+        END IF
+    END IF
+END FUNCTION
+
+
+''
+' POINTER_build: the resize edge under the pointer (or being dragged), 0 = none.
+FUNCTION DOCK_float_cursor_edge% (mx AS INTEGER, my AS INTEGER)
+    DIM id AS INTEGER
+    IF DOCK_RZ.id THEN DOCK_float_cursor_edge% = DOCK_RZ.edge: EXIT FUNCTION
+    IF MOUSE.B1% _ORELSE MOUSE.B2% _ORELSE MOUSE.B3% THEN EXIT FUNCTION
+    DOCK_float_cursor_edge% = DOCK_float_edge_at%(mx, my, id)
+END FUNCTION
+
+
 FUNCTION DOCK_floating% (id AS INTEGER)
     DOCK_floating% = (DPANEL(id).fl <> 0 _ANDALSO DPANEL(id).slot = 0 _ANDALSO DPANEL(id).floats = 0)
 END FUNCTION
@@ -1420,7 +1516,7 @@ END FUNCTION
 ''
 ' Render pass: the frame + title bar of each floating docked panel.
 SUB DOCK_render_floats ()
-    DIM id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, th AS INTEGER, gx AS INTEGER
     DIM oldDest AS LONG, oldFont AS LONG
     oldDest& = _DEST: oldFont& = _FONT
     _DEST SCRN.GUI&
@@ -1428,13 +1524,26 @@ SUB DOCK_render_floats ()
     FOR id = 1 TO DP_COUNT
         IF DOCK_floating%(id) _ANDALSO DPANEL(id).rVis THEN
             x = DPANEL(id).fx: y = DPANEL(id).fy: w = DPANEL(id).fw: h = DPANEL(id).fh
-            LINE (x, y)-(x + w - 1, y + DOCK_TITLE_H - 1), THEME.LAYER_PANEL_header_bg~&, BF
+            th = DOCK_float_title_h%(id)
+            LINE (x, y)-(x + w - 1, y + th - 1), THEME.LAYER_PANEL_header_bg~&, BF
             LINE (x, y)-(x + w - 1, y + h - 1), THEME.LAYER_PANEL_border~&, B
-            COLOR THEME.LAYER_PANEL_header_fg~&, _RGBA32(0, 0, 0, 0)
-            _PRINTMODE _KEEPBACKGROUND
-            _UPRINTSTRING (x + 3, y + 1), DPANEL(id).title
-            ' a "dock" mark at the right: double-click the title to dock back
-            _UPRINTSTRING (x + w - 8, y + 1), "#"
+            IF th = DOCK_FLOAT_GRIP_H THEN
+                ' a thin bar: a grip, no title (drag it; double-click docks it back)
+                FOR gx = x + w \ 2 - 6 TO x + w \ 2 + 6 STEP 3
+                    PSET (gx, y + 2), THEME.LAYER_PANEL_header_fg~&
+                    PSET (gx, y + 4), THEME.LAYER_PANEL_header_fg~&
+                NEXT gx
+            ELSE
+                COLOR THEME.LAYER_PANEL_header_fg~&, _RGBA32(0, 0, 0, 0)
+                _PRINTMODE _KEEPBACKGROUND
+                _UPRINTSTRING (x + 3, y + 1), DPANEL(id).title
+                ' a "dock" mark at the right: double-click the title to dock back
+                _UPRINTSTRING (x + w - 8, y + 1), "#"
+            END IF
+            ' resize grip in the bottom-right corner
+            PSET (x + w - 3, y + h - 3), THEME.LAYER_PANEL_header_fg~&
+            PSET (x + w - 5, y + h - 3), THEME.LAYER_PANEL_header_fg~&
+            PSET (x + w - 3, y + h - 5), THEME.LAYER_PANEL_header_fg~&
         END IF
     NEXT id
     _FONT oldFont&: _DEST oldDest&
@@ -1447,7 +1556,7 @@ FUNCTION DOCK_float_title_at% (mx AS INTEGER, my AS INTEGER)
     DIM id AS INTEGER
     FOR id = DP_COUNT TO 1 STEP -1
         IF DOCK_floating%(id) _ANDALSO DPANEL(id).rVis THEN
-            IF mx >= DPANEL(id).fx _ANDALSO mx < DPANEL(id).fx + DPANEL(id).fw _ANDALSO my >= DPANEL(id).fy _ANDALSO my < DPANEL(id).fy + DOCK_TITLE_H THEN DOCK_float_title_at% = id: EXIT FUNCTION
+            IF mx >= DPANEL(id).fx _ANDALSO mx < DPANEL(id).fx + DPANEL(id).fw _ANDALSO my >= DPANEL(id).fy _ANDALSO my < DPANEL(id).fy + DOCK_float_title_h%(id) THEN DOCK_float_title_at% = id: EXIT FUNCTION
         END IF
     NEXT id
 END FUNCTION
@@ -1464,15 +1573,14 @@ SUB DOCK_float_panel (id AS INTEGER, x AS INTEGER, y AS INTEGER)
         DPANEL(id).hslot = DOCK_SLOT(s).ord
         DPANEL(id).halone = (DOCK_slot_at%(DOCK_SLOT(s).col, 2) = 0)
     END IF
-    w = DPANEL(id).rw: h = DPANEL(id).rh
+    w = DPANEL(id).rw: h = DOCK_float_content_h%(id)
     IF w < DOCK_panel_w%(id) THEN w = DOCK_panel_w%(id)
-    IF h < 60 THEN h = 60
-    IF h > 260 THEN h = 260
+    IF id = DP_EDITBAR _ORELSE id = DP_ADVBAR THEN w = DOCK_panel_w%(id) ' its own columns, not the column it shared
     DOCK_change_begin
     DOCK_detach_panel id
     DPANEL(id).fl = TRUE
     DPANEL(id).fx = x: DPANEL(id).fy = y
-    DPANEL(id).fw = w + 2: DPANEL(id).fh = h + DOCK_TITLE_H + 1
+    DPANEL(id).fw = w + 2: DPANEL(id).fh = h + DOCK_float_title_h%(id) + 1
     DOCK_change_commit DPANEL(id).title + " floating (double-click its title to dock it back)"
 END SUB
 

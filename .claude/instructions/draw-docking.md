@@ -48,6 +48,10 @@ They keep their own look and code; a `docked` field switches them over:
 - Floating, the window's own title drag calls `DOCK_native_drag` (targets + preview) and `DOCK_native_drag_end%` on release (docks if over a target).
 - `DOCK_native_undock` restores the floating size and saves the position to its CFG keys. The Browser keeps its floating size in `CFG.BROWSER_WIDTH/HEIGHT` — every write of those is guarded with `docked = 0` so the slot size never overwrites it.
 
+## Float host (docked panels floating)
+
+`DOCK_place_floats` hands the panel `(fx+1, fy+th, fw-2, fh-th-1)`, `th = DOCK_float_title_h%`: a 6px grip strip (`DOCK_FLOAT_GRIP_H`) for the edit / advanced bars and anything under 64px wide (a title wouldn't fit), else the 11px title bar. A floated bar opens at its own column width and `contentH` tall (`DOCK_float_content_h%`); `DOCK_float_clamp` keeps it in the work area. The bars draw only **whole** icons (a partial one spilled past the rect).
+
 ## Interaction
 
 | Gesture | Code |
@@ -58,6 +62,7 @@ They keep their own look and code; a `docked` field switches them over:
 | Drag a handle (5px threshold) → drop on an edge / between columns (new column), a slot's top/bottom third (split), middle (tab), elsewhere (float) | `DOCK_handle_move%`, `DOCK_drop_target`, `DOCK_drop_apply`, `DOCK_move_render` |
 | Click a tab / chevron, double-click a title | `DOCK_title_click`, `DOCK_toggle_collapse` |
 | Double-click a floating title / Dock Back | `DOCK_dock_back` (`halone` → its own column again) |
+| Drag a floating panel's right / bottom edge or corner | `DOCK_handle_float_resize%` (`DOCK_RZ`, `DOCK_float_edge_at%` — region-guarded like the handles; cursor via `DOCK_float_cursor_edge%` in `POINTER_build`) |
 
 Every tree change: `DOCK_change_begin` … `DOCK_change_commit msg` (saves to the
 active workspace via `WSC_save_dock`, else `CONFIG_save`).
