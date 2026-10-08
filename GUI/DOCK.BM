@@ -1082,6 +1082,22 @@ SUB DOCK_drop_target (mx AS INTEGER, my AS INTEGER)
                         EXIT SUB
                     END IF
                 NEXT o
+                ' below its last panel (the column's empty rest): stack at the bottom
+                DIM lastS AS INTEGER, lastY AS INTEGER
+                lastS = 0: lastY = DOCK_COL(c).y
+                FOR o = 1 TO DOCK_MAX_SLOTS
+                    s = DOCK_slot_at%(c, o)
+                    IF s = 0 THEN EXIT FOR
+                    IF DOCK_SLOT(s).vis THEN lastS = s: lastY = DOCK_SLOT(s).y + DOCK_SLOT(s).h
+                NEXT o
+                IF my >= lastY _ANDALSO my < DOCK_COL(c).y + DOCK_COL(c).h THEN
+                    IF lastS _ANDALSO DOCK_SLOT(lastS).ntabs = 1 _ANDALSO DOCK_TAB(lastS, 1) = mv THEN EXIT SUB ' it is already last
+                    DOCK_UI.tgtKind = DOCK_TGT_SPLIT: DOCK_UI.tgtCol = c
+                    IF lastS THEN DOCK_UI.tgtOrd = DOCK_SLOT(lastS).ord + 1 ELSE DOCK_UI.tgtOrd = 1
+                    DOCK_UI.tgtX = DOCK_COL(c).x: DOCK_UI.tgtW = DOCK_COL(c).w
+                    DOCK_UI.tgtY = lastY: DOCK_UI.tgtH = _MAX(16, DOCK_COL(c).y + DOCK_COL(c).h - lastY)
+                    EXIT SUB
+                END IF
             END IF
         END IF
     NEXT c
@@ -1240,15 +1256,54 @@ END FUNCTION
 
 
 ''
+' After the native windows have drawn on the window (they cover the canvas
+' and every overlay on it): the drop target, the drop label and the handle
+' menu go on top. The label and menu are copied from the canvas; the target is
+' drawn translucent here only (on the canvas it would tint twice). Partial
+' presents are off while these show, so the window is repainted every frame
+' and the translucent fill never builds up.
+SUB DOCK_reblit_to_screen0 ()
+    DIM ds AS INTEGER, k AS INTEGER, x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, oldDest AS LONG, mh AS INTEGER
+    DIM showTgt AS INTEGER
+    showTgt = (DOCK_UI.mvActive <> 0 _ANDALSO DOCK_UI.tgtKind <> DOCK_TGT_NONE)
+    IF showTgt = 0 _ANDALSO DOCK_UI.menuOpen = 0 THEN EXIT SUB
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    oldDest& = _DEST
+    _DEST 0
+    IF showTgt THEN
+        x1 = CLNG(DOCK_UI.tgtX) * ds: y1 = CLNG(DOCK_UI.tgtY) * ds
+        x2 = CLNG(DOCK_UI.tgtX + DOCK_UI.tgtW) * ds - 1: y2 = CLNG(DOCK_UI.tgtY + DOCK_UI.tgtH) * ds - 1
+        LINE (x1, y1)-(x2, y2), _RGBA32(80, 160, 255, 80), BF
+        FOR k = 0 TO ds - 1
+            LINE (x1 + k, y1 + k)-(x2 - k, y2 - k), _RGBA32(120, 190, 255, 230), B
+        NEXT k
+        IF DOCK_UI.lbW > 0 THEN DOCK_reblit_rect DOCK_UI.lbX, DOCK_UI.lbY, DOCK_UI.lbW, DOCK_UI.lbH, ds
+    END IF
+    IF DOCK_UI.menuOpen THEN
+        mh = DOCK_UI.menuN * DOCK_MENU_ITEM_H
+        DOCK_reblit_rect DOCK_UI.menuX - 2, DOCK_UI.menuY - 2, DOCK_UI.menuW + 6, mh + 8, ds
+    END IF
+    _DEST oldDest&
+END SUB
+
+
+SUB DOCK_reblit_rect (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, ds AS INTEGER)
+    DIM x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER
+    x1 = _MAX(0, x): y1 = _MAX(0, y)
+    x2 = _MIN(SCRN.w& - 1, x + w - 1): y2 = _MIN(SCRN.h& - 1, y + h - 1)
+    IF x2 < x1 _ORELSE y2 < y1 THEN EXIT SUB
+    _PUTIMAGE (CLNG(x1) * ds, CLNG(y1) * ds)-(CLNG(x2 + 1) * ds - 1, CLNG(y2 + 1) * ds - 1), SCRN.CANVAS&, 0, (x1, y1)-(x2, y2)
+END SUB
+
+
+''
 ' Overlay: the drop preview while a panel is being moved.
 SUB DOCK_move_render ()
     DIM lbl AS STRING, tx AS INTEGER, ty AS INTEGER
     IF DOCK_UI.mvActive = 0 THEN EXIT SUB
     IF DOCK_UI.mvNative _ANDALSO DOCK_UI.tgtKind = DOCK_TGT_NONE THEN EXIT SUB ' an ordinary window drag
-    IF DOCK_UI.tgtKind <> DOCK_TGT_NONE THEN
-        LINE (DOCK_UI.tgtX, DOCK_UI.tgtY)-(DOCK_UI.tgtX + DOCK_UI.tgtW - 1, DOCK_UI.tgtY + DOCK_UI.tgtH - 1), _RGBA32(80, 160, 255, 80), BF
-        LINE (DOCK_UI.tgtX, DOCK_UI.tgtY)-(DOCK_UI.tgtX + DOCK_UI.tgtW - 1, DOCK_UI.tgtY + DOCK_UI.tgtH - 1), _RGBA32(120, 190, 255, 220), B
-    END IF
+    ' the target rect itself is drawn by DOCK_reblit_to_screen0, on the window
+    ' after the native windows (it may lie over one: a docked Color Mixer)
     lbl = DPANEL(DOCK_UI.mvPanel).title
     SELECT CASE DOCK_UI.tgtKind
         CASE DOCK_TGT_NEWCOL: lbl = lbl + ": new column"
@@ -1290,6 +1345,7 @@ SUB DOCK_move_render ()
         IF k = 12 _ORELSE DOCK_label_clear%(cx - 3, cy - 2, lw, lh) THEN EXIT FOR
     NEXT k
     LINE (tx - 3, ty - 2)-(tx + _UPRINTWIDTH(lbl) + 2, ty + _UFONTHEIGHT + 1), _RGBA32(20, 24, 32, 230), BF
+    DOCK_UI.lbX = tx - 3: DOCK_UI.lbY = ty - 2: DOCK_UI.lbW = _UPRINTWIDTH(lbl) + 6: DOCK_UI.lbH = _UFONTHEIGHT + 4
     COLOR _RGB32(230, 235, 245), 0
     _PRINTMODE _KEEPBACKGROUND
     _UPRINTSTRING (tx, ty), lbl
@@ -1799,6 +1855,9 @@ SUB DOCK_native_drag (id AS INTEGER, mx AS INTEGER, my AS INTEGER)
     DOCK_UI.mvPanel = id
     DOCK_UI.mvNative = TRUE
     DOCK_UI.mvActive = TRUE
+    ' right-click while dragging: no docking this time (as for a docked panel)
+    IF MOUSE.B2% _ANDALSO MOUSE.OLD_B2% = 0 THEN DOCK_UI.mvCancel = TRUE
+    IF DOCK_UI.mvCancel THEN DOCK_UI.tgtKind = DOCK_TGT_NONE: FRAME_IDLE% = FALSE: EXIT SUB
     DOCK_drop_target mx, my
     IF DOCK_UI.tgtKind = DOCK_TGT_FLOAT THEN DOCK_UI.tgtKind = DOCK_TGT_NONE
     FRAME_IDLE% = FALSE
@@ -1810,6 +1869,8 @@ END SUB
 FUNCTION DOCK_native_drag_end% (id AS INTEGER)
     DIM k AS INTEGER
     k = DOCK_UI.tgtKind
+    IF DOCK_UI.mvCancel THEN k = DOCK_TGT_NONE
+    DOCK_UI.mvCancel = FALSE
     DOCK_UI.mvNative = FALSE: DOCK_UI.mvActive = FALSE
     IF DOCK_UI.mvPanel = id _ANDALSO k <> DOCK_TGT_NONE _ANDALSO k <> DOCK_TGT_FLOAT THEN
         DOCK_drop_apply

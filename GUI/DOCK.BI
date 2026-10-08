@@ -172,6 +172,11 @@ TYPE DOCK_UI_OBJ
     tgtY      AS INTEGER
     tgtW      AS INTEGER
     tgtH      AS INTEGER
+    mvCancel  AS INTEGER ' a right-click cancelled docking for this window drag (it just moves)
+    lbX       AS INTEGER ' the drop label as last drawn (re-blitted above the native windows)
+    lbY       AS INTEGER
+    lbW       AS INTEGER
+    lbH       AS INTEGER
 END TYPE
 DIM SHARED DOCK_UI AS DOCK_UI_OBJ
 CONST DOCK_MIN_FLEX_H = 24 ' a flexible slot never shrinks below this by a divider drag
