@@ -285,30 +285,21 @@ END SUB
 ' ---------------------------------------------------------------------------
 FUNCTION FPANEL_free% (selfRegion AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
     DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
-    DIM i AS INTEGER, ox AS INTEGER, oy AS INTEGER, ow AS INTEGER, oh AS INTEGER
-    FPANEL_free% = FALSE
     FPANEL_work_area minX%, minY%, maxX%, maxY%
-    IF w% <= maxX% - minX% THEN
-        IF x% < minX% _ORELSE x% + w% > maxX% THEN EXIT FUNCTION
-    END IF
-    IF h% <= maxY% - minY% THEN
-        IF y% < minY% _ORELSE y% + h% > maxY% THEN EXIT FUNCTION
-    END IF
-    FOR i% = 1 TO FPANEL_FLOAT_COUNT
-        IF FPANEL_other%(selfRegion%, i%, ox%, oy%, ow%, oh%) THEN
-            IF x% < ox% + ow% _ANDALSO x% + w% > ox% _ANDALSO y% < oy% + oh% _ANDALSO y% + h% > oy% THEN EXIT FUNCTION
-        END IF
-    NEXT i%
-    FPANEL_free% = TRUE
+    FPANEL_obstacles selfRegion%
+    FPANEL_free% = LAY_free%(CLNG(x%), CLNG(y%), CLNG(w%), CLNG(h%), CLNG(minX%), CLNG(minY%), CLNG(maxX%), CLNG(maxY%))
 END FUNCTION
 
-' ---------------------------------------------------------------------------
-' FPANEL_snap_try — Keep cand% as the best snap target when it is within
-' FPANEL_SNAP of atPos% and closer than the best so far.
-' ---------------------------------------------------------------------------
-SUB FPANEL_snap_try (atPos AS INTEGER, cand AS INTEGER, best AS INTEGER, bestD AS INTEGER)
-    DIM d AS INTEGER : d% = ABS(cand% - atPos%)
-    IF d% <= FPANEL_SNAP _ANDALSO d% < bestD% THEN best% = cand% : bestD% = d%
+
+''
+' The other shown floating windows as LAY_place obstacles (FPANEL_float_region%
+' order - the order of the candidate search).
+SUB FPANEL_obstacles (selfRegion AS INTEGER)
+    DIM i AS INTEGER, ox AS INTEGER, oy AS INTEGER, ow AS INTEGER, oh AS INTEGER
+    LAY_obst_clear
+    FOR i% = 1 TO FPANEL_FLOAT_COUNT
+        IF FPANEL_other%(selfRegion%, i%, ox%, oy%, ow%, oh%) THEN LAY_obst_add CLNG(ox%), CLNG(oy%), CLNG(ow%), CLNG(oh%)
+    NEXT i%
 END SUB
 
 ' ---------------------------------------------------------------------------
@@ -324,93 +315,14 @@ END SUB
 ' ---------------------------------------------------------------------------
 SUB FPANEL_place (selfRegion AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, prevX AS INTEGER, prevY AS INTEGER)
     ' Locals first: callers pass their own SHARED position fields (gotcha #13).
-    DIM self AS INTEGER : self% = selfRegion%
-    DIM px AS INTEGER, py AS INTEGER, pw AS INTEGER, ph AS INTEGER, ox0 AS INTEGER, oy0 AS INTEGER
-    px% = x% : py% = y% : pw% = w% : ph% = h% : ox0% = prevX% : oy0% = prevY%
-    IF pw% <= 0 _ORELSE ph% <= 0 THEN EXIT SUB
-
+    DIM lx AS LONG, ly AS LONG, lw AS LONG, lh AS LONG, px AS LONG, py AS LONG
+    lx = x%: ly = y%: lw = w%: lh = h%: px = prevX%: py = prevY%
+    IF lw <= 0 _ORELSE lh <= 0 THEN EXIT SUB
     DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
     FPANEL_work_area minX%, minY%, maxX%, maxY%
-    DIM i AS INTEGER, ox AS INTEGER, oy AS INTEGER, ow AS INTEGER, oh AS INTEGER
-
-    ' --- 1. snap ---
-    DIM sx AS INTEGER, sy AS INTEGER, dX AS INTEGER, dY AS INTEGER
-    sx% = px% : sy% = py% : dX% = FPANEL_SNAP + 1 : dY% = FPANEL_SNAP + 1
-    FPANEL_snap_try px%, minX%, sx%, dX%
-    FPANEL_snap_try px%, maxX% - pw%, sx%, dX%
-    FPANEL_snap_try py%, minY%, sy%, dY%
-    FPANEL_snap_try py%, maxY% - ph%, sy%, dY%
-    FOR i% = 1 TO FPANEL_FLOAT_COUNT
-        IF FPANEL_other%(self%, i%, ox%, oy%, ow%, oh%) THEN
-            ' Side by side: rows overlap (or nearly, so corners catch too) ->
-            ' butt left/right edges together
-            IF py% < oy% + oh% + FPANEL_SNAP _ANDALSO py% + ph% > oy% - FPANEL_SNAP THEN
-                FPANEL_snap_try px%, ox% - pw%, sx%, dX%
-                FPANEL_snap_try px%, ox% + ow%, sx%, dX%
-            END IF
-            ' Stacked: columns overlap (or nearly) -> butt top/bottom edges together
-            IF px% < ox% + ow% + FPANEL_SNAP _ANDALSO px% + pw% > ox% - FPANEL_SNAP THEN
-                FPANEL_snap_try py%, oy% - ph%, sy%, dY%
-                FPANEL_snap_try py%, oy% + oh%, sy%, dY%
-            END IF
-            ' Edge alignment with any other window, wherever it is: left/right
-            ' sides line up with its sides, tops/bottoms with its top/bottom
-            FPANEL_snap_try px%, ox%, sx%, dX%
-            FPANEL_snap_try px%, ox% + ow% - pw%, sx%, dX%
-            FPANEL_snap_try py%, oy%, sy%, dY%
-            FPANEL_snap_try py%, oy% + oh% - ph%, sy%, dY%
-        END IF
-    NEXT i%
-
-    ' A window too big for an axis keeps its left / top edge in the work area
-    ' (the title bar stays reachable); only its far edge runs past.
-    IF pw% > maxX% - minX% _ANDALSO sx% < minX% THEN sx% = minX%
-    IF ph% > maxY% - minY% _ANDALSO sy% < minY% THEN sy% = minY%
-    IF FPANEL_free%(self%, sx%, sy%, pw%, ph%) THEN x% = sx% : y% = sy% : EXIT SUB
-
-    ' --- 2. nearest free spot: candidate x's / y's are the snapped spot plus
-    '        every obstacle / work-area edge; try every combination ---
-    DIM cx(0 TO 2 + FPANEL_FLOAT_COUNT * 2) AS INTEGER, cy(0 TO 2 + FPANEL_FLOAT_COUNT * 2) AS INTEGER
-    DIM nx AS INTEGER, ny AS INTEGER
-    cx(0) = sx% : cx(1) = minX% : cx(2) = maxX% - pw% : nx% = 3
-    cy(0) = sy% : cy(1) = minY% : cy(2) = maxY% - ph% : ny% = 3
-    FOR i% = 1 TO FPANEL_FLOAT_COUNT
-        IF FPANEL_other%(self%, i%, ox%, oy%, ow%, oh%) THEN
-            cx(nx%) = ox% - pw% : cx(nx% + 1) = ox% + ow% : nx% = nx% + 2
-            cy(ny%) = oy% - ph% : cy(ny% + 1) = oy% + oh% : ny% = ny% + 2
-        END IF
-    NEXT i%
-
-    DIM a AS INTEGER, b AS INTEGER, found AS INTEGER
-    FOR a% = 0 TO nx% - 1
-        IF pw% > maxX% - minX% _ANDALSO cx(a%) < minX% THEN cx(a%) = minX%
-    NEXT a%
-    FOR b% = 0 TO ny% - 1
-        IF ph% > maxY% - minY% _ANDALSO cy(b%) < minY% THEN cy(b%) = minY%
-    NEXT b%
-    DIM d AS LONG, bestD AS LONG, bx AS INTEGER, by AS INTEGER
-    FOR a% = 0 TO nx% - 1
-        FOR b% = 0 TO ny% - 1
-            d& = CLNG(cx(a%) - sx%) * (cx(a%) - sx%) + CLNG(cy(b%) - sy%) * (cy(b%) - sy%)
-            IF NOT found% _ORELSE d& < bestD& THEN
-                IF FPANEL_free%(self%, cx(a%), cy(b%), pw%, ph%) THEN
-                    bx% = cx(a%) : by% = cy(b%) : bestD& = d& : found% = TRUE
-                END IF
-            END IF
-        NEXT b%
-    NEXT a%
-
-    IF found% THEN
-        x% = bx% : y% = by%
-    ELSEIF FPANEL_free%(self%, ox0%, oy0%, pw%, ph%) THEN
-        x% = ox0% : y% = oy0%
-    ELSE
-        ' nowhere clear of the other windows: at least stay in the work area -
-        ' over another window (it can be moved), never over the docked panels
-        IF pw% <= maxX% - minX% THEN bx% = _MAX(minX%, _MIN(sx%, maxX% - pw%)) ELSE bx% = minX%
-        IF ph% <= maxY% - minY% THEN by% = _MAX(minY%, _MIN(sy%, maxY% - ph%)) ELSE by% = minY%
-        x% = bx% : y% = by%
-    END IF
+    FPANEL_obstacles selfRegion%
+    LAY_place lx, ly, lw, lh, px, py, CLNG(minX%), CLNG(minY%), CLNG(maxX%), CLNG(maxY%), CLNG(FPANEL_SNAP)
+    x% = lx: y% = ly
 END SUB
 
 ' ---------------------------------------------------------------------------
