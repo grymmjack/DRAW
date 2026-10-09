@@ -462,14 +462,19 @@ def farm_states() -> dict:
     return out
 
 
-def farm_probe(host: str, rdir: str) -> dict:
-    """titan's QA run: status.json, the fail rows of its newest run TSV, runner alive?"""
+def farm_probe(host: str, rdir: str, probe: str = "") -> dict:
+    """a host's QA run: status.json, the fail rows of its newest run TSV, still running?
+    Portable sh (no grep -P: macOS); probe "gitbash" runs it in Git Bash (Windows,
+    whose SSH shell is cmd). LIVE = the runner process, or (no pgrep on Windows)
+    status.json written in the last 3 minutes."""
     sh = (f'cat "{rdir}/status.json" 2>/dev/null; echo; echo ===; '
-          f'f=$(ls -t "{rdir}"/run-*.tsv 2>/dev/null | head -1); [ -n "$f" ] && grep -P "\\tfail\\t" "$f"; echo ===; '
-          f'pgrep -f "bin/qa --adapter" >/dev/null && echo LIVE || echo GONE')
+          f'f=$(ls -t "{rdir}"/run-*.tsv 2>/dev/null | head -1); [ -n "$f" ] && grep "$(printf \'\\tfail\\t\')" "$f"; echo ===; '
+          f'if pgrep -f "bin/qa --adapter" >/dev/null 2>&1 || [ -n "$(find "{rdir}/status.json" -mmin -3 2>/dev/null)" ]; '
+          f'then echo LIVE; else echo GONE; fi\n')
+    cmd = ["ssh", "-o", "ConnectTimeout=6", "-o", "BatchMode=yes", host,
+           '"C:\\Program Files\\Git\\bin\\bash.exe" -s' if probe == "gitbash" else "sh -s"]
     try:
-        out = subprocess.run(["ssh", "-o", "ConnectTimeout=6", "-o", "BatchMode=yes", host, sh],
-                             capture_output=True, text=True, timeout=20).stdout
+        out = subprocess.run(cmd, input=sh, capture_output=True, text=True, timeout=20).stdout.replace("\r", "")
     except (OSError, subprocess.SubprocessError):
         return {}
     parts = out.split("===")
@@ -491,7 +496,7 @@ def farm_probe(host: str, rdir: str) -> dict:
 def farm_refresh_once():
     for host, s in farm_states().items():
         if s.get("results"):
-            r = farm_probe(host, s["results"])
+            r = farm_probe(host, s["results"], s.get("probe", ""))
             if r:
                 with FARM_LOCK:
                     FARM_LIVE[host] = r

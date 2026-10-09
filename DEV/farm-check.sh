@@ -6,12 +6,17 @@
 #
 #   DEV/farm-check.sh build HOST [REF]       # sync HOST's DRAW-fstest worktree to REF, build
 #   DEV/farm-check.sh build-all [REF]        # every farm host, in parallel
-#   DEV/farm-check.sh qa [REF] [REGEX]       # titan: build, then the QA suite offscreen (detached)
+#   DEV/farm-check.sh qa [HOST] [REF] [REGEX] # build, then the QA suite (detached); HOST = titan
+#                                            # (default, offscreen Xvfb), mac or thinkpad (ONSCREEN -
+#                                            # they take over that machine's screen for ~2h)
 #   DEV/farm-check.sh status                 # the recorded states
 #
 # REF defaults to origin/<current branch>. Builds happen in each host's DRAW-fstest
 # worktree (created if missing), never in the host's own checkout. Nothing opens a
-# window: builds are compile-only, the suite runs under Xvfb. Hosts = remote-dash.py.
+# window: builds are compile-only; titan's suite runs under Xvfb, mac / thinkpad drive
+# the real desktop (qa-harness drivers/macos, drivers/windows). Hosts = remote-dash.py.
+# thinkpad's suite runs from C:\qa-runner (the desktop user can't read the SSH
+# user's profile): its DRAW clone is synced to the same REF and gets the built exe.
 # State: ~/.cache/qa-dash/farm/<host>.json
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
@@ -102,17 +107,47 @@ do_build() {
     fi
 }
 
+# a shell snippet that sets T to the tests matching REGEX
+qa_tests() { printf '%s' "T=\$(ls tests | grep -E '$1' | sed 's|^|tests/|' | tr '\n' ' ')"; }
+
 do_qa() {
-    local ref=${1:-$REF_DEFAULT} re=${2:-.} line type dir comp rdir
-    do_build "$QA_HOST" "$ref" || return 1
-    line=$(host_line "$QA_HOST"); IFS='|' read -r _ type dir comp <<< "$line"
+    local host=$QA_HOST
+    if host_line "${1:-}" >/dev/null; then host=$1; shift; fi
+    local ref=${1:-$REF_DEFAULT} re=${2:-.} line type dir comp rdir probe=""
+    do_build "$host" "$ref" || return 1
+    line=$(host_line "$host"); IFS='|' read -r _ type dir comp <<< "$line"
     rdir="${dir}-fstest/QA/.farm-results"
-    "${SSH[@]}" "$QA_HOST" "set -u; cd ${dir}-fstest/QA && rm -rf .farm-results && mkdir -p .farm-results && \
-        T=\$(ls tests | grep -E '$re' | sed 's|^|tests/|' | tr '\n' ' ') && \
-        nohup env QA_HARNESS=\$HOME/git/qa-harness QA_RESULTS_DIR=$rdir setsid ./draw-qa.sh --rerun-passed \$T > .farm-results/runner.out 2>&1 < /dev/null & echo started" \
-        2>&1 | grep -v 'already awake\|magic packet\|waiting for .* to boot'
-    record "$QA_HOST" kind=qa state=qa-running results="$rdir" qa_started="$(date +%s)" pattern="$re"
-    echo "$QA_HOST: QA suite started (results in $rdir) - watch it on ./DEV/qa-dash.sh"
+    case "$host" in
+      mac)
+        rsync -a --exclude results/ --exclude .git/ "$HOME/git/qa-harness/" mac:git/qa-harness/ || return 1
+        "${SSH[@]}" mac 'bash -s' <<REMOTE 2>&1 | grep -v 'already awake'
+set -u; export PATH=/opt/homebrew/bin:\$PATH
+cd ${dir}-fstest/QA && rm -rf .farm-results && mkdir -p .farm-results && $(qa_tests "$re") && \
+~/git/qa-harness/drivers/macos/qa-run env QA_HARNESS=\$HOME/git/qa-harness QA_RESULTS_DIR=$rdir ./draw-qa.sh --onscreen --rerun-passed \$T && echo started
+REMOTE
+        ;;
+      thinkpad)
+        rdir=/c/qa-runner/DRAW/QA/.farm-results; probe=gitbash
+        tar czf - -C "$HOME/git/qa-harness" --exclude=results --exclude=.git . | "${SSH[@]}" thinkpad 'tar -xzf - -C C:/qa-runner/qa-harness' || return 1
+        "${SSH[@]}" thinkpad '"C:\Program Files\Git\bin\bash.exe" -s' <<REMOTE 2>&1 | tr -d '\r' | grep -v 'already awake'
+set -u
+cd /c/qa-runner/DRAW || exit 1
+git fetch -q origin && git checkout -q --detach "$ref" && git submodule update -q --init --recursive --force || { echo "sync failed"; exit 1; }
+cp "\$(cygpath -u '${dir}')-fstest/DRAW.exe" DRAW.exe || exit 1
+cd QA && rm -rf .farm-results && mkdir -p .farm-results && $(qa_tests "$re") && \
+/c/qa-runner/qa-harness/drivers/windows/qa-run env QA_HARNESS=/c/qa-runner/qa-harness QA_RESULTS_DIR=$rdir ./draw-qa.sh --onscreen --rerun-passed \$T && echo started
+REMOTE
+        ;;
+      *)
+        rsync -a --exclude results/ --exclude .git/ "$HOME/git/qa-harness/" "$host:git/qa-harness/" || return 1
+        "${SSH[@]}" "$host" "set -u; cd ${dir}-fstest/QA && rm -rf .farm-results && mkdir -p .farm-results && \
+            $(qa_tests "$re") && \
+            nohup env QA_HARNESS=\$HOME/git/qa-harness QA_RESULTS_DIR=$rdir QA_XVFB_RES=3840x2160 setsid ./draw-qa.sh --rerun-passed \$T > .farm-results/runner.out 2>&1 < /dev/null & echo started" \
+            2>&1 | grep -v 'already awake\|magic packet\|waiting for .* to boot'
+        ;;
+    esac
+    record "$host" kind=qa state=qa-running results="$rdir" probe="$probe" qa_started="$(date +%s)" pattern="$re"
+    echo "$host: QA suite started (results in $rdir) - watch it on ./DEV/qa-dash.sh"
 }
 
 case "${1:-}" in
