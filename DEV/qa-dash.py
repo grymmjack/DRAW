@@ -263,7 +263,9 @@ def durations(reg: dict) -> dict:
     return {n: int(statistics.median(v[-10:])) for n, v in raw.items()}
 
 
-def known_failures(root: str) -> dict:
+def known_failures(root: str, os_name: str = "Linux") -> dict:
+    """{test: reason}. A line may carry an OS tag right after the name
+    (`name  [macOS] reason`, also [Windows] / [Linux]): it then counts only there."""
     out = {}
     for base in (Path(root), DRAW_HOME):
         f = base / "QA" / "known-failures.txt"
@@ -272,7 +274,13 @@ def known_failures(root: str) -> dict:
                 ln = ln.strip()
                 if ln and not ln.startswith("#"):
                     name, _, why = ln.partition(" ")
-                    out.setdefault(name.strip(), why.strip() or "known")
+                    why = why.strip()
+                    if why.startswith("["):
+                        tag, _, why = why[1:].partition("]")
+                        if tag.strip().lower() != os_name.split()[0].lower():
+                            continue
+                        why = f"[{tag.strip()}] {why.strip()}"
+                    out.setdefault(name.strip(), why or "known")
             break
     return out
 
@@ -559,7 +567,7 @@ def farm_panel(host: str, s: dict, hist: dict) -> Panel:
         if st.get("reason"):
             parts.append(Text("why: " + st["reason"], style="bold red"))
         if lv.get("fails"):
-            known = known_failures(str(DRAW_HOME))
+            known = known_failures(str(DRAW_HOME), FARM_OS.get(host, "Linux"))
             ft = Table(box=None, show_header=False, padding=(0, 1), expand=True)
             ft.add_column(style="red", no_wrap=True); ft.add_column(no_wrap=True)
             ft.add_column(style="dim", overflow="ellipsis", no_wrap=True, ratio=1)
