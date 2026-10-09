@@ -53,3 +53,11 @@ the menu bar starts where they end). The harness pin `LAYER_PANEL_WIDTH` is 120 
 (was 100; DRAW's minimum became 108). Fixed menu clicks are written as `$(( x + LP_W - 100 ))`
 (the x they were measured at with 100); `open_effect` uses `MENU_DX` in the manifest. Better
 still, read `MROOT` / `MENU` lines from `DOCK_DUMP` (see `cheatsheet-menu-open.sh`).
+
+**Per-test watchdog (qa-harness a4eb1b3, 2026-10-09, [Linux] verified):** tests run in a subshell; past
+`# QA-TIMEOUT: <s>` (header) or `QA_TEST_TIMEOUT` (default 600s) the test's process tree is killed and it
+FAILs "TIMED OUT after Ns", the run continues. Before this a hung test (one run sat 30 min in `formats2`)
+left the whole run in limbo. State a test may change comes back via a state file: core counters +
+the adapter's `ADAPTER_STATE_VARS` (DRAW: `DRAW_PID DRAW_WID`). A test that legitimately runs > 10 min
+must declare `# QA-TIMEOUT:`. `./DEV/qa-dash.sh` shows the current test's own timer vs its usual time
+and flags STALLED? past ~3x.
