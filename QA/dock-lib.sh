@@ -341,3 +341,20 @@ dk_expect_band() {
         fail "browser not in band $1 (band side=$B_SIDE h=$B_H shift=$B_SHIFT; slot=$P_SLOT floating=$P_FL)"
     fi
 }
+
+# dk_divider_extremes UPPER LOWER LABEL — drag the divider between two stacked
+# slots (the top edge of LOWER's slot) to the top of the column, then to the
+# bottom, dk_check after each: neither panel / window may spill over the other
+# however small its slot gets (a docked window has a minimum size).
+dk_divider_extremes() {
+    local up=$1 lo=$2 label=$3 x y
+    dk_scr
+    dk_p "$lo" || { fail "$label: $lo not in the dump"; return 1; }
+    (( P_SLOT > 0 )) || { fail "$label: $lo not docked"; return 1; }
+    dk_slot "$P_SLOT"; x=$(( S_X + S_W / 2 )); y=$(( S_Y - 2 ))
+    dk_drag "$x" "$y" "$x" $(( DOCK_TOP + 2 )) 6; dk_park; dk_settle
+    dk_check "$label: divider to the top"
+    dk_p "$lo"; dk_slot "$P_SLOT"; y=$(( S_Y - 2 ))
+    dk_drag "$x" "$y" "$x" $(( DOCK_BOT - 2 )) 6; dk_park; dk_settle
+    dk_check "$label: divider to the bottom"
+}
