@@ -79,19 +79,66 @@ END FUNCTION
 
 
 ''
-' A panel that stretches to fill its slot (the Preview, the Browser): its
-' minimum width (px), 0 = not a stretching panel. In a column beside other
-' panels it asks for only this much - a width of its own would hold the
-' column wide (Rick: the layers could not be narrowed with the Preview there).
-FUNCTION DOCK_stretch_min_w% (id AS INTEGER)
+' What panel id asks of the layout on one axis - the one place a docked
+' panel's size rules live (boxes for QB64_GJ_LIB/LAYOUT lines):
+'   width  (axisH FALSE): minS / basisS px. stretchy = it fills its slot (the
+'          Preview, the Browser): beside other panels it asks for only its
+'          minimum, alone in a column for its floating width - a live width
+'          would hold the column wide (Rick: the layers could not be narrowed
+'          with the Preview docked above them).
+'   height (axisH TRUE, cross = the column's width): a fixed panel's height
+'          (minS = basisS), or a flex panel's minimum (basisS 0, stretchy).
+SUB DOCK_panel_box (id AS INTEGER, axisH AS INTEGER, cross AS INTEGER, minS AS INTEGER, basisS AS INTEGER, stretchy AS INTEGER)
     DIM rs AS SINGLE
+    IF axisH THEN
+        IF DPANEL(id).hmode = DP_H_FIXED THEN
+            minS = DOCK_fixed_h%(id, cross): basisS = minS: stretchy = FALSE
+        ELSE
+            minS = _MAX(DOCK_min_h%(id), DOCK_MIN_FLEX_H): basisS = 0: stretchy = TRUE
+        END IF
+        EXIT SUB
+    END IF
+    stretchy = FALSE
+    basisS = DOCK_panel_w%(id): minS = basisS
     SELECT CASE id
         CASE DP_PREVIEW
             rs = PREVIEW.renderScale!: IF rs <= 0 THEN rs = 1
-            DOCK_stretch_min_w% = INT(PREVIEW_MIN_W * rs + 0.999)
+            minS = INT(PREVIEW_MIN_W * rs + 0.999): stretchy = TRUE
         CASE DP_BROWSER
-            DOCK_stretch_min_w% = BROWSER_MIN_W
+            minS = BROWSER_MIN_W: stretchy = TRUE
     END SELECT
+END SUB
+
+
+''
+' Column c's width: the widest of its shown panels (DOCK_panel_box) - a
+' stretching panel counts its minimum unless it is all the column holds - or
+' the column's own WIDTH: override.
+FUNCTION DOCK_col_width% (c AS INTEGER)
+    DIM so AS INTEGER, s AS INTEGER, t AS INTEGER, pid AS INTEGER, w AS INTEGER, sw AS INTEGER, fixedW AS INTEGER
+    DIM mn AS INTEGER, bs AS INTEGER, st AS INTEGER
+    FOR so = 1 TO DOCK_MAX_SLOTS
+        s = DOCK_slot_at%(c, so)
+        IF s = 0 THEN EXIT FOR
+        IF DOCK_slot_panel%(s) THEN
+            FOR t = 1 TO DOCK_SLOT(s).ntabs
+                pid = DOCK_TAB(s, t)
+                IF DOCK_panel_shown%(pid) THEN
+                    DOCK_panel_box pid, FALSE, 0, mn, bs, st
+                    IF st THEN
+                        IF bs > sw THEN sw = bs
+                        IF mn > w THEN w = mn
+                    ELSE
+                        fixedW = TRUE
+                        IF bs > w THEN w = bs
+                    END IF
+                END IF
+            NEXT t
+        END IF
+    NEXT so
+    IF fixedW = 0 _ANDALSO sw > w THEN w = sw
+    IF DOCK_COL(c).wpx > 0 THEN w = DOCK_COL(c).wpx
+    DOCK_col_width% = w
 END FUNCTION
 
 
@@ -304,7 +351,7 @@ END FUNCTION
 ' moves up a row to share the frame without that row counting in the share.
 SUB DOCK_stack_column (c AS INTEGER)
     DIM o AS INTEGER, s AS INTEGER, id AS INTEGER, y AS INTEGER, h AS INTEGER, th AS INTEGER
-    DIM prevBordered AS INTEGER, isFlex AS INTEGER, l AS LONG
+    DIM prevBordered AS INTEGER, isFlex AS INTEGER, l AS LONG, mn AS INTEGER, bs AS INTEGER, st AS INTEGER
     DIM it(1 TO DOCK_MAX_SLOTS) AS LONG
     FOR o = 1 TO DOCK_MAX_SLOTS
         s = DOCK_slot_at%(c, o)
@@ -324,15 +371,16 @@ SUB DOCK_stack_column (c AS INTEGER)
         IF id THEN
             th = 0
             IF DOCK_slot_titled%(s) THEN th = DOCK_TITLE_H
+            DOCK_panel_box id, TRUE, DOCK_COL(c).w, mn, bs, st
             IF DOCK_SLOT(s).collapsed THEN
                 it(o) = LAY_add_fixed&(l, th)
                 prevBordered = FALSE
-            ELSEIF DPANEL(id).hmode = DP_H_FIXED THEN
-                it(o) = LAY_add_fixed&(l, th + DOCK_fixed_h%(id, DOCK_COL(c).w))
+            ELSEIF st = 0 THEN ' a fixed height
+                it(o) = LAY_add_fixed&(l, th + bs)
                 IF prevBordered _ANDALSO DPANEL(id).bordered _ANDALSO th = 0 THEN LAY_lead it(o), -1
                 prevBordered = DPANEL(id).bordered
-            ELSE
-                it(o) = LAY_add&(l, th + _MAX(DOCK_min_h%(id), DOCK_MIN_FLEX_H), 0, 0, DOCK_SLOT(s).share, 0)
+            ELSE ' flex: grows by its share, at least its minimum
+                it(o) = LAY_add&(l, th + mn, 0, 0, DOCK_SLOT(s).share, 0)
                 prevBordered = DPANEL(id).bordered
             END IF
             ' collapses go from the bottom up, never the first slot
@@ -484,8 +532,9 @@ END FUNCTION
 
 
 ''
-' Place one column (pass: full-height columns first, then the ones under the
-' menu bar) from the outside in on its side; advances DOCK_LX / DOCK_RX.
+' Lay out one column's height, slots and panels (pass: full-height columns
+' first, then the ones under the menu bar); its x and width are set already
+' (DOCK_row_solve).
 SUB DOCK_place_columns (wantFull AS INTEGER, barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
     DIM side AS INTEGER, o AS INTEGER, c AS INTEGER, so AS INTEGER, s AS INTEGER, first AS INTEGER, rid AS INTEGER
     FOR side = DOCK_LEFT TO DOCK_RIGHT
@@ -493,13 +542,7 @@ SUB DOCK_place_columns (wantFull AS INTEGER, barY1 AS INTEGER, charTop AS INTEGE
             c = DOCK_col_at%(side, o)
             IF c = 0 THEN EXIT FOR
             IF DOCK_COL(c).vis _ANDALSO DOCK_COL(c).full = wantFull THEN
-                IF side = DOCK_LEFT THEN
-                    DOCK_COL(c).x = DOCK_LX
-                    DOCK_LX = DOCK_LX + DOCK_COL(c).w
-                ELSE
-                    DOCK_RX = DOCK_RX - DOCK_COL(c).w
-                    DOCK_COL(c).x = DOCK_RX + 1
-                END IF
+                ' x: DOCK_row_solve
                 IF wantFull THEN
                     DOCK_COL(c).y = 0
                 ELSE
@@ -529,8 +572,7 @@ END SUB
 ' panels, full-height columns go outermost, the menu bar spans the rest.
 ' Leaves DOCK_LX/DOCK_RX (the canvas edges) and DOCK_MENU_LX/RX.
 SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
-    DIM c AS INTEGER, so AS INTEGER, s AS INTEGER, id AS INTEGER, w AS INTEGER, t AS INTEGER, i AS INTEGER
-    DIM pid AS INTEGER, sw AS INTEGER, fixedW AS INTEGER
+    DIM c AS INTEGER, so AS INTEGER, s AS INTEGER, id AS INTEGER, t AS INTEGER, i AS INTEGER
     IF DOCK_CUSTOM = 0 _ORELSE DOCK_READY = 0 THEN DOCK_build_default
     FOR i = 1 TO DP_COUNT: DPANEL(i).rVis = FALSE: NEXT i
     DOCK_native_reset_docked
@@ -539,7 +581,6 @@ SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
         IF DOCK_COL(c).used THEN
             DOCK_COL(c).vis = FALSE
             DOCK_COL(c).full = FALSE
-            w = 0: sw = 0: fixedW = FALSE
             FOR so = 1 TO DOCK_MAX_SLOTS
                 s = DOCK_slot_at%(c, so)
                 IF s = 0 THEN EXIT FOR
@@ -547,32 +588,16 @@ SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
                 IF id THEN
                     DOCK_COL(c).vis = TRUE
                     FOR t = 1 TO DOCK_SLOT(s).ntabs
-                        pid = DOCK_TAB(s, t)
-                        IF DOCK_panel_shown%(pid) THEN
-                            IF DPANEL(pid).tall THEN DOCK_COL(c).full = TRUE
-                            IF DOCK_stretch_min_w%(pid) THEN
-                                ' fills its slot (Preview, Browser): its own width
-                                ' sets the column only when nothing else does;
-                                ' beside other panels it asks for its minimum
-                                IF DOCK_panel_w%(pid) > sw THEN sw = DOCK_panel_w%(pid)
-                                IF DOCK_stretch_min_w%(pid) > w THEN w = DOCK_stretch_min_w%(pid)
-                            ELSE
-                                fixedW = TRUE
-                                IF DOCK_panel_w%(pid) > w THEN w = DOCK_panel_w%(pid)
-                            END IF
+                        IF DOCK_panel_shown%(DOCK_TAB(s, t)) THEN
+                            IF DPANEL(DOCK_TAB(s, t)).tall THEN DOCK_COL(c).full = TRUE
                         END IF
                     NEXT t
                 END IF
             NEXT so
-            IF fixedW = 0 _ANDALSO sw > w THEN w = sw
-            IF DOCK_COL(c).wpx > 0 THEN w = DOCK_COL(c).wpx
-            DOCK_COL(c).w = w
+            DOCK_COL(c).w = DOCK_col_width%(c)
         END IF
     NEXT c
-    DOCK_hide_for_width
-    FOR c = 1 TO DOCK_MAX_COLS
-        IF DOCK_COL(c).autoh THEN DOCK_COL(c).vis = FALSE
-    NEXT c
+    DOCK_row_solve
     ' full height spreads outward: a column outside a full-height one is full
     ' height too, so the menu bar (spanning the rest) stays one piece and the
     ' columns sit in their saved order
@@ -590,11 +615,19 @@ SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
         NEXT fo
     NEXT fside
     DOCK_LAID_OUT = TRUE
-    DOCK_LX = 0
-    DOCK_RX = SCRN.w& - 1
+    ' the menu bar spans the space between the full-height columns
+    DOCK_MENU_LX = 0
+    DOCK_MENU_RX = SCRN.w& - 1
+    FOR c = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(c).used _ANDALSO DOCK_COL(c).vis _ANDALSO DOCK_COL(c).full THEN
+            IF DOCK_COL(c).side = DOCK_LEFT THEN
+                IF DOCK_COL(c).x + DOCK_COL(c).w > DOCK_MENU_LX THEN DOCK_MENU_LX = DOCK_COL(c).x + DOCK_COL(c).w
+            ELSE
+                IF DOCK_COL(c).x - 1 < DOCK_MENU_RX THEN DOCK_MENU_RX = DOCK_COL(c).x - 1
+            END IF
+        END IF
+    NEXT c
     DOCK_place_columns TRUE, barY1, charTop, dockY2
-    DOCK_MENU_LX = DOCK_LX
-    DOCK_MENU_RX = DOCK_RX
     DOCK_place_columns FALSE, barY1, charTop, dockY2
     DOCK_place_band barY1, dockY2
     DOCK_place_floats barY1, dockY2
@@ -1796,29 +1829,81 @@ END FUNCTION
 
 
 ''
-' Small windows: while the dock columns would leave the canvas narrower than
-' DOCK_MIN_CANVAS_W, hide the outermost column of the wider side (this frame
-' only; the arrangement is not changed).
-SUB DOCK_hide_for_width ()
-    DIM c AS INTEGER, used AS INTEGER, wl AS INTEGER, wr AS INTEGER, side AS INTEGER, o AS INTEGER, hid AS INTEGER
+' The screen row - one QB64_GJ_LIB/LAYOUT line: the left columns (outermost
+' first), the canvas (at least DOCK_MIN_CANVAS_W, takes the rest), the right
+' columns (innermost first). Gives every column its x and leaves DOCK_LX /
+' DOCK_RX (the canvas edges).
+' Small windows: while the line overflows (the canvas would be narrower than
+' DOCK_MIN_CANVAS_W), hide the outermost column of the wider side - the
+' toolbox's column last, without it there are no tools (this frame only; the
+' arrangement is not changed). Which one goes next depends on what is left,
+' so each is dropped by hand and the line solved again.
+SUB DOCK_row_solve ()
+    DIM side AS INTEGER, o AS INTEGER, c AS INTEGER, l AS LONG, cv AS LONG, hid AS INTEGER
+    DIM wl AS INTEGER, wr AS INTEGER, rx AS INTEGER, over AS LONG
+    DIM it(1 TO DOCK_MAX_COLS) AS LONG
     FOR c = 1 TO DOCK_MAX_COLS: DOCK_COL(c).autoh = FALSE: NEXT c
+    LAY_reset
+    l = LAY_line_new&(SCRN.w&, 0)
+    FOR o = 1 TO DOCK_MAX_COLS
+        c = DOCK_col_at%(DOCK_LEFT, o)
+        IF c = 0 THEN EXIT FOR
+        IF DOCK_COL(c).used _ANDALSO DOCK_COL(c).vis THEN it(c) = LAY_add_fixed&(l, DOCK_COL(c).w)
+    NEXT o
+    cv = LAY_add&(l, DOCK_MIN_CANVAS_W, 0, 0, 1, 0)
+    FOR o = DOCK_MAX_COLS TO 1 STEP -1
+        c = DOCK_col_at%(DOCK_RIGHT, o)
+        IF c THEN
+            IF DOCK_COL(c).used _ANDALSO DOCK_COL(c).vis THEN it(c) = LAY_add_fixed&(l, DOCK_COL(c).w)
+        END IF
+    NEXT o
     DO
+        LAY_solve l
+        over = LAY_overflow&(l)
+        IF over = 0 THEN EXIT DO
         wl = 0: wr = 0
         FOR c = 1 TO DOCK_MAX_COLS
-            IF DOCK_COL(c).used _ANDALSO DOCK_COL(c).vis _ANDALSO DOCK_COL(c).autoh = 0 THEN
-                IF DOCK_COL(c).side = DOCK_LEFT THEN wl = wl + DOCK_COL(c).w ELSE wr = wr + DOCK_COL(c).w
+            IF it(c) THEN
+                IF LAY_ITEMS(it(c)).dropped = 0 THEN
+                    IF DOCK_COL(c).side = DOCK_LEFT THEN wl = wl + DOCK_COL(c).w ELSE wr = wr + DOCK_COL(c).w
+                END IF
             END IF
         NEXT c
-        IF SCRN.w& - wl - wr >= DOCK_MIN_CANVAS_W _ORELSE wl + wr = 0 THEN EXIT DO
+        IF wl + wr = 0 THEN EXIT DO
         IF wl >= wr THEN side = DOCK_LEFT ELSE side = DOCK_RIGHT
-        ' the outermost column of the wider side - but the toolbox's column
-        ' last: without it there are no tools
         hid = DOCK_hide_outermost%(side, FALSE)
         IF hid = 0 THEN hid = DOCK_hide_outermost%(3 - side, FALSE)
         IF hid = 0 THEN hid = DOCK_hide_outermost%(side, TRUE)
         IF hid = 0 THEN hid = DOCK_hide_outermost%(3 - side, TRUE)
         IF hid = 0 THEN EXIT DO
+        FOR c = 1 TO DOCK_MAX_COLS
+            IF it(c) _ANDALSO DOCK_COL(c).autoh THEN
+                IF LAY_ITEMS(it(c)).dropped = 0 THEN LAY_set_dropped it(c), 0, TRUE
+            END IF
+        NEXT c
     LOOP
+    FOR c = 1 TO DOCK_MAX_COLS
+        IF DOCK_COL(c).autoh THEN DOCK_COL(c).vis = FALSE
+    NEXT c
+    ' x: from the line - but while it still overflows (no room even with every
+    ' column hidden that may be), the right columns stay on the right edge
+    DOCK_LX = 0
+    DOCK_RX = SCRN.w& - 1
+    FOR o = 1 TO DOCK_MAX_COLS
+        c = DOCK_col_at%(DOCK_LEFT, o)
+        IF c = 0 THEN EXIT FOR
+        IF DOCK_COL(c).vis THEN DOCK_COL(c).x = LAY_ITEMS(it(c)).at: DOCK_LX = DOCK_COL(c).x + DOCK_COL(c).w
+    NEXT o
+    rx = SCRN.w&
+    FOR o = 1 TO DOCK_MAX_COLS
+        c = DOCK_col_at%(DOCK_RIGHT, o)
+        IF c = 0 THEN EXIT FOR
+        IF DOCK_COL(c).vis THEN
+            rx = rx - DOCK_COL(c).w
+            IF over THEN DOCK_COL(c).x = rx ELSE DOCK_COL(c).x = LAY_ITEMS(it(c)).at
+            DOCK_RX = DOCK_COL(c).x - 1
+        END IF
+    NEXT o
 END SUB
 
 
@@ -1835,7 +1920,7 @@ END FUNCTION
 
 
 ''
-' Hide the outermost showing column on side (DOCK_hide_for_width); with
+' Hide the outermost showing column on side (DOCK_row_solve); with
 ' toolboxToo FALSE the toolbox's column is skipped. TRUE when one was hidden.
 FUNCTION DOCK_hide_outermost% (side AS INTEGER, toolboxToo AS INTEGER)
     DIM o AS INTEGER, c AS INTEGER, hasTb AS INTEGER
