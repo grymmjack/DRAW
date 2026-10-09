@@ -25,9 +25,10 @@ is always on top; the status bar and color strip are always at the bottom.
 
 ## Layout (`DOCK_layout`, called from `SCREEN_compute_layout`)
 
-1. Columns holding a `tall` panel are FULL height and are placed first; full height **spreads outward** (any column outside a full one is full too). The menu bar spans what is left (`DOCK_MENU_LX/RX`).
-2. Each column stacks its slots: fixed panels take their own height, bordered neighbours share a frame row, flex panels split the rest by `share` (drawer has a minimum). Titled slots (tabs, collapsed, docked native window) get an 11px strip (`DOCK_TITLE_H`).
-3. **Small windows:** a column too short collapses slots from the bottom (`autoc`); `DOCK_hide_for_width` hides outermost columns (toolbox's last) so the canvas keeps ≥ 160px.
+Sizes are solved by `QB64_GJ_LIB/LAYOUT` (flexbox-style lines; see `draw-layout.md`): every panel states its sizes in **one** place, `DOCK_panel_box`, and the dock turns them into lines.
+
+1. **The screen row** (`DOCK_row_solve`) is one line: left columns (outermost first), the canvas (at least `DOCK_MIN_CANVAS_W` = 160, takes the rest), right columns. A column's width is `DOCK_col_width%`: the widest of its panels' boxes, or its `WIDTH:` override. **Small windows:** while the line overflows, the outermost column of the wider side is dropped (`autoh`, toolbox column last) by hand and the line solved again. Columns holding a `tall` panel are FULL height; full height **spreads outward** (any column outside a full one is full too). The menu bar spans between the full-height columns (`DOCK_MENU_LX/RX`).
+2. **Each column** (`DOCK_stack_column`) is one line in flex mode: fixed panels take their own height, bordered neighbours share a frame row (`lead -1`), flex panels split the rest by `share` and **never go below their minimum: the others give way** (before 2026-10-09 a too-small share was bumped afterwards and the column ran past the dock; test `dock-column-min-share`). Titled slots (tabs, collapsed, docked native window) get an 11px strip (`DOCK_TITLE_H`). Too short even at the minimums: slots collapse to their strips from the bottom, never the first (`autoc`, the line's drop order).
 4. `DOCK_apply_rect` hands each visible panel its rect (the fields its own code reads). `DOCK_live%(id)` gates every panel's render and hit tests.
 5. Canvas edges `DOCK_LX/RX` → `SCRN.uiLeftEdge/uiRightEdge`, `panelShiftX`.
 
@@ -35,7 +36,8 @@ is always on top; the status bar and color strip are always at the bottom.
 
 A dockable panel renders inside the rect it is given and hit-tests inside it.
 To add one: a `DP_` id + `DOCK_panel_def` in `DOCK_init_panels`; cases in
-`DOCK_panel_shown%`, `DOCK_panel_w%`, `DOCK_fixed_h%` (fixed ones),
+`DOCK_panel_shown%`, `DOCK_panel_box` (its size rules for the layout, both
+axes - `DOCK_panel_w%` / `DOCK_fixed_h%` / `DOCK_min_h%` are its helpers),
 `DOCK_apply_rect`; gate its render with `DOCK_live%`. Native windows also need
 the adapter below.
 
@@ -47,7 +49,7 @@ They keep their own look and code; a `docked` field switches them over:
 - `DOCK_native_grab%` = the title bar minus its buttons; docked, that is the slot's handle (`DOCK_native_for_region%` lets the region filter accept it).
 - Floating, the window's own title drag calls `DOCK_native_drag` (targets + preview) and `DOCK_native_drag_end%` on release (docks if over a target).
 - `DOCK_native_undock` restores the floating size and saves the position to its CFG keys. The Browser keeps its floating size in `CFG.BROWSER_WIDTH/HEIGHT` — every write of those is guarded with `docked = 0` so the slot size never overwrites it.
-- **A window that stretches to its slot (Preview, Browser) never holds its column wide** (`DOCK_layout`, `DOCK_stretch_min_w%`). In a column beside other panels it asks only for its minimum width, and the column follows the others. Alone in a column it sets the width from its floating width (`DOCK_panel_w%`: `CFG.PREVIEW_W` × render scale, `CFG.BROWSER_WIDTH`), never its live slot width. A live width feeds back: the column is as wide as its widest panel, the window takes the column's width, and the column never shrinks again. Using the floating width alone also failed, for a floating width of 800. Rick's layers, dragged to 400 with the Preview docked above them, could not be narrowed back. The Mixer, Advanced Color Picker, 3D and Pen keep their own size and center in the slot.
+- **A window that stretches to its slot (Preview, Browser) never holds its column wide** (`DOCK_panel_box` marks it stretchy; `DOCK_col_width%` combines). In a column beside other panels it asks only for its minimum width, and the column follows the others. Alone in a column it sets the width from its floating width (`DOCK_panel_w%`: `CFG.PREVIEW_W` × render scale, `CFG.BROWSER_WIDTH`), never its live slot width. A live width feeds back: the column is as wide as its widest panel, the window takes the column's width, and the column never shrinks again. Using the floating width alone also failed, for a floating width of 800. Rick's layers, dragged to 400 with the Preview docked above them, could not be narrowed back. The Mixer, Advanced Color Picker, 3D and Pen keep their own size and center in the slot.
 - **The layers' narrowest width** is `LAYERS_min_width%`: the bottom bar's 6 buttons ((w − 18) \ 6 each) must each fit the widest button icon. That is 108px with the default 15px icons; it was a hard-coded 60px, where the icons overlapped. `LAYERS_clamp_width%` applies it to drags and workspace values, and `DOCK_panel_w%` applies it to saved widths below it. Test: `dock-layers-shrink-preview` (120 → 400 → 140 → stops at 108).
 
 ## Float host (docked panels floating)

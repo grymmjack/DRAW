@@ -49,7 +49,7 @@ assert_no_crash
 park_mouse
 snap_region "$BLK_X" "$BLK_Y" "$BLK_W" "$BLK_H" "pb-black-after"
 BLACK_AFTER="$SNAP_RESULT"
-BMEAN=$(magick "$BLACK_AFTER" -format '%[fx:int(mean*255)]' info: 2>/dev/null)
+BMEAN=$(identify -format '%[fx:int(mean*255)]' "$BLACK_AFTER" 2>/dev/null)
 info "  [black mean after +brightness w/ preserve] ${BMEAN:-?}"
 
 snap_region "$BLU_X" "$BLU_Y" "$BLU_W" "$BLU_H" "pb-blue-after"

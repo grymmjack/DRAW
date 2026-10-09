@@ -46,12 +46,14 @@ import statistics
 import subprocess
 import sys
 import termios
+import threading
 import time
 import tty
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from rich.columns import Columns
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
@@ -416,6 +418,8 @@ def resolve(patterns: list, root: str) -> list:
         pat = pat.strip()
         if not pat or pat.startswith("#"):
             continue
+        # accept the runner's own patterns too (they match file names)
+        pat = re.sub(r"(\\\.sh\$|\.sh\$|\.sh)$", "$" if pat.endswith("$") else "", pat)
         rx = re.compile(pat[3:] if pat.startswith("re:") else pat if any(c in pat for c in "^$*.+?[(|") else "^" + re.escape(pat) + "$")
         out += [t for t in allt if rx.search(t) and t not in out]
     return out
@@ -438,6 +442,141 @@ def read_target():
     if not lines:
         return None
     return lines[0].strip(), lines[1:]
+
+
+# ── the build farm (DEV/farm-check.sh records, titan's live run over SSH) ─────
+FARM_STATE = CACHE / "farm"
+FARM_ORDER = ["mac", "titan", "daw", "thinkpad"]
+FARM_OS = {"mac": "macOS", "titan": "Linux", "daw": "Windows (WSL build)", "thinkpad": "Windows"}
+FARM_LIVE: dict = {}          # host -> {"status":{}, "fails":[(name,msg)], "live":bool, "when":t}
+FARM_LOCK = threading.Lock()
+
+
+def farm_states() -> dict:
+    out = {}
+    for f in FARM_STATE.glob("*.json"):
+        try:
+            out[f.stem] = json.loads(f.read_text())
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def farm_probe(host: str, rdir: str) -> dict:
+    """titan's QA run: status.json, the fail rows of its newest run TSV, runner alive?"""
+    sh = (f'cat "{rdir}/status.json" 2>/dev/null; echo; echo ===; '
+          f'f=$(ls -t "{rdir}"/run-*.tsv 2>/dev/null | head -1); [ -n "$f" ] && grep -P "\\tfail\\t" "$f"; echo ===; '
+          f'pgrep -f "bin/qa --adapter" >/dev/null && echo LIVE || echo GONE')
+    try:
+        out = subprocess.run(["ssh", "-o", "ConnectTimeout=6", "-o", "BatchMode=yes", host, sh],
+                             capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    parts = out.split("===")
+    st = {}
+    try:
+        st = json.loads(parts[0].strip().splitlines()[-1]) if parts[0].strip() else {}
+    except (ValueError, IndexError):
+        st = {}
+    fails = []
+    if len(parts) > 1:
+        for ln in parts[1].strip().splitlines():
+            c = ln.split("\t")
+            if len(c) >= 2:
+                fails.append((c[0], c[3] if len(c) > 3 else ""))
+    live = len(parts) > 2 and "LIVE" in parts[2]
+    return {"status": st, "fails": fails, "live": live, "when": time.time()}
+
+
+def farm_refresh_once():
+    for host, s in farm_states().items():
+        if s.get("results"):
+            r = farm_probe(host, s["results"])
+            if r:
+                with FARM_LOCK:
+                    FARM_LIVE[host] = r
+
+
+def farm_refresher(stop: threading.Event, every: float = 15.0):
+    while not stop.is_set():
+        farm_refresh_once()
+        stop.wait(every)
+
+
+def farm_panel(host: str, s: dict, hist: dict) -> Panel:
+    parts = []
+    state = s.get("state", "?")
+    style = {"building": "bold yellow", "built": "bold green", "failed": "bold white on red",
+             "qa-running": "bold green", "qa-done": "bold"}.get(state, "bold")
+    label = {"building": "BUILDING", "built": "BUILT", "failed": "BUILD FAILED"}.get(state, state.upper())
+    started, finished = s.get("started", 0), s.get("finished", 0)
+    ref = str(s.get("ref", "?")).removeprefix("origin/")
+    parts.append(fields([("BUILD", Text(label, style=style)), ("REF", ref), ("SHA", s.get("sha") or "-")]))
+    pairs = [("STARTED", clock(started))]
+    if finished:
+        pairs += [("FINISHED", clock(finished)), ("TOOK", fmt_secs(finished - started))]
+    elif state == "building":
+        pairs += [("ELAPSED", fmt_secs(time.time() - started))]
+    parts.append(fields(pairs))
+    if state == "failed" and s.get("msg"):
+        parts.append(Text("why: " + s["msg"], style="bold red"))
+    with FARM_LOCK:
+        lv = dict(FARM_LIVE.get(host, {}))
+    if s.get("results"):
+        st = lv.get("status") or {}
+        cur, total = int(st.get("current", 0) or 0), int(st.get("total", 0) or 0)
+        nf = int(st.get("failed", 0) or 0)
+        res = Text(f"✓ {st.get('passed', 0)}", style="bold green")
+        res.append(f"  ✗ {nf}", style="bold red" if nf else "dim")
+        phase = st.get("phase", "")
+        if lv.get("live") and phase == "running":
+            qs = Text("RUNNING", style="bold green")
+        elif phase == "done":
+            qs = Text("FINISHED", style="bold")
+        elif phase == "aborted":
+            qs = Text("ABORTED", style="bold white on red")
+        elif not st:
+            qs = Text("starting…" if lv else "no data yet", style="dim")
+        else:
+            qs = Text("STOPPED", style="bold yellow")
+        parts.append(fields([("QA", qs), ("RESULT", res)]))
+        qpairs = [("STARTED", clock(s.get("qa_started")))]
+        if phase == "running":
+            qpairs += [("LEFT", "~" + fmt_secs(st.get("remaining_s"))), ("EST", Text(clock(st.get("eta_epoch")), style="bold yellow"))]
+        else:
+            qpairs += [("ELAPSED", fmt_secs(st.get("elapsed_s")))]
+        parts.append(fields(qpairs))
+        if total and phase == "running":
+            bar = Table.grid(padding=(0, 1)); bar.add_column(width=28); bar.add_column()
+            bar.add_row(ProgressBar(total=total, completed=max(cur - 1, 0), width=28),
+                        Text.assemble((f"{cur}/{total}", "bold"), "  ", (st.get("test", ""), "cyan")))
+            parts.append(bar)
+        if st.get("reason"):
+            parts.append(Text("why: " + st["reason"], style="bold red"))
+        if lv.get("fails"):
+            known = known_failures(str(DRAW_HOME))
+            ft = Table(box=None, show_header=False, padding=(0, 1), expand=True)
+            ft.add_column(style="red", no_wrap=True); ft.add_column(no_wrap=True)
+            ft.add_column(style="dim", overflow="ellipsis", no_wrap=True, ratio=1)
+            for name, msg in lv["fails"][:8]:
+                lab, sty = verdict(name, hist, None, known)
+                ft.add_row(name, Text(lab, style=sty), msg)
+            parts.append(ft)
+        if lv.get("when"):
+            parts.append(Text(f"checked {int(time.time() - lv['when'])}s ago", style="dim"))
+    title = Text.assemble(("farm: ", "dim"), (host, "bold magenta"), (f"  {FARM_OS.get(host, '')}", "dim"))
+    border = "red" if state == "failed" else "magenta" if state in ("building", "qa-running") else "dim"
+    return Panel(Group(*parts), title=title, title_align="left", border_style=border, padding=(0, 1))
+
+
+def farm_section(hist: dict):
+    states = farm_states()
+    if not states:
+        return None
+    panels = [farm_panel(h, states[h], hist) for h in FARM_ORDER if h in states]
+    panels += [farm_panel(h, s, hist) for h, s in states.items() if h not in FARM_ORDER]
+    width = max(60, console.size.width // 2 - 2)
+    return Columns(panels, width=width, expand=False)
 
 
 # ── render ────────────────────────────────────────────────────────────────────
@@ -484,10 +623,17 @@ def run_panel(i: int, r: dict, hist: dict) -> Panel:
                             ("ELAPSED", fmt_secs(elapsed)), ("LEFT", "~" + fmt_secs(left)), ("EST", est), ("RESULT", res)]))
     else:
         phase = st.get("phase", "")
-        state = Text("FINISHED", style="bold") if phase == "done" else Text("STOPPED", style="bold yellow")
+        if phase == "done":
+            state = Text("FINISHED", style="bold")
+        elif phase == "aborted":
+            state = Text("ABORTED", style="bold white on red")
+        else:
+            state = Text("STOPPED", style="bold yellow")   # runner gone without saying why (older harness)
         elapsed = st.get("elapsed_s") if st.get("elapsed_s") is not None else (r["updated"] - started if started else None)
         body.append(fields([("STATUS", state), ("STARTED", clock(started)), ("FINISHED", clock(r["updated"])),
                             ("ELAPSED", fmt_secs(elapsed)), ("RESULT", res)]))
+        if st.get("reason"):
+            body.append(Text("why: " + st["reason"], style="bold red"))
     if r["fails"]:
         ft = Table(box=None, show_header=False, padding=(0, 1), expand=True)
         ft.add_column("test", style="red", no_wrap=True)
@@ -539,7 +685,7 @@ RECENT_SHOWN = 5
 def visible_runs(runs: list) -> list:
     """Live runs, then the latest few finished ones - the order the 1..9 keys use."""
     live = [r for r in runs if r["live"]]
-    done = [r for r in runs if not r["live"] and r["rows"]][:RECENT_SHOWN]
+    done = [r for r in runs if not r["live"] and (r["rows"] or r["status"].get("phase") == "aborted")][:RECENT_SHOWN]
     return (live + done)[:9]
 
 
@@ -559,8 +705,13 @@ def recent_table(done: list, first: int, hist: dict) -> Panel:
         nfail = int(r["status"].get("failed", len(r["fails"])) or 0)
         res = Text(f"✓ {npass} ", style="green")
         res.append(f"✗ {nfail}", style="bold red" if nfail else "dim")
-        stopped = r["status"].get("phase") not in ("done", None, "")
-        state = Text("STOPPED", style="yellow") if stopped else Text("FINISHED", style="dim")
+        ph = r["status"].get("phase")
+        if ph == "aborted":
+            state = Text("ABORTED", style="bold red")
+        elif ph not in ("done", None, ""):
+            state = Text("STOPPED", style="yellow")
+        else:
+            state = Text("FINISHED", style="dim")
         st0 = r.get("started") or 0
         el = r["status"].get("elapsed_s")
         if el is None and st0:
@@ -570,8 +721,10 @@ def recent_table(done: list, first: int, hist: dict) -> Panel:
             lab, sty = verdict(name, hist, r["tsv"], r["known"])
             fl.append(name, style="red")
             fl.append(f" ({lab.split(' (')[0].split(':')[0]})  ", style=sty)
+        if r["status"].get("reason"):
+            fl = Text("why: " + r["status"]["reason"], style="bold red")
         t.add_row(f"[{k}]", r["label"], r["branch"], state, clock(st0), clock(r["updated"]), fmt_secs(el), res,
-                  fl if r["fails"] else Text("—", style="dim"))
+                  fl if (r["fails"] or r["status"].get("reason")) else Text("—", style="dim"))
     return Panel(t, title=Text("recent runs", style="bold"), title_align="left", border_style="dim", padding=(0, 1))
 
 
@@ -609,6 +762,9 @@ def render(data: dict, interactive=False, interval=3.0, auto=True, show_help=Fal
     tp = target_panel(data)
     if tp:
         parts.append(tp)
+    fs = farm_section(data["hist"])
+    if fs is not None:
+        parts.append(fs)
     if not runs:
         parts.append(Panel(Text("No QA runs in the last day. Start one with QA/draw-qa.sh.", style="dim")))
     shown = visible_runs(runs)
@@ -658,6 +814,8 @@ def interactive_loop(interval: float):
     fd = sys.stdin.fileno()
     cooked = termios.tcgetattr(fd)
     auto, show_help = True, False
+    stop = threading.Event()
+    threading.Thread(target=farm_refresher, args=(stop,), daemon=True).start()
     data = gather()
     try:
         tty.setcbreak(fd)
@@ -694,6 +852,7 @@ def interactive_loop(interval: float):
     except KeyboardInterrupt:
         pass
     finally:
+        stop.set()
         termios.tcsetattr(fd, termios.TCSADRAIN, cooked)
         console.clear()
 
@@ -723,6 +882,7 @@ def main():
     if args[:1] == ["--target-clear"]:
         TARGET_FILE.unlink(missing_ok=True); console.print("target cleared"); return
     if args[:1] == ["--once"] or not sys.stdin.isatty():
+        farm_refresh_once()
         console.print(render(gather())); return
     interval = float(args[1]) if args[:1] == ["--watch"] and len(args) > 1 else 3.0
     interactive_loop(interval)

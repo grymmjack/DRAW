@@ -232,6 +232,21 @@ dk_check() {
             done
         fi
     done < <(grep '^WIN ' "$DK_DUMP")
+    # 6: every shown slot is at least its panel's declared minimum (dump SMIN:
+    #    strip + DOCK_panel_box min) - unless its column has no room for all of
+    #    them (a tiny window). Rick: a divider dragged the layers down to 24px,
+    #    their buttons and their own divider went under the status bar.
+    local mins
+    mins=$(awk '
+        $1=="COL"  { colh[$2]=$8 }
+        $1=="SLOT" { col[$2]=$3; h[$2]=$8; vis[$2]=$9; coll[$2]=$10; autoc[$2]=$12; who[$2]=$13 }
+        $1=="SMIN" { m[$2]=$3 }
+        END {
+            for (s in m) if (vis[s] != 0 && coll[s] == 0 && autoc[s] == 0) need[col[s]] += m[s]
+            for (s in m) if (vis[s] != 0 && coll[s] == 0 && autoc[s] == 0 && h[s] < m[s] && need[col[s]] <= colh[col[s]])
+                printf " slot %s (%s) %dpx < its minimum %dpx;", s, who[s], h[s], m[s]
+        }' "$DK_DUMP")
+    bad+="$mins"
     # 3 + 4: the saved arrangement
     if grep -q '^DOCK_CUSTOM=1' "$QA_CFG" 2>/dev/null || grep -q '^DOCK_CUSTOM=-1' "$QA_CFG" 2>/dev/null; then
         local saved
