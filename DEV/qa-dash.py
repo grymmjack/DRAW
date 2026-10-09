@@ -48,7 +48,9 @@ import sys
 import termios
 import time
 import tty
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from rich.console import Console, Group
 from rich.live import Live
@@ -65,6 +67,7 @@ TARGET_FILE = DRAW_HOME / ".claude" / "qa-target.txt"
 RECENT_HOURS = 24
 SHIFT_DIGITS = {c: i for i, c in enumerate("!@#$%^&*(", 1)}
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
+TZ = ZoneInfo(os.environ.get("QA_DASH_TZ", "America/New_York"))   # every time shown is ET, 12-hour
 
 console = Console()
 
@@ -287,6 +290,44 @@ def verdict(name: str, hist: dict, this_tsv: str | None, known: dict) -> tuple[s
     return (f"flaky ({fails}/{len(past)} failed)", "yellow")
 
 
+def clock(epoch, secs: bool = False) -> str:
+    """A time of day in ET, 12-hour ("2:35 PM")."""
+    if not epoch:
+        return "?"
+    return datetime.fromtimestamp(epoch, TZ).strftime("%-I:%M:%S %p" if secs else "%-I:%M %p")
+
+
+def started_at(log: Path | None, st: dict) -> float:
+    """When a run began: its log's name (run-YYYYMMDD-HHMMSS, local time), else
+    the last update minus the elapsed time."""
+    if log:
+        m = re.search(r"run-(\d{8}-\d{6})", log.name)
+        if m:
+            try:
+                return time.mktime(time.strptime(m.group(1), "%Y%m%d-%H%M%S"))
+            except ValueError:
+                pass
+    if st.get("updated") and st.get("elapsed_s") is not None:
+        return float(st["updated"]) - float(st["elapsed_s"])
+    return 0.0
+
+
+def fields(pairs: list) -> Table:
+    """One row of LABEL value pairs."""
+    g = Table.grid(padding=(0, 1))
+    for _ in pairs:
+        g.add_column(no_wrap=True)
+        g.add_column(no_wrap=True)
+    row = []
+    for label, value in pairs:
+        row.append(Text(label, style="dim"))
+        v = value.copy() if isinstance(value, Text) else Text(str(value), style="bold")
+        v.append("    ")
+        row.append(v)
+    g.add_row(*row)
+    return g
+
+
 def fmt_secs(s) -> str:
     try:
         s = int(s)
@@ -331,6 +372,7 @@ def gather() -> dict:
             "root": root, "branch": branch_of(root), "live": is_live, "status": st, "rows": rows,
             "fails": fails, "log": str(log) if log else "", "tsv": str(tsv) if tsv else None,
             "updated": updated, "known": known_failures(kroot), "dir_path": dp,
+            "started": started_at(log, st),
         })
     runs.sort(key=lambda r: (not r["live"], -r["updated"]))
     for r in runs:
@@ -413,27 +455,28 @@ def run_panel(i: int, r: dict, hist: dict) -> Panel:
         bar.add_row(ProgressBar(total=total, completed=max(cur - 1, 0), width=34),
                     Text.assemble((f"{cur}/{total}", "bold"), "  ", (st.get("test", ""), "cyan")))
         body.append(bar)
-    line = Text()
-    line.append(f"✓ {st.get('passed', 0)}", style="green")
-    line.append("   ")
     nf = int(st.get("failed", 0) or 0)
-    line.append(f"✗ {nf}", style="bold red" if nf else "dim")
-    line.append(f"   elapsed {fmt_secs(st.get('elapsed_s'))}", style="dim")
+    res = Text(f"✓ {st.get('passed', 0)}", style="bold green")
+    res.append(f"  ✗ {nf}", style="bold red" if nf else "dim")
+    started = r.get("started") or 0
+    now = time.time()
     if r["live"]:
+        elapsed = now - started if started else st.get("elapsed_s")
         if r.get("eta"):
             left, done = r["eta"]
-            line.append(f"   left ~{fmt_secs(left)}", style="")
-            line.append(f"   done ~{time.strftime('%H:%M', time.localtime(done))}", style="bold yellow")
+            est = Text(clock(done), style="bold yellow")
         else:
-            line.append(f"   left ~{fmt_secs(st.get('remaining_s'))}", style="")
-            line.append(f"   done ~{st.get('eta_clock', '?')}", style="bold yellow")
-            line.append(" (little history)", style="dim")
+            left = st.get("remaining_s")
+            est = Text(clock(st.get("eta_epoch")), style="bold yellow")
+            est.append(" (little history)", style="dim")
+        body.append(fields([("STATUS", Text("RUNNING", style="bold green")), ("STARTED", clock(started)),
+                            ("ELAPSED", fmt_secs(elapsed)), ("LEFT", "~" + fmt_secs(left)), ("EST", est), ("RESULT", res)]))
     else:
         phase = st.get("phase", "")
-        end = time.strftime("%H:%M", time.localtime(r["updated"])) if r["updated"] else "?"
-        state = "finished" if phase == "done" else "STOPPED (runner gone)"
-        line.append(f"   {state} {end}", style="yellow" if phase != "done" else "dim")
-    body.append(line)
+        state = Text("FINISHED", style="bold") if phase == "done" else Text("STOPPED", style="bold yellow")
+        elapsed = st.get("elapsed_s") if st.get("elapsed_s") is not None else (r["updated"] - started if started else None)
+        body.append(fields([("STATUS", state), ("STARTED", clock(started)), ("FINISHED", clock(r["updated"])),
+                            ("ELAPSED", fmt_secs(elapsed)), ("RESULT", res)]))
     if r["fails"]:
         ft = Table(box=None, show_header=False, padding=(0, 1), expand=True)
         ft.add_column("test", style="red", no_wrap=True)
@@ -468,6 +511,7 @@ def target_panel(data: dict) -> Panel | None:
     t = Text()
     t.append(f"{len(tests)} tests", style="bold")
     t.append(f"   ~{fmt_secs(ps['total'])} to run", style="yellow")
+    t.append(f" (started now: done ~{clock(time.time() + ps['total'])})", style="dim")
     t.append(f"   last: ✓ {len(ps['passing'])}  ", style="green")
     t.append(f"✗ {len(ps['failing'])}  ", style="bold red" if ps["failing"] else "dim")
     t.append(f"never run {len(ps['never'])}", style="cyan" if ps["never"] else "dim")
@@ -493,23 +537,30 @@ def recent_table(done: list, first: int, hist: dict) -> Panel:
     t.add_column("#", style="bold yellow", no_wrap=True)
     t.add_column("run", style="magenta", no_wrap=True)
     t.add_column("branch", style="green", no_wrap=True)
+    t.add_column("status", no_wrap=True)
+    t.add_column("started", no_wrap=True)
+    t.add_column("finished", no_wrap=True)
+    t.add_column("elapsed", no_wrap=True, justify="right")
     t.add_column("result", no_wrap=True)
-    t.add_column("ended", style="dim", no_wrap=True)
     t.add_column("failures", ratio=1, overflow="ellipsis", no_wrap=True)
     for k, r in enumerate(done, first + 1):
         npass = sum(1 for x in r["rows"] if x[1] == "pass")
         nfail = len(r["fails"])
         res = Text(f"✓ {npass} ", style="green")
         res.append(f"✗ {nfail}", style="bold red" if nfail else "dim")
-        if r["status"].get("phase") not in ("done", None, ""):
-            res.append("  stopped", style="yellow")
+        stopped = r["status"].get("phase") not in ("done", None, "")
+        state = Text("STOPPED", style="yellow") if stopped else Text("FINISHED", style="dim")
+        st0 = r.get("started") or 0
+        el = r["status"].get("elapsed_s")
+        if el is None and st0:
+            el = r["updated"] - st0
         fl = Text()
         for name in r["fails"]:
             lab, sty = verdict(name, hist, r["tsv"], r["known"])
             fl.append(name, style="red")
             fl.append(f" ({lab.split(' (')[0].split(':')[0]})  ", style=sty)
-        ended = time.strftime("%H:%M", time.localtime(r["updated"])) if r["updated"] else "?"
-        t.add_row(f"[{k}]", r["label"], r["branch"], res, ended, fl if r["fails"] else Text("—", style="dim"))
+        t.add_row(f"[{k}]", r["label"], r["branch"], state, clock(st0), clock(r["updated"]), fmt_secs(el), res,
+                  fl if r["fails"] else Text("—", style="dim"))
     return Panel(t, title=Text("recent runs", style="bold"), title_align="left", border_style="dim", padding=(0, 1))
 
 
@@ -542,7 +593,7 @@ def render(data: dict, interactive=False, interval=3.0, auto=True, show_help=Fal
     nlive = sum(1 for r in runs if r["live"])
     head = Text.assemble(("DRAW QA", "bold"), (f"   {nlive} running", "bold green" if nlive else "dim"),
                          (f" · {len(runs) - nlive} recent", "dim"),
-                         ("   " + time.strftime("%H:%M:%S", time.localtime(data["when"])), "dim"))
+                         ("   " + clock(data["when"], True) + " ET", "dim"))
     parts = [head]
     tp = target_panel(data)
     if tp:
