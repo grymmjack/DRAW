@@ -83,6 +83,9 @@ every frame in `SCREEN_render`, so `REGION_hit_test%(x,y) > REGION_CANVAS` means
 "over chrome" and `CTX_OVER_CANVAS` is set over the drawing area. Full model +
 rationale: `.claude/instructions/draw-zorder.md`.
 
+### "Any native window" checks (GUI/FLOAT-PANEL)
+The questions the pipeline asks of every native window (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen, Browser, Customize Toolbars) go through one set, in `FPANEL_float_region%` order: `FPANEL_window_at%(x, y)` (the window under the point, by each window's own active hit test), `FPANEL_window_hit%(region, x, y)`, `FPANEL_window_autohide%(region, hide)`. The wheel chain, the middle-double-click zoom reset, both pan guards and the hide-while-drawing hook use them instead of a line per window — those hand-kept lists drifted (the wheel and the zoom reset missed the Advanced Color Picker: the wheel over it zoomed the canvas). A new native window: add it to `FPANEL_float_region%` / `FPANEL_FLOAT_COUNT` and the two SELECT CASEs. Still per window: the restore-after-stroke block (Preview / Mixer / Browser honour a manually-hidden flag), `MOUSE_handle_gui_panels` routing, POINTER cursor blocks, F11 hide / show. Test: `QA/tests/windows-input-guards.sh`. The native windows are drawn by `SCREEN_render_windows` (one list for all three present paths).
+
 ### Drain-then-process pattern
 `MOUSE_drain_update_state` consumes ALL queued `_MOUSEINPUT` events in a tight loop, then one processing pass runs against the final state snapshot. **Critical for performance** — processing every event individually would cause multiple draw operations per frame.
 
