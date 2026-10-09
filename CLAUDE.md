@@ -72,6 +72,8 @@ Tests assert visually: `snap_region x y w h label` then `assert_regions_differ` 
 
 Derive UI coordinates from the render constants rather than probing them — the geometry arithmetic is correct (status bar `SCRN.h - THEME.STATUS_height%`, layer panel `panelY% = 0` with a 16px header and 20px rows, toolbar `TB_TOP = 0`). Note `PALETTE_H` in the harness is a conservative reservation, not the real 12px strip, so `PAL_Y` must not be used to click palette chips.
 
+**Watching runs:** `./DEV/qa-dash.sh` (live; `./DEV/qa-dash.py --once` for a snapshot) shows every running suite - progress, current test, finish time from all past timings, which checkout / branch - plus failures with a verdict (NEW / flaky / failed before / known from `QA/known-failures.txt`) and the current target set (`--target TITLE PATTERN...`, `--plan PATTERN` for an estimate before a run). Keep `QA/known-failures.txt` and the target current when running suites.
+
 Manual QA plans live in `PLANS/TESTS/`. `draw-watch.sh` launches DRAW with a CPU-usage alert threshold (useful for catching idle-loop regressions).
 
 ## Architecture

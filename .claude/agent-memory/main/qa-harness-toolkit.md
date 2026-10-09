@@ -39,3 +39,17 @@ was the port source. First real dogfood: `./draw-qa.sh tests/smoke.sh` → 5/0 g
 without a pid; WM-less-Xvfb needs `windowfocus --sync` (SDL2 apps self-focus; plain
 X11/minifb windows don't). See [[draw-command-palette-registration]] for a related
 QA-testability gotcha.
+
+**[Linux] Never edit a test file or the harness while a suite is running** (2026-10-09). The runner
+sources `adapters/draw/manifest.sh` ONCE at start and runs under `set -u`, and bash reads a test
+script as it executes it. A test edited mid-run to use a variable added to the manifest after the
+runner started (`MENU_DX`) died with "unbound variable" and **killed the whole runner** at test
+163/309 - no Results line, just stops. Batch test/harness fixes until the run ends, or run the
+suite from a separate worktree. DRAW tests should use harness variables that already exist
+(`LP_W`, `VIEWPORT_W`, ...) rather than ones only in an unpushed harness commit.
+
+**Menu-bar coordinates move with the layer panel** (QA layout: layers docked LEFT, full height -
+the menu bar starts where they end). The harness pin `LAYER_PANEL_WIDTH` is 120 since 2026-10-09
+(was 100; DRAW's minimum became 108). Fixed menu clicks are written as `$(( x + LP_W - 100 ))`
+(the x they were measured at with 100); `open_effect` uses `MENU_DX` in the manifest. Better
+still, read `MROOT` / `MENU` lines from `DOCK_DUMP` (see `cheatsheet-menu-open.sh`).
