@@ -290,36 +290,31 @@ END FUNCTION
 
 
 ''
-' Stack column c's showing slots top to bottom inside its rect: fixed panels
-' take their own height (two bordered panels share their frame row), flex
-' panels share what is left by weight; a titled slot adds its strip, a
-' collapsed one is only its strip. Slot rects include the strip; the panel
-' gets the part below it (DOCK_apply_panel).
+' Stack column c's showing slots top to bottom inside its rect - one line of
+' QB64_GJ_LIB/LAYOUT: fixed panels take their own height (two bordered panels
+' share their frame row), flex panels share what is left by weight; a titled
+' slot adds its strip, a collapsed one is only its strip. Too short for
+' everything: slots collapse to their strips from the bottom (never the first)
+' - the layout's own collapse (autoc), not saved. Slot rects include the
+' strip; the panel gets the part below it (DOCK_apply_panel).
+'
+' LAY_MODE_LEGACY_MIN keeps today's pixels exactly: the minimums only decide
+' the collapses; a flex panel is then raised to its own minimum without the
+' others giving way (it can overflow), and a flex panel under a bordered one
+' moves up a row to share the frame without that row counting in the share.
 SUB DOCK_stack_column (c AS INTEGER)
-    DIM o AS INTEGER, s AS INTEGER, id AS INTEGER, y AS INTEGER
-    DIM fixedSum AS INTEGER, shareSum AS INTEGER, flexH AS INTEGER, h AS INTEGER, prevBordered AS INTEGER
-    DIM lastFlex AS INTEGER, usedFlex AS INTEGER, th AS INTEGER, isFlex AS INTEGER
-    DIM need AS INTEGER
-    ' too short for everything: collapse slots to their strips from the bottom
-    ' (not the first one) until it fits - the layout's own collapse, not saved
+    DIM o AS INTEGER, s AS INTEGER, id AS INTEGER, y AS INTEGER, h AS INTEGER, th AS INTEGER
+    DIM prevBordered AS INTEGER, isFlex AS INTEGER, l AS LONG
+    DIM it(1 TO DOCK_MAX_SLOTS) AS LONG
     FOR o = 1 TO DOCK_MAX_SLOTS
         s = DOCK_slot_at%(c, o)
         IF s = 0 THEN EXIT FOR
         DOCK_SLOT(s).autoc = FALSE
     NEXT o
-    DO
-        need = DOCK_column_need%(c)
-        IF need <= DOCK_COL(c).h THEN EXIT DO
-        id = 0
-        FOR o = DOCK_MAX_SLOTS TO 2 STEP -1
-            s = DOCK_slot_at%(c, o)
-            IF s THEN
-                IF DOCK_slot_panel%(s) _ANDALSO DOCK_SLOT(s).collapsed = 0 _ANDALSO DOCK_SLOT(s).autoc = 0 THEN DOCK_SLOT(s).autoc = TRUE: id = s: EXIT FOR
-            END IF
-        NEXT o
-        IF id = 0 THEN EXIT DO ' nothing left to collapse
-    LOOP
-    ' sizes first
+    ' --- the line: one item per showing slot ---
+    LAY_reset
+    l = LAY_line_new&(DOCK_COL(c).h, 0)
+    LAY_mode l, LAY_MODE_LEGACY_MIN
     prevBordered = FALSE
     FOR o = 1 TO DOCK_MAX_SLOTS
         s = DOCK_slot_at%(c, o)
@@ -329,22 +324,23 @@ SUB DOCK_stack_column (c AS INTEGER)
         IF id THEN
             th = 0
             IF DOCK_slot_titled%(s) THEN th = DOCK_TITLE_H
-            IF DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN
-                fixedSum = fixedSum + th
+            IF DOCK_SLOT(s).collapsed THEN
+                it(o) = LAY_add_fixed&(l, th)
                 prevBordered = FALSE
             ELSEIF DPANEL(id).hmode = DP_H_FIXED THEN
-                fixedSum = fixedSum + th + DOCK_fixed_h%(id, DOCK_COL(c).w)
-                IF prevBordered _ANDALSO DPANEL(id).bordered _ANDALSO th = 0 THEN fixedSum = fixedSum - 1
+                it(o) = LAY_add_fixed&(l, th + DOCK_fixed_h%(id, DOCK_COL(c).w))
+                IF prevBordered _ANDALSO DPANEL(id).bordered _ANDALSO th = 0 THEN LAY_lead it(o), -1
                 prevBordered = DPANEL(id).bordered
             ELSE
-                shareSum = shareSum + DOCK_SLOT(s).share
-                lastFlex = s
+                it(o) = LAY_add&(l, th + _MAX(DOCK_min_h%(id), DOCK_MIN_FLEX_H), 0, 0, DOCK_SLOT(s).share, 0)
                 prevBordered = DPANEL(id).bordered
             END IF
+            ' collapses go from the bottom up, never the first slot
+            IF o >= 2 _ANDALSO DOCK_SLOT(s).collapsed = 0 THEN LAY_drop it(o), o, DOCK_TITLE_H
         END IF
     NEXT o
-    flexH = DOCK_COL(c).h - fixedSum
-    ' then positions
+    LAY_solve l
+    ' --- positions ---
     y = DOCK_COL(c).y
     prevBordered = FALSE
     FOR o = 1 TO DOCK_MAX_SLOTS
@@ -352,20 +348,12 @@ SUB DOCK_stack_column (c AS INTEGER)
         IF s = 0 THEN EXIT FOR
         IF DOCK_SLOT(s).vis THEN
             id = DOCK_slot_panel%(s)
+            DOCK_SLOT(s).autoc = LAY_ITEMS(it(o)).dropped
             th = 0
             IF DOCK_slot_titled%(s) THEN th = DOCK_TITLE_H
             isFlex = (DPANEL(id).hmode = DP_H_FLEX _ANDALSO DOCK_SLOT(s).collapsed = 0 _ANDALSO DOCK_SLOT(s).autoc = 0)
             IF prevBordered _ANDALSO DPANEL(id).bordered _ANDALSO th = 0 THEN y = y - 1 ' share the frame row
-            IF DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN
-                h = th
-            ELSEIF DPANEL(id).hmode = DP_H_FIXED THEN
-                h = th + DOCK_fixed_h%(id, DOCK_COL(c).w)
-            ELSEIF s = lastFlex THEN
-                h = flexH - usedFlex ' the last flex slot takes the rounding
-            ELSE
-                h = (flexH * DOCK_SLOT(s).share) \ shareSum
-                usedFlex = usedFlex + h
-            END IF
+            h = LAY_ITEMS(it(o)).size
             IF isFlex _ANDALSO h - th < DOCK_min_h%(id) THEN h = th + DOCK_min_h%(id)
             DOCK_SLOT(s).x = DOCK_COL(c).x
             DOCK_SLOT(s).w = DOCK_COL(c).w
@@ -376,33 +364,6 @@ SUB DOCK_stack_column (c AS INTEGER)
         END IF
     NEXT o
 END SUB
-
-
-''
-' Height column c needs at least: fixed panels + titles + flex minimums.
-FUNCTION DOCK_column_need% (c AS INTEGER)
-    DIM o AS INTEGER, s AS INTEGER, id AS INTEGER, need AS INTEGER, th AS INTEGER, prevB AS INTEGER
-    FOR o = 1 TO DOCK_MAX_SLOTS
-        s = DOCK_slot_at%(c, o)
-        IF s = 0 THEN EXIT FOR
-        id = DOCK_slot_panel%(s)
-        IF id THEN
-            th = 0
-            IF DOCK_slot_titled%(s) THEN th = DOCK_TITLE_H
-            IF DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN
-                need = need + th: prevB = FALSE
-            ELSEIF DPANEL(id).hmode = DP_H_FIXED THEN
-                need = need + th + DOCK_fixed_h%(id, DOCK_COL(c).w)
-                IF prevB _ANDALSO DPANEL(id).bordered _ANDALSO th = 0 THEN need = need - 1
-                prevB = DPANEL(id).bordered
-            ELSE
-                need = need + th + _MAX(DOCK_min_h%(id), DOCK_MIN_FLEX_H)
-                prevB = DPANEL(id).bordered
-            END IF
-        END IF
-    NEXT o
-    DOCK_column_need% = need
-END FUNCTION
 
 
 ''
