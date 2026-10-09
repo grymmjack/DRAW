@@ -61,6 +61,7 @@ DIM SHARED WSC_N AS INTEGER
 DIM SHARED WSC_K(1 TO WSC_MAX_KV) AS STRING
 DIM SHARED WSC_V(1 TO WSC_MAX_KV) AS STRING
 DIM SHARED WSC_ID AS STRING ' file id being edited
+DIM SHARED WSC_NEW_TITLE AS STRING ' the name WSC_from_default_begin% was given
 
 ' Every toolbox button name, in the default grid order
 CONST WSC_TB_NAMES$ = "move,hand,zoom,crop,marquee,marquee-free,marquee-poly,marquee-ellipse,wand,picker,text,eraser,dot,brush,spray,fill,line,polygon,polygon-filled,save,bezier,rect,rect-filled,export-sel,smart-shapes,ellipse,ellipse-filled,open"

@@ -57,7 +57,7 @@ if grep -q '^ORDER=redo,undo,zoom,' "$(tb_ws_file)"; then pass "the new order is
 c=$(tb_idx editbar cut)
 tb_btn editbar "$c"
 dk_scr
-dk_drag "$BCX" "$BCY" $(( (CAN_LX + CAN_RX) / 2 )) 200
+dk_drag "$BCX" "$BCY" $(( CAN_LX + 12 )) $(( DOCK_BOT - 12 ))  # the canvas corner, clear of the (dialog-sized) editor window
 dk_settle
 tb_expect_no editbar cut "Cut dragged onto the canvas is removed"
 

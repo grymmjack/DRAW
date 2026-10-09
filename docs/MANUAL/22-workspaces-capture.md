@@ -25,7 +25,7 @@ only remembers *which* workspace you were in, so it reopens there.
 
 | Workspace | What it is |
 | --- | --- |
-| **Default** | Your own layout. No overlay. Always there; can't be deleted. |
+| **Default** | The stock panel layout. No overlay. Always there; can't be deleted. Moving or resizing panels in it starts a workspace of your own (see below). |
 | **Simple** | Everyday drawing: a 2-column toolbox of 10 tools, File / Edit / View / Help menus, no advanced bar or power panels. |
 | **Annotate** | Screenshot markup: a 1-column annotation toolbox docked left, a trimmed edit bar, the palette strip, single-key annotation tools, Rect in red, zoomed to fit. Capture Screen lands here. |
 
@@ -64,7 +64,7 @@ The pointer turns into a ↔ arrow over the edge. The panel snaps as you drag:
 
 When you let go, the new size is saved:
 - **In a workspace:** into that workspace. A built-in gets your own copy, which **RESET** in the configurator removes.
-- **In Default:** into `DRAW.cfg` (`TOOLBOX_COLUMNS`, `EDIT_BAR_COLUMNS`, `ADV_BAR_COLUMNS`, `LAYER_PANEL_WIDTH`).
+- **In Default:** DRAW asks for a name and makes a workspace based on Default that keeps it, then switches to it. Default itself keeps the stock layout. **Cancel** puts it back.
 
 Everything in the toolbox column follows its width:
 - **Toolbox buttons:** more columns are added when the buttons don't fit the window height. A 1-column toolbox of 28 tools in a short window becomes 2 columns.
@@ -122,8 +122,13 @@ your arrangement; widen the window and they come back.
 where each panel's side follows View → Layout and `Ctrl+Shift+Click`.
 
 Arrangements save like widths: into the active workspace (a built-in gets your
-copy), or into `DRAW.cfg` in Default (`DOCK_*` keys). In a workspace file they
-are the `[DOCK]` and `[FLOAT]` sections (see [Workspace files](#workspace-files)).
+copy). **Default always keeps the stock layout**: the first time you move, dock,
+float or resize a panel there, DRAW asks for a name and saves the layout into a
+new workspace based on Default, then switches to it (**Cancel** puts the stock
+layout back). Switching tabs or collapsing a slot in Default is not saved.
+Set `STOCK_DEFAULT_LAYOUT=0` in `DRAW.cfg` to have Default keep your changes
+(`DOCK_*` keys) instead. In a workspace file arrangements are the `[DOCK]` and
+`[FLOAT]` sections (see [Workspace files](#workspace-files)).
 
 **Save what's on screen** from **View → Workspace ▸**:
 
