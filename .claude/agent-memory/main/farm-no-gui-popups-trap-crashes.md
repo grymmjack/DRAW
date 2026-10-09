@@ -26,4 +26,5 @@ don't do that ok?"
   a farm box.
 - [Windows] programs launched over SSH run in a non-interactive session, so they don't
   reach the desktop — but still use the trap.
+- **Update 2026-10-09 - QA runs may take over screens:** Rick: *"feel free to run and take over screens as needed on thinkpad and mac and titan"*. The cross-platform qa-harness drives the real desktop on mac / thinkpad (no offscreen mode there). Still say so before a full suite (~2h of that machine), and stop when he says he is using it ("let me try local on mac sec"). Crash-dialog trapping still applies.
 - Linux GUI tests stay under Xvfb (`draw-qa.sh` default) — see [[reference-remote-mac-windows-testing]].

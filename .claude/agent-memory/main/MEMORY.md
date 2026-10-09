@@ -37,7 +37,8 @@
 - [_MAPUNICODE illegal on some fonts](qb64pe-mapunicode-illegal.md) — ERR 5 on bitmap/no-cmap fonts; render via `_UPRINTSTRING`(UTF-8); gate token subs on `INSTR`
 - [Shared dynamic UDT array](qb64pe-shared-dynamic-udt-array.md) — share via `REDIM SHARED name(0,0) AS TYPE` in .BI, not `DIM SHARED name() AS TYPE`
 - [Command palette needs CMD_register](draw-command-palette-registration.md) — a MENUBAR action needs `CMD_register` in `CMD_init` to reach the `?` palette / be QA-testable
-- [qa-harness toolkit](qa-harness-toolkit.md) — QA harness extracted to `~/git/qa-harness` (core/driver/adapter seam); `draw-qa.sh` = reference wrapper
+- [qa-harness toolkit](qa-harness-toolkit.md) — QA harness extracted to `~/git/qa-harness` (core/driver/adapter seam); `draw-qa.sh` = reference wrapper; linux-x11 / macos / windows drivers (mac: Cmd+Tab after launch + one `qa-io serve`; win: Scheduled Task from C:\qa-runner)
+- [QB64-PE GLFW shrinks Windows windows](qb64pe-glfw-windows-window-shrink.md) — [Windows] window = image / content scale (250%: 800x600 -> 320x240); glut-emu ToPixelCoords; QA works around it; not reported upstream yet
 - [Display-scale system](draw-display-scale-system.md) — unified `UI_SCALE`; chrome=0.5×display; fit checks must use `SCREEN_effective_chrome_scale%` not an estimate; relaxed floor for explicit scale (v2.3.2)
 - [Tooltip container-wrap](draw-tooltip-container-wrap.md) — 2 DRAW tooltip renderers + 1 in the lib; all wrap to their CONTAINER via `TOOLTIP_wrap_line`; char-based cap (v2.3.2)
 - [Deliver viewables as Artifacts](deliver-viewables-as-artifacts.md) — Rick runs remote/web CC; anything to view → publish as an Artifact, never a local file / SendUserFile
@@ -47,7 +48,7 @@
 - [Effect action-ID collisions](draw-effect-action-id-collisions.md) — effect IDs dodge ACTION_SETTINGS=2100, EXPORT 2201-2216; first CASE wins; SHAPE effects 2230-2260
 - [HW cursor = OS plane, not a QB64PE layer](hw-cursor-os-plane.md) — `_MOUSECURSOR` composites above all layers; icon cursors OK OS-only, zoom rings/loupe stay software
 - [Verify HW cursor via XFixes](verify-hw-cursor-xfixes.md) — screenshots never show the OS cursor; `.claude/tools/curprobe.c` reads it (size / visible px / name)
-- [Remote Mac/Windows testing](reference-remote-mac-windows-testing.md) — mac (Retina) + thinkpad (Win11) over SSH; whole farm on qb64pe v4.7.0-GLFW self-hosted (2026-09-30); Win DPI needs interactive/console session; drive via scp'd `.ps1`
+- [Remote Mac/Windows testing](reference-remote-mac-windows-testing.md) — mac (Retina) + thinkpad (Win11) over SSH; whole farm on qb64pe tag v4.7.0-GLFW, OPTIMIZED self-host (2026-10-09; pull the tag, not main); Win DPI needs interactive/console session; drive via scp'd `.ps1`
 - [Keep remote dashboard updated](feedback-keep-remote-dashboard-updated.md) — update remote-test dashboard NEXT notes each iteration (`uv run DEV/remote-dash.py --set <host> "note"`)
 - [Farm test builds via DRAW-fstest worktree](farm-test-worktrees-invisible-to-dash.md) — build branches in a `DRAW-fstest` worktree (init submodules!); `remote-dash.py` now shows them in a TEST BUILD column; state exact per-host binary paths
 - [Farm build recipes per host](farm-build-recipes-per-host.md) — exact qb64pe paths (titan=capital QB64pe, case-sensitive!); Windows builds over SSH call `qb64pe.exe -w -x` DIRECTLY (no make); daw needs full-path `/mnt/c/Windows/System32/cmd.exe`; qb64pe link "Permission denied" = stale qb64pe.exe locking itself (taskkill); force submodule to pinned sha or DRAW builds against wrong lib
@@ -75,5 +76,5 @@
 - [Multi-dim array-param reorder = compile speed](draw-multidim-array-reorder-compile-speed.md) — define 2D+ open-array-param SUB/FUNCs AFTER a call site (transpiler recompile pass); 1D never matters; only 2 such routines exist, both fixed (mkilgore + PR #778); flatten preserves order (gotcha #29)
 - [F5 debug build cost](draw-debug-build-cost.md) — F5 = qb64pe-vscode DEBUGGER (flatten+$DEBUG, one monolithic C++ TU, ~9min single-core), NOT tasks.json; MaxCompilerProcesses/OptimizeCppProgram do NOT help it; use fast tasks build for non-debug iteration
 - [Game font extraction](game-font-extraction.md) — DOOM/Heretic/Hexen/Blood CBF fonts: WAD lumps, Blood shareware QFN-in-RFF, mapping quirks
-- [Farm: no GUI popups, trap crashes](farm-no-gui-popups-trap-crashes.md) — never pop windows on mac/thinkpad; trap SIGSEGV in-process (sigtrap.h) so no macOS/WER crash dialog; ask before launching GUI apps on the Mac
+- [Farm: no GUI popups, trap crashes](farm-no-gui-popups-trap-crashes.md) — never pop windows on mac/thinkpad; trap SIGSEGV in-process (sigtrap.h) so no macOS/WER crash dialog; QA runs may take over mac/thinkpad/titan screens (Rick 2026-10-09) - say so before a full suite
 - [Test scope](feedback-test-scope.md) — small fix = its targeted tests + baseline, then push; no 40-file suite runs for small changes

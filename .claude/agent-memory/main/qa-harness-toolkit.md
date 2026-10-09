@@ -61,3 +61,19 @@ left the whole run in limbo. State a test may change comes back via a state file
 the adapter's `ADAPTER_STATE_VARS` (DRAW: `DRAW_PID DRAW_WID`). A test that legitimately runs > 10 min
 must declare `# QA-TIMEOUT:`. `./DEV/qa-dash.sh` shows the current test's own timer vs its usual time
 and flags STALLED? past ~3x.
+
+**Cross-platform drivers (2026-10-09; harness 4c59d19..51e8aa7, DRAW branch `qa-cross-platform`).** `bin/qa` picks
+`drivers/{linux-x11,macos,windows}` by uname; tests never call OS tools (guard test `qa-no-os-tools-in-tests`).
+Both mac and Windows use a compiled `qa-io` helper (a Python call per input was ~0.3s). README "Platforms" has setup.
+- [macOS] Jobs run inside `~/Applications/QA Runner.app` via `drivers/macos/qa-run [--wait] CMD` (TCC grants live on the app;
+  rebuilding it invalidates them). A child of QA Runner shows in `lsappinfo` AS "QA Runner" - that is the app itself, not a bug.
+  Two input faults, found by logging raw QB64 mouse events (a tiny `.bas` writing each `_MOUSEINPUT` to a file is the decisive probe):
+  (1) a GLFW app launched by another process gets NO mouseMoved until switched away and back -> `driver_window_ready` does Cmd+Tab x2;
+  (2) a drag whose down / moves / up come from separate processes is dropped and input stops -> one `qa-io serve` per launch posts all input.
+  Held buttons/modifiers persist in `~/.qa-runner/io-state`.
+- [Windows] `drivers/windows/qa-run` runs the job via a Scheduled Task (`/IT` as desktop user `grymm`) from `C:\qa-runner`
+  (bin, portable ImageMagick 7, harness copy, DRAW clone) - the desktop user can't read the SSH user's profile. Over SSH the shell is
+  cmd: run scripts with `ssh thinkpad '"C:\Program Files\Git\bin\bash.exe" -s' <<EOF`. Portable IM7 rejects `magick convert` - shim
+  is `exec magick "$@"`. QA config: DISPLAY_SCALE = 2 x content scale, HIDPI_AWARE=0, SCREEN_HEIGHT=516 (see [[qb64pe-glfw-windows-window-shrink]]).
+  DRAW runs `*_COMMAND` options through cmd.exe: the adapter swaps `fixture.sh` for its `.cmd` twin, backslashed.
+- Farm: `DEV/farm-check.sh qa [mac|thinkpad|titan] [REF] [REGEX]`; `DEV/qa-dash.sh` probes every host (Git Bash for thinkpad).
