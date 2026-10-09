@@ -205,7 +205,7 @@ Hand-drawn floating panels (3D Color Space, Pen Pressure) must look like the Col
 - **Where the rects come from.** Other windows' rectangles are read from `REGION_BOUNDS_TABLE`. Input runs before the next render, so it holds last frame's footprints, and hidden windows never block.
 - **Drag pattern.** Remember prev x/y → set desired → own clamp → `FPANEL_place` → own clamp.
 - **Opening.** The four color/pen panels also call `FPANEL_place` when toggled open.
-- **Startup.** `FPANEL_settle_once`, after the first `SCREEN_render` in `DRAW.BAS`, pulls apart windows restored from overlapping saved positions.
+- **Startup + work-area changes.** `FPANEL_settle`, after each rendered frame in `DRAW.BAS`, runs on the first frame (pulls apart windows restored from overlapping saved positions) and again whenever the work area changes (a dock column grows, the window is resized): any floating window that overlaps another or sits outside the work area moves to the nearest free spot. Docked windows are skipped (their slot is outside the work area). Test: `dock-float-workarea`.
 - **Adding a floating window.** Add it to `FPANEL_float_region%`, `FPANEL_get_pos` and `FPANEL_set_pos`, and bump `FPANEL_FLOAT_COUNT`.
 - **Not covered.** Resizing (Preview, Image Browser) is not constrained.
 

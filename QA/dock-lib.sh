@@ -218,6 +218,9 @@ dk_check() {
             oy=$(( (wy + wh < b[2] + b[4] ? wy + wh : b[2] + b[4]) - (wy > b[2] ? wy : b[2]) ))
             if (( ox > 1 && oy > 1 )); then bad+=" window $wn covers ${b[0]} (${ox}x$oy);"; fi
         done
+        # its title bar stays reachable (a window taller than the work area
+        # was once placed at y -94 when a dock column grew)
+        if (( wy < 0 || wx + ww < 16 || wx > SCR_W - 16 )); then bad+=" window $wn title off screen ($wx,$wy ${ww}x$wh);"; fi
         # a docked window stays inside its own slot
         if (( ws > 0 )); then
             for r in "${rects[@]}"; do
