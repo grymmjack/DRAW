@@ -42,7 +42,7 @@ drag $(( CANVAS_CX - 20 )) $CANVAS_CY $(( CANVAS_CX + 20 )) $CANVAS_CY
 wait_for 0.4 "Stroke committed"
 assert_no_crash
 
-TITLE_DIRTY=$(xdotool getwindowname "$DRAW_WID" 2>/dev/null)
+TITLE_DIRTY=$(app_window_title)
 info "title while dirty: $TITLE_DIRTY"
 
 # ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ else
 fi
 
 # -- The document must still be dirty (title keeps its modified marker) --
-TITLE_AFTER=$(xdotool getwindowname "$DRAW_WID" 2>/dev/null)
+TITLE_AFTER=$(app_window_title)
 info "title after refused save: $TITLE_AFTER"
 if [[ "$TITLE_AFTER" == "$TITLE_DIRTY" ]]; then
     pass "Document still flagged as having unsaved changes"

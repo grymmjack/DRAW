@@ -28,17 +28,17 @@ assert_no_crash
 # -- First S tap (activate). Direct xdotool — minimal overhead. --
 info "First S tap (activate Smart Shapes)"
 draw_focus
-xdotool keydown s
+raw_key down s
 sleep 0.15
-xdotool keyup s
+raw_key up s
 sleep 0.20
 
 # -- Second S tap within 600ms (cycle). Total time from first keydown to
 #    second keydown should be ~350ms — well inside the 600ms window. --
 info "Second S tap within 600ms (cycle sub-shape)"
-xdotool keydown s
+raw_key down s
 sleep 0.15
-xdotool keyup s
+raw_key up s
 sleep 0.30
 
 # -- Snap status bar after both taps --

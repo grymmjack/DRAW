@@ -28,15 +28,15 @@ assert_no_crash
 local ax ay
 read -r ax ay <<< "$(_abs "$CANVAS_CX" "$CANVAS_CY")"
 draw_focus
-xdotool mousemove "$ax" "$ay"
+raw_move "$ax" "$ay"
 sleep 0.1
-xdotool mousedown 1
+raw_button down 1
 sleep 0.8
-xdotool mousemove $(( ax + 30 )) $(( ay + 20 ))
+raw_move $(( ax + 30 )) $(( ay + 20 ))
 sleep 0.5
-xdotool mousemove $(( ax - 30 )) $(( ay - 20 ))
+raw_move $(( ax - 30 )) $(( ay - 20 ))
 sleep 0.5
-xdotool mouseup 1
+raw_button up 1
 wait_for 0.3 "Spray applied with extended hold"
 assert_no_crash
 

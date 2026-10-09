@@ -24,7 +24,7 @@ assert_no_crash
 BTN_X=$(( TB_X + TOOLBAR_SCALE * 5 ))
 BTN_Y=$(( TB_Y + TOOLBAR_SCALE * 5 ))
 info "Hover toolbar button at ($BTN_X, $BTN_Y)"
-xdotool mousemove --window "$DRAW_WID" $BTN_X $BTN_Y
+raw_move_in_window $BTN_X $BTN_Y
 wait_for 1.5 "Wait for tooltip delay (~1s)"
 assert_no_crash
 

@@ -13,13 +13,13 @@ chord() {
     local init=$1 secondary=$2
     draw_focus
     dbg "chord $init+$secondary"
-    xdotool keydown "$init"
+    raw_key down "$init"
     sleep 0.15   # let CTX_<init>_HELD register (≥2 idle frames at 13fps)
-    xdotool keydown "$secondary"
+    raw_key down "$secondary"
     sleep 0.20   # let edge detect + action fire
-    xdotool keyup "$secondary"
+    raw_key up "$secondary"
     sleep 0.05
-    xdotool keyup "$init"
+    raw_key up "$init"
     sleep 0.15   # let CTX_<init>_HELD clear before next chord
 }
 

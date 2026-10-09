@@ -9,30 +9,30 @@
 chord() {
     local init=$1 secondary=$2
     draw_focus
-    xdotool keydown "$init"
+    raw_key down "$init"
     sleep 0.15
-    xdotool keydown "$secondary"
+    raw_key down "$secondary"
     sleep 0.20
-    xdotool keyup "$secondary"
+    raw_key up "$secondary"
     sleep 0.05
-    xdotool keyup "$init"
+    raw_key up "$init"
     sleep 0.15
 }
 
 chord_mod() {
     local init=$1 mod=$2 secondary=$3
     draw_focus
-    xdotool keydown "$init"
+    raw_key down "$init"
     sleep 0.15
-    xdotool keydown "$mod"
+    raw_key down "$mod"
     sleep 0.10
-    xdotool keydown "$secondary"
+    raw_key down "$secondary"
     sleep 0.20
-    xdotool keyup "$secondary"
+    raw_key up "$secondary"
     sleep 0.05
-    xdotool keyup "$mod"
+    raw_key up "$mod"
     sleep 0.05
-    xdotool keyup "$init"
+    raw_key up "$init"
     sleep 0.15
 }
 
