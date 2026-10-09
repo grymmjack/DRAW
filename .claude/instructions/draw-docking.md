@@ -72,6 +72,7 @@ active workspace via `WSC_save_dock`, else `CONFIG_save`).
 View → Layout Dock Left/Right (443–452, 2051/2052), Ctrl+Shift+click a panel,
 Hide Left/Right Side UI (436/437) and the Layout checkmarks predate the tree.
 - **Read** sides with `DOCK_side_now%(id)` (tree side if docked, else the key) — never the keys directly.
+- **Toolbox columns** (`TOOLBAR_reflow`): the wanted columns, plus more while the buttons don't fit the height. The organizer's height / a usable drawer and their minimum widths count **only while they are stacked in the toolbox's column** (`DOCK_with_toolbox%`); docked elsewhere or floating they take none of it (they used to force a lone 1-column toolbox to 3). An organizer / drawer docked apart is at least one widget stack / one bin wide (`DOCK_panel_w%`). Tests: `dock-toolbox-narrow`, `dock-toolbox-stacked-fit`.
 - **After setting** a key, call `DOCK_side_request id, side`: a custom tree moves the panel (its whole column when the column holds nothing else; the toolbox counts its organizer + drawer), the default tree follows the keys by itself.
 - Do **not** mirror the tree into the keys: the workspace overlay only snapshots keys a workspace touches, so a mirror would leak into the user's DRAW.cfg.
 
