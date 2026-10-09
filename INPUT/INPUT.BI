@@ -117,7 +117,8 @@ CONST REGION_DIALOG_GENERIC       = 27              ' generic modal dialogs
 CONST REGION_ADV_COLOR_PICKER     = 28              ' Advanced Color Picker floating panel
 CONST REGION_COLOR_SPACE_3D       = 29              ' 3D Color Space floating panel
 CONST REGION_PEN_PANEL            = 30              ' Pen Pressure floating panel
-' --- 31-63 reserved ---
+CONST REGION_TOOLBAR_EDITOR       = 31              ' Customize Toolbars floating window
+' --- 32-63 reserved ---
 
 CONST REGION_TABLE_SIZE = 64                        ' max regions; bumps require type fitness check
 

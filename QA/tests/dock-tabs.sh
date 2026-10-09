@@ -7,8 +7,8 @@
 #   tab       click the "Edit Bar" tab       -> it shows, saved as *editbar
 #   expand    click the collapsed title strip -> the advanced bar shows, ! gone
 #   collapse  click the tab strip's chevron   -> the tabbed slot collapses (!)
-# Geometry at 958x514: tab strip y=0..10 ("Layers" x~870, "Edit Bar" x~912,
-# chevron x~862); the collapsed strip sits on the column's bottom (y~487).
+# Geometry at 958x514, column at COL0 = 958 - LP_W: tab strip y=0..10 ("Edit Bar"
+# tab COL0+54, chevron COL0+4); the collapsed strip sits on the column's bottom (y~487).
 # QA-OPTIONS: WORKSPACE=default DOCK_CUSTOM=1 DOCK_LEFT_1=AUTO;toolbox|organizer|drawer DOCK_RIGHT_1=AUTO;layers+editbar|!advbar
 # =============================================================================
 
@@ -23,7 +23,7 @@ cfg_dock() { grep -m1 "^$1=" "$QA_CFG" | cut -d= -f2- | tr -d '\r'; }
 
 # --- switch tab ----------------------------------------------------------------
 snap_region $COL0 20 $LP_W 160 "tab-before"; T0="$SNAP_RESULT"
-click 912 5
+click $(( COL0 + 54 )) 5 # the "Edit Bar" tab
 wait_for 0.5 "tab"
 park_mouse
 wait_for 0.3 "settle"
@@ -54,7 +54,7 @@ fi
 
 # --- collapse the tabbed slot by its chevron --------------------------------------
 snap_region $COL0 20 $LP_W 160 "col-before"; C0="$SNAP_RESULT"
-click 862 5
+click $(( COL0 + 4 )) 5 # the tab strip's chevron
 wait_for 0.5 "collapse"
 park_mouse
 wait_for 0.3 "settle"

@@ -54,20 +54,27 @@ SUB TOOLBAR_render(xPos%, btnRangeStart%, btnRangeEnd%)
         ' Get the actual button index from the order array
         btnIdx% = TOOLBAR_BUTTON_ORDER(i%)
         
-        ' Skip blank toolbar positions
+        ' Row and column in the live grid (TB_LIVE_COLS per row; a divider ends a row).
+        ' Every slot's cell is recorded, gaps and dividers too (the toolbar
+        ' editor drops buttons between them).
+        TOOLBAR_slot_rc i%, row%, col%
+        x% = TB_COL0 + col% * (scaled_w% + scaled_padding%)
+        y% = TB_RECT_Y + scaled_h% * row% + scaled_padding% * row%
+        TB_SLOT_X(i%) = x%: TB_SLOT_Y(i%) = y%
+
+        ' Skip blank toolbar positions (and dividers)
         IF btnIdx% < 0 THEN GOTO TOOLBAR_render_next_button
-        
+
+        ' a command placed in the toolbox: its bar icon or text tile on a dark cell
+        IF btnIdx% >= TB_CMD_BASE THEN
+            TOOLBAR_draw_cmd_cell btnIdx% - TB_CMD_BASE, x%, y%, scaled_w%, scaled_h%
+            GOTO TOOLBAR_render_next_button
+        END IF
+
         GUI_TB(btnIdx%).w% = scaled_w%
         GUI_TB(btnIdx%).h% = scaled_h%
         w%                 = GUI_TB(btnIdx%).w%
         h%                 = GUI_TB(btnIdx%).h%
-        
-        ' Row and column in the live grid (TB_LIVE_COLS per row; default 4)
-        row% = i% \ TB_LIVE_COLS
-        col% = i% MOD TB_LIVE_COLS
-        x%   = TB_COL0 + col% * (scaled_w% + scaled_padding%)
-        
-        y% = TB_RECT_Y + scaled_h% * row% + scaled_padding% * row%
         
         ' Store position for click handling
         GUI_TB(btnIdx%).x% = x%
@@ -230,8 +237,6 @@ END FUNCTION
 FUNCTION TOOLBAR_handle_click%(mouseX%, mouseY%)
     DIM AS INTEGER i, btnIdx, x, y, w, h
     DIM AS INTEGER scale, scaled_w, scaled_h
-    STATIC last_click_tool AS INTEGER
-    STATIC dot_prev_tool   AS INTEGER
     
     ' Get toolbar scale from config (1-4, default 1)
     scale% = CFG.TOOLBAR_SCALE%
@@ -251,212 +256,23 @@ FUNCTION TOOLBAR_handle_click%(mouseX%, mouseY%)
         IF btnIdx% < 0 THEN GOTO TOOLBAR_click_next_button
         
         ' Use stored positions from GUI_TB (set during TOOLBAR_render)
-        x% = GUI_TB(btnIdx%).x%
-        y% = GUI_TB(btnIdx%).y%
+        x% = TB_SLOT_X(i%)
+        y% = TB_SLOT_Y(i%)
         w% = scaled_w%
         h% = scaled_h%
         
         IF mouseX% >= x% AND mouseX% < x% + w% AND mouseY% >= y% AND mouseY% < y% + h% THEN
             TOOLTIP_reset
-            DIM tool_id    AS INTEGER
-            DIM click_time AS DOUBLE
+            ' a command placed in the toolbox (the toolbar editor): run it
+            IF btnIdx% >= TB_CMD_BASE THEN
+                SOUND_play SND_TOOL_SELECT
+                CMD_execute_action btnIdx% - TB_CMD_BASE
+                MOUSE.UI_CHROME_CLICKED% = TRUE
+                TOOLBAR_handle_click%    = TRUE
+                EXIT FUNCTION
+            END IF
             ' Use position index (i%) for TOOLBAR_BUTTON_TO_TOOL, not button constant (btnIdx%)
-            tool_id%    = TOOLBAR_BUTTON_TO_TOOL(i%)
-            click_time# = TIMER
-
-            IF tool_id% = TOOL_DOT THEN
-                IF last_click_tool% = TOOL_DOT AND click_time# - MOUSE.B1_CLICK_TIME# < 0.3 THEN
-                    IF CUSTOM_BRUSH_is_active% THEN
-                        CUSTOM_BRUSH_reset
-                        GUI_NEEDS_REDRAW% = TRUE
-                    END IF
-
-                    tool_id% = dot_prev_tool%
-                    IF tool_id% = 0 THEN tool_id% = CURRENT_TOOL%
-
-                    last_click_tool%     = 0
-                    dot_prev_tool%       = 0
-                    MOUSE.B1_CLICK_TIME# = 0
-                ELSE
-                    dot_prev_tool%       = TOOLBAR_active_tool_id%
-                    last_click_tool%     = TOOL_DOT
-                    MOUSE.B1_CLICK_TIME# = click_time#
-                END IF
-            ELSE
-                last_click_tool%     = tool_id%
-                MOUSE.B1_CLICK_TIME# = click_time#
-            END IF
-            
-            ' Handle immediate action tools (load/save) - defer until after mouse processing
-            ' Deferred actions: 1=save, 2=import image, 3=open DRW project, 4=export selection
-            IF tool_id% = TOOL_SAVE THEN
-                SOUND_play SND_TOOL_SELECT
-                MOUSE.DEFERRED_ACTION%   = 1 ' 1 = save
-                MOUSE.UI_CHROME_CLICKED% = TRUE
-                TOOLBAR_handle_click%    = TRUE
-                EXIT FUNCTION
-            ELSEIF tool_id% = TOOL_OPEN THEN
-                SOUND_play SND_TOOL_SELECT
-                CMD_execute_action 2022      ' Toggle Browser
-                MOUSE.UI_CHROME_CLICKED% = TRUE
-                TOOLBAR_handle_click%    = TRUE
-                EXIT FUNCTION
-            ELSEIF tool_id% = TOOL_EXPORT_SEL THEN
-                SOUND_play SND_TOOL_SELECT
-                MOUSE.DEFERRED_ACTION%   = 4 ' 4 = export selection
-                MOUSE.UI_CHROME_CLICKED% = TRUE
-                TOOLBAR_handle_click%    = TRUE
-                EXIT FUNCTION
-            END IF
-            
-            ' Smart Shapes — open the sub-tool flyout AND immediately activate
-            ' the last-chosen sub-shape. A quick click selects it (release with
-            ' no hover keeps the activation); hold-and-drag over a different
-            ' icon changes selection on release.
-            IF tool_id% = TOOL_SMART_SHAPES THEN
-                IF SMART_SHAPES_GROUP_IDX >= 0 THEN
-                    DIM ssLastIdx AS INTEGER
-                    ssLastIdx% = SUBTOOL_GROUPS(SMART_SHAPES_GROUP_IDX%).lastChildIdx
-                    IF ssLastIdx% < 0 THEN ssLastIdx% = 0
-                    IF ssLastIdx% < SUBTOOL_GROUPS(SMART_SHAPES_GROUP_IDX%).childCount THEN
-                        DIM ssTool AS INTEGER
-                        ssTool% = SUBTOOL_GROUP_CHILDREN(SMART_SHAPES_GROUP_IDX%, ssLastIdx%).toolConst
-                        IF CURRENT_TOOL% <> ssTool% THEN
-                            ' Cancel crop / reset move state, mirroring the normal
-                            ' tool-switch path below.
-                            IF CROP.STATE = CROP_STATE_ACTIVE THEN CROP_cancel
-                            IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN MOVE_reset
-                            PREVIOUS_TOOL% = CURRENT_TOOL%
-                            CURRENT_TOOL%  = ssTool%
-                            TOOLS_reset_all FALSE
-                            IF CURRENT_TOOL% <> TOOL_FILL THEN FILL_deactivate
-                            IF CURRENT_TOOL% = TOOL_PICKER THEN PICKER_activate ELSE PICKER_deactivate
-                        END IF
-                    END IF
-                    SUBTOOL_FLYOUT_open SMART_SHAPES_GROUP_IDX%
-                    SOUND_play SND_TOOL_SELECT
-                    MOUSE.UI_CHROME_CLICKED% = TRUE
-                    TOOLBAR_handle_click%    = TRUE
-                    EXIT FUNCTION
-                END IF
-            END IF
-            
-            ' Crop button enters crop mode
-            IF tool_id% = TOOL_CROP THEN
-                SOUND_play SND_TOOL_SELECT
-                CROP_begin
-                MOUSE.UI_CHROME_CLICKED% = TRUE
-                TOOLBAR_handle_click%    = TRUE
-                EXIT FUNCTION
-            END IF
-            
-            ' QB64/Code export (action button)
-            IF tool_id% = TOOL_CODE THEN
-                SOUND_play SND_TOOL_SELECT
-                FILE_QB64_export_quick
-                MOUSE.UI_CHROME_CLICKED% = TRUE
-                TOOLBAR_handle_click%    = TRUE
-                EXIT FUNCTION
-            END IF
-            
-            ' Normal tool selection
-            ' Cancel crop mode if switching away (only before drag starts)
-            IF CROP.STATE = CROP_STATE_ACTIVE THEN
-                CROP_cancel
-            END IF
-            ' Apply and reset move if switching away from move tool with active transform
-            IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND tool_id% <> TOOL_MOVE THEN
-                MOVE_reset                   ' This applies the transform before switching
-            END IF
-            CURRENT_TOOL% = tool_id%
-            TOOLS_reset_all FALSE           ' Reset all tools, preserve marquee selection
-            ' Deactivate fill for non-fill tools
-            IF CURRENT_TOOL% <> TOOL_FILL THEN FILL_deactivate
-            IF CURRENT_TOOL% = TOOL_FILL THEN FILL_activate
-            ' Activate/deactivate picker
-            IF CURRENT_TOOL% = TOOL_PICKER THEN PICKER_activate ELSE PICKER_deactivate
-            ' Left-click on marquee rect = regular rectangle mode (disable magic wand mode)
-            IF tool_id% = TOOL_SELECT_RECT THEN
-                ' Clear auto-created marquee from MOVE tool (preserve user-created ones)
-                IF MARQUEE.ACTIVE% AND NOT MARQUEE.USER_CREATED THEN
-                    MARQUEE_reset
-                END IF
-                MARQUEE.MAGIC_WAND_MODE = FALSE
-                MARQUEE.VARIANT         = TOOL_SELECT_RECT
-                ' Cancel any in-progress creation state but preserve existing selection
-                FREEHAND_SEL_reset
-                POLY_SEL_reset
-                ELLIPSE_SEL_reset
-                CURRENT_TOOL% = TOOL_MARQUEE
-            END IF
-            ' Magic wand selection mode
-            IF tool_id% = TOOL_SELECT_WAND THEN
-                CURRENT_TOOL%           = TOOL_MARQUEE
-                MARQUEE.MAGIC_WAND_MODE = TRUE
-                MARQUEE.VARIANT         = TOOL_SELECT_WAND
-                ' Cancel any in-progress creation state but preserve existing selection
-                FREEHAND_SEL_reset
-                POLY_SEL_reset
-                ELLIPSE_SEL_reset
-            END IF
-            ' Freehand, polygon, and ellipse selection tools
-            IF tool_id% = TOOL_SELECT_FREE OR tool_id% = TOOL_SELECT_POLY OR tool_id% = TOOL_SELECT_ELLIPSE THEN
-                CURRENT_TOOL%           = TOOL_MARQUEE
-                MARQUEE.MAGIC_WAND_MODE = FALSE
-                MARQUEE.VARIANT         = tool_id%
-                ' Cancel any in-progress creation state but preserve existing selection
-                FREEHAND_SEL_reset
-                POLY_SEL_reset
-                ELLIPSE_SEL_reset
-            END IF
-            ' Eraser tool — force transparent painting
-            IF tool_id% = TOOL_ERASER THEN
-                ERASER_activate
-            ELSE
-                ERASER_deactivate
-            END IF
-            ' Capture selection when switching to move tool (handles both marquee and full-layer cases)
-            IF tool_id% = TOOL_MOVE THEN
-                MOVE_capture_selection
-            END IF
-            ' Reset all other tools when switching to pan
-            IF tool_id% = TOOL_PAN THEN
-                ' Check for double-click to fit canvas in viewport
-                STATIC panClickTime  AS DOUBLE
-                DIM panNow           AS DOUBLE
-                panNow# = TIMER
-                IF panNow# - panClickTime# < 0.3 THEN
-                    ZOOM_fit_canvas
-                    panClickTime# = 0
-                ELSE
-                    panClickTime# = panNow#
-                END IF
-                TOOLS_reset_all FALSE
-            END IF
-            ' Reset other tools when switching to zoom
-            IF tool_id% = TOOL_ZOOM THEN
-                ' Check for double-click to zoom to 100% and swap to hand tool
-                STATIC zoomClickTime AS DOUBLE
-                DIM zoomNow          AS DOUBLE
-                zoomNow# = TIMER
-                IF zoomNow# - zoomClickTime# < 0.3 THEN
-                    ZOOM_reset
-                    CURRENT_TOOL%  = TOOL_PAN
-                    zoomClickTime# = 0
-                ELSE
-                    zoomClickTime# = zoomNow#
-                END IF
-                TOOLS_reset_all FALSE
-            END IF
-            SOUND_play SND_TOOL_SELECT
-            ' Force full scene rebuild: GUI-only path would restore stale SCENE_CACHE&
-            ' (which has the old TEXT BAR baked in) and a transparent GUI overlay
-            ' wouldn't erase it.  SCENE_DIRTY% ensures the full path runs.
-            GUI_NEEDS_REDRAW%        = TRUE
-            SCENE_DIRTY%             = TRUE
-            FRAME_IDLE%              = FALSE
-            MOUSE.UI_CHROME_CLICKED% = TRUE ' Flag that toolbar was clicked
-            TOOLBAR_handle_click%    = TRUE
+            TOOLBAR_handle_click% = TOOLBAR_activate_tool%(TOOLBAR_BUTTON_TO_TOOL(i%))
             EXIT FUNCTION
         END IF
         TOOLBAR_click_next_button:
@@ -464,6 +280,214 @@ FUNCTION TOOLBAR_handle_click%(mouseX%, mouseY%)
     
     ' No button was clicked - return FALSE to allow canvas interaction
     TOOLBAR_handle_click% = FALSE
+END FUNCTION
+
+''
+' Press the toolbox button for tool toolId: what a click on it does (select
+' the tool, Dot's double-click, Smart Shapes' flyout, Crop, Save, Open, ...).
+' Shared by the toolbox and a tool button placed on a bar. Returns TRUE.
+FUNCTION TOOLBAR_activate_tool% (toolId AS INTEGER)
+    STATIC last_click_tool AS INTEGER
+    STATIC dot_prev_tool   AS INTEGER
+    DIM tool_id    AS INTEGER
+    DIM click_time AS DOUBLE
+    tool_id%    = toolId ' (by-reference param: work on a copy)
+    click_time# = TIMER
+
+    IF tool_id% = TOOL_DOT THEN
+        IF last_click_tool% = TOOL_DOT AND click_time# - MOUSE.B1_CLICK_TIME# < 0.3 THEN
+            IF CUSTOM_BRUSH_is_active% THEN
+                CUSTOM_BRUSH_reset
+                GUI_NEEDS_REDRAW% = TRUE
+            END IF
+
+            tool_id% = dot_prev_tool%
+            IF tool_id% = 0 THEN tool_id% = CURRENT_TOOL%
+
+            last_click_tool%     = 0
+            dot_prev_tool%       = 0
+            MOUSE.B1_CLICK_TIME# = 0
+        ELSE
+            dot_prev_tool%       = TOOLBAR_active_tool_id%
+            last_click_tool%     = TOOL_DOT
+            MOUSE.B1_CLICK_TIME# = click_time#
+        END IF
+    ELSE
+        last_click_tool%     = tool_id%
+        MOUSE.B1_CLICK_TIME# = click_time#
+    END IF
+    
+    ' Handle immediate action tools (load/save) - defer until after mouse processing
+    ' Deferred actions: 1=save, 2=import image, 3=open DRW project, 4=export selection
+    IF tool_id% = TOOL_SAVE THEN
+        SOUND_play SND_TOOL_SELECT
+        MOUSE.DEFERRED_ACTION%   = 1 ' 1 = save
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        TOOLBAR_activate_tool%    = TRUE
+        EXIT FUNCTION
+    ELSEIF tool_id% = TOOL_OPEN THEN
+        SOUND_play SND_TOOL_SELECT
+        CMD_execute_action 2022      ' Toggle Browser
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        TOOLBAR_activate_tool%    = TRUE
+        EXIT FUNCTION
+    ELSEIF tool_id% = TOOL_EXPORT_SEL THEN
+        SOUND_play SND_TOOL_SELECT
+        MOUSE.DEFERRED_ACTION%   = 4 ' 4 = export selection
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        TOOLBAR_activate_tool%    = TRUE
+        EXIT FUNCTION
+    END IF
+    
+    ' Smart Shapes — open the sub-tool flyout AND immediately activate
+    ' the last-chosen sub-shape. A quick click selects it (release with
+    ' no hover keeps the activation); hold-and-drag over a different
+    ' icon changes selection on release.
+    IF tool_id% = TOOL_SMART_SHAPES THEN
+        IF SMART_SHAPES_GROUP_IDX >= 0 THEN
+            DIM ssLastIdx AS INTEGER
+            ssLastIdx% = SUBTOOL_GROUPS(SMART_SHAPES_GROUP_IDX%).lastChildIdx
+            IF ssLastIdx% < 0 THEN ssLastIdx% = 0
+            IF ssLastIdx% < SUBTOOL_GROUPS(SMART_SHAPES_GROUP_IDX%).childCount THEN
+                DIM ssTool AS INTEGER
+                ssTool% = SUBTOOL_GROUP_CHILDREN(SMART_SHAPES_GROUP_IDX%, ssLastIdx%).toolConst
+                IF CURRENT_TOOL% <> ssTool% THEN
+                    ' Cancel crop / reset move state, mirroring the normal
+                    ' tool-switch path below.
+                    IF CROP.STATE = CROP_STATE_ACTIVE THEN CROP_cancel
+                    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN MOVE_reset
+                    PREVIOUS_TOOL% = CURRENT_TOOL%
+                    CURRENT_TOOL%  = ssTool%
+                    TOOLS_reset_all FALSE
+                    IF CURRENT_TOOL% <> TOOL_FILL THEN FILL_deactivate
+                    IF CURRENT_TOOL% = TOOL_PICKER THEN PICKER_activate ELSE PICKER_deactivate
+                END IF
+            END IF
+            SUBTOOL_FLYOUT_open SMART_SHAPES_GROUP_IDX%
+            SOUND_play SND_TOOL_SELECT
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            TOOLBAR_activate_tool%    = TRUE
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' Crop button enters crop mode
+    IF tool_id% = TOOL_CROP THEN
+        SOUND_play SND_TOOL_SELECT
+        CROP_begin
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        TOOLBAR_activate_tool%    = TRUE
+        EXIT FUNCTION
+    END IF
+    
+    ' QB64/Code export (action button)
+    IF tool_id% = TOOL_CODE THEN
+        SOUND_play SND_TOOL_SELECT
+        FILE_QB64_export_quick
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        TOOLBAR_activate_tool%    = TRUE
+        EXIT FUNCTION
+    END IF
+    
+    ' Normal tool selection
+    ' Cancel crop mode if switching away (only before drag starts)
+    IF CROP.STATE = CROP_STATE_ACTIVE THEN
+        CROP_cancel
+    END IF
+    ' Apply and reset move if switching away from move tool with active transform
+    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND tool_id% <> TOOL_MOVE THEN
+        MOVE_reset                   ' This applies the transform before switching
+    END IF
+    CURRENT_TOOL% = tool_id%
+    TOOLS_reset_all FALSE           ' Reset all tools, preserve marquee selection
+    ' Deactivate fill for non-fill tools
+    IF CURRENT_TOOL% <> TOOL_FILL THEN FILL_deactivate
+    IF CURRENT_TOOL% = TOOL_FILL THEN FILL_activate
+    ' Activate/deactivate picker
+    IF CURRENT_TOOL% = TOOL_PICKER THEN PICKER_activate ELSE PICKER_deactivate
+    ' Left-click on marquee rect = regular rectangle mode (disable magic wand mode)
+    IF tool_id% = TOOL_SELECT_RECT THEN
+        ' Clear auto-created marquee from MOVE tool (preserve user-created ones)
+        IF MARQUEE.ACTIVE% AND NOT MARQUEE.USER_CREATED THEN
+            MARQUEE_reset
+        END IF
+        MARQUEE.MAGIC_WAND_MODE = FALSE
+        MARQUEE.VARIANT         = TOOL_SELECT_RECT
+        ' Cancel any in-progress creation state but preserve existing selection
+        FREEHAND_SEL_reset
+        POLY_SEL_reset
+        ELLIPSE_SEL_reset
+        CURRENT_TOOL% = TOOL_MARQUEE
+    END IF
+    ' Magic wand selection mode
+    IF tool_id% = TOOL_SELECT_WAND THEN
+        CURRENT_TOOL%           = TOOL_MARQUEE
+        MARQUEE.MAGIC_WAND_MODE = TRUE
+        MARQUEE.VARIANT         = TOOL_SELECT_WAND
+        ' Cancel any in-progress creation state but preserve existing selection
+        FREEHAND_SEL_reset
+        POLY_SEL_reset
+        ELLIPSE_SEL_reset
+    END IF
+    ' Freehand, polygon, and ellipse selection tools
+    IF tool_id% = TOOL_SELECT_FREE OR tool_id% = TOOL_SELECT_POLY OR tool_id% = TOOL_SELECT_ELLIPSE THEN
+        CURRENT_TOOL%           = TOOL_MARQUEE
+        MARQUEE.MAGIC_WAND_MODE = FALSE
+        MARQUEE.VARIANT         = tool_id%
+        ' Cancel any in-progress creation state but preserve existing selection
+        FREEHAND_SEL_reset
+        POLY_SEL_reset
+        ELLIPSE_SEL_reset
+    END IF
+    ' Eraser tool — force transparent painting
+    IF tool_id% = TOOL_ERASER THEN
+        ERASER_activate
+    ELSE
+        ERASER_deactivate
+    END IF
+    ' Capture selection when switching to move tool (handles both marquee and full-layer cases)
+    IF tool_id% = TOOL_MOVE THEN
+        MOVE_capture_selection
+    END IF
+    ' Reset all other tools when switching to pan
+    IF tool_id% = TOOL_PAN THEN
+        ' Check for double-click to fit canvas in viewport
+        STATIC panClickTime  AS DOUBLE
+        DIM panNow           AS DOUBLE
+        panNow# = TIMER
+        IF panNow# - panClickTime# < 0.3 THEN
+            ZOOM_fit_canvas
+            panClickTime# = 0
+        ELSE
+            panClickTime# = panNow#
+        END IF
+        TOOLS_reset_all FALSE
+    END IF
+    ' Reset other tools when switching to zoom
+    IF tool_id% = TOOL_ZOOM THEN
+        ' Check for double-click to zoom to 100% and swap to hand tool
+        STATIC zoomClickTime AS DOUBLE
+        DIM zoomNow          AS DOUBLE
+        zoomNow# = TIMER
+        IF zoomNow# - zoomClickTime# < 0.3 THEN
+            ZOOM_reset
+            CURRENT_TOOL%  = TOOL_PAN
+            zoomClickTime# = 0
+        ELSE
+            zoomClickTime# = zoomNow#
+        END IF
+        TOOLS_reset_all FALSE
+    END IF
+    SOUND_play SND_TOOL_SELECT
+    ' Force full scene rebuild: GUI-only path would restore stale SCENE_CACHE&
+    ' (which has the old TEXT BAR baked in) and a transparent GUI overlay
+    ' wouldn't erase it.  SCENE_DIRTY% ensures the full path runs.
+    GUI_NEEDS_REDRAW%        = TRUE
+    SCENE_DIRTY%             = TRUE
+    FRAME_IDLE%              = FALSE
+    MOUSE.UI_CHROME_CLICKED% = TRUE ' Flag that toolbar was clicked
+    TOOLBAR_activate_tool%    = TRUE
+    EXIT FUNCTION
 END FUNCTION
 
 ''
@@ -490,11 +514,11 @@ SUB TOOLBAR_handle_right_click(mouseX%, mouseY%)
         btnIdx% = TOOLBAR_BUTTON_ORDER(i%)
         
         ' Skip blank toolbar positions
-        IF btnIdx% < 0 THEN GOTO TOOLBAR_rclick_next_button
+        IF btnIdx% < 0 _ORELSE btnIdx% >= TB_CMD_BASE THEN GOTO TOOLBAR_rclick_next_button ' (a command has no right-click)
         
         ' Use stored positions from GUI_TB (set during TOOLBAR_render)
-        x% = GUI_TB(btnIdx%).x%
-        y% = GUI_TB(btnIdx%).y%
+        x% = TB_SLOT_X(i%)
+        y% = TB_SLOT_Y(i%)
         w% = scaled_w%
         h% = scaled_h%
         
@@ -549,11 +573,11 @@ SUB TOOLBAR_handle_middle_click(mouseX%, mouseY%)
         btnIdx% = TOOLBAR_BUTTON_ORDER(i%)
         
         ' Skip blank toolbar positions
-        IF btnIdx% < 0 THEN GOTO TOOLBAR_mclick_next_button
+        IF btnIdx% < 0 _ORELSE btnIdx% >= TB_CMD_BASE THEN GOTO TOOLBAR_mclick_next_button ' (a command has no middle-click)
         
         ' Use stored positions from GUI_TB (set during TOOLBAR_render)
-        x% = GUI_TB(btnIdx%).x%
-        y% = GUI_TB(btnIdx%).y%
+        x% = TB_SLOT_X(i%)
+        y% = TB_SLOT_Y(i%)
         w% = scaled_w%
         h% = scaled_h%
         
@@ -661,8 +685,8 @@ FUNCTION TOOLBAR_is_over_button%(mouseX%, mouseY%)
         IF btnIdx% < 0 THEN GOTO TOOLBAR_over_next_button
         
         ' Use stored positions from GUI_TB (set during TOOLBAR_render)
-        x% = GUI_TB(btnIdx%).x%
-        y% = GUI_TB(btnIdx%).y%
+        x% = TB_SLOT_X(i%)
+        y% = TB_SLOT_Y(i%)
         w% = scaled_w%
         h% = scaled_h%
         
@@ -702,7 +726,7 @@ SUB TOOLBAR_draw_background(TB_COL0%, TB_RIGHT%, btnRangeStart%, btnRangeEnd%)
     scaled_padding% = TB_BTN_PADDING * scale%
     
     ' Calculate number of rows needed (live columns per row)
-    num_rows% = ((btnRangeEnd% - btnRangeStart% + 1) + (TB_LIVE_COLS - 1)) \ TB_LIVE_COLS
+    num_rows% = TOOLBAR_rows_for%(TB_LIVE_COLS) ' (dividers end rows)
     IF num_rows% < 1 THEN num_rows% = 1
     
     ' Calculate panel bounds
@@ -804,7 +828,9 @@ END FUNCTION
 '     and a usable drawer don't fit the window height;
 '   * TOOLBOX_PANEL_W = those columns' width, but never narrower than one
 '     organizer stack / one drawer bin (their scales can be larger).
-' The organizer and drawer reflow into whatever width results.
+' The organizer and drawer count only while they are stacked in the toolbox's
+' own dock column (DOCK_with_toolbox%): docked elsewhere or floating, they
+' take neither its height nor its width. They reflow into whatever results.
 SUB TOOLBAR_reflow ()
     DIM AS INTEGER c, n, availH, need, minW, orgScl, drwScl
     n = TB_LIVE_COUNT
@@ -815,16 +841,20 @@ SUB TOOLBAR_reflow ()
     IF c > 8 THEN c = 8
     orgScl = USCALE.organizer%: IF orgScl < 1 THEN orgScl = 1
     drwScl = USCALE.drawer%: IF drwScl < 1 THEN drwScl = 1
-    IF ORGANIZER.visible% THEN minW = ORG_COL_W * orgScl + 2
-    IF DRAWER.visible% _ANDALSO minW < DRAWER_min_w% THEN minW = DRAWER_min_w%
+    DIM orgHere AS INTEGER, drwHere AS INTEGER
+    orgHere = (ORGANIZER.visible% <> 0) _ANDALSO DOCK_with_toolbox%(DP_ORGANIZER)
+    drwHere = (DRAWER.visible% <> 0) _ANDALSO DOCK_with_toolbox%(DP_DRAWER)
+    IF orgHere THEN minW = ORG_COL_W * orgScl + 2
+    IF drwHere _ANDALSO minW < DRAWER_min_w% THEN minW = DRAWER_min_w%
     availH = SCRN.h& - SCREEN_bottom_bars_h%
     DO
         TB_LIVE_COLS = c
-        TB_LIVE_ROWS = (n + c - 1) \ c
+        TB_LIVE_ROWS = TOOLBAR_rows_for%(c)
         TOOLBOX_PANEL_W = TOOLBAR_cols_w%(c)
         IF TOOLBOX_PANEL_W < minW THEN TOOLBOX_PANEL_W = minW
-        need = TB_TOP + TOOLBAR_rows_h% + 1 + ORGANIZER_height_for%(TOOLBOX_PANEL_W)
-        IF DRAWER.visible% THEN need = need + 40 * drwScl
+        need = TB_TOP + TOOLBAR_rows_h% + 1
+        IF orgHere THEN need = need + ORGANIZER_height_for%(TOOLBOX_PANEL_W)
+        IF drwHere THEN need = need + 40 * drwScl
         IF need <= availH _ORELSE c >= 8 _ORELSE c >= n THEN EXIT DO
         c = c + 1
     LOOP
@@ -846,7 +876,7 @@ SUB TOOLBAR_fit_width (w AS INTEGER, shrink AS INTEGER)
     NEXT c
     IF shrink = 0 _ANDALSO best <= TB_LIVE_COLS THEN EXIT SUB
     TB_LIVE_COLS = best
-    TB_LIVE_ROWS = (n + best - 1) \ best
+    TB_LIVE_ROWS = TOOLBAR_rows_for%(best)
 END SUB
 
 
@@ -873,9 +903,15 @@ END FUNCTION
 ' the name is unknown. "-" / "|" / "space" = an empty cell (btn -1).
 FUNCTION TOOLBAR_button_by_name% (nm AS STRING, outBtn AS INTEGER, outTool AS INTEGER)
     DIM b AS INTEGER
-    b = -2
-    SELECT CASE LCASE$(_TRIM$(nm))
-        CASE "-", "|", "space", "gap":          b = -1
+    DIM n AS STRING
+    n = LCASE$(_TRIM$(nm))
+    b = -999 ' unknown
+    ' a command placed by the toolbar editor: cmd:<action id> (or a bare id)
+    IF LEFT$(n, 4) = "cmd:" _ANDALSO VAL(MID$(n, 5)) > 0 THEN b = TB_CMD_BASE + VAL(MID$(n, 5))
+    IF VAL(n) > 0 _ANDALSO LTRIM$(STR$(VAL(n))) = n THEN b = TB_CMD_BASE + VAL(n)
+    SELECT CASE n
+        CASE "-", "space", "gap":               b = -1
+        CASE "|", "divider":                    b = TB_DIV_CODE
         CASE "move":                            b = TB_MOVE
         CASE "hand", "pan":                     b = TB_HAND
         CASE "zoom":                            b = TB_ZOOM
@@ -905,10 +941,16 @@ FUNCTION TOOLBAR_button_by_name% (nm AS STRING, outBtn AS INTEGER, outTool AS IN
         CASE "ellipse-filled":                  b = TB_CIRCLE_FILLED
         CASE "open":                            b = TB_OPEN
     END SELECT
-    IF b = -2 THEN EXIT FUNCTION
+    IF b = -999 THEN
+        ' a bar button's name (undo, preview, ...): that command
+        DIM barAct AS INTEGER
+        barAct = BL_bar_cmd_by_name%(n)
+        IF barAct = 0 THEN EXIT FUNCTION
+        b = TB_CMD_BASE + barAct
+    END IF
     outBtn = b
     outTool = -1
-    IF b >= 0 THEN
+    IF b >= 0 _ANDALSO b < TB_CMD_BASE THEN
         ' the tool comes from the default grid (the one source of the mapping)
         DIM s AS INTEGER
         s = TOOLBAR_default_slot%(b)
@@ -982,7 +1024,7 @@ FUNCTION TOOLBAR_layout_apply% (buttons AS STRING, cols AS INTEGER)
     TB_LIVE_COUNT = used
     TB_WANT_COLS = c
     TB_LIVE_COLS = c
-    TB_LIVE_ROWS = (used + c - 1) \ c
+    TB_LIVE_ROWS = TOOLBAR_rows_for%(c)
     TOOLTIP_reset
     INVALIDATE_scene
     TOOLBAR_layout_apply% = used
@@ -1013,3 +1055,64 @@ END FUNCTION
 FUNCTION TOOLBAR_slot_w% ()
     IF TB_RECT_W > 0 THEN TOOLBAR_slot_w% = TB_RECT_W ELSE TOOLBAR_slot_w% = TOOLBOX_PANEL_W
 END FUNCTION
+
+
+''
+' Row and column of slot i in the live grid: TB_LIVE_COLS per row, a divider
+' ends the row it is in (it takes no cell of its own).
+SUB TOOLBAR_slot_rc (i AS INTEGER, row AS INTEGER, col AS INTEGER)
+    DIM k AS INTEGER, c AS INTEGER, r AS INTEGER, cols AS INTEGER
+    cols = TB_LIVE_COLS: IF cols < 1 THEN cols = 1
+    FOR k = 0 TO i - 1
+        IF TOOLBAR_BUTTON_ORDER(k) = TB_DIV_CODE THEN
+            IF c > 0 THEN r = r + 1: c = 0
+        ELSE
+            c = c + 1
+            IF c >= cols THEN r = r + 1: c = 0
+        END IF
+    NEXT k
+    row = r: col = c
+END SUB
+
+
+''
+' Rows the live slots take at cols columns (dividers end rows).
+FUNCTION TOOLBAR_rows_for% (cols AS INTEGER)
+    DIM k AS INTEGER, c AS INTEGER, r AS INTEGER, cc AS INTEGER
+    cc = cols: IF cc < 1 THEN cc = 1
+    FOR k = 0 TO TB_LIVE_COUNT - 1
+        IF TOOLBAR_BUTTON_ORDER(k) = TB_DIV_CODE THEN
+            IF c > 0 THEN r = r + 1: c = 0
+        ELSE
+            c = c + 1
+            IF c >= cc THEN r = r + 1: c = 0
+        END IF
+    NEXT k
+    IF c > 0 THEN r = r + 1
+    IF r < 1 THEN r = 1
+    TOOLBAR_rows_for% = r
+END FUNCTION
+
+
+''
+' A command's cell in the toolbox: a dark face (like the bars) with its bar
+' icon or text tile, dimmed when the command is unavailable.
+SUB TOOLBAR_draw_cmd_cell (act AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    DIM img AS LONG, iw AS INTEGER, ih AS INTEGER, dx AS INTEGER, dy AS INTEGER
+    LINE (x, y)-(x + w - 1, y + h - 1), THEME.EDIT_BAR_BG_COLOR~&, BF
+    LINE (x, y)-(x + w - 1, y + h - 1), THEME.TOOLBAR_border_fg~&, B
+    ' toolbox-size art (IMAGES/COMMANDS/TOOLBOX, 11x11): drawn like a tool button
+    img = BL_cmd_file_icon&(act, 1, BL_cmd_enabled%(act) = 0)
+    IF img < -1 THEN _PUTIMAGE (x, y)-(x + w - 1, y + h - 1), img: EXIT SUB
+    img = BL_cmd_icon&(act, BL_cmd_enabled%(act) = 0)
+    IF img >= -1 THEN img = BL_cmd_tile&(act, BL_cmd_enabled%(act) = 0)
+    IF img >= -1 THEN EXIT SUB
+    iw = _WIDTH(img): ih = _HEIGHT(img)
+    IF iw <= w - 2 _ANDALSO ih <= h - 2 THEN
+        _PUTIMAGE (x + (w - iw) \ 2, y + (h - ih) \ 2), img
+    ELSE
+        ' a small toolbox (1x): fit the icon into the cell
+        dx = w - 2: dy = h - 2
+        _PUTIMAGE (x + 1, y + 1)-(x + dx, y + dy), img
+    END IF
+END SUB

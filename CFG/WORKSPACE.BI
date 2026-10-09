@@ -47,6 +47,10 @@ END TYPE
 DIM SHARED WS_LIST(1 TO WS_MAX) AS WS_INFO
 DIM SHARED WS_COUNT   AS INTEGER
 DIM SHARED WS_SCANNED AS INTEGER
+' WORKSPACES_DIR=<path> (--option only; never saved): the user workspaces
+' folder for this run - the QA tests save workspaces into a scratch folder
+' instead of the real one (WS_user_dir$).
+DIM SHARED WS_DIR_OVERRIDE AS STRING
 
 ' The resolved workspace: its BASED_ON chain flattened, child wins.
 ' Keys are "SECTION.KEY" - upper case, except [KEYS] keys which keep case.

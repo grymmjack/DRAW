@@ -9,6 +9,19 @@
 $INCLUDEONCE
 
 ''
+' Is panel id (organizer / drawer) stacked in the toolbox's dock column? Only
+' then does it share the toolbox's height and width (TOOLBAR_reflow). Before
+' the tree is built the default one stacks them.
+FUNCTION DOCK_with_toolbox% (id AS INTEGER)
+    DIM s AS INTEGER, t AS INTEGER
+    IF DOCK_READY = 0 THEN DOCK_with_toolbox% = TRUE: EXIT FUNCTION
+    s = DPANEL(id).slot: t = DPANEL(DP_TOOLBOX).slot
+    IF s = 0 _ORELSE t = 0 THEN EXIT FUNCTION ' floating (or not in the tree)
+    DOCK_with_toolbox% = (DOCK_SLOT(s).col = DOCK_SLOT(t).col)
+END FUNCTION
+
+
+''
 ' Is panel id showing (its own visibility flag)? The organizer and drawer
 ' follow the toolbar's Tab toggle too, as they always have.
 FUNCTION DOCK_panel_shown% (id AS INTEGER)
@@ -34,12 +47,23 @@ END FUNCTION
 ' The width a panel wants (px) at its current setting.
 FUNCTION DOCK_panel_w% (id AS INTEGER)
     SELECT CASE id
-        CASE DP_TOOLBOX, DP_ORGANIZER, DP_DRAWER: DOCK_panel_w% = TOOLBOX_PANEL_W
-        CASE DP_LAYERS: DOCK_panel_w% = LAYER_PANEL.width%
+        CASE DP_TOOLBOX: DOCK_panel_w% = TOOLBOX_PANEL_W
+        CASE DP_ORGANIZER ' the toolbox's width, but at least one widget stack (docked apart from it)
+            DIM orgS AS INTEGER
+            orgS = USCALE.organizer%: IF orgS < 1 THEN orgS = 1
+            DOCK_panel_w% = _MAX(TOOLBOX_PANEL_W, ORG_COL_W * orgS + 2)
+        CASE DP_DRAWER: DOCK_panel_w% = _MAX(TOOLBOX_PANEL_W, DRAWER_min_w%) ' at least one bin
+        CASE DP_LAYERS: DOCK_panel_w% = LAYERS_clamp_width%(LAYER_PANEL.width%) ' a saved width below the buttons' minimum too
         CASE DP_EDITBAR: DOCK_panel_w% = EDITBAR_width%
         CASE DP_ADVBAR: DOCK_panel_w% = ADVBAR_width%
         CASE DP_CHARMAP: DOCK_panel_w% = CHARMAP_panel_width%
-        CASE DP_PREVIEW: DOCK_panel_w% = PREVIEW.dispW%
+        CASE DP_PREVIEW
+            ' its floating width (CFG.PREVIEW_W, native px) - never the slot's:
+            ' docked it stretches to the column, so its live width would hold
+            ' the column at its widest (the layers could never shrink it back)
+            DIM pvW AS SINGLE
+            pvW = PREVIEW.renderScale!: IF pvW <= 0 THEN pvW = 1
+            DOCK_panel_w% = INT(CSNG(_MAX(CFG.PREVIEW_W%, PREVIEW_MIN_W)) * pvW + 0.5)
         CASE DP_MIXER: DOCK_panel_w% = COLORMIXER.dispW%
         CASE DP_ADVCP: DOCK_panel_w% = ADVCP.dispW%
         CASE DP_CS3D: DOCK_panel_w% = CS3D.dispW%
@@ -50,6 +74,23 @@ FUNCTION DOCK_panel_w% (id AS INTEGER)
             DIM brW AS SINGLE
             brW = BROWSER.renderScale!: IF brW <= 0 THEN brW = 1
             DOCK_panel_w% = _MAX(INT(CSNG(_MAX(CFG.BROWSER_WIDTH%, BROWSER_MIN_W)) * brW + 0.5), BROWSER_MIN_W)
+    END SELECT
+END FUNCTION
+
+
+''
+' A panel that stretches to fill its slot (the Preview, the Browser): its
+' minimum width (px), 0 = not a stretching panel. In a column beside other
+' panels it asks for only this much - a width of its own would hold the
+' column wide (Rick: the layers could not be narrowed with the Preview there).
+FUNCTION DOCK_stretch_min_w% (id AS INTEGER)
+    DIM rs AS SINGLE
+    SELECT CASE id
+        CASE DP_PREVIEW
+            rs = PREVIEW.renderScale!: IF rs <= 0 THEN rs = 1
+            DOCK_stretch_min_w% = INT(PREVIEW_MIN_W * rs + 0.999)
+        CASE DP_BROWSER
+            DOCK_stretch_min_w% = BROWSER_MIN_W
     END SELECT
 END FUNCTION
 
@@ -86,6 +127,27 @@ END SUB
 ''
 ' The side a panel's own dock key puts it on (the keys predate the tree:
 ' View > Layout, Ctrl+Shift+click, workspace *_DOCK keys), 0 = it has none.
+''
+' Set panel id's classic side key (and the bar's live dock side) to side.
+SUB DOCK_key_set (id AS INTEGER, side AS INTEGER)
+    DIM e AS STRING
+    IF side = DOCK_RIGHT THEN e = "RIGHT" ELSE e = "LEFT"
+    SELECT CASE id
+        CASE DP_TOOLBOX: CFG.TOOLBOX_DOCK_EDGE = e
+        CASE DP_LAYERS: CFG.LAYERS_PANEL_DOCK_EDGE = e
+        CASE DP_EDITBAR
+            CFG.EDIT_BAR_DOCK_POSITION$ = e
+            IF side = DOCK_RIGHT THEN EDIT_BAR.dockSide% = EDITBAR_DOCK_RIGHT ELSE EDIT_BAR.dockSide% = EDITBAR_DOCK_LEFT
+        CASE DP_ADVBAR
+            CFG.ADV_BAR_DOCK_POSITION$ = e
+            IF side = DOCK_RIGHT THEN ADV_BAR.dockSide% = ADVBAR_DOCK_RIGHT ELSE ADV_BAR.dockSide% = ADVBAR_DOCK_LEFT
+        CASE DP_CHARMAP
+            CFG.CHARMAP_PANEL_DOCK_EDGE$ = e
+            IF side = DOCK_RIGHT THEN CHARMAP.dockSide% = CHARMAP_DOCK_RIGHT ELSE CHARMAP.dockSide% = CHARMAP_DOCK_LEFT
+    END SELECT
+END SUB
+
+
 FUNCTION DOCK_key_side% (id AS INTEGER)
     DIM r AS INTEGER
     SELECT CASE id
@@ -122,7 +184,17 @@ END FUNCTION
 ' column holds nothing else (the toolbox's counts its organizer and drawer),
 ' else just the panel, into a new innermost column. Saved like any move.
 SUB DOCK_side_request (id AS INTEGER, side AS INTEGER)
-    DIM c AS INTEGER, s AS INTEGER, t AS INTEGER, p AS INTEGER, own AS INTEGER
+    DIM c AS INTEGER, s AS INTEGER, t AS INTEGER, p AS INTEGER, own AS INTEGER, cur AS INTEGER
+    IF WS_stock_default% THEN
+        ' Default keeps the stock layout: undo the side key the caller just
+        ' flipped and make the move in the arrangement instead (whose commit
+        ' asks for a workspace to keep it in)
+        IF DOCK_READY = 0 THEN DOCK_build_default
+        cur = DOCK_panel_side%(id)
+        IF cur = DOCK_LEFT _ORELSE cur = DOCK_RIGHT THEN DOCK_key_set id, cur
+        IF cur = side THEN EXIT SUB
+        DOCK_change_begin
+    END IF
     IF DOCK_CUSTOM = 0 _ORELSE DOCK_READY = 0 THEN EXIT SUB
     IF DPANEL(id).slot = 0 _ORELSE DOCK_panel_side%(id) = side THEN EXIT SUB
     c = DOCK_SLOT(DPANEL(id).slot).col
@@ -191,7 +263,14 @@ END FUNCTION
 ' Smallest height a flex panel accepts (it overflows the column rather than
 ' shrink below it).
 FUNCTION DOCK_min_h% (id AS INTEGER)
-    DIM dScl AS INTEGER
+    DIM dScl AS INTEGER, rs AS SINGLE
+    IF id = DP_PREVIEW THEN
+        ' the Preview never draws smaller than PREVIEW_MIN_H (native px): a
+        ' shorter slot let it spill over the panel stacked under it
+        PREVIEW_compute_display
+        rs = PREVIEW.renderScale!: IF rs <= 0 THEN rs = 1
+        DOCK_min_h% = INT(PREVIEW_MIN_H * rs + 0.999)
+    END IF
     IF id = DP_DRAWER THEN
         dScl = USCALE.drawer%
         IF dScl < 1 THEN dScl = 1
@@ -490,6 +569,7 @@ END SUB
 ' Leaves DOCK_LX/DOCK_RX (the canvas edges) and DOCK_MENU_LX/RX.
 SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
     DIM c AS INTEGER, so AS INTEGER, s AS INTEGER, id AS INTEGER, w AS INTEGER, t AS INTEGER, i AS INTEGER
+    DIM pid AS INTEGER, sw AS INTEGER, fixedW AS INTEGER
     IF DOCK_CUSTOM = 0 _ORELSE DOCK_READY = 0 THEN DOCK_build_default
     FOR i = 1 TO DP_COUNT: DPANEL(i).rVis = FALSE: NEXT i
     DOCK_native_reset_docked
@@ -498,7 +578,7 @@ SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
         IF DOCK_COL(c).used THEN
             DOCK_COL(c).vis = FALSE
             DOCK_COL(c).full = FALSE
-            w = 0
+            w = 0: sw = 0: fixedW = FALSE
             FOR so = 1 TO DOCK_MAX_SLOTS
                 s = DOCK_slot_at%(c, so)
                 IF s = 0 THEN EXIT FOR
@@ -506,13 +586,24 @@ SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
                 IF id THEN
                     DOCK_COL(c).vis = TRUE
                     FOR t = 1 TO DOCK_SLOT(s).ntabs
-                        IF DOCK_panel_shown%(DOCK_TAB(s, t)) THEN
-                            IF DPANEL(DOCK_TAB(s, t)).tall THEN DOCK_COL(c).full = TRUE
-                            IF DOCK_panel_w%(DOCK_TAB(s, t)) > w THEN w = DOCK_panel_w%(DOCK_TAB(s, t))
+                        pid = DOCK_TAB(s, t)
+                        IF DOCK_panel_shown%(pid) THEN
+                            IF DPANEL(pid).tall THEN DOCK_COL(c).full = TRUE
+                            IF DOCK_stretch_min_w%(pid) THEN
+                                ' fills its slot (Preview, Browser): its own width
+                                ' sets the column only when nothing else does;
+                                ' beside other panels it asks for its minimum
+                                IF DOCK_panel_w%(pid) > sw THEN sw = DOCK_panel_w%(pid)
+                                IF DOCK_stretch_min_w%(pid) > w THEN w = DOCK_stretch_min_w%(pid)
+                            ELSE
+                                fixedW = TRUE
+                                IF DOCK_panel_w%(pid) > w THEN w = DOCK_panel_w%(pid)
+                            END IF
                         END IF
                     NEXT t
                 END IF
             NEXT so
+            IF fixedW = 0 _ANDALSO sw > w THEN w = sw
             IF DOCK_COL(c).wpx > 0 THEN w = DOCK_COL(c).wpx
             DOCK_COL(c).w = w
         END IF
@@ -875,6 +966,10 @@ SUB DOCK_menu_build (id AS INTEGER)
     ELSE
         POPUP_MENU_set_item n, "Float", "", DOCK_ACT_FLOAT, 0: n = n + 1
     END IF
+    IF id = DP_TOOLBOX _ORELSE id = DP_EDITBAR _ORELSE id = DP_ADVBAR THEN
+        POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+        POPUP_MENU_set_item n, "Customize Buttons...", "", DOCK_ACT_CUSTOMIZE, 0: n = n + 1
+    END IF
     POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
     POPUP_MENU_set_item n, "Reset Arrangement", "", DOCK_ACT_RESET, 0: n = n + 1
     DOCK_UI.menuN = n
@@ -924,7 +1019,21 @@ END SUB
 SUB DOCK_change_commit (msg AS STRING)
     DOCK_CUSTOM = TRUE
     DOCK_READY = TRUE
+    IF WS_stock_default% THEN WS_layout_change_in_default msg: EXIT SUB ' Default stays stock: a workspace gets it
     IF WS_ACTIVE THEN WSC_save_dock WS_ACTIVE_ID ELSE CONFIG_save
+    IF LEN(msg) THEN STATUS_flash msg
+    DOCK_redraw
+END SUB
+
+
+''
+' A tab switch / collapse: saved like any change in a workspace (or DRAW.cfg
+' when Default is not kept stock), but in stock Default it only lasts this
+' session - no workspace name is asked for a click like that.
+SUB DOCK_change_commit_soft (msg AS STRING)
+    IF WS_stock_default% = 0 THEN DOCK_change_commit msg: EXIT SUB
+    DOCK_CUSTOM = TRUE
+    DOCK_READY = TRUE
     IF LEN(msg) THEN STATUS_flash msg
     DOCK_redraw
 END SUB
@@ -956,12 +1065,24 @@ SUB DOCK_menu_do (act AS INTEGER)
             IF DPANEL(id).floats THEN DOCK_native_undock id, DOCK_LX + 40, 60 ELSE DOCK_float_panel id, DOCK_LX + 40, 60
         CASE DOCK_ACT_DOCKBACK
             DOCK_dock_back id
+        CASE DOCK_ACT_CUSTOMIZE
+            SELECT CASE id
+                CASE DP_EDITBAR: TBED_open BL_EDITBAR
+                CASE DP_ADVBAR: TBED_open BL_ADVBAR
+                CASE ELSE: TBED_open BL_TOOLBOX
+            END SELECT
         CASE DOCK_ACT_RESET
             DOCK_change_begin
             DOCK_CUSTOM = FALSE
             DOCK_READY = FALSE
             DOCK_build_default
-            IF WS_ACTIVE THEN WSC_save_dock WS_ACTIVE_ID ELSE CONFIG_save
+            IF WS_ACTIVE THEN
+                WSC_save_dock WS_ACTIVE_ID
+            ELSEIF WS_stock_default% THEN
+                WS_default_layout_reset ' (nothing to save: Default is the stock layout)
+            ELSE
+                CONFIG_save
+            END IF
             STATUS_flash "Panel arrangement reset"
             DOCK_redraw
     END SELECT
@@ -1472,10 +1593,8 @@ SUB DOCK_reblit_to_screen0 ()
         NEXT k
         IF DOCK_UI.lbW > 0 THEN DOCK_reblit_rect DOCK_UI.lbX, DOCK_UI.lbY, DOCK_UI.lbW, DOCK_UI.lbH, ds
     END IF
-    IF DOCK_UI.menuOpen THEN
-        mh = DOCK_UI.menuN * DOCK_MENU_ITEM_H
-        DOCK_reblit_rect DOCK_UI.menuX - 2, DOCK_UI.menuY - 2, DOCK_UI.menuW + 6, mh + 8, ds
-    END IF
+    ' (the handle menu is a POPUP_MENU_render popup: POPUP_reblit_to_screen0
+    ' redraws exactly its frame - a margin here put canvas pixels over windows)
     _DEST oldDest&
 END SUB
 
@@ -1608,6 +1727,15 @@ END FUNCTION
 '   COL  <col> <side> <ord> <x> <y> <w> <h> <vis> <hidden for width>
 '   SLOT <slot> <col> <ord> <x> <y> <w> <h> <vis> <collapsed> <act> <autocollapsed> <panels,...>
 '   P    <name> <shown> <live> <x> <y> <w> <h> <slot> <floating> <fx> <fy> <fw> <fh> <hx> <hy> <hw> <hh> <tabx> <tabw>
+'   BTN / TBED / TBC: the toolbox's and bars' buttons and the Customize Toolbars
+'   window (GUI/TOOLBAR-EDITOR.BM TBED_dump$)
+'   WIN   <name> <x> <y> <w> <h> <slot>   a native window as drawn (tbed = Customize Toolbars)
+'   VIEW  <zoom x100> <offsetX> <offsetY> <CURRENT_TOOL%>
+'   PALNAME <x> <y> <w> <h>        the palette name (opens the palette menu)
+'   MROOT <label> <x> <w>          a menu bar root
+'   MENU  <x> <y> <w> <h>          the open dropdown's frame
+'   POPUP <kind> <x> <y> <w> <h>   every popup redrawn above the windows last frame
+'         (dropdown, flyout-<name>, popup = a context menu, cmdpalette, palettemenu, subtool)
 ' (handle = what to press to move it: its slot's handle, a floating title or
 '  grip, or a floating window's title bar; tab = its tab on a tab strip.)
 SUB DOCK_dump_write (barY1 AS INTEGER, dockY2 AS INTEGER)
@@ -1655,6 +1783,24 @@ SUB DOCK_dump_write (barY1 AS INTEGER, dockY2 AS INTEGER)
         d = d + DOCK_n$(DPANEL(id).fx) + DOCK_n$(DPANEL(id).fy) + DOCK_n$(DPANEL(id).fw) + DOCK_n$(DPANEL(id).fh)
         d = d + DOCK_n$(hx) + DOCK_n$(hy) + DOCK_n$(hw) + DOCK_n$(hh) + DOCK_n$(tx) + DOCK_n$(tw) + lf
     NEXT id
+    d = d + TBED_dump$
+    ' the native windows where they are actually drawn (overlap invariant)
+    DIM wx AS INTEGER, wy AS INTEGER, ww AS INTEGER, wh AS INTEGER
+    FOR id = DP_PREVIEW TO DP_COUNT
+        IF DOCK_native_rect%(id, wx, wy, ww, wh) THEN d = d + "WIN " + DPANEL(id).nm + DOCK_n$(wx) + DOCK_n$(wy) + DOCK_n$(ww) + DOCK_n$(wh) + DOCK_n$(DPANEL(id).slot) + lf
+    NEXT id
+    IF TBED.visible _ANDALSO TBED.autoHidden = 0 _ANDALSO TBED.initialized THEN d = d + "WIN tbed" + DOCK_n$(TBED.dispX) + DOCK_n$(TBED.dispY) + DOCK_n$(TBED.dispW) + DOCK_n$(TBED.dispH) + " 0" + lf
+    ' menu bar roots and the open dropdown's frame (popup-over-window tests)
+    FOR t = 0 TO MENU_ROOT_COUNT - 1
+        d = d + "MROOT " + LCASE$(_TRIM$(MENU_ROOT_LABEL(t))) + DOCK_n$(MENU_ROOT_X(t)) + DOCK_n$(MENU_ROOT_W(t)) + lf
+    NEXT t
+    d = d + "VIEW" + DOCK_n$(INT(SCRN.zoom! * 100 + 0.5)) + DOCK_n$(SCRN.offsetX%) + DOCK_n$(SCRN.offsetY%) + DOCK_n$(CURRENT_TOOL%) + lf
+    IF PALETTE_STRIP_VISIBLE% THEN d = d + "PALNAME" + DOCK_n$(SCRN.w& - PALETTE_STRIP_name_w%) + DOCK_n$(PALETTE_STRIP_Y%) + DOCK_n$(PALETTE_STRIP_name_w%) + DOCK_n$(PALETTE_STRIP_get_height%) + lf
+    IF POPUP_any_open% = 0 THEN POPUP_SHOWN_N = 0 ' (closed since the last redraw)
+    FOR t = 0 TO POPUP_SHOWN_N - 1
+        d = d + "POPUP " + POPUP_SHOWN_KIND(t) + DOCK_n$(POPUP_SHOWN_X(t)) + DOCK_n$(POPUP_SHOWN_Y(t)) + DOCK_n$(POPUP_SHOWN_W(t)) + DOCK_n$(POPUP_SHOWN_H(t)) + lf
+    NEXT t
+    IF MENU_BAR.openMenu% >= 0 THEN d = d + "MENU" + DOCK_n$(MENU_BAR.subX% - 1) + DOCK_n$(MENU_BAR.subY% - 1) + DOCK_n$(MENU_BAR.subW% + 2) + DOCK_n$(MENU_BAR.subH% + 2) + lf
     IF d = DOCK_DUMP_LAST THEN EXIT SUB
     DOCK_DUMP_LAST = d
     DOCK_DUMP_SEQ = DOCK_DUMP_SEQ + 1
@@ -1772,7 +1918,7 @@ SUB DOCK_toggle_collapse (s AS INTEGER)
     IF s < 1 _ORELSE DOCK_SLOT(s).used = 0 THEN EXIT SUB
     DOCK_change_begin
     DOCK_SLOT(s).collapsed = _NEGATE DOCK_SLOT(s).collapsed
-    IF DOCK_SLOT(s).collapsed THEN DOCK_change_commit DPANEL(DOCK_slot_panel%(s)).title + " collapsed" ELSE DOCK_change_commit DPANEL(DOCK_slot_panel%(s)).title + " expanded"
+    IF DOCK_SLOT(s).collapsed THEN DOCK_change_commit_soft DPANEL(DOCK_slot_panel%(s)).title + " collapsed" ELSE DOCK_change_commit_soft DPANEL(DOCK_slot_panel%(s)).title + " expanded"
 END SUB
 
 
@@ -1805,7 +1951,7 @@ SUB DOCK_title_click (s AS INTEGER, mx AS INTEGER)
     IF t > 0 _ANDALSO t <> DOCK_SLOT(s).act THEN
         DOCK_change_begin
         DOCK_SLOT(s).act = t
-        DOCK_change_commit ""
+        DOCK_change_commit_soft ""
     END IF
 END SUB
 

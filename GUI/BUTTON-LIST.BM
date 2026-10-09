@@ -1,0 +1,644 @@
+''
+' DRAW - GUI/BUTTON-LIST.BM
+' =============================================================================
+' Button lists for the toolbox and the bars (see BUTTON-LIST.BI).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Build panel's list the first time it is used (its default).
+SUB BL_ensure (panel AS INTEGER)
+    IF panel < 1 _ORELSE panel > BL_PANELS THEN EXIT SUB
+    IF BL_READY(panel) = 0 THEN BL_set_default panel
+END SUB
+
+
+SUB BL_clear (panel AS INTEGER)
+    BL_N(panel) = 0
+    BL_READY(panel) = TRUE
+END SUB
+
+
+''
+' Append an entry; FALSE when the list is full.
+FUNCTION BL_add% (panel AS INTEGER, kind AS INTEGER, id AS INTEGER)
+    DIM n AS INTEGER
+    n = BL_N(panel)
+    IF n >= BL_MAX THEN EXIT FUNCTION
+    BL(panel, n).kind = kind: BL(panel, n).id = id
+    BL(panel, n).x = 0: BL(panel, n).y = 0: BL(panel, n).w = 0: BL(panel, n).h = 0
+    BL_N(panel) = n + 1
+    BL_add% = TRUE
+END FUNCTION
+
+
+''
+' Insert an entry at position at (0 = first; at >= count appends). FALSE when full.
+FUNCTION BL_insert% (panel AS INTEGER, at AS INTEGER, kind AS INTEGER, id AS INTEGER)
+    DIM i AS INTEGER, p AS INTEGER
+    IF BL_N(panel) >= BL_MAX THEN EXIT FUNCTION
+    p = at
+    IF p < 0 THEN p = 0
+    IF p > BL_N(panel) THEN p = BL_N(panel)
+    FOR i = BL_N(panel) TO p + 1 STEP -1
+        BL(panel, i) = BL(panel, i - 1)
+    NEXT i
+    BL(panel, p).kind = kind: BL(panel, p).id = id
+    BL(panel, p).x = 0: BL(panel, p).y = 0: BL(panel, p).w = 0: BL(panel, p).h = 0
+    BL_N(panel) = BL_N(panel) + 1
+    BL_insert% = TRUE
+END FUNCTION
+
+
+SUB BL_remove (panel AS INTEGER, at AS INTEGER)
+    DIM i AS INTEGER
+    IF at < 0 _ORELSE at >= BL_N(panel) THEN EXIT SUB
+    FOR i = at TO BL_N(panel) - 2
+        BL(panel, i) = BL(panel, i + 1)
+    NEXT i
+    BL_N(panel) = BL_N(panel) - 1
+END SUB
+
+
+''
+' Position of the first entry (kind, id) in panel, -1 = not there.
+FUNCTION BL_find% (panel AS INTEGER, kind AS INTEGER, id AS INTEGER)
+    DIM i AS INTEGER
+    BL_find% = -1
+    BL_ensure panel
+    FOR i = 0 TO BL_N(panel) - 1
+        IF BL(panel, i).kind = kind _ANDALSO BL(panel, i).id = id THEN BL_find% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' Today's fixed layout: the edit / advanced bar tables (dividers kept), the
+' toolbox's default grid (an empty cell stays a gap).
+SUB BL_set_default (panel AS INTEGER)
+    DIM i AS INTEGER, ok AS INTEGER
+    BL_clear panel
+    SELECT CASE panel
+        CASE BL_EDITBAR
+            FOR i = 0 TO EDITBAR_TOTAL_SLOTS - 1
+                IF EDIT_BAR_ITEMS(i).isDivider% THEN ok = BL_add%(panel, BL_DIV, 0) ELSE ok = BL_add%(panel, BL_CMD, EDIT_BAR_ITEMS(i).actionID%)
+            NEXT i
+        CASE BL_ADVBAR
+            FOR i = 0 TO ADVBAR_TOTAL_SLOTS - 1
+                IF ADV_BAR_ITEMS(i).isDivider% THEN ok = BL_add%(panel, BL_DIV, 0) ELSE ok = BL_add%(panel, BL_CMD, ADV_BAR_ITEMS(i).actionID%)
+            NEXT i
+        CASE BL_TOOLBOX
+            FOR i = 0 TO TB_TOTAL - 1
+                IF TOOLBAR_DEF_ORDER(i) < 0 THEN ok = BL_add%(panel, BL_GAP, 0) ELSE ok = BL_add%(panel, BL_TOOL, TOOLBAR_DEF_ORDER(i))
+            NEXT i
+    END SELECT
+END SUB
+
+
+' =============================================================================
+' The command icon catalog: the bars' tables, by action id
+' =============================================================================
+
+''
+' The icon of command act (disabled = its dimmed copy); 0 = it has none (a text
+' tile then). Loads the bars' icons on first use.
+FUNCTION BL_cmd_icon& (act AS INTEGER, disabled AS INTEGER)
+    DIM i AS INTEGER
+    IF act = 0 THEN EXIT FUNCTION
+    IF EDIT_BAR.iconsLoaded% = 0 THEN EDITBAR_load_icons
+    IF ADV_BAR.iconsLoaded% = 0 THEN ADVBAR_load_icons
+    FOR i = 0 TO EDITBAR_TOTAL_SLOTS - 1
+        IF EDIT_BAR_ITEMS(i).isDivider% = 0 _ANDALSO EDIT_BAR_ITEMS(i).actionID% = act THEN
+            IF disabled _ANDALSO EDIT_BAR_ITEMS(i).disabledHandle& < -1 THEN BL_cmd_icon& = EDIT_BAR_ITEMS(i).disabledHandle& ELSE BL_cmd_icon& = EDIT_BAR_ITEMS(i).iconHandle&
+            EXIT FUNCTION
+        END IF
+    NEXT i
+    FOR i = 0 TO ADVBAR_TOTAL_SLOTS - 1
+        IF ADV_BAR_ITEMS(i).isDivider% = 0 _ANDALSO ADV_BAR_ITEMS(i).actionID% = act THEN
+            IF disabled _ANDALSO ADV_BAR_ITEMS(i).disabledHandle& < -1 THEN BL_cmd_icon& = ADV_BAR_ITEMS(i).disabledHandle& ELSE BL_cmd_icon& = ADV_BAR_ITEMS(i).iconHandle&
+            EXIT FUNCTION
+        END IF
+    NEXT i
+    ' no bar icon: the theme's command art, if it has some
+    BL_cmd_icon& = BL_cmd_file_icon&(act, 0, disabled)
+END FUNCTION
+
+
+''
+' A command's file name stem for theme art: its name in lower case, words
+' joined by - ("New Layer" -> new-layer); cmd-<id> when it has no name.
+FUNCTION BL_cmd_slug$ (act AS INTEGER)
+    DIM t AS STRING, s AS STRING, i AS INTEGER, ch AS STRING
+    t = LCASE$(BL_cmd_label$(act))
+    FOR i = 1 TO LEN(t)
+        ch = MID$(t, i, 1)
+        IF (ch >= "a" _ANDALSO ch <= "z") _ORELSE (ch >= "0" _ANDALSO ch <= "9") THEN
+            s = s + ch
+        ELSEIF LEN(s) _ANDALSO RIGHT$(s, 1) <> "-" THEN
+            s = s + "-"
+        END IF
+    NEXT i
+    DO WHILE RIGHT$(s, 1) = "-": s = LEFT$(s, LEN(s) - 1): LOOP
+    IF LEN(s) = 0 THEN s = "cmd-" + _TRIM$(STR$(act))
+    BL_cmd_slug$ = s
+END FUNCTION
+
+
+''
+' Theme art for command act (kind 0 = 16px, 1 = toolbox 11px); 0 = none.
+FUNCTION BL_cmd_file_icon& (act AS INTEGER, kind AS INTEGER, disabled AS INTEGER)
+    DIM i AS INTEGER, img AS LONG, dimg AS LONG, subDir AS STRING, f AS STRING, th AS STRING, nm AS STRING, k AS INTEGER
+    IF act <= 0 THEN EXIT FUNCTION
+    FOR i = 0 TO BL_FICON_N - 1
+        IF BL_FICON_ACT(i) = act _ANDALSO BL_FICON_KIND(i) = kind THEN
+            IF disabled _ANDALSO BL_FICON_DIM(i) < -1 THEN BL_cmd_file_icon& = BL_FICON_DIM(i) ELSE BL_cmd_file_icon& = BL_FICON_IMG(i)
+            EXIT FUNCTION
+        END IF
+    NEXT i
+    IF BL_FICON_N >= BL_FICON_MAX THEN EXIT FUNCTION
+    IF kind = 1 THEN subDir = "/IMAGES/COMMANDS/TOOLBOX/" ELSE subDir = "/IMAGES/COMMANDS/"
+    th = _TRIM$(CFG.THEME$)
+    FOR k = 1 TO 4
+        SELECT CASE k
+            CASE 1: f = "ASSETS/THEMES/" + th + subDir + BL_cmd_slug$(act) + ".png"
+            CASE 2: f = "ASSETS/THEMES/" + th + subDir + "cmd-" + _TRIM$(STR$(act)) + ".png"
+            CASE 3: f = "ASSETS/THEMES/DEFAULT" + subDir + BL_cmd_slug$(act) + ".png"
+            CASE 4: f = "ASSETS/THEMES/DEFAULT" + subDir + "cmd-" + _TRIM$(STR$(act)) + ".png"
+        END SELECT
+        IF _FILEEXISTS(f) THEN nm = f: EXIT FOR
+    NEXT k
+    IF LEN(nm) THEN
+        img = _LOADIMAGE(nm, 32)
+        IF img < -1 THEN
+            dimg = _COPYIMAGE(img)
+            BL_dim_image dimg
+        ELSE
+            _LOGWARN "Command icon " + nm + " could not be loaded"
+            img = 0
+        END IF
+    END IF
+    BL_FICON_ACT(BL_FICON_N) = act: BL_FICON_KIND(BL_FICON_N) = kind
+    BL_FICON_IMG(BL_FICON_N) = img: BL_FICON_DIM(BL_FICON_N) = dimg
+    BL_FICON_N = BL_FICON_N + 1
+    IF disabled _ANDALSO dimg < -1 THEN BL_cmd_file_icon& = dimg ELSE BL_cmd_file_icon& = img
+END FUNCTION
+
+
+''
+' The tooltip of command act: its bar tooltip (the tables are keyed by the bar
+' slot it has by default), else its command name and hotkey.
+SUB BL_cmd_tooltip (act AS INTEGER, line1 AS STRING, line2 AS STRING)
+    DIM i AS INTEGER
+    line1 = "": line2 = ""
+    FOR i = 0 TO EDITBAR_TOTAL_SLOTS - 1
+        IF EDIT_BAR_ITEMS(i).isDivider% = 0 _ANDALSO EDIT_BAR_ITEMS(i).actionID% = act THEN
+            line1 = TOOLTIP_EB_LINE1$(i): line2 = TOOLTIP_EB_LINE2$(i)
+            EXIT SUB
+        END IF
+    NEXT i
+    FOR i = 0 TO ADVBAR_TOTAL_SLOTS - 1
+        IF ADV_BAR_ITEMS(i).isDivider% = 0 _ANDALSO ADV_BAR_ITEMS(i).actionID% = act THEN
+            line1 = TOOLTIP_AB_LINE1$(i): line2 = TOOLTIP_AB_LINE2$(i)
+            EXIT SUB
+        END IF
+    NEXT i
+    line1 = UCASE$(BL_cmd_label$(act))
+    IF LEN(BL_cmd_hotkey$(act)) THEN line1 = UCASE$(BL_cmd_hotkey$(act)) + " - " + line1
+END SUB
+
+
+''
+' The command palette's name for action act, else its menu label ("" when it
+' has neither).
+FUNCTION BL_cmd_label$ (act AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 0 TO UBOUND(CMD_LIST)
+        IF CMD_LIST(i).action_id = act _ANDALSO LEN(_TRIM$(CMD_LIST(i).name)) THEN BL_cmd_label$ = _TRIM$(CMD_LIST(i).name): EXIT FUNCTION
+    NEXT i
+    i = BL_menu_item%(act)
+    IF i >= 0 THEN BL_cmd_label$ = _TRIM$(MENU_ITEMS(i).label)
+END FUNCTION
+
+
+FUNCTION BL_cmd_hotkey$ (act AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 0 TO UBOUND(CMD_LIST)
+        IF CMD_LIST(i).action_id = act _ANDALSO LEN(_TRIM$(CMD_LIST(i).name)) THEN BL_cmd_hotkey$ = _TRIM$(CMD_LIST(i).hotkey): EXIT FUNCTION
+    NEXT i
+    i = BL_menu_item%(act)
+    IF i >= 0 THEN BL_cmd_hotkey$ = _TRIM$(MENU_ITEMS(i).hotkey)
+END FUNCTION
+
+
+''
+' The menu row that runs action act (-1 = none): commands the palette does
+' not list (Paste in Place, Flip Horizontal, ...) are named by their menu.
+FUNCTION BL_menu_item% (act AS INTEGER)
+    DIM i AS INTEGER
+    BL_menu_item% = -1
+    IF act <= 0 THEN EXIT FUNCTION
+    FOR i = 0 TO MENU_ITEM_COUNT - 1
+        IF MENU_ITEMS(i).actionId = act _ANDALSO MENU_ITEMS(i).isDivider = 0 _ANDALSO MENU_ITEMS(i).hasSubmenu = 0 THEN BL_menu_item% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+' =============================================================================
+' Names (workspace files)
+' =============================================================================
+
+''
+' A toolbox tool's name (move, hand, ...), "" = none.
+FUNCTION BL_tool_name$ (btn AS INTEGER)
+    DIM slot AS INTEGER
+    slot = TOOLBAR_default_slot%(btn)
+    IF slot >= 0 THEN BL_tool_name$ = WS_list_item$(WSC_TB_NAMES$, slot + 1)
+END FUNCTION
+
+
+''
+' An entry's name in a workspace list.
+FUNCTION BL_entry_name$ (kind AS INTEGER, id AS INTEGER)
+    DIM nm AS STRING
+    SELECT CASE kind
+        CASE BL_DIV: nm = "|"
+        CASE BL_GAP: nm = "-"
+        CASE BL_TOOL: nm = BL_tool_name$(id)
+        CASE BL_CMD
+            nm = WS_editbar_name$(id)
+            IF LEN(nm) = 0 THEN nm = WS_advbar_name$(id)
+            IF LEN(nm) = 0 THEN nm = "cmd:" + _TRIM$(STR$(id))
+    END SELECT
+    BL_entry_name$ = nm
+END FUNCTION
+
+
+''
+' A name in a workspace list -> kind, id. FALSE when unknown. A bare number is
+' a command's action id (as the bar lists always allowed).
+FUNCTION BL_parse_name% (nm AS STRING, kind AS INTEGER, id AS INTEGER)
+    DIM n AS STRING, i AS INTEGER, btn AS INTEGER, tool AS INTEGER
+    n = LCASE$(_TRIM$(nm))
+    kind = 0: id = 0
+    IF LEN(n) = 0 THEN EXIT FUNCTION
+    SELECT CASE n
+        CASE "|", "divider": kind = BL_DIV: BL_parse_name% = TRUE: EXIT FUNCTION
+        CASE "-", "gap", "space": kind = BL_GAP: BL_parse_name% = TRUE: EXIT FUNCTION
+    END SELECT
+    IF LEFT$(n, 4) = "cmd:" THEN
+        id = VAL(MID$(n, 5))
+        IF id > 0 THEN kind = BL_CMD: BL_parse_name% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF VAL(n) > 0 _ANDALSO LTRIM$(STR$(VAL(n))) = n THEN kind = BL_CMD: id = VAL(n): BL_parse_name% = TRUE: EXIT FUNCTION
+    ' a bar button's name
+    i = BL_bar_cmd_by_name%(n)
+    IF i THEN kind = BL_CMD: id = i: BL_parse_name% = TRUE: EXIT FUNCTION
+    ' a toolbox tool's name
+    IF TOOLBAR_button_by_name%(n, btn, tool) THEN
+        IF btn >= 0 THEN kind = BL_TOOL: id = btn: BL_parse_name% = TRUE
+    END IF
+END FUNCTION
+
+
+''
+' The action of the bar button named nm (undo, preview, ...), 0 = none.
+FUNCTION BL_bar_cmd_by_name% (nm AS STRING)
+    DIM i AS INTEGER, n AS STRING
+    n = LCASE$(_TRIM$(nm))
+    FOR i = 0 TO EDITBAR_TOTAL_SLOTS - 1
+        IF EDIT_BAR_ITEMS(i).isDivider% = 0 _ANDALSO WS_editbar_name$(EDIT_BAR_ITEMS(i).actionID%) = n THEN BL_bar_cmd_by_name% = EDIT_BAR_ITEMS(i).actionID%: EXIT FUNCTION
+    NEXT i
+    FOR i = 0 TO ADVBAR_TOTAL_SLOTS - 1
+        IF ADV_BAR_ITEMS(i).isDivider% = 0 _ANDALSO WS_advbar_name$(ADV_BAR_ITEMS(i).actionID%) = n THEN BL_bar_cmd_by_name% = ADV_BAR_ITEMS(i).actionID%: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' Panel's list as a workspace list ("undo,redo,|,cut,...").
+FUNCTION BL_to_csv$ (panel AS INTEGER)
+    DIM i AS INTEGER, r AS STRING
+    BL_ensure panel
+    FOR i = 0 TO BL_N(panel) - 1
+        IF i > 0 THEN r = r + ","
+        r = r + BL_entry_name$(BL(panel, i).kind, BL(panel, i).id)
+    NEXT i
+    BL_to_csv$ = r
+END FUNCTION
+
+
+''
+' Replace panel's list with a workspace list; unknown names are skipped (and
+' logged). Returns how many entries it has.
+FUNCTION BL_from_csv% (panel AS INTEGER, csv AS STRING)
+    DIM i AS INTEGER, kind AS INTEGER, id AS INTEGER, ok AS INTEGER, it AS STRING
+    BL_clear panel
+    FOR i = 1 TO WS_list_count%(csv)
+        it = WS_list_item$(csv, i)
+        IF BL_parse_name%(it, kind, id) THEN
+            ok = BL_add%(panel, kind, id)
+        ELSEIF LEN(_TRIM$(it)) THEN
+            _LOGWARN "Button list: unknown button '" + _TRIM$(it) + "' skipped"
+        END IF
+    NEXT i
+    BL_from_csv% = BL_N(panel)
+END FUNCTION
+
+
+' =============================================================================
+' The bars: lay out, draw, hit-test and click from the lists
+' =============================================================================
+
+''
+' A command button is lit (not dimmed): both bars' availability rules (each is
+' TRUE for the commands it does not know).
+FUNCTION BL_cmd_enabled% (act AS INTEGER)
+    BL_cmd_enabled% = (EDITBAR_action_enabled%(act) <> 0) _ANDALSO (ADVBAR_action_enabled%(act) <> 0)
+END FUNCTION
+
+
+''
+' Lay out and draw a bar's buttons inside its inner area (x1, width w) between
+' y1 and y2, scrolled up by scrollOff px, in cols icon columns (more when the
+' area is wider: the column flow). Icons flow left to right; a divider ends
+' the row. Only whole icons are drawn. Records each entry's rect for
+' BL_bar_hit%. Returns the content height (for scrolling).
+FUNCTION BL_bar_draw% (panel AS INTEGER, x1 AS INTEGER, w AS INTEGER, y1 AS INTEGER, y2 AS INTEGER, scrollOff AS INTEGER, cols AS INTEGER, hoverIdx AS INTEGER)
+    DIM i AS INTEGER, padding AS INTEGER, curY AS INTEGER, contentH AS INTEGER
+    DIM barCols AS INTEGER, barColW AS INTEGER, colK AS INTEGER, rowH AS INTEGER
+    DIM img AS LONG, dimg AS LONG, iconW AS INTEGER, iconH AS INTEGER, iconX AS INTEGER, lit AS INTEGER
+    BL_ensure panel
+    padding = THEME.EDIT_BAR_ICON_PADDING%
+    curY = y1 + 1 + padding - scrollOff ' just below the top edge
+    barColW = THEME.EDIT_BAR_WIDTH%
+    barCols = cols
+    IF barColW > 0 _ANDALSO w \ barColW > barCols THEN barCols = w \ barColW
+    IF barCols < 1 THEN barCols = 1
+    FOR i = 0 TO BL_N(panel) - 1
+        BL(panel, i).x = 0: BL(panel, i).y = 0: BL(panel, i).w = 0: BL(panel, i).h = 0
+        IF BL(panel, i).kind = BL_DIV THEN
+            IF colK > 0 THEN
+                curY = curY + rowH + padding: contentH = contentH + rowH + padding
+                colK = 0: rowH = 0
+            END IF
+            curY = curY + THEME.EDIT_BAR_DIVIDER_VERT_MARGIN%
+            contentH = contentH + THEME.EDIT_BAR_DIVIDER_VERT_MARGIN%
+            _CONTINUE
+        END IF
+        img = 0: dimg = 0: lit = TRUE
+        IF BL(panel, i).kind = BL_TOOL THEN img = BL_tool_icon&(BL(panel, i).id)
+        IF BL(panel, i).kind = BL_CMD THEN
+            img = BL_cmd_icon&(BL(panel, i).id, FALSE)
+            dimg = BL_cmd_icon&(BL(panel, i).id, TRUE)
+            IF img >= -1 THEN img = BL_cmd_tile&(BL(panel, i).id, FALSE): dimg = BL_cmd_tile&(BL(panel, i).id, TRUE) ' no icon: its text tile
+            lit = BL_cmd_enabled%(BL(panel, i).id)
+        END IF
+        IF img < -1 _ANDALSO BL(panel, i).kind <> BL_TOOL THEN
+            iconW = _WIDTH(img): iconH = _HEIGHT(img)
+        ELSE
+            iconW = 16: iconH = 16 ' (a tool: its 11px toolbox button centred in a 16px cell)
+        END IF
+        iconX = x1 + colK * barColW + (barColW - iconW) \ 2
+        IF iconH > rowH THEN rowH = iconH
+        ' only whole icons: a partial one would spill past the panel's rect
+        IF curY >= y1 _ANDALSO curY + iconH - 1 <= y2 _ANDALSO BL(panel, i).kind <> BL_GAP THEN
+            BL(panel, i).x = iconX: BL(panel, i).y = curY: BL(panel, i).w = iconW: BL(panel, i).h = iconH
+            IF BL(panel, i).kind = BL_TOOL THEN
+                BL_draw_tool_button BL(panel, i).id, iconX, curY
+            ELSEIF lit = 0 _ANDALSO dimg < -1 THEN
+                _PUTIMAGE (iconX, curY), dimg
+            ELSEIF img < -1 THEN
+                _PUTIMAGE (iconX, curY), img
+            END IF
+            ' the shared Edge-Mode button shows "AA" when its target is Anti-Aliasing
+            IF BL(panel, i).kind = BL_CMD _ANDALSO BL(panel, i).id = 959 _ANDALSO EDGE_MODE_TARGET = EDGE_TARGET_AA THEN EDITBAR_draw_aa_badge iconX, curY, iconW, iconH
+            IF lit _ANDALSO i = hoverIdx THEN LINE (iconX - 1, curY - 1)-(iconX + iconW, curY + iconH), THEME.EDIT_BAR_ICON_MOUSE_OUTLINE_COLOR~&, B
+        END IF
+        colK = colK + 1
+        IF colK >= barCols THEN
+            curY = curY + rowH + padding: contentH = contentH + rowH + padding
+            colK = 0: rowH = 0
+        END IF
+    NEXT i
+    IF colK > 0 THEN contentH = contentH + rowH + padding
+    BL_bar_draw% = contentH
+END FUNCTION
+
+
+''
+' The bar entry (a button) under (mx, my), -1 = none.
+FUNCTION BL_bar_hit% (panel AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    DIM i AS INTEGER
+    BL_bar_hit% = -1
+    FOR i = 0 TO BL_N(panel) - 1
+        IF BL(panel, i).w > 0 _ANDALSO (BL(panel, i).kind = BL_CMD _ORELSE BL(panel, i).kind = BL_TOOL) THEN
+            IF mx >= BL(panel, i).x _ANDALSO mx < BL(panel, i).x + BL(panel, i).w _ANDALSO my >= BL(panel, i).y _ANDALSO my < BL(panel, i).y + BL(panel, i).h THEN BL_bar_hit% = i: EXIT FUNCTION
+        END IF
+    NEXT i
+END FUNCTION
+
+
+''
+' Entry i of panel is lit (hover sound / outline): a lit command, or a tool.
+FUNCTION BL_entry_lit% (panel AS INTEGER, i AS INTEGER)
+    IF i < 0 _ORELSE i >= BL_N(panel) THEN EXIT FUNCTION
+    SELECT CASE BL(panel, i).kind
+        CASE BL_CMD: BL_entry_lit% = BL_cmd_enabled%(BL(panel, i).id)
+        CASE BL_TOOL: BL_entry_lit% = TRUE
+    END SELECT
+END FUNCTION
+
+
+''
+' A click on entry i of panel.
+SUB BL_bar_click (panel AS INTEGER, i AS INTEGER)
+    IF i < 0 _ORELSE i >= BL_N(panel) THEN EXIT SUB
+    SELECT CASE BL(panel, i).kind
+        CASE BL_CMD: CMD_execute_action BL(panel, i).id
+        CASE BL_TOOL: IF TOOLBAR_activate_tool%(BL_tool_of%(BL(panel, i).id)) THEN MOUSE.UI_CHROME_CLICKED% = TRUE
+    END SELECT
+END SUB
+
+
+''
+' A right-click on entry i of panel: only the shared Edge-Mode button has one
+' (it switches its target Pixel-Perfect <-> Anti-Aliasing, action 960).
+SUB BL_bar_right_click (panel AS INTEGER, i AS INTEGER)
+    IF i < 0 _ORELSE i >= BL_N(panel) THEN EXIT SUB
+    IF BL(panel, i).kind = BL_CMD _ANDALSO BL(panel, i).id = 959 THEN CMD_execute_action 960
+END SUB
+
+
+' =============================================================================
+' Text tiles (a command with no icon)
+' =============================================================================
+
+''
+' Up to 3 letters for command act: its name's first word (after a leading
+' TOGGLE / SHOW), its first letter then its next consonants (FLATTEN -> FLT,
+' MERGE -> MRG); short words borrow the next words' initials.
+FUNCTION BL_tile_text$ (act AS INTEGER)
+    DIM nm AS STRING, w(1 TO 8) AS STRING, n AS INTEGER, i AS INTEGER, ch AS STRING, cur AS STRING, r AS STRING, k AS INTEGER, first AS INTEGER
+    nm = UCASE$(BL_cmd_label$(act))
+    IF LEN(nm) = 0 THEN BL_tile_text$ = LEFT$(_TRIM$(STR$(act)), 3): EXIT FUNCTION
+    FOR i = 1 TO LEN(nm) + 1
+        IF i <= LEN(nm) THEN ch = MID$(nm, i, 1) ELSE ch = " "
+        IF (ch >= "A" _ANDALSO ch <= "Z") _ORELSE (ch >= "0" _ANDALSO ch <= "9") THEN
+            cur = cur + ch
+        ELSEIF LEN(cur) THEN
+            IF n < 8 THEN n = n + 1: w(n) = cur
+            cur = ""
+        END IF
+    NEXT i
+    IF n = 0 THEN BL_tile_text$ = "?": EXIT FUNCTION
+    first = 1
+    IF n > 1 _ANDALSO (w(1) = "TOGGLE" _ORELSE w(1) = "SHOW") THEN first = 2
+    ' a short first word (NEW, ADD...): its initial, then the next word's letters
+    IF LEN(w(first)) <= 3 _ANDALSO n > first THEN
+        r = LEFT$(w(first), 1) + LEFT$(w(first + 1), 1)
+        FOR i = 2 TO LEN(w(first + 1))
+            IF LEN(r) >= 3 THEN EXIT FOR
+            ch = MID$(w(first + 1), i, 1)
+            IF INSTR("AEIOU", ch) = 0 _ANDALSO ch <> RIGHT$(r, 1) THEN r = r + ch
+        NEXT i
+        BL_tile_text$ = r
+        EXIT FUNCTION
+    END IF
+    r = LEFT$(w(first), 1)
+    FOR i = 2 TO LEN(w(first))
+        IF LEN(r) >= 3 THEN EXIT FOR
+        ch = MID$(w(first), i, 1)
+        IF INSTR("AEIOU", ch) = 0 _ANDALSO ch <> RIGHT$(r, 1) THEN r = r + ch
+    NEXT i
+    FOR k = first + 1 TO n
+        IF LEN(r) >= 3 THEN EXIT FOR
+        r = r + LEFT$(w(k), 1)
+    NEXT k
+    IF LEN(r) < 2 _ANDALSO LEN(w(first)) > 1 THEN r = LEFT$(w(first), 3)
+    BL_tile_text$ = r
+END FUNCTION
+
+
+''
+' The tile image of command act (disabled = its dimmed copy), built once.
+FUNCTION BL_cmd_tile& (act AS INTEGER, disabled AS INTEGER)
+    DIM i AS INTEGER, img AS LONG, dimg AS LONG, t AS STRING, c AS _UNSIGNED LONG, oldDest AS LONG, oldFont AS LONG
+    DIM tw AS INTEGER, th AS INTEGER
+    FOR i = 0 TO BL_TILE_N - 1
+        IF BL_TILE_ACT(i) = act THEN
+            IF disabled THEN BL_cmd_tile& = BL_TILE_DIM(i) ELSE BL_cmd_tile& = BL_TILE_IMG(i)
+            EXIT FUNCTION
+        END IF
+    NEXT i
+    IF BL_TILE_N >= BL_TILE_MAX THEN EXIT FUNCTION
+    oldDest& = _DEST: oldFont& = _FONT
+    DIM tileW AS INTEGER
+    c = _RGB32(202, 202, 202) ' the bar icons' line color
+    tileW = _MAX(16, THEME.EDIT_BAR_WIDTH%) ' a bar column's full width: room for 3 letters
+    img = _NEWIMAGE(tileW, 16, 32)
+    _DEST img
+    CLS , _RGBA32(0, 0, 0, 0)
+    LINE (1, 0)-(tileW - 2, 0), c: LINE (1, 15)-(tileW - 2, 15), c
+    LINE (0, 1)-(0, 14), c: LINE (tileW - 1, 1)-(tileW - 1, 14), c
+    IF LAYER_PANEL.fontHandle& > 0 THEN _FONT LAYER_PANEL.fontHandle& ELSE _FONT 8
+    t = BL_tile_text$(act)
+    DO WHILE LEN(t) > 1 _ANDALSO _UPRINTWIDTH(t) > tileW - 4
+        t = LEFT$(t, LEN(t) - 1)
+    LOOP
+    tw = _UPRINTWIDTH(t): th = _UFONTHEIGHT
+    COLOR c, _RGBA32(0, 0, 0, 0)
+    _PRINTMODE _KEEPBACKGROUND
+    _UPRINTSTRING ((tileW - tw + 1) \ 2, (16 - th) \ 2), t
+    _FONT 16
+    _DEST oldDest&: _FONT oldFont&
+    ' dimmed copy, as the bars dim their icons
+    dimg = _COPYIMAGE(img)
+    BL_dim_image dimg
+    BL_TILE_ACT(BL_TILE_N) = act: BL_TILE_IMG(BL_TILE_N) = img: BL_TILE_DIM(BL_TILE_N) = dimg
+    BL_TILE_N = BL_TILE_N + 1
+    IF disabled THEN BL_cmd_tile& = dimg ELSE BL_cmd_tile& = img
+END FUNCTION
+
+
+''
+' Scale an image's alpha like the bars' disabled icons.
+SUB BL_dim_image (img AS LONG)
+    DIM m AS _MEM, offs AS _OFFSET, px AS _UNSIGNED LONG, a AS INTEGER, k AS SINGLE
+    IF img >= -1 THEN EXIT SUB
+    k = (255 - THEME.EDIT_BAR_ICON_DISABLED_ALPHA%) / 255!
+    IF k < 0 THEN k = 0
+    IF k > 1 THEN k = 1
+    m = _MEMIMAGE(img)
+    offs = m.OFFSET
+    DO WHILE offs < m.OFFSET + m.SIZE
+        px = _MEMGET(m, offs, _UNSIGNED LONG)
+        a = _ALPHA32(px)
+        IF a > 0 THEN _MEMPUT m, offs, _RGBA32(_RED32(px), _GREEN32(px), _BLUE32(px), INT(a * k)) AS _UNSIGNED LONG
+        offs = offs + 4
+    LOOP
+    _MEMFREE m
+END SUB
+
+
+''
+' Free the tiles (a theme reload rebuilds them on next use).
+SUB BL_free_tiles ()
+    DIM i AS INTEGER
+    FOR i = 0 TO BL_TILE_N - 1
+        IF BL_TILE_IMG(i) < -1 THEN _FREEIMAGE BL_TILE_IMG(i)
+        IF BL_TILE_DIM(i) < -1 THEN _FREEIMAGE BL_TILE_DIM(i)
+        BL_TILE_IMG(i) = 0: BL_TILE_DIM(i) = 0: BL_TILE_ACT(i) = 0
+    NEXT i
+    BL_TILE_N = 0
+    FOR i = 0 TO BL_FICON_N - 1
+        IF BL_FICON_IMG(i) < -1 THEN _FREEIMAGE BL_FICON_IMG(i)
+        IF BL_FICON_DIM(i) < -1 THEN _FREEIMAGE BL_FICON_DIM(i)
+        BL_FICON_IMG(i) = 0: BL_FICON_DIM(i) = 0: BL_FICON_ACT(i) = 0
+    NEXT i
+    BL_FICON_N = 0
+END SUB
+
+
+' =============================================================================
+' Tools on the bars
+' =============================================================================
+
+''
+' The tool (TOOL_*) of toolbox button btn (TB_*), -1 = none.
+FUNCTION BL_tool_of% (btn AS INTEGER)
+    DIM slot AS INTEGER
+    BL_tool_of% = -1
+    slot = TOOLBAR_default_slot%(btn)
+    IF slot >= 0 THEN BL_tool_of% = TOOLBAR_DEF_TO_TOOL(slot)
+END FUNCTION
+
+
+''
+' Toolbox button btn's icon, loaded if the toolbox has not drawn it yet.
+FUNCTION BL_tool_icon& (btn AS INTEGER)
+    IF btn < 0 _ORELSE btn > UBOUND(GUI_TB) THEN EXIT FUNCTION
+    IF GUI_TB(btn).iHnd& = 0 THEN GUI_TB(btn).iHnd& = _LOADIMAGE("ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/IMAGES/TOOLBOX/" + GUI_TB(btn).iSrc$, 32)
+    BL_tool_icon& = GUI_TB(btn).iHnd&
+END FUNCTION
+
+
+''
+' A toolbox button on a bar: its 11px button centred in a 16px cell at (x, y),
+' with the toolbox's active-tool mark when its tool is the current one.
+SUB BL_draw_tool_button (btn AS INTEGER, x AS INTEGER, y AS INTEGER)
+    DIM img AS LONG, bx AS INTEGER, by AS INTEGER, t AS INTEGER, act AS INTEGER
+    img = BL_tool_icon&(btn)
+    bx = x + (16 - TB_BTN_W) \ 2: by = y + (16 - TB_BTN_H) \ 2
+    IF img < -1 THEN _PUTIMAGE (bx, by), img, , (0, 0)-(TB_BTN_W - 1, TB_BTN_H - 1)
+    t = BL_tool_of%(btn)
+    act = (t >= 0 _ANDALSO t = TOOLBAR_active_tool_id%)
+    IF t = TOOL_SMART_SHAPES _ANDALSO SMART_SHAPES_is_active% THEN act = TRUE
+    IF act THEN
+        LINE (bx, by)-(bx + TB_BTN_W - 1, by + TB_BTN_H - 1), THEME.TOOLBAR_btn_overlay~&, BF
+        LINE (bx, by)-(bx + TB_BTN_W - 1, by + TB_BTN_H - 1), THEME.TOOLBAR_btn_stroke~&, B
+    END IF
+END SUB

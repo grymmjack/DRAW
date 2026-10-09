@@ -13,7 +13,7 @@ click "$CANVAS_CX" "$CANVAS_CY" ; wait_for 0.4 "filled red"
 key grave ; park_mouse ; snap_region "$GX" "$GY" "$GW" "$GH" "um-filled"; FILLED="$SNAP_RESULT"
 assert_regions_differ "$EMPTY" "$FILLED" "sanity: fill changed the canvas"
 # click a menu (inert now), then a single undo
-click 395 6 ; wait_for 0.4 "EFFECTS open"
+click $(( 395 + LP_W - 100 )) 6 ; wait_for 0.4 "EFFECTS open"
 key Escape ; wait_for 0.3 "menu closed"
 key ctrl+z ; wait_for 0.5 "undo once"
 key grave ; park_mouse ; snap_region "$GX" "$GY" "$GW" "$GH" "um-undone"; UNDONE="$SNAP_RESULT"

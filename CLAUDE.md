@@ -72,6 +72,8 @@ Tests assert visually: `snap_region x y w h label` then `assert_regions_differ` 
 
 Derive UI coordinates from the render constants rather than probing them — the geometry arithmetic is correct (status bar `SCRN.h - THEME.STATUS_height%`, layer panel `panelY% = 0` with a 16px header and 20px rows, toolbar `TB_TOP = 0`). Note `PALETTE_H` in the harness is a conservative reservation, not the real 12px strip, so `PAL_Y` must not be used to click palette chips.
 
+**Watching runs:** `./DEV/qa-dash.sh` (live; `./DEV/qa-dash.py --once` for a snapshot) shows every running suite - progress, current test, finish time from all past timings, which checkout / branch - plus failures with a verdict (NEW / flaky / failed before / known from `QA/known-failures.txt`) and the current target set (`--target TITLE PATTERN...`, `--plan PATTERN` for an estimate before a run). Keep `QA/known-failures.txt` and the target current when running suites.
+
 Manual QA plans live in `PLANS/TESTS/`. `draw-watch.sh` launches DRAW with a CPU-usage alert threshold (useful for catching idle-loop regressions).
 
 ## Architecture
@@ -256,6 +258,7 @@ machine. Same convention is documented in the `grymmjack/qb64pe-mcp-server-bash`
 | `.claude/instructions/draw-color-cycling.md` | Palette color cycling: RGBA "chip IS its pixels" model, `PCYC_` ranges (CRNG units, FWD/REV/PING), render hook + idle rule, undo tail / Color Ops bookkeeping, .draw v30, GIF (GrafX2 CRNG) / animated GIF / ILBM-PBM / single-file .bas exporters + importers, batch CLI `--cycle/--export`, tests |
 | `.claude/instructions/draw-docking.md` | The dock tree (`GUI/DOCK`, `DOCK-TREE`): panels / columns / slots / tabs, `DOCK_layout` rules (full height spreads outward, small-window collapse/hide), the panel contract, native-window adapter (`docked` = in the tree, `DOCK_native_off%`), handles / menu / dividers / move-drop / float host, legacy side keys (`DOCK_side_now%` / `DOCK_side_request`, never mirror), `[DOCK]`/`[FLOAT]` grammar + DRAW.cfg `DOCK_*`, `dock-baseline.sh` + `dock-unit` |
 | `.claude/instructions/draw-workspaces.md` | Workspaces + screen capture + annotate tools: `CFG/WORKSPACE` (WS_ file layer, BASED_ON), `GUI/WORKSPACE-APPLY` overlay (snapshot/apply/restore, `CONFIG_save` guard, F11 reveal, toolbox/bars/menus/keys appliers, `MENU_ROOT_REMAP`), `GUI/WORKSPACE-CONFIG` configurator, `GUI/CAPTURE` backends + region picker + `--capture` mailbox handoff, `GUI/ANNOTATE` arrow/highlighter/redact/callout/Done; action ids 2400-2457 |
+| `.claude/instructions/draw-toolbar-editor.md` | Button lists + Customize Toolbars: `GUI/BUTTON-LIST` (`BL_` ordered entries per panel — tool / command / divider / gap, icon catalog, text tiles, names `cmd:<id>`, `\|`, `-`), toolbox codes (`TB_DIV_CODE`, `TB_CMD_BASE`, `TB_SLOT_X/Y` for every slot), `GUI/TOOLBAR-EDITOR` window (action 2460), edit mode on the real panels, saving into a workspace (Default asks a name), `WORKSPACES_DIR` + `BTN`/`TBED`/`TBC` dump lines for QA |
 
 The `.claude/skills/` directory contains procedural workflows for common tasks (release prep, QA test generation, bug fixing with state diagrams, PDF manual build, image upscaling, mind-map generation, QB64-PE porting/debugging). Each subdirectory has a `SKILL.md` invoked as a slash command.
 

@@ -1,0 +1,1581 @@
+''
+' DRAW - GUI/TOOLBAR-EDITOR.BM
+' =============================================================================
+' Customize Toolbars window. See GUI/TOOLBAR-EDITOR.BI.
+' Renders to screen 0 at the dialog scale (USCALE.dialog), like Edit > Settings;
+' font, title bar and chips come from GUI/FLOAT-PANEL.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+
+SUB TBED_init ()
+    TBED.visible = FALSE
+    TBED.initialized = FALSE
+    TBED.positioned = FALSE
+    TBED.renderScale = 1
+    TBED.tab = BL_TOOLBOX
+    TBED.avSel = -1
+    TBED.lsSel = -1
+    TBED.avDirty = TRUE
+END SUB
+
+
+' =============================================================================
+' Geometry
+' =============================================================================
+
+''
+' Row tops and column spans from the panel font (FPANEL): tabs, list
+' captions, the search field, the two lists with the middle buttons between
+' them, and the columns / Done row.
+SUB TBED_layout ()
+    DIM f AS INTEGER, pad AS INTEGER, y AS INTEGER
+    FPANEL_ensure
+    f = FPANEL.fontH%
+    pad = FPANEL.pad%
+    TBED.rowH = 18 ' a 16px icon / 18x16 text tile and a pixel above and below
+    IF TBED.rowH < f + 4 THEN TBED.rowH = f + 4
+    TBED.btnH = FPANEL.rowH%
+    TBED_fit_dims TBED.listW, TBED.rows ' about the Settings dialog's 600px, less in a narrow work area
+    TBED.midW = 48
+    TBED.avX = pad
+    TBED.midX = TBED.avX + TBED.listW + 6
+    TBED.lsX = TBED.midX + TBED.midW + 6
+    TBED.panelW = TBED.lsX + TBED.listW + pad
+    y = FPANEL.titleH% + pad
+    TBED.yTabs = y: y = y + TBED.btnH + FPANEL.section%
+    TBED.yHead = y: y = y + f + 3
+    TBED.ySearch = y: y = y + TBED.btnH + 3
+    TBED.yList = y: y = y + TBED.rows * TBED.rowH + FPANEL.section%
+    TBED.yBottom = y: y = y + TBED.btnH + pad
+    TBED.panelH = y
+END SUB
+
+
+''
+' List width and rows (native px) for the work area between the docked
+' columns: up to 252 x 16 (about the Settings dialog), down to 120 x 6, so the
+' window does not cover the docked panels edit mode drags onto.
+SUB TBED_fit_dims (listW AS INTEGER, rows AS INTEGER)
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+    DIM ts AS INTEGER, ds AS INTEGER, availW AS LONG, availH AS LONG, fixedH AS INTEGER, rh AS INTEGER
+    FPANEL_ensure
+    ts = TBED_scale%
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    FPANEL_work_area minX, minY, maxX, maxY
+    availW = CLNG(maxX - minX - 8) * ds \ ts
+    availH = CLNG(maxY - minY - 8) * ds \ ts
+    listW = (availW - 2 * FPANEL.pad% - 48 - 12) \ 2
+    IF listW > 252 THEN listW = 252
+    IF listW < 120 THEN listW = 120
+    rh = 18: IF rh < FPANEL.fontH% + 4 THEN rh = FPANEL.fontH% + 4
+    fixedH = FPANEL.titleH% + FPANEL.pad% * 2 + FPANEL.rowH% * 3 + FPANEL.section% * 2 + FPANEL.fontH% + 6
+    rows = (availH - fixedH) \ rh
+    IF rows > 16 THEN rows = 16
+    IF rows < 6 THEN rows = 6
+END SUB
+
+
+SUB TBED_ensure_initialized ()
+    IF TBED.initialized THEN EXIT SUB
+    TBED_layout
+    IF TBED.panelImg < -1 THEN _FREEIMAGE TBED.panelImg
+    TBED.panelImg = _NEWIMAGE(TBED.panelW, TBED.panelH, 32)
+    TBED_compute_display_size
+    TBED.initialized = TRUE
+END SUB
+
+
+''
+' The window's scale: the dialog scale (Edit > Settings, the configurator),
+' not the small floating panels' (mixer) scale - it is a dialog, and its text
+' should be the same size as theirs.
+FUNCTION TBED_scale% ()
+    DIM ts AS INTEGER
+    ts = USCALE.dialog%
+    IF ts < 1 THEN ts = 1
+    TBED_scale% = ts
+END FUNCTION
+
+
+SUB TBED_compute_display_size ()
+    DIM ts AS INTEGER, ds AS INTEGER
+    ts = TBED_scale%
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    TBED.renderScale = CSNG(ts) / CSNG(ds)
+    TBED.dispW = INT(CSNG(TBED.panelW) * ts / ds + 0.5)
+    TBED.dispH = INT(CSNG(TBED.panelH) * ts / ds + 0.5)
+END SUB
+
+
+''
+' First open: centred in the work area.
+SUB TBED_auto_position ()
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+    TBED_ensure_initialized
+    FPANEL_work_area minX, minY, maxX, maxY
+    TBED.dispX = minX + (maxX - minX - TBED.dispW) \ 2
+    TBED.dispY = minY + (maxY - minY - TBED.dispH) \ 2
+    TBED.positioned = TRUE
+END SUB
+
+
+SUB TBED_clamp ()
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER, th AS INTEGER
+    IF TBED.initialized = 0 THEN EXIT SUB
+    FPANEL_work_area minX, minY, maxX, maxY
+    IF TBED.dispX + TBED.dispW > maxX THEN TBED.dispX = maxX - TBED.dispW
+    IF TBED.dispX < minX THEN TBED.dispX = minX
+    th = INT(FPANEL.titleH% * TBED.renderScale + 0.5)
+    IF th < 16 THEN th = 16
+    IF TBED.dispY + TBED.dispH > maxY THEN TBED.dispY = maxY - TBED.dispH
+    IF TBED.dispY + th > maxY THEN TBED.dispY = maxY - th
+    IF TBED.dispY < minY THEN TBED.dispY = minY
+END SUB
+
+
+FUNCTION TBED_hit_window% (rawX AS INTEGER, rawY AS INTEGER)
+    IF TBED.initialized = 0 THEN EXIT FUNCTION
+    IF rawX >= TBED.dispX _ANDALSO rawX < TBED.dispX + TBED.dispW _ANDALSO rawY >= TBED.dispY _ANDALSO rawY < TBED.dispY + TBED.dispH THEN TBED_hit_window% = TRUE
+END FUNCTION
+
+
+FUNCTION TBED_active_hit% (rawX AS INTEGER, rawY AS INTEGER)
+    IF TBED.visible = 0 _ORELSE TBED.autoHidden THEN EXIT FUNCTION
+    TBED_active_hit% = TBED_hit_window%(rawX, rawY)
+END FUNCTION
+
+
+' =============================================================================
+' Open / close / tabs
+' =============================================================================
+
+''
+' View > Customize Toolbars: show (on the toolbox tab the first time) / hide.
+SUB TBED_toggle ()
+    IF TBED.visible THEN
+        TBED_close
+    ELSE
+        TBED_open TBED.tab
+    END IF
+END SUB
+
+
+''
+' Show the window on panel's tab (BL_TOOLBOX / BL_EDITBAR / BL_ADVBAR).
+SUB TBED_open (panel AS INTEGER)
+    DIM p AS INTEGER
+    p = panel
+    TBED_ensure_initialized
+    IF TBED.positioned = 0 THEN TBED_auto_position
+    IF TBED.visible = 0 THEN
+        TBED.visible = TRUE
+        TBED.autoHidden = FALSE
+        FPANEL_place REGION_TOOLBAR_EDITOR, TBED.dispX, TBED.dispY, TBED.dispW, TBED.dispH, TBED.dispX, TBED.dispY
+    END IF
+    TBED_set_tab p
+    TBED_redraw
+END SUB
+
+
+SUB TBED_close ()
+    TBED.visible = FALSE
+    TBED.focus = FALSE
+    TBED.searchFocus = FALSE
+    TBED.itemDrag = 0
+    TBED.dragging = FALSE
+    TBED_redraw
+END SUB
+
+
+SUB TBED_set_tab (panel AS INTEGER)
+    IF panel < BL_TOOLBOX _ORELSE panel > BL_ADVBAR THEN EXIT SUB
+    TBED.tab = panel
+    TBED_list_load
+    TBED.lsSel = -1
+    TBED.lsTop = 0
+    TBED.avSel = -1
+    TBED.avTop = 0
+    TBED.avDirty = TRUE
+END SUB
+
+
+''
+' The tab's list as the panel shows it now. The bars draw from their lists;
+' the toolbox's is read back from its slots (TBED_tb_load).
+SUB TBED_list_load ()
+    IF TBED.tab = BL_TOOLBOX THEN TBED_tb_load ELSE BL_ensure TBED.tab
+END SUB
+
+
+''
+' BL(BL_TOOLBOX) <- the toolbox's live slots.
+SUB TBED_tb_load ()
+    DIM i AS INTEGER, code AS INTEGER, ok AS INTEGER
+    BL_clear BL_TOOLBOX
+    FOR i = 0 TO TB_LIVE_COUNT - 1
+        code = TOOLBAR_BUTTON_ORDER(i)
+        IF code = -1 THEN
+            ok = BL_add%(BL_TOOLBOX, BL_GAP, 0)
+        ELSEIF code = TB_DIV_CODE THEN
+            ok = BL_add%(BL_TOOLBOX, BL_DIV, 0)
+        ELSEIF code >= TB_CMD_BASE THEN
+            ok = BL_add%(BL_TOOLBOX, BL_CMD, code - TB_CMD_BASE)
+        ELSEIF code >= 0 THEN
+            ok = BL_add%(BL_TOOLBOX, BL_TOOL, code)
+        END IF
+    NEXT i
+    BL_READY(BL_TOOLBOX) = TRUE
+END SUB
+
+
+FUNCTION TBED_panel_title$ (panel AS INTEGER)
+    SELECT CASE panel
+        CASE BL_TOOLBOX: TBED_panel_title$ = "TOOLBOX"
+        CASE BL_EDITBAR: TBED_panel_title$ = "EDIT BAR"
+        CASE BL_ADVBAR: TBED_panel_title$ = "ADVANCED BAR"
+    END SELECT
+END FUNCTION
+
+
+SUB TBED_redraw ()
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+' =============================================================================
+' Entries: names, hotkeys, icons
+' =============================================================================
+
+FUNCTION TBED_label$ (kind AS INTEGER, id AS INTEGER)
+    DIM slot AS INTEGER
+    SELECT CASE kind
+        CASE BL_TOOL
+            slot = TOOLBAR_default_slot%(id)
+            IF slot >= 0 THEN TBED_label$ = WS_list_item$(TBED_TOOL_LABELS$, slot + 1)
+        CASE BL_CMD
+            TBED_label$ = UCASE$(BL_cmd_label$(id))
+            IF LEN(BL_cmd_label$(id)) = 0 THEN TBED_label$ = "COMMAND " + _TRIM$(STR$(id))
+        CASE BL_DIV: TBED_label$ = "DIVIDER (NEW ROW)"
+        CASE BL_GAP: TBED_label$ = "EMPTY CELL"
+    END SELECT
+END FUNCTION
+
+
+FUNCTION TBED_hotkey$ (kind AS INTEGER, id AS INTEGER)
+    DIM slot AS INTEGER
+    SELECT CASE kind
+        CASE BL_TOOL
+            slot = TOOLBAR_default_slot%(id)
+            IF slot >= 0 THEN TBED_hotkey$ = WS_list_item$(TBED_TOOL_KEYS$, slot + 1)
+        CASE BL_CMD: TBED_hotkey$ = UCASE$(BL_cmd_hotkey$(id))
+    END SELECT
+END FUNCTION
+
+
+''
+' An entry's picture in an 18x16 cell at (x, y) on the current _DEST.
+SUB TBED_draw_icon (kind AS INTEGER, id AS INTEGER, x AS INTEGER, y AS INTEGER)
+    DIM img AS LONG
+    SELECT CASE kind
+        CASE BL_TOOL
+            BL_draw_tool_button id, x + 1, y
+        CASE BL_CMD
+            img = BL_cmd_icon&(id, FALSE)
+            IF img >= -1 THEN img = BL_cmd_tile&(id, FALSE)
+            IF img < -1 THEN _PUTIMAGE (x + (18 - _WIDTH(img)) \ 2, y + (16 - _HEIGHT(img)) \ 2), img
+        CASE BL_DIV
+            LINE (x + 1, y + 7)-(x + 16, y + 8), THEME.CP_text~&, BF
+        CASE BL_GAP
+            LINE (x + 2, y + 1)-(x + 15, y + 14), THEME.CP_text_dim~&, B , &HAAAA
+    END SELECT
+END SUB
+
+
+''
+' txt$ cut to fit w px (in the panel font), with ".." when cut.
+FUNCTION TBED_fit$ (txt AS STRING, w AS INTEGER)
+    DIM t AS STRING
+    t = txt
+    IF _UPRINTWIDTH(t) <= w THEN TBED_fit$ = t: EXIT FUNCTION
+    DO WHILE LEN(t) > 0 _ANDALSO _UPRINTWIDTH(t + "..") > w
+        t = LEFT$(t, LEN(t) - 1)
+    LOOP
+    TBED_fit$ = RTRIM$(t) + ".."
+END FUNCTION
+
+
+' =============================================================================
+' The Available list: every tool and command the panel does not show yet,
+' under category headers, filtered by the search text
+' =============================================================================
+
+FUNCTION TBED_av_match% (txt AS STRING)
+    IF LEN(TBED_SEARCH) = 0 THEN TBED_av_match% = TRUE: EXIT FUNCTION
+    TBED_av_match% = (INSTR(UCASE$(txt), UCASE$(TBED_SEARCH)) > 0)
+END FUNCTION
+
+
+SUB TBED_av_push (kind AS INTEGER, id AS INTEGER)
+    IF TBED.avN >= TBED_AV_MAX THEN EXIT SUB
+    TBED_AV_KIND(TBED.avN) = kind
+    TBED_AV_ID(TBED.avN) = id
+    TBED.avN = TBED.avN + 1
+END SUB
+
+
+SUB TBED_av_build ()
+    DIM i AS INTEGER, j AS INTEGER, slot AS INTEGER, btn AS INTEGER, cat AS INTEGER
+    DIM hdr AS INTEGER, act AS INTEGER, dup AS INTEGER, nm AS STRING
+    TBED.avN = 0
+    BL_ensure TBED.tab
+    ' tools (the toolbox's buttons, in their default order)
+    hdr = TBED.avN
+    TBED_av_push TBED_AV_HEADER, -1
+    FOR slot = 0 TO TB_TOTAL - 1
+        btn = TOOLBAR_DEF_ORDER(slot)
+        IF btn >= 0 THEN
+            IF BL_find%(TBED.tab, BL_TOOL, btn) < 0 _ANDALSO TBED_av_match%(TBED_label$(BL_TOOL, btn)) THEN TBED_av_push BL_TOOL, btn
+        END IF
+    NEXT slot
+    IF TBED.avN = hdr + 1 THEN TBED.avN = hdr ' nothing under it
+    ' commands, by category
+    FOR cat = 1 TO 15
+        hdr = TBED.avN
+        TBED_av_push TBED_AV_HEADER, cat
+        FOR i = 0 TO CMD_COUNT - 1
+            act = CMD_LIST(i).action_id
+            IF CMD_LIST(i).category = cat _ANDALSO act > 0 THEN
+                nm = _TRIM$(CMD_LIST(i).name)
+                ' once per action (the first name it was registered with)
+                dup = FALSE
+                FOR j = 0 TO i - 1
+                    IF CMD_LIST(j).action_id = act THEN dup = TRUE: EXIT FOR
+                NEXT j
+                IF INSTR(TBED_TOOL_ACTS$, "," + _TRIM$(STR$(act)) + ",") THEN dup = TRUE
+                IF dup = 0 _ANDALSO LEN(nm) > 0 THEN
+                    IF BL_find%(TBED.tab, BL_CMD, act) < 0 _ANDALSO TBED_av_match%(nm) THEN TBED_av_push BL_CMD, act
+                END IF
+            END IF
+        NEXT i
+        IF TBED.avN = hdr + 1 THEN TBED.avN = hdr
+    NEXT cat
+    ' menu commands the palette does not list (Paste in Place, Flip, ...)
+    hdr = TBED.avN
+    TBED_av_push TBED_AV_HEADER, -2
+    FOR i = 0 TO MENU_ITEM_COUNT - 1
+        act = MENU_ITEMS(i).actionId
+        IF act > 0 _ANDALSO MENU_ITEMS(i).isDivider = 0 _ANDALSO MENU_ITEMS(i).hasSubmenu = 0 THEN
+            dup = (act > WS_ACT_SLOT0 _ANDALSO act <= WS_ACT_SLOT0 + WS_MAX) ' (the workspace rows)
+            IF INSTR(TBED_TOOL_ACTS$, "," + _TRIM$(STR$(act)) + ",") THEN dup = TRUE
+            FOR j = 0 TO CMD_COUNT - 1
+                IF CMD_LIST(j).action_id = act THEN dup = TRUE: EXIT FOR
+            NEXT j
+            IF dup = 0 _ANDALSO BL_menu_item%(act) = i THEN
+                IF BL_find%(TBED.tab, BL_CMD, act) < 0 _ANDALSO TBED_av_match%(_TRIM$(MENU_ITEMS(i).label)) THEN TBED_av_push BL_CMD, act
+            END IF
+        END IF
+    NEXT i
+    IF TBED.avN = hdr + 1 THEN TBED.avN = hdr
+    TBED.avDirty = FALSE
+    TBED.sig = TBED_list_sig&
+    IF TBED.avSel >= TBED.avN THEN TBED.avSel = -1
+    TBED_scroll_clamp
+END SUB
+
+
+''
+' A checksum of the tab's list.
+FUNCTION TBED_list_sig& ()
+    DIM i AS INTEGER, h AS LONG
+    h = BL_N(TBED.tab) + TBED.tab * 7919
+    FOR i = 0 TO BL_N(TBED.tab) - 1
+        h = (h * 31 + BL(TBED.tab, i).kind * 4099 + BL(TBED.tab, i).id) AND &HFFFFFF
+    NEXT i
+    TBED_list_sig& = h
+END FUNCTION
+
+
+FUNCTION TBED_header_text$ (id AS INTEGER)
+    SELECT CASE id
+        CASE -1: TBED_header_text$ = "TOOLS"
+        CASE -2: TBED_header_text$ = "MENU COMMANDS"
+        CASE ELSE: TBED_header_text$ = UCASE$(CMD_category_name$(id)) + " COMMANDS"
+    END SELECT
+END FUNCTION
+
+
+SUB TBED_scroll_clamp ()
+    DIM mx AS INTEGER
+    mx = TBED.avN - TBED.rows: IF mx < 0 THEN mx = 0
+    IF TBED.avTop > mx THEN TBED.avTop = mx
+    IF TBED.avTop < 0 THEN TBED.avTop = 0
+    mx = BL_N(TBED.tab) - TBED.rows: IF mx < 0 THEN mx = 0
+    IF TBED.lsTop > mx THEN TBED.lsTop = mx
+    IF TBED.lsTop < 0 THEN TBED.lsTop = 0
+END SUB
+
+
+''
+' Scroll a list so row r is visible.
+SUB TBED_show_row (which AS INTEGER, r AS INTEGER)
+    IF which = 1 THEN
+        IF r < TBED.avTop THEN TBED.avTop = r
+        IF r >= TBED.avTop + TBED.rows THEN TBED.avTop = r - TBED.rows + 1
+    ELSE
+        IF r < TBED.lsTop THEN TBED.lsTop = r
+        IF r >= TBED.lsTop + TBED.rows THEN TBED.lsTop = r - TBED.rows + 1
+    END IF
+    TBED_scroll_clamp
+END SUB
+
+
+' =============================================================================
+' Hit testing (native panel px)
+' =============================================================================
+
+FUNCTION TBED_tab_x% (panel AS INTEGER)
+    DIM x AS INTEGER, p AS INTEGER
+    x = FPANEL.pad%
+    FOR p = BL_TOOLBOX TO panel - 1
+        x = x + TBED_tab_w%(p) + 3
+    NEXT p
+    TBED_tab_x% = x
+END FUNCTION
+
+
+FUNCTION TBED_tab_w% (panel AS INTEGER)
+    TBED_tab_w% = FPANEL_text_w%(TBED_panel_title$(panel)) + 14
+END FUNCTION
+
+
+''
+' Middle button k (TBED_CTL_ADD .. TBED_CTL_RESET): its top. The four arrows,
+' a gap, the two inserts, a gap, Reset.
+FUNCTION TBED_btn_y% (k AS INTEGER)
+    DIM i AS INTEGER, y AS INTEGER
+    y = TBED.yList
+    FOR i = TBED_BTN_FIRST TO k - 1
+        y = y + TBED.btnH + 3
+        IF i = TBED_CTL_DOWN _ORELSE i = TBED_CTL_GAP THEN y = y + TBED.btnH \ 2
+    NEXT i
+    TBED_btn_y% = y
+END FUNCTION
+
+
+FUNCTION TBED_done_x% ()
+    TBED_done_x% = TBED.lsX + TBED.listW - TBED_done_w%
+END FUNCTION
+
+
+FUNCTION TBED_done_w% ()
+    TBED_done_w% = FPANEL_text_w%("DONE") + 24
+END FUNCTION
+
+
+FUNCTION TBED_cols_x% ()
+    TBED_cols_x% = TBED.avX + FPANEL_text_w%("COLUMNS") + 6
+END FUNCTION
+
+
+FUNCTION TBED_hit% (nx AS INTEGER, ny AS INTEGER)
+    DIM p AS INTEGER, k AS INTEGER, y AS INTEGER, bh AS INTEGER, cx AS INTEGER
+    bh = TBED.btnH
+    IF ny >= TBED.yTabs _ANDALSO ny < TBED.yTabs + bh THEN
+        FOR p = BL_TOOLBOX TO BL_ADVBAR
+            IF nx >= TBED_tab_x%(p) _ANDALSO nx < TBED_tab_x%(p) + TBED_tab_w%(p) THEN TBED_hit% = TBED_CTL_TAB + p - 1: EXIT FUNCTION
+        NEXT p
+    END IF
+    IF ny >= TBED.ySearch _ANDALSO ny < TBED.ySearch + bh _ANDALSO nx >= TBED.avX _ANDALSO nx < TBED.avX + TBED.listW THEN TBED_hit% = TBED_CTL_SEARCH: EXIT FUNCTION
+    IF ny >= TBED.yList _ANDALSO ny < TBED.yList + TBED.rows * TBED.rowH THEN
+        IF nx >= TBED.avX _ANDALSO nx < TBED.avX + TBED.listW THEN TBED_hit% = TBED_CTL_AVAIL: EXIT FUNCTION
+        IF nx >= TBED.lsX _ANDALSO nx < TBED.lsX + TBED.listW THEN TBED_hit% = TBED_CTL_LIST: EXIT FUNCTION
+        IF nx >= TBED.midX _ANDALSO nx < TBED.midX + TBED.midW THEN
+            FOR k = TBED_BTN_FIRST TO TBED_BTN_LAST
+                y = TBED_btn_y%(k)
+                IF ny >= y _ANDALSO ny < y + bh THEN TBED_hit% = k: EXIT FUNCTION
+            NEXT k
+        END IF
+    END IF
+    IF ny >= TBED.yBottom _ANDALSO ny < TBED.yBottom + bh THEN
+        cx = TBED_cols_x%
+        IF nx >= cx _ANDALSO nx < cx + bh THEN TBED_hit% = TBED_CTL_COLS_DN: EXIT FUNCTION
+        IF nx >= cx + bh + 18 _ANDALSO nx < cx + bh * 2 + 18 THEN TBED_hit% = TBED_CTL_COLS_UP: EXIT FUNCTION
+        IF nx >= TBED_done_x% _ANDALSO nx < TBED_done_x% + TBED_done_w% THEN TBED_hit% = TBED_CTL_DONE: EXIT FUNCTION
+    END IF
+END FUNCTION
+
+
+''
+' The list row under native y (-1 = none); no clamp to the list's length.
+FUNCTION TBED_row_at% (ny AS INTEGER)
+    TBED_row_at% = -1
+    IF ny < TBED.yList _ORELSE ny >= TBED.yList + TBED.rows * TBED.rowH THEN EXIT FUNCTION
+    TBED_row_at% = (ny - TBED.yList) \ TBED.rowH
+END FUNCTION
+
+
+' =============================================================================
+' Render
+' =============================================================================
+
+''
+' A middle button: a chip with an arrow (dir 1..4 = right, left, up, down)
+' or a label.
+SUB TBED_draw_button (k AS INTEGER, label AS STRING, dir AS INTEGER, enabled AS INTEGER)
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, cx AS INTEGER, cy AS INTEGER, i AS INTEGER
+    DIM fg AS _UNSIGNED LONG, bg AS _UNSIGNED LONG
+    x = TBED.midX: y = TBED_btn_y%(k): w = TBED.midW: h = TBED.btnH
+    IF enabled _ANDALSO TBED.hoverCtl = k THEN bg = THEME.CP_button_sec_hover~& ELSE bg = THEME.CP_button_secondary~&
+    IF enabled THEN fg = THEME.CP_text_bright~& ELSE fg = THEME.CP_text_dim~&
+    LINE (x, y)-(x + w - 1, y + h - 1), bg, BF
+    IF LEN(label) THEN FPANEL_text x + (w - _UPRINTWIDTH(label)) \ 2, y + (h - FPANEL.fontH%) \ 2, label, fg
+    cx = x + w \ 2: cy = y + h \ 2
+    FOR i = 0 TO 3
+        SELECT CASE dir
+            CASE 1: LINE (cx - 2 + i, cy - 3 + i)-(cx - 2 + i, cy + 3 - i), fg ' right
+            CASE 2: LINE (cx + 1 - i, cy - 3 + i)-(cx + 1 - i, cy + 3 - i), fg ' left
+            CASE 3: LINE (cx - 3 + i, cy + 1 - i)-(cx + 3 - i, cy + 1 - i), fg ' up
+            CASE 4: LINE (cx - 3 + i, cy - 2 + i)-(cx + 3 - i, cy - 2 + i), fg ' down
+        END SELECT
+    NEXT i
+END SUB
+
+
+''
+' One list row at native (x, y): selection / hover fill, icon, name, hotkey.
+SUB TBED_draw_row (x AS INTEGER, y AS INTEGER, kind AS INTEGER, id AS INTEGER, sel AS INTEGER, hov AS INTEGER, dimmed AS INTEGER)
+    DIM w AS INTEGER, hk AS STRING, hkW AS INTEGER, fg AS _UNSIGNED LONG, ty AS INTEGER
+    w = TBED.listW - 6 ' (scroll bar)
+    ty = y + (TBED.rowH - FPANEL.fontH%) \ 2
+    IF sel THEN
+        LINE (x, y)-(x + w - 1, y + TBED.rowH - 1), THEME.CP_button_bg~&, BF
+        fg = THEME.CP_button_text~&
+    ELSEIF hov THEN
+        LINE (x, y)-(x + w - 1, y + TBED.rowH - 1), THEME.CP_button_sec_hover~&, BF
+        fg = THEME.CP_text_bright~&
+    ELSE
+        fg = THEME.CP_text~&
+    END IF
+    IF dimmed THEN fg = THEME.CP_text_dim~&
+    TBED_draw_icon kind, id, x + 1, y + (TBED.rowH - 16) \ 2
+    hk = TBED_hotkey$(kind, id)
+    IF LEN(hk) THEN
+        hk = TBED_fit$(hk, 52)
+        hkW = _UPRINTWIDTH(hk)
+        FPANEL_text x + w - 3 - hkW, ty, hk, THEME.CP_text_dim~&
+    END IF
+    FPANEL_text x + 22, ty, TBED_fit$(TBED_label$(kind, id), w - 22 - 6 - hkW - 4), fg
+END SUB
+
+
+SUB TBED_draw_scrollbar (x AS INTEGER, total AS INTEGER, top AS INTEGER)
+    DIM h AS INTEGER, th AS INTEGER, ty AS INTEGER
+    h = TBED.rows * TBED.rowH
+    IF total <= TBED.rows THEN EXIT SUB
+    th = h * TBED.rows \ total: IF th < 8 THEN th = 8
+    ty = TBED.yList + (h - th) * top \ (total - TBED.rows)
+    LINE (x, TBED.yList)-(x + 3, TBED.yList + h - 1), THEME.CP_slider_bg~&, BF
+    LINE (x, ty)-(x + 3, ty + th - 1), THEME.CP_text_dim~&, BF
+END SUB
+
+
+SUB TBED_render ()
+    DIM oldDest AS LONG, oldFont AS LONG, p AS INTEGER, x AS INTEGER, y AS INTEGER, i AS INTEGER, r AS INTEGER
+    DIM hx AS INTEGER, hy AS INTEGER, hovRow AS INTEGER, t AS STRING, lh AS INTEGER, n AS INTEGER
+    DIM tabsActive AS INTEGER, cols AS INTEGER, sel AS INTEGER
+    IF TBED.visible = 0 _ORELSE TBED.autoHidden THEN EXIT SUB
+    ' the work area changed (docks moved, window resized): fit the lists to it
+    DIM fitW AS INTEGER, fitR AS INTEGER
+    IF TBED.initialized THEN
+        TBED_fit_dims fitW, fitR
+        IF fitW <> TBED.listW _ORELSE fitR <> TBED.rows THEN TBED.initialized = FALSE: TBED.avDirty = TRUE
+    END IF
+    TBED_ensure_initialized
+    TBED_compute_display_size ' (the display / toolbar scale can change in Settings)
+    IF TBED.positioned = 0 THEN TBED_auto_position
+    TBED_clamp
+    REGION_set_bounds REGION_TOOLBAR_EDITOR, TBED.dispX, TBED.dispY, TBED.dispW, TBED.dispH, ZORDER_FLOATING
+    IF TBED.tab = BL_TOOLBOX _ANDALSO TBED.itemDrag = 0 THEN TBED_list_load ' (the toolbox may have changed under it)
+    IF TBED_list_sig& <> TBED.sig THEN TBED.avDirty = TRUE ' (changed under the editor: a workspace switch ...)
+    IF TBED.avDirty THEN TBED_av_build
+
+    ' hover
+    TBED.hoverCtl = TBED_CTL_NONE: TBED.hoverRow = -1: TBED.closeHover = FALSE
+    IF TBED_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) _ANDALSO TBED.dragging = 0 _ANDALSO TBED.renderScale > 0 THEN
+        hx = INT((MOUSE.RAW_X% - TBED.dispX) / TBED.renderScale)
+        hy = INT((MOUSE.RAW_Y% - TBED.dispY) / TBED.renderScale)
+        TBED.closeHover = FPANEL_over_close%(hx, hy, TBED.panelW)
+        TBED.hoverCtl = TBED_hit%(hx, hy)
+        TBED.hoverRow = TBED_row_at%(hy)
+    END IF
+
+    oldDest = _DEST
+    _DEST TBED.panelImg
+    oldFont = FPANEL_begin&
+    CLS , THEME.CP_bg~&
+    FPANEL_title_bar TBED.panelW, "CUSTOMIZE TOOLBARS", TBED.closeHover
+
+    ' tabs (the panel being edited)
+    FOR p = BL_TOOLBOX TO BL_ADVBAR
+        FPANEL_chip TBED_tab_x%(p), TBED.yTabs, TBED_tab_w%(p), TBED.btnH, TBED_panel_title$(p), TBED.tab = p, TBED.hoverCtl = TBED_CTL_TAB + p - 1
+    NEXT p
+
+    ' captions
+    FPANEL_text TBED.avX, TBED.yHead, "AVAILABLE", THEME.CP_text_dim~&
+    FPANEL_text TBED.lsX, TBED.yHead, "ON THE " + TBED_panel_title$(TBED.tab) + " (" + _TRIM$(STR$(BL_N(TBED.tab))) + ")", THEME.CP_text_dim~&
+
+    ' search field
+    x = TBED.avX: y = TBED.ySearch
+    LINE (x, y)-(x + TBED.listW - 1, y + TBED.btnH - 1), THEME.CP_slider_bg~&, BF
+    IF TBED.searchFocus THEN
+        LINE (x, y)-(x + TBED.listW - 1, y + TBED.btnH - 1), THEME.CP_text~&, B
+    ELSE
+        LINE (x, y)-(x + TBED.listW - 1, y + TBED.btnH - 1), THEME.CP_slider_border~&, B
+    END IF
+    IF LEN(TBED_SEARCH) THEN
+        t = TBED_SEARCH
+        IF TBED.searchFocus THEN t = t + "_"
+        FPANEL_text x + 4, y + (TBED.btnH - FPANEL.fontH%) \ 2, TBED_fit$(UCASE$(t), TBED.listW - 8), THEME.CP_text_bright~&
+    ELSEIF TBED.searchFocus THEN
+        FPANEL_text x + 4, y + (TBED.btnH - FPANEL.fontH%) \ 2, "_", THEME.CP_text_bright~&
+    ELSE
+        FPANEL_text x + 4, y + (TBED.btnH - FPANEL.fontH%) \ 2, "SEARCH...", THEME.CP_text_dim~&
+    END IF
+
+    ' where changes go (right of the search field)
+    t = "SAVES TO: " + UCASE$(TBED_target_name$)
+    FPANEL_text TBED.lsX, y + (TBED.btnH - FPANEL.fontH%) \ 2, TBED_fit$(t, TBED.listW), THEME.CP_text_dim~&
+
+    ' list wells
+    lh = TBED.rows * TBED.rowH
+    LINE (TBED.avX, TBED.yList)-(TBED.avX + TBED.listW - 1, TBED.yList + lh - 1), THEME.CP_slider_bg~&, BF
+    LINE (TBED.lsX, TBED.yList)-(TBED.lsX + TBED.listW - 1, TBED.yList + lh - 1), THEME.CP_slider_bg~&, BF
+
+    ' Available rows
+    FOR i = 0 TO TBED.rows - 1
+        r = TBED.avTop + i
+        IF r >= TBED.avN THEN EXIT FOR
+        y = TBED.yList + i * TBED.rowH
+        IF TBED_AV_KIND(r) = TBED_AV_HEADER THEN
+            FPANEL_text TBED.avX + 3, y + TBED.rowH - FPANEL.fontH% - 2, TBED_header_text$(TBED_AV_ID(r)), THEME.CP_title_fg~&
+            LINE (TBED.avX + 3, y + TBED.rowH - 2)-(TBED.avX + TBED.listW - 9, y + TBED.rowH - 2), THEME.CP_slider_border~&
+        ELSE
+            TBED_draw_row TBED.avX + 1, y, TBED_AV_KIND(r), TBED_AV_ID(r), r = TBED.avSel, TBED.hoverCtl = TBED_CTL_AVAIL _ANDALSO TBED.hoverRow = i, FALSE
+        END IF
+    NEXT i
+    IF TBED.avN = 0 THEN FPANEL_text TBED.avX + 6, TBED.yList + 6, "NOTHING MATCHES", THEME.CP_text_dim~&
+    TBED_draw_scrollbar TBED.avX + TBED.listW - 5, TBED.avN, TBED.avTop
+
+    ' the panel's rows
+    n = BL_N(TBED.tab)
+    FOR i = 0 TO TBED.rows - 1
+        r = TBED.lsTop + i
+        IF r >= n THEN EXIT FOR
+        y = TBED.yList + i * TBED.rowH
+        TBED_draw_row TBED.lsX + 1, y, BL(TBED.tab, r).kind, BL(TBED.tab, r).id, r = TBED.lsSel, TBED.hoverCtl = TBED_CTL_LIST _ANDALSO TBED.hoverRow = i, (TBED.itemDrag = 2 _ANDALSO TBED.itemMoved _ANDALSO TBED.itemPanel = TBED.tab _ANDALSO r = TBED.itemIdx)
+    NEXT i
+    TBED_draw_scrollbar TBED.lsX + TBED.listW - 5, n, TBED.lsTop
+    ' insertion line while an entry is dragged over the list
+    IF TBED.itemDrag _ANDALSO TBED.itemMoved _ANDALSO TBED.dropList = 2 THEN
+        y = TBED.yList + (TBED.dropAt - TBED.lsTop) * TBED.rowH
+        IF y >= TBED.yList _ANDALSO y <= TBED.yList + lh THEN
+            LINE (TBED.lsX + 1, y - 1)-(TBED.lsX + TBED.listW - 7, y), THEME.CP_text_bright~&, BF
+        END IF
+    END IF
+    IF TBED.itemDrag = 2 _ANDALSO TBED.itemMoved _ANDALSO TBED.dropList = 1 THEN
+        LINE (TBED.avX, TBED.yList)-(TBED.avX + TBED.listW - 1, TBED.yList + lh - 1), THEME.CP_text_bright~&, B
+    END IF
+    LINE (TBED.avX, TBED.yList)-(TBED.avX + TBED.listW - 1, TBED.yList + lh - 1), THEME.CP_slider_border~&, B
+    LINE (TBED.lsX, TBED.yList)-(TBED.lsX + TBED.listW - 1, TBED.yList + lh - 1), THEME.CP_slider_border~&, B
+
+    ' middle buttons
+    sel = (TBED.lsSel >= 0 _ANDALSO TBED.lsSel < n)
+    TBED_draw_button TBED_CTL_ADD, "", 1, TBED_av_selected%
+    TBED_draw_button TBED_CTL_REMOVE, "", 2, sel
+    TBED_draw_button TBED_CTL_UP, "", 3, sel _ANDALSO TBED.lsSel > 0
+    TBED_draw_button TBED_CTL_DOWN, "", 4, sel _ANDALSO TBED.lsSel < n - 1
+    TBED_draw_button TBED_CTL_DIV, "+ DIV", 0, TRUE
+    TBED_draw_button TBED_CTL_GAP, "+ GAP", 0, TRUE
+    TBED_draw_button TBED_CTL_RESET, "RESET", 0, TRUE
+
+    ' columns + done
+    y = TBED.yBottom
+    FPANEL_text TBED.avX, y + (TBED.btnH - FPANEL.fontH%) \ 2, "COLUMNS", THEME.CP_text~&
+    x = TBED_cols_x%
+    cols = TBED_cols%(TBED.tab)
+    FPANEL_chip x, y, TBED.btnH, TBED.btnH, "-", FALSE, TBED.hoverCtl = TBED_CTL_COLS_DN
+    t = _TRIM$(STR$(cols))
+    FPANEL_text x + TBED.btnH + 9 - _UPRINTWIDTH(t) \ 2, y + (TBED.btnH - FPANEL.fontH%) \ 2, t, THEME.CP_text_bright~&
+    FPANEL_chip x + TBED.btnH + 18, y, TBED.btnH, TBED.btnH, "+", FALSE, TBED.hoverCtl = TBED_CTL_COLS_UP
+    FPANEL_chip TBED_done_x%, y, TBED_done_w%, TBED.btnH, "DONE", TRUE, TBED.hoverCtl = TBED_CTL_DONE
+
+    FPANEL_frame TBED.panelW, TBED.panelH
+    _FONT oldFont
+    _DEST oldDest
+
+    ' (menus / popups open over it are drawn back on top: POPUP_reblit_to_screen0)
+
+    DIM ts AS INTEGER, ds AS INTEGER, sx AS LONG, sy AS LONG, sw AS LONG, shh AS LONG
+    ts = TBED_scale%
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    sx = CLNG(TBED.dispX) * ds: sy = CLNG(TBED.dispY) * ds
+    sw = CLNG(TBED.panelW) * ts: shh = CLNG(TBED.panelH) * ts
+    oldDest = _DEST
+    _DEST 0
+    _PUTIMAGE (sx, sy)-(sx + sw - 1, sy + shh - 1), TBED.panelImg, 0
+    TBED_draw_panel_marks ds
+    _DEST oldDest
+END SUB
+
+
+''
+' On the real panels (screen 0, viewport px x ds): the selected entry's
+' outline, and while an entry is dragged, the insertion line where it would
+' land plus the entry itself following the pointer.
+SUB TBED_draw_panel_marks (ds AS INTEGER)
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, kind AS INTEGER, id AS INTEGER
+    DIM g AS LONG, gx AS LONG, gy AS LONG, oldD AS LONG
+    IF TBED.lsSel >= 0 _ANDALSO (TBED.itemDrag = 0 _ORELSE TBED.itemMoved = 0) THEN
+        IF TBED_entry_rect%(TBED.tab, TBED.lsSel, x, y, w, h) THEN
+            LINE (CLNG(x - 1) * ds, CLNG(y - 1) * ds)-(CLNG(x + w + 1) * ds - 1, CLNG(y + h + 1) * ds - 1), THEME.CP_text_bright~&, B
+            LINE (CLNG(x - 1) * ds + 1, CLNG(y - 1) * ds + 1)-(CLNG(x + w + 1) * ds - 2, CLNG(y + h + 1) * ds - 2), THEME.CP_button_bg~&, B
+        END IF
+    END IF
+    IF TBED.itemDrag = 0 _ORELSE TBED.itemMoved = 0 THEN EXIT SUB
+    IF TBED.dropList = 3 _ANDALSO TBED.markX2 > 0 THEN
+        LINE (CLNG(TBED.markX1) * ds, CLNG(TBED.markY1) * ds)-(CLNG(TBED.markX2 + 1) * ds - 1, CLNG(TBED.markY2 + 1) * ds - 1), THEME.CP_text_bright~&, BF
+    END IF
+    IF TBED_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN EXIT SUB
+    IF TBED.itemDrag = 1 THEN
+        kind = TBED_AV_KIND(TBED.itemIdx): id = TBED_AV_ID(TBED.itemIdx)
+    ELSE
+        IF TBED.itemIdx >= BL_N(TBED.itemPanel) THEN EXIT SUB
+        kind = BL(TBED.itemPanel, TBED.itemIdx).kind: id = BL(TBED.itemPanel, TBED.itemIdx).id
+    END IF
+    g = _NEWIMAGE(18, 16, 32)
+    oldD = _DEST
+    _DEST g
+    CLS , _RGBA32(0, 0, 0, 0)
+    TBED_draw_icon kind, id, 0, 0
+    _DEST oldD
+    gx = CLNG(MOUSE.RAW_X% + 6) * ds: gy = CLNG(MOUSE.RAW_Y% + 6) * ds
+    LINE (gx - 1, gy - 1)-(gx + 18 * ds, gy + 16 * ds), THEME.CP_bg~&, BF
+    _PUTIMAGE (gx, gy)-(gx + 18 * ds - 1, gy + 16 * ds - 1), g, 0
+    LINE (gx - 1, gy - 1)-(gx + 18 * ds, gy + 16 * ds), THEME.CP_text_bright~&, B
+    _FREEIMAGE g
+END SUB
+
+
+FUNCTION TBED_av_selected% ()
+    IF TBED.avSel < 0 _ORELSE TBED.avSel >= TBED.avN THEN EXIT FUNCTION
+    TBED_av_selected% = (TBED_AV_KIND(TBED.avSel) <> TBED_AV_HEADER)
+END FUNCTION
+
+
+' =============================================================================
+' Columns
+' =============================================================================
+
+FUNCTION TBED_cols% (panel AS INTEGER)
+    SELECT CASE panel
+        CASE BL_TOOLBOX
+            IF TB_WANT_COLS > 0 THEN TBED_cols% = TB_WANT_COLS ELSE TBED_cols% = TB_LIVE_COLS
+        CASE BL_EDITBAR: TBED_cols% = EDITBAR_cols%
+        CASE BL_ADVBAR: TBED_cols% = ADVBAR_cols%
+    END SELECT
+END FUNCTION
+
+
+FUNCTION TBED_cols_max% (panel AS INTEGER)
+    IF panel = BL_TOOLBOX THEN TBED_cols_max% = 8 ELSE TBED_cols_max% = 4
+END FUNCTION
+
+
+SUB TBED_set_cols (panel AS INTEGER, c AS INTEGER)
+    DIM n AS INTEGER, ok AS INTEGER
+    n = c
+    IF n < 1 THEN n = 1
+    IF n > TBED_cols_max%(panel) THEN n = TBED_cols_max%(panel)
+    SELECT CASE panel
+        CASE BL_TOOLBOX
+            TB_WANT_COLS = n
+            ok = TOOLBAR_layout_apply%(TBED_toolbox_csv$, n)
+        CASE BL_EDITBAR: EDITBAR_NCOLS = n
+        CASE BL_ADVBAR: ADVBAR_NCOLS = n
+    END SELECT
+END SUB
+
+
+' =============================================================================
+' Editing. Each change: TBED_begin (remember the list), change BL(), then
+' TBED_commit (show it on the panel, save it into the workspace; put the old
+' list back when there is no workspace to save into).
+' =============================================================================
+
+''
+' The toolbox list as a [TOOLBOX] BUTTONS= value (commands as cmd:<id>, so
+' TOOLBAR_button_by_name% reads every one back).
+FUNCTION TBED_toolbox_csv$ ()
+    DIM i AS INTEGER, r AS STRING, nm AS STRING
+    FOR i = 0 TO BL_N(BL_TOOLBOX) - 1
+        SELECT CASE BL(BL_TOOLBOX, i).kind
+            CASE BL_CMD: nm = "cmd:" + _TRIM$(STR$(BL(BL_TOOLBOX, i).id))
+            CASE ELSE: nm = BL_entry_name$(BL(BL_TOOLBOX, i).kind, BL(BL_TOOLBOX, i).id)
+        END SELECT
+        IF i > 0 THEN r = r + ","
+        r = r + nm
+    NEXT i
+    TBED_toolbox_csv$ = r
+END FUNCTION
+
+
+''
+' Before a change: every panel's list + columns, to put back when there is no
+' workspace to save into.
+SUB TBED_begin ()
+    DIM p AS INTEGER
+    TBED_tb_load
+    FOR p = BL_TOOLBOX TO BL_ADVBAR
+        TBED_UNDO_CSV(p) = TBED_panel_csv$(p)
+        TBED_UNDO_COLS(p) = TBED_cols%(p)
+    NEXT p
+END SUB
+
+
+''
+' A panel's list as its workspace value.
+FUNCTION TBED_panel_csv$ (panel AS INTEGER)
+    IF panel = BL_TOOLBOX THEN TBED_panel_csv$ = TBED_toolbox_csv$ ELSE TBED_panel_csv$ = BL_to_csv$(panel)
+END FUNCTION
+
+
+FUNCTION TBED_bit% (panel AS INTEGER)
+    TBED_bit% = 2 ^ (panel - 1)
+END FUNCTION
+
+
+''
+' Show panel's list on the panel.
+SUB TBED_apply (panel AS INTEGER)
+    DIM ok AS INTEGER
+    SELECT CASE panel
+        CASE BL_TOOLBOX
+            IF BL_N(BL_TOOLBOX) > 0 THEN ok = TOOLBAR_layout_apply%(TBED_toolbox_csv$, TBED_cols%(BL_TOOLBOX))
+        CASE BL_EDITBAR: EDIT_BAR.hoverIndex% = -1
+        CASE BL_ADVBAR: ADV_BAR.hoverIndex% = -1
+    END SELECT
+    TOOLTIP_reset
+    INVALIDATE_scene
+    TBED_redraw
+END SUB
+
+
+''
+' After a change to the panels in mask (TBED_bit%): show them, save them; no
+' workspace to save into (the name was cancelled) puts them back.
+SUB TBED_commit_mask (mask AS INTEGER, msg AS STRING)
+    DIM ok AS INTEGER, p AS INTEGER, m AS INTEGER
+    m = mask
+    FOR p = BL_TOOLBOX TO BL_ADVBAR
+        IF m AND TBED_bit%(p) THEN TBED_apply p
+    NEXT p
+    TBED.avDirty = TRUE
+    IF TBED_save%(m) THEN
+        IF LEN(msg) THEN STATUS_flash msg
+        EXIT SUB
+    END IF
+    FOR p = BL_TOOLBOX TO BL_ADVBAR
+        IF m AND TBED_bit%(p) THEN
+            IF p = BL_TOOLBOX THEN
+                ok = TOOLBAR_layout_apply%(TBED_UNDO_CSV(p), TBED_UNDO_COLS(p))
+                TBED_tb_load
+            ELSE
+                ok = BL_from_csv%(p, TBED_UNDO_CSV(p))
+                TBED_set_cols p, TBED_UNDO_COLS(p)
+            END IF
+            TBED_apply p
+        END IF
+    NEXT p
+    TBED.lsSel = -1
+    STATUS_flash "Not changed: toolbar changes are saved into a workspace"
+END SUB
+
+
+SUB TBED_commit (msg AS STRING)
+    TBED_commit_mask TBED_bit%(TBED.tab), msg
+END SUB
+
+
+''
+' Add Available row r to the tab's list at atIdx (-1 = after the selection,
+' or at the end).
+SUB TBED_op_add (r AS INTEGER, atIdx AS INTEGER)
+    DIM at AS INTEGER
+    IF r < 0 _ORELSE r >= TBED.avN THEN EXIT SUB
+    IF TBED_AV_KIND(r) = TBED_AV_HEADER THEN EXIT SUB
+    at = atIdx
+    IF at < 0 THEN
+        IF TBED.lsSel >= 0 _ANDALSO TBED.lsSel < BL_N(TBED.tab) THEN at = TBED.lsSel + 1 ELSE at = BL_N(TBED.tab)
+    END IF
+    TBED_op_add_to TBED.tab, at, TBED_AV_KIND(r), TBED_AV_ID(r)
+    ' the next Available row takes the selection, so -> -> -> adds a run
+    IF TBED.avDirty THEN TBED_av_build
+    IF TBED.avSel >= TBED.avN THEN TBED.avSel = TBED.avN - 1
+    IF TBED.avSel >= 0 _ANDALSO TBED.avSel < TBED.avN THEN
+        IF TBED_AV_KIND(TBED.avSel) = TBED_AV_HEADER _ANDALSO TBED.avSel + 1 < TBED.avN THEN TBED.avSel = TBED.avSel + 1
+    END IF
+END SUB
+
+
+''
+' Put a new entry (kind, id) into panel at index at, and select it there.
+SUB TBED_op_add_to (panel AS INTEGER, at AS INTEGER, kind AS INTEGER, id AS INTEGER)
+    DIM p AS INTEGER, a AS INTEGER, k AS INTEGER, v AS INTEGER, ok AS INTEGER
+    p = panel: a = at: k = kind: v = id
+    IF p = BL_TOOLBOX THEN TBED_tb_load ELSE BL_ensure p
+    IF BL_N(p) >= BL_MAX THEN STATUS_flash "The " + LCASE$(TBED_panel_title$(p)) + " is full": EXIT SUB
+    IF TBED_has%(p, k, v) THEN STATUS_flash TBED_label$(k, v) + " is already on the " + LCASE$(TBED_panel_title$(p)): EXIT SUB
+    IF a < 0 _ORELSE a > BL_N(p) THEN a = BL_N(p)
+    TBED_begin
+    ok = BL_insert%(p, a, k, v)
+    IF TBED.tab <> p THEN TBED_set_tab p
+    TBED.lsSel = a
+    TBED_show_row 2, a
+    TBED_commit_mask TBED_bit%(p), TBED_label$(k, v) + " added to the " + LCASE$(TBED_panel_title$(p))
+END SUB
+
+
+''
+' panel already shows (kind, id)? (Dividers and gaps can repeat.)
+FUNCTION TBED_has% (panel AS INTEGER, kind AS INTEGER, id AS INTEGER)
+    IF kind = BL_DIV _ORELSE kind = BL_GAP THEN EXIT FUNCTION
+    TBED_has% = (BL_find%(panel, kind, id) >= 0)
+END FUNCTION
+
+
+SUB TBED_op_remove ()
+    TBED_op_remove_at TBED.tab, TBED.lsSel
+END SUB
+
+
+SUB TBED_op_remove_at (panel AS INTEGER, idx AS INTEGER)
+    DIM p AS INTEGER, i AS INTEGER, kind AS INTEGER, id AS INTEGER
+    p = panel: i = idx
+    IF p = BL_TOOLBOX THEN TBED_tb_load ELSE BL_ensure p
+    IF i < 0 _ORELSE i >= BL_N(p) THEN EXIT SUB
+    IF p = BL_TOOLBOX _ANDALSO BL_N(BL_TOOLBOX) <= 1 THEN STATUS_flash "The toolbox keeps at least one button": EXIT SUB
+    kind = BL(p, i).kind: id = BL(p, i).id
+    TBED_begin
+    BL_remove p, i
+    IF TBED.tab = p THEN
+        IF TBED.lsSel >= BL_N(p) THEN TBED.lsSel = BL_N(p) - 1
+    END IF
+    TBED_commit_mask TBED_bit%(p), TBED_label$(kind, id) + " removed from the " + LCASE$(TBED_panel_title$(p))
+END SUB
+
+
+''
+' Move entry i of the tab's list to index dest (the index it gets once it is
+' out of the list).
+SUB TBED_op_move_to (i AS INTEGER, dest AS INTEGER)
+    DIM d AS INTEGER, src AS INTEGER
+    src = i: d = dest
+    IF src < 0 _ORELSE src >= BL_N(TBED.tab) THEN EXIT SUB
+    IF d < 0 THEN d = 0
+    IF d > BL_N(TBED.tab) - 1 THEN d = BL_N(TBED.tab) - 1
+    IF d = src THEN EXIT SUB
+    TBED_op_move TBED.tab, src, TBED.tab, d + _IIF(d > src, 1, 0)
+END SUB
+
+
+''
+' Move entry srcIdx of srcPanel to insertion point dstAt of dstPanel (an index
+' in the list as it is before the move; the same panel or another one).
+SUB TBED_op_move (srcPanel AS INTEGER, srcIdx AS INTEGER, dstPanel AS INTEGER, dstAt AS INTEGER)
+    DIM sp AS INTEGER, si AS INTEGER, dp AS INTEGER, da AS INTEGER, kind AS INTEGER, id AS INTEGER, ok AS INTEGER
+    sp = srcPanel: si = srcIdx: dp = dstPanel: da = dstAt
+    IF sp = BL_TOOLBOX _ORELSE dp = BL_TOOLBOX THEN TBED_tb_load
+    BL_ensure sp: BL_ensure dp
+    IF si < 0 _ORELSE si >= BL_N(sp) THEN EXIT SUB
+    kind = BL(sp, si).kind: id = BL(sp, si).id
+    IF sp = dp THEN
+        IF da > si THEN da = da - 1 ' (its own slot closes up first)
+        IF da = si THEN EXIT SUB
+    ELSE
+        IF TBED_has%(dp, kind, id) THEN STATUS_flash TBED_label$(kind, id) + " is already on the " + LCASE$(TBED_panel_title$(dp)): EXIT SUB
+        IF BL_N(dp) >= BL_MAX THEN STATUS_flash "The " + LCASE$(TBED_panel_title$(dp)) + " is full": EXIT SUB
+        IF sp = BL_TOOLBOX _ANDALSO BL_N(BL_TOOLBOX) <= 1 THEN STATUS_flash "The toolbox keeps at least one button": EXIT SUB
+    END IF
+    TBED_begin
+    BL_remove sp, si
+    IF da < 0 THEN da = 0
+    IF da > BL_N(dp) THEN da = BL_N(dp)
+    ok = BL_insert%(dp, da, kind, id)
+    IF TBED.tab <> dp THEN TBED_set_tab dp
+    TBED.lsSel = da
+    TBED_show_row 2, da
+    IF sp = dp THEN
+        TBED_commit_mask TBED_bit%(dp), ""
+    ELSE
+        TBED_commit_mask TBED_bit%(sp) OR TBED_bit%(dp), TBED_label$(kind, id) + " moved to the " + LCASE$(TBED_panel_title$(dp))
+    END IF
+END SUB
+
+
+SUB TBED_op_insert (kind AS INTEGER)
+    DIM at AS INTEGER
+    IF TBED.lsSel >= 0 _ANDALSO TBED.lsSel < BL_N(TBED.tab) THEN at = TBED.lsSel + 1 ELSE at = BL_N(TBED.tab)
+    TBED_op_add_to TBED.tab, at, kind, 0
+END SUB
+
+
+SUB TBED_op_reset ()
+    TBED_begin
+    BL_set_default TBED.tab
+    SELECT CASE TBED.tab
+        CASE BL_TOOLBOX: TB_WANT_COLS = CFG.TOOLBOX_COLUMNS%: IF TB_WANT_COLS < 1 _ORELSE TB_WANT_COLS > 8 THEN TB_WANT_COLS = TB_COLS
+        CASE BL_EDITBAR: EDITBAR_NCOLS = 0
+        CASE BL_ADVBAR: ADVBAR_NCOLS = 0
+    END SELECT
+    TBED.lsSel = -1: TBED.lsTop = 0
+    TBED_commit "The " + LCASE$(TBED_panel_title$(TBED.tab)) + " is back to its default buttons"
+END SUB
+
+
+SUB TBED_op_cols (delta AS INTEGER)
+    DIM c AS INTEGER
+    c = TBED_cols%(TBED.tab) + delta
+    IF c < 1 _ORELSE c > TBED_cols_max%(TBED.tab) THEN EXIT SUB
+    TBED_begin
+    TBED_set_cols TBED.tab, c
+    TBED_commit _TRIM$(STR$(c)) + " columns"
+END SUB
+
+
+' =============================================================================
+' Saving: always into a workspace
+' =============================================================================
+
+''
+' The workspace changes go into ("NEW WORKSPACE" in Default: the first change
+' asks for its name).
+FUNCTION TBED_target_name$ ()
+    DIM idx AS INTEGER
+    IF WS_ACTIVE = 0 THEN TBED_target_name$ = "a new workspace": EXIT FUNCTION
+    idx = WS_find%(WS_ACTIVE_ID)
+    IF idx THEN TBED_target_name$ = WS_LIST(idx).title ELSE TBED_target_name$ = WS_ACTIVE_ID
+END FUNCTION
+
+
+''
+' panel's keys into the editor store: [TOOLBOX] BUTTONS / COLUMNS, or the
+' bar's ORDER (replacing a BUTTONS visibility list) / COLUMNS.
+SUB TBED_store_keys (panel AS INTEGER)
+    SELECT CASE panel
+        CASE BL_TOOLBOX
+            WSC_set "TOOLBOX.BUTTONS", TBED_toolbox_csv$
+            WSC_set "TOOLBOX.COLUMNS", _TRIM$(STR$(TBED_cols%(BL_TOOLBOX)))
+        CASE BL_EDITBAR
+            WSC_set "EDIT_BAR.BUTTONS", ""
+            WSC_set "EDIT_BAR.ORDER", BL_to_csv$(BL_EDITBAR)
+            WSC_set "EDIT_BAR.COLUMNS", _TRIM$(STR$(EDITBAR_cols%))
+        CASE BL_ADVBAR
+            WSC_set "ADVANCED_BAR.BUTTONS", ""
+            WSC_set "ADVANCED_BAR.ORDER", BL_to_csv$(BL_ADVBAR)
+            WSC_set "ADVANCED_BAR.COLUMNS", _TRIM$(STR$(ADVBAR_cols%))
+    END SELECT
+END SUB
+
+
+''
+' Save the lists of the panels in mask into the active workspace (a built-in
+' gets a user copy). In Default: ask for a name, make a workspace based on
+' Default (the layout on screen + these panels) and switch to it.
+' FALSE = nothing saved (the name was cancelled).
+FUNCTION TBED_save% (mask AS INTEGER)
+    DIM idx AS INTEGER, ok AS INTEGER, t AS STRING, m AS INTEGER, p AS INTEGER
+    m = mask
+    IF WS_ACTIVE THEN
+        idx = WS_find%(WS_ACTIVE_ID)
+        IF idx = 0 THEN EXIT FUNCTION
+        WSC_load idx
+        FOR p = BL_TOOLBOX TO BL_ADVBAR
+            IF m AND TBED_bit%(p) THEN TBED_store_keys p
+        NEXT p
+        ok = WSC_save%
+        WSC.reapply = FALSE
+        ok = WS_resolve%(WS_ACTIVE_ID)
+        IF m AND TBED_bit%(BL_TOOLBOX) THEN WS_TB_TOUCHED = TRUE
+        IF m AND (TBED_bit%(BL_EDITBAR) OR TBED_bit%(BL_ADVBAR)) THEN WS_BARS_TOUCHED = TRUE
+        TBED_save% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF TBED.saving THEN EXIT FUNCTION
+    TBED.saving = TRUE
+    ok = WSC_from_default_begin%("Customize Toolbars", "Toolbar changes are saved into a workspace.", "My Toolbars", "Based on Default, with customized toolbars")
+    TBED.saving = FALSE
+    TBED.itemDrag = 0
+    IF ok = 0 THEN EXIT FUNCTION
+    t = WSC_NEW_TITLE
+    FOR p = BL_TOOLBOX TO BL_ADVBAR
+        IF m AND TBED_bit%(p) THEN TBED_store_keys p
+    NEXT p
+    WSC_save_and_use WSC_ID, "Workspace created: " + t
+    TBED_save% = (WS_ACTIVE <> 0)
+    TBED_list_load
+END FUNCTION
+
+
+' =============================================================================
+' Mouse
+' =============================================================================
+
+''
+' Called from MOUSE_handle_gui_panels while the pointer is over the window or
+' a drag started in it is going on.
+SUB TBED_mouse_input (wheel AS INTEGER)
+    DIM lx AS INTEGER, ly AS INTEGER, nx AS INTEGER, ny AS INTEGER, pressed AS INTEGER
+    DIM ctl AS INTEGER, r AS INTEGER, prevX AS INTEGER, prevY AS INTEGER
+    IF TBED.visible = 0 _ORELSE TBED.autoHidden _ORELSE TBED.initialized = 0 THEN EXIT SUB
+    lx = MOUSE.RAW_X% - TBED.dispX: ly = MOUSE.RAW_Y% - TBED.dispY
+    IF TBED.renderScale > 0 THEN nx = INT(lx / TBED.renderScale): ny = INT(ly / TBED.renderScale) ELSE nx = lx: ny = ly
+    pressed = (MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0)
+
+    ' title-bar drag
+    IF TBED.dragging THEN
+        IF MOUSE.B1% THEN
+            prevX = TBED.dispX: prevY = TBED.dispY
+            TBED.dispX = TBED.dragStartDX + (MOUSE.RAW_X% - TBED.dragStartMX)
+            TBED.dispY = TBED.dragStartDY + (MOUSE.RAW_Y% - TBED.dragStartMY)
+            TBED_clamp
+            FPANEL_place REGION_TOOLBAR_EDITOR, TBED.dispX, TBED.dispY, TBED.dispW, TBED.dispH, prevX, prevY
+            TBED_clamp
+        ELSE
+            TBED.dragging = FALSE
+        END IF
+        TBED_redraw
+        EXIT SUB
+    END IF
+
+    ' an entry dragged out of a list
+    IF TBED.itemDrag THEN
+        TBED_item_drag nx, ny
+        EXIT SUB
+    END IF
+
+    ' wheel: scroll the list under the pointer
+    IF wheel <> 0 THEN
+        ctl = TBED_hit%(nx, ny)
+        IF ctl = TBED_CTL_AVAIL THEN TBED.avTop = TBED.avTop + wheel * 3
+        IF ctl = TBED_CTL_LIST THEN TBED.lsTop = TBED.lsTop + wheel * 3
+        TBED_scroll_clamp
+        TBED_redraw
+    END IF
+
+    IF pressed = 0 THEN EXIT SUB
+    IF lx < 0 _ORELSE lx >= TBED.dispW _ORELSE ly < 0 _ORELSE ly >= TBED.dispH THEN EXIT SUB
+    TBED.focus = TRUE
+    TBED.searchFocus = FALSE
+    TBED_redraw
+
+    IF ny < FPANEL.titleH% THEN
+        IF FPANEL_over_close%(nx, ny, TBED.panelW) THEN TBED_close: EXIT SUB
+        TBED.dragging = TRUE
+        TBED.dragStartMX = MOUSE.RAW_X%: TBED.dragStartMY = MOUSE.RAW_Y%
+        TBED.dragStartDX = TBED.dispX: TBED.dragStartDY = TBED.dispY
+        EXIT SUB
+    END IF
+
+    ctl = TBED_hit%(nx, ny)
+    SELECT CASE ctl
+        CASE TBED_CTL_TAB TO TBED_CTL_TAB + 2
+            TBED_set_tab ctl - TBED_CTL_TAB + 1
+        CASE TBED_CTL_SEARCH
+            TBED.searchFocus = TRUE
+        CASE TBED_CTL_AVAIL
+            r = TBED.avTop + TBED_row_at%(ny)
+            IF r >= 0 _ANDALSO r < TBED.avN THEN
+                IF TBED_AV_KIND(r) <> TBED_AV_HEADER THEN
+                    IF r = TBED.lastClickR _ANDALSO TIMER(0.001) - TBED.lastClickT < DBLCLICK_WINDOW_S _ANDALSO TIMER(0.001) >= TBED.lastClickT THEN
+                        TBED.lastClickR = -1
+                        TBED.avSel = r
+                        TBED_op_add r, -1
+                    ELSE
+                        TBED.lastClickR = r: TBED.lastClickT = TIMER(0.001)
+                        TBED.avSel = r
+                        TBED_item_press 1, 0, r, FALSE
+                    END IF
+                END IF
+            END IF
+        CASE TBED_CTL_LIST
+            r = TBED.lsTop + TBED_row_at%(ny)
+            IF r >= 0 _ANDALSO r < BL_N(TBED.tab) THEN
+                TBED.lsSel = r
+                TBED_item_press 2, TBED.tab, r, FALSE
+            ELSE
+                TBED.lsSel = -1
+            END IF
+        CASE TBED_CTL_ADD: TBED_op_add TBED.avSel, -1
+        CASE TBED_CTL_REMOVE: TBED_op_remove
+        CASE TBED_CTL_UP: IF TBED.lsSel > 0 THEN TBED_op_move_to TBED.lsSel, TBED.lsSel - 1
+        CASE TBED_CTL_DOWN: IF TBED.lsSel >= 0 THEN TBED_op_move_to TBED.lsSel, TBED.lsSel + 1
+        CASE TBED_CTL_DIV: TBED_op_insert BL_DIV
+        CASE TBED_CTL_GAP: TBED_op_insert BL_GAP
+        CASE TBED_CTL_RESET: TBED_op_reset
+        CASE TBED_CTL_COLS_DN: TBED_op_cols -1
+        CASE TBED_CTL_COLS_UP: TBED_op_cols 1
+        CASE TBED_CTL_DONE: TBED_close
+    END SELECT
+END SUB
+
+
+''
+' A press on an entry that may become a drag. which: 1 = an Available row
+' (r), 2 = entry r of panel (from the editor's list, or fromPanel = pressed
+' on the real panel in edit mode).
+SUB TBED_item_press (which AS INTEGER, panel AS INTEGER, r AS INTEGER, fromPanel AS INTEGER)
+    TBED.itemDrag = which
+    TBED.itemPanel = panel
+    TBED.itemIdx = r
+    TBED.itemFromPanel = fromPanel
+    TBED.itemPX = MOUSE.RAW_X%: TBED.itemPY = MOUSE.RAW_Y%
+    TBED.itemMoved = FALSE
+    TBED.dropList = 0
+END SUB
+
+
+''
+' Edit mode: the editor is open, so the toolbox and the bars do not run their
+' buttons - a press picks one up instead (TBED_panel_press).
+FUNCTION TBED_edit_mode% ()
+    TBED_edit_mode% = (TBED.visible <> 0 _ANDALSO TBED.autoHidden = 0)
+END FUNCTION
+
+
+''
+' Toolbox cell size (viewport px) at the configured toolbar scale.
+SUB TBED_tb_cell (w AS INTEGER, h AS INTEGER)
+    DIM sc AS INTEGER
+    sc = CFG.TOOLBAR_SCALE%
+    IF sc < 1 THEN sc = 1
+    IF sc > 4 THEN sc = 4
+    w = TB_BTN_W * sc: h = TB_BTN_H * sc
+END SUB
+
+
+''
+' Entry idx of panel as drawn this frame (viewport px). FALSE = not drawn.
+FUNCTION TBED_entry_rect% (panel AS INTEGER, idx AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    IF idx < 0 THEN EXIT FUNCTION
+    IF panel = BL_TOOLBOX THEN
+        IF idx >= TB_LIVE_COUNT THEN EXIT FUNCTION
+        IF TOOLBAR_BUTTON_ORDER(idx) = TB_DIV_CODE THEN EXIT FUNCTION
+        TBED_tb_cell w, h
+        x = TB_SLOT_X(idx): y = TB_SLOT_Y(idx)
+        TBED_entry_rect% = TRUE
+    ELSE
+        IF idx >= BL_N(panel) THEN EXIT FUNCTION
+        IF BL(panel, idx).w <= 0 THEN EXIT FUNCTION
+        x = BL(panel, idx).x: y = BL(panel, idx).y: w = BL(panel, idx).w: h = BL(panel, idx).h
+        TBED_entry_rect% = TRUE
+    END IF
+END FUNCTION
+
+
+''
+' The real panel (shown) under viewport (mx, my): BL_* or 0.
+FUNCTION TBED_panel_at% (mx AS INTEGER, my AS INTEGER)
+    IF SCRN.showToolbar% _ANDALSO TOOLBAR_is_over_area%(mx, my) THEN TBED_panel_at% = BL_TOOLBOX: EXIT FUNCTION
+    IF SCRN.showEditBar% _ANDALSO EDITBAR_is_over_area%(mx, my) THEN TBED_panel_at% = BL_EDITBAR: EXIT FUNCTION
+    IF SCRN.showAdvBar% _ANDALSO ADVBAR_is_over_area%(mx, my) THEN TBED_panel_at% = BL_ADVBAR: EXIT FUNCTION
+END FUNCTION
+
+
+FUNCTION TBED_panel_cols% (panel AS INTEGER)
+    SELECT CASE panel
+        CASE BL_TOOLBOX: TBED_panel_cols% = TB_LIVE_COLS
+        CASE BL_EDITBAR: TBED_panel_cols% = EDITBAR_cols%
+        CASE BL_ADVBAR: TBED_panel_cols% = ADVBAR_cols%
+    END SELECT
+END FUNCTION
+
+
+''
+' Where an entry dropped at viewport (mx, my) on panel would go: the
+' insertion index (before / after the nearest drawn entry: by x in a grid,
+' by y in one column) and the insertion line (viewport px, in TBED.mark*).
+FUNCTION TBED_panel_insert_at% (panel AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM best AS INTEGER, d AS LONG, bestD AS LONG, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    DIM after AS INTEGER, oneCol AS INTEGER
+    IF panel = BL_TOOLBOX THEN TBED_tb_load ELSE BL_ensure panel
+    n = BL_N(panel)
+    best = -1
+    FOR i = 0 TO n - 1
+        IF TBED_entry_rect%(panel, i, x, y, w, h) THEN
+            d = CLNG(mx - (x + w \ 2)) ^ 2 + CLNG(my - (y + h \ 2)) ^ 2
+            IF best < 0 _ORELSE d < bestD THEN best = i: bestD = d: bx = x: by = y: bw = w: bh = h
+        END IF
+    NEXT i
+    IF best < 0 THEN
+        TBED.markX1 = 0: TBED.markY1 = 0: TBED.markX2 = 0: TBED.markY2 = 0
+        TBED_panel_insert_at% = n
+        EXIT FUNCTION
+    END IF
+    oneCol = (TBED_panel_cols%(panel) <= 1)
+    IF oneCol THEN after = (my >= by + bh \ 2) ELSE after = (mx >= bx + bw \ 2)
+    IF oneCol THEN
+        TBED.markX1 = bx - 1: TBED.markX2 = bx + bw
+        IF after THEN TBED.markY1 = by + bh ELSE TBED.markY1 = by - 2
+        TBED.markY2 = TBED.markY1 + 1
+    ELSE
+        TBED.markY1 = by - 1: TBED.markY2 = by + bh
+        IF after THEN TBED.markX1 = bx + bw ELSE TBED.markX1 = bx - 2
+        TBED.markX2 = TBED.markX1 + 1
+    END IF
+    IF after THEN TBED_panel_insert_at% = best + 1 ELSE TBED_panel_insert_at% = best
+END FUNCTION
+
+
+''
+' Edit mode: a press on the toolbox / a bar. Selects that entry (the editor
+' switches to its panel) and starts a drag. TRUE = the press was on the panel.
+FUNCTION TBED_panel_press% (panel AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    DIM i AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, hit AS INTEGER
+    TBED_panel_press% = TRUE
+    IF panel = BL_TOOLBOX THEN TBED_tb_load ELSE BL_ensure panel
+    hit = -1
+    FOR i = 0 TO BL_N(panel) - 1
+        IF TBED_entry_rect%(panel, i, x, y, w, h) THEN
+            IF mx >= x _ANDALSO mx < x + w _ANDALSO my >= y _ANDALSO my < y + h THEN
+                ' a button wins over a gap sharing the spot
+                IF hit < 0 _ORELSE BL(panel, i).kind <> BL_GAP THEN hit = i
+            END IF
+        END IF
+    NEXT i
+    TOOLTIP_reset
+    IF hit < 0 THEN EXIT FUNCTION
+    IF TBED.tab <> panel THEN TBED_set_tab panel
+    TBED.lsSel = hit
+    TBED_show_row 2, hit
+    TBED.focus = TRUE
+    TBED_item_press 2, panel, hit, TRUE
+    TBED_redraw
+END FUNCTION
+
+
+''
+' A press on a list row (or a real panel's button) turned into a drag: track
+' where it would land. On release:
+'   an Available row  -> the editor's list / a panel: added there
+'   a panel's entry   -> the editor's list / a panel: moved there (same panel
+'                        or another one); the Available list: removed;
+'                        nowhere (dragged off a real panel): removed
+SUB TBED_item_drag (nx AS INTEGER, ny AS INTEGER)
+    DIM r AS INTEGER, inList AS INTEGER, n AS INTEGER, inWin AS INTEGER, p AS INTEGER
+    n = BL_N(TBED.tab)
+    IF MOUSE.B1% THEN
+        IF TBED.itemMoved = 0 THEN
+            IF ABS(MOUSE.RAW_X% - TBED.itemPX) + ABS(MOUSE.RAW_Y% - TBED.itemPY) > 3 THEN TBED.itemMoved = TRUE
+        END IF
+        TBED.dropList = 0
+        inWin = TBED_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+        inList = (ny >= TBED.yList - TBED.rowH \ 2 _ANDALSO ny < TBED.yList + TBED.rows * TBED.rowH + TBED.rowH \ 2)
+        IF inWin _ANDALSO inList _ANDALSO nx >= TBED.lsX _ANDALSO nx < TBED.lsX + TBED.listW THEN
+            TBED.dropList = 2
+            r = TBED.lsTop + (ny - TBED.yList + TBED.rowH \ 2) \ TBED.rowH
+            IF ny < TBED.yList THEN r = TBED.lsTop
+            IF r < 0 THEN r = 0
+            IF r > n THEN r = n
+            TBED.dropAt = r
+            ' auto-scroll at the ends
+            IF ny < TBED.yList + 4 _ANDALSO TBED.lsTop > 0 THEN TBED.lsTop = TBED.lsTop - 1
+            IF ny > TBED.yList + TBED.rows * TBED.rowH - 4 THEN TBED.lsTop = TBED.lsTop + 1: TBED_scroll_clamp
+        ELSEIF inWin _ANDALSO inList _ANDALSO nx >= TBED.avX _ANDALSO nx < TBED.avX + TBED.listW THEN
+            TBED.dropList = 1
+        ELSEIF inWin = 0 THEN
+            p = TBED_panel_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+            IF p THEN
+                TBED.dropList = 3
+                TBED.dropPanel = p
+                TBED.dropAt = TBED_panel_insert_at%(p, MOUSE.RAW_X%, MOUSE.RAW_Y%)
+            END IF
+        END IF
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        TBED_redraw
+        EXIT SUB
+    END IF
+    ' released
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF TBED.itemMoved THEN
+        IF TBED.itemDrag = 1 THEN
+            IF TBED.dropList = 2 THEN TBED_op_add TBED.itemIdx, TBED.dropAt
+            IF TBED.dropList = 3 THEN TBED_op_add_to TBED.dropPanel, TBED.dropAt, TBED_AV_KIND(TBED.itemIdx), TBED_AV_ID(TBED.itemIdx)
+        ELSEIF TBED.itemDrag = 2 THEN
+            SELECT CASE TBED.dropList
+                CASE 2: TBED_op_move TBED.itemPanel, TBED.itemIdx, TBED.tab, TBED.dropAt
+                CASE 3: TBED_op_move TBED.itemPanel, TBED.itemIdx, TBED.dropPanel, TBED.dropAt
+                CASE 1: TBED_op_remove_at TBED.itemPanel, TBED.itemIdx
+                CASE ELSE: IF TBED.itemFromPanel THEN TBED_op_remove_at TBED.itemPanel, TBED.itemIdx
+            END SELECT
+        END IF
+    END IF
+    TBED.itemDrag = 0
+    TBED.itemMoved = FALSE
+    TBED.dropList = 0
+    TBED_redraw
+END SUB
+
+
+''
+' A press outside the window takes the keyboard focus away from it.
+SUB TBED_blur ()
+    IF TBED.focus = 0 _ANDALSO TBED.searchFocus = 0 THEN EXIT SUB
+    TBED.focus = FALSE
+    TBED.searchFocus = FALSE
+    TBED_redraw
+END SUB
+
+
+' =============================================================================
+' Keyboard
+' =============================================================================
+
+''
+' The central dispatcher must not fire hotkeys while the search field takes
+' the typing, nor the Delete binding while Delete removes an entry here.
+FUNCTION TBED_typing% ()
+    IF TBED.visible = 0 _ORELSE TBED.autoHidden THEN EXIT FUNCTION
+    IF TBED.searchFocus THEN TBED_typing% = TRUE: EXIT FUNCTION
+    IF TBED.focus _ANDALSO _KEYDOWN(21248) THEN TBED_typing% = TRUE
+END FUNCTION
+
+
+''
+' KEYBOARD_input_handler: typing into the search field; Delete removes the
+' selected entry. TRUE = the key was used here.
+FUNCTION TBED_keys% ()
+    STATIC delWas AS INTEGER
+    DIM k AS STRING, delNow AS INTEGER
+    IF TBED.visible = 0 _ORELSE TBED.autoHidden THEN delWas = FALSE: EXIT FUNCTION
+    IF TBED.searchFocus THEN
+        k = INKEY$
+        IF k = "" THEN k = KEYHIT_CHAR$
+        IF LEN(k) = 1 THEN
+            SELECT CASE ASC(k)
+                CASE 8
+                    IF LEN(TBED_SEARCH) THEN TBED_SEARCH = LEFT$(TBED_SEARCH, LEN(TBED_SEARCH) - 1)
+                CASE 13
+                    TBED.searchFocus = FALSE
+                CASE 27
+                    IF LEN(TBED_SEARCH) THEN TBED_SEARCH = "" ELSE TBED.searchFocus = FALSE
+                CASE 32 TO 126
+                    IF LEN(TBED_SEARCH) < 24 THEN TBED_SEARCH = TBED_SEARCH + k
+            END SELECT
+            TBED.avDirty = TRUE
+            TBED.avTop = 0
+            TBED.avSel = -1
+            TBED_redraw
+        END IF
+        TBED_keys% = TRUE
+        EXIT FUNCTION
+    END IF
+    delNow = _KEYDOWN(21248)
+    IF TBED.focus _ANDALSO delNow _ANDALSO delWas = 0 THEN
+        TBED_op_remove
+        TBED_keys% = TRUE
+    END IF
+    delWas = delNow
+END FUNCTION
+
+
+' =============================================================================
+' QA: the panels' buttons and the window's controls, appended to the dock
+' layout dump (DOCK_dump_write, DOCK_DUMP=<path>). Viewport px. Lines:
+'   BTN  <panel> <idx> <kind> <id> <name> <x> <y> <w> <h>   (panel toolbox /
+'        editbar / advbar; kind 1 tool, 2 command, 3 divider, 4 gap; 0 size =
+'        not drawn)
+'   TBED <edit mode> <tab> <selected> <entries> <available rows> <CURRENT_TOOL%> <workspace>
+'   TBC  <control> <x> <y> <w> <h>   (tab1..3, search, add, remove, up, down,
+'        div, gap, reset, colsdn, colsup, done, close, title, av0 / ls0 = the
+'        first visible row of each list; avtop / lstop: <first row> <rows>)
+' =============================================================================
+
+FUNCTION TBED_dump$ ()
+    DIM d AS STRING, p AS INTEGER, i AS INTEGER, lf AS STRING, n AS INTEGER, k AS INTEGER, nm AS STRING
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, kind AS INTEGER, id AS INTEGER
+    lf = CHR$(10)
+    FOR p = BL_TOOLBOX TO BL_ADVBAR
+        IF p = BL_TOOLBOX THEN n = TB_LIVE_COUNT ELSE BL_ensure p: n = BL_N(p)
+        FOR i = 0 TO n - 1
+            IF p = BL_TOOLBOX THEN
+                k = TOOLBAR_BUTTON_ORDER(i)
+                IF k = -1 THEN
+                    kind = BL_GAP: id = 0
+                ELSEIF k = TB_DIV_CODE THEN
+                    kind = BL_DIV: id = 0
+                ELSEIF k >= TB_CMD_BASE THEN
+                    kind = BL_CMD: id = k - TB_CMD_BASE
+                ELSE
+                    kind = BL_TOOL: id = k
+                END IF
+                IF kind = BL_DIV THEN
+                    x = 0: y = 0: w = 0: h = 0
+                ELSE
+                    TBED_tb_cell w, h
+                    x = TB_SLOT_X(i): y = TB_SLOT_Y(i)
+                END IF
+            ELSE
+                kind = BL(p, i).kind: id = BL(p, i).id
+                x = BL(p, i).x: y = BL(p, i).y: w = BL(p, i).w: h = BL(p, i).h
+            END IF
+            nm = BL_entry_name$(kind, id)
+            IF LEN(nm) = 0 THEN nm = "?"
+            d = d + "BTN " + TBED_dump_panel$(p) + DOCK_n$(i) + DOCK_n$(kind) + DOCK_n$(id) + " " + nm + DOCK_n$(x) + DOCK_n$(y) + DOCK_n$(w) + DOCK_n$(h) + lf
+        NEXT i
+    NEXT p
+    d = d + "TBED" + DOCK_n$(TBED_edit_mode% <> 0) + " " + TBED_dump_panel$(TBED.tab) + DOCK_n$(TBED.lsSel) + DOCK_n$(BL_N(TBED.tab)) + DOCK_n$(TBED.avN) + DOCK_n$(CURRENT_TOOL%) + " " + WS_ACTIVE_ID + lf
+    IF TBED_edit_mode% = 0 _ORELSE TBED.initialized = 0 THEN TBED_dump$ = d: EXIT FUNCTION
+    FOR p = BL_TOOLBOX TO BL_ADVBAR
+        d = d + TBED_dump_ctl$("tab" + _TRIM$(STR$(p)), TBED_tab_x%(p), TBED.yTabs, TBED_tab_w%(p), TBED.btnH)
+    NEXT p
+    d = d + TBED_dump_ctl$("search", TBED.avX, TBED.ySearch, TBED.listW, TBED.btnH)
+    FOR k = TBED_BTN_FIRST TO TBED_BTN_LAST
+        d = d + TBED_dump_ctl$(WS_list_item$("add,remove,up,down,div,gap,reset", k - TBED_BTN_FIRST + 1), TBED.midX, TBED_btn_y%(k), TBED.midW, TBED.btnH)
+    NEXT k
+    d = d + TBED_dump_ctl$("colsdn", TBED_cols_x%, TBED.yBottom, TBED.btnH, TBED.btnH)
+    d = d + TBED_dump_ctl$("colsup", TBED_cols_x% + TBED.btnH + 18, TBED.yBottom, TBED.btnH, TBED.btnH)
+    d = d + TBED_dump_ctl$("done", TBED_done_x%, TBED.yBottom, TBED_done_w%, TBED.btnH)
+    d = d + TBED_dump_ctl$("close", TBED.panelW - FPANEL.titleH%, 0, FPANEL.titleH%, FPANEL.titleH%)
+    d = d + TBED_dump_ctl$("title", 0, 0, TBED.panelW - FPANEL.titleH%, FPANEL.titleH%)
+    d = d + TBED_dump_ctl$("av0", TBED.avX, TBED.yList, TBED.listW - 6, TBED.rowH)
+    d = d + TBED_dump_ctl$("ls0", TBED.lsX, TBED.yList, TBED.listW - 6, TBED.rowH)
+    d = d + "TBC avtop" + DOCK_n$(TBED.avTop) + DOCK_n$(TBED.rows) + " 0 0" + lf
+    d = d + "TBC lstop" + DOCK_n$(TBED.lsTop) + DOCK_n$(TBED.rows) + " 0 0" + lf
+    TBED_dump$ = d
+END FUNCTION
+
+
+FUNCTION TBED_dump_panel$ (panel AS INTEGER)
+    SELECT CASE panel
+        CASE BL_TOOLBOX: TBED_dump_panel$ = "toolbox"
+        CASE BL_EDITBAR: TBED_dump_panel$ = "editbar"
+        CASE ELSE: TBED_dump_panel$ = "advbar"
+    END SELECT
+END FUNCTION
+
+
+''
+' A control's native rect -> viewport.
+FUNCTION TBED_dump_ctl$ (nm AS STRING, nx AS INTEGER, ny AS INTEGER, nw AS INTEGER, nh AS INTEGER)
+    DIM sc AS SINGLE
+    sc = TBED.renderScale
+    TBED_dump_ctl$ = "TBC " + nm + DOCK_n$(TBED.dispX + INT(nx * sc)) + DOCK_n$(TBED.dispY + INT(ny * sc)) + DOCK_n$(INT(nw * sc)) + DOCK_n$(INT(nh * sc)) + CHR$(10)
+END FUNCTION

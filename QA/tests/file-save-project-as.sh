@@ -46,10 +46,10 @@ assert_no_crash
 key grave                     # hide the arrow pointer so it never dirties a snap
 wait_for 0.1 "Pointer hidden"
 info "File menu > SAVE PROJECT AS..."
-click 111 6
+click $(( 111 + LP_W - 100 )) 6 # FILE (the menu bar starts after the layers)
 wait_for 0.5 "File menu open"
 screenshot "saveproj-menu-open"
-click 150 145
+click $(( 150 + LP_W - 100 )) 145
 wait_for 1.0 "Project save dialog dispatched"
 assert_no_crash
 screenshot "saveproj-dialog"

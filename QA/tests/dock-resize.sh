@@ -3,7 +3,8 @@
 # dock-resize.sh — QA test: side-docked panels resize by dragging their inner
 # edge (GUI/DOCK-RESIZE). In Default the new value is saved to the --config
 # file (QA/DRAW.qa.cfg, rebuilt before every test), so the test also greps it.
-#   layers  (docked LEFT, 100px, boundary x=100)  dragged right  -> wider
+#   layers  (docked LEFT, LP_W px, boundary x=LP_W) dragged right -> wider,
+#           then far left -> stops at the bottom buttons' minimum (108px)
 #   toolbox (docked RIGHT, 4 columns, boundary x=TB_X) dragged left -> 6 columns
 #   edit bar (docked LEFT after the layers)        dragged right -> 2 columns
 # Workspace saves are NOT exercised here: they write the user's workspaces
@@ -33,7 +34,7 @@ slow_drag() {
     wait_for 0.6 "drop"
 }
 
-# --- layers: 100 -> 160 ------------------------------------------------------
+# --- layers: LP_W -> +60 ------------------------------------------------------
 snap_region 100 $(( Y - 60 )) 120 120 "layers-before"; L0="$SNAP_RESULT"
 slow_drag $(( LP_W - 1 )) $(( LP_W + 59 )) $Y
 park_mouse
@@ -74,6 +75,18 @@ if [[ "$EC" == "2" ]]; then
     pass "EDIT_BAR_COLUMNS saved to the config (2)"
 else
     fail "EDIT_BAR_COLUMNS not saved as 2 (got '$EC')"
+fi
+# --- layers: far narrower stops where the bottom buttons fit ------------------
+# 6 x 15px icons, 2px apart, 4px margins = 108px (LAYERS_min_width%) - Rick:
+# narrower, the buttons overlapped (the old floor was 60)
+slow_drag $(( LW - 1 )) $(( LW - 150 )) $Y
+park_mouse
+wait_for 0.3 "settle"
+LM=$(grep -m1 '^LAYER_PANEL_WIDTH=' "$QA_CFG" | cut -d= -f2 | tr -d '\r[:space:]')
+if [[ "$LM" == "108" ]]; then
+    pass "the layers stop at the bottom buttons' minimum (108)"
+else
+    fail "the layers' narrowest is '$LM', not the buttons' minimum 108"
 fi
 screenshot "dock-resize"
 

@@ -30,7 +30,7 @@ slow_drag() {
 }
 
 # --- float: the edit bar's grip (its top edge, under the menu bar) ---------------
-slow_drag 110 13 480 160
+slow_drag $(( LP_W + 10 )) 13 480 160 # the edit bar sits right of the layers (LP_W)
 park_mouse
 wait_for 0.3 "settle"
 F=$(grep -m1 '^DOCK_FLOAT_EDITBAR=' "$QA_CFG" | cut -d= -f2 | tr -d '\r')

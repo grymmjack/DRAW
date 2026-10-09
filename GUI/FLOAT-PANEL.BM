@@ -103,7 +103,9 @@ SUB FPANEL_title_bar (w AS INTEGER, title AS STRING, closeHover AS INTEGER)
     FPANEL_text FPANEL_title_text_x%, FPANEL_title_text_y%, title$, THEME.CP_title_fg~&
     bx% = w% - th%
     IF closeHover% THEN LINE (bx%, 0)-(w% - 1, th% - 1), THEME.CP_close_hover_bg~&, BF
-    FPANEL_close_icon bx% + th% \ 2, th% \ 2, THEME.CP_close_fg~&
+    ' centered on what shows of the box: FPANEL_frame covers its top row and
+    ' right column, leaving (th-1) x (th-1) at (bx, 1)
+    FPANEL_close_icon bx% + (th% - 1) \ 2, th% \ 2, THEME.CP_close_fg~&
 END SUB
 
 ' ---------------------------------------------------------------------------
@@ -247,6 +249,7 @@ FUNCTION FPANEL_float_region% (i AS INTEGER)
         CASE 4: FPANEL_float_region% = REGION_PEN_PANEL
         CASE 5: FPANEL_float_region% = REGION_IMAGE_BROWSER
         CASE 6: FPANEL_float_region% = REGION_PREVIEW
+        CASE 7: FPANEL_float_region% = REGION_TOOLBAR_EDITOR
         CASE ELSE: FPANEL_float_region% = -1
     END SELECT
 END FUNCTION
@@ -359,6 +362,10 @@ SUB FPANEL_place (selfRegion AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGE
         END IF
     NEXT i%
 
+    ' A window too big for an axis keeps its left / top edge in the work area
+    ' (the title bar stays reachable); only its far edge runs past.
+    IF pw% > maxX% - minX% _ANDALSO sx% < minX% THEN sx% = minX%
+    IF ph% > maxY% - minY% _ANDALSO sy% < minY% THEN sy% = minY%
     IF FPANEL_free%(self%, sx%, sy%, pw%, ph%) THEN x% = sx% : y% = sy% : EXIT SUB
 
     ' --- 2. nearest free spot: candidate x's / y's are the snapped spot plus
@@ -375,6 +382,12 @@ SUB FPANEL_place (selfRegion AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGE
     NEXT i%
 
     DIM a AS INTEGER, b AS INTEGER, found AS INTEGER
+    FOR a% = 0 TO nx% - 1
+        IF pw% > maxX% - minX% _ANDALSO cx(a%) < minX% THEN cx(a%) = minX%
+    NEXT a%
+    FOR b% = 0 TO ny% - 1
+        IF ph% > maxY% - minY% _ANDALSO cy(b%) < minY% THEN cy(b%) = minY%
+    NEXT b%
     DIM d AS LONG, bestD AS LONG, bx AS INTEGER, by AS INTEGER
     FOR a% = 0 TO nx% - 1
         FOR b% = 0 TO ny% - 1
@@ -391,6 +404,12 @@ SUB FPANEL_place (selfRegion AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGE
         x% = bx% : y% = by%
     ELSEIF FPANEL_free%(self%, ox0%, oy0%, pw%, ph%) THEN
         x% = ox0% : y% = oy0%
+    ELSE
+        ' nowhere clear of the other windows: at least stay in the work area -
+        ' over another window (it can be moved), never over the docked panels
+        IF pw% <= maxX% - minX% THEN bx% = _MAX(minX%, _MIN(sx%, maxX% - pw%)) ELSE bx% = minX%
+        IF ph% <= maxY% - minY% THEN by% = _MAX(minY%, _MIN(sy%, maxY% - ph%)) ELSE by% = minY%
+        x% = bx% : y% = by%
     END IF
 END SUB
 
@@ -406,6 +425,7 @@ SUB FPANEL_get_pos (region AS INTEGER, x AS INTEGER, y AS INTEGER)
         CASE REGION_PEN_PANEL:         x% = PENP.dispX%       : y% = PENP.dispY%
         CASE REGION_IMAGE_BROWSER:     x% = BROWSER.dispX%    : y% = BROWSER.dispY%
         CASE REGION_PREVIEW:           x% = PREVIEW.x%        : y% = PREVIEW.y%
+        CASE REGION_TOOLBAR_EDITOR:    x% = TBED.dispX        : y% = TBED.dispY
     END SELECT
 END SUB
 
@@ -430,25 +450,37 @@ SUB FPANEL_set_pos (region AS INTEGER, x AS INTEGER, y AS INTEGER)
         CASE REGION_PREVIEW
             PREVIEW.x% = x% : PREVIEW.y% = y%
             CFG.PREVIEW_X% = x% : CFG.PREVIEW_Y% = y%
+        CASE REGION_TOOLBAR_EDITOR
+            TBED.dispX = x% : TBED.dispY = y%
     END SELECT
 END SUB
 
 ' ---------------------------------------------------------------------------
-' FPANEL_settle_once — After the first rendered frame, move any floating
-' window restored on top of another (saved positions predate the no-overlap
-' rule, or the window size changed) to the nearest free spot. Windows earlier
-' in FPANEL_float_region% order keep their place. Runs once per session.
+' FPANEL_settle — After a rendered frame, move any floating window that is
+' not free (on top of another, or outside the work area) to the nearest free
+' spot. Runs on the first frame (saved positions predate the no-overlap rule,
+' or the window size changed) and again whenever the work area changes: a
+' dock column that grows must not leave a floating window over its panels.
+' Windows earlier in FPANEL_float_region% order keep their place; docked
+' windows are the dock's (their slot is outside the work area).
 ' ---------------------------------------------------------------------------
-SUB FPANEL_settle_once ()
-    STATIC done AS INTEGER
-    IF done% THEN EXIT SUB
+SUB FPANEL_settle ()
+    STATIC done AS INTEGER, lastL AS INTEGER, lastT AS INTEGER, lastR AS INTEGER, lastB AS INTEGER
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+    FPANEL_work_area minX%, minY%, maxX%, maxY%
+    IF done% _ANDALSO minX% = lastL% _ANDALSO minY% = lastT% _ANDALSO maxX% = lastR% _ANDALSO maxY% = lastB% THEN EXIT SUB
     done% = TRUE
+    lastL% = minX% : lastT% = minY% : lastR% = maxX% : lastB% = maxY%
 
-    DIM i AS INTEGER, r AS INTEGER, moved AS INTEGER
+    DIM i AS INTEGER, r AS INTEGER, moved AS INTEGER, dp AS INTEGER
     DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, nx AS INTEGER, ny AS INTEGER
     FOR i% = 1 TO FPANEL_FLOAT_COUNT
         r% = FPANEL_float_region%(i%)
-        IF REGION_BOUNDS_TABLE(r%).active THEN
+        dp% = DOCK_native_for_region%(r%)
+        IF dp% > 0 THEN
+            IF DPANEL(dp%).slot > 0 THEN r% = 0
+        END IF
+        IF r% > 0 _ANDALSO REGION_BOUNDS_TABLE(r%).active THEN
             x% = REGION_BOUNDS_TABLE(r%).x : y% = REGION_BOUNDS_TABLE(r%).y
             w% = REGION_BOUNDS_TABLE(r%).w : h% = REGION_BOUNDS_TABLE(r%).h
             IF NOT FPANEL_free%(r%, x%, y%, w%, h%) THEN
@@ -469,6 +501,61 @@ SUB FPANEL_settle_once ()
     NEXT i%
     IF moved% THEN
         SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE
-        _LOGINFO "FPANEL: moved overlapping floating windows apart at startup"
+        _LOGINFO "FPANEL: moved floating windows into free spots (startup / work area changed)"
     END IF
 END SUB
+
+
+' ===========================================================================
+' The native windows as one set (FPANEL_float_region% order): what the mouse
+' pipeline asks of "any window" - is one under the pointer, hide / restore
+' while a stroke is drawn over it - instead of a hand-kept line per window
+' (lists drifted: the wheel and the middle double-click missed the Advanced
+' Color Picker).
+' ===========================================================================
+
+''
+' Is native window (by region) shown and under (x, y)?
+FUNCTION FPANEL_window_hit% (region AS INTEGER, x AS INTEGER, y AS INTEGER)
+    DIM r AS INTEGER
+    SELECT CASE region
+        CASE REGION_COLOR_MIXER: r = (COLORMIXER.visible% <> 0 _ANDALSO COLORMIXER.autoHidden% = 0) _ANDALSO COLORMIXER_hit_window%(x, y)
+        CASE REGION_ADV_COLOR_PICKER: r = (ADVCP.visible% <> 0 _ANDALSO ADVCP.autoHidden% = 0) _ANDALSO ADVCP_hit_window%(x, y)
+        CASE REGION_COLOR_SPACE_3D: r = CS3D_active_hit%(x, y)
+        CASE REGION_PEN_PANEL: r = PENP_active_hit%(x, y)
+        CASE REGION_IMAGE_BROWSER: r = BROWSER_active_hit%(x, y)
+        CASE REGION_PREVIEW: r = (PREVIEW.visible% <> 0 _ANDALSO PREVIEW.autoHidden% = 0) _ANDALSO PREVIEW_hit_window%(x, y)
+        CASE REGION_TOOLBAR_EDITOR: r = TBED_active_hit%(x, y)
+    END SELECT
+    FPANEL_window_hit% = (r <> 0)
+END FUNCTION
+
+
+''
+' The native window under (x, y): its REGION_*, 0 = none.
+FUNCTION FPANEL_window_at% (x AS INTEGER, y AS INTEGER)
+    DIM i AS INTEGER, rg AS INTEGER
+    FOR i = 1 TO FPANEL_FLOAT_COUNT
+        rg = FPANEL_float_region%(i)
+        IF FPANEL_window_hit%(rg, x, y) THEN FPANEL_window_at% = rg: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' Hide a native window while a stroke is drawn over it (hideIt = TRUE), or bring
+' it back (FALSE). Returns TRUE when that changed something.
+FUNCTION FPANEL_window_autohide% (region AS INTEGER, hideIt AS INTEGER)
+    DIM was AS INTEGER, v AS INTEGER
+    v = (hideIt <> 0)
+    SELECT CASE region
+        CASE REGION_COLOR_MIXER: was = COLORMIXER.autoHidden%: COLORMIXER.autoHidden% = v
+        CASE REGION_ADV_COLOR_PICKER: was = ADVCP.autoHidden%: ADVCP.autoHidden% = v
+        CASE REGION_COLOR_SPACE_3D: was = CS3D.autoHidden%: CS3D.autoHidden% = v
+        CASE REGION_PEN_PANEL: was = PENP.autoHidden%: PENP.autoHidden% = v
+        CASE REGION_IMAGE_BROWSER: was = BROWSER.autoHidden%: BROWSER.autoHidden% = v
+        CASE REGION_PREVIEW: was = PREVIEW.autoHidden%: PREVIEW.autoHidden% = v
+        CASE REGION_TOOLBAR_EDITOR: was = TBED.autoHidden: TBED.autoHidden = v
+    END SELECT
+    FPANEL_window_autohide% = ((was <> 0) <> v)
+END FUNCTION

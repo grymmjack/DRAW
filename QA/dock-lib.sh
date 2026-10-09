@@ -12,6 +12,7 @@
 #   COL  id side ord x y w h vis hidden      (side 1 = left, 2 = right; hidden = by the small-window rule)
 #   SLOT id col ord x y w h vis collapsed act autocollapsed panel,panel
 #   P    name shown live x y w h slot floating fx fy fw fh hx hy hw hh tabx tabw
+#   WIN  name x y w h slot                 (a native window where it is drawn)
 # Booleans are QB64's -1 / 0. Coordinates are viewport px (what click/hover use).
 #
 # So a test never hard-codes geometry: it asks where a panel's handle is, where
@@ -205,6 +206,32 @@ dk_check() {
             if (( ox > 1 && oy > 1 )); then bad+=" ${a[0]} overlaps ${b[0]} (${ox}x$oy);"; fi
         done
     done
+    # 5: native windows where they are drawn never cover a docked panel other
+    #    than their own slot (Rick: the layer text went under a docked Preview)
+    local wl wn wx wy ww wh ws r
+    while read -r wl; do
+        read -r _ wn wx wy ww wh ws <<< "$wl"
+        for r in "${rects[@]}"; do
+            local b=($r) ox oy
+            [[ "${b[0]}" == "$wn" ]] && continue
+            ox=$(( (wx + ww < b[1] + b[3] ? wx + ww : b[1] + b[3]) - (wx > b[1] ? wx : b[1]) ))
+            oy=$(( (wy + wh < b[2] + b[4] ? wy + wh : b[2] + b[4]) - (wy > b[2] ? wy : b[2]) ))
+            if (( ox > 1 && oy > 1 )); then bad+=" window $wn covers ${b[0]} (${ox}x$oy);"; fi
+        done
+        # its title bar stays reachable (a window taller than the work area
+        # was once placed at y -94 when a dock column grew)
+        if (( wy < 0 || wx + ww < 16 || wx > SCR_W - 16 )); then bad+=" window $wn title off screen ($wx,$wy ${ww}x$wh);"; fi
+        # a docked window stays inside its own slot
+        if (( ws > 0 )); then
+            for r in "${rects[@]}"; do
+                local o=($r)
+                [[ "${o[0]}" != "$wn" ]] && continue
+                if (( wx < o[1] - 1 || wy < o[2] - 1 || wx + ww > o[1] + o[3] + 1 || wy + wh > o[2] + o[4] + 1 )); then
+                    bad+=" window $wn ($wx,$wy ${ww}x$wh) outside its slot (${o[1]},${o[2]} ${o[3]}x${o[4]});"
+                fi
+            done
+        fi
+    done < <(grep '^WIN ' "$DK_DUMP")
     # 3 + 4: the saved arrangement
     if grep -q '^DOCK_CUSTOM=1' "$QA_CFG" 2>/dev/null || grep -q '^DOCK_CUSTOM=-1' "$QA_CFG" 2>/dev/null; then
         local saved
@@ -316,4 +343,21 @@ dk_expect_band() {
     else
         fail "browser not in band $1 (band side=$B_SIDE h=$B_H shift=$B_SHIFT; slot=$P_SLOT floating=$P_FL)"
     fi
+}
+
+# dk_divider_extremes UPPER LOWER LABEL — drag the divider between two stacked
+# slots (the top edge of LOWER's slot) to the top of the column, then to the
+# bottom, dk_check after each: neither panel / window may spill over the other
+# however small its slot gets (a docked window has a minimum size).
+dk_divider_extremes() {
+    local up=$1 lo=$2 label=$3 x y
+    dk_scr
+    dk_p "$lo" || { fail "$label: $lo not in the dump"; return 1; }
+    (( P_SLOT > 0 )) || { fail "$label: $lo not docked"; return 1; }
+    dk_slot "$P_SLOT"; x=$(( S_X + S_W / 2 )); y=$(( S_Y - 2 ))
+    dk_drag "$x" "$y" "$x" $(( DOCK_TOP + 2 )) 6; dk_park; dk_settle
+    dk_check "$label: divider to the top"
+    dk_p "$lo"; dk_slot "$P_SLOT"; y=$(( S_Y - 2 ))
+    dk_drag "$x" "$y" "$x" $(( DOCK_BOT - 2 )) 6; dk_park; dk_settle
+    dk_check "$label: divider to the bottom"
 }

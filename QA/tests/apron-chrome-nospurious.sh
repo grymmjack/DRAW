@@ -15,7 +15,7 @@ snap_region "$GX" "$GY" "$GW" "$GH" "fm-afterfill"; A="$SNAP_RESULT"
 # change FG to green
 click $(( 16 + 11*17 + 8 )) "$CHIP_Y" ; wait_for 0.2 "FG B (green)"
 # click EFFECTS menu root
-click 395 6 ; wait_for 0.5 "EFFECTS menu open"
+click $(( 395 + LP_W - 100 )) 6 ; wait_for 0.5 "EFFECTS menu open"
 key Escape ; wait_for 0.3 "menu closed"
 key grave ; park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "fm-aftermenu"; B="$SNAP_RESULT"

@@ -25,7 +25,7 @@ only remembers *which* workspace you were in, so it reopens there.
 
 | Workspace | What it is |
 | --- | --- |
-| **Default** | Your own layout. No overlay. Always there; can't be deleted. |
+| **Default** | The stock panel layout. No overlay. Always there; can't be deleted. Moving or resizing panels in it starts a workspace of your own (see below). |
 | **Simple** | Everyday drawing: a 2-column toolbox of 10 tools, File / Edit / View / Help menus, no advanced bar or power panels. |
 | **Annotate** | Screenshot markup: a 1-column annotation toolbox docked left, a trimmed edit bar, the palette strip, single-key annotation tools, Rect in red, zoomed to fit. Capture Screen lands here. |
 
@@ -64,7 +64,7 @@ The pointer turns into a ↔ arrow over the edge. The panel snaps as you drag:
 
 When you let go, the new size is saved:
 - **In a workspace:** into that workspace. A built-in gets your own copy, which **RESET** in the configurator removes.
-- **In Default:** into `DRAW.cfg` (`TOOLBOX_COLUMNS`, `EDIT_BAR_COLUMNS`, `ADV_BAR_COLUMNS`, `LAYER_PANEL_WIDTH`).
+- **In Default:** DRAW asks for a name and makes a workspace based on Default that keeps it, then switches to it. Default itself keeps the stock layout. **Cancel** puts it back.
 
 Everything in the toolbox column follows its width:
 - **Toolbox buttons:** more columns are added when the buttons don't fit the window height. A 1-column toolbox of 28 tools in a short window becomes 2 columns.
@@ -122,8 +122,13 @@ your arrangement; widen the window and they come back.
 where each panel's side follows View → Layout and `Ctrl+Shift+Click`.
 
 Arrangements save like widths: into the active workspace (a built-in gets your
-copy), or into `DRAW.cfg` in Default (`DOCK_*` keys). In a workspace file they
-are the `[DOCK]` and `[FLOAT]` sections (see [Workspace files](#workspace-files)).
+copy). **Default always keeps the stock layout**: the first time you move, dock,
+float or resize a panel there, DRAW asks for a name and saves the layout into a
+new workspace based on Default, then switches to it (**Cancel** puts the stock
+layout back). Switching tabs or collapsing a slot in Default is not saved.
+Set `STOCK_DEFAULT_LAYOUT=0` in `DRAW.cfg` to have Default keep your changes
+(`DOCK_*` keys) instead. In a workspace file arrangements are the `[DOCK]` and
+`[FLOAT]` sections (see [Workspace files](#workspace-files)).
 
 **Save what's on screen** from **View → Workspace ▸**:
 
@@ -131,6 +136,9 @@ are the `[DOCK]` and `[FLOAT]` sections (see [Workspace files](#workspace-files)
 | --- | --- |
 | **Save Current Layout As…** | Asks for a name and saves a new workspace exactly as you see it: which panels show, dock sides, columns and widths. When you're in a workspace, its toolbox buttons, menus and keys come along. DRAW switches to it. |
 | **Update Workspace From Layout** | Saves the current layout into the active workspace (a user copy for a built-in) |
+
+The configurator's **Toolbox** and **Bars** tabs also have a **Customize
+Toolbars…** button that opens the window on the selected workspace.
 
 Use the configurator only for what you can't arrange by hand: which toolbox
 buttons and menus exist, the keys, and the starting options.
@@ -145,7 +153,7 @@ buttons and menus exist, the keys, and the starting options.
   | Tab | Edits |
   | --- | --- |
   | **Panels** | Keep / Show / Hide for each of the 16 panels and bars, Keep / Left / Right dock edges, and the layers width (0 = keep yours). *Keep* means "leave it however you have it". |
-  | **Toolbox** | Columns (0 = keep yours, from `TOOLBOX_COLUMNS`), the button order (typed), and a checkbox per toolbox button |
+  | **Toolbox** | Columns (0 = keep yours, from `TOOLBOX_COLUMNS`), the button order (typed), and a checkbox per toolbox button. [Customize Toolbars](#customizing-toolbars) is the easier way. |
   | **Menus** | A checkbox per menu on the bar, and hidden menu items (action ids or labels) |
   | **Bars** | Columns and button checkboxes for the edit bar and advanced bar, and organizer widget checkboxes |
   | **Keys** | The workspace's single-key overlay (`key = tool`), plus an add row |
@@ -168,6 +176,62 @@ buttons and menus exist, the keys, and the starting options.
 Editing a built-in and saving makes **your own copy** in your workspaces
 folder. It wins over the built-in until you RESET it. Default is not editable,
 since it means "no overlay": DUPLICATE it to start one of your own.
+
+### Customizing toolbars
+
+**View → Customize Toolbars…** (also in the command palette, or right-click the
+toolbox / edit bar / advanced bar handle → **Customize Buttons…**) opens a
+floating window for changing what the toolbox and the two bars show, in any
+order:
+
+| Part | What it does |
+| --- | --- |
+| **Tabs** | **Toolbox**, **Edit Bar**, **Advanced Bar**: the panel you are editing |
+| **Available** (left) | Every tool and command not on that panel yet: the toolbox tools, then the commands by category, then menu commands. Type in **Search…** to filter it. |
+| **On the …** (right) | The panel's buttons, in order. Click one to select it. |
+| **→** | Add the selected Available item after the selected button (or at the end) |
+| **←** | Remove the selected button |
+| **↑ / ↓** | Move the selected button |
+| **+ DIV** | Insert a divider after the selection: the next button starts a new row |
+| **+ GAP** | Insert an empty cell |
+| **RESET** | Put the panel's default buttons back |
+| **COLUMNS − / +** | The panel's columns (toolbox 1-8, bars 1-4) |
+| **DONE** | Close the window (changes are already saved) |
+
+You can also double-click an Available item to add it, press **Delete** to
+remove the selected button, and drag rows between the two lists: drag within
+the right list to reorder, from Available into the right list to add, or from
+the right list onto Available to remove.
+
+**Anything can go anywhere.** A tool on a bar works like its toolbox button.
+A command in the toolbox runs when clicked. A command without an icon shows
+up to three letters of its name in a small outlined tile (**NLY** for New
+Layer), and its tooltip gives the full name and shortcut. A theme can give
+those commands real icons: put `new-layer.png` (16×16) in the theme's
+`IMAGES/COMMANDS/` folder, and optionally an 11×11 version in
+`IMAGES/COMMANDS/TOOLBOX/` for toolbox cells.
+
+**Edit the real panels while the window is open.** As long as Customize
+Toolbars is showing, the toolbox and bars don't run anything when clicked:
+
+- **Click** a button to select it. The window switches to that panel and the
+  button is outlined on the panel and highlighted in the list.
+- **Drag** a button to move it. A white line shows where it will land, on the
+  same panel or on another one, so you can move it from the toolbox to the edit
+  bar.
+- **Drop it off every panel**, for example on the canvas, to remove it.
+- **Drag an Available item** onto a panel to add it right there.
+
+Close the window and the buttons work normally again.
+
+**Changes are saved into a workspace**, never into `DRAW.cfg`:
+- In a workspace, every change is saved into it at once. A built-in workspace
+  gets your own copy. The window shows **SAVES TO:** and the workspace name.
+- In Default, the first change asks for a name and makes a new workspace based
+  on Default, keeping your current layout, then switches to it. **Cancel**
+  undoes the change.
+
+Switching back to Default puts the stock toolbox and bars back.
 
 ### Workspace files
 
@@ -192,7 +256,8 @@ LAYER_PANEL_WIDTH=180     ; px, 60-400
 
 [TOOLBOX]
 COLUMNS=2                 ; 1-8; more are added when the buttons don't fit the height
-BUTTONS=move,marquee,rect,ellipse,line,text,picker,crop   ; - = empty cell
+BUTTONS=move,marquee,rect,|,ellipse,line,text,picker,crop,undo,cmd:701   ; - = empty cell, | = new row,
+                          ; bar names and cmd:<action id> put commands in the toolbox
 ICON.crop=my-crop.png     ; theme TOOLBOX folder, a path, or your workspaces folder
 
 [MENUS]
@@ -200,11 +265,12 @@ ROOTS=FILE,EDIT,VIEW,IMAGE,HELP
 HIDE_ITEMS=209,NEW WINDOW ; action ids or labels
 
 [EDIT_BAR]
-BUTTONS=undo,redo,copy,paste
+ORDER=undo,redo,|,brush,eraser,cmd:701   ; the buttons in this order: bar names, toolbox
+                          ; names (tools), cmd:<action id> (any command), | divider, - gap
 COLUMNS=2                 ; icon columns, 1-4
 
 [ADVANCED_BAR]
-BUTTONS=preview,grayscale
+BUTTONS=preview,grayscale ; the older form: only these, in the default order
 COLUMNS=1
 
 [ORGANIZER]

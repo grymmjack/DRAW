@@ -339,6 +339,7 @@ COLORMIXER_init                       ' Initialise non-modal color mixer panel
 ADVCP_init                            ' Initialise advanced color picker panel (hue ring + SV triangle)
 CS3D_init                             ' Initialise 3D color space panel (OKLab / CIELAB / XYZ / RGB gamut)
 PENP_init                             ' Initialise Pen Pressure panel (View > Pen Pressure)
+TBED_init                             ' Customize Toolbars window (View > Customize Toolbars)
 BROWSER_init                          ' Initialise floating browser panel scaffold
 SMART_SHAPES_init                     ' Register Smart Shapes flyout sub-tools
 INPUTS_init                           ' Initialise input dispatch system + audit (DEV_MODE -> inputs.log)
@@ -997,7 +998,7 @@ DO
     ' Skip full render when idle — previous frame remains on display
     IF NOT FRAME_IDLE% THEN
         SCREEN_render
-        FPANEL_settle_once ' first frame: pull restored floating windows apart
+        FPANEL_settle ' first frame + work-area changes: floating windows to free spots
     END IF
     
     ' (deferred glutReshapeWindow removed — SCREEN _NEWIMAGE in SCREEN_init
