@@ -377,6 +377,7 @@ def gather() -> dict:
     runs.sort(key=lambda r: (not r["live"], -r["updated"]))
     for r in runs:
         r["eta"] = better_eta(r, dur, now)
+        r["typical"] = dur.get(r["status"].get("test", ""), 0)
     return {"runs": runs, "hist": hist, "reg": reg, "when": now, "dur": dur}
 
 
@@ -452,8 +453,18 @@ def run_panel(i: int, r: dict, hist: dict) -> Panel:
         bar = Table.grid(padding=(0, 1))
         bar.add_column(width=34)
         bar.add_column()
-        bar.add_row(ProgressBar(total=total, completed=max(cur - 1, 0), width=34),
-                    Text.assemble((f"{cur}/{total}", "bold"), "  ", (st.get("test", ""), "cyan")))
+        info = Text.assemble((f"{cur}/{total}", "bold"), "  ", (st.get("test", ""), "cyan"))
+        # how long the current test has run (status.json is written as each test
+        # starts) against its usual time - progress only moves between tests, so a
+        # long test should not look like a hang; far past usual is flagged
+        if st.get("updated"):
+            inn = max(0, time.time() - float(st["updated"]))
+            typ = r.get("typical") or 0
+            info.append(f"   {fmt_secs(inn)}", style="bold")
+            info.append(f" / usually {fmt_secs(typ)}" if typ else " / no history", style="dim")
+            if inn > max(3 * typ, typ + 120, 180):
+                info.append("   STALLED?", style="bold white on red")
+        bar.add_row(ProgressBar(total=total, completed=max(cur - 1, 0), width=34), info)
         body.append(bar)
     nf = int(st.get("failed", 0) or 0)
     res = Text(f"✓ {st.get('passed', 0)}", style="bold green")
@@ -544,8 +555,8 @@ def recent_table(done: list, first: int, hist: dict) -> Panel:
     t.add_column("result", no_wrap=True)
     t.add_column("failures", ratio=1, overflow="ellipsis", no_wrap=True)
     for k, r in enumerate(done, first + 1):
-        npass = sum(1 for x in r["rows"] if x[1] == "pass")
-        nfail = len(r["fails"])
+        npass = int(r["status"].get("passed", sum(1 for x in r["rows"] if x[1] == "pass")) or 0)  # checks, as in the live panels
+        nfail = int(r["status"].get("failed", len(r["fails"])) or 0)
         res = Text(f"✓ {npass} ", style="green")
         res.append(f"✗ {nfail}", style="bold red" if nfail else "dim")
         stopped = r["status"].get("phase") not in ("done", None, "")
