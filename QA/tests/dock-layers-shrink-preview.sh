@@ -5,8 +5,11 @@
 # (2026-10-09): widened to the maximum, the layers could not be dragged
 # narrower again - the docked Preview stretches to its column and reported
 # that live width as the width it wants, holding the column at its widest.
-# DOCK_panel_w% now takes the Preview's floating width (CFG.PREVIEW_W).
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt PREVIEW_VISIBLE=1 LAYER_PANEL_WIDTH=120 DOCK_CUSTOM=1 DOCK_LEFT_1=AUTO;toolbox|organizer|drawer DOCK_LEFT_2=AUTO;advbar DOCK_RIGHT_1=AUTO;preview|layers DOCK_RIGHT_2=AUTO;editbar
+# A first fix used the Preview's floating width - still wrong with a wide
+# floating Preview (Rick's PREVIEW_W=800). Beside other panels a stretching
+# window now asks only for its minimum width (DOCK_stretch_min_w%); past the
+# narrowest the column stops at that minimum.
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt PREVIEW_VISIBLE=1 PREVIEW_W=800 LAYER_PANEL_WIDTH=120 DOCK_CUSTOM=1 DOCK_LEFT_1=AUTO;toolbox|organizer|drawer DOCK_LEFT_2=AUTO;advbar DOCK_RIGHT_1=AUTO;preview|layers DOCK_RIGHT_2=AUTO;editbar
 # =============================================================================
 source "$DRAW_ROOT/QA/dock-lib.sh"
 
@@ -40,6 +43,15 @@ W2=$C_W
 if (( W2 < W1 - 150 )); then pass "narrowed again: $W1 -> $W2"; else fail "did not narrow: $W1 -> $W2 (the docked Preview holds the column?)"; fi
 dk_check "narrowed"
 dk_expect_stacked preview layers
+
+# and far past the narrowest: it stops at the Preview's own minimum
+# (PREVIEW_MIN_W 120, wider than the layers' 108 - dock-resize covers that)
+dk_drag $(( C_X )) "$GY" $(( C_X + 200 )) "$GY" 10
+dk_park; dk_settle
+layers_col
+W3=$C_W
+if (( W3 == 120 )); then pass "stops at the Preview's minimum: $W2 -> $W3"; else fail "narrowest is $W3, not the Preview's minimum 120"; fi
+dk_check "at the minimum"
 
 screenshot "dock-layers-shrink-preview"
 assert_no_crash
