@@ -77,3 +77,9 @@ Both mac and Windows use a compiled `qa-io` helper (a Python call per input was 
   is `exec magick "$@"`. QA config: DISPLAY_SCALE = 2 x content scale, HIDPI_AWARE=0, SCREEN_HEIGHT=516 (see [[qb64pe-glfw-windows-window-shrink]]).
   DRAW runs `*_COMMAND` options through cmd.exe: the adapter swaps `fixture.sh` for its `.cmd` twin, backslashed.
 - Farm: `DEV/farm-check.sh qa [mac|thinkpad|titan] [REF] [REGEX]`; `DEV/qa-dash.sh` probes every host (Git Bash for thinkpad).
+
+**Dashboard lives in the harness (2026-10-10, harness 2e3c3bf):** `bin/qa-dash` (any adapter; DRAW's `DEV/qa-dash.sh`
+is a wrapper passing title / tests / known failures / target). It reads only results dirs: the runner writes
+`status.json` with app, app_root, tests_dir, known_failures, target_file, pid, host + `run-plan.txt`, and records
+the dir in `~/.cache/qa-harness/results-dirs`. Adapter vars `ADAPTER_APP_ROOT`, `ADAPTER_KNOWN_FAILURES`,
+`ADAPTER_TARGET_FILE`. Farm panels read `~/.cache/qa-dash/farm/<host>.json` incl. `os` + `known_failures`.
