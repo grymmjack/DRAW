@@ -55,7 +55,10 @@ read -r _ _ FX FW <<< "$(grep -m1 '^MROOT file ' "$DRAW_ROOT/QA/.dock-dump.txt")
 click $(( ${FX:-$(( 111 + LP_W - 100 - 12 ))} + ${FW:-24} / 2 )) 6
 wait_for 0.5 "File menu open"
 screenshot "saveproj-menu-open"
+# the dump is rewritten a frame or more after the menu opens (slower hosts): wait for it
+for _w in $(seq 1 30); do grep -q '^MENU ' "$DRAW_ROOT/QA/.dock-dump.txt" && break; sleep 0.1; done
 read -r _ MX MY MW MH <<< "$(grep -m1 '^MENU ' "$DRAW_ROOT/QA/.dock-dump.txt")"
+[[ -n "$MH" ]] || warn "no MENU line in the dock dump - falling back to the Linux row"
 click $(( ${MX:-$(( 121 + LP_W - 100 ))} + 30 )) $(( ${MY:-11} + ${MH:-331} - 197 ))   # SAVE PROJECT AS...
 wait_for 1.0 "Project save dialog dispatched"
 assert_no_crash
