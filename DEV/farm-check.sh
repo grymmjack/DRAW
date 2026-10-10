@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # farm-check.sh - build-check a branch on the DRAW build farm, and run the full QA
 # suite on the Linux host, recording each host's state for the test dashboard
-# (DEV/qa-dash.py shows a panel per host: BUILDING / BUILT / FAILED, and titan's
+# (DEV/qa-dash.sh shows a panel per host: BUILDING / BUILT / FAILED, and titan's
 # live QA run).
 #
 #   DEV/farm-check.sh build HOST [REF]       # sync HOST's DRAW-fstest worktree to REF, build
@@ -54,6 +54,9 @@ json.dump(d, open(f, "w"))
 PY
 }
 
+# the OS a farm panel shows, and which [OS] lines of QA/known-failures.txt apply there
+host_os() { case "$1" in mac) echo macOS ;; titan) echo Linux ;; daw) echo "Windows (WSL build)" ;; thinkpad) echo Windows ;; *) echo "" ;; esac; }
+
 host_line() { local h; for h in "${HOSTS[@]}"; do [[ "${h%%|*}" == "$1" ]] && { echo "$h"; return 0; }; done; return 1; }
 
 # remote script that syncs the worktree to REF and builds; prints "BUILD-OK <sha>" / "BUILD-FAIL"
@@ -95,7 +98,8 @@ do_build() {
     line=$(host_line "$host") || { echo "unknown host $host"; return 2; }
     IFS='|' read -r _ type dir comp <<< "$line"
     t0=$(date +%s)
-    record "$host" kind=build state=building ref="$ref" started="$t0" finished=0 msg="" sha=""
+    record "$host" kind=build state=building ref="$ref" started="$t0" finished=0 msg="" sha="" \
+        os="$(host_os "$host")" known_failures="$PWD/QA/known-failures.txt"
     out=$("${SSH[@]}" "$host" "$(build_cmd "$type" "$dir" "$comp" "$ref")" 2>&1 | tr -d '\r' | grep -v 'already awake\|magic packet\|waiting for .* to boot')
     if grep -q '^BUILD-OK' <<< "$out"; then
         record "$host" state=built finished="$(date +%s)" sha="$(grep -m1 '^BUILD-OK' <<< "$out" | awk '{print $2}')" lib="$(grep -m1 '^BUILD-OK' <<< "$out" | awk '{print $3}')" msg="compiled"
