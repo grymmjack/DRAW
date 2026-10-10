@@ -18,7 +18,17 @@ Windows/X11 where GLFW screen coords are already pixels; it then "fixes" the siz
 Untested: X11 with a content scale > 1 likely hits it too.
 
 **Why it matters:** any DRAW user on a scaled Windows display gets a tiny, downscaled window.
-Not reported upstream yet - Rick's call (he talks to a740g).
+
+**Upstream status (checked 2026-10-09):** already addressed in a740g's open PR #786 "Various #701-related
+fixes" (branch `a740g:various-fixes`, head 91106accc): "Uses GLFW screen coordinates instead of converted
+pixel coordinates" - `WindowCreate` no longer does the ToPixel/ToScreen fix-up, and windows are sized in
+GLFW screen coordinates. Sizing rule there: `$RESIZE:ON`/`OFF`/unspecified = no scaling (window = image,
+in screen coords = pixels on Windows); `$RESIZE:STRETCH`/`SMOOTH` = content scale. DRAW is `$RESIZE:ON`.
+Also open: Petr's #785 "fix: correct Windows DPI scaling and framebuffer resize" (Rick posted findings there).
+Don't file a new issue; verify #786 on thinkpad and report results on the PR (Rick's call).
+**When #786 lands:** DRAW's own Windows DPI code (`SCREEN_DPI_DIVISOR`, `HIDPI_AWARE`/SetProcessDPIAware,
+the "_DESKTOPWIDTH folds the content scale" correction in OUTPUT/SCREEN.BM) may become unnecessary or
+double-correct - re-test and expect to REMOVE code. The QA override must go too.
 
 **How to apply:** QA on Windows works around it in the qa-harness DRAW adapter
 (DISPLAY_SCALE = 2 x content scale, HIDPI_AWARE=0 so DRAW does not clamp to the true desktop,

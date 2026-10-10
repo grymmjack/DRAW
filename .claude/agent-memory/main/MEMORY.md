@@ -38,7 +38,7 @@
 - [Shared dynamic UDT array](qb64pe-shared-dynamic-udt-array.md) — share via `REDIM SHARED name(0,0) AS TYPE` in .BI, not `DIM SHARED name() AS TYPE`
 - [Command palette needs CMD_register](draw-command-palette-registration.md) — a MENUBAR action needs `CMD_register` in `CMD_init` to reach the `?` palette / be QA-testable
 - [qa-harness toolkit](qa-harness-toolkit.md) — QA harness extracted to `~/git/qa-harness` (core/driver/adapter seam); `draw-qa.sh` = reference wrapper; linux-x11 / macos / windows drivers (mac: Cmd+Tab after launch + one `qa-io serve`; win: Scheduled Task from C:\qa-runner)
-- [QB64-PE GLFW shrinks Windows windows](qb64pe-glfw-windows-window-shrink.md) — [Windows] window = image / content scale (250%: 800x600 -> 320x240); glut-emu ToPixelCoords; QA works around it; not reported upstream yet
+- [QB64-PE GLFW shrinks Windows windows](qb64pe-glfw-windows-window-shrink.md) — [Windows] window = image / content scale (250%: 800x600 -> 320x240); glut-emu ToPixelCoords; QA works around it; fixed in open PR #786 (a740g various-fixes) - verify, expect to remove DRAW DPI code when it lands
 - [Display-scale system](draw-display-scale-system.md) — unified `UI_SCALE`; chrome=0.5×display; fit checks must use `SCREEN_effective_chrome_scale%` not an estimate; relaxed floor for explicit scale (v2.3.2)
 - [Tooltip container-wrap](draw-tooltip-container-wrap.md) — 2 DRAW tooltip renderers + 1 in the lib; all wrap to their CONTAINER via `TOOLTIP_wrap_line`; char-based cap (v2.3.2)
 - [Deliver viewables as Artifacts](deliver-viewables-as-artifacts.md) — Rick runs remote/web CC; anything to view → publish as an Artifact, never a local file / SendUserFile
