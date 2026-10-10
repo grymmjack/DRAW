@@ -1,6 +1,21 @@
 # QA harness on macOS and Windows
 
-Status: **in progress** (2026-10-09). Step 1 is started.
+Status: **built; first full runs in progress** (2026-10-09 evening).
+
+| Step | State |
+| --- | --- |
+| 1. Everything through the driver | Done (harness 1e79b56, DRAW ac2bbdbd; guard test `qa-no-os-tools-in-tests`) |
+| 2. `qa-io` | Done, but **compiled per OS, not Python**: a Python call per input cost ~0.3s, and thinkpad has no Python. macOS `qa-io.c` (CoreGraphics), Windows `qa-io.cs` (.NET Framework `csc`) |
+| 3. macOS | Done: smoke + view-pan + dock-combine-layers 77/77. Two input faults found and fixed (see below) |
+| 4. Windows | Done on thinkpad: smoke / brush-size / view-pan 18/18, dock tests 75/75 |
+| 5. Farm | `farm-check.sh qa mac|thinkpad|titan`, dashboard panels for every host, per-OS known failures |
+| Full suites | titan done; thinkpad and mac running (each ~2x titan's 3h) |
+
+**What the plan didn't foresee:**
+- [macOS] An app launched by the runner gets no mouse-moved events until it has been switched away from and back (Cmd+Tab round trip after launch), and a drag split across processes is dropped (one long-lived `qa-io serve` posts all input).
+- [Windows] QB64-PE v4.7.0-GLFW shrinks every window by the monitor content scale (250%: an 800x600 `SCREEN` opens 320x240). QA renders at 2 x content scale to compensate. Not reported upstream yet.
+- [Windows] SSH sessions have no desktop; jobs run through a Scheduled Task from `C:\qa-runner`, because the desktop user can't read the SSH user's profile.
+- Waiting for DRAW to be painted before a test means tests now start on an idle DRAW (15 fps): a press needs its own frame before the pointer moves.
 
 ## Why
 
