@@ -71,6 +71,10 @@ They keep their own look and code; a `docked` field switches them over:
 Every tree change: `DOCK_change_begin` … `DOCK_change_commit msg` (saves to the
 active workspace via `WSC_save_dock`, else `CONFIG_save`).
 
+## Lock Layout (`CFG.LAYOUT_LOCKED`, action 2470, `Ctrl+Shift+L`, View → Lock Layout)
+
+For drawing with a shaky tablet pen. While locked nothing that changes the arrangement can start: `DOCK_handle_mouse%` returns before the divider / floating-edge / Browser-band / handle-move / edge drags (the right-click handle menus above it still work), and each native window's title drag or resize start (`COLORMIXER`, `ADVCP`, `CS3D`, `PENP`, `PREVIEW` move + resize, `BROWSER` move + resize + title double-click maximize) takes `LAYOUT_unlocked%`, which flashes why nothing moved. The resize cursors stay off (`DOCK_wants_cursor%`, `DOCK_wants_vcursor%`, `DOCK_float_cursor_edge%`, the Preview / Browser edges in `POINTER_build`). Clicks, tabs, buttons and the Customize Toolbars window are unaffected. Global (saved in DRAW.cfg, not per workspace). Test: `dock-lock-layout`.
+
 ## The old side keys (legacy bridge)
 
 View → Layout Dock Left/Right (443–452, 2051/2052), Ctrl+Shift+click a panel,
