@@ -8,10 +8,11 @@
 # (action 203 -> DRW_save_dialog, "Save DRAW Project", filter *.draw) was added.
 #
 # This drives it from the menu end-to-end: open File menu, click SAVE PROJECT
-# AS..., type a basename into the project dialog, save, and assert a real .draw
-# lands on disk and reloads. Coordinates are VIEWPORT pixels (958-wide @ 2x); the
-# dialog opens in $HOME (harness rebuilds the cfg with empty *_SAVE_DIR), so a
-# basename lands there. Reload passes the path on the command line (no spaces).
+# AS..., type the target's absolute path into the project dialog (it honors an
+# absolute name as-is, so its start folder - $HOME on Linux, ~/Desktop on the
+# Mac - does not matter), save, and assert a real .draw lands on disk and
+# reloads. Coordinates are VIEWPORT pixels (958-wide @ 2x). Reload passes the
+# path on the command line (no spaces).
 #
 # Like file-draw-roundtrip.sh, this manages its own DRAW instances and MUST
 # restore DRAW_EXTRA_ARGS="" and leave a plain instance running (shared shell).
@@ -21,7 +22,9 @@
 info "=== Save Project As... (.draw) Test ==="
 
 SP_FILE="$HOME/draw-qa-projectas-$$.draw"
-SP_BASENAME="$(basename "$SP_FILE")"
+# the name DRAW is given: native on Windows (C:/Users/..., not /c/Users/...)
+SP_TYPED="$SP_FILE"
+[[ "${QA_OS:-}" == Windows ]] && SP_TYPED="$(cygpath -m "$SP_FILE")"
 rm -f "$SP_FILE"
 
 SP_SNAP_X=$WORK_LEFT
@@ -42,15 +45,16 @@ assert_no_crash
 
 # ---------------------------------------------------------------------------
 # 1. File menu > SAVE PROJECT AS...  (FILE root at viewport x~111,y6; the item
-#    sits just below SAVE AS... at viewport y~145)
+#    is the row just below SAVE AS..., at viewport y~157 with 12px rows)
 # ---------------------------------------------------------------------------
 key grave                     # hide the arrow pointer so it never dirties a snap
 wait_for 0.1 "Pointer hidden"
 info "File menu > SAVE PROJECT AS..."
 # FILE root and its dropdown from the dock dump (MROOT / MENU lines). The item is
-# found from the dropdown's BOTTOM: rows above it vary (NEW FROM AI... only when
-# AI is enabled - one row more on the Windows / Mac farm hosts, where the old
-# fixed y=145 hit SAVE AS... instead), the rows below it do not.
+# found from the dropdown's BOTTOM: rows above it can vary (NEW FROM AI... only
+# when AI is enabled), the rows below it do not. The old fixed y=145 was the
+# SAVE AS... row - it passed on Linux only because the image Save As routes a
+# .draw name to DRW_save; on the Mac its dialog opens in ~/Desktop, not $HOME.
 read -r _ _ FX FW <<< "$(grep -m1 '^MROOT file ' "$DRAW_ROOT/QA/.dock-dump.txt")"
 click $(( ${FX:-$(( 111 + LP_W - 100 - 12 ))} + ${FW:-24} / 2 )) 6
 wait_for 0.5 "File menu open"
@@ -59,15 +63,15 @@ screenshot "saveproj-menu-open"
 for _w in $(seq 1 30); do grep -q '^MENU ' "$DRAW_ROOT/QA/.dock-dump.txt" && break; sleep 0.1; done
 read -r _ MX MY MW MH <<< "$(grep -m1 '^MENU ' "$DRAW_ROOT/QA/.dock-dump.txt")"
 [[ -n "$MH" ]] || warn "no MENU line in the dock dump - falling back to the Linux row"
-click $(( ${MX:-$(( 121 + LP_W - 100 ))} + 30 )) $(( ${MY:-11} + ${MH:-331} - 197 ))   # SAVE PROJECT AS...
+click $(( ${MX:-$(( 121 + LP_W - 100 ))} + 30 )) $(( ${MY:-11} + ${MH:-331} - 186 ))   # SAVE PROJECT AS...
 wait_for 1.0 "Project save dialog dispatched"
 assert_no_crash
 screenshot "saveproj-dialog"
 
 # ---------------------------------------------------------------------------
-# 2. Type a basename into the project dialog and save
+# 2. Type the absolute path into the project dialog and save
 # ---------------------------------------------------------------------------
-type_text "$SP_BASENAME"
+type_text "$SP_TYPED"
 wait_for 0.3 "Filename typed"
 key Return
 wait_for 1.5 "Save attempted"
