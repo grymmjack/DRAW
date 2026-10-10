@@ -35,3 +35,12 @@ double-correct - re-test and expect to REMOVE code. The QA override must go too.
 SCREEN_HEIGHT=516 because Windows enforces DRAW's window minimum). When upstream fixes it, the
 geometry check fails loudly (window 2.5x too big) - remove `_qa_cfg_os_overrides` then.
 See [[reference-remote-mac-windows-testing]], [[qa-harness-toolkit]].
+
+**Update 2026-10-10 - #786 merged; farm moved to QB64-PE main (8d8e9e475, optimized self-host).**
+[Windows] verified fixed: an 800x600 window opens 800x600 at 250%. DRAW's own Windows DPI code is REMOVED
+(DRAW 09124333: no SetProcessDPIAware / GetDpiForSystem divisor; HIDPI_AWARE read + ignored) and the harness
+scale-5 override is gone (harness beb61c8; Windows keeps SCREEN_HEIGHT=516 for the OS-enforced window minimum).
+[macOS] new behaviour: `$RESIZE:ON` windows are sized in POINTS - a 400x300 image is an 800x600-pixel window,
+nearest-neighbour 2x2 (crisp); `_DESKTOPWIDTH` is now points (1728, was 3456); `_SCALEDWIDTH` = framebuffer
+pixels. Reported as QB64-PE issue #789 (Rick asked). DRAW's Mac mouse mapping (`MOUSE_MAC_SCALE` via
+`DRAW_backing_scale`) assumed pixel-sized windows - re-check on the Mac build against main.

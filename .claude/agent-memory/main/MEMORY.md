@@ -76,5 +76,6 @@
 - [Multi-dim array-param reorder = compile speed](draw-multidim-array-reorder-compile-speed.md) — define 2D+ open-array-param SUB/FUNCs AFTER a call site (transpiler recompile pass); 1D never matters; only 2 such routines exist, both fixed (mkilgore + PR #778); flatten preserves order (gotcha #29)
 - [F5 debug build cost](draw-debug-build-cost.md) — F5 = qb64pe-vscode DEBUGGER (flatten+$DEBUG, one monolithic C++ TU, ~9min single-core), NOT tasks.json; MaxCompilerProcesses/OptimizeCppProgram do NOT help it; use fast tasks build for non-debug iteration
 - [Game font extraction](game-font-extraction.md) — DOOM/Heretic/Hexen/Blood CBF fonts: WAD lumps, Blood shareware QFN-in-RFF, mapping quirks
+- [Parallelize farm work](feedback-parallelize-farm-work.md) — start independent host work at once (parallel jobs); don't queue it behind another host's run
 - [Farm: no GUI popups, trap crashes](farm-no-gui-popups-trap-crashes.md) — never pop windows on mac/thinkpad; trap SIGSEGV in-process (sigtrap.h) so no macOS/WER crash dialog; QA runs may take over mac/thinkpad/titan screens (Rick 2026-10-09) - say so before a full suite
 - [Test scope](feedback-test-scope.md) — small fix = its targeted tests + baseline, then push; no 40-file suite runs for small changes
