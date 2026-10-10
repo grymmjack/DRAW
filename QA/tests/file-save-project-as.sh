@@ -15,6 +15,7 @@
 #
 # Like file-draw-roundtrip.sh, this manages its own DRAW instances and MUST
 # restore DRAW_EXTRA_ARGS="" and leave a plain instance running (shared shell).
+# QA-OPTIONS: DOCK_DUMP=QA/.dock-dump.txt
 # =============================================================================
 
 info "=== Save Project As... (.draw) Test ==="
@@ -46,10 +47,16 @@ assert_no_crash
 key grave                     # hide the arrow pointer so it never dirties a snap
 wait_for 0.1 "Pointer hidden"
 info "File menu > SAVE PROJECT AS..."
-click $(( 111 + LP_W - 100 )) 6 # FILE (the menu bar starts after the layers)
+# FILE root and its dropdown from the dock dump (MROOT / MENU lines). The item is
+# found from the dropdown's BOTTOM: rows above it vary (NEW FROM AI... only when
+# AI is enabled - one row more on the Windows / Mac farm hosts, where the old
+# fixed y=145 hit SAVE AS... instead), the rows below it do not.
+read -r _ _ FX FW <<< "$(grep -m1 '^MROOT file ' "$DRAW_ROOT/QA/.dock-dump.txt")"
+click $(( ${FX:-$(( 111 + LP_W - 100 - 12 ))} + ${FW:-24} / 2 )) 6
 wait_for 0.5 "File menu open"
 screenshot "saveproj-menu-open"
-click $(( 150 + LP_W - 100 )) 145
+read -r _ MX MY MW MH <<< "$(grep -m1 '^MENU ' "$DRAW_ROOT/QA/.dock-dump.txt")"
+click $(( ${MX:-$(( 121 + LP_W - 100 ))} + 30 )) $(( ${MY:-11} + ${MH:-331} - 197 ))   # SAVE PROJECT AS...
 wait_for 1.0 "Project save dialog dispatched"
 assert_no_crash
 screenshot "saveproj-dialog"
