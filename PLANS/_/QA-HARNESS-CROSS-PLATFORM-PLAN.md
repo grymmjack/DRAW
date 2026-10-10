@@ -8,7 +8,7 @@ Status: **built; first full runs in progress** (2026-10-09 evening).
 | 2. `qa-io` | Done, but **compiled per OS, not Python**: a Python call per input cost ~0.3s, and thinkpad has no Python. macOS `qa-io.c` (CoreGraphics), Windows `qa-io.cs` (.NET Framework `csc`) |
 | 3. macOS | Done: smoke + view-pan + dock-combine-layers 77/77. Two input faults found and fixed (see below) |
 | 4. Windows | Done on thinkpad: smoke / brush-size / view-pan 18/18, dock tests 75/75 |
-| 5. Farm | `farm-check.sh qa mac|thinkpad|titan`, dashboard panels for every host, per-OS known failures |
+| 5. Farm | `farm-check.sh qa mac\|thinkpad\|titan`, dashboard panels for every host, per-OS known failures |
 | Full suites | titan done; thinkpad and mac running (each ~2x titan's 3h) |
 
 **What the plan didn't foresee:**
