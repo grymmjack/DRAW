@@ -172,25 +172,11 @@ SCREEN_DEFERRED_RESIZE% = 0
 SCREEN_DEFERRED_W&      = 0
 SCREEN_DEFERRED_H&      = 0
 
-' [Windows] QB64-PE reports _DESKTOPWIDTH/_HEIGHT as (video-mode pixels * monitor
-' content scale). On macOS that yields true physical pixels (mode is in points);
-' on Windows the mode is ALREADY pixels, so it comes back DOUBLED at 200% (e.g.
-' 7680x4320 on a 3840x2160 panel). SCREEN_desktop_w&/h& divide this factor back
-' out so all sizing math sees true pixels. 1.0 on Linux/macOS (no correction).
+' Divides _DESKTOPWIDTH/_HEIGHT for SCREEN_desktop_w&/h& - 1.0 unless the opt-in
+' Linux LINUX_HIDPI_SCALE detection sets it (SCREEN_init). The Windows DPI factor it
+' used to hold is gone: QB64-PE #786 reports the desktop in true pixels.
 DIM SHARED SCREEN_DPI_DIVISOR AS SINGLE
 SCREEN_DPI_DIVISOR! = 1.0
 
-$IF WIN THEN
-' [Windows] Opt the process into DPI awareness so _DESKTOPWIDTH/_DESKTOPHEIGHT and
-' the window report TRUE physical pixels instead of the OS DPI-virtualized desktop
-' (e.g. 3840x2160 instead of a stretched 1536x864 on a 4K panel at >100% scaling).
-' Must run before the first window is created — see the call at the top of
-' SCREEN_init (gated on CFG.HIDPI_AWARE%). user32 export; returns BOOL.
-' Linux (real pixels) and macOS (Retina backing) need no equivalent call.
-DECLARE DYNAMIC LIBRARY "user32"
-    FUNCTION DRAW_SetProcessDPIAware& ALIAS "SetProcessDPIAware" ()
-    FUNCTION DRAW_GetDpiForSystem~& ALIAS "GetDpiForSystem" ()
-END DECLARE
-$END IF
 
 SCREEN_init
