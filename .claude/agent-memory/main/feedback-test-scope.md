@@ -1,9 +1,13 @@
 ---
 name: feedback-test-scope
-description: Size QA runs to the change - a small fix gets its targeted test(s) + baseline, not the whole related suite
+description: HARD RULE - test only what the change exposes (its targeted tests); never start a multi-file related-suite run unasked. 3rd reminder 2026-10-11
 metadata:
   type: feedback
 ---
+
+**HARD RULE (3rd reminder, 2026-10-11): test only the exposed changes.** Before ANY QA run of more than ~5 test files, stop: say the file count + ETA and ask. Default = the tests that exercise the change (new/updated tests + the ones that directly drive the touched code), then commit + push.
+
+**Rick, 2026-10-11:** after the CURRENT-workspace change had already passed its 4 affected tests (56/56) + the ws unit test, I started a 64-file workspace/dock/menu "regression set" (~1 h): "jeez this is going to take an hour - for one small change like this?!" / "we need you to remember to only test exposed changes, not hours long suites". The 35- and 57-file sets earlier that day were the same mistake.
 
 For a small, contained change, run only the tests that exercise it (plus `DEV/tools/dock-baseline.sh` when layout is touched), then commit and push. Don't kick off the 40-50 file related-suite run (30-40 min, long dock fuzz) for every small fix.
 

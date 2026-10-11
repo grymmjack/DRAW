@@ -1,3 +1,5 @@
+- **[NEVER an error dialog - PERMANENT](feedback-no-error-dialogs.md) — every program traps its errors (ON ERROR); untrappable runtime alerts are prevented by guarding first; never cause them (don't kill a display a run still uses) (2026-10-11)**
+- **[Test scope - HARD RULE](feedback-test-scope.md) — test ONLY the exposed changes; >5 test files = state count + ETA and ASK first (told 3x, last 2026-10-11)**
 - [User background & collaboration style](user_background_and_collaboration.md) — career BASIC programmer, learning-mode, wants visibility not autonomy
 - [DRAW compile convention](feedback_draw_compile_convention.md) — build qb64pe in FOREGROUND, 600000ms timeout, never background
 - [DRAW observability logs](reference_draw_activity_log.md) — `.claude/activity.log` (every Bash/Agent) + `~/.claude/make.log` (compile output)
@@ -67,7 +69,6 @@
 - [customizable-shortcuts branch status](proj-customizable-shortcuts-status.md) — rebind Phases 0-3 + 4.1/4.2 done (2026-09-04); remaining Phase 4 polish / 5 presets / 2B.2 mouse
 - [qb64pe -z is NOT a faster error-gate](qb64pe-z-fast-gate.md) — `-x` aborts on error as fast as `-z`; `-z` only skips g++ on a clean compile; MCP fragment `-z` unreliable
 - [DRAW build speed — skip -O for dev](draw-build-speed.md) — `-f:OptimizeCppProgram=false` ~13min→~7min for dev; ship keeps -O; qbx.o rebuilt every build (open)
-- [NO blocking error dialogs — ever](feedback-no-error-dialogs.md) — every QB64 program installs `ON ERROR GOTO EH` (a blocking dialog hangs automation). Rick emphatic
 - [Driving DRAW's GUI headless via xdotool+Xvfb](driving-draw-gui-headless-xdotool.md) — DRAW polls mouse per-frame: use `mousedown;sleep .2;mouseup`; menus click-hold; launch detached
 - [Browser geometry native-vs-viewport scaling](browser-geometry-native-vs-viewport.md) — Browser dispX/Y in VIEWPORT px, FD_STATE.dialogW/H in NATIVE; don't mix; position last; test at scale>1
 - [Filled shapes off-canvas on promoted layer (RESOLVED)](qa-splash-startup-state-dependency.md) — filled rect/ellipse/polygon wrote raw coords → off-canvas on an apron-promoted layer (gotcha #14); fixed MOUSE/ELLIPSE/POLY-FILL + apron-fill-after-move test; keep splash ON in QA
@@ -78,5 +79,4 @@
 - [Game font extraction](game-font-extraction.md) — DOOM/Heretic/Hexen/Blood CBF fonts: WAD lumps, Blood shareware QFN-in-RFF, mapping quirks
 - [Parallelize farm work](feedback-parallelize-farm-work.md) — start independent host work at once (parallel jobs); don't queue it behind another host's run
 - [Farm: no GUI popups, trap crashes](farm-no-gui-popups-trap-crashes.md) — never pop windows on mac/thinkpad; trap SIGSEGV in-process (sigtrap.h) so no macOS/WER crash dialog; QA runs may take over mac/thinkpad/titan screens (Rick 2026-10-09) - say so before a full suite
-- [Test scope](feedback-test-scope.md) — small fix = its targeted tests + baseline, then push; no 40-file suite runs for small changes
 - [Menu fires on press](menu-fires-on-press.md) — modals opened from the menu must swallow the held button (FD wrappers, DIALOG inputArmed)

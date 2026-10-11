@@ -18,4 +18,10 @@ DECLARE LIBRARY "../native/cli_tty"
     FUNCTION gj_console_prepare& ()
 END DECLARE
 
+' [Linux] 1 = $DISPLAY's X server answers, 0 = it doesn't, -1 = can't tell
+' (SCREEN_init's no-display guard; native/display_probe.h)
+DECLARE LIBRARY "../native/display_probe"
+    FUNCTION gj_x11_display_reachable& ()
+END DECLARE
+
 DIM SHARED CLI_COLOR_STATE AS INTEGER ' 0 = not decided yet, 1 = on, -1 = off
