@@ -220,10 +220,11 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | Line / Rect / Ellipse | `Shift` | Constrain to H/V |
 | Brush / Spray | `Shift` | Constrain to H/V axis |
 | Line / Polygon | `Ctrl+Shift` | Angle-snap + bypass grid snap |
-| Rectangle | `Ctrl` | Perfect square |
-| Rectangle | `Shift` (from center) | Draw from center |
-| Ellipse | `Ctrl` | Perfect circle |
-| Ellipse | `Shift` (from center) | Draw from center |
+| Rectangle | `Shift` | Perfect square |
+| Rectangle | `Ctrl` | Draw from center |
+| Ellipse | `Shift` | Perfect circle |
+| Ellipse | `Ctrl` | Draw from center |
+| Rectangle / Ellipse select | `Ctrl` | Select from center (with `Shift` = add, `Alt` = subtract) |
 
 ### Subdivisions (while dragging a Rect / Ellipse / Line)
 | Key | Rectangle | Ellipse | Line |
