@@ -154,6 +154,34 @@ END SUB
 
 
 ''
+' A divider row inside a generic category flyout (drawn as a rule, never hovered
+' or clicked). Registered straight into MENU_ITEMS so the root dropdown's
+' divider de-duplication (MENU_ROOT_LASTDIV) is not touched.
+'
+' @param parentIdx    INTEGER Root menu the category lives under
+' @param subParentIdx INTEGER MENU_ITEMS index of the category-parent row
+'
+SUB MENUBAR_register_submenu_divider (parentIdx AS INTEGER, subParentIdx AS INTEGER)
+    DIM idx AS INTEGER, lastDiv AS INTEGER, rp AS INTEGER
+    IF subParentIdx% < 0 THEN EXIT SUB
+    rp% = MENU_ITEMS(subParentIdx%).parentIdx%
+    lastDiv% = MENU_ROOT_LASTDIV(rp%)
+    idx% = MENU_ITEM_COUNT%
+    MENUBAR_register_item "---", "", parentIdx%, 0, FALSE, TRUE
+    MENU_ROOT_LASTDIV(rp%) = lastDiv% ' (a flyout rule is not the root's last row)
+    IF MENU_ITEM_COUNT% = idx% THEN EXIT SUB
+    MENU_ITEMS(idx%).subParent% = subParentIdx%
+END SUB
+
+
+''
+' Height of a generic-flyout row: a divider is a thin rule.
+FUNCTION MENUBAR_gen_row_h% (itemIdx AS INTEGER)
+    IF MENU_ITEMS(itemIdx%).isDivider% THEN MENUBAR_gen_row_h% = MENU_DIVIDER_HEIGHT ELSE MENUBAR_gen_row_h% = MENU_ITEM_HEIGHT
+END FUNCTION
+
+
+''
 ' Workspace filter: TRUE when [MENUS] ROOTS= is set and does not list <label>.
 FUNCTION MENUBAR_root_hidden% (label AS STRING)
     IF LEN(MENU_FILTER_ROOTS$) = 0 THEN EXIT FUNCTION
@@ -354,12 +382,16 @@ SUB MENUBAR_register_all ()
         wsRow% = MENU_ITEM_COUNT%
         MENUBAR_register_submenu_child UCASE$(WS_LIST(wsI%).title), "", 2, WS_ACT_SLOT0 + wsI%, catWs%
         MENU_ITEMS(wsRow%).hasCheckbox% = TRUE
+        ' Default + Current, then the named workspaces (WS_scan keeps those two first)
+        IF wsI% = 2 _ANDALSO WS_COUNT > 2 THEN MENUBAR_register_submenu_divider 2, catWs%
     NEXT wsI%
+    MENUBAR_register_submenu_divider 2, catWs%
     MENUBAR_register_submenu_child "SWITCHER...", "Ctrl+Shift+W", 2, WS_ACT_SWITCHER, catWs%
     MENUBAR_register_submenu_child "SAVE CURRENT LAYOUT AS...", "", 2, WS_ACT_SAVE_AS, catWs%
     MENUBAR_register_submenu_child "UPDATE WORKSPACE FROM LAYOUT", "", 2, WS_ACT_UPDATE, catWs%
     MENUBAR_register_submenu_child "CONFIGURE WORKSPACES...", "", 2, WS_ACT_CONFIGURE, catWs%
     MENUBAR_register_submenu_child "OPEN WORKSPACES FOLDER", "", 2, WS_ACT_FOLDER, catWs%
+    MENUBAR_register_submenu_divider 2, catWs%
     MENUBAR_register_submenu_child "RELOAD WORKSPACES", "", 2, WS_ACT_RELOAD, catWs%
     MENUBAR_register_item "---", "", 2, 0, FALSE, TRUE
     MENUBAR_register_item "PATTERN TILE MODE", "", 2, 440, TRUE, FALSE
@@ -1932,20 +1964,21 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
         MENUBAR_hover_done:
     ELSEIF MENU_BAR.openMenu% >= 0 AND MENUBAR_generic_in_bounds%(rawX%, rawY%) THEN
         ' Mouse is on a generic category flyout - track hover there
-        DIM gnHi                AS INTEGER, gnItY AS INTEGER, gnCnt AS INTEGER, gnJ AS INTEGER
-        gnCnt% = 0
-        FOR gnJ% = 0 TO MENU_ITEM_COUNT% - 1
-            IF MENU_ITEMS(gnJ%).subParent% = MENU_BAR.genParent% THEN gnCnt% = gnCnt% + 1
-        NEXT gnJ%
+        DIM gnHi                AS INTEGER, gnItY AS INTEGER, gnRowH AS INTEGER, gnJ AS INTEGER
         gnItY%             = MENU_BAR.genY% + 2
         MENU_BAR.genHover% = -1
-        FOR gnHi% = 0 TO gnCnt% - 1
-            IF rawY% >= gnItY% AND rawY% < gnItY% + MENU_ITEM_HEIGHT THEN
-                MENU_BAR.genHover% = gnHi%
-                EXIT FOR
+        gnHi% = 0
+        FOR gnJ% = 0 TO MENU_ITEM_COUNT% - 1
+            IF MENU_ITEMS(gnJ%).subParent% = MENU_BAR.genParent% THEN
+                gnRowH% = MENUBAR_gen_row_h%(gnJ%)
+                IF rawY% >= gnItY% AND rawY% < gnItY% + gnRowH% THEN
+                    IF MENU_ITEMS(gnJ%).isDivider% = 0 THEN MENU_BAR.genHover% = gnHi% ' (rules never highlight)
+                    EXIT FOR
+                END IF
+                gnItY% = gnItY% + gnRowH%
+                gnHi% = gnHi% + 1
             END IF
-            gnItY% = gnItY% + MENU_ITEM_HEIGHT
-        NEXT gnHi%
+        NEXT gnJ%
         MENU_BAR.hoverSub%  = MENU_BAR.genItemIdx%
         MENU_BAR.hoverRoot% = MENU_BAR.openMenu%
         IF MENU_BAR.genHover% <> oldGenHover% THEN
@@ -3619,7 +3652,10 @@ SUB MENUBAR_render_generic_submenu ()
     NEXT gi%
     MENU_BAR.genW% = MENU_SUB_PAD_LEFT + gnMaxW% + MENU_SUB_PAD_RIGHT
     IF MENU_BAR.genW% < 90 THEN MENU_BAR.genW% = 90
-    MENU_BAR.genH% = 4 + gnN% * MENU_ITEM_HEIGHT
+    MENU_BAR.genH% = 4
+    FOR gi% = 0 TO gnN% - 1
+        MENU_BAR.genH% = MENU_BAR.genH% + MENUBAR_gen_row_h%(gnIdx(gi%))
+    NEXT gi%
 
     MENU_BAR.genX% = MENU_BAR.subX% + MENU_BAR.subW%
     IF MENU_BAR.genY% = 0 THEN MENU_BAR.genY% = MENU_BAR.subY%
@@ -3638,6 +3674,11 @@ SUB MENUBAR_render_generic_submenu ()
     DIM gnItemY AS INTEGER, gnHk AS STRING, gnHkX AS INTEGER
     gnItemY% = MENU_BAR.genY% + 2
     FOR gi% = 0 TO gnN% - 1
+        IF MENU_ITEMS(gnIdx(gi%)).isDivider% THEN
+            LINE (MENU_BAR.genX% + 4, gnItemY% + MENU_DIVIDER_HEIGHT \ 2)-(MENU_BAR.genX% + MENU_BAR.genW% - 5, gnItemY% + MENU_DIVIDER_HEIGHT \ 2), THEME.MENU_SUB_divider~&
+            gnItemY% = gnItemY% + MENU_DIVIDER_HEIGHT
+            _CONTINUE
+        END IF
         IF gi% = MENU_BAR.genHover% THEN
             LINE (MENU_BAR.genX% + 1, gnItemY%)-(MENU_BAR.genX% + MENU_BAR.genW% - 2, gnItemY% + MENU_ITEM_HEIGHT - 1), gnSBg~&, BF
             COLOR gnSFg~&, _RGBA32(0, 0, 0, 0)
@@ -3673,13 +3714,14 @@ SUB MENUBAR_handle_generic_click (rawX AS INTEGER, rawY AS INTEGER)
     DIM gClickY AS INTEGER, gk AS INTEGER, actId AS INTEGER
     gClickY% = MENU_BAR.genY% + 2
     FOR gk% = 0 TO gnN% - 1
-        IF rawY% >= gClickY% AND rawY% < gClickY% + MENU_ITEM_HEIGHT THEN
+        IF rawY% >= gClickY% AND rawY% < gClickY% + MENUBAR_gen_row_h%(gnIdx(gk%)) THEN
+            IF MENU_ITEMS(gnIdx(gk%)).isDivider% THEN EXIT SUB ' a rule: nothing to run
             actId% = MENU_ITEMS(gnIdx(gk%)).actionId%
             MENUBAR_close_all
             CMD_execute_action actId%
             EXIT SUB
         END IF
-        gClickY% = gClickY% + MENU_ITEM_HEIGHT
+        gClickY% = gClickY% + MENUBAR_gen_row_h%(gnIdx(gk%))
     NEXT gk%
 END SUB
 

@@ -38,9 +38,12 @@ PRINT #fh, "[WORKSPACE]": PRINT #fh, "BASED_ON=loopa": PRINT #fh, "[CHROME]": PR
 CLOSE #fh
 
 WS_scan
-CHECK WS_COUNT = 6, "6 workspaces (default annotate simple child loopa loopb), got" + STR$(WS_COUNT)
+CHECK WS_COUNT = 7, "7 workspaces (default current annotate simple child loopa loopb), got" + STR$(WS_COUNT)
 CHECK WS_LIST(1).id = "default", "default listed first"
-FOR i = 3 TO WS_COUNT
+CHECK WS_LIST(2).id = WS_CURRENT_ID$, "current listed second"
+CHECK WS_LIST(2).fpath = "" AND WS_LIST(2).title = "Current", "current is virtual (no file) until something is kept there"
+CHECK WS_resolve%("current"), "a virtual current resolves (empty overlay)"
+FOR i = 4 TO WS_COUNT
     CHECK UCASE$(WS_LIST(i - 1).title) <= UCASE$(WS_LIST(i).title), "sorted by title at" + STR$(i)
 NEXT i
 CHECK WS_find%("ANNOTATE") > 0, "find by id, any case"
@@ -50,6 +53,17 @@ CHECK WS_find%("nope") = 0, "missing -> 0"
 CHECK WS_LIST(WS_find%("simple")).userFile AND WS_LIST(WS_find%("simple")).builtin, "simple: user overrides built-in"
 CHECK WS_LIST(WS_find%("simple")).title = "My Simple", "user header wins"
 CHECK WS_is_default%("Default"), "is_default"
+
+' a real current.workspace (named anything) stays second, titled Current
+fh = FREEFILE: OPEN ud + "/current.workspace" FOR OUTPUT AS #fh
+PRINT #fh, "[WORKSPACE]": PRINT #fh, "NAME=Aardvark": PRINT #fh, "[CHROME]": PRINT #fh, "PREVIEW=SHOW"
+CLOSE #fh
+WS_scan
+CHECK WS_COUNT = 7, "a current file is not listed twice, got" + STR$(WS_COUNT)
+CHECK WS_LIST(2).id = WS_CURRENT_ID$ AND WS_LIST(2).userFile, "current file listed second"
+CHECK WS_LIST(2).title = "Current", "current keeps its title"
+KILL ud + "/current.workspace"
+WS_scan
 
 ' default resolves to an empty overlay
 CHECK WS_resolve%("default"), "resolve default"

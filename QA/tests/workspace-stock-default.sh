@@ -2,12 +2,12 @@
 # =============================================================================
 # workspace-stock-default.sh — QA test: with STOCK_DEFAULT_LAYOUT=1 the Default
 # workspace keeps the stock panel layout (Rick, 2026-10-08):
-#   cancel   float the edit bar in Default -> asked for a workspace name ->
-#            Esc: the layout goes back to stock, nothing is saved
-#   name     float it again -> name "Panels": a workspace based on Default
-#            holds the layout and is switched to
+#   current  float the edit bar in Default -> no name asked (2026-10-11): the
+#            CURRENT workspace (current.workspace) holds the layout and is
+#            switched to
 #   back     switch to Default: the stock layout again; DRAW.cfg never got the
 #            arrangement
+#   again    switch to Current: the floating edit bar is back
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt STOCK_DEFAULT_LAYOUT=1 WORKSPACES_DIR=QA/.tbed-ws
 # =============================================================================
 
@@ -29,19 +29,13 @@ dk_settle
 T0=$(dk_tree)
 info "stock tree: $T0"
 
-# --- cancel ----------------------------------------------------------------------
+# --- current ---------------------------------------------------------------------------
 dk_move editbar float
-sleep 0.8; key Escape; sleep 1.0; dk_park; dk_settle
-if [[ "$(dk_tree)" == "$T0" ]] && ! dk_floating editbar; then pass "Esc at the name prompt puts the stock layout back"; else fail "after Esc: $(dk_tree) (floating: $(dk_floating editbar && echo yes || echo no))"; fi
-if [[ -z "$(tb_ws_file)" ]]; then pass "nothing was saved"; else fail "a workspace was saved: $(tb_ws_file)"; fi
-
-# --- name ------------------------------------------------------------------------------
-dk_move editbar float
-tb_name_prompt "Panels"
-dk_park; dk_settle
+sleep 1.2; dk_park; dk_settle
 tb_state
-if [[ "$TB_WS" == "panels" ]]; then pass "the workspace 'Panels' was made and switched to"; else fail "workspace is '$TB_WS'"; fi
-if dk_floating editbar; then pass "it shows the floating edit bar"; else fail "the edit bar is not floating in the new workspace"; fi
+if [[ "$TB_WS" == "current" ]]; then pass "floating a panel in Default switched to CURRENT - no name asked"; else fail "workspace is '$TB_WS'"; fi
+if dk_floating editbar; then pass "it shows the floating edit bar"; else fail "the edit bar is not floating in CURRENT"; fi
+if [[ "$(basename "$(tb_ws_file)")" == "current.workspace" ]]; then pass "kept in current.workspace"; else fail "workspace file: '$(tb_ws_file)'"; fi
 if grep -qi '^editbar=' "$(tb_ws_file)" 2>/dev/null; then pass "its file keeps the floating edit bar ([FLOAT] editbar=)"; else fail "no [FLOAT] editbar in $(tb_ws_file)"; cat "$(tb_ws_file)" 2>/dev/null | tail -12; fi
 
 # --- back to Default ------------------------------------------------------------------
@@ -50,5 +44,10 @@ tb_state
 if [[ "$TB_WS" == "default" ]]; then pass "switched back to Default"; else fail "workspace is '$TB_WS'"; fi
 if [[ "$(dk_tree)" == "$T0" ]] && ! dk_floating editbar; then pass "Default shows the stock layout again"; else fail "Default: $(dk_tree)"; fi
 if grep -q '^DOCK_' "$QA_CFG"; then fail "the arrangement was written to the config: $(grep '^DOCK_' "$QA_CFG" | head -3)"; else pass "DRAW.cfg has no arrangement of its own"; fi
+
+# --- and to Current again ---------------------------------------------------------------
+switch_to current
+tb_state
+if [[ "$TB_WS" == "current" ]] && dk_floating editbar; then pass "CURRENT still has the floating edit bar"; else fail "CURRENT: workspace '$TB_WS', floating: $(dk_floating editbar && echo yes || echo no)"; fi
 assert_no_crash
 tb_reset_ws

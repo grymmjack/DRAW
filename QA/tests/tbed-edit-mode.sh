@@ -4,7 +4,7 @@
 # toolbox / bars are edited by dragging (GUI/TOOLBAR-EDITOR edit mode).
 #   click     a toolbox button selects it in the editor, does not pick the tool
 #   between   drag Zoom from the toolbox onto the edit bar (after Redo); Default
-#             asks for a workspace name -> moved, saved into the new workspace
+#             keeps the stock toolbars -> moved, kept in the CURRENT workspace
 #   reorder   drag Undo below Redo on the edit bar
 #   remove    drag Cut off the edit bar onto the canvas -> gone
 #   add       drag an Available row onto the advanced bar -> added there
@@ -36,11 +36,11 @@ tb_btn editbar "$r" || fail "redo is not drawn on the edit bar"
 tx=$BCX; ty=$(( BY + BH - 2 ))
 tb_btn toolbox "$i"
 dk_drag "$BCX" "$BCY" "$tx" "$ty"
-tb_name_prompt "QA Moves"
+sleep 1.2; dk_settle                                # (no name prompt any more)
 tb_state
 tb_expect_list editbar '^undo,redo,zoom,' "Zoom moved onto the edit bar after Redo"
 tb_expect_no toolbox zoom "Zoom left the toolbox"
-if [[ "$TB_WS" == "qa-moves" ]]; then pass "the change made the workspace 'QA Moves' and switched to it"; else fail "workspace is '$TB_WS'"; fi
+if [[ "$TB_WS" == "current" ]]; then pass "the change went into the CURRENT workspace and switched to it (no name asked)"; else fail "workspace is '$TB_WS'"; fi
 F=$(tb_ws_file)
 if [[ -n "$F" ]] && grep -q '^ORDER=undo,redo,zoom,' "$F" && grep -q '^BUTTONS=' "$F"; then pass "saved: [EDIT_BAR] ORDER and [TOOLBOX] BUTTONS in $(basename "$F")"; else fail "workspace file missing the lists: $F"; cat "$F" 2>/dev/null; fi
 

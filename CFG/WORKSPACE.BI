@@ -32,6 +32,7 @@ CONST WS_MAX       = 32  ' workspaces listed (built-in + user)
 CONST WS_MAX_KV    = 256 ' resolved SECTION.KEY=VALUE pairs for one workspace
 CONST WS_MAX_DEPTH = 8   ' BASED_ON chain limit (a cycle stops here)
 CONST WS_DEFAULT_ID$ = "default"
+CONST WS_CURRENT_ID$ = "current" ' always listed under Default: where changes made in Default go (no file until the first one)
 CONST WS_EXT$        = ".workspace"
 
 TYPE WS_INFO

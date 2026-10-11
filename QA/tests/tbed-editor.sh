@@ -1,10 +1,9 @@
 #!/bin/bash
 # =============================================================================
 # tbed-editor.sh — QA test: the Customize Toolbars window (GUI/TOOLBAR-EDITOR).
-#   cancel   Default: the first change asks for a workspace name; Cancel puts
-#            the panel back and saves nothing
 #   add      search "flip brush", select the row, -> adds it after the selected
-#            entry on the edit bar; the name prompt makes workspace "QA Bars"
+#            entry on the edit bar; Default keeps the stock toolbars, so the
+#            change goes into the CURRENT workspace (no name asked, 2026-10-11)
 #   arrows   up / down move the selected entry
 #   divider  + DIV inserts a divider after the selection
 #   remove   <- removes the selection; Delete removes too
@@ -32,26 +31,20 @@ tb_click tab2
 tb_state
 if [[ "$TB_TAB" == "editbar" ]]; then pass "Edit Bar tab"; else fail "tab is $TB_TAB"; fi
 
-# --- cancel: nothing saved, the bar is put back ------------------------------------
+# --- add: Default keeps the stock toolbars -> the change goes into CURRENT -----
+if [[ -z "$(tb_ws_file)" ]]; then pass "nothing saved before the first change"; else fail "a workspace exists already: $(tb_ws_file)"; fi
 tb_click search
 type_text "flip brush"; sleep 0.5; dk_settle
-tb_row av 1; click "$CX" "$CY"; sleep 0.3
-tb_click add
-sleep 0.6; key Escape; sleep 1.0; dk_settle
-if [[ "$(tb_list editbar)" == "$DEFAULT_EB" ]]; then pass "Cancel at the name prompt puts the edit bar back"; else fail "edit bar changed after Cancel: $(tb_list editbar)"; fi
-if [[ -z "$(tb_ws_file)" ]]; then pass "nothing was saved"; else fail "a workspace was saved: $(tb_ws_file)"; fi
-
-# --- add -----------------------------------------------------------------------------
-tb_ls_click 1                                       # select Redo (the list scrolled to the end for the cancelled add)
+tb_ls_click 1                                       # select Redo
 tb_state
-if [[ "$TB_SEL" == "1" ]]; then pass "the wheel scrolls the list back; Redo selected"; else fail "selection is $TB_SEL"; fi
+if [[ "$TB_SEL" == "1" ]]; then pass "Redo selected"; else fail "selection is $TB_SEL"; fi
 tb_row av 1; click "$CX" "$CY"; sleep 0.3          # the first match
 tb_click add
-tb_name_prompt "QA Bars"
+sleep 1.2; dk_settle                                # (no name prompt any more)
 tb_state
 tb_expect_list editbar '^undo,redo,cmd:[0-9]+,' "-> adds the command after the selected Redo"
 NEW=$(tb_list editbar | cut -d, -f3)
-if [[ "$TB_WS" == "qa-bars" && -n "$(tb_ws_file)" ]]; then pass "workspace 'QA Bars' made and in use"; else fail "workspace '$TB_WS' file '$(tb_ws_file)'"; fi
+if [[ "$TB_WS" == "current" && "$(basename "$(tb_ws_file)")" == "current.workspace" ]]; then pass "kept in workspace CURRENT, no name asked"; else fail "workspace '$TB_WS' file '$(tb_ws_file)'"; fi
 if grep -q "^ORDER=undo,redo,$NEW," "$(tb_ws_file)"; then pass "saved as [EDIT_BAR] ORDER"; else fail "ORDER not saved"; fi
 
 # --- arrows ---------------------------------------------------------------------------
