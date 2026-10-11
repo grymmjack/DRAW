@@ -1089,19 +1089,35 @@ SUB CMD_execute_action (action_id AS INTEGER)
                             DIM cpnlSrcMem AS _MEM, cpnlDstMem AS _MEM
                             cpnlSrcMem = _MEMIMAGE(LAYERS(cpnl_srcLyr%).imgHandle&)
                             cpnlDstMem = _MEMIMAGE(cpnl_dest&)
-                            DIM cpnlMaxOff AS _OFFSET
-                            cpnlMaxOff = cpnlSrcMem.SIZE
-                            IF cpnlDstMem.SIZE < cpnlMaxOff THEN cpnlMaxOff = cpnlDstMem.SIZE
-                            DIM cpnlOff    AS _OFFSET
+                            ' Row by row: the source may be apron-promoted (gotcha #14) - its rows are
+                            ' wider and canvas (x,y) sits at (x + apronW, y + apronH); the new layer is
+                            ' compact. A flat offset walk skewed every row by the stride difference.
                             DIM cpnlAlpha  AS _UNSIGNED _BYTE
                             DIM cpnlPx     AS _UNSIGNED LONG
-                            FOR cpnlOff = 0 TO cpnlMaxOff - 4 STEP 4
-                                _MEMGET cpnlSrcMem, cpnlSrcMem.OFFSET + cpnlOff + 3, cpnlAlpha~%%
-                                IF cpnlAlpha~%% > 0 THEN
-                                    _MEMGET cpnlSrcMem, cpnlSrcMem.OFFSET + cpnlOff, cpnlPx~&
-                                    _MEMPUT cpnlDstMem, cpnlDstMem.OFFSET + cpnlOff, cpnlPx~&
-                                END IF
-                            NEXT cpnlOff
+                            DIM cpnlX      AS LONG, cpnlY AS LONG
+                            DIM cpnlSW     AS LONG, cpnlDW AS LONG
+                            DIM cpnlCW     AS LONG, cpnlCH AS LONG
+                            DIM cpnlAW     AS LONG, cpnlAH AS LONG
+                            DIM cpnlSOff   AS _OFFSET, cpnlDOff AS _OFFSET
+                            cpnlSW& = _WIDTH(LAYERS(cpnl_srcLyr%).imgHandle&)
+                            cpnlDW& = _WIDTH(cpnl_dest&)
+                            cpnlAW& = LAYERS(cpnl_srcLyr%).apronW%
+                            cpnlAH& = LAYERS(cpnl_srcLyr%).apronH%
+                            cpnlCW& = cpnlSW& - 2 * cpnlAW&
+                            cpnlCH& = _HEIGHT(LAYERS(cpnl_srcLyr%).imgHandle&) - 2 * cpnlAH&
+                            IF cpnlCW& > cpnlDW& THEN cpnlCW& = cpnlDW&
+                            IF cpnlCH& > _HEIGHT(cpnl_dest&) THEN cpnlCH& = _HEIGHT(cpnl_dest&)
+                            FOR cpnlY& = 0 TO cpnlCH& - 1
+                                FOR cpnlX& = 0 TO cpnlCW& - 1
+                                    cpnlSOff = cpnlSrcMem.OFFSET + ((cpnlY& + cpnlAH&) * cpnlSW& + cpnlX& + cpnlAW&) * 4
+                                    _MEMGET cpnlSrcMem, cpnlSOff + 3, cpnlAlpha~%%
+                                    IF cpnlAlpha~%% > 0 THEN
+                                        _MEMGET cpnlSrcMem, cpnlSOff, cpnlPx~&
+                                        cpnlDOff = cpnlDstMem.OFFSET + (cpnlY& * cpnlDW& + cpnlX&) * 4
+                                        _MEMPUT cpnlDstMem, cpnlDOff, cpnlPx~&
+                                    END IF
+                                NEXT cpnlX&
+                            NEXT cpnlY&
                             _MEMFREE cpnlSrcMem
                             _MEMFREE cpnlDstMem
                         ELSEIF CLIPBOARD.VALID AND CLIPBOARD.IMAGE < -1 THEN
@@ -2874,18 +2890,23 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM fgFillOldSrc AS LONG, fgFillMaskColor AS _UNSIGNED LONG
                     fgFillOldSrc&     = _SOURCE
                     fgFillMaskColor~& = _RGB32(255, 255, 255)
+                    ' APRON (gotcha #14): mask is canvas coords, the layer buffer is +apron
+                    DIM fgFillAW AS INTEGER, fgFillAH AS INTEGER
+                    SELECTION_layer_apron LAYERS(CURRENT_LAYER%).imgHandle&, fgFillAW%, fgFillAH%
                     FOR fgFillY% = MARQUEE.WAND_MIN_Y TO MARQUEE.WAND_MAX_Y
                         FOR fgFillX% = MARQUEE.WAND_MIN_X TO MARQUEE.WAND_MAX_X
                             _SOURCE MARQUEE.SELECTION_MASK
                             IF POINT(fgFillX%, fgFillY%) = fgFillMaskColor~& THEN
                                 _DEST LAYERS(CURRENT_LAYER%).imgHandle&
-                                PSET (fgFillX%, fgFillY%), PAINT_COLOR~&
+                                PSET (fgFillX% + fgFillAW%, fgFillY% + fgFillAH%), PAINT_COLOR~&
                             END IF
                         NEXT fgFillX%
                     NEXT fgFillY%
                     _SOURCE fgFillOldSrc&
                 ELSEIF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
-                    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_COLOR~&, BF
+                    DIM fgBoxAW AS INTEGER, fgBoxAH AS INTEGER ' APRON: box is canvas coords
+                    SELECTION_layer_apron LAYERS(CURRENT_LAYER%).imgHandle&, fgBoxAW%, fgBoxAH%
+                    LINE (MARQUEE.BOX.x + fgBoxAW%, MARQUEE.BOX.y + fgBoxAH%)-(MARQUEE.BOX.x + fgBoxAW% + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + fgBoxAH% + MARQUEE.BOX.h - 1), PAINT_COLOR~&, BF
                 ELSE
                     ' Multi-select or opacity lock: fill only opaque pixels.
                     ' Single-layer with no lock: full CLS to fill entire layer.
@@ -2944,18 +2965,23 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM bgFillOldSrc AS LONG, bgFillMaskColor AS _UNSIGNED LONG
                     bgFillOldSrc&     = _SOURCE
                     bgFillMaskColor~& = _RGB32(255, 255, 255)
+                    ' APRON (gotcha #14): mask is canvas coords, the layer buffer is +apron
+                    DIM bgFillAW AS INTEGER, bgFillAH AS INTEGER
+                    SELECTION_layer_apron LAYERS(CURRENT_LAYER%).imgHandle&, bgFillAW%, bgFillAH%
                     FOR bgFillY% = MARQUEE.WAND_MIN_Y TO MARQUEE.WAND_MAX_Y
                         FOR bgFillX% = MARQUEE.WAND_MIN_X TO MARQUEE.WAND_MAX_X
                             _SOURCE MARQUEE.SELECTION_MASK
                             IF POINT(bgFillX%, bgFillY%) = bgFillMaskColor~& THEN
                                 _DEST LAYERS(CURRENT_LAYER%).imgHandle&
-                                PSET (bgFillX%, bgFillY%), PAINT_BG_COLOR~&
+                                PSET (bgFillX% + bgFillAW%, bgFillY% + bgFillAH%), PAINT_BG_COLOR~&
                             END IF
                         NEXT bgFillX%
                     NEXT bgFillY%
                     _SOURCE bgFillOldSrc&
                 ELSEIF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
-                    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
+                    DIM bgBoxAW AS INTEGER, bgBoxAH AS INTEGER ' APRON: box is canvas coords
+                    SELECTION_layer_apron LAYERS(CURRENT_LAYER%).imgHandle&, bgBoxAW%, bgBoxAH%
+                    LINE (MARQUEE.BOX.x + bgBoxAW%, MARQUEE.BOX.y + bgBoxAH%)-(MARQUEE.BOX.x + bgBoxAW% + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + bgBoxAH% + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
                 ELSE
                     ' Multi-select or opacity lock: fill only opaque pixels.
                     ' Single-layer with no lock: full CLS to fill entire layer.
@@ -3631,16 +3657,20 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 DIM h2hReg    AS LONG, h2hScl AS LONG
                 h2hReg& = _NEWIMAGE(h2hSelW%, h2hSelH%, 32)
                 _DONTBLEND h2hReg&
-                _PUTIMAGE (0, 0), h2hSrc&, h2hReg&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + h2hSelW% - 1, MARQUEE.BOX.y + h2hSelH% - 1)
+                ' APRON (gotcha #14): selection math stays in canvas coords; the three layer
+                ' buffer ops (extract / clear / paste) add the promoted buffer's offset
+                DIM h2hAW AS INTEGER, h2hAH AS INTEGER
+                SELECTION_layer_apron h2hSrc&, h2hAW%, h2hAH%
+                _PUTIMAGE (0, 0), h2hSrc&, h2hReg&, (MARQUEE.BOX.x + h2hAW%, MARQUEE.BOX.y + h2hAH%)-(MARQUEE.BOX.x + h2hAW% + h2hSelW% - 1, MARQUEE.BOX.y + h2hAH% + h2hSelH% - 1)
                 h2hScl& = _NEWIMAGE(h2hNewW%, h2hNewH%, 32)
                 PIXEL_DOUBLE_AXIS h2hReg&, h2hScl&, 0 ' double horizontally
                 DIM h2hOldDst AS LONG, h2hOldSrc AS LONG
                 h2hOldDst& = _DEST : h2hOldSrc& = _SOURCE
                 _DEST h2hSrc&
                 _DONTBLEND h2hSrc&
-                LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + h2hSelW% - 1, MARQUEE.BOX.y + h2hSelH% - 1), _RGBA32(0, 0, 0, 0), BF
+                LINE (MARQUEE.BOX.x + h2hAW%, MARQUEE.BOX.y + h2hAH%)-(MARQUEE.BOX.x + h2hAW% + h2hSelW% - 1, MARQUEE.BOX.y + h2hAH% + h2hSelH% - 1), _RGBA32(0, 0, 0, 0), BF
                 DIM h2hCanvW  AS INTEGER, h2hCanvH AS INTEGER
-                h2hCanvW% = _WIDTH(h2hSrc&) : h2hCanvH% = _HEIGHT(h2hSrc&)
+                h2hCanvW% = _WIDTH(h2hSrc&) - 2 * h2hAW% : h2hCanvH% = _HEIGHT(h2hSrc&) - 2 * h2hAH%
                 DIM h2hDstX   AS INTEGER, h2hDstY AS INTEGER
                 DIM h2hCpSrcX AS INTEGER, h2hCpSrcY AS INTEGER
                 DIM h2hCpW    AS INTEGER, h2hCpH AS INTEGER
@@ -3653,7 +3683,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 IF h2hDstX% + h2hCpW% > h2hCanvW% THEN h2hCpW% = h2hCanvW% - h2hDstX%
                 IF h2hDstY% + h2hCpH% > h2hCanvH% THEN h2hCpH% = h2hCanvH% - h2hDstY%
                 IF h2hCpW% > 0 AND h2hCpH% > 0 THEN
-                    _PUTIMAGE (h2hDstX%, h2hDstY%)-(h2hDstX% + h2hCpW% - 1, h2hDstY% + h2hCpH% - 1), h2hScl&, h2hSrc&, (h2hCpSrcX%, h2hCpSrcY%)-(h2hCpSrcX% + h2hCpW% - 1, h2hCpSrcY% + h2hCpH% - 1)
+                    _PUTIMAGE (h2hDstX% + h2hAW%, h2hDstY% + h2hAH%)-(h2hDstX% + h2hAW% + h2hCpW% - 1, h2hDstY% + h2hAH% + h2hCpH% - 1), h2hScl&, h2hSrc&, (h2hCpSrcX%, h2hCpSrcY%)-(h2hCpSrcX% + h2hCpW% - 1, h2hCpSrcY% + h2hCpH% - 1)
                 END IF
                 _BLEND h2hSrc&
                 _SOURCE h2hOldSrc&
@@ -3821,16 +3851,20 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 DIM v2vReg    AS LONG, v2vScl AS LONG
                 v2vReg& = _NEWIMAGE(v2vSelW%, v2vSelH%, 32)
                 _DONTBLEND v2vReg&
-                _PUTIMAGE (0, 0), v2vSrc&, v2vReg&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + v2vSelW% - 1, MARQUEE.BOX.y + v2vSelH% - 1)
+                ' APRON (gotcha #14): selection math stays in canvas coords; the three layer
+                ' buffer ops (extract / clear / paste) add the promoted buffer's offset
+                DIM v2vAW AS INTEGER, v2vAH AS INTEGER
+                SELECTION_layer_apron v2vSrc&, v2vAW%, v2vAH%
+                _PUTIMAGE (0, 0), v2vSrc&, v2vReg&, (MARQUEE.BOX.x + v2vAW%, MARQUEE.BOX.y + v2vAH%)-(MARQUEE.BOX.x + v2vAW% + v2vSelW% - 1, MARQUEE.BOX.y + v2vAH% + v2vSelH% - 1)
                 v2vScl& = _NEWIMAGE(v2vNewW%, v2vNewH%, 32)
                 PIXEL_DOUBLE_AXIS v2vReg&, v2vScl&, 1 ' double vertically
                 DIM v2vOldDst AS LONG, v2vOldSrc AS LONG
                 v2vOldDst& = _DEST : v2vOldSrc& = _SOURCE
                 _DEST v2vSrc&
                 _DONTBLEND v2vSrc&
-                LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + v2vSelW% - 1, MARQUEE.BOX.y + v2vSelH% - 1), _RGBA32(0, 0, 0, 0), BF
+                LINE (MARQUEE.BOX.x + v2vAW%, MARQUEE.BOX.y + v2vAH%)-(MARQUEE.BOX.x + v2vAW% + v2vSelW% - 1, MARQUEE.BOX.y + v2vAH% + v2vSelH% - 1), _RGBA32(0, 0, 0, 0), BF
                 DIM v2vCanvW  AS INTEGER, v2vCanvH AS INTEGER
-                v2vCanvW% = _WIDTH(v2vSrc&) : v2vCanvH% = _HEIGHT(v2vSrc&)
+                v2vCanvW% = _WIDTH(v2vSrc&) - 2 * v2vAW% : v2vCanvH% = _HEIGHT(v2vSrc&) - 2 * v2vAH%
                 DIM v2vDstX   AS INTEGER, v2vDstY AS INTEGER
                 DIM v2vCpSrcX AS INTEGER, v2vCpSrcY AS INTEGER
                 DIM v2vCpW    AS INTEGER, v2vCpH AS INTEGER
@@ -3843,7 +3877,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 IF v2vDstX% + v2vCpW% > v2vCanvW% THEN v2vCpW% = v2vCanvW% - v2vDstX%
                 IF v2vDstY% + v2vCpH% > v2vCanvH% THEN v2vCpH% = v2vCanvH% - v2vDstY%
                 IF v2vCpW% > 0 AND v2vCpH% > 0 THEN
-                    _PUTIMAGE (v2vDstX%, v2vDstY%)-(v2vDstX% + v2vCpW% - 1, v2vDstY% + v2vCpH% - 1), v2vScl&, v2vSrc&, (v2vCpSrcX%, v2vCpSrcY%)-(v2vCpSrcX% + v2vCpW% - 1, v2vCpSrcY% + v2vCpH% - 1)
+                    _PUTIMAGE (v2vDstX% + v2vAW%, v2vDstY% + v2vAH%)-(v2vDstX% + v2vAW% + v2vCpW% - 1, v2vDstY% + v2vAH% + v2vCpH% - 1), v2vScl&, v2vSrc&, (v2vCpSrcX%, v2vCpSrcY%)-(v2vCpSrcX% + v2vCpW% - 1, v2vCpSrcY% + v2vCpH% - 1)
                 END IF
                 _BLEND v2vSrc&
                 _SOURCE v2vOldSrc&
@@ -5968,7 +6002,10 @@ SUB CMD_ml_clear (layerIdx AS INTEGER)
     _DEST mlCImg&
     _DONTBLEND mlCImg&
     IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
-        LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), _RGBA32(0, 0, 0, 0), BF
+        ' APRON (gotcha #14): a co-selected layer may be promoted from an earlier move
+        DIM mlCAW AS INTEGER, mlCAH AS INTEGER
+        mlCAW% = LAYERS(layerIdx%).apronW%: mlCAH% = LAYERS(layerIdx%).apronH%
+        LINE (MARQUEE.BOX.x + mlCAW%, MARQUEE.BOX.y + mlCAH%)-(MARQUEE.BOX.x + mlCAW% + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + mlCAH% + MARQUEE.BOX.h - 1), _RGBA32(0, 0, 0, 0), BF
     ELSE
         CLS , _RGBA32(0, 0, 0, 0)
     END IF

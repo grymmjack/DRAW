@@ -1381,10 +1381,10 @@ END SUB
 ' Flood erase contiguous pixels of the same color (set to transparent)
 ' Used when holding E and clicking with the magic wand tool active.
 ' Saves undo state before modifying the current layer.
-' @param x INTEGER X coordinate to start flood erase
-' @param y INTEGER Y coordinate to start flood erase
+' @param seedX INTEGER canvas X to start flood erase
+' @param seedY INTEGER canvas Y to start flood erase
 '
-SUB MAGIC_WAND_erase_flood (x AS INTEGER, y AS INTEGER)
+SUB MAGIC_WAND_erase_flood (seedX AS INTEGER, seedY AS INTEGER)
     DIM old_dest         AS LONG : old_dest& = _DEST
     DIM old_source       AS LONG : old_source& = _SOURCE
     DIM targetImg        AS LONG : targetImg& = LAYER_current_image&
@@ -1392,6 +1392,13 @@ SUB MAGIC_WAND_erase_flood (x AS INTEGER, y AS INTEGER)
     DIM history_flags    AS LONG
     DIM history_recorded AS INTEGER
     IF targetImg& >= -1 THEN EXIT SUB
+
+    ' Seed is CANVAS coords (by-reference MOUSE fields: copy, never mutate - gotcha
+    ' #13); a promoted layer's buffer pixel is (x + apronW, y + apronH) - gotcha #14
+    DIM x AS INTEGER, y AS INTEGER, efAW AS INTEGER, efAH AS INTEGER
+    SELECTION_layer_apron targetImg&, efAW%, efAH%
+    x% = seedX% + efAW%
+    y% = seedY% + efAH%
 
     history_before&   = 0
     history_flags&    = 0
@@ -1504,6 +1511,8 @@ SUB MAGIC_WAND_erase_flood (x AS INTEGER, y AS INTEGER)
     FRAME_IDLE%   = FALSE
     _SOURCE old_source&
     _DEST old_dest&
+    IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    INVALIDATE_layers
 END SUB
 
 
@@ -1511,10 +1520,10 @@ END SUB
 ' Flood fill contiguous pixels of the same color with the foreground paint color
 ' Used when holding F and clicking with the magic wand tool active.
 ' Saves undo state before modifying the current layer.
-' @param x INTEGER X coordinate to start flood fill
-' @param y INTEGER Y coordinate to start flood fill
+' @param seedX INTEGER canvas X to start flood fill
+' @param seedY INTEGER canvas Y to start flood fill
 '
-SUB MAGIC_WAND_fill_flood (x AS INTEGER, y AS INTEGER)
+SUB MAGIC_WAND_fill_flood (seedX AS INTEGER, seedY AS INTEGER)
     DIM old_dest         AS LONG : old_dest& = _DEST
     DIM old_source       AS LONG : old_source& = _SOURCE
     DIM targetImg        AS LONG : targetImg& = LAYER_current_image&
@@ -1522,6 +1531,13 @@ SUB MAGIC_WAND_fill_flood (x AS INTEGER, y AS INTEGER)
     DIM history_flags    AS LONG
     DIM history_recorded AS INTEGER
     IF targetImg& >= -1 THEN EXIT SUB
+
+    ' Seed is CANVAS coords (by-reference MOUSE fields: copy, never mutate - gotcha
+    ' #13); a promoted layer's buffer pixel is (x + apronW, y + apronH) - gotcha #14
+    DIM x AS INTEGER, y AS INTEGER, ffAW AS INTEGER, ffAH AS INTEGER
+    SELECTION_layer_apron targetImg&, ffAW%, ffAH%
+    x% = seedX% + ffAW%
+    y% = seedY% + ffAH%
 
     history_before&   = 0
     history_flags&    = 0
@@ -1634,6 +1650,8 @@ SUB MAGIC_WAND_fill_flood (x AS INTEGER, y AS INTEGER)
     FRAME_IDLE%   = FALSE
     _SOURCE old_source&
     _DEST old_dest&
+    IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    INVALIDATE_layers
 END SUB
 
 
@@ -1910,8 +1928,11 @@ SUB MAGIC_WAND_select_all_color_merged (x AS INTEGER, y AS INTEGER, mode AS INTE
     DIM targetImg  AS LONG : targetImg& = LAYER_current_image&
     IF targetImg& >= -1 THEN EXIT SUB
 
-    DIM w AS INTEGER : w% = _WIDTH(targetImg&)
-    DIM h AS INTEGER : h% = _HEIGHT(targetImg&)
+    ' The merged composite and the mask are CANVAS-sized; an apron-promoted layer's
+    ' canvas region is cropped out of its larger buffer (gotcha #14) - never stretched
+    DIM w AS INTEGER : w% = SCRN.canvasW&
+    DIM h AS INTEGER : h% = SCRN.canvasH&
+    DIM mgAW AS INTEGER, mgAH AS INTEGER
 
     IF x% < 0 OR x% >= w% OR y% < 0 OR y% >= h% THEN EXIT SUB
 
@@ -1935,8 +1956,9 @@ SUB MAGIC_WAND_select_all_color_merged (x AS INTEGER, y AS INTEGER, mode AS INTE
     FOR zi% = 1 TO LAYER_COUNT%
         FOR li% = 1 TO MAX_LAYERS
             IF LAYERS(li%).imgHandle& < -1 AND LAYERS(li%).visible AND LAYERS(li%).zIndex = zi% THEN
+                mgAW% = LAYERS(li%).apronW%: mgAH% = LAYERS(li%).apronH%
                 IF LAYERS(li%).opacity >= 255 THEN
-                    _PUTIMAGE , LAYERS(li%).imgHandle&
+                    _PUTIMAGE (0, 0), LAYERS(li%).imgHandle&, mergedImg&, (mgAW%, mgAH%)-(mgAW% + w% - 1, mgAH% + h% - 1)
                 ELSE
                     tmpImg& = _COPYIMAGE(LAYERS(li%).imgHandle&, 32)
                     mvMem   = _MEMIMAGE(tmpImg&)
@@ -1949,7 +1971,7 @@ SUB MAGIC_WAND_select_all_color_merged (x AS INTEGER, y AS INTEGER, mode AS INTE
                         END IF
                     NEXT mvOff
                     _MEMFREE mvMem
-                    _PUTIMAGE , tmpImg&
+                    _PUTIMAGE (0, 0), tmpImg&, mergedImg&, (mgAW%, mgAH%)-(mgAW% + w% - 1, mgAH% + h% - 1)
                     SAFE_FREEIMAGE tmpImg&
                 END IF
                 EXIT FOR
@@ -2330,6 +2352,10 @@ SUB MAGIC_WAND_clear_selected_transparent ()
     _DONTBLEND targetImg&
     
     mask_color~& = _RGB32(255, 255, 255)
+
+    ' APRON (gotcha #14): mask is canvas coords, a promoted buffer is +apron
+    DIM clrAW AS INTEGER, clrAH AS INTEGER
+    SELECTION_layer_apron targetImg&, clrAW%, clrAH%
     
     ' Iterate through bounding box and clear selected pixels
     FOR y% = MARQUEE.WAND_MIN_Y TO MARQUEE.WAND_MAX_Y
@@ -2338,7 +2364,7 @@ SUB MAGIC_WAND_clear_selected_transparent ()
             IF POINT(x%, y%) = mask_color~& THEN
                 ' Set pixel to fully transparent
                 _DEST targetImg&
-                PSET (x%, y%), _RGBA32(0, 0, 0, 0)
+                PSET (x% + clrAW%, y% + clrAH%), _RGBA32(0, 0, 0, 0)
             END IF
         NEXT x%
     NEXT y%
@@ -2361,6 +2387,11 @@ SUB MAGIC_WAND_clear_selected_transparent ()
     IF history_recorded% THEN HISTORY_saved_this_frame% = TRUE
 
     CANVAS_DIRTY% = TRUE
+    ' The layer's pixels changed: without contentDirty + INVALIDATE_layers the cached
+    ' layer composite kept showing the cleared pixels until some later edit (matches
+    ' CLIPBOARD_clear_selection)
+    IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    INVALIDATE_layers
 END SUB
 
 ''
