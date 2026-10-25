@@ -22,10 +22,23 @@ CONST EXPORT_ACT_HDR        = 2210 ' Radiance HDR
 CONST EXPORT_ACT_ICO        = 2211 ' Windows Icon
 CONST EXPORT_ACT_QOI        = 2216 ' Quite OK Image
 
+' Repeat the last Export As (same format + same file, no dialog) - Ctrl+Shift+E
+CONST EXPORT_ACT_REPEAT     = 2217
+
+' Flatten & Save (TOOLS/SAVE.BM SAVE_flattened) - Ctrl+Alt+Shift+S. Lives in this
+' block so the 22xx file-action ids stay in one place.
+CONST SAVE_ACT_FLATTEN      = 2218
+
 ' Flyout parent action ID (marker for the cascading submenu trigger)
 CONST EXPORT_ACT_FLYOUT = 217
 
 ' Total items in the export flyout
 CONST EXPORT_FLYOUT_ITEMS = 9
+
+' The last File > Export As, for Ctrl+Shift+E. Kept for this session only and
+' forgotten when another document is opened or created (EXPORT_forget_last), so
+' a re-export can never overwrite the export of a different picture.
+DIM SHARED EXPORT_LAST_ACTION AS INTEGER ' EXPORT_ACT_* used (0 = nothing exported yet)
+DIM SHARED EXPORT_LAST_FILE   AS STRING  ' full path that was written
 
 ' Sub declarations

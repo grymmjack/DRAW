@@ -61,11 +61,33 @@
 4. [ ] Save — verify .bas file with DATA statements generated
 
 ### [ ] Export Selection
-#### [ ] Ctrl+Shift+E exports PNG
+#### [ ] Ctrl+Alt+S exports PNG
 1. [ ] Create a marquee selection
-2. [ ] Press `Ctrl+Shift+E`
+2. [ ] Press `Ctrl+Alt+S`
 3. [ ] Verify export selection dialog
 4. [ ] Save as PNG — verify file has correct dimensions and alpha
+
+### [ ] Saving a file you opened (automated: QA/tests/file-save-passed-in-format.sh)
+#### [ ] Ctrl+S keeps the file's own name and format
+1. [ ] `./DRAW.run art.png`, draw, `Ctrl+S` — `art.png` updated, reopens with layers, no `art.draw`
+2. [ ] `./DRAW.run art.gif`, draw, `Ctrl+S` — `art.draw` written beside it, `art.gif` unchanged
+3. [ ] Settings → General → Saving → untick *Save .draw Beside Images*; repeat 2 — `art.gif` updated (still a GIF), no `art.draw`
+4. [ ] Same with File → Open, Recent Files (Alt+1), drag-and-drop and the image browser
+5. [ ] `art.psd` with the setting off — `Ctrl+S` asks where to save, starting in the PSD's folder as `art.png`
+#### [ ] Ctrl+Alt+Shift+S flattens into the same file
+1. [ ] `./DRAW.run art.gif`, add a layer, `Ctrl+Alt+Shift+S` — `art.gif` updated, no dialog, no `art.draw`
+2. [ ] `./DRAW.run art.png`, `Ctrl+Alt+Shift+S` — `art.png` updated and reopens as ONE flat layer
+3. [ ] Untitled document — asks for a name; a second `Ctrl+Alt+Shift+S` writes there silently
+4. [ ] Import Image into a document, then `Ctrl+S` — never overwrites the imported image
+
+### [ ] Export Again
+#### [ ] Ctrl+Shift+E repeats the last Export As
+1. [ ] Fresh document, press `Ctrl+Shift+E` — status bar says nothing to export yet, no file written
+2. [ ] File → Export As → GIF, save as `test.gif`
+3. [ ] File menu shows `EXPORT AGAIN: TEST.GIF` (enabled)
+4. [ ] Draw more, press `Ctrl+Shift+E` — no dialog, status bar says `Exported test.gif`, file updated
+5. [ ] File → Revert, then `Ctrl+Shift+E` — still writes `test.gif`
+6. [ ] File → New (or open another file), then `Ctrl+Shift+E` — nothing written, menu item disabled
 
 ---
 
