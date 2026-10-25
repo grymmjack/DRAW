@@ -26,11 +26,28 @@
 
 | Command | Shortcut | Notes |
 | --- | --- | --- |
-| Save | `Ctrl+S` | Silent resave to current path. |
+| Save | `Ctrl+S` | Silent resave to current path. See *Saving an image you opened* below. |
 | Save As… | `Ctrl+Shift+S` | Prompt for new name and format. |
-| Export Selection | `Ctrl+Alt+Shift+S` | Save just the selected region. |
+| Flatten & Save | `Ctrl+Alt+Shift+S` | Write the merged image back to the file you opened (or last saved), in the same format — no layers kept, no `.draw`. Asks for a name only for an untitled document, a `.draw` project, or a format DRAW cannot write (PSD, Aseprite, LBM, ANSI). |
+| Export Selection | `Ctrl+Alt+S` | Save just the selected region. |
 | Export Layer as PNG | Layer menu | One-click per-layer PNG. |
 | Export Brush as PNG | `F12` | Current custom brush. |
+| Export Again | `Ctrl+Shift+E` | Repeat the last File → Export As with the same format and file name — no dialog. Opening or creating another document forgets it. |
+
+#### Saving an image you opened
+
+Whatever way you open a file — File → Open, Recent Files, the command line (`DRAW art.png`), drag and drop or the image browser — `Ctrl+S` saves back to it:
+
+| Opened | `Ctrl+S` writes |
+| --- | --- |
+| `art.draw` | `art.draw` |
+| `art.png` | `art.png`, with your layers hidden inside (it is still a normal PNG everywhere else) |
+| `art.gif` / `.bmp` / `.jpg` / `.tga` / `.qoi` / `.ico` / `.hdr` | **Save .draw Beside Images** on (default): `art.draw` next to it, `art.gif` untouched.<br>Off: `art.gif` itself, flattened, in its own format. |
+| `art.psd` / `.aseprite` / `.lbm` / `.ans` | **on:** `art.draw` next to it. **Off:** asks where to save (DRAW cannot write these formats). |
+
+The setting is in **Settings → General → Saving**, or `SAVE_DRAW_SIDECAR=TRUE/FALSE` in `DRAW.cfg` (`--option SAVE_DRAW_SIDECAR=FALSE` for one run).
+
+`Ctrl+Alt+Shift+S` (**File → Flatten & Save**) always writes the flattened image back to the image file, whatever the setting — use it when you want a plain `art.png` with no layers inside.
 
 The **Recent Files** list holds up to 10 entries with quick-jump shortcuts `Alt+1` … `Alt+0`.
 
@@ -116,7 +133,7 @@ The exported `.bas` needs no image files. A single `DATA` block, deflated and ba
 - **Transparency** becomes the GIF transparent color, or the LBM transparent color when the palette has a free slot.
 - **Off-palette pixels** are mapped to the nearest palette color that is *not* in a cycle range, so they never start cycling by accident. The log reports how many there were.
 - **Importing** a DeluxePaint or GrafX2 file creates a new document with the file's exact palette and pixel indices. A swatch must own its pixels, so when the file repeats a color that matters, DRAW nudges the later copy by one or two levels. Inactive ranges and ranges with speed 0 import as paused. Old 4-bit Amiga palettes are rescaled. Extra-Halfbrite images become 64 colors. HAM images aren't supported.
-- **Saving** an opened `.lbm` or `.gif` with `Ctrl+S` writes a companion `.draw` next to it. The original file is never overwritten.
+- **Saving** an opened `.lbm` or `.gif` with `Ctrl+S` writes a companion `.draw` next to it. The original file is never overwritten (see *Saving an image you opened* for the setting that changes this for `.gif`).
 
 ### The animated GIF
 

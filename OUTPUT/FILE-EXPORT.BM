@@ -24,23 +24,72 @@ FUNCTION EXPORT_trim_trailing_dots_spaces$ (inName AS STRING)
 END FUNCTION
 
 ''
-' Export the flattened (merged visible layers) image to a specific format.
+' Look up the file format for an Export As action.
 '
-' @param formatExt$      File extension including dot, e.g. ".png", ".bmp"
-' @param formatName$     Human-readable format name for dialog title
-' @param embedDrawChunk% TRUE to embed drAw project chunk (PNG only)
+' @param actionId%        EXPORT_ACT_* id
+' @param formatExt$       (out) extension including dot, e.g. ".png"
+' @param formatName$      (out) human-readable format name, e.g. "PNG"
+' @param embedDrawChunk%  (out) TRUE to embed the drAw project chunk (PNG native)
+' @return TRUE if actionId% is an Export As format
 '
-SUB EXPORT_flattened_as (formatExt AS STRING, formatName AS STRING, embedDrawChunk AS INTEGER)
+FUNCTION EXPORT_format_for% (actionId AS INTEGER, formatExt AS STRING, formatName AS STRING, embedDrawChunk AS INTEGER)
+    embedDrawChunk% = FALSE
+    EXPORT_format_for% = TRUE
+    SELECT CASE actionId%
+        CASE EXPORT_ACT_PNG_NATIVE : formatExt$ = ".png" : formatName$ = "PNG" : embedDrawChunk% = TRUE
+        CASE EXPORT_ACT_PNG        : formatExt$ = ".png" : formatName$ = "PNG"
+        CASE EXPORT_ACT_GIF        : formatExt$ = ".gif" : formatName$ = "GIF"
+        CASE EXPORT_ACT_JPG        : formatExt$ = ".jpg" : formatName$ = "JPEG"
+        CASE EXPORT_ACT_TGA        : formatExt$ = ".tga" : formatName$ = "TGA"
+        CASE EXPORT_ACT_BMP        : formatExt$ = ".bmp" : formatName$ = "BMP"
+        CASE EXPORT_ACT_HDR        : formatExt$ = ".hdr" : formatName$ = "HDR"
+        CASE EXPORT_ACT_ICO        : formatExt$ = ".ico" : formatName$ = "ICO"
+        CASE EXPORT_ACT_QOI        : formatExt$ = ".qoi" : formatName$ = "QOI"
+        CASE ELSE
+            formatExt$ = "" : formatName$ = ""
+            EXPORT_format_for% = FALSE
+    END SELECT
+END FUNCTION
+
+
+''
+' File > Export As > <format>: ask for a file name, then write the flattened
+' (merged visible layers) image there. The format and file are remembered for
+' Ctrl+Shift+E (EXPORT_repeat_last).
+'
+' @param actionId%  EXPORT_ACT_* id
+'
+SUB EXPORT_flattened_as (actionId AS INTEGER)
+    EXPORT_flattened_dialog actionId%, "", ""
+END SUB
+
+
+''
+' Show the Export As save dialog for one format and write the file.
+'
+' @param actionId%    EXPORT_ACT_* id
+' @param startDir$    folder to open the dialog in ("" = last save folder)
+' @param defaultName$ file name to pre-fill ("" = none)
+'
+SUB EXPORT_flattened_dialog (actionId AS INTEGER, startDir AS STRING, defaultName AS STRING)
+    DIM act          AS INTEGER
     DIM filename     AS STRING
     DIM default_path AS STRING
-    DIM flatImg      AS LONG
     DIM filterStr    AS STRING
     DIM ext          AS STRING
+    DIM formatName   AS STRING
+    DIM embed        AS INTEGER
+    DIM ok           AS INTEGER
 
-    ext$ = LCASE$(formatExt$)
+    ' Params are by reference: copy before anything below can touch the globals
+    ' a caller might have passed in (EXPORT_LAST_*).
+    act% = actionId%
+    IF NOT EXPORT_format_for%(act%, ext$, formatName$, embed%) THEN EXIT SUB
 
-    ' Use per-operation last dir, then legacy fallbacks
-    IF CFG.LAST_DIR_SAVE$ <> "" THEN
+    ' Use the given folder, then the per-operation last dir, then legacy fallbacks
+    IF startDir$ <> "" THEN
+        default_path$ = startDir$ + "/"
+    ELSEIF CFG.LAST_DIR_SAVE$ <> "" THEN
         default_path$ = CFG.LAST_DIR_SAVE$ + "/"
     ELSEIF LAST_DIRECTORY$ <> "" THEN
         default_path$ = LAST_DIRECTORY$ + "/"
@@ -59,7 +108,7 @@ SUB EXPORT_flattened_as (formatExt AS STRING, formatName AS STRING, embedDrawChu
 
     ' Show save file dialog
     POINTER_hide_for_dialog
-    filename$ = DRAW_save_file$("Export as " + formatName$, default_path$, filterStr$, 0, "", ext$)
+    filename$ = DRAW_save_file$("Export as " + formatName$, default_path$, filterStr$, 0, defaultName$, ext$)
     POINTER_show_after_dialog
     MOUSE_cleanup_after_dialog TRUE
 
@@ -77,23 +126,105 @@ SUB EXPORT_flattened_as (formatExt AS STRING, formatName AS STRING, embedDrawChu
             filename$ = filename$ + ext$
         END IF
 
-        ' Refuse unwritable targets before building a composite we cannot write
-        IF NOT SAVE_target_writable%(filename$) THEN EXIT SUB
-
-        ' Flatten all visible layers and save
-        flatImg& = LAYERS_flatten&
-        _LOGINFO "EXPORT_flattened_as: format=" + formatName$ + " file=" + filename$
-        _SAVEIMAGE filename$, flatImg&
-        IF flatImg& < -1 THEN SAFE_FREEIMAGE flatImg&
-
-        ' Do not embed a drAw chunk into, or report success for, a missing file
-        IF NOT SAVE_verify_written%(filename$) THEN EXIT SUB
-
-        ' Embed drAw chunk with project data if requested and saving as PNG
-        IF embedDrawChunk% AND ext$ = ".png" THEN
-            DRW_embed_chunk_in_png filename$
-        END IF
-
-        _LOGINFO "EXPORT_flattened_as: export completed"
+        ok% = EXPORT_flattened_write%(act%, filename$)
     END IF
+END SUB
+
+
+''
+' Write the flattened image to a file in an Export As format, with no dialog.
+' On success the format and file become the target for Ctrl+Shift+E.
+'
+' @param actionId%  EXPORT_ACT_* id
+' @param filePath$  full path to write (extension already applied)
+' @return TRUE if the file was written
+'
+FUNCTION EXPORT_flattened_write% (actionId AS INTEGER, filePath AS STRING)
+    DIM act        AS INTEGER
+    DIM filename   AS STRING
+    DIM ext        AS STRING
+    DIM formatName AS STRING
+    DIM embed      AS INTEGER
+    DIM flatImg    AS LONG
+
+    EXPORT_flattened_write% = FALSE
+    act%      = actionId%
+    filename$ = filePath$
+    IF NOT EXPORT_format_for%(act%, ext$, formatName$, embed%) THEN EXIT FUNCTION
+
+    ' Refuse unwritable targets before building a composite we cannot write
+    IF NOT SAVE_target_writable%(filename$) THEN EXIT FUNCTION
+
+    ' Flatten all visible layers and save
+    flatImg& = LAYERS_flatten&
+    _LOGINFO "EXPORT_flattened_write: format=" + formatName$ + " file=" + filename$
+    _SAVEIMAGE filename$, flatImg&
+    IF flatImg& < -1 THEN SAFE_FREEIMAGE flatImg&
+
+    ' Do not embed a drAw chunk into, or report success for, a missing file
+    IF NOT SAVE_verify_written%(filename$) THEN EXIT FUNCTION
+
+    ' Embed drAw chunk with project data if requested and saving as PNG
+    IF embed% AND ext$ = ".png" THEN
+        DRW_embed_chunk_in_png filename$
+    END IF
+
+    EXPORT_LAST_ACTION% = act%
+    EXPORT_LAST_FILE$   = filename$
+    _LOGINFO "EXPORT_flattened_write: export completed"
+    EXPORT_flattened_write% = TRUE
+END FUNCTION
+
+
+''
+' Ctrl+Shift+E: export again to the last Export As format and file, without a
+' dialog. If the file's folder is gone, ask where to save it instead.
+'
+SUB EXPORT_repeat_last ()
+    DIM act      AS INTEGER
+    DIM filename AS STRING
+    DIM dir      AS STRING
+
+    act%      = EXPORT_LAST_ACTION%
+    filename$ = EXPORT_LAST_FILE$
+
+    IF act% = 0 _ORELSE filename$ = "" THEN
+        STATUS_flash "Nothing to export again yet - use File > Export As first"
+        EXIT SUB
+    END IF
+
+    dir$ = CONFIG_extract_dir$(filename$)
+    IF dir$ <> "" _ANDALSO NOT _DIREXISTS(dir$) THEN
+        EXPORT_flattened_dialog act%, "", RECENT_extract_filename$(filename$)
+        EXIT SUB
+    END IF
+
+    IF EXPORT_flattened_write%(act%, filename$) THEN
+        STATUS_flash "Exported " + RECENT_extract_filename$(filename$)
+    END IF
+END SUB
+
+
+''
+' Menu label for the File > Export Again item: names the file it will write.
+'
+FUNCTION EXPORT_repeat_label$ ()
+    DIM nm AS STRING
+    IF EXPORT_LAST_ACTION% = 0 _ORELSE EXPORT_LAST_FILE$ = "" THEN
+        EXPORT_repeat_label$ = "EXPORT AGAIN"
+        EXIT FUNCTION
+    END IF
+    nm$ = UCASE$(RECENT_extract_filename$(EXPORT_LAST_FILE$))
+    IF LEN(nm$) > 24 THEN nm$ = LEFT$(nm$, 21) + "..."
+    EXPORT_repeat_label$ = "EXPORT AGAIN: " + nm$
+END FUNCTION
+
+
+''
+' Forget the last Export As. Called whenever a different document is opened or
+' created, so Ctrl+Shift+E cannot overwrite another picture's export.
+'
+SUB EXPORT_forget_last ()
+    EXPORT_LAST_ACTION% = 0
+    EXPORT_LAST_FILE$   = ""
 END SUB

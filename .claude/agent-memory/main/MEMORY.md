@@ -77,3 +77,4 @@
 - [Game font extraction](game-font-extraction.md) — DOOM/Heretic/Hexen/Blood CBF fonts: WAD lumps, Blood shareware QFN-in-RFF, mapping quirks
 - [Farm: no GUI popups, trap crashes](farm-no-gui-popups-trap-crashes.md) — never pop windows on mac/thinkpad; trap SIGSEGV in-process (sigtrap.h) so no macOS/WER crash dialog; ask before launching GUI apps on the Mac
 - [Test scope](feedback-test-scope.md) — small fix = its targeted tests + baseline, then push; no 40-file suite runs for small changes
+- [Document filename invariants](document-filename-invariants.md) — set CURRENT_DRW/CURRENT_FILENAME only via SAVE_set_document_file; sidecar setting, Flatten & Save, Export Again

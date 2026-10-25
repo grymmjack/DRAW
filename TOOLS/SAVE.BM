@@ -161,31 +161,44 @@ SUB SAVE_image ()
         EXIT SUB
     END IF
 
-    ' If we have a current non-DRW filename (e.g. imported ASE/PSD/BMP),
-    ' auto-create a .draw companion file to preserve layers and groups
+    ' The document came from an image file that is not DRAW's own (GIF, BMP,
+    ' JPG, PSD, Aseprite...). With SAVE_DRAW_SIDECAR on, keep that file as it is
+    ' and save the layers to a .draw next to it. With it off, write the file back
+    ' in its own format (flattened) when DRAW can encode it; otherwise ask.
+    DIM siPrefillDir  AS STRING
+    DIM siPrefillName AS STRING
     IF CURRENT_FILENAME$ <> "" THEN
-        DIM siDerived AS STRING
-        DIM siDot     AS INTEGER
-        siDot% = _INSTRREV(CURRENT_FILENAME$, ".")
-        IF siDot% > 1 THEN
-            siDerived$ = LEFT$(CURRENT_FILENAME$, siDot% - 1) + ".draw"
-        ELSE
-            siDerived$ = CURRENT_FILENAME$ + ".draw"
+        IF CFG.SAVE_DRAW_SIDECAR% THEN
+            DIM siDerived AS STRING
+            siDerived$ = SAVE_sidecar_path$(CURRENT_FILENAME$)
+            DRW_save siDerived$
+            IF NOT _FILEEXISTS(siDerived$) THEN EXIT SUB
+            CURRENT_DRW_FILENAME$ = siDerived$
+            RECENT_add_file siDerived$
+            CANVAS_DIRTY% = FALSE
+            MODIFIERS_force_release ' clear a dropped modifier key-up (see above)
+            EXIT SUB
         END IF
-        DRW_save siDerived$
-        CURRENT_DRW_FILENAME$ = siDerived$
-        RECENT_add_file siDerived$
-        CANVAS_DIRTY% = FALSE
-        MODIFIERS_force_release ' clear a dropped modifier key-up (see above)
-        EXIT SUB
+        IF SAVE_can_write_format%(CURRENT_FILENAME$) THEN
+            IF SAVE_flat_write%(CURRENT_FILENAME$) THEN CANVAS_DIRTY% = FALSE
+            MODIFIERS_force_release
+            EXIT SUB
+        END IF
+        ' DRAW cannot write this format (PSD, Aseprite, LBM, ANSI...): ask, starting
+        ' beside the original with the same name.
+        siPrefillDir$  = CONFIG_extract_dir$(CURRENT_FILENAME$)
+        siPrefillName$ = SAVE_base_name$(CURRENT_FILENAME$) + ".png"
     END IF
-    
+
     ' No known filename — show save dialog
     DIM filename     AS STRING
     DIM default_path AS STRING
-    
-    ' Use per-operation last dir, then legacy fallbacks
-    IF CFG.LAST_DIR_SAVE$ <> "" THEN
+
+    ' Start beside the original if there is one, else the per-operation last
+    ' dir, then legacy fallbacks
+    IF siPrefillDir$ <> "" THEN
+        default_path$ = siPrefillDir$ + "/"
+    ELSEIF CFG.LAST_DIR_SAVE$ <> "" THEN
         default_path$ = CFG.LAST_DIR_SAVE$ + "/"
     ELSEIF LAST_DIRECTORY$ <> "" THEN
         default_path$ = LAST_DIRECTORY$ + "/"
@@ -194,17 +207,17 @@ SUB SAVE_image ()
     ELSE
         default_path$ = ""
     END IF
-    
+
     ' Keep the current tool across the dialog (it used to switch to TOOL_NULL,
     ' leaving only an arrow until a tool was picked again).
     ' MOUSE_cleanup_after_dialog stops the dismissing click from reaching it.
-    
+
     ' Show save file dialog
     POINTER_hide_for_dialog
-    filename$ = DRAW_save_file$("Save Image", default_path$, "Image files|*.png|*.bmp|*.jpg|*.gif|*.tga|*.hdr|*.ico|*.qoi", 0, "", ".png")
+    filename$ = DRAW_save_file$("Save Image", default_path$, "Image files|*.png|*.bmp|*.jpg|*.gif|*.tga|*.hdr|*.ico|*.qoi", 0, siPrefillName$, ".png")
     POINTER_show_after_dialog
     MOUSE_cleanup_after_dialog TRUE ' Clear buffers and center mouse
-    
+
     ' If user didn't cancel
     IF filename$ <> "" THEN
         ' Update per-operation last directory
@@ -217,7 +230,7 @@ SUB SAVE_image ()
         IF NOT SAVE_has_basename_extension%(filename$) THEN
             filename$ = filename$ + ".png"
         END IF
-        
+
         ' Refuse unwritable targets before building a composite we cannot write
         IF NOT SAVE_target_writable%(filename$) THEN EXIT SUB
 
@@ -237,72 +250,16 @@ SUB SAVE_image ()
         IF LCASE$(RIGHT$(filename$, 4)) = ".png" THEN
             DRW_embed_chunk_in_png filename$
         END IF
-        
-        ' Store current filename for future saves
-        CURRENT_FILENAME$ = filename$
+
+        ' This file is now the document's file (a PNG also carries the layers)
+        SAVE_set_document_file filename$
 
         ' Add to recent files
         RECENT_add_file filename$
-        
-        ' Update .draw project filename if PNG (embeds drAw chunk)
-        IF LCASE$(RIGHT$(filename$, 4)) = ".png" THEN
-            CURRENT_DRW_FILENAME$ = filename$
-        ELSE
-            CURRENT_DRW_FILENAME$ = ""
-        END IF
-        
+
         ' Mark canvas as clean (no unsaved changes)
         CANVAS_DIRTY% = FALSE
     END IF
-END SUB
-
-
-''
-' Quick save - save without prompting if we have a filename
-' This is CTRL-SHIFT-S behavior
-' If no previous save, acts like SAVE_image (shows dialog)
-'
-SUB SAVE_quick ()
-    ' If we have a .draw project filename, save silently as .draw first
-    IF CURRENT_DRW_FILENAME$ <> "" AND CURRENT_FILENAME$ = "" THEN
-        DRW_save CURRENT_DRW_FILENAME$
-        IF _FILEEXISTS(CURRENT_DRW_FILENAME$) THEN
-            CANVAS_DIRTY% = FALSE
-        END IF
-        MODIFIERS_force_release ' clear a dropped modifier key-up after the silent save
-        EXIT SUB
-    END IF
-    
-    ' If we don't have a current image filename, fall back to regular save dialog
-    IF CURRENT_FILENAME$ = "" THEN
-        SAVE_image
-        EXIT SUB
-    END IF
-    
-    ' The path came from an earlier save, but the drive may have gone read-only
-    ' (unplugged card, remounted share) since then — check again, not once.
-    IF NOT SAVE_target_writable%(CURRENT_FILENAME$) THEN EXIT SUB
-
-    ' Flatten all visible layers and save
-    DIM flatImg AS LONG
-    flatImg& = LAYERS_flatten&
-    _LOGINFO "SAVE_quick: flatImg&=" + STR$(flatImg&) + " W=" + STR$(_WIDTH(flatImg&)) + " H=" + STR$(_HEIGHT(flatImg&))
-    _LOGINFO "SAVE_quick: saving to " + CURRENT_FILENAME$
-    _SAVEIMAGE CURRENT_FILENAME$, flatImg&
-    _LOGINFO "SAVE_quick: _SAVEIMAGE completed"
-    IF flatImg& < -1 THEN SAFE_FREEIMAGE flatImg&
-
-    ' Leave the document dirty unless the file is really there
-    IF NOT SAVE_verify_written%(CURRENT_FILENAME$) THEN EXIT SUB
-    
-    ' Embed drAw chunk with project data if saving as PNG
-    IF LCASE$(RIGHT$(CURRENT_FILENAME$, 4)) = ".png" THEN
-        DRW_embed_chunk_in_png CURRENT_FILENAME$
-    END IF
-    
-    ' Mark canvas as clean (no unsaved changes)
-    CANVAS_DIRTY% = FALSE
-    MODIFIERS_force_release ' clear a dropped modifier key-up after the silent save
 END SUB
 
 
@@ -313,7 +270,7 @@ END SUB
 SUB SAVE_as ()
     DIM filename     AS STRING
     DIM default_path AS STRING
-    
+
     ' Use per-operation last dir, then legacy fallbacks
     IF CFG.LAST_DIR_SAVE$ <> "" THEN
         default_path$ = CFG.LAST_DIR_SAVE$ + "/"
@@ -324,17 +281,17 @@ SUB SAVE_as ()
     ELSE
         default_path$ = ""
     END IF
-    
+
     ' Keep the current tool across the dialog (it used to switch to TOOL_NULL,
     ' leaving only an arrow until a tool was picked again).
     ' MOUSE_cleanup_after_dialog stops the dismissing click from reaching it.
-    
+
     ' Show save file dialog (no default filename - fresh save as)
     POINTER_hide_for_dialog
     filename$ = DRAW_save_file$("Save Image As", default_path$, "Image files|*.png|*.bmp|*.jpg|*.gif|*.tga|*.hdr|*.ico|*.qoi", 0, "", ".png")
     POINTER_show_after_dialog
     MOUSE_cleanup_after_dialog TRUE ' Clear buffers and center mouse
-    
+
     ' If user didn't cancel
     IF filename$ <> "" THEN
         ' Update per-operation last directory
@@ -347,7 +304,7 @@ SUB SAVE_as ()
         IF NOT SAVE_has_basename_extension%(filename$) THEN
             filename$ = filename$ + ".png"
         END IF
-        
+
         ' Refuse unwritable targets before building a composite we cannot write
         IF NOT SAVE_target_writable%(filename$) THEN EXIT SUB
 
@@ -361,8 +318,7 @@ SUB SAVE_as ()
             IF NOT SAVE_verify_written%(filename$) THEN EXIT SUB
             ' Mirror the opened-.draw state (see LOAD.BM) so a later Ctrl+S
             ' silent-saves as .draw via SAVE_image's CURRENT_DRW_FILENAME$ check
-            CURRENT_FILENAME$     = filename$
-            CURRENT_DRW_FILENAME$ = filename$
+            SAVE_set_document_file filename$
             RECENT_add_file filename$
             CANVAS_DIRTY% = FALSE
             EXIT SUB
@@ -381,20 +337,13 @@ SUB SAVE_as ()
         IF LCASE$(RIGHT$(filename$, 4)) = ".png" THEN
             DRW_embed_chunk_in_png filename$
         END IF
-        
-        ' Store new filename for future saves
-        CURRENT_FILENAME$ = filename$
+
+        ' This file is now the document's file (a PNG also carries the layers)
+        SAVE_set_document_file filename$
 
         ' Add to recent files
         RECENT_add_file filename$
-        
-        ' Update .draw project filename if PNG (embeds drAw chunk)
-        IF LCASE$(RIGHT$(filename$, 4)) = ".png" THEN
-            CURRENT_DRW_FILENAME$ = filename$
-        ELSE
-            CURRENT_DRW_FILENAME$ = ""
-        END IF
-        
+
         ' Mark canvas as clean (no unsaved changes)
         CANVAS_DIRTY% = FALSE
     END IF
@@ -403,7 +352,7 @@ END SUB
 
 ''
 ' Save the selected marquee region as a cropped image
-' This is CTRL-ALT-SHIFT-S behavior
+' This is CTRL-ALT-S behavior
 '
 SUB SAVE_selection ()
     ' Check if we have an active marquee selection
@@ -414,11 +363,11 @@ SUB SAVE_selection ()
         MOUSE_cleanup_after_dialog TRUE ' Clear buffers and center mouse
         EXIT SUB
     END IF
-    
+
     DIM filename      AS STRING
     DIM default_path  AS STRING
     DIM cropped_image AS LONG
-    
+
     ' Use per-operation last dir, then legacy fallbacks
     IF CFG.LAST_DIR_EXPORT_LAYER$ <> "" THEN
         default_path$ = CFG.LAST_DIR_EXPORT_LAYER$ + "/"
@@ -429,19 +378,19 @@ SUB SAVE_selection ()
     ELSE
         default_path$ = ""
     END IF
-    
+
     ' Save and restore current tool across dialog
     DIM save_sel_prev_tool AS INTEGER
     save_sel_prev_tool% = CURRENT_TOOL%
     CURRENT_TOOL%       = TOOL_NULL
-    
+
     ' Show save file dialog
     POINTER_hide_for_dialog
     filename$ = DRAW_save_file$("Export Selection", default_path$, "Image files|*.png|*.bmp|*.jpg|*.gif|*.tga|*.hdr|*.ico|*.qoi", 0, "", ".png")
     POINTER_show_after_dialog
     MOUSE_cleanup_after_dialog TRUE ' Clear buffers and center mouse
     CURRENT_TOOL% = save_sel_prev_tool%
-    
+
     ' If user didn't cancel
     IF filename$ <> "" THEN
         ' Update per-operation last directory
@@ -454,7 +403,7 @@ SUB SAVE_selection ()
         IF NOT SAVE_has_basename_extension%(filename$) THEN
             filename$ = filename$ + ".png"
         END IF
-        
+
         ' Refuse unwritable targets before compositing the whole canvas twice
         IF NOT SAVE_target_writable%(filename$) THEN EXIT SUB
 
@@ -504,7 +453,7 @@ SUB SAVE_selection ()
             _PUTIMAGE (0, 0)-(MARQUEE.BOX.w - 1, MARQUEE.BOX.h - 1), exportSrc&, cropped_image&, _
                       (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1)
         END IF
-        
+
         ' Save the cropped image
         _SAVEIMAGE filename$, cropped_image&
 
@@ -521,4 +470,183 @@ SUB SAVE_selection ()
         POINTER_show_after_dialog
         MOUSE_cleanup_after_dialog TRUE ' Clear buffers and center mouse
     END IF
+END SUB
+
+
+''
+' Record which file the open document is. Every open and save path goes through
+' here so the two names always agree:
+'   .draw            project file only (Ctrl+S writes it; nothing to flatten to)
+'   .png             both: Ctrl+S writes it with the layers inside, and it is the
+'                    flatten target (Ctrl+Alt+Shift+S)
+'   anything else    image only: Ctrl+S writes a .draw beside it or the file
+'                    itself (CFG.SAVE_DRAW_SIDECAR); flatten writes the file
+'
+' @param filePath STRING full path of the document's file ("" = untitled)
+'
+SUB SAVE_set_document_file (filePath AS STRING)
+    DIM f   AS STRING
+    DIM ext AS STRING
+    f$   = filePath$ ' by-reference param: callers may pass CURRENT_FILENAME$ itself
+    ext$ = LCASE$(SAVE_extension$(f$))
+    IF f$ = "" THEN
+        CURRENT_DRW_FILENAME$ = ""
+        CURRENT_FILENAME$     = ""
+    ELSEIF ext$ = "draw" THEN
+        CURRENT_DRW_FILENAME$ = f$
+        CURRENT_FILENAME$     = ""
+    ELSEIF ext$ = "png" THEN
+        CURRENT_DRW_FILENAME$ = f$
+        CURRENT_FILENAME$     = f$
+    ELSE
+        CURRENT_DRW_FILENAME$ = ""
+        CURRENT_FILENAME$     = f$
+    END IF
+END SUB
+
+
+''
+' Extension of a path's file name, without the dot ("" when there is none).
+'
+FUNCTION SAVE_extension$ (filePath AS STRING)
+    DIM nm  AS STRING
+    DIM dot AS INTEGER
+    nm$  = RECENT_extract_filename$(filePath$)
+    dot% = _INSTRREV(nm$, ".")
+    IF dot% > 1 THEN SAVE_extension$ = MID$(nm$, dot% + 1) ELSE SAVE_extension$ = ""
+END FUNCTION
+
+
+''
+' File name without folder or extension ("art" for "/pics/art.gif").
+'
+FUNCTION SAVE_base_name$ (filePath AS STRING)
+    DIM nm  AS STRING
+    DIM dot AS INTEGER
+    nm$  = RECENT_extract_filename$(filePath$)
+    dot% = _INSTRREV(nm$, ".")
+    IF dot% > 1 THEN SAVE_base_name$ = LEFT$(nm$, dot% - 1) ELSE SAVE_base_name$ = nm$
+END FUNCTION
+
+
+''
+' The .draw that sits beside an image ("/pics/art.gif" -> "/pics/art.draw").
+'
+FUNCTION SAVE_sidecar_path$ (filePath AS STRING)
+    DIM dir AS STRING
+    dir$ = CONFIG_extract_dir$(filePath$)
+    IF dir$ <> "" THEN dir$ = dir$ + "/"
+    SAVE_sidecar_path$ = dir$ + SAVE_base_name$(filePath$) + ".draw"
+END FUNCTION
+
+
+''
+' TRUE when _SAVEIMAGE can write this file's format (picked by extension).
+'
+FUNCTION SAVE_can_write_format% (filePath AS STRING)
+    SELECT CASE LCASE$(SAVE_extension$(filePath$))
+        CASE "png", "bmp", "jpg", "jpeg", "gif", "tga", "hdr", "ico", "qoi"
+            SAVE_can_write_format% = TRUE
+        CASE ELSE
+            SAVE_can_write_format% = FALSE
+    END SELECT
+END FUNCTION
+
+
+''
+' Write the flattened image (all visible layers merged) to a file, in the format
+' its extension names. Plain image only: no drAw chunk, no .draw beside it.
+'
+' @param filePath STRING full path to write
+' @return TRUE when the file was written
+'
+FUNCTION SAVE_flat_write% (filePath AS STRING)
+    DIM f       AS STRING
+    DIM flatImg AS LONG
+    SAVE_flat_write% = FALSE
+    f$ = filePath$
+    IF NOT SAVE_target_writable%(f$) THEN EXIT FUNCTION
+    flatImg& = LAYERS_flatten&
+    _LOGINFO "SAVE_flat_write: " + f$
+    _SAVEIMAGE f$, flatImg&
+    IF flatImg& < -1 THEN SAFE_FREEIMAGE flatImg&
+    IF NOT SAVE_verify_written%(f$) THEN EXIT FUNCTION
+    STATUS_flash "Saved " + RECENT_extract_filename$(f$) + " (flattened)"
+    SAVE_flat_write% = TRUE
+END FUNCTION
+
+
+''
+' Ctrl+Alt+Shift+S - Flatten & Save: write the merged image back to the
+' document's own image file, in its own format, with no .draw beside it and no
+' layers inside it. The file is the one the document was opened from or last
+' saved as. Untitled documents, .draw projects and formats DRAW cannot write
+' (PSD, Aseprite...) ask for a name instead, and later saves reuse it.
+'
+SUB SAVE_flattened ()
+    DIM target       AS STRING
+    DIM startDir     AS STRING
+    DIM prefill      AS STRING
+    DIM filename     AS STRING
+    DIM default_path AS STRING
+    DIM projectFile  AS STRING
+
+    ' Bake any live paste/move float into the layer first (as SAVE_image does)
+    IF MOVE.ACTIVE THEN MOVE_reset
+
+    IF CURRENT_FILENAME$ <> "" _ANDALSO SAVE_can_write_format%(CURRENT_FILENAME$) THEN
+        target$ = CURRENT_FILENAME$
+    END IF
+
+    IF target$ <> "" THEN
+        ' Write in place. The document stays "unsaved" while a .draw project
+        ' attached to it is older than what is on screen.
+        IF SAVE_flat_write%(target$) THEN
+            IF CURRENT_DRW_FILENAME$ = "" _ORELSE CURRENT_DRW_FILENAME$ = target$ THEN CANVAS_DIRTY% = FALSE
+        END IF
+        MODIFIERS_force_release
+        EXIT SUB
+    END IF
+
+    ' No image file to write back to: ask, starting beside the document's file
+    projectFile$ = CURRENT_FILENAME$
+    IF projectFile$ = "" THEN projectFile$ = CURRENT_DRW_FILENAME$
+    IF projectFile$ <> "" THEN
+        startDir$ = CONFIG_extract_dir$(projectFile$)
+        prefill$  = SAVE_base_name$(projectFile$) + ".png"
+    END IF
+    IF startDir$ <> "" THEN
+        default_path$ = startDir$ + "/"
+    ELSEIF CFG.LAST_DIR_SAVE$ <> "" THEN
+        default_path$ = CFG.LAST_DIR_SAVE$ + "/"
+    ELSEIF CFG.DEFAULT_SAVE_DIR$ <> "" THEN
+        default_path$ = CFG.DEFAULT_SAVE_DIR$ + "/"
+    END IF
+
+    POINTER_hide_for_dialog
+    filename$ = DRAW_save_file$("Flatten & Save", default_path$, "Image files|*.png|*.bmp|*.jpg|*.gif|*.tga|*.hdr|*.ico|*.qoi", 0, prefill$, ".png")
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+    IF filename$ = "" THEN EXIT SUB
+
+    filename$ = SAVE_trim_trailing_dots_spaces$(filename$)
+    IF NOT SAVE_has_basename_extension%(filename$) THEN filename$ = filename$ + ".png"
+    IF NOT SAVE_can_write_format%(filename$) THEN
+        DRAW_alert "Flatten & Save", "DRAW cannot write ." + SAVE_extension$(filename$) + " files. Use PNG, BMP, JPG, GIF, TGA, HDR, ICO or QOI."
+        EXIT SUB
+    END IF
+    CFG.LAST_DIR_SAVE$ = CONFIG_extract_dir$(filename$)
+    LAST_DIRECTORY$    = CFG.LAST_DIR_SAVE$
+    CONFIG_save
+
+    IF NOT SAVE_flat_write%(filename$) THEN EXIT SUB
+    ' Keep a .draw project attached (it is still the Ctrl+S target); otherwise
+    ' this image becomes the document's file.
+    IF LCASE$(SAVE_extension$(CURRENT_DRW_FILENAME$)) = "draw" THEN
+        CURRENT_FILENAME$ = filename$
+    ELSE
+        SAVE_set_document_file filename$
+        CANVAS_DIRTY% = FALSE
+    END IF
+    RECENT_add_file filename$
 END SUB

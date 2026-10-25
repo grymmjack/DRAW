@@ -556,16 +556,14 @@ DO
             ANS_load_file CMDLINE_PENDING_FILE$
             SOUND_play SND_NEW_FILE
             RECENT_add_file CMDLINE_PENDING_FILE$
-            CURRENT_FILENAME$ = CMDLINE_PENDING_FILE$
+            SAVE_set_document_file CMDLINE_PENDING_FILE$
         ELSE
             ' .draw projects and raster images both go through DRW_load (direct load).
             DRW_load CMDLINE_PENDING_FILE$
             SOUND_play SND_NEW_FILE
             RECENT_add_file CMDLINE_PENDING_FILE$
-            CURRENT_FILENAME$ = CMDLINE_PENDING_FILE$
-            IF LCASE$(RIGHT$(CMDLINE_PENDING_FILE$, 5)) = ".draw" THEN
-                CURRENT_DRW_FILENAME$ = CMDLINE_PENDING_FILE$
-            END IF
+            ' art.png saves back into art.png; art.gif per SAVE_DRAW_SIDECAR
+            SAVE_set_document_file CMDLINE_PENDING_FILE$
         END IF
         CANVAS_DIRTY%         = FALSE
         CMDLINE_PENDING_FILE$ = ""                                        ' Clear after loading

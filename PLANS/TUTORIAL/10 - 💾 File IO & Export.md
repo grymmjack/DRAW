@@ -26,7 +26,9 @@
   
 - Save As (Ctrl+Shift+S) — prompt new name
   
-- Export Selection (Ctrl+Alt+Shift+S)
+- Flatten & Save (Ctrl+Alt+Shift+S) — same file, same format, no .draw
+  
+- Export Selection (Ctrl+Alt+S)
   
 - Export Layer as PNG
   

@@ -517,6 +517,7 @@ TYPE DRAW_CONFIG
     CAPTURE_HIDE_DRAW               AS INTEGER        ' TRUE = hide DRAW's window during the grab
     CAPTURE_WORKSPACE               AS STRING         ' Workspace to switch to after a capture ("" = stay)
     CAPTURE_SAVE_DIR                AS STRING         ' Where Ctrl+S quick-saves captures ("" = Pictures/DRAW Screenshots)
+    SAVE_DRAW_SIDECAR               AS INTEGER        ' Ctrl+S on a non-DRAW image (GIF/BMP/JPG...): TRUE = save layers to a .draw beside it, FALSE = overwrite the image itself (flattened)
     TOOLTIPS_DISABLED               AS INTEGER        ' TRUE = hide toolbar tooltips entirely
     ' Text tool default font settings
     FONT_DEFAULT_FONT               AS STRING         ' Default font name for text tool (empty = use Tiny5 Regular)

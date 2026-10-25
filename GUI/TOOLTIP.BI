@@ -110,7 +110,7 @@ TOOLTIP_LINE1$(21) = "r - RECTANGLE - Create rectangle shapes on the canvas."
 TOOLTIP_LINE2$(21) = "DRAW rectangle. L-CLICK FG color. R-CLICK BG color. CTRL+SHIFT snap."
 TOOLTIP_LINE1$(22) = "SHIFT+r - FILLED RECTANGLE - Create filled rectangle shapes on the canvas."
 TOOLTIP_LINE2$(22) = "DRAW filled rectangle. L-CLICK FG color. R-CLICK BG color. CTRL+SHIFT snap."
-TOOLTIP_LINE1$(23) = "CTRL+SHIFT+ALT+s - EXPORT SELECTION."
+TOOLTIP_LINE1$(23) = "CTRL+ALT+s - EXPORT SELECTION."
 TOOLTIP_LINE2$(23) = "Saves the selected area to disk."
 
 ' Row 6: SMART SHAPES, ELLIPSE, ELLIPSE FILLED, OPEN
