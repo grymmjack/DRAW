@@ -23,16 +23,16 @@ info "Holding Shift and moving to canvas center"
 draw_focus
 local ax ay 2>/dev/null
 read -r ax ay <<< "$(_abs $CANVAS_CX $CANVAS_CY)"
-xdotool keydown shift
+raw_key down shift
 sleep 0.1
-xdotool mousemove "$ax" "$ay"
+raw_move "$ax" "$ay"
 sleep 0.6  # Give DRAW time to render crosshair
 
 # -- Snap while shift held and mouse on canvas --
 # DON'T park_mouse — cursor must stay on canvas for crosshair to render
 snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "cross-shift-held"
 WITH_SHIFT="$SNAP_RESULT"
-xdotool keyup shift
+raw_key up shift
 wait_for 0.3 "Shift released"
 assert_no_crash
 

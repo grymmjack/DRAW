@@ -1,6 +1,6 @@
 ---
 name: feedback-no-error-dialogs
-description: EVERY QB64-PE program I build for Rick — DRAW and every throwaway probe/tool/test alike — MUST install its own ON ERROR handler so a runtime error NEVER pops QB64's default blocking "Continue?" dialog. No exceptions, ever.
+description: PERMANENT, NEVER BREAK - no error may ever surface as a dialog. Every QB64-PE program (DRAW, probes, tools, tests) traps its own errors (ON ERROR), AND failures BASIC can't trap (QB64-PE runtime alerts like "Failed to initialize window") are prevented by guarding BEFORE the failing call. Also never cause them (don't kill a display / process a run still uses).
 metadata:
   type: feedback
 ---
@@ -37,3 +37,20 @@ the handler is mandatory. Also **bound risky calls** so they don't error in the 
 
 Related standing prefs: [[feedback-zero-warnings-build]], [[feedback-dry-reuse-libs]].
 DRAW's own protection is `FatalError` + `DRAW_HEADLESS`/`--developer` non-blocking banner.
+
+**[Linux] Rick, 2026-10-11 - "make this a permanent thing - never not catch the errors, never."**
+A QB64-PE *runtime* alert ("Failed to initialize window", libqb `main-thread-gui.cpp`
+`gui_alert` -> exit) popped on his desktop. Cause: I killed a regression run's Xvfb (`:99`)
+while its runner was still launching DRAW there; DRAW's no-display guard only checked that
+`$DISPLAY` was *set*. `ON ERROR` can't catch this (C++ GUI thread, not a BASIC error), so:
+
+- **Untrappable failures are prevented, not caught:** guard before the call that fails. DRAW's
+  guard (OUTPUT/SCREEN.BM `SCREEN_init`) now really connects to X (`gj_x11_display_reachable&`,
+  native/display_probe.h, dlopen libX11) and takes the clean exit (log + console, `SYSTEM 3`).
+  Verify such a fix with the session bus / Wayland vars unset (`env -u DBUS_SESSION_BUS_ADDRESS
+  -u WAYLAND_DISPLAY -u XDG_RUNTIME_DIR DISPLAY=:98 ...`) so a miss can't reach his desktop.
+- **Don't create the failure:** to stop a QA run, kill the runner (its process tree) FIRST and
+  let it finish its own teardown; never kill its Xvfb / display out from under live launches.
+- **Isolate first:** prove a native helper / risky call in a standalone `DEV/EXPERIMENTS/*.bas`
+  (with `ON ERROR`) before wiring it into DRAW (see [[feedback_isolated_tests_first]]).
+

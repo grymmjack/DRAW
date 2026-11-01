@@ -28,7 +28,7 @@ assert_no_crash
 
 # -- Move mouse over canvas to trigger loupe --
 info "Move mouse over canvas (loupe should appear)"
-xdotool mousemove --window "$DRAW_WID" $CANVAS_CX $CANVAS_CY
+raw_move_in_window $CANVAS_CX $CANVAS_CY
 wait_for 0.5 "Loupe should be visible"
 assert_no_crash
 
@@ -37,7 +37,7 @@ LOUPE_ACTIVE="$SNAP_RESULT"
 screenshot "loupe-active"
 
 # -- Move to different position --
-xdotool mousemove --window "$DRAW_WID" $(( CANVAS_CX + 30 )) $(( CANVAS_CY - 10 ))
+raw_move_in_window $(( CANVAS_CX + 30 )) $(( CANVAS_CY - 10 ))
 wait_for 0.3 "Loupe follows mouse"
 assert_no_crash
 

@@ -190,6 +190,10 @@ SUB CUSTOM_BRUSH_capture_from_marquee ()
     
     _SOURCE LAYER_current_image& ' Use current layer, not SCRN.PAINTING
     _DEST CUSTOM_BRUSH.IMAGE&
+    ' APRON (gotcha #14): the selection is in canvas coords; a promoted layer's
+    ' buffer pixel is (x + capAW, y + capAH)
+    DIM capAW AS INTEGER, capAH AS INTEGER
+    SELECTION_layer_apron LAYER_current_image&, capAW%, capAH%
     
     ' Clear brush image with full transparency first
     CLS , _RGBA32(0, 0, 0, 0)
@@ -214,7 +218,7 @@ SUB CUSTOM_BRUSH_capture_from_marquee ()
             IF NOT SELECTION_is_point_inside%(sel_x% + px%, sel_y% + py%) THEN
                 ' Outside selection mask — leave transparent
             ELSE
-                pixel_color~& = POINT(sel_x% + px%, sel_y% + py%)
+                pixel_color~& = POINT(sel_x% + px% + capAW%, sel_y% + py% + capAH%)
 
                 ' Extract RGBA components
                 pixel_r%     = _RED32(pixel_color~&)
@@ -272,6 +276,13 @@ SUB CUSTOM_BRUSH_render (x AS INTEGER, y AS INTEGER, dest AS LONG)
     ' Enable blending on destination for proper alpha transparency
     _BLEND dest&
     _DEST dest&
+
+    ' (x,y) are CANVAS coords; when dest is an apron-promoted layer buffer the pixel
+    ' is (x + apronW, y + apronH) - gotcha #14. Locals: x / y are by-reference (#13).
+    DIM rx AS INTEGER, ry AS INTEGER, rAW AS INTEGER, rAH AS INTEGER
+    SELECTION_layer_apron dest&, rAW%, rAH%
+    rx% = x% + rAW%
+    ry% = y% + rAH%
     
     ' Calculate source coordinates based on flip flags
     DIM src_x1 AS INTEGER, src_y1 AS INTEGER
@@ -319,7 +330,7 @@ SUB CUSTOM_BRUSH_render (x AS INTEGER, y AS INTEGER, dest AS LONG)
                 END IF
                 epixel~& = POINT(esrc_px%, esrc_py%)
                 IF _ALPHA32(epixel~&) > 0 THEN
-                    PSET (x% + epx%, y% + epy%), _RGBA32(0, 0, 0, 0)
+                    PSET (rx% + epx%, ry% + epy%), _RGBA32(0, 0, 0, 0)
                 END IF
             NEXT epx%
         NEXT epy%
@@ -361,17 +372,17 @@ SUB CUSTOM_BRUSH_render (x AS INTEGER, y AS INTEGER, dest AS LONG)
                 IF alpha_value% > 0 THEN
                     IF cbfBrush% THEN
                         ' Color bitmap font: preserve original glyph colors
-                        PSET (x% + px%, y% + py%), pixel_color~&
+                        PSET (rx% + px%, ry% + py%), pixel_color~&
                     ELSE
                         ' Regular font: recolor to FG paint color
-                        PSET (x% + px%, y% + py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
+                        PSET (rx% + px%, ry% + py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
                     END IF
                 END IF
             NEXT px%
         NEXT py%
     ELSE
         ' Use _PUTIMAGE to render with transparency support and scaling
-        _PUTIMAGE (x%, y%)-(x% + dest_w% - 1, y% + dest_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+        _PUTIMAGE (rx%, ry%)-(rx% + dest_w% - 1, ry% + dest_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
     END IF
     
     _SOURCE old_source&
@@ -1031,6 +1042,9 @@ SUB CUSTOM_BRUSH_fill_rect (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS I
         old_source& = _SOURCE
         _SOURCE CUSTOM_BRUSH.IMAGE&
         _DEST LAYER_current_image&
+        ' APRON (gotcha #14): px / py are canvas coords; a promoted buffer is +apron
+        DIM cbfAW AS INTEGER, cbfAH AS INTEGER
+        SELECTION_layer_apron LAYER_current_image&, cbfAW%, cbfAH%
 
         FOR py% = minY% TO maxY%
             FOR px% = minX% TO maxX%
@@ -1066,12 +1080,12 @@ SUB CUSTOM_BRUSH_fill_rect (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS I
 
                 IF PAL_FG_IS_TRANSPARENT% THEN
                     _DONTBLEND LAYER_current_image&
-                    PSET (px%, py%), _RGBA32(0, 0, 0, 0)
+                    PSET (px% + cbfAW%, py% + cbfAH%), _RGBA32(0, 0, 0, 0)
                     _BLEND LAYER_current_image&
                 ELSEIF CUSTOM_BRUSH.RECOLOR_MODE% THEN
-                    PSET (px%, py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
+                    PSET (px% + cbfAW%, py% + cbfAH%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
                 ELSE
-                    PSET (px%, py%), pixel_color~&
+                    PSET (px% + cbfAW%, py% + cbfAH%), pixel_color~&
                 END IF
             NEXT px%
         NEXT py%
@@ -1134,6 +1148,9 @@ SUB CUSTOM_BRUSH_fill_ellipse (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS
     old_source& = _SOURCE
     _SOURCE CUSTOM_BRUSH.IMAGE&
     _DEST LAYER_current_image&
+    ' APRON (gotcha #14): px / py are canvas coords; a promoted buffer is +apron
+    DIM cbfAW AS INTEGER, cbfAH AS INTEGER
+    SELECTION_layer_apron LAYER_current_image&, cbfAW%, cbfAH%
 
     ' Per-pixel tiled rendering with ellipse masking
     FOR py% = minY% TO maxY%
@@ -1184,12 +1201,12 @@ SUB CUSTOM_BRUSH_fill_ellipse (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS
             ' Eraser mode
             IF PAL_FG_IS_TRANSPARENT% THEN
                 _DONTBLEND LAYER_current_image&
-                PSET (px%, py%), _RGBA32(0, 0, 0, 0)
+                PSET (px% + cbfAW%, py% + cbfAH%), _RGBA32(0, 0, 0, 0)
                 _BLEND LAYER_current_image&
             ELSEIF CUSTOM_BRUSH.RECOLOR_MODE% THEN
-                PSET (px%, py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
+                PSET (px% + cbfAW%, py% + cbfAH%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
             ELSE
-                PSET (px%, py%), pixel_color~&
+                PSET (px% + cbfAW%, py% + cbfAH%), pixel_color~&
             END IF
         NEXT px%
     NEXT py%
@@ -1251,6 +1268,9 @@ SUB CUSTOM_BRUSH_fill_polygon (x_coords%(), y_coords%(), num_points AS INTEGER)
     old_source& = _SOURCE
     _SOURCE CUSTOM_BRUSH.IMAGE&
     _DEST LAYER_current_image&
+    ' APRON (gotcha #14): px / py are canvas coords; a promoted buffer is +apron
+    DIM cbfAW AS INTEGER, cbfAH AS INTEGER
+    SELECTION_layer_apron LAYER_current_image&, cbfAW%, cbfAH%
 
     ' Per-pixel tiled rendering with polygon masking (scanline approach)
     FOR py% = minY% TO maxY%
@@ -1327,12 +1347,12 @@ SUB CUSTOM_BRUSH_fill_polygon (x_coords%(), y_coords%(), num_points AS INTEGER)
                     ' Eraser mode
                     IF PAL_FG_IS_TRANSPARENT% THEN
                         _DONTBLEND LAYER_current_image&
-                        PSET (px%, py%), _RGBA32(0, 0, 0, 0)
+                        PSET (px% + cbfAW%, py% + cbfAH%), _RGBA32(0, 0, 0, 0)
                         _BLEND LAYER_current_image&
                     ELSEIF CUSTOM_BRUSH.RECOLOR_MODE% THEN
-                        PSET (px%, py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
+                        PSET (px% + cbfAW%, py% + cbfAH%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
                     ELSE
-                        PSET (px%, py%), pixel_color~&
+                        PSET (px% + cbfAW%, py% + cbfAH%), pixel_color~&
                     END IF
                 NEXT px%
             NEXT pair%

@@ -630,30 +630,20 @@ SUB SCREEN_init ()
     ' Load configuration from disk
     CONFIG_load
 
-    ' [Windows] Become DPI-aware BEFORE the first SCREEN_desktop_w& query or window
-    ' creation, so the rest of SCREEN_init sees true physical pixels. Guarded by
-    ' CFG.HIDPI_AWARE% so it can be disabled from config if it ever misbehaves.
-    ' Linux/macOS already report usable pixels, so there is no equivalent call.
-    $IF WIN THEN
-        IF CFG.HIDPI_AWARE% THEN
-            DIM dpiAwareOK AS LONG
-            dpiAwareOK& = DRAW_SetProcessDPIAware&
-            ' QB64-PE folds the monitor content scale into _DESKTOPWIDTH on Windows
-            ' (doubling it at 200%). Recover that factor from the system DPI so
-            ' SCREEN_desktop_w&/h& report TRUE physical pixels for all sizing math.
-            DIM sysDpi     AS _UNSIGNED LONG
-            sysDpi~& = DRAW_GetDpiForSystem~&
-            IF sysDpi~& >= 96 THEN SCREEN_DPI_DIVISOR! = sysDpi~& / 96.0
-            _LOGINFO "SCREEN_init: SetProcessDPIAware -> " + _TRIM$(STR$(dpiAwareOK&)) + " dpi=" + _TRIM$(STR$(sysDpi~&)) + " divisor=" + _TRIM$(STR$(SCREEN_DPI_DIVISOR!)) + " raw=" + _TRIM$(STR$(_DESKTOPWIDTH)) + "x" + _TRIM$(STR$(_DESKTOPHEIGHT)) + " true=" + _TRIM$(STR$(SCREEN_desktop_w&)) + "x" + _TRIM$(STR$(SCREEN_desktop_h&))
-        END IF
-    $END IF
+    ' [Windows] No DPI handling of DRAW's own (removed 2026-10-10). Up to QB64-PE
+    ' v4.7.0-GLFW, _DESKTOPWIDTH came back multiplied by the monitor content scale and
+    ' windows opened shrunk by it, so DRAW made the process DPI-aware and divided the
+    ' desktop by the system DPI. QB64-PE #786 (main, 2026-10-10) reports the desktop and
+    ' sizes $RESIZE:ON windows in true pixels, and GLFW sets DPI awareness itself - the
+    ' old divisor would now shrink a 3840-wide desktop to 1536. CFG.HIDPI_AWARE% is
+    ' still read from old configs but no longer does anything.
 
     ' [Linux] Optional: detect the desktop's display-scale (KDE/Qt/GTK) and fold it into
     ' the SAME true-pixel divisor Windows uses, so a fractionally-scaled desktop (e.g.
     ' Kubuntu 150%) sizes DRAW's UI correctly instead of off the raw physical resolution.
     ' Opt-in (CFG.LINUX_HIDPI_SCALE%, default off) since the X server reports full physical
     ' pixels and the correct fix depends on the session; the detected value is always logged.
-    ' Runs before the first SCREEN_desktop_w& query, matching the Windows block above.
+    ' Runs before the first SCREEN_desktop_w& query.
     ' ($IF LINUX is also true on macOS, but the flag defaults off and detection returns 1.0
     ' there — Retina is already handled — so this is a no-op on mac.)
     $IF LINUX THEN
@@ -689,6 +679,15 @@ SUB SCREEN_init ()
         $IF MAC THEN
         $ELSE
             IF _TRIM$(ENVIRON$("DISPLAY")) = "" AND _TRIM$(ENVIRON$("WAYLAND_DISPLAY")) = "" THEN hdNoDisplay% = TRUE
+            ' A DISPLAY that names a dead X server (a killed Xvfb, a closed
+            ' session) passes the check above but still fails WindowCreate and
+            ' pops the untrappable alert: connect for real first (X11 sessions)
+            IF hdNoDisplay% = 0 _ANDALSO _TRIM$(ENVIRON$("WAYLAND_DISPLAY")) = "" THEN
+                IF gj_x11_display_reachable& = 0 THEN
+                    hdNoDisplay% = TRUE
+                    _LOGERROR "DRAW: DISPLAY=" + ENVIRON$("DISPLAY") + " does not answer (X server gone?)"
+                END IF
+            END IF
         $END IF
     $END IF
     IF _TRIM$(ENVIRON$("DRAW_HEADLESS")) <> "" THEN hdNoDisplay% = TRUE
@@ -2705,13 +2704,21 @@ END SUB
 ' Space, Pen, Customize Toolbars, the Browser on top. A window docked in a
 ' slot that shows nothing this frame is skipped (DOCK_native_off%).
 SUB SCREEN_render_windows ()
-    IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% _ANDALSO DOCK_native_off%(DP_PREVIEW) = 0 THEN PREVIEW_render
-    IF DOCK_native_off%(DP_MIXER) = 0 THEN COLORMIXER_render
-    IF DOCK_native_off%(DP_ADVCP) = 0 THEN ADVCP_render
-    IF DOCK_native_off%(DP_CS3D) = 0 THEN CS3D_render
-    IF DOCK_native_off%(DP_PEN) = 0 THEN PENP_render
-    TBED_render
-    IF DOCK_native_off%(DP_BROWSER) = 0 THEN BROWSER_render
+    ' docked windows first, then the floating ones over them (Rick: the docked
+    ' Browser band covered the Customize Toolbars buttons) - the same order
+    ' the clicks resolve in (ZORDER_DOCKED_WINDOW < ZORDER_FLOATING)
+    DIM floatPass AS INTEGER ' 0 = the docked ones, 1 = the floating ones (compare as -1/0 booleans)
+    FOR floatPass = 0 TO 1
+        IF (PREVIEW.docked% <> 0) = (floatPass = 0) THEN
+            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% _ANDALSO DOCK_native_off%(DP_PREVIEW) = 0 THEN PREVIEW_render
+        END IF
+        IF (COLORMIXER.docked% <> 0) = (floatPass = 0) _ANDALSO DOCK_native_off%(DP_MIXER) = 0 THEN COLORMIXER_render
+        IF (ADVCP.docked% <> 0) = (floatPass = 0) _ANDALSO DOCK_native_off%(DP_ADVCP) = 0 THEN ADVCP_render
+        IF (CS3D.docked% <> 0) = (floatPass = 0) _ANDALSO DOCK_native_off%(DP_CS3D) = 0 THEN CS3D_render
+        IF (PENP.docked% <> 0) = (floatPass = 0) _ANDALSO DOCK_native_off%(DP_PEN) = 0 THEN PENP_render
+        IF (BROWSER.docked% <> 0) = (floatPass = 0) _ANDALSO DOCK_native_off%(DP_BROWSER) = 0 THEN BROWSER_render
+    NEXT floatPass
+    TBED_render ' always floating: last, on top
 END SUB
 
 

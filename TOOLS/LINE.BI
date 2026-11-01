@@ -27,6 +27,11 @@ TYPE LINE_TYPE
 END TYPE
 
 DIM SHARED LINE_TOOL AS LINE_TYPE
+' Buffer offset for LINE_draw_clipped / LINE_draw_resolved pixel writes: the
+' current layer's apron (gotcha #14) while a line is committed to it, 0 for
+' previews drawn in canvas coordinates. Selection / opacity tests stay in canvas
+' coordinates. Set and cleared by the commit (MOUSE_release_line).
+DIM SHARED LINE_OX AS INTEGER, LINE_OY AS INTEGER
 LINE_TOOL.DRAGGING  = FALSE
 LINE_TOOL.START_X   = 0
 LINE_TOOL.START_Y   = 0

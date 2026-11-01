@@ -220,11 +220,13 @@ END IF
 TYPE DRAW_CONFIG
     THEME                           AS STRING         ' Active theme directory name (e.g. "DEFAULT")
     WORKSPACE                       AS STRING         ' Last workspace id (CFG/WORKSPACE); DRAW reopens in it. "default" = no overlay
-    STOCK_DEFAULT_LAYOUT            AS INTEGER        ' TRUE = Default keeps the stock panel layout: moving / docking / resizing panels there asks for a workspace name
+    STOCK_DEFAULT_LAYOUT            AS INTEGER        ' TRUE = Default keeps the stock panel layout: moving / docking / resizing panels there goes into the CURRENT workspace
+    WORKSPACE_SAVE_PROMPT           AS INTEGER        ' TRUE = on exit in a modified CURRENT workspace, offer to save it under a name
     FULLSCREEN                      AS INTEGER        ' TRUE = fullscreen, FALSE = windowed
     SPLASH_ENABLED                  AS INTEGER        ' TRUE = show splash screen on startup (default TRUE)
     UI_SCALE                        AS INTEGER        ' MASTER scale (0 = auto, 1-8). Drives DISPLAY_SCALE + TOOLBAR_SCALE; dialog/browser scales derive from it.
-    HIDPI_AWARE                     AS INTEGER        ' [Windows] TRUE = mark process DPI-aware so the display reports true pixels (crisp). No effect on Linux/macOS.
+    HIDPI_AWARE                     AS INTEGER        ' OBSOLETE (QB64-PE #786 handles DPI): read from old configs, ignored
+    LAYOUT_LOCKED                   AS INTEGER        ' TRUE = panels / floating windows cannot be dragged or resized (View > Lock Layout, Ctrl+Shift+L)
     LINUX_HIDPI_SCALE               AS INTEGER        ' [Linux] TRUE = auto-detect the desktop's display-scale (KDE Xft.dpi / Qt/GDK scale) and apply it so a fractional-scaled (e.g. Kubuntu 150%) display sizes DRAW's UI correctly. Default FALSE (opt-in; no effect at 100% or on Windows/macOS).
     DISPLAY_SCALE                   AS INTEGER        ' 0 = auto-detect, 1-8 = explicit scale (canvas magnification)
     DISPLAY_SCALE_MAX               AS INTEGER        ' Maximum allowed scale (default 8)

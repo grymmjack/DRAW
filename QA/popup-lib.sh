@@ -20,7 +20,7 @@ popup_rect() {
     read -r _ PK PX PY PW PH <<< "$line"
 }
 # a snapped image has one color only
-one_color() { [[ "$(magick "$1" -format '%k' info: 2>/dev/null)" == "1" ]]; }
+one_color() { [[ "$(identify -format '%k' "$1" 2>/dev/null)" == "1" ]]; }
 
 # hover a point of the canvas area that is inside no window and no docked
 # panel (a hover / tooltip there would change what the snaps compare)

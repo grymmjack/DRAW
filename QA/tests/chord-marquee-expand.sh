@@ -11,13 +11,13 @@ chord() {
     local init=$1 secondary=$2
     draw_focus
     dbg "chord $init+$secondary"
-    xdotool keydown "$init"
+    raw_key down "$init"
     sleep 0.15
-    xdotool keydown "$secondary"
+    raw_key down "$secondary"
     sleep 0.20
-    xdotool keyup "$secondary"
+    raw_key up "$secondary"
     sleep 0.05
-    xdotool keyup "$init"
+    raw_key up "$init"
     sleep 0.15
 }
 
@@ -26,17 +26,17 @@ chord_shift() {
     local init=$1 secondary=$2
     draw_focus
     dbg "chord $init+shift+$secondary"
-    xdotool keydown "$init"
+    raw_key down "$init"
     sleep 0.15
-    xdotool keydown shift
+    raw_key down shift
     sleep 0.10
-    xdotool keydown "$secondary"
+    raw_key down "$secondary"
     sleep 0.20
-    xdotool keyup "$secondary"
+    raw_key up "$secondary"
     sleep 0.05
-    xdotool keyup shift
+    raw_key up shift
     sleep 0.05
-    xdotool keyup "$init"
+    raw_key up "$init"
     sleep 0.15
 }
 

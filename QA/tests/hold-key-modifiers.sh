@@ -34,17 +34,17 @@ draw_focus
 local hax hay hbx hby
 read -r hax hay <<< "$(_abs $(( CANVAS_CX - 20 )) "$CANVAS_CY")"
 read -r hbx hby <<< "$(_abs $(( CANVAS_CX + 20 )) "$CANVAS_CY")"
-xdotool keydown e
+raw_key down e
 sleep 0.25   # let KEYBOARD_handle_eraser_hold register the held-E state
-xdotool mousemove "$hax" "$hay"
+raw_move "$hax" "$hay"
 sleep 0.1
-xdotool mousedown 1
+raw_button down 1
 sleep 0.1
-xdotool mousemove "$hbx" "$hby"
+raw_move "$hbx" "$hby"
 sleep 0.2
-xdotool mouseup 1
+raw_button up 1
 sleep 0.15
-xdotool keyup e
+raw_key up e
 sleep 0.3   # let tool revert from eraser back to brush
 
 park_mouse

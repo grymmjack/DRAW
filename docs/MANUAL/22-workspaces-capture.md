@@ -64,7 +64,7 @@ The pointer turns into a ↔ arrow over the edge. The panel snaps as you drag:
 
 When you let go, the new size is saved:
 - **In a workspace:** into that workspace. A built-in gets your own copy, which **RESET** in the configurator removes.
-- **In Default:** DRAW asks for a name and makes a workspace based on Default that keeps it, then switches to it. Default itself keeps the stock layout. **Cancel** puts it back.
+- **In Default:** DRAW switches to the **Current** workspace and keeps it there (see [The Current workspace](#the-current-workspace)). Default itself keeps the stock layout.
 
 Everything in the toolbox column follows its width:
 - **Toolbox buttons:** more columns are added when the buttons don't fit the window height. A 1-column toolbox of 28 tools in a short window becomes 2 columns.
@@ -123,12 +123,36 @@ where each panel's side follows View → Layout and `Ctrl+Shift+Click`.
 
 Arrangements save like widths: into the active workspace (a built-in gets your
 copy). **Default always keeps the stock layout**: the first time you move, dock,
-float or resize a panel there, DRAW asks for a name and saves the layout into a
-new workspace based on Default, then switches to it (**Cancel** puts the stock
-layout back). Switching tabs or collapsing a slot in Default is not saved.
+float or resize a panel there, DRAW keeps the layout in the **Current** workspace
+and switches to it - nothing to name (see
+[The Current workspace](#the-current-workspace)). Switching tabs or collapsing a
+slot in Default is not saved.
 Set `STOCK_DEFAULT_LAYOUT=0` in `DRAW.cfg` to have Default keep your changes
 (`DOCK_*` keys) instead. In a workspace file arrangements are the `[DOCK]` and
 `[FLOAT]` sections (see [Workspace files](#workspace-files)).
+
+### The Current workspace
+
+**Current** is always listed right under **Default** in **View → Workspace ▸**
+and the switcher. It is where changes made in Default go: move, dock, float or
+resize a panel, change a column count or customize the toolbars while in Default,
+and DRAW switches to Current with the change in it. Default itself never changes,
+so you can always go back to the stock layout and return to Current later. Once
+you are in Current, every change is saved into it straight away
+(`current.workspace` in your workspaces folder).
+
+**On exit**, if Current is the workspace you are in and it changed during the
+session, DRAW offers to keep it under a name:
+
+- **Workspace:** type a name to save it as a workspace of its own. Leave it blank
+  (or press `Esc`) to skip - Current is kept either way.
+- **Make this my default workspace** (on): DRAW starts in the saved workspace next
+  time. Off: it starts in Current, as you left it.
+- **Don't show me this prompt again:** turns the question off
+  (`WORKSPACE_SAVE_PROMPT=0` in `DRAW.cfg`).
+
+You can switch to any workspace and come back to yours later. "Current" and
+"Default" are reserved names.
 
 **Save what's on screen** from **View → Workspace ▸**:
 
@@ -227,9 +251,8 @@ Close the window and the buttons work normally again.
 **Changes are saved into a workspace**, never into `DRAW.cfg`:
 - In a workspace, every change is saved into it at once. A built-in workspace
   gets your own copy. The window shows **SAVES TO:** and the workspace name.
-- In Default, the first change asks for a name and makes a new workspace based
-  on Default, keeping your current layout, then switches to it. **Cancel**
-  undoes the change.
+- In Default, the first change goes into the **Current** workspace (Default plus
+  your layout and the change), which DRAW switches to - nothing to name.
 
 Switching back to Default puts the stock toolbox and bars back.
 

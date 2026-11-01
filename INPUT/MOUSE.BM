@@ -126,19 +126,24 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         DRAW_global_cursor _OFFSET(gcx), _OFFSET(gcy)
         DIM heldNow AS INTEGER
         heldNow% = (_MOUSEBUTTON(1) OR _MOUSEBUTTON(2) OR _MOUSEBUTTON(3))
-        ' CGEventGetLocation reports screen POINTS; _MOUSEX reports backing pixels,
-        ' and evRawX = _MOUSEX \ displayScale. So global points per viewport pixel is
-        ' SCRN.displayScale / backingScale (e.g. 4/2 = 2 on this Retina setup).
+        ' CGEventGetLocation reports screen POINTS; _MOUSEX reports image pixels, and
+        ' evRawX = _MOUSEX \ displayScale. Global points per viewport pixel is
+        ' displayScale x (window points per image pixel). That last factor was
+        ' 1/backingScale while QB64-PE sized windows in backing pixels and is 1 since
+        ' QB64-PE #786 sizes $RESIZE:ON windows in points; _SCALEDWIDTH (framebuffer
+        ' pixels) / backingScale / image width gives it either way. Every frame: the
+        ' display scale changes at run time and the window can move between screens.
         ' Whenever a real _MOUSEINPUT event arrives, _MOUSEX is fresh: capture the
         ' viewport origin in global space so the gap reconstruction lands exactly
         ' under the pointer. When motion stalls mid-drag (button held, no event),
         ' derive the viewport coord from the live global cursor.
-        IF MOUSE_MAC_SCALE! <= 0 THEN
-            DIM bScale AS DOUBLE : bScale# = DRAW_backing_scale#
-            IF bScale# <= 0 THEN bScale# = 1
-            MOUSE_MAC_SCALE! = SCRN.displayScale% / bScale#
-            IF MOUSE_MAC_SCALE! <= 0 THEN MOUSE_MAC_SCALE! = 1
-        END IF
+        DIM bScale AS DOUBLE, ptsPerImg AS DOUBLE
+        bScale# = DRAW_backing_scale#
+        IF bScale# <= 0 THEN bScale# = 1
+        ptsPerImg# = 1# / bScale#
+        IF _SCALEDWIDTH > 0 _ANDALSO _WIDTH(0) > 0 THEN ptsPerImg# = (_SCALEDWIDTH / bScale#) / _WIDTH(0)
+        MOUSE_MAC_SCALE! = SCRN.displayScale% * ptsPerImg#
+        IF MOUSE_MAC_SCALE! <= 0 THEN MOUSE_MAC_SCALE! = 1
         IF MOUSE_FRAME_EVTS% > 0 OR NOT MOUSE_MAC_CALIBRATED% THEN
             MOUSE_MAC_ORIGX!      = gcx - evRawX% * MOUSE_MAC_SCALE!
             MOUSE_MAC_ORIGY!      = gcy - evRawY% * MOUSE_MAC_SCALE!
@@ -3204,6 +3209,16 @@ SUB MOUSE_release_line ()
             IF DRAWER_has_paint_mode% THEN line_history_flags& = line_history_flags& OR HISTORY_FLAG_PAINT_MODE
         END IF
         _DEST line_target&
+        ' APRON (gotcha #14): the line tool is allowed in the apron, so on a promoted
+        ' layer the image is larger than the canvas and canvas (x,y) is buffer
+        ' (x+apronW, y+apronH). Raw canvas coordinates landed the line apronW/apronH
+        ' up and left - in the canvas's top-left corner when zoomed in (Rick,
+        ' 2026-10-10). The brush / AA paths already offset; the rest use LINE_OX/OY.
+        LINE_OX = 0 : LINE_OY = 0
+        IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN
+            LINE_OX = LAYERS(CURRENT_LAYER%).apronW%
+            LINE_OY = LAYERS(CURRENT_LAYER%).apronH%
+        END IF
 
         ' Check if drawing with transparent color
         line_is_transparent%   = (_ALPHA32(DRAW_COLOR~&) = 0)
@@ -3244,7 +3259,7 @@ SUB MOUSE_release_line ()
             END IF
         ELSE
             ' Draw master line at full opacity
-            LINE (LINE_TOOL.START_X, LINE_TOOL.START_Y)-(LINE_TOOL.END_X, LINE_TOOL.END_Y), DRAW_COLOR~&
+            LINE (LINE_TOOL.START_X + LINE_OX, LINE_TOOL.START_Y + LINE_OY)-(LINE_TOOL.END_X + LINE_OX, LINE_TOOL.END_Y + LINE_OY), DRAW_COLOR~&
 
             ' Draw symmetry lines
             IF SYMMETRY.MODE > 0 THEN
@@ -3252,7 +3267,7 @@ SUB MOUSE_release_line ()
                 SYMMETRY_get_mirrored_points LINE_TOOL.END_X, LINE_TOOL.END_Y, line_mx%(), line_my%(), line_count%
 
                 FOR line_i% = 0 TO line_count% - 1
-                    LINE (line_sx%(line_i%), line_sy%(line_i%))-(line_mx%(line_i%), line_my%(line_i%)), DRAW_COLOR~&
+                    LINE (line_sx%(line_i%) + LINE_OX, line_sy%(line_i%) + LINE_OY)-(line_mx%(line_i%) + LINE_OX, line_my%(line_i%) + LINE_OY), DRAW_COLOR~&
                 NEXT line_i%
             END IF
         END IF
@@ -3262,7 +3277,7 @@ SUB MOUSE_release_line ()
         ' Commit line spokes
         IF LINE_TOOL.SPOKES > 0 THEN
             _DEST line_target&
-            LINE_draw_spokes LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, PAINT_apply_opacity~&(DRAW_COLOR~&), LINE_TOOL.SPOKES
+            LINE_draw_spokes LINE_TOOL.START_X + LINE_OX, LINE_TOOL.START_Y + LINE_OY, LINE_TOOL.END_X + LINE_OX, LINE_TOOL.END_Y + LINE_OY, PAINT_apply_opacity~&(DRAW_COLOR~&), LINE_TOOL.SPOKES
         END IF
 
         ' Commit end caps
@@ -3274,25 +3289,27 @@ SUB MOUSE_release_line ()
             capColor~& = PAINT_apply_opacity~&(DRAW_COLOR~&)
             _DEST line_target&
             IF LINE_TOOL.START_CAP <> LINE_CAP_NONE THEN
-                LINE_draw_cap line_target&, LINE_TOOL.START_CAP, LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, capHw%, capColor~&
+                LINE_draw_cap line_target&, LINE_TOOL.START_CAP, LINE_TOOL.START_X + LINE_OX, LINE_TOOL.START_Y + LINE_OY, LINE_TOOL.END_X + LINE_OX, LINE_TOOL.END_Y + LINE_OY, capHw%, capColor~&
             END IF
             IF LINE_TOOL.END_CAP <> LINE_CAP_NONE THEN
-                LINE_draw_cap line_target&, LINE_TOOL.END_CAP, LINE_TOOL.END_X, LINE_TOOL.END_Y, LINE_TOOL.START_X, LINE_TOOL.START_Y, capHw%, capColor~&
+                LINE_draw_cap line_target&, LINE_TOOL.END_CAP, LINE_TOOL.END_X + LINE_OX, LINE_TOOL.END_Y + LINE_OY, LINE_TOOL.START_X + LINE_OX, LINE_TOOL.START_Y + LINE_OY, capHw%, capColor~&
             END IF
             ' Symmetry mirror caps
             IF SYMMETRY.MODE > 0 AND line_count% > 0 THEN
                 DIM cap_i AS INTEGER
                 FOR cap_i% = 0 TO line_count% - 1
                     IF LINE_TOOL.START_CAP <> LINE_CAP_NONE THEN
-                        LINE_draw_cap line_target&, LINE_TOOL.START_CAP, line_sx%(cap_i%), line_sy%(cap_i%), line_mx%(cap_i%), line_my%(cap_i%), capHw%, capColor~&
+                        LINE_draw_cap line_target&, LINE_TOOL.START_CAP, line_sx%(cap_i%) + LINE_OX, line_sy%(cap_i%) + LINE_OY, line_mx%(cap_i%) + LINE_OX, line_my%(cap_i%) + LINE_OY, capHw%, capColor~&
                     END IF
                     IF LINE_TOOL.END_CAP <> LINE_CAP_NONE THEN
-                        LINE_draw_cap line_target&, LINE_TOOL.END_CAP, line_mx%(cap_i%), line_my%(cap_i%), line_sx%(cap_i%), line_sy%(cap_i%), capHw%, capColor~&
+                        LINE_draw_cap line_target&, LINE_TOOL.END_CAP, line_mx%(cap_i%) + LINE_OX, line_my%(cap_i%) + LINE_OY, line_sx%(cap_i%) + LINE_OX, line_sy%(cap_i%) + LINE_OY, capHw%, capColor~&
                     END IF
                 NEXT cap_i%
             END IF
             _DEST SCRN.CANVAS&
         END IF
+
+        LINE_OX = 0 : LINE_OY = 0 ' back to canvas space (previews draw with these helpers too)
 
         ' Pack cap types into history flags
         line_history_flags& = line_history_flags& OR ((LINE_TOOL.START_CAP AND HISTORY_FLAG_LINE_CAP_MASK) * 64)

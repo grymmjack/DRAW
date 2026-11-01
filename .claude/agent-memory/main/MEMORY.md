@@ -1,3 +1,5 @@
+- **[NEVER an error dialog - PERMANENT](feedback-no-error-dialogs.md) — every program traps its errors (ON ERROR); untrappable runtime alerts are prevented by guarding first; never cause them (don't kill a display a run still uses) (2026-10-11)**
+- **[Test scope - HARD RULE](feedback-test-scope.md) — test ONLY the exposed changes; >5 test files = state count + ETA and ASK first (told 3x, last 2026-10-11)**
 - [User background & collaboration style](user_background_and_collaboration.md) — career BASIC programmer, learning-mode, wants visibility not autonomy
 - [DRAW compile convention](feedback_draw_compile_convention.md) — build qb64pe in FOREGROUND, 600000ms timeout, never background
 - [DRAW observability logs](reference_draw_activity_log.md) — `.claude/activity.log` (every Bash/Agent) + `~/.claude/make.log` (compile output)
@@ -37,7 +39,8 @@
 - [_MAPUNICODE illegal on some fonts](qb64pe-mapunicode-illegal.md) — ERR 5 on bitmap/no-cmap fonts; render via `_UPRINTSTRING`(UTF-8); gate token subs on `INSTR`
 - [Shared dynamic UDT array](qb64pe-shared-dynamic-udt-array.md) — share via `REDIM SHARED name(0,0) AS TYPE` in .BI, not `DIM SHARED name() AS TYPE`
 - [Command palette needs CMD_register](draw-command-palette-registration.md) — a MENUBAR action needs `CMD_register` in `CMD_init` to reach the `?` palette / be QA-testable
-- [qa-harness toolkit](qa-harness-toolkit.md) — QA harness extracted to `~/git/qa-harness` (core/driver/adapter seam); `draw-qa.sh` = reference wrapper
+- [qa-harness toolkit](qa-harness-toolkit.md) — QA harness extracted to `~/git/qa-harness` (core/driver/adapter seam); `draw-qa.sh` = reference wrapper; linux-x11 / macos / windows drivers (mac: Cmd+Tab after launch + one `qa-io serve`; win: Scheduled Task from C:\qa-runner)
+- [QB64-PE GLFW shrinks Windows windows](qb64pe-glfw-windows-window-shrink.md) — [Windows] window = image / content scale (250%: 800x600 -> 320x240); glut-emu ToPixelCoords; QA works around it; fixed in open PR #786 (a740g various-fixes) - verify, expect to remove DRAW DPI code when it lands
 - [Display-scale system](draw-display-scale-system.md) — unified `UI_SCALE`; chrome=0.5×display; fit checks must use `SCREEN_effective_chrome_scale%` not an estimate; relaxed floor for explicit scale (v2.3.2)
 - [Tooltip container-wrap](draw-tooltip-container-wrap.md) — 2 DRAW tooltip renderers + 1 in the lib; all wrap to their CONTAINER via `TOOLTIP_wrap_line`; char-based cap (v2.3.2)
 - [Deliver viewables as Artifacts](deliver-viewables-as-artifacts.md) — Rick runs remote/web CC; anything to view → publish as an Artifact, never a local file / SendUserFile
@@ -47,7 +50,7 @@
 - [Effect action-ID collisions](draw-effect-action-id-collisions.md) — effect IDs dodge ACTION_SETTINGS=2100, EXPORT 2201-2216; first CASE wins; SHAPE effects 2230-2260
 - [HW cursor = OS plane, not a QB64PE layer](hw-cursor-os-plane.md) — `_MOUSECURSOR` composites above all layers; icon cursors OK OS-only, zoom rings/loupe stay software
 - [Verify HW cursor via XFixes](verify-hw-cursor-xfixes.md) — screenshots never show the OS cursor; `.claude/tools/curprobe.c` reads it (size / visible px / name)
-- [Remote Mac/Windows testing](reference-remote-mac-windows-testing.md) — mac (Retina) + thinkpad (Win11) over SSH; whole farm on qb64pe v4.7.0-GLFW self-hosted (2026-09-30); Win DPI needs interactive/console session; drive via scp'd `.ps1`
+- [Remote Mac/Windows testing](reference-remote-mac-windows-testing.md) — mac (Retina) + thinkpad (Win11) over SSH; whole farm on qb64pe tag v4.7.0-GLFW, OPTIMIZED self-host (2026-10-09; pull the tag, not main); Win DPI needs interactive/console session; drive via scp'd `.ps1`
 - [Keep remote dashboard updated](feedback-keep-remote-dashboard-updated.md) — update remote-test dashboard NEXT notes each iteration (`uv run DEV/remote-dash.py --set <host> "note"`)
 - [Farm test builds via DRAW-fstest worktree](farm-test-worktrees-invisible-to-dash.md) — build branches in a `DRAW-fstest` worktree (init submodules!); `remote-dash.py` now shows them in a TEST BUILD column; state exact per-host binary paths
 - [Farm build recipes per host](farm-build-recipes-per-host.md) — exact qb64pe paths (titan=capital QB64pe, case-sensitive!); Windows builds over SSH call `qb64pe.exe -w -x` DIRECTLY (no make); daw needs full-path `/mnt/c/Windows/System32/cmd.exe`; qb64pe link "Permission denied" = stale qb64pe.exe locking itself (taskkill); force submodule to pinned sha or DRAW builds against wrong lib
@@ -66,7 +69,6 @@
 - [customizable-shortcuts branch status](proj-customizable-shortcuts-status.md) — rebind Phases 0-3 + 4.1/4.2 done (2026-09-04); remaining Phase 4 polish / 5 presets / 2B.2 mouse
 - [qb64pe -z is NOT a faster error-gate](qb64pe-z-fast-gate.md) — `-x` aborts on error as fast as `-z`; `-z` only skips g++ on a clean compile; MCP fragment `-z` unreliable
 - [DRAW build speed — skip -O for dev](draw-build-speed.md) — `-f:OptimizeCppProgram=false` ~13min→~7min for dev; ship keeps -O; qbx.o rebuilt every build (open)
-- [NO blocking error dialogs — ever](feedback-no-error-dialogs.md) — every QB64 program installs `ON ERROR GOTO EH` (a blocking dialog hangs automation). Rick emphatic
 - [Driving DRAW's GUI headless via xdotool+Xvfb](driving-draw-gui-headless-xdotool.md) — DRAW polls mouse per-frame: use `mousedown;sleep .2;mouseup`; menus click-hold; launch detached
 - [Browser geometry native-vs-viewport scaling](browser-geometry-native-vs-viewport.md) — Browser dispX/Y in VIEWPORT px, FD_STATE.dialogW/H in NATIVE; don't mix; position last; test at scale>1
 - [Filled shapes off-canvas on promoted layer (RESOLVED)](qa-splash-startup-state-dependency.md) — filled rect/ellipse/polygon wrote raw coords → off-canvas on an apron-promoted layer (gotcha #14); fixed MOUSE/ELLIPSE/POLY-FILL + apron-fill-after-move test; keep splash ON in QA
@@ -75,6 +77,8 @@
 - [Multi-dim array-param reorder = compile speed](draw-multidim-array-reorder-compile-speed.md) — define 2D+ open-array-param SUB/FUNCs AFTER a call site (transpiler recompile pass); 1D never matters; only 2 such routines exist, both fixed (mkilgore + PR #778); flatten preserves order (gotcha #29)
 - [F5 debug build cost](draw-debug-build-cost.md) — F5 = qb64pe-vscode DEBUGGER (flatten+$DEBUG, one monolithic C++ TU, ~9min single-core), NOT tasks.json; MaxCompilerProcesses/OptimizeCppProgram do NOT help it; use fast tasks build for non-debug iteration
 - [Game font extraction](game-font-extraction.md) — DOOM/Heretic/Hexen/Blood CBF fonts: WAD lumps, Blood shareware QFN-in-RFF, mapping quirks
-- [Farm: no GUI popups, trap crashes](farm-no-gui-popups-trap-crashes.md) — never pop windows on mac/thinkpad; trap SIGSEGV in-process (sigtrap.h) so no macOS/WER crash dialog; ask before launching GUI apps on the Mac
+- [Parallelize farm work](feedback-parallelize-farm-work.md) — start independent host work at once (parallel jobs); don't queue it behind another host's run
+- [Farm: no GUI popups, trap crashes](farm-no-gui-popups-trap-crashes.md) — never pop windows on mac/thinkpad; trap SIGSEGV in-process (sigtrap.h) so no macOS/WER crash dialog; QA runs may take over mac/thinkpad/titan screens (Rick 2026-10-09) - say so before a full suite
+- [Menu fires on press](menu-fires-on-press.md) — modals opened from the menu must swallow the held button (FD wrappers, DIALOG inputArmed)
 - [Test scope](feedback-test-scope.md) — small fix = its targeted tests + baseline, then push; no 40-file suite runs for small changes
 - [Document filename invariants](document-filename-invariants.md) — set CURRENT_DRW/CURRENT_FILENAME only via SAVE_set_document_file; sidecar setting, Flatten & Save, Export Again

@@ -65,7 +65,7 @@ TIP_OFF="$SNAP_RESULT"
 # Hover without clicking, and hold still past CFG.TOOLTIP_HOVER_DELAY_MS (500).
 read -r BADGE_AX BADGE_AY <<< "$(_abs "$BADGE_X" "$BADGE_Y")"
 draw_focus
-xdotool mousemove "$BADGE_AX" "$BADGE_AY"
+raw_move "$BADGE_AX" "$BADGE_AY"
 sleep 1.6
 snap_region "$LP_X" "$LP_Y" "$LP_W" 90 "guard-tip-on"
 assert_regions_differ "$TIP_OFF" "$SNAP_RESULT" \

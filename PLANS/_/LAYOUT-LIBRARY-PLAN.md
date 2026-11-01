@@ -1,6 +1,13 @@
 # Layout library plan: one flexbox-style size solver that DRAW wraps
 
-Status: **proposed** (2026-10-09). Nothing is built yet. The decisions Rick still has to make are at the end.
+Status: **built** (2026-10-09, branch `layout-lib`, P0–P3 plus the flex-mode change). Implementation notes: `.claude/instructions/draw-layout.md`. Decisions (Rick, 2026-10-09): solver in `QB64_GJ_LIB/LAYOUT`; P1/P2 pixel-identical first, intended changes in their own commits; today's overflow policy kept; `layout-lib` branched from main after #158 merged.
+
+As built, beyond the plan:
+- `LAY_clamp` was added for the seven window clamps, which reduced exactly to it.
+- A dropped item ignores a negative lead.
+- Parity was proven with A/B builds (old and new code side by side on every layout, 0 mismatches), not only the baseline.
+- The flex-mode commit fixed a column running past the dock (test `dock-column-min-share`).
+- P4 (panel insides) stays "as touched".
 
 ## Why
 

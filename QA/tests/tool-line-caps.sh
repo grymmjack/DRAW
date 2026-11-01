@@ -48,28 +48,28 @@ read -r AX2 AY2 <<< "$(_abs "$LX2" "$LY2")"
 
 info "Press and hold at ($LX1,$LY1), drag to ($LX2,$LY2) without releasing"
 draw_focus
-xdotool mousemove "$AX1" "$AY1"; sleep 0.1
-xdotool mousedown 1 mousemove $(( AX1 + 1 )) "$AY1"; sleep 0.05
-xdotool mousemove "$AX2" "$AY2"; sleep 0.3
+raw_move "$AX1" "$AY1"; sleep 0.1
+raw_seq down 1 move $(( AX1 + 1 )) "$AY1"; sleep 0.05
+raw_move "$AX2" "$AY2"; sleep 0.3
 assert_no_crash
 
 # -- Cycle both caps in ONE continuous active-drag phase, then commit — with NO
 #    snap_region anywhere in the middle so the drag is never dropped. --
-_jiggle() { local n=$1; for _j in $(seq 1 "$n"); do xdotool mousemove $(( AX2 - (_j % 2) * 4 )) "$AY2"; sleep 0.03; done; xdotool mousemove "$AX2" "$AY2"; }
+_jiggle() { local n=$1; for _j in $(seq 1 "$n"); do raw_move $(( AX2 - (_j % 2) * 4 )) "$AY2"; sleep 0.03; done; raw_move "$AX2" "$AY2"; }
 
 info "Cycle start (s) + end (e) caps mid-drag (continuous jiggle, no snaps), then commit"
 _jiggle 6
-# Bracket each cap key INSIDE mouse movement within a single xdotool invocation so
+# Bracket each cap key INSIDE mouse movement within a single atomic input batch (raw_seq) so
 # it can't land in a frame gap. move -> key -> move keeps the tap in an active frame.
-xdotool mousemove $(( AX2 - 3 )) "$AY2" key s mousemove "$AX2" "$AY2" mousemove $(( AX2 - 2 )) "$AY2"
+raw_seq move $(( AX2 - 3 )) "$AY2" key s move "$AX2" "$AY2" move $(( AX2 - 2 )) "$AY2"
 _jiggle 5
-xdotool mousemove $(( AX2 - 3 )) "$AY2" key e mousemove "$AX2" "$AY2" mousemove $(( AX2 - 2 )) "$AY2"
+raw_seq move $(( AX2 - 3 )) "$AY2" key e move "$AX2" "$AY2" move $(( AX2 - 2 )) "$AY2"
 _jiggle 5
 assert_no_crash
 
 # -- Commit the line (drag still alive) --
 info "Release to commit the line"
-xdotool mouseup 1; sleep 0.4
+raw_button up 1; sleep 0.4
 assert_no_crash
 
 # -- Stable idle checks:

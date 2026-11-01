@@ -37,7 +37,7 @@ snap_region $MENU_REGION_X $MENU_REGION_Y $MENU_REGION_W $MENU_REGION_H "palmenu
 CLOSED="$SNAP_RESULT"
 snap_region $CHIP_COL_X $MENU_REGION_Y $CHIP_COL_W $MENU_REGION_H "palmenu-chipcol-closed"
 CHIP_COL_CLOSED="$SNAP_RESULT"
-CHIP_COLORS_CLOSED=$(magick "$CHIP_COL_CLOSED" -format %k info: 2>/dev/null)
+CHIP_COLORS_CLOSED=$(identify -format %k "$CHIP_COL_CLOSED" 2>/dev/null)
 info "  [chips] unique colors in chip column while CLOSED: ${CHIP_COLORS_CLOSED:-?}"
 assert_no_crash
 
@@ -61,7 +61,7 @@ CHIP_COL_OPEN="$SNAP_RESULT"
 assert_regions_differ "$CHIP_COL_CLOSED" "$CHIP_COL_OPEN" \
     "Chip column should be covered by the open dropdown"
 
-CHIP_COLORS_OPEN=$(magick "$CHIP_COL_OPEN" -format %k info: 2>/dev/null)
+CHIP_COLORS_OPEN=$(identify -format %k "$CHIP_COL_OPEN" 2>/dev/null)
 info "  [chips] unique colors in chip column while OPEN: ${CHIP_COLORS_OPEN:-?}"
 if [[ "${CHIP_COLORS_OPEN:-0}" -gt 16 ]] 2>/dev/null; then
     pass "chip column renders palette colors (${CHIP_COLORS_OPEN} unique colors)"

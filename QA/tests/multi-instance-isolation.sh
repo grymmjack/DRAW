@@ -11,6 +11,9 @@
 # =============================================================================
 
 info "=== Multi-instance isolation test ==="
+# The sandbox redirects DRAW through the XDG dirs, which only DRAW's Linux build
+# uses; on macOS / Windows it would reach the user's real cache - skip there.
+[[ "${QA_OS:-Linux}" == Linux ]] || { skip "multi-instance-isolation: XDG sandbox is Linux-only (on $QA_OS)"; return 0; }
 
 SB=$(mktemp -d)
 trap 'rm -rf "$SB"' EXIT

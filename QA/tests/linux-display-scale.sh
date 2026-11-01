@@ -22,6 +22,8 @@
 # =============================================================================
 
 info "=== Linux display-scale (LINUX_HIDPI_SCALE) detection test ==="
+# LINUX_HIDPI_SCALE exists only in DRAW's Linux build ($IF LINUX, not MAC)
+[[ "${QA_OS:-Linux}" == Linux ]] || { skip "linux-display-scale: a Linux-only feature (on $QA_OS)"; return 0; }
 
 # run_scale_case "<label>" "<expected display-scale>" "<expected divisor>" ENV=VAL [ENV=VAL...]
 # Returns the detection log line via the global REPLY.

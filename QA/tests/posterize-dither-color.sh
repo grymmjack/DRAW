@@ -49,7 +49,7 @@ assert_no_crash
 park_mouse
 snap_region "$STRIP_X" "$STRIP_Y" "$STRIP_W" "$STRIP_H" "posterize-dither-result"
 RESULT_IMG="$SNAP_RESULT"
-NCOLOURS=$(magick "$RESULT_IMG" -format %k info: 2>/dev/null)
+NCOLOURS=$(identify -format %k "$RESULT_IMG" 2>/dev/null)
 info "  [colours] unique colours after posterize+dither: ${NCOLOURS:-?}"
 screenshot "posterize-dither-canvas"
 

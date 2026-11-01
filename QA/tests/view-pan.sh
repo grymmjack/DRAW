@@ -28,18 +28,18 @@ info "Panning canvas with middle-click drag"
 read -r PAN_AX1 PAN_AY1 <<< "$(_abs "$CANVAS_CX" "$CANVAS_CY")"
 read -r PAN_AX2 PAN_AY2 <<< "$(_abs "$(( CANVAS_CX + 40 ))" "$(( CANVAS_CY + 30 ))")"
 draw_focus
-xdotool mousemove "$PAN_AX1" "$PAN_AY1"
+raw_move "$PAN_AX1" "$PAN_AY1"
 sleep 0.15
-xdotool mousedown 2
+raw_button down 2
 sleep 0.1
 for step in 1 2 3 4 5 6 7 8; do
-    xdotool mousemove \
+    raw_move \
         $(( PAN_AX1 + (PAN_AX2 - PAN_AX1) * step / 8 )) \
         $(( PAN_AY1 + (PAN_AY2 - PAN_AY1) * step / 8 ))
     sleep 0.05
 done
 sleep 0.2
-xdotool mouseup 2
+raw_button up 2
 wait_for 0.4 "Pan applied"
 assert_no_crash
 
