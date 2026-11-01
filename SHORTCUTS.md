@@ -167,7 +167,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | Keys / Mouse | Action |
 |--------------|--------|
 | `Ctrl+0` | Reset zoom to 100% and center |
-| `Ctrl+=` | Zoom in (25→50→100→200→300…800%) |
+| `Ctrl+=` | Zoom in (1→2→3→5→7.5→10→15→20→25→50→100→200→300…800%; below 25% only for canvases big enough to stay 100px+ on screen) |
 | `Ctrl+-` | Zoom out |
 | `Wheel` | Zoom in/out at cursor |
 | `Hold Z + 1…9` | Zoom preset 100 / 200 / 300 / 400 / 500 / 600 / 700 / 800 / 1600% |

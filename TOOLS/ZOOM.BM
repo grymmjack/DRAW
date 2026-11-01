@@ -8,10 +8,87 @@
 $INCLUDEONCE
 
 ''
-' Zoom in one snap level: 25%->50%->100%->200%->300%->...->800%
+' A zoom level at or below 25%, largest first: 25, 20, 15, 10, 7.5, 5, 3, 2, 1 %.
+' @param i INTEGER 1..ZOOM_SMALL_COUNT
+' @return SINGLE The zoom factor (0 outside the range)
+'
+FUNCTION ZOOM_small_level! (i AS INTEGER)
+    DIM r AS SINGLE
+    SELECT CASE i%
+        CASE 1: r! = 0.25
+        CASE 2: r! = 0.2
+        CASE 3: r! = 0.15
+        CASE 4: r! = 0.1
+        CASE 5: r! = 0.075
+        CASE 6: r! = 0.05
+        CASE 7: r! = 0.03
+        CASE 8: r! = 0.02
+        CASE 9: r! = 0.01
+    END SELECT
+    ZOOM_small_level! = r!
+END FUNCTION
+
+''
+' The next small zoom level below z (never under SCRN.zoomMin!).
+' @param z SINGLE Current zoom (at or below 25%)
+' @return SINGLE The next level out
+'
+FUNCTION ZOOM_small_out! (z AS SINGLE)
+    DIM i AS INTEGER, r AS SINGLE, lv AS SINGLE
+    r! = SCRN.zoomMin!
+    FOR i% = 1 TO ZOOM_SMALL_COUNT
+        lv! = ZOOM_small_level!(i%)
+        IF lv! < z! - 0.0001 THEN r! = lv! : EXIT FOR
+    NEXT i%
+    IF r! < SCRN.zoomMin! THEN r! = SCRN.zoomMin!
+    ' Stop before the canvas shrinks under 100 screen pixels on its long side
+    ' (a small canvas keeps the old 25% floor; only big images go lower).
+    DIM longSide AS LONG
+    longSide& = SCRN.canvasW&
+    IF SCRN.canvasH& > longSide& THEN longSide& = SCRN.canvasH&
+    IF longSide& * r! < 100 THEN r! = z!
+    ZOOM_small_out! = r!
+END FUNCTION
+
+''
+' The next small zoom level above z, up to 25%.
+' @param z SINGLE Current zoom (below 25%)
+' @return SINGLE The next level in
+'
+FUNCTION ZOOM_small_in! (z AS SINGLE)
+    DIM i AS INTEGER, r AS SINGLE, lv AS SINGLE
+    r! = 0.25
+    FOR i% = ZOOM_SMALL_COUNT TO 1 STEP -1
+        lv! = ZOOM_small_level!(i%)
+        IF lv! > z! + 0.0001 THEN r! = lv! : EXIT FOR
+    NEXT i%
+    ZOOM_small_in! = r!
+END FUNCTION
+
+''
+' The largest small zoom level that still fits: the biggest level <= z.
+' Used by zoom-to-fit and zoom-to-region when the fit is under 25%.
+' @param z SINGLE The exact fit zoom
+' @return SINGLE A level from the list (SCRN.zoomMin! if z is smaller than all)
+'
+FUNCTION ZOOM_small_fit! (z AS SINGLE)
+    DIM i AS INTEGER, r AS SINGLE, lv AS SINGLE
+    r! = SCRN.zoomMin!
+    FOR i% = 1 TO ZOOM_SMALL_COUNT
+        lv! = ZOOM_small_level!(i%)
+        IF lv! <= z! + 0.0001 THEN r! = lv! : EXIT FOR
+    NEXT i%
+    IF r! < SCRN.zoomMin! THEN r! = SCRN.zoomMin!
+    ZOOM_small_fit! = r!
+END FUNCTION
+
+''
+' Zoom in one snap level: 1%->...->25%->50%->100%->200%->300%->...->800%
 '
 SUB ZOOM_in ()
-    IF SCRN.zoom! < 0.5 THEN
+    IF SCRN.zoom! < 0.25 - 0.0001 THEN
+        SCRN.zoom! = ZOOM_small_in!(SCRN.zoom!) ' below 25%: the small levels
+    ELSEIF SCRN.zoom! < 0.5 THEN
         SCRN.zoom! = 0.5                   ' 25% -> 50%
     ELSEIF SCRN.zoom! < 1.0 THEN
         SCRN.zoom! = 1.0                   ' 50% -> 100%
@@ -23,15 +100,18 @@ SUB ZOOM_in ()
 END SUB
 
 ''
-' Zoom out one snap level: ...300%->200%->100%->50%->25%
+' Zoom out one snap level: ...300%->200%->100%->50%->25%->20%->...->1%
 '
 SUB ZOOM_out ()
     IF SCRN.zoom! > 1.0 THEN
         SCRN.zoom! = INT(SCRN.zoom!) - 1.0 ' 200% -> 100%, etc.
+        IF SCRN.zoom! < 1.0 THEN SCRN.zoom! = 1.0 ' 150% -> 100%, not the floor
     ELSEIF SCRN.zoom! > 0.5 THEN
         SCRN.zoom! = 0.5                   ' 100% -> 50%
-    ELSEIF SCRN.zoom! > 0.25 THEN
+    ELSEIF SCRN.zoom! > 0.25 + 0.0001 THEN
         SCRN.zoom! = 0.25                  ' 50% -> 25%
+    ELSE
+        SCRN.zoom! = ZOOM_small_out!(SCRN.zoom!) ' 25% -> 20% -> ... -> 1%
     END IF
     IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
     GUI_NEEDS_REDRAW% = TRUE
@@ -144,7 +224,7 @@ SUB ZOOM_fit_canvas ()
 
     ' Snap to nearest valid zoom level
     IF newZoom! < 0.25 THEN
-        newZoom! = 0.25
+        newZoom! = ZOOM_small_fit!(newZoom!) ' big canvas: the largest small level that fits
     ELSEIF newZoom! < 0.5 THEN
         newZoom! = 0.25
     ELSEIF newZoom! < 1.0 THEN
@@ -232,8 +312,9 @@ SUB ZOOM_to_region (x1%, y1%, x2%, y2%)
     IF zoomH! < newZoom! THEN newZoom! = zoomH!
 
     ' Snap to nearest valid zoom level
-    IF newZoom! < 0.25 THEN newZoom! = 0.25
-    IF newZoom! < 0.5 THEN
+    IF newZoom! < 0.25 THEN
+        newZoom! = ZOOM_small_fit!(newZoom!)
+    ELSEIF newZoom! < 0.5 THEN
         newZoom! = 0.25
     ELSEIF newZoom! < 1.0 THEN
         newZoom! = 0.5

@@ -16,3 +16,8 @@ TYPE ZOOM_OBJ
 END TYPE
 
 DIM SHARED ZOOM AS ZOOM_OBJ
+
+' Zoom levels below 25%, largest first (see ZOOM_small_level! in ZOOM.BM).
+' Big scans and photos need these to fit on screen: a 6758x8525 scan is
+' still 1690x2131 at 25%.
+CONST ZOOM_SMALL_COUNT = 9
