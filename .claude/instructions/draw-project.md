@@ -140,6 +140,16 @@ Reset to `FALSE` every frame in `LOOP_start`.
 
 Formula: `canvasX% = INT((rawX% - offsetX%) / zoom!)`
 
+**Zoom range (2.6.0):** `SCRN.zoomMin!` is **0.01** (was 0.25), `SCRN.zoomMax!` 32. Below
+25% the steps are a fixed list — 20, 15, 10, 7.5, 5, 3, 2, 1% — from
+`ZOOM_small_level!` / `ZOOM_small_out!` / `ZOOM_small_in!` / `ZOOM_small_fit!` in
+`TOOLS/ZOOM.BM`. Every zoom path (Ctrl+/-, actions 406/407 → `ZOOM_in` / `ZOOM_out`,
+the wheel's `WHEEL_zoom_at_cursor`, zoom-to-fit, zoom-to-region) uses them; never
+hard-code `0.25` as the floor or step down with `zoom - 0.25` past it.
+`ZOOM_small_out!` refuses a level that would draw the canvas's long side under 100
+screen px, so small canvases keep the old 25% floor. `INT(zoom) - 1` above 100% must
+clamp to 1.0 (a 1.5x zoom otherwise fell to the floor).
+
 ### 7. Tool State Reset on Switch
 
 ```qb64
@@ -412,6 +422,19 @@ taking a 2D+ open array. The flattened debugger build (`.DRAW.debug.BAS`) preser
 ordering — the extension's `flatten` is faithful depth-first `$INCLUDE` expansion, no
 hoisting/sorting. See memory `draw-multidim-array-reorder-compile-speed` and
 `draw-build-speed`.
+
+### 30. Set the Open Document's File Names Only Through `SAVE_set_document_file`
+
+`CURRENT_DRW_FILENAME$` (the Ctrl+S project target) and `CURRENT_FILENAME$` (the
+image / Flatten & Save target) say which file the open document is. Every open path
+— command line, File > Open, Recent Files, drag-drop, the image browser — must set
+them with `SAVE_set_document_file path$` (`TOOLS/SAVE.BM`) after the load: `.draw` →
+project only; `.png` → both (layers go in the PNG's drAw chunk); any other image →
+image only, and Ctrl+S then follows `CFG.SAVE_DRAW_SIDECAR` (TRUE = write `art.draw`
+beside it, FALSE = overwrite the image flattened). Setting them by hand drifted
+before 2.6.0: Ctrl+S wrote PNG+drAw data into a `.gif`, or overwrote the previous
+document's file. Memory `document-filename-invariants` has the full table, Flatten &
+Save (`SAVE_ACT_FLATTEN`) and Export Again (`EXPORT_ACT_REPEAT`).
 
 ---
 

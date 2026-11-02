@@ -5,9 +5,56 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.5.1
+Current release: v2.6.0
 
 ![DRAW GUI from v2.5.0](./GUI.png)
+
+## New in 2.6.0
+
+A layout release: every panel and window can now be moved, stacked, tabbed, floated and docked, the toolbars can be customized, and layouts are saved as workspaces. It also adds palette color cycling, a built-in screenshot tool, and zooming out far enough to see very large images.
+
+- **Docking.** Drag a panel by its handle (its title strip, the layers header, or the thin grip on the toolbox, organizer, drawer and bars) and drop it.
+  - Drop on an edge or between columns for a new column, on the top or bottom third of a panel to stack, or on its middle to make tabs. Anywhere else floats it. A blue preview and a label show where it will land.
+  - Drag the line between two stacked panels to share the height. Collapse a panel to its title with the chevron or a double-click.
+  - The Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure and Browser windows dock too. The Browser can also dock along the top or bottom of the canvas.
+  - Right-click a handle for Move to Left / Right Edge, Collapse / Expand, Float / Dock Back and Reset Arrangement.
+  - Drag a side panel's inner edge to resize it. The toolbox, edit bar and advanced bar can have 1 to 4 columns.
+  - On small windows, the lowest panels collapse and the outermost columns hide to keep the canvas usable.
+- **Lock Layout** (View → Lock Layout, `Ctrl+Shift+L`) freezes the arrangement, so a shaky pen can't drag a panel or window by accident. Clicks, tabs and buttons still work.
+- **Workspaces** are named layouts you switch into and back out of (View → Workspace, `Ctrl+Shift+W`, or the status-bar badge). Leaving one restores your own setup exactly.
+  - Built in: **Default**, **Simple** and **Annotate**.
+  - A workspace sets which panels show and where, the toolbox and bar buttons, the menus, a single-key overlay, config options for the session, and the starting tool, color and zoom.
+  - Changing the layout in Default puts it in a **CURRENT** workspace, so Default stays stock. When you quit, DRAW offers to keep it under a name.
+  - **Configure Workspaces…** edits them. `F11` inside a workspace shows what it hid.
+- **Customize Toolbars** (View → Customize Toolbars…) puts any tool or command on the toolbox, edit bar or advanced bar, in any order. Drag buttons on the real panels while it's open. Changes are saved into a workspace.
+- **Palette color cycling**, DeluxePaint and GrafX2 style.
+  - `Shift+Tab` (or Palette → Cycle Colors) turns cycling on and off. Up to 16 ranges, each forward, reverse or ping-pong, with its own speed.
+  - In Palette Ops, Ctrl gestures on the palette strip make and change ranges. A help card shows the gestures while you hover.
+  - Only the display cycles; your layers are never changed. Ranges are part of undo and are saved in `.draw` files.
+  - **File → Color Cycling** exports a runnable QB64 program, a GrafX2 GIF, an animated GIF, or a DeluxePaint LBM. It also opens GrafX2 GIFs and DeluxePaint LBM/IFF files with their ranges.
+  - Example scenes are in `SAMPLES/COLOR CYCLING/`.
+- **Capture Screen** (`Ctrl+Shift+P`, File menu, or `DRAW --capture`) grabs the screen, lets you pick a region, and opens it in the Annotate workspace. Annotate adds arrow, highlighter, redact and numbered-callout tools; `Ctrl+Enter` saves, copies and returns you to what you were doing. Bind `DRAW --capture` to a desktop shortcut.
+- **Save keeps the file you opened.** `Ctrl+S` on an opened PNG saves into that PNG, with the layers kept inside it. For GIF, BMP, JPG and other flat formats, Settings → General → Saving chooses between a companion `.draw` (the default) and overwriting the image flattened. **File → Flatten & Save** (`Ctrl+Alt+Shift+S`) and **File → Export Again** (`Ctrl+Shift+E`, repeats your last export) are new.
+- **Zoom out below 25%** for very large images: 20, 15, 10, 7.5, 5, 3, 2 and 1%. Large images open fitted to the window. Small canvases keep the 25% floor.
+- **Rectangle and ellipse selections draw from the center** while you hold `Ctrl`, like the shape tools.
+- **Command line:** `--workspace NAME`, `--workspaces`, `--capture`, `--cycle`, `--export`, `--export-anim`, `--cfg`, `--dirs` and `--dir-NAME`. `--help` is colored in a terminal.
+- **Fixes:**
+  - On a layer that was moved, pasted or transformed, selections, Delete / Cut / Copy, fills, Stroke Selection, custom brush stamps and the Line tool now land where you drew instead of shifted up and left.
+  - The arrow cursor no longer turns upside down after hovering a window's resize corner.
+  - The mouse wheel over the Advanced Color Picker no longer zooms the canvas.
+  - Windows stay visible while a menu is open, and menus draw above them.
+  - Floating windows move back into view when docking changes the space around them.
+  - Open, Save, Save As and Export keep your current tool, and DRAW's cursor comes back after every dialog.
+  - Opening a file dialog from a menu no longer clicks inside the dialog.
+  - Lospec's DOWNLOAD fetches the palette you chose, not the last one the pointer crossed.
+  - Settings → Directories has OPEN buttons for each folder.
+  - Starting DRAW with no working display exits cleanly instead of showing a "Failed to initialize window" alert.
+  - [Windows] Window and desktop sizes are correct on scaled displays (needs QB64-PE with PR #786 to build).
+- **Heads-up:**
+  - Projects saved by 2.6.0 use `.draw` format v30. DRAW 2.5.x and older can't open them.
+  - **Export Selection** moved from `Ctrl+Alt+Shift+S` to `Ctrl+Alt+S`. `Ctrl+Alt+Shift+S` is now Flatten & Save.
+  - `Ctrl+S` on an opened PNG now saves into that PNG (layers kept inside it) instead of writing a separate `.draw`.
+  - Panel changes made in Default go into the CURRENT workspace; Default itself always stays the stock layout.
 
 ## New in 2.5.1
 
@@ -246,10 +293,12 @@ groups, transform/move, export, importers, and input handling.
 - Click status bar FG/BG swatches to open color picker
 - Keyboard shortcuts 0-9, !, @, #, $, %, ^, & for quick color access
 
+- **Palette color cycling** - DeluxePaint / GrafX2-style cycling ranges (`Shift+Tab`), edited with Ctrl gestures on the palette strip in Palette Ops; exports a runnable QB64 program, GrafX2 GIF, animated GIF or DeluxePaint LBM, and opens GrafX2 GIFs and LBM/IFF files with their ranges
+
 ### Canvas & View
 - Configurable canvas size (up to 4096x4096)
 - Clear layer/selection: `Delete` (Edit > Clear); Fill with FG: `Backspace`; Fill with BG: `Shift+Backspace`
-- Infinite zoom levels (mouse wheel or Ctrl +/-)
+- Zoom from 1% to 3200% (mouse wheel or Ctrl +/-); below 25% only for canvases large enough to need it
 - Pan with middle mouse button or spacebar + drag
 - Scrollbars for canvases larger than the viewport
 - Keyboard panning with arrow keys
@@ -329,7 +378,11 @@ groups, transform/move, export, importers, and input handling.
 - **Preview window** - A floating preview panel with two modes: **Follow** (canvas magnifier following the pointer) and **Floating Image** (display a loaded reference image); supports **Bin Quick Look** (hover drawer slots to preview brush/pattern/gradient), **Color Picking** (Alt+Click to sample colors from preview), and **Recent Preview Images** (up to 10 recently loaded images); pan/zoom, minimize/close buttons, and work-area clamping
 - **Edit bar** - A dockable vertical strip of edit-action icons on the left or right side of the workspace (`F5`); includes Smart Guides toggle, Pixel Perfect toggle, and Flip Canvas H/V buttons; **mouse wheel scrolls** the bar when it overflows the screen height
 - **Advanced bar** - A dockable vertical strip of quick-access toggle buttons for char map, char grid, char snap, preview, edit bar, tile preview, grid cell fill, grid show, fill adjust, brush edges, angle snap, grayscale preview, reference image controls, distribute layers, crosshair, smart guides, and more (`Shift+F5`); **mouse wheel scrolls** the bar when it overflows the screen height
-- **Layout docking** - Toolbox, layer panel, edit bar, character map, and advanced bar can each be docked to the left or right side of the workspace via View → Layout menu or `Ctrl+Shift+Click` on the panel
+- **Docking** - Every side panel (toolbox, organizer, drawer, layers, edit bar, advanced bar, character map) and every floating window (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Browser) can be moved to its own column, stacked, tabbed, collapsed, floated and docked back by dragging its handle; drag dividers and inner edges to resize. `Ctrl+Shift+Click` and View → Layout still swap a panel's side
+- **Lock Layout** - View → Lock Layout (`Ctrl+Shift+L`) freezes the panel arrangement so nothing can be dragged by accident
+- **Workspaces** - Named layouts (Default, Simple, Annotate, and your own) covering panels, toolbar buttons, menus, keys and options; switch with `Ctrl+Shift+W` or View → Workspace, edit with Configure Workspaces…
+- **Customize Toolbars** - Put any tool or command on the toolbox, edit bar or advanced bar, in any order (View → Customize Toolbars…)
+- **Screen Capture & Annotate** - `Ctrl+Shift+P` or `DRAW --capture` grabs a screen region into the Annotate workspace (arrow, highlighter, redact, numbered callouts, quick save)
 - **System cursors** - Automatically uses OS native cursors for UI areas (arrow in toolbar/panels), canvas work (crosshair for drawing tools, I-beam for text, resize arrows for handles) and move tool (move pointer); falls back to custom PNG cursors for tools that need them (brush, fill, picker loupe, spray, marquee); configurable via `SYSTEM_CURSORS` in `DRAW.cfg`
 - Themeable PNG icon toolbar (28 buttons in **4×7 grid**)
 - PNG cursors with theme-configurable hotspots and alpha transparency
@@ -478,7 +531,16 @@ Supported formats:
 | `--no-color` | Plain console output (colors are also off when `NO_COLOR` is set or output is piped; `FORCE_COLOR=1` forces them) |
 | `--cfg` | Print the path of the config file DRAW is using, then exit (`vim $(DRAW --cfg)`) |
 | `--dirs` | Print every DRAW directory, labeled, then exit |
-| `--dir-NAME` | Print one directory as a bare absolute path, then exit (`cd $(DRAW --dir-data)`). NAME: `cfg` `data` `cache` `crash-logs` `templates` `brushes` `patterns` `gradients` `palettes` `fonts` `theme` `theme-images` `theme-sounds` `theme-music` `theme-cursors` `theme-fonts` |
+| `--dir-NAME` | Print one directory as a bare absolute path, then exit (`cd $(DRAW --dir-data)`). NAME: `cfg` `data` `cache` `crash-logs` `templates` `brushes` `patterns` `gradients` `palettes` `fonts` `theme` `theme-images` `theme-sounds` `theme-music` `theme-cursors` `theme-fonts` `workspaces` |
+| `--option KEY=VALUE` | Override any config option for this run only (repeatable, never saved) |
+| `--options-list` | List every config option with its default, then exit |
+| `--workspace NAME` | Start in a workspace for this run (e.g. `--workspace annotate shot.png`) |
+| `--workspaces` | List the workspaces, then exit |
+| `--capture` | Grab the screen into a new document in the Annotate workspace (hands off to a running DRAW; bind it to a desktop shortcut) |
+| `--cycle LO-HI[:SPS[:fwd\|rev\|ping]]` | Add a color cycling range (repeatable) |
+| `--export PATH` | Export by extension, then exit: `.draw`, `.bas` (color cycling program), `.gif` (with cycling ranges), `.lbm`, `.bbm` |
+| `--export-anim PATH.gif` | Write an animated GIF of the color cycle, then exit |
+| `--export-qb64 PATH` | Export a QB64 project, then exit |
 ```bash
 # Use a specific config file
 ./DRAW.run --config DRAW.macOS.cfg
