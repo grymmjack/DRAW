@@ -383,7 +383,7 @@ changes, it is set aside in DRAW's cache (no "discard changes?" question), and
 | `L` | Line |
 | `A` | **Arrow**: a line with an arrowhead that stays on for every line until you pick another tool. `S` / `E` while dragging change the caps. |
 | `T` | Text |
-| `H` | **Highlighter**: a yellow brush on a "Highlight" layer set to Multiply (created the first time) |
+| `H` | **Highlighter**: a yellow brush on a "Highlight" layer at 45% opacity (created the first time), so it shows on light and dark art alike |
 | `X` | **Redact**: drag a box; it is pixelated as soon as you let go. One undo step per box. |
 | `N` / `Shift+N` | **Numbered callout**: each click places a filled circle with the next number, in the FG color. `Shift+N` restarts at 1. |
 | `C` | Crop (to the selection, or interactive) |

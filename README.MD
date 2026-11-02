@@ -42,6 +42,7 @@ A layout release: every panel and window can now be moved, stacked, tabbed, floa
   - On a layer that was moved, pasted or transformed, selections, Delete / Cut / Copy, fills, Stroke Selection, custom brush stamps and the Line tool now land where you drew instead of shifted up and left.
   - The arrow cursor no longer turns upside down after hovering a window's resize corner.
   - The mouse wheel over the Advanced Color Picker no longer zooms the canvas.
+  - The color picker's loupe no longer shows up underneath the Browser and other windows.
   - Windows stay visible while a menu is open, and menus draw above them.
   - Floating windows move back into view when docking changes the space around them.
   - Open, Save, Save As and Export keep your current tool, and DRAW's cursor comes back after every dialog.

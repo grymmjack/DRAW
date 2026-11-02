@@ -7,7 +7,7 @@
 #   n + click  Numbered callout; Ctrl+Z removes it again
 #   a + drag   Arrow (line with an arrowhead)
 #   Ctrl+S     quick-saves a PNG into CAPTURE_SAVE_DIR (no dialog)
-#   h + drag   Highlighter (yellow brush on a Multiply layer)
+#   h + drag   Highlighter (yellow brush on a 45% Normal "Highlight" layer)
 #   Ctrl+Enter Done: back to the document and workspace from before
 # QA-OPTIONS: WORKSPACE=default CAPTURE_BACKEND=COMMAND CAPTURE_COMMAND=QA/fixtures/fake-capture.sh CAPTURE_DELAY=0 CAPTURE_HIDE_DRAW=FALSE CAPTURE_WORKSPACE=annotate CAPTURE_SAVE_DIR=QA/results/annotate-shots
 # =============================================================================

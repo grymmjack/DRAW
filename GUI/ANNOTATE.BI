@@ -28,6 +28,7 @@ CONST ANN_ACT_CALLOUT       = 2456
 CONST ANN_ACT_CALLOUT_RESET = 2457
 
 CONST ANN_HIGHLIGHT_LAYER$ = "Highlight"
+CONST ANN_HIGHLIGHT_OPACITY = 115 ' 45% - the Highlight layer's opacity (Normal blend)
 
 DIM SHARED ANN_ARROW_ON      AS INTEGER ' the line tool was picked as Arrow
 DIM SHARED ANN_REDACT_ARMED  AS INTEGER

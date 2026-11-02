@@ -92,7 +92,7 @@ END SUB
 SUB ANN_place_callout (cx AS INTEGER, cy AS INTEGER)
     DIM li AS INTEGER, img AS LONG, ax AS INTEGER, ay AS INTEGER, snap AS LONG, oldDest AS LONG
     DIM r AS INTEGER, dy AS INTEGER, dx AS INTEGER, px AS INTEGER, py AS INTEGER, col AS _UNSIGNED LONG, ink AS _UNSIGNED LONG
-    DIM txt AS STRING, tImg AS LONG, tw AS INTEGER, th AS INTEGER, sc AS SINGLE, lum AS SINGLE
+    DIM txt AS STRING, tImg AS LONG, tw AS INTEGER, th AS INTEGER, lum AS SINGLE
     li = ANN_target_layer%
     IF li < 1 THEN EXIT SUB
     img = LAYERS(li).imgHandle&
@@ -116,27 +116,89 @@ SUB ANN_place_callout (cx AS INTEGER, cy AS INTEGER)
         LINE (px - dx, py + dy)-(px + dx, py + dy), col
     NEXT dy
     CIRCLE (px, py), r, ink
-    ' the number, from the 8x16 font, scaled to ~1.1x the radius
+    ' The number, always at a whole-number scale so it stays crisp: the 8x16 font
+    ' when the circle is big enough, else the 8x8 font, else a 3x5 pixel font.
+    ' (Shrinking the 8x16 font into a small circle made "2" and "3" unreadable.)
     txt = _TRIM$(STR$(ANN_CALLOUT_N))
-    tw = LEN(txt) * 8: th = 16
-    tImg = _NEWIMAGE(tw, th, 32)
-    _DEST tImg
-    CLS , _RGBA32(0, 0, 0, 0)
-    COLOR ink, _RGBA32(0, 0, 0, 0)
-    _PRINTMODE _KEEPBACKGROUND
-    _PRINTSTRING (0, 0), txt
-    _DEST img
-    sc = (r * 1.15) / th
-    IF tw * sc > r * 1.6 THEN sc = (r * 1.6) / tw
-    _PUTIMAGE (px - (tw * sc) / 2, py - (th * sc) / 2)-(px + (tw * sc) / 2, py + (th * sc) / 2), tImg, img
-    _FREEIMAGE tImg
+    DIM fontH AS INTEGER, s AS INTEGER, maxH AS SINGLE, maxW AS SINGLE
+    maxH = r * 1.15: maxW = r * 1.6
+    fontH = 0
+    IF INT(maxH / 16) >= 1 _ANDALSO LEN(txt) * 8 * INT(maxH / 16) <= maxW THEN
+        fontH = 16: s = INT(maxH / 16)
+    ELSEIF INT(maxH / 8) >= 1 _ANDALSO LEN(txt) * 8 * INT(maxH / 8) <= maxW THEN
+        fontH = 8: s = INT(maxH / 8)
+    END IF
+    IF fontH > 0 THEN
+        tw = LEN(txt) * 8: th = fontH
+        tImg = _NEWIMAGE(tw, th, 32)
+        _DEST tImg
+        _FONT fontH
+        CLS , _RGBA32(0, 0, 0, 0)
+        COLOR ink, _RGBA32(0, 0, 0, 0)
+        _PRINTMODE _KEEPBACKGROUND
+        _PRINTSTRING (0, 0), txt
+        _DEST img
+        _PUTIMAGE (px - (tw * s) \ 2, py - (th * s) \ 2)-STEP(tw * s - 1, th * s - 1), tImg, img
+        _FREEIMAGE tImg
+    ELSE
+        ANN_draw_small_number txt, px, py, maxH, maxW, ink
+    END IF
     _DEST oldDest
     ANN_commit li, snap, "Callout " + txt
 END SUB
 
 
+''
+' Draw a number with a 3x5 pixel font onto _DEST, centered at (cx, cy), at the
+' biggest whole scale that fits maxH x maxW (at least 1). For callouts too small
+' for the 8x8 font.
+SUB ANN_draw_small_number (txt AS STRING, cx AS INTEGER, cy AS INTEGER, maxH AS SINGLE, maxW AS SINGLE, ink AS _UNSIGNED LONG)
+    DIM s AS INTEGER, w AS INTEGER, h AS INTEGER, x0 AS INTEGER, y0 AS INTEGER
+    DIM i AS INTEGER, d AS INTEGER, row AS INTEGER, col AS INTEGER, bits AS STRING
+    s = INT(maxH / 5)
+    IF s < 1 THEN s = 1
+    DO WHILE s > 1 _ANDALSO (4 * LEN(txt) - 1) * s > maxW
+        s = s - 1
+    LOOP
+    w = (4 * LEN(txt) - 1) * s: h = 5 * s
+    x0 = cx - w \ 2: y0 = cy - h \ 2
+    FOR i = 1 TO LEN(txt)
+        d = ASC(txt, i) - 48
+        IF d >= 0 _ANDALSO d <= 9 THEN
+            bits = ANN_digit_3x5$(d)
+            FOR row = 0 TO 4
+                FOR col = 0 TO 2
+                    IF MID$(bits, row * 3 + col + 1, 1) = "1" THEN
+                        LINE (x0 + ((i - 1) * 4 + col) * s, y0 + row * s)-STEP(s - 1, s - 1), ink, BF
+                    END IF
+                NEXT col
+            NEXT row
+        END IF
+    NEXT i
+END SUB
+
+''
+' 3x5 pixel digit: 15 characters, rows top to bottom, "1" = ink.
+FUNCTION ANN_digit_3x5$ (d AS INTEGER)
+    DIM r AS STRING
+    SELECT CASE d
+        CASE 0: r = "111101101101111"
+        CASE 1: r = "010110010010111"
+        CASE 2: r = "111001111100111"
+        CASE 3: r = "111001111001111"
+        CASE 4: r = "101101111001001"
+        CASE 5: r = "111100111001111"
+        CASE 6: r = "111100111101111"
+        CASE 7: r = "111001001010010"
+        CASE 8: r = "111101111101111"
+        CASE 9: r = "111101111001111"
+    END SELECT
+    ANN_digit_3x5$ = r
+END FUNCTION
+
+
 ' -----------------------------------------------------------------------------
-' Highlighter: brush on a Multiply "Highlight" layer, yellow
+' Highlighter: brush on a "Highlight" layer, yellow at 45% layer opacity
 ' -----------------------------------------------------------------------------
 SUB ANN_highlighter ()
     DIM i AS INTEGER, found AS INTEGER
@@ -149,7 +211,10 @@ SUB ANN_highlighter ()
         found = LAYERS_new_at_top%
         IF found < 1 THEN STATUS_flash "Highlighter: no room for another layer": EXIT SUB
         LAYERS(found).name = ANN_HIGHLIGHT_LAYER$
-        LAYERS(found).blendMode% = BLEND_MULTIPLY
+        ' Normal blend at 45%, not Multiply: Multiply can only darken, so yellow
+        ' showed on white but did nothing on green, dark or saturated art.
+        LAYERS(found).blendMode% = BLEND_NORMAL
+        LAYERS_set_opacity found, ANN_HIGHLIGHT_OPACITY
         RENDER_ORDER_DIRTY% = TRUE
         BLEND_invalidate_cache
         INVALIDATE_layers
@@ -159,7 +224,7 @@ SUB ANN_highlighter ()
     IF BRUSH_SIZE.CURRENT < 8 THEN BRUSH_SIZE_set 8
     PAINT_COLOR~& = _RGB32(255, 226, 32)
     PAL_FG_IS_TRANSPARENT% = FALSE
-    STATUS_flash "Highlighter: yellow brush on the Multiply layer '" + ANN_HIGHLIGHT_LAYER$ + "'"
+    STATUS_flash "Highlighter: yellow brush on the 45% layer '" + ANN_HIGHLIGHT_LAYER$ + "'"
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 

@@ -657,7 +657,7 @@ Hold a **non-modifier** key, then click/press/drag. Easy to miss:
 | `L` | Line |
 | `A` | Arrow (line with a sticky arrowhead) |
 | `T` | Text |
-| `H` | Highlighter (yellow brush on a Multiply "Highlight" layer) |
+| `H` | Highlighter (yellow brush on a "Highlight" layer at 45% opacity) |
 | `X` | Redact — drag a box, pixelated on release |
 | `N` / `Shift+N` | Numbered callout (click) / restart at 1 |
 | `C` / `V` | Crop / Move |
