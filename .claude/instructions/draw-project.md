@@ -22,7 +22,7 @@
 3. **CFG**: CONFIG, CONFIG-THEME
 4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DITHER, DRAWER, PREVIEW, EDITBAR, ADVANCEDBAR, TOOLTIP, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, POPUP-MENU, STROKE-SEL, SMART-GUIDES, COLOR-MIXER, ADV-COLOR-PICKER, FLOAT-PANEL, COLOR-SPACE-3D, PEN-PANEL, SYMBOL, BROWSER
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, FILE-ASE, FILE-PSD, FILE-ANS (ANSI text import), FILE-BINANSI (BIN/XBIN/TundraDraw), API-LOSPEC
-6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE, FILE-EXPORT, FILE-ANS (ANSI codec + export + dialog)
+6. **OUTPUT**: SCREEN, FILE-BAS, FILE-QB64 (QB64 Code export), FILE-BMP, FILE-BSAVE, FILE-EXPORT, FILE-ANS (ANSI codec + export + dialog)
 7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D, TEXT_INPUT, MSG_BOX, COLOR_PICKER, ADV_COLOR_PICKER, FILE_DIALOG
 8. **TOOLS**: 53 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, BEZIER, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, PICKER-LOUPE, HISTORY, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER, TRANSFORM, EXTRACT-IMAGES, EXTRACT-GRID, EXTRACT-LAYERS-GRID, SMART-SHAPES, SS-COMMON, SS-POLYGON, SS-PIE-DONUT, SS-ROUNDED-RECT, SS-TAB, SS-PILL, SS-PACMAN, SS-3D-CUBE, SS-BEVEL-RECT, SS-ARROW, SS-3D-TEXT)
 9. **THEME**: `ASSETS/THEMES/DEFAULT/THEME.BI`
@@ -435,6 +435,22 @@ beside it, FALSE = overwrite the image flattened). Setting them by hand drifted
 before 2.6.0: Ctrl+S wrote PNG+drAw data into a `.gif`, or overwrote the previous
 document's file. Memory `document-filename-invariants` has the full table, Flatten &
 Save (`SAVE_ACT_FLATTEN`) and Export Again (`EXPORT_ACT_REPEAT`).
+
+### 31. Exported Code Must Fill Like DRAW — Never `PAINT`
+
+QB64's `PAINT (x, y), col, border` is a **border fill**: it floods until it meets
+*one* border color and paints over every other color on the way. DRAW's Fill tool
+replaces the *connected area of the clicked color* on that layer's own pixels. Until
+2.6.1 the QB64 Code export (`OUTPUT/FILE-QB64.BM`) wrote `PAINT` with the last
+shape's color as the border, so a fill around several shapes covered all but the last
+one. The export now emits a `FloodFill x, y, col` helper (exact match, 4-way,
+`_DONTBLEND`), draws a layer with fills into its own image (`layerImg`) before putting
+it on the caller's `_DEST`, and replays each fill on its before image
+(`FILE_QB64_fill_replays_exactly%`) — a fill it can't repeat (selection, opacity lock,
+symmetry) is exported as its pixels. Also in generated helpers: **`POINT` reads
+`_SOURCE`, not `_DEST`** — set both (the BAS exporter's `FloodFillLikeDRAW` read the
+screen for this reason). Test: `QA/tests/file-export-qb64-fill.sh` compiles and runs
+the export and compares its pixels with DRAW's BMP.
 
 ---
 

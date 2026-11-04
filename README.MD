@@ -5,9 +5,17 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.6.0
+Current release: v2.6.1
 
 ![DRAW GUI from v2.5.0](./GUI.png)
+
+## New in 2.6.1
+
+Two fixes: QB64 code export with fills, and the Annotate arrow.
+
+- **Exported QB64 programs keep the shapes a fill goes around.** Draw a few shapes in different colors, fill the background around them, and export with File → Export QB64 Project: the program showed the fill color over every shape except the last one drawn. The export now writes a `FloodFill` helper that fills exactly like DRAW's Fill tool, and a layer with fills is drawn on its own image so its fills don't reach the layers below. A fill the helper can't repeat exactly (inside a selection, with opacity lock, with symmetry) is exported as its pixels.
+- **The Annotate arrow keeps its head on every line.** From the second arrow on, lines were drawn without a head.
+- **Annotate toolbar buttons are told apart.** The Annotate commands showed five identical "ANT" tiles. They now read AR, HG, RD, NM and RST.
 
 ## New in 2.6.0
 
