@@ -536,6 +536,8 @@ SUB FILE_QB64_export (basPath AS STRING)
     hasSymChildren% = FALSE
     DIM needRotation   AS INTEGER
     needRotation% = FALSE
+    DIM needFlood      AS INTEGER
+    needFlood% = FALSE
     FOR i% = 1 TO sortCount%
         mode% = LAYERS(sortedZ(i%)).exportMode%
         IF mode% = EXPORT_MODE_IMG THEN hasImgLayers% = TRUE
@@ -560,6 +562,7 @@ SUB FILE_QB64_export (basPath AS STRING)
                     IF HISTORY_RECORDS(vCheckJ%).kind% = HISTORY_KIND_ELLIPSE THEN needHelpers% = TRUE
                 END IF
             NEXT vCheckJ%
+            IF FILE_QB64_layer_has_fill%(sortedZ(i%)) THEN needFlood% = TRUE
         END IF
     NEXT i%
 
@@ -1102,6 +1105,74 @@ SUB FILE_QB64_export (basPath AS STRING)
         FILE_BAS_write_ellipse_helpers fh%
     END IF
 
+    ' --- Flood fill helper (if needed) ---
+    ' Same fill as DRAW's Fill tool: replaces the connected area (4-way) of the
+    ' exact color at the seed, on _DEST, without blending. Not PAINT - PAINT stops
+    ' only at one border color and paints over everything else.
+    IF needFlood% THEN
+        PRINT #fh%, "SUB FloodFill (startX AS LONG, startY AS LONG, fillCol AS _UNSIGNED LONG)"
+        PRINT #fh%, "    DIM img AS LONG, oldSource AS LONG"
+        PRINT #fh%, "    DIM w AS LONG, h AS LONG"
+        PRINT #fh%, "    DIM targetCol AS _UNSIGNED LONG"
+        PRINT #fh%, "    DIM sp AS LONG, cap AS LONG"
+        PRINT #fh%, "    DIM x AS LONG, y AS LONG, x1 AS LONG, x2 AS LONG"
+        PRINT #fh%, "    DIM sx AS LONG, ny AS LONG, dy AS LONG"
+        PRINT #fh%, "    DIM inSpan AS INTEGER"
+        PRINT #fh%, "    DIM stackX() AS LONG, stackY() AS LONG"
+        PRINT #fh%, "    img = _DEST: oldSource = _SOURCE"
+        PRINT #fh%, "    w = _WIDTH(img): h = _HEIGHT(img)"
+        PRINT #fh%, "    IF startX < 0 _ORELSE startY < 0 _ORELSE startX >= w _ORELSE startY >= h THEN EXIT SUB"
+        PRINT #fh%, "    _SOURCE img"
+        PRINT #fh%, "    targetCol = POINT(startX, startY)"
+        PRINT #fh%, "    IF targetCol = fillCol THEN"
+        PRINT #fh%, "        _SOURCE oldSource"
+        PRINT #fh%, "        EXIT SUB"
+        PRINT #fh%, "    END IF"
+        PRINT #fh%, "    _DONTBLEND img"
+        PRINT #fh%, "    cap = 256"
+        PRINT #fh%, "    REDIM stackX(1 TO cap) AS LONG, stackY(1 TO cap) AS LONG"
+        PRINT #fh%, "    sp = 1: stackX(1) = startX: stackY(1) = startY"
+        PRINT #fh%, "    DO WHILE sp > 0"
+        PRINT #fh%, "        x = stackX(sp): y = stackY(sp): sp = sp - 1"
+        PRINT #fh%, "        IF POINT(x, y) = targetCol THEN"
+        PRINT #fh%, "            x1 = x"
+        PRINT #fh%, "            DO WHILE x1 > 0 _ANDALSO POINT(x1 - 1, y) = targetCol"
+        PRINT #fh%, "                x1 = x1 - 1"
+        PRINT #fh%, "            LOOP"
+        PRINT #fh%, "            x2 = x"
+        PRINT #fh%, "            DO WHILE x2 < w - 1 _ANDALSO POINT(x2 + 1, y) = targetCol"
+        PRINT #fh%, "                x2 = x2 + 1"
+        PRINT #fh%, "            LOOP"
+        PRINT #fh%, "            LINE (x1, y)-(x2, y), fillCol"
+        PRINT #fh%, "            FOR dy = -1 TO 1 STEP 2"
+        PRINT #fh%, "                ny = y + dy"
+        PRINT #fh%, "                IF ny >= 0 _ANDALSO ny < h THEN"
+        PRINT #fh%, "                    inSpan = 0"
+        PRINT #fh%, "                    FOR sx = x1 TO x2"
+        PRINT #fh%, "                        IF POINT(sx, ny) = targetCol THEN"
+        PRINT #fh%, "                            IF inSpan = 0 THEN"
+        PRINT #fh%, "                                IF sp >= cap THEN"
+        PRINT #fh%, "                                    cap = cap * 2"
+        PRINT #fh%, "                                    REDIM _PRESERVE stackX(1 TO cap) AS LONG"
+        PRINT #fh%, "                                    REDIM _PRESERVE stackY(1 TO cap) AS LONG"
+        PRINT #fh%, "                                END IF"
+        PRINT #fh%, "                                sp = sp + 1: stackX(sp) = sx: stackY(sp) = ny"
+        PRINT #fh%, "                                inSpan = -1"
+        PRINT #fh%, "                            END IF"
+        PRINT #fh%, "                        ELSE"
+        PRINT #fh%, "                            inSpan = 0"
+        PRINT #fh%, "                        END IF"
+        PRINT #fh%, "                    NEXT sx"
+        PRINT #fh%, "                END IF"
+        PRINT #fh%, "            NEXT dy"
+        PRINT #fh%, "        END IF"
+        PRINT #fh%, "    LOOP"
+        PRINT #fh%, "    _BLEND img"
+        PRINT #fh%, "    _SOURCE oldSource"
+        PRINT #fh%, "END SUB"
+        PRINT #fh%, ""
+    END IF
+
     ' --- Opacity helper (if needed) ---
     IF needOpacity% THEN
         PRINT #fh%, "SUB ScaleImageAlpha (img AS LONG, opacity AS INTEGER)"
@@ -1398,9 +1469,24 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
     DIM moveOX    AS INTEGER ' cumulative move offset X
     DIM moveOY    AS INTEGER ' cumulative move offset Y
 
+    DIM ownImage  AS INTEGER ' layer draws into its own image (it has fills)
+
     layerId& = LAYERS(layerIdx%).historyId&
     moveOX%  = 0
     moveOY%  = 0
+
+    ' A fill reads the pixels already there. In DRAW those are this layer's own
+    ' pixels, so a layer with fills draws into its own transparent image and is then
+    ' put onto whatever the caller is drawing to (screen or a temp image).
+    ' Otherwise the fill would also see - and a whole-layer CLS would wipe - the
+    ' layers below.
+    ownImage% = FILE_QB64_layer_has_fill%(layerIdx%)
+    IF ownImage% THEN
+        PRINT #fh%, indent$ + "DIM layerImg AS LONG, callerDest AS LONG"
+        PRINT #fh%, indent$ + "callerDest = _DEST"
+        PRINT #fh%, indent$ + "layerImg = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+        PRINT #fh%, indent$ + "_DEST layerImg"
+    END IF
 
     FOR i% = 1 TO HISTORY.current%
         IF HISTORY_RECORDS(i%).primaryLayerId& <> layerId& THEN _CONTINUE
@@ -1450,30 +1536,19 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                 END IF
 
             CASE HISTORY_KIND_FILL
+                ' Never PAINT: it floods up to ONE border color, so with a border taken from
+                ' the last shape it painted over every other-colored shape on the layer.
+                ' DRAW's fill replaces the connected area of the clicked color - FloodFill
+                ' does the same. Fills it can't repeat (selection, opacity lock, symmetry...)
+                ' export as their exact pixels.
                 colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
-                IF HISTORY_RECORDS(i%).x1% = -32768 AND HISTORY_RECORDS(i%).y1% = -32768 THEN
-                    ' Full-canvas fill (CLS sentinel) — always inline
+                IF FILE_QB64_fill_replays_exactly%(i%) = FALSE THEN
+                    FILE_QB64_emit_pixel_diff fh%, i%, indent$, moveOX%, moveOY%
+                ELSEIF HISTORY_RECORDS(i%).x1% = -32768 AND HISTORY_RECORDS(i%).y1% = -32768 THEN
+                    ' Whole-layer fill (CLS sentinel)
                     PRINT #fh%, indent$ + "CLS , " + colorExpr$
                 ELSE
-                    ' Find border color from the most recent shape on same layer
-                    DIM borderExpr AS STRING
-                    DIM scanIdx    AS INTEGER
-                    borderExpr$ = ""
-                    FOR scanIdx% = i% - 1 TO 1 STEP -1
-                        IF HISTORY_RECORDS(scanIdx%).primaryLayerId& <> layerId& THEN _CONTINUE
-                        SELECT CASE HISTORY_RECORDS(scanIdx%).kind%
-                            CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_BRUSH
-                                borderExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(scanIdx%).colorFG~&)
-                                EXIT FOR
-                            CASE HISTORY_KIND_FILL
-                                _CONTINUE ' skip prior fills
-                        END SELECT
-                    NEXT scanIdx%
-                    IF LEN(borderExpr$) > 0 THEN
-                        PRINT #fh%, indent$ + "PAINT (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1% + moveOY%)) + "), " + colorExpr$ + ", " + borderExpr$
-                    ELSE
-                        PRINT #fh%, indent$ + "PAINT (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1% + moveOY%)) + "), " + colorExpr$
-                    END IF
+                    PRINT #fh%, indent$ + "FloodFill " + _TRIM$(STR$(HISTORY_RECORDS(i%).x1% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1% + moveOY%)) + ", " + colorExpr$
                 END IF
 
             CASE HISTORY_KIND_POLYLINE
@@ -1534,7 +1609,131 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                 END IF
         END SELECT
     NEXT i%
+
+    IF ownImage% THEN
+        PRINT #fh%, indent$ + "_DEST callerDest"
+        PRINT #fh%, indent$ + "_PUTIMAGE (0, 0), layerImg"
+        PRINT #fh%, indent$ + "_FREEIMAGE layerImg"
+    END IF
 END SUB
+
+''
+' TRUE when the layer's export SUB contains a fill (needs FloodFill / its own image).
+' @param layerIdx INTEGER Index into LAYERS()
+' @return INTEGER TRUE/FALSE
+'
+FUNCTION FILE_QB64_layer_has_fill% (layerIdx AS INTEGER)
+    DIM j       AS INTEGER
+    DIM layerId AS LONG
+
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT FUNCTION
+    layerId& = LAYERS(layerIdx%).historyId&
+    FOR j% = 1 TO HISTORY.current%
+        IF HISTORY_RECORDS(j%).primaryLayerId& = layerId& THEN
+            IF HISTORY_RECORDS(j%).kind% = HISTORY_KIND_FILL THEN
+                FILE_QB64_layer_has_fill% = TRUE
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT j%
+END FUNCTION
+
+''
+' Checks whether the exported FloodFill (or CLS, for a whole-layer fill) gives
+' exactly the pixels DRAW's fill gave. Replays it on a copy of the record's
+' before image and compares with the after image. FALSE means the fill did more
+' than that (selection-clipped, opacity lock, symmetry, merged sampling, cell
+' fill...) and must be exported as its pixels. With no before/after images to
+' check against it answers TRUE - FloodFill is the closest match.
+' @param recordIndex INTEGER Index into HISTORY_RECORDS() (a FILL record)
+' @return INTEGER TRUE/FALSE
+'
+FUNCTION FILE_QB64_fill_replays_exactly% (recordIndex AS INTEGER)
+    DIM beforeImg AS LONG, afterImg AS LONG, simImg AS LONG
+    DIM w         AS LONG, h AS LONG
+    DIM fillCol   AS _UNSIGNED LONG, targetCol AS _UNSIGNED LONG
+    DIM px        AS _UNSIGNED LONG
+    DIM m         AS _MEM
+    DIM o         AS _OFFSET
+    DIM seedX     AS LONG, seedY AS LONG
+    DIM sp        AS LONG, cap AS LONG
+    DIM idx       AS LONG, cx AS LONG, cy AS LONG
+    DIM nx        AS LONG, ny AS LONG, d AS INTEGER
+    DIM stack()   AS LONG
+
+    beforeImg& = HISTORY_RECORDS(recordIndex%).img&
+    afterImg&  = HISTORY_RECORDS(recordIndex%).img2&
+    IF beforeImg& >= -1 OR afterImg& >= -1 THEN
+        FILE_QB64_fill_replays_exactly% = TRUE
+        EXIT FUNCTION
+    END IF
+    w& = _WIDTH(beforeImg&)
+    h& = _HEIGHT(beforeImg&)
+    ' A promoted (apron) buffer isn't in canvas coordinates - use pixels.
+    IF w& <> SCRN.canvasW& OR h& <> SCRN.canvasH& THEN EXIT FUNCTION
+    IF _WIDTH(afterImg&) <> w& OR _HEIGHT(afterImg&) <> h& THEN EXIT FUNCTION
+
+    fillCol~& = HISTORY_RECORDS(recordIndex%).colorFG~&
+    simImg&   = _COPYIMAGE(beforeImg&, 32)
+    IF simImg& >= -1 THEN EXIT FUNCTION
+    m = _MEMIMAGE(simImg&)
+
+    IF HISTORY_RECORDS(recordIndex%).x1% = -32768 AND HISTORY_RECORDS(recordIndex%).y1% = -32768 THEN
+        ' Whole-layer fill: CLS sets every pixel
+        FOR o = m.OFFSET TO m.OFFSET + m.SIZE - 4 STEP 4
+            _MEMPUT m, o, fillCol~&
+        NEXT o
+    ELSE
+        seedX& = HISTORY_RECORDS(recordIndex%).x1%
+        seedY& = HISTORY_RECORDS(recordIndex%).y1%
+        IF seedX& < 0 OR seedY& < 0 OR seedX& >= w& OR seedY& >= h& THEN
+            _MEMFREE m
+            SAFE_FREEIMAGE simImg&
+            EXIT FUNCTION
+        END IF
+        _MEMGET m, m.OFFSET + (seedY& * w& + seedX&) * 4, targetCol~&
+        IF targetCol~& <> fillCol~& THEN
+            ' 4-way flood, exact color match - the same area FloodFill / DRAW's fill covers.
+            ' Pixels are recolored as they are pushed, so each is pushed once.
+            cap& = 1024
+            REDIM stack(1 TO cap&) AS LONG
+            idx& = seedY& * w& + seedX&
+            _MEMPUT m, m.OFFSET + idx& * 4, fillCol~&
+            sp& = 1: stack(1) = idx&
+            DO WHILE sp& > 0
+                idx& = stack(sp&): sp& = sp& - 1
+                cx&  = idx& MOD w&
+                cy&  = idx& \ w&
+                FOR d% = 0 TO 3
+                    nx& = cx&: ny& = cy&
+                    SELECT CASE d%
+                        CASE 0: nx& = cx& - 1
+                        CASE 1: nx& = cx& + 1
+                        CASE 2: ny& = cy& - 1
+                        CASE 3: ny& = cy& + 1
+                    END SELECT
+                    IF nx& >= 0 AND ny& >= 0 AND nx& < w& AND ny& < h& THEN
+                        _MEMGET m, m.OFFSET + (ny& * w& + nx&) * 4, px~&
+                        IF px~& = targetCol~& THEN
+                            _MEMPUT m, m.OFFSET + (ny& * w& + nx&) * 4, fillCol~&
+                            IF sp& >= cap& THEN
+                                cap& = cap& * 2
+                                REDIM _PRESERVE stack(1 TO cap&) AS LONG
+                            END IF
+                            sp& = sp& + 1
+                            stack(sp&) = ny& * w& + nx&
+                        END IF
+                    END IF
+                NEXT d%
+            LOOP
+            ERASE stack
+        END IF
+    END IF
+    _MEMFREE m
+
+    FILE_QB64_fill_replays_exactly% = (HISTORY_image_differs%(simImg&, afterImg&) = FALSE)
+    SAFE_FREEIMAGE simImg&
+END FUNCTION
 
 ''
 ' Emits pixel-diff PSET/LINE ops by comparing before/after images.
