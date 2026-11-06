@@ -2436,19 +2436,8 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     FOR vri% = LAYER_COUNT% TO 1 STEP -1
         FOR vrIdx% = 1 TO MAX_LAYERS
             IF LAYERS(vrIdx%).imgHandle& <> 0 AND LAYERS(vrIdx%).zIndex% = vri% THEN
-                ' Skip children of collapsed groups
-                DIM vrParent AS INTEGER
-                vrParent% = LAYERS(vrIdx%).parentGroupIdx%
-                DIM vrSkip   AS INTEGER
-                vrSkip% = FALSE
-                IF vrParent% > 0 THEN
-                    IF vrParent% < = MAX_LAYERS THEN
-                        IF LAYERS(vrParent%).imgHandle& <> 0 THEN
-                            IF LAYERS(vrParent%).collapsed% THEN vrSkip% = TRUE
-                        END IF
-                    END IF
-                END IF
-                IF NOT vrSkip% THEN
+                ' Skip rows inside any collapsed group (the whole ancestor chain)
+                IF LAYER_PANEL_row_hidden%(vrIdx%) = 0 THEN
                     visibleRowCount% = visibleRowCount% + 1
                 END IF
                 EXIT FOR
@@ -2911,21 +2900,8 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
             FOR dropScanI% = 1 TO MAX_LAYERS
                 IF LAYERS(dropScanI%).imgHandle& <> 0 AND LAYERS(dropScanI%).zIndex% = dropScanZ% THEN
                     dropScanIdx% = dropScanI%
-                    ' Skip children of collapsed groups
-                    IF LAYERS(dropScanIdx%).parentGroupIdx% > 0 THEN
-                        DIM dropScanP         AS INTEGER
-                        dropScanP% = LAYERS(dropScanIdx%).parentGroupIdx%
-                        DIM dropScanCollapsed AS INTEGER
-                        dropScanCollapsed% = FALSE
-                        IF dropScanP% > 0 THEN
-                            IF dropScanP% < = MAX_LAYERS THEN
-                                IF LAYERS(dropScanP%).imgHandle& <> 0 THEN
-                                    IF LAYERS(dropScanP%).collapsed% THEN dropScanCollapsed% = TRUE
-                                END IF
-                            END IF
-                        END IF
-                        IF dropScanCollapsed% THEN EXIT FOR
-                    END IF
+                    ' Skip rows inside any collapsed group (the whole ancestor chain)
+                    IF LAYER_PANEL_row_hidden%(dropScanIdx%) THEN EXIT FOR
                     IF dropScanZ% = LAYER_PANEL.dropTargetZIndex% THEN GOTO DropIndicatorFound
                     dropVisRow% = dropVisRow% + 1
                     EXIT FOR
@@ -3643,8 +3619,9 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                         ELSE
                             LAYERS_toggle_opacity_lock layerIdx%
                         END IF
-                    ' Check if clicking vertical opacity bar (3px wide at panelW%-15 to panelW%-13)
-                    ELSEIF panelW% >= 80 AND localX% >= panelW% - 17 AND localX% < = panelW% - 11 THEN
+                    ' Check if clicking vertical opacity bar (3px wide at panelW%-15 to panelW%-13).
+                    ' It is drawn at the row's right edge, NOT indented: test the un-indented x.
+                    ELSEIF panelW% >= 80 AND localX% + clickIndent% >= panelW% - 17 AND localX% + clickIndent% < = panelW% - 11 THEN
                         ' Start vertical opacity drag (top=opaque, bottom=transparent)
                         SOUND_play SND_SLIDER
                         LAYER_PANEL.opacityDrag%      = TRUE
@@ -3819,16 +3796,8 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
             NEXT i%
             
             IF layerIdx% > 0 THEN
-                ' Skip children of collapsed groups
-                DIM whlParent AS INTEGER
-                whlParent% = LAYERS(layerIdx%).parentGroupIdx%
-                IF whlParent% > 0 THEN
-                    IF whlParent% < = MAX_LAYERS THEN
-                        IF LAYERS(whlParent%).imgHandle& <> 0 THEN
-                            IF LAYERS(whlParent%).collapsed% THEN _CONTINUE
-                        END IF
-                    END IF
-                END IF
+                ' Skip rows inside any collapsed group (the whole ancestor chain)
+                IF LAYER_PANEL_row_hidden%(layerIdx%) THEN _CONTINUE
 
                 DIM drawY AS INTEGER
                 drawY% = rowY% - LAYER_PANEL.scrollOffset%
@@ -3884,8 +3853,15 @@ SUB LAYER_PANEL_scroll_to_layer (layerIdx AS INTEGER)
     DIM lpMaxScroll  AS INTEGER
     lpMaxScroll% = (LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT) - lpListH%
     IF lpMaxScroll% < 0 THEN lpMaxScroll% = 0
-    ' Row position is based on zIndex (highest zIndex = top row in panel)
-    DIM lpRowY       AS INTEGER: lpRowY% = (LAYER_COUNT% - LAYERS(layerIdx%).zIndex%) * LAYER_ROW_HEIGHT
+    ' Row position: the showing rows above it (highest zIndex = top row;
+    ' rows inside collapsed groups take no space)
+    DIM lpRowY       AS INTEGER, lpI AS INTEGER, lpAbove AS INTEGER
+    FOR lpI% = 1 TO MAX_LAYERS
+        IF LAYERS(lpI%).imgHandle& <> 0 _ANDALSO LAYERS(lpI%).zIndex% > LAYERS(layerIdx%).zIndex% THEN
+            IF LAYER_PANEL_row_hidden%(lpI%) = 0 THEN lpAbove% = lpAbove% + 1
+        END IF
+    NEXT lpI%
+    lpRowY% = lpAbove% * LAYER_ROW_HEIGHT
     IF lpRowY% < LAYER_PANEL.scrollOffset% THEN
         LAYER_PANEL.scrollOffset% = lpRowY%
     ELSEIF lpRowY% + LAYER_ROW_HEIGHT > LAYER_PANEL.scrollOffset% + lpListH% THEN
@@ -3930,10 +3906,14 @@ SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
     listTop%    = LAYER_PANEL_top% + HEADER_HEIGHT
     listBottom% = panelH% - BUTTON_AREA_HEIGHT
 
-    ' Only swipe if mouse is in the eye icon column (first 14 pixels)
-    DIM swipeLocalX AS INTEGER
+    ' Only the list area: not the header / button bar, nor a panel below
+    ' (rows scrolled under them are not on screen)
+    IF rawY% < listTop% OR rawY% >= listBottom% THEN EXIT SUB
+
+    ' The eye column is per row (indent, group rows), tested once the row is known
+    DIM swipeLocalX AS INTEGER, swipeIndentPx AS INTEGER, swipeRel AS INTEGER, swipeOnEye AS INTEGER
     swipeLocalX% = rawX% - LAYER_PANEL.panelX1%
-    IF swipeLocalX% >= 14 THEN EXIT SUB
+    IF CFG.LAYER_GROUP_INDENT% > 0 THEN swipeIndentPx% = CFG.LAYER_GROUP_INDENT% ELSE swipeIndentPx% = THEME.LAYER_PANEL_group_indent%
 
     ' Find which layer row the mouse is over
     DIM clickY AS INTEGER
@@ -3950,22 +3930,22 @@ SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
         NEXT i%
 
         IF layerIdx% > 0 THEN
-            ' Skip children of collapsed groups (must match render loop)
-            DIM swipeParent AS INTEGER
-            swipeParent% = LAYERS(layerIdx%).parentGroupIdx%
-            IF swipeParent% > 0 THEN
-                IF swipeParent% < = MAX_LAYERS THEN
-                    IF LAYERS(swipeParent%).imgHandle& <> 0 THEN
-                        IF LAYERS(swipeParent%).collapsed% THEN _CONTINUE
-                    END IF
-                END IF
-            END IF
+            ' Skip rows inside any collapsed group (must match render loop)
+            IF LAYER_PANEL_row_hidden%(layerIdx%) THEN _CONTINUE
 
             DIM drawY AS INTEGER
             drawY% = rowY% - LAYER_PANEL.scrollOffset%
 
             IF clickY% >= drawY% AND clickY% < drawY% + LAYER_ROW_HEIGHT THEN
-                ' Mouse is over this layer row
+                ' Mouse is over this layer row: on its eye? (the same zones as
+                ' a click in LAYER_PANEL_handle_click: group eye 13-23, else < 14)
+                swipeRel% = swipeLocalX% - LAYERS_nesting_depth%(layerIdx%) * swipeIndentPx%
+                IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
+                    swipeOnEye% = (swipeRel% >= 13 AND swipeRel% < 24)
+                ELSE
+                    swipeOnEye% = (swipeRel% < 14)
+                END IF
+                IF NOT swipeOnEye% THEN EXIT SUB
                 ' Only apply if not already swiped this layer
                 IF ASC(MID$(LAYER_PANEL.visSwipedLayers, layerIdx%, 1)) = 0 THEN
                     ' Apply swipe action
@@ -4000,6 +3980,23 @@ END SUB
 ' Excludes children of collapsed groups.
 ' @return INTEGER  Number of visible layer rows
 '
+''
+' TRUE when layer idx's row is hidden: some ancestor group (not only its
+' direct parent) is collapsed. Every row walk in the panel - render, clicks,
+' wheel, swipe, drag - must skip the same rows or they disagree on which row
+' is where.
+FUNCTION LAYER_PANEL_row_hidden% (idx AS INTEGER)
+    DIM p AS INTEGER, guard AS INTEGER
+    IF idx < 1 _ORELSE idx > MAX_LAYERS THEN EXIT FUNCTION
+    p = LAYERS(idx).parentGroupIdx%
+    DO WHILE p > 0 _ANDALSO p <= MAX_LAYERS _ANDALSO guard < MAX_LAYERS
+        IF LAYERS(p).imgHandle& <> 0 _ANDALSO LAYERS(p).collapsed% THEN LAYER_PANEL_row_hidden% = TRUE: EXIT FUNCTION
+        p = LAYERS(p).parentGroupIdx%
+        guard = guard + 1
+    LOOP
+END FUNCTION
+
+
 FUNCTION LAYER_PANEL_visible_row_count% ()
     DIM vrc AS INTEGER, vrcZ AS INTEGER, vrcI AS INTEGER, vrcIdx AS INTEGER
     vrc% = 0
@@ -4161,21 +4158,8 @@ SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
         FOR dragGapI% = 1 TO MAX_LAYERS
             IF LAYERS(dragGapI%).imgHandle& <> 0 AND LAYERS(dragGapI%).zIndex% = dragGapZ% THEN
                 dragGapIdx% = dragGapI%
-                ' Skip children of collapsed groups
-                IF LAYERS(dragGapIdx%).parentGroupIdx% > 0 THEN
-                    DIM dragGapP         AS INTEGER
-                    dragGapP% = LAYERS(dragGapIdx%).parentGroupIdx%
-                    DIM dragGapCollapsed AS INTEGER
-                    dragGapCollapsed% = FALSE
-                    IF dragGapP% > 0 THEN
-                        IF dragGapP% < = MAX_LAYERS THEN
-                            IF LAYERS(dragGapP%).imgHandle& <> 0 THEN
-                                IF LAYERS(dragGapP%).collapsed% THEN dragGapCollapsed% = TRUE
-                            END IF
-                        END IF
-                    END IF
-                    IF dragGapCollapsed% THEN EXIT FOR
-                END IF
+                ' Skip rows inside any collapsed group (the whole ancestor chain)
+                IF LAYER_PANEL_row_hidden%(dragGapIdx%) THEN EXIT FOR
                 IF dragVisRow% >= closestGap% THEN
                     targetZIndex% = LAYERS(dragGapIdx%).zIndex%
                     GOTO DragGapFound

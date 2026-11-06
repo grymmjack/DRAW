@@ -73,7 +73,7 @@ FUNCTION DOCK_panel_w% (id AS INTEGER)
             ' band's size it has while docked, or a column would inherit a band's width)
             DIM brW AS SINGLE
             brW = BROWSER.renderScale!: IF brW <= 0 THEN brW = 1
-            DOCK_panel_w% = _MAX(INT(CSNG(_MAX(CFG.BROWSER_WIDTH%, BROWSER_MIN_W)) * brW + 0.5), BROWSER_MIN_W)
+            DOCK_panel_w% = _MAX(INT(CSNG(_MAX(CFG.BROWSER_WIDTH%, BROWSER_MIN_W)) * brW + 0.5), BROWSER_min_disp_w%)
     END SELECT
 END FUNCTION
 
@@ -105,7 +105,7 @@ SUB DOCK_panel_box (id AS INTEGER, axisH AS INTEGER, cross AS INTEGER, minS AS I
             rs = PREVIEW.renderScale!: IF rs <= 0 THEN rs = 1
             minS = INT(PREVIEW_MIN_W * rs + 0.999): stretchy = TRUE
         CASE DP_BROWSER
-            minS = BROWSER_MIN_W: stretchy = TRUE
+            minS = BROWSER_min_disp_w%: stretchy = TRUE ' (native px x its scale)
     END SELECT
 END SUB
 
@@ -294,8 +294,9 @@ FUNCTION DOCK_fixed_h% (id AS INTEGER, w AS INTEGER)
             scl = CFG.TOOLBAR_SCALE%
             IF scl < 1 THEN scl = 1
             IF scl > 4 THEN scl = 4
-            ' button rows + the bottom border row (the top border row sits just above)
-            DOCK_fixed_h% = TB_LIVE_ROWS * TB_BTN_H * scl + (TB_LIVE_ROWS - 1) * TB_BTN_PADDING * scl + 1
+            ' button rows + the bottom border row (the top border row sits just
+            ' above - inside the rect too when something is above it, DOCK_tb_inset%)
+            DOCK_fixed_h% = TB_LIVE_ROWS * TB_BTN_H * scl + (TB_LIVE_ROWS - 1) * TB_BTN_PADDING * scl + 1 + DOCK_tb_inset%
         CASE DP_ORGANIZER
             DOCK_fixed_h% = ORGANIZER_height_for%(w)
         CASE DP_MIXER: DOCK_fixed_h% = COLORMIXER.dispH%
@@ -303,6 +304,27 @@ FUNCTION DOCK_fixed_h% (id AS INTEGER, w AS INTEGER)
         CASE DP_CS3D: DOCK_fixed_h% = CS3D.dispH%
         CASE DP_PEN: DOCK_fixed_h% = PENP.dispH%
     END SELECT
+END FUNCTION
+
+
+''
+' 1 when the docked toolbox has something above it in its column (a slot
+' above, or its own title strip): the toolbox draws its top border one row
+' ABOVE TB_RECT_Y, which at a column's top is the edge beside the menu bar but
+' below another panel is that panel's last row (or the strip's). Then its rect
+' takes that row in: TB_RECT_Y one lower, one row taller. 0 at a column's top
+' or floating (unchanged).
+FUNCTION DOCK_tb_inset% ()
+    DIM s AS INTEGER, c AS INTEGER, o AS INTEGER, t AS INTEGER
+    s = DPANEL(DP_TOOLBOX).slot
+    IF s < 1 _ORELSE s > DOCK_MAX_SLOTS THEN EXIT FUNCTION
+    IF DOCK_SLOT(s).used = 0 THEN EXIT FUNCTION
+    IF DOCK_slot_titled%(s) THEN DOCK_tb_inset% = 1: EXIT FUNCTION
+    c = DOCK_SLOT(s).col
+    FOR o = 1 TO DOCK_SLOT(s).ord - 1 ' a showing slot above it
+        t = DOCK_slot_at%(c, o)
+        IF t _ANDALSO DOCK_slot_panel%(t) <> DP_NONE THEN DOCK_tb_inset% = 1: EXIT FUNCTION
+    NEXT o
 END FUNCTION
 
 
@@ -319,7 +341,7 @@ FUNCTION DOCK_min_h% (id AS INTEGER)
         DOCK_min_h% = INT(PREVIEW_MIN_H * rs + 0.999)
     END IF
     IF id = DP_LAYERS THEN DOCK_min_h% = LAYERS_min_height% ' header + a row + the button bar
-    IF id = DP_BROWSER THEN DOCK_min_h% = BROWSER_MIN_H
+    IF id = DP_BROWSER THEN DOCK_min_h% = BROWSER_min_disp_h% ' (native px, like the Preview's)
     IF id = DP_DRAWER THEN
         dScl = USCALE.drawer%
         IF dScl < 1 THEN dScl = 1
@@ -434,7 +456,7 @@ SUB DOCK_apply_rect (id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h 
         CASE DP_TOOLBOX
             SCRN.toolboxX% = x
             TB_RECT_X = x
-            TB_RECT_Y = y
+            TB_RECT_Y = y + DOCK_tb_inset%
             TB_RECT_W = w
             ' the buttons reflow into the width they are given: a floating
             ' toolbox follows its window, a docked one fills a wider slot
@@ -635,6 +657,15 @@ END SUB
 
 
 ''
+' The band's shortest height: DOCK_BAND_MIN_H, or the Browser's own minimum
+' when that is taller (its scale above 1) - a shorter band let it spill over
+' the status bar / palette strip (bottom) or into the canvas (top).
+FUNCTION DOCK_band_floor_h% ()
+    DOCK_band_floor_h% = _MAX(DOCK_BAND_MIN_H, BROWSER_min_disp_h%)
+END FUNCTION
+
+
+''
 ' The Browser's band: across the canvas area (between the side docks), under
 ' the menu (and text) bar or above the bottom bars. The canvas re-centres in
 ' what is left (DOCK_SHIFT_Y -> SCRN.panelShiftY). The room stays reserved
@@ -648,7 +679,7 @@ SUB DOCK_place_band (barY1 AS INTEGER, dockY2 AS INTEGER)
     maxH = (y2 - y1 + 1) - 60 ' leave the canvas some room
     h = DOCK_BAND_H
     IF h > maxH THEN h = maxH
-    IF h < DOCK_BAND_MIN_H THEN h = DOCK_BAND_MIN_H
+    IF h < DOCK_band_floor_h% THEN h = DOCK_band_floor_h%
     IF h > y2 - y1 + 1 THEN EXIT SUB ' no room at all
     DOCK_BAND_X = DOCK_LX: DOCK_BAND_W = DOCK_RX - DOCK_LX + 1: DOCK_BAND_HH = h
     IF DOCK_BAND_SIDE = DOCK_BAND_TOP THEN
@@ -690,7 +721,7 @@ FUNCTION DOCK_handle_band_resize% (mx AS INTEGER, my AS INTEGER)
     DIM h AS INTEGER
     IF DOCK_RZ_BAND THEN
         IF DOCK_BAND_SIDE = DOCK_BAND_BOTTOM THEN h = DOCK_RZ_BH0 - (my - DOCK_RZ_BY0) ELSE h = DOCK_RZ_BH0 + (my - DOCK_RZ_BY0)
-        IF h < DOCK_BAND_MIN_H THEN h = DOCK_BAND_MIN_H
+        IF h < DOCK_band_floor_h% THEN h = DOCK_band_floor_h%
         IF h <> DOCK_BAND_H THEN DOCK_BAND_H = h: DOCK_redraw
         IF MOUSE.B1% = 0 THEN
             DOCK_RZ_BAND = FALSE
