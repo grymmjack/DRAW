@@ -838,6 +838,12 @@ DO
         ' rubber-band) sets SCENE_CHANGED% through its own triggers below.
     END IF
     IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE   ' GUI-only updates should stay on the cached-scene path unless something else dirtied the scene
+    ' A handler dirtied the scene this frame (e.g. a wheel scroll a floating
+    ' window - the Browser, Color Mixer - consumed, so MOUSE.SW is 0 below):
+    ' render it now. Idle frames skip SCREEN_render, so without this the scroll
+    ' only showed on the next mouse move. (FRAME_IDLE is reset above, after the
+    ' handlers ran, so their own FRAME_IDLE% = FALSE is lost.)
+    IF SCENE_DIRTY% THEN FRAME_IDLE% = FALSE
     IF STATUS_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE
     IF PENP_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' Pen Pressure panel live meter
     IF CRASH.NOTIFY_UNTIL# > 0 THEN FRAME_IDLE% = FALSE   ' Crash banner up — keep painting so it shows and can self-dismiss
@@ -1149,6 +1155,7 @@ END SUB
 ' Runs at the end of the loop just before next iteration
 ' 
 SUB LOOP_end ()
+    DOCK_dump_refresh ' QA only (DOCK_DUMP=): state lines for hovers / tooltips
 END SUB
 
 
