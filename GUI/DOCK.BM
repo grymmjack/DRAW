@@ -22,6 +22,26 @@ END FUNCTION
 
 
 ''
+' The docked toolbox shares a column with the shown layers.
+FUNCTION DOCK_tb_with_layers% ()
+    DIM s AS INTEGER, t AS INTEGER
+    IF DOCK_READY = 0 THEN EXIT FUNCTION
+    s = DPANEL(DP_TOOLBOX).slot: t = DPANEL(DP_LAYERS).slot
+    IF s <= 0 _ORELSE t <= 0 THEN EXIT FUNCTION
+    IF DOCK_SLOT(s).col <> DOCK_SLOT(t).col THEN EXIT FUNCTION
+    DOCK_tb_with_layers% = (DOCK_panel_shown%(DP_LAYERS) <> 0)
+END FUNCTION
+
+
+''
+' The toolbox's buttons follow the width they are given, any number of
+' columns (TOOLBAR_cols_fit% shrink): floating, or in the layers' column.
+FUNCTION DOCK_tb_follows% ()
+    DOCK_tb_follows% = (DOCK_floating%(DP_TOOLBOX) <> 0) _ORELSE (DOCK_tb_with_layers% <> 0)
+END FUNCTION
+
+
+''
 ' Is panel id showing (its own visibility flag)? The organizer and drawer
 ' follow the toolbar's Tab toggle too, as they always have.
 FUNCTION DOCK_panel_shown% (id AS INTEGER)
@@ -47,7 +67,10 @@ END FUNCTION
 ' The width a panel wants (px) at its current setting.
 FUNCTION DOCK_panel_w% (id AS INTEGER)
     SELECT CASE id
-        CASE DP_TOOLBOX: DOCK_panel_w% = TOOLBOX_PANEL_W
+        CASE DP_TOOLBOX
+            ' in the layers' column the layers set the width and the buttons
+            ' reflow into it (DOCK_tb_follows%): as narrow as one column
+            IF DOCK_tb_with_layers% THEN DOCK_panel_w% = TOOLBAR_cols_w%(1) ELSE DOCK_panel_w% = TOOLBOX_PANEL_W
         CASE DP_ORGANIZER ' the toolbox's width, but at least one widget stack (docked apart from it)
             DIM orgS AS INTEGER
             orgS = USCALE.organizer%: IF orgS < 1 THEN orgS = 1
@@ -78,7 +101,7 @@ FUNCTION DOCK_panel_w% (id AS INTEGER)
             ' band's size it has while docked, or a column would inherit a band's width)
             DIM brW AS SINGLE
             brW = BROWSER.renderScale!: IF brW <= 0 THEN brW = 1
-            DOCK_panel_w% = _MAX(INT(CSNG(_MAX(CFG.BROWSER_WIDTH%, BROWSER_MIN_W)) * brW + 0.5), BROWSER_min_disp_w%)
+            DOCK_panel_w% = _MAX(INT(CSNG(_MAX(CFG.BROWSER_WIDTH%, BROWSER_narrowest_w%)) * brW + 0.5), BROWSER_min_disp_w%)
     END SELECT
 END FUNCTION
 
@@ -152,8 +175,39 @@ END FUNCTION
 FUNCTION DOCK_col_width% (c AS INTEGER)
     DIM w AS INTEGER
     w = DOCK_col_natural_w%(c)
-    IF DOCK_COL(c).wpx > w _ANDALSO DOCK_col_resize_id%(c) = DOCK_NONE THEN w = DOCK_COL(c).wpx
+    IF DOCK_COL(c).wpx > w _ANDALSO DOCK_col_resize_id%(c) = DOCK_NONE THEN w = _MIN(DOCK_COL(c).wpx, DOCK_col_max_w%(c))
     DOCK_col_width% = w
+END FUNCTION
+
+
+''
+' Widest column c's own width edge goes: the widest any of its shown panels
+' can use (DOCK_panel_max_w%), never below its natural width. Rick,
+' 2026-11-06: an organizer docked alone dragged out to black bars.
+FUNCTION DOCK_col_max_w% (c AS INTEGER)
+    DIM so AS INTEGER, s AS INTEGER, t AS INTEGER, pid AS INTEGER, w AS INTEGER
+    FOR so = 1 TO DOCK_MAX_SLOTS
+        s = DOCK_slot_at%(c, so)
+        IF s = 0 THEN EXIT FOR
+        FOR t = 1 TO DOCK_SLOT(s).ntabs
+            pid = DOCK_TAB(s, t)
+            IF DOCK_panel_shown%(pid) THEN w = _MAX(w, DOCK_panel_max_w%(pid))
+        NEXT t
+    NEXT so
+    DOCK_col_max_w% = _MAX(w, DOCK_col_natural_w%(c))
+END FUNCTION
+
+
+''
+' Widest a docked panel can use (px); past it the column would show empty
+' panel. Stretching panels (Preview, Browser) use any width.
+FUNCTION DOCK_panel_max_w% (id AS INTEGER)
+    SELECT CASE id
+        CASE DP_ORGANIZER: DOCK_panel_max_w% = ORGANIZER_max_w%
+        CASE DP_DRAWER: DOCK_panel_max_w% = DRAWER_max_w%
+        CASE DP_PREVIEW, DP_BROWSER: DOCK_panel_max_w% = 600
+        CASE ELSE: DOCK_panel_max_w% = DOCK_panel_w%(id)
+    END SELECT
 END FUNCTION
 
 
@@ -314,7 +368,7 @@ FUNCTION DOCK_fixed_h% (id AS INTEGER, w AS INTEGER)
             ' the rows it will draw in a w px wide rect (TOOLBAR_fit_width runs
             ' after this, in DOCK_apply_rect): TB_LIVE_ROWS is still the wanted
             ' columns' count, too many when another panel holds the column wider
-            tbRows = TOOLBAR_rows_for%(TOOLBAR_cols_fit%(w, DOCK_floating%(DP_TOOLBOX)))
+            tbRows = TOOLBAR_rows_for%(TOOLBAR_cols_fit%(w, DOCK_tb_follows%))
             ' button rows + the bottom border row (the top border row sits just
             ' above - inside the rect too when something is above it, DOCK_tb_inset%)
             DOCK_fixed_h% = tbRows * TB_BTN_H * scl + (tbRows - 1) * TB_BTN_PADDING * scl + 1 + DOCK_tb_inset%
@@ -481,7 +535,7 @@ SUB DOCK_apply_rect (id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h 
             TB_RECT_W = w
             ' the buttons reflow into the width they are given: a floating
             ' toolbox follows its window, a docked one fills a wider slot
-            TOOLBAR_fit_width w, DOCK_floating%(DP_TOOLBOX)
+            TOOLBAR_fit_width w, DOCK_tb_follows%
         CASE DP_ORGANIZER
             ORG_RECT_X = x: ORG_RECT_W = w
             ORG_RECT_Y = y: ORG_RECT_H = h
@@ -560,7 +614,9 @@ FUNCTION DOCK_col_resize_id% (c AS INTEGER)
             IF DOCK_panel_shown%(id) THEN
                 SELECT CASE id
                     CASE DP_TOOLBOX: r = DOCK_TOOLBOX: rank = 4
-                    CASE DP_LAYERS: r = DOCK_LAYERS: rank = 3
+                    ' the layers' width beats the toolbox's columns: the toolbox
+                    ' reflows into it (Rick, 2026-11-06)
+                    CASE DP_LAYERS: r = DOCK_LAYERS: rank = 5
                     CASE DP_ADVBAR: r = DOCK_ADVBAR: rank = 2
                     CASE DP_EDITBAR: r = DOCK_EDITBAR: rank = 1
                     CASE ELSE: r = DOCK_NONE: rank = 0
@@ -1944,12 +2000,22 @@ FUNCTION DOCK_dump_state$ ()
         d = d + "DRAWERL" + DOCK_n$(DRAWER_COLS) + DOCK_n$((DRAWER_SLOT_COUNT + DRAWER_COLS - 1) \ _MAX(1, DRAWER_COLS)) + DOCK_n$(DRAWER_VIS_ROWS)
         d = d + DOCK_n$(q8) + DOCK_n$(q10) + DOCK_n$(DRAWER.panelY2%) + lf
     END IF
+    ' browser panes (FD px): places w, list x + w, preview x + w, preview on, dialog w, minimums
+    d = d + "BROWSERL" + DOCK_n$(FD_STATE.placesW) + DOCK_n$(FD_STATE.contentX) + DOCK_n$(FD_STATE.contentW)
+    d = d + DOCK_n$(FD_STATE.previewX) + DOCK_n$(FD_STATE.previewW) + DOCK_n$(FD_CFG.showPreview <> 0) + DOCK_n$(FD_STATE.dialogW)
+    d = d + DOCK_n$(FD_STATE.placesMinW) + DOCK_n$(FD_STATE.previewMinW)
+    ' + the preview toggle's centre (the 5th toolbar button, FD_INPUT_toolbar_click)
+    DIM fdIsc AS INTEGER, fdBtnW AS INTEGER
+    fdIsc = FD_CFG.iconScale: IF fdIsc < 1 THEN fdIsc = 2
+    fdBtnW = 11 * fdIsc: IF FD_ICONS_has_png%(FD_ICON_TB_LIST) THEN fdBtnW = FD_iconW(FD_ICON_TB_LIST) * fdIsc
+    fdBtnW = fdBtnW + 6
+    d = d + DOCK_n$(FD_PADDING + fdBtnW * 4 + fdBtnW \ 2) + DOCK_n$(FD_STATE.titleBarH + FD_STATE.pathBarH + FD_STATE.toolBarH \ 2) + lf
     d = d + "DMENU" + DOCK_n$(DOCK_UI.menuOpen <> 0) + DOCK_n$(DOCK_UI.menuPanel) + DOCK_n$(DOCK_UI.hoverSlot) + lf
-    d = d + "LPANEL" + DOCK_n$(LAYER_PANEL.scrollOffset%) + DOCK_n$(CURRENT_LAYER%) + lf
+    d = d + "LPANEL" + DOCK_n$(LAYER_PANEL.scrollOffset%) + DOCK_n$(CURRENT_LAYER%) + DOCK_n$(MULTI_SELECT_COUNT) + lf
     FOR i = 1 TO MAX_LAYERS
         IF LAYERS(i).imgHandle& <> 0 THEN
             d = d + "LAYER" + DOCK_n$(i) + DOCK_n$(LAYERS(i).zIndex%) + DOCK_n$(LAYERS(i).parentGroupIdx%) + DOCK_n$(LAYERS(i).layerType%)
-            d = d + DOCK_n$(LAYERS(i).collapsed% <> 0) + DOCK_n$(LAYERS(i).visible% <> 0) + DOCK_n$(LAYERS(i).opacity%) + lf
+            d = d + DOCK_n$(LAYERS(i).collapsed% <> 0) + DOCK_n$(LAYERS(i).visible% <> 0) + DOCK_n$(LAYERS(i).opacity%) + DOCK_n$(MULTI_SELECT_LAYERS(i) <> 0) + lf
         END IF
     NEXT i
     DOCK_dump_state$ = d
@@ -2643,7 +2709,7 @@ SUB DOCK_native_undock (id AS INTEGER, x AS INTEGER, y AS INTEGER)
             DOCK_BAND_SIDE = 0
             BROWSER.docked% = FALSE
             brRs = BROWSER.renderScale!: IF brRs <= 0 THEN brRs = 1
-            BROWSER.dispW% = INT(CSNG(_MAX(CFG.BROWSER_WIDTH%, BROWSER_MIN_W)) * brRs + 0.5) ' its floating size (native px; kept while docked)
+            BROWSER.dispW% = INT(CSNG(_MAX(CFG.BROWSER_WIDTH%, BROWSER_narrowest_w%)) * brRs + 0.5) ' its floating size (native px; kept while docked)
             BROWSER.dispH% = INT(CSNG(_MAX(CFG.BROWSER_HEIGHT%, BROWSER_MIN_H)) * brRs + 0.5)
             BROWSER.dispX% = x: BROWSER.dispY% = y
             BROWSER_clamp_size

@@ -29,6 +29,7 @@ A layout release: every panel and window can now be moved, stacked, tabbed, floa
   - Drag a side panel's inner edge to resize it. The toolbox, edit bar and advanced bar can have 1 to 4 columns.
   - On small windows, the lowest panels collapse and the outermost columns hide to keep the canvas usable.
 - **Lock Layout** (View → Lock Layout, `Ctrl+Shift+L`) freezes the arrangement, so a shaky pen can't drag a panel or window by accident. Clicks, tabs and buttons still work.
+- **Snap Panel Edges** (View → Snap Panel Edges, on by default) makes a dragged floating panel snap to the other floating panels' edges and keeps them from overlapping. Hold a panel still against a snap for about 1.5 seconds and it lets go, so you can drop it on top of another panel. Turn it off to move panels freely.
 - **Workspaces** are named layouts you switch into and back out of (View → Workspace, `Ctrl+Shift+W`, or the status-bar badge). Leaving one restores your own setup exactly.
   - Built in: **Default**, **Simple** and **Annotate**.
   - A workspace sets which panels show and where, the toolbox and bar buttons, the menus, a single-key overlay, config options for the session, and the starting tool, color and zoom.
@@ -389,6 +390,7 @@ groups, transform/move, export, importers, and input handling.
 - **Advanced bar** - A dockable vertical strip of quick-access toggle buttons for char map, char grid, char snap, preview, edit bar, tile preview, grid cell fill, grid show, fill adjust, brush edges, angle snap, grayscale preview, reference image controls, distribute layers, crosshair, smart guides, and more (`Shift+F5`); **mouse wheel scrolls** the bar when it overflows the screen height
 - **Docking** - Every side panel (toolbox, organizer, drawer, layers, edit bar, advanced bar, character map) and every floating window (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Browser) can be moved to its own column, stacked, tabbed, collapsed, floated and docked back by dragging its handle; drag dividers and inner edges to resize. `Ctrl+Shift+Click` and View → Layout still swap a panel's side
 - **Lock Layout** - View → Lock Layout (`Ctrl+Shift+L`) freezes the panel arrangement so nothing can be dragged by accident
+- **Snap Panel Edges** - View → Snap Panel Edges: floating panels snap together and don't overlap; hold one still against a snap ~1.5 s to drop it on top of another
 - **Workspaces** - Named layouts (Default, Simple, Annotate, and your own) covering panels, toolbar buttons, menus, keys and options; switch with `Ctrl+Shift+W` or View → Workspace, edit with Configure Workspaces…
 - **Customize Toolbars** - Put any tool or command on the toolbox, edit bar or advanced bar, in any order (View → Customize Toolbars…)
 - **Screen Capture & Annotate** - `Ctrl+Shift+P` or `DRAW --capture` grabs a screen region into the Annotate workspace (arrow, highlighter, redact, numbered callouts, quick save)

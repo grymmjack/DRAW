@@ -298,6 +298,13 @@ END SUB
 ' FPANEL_free% — TRUE when (x,y,w,h) overlaps no other floating window and
 ' sits inside the work area (an axis the window is too big for is ignored).
 ' ---------------------------------------------------------------------------
+FUNCTION FPANEL_in_area% (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+    FPANEL_work_area minX%, minY%, maxX%, maxY%
+    LAY_obst_clear
+    FPANEL_in_area% = LAY_free%(CLNG(x%), CLNG(y%), CLNG(w%), CLNG(h%), CLNG(minX%), CLNG(minY%), CLNG(maxX%), CLNG(maxY%))
+END FUNCTION
+
 FUNCTION FPANEL_free% (selfRegion AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
     DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
     FPANEL_work_area minX%, minY%, maxX%, maxY%
@@ -342,8 +349,39 @@ SUB FPANEL_place (selfRegion AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGE
     IF lw <= 0 _ORELSE lh <= 0 THEN EXIT SUB
     DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
     FPANEL_work_area minX%, minY%, maxX%, maxY%
+    ' a drag calls this every frame (and once more on the drop): a gap means a
+    ' new drag, which snaps again
+    DIM nowT AS DOUBLE
+    nowT = TIMER(0.001)
+    IF nowT < FPANEL_LAST_T _ORELSE nowT - FPANEL_LAST_T > 0.3 THEN FPANEL_HOLD_FREE = FALSE: FPANEL_HOLD_T0 = 0
+    FPANEL_LAST_T = nowT
+    ' View > Snap Panel Edges off, or this drag held past a snap: free - only
+    ' kept inside the work area, may overlap other windows
+    IF CFG.SNAP_PANEL_EDGES% = 0 _ORELSE FPANEL_HOLD_FREE THEN
+        LAY_clamp lx, ly, lw, lh, CLNG(minX%), CLNG(minY%), CLNG(maxX%), CLNG(maxY%)
+        x% = lx: y% = ly
+        EXIT SUB
+    END IF
+    DIM rx AS LONG, ry AS LONG
+    rx = lx: ry = ly
     FPANEL_obstacles selfRegion%
     LAY_place lx, ly, lw, lh, px, py, CLNG(minX%), CLNG(minY%), CLNG(maxX%), CLNG(maxY%), CLNG(FPANEL_SNAP)
+    ' held against a snap (or another window) while dragging: after
+    ' FPANEL_SNAP_HOLD s the drag goes free, so it can sit over another window
+    IF MOUSE.B1% THEN
+        IF lx <> rx _ORELSE ly <> ry THEN
+            IF FPANEL_HOLD_T0 = 0 THEN FPANEL_HOLD_T0 = TIMER(0.001)
+            IF TIMER(0.001) < FPANEL_HOLD_T0 THEN FPANEL_HOLD_T0 = TIMER(0.001) ' past midnight
+            IF TIMER(0.001) - FPANEL_HOLD_T0 >= FPANEL_SNAP_HOLD THEN
+                FPANEL_HOLD_FREE = TRUE
+                LAY_clamp rx, ry, lw, lh, CLNG(minX%), CLNG(minY%), CLNG(maxX%), CLNG(maxY%)
+                lx = rx: ly = ry
+                STATUS_flash "Snap released - drop it anywhere"
+            END IF
+        ELSE
+            FPANEL_HOLD_T0 = 0
+        END IF
+    END IF
     x% = lx: y% = ly
 END SUB
 
@@ -391,10 +429,11 @@ END SUB
 
 ' ---------------------------------------------------------------------------
 ' FPANEL_settle — After a rendered frame, move any floating window that is
-' not free (on top of another, or outside the work area) to the nearest free
-' spot. Runs on the first frame (saved positions predate the no-overlap rule,
-' or the window size changed) and again whenever the work area changes: a
-' dock column that grows must not leave a floating window over its panels.
+' outside the work area to the nearest free spot. Runs on the first frame and
+' again whenever the work area changes: a dock column that grows must not
+' leave a floating window over its panels. One floating window over another
+' stays: that may be on purpose (Snap Panel Edges off, a drag held past its
+' snap).
 ' Windows earlier in FPANEL_float_region% order keep their place; docked
 ' windows are the dock's (their slot is outside the work area).
 ' ---------------------------------------------------------------------------
@@ -417,7 +456,10 @@ SUB FPANEL_settle ()
         IF r% > 0 _ANDALSO REGION_BOUNDS_TABLE(r%).active THEN
             x% = REGION_BOUNDS_TABLE(r%).x : y% = REGION_BOUNDS_TABLE(r%).y
             w% = REGION_BOUNDS_TABLE(r%).w : h% = REGION_BOUNDS_TABLE(r%).h
-            IF NOT FPANEL_free%(r%, x%, y%, w%, h%) THEN
+            ' only a window outside the work area moves (into the docks, off
+            ' screen): one over another floating window may be there on purpose
+            ' (Snap Panel Edges off, or a drag held past its snap)
+            IF NOT FPANEL_in_area%(x%, y%, w%, h%) THEN
                 nx% = x% : ny% = y%
                 FPANEL_place r%, nx%, ny%, w%, h%, x%, y%
                 IF nx% <> x% OR ny% <> y% THEN

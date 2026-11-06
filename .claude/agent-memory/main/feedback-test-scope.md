@@ -8,6 +8,7 @@ metadata:
 **HARD RULE (4th reminder, 2026-11-06): run the tests that MIGHT touch the change. NOT the full suite. The full suite runs only at night while Rick is sleeping.**
 
 **Rick, 2026-11-06:** a layer-panel hit-test fix + charmap stub + layer drag fix; the new targeted tests had passed, then a "dock/layer/charmap" run accidentally became the whole 327-test suite (~2.5 h): "do we need to run the full 327 tests, my god" / "i'm not adobe, this isn't photoshop" / "run the tests that MIGHT touch the change. NOT THE FULL SUITE. only run the full suite at night when i'm sleeping". Cause: in zsh an unmatched glob inside `$(ls a*.sh b*.sh)` aborts the substitution -> empty arg list -> `draw-qa.sh` runs EVERYTHING. Always pass explicit file names (or check the ETA line's test count before walking away).
+**Again, same day (2026-11-06, [Linux] zsh):** `T="a.sh b.sh"; ./draw-qa.sh $T` - zsh does NOT word-split an unquoted `$T`, so the harness got ONE unknown argument and ran all 346 (stopped at 48). Pass a list as a bash array inside `bash -c '... T=(a.sh b.sh); ./draw-qa.sh "${T[@]}"'`, or literal names - and check `./DEV/qa-dash.sh --once` shows `1/N` with the N you meant right after starting.
 
 **Earlier (2026-10-11): test only the exposed changes.** Before ANY QA run of more than ~5 test files, stop: say the file count + ETA and ask. Default = the tests that exercise the change (new/updated tests + the ones that directly drive the touched code), then commit + push.
 
