@@ -9,6 +9,7 @@
 '   edit bar     icon columns (1-4)       -> [EDIT_BAR] COLUMNS / EDIT_BAR_COLUMNS
 '   advanced bar icon columns (1-4)       -> [ADVANCED_BAR] COLUMNS / ADV_BAR_COLUMNS
 '   layers       width in px (60-400)     -> [CHROME] LAYER_PANEL_WIDTH / LAYER_PANEL_WIDTH
+'   any other    column width in px       -> the column's WIDTH: in the dock tree
 '
 ' The content reflows live while dragging; on release the value is saved into
 ' the ACTIVE WORKSPACE (a user copy of a built-in), or into DRAW.cfg in Default.
@@ -23,7 +24,11 @@ CONST DOCK_TOOLBOX = 1
 CONST DOCK_LAYERS  = 2
 CONST DOCK_EDITBAR = 3
 CONST DOCK_ADVBAR  = 4
-CONST DOCK_COUNT   = 4
+' a column with none of the above (organizer / drawer / character map / a
+' docked window on its own): its own width in px, edge DOCK_COLW + column - 1
+' -> the column's WIDTH: in the dock tree (DOCK_COL().wpx, a minimum)
+CONST DOCK_COLW    = 5
+CONST DOCK_COUNT   = 16 ' DOCK_COLW - 1 + DOCK_MAX_COLS (GUI/DOCK.BI)
 CONST DOCK_GRAB    = 2 ' px either side of the boundary that grab it
 
 TYPE DOCK_EDGE_OBJ

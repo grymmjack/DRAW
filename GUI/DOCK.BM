@@ -51,8 +51,13 @@ FUNCTION DOCK_panel_w% (id AS INTEGER)
         CASE DP_ORGANIZER ' the toolbox's width, but at least one widget stack (docked apart from it)
             DIM orgS AS INTEGER
             orgS = USCALE.organizer%: IF orgS < 1 THEN orgS = 1
-            DOCK_panel_w% = _MAX(TOOLBOX_PANEL_W, ORG_COL_W * orgS + 2)
-        CASE DP_DRAWER: DOCK_panel_w% = _MAX(TOOLBOX_PANEL_W, DRAWER_min_w%) ' at least one bin
+            ' (only in the toolbox's column: in a column of its own it is as
+            ' narrow as one stack, and that column has its own width edge)
+            DOCK_panel_w% = ORG_COL_W * orgS + 2
+            IF DOCK_with_toolbox%(DP_ORGANIZER) THEN DOCK_panel_w% = _MAX(TOOLBOX_PANEL_W, ORG_COL_W * orgS + 2)
+        CASE DP_DRAWER ' at least one bin; the toolbox's width in its column
+            DOCK_panel_w% = DRAWER_min_w%
+            IF DOCK_with_toolbox%(DP_DRAWER) THEN DOCK_panel_w% = _MAX(TOOLBOX_PANEL_W, DRAWER_min_w%)
         CASE DP_LAYERS: DOCK_panel_w% = LAYERS_clamp_width%(LAYER_PANEL.width%) ' a saved width below the buttons' minimum too
         CASE DP_EDITBAR: DOCK_panel_w% = EDITBAR_width%
         CASE DP_ADVBAR: DOCK_panel_w% = ADVBAR_width%
@@ -111,10 +116,9 @@ END SUB
 
 
 ''
-' Column c's width: the widest of its shown panels (DOCK_panel_box) - a
-' stretching panel counts its minimum unless it is all the column holds - or
-' the column's own WIDTH: override.
-FUNCTION DOCK_col_width% (c AS INTEGER)
+' Column c's natural width: the widest of its shown panels (DOCK_panel_box) -
+' a stretching panel counts its minimum unless it is all the column holds.
+FUNCTION DOCK_col_natural_w% (c AS INTEGER)
     DIM so AS INTEGER, s AS INTEGER, t AS INTEGER, pid AS INTEGER, w AS INTEGER, sw AS INTEGER, fixedW AS INTEGER
     DIM mn AS INTEGER, bs AS INTEGER, st AS INTEGER
     FOR so = 1 TO DOCK_MAX_SLOTS
@@ -137,9 +141,21 @@ FUNCTION DOCK_col_width% (c AS INTEGER)
         END IF
     NEXT so
     IF fixedW = 0 _ANDALSO sw > w THEN w = sw
-    IF DOCK_COL(c).wpx > 0 THEN w = DOCK_COL(c).wpx
+    DOCK_col_natural_w% = w
+END FUNCTION
+
+
+''
+' Column c's width: its natural width (DOCK_col_natural_w%), or wider when
+' the column has its own WIDTH: - only a column whose width edge is the
+' column's (no toolbox / layers / bar: those set their own widths).
+FUNCTION DOCK_col_width% (c AS INTEGER)
+    DIM w AS INTEGER
+    w = DOCK_col_natural_w%(c)
+    IF DOCK_COL(c).wpx > w _ANDALSO DOCK_col_resize_id%(c) = DOCK_NONE THEN w = DOCK_COL(c).wpx
     DOCK_col_width% = w
 END FUNCTION
+
 
 
 ' =============================================================================
@@ -586,6 +602,8 @@ SUB DOCK_place_columns (wantFull AS INTEGER, barY1 AS INTEGER, charTop AS INTEGE
                     IF DOCK_SLOT(s).vis THEN DOCK_apply_panel s, side, dockY2
                 NEXT so
                 rid = DOCK_col_resize_id%(c)
+                ' no toolbox / layers / bar: the column's own width edge
+                IF rid = DOCK_NONE _ANDALSO c <= DOCK_COUNT - DOCK_COLW + 1 THEN rid = DOCK_COLW + c - 1
                 IF rid THEN DOCK_set_edge rid, DOCK_COL(c).x, DOCK_COL(c).w, (side = DOCK_LEFT), DOCK_COL(c).y, dockY2
             END IF
         NEXT o
@@ -760,7 +778,9 @@ SUB DOCK_place_floats (barY1 AS INTEGER, dockY2 AS INTEGER)
                 DOCK_apply_rect id, DPANEL(id).fx + 1, DPANEL(id).fy + DOCK_float_title_h%(id), DPANEL(id).fw - 2, DPANEL(id).fh - DOCK_float_title_h%(id) - 1
                 ' a narrower toolbox / organizer has more rows: grow the window
                 ' to show them (the clamp keeps it on screen next layout)
-                IF DPANEL(id).hmode = DP_H_FIXED THEN
+                IF id = DP_TOOLBOX THEN
+                    DOCK_float_fit_toolbox barY1, dockY2
+                ELSEIF DPANEL(id).hmode = DP_H_FIXED THEN
                     need = DOCK_fixed_h%(id, DPANEL(id).fw - 2) + DOCK_float_title_h%(id) + 3
                     IF DPANEL(id).fh < need THEN DPANEL(id).fh = need: DOCK_redraw
                 END IF
@@ -779,6 +799,7 @@ SUB DOCK_float_clamp (id AS INTEGER, barY1 AS INTEGER, dockY2 AS INTEGER)
             scl = USCALE.organizer%: IF scl < 1 THEN scl = 1
             minW = ORG_COL_W * scl + 4 ' one widget stack
         CASE DP_DRAWER: minW = DRAWER_min_w% + 2
+        CASE DP_LAYERS: minW = LAYERS_min_width% + 2 ' not the width it had docked
         CASE ELSE: minW = DOCK_panel_w%(id) + 2
     END SELECT
     IF DPANEL(id).fw < minW THEN DPANEL(id).fw = minW
@@ -789,6 +810,30 @@ SUB DOCK_float_clamp (id AS INTEGER, barY1 AS INTEGER, dockY2 AS INTEGER)
     IF DPANEL(id).fx + DPANEL(id).fw - 1 > DOCK_RX THEN DPANEL(id).fx = DOCK_RX - DPANEL(id).fw + 1
     IF DPANEL(id).fy < barY1 THEN DPANEL(id).fy = barY1
     IF DPANEL(id).fy + DPANEL(id).fh - 1 > dockY2 THEN DPANEL(id).fy = dockY2 - DPANEL(id).fh + 1
+END SUB
+
+
+''
+' A floating toolbox's window is exactly its buttons: the columns its width
+' fits (TOOLBAR_fit_width, up to every button in one row), more if that many
+' rows would not fit the height, then the window snapped to that grid - no
+' empty area beside or under the buttons when the window is resized.
+SUB DOCK_float_fit_toolbox (barY1 AS INTEGER, dockY2 AS INTEGER)
+    DIM c AS INTEGER, n AS INTEGER, maxH AS INTEGER, th AS INTEGER, w AS INTEGER, h AS INTEGER
+    n = TB_LIVE_COUNT: IF n < 1 THEN n = 1
+    th = DOCK_float_title_h%(DP_TOOLBOX)
+    maxH = dockY2 - barY1 + 1
+    c = TB_LIVE_COLS: IF c < 1 THEN c = 1
+    DO WHILE c < n _ANDALSO DOCK_fixed_h%(DP_TOOLBOX, TOOLBAR_cols_w%(c)) + th + 3 > maxH
+        c = c + 1
+    LOOP
+    w = TOOLBAR_cols_w%(c) + 2
+    h = DOCK_fixed_h%(DP_TOOLBOX, TOOLBAR_cols_w%(c)) + th + 3
+    IF DPANEL(DP_TOOLBOX).fw = w _ANDALSO DPANEL(DP_TOOLBOX).fh = h THEN EXIT SUB
+    DPANEL(DP_TOOLBOX).fw = w: DPANEL(DP_TOOLBOX).fh = h
+    DOCK_float_clamp DP_TOOLBOX, barY1, dockY2
+    DOCK_apply_rect DP_TOOLBOX, DPANEL(DP_TOOLBOX).fx + 1, DPANEL(DP_TOOLBOX).fy + th, DPANEL(DP_TOOLBOX).fw - 2, DPANEL(DP_TOOLBOX).fh - th - 1
+    DOCK_redraw
 END SUB
 
 
@@ -1492,8 +1537,15 @@ FUNCTION DOCK_handle_move% (mx AS INTEGER, my AS INTEGER)
             DOCK_drop_target mx, my
             ' a floating window follows the pointer unless it is over a dock target
             IF DOCK_UI.mvFloat _ANDALSO (DOCK_UI.tgtKind = DOCK_TGT_NONE _ORELSE DOCK_UI.tgtKind = DOCK_TGT_FLOAT) THEN
-                DPANEL(DOCK_UI.mvPanel).fx = mx - DOCK_UI.mvOffX
-                DPANEL(DOCK_UI.mvPanel).fy = my - DOCK_UI.mvOffY
+                ' snaps as it moves (like the native windows' drags): to the
+                ' other floating windows' edges and the work area, no overlap
+                DIM fmx AS INTEGER, fmy AS INTEGER, fpx AS INTEGER, fpy AS INTEGER, frg AS INTEGER
+                fpx = DPANEL(DOCK_UI.mvPanel).fx: fpy = DPANEL(DOCK_UI.mvPanel).fy
+                fmx = mx - DOCK_UI.mvOffX: fmy = my - DOCK_UI.mvOffY
+                frg = DOCK_panel_region%(DOCK_UI.mvPanel)
+                IF frg THEN FPANEL_place frg, fmx, fmy, DPANEL(DOCK_UI.mvPanel).fw, DPANEL(DOCK_UI.mvPanel).fh, fpx, fpy
+                DPANEL(DOCK_UI.mvPanel).fx = fmx
+                DPANEL(DOCK_UI.mvPanel).fy = fmy
                 DOCK_UI.tgtKind = DOCK_TGT_NONE
                 DOCK_redraw
             END IF
@@ -1804,7 +1856,7 @@ SUB DOCK_dump_write (barY1 AS INTEGER, dockY2 AS INTEGER)
                 END IF
             NEXT t
         ELSEIF DOCK_floating%(id) THEN
-            hx = DPANEL(id).fx: hy = DPANEL(id).fy: hw = DPANEL(id).fw: hh = DOCK_float_title_h%(id)
+            hx = DPANEL(id).fx: hy = DPANEL(id).fy: hw = DPANEL(id).fw: hh = DOCK_float_handle_h%(id)
         ELSEIF DPANEL(id).floats THEN
             IF DOCK_native_grab%(id, hx, hy, hw, hh) = 0 THEN hx = 0: hy = 0: hw = 0: hh = 0
         END IF
@@ -1862,6 +1914,15 @@ FUNCTION DOCK_dump_state$ ()
     d = d + "BARS" + DOCK_n$(EDIT_BAR.scrollOffset%) + DOCK_n$(EDIT_BAR.contentH%) + DOCK_n$(ADV_BAR.scrollOffset%) + DOCK_n$(ADV_BAR.contentH%) + lf
     d = d + "CMAP" + DOCK_n$(CHARMAP.scrollY%) + DOCK_n$(CHARMAP_max_scroll_y%) + DOCK_n$(CHARMAP_row_count%) + DOCK_n$(CHARMAP_cell_h_effective%)
     d = d + DOCK_n$(CHARMAP_cell_h_effective% + CHARMAP_cell_padding_effective%) + DOCK_n$(CHARMAP.gridY%) + DOCK_n$(CHARMAP.panelY2%) + DOCK_n$(CHARMAP_PAGE_INDICATOR_H) + DOCK_n$(CHARMAP.hoverIdx%) + lf
+    IF DRW_RECT_W > 0 THEN
+        DIM q1 AS INTEGER, q2 AS INTEGER, q3 AS INTEGER, q4 AS INTEGER, q5 AS INTEGER, q6 AS INTEGER, q7 AS INTEGER, q8 AS INTEGER
+        DIM q9 AS INTEGER, q10 AS INTEGER, q11 AS INTEGER, q12 AS INTEGER, q13 AS INTEGER, q14 AS INTEGER, q15 AS INTEGER, q16 AS INTEGER
+        DRAWER_layout q1, q2, q3, q4, q5, q6, q7, q8, q9, q10, q11, q12, q13, q14, q15, q16
+        ' cols, bin rows in all, rows showing, palette y + h, drawer bottom
+        d = d + "DRAWERL" + DOCK_n$(DRAWER_COLS) + DOCK_n$((DRAWER_SLOT_COUNT + DRAWER_COLS - 1) \ _MAX(1, DRAWER_COLS)) + DOCK_n$(DRAWER_VIS_ROWS)
+        d = d + DOCK_n$(q8) + DOCK_n$(q10) + DOCK_n$(DRAWER.panelY2%) + lf
+    END IF
+    d = d + "DMENU" + DOCK_n$(DOCK_UI.menuOpen <> 0) + DOCK_n$(DOCK_UI.menuPanel) + DOCK_n$(DOCK_UI.hoverSlot) + lf
     d = d + "LPANEL" + DOCK_n$(LAYER_PANEL.scrollOffset%) + DOCK_n$(CURRENT_LAYER%) + lf
     FOR i = 1 TO MAX_LAYERS
         IF LAYERS(i).imgHandle& <> 0 THEN
@@ -2086,11 +2147,24 @@ END SUB
 ' Height of a floating panel's handle strip: a grip for the thin bars (and
 ' anything too narrow for its title), a title bar for the rest.
 FUNCTION DOCK_float_title_h% (id AS INTEGER)
-    IF id = DP_EDITBAR _ORELSE id = DP_ADVBAR _ORELSE DPANEL(id).fw < 64 THEN
+    ' the layers float with a grip: their own header names them and is the
+    ' rest of the handle (DOCK_float_handle_h%), as it is docked
+    IF id = DP_EDITBAR _ORELSE id = DP_ADVBAR _ORELSE id = DP_LAYERS _ORELSE DPANEL(id).fw < 64 THEN
         DOCK_float_title_h% = DOCK_FLOAT_GRIP_H
     ELSE
         DOCK_float_title_h% = DOCK_TITLE_H
     END IF
+END FUNCTION
+
+
+''
+' Height of a floating panel's move handle from its top: the title bar or
+' grip, plus the layers' header under the grip.
+FUNCTION DOCK_float_handle_h% (id AS INTEGER)
+    DIM h AS INTEGER
+    h = DOCK_float_title_h%(id)
+    IF id = DP_LAYERS THEN h = h + THEME.LAYER_PANEL_header_height%
+    DOCK_float_handle_h% = h
 END FUNCTION
 
 
@@ -2127,7 +2201,7 @@ FUNCTION DOCK_float_edge_at% (mx AS INTEGER, my AS INTEGER, id AS INTEGER)
                 e = 0
                 IF mx >= x2 - DOCK_FLOAT_EDGE + 1 THEN e = 1
                 IF my >= y2 - DOCK_FLOAT_EDGE + 1 THEN e = e + 2
-                IF e = 1 _ANDALSO my < DPANEL(i).fy + DOCK_float_title_h%(i) THEN e = 0 ' the title bar moves it
+                IF e = 1 _ANDALSO my < DPANEL(i).fy + DOCK_float_handle_h%(i) THEN e = 0 ' the title bar moves it
                 id = i
                 DOCK_float_edge_at% = e
                 EXIT FUNCTION ' the topmost panel under the pointer decides
@@ -2255,12 +2329,24 @@ END SUB
 
 
 ''
+' Floating panel whose window (any part of it) is under (mx, my), 0 = none.
+FUNCTION DOCK_float_window_at% (mx AS INTEGER, my AS INTEGER)
+    DIM id AS INTEGER
+    FOR id = DP_COUNT TO 1 STEP -1
+        IF DOCK_floating%(id) _ANDALSO DPANEL(id).rVis THEN
+            IF mx >= DPANEL(id).fx _ANDALSO mx < DPANEL(id).fx + DPANEL(id).fw _ANDALSO my >= DPANEL(id).fy _ANDALSO my < DPANEL(id).fy + DPANEL(id).fh THEN DOCK_float_window_at% = id: EXIT FUNCTION
+        END IF
+    NEXT id
+END FUNCTION
+
+
+''
 ' Floating panel whose title bar is under (mx, my), 0 = none.
 FUNCTION DOCK_float_title_at% (mx AS INTEGER, my AS INTEGER)
     DIM id AS INTEGER
     FOR id = DP_COUNT TO 1 STEP -1
         IF DOCK_floating%(id) _ANDALSO DPANEL(id).rVis THEN
-            IF mx >= DPANEL(id).fx _ANDALSO mx < DPANEL(id).fx + DPANEL(id).fw _ANDALSO my >= DPANEL(id).fy _ANDALSO my < DPANEL(id).fy + DOCK_float_title_h%(id) THEN DOCK_float_title_at% = id: EXIT FUNCTION
+            IF mx >= DPANEL(id).fx _ANDALSO mx < DPANEL(id).fx + DPANEL(id).fw _ANDALSO my >= DPANEL(id).fy _ANDALSO my < DPANEL(id).fy + DOCK_float_handle_h%(id) THEN DOCK_float_title_at% = id: EXIT FUNCTION
         END IF
     NEXT id
 END FUNCTION
