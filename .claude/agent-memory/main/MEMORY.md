@@ -1,5 +1,5 @@
 - **[NEVER an error dialog - PERMANENT](feedback-no-error-dialogs.md) — every program traps its errors (ON ERROR); untrappable runtime alerts are prevented by guarding first; never cause them (don't kill a display a run still uses) (2026-10-11)**
-- **[Test scope - HARD RULE](feedback-test-scope.md) — test ONLY the exposed changes; >5 test files = state count + ETA and ASK first (told 3x, last 2026-10-11)**
+- **[Test scope - HARD RULE](feedback-test-scope.md) — run ONLY tests that might touch the change; FULL suite only overnight while Rick sleeps; >5 files = count + ETA and ASK (told 4x, last 2026-11-06)**
 - [User background & collaboration style](user_background_and_collaboration.md) — career BASIC programmer, learning-mode, wants visibility not autonomy
 - [DRAW compile convention](feedback_draw_compile_convention.md) — build qb64pe in FOREGROUND, 600000ms timeout, never background
 - [DRAW observability logs](reference_draw_activity_log.md) — `.claude/activity.log` (every Bash/Agent) + `~/.claude/make.log` (compile output)
@@ -80,5 +80,4 @@
 - [Parallelize farm work](feedback-parallelize-farm-work.md) — start independent host work at once (parallel jobs); don't queue it behind another host's run
 - [Farm: no GUI popups, trap crashes](farm-no-gui-popups-trap-crashes.md) — never pop windows on mac/thinkpad; trap SIGSEGV in-process (sigtrap.h) so no macOS/WER crash dialog; QA runs may take over mac/thinkpad/titan screens (Rick 2026-10-09) - say so before a full suite
 - [Menu fires on press](menu-fires-on-press.md) — modals opened from the menu must swallow the held button (FD wrappers, DIALOG inputArmed)
-- [Test scope](feedback-test-scope.md) — small fix = its targeted tests + baseline, then push; no 40-file suite runs for small changes
 - [Document filename invariants](document-filename-invariants.md) — set CURRENT_DRW/CURRENT_FILENAME only via SAVE_set_document_file; sidecar setting, Flatten & Save, Export Again
