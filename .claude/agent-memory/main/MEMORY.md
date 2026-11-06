@@ -1,5 +1,6 @@
 - **[NEVER an error dialog - PERMANENT](feedback-no-error-dialogs.md) — every program traps its errors (ON ERROR); untrappable runtime alerts are prevented by guarding first; never cause them (don't kill a display a run still uses) (2026-10-11)**
 - **[Test scope - HARD RULE](feedback-test-scope.md) — run ONLY tests that might touch the change; FULL suite only overnight while Rick sleeps; >5 files = count + ETA and ASK (told 4x, last 2026-11-06)**
+- **[Test with Rick's own profile](feedback-test-with-user-profile.md) — also run bug tests with HIS cfg/workspace/scale: `QA_USER_PROFILE=1 QA_USER_SCREEN=1152x648@3 QA_XVFB_RES=3840x2160` before saying "can't reproduce" (2026-11-06)**
 - [User background & collaboration style](user_background_and_collaboration.md) — career BASIC programmer, learning-mode, wants visibility not autonomy
 - [DRAW compile convention](feedback_draw_compile_convention.md) — build qb64pe in FOREGROUND, 600000ms timeout, never background
 - [DRAW observability logs](reference_draw_activity_log.md) — `.claude/activity.log` (every Bash/Agent) + `~/.claude/make.log` (compile output)
