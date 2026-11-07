@@ -269,6 +269,8 @@ dk_check() {
         if (( B_SIDE == 0 )) && [[ -n "$sb" ]]; then bad+=" a band saved ($sb) but none on screen;"; fi
     fi
     if [[ -z "$bad" ]]; then pass "$label: invariants hold [$t]"; else fail "$label:$bad"; fi
+    # 7: one border line on every column's inner edge (dk_seams)
+    dk_seams "$label"
     assert_no_crash
 }
 
@@ -375,4 +377,121 @@ dk_divider_extremes() {
     dk_p "$lo"; dk_slot "$P_SLOT"; y=$(( S_Y - 2 ))
     dk_drag "$x" "$y" "$x" $(( DOCK_BOT - 2 )) 6; dk_park; dk_settle
     dk_check "$label: divider to the bottom"
+}
+
+# dk_seams LABEL — the borders between the dock columns and the canvas and
+# between neighbouring columns: exactly one 1px seam line (the SEAM colour of
+# its side) on every visible column's inner edge, the whole column height,
+# and no second line beside it - not the seam colour again, and not a lighter
+# frame line (a docked window's own frame). Rows under a floating window, a
+# popup or a menu are skipped. Rick, 2026-11-07: "a double line on the right
+# side of the toolbar/organizer ... docked to the right side, it's missing a
+# pixel or 2 ... make sure that all docks are consistent ... in any
+# configuration". DK_SEAMS=0 turns it off.
+dk_seams() {
+    local label=$1 png txt res
+    [[ "${DK_SEAMS:-1}" == 0 ]] && return 0
+    dk_scr
+    # DK_SEAM_COLORS="404040 404040" stands in for the SEAM line (a build from
+    # before it, to see the check fail on the old code)
+    grep -q '^SEAM ' "$DK_DUMP" || [[ -n "$DK_SEAM_COLORS" ]] || { fail "$label: no SEAM line in the dock dump"; return 0; }
+    DK_SEAM_N=$(( ${DK_SEAM_N:-0} + 1 ))
+    snap_region 0 0 "$SCR_W" "$SCR_H" "seams$DK_SEAM_N"
+    png="$SNAP_RESULT"
+    [[ -s "$png" ]] || { fail "$label: seam snap failed"; return 0; }
+    txt="${png%.png}.txt"
+    # back to viewport pixels at the exact scale: the capture can come up a few
+    # rows short of the window, and stretching it to WxH slid rows by one
+    local pw ph sc vh
+    read -r pw ph < <(magick identify -format '%w %h' "$png" 2>/dev/null)
+    sc=$(( (pw + SCR_W / 2) / SCR_W )); (( sc < 1 )) && sc=1
+    vh=$(( ph / sc )); (( vh > SCR_H )) && vh=$SCR_H
+    magick "$png" -background black -extent "$(( SCR_W * sc ))x$(( SCR_H * sc ))" -sample "${SCR_W}x${SCR_H}!" txt:- 2>/dev/null > "$txt"
+    res=$(awk -v W="$SCR_W" -v H="$vh" -v SC="$DK_SEAM_COLORS" '
+        function h2(t) { t = toupper(t); return (index("0123456789ABCDEF", substr(t,1,1)) - 1) * 16 + index("0123456789ABCDEF", substr(t,2,1)) - 1 }
+        function lum(c) { return (h2(substr(c,1,2)) + h2(substr(c,3,2)) + h2(substr(c,5,2))) / 3 }
+        function covered(y, x1, x2,   i) {
+            for (i = 1; i <= nr; i++) if (y >= ry[i] && y < ry[i] + rh[i] && x2 >= rx[i] && x1 < rx[i] + rw[i]) return 1
+            return 0
+        }
+        function covered2(x, y1, y2,   i) {
+            for (i = 1; i <= nr; i++) if (x >= rx[i] && x < rx[i] + rw[i] && y2 >= ry[i] && y1 < ry[i] + rh[i]) return 1
+            return 0
+        }
+        function line(c, beyond) { return lum(c) >= lum(beyond) + 16 && lum(c) >= seamlum - 8 }
+        FNR == NR {
+            if ($1 == "SCR") { clx = $4; crx = $5 }
+            if ($1 == "SEAM") { seam[1] = $2; seam[2] = $3 }
+            if ($1 == "COL" && $9 != 0 && $10 == 0 && $7 > 0 && $8 > 0) { nc++; cid[nc] = $2; cs[nc] = $3; cx[nc] = $5; cy[nc] = $6; cw[nc] = $7; ch[nc] = $8 }
+            if ($1 == "P" && $10 != 0) { nr++; rx[nr] = $11; ry[nr] = $12; rw[nr] = $13; rh[nr] = $14 }
+            if ($1 == "WIN" && $7 == 0 && !(bs && $2 == "browser")) { nr++; rx[nr] = $3; ry[nr] = $4; rw[nr] = $5; rh[nr] = $6 }
+            if ($1 == "POPUP") { nr++; rx[nr] = $3; ry[nr] = $4; rw[nr] = $5; rh[nr] = $6 }
+            if ($1 == "MENU") { nr++; rx[nr] = $2; ry[nr] = $3; rw[nr] = $4; rh[nr] = $5 }
+            if ($1 == "BAND" && $2 != 0 && $5 > 0 && $6 > 0) { bs = $2; bx = $3; by = $4; bw = $5; bh = $6 }
+            next
+        }
+        FNR == 1 { if (seam[1] == "" && SC != "") split(SC, seam, " ")
+                   for (i = 1; i <= nc; i++) { d = (cs[i] == 1) ? 1 : -1; xi = (cs[i] == 1) ? cx[i] + cw[i] - 1 : cx[i]
+                       for (k = -3; k <= 3; k++) want[xi + k * d] = 1 }
+                   if (bs) { byb = (bs == 1) ? by + bh - 1 : by; for (k = -3; k <= 3; k++) wantrow[byb + k] = 1 } }
+        /^[0-9]/ { split($1, p, /[,:]/); x = p[1] + 0; y = p[2] + 0; if (!(x in want) && !(y in wantrow)) next
+                   c = $3; sub(/^#/, "", c); px[x "," y] = substr(c, 1, 6) }
+        END {
+            out = ""
+            for (i = 1; i <= nc; i++) {
+                s = cs[i]; S = seam[s]; seamlum = lum(S); d = (s == 1) ? 1 : -1
+                xi = (s == 1) ? cx[i] + cw[i] - 1 : cx[i]       # inner edge: the seam
+                xn = xi + d; xin = xi - d                       # across it / just inside
+                incol = 0                                       # the neighbour is another column?
+                for (j = 1; j <= nc; j++) if (j != i && xn >= cx[j] && xn < cx[j] + cw[j]) incol = 1
+                bad = 0; first = ""; run = 0
+                for (y = cy[i]; y <= cy[i] + ch[i]; y++) {
+                    why = ""; fl = 0
+                    # (the band seam row meets this seam: a T, not a double;
+                    # rows past H were not captured)
+                    if (y < cy[i] + ch[i] && y < H && !covered(y, xi - 3, xi + 3) && !(bs && y == byb && xn >= bx && xn < bx + bw)) {
+                        a = px[xin "," y]; b = px[xi "," y]; n = px[xn "," y]
+                        if (b != S) why = "no seam (" b ")"
+                        else if (a == S) why = "seam doubled inside (" a ")"
+                        else if (xn >= 0 && xn < W && n == S) why = "seam doubled across (" n ")"
+                        else if (line(a, px[(xin - d) "," y])) { why = "a frame line beside the seam inside (" a ")"; fl = 1 }
+                        else if ((incol || (bs && y >= by && y < by + bh && xn >= bx && xn < bx + bw)) && line(n, px[(xn + d) "," y])) { why = "a frame line beside the seam across (" n ")"; fl = 1 }
+                    }
+                    # a frame line runs down the edge: count it from 8 rows on
+                    # (a marker or an icon touching the edge is a few rows)
+                    if (fl) { if (run == 0) { runy = y; runwhy = why }; run++; continue }
+                    if (run >= 8) { bad += run; if (first == "") first = "y " runy ": " runwhy " (" run " rows)" }
+                    run = 0
+                    if (why != "") { bad++; if (first == "") first = "y " y ": " why }
+                }
+                if (bad) out = out sprintf(" col %s (side %d x %d): %d rows bad, first %s;", cid[i], s, xi, bad, first)
+                cnt++
+            }
+            # the Browser band: one seam row on its canvas side
+            if (bs) {
+                S = seam[1]; seamlum = lum(S); d = (bs == 1) ? 1 : -1
+                yb = (bs == 1) ? by + bh - 1 : by; yn = yb + d; yin = yb - d
+                bad = 0; first = ""; run = 0
+                for (x = bx + 2; x <= bx + bw - 2; x++) {
+                    why = ""; fl = 0
+                    if (x < bx + bw - 2 && !covered2(x, yb - 3, yb + 3)) {
+                        a = px[x "," yin]; b = px[x "," yb]; n = px[x "," yn]
+                        if (b != S) why = "no seam (" b ")"
+                        else if (a == S) why = "seam doubled inside (" a ")"
+                        else if (n == S) why = "seam doubled across (" n ")"
+                        else if (line(a, px[x "," (yin - d)])) { why = "a frame line beside the seam inside (" a ")"; fl = 1 }
+                    }
+                    if (fl) { if (run == 0) { runx = x; runwhy = why }; run++; continue }
+                    if (run >= 8) { bad += run; if (first == "") first = "x " runx ": " runwhy " (" run " px)" }
+                    run = 0
+                    if (why != "") { bad++; if (first == "") first = "x " x ": " why }
+                }
+                if (bad) out = out sprintf(" band (side %d y %d): %d px bad, first %s;", bs, yb, bad, first)
+                cnt++
+            }
+            printf "%d|%s", cnt, out
+        }' "$DK_DUMP" "$txt")
+    rm -f "$txt"
+    if [[ -z "${res#*|}" ]]; then pass "$label: seams ok (${res%%|*} edges)"
+    else cp -f "$DK_DUMP" "${png%.png}.dump" 2>/dev/null; fail "$label: seams:${res#*|} [snap $(basename "$png") + .dump]"; fi
 }

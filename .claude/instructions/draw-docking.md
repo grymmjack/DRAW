@@ -52,6 +52,47 @@ They keep their own look and code; a `docked` field switches them over:
 - **A window that stretches to its slot (Preview, Browser) never holds its column wide** (`DOCK_panel_box` marks it stretchy; `DOCK_col_width%` combines). In a column beside other panels it asks only for its minimum width, and the column follows the others. Alone in a column it sets the width from its floating width (`DOCK_panel_w%`: `CFG.PREVIEW_W` × render scale, `CFG.BROWSER_WIDTH`), never its live slot width. A live width feeds back: the column is as wide as its widest panel, the window takes the column's width, and the column never shrinks again. Using the floating width alone also failed, for a floating width of 800. Rick's layers, dragged to 400 with the Preview docked above them, could not be narrowed back. The Mixer, Advanced Color Picker, 3D and Pen keep their own size and center in the slot.
 - **The layers' narrowest width** is `LAYERS_min_width%`: the bottom bar's 6 buttons ((w − 18) \ 6 each) must each fit the widest button icon. That is 108px with the default 15px icons; it was a hard-coded 60px, where the icons overlapped. `LAYERS_clamp_width%` applies it to drags and workspace values, and `DOCK_panel_w%` applies it to saved widths below it. Test: `dock-layers-shrink-preview` (120 → 400 → 140 → stops at 108).
 
+## Seams: the one line between columns (2026-11-07)
+
+The dock owns the border between a column and its neighbour. Every visible
+column draws **one 1px line on its inner edge** (toward the canvas), the whole
+column height: one line between the innermost column and the canvas, one
+between each pair of columns, none at the window edge. Colour: the edit bar
+border colours (`DOCK_seam_color~&`; a right column's line uses
+`EDIT_BAR_LEFT_BORDER_COLOR`, a left column's `..._RIGHT_...`).
+- `DOCK_render_seams` (SCRN.GUI&, after the docked panels, before
+  `DOCK_render_float_stack`; both GUI render blocks in `SCREEN.BM`). It draws
+  over the panel's edge pixel (the toolbox / organizer black frame there).
+- **Panels draw no side borders.** The edit / advanced bars (both sides), the
+  layers (right) and a column's empty part (`DOCK_fill_rect`) used to - a
+  boundary then had two lines beside some neighbours and none beside others
+  (Rick: a double line right of the toolbox column with the Drawer floated; no
+  line between a right-docked toolbox and the canvas). `lbw/rbw` still pad
+  the bars' icons.
+- **Docked native windows** draw on screen 0 after the canvas is presented, over
+  the GUI layer: `DOCK_render_native_seams` (end of the docked block in
+  `SCREEN_render_windows`) draws their column's seam again over their rows, and
+  paints out their own side frame where it lies within 2px of a seam (inner edge,
+  or outer edge with a column beyond it) - `DOCK_frame_px%` measures the frame's
+  width in screen pixels from its edge colour. A window centred away from the
+  edges keeps its frame.
+- **The Browser's band** (top / bottom): its ends' side frames are painted out
+  onto the columns' seams, and its canvas side gets one seam row on the band's
+  last (top) / first (bottom) row, its own frame and any gap up to it painted
+  out. Docked, `BROWSER_sync_fd_from_display` rounds the dialog size DOWN
+  (`INT`, not `+0.5`) so at a fractional render scale it never draws a row past
+  its slot (it did: a 221px dialog in a 220px band).
+- Test: `dk_seams` in `QA/dock-lib.sh` (also run by every `dk_check`, so all
+  dock / fuzz tests check it): per row of every visible column, the inner edge
+  is the seam colour, the pixel across it and the one inside are not, and no
+  lighter frame line runs beside it (8+ rows); with a band, its seam row
+  likewise. `SEAM` line in the dock dump; `DK_SEAM_COLORS="404040 404040"`
+  stands in for it to run the check against a build from before it.
+  `dock-seams-left`, `dock-seams-right`, `dock-seams-band`.
+  The capture can come up a few rows short of the window: `dk_seams` pads it to
+  the exact scale before shrinking (stretching it to WxH slid rows by one and
+  showed a seam one row off) and skips the rows it does not have.
+
 ## Float host (docked panels floating)
 
 `DOCK_place_floats` hands the panel `(fx+1, fy+th, fw-2, fh-th-1)`, `th = DOCK_float_title_h%`: a 6px grip strip (`DOCK_FLOAT_GRIP_H`) for the edit / advanced bars and anything under 64px wide (a title wouldn't fit), else the 11px title bar. A floated bar opens at its own column width and `contentH` tall (`DOCK_float_content_h%`); `DOCK_float_clamp` keeps it in the work area. The bars draw only **whole** icons (a partial one spilled past the rect).

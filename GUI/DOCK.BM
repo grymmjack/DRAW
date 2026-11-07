@@ -950,13 +950,162 @@ SUB DOCK_fill_rect (c AS INTEGER, y1 AS INTEGER, y2 AS INTEGER)
     IF y2 < y1 THEN EXIT SUB
     x1 = DOCK_COL(c).x
     x2 = x1 + DOCK_COL(c).w - 1
-    LINE (x1, y1)-(x2, y2), THEME.EDIT_BAR_BG_COLOR~&, BF
-    IF DOCK_COL(c).side = DOCK_RIGHT THEN
-        LINE (x1, y1)-(x1, y2), THEME.EDIT_BAR_LEFT_BORDER_COLOR~&
-    ELSE
-        LINE (x2, y1)-(x2, y2), THEME.EDIT_BAR_RIGHT_BORDER_COLOR~&
-    END IF
+    LINE (x1, y1)-(x2, y2), THEME.EDIT_BAR_BG_COLOR~&, BF ' (its border: DOCK_render_seams)
 END SUB
+
+
+' =============================================================================
+' Seams: the one border line between a dock column and its neighbour
+' =============================================================================
+' Every visible column draws a 1px line on its INNER edge (toward the canvas),
+' the whole column height: one line between the innermost column and the
+' canvas, one between each column and the next one out, none at the window
+' edge. The dock owns it - the panels draw no side borders of their own. They
+' used to: the edit / advanced bars on both sides, the layers on their right,
+' a column's empty part on its inner edge, the toolbox / organizer none, so a
+' boundary had two lines beside some neighbours and none beside others.
+' Rick, 2026-11-07: "make sure that all docks are consistent and have the
+' correct borders between them and the canvas and them and other docks... in
+' any configuration". Test: dock-seams-* (dk_seams, also in every dk_check).
+
+''
+' Column c's seam x (its inner edge pixel); FALSE when it shows nothing.
+FUNCTION DOCK_seam_x% (c AS INTEGER, x AS INTEGER)
+    IF c < 1 _ORELSE c > DOCK_MAX_COLS THEN EXIT FUNCTION
+    IF DOCK_COL(c).used = 0 _ORELSE DOCK_COL(c).vis = 0 _ORELSE DOCK_COL(c).autoh THEN EXIT FUNCTION
+    IF DOCK_COL(c).w <= 0 _ORELSE DOCK_COL(c).h <= 0 THEN EXIT FUNCTION
+    IF DOCK_COL(c).side = DOCK_RIGHT THEN x = DOCK_COL(c).x ELSE x = DOCK_COL(c).x + DOCK_COL(c).w - 1
+    DOCK_seam_x% = TRUE
+END FUNCTION
+
+
+FUNCTION DOCK_seam_color~& (c AS INTEGER)
+    IF DOCK_COL(c).side = DOCK_RIGHT THEN DOCK_seam_color~& = THEME.EDIT_BAR_LEFT_BORDER_COLOR~& ELSE DOCK_seam_color~& = THEME.EDIT_BAR_RIGHT_BORDER_COLOR~&
+END FUNCTION
+
+
+''
+' Render pass (SCRN.GUI&, after the docked panels, before the floating ones).
+SUB DOCK_render_seams ()
+    DIM c AS INTEGER, x AS INTEGER, oldDest AS LONG
+    oldDest& = _DEST
+    _DEST SCRN.GUI&
+    FOR c = 1 TO DOCK_MAX_COLS
+        IF DOCK_seam_x%(c, x) THEN LINE (x, DOCK_COL(c).y)-(x, DOCK_COL(c).y + DOCK_COL(c).h - 1), DOCK_seam_color~&(c)
+    NEXT c
+    _DEST oldDest&
+END SUB
+
+
+''
+' On the window (screen 0), right after the docked native windows drew over
+' the presented canvas: their columns' seams again on top of them, and their
+' own side frame where it lies on a column edge (within 2px) painted over in
+' the column colour - it would stand beside the seam as a second line. A
+' window narrower than its column, centred away from the edges, keeps its
+' frame. SCREEN_render_windows.
+SUB DOCK_render_native_seams ()
+    DIM id AS INTEGER, c AS INTEGER, sx AS INTEGER, ds AS INTEGER, oldDest AS LONG, oldSrc AS LONG
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, cx1 AS INTEGER, cx2 AS INTEGER
+    DIM inL AS INTEGER, inR AS INTEGER, outL AS INTEGER, outR AS INTEGER, k AS INTEGER
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    oldDest& = _DEST: oldSrc& = _SOURCE
+    _DEST 0: _SOURCE 0
+    FOR id = DP_PREVIEW TO DP_COUNT
+        IF DPANEL(id).slot = 0 THEN _CONTINUE
+        IF DOCK_native_rect%(id, x, y, w, h) = 0 THEN _CONTINUE
+        IF w < 3 _ORELSE h < 1 THEN _CONTINUE
+        c = DOCK_SLOT(DPANEL(id).slot).col
+        IF DOCK_seam_x%(c, sx) = 0 THEN _CONTINUE
+        cx1 = DOCK_COL(c).x: cx2 = cx1 + DOCK_COL(c).w - 1
+        ' which of the window's side frames lie on a seam: the inner edge,
+        ' or the outer edge when a column lies beyond it (not the window edge)
+        IF DOCK_COL(c).side = DOCK_RIGHT THEN
+            inL = (ABS(x - cx1) <= 2)
+            outR = (ABS(x + w - 1 - cx2) <= 2 _ANDALSO cx2 < SCRN.w& - 1)
+            inR = FALSE: outL = FALSE
+        ELSE
+            inR = (ABS(x + w - 1 - cx2) <= 2)
+            outL = (ABS(x - cx1) <= 2 _ANDALSO cx1 > 0)
+            inL = FALSE: outR = FALSE
+        END IF
+        IF inL _ORELSE outL THEN
+            k = DOCK_frame_px%(x * ds, (y + h \ 2) * ds, 1, ds)
+            LINE (x * ds, y * ds)-(x * ds + k - 1, (y + h) * ds - 1), THEME.EDIT_BAR_BG_COLOR~&, BF
+        END IF
+        IF inR _ORELSE outR THEN
+            k = DOCK_frame_px%((x + w) * ds - 1, (y + h \ 2) * ds, -1, ds)
+            LINE ((x + w) * ds - k, y * ds)-((x + w) * ds - 1, (y + h) * ds - 1), THEME.EDIT_BAR_BG_COLOR~&, BF
+        END IF
+        ' the seam over the window's rows
+        IF sx >= x - 2 _ANDALSO sx <= x + w + 1 THEN
+            LINE (sx * ds, y * ds)-(sx * ds + ds - 1, (y + h) * ds - 1), DOCK_seam_color~&(c), BF
+        END IF
+    NEXT id
+
+    ' the Browser's band (top / bottom of the canvas area): its ends sit on the
+    ' columns' seams (its side frame is painted out there), and its canvas side
+    ' is a boundary of its own - one seam row on the band's edge, its frame and
+    ' any gap up to it painted out (it is drawn within the band, up to a pixel
+    ' short at a fractional scale)
+    DIM bx1 AS INTEGER, bx2 AS INTEGER, by1 AS INTEGER, by2 AS INTEGER
+    IF DOCK_BAND_SIDE <> 0 _ANDALSO DOCK_BAND_W > 0 _ANDALSO DPANEL(DP_BROWSER).slot = 0 THEN
+        IF DOCK_native_rect%(DP_BROWSER, x, y, w, h) THEN
+            bx1 = DOCK_BAND_X: bx2 = DOCK_BAND_X + DOCK_BAND_W - 1
+            by1 = DOCK_BAND_Y: by2 = DOCK_BAND_Y + DOCK_BAND_HH - 1
+            IF w > 2 _ANDALSO h > 2 THEN
+                IF bx1 > 0 THEN
+                    k = DOCK_frame_px%(x * ds, (y + h \ 2) * ds, 1, ds)
+                    LINE (bx1 * ds, y * ds)-(x * ds + k - 1, (y + h) * ds - 1), THEME.EDIT_BAR_BG_COLOR~&, BF
+                END IF
+                IF bx2 < SCRN.w& - 1 THEN
+                    k = DOCK_frame_px%((x + w) * ds - 1, (y + h \ 2) * ds, -1, ds)
+                    LINE ((x + w) * ds - k, y * ds)-((bx2 + 1) * ds - 1, (y + h) * ds - 1), THEME.EDIT_BAR_BG_COLOR~&, BF
+                END IF
+                IF DOCK_BAND_SIDE = DOCK_BAND_TOP THEN
+                    k = DOCK_frame_py%((x + w \ 2) * ds, (y + h) * ds - 1, -1, ds)
+                    LINE (bx1 * ds, (y + h) * ds - k)-((bx2 + 1) * ds - 1, (by2 + 1) * ds - 1), THEME.EDIT_BAR_BG_COLOR~&, BF
+                    LINE (bx1 * ds, by2 * ds)-((bx2 + 1) * ds - 1, (by2 + 1) * ds - 1), THEME.EDIT_BAR_RIGHT_BORDER_COLOR~&, BF
+                ELSE
+                    k = DOCK_frame_py%((x + w \ 2) * ds, y * ds, 1, ds)
+                    LINE (bx1 * ds, by1 * ds)-((bx2 + 1) * ds - 1, y * ds + k - 1), THEME.EDIT_BAR_BG_COLOR~&, BF
+                    LINE (bx1 * ds, by1 * ds)-((bx2 + 1) * ds - 1, (by1 + 1) * ds - 1), THEME.EDIT_BAR_RIGHT_BORDER_COLOR~&, BF
+                END IF
+            END IF
+        END IF
+    END IF
+    _DEST oldDest&: _SOURCE oldSrc&
+END SUB
+
+
+''
+' How many window pixels wide a native window's side frame is, from screen-0
+' pixel (px, py) going inward (dir 1 = right): the run of its edge colour, at
+' most two display pixels (a frame is one window pixel; scales differ).
+FUNCTION DOCK_frame_px% (px AS INTEGER, py AS INTEGER, dir AS INTEGER, ds AS INTEGER)
+    DIM e AS _UNSIGNED LONG, k AS INTEGER
+    e = POINT(px, py)
+    k = 1
+    DO WHILE k < ds * 2
+        IF POINT(px + k * dir, py) <> e THEN EXIT DO
+        k = k + 1
+    LOOP
+    DOCK_frame_px% = k
+END FUNCTION
+
+
+''
+' DOCK_frame_px% upright: a frame row's height from (px, py), dir 1 = down.
+FUNCTION DOCK_frame_py% (px AS INTEGER, py AS INTEGER, dir AS INTEGER, ds AS INTEGER)
+    DIM e AS _UNSIGNED LONG, k AS INTEGER
+    e = POINT(px, py)
+    k = 1
+    DO WHILE k < ds * 2
+        IF POINT(px, py + k * dir) <> e THEN EXIT DO
+        k = k + 1
+    LOOP
+    DOCK_frame_py% = k
+END FUNCTION
 
 
 
@@ -1930,6 +2079,8 @@ SUB DOCK_dump_write (barY1 AS INTEGER, dockY2 AS INTEGER)
     d = d + "SBAR" + DOCK_n$(SCROLLBAR.hVisible% <> 0) + DOCK_n$(SCROLLBAR.hTrackX%) + DOCK_n$(SCROLLBAR.hTrackY%) + DOCK_n$(SCROLLBAR.hTrackW%) + DOCK_n$(SCROLLBAR.hTrackH%)
     d = d + DOCK_n$(SCROLLBAR.vVisible% <> 0) + DOCK_n$(SCROLLBAR.vTrackX%) + DOCK_n$(SCROLLBAR.vTrackY%) + DOCK_n$(SCROLLBAR.vTrackW%) + DOCK_n$(SCROLLBAR.vTrackH%) + DOCK_n$(HISTORY.count) + lf
     d = d + "SCR" + DOCK_n$(SCRN.w&) + DOCK_n$(SCRN.h&) + DOCK_n$(DOCK_LX) + DOCK_n$(DOCK_RX) + DOCK_n$(barY1) + DOCK_n$(dockY2) + lf
+    ' the seam colors: a left column's inner (right) edge, a right column's inner (left) edge
+    d = d + "SEAM " + RIGHT$("00000" + HEX$(THEME.EDIT_BAR_RIGHT_BORDER_COLOR~& AND &HFFFFFF~&), 6) + " " + RIGHT$("00000" + HEX$(THEME.EDIT_BAR_LEFT_BORDER_COLOR~& AND &HFFFFFF~&), 6) + lf
     FOR c = 1 TO DOCK_MAX_COLS
         IF DOCK_COL(c).used THEN d = d + "COL" + DOCK_n$(c) + DOCK_n$(DOCK_COL(c).side) + DOCK_n$(DOCK_COL(c).ord) + DOCK_n$(DOCK_COL(c).x) + DOCK_n$(DOCK_COL(c).y) + DOCK_n$(DOCK_COL(c).w) + DOCK_n$(DOCK_COL(c).h) + DOCK_n$(DOCK_COL(c).vis <> 0) + DOCK_n$(DOCK_COL(c).autoh <> 0) + lf
     NEXT c
