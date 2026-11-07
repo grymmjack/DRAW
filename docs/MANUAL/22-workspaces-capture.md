@@ -113,6 +113,20 @@ Space, Pen Pressure, Browser) keep their own title bar. **Drag the title bar
 onto a dock target** to dock one; docked, its title bar is the handle, and
 dropping it anywhere off the docks floats it again at its old size.
 
+**Overlapping floating windows** stack like windows on your desktop: click any
+floating panel or window and it comes to the front, drawn whole over the
+others, and only the one in front takes clicks where they overlap.
+**View → Snap Panel Edges** (on by default) makes a dragged floating panel snap
+to the edges of the others and keeps them from overlapping; hold it still
+against a snap for about 1.5 seconds and it lets go, so you can drop it on top
+of another one. Turn it off to move floating panels freely.
+A floating toolbox or drawer stops growing once its buttons or bins all show,
+so no empty space is left beside or under them.
+
+**Lock Layout** (View → Lock Layout, `Ctrl+Shift+L`) freezes the whole
+arrangement, so a shaky pen can't drag, dock or resize a panel by accident.
+Clicks, tabs and buttons still work.
+
 **Small windows:** when a column is too short, its lowest panels collapse to
 their titles; when the window is too narrow, the outermost columns hide (the
 toolbox's column last) so the canvas keeps some room. Nothing is changed in
