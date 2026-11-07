@@ -16,6 +16,27 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 [N bytes] DEFLATE-compressed binary project data
 ```
 
+### drAn Chunk (animation frame layout)
+
+A sheet with frames (`TOOLS/ANIM`, see `draw-animation.md`) adds a second ancillary chunk,
+`drAn`, right after `drAw` (`DRW_save`). It is **not** inside the drAw payload, so a DRAW
+without animation reads drAw and opens the file as a plain picture (round 2 R-10), and the
+.draw version did not change. `DRW_load_from_png` reads it from a .draw **or a plain PNG**
+(a PNG sprite sheet can carry frames too) after the canvas size is known, via
+`ANIM_deserialize%`; data that does not fit the canvas opens the picture without frames.
+Not deflated - it is small. Little-endian INTEGERs (`ANIM_serialize$`):
+
+```
+version (ANIM_CHUNK_VERSION = 1), frameW, frameH, gutter, margin,
+count, current, fps, loopMode (0 FWD 1 REV 2 PING 3 ONCE),
+nHolds, then nHolds holds (frames 1..nHolds; the rest hold 1)
+```
+
+Newer versions append fields; a reader takes the ones it knows (version >= 1). No frames =
+no chunk. Every document path calls `ANIM_reset` first (gotcha 15). The re-slice / resize
+answer and playback are session state, not saved. Test: `QA/tests/file-anim-chunk.sh`
+(`QA/fixtures/png-chunk.py put|get` writes / reads chunks for fixtures).
+
 ### Binary Project Data
 
 | Section         | Fields | Version |

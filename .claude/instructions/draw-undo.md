@@ -29,6 +29,10 @@ DRAW uses a **unified history system** (`TOOLS/HISTORY.BI` / `HISTORY.BM`) for a
 | `HISTORY_KIND_RASTERIZE` | 15 | Text layer rasterization |
 | `HISTORY_KIND_GROUP_REPARENT` | 16 | Layer moved into/out of group |
 | `HISTORY_KIND_MERGE_GROUP` | 17 | All group children merged into one layer |
+| `HISTORY_KIND_CANVAS_RESIZE` | 18 | Canvas / image resize (every layer's pixels) |
+| `HISTORY_KIND_BEZIER` | 19 | Bezier path (polyline record) |
+| `HISTORY_KIND_PALETTE` | 20 | Palette snapshot, before + after |
+| `HISTORY_KIND_ANIM_FRAMES` | 21 | Animation frame op / frame layout / timing: whole-sheet snapshots before + after (`TOOLS/ANIM-OPS`) |
 
 ### Key Types
 
@@ -148,6 +152,16 @@ Special case: Active polygon in-progress is cancelled instead of undoing.
 - `LAYERS_merge_down`, `LAYERS_merge_visible`
 - `LAYERS_new_group%`, `LAYERS_group_from_selection%`, `LAYERS_ungroup`, `LAYERS_merge_group`
 - `LAYERS_move_into_group`, `LAYERS_move_out_of_group` (reparent operations)
+
+**Animation** (`TOOLS/ANIM-OPS.BM`, see `draw-animation.md`): every frame operation (add,
+insert, duplicate, delete, move, reverse), frame layout change (re-slice or resize) and FPS /
+hold change is ONE `HISTORY_KIND_ANIM_FRAMES` record holding two `ANIM_OPS_snapshot$` blobs
+(deflated: canvas size, wanted count, `ANIM_serialize$`, then - for pixel-moving ops - every
+non-group layer's raw buffer, apron buffers as they are). Undo / redo call `ANIM_OPS_restore`
+(resizes the canvas back with `HISTORY_IN_PROGRESS%` set, so no Resize Canvas record). A held
+panel stepper is one record: `ANIM_OPS_record` takes the new "after" while the same press
+(`ANIMP.pressKey`) owns the top record. `payloadLength` is set, so these records are saved
+with the document.
 
 **Palette Ops** (`GUI/PALETTE-OPS.BM`): a palette edit that changes pixels is one history group: `HISTORY_record_palette` (`PALETTE_snapshot$` before/after) plus a `HISTORY_record_transform` for each changed layer.
 - **Live chip edit:** `PALETTE_OPS_edit_begin` / `_apply` / `_commit`. It commits on mouse up, and `HISTORY_undo` / `HISTORY_redo` call `PALETTE_OPS_edit_commit` first, so an open edit is always closed before history moves.
