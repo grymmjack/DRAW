@@ -30,6 +30,8 @@ CONST ANIM_ACT_FIRST = 2501
 CONST ANIM_ACT_PREV  = 2502
 CONST ANIM_ACT_NEXT  = 2503
 CONST ANIM_ACT_LAST  = 2504
+CONST ANIM_ACT_PLAY  = 2506 ' play / stop (Num Enter, Alt+/)
+CONST ANIM_ACT_PREVIEW_FRAME = 2507 ' ANIM > Preview Shows Frame
 ' A numpad key taken as a frame key also arrives as a plain code (INKEY$ "4",
 ' _KEYHIT 52): those twins are dropped (ANIM_numpad_code%).
 DIM SHARED ANIM_SW_B AS INTEGER    ' numpad key whose twins are still to come

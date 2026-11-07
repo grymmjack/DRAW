@@ -212,6 +212,42 @@ check "delete: the freed hold is cleared", STR$(ANIM_HOLDS(6)), STR$(0)
 r = ANIM_plan%(ANIM_OP_REVERSE, pc, pcur): ANIM_apply_plan pc, pcur
 check "reverse: holds reversed", holds$(5), "5 4 3 3 2"
 
+' --- playback: the frames each loop mode steps through ---
+SCRN.canvasW = 64: SCRN.canvasH = 32: ANIM_reset
+r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 4: ANIM.wanted = 4: ANIM.current = 1: ANIM_set_fps 10
+ANIM.loopMode = ANIM_LOOP_FWD
+check "fwd", playseq$(7), "1 2 3 4 1 2 3 4"
+ANIM.loopMode = ANIM_LOOP_REV: ANIM.current = 3
+check "rev from 3", playseq$(6), "3 2 1 4 3 2 1"
+ANIM.loopMode = ANIM_LOOP_PING: ANIM.current = 2
+check "ping-pong", playseq$(9), "2 3 4 3 2 1 2 3 4 3"
+ANIM.loopMode = ANIM_LOOP_ONCE: ANIM.current = 2
+check "once stops at the end", playseq$(6), "2 3 4 stop"
+ANIM.current = 4: r = ANIM_play_start%(0, 0, 0)
+check "once from the last frame starts over", STR$(ANIM.current), STR$(1)
+ANIM.loopMode = ANIM_LOOP_FWD: ANIM.current = 1
+r = ANIM_play_start%(2, 3, 0)
+check "a range: starts inside it", STR$(r) + STR$(ANIM.current), STR$(TRUE) + STR$(2)
+check "a range loops inside it", playseq$(4), "2 3 2 3 2"
+ANIM.count = 1
+check "one frame: nothing to play", STR$(ANIM_play_start%(0, 0, 0)), STR$(FALSE)
+ANIM.count = 4
+
+' --- playback timing: fps and holds ---
+ANIM.loopMode = ANIM_LOOP_FWD: ANIM.current = 1: ANIM_set_hold 2, 3
+r = ANIM_play_start%(0, 0, 100)
+r = ANIM_play_advance%(100.05): check "not due yet (1 tick = 0.1 s at 10 fps)", STR$(r) + STR$(ANIM.current), STR$(FALSE) + STR$(1)
+r = ANIM_play_advance%(100.1): check "due: frame 2", STR$(r) + STR$(ANIM.current), STR$(TRUE) + STR$(2)
+r = ANIM_play_advance%(100.35): check "frame 2 holds 3 ticks", STR$(r) + STR$(ANIM.current), STR$(FALSE) + STR$(2)
+r = ANIM_play_advance%(100.4): check "then frame 3", STR$(r) + STR$(ANIM.current), STR$(TRUE) + STR$(3)
+r = ANIM_play_advance%(130)
+check "a long stall: no burst after it", STR$(ANIM_PLAY.nextT > 130), STR$(TRUE)
+ANIM.loopMode = ANIM_LOOP_ONCE: ANIM.current = 3: r = ANIM_play_start%(0, 0, 200)
+r = ANIM_play_advance%(200.1): r = ANIM_play_advance%(200.2)
+check "once: stopped on the last frame", STR$(ANIM_PLAY.playing) + STR$(ANIM.current), STR$(FALSE) + STR$(4)
+r = ANIM_play_start%(0, 0, 0): ANIM_reset
+check "a new document stops playback", STR$(ANIM_PLAY.playing), STR$(FALSE)
+
 PRINT PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
 
@@ -238,6 +274,22 @@ FUNCTION holds$ (n AS INTEGER)
     DIM i AS INTEGER, t AS STRING
     FOR i = 1 TO n: t = t + _TRIM$(STR$(ANIM_hold%(i))) + " ": NEXT i
     holds$ = RTRIM$(t)
+END FUNCTION
+
+''
+' The current frame then n steps of ANIM_play_next% ("stop" when it ends).
+' Starts playback over the whole range first unless one is already set up.
+FUNCTION playseq$ (n AS INTEGER)
+    DIM t AS STRING, i AS INTEGER, f AS INTEGER, r AS INTEGER
+    IF ANIM_PLAY.playing = FALSE _ORELSE ANIM_PLAY.toF > ANIM.count THEN r = ANIM_play_start%(0, 0, 0)
+    t = _TRIM$(STR$(ANIM.current))
+    FOR i = 1 TO n
+        f = ANIM_play_next%
+        IF f = 0 THEN t = t + " stop": EXIT FOR
+        ANIM.current = f: t = t + " " + _TRIM$(STR$(f))
+    NEXT i
+    ANIM_PLAY.playing = FALSE
+    playseq$ = t
 END FUNCTION
 
 '$INCLUDE:'../../TOOLS/ANIM.BM'

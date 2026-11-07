@@ -21,6 +21,7 @@ SUB ANIM_reset ()
     ANIM.fps = ANIM_FPS_DEFAULT
     ANIM.loopMode = ANIM_LOOP_FWD
     ANIM_SIZE_MODE = ANIM_SIZE_ASK
+    ANIM_PLAY.playing = FALSE
     FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_HOLDS(i) = 0: NEXT i
 END SUB
 
@@ -328,3 +329,67 @@ SUB ANIM_apply_plan (newCount AS INTEGER, newCur AS INTEGER)
     ANIM.current = newCur
     ANIM_clamp_current
 END SUB
+
+
+''
+' Start playing frames fromF..toF (0, 0 = all) at time t (TIMER). FALSE when
+' there is nothing to play (no frames, or one).
+FUNCTION ANIM_play_start% (fromF AS INTEGER, toF AS INTEGER, t AS DOUBLE)
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 2 THEN EXIT FUNCTION
+    IF fromF < 1 _ORELSE toF < 1 _ORELSE fromF >= toF THEN fromF = 1: toF = ANIM.count
+    IF toF > ANIM.count THEN toF = ANIM.count
+    ANIM_PLAY.fromF = fromF: ANIM_PLAY.toF = toF
+    ANIM_PLAY.dir = _IIF(ANIM.loopMode = ANIM_LOOP_REV, -1, 1)
+    IF ANIM.current < fromF _ORELSE ANIM.current > toF THEN ANIM.current = fromF
+    IF ANIM.loopMode = ANIM_LOOP_ONCE _ANDALSO ANIM.current = toF THEN ANIM.current = fromF ' play once again from the top
+    ANIM_PLAY.nextT = t + ANIM_hold%(ANIM.current) / ANIM.fps
+    ANIM_PLAY.playing = TRUE
+    ANIM_play_start% = TRUE
+END FUNCTION
+
+SUB ANIM_play_stop ()
+    ANIM_PLAY.playing = FALSE
+END SUB
+
+''
+' The frame after the current one in this loop mode (the range and ping-pong
+' direction in ANIM_PLAY); 0 = stop (play once reached the end).
+FUNCTION ANIM_play_next% ()
+    DIM c AS INTEGER, a AS INTEGER, b AS INTEGER
+    c = ANIM.current: a = ANIM_PLAY.fromF: b = _MIN(ANIM_PLAY.toF, ANIM.count)
+    IF b <= a THEN EXIT FUNCTION
+    SELECT CASE ANIM.loopMode
+        CASE ANIM_LOOP_REV
+            IF c <= a THEN ANIM_play_next% = b ELSE ANIM_play_next% = c - 1
+        CASE ANIM_LOOP_PING
+            IF ANIM_PLAY.dir >= 0 THEN
+                IF c >= b THEN ANIM_PLAY.dir = -1: ANIM_play_next% = c - 1 ELSE ANIM_play_next% = c + 1
+            ELSE
+                IF c <= a THEN ANIM_PLAY.dir = 1: ANIM_play_next% = c + 1 ELSE ANIM_play_next% = c - 1
+            END IF
+        CASE ANIM_LOOP_ONCE
+            IF c < b THEN ANIM_play_next% = c + 1
+        CASE ELSE
+            IF c >= b THEN ANIM_play_next% = a ELSE ANIM_play_next% = c + 1
+    END SELECT
+END FUNCTION
+
+''
+' Advance playback to time t: TRUE when the current frame changed. Catches up
+' at most a few frames a call (a slow frame skips, it does not race), and
+' stops at the end of play once.
+FUNCTION ANIM_play_advance% (t AS DOUBLE)
+    DIM n AS INTEGER, steps AS INTEGER
+    IF ANIM_PLAY.playing = FALSE THEN EXIT FUNCTION
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 2 THEN ANIM_PLAY.playing = FALSE: EXIT FUNCTION
+    IF ANIM_PLAY.nextT - t > 60 THEN ANIM_PLAY.nextT = t ' TIMER wrapped at midnight
+    DO WHILE t >= ANIM_PLAY.nextT _ANDALSO steps < 4
+        n = ANIM_play_next%
+        IF n = 0 THEN ANIM_PLAY.playing = FALSE: EXIT DO
+        ANIM.current = n: steps = steps + 1
+        ANIM_PLAY.nextT = ANIM_PLAY.nextT + ANIM_hold%(n) / ANIM.fps
+    LOOP
+    IF ANIM_PLAY.playing _ANDALSO ANIM_PLAY.nextT < t THEN ANIM_PLAY.nextT = t + ANIM_hold%(ANIM.current) / ANIM.fps ' fell behind: no burst
+    ANIM_play_advance% = (steps > 0)
+END FUNCTION
+

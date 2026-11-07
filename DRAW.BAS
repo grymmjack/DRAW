@@ -931,6 +931,10 @@ DO
         FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE: GUI_NEEDS_REDRAW% = TRUE
         IF NOT pcycOther% THEN PCYC.STEP_ONLY% = TRUE
     END IF
+    ' Animation playback (TOOLS/ANIM-VIEW): live while it plays, the scene rebuilt
+    ' only when it steps to another frame.
+    IF ANIM_play_tick% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE: GUI_NEEDS_REDRAW% = TRUE
+    IF ANIM_PLAY.playing THEN FRAME_IDLE% = FALSE
     STATUS_flash_tick
     IF PCYC_running% THEN FRAME_IDLE% = FALSE
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE

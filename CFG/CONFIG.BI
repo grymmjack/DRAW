@@ -351,6 +351,7 @@ TYPE DRAW_CONFIG
     GRID_MODE                       AS INTEGER        ' Grid geometry mode (0 = square,1 = diagonal,2 = iso,3 = hex)
     GRID_CELL_FILL                  AS INTEGER        ' Grid cell fill mode (0 = off, 1 = on)
     GRID_ON_TOP                     AS INTEGER        ' Grid renders on top of art (1 = on top, 0 = behind art)
+    PREVIEW_SHOWS_FRAME             AS INTEGER        ' Animation: the Preview window shows the current frame on a sheet with frames (ANIM > Preview Shows Frame)
     FRAME_GRID                      AS INTEGER        ' Animation: show the frame grid (cell borders, numbers, current frame) on a sheet with frames (View > Frame Grid)
     ' Transparency checkerboard settings
     TRANSPARENCY_CHECK_COLOR1       AS _UNSIGNED LONG ' Light checkerboard color

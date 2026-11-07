@@ -66,6 +66,17 @@ TYPE ANIM_OBJ
     loopMode AS INTEGER
 END TYPE
 DIM SHARED ANIM AS ANIM_OBJ
+
+' Playback (1.9): ANIM.current steps through fromF..toF at ANIM.fps, each frame
+' up for its hold, by ANIM.loopMode
+TYPE ANIM_PLAY_OBJ
+    playing AS INTEGER
+    dir     AS INTEGER ' +1 / -1 (ping-pong turns it round)
+    fromF   AS INTEGER ' the range played (1..count; the strip selection in 2.3)
+    toF     AS INTEGER
+    nextT   AS DOUBLE  ' TIMER when the next frame is due
+END TYPE
+DIM SHARED ANIM_PLAY AS ANIM_PLAY_OBJ
 DIM SHARED ANIM_HOLDS(1 TO ANIM_MAX_FRAMES) AS INTEGER ' ticks frame n stays up (0 = 1)
 DIM SHARED ANIM_SRC(1 TO ANIM_MAX_FRAMES) AS INTEGER   ' ANIM_plan%: new frame n is old frame ANIM_SRC(n) (0 = blank)
 DIM SHARED ANIM_SIZE_MODE AS INTEGER                    ' ANIM_SIZE_*: the answer for this document

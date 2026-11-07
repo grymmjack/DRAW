@@ -109,12 +109,12 @@ END SUB
 
 ''
 ' QA dump line (DOCK_dump): ANIM active count current frameW frameH gutter
-' margin cols rows fps loop gridDrawn dx dy canvasW canvasH
+' margin cols rows fps loop gridDrawn dx dy canvasW canvasH playing previewFrame
 FUNCTION ANIM_VIEW_dump$ ()
     DIM d AS STRING
     d = "ANIM" + DOCK_n$(ANIM.active <> 0) + DOCK_n$(ANIM.count) + DOCK_n$(ANIM.current) + DOCK_n$(ANIM.frameW) + DOCK_n$(ANIM.frameH)
     d = d + DOCK_n$(ANIM.gutter) + DOCK_n$(ANIM.margin) + DOCK_n$(ANIM_cols%) + DOCK_n$(ANIM_rows%) + DOCK_n$(ANIM.fps) + DOCK_n$(ANIM.loopMode)
-    d = d + DOCK_n$(ANIM_VIEW.drawn <> 0) + DOCK_n$(ANIM_VIEW.dx) + DOCK_n$(ANIM_VIEW.dy) + DOCK_n$(SCRN.canvasW&) + DOCK_n$(SCRN.canvasH&) + CHR$(10)
+    d = d + DOCK_n$(ANIM_VIEW.drawn <> 0) + DOCK_n$(ANIM_VIEW.dx) + DOCK_n$(ANIM_VIEW.dy) + DOCK_n$(SCRN.canvasW&) + DOCK_n$(SCRN.canvasH&) + DOCK_n$(ANIM_PLAY.playing <> 0) + DOCK_n$(ANIM_VIEW_preview_frame% <> 0) + CHR$(10)
     ANIM_VIEW_dump$ = d
 END FUNCTION
 
@@ -128,6 +128,7 @@ FUNCTION ANIM_numpad_action% (b AS INTEGER)
         CASE 5: ANIM_numpad_action% = ANIM_ACT_NEXT
         CASE 9: ANIM_numpad_action% = ANIM_ACT_LAST
         CASE 12: ANIM_numpad_action% = ANIM_ACT_APPEND ' Num + (Shift: blank - ANIM_OPS_action)
+        CASE 16: ANIM_numpad_action% = ANIM_ACT_PLAY ' Num Enter
     END SELECT
 END FUNCTION
 
@@ -161,7 +162,7 @@ END FUNCTION
 SUB ANIM_numpad_tick ()
     DIM b AS INTEGER, t AS DOUBLE
     t = TIMER(.001)
-    FOR b = 1 TO 12
+    FOR b = 1 TO NP_N
         IF NP_T(b) >= 0 _ANDALSO ANIM_numpad_action%(b) <> 0 THEN
             IF t < NP_T(b) _ORELSE t - NP_T(b) > .25 THEN
                 NP_T(b) = -1 ' stale
@@ -189,7 +190,7 @@ FUNCTION ANIM_numpad_code% (k AS LONG, src AS INTEGER)
     DIM b AS INTEGER, t AS DOUBLE
     IF k <= 0 THEN EXIT FUNCTION
     b = NUMPAD_of%(k)
-    IF b = 0 _ORELSE b > 12 THEN EXIT FUNCTION
+    IF b = 0 _ORELSE b > NP_N THEN EXIT FUNCTION
     IF ANIM_numpad_action%(b) = 0 THEN EXIT FUNCTION
     t = TIMER(.001)
     IF ANIM_SW_B = b _ANDALSO (ANIM_SW_MASK AND src) <> 0 _ANDALSO t >= ANIM_SW_T _ANDALSO t - ANIM_SW_T < .3 THEN
@@ -257,3 +258,57 @@ FUNCTION ANIM_keydown% (kc AS LONG)
     IF ANIM_numpad_masks%(kc) THEN EXIT FUNCTION
     ANIM_keydown% = TRUE
 END FUNCTION
+
+
+''
+' Action 2506: play / stop (Num Enter, Alt+/, ANIM > Play, the panel).
+SUB ANIM_VIEW_play_toggle ()
+    IF ANIM_PLAY.playing THEN
+        ANIM_play_stop
+        STATUS_flash "Stopped at frame" + STR$(ANIM.current) + " of" + STR$(ANIM.count)
+    ELSEIF ANIM.active = FALSE _ORELSE ANIM.count < 2 THEN
+        STATUS_flash "Nothing to play: add a frame (Num +) first"
+    ELSEIF ANIM_play_start%(0, 0, TIMER(.001)) THEN
+        STATUS_flash "Playing - Num Enter or Alt+/ stops"
+    END IF
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' DRAW.BAS, every frame: TRUE when playback stepped to another frame.
+FUNCTION ANIM_play_tick% ()
+    IF ANIM_PLAY.playing = FALSE THEN EXIT FUNCTION
+    ANIM_play_tick% = ANIM_play_advance%(TIMER(.001))
+END FUNCTION
+
+''
+' Does the Preview window show the current frame (fitted) instead of the
+' canvas? With frames on, unless ANIM > Preview Shows Frame is off.
+FUNCTION ANIM_VIEW_preview_frame% ()
+    ANIM_VIEW_preview_frame% = (CFG.PREVIEW_SHOWS_FRAME% <> 0 _ANDALSO ANIM.active <> 0 _ANDALSO ANIM.count >= 1)
+END FUNCTION
+
+SUB ANIM_VIEW_preview_frame_toggle ()
+    CFG.PREVIEW_SHOWS_FRAME% = (CFG.PREVIEW_SHOWS_FRAME% = 0)
+    CONFIG_save
+    IF CFG.PREVIEW_SHOWS_FRAME% THEN STATUS_flash "Preview shows the current frame" ELSE STATUS_flash "Preview shows the canvas"
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Preview window: the current frame's cell of src (the canvas composite)
+' fitted into (x1, y1)-(x2, y2) of dest - whole-number zoom when it fits,
+' centred.
+SUB ANIM_VIEW_preview_blit (src AS LONG, dest AS LONG, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, aw AS LONG, ah AS LONG, s AS SINGLE, dw AS LONG, dh AS LONG
+    DIM dx AS LONG, dy AS LONG
+    IF ANIM_cell_rect%(ANIM.current, cx, cy, cw, ch) = 0 THEN EXIT SUB
+    aw = x2 - x1 + 1: ah = y2 - y1 + 1
+    IF aw < 1 _ORELSE ah < 1 THEN EXIT SUB
+    s = _MIN(aw / cw, ah / ch)
+    IF s >= 1 THEN s = INT(s)
+    dw = _MAX(1, INT(cw * s)): dh = _MAX(1, INT(ch * s))
+    dx = x1 + (aw - dw) \ 2: dy = y1 + (ah - dh) \ 2
+    _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), src, dest, (cx, cy)-(cx + cw - 1, cy + ch - 1)
+END SUB
+

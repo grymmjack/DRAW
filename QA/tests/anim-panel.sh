@@ -44,9 +44,9 @@ ap_step() { # ROW minus|plus [shift|hold] - click a stepper
     esac
     wait_for 0.3 "stepper row $1 $2 ${3:-}"
 }
-ap_chip() { # NATIVE_ROW_Y K - click chip K (0-3) of a 4-chip row
+ap_chip() { # NATIVE_ROW_Y K [N=4] - click chip K of an N-chip row (the nav row |< < PLAY > >| has 5)
     ap_panel
-    local span=$(( L_PW - 2 * L_PAD )); local cw=$(( (span - 6) / 4 ))
+    local n=${3:-4}; local span=$(( L_PW - 2 * L_PAD )); local cw=$(( (span - 2 * (n - 1)) / n ))
     click "$(ap_vx $(( L_PAD + $2 * (cw + 2) + cw / 2 )))" "$(ap_vy $(( $1 + L_RH / 2 )))"
     wait_for 0.3 "chip $2"
 }
@@ -112,10 +112,10 @@ if [[ "$P_VIS" == -1 && -n "$L_R1" ]]; then
     # loop mode, frame buttons
     ap_chip "$L_LOOP" 2; ap_anim; [[ "$A_LOOP" == 2 ]] && pass "loop PING" || fail "loop mode $A_LOOP after PING, wanted 2"
     ap_chip "$L_LOOP" 3; ap_anim; [[ "$A_LOOP" == 3 ]] && pass "loop ONCE" || fail "loop mode $A_LOOP after ONCE, wanted 3"
-    ap_chip "$L_NAV" 2; ap_anim; [[ "$A_CUR" == 4 ]] && pass "> : next frame (4)" || fail "> : frame $A_CUR, wanted 4"
+    ap_chip "$L_NAV" 3 5; ap_anim; [[ "$A_CUR" == 4 ]] && pass "> : next frame (4)" || fail "> : frame $A_CUR, wanted 4"
     ap_panel; [[ "$P_HOLD" == 1 ]] && pass "HOLD shows frame 4's (1)" || fail "HOLD shows $P_HOLD on frame 4, wanted 1"
-    ap_chip "$L_NAV" 0; ap_anim; [[ "$A_CUR" == 1 ]] && pass "|< : first frame" || fail "|< : frame $A_CUR, wanted 1"
-    ap_chip "$L_NAV" 3; ap_anim; [[ "$A_CUR" == 7 ]] && pass ">| : last frame" || fail ">| : frame $A_CUR, wanted 7"
+    ap_chip "$L_NAV" 0 5; ap_anim; [[ "$A_CUR" == 1 ]] && pass "|< : first frame" || fail "|< : frame $A_CUR, wanted 1"
+    ap_chip "$L_NAV" 4 5; ap_anim; [[ "$A_CUR" == 7 ]] && pass ">| : last frame" || fail ">| : frame $A_CUR, wanted 7"
 
     # docks like the other windows
     dk_move_expect animation edge-right; dk_check "the Animation panel on the right edge"
