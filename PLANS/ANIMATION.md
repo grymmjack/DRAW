@@ -98,6 +98,18 @@ layers, recorded in the one history.
 - Keys: `_KEYHIT` merges numpad into main-row codes; `_KEYDOWN(100256+n)` (NumLock on) /
   `200000+n` (off) are numpad-only. Dispatcher table handles codes ≤ 65535
   (`INPUT/INPUT.BM:1083`). Space = hold-to-pan (`INPUT/MOUSE.BM:5155`).
+- **Numpad: port bu1ld0r's handling** (Rick: "it has great numpad handling"; `~/git/bu1ld0r`
+  `UI/UI.BM` "the numpad: views", `UI/UI.BI` `npHeld()/npT#()`, notes in its CLAUDE.md "The numpad"):
+  `NumpadOf(k&)` = which numpad key a plain code could have come from (digits . + - * / Enter, or
+  End / arrows / Home / PgUp / Ins / Del / 19456 with Num Lock off); `NumpadHeld(b)` =
+  `_KEYDOWN(100256+n) OR _KEYDOWN(200000+n)` (Num Lock state never matters - also covers Wayland
+  reading it as off); `NumpadDev` drains `_DEVICEINPUT` once a frame and marks a press by the
+  keyboard device's ids (`NumpadId`: X11 key code + 1) so a tap quicker than a frame isn't missed;
+  `NumpadSent(k&)` = that numpad key is held or was pressed < .25 s ago. Typing in a box / text
+  tool gets the plain key. Its test `tools/test/numpad.sh` holds and taps every keypad key with
+  Num Lock on and off via xdotool and checks a `--keylog` - port it as a QA test. Caveat for DRAW
+  (cross-platform): `NumpadId` values are Linux/X11; on macOS / Windows use `_KEYDOWN` alone or
+  find their device ids.
 - Menu: insert ANIM between AI and HELP (`GUI/MENUBAR.BM:246-265`; last root is pinned right).
   Workspaces with `ROOTS=` lists must add it. Free action ids: 2500-2599.
 - Full-screen Preview: own loop like the Pixel Analyzer (`GUI/PIXEL-ANALYZER.BM`).
