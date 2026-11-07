@@ -2,6 +2,7 @@
 # =============================================================================
 # gui-text-box-overflow.sh — QA test: text typed past the end of a one-line
 # text box stays inside the box, and deleting it slides the text back.
+#   (also: one BackSpace repaints the box at once - Rick: "it doesn't update ... i have to type another key")
 # Rick, 2026-11-07 (docked Color Mixer): "put my cursor into the box, and
 # started typing crap, and then backspace" - the hex text was drawn over the
 # "HEX:" label to the left of the box.
@@ -38,7 +39,13 @@ type_text "ffffffqwertyuiopasdfghjklzxcvbnm"; settle
 park_mouse; settle
 snap_region "$SVX" "$TY" "$LBLW" "$TH" "hex-label-typed"; LBL1="$SNAP_RESULT"
 assert_regions_same "$LBL0" "$LBL1" "text typed past the hex box must not draw over the HEX: label" 3
-key BackSpace; key BackSpace; key BackSpace; settle
+# one BackSpace must repaint the box at once (it showed only with the next
+# letter: BackSpace leaves _KEYHIT empty, so the frame stayed idle)
+snap_region "$TX" "$TY" "$TW" "$TH" "hex-box-before-bs"; HB0="$SNAP_RESULT"
+key BackSpace; settle
+snap_region "$TX" "$TY" "$TW" "$TH" "hex-box-after-bs"; HB1="$SNAP_RESULT"
+assert_regions_differ "$HB0" "$HB1" "one BackSpace repaints the hex box straight away"
+key BackSpace; key BackSpace; settle
 park_mouse; settle
 snap_region "$SVX" "$TY" "$LBLW" "$TH" "hex-label-backspaced"; LBL2="$SNAP_RESULT"
 assert_regions_same "$LBL0" "$LBL2" "after BackSpace the hex text must not sit over the HEX: label" 3
