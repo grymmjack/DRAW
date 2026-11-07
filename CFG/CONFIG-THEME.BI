@@ -288,6 +288,11 @@ TYPE DRAW_THEME
     BEZIER_anchor_color                   AS _UNSIGNED LONG ' Bezier anchor point dot color
     BEZIER_handle_color                   AS _UNSIGNED LONG ' Bezier handle arm and endpoint color
     CANVAS_border                         AS _UNSIGNED LONG ' Canvas border color
+    ANIM_FRAME_border                     AS _UNSIGNED LONG ' Animation frame grid: frame cell border
+    ANIM_FRAME_spare                      AS _UNSIGNED LONG ' Animation frame grid: spare cell border (past the last frame)
+    ANIM_FRAME_current                    AS _UNSIGNED LONG ' Animation frame grid: current frame outline
+    ANIM_FRAME_label_fg                   AS _UNSIGNED LONG ' Animation frame grid: frame number text
+    ANIM_FRAME_label_bg                   AS _UNSIGNED LONG ' Animation frame grid: frame number backing
     ' --- Preview Window ---
     PREVIEW_bg                            AS _UNSIGNED LONG ' Window background fill
     PREVIEW_border                        AS _UNSIGNED LONG ' Outer border/stroke color

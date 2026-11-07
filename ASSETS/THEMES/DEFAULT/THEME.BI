@@ -294,6 +294,11 @@ THEME.TOOL_PREVIEW_transparent_outline~& = _RGB32(0, 0, 0)                  ' Tr
 THEME.BEZIER_anchor_color~&              = _RGB32(255, 255, 255)            ' Bezier anchor dots (white)
 THEME.BEZIER_handle_color~&              = _RGB32(60, 180, 255)             ' Bezier handle arms/endpoints (cyan-blue)
 THEME.CANVAS_border~&                    = _RGB32(51, 51, 51)               ' Canvas border
+THEME.ANIM_FRAME_border~&                = _RGBA32(255, 170, 60, 200)       ' Animation frame grid: frame cell
+THEME.ANIM_FRAME_spare~&                 = _RGBA32(255, 170, 60, 90)        ' Animation frame grid: spare cell (dotted)
+THEME.ANIM_FRAME_current~&               = _RGB32(80, 200, 255)             ' Animation frame grid: current frame
+THEME.ANIM_FRAME_label_fg~&              = _RGB32(255, 255, 255)            ' Animation frame grid: number text
+THEME.ANIM_FRAME_label_bg~&              = _RGBA32(0, 0, 0, 170)            ' Animation frame grid: number backing
 
 ' --- CRT Overlay Effect ---
 ' Alpha channel on scanline/vignette colors sets the base opacity.
