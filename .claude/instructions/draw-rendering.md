@@ -33,7 +33,9 @@ Composited back-to-front onto `SCRN.CANVAS&`, then GPU-scaled to window via `_PU
 20. **Final overlay popups** (blend-mode popup, drawer context menu, command palette)
 21. Cursor overlay → **`SCRN.CURSOR&`** (its own layer, not baked into the scene)
 22. Scale `SCRN.CANVAS&` to window (integer scaling, nearest neighbor)
-23. Floating windows (Preview/Mixer/Browser) blit to screen 0, then
+23. Floating windows (Preview/Mixer/Browser) blit to screen 0 back to front by `GUI/WINZ`
+    order (`SCREEN_render_windows`; a floating dock panel above one is re-copied from
+    `SCRN.CANVAS&` - `WZ_reblit_panel`, see `draw-zorder.md`), then
     **`POINTER_composite_cursor_to_screen0`** blits `SCRN.CURSOR&` on top
 24. `_DISPLAY`
 

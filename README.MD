@@ -5,9 +5,21 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.6.1
+Current release: v2.7.0
 
 ![DRAW GUI from v2.5.0](./GUI.png)
+
+## New in 2.7.0
+
+Floating panels and windows now behave like windows on your desktop, plus a round of docking fixes.
+
+- **Floating windows stack.** Click any floating panel or window (toolbox, layers, organizer, drawer, bars, character map, Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Browser, Customize Toolbars) and it comes to the front. The one in front is drawn whole - grip, border and contents - and only it takes clicks where they overlap.
+- **Snap Panel Edges** (View → Snap Panel Edges, on by default) makes a dragged floating panel snap to the other floating panels' edges and keeps them from overlapping. Hold a panel still against a snap for about 1.5 seconds and it lets go, so you can drop it on top of another panel. Turn it off to move panels freely.
+- **Panels size to their contents.** A floating drawer stops growing at its widest bin grid and once every bin row shows. A column holding only the organizer or the drawer stops widening once everything in it shows. A floating toolbox's window snaps to its button grid. No more black areas beside or under them.
+- **The toolbox follows the layers' width.** Docked under the layers, a wider column lays the toolbox's buttons out in more columns and fewer rows, leaving the height to the layers.
+- **Columns keep their own widths.** A column without the toolbox (the organizer or drawer docked apart, the character map, a docked window) gets its own resize edge, and dragging the toolbox no longer resizes it.
+- **Browser panes always fit.** The places, file list and preview panes never overlap or vanish when you resize the Browser or toggle its preview, and your pane widths are kept. Mouse-wheel scrolling over the Browser redraws at once.
+- **Fixes.** Layer rows are clickable when the layers sit below another panel, and dropping a dragged layer on the panel below no longer deletes it. The docked Preview drags by its whole title bar. Floating layers resize narrower than their docked width. Hidden or collapsed panels no longer show tooltips. The character map's last row and the edit / advanced bars' top icons no longer get stuck out of view. Group child rows' opacity bars are clickable, and nested collapsed groups no longer shift rows.
 
 ## New in 2.6.1
 
@@ -29,7 +41,6 @@ A layout release: every panel and window can now be moved, stacked, tabbed, floa
   - Drag a side panel's inner edge to resize it. The toolbox, edit bar and advanced bar can have 1 to 4 columns.
   - On small windows, the lowest panels collapse and the outermost columns hide to keep the canvas usable.
 - **Lock Layout** (View → Lock Layout, `Ctrl+Shift+L`) freezes the arrangement, so a shaky pen can't drag a panel or window by accident. Clicks, tabs and buttons still work.
-- **Snap Panel Edges** (View → Snap Panel Edges, on by default) makes a dragged floating panel snap to the other floating panels' edges and keeps them from overlapping. Hold a panel still against a snap for about 1.5 seconds and it lets go, so you can drop it on top of another panel. Turn it off to move panels freely.
 - **Workspaces** are named layouts you switch into and back out of (View → Workspace, `Ctrl+Shift+W`, or the status-bar badge). Leaving one restores your own setup exactly.
   - Built in: **Default**, **Simple** and **Annotate**.
   - A workspace sets which panels show and where, the toolbox and bar buttons, the menus, a single-key overlay, config options for the session, and the starting tool, color and zoom.
@@ -381,7 +392,7 @@ groups, transform/move, export, importers, and input handling.
 - **Advanced Color Picker** - Krita-style floating picker (View → Advanced Color Picker, `Ctrl+Shift+M`, or middle-click the Color Mixer button): hue **ring** + saturation/value **triangle**; a configurable **shade selector** (Basic / +Warm-Cool / Full line-sets with Value, Saturation, Hue, Hue-Neighbors, Warm, Cool, Rich-Shadow, Fine-Hue rows; linear or exponential spread curve; per-row labels); **draggable hue-neighbor** range markers on the ring; **quantize-to-steps** for limited palettes; **custom selector background**; and a **color-history** strip with right-click **Create Palette** (loads into the palette bar) / **Clear History**. Every option lives in Settings → Panels → Advanced Color Picker. Built as a reusable QB64_GJ_LIB widget
 - **3D Color Space** - Floating panel (View → 3D Color Space) showing the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB: spin, zoom, slice and click to pick; hex / OKLab / OKLCh / CIELAB / XYZ readouts
 - **Pen Pressure panel** - Floating panel (View → Pen Pressure) with a live pressure meter, response graph, and every pen setting
-- **Floating panels** - The color panels, Pen Pressure, Image Browser and Preview share one look, snap edge to edge (and to the surrounding chrome), and never overlap each other
+- **Floating panels** - The color panels, Pen Pressure, Image Browser and Preview share one look and snap edge to edge (and to the surrounding chrome); click one to bring it to the front, like a desktop window
 - **Image Browser** - Floating, resizable file browser panel (View → Browser) for navigating and loading image files; supports multi-select, drag-and-drop files directly onto the canvas, drawer slots, or layer panel; panel size and position persisted in config
 - **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets (including 1-bit patterns with opaque background support); `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu (including Load Images to batch-import images into slots), middle-click cycles modes, `Shift+Middle Click` clears a slot, `Shift+Right Click` imports into a slot, and drag-and-drop to reorder bins
 - **Character map panel** - Dockable left/right 16×16 glyph grid with dynamic cell count (4-16 per row), mouse wheel scrolling, configurable theme colors, and bitmap font rendering
@@ -390,7 +401,7 @@ groups, transform/move, export, importers, and input handling.
 - **Advanced bar** - A dockable vertical strip of quick-access toggle buttons for char map, char grid, char snap, preview, edit bar, tile preview, grid cell fill, grid show, fill adjust, brush edges, angle snap, grayscale preview, reference image controls, distribute layers, crosshair, smart guides, and more (`Shift+F5`); **mouse wheel scrolls** the bar when it overflows the screen height
 - **Docking** - Every side panel (toolbox, organizer, drawer, layers, edit bar, advanced bar, character map) and every floating window (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Browser) can be moved to its own column, stacked, tabbed, collapsed, floated and docked back by dragging its handle; drag dividers and inner edges to resize. `Ctrl+Shift+Click` and View → Layout still swap a panel's side
 - **Lock Layout** - View → Lock Layout (`Ctrl+Shift+L`) freezes the panel arrangement so nothing can be dragged by accident
-- **Snap Panel Edges** - View → Snap Panel Edges: floating panels snap together and don't overlap; hold one still against a snap ~1.5 s to drop it on top of another
+- **Snap Panel Edges** - View → Snap Panel Edges: floating panels snap together and don't overlap (off: move freely); hold one still against a snap ~1.5 s to drop it on top of another
 - **Workspaces** - Named layouts (Default, Simple, Annotate, and your own) covering panels, toolbar buttons, menus, keys and options; switch with `Ctrl+Shift+W` or View → Workspace, edit with Configure Workspaces…
 - **Customize Toolbars** - Put any tool or command on the toolbox, edit bar or advanced bar, in any order (View → Customize Toolbars…)
 - **Screen Capture & Annotate** - `Ctrl+Shift+P` or `DRAW --capture` grabs a screen region into the Annotate workspace (arrow, highlighter, redact, numbered callouts, quick save)
