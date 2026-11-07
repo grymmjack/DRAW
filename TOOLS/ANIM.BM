@@ -20,6 +20,7 @@ SUB ANIM_reset ()
     ANIM.count = 0: ANIM.current = 0: ANIM.wanted = 0
     ANIM.fps = ANIM_FPS_DEFAULT
     ANIM.loopMode = ANIM_LOOP_FWD
+    ANIM_SIZE_MODE = ANIM_SIZE_ASK
     FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_HOLDS(i) = 0: NEXT i
 END SUB
 
@@ -59,13 +60,27 @@ END FUNCTION
 ''
 ' Frame n's cell on the canvas. FALSE (x/y/w/h untouched) when n has no cell.
 FUNCTION ANIM_cell_rect% (n AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG)
-    DIM cols AS INTEGER
     IF n < 1 _ORELSE n > ANIM_cells% THEN EXIT FUNCTION
-    cols = ANIM_cols%
-    x = ANIM.margin + ((n - 1) MOD cols) * (ANIM.frameW + ANIM.gutter)
-    y = ANIM.margin + ((n - 1) \ cols) * (ANIM.frameH + ANIM.gutter)
+    ANIM_rect_at n, ANIM_cols%, ANIM.frameW, ANIM.frameH, ANIM.gutter, ANIM.margin, x, y
     w = ANIM.frameW: h = ANIM.frameH
     ANIM_cell_rect% = TRUE
+END FUNCTION
+
+''
+' Top left of cell n in a layout of cols columns (any layout, not just the
+' current one: resizing frames reads the old cells).
+SUB ANIM_rect_at (n AS INTEGER, cols AS INTEGER, fw AS INTEGER, fh AS INTEGER, gutter AS INTEGER, margin AS INTEGER, x AS LONG, y AS LONG)
+    IF cols < 1 THEN x = margin: y = margin: EXIT SUB
+    x = margin + ((n - 1) MOD cols) * (CLNG(fw) + gutter)
+    y = margin + ((n - 1) \ cols) * (CLNG(fh) + gutter)
+END SUB
+
+''
+' Length of `cells` cells of size `cell` with `gutter` between and `margin`
+' at both ends.
+FUNCTION ANIM_span& (cells AS LONG, cell AS LONG, gutter AS LONG, margin AS LONG)
+    IF cells < 1 THEN ANIM_span& = 2 * margin: EXIT FUNCTION
+    ANIM_span& = 2 * margin + cells * cell + (cells - 1) * gutter
 END FUNCTION
 
 ''
@@ -192,8 +207,8 @@ END FUNCTION
 ' set). Bad or unfitting data leaves the document without frames. Returns
 ' ANIM.active.
 FUNCTION ANIM_deserialize% (blob AS STRING)
-    DIM v AS INTEGER, n AS INTEGER, i AS INTEGER, cnt AS INTEGER, cur AS INTEGER, r AS INTEGER
-    ANIM_reset
+    DIM v AS INTEGER, n AS INTEGER, i AS INTEGER, cnt AS INTEGER, cur AS INTEGER, r AS INTEGER, sm AS INTEGER
+    sm = ANIM_SIZE_MODE: ANIM_reset: ANIM_SIZE_MODE = sm ' undo / redo restore this; the answer is the document's
     IF LEN(blob) < 20 THEN EXIT FUNCTION
     v = CVI(MID$(blob, 1, 2))
     IF v < 1 THEN EXIT FUNCTION
@@ -222,6 +237,7 @@ END FUNCTION
 FUNCTION ANIM_plan% (op AS INTEGER, newCount AS INTEGER, newCur AS INTEGER)
     DIM n AS INTEGER, c AS INTEGER, i AS INTEGER
     n = ANIM.count: c = ANIM.current
+    IF ANIM.active = FALSE _ORELSE n < 1 THEN EXIT FUNCTION ' a plain picture: ANIM-OPS makes it frame 1 first
     IF ANIM_op_refusal$(op) <> "" THEN EXIT FUNCTION
     FOR i = 1 TO n: ANIM_SRC(i) = i: NEXT i
     newCount = n: newCur = c
@@ -255,12 +271,18 @@ FUNCTION ANIM_op_refusal$ (op AS INTEGER)
     DIM n AS INTEGER, c AS INTEGER, r AS STRING
     n = ANIM.count: c = ANIM.current
     IF ANIM.active = FALSE _ORELSE n < 1 THEN
-        r = "This picture has no frames - set a frame size first"
+        ' add on a plain picture: it becomes frame 1, frame 2 goes beside it (R-08)
+        SELECT CASE op
+            CASE ANIM_OP_APPEND, ANIM_OP_APPEND_BLANK
+                IF 2 * SCRN.canvasW& > ANIM_SHEET_MAX THEN r = "The picture is too wide for a frame beside it"
+            CASE ELSE
+                r = "This picture has no frames - add one (Num +) or set a frame size"
+        END SELECT
     ELSE
         SELECT CASE op
             CASE ANIM_OP_APPEND, ANIM_OP_APPEND_BLANK, ANIM_OP_INSERT_BEFORE, ANIM_OP_INSERT_AFTER, ANIM_OP_DUPLICATE
                 IF n >= ANIM_MAX_FRAMES THEN r = "No room for more frames (" + _TRIM$(STR$(ANIM_MAX_FRAMES)) + " at most)"
-                IF r = "" _ANDALSO ANIM_sheet_h&(n + 1) > ANIM_SHEET_MAX_H THEN r = "The sheet can't grow taller"
+                IF r = "" _ANDALSO ANIM_sheet_h&(n + 1) > ANIM_SHEET_MAX THEN r = "The sheet can't grow taller"
             CASE ANIM_OP_DELETE
                 IF n < 2 THEN r = "The only frame can't be deleted"
             CASE ANIM_OP_EARLIER
@@ -285,7 +307,7 @@ FUNCTION ANIM_sheet_h& (frames AS INTEGER)
     cols = ANIM_cols%
     IF cols < 1 THEN ANIM_sheet_h& = SCRN.canvasH&: EXIT FUNCTION
     rows = (frames + cols - 1) \ cols
-    h = 2 * ANIM.margin + rows * ANIM.frameH + (rows - 1) * ANIM.gutter
+    h = ANIM_span&(rows, ANIM.frameH, ANIM.gutter, ANIM.margin)
     IF h < SCRN.canvasH& THEN h = SCRN.canvasH&
     ANIM_sheet_h& = h
 END FUNCTION

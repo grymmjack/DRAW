@@ -167,7 +167,26 @@ check "one frame: no reverse", plan$(ANIM_OP_REVERSE), "refused"
 check "one frame: append", plan$(ANIM_OP_APPEND), "2 2:1 1"
 ANIM_reset
 check "no frames: refused", plan$(ANIM_OP_APPEND), "refused"
-check "no frames: a reason", STR$(LEN(ANIM_op_refusal$(ANIM_OP_APPEND)) > 0), STR$(TRUE)
+check "no frames: delete has a reason", STR$(LEN(ANIM_op_refusal$(ANIM_OP_DELETE)) > 0), STR$(TRUE)
+check "no frames: add is allowed (it becomes frame 1)", ANIM_op_refusal$(ANIM_OP_APPEND), ""
+check "no frames: add blank too", ANIM_op_refusal$(ANIM_OP_APPEND_BLANK), ""
+SCRN.canvasW = 9000
+check "too wide for a frame beside it", STR$(LEN(ANIM_op_refusal$(ANIM_OP_APPEND)) > 0), STR$(TRUE)
+SCRN.canvasW = 64
+
+' --- span / any-layout cell rects (resizing frames) ---
+check "span of 3 cells", STR$(ANIM_span&(3, 16, 2, 3)), STR$(3 + 16 + 2 + 16 + 2 + 16 + 3)
+check "span of 0 cells", STR$(ANIM_span&(0, 16, 2, 3)), STR$(6)
+ANIM_rect_at 6, 4, 20, 10, 1, 2, x, y
+check "rect of cell 6 in a 4-column 20x10 layout", STR$(x) + STR$(y), STR$(2 + 21) + STR$(2 + 11)
+
+' --- the re-slice / resize answer belongs to the document ---
+ANIM_SIZE_MODE = ANIM_SIZE_RESIZE
+r = ANIM_set_layout%(16, 16, 0, 0): s = ANIM_serialize$
+r = ANIM_deserialize%(s)
+check "undo / redo (deserialize) keep the answer", STR$(ANIM_SIZE_MODE), STR$(ANIM_SIZE_RESIZE)
+ANIM_reset
+check "a new document asks again", STR$(ANIM_SIZE_MODE), STR$(ANIM_SIZE_ASK)
 
 ' --- the sheet grows by whole rows ---
 r = ANIM_set_layout%(16, 16, 0, 0) ' 4 x 2 = 8 cells

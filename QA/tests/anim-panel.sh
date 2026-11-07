@@ -28,8 +28,8 @@ python3 "$AP_PY" put "$AP_DIR/plain.png" "$AP_DIR/sheet.png" drAn "$AP_BLOB"
 ap_settle() { { hover 300 250; wait_for 0.2 "render"; hover 305 252; wait_for 0.3 "render"; } >&2; }
 ap_line() { grep -m1 "^$1 " "$AP_DUMP" 2>/dev/null; }
 ap_anim() { ap_settle; read -r _ A_ON A_COUNT A_CUR A_FW A_FH A_GUT A_MAR _ _ A_FPS A_LOOP _ <<< "$(ap_line ANIM)"; }
-ap_panel() { ap_settle; read -r _ P_VIS P_DOCK P_X P_Y P_W P_H P_SC P_HOLD <<< "$(ap_line ANIMP)"
-             read -r _ L_NAV L_R1 L_R2 L_R3 L_R4 L_R5 L_R6 L_LOOP L_RH L_MX L_PX L_CW L_PAD L_PW L_OPS <<< "$(ap_line ANIMPL)"; }
+ap_panel() { ap_settle; read -r _ P_VIS P_DOCK P_X P_Y P_W P_H P_SC P_HOLD P_MODE P_PEND <<< "$(ap_line ANIMP)"
+             read -r _ L_NAV L_R1 L_R2 L_R3 L_R4 L_R5 L_R6 L_LOOP L_RH L_MX L_PX L_CW L_PAD L_PW L_OPS L_MODE <<< "$(ap_line ANIMPL)"; }
 ap_vx() { echo $(( P_X + $1 * P_SC / 100 )); }   # native -> viewport
 ap_vy() { echo $(( P_Y + $1 * P_SC / 100 )); }
 ap_row() { local v="L_R$1"; echo "${!v}"; }
@@ -49,6 +49,12 @@ ap_chip() { # NATIVE_ROW_Y K - click chip K (0-3) of a 4-chip row
     local span=$(( L_PW - 2 * L_PAD )); local cw=$(( (span - 6) / 4 ))
     click "$(ap_vx $(( L_PAD + $2 * (cw + 2) + cw / 2 )))" "$(ap_vy $(( $1 + L_RH / 2 )))"
     wait_for 0.3 "chip $2"
+}
+ap_mode() { # K - click RE-SLICE (0) / RESIZE (1)
+    ap_panel
+    local span=$(( L_PW - 2 * L_PAD )); local cw=$(( (span - 2) / 2 ))
+    click "$(ap_vx $(( L_PAD + $1 * (cw + 2) + cw / 2 )))" "$(ap_vy $(( L_MODE + L_RH / 2 )))"
+    wait_for 0.4 "mode chip $1"
 }
 ap_open() { # View > Animation Panel through the command palette; checked, one retry
     local try
@@ -81,7 +87,12 @@ screenshot "anim-panel-open"
 
 if [[ "$P_VIS" == -1 && -n "$L_R1" ]]; then
     # frame size
-    ap_step 1 plus;  ap_anim; [[ "$A_FW" == 17 ]] && pass "FRAME W +: 17" || fail "FRAME W +: $A_FW, wanted 17"
+    ap_step 1 plus; ap_anim; ap_panel
+    [[ "$A_FW" == 16 && "$P_PEND" == 1 ]] && pass "FRAME W + on a drawn sheet asks first (re-slice / resize)" \
+        || fail "FRAME W + on a drawn sheet: W $A_FW, waiting row '$P_PEND' (wanted 16 / 1)"
+    ap_mode 0; ap_anim; ap_panel
+    [[ "$A_FW" == 17 && "$P_MODE" == 1 && "$P_PEND" == 0 ]] && pass "RE-SLICE: the waiting W + goes through (17), remembered" \
+        || fail "after RE-SLICE: W $A_FW mode $P_MODE waiting $P_PEND (wanted 17 / 1 / 0)"
     ap_step 1 minus; ap_anim; [[ "$A_FW" == 16 ]] && pass "FRAME W -: 16" || fail "FRAME W -: $A_FW, wanted 16"
     ap_step 2 minus shift; ap_anim; [[ "$A_FH" == 6 ]] && pass "FRAME H Shift+-: 6 (steps of 10)" || fail "FRAME H Shift+-: $A_FH, wanted 6"
     ap_step 2 plus shift;  ap_anim; [[ "$A_FH" == 16 ]] && pass "FRAME H Shift++: back to 16" || fail "FRAME H Shift++: $A_FH, wanted 16"

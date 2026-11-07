@@ -27,7 +27,12 @@ CONST ANIM_MAX_FRAMES  = 4096
 CONST ANIM_FPS_DEFAULT = 15
 CONST ANIM_FPS_MAX     = 120
 CONST ANIM_HOLD_MAX    = 99
-CONST ANIM_SHEET_MAX_H = 16384 ' frame ops grow the sheet up to this tall (canvas sizes are INTEGERs)
+CONST ANIM_SHEET_MAX   = 16384 ' frame ops / resized frames grow the sheet up to this wide / tall (canvas sizes are INTEGERs)
+
+' Changing the frame layout of a drawn sheet (R-07): asked once per document
+CONST ANIM_SIZE_ASK     = 0 ' not asked yet
+CONST ANIM_SIZE_RESLICE = 1 ' the grid moves, the pixels stay
+CONST ANIM_SIZE_RESIZE  = 2 ' the frames resize, each drawing stays in its frame (the sheet refits)
 CONST ANIM_CHUNK_VERSION = 1 ' ANIM_serialize$ layout (PNG chunk "drAn")
 
 ' loop modes
@@ -63,5 +68,6 @@ END TYPE
 DIM SHARED ANIM AS ANIM_OBJ
 DIM SHARED ANIM_HOLDS(1 TO ANIM_MAX_FRAMES) AS INTEGER ' ticks frame n stays up (0 = 1)
 DIM SHARED ANIM_SRC(1 TO ANIM_MAX_FRAMES) AS INTEGER   ' ANIM_plan%: new frame n is old frame ANIM_SRC(n) (0 = blank)
+DIM SHARED ANIM_SIZE_MODE AS INTEGER                    ' ANIM_SIZE_*: the answer for this document
 
 ANIM_reset

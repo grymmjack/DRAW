@@ -46,31 +46,26 @@ END FUNCTION
 ' Run frame operation op (ANIM_OP_*).
 SUB ANIM_OPS_run (op AS INTEGER)
     DIM why AS STRING, newCount AS INTEGER, newCur AS INTEGER, oldCount AS INTEGER
-    DIM before AS STRING, after AS STRING, newH AS LONG, wasInProgress AS INTEGER
+    DIM before AS STRING, after AS STRING, newH AS LONG
 
     why = ANIM_op_refusal$(op)
     IF why = "" THEN why = ANIM_OPS_busy$
     IF why <> "" THEN STATUS_flash why: EXIT SUB
-    IF ANIM_plan%(op, newCount, newCur) = 0 THEN EXIT SUB
 
-    before = ANIM_OPS_snapshot$
+    before = ANIM_OPS_snapshot$(TRUE)
+    IF ANIM.active = FALSE THEN ANIM_OPS_first_frame ' a plain picture: frame 1, room for frame 2 beside it
+    IF ANIM_plan%(op, newCount, newCur) = 0 THEN EXIT SUB
     oldCount = ANIM.count
 
     ' adding past the last cell grows the sheet by a row (not its own undo step)
     newH = ANIM_sheet_h&(newCount)
-    IF newH > SCRN.canvasH& THEN
-        wasInProgress = HISTORY_IN_PROGRESS%
-        HISTORY_IN_PROGRESS% = TRUE
-        ANIM_OPS_resize_keep_view SCRN.canvasW&, newH
-        HISTORY_IN_PROGRESS% = wasInProgress
-    END IF
+    IF newH > SCRN.canvasH& THEN ANIM_OPS_resize_keep_view SCRN.canvasW&, newH
 
     ANIM_OPS_move_cells oldCount, newCount
     ANIM_apply_plan newCount, newCur
 
-    after = ANIM_OPS_snapshot$
-    HISTORY_record_anim_frames before, after, ANIM_OPS_label$(op)
-    HISTORY_saved_this_frame% = TRUE
+    after = ANIM_OPS_snapshot$(TRUE)
+    ANIM_OPS_record before, after, ANIM_OPS_label$(op), 0
 
     BLEND_invalidate_cache
     INVALIDATE_canvas
@@ -132,29 +127,64 @@ END SUB
 
 ''
 ' CANVAS_resize, keeping the zoom and scroll (it fits the new canvas to the
-' window - a frame op growing the sheet should not jump the view).
+' window - a frame op growing the sheet should not jump the view) and without
+' a "Resize Canvas" undo step of its own (the frame op's record holds it).
 SUB ANIM_OPS_resize_keep_view (w AS LONG, h AS LONG)
-    DIM z AS SINGLE, ox AS INTEGER, oy AS INTEGER
+    DIM z AS SINGLE, ox AS INTEGER, oy AS INTEGER, was AS INTEGER
     z = SCRN.zoom!: ox = SCRN.offsetX%: oy = SCRN.offsetY%
+    was = HISTORY_IN_PROGRESS%: HISTORY_IN_PROGRESS% = TRUE
     CANVAS_resize CINT(w), CINT(h)
+    HISTORY_IN_PROGRESS% = was
     SCRN.zoom! = z: SCRN.offsetX% = ox: SCRN.offsetY% = oy
+END SUB
+
+''
+' A plain picture becomes frame 1 (frame size = the canvas) and the canvas
+' doubles in width for frame 2 beside it (R-08).
+SUB ANIM_OPS_first_frame ()
+    DIM r AS INTEGER, w AS LONG
+    w = SCRN.canvasW&
+    r = ANIM_set_layout%(CINT(w), CINT(SCRN.canvasH&), 0, 0)
+    ANIM.wanted = 1: ANIM.count = 1: ANIM.current = 1
+    ANIM_OPS_resize_keep_view 2 * w, SCRN.canvasH&
+END SUB
+
+''
+' One undo step for a frame change. pressKey <> 0: a held panel stepper - while the
+' top undo step is this key's, it takes the new "after" instead of adding
+' another step (holding + is one step, not forty).
+SUB ANIM_OPS_record (before AS STRING, after AS STRING, label AS STRING, pressKey AS LONG)
+    DIM top AS INTEGER, p AS STRING
+    top = HISTORY.current%
+    IF pressKey <> 0 _ANDALSO pressKey = ANIM_OPS_LAST_KEY _ANDALSO top > 0 _ANDALSO top = ANIM_OPS_LAST_REC _ANDALSO top = HISTORY.count% THEN
+        IF HISTORY_RECORDS(top).kind% = HISTORY_KIND_ANIM_FRAMES _ANDALSO LEN(HISTORY_PAYLOADS(top)) >= 4 THEN
+            p = HISTORY_PAYLOADS(top)
+            HISTORY_PAYLOADS(top) = LEFT$(p, 4 + CVL(LEFT$(p, 4))) + after
+            HISTORY_RECORDS(top).payloadLength& = LEN(HISTORY_PAYLOADS(top))
+            EXIT SUB
+        END IF
+    END IF
+    HISTORY_record_anim_frames before, after, label
+    HISTORY_saved_this_frame% = TRUE
+    ANIM_OPS_LAST_KEY = pressKey: ANIM_OPS_LAST_REC = HISTORY.current%
 END SUB
 
 
 ''
 ' The whole sheet, deflated: canvas size, the wanted frame count, the frame
-' data (ANIM_serialize$), then every layer that has pixels (slot, buffer size,
-' raw RGBA - apron buffers as they are).
-FUNCTION ANIM_OPS_snapshot$ ()
+' data (ANIM_serialize$), then (withPixels) every layer that has pixels (slot,
+' buffer size, raw RGBA - apron buffers as they are). Without pixels: a
+' re-slice or timing change, which moves no pixel.
+FUNCTION ANIM_OPS_snapshot$ (withPixels AS INTEGER)
     DIM s AS STRING, a AS STRING, px AS STRING, i AS INTEGER, lc AS INTEGER
     DIM m AS _MEM, w AS LONG, h AS LONG
     a = ANIM_serialize$
     FOR i = 1 TO MAX_LAYERS
-        IF LAYERS(i).imgHandle& < -1 _ANDALSO LAYERS(i).layerType% <> LAYER_TYPE_GROUP THEN lc = lc + 1
+        IF withPixels _ANDALSO LAYERS(i).imgHandle& < -1 _ANDALSO LAYERS(i).layerType% <> LAYER_TYPE_GROUP THEN lc = lc + 1
     NEXT i
     s = MKL$(SCRN.canvasW&) + MKL$(SCRN.canvasH&) + MKI$(ANIM.wanted) + MKL$(LEN(a)) + a + MKI$(lc)
     FOR i = 1 TO MAX_LAYERS
-        IF LAYERS(i).imgHandle& < -1 _ANDALSO LAYERS(i).layerType% <> LAYER_TYPE_GROUP THEN
+        IF withPixels _ANDALSO LAYERS(i).imgHandle& < -1 _ANDALSO LAYERS(i).layerType% <> LAYER_TYPE_GROUP THEN
             w = _WIDTH(LAYERS(i).imgHandle&): h = _HEIGHT(LAYERS(i).imgHandle&)
             px = SPACE$(w * h * 4)
             m = _MEMIMAGE(LAYERS(i).imgHandle&)
@@ -204,7 +234,7 @@ SUB ANIM_OPS_restore (snap AS STRING)
         p = p + bytes
     NEXT k
 
-    r = ANIM_deserialize%(a)
+    r = ANIM_deserialize%(a) ' "" (a plain picture) turns frames off
     IF r _ANDALSO wanted > 0 THEN
         ANIM.wanted = wanted
         ANIM.count = _MIN(wanted, ANIM_cells%)
@@ -257,4 +287,107 @@ FUNCTION ANIM_OPS_dump$ ()
         IF cell = STRING$(LEN(cell), 0) THEN d = d + " 0" ELSE d = d + " " + LCASE$(HEX$(_CRC32(cell)))
     NEXT n
     ANIM_OPS_dump$ = d + CHR$(10)
+END FUNCTION
+
+
+''
+' Is anything drawn on the sheet's pixel layers? (Changing the frame layout
+' of a drawn sheet asks re-slice or resize - R-07.) Counts a transparent pixel
+' with colour left in it as drawn: asking once too often is harmless.
+FUNCTION ANIM_OPS_sheet_drawn% ()
+    DIM i AS INTEGER, m AS _MEM, row AS STRING, zero AS STRING, y AS LONG, bw AS LONG
+    FOR i = 1 TO MAX_LAYERS
+        IF ANIM_OPS_moves%(i) THEN
+            bw = _WIDTH(LAYERS(i).imgHandle&) * 4
+            row = SPACE$(bw): zero = STRING$(bw, 0)
+            m = _MEMIMAGE(LAYERS(i).imgHandle&)
+            FOR y = 0 TO _HEIGHT(LAYERS(i).imgHandle&) - 1
+                _MEMGET m, m.OFFSET + y * bw, row
+                IF row <> zero THEN _MEMFREE m: ANIM_OPS_sheet_drawn% = TRUE: EXIT FUNCTION
+            NEXT y
+            _MEMFREE m
+        END IF
+    NEXT i
+END FUNCTION
+
+''
+' Change the frame layout (panel W / H / gutter / margin) - pressKey: the panel's
+' press (ANIM_OPS_record). Re-slice: the grid moves over the pixels. Resize:
+' every cell's drawing moves to its frame's new cell (cropped or padded at its
+' top left) and the canvas refits the same columns x rows. One undo step.
+SUB ANIM_OPS_relayout (fw AS INTEGER, fh AS INTEGER, gutter AS INTEGER, margin AS INTEGER, resize AS INTEGER, pressKey AS LONG)
+    DIM before AS STRING, after AS STRING, r AS INTEGER, label AS STRING
+    IF fw = ANIM.frameW _ANDALSO fh = ANIM.frameH _ANDALSO gutter = ANIM.gutter _ANDALSO margin = ANIM.margin _ANDALSO ANIM.active THEN EXIT SUB
+    IF resize _ANDALSO ANIM.active THEN
+        IF ANIM_OPS_busy$ <> "" THEN STATUS_flash ANIM_OPS_busy$: EXIT SUB
+        before = ANIM_OPS_snapshot$(TRUE)
+        IF ANIM_OPS_resize_frames%(fw, fh, gutter, margin) = 0 THEN EXIT SUB
+        after = ANIM_OPS_snapshot$(TRUE)
+        label = "Resize Frames"
+    ELSE
+        before = ANIM_OPS_snapshot$(FALSE)
+        r = ANIM_set_layout%(fw, fh, gutter, margin)
+        after = ANIM_OPS_snapshot$(FALSE)
+        label = "Frame Layout"
+    END IF
+    ANIM_OPS_record before, after, label, pressKey
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+END SUB
+
+''
+' Timing (panel FPS / HOLD): one undo step, a held stepper merged (pressKey).
+SUB ANIM_OPS_timing (fps AS INTEGER, holdFrame AS INTEGER, hold AS INTEGER, pressKey AS LONG)
+    DIM before AS STRING
+    before = ANIM_OPS_snapshot$(FALSE)
+    IF fps > 0 THEN ANIM_set_fps fps
+    IF holdFrame > 0 THEN ANIM_set_hold holdFrame, hold
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Frame Timing", pressKey
+    INVALIDATE_canvas
+END SUB
+
+''
+' Resize frames: refit the canvas to the current columns x rows at the new
+' size and move every cell's drawing into its new cell. FALSE = too big.
+FUNCTION ANIM_OPS_resize_frames% (fw AS INTEGER, fh AS INTEGER, gutter AS INTEGER, margin AS INTEGER)
+    DIM cols AS INTEGER, rows AS INTEGER, cells AS LONG, w1 AS LONG, h1 AS LONG, i AS INTEGER, n AS LONG
+    DIM fw0 AS INTEGER, fh0 AS INTEGER, g0 AS INTEGER, m0 AS INTEGER, r AS INTEGER, oldDest AS LONG
+    DIM sx AS LONG, sy AS LONG, dx AS LONG, dy AS LONG, cw AS LONG, ch AS LONG
+    DIM copies(1 TO MAX_LAYERS) AS LONG
+
+    cols = ANIM_cols%: rows = ANIM_rows%
+    IF cols < 1 _ORELSE rows < 1 _ORELSE fw < 1 _ORELSE fh < 1 THEN EXIT FUNCTION
+    w1 = ANIM_span&(cols, fw, gutter, margin): h1 = ANIM_span&(rows, fh, gutter, margin)
+    IF w1 > ANIM_SHEET_MAX _ORELSE h1 > ANIM_SHEET_MAX THEN STATUS_flash "The sheet can't grow that big": EXIT FUNCTION
+    fw0 = ANIM.frameW: fh0 = ANIM.frameH: g0 = ANIM.gutter: m0 = ANIM.margin
+    cells = CLNG(cols) * rows: IF cells > ANIM_MAX_FRAMES THEN cells = ANIM_MAX_FRAMES
+
+    LAYERS_demote_all ' compact buffers: canvas coords = buffer coords (CANVAS_resize does it too)
+    FOR i = 1 TO MAX_LAYERS
+        IF ANIM_OPS_moves%(i) THEN copies(i) = _COPYIMAGE(LAYERS(i).imgHandle&, 32)
+    NEXT i
+    ANIM_OPS_resize_keep_view w1, h1
+    r = ANIM_set_layout%(fw, fh, gutter, margin) ' the same columns x rows: the count stays
+    cw = _MIN(fw0, fw): ch = _MIN(fh0, fh)
+    oldDest = _DEST
+    FOR i = 1 TO MAX_LAYERS
+        IF copies(i) < -1 THEN
+            IF ANIM_OPS_moves%(i) THEN
+                _DEST LAYERS(i).imgHandle&
+                _DONTBLEND LAYERS(i).imgHandle&
+                CLS , _RGBA32(0, 0, 0, 0)
+                FOR n = 1 TO cells
+                    ANIM_rect_at CINT(n), cols, fw0, fh0, g0, m0, sx, sy
+                    ANIM_rect_at CINT(n), cols, fw, fh, gutter, margin, dx, dy
+                    _PUTIMAGE (dx, dy), copies(i), LAYERS(i).imgHandle&, (sx, sy)-(sx + cw - 1, sy + ch - 1)
+                NEXT n
+                _BLEND LAYERS(i).imgHandle&
+                LAYERS(i).contentDirty% = TRUE
+                SYMBOL_mark_parent_dirty i
+            END IF
+            SAFE_FREEIMAGE copies(i)
+        END IF
+    NEXT i
+    _DEST oldDest
+    ANIM_OPS_resize_frames% = TRUE
 END FUNCTION

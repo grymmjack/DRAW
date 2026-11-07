@@ -43,7 +43,7 @@ SUB ANIMP_layout ()
     ANIMP.yOps = y: y = y + rh + sec
     FOR r = 1 TO ANIMP_ROWS
         ANIMP_rowY(r) = y: y = y + rh + g
-        IF r = ANIMP_ROW_MARGIN THEN y = y + sec - g
+        IF r = ANIMP_ROW_MARGIN THEN ANIMP.yMode = y: y = y + rh + sec
     NEXT r
     y = y + sec - g
     ANIMP.yLoop = y: y = y + rh + sec
@@ -59,6 +59,7 @@ SUB ANIMP_reset ()
 END SUB
 
 SUB ANIMP_toggle ()
+    ANIMP.pendRow = 0 ' closing / opening drops a waiting re-slice / resize question
     IF ANIMP.visible THEN
         ANIMP.visible = FALSE
     ELSE
@@ -146,6 +147,12 @@ FUNCTION ANIMP_hit% (nx AS INTEGER, ny AS INTEGER)
             IF nx >= px _ANDALSO nx < px + ANIMP.chipW THEN ANIMP_hit% = 2 * r: EXIT FUNCTION
         END IF
     NEXT r
+    IF ny >= ANIMP.yMode _ANDALSO ny < ANIMP.yMode + rh THEN
+        FOR k = 0 TO 1
+            ANIMP_chip_x k, 2, cx, cw
+            IF nx >= cx _ANDALSO nx < cx + cw THEN ANIMP_hit% = ANIMP_CTL_RESLICE + k: EXIT FUNCTION
+        NEXT k
+    END IF
     FOR k = 0 TO 3
         ANIMP_chip_x k, 4, cx, cw
         IF nx >= cx _ANDALSO nx < cx + cw THEN
@@ -183,12 +190,23 @@ FUNCTION ANIMP_row_on% (r AS INTEGER)
 END FUNCTION
 
 ''
-' Step row r by d (the panel's - / + buttons).
+' Step row r by d (the panel's - / + buttons). Every change is an undo step (a
+' held stepper one step). The first layout change on a drawn sheet waits for
+' RE-SLICE / RESIZE (R-07), asked once per document.
 SUB ANIMP_step (r AS INTEGER, d AS INTEGER)
-    DIM fw AS LONG, fh AS LONG, gu AS LONG, ma AS LONG, v AS LONG, r2 AS INTEGER
+    DIM fw AS LONG, fh AS LONG, gu AS LONG, ma AS LONG, v AS LONG, resize AS INTEGER
     IF ANIMP_row_on%(r) = 0 THEN EXIT SUB
     SELECT CASE r
         CASE ANIMP_ROW_W TO ANIMP_ROW_MARGIN
+            IF ANIM.active _ANDALSO ANIM_SIZE_MODE = ANIM_SIZE_ASK THEN
+                IF ANIM_OPS_sheet_drawn% THEN
+                    ANIMP.pendRow = r: ANIMP.pendD = d: ANIMP.pressCtl = ANIMP_CTL_NONE
+                    STATUS_flash "Re-slice (the pixels stay) or resize the frames (the drawings follow)? Pick one in the Animation panel"
+                    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+                    EXIT SUB
+                END IF
+            END IF
+            resize = (ANIM.active <> 0 _ANDALSO ANIM_SIZE_MODE = ANIM_SIZE_RESIZE)
             fw = ANIMP_value%(ANIMP_ROW_W): fh = ANIMP_value%(ANIMP_ROW_H)
             gu = ANIMP_value%(ANIMP_ROW_GUTTER): ma = ANIMP_value%(ANIMP_ROW_MARGIN)
             SELECT CASE r
@@ -198,26 +216,28 @@ SUB ANIMP_step (r AS INTEGER, d AS INTEGER)
                 CASE ANIMP_ROW_MARGIN: ma = ma + d
             END SELECT
             IF fw < 1 THEN fw = 1
-            IF fw > SCRN.canvasW& THEN fw = SCRN.canvasW&
             IF fh < 1 THEN fh = 1
-            IF fh > SCRN.canvasH& THEN fh = SCRN.canvasH&
+            IF resize = 0 THEN ' re-slice: the frames fit the canvas
+                IF fw > SCRN.canvasW& THEN fw = SCRN.canvasW&
+                IF fh > SCRN.canvasH& THEN fh = SCRN.canvasH&
+            END IF
             IF gu < 0 THEN gu = 0
             IF gu > 255 THEN gu = 255
             IF ma < 0 THEN ma = 0
             IF ma > 255 THEN ma = 255
-            r2 = ANIM_set_layout%(CINT(fw), CINT(fh), CINT(gu), CINT(ma))
+            ANIM_OPS_relayout CINT(_MIN(fw, ANIM_SHEET_MAX)), CINT(_MIN(fh, ANIM_SHEET_MAX)), CINT(gu), CINT(ma), resize, ANIMP.pressKey
         CASE ANIMP_ROW_FPS
-            v = ANIM.fps + d: ANIM_set_fps CINT(_MAX(1, _MIN(ANIM_FPS_MAX, v)))
+            v = ANIM.fps + d: ANIM_OPS_timing CINT(_MAX(1, _MIN(ANIM_FPS_MAX, v))), 0, 0, ANIMP.pressKey
         CASE ANIMP_ROW_HOLD
-            v = ANIM_hold%(ANIM.current) + d: ANIM_set_hold ANIM.current, CINT(_MAX(1, _MIN(ANIM_HOLD_MAX, v)))
+            v = ANIM_hold%(ANIM.current) + d: ANIM_OPS_timing 0, ANIM.current, CINT(_MAX(1, _MIN(ANIM_HOLD_MAX, v))), ANIMP.pressKey
     END SELECT
-    INVALIDATE_canvas ' unsaved; the frame grid redraws
 END SUB
 
 ''
 ' Run control c (a click, or a held stepper's repeat).
 SUB ANIMP_do (c AS INTEGER)
-    DIM d AS INTEGER
+    DIM d AS INTEGER, pr AS INTEGER
+    IF c <> ANIMP_CTL_RESLICE _ANDALSO c <> ANIMP_CTL_RESIZE THEN ANIMP.pendRow = 0 ' anything else drops the question
     SELECT CASE c
         CASE 1 TO 2 * ANIMP_ROWS
             DIM r AS INTEGER
@@ -231,6 +251,18 @@ SUB ANIMP_do (c AS INTEGER)
             IF ANIM.active _ANDALSO ANIM.loopMode <> c - ANIMP_CTL_LOOP0 THEN ANIM.loopMode = c - ANIMP_CTL_LOOP0: INVALIDATE_canvas
         CASE ANIMP_CTL_ADD TO ANIMP_CTL_DEL
             CMD_execute_action ANIM_ACT_OP0 + ANIMP_op%(c) ' refusals flash in the status bar
+        CASE ANIMP_CTL_RESLICE, ANIMP_CTL_RESIZE
+            IF ANIM.active = FALSE THEN EXIT SUB
+            ANIM_SIZE_MODE = _IIF(c = ANIMP_CTL_RESIZE, ANIM_SIZE_RESIZE, ANIM_SIZE_RESLICE)
+            IF ANIM_SIZE_MODE = ANIM_SIZE_RESIZE THEN
+                STATUS_flash "Frame size changes resize the frames: the drawings follow"
+            ELSE
+                STATUS_flash "Frame size changes re-slice the sheet: the pixels stay"
+            END IF
+            IF ANIMP.pendRow THEN ' the change that asked
+                pr = ANIMP.pendRow: ANIMP.pendRow = 0
+                ANIMP_step pr, ANIMP.pendD
+            END IF
     END SELECT
 END SUB
 
@@ -275,7 +307,9 @@ SUB ANIMP_render ()
     CLS , THEME.CP_bg~&
     FPANEL_title_bar ANIMP.panelW, "ANIMATION", ANIMP.closeHover
 
-    IF isOn THEN
+    IF ANIMP.pendRow _ANDALSO isOn THEN
+        FPANEL_text pad, ANIMP.yStatus, "RE-SLICE OR RESIZE?", THEME.CP_text_bright~&
+    ELSEIF isOn THEN
         t = "FRAME" + STR$(ANIM.current) + " OF" + STR$(ANIM.count)
         FPANEL_text pad, ANIMP.yStatus, t, THEME.CP_text_bright~&
     ELSE
@@ -310,6 +344,13 @@ SUB ANIMP_render ()
         t = _TRIM$(STR$(ANIMP_value%(r)))
         FPANEL_text vx + ANIMP.valW - 2 - FPANEL_text_w%(t), ty, t, fg
     NEXT r
+
+    ' re-slice / resize (lit while a change waits for the answer)
+    FOR k = 0 TO 1
+        ANIMP_chip_x k, 2, cx, cw
+        t = MID$("RE-SLICERESIZE", k * 8 + 1, 8)
+        ANIMP_chip cx, ANIMP.yMode, cw, _TRIM$(t), isOn _ANDALSO ANIM_SIZE_MODE = k + 1, ANIMP.hoverCtl = ANIMP_CTL_RESLICE + k _ORELSE (ANIMP.pendRow <> 0 _ANDALSO isOn), isOn
+    NEXT k
 
     ' loop mode
     FOR k = 0 TO 3
@@ -427,15 +468,16 @@ SUB ANIMP_mouse_input ()
 
     c = ANIMP_hit%(nx, ny)
     IF c = ANIMP_CTL_NONE THEN EXIT SUB
+    ANIMP.pressKey = ANIMP.pressKey + 1 ' a new press: a new undo step
     ANIMP_do c
-    IF c <= 2 * ANIMP_ROWS THEN ANIMP.pressCtl = c: ANIMP.pressT = TIMER(.001) + .4
+    IF c <= 2 * ANIMP_ROWS _ANDALSO ANIMP.pendRow = 0 THEN ANIMP.pressCtl = c: ANIMP.pressT = TIMER(.001) + .4
     SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
 END SUB
 
 ''
-' QA dump line: ANIMP visible docked x y w h scale% hold (viewport px; the
-' current frame's hold)
-' ANIMPL nav row1..row6 loop rowH minusX plusX chipW pad panelW ops (native px,
+' QA dump line: ANIMP visible docked x y w h scale% hold sizeMode pendRow
+' (viewport px; the current frame's hold; ANIM_SIZE_*; a change waiting for it)
+' ANIMPL nav row1..row6 loop rowH minusX plusX chipW pad panelW ops mode (native px,
 ' for clicking the controls: viewport = disp + native * scale% / 100)
 FUNCTION ANIMP_dump$ ()
     DIM d AS STRING, r AS INTEGER, mx AS INTEGER, vx AS INTEGER, px AS INTEGER
@@ -443,7 +485,7 @@ FUNCTION ANIMP_dump$ ()
         ANIMP_stepper_x mx, vx, px
         d = "ANIMPL" + DOCK_n$(ANIMP.yNav)
         FOR r = 1 TO ANIMP_ROWS: d = d + DOCK_n$(ANIMP_rowY(r)): NEXT r
-        d = d + DOCK_n$(ANIMP.yLoop) + DOCK_n$(FPANEL.rowH) + DOCK_n$(mx) + DOCK_n$(px) + DOCK_n$(ANIMP.chipW) + DOCK_n$(FPANEL.pad) + DOCK_n$(ANIMP.panelW) + DOCK_n$(ANIMP.yOps) + CHR$(10)
+        d = d + DOCK_n$(ANIMP.yLoop) + DOCK_n$(FPANEL.rowH) + DOCK_n$(mx) + DOCK_n$(px) + DOCK_n$(ANIMP.chipW) + DOCK_n$(FPANEL.pad) + DOCK_n$(ANIMP.panelW) + DOCK_n$(ANIMP.yOps) + DOCK_n$(ANIMP.yMode) + CHR$(10)
     END IF
-    ANIMP_dump$ = d + "ANIMP" + DOCK_n$(ANIMP.visible <> 0) + DOCK_n$(ANIMP.docked <> 0) + DOCK_n$(ANIMP.dispX) + DOCK_n$(ANIMP.dispY) + DOCK_n$(ANIMP.dispW) + DOCK_n$(ANIMP.dispH) + DOCK_n$(INT(ANIMP.renderScale * 100)) + DOCK_n$(ANIM_hold%(ANIM.current)) + CHR$(10)
+    ANIMP_dump$ = d + "ANIMP" + DOCK_n$(ANIMP.visible <> 0) + DOCK_n$(ANIMP.docked <> 0) + DOCK_n$(ANIMP.dispX) + DOCK_n$(ANIMP.dispY) + DOCK_n$(ANIMP.dispW) + DOCK_n$(ANIMP.dispH) + DOCK_n$(INT(ANIMP.renderScale * 100)) + DOCK_n$(ANIM_hold%(ANIM.current)) + DOCK_n$(ANIM_SIZE_MODE) + DOCK_n$(ANIMP.pendRow) + CHR$(10)
 END FUNCTION
