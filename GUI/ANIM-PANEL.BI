@@ -41,7 +41,11 @@ CONST ANIMP_CTL_PREV   = 14
 CONST ANIMP_CTL_NEXT   = 15
 CONST ANIMP_CTL_LAST   = 16
 CONST ANIMP_CTL_LOOP0  = 17 ' + ANIM_LOOP_* (FWD / REV / PING / ONCE)
-CONST ANIMP_CTL_COUNT  = 20
+CONST ANIMP_CTL_ADD    = 21 ' frame operations: ADD (Shift = blank), DUP, INS (blank after), DEL
+CONST ANIMP_CTL_DUP    = 22
+CONST ANIMP_CTL_INS    = 23
+CONST ANIMP_CTL_DEL    = 24
+CONST ANIMP_CTL_COUNT  = 24
 
 TYPE ANIM_PANEL_OBJ
     visible           AS INTEGER
@@ -66,6 +70,7 @@ TYPE ANIM_PANEL_OBJ
     ' layout (native px, ANIMP_layout)
     yStatus AS INTEGER
     yNav    AS INTEGER
+    yOps    AS INTEGER ' ADD DUP INS DEL
     yLoop   AS INTEGER
     yInfo   AS INTEGER
     chipW   AS INTEGER ' a stepper's - / + width

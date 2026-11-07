@@ -27,6 +27,7 @@ CONST ANIM_MAX_FRAMES  = 4096
 CONST ANIM_FPS_DEFAULT = 15
 CONST ANIM_FPS_MAX     = 120
 CONST ANIM_HOLD_MAX    = 99
+CONST ANIM_SHEET_MAX_H = 16384 ' frame ops grow the sheet up to this tall (canvas sizes are INTEGERs)
 CONST ANIM_CHUNK_VERSION = 1 ' ANIM_serialize$ layout (PNG chunk "drAn")
 
 ' loop modes
@@ -34,6 +35,18 @@ CONST ANIM_LOOP_FWD  = 0 ' 1 2 3 1 2 3
 CONST ANIM_LOOP_REV  = 1 ' 3 2 1 3 2 1
 CONST ANIM_LOOP_PING = 2 ' 1 2 3 2 1 2 3
 CONST ANIM_LOOP_ONCE = 3 ' 1 2 3, stop
+
+' Frame operations (ANIM_plan%; TOOLS/ANIM-OPS moves the pixels)
+CONST ANIM_OP_APPEND        = 1 ' a copy of the last frame at the end
+CONST ANIM_OP_APPEND_BLANK  = 2 ' a blank frame at the end
+CONST ANIM_OP_INSERT_BEFORE = 3 ' a blank frame before the current one
+CONST ANIM_OP_INSERT_AFTER  = 4 ' a blank frame after it
+CONST ANIM_OP_DUPLICATE     = 5 ' a copy of the current frame after it
+CONST ANIM_OP_DELETE        = 6
+CONST ANIM_OP_EARLIER       = 7 ' swap with the frame before
+CONST ANIM_OP_LATER         = 8 ' swap with the frame after
+CONST ANIM_OP_REVERSE       = 9
+CONST ANIM_OP_LAST          = 9
 
 TYPE ANIM_OBJ
     active   AS INTEGER ' the document has a frame layout
@@ -49,5 +62,6 @@ TYPE ANIM_OBJ
 END TYPE
 DIM SHARED ANIM AS ANIM_OBJ
 DIM SHARED ANIM_HOLDS(1 TO ANIM_MAX_FRAMES) AS INTEGER ' ticks frame n stays up (0 = 1)
+DIM SHARED ANIM_SRC(1 TO ANIM_MAX_FRAMES) AS INTEGER   ' ANIM_plan%: new frame n is old frame ANIM_SRC(n) (0 = blank)
 
 ANIM_reset

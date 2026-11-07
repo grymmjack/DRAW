@@ -17,6 +17,7 @@ DIM SHARED FAILS AS INTEGER, PASSES AS INTEGER
 '$INCLUDE:'../../TOOLS/ANIM.BI'
 
 DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, s AS STRING, i AS INTEGER, r AS INTEGER
+DIM pc AS INTEGER, pcur AS INTEGER ' ANIM_plan% outputs (BYREF INTEGERs)
 
 ' --- a plain picture has no frames ---
 SCRN.canvasW = 64: SCRN.canvasH = 32
@@ -141,6 +142,57 @@ SCRN.canvasW = 64: SCRN.canvasH = 32: ANIM_reset
 r = ANIM_deserialize%(MKI$(2) + MID$(s, 3) + "future")
 check "a newer version with extra fields still loads", STR$(r) + STR$(ANIM.count), STR$(TRUE) + STR$(7)
 
+
+' --- frame operations: ANIM_plan% (new frame n = old frame ANIM_SRC(n), 0 = blank) ---
+SCRN.canvasW = 64: SCRN.canvasH = 32: ANIM_reset
+r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 5: ANIM.wanted = 5: ANIM.current = 3
+check "append: copy of the last", plan$(ANIM_OP_APPEND), "6 6:1 2 3 4 5 5"
+check "append blank", plan$(ANIM_OP_APPEND_BLANK), "6 6:1 2 3 4 5 0"
+check "insert before the current", plan$(ANIM_OP_INSERT_BEFORE), "6 3:1 2 0 3 4 5"
+check "insert after the current", plan$(ANIM_OP_INSERT_AFTER), "6 4:1 2 3 0 4 5"
+check "duplicate the current", plan$(ANIM_OP_DUPLICATE), "6 4:1 2 3 3 4 5"
+check "delete the current", plan$(ANIM_OP_DELETE), "4 3:1 2 4 5"
+check "move earlier", plan$(ANIM_OP_EARLIER), "5 2:1 3 2 4 5"
+check "move later", plan$(ANIM_OP_LATER), "5 4:1 2 4 3 5"
+check "reverse", plan$(ANIM_OP_REVERSE), "5 3:5 4 3 2 1"
+ANIM.current = 5
+check "delete the last: current steps back", plan$(ANIM_OP_DELETE), "4 4:1 2 3 4"
+check "the last can't move later", plan$(ANIM_OP_LATER), "refused"
+ANIM.current = 1
+check "the first can't move earlier", plan$(ANIM_OP_EARLIER), "refused"
+check "reverse from the first", plan$(ANIM_OP_REVERSE), "5 5:5 4 3 2 1"
+ANIM.count = 1: ANIM.wanted = 1
+check "the only frame can't be deleted", plan$(ANIM_OP_DELETE), "refused"
+check "one frame: no reverse", plan$(ANIM_OP_REVERSE), "refused"
+check "one frame: append", plan$(ANIM_OP_APPEND), "2 2:1 1"
+ANIM_reset
+check "no frames: refused", plan$(ANIM_OP_APPEND), "refused"
+check "no frames: a reason", STR$(LEN(ANIM_op_refusal$(ANIM_OP_APPEND)) > 0), STR$(TRUE)
+
+' --- the sheet grows by whole rows ---
+r = ANIM_set_layout%(16, 16, 0, 0) ' 4 x 2 = 8 cells
+check "8 frames fit 32 px", STR$(ANIM_sheet_h&(8)), STR$(32)
+check "9 frames need a third row", STR$(ANIM_sheet_h&(9)), STR$(48)
+r = ANIM_set_layout%(16, 16, 2, 3) ' 3 across, 1 down on 64x32
+check "gutter + margin: 4 frames = 2 rows", STR$(ANIM_sheet_h&(4)), STR$(3 + 16 + 2 + 16 + 3)
+SCRN.canvasH = 50
+check "never shorter than the canvas", STR$(ANIM_sheet_h&(1)), STR$(50)
+SCRN.canvasH = 32
+
+' --- ANIM_apply_plan: holds follow their frames ---
+ANIM_reset: r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 4: ANIM.wanted = 4: ANIM.current = 2
+ANIM_set_hold 1, 2: ANIM_set_hold 2, 3: ANIM_set_hold 3, 4: ANIM_set_hold 4, 5
+r = ANIM_plan%(ANIM_OP_DUPLICATE, pc, pcur): ANIM_apply_plan pc, pcur
+check "duplicate: count / wanted / current", STR$(ANIM.count) + STR$(ANIM.wanted) + STR$(ANIM.current), STR$(5) + STR$(5) + STR$(3)
+check "duplicate: the copy keeps its hold", holds$(5), "2 3 3 4 5"
+r = ANIM_plan%(ANIM_OP_INSERT_BEFORE, pc, pcur): ANIM_apply_plan pc, pcur
+check "a blank frame holds 1", holds$(6), "2 3 1 3 4 5"
+r = ANIM_plan%(ANIM_OP_DELETE, pc, pcur): ANIM_apply_plan pc, pcur
+check "delete: the holds close up", holds$(6), "2 3 3 4 5 1"
+check "delete: the freed hold is cleared", STR$(ANIM_HOLDS(6)), STR$(0)
+r = ANIM_plan%(ANIM_OP_REVERSE, pc, pcur): ANIM_apply_plan pc, pcur
+check "reverse: holds reversed", holds$(5), "5 4 3 3 2"
+
 PRINT PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
 
@@ -152,5 +204,21 @@ SUB check (label AS STRING, got AS STRING, want AS STRING)
         PRINT "FAIL "; label; ": got ["; got; "] want ["; want; "]"
     END IF
 END SUB
+
+''
+' "count current:src1 src2 ..." for op, or "refused". Leaves ANIM as it was.
+FUNCTION plan$ (op AS INTEGER)
+    DIM nc AS INTEGER, ncur AS INTEGER, i AS INTEGER, t AS STRING
+    IF ANIM_plan%(op, nc, ncur) = 0 THEN plan$ = "refused": EXIT FUNCTION
+    t = _TRIM$(STR$(nc)) + " " + _TRIM$(STR$(ncur)) + ":"
+    FOR i = 1 TO nc: t = t + _TRIM$(STR$(ANIM_SRC(i))) + " ": NEXT i
+    plan$ = RTRIM$(t)
+END FUNCTION
+
+FUNCTION holds$ (n AS INTEGER)
+    DIM i AS INTEGER, t AS STRING
+    FOR i = 1 TO n: t = t + _TRIM$(STR$(ANIM_hold%(i))) + " ": NEXT i
+    holds$ = RTRIM$(t)
+END FUNCTION
 
 '$INCLUDE:'../../TOOLS/ANIM.BM'

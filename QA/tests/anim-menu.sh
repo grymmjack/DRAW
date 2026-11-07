@@ -3,8 +3,8 @@
 # anim-menu.sh — QA test: the ANIM menu.
 #
 # Animation 1.5 (PLANS/ANIMATION.md): an ANIM root between AI (off in QA) and
-# HELP, with Animation Panel (1.6), First / Previous / Next / Last Frame and
-# Frame Grid (checkbox, same action as View > Frame Grid). On a picture without
+# HELP, with Animation Panel (1.6), First / Previous / Next / Last Frame, the
+# frame operations (1.7) and Frame Grid (checkbox, same action as View > Frame Grid). On a picture without
 # frames the frame items are greyed and do nothing.
 #
 # Where the root and its dropdown sit comes from the QA dump (MROOT / MENU);
@@ -46,7 +46,8 @@ am_expect() { # ROW_OFFSET WANT LABEL
 }
 ROW_PANEL=9 # Animation Panel, then a divider
 ROW_FIRST=$(( 9 + 12 + 5 )); ROW_PREV=$(( ROW_FIRST + 12 )); ROW_NEXT=$(( ROW_FIRST + 24 )); ROW_LAST=$(( ROW_FIRST + 36 ))
-ROW_GRID=$(( ROW_LAST + 12 + 5 ))
+ROW_ADD=$(( ROW_LAST + 12 + 5 ))                 # Add Frame .. Delete Frame (6), divider,
+ROW_GRID=$(( ROW_ADD + 6 * 12 + 5 + 3 * 12 + 5 )) # Move Earlier / Later / Reverse, divider
 
 info "Launching DRAW with a 64x32 sheet of 16x16 frames (current 3)"
 draw_quit
@@ -68,6 +69,12 @@ am_expect $ROW_NEXT 4 "Next Frame"
 am_expect $ROW_FIRST 1 "First Frame"
 am_expect $ROW_LAST 7 "Last Frame"
 am_expect $ROW_PREV 6 "Previous Frame"
+
+am_pick $ROW_ADD "Add Frame"
+read -r _ _ AC ACUR _ <<< "$(am_line 'ANIM ')"
+[[ "$AC" == 8 && "$ACUR" == 8 ]] && pass "ANIM > Add Frame: 8 frames, the new one current" || fail "ANIM > Add Frame: count $AC current $ACUR, wanted 8 / 8"
+key ctrl+z
+wait_for 0.5 "Undo"
 
 info "ANIM > Animation Panel: open, then closed"
 am_pick $ROW_PANEL "Animation Panel"

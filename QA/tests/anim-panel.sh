@@ -29,7 +29,7 @@ ap_settle() { { hover 300 250; wait_for 0.2 "render"; hover 305 252; wait_for 0.
 ap_line() { grep -m1 "^$1 " "$AP_DUMP" 2>/dev/null; }
 ap_anim() { ap_settle; read -r _ A_ON A_COUNT A_CUR A_FW A_FH A_GUT A_MAR _ _ A_FPS A_LOOP _ <<< "$(ap_line ANIM)"; }
 ap_panel() { ap_settle; read -r _ P_VIS P_DOCK P_X P_Y P_W P_H P_SC P_HOLD <<< "$(ap_line ANIMP)"
-             read -r _ L_NAV L_R1 L_R2 L_R3 L_R4 L_R5 L_R6 L_LOOP L_RH L_MX L_PX L_CW L_PAD L_PW <<< "$(ap_line ANIMPL)"; }
+             read -r _ L_NAV L_R1 L_R2 L_R3 L_R4 L_R5 L_R6 L_LOOP L_RH L_MX L_PX L_CW L_PAD L_PW L_OPS <<< "$(ap_line ANIMPL)"; }
 ap_vx() { echo $(( P_X + $1 * P_SC / 100 )); }   # native -> viewport
 ap_vy() { echo $(( P_Y + $1 * P_SC / 100 )); }
 ap_row() { local v="L_R$1"; echo "${!v}"; }

@@ -213,3 +213,96 @@ FUNCTION ANIM_deserialize% (blob AS STRING)
     NEXT i
     ANIM_deserialize% = ANIM.active
 END FUNCTION
+
+''
+' Plan frame operation op (ANIM_OP_*) on the current frames: fills ANIM_SRC(1
+' TO newCount) - new frame n shows old frame ANIM_SRC(n), 0 = blank - and the
+' new count and current frame. Touches nothing else. 0 when the op can't run;
+' else TRUE (ANIM_op_refusal$ says why not).
+FUNCTION ANIM_plan% (op AS INTEGER, newCount AS INTEGER, newCur AS INTEGER)
+    DIM n AS INTEGER, c AS INTEGER, i AS INTEGER
+    n = ANIM.count: c = ANIM.current
+    IF ANIM_op_refusal$(op) <> "" THEN EXIT FUNCTION
+    FOR i = 1 TO n: ANIM_SRC(i) = i: NEXT i
+    newCount = n: newCur = c
+    SELECT CASE op
+        CASE ANIM_OP_APPEND, ANIM_OP_APPEND_BLANK
+            newCount = n + 1: newCur = n + 1
+            IF op = ANIM_OP_APPEND THEN ANIM_SRC(n + 1) = n ELSE ANIM_SRC(n + 1) = 0
+        CASE ANIM_OP_INSERT_BEFORE, ANIM_OP_INSERT_AFTER, ANIM_OP_DUPLICATE
+            newCur = c + 1: IF op = ANIM_OP_INSERT_BEFORE THEN newCur = c
+            newCount = n + 1
+            FOR i = newCount TO newCur + 1 STEP -1: ANIM_SRC(i) = i - 1: NEXT i
+            IF op = ANIM_OP_DUPLICATE THEN ANIM_SRC(newCur) = c ELSE ANIM_SRC(newCur) = 0
+        CASE ANIM_OP_DELETE
+            newCount = n - 1
+            FOR i = c TO newCount: ANIM_SRC(i) = i + 1: NEXT i
+            IF newCur > newCount THEN newCur = newCount
+        CASE ANIM_OP_EARLIER
+            ANIM_SRC(c - 1) = c: ANIM_SRC(c) = c - 1: newCur = c - 1
+        CASE ANIM_OP_LATER
+            ANIM_SRC(c + 1) = c: ANIM_SRC(c) = c + 1: newCur = c + 1
+        CASE ANIM_OP_REVERSE
+            FOR i = 1 TO n: ANIM_SRC(i) = n + 1 - i: NEXT i
+            newCur = n + 1 - c
+    END SELECT
+    ANIM_plan% = TRUE
+END FUNCTION
+
+''
+' Why frame operation op can't run on the current frames ("" = it can).
+FUNCTION ANIM_op_refusal$ (op AS INTEGER)
+    DIM n AS INTEGER, c AS INTEGER, r AS STRING
+    n = ANIM.count: c = ANIM.current
+    IF ANIM.active = FALSE _ORELSE n < 1 THEN
+        r = "This picture has no frames - set a frame size first"
+    ELSE
+        SELECT CASE op
+            CASE ANIM_OP_APPEND, ANIM_OP_APPEND_BLANK, ANIM_OP_INSERT_BEFORE, ANIM_OP_INSERT_AFTER, ANIM_OP_DUPLICATE
+                IF n >= ANIM_MAX_FRAMES THEN r = "No room for more frames (" + _TRIM$(STR$(ANIM_MAX_FRAMES)) + " at most)"
+                IF r = "" _ANDALSO ANIM_sheet_h&(n + 1) > ANIM_SHEET_MAX_H THEN r = "The sheet can't grow taller"
+            CASE ANIM_OP_DELETE
+                IF n < 2 THEN r = "The only frame can't be deleted"
+            CASE ANIM_OP_EARLIER
+                IF c < 2 THEN r = "This is the first frame"
+            CASE ANIM_OP_LATER
+                IF c >= n THEN r = "This is the last frame"
+            CASE ANIM_OP_REVERSE
+                IF n < 2 THEN r = "One frame: nothing to reverse"
+            CASE ELSE
+                r = "Unknown frame operation"
+        END SELECT
+    END IF
+    ANIM_op_refusal$ = r
+END FUNCTION
+
+''
+' Canvas height that holds `frames` frames in the current columns: the
+' current height, or taller by whole rows (adding past the last cell grows
+' the sheet - R-03).
+FUNCTION ANIM_sheet_h& (frames AS INTEGER)
+    DIM cols AS LONG, rows AS LONG, h AS LONG
+    cols = ANIM_cols%
+    IF cols < 1 THEN ANIM_sheet_h& = SCRN.canvasH&: EXIT FUNCTION
+    rows = (frames + cols - 1) \ cols
+    h = 2 * ANIM.margin + rows * ANIM.frameH + (rows - 1) * ANIM.gutter
+    IF h < SCRN.canvasH& THEN h = SCRN.canvasH&
+    ANIM_sheet_h& = h
+END FUNCTION
+
+''
+' After ANIM_plan% (and the sheet grown to ANIM_sheet_h&(newCount)): the holds
+' follow their frames, a blank frame holds 1, and the count / current move.
+SUB ANIM_apply_plan (newCount AS INTEGER, newCur AS INTEGER)
+    DIM i AS INTEGER, old(1 TO ANIM_MAX_FRAMES) AS INTEGER, top AS INTEGER
+    top = _MAX(ANIM.count, newCount)
+    FOR i = 1 TO top: old(i) = ANIM_HOLDS(i): NEXT i
+    FOR i = 1 TO top
+        ANIM_HOLDS(i) = 0
+        IF i <= newCount _ANDALSO ANIM_SRC(i) > 0 THEN ANIM_HOLDS(i) = old(ANIM_SRC(i))
+    NEXT i
+    ANIM.wanted = newCount
+    ANIM.count = _MIN(newCount, ANIM_cells%)
+    ANIM.current = newCur
+    ANIM_clamp_current
+END SUB
