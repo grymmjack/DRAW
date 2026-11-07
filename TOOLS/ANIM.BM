@@ -1,0 +1,165 @@
+''
+' DRAW - TOOLS/ANIM.BM
+' =============================================================================
+' Animation frame math (see ANIM.BI). Touches only ANIM, ANIM_HOLDS and the
+' canvas size (SCRN.canvasW& / canvasH&), so QA/unit/anim-unit.bas can test
+' it headless.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' No frames: a plain picture. Every document path calls this (new, open,
+' new from clipboard / AI, Aseprite, PSD, plain PNG) - CLAUDE.md gotcha 15.
+SUB ANIM_reset ()
+    DIM i AS INTEGER
+    ANIM.active = FALSE
+    ANIM.frameW = 0: ANIM.frameH = 0
+    ANIM.gutter = 0: ANIM.margin = 0
+    ANIM.count = 0: ANIM.current = 0
+    ANIM.fps = ANIM_FPS_DEFAULT
+    ANIM.loopMode = ANIM_LOOP_FWD
+    FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_HOLDS(i) = 0: NEXT i
+END SUB
+
+
+''
+' Cells across / down the canvas for the current layout (0 when frames are off
+' or not even one cell fits).
+FUNCTION ANIM_cols% ()
+    IF ANIM.active = FALSE _ORELSE ANIM.frameW < 1 THEN EXIT FUNCTION
+    ANIM_cols% = ANIM_fit%(SCRN.canvasW&, ANIM.frameW, ANIM.gutter, ANIM.margin)
+END FUNCTION
+
+FUNCTION ANIM_rows% ()
+    IF ANIM.active = FALSE _ORELSE ANIM.frameH < 1 THEN EXIT FUNCTION
+    ANIM_rows% = ANIM_fit%(SCRN.canvasH&, ANIM.frameH, ANIM.gutter, ANIM.margin)
+END FUNCTION
+
+''
+' How many cells of size `cell` fit along `span` with `gutter` between them and
+' `margin` at both ends.
+FUNCTION ANIM_fit% (span AS LONG, cell AS INTEGER, gutter AS INTEGER, margin AS INTEGER)
+    DIM room AS LONG
+    IF cell < 1 THEN EXIT FUNCTION
+    room = span - 2 * margin + gutter
+    IF room < cell + gutter THEN EXIT FUNCTION
+    ANIM_fit% = room \ (cell + gutter)
+END FUNCTION
+
+FUNCTION ANIM_cells% ()
+    DIM n AS LONG
+    n = CLNG(ANIM_cols%) * ANIM_rows%
+    IF n > ANIM_MAX_FRAMES THEN n = ANIM_MAX_FRAMES
+    ANIM_cells% = n
+END FUNCTION
+
+
+''
+' Frame n's cell on the canvas. FALSE (x/y/w/h untouched) when n has no cell.
+FUNCTION ANIM_cell_rect% (n AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG)
+    DIM cols AS INTEGER
+    IF n < 1 _ORELSE n > ANIM_cells% THEN EXIT FUNCTION
+    cols = ANIM_cols%
+    x = ANIM.margin + ((n - 1) MOD cols) * (ANIM.frameW + ANIM.gutter)
+    y = ANIM.margin + ((n - 1) \ cols) * (ANIM.frameH + ANIM.gutter)
+    w = ANIM.frameW: h = ANIM.frameH
+    ANIM_cell_rect% = TRUE
+END FUNCTION
+
+''
+' The frame whose cell holds canvas pixel (cx, cy); 0 for the margin, a
+' gutter, past the cells or past the last frame.
+FUNCTION ANIM_frame_at% (cx AS LONG, cy AS LONG)
+    DIM cols AS INTEGER, rows AS INTEGER, c AS LONG, r AS LONG, n AS LONG
+    cols = ANIM_cols%: rows = ANIM_rows%
+    IF cols < 1 _ORELSE rows < 1 THEN EXIT FUNCTION
+    IF cx < ANIM.margin _ORELSE cy < ANIM.margin THEN EXIT FUNCTION
+    c = (cx - ANIM.margin) \ (ANIM.frameW + ANIM.gutter)
+    r = (cy - ANIM.margin) \ (ANIM.frameH + ANIM.gutter)
+    IF c >= cols _ORELSE r >= rows THEN EXIT FUNCTION
+    IF (cx - ANIM.margin) MOD (ANIM.frameW + ANIM.gutter) >= ANIM.frameW THEN EXIT FUNCTION ' a gutter
+    IF (cy - ANIM.margin) MOD (ANIM.frameH + ANIM.gutter) >= ANIM.frameH THEN EXIT FUNCTION
+    n = r * cols + c + 1
+    IF n > ANIM.count THEN EXIT FUNCTION
+    ANIM_frame_at% = n
+END FUNCTION
+
+
+''
+' Set the frame layout over the current canvas. Re-slices: pixels stay put, the
+' grid moves (resizing frames on a drawn sheet asks first - the caller's job).
+' count keeps what it was when it still fits, else the cells there are; a
+' layout with no room for a cell turns frames off. Returns ANIM.active.
+FUNCTION ANIM_set_layout% (fw AS INTEGER, fh AS INTEGER, gutter AS INTEGER, margin AS INTEGER)
+    DIM wasOn AS INTEGER, cells AS INTEGER
+    wasOn = ANIM.active
+    IF gutter < 0 THEN gutter = 0
+    IF margin < 0 THEN margin = 0
+    ANIM.frameW = fw: ANIM.frameH = fh: ANIM.gutter = gutter: ANIM.margin = margin
+    ANIM.active = (fw > 0 _ANDALSO fh > 0)
+    cells = ANIM_cells%
+    IF cells < 1 THEN
+        ANIM.active = FALSE: ANIM.count = 0: ANIM.current = 0
+    ELSE
+        IF wasOn = FALSE _ORELSE ANIM.count < 1 _ORELSE ANIM.count > cells THEN ANIM.count = cells
+        ANIM_clamp_current
+    END IF
+    ANIM_set_layout% = ANIM.active
+END FUNCTION
+
+''
+' Keep the current frame inside 1..count.
+SUB ANIM_clamp_current ()
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN ANIM.current = 0: EXIT SUB
+    IF ANIM.current < 1 THEN ANIM.current = 1
+    IF ANIM.current > ANIM.count THEN ANIM.current = ANIM.count
+END SUB
+
+
+''
+' Ticks (at ANIM.fps) frame n stays up: its hold, at least 1.
+FUNCTION ANIM_hold% (n AS INTEGER)
+    DIM h AS INTEGER
+    IF n < 1 _ORELSE n > ANIM_MAX_FRAMES THEN ANIM_hold% = 1: EXIT FUNCTION
+    h = ANIM_HOLDS(n)
+    IF h < 1 THEN h = 1
+    IF h > ANIM_HOLD_MAX THEN h = ANIM_HOLD_MAX
+    ANIM_hold% = h
+END FUNCTION
+
+SUB ANIM_set_hold (n AS INTEGER, h AS INTEGER)
+    IF n < 1 _ORELSE n > ANIM_MAX_FRAMES THEN EXIT SUB
+    IF h < 1 THEN h = 1
+    IF h > ANIM_HOLD_MAX THEN h = ANIM_HOLD_MAX
+    ANIM_HOLDS(n) = h
+END SUB
+
+SUB ANIM_set_fps (fps AS INTEGER)
+    IF fps < 1 THEN fps = 1
+    IF fps > ANIM_FPS_MAX THEN fps = ANIM_FPS_MAX
+    ANIM.fps = fps
+END SUB
+
+
+''
+' Go to frame n (clamped). TRUE when the current frame changed.
+FUNCTION ANIM_go% (n AS INTEGER)
+    DIM was AS INTEGER
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN EXIT FUNCTION
+    was = ANIM.current
+    ANIM.current = n
+    ANIM_clamp_current
+    ANIM_go% = (ANIM.current <> was)
+END FUNCTION
+
+''
+' Step d frames from the current one, wrapping round the ends (the frame
+' keys: next / previous). TRUE when the current frame changed.
+FUNCTION ANIM_step% (d AS INTEGER)
+    DIM n AS LONG
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN EXIT FUNCTION
+    n = ((CLNG(ANIM.current) - 1 + d) MOD ANIM.count + ANIM.count) MOD ANIM.count + 1
+    ANIM_step% = ANIM_go%(n)
+END FUNCTION

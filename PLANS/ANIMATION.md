@@ -119,9 +119,19 @@ layers, recorded in the one history.
   (`includes/QB64_GJ_LIB/ASEPRITE/ASEPRITE.BM:1707-1793`); per-frame loader
   `load_specific_layer_image_enhanced&(file, layer, frame)` exists.
 
-## Round 2 (open)
+## Decisions (round 2, 2026-11-07 15:18)
 
-Questions the sheet model raises - in the field kit, round 2: cell spacing, sheet layout and
-growth, how insert / reorder move pixels, linked drawings on a sheet, strokes crossing cell edges,
-resizing frames on a drawn sheet, starting an animation from a plain picture, saving in a side
-chunk so older DRAW still opens the sheet, onion skin in sheet view, APNG vs WebP, soundtrack.
+| R | Decision |
+| --- | --- |
+| 01 | Yes: the canvas is the sprite sheet, frame N = Nth W×H cell in reading order, layers span the sheet |
+| 02 | Gutter and margin, both set in the panel, default 0 |
+| 03 | Columns fit the canvas width; adding past the last cell grows the canvas by a row (undoable) |
+| 04 | Insert / delete / reorder move pixels: the sheet is always in play order, one undo step |
+| 05 | Phase 1: a per-layer "same on every frame" switch; phase 4: per-cell links (hatched), Unlink |
+| 06 | Strokes clip to the cell in the lightbox, free in sheet view; a toggle for both |
+| 07 | Changing frame size on a drawn sheet asks: Re-slice or Resize frames |
+| 08 | `+` on a plain picture: it becomes frame 1 (frame size = canvas), frame 2 added beside it |
+| 09 | Onion skin in the lightbox only |
+| 10 | Animation data in its own PNG chunk; older DRAW opens the file as a plain sheet |
+| 11 | APNG in phase 3; WebP later if still wanted |
+| 12 | Soundtrack in sync with playback / scrub / BAS export, plus its waveform along the X-sheet |
