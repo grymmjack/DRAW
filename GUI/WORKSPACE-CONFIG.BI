@@ -65,4 +65,4 @@ DIM SHARED WSC_NEW_TITLE AS STRING ' the name WSC_from_default_begin% was given
 
 ' Every toolbox button name, in the default grid order
 CONST WSC_TB_NAMES$ = "move,hand,zoom,crop,marquee,marquee-free,marquee-poly,marquee-ellipse,wand,picker,text,eraser,dot,brush,spray,fill,line,polygon,polygon-filled,save,bezier,rect,rect-filled,export-sel,smart-shapes,ellipse,ellipse-filled,open"
-CONST WSC_ROOT_NAMES$ = "FILE,EDIT,VIEW,SELECT,TOOLS,BRUSH,LAYER,PALETTE,IMAGE,EFFECTS,AI,HELP,AUDIO"
+CONST WSC_ROOT_NAMES$ = "FILE,EDIT,VIEW,SELECT,TOOLS,BRUSH,LAYER,PALETTE,IMAGE,EFFECTS,AI,ANIM,HELP,AUDIO"
