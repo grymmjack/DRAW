@@ -427,6 +427,7 @@ TYPE DRAW_CONFIG
     ADV_COLOR_PICKER_SHADE_SPREAD_S AS INTEGER        ' Shade saturation ramp half-range, percent (0-100)
     ADV_COLOR_PICKER_SHADE_SPREAD_H AS INTEGER        ' Shade hue ramp half-range, degrees (0-180)
     ADV_COLOR_PICKER_QUANTIZE       AS INTEGER        ' Quantize triangle S/V + hue ring to N steps (0=off, 2-32)
+    ADV_COLOR_PICKER_QUANTIZE_BAR   AS INTEGER        ' TRUE = show the Quantize Steps slider under the wheel
     ADV_COLOR_PICKER_BG_CUSTOM      AS INTEGER        ' TRUE = draw the wheel/shades on a custom background color
     ADV_COLOR_PICKER_BG_COLOR       AS _UNSIGNED LONG ' Custom selector background color
     ADV_COLOR_PICKER_SHADE_PRESET   AS INTEGER        ' Shade line-set: 0=Basic, 1=+Warm/Cool, 2=Full

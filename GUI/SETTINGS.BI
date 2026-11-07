@@ -76,5 +76,14 @@ DIM SHARED SETTINGS AS SETTINGS_CTX
 ' Shadow copy of config — edited in dialog, applied on OK/Apply
 DIM SHARED SETTINGS_CFG AS DRAW_CONFIG
 
+' Open the dialog at a tab + section (SETTINGS_open_at): the tab + 1 (0 = the
+' default tab), the section's header text, then the scroll it resolved to.
+DIM SHARED SETTINGS_JUMP_TAB     AS INTEGER
+DIM SHARED SETTINGS_JUMP_SECTION AS STRING
+DIM SHARED SETTINGS_JUMP_PENDING AS INTEGER
+DIM SHARED SETTINGS_JUMP_Y       AS INTEGER
+DIM SHARED SETTINGS_QA_SECTION   AS STRING  ' QA: the last section marked, and its y in the view
+DIM SHARED SETTINGS_QA_SECTION_Y AS INTEGER
+
 ' --- Function Declarations ---------------------------------------------------
 

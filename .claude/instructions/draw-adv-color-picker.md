@@ -94,6 +94,37 @@ file before reintroducing any right-click-color behavior.
   history to `PATHS_data$("PALETTES/CREATED/")*.gpl`, rescans, and loads it into the palette
   bar; **Clear History** → `ACP_history_clear`.
 
+## Quantize Steps slider + the gear (2026-11-07)
+
+- **Slider** — between the wheel and the shade rows, drawn by the widget when
+  `ACP_STATE.quantBar%` (from `CFG.ADV_COLOR_PICKER_QUANTIZE_BAR%`, Settings →
+  Panels → "Show Quantize Slider", default on). Left end = OFF (0), right end =
+  32; drag state `ACP_DRAG_QUANT`. On `ACP_STATE.quantChanged%` the wrapper copies
+  the steps into `CFG.ADV_COLOR_PICKER_QUANTIZE%`, re-syncs the wheel to the FG
+  (`ACP_set_rgb ADVCP.lastSyncColor~&`, so crossing values doesn't drift the
+  color) and `CONFIG_save`s when the drag ends. The paint color does not change
+  until the next pick. One row (`ACP_QUANT_ROW_H` = 11 native px): the wrapper
+  draws "QUANTIZE" left and the value / "OFF" right and sets
+  `ACP_STATE.quantInsetL/R` from their widths; the widget draws the track between.
+  The row is tucked `ACP_QUANT_TUCK` px up into the wheel's bottom padding, so the
+  widget grows only 5 px: a docked picker below a bar has ~8 px to spare in the
+  514px-tall QA window (`dock-native-advcolorpicker.sh` "below the editbar").
+  Two rows (+27 px) or an untucked row (+14 px) pushed it off screen.
+  Every widget drag keeps feeding `ADVCP_mouse_input` outside the panel
+  (`ACP_STATE.dragging% <> ACP_DRAG_NONE` in the MOUSE.BM gate).
+- **Gear** — 11x11 native px at the top right of the body, under the title bar
+  (`ADVCP_gear_rect` / `ADVCP_over_gear%` / `ADVCP_draw_gear`), fires action
+  **2029** "Advanced Color Picker Settings" → `SETTINGS_open_at
+  SETTINGS_TAB_PANELS, "Advanced Color Picker"`.
+- **`SETTINGS_open_at tab, section`** (`GUI/SETTINGS.BM`) opens Settings on a tab
+  scrolled so a section is at the top. A tab renderer calls
+  `SETTINGS_jump_mark "<header>", y% - startY%` just before that section's
+  `SW_draw_section_header`; only "Advanced Color Picker" is marked so far — add
+  a mark to jump to another section.
+- **QA:** `ACPQ <track x y w h> <steps> <gear x y w h>` in the dock dump;
+  `<dump>.settings` = `SETTINGS <tab> <scrollY> <section y> <section>` while
+  Settings is drawn (CRLF line end). Test: `QA/tests/gui-advcp-quantize-gear.sh`.
+
 ## Persistence + config
 
 16 `CFG.ADV_COLOR_PICKER_*` fields persist to `DRAW.cfg`: `VISIBLE`, `X`/`Y`, shade

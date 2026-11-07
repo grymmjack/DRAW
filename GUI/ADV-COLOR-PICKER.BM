@@ -305,6 +305,26 @@ SUB ADVCP_render ()
     ' Wheel below the title bar
     _PUTIMAGE (0, ADVCP_title_h%), ACP_STATE.imgHandle&
 
+    ' Quantize Steps slider label (the widget draws the track) + the gear
+    IF CFG.ADV_COLOR_PICKER_QUANTIZE_BAR% THEN ' one row: QUANTIZE | track | value
+        DIM qOldF AS LONG : qOldF& = _FONT
+        IF ADVCP.labelFont& > 0 THEN _FONT ADVCP.labelFont& ELSE _FONT 8
+        COLOR THEME.CP_text_dim~&, _RGBA32(0, 0, 0, 0)
+        DIM qTxt AS STRING, qy AS INTEGER
+        IF ACP_STATE.quantizeSteps% < 2 THEN qTxt = "OFF" ELSE qTxt = _TRIM$(STR$(ACP_STATE.quantizeSteps%))
+        qy = ADVCP_title_h% + ACP_quant_row_y% + (ACP_QUANT_ROW_H - _UFONTHEIGHT) \ 2
+        _UPRINTSTRING (ACP_SHADE_GAP + 1, qy), "QUANTIZE"
+        _UPRINTSTRING (ADVCP.panelW% - ACP_SHADE_GAP - 1 - _UPRINTWIDTH(qTxt), qy), qTxt
+        _FONT qOldF&
+    END IF
+    DIM gx AS INTEGER, gy AS INTEGER, gw AS INTEGER, gh AS INTEGER, gCol AS _UNSIGNED LONG
+    ADVCP_gear_rect gx, gy, gw, gh
+    gCol = THEME.CP_text_dim~&
+    IF ADVCP.renderScale! > 0 _ANDALSO ADVCP_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
+        IF ADVCP_over_gear%(INT((MOUSE.RAW_X% - ADVCP.dispX%) / ADVCP.renderScale!), INT((MOUSE.RAW_Y% - ADVCP.dispY%) / ADVCP.renderScale!)) THEN gCol = THEME.CP_text~&
+    END IF
+    ADVCP_draw_gear gx, gy, gCol
+
     ' Per-shade-row labels (Tiny5) above each row.
     IF CFG.ADV_COLOR_PICKER_SHADE_LABELS% THEN
         DIM slOldF AS LONG : slOldF& = _FONT
@@ -438,8 +458,28 @@ SUB ADVCP_mouse_input ()
         EXIT SUB
     END IF
 
+    ' The gear (top right, under the title bar): Settings > Panels > Advanced
+    ' Color Picker (Rick, 2026-11-07)
+    IF justPressed% AND overPanel% _ANDALSO ACP_STATE.dragging% = ACP_DRAG_NONE _ANDALSO ADVCP_over_gear%(nativeX%, nativeY%) THEN
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        CMD_execute_action 2029
+        EXIT SUB
+    END IF
+
     ' Left-drag drives the wheel / triangle / shades / history -> sets the FG color.
+    STATIC quantWasDrag AS INTEGER
     ACP_input_mouse nativeX%, nativeY% - ADVCP_title_h%, MOUSE.B1%
+    IF ACP_STATE.quantChanged% THEN ' the Quantize Steps slider: keep it, the wheel shows the FG
+        CFG.ADV_COLOR_PICKER_QUANTIZE% = ACP_STATE.quantizeSteps%
+        ACP_set_rgb ADVCP.lastSyncColor~&
+        SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE
+    END IF
+    IF ACP_STATE.dragging% = ACP_DRAG_QUANT THEN
+        quantWasDrag% = TRUE
+    ELSEIF quantWasDrag% THEN
+        quantWasDrag% = FALSE
+        CONFIG_save
+    END IF
     IF ACP_STATE.changed% THEN
         DIM col AS _UNSIGNED LONG : col~& = ACP_get_rgb~&
         PAINT_COLOR~&          = col~&
@@ -473,6 +513,14 @@ SUB ADVCP_apply_shade_config ()
     DIM lc AS INTEGER
 
     ACP_STATE.historyShow% = CFG.ADV_COLOR_PICKER_HISTORY%                       ' affects widget height
+    ACP_STATE.quantBar%    = CFG.ADV_COLOR_PICKER_QUANTIZE_BAR%                  ' affects widget height
+    IF ACP_STATE.quantBar% _ANDALSO ACP_STATE.quantInsetL% = 0 _ANDALSO ADVCP.panelImg& < -1 THEN ' room for "QUANTIZE" and "OFF" / "32"
+        DIM qiF AS LONG, qiD AS LONG : qiF& = _FONT: qiD& = _DEST: _DEST ADVCP.panelImg&
+        IF ADVCP.labelFont& > 0 THEN _FONT ADVCP.labelFont& ELSE _FONT 8
+        ACP_STATE.quantInsetL% = _UPRINTWIDTH("QUANTIZE") + 6
+        ACP_STATE.quantInsetR% = _MAX(_UPRINTWIDTH("OFF"), _UPRINTWIDTH("32")) + 6
+        _FONT qiF&: _DEST qiD&
+    END IF
     ACP_STATE.shadeLabels% = CFG.ADV_COLOR_PICKER_SHADE_LABELS%                  ' affects widget height
     IF CFG.ADV_COLOR_PICKER_SHADE_CURVE% THEN ACP_STATE.shadeCurveExp! = 2.5 ELSE ACP_STATE.shadeCurveExp! = 1.0
 
@@ -642,3 +690,60 @@ SUB ADVCP_history_to_palette ()
         GUI_NEEDS_REDRAW% = TRUE : SCENE_DIRTY% = TRUE
     END IF
 END SUB
+
+
+' ---------------------------------------------------------------------------
+' The gear button (native px, panel space): top right of the body, just under
+' the title bar, in the wheel square's empty corner.
+' ---------------------------------------------------------------------------
+SUB ADVCP_gear_rect (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    w = 11: h = 11
+    x = ADVCP.panelW% - w - 3
+    y = ADVCP_title_h% + 3
+END SUB
+
+FUNCTION ADVCP_over_gear% (nx AS INTEGER, ny AS INTEGER)
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    ADVCP_gear_rect x, y, w, h
+    ADVCP_over_gear% = (nx >= x - 2 _ANDALSO nx < x + w + 2 _ANDALSO ny >= y - 2 _ANDALSO ny < y + h + 2)
+END FUNCTION
+
+SUB ADVCP_draw_gear (x AS INTEGER, y AS INTEGER, c AS _UNSIGNED LONG)
+    DIM r AS INTEGER, i AS INTEGER, row AS STRING
+    FOR r = 0 TO 10
+        SELECT CASE r
+            CASE 0, 10: row = "....###...."
+            CASE 1, 9:  row = ".##.###.##."
+            CASE 2, 8:  row = ".#########."
+            CASE 3, 7:  row = "..##...##.."
+            CASE ELSE:  row = "###.....###"
+        END SELECT
+        FOR i = 1 TO 11
+            IF MID$(row, i, 1) = "#" THEN PSET (x + i - 1, y + r), c
+        NEXT i
+    NEXT r
+END SUB
+
+
+' ---------------------------------------------------------------------------
+' QA (DOCK_DUMP): ACPQ <track x y w h> <steps> <gear x y w h> - viewport px.
+' ---------------------------------------------------------------------------
+FUNCTION ADVCP_dump$ ()
+    DIM rs AS SINGLE, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, th AS INTEGER
+    DIM gx AS INTEGER, gy AS INTEGER, gw AS INTEGER, gh AS INTEGER, d AS STRING
+    IF ADVCP.initialized% = 0 _ORELSE ADVCP.visible% = 0 _ORELSE ADVCP.autoHidden% THEN EXIT FUNCTION
+    IF DOCK_native_off%(DP_ADVCP) THEN EXIT FUNCTION
+    rs = ADVCP.renderScale!: IF rs <= 0 THEN rs = 1
+    th = ADVCP_title_h%
+    d = "ACPQ"
+    IF ACP_STATE.quantBar% THEN
+        ACP_quant_track_rect x1, y1, x2, y2
+        d = d + DOCK_n$(ADVCP.dispX% + INT(x1 * rs)) + DOCK_n$(ADVCP.dispY% + INT((y1 + th) * rs)) + DOCK_n$(INT((x2 - x1 + 1) * rs)) + DOCK_n$(INT((y2 - y1 + 1) * rs))
+    ELSE
+        d = d + " 0 0 0 0"
+    END IF
+    d = d + DOCK_n$(ACP_STATE.quantizeSteps%)
+    ADVCP_gear_rect gx, gy, gw, gh
+    d = d + DOCK_n$(ADVCP.dispX% + INT(gx * rs)) + DOCK_n$(ADVCP.dispY% + INT(gy * rs)) + DOCK_n$(INT(gw * rs)) + DOCK_n$(INT(gh * rs))
+    ADVCP_dump$ = d + CHR$(10)
+END FUNCTION
