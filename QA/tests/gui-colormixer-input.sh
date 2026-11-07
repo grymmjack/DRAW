@@ -7,6 +7,8 @@
 #   B) the FG<>BG strip's FG end follows a color picked in the mixer
 #   C) the hex box gets the keys: typed hex letters don't switch tools, ENTER
 #      applies the color; after ENTER / a click away, DRAW's keys work again
+#   D) Esc, an invalid ENTER and a click on the color square leave the box
+#      and put the current color back in it
 # Rick, 2026-11-07: "i can't click the top section of the color ramp at all",
 # "FG <> BG isn't updating ... until I press X", "press delete/backspace ...
 # it's acting on the canvas".
@@ -79,5 +81,46 @@ cmix
 [[ "$FOC" == "0" ]] && pass "a click away takes the focus off the hex box" || fail "the hex box kept focus after a click on the canvas"
 T1=$(tool); key b; settle
 [[ "$(tool)" != "$T1" ]] && pass "after the click away, DRAW's keys work (b: tool $T1 -> $(tool))" || fail "after the click away, b did not switch tools"
+# ---- D) Esc / an invalid ENTER / a click elsewhere IN the mixer leave the box
+#      and put the current color back in it (Rick: "when user hits enter, it
+#      gives up focus, when they hit esc ... also clicks away")
+shown() { local t="${HEXT#[}"; t="${t%]}"; [[ "${t^^}" == "#${FG^^}" ]]; }
+# click and type straight away: the focusing click selects all, so the typing
+# replaces the (full, 7-character) text
+click $(( TX + TW / 2 )) $(( TY + TH / 2 )); settle
+type_text "#00ff00"; settle
+cmix
+[[ "${HEXT,,}" == "[#00ff00]" ]] && pass "click + type replaces the hex text ($HEXT)" || fail "click + type gave $HEXT, not [#00ff00] (the focusing click must select all)"
+key Return; settle
+cmix
+[[ "$FG" == "00FF00" ]] && pass "ENTER applies it (FG $FG)" || fail "the typed color was not applied (FG $FG, not 00FF00)"
+cmix; FG0=$FG
+click $(( TX + TW / 2 )) $(( TY + TH / 2 )); settle
+type_text "zz"; settle
+cmix; [[ "${HEXT,,}" == "[zz]" ]] && pass "typed text is in the box before Esc ($HEXT)" || fail "the box holds $HEXT before Esc, not [zz]"
+key Escape; settle
+cmix
+[[ "$FOC" == "0" ]] && pass "Esc leaves the hex box" || fail "the hex box kept focus after Esc"
+[[ "$FG" == "$FG0" ]] && pass "Esc leaves the color alone ($FG)" || fail "Esc changed the color ($FG0 -> $FG)"
+shown && pass "after Esc the box shows the current color again ($HEXT)" || fail "after Esc the box still shows $HEXT, not #$FG"
+click $(( TX + TW / 2 )) $(( TY + TH / 2 )); settle
+type_text "#12"; settle
+cmix; [[ "$HEXT" == "[#12]" ]] && pass "invalid text is in the box before ENTER ($HEXT)" || fail "the box holds $HEXT before ENTER, not [#12]"
+key Return; settle
+cmix
+[[ "$FOC" == "0" ]] && pass "ENTER on invalid text leaves the hex box" || fail "the hex box kept focus after an invalid ENTER"
+[[ "$FG" == "$FG0" ]] && pass "invalid text does not change the color ($FG)" || fail "invalid text changed the color ($FG0 -> $FG)"
+shown && pass "after an invalid ENTER the box shows the current color ($HEXT)" || fail "after an invalid ENTER the box still shows $HEXT, not #$FG"
+click $(( TX + TW / 2 )) $(( TY + TH / 2 )); settle
+type_text "#ab"; settle
+cmix
+[[ "$FOC" == "-1" ]] || fail "the hex box did not take focus for the in-mixer click check"
+click $(( SVX + SVW / 3 )) $(( SVY + SVH / 3 )); settle
+cmix
+[[ "$FOC" == "0" ]] && pass "a click on the color square leaves the hex box" || fail "the hex box kept focus after a click on the color square"
+[[ "$FG" != "$FG0" ]] && pass "that click still picks a color ($FG0 -> $FG)" || fail "the click on the square did not pick a color"
+shown && pass "the box shows the picked color ($HEXT)" || fail "the box shows $HEXT, not the picked #$FG"
+T2=$(tool); key b; settle; [[ "$(tool)" != "$T2" ]] || { key v; settle; }
+[[ "$(tool)" != "$T2" ]] && pass "after the in-mixer click, DRAW's keys work (tool $T2 -> $(tool))" || fail "after the in-mixer click, DRAW's keys still go to the box"
 assert_window_exists
 info "=== Color Mixer input Test PASSED ==="
