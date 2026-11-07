@@ -78,9 +78,9 @@ CONST APP_VERSION$ = "A.B.C"
 
 ---
 
-## Step 4 — Update `CHEATSHEET.md`
+## Step 4 — Update `SHORTCUTS.md`
 
-Review `CHEATSHEET.md` against the collected changes list from Step 2.
+Review `SHORTCUTS.md` (the canonical keyboard + mouse reference; `CHEATSHEET.md` is only a redirect stub — leave it) against the collected changes list from Step 2.
 
 For each change that affects keyboard shortcuts, hotkeys, mouse behaviour, tool names, or controls:
 
@@ -176,10 +176,36 @@ Print the following markdown block in chat so the user can copy it directly to G
 
 ---
 
+## Step 9 — Commit, tag, push, and publish the notes
+
+Rick trusts this step to the skill (2026-11-06: "that should be part of this release skill").
+
+1. Save the Step 8 notes to a scratchpad file (e.g. `release-notes-A.B.C.md`).
+2. Commit the release changes (version bump + docs) on `main`:
+   `Release A.B.C: <short summary>`, with the attribution trailer.
+3. Annotated tag + push:
+   ```bash
+   git tag -a vA.B.C -m "DRAW vA.B.C"
+   git push origin main && git push origin vA.B.C
+   ```
+4. **Don't `gh release create`.** The tag push starts `.github/workflows/build-release.yml`, which builds
+   Linux / Windows / macOS (~5 min) and creates the release itself (assets `DRAW-lnx-x64.tar.gz`,
+   `DRAW-osx-x64.tar.gz`, `DRAW-win-x64.zip`) with GitHub's auto-generated notes.
+5. Watch in the background: find the run with
+   `gh run list --repo grymmjack/DRAW --workflow build-release.yml --limit 1`, then poll every 30 s
+   until `gh release view vA.B.C --json isDraft` says `false` (stop and report if the run concludes
+   anything but `success`). Then replace the notes and title:
+   ```bash
+   gh release edit vA.B.C --repo grymmjack/DRAW --title "DRAW vA.B.C" --notes-file release-notes-A.B.C.md
+   ```
+6. Check the result (`gh release view vA.B.C --json name,body,assets,url`) and give the user the URL.
+
+---
+
 ## Rules
 
 - **Always ask** before applying a version bump (Step 1). Never assume.
-- **Never auto-commit**. The user will commit and tag manually.
+- **Commit, tag and push only in Step 9**, after the build passes and the notes are shown, never earlier.
 - If a step produces no changes (e.g. CHEATSHEET.md is already accurate), state that explicitly and move on.
 - If the git log is empty (no commits since last tag), say so and rely entirely on the conversation history for the change list.
 - Keep release notes **user-facing**: omit internal refactors unless they affect users (file format changes, config key renames, etc.).
