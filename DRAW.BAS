@@ -680,7 +680,13 @@ DO
     osExitTrap% = _EXIT
     IF osExitTrap% THEN CMD_execute_action 212
 
+    NUMPAD_poll ' numpad presses (INPUT/NUMPAD)
+    ANIM_numpad_tick ' numpad 1 / 4 / 5 / 9 on a sheet with frames (TOOLS/ANIM-VIEW)
     k&               = _KEYHIT
+    ' a numpad frame key's own code (52 for numpad 4) is not main-row 4's opacity
+    IF k& > 0 THEN
+        IF ANIM_numpad_code%(k&, 1) THEN k& = 0
+    END IF
     LAST_KEYHIT_RAW& = k&
     
     ' Build INKEY$-compatible fallback from _KEYHIT for handlers that need it

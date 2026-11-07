@@ -117,3 +117,133 @@ FUNCTION ANIM_VIEW_dump$ ()
     d = d + DOCK_n$(ANIM_VIEW.drawn <> 0) + DOCK_n$(ANIM_VIEW.dx) + DOCK_n$(ANIM_VIEW.dy) + CHR$(10)
     ANIM_VIEW_dump$ = d
 END FUNCTION
+
+
+''
+' The frame action numpad key b stands for (0 = none: it stays a plain key).
+FUNCTION ANIM_numpad_action% (b AS INTEGER)
+    SELECT CASE b
+        CASE 1: ANIM_numpad_action% = ANIM_ACT_FIRST
+        CASE 4: ANIM_numpad_action% = ANIM_ACT_PREV
+        CASE 5: ANIM_numpad_action% = ANIM_ACT_NEXT
+        CASE 9: ANIM_numpad_action% = ANIM_ACT_LAST
+    END SELECT
+END FUNCTION
+
+''
+' Numpad frame keys only on a sheet with frames, with no modifier, and not
+' while typing, dragging a shape / stroke or in a menu, palette or dialog.
+FUNCTION ANIM_keys_ready% ()
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN EXIT FUNCTION
+    IF MODIFIERS.ctrl% _ORELSE MODIFIERS.alt% THEN EXIT FUNCTION
+    IF CMD_PALETTE.visible% _ORELSE TBED_typing% _ORELSE KEYBOARD_SUPPRESS_FRAMES% > 0 THEN EXIT FUNCTION
+    IF INPUT_CONTEXT AND (CTX_TEXT_ACTIVE OR CTX_COMMAND_PALETTE_OPEN OR CTX_DRAWING_IN_PROGRESS OR CTX_SS_DRAGGING) THEN EXIT FUNCTION
+    IF CURRENT_TOOL% = TOOL_TEXT _ANDALSO TEXT.ACTIVE THEN EXIT FUNCTION
+    IF COLORMIXER_hex_focused% THEN EXIT FUNCTION
+    IF MOUSE.B1% _ORELSE MOUSE.B2% _ORELSE MOUSE.B3% THEN EXIT FUNCTION
+    IF MENU_BAR.openMenu% >= 0 THEN EXIT FUNCTION
+    ANIM_keys_ready% = TRUE
+END FUNCTION
+
+''
+' DRAW.BAS, after NUMPAD_poll: a new numpad press of a frame key runs its
+' action; its plain-code twins (INKEY$ / _KEYHIT) are dropped.
+SUB ANIM_numpad_tick ()
+    DIM b AS INTEGER, t AS DOUBLE
+    t = TIMER(.001)
+    FOR b = 1 TO 9
+        IF NP_T(b) >= 0 _ANDALSO ANIM_numpad_action%(b) <> 0 THEN
+            IF t < NP_T(b) _ORELSE t - NP_T(b) > .25 THEN
+                NP_T(b) = -1 ' stale
+            ELSEIF ANIM_keys_ready% THEN
+                ANIM_numpad_fire b, 3
+            END IF
+        END IF
+    NEXT b
+END SUB
+
+''
+' Run numpad key b's frame action; twins (1 = _KEYHIT, 2 = INKEY$) still to drop.
+SUB ANIM_numpad_fire (b AS INTEGER, twins AS INTEGER)
+    NP_T(b) = -1
+    ANIM_SW_B = b: ANIM_SW_MASK = twins: ANIM_SW_T = TIMER(.001)
+    CMD_execute_action ANIM_numpad_action%(b)
+END SUB
+
+''
+' A plain key code from _KEYHIT (src 1, DRAW.BAS) or INKEY$ (src 2,
+' KEYBOARD_input_handler): TRUE = it is a numpad frame key's, drop it - the
+' twin of a press already run, or a press this frame's poll had not seen yet
+' (run here).
+FUNCTION ANIM_numpad_code% (k AS LONG, src AS INTEGER)
+    DIM b AS INTEGER, t AS DOUBLE
+    IF k <= 0 THEN EXIT FUNCTION
+    b = NUMPAD_of%(k)
+    IF b = 0 _ORELSE b > 9 THEN EXIT FUNCTION
+    IF ANIM_numpad_action%(b) = 0 THEN EXIT FUNCTION
+    t = TIMER(.001)
+    IF ANIM_SW_B = b _ANDALSO (ANIM_SW_MASK AND src) <> 0 _ANDALSO t >= ANIM_SW_T _ANDALSO t - ANIM_SW_T < .3 THEN
+        ANIM_SW_MASK = ANIM_SW_MASK AND (3 - src)
+        ANIM_numpad_code% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF ANIM_keys_ready% = 0 THEN EXIT FUNCTION
+    IF NUMPAD_sent%(k) <> b THEN EXIT FUNCTION
+    ANIM_numpad_fire b, 3 - src
+    ANIM_numpad_code% = TRUE
+END FUNCTION
+
+''
+' INKEY$ twin of ANIM_numpad_code%: "4", or CHR$(0) + scan code.
+FUNCTION ANIM_numpad_inkey% (keypress AS STRING)
+    DIM k AS LONG
+    IF LEN(keypress) = 1 THEN
+        k = ASC(keypress)
+    ELSEIF LEN(keypress) = 2 _ANDALSO ASC(keypress) = 0 THEN
+        k = ASC(keypress, 2) * 256
+    ELSE
+        EXIT FUNCTION
+    END IF
+    ANIM_numpad_inkey% = ANIM_numpad_code%(k, 2)
+END FUNCTION
+
+''
+' INPUT_detect_events: while a numpad frame key is held, the plain code it
+' shares (_KEYDOWN(52) for numpad 4, 19200 with Num Lock off) is not down
+' for the bindings - main-row 4 sets opacity, numpad 4 does not.
+FUNCTION ANIM_numpad_masks% (kc AS LONG)
+    DIM b AS INTEGER
+    b = NUMPAD_of%(kc)
+    IF b = 0 THEN EXIT FUNCTION
+    IF ANIM_numpad_action%(b) = 0 THEN EXIT FUNCTION
+    IF NUMPAD_held%(b) = 0 THEN EXIT FUNCTION
+    IF ANIM_keys_ready% = 0 THEN EXIT FUNCTION
+    ANIM_numpad_masks% = TRUE
+END FUNCTION
+
+''
+' Actions 2501-2504: first / previous / next / last frame (previous / next
+' wrap round the ends).
+SUB ANIM_VIEW_goto (act AS INTEGER)
+    DIM r AS INTEGER
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "No frames: set a frame size first": EXIT SUB
+    SELECT CASE act
+        CASE ANIM_ACT_FIRST: r = ANIM_go%(1)
+        CASE ANIM_ACT_PREV: r = ANIM_step%(-1)
+        CASE ANIM_ACT_NEXT: r = ANIM_step%(1)
+        CASE ANIM_ACT_LAST: r = ANIM_go%(ANIM.count)
+    END SELECT
+    STATUS_flash "Frame" + STR$(ANIM.current) + " of" + STR$(ANIM.count)
+    IF r THEN SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' _KEYDOWN for the legacy arrow / Home / End / PgUp handlers (INPUT/KEYBOARD):
+' FALSE while that code is a held numpad frame key (Num Lock off, numpad 4 =
+' Left), so it does not also nudge a selection or flip a brush.
+FUNCTION ANIM_keydown% (kc AS LONG)
+    IF _KEYDOWN(kc) = 0 THEN EXIT FUNCTION
+    IF ANIM_numpad_masks%(kc) THEN EXIT FUNCTION
+    ANIM_keydown% = TRUE
+END FUNCTION
