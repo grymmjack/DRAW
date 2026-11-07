@@ -94,3 +94,26 @@ patterns; the full suite stays green.
   a 32px box + a settle so a throttled idle app renders the cursor frame first.
 - Tooltips are disabled in the QA config (qa-harness DRAW adapter override) so a
   tooltip popping up near the pointer doesn't pollute hover-based region diffs.
+
+## Floating windows stack like OS windows (GUI/WINZ, 2026-11-06)
+
+Inside the `ZORDER_FLOATING` band, every floating window has its own z:
+`WZ_Z(1..14)` — the DP_ ids (dock panels 1–7, native windows 8–13) plus
+`WZ_TBED` = 14 (Customize Toolbars). Higher = nearer the front.
+
+- **Raise + capture:** `WZ_mouse_frame` (called early in `MOUSE_process_frame%`)
+  — a press on a floating window raises it (`WZ_raise`) and sets `WZ_CAP` until
+  every button is up. Skipped while a menu / popup is open.
+- **Input:** every panel hit gate (`*_is_over_area%`, `TOOLBAR_is_over_button%`,
+  `LAYER_PANEL_in_bounds%`, `BROWSER_owns_mouse%`, the native-window gates in
+  MOUSE.BM, `DOCK_float_*_at%`) asks `WZ_blocked%(id, x, y)`: TRUE when another
+  window holds the press, or a floating window other than `id` is frontmost there.
+  A new panel / window must add the same guard.
+- **Render:** `DOCK_render_float_stack` draws the floating dock panels back to
+  front into `SCRN.GUI&`, each whole (fill, `DOCK_render_panel_content`, frame);
+  docked panels draw in their slots only (`DOCK_in_list%`). `SCREEN_render_windows`
+  then draws the native windows on screen 0 in WZ order, and a dock float above an
+  already-drawn native window is copied back from `SCRN.CANVAS&` (`WZ_reblit_panel`).
+- **QA:** the dump has `WZ <cap> <name...>` front to back.
+  Tests: `gui-float-zorder.sh`, and `dock-float-drawer-fit.sh` (a floating drawer
+  is capped to `DRAWER_max_w%` / `DRAWER_content_h%` — no blank area).

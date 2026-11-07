@@ -836,6 +836,8 @@ SUB DOCK_place_floats (barY1 AS INTEGER, dockY2 AS INTEGER)
                 ' to show them (the clamp keeps it on screen next layout)
                 IF id = DP_TOOLBOX THEN
                     DOCK_float_fit_toolbox barY1, dockY2
+                ELSEIF id = DP_DRAWER THEN
+                    DOCK_float_fit_drawer barY1, dockY2
                 ELSEIF DPANEL(id).hmode = DP_H_FIXED THEN
                     need = DOCK_fixed_h%(id, DPANEL(id).fw - 2) + DOCK_float_title_h%(id) + 3
                     IF DPANEL(id).fh < need THEN DPANEL(id).fh = need: DOCK_redraw
@@ -889,6 +891,25 @@ SUB DOCK_float_fit_toolbox (barY1 AS INTEGER, dockY2 AS INTEGER)
     DPANEL(DP_TOOLBOX).fw = w: DPANEL(DP_TOOLBOX).fh = h
     DOCK_float_clamp DP_TOOLBOX, barY1, dockY2
     DOCK_apply_rect DP_TOOLBOX, DPANEL(DP_TOOLBOX).fx + 1, DPANEL(DP_TOOLBOX).fy + th, DPANEL(DP_TOOLBOX).fw - 2, DPANEL(DP_TOOLBOX).fh - th - 1
+    DOCK_redraw
+END SUB
+
+
+''
+' A floating drawer goes no wider than its widest bin grid + palette rail
+' (DRAWER_max_w%) and no taller than that content at its width
+' (DRAWER_content_h%): never empty area beside or under the bins. Shorter is
+' fine - the bins scroll. Rick, 2026-11-06: a wide floating drawer was mostly
+' black.
+SUB DOCK_float_fit_drawer (barY1 AS INTEGER, dockY2 AS INTEGER)
+    DIM th AS INTEGER, w AS INTEGER, h AS INTEGER
+    th = DOCK_float_title_h%(DP_DRAWER)
+    w = _MIN(DPANEL(DP_DRAWER).fw, DRAWER_max_w% + 2)
+    h = _MIN(DPANEL(DP_DRAWER).fh, DRAWER_content_h%(w - 2) + th + 1)
+    IF DPANEL(DP_DRAWER).fw = w _ANDALSO DPANEL(DP_DRAWER).fh = h THEN EXIT SUB
+    DPANEL(DP_DRAWER).fw = w: DPANEL(DP_DRAWER).fh = h
+    DOCK_float_clamp DP_DRAWER, barY1, dockY2
+    DOCK_apply_rect DP_DRAWER, DPANEL(DP_DRAWER).fx + 1, DPANEL(DP_DRAWER).fy + th, DPANEL(DP_DRAWER).fw - 2, DPANEL(DP_DRAWER).fh - th - 1
     DOCK_redraw
 END SUB
 
@@ -2010,6 +2031,7 @@ FUNCTION DOCK_dump_state$ ()
     fdBtnW = 11 * fdIsc: IF FD_ICONS_has_png%(FD_ICON_TB_LIST) THEN fdBtnW = FD_iconW(FD_ICON_TB_LIST) * fdIsc
     fdBtnW = fdBtnW + 6
     d = d + DOCK_n$(FD_PADDING + fdBtnW * 4 + fdBtnW \ 2) + DOCK_n$(FD_STATE.titleBarH + FD_STATE.pathBarH + FD_STATE.toolBarH \ 2) + lf
+    d = d + WZ_dump$ + lf ' floating windows front to back (GUI/WINZ)
     d = d + "DMENU" + DOCK_n$(DOCK_UI.menuOpen <> 0) + DOCK_n$(DOCK_UI.menuPanel) + DOCK_n$(DOCK_UI.hoverSlot) + lf
     d = d + "LPANEL" + DOCK_n$(LAYER_PANEL.scrollOffset%) + DOCK_n$(CURRENT_LAYER%) + DOCK_n$(MULTI_SELECT_COUNT) + lf
     FOR i = 1 TO MAX_LAYERS
@@ -2282,8 +2304,13 @@ FUNCTION DOCK_float_edge_at% (mx AS INTEGER, my AS INTEGER, id AS INTEGER)
              REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP
         CASE ELSE: EXIT FUNCTION
     END SELECT
-    FOR i = DP_COUNT TO 1 STEP -1
-        IF DOCK_floating%(i) _ANDALSO DPANEL(i).rVis THEN
+    DIM o(1 TO WZ_COUNT) AS INTEGER, k AS INTEGER
+    WZ_order o()
+    FOR k = WZ_COUNT TO 1 STEP -1 ' front to back (GUI/WINZ)
+        i = o(k)
+        IF i >= DP_PREVIEW THEN
+            IF WZ_hit%(i, mx, my) THEN EXIT FUNCTION ' a native window in front
+        ELSEIF DOCK_floating%(i) _ANDALSO DPANEL(i).rVis THEN
             x2 = DPANEL(i).fx + DPANEL(i).fw - 1: y2 = DPANEL(i).fy + DPANEL(i).fh - 1
             IF mx >= DPANEL(i).fx _ANDALSO mx <= x2 + 1 _ANDALSO my >= DPANEL(i).fy _ANDALSO my <= y2 + 1 THEN
                 e = 0
@@ -2292,10 +2319,10 @@ FUNCTION DOCK_float_edge_at% (mx AS INTEGER, my AS INTEGER, id AS INTEGER)
                 IF e = 1 _ANDALSO my < DPANEL(i).fy + DOCK_float_handle_h%(i) THEN e = 0 ' the title bar moves it
                 id = i
                 DOCK_float_edge_at% = e
-                EXIT FUNCTION ' the topmost panel under the pointer decides
+                EXIT FUNCTION ' the frontmost panel under the pointer decides
             END IF
         END IF
-    NEXT i
+    NEXT k
 END FUNCTION
 
 
@@ -2361,57 +2388,88 @@ END FUNCTION
 
 
 ''
-' Render pass, before the panels: each floating panel's window as panel, so
-' what its content doesn't cover (below a toolbox, beside its buttons) is
-' never a hole onto the canvas.
-SUB DOCK_fill_floats ()
-    DIM id AS INTEGER
-    FOR id = 1 TO DP_COUNT
-        IF DOCK_floating%(id) _ANDALSO DPANEL(id).rVis THEN
-            LINE (DPANEL(id).fx, DPANEL(id).fy)-(DPANEL(id).fx + DPANEL(id).fw - 1, DPANEL(id).fy + DPANEL(id).fh - 1), THEME.EDIT_BAR_BG_COLOR~&, BF
+' Render pass: the floating dock panels back to front (GUI/WINZ order), each
+' whole - its window as panel (so what its content doesn't cover is never a
+' hole onto the canvas), its content, then its frame + title bar - so a panel
+' in front covers the one behind it, grip and border too. The fixed render
+' list skips floating panels (DOCK_floating%); they draw only here.
+SUB DOCK_render_float_stack ()
+    DIM o(1 TO WZ_COUNT) AS INTEGER, i AS INTEGER, id AS INTEGER
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    WZ_order o()
+    FOR i = 1 TO WZ_COUNT
+        id = o(i)
+        IF id < DP_PREVIEW THEN
+            IF DOCK_floating%(id) _ANDALSO DPANEL(id).rVis _ANDALSO DOCK_live%(id) THEN
+                _DEST SCRN.GUI&
+                LINE (DPANEL(id).fx, DPANEL(id).fy)-(DPANEL(id).fx + DPANEL(id).fw - 1, DPANEL(id).fy + DPANEL(id).fh - 1), THEME.EDIT_BAR_BG_COLOR~&, BF
+                DOCK_render_panel_content id
+                _DEST SCRN.GUI&
+                DOCK_render_float_frame id
+            END IF
         END IF
-    NEXT id
+    NEXT i
+    _DEST oldDest&
 END SUB
 
 
 ''
-' Render pass: the frame + title bar of each floating docked panel.
-SUB DOCK_render_floats ()
-    DIM id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, th AS INTEGER, gx AS INTEGER
+' Draw dock panel id's content (into SCRN.GUI&), as the fixed render list does.
+SUB DOCK_render_panel_content (id AS INTEGER)
+    SELECT CASE id
+        CASE DP_TOOLBOX: IF SCRN.showToolbar% THEN TOOLBAR_render 0, 0, TB_LIVE_COUNT - 1
+        CASE DP_ORGANIZER: IF SCRN.showToolbar% THEN ORGANIZER_render
+        CASE DP_DRAWER: IF SCRN.showToolbar% THEN DRAWER_render
+        CASE DP_EDITBAR: IF SCRN.showEditBar% THEN EDITBAR_render
+        CASE DP_ADVBAR: IF SCRN.showAdvBar% THEN ADVBAR_render
+        CASE DP_CHARMAP: IF SCRN.showCharMap% THEN CHARMAP_fill_stub: CHARMAP_render
+        CASE DP_LAYERS: IF LAYER_PANEL.visible% THEN LAYER_PANEL_render SCRN.h&
+    END SELECT
+END SUB
+
+
+''
+' Is dock panel id drawn by the fixed render list (not floating)?
+FUNCTION DOCK_in_list% (id AS INTEGER)
+    DOCK_in_list% = (DOCK_live%(id) <> 0 _ANDALSO DOCK_floating%(id) = 0)
+END FUNCTION
+
+
+''
+' The frame + title bar of floating docked panel id (into SCRN.GUI&).
+SUB DOCK_render_float_frame (id AS INTEGER)
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, th AS INTEGER, gx AS INTEGER
     DIM oldDest AS LONG, oldFont AS LONG
     oldDest& = _DEST: oldFont& = _FONT
     _DEST SCRN.GUI&
     IF LAYER_PANEL.fontHandle& > 0 THEN _FONT LAYER_PANEL.fontHandle& ELSE IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
-    FOR id = 1 TO DP_COUNT
-        IF DOCK_floating%(id) _ANDALSO DPANEL(id).rVis THEN
-            x = DPANEL(id).fx: y = DPANEL(id).fy: w = DPANEL(id).fw: h = DPANEL(id).fh
-            th = DOCK_float_title_h%(id)
-            LINE (x, y)-(x + w - 1, y + th - 1), THEME.LAYER_PANEL_header_bg~&, BF
-            LINE (x, y)-(x + w - 1, y + h - 1), THEME.LAYER_PANEL_border~&, B
-            IF th = DOCK_FLOAT_GRIP_H THEN
-                ' a thin bar: a grip, no title (drag it; double-click docks it back).
-                ' Lock Layout: no grip, no dock mark, no resize corner - plain chrome.
-                IF CFG.LAYOUT_LOCKED% = 0 THEN
-                FOR gx = x + w \ 2 - 6 TO x + w \ 2 + 6 STEP 3
-                    PSET (gx, y + 2), THEME.LAYER_PANEL_header_fg~&
-                    PSET (gx, y + 4), THEME.LAYER_PANEL_header_fg~&
-                NEXT gx
-                END IF
-            ELSE
-                COLOR THEME.LAYER_PANEL_header_fg~&, _RGBA32(0, 0, 0, 0)
-                _PRINTMODE _KEEPBACKGROUND
-                _UPRINTSTRING (x + 3, y + 1), DPANEL(id).title
-                ' a "dock" mark at the right: double-click the title to dock back
-                IF CFG.LAYOUT_LOCKED% = 0 THEN _UPRINTSTRING (x + w - 8, y + 1), "#"
-            END IF
-            IF CFG.LAYOUT_LOCKED% = 0 THEN
-                ' resize grip in the bottom-right corner
-                PSET (x + w - 3, y + h - 3), THEME.LAYER_PANEL_header_fg~&
-                PSET (x + w - 5, y + h - 3), THEME.LAYER_PANEL_header_fg~&
-                PSET (x + w - 3, y + h - 5), THEME.LAYER_PANEL_header_fg~&
-            END IF
+    x = DPANEL(id).fx: y = DPANEL(id).fy: w = DPANEL(id).fw: h = DPANEL(id).fh
+    th = DOCK_float_title_h%(id)
+    LINE (x, y)-(x + w - 1, y + th - 1), THEME.LAYER_PANEL_header_bg~&, BF
+    LINE (x, y)-(x + w - 1, y + h - 1), THEME.LAYER_PANEL_border~&, B
+    IF th = DOCK_FLOAT_GRIP_H THEN
+        ' a thin bar: a grip, no title (drag it; double-click docks it back).
+        ' Lock Layout: no grip, no dock mark, no resize corner - plain chrome.
+        IF CFG.LAYOUT_LOCKED% = 0 THEN
+            FOR gx = x + w \ 2 - 6 TO x + w \ 2 + 6 STEP 3
+                PSET (gx, y + 2), THEME.LAYER_PANEL_header_fg~&
+                PSET (gx, y + 4), THEME.LAYER_PANEL_header_fg~&
+            NEXT gx
         END IF
-    NEXT id
+    ELSE
+        COLOR THEME.LAYER_PANEL_header_fg~&, _RGBA32(0, 0, 0, 0)
+        _PRINTMODE _KEEPBACKGROUND
+        _UPRINTSTRING (x + 3, y + 1), DPANEL(id).title
+        ' a "dock" mark at the right: double-click the title to dock back
+        IF CFG.LAYOUT_LOCKED% = 0 THEN _UPRINTSTRING (x + w - 8, y + 1), "#"
+    END IF
+    IF CFG.LAYOUT_LOCKED% = 0 THEN
+        ' resize grip in the bottom-right corner
+        PSET (x + w - 3, y + h - 3), THEME.LAYER_PANEL_header_fg~&
+        PSET (x + w - 5, y + h - 3), THEME.LAYER_PANEL_header_fg~&
+        PSET (x + w - 3, y + h - 5), THEME.LAYER_PANEL_header_fg~&
+    END IF
     _FONT oldFont&: _DEST oldDest&
 END SUB
 
@@ -2420,11 +2478,8 @@ END SUB
 ' Floating panel whose window (any part of it) is under (mx, my), 0 = none.
 FUNCTION DOCK_float_window_at% (mx AS INTEGER, my AS INTEGER)
     DIM id AS INTEGER
-    FOR id = DP_COUNT TO 1 STEP -1
-        IF DOCK_floating%(id) _ANDALSO DPANEL(id).rVis THEN
-            IF mx >= DPANEL(id).fx _ANDALSO mx < DPANEL(id).fx + DPANEL(id).fw _ANDALSO my >= DPANEL(id).fy _ANDALSO my < DPANEL(id).fy + DPANEL(id).fh THEN DOCK_float_window_at% = id: EXIT FUNCTION
-        END IF
-    NEXT id
+    id = WZ_top_at%(mx, my) ' the frontmost window there (GUI/WINZ)
+    IF id >= 1 _ANDALSO id < DP_PREVIEW THEN DOCK_float_window_at% = id
 END FUNCTION
 
 
@@ -2432,11 +2487,9 @@ END FUNCTION
 ' Floating panel whose title bar is under (mx, my), 0 = none.
 FUNCTION DOCK_float_title_at% (mx AS INTEGER, my AS INTEGER)
     DIM id AS INTEGER
-    FOR id = DP_COUNT TO 1 STEP -1
-        IF DOCK_floating%(id) _ANDALSO DPANEL(id).rVis THEN
-            IF mx >= DPANEL(id).fx _ANDALSO mx < DPANEL(id).fx + DPANEL(id).fw _ANDALSO my >= DPANEL(id).fy _ANDALSO my < DPANEL(id).fy + DOCK_float_handle_h%(id) THEN DOCK_float_title_at% = id: EXIT FUNCTION
-        END IF
-    NEXT id
+    id = DOCK_float_window_at%(mx, my) ' only the frontmost window's title
+    IF id = 0 THEN EXIT FUNCTION
+    IF my < DPANEL(id).fy + DOCK_float_handle_h%(id) THEN DOCK_float_title_at% = id
 END FUNCTION
 
 
@@ -2632,7 +2685,7 @@ FUNCTION DOCK_native_float_title_at% (mx AS INTEGER, my AS INTEGER)
     FOR id = DP_PREVIEW TO DP_COUNT
         IF DPANEL(id).slot = 0 THEN
             IF DOCK_native_grab%(id, gx, gy, gw, gh) THEN
-                IF mx >= gx _ANDALSO mx < gx + gw _ANDALSO my >= gy _ANDALSO my < gy + gh THEN DOCK_native_float_title_at% = id: EXIT FUNCTION
+                IF mx >= gx _ANDALSO mx < gx + gw _ANDALSO my >= gy _ANDALSO my < gy + gh _ANDALSO WZ_top_at%(mx, my) = id THEN DOCK_native_float_title_at% = id: EXIT FUNCTION
             END IF
         END IF
     NEXT id

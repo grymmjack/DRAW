@@ -1,0 +1,187 @@
+''
+' DRAW - GUI/WINZ.BM - the floating windows' front-to-back order (GUI/WINZ.BI)
+'
+$INCLUDEONCE
+
+''
+' The native window w's REGION_* (0 for a dock panel).
+FUNCTION WZ_region% (w AS INTEGER)
+    SELECT CASE w
+        CASE DP_PREVIEW: WZ_region% = REGION_PREVIEW
+        CASE DP_MIXER: WZ_region% = REGION_COLOR_MIXER
+        CASE DP_ADVCP: WZ_region% = REGION_ADV_COLOR_PICKER
+        CASE DP_CS3D: WZ_region% = REGION_COLOR_SPACE_3D
+        CASE DP_PEN: WZ_region% = REGION_PEN_PANEL
+        CASE DP_BROWSER: WZ_region% = REGION_IMAGE_BROWSER
+        CASE WZ_TBED: WZ_region% = REGION_TOOLBAR_EDITOR
+    END SELECT
+END FUNCTION
+
+
+''
+' Is w a floating window shown now? (A docked one sits in its dock slot and
+' never overlaps another.)
+FUNCTION WZ_floating% (w AS INTEGER)
+    IF w < 1 _ORELSE w > WZ_COUNT THEN EXIT FUNCTION
+    IF w < DP_PREVIEW THEN
+        WZ_floating% = (DOCK_floating%(w) <> 0 _ANDALSO DPANEL(w).rVis <> 0)
+    ELSEIF w = WZ_TBED THEN
+        WZ_floating% = (TBED.visible <> 0 _ANDALSO TBED.autoHidden = 0)
+    ELSE
+        IF DPANEL(w).slot > 0 THEN EXIT FUNCTION
+        WZ_floating% = (REGION_BOUNDS_TABLE(WZ_region%(w)).active <> 0)
+    END IF
+END FUNCTION
+
+
+''
+' Is floating window w under (x, y)?
+FUNCTION WZ_hit% (w AS INTEGER, x AS INTEGER, y AS INTEGER)
+    IF w < DP_PREVIEW THEN
+        IF DOCK_floating%(w) = 0 _ORELSE DPANEL(w).rVis = 0 THEN EXIT FUNCTION
+        WZ_hit% = (x >= DPANEL(w).fx _ANDALSO x < DPANEL(w).fx + DPANEL(w).fw _ANDALSO y >= DPANEL(w).fy _ANDALSO y < DPANEL(w).fy + DPANEL(w).fh)
+    ELSE
+        IF w <> WZ_TBED _ANDALSO DPANEL(w).slot > 0 THEN EXIT FUNCTION
+        WZ_hit% = FPANEL_window_hit%(WZ_region%(w), x, y)
+    END IF
+END FUNCTION
+
+
+''
+' Floating window w's rect (FALSE when it is not a shown floating window).
+FUNCTION WZ_rect% (w AS INTEGER, x AS INTEGER, y AS INTEGER, ww AS INTEGER, hh AS INTEGER)
+    DIM r AS INTEGER
+    IF WZ_floating%(w) = 0 THEN EXIT FUNCTION
+    IF w < DP_PREVIEW THEN
+        x = DPANEL(w).fx: y = DPANEL(w).fy: ww = DPANEL(w).fw: hh = DPANEL(w).fh
+    ELSE
+        r = WZ_region%(w)
+        x = REGION_BOUNDS_TABLE(r).x: y = REGION_BOUNDS_TABLE(r).y: ww = REGION_BOUNDS_TABLE(r).w: hh = REGION_BOUNDS_TABLE(r).h
+    END IF
+    WZ_rect% = (ww > 0 _ANDALSO hh > 0)
+END FUNCTION
+
+
+''
+' The frontmost floating window under (x, y), 0 = none.
+FUNCTION WZ_top_at% (x AS INTEGER, y AS INTEGER)
+    DIM w AS INTEGER, best AS INTEGER
+    FOR w = 1 TO WZ_COUNT
+        IF WZ_hit%(w, x, y) THEN
+            IF best = 0 _ORELSE WZ_Z(w) > WZ_Z(best) THEN best = w
+        END IF
+    NEXT w
+    WZ_top_at% = best
+END FUNCTION
+
+
+''
+' Should panel / window w ignore the mouse at (x, y)? TRUE when another window
+' holds the press (WZ_CAP), or a floating window other than w is the frontmost
+' one there (for a docked panel: any floating window over it). w = 0 asks for
+' the canvas / plain chrome.
+FUNCTION WZ_blocked% (w AS INTEGER, x AS INTEGER, y AS INTEGER)
+    DIM t AS INTEGER
+    IF WZ_CAP <> 0 THEN WZ_blocked% = (WZ_CAP <> w): EXIT FUNCTION
+    t = WZ_top_at%(x, y)
+    WZ_blocked% = (t <> 0 _ANDALSO t <> w)
+END FUNCTION
+
+
+''
+' Bring window w to the front.
+SUB WZ_raise (w AS INTEGER)
+    IF w < 1 _ORELSE w > WZ_COUNT THEN EXIT SUB
+    IF WZ_Z(w) = WZ_TOP THEN EXIT SUB
+    WZ_TOP = WZ_TOP + 1
+    WZ_Z(w) = WZ_TOP
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Each mouse frame, before any panel sees it: a press on a floating window
+' brings that window to the front and gives it the mouse until every button
+' is up. Not while a menu or popup is open (the click is the menu's).
+SUB WZ_mouse_frame (x AS INTEGER, y AS INTEGER)
+    DIM pressed AS INTEGER
+    IF MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 _ANDALSO MOUSE.B3% = 0 THEN WZ_CAP = 0: EXIT SUB
+    pressed = (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0) _ORELSE (MOUSE.B2% <> 0 _ANDALSO MOUSE.OLD_B2% = 0) _ORELSE (MOUSE.B3% <> 0 _ANDALSO MOUSE.OLD_B3% = 0)
+    IF pressed = 0 _ORELSE WZ_CAP <> 0 THEN EXIT SUB
+    IF MENUBAR_is_open% _ORELSE POPUP_any_open% THEN EXIT SUB
+    WZ_CAP = WZ_top_at%(x, y)
+    IF WZ_CAP THEN WZ_raise WZ_CAP
+END SUB
+
+
+''
+' Every window 1..WZ_COUNT, back to front.
+SUB WZ_order (o() AS INTEGER)
+    DIM i AS INTEGER, j AS INTEGER, t AS INTEGER
+    FOR i = 1 TO WZ_COUNT: o(i) = i: NEXT i
+    FOR i = 2 TO WZ_COUNT
+        t = o(i): j = i - 1
+        DO WHILE j >= 1
+            IF WZ_Z(o(j)) <= WZ_Z(t) THEN EXIT DO
+            o(j + 1) = o(j): j = j - 1
+        LOOP
+        o(j + 1) = t
+    NEXT i
+END SUB
+
+
+''
+' Copy floating dock panel w from the presented canvas back onto screen 0:
+' it is above a native window drawn there this frame.
+SUB WZ_reblit_panel (w AS INTEGER)
+    DIM x AS INTEGER, y AS INTEGER, ww AS INTEGER, hh AS INTEGER
+    DIM sx AS SINGLE, sy AS SINGLE
+    IF WZ_rect%(w, x, y, ww, hh) = 0 THEN EXIT SUB
+    IF SCRN.w& < 1 _ORELSE SCRN.h& < 1 THEN EXIT SUB
+    sx = _WIDTH(0) / SCRN.w&: sy = _HEIGHT(0) / SCRN.h&
+    _PUTIMAGE (INT(x * sx), INT(y * sy))-(INT((x + ww) * sx) - 1, INT((y + hh) * sy) - 1), SCRN.CANVAS&, 0, (x, y)-(x + ww - 1, y + hh - 1)
+END SUB
+
+
+''
+' Do the rects of floating windows a and b overlap?
+FUNCTION WZ_overlap% (a AS INTEGER, b AS INTEGER)
+    DIM ax AS INTEGER, ay AS INTEGER, aw AS INTEGER, ah AS INTEGER
+    DIM bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    IF WZ_rect%(a, ax, ay, aw, ah) = 0 _ORELSE WZ_rect%(b, bx, by, bw, bh) = 0 THEN EXIT FUNCTION
+    WZ_overlap% = (ax < bx + bw _ANDALSO bx < ax + aw _ANDALSO ay < by + bh _ANDALSO by < ay + ah)
+END FUNCTION
+
+
+''
+' QA dump: every floating window front to back - "WZ <name> <z> ..." - and
+' the one holding the press.
+FUNCTION WZ_dump$ ()
+    DIM o(1 TO WZ_COUNT) AS INTEGER, i AS INTEGER, d AS STRING
+    WZ_order o()
+    d = "WZ" + DOCK_n$(WZ_CAP)
+    FOR i = WZ_COUNT TO 1 STEP -1
+        IF WZ_floating%(o(i)) THEN d = d + " " + WZ_name$(o(i))
+    NEXT i
+    WZ_dump$ = d
+END FUNCTION
+
+
+FUNCTION WZ_name$ (w AS INTEGER)
+    SELECT CASE w
+        CASE DP_TOOLBOX: WZ_name$ = "toolbox"
+        CASE DP_ORGANIZER: WZ_name$ = "organizer"
+        CASE DP_DRAWER: WZ_name$ = "drawer"
+        CASE DP_LAYERS: WZ_name$ = "layers"
+        CASE DP_EDITBAR: WZ_name$ = "editbar"
+        CASE DP_ADVBAR: WZ_name$ = "advbar"
+        CASE DP_CHARMAP: WZ_name$ = "charmap"
+        CASE DP_PREVIEW: WZ_name$ = "preview"
+        CASE DP_MIXER: WZ_name$ = "mixer"
+        CASE DP_ADVCP: WZ_name$ = "advcp"
+        CASE DP_CS3D: WZ_name$ = "cs3d"
+        CASE DP_PEN: WZ_name$ = "pen"
+        CASE DP_BROWSER: WZ_name$ = "browser"
+        CASE WZ_TBED: WZ_name$ = "tbed"
+    END SELECT
+END FUNCTION
