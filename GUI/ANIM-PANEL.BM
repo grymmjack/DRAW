@@ -1,0 +1,427 @@
+''
+' DRAW - GUI/ANIM-PANEL.BM
+' =============================================================================
+' Animation panel (see ANIM-PANEL.BI). Window plumbing follows GUI/PEN-PANEL.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Defaults + the open state from DRAW.cfg (the buffer is made on first use).
+SUB ANIMP_init ()
+    ANIMP.visible = FALSE: ANIMP.positioned = FALSE: ANIMP.initialized = FALSE
+    ANIMP.autoHidden = FALSE: ANIMP.renderScale = 1: ANIMP.panelImg = 0
+    ANIMP.dragging = FALSE: ANIMP.pressCtl = ANIMP_CTL_NONE: ANIMP.hoverCtl = ANIMP_CTL_NONE
+    IF CFG.ANIM_PANEL_VISIBLE% THEN ANIMP.visible = TRUE
+END SUB
+
+SUB ANIMP_ensure_initialized ()
+    IF ANIMP.initialized THEN EXIT SUB
+    ANIMP_layout
+    IF ANIMP.panelImg < -1 THEN _FREEIMAGE ANIMP.panelImg
+    ANIMP.panelImg = _NEWIMAGE(ANIMP.panelW, ANIMP.panelH, 32)
+    ANIMP_compute_display_size
+    IF CFG.ANIM_PANEL_X% >= 0 _ANDALSO CFG.ANIM_PANEL_Y% >= 0 THEN
+        ANIMP.dispX = CFG.ANIM_PANEL_X%: ANIMP.dispY = CFG.ANIM_PANEL_Y%
+        ANIMP.positioned = TRUE
+    END IF
+    ANIMP.initialized = TRUE
+END SUB
+
+''
+' Rows from the shared floating-panel font: status / nav buttons / W H
+' gutter margin / FPS hold / loop chips / info.
+SUB ANIMP_layout ()
+    DIM f AS INTEGER, g AS INTEGER, sec AS INTEGER, rh AS INTEGER, y AS INTEGER, r AS INTEGER
+    FPANEL_ensure
+    ANIMP.panelW = FPANEL_panel_w%
+    f = FPANEL.fontH: g = FPANEL.gap: sec = FPANEL.section: rh = FPANEL.rowH
+    y = FPANEL.titleH + FPANEL.pad
+    ANIMP.yStatus = y: y = y + f + g
+    ANIMP.yNav = y: y = y + rh + sec
+    FOR r = 1 TO ANIMP_ROWS
+        ANIMP_rowY(r) = y: y = y + rh + g
+        IF r = ANIMP_ROW_MARGIN THEN y = y + sec - g
+    NEXT r
+    y = y + sec - g
+    ANIMP.yLoop = y: y = y + rh + sec
+    ANIMP.yInfo = y: y = y + f + FPANEL.pad
+    ANIMP.panelH = y
+    ANIMP.chipW = rh + 2
+    ANIMP.valW = FPANEL_text_w%("9999") + 4
+END SUB
+
+SUB ANIMP_reset ()
+    ANIMP.autoHidden = FALSE: ANIMP.dragging = FALSE
+    ANIMP.pressCtl = ANIMP_CTL_NONE: ANIMP.hoverCtl = ANIMP_CTL_NONE
+END SUB
+
+SUB ANIMP_toggle ()
+    IF ANIMP.visible THEN
+        ANIMP.visible = FALSE
+    ELSE
+        ANIMP.visible = TRUE: ANIMP.autoHidden = FALSE
+        ANIMP_ensure_initialized
+        IF ANIMP.positioned = 0 THEN ANIMP_auto_position
+        FPANEL_place REGION_ANIM_PANEL, ANIMP.dispX, ANIMP.dispY, ANIMP.dispW, ANIMP.dispH, ANIMP.dispX, ANIMP.dispY
+        CFG.ANIM_PANEL_X% = ANIMP.dispX: CFG.ANIM_PANEL_Y% = ANIMP.dispY
+    END IF
+    CFG.ANIM_PANEL_VISIBLE% = ANIMP.visible
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+SUB ANIMP_compute_display_size ()
+    DIM ts AS INTEGER, ds AS INTEGER
+    ts = USCALE.mixer%: IF ts < 1 THEN ts = 1
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    ANIMP.renderScale = CSNG(ts) / CSNG(ds)
+    ANIMP.dispW = INT(CSNG(ANIMP.panelW) * ts / ds + 0.5)
+    ANIMP.dispH = INT(CSNG(ANIMP.panelH) * ts / ds + 0.5)
+END SUB
+
+''
+' First open: the top right of the work area.
+SUB ANIMP_auto_position ()
+    DIM minY AS INTEGER, maxY AS INTEGER
+    ANIMP_ensure_initialized
+    CS3D_work_area minY, maxY
+    ANIMP.dispX = SCRN.uiRightEdge% - ANIMP.dispW - 8
+    IF ANIMP.dispX < SCRN.uiLeftEdge% + 8 THEN ANIMP.dispX = SCRN.uiLeftEdge% + 8
+    ANIMP.dispY = minY + 8
+    ANIMP.positioned = TRUE
+    CFG.ANIM_PANEL_X% = ANIMP.dispX: CFG.ANIM_PANEL_Y% = ANIMP.dispY
+END SUB
+
+SUB ANIMP_clamp_to_work_area ()
+    DIM minY AS INTEGER, maxY AS INTEGER, lx AS LONG, ly AS LONG
+    IF ANIMP.initialized = 0 _ORELSE ANIMP.docked THEN EXIT SUB
+    CS3D_work_area minY, maxY
+    lx = ANIMP.dispX: ly = ANIMP.dispY
+    LAY_clamp lx, ly, CLNG(ANIMP.dispW), CLNG(ANIMP.dispH), CLNG(SCRN.uiLeftEdge%), CLNG(minY), CLNG(SCRN.uiRightEdge%), CLNG(maxY)
+    ANIMP.dispX = lx: ANIMP.dispY = ly
+END SUB
+
+FUNCTION ANIMP_hit_window% (rawX AS INTEGER, rawY AS INTEGER)
+    IF DOCK_native_off%(DP_ANIM) THEN EXIT FUNCTION
+    IF ANIMP.initialized = 0 THEN EXIT FUNCTION
+    IF rawX >= ANIMP.dispX _ANDALSO rawX < ANIMP.dispX + ANIMP.dispW _ANDALSO rawY >= ANIMP.dispY _ANDALSO rawY < ANIMP.dispY + ANIMP.dispH THEN ANIMP_hit_window% = TRUE
+END FUNCTION
+
+FUNCTION ANIMP_active_hit% (rawX AS INTEGER, rawY AS INTEGER)
+    IF ANIMP.visible = 0 _ORELSE ANIMP.autoHidden THEN EXIT FUNCTION
+    ANIMP_active_hit% = ANIMP_hit_window%(rawX, rawY)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Geometry of the controls (native px)
+' ---------------------------------------------------------------------------
+
+''
+' Stepper row r: x of its -, its value and its +.
+SUB ANIMP_stepper_x (minusX AS INTEGER, valX AS INTEGER, plusX AS INTEGER)
+    plusX = ANIMP.panelW - FPANEL.pad - ANIMP.chipW
+    valX = plusX - 2 - ANIMP.valW
+    minusX = valX - 2 - ANIMP.chipW
+END SUB
+
+''
+' Chip k (0-based) of n across the panel at y: x and w.
+SUB ANIMP_chip_x (k AS INTEGER, n AS INTEGER, x AS INTEGER, w AS INTEGER)
+    DIM span AS INTEGER, gap AS INTEGER
+    gap = 2
+    span = ANIMP.panelW - 2 * FPANEL.pad
+    w = (span - gap * (n - 1)) \ n
+    x = FPANEL.pad + k * (w + gap)
+END SUB
+
+FUNCTION ANIMP_hit% (nx AS INTEGER, ny AS INTEGER)
+    DIM r AS INTEGER, k AS INTEGER, mx AS INTEGER, vx AS INTEGER, px AS INTEGER, cx AS INTEGER, cw AS INTEGER, rh AS INTEGER
+    rh = FPANEL.rowH
+    ANIMP_stepper_x mx, vx, px
+    FOR r = 1 TO ANIMP_ROWS
+        IF ny >= ANIMP_rowY(r) _ANDALSO ny < ANIMP_rowY(r) + rh THEN
+            IF nx >= mx _ANDALSO nx < mx + ANIMP.chipW THEN ANIMP_hit% = 2 * r - 1: EXIT FUNCTION
+            IF nx >= px _ANDALSO nx < px + ANIMP.chipW THEN ANIMP_hit% = 2 * r: EXIT FUNCTION
+        END IF
+    NEXT r
+    FOR k = 0 TO 3
+        ANIMP_chip_x k, 4, cx, cw
+        IF nx >= cx _ANDALSO nx < cx + cw THEN
+            IF ny >= ANIMP.yNav _ANDALSO ny < ANIMP.yNav + rh THEN ANIMP_hit% = ANIMP_CTL_FIRST + k: EXIT FUNCTION
+            IF ny >= ANIMP.yLoop _ANDALSO ny < ANIMP.yLoop + rh THEN ANIMP_hit% = ANIMP_CTL_LOOP0 + k: EXIT FUNCTION
+        END IF
+    NEXT k
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Values
+' ---------------------------------------------------------------------------
+
+''
+' Row r's value: the layout's, or on a picture without frames the whole
+' canvas as one frame.
+FUNCTION ANIMP_value% (r AS INTEGER)
+    DIM isOn AS INTEGER
+    isOn = ANIM.active
+    SELECT CASE r
+        CASE ANIMP_ROW_W: ANIMP_value% = _IIF(isOn, ANIM.frameW, SCRN.canvasW&)
+        CASE ANIMP_ROW_H: ANIMP_value% = _IIF(isOn, ANIM.frameH, SCRN.canvasH&)
+        CASE ANIMP_ROW_GUTTER: ANIMP_value% = _IIF(isOn, ANIM.gutter, 0)
+        CASE ANIMP_ROW_MARGIN: ANIMP_value% = _IIF(isOn, ANIM.margin, 0)
+        CASE ANIMP_ROW_FPS: ANIMP_value% = ANIM.fps
+        CASE ANIMP_ROW_HOLD: ANIMP_value% = ANIM_hold%(ANIM.current)
+    END SELECT
+END FUNCTION
+
+''
+' Does row r do anything now? Timing needs frames; the size rows always work.
+FUNCTION ANIMP_row_on% (r AS INTEGER)
+    IF r <= ANIMP_ROW_MARGIN THEN ANIMP_row_on% = TRUE ELSE ANIMP_row_on% = (ANIM.active <> 0)
+END FUNCTION
+
+''
+' Step row r by d (the panel's - / + buttons).
+SUB ANIMP_step (r AS INTEGER, d AS INTEGER)
+    DIM fw AS LONG, fh AS LONG, gu AS LONG, ma AS LONG, v AS LONG, r2 AS INTEGER
+    IF ANIMP_row_on%(r) = 0 THEN EXIT SUB
+    SELECT CASE r
+        CASE ANIMP_ROW_W TO ANIMP_ROW_MARGIN
+            fw = ANIMP_value%(ANIMP_ROW_W): fh = ANIMP_value%(ANIMP_ROW_H)
+            gu = ANIMP_value%(ANIMP_ROW_GUTTER): ma = ANIMP_value%(ANIMP_ROW_MARGIN)
+            SELECT CASE r
+                CASE ANIMP_ROW_W: fw = fw + d
+                CASE ANIMP_ROW_H: fh = fh + d
+                CASE ANIMP_ROW_GUTTER: gu = gu + d
+                CASE ANIMP_ROW_MARGIN: ma = ma + d
+            END SELECT
+            IF fw < 1 THEN fw = 1
+            IF fw > SCRN.canvasW& THEN fw = SCRN.canvasW&
+            IF fh < 1 THEN fh = 1
+            IF fh > SCRN.canvasH& THEN fh = SCRN.canvasH&
+            IF gu < 0 THEN gu = 0
+            IF gu > 255 THEN gu = 255
+            IF ma < 0 THEN ma = 0
+            IF ma > 255 THEN ma = 255
+            r2 = ANIM_set_layout%(CINT(fw), CINT(fh), CINT(gu), CINT(ma))
+        CASE ANIMP_ROW_FPS
+            v = ANIM.fps + d: ANIM_set_fps CINT(_MAX(1, _MIN(ANIM_FPS_MAX, v)))
+        CASE ANIMP_ROW_HOLD
+            v = ANIM_hold%(ANIM.current) + d: ANIM_set_hold ANIM.current, CINT(_MAX(1, _MIN(ANIM_HOLD_MAX, v)))
+    END SELECT
+    INVALIDATE_canvas ' unsaved; the frame grid redraws
+END SUB
+
+''
+' Run control c (a click, or a held stepper's repeat).
+SUB ANIMP_do (c AS INTEGER)
+    DIM d AS INTEGER
+    SELECT CASE c
+        CASE 1 TO 2 * ANIMP_ROWS
+            DIM r AS INTEGER
+            d = _IIF(MODIFIERS.shift%, 10, 1)
+            IF c MOD 2 = 1 THEN d = -d
+            r = (c + 1) \ 2
+            ANIMP_step r, d
+        CASE ANIMP_CTL_FIRST TO ANIMP_CTL_LAST
+            IF ANIM.active THEN CMD_execute_action ANIM_ACT_FIRST + (c - ANIMP_CTL_FIRST)
+        CASE ANIMP_CTL_LOOP0 TO ANIMP_CTL_LOOP0 + 3
+            IF ANIM.active _ANDALSO ANIM.loopMode <> c - ANIMP_CTL_LOOP0 THEN ANIM.loopMode = c - ANIMP_CTL_LOOP0: INVALIDATE_canvas
+    END SELECT
+END SUB
+
+' ---------------------------------------------------------------------------
+' Render
+' ---------------------------------------------------------------------------
+
+SUB ANIMP_render ()
+    IF ANIMP.visible = 0 _ORELSE ANIMP.autoHidden THEN EXIT SUB
+    ANIMP_ensure_initialized
+    IF ANIMP.positioned = 0 THEN ANIMP_auto_position
+    ANIMP_clamp_to_work_area
+    REGION_set_bounds REGION_ANIM_PANEL, ANIMP.dispX, ANIMP.dispY, ANIMP.dispW, ANIMP.dispH, _IIF(ANIMP.docked <> 0, ZORDER_DOCKED_WINDOW, ZORDER_FLOATING)
+
+    ANIMP.hoverCtl = ANIMP_CTL_NONE: ANIMP.closeHover = FALSE
+    IF ANIMP_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) _ANDALSO ANIMP.dragging = 0 _ANDALSO ANIMP.renderScale > 0 THEN
+        DIM hx AS INTEGER, hy AS INTEGER
+        hx = INT((MOUSE.RAW_X% - ANIMP.dispX) / ANIMP.renderScale)
+        hy = INT((MOUSE.RAW_Y% - ANIMP.dispY) / ANIMP.renderScale)
+        ANIMP.closeHover = FPANEL_over_close%(hx, hy, ANIMP.panelW)
+        ANIMP.hoverCtl = ANIMP_hit%(hx, hy)
+    END IF
+
+    DIM oldDest AS LONG, oldFont AS LONG, isOn AS INTEGER, pad AS INTEGER, f AS INTEGER, rh AS INTEGER
+    DIM r AS INTEGER, k AS INTEGER, mx AS INTEGER, vx AS INTEGER, px AS INTEGER, cx AS INTEGER, cw AS INTEGER
+    DIM fg AS _UNSIGNED LONG, t AS STRING, ty AS INTEGER, en AS INTEGER
+    isOn = ANIM.active: pad = FPANEL.pad: f = FPANEL.fontH: rh = FPANEL.rowH
+    oldDest = _DEST
+    _DEST ANIMP.panelImg
+    oldFont = FPANEL_begin&
+    CLS , THEME.CP_bg~&
+    FPANEL_title_bar ANIMP.panelW, "ANIMATION", ANIMP.closeHover
+
+    IF isOn THEN
+        t = "FRAME" + STR$(ANIM.current) + " OF" + STR$(ANIM.count)
+        FPANEL_text pad, ANIMP.yStatus, t, THEME.CP_text_bright~&
+    ELSE
+        FPANEL_text pad, ANIMP.yStatus, "NO FRAMES - SET A SIZE", THEME.CP_text_dim~&
+    END IF
+
+    ' first / previous / next / last
+    FOR k = 0 TO 3
+        ANIMP_chip_x k, 4, cx, cw
+        t = MID$("|< <  >  >|", k * 3 + 1, 2)
+        ANIMP_chip cx, ANIMP.yNav, cw, _TRIM$(t), FALSE, ANIMP.hoverCtl = ANIMP_CTL_FIRST + k, isOn
+    NEXT k
+
+    ' steppers
+    ANIMP_stepper_x mx, vx, px
+    FOR r = 1 TO ANIMP_ROWS
+        en = ANIMP_row_on%(r)
+        IF en THEN fg = THEME.CP_text~& ELSE fg = THEME.CP_text_dim~&
+        ty = ANIMP_rowY(r) + (rh - f) \ 2
+        FPANEL_text pad, ty, ANIMP_row_label$(r), fg
+        ANIMP_chip mx, ANIMP_rowY(r), ANIMP.chipW, "-", FALSE, ANIMP.hoverCtl = 2 * r - 1, en
+        ANIMP_chip px, ANIMP_rowY(r), ANIMP.chipW, "+", FALSE, ANIMP.hoverCtl = 2 * r, en
+        LINE (vx, ANIMP_rowY(r))-(vx + ANIMP.valW - 1, ANIMP_rowY(r) + rh - 1), THEME.CP_slider_bg~&, BF
+        LINE (vx, ANIMP_rowY(r))-(vx + ANIMP.valW - 1, ANIMP_rowY(r) + rh - 1), THEME.CP_slider_border~&, B
+        t = _TRIM$(STR$(ANIMP_value%(r)))
+        FPANEL_text vx + ANIMP.valW - 2 - FPANEL_text_w%(t), ty, t, fg
+    NEXT r
+
+    ' loop mode
+    FOR k = 0 TO 3
+        ANIMP_chip_x k, 4, cx, cw
+        t = _TRIM$(MID$("FWD REV PINGONCE", k * 4 + 1, 4))
+        ANIMP_chip cx, ANIMP.yLoop, cw, t, isOn _ANDALSO ANIM.loopMode = k, ANIMP.hoverCtl = ANIMP_CTL_LOOP0 + k, isOn
+    NEXT k
+
+    IF isOn THEN
+        t = _TRIM$(STR$(ANIM_cols%)) + " X" + STR$(ANIM_rows%) + " CELLS," + STR$(ANIM_cells% - ANIM.count) + " SPARE"
+    ELSE
+        t = _TRIM$(STR$(SCRN.canvasW&)) + " X" + STR$(SCRN.canvasH&) + " PICTURE"
+    END IF
+    FPANEL_text pad, ANIMP.yInfo, t, THEME.CP_text_dim~&
+
+    FPANEL_frame ANIMP.panelW, ANIMP.panelH
+    _FONT oldFont
+    _DEST oldDest
+
+    DIM ts AS INTEGER, ds AS INTEGER, sx AS LONG, sy AS LONG
+    ts = USCALE.mixer%: IF ts < 1 THEN ts = 1
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    sx = CLNG(ANIMP.dispX) * ds: sy = CLNG(ANIMP.dispY) * ds
+    oldDest = _DEST
+    _DEST 0
+    _PUTIMAGE (sx, sy)-(sx + CLNG(ANIMP.panelW) * ts - 1, sy + CLNG(ANIMP.panelH) * ts - 1), ANIMP.panelImg, 0
+    _DEST oldDest
+END SUB
+
+FUNCTION ANIMP_row_label$ (r AS INTEGER)
+    SELECT CASE r
+        CASE ANIMP_ROW_W: ANIMP_row_label$ = "FRAME W"
+        CASE ANIMP_ROW_H: ANIMP_row_label$ = "FRAME H"
+        CASE ANIMP_ROW_GUTTER: ANIMP_row_label$ = "GUTTER"
+        CASE ANIMP_ROW_MARGIN: ANIMP_row_label$ = "MARGIN"
+        CASE ANIMP_ROW_FPS: ANIMP_row_label$ = "FPS"
+        CASE ANIMP_ROW_HOLD: ANIMP_row_label$ = "HOLD"
+    END SELECT
+END FUNCTION
+
+''
+' FPANEL_chip, greyed when it does nothing.
+SUB ANIMP_chip (x AS INTEGER, y AS INTEGER, w AS INTEGER, label AS STRING, active AS INTEGER, hover AS INTEGER, enabled AS INTEGER)
+    IF enabled THEN
+        FPANEL_chip x, y, w, FPANEL.rowH, label, active, hover
+    ELSE
+        LINE (x, y)-(x + w - 1, y + FPANEL.rowH - 1), THEME.CP_slider_bg~&, BF
+        FPANEL_text x + (w - FPANEL_text_w%(label)) \ 2, y + (FPANEL.rowH - FPANEL.fontH) \ 2, label, THEME.CP_text_dim~&
+    END IF
+END SUB
+
+''
+' A held stepper repeats: redraw while one is held.
+FUNCTION ANIMP_needs_redraw% ()
+    ANIMP_needs_redraw% = (ANIMP.visible <> 0 _ANDALSO ANIMP.pressCtl <> ANIMP_CTL_NONE)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Mouse (MOUSE_handle_gui_panels, over the panel or while a drag / press is on)
+' ---------------------------------------------------------------------------
+
+SUB ANIMP_mouse_input ()
+    IF ANIMP.visible = 0 _ORELSE ANIMP.autoHidden _ORELSE ANIMP.initialized = 0 THEN EXIT SUB
+    DIM lx AS INTEGER, ly AS INTEGER, nx AS INTEGER, ny AS INTEGER, pressed AS INTEGER, c AS INTEGER, t AS DOUBLE
+    lx = MOUSE.RAW_X% - ANIMP.dispX: ly = MOUSE.RAW_Y% - ANIMP.dispY
+    IF ANIMP.renderScale > 0 THEN nx = INT(lx / ANIMP.renderScale): ny = INT(ly / ANIMP.renderScale) ELSE nx = lx: ny = ly
+    pressed = (MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0)
+
+    IF ANIMP.dragging THEN
+        IF MOUSE.B1% THEN
+            DIM pvX AS INTEGER, pvY AS INTEGER
+            DOCK_native_drag DP_ANIM, MOUSE.RAW_X%, MOUSE.RAW_Y%
+            pvX = ANIMP.dispX: pvY = ANIMP.dispY
+            ANIMP.dispX = ANIMP.dragStartDX + (MOUSE.RAW_X% - ANIMP.dragStartMX)
+            ANIMP.dispY = ANIMP.dragStartDY + (MOUSE.RAW_Y% - ANIMP.dragStartMY)
+            ANIMP_clamp_to_work_area
+            FPANEL_place REGION_ANIM_PANEL, ANIMP.dispX, ANIMP.dispY, ANIMP.dispW, ANIMP.dispH, pvX, pvY
+            ANIMP_clamp_to_work_area
+        ELSE
+            IF DOCK_native_drag_end%(DP_ANIM) THEN ANIMP.dragging = FALSE: EXIT SUB
+            ANIMP.dragging = FALSE
+            CONFIG_save
+        END IF
+        CFG.ANIM_PANEL_X% = ANIMP.dispX: CFG.ANIM_PANEL_Y% = ANIMP.dispY
+        SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    ' a held stepper: repeat while the pointer stays on it
+    IF ANIMP.pressCtl <> ANIMP_CTL_NONE THEN
+        IF MOUSE.B1% = 0 THEN
+            ANIMP.pressCtl = ANIMP_CTL_NONE
+        ELSE
+            t = TIMER(.001)
+            IF t < ANIMP.pressT - 1 THEN ANIMP.pressT = t ' midnight
+            IF t >= ANIMP.pressT _ANDALSO ANIMP_hit%(nx, ny) = ANIMP.pressCtl THEN
+                ANIMP_do ANIMP.pressCtl
+                ANIMP.pressT = t + .06
+            END IF
+        END IF
+        SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    IF pressed = 0 THEN EXIT SUB
+    IF lx < 0 _ORELSE lx >= ANIMP.dispW _ORELSE ly < 0 _ORELSE ly >= ANIMP.dispH THEN EXIT SUB
+
+    IF ny < FPANEL.titleH THEN
+        IF FPANEL_over_close%(nx, ny, ANIMP.panelW) THEN ANIMP_toggle: CONFIG_save: EXIT SUB
+        ANIMP.dragging = LAYOUT_unlocked%
+        ANIMP.dragStartMX = MOUSE.RAW_X%: ANIMP.dragStartMY = MOUSE.RAW_Y%
+        ANIMP.dragStartDX = ANIMP.dispX: ANIMP.dragStartDY = ANIMP.dispY
+        EXIT SUB
+    END IF
+
+    c = ANIMP_hit%(nx, ny)
+    IF c = ANIMP_CTL_NONE THEN EXIT SUB
+    ANIMP_do c
+    IF c <= 2 * ANIMP_ROWS THEN ANIMP.pressCtl = c: ANIMP.pressT = TIMER(.001) + .4
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' QA dump line: ANIMP visible docked x y w h scale% hold (viewport px; the
+' current frame's hold)
+' ANIMPL nav row1..row6 loop rowH minusX plusX chipW pad panelW (native px,
+' for clicking the controls: viewport = disp + native * scale% / 100)
+FUNCTION ANIMP_dump$ ()
+    DIM d AS STRING, r AS INTEGER, mx AS INTEGER, vx AS INTEGER, px AS INTEGER
+    IF ANIMP.initialized THEN
+        ANIMP_stepper_x mx, vx, px
+        d = "ANIMPL" + DOCK_n$(ANIMP.yNav)
+        FOR r = 1 TO ANIMP_ROWS: d = d + DOCK_n$(ANIMP_rowY(r)): NEXT r
+        d = d + DOCK_n$(ANIMP.yLoop) + DOCK_n$(FPANEL.rowH) + DOCK_n$(mx) + DOCK_n$(px) + DOCK_n$(ANIMP.chipW) + DOCK_n$(FPANEL.pad) + DOCK_n$(ANIMP.panelW) + CHR$(10)
+    END IF
+    ANIMP_dump$ = d + "ANIMP" + DOCK_n$(ANIMP.visible <> 0) + DOCK_n$(ANIMP.docked <> 0) + DOCK_n$(ANIMP.dispX) + DOCK_n$(ANIMP.dispY) + DOCK_n$(ANIMP.dispW) + DOCK_n$(ANIMP.dispH) + DOCK_n$(INT(ANIMP.renderScale * 100)) + DOCK_n$(ANIM_hold%(ANIM.current)) + CHR$(10)
+END FUNCTION

@@ -31,7 +31,7 @@
 # =============================================================================
 
 DK_DUMP="$DRAW_ROOT/QA/.dock-dump.txt"
-DK_NATIVE=" preview colormixer advcolorpicker colorspace3d pen browser "
+DK_NATIVE=" preview colormixer advcolorpicker colorspace3d pen browser animation "
 
 dk_seq()  { if [[ -f "$DK_DUMP" ]]; then awk 'NR==1 {print $2}' "$DK_DUMP"; else echo 0; fi; }
 dk_tree() { sed -n 's/^TREE //p' "$DK_DUMP" 2>/dev/null; }
@@ -394,7 +394,7 @@ dk_seams() {
     dk_scr
     # DK_SEAM_COLORS="404040 404040" stands in for the SEAM line (a build from
     # before it, to see the check fail on the old code)
-    grep -q '^SEAM ' "$DK_DUMP" || [[ -n "$DK_SEAM_COLORS" ]] || { fail "$label: no SEAM line in the dock dump"; return 0; }
+    grep -q '^SEAM ' "$DK_DUMP" || [[ -n "${DK_SEAM_COLORS:-}" ]] || { fail "$label: no SEAM line in the dock dump"; return 0; }
     DK_SEAM_N=$(( ${DK_SEAM_N:-0} + 1 ))
     snap_region 0 0 "$SCR_W" "$SCR_H" "seams$DK_SEAM_N"
     png="$SNAP_RESULT"
@@ -407,7 +407,7 @@ dk_seams() {
     sc=$(( (pw + SCR_W / 2) / SCR_W )); (( sc < 1 )) && sc=1
     vh=$(( ph / sc )); (( vh > SCR_H )) && vh=$SCR_H
     magick "$png" -background black -extent "$(( SCR_W * sc ))x$(( SCR_H * sc ))" -sample "${SCR_W}x${SCR_H}!" txt:- 2>/dev/null > "$txt"
-    res=$(awk -v W="$SCR_W" -v H="$vh" -v SC="$DK_SEAM_COLORS" '
+    res=$(awk -v W="$SCR_W" -v H="$vh" -v SC="${DK_SEAM_COLORS:-}" '
         function h2(t) { t = toupper(t); return (index("0123456789ABCDEF", substr(t,1,1)) - 1) * 16 + index("0123456789ABCDEF", substr(t,2,1)) - 1 }
         function lum(c) { return (h2(substr(c,1,2)) + h2(substr(c,3,2)) + h2(substr(c,5,2))) / 3 }
         function covered(y, x1, x2,   i) {

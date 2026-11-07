@@ -471,6 +471,9 @@ TYPE DRAW_CONFIG
     PEN_PANEL_VISIBLE               AS INTEGER        ' TRUE = Pen Pressure panel open at startup
     PEN_PANEL_X                     AS INTEGER        ' Last panel X (-1 = auto-position)
     PEN_PANEL_Y                     AS INTEGER        ' Last panel Y (-1 = auto-position)
+    ANIM_PANEL_VISIBLE              AS INTEGER        ' TRUE = Animation panel open at startup
+    ANIM_PANEL_X                    AS INTEGER        ' Last Animation panel X (-1 = auto-position)
+    ANIM_PANEL_Y                    AS INTEGER        ' Last Animation panel Y (-1 = auto-position)
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)

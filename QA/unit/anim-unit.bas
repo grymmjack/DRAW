@@ -56,8 +56,12 @@ check "spare space right of the cells", STR$(ANIM_frame_at%(60, 5)), STR$(0)
 
 ' --- count below cells: the rest of the row is spare ---
 r = ANIM_set_layout%(16, 16, 0, 0)
-check "re-slice keeps a count that fits", STR$(ANIM.count), STR$(3)
-ANIM.count = 5
+check "the frames a smaller layout hid come back", STR$(ANIM.count), STR$(8)
+ANIM.count = 5: ANIM.wanted = 5
+r = ANIM_set_layout%(22, 16, 0, 0)
+check "a layout with fewer cells (2 x 2) shows fewer", STR$(ANIM.count), STR$(4)
+r = ANIM_set_layout%(16, 16, 0, 0)
+check "a re-slice keeps the wanted count", STR$(ANIM.count), STR$(5)
 check "cell 7 exists", STR$(ANIM_cell_rect%(7, x, y, w, h)), STR$(TRUE)
 check "but is past the last frame", STR$(ANIM_frame_at%(40, 20)), STR$(0)
 

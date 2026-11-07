@@ -42,6 +42,7 @@ TYPE ANIM_OBJ
     gutter   AS INTEGER ' px between cells
     margin   AS INTEGER ' px from the canvas edges to the first cells
     count    AS INTEGER ' frames in the animation (<= cells)
+    wanted   AS INTEGER ' the count asked for (load, frame ops): a layout with fewer cells shows fewer, the rest come back when it fits
     current  AS INTEGER ' 1-based
     fps      AS INTEGER
     loopMode AS INTEGER

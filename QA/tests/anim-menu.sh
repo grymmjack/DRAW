@@ -3,9 +3,9 @@
 # anim-menu.sh — QA test: the ANIM menu.
 #
 # Animation 1.5 (PLANS/ANIMATION.md): an ANIM root between AI (off in QA) and
-# HELP, with First / Previous / Next / Last Frame and Frame Grid (checkbox,
-# same action as View > Frame Grid). On a picture without frames the frame
-# items are greyed and do nothing.
+# HELP, with Animation Panel (1.6), First / Previous / Next / Last Frame and
+# Frame Grid (checkbox, same action as View > Frame Grid). On a picture without
+# frames the frame items are greyed and do nothing.
 #
 # Where the root and its dropdown sit comes from the QA dump (MROOT / MENU);
 # a dropdown row k (1-based, no divider above) is centred at MENU y + 9 +
@@ -44,7 +44,9 @@ am_expect() { # ROW_OFFSET WANT LABEL
     local got; got=$(am_cur)
     [[ "$got" == "$2" ]] && pass "ANIM > $3: frame $2" || fail "ANIM > $3: frame '$got', wanted $2"
 }
-ROW_FIRST=9; ROW_PREV=21; ROW_NEXT=33; ROW_LAST=45; ROW_GRID=$(( 2 + 48 + 5 + 6 + 1 ))
+ROW_PANEL=9 # Animation Panel, then a divider
+ROW_FIRST=$(( 9 + 12 + 5 )); ROW_PREV=$(( ROW_FIRST + 12 )); ROW_NEXT=$(( ROW_FIRST + 24 )); ROW_LAST=$(( ROW_FIRST + 36 ))
+ROW_GRID=$(( ROW_LAST + 12 + 5 ))
 
 info "Launching DRAW with a 64x32 sheet of 16x16 frames (current 3)"
 draw_quit
@@ -66,6 +68,12 @@ am_expect $ROW_NEXT 4 "Next Frame"
 am_expect $ROW_FIRST 1 "First Frame"
 am_expect $ROW_LAST 7 "Last Frame"
 am_expect $ROW_PREV 6 "Previous Frame"
+
+info "ANIM > Animation Panel: open, then closed"
+am_pick $ROW_PANEL "Animation Panel"
+V=$(am_line "ANIMP " | awk '{print $2}'); [[ "$V" == -1 ]] && pass "ANIM > Animation Panel opens the panel" || fail "the panel not open after ANIM > Animation Panel (visible=$V)"
+am_pick $ROW_PANEL "Animation Panel"
+V=$(am_line "ANIMP " | awk '{print $2}'); [[ "$V" == 0 ]] && pass "ANIM > Animation Panel closes it again" || fail "the panel still open after a second ANIM > Animation Panel (visible=$V)"
 
 info "ANIM > Frame Grid: off, then on"
 am_pick $ROW_GRID "Frame Grid"
