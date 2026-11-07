@@ -447,7 +447,7 @@ SUB COLORMIXER_mouse_input (wheelDelta AS INTEGER)
 
     ' Close button X region (right edge of title bar)
     DIM closeX AS INTEGER
-    closeX% = CP_STATE.dialogW - CP_TITLE_BAR_H
+    closeX% = CP_STATE.dialogW - CP_THEME.titleBarH%
 
     IF COLORMIXER.dragging% THEN
         IF MOUSE.B1% THEN
@@ -480,7 +480,10 @@ SUB COLORMIXER_mouse_input (wheelDelta AS INTEGER)
     overPanel% = (localX% >= 0 AND localX% < COLORMIXER.dispW% AND localY% >= 0 AND localY% < COLORMIXER.dispH%)
     IF justPressed% AND overPanel% THEN
         DIM titleBarH AS INTEGER
-        titleBarH% = INT(CP_TITLE_BAR_H * COLORMIXER.renderScale! + 0.5)
+        ' the title bar CP draws (CP_THEME.titleBarH%, sized to the font), not the
+        ' 24px default: that took the top of the SV square / hue bar as a drag
+        ' (Rick, 2026-11-07: "i can't click the top section of the color ramp")
+        titleBarH% = INT(CP_THEME.titleBarH% * COLORMIXER.renderScale! + 0.5)
         IF localY% < titleBarH% AND nativeX% < closeX% THEN
             ' Start our own drag
             COLORMIXER.dragging%    = LAYOUT_unlocked% ' Lock Layout: no move / resize
@@ -550,7 +553,17 @@ SUB COLORMIXER_mouse_input (wheelDelta AS INTEGER)
         EXIT SUB
     END IF
 
-    ' Live colour sync: mixer → PAINT_COLOR
+    COLORMIXER_push_color
+END SUB
+
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_push_color — Live colour sync: mixer → PAINT_COLOR. The FG<>BG
+' strip's FG end follows the new FG too (it stays put only while the strip
+' itself is being dragged, so the gradient doesn't slide under the pointer).
+' Rick, 2026-11-07: the strip kept the old FG until X swapped the colors.
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_push_color ()
     DIM mixerColor AS _UNSIGNED LONG
     mixerColor~& = _RGB32(CP_STATE.cR, CP_STATE.cG, CP_STATE.cB)
     IF mixerColor~& <> COLORMIXER.lastSyncColor~& THEN
@@ -560,9 +573,72 @@ SUB COLORMIXER_mouse_input (wheelDelta AS INTEGER)
         COLORMIXER.lastSyncColor~& = mixerColor~&
         STATUS_NEEDS_REDRAW%       = TRUE
         FRAME_IDLE%                = FALSE
+        IF CP_STATE.dragging <> CP_DRAG_BLENDER THEN
+            CP_STATE.blenderFGR = CP_STATE.cR
+            CP_STATE.blenderFGG = CP_STATE.cG
+            CP_STATE.blenderFGB = CP_STATE.cB
+            CP_STATE.dirty      = -1
+        END IF
     END IF
-
 END SUB
+
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_hex_focused% — Is the mixer's hex box taking typing?
+' ---------------------------------------------------------------------------
+FUNCTION COLORMIXER_hex_focused% ()
+    IF COLORMIXER.initialized% = 0 _ORELSE COLORMIXER.visible% = 0 _ORELSE COLORMIXER.autoHidden% THEN EXIT FUNCTION
+    IF CP_STATE.tiHexId <= 0 THEN EXIT FUNCTION
+    COLORMIXER_hex_focused% = (TI_focusedId = CP_STATE.tiHexId)
+END FUNCTION
+
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_blur_on_press — A press anywhere but on the mixer takes the focus
+' off its hex box, so DRAW's keys work again.
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_blur_on_press (x AS INTEGER, y AS INTEGER)
+    IF COLORMIXER_hex_focused% = 0 THEN EXIT SUB
+    IF (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0) _ORELSE (MOUSE.B2% <> 0 _ANDALSO MOUSE.OLD_B2% = 0) _ORELSE (MOUSE.B3% <> 0 _ANDALSO MOUSE.OLD_B3% = 0) THEN
+        IF COLORMIXER_hit_window%(x, y) = 0 _ORELSE WZ_blocked%(DP_MIXER, x, y) THEN ' (docked: no floating window over it)
+            TI_clear_focus
+            CP_STATE.dirty = -1
+        END IF
+    END IF
+END SUB
+
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_keys% — While the hex box has focus it gets every key (ENTER
+' applies the color, ESC / TAB leave it) and DRAW's shortcuts get none: TRUE.
+' (KEYBOARD_input_handler; INPUT_update_context sets CTX_TEXT_ACTIVE, which
+' blocks the dispatched keys, Delete / Backspace / digits included.)
+' Rick, 2026-11-07: Delete / Backspace in the hex box acted on the canvas.
+' ---------------------------------------------------------------------------
+FUNCTION COLORMIXER_keys% ()
+    DIM k AS LONG, ate AS INTEGER, kc AS STRING
+    IF COLORMIXER_hex_focused% = 0 THEN EXIT FUNCTION
+    COLORMIXER_keys% = TRUE
+    ' Keys arrive through INKEY$ (as in TBED_keys%): _KEYHIT is empty by now.
+    ' A two-byte INKEY$ code (CHR$(0) + scan) is the _KEYHIT code scan * 256:
+    ' Delete 21248, Left 19200, Right 19712, Home 18176, End 20224.
+    kc = INKEY$
+    IF kc = "" THEN kc = KEYHIT_CHAR$
+    DO WHILE LEN(kc) > 0 _ANDALSO COLORMIXER_hex_focused%
+        IF LEN(kc) = 2 THEN k& = ASC(kc, 2) * 256& ELSE k& = ASC(kc)
+        ate% = TI_process_key%(k&)
+        IF TI_inputs(CP_STATE.tiHexId).submitted THEN
+            CP_parse_hex_string TI_get_text$(CP_STATE.tiHexId)
+            TI_clear_focus
+        ELSEIF TI_inputs(CP_STATE.tiHexId).escaped _ORELSE TI_inputs(CP_STATE.tiHexId).tabbed THEN
+            TI_clear_focus
+        END IF
+        CP_STATE.dirty = -1
+        FRAME_IDLE%    = FALSE
+        kc = INKEY$
+    LOOP
+    COLORMIXER_push_color
+END FUNCTION
 
 ' ---------------------------------------------------------------------------
 ' COLORMIXER_sync_from_paint — Sync mixer to current PAINT_COLOR~&.
@@ -610,4 +686,26 @@ FUNCTION COLORMIXER_hit_window% (rawX AS INTEGER, rawY AS INTEGER)
         END IF
     END IF
     COLORMIXER_hit_window% = FALSE
+END FUNCTION
+
+
+' ---------------------------------------------------------------------------
+' QA (DOCK_DUMP): CMIX <sv x y w h> <hue x y w h> <hex x y w h> <hex focused>
+' <FG> <BG> <strip FG end> <strip BG end> [hex text] — viewport px, colors RRGGBB.
+' ---------------------------------------------------------------------------
+FUNCTION COLORMIXER_dump$ ()
+    DIM rs AS SINGLE, ox AS INTEGER, oy AS INTEGER, d AS STRING
+    IF COLORMIXER.initialized% = 0 _ORELSE COLORMIXER.visible% = 0 _ORELSE COLORMIXER.autoHidden% THEN EXIT FUNCTION
+    rs = COLORMIXER.renderScale!: IF rs <= 0 THEN rs = 1
+    ox = COLORMIXER.dispX%: oy = COLORMIXER.dispY%
+    d = "CMIX"
+    d = d + DOCK_n$(ox + INT(CP_STATE.svX * rs)) + DOCK_n$(oy + INT(CP_STATE.svY * rs)) + DOCK_n$(INT(CP_STATE.svW * rs)) + DOCK_n$(INT(CP_STATE.svH * rs))
+    d = d + DOCK_n$(ox + INT(CP_STATE.hueBarX * rs)) + DOCK_n$(oy + INT(CP_STATE.hueBarY * rs)) + DOCK_n$(INT(CP_STATE.hueBarW * rs)) + DOCK_n$(INT(CP_STATE.hueBarH * rs))
+    d = d + DOCK_n$(ox + INT(CP_STATE.hexInputX * rs)) + DOCK_n$(oy + INT(CP_STATE.hexY * rs)) + DOCK_n$(INT(CP_STATE.hexInputW * rs)) + DOCK_n$(INT(CP_THEME.hexInputH% * rs))
+    d = d + DOCK_n$(CP_STATE.tiHexId > 0 _ANDALSO TI_focusedId = CP_STATE.tiHexId)
+    d = d + " " + RIGHT$("00000" + HEX$(PAINT_COLOR~& AND &HFFFFFF~&), 6) + " " + RIGHT$("00000" + HEX$(PAINT_BG_COLOR~& AND &HFFFFFF~&), 6)
+    d = d + " " + RIGHT$("00000" + HEX$(_RGB32(CP_STATE.blenderFGR, CP_STATE.blenderFGG, CP_STATE.blenderFGB) AND &HFFFFFF~&), 6)
+    d = d + " " + RIGHT$("00000" + HEX$(CP_STATE.bgColorRef AND &HFFFFFF~&), 6)
+    IF CP_STATE.tiHexId > 0 THEN d = d + " [" + TI_get_text$(CP_STATE.tiHexId) + "]"
+    COLORMIXER_dump$ = d + CHR$(10)
 END FUNCTION
