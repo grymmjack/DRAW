@@ -97,6 +97,46 @@ check "fps cap", STR$(ANIM.fps), STR$(ANIM_FPS_MAX)
 ANIM_reset
 check "reset", STR$(ANIM.active) + STR$(ANIM.count) + STR$(ANIM_hold%(4)) + STR$(ANIM.fps), STR$(FALSE) + STR$(0) + STR$(1) + STR$(ANIM_FPS_DEFAULT)
 
+' --- saved data round trip (the "drAn" PNG chunk) ---
+ANIM_reset
+check "nothing saved without frames", STR$(LEN(ANIM_serialize$)), STR$(0)
+SCRN.canvasW = 64: SCRN.canvasH = 32
+r = ANIM_set_layout%(16, 16, 0, 0)
+ANIM.count = 7: r = ANIM_go%(5): ANIM_set_fps 12: ANIM.loopMode = ANIM_LOOP_PING
+ANIM_set_hold 3, 4: ANIM_set_hold 6, 2
+s = ANIM_serialize$
+check "blob size: header + 6 holds", STR$(LEN(s)), STR$(20 + 12)
+ANIM_reset
+r = ANIM_deserialize%(s)
+check "loads", STR$(r), STR$(TRUE)
+check "layout back", STR$(ANIM.frameW) + STR$(ANIM.frameH) + STR$(ANIM.gutter) + STR$(ANIM.margin), STR$(16) + STR$(16) + STR$(0) + STR$(0)
+check "count/current/fps/loop back", STR$(ANIM.count) + STR$(ANIM.current) + STR$(ANIM.fps) + STR$(ANIM.loopMode), STR$(7) + STR$(5) + STR$(12) + STR$(ANIM_LOOP_PING)
+check "holds back", STR$(ANIM_hold%(2)) + STR$(ANIM_hold%(3)) + STR$(ANIM_hold%(6)) + STR$(ANIM_hold%(7)), STR$(1) + STR$(4) + STR$(2) + STR$(1)
+check "same bytes saved again", STR$(ANIM_serialize$ = s), STR$(TRUE)
+' gutter/margin survive
+r = ANIM_set_layout%(16, 16, 2, 3)
+r = ANIM_deserialize%(ANIM_serialize$)
+check "gutter/margin back", STR$(ANIM.gutter) + STR$(ANIM.margin) + STR$(ANIM.count), STR$(2) + STR$(3) + STR$(3)
+' a smaller canvas than the data was saved for: count clamps to the cells there are
+r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 7: r = ANIM_go%(7): s = ANIM_serialize$
+SCRN.canvasW = 32
+r = ANIM_deserialize%(s)
+check "count clamps to cells", STR$(ANIM.count) + STR$(ANIM.current), STR$(4) + STR$(4)
+' frames that do not fit the canvas at all: no frames
+SCRN.canvasW = 8
+r = ANIM_deserialize%(s)
+check "too small: no frames", STR$(r) + STR$(ANIM.active), STR$(FALSE) + STR$(FALSE)
+SCRN.canvasW = 64
+check "short blob: no frames", STR$(ANIM_deserialize%(LEFT$(s, 10))), STR$(FALSE)
+check "version 0: no frames", STR$(ANIM_deserialize%(MKI$(0) + MID$(s, 3))), STR$(FALSE)
+r = ANIM_deserialize%(LEFT$(s, 16) + MKI$(9) + MID$(s, 19))
+check "bad loop mode falls back", STR$(r) + STR$(ANIM.loopMode), STR$(TRUE) + STR$(ANIM_LOOP_FWD)
+r = ANIM_deserialize%(LEFT$(s, 18) + MKI$(50) + MKI$(3))
+check "truncated holds: keeps what is there", STR$(r) + STR$(ANIM_hold%(1)) + STR$(ANIM_hold%(2)), STR$(TRUE) + STR$(3) + STR$(1)
+SCRN.canvasW = 64: SCRN.canvasH = 32: ANIM_reset
+r = ANIM_deserialize%(MKI$(2) + MID$(s, 3) + "future")
+check "a newer version with extra fields still loads", STR$(r) + STR$(ANIM.count), STR$(TRUE) + STR$(7)
+
 PRINT PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
 

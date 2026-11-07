@@ -1924,6 +1924,11 @@ SUB DRW_embed_chunk_in_png (pngFilePath AS STRING)
     ' Step 6: Insert drAw chunk before IEND
     ' IEND chunk is always the last 12 bytes of a valid PNG:
     '   00 00 00 00 (length=0) + "IEND" + AE 42 60 82 (CRC)
+    ' Animation data rides in its own chunk ("drAn", ANIM_serialize$), so a
+    ' DRAW without animation still reads drAw and opens the sheet as a picture.
+    DIM animBlob AS STRING
+    animBlob$ = ANIM_serialize$
+    IF LEN(animBlob$) THEN drAwChunk$ = drAwChunk$ + PNG_make_chunk$("drAn", animBlob$)
     newPng$ = LEFT$(pngData$, LEN(pngData$) - 12) + drAwChunk$ + RIGHT$(pngData$, 12)
 
     ' Step 7: Write modified PNG back
@@ -2092,6 +2097,7 @@ SUB DRW_load_from_png (filename AS STRING)
     DIM projectData  AS STRING
     DIM tmpBin       AS STRING
     DIM found        AS INTEGER
+    DIM animBlob     AS STRING
 
     ' Read entire PNG file
     fh% = FREEFILE
@@ -2127,7 +2133,8 @@ SUB DRW_load_from_png (filename AS STRING)
             ' Decompress project data (pass original size hint for efficiency)
             projectData$ = _INFLATE$(compressed$, uncompSize&)
             found%       = TRUE
-            EXIT DO
+        ELSEIF chunkType$ = "drAn" THEN
+            animBlob$ = MID$(pngData$, scanPos& + 8, chunkLen~&)
         END IF
 
         ' Move to next chunk: length(4) + type(4) + data(chunkLen) + CRC(4)
@@ -2296,10 +2303,21 @@ SUB DRW_load_from_png (filename AS STRING)
             _LOGINFO "DRW_load_from_png: Imported flat PNG as single layer: " + filename$
         ELSE
             _LOGWARN "DRW_load_from_png: Failed to load PNG image: " + filename$
+            animBlob$ = "" ' the old document is still up: its frames stay as they are
             POINTER_hide_for_dialog
             DRAW_error "Load Error", "Failed to load image: " + filename$
             POINTER_show_after_dialog
             MOUSE_cleanup_after_dialog FALSE
+        END IF
+    END IF
+
+    ' The frame layout, once the canvas size is known (either branch: a plain
+    ' PNG sprite sheet can carry frames too). Both branches ran ANIM_reset.
+    IF LEN(animBlob$) THEN
+        IF ANIM_deserialize%(animBlob$) THEN
+            _LOGINFO "DRW_load_from_png: frames" + STR$(ANIM.count) + " of" + STR$(ANIM.frameW) + " x" + STR$(ANIM.frameH)
+        ELSE
+            _LOGWARN "DRW_load_from_png: drAn chunk does not fit this canvas - opened without frames"
         END IF
     END IF
 END SUB
