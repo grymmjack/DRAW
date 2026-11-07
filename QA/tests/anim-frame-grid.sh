@@ -49,6 +49,11 @@ DRAW_EXTRA_ARGS="$FG_DIR/sheet.png"
 draw_launch 15
 wait_for 1.5 "Sheet loaded"
 assert_no_crash
+# Zoom 100%: the 64x32 sheet then sits whole inside the work area whatever the
+# docks (a small file auto-zooms to fill the viewport, part of it behind panels)
+park_mouse
+key ctrl+0
+wait_for 0.5 "Zoom 100%"
 
 read -r _ FG_ON FG_COUNT FG_CUR _ _ _ _ FG_COLS FG_ROWS _ _ FG_DRAWN FG_DX FG_DY <<< "$(fg_dump_line ANIM)"
 read -r _ FG_ZOOM _ <<< "$(fg_dump_line VIEW)"

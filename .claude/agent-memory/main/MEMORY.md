@@ -83,5 +83,5 @@
 - [Menu fires on press](menu-fires-on-press.md) — modals opened from the menu must swallow the held button (FD wrappers, DIALOG inputArmed)
 - [Document filename invariants](document-filename-invariants.md) — set CURRENT_DRW/CURRENT_FILENAME only via SAVE_set_document_file; sidecar setting, Flatten & Save, Export Again
 - [Test like the user](feedback-test-like-the-user.md) — reproduce the user's steps (overflow/junk/docked), not the happy path; small-region asserts need tolerance ~3, default 1500 passes anything
-- [QA user-profile placement race](qa-user-profile-placement-race.md) — [Linux] 3x user-profile run aborts at 384,216 / 3456x1944: startup race, rerun
+- [QA user-profile window cap](qa-user-profile-placement-race.md) — [Linux] 1152x712@3 user-profile run aborts "3456x1944" on 3840x2160: DRAW caps the startup window at 90% of the desktop; use QA_XVFB_RES=3840x2400
 - [Animation project](project-animation.md) — branch animation, PLANS/ANIMATION.md; canvas = sprite sheet; requirements via field kit artifact
