@@ -159,6 +159,7 @@ DIM SHARED MENU_ROOT_X(MENU_MAX_ROOT) AS INTEGER         ' X position of each ro
 DIM SHARED MENU_ROOT_W(MENU_MAX_ROOT) AS INTEGER         ' Width of each root label area
 DIM SHARED MENU_ROOT_LABEL(MENU_MAX_ROOT) AS STRING * 16 ' Cached trimmed root labels
 DIM SHARED MENU_ROOT_COUNT AS INTEGER                    ' Number of root items
+DIM SHARED MENU_ROOT_SOUNDS AS LONG                      ' QA: open sounds played by hovering roots (MBAR dump line)
 ' Workspace menu filter ([MENUS] ROOTS= / HIDE_ITEMS=, GUI/WORKSPACE-APPLY):
 ' registration code names roots by their ORIGINAL ordinal (0=FILE, 1=EDIT ...);
 ' MENU_ROOT_REMAP maps that to the registered ordinal, or -2 when a workspace
