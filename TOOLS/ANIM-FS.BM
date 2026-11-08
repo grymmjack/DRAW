@@ -1,0 +1,261 @@
+''
+' DRAW - TOOLS/ANIM-FS.BM
+' =============================================================================
+' Full-screen Preview. See ANIM-FS.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' The QA dump while the preview is open: the main loop's last dump + ANIMFS.
+SUB ANIM_FS_dump_write (frameNo AS INTEGER)
+    DIM d AS STRING, f AS INTEGER
+    IF LEN(DOCK_DUMP_PATH) = 0 THEN EXIT SUB
+    d = "ANIMFS" + DOCK_n$(ANIM_FS.open) + DOCK_n$(ANIM_FS.k) + DOCK_n$(frameNo) + DOCK_n$(ANIM_FS.playing) + DOCK_n$(INT(ANIM_FS.zoom * 100 + 0.5)) _
+      + DOCK_n$(ANIM_FS.x) + DOCK_n$(ANIM_FS.y) + DOCK_n$(ANIM_FS.w) + DOCK_n$(ANIM_FS.h) _
+      + DOCK_n$(ANIM_FS.barX) + DOCK_n$(ANIM_FS.barY) + DOCK_n$(ANIM_FS.barW) + DOCK_n$(ANIM_FS.barH) + DOCK_n$(ANIM_FS.steps) + CHR$(10)
+    IF d = ANIM_FS_DUMP_LAST THEN EXIT SUB
+    ANIM_FS_DUMP_LAST = d
+    DOCK_DUMP_SEQ = DOCK_DUMP_SEQ + 1
+    f = FREEFILE
+    OPEN DOCK_DUMP_PATH + ".tmp" FOR OUTPUT AS #f
+    PRINT #f, "SEQ" + DOCK_n$(DOCK_DUMP_SEQ)
+    PRINT #f, DOCK_DUMP_LAST + d;
+    CLOSE #f
+    IF _FILEEXISTS(DOCK_DUMP_PATH) THEN KILL DOCK_DUMP_PATH
+    NAME DOCK_DUMP_PATH + ".tmp" AS DOCK_DUMP_PATH
+END SUB
+
+''
+' A checkerboard image cw x ch, one pixel a square (scaled up when drawn).
+FUNCTION ANIM_FS_checker& (cw AS LONG, ch AS LONG)
+    DIM img AS LONG, d AS LONG, i AS LONG, j AS LONG, c1 AS _UNSIGNED LONG, c2 AS _UNSIGNED LONG
+    c1 = TRANSPARENCY.color1: c2 = TRANSPARENCY.color2
+    IF c1 = 0 _ANDALSO c2 = 0 THEN c1 = _RGB32(102, 102, 102): c2 = _RGB32(153, 153, 153)
+    img = _NEWIMAGE(_MAX(1, cw), _MAX(1, ch), 32)
+    d = _DEST: _DEST img
+    CLS , c1
+    FOR j = 0 TO ch - 1
+        FOR i = (j AND 1) TO cw - 1 STEP 2: PSET (i, j), c2: NEXT i
+    NEXT j
+    _DEST d
+    ANIM_FS_checker& = img
+END FUNCTION
+
+''
+' ANIM > Full-Screen Preview (2539, Num .).
+SUB ANIM_FS_show ()
+    DIM dS AS INTEGER, sw AS LONG, sh AS LONG, availH AS LONG, logW AS LONG, logH AS LONG
+    DIM flat AS LONG, src AS LONG, bgSnap AS LONG, hud AS LONG, chk AS LONG, chkW AS LONG, chkH AS LONG
+    DIM oldDest AS LONG, oldSrc AS LONG, n AS INTEGER, i AS INTEGER, f AS INTEGER, quit AS INTEGER
+    DIM ord(1 TO 2 * ANIM_MAX_FRAMES) AS INTEGER, fw AS LONG, fh AS LONG, rx AS LONG, ry AS LONG, rw AS LONG, rh AS LONG
+    DIM z AS SINGLE, fitZ AS SINGLE, userZoom AS INTEGER, panX AS DOUBLE, panY AS DOUBLE
+    DIM dw AS DOUBLE, dh AS DOUBLE, cx AS DOUBLE, cy AS DOUBLE, u AS DOUBLE, v AS DOUBLE, oz AS SINGLE
+    DIM mx AS LONG, my AS LONG, b1 AS INTEGER, b3 AS INTEGER, ob1 AS INTEGER, ob3 AS INTEGER, wheel AS INTEGER
+    DIM lastMx AS LONG, lastMy AS LONG, mDownT AS DOUBLE, mDownX AS LONG, mDownY AS LONG, scrub AS INTEGER
+    DIM kh AS LONG, nowT AS DOUBLE, lastT AS DOUBLE, dt AS DOUBLE, acc AS DOUBLE, changed AS INTEGER
+    DIM lastSw AS LONG, lastSh AS LONG, s AS STRING, s2 AS STRING, lm AS STRING, kk AS LONG, fg AS _UNSIGNED LONG
+    DIM npDot AS INTEGER, npDotWas AS INTEGER, byDot AS INTEGER
+
+    IF ANIM_has_frames% = FALSE THEN STATUS_flash "Full-screen Preview plays frames - set a frame size first": EXIT SUB
+    IF ANIM_PLAY.playing THEN ANIM_play_stop
+    dS = SCRN.displayScale%: IF dS < 1 THEN dS = 1
+    n = ANIM_play_order%
+    FOR i = 1 TO n: ord(i) = ANIM_ORDER(i): NEXT i
+    ANIM_FS.k = 1
+    FOR i = 1 TO n
+        IF ord(i) = ANIM.current THEN ANIM_FS.k = i: EXIT FOR
+    NEXT i
+    ANIM_FS.steps = n
+    fw = ANIM.frameW: fh = ANIM.frameH
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN STATUS_flash "Full-screen Preview: could not flatten the document": EXIT SUB
+    SELECT CASE ANIM.loopMode
+        CASE ANIM_LOOP_REV: lm = "reverse"
+        CASE ANIM_LOOP_PING: lm = "ping-pong"
+        CASE ANIM_LOOP_ONCE: lm = "once"
+        CASE ELSE: lm = "forward"
+    END SELECT
+
+    oldDest = _DEST: oldSrc = _SOURCE
+    bgSnap = _COPYIMAGE(0)
+    POINTER_hide_for_dialog
+    ANIM_FS.open = TRUE: ANIM_FS.playing = (n >= 2): ANIM_FS_DUMP_LAST = ""
+    DO WHILE _MOUSEINPUT: LOOP
+    DO WHILE _KEYHIT: LOOP ' the key that opened it (its _KEYHIT twin) must not close it
+    ob1 = _MOUSEBUTTON(1): ob3 = _MOUSEBUTTON(3)
+    npDotWas = NUMPAD_held%(11) ' the Num . that opened it, if still down
+    lastT = TIMER(.001): changed = TRUE: mDownT = -10
+
+    DO
+        sw = _WIDTH(0): sh = _HEIGHT(0)
+        logW = sw \ dS: logH = sh \ dS
+        availH = sh - ANIM_FS_HUD_H * dS
+        IF sw <> lastSw _ORELSE sh <> lastSh THEN
+            lastSw = sw: lastSh = sh: changed = TRUE
+            SAFE_FREEIMAGE hud
+            hud = _NEWIMAGE(_MAX(1, logW), ANIM_FS_HUD_H, 32)
+        END IF
+        fitZ = _MIN(sw / (fw * dS), availH / (fh * dS))
+        IF fitZ >= 1 THEN fitZ = INT(fitZ)
+        IF userZoom = FALSE THEN z = fitZ: panX = 0: panY = 0
+        ANIM_FS.barX = 8: ANIM_FS.barY = logH - ANIM_FS_HUD_H + 5: ANIM_FS.barW = _MAX(1, logW - 16): ANIM_FS.barH = 8
+
+        ' -- the mouse --
+        wheel = 0
+        DO WHILE _MOUSEINPUT: wheel = wheel + _MOUSEWHEEL: LOOP
+        mx = _MOUSEX: my = _MOUSEY: b1 = _MOUSEBUTTON(1): b3 = _MOUSEBUTTON(3)
+        dw = fw * z * dS: dh = fh * z * dS
+        cx = (sw - dw) / 2 + panX: cy = (availH - dh) / 2 + panY
+        IF wheel <> 0 THEN ' zoom about the pointer: the frame point under it stays put
+            oz = z
+            IF wheel < 0 THEN
+                IF z < 1 THEN z = _MIN(1, z * 2) ELSE z = INT(z) + 1
+                IF z > 64 THEN z = 64
+            ELSE
+                IF z > 1 THEN z = INT(z + .999) - 1 ELSE z = z / 2
+                IF z < .125 THEN z = .125
+            END IF
+            IF z <> oz THEN
+                u = (mx - cx) / dw: v = (my - cy) / dh
+                dw = fw * z * dS: dh = fh * z * dS
+                panX = (mx - u * dw) - (sw - dw) / 2: panY = (my - v * dh) - (availH - dh) / 2
+                userZoom = TRUE: changed = TRUE
+            END IF
+        END IF
+        IF b3 _ANDALSO ob3 = FALSE THEN ' middle press: a double click is 100%, else a pan starts
+            IF TIMER(.001) - mDownT < .4 _ANDALSO ABS(mx - mDownX) < 8 * dS _ANDALSO ABS(my - mDownY) < 8 * dS THEN
+                z = 1: panX = 0: panY = 0: userZoom = TRUE: changed = TRUE: mDownT = -10
+            ELSE
+                mDownT = TIMER(.001): mDownX = mx: mDownY = my
+            END IF
+        ELSEIF b3 _ANDALSO ob3 _ANDALSO (mx <> lastMx _ORELSE my <> lastMy) THEN
+            panX = panX + (mx - lastMx): panY = panY + (my - lastMy): userZoom = TRUE: changed = TRUE
+        END IF
+        IF b1 _ANDALSO ob1 = FALSE THEN
+            IF my \ dS >= ANIM_FS.barY - 4 _ANDALSO my \ dS <= ANIM_FS.barY + ANIM_FS.barH + 4 THEN scrub = TRUE: ANIM_FS.playing = FALSE: changed = TRUE
+        END IF
+        IF b1 = FALSE THEN scrub = FALSE
+        IF scrub THEN
+            i = 1 + INT((mx / dS - ANIM_FS.barX) * n / ANIM_FS.barW)
+            IF i < 1 THEN i = 1
+            IF i > n THEN i = n
+            IF i <> ANIM_FS.k THEN ANIM_FS.k = i: acc = 0: changed = TRUE
+        END IF
+        ob1 = b1: ob3 = b3: lastMx = mx: lastMy = my
+
+        ' -- keys --
+        npDot = NUMPAD_held%(11) ' Num . closes, either Num Lock state (its _KEYHIT code depends on it)
+        IF npDot _ANDALSO npDotWas = FALSE THEN quit = TRUE: byDot = TRUE
+        npDotWas = npDot
+        DO
+            kh = _KEYHIT
+            IF kh = 0 THEN EXIT DO
+            SELECT CASE kh
+                CASE 27: quit = TRUE ' ESC
+                CASE 46: quit = TRUE: byDot = TRUE ' Num . (Num Lock on) / "."
+                CASE 32, 13 ' SPACE, Enter (Num Enter): play / pause
+                    IF ANIM_FS.playing THEN
+                        ANIM_FS.playing = FALSE
+                    ELSEIF n >= 2 THEN
+                        IF ANIM.loopMode = ANIM_LOOP_ONCE _ANDALSO ANIM_FS.k >= n THEN ANIM_FS.k = 1
+                        ANIM_FS.playing = TRUE: acc = 0
+                    END IF
+                    changed = TRUE
+                CASE 19200, 52: ANIM_FS.playing = FALSE: ANIM_FS.k = ANIM_FS.k - 1: IF ANIM_FS.k < 1 THEN ANIM_FS.k = n ' LEFT / Num 4
+                CASE 19712, 53: ANIM_FS.playing = FALSE: ANIM_FS.k = ANIM_FS.k + 1: IF ANIM_FS.k > n THEN ANIM_FS.k = 1 ' RIGHT / Num 5
+                CASE 18176, 49: ANIM_FS.playing = FALSE: ANIM_FS.k = 1 ' HOME / Num 1
+                CASE 20224, 57: ANIM_FS.playing = FALSE: ANIM_FS.k = n ' END / Num 9
+                CASE 21248: quit = TRUE: byDot = TRUE ' Num . with Num Lock off (Delete)
+            END SELECT
+            SELECT CASE kh
+                CASE 19200, 19712, 18176, 20224, 49, 52, 53, 57: acc = 0: changed = TRUE
+            END SELECT
+        LOOP
+
+        ' -- time --
+        nowT = TIMER(.001): dt = nowT - lastT: lastT = nowT
+        IF dt < 0 _ORELSE dt > 1 THEN dt = 0
+        IF ANIM_FS.playing THEN
+            acc = acc + dt * ANIM.fps
+            DO WHILE ANIM_FS.playing _ANDALSO acc >= ANIM_hold%(ord(ANIM_FS.k))
+                acc = acc - ANIM_hold%(ord(ANIM_FS.k)): changed = TRUE
+                IF ANIM_FS.k < n THEN
+                    ANIM_FS.k = ANIM_FS.k + 1
+                ELSEIF ANIM.loopMode = ANIM_LOOP_ONCE THEN
+                    ANIM_FS.playing = FALSE: acc = 0
+                ELSE
+                    ANIM_FS.k = 1
+                END IF
+            LOOP
+        END IF
+        IF PCYC_running% THEN changed = TRUE
+
+        ' -- draw --
+        f = ord(ANIM_FS.k)
+        dw = fw * z * dS: dh = fh * z * dS
+        cx = (sw - dw) / 2 + panX: cy = (availH - dh) / 2 + panY
+        ANIM_FS.zoom = z
+        ANIM_FS.x = INT(cx / dS): ANIM_FS.y = INT(cy / dS): ANIM_FS.w = INT(dw / dS + .5): ANIM_FS.h = INT(dh / dS + .5)
+        IF changed THEN
+            _DEST 0
+            CLS , _RGB32(20, 20, 24)
+            kk = CLNG(dw / (8 * dS) + .999)
+            IF kk <> chkW _ORELSE CLNG(dh / (8 * dS) + .999) <> chkH THEN
+                SAFE_FREEIMAGE chk
+                chkW = kk: chkH = CLNG(dh / (8 * dS) + .999)
+                chk = ANIM_FS_checker&(chkW, chkH)
+            END IF
+            _PUTIMAGE (cx, cy)-(cx + chkW * 8 * dS - 1, cy + chkH * 8 * dS - 1), chk, 0
+            LINE (cx + dw, cy)-(cx + chkW * 8 * dS + 1, cy + chkH * 8 * dS + 1), _RGB32(20, 20, 24), BF ' the checker's overhang
+            LINE (cx, cy + dh)-(cx + dw, cy + chkH * 8 * dS + 1), _RGB32(20, 20, 24), BF
+            IF ANIM_cell_rect%(f, rx, ry, rw, rh) THEN
+                src = flat
+                IF PCYC_running% THEN src = PCYC_present&(flat)
+                _PUTIMAGE (cx, cy)-(cx + dw - 1, cy + dh - 1), src, 0, (rx, ry)-(rx + rw - 1, ry + rh - 1)
+            END IF
+            ' the status bar: seek bar (a tick a step, the steps so far filled) + one line
+            _DEST hud
+            CLS , _RGB32(32, 32, 38)
+            LINE (ANIM_FS.barX, 5)-(ANIM_FS.barX + ANIM_FS.barW - 1, 5 + ANIM_FS.barH - 1), _RGB32(60, 60, 70), BF
+            LINE (ANIM_FS.barX, 5)-(ANIM_FS.barX + (ANIM_FS.barW * ANIM_FS.k) \ n - 1, 5 + ANIM_FS.barH - 1), _RGB32(90, 150, 230), BF
+            IF ANIM_FS.barW \ n >= 4 THEN
+                FOR i = 1 TO n - 1: LINE (ANIM_FS.barX + (ANIM_FS.barW * i) \ n, 5)-STEP(0, ANIM_FS.barH - 1), _RGB32(32, 32, 38): NEXT i
+            END IF
+            fg = _RGB32(220, 220, 225)
+            COLOR fg: _PRINTMODE _KEEPBACKGROUND
+            s = "Frame" + STR$(f) + " of" + STR$(ANIM.count) + "   step" + STR$(ANIM_FS.k) + " /" + STR$(n) + "   " + _IIF(ANIM_FS.playing, "PLAYING", "PAUSED") _
+              + "   " + _TRIM$(STR$(ANIM.fps)) + " fps " + lm + "   " + _TRIM$(STR$(INT(z * 100 + .5))) + "%"
+            s2 = "SPACE play  LEFT/RIGHT step  wheel zoom  2x middle 100%  ESC close"
+            _FONT 8
+            _PRINTSTRING (ANIM_FS.barX, 18), s
+            IF _PRINTWIDTH(s) + _PRINTWIDTH(s2) + 32 < logW THEN _PRINTSTRING (logW - 8 - _PRINTWIDTH(s2), 18), s2
+            _DEST 0
+            _PUTIMAGE (0, sh - ANIM_FS_HUD_H * dS)-(sw - 1, sh - 1), hud, 0
+            _DISPLAY
+            changed = FALSE
+        END IF
+        ANIM_FS_dump_write f
+        _LIMIT 60
+    LOOP UNTIL quit
+
+    ' -- close on the frame shown --
+    ANIM_FS.open = FALSE
+    _DEST 0
+    IF bgSnap < -1 THEN _PUTIMAGE (0, 0)-(sw - 1, sh - 1), bgSnap
+    SAFE_FREEIMAGE bgSnap: SAFE_FREEIMAGE hud: SAFE_FREEIMAGE chk: SAFE_FREEIMAGE flat
+    _DEST oldDest: _SOURCE oldSrc
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    ' the closing key is not also DRAW's: its queued codes go, a Num . still held
+    ' is no new press, and its late twins are dropped as a fired key's (ANIM-VIEW)
+    DO WHILE _KEYHIT: LOOP
+    DO WHILE LEN(INKEY$): LOOP
+    NUMPAD_resync
+    IF byDot THEN ANIM_SW_B = 11: ANIM_SW_MASK = 3: ANIM_SW_T = TIMER(.001)
+    KEYBOARD_SUPPRESS_FRAMES% = 3
+    IF ANIM_go%(ord(ANIM_FS.k)) THEN STATUS_flash "Frame" + STR$(ANIM.current) + " of" + STR$(ANIM.count)
+    DOCK_DUMP_LAST = "" ' the main loop rewrites the dump without ANIMFS
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB

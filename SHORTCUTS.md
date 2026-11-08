@@ -546,6 +546,7 @@ picture only `Num +` is). The `Alt` keys are for keyboards without a numpad.
 | `Num 0` | Lightbox on / off (below) |
 | `Num *` | Lightbox panes: 3 → 5 → 7 |
 | `Num /` | Onion skin on / off (in the lightbox) |
+| `Num .` | Full-screen Preview: the frames playing over the whole window. Inside: `Space` / `Num Enter` play · pause, `←` / `→` step, `Home` / `End` first / last, click / drag the seek bar to scrub, `Wheel` zoom, double `M-Click` 100%, `M-Drag` pan, `Esc` / `Num .` close on the frame shown |
 | `Ctrl+Z` / `Ctrl+Y` | Every frame operation, frame size / gutter / margin and FPS / hold change is one undo step |
 
 Main-row digits keep setting opacity; `Alt+Home` / `Alt+End` no longer flip.

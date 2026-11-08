@@ -59,13 +59,14 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2536 | Export Animated PNG (APNG)... (`ANIM_APNG_export%`) |
 | 2537 | Export BAS Player (DATA)... (`ANIM_BAS_export%`) |
 | 2538 | Export BAS Player + Sheet PNG... (`ANIM_BAS_sheet_export%`) |
+| 2539 | Full-Screen Preview (`ANIM_FS_show`, `TOOLS/ANIM-FS`, Num .) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
 Grep before adding one (CLAUDE.md gotcha 17).
 
 ## Keys
 
-- **Numpad:** 1 / 4 / 5 / 9 first / prev / next / last, `+` add (Shift: blank), Enter play, 0 lightbox, `*` lightbox panes.
+- **Numpad:** 1 / 4 / 5 / 9 first / prev / next / last, `+` add (Shift: blank), Enter play, 0 lightbox, `*` lightbox panes, `/` onion skin, `.` full-screen Preview.
   Frame keys whatever the Num Lock state, only while the sheet has frames (Num + on a plain
   picture too: `ANIM_key_ok%`). Not while typing, dragging, in a menu / palette / dialog,
   with Ctrl / Alt (`ANIM_keys_free%`).
@@ -401,6 +402,30 @@ rects, the document clash).
 **Known (pre-existing):** `LAYERS_flatten&` composites with `_BLEND` onto a transparent
 image, which darkens the colour of a partly transparent pixel (rgb x alpha); every export
 inherits it. The APNG keeps the alpha level itself.
+
+## Full-screen Preview (`TOOLS/ANIM-FS`, 3.6)
+
+`ANIM_FS_show` (action 2539, Num ., ANIM menu, command palette) is a modal loop of its own,
+like the Pixel Analyzer: `_COPYIMAGE(0)` saved and put back, `POINTER_hide_for_dialog` /
+`MOUSE_cleanup_after_dialog`. It plays `LAYERS_flatten&` (what exports) in
+`ANIM_play_order%` with the holds at the FPS, from the current frame, playing; colour cycling
+through `PCYC_present&` each frame. Drawn in physical px (`_WIDTH(0)`), laid out in logical
+(`SCRN.displayScale%`): the frame at a fit zoom (whole numbers when it fits) over a checker
+(`ANIM_FS_checker&`, one pixel a square, scaled x8), a 30 px status bar image (seek bar + one
+line, `_FONT 8`) scaled up. Wheel zooms about the pointer; middle press twice < .4 s = 100%;
+middle drag pans; a left press on the bar scrubs (pauses). Keys from `_KEYHIT` (the main loop
+is not running, so it is not drained): ESC, SPACE / Enter, LEFT / RIGHT / HOME / END and the
+Num Lock-on digits 4 5 1 9; Num . closes by `NUMPAD_held%(11)` on a fresh press (its
+`_KEYHIT` code is 46 or 21248 by Num Lock). **On close** the closing key must not reach DRAW:
+`_KEYHIT` and `INKEY$` drained, `NUMPAD_resync` (NP_HELD = now, NP_T cleared, device queue
+dropped) - else a Num . still down is a new press to `NUMPAD_poll` and reopens it - and for a
+Num . close its late twins marked dropped (`ANIM_SW_*`), then `KEYBOARD_SUPPRESS_FRAMES% = 3`.
+It goes to the frame shown (`ANIM_go%`). QA dump: `ANIM_FS_dump_write` appends `ANIMFS open
+step frame playing zoom% x y w h barX barY barW barH steps` (logical px) to `DOCK_DUMP_LAST`
+while open; on close `DOCK_DUMP_LAST = ""` makes the main loop rewrite it without.
+QA: `anim-fullscreen.sh` (open / play / pause / steps / seek click + drag / wheel / double
+middle 100% / middle-drag pan / ESC on the frame shown, each checked by the colour on
+screen at the frame's middle; ESC does not deselect; Num . open + close).
 
 ## A selection stays put in its cell (2.9, Q-18)
 
