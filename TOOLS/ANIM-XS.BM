@@ -1,0 +1,490 @@
+''
+' DRAW - TOOLS/ANIM-XS.BM
+' =============================================================================
+' X-sheet (see ANIM-XS.BI).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' The lightbox is showing with the X-sheet in its top band.
+FUNCTION ANIM_XS_on% ()
+    IF CFG.XSHEET% = 0 THEN EXIT FUNCTION
+    ANIM_XS_on% = ANIM_LB_showing%
+END FUNCTION
+
+''
+' ANIM > X-Sheet, Num 8, the X-SHEET chip (action 2540). From sheet view it
+' opens the lightbox with the X-sheet; off, the strip comes back.
+SUB ANIM_XS_toggle ()
+    IF CFG.XSHEET% = 0 _ORELSE CFG.LIGHTBOX% = 0 THEN
+        IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "No frames: set a frame size first": EXIT SUB
+        IF CFG.LIGHTBOX% = 0 THEN
+            ANIM_LB_toggle
+            IF CFG.LIGHTBOX% = 0 THEN EXIT SUB ' refused (busy): it said why
+        END IF
+        CFG.XSHEET% = TRUE
+        STATUS_flash "X-sheet (Num 8 back to the strip)"
+    ELSE
+        CFG.XSHEET% = FALSE
+        STATUS_flash "Lightbox strip"
+    END IF
+    CONFIG_save
+    ANIM_LB_changed
+END SUB
+
+''
+' The rows, top to bottom as the layers panel shows them: every layer by
+' zIndex, highest first, leaving out the layers of collapsed groups.
+SUB ANIM_XS_rows_build ()
+    DIM z AS INTEGER, i AS INTEGER, n AS INTEGER, p AS INTEGER, d AS INTEGER
+    FOR z = LAYER_COUNT% TO 1 STEP -1
+        FOR i = 1 TO MAX_LAYERS
+            IF LAYERS(i).imgHandle& <> 0 _ANDALSO LAYERS(i).zIndex% = z THEN
+                IF LAYER_PANEL_row_hidden%(i) = 0 _ANDALSO n < MAX_LAYERS THEN
+                    n = n + 1: ANIM_XS_ROW(n) = i
+                    d = 0: p = LAYERS(i).parentGroupIdx%
+                    DO WHILE p > 0 _ANDALSO p <= MAX_LAYERS _ANDALSO d < 8
+                        d = d + 1: p = LAYERS(p).parentGroupIdx%
+                    LOOP
+                    ANIM_XS_DEPTH(n) = d
+                END IF
+                EXIT FOR
+            END IF
+        NEXT i
+    NEXT z
+    ANIM_XS.nRows = n
+END SUB
+
+''
+' A row's label: the name, a group's with "/", then [R] / [=].
+FUNCTION ANIM_XS_label$ (slot AS INTEGER)
+    DIM t AS STRING
+    t = _TRIM$(LAYERS(slot).name)
+    IF LEN(t) > 14 THEN t = LEFT$(t, 13) + "~"
+    IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN t = t + "/"
+    IF ANIM_LF_is_ref%(slot) THEN t = t + " R"
+    IF ANIM_LF_is_same%(slot) THEN t = t + " ="
+    ANIM_XS_label$ = t
+END FUNCTION
+
+''
+' The band's height for avail px under it (the bar and the panes take the
+' rest): the header, every layer row and the holds row, at most half.
+FUNCTION ANIM_XS_band_h% (avail AS INTEGER)
+    DIM rh AS INTEGER, need AS INTEGER, mx AS INTEGER
+    FPANEL_ensure
+    ANIM_XS_rows_build
+    rh = FPANEL.rowH% + 6 ' room for a thumbnail
+    ANIM_XS.rowH = rh
+    need = (ANIM_XS.nRows + 2) * rh + 2
+    mx = avail \ 2
+    IF need > mx THEN need = mx
+    IF need < 3 * rh + 2 THEN need = 3 * rh + 2
+    ANIM_XS_band_h% = need
+END FUNCTION
+
+''
+' Viewport x where frame f's span starts (holds counted from the first shown).
+FUNCTION ANIM_XS_frame_x% (f AS INTEGER)
+    DIM i AS INTEGER, x AS LONG
+    x = ANIM_XS.gx
+    IF f >= ANIM_XS.firstF THEN
+        FOR i = ANIM_XS.firstF TO f - 1: x = x + CLNG(ANIM_hold%(i)) * ANIM_XS.tickW: NEXT i
+    ELSE
+        FOR i = f TO ANIM_XS.firstF - 1: x = x - CLNG(ANIM_hold%(i)) * ANIM_XS.tickW: NEXT i
+    END IF
+    IF x > 32000 THEN x = 32000
+    IF x < -32000 THEN x = -32000
+    ANIM_XS_frame_x% = x
+END FUNCTION
+
+''
+' Lay the band out in (x1, y1)-(x2, y2) (ANIM_LB_layout, after ANIM_XS_band_h%):
+' the name column, the tick width, the frames and rows in view.
+SUB ANIM_XS_layout (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    DIM fw AS INTEGER, fh AS INTEGER, th AS INTEGER, tw AS INTEGER, r AS INTEGER, w AS INTEGER, nw AS INTEGER
+    DIM ticks AS LONG, i AS INTEGER, avail AS LONG
+    ANIM_XS.x1 = x1: ANIM_XS.y1 = y1: ANIM_XS.x2 = x2: ANIM_XS.y2 = y2
+    fw = _MAX(1, ANIM.frameW): fh = _MAX(1, ANIM.frameH)
+
+    ' names: the widest label (and HOLD), at most a quarter of the band
+    nw = FPANEL_text_w%("HOLD")
+    FOR r = 1 TO ANIM_XS.nRows
+        w = FPANEL_text_w%(ANIM_XS_label$(ANIM_XS_ROW(r))) + 4 * ANIM_XS_DEPTH(r)
+        IF w > nw THEN nw = w
+    NEXT r
+    nw = nw + 8
+    IF nw > (x2 - x1 + 1) \ 4 THEN nw = (x2 - x1 + 1) \ 4
+    ANIM_XS.nameW = nw
+    ANIM_XS.gx = x1 + nw
+
+    ' a tick: room for a thumbnail of the frame's shape, the row's height
+    th = ANIM_XS.rowH - 2
+    tw = (CLNG(th) * fw + fh \ 2) \ fh
+    IF tw > 3 * ANIM_XS.rowH THEN tw = 3 * ANIM_XS.rowH
+    IF tw < 4 THEN tw = 4
+    ANIM_XS.tickW = tw + 3
+
+    ' frames: keep the current one in view when it moves, fill to the right edge
+    avail = x2 - ANIM_XS.gx + 1
+    IF ANIM_XS.firstF < 1 THEN ANIM_XS.firstF = 1
+    IF ANIM_XS.firstF > ANIM.count THEN ANIM_XS.firstF = ANIM.count
+    IF ANIM.current <> ANIM_XS.lastCur THEN
+        IF ANIM.current < ANIM_XS.firstF THEN ANIM_XS.firstF = ANIM.current
+        DO WHILE ANIM_XS.firstF < ANIM.current _ANDALSO ANIM_XS_frame_x%(ANIM.current) + CLNG(ANIM_hold%(ANIM.current)) * ANIM_XS.tickW - 1 > x2
+            ANIM_XS.firstF = ANIM_XS.firstF + 1
+        LOOP
+        ANIM_XS.lastCur = ANIM.current
+    END IF
+    DO WHILE ANIM_XS.firstF > 1 ' no empty room at the right while frames are left of the view
+        ticks = 0
+        FOR i = ANIM_XS.firstF - 1 TO ANIM.count
+            ticks = ticks + ANIM_hold%(i)
+            IF ticks * ANIM_XS.tickW > avail THEN EXIT FOR
+        NEXT i
+        IF ticks * ANIM_XS.tickW > avail THEN EXIT DO
+        ANIM_XS.firstF = ANIM_XS.firstF - 1
+    LOOP
+    ANIM_XS.lastF = ANIM_XS.firstF
+    DO WHILE ANIM_XS.lastF < ANIM.count _ANDALSO ANIM_XS_frame_x%(ANIM_XS.lastF + 1) <= x2
+        ANIM_XS.lastF = ANIM_XS.lastF + 1
+    LOOP
+
+    ' rows: as many as fit between the header and the holds row; the current layer in view
+    ANIM_XS.rowsShown = (y2 - y1 + 1 - 2) \ ANIM_XS.rowH - 2
+    IF ANIM_XS.rowsShown < 1 THEN ANIM_XS.rowsShown = 1
+    IF ANIM_XS.rowsShown > ANIM_XS.nRows THEN ANIM_XS.rowsShown = ANIM_XS.nRows
+    IF CURRENT_LAYER% <> ANIM_XS.lastLayer THEN
+        FOR r = 1 TO ANIM_XS.nRows
+            IF ANIM_XS_ROW(r) = CURRENT_LAYER% THEN
+                IF r < ANIM_XS.firstRow THEN ANIM_XS.firstRow = r
+                IF r > ANIM_XS.firstRow + ANIM_XS.rowsShown - 1 THEN ANIM_XS.firstRow = r - ANIM_XS.rowsShown + 1
+                EXIT FOR
+            END IF
+        NEXT r
+        ANIM_XS.lastLayer = CURRENT_LAYER%
+    END IF
+    IF ANIM_XS.firstRow > ANIM_XS.nRows - ANIM_XS.rowsShown + 1 THEN ANIM_XS.firstRow = ANIM_XS.nRows - ANIM_XS.rowsShown + 1
+    IF ANIM_XS.firstRow < 1 THEN ANIM_XS.firstRow = 1
+END SUB
+
+''
+' Viewport y of row k of the band: 0 = the header, 1..rowsShown the layer
+' rows shown, rowsShown + 1 the holds row.
+FUNCTION ANIM_XS_row_y% (k AS INTEGER)
+    ANIM_XS_row_y% = ANIM_XS.y1 + 1 + k * ANIM_XS.rowH
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Which cells hold a drawing
+' ---------------------------------------------------------------------------
+
+''
+' Layer slot's cell for frame f has any pixel that is not fully transparent
+' (cached; the cache drops when the history, the layout or the layers change,
+' and the current layer's current cell is looked at again every render).
+FUNCTION ANIM_XS_filled% (slot AS INTEGER, f AS INTEGER)
+    DIM c AS STRING
+    IF slot < 1 _ORELSE slot > MAX_LAYERS _ORELSE f < 1 _ORELSE f > ANIM.count THEN EXIT FUNCTION
+    IF LEN(ANIM_XS_FILL(slot)) < ANIM.count THEN ANIM_XS_FILL(slot) = ANIM_XS_FILL(slot) + SPACE$(ANIM.count - LEN(ANIM_XS_FILL(slot)))
+    c = MID$(ANIM_XS_FILL(slot), f, 1)
+    IF c = " " THEN
+        c = _IIF(ANIM_XS_scan%(slot, f), "1", "0")
+        MID$(ANIM_XS_FILL(slot), f, 1) = c
+    END IF
+    ANIM_XS_filled% = (c = "1")
+END FUNCTION
+
+''
+' Drop the fill cache when the history, the frames or the layers changed
+' (once a render / dump, before ANIM_XS_filled%).
+SUB ANIM_XS_cache_check ()
+    DIM s AS STRING, i AS INTEGER
+    s = _TRIM$(STR$(HISTORY.current)) + "," + _TRIM$(STR$(HISTORY.count)) + "," + _TRIM$(STR$(UNDO_SEQ)) + "," + ANIM_serialize$
+    s = s + "," + _TRIM$(STR$(SCRN.canvasW&)) + "," + _TRIM$(STR$(SCRN.canvasH&)) + "," + _TRIM$(STR$(LAYER_COUNT%))
+    IF s = ANIM_XS.sig THEN EXIT SUB
+    FOR i = 1 TO MAX_LAYERS: ANIM_XS_FILL(i) = "": NEXT i
+    ANIM_XS.sig = s
+END SUB
+
+''
+' Forget the current layer's current cell (it may be being painted).
+SUB ANIM_XS_forget_current ()
+    IF CURRENT_LAYER% < 1 _ORELSE CURRENT_LAYER% > MAX_LAYERS THEN EXIT SUB
+    IF ANIM.current >= 1 _ANDALSO ANIM.current <= LEN(ANIM_XS_FILL(CURRENT_LAYER%)) THEN MID$(ANIM_XS_FILL(CURRENT_LAYER%), ANIM.current, 1) = " "
+END SUB
+
+''
+' Look at the layer's pixels in frame f's cell (a promoted layer's buffer is
+' offset by its apron, gotcha 14).
+FUNCTION ANIM_XS_scan% (slot AS INTEGER, f AS INTEGER)
+    DIM img AS LONG, m AS _MEM, cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG
+    DIM iw AS LONG, ih AS LONG, x AS LONG, y AS LONG, x0 AS LONG, x1 AS LONG, y0 AS LONG, y1 AS LONG, o AS _OFFSET
+    IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN EXIT FUNCTION
+    img = LAYERS(slot).imgHandle&
+    IF img >= -1 THEN EXIT FUNCTION
+    IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 THEN EXIT FUNCTION
+    cx = cx + LAYERS(slot).apronW%: cy = cy + LAYERS(slot).apronH%
+    iw = _WIDTH(img): ih = _HEIGHT(img)
+    x0 = _MAX(0, cx): y0 = _MAX(0, cy): x1 = _MIN(iw - 1, cx + cw - 1): y1 = _MIN(ih - 1, cy + ch - 1)
+    IF x1 < x0 _ORELSE y1 < y0 THEN EXIT FUNCTION
+    m = _MEMIMAGE(img)
+    FOR y = y0 TO y1
+        o = m.OFFSET + (y * iw + x0) * 4 + 3
+        FOR x = x0 TO x1
+            IF _MEMGET(m, o, _UNSIGNED _BYTE) <> 0 THEN ANIM_XS_scan% = TRUE: _MEMFREE m: EXIT FUNCTION
+            o = o + 4
+        NEXT x
+    NEXT y
+    _MEMFREE m
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Drawing
+' ---------------------------------------------------------------------------
+
+''
+' ANIM_LB_render, in place of the strip: the grid in the band.
+SUB ANIM_XS_render (dest AS LONG)
+    DIM oldFont AS LONG, k AS INTEGER, r AS INTEGER, f AS INTEGER, slot AS INTEGER
+    DIM x AS INTEGER, w AS INTEGER, x2 AS INTEGER, y AS INTEGER, rh AS INTEGER, ty AS INTEGER
+    DIM t AS STRING, tw AS INTEGER, lastEnd AS INTEGER, fg AS _UNSIGNED LONG, tint AS _UNSIGNED LONG
+    DIM yTop AS INTEGER, yBot AS INTEGER, hy AS INTEGER, i AS INTEGER
+
+    ANIM_XS.shown = FALSE
+    IF dest >= -1 THEN EXIT SUB
+    ANIM_XS_cache_check
+    ANIM_XS_forget_current
+    rh = ANIM_XS.rowH
+    x2 = ANIM_XS.x2
+    yTop = ANIM_XS_row_y%(0)
+    hy = ANIM_XS_row_y%(ANIM_XS.rowsShown + 1) ' the holds row
+    yBot = hy + rh - 1
+    oldFont = FPANEL_begin&
+
+    LINE (ANIM_XS.x1, ANIM_XS.y1)-(x2, ANIM_XS.y2), THEME.CP_bg~&, BF
+    LINE (ANIM_XS.x1, yTop)-(ANIM_XS.gx - 1, yBot), THEME.CP_slider_bg~&, BF
+
+    ' the current frame's span down every row; selected frames lighter
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f): w = ANIM_hold%(f) * ANIM_XS.tickW
+        tint = 0
+        IF f = ANIM.current THEN
+            tint = (THEME.ANIM_FRAME_current~& AND &H00FFFFFF~&) OR &H48000000~&
+        ELSEIF ANIM_SEL_count% > 1 _ANDALSO ANIM_SEL(f) THEN
+            tint = (THEME.ANIM_FRAME_current~& AND &H00FFFFFF~&) OR &H24000000~&
+        END IF
+        IF tint <> 0 THEN LINE (x, yTop)-(_MIN(x + w - 1, x2), yBot), tint, BF
+    NEXT f
+
+    ' the current layer's row
+    FOR k = 1 TO ANIM_XS.rowsShown
+        IF ANIM_XS_ROW(ANIM_XS.firstRow + k - 1) = CURRENT_LAYER% THEN
+            y = ANIM_XS_row_y%(k)
+            LINE (ANIM_XS.x1, y)-(ANIM_XS.gx - 2, y + rh - 1), THEME.CP_button_bg~&, BF
+            LINE (ANIM_XS.gx, y)-(x2, y + rh - 1), (THEME.CP_text_bright~& AND &H00FFFFFF~&) OR &H14000000~&, BF
+        END IF
+    NEXT k
+
+    ' header: frame numbers at each frame's start (those that fit), tick marks
+    ty = yTop + (rh - FPANEL.fontH%) \ 2
+    lastEnd = -32000
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f)
+        t = _TRIM$(STR$(f)): tw = FPANEL_text_w%(t)
+        IF x + 2 > lastEnd + 2 _ANDALSO x + 2 + tw <= x2 THEN
+            FPANEL_text x + 2, ty, t, _IIF(f = ANIM.current, THEME.CP_text_bright~&, THEME.CP_text~&)
+            lastEnd = x + 2 + tw
+        END IF
+        FOR i = 1 TO ANIM_hold%(f) - 1 ' the ticks a hold spans
+            IF x + i * ANIM_XS.tickW <= x2 THEN LINE (x + i * ANIM_XS.tickW, yTop + rh - 3)-STEP(0, 2), THEME.CP_border~&
+        NEXT i
+    NEXT f
+    FPANEL_text ANIM_XS.x1 + 4, ty, "LAYER", THEME.CP_text~&
+
+    ' layer rows: name, then the drawing in each frame's cell + its hold line
+    FOR k = 1 TO ANIM_XS.rowsShown
+        r = ANIM_XS.firstRow + k - 1
+        IF r > ANIM_XS.nRows THEN EXIT FOR
+        slot = ANIM_XS_ROW(r)
+        y = ANIM_XS_row_y%(k)
+        IF slot = CURRENT_LAYER% THEN
+            fg = THEME.CP_text_bright~&
+        ELSEIF LAYERS(slot).visible% = 0 THEN
+            fg = (THEME.CP_text~& AND &H00FFFFFF~&) OR &H80000000~&
+        ELSE
+            fg = THEME.CP_text~&
+        END IF
+        FPANEL_text ANIM_XS.x1 + 4 + 4 * ANIM_XS_DEPTH(r), y + (rh - FPANEL.fontH%) \ 2, ANIM_XS_label$(slot), fg
+        IF LAYERS(slot).layerType% <> LAYER_TYPE_GROUP THEN
+            FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+                IF ANIM_XS_filled%(slot, f) THEN ANIM_XS_cell dest, slot, f, y
+            NEXT f
+        END IF
+        LINE (ANIM_XS.x1, y + rh - 1)-(x2, y + rh - 1), (THEME.CP_border~& AND &H00FFFFFF~&) OR &H60000000~&
+    NEXT k
+
+    ' holds row
+    LINE (ANIM_XS.x1, hy)-(x2, hy), THEME.CP_border~&
+    ty = hy + (rh - FPANEL.fontH%) \ 2
+    FPANEL_text ANIM_XS.x1 + 4, ty, "HOLD", THEME.CP_text~&
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f): w = ANIM_hold%(f) * ANIM_XS.tickW
+        t = _TRIM$(STR$(ANIM_hold%(f))): tw = FPANEL_text_w%(t)
+        IF tw + 2 <= w _ANDALSO x + (w - tw) \ 2 + tw <= x2 THEN
+            FPANEL_text x + (w - tw) \ 2, ty, t, _IIF(f = ANIM.current, THEME.CP_text_bright~&, THEME.CP_text~&)
+        END IF
+    NEXT f
+
+    ' frame boundaries, the header's line, the name column's edge
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f)
+        IF x <= x2 THEN LINE (x, yTop)-(x, yBot), THEME.CP_border~&
+    NEXT f
+    x = ANIM_XS_frame_x%(ANIM_XS.lastF) + ANIM_hold%(ANIM_XS.lastF) * ANIM_XS.tickW
+    IF ANIM_XS.lastF = ANIM.count _ANDALSO x <= x2 THEN LINE (x, yTop)-(x, yBot), THEME.CP_border~&
+    LINE (ANIM_XS.x1, yTop + rh - 1)-(x2, yTop + rh - 1), THEME.CP_border~&
+    LINE (ANIM_XS.gx - 1, yTop)-(ANIM_XS.gx - 1, yBot), THEME.CP_border~&
+    ' more rows than fit: a mark at the names' edge where they continue
+    IF ANIM_XS.firstRow > 1 THEN LINE (ANIM_XS.gx - 4, yTop + rh)-STEP(2, 1), THEME.CP_text_bright~&, BF
+    IF ANIM_XS.firstRow + ANIM_XS.rowsShown - 1 < ANIM_XS.nRows THEN LINE (ANIM_XS.gx - 4, hy - 2)-STEP(2, 1), THEME.CP_text_bright~&, BF
+
+    _FONT oldFont
+    ANIM_XS.shown = TRUE
+END SUB
+
+''
+' One cell: layer slot's drawing in frame f as a thumbnail at the start of
+' the frame's span (over the transparency checks), a hold line along the rest.
+SUB ANIM_XS_cell (dest AS LONG, slot AS INTEGER, f AS INTEGER, y AS INTEGER)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, s AS SINGLE
+    DIM x AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    DIM ex AS INTEGER, my AS INTEGER, ax AS LONG, ay AS LONG
+    IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 THEN EXIT SUB
+    x = ANIM_XS_frame_x%(f)
+    bw = ANIM_XS.tickW - 3: bh = ANIM_XS.rowH - 2
+    s = _MIN(bw / cw, bh / ch)
+    dw = _MAX(1, INT(cw * s)): dh = _MAX(1, INT(ch * s))
+    dx = x + 2: dy = y + (ANIM_XS.rowH - 1 - dh) \ 2
+    IF dx + dw - 1 > ANIM_XS.x2 THEN EXIT SUB ' cut at the band's edge
+    TRANSPARENCY_ensure_blueprint
+    IF TRANSPARENCY.blueprint& < -1 THEN _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), TRANSPARENCY.blueprint&, dest, (cx, cy)-(cx + cw - 1, cy + ch - 1)
+    ax = cx + LAYERS(slot).apronW%: ay = cy + LAYERS(slot).apronH%
+    _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), LAYERS(slot).imgHandle&, dest, (ax, ay)-(ax + cw - 1, ay + ch - 1)
+    IF ANIM_hold%(f) > 1 THEN
+        ex = _MIN(x + ANIM_hold%(f) * ANIM_XS.tickW - 3, ANIM_XS.x2)
+        my = y + (ANIM_XS.rowH - 1) \ 2
+        IF ex > dx + dw + 1 THEN
+            LINE (dx + dw + 1, my)-(ex, my), THEME.CP_text~&
+            LINE (ex, my - 2)-(ex, my + 2), THEME.CP_text~&
+        END IF
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' Mouse
+' ---------------------------------------------------------------------------
+
+''
+' Viewport point (mx, my) is on the band.
+FUNCTION ANIM_XS_hit% (mx AS INTEGER, my AS INTEGER)
+    IF ANIM_XS_on% = 0 _ORELSE ANIM_XS.shown = 0 THEN EXIT FUNCTION
+    ANIM_XS_hit% = (mx >= ANIM_XS.x1 _ANDALSO mx <= ANIM_XS.x2 _ANDALSO my >= ANIM_XS.y1 _ANDALSO my <= ANIM_XS.y2)
+END FUNCTION
+
+''
+' The band's row at viewport y: 0 header, 1..rowsShown a layer row shown,
+' rowsShown + 1 the holds row, -1 none.
+FUNCTION ANIM_XS_band_row% (my AS INTEGER)
+    DIM k AS INTEGER
+    ANIM_XS_band_row% = -1
+    IF my < ANIM_XS_row_y%(0) THEN EXIT FUNCTION
+    k = (my - ANIM_XS_row_y%(0)) \ ANIM_XS.rowH
+    IF k <= ANIM_XS.rowsShown + 1 THEN ANIM_XS_band_row% = k
+END FUNCTION
+
+''
+' The frame whose span is under viewport x (0 none).
+FUNCTION ANIM_XS_frame_at% (mx AS INTEGER)
+    DIM f AS INTEGER, x AS INTEGER
+    IF mx < ANIM_XS.gx _ORELSE mx > ANIM_XS.x2 THEN EXIT FUNCTION
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f)
+        IF mx >= x _ANDALSO mx < x + ANIM_hold%(f) * ANIM_XS.tickW THEN ANIM_XS_frame_at% = f: EXIT FUNCTION
+    NEXT f
+END FUNCTION
+
+''
+' ANIM_LB_mouse: a left press on the band. A cell = its frame current (strip
+' rules: Ctrl / Shift select) and its layer current; a name = the layer; the
+' header / holds row = the frame. TRUE = it was on the band.
+FUNCTION ANIM_XS_press% (mx AS INTEGER, my AS INTEGER)
+    DIM k AS INTEGER, f AS INTEGER, slot AS INTEGER
+    IF ANIM_XS_hit%(mx, my) = 0 THEN EXIT FUNCTION
+    ANIM_XS_press% = TRUE
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    k = ANIM_XS_band_row%(my)
+    IF k < 0 THEN EXIT FUNCTION
+    IF k >= 1 _ANDALSO k <= ANIM_XS.rowsShown _ANDALSO ANIM_XS.firstRow + k - 1 <= ANIM_XS.nRows THEN slot = ANIM_XS_ROW(ANIM_XS.firstRow + k - 1)
+    f = ANIM_XS_frame_at%(mx)
+    IF slot > 0 _ANDALSO (mx < ANIM_XS.gx _ORELSE f > 0) THEN
+        IF slot <> CURRENT_LAYER% THEN
+            IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN LAYERS_select_group slot ELSE LAYERS_select slot
+        END IF
+    END IF
+    IF f > 0 THEN ANIM_SEL_click f, ANIM_LB_ctrl%, ANIM_LB_shift%
+    ANIM_LB_changed
+END FUNCTION
+
+''
+' The wheel over the band: the frames (a quarter of those shown a notch);
+' Shift, or over the names, the layer rows when they overflow. TRUE = taken.
+FUNCTION ANIM_XS_wheel% (mx AS INTEGER, my AS INTEGER, delta AS INTEGER)
+    DIM n AS INTEGER, top AS INTEGER
+    IF ANIM_XS_hit%(mx, my) = 0 THEN EXIT FUNCTION
+    IF REGION_hit_test%(mx, my) <> REGION_CANVAS THEN EXIT FUNCTION
+    ANIM_XS_wheel% = TRUE
+    IF (ANIM_LB_shift% _ORELSE mx < ANIM_XS.gx) _ANDALSO ANIM_XS.nRows > ANIM_XS.rowsShown THEN
+        top = ANIM_XS.nRows - ANIM_XS.rowsShown + 1
+        ANIM_XS.firstRow = _MAX(1, _MIN(top, ANIM_XS.firstRow + SGN(delta)))
+    ELSE
+        n = _MAX(1, (ANIM_XS.lastF - ANIM_XS.firstF + 1) \ 4)
+        ANIM_XS.firstF = _MAX(1, _MIN(ANIM.count, ANIM_XS.firstF + SGN(delta) * n))
+    END IF
+    ANIM_LB_changed
+END FUNCTION
+
+''
+' QA dump lines:
+' ANIMXS on shown x1 y1 x2 y2 nameW rowH tickW gx firstF lastF nRows firstRow rowsShown currentLayer
+' ANIMXSF then per frame shown: f x w (its span)
+' ANIMXSR r slot y fill (per row; y -1 = scrolled out; fill = per frame 1 drawn / 0 empty, "-" a group)
+FUNCTION ANIM_XS_dump$ ()
+    DIM d AS STRING, f AS INTEGER, r AS INTEGER, slot AS INTEGER, y AS INTEGER, fl AS STRING, isOn AS INTEGER
+    isOn = (ANIM_XS_on% <> 0 _ANDALSO ANIM_XS.shown <> 0)
+    d = "ANIMXS" + DOCK_n$(CFG.XSHEET% <> 0) + DOCK_n$(isOn) + DOCK_n$(ANIM_XS.x1) + DOCK_n$(ANIM_XS.y1) + DOCK_n$(ANIM_XS.x2) + DOCK_n$(ANIM_XS.y2)
+    d = d + DOCK_n$(ANIM_XS.nameW) + DOCK_n$(ANIM_XS.rowH) + DOCK_n$(ANIM_XS.tickW) + DOCK_n$(ANIM_XS.gx) + DOCK_n$(ANIM_XS.firstF) + DOCK_n$(ANIM_XS.lastF)
+    d = d + DOCK_n$(ANIM_XS.nRows) + DOCK_n$(ANIM_XS.firstRow) + DOCK_n$(ANIM_XS.rowsShown) + DOCK_n$(CURRENT_LAYER%) + CHR$(10)
+    IF isOn = 0 THEN ANIM_XS_dump$ = d: EXIT FUNCTION
+    ANIM_XS_cache_check
+    d = d + "ANIMXSF"
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        d = d + DOCK_n$(f) + DOCK_n$(ANIM_XS_frame_x%(f)) + DOCK_n$(ANIM_hold%(f) * ANIM_XS.tickW)
+    NEXT f
+    d = d + CHR$(10)
+    FOR r = 1 TO _MIN(ANIM_XS.nRows, 64)
+        slot = ANIM_XS_ROW(r)
+        y = -1
+        IF r >= ANIM_XS.firstRow _ANDALSO r < ANIM_XS.firstRow + ANIM_XS.rowsShown THEN y = ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1)
+        IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN
+            fl = "-"
+        ELSE
+            fl = ""
+            FOR f = 1 TO _MIN(ANIM.count, 200): fl = fl + _IIF(ANIM_XS_filled%(slot, f), "1", "0"): NEXT f
+        END IF
+        d = d + "ANIMXSR" + DOCK_n$(r) + DOCK_n$(slot) + DOCK_n$(y) + " " + fl + CHR$(10)
+    NEXT r
+    ANIM_XS_dump$ = d
+END FUNCTION

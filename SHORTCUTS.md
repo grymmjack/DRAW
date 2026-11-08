@@ -545,6 +545,7 @@ picture only `Num +` is). The `Alt` keys are for keyboards without a numpad.
 | `Shift+Num +` | Add a blank frame |
 | `Num 0` | Lightbox on / off (below) |
 | `Num *` | Lightbox panes: 3 → 5 → 7 |
+| `Num 8` | X-sheet on / off: the lightbox's top band shows frames × layers (opens the lightbox from sheet view) |
 | `Num /` | Onion skin on / off (in the lightbox) |
 | `Num .` | Full-screen Preview: the frames playing over the whole window. Inside: `Space` / `Num Enter` play · pause, `←` / `→` step, `Home` / `End` first / last, click / drag the seek bar to scrub, `Wheel` zoom, double `M-Click` 100%, `M-Drag` pan, `Esc` / `Num .` close on the frame shown |
 | `Ctrl+Z` / `Ctrl+Y` | Every frame operation, frame size / gutter / margin and FPS / hold change is one undo step |
@@ -604,6 +605,21 @@ default). Zooming and panning stay with the sheet view.
 | Wheel | Scroll the strip; a frame change brings the current frame back into view |
 
 With two or more frames selected, Play (`Num Enter`) plays just those (first to last).
+
+**X-sheet** (`Num 8`, ANIM → X-Sheet, or the transport bar's `X-SHEET`): the strip becomes a
+grid of frames across and layers down, top layer first as in the Layers panel. Each column is
+one tick at the FPS, so a frame held 3 spans three columns; the header numbers the frames and
+the bottom row gives each one's hold. A cell shows that layer's drawing in that frame, with a
+line along the rest of its hold; a blank cell has nothing drawn. The current frame's column is
+tinted, the current layer's row highlighted; hidden layers are dim, `R` marks a reference
+layer, `=` a layer the same on every frame.
+
+| X-sheet | Action |
+|---------|--------|
+| Click a cell | That frame and that layer become current (`Ctrl` / `Shift` select frames as in the strip) |
+| Click a frame number or a hold | That frame (`Ctrl` / `Shift` as in the strip) |
+| Click a layer name | That layer |
+| Wheel | Scroll the frames; `Shift+Wheel` (or the wheel over the names) scrolls the layers when they don't all fit |
 
 **COPY / PASTE / CUT** (the transport bar, or the ANIM menu): COPY puts the selected frames
 (or the current one) on the clipboard; PASTE inserts them as new frames after the selection;

@@ -354,6 +354,7 @@ TYPE DRAW_CONFIG
     PREVIEW_SHOWS_FRAME             AS INTEGER        ' Animation: the Preview window shows the current frame on a sheet with frames (ANIM > Preview Shows Frame)
     FRAME_GRID                      AS INTEGER        ' Animation: show the frame grid (cell borders, numbers, current frame) on a sheet with frames (View > Frame Grid)
     LIGHTBOX                        AS INTEGER        ' Animation: lightbox view (strip, transport bar, 3/5/7 panes) on a sheet with frames (ANIM > Lightbox, Num 0)
+    XSHEET                          AS INTEGER        ' Animation: the lightbox's top band is the X-sheet (frames x layers), not the strip (ANIM > X-Sheet, Num 8)
     LIGHTBOX_PANES                  AS INTEGER        ' Animation: lightbox editor panes 3 / 5 / 7 (ANIM > Lightbox Panes, Num *)
     CLIP_FRAME_LIGHTBOX             AS INTEGER        ' Animation: a stroke in a lightbox pane stays inside its frame (ANIM > Clip Strokes to the Frame in the Lightbox)
     CLIP_FRAME_SHEET                AS INTEGER        ' Animation: a stroke in sheet view stays inside the frame it starts in (ANIM > Clip Strokes to the Frame in Sheet View)

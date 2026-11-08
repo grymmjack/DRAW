@@ -58,7 +58,8 @@ CONST LB_CTL_COPY  = 11 ' copy / paste / cut frames: 2.5
 CONST LB_CTL_PASTE = 12
 CONST LB_CTL_CUT   = 13
 CONST LB_CTL_ADD   = 14 ' + : add a frame (a copy of the last; Shift = blank)
-CONST LB_CTLS      = 14
+CONST LB_CTL_XS    = 15 ' X-SHEET: the X-sheet in place of the strip (4.1)
+CONST LB_CTLS      = 15
 
 CONST LB_PANES_MAX = 7
 CONST LB_MENU_ITEM_H = 12 ' the loop mode menu's rows (as the dock menu)

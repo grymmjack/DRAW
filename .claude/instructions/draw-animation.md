@@ -60,6 +60,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2537 | Export BAS Player (DATA)... (`ANIM_BAS_export%`) |
 | 2538 | Export BAS Player + Sheet PNG... (`ANIM_BAS_sheet_export%`) |
 | 2539 | Full-Screen Preview (`ANIM_FS_show`, `TOOLS/ANIM-FS`, Num .) |
+| 2540 | X-Sheet in the lightbox's top band (`ANIM_XS_toggle`, `TOOLS/ANIM-XS`, `CFG.XSHEET`, Num 8, chip `LB_CTL_XS`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
 Grep before adding one (CLAUDE.md gotcha 17).
@@ -436,6 +437,30 @@ QA: `anim-fullscreen.sh` (open / play / pause / steps / seek click + drag / whee
 middle 100% / middle-drag pan / ESC on the frame shown, each checked by the colour on
 screen at the frame's middle; ESC does not deselect; Num . open + close).
 
+## X-sheet (`TOOLS/ANIM-XS`, 4.1)
+
+A mode of the lightbox's top band (`CFG.XSHEET`, DRAW.cfg `XSHEET`): `ANIM_LB_layout` gives the
+band `ANIM_XS_band_h%` (header + every layer row + holds row, `FPANEL.rowH + 6` each, at most half
+of what the bar leaves) and calls `ANIM_XS_layout`; `ANIM_LB_render` draws `ANIM_XS_render`
+in place of the strip (`GOTO LbBar`); `ANIM_LB_strip_at%` returns 0 and the strip wheel goes to
+`ANIM_XS_wheel%`; a left press goes to `ANIM_XS_press%` before the strip. Toggle 2540 from sheet
+view turns the lightbox on first (`ANIM_LB_toggle`, its busy refusals). Columns are ticks:
+`ANIM_XS_frame_x%(f)` = gx + the holds from `firstF`; a frame spans hold x `tickW` (`tickW` =
+the thumbnail of the frame's shape at `rowH - 2`, + 3). Rows = the layers panel's order
+(zIndex high first, `LAYER_PANEL_row_hidden%` skipped, groups as label rows, depth indent),
+`ANIM_XS_rows_build`. A cell is drawn when the layer has a pixel with alpha > 0 in it
+(`ANIM_XS_scan%`, `_MEM`, apron offset); cached per slot in `ANIM_XS_FILL()` and dropped when
+`HISTORY.current / count`, `UNDO_SEQ`, `ANIM_serialize$`, the canvas size or `LAYER_COUNT`
+change (`ANIM_XS_cache_check`, once a render / dump); the current layer's current cell is
+rescanned every render (live strokes). Thumbnail = the transparency blueprint + the layer's
+cell `_PUTIMAGE`d at the span's start, a hold line to the end. Click: cell = `ANIM_SEL_click`
++ `LAYERS_select` (`LAYERS_select_group` for a group); name = the layer; header / holds = the
+frame. Wheel: frames by a quarter of those shown; Shift / over the names: rows. Current frame
+/ layer scroll into view when they change. Editing (drag drawings, stretch holds) is 4.2.
+QA dump: `ANIMXS on shown x1 y1 x2 y2 nameW rowH tickW gx firstF lastF nRows firstRow
+rowsShown currentLayer`, `ANIMXSF f x w ...` (spans), `ANIMXSR r slot y fill` (fill = 1 / 0 per
+frame, `-` a group; y -1 scrolled out). The chip is `ANIMLBC` pair 15. QA: `anim-xsheet.sh`.
+
 ## A selection stays put in its cell (2.9, Q-18)
 
 `ANIM_SELBOX_watch` (main loop, before `ANIM_SAME_tick%`): when `ANIM.current` changed since
@@ -462,7 +487,7 @@ order, the rest. `ANIM_OP_SET_COUNT` (11, no action id): `ANIM_COUNT_TO` frames.
 ## Saved
 
 The `drAn` PNG chunk (`draw-fileformat.md`; v2 adds the layer flags), read from .draw and plain PNG. The ask answer
-and playback are not saved. Config: `FRAME_GRID`, `PREVIEW_SHOWS_FRAME`, `LIGHTBOX`, `LIGHTBOX_PANES`,
+and playback are not saved. Config: `FRAME_GRID`, `PREVIEW_SHOWS_FRAME`, `LIGHTBOX`, `LIGHTBOX_PANES`, `XSHEET`,
 `CLIP_FRAME_LIGHTBOX`, `CLIP_FRAME_SHEET`,
 `ANIM_PANEL_VISIBLE / _X / _Y`. Theme: `THEME.ANIM_FRAME_border / spare / current /
 label_fg / label_bg`.
