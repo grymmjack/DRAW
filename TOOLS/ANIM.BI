@@ -28,6 +28,7 @@ CONST ANIM_FPS_DEFAULT = 15
 CONST ANIM_FPS_MAX     = 120
 CONST ANIM_HOLD_MAX    = 99
 CONST ANIM_SHEET_MAX   = 16384 ' frame ops / resized frames grow the sheet up to this wide / tall (canvas sizes are INTEGERs)
+CONST ANIM_NO_FRAMES$ = "No frames yet: Num + (ANIM > Add Frame) makes frame 2, or File > New from Template > ANIMATION"
 
 ' Changing the frame layout of a drawn sheet (R-07): asked once per document
 CONST ANIM_SIZE_ASK     = 0 ' not asked yet
