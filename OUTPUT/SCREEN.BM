@@ -1899,7 +1899,7 @@ END SUB
 ' @param zh LONG Zoomed canvas height
 '
 SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
-    IF ANIM_LB_showing% THEN EXIT SUB ' sheet-view previews (TOOLS/ANIM-LB shows frames instead)
+    IF ANIM_LB_skip_overlay% THEN EXIT SUB ' the lightbox: drawn only through a pane's view (TOOLS/ANIM-LB)
     ' NOTE: Selection marching ants rendering moved AFTER scene cache save
     ' (SkipToPointer section) so animated ants don't force full scene re-render.
     ' Draw MARQUEE dragging preview (only when using marquee tool)
@@ -2440,7 +2440,6 @@ SUB RENDER_selection_overlay ()
     ' Photoshop-style "Hide Selection" (Ctrl+H): selection still active and
     ' functional, but marching ants and handles are suppressed.
     IF NOT MARQUEE.SHOW_OVERLAY% THEN EXIT SUB
-    IF ANIM_LB_showing% THEN EXIT SUB ' the lightbox has no sheet to draw them on
     IF SELECTION_has_active% THEN
         IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
             _DEST SCRN.CANVAS&
@@ -2956,7 +2955,7 @@ SUB SCREEN_render ()
     ' Never touches the palette strip swatch loop or does any full-frame copy.
     ' Falls back to SkipToPointer only when partial present is unsafe.
     ' ========================================================================
-    IF NOT SCENE_DIRTY% AND NOT GUI_NEEDS_REDRAW% AND STATUS_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
+    IF NOT SCENE_DIRTY% AND NOT GUI_NEEDS_REDRAW% AND STATUS_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 AND ANIM_LB_showing% = 0 THEN
         PERF_start PERF_GUI_ONLY_PATH
         ' SCREEN_compute_layout is intentionally skipped here.
         ' STATUS-ONLY fires only when NOT GUI_NEEDS_REDRAW%, meaning the GUI
@@ -3145,7 +3144,8 @@ SUB SCREEN_render ()
     IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 AND NOT SCRN.patternTileMode% THEN
         ' Skip dirty-rect optimization when popup overlays are open — they need
         ' full-frame consistency to avoid flicker and z-order artifacts with scrollbars.
-        IF LAYER_PANEL.blendPopupOpen% OR DRAWER.contextMenuOpen% OR CMD_PALETTE.visible THEN
+        ' The lightbox too: its overlays sit in a pane, not where the sheet would be.
+        IF LAYER_PANEL.blendPopupOpen% OR DRAWER.contextMenuOpen% OR CMD_PALETTE.visible OR ANIM_LB_showing% THEN
             _DEST SCRN.CANVAS&
             _DONTBLEND SCRN.CANVAS&
             _PUTIMAGE , SCENE_CACHE&, SCRN.CANVAS&
@@ -3578,6 +3578,21 @@ SUB SCREEN_render ()
         END IF
     END IF
     
+    ' Lightbox (TOOLS/ANIM-LB, 2.2): the overlays below draw through the view
+    ' of the pane the pointer is in, clipped to its picture; with no pane to
+    ' draw them in they are skipped.
+    DIM lbOv AS INTEGER
+    lbOv = FALSE
+    IF ANIM_LB_showing% THEN
+        lbOv = ANIM_LB_overlay_begin%
+        IF lbOv THEN
+            zw& = SCRN.canvasW& * SCRN.zoom!: zh& = SCRN.canvasH& * SCRN.zoom!
+            dx& = (SCRN.w& - zw&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+            dy& = (SCRN.h& - zh&) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%
+        END IF
+    END IF
+    IF ANIM_LB_showing% = 0 OR lbOv THEN
+
     ' ==== IMAGE IMPORT PREVIEW ====
     ' Draw import preview if in import mode (on top of painting, below GUI)
     IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN
@@ -3616,6 +3631,8 @@ SUB SCREEN_render ()
     PERF_start PERF_FULL_TOOL_PREVIEW
     RENDER_tool_previews dx&, dy&, zw&, zh&
     PERF_stop PERF_FULL_TOOL_PREVIEW
+    END IF ' the lightbox overlays
+    IF lbOv THEN ANIM_LB_overlay_end
     
     ' ==== GUI LAYER (AFTER TOOL PREVIEWS) ====
     PERF_start PERF_FULL_GUI_OVERLAY
@@ -3650,11 +3667,13 @@ SUB SCREEN_render ()
     SkipToPointer:
     ' ==== SELECTION OVERLAY (after scene cache, animates without full re-render) ====
     PERF_start PERF_SELECTION_OVERLAY
-    RENDER_selection_overlay
+    lbOv = FALSE
+    IF ANIM_LB_showing% THEN lbOv = ANIM_LB_overlay_begin% ' the lightbox: in the pane (TOOLS/ANIM-LB)
+    IF ANIM_LB_showing% = 0 OR lbOv THEN RENDER_selection_overlay
     PERF_stop PERF_SELECTION_OVERLAY
 
     ' ==== SMART GUIDES (show alignment lines when moving layers) ====
-    IF SMART_GUIDES.ENABLED% AND MOVE.TRANSFORMING AND (SMART_GUIDES.hCount% > 0 OR SMART_GUIDES.vCount% > 0) THEN
+    IF (ANIM_LB_showing% = 0 OR lbOv) AND SMART_GUIDES.ENABLED% AND MOVE.TRANSFORMING AND (SMART_GUIDES.hCount% > 0 OR SMART_GUIDES.vCount% > 0) THEN
         DIM sgZW AS LONG, sgZH AS LONG
         DIM sgDX AS INTEGER, sgDY AS INTEGER
         sgZW& = SCRN.canvasW& * SCRN.zoom!
@@ -3668,6 +3687,7 @@ SUB SCREEN_render ()
         END IF
         SMART_GUIDES_render SCRN.CANVAS&, sgDX%, sgDY%, SCRN.zoom!
     END IF
+    IF lbOv THEN ANIM_LB_overlay_end
 
     ' ==== TEXT LAYER HOVER OUTLINE (after scene cache, moves with mouse) ====
     IF CURRENT_TOOL% = TOOL_TEXT _ANDALSO TEXT.ACTIVE = 0 _ANDALSO ANIM_LB_showing% = 0 THEN

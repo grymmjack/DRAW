@@ -751,7 +751,9 @@ DO
     MOUSE_focus_guard
 
     PERF_start PERF_MOUSE_INPUT
+    ANIM_LB_view_push ' lightbox: the handler sees the view of the pane under the pointer (2.2)
     MOUSE_input_handler
+    ANIM_LB_view_pop
     PALETTE_OPS_tick
     PALETTE_STRIP_watch_colors ' FG/BG changed elsewhere -> refresh the chip frames
     PERF_stop PERF_MOUSE_INPUT

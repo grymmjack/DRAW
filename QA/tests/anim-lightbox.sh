@@ -8,7 +8,8 @@
 # sheet, so each pane must show its frame's own mark: the fixture gives frame
 # n a mark of its own colour, and the checks look for that colour in each
 # pane's screenshot. The transport bar's |< < PLAY > >|, loop and + work; a
-# press in the lightbox draws nothing (drawing in panes is 2.2).
+# press outside the pane pictures draws nothing (drawing in them:
+# anim-lightbox-draw.sh).
 #
 # Dump: ANIMLB shown x1 y1 x2 y2 stripY stripH barY barH edY edH stripFirst
 # stripN cellW cellH panes paneW paneH pad; ANIMLBC x w per control (1 |<,
@@ -172,14 +173,16 @@ if [[ "${LB_SHOWN:-}" == -1 ]]; then
     lb_key ctrl+z
     lb_read; [[ "$A_COUNT" == 7 ]] && pass "undo +" || fail "undo +: count $A_COUNT"
 
-    # -- a press in a pane draws nothing (yet) --
+    # -- a press beside the pane pictures (the label row) and in the strip
+    # draws nothing (drawing in the pictures: anim-lightbox-draw.sh) --
     LB_BEFORE="$A_T"
-    click $(( LB_X1 + LB_PAD + LB_PW + LB_PAD + LB_PW / 2 )) $(( LB_EY + LB_PAD + LB_PH / 2 ))
-    wait_for 0.4 "click in the middle pane"
+    read -r _ _ _ _ _ LBP_Y _ LBP_H _ <<< "$(lb_line ANIMLBP)"
+    click $(( LB_X1 + LB_PAD + LB_PW + LB_PAD + LB_PW / 2 )) $(( ${LBP_Y:-$LB_EY} + ${LBP_H:-$LB_PH} + 2 ))
+    wait_for 0.4 "click under the middle pane's picture"
     click $(( LB_X1 + LB_PAD + LB_CW / 2 )) $(( LB_SY + LB_PAD + LB_CH / 2 ))
     wait_for 0.4 "click in the strip"
     lb_read
-    [[ "$A_T" == "$LB_BEFORE" ]] && pass "clicks in the lightbox draw nothing" || fail "lightbox clicks drew: [$LB_BEFORE] -> [$A_T]"
+    [[ "$A_T" == "$LB_BEFORE" ]] && pass "clicks beside the pictures and in the strip draw nothing" || fail "lightbox clicks drew: [$LB_BEFORE] -> [$A_T]"
 fi
 
 # -- back to the sheet, and through the menu --

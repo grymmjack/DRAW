@@ -552,7 +552,8 @@ Main-row digits keep setting opacity; `Alt+Home` / `Alt+End` no longer flip.
 **ANIM menu:** Animation Panel · First / Previous / Next / Last Frame · Play · Add Frame ·
 Add Blank Frame · Insert Frame Before / After · Duplicate Frame · Delete Frame · Move Frame
 Earlier / Later · Reverse Frames · Frame Grid · Preview Shows Frame · Lightbox · Lightbox
-Panes 3 / 5 / 7. (Also View → Frame Grid
+Panes 3 / 5 / 7 · Clip Strokes to the Frame in the Lightbox · Clip Strokes to the Frame in
+Sheet View. (Also View → Frame Grid
 and View → Animation Panel; every item is in the command palette.)
 
 ### Animation panel (View / ANIM → Animation Panel)
@@ -581,8 +582,13 @@ lightbox over beside it.
 | time · FPS · seek bar · `n/total` | Where the current frame comes up, the sheet's FPS, its place in the animation |
 | `+` | Add a frame (a copy of the last; `Shift+click` = blank) |
 
-Drawing in the panes, clicking / selecting in the strip, scrubbing the seek bar, and COPY /
-PASTE / CUT come next; for now a click in the lightbox only works the transport bar.
+**Draw in any pane** with any tool: it paints that frame. A stroke stays inside its frame
+(ANIM → Clip Strokes to the Frame in the Lightbox, on by default; turn it off to run over the
+edge). ANIM → Clip Strokes to the Frame in Sheet View does the same on the sheet (off by
+default). Zooming and panning stay with the sheet view.
+
+Clicking / selecting in the strip, scrubbing the seek bar, and COPY / PASTE / CUT come next;
+elsewhere in the lightbox a click only works the transport bar.
 
 ---
 

@@ -425,13 +425,20 @@ END FUNCTION
 ' MOUSE_should_skip_tool_actions%: a press in the lightbox never reaches the
 ' tools (drawing in a pane: 2.2). A left press on a transport control runs it.
 SUB ANIM_LB_mouse ()
-    DIM pressed1 AS INTEGER, pressed2 AS INTEGER
-    IF ANIM_LB_showing% = 0 THEN EXIT SUB
+    DIM pressed1 AS INTEGER, pressed2 AS INTEGER, k AS INTEGER
+    IF ANIM_LB_showing% = 0 THEN ANIM_LB_sheet_press: EXIT SUB
     pressed1 = (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0)
     pressed2 = (MOUSE.B2% <> 0 _ANDALSO MOUSE.OLD_B2% = 0)
     IF pressed1 = 0 _ANDALSO pressed2 = 0 THEN EXIT SUB
     IF ANIM_LB_hit%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = 0 THEN EXIT SUB
     IF REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%) <> REGION_CANVAS THEN EXIT SUB
+    ' a press on a pane's picture goes to the tool, in that pane's view (2.2)
+    k = ANIM_LB_pane_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    IF k >= 0 _ANDALSO MOUSE.UI_CHROME_CLICKED% = 0 _ANDALSO ANIM_PLAY.playing = 0 THEN
+        ANIM_LB.strokePane = k
+        IF CFG.CLIP_FRAME_LIGHTBOX% THEN ANIM_LB_clip_begin ANIM.current + k - ANIM_LB.panes \ 2
+        EXIT SUB
+    END IF
     MOUSE.UI_CHROME_CLICKED% = TRUE
     IF pressed1 THEN ANIM_LB_click ANIM_LB_ctl_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
 END SUB
@@ -469,5 +476,256 @@ FUNCTION ANIM_LB_dump$ ()
     d = d + DOCK_n$(ANIM_LB.panes) + DOCK_n$(ANIM_LB.paneW) + DOCK_n$(ANIM_LB.paneH) + DOCK_n$(ANIM_LB.pad) + CHR$(10)
     d = d + "ANIMLBC"
     FOR k = 1 TO LB_CTLS: d = d + DOCK_n$(ANIM_LB_CX(k)) + DOCK_n$(ANIM_LB_CW(k)): NEXT k
+    d = d + CHR$(10)
+    ' ANIMLBP clipLightbox clipSheet, then per pane: frame dx dy dw dh (the picture, viewport px)
+    DIM f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER, s AS SINGLE
+    d = d + "ANIMLBP" + DOCK_n$(CFG.CLIP_FRAME_LIGHTBOX% <> 0) + DOCK_n$(CFG.CLIP_FRAME_SHEET% <> 0)
+    FOR k = 0 TO ANIM_LB.panes - 1
+        f = ANIM_LB_pane_rect%(k, x, y, w, h)
+        s = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+        d = d + DOCK_n$(f) + DOCK_n$(dx) + DOCK_n$(dy) + DOCK_n$(dw) + DOCK_n$(dh)
+    NEXT k
     ANIM_LB_dump$ = d + CHR$(10)
 END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Drawing in the panes (2.2)
+' ---------------------------------------------------------------------------
+
+''
+' The pane whose picture is under viewport point (mx, my) and shows a frame,
+' or -1.
+FUNCTION ANIM_LB_pane_at% (mx AS INTEGER, my AS INTEGER)
+    DIM k AS INTEGER, f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER, s AS SINGLE
+    ANIM_LB_pane_at% = -1
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 THEN EXIT FUNCTION
+    FOR k = 0 TO ANIM_LB.panes - 1
+        f = ANIM_LB_pane_rect%(k, x, y, w, h)
+        IF f >= 1 _ANDALSO f <= ANIM.count THEN
+            s = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+            IF mx >= dx _ANDALSO mx < dx + dw _ANDALSO my >= dy _ANDALSO my < dy + dh THEN ANIM_LB_pane_at% = k: EXIT FUNCTION
+        END IF
+    NEXT k
+END FUNCTION
+
+''
+' The view (zoom, offsetX, offsetY as SCRN uses them) that puts pane k's
+' frame cell on the pane's picture. FALSE when the pane shows no frame.
+FUNCTION ANIM_LB_pane_view% (k AS INTEGER, z AS SINGLE, ox AS INTEGER, oy AS INTEGER)
+    DIM f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, zw AS LONG, zh AS LONG
+    IF k < 0 _ORELSE k >= ANIM_LB.panes THEN EXIT FUNCTION
+    f = ANIM_LB_pane_rect%(k, x, y, w, h)
+    IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 THEN EXIT FUNCTION
+    z = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    IF z <= 0 THEN EXIT FUNCTION
+    ' the mouse mapping: dx = (SCRN.w - zw) \ 2 + offsetX + panelShiftX
+    zw = SCRN.canvasW& * z: zh = SCRN.canvasH& * z
+    ox = dx - CLNG(cx * z) - (SCRN.w& - zw) \ 2 - SCRN.panelShiftX%
+    oy = dy - CLNG(cy * z) - (SCRN.h& - zh) \ 2 - SCRN.panelShiftY%
+    ANIM_LB_pane_view% = TRUE
+END FUNCTION
+
+''
+' DRAW.BAS, before MOUSE_input_handler: save the real view (the lightbox
+' replaces it while the handler runs; pans / zooms made in it are dropped).
+SUB ANIM_LB_view_push ()
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 _ORELSE ANIM_LB.pushed THEN EXIT SUB
+    ANIM_LB.realZoom = SCRN.zoom!: ANIM_LB.realOX = SCRN.offsetX%: ANIM_LB.realOY = SCRN.offsetY%
+    ANIM_LB.realTile = SCRN.patternTileMode%
+    ANIM_LB.pushed = TRUE
+    SCRN.patternTileMode% = FALSE ' a pane shows one cell, never tiles
+END SUB
+
+''
+' MOUSE_input_handler, as it maps the pointer to the canvas: the view of the
+' pane a stroke started in, else the pane under the pointer, else the middle
+' (current) pane.
+SUB ANIM_LB_view_pick (rawX AS INTEGER, rawY AS INTEGER)
+    DIM k AS INTEGER, z AS SINGLE, ox AS INTEGER, oy AS INTEGER
+    IF ANIM_LB.pushed = 0 _ORELSE ANIM_LB.overlay THEN EXIT SUB
+    k = ANIM_LB.strokePane
+    IF k < 0 THEN k = ANIM_LB_pane_at%(rawX, rawY)
+    IF k < 0 THEN k = ANIM_LB.panes \ 2
+    IF ANIM_LB_pane_view%(k, z, ox, oy) = 0 THEN EXIT SUB
+    SCRN.zoom! = z: SCRN.offsetX% = ox: SCRN.offsetY% = oy
+    ANIM_LB.vPane = k
+END SUB
+
+''
+' DRAW.BAS, after MOUSE_input_handler: the real view back; strokes clipped
+' to their frame (the part outside the cell put back); a finished stroke
+' ends its clip.
+SUB ANIM_LB_view_pop ()
+    IF ANIM_LB.pushed THEN
+        SCRN.zoom! = ANIM_LB.realZoom: SCRN.offsetX% = ANIM_LB.realOX: SCRN.offsetY% = ANIM_LB.realOY
+        SCRN.patternTileMode% = ANIM_LB.realTile
+        ANIM_LB.pushed = FALSE
+    END IF
+    IF ANIM_LB.clipOn THEN ANIM_LB_clip_apply FALSE
+    IF MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 THEN
+        ANIM_LB.strokePane = -1
+        IF ANIM_LB.clipOn THEN ANIM_LB_clip_end
+    END IF
+    IF ANIM_LB_showing% = 0 THEN ANIM_LB.vPane = -1
+END SUB
+
+''
+' Start clipping the current layer's strokes to frame f.
+SUB ANIM_LB_clip_begin (f AS INTEGER)
+    DIM L AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG
+    IF ANIM_LB.clipOn THEN ANIM_LB_clip_end
+    SELECT CASE CURRENT_TOOL%
+        CASE TOOL_MARQUEE, TOOL_PICKER, TOOL_ZOOM, TOOL_PAN, TOOL_TEXT: EXIT SUB ' they paint nothing
+        CASE TOOL_MOVE: EXIT SUB ' moves lift / place pixels on their own schedule (moving frames: 2.7)
+    END SELECT
+    IF TRANSFORM.ACTIVE THEN EXIT SUB
+    L = CURRENT_LAYER%
+    IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(L).imgHandle& >= -1 THEN EXIT SUB
+    IF LAYERS(L).layerType% = LAYER_TYPE_TEXT _ORELSE LAYERS(L).layerType% = LAYER_TYPE_GROUP THEN EXIT SUB
+    IF ANIM_cell_rect%(f, x, y, w, h) = 0 THEN EXIT SUB
+    ANIM_LB.clipImg = _COPYIMAGE(LAYERS(L).imgHandle&, 32)
+    IF ANIM_LB.clipImg >= -1 THEN ANIM_LB.clipImg = 0: EXIT SUB
+    ANIM_LB.clipLayer = L
+    ANIM_LB.clipX = x: ANIM_LB.clipY = y: ANIM_LB.clipW = w: ANIM_LB.clipH = h
+    ANIM_LB.clipOn = TRUE
+END SUB
+
+SUB ANIM_LB_clip_end ()
+    IF ANIM_LB.clipImg < -1 THEN _FREEIMAGE ANIM_LB.clipImg
+    ANIM_LB.clipImg = 0
+    ANIM_LB.clipOn = FALSE
+END SUB
+
+''
+' Put back everything of the clipped layer outside the cell, from the copy
+' taken at the press: all of it (full), or only inside this frame's dirty
+' rect (COMP_DIRTY_*) when one is set.
+SUB ANIM_LB_clip_apply (full AS INTEGER)
+    DIM L AS INTEGER, img AS LONG, bw AS LONG, bh AS LONG, ax AS LONG, ay AS LONG
+    DIM cx1 AS LONG, cy1 AS LONG, cx2 AS LONG, cy2 AS LONG
+    DIM rx1 AS LONG, ry1 AS LONG, rx2 AS LONG, ry2 AS LONG, oldDest AS LONG
+    IF ANIM_LB.clipOn = 0 THEN EXIT SUB
+    L = ANIM_LB.clipLayer
+    img = LAYERS(L).imgHandle&
+    IF img >= -1 _ORELSE ANIM_LB.clipImg >= -1 THEN ANIM_LB_clip_end: EXIT SUB
+    bw = _WIDTH(img): bh = _HEIGHT(img)
+    IF bw <> _WIDTH(ANIM_LB.clipImg) _ORELSE bh <> _HEIGHT(ANIM_LB.clipImg) THEN ANIM_LB_clip_end: EXIT SUB ' the buffer changed shape
+    ax = LAYERS(L).apronW%: ay = LAYERS(L).apronH% ' canvas (cx, cy) = buffer (cx + apron, cy + apron) - gotcha 14
+    cx1 = ANIM_LB.clipX + ax: cy1 = ANIM_LB.clipY + ay
+    cx2 = cx1 + ANIM_LB.clipW - 1: cy2 = cy1 + ANIM_LB.clipH - 1
+    rx1 = 0: ry1 = 0: rx2 = bw - 1: ry2 = bh - 1
+    IF full = 0 _ANDALSO COMP_DIRTY_VALID% THEN
+        rx1 = _MAX(0, COMP_DIRTY_X1% + ax - 2): ry1 = _MAX(0, COMP_DIRTY_Y1% + ay - 2)
+        rx2 = _MIN(bw - 1, COMP_DIRTY_X2% + ax + 2): ry2 = _MIN(bh - 1, COMP_DIRTY_Y2% + ay + 2)
+        IF rx2 < rx1 _ORELSE ry2 < ry1 THEN EXIT SUB
+    END IF
+    oldDest = _DEST
+    _DONTBLEND img
+    ANIM_LB_clip_put img, rx1, ry1, rx2, _MIN(ry2, cy1 - 1)            ' above the cell
+    ANIM_LB_clip_put img, rx1, _MAX(ry1, cy2 + 1), rx2, ry2            ' below
+    ANIM_LB_clip_put img, rx1, _MAX(ry1, cy1), _MIN(rx2, cx1 - 1), _MIN(ry2, cy2) ' left
+    ANIM_LB_clip_put img, _MAX(rx1, cx2 + 1), _MAX(ry1, cy1), rx2, _MIN(ry2, cy2) ' right
+    _BLEND img
+    _DEST oldDest
+    LAYERS(L).contentDirty% = TRUE
+END SUB
+
+SUB ANIM_LB_clip_put (img AS LONG, x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG)
+    IF x2 < x1 _ORELSE y2 < y1 THEN EXIT SUB
+    _PUTIMAGE (x1, y1)-(x2, y2), ANIM_LB.clipImg, img, (x1, y1)-(x2, y2)
+END SUB
+
+''
+' HISTORY_store_after_image: the undo step stores the clipped result.
+SUB ANIM_LB_clip_finish (layerSlot AS INTEGER)
+    IF ANIM_LB.clipOn _ANDALSO layerSlot = ANIM_LB.clipLayer THEN ANIM_LB_clip_apply TRUE
+END SUB
+
+''
+' A press on the canvas in sheet view: clip it to the frame under it when
+' ANIM > Clip Strokes to the Frame in Sheet View is on.
+SUB ANIM_LB_sheet_press ()
+    DIM f AS INTEGER
+    IF CFG.CLIP_FRAME_SHEET% = 0 _ORELSE ANIM.active = FALSE _ORELSE ANIM_LB_showing% THEN EXIT SUB
+    IF MOUSE.UI_CHROME_CLICKED% THEN EXIT SUB
+    IF (MOUSE.B1% = 0 _ORELSE MOUSE.OLD_B1% <> 0) _ANDALSO (MOUSE.B2% = 0 _ORELSE MOUSE.OLD_B2% <> 0) THEN EXIT SUB
+    IF REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%) <> REGION_CANVAS THEN EXIT SUB
+    f = ANIM_frame_at%(MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%)
+    IF f >= 1 _ANDALSO f <= ANIM.count THEN ANIM_LB_clip_begin f
+END SUB
+
+''
+' Draw an overlay (tool previews, marching ants, the brush footprint)
+' through pane vPane's view, onto a scratch image: TRUE = go ahead and call
+' ANIM_LB_overlay_end after. FALSE outside the lightbox (draw as usual) and
+' when there is no pane to draw it in (skip it).
+FUNCTION ANIM_LB_overlay_begin% ()
+    DIM z AS SINGLE, ox AS INTEGER, oy AS INTEGER, oldDest AS LONG
+    DIM f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER
+    IF ANIM_LB.overlay _ORELSE ANIM_LB.pushed THEN EXIT FUNCTION
+    IF ANIM_LB_pane_view%(ANIM_LB.vPane, z, ox, oy) = 0 THEN EXIT FUNCTION
+    IF ANIM_LB.scratch < -1 THEN
+        IF _WIDTH(ANIM_LB.scratch) <> SCRN.w& _ORELSE _HEIGHT(ANIM_LB.scratch) <> SCRN.h& THEN _FREEIMAGE ANIM_LB.scratch: ANIM_LB.scratch = 0
+    END IF
+    IF ANIM_LB.scratch >= -1 THEN ANIM_LB.scratch = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    f = ANIM_LB_pane_rect%(ANIM_LB.vPane, x, y, w, h)
+    z = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    oldDest = _DEST
+    _DEST ANIM_LB.scratch
+    _DONTBLEND ANIM_LB.scratch
+    LINE (dx, dy)-(dx + dw - 1, dy + dh - 1), _RGBA32(0, 0, 0, 0), BF
+    _BLEND ANIM_LB.scratch
+    _DEST oldDest
+    ANIM_LB.realZoom = SCRN.zoom!: ANIM_LB.realOX = SCRN.offsetX%: ANIM_LB.realOY = SCRN.offsetY%
+    ANIM_LB.realTile = SCRN.patternTileMode%
+    IF ANIM_LB_pane_view%(ANIM_LB.vPane, z, ox, oy) THEN SCRN.zoom! = z: SCRN.offsetX% = ox: SCRN.offsetY% = oy
+    SCRN.patternTileMode% = FALSE
+    ANIM_LB.realCanvas = SCRN.CANVAS&
+    SCRN.CANVAS& = ANIM_LB.scratch
+    ANIM_LB.overlay = TRUE
+    ANIM_LB_overlay_begin% = TRUE
+END FUNCTION
+
+''
+' The overlay's pane part onto the real viewport; the real view back.
+SUB ANIM_LB_overlay_end ()
+    DIM f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER, z AS SINGLE
+    IF ANIM_LB.overlay = 0 THEN EXIT SUB
+    SCRN.CANVAS& = ANIM_LB.realCanvas
+    SCRN.zoom! = ANIM_LB.realZoom: SCRN.offsetX% = ANIM_LB.realOX: SCRN.offsetY% = ANIM_LB.realOY
+    SCRN.patternTileMode% = ANIM_LB.realTile
+    ANIM_LB.overlay = FALSE
+    f = ANIM_LB_pane_rect%(ANIM_LB.vPane, x, y, w, h)
+    z = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    _BLEND SCRN.CANVAS&
+    _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), ANIM_LB.scratch, SCRN.CANVAS&, (dx, dy)-(dx + dw - 1, dy + dh - 1)
+    _DEST SCRN.CANVAS&
+END SUB
+
+''
+' The sheet-view overlay routines skip themselves in the lightbox unless an
+' overlay is drawing them into a pane.
+FUNCTION ANIM_LB_skip_overlay% ()
+    ANIM_LB_skip_overlay% = (ANIM_LB_showing% <> 0 _ANDALSO ANIM_LB.overlay = 0)
+END FUNCTION
+
+''
+' ANIM > Clip Strokes to the Frame in the Lightbox / in Sheet View (2521 / 2522).
+SUB ANIM_LB_clip_toggle (act AS INTEGER)
+    IF act = ANIM_ACT_CLIP_LB THEN
+        CFG.CLIP_FRAME_LIGHTBOX% = (CFG.CLIP_FRAME_LIGHTBOX% = 0)
+        IF CFG.CLIP_FRAME_LIGHTBOX% THEN STATUS_flash "Lightbox: strokes stay in their frame" ELSE STATUS_flash "Lightbox: strokes run over the frame's edge"
+    ELSE
+        CFG.CLIP_FRAME_SHEET% = (CFG.CLIP_FRAME_SHEET% = 0)
+        IF CFG.CLIP_FRAME_SHEET% THEN STATUS_flash "Sheet view: strokes stay in the frame they start in" ELSE STATUS_flash "Sheet view: strokes run over the frame's edge"
+    END IF
+    CONFIG_save
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
