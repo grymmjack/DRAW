@@ -399,6 +399,15 @@ document). The program `_LOADIMAGE`s it from the current folder, else beside the
 `frame_rects:` DATA (x, y; before `anim_data:`). QA: in `file-anim-bas.sh` (exact PNG, the
 blob = the DATA player's minus the cells, `--frames` started from `/`, gutter / margin
 rects, the document clash).
+**Batch CLI** (3.7, `OUTPUT/BATCH`): `--export` / `--export-anim` collect CHR$(0) lists and
+run in order (repeatable). `BATCH_export%`: `.apng` / `.json` / `.sheet.bas` go to the frame
+exporters from either flag (before the `KILL path` - out.png is never written there, and may be
+the document); `--export-anim` `.png` = PNG sequence, `.gif` / `.bas` = the frames when there
+are any; `--export` `.png` = `LAYERS_flatten&` saved, `.gif` / `.bas` = the colour cycle.
+`BATCH_say` prints one console line per export (`CLI_begin`, `_DEST` saved and put back):
+`wrote PATH  (ANIM_EXPORT_INFO)` / `FAILED PATH: why` (colours only on a terminal). Exit 1 if
+any failed. Needs a display (it runs on the first frame of DRAW's window). QA:
+`file-anim-batch.sh`.
 **Known (pre-existing):** `LAYERS_flatten&` composites with `_BLEND` onto a transparent
 image, which darkens the colour of a partly transparent pixel (rgb x alpha); every export
 inherits it. The APNG keeps the alpha level itself.

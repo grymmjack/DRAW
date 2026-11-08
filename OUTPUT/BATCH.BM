@@ -9,15 +9,15 @@ $INCLUDEONCE
 
 
 ''
-' Collect --export / --export-anim / --cycle from the command line.
+' Collect --export / --export-anim / --cycle from the command line (each can repeat).
 '
 SUB BATCH_parse_args ()
     DIM i AS INTEGER, a AS STRING
     FOR i% = 1 TO _COMMANDCOUNT - 1
         a$ = LCASE$(_TRIM$(COMMAND$(i%)))
         SELECT CASE a$
-            CASE "--export"      : BATCH_EXPORT_PATH$      = BATCH_unquote$(COMMAND$(i% + 1))
-            CASE "--export-anim" : BATCH_EXPORT_ANIM_PATH$ = BATCH_unquote$(COMMAND$(i% + 1))
+            CASE "--export"      : BATCH_EXPORT_PATH$      = BATCH_EXPORT_PATH$ + BATCH_unquote$(COMMAND$(i% + 1)) + CHR$(0)
+            CASE "--export-anim" : BATCH_EXPORT_ANIM_PATH$ = BATCH_EXPORT_ANIM_PATH$ + BATCH_unquote$(COMMAND$(i% + 1)) + CHR$(0)
             CASE "--cycle"       : BATCH_CYCLE_SPECS$      = BATCH_CYCLE_SPECS$ + _TRIM$(COMMAND$(i% + 1)) + CHR$(0)
         END SELECT
     NEXT i%
@@ -79,11 +79,12 @@ END SUB
 
 
 ''
-' Run the batch work, in order: --cycle ranges, --export, --export-anim.
-' Returns the process exit code.
+' Run the batch work, in order: --cycle ranges, every --export, every
+' --export-anim (each flag can repeat). One console line per export. Returns
+' the process exit code.
 '
 FUNCTION BATCH_run% ()
-    DIM specs AS STRING, p AS LONG, ok AS INTEGER
+    DIM specs AS STRING, p AS LONG, ok AS INTEGER, k AS INTEGER, lst AS STRING
     specs$ = BATCH_CYCLE_SPECS$
     DO WHILE LEN(specs$) > 0
         p& = INSTR(specs$, CHR$(0))
@@ -96,68 +97,97 @@ FUNCTION BATCH_run% ()
     FOR r% = 1 TO PCYC.COUNT%
         _LOGINFO "BATCH:   " + PCYC_describe$(r%)
     NEXT r%
-    IF LEN(BATCH_EXPORT_PATH$) > 0 THEN
-        ok% = BATCH_export%(BATCH_EXPORT_PATH$, FALSE)
-        IF NOT ok% THEN BATCH_FAILED% = TRUE
-    END IF
-    IF LEN(BATCH_EXPORT_ANIM_PATH$) > 0 THEN
-        ok% = BATCH_export%(BATCH_EXPORT_ANIM_PATH$, TRUE)
-        IF NOT ok% THEN BATCH_FAILED% = TRUE
-    END IF
+    FOR k% = 1 TO 2
+        IF k% = 1 THEN lst$ = BATCH_EXPORT_PATH$ ELSE lst$ = BATCH_EXPORT_ANIM_PATH$
+        DO WHILE LEN(lst$) > 0
+            p& = INSTR(lst$, CHR$(0))
+            IF p& = 0 THEN p& = LEN(lst$) + 1
+            IF p& > 1 THEN
+                ok% = BATCH_export%(LEFT$(lst$, p& - 1), k% = 2)
+                IF NOT ok% THEN BATCH_FAILED% = TRUE
+            END IF
+            lst$ = MID$(lst$, p& + 1)
+        LOOP
+    NEXT k%
     IF BATCH_FAILED% THEN BATCH_run% = 1 ELSE BATCH_run% = 0
 END FUNCTION
 
 
 ''
-' Export the current document to path by extension. anim = animated GIF.
-' Returns TRUE when the file was written.
+' One console line for an export: "wrote PATH (what)" / "FAILED PATH: why".
+'
+SUB BATCH_say (ok AS INTEGER, path AS STRING, what AS STRING)
+    DIM d AS LONG
+    d& = _DEST
+    CLI_begin
+    IF ok% THEN
+        CLI_line CLI_c$("32") + "wrote " + CLI_reset$ + path$ + _IIF(LEN(what$) > 0, "  (" + what$ + ")", "")
+        _LOGINFO "BATCH: wrote " + path$ + " " + what$
+    ELSE
+        CLI_line CLI_c$("1;31") + "FAILED " + CLI_reset$ + path$ + ": " + what$
+        _LOGERROR "BATCH: " + path$ + ": " + what$
+    END IF
+    _DEST d&
+END SUB
+
+
+''
+' Export the current document to path by extension; anim = --export-anim (the
+' frames of a sheet with frames, else the colour cycle). Formats only frames
+' have (.apng .json .sheet.bas) work from --export too. TRUE when written.
 '
 FUNCTION BATCH_export% (path AS STRING, anim AS INTEGER)
-    DIM ext AS STRING, d AS INTEGER
+    DIM ext AS STRING, d AS INTEGER, flat AS LONG, ok AS INTEGER, why AS STRING, sheetBas AS INTEGER
     d% = _INSTRREV(path$, ".")
     IF d% > 0 THEN ext$ = LCASE$(MID$(path$, d% + 1))
-    IF anim% _ANDALSO (ext$ = "png" _ORELSE ext$ = "json" _ORELSE ext$ = "apng") THEN
+    sheetBas% = (LCASE$(RIGHT$(path$, 10)) = ".sheet.bas")
+    CYCX_LAST_ERROR$ = "": ANIM_EXPORT_INFO = ""
+    IF (anim% _ANDALSO (ext$ = "png" _ORELSE ext$ = "json" _ORELSE ext$ = "apng")) _ORELSE ext$ = "json" _ORELSE ext$ = "apng" _ORELSE sheetBas% THEN
         ' the frames: out.png = PNG sequence out_0001.png ..., out.json = sprite sheet out.png + .json + .bi,
-        ' out.apng = animated PNG (before the KILL below: out.png itself is never written, and may be the document)
-        SELECT CASE ext$
-            CASE "png": d% = ANIM_PNGSEQ_export%(path$)
-            CASE "json": d% = ANIM_SHEET_export%(path$)
-            CASE ELSE: d% = ANIM_APNG_export%(path$)
-        END SELECT
-        IF d% THEN _LOGINFO "BATCH: wrote " + ANIM_EXPORT_INFO ELSE _LOGERROR "BATCH: " + CYCX_LAST_ERROR$
-        BATCH_export% = d%
+        ' out.apng = animated PNG, out.sheet.bas = the player + out.sheet.png (before the KILL below:
+        ' out.png itself is never written, and may be the document)
+        IF sheetBas% THEN
+            ok% = ANIM_BAS_sheet_export%(path$)
+        ELSE
+            SELECT CASE ext$
+                CASE "png": ok% = ANIM_PNGSEQ_export%(path$)
+                CASE "json": ok% = ANIM_SHEET_export%(path$)
+                CASE ELSE: ok% = ANIM_APNG_export%(path$)
+            END SELECT
+        END IF
+        BATCH_say ok%, path$, _IIF(ok%, ANIM_EXPORT_INFO, CYCX_LAST_ERROR$)
+        BATCH_export% = ok%
         EXIT FUNCTION
     END IF
     IF _FILEEXISTS(path$) THEN KILL path$
     SELECT CASE ext$
         CASE "draw"
             DRW_save path$
+        CASE "png" ' --export: the picture flattened (what Flatten & Save writes)
+            flat& = LAYERS_flatten&
+            IF flat& < -1 THEN _SAVEIMAGE path$, flat&: SAFE_FREEIMAGE flat& ELSE why$ = "could not flatten the document"
         CASE "bas"
-            IF anim% _ANDALSO ANIM_has_frames% _ANDALSO LCASE$(RIGHT$(path$, 10)) = ".sheet.bas" THEN ' the player + its sprite sheet PNG
-                IF NOT ANIM_BAS_sheet_export%(path$) THEN _LOGERROR "BATCH: " + CYCX_LAST_ERROR$
-            ELSEIF anim% _ANDALSO ANIM_has_frames% THEN ' a sheet with frames: the animation player (colour cycling along)
-                IF NOT ANIM_BAS_export%(path$) THEN _LOGERROR "BATCH: " + CYCX_LAST_ERROR$
+            IF anim% _ANDALSO ANIM_has_frames% THEN ' a sheet with frames: the animation player (colour cycling along)
+                IF ANIM_BAS_export%(path$) = 0 THEN why$ = CYCX_LAST_ERROR$
             ELSEIF NOT CYCX_export_bas%(path$) THEN
-                _LOGERROR "BATCH: " + CYCX_LAST_ERROR$
+                why$ = CYCX_LAST_ERROR$
             END IF
         CASE "gif"
             IF anim% _ANDALSO ANIM_has_frames% THEN ' a sheet with frames: the animation (colour cycling runs along)
-                IF NOT ANIM_GIF_export%(path$) THEN _LOGERROR "BATCH: " + CYCX_LAST_ERROR$
+                IF ANIM_GIF_export%(path$) = 0 THEN why$ = CYCX_LAST_ERROR$
             ELSEIF NOT GIF_export%(path$, anim%) THEN
-                _LOGERROR "BATCH: " + CYCX_LAST_ERROR$
+                why$ = CYCX_LAST_ERROR$
             END IF
         CASE "lbm", "iff", "ilbm", "bbm"
             ' PBM (chunky) for .bbm or a ".pbm.lbm" name; ILBM (planar) otherwise
-            IF NOT LBM_export%(path$, ext$ = "bbm" _ORELSE LCASE$(RIGHT$(path$, 8)) = ".pbm.lbm") THEN _LOGERROR "BATCH: " + CYCX_LAST_ERROR$
+            IF NOT LBM_export%(path$, ext$ = "bbm" _ORELSE LCASE$(RIGHT$(path$, 8)) = ".pbm.lbm") THEN why$ = CYCX_LAST_ERROR$
         CASE ELSE
-            _LOGERROR "BATCH: unsupported export type '." + ext$ + "' (" + path$ + ")"
+            BATCH_say FALSE, path$, "unsupported export type '." + ext$ + "'" + _IIF(anim%, " (--export-anim: .gif .apng .png .json .bas .sheet.bas)", " (--export: .draw .png .bas .gif .lbm .bbm .apng .json .sheet.bas)")
             BATCH_export% = FALSE
             EXIT FUNCTION
     END SELECT
-    BATCH_export% = _FILEEXISTS(path$)
-    IF _FILEEXISTS(path$) THEN
-        _LOGINFO "BATCH: wrote " + path$
-    ELSE
-        _LOGERROR "BATCH: failed to write " + path$
-    END IF
+    ok% = _FILEEXISTS(path$)
+    IF ok% = 0 _ANDALSO why$ = "" THEN why$ = "not written"
+    BATCH_say ok%, path$, _IIF(ok%, ANIM_EXPORT_INFO, why$)
+    BATCH_export% = ok%
 END FUNCTION

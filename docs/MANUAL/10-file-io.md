@@ -152,6 +152,18 @@ DRAW old.lbm  --export old.draw          # DeluxePaint -> DRAW, ranges included
 
 `--cycle LO-HI[:STEPS_PER_SECOND[:fwd|rev|ping]]` adds a range and can be repeated. DRAW exits after the work is done, with status 0 on success. `DEV/tools/make-cycle-examples.sh` builds the scenes in `SAMPLES/COLOR CYCLING/` this way.
 
+A sheet with frames exports its animation the same way. `--export` and `--export-anim` can be repeated, so one run writes every format:
+
+```bash
+DRAW walk.draw --export-anim walk.gif --export-anim walk.apng --export-anim walk.json
+DRAW walk.draw --export-anim walk.png          # PNG sequence walk_0001.png ... (one per tick at the FPS)
+DRAW walk.draw --export-anim walk.bas          # QB64 player, the frames in DATA
+DRAW walk.draw --export-anim walk.sheet.bas    # the player + walk.sheet.png it cuts the frames from
+DRAW walk.draw --export walk.png --option ANIM_EXPORT_SCALE=2 --export-anim walk.gif
+```
+
+`.gif` and `.bas` mean the frames only with `--export-anim` (with `--export` they are the color cycling formats); `.apng`, `.json` and `.sheet.bas` work with either flag, and `--export walk.png` writes the picture flattened. Each export prints one line - `wrote PATH (summary)` or `FAILED PATH: why` - and the exit status is 1 when any of them failed. The batch runs in DRAW's own window for a moment, so on a server run it under Xvfb.
+
 <div class="page-break"></div>
 
 ## ANSI Art — Import & Export
