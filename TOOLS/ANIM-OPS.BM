@@ -1184,5 +1184,67 @@ FUNCTION ANIM_LF_dump$ ()
     ELSE
         d = d + " -"
     END IF
+    d = d + CHR$(10)
+    ' ANIMSEL active boxX boxY boxW boxH wand minX minY maxX maxY (canvas px; 2.9)
+    d = d + "ANIMSEL" + DOCK_n$(SELECTION_has_active%) + DOCK_n$(MARQUEE.BOX.x) + DOCK_n$(MARQUEE.BOX.y) + DOCK_n$(MARQUEE.BOX.w) + DOCK_n$(MARQUEE.BOX.h)
+    d = d + DOCK_n$(MARQUEE.WAND_HAS_SELECTION <> 0 _ANDALSO MARQUEE.SELECTION_MASK < -1) + DOCK_n$(MARQUEE.WAND_MIN_X) + DOCK_n$(MARQUEE.WAND_MIN_Y) + DOCK_n$(MARQUEE.WAND_MAX_X) + DOCK_n$(MARQUEE.WAND_MAX_Y)
     ANIM_LF_dump$ = d + CHR$(10)
 END FUNCTION
+
+' ---------------------------------------------------------------------------
+' A selection stays put in its cell across frame changes (2.9)
+' ---------------------------------------------------------------------------
+
+''
+' Once a frame (main loop): when the current frame changed - a frame key, the
+' strip, playback, a frame op, its undo - and the selection lies inside the
+' frame it was on, move it by the same amount to the new current frame: the
+' same place in the cell. A selection over several cells (Select All, sheet
+' view work) stays where it is, and so does one being drawn or floating. Not an
+' undo step (the selection's own undo steps swap with whatever is live).
+SUB ANIM_SELBOX_watch ()
+    DIM oldF AS INTEGER, ox AS LONG, oy AS LONG, nx AS LONG, ny AS LONG, w AS LONG, h AS LONG
+    DIM bx1 AS LONG, by1 AS LONG, bx2 AS LONG, by2 AS LONG, wand AS INTEGER
+    IF ANIM.active = FALSE THEN ANIM_SELBOX_LAST = 0: EXIT SUB
+    IF ANIM.current = ANIM_SELBOX_LAST THEN EXIT SUB
+    oldF = ANIM_SELBOX_LAST: ANIM_SELBOX_LAST = ANIM.current
+    IF oldF < 1 THEN EXIT SUB
+    IF SELECTION_has_active% = 0 THEN EXIT SUB
+    IF MOVE.ACTIVE _ORELSE TRANSFORM.ACTIVE _ORELSE MARQUEE.DRAGGING _ORELSE MARQUEE.MOVING _ORELSE MARQUEE.RESIZING THEN EXIT SUB
+    IF MARQUEE.FREE_DRAWING _ORELSE MARQUEE.POLY_DRAWING _ORELSE MARQUEE.ELLIP_DRAGGING THEN EXIT SUB
+    IF ANIM_cell_rect%(oldF, ox, oy, w, h) = 0 _ORELSE ANIM_cell_rect%(ANIM.current, nx, ny, w, h) = 0 THEN EXIT SUB
+    wand = MARQUEE.WAND_HAS_SELECTION <> 0 _ANDALSO MARQUEE.SELECTION_MASK < -1
+    IF wand THEN
+        bx1 = MARQUEE.WAND_MIN_X: by1 = MARQUEE.WAND_MIN_Y: bx2 = MARQUEE.WAND_MAX_X: by2 = MARQUEE.WAND_MAX_Y
+    ELSE
+        bx1 = MARQUEE.BOX.x: by1 = MARQUEE.BOX.y: bx2 = MARQUEE.BOX.x + MARQUEE.BOX.w - 1: by2 = MARQUEE.BOX.y + MARQUEE.BOX.h - 1
+    END IF
+    IF bx1 < ox _ORELSE by1 < oy _ORELSE bx2 > ox + w - 1 _ORELSE by2 > oy + h - 1 THEN EXIT SUB ' not inside the frame it was on
+    ANIM_SELBOX_shift nx - ox, ny - oy, wand
+END SUB
+
+''
+' Move the selection by dx, dy canvas px (its box, and its mask when it has one -
+' as MOVE_apply_transform does for a moved float).
+SUB ANIM_SELBOX_shift (dx AS LONG, dy AS LONG, wand AS INTEGER)
+    DIM tmp AS LONG, oldDest AS LONG
+    IF dx = 0 _ANDALSO dy = 0 THEN EXIT SUB
+    MARQUEE.BOX.x = MARQUEE.BOX.x + dx: MARQUEE.BOX.y = MARQUEE.BOX.y + dy
+    IF wand THEN
+        tmp = _NEWIMAGE(_WIDTH(MARQUEE.SELECTION_MASK), _HEIGHT(MARQUEE.SELECTION_MASK), 32)
+        IF tmp < -1 THEN
+            oldDest = _DEST
+            _DEST tmp: _DONTBLEND tmp: CLS , _RGBA32(0, 0, 0, 0)
+            _PUTIMAGE (dx, dy), MARQUEE.SELECTION_MASK, tmp
+            _DEST MARQUEE.SELECTION_MASK: _DONTBLEND MARQUEE.SELECTION_MASK: CLS , _RGBA32(0, 0, 0, 0)
+            _PUTIMAGE , tmp, MARQUEE.SELECTION_MASK
+            _BLEND MARQUEE.SELECTION_MASK
+            _DEST oldDest
+            _FREEIMAGE tmp
+        END IF
+        MARQUEE.WAND_MIN_X = MARQUEE.WAND_MIN_X + dx: MARQUEE.WAND_MIN_Y = MARQUEE.WAND_MIN_Y + dy
+        MARQUEE.WAND_MAX_X = MARQUEE.WAND_MAX_X + dx: MARQUEE.WAND_MAX_Y = MARQUEE.WAND_MAX_Y + dy
+        MARQUEE.WAND_EDGE_DIRTY = TRUE
+    END IF
+    INVALIDATE_canvas
+END SUB

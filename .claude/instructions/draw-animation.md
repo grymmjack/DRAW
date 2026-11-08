@@ -318,6 +318,17 @@ toggle is an `ANIM_OPS_record` step, so an undo never lands on flags from anothe
 QA: `anim-layer-flags.sh` (`ANIMLF curRef curSame nFlags flatCrc`, flatCrc = CRC32 of
 `LAYERS_flatten&`, only for a document with frames or flags, `-` past 512x512).
 
+## A selection stays put in its cell (2.9, Q-18)
+
+`ANIM_SELBOX_watch` (main loop, before `ANIM_SAME_tick%`): when `ANIM.current` changed since
+the last frame - keys, strip, playback, a frame op or its undo - and the selection's bbox
+(`MARQUEE.BOX`, or `WAND_MIN/MAX` for a mask) lies inside the cell of the frame it was on, it
+moves by the cell offset (`ANIM_SELBOX_shift`: box + mask + wand bounds, `WAND_EDGE_DIRTY`, as
+`MOVE_apply_transform` shifts a moved float's mask). It stays when it spans cells (Select All),
+or is being drawn / moved / resized, or floats (Move, Transform). Not an undo step: the
+selection's own undo steps swap with whatever is live. QA: `anim-selection-follow.sh`
+(`ANIMSEL active boxX boxY boxW boxH wand minX minY maxX maxY`, written with `ANIMLF`).
+
 ## The frame selection (`TOOLS/ANIM`, 2.3)
 
 `ANIM_SEL()` + `ANIM_SEL_ANCHOR`: pure state, unit-tested. `ANIM_SEL_is%` (nothing selected =

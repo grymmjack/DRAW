@@ -773,7 +773,9 @@ DO
     STICK_input_handler
     PERF_stop PERF_STICK_INPUT
 
-    ' Layers the same on every frame take a change in one cell to all of them (TOOLS/ANIM-OPS, 2.8)
+    ' A selection in the current frame's cell follows it to the new current frame (2.9);
+    ' layers the same on every frame take a change in one cell to all of them (2.8)
+    ANIM_SELBOX_watch
     IF ANIM_SAME_tick% THEN GUI_NEEDS_REDRAW% = TRUE
     
     ' Update tooltip state (must run before idle detection so hover keeps loop alive)
