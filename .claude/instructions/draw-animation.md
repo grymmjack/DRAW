@@ -58,6 +58,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2535 | Export Sprite Sheet + Frame Data... (`ANIM_SHEET_export%`: .png + .json + .bi) |
 | 2536 | Export Animated PNG (APNG)... (`ANIM_APNG_export%`) |
 | 2537 | Export BAS Player (DATA)... (`ANIM_BAS_export%`) |
+| 2538 | Export BAS Player + Sheet PNG... (`ANIM_BAS_sheet_export%`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
 Grep before adding one (CLAUDE.md gotcha 17).
@@ -389,6 +390,14 @@ the cycle at each step's start time, and `frames.txt` "step frame ms" (CRLF) - t
 QA: `file-anim-bas.sh` (compiles the players with qb64pe; `--frames` exact per cell for
 ping-pong / reverse, the cycle one step on at 0.1 s; live under `QA_IN_XVFB` only: the
 player window's xwd changes, Esc exits 0).
+**BAS player + sheet PNG** (3.5, `ANIM_BAS_sheet_export% path`; batch `--export-anim
+out.sheet.bas`, like `.pbm.lbm`): the same player, `ANIM_BAS_blob$(FALSE, ..)` (no cells),
+plus `name.png` = `LAYERS_flatten&` at 1x (`name-sheet.png` when name.png is the open
+document). The program `_LOADIMAGE`s it from the current folder, else beside the program
+(the folder of `COMMAND$(0)`), and cuts each frame `_DONTBLEND` at its rect from
+`frame_rects:` DATA (x, y; before `anim_data:`). QA: in `file-anim-bas.sh` (exact PNG, the
+blob = the DATA player's minus the cells, `--frames` started from `/`, gutter / margin
+rects, the document clash).
 **Known (pre-existing):** `LAYERS_flatten&` composites with `_BLEND` onto a transparent
 image, which darkens the colour of a partly transparent pixel (rgb x alpha); every export
 inherits it. The APNG keeps the alpha level itself.

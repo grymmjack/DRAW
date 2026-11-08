@@ -28,6 +28,10 @@
 ' holds and the loop mode, colour cycling along (the cycle player's overlay
 ' palette rotation, an overlay per frame). SPACE / LEFT / RIGHT / + - / R / ESC;
 ' --frames DIR writes one loop as PNGs + frames.txt and exits.
+' 3.5 (ANIM_BAS_sheet_export%): the same player as name.bas + name.png (the
+' sheet, 1x; name-sheet.png when name.png is the open document) - the frames
+' cut out at their rects (DATA in the .bas), the PNG looked for in the current
+' folder, then beside the program.
 '
 ' Uses the GIF writer in OUTPUT/FILE-GIF (LZW, sub-blocks, GCE, the cycle
 ' timeline GIF_cycle_ticks& / GIF_display_map).
@@ -42,6 +46,7 @@ CONST ANIM_ACT_EXPORT_PNGS  = 2534 ' ANIM > Export PNG Sequence...
 CONST ANIM_ACT_EXPORT_SHEET = 2535 ' ANIM > Export Sprite Sheet + Frame Data...
 CONST ANIM_ACT_EXPORT_APNG  = 2536 ' ANIM > Export Animated PNG (APNG)...
 CONST ANIM_ACT_EXPORT_BAS   = 2537 ' ANIM > Export BAS Player (DATA)...
+CONST ANIM_ACT_EXPORT_BAS_SHEET = 2538 ' ANIM > Export BAS Player + Sprite Sheet PNG...
 CONST ANIM_PNGSEQ_MAX = 20000      ' files one PNG sequence may write
 
 CONST ANIM_GIF_MAX_TICKS  = 6000 ' with colour cycling the GIF loop is at most 120 s (2-cs ticks)

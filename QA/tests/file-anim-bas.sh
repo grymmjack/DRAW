@@ -1,13 +1,16 @@
 #!/bin/bash
 # =============================================================================
 # file-anim-bas.sh — QA test: a sheet with frames exports as a self-contained
-# QB64 animation player (Animation 3.4, TOOLS/ANIM-EXPORT ANIM_BAS_export%).
+# QB64 animation player (Animation 3.4 / 3.5, TOOLS/ANIM-EXPORT ANIM_BAS_export% /
+# ANIM_BAS_sheet_export%).
 #
 # One .bas, the frames in DATA (deflate + base64), playing at the FPS with the
 # holds and the loop mode, colour cycling along. The generated program is
 # compiled with qb64pe and run: `--frames DIR` writes one loop as PNGs +
 # frames.txt (step, frame, ms) - checked exactly against the sheet's cells -
-# and, under Xvfb only, a live run must animate and quit 0 on Esc.
+# and, under Xvfb only, a live run must animate and quit 0 on Esc. 3.5: the
+# same player as name.sheet.bas + name.sheet.png, the frames cut out of the
+# PNG at their rects (found beside the program when started elsewhere).
 #
 # Exported through the batch CLI (`--export-anim out.bas`, throwaway HOME).
 # Fixture: a 64x16 sheet of 16x16 frames, transparent, frame k a 6x6 square of
@@ -126,6 +129,60 @@ if [[ -x "$AB_QB" && -s "$AB_T/cyc.bas" ]]; then
         fail "colour cycling in the player: the first two steps are not frame 1 as drawn + frame 2 cycled one step"
     fi
 fi
+
+# -- 3.5: the player + the sprite sheet PNG it cuts the frames from --
+mkdir -p "$AB_T/out"
+ab_export "$AB_T/ping.png" "$AB_T/out/walk.sheet.bas"
+if [[ -s "$AB_T/out/walk.sheet.bas" ]]; then
+    AB_AE=$(magick compare -metric AE "$AB_T/out/walk.sheet.png" "PNG32:$AB_T/plain.png" null: 2>&1 | awk '{print $1}')
+    [[ "$AB_AE" == 0 ]] && grep -q 'walk.sheet.png' "$AB_T/out/walk.sheet.bas" \
+        && pass ".sheet.bas: walk.sheet.bas + walk.sheet.png (the sheet, exact pixels), the program names the PNG" || fail "walk.sheet.png: $AB_AE pixels differ / not named in the .bas"
+    AB_BL=$(python3 - "$AB_T/ping.bas" "$AB_T/out/walk.sheet.bas" <<'PY'
+import base64, re, sys, zlib
+def blob(f):
+    b64 = "".join(re.findall(r'^DATA "([^"*]+)"', open(f).read(), re.M))
+    return zlib.decompress(base64.b64decode(b64))
+a, b = blob(sys.argv[1]), blob(sys.argv[2])
+print(a[:4].decode(), b[:4].decode(), len(a) - len(b))
+PY
+)
+    [[ "$AB_BL" == "DANM DANM 4096" ]] && pass "and its DATA is the DATA player's without the pixels (4 x 16x16 x 4 bytes less)" || fail "blobs: '$AB_BL'"
+    if [[ -x "$AB_QB" ]]; then
+        if ( cd "$AB_T/out" && "$AB_QB" -x -w walk.sheet.bas -o walk.run >"$AB_T/walk-qb.log" 2>&1 ); then
+            rm -rf "$AB_T/walk-fr"; mkdir -p "$AB_T/walk-fr"
+            ( cd / && timeout --foreground -k 3 30 "$AB_T/out/walk.run" --frames "$AB_T/walk-fr" </dev/null >/dev/null 2>&1 ) # started elsewhere: the PNG beside the program
+            [[ "$(ab_txt walk)" == "1 1 100 2 2 300 3 3 100 4 4 100 5 3 100 6 2 300" ]] && ab_steps walk "1 2 3 4 3 2" \
+                && pass "it compiles; started from another folder it finds the PNG beside it: 1 2 3 4 3 2, each step exactly its cell" || fail "sheet player --frames: '$(ab_txt walk)'"
+        else
+            fail "walk.sheet.bas does not compile: $(tail -3 "$AB_T/walk-qb.log" | tr '\n' ' ')"
+        fi
+    fi
+fi
+
+# -- gutter and margin: the frames cut at their rects --
+magick -size 30x20 xc:none -fill "#c04040" -draw "rectangle 1,1 8,8" -fill "#40c040" -draw "rectangle 12,2 17,7" \
+    -fill "#4040c0" -draw "rectangle 21,1 22,8" -fill "#c0c040" -draw "rectangle 1,11 8,12" -fill "#40c0c0" -draw "point 15,15" "PNG32:$AB_T/g.png"
+python3 "$AB_PY" put "$AB_T/g.png" "$AB_T/gut.png" drAn "$(python3 -c "import struct;print(struct.pack('<10h',1,8,8,2,1,5,1,12,0,0).hex())")"
+ab_export "$AB_T/gut.png" "$AB_T/gut.sheet.bas"
+if [[ -x "$AB_QB" && -s "$AB_T/gut.sheet.bas" ]]; then
+    ( cd "$AB_T" && "$AB_QB" -x -w gut.sheet.bas -o gut.run >"$AB_T/gut-qb.log" 2>&1 ) && ab_frames gut
+    AB_OK=1
+    k=1
+    for r in "1 1" "11 1" "21 1" "1 11" "11 11"; do
+        set -- $r
+        magick "$AB_T/g.png" -crop "8x8+$1+$2" +repage "PNG32:$AB_T/want.png"
+        ab_same "$AB_T/gut-fr/$(printf 'frame_%04d.png' $k)" "$AB_T/want.png" || AB_OK=0
+        k=$(( k + 1 ))
+    done
+    [[ "$AB_OK" == 1 ]] && pass "gutter 2, margin 1: the 5 frames cut exactly at 1,1 11,1 21,1 1,11 11,11" || fail "gutter / margin: a frame is not its rect"
+fi
+
+# -- the PNG would be the open document: name-sheet.png instead --
+cp "$AB_T/ping.png" "$AB_T/doc.sheet.png"
+AB_SUM=$(md5sum < "$AB_T/doc.sheet.png")
+ab_export "$AB_T/doc.sheet.png" "$AB_T/doc.sheet.bas"
+[[ "$(md5sum < "$AB_T/doc.sheet.png")" == "$AB_SUM" && -s "$AB_T/doc.sheet-sheet.png" ]] && grep -q 'doc.sheet-sheet.png' "$AB_T/doc.sheet.bas" 2>/dev/null \
+    && pass "the document is doc.sheet.png: left alone, the sheet goes to doc.sheet-sheet.png" || fail "document clash: doc.sheet.png $( [[ "$(md5sum < "$AB_T/doc.sheet.png")" == "$AB_SUM" ]] && echo same || echo CHANGED ), $(ls "$AB_T" | grep '^doc' | tr '\n' ' ')"
 
 rm -rf "$AB_T"
 assert_window_exists

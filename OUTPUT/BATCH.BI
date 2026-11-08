@@ -13,6 +13,7 @@
 '   DRAW art.draw --export-anim art.json   (sprite sheet art.png + frame rects art.json + art.bi)
 '   DRAW art.draw --export-anim art.apng   (animated PNG)
 '   DRAW art.draw --export-anim art.bas    (QB64 animation player, frames in DATA)
+'   DRAW art.draw --export-anim art.sheet.bas (the player + art.sheet.png it cuts the frames from)
 '
 ' --cycle lo-hi[:steps-per-second[:fwd|rev|ping]] adds a color cycling range
 ' (repeatable) after the document and --palette have loaded. All flags run on
