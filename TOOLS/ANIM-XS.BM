@@ -321,6 +321,12 @@ SUB ANIM_XS_render (dest AS LONG)
         IF LAYERS(slot).layerType% <> LAYER_TYPE_GROUP THEN
             FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
                 IF ANIM_XS_filled%(slot, f) THEN ANIM_XS_cell dest, slot, f, y
+                IF ANIM_LK_N > 0 THEN ' a linked cell (4.3): hatched over its first tick
+                    IF ANIM_LK_is_link%(LAYERS(slot).historyId&, f) THEN
+                        x = ANIM_XS_frame_x%(f)
+                        IF x + ANIM_XS.tickW - 2 <= x2 THEN ANIM_LK_hatch x + 1, y + 1, x + ANIM_XS.tickW - 2, y + rh - 2, THEME.ANIM_FRAME_current~&, 4
+                    END IF
+                END IF
             NEXT f
         END IF
         LINE (ANIM_XS.x1, y + rh - 1)-(x2, y + rh - 1), (THEME.CP_border~& AND &H00FFFFFF~&) OR &H60000000~&
@@ -359,7 +365,11 @@ SUB ANIM_XS_render (dest AS LONG)
                     x = ANIM_XS_frame_x%(ANIM_XS.dTo): w = ANIM_hold%(ANIM_XS.dTo) * ANIM_XS.tickW: y = ANIM_XS_row_y%(k)
                     LINE (x, y)-(_MIN(x + w - 1, x2), y + rh - 1), THEME.ANIM_FRAME_current~&, B
                     LINE (x + 1, y + 1)-(_MIN(x + w - 2, x2), y + rh - 2), THEME.ANIM_FRAME_current~&, B
-                    IF ANIM_LB_ctrl% THEN FPANEL_text _MIN(x + w, x2) - FPANEL_text_w%("+") - 2, y + (rh - FPANEL.fontH%) \ 2, "+", THEME.CP_text_bright~&
+                    IF ANIM_LB_shift% THEN
+                        ANIM_LK_hatch x + 2, y + 2, _MIN(x + w - 3, x2), y + rh - 3, THEME.ANIM_FRAME_current~&, 4 ' Shift: a link
+                    ELSEIF ANIM_LB_ctrl% THEN
+                        FPANEL_text _MIN(x + w, x2) - FPANEL_text_w%("+") - 2, y + (rh - FPANEL.fontH%) \ 2, "+", THEME.CP_text_bright~&
+                    END IF
                 END IF
             NEXT k
         ELSEIF ANIM_XS.dMode = XS_DRAG_FRAMES _ANDALSO ANIM_XS.dTo > 0 THEN
@@ -569,6 +579,7 @@ SUB ANIM_XS_drop ()
     cp = ANIM_LB_ctrl%
     IF g < 1 _ORELSE dst < 1 _ORELSE src < 1 _ORELSE f < 1 THEN EXIT SUB ' dropped off the grid
     IF dst = src _ANDALSO g = f THEN EXIT SUB
+    IF ANIM_LB_shift% THEN ANIM_XS_drop_link src, f, dst, g: EXIT SUB ' Shift: a link (4.3)
     IF ANIM_OPS_moves%(dst) = 0 _ORELSE ANIM_OPS_moves%(src) = 0 THEN STATUS_flash "Drawings move between pixel layers only": EXIT SUB
     IF ANIM_LF_is_same%(src) _ORELSE ANIM_LF_is_same%(dst) THEN STATUS_flash "That layer is the same on every frame": EXIT SUB
     why = ANIM_OPS_busy$
@@ -576,6 +587,10 @@ SUB ANIM_XS_drop ()
     IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 _ORELSE ANIM_cell_rect%(g, gx, gy, gw, gh) = 0 THEN EXIT SUB
     ANIM_play_stop
     before = ANIM_OPS_snapshot$(TRUE)
+    ' the cell landed on leaves its links (only it is replaced), and so does a moved one
+    ANIM_LK_remove LAYERS(dst).historyId&, g
+    IF cp = 0 THEN ANIM_LK_remove LAYERS(src).historyId&, f
+    ANIM_LK_tidy
     tmp = _NEWIMAGE(cw, ch, 32)
     IF tmp >= -1 THEN EXIT SUB
     _DONTBLEND tmp
@@ -601,6 +616,29 @@ SUB ANIM_XS_drop ()
     BLEND_invalidate_cache
     INVALIDATE_canvas
     STATUS_flash _IIF(cp, "Copied", "Moved") + " the drawing to frame" + STR$(g) + _IIF(dst <> src, " on " + _TRIM$(LAYERS(dst).name), "")
+END SUB
+
+''
+' A cell drag let go with Shift: the cell landed on (same layer) links to the
+' dragged one's drawing (4.3). One undo step.
+SUB ANIM_XS_drop_link (src AS INTEGER, f AS INTEGER, dst AS INTEGER, g AS INTEGER)
+    DIM why AS STRING, before AS STRING, sl AS INTEGER
+    IF dst <> src THEN STATUS_flash "Links stay on one layer - drop it in the same row": EXIT SUB
+    sl = CURRENT_LAYER%: CURRENT_LAYER% = src ' ANIM_LK_refusal$ asks about the current layer
+    why = ANIM_LK_refusal$
+    CURRENT_LAYER% = sl
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    ANIM_play_stop
+    before = ANIM_OPS_snapshot$(TRUE)
+    ANIM_LK_join src, f, g
+    ANIM_LK_tidy
+    ANIM_XS_touched src
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(TRUE), "Link Drawing", 0
+    ANIM_SEL_click g, FALSE, FALSE
+    IF src <> CURRENT_LAYER% THEN LAYERS_select src
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    STATUS_flash "Frame" + STR$(g) + " linked to frame" + STR$(f) + "'s drawing"
 END SUB
 
 ''

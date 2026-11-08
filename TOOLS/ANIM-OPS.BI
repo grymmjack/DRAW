@@ -57,6 +57,8 @@ DIM SHARED ANIM_OPS_STEP_NAME AS STRING     ' ANIM_OPS_run: the undo step's name
 CONST ANIM_ACT_SWAP_FG_BG = 2529 ' ANIM > Replace FG Color with BG in Frames
 CONST ANIM_ACT_REF_LAYER  = 2530 ' ANIM > Reference Layer (the current layer; 2.8)
 CONST ANIM_ACT_SAME_LAYER = 2531 ' ANIM > Same on Every Frame (the current layer)
+CONST ANIM_ACT_LINK_CELLS   = 2541 ' ANIM > Link Cells (4.3: the current layer's cells in the selected frames show the first one's drawing; one frame: linked to the frame before)
+CONST ANIM_ACT_UNLINK_CELLS = 2542 ' ANIM > Unlink Cells (the current layer, the selected frames)
 ' A selection inside the current frame's cell moves with it to the next current
 ' frame, same place in the cell (2.9, Q-18; ANIM_SELBOX_watch)
 DIM SHARED ANIM_SELBOX_LAST AS INTEGER ' the current frame the watcher last saw (0 = none)

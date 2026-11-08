@@ -32,10 +32,15 @@ count, current, fps, loopMode (0 FWD 1 REV 2 PING 3 ONCE),
 nHolds, then nHolds holds (frames 1..nHolds; the rest hold 1)
 v2, only when a layer has flags: nFlags, then per entry
     historyId (LONG), flags (1 = reference layer, 2 = same on every frame)
+v3 (ANIM_CHUNK_VERSION_LINKS), only when there are linked cells (4.3): the version field
+    is 3, the flags block is always there (nFlags may be 0), then nLinks, per entry
+    historyId (LONG), frame, group (cells of one layer with the same group show one drawing;
+    the lowest frame is the source)
 ```
 
 Newer versions append fields; a reader takes the ones it knows (version >= 1; the flags are
-read even when the frames don't fit). No frames and no layer flags = no chunk; a picture with
+read even when the frames don't fit; a v2 reader drops v3's links and opens the cells as they
+are, unlinked). No frames and no layer flags = no chunk; a picture with
 a reference layer but no frames writes the chunk with frameW 0 / count 0. Every document path calls `ANIM_reset` first (gotcha 15). The re-slice / resize
 answer and playback are session state, not saved. Test: `QA/tests/file-anim-chunk.sh`
 (`QA/fixtures/png-chunk.py put|get` writes / reads chunks for fixtures).

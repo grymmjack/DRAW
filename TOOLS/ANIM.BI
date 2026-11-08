@@ -34,6 +34,7 @@ CONST ANIM_SIZE_ASK     = 0 ' not asked yet
 CONST ANIM_SIZE_RESLICE = 1 ' the grid moves, the pixels stay
 CONST ANIM_SIZE_RESIZE  = 2 ' the frames resize, each drawing stays in its frame (the sheet refits)
 CONST ANIM_CHUNK_VERSION = 2 ' ANIM_serialize$ layout (PNG chunk "drAn"; 2 = + layer flags)
+CONST ANIM_CHUNK_VERSION_LINKS = 3 ' written only when there are linked cells (4.3): the layer flags always, then the links
 
 ' loop modes
 CONST ANIM_LOOP_FWD  = 0 ' 1 2 3 1 2 3
@@ -115,5 +116,25 @@ DIM SHARED ANIM_SB_PX(1 TO ANIM_LF_MAX) AS STRING
 DIM SHARED ANIM_SB_KEEP AS INTEGER
 DIM SHARED ANIM_ORDER(1 TO 2 * ANIM_MAX_FRAMES) AS INTEGER ' ANIM_play_order%: the frames one loop shows (exports)
 DIM SHARED ANIM_SAME_CHECK AS INTEGER ' an undo step was added / undone / redone: compare the SAME layers' cells
+
+' Linked cells (4.3, Q-03 / R-05): a layer's cells in two or more frames show
+' one drawing. Entry k: layer historyId ANIM_LK_ID(k)'s cell in frame
+' ANIM_LK_F(k) is in link group ANIM_LK_G(k) (numbers shared by the cells of
+' one drawing on that layer). The group's lowest frame is its source; the
+' others are hatched in sheet view. Any change to one cell goes to all of
+' them (ANIM_LK_tick%, with the SAME layers' check). Saved in drAn v3, in
+' every frame-op snapshot; frames carry their links through frame ops.
+CONST ANIM_LK_MAX = 4096
+DIM SHARED ANIM_LK_N AS INTEGER
+DIM SHARED ANIM_LK_ID(1 TO ANIM_LK_MAX) AS LONG
+DIM SHARED ANIM_LK_F(1 TO ANIM_LK_MAX) AS INTEGER
+DIM SHARED ANIM_LK_G(1 TO ANIM_LK_MAX) AS INTEGER
+' each group's picture (the cells it last made the same), rebuilt from the
+' source cells when the links or the frame size change (ANIM_LK_SIG)
+DIM SHARED ANIM_LKP_N AS INTEGER
+DIM SHARED ANIM_LKP_ID(1 TO ANIM_LK_MAX) AS LONG
+DIM SHARED ANIM_LKP_G(1 TO ANIM_LK_MAX) AS INTEGER
+DIM SHARED ANIM_LKP_PX(1 TO ANIM_LK_MAX) AS STRING
+DIM SHARED ANIM_LK_SIG AS STRING
 
 ANIM_reset

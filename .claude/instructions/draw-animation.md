@@ -60,6 +60,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2537 | Export BAS Player (DATA)... (`ANIM_BAS_export%`) |
 | 2538 | Export BAS Player + Sheet PNG... (`ANIM_BAS_sheet_export%`) |
 | 2539 | Full-Screen Preview (`ANIM_FS_show`, `TOOLS/ANIM-FS`, Num .) |
+| 2541 / 2542 | Link Cells / Unlink Cells (`ANIM_LK_action`, `TOOLS/ANIM-OPS`, the current layer, the selected frames) |
 | 2540 | X-Sheet in the lightbox's top band (`ANIM_XS_toggle`, `TOOLS/ANIM-XS`, `CFG.XSHEET`, Num 8, chip `LB_CTL_XS`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
@@ -473,6 +474,33 @@ Dump `ANIMXSD mode on frame slot to toSlot`. QA: `anim-xsheet-edit.sh`.
 QA dump: `ANIMXS on shown x1 y1 x2 y2 nameW rowH tickW gx firstF lastF nRows firstRow
 rowsShown currentLayer`, `ANIMXSF f x w ...` (spans), `ANIMXSR r slot y fill` (fill = 1 / 0 per
 frame, `-` a group; y -1 scrolled out). The chip is `ANIMLBC` pair 15. QA: `anim-xsheet.sh`.
+
+## Linked cells (4.3, Q-03 / R-05)
+
+Table in `TOOLS/ANIM.BI`: `ANIM_LK_ID / F / G (1..ANIM_LK_N)` = layer historyId's cell in frame F
+is in group G (a number per layer); the lowest frame of a group is its source, the rest are
+links (`ANIM_LK_is_link%`). Helpers in `ANIM.BM`: `_group% _source% _remove _put _new_group%`,
+`ANIM_LK_tidy` (drops groups left with < 2 cells / frames past count), `ANIM_LK_remap` (called
+from `ANIM_apply_plan`: each entry moves to the first new frame whose `ANIM_SRC` is its old
+frame - a duplicate copy is not linked; deleted frames drop out). Serialized in
+`ANIM_serialize$` as drAn **v3** only when links exist (so every frame-op snapshot carries
+them: undo / redo restore links with the pixels); `ANIM_reset` clears them, `ANIM_LK_prune`
+on load (DRW.BM, beside `ANIM_LF_prune`).
+**Sync** (`ANIM-OPS.BM`): `ANIM_LK_tick%` runs inside `ANIM_SAME_tick%` (once a frame, waits
+for buttons / a float / transform) when `ANIM_SAME_CHECK` (an undo step added / undone /
+redone): each group's cells are merged against its picture (`ANIM_px_merge%`: differing pixels
+win) and written to every cell - a stroke on any linked cell lands on all of them, its undo /
+redo too. Pictures (`ANIM_LKP_*`) are rebuilt from the source cells when `ANIM_LK_SIG`
+(layout + table) changes, without writing cells. SAME layers are skipped.
+**Making links:** `ANIM_LK_action` 2541: selected frames (>= 2) join the first selected one's
+group, else the current frame joins the frame before (`ANIM_LK_join`: pixels = the source
+cell's); 2542 removes the selected / current cells (pixels kept, snapshot without pixels).
+`ANIM_LK_refusal$`: frames, a pixel layer, not SAME, not busy. X-sheet: Shift at a cell drop
+(same row) = `ANIM_XS_drop_link`; a plain / Ctrl drop first unlinks the cell landed on (and a
+moved cell), so only it changes. **Hatching:** `ANIM_LK_hatch` (45-degree lines, fixed phase)
+over the current layer's links in `ANIM_VIEW_render_grid` (sheet view, with the frame grid)
+and over a link's first tick in the X-sheet. QA dump `ANIMLK entries map` (current layer: "."
+/ a letter per group, upper case = source). QA: `anim-links.sh`.
 
 ## A selection stays put in its cell (2.9, Q-18)
 

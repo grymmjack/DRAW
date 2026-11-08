@@ -25,6 +25,7 @@ SUB ANIM_reset ()
     FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_HOLDS(i) = 0: ANIM_SEL(i) = FALSE: NEXT i
     ANIM_SEL_ANCHOR = 0: ANIM_MOVE_TO = 0: ANIM_COUNT_TO = 0
     ANIM_LF_N = 0
+    ANIM_LK_N = 0
     IF ANIM_SB_KEEP = FALSE THEN ' (ANIM_deserialize% keeps the SAME layers' pictures: undo / redo is the same document)
         FOR i = 1 TO ANIM_SB_N: ANIM_SB_PX(i) = "": NEXT i
         ANIM_SB_N = 0
@@ -257,9 +258,14 @@ FUNCTION ANIM_serialize$ ()
     s = MKI$(ANIM_CHUNK_VERSION) + MKI$(ANIM.frameW) + MKI$(ANIM.frameH) + MKI$(ANIM.gutter) + MKI$(ANIM.margin)
     s = s + MKI$(ANIM.count) + MKI$(ANIM.current) + MKI$(ANIM.fps) + MKI$(ANIM.loopMode) + MKI$(n)
     FOR i = 1 TO n: s = s + MKI$(ANIM_hold%(i)): NEXT i
-    IF ANIM_LF_N > 0 THEN ' v2: layer flags (a picture without frames can have reference layers)
+    IF ANIM_LF_N > 0 _ORELSE (ANIM_LK_N > 0 _ANDALSO ANIM.active) THEN ' v2: layer flags (a picture without frames can have reference layers)
         s = s + MKI$(ANIM_LF_N)
         FOR i = 1 TO ANIM_LF_N: s = s + MKL$(ANIM_LF_ID(i)) + MKI$(ANIM_LF_FL(i)): NEXT i
+    END IF
+    IF ANIM_LK_N > 0 _ANDALSO ANIM.active THEN ' v3: linked cells (older DRAW reads v2's part and drops them)
+        MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_LINKS)
+        s = s + MKI$(ANIM_LK_N)
+        FOR i = 1 TO ANIM_LK_N: s = s + MKL$(ANIM_LK_ID(i)) + MKI$(ANIM_LK_F(i)) + MKI$(ANIM_LK_G(i)): NEXT i
     END IF
     ANIM_serialize$ = s
 END FUNCTION
@@ -274,8 +280,8 @@ FUNCTION ANIM_deserialize% (blob AS STRING)
     IF LEN(blob) < 20 THEN EXIT FUNCTION
     v = CVI(MID$(blob, 1, 2))
     IF v < 1 THEN EXIT FUNCTION
+    DIM fp AS LONG, nf AS INTEGER
     IF v >= 2 THEN ' layer flags after the holds - read whether or not the frames fit
-        DIM fp AS LONG, nf AS INTEGER
         n = CVI(MID$(blob, 19, 2)): IF n < 0 THEN n = 0
         fp = 21 + 2 * CLNG(n)
         IF fp + 1 <= LEN(blob) THEN
@@ -301,6 +307,18 @@ FUNCTION ANIM_deserialize% (blob AS STRING)
         IF 20 + 2 * i > LEN(blob) THEN EXIT FOR ' truncated: keep what is there
         ANIM_set_hold i, CVI(MID$(blob, 19 + 2 * i, 2))
     NEXT i
+    IF v >= 3 _ANDALSO fp > 0 _ANDALSO fp + 1 <= LEN(blob) THEN ' v3: linked cells after the layer flags
+        nf = CVI(MID$(blob, fp, 2)): fp = fp + 2
+        FOR i = 1 TO nf
+            IF fp + 7 > LEN(blob) _ORELSE i > ANIM_LK_MAX THEN EXIT FOR
+            IF CVI(MID$(blob, fp + 4, 2)) >= 1 _ANDALSO CVI(MID$(blob, fp + 4, 2)) <= ANIM.count THEN
+                ANIM_LK_N = ANIM_LK_N + 1
+                ANIM_LK_ID(ANIM_LK_N) = CVL(MID$(blob, fp, 4)): ANIM_LK_F(ANIM_LK_N) = CVI(MID$(blob, fp + 4, 2)): ANIM_LK_G(ANIM_LK_N) = CVI(MID$(blob, fp + 6, 2))
+            END IF
+            fp = fp + 8
+        NEXT i
+        ANIM_LK_tidy
+    END IF
     ANIM_deserialize% = ANIM.active
 END FUNCTION
 
@@ -456,6 +474,7 @@ SUB ANIM_apply_plan (newCount AS INTEGER, newCur AS INTEGER)
         ANIM_HOLDS(i) = 0
         IF i <= newCount _ANDALSO ANIM_SRC(i) > 0 THEN ANIM_HOLDS(i) = old(ANIM_SRC(i))
     NEXT i
+    ANIM_LK_remap top, newCount ' links go with their frames (4.3)
     ' the selection goes with its frames (a new frame is not selected)
     FOR i = 1 TO top: old(i) = ANIM_SEL(i): NEXT i
     FOR i = 1 TO top
@@ -610,4 +629,114 @@ SUB ANIM_SEL_span (a AS INTEGER, b AS INTEGER)
             b = i
         END IF
     NEXT i
+END SUB
+
+
+' ---------------------------------------------------------------------------
+' Linked cells (4.3): the table. Pixels and the sync live in ANIM-OPS.
+' ---------------------------------------------------------------------------
+
+''
+' The link group of layer historyId id's cell in frame f (0 = not linked).
+FUNCTION ANIM_LK_group% (id AS LONG, f AS INTEGER)
+    DIM k AS INTEGER
+    FOR k = 1 TO ANIM_LK_N
+        IF ANIM_LK_F(k) = f _ANDALSO ANIM_LK_ID(k) = id THEN ANIM_LK_group% = ANIM_LK_G(k): EXIT FUNCTION
+    NEXT k
+END FUNCTION
+
+''
+' The lowest frame of layer id's link group g (its source), 0 if none.
+FUNCTION ANIM_LK_source% (id AS LONG, g AS INTEGER)
+    DIM k AS INTEGER, s AS INTEGER
+    FOR k = 1 TO ANIM_LK_N
+        IF ANIM_LK_ID(k) = id _ANDALSO ANIM_LK_G(k) = g THEN
+            IF s = 0 _ORELSE ANIM_LK_F(k) < s THEN s = ANIM_LK_F(k)
+        END IF
+    NEXT k
+    ANIM_LK_source% = s
+END FUNCTION
+
+''
+' Layer id's cell in frame f shows another frame's drawing (linked, not the source).
+FUNCTION ANIM_LK_is_link% (id AS LONG, f AS INTEGER)
+    DIM g AS INTEGER
+    g = ANIM_LK_group%(id, f)
+    IF g = 0 THEN EXIT FUNCTION
+    ANIM_LK_is_link% = (ANIM_LK_source%(id, g) <> f)
+END FUNCTION
+
+''
+' Take layer id's cell in frame f out of its link group.
+SUB ANIM_LK_remove (id AS LONG, f AS INTEGER)
+    DIM k AS INTEGER
+    FOR k = 1 TO ANIM_LK_N
+        IF ANIM_LK_F(k) = f _ANDALSO ANIM_LK_ID(k) = id THEN
+            ANIM_LK_ID(k) = ANIM_LK_ID(ANIM_LK_N): ANIM_LK_F(k) = ANIM_LK_F(ANIM_LK_N): ANIM_LK_G(k) = ANIM_LK_G(ANIM_LK_N)
+            ANIM_LK_N = ANIM_LK_N - 1
+            EXIT SUB
+        END IF
+    NEXT k
+END SUB
+
+''
+' Put layer id's cell in frame f in link group g (out of any other).
+SUB ANIM_LK_put (id AS LONG, f AS INTEGER, g AS INTEGER)
+    ANIM_LK_remove id, f
+    IF ANIM_LK_N >= ANIM_LK_MAX THEN EXIT SUB
+    ANIM_LK_N = ANIM_LK_N + 1
+    ANIM_LK_ID(ANIM_LK_N) = id: ANIM_LK_F(ANIM_LK_N) = f: ANIM_LK_G(ANIM_LK_N) = g
+END SUB
+
+''
+' A group number not used on layer id.
+FUNCTION ANIM_LK_new_group% (id AS LONG)
+    DIM g AS INTEGER, k AS INTEGER, used AS INTEGER
+    FOR g = 1 TO ANIM_LK_MAX
+        used = FALSE
+        FOR k = 1 TO ANIM_LK_N
+            IF ANIM_LK_ID(k) = id _ANDALSO ANIM_LK_G(k) = g THEN used = TRUE: EXIT FOR
+        NEXT k
+        IF used = FALSE THEN ANIM_LK_new_group% = g: EXIT FUNCTION
+    NEXT g
+END FUNCTION
+
+''
+' Drop groups left with one cell and entries past the last frame.
+SUB ANIM_LK_tidy ()
+    DIM k AS INTEGER, j AS INTEGER, n AS INTEGER
+    k = 1
+    DO WHILE k <= ANIM_LK_N
+        n = 0
+        IF ANIM_LK_F(k) >= 1 _ANDALSO ANIM_LK_F(k) <= ANIM.count THEN
+            FOR j = 1 TO ANIM_LK_N
+                IF ANIM_LK_ID(j) = ANIM_LK_ID(k) _ANDALSO ANIM_LK_G(j) = ANIM_LK_G(k) _ANDALSO ANIM_LK_F(j) >= 1 _ANDALSO ANIM_LK_F(j) <= ANIM.count THEN n = n + 1
+            NEXT j
+        END IF
+        IF n < 2 THEN
+            ANIM_LK_ID(k) = ANIM_LK_ID(ANIM_LK_N): ANIM_LK_F(k) = ANIM_LK_F(ANIM_LK_N): ANIM_LK_G(k) = ANIM_LK_G(ANIM_LK_N)
+            ANIM_LK_N = ANIM_LK_N - 1
+        ELSE
+            k = k + 1
+        END IF
+    LOOP
+END SUB
+
+''
+' ANIM_apply_plan: each link moves to the new frame showing its old one (the
+' first, when a frame was duplicated - the copy is not linked); links of
+' deleted frames go.
+SUB ANIM_LK_remap (top AS INTEGER, newCount AS INTEGER)
+    DIM k AS INTEGER, n AS INTEGER, nf AS INTEGER
+    IF ANIM_LK_N = 0 THEN EXIT SUB
+    FOR k = 1 TO ANIM_LK_N
+        nf = 0
+        FOR n = 1 TO newCount
+            IF ANIM_SRC(n) = ANIM_LK_F(k) THEN nf = n: EXIT FOR
+        NEXT n
+        ANIM_LK_F(k) = nf ' 0: its frame was deleted
+    NEXT k
+    n = ANIM.count: ANIM.count = newCount ' ANIM_LK_tidy keeps frames 1..count
+    ANIM_LK_tidy
+    ANIM.count = n
 END SUB

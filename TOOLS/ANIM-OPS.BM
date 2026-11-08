@@ -1088,8 +1088,9 @@ END SUB
 FUNCTION ANIM_SAME_tick% ()
     DIM k AS INTEGER, i AS INTEGER, s AS INTEGER, f AS INTEGER, changed AS INTEGER
     DIM pic AS STRING, nu AS STRING, cell AS STRING, rw AS LONG, r AS LONG, j AS LONG, p AS LONG, diff AS INTEGER
-    IF ANIM_LF_N = 0 _ORELSE ANIM.active = FALSE THEN ANIM_SAME_CHECK = FALSE: EXIT FUNCTION
+    IF (ANIM_LF_N = 0 _ANDALSO ANIM_LK_N = 0) _ORELSE ANIM.active = FALSE THEN ANIM_SAME_CHECK = FALSE: EXIT FUNCTION
     IF MOUSE.B1% _ORELSE MOUSE.B2% _ORELSE MOVE.ACTIVE _ORELSE TRANSFORM.ACTIVE THEN EXIT FUNCTION
+    IF ANIM_LK_N > 0 THEN changed = ANIM_LK_tick% ' linked cells (4.3)
     FOR k = 1 TO ANIM_LF_N
         IF ANIM_LF_FL(k) AND ANIM_LF_SAME THEN
             i = ANIM_LF_slot%(ANIM_LF_ID(k))
@@ -1248,3 +1249,216 @@ SUB ANIM_SELBOX_shift (dx AS LONG, dy AS LONG, wand AS INTEGER)
     END IF
     INVALIDATE_canvas
 END SUB
+
+
+' ---------------------------------------------------------------------------
+' Linked cells (4.3): keeping them the same, Link / Unlink
+' ---------------------------------------------------------------------------
+
+''
+' Rebuild each link group's picture from its source cell when the links or
+' the frame layout changed (no cell is written).
+SUB ANIM_LK_pictures_check ()
+    DIM s AS STRING, k AS INTEGER, j AS INTEGER, i AS INTEGER, found AS INTEGER
+    s = MKI$(ANIM.frameW) + MKI$(ANIM.frameH) + MKI$(ANIM.gutter) + MKI$(ANIM.margin) + MKI$(ANIM.count)
+    FOR k = 1 TO ANIM_LK_N: s = s + MKL$(ANIM_LK_ID(k)) + MKI$(ANIM_LK_F(k)) + MKI$(ANIM_LK_G(k)): NEXT k
+    IF s = ANIM_LK_SIG THEN EXIT SUB
+    FOR j = 1 TO ANIM_LKP_N: ANIM_LKP_PX(j) = "": NEXT j
+    ANIM_LKP_N = 0
+    FOR k = 1 TO ANIM_LK_N
+        found = FALSE
+        FOR j = 1 TO ANIM_LKP_N
+            IF ANIM_LKP_ID(j) = ANIM_LK_ID(k) _ANDALSO ANIM_LKP_G(j) = ANIM_LK_G(k) THEN found = TRUE: EXIT FOR
+        NEXT j
+        IF found = FALSE _ANDALSO ANIM_LKP_N < ANIM_LK_MAX THEN
+            ANIM_LKP_N = ANIM_LKP_N + 1
+            ANIM_LKP_ID(ANIM_LKP_N) = ANIM_LK_ID(k): ANIM_LKP_G(ANIM_LKP_N) = ANIM_LK_G(k)
+            i = ANIM_LF_slot%(ANIM_LK_ID(k))
+            IF i _ANDALSO ANIM_OPS_moves%(i) THEN ANIM_LKP_PX(ANIM_LKP_N) = ANIM_SAME_cell_get$(i, ANIM_LK_source%(ANIM_LK_ID(k), ANIM_LK_G(k)))
+        END IF
+    NEXT k
+    ANIM_LK_SIG = s
+END SUB
+
+''
+' Pixels of cell that differ from pic go into nu (both frameW x frameH RGBA).
+' TRUE when any did.
+FUNCTION ANIM_px_merge% (cell AS STRING, pic AS STRING, nu AS STRING)
+    DIM rw AS LONG, r AS LONG, p AS LONG, j AS LONG
+    IF LEN(cell) <> LEN(pic) _ORELSE cell = pic THEN EXIT FUNCTION
+    rw = ANIM.frameW * 4
+    FOR r = 0 TO ANIM.frameH - 1
+        p = r * rw + 1
+        IF MID$(cell, p, rw) <> MID$(pic, p, rw) THEN
+            FOR j = p TO p + rw - 4 STEP 4
+                IF MID$(cell, j, 4) <> MID$(pic, j, 4) THEN MID$(nu, j, 4) = MID$(cell, j, 4)
+            NEXT j
+        END IF
+    NEXT r
+    ANIM_px_merge% = TRUE
+END FUNCTION
+
+''
+' ANIM_SAME_tick%: after an undo step was added, undone or redone, whatever
+' changed in any cell of a link group goes into its picture and every cell of
+' the group - painting a linked cell paints its source and the other links,
+' and the undo / redo of it too. TRUE when pixels changed.
+FUNCTION ANIM_LK_tick% ()
+    DIM j AS INTEGER, k AS INTEGER, i AS INTEGER, diff AS INTEGER, changed AS INTEGER
+    DIM pic AS STRING, nu AS STRING
+    ANIM_LK_pictures_check
+    IF ANIM_SAME_CHECK = FALSE THEN EXIT FUNCTION
+    FOR j = 1 TO ANIM_LKP_N
+        i = ANIM_LF_slot%(ANIM_LKP_ID(j))
+        IF i _ANDALSO ANIM_OPS_moves%(i) _ANDALSO LEN(ANIM_LKP_PX(j)) = ANIM.frameW * ANIM.frameH * 4 THEN
+            IF ANIM_LF_is_same%(i) = 0 THEN
+                pic = ANIM_LKP_PX(j): nu = pic: diff = FALSE
+                FOR k = 1 TO ANIM_LK_N
+                    IF ANIM_LK_ID(k) = ANIM_LKP_ID(j) _ANDALSO ANIM_LK_G(k) = ANIM_LKP_G(j) THEN
+                        IF ANIM_px_merge%(ANIM_SAME_cell_get$(i, ANIM_LK_F(k)), pic, nu) THEN diff = TRUE
+                    END IF
+                NEXT k
+                IF diff THEN
+                    ANIM_LKP_PX(j) = nu
+                    FOR k = 1 TO ANIM_LK_N
+                        IF ANIM_LK_ID(k) = ANIM_LKP_ID(j) _ANDALSO ANIM_LK_G(k) = ANIM_LKP_G(j) THEN ANIM_SAME_cell_put i, ANIM_LK_F(k), nu
+                    NEXT k
+                    ANIM_LK_touched i
+                    changed = TRUE
+                END IF
+            END IF
+        END IF
+    NEXT j
+    ANIM_LK_tick% = changed
+END FUNCTION
+
+''
+' A layer's pixels were written outside the tools: its caches go.
+SUB ANIM_LK_touched (i AS INTEGER)
+    LAYERS(i).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(i).apronCacheImg&: LAYERS(i).apronCacheImg& = 0
+    LAYERS(i).apronCacheValid% = FALSE
+    SYMBOL_mark_parent_dirty i
+END SUB
+
+''
+' Why the current layer's cells can't be linked / unlinked now ("" = they can).
+FUNCTION ANIM_LK_refusal$ ()
+    DIM i AS INTEGER, r AS STRING
+    i = CURRENT_LAYER%
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN
+        r = "Linking needs frames - set a frame size first"
+    ELSEIF i < 1 _ORELSE i > MAX_LAYERS THEN
+        r = "Pick a layer"
+    ELSEIF LAYERS(i).imgHandle& = 0 THEN
+        r = "Pick a layer"
+    ELSEIF ANIM_OPS_moves%(i) = 0 THEN
+        r = "Links work on a pixel layer"
+    ELSEIF ANIM_LF_is_same%(i) THEN
+        r = "This layer is the same on every frame already"
+    ELSE
+        r = ANIM_OPS_busy$
+    END IF
+    ANIM_LK_refusal$ = r
+END FUNCTION
+
+''
+' Link layer slot i's cell in frame f to the drawing in frame src (same
+' layer): f's pixels become src's. (No undo step of its own.)
+SUB ANIM_LK_join (i AS INTEGER, src AS INTEGER, f AS INTEGER)
+    DIM id AS LONG, g AS INTEGER
+    IF f = src THEN EXIT SUB
+    id = LAYERS(i).historyId&
+    g = ANIM_LK_group%(id, src)
+    IF g = 0 THEN g = ANIM_LK_new_group%(id): ANIM_LK_put id, src, g
+    IF g = 0 THEN EXIT SUB
+    ANIM_LK_put id, f, g
+    ANIM_SAME_cell_put i, f, ANIM_SAME_cell_get$(i, src)
+END SUB
+
+''
+' ANIM > Link Cells (2541) / Unlink Cells (2542) on the current layer. Link:
+' the selected frames' cells all show the first selected one's drawing; with
+' one frame, it links to the frame before. Unlink: the selected frames' (or
+' the current frame's) cells keep their pixels and leave their links. One
+' undo step each.
+SUB ANIM_LK_action (act AS INTEGER)
+    DIM why AS STRING, i AS INTEGER, f AS INTEGER, src AS INTEGER, n AS INTEGER, before AS STRING, id AS LONG
+    why = ANIM_LK_refusal$
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    i = CURRENT_LAYER%: id = LAYERS(i).historyId&
+    ANIM_play_stop
+    IF act = ANIM_ACT_LINK_CELLS THEN
+        IF ANIM_SEL_count% < 2 THEN
+            IF ANIM.current < 2 THEN STATUS_flash "Frame 1 has no frame before it - select the frames to link": EXIT SUB
+            src = ANIM.current - 1
+        ELSE
+            FOR f = 1 TO ANIM.count
+                IF ANIM_SEL(f) THEN src = f: EXIT FOR
+            NEXT f
+        END IF
+        before = ANIM_OPS_snapshot$(TRUE)
+        FOR f = 1 TO ANIM.count
+            IF f <> src _ANDALSO ((ANIM_SEL_count% < 2 _ANDALSO f = ANIM.current) _ORELSE (ANIM_SEL_count% >= 2 _ANDALSO ANIM_SEL(f) <> 0)) THEN
+                ANIM_LK_join i, src, f: n = n + 1
+            END IF
+        NEXT f
+        ANIM_LK_tidy
+        ANIM_LK_touched i
+        ANIM_OPS_record before, ANIM_OPS_snapshot$(TRUE), "Link Cells", 0
+        STATUS_flash _TRIM$(STR$(n)) + _IIF(n = 1, " cell", " cells") + " linked to frame" + STR$(src) + "'s drawing on " + _TRIM$(LAYERS(i).name)
+    ELSE
+        before = ANIM_OPS_snapshot$(FALSE)
+        FOR f = 1 TO ANIM.count
+            IF ANIM_SEL_is%(f) _ANDALSO ANIM_LK_group%(id, f) <> 0 THEN ANIM_LK_remove id, f: n = n + 1
+        NEXT f
+        IF n = 0 THEN STATUS_flash "Not linked": EXIT SUB
+        ANIM_LK_tidy
+        ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Unlink Cells", 0
+        STATUS_flash _TRIM$(STR$(n)) + _IIF(n = 1, " cell", " cells") + " unlinked"
+    END IF
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Links of layers this document no longer has.
+SUB ANIM_LK_prune ()
+    DIM k AS INTEGER
+    k = 1
+    DO WHILE k <= ANIM_LK_N
+        IF ANIM_LF_slot%(ANIM_LK_ID(k)) = 0 THEN
+            ANIM_LK_ID(k) = ANIM_LK_ID(ANIM_LK_N): ANIM_LK_F(k) = ANIM_LK_F(ANIM_LK_N): ANIM_LK_G(k) = ANIM_LK_G(ANIM_LK_N)
+            ANIM_LK_N = ANIM_LK_N - 1
+        ELSE
+            k = k + 1
+        END IF
+    LOOP
+    ANIM_LK_tidy
+END SUB
+
+''
+' QA dump line: ANIMLK entries map - map = the current layer's cells per
+' frame: "." not linked, a letter per link group (upper case its source).
+FUNCTION ANIM_LK_dump$ ()
+    DIM m AS STRING, f AS INTEGER, g AS INTEGER, id AS LONG, k AS INTEGER, gs AS STRING, c AS STRING
+    IF ANIM.active = FALSE THEN EXIT FUNCTION
+    IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN id = LAYERS(CURRENT_LAYER%).historyId&
+    FOR f = 1 TO _MIN(ANIM.count, 200)
+        g = 0
+        IF id <> 0 THEN g = ANIM_LK_group%(id, f)
+        IF g = 0 THEN
+            m = m + "."
+        ELSE
+            k = INSTR(gs, MKI$(g))
+            DO WHILE k > 0 _ANDALSO (k MOD 2) = 0: k = INSTR(k + 1, gs, MKI$(g)): LOOP ' whole entries only
+            IF k = 0 THEN gs = gs + MKI$(g): k = LEN(gs) - 1
+            c = CHR$(96 + ((k + 1) \ 2 - 1) MOD 26 + 1)
+            IF ANIM_LK_source%(id, g) = f THEN c = UCASE$(c)
+            m = m + c
+        END IF
+    NEXT f
+    IF m = "" THEN m = "-"
+    ANIM_LK_dump$ = "ANIMLK" + DOCK_n$(ANIM_LK_N) + " " + m + CHR$(10)
+END FUNCTION

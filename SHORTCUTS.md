@@ -559,7 +559,7 @@ Frames Over · Replace FG Color with BG in Frames · Frame Grid · Preview Shows
 Panes 3 / 5 / 7 · Onion Skin · Onion Skin Red / Blue Tint · Clip Strokes to the Frame in the Lightbox · Clip Strokes to the Frame in
 Sheet View · Reference Layer (the current layer: shown, left out of every export; `[R]` in the
 layers panel) · Layer Same on Every Frame (the current layer's drawing on every frame - draw in
-any frame and it lands on all of them; `[=]`). A marquee or wand selection inside the current frame moves with it to the next frame (same place in the cell). Export Animated GIF... (frames in loop order, holds, transparency, colour cycling) · Export Animated PNG (APNG)... (exact delays, every alpha level) · Export PNG Sequence... (one PNG per tick at the FPS) · Export BAS Player (DATA)... (a QB64 program that plays the frames, colour cycling along) · Export BAS Player + Sheet PNG... (the same, the frames cut out of a PNG beside it) · Export Sprite Sheet + Frame Data... (the sheet PNG + Aseprite-style JSON + a QB64 .bi of the frame rects) · Export Scale 1× / 2× / 4×. (Also View → Frame Grid
+any frame and it lands on all of them; `[=]`) · Link Cells (the current layer: with frames selected, their cells all show the first selected frame's drawing; with one frame, it links to the frame before. Paint any linked cell and the others change with it; linked cells are hatched in sheet view and the X-sheet) · Unlink Cells (the selected frames' cells keep their pixels and stop following). A marquee or wand selection inside the current frame moves with it to the next frame (same place in the cell). Export Animated GIF... (frames in loop order, holds, transparency, colour cycling) · Export Animated PNG (APNG)... (exact delays, every alpha level) · Export PNG Sequence... (one PNG per tick at the FPS) · Export BAS Player (DATA)... (a QB64 program that plays the frames, colour cycling along) · Export BAS Player + Sheet PNG... (the same, the frames cut out of a PNG beside it) · Export Sprite Sheet + Frame Data... (the sheet PNG + Aseprite-style JSON + a QB64 .bi of the frame rects) · Export Scale 1× / 2× / 4×. (Also View → Frame Grid
 and View → Animation Panel; every item is in the command palette.)
 
 ### Animation panel (View / ANIM → Animation Panel)
@@ -623,6 +623,7 @@ layer, `=` a layer the same on every frame.
 | Drag along the hold row | Change that frame's hold, one tick per column dragged (at least 1) |
 | Drag a cell | Move its drawing to the cell you drop it on - another frame, another layer, or both; the drawing there is replaced. Hold `Ctrl` as you let go to copy it instead |
 | Drag a frame number | Move the selected frames (or that one) to where you drop them, as in the strip |
+| `Shift` + drag a cell (same row) | Link the cell you drop it on to the dragged cell's drawing (hatched; painting either changes both) |
 
 Each drag is one undo step. Dragging past the left or right edge scrolls the grid.
 
