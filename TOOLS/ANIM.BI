@@ -53,6 +53,7 @@ CONST ANIM_OP_LATER         = 8 ' swap with the frame after
 CONST ANIM_OP_REVERSE       = 9
 CONST ANIM_OP_LAST          = 9
 CONST ANIM_OP_MOVE_SEL      = 10 ' the selected frames, in order, to before frame ANIM_MOVE_TO (the strip's drag; no action id)
+CONST ANIM_OP_SET_COUNT     = 11 ' ANIM_COUNT_TO frames: blank ones added at the end, or the last ones dropped (the lightbox's total; no action id)
 
 TYPE ANIM_OBJ
     active   AS INTEGER ' the document has a frame layout
@@ -87,5 +88,6 @@ DIM SHARED ANIM_SIZE_MODE AS INTEGER                    ' ANIM_SIZE_*: the answe
 DIM SHARED ANIM_SEL(1 TO ANIM_MAX_FRAMES) AS INTEGER    ' TRUE = selected
 DIM SHARED ANIM_SEL_ANCHOR AS INTEGER                   ' Shift+click ranges from here
 DIM SHARED ANIM_MOVE_TO AS INTEGER                      ' ANIM_OP_MOVE_SEL: drop before this frame (count + 1 = at the end)
+DIM SHARED ANIM_COUNT_TO AS INTEGER                     ' ANIM_OP_SET_COUNT: the new total
 
 ANIM_reset

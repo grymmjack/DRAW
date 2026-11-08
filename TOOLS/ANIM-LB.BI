@@ -50,6 +50,7 @@ CONST LB_CTL_ADD   = 14 ' + : add a frame (a copy of the last; Shift = blank)
 CONST LB_CTLS      = 14
 
 CONST LB_PANES_MAX = 7
+CONST LB_MENU_ITEM_H = 12 ' the loop mode menu's rows (as the dock menu)
 
 TYPE ANIM_LB_OBJ
     shown      AS INTEGER ' drawn on the last full render
@@ -111,8 +112,21 @@ TYPE ANIM_LB_OBJ
     sDrop      AS INTEGER ' drag: drop before this frame (count + 1 = the end)
     sCollapse  AS INTEGER ' a plain press on a frame already in a multi-selection: select just it on release (no drag)
     sScrollT   AS DOUBLE  ' drag past the strip's ends: when it next scrolls a frame
+
+    ' The transport bar (2.4)
+    seekHeld   AS INTEGER ' the seek bar is being scrubbed (until the release)
+    menuOpen   AS INTEGER ' the loop mode menu
+    menuX      AS INTEGER
+    menuY      AS INTEGER
+    menuW      AS INTEGER
+    menuHover  AS INTEGER
+    editing    AS INTEGER ' typing in current / total
+    editFresh  AS INTEGER ' the first key replaces the text
+    confirmTo  AS INTEGER ' > 0: asking whether to drop drawn frames for this total (Enter = yes)
+    confirmCur AS INTEGER ' the current frame asked for with it
 END TYPE
 DIM SHARED ANIM_LB AS ANIM_LB_OBJ
+DIM SHARED ANIM_LB_EDIT AS STRING ' the count box's text while typing (2.4)
 DIM SHARED ANIM_LB_CX(1 TO LB_CTLS) AS INTEGER
 DIM SHARED ANIM_LB_CW(1 TO LB_CTLS) AS INTEGER
 ANIM_LB.vPane = -1: ANIM_LB.strokePane = -1

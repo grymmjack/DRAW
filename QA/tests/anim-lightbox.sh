@@ -7,7 +7,7 @@
 # current frame in the middle. Every picture is cut from the composited
 # sheet, so each pane must show its frame's own mark: the fixture gives frame
 # n a mark of its own colour, and the checks look for that colour in each
-# pane's screenshot. The transport bar's |< < PLAY > >|, loop and + work; a
+# pane's screenshot. The transport bar's |< < PLAY > >|, loop menu and + work; a
 # press outside the pane pictures draws nothing (drawing in them:
 # anim-lightbox-draw.sh).
 #
@@ -161,9 +161,13 @@ if [[ "${LB_SHOWN:-}" == -1 ]]; then
     lb_ctl 3; lb_read; [[ "$A_PLAY" == -1 ]] && pass "bar PLAY" || fail "bar PLAY: playing '$A_PLAY'"
     lb_ctl 3; lb_read; [[ "$A_PLAY" == 0 ]] && pass "bar STOP" || fail "bar STOP: playing '$A_PLAY'"
     LB_L0=$A_LOOP
-    lb_ctl 6; lb_read; [[ "$A_LOOP" == $(( (LB_L0 + 1) % 4 )) ]] && pass "bar loop chip: next loop mode" || fail "loop chip: $LB_L0 -> $A_LOOP"
-    lb_ctl 6; lb_ctl 6; lb_ctl 6; lb_read
-    [[ "$A_LOOP" == "$LB_L0" ]] && pass "four clicks: back to the first loop mode" || fail "loop after 4 clicks: $A_LOOP"
+    # the loop chip opens a menu of the modes (2.4; anim-lightbox-bar tests it in full)
+    lb_ctl 6; read -r _ _ _ LB_MO _ _ LB_MX LB_MY LB_MW _ <<< "$(lb_line ANIMLBE)"
+    click $(( ${LB_MX:-0} + ${LB_MW:-0} / 2 )) $(( ${LB_MY:-0} + 2 + 12 + 6 )); wait_for 0.4 "pick Backward"
+    lb_read; [[ "$LB_MO" == -1 && "$A_LOOP" == 1 ]] && pass "bar loop chip: its menu sets Backward" || fail "loop chip: menu '$LB_MO', loop $LB_L0 -> $A_LOOP"
+    lb_ctl 6; read -r _ _ _ _ _ _ LB_MX LB_MY LB_MW _ <<< "$(lb_line ANIMLBE)"
+    click $(( ${LB_MX:-0} + ${LB_MW:-0} / 2 )) $(( ${LB_MY:-0} + 2 + LB_L0 * 12 + 6 )); wait_for 0.4 "pick the first mode"
+    lb_read; [[ "$A_LOOP" == "$LB_L0" ]] && pass "and back to the first loop mode" || fail "loop back: $A_LOOP"
     lb_ctl 14; lb_read
     [[ "$A_COUNT" == 8 && "$A_CUR" == 8 ]] && pass "bar +: a frame added, now current" || fail "bar +: count $A_COUNT current $A_CUR"
     lb_snap "$LB_X1" "$LB_SY" $(( LB_X2 - LB_X1 + 1 )) "$LB_SH" "strip8"

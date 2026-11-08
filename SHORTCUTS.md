@@ -578,8 +578,11 @@ lightbox over beside it.
 | Transport bar | Action |
 |---------------|--------|
 | `\|<` `<` `PLAY` `>` `>\|` | First / previous / play-stop / next / last frame |
-| `FWD` / `REV` / `PING` / `ONCE` | Click for the next loop mode |
-| time · FPS · seek bar · `n/total` | Where the current frame comes up, the sheet's FPS, its place in the animation |
+| `FWD` / `REV` / `PING` / `ONCE` | Click for a menu of the loop modes |
+| time | Where the current frame comes up / the whole animation |
+| `- FPS +` | Click `-` / `+` to step the FPS (`Shift+click` = 10), or wheel over it; each change undoes on its own |
+| seek bar | Click or drag along it to scrub frames |
+| `n/total` | Click and type: `5` goes to frame 5, `5/20` makes 20 frames and goes to 5, `/20` only sets the total. `Enter` applies, `Esc` cancels. A smaller total that would drop drawn frames asks first (`Enter` = drop, `Esc` = keep); always undoable |
 | `+` | Add a frame (a copy of the last; `Shift+click` = blank) |
 
 **Draw in any pane** with any tool: it paints that frame. A stroke stays inside its frame
@@ -597,8 +600,7 @@ default). Zooming and panning stay with the sheet view.
 
 With two or more frames selected, Play (`Num Enter`) plays just those (first to last).
 
-Scrubbing the seek bar and COPY / PASTE / CUT come next; elsewhere in the lightbox a click
-only works the transport bar.
+COPY / PASTE / CUT come next; elsewhere in the lightbox a click only works the transport bar.
 
 ---
 

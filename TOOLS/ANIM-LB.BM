@@ -190,9 +190,9 @@ SUB ANIM_LB_layout ()
     ANIM_LB_CW(LB_CTL_LAST) = ANIM_LB_CW(LB_CTL_FIRST)
     ANIM_LB_CW(LB_CTL_LOOP) = ANIM_LB_chip_w%("PING")
     ANIM_LB_CW(LB_CTL_TIME) = FPANEL_text_w%("0:00.0 / 0:00.0") + 4
-    ANIM_LB_CW(LB_CTL_FPS) = FPANEL_text_w%("120 FPS") + 4
+    ANIM_LB_CW(LB_CTL_FPS) = FPANEL_text_w%("- 120 FPS +") + 4
     ANIM_LB_CW(LB_CTL_SEEK) = 0
-    ANIM_LB_CW(LB_CTL_COUNT) = FPANEL_text_w%(_TRIM$(STR$(ANIM.count)) + "/" + _TRIM$(STR$(ANIM.count))) + 6
+    ANIM_LB_CW(LB_CTL_COUNT) = FPANEL_text_w%(STRING$(_MAX(2 * LEN(_TRIM$(STR$(ANIM.count))) + 1, LEN(_TRIM$(ANIM_LB_EDIT)) + 1), "8")) + 6
     ANIM_LB_CW(LB_CTL_COPY) = ANIM_LB_chip_w%("COPY")
     ANIM_LB_CW(LB_CTL_PASTE) = ANIM_LB_chip_w%("PASTE")
     ANIM_LB_CW(LB_CTL_CUT) = ANIM_LB_chip_w%("CUT")
@@ -371,16 +371,27 @@ SUB ANIM_LB_render (dest AS LONG, src AS LONG)
                 CASE LB_CTL_TIME
                     t = ANIM_LB_time$(ANIM_LB_ticks_before&(ANIM.current)) + " / " + ANIM_LB_time$(ANIM_LB_ticks_before&(ANIM.count + 1))
                     FPANEL_text x + 2, ty, t, THEME.CP_text~&
-                CASE LB_CTL_FPS
-                    FPANEL_text x + 2, ty, _TRIM$(STR$(_MAX(1, ANIM.fps))) + " FPS", THEME.CP_text~&
+                CASE LB_CTL_FPS ' a spinner: - / + at its ends (Shift: 10), the wheel
+                    FPANEL_text x + 2, ty, "-", THEME.CP_text_bright~&
+                    FPANEL_text x + w - 2 - FPANEL_text_w%("+"), ty, "+", THEME.CP_text_bright~&
+                    t = _TRIM$(STR$(_MAX(1, ANIM.fps))) + " FPS"
+                    FPANEL_text x + (w - FPANEL_text_w%(t)) \ 2, ty, t, THEME.CP_text~&
                 CASE LB_CTL_SEEK
                     IF ANIM.count > 1 THEN frac = (ANIM.current - 1) / (ANIM.count - 1) ELSE frac = 0
                     FPANEL_track x, by + (rh - FPANEL.sliderH%) \ 2, w, frac, THEME.CP_button_bg~&, ANIM.count > 1
-                CASE LB_CTL_COUNT
+                CASE LB_CTL_COUNT ' click to type current / total
                     t = _TRIM$(STR$(ANIM.current)) + "/" + _TRIM$(STR$(ANIM.count))
+                    IF ANIM_LB.editing THEN t = _TRIM$(ANIM_LB_EDIT)
+                    IF ANIM_LB.confirmTo > 0 THEN t = "DEL?"
                     LINE (x, by)-(x + w - 1, by + rh - 1), THEME.CP_slider_bg~&, BF
-                    LINE (x, by)-(x + w - 1, by + rh - 1), THEME.CP_slider_border~&, B
+                    LINE (x, by)-(x + w - 1, by + rh - 1), _IIF(ANIM_LB.editing, THEME.ANIM_FRAME_current~&, THEME.CP_slider_border~&), B
+                    IF ANIM_LB.editing _ANDALSO ANIM_LB.editFresh _ANDALSO ANIM_LB.confirmTo = 0 THEN ' all of it selected: a key replaces it
+                        LINE (x + (w - FPANEL_text_w%(t)) \ 2 - 1, ty - 1)-(x + (w + FPANEL_text_w%(t)) \ 2, ty + FPANEL.fontH%), THEME.CP_button_bg~&, BF
+                    END IF
                     FPANEL_text x + (w - FPANEL_text_w%(t)) \ 2, ty, t, THEME.CP_text_bright~&
+                    IF ANIM_LB.editing _ANDALSO ANIM_LB.editFresh = 0 THEN
+                        LINE (x + (w + FPANEL_text_w%(t)) \ 2 + 1, ty)-STEP(0, FPANEL.fontH% - 1), THEME.CP_text_bright~&
+                    END IF
                 CASE LB_CTL_COPY: ANIMP_chip_at x, by, w, rh, "COPY", FALSE, FALSE
                 CASE LB_CTL_PASTE: ANIMP_chip_at x, by, w, rh, "PASTE", FALSE, FALSE
                 CASE LB_CTL_CUT: ANIMP_chip_at x, by, w, rh, "CUT", FALSE, FALSE
@@ -439,11 +450,19 @@ END FUNCTION
 ' tools (drawing in a pane: 2.2). A left press on a transport control runs it.
 SUB ANIM_LB_mouse ()
     DIM pressed1 AS INTEGER, pressed2 AS INTEGER, k AS INTEGER, f AS INTEGER
-    IF ANIM_LB_showing% = 0 THEN ANIM_LB.sPress = 0: ANIM_LB_sheet_press: EXIT SUB
+    IF ANIM_LB_showing% = 0 THEN
+        ANIM_LB.sPress = 0: ANIM_LB.seekHeld = FALSE: ANIM_LB.menuOpen = FALSE
+        IF ANIM_LB.editing THEN ANIM_LB_edit_end
+        ANIM_LB_sheet_press: EXIT SUB
+    END IF
     IF ANIM_LB.sPress THEN ANIM_LB_strip_hold: EXIT SUB ' a strip press until its release
+    IF ANIM_LB.seekHeld THEN ANIM_LB_seek_hold: EXIT SUB
+    IF ANIM_LB.menuOpen THEN IF ANIM_LB_menu_mouse% THEN EXIT SUB
     pressed1 = (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0)
     pressed2 = (MOUSE.B2% <> 0 _ANDALSO MOUSE.OLD_B2% = 0)
     IF pressed1 = 0 _ANDALSO pressed2 = 0 THEN EXIT SUB
+    ' a press anywhere but the count box ends typing in it
+    IF ANIM_LB.editing _ANDALSO ANIM_LB_ctl_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) <> LB_CTL_COUNT THEN ANIM_LB_edit_end
     IF ANIM_LB_hit%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = 0 THEN EXIT SUB
     IF REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%) <> REGION_CANVAS THEN EXIT SUB
     ' a press on a pane's picture goes to the tool, in that pane's view (2.2)
@@ -564,6 +583,200 @@ SUB ANIM_LB_changed ()
     SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
 END SUB
 
+' ---------------------------------------------------------------------------
+' The transport bar (2.4)
+' ---------------------------------------------------------------------------
+
+''
+' FPS (the spinner, the wheel over it): one undo step, as the panel's.
+SUB ANIM_LB_fps_set (fps AS INTEGER)
+    DIM v AS INTEGER
+    v = _MAX(1, _MIN(ANIM_FPS_MAX, fps))
+    IF v = ANIM.fps THEN EXIT SUB
+    ANIM_OPS_timing v, 0, 0, 0
+    STATUS_flash _TRIM$(STR$(ANIM.fps)) + " FPS"
+    ANIM_LB_changed
+END SUB
+
+''
+' The wheel over the FPS spinner: TRUE = it took the wheel.
+FUNCTION ANIM_LB_bar_wheel% (mx AS INTEGER, my AS INTEGER, delta AS INTEGER)
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 THEN EXIT FUNCTION
+    IF ANIM_LB_ctl_at%(mx, my) <> LB_CTL_FPS THEN EXIT FUNCTION
+    IF REGION_hit_test%(mx, my) <> REGION_CANVAS THEN EXIT FUNCTION
+    ANIM_LB_fps_set ANIM.fps - SGN(delta) ' wheel up = faster
+    ANIM_LB_bar_wheel% = TRUE
+END FUNCTION
+
+''
+' Scrubbing the seek bar: the frame under the pointer is current until the release.
+SUB ANIM_LB_seek_hold ()
+    DIM x AS INTEGER, w AS INTEGER, f AS INTEGER
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF MOUSE.B1% = 0 THEN ANIM_LB.seekHeld = FALSE: EXIT SUB
+    x = ANIM_LB_CX(LB_CTL_SEEK): w = ANIM_LB_CW(LB_CTL_SEEK)
+    IF w < 2 _ORELSE ANIM.count < 1 THEN EXIT SUB
+    f = 1 + INT((MOUSE.RAW_X% - x) * ANIM.count / w)
+    f = _MAX(1, _MIN(ANIM.count, f))
+    IF f <> ANIM.current THEN ANIM.current = f: ANIM_LB_changed
+END SUB
+
+''
+' The loop mode menu, under the LOOP chip.
+SUB ANIM_LB_menu_build ()
+    DIM i AS INTEGER
+    POPUP_MENU_clear_items
+    FOR i = 0 TO 3
+        POPUP_MENU_set_item i, _TRIM$(MID$("Forward   Backward  Ping-pong Play once ", i * 10 + 1, 10)), "", i, _IIF(i = ANIM.loopMode, POPUP_MENU_FLAG_CHECKED, 0)
+    NEXT i
+END SUB
+
+SUB ANIM_LB_menu_open ()
+    DIM font AS LONG, px AS INTEGER, py AS INTEGER, ph AS INTEGER
+    ANIM_LB_menu_build
+    IF MENU_BAR.fontHandle& > 0 THEN font = MENU_BAR.fontHandle&
+    ANIM_LB.menuW = POPUP_MENU_measure_width%(4, font)
+    POPUP_MENU_place ANIM_LB_CX(LB_CTL_LOOP), ANIM_LB.barY + ANIM_LB.barH, ANIM_LB.menuW, 4, LB_MENU_ITEM_H, px, py, ph
+    ANIM_LB.menuX = px: ANIM_LB.menuY = py
+    ANIM_LB.menuHover = -1
+    ANIM_LB.menuOpen = TRUE
+    ANIM_LB_changed
+END SUB
+
+''
+' While the menu is open: hover, and a press picks (or, outside it, closes it).
+' TRUE = the mouse was the menu's this frame.
+FUNCTION ANIM_LB_menu_mouse% ()
+    DIM hv AS INTEGER, v AS INTEGER, pressed AS INTEGER
+    ANIM_LB_menu_build
+    hv = POPUP_MENU_hover_row%(ANIM_LB.menuX, ANIM_LB.menuY, ANIM_LB.menuW, 4, LB_MENU_ITEM_H, MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    IF hv <> ANIM_LB.menuHover THEN ANIM_LB.menuHover = hv: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    pressed = (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0) _ORELSE (MOUSE.B2% <> 0 _ANDALSO MOUSE.OLD_B2% = 0)
+    IF pressed = 0 THEN EXIT FUNCTION
+    v = POPUP_MENU_hit_value%(ANIM_LB.menuX, ANIM_LB.menuY, ANIM_LB.menuW, 4, LB_MENU_ITEM_H, MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    ANIM_LB.menuOpen = FALSE
+    ANIM_LB_changed
+    IF v >= 0 _ANDALSO v <= 3 THEN
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        ANIM.loopMode = v
+        INVALIDATE_canvas ' as the panel's loop chips (saved in the drAn chunk)
+        STATUS_flash "Loop: " + _TRIM$(MID$("FORWARD  BACKWARD PING-PONGONCE     ", ANIM.loopMode * 9 + 1, 9))
+        ANIM_LB_menu_mouse% = TRUE
+    ELSEIF ANIM_LB_ctl_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = LB_CTL_LOOP THEN
+        MOUSE.UI_CHROME_CLICKED% = TRUE ' a second click on LOOP just closes it
+        ANIM_LB_menu_mouse% = TRUE
+    END IF
+END FUNCTION
+
+''
+' SCREEN_render, after SkipToPointer: the menu over everything (every frame).
+SUB ANIM_LB_menu_render ()
+    DIM font AS LONG, oldDest AS LONG
+    IF ANIM_LB.menuOpen = 0 THEN EXIT SUB
+    IF ANIM_LB_showing% = 0 THEN ANIM_LB.menuOpen = FALSE: EXIT SUB
+    ANIM_LB_menu_build
+    IF MENU_BAR.fontHandle& > 0 THEN font = MENU_BAR.fontHandle&
+    oldDest = _DEST
+    POPUP_MENU_render SCRN.CANVAS&, ANIM_LB.menuX, ANIM_LB.menuY, ANIM_LB.menuW, 4, LB_MENU_ITEM_H, ANIM_LB.menuHover, font
+    _DEST oldDest
+END SUB
+
+''
+' Typing current / total in the count box: digits and "/", Backspace, Enter
+' applies, Esc cancels. "5" = go to frame 5, "5/20" = 20 frames and go to 5,
+' "/20" = just the total. A smaller total that drops drawn frames asks first
+' (Enter = drop them, Esc = keep them; R-16) - undoable either way.
+SUB ANIM_LB_edit_begin ()
+    ANIM_LB.editing = TRUE: ANIM_LB.editFresh = TRUE: ANIM_LB.confirmTo = 0
+    ANIM_LB_EDIT = _TRIM$(STR$(ANIM.current)) + "/" + _TRIM$(STR$(ANIM.count))
+    ANIM_LB_changed
+END SUB
+
+SUB ANIM_LB_edit_end ()
+    ANIM_LB.editing = FALSE: ANIM_LB.confirmTo = 0: ANIM_LB_EDIT = ""
+    ANIM_LB_changed
+END SUB
+
+FUNCTION ANIM_LB_editing% ()
+    ANIM_LB_editing% = (ANIM_LB.editing <> 0 _ANDALSO ANIM_LB_showing% <> 0)
+END FUNCTION
+
+''
+' KEYBOARD_input_handler: while the count box is being typed in it takes
+' every key (TRUE), as the Color Mixer's hex box does.
+FUNCTION ANIM_LB_keys% ()
+    DIM kc AS STRING, k AS INTEGER, t AS STRING
+    IF ANIM_LB.editing = 0 THEN EXIT FUNCTION
+    IF ANIM_LB_showing% = 0 THEN ANIM_LB_edit_end: EXIT FUNCTION
+    ANIM_LB_keys% = TRUE
+    kc = INKEY$
+    IF kc = "" THEN kc = KEYHIT_CHAR$
+    DO WHILE LEN(kc) > 0 _ANDALSO ANIM_LB.editing
+        IF LEN(kc) = 1 THEN
+            k = ASC(kc)
+            t = _TRIM$(ANIM_LB_EDIT)
+            IF ANIM_LB.confirmTo > 0 THEN
+                IF k = 13 THEN ANIM_LB_edit_apply ANIM_LB.confirmTo, ANIM_LB.confirmCur, TRUE
+                IF k = 27 THEN STATUS_flash "Kept the frames": ANIM_LB_edit_end
+            ELSEIF k = 13 THEN
+                ANIM_LB_edit_commit t
+            ELSEIF k = 27 THEN
+                ANIM_LB_edit_end
+            ELSEIF k = 8 THEN
+                IF ANIM_LB.editFresh THEN t = "" ELSE IF LEN(t) > 0 THEN t = LEFT$(t, LEN(t) - 1)
+                ANIM_LB_EDIT = t: ANIM_LB.editFresh = FALSE
+            ELSEIF (k >= 48 _ANDALSO k <= 57) _ORELSE k = 47 THEN
+                IF ANIM_LB.editFresh THEN t = ""
+                IF LEN(t) < 11 THEN t = t + CHR$(k)
+                ANIM_LB_EDIT = t: ANIM_LB.editFresh = FALSE
+            END IF
+            ANIM_LB_changed
+        END IF
+        kc = INKEY$
+    LOOP
+END FUNCTION
+
+''
+' Enter in the count box.
+SUB ANIM_LB_edit_commit (t AS STRING)
+    DIM a AS INTEGER, b AS INTEGER, s AS INTEGER, drawn AS INTEGER
+    s = INSTR(t, "/")
+    IF s THEN
+        a = VAL(LEFT$(t, s - 1)): b = VAL(MID$(t, s + 1))
+    ELSE
+        a = VAL(t): b = 0
+    END IF
+    IF b > 0 _ANDALSO b < ANIM.count THEN
+        drawn = ANIM_OPS_drawn_in%(b + 1, ANIM.count)
+        IF drawn > 0 THEN
+            ANIM_LB.confirmTo = b: ANIM_LB.confirmCur = a
+            STATUS_flash "Drop" + STR$(drawn) + " drawn frame" + _IIF(drawn > 1, "s", "") + " past frame" + STR$(b) + "? Enter = drop, Esc = keep (undoable)"
+            ANIM_LB_changed
+            EXIT SUB
+        END IF
+    END IF
+    ANIM_LB_edit_apply b, a, FALSE
+END SUB
+
+''
+' Set the total to b (0 = keep it) and go to frame a (0 = stay).
+SUB ANIM_LB_edit_apply (bIn AS INTEGER, aIn AS INTEGER, confirmed AS INTEGER)
+    DIM why AS STRING, a AS INTEGER, b AS INTEGER
+    a = aIn: b = bIn ' copies: the caller may pass ANIM_LB.confirmTo, which edit_end clears (gotcha 13)
+    ANIM_LB_edit_end
+    IF b > 0 _ANDALSO b <> ANIM.count THEN
+        ANIM_COUNT_TO = b
+        why = ANIM_op_refusal$(ANIM_OP_SET_COUNT)
+        IF why <> "" THEN STATUS_flash why: EXIT SUB
+        ANIM_OPS_run ANIM_OP_SET_COUNT
+    END IF
+    IF a > 0 THEN
+        ANIM.current = _MAX(1, _MIN(ANIM.count, a))
+        IF b = 0 THEN STATUS_flash "Frame" + STR$(ANIM.current) + " of" + STR$(ANIM.count)
+    END IF
+    ANIM_LB_changed
+END SUB
+
 ''
 ' Run transport control c.
 SUB ANIM_LB_click (c AS INTEGER)
@@ -573,10 +786,20 @@ SUB ANIM_LB_click (c AS INTEGER)
         CASE LB_CTL_PLAY: CMD_execute_action ANIM_ACT_PLAY
         CASE LB_CTL_NEXT: CMD_execute_action ANIM_ACT_NEXT
         CASE LB_CTL_LAST: CMD_execute_action ANIM_ACT_LAST
-        CASE LB_CTL_LOOP
-            ANIM.loopMode = (ANIM.loopMode + 1) MOD 4
-            INVALIDATE_canvas ' as the panel's loop chips (saved in the drAn chunk)
-            STATUS_flash "Loop: " + _TRIM$(MID$("FORWARD  BACKWARD PING-PONGONCE     ", ANIM.loopMode * 9 + 1, 9))
+        CASE LB_CTL_LOOP: ANIM_LB_menu_open
+        CASE LB_CTL_SEEK
+            ANIM_LB.seekHeld = TRUE
+            ANIM_LB_seek_hold
+        CASE LB_CTL_FPS
+            DIM step1 AS INTEGER
+            step1 = _IIF(ANIM_LB_shift%, 10, 1)
+            IF MOUSE.RAW_X% < ANIM_LB_CX(c) + ANIM_LB_CW(c) \ 3 THEN
+                ANIM_LB_fps_set ANIM.fps - step1
+            ELSEIF MOUSE.RAW_X% >= ANIM_LB_CX(c) + ANIM_LB_CW(c) - ANIM_LB_CW(c) \ 3 THEN
+                ANIM_LB_fps_set ANIM.fps + step1
+            END IF
+        CASE LB_CTL_COUNT
+            IF ANIM_LB.editing = 0 THEN ANIM_LB_edit_begin
         CASE LB_CTL_COPY, LB_CTL_PASTE, LB_CTL_CUT
             STATUS_flash "Copy / paste frames: coming next"
         CASE LB_CTL_ADD: CMD_execute_action ANIM_ACT_APPEND
@@ -610,6 +833,10 @@ FUNCTION ANIM_LB_dump$ ()
     d = d + CHR$(10)
     ' ANIMLBS dragging dropSlot anchor nSelected, then the selected frames (<= 64)
     DIM n AS INTEGER
+    ' ANIMLBE editing confirmTo menuOpen menuHover seekHeld menuX menuY menuW text ("-" = empty)
+    DIM et AS STRING
+    et = _TRIM$(ANIM_LB_EDIT): IF et = "" THEN et = "-"
+    d = d + "ANIMLBE" + DOCK_n$(ANIM_LB.editing <> 0) + DOCK_n$(ANIM_LB.confirmTo) + DOCK_n$(ANIM_LB.menuOpen <> 0) + DOCK_n$(ANIM_LB.menuHover) + DOCK_n$(ANIM_LB.seekHeld <> 0) + DOCK_n$(ANIM_LB.menuX) + DOCK_n$(ANIM_LB.menuY) + DOCK_n$(ANIM_LB.menuW) + " " + et + CHR$(10)
     d = d + "ANIMLBS" + DOCK_n$(ANIM_LB.sDrag <> 0) + DOCK_n$(ANIM_LB.sDrop) + DOCK_n$(ANIM_SEL_ANCHOR) + DOCK_n$(ANIM_SEL_count%)
     FOR k = 1 TO ANIM.count
         IF ANIM_SEL(k) _ANDALSO n < 64 THEN d = d + DOCK_n$(k): n = n + 1

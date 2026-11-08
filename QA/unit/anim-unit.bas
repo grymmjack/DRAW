@@ -289,6 +289,15 @@ r = ANIM_plan%(ANIM_OP_INSERT_BEFORE, pc, pcur): ANIM_apply_plan pc, pcur
 check "an inserted frame is not selected; the old one moves on", sel$, "2"
 ANIM_reset: check "a new document: nothing selected", STR$(ANIM_SEL_count%), STR$(0)
 
+' --- the lightbox's total (2.4) ---
+r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 7: ANIM.wanted = 7: ANIM.current = 3
+ANIM_COUNT_TO = 9: check "total 9: two blank frames at the end", plan$(ANIM_OP_SET_COUNT), "9 3:1 2 3 4 5 6 7 0 0"
+ANIM_COUNT_TO = 5: check "total 5: the last two dropped", plan$(ANIM_OP_SET_COUNT), "5 3:1 2 3 4 5"
+ANIM.current = 6: ANIM_COUNT_TO = 4: check "total 4 from frame 6: current steps back", plan$(ANIM_OP_SET_COUNT), "4 4:1 2 3 4"
+ANIM_COUNT_TO = 7: check "the same total: no step", plan$(ANIM_OP_SET_COUNT), "refused"
+ANIM_COUNT_TO = 0: check "total 0: refused", plan$(ANIM_OP_SET_COUNT), "refused"
+ANIM_COUNT_TO = ANIM_MAX_FRAMES + 1: check "past the most frames: refused", plan$(ANIM_OP_SET_COUNT), "refused"
+
 PRINT PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
 
