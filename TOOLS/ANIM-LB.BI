@@ -103,6 +103,21 @@ TYPE ANIM_LB_OBJ
     overlay    AS INTEGER ' an overlay is being drawn through the pane view
     scratch    AS LONG    ' overlays draw here, then the pane's part is copied over
     realCanvas AS LONG
+    ' Zoom in the panes (field kit T-9): every pane shows its frame at vz
+    ' (0 = fitted), its top-left at (vrx, vry) from the pane's corner. A zoom
+    ' or pan the mouse handler makes in a pane's view is read back from SCRN
+    ' (ANIM_LB_view_absorb), so the wheel, the Zoom tool, middle / Space
+    ' drag and Shift+wheel all work as on the sheet.
+    vz         AS SINGLE
+    vrx        AS SINGLE
+    vry        AS SINGLE
+    vFW        AS INTEGER ' the frame size vz was set for (another size = fitted)
+    vFH        AS INTEGER
+    pickOn     AS INTEGER ' a pane view is in SCRN: pickZ / OX / OY as set, for pane pickK
+    pickZ      AS SINGLE
+    pickOX     AS INTEGER
+    pickOY     AS INTEGER
+    pickK      AS INTEGER
 
     ' Strokes clipped to a frame (R-06): the layer as it was at the press;
     ' everything outside the cell is put back after each mouse frame and

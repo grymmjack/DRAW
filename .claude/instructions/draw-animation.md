@@ -204,7 +204,27 @@ The **Animate** built-in workspace (L.2, `ASSETS/WORKSPACES/animate.workspace`) 
   `dx = (SCRN.w - zw) \ 2 + offsetX + panelShiftX`) and tile mode off. So every tool maps,
   paints, previews and commits in that cell with no tool code changed. The pane is the stroke's
   pane, else the one under the pointer, else the middle one (`vPane`). Pop puts the real view
-  back - a wheel zoom or a pan made in the lightbox is dropped.
+  back; a zoom or pan the handler made in the pane view is kept as the lightbox's own first
+  (below).
+- **Zoom (field kit T-9):** every pane shows its frame at `ANIM_LB.vz` (0 = fitted,
+  `ANIM_LB_pane_fit!`), its corner at `vrx / vry` from the pane's; a picture bigger than its pane
+  is built in a pane-sized scratch (`ANIM_LB_draw_zoomed`, `ANIM_box_begin& / _end`,
+  `ANIM_put_view` - only the source pixels that land are put) so it stops at the pane's edge, and
+  `ANIM_LB_vis` gives the part that shows (hit test, overlays, outline, label). Input is not
+  special-cased: `ANIM_LB_view_pick` records the view it set (`pickZ / OX / OY / K`) and
+  `ANIM_LB_view_absorb` (next pick, and pop) turns any change into `vz / vrx / vry`
+  (`ANIM_clamp_pan`: inside the pane while it fits, no gap once bigger; at or below the fit =
+  fitted). So Ctrl+wheel (`ANIM_LB_pane_wheel%`, next to the strip wheel), the Zoom tool,
+  middle / Space drag and Shift+wheel all work. View > Zoom In / Out / Reset (406 / 407 / 405,
+  Ctrl+= / - / 0) go to `ANIM_LB_zoom_cmd%` while it shows (about the middle pane; 405 = fit).
+  The **plain wheel** over the panes steps frames (down = later, stops at the ends; Rick
+  2026-11-08). A frame size change resets to fitted. Dump `ANIMLBZ zoom% rx ry`; `ANIMLBP` gives
+  the whole picture rect (may exceed the pane). **The wheel anchor** (`WHEEL_zoom_at_cursor`,
+  `ZOOM_adjust_offset`) now counts `SCRN.panelShiftX / Y` as the mouse mapping does - before, the
+  pixel under the pointer drifted by the shift on every step, in sheet view too.
+  The Preview's frame view has its own zoom (`ANIM_VIEW.pvZ / pvRX / pvRY`,
+  `ANIM_VIEW_preview_fit! / _zoom%` from `PREVIEW_mouse_scroll`; dump `ANIMPV`). QA:
+  `anim-lightbox-zoom.sh`.
 - **Overlays:** `ANIM_LB_overlay_begin%` sets the same view for `vPane`, swaps `SCRN.CANVAS&`
   for a scratch image (pane picture cleared), and `_end` copies only the picture rect back, so
   an overlay never spills out of its pane. Wrapped: the import / crop / transform / fill-adj /

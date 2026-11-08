@@ -134,6 +134,7 @@ FUNCTION ANIM_VIEW_dump$ ()
     d = "ANIM" + DOCK_n$(ANIM.active <> 0) + DOCK_n$(ANIM.count) + DOCK_n$(ANIM.current) + DOCK_n$(ANIM.frameW) + DOCK_n$(ANIM.frameH)
     d = d + DOCK_n$(ANIM.gutter) + DOCK_n$(ANIM.margin) + DOCK_n$(ANIM_cols%) + DOCK_n$(ANIM_rows%) + DOCK_n$(ANIM.fps) + DOCK_n$(ANIM.loopMode)
     d = d + DOCK_n$(ANIM_VIEW.drawn <> 0) + DOCK_n$(ANIM_VIEW.dx) + DOCK_n$(ANIM_VIEW.dy) + DOCK_n$(SCRN.canvasW&) + DOCK_n$(SCRN.canvasH&) + DOCK_n$(ANIM_PLAY.playing <> 0) + DOCK_n$(ANIM_VIEW_preview_frame% <> 0) + CHR$(10)
+    d = d + "ANIMPV" + DOCK_n$(CINT(ANIM_VIEW.pvZ * 100)) + DOCK_n$(CINT(ANIM_VIEW.pvRX)) + DOCK_n$(CINT(ANIM_VIEW.pvRY)) + CHR$(10) ' the Preview frame view's zoom% (0 = fit)
     d = d + ANIM_VIEW_menu_dump$
     ANIM_VIEW_dump$ = d
 END FUNCTION
@@ -353,15 +354,158 @@ END SUB
 ' centred.
 SUB ANIM_VIEW_preview_blit (src AS LONG, dest AS LONG, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
     DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, aw AS LONG, ah AS LONG, s AS SINGLE, dw AS LONG, dh AS LONG
-    DIM dx AS LONG, dy AS LONG
+    DIM dx AS LONG, dy AS LONG, sc AS LONG
     IF ANIM_cell_rect%(ANIM.current, cx, cy, cw, ch) = 0 THEN EXIT SUB
     aw = x2 - x1 + 1: ah = y2 - y1 + 1
     IF aw < 1 _ORELSE ah < 1 THEN EXIT SUB
-    s = _MIN(aw / cw, ah / ch)
+    ANIM_VIEW.pvX1 = x1: ANIM_VIEW.pvY1 = y1: ANIM_VIEW.pvX2 = x2: ANIM_VIEW.pvY2 = y2
+    s = ANIM_VIEW_preview_fit!(aw, ah, dx, dy, dw, dh)
+    IF s <= 0 THEN EXIT SUB
+    IF dx >= 0 _ANDALSO dy >= 0 _ANDALSO dx + dw <= aw _ANDALSO dy + dh <= ah THEN
+        _PUTIMAGE (x1 + dx, y1 + dy)-(x1 + dx + dw - 1, y1 + dy + dh - 1), src, dest, (cx, cy)-(cx + cw - 1, cy + ch - 1)
+    ELSE ' zoomed past the box: built in a box-sized scratch so it stops at the box's edge
+        sc = ANIM_box_begin&(aw, ah)
+        IF sc < -1 THEN
+            _DONTBLEND sc ' exact pixels into the scratch, blended once onto the Preview
+            ANIM_put_view sc, src, cx, cy, cw, ch, dx, dy, dw, dh
+            _BLEND sc
+            ANIM_box_end dest, x1, y1, TRUE
+        END IF
+    END IF
+END SUB
+
+''
+' The Preview frame view's picture in a content box aw x ah: (dx, dy) its
+' top-left relative to the box, dw x dh its size; returns the zoom. Fit =
+' a whole-number zoom when it fits, centred.
+FUNCTION ANIM_VIEW_preview_fit! (aw AS LONG, ah AS LONG, dx AS LONG, dy AS LONG, dw AS LONG, dh AS LONG)
+    DIM fw AS LONG, fh AS LONG, s AS SINGLE
+    fw = _MAX(1, ANIM.frameW): fh = _MAX(1, ANIM.frameH)
+    IF ANIM.frameW <> ANIM_VIEW.pvFW _ORELSE ANIM.frameH <> ANIM_VIEW.pvFH THEN ANIM_VIEW.pvZ = 0
+    s = _MIN(aw / fw, ah / fh)
     IF s >= 1 THEN s = INT(s)
-    dw = _MAX(1, INT(cw * s)): dh = _MAX(1, INT(ch * s))
-    dx = x1 + (aw - dw) \ 2: dy = y1 + (ah - dh) \ 2
-    _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), src, dest, (cx, cy)-(cx + cw - 1, cy + ch - 1)
+    IF ANIM_VIEW.pvZ > s THEN
+        s = ANIM_VIEW.pvZ
+        dw = fw * s: dh = fh * s
+        dx = CLNG(ANIM_VIEW.pvRX): dy = CLNG(ANIM_VIEW.pvRY)
+    ELSE
+        dw = _MAX(1, INT(fw * s)): dh = _MAX(1, INT(fh * s))
+        dx = (aw - dw) \ 2: dy = (ah - dh) \ 2
+    END IF
+    ANIM_VIEW_preview_fit! = s
+END FUNCTION
+
+''
+' The wheel over the Preview while it shows the frame: zoom in / out by
+' whole steps about the pointer (mx, my, viewport px of the Preview image);
+' back to the fit when it would go below it. TRUE = handled.
+FUNCTION ANIM_VIEW_preview_zoom% (delta AS INTEGER, mxIn AS INTEGER, myIn AS INTEGER)
+    DIM aw AS LONG, ah AS LONG, dx AS LONG, dy AS LONG, dw AS LONG, dh AS LONG
+    DIM z AS SINGLE, nz AS SINGLE, fz AS SINGLE, px AS SINGLE, py AS SINGLE, fw AS LONG, fh AS LONG
+    DIM rx AS SINGLE, ry AS SINGLE, mx AS LONG, my AS LONG
+    aw = ANIM_VIEW.pvX2 - ANIM_VIEW.pvX1 + 1: ah = ANIM_VIEW.pvY2 - ANIM_VIEW.pvY1 + 1
+    IF aw < 2 _ORELSE ah < 2 THEN EXIT FUNCTION
+    ANIM_VIEW_preview_zoom% = TRUE
+    fw = _MAX(1, ANIM.frameW): fh = _MAX(1, ANIM.frameH)
+    z = ANIM_VIEW_preview_fit!(aw, ah, dx, dy, dw, dh)
+    fz = _MIN(aw / fw, ah / fh): IF fz >= 1 THEN fz = INT(fz)
+    IF delta < 0 THEN nz = ANIM_zoom_step!(z, 1) ELSE nz = ANIM_zoom_step!(z, -1)
+    IF nz * _MAX(fw, fh) > 16000 THEN EXIT FUNCTION
+    IF nz <= fz + .0001 THEN
+        ANIM_VIEW.pvZ = 0
+    ELSE
+        mx = mxIn - ANIM_VIEW.pvX1: my = myIn - ANIM_VIEW.pvY1 ' copies: the arguments are BYREF
+        IF mx < 0 _ORELSE my < 0 _ORELSE mx >= aw _ORELSE my >= ah THEN mx = aw \ 2: my = ah \ 2
+        px = (mx - dx) / z: py = (my - dy) / z ' the frame point under the pointer stays there
+        rx = mx - px * nz: ry = my - py * nz
+        ANIM_clamp_pan rx, aw, fw * nz
+        ANIM_clamp_pan ry, ah, fh * nz
+        ANIM_VIEW.pvZ = nz: ANIM_VIEW.pvRX = rx: ANIM_VIEW.pvRY = ry
+        ANIM_VIEW.pvFW = ANIM.frameW: ANIM_VIEW.pvFH = ANIM.frameH
+    END IF
+    STATUS_flash "Preview frame:" + STR$(CINT(_IIF(ANIM_VIEW.pvZ > 0, ANIM_VIEW.pvZ, fz) * 100)) + "%" + _IIF(ANIM_VIEW.pvZ > 0, "", " (fit)")
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+''
+' The next zoom level up (dir 1) or down (-1) from z: whole numbers from
+' 100%, halves below (as the canvas wheel: 25%, 50%, 100%, 200% ...).
+FUNCTION ANIM_zoom_step! (z AS SINGLE, dir AS INTEGER)
+    DIM r AS SINGLE
+    IF dir > 0 THEN
+        IF z < 1 THEN r = 1 ELSE r = INT(z + .0001) + 1
+        IF z < .5 THEN r = .5
+        IF z < .25 THEN r = .25
+    ELSE
+        IF z > 1 + .0001 THEN r = _CEIL(z - .0001) - 1 ELSE r = z / 2
+    END IF
+    ANIM_zoom_step! = r
+END FUNCTION
+
+''
+' Keep a zoomed picture over its box: one dw px long in a box w px long stays
+' inside it when it fits (where the zoom put it: the pointer's pixel stays
+' under the pointer), else it may not leave a gap at either end.
+SUB ANIM_clamp_pan (r AS SINGLE, w AS LONG, dw AS LONG)
+    IF dw <= w THEN
+        IF r < 0 THEN r = 0
+        IF r > w - dw THEN r = w - dw
+    ELSE
+        IF r > 0 THEN r = 0
+        IF r < w - dw THEN r = w - dw
+    END IF
+END SUB
+
+''
+' A box-sized scratch image, cleared to transparent, to build a zoomed
+' picture in so it stops at the box's edge (ANIM_put_view into it, then
+' ANIM_box_end). 0 when it can't be made.
+FUNCTION ANIM_box_begin& (w AS LONG, h AS LONG)
+    DIM oldDest AS LONG
+    IF w < 1 _ORELSE h < 1 THEN EXIT FUNCTION
+    IF ANIM_VIEW.boxImg < -1 THEN
+        IF _WIDTH(ANIM_VIEW.boxImg) <> w _ORELSE _HEIGHT(ANIM_VIEW.boxImg) <> h THEN _FREEIMAGE ANIM_VIEW.boxImg: ANIM_VIEW.boxImg = 0
+    END IF
+    IF ANIM_VIEW.boxImg >= -1 THEN ANIM_VIEW.boxImg = _NEWIMAGE(w, h, 32)
+    IF ANIM_VIEW.boxImg >= -1 THEN ANIM_VIEW.boxImg = 0: EXIT FUNCTION
+    oldDest = _DEST
+    _DEST ANIM_VIEW.boxImg
+    _DONTBLEND ANIM_VIEW.boxImg
+    CLS , _RGBA32(0, 0, 0, 0)
+    _BLEND ANIM_VIEW.boxImg
+    _DEST oldDest
+    ANIM_box_begin& = ANIM_VIEW.boxImg
+END FUNCTION
+
+''
+' The scratch of ANIM_box_begin& onto dest at (x, y); blend = over what is
+' there (else copied as is).
+SUB ANIM_box_end (dest AS LONG, x AS LONG, y AS LONG, blend AS INTEGER)
+    IF ANIM_VIEW.boxImg >= -1 _ORELSE dest >= -1 THEN EXIT SUB
+    IF blend THEN _BLEND dest ELSE _DONTBLEND dest
+    _PUTIMAGE (x, y), ANIM_VIEW.boxImg, dest
+    _BLEND dest
+END SUB
+
+''
+' Cell (ix, iy, iw, ih) of img drawn as the picture (dx, dy, dw, dh) on dst,
+' which may be far bigger than dst: only the source pixels that land on dst
+' are put (a frame zoomed 32x costs what dst shows, not the whole picture).
+SUB ANIM_put_view (dst AS LONG, img AS LONG, ix AS LONG, iy AS LONG, iw AS LONG, ih AS LONG, dx AS LONG, dy AS LONG, dw AS LONG, dh AS LONG)
+    DIM zx AS SINGLE, zy AS SINGLE, vx1 AS LONG, vy1 AS LONG, vx2 AS LONG, vy2 AS LONG
+    DIM sx1 AS LONG, sy1 AS LONG, sx2 AS LONG, sy2 AS LONG
+    IF dst >= -1 _ORELSE img >= -1 _ORELSE iw < 1 _ORELSE ih < 1 _ORELSE dw < 1 _ORELSE dh < 1 THEN EXIT SUB
+    zx = dw / iw: zy = dh / ih
+    vx1 = _MAX(0, dx): vy1 = _MAX(0, dy)
+    vx2 = _MIN(_WIDTH(dst) - 1, dx + dw - 1): vy2 = _MIN(_HEIGHT(dst) - 1, dy + dh - 1)
+    IF vx1 > vx2 _ORELSE vy1 > vy2 THEN EXIT SUB
+    sx1 = INT((vx1 - dx) / zx): sx2 = INT((vx2 - dx) / zx)
+    sy1 = INT((vy1 - dy) / zy): sy2 = INT((vy2 - dy) / zy)
+    IF sx2 > iw - 1 THEN sx2 = iw - 1
+    IF sy2 > ih - 1 THEN sy2 = ih - 1
+    IF sx1 < 0 THEN sx1 = 0
+    IF sy1 < 0 THEN sy1 = 0
+    _PUTIMAGE (dx + INT(sx1 * zx + .0001), dy + INT(sy1 * zy + .0001))-(dx + INT((sx2 + 1) * zx + .0001) - 1, dy + INT((sy2 + 1) * zy + .0001) - 1), img, dst, (ix + sx1, iy + sy1)-(ix + sx2, iy + sy2)
 END SUB
 
 

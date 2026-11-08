@@ -259,6 +259,131 @@ FUNCTION ANIM_LB_fit! (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, d
 END FUNCTION
 
 ''
+' An editor pane's picture: fitted as ANIM_LB_fit!, or at the lightbox zoom
+' (ANIM_LB.vz) when that is bigger - then it may be larger than the pane and
+' is cut off at the pane's edge (ANIM_LB_vis).
+FUNCTION ANIM_LB_pane_fit! (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
+    DIM z AS SINGLE, rx AS SINGLE, ry AS SINGLE
+    IF ANIM.frameW <> ANIM_LB.vFW _ORELSE ANIM.frameH <> ANIM_LB.vFH THEN ANIM_LB.vz = 0
+    z = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    IF ANIM_LB.vz > z THEN
+        z = ANIM_LB.vz
+        dw = _MAX(1, ANIM.frameW) * z: dh = _MAX(1, ANIM.frameH) * z
+        rx = ANIM_LB.vrx: ry = ANIM_LB.vry
+        ANIM_clamp_pan rx, w, dw ' the pane may have been resized since
+        ANIM_clamp_pan ry, h, dh
+        dx = x + CINT(rx): dy = y + CINT(ry)
+    END IF
+    ANIM_LB_pane_fit! = z
+END FUNCTION
+
+''
+' The part of picture (dx, dy, dw, dh) inside pane box (x, y, w, h).
+SUB ANIM_LB_vis (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER, vx AS INTEGER, vy AS INTEGER, vw AS INTEGER, vh AS INTEGER)
+    DIM ax AS LONG, ay AS LONG, ax2 AS LONG, ay2 AS LONG ' copies: callers pass the picture as the result too (BYREF)
+    ax = _MAX(x, dx): ay = _MAX(y, dy)
+    ax2 = _MIN(x + w, CLNG(dx) + dw): ay2 = _MIN(y + h, CLNG(dy) + dh)
+    vx = ax: vy = ay: vw = _MAX(0, ax2 - ax): vh = _MAX(0, ay2 - ay)
+END SUB
+
+''
+' The mouse handler changed the pane view it was given (a wheel zoom, the
+' Zoom tool, a pan): make it the lightbox zoom / pan. Below the fit = fitted.
+SUB ANIM_LB_view_absorb ()
+    DIM f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, zw AS LONG, zh AS LONG
+    DIM z AS SINGLE, fz AS SINGLE, rx AS SINGLE, ry AS SINGLE, fw AS LONG, fh AS LONG
+    IF ANIM_LB.pickOn = 0 THEN EXIT SUB
+    ANIM_LB.pickOn = FALSE
+    IF SCRN.zoom! = ANIM_LB.pickZ _ANDALSO SCRN.offsetX% = ANIM_LB.pickOX _ANDALSO SCRN.offsetY% = ANIM_LB.pickOY THEN EXIT SUB
+    f = ANIM_LB_pane_rect%(ANIM_LB.pickK, x, y, w, h)
+    IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 THEN EXIT SUB
+    fw = _MAX(1, ANIM.frameW): fh = _MAX(1, ANIM.frameH)
+    z = SCRN.zoom!
+    IF z * _MAX(fw, fh) > 16000 THEN z = INT(16000 / _MAX(fw, fh))
+    fz = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    IF z <= fz + .0001 THEN
+        ANIM_LB.vz = 0
+    ELSE
+        ' where the view puts the cell's corner (the inverse of ANIM_LB_pane_view%)
+        zw = SCRN.canvasW& * z: zh = SCRN.canvasH& * z
+        rx = (SCRN.w& - zw) \ 2 + SCRN.offsetX% + SCRN.panelShiftX% + CLNG(cx * z) - x
+        ry = (SCRN.h& - zh) \ 2 + SCRN.offsetY% + SCRN.panelShiftY% + CLNG(cy * z) - y
+        ANIM_clamp_pan rx, w, fw * z
+        ANIM_clamp_pan ry, h, fh * z
+        ANIM_LB.vz = z: ANIM_LB.vrx = rx: ANIM_LB.vry = ry
+        ANIM_LB.vFW = ANIM.frameW: ANIM_LB.vFH = ANIM.frameH
+    END IF
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' The wheel over the editor panes (field kit, Rick 2026-11-08): plain = step
+' through the frames (down = later, stops at the ends); Ctrl = zoom the panes
+' about the pointer (the mouse handler's pane view is in SCRN; the zoom is read
+' back by ANIM_LB_view_absorb). Shift is left to pan. TRUE = used.
+FUNCTION ANIM_LB_pane_wheel% (mx AS INTEGER, my AS INTEGER, delta AS INTEGER)
+    DIM r AS INTEGER, f AS INTEGER
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 _ORELSE delta = 0 THEN EXIT FUNCTION
+    IF mx < ANIM_LB.x1 _ORELSE mx > ANIM_LB.x2 _ORELSE my < ANIM_LB.edY _ORELSE my > ANIM_LB.edY + ANIM_LB.edH - 1 THEN EXIT FUNCTION
+    IF REGION_hit_test%(mx, my) <> REGION_CANVAS THEN EXIT FUNCTION
+    IF MODIFIERS.shift% _ORELSE MODIFIERS.alt% THEN EXIT FUNCTION
+    ANIM_LB_pane_wheel% = TRUE
+    IF MODIFIERS.ctrl% THEN
+        IF ANIM_LB.pushed THEN WHEEL_zoom_at_cursor (delta < 0)
+        EXIT FUNCTION
+    END IF
+    IF ANIM_PLAY.playing THEN EXIT FUNCTION
+    f = ANIM.current + SGN(delta)
+    IF f < 1 _ORELSE f > ANIM.count THEN EXIT FUNCTION
+    r = ANIM_go%(f)
+    STATUS_flash "Frame" + STR$(ANIM.current) + " of" + STR$(ANIM.count)
+    IF r THEN SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+''
+' View > Zoom In / Zoom Out / Reset Zoom (406 / 407 / 405) while the lightbox
+' shows: they zoom the panes (about the middle pane's centre). TRUE = done.
+FUNCTION ANIM_LB_zoom_cmd% (act AS INTEGER)
+    DIM k AS INTEGER, z AS SINGLE, ox AS INTEGER, oy AS INTEGER
+    DIM rz AS SINGLE, rox AS INTEGER, roy AS INTEGER
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, f AS INTEGER
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 _ORELSE ANIM_LB.pushed THEN EXIT FUNCTION
+    ANIM_LB_zoom_cmd% = TRUE
+    IF act = 405 THEN
+        ANIM_LB.vz = 0
+        SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        EXIT FUNCTION
+    END IF
+    k = ANIM_LB.panes \ 2
+    IF ANIM_LB_pane_view%(k, z, ox, oy) = 0 THEN EXIT FUNCTION
+    rz = SCRN.zoom!: rox = SCRN.offsetX%: roy = SCRN.offsetY%
+    SCRN.zoom! = z: SCRN.offsetX% = ox: SCRN.offsetY% = oy
+    ANIM_LB.pickOn = TRUE: ANIM_LB.pickZ = z: ANIM_LB.pickOX = ox: ANIM_LB.pickOY = oy: ANIM_LB.pickK = k
+    f = ANIM_LB_pane_rect%(k, x, y, w, h)
+    IF act = 406 THEN ZOOM_in_at x + w \ 2, y + h \ 2 ELSE ZOOM_out_at x + w \ 2, y + h \ 2
+    ANIM_LB_view_absorb
+    SCRN.zoom! = rz: SCRN.offsetX% = rox: SCRN.offsetY% = roy
+END FUNCTION
+
+''
+' A zoomed pane (bigger than its box): the checks, the picture and, for the
+' current frame, the onion skin, built in a pane-sized scratch so they stop
+' at the pane's edge.
+SUB ANIM_LB_draw_zoomed (dest AS LONG, src AS LONG, f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, chh AS LONG, sc AS LONG
+    IF ANIM_cell_rect%(f, cx, cy, cw, chh) = 0 THEN EXIT SUB
+    sc = ANIM_box_begin&(w, h)
+    IF sc >= -1 THEN EXIT SUB
+    TRANSPARENCY_ensure_blueprint
+    IF TRANSPARENCY.blueprint& < -1 THEN ANIM_put_view sc, TRANSPARENCY.blueprint&, cx, cy, cw, chh, dx - x, dy - y, dw, dh
+    IF src < -1 THEN ANIM_put_view sc, src, cx, cy, cw, chh, dx - x, dy - y, dw, dh
+    IF f = ANIM.current THEN ANIM_LB_onion sc, src, f, dx - x, dy - y, dw, dh
+    ANIM_box_end dest, x, y, TRUE
+END SUB
+
+''
 ' Frame f of composite src into box (x, y, w, h) of dest: the transparency
 ' checks (the canvas's own, scaled with the art, as in sheet view) and the
 ' picture. Returns the picture rect.
@@ -411,9 +536,15 @@ SUB ANIM_LB_render (dest AS LONG, src AS LONG)
         f = ANIM_LB_pane_rect%(k, x, y, w, h)
         en = (f >= 1 _ANDALSO f <= ANIM.count)
         IF en THEN
-            ANIM_LB_draw_frame dest, src, f, x, y, w, h, dx, dy, dw, dh
+            frac = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
+            IF dx < x _ORELSE dy < y _ORELSE dx + dw > x + w _ORELSE dy + dh > y + h THEN ' zoomed past the pane
+                ANIM_LB_draw_zoomed dest, src, f, x, y, w, h, dx, dy, dw, dh
+                ANIM_LB_vis x, y, w, h, dx, dy, dw, dh, dx, dy, dw, dh ' outline / label go round what shows
+            ELSE
+                ANIM_LB_draw_frame dest, src, f, x, y, w, h, dx, dy, dw, dh
+                IF f = ANIM.current THEN ANIM_LB_onion dest, src, f, dx, dy, dw, dh ' 2.6: the frames before / after it
+            END IF
             IF f = ANIM.current THEN
-                ANIM_LB_onion dest, src, f, dx, dy, dw, dh ' 2.6: the frames before / after it
                 LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_current~&, B
                 LINE (dx - 2, dy - 2)-(dx + dw + 1, dy + dh + 1), THEME.ANIM_FRAME_current~&, B
                 fg = THEME.CP_text_bright~&
@@ -844,10 +975,12 @@ FUNCTION ANIM_LB_dump$ ()
     d = d + "ANIMLBP" + DOCK_n$(CFG.CLIP_FRAME_LIGHTBOX% <> 0) + DOCK_n$(CFG.CLIP_FRAME_SHEET% <> 0)
     FOR k = 0 TO ANIM_LB.panes - 1
         f = ANIM_LB_pane_rect%(k, x, y, w, h)
-        s = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+        s = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
         d = d + DOCK_n$(f) + DOCK_n$(dx) + DOCK_n$(dy) + DOCK_n$(dw) + DOCK_n$(dh)
     NEXT k
     d = d + CHR$(10)
+    ' ANIMLBZ zoom% (0 = fitted) rx ry: the panes' zoom and the picture's corner from the pane's
+    d = d + "ANIMLBZ" + DOCK_n$(CINT(ANIM_LB.vz * 100)) + DOCK_n$(CINT(ANIM_LB.vrx)) + DOCK_n$(CINT(ANIM_LB.vry)) + CHR$(10)
     ' ANIMLBS dragging dropSlot anchor nSelected, then the selected frames (<= 64)
     DIM n AS INTEGER
     ' ANIMLBE editing confirmTo menuOpen menuHover seekHeld menuX menuY menuW text ("-" = empty)
@@ -880,7 +1013,8 @@ FUNCTION ANIM_LB_pane_at% (mx AS INTEGER, my AS INTEGER)
     FOR k = 0 TO ANIM_LB.panes - 1
         f = ANIM_LB_pane_rect%(k, x, y, w, h)
         IF f >= 1 _ANDALSO f <= ANIM.count THEN
-            s = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+            s = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
+            ANIM_LB_vis x, y, w, h, dx, dy, dw, dh, dx, dy, dw, dh
             IF mx >= dx _ANDALSO mx < dx + dw _ANDALSO my >= dy _ANDALSO my < dy + dh THEN ANIM_LB_pane_at% = k: EXIT FUNCTION
         END IF
     NEXT k
@@ -896,7 +1030,7 @@ FUNCTION ANIM_LB_pane_view% (k AS INTEGER, z AS SINGLE, ox AS INTEGER, oy AS INT
     IF k < 0 _ORELSE k >= ANIM_LB.panes THEN EXIT FUNCTION
     f = ANIM_LB_pane_rect%(k, x, y, w, h)
     IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 THEN EXIT FUNCTION
-    z = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    z = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
     IF z <= 0 THEN EXIT FUNCTION
     ' the mouse mapping: dx = (SCRN.w - zw) \ 2 + offsetX + panelShiftX
     zw = SCRN.canvasW& * z: zh = SCRN.canvasH& * z
@@ -923,12 +1057,14 @@ END SUB
 SUB ANIM_LB_view_pick (rawX AS INTEGER, rawY AS INTEGER)
     DIM k AS INTEGER, z AS SINGLE, ox AS INTEGER, oy AS INTEGER
     IF ANIM_LB.pushed = 0 _ORELSE ANIM_LB.overlay THEN EXIT SUB
+    ANIM_LB_view_absorb ' a zoom / pan made since the last pick
     k = ANIM_LB.strokePane
     IF k < 0 THEN k = ANIM_LB_pane_at%(rawX, rawY)
     IF k < 0 THEN k = ANIM_LB.panes \ 2
     IF ANIM_LB_pane_view%(k, z, ox, oy) = 0 THEN EXIT SUB
     SCRN.zoom! = z: SCRN.offsetX% = ox: SCRN.offsetY% = oy
     ANIM_LB.vPane = k
+    ANIM_LB.pickOn = TRUE: ANIM_LB.pickZ = z: ANIM_LB.pickOX = ox: ANIM_LB.pickOY = oy: ANIM_LB.pickK = k
 END SUB
 
 ''
@@ -937,6 +1073,7 @@ END SUB
 ' ends its clip.
 SUB ANIM_LB_view_pop ()
     IF ANIM_LB.pushed THEN
+        ANIM_LB_view_absorb
         SCRN.zoom! = ANIM_LB.realZoom: SCRN.offsetX% = ANIM_LB.realOX: SCRN.offsetY% = ANIM_LB.realOY
         SCRN.patternTileMode% = ANIM_LB.realTile
         ANIM_LB.pushed = FALSE
@@ -1051,7 +1188,9 @@ FUNCTION ANIM_LB_overlay_begin% ()
     END IF
     IF ANIM_LB.scratch >= -1 THEN ANIM_LB.scratch = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     f = ANIM_LB_pane_rect%(ANIM_LB.vPane, x, y, w, h)
-    z = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    z = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
+    ANIM_LB_vis x, y, w, h, dx, dy, dw, dh, dx, dy, dw, dh
+    IF dw < 1 _ORELSE dh < 1 THEN EXIT FUNCTION
     oldDest = _DEST
     _DEST ANIM_LB.scratch
     _DONTBLEND ANIM_LB.scratch
@@ -1079,7 +1218,9 @@ SUB ANIM_LB_overlay_end ()
     SCRN.patternTileMode% = ANIM_LB.realTile
     ANIM_LB.overlay = FALSE
     f = ANIM_LB_pane_rect%(ANIM_LB.vPane, x, y, w, h)
-    z = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    z = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
+    ANIM_LB_vis x, y, w, h, dx, dy, dw, dh, dx, dy, dw, dh
+    IF dw < 1 _ORELSE dh < 1 THEN _DEST SCRN.CANVAS&: EXIT SUB
     _BLEND SCRN.CANVAS&
     _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), ANIM_LB.scratch, SCRN.CANVAS&, (dx, dy)-(dx + dw - 1, dy + dh - 1)
     _DEST SCRN.CANVAS&
@@ -1199,7 +1340,7 @@ SUB ANIM_LB_onion (dest AS LONG, src AS LONG, f AS INTEGER, dx AS INTEGER, dy AS
                             po = po + 4
                         NEXT i
                     NEXT j
-                    IF cnt > 0 THEN _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), ANIM_LB.onionImg, dest
+                    IF cnt > 0 THEN ANIM_put_view dest, ANIM_LB.onionImg, 0, 0, cw, ch, dx, dy, dw, dh
                     IF side < 0 THEN ANIM_LB.onionPrev = ANIM_LB.onionPrev + cnt ELSE ANIM_LB.onionNext = ANIM_LB.onionNext + cnt
                 END IF
             END IF

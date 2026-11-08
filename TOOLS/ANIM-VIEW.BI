@@ -18,6 +18,19 @@ TYPE ANIM_VIEW_OBJ
     drawn     AS INTEGER ' the grid was drawn last render (QA dump)
     dx        AS LONG    ' viewport px of canvas (0,0) on that render
     dy        AS LONG
+    ' The Preview window's frame view: its own zoom (0 = fit) and the frame's
+    ' top-left relative to the content box when zoomed (field kit: it never
+    ' zoomed). The box is the last one drawn, for the wheel.
+    pvZ       AS SINGLE
+    pvRX      AS SINGLE
+    pvRY      AS SINGLE
+    pvFW      AS INTEGER ' the frame size pvZ was set for (another size = fit)
+    pvFH      AS INTEGER
+    pvX1      AS INTEGER
+    pvY1      AS INTEGER
+    pvX2      AS INTEGER
+    pvY2      AS INTEGER
+    boxImg    AS LONG    ' scratch: a zoomed picture is built here, clipped to its box
 END TYPE
 DIM SHARED ANIM_VIEW AS ANIM_VIEW_OBJ
 
