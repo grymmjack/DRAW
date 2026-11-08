@@ -206,6 +206,10 @@ The **Animate** built-in workspace (L.2, `ASSETS/WORKSPACES/animate.workspace`) 
   pane, else the one under the pointer, else the middle one (`vPane`). Pop puts the real view
   back; a zoom or pan the handler made in the pane view is kept as the lightbox's own first
   (below).
+- **Shift crosshair (field kit T-23):** `RENDER_crosshair_and_command_palette` draws it only
+  when the pointer is over pane `ANIM_LB.vPane` (REGION_CANVAS), between
+  `ANIM_LB_overlay_begin%` / `_end` - the pane's view, clipped to the pane; never over the strip
+  or bar. Test: `anim-lightbox-crosshair.sh`.
 - **Zoom (field kit T-9):** every pane shows its frame at `ANIM_LB.vz` (0 = fitted,
   `ANIM_LB_pane_fit!`), its corner at `vrx / vry` from the pane's; a picture bigger than its pane
   is built in a pane-sized scratch (`ANIM_LB_draw_zoomed`, `ANIM_box_begin& / _end`,
