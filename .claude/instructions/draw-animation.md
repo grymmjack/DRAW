@@ -49,6 +49,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2523-2526 | Copy / Cut / Paste Frames as New / Paste Frames Over (`ANIM_OPS_clip_action`, 2.5) |
 | 2527 | Onion skin on / off (`CFG.ONION_SKIN`, Num /; lightbox only) |
 | 2528 | Onion skin red / blue tint (`CFG.ONION_TINT`) |
+| 2529 | Replace FG color with BG in the selected frames (`ANIM_OPS_swap_fg_bg`; sheet view too) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
 Grep before adding one (CLAUDE.md gotcha 17).
@@ -258,6 +259,33 @@ Settings are DRAW.cfg (`ONION_*`), not undo steps: ANIM menu (2527 / 2528), Num 
 per real render (not cursor-only frames): fine for pixel-art cells; a 512x512 frame with 5 + 5
 neighbours would be the case to cache. QA dump `ANIMLBO on before after opacity tint prevPx
 nextPx`; `ANIMPL` gained `yOnion onY1..3` at the end (read it with a trailing `_`).
+
+## Apply to the selected frames (2.7)
+
+In the lightbox, commands act on the strip's selected frames (`ANIM_SEL_is%`: the current frame
+when none is), each one undo step. A user marquee selection keeps the commands' own behaviour.
+
+- **Effects** (`ANIM_FM_wants%`: 2001-2011, 2101-2289, 2350-2352, Remap to Palette 1516): the top
+  of `CMD_execute_action` runs the command nested between `ANIM_FM_begin` (a copy of every pixel
+  layer in `ANIM_FM_IMG()`) and `ANIM_FM_end`; `ANIM_FM_mask` puts back everything outside the
+  selected cells. It also runs from `HISTORY_store_after_image` (`ANIM_FM_finish`, next to 2.2's
+  `ANIM_LB_clip_finish`), so the effect's own undo record stores the masked after-image - redo is
+  masked too. The effect still samples across cell edges (a blur pulls in the neighbour frame).
+- **Flip / rotate** (`ANIM_OPS_frames_geom%`: 315 / 316 / 319 / 320 on the current or selected
+  layers, Image > Flip Canvas 1803 / 1804 on every layer) are done per cell
+  (`ANIM_OPS_cell_geom`), since a whole-layer flip would move frames into each other's cells.
+  Rotate needs square frames. Undo = `ANIM_OPS_record` sheet snapshots. Symbol children keep
+  their own flip.
+- **Move tool** in a pane (`ANIM_LB_move_begin%` / `_hold` / `_apply`): the press is swallowed
+  like a chrome click; the drag shifts each selected cell of the current layer from a press copy
+  (what leaves a cell is cut off); released = one `ANIM_OPS_record`. Pressing V lifts the whole
+  layer at once (`MOVE_capture_selection`) - an untouched lift is dropped with `MOVE_reset`
+  first, which records nothing.
+- **Palette swap**: ANIM > Replace FG Color with BG in Frames (2529) - exact RGBA matches on the
+  current / selected layers, sheet view or lightbox.
+
+QA: `anim-lightbox-apply.sh` - its fixture's frames 2 / 3 / 4 are frame 1 moved / turned /
+mirrored, so a correct per-cell op on frame 1 produces another frame's exact CRC.
 
 ## The frame selection (`TOOLS/ANIM`, 2.3)
 

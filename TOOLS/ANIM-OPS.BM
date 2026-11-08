@@ -703,3 +703,229 @@ SUB ANIM_OPS_paste_frames (over AS INTEGER)
     STATUS_flash _IIF(over, "Pasted over", "Pasted") + STR$(n) + " frame" + _IIF(n > 1, "s", "") + " at frame" + STR$(start) + _IIF(fw <> ANIM.frameW _ORELSE fh <> ANIM.frameH, " (another frame size: top left, cropped)", "")
     SOUND_play SND_NEW_LAYER
 END SUB
+
+' ---------------------------------------------------------------------------
+' Apply to the selected frames (2.7)
+' ---------------------------------------------------------------------------
+
+''
+' Does command act run masked to the selected frames? Only in the lightbox,
+' and not with a marquee selection (the command's own clip then).
+FUNCTION ANIM_FM_wants% (act AS INTEGER)
+    IF ANIM_FM_ON _ORELSE ANIM.active = FALSE _ORELSE ANIM_LB_showing% = 0 THEN EXIT FUNCTION
+    IF MARQUEE.ACTIVE _ANDALSO MARQUEE.USER_CREATED THEN EXIT FUNCTION
+    SELECT CASE act
+        CASE 2001 TO 2011, 2101 TO 2289, 2350 TO 2352, 1516: ANIM_FM_wants% = TRUE
+    END SELECT
+END FUNCTION
+
+''
+' Copy every pixel layer before the command.
+SUB ANIM_FM_begin ()
+    DIM i AS INTEGER
+    FOR i = 1 TO MAX_LAYERS
+        ANIM_FM_IMG(i) = 0
+        IF ANIM_OPS_moves%(i) THEN ANIM_FM_IMG(i) = _COPYIMAGE(LAYERS(i).imgHandle&, 32)
+    NEXT i
+    ANIM_FM_ON = TRUE
+END SUB
+
+''
+' Layer i: everything outside the selected frames back from the copy.
+SUB ANIM_FM_mask (i AS INTEGER)
+    DIM img AS LONG, keep AS LONG, f AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG, ax AS LONG, ay AS LONG
+    IF ANIM_FM_ON = 0 _ORELSE i < 1 _ORELSE i > MAX_LAYERS THEN EXIT SUB
+    img = LAYERS(i).imgHandle&
+    IF ANIM_FM_IMG(i) >= -1 _ORELSE img >= -1 THEN EXIT SUB
+    IF _WIDTH(img) <> _WIDTH(ANIM_FM_IMG(i)) _ORELSE _HEIGHT(img) <> _HEIGHT(ANIM_FM_IMG(i)) THEN EXIT SUB ' the buffer changed shape
+    IF HISTORY_image_differs%(ANIM_FM_IMG(i), img) = 0 THEN EXIT SUB
+    keep = _COPYIMAGE(img, 32)
+    IF keep >= -1 THEN EXIT SUB
+    ax = LAYERS(i).apronW%: ay = LAYERS(i).apronH%
+    _DONTBLEND img
+    _PUTIMAGE (0, 0), ANIM_FM_IMG(i), img
+    FOR f = 1 TO ANIM.count
+        IF ANIM_SEL_is%(f) _ANDALSO ANIM_cell_rect%(f, x, y, w, h) THEN
+            _PUTIMAGE (x + ax, y + ay), keep, img, (x + ax, y + ay)-(x + ax + w - 1, y + ay + h - 1)
+        END IF
+    NEXT f
+    _BLEND img
+    _FREEIMAGE keep
+    LAYERS(i).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(i).apronCacheImg&: LAYERS(i).apronCacheImg& = 0
+    LAYERS(i).apronCacheValid% = FALSE
+END SUB
+
+''
+' HISTORY_store_after_image: the undo step holds the masked result.
+SUB ANIM_FM_finish (layerSlot AS INTEGER)
+    IF ANIM_FM_ON THEN ANIM_FM_mask layerSlot
+END SUB
+
+SUB ANIM_FM_end ()
+    DIM i AS INTEGER, n AS INTEGER, f AS INTEGER
+    FOR i = 1 TO MAX_LAYERS
+        IF ANIM_FM_IMG(i) < -1 THEN
+            ANIM_FM_mask i
+            _FREEIMAGE ANIM_FM_IMG(i)
+        END IF
+        ANIM_FM_IMG(i) = 0
+    NEXT i
+    ANIM_FM_ON = FALSE
+    FOR f = 1 TO ANIM.count: IF ANIM_SEL_is%(f) THEN n = n + 1
+    NEXT f
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    IF n > 1 THEN STATUS_flash "Applied to the" + STR$(n) + " selected frames"
+END SUB
+
+''
+' Flip / rotate (315 316 319 320 on the current or selected layers; Image >
+' Flip Canvas 1803 1804 on every layer) per frame cell in the lightbox. TRUE =
+' done (or refused): the command does not run as usual.
+FUNCTION ANIM_OPS_frames_geom% (act AS INTEGER)
+    DIM targets(1 TO MAX_LAYERS) AS INTEGER, nt AS INTEGER, k AS INTEGER, i AS INTEGER, f AS INTEGER, nf AS INTEGER
+    DIM before AS STRING, after AS STRING, label AS STRING, why AS STRING
+    SELECT CASE act
+        CASE 315, 316, 319, 320, 1803, 1804
+        CASE ELSE: EXIT FUNCTION
+    END SELECT
+    IF ANIM.active = FALSE _ORELSE ANIM_LB_showing% = 0 THEN EXIT FUNCTION
+    IF MARQUEE.ACTIVE _ANDALSO MARQUEE.USER_CREATED THEN EXIT FUNCTION ' flips the selection, as ever
+    IF act = 315 _ORELSE act = 316 THEN
+        IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN
+            IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN EXIT FUNCTION ' its own flip
+        END IF
+    END IF
+    ANIM_OPS_frames_geom% = TRUE
+    why = ANIM_OPS_busy$
+    IF why <> "" THEN STATUS_flash why: EXIT FUNCTION
+    IF (act = 319 _ORELSE act = 320) _ANDALSO ANIM.frameW <> ANIM.frameH THEN STATUS_flash "Rotating frames needs square frames (these are" + STR$(ANIM.frameW) + " x" + STR$(ANIM.frameH) + ")": EXIT FUNCTION
+    IF act = 1803 _ORELSE act = 1804 THEN
+        FOR i = 1 TO MAX_LAYERS: IF ANIM_OPS_moves%(i) THEN nt = nt + 1: targets(nt) = i
+        NEXT i
+    ELSE
+        IMAGE_ADJ_collect_targets targets(), nt
+        k = 0
+        FOR i = 1 TO nt: IF ANIM_OPS_moves%(targets(i)) THEN k = k + 1: targets(k) = targets(i)
+        NEXT i
+        nt = k
+    END IF
+    IF nt = 0 THEN STATUS_flash "No pixel layer to change": EXIT FUNCTION
+    ANIM_play_stop
+    before = ANIM_OPS_snapshot$(TRUE)
+    FOR f = 1 TO ANIM.count
+        IF ANIM_SEL_is%(f) THEN
+            nf = nf + 1
+            FOR i = 1 TO nt: ANIM_OPS_cell_geom targets(i), f, act: NEXT i
+        END IF
+    NEXT f
+    after = ANIM_OPS_snapshot$(TRUE)
+    SELECT CASE act
+        CASE 315, 1803: label = "Flip Frames Horizontal"
+        CASE 316, 1804: label = "Flip Frames Vertical"
+        CASE 319: label = "Rotate Frames 90 CW"
+        CASE 320: label = "Rotate Frames 90 CCW"
+    END SELECT
+    IF nf = 1 THEN label = LEFT$(label, INSTR(label, "Frames") - 1) + "Frame" + MID$(label, INSTR(label, "Frames") + 6)
+    IF before <> after THEN ANIM_OPS_record before, after, label, 0
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    STATUS_flash label + ":" + STR$(nf) + " frame" + _IIF(nf > 1, "s", "")
+END FUNCTION
+
+''
+' Flip / rotate frame f's cell on layer slot L in place.
+SUB ANIM_OPS_cell_geom (L AS INTEGER, f AS INTEGER, act AS INTEGER)
+    DIM img AS LONG, tmp AS LONG, rot AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG, bx AS LONG, by AS LONG
+    DIM ms AS _MEM, md AS _MEM, i AS LONG, j AS LONG, c AS _UNSIGNED LONG
+    img = LAYERS(L).imgHandle&
+    IF img >= -1 _ORELSE ANIM_cell_rect%(f, x, y, w, h) = 0 THEN EXIT SUB
+    bx = x + LAYERS(L).apronW%: by = y + LAYERS(L).apronH%
+    tmp = _NEWIMAGE(w, h, 32)
+    IF tmp >= -1 THEN EXIT SUB
+    _DONTBLEND tmp
+    _PUTIMAGE (0, 0), img, tmp, (bx, by)-(bx + w - 1, by + h - 1)
+    _DONTBLEND img
+    SELECT CASE act
+        CASE 315, 1803: _PUTIMAGE (bx + w - 1, by)-(bx, by + h - 1), tmp, img
+        CASE 316, 1804: _PUTIMAGE (bx, by + h - 1)-(bx + w - 1, by), tmp, img
+        CASE 319, 320 ' square cells: (i, j) -> CW (w-1-j, i), CCW (j, w-1-i)
+            rot = _NEWIMAGE(w, h, 32)
+            IF rot < -1 THEN
+                ms = _MEMIMAGE(tmp): md = _MEMIMAGE(rot)
+                FOR j = 0 TO h - 1
+                    FOR i = 0 TO w - 1
+                        c = _MEMGET(ms, ms.OFFSET + (j * w + i) * 4, _UNSIGNED LONG)
+                        IF act = 319 THEN
+                            _MEMPUT md, md.OFFSET + (i * w + (w - 1 - j)) * 4, c
+                        ELSE
+                            _MEMPUT md, md.OFFSET + ((w - 1 - i) * w + j) * 4, c
+                        END IF
+                    NEXT i
+                NEXT j
+                _MEMFREE ms: _MEMFREE md
+                _DONTBLEND rot
+                _PUTIMAGE (bx, by), rot, img
+                _FREEIMAGE rot
+            END IF
+    END SELECT
+    _BLEND img
+    _FREEIMAGE tmp
+    LAYERS(L).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(L).apronCacheImg&: LAYERS(L).apronCacheImg& = 0
+    LAYERS(L).apronCacheValid% = FALSE
+    SYMBOL_mark_parent_dirty L
+END SUB
+
+''
+' ANIM > Replace FG Color with BG in Frames (2529): every pixel of the FG
+' colour in the selected frames (the current one when none is; sheet view or
+' lightbox) on the current / selected layers becomes the BG colour. One undo step.
+SUB ANIM_OPS_swap_fg_bg ()
+    DIM targets(1 TO MAX_LAYERS) AS INTEGER, nt AS INTEGER, t AS INTEGER, L AS INTEGER, f AS INTEGER, nf AS INTEGER
+    DIM before AS STRING, after AS STRING, why AS STRING, fg AS _UNSIGNED LONG, bg AS _UNSIGNED LONG
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, bx AS LONG, by AS LONG, i AS LONG, j AS LONG, bw AS LONG
+    DIM m AS _MEM, p AS _OFFSET, cnt AS LONG
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "Replace FG with BG works on frames - set a frame size first": EXIT SUB
+    why = ANIM_OPS_busy$
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    fg = _IIF(PAL_FG_IS_TRANSPARENT, 0, PAINT_COLOR~&)
+    bg = _IIF(PAL_BG_IS_TRANSPARENT, 0, PAINT_BG_COLOR~&)
+    IF fg = bg THEN STATUS_flash "FG and BG are the same colour": EXIT SUB
+    IMAGE_ADJ_collect_targets targets(), nt
+    ANIM_play_stop
+    before = ANIM_OPS_snapshot$(TRUE)
+    FOR t = 1 TO nt
+        L = targets(t)
+        IF ANIM_OPS_moves%(L) THEN
+            m = _MEMIMAGE(LAYERS(L).imgHandle&)
+            bw = _WIDTH(LAYERS(L).imgHandle&)
+            FOR f = 1 TO ANIM.count
+                IF ANIM_SEL_is%(f) _ANDALSO ANIM_cell_rect%(f, x, y, w, h) THEN
+                    bx = x + LAYERS(L).apronW%: by = y + LAYERS(L).apronH%
+                    FOR j = 0 TO h - 1
+                        p = m.OFFSET + ((by + j) * bw + bx) * 4
+                        FOR i = 0 TO w - 1
+                            IF _MEMGET(m, p, _UNSIGNED LONG) = fg THEN _MEMPUT m, p, bg: cnt = cnt + 1
+                            p = p + 4
+                        NEXT i
+                    NEXT j
+                END IF
+            NEXT f
+            _MEMFREE m
+            LAYERS(L).contentDirty% = TRUE
+            SAFE_FREEIMAGE LAYERS(L).apronCacheImg&: LAYERS(L).apronCacheImg& = 0
+            LAYERS(L).apronCacheValid% = FALSE
+            SYMBOL_mark_parent_dirty L
+        END IF
+    NEXT t
+    FOR f = 1 TO ANIM.count: IF ANIM_SEL_is%(f) THEN nf = nf + 1
+    NEXT f
+    IF cnt = 0 THEN STATUS_flash "No pixels of the FG colour in the" + _IIF(nf > 1, STR$(nf) + " selected frames", " current frame"): EXIT SUB
+    after = ANIM_OPS_snapshot$(TRUE)
+    ANIM_OPS_record before, after, "Replace FG with BG in Frames", 0
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    STATUS_flash "Replaced" + STR$(cnt) + " pixels in" + STR$(nf) + " frame" + _IIF(nf > 1, "s", "")
+END SUB

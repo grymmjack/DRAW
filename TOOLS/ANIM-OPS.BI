@@ -46,5 +46,17 @@ DIM SHARED ANIM_CLIP_IMG AS LONG        ' the last copy's image (0 none)
 DIM SHARED ANIM_CLIP_META AS STRING     ' and its text line
 DIM SHARED ANIM_OPS_STEP_NAME AS STRING     ' ANIM_OPS_run: the undo step's name instead of the op's ("" = the op's)
 
+' Apply to the selected frames (2.7): in the lightbox, the effects (IMAGE /
+' EFFECTS, Remap to Palette) run as usual and then everything outside the
+' selected frames (the current one when none is) is put back from a copy taken
+' before - in HISTORY_store_after_image too, so the undo step holds the masked
+' result (ANIM_FM_*). Flip / rotate are done per frame cell instead
+' (ANIM_OPS_frames_geom%): a whole-layer flip would move the frames. Replace
+' FG with BG (2529) works in sheet view too. A marquee selection keeps the
+' commands' own behaviour.
+CONST ANIM_ACT_SWAP_FG_BG = 2529 ' ANIM > Replace FG Color with BG in Frames
+DIM SHARED ANIM_FM_ON AS INTEGER
+DIM SHARED ANIM_FM_IMG(1 TO MAX_LAYERS) AS LONG ' each pixel layer before the command (0 = none)
+
 DIM SHARED ANIM_OPS_LAST_KEY AS LONG    ' the panel press whose undo step is on top (ANIM_OPS_record)
 DIM SHARED ANIM_OPS_LAST_REC AS INTEGER ' and that step's record

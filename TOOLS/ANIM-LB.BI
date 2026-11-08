@@ -40,6 +40,7 @@ CONST ANIM_ACT_CLIP_SHEET = 2522 ' ANIM > Clip Strokes to the Frame in Sheet Vie
 CONST ANIM_ACT_ONION      = 2527 ' ANIM > Onion Skin (Num /)
 CONST ANIM_ACT_ONION_TINT = 2528 ' ANIM > Onion Skin Red / Blue Tint
 CONST ANIM_ONION_MAX      = 5
+DIM SHARED ANIM_LB_MV_BEFORE AS STRING ' ANIM_OPS_snapshot$ at a Move-tool press in a pane (2.7)
 
 ' Transport bar controls, left to right (ANIM_LB_CX / ANIM_LB_CW: x and width, 0 = hidden)
 CONST LB_CTL_NONE  = 0
@@ -138,6 +139,15 @@ TYPE ANIM_LB_OBJ
     onionImg   AS LONG    ' scratch, one frame cell (ANIM_LB_onion)
     onionPrev  AS LONG    ' pixels it showed from the frames before / after (QA dump)
     onionNext  AS LONG
+    ' the Move tool in a pane (2.7): drags the drawing of every selected frame
+    mvOn       AS INTEGER
+    mvLayer    AS INTEGER
+    mvImg      AS LONG    ' the layer at the press
+    mvPX       AS INTEGER ' the press (viewport px)
+    mvPY       AS INTEGER
+    mvScale    AS SINGLE  ' pane px per canvas px
+    mvDX       AS INTEGER ' the offset now (canvas px)
+    mvDY       AS INTEGER
 END TYPE
 DIM SHARED ANIM_LB AS ANIM_LB_OBJ
 DIM SHARED ANIM_LB_EDIT AS STRING ' the count box's text while typing (2.4)

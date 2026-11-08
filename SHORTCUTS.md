@@ -553,7 +553,7 @@ Main-row digits keep setting opacity; `Alt+Home` / `Alt+End` no longer flip.
 **ANIM menu:** Animation Panel · First / Previous / Next / Last Frame · Play · Add Frame ·
 Add Blank Frame · Insert Frame Before / After · Duplicate Frame · Delete Frame · Move Frame
 Earlier / Later · Reverse Frames · Copy Frames · Cut Frames · Paste Frames as New · Paste
-Frames Over · Frame Grid · Preview Shows Frame · Lightbox · Lightbox
+Frames Over · Replace FG Color with BG in Frames · Frame Grid · Preview Shows Frame · Lightbox · Lightbox
 Panes 3 / 5 / 7 · Onion Skin · Onion Skin Red / Blue Tint · Clip Strokes to the Frame in the Lightbox · Clip Strokes to the Frame in
 Sheet View. (Also View → Frame Grid
 and View → Animation Panel; every item is in the command palette.)
@@ -614,6 +614,12 @@ before it (red) and after it (blue) faintly over its picture, so you can draw th
 Only what differs from the current frame shows - a solid background stays clear. Set how many
 frames each side (BEFORE / AFTER, 0-5) and how strong (OPACITY) in the Animation panel; ANIM →
 Onion Skin Red / Blue Tint shows them in their own colours instead. Hidden while playing.
+
+**Apply to the selected frames** (in the lightbox): with frames selected in the strip (or just
+the current one), Flip (`Home` / `End`), Rotate (`>` / `<`, square frames), the IMAGE / EFFECTS
+adjustments and Remap to Palette change only those frames, each frame flipped / turned in its own
+cell. The Move tool dragged in a pane moves the drawing of every selected frame. ANIM → Replace
+FG Color with BG in Frames swaps a colour in them (sheet view too). Each is one undo step.
 
 ---
 

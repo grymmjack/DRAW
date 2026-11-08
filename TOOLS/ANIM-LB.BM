@@ -452,11 +452,13 @@ END FUNCTION
 SUB ANIM_LB_mouse ()
     DIM pressed1 AS INTEGER, pressed2 AS INTEGER, k AS INTEGER, f AS INTEGER
     IF ANIM_LB_showing% = 0 THEN
+        IF ANIM_LB.mvOn THEN ANIM_LB_move_end
         ANIM_LB.sPress = 0: ANIM_LB.seekHeld = FALSE: ANIM_LB.menuOpen = FALSE
         IF ANIM_LB.editing THEN ANIM_LB_edit_end
         ANIM_LB_sheet_press: EXIT SUB
     END IF
     IF ANIM_LB.sPress THEN ANIM_LB_strip_hold: EXIT SUB ' a strip press until its release
+    IF ANIM_LB.mvOn THEN ANIM_LB_move_hold: EXIT SUB ' moving the selected frames' drawings
     IF ANIM_LB.seekHeld THEN ANIM_LB_seek_hold: EXIT SUB
     IF ANIM_LB.menuOpen THEN IF ANIM_LB_menu_mouse% THEN EXIT SUB
     pressed1 = (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0)
@@ -469,6 +471,7 @@ SUB ANIM_LB_mouse ()
     ' a press on a pane's picture goes to the tool, in that pane's view (2.2)
     k = ANIM_LB_pane_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
     IF k >= 0 _ANDALSO MOUSE.UI_CHROME_CLICKED% = 0 _ANDALSO ANIM_PLAY.playing = 0 THEN
+        IF pressed1 _ANDALSO ANIM_LB_move_begin%(k) THEN MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB ' the tool sees none of it (gotcha 5)
         ANIM_LB.strokePane = k
         IF CFG.CLIP_FRAME_LIGHTBOX% THEN ANIM_LB_clip_begin ANIM.current + k - ANIM_LB.panes \ 2
         EXIT SUB
@@ -1192,4 +1195,97 @@ SUB ANIM_LB_onion (dest AS LONG, src AS LONG, f AS INTEGER, dx AS INTEGER, dy AS
         NEXT d
     NEXT side
     _MEMFREE ms: _MEMFREE mo
+END SUB
+
+' ---------------------------------------------------------------------------
+' The Move tool in a pane (2.7): the drawings of the selected frames move
+' together inside their cells (the current layer; what leaves a cell is cut
+' off). A marquee selection keeps the Move tool's own behaviour.
+' ---------------------------------------------------------------------------
+
+FUNCTION ANIM_LB_move_begin% (k AS INTEGER)
+    DIM L AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER
+    IF CURRENT_TOOL% <> TOOL_MOVE _ORELSE TRANSFORM.ACTIVE THEN EXIT FUNCTION
+    IF MARQUEE.ACTIVE _ANDALSO MARQUEE.USER_CREATED THEN EXIT FUNCTION
+    L = CURRENT_LAYER%
+    IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT FUNCTION
+    IF ANIM_OPS_moves%(L) = 0 THEN EXIT FUNCTION
+    ' V lifts the whole layer at once (MOVE_capture_selection): an untouched
+    ' lift of it is dropped (MOVE_reset records nothing for it) - frames move here
+    IF MOVE.ACTIVE _ANDALSO MOVE.IS_PASTE = 0 _ANDALSO MOVE.GROUP_ORIGIN = 0 _ANDALSO MOVE.CLONING = 0 _ANDALSO MOVE.CLONE_STAMPED = 0 _ANDALSO MOVE.CONTENT_FLIPPED = 0 THEN
+        IF MOVE.CURRENT_X = MOVE.ORIGINAL_X _ANDALSO MOVE.CURRENT_Y = MOVE.ORIGINAL_Y _ANDALSO MOVE.CURRENT_W = MOVE.ORIGINAL_W _ANDALSO MOVE.CURRENT_H = MOVE.ORIGINAL_H THEN MOVE_reset
+    END IF
+    IF ANIM_OPS_busy$ <> "" THEN STATUS_flash ANIM_OPS_busy$: ANIM_LB_move_begin% = TRUE: EXIT FUNCTION
+    IF ANIM_LB_pane_rect%(k, x, y, w, h) < 1 THEN EXIT FUNCTION
+    ANIM_LB.mvScale = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    IF ANIM_LB.mvScale <= 0 THEN EXIT FUNCTION
+    ANIM_LB.mvImg = _COPYIMAGE(LAYERS(L).imgHandle&, 32)
+    IF ANIM_LB.mvImg >= -1 THEN ANIM_LB.mvImg = 0: EXIT FUNCTION
+    ANIM_LB_MV_BEFORE = ANIM_OPS_snapshot$(TRUE)
+    ANIM_LB.mvLayer = L
+    ANIM_LB.mvPX = MOUSE.RAW_X%: ANIM_LB.mvPY = MOUSE.RAW_Y%
+    ANIM_LB.mvDX = 0: ANIM_LB.mvDY = 0
+    ANIM_LB.mvOn = TRUE
+    ANIM_LB_move_begin% = TRUE
+END FUNCTION
+
+SUB ANIM_LB_move_hold ()
+    DIM ox AS INTEGER, oy AS INTEGER, after AS STRING, n AS INTEGER, f AS INTEGER
+    ox = INT((MOUSE.RAW_X% - ANIM_LB.mvPX) / ANIM_LB.mvScale + .5)
+    oy = INT((MOUSE.RAW_Y% - ANIM_LB.mvPY) / ANIM_LB.mvScale + .5)
+    IF ox <> ANIM_LB.mvDX _ORELSE oy <> ANIM_LB.mvDY THEN
+        ANIM_LB.mvDX = ox: ANIM_LB.mvDY = oy
+        ANIM_LB_move_apply
+    END IF
+    IF MOUSE.B1% THEN EXIT SUB
+    ' released: one undo step
+    IF ANIM_LB.mvDX <> 0 _ORELSE ANIM_LB.mvDY <> 0 THEN
+        after = ANIM_OPS_snapshot$(TRUE)
+        FOR f = 1 TO ANIM.count: IF ANIM_SEL_is%(f) THEN n = n + 1
+        NEXT f
+        ANIM_OPS_record ANIM_LB_MV_BEFORE, after, _IIF(n > 1, "Move Frame Drawings", "Move Frame Drawing"), 0
+        STATUS_flash "Moved the drawing" + _IIF(n > 1, "s of" + STR$(n) + " frames", "") + " by" + STR$(ANIM_LB.mvDX) + "," + STR$(ANIM_LB.mvDY)
+    END IF
+    ANIM_LB_move_end
+END SUB
+
+''
+' The layer = its press copy with each selected frame's cell shifted by (mvDX, mvDY).
+SUB ANIM_LB_move_apply ()
+    DIM L AS INTEGER, img AS LONG, f AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG, bx AS LONG, by AS LONG
+    DIM sx1 AS LONG, sy1 AS LONG, sx2 AS LONG, sy2 AS LONG, oldDest AS LONG
+    L = ANIM_LB.mvLayer
+    img = LAYERS(L).imgHandle&
+    IF img >= -1 _ORELSE ANIM_LB.mvImg >= -1 THEN EXIT SUB
+    IF _WIDTH(img) <> _WIDTH(ANIM_LB.mvImg) _ORELSE _HEIGHT(img) <> _HEIGHT(ANIM_LB.mvImg) THEN EXIT SUB
+    oldDest = _DEST
+    _DEST img
+    _DONTBLEND img
+    FOR f = 1 TO ANIM.count
+        IF ANIM_SEL_is%(f) _ANDALSO ANIM_cell_rect%(f, x, y, w, h) THEN
+            bx = x + LAYERS(L).apronW%: by = y + LAYERS(L).apronH%
+            LINE (bx, by)-(bx + w - 1, by + h - 1), _RGBA32(0, 0, 0, 0), BF
+            ' the part of the cell that lands inside it
+            sx1 = _MAX(0, -ANIM_LB.mvDX): sy1 = _MAX(0, -ANIM_LB.mvDY)
+            sx2 = _MIN(w - 1, w - 1 - ANIM_LB.mvDX): sy2 = _MIN(h - 1, h - 1 - ANIM_LB.mvDY)
+            IF sx2 >= sx1 _ANDALSO sy2 >= sy1 THEN
+                _PUTIMAGE (bx + sx1 + ANIM_LB.mvDX, by + sy1 + ANIM_LB.mvDY), ANIM_LB.mvImg, img, (bx + sx1, by + sy1)-(bx + sx2, by + sy2)
+            END IF
+        END IF
+    NEXT f
+    _BLEND img
+    _DEST oldDest
+    LAYERS(L).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(L).apronCacheImg&: LAYERS(L).apronCacheImg& = 0
+    LAYERS(L).apronCacheValid% = FALSE
+    SYMBOL_mark_parent_dirty L
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+SUB ANIM_LB_move_end ()
+    IF ANIM_LB.mvImg < -1 THEN _FREEIMAGE ANIM_LB.mvImg
+    ANIM_LB.mvImg = 0: ANIM_LB.mvOn = FALSE
+    ANIM_LB_MV_BEFORE = ""
 END SUB
