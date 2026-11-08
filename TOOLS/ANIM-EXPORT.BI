@@ -32,6 +32,9 @@
 ' sheet, 1x; name-sheet.png when name.png is the open document) - the frames
 ' cut out at their rects (DATA in the .bas), the PNG looked for in the current
 ' folder, then beside the program.
+' L.1: with a soundtrack, both copy it beside the .bas as name-sound.EXT
+' (ANIM_BAS_sound$) and the player plays it in step with the frames
+' (snd_follow; --frames also writes sound.txt).
 '
 ' Uses the GIF writer in OUTPUT/FILE-GIF (LZW, sub-blocks, GCE, the cycle
 ' timeline GIF_cycle_ticks& / GIF_display_map).
@@ -54,6 +57,7 @@ CONST ANIM_GIF_MAX_FRAMES = 2000
 
 DIM SHARED ANIM_EXPORT_TAG AS INTEGER  ' the tag an export covers (4.4; 0 = all the frames)
 DIM SHARED ANIM_EXPORT_INFO AS STRING ' summary of the last export ("6 frames, 1.2 s loop, 5 colours")
+DIM SHARED ANIM_BAS_SND_NOTE AS STRING ' L.1: what became of the soundtrack in the last BAS export ("" = none)
 
 ' exact colour table of an export: RGB -> index (hashed on the low 16 bits)
 DIM SHARED ANIM_GH_HEAD(0 TO 65535) AS INTEGER

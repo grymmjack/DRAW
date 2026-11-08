@@ -66,6 +66,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2545 / 2546 | Frame Note... / Clear Frame Note (`ANIM_NT_action`, `TOOLS/ANIM-OPS`, 4.5) |
 | 2547 | Detect Frames (`ANIM_DT_action`, `TOOLS/ANIM-IMPORT`, 5.3: the sheet's grid from its gaps) |
 | 2548 | Import PNG Sequence... (`ANIM_SEQ_action`, `TOOLS/ANIM-IMPORT`, 5.4; CLI `--sequence FILE`) |
+| 2549 / 2550 | Soundtrack... / Remove Soundtrack (`ANIM_SND_action`, `TOOLS/ANIM-SOUND`, L.1) |
 | 2540 | X-Sheet in the lightbox's top band (`ANIM_XS_toggle`, `TOOLS/ANIM-XS`, `CFG.XSHEET`, Num 8, chip `LB_CTL_XS`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
@@ -635,6 +636,33 @@ points: ANIM > Import PNG Sequence... 2548 (`DRAW_open_file$`, pick any file) an
 it first and falls back to a plain open). QA: `file-anim-seq-import.sh` (9): padded with a
 repeat + non-frames beside it, unpadded 1-10 with a smaller file, round trip through
 `--export-anim` PNGs, no number / alone = a picture.
+
+**Soundtrack (L.1, R-12 B).** `TOOLS/ANIM-SOUND`. One sound per document: `ANIM_SND_PATH` (as
+picked) + `ANIM_SND_OFS` (ms into the sound where frame 1 starts; no UI yet, always 0), both in
+drAn v6 and in the undo snapshot (`ANIM_OPS_snapshot$` -> `ANIM_serialize$`), cleared by
+`ANIM_reset`. Frame f starts at `ANIM_SND_time#(f)` = the earlier frames' holds / FPS + offset
+(sheet order). *Opening:* `ANIM_SND_sync` (from the tick) opens lazily whenever the path differs
+from what is loaded (`ANIM_SND_resolve$`: the path, else the same file name beside the document)
+with `_SNDOPEN(f, "noasync")` - QB64-PE decodes in the background by default, and `_MEMSOUND`
+then reads a half-filled buffer (a flat waveform, on some runs only). MIDI gets
+`_MIDISOUNDBANK CFG.MIDI_SF2_FILE$` first when one is set. `ANIM_SND_peaks`: the loudest sample
+per 1/100 s from `_MEMSOUND(h, 0)` (INTEGER / LONG / SINGLE / unsigned byte; every `stride`-th
+sample on a long sound), scaled so the loudest is 255. *Playing:* `ANIM_SND_tick` (DRAW.BAS,
+after `ANIM_play_tick%`) applies `CFG.ANIM_SOUND_VOLUME` (0-100, cfg only; QA pins 0) and calls
+`ANIM_SND_follow cur, playing`, which the full-screen preview's modal loop calls too: playing,
+the next frame runs on (re-seeked only when `_SNDGETPOS` drifts more than 0.1 s + a frame), any
+other frame - a loop back to 1, a jump, ping-pong's way back - `ANIM_SND_play_at` its time;
+stopped, a frame change plays just that frame's slice (hold / FPS, at least 0.06 s; `STOP_AT`),
+and playback stopping stops it. *X-sheet:* a SOUND row under the notes (`ANIM_XS_sound_rows%`,
+`ANIM_XS_sound_k%`), one waveform line per pixel over each frame's span (the bins it covers; the
+current frame brighter); no peaks = the file name, "(not found)" when it did not open. Clicking
+the row picks that frame (= a scrub). *BAS player:* `ANIM_BAS_sound$` copies the file beside the
+.bas as `NAME-sound.EXT` (never a user file of the sound's own name; not found = left out, said in
+the export line); the player opens it there or beside the program, `snd_follow` mirrors
+`ANIM_SND_follow` (and is quiet at any speed but 1x), `--frames` adds `sound.txt` (file, found,
+length ms, then per step: step, frame, its time ms). Dump: `ANIMSND open on starts lastStartMs
+lenMs peaks name` (name "-" = none), `ANIMXSS rowY`, and `ANIMFS ... sndStarts sndLastMs sndOn`.
+QA: `anim-soundtrack.sh` (28; a -60 dB WAV, volume 0), the unit test (v6 round trip).
 
 ## A selection stays put in its cell (2.9, Q-18)
 

@@ -559,7 +559,7 @@ Frames Over · Replace FG Color with BG in Frames · Frame Grid · Preview Shows
 Panes 3 / 5 / 7 · Onion Skin · Onion Skin Red / Blue Tint · Clip Strokes to the Frame in the Lightbox · Clip Strokes to the Frame in
 Sheet View · Reference Layer (the current layer: shown, left out of every export; `[R]` in the
 layers panel) · Layer Same on Every Frame (the current layer's drawing on every frame - draw in
-any frame and it lands on all of them; `[=]`) · Link Cells (the current layer: with frames selected, their cells all show the first selected frame's drawing; with one frame, it links to the frame before. Paint any linked cell and the others change with it; linked cells are hatched in sheet view and the X-sheet) · Unlink Cells (the selected frames' cells keep their pixels and stop following). · Tag Frames... (name the selected frames; see Tags below) · Delete Tag · Frame Note... (the current frame's note; see Frame notes below) · Clear Frame Note · Detect Frames (a sprite sheet without frames: finds the frame grid from the gaps between the sprites - frame size, gutter, margin - and slices it there) · Import PNG Sequence... (pick any file of name_0001.png, name_0002.png ...: they all come in as frames, a repeated file as a held frame). A marquee or wand selection inside the current frame moves with it to the next frame (same place in the cell). Export Animated GIF... (frames in loop order, holds, transparency, colour cycling) · Export Animated PNG (APNG)... (exact delays, every alpha level) · Export PNG Sequence... (one PNG per tick at the FPS) · Export BAS Player (DATA)... (a QB64 program that plays the frames, colour cycling along) · Export BAS Player + Sheet PNG... (the same, the frames cut out of a PNG beside it) · Export Sprite Sheet + Frame Data... (the sheet PNG + Aseprite-style JSON + a QB64 .bi of the frame rects) · Export Scale 1× / 2× / 4×. (Also View → Frame Grid
+any frame and it lands on all of them; `[=]`) · Link Cells (the current layer: with frames selected, their cells all show the first selected frame's drawing; with one frame, it links to the frame before. Paint any linked cell and the others change with it; linked cells are hatched in sheet view and the X-sheet) · Unlink Cells (the selected frames' cells keep their pixels and stop following). · Tag Frames... (name the selected frames; see Tags below) · Delete Tag · Frame Note... (the current frame's note; see Frame notes below) · Clear Frame Note · Soundtrack... (a WAV / OGG / MP3 / FLAC / MIDI that plays with the frames; see Soundtrack below) · Remove Soundtrack · Detect Frames (a sprite sheet without frames: finds the frame grid from the gaps between the sprites - frame size, gutter, margin - and slices it there) · Import PNG Sequence... (pick any file of name_0001.png, name_0002.png ...: they all come in as frames, a repeated file as a held frame). A marquee or wand selection inside the current frame moves with it to the next frame (same place in the cell). Export Animated GIF... (frames in loop order, holds, transparency, colour cycling) · Export Animated PNG (APNG)... (exact delays, every alpha level) · Export PNG Sequence... (one PNG per tick at the FPS) · Export BAS Player (DATA)... (a QB64 program that plays the frames, colour cycling along) · Export BAS Player + Sheet PNG... (the same, the frames cut out of a PNG beside it) · Export Sprite Sheet + Frame Data... (the sheet PNG + Aseprite-style JSON + a QB64 .bi of the frame rects) · Export Scale 1× / 2× / 4×. (Also View → Frame Grid
 and View → Animation Panel; every item is in the command palette.)
 
 ### Animation panel (View / ANIM → Animation Panel)
@@ -647,6 +647,17 @@ X-sheet shows a NOTES row (each note runs from its frame to the next note). Clic
 its frame (the full note shows on the status bar); double-click anywhere on the row to write or
 change that frame's note. ANIM → Clear Frame Note removes the selected frames' notes. Notes move
 with their frames and are saved with the document.
+
+**Soundtrack**: ANIM → Soundtrack... picks a sound (WAV, OGG, MP3, FLAC, MIDI ...) that plays with
+the frames. Each frame starts at its place in the sound (the frames before it, their holds, at
+the FPS), so playing from any frame plays the sound from there, and the loop back to frame 1
+starts it again. Stepping frames while stopped plays just that frame's bit of the sound (a
+scrub), as do the full-screen preview's steps. The X-sheet shows a SOUND row with the waveform
+under the frames it plays over; click it to go to a frame and hear it. The soundtrack is saved
+with the document (by its path; a sound moved along with the document is found beside it), and
+Export BAS Player copies it beside the program as NAME-sound.EXT and plays it in step. ANIM →
+Remove Soundtrack takes it off (one undo step). The volume is `ANIM_SOUND_VOLUME` in DRAW.cfg
+(0-100).
 
 **COPY / PASTE / CUT** (the transport bar, or the ANIM menu): COPY puts the selected frames
 (or the current one) on the clipboard; PASTE inserts them as new frames after the selection;

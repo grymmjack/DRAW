@@ -42,11 +42,15 @@ v4 (ANIM_CHUNK_VERSION_TAGS), only when there are tags (4.4): the version field 
 v5 (ANIM_CHUNK_VERSION_NOTES), only when a frame has a note (4.5): the version field is 5,
     every block before is there (counts may be 0), then nNotes, per note
     frame (2), textLen (2), text (at most 80)
+v6 (ANIM_CHUNK_VERSION_SOUND), only when there is a soundtrack (L.1): the version field is 6,
+    every block before is there (counts may be 0), then pathLen (2), path (as picked; on
+    open, a path that is gone is looked for by its file name beside the document),
+    offset ms (4, where frame 1 starts in the sound)
 ```
 
 Newer versions append fields; a reader takes the ones it knows (version >= 1; the flags are
 read even when the frames don't fit; a v2 reader drops v3's links and opens the cells as they
-are, unlinked; a v3 reader drops v4's tags, a v4 reader v5's notes). No frames and no layer flags = no chunk; a picture with
+are, unlinked; a v3 reader drops v4's tags, a v4 reader v5's notes, a v5 reader v6's soundtrack). No frames and no layer flags = no chunk; a picture with
 a reference layer but no frames writes the chunk with frameW 0 / count 0. Every document path calls `ANIM_reset` first (gotcha 15). The re-slice / resize
 answer and playback are session state, not saved. Test: `QA/tests/file-anim-chunk.sh`
 (`QA/fixtures/png-chunk.py put|get` writes / reads chunks for fixtures).

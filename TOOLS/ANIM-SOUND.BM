@@ -1,0 +1,242 @@
+''
+' DRAW - TOOLS/ANIM-SOUND.BM
+' =============================================================================
+' The soundtrack (see ANIM-SOUND.BI).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Where the soundtrack file is: its path, else a file of its name beside the
+' document (a project moved with its sound). "" = not found.
+FUNCTION ANIM_SND_resolve$ (p AS STRING)
+    DIM nm AS STRING, d AS STRING, doc AS STRING
+    IF p = "" THEN EXIT FUNCTION
+    IF _FILEEXISTS(p) THEN ANIM_SND_resolve$ = p: EXIT FUNCTION
+    nm = MID$(p, _MAX(_INSTRREV(p, "/"), _INSTRREV(p, "\")) + 1)
+    doc = CURRENT_DRW_FILENAME$: IF doc = "" THEN doc = CURRENT_FILENAME$
+    d = LEFT$(doc, _MAX(_INSTRREV(doc, "/"), _INSTRREV(doc, "\")))
+    IF d <> "" _ANDALSO _FILEEXISTS(d + nm) THEN ANIM_SND_resolve$ = d + nm
+END FUNCTION
+
+SUB ANIM_SND_close ()
+    IF ANIM_SND_H > 0 THEN
+        IF _SNDPLAYING(ANIM_SND_H) THEN _SNDSTOP ANIM_SND_H
+        _SNDCLOSE ANIM_SND_H
+    END IF
+    ANIM_SND_H = 0: ANIM_SND_FILE = "": ANIM_SND_LEN = 0: ANIM_SND_PKN = 0
+    ANIM_SND_ON = FALSE: ANIM_SND_STOP_AT = 0: ANIM_SND_VOL = -1
+END SUB
+
+''
+' Open ANIM_SND_PATH when it is not the one open (a load, undo, a new document).
+SUB ANIM_SND_sync ()
+    DIM f AS STRING, u AS STRING
+    IF ANIM_SND_PATH = ANIM_SND_LOADED THEN EXIT SUB
+    ANIM_SND_close
+    ANIM_SND_LOADED = ANIM_SND_PATH
+    ANIM_SND_SEEN_CUR = ANIM.current: ANIM_SND_SEEN_PLAY = ANIM_PLAY.playing
+    ANIM_SND_STARTS = 0: ANIM_SND_LAST_T = 0
+    IF ANIM_SND_PATH = "" THEN EXIT SUB
+    f = ANIM_SND_resolve$(ANIM_SND_PATH)
+    IF f = "" THEN _LOGWARN "ANIM_SND_sync: soundtrack not found: " + ANIM_SND_PATH: EXIT SUB
+    u = UCASE$(f)
+    IF RIGHT$(u, 4) = ".MID" _ORELSE RIGHT$(u, 5) = ".MIDI" _ORELSE RIGHT$(u, 4) = ".RMI" THEN
+        IF LEN(_TRIM$(CFG.MIDI_SF2_FILE$)) > 0 THEN _MIDISOUNDBANK CFG.MIDI_SF2_FILE$, "sf2"
+    END IF
+    ' noasync: QB64-PE decodes in the background by default, and the waveform
+    ' (_MEMSOUND) would read a buffer that is still being filled - all silence.
+    ANIM_SND_H = _SNDOPEN(f, "noasync")
+    IF ANIM_SND_H < 1 THEN ANIM_SND_H = 0: _LOGWARN "ANIM_SND_sync: can't open " + f: EXIT SUB
+    ANIM_SND_FILE = f
+    ANIM_SND_LEN = _SNDLEN(ANIM_SND_H)
+    ANIM_SND_peaks
+    _LOGINFO "ANIM_SND_sync: " + f + "," + STR$(INT(ANIM_SND_LEN * 1000)) + " ms," + STR$(ANIM_SND_PKN) + " peaks"
+END SUB
+
+''
+' The waveform: the loudest sample in each 1/100 s, scaled so the loudest
+' of all is 255 (every 1 in `stride` samples on a long sound).
+SUB ANIM_SND_peaks ()
+    DIM m AS _MEM, sz AS _INTEGER64, es AS _INTEGER64, bps AS LONG, frames AS _INTEGER64, i AS _INTEGER64
+    DIM rate AS LONG, nb AS LONG, b AS LONG, v AS SINGLE, top AS SINGLE, stride AS _INTEGER64, tp AS LONG
+    ANIM_SND_PKN = 0
+    IF ANIM_SND_H < 1 THEN EXIT SUB
+    m = _MEMSOUND(ANIM_SND_H, 0)
+    sz = m.SIZE: es = m.ELEMENTSIZE: tp = m.TYPE
+    IF sz <= 0 _ORELSE es <= 0 THEN EXIT SUB
+    SELECT CASE tp
+        CASE 130: bps = 2
+        CASE 132, 260: bps = 4
+        CASE 1153: bps = 1
+        CASE ELSE: _MEMFREE m: EXIT SUB
+    END SELECT
+    rate = _SNDRATE
+    frames = sz \ es
+    nb = frames * ANIM_SND_PK_RATE \ rate + 1
+    IF nb > ANIM_SND_PK_MAX THEN nb = ANIM_SND_PK_MAX
+    DIM pk(0 TO nb - 1) AS SINGLE
+    stride = frames \ 4000000 + 1
+    FOR i = 0 TO frames - 1 STEP stride
+        SELECT CASE tp
+            CASE 130: v = ABS(_MEMGET(m, m.OFFSET + i * es, INTEGER)) / 32768!
+            CASE 132: v = ABS(_MEMGET(m, m.OFFSET + i * es, LONG)) / 2147483648!
+            CASE 260: v = ABS(_MEMGET(m, m.OFFSET + i * es, SINGLE))
+            CASE 1153: v = ABS((_MEMGET(m, m.OFFSET + i * es, _UNSIGNED _BYTE)) - 128) / 128!
+        END SELECT
+        IF v <> v THEN v = 0 ' NaN
+        b = i * ANIM_SND_PK_RATE \ rate
+        IF b < nb _ANDALSO v > pk(b) THEN pk(b) = v
+        IF v > top THEN top = v
+    NEXT i
+    _MEMFREE m
+    REDIM ANIM_SND_PK(0 TO nb - 1) AS _UNSIGNED _BYTE
+    IF top > 0 THEN
+        FOR b = 0 TO nb - 1: ANIM_SND_PK(b) = INT(pk(b) / top * 255 + 0.5): NEXT b
+    END IF
+    ANIM_SND_PKN = nb
+END SUB
+
+''
+' Seconds into the sound where frame f starts (sheet order).
+FUNCTION ANIM_SND_time# (f AS INTEGER)
+    DIM i AS INTEGER, ms AS DOUBLE
+    FOR i = 1 TO f - 1: ms = ms + 1000# * ANIM_hold%(i) / ANIM.fps: NEXT i
+    ANIM_SND_time# = (ms + ANIM_SND_OFS) / 1000#
+END FUNCTION
+
+''
+' Play from t seconds (nothing past the end, or before the start).
+SUB ANIM_SND_play_at (t AS DOUBLE)
+    IF ANIM_SND_H < 1 THEN EXIT SUB
+    IF _SNDPLAYING(ANIM_SND_H) THEN _SNDSTOP ANIM_SND_H
+    ANIM_SND_ON = FALSE
+    IF t < 0 _ORELSE t >= ANIM_SND_LEN THEN EXIT SUB
+    _SNDSETPOS ANIM_SND_H, t
+    _SNDPLAY ANIM_SND_H
+    ANIM_SND_ON = TRUE
+    ANIM_SND_STARTS = ANIM_SND_STARTS + 1: ANIM_SND_LAST_T = t
+END SUB
+
+SUB ANIM_SND_stop ()
+    IF ANIM_SND_H > 0 THEN
+        IF _SNDPLAYING(ANIM_SND_H) THEN _SNDSTOP ANIM_SND_H
+    END IF
+    ANIM_SND_ON = FALSE: ANIM_SND_STOP_AT = 0
+END SUB
+
+''
+' DRAW.BAS, every frame: keep the sound with the frames.
+SUB ANIM_SND_tick ()
+    DIM playing AS INTEGER, cur AS INTEGER
+    ANIM_SND_sync
+    IF ANIM_SND_H < 1 THEN EXIT SUB
+    IF ANIM_SND_VOL <> CFG.ANIM_SOUND_VOLUME% THEN
+        ANIM_SND_VOL = CFG.ANIM_SOUND_VOLUME%
+        _SNDVOL ANIM_SND_H, ANIM_SND_VOL / 100!
+    END IF
+    playing = (ANIM_PLAY.playing <> 0) _ANDALSO ANIM.active
+    cur = ANIM.current
+    IF ANIM.active = FALSE _ORELSE cur < 1 THEN
+        IF ANIM_SND_ON THEN ANIM_SND_stop
+        ANIM_SND_SEEN_CUR = cur: ANIM_SND_SEEN_PLAY = FALSE
+    ELSE
+        ANIM_SND_follow cur, playing
+    END IF
+END SUB
+
+''
+' The sound with frame frameNo shown, playing or not (the main loop's tick,
+' and the full-screen preview's own loop): playing, the next frame runs on
+' (put right only when it has drifted) and any other frame starts it at that
+' frame's time; stopped, a new frame plays just its own slice (a scrub), and
+' playback stopping stops it.
+SUB ANIM_SND_follow (frameNo AS INTEGER, isPlaying AS INTEGER)
+    DIM cur AS INTEGER, playing AS INTEGER, t AS DOUBLE, natural AS INTEGER, dur AS DOUBLE, nowT AS DOUBLE
+    cur = frameNo: playing = isPlaying ' by reference: copies (gotcha 13)
+    IF ANIM_SND_H < 1 THEN EXIT SUB
+    IF playing THEN
+        IF ANIM_SND_SEEN_PLAY = FALSE _ORELSE cur <> ANIM_SND_SEEN_CUR THEN
+            t = ANIM_SND_time#(cur)
+            natural = ANIM_SND_SEEN_PLAY _ANDALSO cur = ANIM_SND_SEEN_CUR + 1 _ANDALSO ANIM_SND_ON
+            IF natural THEN natural = _SNDPLAYING(ANIM_SND_H)
+            IF natural THEN ' running on: put it right only when it has drifted
+                IF ABS(_SNDGETPOS(ANIM_SND_H) - t) > 0.1 + 1# / ANIM.fps THEN ANIM_SND_play_at t
+            ELSE
+                ANIM_SND_play_at t
+            END IF
+            ANIM_SND_STOP_AT = 0
+        END IF
+    ELSE
+        IF ANIM_SND_SEEN_PLAY THEN
+            ANIM_SND_stop ' playback stopped
+        ELSEIF cur <> ANIM_SND_SEEN_CUR _ANDALSO ANIM_SND_SEEN_CUR > 0 THEN
+            ' scrub: just this frame's slice
+            dur = ANIM_hold%(cur) / ANIM.fps: IF dur < 0.06 THEN dur = 0.06
+            ANIM_SND_play_at ANIM_SND_time#(cur)
+            IF ANIM_SND_ON THEN ANIM_SND_STOP_AT = TIMER(.001) + dur
+        END IF
+        IF ANIM_SND_STOP_AT > 0 THEN
+            nowT = TIMER(.001)
+            IF nowT >= ANIM_SND_STOP_AT _ORELSE nowT < ANIM_SND_STOP_AT - 3600 THEN ANIM_SND_stop ' (or past midnight)
+        END IF
+    END IF
+    IF ANIM_SND_ON _ANDALSO _SNDPLAYING(ANIM_SND_H) = 0 THEN ANIM_SND_ON = FALSE ' ran out
+    ANIM_SND_SEEN_CUR = cur: ANIM_SND_SEEN_PLAY = playing
+END SUB
+
+''
+' ANIM > Soundtrack... (2549) / Remove Soundtrack (2550). One undo step.
+SUB ANIM_SND_action (act AS INTEGER)
+    DIM f AS STRING, before AS STRING, default_path AS STRING, nm AS STRING
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "No frames: set a frame size first": EXIT SUB
+    IF act = ANIM_ACT_SOUND_REMOVE THEN
+        IF ANIM_SND_PATH = "" THEN STATUS_flash "No soundtrack": EXIT SUB
+        before = ANIM_OPS_snapshot$(FALSE)
+        ANIM_SND_PATH = "": ANIM_SND_OFS = 0
+        ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Remove Soundtrack", 0
+        STATUS_flash "Soundtrack removed"
+        EXIT SUB
+    END IF
+    IF CFG.LAST_DIR_OPEN$ <> "" THEN default_path = CFG.LAST_DIR_OPEN$ + "/" ELSE IF LAST_DIRECTORY$ <> "" THEN default_path = LAST_DIRECTORY$ + "/"
+    POINTER_hide_for_dialog
+    f = DRAW_open_file$("Soundtrack", default_path, "Sound|*.wav|*.ogg|*.mp3|*.flac|*.mid|*.midi|*.mod|*.xm|*.it|*.s3m|All Files|*.*", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+    IF f = "" THEN EXIT SUB
+    ANIM_SND_set f
+END SUB
+
+''
+' Make file f the soundtrack (one undo step); refused when it can't be opened.
+SUB ANIM_SND_set (f AS STRING)
+    DIM before AS STRING, h AS LONG, nm AS STRING
+    IF _FILEEXISTS(f) = 0 THEN STATUS_flash "Soundtrack: no such file": EXIT SUB
+    h = _SNDOPEN(f)
+    nm = MID$(f, _MAX(_INSTRREV(f, "/"), _INSTRREV(f, "\")) + 1)
+    IF h < 1 THEN STATUS_flash "Soundtrack: can't play " + nm: EXIT SUB
+    _SNDCLOSE h
+    before = ANIM_OPS_snapshot$(FALSE)
+    ANIM_SND_PATH = f: ANIM_SND_OFS = 0
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Soundtrack", 0
+    STATUS_flash "Soundtrack: " + nm + " - plays with the frames (Num Enter)"
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' QA dump line: ANIMSND open on starts lastStartMs lenMs peaks name (name "-"
+' when there is no soundtrack; spaces as _).
+FUNCTION ANIM_SND_dump$ ()
+    DIM nm AS STRING, i AS LONG
+    IF ANIM_SND_PATH = "" THEN
+        nm = "-"
+    ELSE
+        nm = MID$(ANIM_SND_PATH, _MAX(_INSTRREV(ANIM_SND_PATH, "/"), _INSTRREV(ANIM_SND_PATH, "\")) + 1)
+        FOR i = 1 TO LEN(nm)
+            IF ASC(nm, i) = 32 THEN MID$(nm, i, 1) = "_"
+        NEXT i
+    END IF
+    ANIM_SND_dump$ = "ANIMSND" + DOCK_n$(ANIM_SND_H > 0) + DOCK_n$(ANIM_SND_ON <> 0) + DOCK_n$(ANIM_SND_STARTS) + DOCK_n$(INT(ANIM_SND_LAST_T * 1000 + 0.5)) _
+        + DOCK_n$(INT(ANIM_SND_LEN * 1000 + 0.5)) + DOCK_n$(ANIM_SND_PKN) + " " + nm + CHR$(10)
+END FUNCTION

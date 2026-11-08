@@ -359,6 +359,7 @@ TYPE DRAW_CONFIG
     CLIP_FRAME_LIGHTBOX             AS INTEGER        ' Animation: a stroke in a lightbox pane stays inside its frame (ANIM > Clip Strokes to the Frame in the Lightbox)
     CLIP_FRAME_SHEET                AS INTEGER        ' Animation: a stroke in sheet view stays inside the frame it starts in (ANIM > Clip Strokes to the Frame in Sheet View)
     ONION_SKIN                      AS INTEGER        ' Animation: the lightbox's current pane shows the frames before / after it (ANIM > Onion Skin, Num /)
+    ANIM_SOUND_VOLUME               AS INTEGER        ' Animation: the soundtrack's volume 0-100 (ANIM > Soundtrack...)
     ONION_BEFORE                    AS INTEGER        ' Animation: onion skin frames before the current one (0-5)
     ONION_AFTER                     AS INTEGER        ' Animation: onion skin frames after the current one (0-5)
     ONION_OPACITY                   AS INTEGER        ' Animation: onion skin opacity % of the nearest frame (5-100; farther frames fade)

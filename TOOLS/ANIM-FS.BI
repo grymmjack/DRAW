@@ -12,7 +12,7 @@
 '   100%, middle drag pans, ESC (or Num . again) closes on the frame shown.
 '
 ' QA dump (DOCK_DUMP_PATH, while open): ANIMFS open step frame playing zoom%
-' x y w h barX barY barW barH steps - logical (viewport) px.
+' x y w h barX barY barW barH steps sndStarts sndLastMs sndOn - logical (viewport) px.
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '

@@ -400,6 +400,15 @@ ANIM.current = 2: r = ANIM_plan%(ANIM_OP_DELETE, pc, pcur): ANIM_apply_plan pc, 
 check "a frame deleted: its note goes", notes$, "5=foot down"
 ANIM_reset: check "a new document: no notes", STR$(LEN(ANIM_NOTE(5))), STR$(0)
 
+' --- soundtrack (L.1) ---
+ANIM_reset: r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 6: ANIM.wanted = 6: ANIM.current = 1
+ANIM_SND_PATH = "/tmp/a b/beat.ogg": ANIM_SND_OFS = 250
+s = ANIM_serialize$: check "a soundtrack: saved as v6", STR$(CVI(LEFT$(s, 2))), STR$(ANIM_CHUNK_VERSION_SOUND)
+ANIM_SND_PATH = "": r = ANIM_deserialize%(s): check "the soundtrack back after a load", ANIM_SND_PATH + STR$(ANIM_SND_OFS), "/tmp/a b/beat.ogg 250"
+ANIM_NT_set 2, "hit": r = ANIM_TG_put%("go", 1, 3): s = ANIM_serialize$: r = ANIM_deserialize%(s)
+check "with notes and tags: all three back", ANIM_SND_PATH + " " + notes$ + " " + tags$, "/tmp/a b/beat.ogg 2=hit go 1 3"
+ANIM_reset: check "a new document: no soundtrack", "[" + ANIM_SND_PATH + "]", "[]"
+
 ' --- Detect Frames (5.3) ---
 check "4 sprites in 64 px: 16 wide, no gutter", dt$(sheet$(4, 16, 0, 0, 3, 10), sheet$(1, 16, 0, 0, 2, 12)), "16x16 g0 m0"
 check "gutter 1: 67 px = 4 x 16 + 3", dt$(sheet$(4, 16, 1, 0, 3, 10), sheet$(2, 16, 1, 0, 2, 12)), "16x16 g1 m0"

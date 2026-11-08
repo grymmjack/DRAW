@@ -945,6 +945,7 @@ DO
     ' Animation playback (TOOLS/ANIM-VIEW): live while it plays, the scene rebuilt
     ' only when it steps to another frame.
     IF ANIM_play_tick% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE: GUI_NEEDS_REDRAW% = TRUE
+    ANIM_SND_tick ' the soundtrack follows the frames (L.1, TOOLS/ANIM-SOUND)
     IF ANIM_PLAY.playing THEN FRAME_IDLE% = FALSE
     STATUS_flash_tick
     IF PCYC_running% THEN FRAME_IDLE% = FALSE

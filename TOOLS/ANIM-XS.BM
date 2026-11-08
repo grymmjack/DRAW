@@ -84,7 +84,17 @@ END FUNCTION
 ' The rows under HOLD: TAGS (4.4) when there are tags, NOTES (4.5) when a
 ' frame has a note.
 FUNCTION ANIM_XS_extra% ()
-    ANIM_XS_extra% = ANIM_XS_tag_rows% + ANIM_XS_note_rows%
+    ANIM_XS_extra% = ANIM_XS_tag_rows% + ANIM_XS_note_rows% + ANIM_XS_sound_rows%
+END FUNCTION
+
+''
+' SOUND (L.1) under them when there is a soundtrack.
+FUNCTION ANIM_XS_sound_rows% ()
+    IF LEN(ANIM_SND_PATH) > 0 THEN ANIM_XS_sound_rows% = 1
+END FUNCTION
+
+FUNCTION ANIM_XS_sound_k% ()
+    ANIM_XS_sound_k% = _IIF(ANIM_XS_sound_rows% <> 0, ANIM_XS.rowsShown + 2 + ANIM_XS_tag_rows% + ANIM_XS_note_rows%, -1)
 END FUNCTION
 
 ''
@@ -375,6 +385,8 @@ SUB ANIM_XS_render (dest AS LONG)
     IF ANIM_XS_tag_rows% THEN ANIM_XS_render_tags ANIM_XS_row_y%(ANIM_XS_tags_k%)
     ' notes row (4.5): each note from its frame on, until the next note
     IF ANIM_XS_note_rows% THEN ANIM_XS_render_notes ANIM_XS_row_y%(ANIM_XS_notes_k%)
+    ' sound row (L.1): the soundtrack's waveform along the frames
+    IF ANIM_XS_sound_rows% THEN ANIM_XS_render_sound ANIM_XS_row_y%(ANIM_XS_sound_k%)
 
     ' frame boundaries, the header's line, the name column's edge
     FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
@@ -454,6 +466,47 @@ SUB ANIM_XS_render_notes (y AS INTEGER)
             DO WHILE LEN(t) > 0 _ANDALSO x + 4 + FPANEL_text_w%(t) > xe: t = LEFT$(t, LEN(t) - 1): LOOP
             IF LEN(t) > 0 THEN FPANEL_text x + 4, ty, t, _IIF(f = ANIM.current, THEME.CP_text_bright~&, THEME.CP_text~&)
         END IF
+    NEXT f
+END SUB
+
+''
+' The SOUND row at y: per pixel along each frame's span, the loudest moment
+' of that slice of the soundtrack, as a line up and down from the middle.
+' No waveform (MIDI, a tracker, not found): the file's name.
+SUB ANIM_XS_render_sound (y AS INTEGER)
+    DIM f AS INTEGER, x AS INTEGER, w AS INTEGER, px AS INTEGER, ty AS INTEGER, midY AS INTEGER, hh AS INTEGER
+    DIM t0 AS DOUBLE, ta AS DOUBLE, tb AS DOUBLE, ba AS LONG, bb AS LONG, b AS LONG, pk AS INTEGER, a AS INTEGER
+    DIM c AS _UNSIGNED LONG, t AS STRING
+    LINE (ANIM_XS.x1, y)-(ANIM_XS.x2, y), THEME.CP_border~&
+    ty = y + (ANIM_XS.rowH - FPANEL.fontH%) \ 2
+    FPANEL_text ANIM_XS.x1 + 4, ty, "SOUND", THEME.CP_text~&
+    IF ANIM_SND_PKN < 1 _ORELSE ANIM.fps < 1 THEN
+        t = MID$(ANIM_SND_PATH, _MAX(_INSTRREV(ANIM_SND_PATH, "/"), _INSTRREV(ANIM_SND_PATH, "\")) + 1)
+        IF ANIM_SND_H < 1 THEN t = t + " (not found)"
+        DO WHILE LEN(t) > 0 _ANDALSO ANIM_XS.gx + 4 + FPANEL_text_w%(t) > ANIM_XS.x2: t = LEFT$(t, LEN(t) - 1): LOOP
+        IF LEN(t) > 0 THEN FPANEL_text ANIM_XS.gx + 4, ty, t, THEME.CP_text~&
+        EXIT SUB
+    END IF
+    midY = y + ANIM_XS.rowH \ 2: hh = (ANIM_XS.rowH - 4) \ 2
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f): w = ANIM_hold%(f) * ANIM_XS.tickW
+        t0 = ANIM_SND_time#(f)
+        c = _IIF(f = ANIM.current, THEME.CP_text_bright~&, THEME.CP_text~&)
+        FOR px = 0 TO w - 1
+            IF x + px >= ANIM_XS.gx _ANDALSO x + px <= ANIM_XS.x2 THEN
+                ta = t0 + (px / ANIM_XS.tickW) / ANIM.fps: tb = t0 + ((px + 1) / ANIM_XS.tickW) / ANIM.fps
+                ba = INT(ta * ANIM_SND_PK_RATE + 0.0001): bb = INT(tb * ANIM_SND_PK_RATE + 0.0001) ' 0.3 s * 100 is 29.999...: not the bin before
+                IF bb > ba THEN bb = bb - 1
+                pk = 0
+                FOR b = _MAX(ba, 0) TO _MIN(bb, ANIM_SND_PKN - 1)
+                    IF ANIM_SND_PK(b) > pk THEN pk = ANIM_SND_PK(b)
+                NEXT b
+                IF ba < ANIM_SND_PKN _ANDALSO bb >= 0 THEN
+                    a = (pk * hh + 127) \ 255
+                    LINE (x + px, midY - a)-(x + px, midY + a), c
+                END IF
+            END IF
+        NEXT px
     NEXT f
 END SUB
 
@@ -573,6 +626,11 @@ FUNCTION ANIM_XS_press% (mx AS INTEGER, my AS INTEGER)
                 lastNoteF = f: lastNoteT = TIMER: lastNoteTick = ANIM_LOOP_TICK
             END IF
         END IF
+        ANIM_LB_changed
+        EXIT FUNCTION
+    END IF
+    IF k = ANIM_XS_sound_k% THEN ' the sound row (L.1): the frame (stopped, it plays that frame's slice)
+        IF f > 0 THEN ANIM_SEL_click f, c, s
         ANIM_LB_changed
         EXIT FUNCTION
     END IF
@@ -811,6 +869,7 @@ FUNCTION ANIM_XS_dump$ ()
         d = d + CHR$(10)
     END IF
     IF ANIM_XS_note_rows% THEN d = d + "ANIMXSN" + DOCK_n$(ANIM_XS_row_y%(ANIM_XS_notes_k%)) + CHR$(10) ' the notes row's y
+    IF ANIM_XS_sound_rows% THEN d = d + "ANIMXSS" + DOCK_n$(ANIM_XS_row_y%(ANIM_XS_sound_k%)) + CHR$(10) ' the sound row's y
     FOR r = 1 TO _MIN(ANIM_XS.nRows, 64)
         slot = ANIM_XS_ROW(r)
         y = -1
