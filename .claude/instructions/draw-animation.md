@@ -310,7 +310,8 @@ nextPx`; `ANIMPL` gained `yOnion onY1..3` at the end (read it with a trailing `_
 In the lightbox, commands act on the strip's selected frames (`ANIM_SEL_is%`: the current frame
 when none is), each one undo step. A user marquee selection keeps the commands' own behaviour.
 
-- **Effects** (`ANIM_FM_wants%`: 2001-2011, 2101-2289, 2350-2352, Remap to Palette 1516): the top
+- **Effects** (`ANIM_FM_wants%`: 2001-2011, 2101-2289, 2350-2352, Remap to Palette 1516, and
+  Delete / Edit > Clear 306 / 308 + Fill with FG / BG 313 / 314 - Backspace): the top
   of `CMD_execute_action` runs the command nested between `ANIM_FM_begin` (a copy of every pixel
   layer in `ANIM_FM_IMG()`) and `ANIM_FM_end`; `ANIM_FM_mask` puts back everything outside the
   selected cells. It also runs from `HISTORY_store_after_image` (`ANIM_FM_finish`, next to 2.2's
@@ -326,6 +327,12 @@ when none is), each one undo step. A user marquee selection keeps the commands' 
   (what leaves a cell is cut off); released = one `ANIM_OPS_record`. Pressing V lifts the whole
   layer at once (`MOVE_capture_selection`) - an untouched lift is dropped with `MOVE_reset`
   first, which records nothing.
+- **Arrow keys** (B4, `ANIM_LB_nudge_wants%` / `ANIM_LB_nudge`, hooked at the top of
+  `KEYBOARD_handle_move_keys`): Ctrl+arrow with any tool, or a bare arrow with the Move tool,
+  shifts the selected cells the same way (`ANIM_LB_move_apply`), Shift = `CFG.NUDGE_N%`, one
+  `ANIM_OPS_record` per press. Not with Alt (clone), a marquee, a transform, or a floating
+  selection that has moved; an untouched whole-layer lift is dropped first. Test:
+  `anim-lightbox-nudge.sh`.
 - **Palette swap**: ANIM > Replace FG Color with BG in Frames (2529) - exact RGBA matches on the
   current / selected layers, sheet view or lightbox.
 
