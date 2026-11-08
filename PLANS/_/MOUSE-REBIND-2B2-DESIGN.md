@@ -38,7 +38,7 @@ behavior** and branch on the answer.
    (behavior → button + modifiers) AND a capture UI (Phase 4.3 mouse-capture, not built).
    Until a user can set one, the wiring is only testable on its default path — which proves
    nothing about the actual feature.
-3. **Branch precedent.** `.claude/TASKS.md` already scoped 2B.2 as "hot-path MOUSE.BM
+3. **Branch precedent.** `.claude/TASKS-SHORTCUTS.md` (then `TASKS.md`) already scoped 2B.2 as "hot-path MOUSE.BM
    changes; testable now but risky — best with visual confirmation … needs RICK-in-the-loop."
 
 Rick owes: a live/visual confirmation pass on the hot-path changes once wired.
