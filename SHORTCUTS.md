@@ -629,6 +629,8 @@ Each drag is one undo step. Dragging past the left or right edge scrolls the gri
 
 **Opening an animated GIF** gives you its frames on a sheet: each frame as a browser shows it, the delays as the FPS and holds, looping as the GIF does. With Save .draw Beside Images off, Ctrl+S writes it back as an animated GIF.
 
+**Opening an Aseprite file with two or more frames** does the same: every layer keeps its own cels, one per frame cell; the frame durations become the FPS and holds, Aseprite's tags become tags, and linked cels become linked cells. A tag over all the frames sets the loop (reverse or ping-pong).
+
 **Tags** name a run of frames - "walk", "jump". Select the frames (strip or X-sheet), then
 ANIM → Tag Frames... and type a name (a name you already used moves that tag). Once a document
 has tags, the X-sheet shows a TAGS row under HOLD: click a tag to select its frames, then Play

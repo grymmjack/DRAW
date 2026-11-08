@@ -61,20 +61,50 @@ END FUNCTION
 ' divisor (at most 50), each hold its delay at that FPS (1..ANIM_HOLD_MAX); a
 ' slower FPS when a hold would pass ANIM_HOLD_MAX.
 FUNCTION ANIM_GIF_fps% (d() AS LONG, n AS INTEGER)
-    DIM g AS LONG, i AS INTEGER, fps AS INTEGER, mx AS LONG
+    DIM i AS INTEGER
     FOR i = 1 TO n
         IF d(i) < 2 THEN d(i) = 10
+    NEXT i
+    ANIM_GIF_fps% = ANIM_IMP_fps%(d(), n, 100)
+END FUNCTION
+
+''
+' The FPS for frame times d(1..n) in 1/perSec seconds (one under 1 counts as
+' a tenth of a second): perSec / their common divisor, at most 50, lowered
+' while a hold would pass ANIM_HOLD_MAX. A hold is (d * fps + perSec \ 2) \ perSec.
+FUNCTION ANIM_IMP_fps% (d() AS LONG, n AS INTEGER, perSec AS LONG)
+    DIM g AS LONG, i AS INTEGER, fps AS LONG, mx AS LONG
+    FOR i = 1 TO n
+        IF d(i) < 1 THEN d(i) = perSec \ 10
         IF g = 0 THEN g = d(i) ELSE g = GIF_gcd&(g, d(i))
         IF d(i) > mx THEN mx = d(i)
     NEXT i
-    IF g < 1 THEN g = 10
-    fps = (100 + g \ 2) \ g
+    IF g < 1 THEN g = perSec \ 10
+    fps = (perSec + g \ 2) \ g
     IF fps > 50 THEN fps = 50
     IF fps < 1 THEN fps = 1
-    DO WHILE fps > 1 _ANDALSO (mx * fps + 50) \ 100 > ANIM_HOLD_MAX
+    DO WHILE fps > 1 _ANDALSO (mx * fps + perSec \ 2) \ perSec > ANIM_HOLD_MAX
         fps = fps - 1
     LOOP
-    ANIM_GIF_fps% = fps
+    ANIM_IMP_fps% = fps
+END FUNCTION
+
+''
+' The sheet for n frames of w x h: cols x rows, a grid about as wide as tall
+' inside the largest sheet. FALSE (and a log line) when n < 2 or it is too big.
+FUNCTION ANIM_IMP_grid% (n AS LONG, w AS LONG, h AS LONG, cols AS LONG, rows AS LONG, what AS STRING)
+    cols = 0: rows = 0
+    IF n < 2 _ORELSE w < 1 _ORELSE h < 1 THEN EXIT FUNCTION
+    cols = INT(SQR(n - 1)) + 1
+    IF cols * w > ANIM_SHEET_MAX THEN cols = ANIM_SHEET_MAX \ w
+    IF cols < 1 THEN EXIT FUNCTION
+    rows = (n + cols - 1) \ cols
+    IF n > ANIM_MAX_FRAMES _ORELSE rows * h > ANIM_SHEET_MAX _ORELSE cols * w * rows * h > ANIM_IMP_MAX_PIXELS THEN
+        _LOGWARN "ANIM import: " + what + ": " + _TRIM$(STR$(n)) + " frames of " + _TRIM$(STR$(w)) + "x" + _TRIM$(STR$(h)) + " - too big for a sheet, opening the first frame"
+        cols = 0: rows = 0
+        EXIT FUNCTION
+    END IF
+    ANIM_IMP_grid% = TRUE
 END FUNCTION
 
 ''
@@ -101,16 +131,8 @@ FUNCTION ANIM_GIF_import% (filename AS STRING)
     IF n < 2 THEN EXIT FUNCTION
     w = ASC(s, 7) + ASC(s, 8) * 256&: h = ASC(s, 9) + ASC(s, 10) * 256&
     IF w < 1 _ORELSE h < 1 THEN EXIT FUNCTION
-    ' a grid about as wide as tall, inside the largest sheet
-    cols = INT(SQR(n - 1)) + 1
-    IF cols * w > ANIM_SHEET_MAX THEN cols = ANIM_SHEET_MAX \ w
-    IF cols < 1 THEN EXIT FUNCTION
-    rows = (n + cols - 1) \ cols
+    IF ANIM_IMP_grid%(n, w, h, cols, rows, filename) = FALSE THEN EXIT FUNCTION
     sw = cols * w: sh = rows * h
-    IF sh > ANIM_SHEET_MAX _ORELSE sw * sh > ANIM_IMP_MAX_PIXELS THEN
-        _LOGWARN "ANIM_GIF_import: " + filename + ": " + _TRIM$(STR$(n)) + " frames of " + _TRIM$(STR$(w)) + "x" + _TRIM$(STR$(h)) + " - too big for a sheet, opening the first frame"
-        EXIT FUNCTION
-    END IF
 
     pk = ASC(s, 11): p = 14
     IF pk AND &H80 THEN
@@ -232,3 +254,94 @@ FUNCTION ANIM_GIF_import% (filename AS STRING)
     STATUS_flash MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1) + ": " + ANIM_IMP_INFO
     ANIM_GIF_import% = TRUE
 END FUNCTION
+
+' ---------------------------------------------------------------------------
+' 5.2 Aseprite (FILE_ASE_load lays the cels out; this reads the rest)
+' ---------------------------------------------------------------------------
+
+''
+' After FILE_ASE_load put each frame's cels in their cells and set the layout:
+' the frame durations become the FPS and holds, the tags tags, the linked
+' cels linked cells. layerOf = MKI$ per Aseprite layer (0-based): the DRAW
+' layer it became (0 = none, e.g. a group or tilemap).
+SUB ANIM_ASE_apply (filename AS STRING, layerOf AS STRING)
+    DIM s AS STRING, ff AS INTEGER, n AS LONG, f AS LONG, p AS LONG, fb AS LONG, nch AS LONG, c AS LONG
+    DIM q AS LONG, csz AS LONG, ct AS LONG, d AS LONG, nt AS LONG, t AS LONG, k AS LONG, nl AS LONG
+    DIM ta AS LONG, tb AS LONG, tagDir AS INTEGER, nm AS STRING, li AS LONG, lf AS LONG, di AS INTEGER
+    DIM id AS LONG, g AS INTEGER, fps AS INTEGER, hh AS INTEGER, nTags AS INTEGER, nLinks AS INTEGER
+    DIM durs(1 TO ANIM_MAX_FRAMES) AS LONG
+
+    ANIM_IMP_INFO = ""
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 2 THEN EXIT SUB
+    ff = FREEFILE
+    OPEN filename FOR BINARY AS #ff
+    s = SPACE$(LOF(ff))
+    GET #ff, 1, s
+    CLOSE #ff
+    IF LEN(s) < 128 THEN EXIT SUB
+    n = CVI(MID$(s, 7, 2)) AND &HFFFF&
+    IF n > ANIM.count THEN n = ANIM.count
+    ANIM.loopMode = ANIM_LOOP_FWD
+    p = 129
+    FOR f = 1 TO n
+        IF p + 15 > LEN(s) THEN EXIT FOR
+        fb = CVL(MID$(s, p, 4))
+        IF fb < 16 _ORELSE (CVI(MID$(s, p + 4, 2)) AND &HFFFF&) <> &HF1FA& THEN EXIT FOR
+        durs(f) = CVI(MID$(s, p + 8, 2)) AND &HFFFF&
+        nch = CVL(MID$(s, p + 12, 4))
+        IF nch = 0 THEN nch = CVI(MID$(s, p + 6, 2)) AND &HFFFF&
+        q = p + 16
+        FOR c = 1 TO nch
+            IF q + 5 > LEN(s) _ORELSE q + 5 >= p + fb THEN EXIT FOR
+            csz = CVL(MID$(s, q, 4)): ct = CVI(MID$(s, q + 4, 2)) AND &HFFFF&
+            IF csz < 6 _ORELSE q + csz > p + fb THEN EXIT FOR
+            d = q + 6
+            SELECT CASE ct
+                CASE &H2018& ' tags: from / to are 0-based frames
+                    nt = CVI(MID$(s, d, 2)) AND &HFFFF&
+                    t = d + 10
+                    FOR k = 1 TO nt
+                        IF t + 18 > q + csz THEN EXIT FOR
+                        ta = (CVI(MID$(s, t, 2)) AND &HFFFF&) + 1: tb = (CVI(MID$(s, t + 2, 2)) AND &HFFFF&) + 1
+                        tagDir = ASC(s, t + 4)
+                        nl = CVI(MID$(s, t + 17, 2)) AND &HFFFF&
+                        nm = MID$(s, t + 19, nl)
+                        t = t + 19 + nl
+                        IF ta >= 1 _ANDALSO tb <= ANIM.count _ANDALSO ta <= tb THEN
+                            IF ANIM_TG_put%(nm, ta, tb) THEN nTags = nTags + 1
+                            IF ta = 1 _ANDALSO tb = ANIM.count THEN
+                                IF tagDir = 1 THEN ANIM.loopMode = ANIM_LOOP_REV
+                                IF tagDir = 2 _ORELSE tagDir = 3 THEN ANIM.loopMode = ANIM_LOOP_PING
+                            END IF
+                        END IF
+                    NEXT k
+                CASE &H2005& ' a linked cel (type 1): this frame shows frame lf's cel of layer li
+                    IF csz >= 6 + 18 _ANDALSO (CVI(MID$(s, d + 7, 2)) AND &HFFFF&) = 1 THEN
+                        li = CVI(MID$(s, d, 2)) AND &HFFFF&
+                        lf = (CVI(MID$(s, d + 16, 2)) AND &HFFFF&) + 1
+                        di = 0
+                        IF li * 2 + 2 <= LEN(layerOf) THEN di = CVI(MID$(layerOf, li * 2 + 1, 2))
+                        IF di >= 1 _ANDALSO di <= MAX_LAYERS _ANDALSO lf >= 1 _ANDALSO lf <= ANIM.count _ANDALSO lf <> f THEN
+                            id = LAYERS(di).historyId&
+                            g = ANIM_LK_group%(id, lf)
+                            IF g = 0 THEN g = ANIM_LK_new_group%(id): ANIM_LK_put id, lf, g
+                            IF g > 0 THEN ANIM_LK_put id, f, g: nLinks = nLinks + 1
+                        END IF
+                    END IF
+            END SELECT
+            q = q + csz
+        NEXT c
+        p = p + fb
+    NEXT f
+
+    fps = ANIM_IMP_fps%(durs(), ANIM.count, 1000)
+    ANIM_set_fps fps
+    FOR f = 1 TO ANIM.count
+        hh = (durs(f) * fps + 500) \ 1000
+        ANIM_set_hold CINT(f), hh
+    NEXT f
+    ANIM_IMP_INFO = _TRIM$(STR$(ANIM.count)) + " frames at" + STR$(ANIM.fps) + " fps"
+    IF nTags > 0 THEN ANIM_IMP_INFO = ANIM_IMP_INFO + "," + STR$(nTags) + _IIF(nTags = 1, " tag", " tags")
+    IF nLinks > 0 THEN ANIM_IMP_INFO = ANIM_IMP_INFO + "," + STR$(nLinks) + _IIF(nLinks = 1, " linked cel", " linked cels")
+    _LOGINFO "ANIM_ASE_apply: " + filename + ": " + ANIM_IMP_INFO
+END SUB

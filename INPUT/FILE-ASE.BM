@@ -224,11 +224,22 @@ SUB FILE_ASE_load (filename AS STRING)
     TEXT_BAR.editingLayerIdx% = 0
 
     ' === RESIZE CANVAS ===
+    ' Two or more frames: a sheet of sprite-size cells, frame f's cels in cell
+    ' f (Animation 5.2; ANIM_ASE_apply reads durations, tags and links).
+    DIM aseFrames AS LONG, aseCols AS LONG, aseRows AS LONG, aseSheet AS INTEGER
+    aseFrames& = aseImg.base_image.header.num_frames
+    aseSheet%  = ANIM_IMP_grid%(aseFrames&, spriteW&, spriteH&, aseCols&, aseRows&, filename$)
+    DIM aseLayerOf AS STRING
+    aseLayerOf$ = STRING$(2 * aseImg.num_layers, 0)
     DIM oldCanvasW AS LONG, oldCanvasH AS LONG
     oldCanvasW&   = SCRN.canvasW&
     oldCanvasH&   = SCRN.canvasH&
     SCRN.canvasW& = spriteW&
     SCRN.canvasH& = spriteH&
+    IF aseSheet% THEN
+        SCRN.canvasW& = aseCols& * spriteW&
+        SCRN.canvasH& = aseRows& * spriteH&
+    END IF
 
     ' Viewport stays at current runtime size on file load.
     DIM needScreenW AS LONG, needScreenH AS LONG
@@ -401,8 +412,7 @@ SUB FILE_ASE_load (filename AS STRING)
             drawLayerIdx% = drawLayerIdx% + 1
             layerIdx% = drawLayerIdx%
 
-            ' Extract layer image for frame 0 (first frame only)
-            layerImg& = load_specific_layer_image&(aseImg.base_image, i%)
+            MID$(aseLayerOf$, i% * 2 + 1, 2) = MKI$(layerIdx%)
 
             ' Create DRAW layer image at canvas dimensions
             LAYERS(layerIdx%).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
@@ -414,13 +424,22 @@ SUB FILE_ASE_load (filename AS STRING)
             _DEST LAYERS(layerIdx%).imgHandle&
             CLS , _RGBA32(0, 0, 0, 0)
 
-            ' Copy Aseprite layer pixels onto DRAW layer
-            IF layerImg& < -1 THEN
-                _PUTIMAGE (0, 0), layerImg&, LAYERS(layerIdx%).imgHandle&
-                SAFE_FREEIMAGE layerImg&
-            ELSE
-                _LOGWARN "FILE_ASE_load: No pixel data for layer " + STR$(i%)
-            END IF
+            ' Copy Aseprite layer pixels onto DRAW layer: frame 1, or on a
+            ' sheet every frame's cel into its cell (as they are, no blending)
+            DIM aseF AS LONG, aseFN AS LONG
+            aseFN& = 1
+            IF aseSheet% THEN aseFN& = aseFrames&
+            _DONTBLEND LAYERS(layerIdx%).imgHandle&
+            FOR aseF& = 0 TO aseFN& - 1
+                layerImg& = load_layer_frame_image&(aseImg.base_image, i%, aseF&)
+                IF layerImg& < -1 THEN
+                    _PUTIMAGE ((aseF& MOD _MAX(aseCols&, 1)) * spriteW&, (aseF& \ _MAX(aseCols&, 1)) * spriteH&), layerImg&, LAYERS(layerIdx%).imgHandle&
+                    SAFE_FREEIMAGE layerImg&
+                ELSEIF aseF& = 0 THEN
+                    _LOGWARN "FILE_ASE_load: No pixel data for layer " + STR$(i%)
+                END IF
+            NEXT aseF&
+            _BLEND LAYERS(layerIdx%).imgHandle&
             _DEST oldDest&
 
             ' Set layer properties
@@ -680,6 +699,12 @@ SUB FILE_ASE_load (filename AS STRING)
     CURRENT_TOOL% = TOOL_NULL
     MARQUEE_reset
     ANIM_reset ' frame layout belongs to the old document
+    IF aseSheet% THEN
+        IF ANIM_set_layout%(spriteW&, spriteH&, 0, 0) THEN
+            ANIM.count = aseFrames&: ANIM.wanted = aseFrames&: ANIM.current = 1
+            ANIM_ASE_apply filename$, aseLayerOf$
+        END IF
+    END IF
     MOVE_init
     MAGIC_WAND_reset
     CROP_reset
@@ -754,6 +779,7 @@ SUB FILE_ASE_load (filename AS STRING)
     SAFE_FREEIMAGE aseImg.current_display
 
     _LOGINFO "FILE_ASE_load: Loaded" + STR$(LAYER_COUNT%) + " layers from " + filename$
+    IF aseSheet% _ANDALSO ANIM_IMP_INFO <> "" THEN STATUS_flash MID$(filename$, _MAX(_INSTRREV(filename$, "/"), _INSTRREV(filename$, "\")) + 1) + ": " + ANIM_IMP_INFO
 END SUB
 
 

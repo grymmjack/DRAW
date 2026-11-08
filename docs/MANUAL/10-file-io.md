@@ -14,7 +14,7 @@
 | --- | --- |
 | Image (PNG / BMP / JPG / GIF) | `Ctrl+O` |
 | Project (`.draw`) | `Alt+O` |
-| Aseprite (`.ase` / `.aseprite`) | File → Open Aseprite |
+| Aseprite (`.ase` / `.aseprite`) | File → Open Aseprite (two or more frames open as animation frames on a sheet, with their durations, tags and linked cels) |
 | Photoshop (`.psd`) | File → Open Photoshop |
 | DeluxePaint (`.lbm` / `.iff`, ILBM or PBM) with cycle ranges | `Ctrl+O`, or File → Color Cycling → Open DeluxePaint / GrafX2 File |
 | GrafX2 GIF with cycle ranges | `Ctrl+O` (the ranges come along automatically) |

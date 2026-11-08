@@ -1,7 +1,8 @@
 #!/bin/bash
 # =============================================================================
-# file-aseprite-frames.sh — QA test: an animated .aseprite opens as its FIRST
-# frame, with part-transparent pixels kept as they are.
+# file-aseprite-frames.sh — QA test: an animated .aseprite opens with each
+# frame in its own cell (frame 1 not painted over by the others), with
+# part-transparent pixels kept as they are.
 #
 # Found 2026-11-07 while planning animation (PLANS/ANIMATION.md, Q-30): the
 # Aseprite loader (QB64_GJ_LIB load_specific_layer_image&) painted a layer's
@@ -13,10 +14,13 @@
 # layers, three frames; frame 1 has opaque black and 50%-alpha red / white
 # blocks, frames 2 and 3 draw a green top row / yellow bottom row (frame 3's bg
 # is a linked cel). Expected: QA/fixtures/aseprite-frames-f1.png.
+# Since Animation 5.2 the three frames open as a 32x16 sheet of 16x8 cells
+# (2 x 2, reading order), so frame 1 is the top-left cell; the frames' own
+# test is file-anim-ase-import.sh.
 # DRAW opens it from the command line and exports a .draw (a PNG whose picture
 # is the flattened document), in a throwaway HOME so no config is touched.
 # =============================================================================
-info "=== Aseprite import: first frame only ==="
+info "=== Aseprite import: frame 1 kept apart from frames 2-3 ==="
 
 ASE_FX="$DRAW_ROOT/QA/fixtures/aseprite-frames.aseprite"
 ASE_EXP="$DRAW_ROOT/QA/fixtures/aseprite-frames-f1.png"
@@ -35,11 +39,14 @@ if [[ ! -s "$ASE_T/out.draw" ]]; then
 fi
 
 read -r ASE_W ASE_H < <(magick identify -format '%w %h' "$ASE_T/out.draw" 2>/dev/null)
-[[ "$ASE_W" == 16 && "$ASE_H" == 8 ]] && pass "opened at the file's size (16x8)" || fail "opened at ${ASE_W}x$ASE_H, not 16x8"
+[[ "$ASE_W" == 32 && "$ASE_H" == 16 ]] && pass "opened as a sheet of the file's 3 frames (32x16)" || fail "opened at ${ASE_W}x$ASE_H, not 32x16"
+magick "$ASE_T/out.draw" -crop 16x8+0+0 +repage "PNG32:$ASE_T/f1.png" 2>/dev/null
+magick "$ASE_T/out.draw" -crop 16x8+16+0 +repage "PNG32:$ASE_T/f2.png" 2>/dev/null
+magick "$ASE_T/out.draw" -crop 16x8+0+8 +repage "PNG32:$ASE_T/f3.png" 2>/dev/null
 
 # a whole-picture match: frame 1 only (no green top row / yellow bottom row
 # from frames 2-3) and the 50% blocks blended once, not darkened
-ASE_AE=$(magick compare -metric AE -fuzz 1% "$ASE_EXP" "$ASE_T/out.draw" null: 2>&1 | awk '{print $1}')
+ASE_AE=$(magick compare -metric AE -fuzz 1% "$ASE_EXP" "$ASE_T/f1.png" null: 2>&1 | awk '{print $1}')
 if [[ "$ASE_AE" == 0 ]]; then
     pass "the picture is frame 1, pixel for pixel"
 else
@@ -47,10 +54,13 @@ else
     fail "$ASE_AE pixels differ from frame 1 (got: screenshots/aseprite-frames-got.png)"
 fi
 
-px() { magick "$ASE_T/out.draw" -format "%[hex:p{$1,$2}]" info: 2>/dev/null | cut -c1-6; }
+px() { magick "$ASE_T/${3:-f1}.png" -format "%[hex:p{$1,$2}]" info: 2>/dev/null | cut -c1-6; }
 ASE_TOP=$(px 5 0); ASE_BOT=$(px 5 7); ASE_RED=$(px 7 3); ASE_BLK=$(px 2 3)
 info "pixels: top row $ASE_TOP, bottom row $ASE_BOT, 50% red $ASE_RED, black $ASE_BLK"
 [[ "$ASE_TOP" == 102060 && "$ASE_BOT" == 102060 ]] && pass "frames 2 and 3 left nothing behind" || fail "frames 2/3 painted over frame 1 (top $ASE_TOP, bottom $ASE_BOT; want 102060)"
+ASE_F2=$(px 5 0 f2); ASE_F3=$(px 5 7 f3); ASE_F3BG=$(px 5 3 f3)
+[[ "$ASE_F2" == 00FF00 && "$ASE_F3" == FFFF00 && "$ASE_F3BG" == 102060 ]] && pass "frame 2's green top row and frame 3's yellow bottom row (over its linked bg) are in their own cells" \
+    || fail "frames 2/3 cells: frame 2 top $ASE_F2 (want 00FF00), frame 3 bottom $ASE_F3 (want FFFF00), frame 3 bg $ASE_F3BG (want 102060)"
 [[ "$ASE_BLK" == 000000 ]] && pass "opaque black stays black" || fail "opaque black came out $ASE_BLK"
 ASE_WANT=$(magick "$ASE_EXP" -format "%[hex:p{7,3}]" info: | cut -c1-6)
 near() { local a=$1 b=$2 i d; for i in 0 2 4; do d=$(( 16#${a:i:2} - 16#${b:i:2} )); (( d < -2 || d > 2 )) && return 1; done; return 0; }

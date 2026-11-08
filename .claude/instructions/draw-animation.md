@@ -31,7 +31,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | `TOOLS/ANIM-OPS.BI/BM` | Frame operations, layout changes (re-slice / resize), timing changes, whole-sheet snapshots, the undo record, `ANIMC` dump line |
 | `GUI/ANIM-PANEL.BI/BM` | The Animation panel (2505): FPANEL window like `GUI/PEN-PANEL` (dock slot `DP_ANIM`, `REGION_ANIM_PANEL`, `WZ_*`, auto-hide, F11, workspace element `ANIM_PANEL`, `ANIM_PANEL_VISIBLE/X/Y`) |
 | `TOOLS/ANIM-LB.BI/BM` | The lightbox view (2.1): layout (`ANIM_LB_layout`, bands strip / transport bar / editor, `ANIM_LB_area` + `ANIM_LB_clear_floats`), `ANIM_LB_render` (cut from the composite), transport bar controls `LB_CTL_*`, `ANIM_LB_mouse`, the `ANIMLB` / `ANIMLBC` / `ANIMLBP` dump lines; drawing in the panes (2.2): the pane view (`ANIM_LB_view_push / _pick / _pop`, `ANIM_LB_pane_view%`), overlays (`ANIM_LB_overlay_begin% / _end`), strokes clipped to a frame (`ANIM_LB_clip_*`) |
-| `TOOLS/ANIM-IMPORT.BI/BM` | Bringing frames in (phase 5): `ANIM_GIF_import%` (5.1, from `DRW_load` after `GIF_load_cycling%`) |
+| `TOOLS/ANIM-IMPORT.BI/BM` | Bringing frames in (phase 5): `ANIM_GIF_import%` (5.1, from `DRW_load` after `GIF_load_cycling%`), `ANIM_ASE_apply` (5.2, from `FILE_ASE_load`), shared `ANIM_IMP_grid%` / `ANIM_IMP_fps%` |
 | `INPUT/NUMPAD.BI/BM` | Numpad keys from bu1ld0r: `NUMPAD_poll` (`_KEYDOWN` edges), `NUMPAD_dev` ([Linux] device ids = X11 key code + 1, catches taps quicker than a frame), `NUMPAD_of%` (which numpad key a plain code could be), `NUMPAD_sent%` |
 
 ## Action ids (2500-2599)
@@ -580,6 +580,22 @@ transparent pixels normalised with `-alpha background` - ImageMagick keeps their
 block = once, a single image = a picture, Ctrl+S round trip. Note ImageMagick's `-layers
 Optimize` of a transparent GIF drops the transparency and its coalesce then starts from the
 background colour, which browsers don't - use opaque frames for optimised fixtures.
+
+**Aseprite (5.2):** `FILE_ASE_load` (INPUT/FILE-ASE) asks `ANIM_IMP_grid%` (the GIF grid, shared)
+for a sheet when the header has 2+ frames; the canvas is then cols x rows sprite-size cells and each
+image layer gets `load_layer_frame_image&(base, layer, f)` (QB64_GJ_LIB, frame f only, linked cels
+load the frame they link to) `_PUTIMAGE`d into cell f with `_DONTBLEND` (pixels as they are).
+`aseLayerOf$` = MKI$ per Aseprite layer: the DRAW layer it became (groups / tilemaps 0). After
+`ANIM_reset`: `ANIM_set_layout%(spriteW, spriteH, 0, 0)`, count = frames, then `ANIM_ASE_apply`
+reads the file itself (the library uses the header speed for every frame): frame durations (ms) ->
+`ANIM_IMP_fps%(d(), n, 1000)` (the GIF timing rule with perSec 1000; 0 ms = 100) + holds; the Tags
+chunk 0x2018 -> `ANIM_TG_put%` (0-based from/to + 1), a tag over every frame sets the loop
+(direction 1 = REV, 2/3 = PING; else FWD); cel type 1 (linked) -> `ANIM_LK_put` on that layer's
+historyId, grouped with the frame it links to. Cel opacity / z-index are not applied. QA:
+`file-anim-ase-import.sh` (11; fixtures written by the test): frames / FPS / tags / links in the
+dump, the PNG sequence vs the expected frames (offset sub-rect cel, linked cels, holds), a
+ping-pong tag over all = loop 2, one frame = a picture. `file-aseprite-frames.sh` now reads frame
+1 from the top-left cell of the 32x16 sheet.
 
 ## A selection stays put in its cell (2.9, Q-18)
 

@@ -13,6 +13,13 @@
 '       browsers do), the NETSCAPE loop block forward looping (none = play
 '       once). The global colour table (else the first local one) becomes the
 '       palette.
+'   5.2 Aseprite: a .aseprite / .ase with two or more frames opens the same
+'       way (FILE_ASE_load): each image layer gets every frame's cel in its
+'       cell. Frame durations (ms) become the FPS and holds as above (FPS =
+'       1000 / their common divisor, at most 50), the tags become tags (a
+'       tag over every frame sets the loop: reverse / ping-pong), linked
+'       cels become linked cells (ANIM_LK_*, per layer). A cel's own opacity
+'       and z-index are not applied (DRAW has neither per cell).
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
