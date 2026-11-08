@@ -22,13 +22,24 @@
 ' layer (frames select as in the strip: Ctrl / Shift); on a name, the layer;
 ' on the header or holds row, the frame. The wheel scrolls the frames,
 ' Shift+wheel (or the wheel over the names) the layers when they overflow.
-' Editing on the grid (dragging drawings, stretching holds) is 4.2.
+' Editing on the grid (4.2), each one undo step:
+'   - drag along the holds row: the frame's hold, a tick at a time
+'   - drag a cell to another frame / layer: the drawing moves there (the
+'     cell it lands on is replaced, the one it left is cleared); Ctrl when
+'     dropping copies it instead
+'   - drag a frame number: the selected frames move there (as the strip)
+' Past the grid's left / right edge a drag scrolls it.
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
 
 CONST ANIM_ACT_XSHEET = 2540 ' ANIM > X-Sheet (Num 8)
+CONST XS_DRAG_NONE   = 0
+CONST XS_DRAG_HOLD   = 1 ' along the holds row
+CONST XS_DRAG_CELL   = 2 ' a drawing to another cell
+CONST XS_DRAG_FRAMES = 3 ' frame numbers: reorder
+DIM SHARED ANIM_XS_BEFORE AS STRING ' ANIM_OPS_snapshot$ at a hold drag's press
 
 TYPE ANIM_XS_OBJ
     shown    AS INTEGER ' drawn on the last full render
@@ -48,6 +59,18 @@ TYPE ANIM_XS_OBJ
     lastCur  AS INTEGER ' current frame / layer at the last layout: a change scrolls it into view
     lastLayer AS INTEGER
     sig      AS STRING  ' the cell fill cache was built for this (history / layout / layers)
+    ' a drag on the grid (4.2): XS_DRAG_* until every button is up
+    dMode    AS INTEGER
+    dOn      AS INTEGER ' moved far enough to be a drag (else a click)
+    dPressX  AS INTEGER
+    dPressY  AS INTEGER
+    dFrame   AS INTEGER ' the frame pressed
+    dSlot    AS INTEGER ' the layer pressed (a cell drag)
+    dHold0   AS INTEGER ' the hold at the press (stretching)
+    dTo      AS INTEGER ' where it would land: frame (a cell) / drop slot (frame numbers)
+    dToSlot  AS INTEGER ' the layer it would land on (a cell)
+    dCollapse AS INTEGER ' a plain press on a frame in a multi-selection: just it on release
+    dScrollT AS DOUBLE  ' past the edges: when it next scrolls
 END TYPE
 DIM SHARED ANIM_XS AS ANIM_XS_OBJ
 DIM SHARED ANIM_XS_ROW(1 TO MAX_LAYERS) AS INTEGER   ' layer slot of row r (display order)

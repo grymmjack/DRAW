@@ -351,6 +351,23 @@ SUB ANIM_XS_render (dest AS LONG)
     IF ANIM_XS.firstRow > 1 THEN LINE (ANIM_XS.gx - 4, yTop + rh)-STEP(2, 1), THEME.CP_text_bright~&, BF
     IF ANIM_XS.firstRow + ANIM_XS.rowsShown - 1 < ANIM_XS.nRows THEN LINE (ANIM_XS.gx - 4, hy - 2)-STEP(2, 1), THEME.CP_text_bright~&, BF
 
+    ' a drag (4.2): where it lands
+    IF ANIM_XS.dOn THEN
+        IF ANIM_XS.dMode = XS_DRAG_CELL _ANDALSO ANIM_XS.dTo > 0 _ANDALSO ANIM_XS.dToSlot > 0 THEN
+            FOR k = 1 TO ANIM_XS.rowsShown
+                IF ANIM_XS_row_slot%(k) = ANIM_XS.dToSlot THEN
+                    x = ANIM_XS_frame_x%(ANIM_XS.dTo): w = ANIM_hold%(ANIM_XS.dTo) * ANIM_XS.tickW: y = ANIM_XS_row_y%(k)
+                    LINE (x, y)-(_MIN(x + w - 1, x2), y + rh - 1), THEME.ANIM_FRAME_current~&, B
+                    LINE (x + 1, y + 1)-(_MIN(x + w - 2, x2), y + rh - 2), THEME.ANIM_FRAME_current~&, B
+                    IF ANIM_LB_ctrl% THEN FPANEL_text _MIN(x + w, x2) - FPANEL_text_w%("+") - 2, y + (rh - FPANEL.fontH%) \ 2, "+", THEME.CP_text_bright~&
+                END IF
+            NEXT k
+        ELSEIF ANIM_XS.dMode = XS_DRAG_FRAMES _ANDALSO ANIM_XS.dTo > 0 THEN
+            IF ANIM_XS.dTo <= ANIM_XS.lastF THEN x = ANIM_XS_frame_x%(ANIM_XS.dTo) ELSE x = ANIM_XS_frame_x%(ANIM_XS.lastF) + ANIM_hold%(ANIM_XS.lastF) * ANIM_XS.tickW
+            IF x <= x2 THEN LINE (x - 1, yTop)-(x + 1, yBot), THEME.ANIM_FRAME_current~&, BF
+        END IF
+    END IF
+
     _FONT oldFont
     ANIM_XS.shown = TRUE
 END SUB
@@ -417,26 +434,183 @@ FUNCTION ANIM_XS_frame_at% (mx AS INTEGER)
 END FUNCTION
 
 ''
+' The layer slot of band row k (1..rowsShown), or 0.
+FUNCTION ANIM_XS_row_slot% (k AS INTEGER)
+    IF k < 1 _ORELSE k > ANIM_XS.rowsShown THEN EXIT FUNCTION
+    IF ANIM_XS.firstRow + k - 1 > ANIM_XS.nRows THEN EXIT FUNCTION
+    ANIM_XS_row_slot% = ANIM_XS_ROW(ANIM_XS.firstRow + k - 1)
+END FUNCTION
+
+''
 ' ANIM_LB_mouse: a left press on the band. A cell = its frame current (strip
 ' rules: Ctrl / Shift select) and its layer current; a name = the layer; the
-' header / holds row = the frame. TRUE = it was on the band.
+' header / holds row = the frame. A plain press may start a drag (4.2): the
+' holds row stretches the hold, a cell moves its drawing, a frame number
+' moves the selected frames. TRUE = it was on the band.
 FUNCTION ANIM_XS_press% (mx AS INTEGER, my AS INTEGER)
-    DIM k AS INTEGER, f AS INTEGER, slot AS INTEGER
+    DIM k AS INTEGER, f AS INTEGER, slot AS INTEGER, c AS INTEGER, s AS INTEGER
     IF ANIM_XS_hit%(mx, my) = 0 THEN EXIT FUNCTION
     ANIM_XS_press% = TRUE
     MOUSE.UI_CHROME_CLICKED% = TRUE
     k = ANIM_XS_band_row%(my)
     IF k < 0 THEN EXIT FUNCTION
-    IF k >= 1 _ANDALSO k <= ANIM_XS.rowsShown _ANDALSO ANIM_XS.firstRow + k - 1 <= ANIM_XS.nRows THEN slot = ANIM_XS_ROW(ANIM_XS.firstRow + k - 1)
+    slot = ANIM_XS_row_slot%(k)
     f = ANIM_XS_frame_at%(mx)
+    c = ANIM_LB_ctrl%: s = ANIM_LB_shift%
+    ANIM_XS.dMode = XS_DRAG_NONE: ANIM_XS.dOn = FALSE: ANIM_XS.dCollapse = FALSE
+    ANIM_XS.dPressX = mx: ANIM_XS.dPressY = my: ANIM_XS.dFrame = f: ANIM_XS.dSlot = 0: ANIM_XS.dTo = 0: ANIM_XS.dToSlot = 0
     IF slot > 0 _ANDALSO (mx < ANIM_XS.gx _ORELSE f > 0) THEN
         IF slot <> CURRENT_LAYER% THEN
             IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN LAYERS_select_group slot ELSE LAYERS_select slot
         END IF
     END IF
-    IF f > 0 THEN ANIM_SEL_click f, ANIM_LB_ctrl%, ANIM_LB_shift%
+    IF f > 0 THEN
+        IF k = 0 _ANDALSO c = 0 _ANDALSO s = 0 _ANDALSO ANIM_SEL_count% > 1 _ANDALSO ANIM_SEL(f) <> 0 THEN
+            ANIM_XS.dCollapse = TRUE ' maybe the start of moving the selection: just it on a plain release
+            ANIM.current = f
+        ELSE
+            ANIM_SEL_click f, c, s
+        END IF
+        IF c = 0 _ANDALSO s = 0 THEN
+            IF k = 0 THEN
+                ANIM_XS.dMode = XS_DRAG_FRAMES
+            ELSEIF k = ANIM_XS.rowsShown + 1 THEN
+                ANIM_XS.dMode = XS_DRAG_HOLD: ANIM_XS.dHold0 = ANIM_hold%(f)
+            ELSEIF slot > 0 THEN
+                IF ANIM_OPS_moves%(slot) _ANDALSO ANIM_XS_filled%(slot, f) THEN ANIM_XS.dMode = XS_DRAG_CELL: ANIM_XS.dSlot = slot ' an empty cell has nothing to move
+            END IF
+        END IF
+    END IF
     ANIM_LB_changed
 END FUNCTION
+
+''
+' Where dropped frames land for viewport x: before the frame whose span's
+' left half it is over (count + 1 past the last).
+FUNCTION ANIM_XS_drop_slot% (mx AS INTEGER)
+    DIM f AS INTEGER, x AS INTEGER, s AS INTEGER
+    s = ANIM_XS.lastF + 1
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f)
+        IF mx < x + (ANIM_hold%(f) * ANIM_XS.tickW) \ 2 THEN s = f: EXIT FOR
+    NEXT f
+    ANIM_XS_drop_slot% = _MAX(1, _MIN(s, ANIM.count + 1))
+END FUNCTION
+
+''
+' ANIM_LB_mouse while a grid press is held, and its release.
+SUB ANIM_XS_hold ()
+    DIM mx AS INTEGER, my AS INTEGER, h AS INTEGER, t AS DOUBLE, f AS INTEGER
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    mx = MOUSE.RAW_X%: my = MOUSE.RAW_Y%
+    f = ANIM_XS.dFrame
+    IF MOUSE.B1% THEN
+        IF ANIM_XS.dOn = 0 _ANDALSO ANIM_XS.dMode <> XS_DRAG_NONE THEN
+            IF ABS(mx - ANIM_XS.dPressX) >= 4 _ORELSE (ANIM_XS.dMode = XS_DRAG_CELL _ANDALSO ABS(my - ANIM_XS.dPressY) >= 4) THEN
+                ANIM_XS.dOn = TRUE: ANIM_XS.dCollapse = FALSE
+                IF ANIM_XS.dMode = XS_DRAG_HOLD THEN ANIM_XS_BEFORE = ANIM_OPS_snapshot$(FALSE)
+            END IF
+        END IF
+        IF ANIM_XS.dOn = 0 THEN EXIT SUB
+        IF ANIM_XS.dMode <> XS_DRAG_HOLD THEN ' past the grid's ends it scrolls, a frame every quarter second
+            t = TIMER(.001)
+            IF t >= ANIM_XS.dScrollT _ORELSE t < ANIM_XS.dScrollT - 1 THEN
+                IF mx < ANIM_XS.gx _ANDALSO ANIM_XS.firstF > 1 THEN ANIM_XS.firstF = ANIM_XS.firstF - 1: ANIM_XS.dScrollT = t + .25: ANIM_LB_changed
+                IF mx >= ANIM_XS.x2 - 2 _ANDALSO ANIM_XS.lastF < ANIM.count THEN ANIM_XS.firstF = ANIM_XS.firstF + 1: ANIM_XS.dScrollT = t + .25: ANIM_LB_changed
+            END IF
+        END IF
+        SELECT CASE ANIM_XS.dMode
+            CASE XS_DRAG_HOLD ' a tick of hold per tick dragged
+                h = ANIM_XS.dHold0 + CINT((mx - ANIM_XS.dPressX) / _MAX(1, ANIM_XS.tickW))
+                h = _MAX(1, _MIN(ANIM_HOLD_MAX, h))
+                IF h <> ANIM_hold%(f) THEN ANIM_set_hold f, h: STATUS_flash "Frame" + STR$(f) + ": hold" + STR$(h): ANIM_LB_changed
+            CASE XS_DRAG_CELL
+                h = ANIM_XS_frame_at%(mx)
+                IF h <> ANIM_XS.dTo _ORELSE ANIM_XS_row_slot%(ANIM_XS_band_row%(my)) <> ANIM_XS.dToSlot THEN
+                    ANIM_XS.dTo = h: ANIM_XS.dToSlot = ANIM_XS_row_slot%(ANIM_XS_band_row%(my))
+                    ANIM_LB_changed
+                END IF
+            CASE XS_DRAG_FRAMES
+                h = ANIM_XS_drop_slot%(mx)
+                IF h <> ANIM_XS.dTo THEN ANIM_XS.dTo = h: ANIM_LB_changed
+        END SELECT
+        EXIT SUB
+    END IF
+    ' released
+    IF ANIM_XS.dOn THEN
+        SELECT CASE ANIM_XS.dMode
+            CASE XS_DRAG_HOLD
+                IF ANIM_hold%(f) <> ANIM_XS.dHold0 THEN
+                    ANIM_OPS_record ANIM_XS_BEFORE, ANIM_OPS_snapshot$(FALSE), "Frame Hold", 0
+                    STATUS_flash "Frame" + STR$(f) + ": hold" + STR$(ANIM_hold%(f))
+                END IF
+            CASE XS_DRAG_CELL: ANIM_XS_drop
+            CASE XS_DRAG_FRAMES
+                ANIM_MOVE_TO = ANIM_XS.dTo
+                ANIM_OPS_run ANIM_OP_MOVE_SEL ' nothing when dropped where they are
+        END SELECT
+    ELSEIF ANIM_XS.dCollapse THEN
+        ANIM_SEL_click f, FALSE, FALSE
+    END IF
+    ANIM_XS_BEFORE = ""
+    ANIM_XS.dMode = XS_DRAG_NONE: ANIM_XS.dOn = FALSE: ANIM_XS.dCollapse = FALSE: ANIM_XS.dTo = 0: ANIM_XS.dToSlot = 0
+    ANIM_LB_changed
+END SUB
+
+''
+' A cell drag let go: layer dSlot's drawing in frame dFrame moves (Ctrl:
+' copies) to layer dToSlot's cell in frame dTo, replacing what was there.
+' One undo step; the cell it landed in becomes current.
+SUB ANIM_XS_drop ()
+    DIM src AS INTEGER, dst AS INTEGER, f AS INTEGER, g AS INTEGER, cp AS INTEGER, why AS STRING
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, gx AS LONG, gy AS LONG, gw AS LONG, gh AS LONG
+    DIM tmp AS LONG, img AS LONG, oldDest AS LONG, before AS STRING
+    src = ANIM_XS.dSlot: f = ANIM_XS.dFrame: dst = ANIM_XS.dToSlot: g = ANIM_XS.dTo
+    cp = ANIM_LB_ctrl%
+    IF g < 1 _ORELSE dst < 1 _ORELSE src < 1 _ORELSE f < 1 THEN EXIT SUB ' dropped off the grid
+    IF dst = src _ANDALSO g = f THEN EXIT SUB
+    IF ANIM_OPS_moves%(dst) = 0 _ORELSE ANIM_OPS_moves%(src) = 0 THEN STATUS_flash "Drawings move between pixel layers only": EXIT SUB
+    IF ANIM_LF_is_same%(src) _ORELSE ANIM_LF_is_same%(dst) THEN STATUS_flash "That layer is the same on every frame": EXIT SUB
+    why = ANIM_OPS_busy$
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 _ORELSE ANIM_cell_rect%(g, gx, gy, gw, gh) = 0 THEN EXIT SUB
+    ANIM_play_stop
+    before = ANIM_OPS_snapshot$(TRUE)
+    tmp = _NEWIMAGE(cw, ch, 32)
+    IF tmp >= -1 THEN EXIT SUB
+    _DONTBLEND tmp
+    _PUTIMAGE (0, 0), LAYERS(src).imgHandle&, tmp, (cx + LAYERS(src).apronW%, cy + LAYERS(src).apronH%)-(cx + LAYERS(src).apronW% + cw - 1, cy + LAYERS(src).apronH% + ch - 1)
+    oldDest = _DEST
+    IF cp = 0 THEN ' the cell it left is cleared
+        img = LAYERS(src).imgHandle&
+        _DEST img: _DONTBLEND img
+        LINE (cx + LAYERS(src).apronW%, cy + LAYERS(src).apronH%)-STEP(cw - 1, ch - 1), _RGBA32(0, 0, 0, 0), BF
+        _BLEND img
+    END IF
+    img = LAYERS(dst).imgHandle&
+    _DEST img: _DONTBLEND img
+    LINE (gx + LAYERS(dst).apronW%, gy + LAYERS(dst).apronH%)-STEP(gw - 1, gh - 1), _RGBA32(0, 0, 0, 0), BF
+    _PUTIMAGE (gx + LAYERS(dst).apronW%, gy + LAYERS(dst).apronH%), tmp, img
+    _BLEND img
+    _DEST oldDest
+    _FREEIMAGE tmp
+    ANIM_XS_touched src: ANIM_XS_touched dst
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(TRUE), _IIF(cp, "Copy Drawing", "Move Drawing"), 0
+    ANIM_SEL_click g, FALSE, FALSE
+    IF dst <> CURRENT_LAYER% THEN LAYERS_select dst
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    STATUS_flash _IIF(cp, "Copied", "Moved") + " the drawing to frame" + STR$(g) + _IIF(dst <> src, " on " + _TRIM$(LAYERS(dst).name), "")
+END SUB
+
+''
+' A layer's pixels changed outside the tools: its caches go.
+SUB ANIM_XS_touched (L AS INTEGER)
+    LAYERS(L).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(L).apronCacheImg&: LAYERS(L).apronCacheImg& = 0
+    LAYERS(L).apronCacheValid% = FALSE
+    SYMBOL_mark_parent_dirty L
+END SUB
 
 ''
 ' The wheel over the band: the frames (a quarter of those shown a notch);
@@ -459,6 +633,7 @@ END FUNCTION
 ''
 ' QA dump lines:
 ' ANIMXS on shown x1 y1 x2 y2 nameW rowH tickW gx firstF lastF nRows firstRow rowsShown currentLayer
+' ANIMXSD mode on frame slot to toSlot (a drag on the grid, 4.2)
 ' ANIMXSF then per frame shown: f x w (its span)
 ' ANIMXSR r slot y fill (per row; y -1 = scrolled out; fill = per frame 1 drawn / 0 empty, "-" a group)
 FUNCTION ANIM_XS_dump$ ()
@@ -467,6 +642,7 @@ FUNCTION ANIM_XS_dump$ ()
     d = "ANIMXS" + DOCK_n$(CFG.XSHEET% <> 0) + DOCK_n$(isOn) + DOCK_n$(ANIM_XS.x1) + DOCK_n$(ANIM_XS.y1) + DOCK_n$(ANIM_XS.x2) + DOCK_n$(ANIM_XS.y2)
     d = d + DOCK_n$(ANIM_XS.nameW) + DOCK_n$(ANIM_XS.rowH) + DOCK_n$(ANIM_XS.tickW) + DOCK_n$(ANIM_XS.gx) + DOCK_n$(ANIM_XS.firstF) + DOCK_n$(ANIM_XS.lastF)
     d = d + DOCK_n$(ANIM_XS.nRows) + DOCK_n$(ANIM_XS.firstRow) + DOCK_n$(ANIM_XS.rowsShown) + DOCK_n$(CURRENT_LAYER%) + CHR$(10)
+    d = d + "ANIMXSD" + DOCK_n$(ANIM_XS.dMode) + DOCK_n$(ANIM_XS.dOn <> 0) + DOCK_n$(ANIM_XS.dFrame) + DOCK_n$(ANIM_XS.dSlot) + DOCK_n$(ANIM_XS.dTo) + DOCK_n$(ANIM_XS.dToSlot) + CHR$(10)
     IF isOn = 0 THEN ANIM_XS_dump$ = d: EXIT FUNCTION
     ANIM_XS_cache_check
     d = d + "ANIMXSF"

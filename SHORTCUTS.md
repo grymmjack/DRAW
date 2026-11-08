@@ -620,6 +620,11 @@ layer, `=` a layer the same on every frame.
 | Click a frame number or a hold | That frame (`Ctrl` / `Shift` as in the strip) |
 | Click a layer name | That layer |
 | Wheel | Scroll the frames; `Shift+Wheel` (or the wheel over the names) scrolls the layers when they don't all fit |
+| Drag along the hold row | Change that frame's hold, one tick per column dragged (at least 1) |
+| Drag a cell | Move its drawing to the cell you drop it on - another frame, another layer, or both; the drawing there is replaced. Hold `Ctrl` as you let go to copy it instead |
+| Drag a frame number | Move the selected frames (or that one) to where you drop them, as in the strip |
+
+Each drag is one undo step. Dragging past the left or right edge scrolls the grid.
 
 **COPY / PASTE / CUT** (the transport bar, or the ANIM menu): COPY puts the selected frames
 (or the current one) on the clipboard; PASTE inserts them as new frames after the selection;

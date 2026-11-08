@@ -456,7 +456,20 @@ rescanned every render (live strokes). Thumbnail = the transparency blueprint + 
 cell `_PUTIMAGE`d at the span's start, a hold line to the end. Click: cell = `ANIM_SEL_click`
 + `LAYERS_select` (`LAYERS_select_group` for a group); name = the layer; header / holds = the
 frame. Wheel: frames by a quarter of those shown; Shift / over the names: rows. Current frame
-/ layer scroll into view when they change. Editing (drag drawings, stretch holds) is 4.2.
+/ layer scroll into view when they change.
+**Editing (4.2):** a plain press sets `ANIM_XS.dMode` (`XS_DRAG_HOLD` holds row / `XS_DRAG_CELL`
+a drawn pixel-layer cell / `XS_DRAG_FRAMES` header); `ANIM_LB_mouse` then routes every frame to
+`ANIM_XS_hold` until the release (4 px = a drag; else the click it already was). Hold: live
+`ANIM_set_hold` = hold at press + ticks dragged, `ANIM_XS_BEFORE` snapshot (no pixels) at drag
+start, one `ANIM_OPS_record` "Frame Hold" at release. Cell: target frame + row slot, outlined
+(`+` with Ctrl); release = `ANIM_XS_drop`: refuses text / symbol copies / groups, same-on-every-
+frame layers and `ANIM_OPS_busy$`; whole-sheet snapshot before/after, cell copied through a
+`_DONTBLEND` scratch, source cleared unless Ctrl at the drop, target cleared then put,
+`ANIM_XS_touched` (contentDirty, apron cache, symbol parent), "Move / Copy Drawing", target
+current. Frames: `ANIM_XS_drop_slot%` (left half of a span) -> `ANIM_MOVE_TO` +
+`ANIM_OP_MOVE_SEL` (holds travel with their frames); a plain press on a multi-selection
+collapses on a click release. Past the grid's ends a cell / frame drag scrolls a frame / 0.25 s.
+Dump `ANIMXSD mode on frame slot to toSlot`. QA: `anim-xsheet-edit.sh`.
 QA dump: `ANIMXS on shown x1 y1 x2 y2 nameW rowH tickW gx firstF lastF nRows firstRow
 rowsShown currentLayer`, `ANIMXSF f x w ...` (spans), `ANIMXSR r slot y fill` (fill = 1 / 0 per
 frame, `-` a group; y -1 scrolled out). The chip is `ANIMLBC` pair 15. QA: `anim-xsheet.sh`.
