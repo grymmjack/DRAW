@@ -25,6 +25,12 @@
 '       when they form a regular grid, else laid out again (ANIM_SHEET_import%);
 '       ANIM > Detect Frames finds a plain sheet's grid from its gaps
 '       (ANIM_DT_action, the solver ANIM_DT_solve% in ANIM.BM).
+'   5.4 PNG sequence: ANIM > Import PNG Sequence... (or DRAW --sequence
+'       name_0001.png) gathers the files beside the one picked that differ
+'       only in the number (name_0001.png, name_0002.png ... or name1.png,
+'       name2.png ...), in number order, onto a sheet as a new untitled
+'       document. A file the same as the one before it adds a tick to that
+'       frame's hold, so DRAW's own Export PNG Sequence comes back as it was.
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
@@ -32,3 +38,9 @@ $INCLUDEONCE
 
 CONST ANIM_IMP_MAX_PIXELS = 67108864 ' a sheet bigger than this (pixels) is refused: the GIF opens as its first frame
 DIM SHARED ANIM_IMP_INFO AS STRING   ' summary of the last import ("12 frames at 10 fps")
+CONST ANIM_ACT_IMPORT_SEQ = 2548     ' ANIM > Import PNG Sequence... (5.4)
+DIM SHARED ANIM_SEQ_CLI AS INTEGER   ' --sequence: the command-line file opens as the start of a PNG sequence
+DIM ANIM_SEQ_ARG AS INTEGER
+FOR ANIM_SEQ_ARG = 1 TO _COMMANDCOUNT
+    IF LCASE$(_TRIM$(COMMAND$(ANIM_SEQ_ARG))) = "--sequence" THEN ANIM_SEQ_CLI = TRUE
+NEXT ANIM_SEQ_ARG

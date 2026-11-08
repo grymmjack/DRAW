@@ -65,6 +65,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2543 / 2544 | Tag Frames... / Delete Tag (`ANIM_TG_action`, `TOOLS/ANIM-OPS`, 4.4) |
 | 2545 / 2546 | Frame Note... / Clear Frame Note (`ANIM_NT_action`, `TOOLS/ANIM-OPS`, 4.5) |
 | 2547 | Detect Frames (`ANIM_DT_action`, `TOOLS/ANIM-IMPORT`, 5.3: the sheet's grid from its gaps) |
+| 2548 | Import PNG Sequence... (`ANIM_SEQ_action`, `TOOLS/ANIM-IMPORT`, 5.4; CLI `--sequence FILE`) |
 | 2540 | X-Sheet in the lightbox's top band (`ANIM_XS_toggle`, `TOOLS/ANIM-XS`, `CFG.XSHEET`, Num 8, chip `LB_CTL_XS`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
@@ -621,6 +622,19 @@ then the smallest margin + gutter. An axis of one cell takes the other's gutter.
 the last cell drawn in. One undo step (`ANIM_OPS_record`, no pixels). Emptiness alone can't tell
 a gutter from a sprite's padding, so a padded sheet with gutters comes out as bigger cells
 holding the same sprites in the same order. QA: `file-anim-sheet-import.sh` (17) + the unit test.
+
+**PNG sequence (5.4).** `ANIM_SEQ_files%`: the number is the last digit run before the extension;
+siblings (one `_FILES$` sweep of the folder) with the same prefix and suffix (case-insensitive)
+and 1-12 digits there, sorted by value (so walk10 follows walk9). `ANIM_SEQ_import%` loads every
+file twice - pass 1 for the largest size and repeats (a file whose pixels equal the previous
+one's adds a tick to that frame, up to `ANIM_HOLD_MAX`), pass 2 `_PUTIMAGE`s each kept file
+`_DONTBLEND` into its cell (top left) - on a `DRW_create_canvas_at_size` document (untitled: Ctrl+S
+asks a name, never overwrites frame 1). FPS stays the default (files carry no timing). Entry
+points: ANIM > Import PNG Sequence... 2548 (`DRAW_open_file$`, pick any file) and `--sequence`
+(`ANIM_SEQ_CLI`, scanned at include time in ANIM-IMPORT.BI; the deferred command-line load tries
+it first and falls back to a plain open). QA: `file-anim-seq-import.sh` (9): padded with a
+repeat + non-frames beside it, unpadded 1-10 with a smaller file, round trip through
+`--export-anim` PNGs, no number / alone = a picture.
 
 ## A selection stays put in its cell (2.9, Q-18)
 

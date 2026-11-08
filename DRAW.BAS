@@ -544,7 +544,10 @@ DO
     ' Interactive placement is reserved for File -> Import Image only.
     IF CMDLINE_FIRST_FRAME% AND CMDLINE_PENDING_FILE$ <> "" THEN
         CMDLINE_FIRST_FRAME% = FALSE
-        IF FILE_ASE_is_aseprite_file%(CMDLINE_PENDING_FILE$) THEN
+        IF ANIM_SEQ_CLI _ANDALSO ANIM_SEQ_import%(CMDLINE_PENDING_FILE$) THEN
+            ' --sequence: name_0001.png and its numbered siblings as frames (Animation 5.4), untitled
+            SOUND_play SND_NEW_FILE
+        ELSEIF FILE_ASE_is_aseprite_file%(CMDLINE_PENDING_FILE$) THEN
             FILE_ASE_load CMDLINE_PENDING_FILE$
             SOUND_play SND_NEW_FILE
             RECENT_add_file CMDLINE_PENDING_FILE$

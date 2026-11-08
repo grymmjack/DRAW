@@ -769,3 +769,166 @@ FUNCTION ANIM_SHEET_import% (filename AS STRING)
     STATUS_flash MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1) + ": " + ANIM_IMP_INFO
     ANIM_SHEET_import% = TRUE
 END FUNCTION
+
+' ---------------------------------------------------------------------------
+' 5.4 PNG sequence
+' ---------------------------------------------------------------------------
+
+''
+' The files of the numbered sequence filename belongs to, in number order:
+' names(1..n) (full paths). The number is the last run of digits in the name
+' before its extension; the others differ only in that number (any width).
+' Returns n (0 = no number in the name).
+FUNCTION ANIM_SEQ_files% (filename AS STRING, names() AS STRING)
+    DIM dirP AS STRING, baseNm AS STRING, dot AS LONG, a AS LONG, b AS LONG, pre AS STRING, suf AS STRING
+    DIM e AS STRING, n AS INTEGER, i AS INTEGER, j AS INTEGER, numTxt AS STRING, ok AS INTEGER, sl AS LONG
+    DIM nums(1 TO ANIM_MAX_FRAMES) AS DOUBLE, t AS DOUBLE, ts AS STRING
+    sl = _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\"))
+    dirP = LEFT$(filename, sl): baseNm = MID$(filename, sl + 1)
+    dot = _INSTRREV(baseNm, ".")
+    IF dot = 0 THEN dot = LEN(baseNm) + 1
+    b = dot - 1
+    DO WHILE b >= 1 _ANDALSO (ASC(baseNm, b) < 48 _ORELSE ASC(baseNm, b) > 57)
+        b = b - 1
+    LOOP
+    IF b < 1 THEN EXIT FUNCTION
+    a = b
+    DO WHILE a > 1 _ANDALSO ASC(baseNm, a - 1) >= 48 _ANDALSO ASC(baseNm, a - 1) <= 57
+        a = a - 1
+    LOOP
+    pre = LCASE$(LEFT$(baseNm, a - 1)): suf = LCASE$(MID$(baseNm, b + 1))
+    e = _FILES$(_IIF(dirP = "", "./", dirP))
+    DO WHILE e <> ""
+        IF RIGHT$(e, 1) <> "/" _ANDALSO RIGHT$(e, 1) <> "\" _ANDALSO LEN(e) > LEN(pre) + LEN(suf) THEN
+            IF LCASE$(LEFT$(e, LEN(pre))) = pre _ANDALSO LCASE$(RIGHT$(e, LEN(suf))) = suf THEN
+                numTxt = MID$(e, LEN(pre) + 1, LEN(e) - LEN(pre) - LEN(suf))
+                ok = (LEN(numTxt) >= 1 _ANDALSO LEN(numTxt) <= 12)
+                FOR i = 1 TO LEN(numTxt)
+                    IF ASC(numTxt, i) < 48 _ORELSE ASC(numTxt, i) > 57 THEN ok = FALSE: EXIT FOR
+                NEXT i
+                IF ok _ANDALSO n < ANIM_MAX_FRAMES THEN n = n + 1: names(n) = e: nums(n) = VAL(numTxt)
+            END IF
+        END IF
+        e = _FILES$
+    LOOP
+    ' number order (insertion sort; a tie keeps the shorter name first)
+    FOR i = 2 TO n
+        t = nums(i): ts = names(i): j = i - 1
+        DO WHILE j >= 1
+            IF nums(j) < t _ORELSE (nums(j) = t _ANDALSO LEN(names(j)) <= LEN(ts)) THEN EXIT DO
+            nums(j + 1) = nums(j): names(j + 1) = names(j): j = j - 1
+        LOOP
+        nums(j + 1) = t: names(j + 1) = ts
+    NEXT i
+    FOR i = 1 TO n: names(i) = dirP + names(i): NEXT i
+    ANIM_SEQ_files% = n
+END FUNCTION
+
+''
+' The pixels of a 32-bit image as a string (w, h set).
+FUNCTION ANIM_SEQ_pixels$ (img AS LONG, w AS LONG, h AS LONG)
+    DIM m AS _MEM, t AS STRING
+    w = _WIDTH(img): h = _HEIGHT(img)
+    m = _MEMIMAGE(img)
+    t = SPACE$(w * h * 4)
+    _MEMGET m, m.OFFSET, t
+    _MEMFREE m
+    ANIM_SEQ_pixels$ = t
+END FUNCTION
+
+''
+' Open the PNG sequence filename belongs to as a new untitled document: one
+' frame per file (the largest file's size; smaller ones at the cell's top
+' left), a file the same as the one before it = one more tick of that frame.
+' FALSE (nothing changed) when it is not part of a sequence of 2 or more.
+FUNCTION ANIM_SEQ_import% (filename AS STRING)
+    DIM n AS INTEGER, i AS INTEGER, img AS LONG, w AS LONG, h AS LONG, fw AS LONG, fh AS LONG, nf AS INTEGER
+    DIM cols AS LONG, rows AS LONG, r AS INTEGER, cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, k AS INTEGER
+    DIM px AS STRING, prev AS STRING, pw AS LONG, ph AS LONG, bad AS INTEGER, lay AS INTEGER
+    DIM names(1 TO ANIM_MAX_FRAMES) AS STRING, keep(1 TO ANIM_MAX_FRAMES) AS INTEGER, ticks(1 TO ANIM_MAX_FRAMES) AS INTEGER
+
+    ANIM_IMP_INFO = ""
+    IF _FILEEXISTS(filename) = 0 THEN EXIT FUNCTION
+    n = ANIM_SEQ_files%(filename, names())
+    IF n < 2 THEN EXIT FUNCTION
+    ' pass 1: sizes, and which files repeat the one before
+    FOR i = 1 TO n
+        img = _LOADIMAGE(names(i), 32)
+        IF img >= -1 THEN bad = bad + 1: _CONTINUE
+        px = ANIM_SEQ_pixels$(img, w, h)
+        SAFE_FREEIMAGE img
+        fw = _MAX(fw, w): fh = _MAX(fh, h)
+        IF nf > 0 _ANDALSO w = pw _ANDALSO h = ph _ANDALSO px = prev THEN
+            IF ticks(nf) < ANIM_HOLD_MAX THEN ticks(nf) = ticks(nf) + 1: _CONTINUE
+        END IF
+        nf = nf + 1: keep(i) = nf: ticks(nf) = 1
+        prev = px: pw = w: ph = h
+    NEXT i
+    prev = "": px = ""
+    IF nf < 1 _ORELSE (nf = 1 _ANDALSO ticks(1) < 2) THEN EXIT FUNCTION
+    IF nf = 1 THEN
+        cols = 1: rows = 1 ' every file the same picture: one frame, held
+    ELSEIF ANIM_IMP_grid%(nf, fw, fh, cols, rows, filename) = FALSE THEN
+        EXIT FUNCTION
+    END IF
+    IF fw > 32767 _ORELSE fh > 32767 THEN EXIT FUNCTION
+
+    DRW_create_canvas_at_size CINT(cols * fw), CINT(rows * fh)
+    lay = CURRENT_LAYER%
+    IF lay < 1 _ORELSE lay > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(lay).imgHandle& >= -1 THEN EXIT FUNCTION
+    r = ANIM_set_layout%(CINT(fw), CINT(fh), 0, 0)
+    IF r = FALSE THEN EXIT FUNCTION
+    ANIM.count = nf: ANIM.wanted = nf: ANIM.current = 1
+    ' pass 2: each kept file into its cell, as it is
+    _DONTBLEND LAYERS(lay).imgHandle&
+    FOR i = 1 TO n
+        k = keep(i)
+        IF k > 0 THEN
+            img = _LOADIMAGE(names(i), 32)
+            IF img < -1 THEN
+                IF ANIM_cell_rect%(k, cx, cy, cw, ch) THEN _PUTIMAGE (cx, cy), img, LAYERS(lay).imgHandle&
+                SAFE_FREEIMAGE img
+            END IF
+        END IF
+    NEXT i
+    _BLEND LAYERS(lay).imgHandle&
+    FOR k = 1 TO nf: ANIM_set_hold k, ticks(k): NEXT k
+    ANIM.loopMode = ANIM_LOOP_FWD
+
+    LAYERS(lay).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    CANVAS_DIRTY% = FALSE
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    COMPOSITE_RESULT_VALID% = FALSE
+    ANIM_IMP_INFO = _TRIM$(STR$(nf)) + " frames from" + STR$(n - bad) + " files (" + MID$(names(1), _MAX(_INSTRREV(names(1), "/"), _INSTRREV(names(1), "\")) + 1) _
+        + " .. " + MID$(names(n), _MAX(_INSTRREV(names(n), "/"), _INSTRREV(names(n), "\")) + 1) + ")"
+    IF bad > 0 THEN ANIM_IMP_INFO = ANIM_IMP_INFO + "," + STR$(bad) + " unreadable"
+    _LOGINFO "ANIM_SEQ_import: " + ANIM_IMP_INFO
+    STATUS_flash "PNG sequence: " + ANIM_IMP_INFO
+    ANIM_SEQ_import% = TRUE
+END FUNCTION
+
+''
+' ANIM > Import PNG Sequence...: pick any file of the sequence.
+SUB ANIM_SEQ_action ()
+    DIM filename AS STRING, default_path AS STRING
+    IF CFG.LAST_DIR_OPEN$ <> "" THEN
+        default_path = CFG.LAST_DIR_OPEN$ + "/"
+    ELSEIF LAST_DIRECTORY$ <> "" THEN
+        default_path = LAST_DIRECTORY$ + "/"
+    END IF
+    POINTER_hide_for_dialog
+    filename = DRAW_open_file$("Import PNG Sequence (pick any of its files)", default_path, "PNG|*.png|All Files|*.*", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+    IF filename = "" THEN EXIT SUB
+    CFG.LAST_DIR_OPEN$ = CONFIG_extract_dir$(filename)
+    LAST_DIRECTORY$ = CFG.LAST_DIR_OPEN$
+    CONFIG_save
+    IF ANIM_SEQ_import%(filename) THEN
+        SOUND_play SND_NEW_FILE
+    ELSE
+        STATUS_flash "Import PNG Sequence: no numbered files beside " + MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1) + " (name_0001.png, name_0002.png ...)"
+    END IF
+END SUB
