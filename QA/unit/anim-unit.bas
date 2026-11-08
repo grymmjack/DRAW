@@ -349,6 +349,38 @@ check "insert 1 after the last", plan$(ANIM_OP_INSERT_N), "8 8:1 2 3 4 5 6 7 0"
 ANIM_COUNT_TO = 0: check "insert 0: refused", plan$(ANIM_OP_INSERT_N), "refused"
 ANIM_COUNT_TO = ANIM_MAX_FRAMES: check "insert past the most frames: refused", plan$(ANIM_OP_INSERT_N), "refused"
 
+' --- tags (4.4) ---
+ANIM_reset: r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 8: ANIM.wanted = 8: ANIM.current = 1
+r = ANIM_TG_put%("walk", 2, 4): check "tag walk 2-4", tags$, "walk 2 4"
+r = ANIM_TG_put%(" run ", 6, 5): check "tag run 6-5: trimmed, in order", tags$, "walk 2 4|run 5 6"
+r = ANIM_TG_put%("WALK", 3, 7): check "the same name (any case) moves it", tags$, "WALK 3 7|run 5 6"
+check "past the frames: refused", STR$(ANIM_TG_put%("x", 7, 9)), STR$(0)
+check "no name: refused", STR$(ANIM_TG_put%("  ", 1, 2)), STR$(0)
+check "the shortest tag at frame 5", STR$(ANIM_TG_at%(5)), STR$(2)
+check "the tag at frame 3", STR$(ANIM_TG_at%(3)), STR$(1)
+check "no tag at frame 1", STR$(ANIM_TG_at%(1)), STR$(0)
+ANIM_TG_select 2: check "select run: its frames, the first current", sel$ + " c" + _TRIM$(STR$(ANIM.current)), "5 6 c5"
+check "selection = run", STR$(ANIM_TG_selected%), STR$(2)
+ANIM_SEL_click 7, FALSE, TRUE: check "selection 5-7: no tag", STR$(ANIM_TG_selected%), STR$(0)
+s = ANIM_serialize$
+check "saved as v4", STR$(CVI(LEFT$(s, 2))), STR$(ANIM_CHUNK_VERSION_TAGS)
+r = ANIM_deserialize%(s): check "tags back after a load", tags$, "WALK 3 7|run 5 6"
+ANIM_SEL_clear: ANIM.current = 4
+r = ANIM_plan%(ANIM_OP_INSERT_BEFORE, pc, pcur): ANIM_apply_plan pc, pcur
+check "a frame put inside a tag joins it", tags$, "WALK 3 8|run 6 7"
+ANIM.current = 1: r = ANIM_plan%(ANIM_OP_DELETE, pc, pcur): ANIM_apply_plan pc, pcur
+check "a frame deleted before them: they move up", tags$, "WALK 2 7|run 5 6"
+ANIM_SEL_click 5, FALSE, FALSE: ANIM_SEL_click 6, FALSE, TRUE
+r = ANIM_plan%(ANIM_OP_DELETE_SEL, pc, pcur): ANIM_apply_plan pc, pcur
+check "all of a tag's frames deleted: it goes", tags$, "WALK 2 5"
+ANIM_EXP_A = 2: ANIM_EXP_B = 4: ANIM.loopMode = ANIM_LOOP_PING
+r = ANIM_play_order%: s = "": FOR i = 1 TO r: s = s + _TRIM$(STR$(ANIM_ORDER(i))) + " ": NEXT i
+check "a tag's play order (ping-pong)", RTRIM$(s), "2 3 4 3"
+ANIM_EXP_A = 0: ANIM_EXP_B = 0: ANIM.loopMode = ANIM_LOOP_FWD
+ANIM_TG_remove 1: check "removed", STR$(ANIM_TG_N), STR$(0)
+check "no tags: not v4", STR$(CVI(LEFT$(ANIM_serialize$, 2)) = ANIM_CHUNK_VERSION_TAGS), STR$(FALSE)
+ANIM_reset
+
 PRINT PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
 
@@ -383,6 +415,12 @@ FUNCTION sel$ ()
     FOR i = 1 TO ANIM.count: IF ANIM_SEL(i) THEN t = t + _TRIM$(STR$(i)) + " "
     NEXT i
     sel$ = RTRIM$(t)
+END FUNCTION
+
+FUNCTION tags$ ()
+    DIM k AS INTEGER, t AS STRING
+    FOR k = 1 TO ANIM_TG_N: t = t + _IIF(k > 1, "|", "") + ANIM_TG_NAME(k) + STR$(ANIM_TG_A(k)) + STR$(ANIM_TG_B(k)): NEXT k
+    tags$ = t
 END FUNCTION
 
 FUNCTION holds$ (n AS INTEGER)

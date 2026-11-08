@@ -26,6 +26,7 @@ SUB ANIM_reset ()
     ANIM_SEL_ANCHOR = 0: ANIM_MOVE_TO = 0: ANIM_COUNT_TO = 0
     ANIM_LF_N = 0
     ANIM_LK_N = 0
+    ANIM_TG_N = 0: ANIM_EXP_A = 0: ANIM_EXP_B = 0
     IF ANIM_SB_KEEP = FALSE THEN ' (ANIM_deserialize% keeps the SAME layers' pictures: undo / redo is the same document)
         FOR i = 1 TO ANIM_SB_N: ANIM_SB_PX(i) = "": NEXT i
         ANIM_SB_N = 0
@@ -36,20 +37,23 @@ END SUB
 ''
 ' The frames one pass of the animation shows, by the loop mode, into
 ' ANIM_ORDER(1..n); returns n. Forward 1..count, reverse count..1, ping-pong
-' 1..count..2 (written out: the loop goes back to 1), once 1..count.
+' 1..count..2 (written out: the loop goes back to 1), once 1..count. Only
+' ANIM_EXP_A..ANIM_EXP_B when that is set (a tag).
 ' (Exports; playback steps live in ANIM_play_next%.)
 FUNCTION ANIM_play_order% ()
-    DIM n AS INTEGER, i AS INTEGER, c AS INTEGER
-    c = ANIM.count
-    IF ANIM.active = FALSE _ORELSE c < 1 THEN EXIT FUNCTION
+    DIM n AS INTEGER, i AS INTEGER, a AS INTEGER, b AS INTEGER
+    b = ANIM.count
+    IF ANIM.active = FALSE _ORELSE b < 1 THEN EXIT FUNCTION
+    a = 1
+    IF ANIM_EXP_A >= 1 _ANDALSO ANIM_EXP_B >= ANIM_EXP_A _ANDALSO ANIM_EXP_B <= b THEN a = ANIM_EXP_A: b = ANIM_EXP_B ' a tag / the selected span
     SELECT CASE ANIM.loopMode
         CASE ANIM_LOOP_REV
-            FOR i = c TO 1 STEP -1: n = n + 1: ANIM_ORDER(n) = i: NEXT i
+            FOR i = b TO a STEP -1: n = n + 1: ANIM_ORDER(n) = i: NEXT i
         CASE ANIM_LOOP_PING
-            FOR i = 1 TO c: n = n + 1: ANIM_ORDER(n) = i: NEXT i
-            FOR i = c - 1 TO 2 STEP -1: n = n + 1: ANIM_ORDER(n) = i: NEXT i
+            FOR i = a TO b: n = n + 1: ANIM_ORDER(n) = i: NEXT i
+            FOR i = b - 1 TO a + 1 STEP -1: n = n + 1: ANIM_ORDER(n) = i: NEXT i
         CASE ELSE
-            FOR i = 1 TO c: n = n + 1: ANIM_ORDER(n) = i: NEXT i
+            FOR i = a TO b: n = n + 1: ANIM_ORDER(n) = i: NEXT i
     END SELECT
     ANIM_play_order% = n
 END FUNCTION
@@ -258,14 +262,19 @@ FUNCTION ANIM_serialize$ ()
     s = MKI$(ANIM_CHUNK_VERSION) + MKI$(ANIM.frameW) + MKI$(ANIM.frameH) + MKI$(ANIM.gutter) + MKI$(ANIM.margin)
     s = s + MKI$(ANIM.count) + MKI$(ANIM.current) + MKI$(ANIM.fps) + MKI$(ANIM.loopMode) + MKI$(n)
     FOR i = 1 TO n: s = s + MKI$(ANIM_hold%(i)): NEXT i
-    IF ANIM_LF_N > 0 _ORELSE (ANIM_LK_N > 0 _ANDALSO ANIM.active) THEN ' v2: layer flags (a picture without frames can have reference layers)
+    IF ANIM_LF_N > 0 _ORELSE ((ANIM_LK_N > 0 _ORELSE ANIM_TG_N > 0) _ANDALSO ANIM.active) THEN ' v2: layer flags (a picture without frames can have reference layers)
         s = s + MKI$(ANIM_LF_N)
         FOR i = 1 TO ANIM_LF_N: s = s + MKL$(ANIM_LF_ID(i)) + MKI$(ANIM_LF_FL(i)): NEXT i
     END IF
-    IF ANIM_LK_N > 0 _ANDALSO ANIM.active THEN ' v3: linked cells (older DRAW reads v2's part and drops them)
+    IF (ANIM_LK_N > 0 _ORELSE ANIM_TG_N > 0) _ANDALSO ANIM.active THEN ' v3: linked cells (older DRAW reads v2's part and drops them)
         MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_LINKS)
         s = s + MKI$(ANIM_LK_N)
         FOR i = 1 TO ANIM_LK_N: s = s + MKL$(ANIM_LK_ID(i)) + MKI$(ANIM_LK_F(i)) + MKI$(ANIM_LK_G(i)): NEXT i
+    END IF
+    IF ANIM_TG_N > 0 _ANDALSO ANIM.active THEN ' v4: tags - from, to, the name's length, the name
+        MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_TAGS)
+        s = s + MKI$(ANIM_TG_N)
+        FOR i = 1 TO ANIM_TG_N: s = s + MKI$(ANIM_TG_A(i)) + MKI$(ANIM_TG_B(i)) + MKI$(LEN(ANIM_TG_NAME(i))) + ANIM_TG_NAME(i): NEXT i
     END IF
     ANIM_serialize$ = s
 END FUNCTION
@@ -318,6 +327,17 @@ FUNCTION ANIM_deserialize% (blob AS STRING)
             fp = fp + 8
         NEXT i
         ANIM_LK_tidy
+    END IF
+    IF v >= 4 _ANDALSO fp > 0 _ANDALSO fp + 1 <= LEN(blob) THEN ' v4: tags after the links
+        DIM ta AS INTEGER, tb AS INTEGER, tl AS INTEGER
+        nf = CVI(MID$(blob, fp, 2)): fp = fp + 2
+        FOR i = 1 TO nf
+            IF fp + 5 > LEN(blob) THEN EXIT FOR
+            ta = CVI(MID$(blob, fp, 2)): tb = CVI(MID$(blob, fp + 2, 2)): tl = CVI(MID$(blob, fp + 4, 2)): fp = fp + 6
+            IF tl < 0 _ORELSE fp + tl - 1 > LEN(blob) THEN EXIT FOR
+            ANIM_TG_set MID$(blob, fp, tl), ta, tb
+            fp = fp + tl
+        NEXT i
     END IF
     ANIM_deserialize% = ANIM.active
 END FUNCTION
@@ -475,6 +495,7 @@ SUB ANIM_apply_plan (newCount AS INTEGER, newCur AS INTEGER)
         IF i <= newCount _ANDALSO ANIM_SRC(i) > 0 THEN ANIM_HOLDS(i) = old(ANIM_SRC(i))
     NEXT i
     ANIM_LK_remap top, newCount ' links go with their frames (4.3)
+    ANIM_TG_remap newCount ' and tags (4.4)
     ' the selection goes with its frames (a new frame is not selected)
     FOR i = 1 TO top: old(i) = ANIM_SEL(i): NEXT i
     FOR i = 1 TO top
@@ -739,4 +760,124 @@ SUB ANIM_LK_remap (top AS INTEGER, newCount AS INTEGER)
     n = ANIM.count: ANIM.count = newCount ' ANIM_LK_tidy keeps frames 1..count
     ANIM_LK_tidy
     ANIM.count = n
+END SUB
+
+
+' ---------------------------------------------------------------------------
+' Tags (4.4): named frame ranges. The actions live in ANIM-OPS.
+' ---------------------------------------------------------------------------
+
+''
+' The tag named nm (any case), or 0.
+FUNCTION ANIM_TG_find% (nm AS STRING)
+    DIM k AS INTEGER, u AS STRING
+    u = UCASE$(_TRIM$(nm))
+    FOR k = 1 TO ANIM_TG_N
+        IF UCASE$(ANIM_TG_NAME(k)) = u THEN ANIM_TG_find% = k: EXIT FUNCTION
+    NEXT k
+END FUNCTION
+
+''
+' Tag frames a..b nm (trimmed, at most ANIM_TG_NAME_MAX characters): a tag of
+' that name moves there, else a new one. Returns its index (0 = refused: no
+' name, frames outside 1..count, or ANIM_TG_MAX tags already).
+FUNCTION ANIM_TG_put% (nm AS STRING, a AS INTEGER, b AS INTEGER)
+    DIM k AS INTEGER, t AS STRING, lo AS INTEGER, hi AS INTEGER
+    t = LEFT$(_TRIM$(nm), ANIM_TG_NAME_MAX)
+    lo = _MIN(a, b): hi = _MAX(a, b)
+    IF t = "" _ORELSE lo < 1 _ORELSE hi > ANIM.count THEN EXIT FUNCTION
+    k = ANIM_TG_find%(t)
+    IF k = 0 THEN
+        IF ANIM_TG_N >= ANIM_TG_MAX THEN EXIT FUNCTION
+        ANIM_TG_N = ANIM_TG_N + 1: k = ANIM_TG_N
+    END IF
+    ANIM_TG_NAME(k) = t: ANIM_TG_A(k) = lo: ANIM_TG_B(k) = hi
+    ANIM_TG_put% = k
+END FUNCTION
+
+SUB ANIM_TG_set (nm AS STRING, a AS INTEGER, b AS INTEGER)
+    DIM k AS INTEGER
+    k = ANIM_TG_put%(nm, a, b)
+END SUB
+
+SUB ANIM_TG_remove (k AS INTEGER)
+    DIM j AS INTEGER
+    IF k < 1 _ORELSE k > ANIM_TG_N THEN EXIT SUB
+    FOR j = k TO ANIM_TG_N - 1
+        ANIM_TG_NAME(j) = ANIM_TG_NAME(j + 1): ANIM_TG_A(j) = ANIM_TG_A(j + 1): ANIM_TG_B(j) = ANIM_TG_B(j + 1)
+    NEXT j
+    ANIM_TG_NAME(ANIM_TG_N) = ""
+    ANIM_TG_N = ANIM_TG_N - 1
+END SUB
+
+''
+' The shortest tag holding frame f (the first of equal ones), or 0.
+FUNCTION ANIM_TG_at% (f AS INTEGER)
+    DIM k AS INTEGER, best AS INTEGER
+    FOR k = 1 TO ANIM_TG_N
+        IF f >= ANIM_TG_A(k) _ANDALSO f <= ANIM_TG_B(k) THEN
+            IF best = 0 THEN
+                best = k
+            ELSEIF ANIM_TG_B(k) - ANIM_TG_A(k) < ANIM_TG_B(best) - ANIM_TG_A(best) THEN
+                best = k
+            END IF
+        END IF
+    NEXT k
+    ANIM_TG_at% = best
+END FUNCTION
+
+''
+' The tag whose frames are exactly the selection (nothing selected: the
+' current frame), or 0.
+FUNCTION ANIM_TG_selected% ()
+    DIM k AS INTEGER, a AS INTEGER, b AS INTEGER, n AS INTEGER
+    IF ANIM_TG_N = 0 THEN EXIT FUNCTION
+    n = ANIM_SEL_count%
+    IF n = 0 THEN
+        a = ANIM.current: b = a
+    ELSEIF n = 1 THEN
+        FOR k = 1 TO ANIM.count
+            IF ANIM_SEL(k) THEN a = k: b = k: EXIT FOR
+        NEXT k
+    ELSE
+        ANIM_SEL_span a, b
+        IF b - a + 1 <> n THEN EXIT FUNCTION ' not one run of frames
+    END IF
+    FOR k = 1 TO ANIM_TG_N
+        IF ANIM_TG_A(k) = a _ANDALSO ANIM_TG_B(k) = b THEN ANIM_TG_selected% = k: EXIT FUNCTION
+    NEXT k
+END FUNCTION
+
+''
+' Select tag k's frames (the first current).
+SUB ANIM_TG_select (k AS INTEGER)
+    DIM i AS INTEGER
+    IF k < 1 _ORELSE k > ANIM_TG_N THEN EXIT SUB
+    FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_SEL(i) = FALSE: NEXT i
+    FOR i = ANIM_TG_A(k) TO _MIN(ANIM_TG_B(k), ANIM.count): ANIM_SEL(i) = TRUE: NEXT i
+    ANIM_SEL_ANCHOR = ANIM_TG_A(k)
+    ANIM.current = ANIM_TG_A(k)
+    ANIM_clamp_current
+END SUB
+
+''
+' ANIM_apply_plan: each tag spans the new frames that show its old ones
+' (frames put in between join it); a tag left with none goes.
+SUB ANIM_TG_remap (newCount AS INTEGER)
+    DIM k AS INTEGER, n AS INTEGER, a AS INTEGER, b AS INTEGER
+    k = 1
+    DO WHILE k <= ANIM_TG_N
+        a = 0: b = 0
+        FOR n = 1 TO newCount
+            IF ANIM_SRC(n) >= ANIM_TG_A(k) _ANDALSO ANIM_SRC(n) <= ANIM_TG_B(k) THEN
+                IF a = 0 THEN a = n
+                b = n
+            END IF
+        NEXT n
+        IF a = 0 THEN
+            ANIM_TG_remove k
+        ELSE
+            ANIM_TG_A(k) = a: ANIM_TG_B(k) = b: k = k + 1
+        END IF
+    LOOP
 END SUB

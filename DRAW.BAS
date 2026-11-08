@@ -219,7 +219,7 @@ $IF MAC THEN
                    LCASE$(macArgVal$) = "--version" OR LCASE$(macArgVal$) = "-v" THEN
                 macArgIdx% = macArgIdx% + 1 ' Defensive: HELP.BI should have exited already
             ELSEIF LCASE$(macArgVal$) = "--option" OR LCASE$(macArgVal$) = "--instance" OR LCASE$(macArgVal$) = "--palette" OR _
-                   LCASE$(macArgVal$) = "--export" OR LCASE$(macArgVal$) = "--export-anim" OR LCASE$(macArgVal$) = "--cycle" OR _
+                   LCASE$(macArgVal$) = "--export" OR LCASE$(macArgVal$) = "--export-anim" OR LCASE$(macArgVal$) = "--cycle" OR LCASE$(macArgVal$) = "--tag" OR _
                    LCASE$(macArgVal$) = "--export-qb64" THEN
                 macArgIdx% = macArgIdx% + 2 ' BUG-53: 2-token flag (flag + value) — skip both
             ELSEIF LEFT$(macArgVal$, 1) = "-" THEN
@@ -257,7 +257,7 @@ $ELSE
         ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" OR LCASE$(argVal$) = "--palette" OR LCASE$(argVal$) = "--workspace" THEN
             argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
         ELSEIF LCASE$(argVal$) = "--export-qb64" OR LCASE$(argVal$) = "--export" OR _
-               LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" THEN
+               LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" OR LCASE$(argVal$) = "--tag" THEN
             argIdx% = argIdx% + 2 ' 2-token flag (flag + output path) — skip both so the path is not mistaken for the input file
         ELSEIF LEFT$(argVal$, 1) = "-" THEN
             argIdx% = argIdx% + 1 ' BUG-53: any other unrecognized flag (--developer/--dev/...) — skip it, don't treat it as the file

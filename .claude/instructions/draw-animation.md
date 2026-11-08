@@ -61,6 +61,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2538 | Export BAS Player + Sheet PNG... (`ANIM_BAS_sheet_export%`) |
 | 2539 | Full-Screen Preview (`ANIM_FS_show`, `TOOLS/ANIM-FS`, Num .) |
 | 2541 / 2542 | Link Cells / Unlink Cells (`ANIM_LK_action`, `TOOLS/ANIM-OPS`, the current layer, the selected frames) |
+| 2543 / 2544 | Tag Frames... / Delete Tag (`ANIM_TG_action`, `TOOLS/ANIM-OPS`, 4.4) |
 | 2540 | X-Sheet in the lightbox's top band (`ANIM_XS_toggle`, `TOOLS/ANIM-XS`, `CFG.XSHEET`, Num 8, chip `LB_CTL_XS`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
@@ -501,6 +502,39 @@ moved cell), so only it changes. **Hatching:** `ANIM_LK_hatch` (45-degree lines,
 over the current layer's links in `ANIM_VIEW_render_grid` (sheet view, with the frame grid)
 and over a link's first tick in the X-sheet. QA dump `ANIMLK entries map` (current layer: "."
 / a letter per group, upper case = source). QA: `anim-links.sh`.
+
+## Tags (4.4, Q-20)
+
+Named frame ranges in `TOOLS/ANIM.BI`: `ANIM_TG_NAME / A / B (1..ANIM_TG_N)`, at most
+`ANIM_TG_MAX` 64, names trimmed to 32 and unique ignoring case; ranges may overlap. Pure helpers
+in `ANIM.BM` (unit-tested): `ANIM_TG_find%`, `ANIM_TG_put%` (a name that exists moves that tag;
+`ANIM_TG_set` = the SUB form - QB64 rejects a SUB and FUNCTION of one name), `_remove`,
+`ANIM_TG_at%` (the shortest tag holding a frame), `ANIM_TG_selected%` (the tag whose range IS the
+selection, nothing selected = the current frame), `ANIM_TG_select` (its frames, the first
+current), `ANIM_TG_remap` (from `ANIM_apply_plan`: a tag spans the new frames showing its old
+ones - frames put inside join it; none left = it goes). Saved as drAn **v4** only when tags exist
+(so frame-op snapshots / undo carry them); `ANIM_reset` clears them.
+**Actions** (`ANIM-OPS.BM` `ANIM_TG_action`): Tag Frames 2543 asks a name in
+`DRAW_input_box_ex$` (Enter in its field submits) for the selected span (or the current frame);
+the box starts with the selected tag's name (a new name renames it - another tag of that name
+goes) or the first free `tagN`. Delete Tag 2544: the selected tag, else `ANIM_TG_at%(current)`.
+One undo step each (`ANIM_OPS_snapshot$(FALSE)`).
+**X-sheet:** a TAGS row under HOLD only while tags exist (`ANIM_XS_tag_rows%`: band height and
+`rowsShown` make room; band row `rowsShown + 2`): a bar per tag (`ANIM_XS_tag_span%`), the
+selected one bright; a press on it selects the tag (`ANIM_TG_select`), so Play (which plays a
+selected span) plays the tag.
+**Exports:** `ANIM_play_order%` covers `ANIM_EXP_A..ANIM_EXP_B` when set (0 = all). The GUI
+wrapper `ANIM_EXPORT_action` sets it from `ANIM_TG_selected%` when that tag has 2+ frames (not
+the sprite sheet), calls `ANIM_EXPORT_run`, then clears it; the report adds `- tag NAME`
+(`ANIM_EXPORT_note$`). GIF / APNG / PNG sequence write only those frames; the BAS players keep
+every frame's pixels and play the tag's order. The sprite sheet always has all frames: its JSON
+`frameTags` lists the tags (from 0, Aseprite style; none = one "all") and its .bi
+`CONST <SHEET>_TAG_<NAME>_FROM / _TO` (from 1). Full-screen Preview plays the selected span (2+
+frames) like Play. Batch `--tag NAME` (OUTPUT/BATCH, a 2-token flag skipped in `DRAW.BAS`'s
+file-argument scan) sets the range for every export of the run; an unknown name prints
+`FAILED --tag NAME: no such tag (the document has: ...)` and exits 1 before writing anything.
+QA dump `ANIMTG n selected [name from to]... _` (spaces in names as `_`), and `ANIMXST rowY
+[k xa xb]...` from the X-sheet. QA: `anim-tags.sh` (24), unit checks in `anim-unit.bas`.
 
 ## A selection stays put in its cell (2.9, Q-18)
 

@@ -160,9 +160,10 @@ DRAW walk.draw --export-anim walk.png          # PNG sequence walk_0001.png ... 
 DRAW walk.draw --export-anim walk.bas          # QB64 player, the frames in DATA
 DRAW walk.draw --export-anim walk.sheet.bas    # the player + walk.sheet.png it cuts the frames from
 DRAW walk.draw --export walk.png --option ANIM_EXPORT_SCALE=2 --export-anim walk.gif
+DRAW walk.draw --tag jump --export-anim jump.gif   # just the frames tagged "jump"
 ```
 
-`.gif` and `.bas` mean the frames only with `--export-anim` (with `--export` they are the color cycling formats); `.apng`, `.json` and `.sheet.bas` work with either flag, and `--export walk.png` writes the picture flattened. Each export prints one line - `wrote PATH (summary)` or `FAILED PATH: why` - and the exit status is 1 when any of them failed. The batch runs in DRAW's own window for a moment, so on a server run it under Xvfb.
+`.gif` and `.bas` mean the frames only with `--export-anim` (with `--export` they are the color cycling formats); `.apng`, `.json` and `.sheet.bas` work with either flag, and `--export walk.png` writes the picture flattened. Each export prints one line - `wrote PATH (summary)` or `FAILED PATH: why` - and the exit status is 1 when any of them failed. `--tag NAME` limits the animated exports to that tag's frames (the sprite sheet still has every frame and lists the tags); a name the document doesn't have fails the run before anything is written. The batch runs in DRAW's own window for a moment, so on a server run it under Xvfb.
 
 <div class="page-break"></div>
 

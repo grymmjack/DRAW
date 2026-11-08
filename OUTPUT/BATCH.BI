@@ -21,6 +21,10 @@
 ' mean the frames only with --export-anim. Each export prints one console line
 ' ("wrote PATH (summary)" / "FAILED PATH: why").
 '
+' --tag NAME (with --export-anim): just that tag's frames (GIF, APNG, PNG
+' sequence, BAS player); the sprite sheet has them all and lists every tag.
+' An unknown name fails the run before anything is written.
+'
 ' --cycle lo-hi[:steps-per-second[:fwd|rev|ping]] adds a color cycling range
 ' (repeatable) after the document and --palette have loaded. All flags run on
 ' the first frame, in that order, then DRAW exits (code 0 = every export
@@ -34,4 +38,5 @@ $INCLUDEONCE
 DIM SHARED BATCH_EXPORT_PATH      AS STRING ' --export paths, CHR$(0)-separated
 DIM SHARED BATCH_EXPORT_ANIM_PATH AS STRING ' --export-anim paths, CHR$(0)-separated
 DIM SHARED BATCH_CYCLE_SPECS      AS STRING ' --cycle specs, CHR$(0)-separated
+DIM SHARED BATCH_TAG              AS STRING ' --tag NAME: the animated exports write just that tag's frames (4.4)
 DIM SHARED BATCH_FAILED           AS INTEGER

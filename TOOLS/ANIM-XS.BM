@@ -72,16 +72,20 @@ END FUNCTION
 ''
 ' The band's height for avail px under it (the bar and the panes take the
 ' rest): the header, every layer row and the holds row, at most half.
+FUNCTION ANIM_XS_tag_rows% ()
+    IF ANIM_TG_N > 0 THEN ANIM_XS_tag_rows% = 1
+END FUNCTION
+
 FUNCTION ANIM_XS_band_h% (avail AS INTEGER)
     DIM rh AS INTEGER, need AS INTEGER, mx AS INTEGER
     FPANEL_ensure
     ANIM_XS_rows_build
     rh = FPANEL.rowH% + 6 ' room for a thumbnail
     ANIM_XS.rowH = rh
-    need = (ANIM_XS.nRows + 2) * rh + 2
+    need = (ANIM_XS.nRows + 2 + ANIM_XS_tag_rows%) * rh + 2
     mx = avail \ 2
     IF need > mx THEN need = mx
-    IF need < 3 * rh + 2 THEN need = 3 * rh + 2
+    IF need < (3 + ANIM_XS_tag_rows%) * rh + 2 THEN need = (3 + ANIM_XS_tag_rows%) * rh + 2
     ANIM_XS_band_h% = need
 END FUNCTION
 
@@ -153,7 +157,7 @@ SUB ANIM_XS_layout (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
     LOOP
 
     ' rows: as many as fit between the header and the holds row; the current layer in view
-    ANIM_XS.rowsShown = (y2 - y1 + 1 - 2) \ ANIM_XS.rowH - 2
+    ANIM_XS.rowsShown = (y2 - y1 + 1 - 2) \ ANIM_XS.rowH - 2 - ANIM_XS_tag_rows%
     IF ANIM_XS.rowsShown < 1 THEN ANIM_XS.rowsShown = 1
     IF ANIM_XS.rowsShown > ANIM_XS.nRows THEN ANIM_XS.rowsShown = ANIM_XS.nRows
     IF CURRENT_LAYER% <> ANIM_XS.lastLayer THEN
@@ -172,7 +176,8 @@ END SUB
 
 ''
 ' Viewport y of row k of the band: 0 = the header, 1..rowsShown the layer
-' rows shown, rowsShown + 1 the holds row.
+' rows shown, rowsShown + 1 the holds row, rowsShown + 2 the tags row (4.4,
+' when there are tags).
 FUNCTION ANIM_XS_row_y% (k AS INTEGER)
     ANIM_XS_row_y% = ANIM_XS.y1 + 1 + k * ANIM_XS.rowH
 END FUNCTION
@@ -261,7 +266,7 @@ SUB ANIM_XS_render (dest AS LONG)
     x2 = ANIM_XS.x2
     yTop = ANIM_XS_row_y%(0)
     hy = ANIM_XS_row_y%(ANIM_XS.rowsShown + 1) ' the holds row
-    yBot = hy + rh - 1
+    yBot = hy + rh - 1 + ANIM_XS_tag_rows% * rh
     oldFont = FPANEL_begin&
 
     LINE (ANIM_XS.x1, ANIM_XS.y1)-(x2, ANIM_XS.y2), THEME.CP_bg~&, BF
@@ -344,6 +349,10 @@ SUB ANIM_XS_render (dest AS LONG)
         END IF
     NEXT f
 
+    ' tags row (4.4): each tag a bar along its frames, its name in it; the
+    ' selected one bright
+    IF ANIM_XS_tag_rows% THEN ANIM_XS_render_tags hy + rh
+
     ' frame boundaries, the header's line, the name column's edge
     FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
         x = ANIM_XS_frame_x%(f)
@@ -381,6 +390,41 @@ SUB ANIM_XS_render (dest AS LONG)
     _FONT oldFont
     ANIM_XS.shown = TRUE
 END SUB
+
+''
+' The tags row at viewport y (ANIM_XS_render).
+SUB ANIM_XS_render_tags (y AS INTEGER)
+    DIM k AS INTEGER, xa AS INTEGER, xb AS INTEGER, sel AS INTEGER, c AS _UNSIGNED LONG, t AS STRING, rh AS INTEGER, ty AS INTEGER
+    rh = ANIM_XS.rowH
+    LINE (ANIM_XS.x1, y)-(ANIM_XS.x2, y), THEME.CP_border~&
+    ty = y + (rh - FPANEL.fontH%) \ 2
+    FPANEL_text ANIM_XS.x1 + 4, ty, "TAGS", THEME.CP_text~&
+    sel = ANIM_TG_selected%
+    FOR k = 1 TO ANIM_TG_N
+        IF ANIM_XS_tag_span%(k, xa, xb) THEN
+            c = (THEME.ANIM_FRAME_current~& AND &H00FFFFFF~&) OR _IIF(k = sel, &HC0000000~&, &H50000000~&)
+            LINE (xa + 1, y + 3)-(xb - 1, y + rh - 3), c, BF
+            LINE (xa + 1, y + 3)-(xb - 1, y + rh - 3), THEME.ANIM_FRAME_current~&, B
+            t = ANIM_TG_NAME(k)
+            DO WHILE LEN(t) > 0 _ANDALSO FPANEL_text_w%(t) > xb - xa - 6: t = LEFT$(t, LEN(t) - 1): LOOP
+            IF LEN(t) > 0 THEN FPANEL_text xa + 4, ty, t, _IIF(k = sel, THEME.CP_text_bright~&, THEME.CP_text~&)
+        END IF
+    NEXT k
+END SUB
+
+''
+' Tag k's bar on the grid, xa..xb (clipped to the view); FALSE when it is out
+' of view.
+FUNCTION ANIM_XS_tag_span% (k AS INTEGER, xa AS INTEGER, xb AS INTEGER)
+    DIM a AS INTEGER, b AS INTEGER
+    a = ANIM_TG_A(k): b = ANIM_TG_B(k)
+    IF b < ANIM_XS.firstF _ORELSE a > ANIM_XS.lastF THEN EXIT FUNCTION
+    xa = ANIM_XS_frame_x%(_MAX(a, ANIM_XS.firstF))
+    xb = ANIM_XS_frame_x%(b) + ANIM_hold%(b) * ANIM_XS.tickW - 1
+    IF xa < ANIM_XS.gx THEN xa = ANIM_XS.gx
+    IF xb > ANIM_XS.x2 THEN xb = ANIM_XS.x2
+    ANIM_XS_tag_span% = (xb > xa)
+END FUNCTION
 
 ''
 ' One cell: layer slot's drawing in frame f as a thumbnail at the start of
@@ -423,13 +467,13 @@ END FUNCTION
 
 ''
 ' The band's row at viewport y: 0 header, 1..rowsShown a layer row shown,
-' rowsShown + 1 the holds row, -1 none.
+' rowsShown + 1 the holds row, rowsShown + 2 the tags row, -1 none.
 FUNCTION ANIM_XS_band_row% (my AS INTEGER)
     DIM k AS INTEGER
     ANIM_XS_band_row% = -1
     IF my < ANIM_XS_row_y%(0) THEN EXIT FUNCTION
     k = (my - ANIM_XS_row_y%(0)) \ ANIM_XS.rowH
-    IF k <= ANIM_XS.rowsShown + 1 THEN ANIM_XS_band_row% = k
+    IF k <= ANIM_XS.rowsShown + 1 + ANIM_XS_tag_rows% THEN ANIM_XS_band_row% = k
 END FUNCTION
 
 ''
@@ -469,6 +513,13 @@ FUNCTION ANIM_XS_press% (mx AS INTEGER, my AS INTEGER)
     c = ANIM_LB_ctrl%: s = ANIM_LB_shift%
     ANIM_XS.dMode = XS_DRAG_NONE: ANIM_XS.dOn = FALSE: ANIM_XS.dCollapse = FALSE
     ANIM_XS.dPressX = mx: ANIM_XS.dPressY = my: ANIM_XS.dFrame = f: ANIM_XS.dSlot = 0: ANIM_XS.dTo = 0: ANIM_XS.dToSlot = 0
+    IF k = ANIM_XS.rowsShown + 2 _ANDALSO ANIM_XS_tag_rows% <> 0 THEN ' the tags row (4.4): a tag selects its frames
+        IF f > 0 THEN
+            IF ANIM_TG_at%(f) > 0 THEN ANIM_TG_select ANIM_TG_at%(f) ELSE ANIM_SEL_click f, c, s
+        END IF
+        ANIM_LB_changed
+        EXIT FUNCTION
+    END IF
     IF slot > 0 _ANDALSO (mx < ANIM_XS.gx _ORELSE f > 0) THEN
         IF slot <> CURRENT_LAYER% THEN
             IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN LAYERS_select_group slot ELSE LAYERS_select slot
@@ -688,6 +739,14 @@ FUNCTION ANIM_XS_dump$ ()
         d = d + DOCK_n$(f) + DOCK_n$(ANIM_XS_frame_x%(f)) + DOCK_n$(ANIM_hold%(f) * ANIM_XS.tickW)
     NEXT f
     d = d + CHR$(10)
+    IF ANIM_XS_tag_rows% THEN ' the tags row's y, then per tag in view: k xa xb
+        DIM xa AS INTEGER, xb AS INTEGER
+        d = d + "ANIMXST" + DOCK_n$(ANIM_XS_row_y%(ANIM_XS.rowsShown + 2))
+        FOR f = 1 TO ANIM_TG_N
+            IF ANIM_XS_tag_span%(f, xa, xb) THEN d = d + DOCK_n$(f) + DOCK_n$(xa) + DOCK_n$(xb)
+        NEXT f
+        d = d + CHR$(10)
+    END IF
     FOR r = 1 TO _MIN(ANIM_XS.nRows, 64)
         slot = ANIM_XS_ROW(r)
         y = -1

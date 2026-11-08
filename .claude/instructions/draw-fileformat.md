@@ -36,11 +36,14 @@ v3 (ANIM_CHUNK_VERSION_LINKS), only when there are linked cells (4.3): the versi
     is 3, the flags block is always there (nFlags may be 0), then nLinks, per entry
     historyId (LONG), frame, group (cells of one layer with the same group show one drawing;
     the lowest frame is the source)
+v4 (ANIM_CHUNK_VERSION_TAGS), only when there are tags (4.4): the version field is 4, the
+    flags and links blocks are always there (counts may be 0), then nTags, per tag
+    from (2), to (2), nameLen (2), name (nameLen bytes, at most 32)
 ```
 
 Newer versions append fields; a reader takes the ones it knows (version >= 1; the flags are
 read even when the frames don't fit; a v2 reader drops v3's links and opens the cells as they
-are, unlinked). No frames and no layer flags = no chunk; a picture with
+are, unlinked; a v3 reader drops v4's tags). No frames and no layer flags = no chunk; a picture with
 a reference layer but no frames writes the chunk with frameW 0 / count 0. Every document path calls `ANIM_reset` first (gotcha 15). The re-slice / resize
 answer and playback are session state, not saved. Test: `QA/tests/file-anim-chunk.sh`
 (`QA/fixtures/png-chunk.py put|get` writes / reads chunks for fixtures).

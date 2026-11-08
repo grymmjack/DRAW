@@ -35,6 +35,7 @@ CONST ANIM_SIZE_RESLICE = 1 ' the grid moves, the pixels stay
 CONST ANIM_SIZE_RESIZE  = 2 ' the frames resize, each drawing stays in its frame (the sheet refits)
 CONST ANIM_CHUNK_VERSION = 2 ' ANIM_serialize$ layout (PNG chunk "drAn"; 2 = + layer flags)
 CONST ANIM_CHUNK_VERSION_LINKS = 3 ' written only when there are linked cells (4.3): the layer flags always, then the links
+CONST ANIM_CHUNK_VERSION_TAGS = 4  ' written only when there are tags (4.4): the layer flags and the links always, then the tags
 
 ' loop modes
 CONST ANIM_LOOP_FWD  = 0 ' 1 2 3 1 2 3
@@ -136,5 +137,21 @@ DIM SHARED ANIM_LKP_ID(1 TO ANIM_LK_MAX) AS LONG
 DIM SHARED ANIM_LKP_G(1 TO ANIM_LK_MAX) AS INTEGER
 DIM SHARED ANIM_LKP_PX(1 TO ANIM_LK_MAX) AS STRING
 DIM SHARED ANIM_LK_SIG AS STRING
+
+' Tags (4.4, Q-20): named frame ranges ANIM_TG_A(k)..ANIM_TG_B(k) (they may
+' overlap). The X-sheet's TAGS row shows them; a click there selects a tag's
+' frames, so Play plays it, and an export with exactly a tag selected writes
+' just that tag (ANIM_EXP_A..B). Saved in drAn v4, in every frame-op
+' snapshot; frame ops carry them along (ANIM_TG_remap).
+CONST ANIM_TG_MAX = 64
+CONST ANIM_TG_NAME_MAX = 32
+DIM SHARED ANIM_TG_N AS INTEGER
+DIM SHARED ANIM_TG_NAME(1 TO ANIM_TG_MAX) AS STRING
+DIM SHARED ANIM_TG_A(1 TO ANIM_TG_MAX) AS INTEGER
+DIM SHARED ANIM_TG_B(1 TO ANIM_TG_MAX) AS INTEGER
+' the frames ANIM_play_order% covers (exports, the full-screen preview);
+' 0 = all of them. Set around one export / preview, then back to 0.
+DIM SHARED ANIM_EXP_A AS INTEGER
+DIM SHARED ANIM_EXP_B AS INTEGER
 
 ANIM_reset

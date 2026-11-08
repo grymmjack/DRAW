@@ -52,6 +52,7 @@ CONST ANIM_PNGSEQ_MAX = 20000      ' files one PNG sequence may write
 CONST ANIM_GIF_MAX_TICKS  = 6000 ' with colour cycling the GIF loop is at most 120 s (2-cs ticks)
 CONST ANIM_GIF_MAX_FRAMES = 2000
 
+DIM SHARED ANIM_EXPORT_TAG AS INTEGER  ' the tag an export covers (4.4; 0 = all the frames)
 DIM SHARED ANIM_EXPORT_INFO AS STRING ' summary of the last export ("6 frames, 1.2 s loop, 5 colours")
 
 ' exact colour table of an export: RGB -> index (hashed on the low 16 bits)
