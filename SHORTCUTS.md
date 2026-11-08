@@ -627,6 +627,8 @@ layer, `=` a layer the same on every frame.
 
 Each drag is one undo step. Dragging past the left or right edge scrolls the grid.
 
+**Opening an animated GIF** gives you its frames on a sheet: each frame as a browser shows it, the delays as the FPS and holds, looping as the GIF does. With Save .draw Beside Images off, Ctrl+S writes it back as an animated GIF.
+
 **Tags** name a run of frames - "walk", "jump". Select the frames (strip or X-sheet), then
 ANIM → Tag Frames... and type a name (a name you already used moves that tag). Once a document
 has tags, the X-sheet shows a TAGS row under HOLD: click a tag to select its frames, then Play

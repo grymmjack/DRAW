@@ -42,7 +42,7 @@ Whatever way you open a file — File → Open, Recent Files, the command line (
 | --- | --- |
 | `art.draw` | `art.draw` |
 | `art.png` | `art.png`, with your layers hidden inside (it is still a normal PNG everywhere else) |
-| `art.gif` / `.bmp` / `.jpg` / `.tga` / `.qoi` / `.ico` / `.hdr` | **Save .draw Beside Images** on (default): `art.draw` next to it, `art.gif` untouched.<br>Off: `art.gif` itself, flattened, in its own format. |
+| `art.gif` / `.bmp` / `.jpg` / `.tga` / `.qoi` / `.ico` / `.hdr` | **Save .draw Beside Images** on (default): `art.draw` next to it, `art.gif` untouched.<br>Off: `art.gif` itself, flattened, in its own format (an animated GIF opened as frames is written back as an animated GIF). |
 | `art.psd` / `.aseprite` / `.lbm` / `.ans` | **on:** `art.draw` next to it. **Off:** asks where to save (DRAW cannot write these formats). |
 
 The setting is in **Settings → General → Saving**, or `SAVE_DRAW_SIDECAR=TRUE/FALSE` in `DRAW.cfg` (`--option SAVE_DRAW_SIDECAR=FALSE` for one run).

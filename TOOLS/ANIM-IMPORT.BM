@@ -1,0 +1,234 @@
+''
+' DRAW - TOOLS/ANIM-IMPORT.BM
+' =============================================================================
+' Bring frames in (see ANIM-IMPORT.BI).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' ---------------------------------------------------------------------------
+' 5.1 Animated GIF
+' ---------------------------------------------------------------------------
+
+''
+' The images in GIF data s (walks the blocks; 0 when it is not a GIF).
+FUNCTION ANIM_GIF_count% (s AS STRING)
+    DIM p AS LONG, pk AS INTEGER, n AS INTEGER, d AS STRING
+    IF LEN(s) < 14 _ORELSE LEFT$(s, 4) <> "GIF8" THEN EXIT FUNCTION
+    pk = ASC(s, 11): p = 14
+    IF pk AND &H80 THEN p = p + 3 * 2 ^ ((pk AND 7) + 1)
+    DO WHILE p <= LEN(s)
+        SELECT CASE ASC(s, p)
+            CASE &H21
+                p = p + 2: d = GIF_read_subblocks$(s, p)
+            CASE &H2C
+                IF p + 9 > LEN(s) THEN EXIT DO
+                pk = ASC(s, p + 9): p = p + 10
+                IF pk AND &H80 THEN p = p + 3 * 2 ^ ((pk AND 7) + 1)
+                p = p + 1: d = GIF_read_subblocks$(s, p)
+                n = n + 1
+                IF n >= ANIM_MAX_FRAMES THEN EXIT DO
+            CASE ELSE
+                EXIT DO ' the trailer, or something unknown
+        END SELECT
+    LOOP
+    ANIM_GIF_count% = n
+END FUNCTION
+
+''
+' Rows of an interlaced image back in order.
+FUNCTION ANIM_GIF_deinterlace$ (px AS STRING, w AS LONG, h AS LONG)
+    DIM r AS STRING, pass AS INTEGER, y AS LONG, y0 AS LONG, dy AS LONG, k AS LONG
+    r = STRING$(w * h, 0)
+    FOR pass = 1 TO 4
+        SELECT CASE pass
+            CASE 1: y0 = 0: dy = 8
+            CASE 2: y0 = 4: dy = 8
+            CASE 3: y0 = 2: dy = 4
+            CASE ELSE: y0 = 1: dy = 2
+        END SELECT
+        FOR y = y0 TO h - 1 STEP dy
+            MID$(r, y * w + 1, w) = MID$(px, k * w + 1, w)
+            k = k + 1
+        NEXT y
+    NEXT pass
+    ANIM_GIF_deinterlace$ = r
+END FUNCTION
+
+''
+' FPS and holds for delays d(1..n) (centiseconds): FPS = 100 / their common
+' divisor (at most 50), each hold its delay at that FPS (1..ANIM_HOLD_MAX); a
+' slower FPS when a hold would pass ANIM_HOLD_MAX.
+FUNCTION ANIM_GIF_fps% (d() AS LONG, n AS INTEGER)
+    DIM g AS LONG, i AS INTEGER, fps AS INTEGER, mx AS LONG
+    FOR i = 1 TO n
+        IF d(i) < 2 THEN d(i) = 10
+        IF g = 0 THEN g = d(i) ELSE g = GIF_gcd&(g, d(i))
+        IF d(i) > mx THEN mx = d(i)
+    NEXT i
+    IF g < 1 THEN g = 10
+    fps = (100 + g \ 2) \ g
+    IF fps > 50 THEN fps = 50
+    IF fps < 1 THEN fps = 1
+    DO WHILE fps > 1 _ANDALSO (mx * fps + 50) \ 100 > ANIM_HOLD_MAX
+        fps = fps - 1
+    LOOP
+    ANIM_GIF_fps% = fps
+END FUNCTION
+
+''
+' Open GIF file filename as a sheet with frames when it has two or more
+' images. FALSE (nothing changed) for a single image, a GIF with colour
+' cycling ranges, or a sheet too big - the caller opens it as a picture.
+FUNCTION ANIM_GIF_import% (filename AS STRING)
+    DIM s AS STRING, ff AS INTEGER, n AS INTEGER, w AS LONG, h AS LONG, pk AS INTEGER, p AS LONG
+    DIM gct AS STRING, gctN AS INTEGER, firstLct AS STRING, firstLctN AS INTEGER
+    DIM cols AS LONG, rows AS LONG, sw AS LONG, sh AS LONG, k AS INTEGER, r AS INTEGER, loopSeen AS INTEGER
+    DIM lbl AS INTEGER, id AS STRING, dat AS STRING, delay AS LONG, disposal AS INTEGER, transIdx AS INTEGER
+    DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, lct AS STRING, pal AS STRING, minCode AS INTEGER
+    DIM idx AS STRING, scr AS STRING, prev AS STRING, x AS LONG, y AS LONG, c AS INTEGER, i AS LONG
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, m AS _MEM, imgW AS LONG, row AS LONG
+    DIM rgb(0 TO 255) AS _UNSIGNED LONG, delays(1 TO ANIM_MAX_FRAMES) AS LONG, fps AS INTEGER, hh AS INTEGER
+
+    ANIM_IMP_INFO = ""
+    ff = FREEFILE
+    OPEN filename FOR BINARY AS #ff
+    s = SPACE$(LOF(ff))
+    GET #ff, 1, s
+    CLOSE #ff
+    n = ANIM_GIF_count%(s)
+    IF n < 2 THEN EXIT FUNCTION
+    w = ASC(s, 7) + ASC(s, 8) * 256&: h = ASC(s, 9) + ASC(s, 10) * 256&
+    IF w < 1 _ORELSE h < 1 THEN EXIT FUNCTION
+    ' a grid about as wide as tall, inside the largest sheet
+    cols = INT(SQR(n - 1)) + 1
+    IF cols * w > ANIM_SHEET_MAX THEN cols = ANIM_SHEET_MAX \ w
+    IF cols < 1 THEN EXIT FUNCTION
+    rows = (n + cols - 1) \ cols
+    sw = cols * w: sh = rows * h
+    IF sh > ANIM_SHEET_MAX _ORELSE sw * sh > ANIM_IMP_MAX_PIXELS THEN
+        _LOGWARN "ANIM_GIF_import: " + filename + ": " + _TRIM$(STR$(n)) + " frames of " + _TRIM$(STR$(w)) + "x" + _TRIM$(STR$(h)) + " - too big for a sheet, opening the first frame"
+        EXIT FUNCTION
+    END IF
+
+    pk = ASC(s, 11): p = 14
+    IF pk AND &H80 THEN
+        gctN = 2 ^ ((pk AND 7) + 1): gct = MID$(s, p, 3 * gctN): p = p + 3 * gctN
+    END IF
+    ' the palette: the global table, else the first local one
+    IF gctN = 0 THEN
+        i = p
+        DO WHILE i <= LEN(s)
+            IF ASC(s, i) = &H21 THEN
+                i = i + 2: dat = GIF_read_subblocks$(s, i)
+            ELSEIF ASC(s, i) = &H2C _ANDALSO i + 9 <= LEN(s) THEN
+                IF ASC(s, i + 9) AND &H80 THEN firstLctN = 2 ^ ((ASC(s, i + 9) AND 7) + 1): firstLct = MID$(s, i + 10, 3 * firstLctN)
+                EXIT DO
+            ELSE
+                EXIT DO
+            END IF
+        LOOP
+    END IF
+    IF gctN > 0 THEN
+        CYCX_adopt_begin sw, sh, gct, gctN, "(GIF)"
+    ELSEIF firstLctN > 0 THEN
+        CYCX_adopt_begin sw, sh, firstLct, firstLctN, "(GIF)"
+    ELSE
+        DRW_create_canvas_at_size sw, sh
+    END IF
+    r = ANIM_set_layout%(w, h, 0, 0)
+    IF r = FALSE _ORELSE LAYERS(CURRENT_LAYER%).imgHandle& >= -1 THEN EXIT FUNCTION
+    ANIM.count = n: ANIM.wanted = n: ANIM.current = 1
+
+    ' decode: the logical screen (RGBA, transparent to start) after each image
+    scr = STRING$(w * h * 4, 0)
+    m = _MEMIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&)
+    imgW = _WIDTH(LAYERS(CURRENT_LAYER%).imgHandle&)
+    transIdx = -1: disposal = 0: delay = 0: k = 0
+    DO WHILE p <= LEN(s) _ANDALSO k < n
+        SELECT CASE ASC(s, p)
+            CASE &H21
+                lbl = ASC(s, p + 1): p = p + 2
+                IF lbl = &HFF THEN
+                    id = MID$(s, p + 1, ASC(s, p)): p = p + 1 + ASC(s, p)
+                    dat = GIF_read_subblocks$(s, p)
+                    IF LEFT$(id, 8) = "NETSCAPE" _ORELSE LEFT$(id, 8) = "ANIMEXTS" THEN loopSeen = TRUE
+                ELSE
+                    dat = GIF_read_subblocks$(s, p)
+                    IF lbl = &HF9 _ANDALSO LEN(dat) >= 4 THEN ' graphic control: for the next image
+                        disposal = (ASC(dat, 1) \ 4) AND 7
+                        delay = ASC(dat, 2) + ASC(dat, 3) * 256&
+                        IF ASC(dat, 1) AND 1 THEN transIdx = ASC(dat, 4) ELSE transIdx = -1
+                    END IF
+                END IF
+            CASE &H2C
+                fx = ASC(s, p + 1) + ASC(s, p + 2) * 256&: fy = ASC(s, p + 3) + ASC(s, p + 4) * 256&
+                fw = ASC(s, p + 5) + ASC(s, p + 6) * 256&: fh = ASC(s, p + 7) + ASC(s, p + 8) * 256&
+                pk = ASC(s, p + 9): p = p + 10
+                lct = ""
+                IF pk AND &H80 THEN lct = MID$(s, p, 3 * 2 ^ ((pk AND 7) + 1)): p = p + LEN(lct)
+                minCode = ASC(s, p): p = p + 1
+                dat = GIF_read_subblocks$(s, p)
+                IF minCode < 1 _ORELSE minCode > 11 THEN minCode = 8
+                idx = GIF_lzw_decode$(dat, minCode, fw * fh)
+                IF pk AND &H40 THEN idx = ANIM_GIF_deinterlace$(idx, fw, fh)
+                IF LEN(lct) > 0 THEN pal = lct ELSE pal = gct
+                FOR c = 0 TO 255
+                    IF c * 3 + 3 <= LEN(pal) THEN rgb(c) = _RGB32(ASC(pal, c * 3 + 1), ASC(pal, c * 3 + 2), ASC(pal, c * 3 + 3)) ELSE rgb(c) = _RGB32(0, 0, 0)
+                NEXT c
+                IF disposal = 3 THEN prev = scr
+                ' the image over the screen (its transparent index leaves what is there)
+                cx = _MAX(0, fx): cy = _MAX(0, fy): cw = _MIN(fx + fw, w) - cx: ch = _MIN(fy + fh, h) - cy
+                FOR y = 0 TO ch - 1
+                    FOR x = 0 TO cw - 1
+                        c = ASC(idx, (cy - fy + y) * fw + (cx - fx + x) + 1)
+                        IF c <> transIdx THEN MID$(scr, ((cy + y) * w + cx + x) * 4 + 1, 4) = MKL$(rgb(c))
+                    NEXT x
+                NEXT y
+                k = k + 1
+                delays(k) = delay
+                ' frame k = the screen now
+                IF ANIM_cell_rect%(k, x, y, fw, fh) THEN
+                    FOR row = 0 TO h - 1
+                        _MEMPUT m, m.OFFSET + ((y + row) * imgW + x) * 4, MID$(scr, row * w * 4 + 1, w * 4)
+                    NEXT row
+                END IF
+                ' then the disposal before the next image
+                IF disposal = 2 _ANDALSO cw > 0 THEN
+                    FOR y = 0 TO ch - 1: MID$(scr, ((cy + y) * w + cx) * 4 + 1, cw * 4) = STRING$(cw * 4, 0): NEXT y
+                ELSEIF disposal = 3 _ANDALSO LEN(prev) = LEN(scr) THEN
+                    scr = prev
+                END IF
+                transIdx = -1: disposal = 0: delay = 0
+            CASE ELSE
+                EXIT DO
+        END SELECT
+    LOOP
+    _MEMFREE m
+    IF k < n THEN ANIM.count = _MAX(1, k): ANIM.wanted = ANIM.count ' a cut-off file: the frames it had
+
+    fps = ANIM_GIF_fps%(delays(), ANIM.count)
+    ANIM_set_fps fps
+    FOR k = 1 TO ANIM.count
+        hh = (delays(k) * fps + 50) \ 100
+        ANIM_set_hold k, hh
+    NEXT k
+    ANIM.loopMode = _IIF(loopSeen, ANIM_LOOP_FWD, ANIM_LOOP_ONCE)
+
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    IF PAL_FG_IDX% >= PAL_COLOR_COUNT% THEN PAL_FG_IDX% = 0
+    PAINT_COLOR~& = PAL(PAL_FG_IDX%).value~&
+    PAINT_BG_COLOR~& = PAL(PAL_BG_IDX%).value~&
+    IF gctN > 0 _ORELSE firstLctN > 0 THEN PALETTE_OPS_mark_document_palette
+    BLEND_invalidate_cache
+    CANVAS_DIRTY% = FALSE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    COMPOSITE_RESULT_VALID% = FALSE
+    ANIM_IMP_INFO = _TRIM$(STR$(ANIM.count)) + " frames at" + STR$(ANIM.fps) + " fps" + _IIF(ANIM.loopMode = ANIM_LOOP_ONCE, ", plays once", "")
+    _LOGINFO "ANIM_GIF_import: " + filename + " " + _TRIM$(STR$(w)) + "x" + _TRIM$(STR$(h)) + ", " + ANIM_IMP_INFO
+    STATUS_flash MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1) + ": " + ANIM_IMP_INFO
+    ANIM_GIF_import% = TRUE
+END FUNCTION

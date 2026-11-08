@@ -31,6 +31,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | `TOOLS/ANIM-OPS.BI/BM` | Frame operations, layout changes (re-slice / resize), timing changes, whole-sheet snapshots, the undo record, `ANIMC` dump line |
 | `GUI/ANIM-PANEL.BI/BM` | The Animation panel (2505): FPANEL window like `GUI/PEN-PANEL` (dock slot `DP_ANIM`, `REGION_ANIM_PANEL`, `WZ_*`, auto-hide, F11, workspace element `ANIM_PANEL`, `ANIM_PANEL_VISIBLE/X/Y`) |
 | `TOOLS/ANIM-LB.BI/BM` | The lightbox view (2.1): layout (`ANIM_LB_layout`, bands strip / transport bar / editor, `ANIM_LB_area` + `ANIM_LB_clear_floats`), `ANIM_LB_render` (cut from the composite), transport bar controls `LB_CTL_*`, `ANIM_LB_mouse`, the `ANIMLB` / `ANIMLBC` / `ANIMLBP` dump lines; drawing in the panes (2.2): the pane view (`ANIM_LB_view_push / _pick / _pop`, `ANIM_LB_pane_view%`), overlays (`ANIM_LB_overlay_begin% / _end`), strokes clipped to a frame (`ANIM_LB_clip_*`) |
+| `TOOLS/ANIM-IMPORT.BI/BM` | Bringing frames in (phase 5): `ANIM_GIF_import%` (5.1, from `DRW_load` after `GIF_load_cycling%`) |
 | `INPUT/NUMPAD.BI/BM` | Numpad keys from bu1ld0r: `NUMPAD_poll` (`_KEYDOWN` edges), `NUMPAD_dev` ([Linux] device ids = X11 key code + 1, catches taps quicker than a frame), `NUMPAD_of%` (which numpad key a plain code could be), `NUMPAD_sent%` |
 
 ## Action ids (2500-2599)
@@ -557,6 +558,28 @@ double-click = Frame Note... for that frame - two presses on one frame within 0.
 main-loop passes apart (`ANIM_LOOP_TICK`, counted in `DRAW.BAS`) when frames are slow. QA dump
 `ANIMNT n [frame note]... _`, `ANIMXSN y`. QA: `anim-notes.sh` (18; on the 3x user profile the box
 takes over a second to come up after a double-click - the test waits 2 s before typing).
+
+## Imports (`TOOLS/ANIM-IMPORT`, phase 5)
+
+**Animated GIF (5.1):** `DRW_load` tries `GIF_load_cycling%` first (only GIFs with CRNG /
+DRAWCYCL ranges: indexed, first image), then `ANIM_GIF_import%`: `ANIM_GIF_count%` walks the
+blocks; 2+ images = a sheet. Grid: `cols = INT(SQR(n - 1)) + 1` (inside `ANIM_SHEET_MAX`), refused
+(plain first-frame load) past `ANIM_IMP_MAX_PIXELS`. Canvas + palette via `CYCX_adopt_begin` (the
+GCT, else the first LCT; neither = `DRW_create_canvas_at_size`), so all three document paths'
+resets apply. Decode: an RGBA "logical screen" string, each image drawn over it (its GCE's
+transparent index leaves pixels), the screen copied into cell k (`_MEMPUT` per row), then the
+disposal: 2 = its rect back to transparent (browsers, not the background colour), 3 = the screen
+from before it. Interlace via `ANIM_GIF_deinterlace$`; LZW = `GIF_lzw_decode$` (FILE-GIF).
+Timing: `ANIM_GIF_fps%` - delays < 2 cs count as 10, FPS = 100 / their gcd (max 50, lower while a
+hold would pass `ANIM_HOLD_MAX`), hold = delay at that FPS. NETSCAPE / ANIMEXTS block = FWD, none
+= ONCE. **Saving back:** `SAVE_flat_write%` (Ctrl+S with `SAVE_DRAW_SIDECAR` off, Flatten & Save)
+writes a .gif of a document with frames as an animated GIF at 1x (`ANIM_GIF_export%`, export scale
+forced to 1 for the call). QA: `file-anim-gif-import.sh` (13): plain / optimised (sub-rects) /
+disposal previous + background over transparency, each frame vs `magick -coalesce` (fully
+transparent pixels normalised with `-alpha background` - ImageMagick keeps their RGB), no loop
+block = once, a single image = a picture, Ctrl+S round trip. Note ImageMagick's `-layers
+Optimize` of a transparent GIF drops the transparency and its coalesce then starts from the
+background colour, which browsers don't - use opaque frames for optimised fixtures.
 
 ## A selection stays put in its cell (2.9, Q-18)
 
