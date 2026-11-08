@@ -100,6 +100,7 @@ TYPE ANIM_LB_OBJ
     realTile   AS INTEGER
     vPane      AS INTEGER ' the pane the view was picked for (-1 none)
     strokePane AS INTEGER ' the pane a press started in, kept until every button is up (-1 none)
+    follow     AS INTEGER ' clip off (B9): a freehand stroke goes on into the pane the pointer enters
     overlay    AS INTEGER ' an overlay is being drawn through the pane view
     scratch    AS LONG    ' overlays draw here, then the pane's part is copied over
     realCanvas AS LONG

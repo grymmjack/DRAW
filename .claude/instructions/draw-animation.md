@@ -245,6 +245,15 @@ The **Animate** built-in workspace (L.2, `ASSETS/WORKSPACES/animate.workspace`) 
   step stores the clipped result. Skipped for marquee / picker / zoom / pan / text / move, an active
   transform, and text / group layers; it ends when the buttons are up. Known limit: tools that commit after
   the release (polyline, bezier) are not clipped.
+- **Clip off: strokes follow the panes (B9):** with `CLIP_FRAME_LIGHTBOX` off, a freehand
+  stroke (`ANIM_LB_freehand%`: brush, dot, spray, eraser) is still clipped to its pane's frame
+  (`ANIM_LB.follow`), and `ANIM_LB_follow_step` (from `view_pop`) moves it on when the pointer
+  is over another pane: `strokePane` / `vPane` switch, the last point (`MOUSE.X/OLD_X/UNSNAPPED/CON`,
+  `DOT.LAST_*`, `BMIX.last*`) is shifted by `(oxK - oxN) / z` - the same screen spot seen
+  through the new pane's view - so the next segment starts at the pane's edge, and the clip
+  restarts on the new frame (its copy holds the stroke so far). One undo step. Before, the
+  stroke ran past the cell into its sheet neighbour (the next cell in the row, or off the
+  sheet). Shapes keep the start pane's view, unclipped. Test: `anim-lightbox-follow.sh`.
 - **The strip (2.3):** `ANIM_LB_strip_at%` (cell + half the gap either side). A left press runs
   `ANIM_LB_strip_press` (R-12 via `ANIM_SEL_click`; a plain press on a frame already in a
   multi-selection only makes it current and collapses on release - it may be a drag), then
