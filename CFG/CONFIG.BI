@@ -362,6 +362,7 @@ TYPE DRAW_CONFIG
     ONION_AFTER                     AS INTEGER        ' Animation: onion skin frames after the current one (0-5)
     ONION_OPACITY                   AS INTEGER        ' Animation: onion skin opacity % of the nearest frame (5-100; farther frames fade)
     ONION_TINT                      AS INTEGER        ' Animation: onion skin tint - frames before red, after blue (ANIM > Onion Skin Red / Blue Tint)
+    ANIM_EXPORT_SCALE               AS INTEGER        ' Animation: exports scale every pixel 1x / 2x / 4x, nearest (ANIM > Export Scale)
     ' Transparency checkerboard settings
     TRANSPARENCY_CHECK_COLOR1       AS _UNSIGNED LONG ' Light checkerboard color
     TRANSPARENCY_CHECK_COLOR2       AS _UNSIGNED LONG ' Dark checkerboard color

@@ -7,7 +7,8 @@
 '   DRAW art.draw --export art.bas         (single-file color cycling program)
 '   DRAW art.draw --export art.gif         (GIF + GrafX2 CRNG cycle ranges)
 '   DRAW art.draw --export art.lbm         (DeluxePaint ILBM + CRNG)
-'   DRAW art.draw --export-anim art.gif    (animated GIF of the cycle)
+'   DRAW art.draw --export-anim art.gif    (animated GIF: the frames of a sheet with frames,
+'                                          colour cycling along; else the colour cycle)
 '
 ' --cycle lo-hi[:steps-per-second[:fwd|rev|ping]] adds a color cycling range
 ' (repeatable) after the document and --palette have loaded. All flags run on

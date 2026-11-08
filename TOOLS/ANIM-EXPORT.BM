@@ -1,0 +1,262 @@
+''
+' DRAW - TOOLS/ANIM-EXPORT.BM
+' =============================================================================
+' Animation exports. See ANIM-EXPORT.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' The document has frames (for callers where a local `anim` hides ANIM).
+FUNCTION ANIM_has_frames% ()
+    ANIM_has_frames% = ANIM.active _ANDALSO ANIM.count > 0
+END FUNCTION
+
+''
+' ANIM > Export Animated GIF... / Export Scale (2532, 2533).
+SUB ANIM_EXPORT_action (act AS INTEGER)
+    DIM f AS STRING, ok AS INTEGER
+    SELECT CASE act
+        CASE ANIM_ACT_EXPORT_GIF
+            IF ANIM.active = FALSE THEN STATUS_flash "Animated GIF exports frames - set a frame size first": EXIT SUB
+            f = CYCX_save_dialog$("Export Animated GIF", "GIF (*.gif)|*.gif", ".gif")
+            IF f = "" THEN EXIT SUB
+            ok = ANIM_GIF_export%(f)
+            CYCX_report ok, "animated GIF (" + ANIM_EXPORT_INFO + ")", f
+        CASE ANIM_ACT_EXPORT_SCALE
+            SELECT CASE CFG.ANIM_EXPORT_SCALE%
+                CASE 1: CFG.ANIM_EXPORT_SCALE% = 2
+                CASE 2: CFG.ANIM_EXPORT_SCALE% = 4
+                CASE ELSE: CFG.ANIM_EXPORT_SCALE% = 1
+            END SELECT
+            CONFIG_save
+            STATUS_flash "Animation exports at" + STR$(CFG.ANIM_EXPORT_SCALE%) + "x"
+    END SELECT
+END SUB
+
+' ---------------------------------------------------------------------------
+' The exact colour table
+' ---------------------------------------------------------------------------
+
+SUB ANIM_GH_clear ()
+    DIM i AS INTEGER
+    FOR i = 1 TO ANIM_GH_N: ANIM_GH_HEAD(ANIM_GH_RGB(i) AND &HFFFF~&) = 0: NEXT i
+    ANIM_GH_N = 0
+END SUB
+
+''
+' 0-based index of rgb in the table; add = TRUE adds it (-1 when full).
+FUNCTION ANIM_GH_index% (rgb AS _UNSIGNED LONG, add AS INTEGER)
+    DIM e AS INTEGER, h AS LONG
+    h = rgb AND &HFFFF~&
+    e = ANIM_GH_HEAD(h)
+    DO WHILE e > 0
+        IF ANIM_GH_RGB(e) = rgb THEN ANIM_GH_index% = e - 1: EXIT FUNCTION
+        e = ANIM_GH_NEXT(e)
+    LOOP
+    ANIM_GH_index% = -1
+    IF add = FALSE _ORELSE ANIM_GH_N >= 256 THEN EXIT FUNCTION
+    ANIM_GH_N = ANIM_GH_N + 1
+    ANIM_GH_RGB(ANIM_GH_N) = rgb: ANIM_GH_NEXT(ANIM_GH_N) = ANIM_GH_HEAD(h): ANIM_GH_HEAD(h) = ANIM_GH_N
+    ANIM_GH_index% = ANIM_GH_N - 1
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' 3.1 Animated GIF
+' ---------------------------------------------------------------------------
+
+''
+' Frame f's cell out of the indexed sheet idx (sheet width sw), every pixel
+' scaled sc x sc.
+FUNCTION ANIM_GIF_cell$ (idx AS STRING, sw AS LONG, f AS INTEGER, sc AS INTEGER)
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, j AS LONG, i AS LONG, k AS INTEGER
+    DIM row AS STRING, big AS STRING, cellOut AS STRING, p AS LONG
+    IF ANIM_cell_rect%(f, x, y, w, h) = 0 THEN EXIT FUNCTION
+    cellOut = SPACE$(w * h * sc * sc): p = 1
+    FOR j = 0 TO h - 1
+        row = MID$(idx, (y + j) * sw + x + 1, w)
+        IF sc = 1 THEN
+            big = row
+        ELSE
+            big = SPACE$(w * sc)
+            FOR i = 0 TO w - 1: MID$(big, i * sc + 1, sc) = STRING$(sc, ASC(row, i + 1)): NEXT i
+        END IF
+        FOR k = 1 TO sc: MID$(cellOut, p, LEN(big)) = big: p = p + LEN(big): NEXT k
+    NEXT j
+    ANIM_GIF_cell$ = cellOut
+END FUNCTION
+
+''
+' Write the frames as an animated GIF at path. TRUE on success, else
+' CYCX_LAST_ERROR$ says why; ANIM_EXPORT_INFO sums it up.
+FUNCTION ANIM_GIF_export% (path AS STRING)
+    DIM flat AS LONG, sc AS INTEGER, n AS INTEGER, k AS INTEGER, f AS INTEGER, i AS LONG, e AS INTEGER
+    DIM fw AS LONG, fh AS LONG, ow AS LONG, oh AS LONG, sw AS LONG, sh AS LONG
+    DIM m AS _MEM, v AS _UNSIGNED LONG, hasT AS INTEGER, exact AS INTEGER, transIdx AS INTEGER, nCol AS INTEGER, bits AS INTEGER
+    DIM idx AS STRING, g AS STRING, gct AS STRING, ff AS INTEGER, minCode AS INTEGER, disposal AS INTEGER, dummy(0 TO 255) AS INTEGER
+
+    ANIM_GIF_export% = FALSE
+    CYCX_LAST_ERROR$ = "": ANIM_EXPORT_INFO = ""
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN CYCX_LAST_ERROR$ = "the document has no frames": EXIT FUNCTION
+    sc = CFG.ANIM_EXPORT_SCALE%: IF sc <> 2 _ANDALSO sc <> 4 THEN sc = 1
+    fw = ANIM.frameW: fh = ANIM.frameH: ow = fw * sc: oh = fh * sc
+    IF ow > 65535 _ORELSE oh > 65535 THEN CYCX_LAST_ERROR$ = "frames too large for GIF at" + STR$(sc) + "x": EXIT FUNCTION
+    PCYC_validate
+    n = ANIM_play_order%
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document": EXIT FUNCTION
+    sw = _WIDTH(flat): sh = _HEIGHT(flat)
+
+    ' -- colours: exact when the frames use 256 or fewer, else the palette --
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, j AS LONG, p AS _OFFSET
+    ANIM_GH_clear
+    exact = TRUE
+    m = _MEMIMAGE(flat)
+    FOR f = 1 TO ANIM.count
+        IF ANIM_cell_rect%(f, x, y, w, h) THEN
+            FOR j = 0 TO h - 1
+                p = m.OFFSET + ((y + j) * sw + x) * 4
+                FOR i = 0 TO w - 1
+                    v = _MEMGET(m, p, _UNSIGNED LONG)
+                    IF v < &H80000000~& THEN
+                        hasT = TRUE
+                    ELSEIF exact THEN
+                        IF ANIM_GH_index%(v AND &HFFFFFF~&, TRUE) < 0 THEN exact = FALSE
+                    END IF
+                    p = p + 4
+                NEXT i
+            NEXT j
+        END IF
+    NEXT f
+    IF exact _ANDALSO hasT _ANDALSO ANIM_GH_N >= 256 THEN exact = FALSE ' no room for the transparent entry
+    IF exact THEN
+        nCol = ANIM_GH_N
+        transIdx = -1: IF hasT THEN transIdx = nCol: nCol = nCol + 1
+        idx = STRING$(sw * sh, 0)
+        FOR i = 0 TO sw * sh - 1
+            v = _MEMGET(m, m.OFFSET + i * 4, _UNSIGNED LONG)
+            IF v < &H80000000~& THEN
+                IF transIdx >= 0 THEN ASC(idx, i + 1) = transIdx
+            ELSE
+                e = ANIM_GH_index%(v AND &HFFFFFF~&, FALSE)
+                IF e >= 0 THEN ASC(idx, i + 1) = e
+            END IF
+        NEXT i
+    ELSE
+        transIdx = -1
+        IF hasT THEN transIdx = IDX_transparent_slot%
+        idx = IDX_index_image$(flat, transIdx)
+        nCol = PAL_COLOR_COUNT%: IF transIdx >= 0 THEN nCol = nCol + 1
+    END IF
+    _MEMFREE m
+    SAFE_FREEIMAGE flat
+    bits = GIF_color_bits%(nCol)
+    minCode = bits: IF minCode < 2 THEN minCode = 2
+    IF exact THEN
+        gct = STRING$((2 ^ bits) * 3, 0)
+        FOR e = 1 TO ANIM_GH_N
+            ASC(gct, (e - 1) * 3 + 1) = _RED32(ANIM_GH_RGB(e)): ASC(gct, (e - 1) * 3 + 2) = _GREEN32(ANIM_GH_RGB(e)): ASC(gct, (e - 1) * 3 + 3) = _BLUE32(ANIM_GH_RGB(e))
+        NEXT e
+    ELSE
+        gct = GIF_color_table$(bits, dummy(), FALSE)
+    END IF
+
+    ' -- colour cycling: which palette chip each table entry is (-1 none) --
+    DIM spt(1 TO PCYC_MAX) AS DOUBLE, anyCyc AS INTEGER, cycTicks AS LONG, chipOf(0 TO 255) AS INTEGER, c AS INTEGER
+    cycTicks = GIF_cycle_ticks&(spt(), anyCyc, ANIM_GIF_MAX_TICKS)
+    FOR e = 0 TO 255: chipOf(e) = -1: NEXT e
+    IF anyCyc THEN
+        FOR e = 0 TO nCol - 1
+            IF e <> transIdx THEN
+                IF exact THEN
+                    FOR c = 0 TO PAL_COLOR_COUNT% - 1
+                        IF PCYC_range_at%(c) > 0 _ANDALSO (PAL(c).value~& AND &HFFFFFF~&) = ANIM_GH_RGB(e + 1) THEN chipOf(e) = c: EXIT FOR
+                    NEXT c
+                ELSEIF e < PAL_COLOR_COUNT% THEN
+                    IF PCYC_range_at%(e) > 0 THEN chipOf(e) = e
+                END IF
+            END IF
+        NEXT e
+    END IF
+
+    ' -- timing: frame k of the order starts at T(k) frame ticks (holds) --
+    DIM tk(1 TO 2 * ANIM_MAX_FRAMES + 1) AS DOUBLE, startCs(1 TO 2 * ANIM_MAX_FRAMES + 1) AS LONG, fast AS INTEGER
+    tk(1) = 0
+    FOR k = 1 TO n: tk(k + 1) = tk(k) + ANIM_hold%(ANIM_ORDER(k)): NEXT k
+
+    ' -- the GIF --
+    DIM lz(1 TO ANIM_MAX_FRAMES) AS STRING, frames AS LONG, capped AS INTEGER, loopCs AS LONG
+    disposal = _IIF(transIdx >= 0, 2, 1) ' transparent pixels: clear to the background between frames
+    g = "GIF89a" + GIF_le16$(ow) + GIF_le16$(oh) + CHR$(&H80 OR &H70 OR (bits - 1)) + CHR$(_IIF(transIdx >= 0, transIdx, 0)) + CHR$(0) + gct
+    IF ANIM.loopMode <> ANIM_LOOP_ONCE THEN g = g + CHR$(&H21) + CHR$(&HFF) + CHR$(11) + "NETSCAPE2.0" + CHR$(3) + CHR$(1) + GIF_le16$(0) + CHR$(0)
+
+    IF anyCyc = FALSE THEN
+        ' one GIF frame per frame shown, delays from the holds (cumulative rounding: no drift)
+        FOR k = 1 TO n + 1: startCs(k) = INT(100# * tk(k) / ANIM.fps + 0.5): NEXT k
+        FOR k = 1 TO n
+            f = ANIM_ORDER(k)
+            IF lz(f) = "" THEN lz(f) = CHR$(minCode) + GIF_subblocks$(GIF_lzw$(ANIM_GIF_cell$(idx, sw, f, sc), minCode))
+            i = startCs(k + 1) - startCs(k)
+            IF i < 2 THEN i = 2: fast = TRUE ' viewers slow anything under 2/100 s down
+            g = g + GIF_gce$(i, transIdx, disposal) + CHR$(&H2C) + GIF_le16$(0) + GIF_le16$(0) + GIF_le16$(ow) + GIF_le16$(oh) + CHR$(0) + lz(f)
+            frames = frames + 1
+        NEXT k
+        loopCs = startCs(n + 1)
+    ELSE
+        ' a 2-cs tick timeline: a GIF frame each time the frame or the cycle's colours change
+        DIM animTicks AS LONG, total AS LONG, t AS LONG, tt AS LONG, kk AS INTEGER, lastF AS INTEGER, lastMap AS STRING, curMap AS STRING
+        DIM dispOf(0 TO 255) AS INTEGER, pend AS STRING, pendT AS LONG, have AS INTEGER, lct AS STRING, col AS _UNSIGNED LONG
+        FOR k = 1 TO n + 1: startCs(k) = 2 * INT(50# * tk(k) / ANIM.fps + 0.5): NEXT k
+        animTicks = startCs(n + 1) \ 2: IF animTicks < 1 THEN animTicks = 1
+        IF ANIM.loopMode = ANIM_LOOP_ONCE THEN
+            total = animTicks
+        ELSE
+            total = (animTicks \ GIF_gcd&(animTicks, cycTicks)) * cycTicks
+            IF total > ANIM_GIF_MAX_TICKS _ORELSE total < animTicks THEN total = ANIM_GIF_MAX_TICKS: capped = TRUE
+        END IF
+        lastF = -1: kk = 1
+        FOR t = 0 TO total - 1
+            tt = t MOD animTicks
+            IF tt = 0 THEN kk = 1
+            DO WHILE kk < n _ANDALSO startCs(kk + 1) \ 2 <= tt: kk = kk + 1: LOOP
+            f = ANIM_ORDER(kk)
+            GIF_display_map t, spt(), dispOf()
+            curMap = SPACE$(256)
+            FOR e = 0 TO 255: ASC(curMap, e + 1) = dispOf(e): NEXT e
+            IF f <> lastF _ORELSE curMap <> lastMap THEN
+                IF lz(f) = "" THEN lz(f) = CHR$(minCode) + GIF_subblocks$(GIF_lzw$(ANIM_GIF_cell$(idx, sw, f, sc), minCode))
+                lct = MID$(gct, 1, (2 ^ bits) * 3)
+                FOR e = 0 TO nCol - 1
+                    IF chipOf(e) >= 0 THEN
+                        col = PAL(dispOf(chipOf(e))).value~&
+                        ASC(lct, e * 3 + 1) = _RED32(col): ASC(lct, e * 3 + 2) = _GREEN32(col): ASC(lct, e * 3 + 3) = _BLUE32(col)
+                    END IF
+                NEXT e
+                IF have THEN g = g + GIF_gce$((t - pendT) * 2, transIdx, disposal) + pend: frames = frames + 1
+                pend = CHR$(&H2C) + GIF_le16$(0) + GIF_le16$(0) + GIF_le16$(ow) + GIF_le16$(oh) + CHR$(&H80 OR (bits - 1)) + lct + lz(f)
+                pendT = t: have = TRUE
+                lastF = f: lastMap = curMap
+                IF frames >= ANIM_GIF_MAX_FRAMES - 1 THEN capped = TRUE: total = t + 1: EXIT FOR
+            END IF
+        NEXT t
+        g = g + GIF_gce$(_MAX(2, (total - pendT) * 2), transIdx, disposal) + pend
+        frames = frames + 1
+        loopCs = total * 2
+    END IF
+    g = g + CHR$(&H3B)
+
+    IF _FILEEXISTS(path) THEN KILL path
+    ff = FREEFILE
+    OPEN path FOR BINARY AS #ff
+    PUT #ff, , g
+    CLOSE #ff
+    IF _FILEEXISTS(path) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + path: EXIT FUNCTION
+    ANIM_EXPORT_INFO = _TRIM$(STR$(frames)) + " frames, " + _TRIM$(STR$(loopCs / 100)) + " s" + _IIF(ANIM.loopMode = ANIM_LOOP_ONCE, " once", " loop") + ", " + _TRIM$(STR$(nCol)) + " colours"
+    IF sc > 1 THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + ", " + _TRIM$(STR$(sc)) + "x"
+    IF exact = FALSE THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (over 256 colours: the palette's nearest)"
+    IF fast THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (faster than 50 fps: shown at 50)"
+    IF capped THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (cut at" + STR$(ANIM_GIF_MAX_TICKS \ 50) + " s: the colour cycle and the frames line up later than that)"
+    _LOGINFO "ANIM_GIF_export: " + path + " - " + ANIM_EXPORT_INFO
+    ANIM_GIF_export% = TRUE
+END FUNCTION

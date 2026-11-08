@@ -52,6 +52,8 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2529 | Replace FG color with BG in the selected frames (`ANIM_OPS_swap_fg_bg`; sheet view too) |
 | 2530 | Reference Layer - the current layer (`ANIM_LF_toggle ANIM_LF_REF`) |
 | 2531 | Layer Same on Every Frame - the current layer (`ANIM_LF_toggle ANIM_LF_SAME`) |
+| 2532 | Export Animated GIF... (`ANIM_EXPORT_action`, `TOOLS/ANIM-EXPORT`) |
+| 2533 | Export Scale 1x / 2x / 4x (cycles `CFG.ANIM_EXPORT_SCALE`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
 Grep before adding one (CLAUDE.md gotcha 17).
@@ -317,6 +319,24 @@ toggle is an `ANIM_OPS_record` step, so an undo never lands on flags from anothe
 
 QA: `anim-layer-flags.sh` (`ANIMLF curRef curSame nFlags flatCrc`, flatCrc = CRC32 of
 `LAYERS_flatten&`, only for a document with frames or flags, `-` past 512x512).
+
+## Exports (`TOOLS/ANIM-EXPORT`, phase 3)
+
+**Animated GIF** (3.1, `ANIM_GIF_export% path`; ANIM > Export Animated GIF..., batch
+`--export-anim out.gif` on a document with frames - without frames it is still the colour
+cycle GIF): pixels from `LAYERS_flatten&` (hidden / reference layers out), the frames in
+`ANIM_play_order%` (pure, unit-tested: ping-pong written out 1..n..2; play once = no NETSCAPE
+block). Delays: cumulative rounding of `hold * 100 / fps` cs, at least 2 (flagged "faster than
+50 fps"). Colours exact (`ANIM_GH_*` hash of the cells' RGB) when they fit 256 with the
+transparent entry, else `IDX_index_image$` against the palette. Transparency: index after the
+colours, disposal 2. `CFG.ANIM_EXPORT_SCALE` 1 / 2 / 4 (nearest; `ANIM_GIF_cell$`). LZW is
+encoded once per frame. **Colour cycling** with active ranges: a 2-cs tick timeline
+(`GIF_cycle_ticks&`, factored out of `GIF_anim_stream$`, + `GIF_display_map`); a GIF frame
+whenever the frame or the colours change, each with a local colour table (entry -> its
+palette chip in a range -> `PAL(dispOf(chip))`); length = LCM(frames loop, cycle loop), cut
+at 120 s / 2000 GIF frames. `ANIM_EXPORT_INFO` sums it up (status bar, log).
+QA: `file-anim-gif.sh` (batch CLI, ImageMagick: counts, delays, sizes, disposal, pixels per
+cell); `DEV/tools/test-cycle-exports.sh` covers the cycle GIF.
 
 ## A selection stays put in its cell (2.9, Q-18)
 

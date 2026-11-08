@@ -144,6 +144,18 @@ check "a newer version with extra fields still loads", STR$(r) + STR$(ANIM.count
 r = ANIM_deserialize%(MKI$(9) + MID$(s, 3) + "future")
 check "a version far ahead still loads its frames", STR$(r) + STR$(ANIM.count), STR$(TRUE) + STR$(7)
 
+' --- the frames one loop shows (exports, 3.1) ---
+SCRN.canvasW = 64: SCRN.canvasH = 32: ANIM_reset
+check "no frames: no order", STR$(ANIM_play_order%), STR$(0)
+r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 4
+check "forward", order$, "1 2 3 4"
+ANIM.loopMode = ANIM_LOOP_REV: check "reverse", order$, "4 3 2 1"
+ANIM.loopMode = ANIM_LOOP_PING: check "ping-pong written out", order$, "1 2 3 4 3 2"
+ANIM.loopMode = ANIM_LOOP_ONCE: check "once", order$, "1 2 3 4"
+ANIM.loopMode = ANIM_LOOP_PING: ANIM.count = 2: check "ping-pong of 2", order$, "1 2"
+ANIM.count = 1: check "ping-pong of 1", order$, "1"
+ANIM_reset
+
 ' --- layer flags (2.8): by historyId, saved after the holds, also without frames ---
 ANIM_reset
 ANIM_LF_set 7, ANIM_LF_REF: ANIM_LF_set 9, ANIM_LF_REF OR ANIM_LF_SAME
@@ -339,6 +351,13 @@ ANIM_COUNT_TO = ANIM_MAX_FRAMES: check "insert past the most frames: refused", p
 
 PRINT PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
+
+FUNCTION order$ ()
+    DIM n AS INTEGER, k AS INTEGER, o AS STRING
+    n = ANIM_play_order%
+    FOR k = 1 TO n: o = o + _TRIM$(STR$(ANIM_ORDER(k))) + " ": NEXT k
+    order$ = RTRIM$(o)
+END FUNCTION
 
 SUB check (label AS STRING, got AS STRING, want AS STRING)
     IF got = want THEN
