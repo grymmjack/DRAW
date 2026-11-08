@@ -141,6 +141,29 @@ check "truncated holds: keeps what is there", STR$(r) + STR$(ANIM_hold%(1)) + ST
 SCRN.canvasW = 64: SCRN.canvasH = 32: ANIM_reset
 r = ANIM_deserialize%(MKI$(2) + MID$(s, 3) + "future")
 check "a newer version with extra fields still loads", STR$(r) + STR$(ANIM.count), STR$(TRUE) + STR$(7)
+r = ANIM_deserialize%(MKI$(9) + MID$(s, 3) + "future")
+check "a version far ahead still loads its frames", STR$(r) + STR$(ANIM.count), STR$(TRUE) + STR$(7)
+
+' --- layer flags (2.8): by historyId, saved after the holds, also without frames ---
+ANIM_reset
+ANIM_LF_set 7, ANIM_LF_REF: ANIM_LF_set 9, ANIM_LF_REF OR ANIM_LF_SAME
+check "flags set", STR$(ANIM_LF_N) + STR$(ANIM_LF_get%(7)) + STR$(ANIM_LF_get%(9)) + STR$(ANIM_LF_get%(8)), STR$(2) + STR$(1) + STR$(3) + STR$(0)
+s = ANIM_serialize$
+check "a picture without frames saves its flags", STR$(LEN(s)), STR$(20 + 2 + 2 * 6)
+ANIM_reset
+check "reset drops the flags", STR$(ANIM_LF_N), STR$(0)
+r = ANIM_deserialize%(s)
+check "flags back, still no frames", STR$(r) + STR$(ANIM_LF_get%(7)) + STR$(ANIM_LF_get%(9)), STR$(FALSE) + STR$(1) + STR$(3)
+ANIM_LF_set 7, 0
+check "flag 0 drops the entry", STR$(ANIM_LF_N) + STR$(ANIM_LF_get%(7)) + STR$(ANIM_LF_get%(9)), STR$(1) + STR$(0) + STR$(3)
+r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 4: ANIM_set_hold 2, 3: s = ANIM_serialize$
+ANIM_reset: r = ANIM_deserialize%(s)
+check "with frames and holds", STR$(r) + STR$(ANIM.count) + STR$(ANIM_hold%(2)) + STR$(ANIM_LF_get%(9)), STR$(TRUE) + STR$(4) + STR$(3) + STR$(3)
+r = ANIM_deserialize%(LEFT$(s, LEN(s) - 3))
+check "truncated flags: frames load, the cut entry is left out", STR$(r) + STR$(ANIM.count) + STR$(ANIM_LF_N), STR$(TRUE) + STR$(4) + STR$(0)
+r = ANIM_deserialize%(MKI$(1) + MID$(s, 3))
+check "a version 1 blob: no flags read", STR$(r) + STR$(ANIM_LF_N), STR$(TRUE) + STR$(0)
+ANIM_reset
 
 
 ' --- frame operations: ANIM_plan% (new frame n = old frame ANIM_SRC(n), 0 = blank) ---

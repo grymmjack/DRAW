@@ -772,6 +772,9 @@ DO
     PERF_start PERF_STICK_INPUT
     STICK_input_handler
     PERF_stop PERF_STICK_INPUT
+
+    ' Layers the same on every frame take a change in one cell to all of them (TOOLS/ANIM-OPS, 2.8)
+    IF ANIM_SAME_tick% THEN GUI_NEEDS_REDRAW% = TRUE
     
     ' Update tooltip state (must run before idle detection so hover keeps loop alive)
     TOOLTIP_update

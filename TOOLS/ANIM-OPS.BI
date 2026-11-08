@@ -55,6 +55,8 @@ DIM SHARED ANIM_OPS_STEP_NAME AS STRING     ' ANIM_OPS_run: the undo step's name
 ' FG with BG (2529) works in sheet view too. A marquee selection keeps the
 ' commands' own behaviour.
 CONST ANIM_ACT_SWAP_FG_BG = 2529 ' ANIM > Replace FG Color with BG in Frames
+CONST ANIM_ACT_REF_LAYER  = 2530 ' ANIM > Reference Layer (the current layer; 2.8)
+CONST ANIM_ACT_SAME_LAYER = 2531 ' ANIM > Same on Every Frame (the current layer)
 DIM SHARED ANIM_FM_ON AS INTEGER
 DIM SHARED ANIM_FM_IMG(1 TO MAX_LAYERS) AS LONG ' each pixel layer before the command (0 = none)
 

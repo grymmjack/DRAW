@@ -27,13 +27,16 @@ without animation reads drAw and opens the file as a plain picture (round 2 R-10
 Not deflated - it is small. Little-endian INTEGERs (`ANIM_serialize$`):
 
 ```
-version (ANIM_CHUNK_VERSION = 1), frameW, frameH, gutter, margin,
+version (ANIM_CHUNK_VERSION = 2), frameW, frameH, gutter, margin,
 count, current, fps, loopMode (0 FWD 1 REV 2 PING 3 ONCE),
 nHolds, then nHolds holds (frames 1..nHolds; the rest hold 1)
+v2, only when a layer has flags: nFlags, then per entry
+    historyId (LONG), flags (1 = reference layer, 2 = same on every frame)
 ```
 
-Newer versions append fields; a reader takes the ones it knows (version >= 1). No frames =
-no chunk. Every document path calls `ANIM_reset` first (gotcha 15). The re-slice / resize
+Newer versions append fields; a reader takes the ones it knows (version >= 1; the flags are
+read even when the frames don't fit). No frames and no layer flags = no chunk; a picture with
+a reference layer but no frames writes the chunk with frameW 0 / count 0. Every document path calls `ANIM_reset` first (gotcha 15). The re-slice / resize
 answer and playback are session state, not saved. Test: `QA/tests/file-anim-chunk.sh`
 (`QA/fixtures/png-chunk.py put|get` writes / reads chunks for fixtures).
 

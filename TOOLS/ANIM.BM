@@ -24,6 +24,41 @@ SUB ANIM_reset ()
     ANIM_PLAY.playing = FALSE
     FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_HOLDS(i) = 0: ANIM_SEL(i) = FALSE: NEXT i
     ANIM_SEL_ANCHOR = 0: ANIM_MOVE_TO = 0: ANIM_COUNT_TO = 0
+    ANIM_LF_N = 0
+    IF ANIM_SB_KEEP = FALSE THEN ' (ANIM_deserialize% keeps the SAME layers' pictures: undo / redo is the same document)
+        FOR i = 1 TO ANIM_SB_N: ANIM_SB_PX(i) = "": NEXT i
+        ANIM_SB_N = 0
+        ANIM_SAME_CHECK = FALSE
+    END IF
+END SUB
+
+''
+' Layer flags (ANIM_LF_*) of the layer with this historyId.
+FUNCTION ANIM_LF_get% (id AS LONG)
+    DIM i AS INTEGER
+    FOR i = 1 TO ANIM_LF_N
+        IF ANIM_LF_ID(i) = id THEN ANIM_LF_get% = ANIM_LF_FL(i): EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' Set the layer flags of historyId id (0 drops its entry).
+SUB ANIM_LF_set (id AS LONG, fl AS INTEGER)
+    DIM i AS INTEGER, k AS INTEGER
+    FOR i = 1 TO ANIM_LF_N
+        IF ANIM_LF_ID(i) = id THEN k = i: EXIT FOR
+    NEXT i
+    IF fl = 0 THEN
+        IF k = 0 THEN EXIT SUB
+        FOR i = k TO ANIM_LF_N - 1: ANIM_LF_ID(i) = ANIM_LF_ID(i + 1): ANIM_LF_FL(i) = ANIM_LF_FL(i + 1): NEXT i
+        ANIM_LF_N = ANIM_LF_N - 1
+        EXIT SUB
+    END IF
+    IF k = 0 THEN
+        IF ANIM_LF_N >= ANIM_LF_MAX THEN EXIT SUB
+        ANIM_LF_N = ANIM_LF_N + 1: k = ANIM_LF_N: ANIM_LF_ID(k) = id
+    END IF
+    ANIM_LF_FL(k) = fl
 END SUB
 
 
@@ -194,13 +229,17 @@ END FUNCTION
 ' Newer versions append fields; a reader takes the ones it knows.
 FUNCTION ANIM_serialize$ ()
     DIM s AS STRING, n AS INTEGER, i AS INTEGER
-    IF ANIM.active = FALSE THEN EXIT FUNCTION
+    IF ANIM.active = FALSE _ANDALSO ANIM_LF_N = 0 THEN EXIT FUNCTION
     FOR i = ANIM.count TO 1 STEP -1 ' holds past the last real one are all 1
         IF ANIM_hold%(i) > 1 THEN n = i: EXIT FOR
     NEXT i
     s = MKI$(ANIM_CHUNK_VERSION) + MKI$(ANIM.frameW) + MKI$(ANIM.frameH) + MKI$(ANIM.gutter) + MKI$(ANIM.margin)
     s = s + MKI$(ANIM.count) + MKI$(ANIM.current) + MKI$(ANIM.fps) + MKI$(ANIM.loopMode) + MKI$(n)
     FOR i = 1 TO n: s = s + MKI$(ANIM_hold%(i)): NEXT i
+    IF ANIM_LF_N > 0 THEN ' v2: layer flags (a picture without frames can have reference layers)
+        s = s + MKI$(ANIM_LF_N)
+        FOR i = 1 TO ANIM_LF_N: s = s + MKL$(ANIM_LF_ID(i)) + MKI$(ANIM_LF_FL(i)): NEXT i
+    END IF
     ANIM_serialize$ = s
 END FUNCTION
 
@@ -210,10 +249,23 @@ END FUNCTION
 ' ANIM.active.
 FUNCTION ANIM_deserialize% (blob AS STRING)
     DIM v AS INTEGER, n AS INTEGER, i AS INTEGER, cnt AS INTEGER, cur AS INTEGER, r AS INTEGER, sm AS INTEGER
-    sm = ANIM_SIZE_MODE: ANIM_reset: ANIM_SIZE_MODE = sm ' undo / redo restore this; the answer is the document's
+    sm = ANIM_SIZE_MODE: ANIM_SB_KEEP = TRUE: ANIM_reset: ANIM_SB_KEEP = FALSE: ANIM_SIZE_MODE = sm ' undo / redo restore this; the answer is the document's
     IF LEN(blob) < 20 THEN EXIT FUNCTION
     v = CVI(MID$(blob, 1, 2))
     IF v < 1 THEN EXIT FUNCTION
+    IF v >= 2 THEN ' layer flags after the holds - read whether or not the frames fit
+        DIM fp AS LONG, nf AS INTEGER
+        n = CVI(MID$(blob, 19, 2)): IF n < 0 THEN n = 0
+        fp = 21 + 2 * CLNG(n)
+        IF fp + 1 <= LEN(blob) THEN
+            nf = CVI(MID$(blob, fp, 2)): fp = fp + 2
+            FOR i = 1 TO nf
+                IF fp + 5 > LEN(blob) _ORELSE i > ANIM_LF_MAX THEN EXIT FOR
+                ANIM_LF_set CVL(MID$(blob, fp, 4)), CVI(MID$(blob, fp + 4, 2))
+                fp = fp + 6
+            NEXT i
+        END IF
+    END IF
     r = ANIM_set_layout%(CVI(MID$(blob, 3, 2)), CVI(MID$(blob, 5, 2)), CVI(MID$(blob, 7, 2)), CVI(MID$(blob, 9, 2)))
     IF r = FALSE THEN EXIT FUNCTION
     cnt = CVI(MID$(blob, 11, 2)): cur = CVI(MID$(blob, 13, 2))

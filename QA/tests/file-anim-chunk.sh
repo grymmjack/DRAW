@@ -47,13 +47,14 @@ an_export "$AN_T/sheet.png" "$AN_T/base.draw"
 
 # version 1; 4x4 frames, gutter 0, margin 0; 7 of 8 cells; current 3; 12 fps; ping-pong; holds 1 1 3
 AN_BLOB=$(an_hex 1 4 4 0 0 7 3 12 2 3 1 1 3)
+AN_SAVED=$(an_hex 2 4 4 0 0 7 3 12 2 3 1 1 3) # saved back as version 2 (2.8: + layer flags, none here)
 
 # 1. a .draw with frames: open + save keeps the chunk
 python3 "$AN_PY" put "$AN_T/base.draw" "$AN_T/anim.draw" drAn "$AN_BLOB"
 an_export "$AN_T/anim.draw" "$AN_T/out.draw"
 AN_GOT=$(python3 "$AN_PY" get "$AN_T/out.draw" drAn)
-[[ "$AN_GOT" == "$AN_BLOB" ]] && pass "frames survive open + save of a .draw (byte for byte)" \
-    || fail "frames lost or changed on open + save: got [$AN_GOT] want [$AN_BLOB]"
+[[ "$AN_GOT" == "$AN_SAVED" ]] && pass "a version 1 chunk is read, and saved back as version 2 (the same fields)" \
+    || fail "frames lost or changed on open + save: got [$AN_GOT] want [$AN_SAVED]"
 AN_TYPES=$(python3 "$AN_PY" types "$AN_T/out.draw")
 [[ "$AN_TYPES" == *"drAw drAn IEND" ]] && pass "drAn sits after drAw, before IEND" || fail "chunk order: $AN_TYPES"
 an_same_picture "$AN_T/base.draw" "$AN_T/out.draw" "the picture is unchanged"
@@ -62,8 +63,8 @@ an_same_picture "$AN_T/base.draw" "$AN_T/out.draw" "the picture is unchanged"
 python3 "$AN_PY" put "$AN_T/sheet.png" "$AN_T/anim.png" drAn "$AN_BLOB"
 an_export "$AN_T/anim.png" "$AN_T/out2.draw"
 AN_GOT=$(python3 "$AN_PY" get "$AN_T/out2.draw" drAn)
-[[ "$AN_GOT" == "$AN_BLOB" ]] && pass "a plain PNG's frames are picked up" \
-    || fail "a plain PNG's frames were lost: got [$AN_GOT] want [$AN_BLOB]"
+[[ "$AN_GOT" == "$AN_SAVED" ]] && pass "a plain PNG's frames are picked up" \
+    || fail "a plain PNG's frames were lost: got [$AN_GOT] want [$AN_SAVED]"
 an_same_picture "$AN_T/sheet.png" "$AN_T/out2.draw" "the plain PNG's picture is unchanged"
 
 # 3. frames wider than the canvas: dropped, the file still opens
@@ -77,8 +78,15 @@ an_same_picture "$AN_T/base.draw" "$AN_T/out3.draw" "...and the picture still op
 python3 "$AN_PY" put "$AN_T/base.draw" "$AN_T/many.draw" drAn "$(an_hex 1 4 4 0 0 50 50 12 0 0)"
 an_export "$AN_T/many.draw" "$AN_T/out4.draw"
 AN_GOT=$(python3 "$AN_PY" get "$AN_T/out4.draw" drAn)
-AN_WANT=$(an_hex 1 4 4 0 0 8 8 12 0 0)
+AN_WANT=$(an_hex 2 4 4 0 0 8 8 12 0 0)
 [[ "$AN_GOT" == "$AN_WANT" ]] && pass "a frame count past the cells clamps to 8" || fail "count clamp: got [$AN_GOT] want [$AN_WANT]"
+
+# 5. layer flags of a layer the file does not have are dropped on load (its id could be reused)
+python3 "$AN_PY" put "$AN_T/base.draw" "$AN_T/flags.draw" drAn "$(an_hex 2 4 4 0 0 2 1 12 0 0 1 30000 0 1)"
+an_export "$AN_T/flags.draw" "$AN_T/out5.draw"
+AN_GOT=$(python3 "$AN_PY" get "$AN_T/out5.draw" drAn)
+AN_WANT5=$(an_hex 2 4 4 0 0 2 1 12 0 0)
+[[ "$AN_GOT" == "$AN_WANT5" ]] && pass "flags of a missing layer are not carried over" || fail "stale layer flags: got [$AN_GOT] want [$AN_WANT5]"
 
 rm -rf "$AN_T"
 assert_window_exists

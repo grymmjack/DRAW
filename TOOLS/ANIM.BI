@@ -33,7 +33,7 @@ CONST ANIM_SHEET_MAX   = 16384 ' frame ops / resized frames grow the sheet up to
 CONST ANIM_SIZE_ASK     = 0 ' not asked yet
 CONST ANIM_SIZE_RESLICE = 1 ' the grid moves, the pixels stay
 CONST ANIM_SIZE_RESIZE  = 2 ' the frames resize, each drawing stays in its frame (the sheet refits)
-CONST ANIM_CHUNK_VERSION = 1 ' ANIM_serialize$ layout (PNG chunk "drAn")
+CONST ANIM_CHUNK_VERSION = 2 ' ANIM_serialize$ layout (PNG chunk "drAn"; 2 = + layer flags)
 
 ' loop modes
 CONST ANIM_LOOP_FWD  = 0 ' 1 2 3 1 2 3
@@ -91,5 +91,28 @@ DIM SHARED ANIM_SEL(1 TO ANIM_MAX_FRAMES) AS INTEGER    ' TRUE = selected
 DIM SHARED ANIM_SEL_ANCHOR AS INTEGER                   ' Shift+click ranges from here
 DIM SHARED ANIM_MOVE_TO AS INTEGER                      ' ANIM_OP_MOVE_SEL: drop before this frame (count + 1 = at the end)
 DIM SHARED ANIM_COUNT_TO AS INTEGER                     ' ANIM_OP_SET_COUNT: the new total
+
+' Layer flags (2.8), by layer historyId: saved in the drAn chunk, part of every
+' frame-op undo snapshot, and each change is an undo step of its own.
+'   REF  - a reference layer: shown while drawing and in the lightbox, left out
+'          of every export (LAYERS_flatten&) - Q-19
+'   SAME - the same on every frame (R-05 phase 1): a change in any cell is
+'          copied to every cell (TOOLS/ANIM-OPS ANIM_SAME_tick%); frame ops
+'          leave the layer as it is
+CONST ANIM_LF_MAX  = 256
+CONST ANIM_LF_REF  = 1
+CONST ANIM_LF_SAME = 2
+DIM SHARED ANIM_LF_N AS INTEGER                     ' entries in use (only flags <> 0 are kept)
+DIM SHARED ANIM_LF_ID(1 TO ANIM_LF_MAX) AS LONG     ' layer historyId
+DIM SHARED ANIM_LF_FL(1 TO ANIM_LF_MAX) AS INTEGER  ' ANIM_LF_* bits
+' SAME layers: the picture every cell holds (frameW x frameH RGBA), by historyId.
+' Rebuilt from the current frame's cell when missing or the frame size changed.
+DIM SHARED ANIM_SB_N AS INTEGER
+DIM SHARED ANIM_SB_ID(1 TO ANIM_LF_MAX) AS LONG
+DIM SHARED ANIM_SB_W(1 TO ANIM_LF_MAX) AS INTEGER
+DIM SHARED ANIM_SB_H(1 TO ANIM_LF_MAX) AS INTEGER
+DIM SHARED ANIM_SB_PX(1 TO ANIM_LF_MAX) AS STRING
+DIM SHARED ANIM_SB_KEEP AS INTEGER
+DIM SHARED ANIM_SAME_CHECK AS INTEGER ' an undo step was added / undone / redone: compare the SAME layers' cells
 
 ANIM_reset

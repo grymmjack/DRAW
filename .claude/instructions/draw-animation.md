@@ -50,6 +50,8 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2527 | Onion skin on / off (`CFG.ONION_SKIN`, Num /; lightbox only) |
 | 2528 | Onion skin red / blue tint (`CFG.ONION_TINT`) |
 | 2529 | Replace FG color with BG in the selected frames (`ANIM_OPS_swap_fg_bg`; sheet view too) |
+| 2530 | Reference Layer - the current layer (`ANIM_LF_toggle ANIM_LF_REF`) |
+| 2531 | Layer Same on Every Frame - the current layer (`ANIM_LF_toggle ANIM_LF_SAME`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
 Grep before adding one (CLAUDE.md gotcha 17).
@@ -287,6 +289,35 @@ when none is), each one undo step. A user marquee selection keeps the commands' 
 QA: `anim-lightbox-apply.sh` - its fixture's frames 2 / 3 / 4 are frame 1 moved / turned /
 mirrored, so a correct per-cell op on frame 1 produces another frame's exact CRC.
 
+## Layer flags: reference layers, same on every frame (2.8)
+
+Flags live beside the layers, not in `DRAW_LAYER`: `ANIM_LF_ID() / ANIM_LF_FL()` keyed by
+**historyId** (stable through reorder, delete + undo, save / load), bits `ANIM_LF_REF` /
+`ANIM_LF_SAME`; `ANIM_LF_get% / _set` (pure, unit-tested), `ANIM_LF_of% / is_ref% / is_same%`
+(by slot, `TOOLS/ANIM-OPS`). Saved in `drAn` v2 after the holds (`n` + `id, flags` each) - also
+for a picture without frames, which then writes a frame-less drAn (count 0); the loader reads
+the flags before checking the layout, and `DRW_load_from_png` runs `ANIM_LF_prune` (a dropped
+layer's id could be given to a later layer). They ride in every `ANIM_OPS_snapshot$`, and each
+toggle is an `ANIM_OPS_record` step, so an undo never lands on flags from another time.
+
+- **Reference** (Q-19): `LAYERS_flatten&` skips it, and with it every export (PNG / GIF / ANS /
+  .draw composite / Flatten & Save / AI dimg / extract / analyzer) and the BAS code export
+  (`FILE-QB64`). On screen and in the lightbox it is drawn as usual. Layer panel: `[R] ` name prefix.
+- **Same on every frame** (R-05 phase 1; pixel layers only, needs frames): `ANIM_SB_*` holds the
+  picture every cell shows (by historyId; `ANIM_deserialize%` keeps it - undo / redo is the same
+  document). `ANIM_SAME_tick%` runs in the main loop before the render when `ANIM_SAME_CHECK`
+  is set (`HISTORY_commit_record`, `HISTORY_undo`, `HISTORY_redo`) and no button is held / no
+  float or transform is up: every pixel of any cell that differs from the picture goes into it,
+  then into every cell (spare ones too). So a stroke in one frame lands on all, and so do its
+  undo and redo (the restored cell differs, and spreads) - nothing else hooks the tools.
+  Frame ops (`ANIM_OPS_run`, paste, resize frames, re-slice) call `ANIM_SAME_stamp_all` before
+  their after-snapshot: a blank frame would otherwise erase it everywhere. Content ops (flip,
+  swap, Move, masked effects) need nothing - the tick spreads them. A missing / wrong-sized
+  picture is rebuilt from the current frame's cell. Layer panel: `[=] `.
+
+QA: `anim-layer-flags.sh` (`ANIMLF curRef curSame nFlags flatCrc`, flatCrc = CRC32 of
+`LAYERS_flatten&`, only for a document with frames or flags, `-` past 512x512).
+
 ## The frame selection (`TOOLS/ANIM`, 2.3)
 
 `ANIM_SEL()` + `ANIM_SEL_ANCHOR`: pure state, unit-tested. `ANIM_SEL_is%` (nothing selected =
@@ -301,7 +332,7 @@ order, the rest. `ANIM_OP_SET_COUNT` (11, no action id): `ANIM_COUNT_TO` frames.
 
 ## Saved
 
-The `drAn` PNG chunk (`draw-fileformat.md`), read from .draw and plain PNG. The ask answer
+The `drAn` PNG chunk (`draw-fileformat.md`; v2 adds the layer flags), read from .draw and plain PNG. The ask answer
 and playback are not saved. Config: `FRAME_GRID`, `PREVIEW_SHOWS_FRAME`, `LIGHTBOX`, `LIGHTBOX_PANES`,
 `CLIP_FRAME_LIGHTBOX`, `CLIP_FRAME_SHEET`,
 `ANIM_PANEL_VISIBLE / _X / _Y`. Theme: `THEME.ANIM_FRAME_border / spare / current /
