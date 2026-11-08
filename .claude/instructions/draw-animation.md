@@ -608,6 +608,10 @@ double-click = Frame Note... for that frame - two presses on one frame within 0.
 main-loop passes apart (`ANIM_LOOP_TICK`, counted in `DRAW.BAS`) when frames are slow. QA dump
 `ANIMNT n [frame note]... _`, `ANIMXSN y`. QA: `anim-notes.sh` (18; on the 3x user profile the box
 takes over a second to come up after a double-click - the test waits 2 s before typing).
+**Tooltips (F7):** hovering a tag bar or a note shows its whole text (the rows cut them to fit):
+`ANIM_XS_tip%` (id 1000 + tag, 2000 + frame) feeds `TOOLTIP_update` as `TOOLTIP_SRC_ANIM_XS`
+(13), checked first while the pointer is on the band; the text rides `TOOLTIP.DYNAMIC_TEXT$` (two
+lines). QA: `anim-xsheet-tips.sh` (dump `TIP active source idx`).
 
 ## Imports (`TOOLS/ANIM-IMPORT`, phase 5)
 

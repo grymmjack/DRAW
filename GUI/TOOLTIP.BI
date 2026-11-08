@@ -21,6 +21,7 @@ CONST TOOLTIP_SRC_LAYER_OPACITY  = 9
 CONST TOOLTIP_SRC_SUBTOOL_FLYOUT = 10
 CONST TOOLTIP_SRC_LAYER_NO_PAINT = 11 ' Pencil-with-slash badge on a group header row
 CONST TOOLTIP_SRC_ACP_HISTORY    = 12 ' Advanced Color Picker — history strip
+CONST TOOLTIP_SRC_ANIM_XS        = 13 ' X-sheet tag / frame note: its whole text (TOOLS/ANIM-XS, F7)
 
 ' Readability cap on tooltip line length, in CHARACTERS (converted to pixels through
 ' the current font, so it scales correctly whether the tooltip uses the fixed 8px
