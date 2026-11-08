@@ -776,6 +776,7 @@ DO
     ' A selection in the current frame's cell follows it to the new current frame (2.9);
     ' layers the same on every frame take a change in one cell to all of them (2.8)
     ANIM_SELBOX_watch
+    ANIM_LOOP_TICK = ANIM_LOOP_TICK + 1 ' main-loop passes (the X-sheet's double-click on slow frames)
     IF ANIM_SAME_tick% THEN GUI_NEEDS_REDRAW% = TRUE
     
     ' Update tooltip state (must run before idle detection so hover keeps loop alive)

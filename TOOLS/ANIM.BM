@@ -27,6 +27,7 @@ SUB ANIM_reset ()
     ANIM_LF_N = 0
     ANIM_LK_N = 0
     ANIM_TG_N = 0: ANIM_EXP_A = 0: ANIM_EXP_B = 0
+    FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_NOTE(i) = "": NEXT i
     IF ANIM_SB_KEEP = FALSE THEN ' (ANIM_deserialize% keeps the SAME layers' pictures: undo / redo is the same document)
         FOR i = 1 TO ANIM_SB_N: ANIM_SB_PX(i) = "": NEXT i
         ANIM_SB_N = 0
@@ -254,27 +255,37 @@ END FUNCTION
 '   nHolds, then nHolds holds (frames 1..nHolds; the rest hold 1).
 ' Newer versions append fields; a reader takes the ones it knows.
 FUNCTION ANIM_serialize$ ()
-    DIM s AS STRING, n AS INTEGER, i AS INTEGER
+    DIM s AS STRING, n AS INTEGER, i AS INTEGER, nn AS INTEGER, more AS INTEGER
     IF ANIM.active = FALSE _ANDALSO ANIM_LF_N = 0 THEN EXIT FUNCTION
     FOR i = ANIM.count TO 1 STEP -1 ' holds past the last real one are all 1
         IF ANIM_hold%(i) > 1 THEN n = i: EXIT FOR
     NEXT i
+    IF ANIM.active THEN nn = ANIM_NT_count%
     s = MKI$(ANIM_CHUNK_VERSION) + MKI$(ANIM.frameW) + MKI$(ANIM.frameH) + MKI$(ANIM.gutter) + MKI$(ANIM.margin)
     s = s + MKI$(ANIM.count) + MKI$(ANIM.current) + MKI$(ANIM.fps) + MKI$(ANIM.loopMode) + MKI$(n)
     FOR i = 1 TO n: s = s + MKI$(ANIM_hold%(i)): NEXT i
-    IF ANIM_LF_N > 0 _ORELSE ((ANIM_LK_N > 0 _ORELSE ANIM_TG_N > 0) _ANDALSO ANIM.active) THEN ' v2: layer flags (a picture without frames can have reference layers)
+    ' each later block needs the ones before it (a reader walks them in order)
+    more = ANIM.active _ANDALSO (ANIM_LK_N > 0 _ORELSE ANIM_TG_N > 0 _ORELSE nn > 0)
+    IF ANIM_LF_N > 0 _ORELSE more THEN ' v2: layer flags (a picture without frames can have reference layers)
         s = s + MKI$(ANIM_LF_N)
         FOR i = 1 TO ANIM_LF_N: s = s + MKL$(ANIM_LF_ID(i)) + MKI$(ANIM_LF_FL(i)): NEXT i
     END IF
-    IF (ANIM_LK_N > 0 _ORELSE ANIM_TG_N > 0) _ANDALSO ANIM.active THEN ' v3: linked cells (older DRAW reads v2's part and drops them)
+    IF more THEN ' v3: linked cells (older DRAW reads v2's part and drops them)
         MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_LINKS)
         s = s + MKI$(ANIM_LK_N)
         FOR i = 1 TO ANIM_LK_N: s = s + MKL$(ANIM_LK_ID(i)) + MKI$(ANIM_LK_F(i)) + MKI$(ANIM_LK_G(i)): NEXT i
     END IF
-    IF ANIM_TG_N > 0 _ANDALSO ANIM.active THEN ' v4: tags - from, to, the name's length, the name
+    IF more _ANDALSO (ANIM_TG_N > 0 _ORELSE nn > 0) THEN ' v4: tags - from, to, the name's length, the name
         MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_TAGS)
         s = s + MKI$(ANIM_TG_N)
         FOR i = 1 TO ANIM_TG_N: s = s + MKI$(ANIM_TG_A(i)) + MKI$(ANIM_TG_B(i)) + MKI$(LEN(ANIM_TG_NAME(i))) + ANIM_TG_NAME(i): NEXT i
+    END IF
+    IF nn > 0 THEN ' v5: frame notes - frame, the text's length, the text
+        MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_NOTES)
+        s = s + MKI$(nn)
+        FOR i = 1 TO ANIM.count
+            IF LEN(ANIM_NOTE(i)) > 0 THEN s = s + MKI$(i) + MKI$(LEN(ANIM_NOTE(i))) + ANIM_NOTE(i)
+        NEXT i
     END IF
     ANIM_serialize$ = s
 END FUNCTION
@@ -336,6 +347,16 @@ FUNCTION ANIM_deserialize% (blob AS STRING)
             ta = CVI(MID$(blob, fp, 2)): tb = CVI(MID$(blob, fp + 2, 2)): tl = CVI(MID$(blob, fp + 4, 2)): fp = fp + 6
             IF tl < 0 _ORELSE fp + tl - 1 > LEN(blob) THEN EXIT FOR
             ANIM_TG_set MID$(blob, fp, tl), ta, tb
+            fp = fp + tl
+        NEXT i
+    END IF
+    IF v >= 5 _ANDALSO fp > 0 _ANDALSO fp + 1 <= LEN(blob) THEN ' v5: frame notes after the tags
+        nf = CVI(MID$(blob, fp, 2)): fp = fp + 2
+        FOR i = 1 TO nf
+            IF fp + 3 > LEN(blob) THEN EXIT FOR
+            ta = CVI(MID$(blob, fp, 2)): tl = CVI(MID$(blob, fp + 2, 2)): fp = fp + 4
+            IF tl < 0 _ORELSE fp + tl - 1 > LEN(blob) THEN EXIT FOR
+            IF ta >= 1 _ANDALSO ta <= ANIM.count THEN ANIM_NT_set ta, MID$(blob, fp, tl)
             fp = fp + tl
         NEXT i
     END IF
@@ -496,6 +517,7 @@ SUB ANIM_apply_plan (newCount AS INTEGER, newCur AS INTEGER)
     NEXT i
     ANIM_LK_remap top, newCount ' links go with their frames (4.3)
     ANIM_TG_remap newCount ' and tags (4.4)
+    ANIM_NT_remap top, newCount ' and notes (4.5)
     ' the selection goes with its frames (a new frame is not selected)
     FOR i = 1 TO top: old(i) = ANIM_SEL(i): NEXT i
     FOR i = 1 TO top
@@ -880,4 +902,49 @@ SUB ANIM_TG_remap (newCount AS INTEGER)
             ANIM_TG_A(k) = a: ANIM_TG_B(k) = b: k = k + 1
         END IF
     LOOP
+END SUB
+
+
+' ---------------------------------------------------------------------------
+' Frame notes (4.5). The actions live in ANIM-OPS.
+' ---------------------------------------------------------------------------
+
+''
+' Frames with a note.
+FUNCTION ANIM_NT_count% ()
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO ANIM.count
+        IF LEN(ANIM_NOTE(i)) > 0 THEN n = n + 1
+    NEXT i
+    ANIM_NT_count% = n
+END FUNCTION
+
+''
+' Frame f's note = t (trimmed, control characters dropped, at most
+' ANIM_NOTE_MAX; "" clears it).
+SUB ANIM_NT_set (f AS INTEGER, t AS STRING)
+    DIM u AS STRING, i AS INTEGER
+    IF f < 1 _ORELSE f > ANIM_MAX_FRAMES THEN EXIT SUB
+    FOR i = 1 TO LEN(t)
+        IF ASC(t, i) >= 32 THEN u = u + MID$(t, i, 1)
+    NEXT i
+    ANIM_NOTE(f) = LEFT$(_TRIM$(u), ANIM_NOTE_MAX)
+END SUB
+
+''
+' ANIM_apply_plan: each note goes to the first new frame showing its old one
+' (a duplicate has none); notes of deleted frames go.
+SUB ANIM_NT_remap (top AS INTEGER, newCount AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER, old(1 TO ANIM_MAX_FRAMES) AS STRING, done(1 TO ANIM_MAX_FRAMES) AS INTEGER, anyNote AS INTEGER
+    FOR i = 1 TO top
+        old(i) = ANIM_NOTE(i): ANIM_NOTE(i) = ""
+        IF LEN(old(i)) > 0 THEN anyNote = TRUE
+    NEXT i
+    IF anyNote = FALSE THEN EXIT SUB
+    FOR n = 1 TO newCount
+        i = ANIM_SRC(n)
+        IF i >= 1 _ANDALSO i <= top THEN
+            IF done(i) = 0 THEN ANIM_NOTE(n) = old(i): done(i) = TRUE
+        END IF
+    NEXT n
 END SUB

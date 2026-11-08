@@ -559,7 +559,7 @@ Frames Over · Replace FG Color with BG in Frames · Frame Grid · Preview Shows
 Panes 3 / 5 / 7 · Onion Skin · Onion Skin Red / Blue Tint · Clip Strokes to the Frame in the Lightbox · Clip Strokes to the Frame in
 Sheet View · Reference Layer (the current layer: shown, left out of every export; `[R]` in the
 layers panel) · Layer Same on Every Frame (the current layer's drawing on every frame - draw in
-any frame and it lands on all of them; `[=]`) · Link Cells (the current layer: with frames selected, their cells all show the first selected frame's drawing; with one frame, it links to the frame before. Paint any linked cell and the others change with it; linked cells are hatched in sheet view and the X-sheet) · Unlink Cells (the selected frames' cells keep their pixels and stop following). · Tag Frames... (name the selected frames; see Tags below) · Delete Tag. A marquee or wand selection inside the current frame moves with it to the next frame (same place in the cell). Export Animated GIF... (frames in loop order, holds, transparency, colour cycling) · Export Animated PNG (APNG)... (exact delays, every alpha level) · Export PNG Sequence... (one PNG per tick at the FPS) · Export BAS Player (DATA)... (a QB64 program that plays the frames, colour cycling along) · Export BAS Player + Sheet PNG... (the same, the frames cut out of a PNG beside it) · Export Sprite Sheet + Frame Data... (the sheet PNG + Aseprite-style JSON + a QB64 .bi of the frame rects) · Export Scale 1× / 2× / 4×. (Also View → Frame Grid
+any frame and it lands on all of them; `[=]`) · Link Cells (the current layer: with frames selected, their cells all show the first selected frame's drawing; with one frame, it links to the frame before. Paint any linked cell and the others change with it; linked cells are hatched in sheet view and the X-sheet) · Unlink Cells (the selected frames' cells keep their pixels and stop following). · Tag Frames... (name the selected frames; see Tags below) · Delete Tag · Frame Note... (the current frame's note; see Frame notes below) · Clear Frame Note. A marquee or wand selection inside the current frame moves with it to the next frame (same place in the cell). Export Animated GIF... (frames in loop order, holds, transparency, colour cycling) · Export Animated PNG (APNG)... (exact delays, every alpha level) · Export PNG Sequence... (one PNG per tick at the FPS) · Export BAS Player (DATA)... (a QB64 program that plays the frames, colour cycling along) · Export BAS Player + Sheet PNG... (the same, the frames cut out of a PNG beside it) · Export Sprite Sheet + Frame Data... (the sheet PNG + Aseprite-style JSON + a QB64 .bi of the frame rects) · Export Scale 1× / 2× / 4×. (Also View → Frame Grid
 and View → Animation Panel; every item is in the command palette.)
 
 ### Animation panel (View / ANIM → Animation Panel)
@@ -634,6 +634,13 @@ plays just that tag, and Export Animated GIF / APNG / PNG Sequence / BAS Player 
 frames. The sprite sheet export keeps every frame and lists the tags in its JSON and .bi. With a
 tag selected, Tag Frames... renames it; ANIM → Delete Tag removes it. Tags move with their
 frames when you add, delete or move frames, and are saved with the document.
+
+**Frame notes** are a line of text per frame - "foot down", "ka-" - like the action column of a
+paper X-sheet. ANIM → Frame Note... writes the current frame's note; once any frame has one, the
+X-sheet shows a NOTES row (each note runs from its frame to the next note). Click a note to go to
+its frame (the full note shows on the status bar); double-click anywhere on the row to write or
+change that frame's note. ANIM → Clear Frame Note removes the selected frames' notes. Notes move
+with their frames and are saved with the document.
 
 **COPY / PASTE / CUT** (the transport bar, or the ANIM menu): COPY puts the selected frames
 (or the current one) on the clipboard; PASTE inserts them as new frames after the selection;

@@ -36,6 +36,7 @@ CONST ANIM_SIZE_RESIZE  = 2 ' the frames resize, each drawing stays in its frame
 CONST ANIM_CHUNK_VERSION = 2 ' ANIM_serialize$ layout (PNG chunk "drAn"; 2 = + layer flags)
 CONST ANIM_CHUNK_VERSION_LINKS = 3 ' written only when there are linked cells (4.3): the layer flags always, then the links
 CONST ANIM_CHUNK_VERSION_TAGS = 4  ' written only when there are tags (4.4): the layer flags and the links always, then the tags
+CONST ANIM_CHUNK_VERSION_NOTES = 5 ' written only when a frame has a note (4.5): every block before always, then the notes
 
 ' loop modes
 CONST ANIM_LOOP_FWD  = 0 ' 1 2 3 1 2 3
@@ -149,6 +150,12 @@ DIM SHARED ANIM_TG_N AS INTEGER
 DIM SHARED ANIM_TG_NAME(1 TO ANIM_TG_MAX) AS STRING
 DIM SHARED ANIM_TG_A(1 TO ANIM_TG_MAX) AS INTEGER
 DIM SHARED ANIM_TG_B(1 TO ANIM_TG_MAX) AS INTEGER
+' Frame notes (4.5, Q-31): a line of text per frame (the X-sheet's action /
+' dialogue column - "foot down", "ka-"). Shown on the X-sheet's NOTES row once
+' any frame has one; each goes with its frame through frame ops (a duplicate
+' has none). Saved in drAn v5, in every frame-op snapshot.
+CONST ANIM_NOTE_MAX = 80
+DIM SHARED ANIM_NOTE(1 TO ANIM_MAX_FRAMES) AS STRING
 ' the frames ANIM_play_order% covers (exports, the full-screen preview);
 ' 0 = all of them. Set around one export / preview, then back to 0.
 DIM SHARED ANIM_EXP_A AS INTEGER

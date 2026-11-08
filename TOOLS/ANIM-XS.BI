@@ -39,6 +39,7 @@ CONST XS_DRAG_NONE   = 0
 CONST XS_DRAG_HOLD   = 1 ' along the holds row
 CONST XS_DRAG_CELL   = 2 ' a drawing to another cell
 CONST XS_DRAG_FRAMES = 3 ' frame numbers: reorder
+DIM SHARED ANIM_LOOP_TICK AS LONG ' main-loop passes (DRAW.BAS): a double-click is two presses within 0.45 s, or seen two passes apart when frames are slow
 DIM SHARED ANIM_XS_BEFORE AS STRING ' ANIM_OPS_snapshot$ at a hold drag's press
 
 TYPE ANIM_XS_OBJ

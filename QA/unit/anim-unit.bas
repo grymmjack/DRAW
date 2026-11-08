@@ -381,6 +381,25 @@ ANIM_TG_remove 1: check "removed", STR$(ANIM_TG_N), STR$(0)
 check "no tags: not v4", STR$(CVI(LEFT$(ANIM_serialize$, 2)) = ANIM_CHUNK_VERSION_TAGS), STR$(FALSE)
 ANIM_reset
 
+' --- frame notes (4.5) ---
+ANIM_reset: r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 6: ANIM.wanted = 6: ANIM.current = 1
+check "no notes: not v5", STR$(CVI(LEFT$(ANIM_serialize$, 2)) = ANIM_CHUNK_VERSION_NOTES), STR$(FALSE)
+ANIM_NT_set 2, "  foot " + CHR$(9) + "down  ": ANIM_NT_set 5, "ka-"
+check "notes set (trimmed, control characters dropped)", notes$, "2=foot down|5=ka-"
+ANIM_NT_set 3, STRING$(200, "x"): check "a note is cut at ANIM_NOTE_MAX", STR$(LEN(ANIM_NOTE(3))), STR$(ANIM_NOTE_MAX)
+ANIM_NT_set 3, "": check "an empty note clears it", STR$(ANIM_NT_count%), STR$(2)
+s = ANIM_serialize$: check "saved as v5", STR$(CVI(LEFT$(s, 2))), STR$(ANIM_CHUNK_VERSION_NOTES)
+r = ANIM_deserialize%(s): check "notes back after a load", notes$, "2=foot down|5=ka-"
+r = ANIM_TG_put%("hit", 4, 6): s = ANIM_serialize$: r = ANIM_deserialize%(s)
+check "notes and tags both back", notes$ + " " + tags$, "2=foot down|5=ka- hit 4 6"
+ANIM.current = 2: r = ANIM_plan%(ANIM_OP_DUPLICATE, pc, pcur): ANIM_apply_plan pc, pcur
+check "a duplicate has no note", notes$, "2=foot down|6=ka-"
+ANIM.current = 1: r = ANIM_plan%(ANIM_OP_REVERSE, pc, pcur): ANIM_apply_plan pc, pcur
+check "reversed: the notes go with their frames", notes$, "2=ka-|6=foot down"
+ANIM.current = 2: r = ANIM_plan%(ANIM_OP_DELETE, pc, pcur): ANIM_apply_plan pc, pcur
+check "a frame deleted: its note goes", notes$, "5=foot down"
+ANIM_reset: check "a new document: no notes", STR$(LEN(ANIM_NOTE(5))), STR$(0)
+
 PRINT PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
 
@@ -415,6 +434,14 @@ FUNCTION sel$ ()
     FOR i = 1 TO ANIM.count: IF ANIM_SEL(i) THEN t = t + _TRIM$(STR$(i)) + " "
     NEXT i
     sel$ = RTRIM$(t)
+END FUNCTION
+
+FUNCTION notes$ ()
+    DIM f AS INTEGER, t AS STRING
+    FOR f = 1 TO ANIM.count
+        IF LEN(ANIM_NOTE(f)) > 0 THEN t = t + _IIF(LEN(t) > 0, "|", "") + _TRIM$(STR$(f)) + "=" + ANIM_NOTE(f)
+    NEXT f
+    notes$ = t
 END FUNCTION
 
 FUNCTION tags$ ()

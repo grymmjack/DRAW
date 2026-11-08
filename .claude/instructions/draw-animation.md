@@ -62,6 +62,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2539 | Full-Screen Preview (`ANIM_FS_show`, `TOOLS/ANIM-FS`, Num .) |
 | 2541 / 2542 | Link Cells / Unlink Cells (`ANIM_LK_action`, `TOOLS/ANIM-OPS`, the current layer, the selected frames) |
 | 2543 / 2544 | Tag Frames... / Delete Tag (`ANIM_TG_action`, `TOOLS/ANIM-OPS`, 4.4) |
+| 2545 / 2546 | Frame Note... / Clear Frame Note (`ANIM_NT_action`, `TOOLS/ANIM-OPS`, 4.5) |
 | 2540 | X-Sheet in the lightbox's top band (`ANIM_XS_toggle`, `TOOLS/ANIM-XS`, `CFG.XSHEET`, Num 8, chip `LB_CTL_XS`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
@@ -535,6 +536,27 @@ file-argument scan) sets the range for every export of the run; an unknown name 
 `FAILED --tag NAME: no such tag (the document has: ...)` and exits 1 before writing anything.
 QA dump `ANIMTG n selected [name from to]... _` (spaces in names as `_`), and `ANIMXST rowY
 [k xa xb]...` from the X-sheet. QA: `anim-tags.sh` (24), unit checks in `anim-unit.bas`.
+Palette matching is a plain subsequence test in registration order (no ranking): keep command
+descriptions from swallowing other names' letters ("name the selected frames" matched "frame
+note" and won).
+
+## Frame notes (4.5, Q-31)
+
+`ANIM_NOTE(1..ANIM_MAX_FRAMES)` in `ANIM.BI`, a line of text per frame (`ANIM_NT_set`: control
+characters dropped, trimmed, at most `ANIM_NOTE_MAX` 80; "" clears). `ANIM_NT_count%`,
+`ANIM_NT_remap` (from `ANIM_apply_plan`: a note goes to the first new frame showing its old one -
+a duplicate has none, deleted frames' go). drAn **v5** only when a frame has one (every earlier
+block written, counts may be 0); `ANIM_reset` clears them. **Actions** (`ANIM_NT_action act,
+frame`): Frame Note... 2545 = `DRAW_input_box_ex$` with the frame's note (an empty answer or
+Cancel changes nothing); Clear Frame Note 2546 = the selected frames' notes (`ANIM_SEL_is%`).
+One undo step each. **X-sheet:** a NOTES row (after TAGS) while any frame has a note
+(`ANIM_XS_note_rows%`, `ANIM_XS_extra%` = the rows under HOLD, `ANIM_XS_tags_k%` /
+`ANIM_XS_notes_k%`): each note from its frame's start until the next noted frame, a mark where it
+starts. A click = the frame (Ctrl / Shift as the strip) + the note on the status bar; a
+double-click = Frame Note... for that frame - two presses on one frame within 0.45 s, or two
+main-loop passes apart (`ANIM_LOOP_TICK`, counted in `DRAW.BAS`) when frames are slow. QA dump
+`ANIMNT n [frame note]... _`, `ANIMXSN y`. QA: `anim-notes.sh` (18; on the 3x user profile the box
+takes over a second to come up after a double-click - the test waits 2 s before typing).
 
 ## A selection stays put in its cell (2.9, Q-18)
 

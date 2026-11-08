@@ -61,6 +61,8 @@ CONST ANIM_ACT_LINK_CELLS   = 2541 ' ANIM > Link Cells (4.3: the current layer's
 CONST ANIM_ACT_UNLINK_CELLS = 2542 ' ANIM > Unlink Cells (the current layer, the selected frames)
 CONST ANIM_ACT_TAG_FRAMES   = 2543 ' ANIM > Tag Frames... (4.4: name the selected frames' span; the same name moves the tag)
 CONST ANIM_ACT_DELETE_TAG   = 2544 ' ANIM > Delete Tag (the selected tag, else the one at the current frame)
+CONST ANIM_ACT_FRAME_NOTE   = 2545 ' ANIM > Frame Note... (4.5: the current frame's note; also a double-click on the X-sheet's NOTES row)
+CONST ANIM_ACT_CLEAR_NOTE   = 2546 ' ANIM > Clear Frame Note (the selected frames, else the current one)
 ' A selection inside the current frame's cell moves with it to the next current
 ' frame, same place in the cell (2.9, Q-18; ANIM_SELBOX_watch)
 DIM SHARED ANIM_SELBOX_LAST AS INTEGER ' the current frame the watcher last saw (0 = none)
