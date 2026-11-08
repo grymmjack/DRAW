@@ -15,7 +15,9 @@
 # Fixture: a 64x32 sheet of 16x16 frames on an opaque #202020 background,
 # 5 frames, frame k a 4x4 square at x = 1 + 2(k-1), y 4, each its own colour.
 # Current 3. Without the background rule the frame before would show 24
-# pixels (its background over frame 3's square), not 16.
+# pixels (its background over frame 3's square), not 8. Ghosts go behind the
+# current drawing (field kit T-13: the current frame looked faded): frame 2's
+# square overlaps frame 3's in 8 pixels, which show frame 3's own colour.
 #
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt
 # =============================================================================
@@ -84,7 +86,10 @@ else
 
     # -- on by default: 1 before (red), 1 after (blue) --
     [[ "$O_ON" == -1 && "$O_B" == 1 && "$O_A" == 1 && "$O_OP" == 40 && "$O_TINT" == -1 ]] && pass "on by default: 1 before, 1 after, 40%, tinted" || fail "defaults: $(lo_o)"
-    [[ "$O_PREV" == 16 && "$O_NEXT" == 16 ]] && pass "frame 3 shows frames 2 and 4: 16 pixels each (their backgrounds left out)" || fail "onion pixels: $(lo_o) (wanted 16 / 16)"
+    [[ "$O_PREV" == 8 && "$O_NEXT" == 8 ]] && pass "frame 3 shows frames 2 and 4: 8 pixels each (their backgrounds and frame 3's own square left out)" || fail "onion pixels: $(lo_o) (wanted 8 / 8)"
+    read -r R G B <<< "$(lo_rgb 5 5)"
+    (( R >= 62 && R <= 66 && G >= 62 && G <= 66 && B >= 190 && B <= 194 )) && pass "frame 3's square is drawn at full strength where the ghosts overlap it ($R $G $B = #4040c0)" \
+        || fail "frame 3's square under the onion skin is $R $G $B, wanted 64 64 192 (#4040c0): a ghost drawn over it"
     read -r R G B <<< "$(lo_rgb 3 5)"
     (( R - B > 30 && R - G > 20 )) && pass "where only frame 2 has its square: red ($R $G $B)" || fail "frame 2's ghost: $R $G $B (wanted red)"
     read -r R G B <<< "$(lo_rgb 10 5)"
@@ -98,7 +103,7 @@ else
     [[ "$O_ON" == 0 && "$O_PREV" == 0 && "$O_NEXT" == 0 ]] && (( R < 60 && G < 60 && B < 60 )) && pass "Num / turns it off: the ghosts are gone ($R $G $B)" || fail "Num / off: $(lo_o), frame 2's spot $R $G $B"
     [[ "$A_T" == "$LO_T0" && "$A_CUR" == 3 ]] && pass "Num / draws nothing and keeps the frame" || fail "Num / changed frame $A_CUR or the drawings"
     lo_key KP_Divide; lo_read
-    [[ "$O_ON" == -1 && "$O_PREV" == 16 ]] && pass "Num / again: back on" || fail "Num / on: $(lo_o)"
+    [[ "$O_ON" == -1 && "$O_PREV" == 8 ]] && pass "Num / again: back on" || fail "Num / on: $(lo_o)"
 
     # -- the tint off: frames in their own colours --
     lo_palette "onion skin red"; lo_read
@@ -109,7 +114,7 @@ else
 
     # -- frame 1: nothing before it; playing: hidden --
     lo_key KP_1; lo_read
-    [[ "$A_CUR" == 1 && "$O_PREV" == 0 && "$O_NEXT" == 16 ]] && pass "frame 1: nothing before it (no wrap), frame 2 after" || fail "frame 1: current $A_CUR, $(lo_o)"
+    [[ "$A_CUR" == 1 && "$O_PREV" == 0 && "$O_NEXT" == 8 ]] && pass "frame 1: nothing before it (no wrap), frame 2 after" || fail "frame 1: current $A_CUR, $(lo_o)"
     lo_key KP_Enter; lo_read
     LO_PLAYP=$O_PREV; LO_PLAYN=$O_NEXT; LO_PLAY=$A_PLAY
     lo_key KP_Enter; lo_read
@@ -130,7 +135,7 @@ else
             click $(( P_X + (nx + L_CW / 2) * P_SC / 100 )) $(( P_Y + ($1 + L_RH / 2) * P_SC / 100 )); wait_for 0.4 "stepper"
         }
         lo_step "$L_OB" plus; lo_read
-        [[ "$O_B" == 2 && "$O_PREV" == 32 ]] && pass "BEFORE +: 2 frames before (frames 1 and 2: 32 pixels)" || fail "BEFORE +: $(lo_o)"
+        [[ "$O_B" == 2 && "$O_PREV" == 24 ]] && pass "BEFORE +: 2 frames before (frames 1 and 2: 16 + 8 pixels)" || fail "BEFORE +: $(lo_o)"
         lo_step "$L_OA" minus; lo_read
         [[ "$O_A" == 0 && "$O_NEXT" == 0 ]] && pass "AFTER -: none after" || fail "AFTER -: $(lo_o)"
         lo_step "$L_OO" plus; lo_read

@@ -293,7 +293,10 @@ nearest lands on top, it builds the cell into `ANIM_LB.onionImg` from the compos
 and `_PUTIMAGE`s it scaled over the picture. Alpha = pixel alpha x `ONION_OPACITY`% x
 (n - d + 1) / n. A pixel shows only where it **differs from the current frame** and **is not
 that frame's background** (`ANIM_LB_cell_bg%`: the colour 3 or 4 corners share) - so a solid
-background layer doesn't tint the whole pane, and a static scene stays clear. Tint: 3/4 red
+background layer doesn't tint the whole pane, and a static scene stays clear. **Ghosts go behind
+the current drawing:** only where the current frame is transparent or its own background
+(`ANIM_LB_cell_bg%` of the current cell) - drawn over it, the current frame looked faded (field
+kit T-13). Tint: 3/4 red
 (255,48,48) before, 3/4 blue (48,112,255) after. No wrap at the ends; nothing while playing.
 Settings are DRAW.cfg (`ONION_*`), not undo steps: ANIM menu (2527 / 2528), Num / (numpad slot
 15), and the Animation panel's ONION / TINT chips + BEFORE / AFTER / OPACITY steppers
