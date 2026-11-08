@@ -574,6 +574,8 @@ and View → Animation Panel; every item is in the command palette.)
 The panel docks and floats like the other windows (drag its title bar; F11 hides it).
 
 ### Lightbox (ANIM → Lightbox, `Num 0`)
+The **Animate** workspace (`Ctrl+Shift+W`, `anim`) opens it with onion skin, the frame grid and the Animation panel; leaving it puts your own view back.
+
 The work area shows the frames instead of the sheet: a **strip** of frames along the top
 (the current one outlined; it scrolls to keep it in view), the **transport bar**, and 3 / 5 / 7
 **panes** (`Num *`) with the current frame in the middle and the frames before / after it

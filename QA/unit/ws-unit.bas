@@ -38,7 +38,7 @@ PRINT #fh, "[WORKSPACE]": PRINT #fh, "BASED_ON=loopa": PRINT #fh, "[CHROME]": PR
 CLOSE #fh
 
 WS_scan
-CHECK WS_COUNT = 7, "7 workspaces (default current annotate simple child loopa loopb), got" + STR$(WS_COUNT)
+CHECK WS_COUNT = 8, "8 workspaces (default current animate annotate simple child loopa loopb), got" + STR$(WS_COUNT)
 CHECK WS_LIST(1).id = "default", "default listed first"
 CHECK WS_LIST(2).id = WS_CURRENT_ID$, "current listed second"
 CHECK WS_LIST(2).fpath = "" AND WS_LIST(2).title = "Current", "current is virtual (no file) until something is kept there"
@@ -59,7 +59,7 @@ fh = FREEFILE: OPEN ud + "/current.workspace" FOR OUTPUT AS #fh
 PRINT #fh, "[WORKSPACE]": PRINT #fh, "NAME=Aardvark": PRINT #fh, "[CHROME]": PRINT #fh, "PREVIEW=SHOW"
 CLOSE #fh
 WS_scan
-CHECK WS_COUNT = 7, "a current file is not listed twice, got" + STR$(WS_COUNT)
+CHECK WS_COUNT = 8, "a current file is not listed twice, got" + STR$(WS_COUNT)
 CHECK WS_LIST(2).id = WS_CURRENT_ID$ AND WS_LIST(2).userFile, "current file listed second"
 CHECK WS_LIST(2).title = "Current", "current keeps its title"
 KILL ud + "/current.workspace"

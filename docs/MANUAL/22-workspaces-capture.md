@@ -27,6 +27,7 @@ only remembers *which* workspace you were in, so it reopens there.
 | --- | --- |
 | **Default** | The stock panel layout. No overlay. Always there; can't be deleted. Moving or resizing panels in it starts a workspace of your own (see below). |
 | **Simple** | Everyday drawing: a 2-column toolbox of 10 tools, File / Edit / View / Help menus, no advanced bar or power panels. |
+| **Animate** | Frame-by-frame animation: the lightbox (strip, transport bar, the frames before and after side by side) with onion skin and the frame grid, and the Animation panel; the character map, 3D color space and browser are put away. On a picture without frames, `Num +` makes frames and the lightbox opens on them. |
 | **Annotate** | Screenshot markup: a 1-column annotation toolbox docked left, a trimmed edit bar, the palette strip, single-key annotation tools, Rect in red, zoomed to fit. Capture Screen lands here. |
 
 ### Switching

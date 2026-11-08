@@ -169,6 +169,8 @@ press's (`ANIM_OPS_LAST_KEY / _REC`, no redo tail), the new "after" replaces the
 
 ## Lightbox (`TOOLS/ANIM-LB`, 2.1)
 
+The **Animate** built-in workspace (L.2, `ASSETS/WORKSPACES/animate.workspace`) is `[CHROME] ANIM_PANEL=SHOW` (+ layers, charmap / 3D / browser hidden) and `[OPTIONS] LIGHTBOX=1 ONION_SKIN=1 FRAME_GRID=1` - an overlay, so Default / leaving puts the user's view back and DRAW.cfg never sees it. QA: `workspace-animate.sh` (13, incl. a toggle inside the workspace sticking - the guard fix in draw-workspaces.md).
+
 - **A view, not a mode:** `ANIM_LB_showing%` = `CFG.LIGHTBOX` and the sheet has frames. In
   `SCREEN_render` it replaces the whole canvas branch (normal and tile mode): `RENDER_layers`
   composites with its blit thrown off screen (`useComposite` is forced while showing, so

@@ -42,7 +42,7 @@ A layout release: every panel and window can now be moved, stacked, tabbed, floa
   - On small windows, the lowest panels collapse and the outermost columns hide to keep the canvas usable.
 - **Lock Layout** (View → Lock Layout, `Ctrl+Shift+L`) freezes the arrangement, so a shaky pen can't drag a panel or window by accident. Clicks, tabs and buttons still work.
 - **Workspaces** are named layouts you switch into and back out of (View → Workspace, `Ctrl+Shift+W`, or the status-bar badge). Leaving one restores your own setup exactly.
-  - Built in: **Default**, **Simple** and **Annotate**.
+  - Built in: **Default**, **Simple**, **Annotate** and **Animate**.
   - A workspace sets which panels show and where, the toolbox and bar buttons, the menus, a single-key overlay, config options for the session, and the starting tool, color and zoom.
   - Changing the layout in Default puts it in a **CURRENT** workspace, so Default stays stock. When you quit, DRAW offers to keep it under a name.
   - **Configure Workspaces…** edits them. `F11` inside a workspace shows what it hid.
@@ -402,7 +402,7 @@ groups, transform/move, export, importers, and input handling.
 - **Docking** - Every side panel (toolbox, organizer, drawer, layers, edit bar, advanced bar, character map) and every floating window (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Browser) can be moved to its own column, stacked, tabbed, collapsed, floated and docked back by dragging its handle; drag dividers and inner edges to resize. `Ctrl+Shift+Click` and View → Layout still swap a panel's side
 - **Lock Layout** - View → Lock Layout (`Ctrl+Shift+L`) freezes the panel arrangement so nothing can be dragged by accident
 - **Snap Panel Edges** - View → Snap Panel Edges: floating panels snap together and don't overlap (off: move freely); hold one still against a snap ~1.5 s to drop it on top of another
-- **Workspaces** - Named layouts (Default, Simple, Annotate, and your own) covering panels, toolbar buttons, menus, keys and options; switch with `Ctrl+Shift+W` or View → Workspace, edit with Configure Workspaces…
+- **Workspaces** - Named layouts (Default, Simple, Annotate, Animate, and your own) covering panels, toolbar buttons, menus, keys and options; switch with `Ctrl+Shift+W` or View → Workspace, edit with Configure Workspaces…
 - **Customize Toolbars** - Put any tool or command on the toolbox, edit bar or advanced bar, in any order (View → Customize Toolbars…)
 - **Screen Capture & Annotate** - `Ctrl+Shift+P` or `DRAW --capture` grabs a screen region into the Annotate workspace (arrow, highlighter, redact, numbered callouts, quick save)
 - **System cursors** - Automatically uses OS native cursors for UI areas (arrow in toolbar/panels), canvas work (crosshair for drawing tools, I-beam for text, resize arrows for handles) and move tool (move pointer); falls back to custom PNG cursors for tools that need them (brush, fill, picker loupe, spray, marquee); configurable via `SYSTEM_CURSORS` in `DRAW.cfg`

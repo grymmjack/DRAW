@@ -90,6 +90,7 @@ DIM SHARED WS_REVEALED     AS INTEGER ' TRUE after F11 showed what the workspace
 DIM SHARED WS_START_PENDING AS INTEGER ' [START] waits for the next render (WS_tick)
 DIM SHARED WS_GUARD_BYPASS AS INTEGER ' CONFIG_save writes raw (snapshot capture)
 DIM SHARED WS_GUARD_ON     AS INTEGER ' inside a guarded CONFIG_save
+DIM SHARED WS_CFG_LIVE     AS DRAW_CONFIG ' the live config while a guarded CONFIG_save writes the user's values
 WS_ACTIVE_ID = "default"
 WS_ACTIVE_TITLE = "Default"
 

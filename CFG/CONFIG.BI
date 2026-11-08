@@ -608,6 +608,7 @@ TYPE DRAW_CONFIG
 END TYPE
 
 DIM SHARED CFG AS DRAW_CONFIG
+DIM SHARED CFG_CLI_LIVE AS DRAW_CONFIG ' CONFIG_save with --option overrides: the live values, put back after the write
 DIM SHARED CONFIG_NEEDS_INITIAL_SAVE% ' Deferred save flag: set when config file doesn't exist yet
 
 
