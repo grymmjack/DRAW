@@ -1,0 +1,473 @@
+''
+' DRAW - TOOLS/ANIM-LB.BM
+' =============================================================================
+' Lightbox view (see ANIM-LB.BI).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' The lightbox is on and the document has frames to show.
+FUNCTION ANIM_LB_showing% ()
+    IF CFG.LIGHTBOX% = 0 THEN EXIT FUNCTION
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN EXIT FUNCTION
+    ANIM_LB_showing% = TRUE
+END FUNCTION
+
+''
+' ANIM > Lightbox, Num 0 (action 2519).
+SUB ANIM_LB_toggle ()
+    DIM why AS STRING
+    IF CFG.LIGHTBOX% = 0 THEN
+        IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "No frames: set a frame size first": EXIT SUB
+        why = ANIM_OPS_busy$
+        IF why = "" _ANDALSO CROP.STATE = CROP_STATE_ACTIVE THEN why = "Finish the crop first"
+        IF why <> "" THEN STATUS_flash why: EXIT SUB
+    END IF
+    CFG.LIGHTBOX% = (CFG.LIGHTBOX% = 0)
+    CONFIG_save
+    IF CFG.LIGHTBOX% THEN
+        STATUS_flash "Lightbox:" + STR$(ANIM_LB_panes_wanted%) + " panes (Num 0 back to the sheet)"
+    ELSE
+        STATUS_flash "Sheet view"
+    END IF
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Panes asked for: 3, 5 or 7.
+FUNCTION ANIM_LB_panes_wanted% ()
+    SELECT CASE CFG.LIGHTBOX_PANES%
+        CASE 5, 7: ANIM_LB_panes_wanted% = CFG.LIGHTBOX_PANES%
+        CASE ELSE: ANIM_LB_panes_wanted% = 3
+    END SELECT
+END FUNCTION
+
+''
+' ANIM > Lightbox Panes, Num * (action 2520): 3 -> 5 -> 7 -> 3.
+SUB ANIM_LB_panes_cycle ()
+    DIM p AS INTEGER
+    p = ANIM_LB_panes_wanted% + 2
+    IF p > LB_PANES_MAX THEN p = 3
+    CFG.LIGHTBOX_PANES% = p
+    CONFIG_save
+    STATUS_flash "Lightbox:" + STR$(p) + " panes"
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' The canvas work area (viewport px): between the side docks, under the
+' menu / text bar, over the status bar and palette, beside the Browser band.
+SUB ANIM_LB_area (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    x1 = SCRN.uiLeftEdge%: x2 = SCRN.uiRightEdge%
+    y1 = 0
+    IF SCRN.showMenubar% _ANDALSO MENU_BAR.visible% THEN y1 = MENU_BAR_HEIGHT
+    IF TEXT_BAR.visible% THEN y1 = TEXT_BAR.barY% + TEXT_BAR.barH%
+    y2 = SCRN.h& - 1 - SCREEN_bottom_bars_h%
+    IF DOCK_BAND_SIDE <> 0 _ANDALSO DOCK_BAND_W > 0 _ANDALSO DOCK_panel_shown%(DP_BROWSER) THEN
+        IF DOCK_BAND_SIDE = DOCK_BAND_TOP THEN
+            IF DOCK_BAND_Y + DOCK_BAND_HH > y1 THEN y1 = DOCK_BAND_Y + DOCK_BAND_HH
+        ELSE
+            IF DOCK_BAND_Y - 1 < y2 THEN y2 = DOCK_BAND_Y - 1
+        END IF
+    END IF
+    ANIM_LB.hx1 = x1: ANIM_LB.hx2 = x2
+    ANIM_LB_clear_floats x1, y1, x2, y2
+END SUB
+
+''
+' A floating window parked on the left or right edge of the work area over
+' the strip / transport bar (Rick's Color Mixer sits top-left) would hide the
+' first frames and |< < PLAY: the lightbox lays out beside it, as beside a
+' dock. Windows elsewhere (the Preview in a corner low down) float over the
+' panes as they float over the sheet. Never narrower than half the area.
+SUB ANIM_LB_clear_floats (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    DIM id AS INTEGER, wx AS INTEGER, wy AS INTEGER, ww AS INTEGER, wh AS INTEGER
+    DIM topY AS INTEGER, minW AS INTEGER, nx1 AS INTEGER, nx2 AS INTEGER, edge AS INTEGER
+    FPANEL_ensure
+    topY = y1 + (y2 - y1 + 1) \ 4 + FPANEL.rowH% + 4 ' the strip and the bar (ANIM_LB_layout)
+    minW = (x2 - x1 + 1) \ 2
+    edge = 12
+    nx1 = x1: nx2 = x2
+    FOR id = 1 TO DP_COUNT
+        IF ANIM_LB_float_rect%(id, wx, wy, ww, wh) THEN
+            IF wy <= topY _ANDALSO wy + wh > y1 _ANDALSO wx < x2 _ANDALSO wx + ww > x1 THEN
+                IF wx <= x1 + edge _ANDALSO wx + ww > nx1 THEN
+                    nx1 = wx + ww
+                ELSEIF wx + ww - 1 >= x2 - edge _ANDALSO wx - 1 < nx2 THEN
+                    nx2 = wx - 1
+                END IF
+            END IF
+        END IF
+    NEXT id
+    IF nx2 - nx1 + 1 >= minW THEN x1 = nx1: x2 = nx2
+END SUB
+
+''
+' Panel / window id's rect when it floats (not docked) and is shown.
+FUNCTION ANIM_LB_float_rect% (id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    IF id < DP_PREVIEW THEN
+        IF WZ_floating%(id) = 0 THEN EXIT FUNCTION
+        x = DPANEL(id).fx: y = DPANEL(id).fy: w = DPANEL(id).fw: h = DPANEL(id).fh
+    ELSE
+        IF DPANEL(id).slot > 0 THEN EXIT FUNCTION
+        IF DOCK_native_rect%(id, x, y, w, h) = 0 THEN EXIT FUNCTION
+    END IF
+    ANIM_LB_float_rect% = (w > 0 _ANDALSO h > 0)
+END FUNCTION
+
+''
+' Text width in the bar font (FPANEL) plus room either side.
+FUNCTION ANIM_LB_chip_w% (t AS STRING)
+    ANIM_LB_chip_w% = FPANEL_text_w%(t) + FPANEL.fontW% + 4
+END FUNCTION
+
+''
+' Place everything for this frame's render: the three bands, the strip's
+' cells (scrolled to keep the current frame in view), the panes, and the
+' transport bar's controls (low-priority ones dropped when it is narrow).
+SUB ANIM_LB_layout ()
+    DIM aw AS INTEGER, ah AS INTEGER, pad AS INTEGER, fw AS INTEGER, fh AS INTEGER
+    DIM n AS INTEGER, p AS INTEGER, k AS INTEGER, x AS INTEGER, used AS INTEGER, avail AS INTEGER
+    DIM ch AS INTEGER, cw AS INTEGER, gap AS INTEGER
+
+    FPANEL_ensure
+    ANIM_LB_area ANIM_LB.x1, ANIM_LB.y1, ANIM_LB.x2, ANIM_LB.y2
+    aw = ANIM_LB.x2 - ANIM_LB.x1 + 1: ah = ANIM_LB.y2 - ANIM_LB.y1 + 1
+    pad = 3: ANIM_LB.pad = pad
+    fw = ANIM.frameW: fh = ANIM.frameH
+    IF fw < 1 THEN fw = 1
+    IF fh < 1 THEN fh = 1
+
+    ' bands: strip ~1/4 of what the bar leaves, the editor the rest
+    ANIM_LB.barH = FPANEL.rowH% + 4
+    ANIM_LB.stripH = (ah - ANIM_LB.barH) \ 4
+    IF ANIM_LB.stripH < 20 THEN ANIM_LB.stripH = 20
+    ANIM_LB.stripY = ANIM_LB.y1
+    ANIM_LB.barY = ANIM_LB.stripY + ANIM_LB.stripH
+    ANIM_LB.edY = ANIM_LB.barY + ANIM_LB.barH
+    ANIM_LB.edH = ANIM_LB.y2 - ANIM_LB.edY + 1
+    ANIM_LB.labelH = FPANEL.fontH% + 4
+
+    ' strip cells: the band's height, the frame's shape
+    gap = pad
+    ch = ANIM_LB.stripH - 2 * pad
+    IF ch < 4 THEN ch = 4
+    cw = (CLNG(ch) * fw + fh \ 2) \ fh
+    IF cw > aw \ 3 THEN cw = aw \ 3: ch = _MAX(4, (CLNG(cw) * fh + fw \ 2) \ fw)
+    IF cw < 4 THEN cw = 4
+    ANIM_LB.cellW = cw: ANIM_LB.cellH = ch
+    n = (aw - pad) \ (cw + gap)
+    IF n > ANIM.count THEN n = ANIM.count
+    IF n < 1 THEN n = 1
+    ANIM_LB.stripN = n
+    IF ANIM_LB.stripFirst < 1 THEN ANIM_LB.stripFirst = 1
+    IF ANIM.current < ANIM_LB.stripFirst THEN ANIM_LB.stripFirst = ANIM.current
+    IF ANIM.current > ANIM_LB.stripFirst + n - 1 THEN ANIM_LB.stripFirst = ANIM.current - n + 1
+    IF ANIM_LB.stripFirst > ANIM.count - n + 1 THEN ANIM_LB.stripFirst = ANIM.count - n + 1
+    IF ANIM_LB.stripFirst < 1 THEN ANIM_LB.stripFirst = 1
+
+    ' editor panes: as many as asked for while each keeps 16 px
+    p = ANIM_LB_panes_wanted%
+    DO WHILE p > 1 _ANDALSO (aw - pad * (p + 1)) \ p < 16
+        p = p - 2
+    LOOP
+    ANIM_LB.panes = p
+    ANIM_LB.paneW = (aw - pad * (p + 1)) \ p
+    ANIM_LB.paneH = ANIM_LB.edH - 2 * pad - ANIM_LB.labelH
+    IF ANIM_LB.paneH < 4 THEN ANIM_LB.paneH = 4
+
+    ' transport bar: natural widths, then drop TIME, FPS, COPY/PASTE/CUT,
+    ' LOOP, COUNT until the seek bar keeps 24 px
+    ANIM_LB_CW(LB_CTL_FIRST) = ANIM_LB_chip_w%("|<")
+    ANIM_LB_CW(LB_CTL_PREV) = ANIM_LB_chip_w%("<")
+    ANIM_LB_CW(LB_CTL_PLAY) = ANIM_LB_chip_w%("STOP")
+    ANIM_LB_CW(LB_CTL_NEXT) = ANIM_LB_CW(LB_CTL_PREV)
+    ANIM_LB_CW(LB_CTL_LAST) = ANIM_LB_CW(LB_CTL_FIRST)
+    ANIM_LB_CW(LB_CTL_LOOP) = ANIM_LB_chip_w%("PING")
+    ANIM_LB_CW(LB_CTL_TIME) = FPANEL_text_w%("0:00.0 / 0:00.0") + 4
+    ANIM_LB_CW(LB_CTL_FPS) = FPANEL_text_w%("120 FPS") + 4
+    ANIM_LB_CW(LB_CTL_SEEK) = 0
+    ANIM_LB_CW(LB_CTL_COUNT) = FPANEL_text_w%(_TRIM$(STR$(ANIM.count)) + "/" + _TRIM$(STR$(ANIM.count))) + 6
+    ANIM_LB_CW(LB_CTL_COPY) = ANIM_LB_chip_w%("COPY")
+    ANIM_LB_CW(LB_CTL_PASTE) = ANIM_LB_chip_w%("PASTE")
+    ANIM_LB_CW(LB_CTL_CUT) = ANIM_LB_chip_w%("CUT")
+    ANIM_LB_CW(LB_CTL_ADD) = ANIM_LB_chip_w%("+")
+    avail = aw - 2 * pad
+    FOR k = 0 TO 4
+        used = 0
+        FOR n = 1 TO LB_CTLS
+            IF ANIM_LB_CW(n) > 0 THEN used = used + ANIM_LB_CW(n) + 2
+        NEXT n
+        IF avail - used >= 24 THEN EXIT FOR
+        SELECT CASE k
+            CASE 0: ANIM_LB_CW(LB_CTL_TIME) = 0
+            CASE 1: ANIM_LB_CW(LB_CTL_FPS) = 0
+            CASE 2: ANIM_LB_CW(LB_CTL_COPY) = 0: ANIM_LB_CW(LB_CTL_PASTE) = 0: ANIM_LB_CW(LB_CTL_CUT) = 0
+            CASE 3: ANIM_LB_CW(LB_CTL_LOOP) = 0
+            CASE 4: ANIM_LB_CW(LB_CTL_COUNT) = 0
+        END SELECT
+    NEXT k
+    used = 0
+    FOR n = 1 TO LB_CTLS
+        IF ANIM_LB_CW(n) > 0 THEN used = used + ANIM_LB_CW(n) + 2
+    NEXT n
+    ANIM_LB_CW(LB_CTL_SEEK) = _MAX(8, avail - used - 2)
+    x = ANIM_LB.x1 + pad
+    FOR n = 1 TO LB_CTLS
+        ANIM_LB_CX(n) = x
+        IF ANIM_LB_CW(n) > 0 THEN x = x + ANIM_LB_CW(n) + 2
+    NEXT n
+END SUB
+
+''
+' Strip cell k (0-based) rect.
+SUB ANIM_LB_strip_rect (k AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    x = ANIM_LB.x1 + ANIM_LB.pad + k * (ANIM_LB.cellW + ANIM_LB.pad)
+    y = ANIM_LB.stripY + ANIM_LB.pad
+    w = ANIM_LB.cellW: h = ANIM_LB.cellH
+END SUB
+
+''
+' Editor pane k (0-based, left to right) picture rect, and the frame it shows
+' (outside 1..count = an empty pane).
+FUNCTION ANIM_LB_pane_rect% (k AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    x = ANIM_LB.x1 + ANIM_LB.pad + k * (ANIM_LB.paneW + ANIM_LB.pad)
+    y = ANIM_LB.edY + ANIM_LB.pad
+    w = ANIM_LB.paneW: h = ANIM_LB.paneH
+    ANIM_LB_pane_rect% = ANIM.current + k - ANIM_LB.panes \ 2
+END FUNCTION
+
+''
+' Frame f fitted into box (x, y, w, h): a whole-number zoom when it fits,
+' centred. Returns the picture rect in dx..dh and the zoom.
+FUNCTION ANIM_LB_fit! (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
+    DIM s AS SINGLE, fw AS INTEGER, fh AS INTEGER
+    fw = _MAX(1, ANIM.frameW): fh = _MAX(1, ANIM.frameH)
+    s = _MIN(w / fw, h / fh)
+    IF s >= 1 THEN s = INT(s)
+    dw = _MAX(1, INT(fw * s)): dh = _MAX(1, INT(fh * s))
+    dx = x + (w - dw) \ 2: dy = y + (h - dh) \ 2
+    ANIM_LB_fit! = s
+END FUNCTION
+
+''
+' Frame f of composite src into box (x, y, w, h) of dest: the transparency
+' checks (the canvas's own, scaled with the art, as in sheet view) and the
+' picture. Returns the picture rect.
+SUB ANIM_LB_draw_frame (dest AS LONG, src AS LONG, f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, chh AS LONG, s AS SINGLE
+    s = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    IF ANIM_cell_rect%(f, cx, cy, cw, chh) = 0 THEN EXIT SUB
+    TRANSPARENCY_ensure_blueprint
+    IF TRANSPARENCY.blueprint& < -1 THEN
+        _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), TRANSPARENCY.blueprint&, dest, (cx, cy)-(cx + cw - 1, cy + chh - 1)
+    END IF
+    IF src < -1 THEN
+        _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), src, dest, (cx, cy)-(cx + cw - 1, cy + chh - 1)
+    END IF
+END SUB
+
+''
+' "m:ss.t" for ticks at the sheet's FPS.
+FUNCTION ANIM_LB_time$ (ticks AS LONG)
+    DIM tenths AS LONG, fps AS INTEGER, s AS STRING
+    fps = ANIM.fps: IF fps < 1 THEN fps = 1
+    tenths = (ticks * 10 + fps \ 2) \ fps
+    s = _TRIM$(STR$((tenths \ 10) MOD 60))
+    IF LEN(s) < 2 THEN s = "0" + s
+    ANIM_LB_time$ = _TRIM$(STR$(tenths \ 600)) + ":" + s + "." + _TRIM$(STR$(tenths MOD 10))
+END FUNCTION
+
+''
+' Ticks before frame f (the time it comes up), holds counted.
+FUNCTION ANIM_LB_ticks_before& (f AS INTEGER)
+    DIM i AS INTEGER, t AS LONG
+    FOR i = 1 TO f - 1: t = t + ANIM_hold%(i): NEXT i
+    ANIM_LB_ticks_before& = t
+END FUNCTION
+
+''
+' SCREEN_render, in place of the canvas (before the scene cache): the strip,
+' the transport bar and the panes, cut from composite src (canvas size).
+SUB ANIM_LB_render (dest AS LONG, src AS LONG)
+    DIM oldDest AS LONG, oldFont AS LONG, k AS INTEGER, f AS INTEGER
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER
+    DIM t AS STRING, by AS INTEGER, rh AS INTEGER, ty AS INTEGER, en AS INTEGER, fg AS _UNSIGNED LONG
+    DIM tw AS INTEGER, th AS INTEGER, frac AS SINGLE
+
+    ANIM_LB.shown = FALSE
+    IF dest >= -1 THEN EXIT SUB
+    ANIM_LB_layout
+
+    oldDest = _DEST
+    _DEST dest
+    _BLEND dest
+
+    ' strip band
+    LINE (ANIM_LB.x1, ANIM_LB.stripY)-(ANIM_LB.x2, ANIM_LB.stripY + ANIM_LB.stripH - 1), THEME.CP_bg~&, BF
+    FOR k = 0 TO ANIM_LB.stripN - 1
+        f = ANIM_LB.stripFirst + k
+        ANIM_LB_strip_rect k, x, y, w, h
+        ANIM_LB_draw_frame dest, src, f, x, y, w, h, dx, dy, dw, dh
+        IF f = ANIM.current THEN
+            LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_current~&, B
+            LINE (dx - 2, dy - 2)-(dx + dw + 1, dy + dh + 1), THEME.ANIM_FRAME_current~&, B
+        ELSE
+            LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_border~&, B
+        END IF
+    NEXT k
+
+    ' strip frame numbers (the frame grid's font)
+    ANIM_VIEW_font_ensure
+    oldFont = _FONT(dest)
+    IF ANIM_VIEW.font > 0 THEN _FONT ANIM_VIEW.font, dest ELSE _FONT 8, dest
+    th = _UFONTHEIGHT: IF th < 1 THEN th = 8
+    FOR k = 0 TO ANIM_LB.stripN - 1
+        f = ANIM_LB.stripFirst + k
+        ANIM_LB_strip_rect k, x, y, w, h
+        frac = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh) ' the picture's corner
+        t = _TRIM$(STR$(f)): tw = _PRINTWIDTH(t)
+        IF tw + 3 <= dw _ANDALSO th + 1 <= dh THEN
+            LINE (dx, dy)-(dx + tw + 1, dy + th - 1), THEME.ANIM_FRAME_label_bg~&, BF
+            COLOR THEME.ANIM_FRAME_label_fg~&, _RGBA32(0, 0, 0, 0)
+            _UPRINTSTRING (dx + 1, dy), t
+        END IF
+    NEXT k
+    _FONT oldFont, dest
+
+    ' transport bar
+    oldFont = FPANEL_begin&
+    by = ANIM_LB.barY: rh = FPANEL.rowH%
+    LINE (ANIM_LB.x1, by)-(ANIM_LB.x2, by + ANIM_LB.barH - 1), THEME.CP_bg~&, BF
+    LINE (ANIM_LB.x1, by)-(ANIM_LB.x2, by), THEME.CP_border~&
+    LINE (ANIM_LB.x1, by + ANIM_LB.barH - 1)-(ANIM_LB.x2, by + ANIM_LB.barH - 1), THEME.CP_border~&
+    by = by + 2: ty = by + (rh - FPANEL.fontH%) \ 2
+    FOR k = 1 TO LB_CTLS
+        x = ANIM_LB_CX(k): w = ANIM_LB_CW(k)
+        IF w > 0 THEN
+            SELECT CASE k
+                CASE LB_CTL_FIRST: ANIMP_chip_at x, by, w, rh, "|<", FALSE, TRUE
+                CASE LB_CTL_PREV: ANIMP_chip_at x, by, w, rh, "<", FALSE, TRUE
+                CASE LB_CTL_PLAY: ANIMP_chip_at x, by, w, rh, _IIF(ANIM_PLAY.playing, "STOP", "PLAY"), ANIM_PLAY.playing <> 0, ANIM.count > 1
+                CASE LB_CTL_NEXT: ANIMP_chip_at x, by, w, rh, ">", FALSE, TRUE
+                CASE LB_CTL_LAST: ANIMP_chip_at x, by, w, rh, ">|", FALSE, TRUE
+                CASE LB_CTL_LOOP: ANIMP_chip_at x, by, w, rh, _TRIM$(MID$("FWD REV PINGONCE", ANIM.loopMode * 4 + 1, 4)), TRUE, TRUE
+                CASE LB_CTL_TIME
+                    t = ANIM_LB_time$(ANIM_LB_ticks_before&(ANIM.current)) + " / " + ANIM_LB_time$(ANIM_LB_ticks_before&(ANIM.count + 1))
+                    FPANEL_text x + 2, ty, t, THEME.CP_text~&
+                CASE LB_CTL_FPS
+                    FPANEL_text x + 2, ty, _TRIM$(STR$(_MAX(1, ANIM.fps))) + " FPS", THEME.CP_text~&
+                CASE LB_CTL_SEEK
+                    IF ANIM.count > 1 THEN frac = (ANIM.current - 1) / (ANIM.count - 1) ELSE frac = 0
+                    FPANEL_track x, by + (rh - FPANEL.sliderH%) \ 2, w, frac, THEME.CP_button_bg~&, ANIM.count > 1
+                CASE LB_CTL_COUNT
+                    t = _TRIM$(STR$(ANIM.current)) + "/" + _TRIM$(STR$(ANIM.count))
+                    LINE (x, by)-(x + w - 1, by + rh - 1), THEME.CP_slider_bg~&, BF
+                    LINE (x, by)-(x + w - 1, by + rh - 1), THEME.CP_slider_border~&, B
+                    FPANEL_text x + (w - FPANEL_text_w%(t)) \ 2, ty, t, THEME.CP_text_bright~&
+                CASE LB_CTL_COPY: ANIMP_chip_at x, by, w, rh, "COPY", FALSE, FALSE
+                CASE LB_CTL_PASTE: ANIMP_chip_at x, by, w, rh, "PASTE", FALSE, FALSE
+                CASE LB_CTL_CUT: ANIMP_chip_at x, by, w, rh, "CUT", FALSE, FALSE
+                CASE LB_CTL_ADD: ANIMP_chip_at x, by, w, rh, "+", FALSE, ANIM_op_refusal$(ANIM_OP_APPEND) = ""
+            END SELECT
+        END IF
+    NEXT k
+
+    ' editor panes, the current frame in the middle
+    FOR k = 0 TO ANIM_LB.panes - 1
+        f = ANIM_LB_pane_rect%(k, x, y, w, h)
+        en = (f >= 1 _ANDALSO f <= ANIM.count)
+        IF en THEN
+            ANIM_LB_draw_frame dest, src, f, x, y, w, h, dx, dy, dw, dh
+            IF f = ANIM.current THEN
+                LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_current~&, B
+                LINE (dx - 2, dy - 2)-(dx + dw + 1, dy + dh + 1), THEME.ANIM_FRAME_current~&, B
+                fg = THEME.CP_text_bright~&
+            ELSE
+                LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_border~&, B
+                fg = THEME.CP_text~&
+            END IF
+            t = "FRAME" + STR$(f)
+            IF f = ANIM.current THEN t = t + " OF" + STR$(ANIM.count)
+            tw = FPANEL_text_w%(t)
+            IF tw <= w THEN FPANEL_text x + (w - tw) \ 2, dy + dh + 3, t, fg ' under the picture
+        ELSE
+            LINE (x, y)-(x + w - 1, y + h - 1), THEME.ANIM_FRAME_spare~&, B , &HCCCC
+        END IF
+    NEXT k
+
+    _FONT oldFont
+    _DEST oldDest
+    ANIM_LB.shown = TRUE
+END SUB
+
+''
+' Transport bar control at viewport point (mx, my), or LB_CTL_NONE.
+FUNCTION ANIM_LB_ctl_at% (mx AS INTEGER, my AS INTEGER)
+    DIM k AS INTEGER
+    IF my < ANIM_LB.barY + 2 _ORELSE my >= ANIM_LB.barY + 2 + FPANEL.rowH% THEN EXIT FUNCTION
+    FOR k = 1 TO LB_CTLS
+        IF ANIM_LB_CW(k) > 0 _ANDALSO mx >= ANIM_LB_CX(k) _ANDALSO mx < ANIM_LB_CX(k) + ANIM_LB_CW(k) THEN ANIM_LB_ctl_at% = k: EXIT FUNCTION
+    NEXT k
+END FUNCTION
+
+''
+' Viewport point (mx, my) is in the lightbox.
+FUNCTION ANIM_LB_hit% (mx AS INTEGER, my AS INTEGER)
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 THEN EXIT FUNCTION
+    ANIM_LB_hit% = (mx >= ANIM_LB.hx1 _ANDALSO mx <= ANIM_LB.hx2 _ANDALSO my >= ANIM_LB.y1 _ANDALSO my <= ANIM_LB.y2)
+END FUNCTION
+
+''
+' MOUSE_should_skip_tool_actions%: a press in the lightbox never reaches the
+' tools (drawing in a pane: 2.2). A left press on a transport control runs it.
+SUB ANIM_LB_mouse ()
+    DIM pressed1 AS INTEGER, pressed2 AS INTEGER
+    IF ANIM_LB_showing% = 0 THEN EXIT SUB
+    pressed1 = (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0)
+    pressed2 = (MOUSE.B2% <> 0 _ANDALSO MOUSE.OLD_B2% = 0)
+    IF pressed1 = 0 _ANDALSO pressed2 = 0 THEN EXIT SUB
+    IF ANIM_LB_hit%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = 0 THEN EXIT SUB
+    IF REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%) <> REGION_CANVAS THEN EXIT SUB
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF pressed1 THEN ANIM_LB_click ANIM_LB_ctl_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+END SUB
+
+''
+' Run transport control c.
+SUB ANIM_LB_click (c AS INTEGER)
+    SELECT CASE c
+        CASE LB_CTL_FIRST: CMD_execute_action ANIM_ACT_FIRST
+        CASE LB_CTL_PREV: CMD_execute_action ANIM_ACT_PREV
+        CASE LB_CTL_PLAY: CMD_execute_action ANIM_ACT_PLAY
+        CASE LB_CTL_NEXT: CMD_execute_action ANIM_ACT_NEXT
+        CASE LB_CTL_LAST: CMD_execute_action ANIM_ACT_LAST
+        CASE LB_CTL_LOOP
+            ANIM.loopMode = (ANIM.loopMode + 1) MOD 4
+            INVALIDATE_canvas ' as the panel's loop chips (saved in the drAn chunk)
+            STATUS_flash "Loop: " + _TRIM$(MID$("FORWARD  BACKWARD PING-PONGONCE     ", ANIM.loopMode * 9 + 1, 9))
+        CASE LB_CTL_COPY, LB_CTL_PASTE, LB_CTL_CUT
+            STATUS_flash "Copy / paste frames: coming next"
+        CASE LB_CTL_ADD: CMD_execute_action ANIM_ACT_APPEND
+        CASE ELSE: EXIT SUB
+    END SELECT
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' QA dump lines:
+' ANIMLB shown x1 y1 x2 y2 stripY stripH barY barH edY edH stripFirst stripN cellW cellH panes paneW paneH pad
+' ANIMLBC x w (for each control 1..14, w = 0 hidden)
+FUNCTION ANIM_LB_dump$ ()
+    DIM d AS STRING, k AS INTEGER
+    d = "ANIMLB" + DOCK_n$(ANIM_LB.shown <> 0 _ANDALSO ANIM_LB_showing% <> 0) + DOCK_n$(ANIM_LB.x1) + DOCK_n$(ANIM_LB.y1) + DOCK_n$(ANIM_LB.x2) + DOCK_n$(ANIM_LB.y2)
+    d = d + DOCK_n$(ANIM_LB.stripY) + DOCK_n$(ANIM_LB.stripH) + DOCK_n$(ANIM_LB.barY) + DOCK_n$(ANIM_LB.barH) + DOCK_n$(ANIM_LB.edY) + DOCK_n$(ANIM_LB.edH)
+    d = d + DOCK_n$(ANIM_LB.stripFirst) + DOCK_n$(ANIM_LB.stripN) + DOCK_n$(ANIM_LB.cellW) + DOCK_n$(ANIM_LB.cellH)
+    d = d + DOCK_n$(ANIM_LB.panes) + DOCK_n$(ANIM_LB.paneW) + DOCK_n$(ANIM_LB.paneH) + DOCK_n$(ANIM_LB.pad) + CHR$(10)
+    d = d + "ANIMLBC"
+    FOR k = 1 TO LB_CTLS: d = d + DOCK_n$(ANIM_LB_CX(k)) + DOCK_n$(ANIM_LB_CW(k)): NEXT k
+    ANIM_LB_dump$ = d + CHR$(10)
+END FUNCTION

@@ -353,6 +353,8 @@ TYPE DRAW_CONFIG
     GRID_ON_TOP                     AS INTEGER        ' Grid renders on top of art (1 = on top, 0 = behind art)
     PREVIEW_SHOWS_FRAME             AS INTEGER        ' Animation: the Preview window shows the current frame on a sheet with frames (ANIM > Preview Shows Frame)
     FRAME_GRID                      AS INTEGER        ' Animation: show the frame grid (cell borders, numbers, current frame) on a sheet with frames (View > Frame Grid)
+    LIGHTBOX                        AS INTEGER        ' Animation: lightbox view (strip, transport bar, 3/5/7 panes) on a sheet with frames (ANIM > Lightbox, Num 0)
+    LIGHTBOX_PANES                  AS INTEGER        ' Animation: lightbox editor panes 3 / 5 / 7 (ANIM > Lightbox Panes, Num *)
     ' Transparency checkerboard settings
     TRANSPARENCY_CHECK_COLOR1       AS _UNSIGNED LONG ' Light checkerboard color
     TRANSPARENCY_CHECK_COLOR2       AS _UNSIGNED LONG ' Dark checkerboard color

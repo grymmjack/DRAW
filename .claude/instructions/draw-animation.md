@@ -30,6 +30,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | `TOOLS/ANIM-VIEW.BI/BM` | Frame grid overlay (`ANIM_VIEW_render_grid`, View > Frame Grid 2500), frame keys (numpad + Alt), `ANIM_VIEW_goto`, play toggle + tick, the Preview window's frame view, the `ANIM` QA dump line |
 | `TOOLS/ANIM-OPS.BI/BM` | Frame operations, layout changes (re-slice / resize), timing changes, whole-sheet snapshots, the undo record, `ANIMC` dump line |
 | `GUI/ANIM-PANEL.BI/BM` | The Animation panel (2505): FPANEL window like `GUI/PEN-PANEL` (dock slot `DP_ANIM`, `REGION_ANIM_PANEL`, `WZ_*`, auto-hide, F11, workspace element `ANIM_PANEL`, `ANIM_PANEL_VISIBLE/X/Y`) |
+| `TOOLS/ANIM-LB.BI/BM` | The lightbox view (2.1): layout (`ANIM_LB_layout`, bands strip / transport bar / editor, `ANIM_LB_area` + `ANIM_LB_clear_floats`), `ANIM_LB_render` (cut from the composite), transport bar controls `LB_CTL_*`, `ANIM_LB_mouse`, the `ANIMLB` / `ANIMLBC` dump lines |
 | `INPUT/NUMPAD.BI/BM` | Numpad keys from bu1ld0r: `NUMPAD_poll` (`_KEYDOWN` edges), `NUMPAD_dev` ([Linux] device ids = X11 key code + 1, catches taps quicker than a frame), `NUMPAD_of%` (which numpad key a plain code could be), `NUMPAD_sent%` |
 
 ## Action ids (2500-2599)
@@ -41,13 +42,15 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2505 | Animation panel (View + ANIM menu) |
 | 2506 | Play / stop (`ANIM_VIEW_play_toggle`) |
 | 2507 | Preview Shows Frame (`CFG.PREVIEW_SHOWS_FRAME`) |
+| 2519 | Lightbox on / off (`CFG.LIGHTBOX`, Num 0) |
+| 2520 | Lightbox panes 3 → 5 → 7 (`CFG.LIGHTBOX_PANES`, Num *) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
 Grep before adding one (CLAUDE.md gotcha 17).
 
 ## Keys
 
-- **Numpad:** 1 / 4 / 5 / 9 first / prev / next / last, `+` add (Shift: blank), Enter play.
+- **Numpad:** 1 / 4 / 5 / 9 first / prev / next / last, `+` add (Shift: blank), Enter play, 0 lightbox, `*` lightbox panes.
   Frame keys whatever the Num Lock state, only while the sheet has frames (Num + on a plain
   picture too: `ANIM_key_ok%`). Not while typing, dragging, in a menu / palette / dialog,
   with Ctrl / Alt (`ANIM_keys_free%`).
@@ -140,10 +143,34 @@ press's (`ANIM_OPS_LAST_KEY / _REC`, no redo tail), the new "after" replaces the
   (non-float mode) calls `ANIM_VIEW_preview_blit`: the current cell fitted, at a
   whole-number zoom when it fits, centred, with no follow crosshair. So it plays along.
 
+## Lightbox (`TOOLS/ANIM-LB`, 2.1)
+
+- **A view, not a mode:** `ANIM_LB_showing%` = `CFG.LIGHTBOX` and the sheet has frames. In
+  `SCREEN_render` it replaces the whole canvas branch (normal and tile mode): `RENDER_layers`
+  composites with its blit thrown off screen (`useComposite` is forced while showing, so
+  `CANVAS_CONTENT_SRC&` is a canvas-size composite, the one the Preview reads), then
+  `ANIM_LB_render` cuts every frame from it. Grids, the frame grid, symmetry, the border, the
+  ref image, CRT, tool previews, marching ants, the text hover outline and the scrollbars are
+  all sheet-view things and are skipped. It is drawn before the scene cache, so it only
+  re-renders when the scene does (a frame step, a playback tick, a canvas change).
+- **Bands:** strip = a quarter of the area (cells are the band's height, the frame's shape,
+  integer zoom, scrolled so the current frame stays in view), the transport bar (one
+  `FPANEL.rowH` row; low-priority controls drop out when it is narrow so the seek bar keeps
+  24 px), the editor (panes, current in the middle; a pane past either end is drawn empty).
+  Checks: cut from `TRANSPARENCY.blueprint&` (`TRANSPARENCY_ensure_blueprint`, split out of
+  `TRANSPARENCY_render`) for the same cell, so they scale with the art as in sheet view.
+- **Area:** `ANIM_LB_area` = the canvas work area (between the docks, under the menu / text
+  bar, over the status bar, beside the Browser band); `ANIM_LB_clear_floats` then moves an edge
+  in past a floating window that touches it over the strip / bar (the user's Color Mixer sits
+  top-left), never below half the width. `hx1 / hx2` keep the whole width for hit tests.
+- **Input:** `ANIM_LB_mouse` at the top of `MOUSE_should_skip_tool_actions%`: any press in the
+  work area while showing is a chrome click (gotcha 5 lifecycle); a left press on a transport
+  control runs it. `POINTER_build` shows the arrow there. Drawing in panes is 2.2.
+
 ## Saved
 
 The `drAn` PNG chunk (`draw-fileformat.md`), read from .draw and plain PNG. The ask answer
-and playback are not saved. Config: `FRAME_GRID`, `PREVIEW_SHOWS_FRAME`,
+and playback are not saved. Config: `FRAME_GRID`, `PREVIEW_SHOWS_FRAME`, `LIGHTBOX`, `LIGHTBOX_PANES`,
 `ANIM_PANEL_VISIBLE / _X / _Y`. Theme: `THEME.ANIM_FRAME_border / spare / current /
 label_fg / label_bg`.
 
@@ -157,9 +184,10 @@ gotcha 15). It also stops playback and clears the ask answer.
   - `ANIM active count current frameW frameH gutter margin cols rows fps loop gridDrawn dx dy canvasW canvasH playing previewFrame`. `dx dy` is the canvas origin on screen when the grid is drawn.
   - `ANIMC` + per frame (<= 64): `0` for an empty cell, else the CRC32 of its pixels on every moving layer. Use it to check where drawings went.
   - `ANIMP visible docked x y w h scale% hold sizeMode pendRow`
+  - `ANIMLB shown x1 y1 x2 y2 stripY stripH barY barH edY edH stripFirst stripN cellW cellH panes paneW paneH pad`, `ANIMLBC` + `x w` per transport control (1 `|<` .. 5 `>|`, 6 loop, 7 time, 8 FPS, 9 seek, 10 count, 11-13 copy / paste / cut, 14 `+`; w = 0 dropped).
   - `ANIMPL nav r1..r6 loop rowH minusX plusX chipW pad panelW ops mode` (native px; viewport = disp + native * scale% / 100). The nav row has 5 chips (`|< < PLAY > >|`), the others 4, and the mode row 2.
 - Tests: `anim-frame-grid`, `file-anim-chunk`, `anim-numpad-keys`, `anim-menu`,
-  `anim-panel`, `anim-frame-ops`, `anim-frame-start`, `anim-playback`. Unit:
+  `anim-panel`, `anim-frame-ops`, `anim-frame-start`, `anim-playback`, `anim-lightbox` (pane / strip contents checked by each frame's mark colour in the snapshot; the floating Preview painted out). Unit:
   `QA/unit/anim-unit.bas`. Fixtures are built in the test with `magick` +
   `QA/fixtures/png-chunk.py put`. Run on the user profile too (`QA_USER_PROFILE=1
   QA_USER_SCREEN=1152x712@3 QA_XVFB_RES=3840x2400`); that layout has no Preview window.

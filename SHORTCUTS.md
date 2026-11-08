@@ -543,13 +543,16 @@ picture only `Num +` is). The `Alt` keys are for keyboards without a numpad.
 | `Num Enter` / `Alt+/` | Play / stop (FPS, holds, loop mode); drawing is blocked while playing |
 | `Num +` | Add a frame: a copy of the last one (on a plain picture: the picture becomes frame 1, frame 2 goes beside it) |
 | `Shift+Num +` | Add a blank frame |
+| `Num 0` | Lightbox on / off (below) |
+| `Num *` | Lightbox panes: 3 → 5 → 7 |
 | `Ctrl+Z` / `Ctrl+Y` | Every frame operation, frame size / gutter / margin and FPS / hold change is one undo step |
 
 Main-row digits keep setting opacity; `Alt+Home` / `Alt+End` no longer flip.
 
 **ANIM menu:** Animation Panel · First / Previous / Next / Last Frame · Play · Add Frame ·
 Add Blank Frame · Insert Frame Before / After · Duplicate Frame · Delete Frame · Move Frame
-Earlier / Later · Reverse Frames · Frame Grid · Preview Shows Frame. (Also View → Frame Grid
+Earlier / Later · Reverse Frames · Frame Grid · Preview Shows Frame · Lightbox · Lightbox
+Panes 3 / 5 / 7. (Also View → Frame Grid
 and View → Animation Panel; every item is in the command palette.)
 
 ### Animation panel (View / ANIM → Animation Panel)
@@ -562,6 +565,24 @@ and View → Animation Panel; every item is in the command palette.)
 | `FWD` `REV` `PING` `ONCE` | Loop mode: forward, backward, ping-pong, play once |
 
 The panel docks and floats like the other windows (drag its title bar; F11 hides it).
+
+### Lightbox (ANIM → Lightbox, `Num 0`)
+The work area shows the frames instead of the sheet: a **strip** of frames along the top
+(the current one outlined; it scrolls to keep it in view), the **transport bar**, and 3 / 5 / 7
+**panes** (`Num *`) with the current frame in the middle and the frames before / after it
+round it. The frame keys, Play and frame operations work as in sheet view. A floating window
+parked on the work area's left or right edge over the strip (a Color Mixer, say) moves the
+lightbox over beside it.
+
+| Transport bar | Action |
+|---------------|--------|
+| `\|<` `<` `PLAY` `>` `>\|` | First / previous / play-stop / next / last frame |
+| `FWD` / `REV` / `PING` / `ONCE` | Click for the next loop mode |
+| time · FPS · seek bar · `n/total` | Where the current frame comes up, the sheet's FPS, its place in the animation |
+| `+` | Add a frame (a copy of the last; `Shift+click` = blank) |
+
+Drawing in the panes, clicking / selecting in the strip, scrubbing the seek bar, and COPY /
+PASTE / CUT come next; for now a click in the lightbox only works the transport bar.
 
 ---
 
