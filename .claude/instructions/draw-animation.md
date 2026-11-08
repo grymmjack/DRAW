@@ -64,6 +64,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2541 / 2542 | Link Cells / Unlink Cells (`ANIM_LK_action`, `TOOLS/ANIM-OPS`, the current layer, the selected frames) |
 | 2543 / 2544 | Tag Frames... / Delete Tag (`ANIM_TG_action`, `TOOLS/ANIM-OPS`, 4.4) |
 | 2545 / 2546 | Frame Note... / Clear Frame Note (`ANIM_NT_action`, `TOOLS/ANIM-OPS`, 4.5) |
+| 2547 | Detect Frames (`ANIM_DT_action`, `TOOLS/ANIM-IMPORT`, 5.3: the sheet's grid from its gaps) |
 | 2540 | X-Sheet in the lightbox's top band (`ANIM_XS_toggle`, `TOOLS/ANIM-XS`, `CFG.XSHEET`, Num 8, chip `LB_CTL_XS`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
@@ -596,6 +597,30 @@ historyId, grouped with the frame it links to. Cel opacity / z-index are not app
 dump, the PNG sequence vs the expected frames (offset sub-rect cel, linked cels, holds), a
 ping-pong tag over all = loop 2, one frame = a picture. `file-aseprite-frames.sh` now reads frame
 1 from the top-left cell of the 32x16 sheet.
+
+**Sprite sheets (5.3).** *Frame data on open:* `DRW_load_from_png` (flat image, no drAn) calls
+`ANIM_SHEET_import%`: `name.json` beside it (Aseprite Export Sprite Sheet array or hash,
+TexturePacker hash, DRAW's own `ANIM_SHEET_export%`), read with the small `ANIM_JS_*` walker
+(`_ws& / _end& / _next% / _get$ / _str$ / _num&` - no full parser; just values by key). Refused
+when meta.image names another file or a frame lies outside the image. All frames untrimmed, one
+size, unrotated, and exactly where `ANIM_set_layout%(w, h, gutter, margin)` puts them (margin =
+frame 1's x = y, gutter from the next frame on its row, else the next row) = sliced in place;
+otherwise laid out again (`ANIM_IMP_grid%` of the largest sourceSize, `ANIM_OPS_resize_keep_view`,
+each rect `_PUTIMAGE`d at its spriteSourceSize offset; rotated = TexturePacker's quarter turn
+clockwise, undone per pixel: sprite (x, y) = atlas (fx + h - 1 - y, fy + x)). durations ->
+`ANIM_IMP_fps%(.., 1000)` + holds (else meta.fps); frameTags -> tags (a full-range tag sets the
+loop; `repeat "1"` = ONCE); DRAW's own "all" tag (written when there are none) is dropped and its
+meta.loop applies. *Detect Frames (2547):* `ANIM_DT_action` flattens, marks drawn pixels (alpha >
+0, or <> the top-left colour on an opaque sheet), fills each 8-connected blob's extent into the
+column / row masks (blobs only up to 4 M pixels, else raw columns), then the pure
+`ANIM_DT_solve%` (ANIM.BM, unit-tested): first `ANIM_DT_tight%` - runs of equal size with equal
+gaps and equal ends, gaps and ends <= a quarter of the cell, both axes sharing them = that grid;
+else search margin / gutter 0..16 and cells per axis (<= runs, cells filling the span exactly,
+`ANIM_DT_axis%`: every run inside one cell, `ANIM_fit%` gives that many) for the most cells,
+then the smallest margin + gutter. An axis of one cell takes the other's gutter. Frames = up to
+the last cell drawn in. One undo step (`ANIM_OPS_record`, no pixels). Emptiness alone can't tell
+a gutter from a sprite's padding, so a padded sheet with gutters comes out as bigger cells
+holding the same sprites in the same order. QA: `file-anim-sheet-import.sh` (17) + the unit test.
 
 ## A selection stays put in its cell (2.9, Q-18)
 

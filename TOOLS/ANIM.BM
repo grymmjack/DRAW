@@ -948,3 +948,125 @@ SUB ANIM_NT_remap (top AS INTEGER, newCount AS INTEGER)
         END IF
     NEXT n
 END SUB
+
+' ---------------------------------------------------------------------------
+' 5.3 Detect Frames: a sheet's grid from where it has content
+' ---------------------------------------------------------------------------
+
+''
+' The cells along one axis (span LEN(mask)) for cell size c, gutter g and
+' margin m are what ANIM_fit% lays out, and every run of drawn positions
+' ("#" in mask) is inside one of them. Returns how many cells (0 = no).
+FUNCTION ANIM_DT_axis% (mask AS STRING, c AS INTEGER, g AS INTEGER, m AS INTEGER)
+    DIM n AS INTEGER, p AS LONG, e AS LONG, qa AS LONG, qb AS LONG, pitch AS LONG
+    n = ANIM_fit%(LEN(mask), c, g, m)
+    IF n < 1 THEN EXIT FUNCTION
+    pitch = CLNG(c) + g
+    p = INSTR(mask, "#")
+    DO WHILE p > 0
+        ' each run of "#" inside one cell: its ends in the same cell, neither in a gutter
+        e = INSTR(p, mask, ".") - 1: IF e < 0 THEN e = LEN(mask)
+        qa = p - 1 - m: qb = e - 1 - m
+        IF qa < 0 THEN EXIT FUNCTION
+        IF qa \ pitch <> qb \ pitch _ORELSE qb MOD pitch >= c _ORELSE qb \ pitch >= n THEN EXIT FUNCTION
+        p = INSTR(e + 1, mask, "#")
+    LOOP
+    ANIM_DT_axis% = n
+END FUNCTION
+
+''
+' The frame grid of a sheet: mx / my = one character per column / row, "#"
+' where something is drawn (DRAW fills each blob's whole extent, so a sprite
+' with a gap stays one), "." empty. Cells fill each axis exactly (2 margins,
+' cells, gutters); every drawn column and row falls inside a cell; both axes
+' share the gutter and margin (an axis of one cell takes any gutter). Picks
+' the most cells, then the smallest margin + gutter. FALSE when nothing gives
+' two frames or more.
+FUNCTION ANIM_DT_solve% (mx AS STRING, my AS STRING, fw AS INTEGER, fh AS INTEGER, gutter AS INTEGER, margin AS INTEGER)
+    CONST DT_GM_MAX = 16
+    DIM m AS INTEGER, g AS INTEGER, nx AS LONG, ny AS LONG, cx AS LONG, cy AS LONG, ax AS INTEGER, ay AS INTEGER
+    DIM best AS LONG, bestS AS INTEGER, lx AS LONG, ly AS LONG, rx AS LONG, ry AS LONG
+    lx = LEN(mx): ly = LEN(my)
+    IF lx < 1 _ORELSE ly < 1 _ORELSE INSTR(mx, "#") = 0 THEN EXIT FUNCTION
+    ' runs that tile evenly - equal sizes, equal small gaps, equal ends - are the cells
+    DIM tcx AS LONG, tgx AS LONG, tmx AS LONG, tcy AS LONG, tgy AS LONG, tmy AS LONG
+    IF ANIM_DT_tight%(mx, tcx, tgx, tmx) _ANDALSO ANIM_DT_tight%(my, tcy, tgy, tmy) THEN
+        IF tmx = tmy _ANDALSO (tgx = tgy _ORELSE tgx < 0 _ORELSE tgy < 0) _ANDALSO (tgx >= 0 _ORELSE tgy >= 0) THEN
+            fw = tcx: fh = tcy: gutter = _MAX(tgx, tgy): margin = tmx
+            ANIM_DT_solve% = TRUE
+            EXIT FUNCTION
+        END IF
+    END IF
+    rx = _MIN(ANIM_DT_runs&(mx), 512): ry = _MIN(ANIM_DT_runs&(my), 512) ' (noise: no grid past 512 frames a row)
+    FOR m = 0 TO DT_GM_MAX
+        FOR g = 0 TO DT_GM_MAX
+            ' x: rx runs at most, so at most rx cells
+            FOR nx = _MIN(rx, lx) TO 1 STEP -1
+                IF nx = 1 THEN cx = lx - 2 * m ELSE cx = lx - 2 * m - (nx - 1) * g
+                IF cx >= nx _ANDALSO cx MOD nx = 0 THEN
+                    cx = cx \ nx
+                    IF cx <= 32767 THEN ax = ANIM_DT_axis%(mx, CINT(cx), _IIF(nx = 1, 0, g), m) ELSE ax = 0
+                    IF ax = nx THEN
+                        FOR ny = _MIN(ry, ly) TO 1 STEP -1
+                            IF nx * ny < 2 THEN EXIT FOR
+                            IF nx * ny < best _ORELSE (nx * ny = best _ANDALSO m + g >= bestS) THEN EXIT FOR
+                            IF ny = 1 THEN cy = ly - 2 * m ELSE cy = ly - 2 * m - (ny - 1) * g
+                            IF cy >= ny _ANDALSO cy MOD ny = 0 THEN
+                                cy = cy \ ny
+                                IF cy <= 32767 THEN ay = ANIM_DT_axis%(my, CINT(cy), _IIF(ny = 1, 0, g), m) ELSE ay = 0
+                                IF ay = ny THEN ' (an axis of one cell takes the other's gutter)
+                                    best = nx * ny: bestS = m + g
+                                    fw = cx: fh = cy: gutter = g: margin = m
+                                    ANIM_DT_solve% = TRUE
+                                    EXIT FOR
+                                END IF
+                            END IF
+                        NEXT ny
+                    END IF
+                END IF
+            NEXT nx
+        NEXT g
+    NEXT m
+END FUNCTION
+
+''
+' mask's runs of "#" are cells c long with gutters g between and margins m at
+' both ends, gutters and margins small next to the cells (4 g <= c, 4 m <= c,
+' so a sprite's own padding is not taken for a gutter). One run: g = -1 (any).
+FUNCTION ANIM_DT_tight% (mask AS STRING, c AS LONG, g AS LONG, m AS LONG)
+    DIM p AS LONG, a AS LONG, b AS LONG, n AS LONG, lastB AS LONG
+    c = 0: g = -1: m = 0
+    p = INSTR(mask, "#")
+    IF p = 0 THEN EXIT FUNCTION
+    m = p - 1
+    DO WHILE p > 0
+        a = p
+        b = INSTR(a, mask, ".") - 1: IF b < 0 THEN b = LEN(mask)
+        n = n + 1
+        IF n = 1 THEN
+            c = b - a + 1
+        ELSE
+            IF b - a + 1 <> c THEN EXIT FUNCTION
+            IF n = 2 THEN g = a - lastB - 1 ELSE IF a - lastB - 1 <> g THEN EXIT FUNCTION
+        END IF
+        lastB = b
+        p = INSTR(b + 1, mask, "#")
+    LOOP
+    IF LEN(mask) - lastB <> m THEN EXIT FUNCTION
+    IF 4 * m > c _ORELSE 4 * g > c THEN EXIT FUNCTION
+    ANIM_DT_tight% = TRUE
+END FUNCTION
+
+''
+' How many runs of "#" mask has.
+FUNCTION ANIM_DT_runs& (mask AS STRING)
+    DIM p AS LONG, n AS LONG, inRun AS INTEGER
+    FOR p = 1 TO LEN(mask)
+        IF ASC(mask, p) = 35 THEN
+            IF inRun = FALSE THEN n = n + 1: inRun = TRUE
+        ELSE
+            inRun = FALSE
+        END IF
+    NEXT p
+    ANIM_DT_runs& = n
+END FUNCTION

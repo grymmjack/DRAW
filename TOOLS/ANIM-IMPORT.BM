@@ -345,3 +345,427 @@ SUB ANIM_ASE_apply (filename AS STRING, layerOf AS STRING)
     IF nLinks > 0 THEN ANIM_IMP_INFO = ANIM_IMP_INFO + "," + STR$(nLinks) + _IIF(nLinks = 1, " linked cel", " linked cels")
     _LOGINFO "ANIM_ASE_apply: " + filename + ": " + ANIM_IMP_INFO
 END SUB
+
+' ---------------------------------------------------------------------------
+' 5.3 Sprite sheets: Detect Frames, and a sheet's frame data (.json) on open
+' ---------------------------------------------------------------------------
+
+''
+' ANIM > Detect Frames: find the frame grid of the sheet from its gaps (the
+' flattened document; empty = transparent, or the top-left pixel's colour on
+' an opaque sheet) and slice it (the pixels stay). Each blob counts as its
+' whole extent so a sprite with a gap is one; the frames run to the last cell
+' with something in it. One undo step.
+SUB ANIM_DT_action ()
+    DIM flat AS LONG, w AS LONG, h AS LONG, m AS _MEM, px AS STRING, bg AS _UNSIGNED LONG, x AS LONG, y AS LONG
+    DIM c AS _UNSIGNED LONG, opaqueBg AS INTEGER, mx AS STRING, my AS STRING, fw AS INTEGER, fh AS INTEGER
+    DIM gutter AS INTEGER, margin AS INTEGER, before AS STRING, r AS INTEGER, cols AS LONG, n AS LONG, k AS LONG
+    DIM i AS LONG, sp AS LONG, q AS LONG, qx AS LONG, qy AS LONG, x0 AS LONG, y0 AS LONG, x1 AS LONG, y1 AS LONG
+    DIM dx AS INTEGER, dy AS INTEGER, nx AS LONG, ny AS LONG, msg AS STRING, useBlobs AS INTEGER
+
+    IF TRANSFORM.ACTIVE THEN STATUS_flash "Detect Frames: finish the transform first": EXIT SUB
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN STATUS_flash "Detect Frames: nothing to look at": EXIT SUB
+    w = _WIDTH(flat): h = _HEIGHT(flat)
+    m = _MEMIMAGE(flat)
+    px = SPACE$(w * h * 4)
+    _MEMGET m, m.OFFSET, px
+    _MEMFREE m
+    SAFE_FREEIMAGE flat
+    bg = CVL(LEFT$(px, 4))
+    opaqueBg = (_ALPHA32(bg) > 0)
+    ' what is drawn: one byte per pixel (1 = drawn)
+    DIM drawn(0 TO w * h - 1) AS _UNSIGNED _BYTE
+    FOR i = 0 TO w * h - 1
+        c = CVL(MID$(px, i * 4 + 1, 4))
+        IF opaqueBg THEN
+            IF c <> bg THEN drawn(i) = 1
+        ELSEIF _ALPHA32(c) > 0 THEN
+            drawn(i) = 1
+        END IF
+    NEXT i
+    px = ""
+    mx = STRING$(w, "."): my = STRING$(h, ".")
+    useBlobs = (w * h <= 4194304)
+    IF useBlobs THEN
+        ' each 8-connected blob marks its whole extent
+        DIM stk(0 TO w * h) AS LONG
+        FOR i = 0 TO w * h - 1
+            IF drawn(i) = 1 THEN
+                drawn(i) = 2: sp = 0: stk(0) = i
+                x0 = i MOD w: x1 = x0: y0 = i \ w: y1 = y0
+                DO WHILE sp >= 0
+                    q = stk(sp): sp = sp - 1
+                    qx = q MOD w: qy = q \ w
+                    IF qx < x0 THEN x0 = qx
+                    IF qx > x1 THEN x1 = qx
+                    IF qy < y0 THEN y0 = qy
+                    IF qy > y1 THEN y1 = qy
+                    FOR dy = -1 TO 1
+                        FOR dx = -1 TO 1
+                            nx = qx + dx: ny = qy + dy
+                            IF nx >= 0 _ANDALSO nx < w _ANDALSO ny >= 0 _ANDALSO ny < h THEN
+                                IF drawn(ny * w + nx) = 1 THEN drawn(ny * w + nx) = 2: sp = sp + 1: stk(sp) = ny * w + nx
+                            END IF
+                        NEXT dx
+                    NEXT dy
+                LOOP
+                MID$(mx, x0 + 1, x1 - x0 + 1) = STRING$(x1 - x0 + 1, "#")
+                MID$(my, y0 + 1, y1 - y0 + 1) = STRING$(y1 - y0 + 1, "#")
+            END IF
+        NEXT i
+        ERASE stk
+    ELSE
+        FOR y = 0 TO h - 1
+            FOR x = 0 TO w - 1
+                IF drawn(y * w + x) THEN MID$(mx, x + 1, 1) = "#": MID$(my, y + 1, 1) = "#"
+            NEXT x
+        NEXT y
+    END IF
+    IF ANIM_DT_solve%(mx, my, fw, fh, gutter, margin) = FALSE THEN
+        STATUS_flash "Detect Frames: no frame grid found (the sprites touch, or there is only one) - set the frame size in the ANIM panel"
+        EXIT SUB
+    END IF
+    ' the frames: up to the last cell with something in it
+    cols = ANIM_fit%(w, fw, gutter, margin)
+    FOR i = 0 TO w * h - 1
+        IF drawn(i) THEN
+            x = i MOD w: y = i \ w
+            k = ((y - margin) \ (CLNG(fh) + gutter)) * cols + (x - margin) \ (CLNG(fw) + gutter) + 1
+            IF k > n THEN n = k
+        END IF
+    NEXT i
+    ERASE drawn
+    before = ANIM_OPS_snapshot$(FALSE)
+    r = ANIM_set_layout%(fw, fh, gutter, margin)
+    IF r = FALSE THEN STATUS_flash "Detect Frames: that grid does not fit the canvas": EXIT SUB
+    n = _MIN(n, ANIM_cells%): IF n < 1 THEN n = 1
+    ANIM.wanted = n: ANIM.count = n: ANIM.current = 1
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Detect Frames", 0
+    msg = "Detect Frames:" + STR$(n) + " frames of" + STR$(fw) + "x" + _TRIM$(STR$(fh))
+    IF gutter > 0 THEN msg = msg + ", gutter" + STR$(gutter)
+    IF margin > 0 THEN msg = msg + ", margin" + STR$(margin)
+    STATUS_flash msg
+    _LOGINFO "ANIM_DT_action: " + msg
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+' -- a little JSON: just enough to walk a sprite sheet's frame data --
+
+FUNCTION ANIM_JS_ws& (s AS STRING, p AS LONG)
+    DIM q AS LONG
+    q = p
+    DO WHILE q <= LEN(s)
+        SELECT CASE ASC(s, q)
+            CASE 32, 9, 10, 13: q = q + 1
+            CASE ELSE: EXIT DO
+        END SELECT
+    LOOP
+    ANIM_JS_ws& = q
+END FUNCTION
+
+''
+' Where the JSON value starting at p ends (the position after it).
+FUNCTION ANIM_JS_end& (s AS STRING, p AS LONG)
+    DIM q AS LONG, c AS INTEGER, depth AS LONG
+    q = p
+    IF q > LEN(s) THEN ANIM_JS_end& = q: EXIT FUNCTION
+    c = ASC(s, q)
+    IF c = 34 THEN
+        q = q + 1
+        DO WHILE q <= LEN(s)
+            c = ASC(s, q)
+            IF c = 92 THEN
+                q = q + 2
+            ELSEIF c = 34 THEN
+                ANIM_JS_end& = q + 1: EXIT FUNCTION
+            ELSE
+                q = q + 1
+            END IF
+        LOOP
+    ELSEIF c = 123 _ORELSE c = 91 THEN
+        DO WHILE q <= LEN(s)
+            c = ASC(s, q)
+            IF c = 34 THEN
+                q = ANIM_JS_end&(s, q)
+            ELSE
+                IF c = 123 _ORELSE c = 91 THEN depth = depth + 1
+                IF c = 125 _ORELSE c = 93 THEN
+                    depth = depth - 1
+                    IF depth = 0 THEN ANIM_JS_end& = q + 1: EXIT FUNCTION
+                END IF
+                q = q + 1
+            END IF
+        LOOP
+    ELSE
+        DO WHILE q <= LEN(s)
+            c = ASC(s, q)
+            IF c = 44 _ORELSE c = 125 _ORELSE c = 93 _ORELSE c = 32 _ORELSE c = 9 _ORELSE c = 10 _ORELSE c = 13 THEN EXIT DO
+            q = q + 1
+        LOOP
+    END IF
+    ANIM_JS_end& = q
+END FUNCTION
+
+''
+' The next member of the array / object whose inside p walks (start just after
+' the [ or {): k = its key ("" in an array), v = its value's text. FALSE at
+' the end.
+FUNCTION ANIM_JS_next% (s AS STRING, p AS LONG, k AS STRING, v AS STRING)
+    DIM e AS LONG, q AS LONG
+    k = "": v = ""
+    p = ANIM_JS_ws&(s, p)
+    IF p <= LEN(s) _ANDALSO ASC(s, p) = 44 THEN p = ANIM_JS_ws&(s, p + 1)
+    IF p > LEN(s) THEN EXIT FUNCTION
+    IF ASC(s, p) = 125 _ORELSE ASC(s, p) = 93 THEN EXIT FUNCTION
+    IF ASC(s, p) = 34 THEN
+        e = ANIM_JS_end&(s, p): q = ANIM_JS_ws&(s, e)
+        IF q <= LEN(s) _ANDALSO ASC(s, q) = 58 THEN k = ANIM_JS_str$(MID$(s, p, e - p)): p = ANIM_JS_ws&(s, q + 1)
+    END IF
+    e = ANIM_JS_end&(s, p)
+    IF e <= p THEN EXIT FUNCTION
+    v = MID$(s, p, e - p): p = e
+    ANIM_JS_next% = TRUE
+END FUNCTION
+
+''
+' The text of key want's value in JSON object text obj ("" when it has none).
+FUNCTION ANIM_JS_get$ (obj AS STRING, want AS STRING)
+    DIM p AS LONG, k AS STRING, v AS STRING
+    p = ANIM_JS_ws&(obj, 1)
+    IF p > LEN(obj) _ORELSE ASC(obj, p) <> 123 THEN EXIT FUNCTION
+    p = p + 1
+    DO WHILE ANIM_JS_next%(obj, p, k, v)
+        IF k = want THEN ANIM_JS_get$ = v: EXIT FUNCTION
+    LOOP
+END FUNCTION
+
+''
+' A JSON string's text (escapes undone; \u past 255 = "?"), else v as it is.
+FUNCTION ANIM_JS_str$ (v AS STRING)
+    DIM t AS STRING, i AS LONG, c AS STRING, u AS LONG
+    IF LEFT$(v, 1) <> CHR$(34) THEN ANIM_JS_str$ = v: EXIT FUNCTION
+    i = 2
+    DO WHILE i < LEN(v)
+        c = MID$(v, i, 1)
+        IF c = "\" _ANDALSO i + 1 < LEN(v) THEN
+            i = i + 1: c = MID$(v, i, 1)
+            SELECT CASE c
+                CASE "n": c = CHR$(10)
+                CASE "t": c = CHR$(9)
+                CASE "r": c = CHR$(13)
+                CASE "b", "f": c = ""
+                CASE "u"
+                    u = VAL("&H" + MID$(v, i + 1, 4)): i = i + 4
+                    IF u >= 0 _ANDALSO u < 256 THEN c = CHR$(u) ELSE c = "?"
+            END SELECT
+        END IF
+        t = t + c: i = i + 1
+    LOOP
+    ANIM_JS_str$ = t
+END FUNCTION
+
+FUNCTION ANIM_JS_num& (obj AS STRING, want AS STRING, dflt AS LONG)
+    DIM v AS STRING
+    v = ANIM_JS_get$(obj, want)
+    IF v = "" _ORELSE v = "null" THEN ANIM_JS_num& = dflt ELSE ANIM_JS_num& = VAL(ANIM_JS_str$(v))
+END FUNCTION
+
+''
+' Opening a PNG (no frames of its own) with its sheet's frame data beside it
+' - name.json from Aseprite's Export Sprite Sheet, TexturePacker, DRAW's own
+' sheet export (array or hash frames) - brings the frames back: durations ->
+' FPS + holds, frameTags -> tags, the loop. A regular grid is sliced where it
+' is; packed, trimmed, rotated or uneven frames are laid out again on a grid
+' of their source size. The JSON must name this image (meta.image), or none,
+' and every frame must lie inside it.
+FUNCTION ANIM_SHEET_import% (filename AS STRING)
+    DIM js AS STRING, s AS STRING, ff AS INTEGER, p AS LONG, top AS STRING, frames AS STRING, meta AS STRING
+    DIM nm AS STRING, k AS STRING, v AS STRING, fr AS STRING, n AS LONG, i AS LONG, w AS LONG, h AS LONG
+    DIM regular AS INTEGER, g AS LONG, mg AS LONG, r AS INTEGER, cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG
+    DIM cols AS LONG, rows AS LONG, copy AS LONG, oldDest AS LONG, oldSrc AS LONG, xx AS LONG, yy AS LONG
+    DIM tags AS STRING, ta AS LONG, tb AS LONG, dirName AS STRING, fps AS INTEGER, hh AS INTEGER, haveDur AS INTEGER
+    DIM loopName AS STRING, nTags AS INTEGER, repacked AS INTEGER, lay AS INTEGER, dot AS LONG
+
+    ANIM_IMP_INFO = ""
+    IF ANIM.active THEN EXIT FUNCTION
+    dot = _INSTRREV(filename, ".")
+    IF dot <= _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) THEN EXIT FUNCTION
+    js = LEFT$(filename, dot - 1) + ".json"
+    IF _FILEEXISTS(js) = 0 THEN EXIT FUNCTION
+    ff = FREEFILE
+    OPEN js FOR BINARY AS #ff
+    IF LOF(ff) > 16777216 THEN CLOSE #ff: EXIT FUNCTION
+    s = SPACE$(LOF(ff))
+    GET #ff, 1, s
+    CLOSE #ff
+    p = INSTR(s, "{")
+    IF p = 0 THEN EXIT FUNCTION
+    top = MID$(s, p, ANIM_JS_end&(s, p) - p)
+    frames = ANIM_JS_get$(top, "frames")
+    IF LEN(frames) < 2 _ORELSE (LEFT$(frames, 1) <> "[" _ANDALSO LEFT$(frames, 1) <> "{") THEN EXIT FUNCTION
+    meta = ANIM_JS_get$(top, "meta")
+    nm = ANIM_JS_str$(ANIM_JS_get$(meta, "image"))
+    IF nm <> "" THEN
+        nm = MID$(nm, _MAX(_INSTRREV(nm, "/"), _INSTRREV(nm, "\")) + 1)
+        IF LCASE$(nm) <> LCASE$(MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1)) THEN
+            _LOGINFO "ANIM_SHEET_import: " + js + " is for " + nm + ", not this image"
+            EXIT FUNCTION
+        END IF
+    END IF
+    lay = 1
+    IF LAYERS(lay).imgHandle& >= -1 THEN EXIT FUNCTION
+    w = SCRN.canvasW&: h = SCRN.canvasH&
+
+    DIM fx(1 TO ANIM_MAX_FRAMES) AS LONG, fy(1 TO ANIM_MAX_FRAMES) AS LONG, fwd(1 TO ANIM_MAX_FRAMES) AS LONG
+    DIM fht(1 TO ANIM_MAX_FRAMES) AS LONG, frot(1 TO ANIM_MAX_FRAMES) AS INTEGER, fox(1 TO ANIM_MAX_FRAMES) AS LONG
+    DIM foy(1 TO ANIM_MAX_FRAMES) AS LONG, fsw(1 TO ANIM_MAX_FRAMES) AS LONG, fsh(1 TO ANIM_MAX_FRAMES) AS LONG
+    DIM durs(1 TO ANIM_MAX_FRAMES) AS LONG
+    p = 2: haveDur = TRUE
+    DO WHILE ANIM_JS_next%(frames, p, k, v)
+        IF LEFT$(v, 1) = "{" THEN
+            IF n >= ANIM_MAX_FRAMES THEN EXIT DO
+            n = n + 1
+            fr = ANIM_JS_get$(v, "frame")
+            fx(n) = ANIM_JS_num&(fr, "x", -1): fy(n) = ANIM_JS_num&(fr, "y", -1)
+            fwd(n) = ANIM_JS_num&(fr, "w", 0): fht(n) = ANIM_JS_num&(fr, "h", 0)
+            frot(n) = (ANIM_JS_get$(v, "rotated") = "true")
+            fr = ANIM_JS_get$(v, "spriteSourceSize")
+            fox(n) = ANIM_JS_num&(fr, "x", 0): foy(n) = ANIM_JS_num&(fr, "y", 0)
+            fr = ANIM_JS_get$(v, "sourceSize")
+            fsw(n) = ANIM_JS_num&(fr, "w", fwd(n)): fsh(n) = ANIM_JS_num&(fr, "h", fht(n))
+            durs(n) = ANIM_JS_num&(v, "duration", -1)
+            IF durs(n) < 0 THEN haveDur = FALSE
+            ' inside the image (a rotated frame lies on its side), inside its source
+            IF fwd(n) < 1 _ORELSE fht(n) < 1 _ORELSE fx(n) < 0 _ORELSE fy(n) < 0 THEN EXIT FUNCTION
+            IF frot(n) THEN
+                IF fx(n) + fht(n) > w _ORELSE fy(n) + fwd(n) > h THEN EXIT FUNCTION
+            ELSE
+                IF fx(n) + fwd(n) > w _ORELSE fy(n) + fht(n) > h THEN EXIT FUNCTION
+            END IF
+            IF fox(n) < 0 _ORELSE foy(n) < 0 THEN fox(n) = 0: foy(n) = 0
+            IF fsw(n) < fox(n) + fwd(n) THEN fsw(n) = fox(n) + fwd(n)
+            IF fsh(n) < foy(n) + fht(n) THEN fsh(n) = foy(n) + fht(n)
+        END IF
+    LOOP
+    IF n < 2 THEN EXIT FUNCTION
+
+    ' a regular grid: every frame its whole source, one size, where the layout puts it
+    regular = TRUE
+    FOR i = 1 TO n
+        IF frot(i) _ORELSE fox(i) <> 0 _ORELSE foy(i) <> 0 _ORELSE fwd(i) <> fsw(i) _ORELSE fht(i) <> fsh(i) _ORELSE fwd(i) <> fwd(1) _ORELSE fht(i) <> fht(1) THEN regular = FALSE: EXIT FOR
+    NEXT i
+    IF regular THEN
+        mg = fx(1): g = -1
+        IF fy(1) <> mg THEN regular = FALSE
+        FOR i = 2 TO n
+            IF fy(i) = fy(1) THEN
+                IF g < 0 THEN g = fx(i) - fx(1) - fwd(1)
+            ELSE
+                IF g < 0 THEN g = fy(i) - fy(1) - fht(1)
+                EXIT FOR
+            END IF
+        NEXT i
+        IF g < 0 _ORELSE g > 32767 _ORELSE mg > 32767 _ORELSE fwd(1) > 32767 _ORELSE fht(1) > 32767 THEN regular = FALSE
+    END IF
+    IF regular THEN
+        r = ANIM_set_layout%(CINT(fwd(1)), CINT(fht(1)), CINT(g), CINT(mg))
+        IF r = FALSE _ORELSE n > ANIM_cells% THEN regular = FALSE
+        IF regular THEN
+            ANIM.count = n: ANIM.wanted = n
+            FOR i = 1 TO n
+                IF ANIM_cell_rect%(CINT(i), cx, cy, cw, ch) = FALSE _ORELSE cx <> fx(i) _ORELSE cy <> fy(i) THEN regular = FALSE: EXIT FOR
+            NEXT i
+        END IF
+        IF regular = FALSE THEN ANIM_reset
+    END IF
+    IF regular = FALSE THEN
+        ' lay the frames out again: cells of the largest source size
+        cw = 0: ch = 0
+        FOR i = 1 TO n
+            cw = _MAX(cw, fsw(i)): ch = _MAX(ch, fsh(i))
+        NEXT i
+        IF cw > 32767 _ORELSE ch > 32767 THEN EXIT FUNCTION
+        IF ANIM_IMP_grid%(n, cw, ch, cols, rows, js) = FALSE THEN EXIT FUNCTION
+        copy = _COPYIMAGE(LAYERS(lay).imgHandle&, 32)
+        IF copy >= -1 THEN EXIT FUNCTION
+        ANIM_OPS_resize_keep_view cols * cw, rows * ch
+        r = ANIM_set_layout%(CINT(cw), CINT(ch), 0, 0)
+        ANIM.count = n: ANIM.wanted = n
+        oldDest = _DEST: oldSrc = _SOURCE
+        _DEST LAYERS(lay).imgHandle&
+        _DONTBLEND LAYERS(lay).imgHandle&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _SOURCE copy
+        FOR i = 1 TO n
+            IF ANIM_cell_rect%(CINT(i), cx, cy, xx, yy) THEN
+                IF frot(i) THEN ' stored turned a quarter clockwise: sprite (x, y) is at (h - 1 - y, x)
+                    FOR yy = 0 TO fht(i) - 1
+                        FOR xx = 0 TO fwd(i) - 1
+                            PSET (cx + fox(i) + xx, cy + foy(i) + yy), POINT(fx(i) + fht(i) - 1 - yy, fy(i) + xx)
+                        NEXT xx
+                    NEXT yy
+                ELSE
+                    _PUTIMAGE (cx + fox(i), cy + foy(i)), copy, LAYERS(lay).imgHandle&, (fx(i), fy(i))-(fx(i) + fwd(i) - 1, fy(i) + fht(i) - 1)
+                END IF
+            END IF
+        NEXT i
+        _BLEND LAYERS(lay).imgHandle&
+        _SOURCE oldSrc: _DEST oldDest
+        SAFE_FREEIMAGE copy
+        repacked = TRUE
+    END IF
+    ANIM.current = 1
+
+    ' timing, tags, loop
+    IF haveDur THEN
+        fps = ANIM_IMP_fps%(durs(), CINT(n), 1000)
+        ANIM_set_fps fps
+        FOR i = 1 TO n
+            hh = (durs(i) * fps + 500) \ 1000
+            ANIM_set_hold CINT(i), hh
+        NEXT i
+    ELSEIF ANIM_JS_num&(meta, "fps", 0) > 0 THEN
+        ANIM_set_fps CINT(_MIN(ANIM_JS_num&(meta, "fps", 0), 32767))
+    END IF
+    ANIM.loopMode = ANIM_LOOP_FWD
+    tags = ANIM_JS_get$(meta, "frameTags")
+    IF LEFT$(tags, 1) = "[" THEN
+        p = 2
+        DO WHILE ANIM_JS_next%(tags, p, k, v)
+            ta = ANIM_JS_num&(v, "from", -1) + 1: tb = ANIM_JS_num&(v, "to", -1) + 1
+            IF ta >= 1 _ANDALSO tb <= n _ANDALSO ta <= tb THEN
+                IF ANIM_TG_put%(ANIM_JS_str$(ANIM_JS_get$(v, "name")), CINT(ta), CINT(tb)) THEN nTags = nTags + 1
+                IF ta = 1 _ANDALSO tb = n THEN
+                    dirName = LCASE$(ANIM_JS_str$(ANIM_JS_get$(v, "direction")))
+                    IF dirName = "reverse" THEN ANIM.loopMode = ANIM_LOOP_REV
+                    IF LEFT$(dirName, 8) = "pingpong" THEN ANIM.loopMode = ANIM_LOOP_PING
+                    IF ANIM_JS_str$(ANIM_JS_get$(v, "repeat")) = "1" THEN ANIM.loopMode = ANIM_LOOP_ONCE
+                END IF
+            END IF
+        LOOP
+    END IF
+    ' DRAW's own export: "all" stands for no tags, and meta.loop says how it plays
+    IF nTags = 1 _ANDALSO ANIM_TG_N = 1 _ANDALSO ANIM_TG_NAME(1) = "all" _ANDALSO ANIM_TG_A(1) = 1 _ANDALSO ANIM_TG_B(1) = n _ANDALSO ANIM_JS_str$(ANIM_JS_get$(meta, "app")) = "DRAW" THEN
+        ANIM_TG_remove 1: nTags = 0
+    END IF
+    loopName = LCASE$(ANIM_JS_str$(ANIM_JS_get$(meta, "loop")))
+    SELECT CASE loopName
+        CASE "once": ANIM.loopMode = ANIM_LOOP_ONCE
+        CASE "forward": ANIM.loopMode = ANIM_LOOP_FWD
+        CASE "reverse": ANIM.loopMode = ANIM_LOOP_REV
+        CASE "pingpong": ANIM.loopMode = ANIM_LOOP_PING
+    END SELECT
+
+    LAYERS(lay).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    COMPOSITE_RESULT_VALID% = FALSE
+    ANIM_IMP_INFO = _TRIM$(STR$(n)) + " frames at" + STR$(ANIM.fps) + " fps"
+    IF nTags > 0 THEN ANIM_IMP_INFO = ANIM_IMP_INFO + "," + STR$(nTags) + _IIF(nTags = 1, " tag", " tags")
+    IF repacked THEN ANIM_IMP_INFO = ANIM_IMP_INFO + ", laid out on a grid"
+    ANIM_IMP_INFO = ANIM_IMP_INFO + " (from " + MID$(js, _MAX(_INSTRREV(js, "/"), _INSTRREV(js, "\")) + 1) + ")"
+    _LOGINFO "ANIM_SHEET_import: " + filename + ": " + ANIM_IMP_INFO
+    STATUS_flash MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1) + ": " + ANIM_IMP_INFO
+    ANIM_SHEET_import% = TRUE
+END FUNCTION

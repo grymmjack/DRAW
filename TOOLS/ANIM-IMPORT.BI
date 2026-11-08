@@ -20,6 +20,11 @@
 '       tag over every frame sets the loop: reverse / ping-pong), linked
 '       cels become linked cells (ANIM_LK_*, per layer). A cel's own opacity
 '       and z-index are not applied (DRAW has neither per cell).
+'   5.3 Sprite sheets: a PNG opened with name.json beside it (Aseprite /
+'       TexturePacker / DRAW sheet export) gets its frames, sliced in place
+'       when they form a regular grid, else laid out again (ANIM_SHEET_import%);
+'       ANIM > Detect Frames finds a plain sheet's grid from its gaps
+'       (ANIM_DT_action, the solver ANIM_DT_solve% in ANIM.BM).
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '

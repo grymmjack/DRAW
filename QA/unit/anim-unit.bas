@@ -400,6 +400,21 @@ ANIM.current = 2: r = ANIM_plan%(ANIM_OP_DELETE, pc, pcur): ANIM_apply_plan pc, 
 check "a frame deleted: its note goes", notes$, "5=foot down"
 ANIM_reset: check "a new document: no notes", STR$(LEN(ANIM_NOTE(5))), STR$(0)
 
+' --- Detect Frames (5.3) ---
+check "4 sprites in 64 px: 16 wide, no gutter", dt$(sheet$(4, 16, 0, 0, 3, 10), sheet$(1, 16, 0, 0, 2, 12)), "16x16 g0 m0"
+check "gutter 1: 67 px = 4 x 16 + 3", dt$(sheet$(4, 16, 1, 0, 3, 10), sheet$(2, 16, 1, 0, 2, 12)), "16x16 g1 m0"
+check "margin 2 + gutter 2 (cells drawn edge to edge)", dt$(sheet$(3, 10, 2, 2, 0, 9), sheet$(2, 12, 2, 2, 0, 11)), "10x12 g2 m2"
+check "sprites clear of their edges: the plainest grid that holds them", dt$(sheet$(3, 10, 2, 2, 1, 8), sheet$(2, 12, 2, 2, 1, 10)), "12x14 g0 m1"
+check "one row: the height is the sheet's", dt$(sheet$(5, 8, 0, 0, 1, 6), "..####.."), "8x8 g0 m0"
+check "one column, gutter 1", dt$("..####..", sheet$(3, 8, 1, 0, 1, 6)), "8x8 g1 m0"
+check "a sprite with a gap is not split (its extent is filled)", dt$(sheet$(2, 16, 0, 0, 2, 14), "#"), "16x1 g0 m0"
+check "same-size sprites centred in plain cells: not a gutter", dt$(sheet$(4, 16, 0, 0, 4, 11), "#"), "16x1 g0 m0"
+check "full cells, gutter 1, margin 1 (all round), one row", dt$(sheet$(3, 12, 1, 1, 0, 11), ".######."), "12x6 g1 m1"
+check "a detached foot does not make narrower cells (runs stay whole)", dt$("..#########.#..." + "..#########.#...", "#"), "16x1 g0 m0"
+check "touching sprites: no grid", dt$(STRING$(64, "#"), STRING$(16, "#")), "none"
+check "one sprite: no grid", dt$("...####...", "..##.."), "none"
+check "nothing drawn: no grid", dt$(STRING$(32, "."), STRING$(16, ".")), "none"
+
 PRINT PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
 
@@ -408,6 +423,26 @@ FUNCTION order$ ()
     n = ANIM_play_order%
     FOR k = 1 TO n: o = o + _TRIM$(STR$(ANIM_ORDER(k))) + " ": NEXT k
     order$ = RTRIM$(o)
+END FUNCTION
+
+''
+' A mask of n cells of size c (gutter g, margin m), "#" over a..b of each cell.
+FUNCTION sheet$ (n AS INTEGER, c AS INTEGER, g AS INTEGER, m AS INTEGER, a AS INTEGER, b AS INTEGER)
+    DIM t AS STRING, k AS INTEGER, i AS INTEGER
+    t = STRING$(m, ".")
+    FOR k = 1 TO n
+        FOR i = 0 TO c - 1
+            IF i >= a _ANDALSO i <= b THEN t = t + "#" ELSE t = t + "."
+        NEXT i
+        IF k < n THEN t = t + STRING$(g, ".")
+    NEXT k
+    sheet$ = t + STRING$(m, ".")
+END FUNCTION
+
+FUNCTION dt$ (mx AS STRING, my AS STRING)
+    DIM fw AS INTEGER, fh AS INTEGER, g AS INTEGER, m AS INTEGER
+    IF ANIM_DT_solve%(mx, my, fw, fh, g, m) = 0 THEN dt$ = "none": EXIT FUNCTION
+    dt$ = _TRIM$(STR$(fw)) + "x" + _TRIM$(STR$(fh)) + " g" + _TRIM$(STR$(g)) + " m" + _TRIM$(STR$(m))
 END FUNCTION
 
 SUB check (label AS STRING, got AS STRING, want AS STRING)

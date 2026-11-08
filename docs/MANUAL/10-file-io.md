@@ -12,7 +12,7 @@
 
 | Format | Shortcut / menu |
 | --- | --- |
-| Image (PNG / BMP / JPG / GIF) | `Ctrl+O` |
+| Image (PNG / BMP / JPG / GIF) | `Ctrl+O` (a sprite sheet PNG with its `.json` frame data beside it - Aseprite, TexturePacker, DRAW - opens with its frames; otherwise ANIM → Detect Frames slices it at its gaps) |
 | Project (`.draw`) | `Alt+O` |
 | Aseprite (`.ase` / `.aseprite`) | File → Open Aseprite (two or more frames open as animation frames on a sheet, with their durations, tags and linked cels) |
 | Photoshop (`.psd`) | File → Open Photoshop |
