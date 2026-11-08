@@ -14,7 +14,7 @@ FUNCTION ANIM_has_frames% ()
 END FUNCTION
 
 ''
-' ANIM > Export Animated GIF... / Export Scale / PNG Sequence... / Sprite Sheet... (2532-2535).
+' ANIM > Export Animated GIF... / Export Scale / PNG Sequence... / Sprite Sheet... / APNG... (2532-2536).
 SUB ANIM_EXPORT_action (act AS INTEGER)
     DIM f AS STRING, ok AS INTEGER
     SELECT CASE act
@@ -30,6 +30,12 @@ SUB ANIM_EXPORT_action (act AS INTEGER)
             IF f = "" THEN EXIT SUB
             ok = ANIM_PNGSEQ_export%(f)
             CYCX_report ok, "PNG sequence (" + ANIM_EXPORT_INFO + ")", f
+        CASE ANIM_ACT_EXPORT_APNG
+            IF ANIM.active = FALSE THEN STATUS_flash "An animated PNG exports frames - set a frame size first": EXIT SUB
+            f = CYCX_save_dialog$("Export Animated PNG (APNG)", "APNG (*.png;*.apng)|*.png;*.apng", ".png")
+            IF f = "" THEN EXIT SUB
+            ok = ANIM_APNG_export%(f)
+            CYCX_report ok, "animated PNG (" + ANIM_EXPORT_INFO + ")", f
         CASE ANIM_ACT_EXPORT_SHEET
             IF ANIM.active = FALSE THEN STATUS_flash "A sprite sheet exports frames - set a frame size first": EXIT SUB
             f = CYCX_save_dialog$("Export Sprite Sheet (name.png + name.json + name.bi)", "PNG (*.png)|*.png", ".png")
@@ -495,4 +501,95 @@ FUNCTION ANIM_SHEET_export% (path AS STRING)
     IF sc > 1 THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + ", " + _TRIM$(STR$(sc)) + "x"
     _LOGINFO "ANIM_SHEET_export: " + baseP + " - " + ANIM_EXPORT_INFO
     ANIM_SHEET_export% = TRUE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' 3.3 APNG
+' ---------------------------------------------------------------------------
+
+''
+' 2-byte big-endian.
+FUNCTION ANIM_be16$ (v AS LONG)
+    ANIM_be16$ = CHR$(_SHR(v, 8) AND 255) + CHR$(v AND 255)
+END FUNCTION
+
+''
+' The zlib stream of a 32-bit image as PNG RGBA rows (filter 0 each row).
+FUNCTION ANIM_png_zdata$ (img AS LONG)
+    DIM m AS _MEM, w AS LONG, h AS LONG, j AS LONG, i AS LONG, raw AS STRING, row AS STRING, p AS LONG, b AS INTEGER
+    w = _WIDTH(img): h = _HEIGHT(img)
+    m = _MEMIMAGE(img)
+    raw = SPACE$((w * 4 + 1) * h): row = SPACE$(w * 4): p = 1
+    FOR j = 0 TO h - 1
+        _MEMGET m, m.OFFSET + j * w * 4, row
+        FOR i = 0 TO w - 1 ' BGRA in memory -> RGBA
+            b = ASC(row, i * 4 + 1): ASC(row, i * 4 + 1) = ASC(row, i * 4 + 3): ASC(row, i * 4 + 3) = b
+        NEXT i
+        ASC(raw, p) = 0: MID$(raw, p + 1, w * 4) = row: p = p + w * 4 + 1
+    NEXT j
+    _MEMFREE m
+    ANIM_png_zdata$ = _DEFLATE$(raw, 9)
+END FUNCTION
+
+''
+' Write the frames as an animated PNG at path: one APNG frame per frame shown,
+' in loop order (ping-pong written out), each up for hold / fps s exactly
+' (delay_num / delay_den); loops forever, or plays once. RGBA, so every colour
+' and every alpha level keeps. Scaled by ANIM_EXPORT_SCALE. Colour cycling is
+' not included (the GIF export runs it). TRUE on success, else CYCX_LAST_ERROR$.
+FUNCTION ANIM_APNG_export% (path AS STRING)
+    DIM flat AS LONG, img AS LONG, sc AS INTEGER, n AS INTEGER, k AS INTEGER, f AS INTEGER, sq AS LONG
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, ow AS LONG, oh AS LONG, g AS STRING, ff AS INTEGER
+    DIM z(1 TO ANIM_MAX_FRAMES) AS STRING, fc AS STRING, totalT AS LONG
+    ANIM_APNG_export% = FALSE
+    CYCX_LAST_ERROR$ = "": ANIM_EXPORT_INFO = ""
+    IF ANIM_has_frames% = FALSE THEN CYCX_LAST_ERROR$ = "the document has no frames": EXIT FUNCTION
+    IF ANIM_is_document%(path) THEN CYCX_LAST_ERROR$ = MID$(path, _MAX(_INSTRREV(path, "/"), _INSTRREV(path, "\")) + 1) + " is the open document - pick another name": EXIT FUNCTION
+    sc = ANIM_export_scale%
+    ow = ANIM.frameW * sc: oh = ANIM.frameH * sc
+    n = ANIM_play_order%
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document": EXIT FUNCTION
+    FOR k = 1 TO n
+        f = ANIM_ORDER(k)
+        IF z(f) = "" _ANDALSO ANIM_cell_rect%(f, x, y, w, h) THEN
+            img = ANIM_block_image&(flat, x, y, w, h, sc)
+            z(f) = ANIM_png_zdata$(img)
+            SAFE_FREEIMAGE img
+        END IF
+    NEXT k
+    SAFE_FREEIMAGE flat
+
+    g = CHR$(137) + "PNG" + CHR$(13) + CHR$(10) + CHR$(26) + CHR$(10)
+    g = g + PNG_make_chunk$("IHDR", PNG_uint32_be$(ow) + PNG_uint32_be$(oh) + CHR$(8) + CHR$(6) + CHR$(0) + CHR$(0) + CHR$(0))
+    g = g + PNG_make_chunk$("acTL", PNG_uint32_be$(n) + PNG_uint32_be$(_IIF(ANIM.loopMode = ANIM_LOOP_ONCE, 1, 0)))
+    FOR k = 1 TO n
+        f = ANIM_ORDER(k)
+        ' frame control: the whole frame, delay hold / fps, keep (dispose none) + replace (blend source)
+        fc = PNG_uint32_be$(sq) + PNG_uint32_be$(ow) + PNG_uint32_be$(oh) + PNG_uint32_be$(0) + PNG_uint32_be$(0) _
+           + ANIM_be16$(ANIM_hold%(f)) + ANIM_be16$(ANIM.fps) + CHR$(0) + CHR$(0)
+        g = g + PNG_make_chunk$("fcTL", fc): sq = sq + 1
+        IF k = 1 THEN
+            g = g + PNG_make_chunk$("IDAT", z(f))
+        ELSE
+            g = g + PNG_make_chunk$("fdAT", PNG_uint32_be$(sq) + z(f)): sq = sq + 1
+        END IF
+        totalT = totalT + ANIM_hold%(f)
+    NEXT k
+    g = g + PNG_make_chunk$("IEND", "")
+
+    IF _FILEEXISTS(path) THEN KILL path
+    ff = FREEFILE
+    OPEN path FOR BINARY AS #ff
+    PUT #ff, , g
+    CLOSE #ff
+    IF _FILEEXISTS(path) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + path: EXIT FUNCTION
+    ANIM_EXPORT_INFO = _TRIM$(STR$(n)) + " frames, " + _TRIM$(STR$(INT(100# * totalT / ANIM.fps + 0.5) / 100)) + " s" + _IIF(ANIM.loopMode = ANIM_LOOP_ONCE, " once", " loop")
+    IF sc > 1 THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + ", " + _TRIM$(STR$(sc)) + "x"
+    DIM spt(1 TO PCYC_MAX) AS DOUBLE, anyCyc AS INTEGER, cycT AS LONG
+    PCYC_validate
+    cycT = GIF_cycle_ticks&(spt(), anyCyc, ANIM_GIF_MAX_TICKS)
+    IF anyCyc THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (colour cycling not included: the GIF export runs it)"
+    _LOGINFO "ANIM_APNG_export: " + path + " - " + ANIM_EXPORT_INFO
+    ANIM_APNG_export% = TRUE
 END FUNCTION

@@ -19,6 +19,10 @@
 ' frameTags entry with the direction) and name.bi (QB64 CONSTs + DATA x, y, w,
 ' h, ms per frame). Both scaled by ANIM_EXPORT_SCALE.
 '
+' 3.3 APNG (ANIM_APNG_export%): one APNG frame per frame shown in loop order,
+' each up for hold / fps s exactly (fcTL delay_num / delay_den), RGBA (every
+' alpha level keeps), plays once or loops, scaled. No colour cycling (GIF).
+'
 ' Uses the GIF writer in OUTPUT/FILE-GIF (LZW, sub-blocks, GCE, the cycle
 ' timeline GIF_cycle_ticks& / GIF_display_map).
 '
@@ -30,6 +34,7 @@ CONST ANIM_ACT_EXPORT_GIF   = 2532 ' ANIM > Export Animated GIF...
 CONST ANIM_ACT_EXPORT_SCALE = 2533 ' ANIM > Export Scale 1x / 2x / 4x
 CONST ANIM_ACT_EXPORT_PNGS  = 2534 ' ANIM > Export PNG Sequence...
 CONST ANIM_ACT_EXPORT_SHEET = 2535 ' ANIM > Export Sprite Sheet + Frame Data...
+CONST ANIM_ACT_EXPORT_APNG  = 2536 ' ANIM > Export Animated PNG (APNG)...
 CONST ANIM_PNGSEQ_MAX = 20000      ' files one PNG sequence may write
 
 CONST ANIM_GIF_MAX_TICKS  = 6000 ' with colour cycling the GIF loop is at most 120 s (2-cs ticks)

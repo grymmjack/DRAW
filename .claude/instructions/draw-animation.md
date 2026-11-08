@@ -56,6 +56,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2533 | Export Scale 1x / 2x / 4x (cycles `CFG.ANIM_EXPORT_SCALE`) |
 | 2534 | Export PNG Sequence... (`ANIM_PNGSEQ_export%`) |
 | 2535 | Export Sprite Sheet + Frame Data... (`ANIM_SHEET_export%`: .png + .json + .bi) |
+| 2536 | Export Animated PNG (APNG)... (`ANIM_APNG_export%`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
 Grep before adding one (CLAUDE.md gotcha 17).
@@ -359,6 +360,19 @@ In the batch CLI the .png / .json cases run before `BATCH_export%`'s `KILL path`
 QA: `file-anim-sheet.sh` (batch CLI: files per tick, exact pixels per cell, stale files,
 2x, JSON via python, the .bi compiled and run with qb64pe, gutter / margin rects, the
 document guard).
+**APNG** (3.3, `ANIM_APNG_export% path`; ANIM > Export Animated PNG (APNG)..., batch
+`--export-anim out.apng`): written by hand - IHDR (RGBA 8-bit), acTL (frames, num_plays 0 or
+1 for play once), then per frame in `ANIM_play_order%` a full-frame fcTL (delay_num = hold,
+delay_den = fps: exact; dispose none, blend source) + IDAT for frame 1 (the default image a
+plain PNG reader shows) / fdAT after; one sequence number across fcTL + fdAT. Pixel rows:
+`ANIM_png_zdata$` (BGRA memory -> RGBA, filter 0, `_DEFLATE$` = a zlib stream), once per
+frame; chunks via `PNG_make_chunk$` (DRW.BM). No colour cycling (flagged in
+`ANIM_EXPORT_INFO`; the GIF runs it). Refuses the open document's own path (the dialog
+suggests name.png). QA: `file-anim-apng.sh` (a python stdlib reader: CRCs, zlib + adler,
+sequence, delays, RGBA per cell; ffprobe frame count; ImageMagick default image).
+**Known (pre-existing):** `LAYERS_flatten&` composites with `_BLEND` onto a transparent
+image, which darkens the colour of a partly transparent pixel (rgb x alpha); every export
+inherits it. The APNG keeps the alpha level itself.
 
 ## A selection stays put in its cell (2.9, Q-18)
 
