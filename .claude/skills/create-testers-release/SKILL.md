@@ -98,7 +98,11 @@ git ls-remote origin "refs/tags/$TAG"                 # must point at the built 
 gh release list --limit 3                             # the Latest row is still the v2.x release
 ```
 
-Then smoke-test the Linux package (headless is fine - console flags need no window):
+Then smoke-test the Linux package (headless is fine - console flags need no window).
+This also catches a glibc mismatch: a binary built on a newer Ubuntu than the tester's
+fails at start with `GLIBC_2.xx not found` (2026-11-08: `ubuntu-latest` became Ubuntu 26,
+glibc 2.43; the Linux job is pinned to `ubuntu-24.04` for that reason). Check with
+`objdump -T "$D/DRAW" | grep -oE 'GLIBC_[0-9.]+' | sort -V | tail -1` against `ldd --version`.
 
 ```bash
 D=<scratchpad>/testers-$SHA; mkdir -p "$D"
