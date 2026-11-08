@@ -137,7 +137,7 @@ if [[ "$FO_UNIQ" == 7 ]]; then
     fo_cmd "animation panel"
     fo_settle
     read -r _ P_VIS _ P_X P_Y _ _ P_SC _ <<< "$(fo_line ANIMP)"
-    read -r _ _ _ _ _ _ _ _ _ L_RH _ _ _ L_PAD L_PW L_OPS <<< "$(fo_line ANIMPL)"
+    read -r _ _ _ _ _ _ _ _ _ L_RH _ _ _ L_PAD L_PW L_OPS _ <<< "$(fo_line ANIMPL)"
     if [[ "$P_VIS" == -1 && -n "${L_OPS:-}" ]]; then
         fo_chip() { # K (0 ADD, 1 DUP, 2 INS, 3 DEL)
             local cw=$(( (L_PW - 2 * L_PAD - 6) / 4 ))

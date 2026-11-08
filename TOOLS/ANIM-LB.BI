@@ -30,6 +30,16 @@ CONST ANIM_ACT_LIGHTBOX = 2519 ' ANIM > Lightbox (Num 0)
 CONST ANIM_ACT_LB_PANES = 2520 ' ANIM > Lightbox Panes 3 / 5 / 7 (Num *)
 CONST ANIM_ACT_CLIP_LB  = 2521 ' ANIM > Clip Strokes to the Frame in the Lightbox (R-06; on by default)
 CONST ANIM_ACT_CLIP_SHEET = 2522 ' ANIM > Clip Strokes to the Frame in Sheet View (off by default)
+' Onion skin (2.6, R-09: the lightbox only): the current pane shows up to
+' ANIM_ONION_MAX frames before / after it over its picture, the nearest at
+' CFG.ONION_OPACITY%, farther ones fading; tinted red (before) / blue (after).
+' Only the pixels that differ from the current frame and from the frame's own
+' background (its corners' colour) show, so a solid background stays clear.
+' Settings in DRAW.cfg (ONION_*), set from the ANIM menu and the Animation
+' panel; not undo steps. Hidden while playing.
+CONST ANIM_ACT_ONION      = 2527 ' ANIM > Onion Skin (Num /)
+CONST ANIM_ACT_ONION_TINT = 2528 ' ANIM > Onion Skin Red / Blue Tint
+CONST ANIM_ONION_MAX      = 5
 
 ' Transport bar controls, left to right (ANIM_LB_CX / ANIM_LB_CW: x and width, 0 = hidden)
 CONST LB_CTL_NONE  = 0
@@ -124,6 +134,10 @@ TYPE ANIM_LB_OBJ
     editFresh  AS INTEGER ' the first key replaces the text
     confirmTo  AS INTEGER ' > 0: asking whether to drop drawn frames for this total (Enter = yes)
     confirmCur AS INTEGER ' the current frame asked for with it
+    ' onion skin (2.6): drawn over the current pane
+    onionImg   AS LONG    ' scratch, one frame cell (ANIM_LB_onion)
+    onionPrev  AS LONG    ' pixels it showed from the frames before / after (QA dump)
+    onionNext  AS LONG
 END TYPE
 DIM SHARED ANIM_LB AS ANIM_LB_OBJ
 DIM SHARED ANIM_LB_EDIT AS STRING ' the count box's text while typing (2.4)

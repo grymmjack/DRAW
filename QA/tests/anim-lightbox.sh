@@ -16,7 +16,7 @@
 # 2 <, 3 PLAY, 4 >, 5 >|, 6 loop, ... 14 +); ANIM / ANIMC as in the other
 # animation tests.
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0
 # =============================================================================
 info "=== Animation: lightbox ==="
 

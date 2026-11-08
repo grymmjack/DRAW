@@ -47,6 +47,8 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2521 | Clip strokes to the frame in the lightbox (`CFG.CLIP_FRAME_LIGHTBOX`, on by default) |
 | 2522 | Clip strokes to the frame in sheet view (`CFG.CLIP_FRAME_SHEET`, off by default) |
 | 2523-2526 | Copy / Cut / Paste Frames as New / Paste Frames Over (`ANIM_OPS_clip_action`, 2.5) |
+| 2527 | Onion skin on / off (`CFG.ONION_SKIN`, Num /; lightbox only) |
+| 2528 | Onion skin red / blue tint (`CFG.ONION_TINT`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
 Grep before adding one (CLAUDE.md gotcha 17).
@@ -238,6 +240,24 @@ press's (`ANIM_OPS_LAST_KEY / _REC`, no redo tail), the new "after" replaces the
   (`ANIM_OPS_STEP_NAME` overrides the op's label). **[Linux] QB64-PE's `_CLIPBOARDIMAGE` misreads
   a palette PNG with tRNS** (color type 3): pixels arrive shifted, as if RGBA were read as RGB;
   RGBA / RGB PNGs read fine - QA builds its "other window" picture as `PNG32:`.
+
+## Onion skin (`TOOLS/ANIM-LB`, 2.6)
+
+R-09: the lightbox only, on the **current pane** only (drawing in another pane doesn't make it
+current). `ANIM_LB_onion` runs in the pane loop of `ANIM_LB_render` right after the picture:
+for `CFG.ONION_BEFORE` / `ONION_AFTER` (0-5, `ANIM_ONION_MAX`) frames, farthest first so the
+nearest lands on top, it builds the cell into `ANIM_LB.onionImg` from the composite with `_MEM`
+and `_PUTIMAGE`s it scaled over the picture. Alpha = pixel alpha x `ONION_OPACITY`% x
+(n - d + 1) / n. A pixel shows only where it **differs from the current frame** and **is not
+that frame's background** (`ANIM_LB_cell_bg%`: the colour 3 or 4 corners share) - so a solid
+background layer doesn't tint the whole pane, and a static scene stays clear. Tint: 3/4 red
+(255,48,48) before, 3/4 blue (48,112,255) after. No wrap at the ends; nothing while playing.
+Settings are DRAW.cfg (`ONION_*`), not undo steps: ANIM menu (2527 / 2528), Num / (numpad slot
+15), and the Animation panel's ONION / TINT chips + BEFORE / AFTER / OPACITY steppers
+(`ANIMP_CTL_ON0`.. ids 28-35, `ANIMP_onY`; a held stepper saves the cfg on its release). Cost is
+per real render (not cursor-only frames): fine for pixel-art cells; a 512x512 frame with 5 + 5
+neighbours would be the case to cache. QA dump `ANIMLBO on before after opacity tint prevPx
+nextPx`; `ANIMPL` gained `yOnion onY1..3` at the end (read it with a trailing `_`).
 
 ## The frame selection (`TOOLS/ANIM`, 2.3)
 

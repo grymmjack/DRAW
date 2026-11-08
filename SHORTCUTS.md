@@ -545,6 +545,7 @@ picture only `Num +` is). The `Alt` keys are for keyboards without a numpad.
 | `Shift+Num +` | Add a blank frame |
 | `Num 0` | Lightbox on / off (below) |
 | `Num *` | Lightbox panes: 3 → 5 → 7 |
+| `Num /` | Onion skin on / off (in the lightbox) |
 | `Ctrl+Z` / `Ctrl+Y` | Every frame operation, frame size / gutter / margin and FPS / hold change is one undo step |
 
 Main-row digits keep setting opacity; `Alt+Home` / `Alt+End` no longer flip.
@@ -553,7 +554,7 @@ Main-row digits keep setting opacity; `Alt+Home` / `Alt+End` no longer flip.
 Add Blank Frame · Insert Frame Before / After · Duplicate Frame · Delete Frame · Move Frame
 Earlier / Later · Reverse Frames · Copy Frames · Cut Frames · Paste Frames as New · Paste
 Frames Over · Frame Grid · Preview Shows Frame · Lightbox · Lightbox
-Panes 3 / 5 / 7 · Clip Strokes to the Frame in the Lightbox · Clip Strokes to the Frame in
+Panes 3 / 5 / 7 · Onion Skin · Onion Skin Red / Blue Tint · Clip Strokes to the Frame in the Lightbox · Clip Strokes to the Frame in
 Sheet View. (Also View → Frame Grid
 and View → Animation Panel; every item is in the command palette.)
 
@@ -607,6 +608,12 @@ With two or more frames selected, Play (`Num Enter`) plays just those (first to 
 CUT copies then deletes them. Each is one undo step, the pasted frames end up selected, and
 another DRAW window can paste them too. Elsewhere in the lightbox a click only works the
 transport bar.
+
+**Onion skin** (`Num /`, ANIM → Onion Skin, on by default): the current pane shows the frames
+before it (red) and after it (blue) faintly over its picture, so you can draw the in-between.
+Only what differs from the current frame shows - a solid background stays clear. Set how many
+frames each side (BEFORE / AFTER, 0-5) and how strong (OPACITY) in the Animation panel; ANIM →
+Onion Skin Red / Blue Tint shows them in their own colours instead. Hidden while playing.
 
 ---
 

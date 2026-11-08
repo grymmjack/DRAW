@@ -407,6 +407,7 @@ SUB ANIM_LB_render (dest AS LONG, src AS LONG)
         IF en THEN
             ANIM_LB_draw_frame dest, src, f, x, y, w, h, dx, dy, dw, dh
             IF f = ANIM.current THEN
+                ANIM_LB_onion dest, src, f, dx, dy, dw, dh ' 2.6: the frames before / after it
                 LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_current~&, B
                 LINE (dx - 2, dy - 2)-(dx + dw + 1, dy + dh + 1), THEME.ANIM_FRAME_current~&, B
                 fg = THEME.CP_text_bright~&
@@ -843,6 +844,10 @@ FUNCTION ANIM_LB_dump$ ()
     FOR k = 1 TO ANIM.count
         IF ANIM_SEL(k) _ANDALSO n < 64 THEN d = d + DOCK_n$(k): n = n + 1
     NEXT k
+    d = d + CHR$(10)
+    ' ANIMLBO on before after opacity tint prevPx nextPx (pixels the current pane's onion skin showed)
+    d = d + "ANIMLBO" + DOCK_n$(CFG.ONION_SKIN% <> 0) + DOCK_n$(CFG.ONION_BEFORE%) + DOCK_n$(CFG.ONION_AFTER%) + DOCK_n$(CFG.ONION_OPACITY%) + DOCK_n$(CFG.ONION_TINT% <> 0)
+    d = d + DOCK_n$(_IIF(ANIM_LB_showing%, ANIM_LB.onionPrev, 0)) + DOCK_n$(_IIF(ANIM_LB_showing%, ANIM_LB.onionNext, 0))
     ANIM_LB_dump$ = d + CHR$(10)
 END FUNCTION
 
@@ -1085,4 +1090,106 @@ SUB ANIM_LB_clip_toggle (act AS INTEGER)
     END IF
     CONFIG_save
     GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' Onion skin (2.6)
+' ---------------------------------------------------------------------------
+
+''
+' ANIM > Onion Skin (2527, Num /) and Onion Skin Red / Blue Tint (2528).
+SUB ANIM_LB_onion_toggle (act AS INTEGER)
+    IF act = ANIM_ACT_ONION_TINT THEN
+        CFG.ONION_TINT% = (CFG.ONION_TINT% = 0)
+        STATUS_flash _IIF(CFG.ONION_TINT%, "Onion skin: frames before red, after blue", "Onion skin: frames in their own colors")
+    ELSE
+        CFG.ONION_SKIN% = (CFG.ONION_SKIN% = 0)
+        IF CFG.ONION_SKIN% THEN
+            STATUS_flash "Onion skin on:" + STR$(CFG.ONION_BEFORE%) + " before," + STR$(CFG.ONION_AFTER%) + " after" + _IIF(ANIM_LB_showing%, "", " (shows in the lightbox, Num 0)")
+        ELSE
+            STATUS_flash "Onion skin off"
+        END IF
+    END IF
+    CONFIG_save
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' The colour most of a cell's corners share (3 or 4 of them) - its background.
+FUNCTION ANIM_LB_cell_bg% (m AS _MEM, sw AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG, bg AS _UNSIGNED LONG)
+    DIM c(3) AS _UNSIGNED LONG, i AS INTEGER, j AS INTEGER, n AS INTEGER
+    c(0) = _MEMGET(m, m.OFFSET + (y * sw + x) * 4, _UNSIGNED LONG)
+    c(1) = _MEMGET(m, m.OFFSET + (y * sw + x + w - 1) * 4, _UNSIGNED LONG)
+    c(2) = _MEMGET(m, m.OFFSET + ((y + h - 1) * sw + x) * 4, _UNSIGNED LONG)
+    c(3) = _MEMGET(m, m.OFFSET + ((y + h - 1) * sw + x + w - 1) * 4, _UNSIGNED LONG)
+    FOR i = 0 TO 1
+        n = 0
+        FOR j = 0 TO 3: IF c(j) = c(i) THEN n = n + 1
+        NEXT j
+        IF n >= 3 THEN bg = c(i): ANIM_LB_cell_bg% = TRUE: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' Over the current pane's picture (dx, dy, dw, dh) of frame f: the frames
+' before / after it from composite src, farthest first, each fading with
+' distance; tinted red / blue (CFG.ONION_TINT%). A pixel shows only where it
+' differs from frame f and from its own frame's background.
+SUB ANIM_LB_onion (dest AS LONG, src AS LONG, f AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, gx AS LONG, gy AS LONG, gw AS LONG, gh AS LONG
+    DIM side AS INTEGER, n AS INTEGER, d AS INTEGER, g AS INTEGER, i AS LONG, j AS LONG, sw AS LONG, sh AS LONG
+    DIM ms AS _MEM, mo AS _MEM, nb AS _UNSIGNED LONG, cur AS _UNSIGNED LONG, bg AS _UNSIGNED LONG, hasBg AS INTEGER
+    DIM a AS SINGLE, na AS LONG, tr AS LONG, tg AS LONG, tb AS LONG, r AS LONG, gg AS LONG, b AS LONG, cnt AS LONG
+    DIM po AS _OFFSET, rowS AS _OFFSET, rowC AS _OFFSET
+
+    ANIM_LB.onionPrev = 0: ANIM_LB.onionNext = 0
+    IF CFG.ONION_SKIN% = 0 _ORELSE ANIM_PLAY.playing _ORELSE src >= -1 _ORELSE dest >= -1 THEN EXIT SUB
+    IF CFG.ONION_BEFORE% < 1 _ANDALSO CFG.ONION_AFTER% < 1 THEN EXIT SUB
+    IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 THEN EXIT SUB
+    sw = _WIDTH(src): sh = _HEIGHT(src)
+    IF cx < 0 _ORELSE cy < 0 _ORELSE cx + cw > sw _ORELSE cy + ch > sh THEN EXIT SUB
+    IF ANIM_LB.onionImg < -1 THEN
+        IF _WIDTH(ANIM_LB.onionImg) <> cw _ORELSE _HEIGHT(ANIM_LB.onionImg) <> ch THEN _FREEIMAGE ANIM_LB.onionImg: ANIM_LB.onionImg = 0
+    END IF
+    IF ANIM_LB.onionImg >= -1 THEN ANIM_LB.onionImg = _NEWIMAGE(cw, ch, 32)
+    IF ANIM_LB.onionImg >= -1 THEN EXIT SUB
+
+    ms = _MEMIMAGE(src): mo = _MEMIMAGE(ANIM_LB.onionImg)
+    _BLEND dest
+    FOR side = -1 TO 1 STEP 2
+        n = _IIF(side < 0, CFG.ONION_BEFORE%, CFG.ONION_AFTER%)
+        IF side < 0 THEN tr = 255: tg = 48: tb = 48 ELSE tr = 48: tg = 112: tb = 255
+        FOR d = n TO 1 STEP -1 ' farthest first: the nearest ends up on top
+            g = f + side * d
+            IF g >= 1 _ANDALSO g <= ANIM.count THEN
+                IF ANIM_cell_rect%(g, gx, gy, gw, gh) _ANDALSO gw = cw _ANDALSO gh = ch _ANDALSO gx + gw <= sw _ANDALSO gy + gh <= sh THEN
+                    a = (CFG.ONION_OPACITY% / 100) * (n - d + 1) / n
+                    hasBg = ANIM_LB_cell_bg%(ms, sw, gx, gy, gw, gh, bg)
+                    cnt = 0
+                    po = mo.OFFSET
+                    FOR j = 0 TO ch - 1
+                        rowS = ms.OFFSET + ((gy + j) * sw + gx) * 4
+                        rowC = ms.OFFSET + ((cy + j) * sw + cx) * 4
+                        FOR i = 0 TO cw - 1
+                            nb = _MEMGET(ms, rowS + i * 4, _UNSIGNED LONG)
+                            cur = _MEMGET(ms, rowC + i * 4, _UNSIGNED LONG)
+                            na = _SHR(nb, 24)
+                            IF nb <> cur _ANDALSO na > 0 _ANDALSO (hasBg = 0 _ORELSE nb <> bg) THEN
+                                r = _SHR(nb, 16) AND 255: gg = _SHR(nb, 8) AND 255: b = nb AND 255
+                                IF CFG.ONION_TINT% THEN r = (r + tr * 3) \ 4: gg = (gg + tg * 3) \ 4: b = (b + tb * 3) \ 4
+                                _MEMPUT mo, po, _RGBA32(r, gg, b, CINT(na * a)) AS _UNSIGNED LONG
+                                cnt = cnt + 1
+                            ELSE
+                                _MEMPUT mo, po, 0 AS _UNSIGNED LONG
+                            END IF
+                            po = po + 4
+                        NEXT i
+                    NEXT j
+                    IF cnt > 0 THEN _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), ANIM_LB.onionImg, dest
+                    IF side < 0 THEN ANIM_LB.onionPrev = ANIM_LB.onionPrev + cnt ELSE ANIM_LB.onionNext = ANIM_LB.onionNext + cnt
+                END IF
+            END IF
+        NEXT d
+    NEXT side
+    _MEMFREE ms: _MEMFREE mo
 END SUB

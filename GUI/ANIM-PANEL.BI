@@ -48,7 +48,13 @@ CONST ANIMP_CTL_DEL    = 24
 CONST ANIMP_CTL_RESLICE = 25 ' changing the layout of a drawn sheet: RE-SLICE / RESIZE (ANIM_SIZE_MODE)
 CONST ANIMP_CTL_RESIZE  = 26
 CONST ANIMP_CTL_PLAY   = 27 ' the middle of |< < PLAY > >|
-CONST ANIMP_CTL_COUNT  = 27
+' onion skin (2.6; DRAW.cfg, not undo steps): BEFORE / AFTER / OPACITY steppers
+' (28 + 2 * (row - 1) = -, + 1 = +), then the ONION and TINT chips
+CONST ANIMP_CTL_ON0    = 28
+CONST ANIMP_ON_ROWS    = 3
+CONST ANIMP_CTL_ONION  = 34
+CONST ANIMP_CTL_TINT   = 35
+CONST ANIMP_CTL_COUNT  = 35
 
 TYPE ANIM_PANEL_OBJ
     visible           AS INTEGER
@@ -76,6 +82,7 @@ TYPE ANIM_PANEL_OBJ
     yOps    AS INTEGER ' ADD DUP INS DEL
     yMode   AS INTEGER ' RE-SLICE RESIZE
     yLoop   AS INTEGER
+    yOnion  AS INTEGER ' ONION TINT (the BEFORE / AFTER / OPACITY rows: ANIMP_onY)
     yInfo   AS INTEGER
     chipW   AS INTEGER ' a stepper's - / + width
     valW    AS INTEGER ' the value between them
@@ -90,7 +97,9 @@ TYPE ANIM_PANEL_OBJ
     pressKey    AS LONG    ' this press (a held stepper is one undo step: ANIM_OPS_record)
     pendRow     AS INTEGER ' a layout change waiting for RE-SLICE / RESIZE (R-07: asked once per document)
     pendD       AS INTEGER
+    onionSave   AS INTEGER ' an onion skin stepper changed DRAW.cfg: CONFIG_save on the release
 END TYPE
 
 DIM SHARED ANIMP AS ANIM_PANEL_OBJ
 DIM SHARED ANIMP_rowY(1 TO ANIMP_ROWS) AS INTEGER ' native top of each stepper row
+DIM SHARED ANIMP_onY(1 TO ANIMP_ON_ROWS) AS INTEGER ' native top of the onion skin stepper rows

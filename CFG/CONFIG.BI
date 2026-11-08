@@ -357,6 +357,11 @@ TYPE DRAW_CONFIG
     LIGHTBOX_PANES                  AS INTEGER        ' Animation: lightbox editor panes 3 / 5 / 7 (ANIM > Lightbox Panes, Num *)
     CLIP_FRAME_LIGHTBOX             AS INTEGER        ' Animation: a stroke in a lightbox pane stays inside its frame (ANIM > Clip Strokes to the Frame in the Lightbox)
     CLIP_FRAME_SHEET                AS INTEGER        ' Animation: a stroke in sheet view stays inside the frame it starts in (ANIM > Clip Strokes to the Frame in Sheet View)
+    ONION_SKIN                      AS INTEGER        ' Animation: the lightbox's current pane shows the frames before / after it (ANIM > Onion Skin, Num /)
+    ONION_BEFORE                    AS INTEGER        ' Animation: onion skin frames before the current one (0-5)
+    ONION_AFTER                     AS INTEGER        ' Animation: onion skin frames after the current one (0-5)
+    ONION_OPACITY                   AS INTEGER        ' Animation: onion skin opacity % of the nearest frame (5-100; farther frames fade)
+    ONION_TINT                      AS INTEGER        ' Animation: onion skin tint - frames before red, after blue (ANIM > Onion Skin Red / Blue Tint)
     ' Transparency checkerboard settings
     TRANSPARENCY_CHECK_COLOR1       AS _UNSIGNED LONG ' Light checkerboard color
     TRANSPARENCY_CHECK_COLOR2       AS _UNSIGNED LONG ' Dark checkerboard color
