@@ -54,6 +54,8 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2531 | Layer Same on Every Frame - the current layer (`ANIM_LF_toggle ANIM_LF_SAME`) |
 | 2532 | Export Animated GIF... (`ANIM_EXPORT_action`, `TOOLS/ANIM-EXPORT`) |
 | 2533 | Export Scale 1x / 2x / 4x (cycles `CFG.ANIM_EXPORT_SCALE`) |
+| 2534 | Export PNG Sequence... (`ANIM_PNGSEQ_export%`) |
+| 2535 | Export Sprite Sheet + Frame Data... (`ANIM_SHEET_export%`: .png + .json + .bi) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
 Grep before adding one (CLAUDE.md gotcha 17).
@@ -337,6 +339,26 @@ palette chip in a range -> `PAL(dispOf(chip))`); length = LCM(frames loop, cycle
 at 120 s / 2000 GIF frames. `ANIM_EXPORT_INFO` sums it up (status bar, log).
 QA: `file-anim-gif.sh` (batch CLI, ImageMagick: counts, delays, sizes, disposal, pixels per
 cell); `DEV/tools/test-cycle-exports.sh` covers the cycle GIF.
+
+**PNG sequence** (3.2, `ANIM_PNGSEQ_export% path`; batch `--export-anim out.png`): for
+out.png, `out_0001.png ...` (4+ digits) - one PNG per tick at the FPS in `ANIM_play_order%`
+(a frame held 3 = 3 files, ping-pong written out; the video stand-in of Q-24: `ffmpeg
+-framerate FPS -i out_%04d.png`). out.png itself is not written. Numbered files straight
+after the new last one (a longer earlier export) are removed. No colour cycling (the cells as
+drawn). Capped at `ANIM_PNGSEQ_MAX` files.
+**Sprite sheet** (3.2, `ANIM_SHEET_export% path`; batch `--export-anim out.json`): for any
+out.ext, `out.png` = the flattened sheet (gutter / margin kept), `out.json` = Aseprite's
+"array" layout (`frames[]`: filename, frame {x,y,w,h}, spriteSourceSize, sourceSize,
+duration ms = hold * 1000 / fps; `meta`: app, version, image, RGBA8888, size, scale, fps,
+loop, `frameTags[0]` "all" with direction forward / reverse / pingpong, `repeat "1"` for play
+once), `out.bi` = QB64 `CONST <NAME>_FRAMES / _FRAME_W / _FRAME_H / _FPS / _LOOP` + label
+`<NAME>_FRAME_DATA:` + `DATA x, y, w, h, ms` per frame (`ANIM_bas_name$`: upper case,
+A-Z 0-9 _). Refuses when out.png is the open document (`ANIM_is_document%`, `_FULLPATH$`).
+Both scale by `CFG.ANIM_EXPORT_SCALE` (`ANIM_block_image&`, an exact `_MEM` pixel copy).
+In the batch CLI the .png / .json cases run before `BATCH_export%`'s `KILL path`.
+QA: `file-anim-sheet.sh` (batch CLI: files per tick, exact pixels per cell, stale files,
+2x, JSON via python, the .bi compiled and run with qb64pe, gutter / margin rects, the
+document guard).
 
 ## A selection stays put in its cell (2.9, Q-18)
 

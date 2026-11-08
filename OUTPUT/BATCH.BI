@@ -9,6 +9,8 @@
 '   DRAW art.draw --export art.lbm         (DeluxePaint ILBM + CRNG)
 '   DRAW art.draw --export-anim art.gif    (animated GIF: the frames of a sheet with frames,
 '                                          colour cycling along; else the colour cycle)
+'   DRAW art.draw --export-anim art.png    (PNG sequence art_0001.png ..., one per tick at the FPS)
+'   DRAW art.draw --export-anim art.json   (sprite sheet art.png + frame rects art.json + art.bi)
 '
 ' --cycle lo-hi[:steps-per-second[:fwd|rev|ping]] adds a color cycling range
 ' (repeatable) after the document and --palette have loaded. All flags run on
@@ -20,6 +22,6 @@
 $INCLUDEONCE
 
 DIM SHARED BATCH_EXPORT_PATH      AS STRING ' --export <path>
-DIM SHARED BATCH_EXPORT_ANIM_PATH AS STRING ' --export-anim <path.gif>
+DIM SHARED BATCH_EXPORT_ANIM_PATH AS STRING ' --export-anim <path.gif|.png|.json>
 DIM SHARED BATCH_CYCLE_SPECS      AS STRING ' --cycle specs, CHR$(0)-separated
 DIM SHARED BATCH_FAILED           AS INTEGER

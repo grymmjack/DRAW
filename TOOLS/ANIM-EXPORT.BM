@@ -14,7 +14,7 @@ FUNCTION ANIM_has_frames% ()
 END FUNCTION
 
 ''
-' ANIM > Export Animated GIF... / Export Scale (2532, 2533).
+' ANIM > Export Animated GIF... / Export Scale / PNG Sequence... / Sprite Sheet... (2532-2535).
 SUB ANIM_EXPORT_action (act AS INTEGER)
     DIM f AS STRING, ok AS INTEGER
     SELECT CASE act
@@ -24,6 +24,18 @@ SUB ANIM_EXPORT_action (act AS INTEGER)
             IF f = "" THEN EXIT SUB
             ok = ANIM_GIF_export%(f)
             CYCX_report ok, "animated GIF (" + ANIM_EXPORT_INFO + ")", f
+        CASE ANIM_ACT_EXPORT_PNGS
+            IF ANIM.active = FALSE THEN STATUS_flash "A PNG sequence exports frames - set a frame size first": EXIT SUB
+            f = CYCX_save_dialog$("Export PNG Sequence (name_0001.png ...)", "PNG (*.png)|*.png", ".png")
+            IF f = "" THEN EXIT SUB
+            ok = ANIM_PNGSEQ_export%(f)
+            CYCX_report ok, "PNG sequence (" + ANIM_EXPORT_INFO + ")", f
+        CASE ANIM_ACT_EXPORT_SHEET
+            IF ANIM.active = FALSE THEN STATUS_flash "A sprite sheet exports frames - set a frame size first": EXIT SUB
+            f = CYCX_save_dialog$("Export Sprite Sheet (name.png + name.json + name.bi)", "PNG (*.png)|*.png", ".png")
+            IF f = "" THEN EXIT SUB
+            ok = ANIM_SHEET_export%(f)
+            CYCX_report ok, "sprite sheet (" + ANIM_EXPORT_INFO + ")", f
         CASE ANIM_ACT_EXPORT_SCALE
             SELECT CASE CFG.ANIM_EXPORT_SCALE%
                 CASE 1: CFG.ANIM_EXPORT_SCALE% = 2
@@ -259,4 +271,228 @@ FUNCTION ANIM_GIF_export% (path AS STRING)
     IF capped THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (cut at" + STR$(ANIM_GIF_MAX_TICKS \ 50) + " s: the colour cycle and the frames line up later than that)"
     _LOGINFO "ANIM_GIF_export: " + path + " - " + ANIM_EXPORT_INFO
     ANIM_GIF_export% = TRUE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' 3.2 PNG sequence, sprite sheet + frame data
+' ---------------------------------------------------------------------------
+
+''
+' The export scale, 1 / 2 / 4.
+FUNCTION ANIM_export_scale% ()
+    DIM sc AS INTEGER
+    sc = CFG.ANIM_EXPORT_SCALE%: IF sc <> 2 _ANDALSO sc <> 4 THEN sc = 1
+    ANIM_export_scale% = sc
+END FUNCTION
+
+''
+' path without its extension ("a/b.png" -> "a/b").
+FUNCTION ANIM_path_base$ (path AS STRING)
+    DIM d AS LONG, s AS LONG
+    d = _INSTRREV(path, "."): s = _MAX(_INSTRREV(path, "/"), _INSTRREV(path, "\"))
+    IF d > s + 1 THEN ANIM_path_base$ = LEFT$(path, d - 1) ELSE ANIM_path_base$ = path
+END FUNCTION
+
+''
+' TRUE when path is the open document's own file (an export must not write
+' over it - a PNG document keeps its layers in that file).
+FUNCTION ANIM_is_document% (path AS STRING)
+    DIM a AS STRING, d AS STRING, k AS INTEGER
+    IF _FILEEXISTS(path) = 0 THEN EXIT FUNCTION
+    a = _FULLPATH$(path)
+    FOR k = 1 TO 2
+        d = _IIF(k = 1, CURRENT_DRW_FILENAME$, CURRENT_FILENAME$)
+        IF d <> "" _ANDALSO _FILEEXISTS(d) THEN
+            IF _FULLPATH$(d) = a THEN ANIM_is_document% = TRUE: EXIT FUNCTION
+        END IF
+    NEXT k
+END FUNCTION
+
+''
+' A new 32-bit image: the w x h block of src at (x, y), every pixel sc x sc.
+FUNCTION ANIM_block_image& (src AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG, sc AS INTEGER)
+    DIM img AS LONG, ms AS _MEM, md AS _MEM, sw AS LONG, j AS LONG, i AS LONG, k AS INTEGER
+    DIM row AS STRING, big AS STRING, px AS STRING
+    img = _NEWIMAGE(w * sc, h * sc, 32)
+    ms = _MEMIMAGE(src): md = _MEMIMAGE(img): sw = _WIDTH(src)
+    row = SPACE$(w * 4)
+    FOR j = 0 TO h - 1
+        _MEMGET ms, ms.OFFSET + ((y + j) * sw + x) * 4, row
+        IF sc = 1 THEN
+            big = row
+        ELSE
+            big = SPACE$(w * sc * 4)
+            FOR i = 0 TO w - 1
+                px = MID$(row, i * 4 + 1, 4)
+                FOR k = 0 TO sc - 1: MID$(big, (i * sc + k) * 4 + 1, 4) = px: NEXT k
+            NEXT i
+        END IF
+        FOR k = 0 TO sc - 1: _MEMPUT md, md.OFFSET + (j * sc + k) * w * sc * 4, big: NEXT k
+    NEXT j
+    _MEMFREE ms: _MEMFREE md
+    ANIM_block_image& = img
+END FUNCTION
+
+''
+' Save img as a PNG at path (replacing it); TRUE when it is there.
+FUNCTION ANIM_save_png% (img AS LONG, path AS STRING)
+    IF _FILEEXISTS(path) THEN KILL path
+    _SAVEIMAGE path, img
+    ANIM_save_png% = _FILEEXISTS(path)
+END FUNCTION
+
+''
+' Frame n's time on screen in milliseconds (its hold at the FPS).
+FUNCTION ANIM_frame_ms& (n AS INTEGER)
+    ANIM_frame_ms& = INT(1000# * ANIM_hold%(n) / ANIM.fps + 0.5)
+END FUNCTION
+
+''
+' name_0001.png ... for path name.png: what plays, one PNG per tick at the FPS
+' (a frame held 3 is 3 files; ping-pong written out). Numbered files left
+' straight after the new last one by a longer earlier export are removed.
+FUNCTION ANIM_PNGSEQ_export% (path AS STRING)
+    DIM baseP AS STRING, flat AS LONG, sc AS INTEGER, n AS INTEGER, k AS INTEGER, f AS INTEGER, hh AS INTEGER
+    DIM total AS LONG, t AS LONG, digits AS INTEGER, nm AS STRING, img AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG
+    DIM imgs(1 TO ANIM_MAX_FRAMES) AS LONG, stale AS LONG, ok AS INTEGER
+    ANIM_PNGSEQ_export% = FALSE
+    CYCX_LAST_ERROR$ = "": ANIM_EXPORT_INFO = ""
+    IF ANIM_has_frames% = FALSE THEN CYCX_LAST_ERROR$ = "the document has no frames": EXIT FUNCTION
+    sc = ANIM_export_scale%
+    baseP = ANIM_path_base$(path)
+    n = ANIM_play_order%
+    FOR k = 1 TO n: total = total + ANIM_hold%(ANIM_ORDER(k)): NEXT k
+    IF total > ANIM_PNGSEQ_MAX THEN CYCX_LAST_ERROR$ = _TRIM$(STR$(total)) + " files - more than" + STR$(ANIM_PNGSEQ_MAX): EXIT FUNCTION
+    digits = _MAX(4, LEN(_TRIM$(STR$(total))))
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document": EXIT FUNCTION
+    FOR k = 1 TO n
+        f = ANIM_ORDER(k)
+        FOR hh = 1 TO ANIM_hold%(f)
+            t = t + 1
+            nm = baseP + "_" + RIGHT$(STRING$(digits, "0") + _TRIM$(STR$(t)), digits) + ".png"
+            IF ANIM_is_document%(nm) THEN CYCX_LAST_ERROR$ = MID$(nm, _INSTRREV(nm, "/") + 1) + " is the open document": EXIT FOR
+            IF imgs(f) = 0 _ANDALSO ANIM_cell_rect%(f, x, y, w, h) THEN imgs(f) = ANIM_block_image&(flat, x, y, w, h, sc)
+            ok = FALSE
+            IF imgs(f) < -1 THEN ok = ANIM_save_png%(imgs(f), nm)
+            IF ok = FALSE THEN CYCX_LAST_ERROR$ = "could not write " + nm: EXIT FOR
+        NEXT hh
+        IF CYCX_LAST_ERROR$ <> "" THEN EXIT FOR
+    NEXT k
+    SAFE_FREEIMAGE flat
+    FOR f = 1 TO ANIM_MAX_FRAMES: IF imgs(f) < -1 THEN SAFE_FREEIMAGE imgs(f)
+    NEXT f
+    IF CYCX_LAST_ERROR$ <> "" THEN EXIT FUNCTION
+    DO
+        nm = baseP + "_" + RIGHT$(STRING$(digits, "0") + _TRIM$(STR$(t + stale + 1)), digits) + ".png"
+        IF _FILEEXISTS(nm) = 0 _ORELSE ANIM_is_document%(nm) THEN EXIT DO
+        KILL nm: stale = stale + 1
+    LOOP
+    ANIM_EXPORT_INFO = _TRIM$(STR$(total)) + " PNGs at" + STR$(ANIM.fps) + " fps (" + MID$(baseP, _MAX(_INSTRREV(baseP, "/"), _INSTRREV(baseP, "\")) + 1) + "_" + STRING$(digits - 1, "0") + "1.png ...)"
+    IF sc > 1 THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + ", " + _TRIM$(STR$(sc)) + "x"
+    _LOGINFO "ANIM_PNGSEQ_export: " + path + " - " + ANIM_EXPORT_INFO + _IIF(stale > 0, " -" + STR$(stale) + " stale files removed", "")
+    ANIM_PNGSEQ_export% = TRUE
+END FUNCTION
+
+''
+' A QB64 name from a file name: upper case, A-Z 0-9 _ only, not a digit first.
+FUNCTION ANIM_bas_name$ (fileName AS STRING)
+    DIM s AS STRING, r AS STRING, i AS INTEGER, c AS INTEGER
+    s = UCASE$(MID$(fileName, _MAX(_INSTRREV(fileName, "/"), _INSTRREV(fileName, "\")) + 1))
+    FOR i = 1 TO LEN(s)
+        c = ASC(s, i)
+        IF (c >= 65 _ANDALSO c <= 90) _ORELSE (c >= 48 _ANDALSO c <= 57) THEN r = r + CHR$(c) ELSE r = r + "_"
+    NEXT i
+    IF r = "" THEN r = "SHEET"
+    IF ASC(r, 1) >= 48 _ANDALSO ASC(r, 1) <= 57 THEN r = "S" + r
+    ANIM_bas_name$ = r
+END FUNCTION
+
+''
+' Write text to path (replacing it); TRUE when it is there.
+FUNCTION ANIM_write_text% (path AS STRING, txt AS STRING)
+    DIM ff AS INTEGER
+    IF _FILEEXISTS(path) THEN KILL path
+    ff = FREEFILE
+    OPEN path FOR BINARY AS #ff
+    PUT #ff, , txt
+    CLOSE #ff
+    ANIM_write_text% = _FILEEXISTS(path)
+END FUNCTION
+
+''
+' The sprite sheet for path name.png (or name.json / name.bi): name.png = the
+' whole sheet as exported (layers flattened, scaled), name.json = the frame
+' rects in Aseprite's "array" layout, name.bi = the same as QB64 CONSTs + DATA.
+FUNCTION ANIM_SHEET_export% (path AS STRING)
+    DIM baseP AS STRING, png AS STRING, flat AS LONG, img AS LONG, sc AS INTEGER, f AS INTEGER, nmOnly AS STRING
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, j AS STRING, b AS STRING, q AS STRING, nl AS STRING, pre AS STRING
+    DIM dirName AS STRING, r AS STRING, sheetW AS LONG, sheetH AS LONG
+    ANIM_SHEET_export% = FALSE
+    CYCX_LAST_ERROR$ = "": ANIM_EXPORT_INFO = ""
+    IF ANIM_has_frames% = FALSE THEN CYCX_LAST_ERROR$ = "the document has no frames": EXIT FUNCTION
+    sc = ANIM_export_scale%
+    baseP = ANIM_path_base$(path): png = baseP + ".png"
+    nmOnly = MID$(baseP, _MAX(_INSTRREV(baseP, "/"), _INSTRREV(baseP, "\")) + 1)
+    IF ANIM_is_document%(png) THEN CYCX_LAST_ERROR$ = nmOnly + ".png is the open document - pick another name": EXIT FUNCTION
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document": EXIT FUNCTION
+    img = ANIM_block_image&(flat, 0, 0, _WIDTH(flat), _HEIGHT(flat), sc)
+    sheetW = _WIDTH(img): sheetH = _HEIGHT(img)
+    SAFE_FREEIMAGE flat
+    IF ANIM_save_png%(img, png) = 0 THEN SAFE_FREEIMAGE img: CYCX_LAST_ERROR$ = "could not write " + png: EXIT FUNCTION
+    SAFE_FREEIMAGE img
+
+    SELECT CASE ANIM.loopMode
+        CASE ANIM_LOOP_REV: dirName = "reverse"
+        CASE ANIM_LOOP_PING: dirName = "pingpong"
+        CASE ELSE: dirName = "forward"
+    END SELECT
+    q = CHR$(34): nl = CHR$(10)
+
+    ' -- JSON (Aseprite "array": frames[], meta) --
+    j = "{ " + q + "frames" + q + ": [" + nl
+    FOR f = 1 TO ANIM.count
+        IF ANIM_cell_rect%(f, x, y, w, h) THEN
+            r = q + "x" + q + ":" + _TRIM$(STR$(x * sc)) + "," + q + "y" + q + ":" + _TRIM$(STR$(y * sc)) + "," + q + "w" + q + ":" + _TRIM$(STR$(w * sc)) + "," + q + "h" + q + ":" + _TRIM$(STR$(h * sc))
+            j = j + "  { " + q + "filename" + q + ": " + q + nmOnly + " " + _TRIM$(STR$(f - 1)) + ".png" + q + ", " + q + "frame" + q + ": {" + r + "}, " _
+                + q + "rotated" + q + ": false, " + q + "trimmed" + q + ": false, " _
+                + q + "spriteSourceSize" + q + ": {" + q + "x" + q + ":0," + q + "y" + q + ":0," + q + "w" + q + ":" + _TRIM$(STR$(w * sc)) + "," + q + "h" + q + ":" + _TRIM$(STR$(h * sc)) + "}, " _
+                + q + "sourceSize" + q + ": {" + q + "w" + q + ":" + _TRIM$(STR$(w * sc)) + "," + q + "h" + q + ":" + _TRIM$(STR$(h * sc)) + "}, " _
+                + q + "duration" + q + ": " + _TRIM$(STR$(ANIM_frame_ms&(f))) + " }" + _IIF(f < ANIM.count, ",", "") + nl
+        END IF
+    NEXT f
+    j = j + " ]," + nl + " " + q + "meta" + q + ": {" + nl
+    j = j + "  " + q + "app" + q + ": " + q + "DRAW" + q + ", " + q + "version" + q + ": " + q + APP_VERSION$ + q + "," + nl
+    j = j + "  " + q + "image" + q + ": " + q + nmOnly + ".png" + q + ", " + q + "format" + q + ": " + q + "RGBA8888" + q + "," + nl
+    j = j + "  " + q + "size" + q + ": {" + q + "w" + q + ":" + _TRIM$(STR$(sheetW)) + "," + q + "h" + q + ":" + _TRIM$(STR$(sheetH)) + "}," + nl
+    j = j + "  " + q + "scale" + q + ": " + q + _TRIM$(STR$(sc)) + q + ", " + q + "fps" + q + ": " + _TRIM$(STR$(ANIM.fps)) + ", " + q + "loop" + q + ": " + q + _IIF(ANIM.loopMode = ANIM_LOOP_ONCE, "once", dirName) + q + "," + nl
+    j = j + "  " + q + "frameTags" + q + ": [ { " + q + "name" + q + ": " + q + "all" + q + ", " + q + "from" + q + ": 0, " + q + "to" + q + ": " + _TRIM$(STR$(ANIM.count - 1)) _
+        + ", " + q + "direction" + q + ": " + q + dirName + q + _IIF(ANIM.loopMode = ANIM_LOOP_ONCE, ", " + q + "repeat" + q + ": " + q + "1" + q, "") + " } ]" + nl
+    j = j + " }" + nl + "}" + nl
+    IF ANIM_write_text%(baseP + ".json", j) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + baseP + ".json": EXIT FUNCTION
+
+    ' -- QB64 include: CONSTs + DATA x, y, w, h, ms per frame --
+    pre = ANIM_bas_name$(nmOnly)
+    b = "'' " + nmOnly + ".bi - the frames of " + nmOnly + ".png (DRAW " + APP_VERSION$ + " sprite sheet export)" + nl
+    b = b + "'" + nl + "' _LOADIMAGE " + q + nmOnly + ".png" + q + ", then RESTORE " + pre + "_FRAME_DATA and READ x, y, w, h, ms" + nl
+    b = b + "' per frame (" + pre + "_FRAMES of them); ms = the frame's time on screen. " + pre + "_LOOP:" + nl
+    b = b + "' 0 forward, 1 reverse, 2 ping-pong, 3 play once." + nl + "'" + nl
+    b = b + "CONST " + pre + "_FRAMES =" + STR$(ANIM.count) + nl
+    b = b + "CONST " + pre + "_FRAME_W =" + STR$(ANIM.frameW * sc) + nl
+    b = b + "CONST " + pre + "_FRAME_H =" + STR$(ANIM.frameH * sc) + nl
+    b = b + "CONST " + pre + "_FPS =" + STR$(ANIM.fps) + nl
+    b = b + "CONST " + pre + "_LOOP =" + STR$(ANIM.loopMode) + nl
+    b = b + pre + "_FRAME_DATA:" + nl
+    FOR f = 1 TO ANIM.count
+        IF ANIM_cell_rect%(f, x, y, w, h) THEN
+            b = b + "DATA " + _TRIM$(STR$(x * sc)) + "," + _TRIM$(STR$(y * sc)) + "," + _TRIM$(STR$(w * sc)) + "," + _TRIM$(STR$(h * sc)) + "," + _TRIM$(STR$(ANIM_frame_ms&(f))) + nl
+        END IF
+    NEXT f
+    IF ANIM_write_text%(baseP + ".bi", b) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + baseP + ".bi": EXIT FUNCTION
+
+    ANIM_EXPORT_INFO = nmOnly + ".png + .json + .bi," + STR$(ANIM.count) + " frames"
+    IF sc > 1 THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + ", " + _TRIM$(STR$(sc)) + "x"
+    _LOGINFO "ANIM_SHEET_export: " + baseP + " - " + ANIM_EXPORT_INFO
+    ANIM_SHEET_export% = TRUE
 END FUNCTION
