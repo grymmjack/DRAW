@@ -55,7 +55,7 @@ park_mouse
 key ctrl+0
 wait_for 0.5 "Zoom 100%"
 
-read -r _ FG_ON FG_COUNT FG_CUR _ _ _ _ FG_COLS FG_ROWS _ _ FG_DRAWN FG_DX FG_DY <<< "$(fg_dump_line ANIM)"
+read -r _ FG_ON FG_COUNT FG_CUR _ _ _ _ FG_COLS FG_ROWS _ _ FG_DRAWN FG_DX FG_DY _ <<< "$(fg_dump_line ANIM)"
 read -r _ FG_ZOOM _ <<< "$(fg_dump_line VIEW)"
 info "ANIM on=$FG_ON count=$FG_COUNT current=$FG_CUR cells=${FG_COLS}x$FG_ROWS drawn=$FG_DRAWN at ($FG_DX,$FG_DY), zoom ${FG_ZOOM}%"
 [[ "$FG_ON" == -1 && "$FG_COUNT" == 7 && "$FG_CUR" == 3 && "$FG_COLS" == 4 && "$FG_ROWS" == 2 ]] \
