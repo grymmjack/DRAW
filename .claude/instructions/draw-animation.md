@@ -57,6 +57,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2534 | Export PNG Sequence... (`ANIM_PNGSEQ_export%`) |
 | 2535 | Export Sprite Sheet + Frame Data... (`ANIM_SHEET_export%`: .png + .json + .bi) |
 | 2536 | Export Animated PNG (APNG)... (`ANIM_APNG_export%`) |
+| 2537 | Export BAS Player (DATA)... (`ANIM_BAS_export%`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
 Grep before adding one (CLAUDE.md gotcha 17).
@@ -370,6 +371,24 @@ frame; chunks via `PNG_make_chunk$` (DRW.BM). No colour cycling (flagged in
 `ANIM_EXPORT_INFO`; the GIF runs it). Refuses the open document's own path (the dialog
 suggests name.png). QA: `file-anim-apng.sh` (a python stdlib reader: CRCs, zlib + adler,
 sequence, delays, RGBA per cell; ffprobe frame count; ImageMagick default image).
+**BAS player** (3.4, `ANIM_BAS_export% path`; ANIM > Export BAS Player (DATA)..., batch
+`--export-anim out.bas` on a document with frames - without, `.bas` is still the colour
+cycling program): one self-contained .bas. `ANIM_BAS_blob$(pixels, nCyc)` = "DANM" v1:
+MKI frameW, frameH, count, fps, loopMode, nOrder, the play order, the holds, the palette,
+the cycle ranges (as DCYC: lo, hi, overlay base, rate, mode, active, heldStep), then per
+frame its cell (BGRA, `pixels = FALSE` leaves them out for 3.5) + with ranges its overlay
+(index into the packed range colours, 0 = not cycling). Deflate + base64 in `DATA` after the
+label `anim_data:` (the player `RESTORE`s it - 3.5 puts its rect DATA first).
+`ANIM_BAS_player nm, b64, sheetPng` writes the program through `CYCX_L` (backtick = quote):
+`$SCREENHIDE` until the window opens; per frame a 32-bit image + 256-colour overlay with
+`_CLEARCOLOR 0`; `compose f` copies the cell `_DONTBLEND` and puts the overlay with its
+palette rotated (`shifts_at%(t)`, the cycle player's formulas); the loop advances by
+`acc += dt * speed * fps` against the hold, play once stays on the last frame. Keys SPACE /
+LEFT / RIGHT / + - / R / ESC. `--frames DIR` writes one loop - `frame_0001.png ...` with
+the cycle at each step's start time, and `frames.txt` "step frame ms" (CRLF) - then exits.
+QA: `file-anim-bas.sh` (compiles the players with qb64pe; `--frames` exact per cell for
+ping-pong / reverse, the cycle one step on at 0.1 s; live under `QA_IN_XVFB` only: the
+player window's xwd changes, Esc exits 0).
 **Known (pre-existing):** `LAYERS_flatten&` composites with `_BLEND` onto a transparent
 image, which darkens the colour of a partly transparent pixel (rgb x alpha); every export
 inherits it. The APNG keeps the alpha level itself.

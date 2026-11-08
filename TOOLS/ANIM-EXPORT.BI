@@ -23,6 +23,12 @@
 ' each up for hold / fps s exactly (fcTL delay_num / delay_den), RGBA (every
 ' alpha level keeps), plays once or loops, scaled. No colour cycling (GIF).
 '
+' 3.4 BAS player (ANIM_BAS_export%): a single .bas that plays the frames - in
+' DATA (deflate + base64: "DANM" blob, ANIM_BAS_blob$) - at the FPS with the
+' holds and the loop mode, colour cycling along (the cycle player's overlay
+' palette rotation, an overlay per frame). SPACE / LEFT / RIGHT / + - / R / ESC;
+' --frames DIR writes one loop as PNGs + frames.txt and exits.
+'
 ' Uses the GIF writer in OUTPUT/FILE-GIF (LZW, sub-blocks, GCE, the cycle
 ' timeline GIF_cycle_ticks& / GIF_display_map).
 '
@@ -35,6 +41,7 @@ CONST ANIM_ACT_EXPORT_SCALE = 2533 ' ANIM > Export Scale 1x / 2x / 4x
 CONST ANIM_ACT_EXPORT_PNGS  = 2534 ' ANIM > Export PNG Sequence...
 CONST ANIM_ACT_EXPORT_SHEET = 2535 ' ANIM > Export Sprite Sheet + Frame Data...
 CONST ANIM_ACT_EXPORT_APNG  = 2536 ' ANIM > Export Animated PNG (APNG)...
+CONST ANIM_ACT_EXPORT_BAS   = 2537 ' ANIM > Export BAS Player (DATA)...
 CONST ANIM_PNGSEQ_MAX = 20000      ' files one PNG sequence may write
 
 CONST ANIM_GIF_MAX_TICKS  = 6000 ' with colour cycling the GIF loop is at most 120 s (2-cs ticks)
