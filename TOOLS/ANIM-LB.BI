@@ -101,6 +101,16 @@ TYPE ANIM_LB_OBJ
     clipY      AS LONG
     clipW      AS LONG
     clipH      AS LONG
+
+    ' The strip (2.3): click / Ctrl / Shift select (ANIM_SEL_click), drag
+    ' reorders the selected frames (ANIM_OP_MOVE_SEL), the wheel scrolls it.
+    lastCur    AS INTEGER ' current frame at the last layout: a change scrolls it into view
+    sPress     AS INTEGER ' frame a strip press landed on (0 none), until the release
+    sPressX    AS INTEGER
+    sDrag      AS INTEGER ' the press moved far enough to be a drag
+    sDrop      AS INTEGER ' drag: drop before this frame (count + 1 = the end)
+    sCollapse  AS INTEGER ' a plain press on a frame already in a multi-selection: select just it on release (no drag)
+    sScrollT   AS DOUBLE  ' drag past the strip's ends: when it next scrolls a frame
 END TYPE
 DIM SHARED ANIM_LB AS ANIM_LB_OBJ
 DIM SHARED ANIM_LB_CX(1 TO LB_CTLS) AS INTEGER

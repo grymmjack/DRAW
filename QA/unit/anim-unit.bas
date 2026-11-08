@@ -248,6 +248,47 @@ check "once: stopped on the last frame", STR$(ANIM_PLAY.playing) + STR$(ANIM.cur
 r = ANIM_play_start%(0, 0, 0): ANIM_reset
 check "a new document stops playback", STR$(ANIM_PLAY.playing), STR$(FALSE)
 
+' --- the strip selection (2.3, R-12: the layers panel's rules) ---
+SCRN.canvasW = 64: SCRN.canvasH = 32
+r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 7: ANIM.wanted = 7: ANIM.current = 3
+check "nothing selected: the current frame is the selection", sel$ + "|" + STR$(ANIM_SEL_is%(3)), "|" + STR$(TRUE)
+ANIM_SEL_click 5, FALSE, FALSE
+check "click: current and the only one selected", sel$ + " c" + _TRIM$(STR$(ANIM.current)), "5 c5"
+ANIM_SEL_click 2, TRUE, FALSE
+check "ctrl+click adds, current follows", sel$ + " c" + _TRIM$(STR$(ANIM.current)), "2 5 c2"
+ANIM_SEL_click 2, TRUE, FALSE
+check "ctrl+click again takes it out; the nearest selected is current", sel$ + " c" + _TRIM$(STR$(ANIM.current)) + " a" + _TRIM$(STR$(ANIM_SEL_ANCHOR)), "5 c5 a2"
+ANIM_SEL_click 5, FALSE, FALSE: ANIM_SEL_click 7, FALSE, TRUE
+check "shift+click: a range from the anchor", sel$ + " c" + _TRIM$(STR$(ANIM.current)), "5 6 7 c7"
+ANIM_SEL_click 1, TRUE, FALSE: ANIM_SEL_click 2, TRUE, TRUE
+check "ctrl+shift+click adds a range", sel$, "1 2 5 6 7"
+ANIM_SEL_click 4, FALSE, FALSE: ANIM_SEL_click 2, FALSE, TRUE
+check "shift+click back from the anchor", sel$ + " c" + _TRIM$(STR$(ANIM.current)), "2 3 4 c2"
+DIM sa AS INTEGER, sb AS INTEGER
+ANIM_SEL_span sa, sb: check "playback plays the selected span", STR$(sa) + STR$(sb), STR$(2) + STR$(4)
+ANIM_SEL_click 4, FALSE, FALSE: ANIM_SEL_span sa, sb
+check "one frame selected: play them all", STR$(sa) + STR$(sb), STR$(0) + STR$(0)
+ANIM_SEL_click 9, FALSE, FALSE
+check "a click past the frames does nothing", sel$, "4"
+
+' --- moving the selected frames (the strip's drag) ---
+ANIM_SEL_click 2, FALSE, FALSE: ANIM_SEL_click 3, FALSE, TRUE ' 2-3 selected, current 3
+ANIM_MOVE_TO = 6: check "2-3 dropped before 6", plan$(ANIM_OP_MOVE_SEL), "7 5:1 4 5 2 3 6 7"
+ANIM_MOVE_TO = 8: check "2-3 dropped at the end", plan$(ANIM_OP_MOVE_SEL), "7 7:1 4 5 6 7 2 3"
+ANIM_MOVE_TO = 1: check "2-3 dropped at the start", plan$(ANIM_OP_MOVE_SEL), "7 2:2 3 1 4 5 6 7"
+ANIM_MOVE_TO = 2: check "dropped where they are: no step", plan$(ANIM_OP_MOVE_SEL), "refused"
+ANIM_MOVE_TO = 4: check "dropped just after themselves: no step", plan$(ANIM_OP_MOVE_SEL), "refused"
+ANIM_MOVE_TO = 9: check "past the end: refused", plan$(ANIM_OP_MOVE_SEL), "refused"
+ANIM_SEL_click 6, FALSE, FALSE: ANIM_SEL_click 2, TRUE, FALSE ' 2 and 6 selected, current 2
+ANIM_MOVE_TO = 4: check "a scattered selection lands together", plan$(ANIM_OP_MOVE_SEL), "7 3:1 3 2 6 4 5 7"
+ANIM_set_hold 6, 4
+r = ANIM_plan%(ANIM_OP_MOVE_SEL, pc, pcur): ANIM_apply_plan pc, pcur
+check "the selection and holds go with their frames", sel$ + " h" + _TRIM$(STR$(ANIM_hold%(4))) + " c" + _TRIM$(STR$(ANIM.current)), "3 4 h4 c3"
+ANIM_SEL_click 1, FALSE, FALSE
+r = ANIM_plan%(ANIM_OP_INSERT_BEFORE, pc, pcur): ANIM_apply_plan pc, pcur
+check "an inserted frame is not selected; the old one moves on", sel$, "2"
+ANIM_reset: check "a new document: nothing selected", STR$(ANIM_SEL_count%), STR$(0)
+
 PRINT PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
 
@@ -268,6 +309,13 @@ FUNCTION plan$ (op AS INTEGER)
     t = _TRIM$(STR$(nc)) + " " + _TRIM$(STR$(ncur)) + ":"
     FOR i = 1 TO nc: t = t + _TRIM$(STR$(ANIM_SRC(i))) + " ": NEXT i
     plan$ = RTRIM$(t)
+END FUNCTION
+
+FUNCTION sel$ ()
+    DIM i AS INTEGER, t AS STRING
+    FOR i = 1 TO ANIM.count: IF ANIM_SEL(i) THEN t = t + _TRIM$(STR$(i)) + " "
+    NEXT i
+    sel$ = RTRIM$(t)
 END FUNCTION
 
 FUNCTION holds$ (n AS INTEGER)

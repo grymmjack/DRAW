@@ -52,6 +52,7 @@ CONST ANIM_OP_EARLIER       = 7 ' swap with the frame before
 CONST ANIM_OP_LATER         = 8 ' swap with the frame after
 CONST ANIM_OP_REVERSE       = 9
 CONST ANIM_OP_LAST          = 9
+CONST ANIM_OP_MOVE_SEL      = 10 ' the selected frames, in order, to before frame ANIM_MOVE_TO (the strip's drag; no action id)
 
 TYPE ANIM_OBJ
     active   AS INTEGER ' the document has a frame layout
@@ -80,5 +81,11 @@ DIM SHARED ANIM_PLAY AS ANIM_PLAY_OBJ
 DIM SHARED ANIM_HOLDS(1 TO ANIM_MAX_FRAMES) AS INTEGER ' ticks frame n stays up (0 = 1)
 DIM SHARED ANIM_SRC(1 TO ANIM_MAX_FRAMES) AS INTEGER   ' ANIM_plan%: new frame n is old frame ANIM_SRC(n) (0 = blank)
 DIM SHARED ANIM_SIZE_MODE AS INTEGER                    ' ANIM_SIZE_*: the answer for this document
+' The strip selection (2.3, R-12 = the layers panel's rules): click = current,
+' Ctrl+click toggles, Shift+click a range from the anchor. Frame ops carry it
+' with the frames (ANIM_apply_plan); not saved, not an undo step.
+DIM SHARED ANIM_SEL(1 TO ANIM_MAX_FRAMES) AS INTEGER    ' TRUE = selected
+DIM SHARED ANIM_SEL_ANCHOR AS INTEGER                   ' Shift+click ranges from here
+DIM SHARED ANIM_MOVE_TO AS INTEGER                      ' ANIM_OP_MOVE_SEL: drop before this frame (count + 1 = at the end)
 
 ANIM_reset

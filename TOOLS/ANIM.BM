@@ -22,7 +22,8 @@ SUB ANIM_reset ()
     ANIM.loopMode = ANIM_LOOP_FWD
     ANIM_SIZE_MODE = ANIM_SIZE_ASK
     ANIM_PLAY.playing = FALSE
-    FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_HOLDS(i) = 0: NEXT i
+    FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_HOLDS(i) = 0: ANIM_SEL(i) = FALSE: NEXT i
+    ANIM_SEL_ANCHOR = 0: ANIM_MOVE_TO = 0
 END SUB
 
 
@@ -236,7 +237,7 @@ END FUNCTION
 ' new count and current frame. Touches nothing else. 0 when the op can't run;
 ' else TRUE (ANIM_op_refusal$ says why not).
 FUNCTION ANIM_plan% (op AS INTEGER, newCount AS INTEGER, newCur AS INTEGER)
-    DIM n AS INTEGER, c AS INTEGER, i AS INTEGER
+    DIM n AS INTEGER, c AS INTEGER, i AS INTEGER, k AS INTEGER, moved AS INTEGER
     n = ANIM.count: c = ANIM.current
     IF ANIM.active = FALSE _ORELSE n < 1 THEN EXIT FUNCTION ' a plain picture: ANIM-OPS makes it frame 1 first
     IF ANIM_op_refusal$(op) <> "" THEN EXIT FUNCTION
@@ -262,6 +263,23 @@ FUNCTION ANIM_plan% (op AS INTEGER, newCount AS INTEGER, newCur AS INTEGER)
         CASE ANIM_OP_REVERSE
             FOR i = 1 TO n: ANIM_SRC(i) = n + 1 - i: NEXT i
             newCur = n + 1 - c
+        CASE ANIM_OP_MOVE_SEL
+            ' the unselected frames before the drop point, the selected ones, the rest
+            k = 0
+            FOR i = 1 TO _MIN(ANIM_MOVE_TO - 1, n)
+                IF ANIM_SEL_is%(i) = 0 THEN k = k + 1: ANIM_SRC(k) = i
+            NEXT i
+            FOR i = 1 TO n
+                IF ANIM_SEL_is%(i) THEN k = k + 1: ANIM_SRC(k) = i
+            NEXT i
+            FOR i = _MAX(ANIM_MOVE_TO, 1) TO n
+                IF ANIM_SEL_is%(i) = 0 THEN k = k + 1: ANIM_SRC(k) = i
+            NEXT i
+            FOR i = 1 TO n
+                IF ANIM_SRC(i) <> i THEN moved = TRUE
+                IF ANIM_SRC(i) = c THEN newCur = i
+            NEXT i
+            IF moved = 0 THEN EXIT FUNCTION ' dropped where they already are
     END SELECT
     ANIM_plan% = TRUE
 END FUNCTION
@@ -292,6 +310,9 @@ FUNCTION ANIM_op_refusal$ (op AS INTEGER)
                 IF c >= n THEN r = "This is the last frame"
             CASE ANIM_OP_REVERSE
                 IF n < 2 THEN r = "One frame: nothing to reverse"
+            CASE ANIM_OP_MOVE_SEL
+                IF n < 2 THEN r = "One frame: nowhere to move it"
+                IF ANIM_MOVE_TO < 1 _ORELSE ANIM_MOVE_TO > n + 1 THEN r = "Drop the frames between two frames"
             CASE ELSE
                 r = "Unknown frame operation"
         END SELECT
@@ -323,6 +344,12 @@ SUB ANIM_apply_plan (newCount AS INTEGER, newCur AS INTEGER)
     FOR i = 1 TO top
         ANIM_HOLDS(i) = 0
         IF i <= newCount _ANDALSO ANIM_SRC(i) > 0 THEN ANIM_HOLDS(i) = old(ANIM_SRC(i))
+    NEXT i
+    ' the selection goes with its frames (a new frame is not selected)
+    FOR i = 1 TO top: old(i) = ANIM_SEL(i): NEXT i
+    FOR i = 1 TO top
+        ANIM_SEL(i) = FALSE
+        IF i <= newCount _ANDALSO ANIM_SRC(i) > 0 THEN ANIM_SEL(i) = old(ANIM_SRC(i))
     NEXT i
     ANIM.wanted = newCount
     ANIM.count = _MIN(newCount, ANIM_cells%)
@@ -393,3 +420,83 @@ FUNCTION ANIM_play_advance% (t AS DOUBLE)
     ANIM_play_advance% = (steps > 0)
 END FUNCTION
 
+
+' ---------------------------------------------------------------------------
+' The strip selection (2.3)
+' ---------------------------------------------------------------------------
+
+''
+' Is frame f in the selection? With nothing selected the current frame is.
+FUNCTION ANIM_SEL_is% (f AS INTEGER)
+    IF f < 1 _ORELSE f > ANIM.count THEN EXIT FUNCTION
+    IF ANIM_SEL_count% = 0 THEN ANIM_SEL_is% = (f = ANIM.current): EXIT FUNCTION
+    ANIM_SEL_is% = (ANIM_SEL(f) <> 0)
+END FUNCTION
+
+''
+' Frames selected (0 = only the current frame counts).
+FUNCTION ANIM_SEL_count% ()
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO ANIM.count: IF ANIM_SEL(i) THEN n = n + 1
+    NEXT i
+    ANIM_SEL_count% = n
+END FUNCTION
+
+SUB ANIM_SEL_clear ()
+    DIM i AS INTEGER
+    FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_SEL(i) = FALSE: NEXT i
+    ANIM_SEL_ANCHOR = ANIM.current
+END SUB
+
+''
+' A click on frame f in the strip, as in the layers panel: plain = f is
+' current and the only one selected; Ctrl = f in / out of the selection
+' (current when it goes in); Shift = the frames from the anchor to f, f
+' current. Ctrl+Shift adds the range to the selection.
+SUB ANIM_SEL_click (f AS INTEGER, ctrl AS INTEGER, shift AS INTEGER)
+    DIM i AS INTEGER, a AS INTEGER, k AS INTEGER
+    IF f < 1 _ORELSE f > ANIM.count THEN EXIT SUB
+    IF shift THEN
+        a = ANIM_SEL_ANCHOR
+        IF a < 1 _ORELSE a > ANIM.count THEN a = ANIM.current
+        IF ctrl = 0 THEN
+            FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_SEL(i) = FALSE: NEXT i
+        END IF
+        FOR i = _MIN(a, f) TO _MAX(a, f): ANIM_SEL(i) = TRUE: NEXT i
+        ANIM_SEL_ANCHOR = a
+        ANIM.current = f
+    ELSEIF ctrl THEN
+        IF ANIM_SEL_count% = 0 THEN ANIM_SEL(ANIM.current) = TRUE ' the current frame was the selection
+        ANIM_SEL(f) = (ANIM_SEL(f) = 0)
+        IF ANIM_SEL(f) THEN
+            ANIM.current = f
+        ELSEIF f = ANIM.current THEN
+            ' it left: the nearest selected frame becomes current
+            FOR k = 1 TO ANIM.count
+                IF f - k >= 1 THEN IF ANIM_SEL(f - k) THEN ANIM.current = f - k: EXIT FOR
+                IF f + k <= ANIM.count THEN IF ANIM_SEL(f + k) THEN ANIM.current = f + k: EXIT FOR
+            NEXT k
+        END IF
+        ANIM_SEL_ANCHOR = f
+    ELSE
+        FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_SEL(i) = FALSE: NEXT i
+        ANIM_SEL(f) = TRUE
+        ANIM_SEL_ANCHOR = f
+        ANIM.current = f
+    END IF
+END SUB
+
+''
+' The frames playback plays: first..last of the selection when it holds two
+' or more frames, else all of them (0, 0).
+SUB ANIM_SEL_span (a AS INTEGER, b AS INTEGER)
+    DIM i AS INTEGER
+    a = 0: b = 0
+    IF ANIM_SEL_count% < 2 THEN EXIT SUB
+    FOR i = 1 TO ANIM.count
+        IF ANIM_SEL(i) THEN
+            IF a = 0 THEN a = i
+            b = i
+        END IF
+    NEXT i
+END SUB

@@ -195,6 +195,29 @@ press's (`ANIM_OPS_LAST_KEY / _REC`, no redo tail), the new "after" replaces the
   step stores the clipped result. Skipped for marquee / picker / zoom / pan / text / move, an active
   transform, and text / group layers; it ends when the buttons are up. Known limit: tools that commit after
   the release (polyline, bezier) are not clipped.
+- **The strip (2.3):** `ANIM_LB_strip_at%` (cell + half the gap either side). A left press runs
+  `ANIM_LB_strip_press` (R-12 via `ANIM_SEL_click`; a plain press on a frame already in a
+  multi-selection only makes it current and collapses on release - it may be a drag), then
+  `ANIM_LB_strip_hold` every frame until the release (chrome click throughout): 4 px of
+  motion without Ctrl / Shift = a drag, `sDrop` = `ANIM_LB_strip_slot%` (before the frame whose
+  left half the pointer is over), a marker between cells, past the strip's ends it scrolls a
+  frame per 0.25 s; the release sets `ANIM_MOVE_TO` and runs `ANIM_OPS_run ANIM_OP_MOVE_SEL`
+  (one undo step; refused = no step when dropped in place). The wheel over the strip
+  (`ANIM_LB_strip_wheel%`, after the layer panel in the mouse chain) scrolls a quarter of it;
+  `lastCur` makes the layout bring the current frame back only when it changes. Selected
+  frames (2+) are tinted with `ANIM_FRAME_current` at alpha &H50 and outlined.
+
+## The frame selection (`TOOLS/ANIM`, 2.3)
+
+`ANIM_SEL()` + `ANIM_SEL_ANCHOR`: pure state, unit-tested. `ANIM_SEL_is%` (nothing selected =
+the current frame is), `ANIM_SEL_count%`, `ANIM_SEL_click f, ctrl, shift` (plain: current +
+only one; Ctrl: toggle, current when it goes in, the nearest selected when the current leaves;
+Shift: anchor..f, Ctrl+Shift adds; Ctrl and plain set the anchor), `ANIM_SEL_span a, b` (first..
+last when 2+ selected - Play plays that span, R-20), `ANIM_SEL_clear`. `ANIM_apply_plan` carries
+the selection with the frames through every op (a new frame is unselected); `ANIM_reset` and an
+undo / redo of a frame op (`ANIM_OPS_restore`) clear it. Not saved, not an undo step.
+`ANIM_OP_MOVE_SEL` (10, no action id): unselected frames before `ANIM_MOVE_TO`, the selected in
+order, the rest. 2.5 / 2.7 act on this selection.
 
 ## Saved
 
@@ -214,10 +237,10 @@ gotcha 15). It also stops playback and clears the ask answer.
   - `ANIM active count current frameW frameH gutter margin cols rows fps loop gridDrawn dx dy canvasW canvasH playing previewFrame`. `dx dy` is the canvas origin on screen when the grid is drawn.
   - `ANIMC` + per frame (<= 64): `0` for an empty cell, else the CRC32 of its pixels on every moving layer. Use it to check where drawings went.
   - `ANIMP visible docked x y w h scale% hold sizeMode pendRow`
-  - `ANIMLB shown x1 y1 x2 y2 stripY stripH barY barH edY edH stripFirst stripN cellW cellH panes paneW paneH pad`, `ANIMLBC` + `x w` per transport control (1 `|<` .. 5 `>|`, 6 loop, 7 time, 8 FPS, 9 seek, 10 count, 11-13 copy / paste / cut, 14 `+`; w = 0 dropped), `ANIMLBP clipLightbox clipSheet` + `frame dx dy dw dh` per pane (its picture).
+  - `ANIMLB shown x1 y1 x2 y2 stripY stripH barY barH edY edH stripFirst stripN cellW cellH panes paneW paneH pad`, `ANIMLBC` + `x w` per transport control (1 `|<` .. 5 `>|`, 6 loop, 7 time, 8 FPS, 9 seek, 10 count, 11-13 copy / paste / cut, 14 `+`; w = 0 dropped), `ANIMLBP clipLightbox clipSheet` + `frame dx dy dw dh` per pane (its picture), `ANIMLBS dragging dropSlot anchor nSelected` + the selected frames (<= 64).
   - `ANIMPL nav r1..r6 loop rowH minusX plusX chipW pad panelW ops mode` (native px; viewport = disp + native * scale% / 100). The nav row has 5 chips (`|< < PLAY > >|`), the others 4, and the mode row 2.
 - Tests: `anim-frame-grid`, `file-anim-chunk`, `anim-numpad-keys`, `anim-menu`,
-  `anim-panel`, `anim-frame-ops`, `anim-frame-start`, `anim-playback`, `anim-lightbox` (pane / strip contents checked by each frame's mark colour in the snapshot; the floating Preview painted out), `anim-lightbox-draw` (pane clicks / strokes / rectangles land in their frame's cell - checked with `ANIMC`; the same canvas pixel as a sheet-view click; clip on / off in both views; undo). Unit:
+  `anim-panel`, `anim-frame-ops`, `anim-frame-start`, `anim-playback`, `anim-lightbox` (pane / strip contents checked by each frame's mark colour in the snapshot; the floating Preview painted out), `anim-lightbox-draw` (pane clicks / strokes / rectangles land in their frame's cell - checked with `ANIMC`; the same canvas pixel as a sheet-view click; clip on / off in both views; undo), `anim-lightbox-strip` (click / Ctrl / Shift selection, tint, Play plays the span, drag reorder of a selection / a single frame with `ANIMC` order, the drop marker, undo, wheel scroll). Unit:
   `QA/unit/anim-unit.bas`. Fixtures are built in the test with `magick` +
   `QA/fixtures/png-chunk.py put`. Run on the user profile too (`QA_USER_PROFILE=1
   QA_USER_SCREEN=1152x712@3 QA_XVFB_RES=3840x2400`); that layout has no Preview window.

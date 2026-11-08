@@ -163,8 +163,11 @@ SUB ANIM_LB_layout ()
     IF n < 1 THEN n = 1
     ANIM_LB.stripN = n
     IF ANIM_LB.stripFirst < 1 THEN ANIM_LB.stripFirst = 1
-    IF ANIM.current < ANIM_LB.stripFirst THEN ANIM_LB.stripFirst = ANIM.current
-    IF ANIM.current > ANIM_LB.stripFirst + n - 1 THEN ANIM_LB.stripFirst = ANIM.current - n + 1
+    IF ANIM.current <> ANIM_LB.lastCur THEN ' the current frame moved: bring it into view (the wheel may scroll it out)
+        IF ANIM.current < ANIM_LB.stripFirst THEN ANIM_LB.stripFirst = ANIM.current
+        IF ANIM.current > ANIM_LB.stripFirst + n - 1 THEN ANIM_LB.stripFirst = ANIM.current - n + 1
+        ANIM_LB.lastCur = ANIM.current
+    END IF
     IF ANIM_LB.stripFirst > ANIM.count - n + 1 THEN ANIM_LB.stripFirst = ANIM.count - n + 1
     IF ANIM_LB.stripFirst < 1 THEN ANIM_LB.stripFirst = 1
 
@@ -312,13 +315,23 @@ SUB ANIM_LB_render (dest AS LONG, src AS LONG)
         f = ANIM_LB.stripFirst + k
         ANIM_LB_strip_rect k, x, y, w, h
         ANIM_LB_draw_frame dest, src, f, x, y, w, h, dx, dy, dw, dh
+        IF ANIM_SEL_count% > 1 _ANDALSO ANIM_SEL(f) THEN ' in the selection: tinted
+            LINE (dx, dy)-(dx + dw - 1, dy + dh - 1), (THEME.ANIM_FRAME_current~& AND &H00FFFFFF~&) OR &H50000000~&, BF
+        END IF
         IF f = ANIM.current THEN
             LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_current~&, B
             LINE (dx - 2, dy - 2)-(dx + dw + 1, dy + dh + 1), THEME.ANIM_FRAME_current~&, B
+        ELSEIF ANIM_SEL_count% > 1 _ANDALSO ANIM_SEL(f) THEN
+            LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_current~&, B
         ELSE
             LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_border~&, B
         END IF
     NEXT k
+    ' dragging frames: where they will land
+    IF ANIM_LB.sDrag _ANDALSO ANIM_LB.sDrop >= ANIM_LB.stripFirst _ANDALSO ANIM_LB.sDrop <= ANIM_LB.stripFirst + ANIM_LB.stripN THEN
+        ANIM_LB_strip_rect ANIM_LB.sDrop - ANIM_LB.stripFirst, x, y, w, h
+        LINE (x - ANIM_LB.pad \ 2 - 2, y)-(x - ANIM_LB.pad \ 2, y + h - 1), THEME.ANIM_FRAME_current~&, BF
+    END IF
 
     ' strip frame numbers (the frame grid's font)
     ANIM_VIEW_font_ensure
@@ -425,8 +438,9 @@ END FUNCTION
 ' MOUSE_should_skip_tool_actions%: a press in the lightbox never reaches the
 ' tools (drawing in a pane: 2.2). A left press on a transport control runs it.
 SUB ANIM_LB_mouse ()
-    DIM pressed1 AS INTEGER, pressed2 AS INTEGER, k AS INTEGER
-    IF ANIM_LB_showing% = 0 THEN ANIM_LB_sheet_press: EXIT SUB
+    DIM pressed1 AS INTEGER, pressed2 AS INTEGER, k AS INTEGER, f AS INTEGER
+    IF ANIM_LB_showing% = 0 THEN ANIM_LB.sPress = 0: ANIM_LB_sheet_press: EXIT SUB
+    IF ANIM_LB.sPress THEN ANIM_LB_strip_hold: EXIT SUB ' a strip press until its release
     pressed1 = (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0)
     pressed2 = (MOUSE.B2% <> 0 _ANDALSO MOUSE.OLD_B2% = 0)
     IF pressed1 = 0 _ANDALSO pressed2 = 0 THEN EXIT SUB
@@ -440,7 +454,114 @@ SUB ANIM_LB_mouse ()
         EXIT SUB
     END IF
     MOUSE.UI_CHROME_CLICKED% = TRUE
+    f = ANIM_LB_strip_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    IF pressed1 _ANDALSO f > 0 THEN ANIM_LB_strip_press f: EXIT SUB
     IF pressed1 THEN ANIM_LB_click ANIM_LB_ctl_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+END SUB
+
+''
+' The frame whose strip cell is under viewport point (mx, my), or 0.
+FUNCTION ANIM_LB_strip_at% (mx AS INTEGER, my AS INTEGER)
+    DIM k AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    IF ANIM_LB.shown = 0 THEN EXIT FUNCTION
+    IF my < ANIM_LB.stripY _ORELSE my >= ANIM_LB.stripY + ANIM_LB.stripH THEN EXIT FUNCTION
+    FOR k = 0 TO ANIM_LB.stripN - 1
+        ANIM_LB_strip_rect k, x, y, w, h
+        IF mx >= x - ANIM_LB.pad \ 2 _ANDALSO mx < x + w + (ANIM_LB.pad + 1) \ 2 THEN
+            IF ANIM_LB.stripFirst + k <= ANIM.count THEN ANIM_LB_strip_at% = ANIM_LB.stripFirst + k
+            EXIT FUNCTION
+        END IF
+    NEXT k
+END FUNCTION
+
+''
+' The drop slot for a drag at viewport x: before the frame whose cell's
+' left half it is over (count + 1 past the last).
+FUNCTION ANIM_LB_strip_slot% (mx AS INTEGER)
+    DIM k AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, s AS INTEGER
+    s = ANIM_LB.stripFirst + ANIM_LB.stripN
+    FOR k = 0 TO ANIM_LB.stripN - 1
+        ANIM_LB_strip_rect k, x, y, w, h
+        IF mx < x + w \ 2 THEN s = ANIM_LB.stripFirst + k: EXIT FOR
+    NEXT k
+    ANIM_LB_strip_slot% = _MAX(1, _MIN(s, ANIM.count + 1))
+END FUNCTION
+
+FUNCTION ANIM_LB_ctrl% ()
+    ANIM_LB_ctrl% = (MODIFIERS.ctrl% <> 0 _ORELSE _KEYDOWN(100306) <> 0 _ORELSE _KEYDOWN(100305) <> 0)
+END FUNCTION
+
+FUNCTION ANIM_LB_shift% ()
+    ANIM_LB_shift% = (MODIFIERS.shift% <> 0 _ORELSE _KEYDOWN(100304) <> 0 _ORELSE _KEYDOWN(100303) <> 0)
+END FUNCTION
+
+''
+' A left press on frame f in the strip (R-12: the layers panel's rules).
+SUB ANIM_LB_strip_press (f AS INTEGER)
+    DIM c AS INTEGER, s AS INTEGER
+    c = ANIM_LB_ctrl%: s = ANIM_LB_shift%
+    ANIM_LB.sPress = f: ANIM_LB.sPressX = MOUSE.RAW_X%: ANIM_LB.sDrag = FALSE: ANIM_LB.sDrop = 0
+    ANIM_LB.sCollapse = FALSE
+    IF c = 0 _ANDALSO s = 0 _ANDALSO ANIM_SEL_count% > 1 _ANDALSO ANIM_SEL(f) <> 0 THEN
+        ' a press on the selection: it may be the start of a drag - collapse on release
+        ANIM_LB.sCollapse = TRUE
+        ANIM.current = f
+    ELSE
+        ANIM_SEL_click f, c, s
+    END IF
+    ANIM_LB_changed
+END SUB
+
+''
+' Every frame a strip press is held, and its release: a drag shows where the
+' selected frames will land and drops them there (one undo step).
+SUB ANIM_LB_strip_hold ()
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF MOUSE.B1% THEN
+        IF ANIM_LB.sDrag = 0 _ANDALSO ABS(MOUSE.RAW_X% - ANIM_LB.sPressX) >= 4 _ANDALSO ANIM_LB_ctrl% = 0 _ANDALSO ANIM_LB_shift% = 0 THEN
+            ANIM_LB.sDrag = TRUE: ANIM_LB.sCollapse = FALSE
+        END IF
+        IF ANIM_LB.sDrag THEN
+            ' past the strip's ends it scrolls, a frame every quarter second
+            DIM sx2 AS INTEGER, t AS DOUBLE
+            sx2 = ANIM_LB.x1 + ANIM_LB.pad + ANIM_LB.stripN * (ANIM_LB.cellW + ANIM_LB.pad)
+            t = TIMER(.001)
+            IF t >= ANIM_LB.sScrollT _ORELSE t < ANIM_LB.sScrollT - 1 THEN
+                IF MOUSE.RAW_X% < ANIM_LB.x1 + ANIM_LB.pad _ANDALSO ANIM_LB.stripFirst > 1 THEN ANIM_LB.stripFirst = ANIM_LB.stripFirst - 1: ANIM_LB.sScrollT = t + .25
+                IF MOUSE.RAW_X% >= sx2 _ANDALSO ANIM_LB.stripFirst + ANIM_LB.stripN <= ANIM.count THEN ANIM_LB.stripFirst = ANIM_LB.stripFirst + 1: ANIM_LB.sScrollT = t + .25
+            END IF
+            IF ANIM_LB_strip_slot%(MOUSE.RAW_X%) <> ANIM_LB.sDrop THEN ANIM_LB.sDrop = ANIM_LB_strip_slot%(MOUSE.RAW_X%): ANIM_LB_changed
+        END IF
+        EXIT SUB
+    END IF
+    ' released
+    IF ANIM_LB.sDrag THEN
+        ANIM_MOVE_TO = ANIM_LB.sDrop
+        ANIM_LB.sDrag = FALSE
+        ANIM_OPS_run ANIM_OP_MOVE_SEL ' nothing when dropped where they are
+    ELSEIF ANIM_LB.sCollapse THEN
+        ANIM_SEL_click ANIM_LB.sPress, FALSE, FALSE
+    END IF
+    ANIM_LB.sPress = 0: ANIM_LB.sCollapse = FALSE: ANIM_LB.sDrop = 0
+    ANIM_LB_changed
+END SUB
+
+''
+' The wheel over the strip scrolls it (R-10); TRUE = it took the wheel.
+FUNCTION ANIM_LB_strip_wheel% (mx AS INTEGER, my AS INTEGER, delta AS INTEGER)
+    DIM top AS INTEGER
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 THEN EXIT FUNCTION
+    IF my < ANIM_LB.stripY _ORELSE my >= ANIM_LB.stripY + ANIM_LB.stripH THEN EXIT FUNCTION
+    IF mx < ANIM_LB.x1 _ORELSE mx > ANIM_LB.x2 THEN EXIT FUNCTION
+    IF REGION_hit_test%(mx, my) <> REGION_CANVAS THEN EXIT FUNCTION
+    top = _MAX(1, ANIM.count - ANIM_LB.stripN + 1)
+    ANIM_LB.stripFirst = _MAX(1, _MIN(top, ANIM_LB.stripFirst + SGN(delta) * _MAX(1, ANIM_LB.stripN \ 4)))
+    ANIM_LB_changed
+    ANIM_LB_strip_wheel% = TRUE
+END FUNCTION
+
+SUB ANIM_LB_changed ()
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
 END SUB
 
 ''
@@ -485,6 +606,13 @@ FUNCTION ANIM_LB_dump$ ()
         f = ANIM_LB_pane_rect%(k, x, y, w, h)
         s = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
         d = d + DOCK_n$(f) + DOCK_n$(dx) + DOCK_n$(dy) + DOCK_n$(dw) + DOCK_n$(dh)
+    NEXT k
+    d = d + CHR$(10)
+    ' ANIMLBS dragging dropSlot anchor nSelected, then the selected frames (<= 64)
+    DIM n AS INTEGER
+    d = d + "ANIMLBS" + DOCK_n$(ANIM_LB.sDrag <> 0) + DOCK_n$(ANIM_LB.sDrop) + DOCK_n$(ANIM_SEL_ANCHOR) + DOCK_n$(ANIM_SEL_count%)
+    FOR k = 1 TO ANIM.count
+        IF ANIM_SEL(k) _ANDALSO n < 64 THEN d = d + DOCK_n$(k): n = n + 1
     NEXT k
     ANIM_LB_dump$ = d + CHR$(10)
 END FUNCTION

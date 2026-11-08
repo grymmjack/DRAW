@@ -587,8 +587,18 @@ lightbox over beside it.
 edge). ANIM → Clip Strokes to the Frame in Sheet View does the same on the sheet (off by
 default). Zooming and panning stay with the sheet view.
 
-Clicking / selecting in the strip, scrubbing the seek bar, and COPY / PASTE / CUT come next;
-elsewhere in the lightbox a click only works the transport bar.
+| Strip | Action |
+|-------|--------|
+| Click a frame | Make it current (and the only one selected) |
+| `Ctrl+click` | Add / remove a frame from the selection |
+| `Shift+click` | Select the frames from the last one clicked to this one (`Ctrl+Shift` adds them) |
+| Drag | Move the selected frames (or the frame dragged) to where you drop them - one undo step |
+| Wheel | Scroll the strip; a frame change brings the current frame back into view |
+
+With two or more frames selected, Play (`Num Enter`) plays just those (first to last).
+
+Scrubbing the seek bar and COPY / PASTE / CUT come next; elsewhere in the lightbox a click
+only works the transport bar.
 
 ---
 
