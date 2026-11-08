@@ -5,9 +5,21 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.7.0
+Current release: v2.7.1
 
 ![DRAW GUI from v2.5.0](./GUI.png)
+
+## New in 2.7.1
+
+Fixes, plus a Quantize Steps slider in the Advanced Color Picker.
+
+- **The Linux download runs on current distros again.** The 2.7.0 Linux package was built on a newer system than most people have and stopped at start with "GLIBC_2.43 not found" on Debian 13, Ubuntu 24.04 and others. It is built on Ubuntu 24.04 now.
+- **Advanced Color Picker: Quantize Steps slider** under the wheel (left end = off, up to 32 steps; Settings → Panels → Show Quantize Slider hides it). A gear at the picker's top right opens Settings at the picker's section. Dragging in the picker keeps tracking when the mouse leaves the panel.
+- **Color Mixer.** The top rows of the color square and hue bar pick colors instead of dragging the window. The FG end of the FG/BG strip follows the color you pick. The hex box takes Delete, BackSpace, arrows and Home / End, shows a BackSpace at once, and blocks DRAW's shortcuts while you type; Enter applies a valid color, and Esc, Tab or a click anywhere else leaves the box and shows the current color. Clicking into the box selects its text, so typing replaces it.
+- **Typed text stays inside its box** (Color Mixer hex, Controls FIND) instead of running over the label beside it.
+- **Aseprite:** an animated `.aseprite` file opens as its first frame, with part-transparent pixels exact. It opened with every frame painted on top of each other, and those pixels came out darker.
+- **Docking.** One border line between every column, the canvas and the Browser band (some had two lines, some none). With the Browser docked in its band, the canvas scrollbars stop at the band's edge, the Browser's X closes it instead of starting a resize, and clicking any window's close box no longer draws on the canvas under it.
+- **The Smart Shapes flyout stays on top** of the floating windows while you hold the button.
 
 ## New in 2.7.0
 
