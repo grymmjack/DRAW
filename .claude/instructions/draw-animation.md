@@ -22,6 +22,8 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 - A plain picture has `ANIM.active = FALSE`. Everything is additive: nothing changes for a
   document without frames.
 
+**Starting one:** a plain picture has no frames, so the ANIM menu greys out the frame commands until `Num +` / ANIM > Add Frame. `ASSETS/TEMPLATES/ANIMATION/*.png` (16 / 32 / 64 / 128 square x 8 frames, 320x200 x 4, 15 fps) are blank sheets with a `drAn` chunk, made by DRAW itself (`DRAW.run sheet.png --export out.draw` from a transparent PNG carrying a v1 drAn), so File > New from Template opens them with frames.
+
 ## Files
 
 | File | Role |

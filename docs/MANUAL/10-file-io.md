@@ -53,6 +53,8 @@ The **Recent Files** list holds up to 10 entries with quick-jump shortcuts `Alt+
 
 `File → New from Template…` reads from `ASSETS/TEMPLATES/` and gives you a starter canvas with appropriate dimensions, palette, and grid for common targets (NES sprite, Game Boy tile, Lospec sheet, etc.).
 
+`ASSETS/TEMPLATES/ANIMATION/` holds animation starters - 16x16, 32x32, 64x64 and 128x128 with 8 blank frames, 320x200 with 4 - that open with their frames already set up, so the ANIM menu, the lightbox (`Num 0`) and the frame keys work straight away. On any other picture, `ANIM → Add Frame` (`Num +`) makes frames 1 and 2; until then the frame commands are greyed out.
+
 <div class="page-break"></div>
 
 ## The `.draw` Format — PNG with Superpowers
