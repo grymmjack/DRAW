@@ -54,6 +54,8 @@ CONST ANIM_OP_REVERSE       = 9
 CONST ANIM_OP_LAST          = 9
 CONST ANIM_OP_MOVE_SEL      = 10 ' the selected frames, in order, to before frame ANIM_MOVE_TO (the strip's drag; no action id)
 CONST ANIM_OP_SET_COUNT     = 11 ' ANIM_COUNT_TO frames: blank ones added at the end, or the last ones dropped (the lightbox's total; no action id)
+CONST ANIM_OP_DELETE_SEL    = 12 ' the selected frames (Cut Frames; no action id)
+CONST ANIM_OP_INSERT_N      = 13 ' ANIM_COUNT_TO blank frames after the current one (Paste Frames; no action id)
 
 TYPE ANIM_OBJ
     active   AS INTEGER ' the document has a frame layout

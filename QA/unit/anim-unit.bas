@@ -298,6 +298,22 @@ ANIM_COUNT_TO = 7: check "the same total: no step", plan$(ANIM_OP_SET_COUNT), "r
 ANIM_COUNT_TO = 0: check "total 0: refused", plan$(ANIM_OP_SET_COUNT), "refused"
 ANIM_COUNT_TO = ANIM_MAX_FRAMES + 1: check "past the most frames: refused", plan$(ANIM_OP_SET_COUNT), "refused"
 
+' --- deleting the selected frames / inserting n blank ones (2.5 cut / paste) ---
+ANIM.current = 3: ANIM_SEL_clear
+check "nothing selected: delete the current frame", plan$(ANIM_OP_DELETE_SEL), "6 3:1 2 4 5 6 7"
+ANIM_SEL_click 2, FALSE, FALSE: ANIM_SEL_click 4, FALSE, TRUE ' 2-4, current 4
+check "2-4 cut: current is the frame after them", plan$(ANIM_OP_DELETE_SEL), "4 2:1 5 6 7"
+ANIM_SEL_click 6, FALSE, FALSE: ANIM_SEL_click 7, FALSE, TRUE
+check "6-7 cut: current is the last frame left", plan$(ANIM_OP_DELETE_SEL), "5 5:1 2 3 4 5"
+ANIM_SEL_click 1, FALSE, FALSE: ANIM_SEL_click 7, FALSE, TRUE
+check "all of them: refused", plan$(ANIM_OP_DELETE_SEL), "refused"
+ANIM_SEL_clear: ANIM.current = 3: ANIM_COUNT_TO = 2
+check "insert 2 after frame 3", plan$(ANIM_OP_INSERT_N), "9 4:1 2 3 0 0 4 5 6 7"
+ANIM.current = 7: ANIM_COUNT_TO = 1
+check "insert 1 after the last", plan$(ANIM_OP_INSERT_N), "8 8:1 2 3 4 5 6 7 0"
+ANIM_COUNT_TO = 0: check "insert 0: refused", plan$(ANIM_OP_INSERT_N), "refused"
+ANIM_COUNT_TO = ANIM_MAX_FRAMES: check "insert past the most frames: refused", plan$(ANIM_OP_INSERT_N), "refused"
+
 PRINT PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
 

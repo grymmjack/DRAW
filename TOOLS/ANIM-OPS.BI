@@ -31,5 +31,20 @@ CONST ANIM_ACT_MOVE_EARLIER   = 2516
 CONST ANIM_ACT_MOVE_LATER     = 2517
 CONST ANIM_ACT_REVERSE        = 2518
 
+' Copy / cut / paste frames (2.5): the selected frames ride the OS clipboard
+' as one picture - a column per frame, a row per pixel layer (in slot order) -
+' with the text line "DRAWFRAMES1|w|h|frames|layers|id|hold,..." in a header
+' strip on top (ANIM_OPS_clip_pack&; [Linux] the clipboard holds a picture OR
+' text, so the line can't ride _CLIPBOARD$). The copy is also kept here
+' without the strip, so a paste in the same window uses the exact pixels.
+CONST ANIM_ACT_COPY_FRAMES       = 2523
+CONST ANIM_ACT_CUT_FRAMES        = 2524
+CONST ANIM_ACT_PASTE_FRAMES      = 2525 ' as new frames after the current one
+CONST ANIM_ACT_PASTE_FRAMES_OVER = 2526 ' over the frames from the first selected one
+CONST ANIM_CLIP_MAGIC$ = "DRAWFRAMES1"
+DIM SHARED ANIM_CLIP_IMG AS LONG        ' the last copy's image (0 none)
+DIM SHARED ANIM_CLIP_META AS STRING     ' and its text line
+DIM SHARED ANIM_OPS_STEP_NAME AS STRING     ' ANIM_OPS_run: the undo step's name instead of the op's ("" = the op's)
+
 DIM SHARED ANIM_OPS_LAST_KEY AS LONG    ' the panel press whose undo step is on top (ANIM_OPS_record)
 DIM SHARED ANIM_OPS_LAST_REC AS INTEGER ' and that step's record

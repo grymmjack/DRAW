@@ -86,3 +86,4 @@
 - [QA user-profile window cap](qa-user-profile-placement-race.md) — [Linux] 1152x712@3 user-profile run aborts "3456x1944" on 3840x2160: DRAW caps the startup window at 90% of the desktop; use QA_XVFB_RES=3840x2400
 - [_KEYHIT drained after render](keyhit-drained-after-render.md) — DRAW.BAS k& = _KEYHIT almost never sees keys (post-render drain); hook INKEY$ / _KEYDOWN edges instead; raw xdotool alt+key too fast, use harness key
 - [Animation project](project-animation.md) — branch animation, PLANS/ANIMATION.md; canvas = sprite sheet; requirements via field kit artifact
+- [Clipboard picture OR text](qb64pe-clipboard-image-or-text.md) — [Linux] _CLIPBOARD$ after _CLIPBOARDIMAGE drops the image (Copy Layer 715 affected); palette+tRNS PNG misread off the clipboard

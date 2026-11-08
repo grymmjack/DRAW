@@ -48,7 +48,8 @@ ROW_PANEL=9 # Animation Panel, then a divider
 ROW_FIRST=$(( 9 + 12 + 5 )); ROW_PREV=$(( ROW_FIRST + 12 )); ROW_NEXT=$(( ROW_FIRST + 24 )); ROW_LAST=$(( ROW_FIRST + 36 ))
 ROW_PLAY=$(( ROW_LAST + 12 ))                    # Play (1.9), then a divider
 ROW_ADD=$(( ROW_PLAY + 12 + 5 ))                 # Add Frame .. Delete Frame (6), divider,
-ROW_GRID=$(( ROW_ADD + 6 * 12 + 5 + 3 * 12 + 5 )) # Move Earlier / Later / Reverse, divider
+ROW_GRID=$(( ROW_ADD + 6 * 12 + 5 + 3 * 12 + 5 + 4 * 12 + 5 )) # Move Earlier / Later / Reverse, divider,
+                                                  # Copy / Cut / Paste as New / Paste Over (2.5), divider
 
 info "Launching DRAW with a 64x32 sheet of 16x16 frames (current 3)"
 draw_quit

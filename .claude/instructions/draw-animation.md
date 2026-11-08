@@ -46,6 +46,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2520 | Lightbox panes 3 → 5 → 7 (`CFG.LIGHTBOX_PANES`, Num *) |
 | 2521 | Clip strokes to the frame in the lightbox (`CFG.CLIP_FRAME_LIGHTBOX`, on by default) |
 | 2522 | Clip strokes to the frame in sheet view (`CFG.CLIP_FRAME_SHEET`, off by default) |
+| 2523-2526 | Copy / Cut / Paste Frames as New / Paste Frames Over (`ANIM_OPS_clip_action`, 2.5) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
 Grep before adding one (CLAUDE.md gotcha 17).
@@ -218,7 +219,25 @@ press's (`ANIM_OPS_LAST_KEY / _REC`, no redo tail), the new "after" replaces the
   digits type). "5" = go to 5, "5/9" = 9 frames and go to 5, "/9" = only the total
   (`ANIM_OP_SET_COUNT` + `ANIM_COUNT_TO`: blanks added at the end, or the last dropped). A
   smaller total that drops drawn frames (`ANIM_OPS_drawn_in%`) asks first in the status bar
-  (Enter drops, Esc keeps; R-16); always undoable. COPY / PASTE / CUT: 2.5.
+  (Enter drops, Esc keeps; R-16); always undoable. COPY / PASTE / CUT run 2523 / 2525 / 2524
+  (Shift+PASTE = 2526, over).
+- **Copy / cut / paste frames (2.5, `TOOLS/ANIM-OPS`):** the selected frames (else the
+  current) go to the OS clipboard as ONE picture: a column per frame, a row per pixel layer
+  (`ANIM_OPS_moves%` slot order), with the line `DRAWFRAMES1|w|h|frames|layers|id|hold,...` in a
+  header strip on top (`ANIM_OPS_clip_pack&` / `ANIM_OPS_clip_meta$`: opaque pixels, 3 bytes
+  each, pixel 0 = "DF1", pixel 1 = length hi / lo / header rows). **[Linux] the X clipboard holds
+  a picture OR text** - setting `_CLIPBOARD$` after `_CLIPBOARDIMAGE` drops the picture (probed
+  2026-11-07; Copy Layer 715 has the same limit), so the line can't ride the text clipboard. The
+  copy is also kept un-stripped in `ANIM_CLIP_IMG` / `ANIM_CLIP_META`: a paste whose header
+  matches it uses the exact pixels; an empty OS clipboard falls back to it. Paste as new =
+  `ANIM_OP_INSERT_N` (`ANIM_COUNT_TO` blank frames after the selection's last frame) then the
+  pixels; over = from the first selected frame, growing the count (`ANIM_OP_SET_COUNT`) when they
+  run past the end. Row r goes to the r-th pixel layer, extra rows onto the last one; another
+  frame size pastes top-left, cropped. Holds ride along. One undo step (`ANIM_OPS_record`); the
+  pasted frames end up selected. Cut = copy + `ANIM_OP_DELETE_SEL` named "Cut Frames"
+  (`ANIM_OPS_STEP_NAME` overrides the op's label). **[Linux] QB64-PE's `_CLIPBOARDIMAGE` misreads
+  a palette PNG with tRNS** (color type 3): pixels arrive shifted, as if RGBA were read as RGB;
+  RGBA / RGB PNGs read fine - QA builds its "other window" picture as `PNG32:`.
 
 ## The frame selection (`TOOLS/ANIM`, 2.3)
 

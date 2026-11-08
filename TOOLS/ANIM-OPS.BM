@@ -66,11 +66,11 @@ SUB ANIM_OPS_run (op AS INTEGER)
     ANIM_apply_plan newCount, newCur
 
     after = ANIM_OPS_snapshot$(TRUE)
-    ANIM_OPS_record before, after, ANIM_OPS_label$(op), 0
+    IF ANIM_OPS_STEP_NAME <> "" THEN ANIM_OPS_record before, after, ANIM_OPS_STEP_NAME, 0 ELSE ANIM_OPS_record before, after, ANIM_OPS_label$(op), 0
 
     BLEND_invalidate_cache
     INVALIDATE_canvas
-    STATUS_flash ANIM_OPS_label$(op) + ": frame" + STR$(ANIM.current) + " of" + STR$(ANIM.count)
+    STATUS_flash _IIF(ANIM_OPS_STEP_NAME <> "", ANIM_OPS_STEP_NAME, ANIM_OPS_label$(op)) + ": frame" + STR$(ANIM.current) + " of" + STR$(ANIM.count)
 END SUB
 
 FUNCTION ANIM_OPS_label$ (op AS INTEGER)
@@ -86,6 +86,8 @@ FUNCTION ANIM_OPS_label$ (op AS INTEGER)
         CASE ANIM_OP_REVERSE: ANIM_OPS_label$ = "Reverse Frames"
         CASE ANIM_OP_MOVE_SEL: ANIM_OPS_label$ = _IIF(ANIM_SEL_count% > 1, "Move Frames", "Move Frame")
         CASE ANIM_OP_SET_COUNT: ANIM_OPS_label$ = "Frame Count"
+        CASE ANIM_OP_DELETE_SEL: ANIM_OPS_label$ = _IIF(ANIM_SEL_count% > 1, "Delete Frames", "Delete Frame")
+        CASE ANIM_OP_INSERT_N: ANIM_OPS_label$ = "Insert Frames"
     END SELECT
 END FUNCTION
 
@@ -424,3 +426,280 @@ FUNCTION ANIM_OPS_drawn_in% (a AS INTEGER, b AS INTEGER)
     NEXT n
     ANIM_OPS_drawn_in% = cnt
 END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Copy / cut / paste frames (2.5)
+' ---------------------------------------------------------------------------
+
+''
+' Actions 2523 - 2526 (ANIM menu, command palette, the lightbox's COPY /
+' PASTE / CUT - Shift+PASTE = over).
+SUB ANIM_OPS_clip_action (act AS INTEGER)
+    SELECT CASE act
+        CASE ANIM_ACT_COPY_FRAMES: ANIM_OPS_copy_frames FALSE
+        CASE ANIM_ACT_CUT_FRAMES: ANIM_OPS_copy_frames TRUE
+        CASE ANIM_ACT_PASTE_FRAMES: ANIM_OPS_paste_frames FALSE
+        CASE ANIM_ACT_PASTE_FRAMES_OVER: ANIM_OPS_paste_frames TRUE
+    END SELECT
+END SUB
+
+''
+' The pixel layers frames carry, in slot order (ANIM_OPS_moves%).
+FUNCTION ANIM_OPS_layer_count% ()
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO MAX_LAYERS: IF ANIM_OPS_moves%(i) THEN n = n + 1
+    NEXT i
+    ANIM_OPS_layer_count% = n
+END FUNCTION
+
+''
+' Copy the selected frames (the current one when none is) to the clipboard;
+' cut: then delete them (one undo step).
+SUB ANIM_OPS_copy_frames (cut AS INTEGER)
+    DIM n AS INTEGER, L AS INTEGER, f AS INTEGER, k AS INTEGER, i AS INTEGER, row AS INTEGER
+    DIM img AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG, holds AS STRING, why AS STRING
+    STATIC clipId AS LONG
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "No frames to copy": EXIT SUB
+    IF ANIM_OPS_busy$ <> "" THEN STATUS_flash ANIM_OPS_busy$: EXIT SUB
+    IF cut THEN
+        why = ANIM_op_refusal$(ANIM_OP_DELETE_SEL)
+        IF why <> "" THEN STATUS_flash why + " - nothing cut": EXIT SUB
+    END IF
+    FOR f = 1 TO ANIM.count: IF ANIM_SEL_is%(f) THEN n = n + 1
+    NEXT f
+    L = ANIM_OPS_layer_count%
+    IF n < 1 _ORELSE L < 1 THEN STATUS_flash "No frames to copy": EXIT SUB
+    img = _NEWIMAGE(n * ANIM.frameW, L * ANIM.frameH, 32)
+    IF img >= -1 THEN STATUS_flash "Not enough memory to copy the frames": EXIT SUB
+    _DONTBLEND img
+    k = 0
+    FOR f = 1 TO ANIM.count
+        IF ANIM_SEL_is%(f) THEN
+            IF ANIM_cell_rect%(f, x, y, w, h) THEN
+                row = 0
+                FOR i = 1 TO MAX_LAYERS
+                    IF ANIM_OPS_moves%(i) THEN
+                        _PUTIMAGE (k * ANIM.frameW, row * ANIM.frameH), LAYERS(i).imgHandle&, img, (x + LAYERS(i).apronW%, y + LAYERS(i).apronH%)-(x + LAYERS(i).apronW% + w - 1, y + LAYERS(i).apronH% + h - 1)
+                        row = row + 1
+                    END IF
+                NEXT i
+            END IF
+            holds = holds + _IIF(holds = "", "", ",") + _TRIM$(STR$(ANIM_hold%(f)))
+            k = k + 1
+        END IF
+    NEXT f
+    _BLEND img
+    clipId = clipId + 1
+    IF ANIM_CLIP_IMG < -1 THEN _FREEIMAGE ANIM_CLIP_IMG
+    ANIM_CLIP_IMG = img
+    ANIM_CLIP_META = ANIM_CLIP_MAGIC$ + "|" + _TRIM$(STR$(ANIM.frameW)) + "|" + _TRIM$(STR$(ANIM.frameH)) + "|" + _TRIM$(STR$(n)) + "|" + _TRIM$(STR$(L)) + "|" + _TRIM$(STR$(INST.id)) + "." + _TRIM$(STR$(clipId)) + "." + _TRIM$(STR$(CLNG(TIMER * 100))) + "|" + holds
+    ' the OS clipboard, for another DRAW window: the picture alone, its text line
+    ' in a header strip on top ([Linux] setting _CLIPBOARD$ as well drops the image)
+    DIM packed AS LONG
+    packed = ANIM_OPS_clip_pack&(img, ANIM_CLIP_META)
+    IF packed < -1 THEN _CLIPBOARDIMAGE = packed: _FREEIMAGE packed
+    IF cut THEN
+        ANIM_OPS_STEP_NAME = _IIF(n > 1, "Cut Frames", "Cut Frame")
+        ANIM_OPS_run ANIM_OP_DELETE_SEL
+        ANIM_OPS_STEP_NAME = ""
+    ELSE
+        STATUS_flash "Copied" + STR$(n) + " frame" + _IIF(n > 1, "s", "") + " (" + _TRIM$(STR$(ANIM.frameW)) + "x" + _TRIM$(STR$(ANIM.frameH)) + ")"
+    END IF
+    SOUND_play SND_LAYER_OP
+END SUB
+
+''
+' The frames picture with the text line on top for the OS clipboard: header
+' rows of opaque pixels, 3 bytes each (R G B) - pixel 0 = "DF1", pixel 1 =
+' length hi, lo, header rows - then the text. At least 4 pixels wide.
+FUNCTION ANIM_OPS_clip_pack& (img AS LONG, meta AS STRING)
+    DIM w AS LONG, hr AS LONG, packImg AS LONG, b AS STRING, i AS LONG, oldDest AS LONG
+    w = _MAX(_WIDTH(img), 4)
+    b = "DF1" + CHR$(LEN(meta) \ 256) + CHR$(LEN(meta) AND 255) + CHR$(0) + meta
+    hr = (LEN(b) + 3 * w - 1) \ (3 * w)
+    MID$(b, 6, 1) = CHR$(hr)
+    b = b + STRING$(hr * w * 3 - LEN(b), 0)
+    packImg = _NEWIMAGE(w, hr + _HEIGHT(img), 32)
+    IF packImg >= -1 THEN EXIT FUNCTION
+    oldDest = _DEST
+    _DEST packImg
+    FOR i = 0 TO hr * w - 1
+        PSET (i MOD w, i \ w), _RGBA32(ASC(b, i * 3 + 1), ASC(b, i * 3 + 2), ASC(b, i * 3 + 3), 255)
+    NEXT i
+    _DEST oldDest
+    _DONTBLEND packImg
+    _PUTIMAGE (0, hr), img, packImg
+    _BLEND packImg
+    ANIM_OPS_clip_pack& = packImg
+END FUNCTION
+
+''
+' The text line a clip_pack picture carries ("" = not frames); hr = its header rows.
+FUNCTION ANIM_OPS_clip_meta$ (img AS LONG, hr AS LONG)
+    DIM w AS LONG, i AS LONG, c AS _UNSIGNED LONG, b AS STRING, n AS LONG, oldSrc AS LONG
+    hr = 0
+    w = _WIDTH(img)
+    IF w < 4 _ORELSE _HEIGHT(img) < 2 THEN EXIT FUNCTION
+    oldSrc = _SOURCE
+    _SOURCE img
+    FOR i = 0 TO 1
+        c = POINT(i, 0)
+        b = b + CHR$(_RED32(c)) + CHR$(_GREEN32(c)) + CHR$(_BLUE32(c))
+    NEXT i
+    IF LEFT$(b, 3) = "DF1" THEN
+        n = ASC(b, 4) * 256 + ASC(b, 5): hr = ASC(b, 6)
+        IF hr < 1 _ORELSE hr >= _HEIGHT(img) _ORELSE 6 + n > hr * w * 3 THEN
+            hr = 0
+        ELSE
+            FOR i = 2 TO (6 + n + 2) \ 3 - 1
+                c = POINT(i MOD w, i \ w)
+                b = b + CHR$(_RED32(c)) + CHR$(_GREEN32(c)) + CHR$(_BLUE32(c))
+            NEXT i
+            b = MID$(b, 7, n)
+            IF LEFT$(b, LEN(ANIM_CLIP_MAGIC$) + 1) = ANIM_CLIP_MAGIC$ + "|" THEN ANIM_OPS_clip_meta$ = b ELSE hr = 0
+        END IF
+    END IF
+    _SOURCE oldSrc
+END FUNCTION
+
+''
+' Field n (0-based) of a "|" line.
+FUNCTION ANIM_OPS_field$ (t AS STRING, n AS INTEGER)
+    DIM i AS INTEGER, p AS LONG, q AS LONG
+    p = 1
+    FOR i = 1 TO n
+        p = INSTR(p, t, "|"): IF p = 0 THEN EXIT FUNCTION
+        p = p + 1
+    NEXT i
+    q = INSTR(p, t, "|"): IF q = 0 THEN q = LEN(t) + 1
+    ANIM_OPS_field$ = MID$(t, p, q - p)
+END FUNCTION
+
+''
+' Paste the clipboard's frames: as new frames after the current one, or over
+' the frames from the first selected one (more than there are: added at the
+' end). Frame row r goes to the r-th pixel layer here; rows past the last
+' layer go onto it. A different frame size: pasted at each cell's top left,
+' cropped. One undo step; the pasted frames end up selected.
+SUB ANIM_OPS_paste_frames (over AS INTEGER)
+    DIM meta AS STRING, img AS LONG, own AS INTEGER, fw AS INTEGER, fh AS INTEGER, n AS INTEGER, L AS INTEGER
+    DIM before AS STRING, after AS STRING, why AS STRING, start AS INTEGER, k AS INTEGER, f AS INTEGER
+    DIM newCount AS INTEGER, newCur AS INTEGER, oldCount AS INTEGER, newH AS LONG, hs AS STRING
+    DIM i AS INTEGER, row AS INTEGER, lastSlot AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG
+    DIM cw AS LONG, ch AS LONG, oldDest AS LONG, extra AS INTEGER
+    DIM r2 AS INTEGER, hv AS INTEGER, cp AS LONG, hdr AS LONG
+
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "Paste frames into a sheet with frames (set a frame size first)": EXIT SUB
+    IF ANIM_OPS_busy$ <> "" THEN STATUS_flash ANIM_OPS_busy$: EXIT SUB
+    ' the OS clipboard's picture: frames when it carries the header (any DRAW window)
+    img = _CLIPBOARDIMAGE
+    IF img < -1 THEN meta = ANIM_OPS_clip_meta$(img, hdr)
+    IF meta <> "" _ANDALSO meta = ANIM_CLIP_META _ANDALSO ANIM_CLIP_IMG < -1 THEN
+        _FREEIMAGE img: img = _COPYIMAGE(ANIM_CLIP_IMG, 32): hdr = 0 ' this window's own copy: the exact pixels
+    ELSEIF meta = "" THEN
+        own = (img >= -1 _ANDALSO _CLIPBOARD$ = "" _ANDALSO ANIM_CLIP_IMG < -1) ' an empty OS clipboard: this window's last copy
+        IF img < -1 THEN _FREEIMAGE img
+        img = 0
+        IF own = 0 THEN STATUS_flash "The clipboard holds no frames - Copy Frames first": EXIT SUB
+        meta = ANIM_CLIP_META: img = _COPYIMAGE(ANIM_CLIP_IMG, 32): hdr = 0
+    END IF
+    IF img >= -1 THEN STATUS_flash "Not enough memory to paste the frames": EXIT SUB
+    fw = VAL(ANIM_OPS_field$(meta, 1)): fh = VAL(ANIM_OPS_field$(meta, 2))
+    n = VAL(ANIM_OPS_field$(meta, 3)): L = VAL(ANIM_OPS_field$(meta, 4))
+    IF fw < 1 _ORELSE fh < 1 _ORELSE n < 1 _ORELSE L < 1 _ORELSE n > ANIM_MAX_FRAMES _ORELSE L > MAX_LAYERS THEN _FREEIMAGE img: STATUS_flash "The clipboard's frames can't be read": EXIT SUB
+    IF _WIDTH(img) < n * fw _ORELSE _HEIGHT(img) <> hdr + L * fh THEN _FREEIMAGE img: STATUS_flash "The clipboard's frames don't match their picture": EXIT SUB
+
+    ' where they go
+    start = 0
+    FOR f = 1 TO ANIM.count
+        IF start = 0 _ANDALSO ANIM_SEL_is%(f) THEN start = f
+    NEXT f
+    IF start = 0 THEN start = ANIM.current
+    IF over THEN
+        extra = _MAX(0, start + n - 1 - ANIM.count)
+    ELSE
+        ANIM_COUNT_TO = n
+        FOR f = ANIM.count TO 1 STEP -1 ' after the selection (its last frame)
+            IF ANIM_SEL_is%(f) THEN ANIM.current = f: EXIT FOR
+        NEXT f
+        why = ANIM_op_refusal$(ANIM_OP_INSERT_N)
+        IF why <> "" THEN _FREEIMAGE img: STATUS_flash why: EXIT SUB
+    END IF
+    IF over _ANDALSO extra > 0 THEN
+        ANIM_COUNT_TO = ANIM.count + extra
+        why = ANIM_op_refusal$(ANIM_OP_SET_COUNT)
+        IF why <> "" THEN _FREEIMAGE img: STATUS_flash why: EXIT SUB
+    END IF
+    ANIM_play_stop
+
+    before = ANIM_OPS_snapshot$(TRUE)
+    oldCount = ANIM.count
+    IF over = 0 _ORELSE extra > 0 THEN
+        IF over THEN
+            IF ANIM_plan%(ANIM_OP_SET_COUNT, newCount, newCur) = 0 THEN _FREEIMAGE img: EXIT SUB
+        ELSE
+            IF ANIM_plan%(ANIM_OP_INSERT_N, newCount, newCur) = 0 THEN _FREEIMAGE img: EXIT SUB
+            start = newCur
+        END IF
+        newH = ANIM_sheet_h&(newCount)
+        IF newH > SCRN.canvasH& THEN ANIM_OPS_resize_keep_view SCRN.canvasW&, newH
+        ANIM_OPS_move_cells oldCount, newCount
+        ANIM_apply_plan newCount, newCur
+    END IF
+
+    ' the pixels: frame k, row r -> cell (start + k), r-th pixel layer
+    FOR i = 1 TO MAX_LAYERS: IF ANIM_OPS_moves%(i) THEN lastSlot = i
+    NEXT i
+    oldDest = _DEST
+    FOR k = 0 TO n - 1
+        f = start + k
+        IF ANIM_cell_rect%(f, x, y, w, h) THEN
+            cw = _MIN(w, fw): ch = _MIN(h, fh)
+            row = 0
+            FOR i = 1 TO MAX_LAYERS
+                IF ANIM_OPS_moves%(i) THEN
+                    _DEST LAYERS(i).imgHandle&
+                    _DONTBLEND LAYERS(i).imgHandle&
+                    LINE (x + LAYERS(i).apronW%, y + LAYERS(i).apronH%)-STEP(w - 1, h - 1), _RGBA32(0, 0, 0, 0), BF
+                    IF row < L THEN
+                        _PUTIMAGE (x + LAYERS(i).apronW%, y + LAYERS(i).apronH%), img, LAYERS(i).imgHandle&, (k * fw, hdr + row * fh)-(k * fw + cw - 1, hdr + row * fh + ch - 1)
+                    END IF
+                    _BLEND LAYERS(i).imgHandle&
+                    IF i = lastSlot THEN ' rows past the last layer here go onto it
+                        FOR r2 = row + 1 TO L - 1
+                            _PUTIMAGE (x + LAYERS(i).apronW%, y + LAYERS(i).apronH%), img, LAYERS(i).imgHandle&, (k * fw, hdr + r2 * fh)-(k * fw + cw - 1, hdr + r2 * fh + ch - 1)
+                        NEXT r2
+                    END IF
+                    LAYERS(i).contentDirty% = TRUE
+                    SAFE_FREEIMAGE LAYERS(i).apronCacheImg&: LAYERS(i).apronCacheImg& = 0
+                    LAYERS(i).apronCacheValid% = FALSE
+                    SYMBOL_mark_parent_dirty i
+                    row = row + 1
+                END IF
+            NEXT i
+        END IF
+    NEXT k
+    _DEST oldDest
+    ' holds, from the comma list in field 6
+    hs = ANIM_OPS_field$(meta, 6)
+    FOR k = 0 TO n - 1
+        cp = INSTR(hs, ",")
+        IF cp THEN hv = VAL(LEFT$(hs, cp - 1)): hs = MID$(hs, cp + 1) ELSE hv = VAL(hs): hs = ""
+        IF start + k <= ANIM.count THEN ANIM_set_hold start + k, _MAX(1, hv)
+    NEXT k
+    _FREEIMAGE img
+
+    ' the pasted frames are the selection, the first current
+    ANIM_SEL_clear
+    FOR k = 0 TO n - 1
+        IF start + k <= ANIM.count THEN ANIM_SEL(start + k) = TRUE
+    NEXT k
+    ANIM.current = start: ANIM_SEL_ANCHOR = start
+
+    after = ANIM_OPS_snapshot$(TRUE)
+    ANIM_OPS_record before, after, _IIF(over, "Paste Frames Over", "Paste Frames"), 0
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    STATUS_flash _IIF(over, "Pasted over", "Pasted") + STR$(n) + " frame" + _IIF(n > 1, "s", "") + " at frame" + STR$(start) + _IIF(fw <> ANIM.frameW _ORELSE fh <> ANIM.frameH, " (another frame size: top left, cropped)", "")
+    SOUND_play SND_NEW_LAYER
+END SUB

@@ -551,7 +551,8 @@ Main-row digits keep setting opacity; `Alt+Home` / `Alt+End` no longer flip.
 
 **ANIM menu:** Animation Panel · First / Previous / Next / Last Frame · Play · Add Frame ·
 Add Blank Frame · Insert Frame Before / After · Duplicate Frame · Delete Frame · Move Frame
-Earlier / Later · Reverse Frames · Frame Grid · Preview Shows Frame · Lightbox · Lightbox
+Earlier / Later · Reverse Frames · Copy Frames · Cut Frames · Paste Frames as New · Paste
+Frames Over · Frame Grid · Preview Shows Frame · Lightbox · Lightbox
 Panes 3 / 5 / 7 · Clip Strokes to the Frame in the Lightbox · Clip Strokes to the Frame in
 Sheet View. (Also View → Frame Grid
 and View → Animation Panel; every item is in the command palette.)
@@ -600,7 +601,12 @@ default). Zooming and panning stay with the sheet view.
 
 With two or more frames selected, Play (`Num Enter`) plays just those (first to last).
 
-COPY / PASTE / CUT come next; elsewhere in the lightbox a click only works the transport bar.
+**COPY / PASTE / CUT** (the transport bar, or the ANIM menu): COPY puts the selected frames
+(or the current one) on the clipboard; PASTE inserts them as new frames after the selection;
+`Shift`+PASTE pastes over the frames from the first selected one (adding frames past the end);
+CUT copies then deletes them. Each is one undo step, the pasted frames end up selected, and
+another DRAW window can paste them too. Elsewhere in the lightbox a click only works the
+transport bar.
 
 ---
 
