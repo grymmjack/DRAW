@@ -719,7 +719,8 @@ sized against the frame and placed in it; what spills past the frame's edges is 
 each selected frame about its own centre (cut off at its edges). Fill, global fill and the Magic Wand stop
 at the edges of the frame you click in. Select From Current Layer / Selected Layers take only the
 current frame's pixels; a marquee stops at the edges of the frame the drag began in; a moved
-selection or paste is cut off at the frame's edges when it lands (with clip to frame on).
+selection or paste is cut off at the frame's edges when it lands (with clip to frame on). New
+Text Layer starts at the frame's centre, and text wraps at the frame's right edge.
 
 ---
 

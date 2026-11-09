@@ -413,12 +413,17 @@ frame's cell (TRUE), else `0, 0, canvasW, canvasH`. Done so far:
   buffer when the lightbox clips to the frame (`CFG.CLIP_FRAME_LIGHTBOX`), `ANIM_CV_keep_end`
   puts back everything outside the current cell after the stamp. The multi-layer sibling path
   is not clipped yet. Test `anim-lightbox-select.sh`.
+- **Text:** New Text Layer (712) starts at the cell's centre; `TEXT_add_char`'s auto-wrap and
+  `TEXT_char_mode_set_cursor`'s column limit use the right edge of the cell the text starts in
+  (`ANIM_CV_fill_box` on `startX / startY`). Lines still run on below the cell's bottom. Dump
+  `ANIMTX startX startY x y w h` (the current text layer; its pixels' bounds). Test
+  `anim-lightbox-text.sh`.
 - Dump `ANIMCV guidesOn snapOn moveX moveY moveW moveH` + the last pane-move guide step (offset
   in, guides v / h, snap dx / dy, offset out). Test `anim-lightbox-canvas.sh` (fixture frames 2-5
   are frame 1 aligned right / centred / bottom / snapped right + top).
   Test `anim-lightbox-canvas-edit.sh` (Select All + Delete, Cut with no selection, Paste back,
   a symmetric dot in frame 3 = fixture frame 4).
-- Still to do (the audit, TASKS-ANIMATION-2 F11 k-o): text, centred effects, gradient / grid origin,
+- Still to do (the audit, TASKS-ANIMATION-2 F11 l-o): centred effects, gradient / grid origin,
   copy / paste layer, crop / analyzer / AI size / ref image.
 
 ## Apply to the selected frames (2.7)
