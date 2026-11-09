@@ -580,7 +580,8 @@ The **Animate** workspace (`Ctrl+Shift+W`, `anim`) opens it with onion skin, the
 The work area shows the frames instead of the sheet: a **strip** of frames along the top
 (the current one outlined; it scrolls to keep it in view), the **transport bar**, and 3 / 5 / 7
 **panes** (`Num *`) with the current frame in the middle and the frames before / after it
-round it. The frame keys, Play and frame operations work as in sheet view. A floating window
+round it. You can draw in any pane: the one your stroke goes into (under the pointer) has a
+thick magenta ring with a dashed edge (theme `ANIM_FRAME_DRAWING`). The frame keys, Play and frame operations work as in sheet view. A floating window
 parked on the work area's left or right edge over the strip (a Color Mixer, say) moves the
 lightbox over beside it.
 

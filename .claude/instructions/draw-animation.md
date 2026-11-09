@@ -220,6 +220,14 @@ The **Animate** built-in workspace (L.2, `ASSETS/WORKSPACES/animate.workspace`) 
   pane, else the one under the pointer, else the middle one (`vPane`). Pop puts the real view
   back; a zoom or pan the handler made in the pane view is kept as the lightbox's own first
   (below).
+- **The drawing pane (F2, field kit T-7):** every pane takes strokes, so the pane a stroke goes
+  into - `strokePane` mid-stroke, else `ANIM_LB_pane_at%` under the pointer on `REGION_CANVAS`
+  (none while playing) - is `ANIM_LB.drawPane`, tracked by `ANIM_LB_draw_pane_track` (end of
+  `ANIM_LB_view_pop`, every frame; it dirties the scene only when the pane changes).
+  `ANIM_LB_draw_pane_ring` draws 2 px of theme `ANIM_FRAME_DRAWING` (magenta, 255,70,200) plus a
+  dashed (`&HF0F0` over black) outer px outside the outline already there (the current frame's
+  2 px blue); its label turns that colour. A theme without the key falls back to magenta. Dump:
+  `ANIMLB ... pad drawPane`. QA: `anim-lightbox-drawpane`.
 - **Shift crosshair (field kit T-23):** `RENDER_crosshair_and_command_palette` draws it only
   when the pointer is over pane `ANIM_LB.vPane` (REGION_CANVAS), between
   `ANIM_LB_overlay_begin%` / `_end` - the pane's view, clipped to the pane; never over the strip
@@ -770,7 +778,7 @@ gotcha 15). It also stops playback and clears the ask answer.
   - `ANIM active count current frameW frameH gutter margin cols rows fps loop gridDrawn dx dy canvasW canvasH playing previewFrame`. `dx dy` is the canvas origin on screen when the grid is drawn.
   - `ANIMC` + per frame (<= 64): `0` for an empty cell, else the CRC32 of its pixels on every moving layer. Use it to check where drawings went.
   - `ANIMP visible docked x y w h scale% hold sizeMode pendRow`
-  - `ANIMLB shown x1 y1 x2 y2 stripY stripH barY barH edY edH stripFirst stripN cellW cellH panes paneW paneH pad`, `ANIMLBC` + `x w` per transport control (1 `|<` .. 5 `>|`, 6 loop, 7 time, 8 FPS, 9 seek, 10 count, 11-13 copy / paste / cut, 14 `+`; w = 0 dropped), `ANIMLBP clipLightbox clipSheet` + `frame dx dy dw dh` per pane (its picture), `ANIMLBS dragging dropSlot anchor nSelected` + the selected frames (<= 64), `ANIMLBE editing confirmTo menuOpen menuHover seekHeld menuX menuY menuW text` (`-` = empty).
+  - `ANIMLB shown x1 y1 x2 y2 stripY stripH barY barH edY edH stripFirst stripN cellW cellH panes paneW paneH pad drawPane`, `ANIMLBC` + `x w` per transport control (1 `|<` .. 5 `>|`, 6 loop, 7 time, 8 FPS, 9 seek, 10 count, 11-13 copy / paste / cut, 14 `+`; w = 0 dropped), `ANIMLBP clipLightbox clipSheet` + `frame dx dy dw dh` per pane (its picture), `ANIMLBS dragging dropSlot anchor nSelected` + the selected frames (<= 64), `ANIMLBE editing confirmTo menuOpen menuHover seekHeld menuX menuY menuW text` (`-` = empty).
   - `ANIMPL nav r1..r6 loop rowH minusX plusX chipW pad panelW ops mode onion on1..on3 onionBefore onionAfter onionOpacity` (native px but the last three; viewport = disp + native * scale% / 100). The nav row has 5 chips (`|< < PLAY > >|`), the others 4, and the mode row 2.
 - Tests: `anim-frame-grid`, `file-anim-chunk`, `anim-numpad-keys`, `anim-menu`,
   `anim-panel`, `anim-panel-spinners` (number boxes: wheel / Shift, middle click, drag, click to type, undo), `anim-frame-ops`, `anim-frame-start`, `anim-playback`, `anim-lightbox` (pane / strip contents checked by each frame's mark colour in the snapshot; the floating Preview painted out), `anim-lightbox-draw` (pane clicks / strokes / rectangles land in their frame's cell - checked with `ANIMC`; the same canvas pixel as a sheet-view click; clip on / off in both views; undo), `anim-lightbox-strip` (click / Ctrl / Shift selection, tint, Play plays the span, drag reorder of a selection / a single frame with `ANIMC` order, the drop marker, undo, wheel scroll), `anim-lightbox-bar` (loop menu, FPS spinner + wheel + undo, seek scrub, count box typing / numpad / Esc / shrink question). Unit:

@@ -291,6 +291,7 @@ TYPE DRAW_THEME
     ANIM_FRAME_border                     AS _UNSIGNED LONG ' Animation frame grid: frame cell border
     ANIM_FRAME_spare                      AS _UNSIGNED LONG ' Animation frame grid: spare cell border (past the last frame)
     ANIM_FRAME_current                    AS _UNSIGNED LONG ' Animation frame grid: current frame outline
+    ANIM_FRAME_drawing                    AS _UNSIGNED LONG ' Lightbox: the pane a stroke goes into (under the pointer)
     ANIM_FRAME_label_fg                   AS _UNSIGNED LONG ' Animation frame grid: frame number text
     ANIM_FRAME_label_bg                   AS _UNSIGNED LONG ' Animation frame grid: frame number backing
     ' --- Preview Window ---

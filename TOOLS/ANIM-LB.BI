@@ -100,6 +100,7 @@ TYPE ANIM_LB_OBJ
     realTile   AS INTEGER
     vPane      AS INTEGER ' the pane the view was picked for (-1 none)
     strokePane AS INTEGER ' the pane a press started in, kept until every button is up (-1 none)
+    drawPane   AS INTEGER ' the pane marked as the one a stroke goes into (F2: field kit T-7; -1 none)
     follow     AS INTEGER ' clip off (B9): a freehand stroke goes on into the pane the pointer enters
     overlay    AS INTEGER ' an overlay is being drawn through the pane view
     scratch    AS LONG    ' overlays draw here, then the pane's part is copied over
@@ -170,4 +171,4 @@ DIM SHARED ANIM_LB AS ANIM_LB_OBJ
 DIM SHARED ANIM_LB_EDIT AS STRING ' the count box's text while typing (2.4)
 DIM SHARED ANIM_LB_CX(1 TO LB_CTLS) AS INTEGER
 DIM SHARED ANIM_LB_CW(1 TO LB_CTLS) AS INTEGER
-ANIM_LB.vPane = -1: ANIM_LB.strokePane = -1
+ANIM_LB.vPane = -1: ANIM_LB.strokePane = -1: ANIM_LB.drawPane = -1
