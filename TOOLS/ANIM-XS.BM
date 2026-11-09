@@ -150,7 +150,7 @@ SUB ANIM_XS_layout (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
         w = FPANEL_text_w%(ANIM_XS_label$(ANIM_XS_ROW(r))) + 4 * ANIM_XS_DEPTH(r)
         IF w > nw THEN nw = w
     NEXT r
-    nw = nw + 8
+    nw = nw + 8 + XS_ICONS_W + ANIM_XS_op_w% + 4 ' the eye / lock before, the opacity after (F5)
     IF nw > (x2 - x1 + 1) \ 4 THEN nw = (x2 - x1 + 1) \ 4
     ANIM_XS.nameW = nw
     ANIM_XS.gx = x1 + nw
@@ -353,7 +353,8 @@ SUB ANIM_XS_render (dest AS LONG)
         ELSE
             fg = THEME.CP_text~&
         END IF
-        FPANEL_text ANIM_XS.x1 + 4 + 4 * ANIM_XS_DEPTH(r), y + (rh - FPANEL.fontH%) \ 2, ANIM_XS_label$(slot), fg
+        FPANEL_text ANIM_XS.x1 + XS_ICONS_W + 4 * ANIM_XS_DEPTH(r), y + (rh - FPANEL.fontH%) \ 2, ANIM_XS_label$(slot), fg
+        ANIM_XS_layer_controls slot, y
         IF LAYERS(slot).layerType% <> LAYER_TYPE_GROUP THEN
             FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
                 IF ANIM_XS_filled%(slot, f) THEN ANIM_XS_cell dest, slot, f, y
@@ -567,6 +568,135 @@ END FUNCTION
 ''
 ' One cell: layer slot's drawing in frame f as a thumbnail at the start of
 ' the frame's span (over the transparency checks), a hold line along the rest.
+' ---------------------------------------------------------------------------
+' Layer controls in the name column (F5, field kit T-22: "an eye icon in front
+' of the layer and lock status and opacity, simple controls like that"): the
+' layers panel's own icons and routines (LAYERS_toggle_visibility /
+' _toggle_group_visibility / _toggle_opacity_lock / _set_opacity - none is an
+' undo step there either).
+' ---------------------------------------------------------------------------
+
+FUNCTION ANIM_XS_op_w% ()
+    ANIM_XS_op_w% = FPANEL_text_w%("100") + 4
+END FUNCTION
+
+''
+' The opacity box's x (viewport), 0 when the name column has no room for it.
+FUNCTION ANIM_XS_op_x% ()
+    DIM x AS INTEGER
+    x = ANIM_XS.gx - 3 - ANIM_XS_op_w%
+    IF x >= ANIM_XS.x1 + XS_ICONS_W + 16 THEN ANIM_XS_op_x% = x
+END FUNCTION
+
+FUNCTION ANIM_XS_op_pct% (slot AS INTEGER)
+    ANIM_XS_op_pct% = CINT(LAYERS(slot).opacity% * 100 / 255)
+END FUNCTION
+
+SUB ANIM_XS_op_set (slot AS INTEGER, pct AS INTEGER)
+    DIM v AS INTEGER
+    v = CINT(_MAX(0, _MIN(100, pct)) * 255 / 100)
+    IF v <> LAYERS(slot).opacity% THEN LAYERS_set_opacity slot, v
+    ANIM_LB_changed
+END SUB
+
+''
+' Which control of layer row slot is under viewport x: 1 eye, 2 lock (not on
+' a group), 3 opacity, 0 the name.
+FUNCTION ANIM_XS_ctl_at% (mx AS INTEGER, slot AS INTEGER)
+    DIM ox AS INTEGER
+    IF mx >= ANIM_XS.x1 + XS_EYE_X _ANDALSO mx < ANIM_XS.x1 + XS_LOCK_X THEN ANIM_XS_ctl_at% = 1: EXIT FUNCTION
+    IF mx >= ANIM_XS.x1 + XS_LOCK_X _ANDALSO mx < ANIM_XS.x1 + XS_ICONS_W - 2 THEN
+        IF LAYERS(slot).layerType% <> LAYER_TYPE_GROUP THEN ANIM_XS_ctl_at% = 2
+        EXIT FUNCTION
+    END IF
+    ox = ANIM_XS_op_x%
+    IF ox > 0 _ANDALSO mx >= ox _ANDALSO mx < ox + ANIM_XS_op_w% THEN ANIM_XS_ctl_at% = 3
+END FUNCTION
+
+''
+' Row y's eye, lock and opacity box (ANIM_XS_render, on the current _DEST).
+SUB ANIM_XS_layer_controls (slot AS INTEGER, y AS INTEGER)
+    DIM ic AS LONG, rh AS INTEGER, x AS INTEGER, ox AS INTEGER, t AS STRING, isGrp AS INTEGER
+    rh = ANIM_XS.rowH
+    isGrp = (LAYERS(slot).layerType% = LAYER_TYPE_GROUP)
+    x = ANIM_XS.x1 + XS_EYE_X
+    ic = _IIF(LAYERS(slot).visible%, LAYER_PANEL.iconVisOn&, LAYER_PANEL.iconVisOff&)
+    IF ic < -1 THEN
+        _PUTIMAGE (x, y + (rh - _HEIGHT(ic)) \ 2), ic
+    ELSE
+        FPANEL_text x, y + (rh - FPANEL.fontH%) \ 2, _IIF(LAYERS(slot).visible%, "O", "-"), THEME.CP_text~&
+    END IF
+    IF isGrp = 0 THEN
+        x = ANIM_XS.x1 + XS_LOCK_X
+        ic = _IIF(LAYERS(slot).opacityLock%, LAYER_PANEL.iconLockOn&, LAYER_PANEL.iconLockOff&)
+        IF ic < -1 THEN
+            _PUTIMAGE (x, y + (rh - _HEIGHT(ic)) \ 2), ic
+        ELSEIF LAYERS(slot).opacityLock% THEN
+            FPANEL_text x, y + (rh - FPANEL.fontH%) \ 2, "L", THEME.CP_text_bright~&
+        END IF
+    END IF
+    ox = ANIM_XS_op_x%
+    IF ox > 0 THEN
+        LINE (ox, y + 2)-(ox + ANIM_XS_op_w% - 1, y + rh - 3), THEME.CP_bg~&, BF
+        LINE (ox, y + 2)-(ox + ANIM_XS_op_w% - 1, y + rh - 3), THEME.CP_slider_border~&, B
+        t = _TRIM$(STR$(ANIM_XS_op_pct%(slot)))
+        FPANEL_text ox + ANIM_XS_op_w% - 2 - FPANEL_text_w%(t), y + (rh - FPANEL.fontH%) \ 2, t, _IIF(ANIM_XS.oSlot = slot, THEME.CP_text_bright~&, THEME.CP_text~&)
+    END IF
+END SUB
+
+''
+' A left press on a layer's eye / lock / opacity box (ANIM_XS_press%): TRUE = handled.
+FUNCTION ANIM_XS_ctl_press% (mx AS INTEGER, my AS INTEGER, slot AS INTEGER)
+    SELECT CASE ANIM_XS_ctl_at%(mx, slot)
+        CASE 1
+            IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN LAYERS_toggle_group_visibility slot ELSE LAYERS_toggle_visibility slot
+            BLEND_invalidate_visibility slot
+        CASE 2
+            LAYERS_toggle_opacity_lock slot
+        CASE 3
+            ANIM_XS.oSlot = slot: ANIM_XS.oY0 = my: ANIM_XS.oV0 = ANIM_XS_op_pct%(slot): ANIM_XS.oMoved = FALSE
+        CASE ELSE
+            EXIT FUNCTION
+    END SELECT
+    ANIM_XS_ctl_press% = TRUE
+    ANIM_LB_changed
+END FUNCTION
+
+''
+' The opacity box held (ANIM_LB_mouse): up / down 1 % a px; a release without
+' moving types it.
+SUB ANIM_XS_op_hold ()
+    DIM slot AS INTEGER, dy AS INTEGER, t AS STRING
+    slot = ANIM_XS.oSlot
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF slot < 1 _ORELSE slot > MAX_LAYERS THEN ANIM_XS.oSlot = 0: EXIT SUB
+    IF LAYERS(slot).imgHandle& = 0 THEN ANIM_XS.oSlot = 0: EXIT SUB
+    IF MOUSE.B1% THEN
+        dy = ANIM_XS.oY0 - MOUSE.RAW_Y%
+        IF ABS(dy) >= 3 THEN ANIM_XS.oMoved = TRUE
+        IF ANIM_XS.oMoved THEN ANIM_XS_op_set slot, ANIM_XS.oV0 + dy
+        EXIT SUB
+    END IF
+    ANIM_XS.oSlot = 0
+    ANIM_LB_changed
+    IF ANIM_XS.oMoved THEN EXIT SUB
+    POINTER_hide_for_dialog
+    t = DRAW_input_box_ex$("Layer opacity", _TRIM$(LAYERS(slot).name) + " opacity (0 - 100 %):", _TRIM$(STR$(ANIM_XS_op_pct%(slot))), "0 - 100", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    t = _TRIM$(t)
+    IF t = "" THEN EXIT SUB
+    IF INSTR("0123456789", LEFT$(t, 1)) = 0 THEN STATUS_flash "Opacity: not a number": EXIT SUB
+    ANIM_XS_op_set slot, VAL(t)
+END SUB
+
+''
+' The layer slot of the row under viewport point (mx, my) in the band (0 none).
+FUNCTION ANIM_XS_slot_at% (mx AS INTEGER, my AS INTEGER)
+    IF ANIM_XS_hit%(mx, my) = 0 THEN EXIT FUNCTION
+    ANIM_XS_slot_at% = ANIM_XS_row_slot%(ANIM_XS_band_row%(my))
+END FUNCTION
+
 SUB ANIM_XS_cell (dest AS LONG, slot AS INTEGER, f AS INTEGER, y AS INTEGER)
     DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, s AS SINGLE
     DIM x AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER, bw AS INTEGER, bh AS INTEGER
@@ -652,6 +782,7 @@ FUNCTION ANIM_XS_press% (mx AS INTEGER, my AS INTEGER)
     c = ANIM_LB_ctrl%: s = ANIM_LB_shift%
     ANIM_XS.dMode = XS_DRAG_NONE: ANIM_XS.dOn = FALSE: ANIM_XS.dCollapse = FALSE
     ANIM_XS.dPressX = mx: ANIM_XS.dPressY = my: ANIM_XS.dFrame = f: ANIM_XS.dSlot = 0: ANIM_XS.dTo = 0: ANIM_XS.dToSlot = 0
+    IF slot > 0 _ANDALSO mx < ANIM_XS.gx THEN IF ANIM_XS_ctl_press%(mx, my, slot) THEN EXIT FUNCTION ' eye / lock / opacity (F5)
     IF k = ANIM_XS_notes_k% THEN ' the notes row (4.5): the frame (its note on the status bar); a double-click edits the note
         STATIC lastNoteT AS DOUBLE, lastNoteF AS INTEGER, lastNoteTick AS LONG
         DIM dt AS DOUBLE
@@ -870,6 +1001,10 @@ FUNCTION ANIM_XS_wheel% (mx AS INTEGER, my AS INTEGER, delta AS INTEGER)
     IF ANIM_XS_hit%(mx, my) = 0 THEN EXIT FUNCTION
     IF REGION_hit_test%(mx, my) <> REGION_CANVAS THEN EXIT FUNCTION
     ANIM_XS_wheel% = TRUE
+    n = ANIM_XS_slot_at%(mx, my)
+    IF n > 0 _ANDALSO mx < ANIM_XS.gx THEN ' over a layer's opacity box: +/- 5 % (Shift 1 %), up = more (F5)
+        IF ANIM_XS_ctl_at%(mx, n) = 3 THEN ANIM_XS_op_set n, ANIM_XS_op_pct%(n) - SGN(delta) * _IIF(ANIM_LB_shift%, 1, 5): EXIT FUNCTION
+    END IF
     IF (ANIM_LB_shift% _ORELSE mx < ANIM_XS.gx) _ANDALSO ANIM_XS.nRows > ANIM_XS.rowsShown THEN
         top = ANIM_XS.nRows - ANIM_XS.rowsShown + 1
         ANIM_XS.firstRow = _MAX(1, _MIN(top, ANIM_XS.firstRow + SGN(delta)))
@@ -886,6 +1021,7 @@ END FUNCTION
 ' ANIMXSD mode on frame slot to toSlot (a drag on the grid, 4.2)
 ' ANIMXSF then per frame shown: f x w (its span)
 ' ANIMXSR r slot y fill (per row; y -1 = scrolled out; fill = per frame 1 drawn / 0 empty, "-" a group)
+' ANIMXSL eyeX lockX opX opW + per row: slot visible lock opacity% (F5)
 FUNCTION ANIM_XS_dump$ ()
     DIM d AS STRING, f AS INTEGER, r AS INTEGER, slot AS INTEGER, y AS INTEGER, fl AS STRING, isOn AS INTEGER
     isOn = (ANIM_XS_on% <> 0 _ANDALSO ANIM_XS.shown <> 0)
@@ -910,6 +1046,13 @@ FUNCTION ANIM_XS_dump$ ()
     END IF
     IF ANIM_XS_note_rows% THEN d = d + "ANIMXSN" + DOCK_n$(ANIM_XS_row_y%(ANIM_XS_notes_k%)) + CHR$(10) ' the notes row's y
     IF ANIM_XS_sound_rows% THEN d = d + "ANIMXSS" + DOCK_n$(ANIM_XS_row_y%(ANIM_XS_sound_k%)) + CHR$(10) ' the sound row's y
+    ' ANIMXSL eyeX lockX opX opW, then per row (<= 64): slot visible opacityLock opacity% (F5)
+    d = d + "ANIMXSL" + DOCK_n$(ANIM_XS.x1 + XS_EYE_X) + DOCK_n$(ANIM_XS.x1 + XS_LOCK_X) + DOCK_n$(ANIM_XS_op_x%) + DOCK_n$(ANIM_XS_op_w%)
+    FOR r = 1 TO _MIN(ANIM_XS.nRows, 64)
+        slot = ANIM_XS_ROW(r)
+        d = d + DOCK_n$(slot) + DOCK_n$(LAYERS(slot).visible% <> 0) + DOCK_n$(LAYERS(slot).opacityLock% <> 0) + DOCK_n$(ANIM_XS_op_pct%(slot))
+    NEXT r
+    d = d + CHR$(10)
     FOR r = 1 TO _MIN(ANIM_XS.nRows, 64)
         slot = ANIM_XS_ROW(r)
         y = -1

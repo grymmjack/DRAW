@@ -20,7 +20,11 @@
 ' 2540, DRAW.cfg XSHEET). From sheet view it opens the lightbox with it.
 ' A click on a cell makes that frame current and that layer the current
 ' layer (frames select as in the strip: Ctrl / Shift); on a name, the layer;
-' on the header or holds row, the frame. The wheel scrolls the frames,
+' on the header or holds row, the frame. Each layer's name has an eye (show /
+' hide; a group's hides its layers), a lock (the alpha lock) and its opacity
+' (wheel +/- 5 %, Shift 1 %; drag up / down; click to type), as the layers
+' panel; a right-click on a layer's row opens the layers panel's menu for it
+' (F5). The wheel scrolls the frames,
 ' Shift+wheel (or the wheel over the names) the layers when they overflow.
 ' Editing on the grid (4.2), each one undo step:
 '   - drag along the holds row: the frame's hold, a tick at a time
@@ -39,6 +43,9 @@ CONST XS_DRAG_NONE   = 0
 CONST XS_DRAG_HOLD   = 1 ' along the holds row
 CONST XS_DRAG_CELL   = 2 ' a drawing to another cell
 CONST XS_DRAG_FRAMES = 3 ' frame numbers: reorder
+CONST XS_EYE_X  = 2  ' name column: the eye from x1 + 2, the lock from x1 + 13,
+CONST XS_LOCK_X = 13 ' the name from x1 + XS_ICONS_W (F5)
+CONST XS_ICONS_W = 25
 DIM SHARED ANIM_LOOP_TICK AS LONG ' main-loop passes (DRAW.BAS): a double-click is two presses within 0.45 s, or seen two passes apart when frames are slow
 DIM SHARED ANIM_XS_BEFORE AS STRING ' ANIM_OPS_snapshot$ at a hold drag's press
 
@@ -72,6 +79,12 @@ TYPE ANIM_XS_OBJ
     dToSlot  AS INTEGER ' the layer it would land on (a cell)
     dCollapse AS INTEGER ' a plain press on a frame in a multi-selection: just it on release
     dScrollT AS DOUBLE  ' past the edges: when it next scrolls
+    ' layer controls in the name column (F5, field kit T-22): eye, lock, opacity
+    oSlot    AS INTEGER ' the layer whose opacity box is pressed (0 none)
+    oY0      AS INTEGER ' the press's viewport y
+    oV0      AS INTEGER ' its opacity at the press (0-100 %)
+    oMoved   AS INTEGER ' dragged (else a click: type it)
+    rSlot    AS INTEGER ' a right press on this layer's row: its menu on the release
 END TYPE
 DIM SHARED ANIM_XS AS ANIM_XS_OBJ
 DIM SHARED ANIM_XS_ROW(1 TO MAX_LAYERS) AS INTEGER   ' layer slot of row r (display order)

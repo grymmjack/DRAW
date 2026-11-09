@@ -529,6 +529,20 @@ screen at the frame's middle; ESC does not deselect; Num . open + close).
 
 ## X-sheet (`TOOLS/ANIM-XS`, 4.1)
 
+**Layer controls (F5, field kit T-22):** the name column starts with an eye (`XS_EYE_X`) and
+a lock (`XS_LOCK_X`, the alpha lock `opacityLock`; none on a group), the name at
+`XS_ICONS_W`, and ends with an opacity box (`ANIM_XS_op_x%`, 0 when the column is too narrow;
+`nameW` makes room). The layers panel's icons (`LAYER_PANEL.iconVis* / iconLock*`) and
+routines (`LAYERS_toggle_visibility` / `_toggle_group_visibility` / `_toggle_opacity_lock` /
+`_set_opacity` - not undo steps there either). `ANIM_XS_ctl_press%` runs first in
+`ANIM_XS_press%`; the opacity box: wheel +/- 5 % (Shift 1 %, in `ANIM_XS_wheel%`), a press
+sets `oSlot` and `ANIM_XS_op_hold` (from `ANIM_LB_mouse`) drags 1 % a px (up = more) or, on a
+release without moving, asks the number (`DRAW_input_box_ex$`). A right press on a layer row
+sets `rSlot`; on the release over the same row `LAYER_PANEL_ctx_menu_show` opens the layers
+panel's menu - on the release, because `MOUSE_handle_layer_panel` checks presses for an open
+menu later in the same frame. Dump `ANIMXSL eyeX lockX opX opW` + per row `slot visible lock
+opacity%`. QA: `anim-xsheet-layer-controls`.
+
 A mode of the lightbox's top band (`CFG.XSHEET`, DRAW.cfg `XSHEET`): `ANIM_LB_layout` gives the
 band `ANIM_XS_band_h%` (header + every layer row + holds row, `FPANEL.rowH + 6` each, at most half
 of what the bar leaves) and calls `ANIM_XS_layout`; `ANIM_LB_render` draws `ANIM_XS_render`
