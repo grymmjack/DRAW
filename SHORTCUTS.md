@@ -716,7 +716,8 @@ Merged with nothing selected take only the current frame; Paste centres on it (a
 it). Symmetry mirrors about the centre of the frame you draw in. A dropped or imported image is
 sized against the frame and placed in it; what spills past the frame's edges is cut off. Scale
 2x / -50% (`PgUp` / `PgDn`) and 2x H / 2x V (`Ctrl+Home` / `Ctrl+End`) with nothing selected scale
-each selected frame about its own centre (cut off at its edges).
+each selected frame about its own centre (cut off at its edges). Fill, global fill and the Magic Wand stop
+at the edges of the frame you click in.
 
 ---
 

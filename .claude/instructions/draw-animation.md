@@ -397,13 +397,20 @@ frame's cell (TRUE), else `0, 0, canvasW, canvasH`. Done so far:
   at the cell), on `ANIM_CV_layers%` (multi-select or current, drawing layers only - shared with
   align). One `ANIM_OPS_record`. Unlike the canvas version there is no kept original, so -50%
   then 2x loses the detail. Test `anim-lightbox-scale.sh`.
+- **Floods** (`FILL_generate_mask&`, `FILL_flood`, `FILL_flood_merged`, `FILL_flood_global`;
+  `MAGIC_WAND_select_with_mode`, `_select_merged`, `_select_all_color_merged`, `_erase_flood`,
+  `_fill_flood`): each scans inside `bL bT bR bB`, the canvas unless `ANIM_CV_fill_box` narrows
+  it to the cell of the frame clicked in (`ANIM_frame_at%` of the seed). The erase / fill floods
+  work in buffer pixels, so their box carries the apron offset. Without it the region could run
+  out through a neighbouring frame and back in (clip-to-frame only put the paint back). Test
+  `anim-lightbox-fill.sh`.
 - Dump `ANIMCV guidesOn snapOn moveX moveY moveW moveH` + the last pane-move guide step (offset
   in, guides v / h, snap dx / dy, offset out). Test `anim-lightbox-canvas.sh` (fixture frames 2-5
   are frame 1 aligned right / centred / bottom / snapped right + top).
   Test `anim-lightbox-canvas-edit.sh` (Select All + Delete, Cut with no selection, Paste back,
   a symmetric dot in frame 3 = fixture frame 4).
-- Still to do (the audit, TASKS-ANIMATION-2 F11 h-o): fill / wand
-  bounds, selection from layer, marquee clamp, text, centred effects, gradient / grid origin,
+- Still to do (the audit, TASKS-ANIMATION-2 F11 i-o):
+  selection from layer, marquee clamp, text, centred effects, gradient / grid origin,
   copy / paste layer, crop / analyzer / AI size / ref image.
 
 ## Apply to the selected frames (2.7)
