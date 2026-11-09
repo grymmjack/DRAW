@@ -427,13 +427,21 @@ frame's cell (TRUE), else `0, 0, canvasW, canvasH`. Done so far:
   centres on the current frame (`IMAGE_ADJ_update_loupe`). Texture-like effects (weave, stone,
   rust, noise ...) are not split. Test `anim-lightbox-effect-centre.sh` (frames 1 and 3 hold the
   same picture; Twirl / Pinch on each must match).
+- **Gradient / image paint:** the flood fill's `GRAD_CTX_set` (`MOUSE.BM`) and
+  `DRAWER_resolve_paint_color~&`'s stretched / tiled image span the cell of the frame painted in
+  (`ANIM_CV_fill_box`). The grid stays on the sheet (its snap matches the drawn grid).
+- **Paste in Place** (312, now also in the command palette): `ANIM_CV_same_spot` moves the copied
+  spot from its frame to the current frame; `CLIPBOARD_IN_PLACE` makes `CLIPBOARD_paste` keep the
+  point instead of centring (it had centred every paste since BUG-A, so Paste in Place never
+  pasted in place, lightbox or not). Copy / Paste Layer between instances stay whole-sheet (a layer
+  is every frame). Test `anim-lightbox-paint.sh` (`DEFAULT_DRAW_MODE=2`; DRAWERL now ends with the
+  first bin x y, bin w h, gaps, paint mode, gradient picked).
 - Dump `ANIMCV guidesOn snapOn moveX moveY moveW moveH` + the last pane-move guide step (offset
   in, guides v / h, snap dx / dy, offset out). Test `anim-lightbox-canvas.sh` (fixture frames 2-5
   are frame 1 aligned right / centred / bottom / snapped right + top).
   Test `anim-lightbox-canvas-edit.sh` (Select All + Delete, Cut with no selection, Paste back,
   a symmetric dot in frame 3 = fixture frame 4).
-- Still to do (the audit, TASKS-ANIMATION-2 F11 m-o): gradient / grid origin,
-  copy / paste layer, crop / analyzer / AI size / ref image.
+- Still to do (the audit, TASKS-ANIMATION-2 F11 o): crop / analyzer / AI size / ref image.
 
 ## Apply to the selected frames (2.7)
 

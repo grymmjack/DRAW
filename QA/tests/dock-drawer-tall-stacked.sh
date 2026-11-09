@@ -12,7 +12,7 @@ dk_move drawer newcol toolbox
 dk_check "drawer in its own column"
 dk_p drawer
 info "drawer at $P_X,$P_Y ${P_W}x$P_H"
-read -r _ DCOLS DROWS DVIS DPALY DPALH DY2 <<< "$(grep '^DRAWERL ' "$DK_DUMP")"
+read -r _ DCOLS DROWS DVIS DPALY DPALH DY2 _ <<< "$(grep '^DRAWERL ' "$DK_DUMP")"
 info "drawer layout: cols=$DCOLS rows=$DROWS visible=$DVIS palette y=$DPALY h=$DPALH bottom=$DY2"
 (( DCOLS == 1 )) || info "(drawer has $DCOLS columns)"
 GAP=$(( DY2 - (DPALY + DPALH) ))

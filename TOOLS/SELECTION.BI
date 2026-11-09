@@ -23,4 +23,6 @@ TYPE CLIPBOARD_OBJ
 END TYPE
 
 DIM SHARED CLIPBOARD AS CLIPBOARD_OBJ
-
+' Paste in Place (action 312): CLIPBOARD_paste keeps the point it is given
+' instead of centring (cleared by the paste).
+DIM SHARED CLIPBOARD_IN_PLACE AS INTEGER

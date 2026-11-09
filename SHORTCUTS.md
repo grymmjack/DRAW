@@ -723,7 +723,9 @@ selection or paste is cut off at the frame's edges when it lands (with clip to f
 Text Layer starts at the frame's centre, and text wraps at the frame's right edge. Centred
 effects (Twirl, Pinch / Bulge, Kaleidoscope, Lens Flare, Backlight, Ripples, Grid, Lightning,
 the typed blurs) work on each selected frame as its own picture, centred on it; their preview
-shows the current frame.
+shows the current frame. A fill with a drawer gradient, and drawer image paint, span the frame
+painted in. Edit → Paste in Place puts what was copied in one frame at the same spot in the
+current frame.
 
 ---
 
