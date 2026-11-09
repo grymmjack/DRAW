@@ -404,13 +404,21 @@ frame's cell (TRUE), else `0, 0, canvasW, canvasH`. Done so far:
   work in buffer pixels, so their box carries the apron offset. Without it the region could run
   out through a neighbouring frame and back in (clip-to-frame only put the paint back). Test
   `anim-lightbox-fill.sh`.
+- **Selection from layer** (728 / 1401 / 1414): `LAYER_select_non_transparent` and 1414 end
+  with `ANIM_CV_clip_selection`.
+- **Marquee:** `MARQUEE_update_drag` ends with `ANIM_CV_marquee_drag` (both corners inside the
+  cell of the frame the drag began in, `MARQUEE_UNSNAPPED_START_*`; the grid-snap end is
+  exclusive), and `MARQUEE_finish_drag` clamps the final box (`ANIM_CV_clamp_box`).
+- **Move / paste commit** (`MOVE_apply_transform`): `ANIM_CV_keep_begin&` copies the target
+  buffer when the lightbox clips to the frame (`CFG.CLIP_FRAME_LIGHTBOX`), `ANIM_CV_keep_end`
+  puts back everything outside the current cell after the stamp. The multi-layer sibling path
+  is not clipped yet. Test `anim-lightbox-select.sh`.
 - Dump `ANIMCV guidesOn snapOn moveX moveY moveW moveH` + the last pane-move guide step (offset
   in, guides v / h, snap dx / dy, offset out). Test `anim-lightbox-canvas.sh` (fixture frames 2-5
   are frame 1 aligned right / centred / bottom / snapped right + top).
   Test `anim-lightbox-canvas-edit.sh` (Select All + Delete, Cut with no selection, Paste back,
   a symmetric dot in frame 3 = fixture frame 4).
-- Still to do (the audit, TASKS-ANIMATION-2 F11 i-o):
-  selection from layer, marquee clamp, text, centred effects, gradient / grid origin,
+- Still to do (the audit, TASKS-ANIMATION-2 F11 k-o): text, centred effects, gradient / grid origin,
   copy / paste layer, crop / analyzer / AI size / ref image.
 
 ## Apply to the selected frames (2.7)

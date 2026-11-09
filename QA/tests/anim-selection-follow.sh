@@ -6,7 +6,8 @@
 # A selection inside the current frame's cell moves with the current frame -
 # frame keys, strip clicks, playback - to the same place in the new frame's
 # cell, so Delete / effects then work on that frame. A rectangle and a magic
-# wand mask both follow. A selection over several cells (Select All) stays.
+# wand mask both follow; so does Select All, which in the lightbox is the current
+# frame (2026-11-09). A selection over several cells stays.
 #
 # Dump: ANIMSEL active boxX boxY boxW boxH wand minX minY maxX maxY (canvas
 # px), ANIMC (a CRC per frame cell), ANIMLB / ANIMLBP (strip, panes).
@@ -107,7 +108,8 @@ else
     sf_key KP_1; sf_key ctrl+a; sf_read
     SF_AX=$S_X; SF_AW=$S_W
     sf_key KP_5; sf_read
-    [[ "$A_CUR" == 2 && "$S_ON" == -1 && "$S_X" == "$SF_AX" && "$S_W" == "$SF_AW" && "$SF_AW" -gt 16 ]] && pass "Select All, then Num 5: the selection stays over the whole sheet" || fail "select all + next: $(sf_s) (was x $SF_AX w $SF_AW)"
+    # (in the lightbox Select All is the current frame - 2026-11-09 - so it follows like any one-frame selection)
+    [[ "$A_CUR" == 2 && "$S_ON" == -1 && "$SF_AX" == 0 && "$SF_AW" == 16 && "$S_X" == 16 && "$S_W" == 16 ]] && pass "Select All (= frame 1 in the lightbox), then Num 5: the selection moves to frame 2" || fail "select all + next: $(sf_s) (was x $SF_AX w $SF_AW)"
     sf_key ctrl+d
 
     # -- a magic wand mask follows too --

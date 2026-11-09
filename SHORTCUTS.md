@@ -717,7 +717,9 @@ it). Symmetry mirrors about the centre of the frame you draw in. A dropped or im
 sized against the frame and placed in it; what spills past the frame's edges is cut off. Scale
 2x / -50% (`PgUp` / `PgDn`) and 2x H / 2x V (`Ctrl+Home` / `Ctrl+End`) with nothing selected scale
 each selected frame about its own centre (cut off at its edges). Fill, global fill and the Magic Wand stop
-at the edges of the frame you click in.
+at the edges of the frame you click in. Select From Current Layer / Selected Layers take only the
+current frame's pixels; a marquee stops at the edges of the frame the drag began in; a moved
+selection or paste is cut off at the frame's edges when it lands (with clip to frame on).
 
 ---
 
