@@ -67,4 +67,5 @@ DIM SHARED SG_H_GUIDES(0 TO SG_MAX_GUIDES - 1) AS SG_GUIDE_LINE
 DIM SHARED SG_V_GUIDES(0 TO SG_MAX_GUIDES - 1) AS SG_GUIDE_LINE
 ' Bounding boxes for each layer (recomputed on demand)
 DIM SHARED SG_BBOXES(1 TO MAX_LAYERS) AS SG_BBOX
+DIM SHARED SG_FRAME_KEY AS INTEGER ' the frame the cached bounds are for in the lightbox (0 = the whole sheet)
 

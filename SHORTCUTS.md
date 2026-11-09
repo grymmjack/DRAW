@@ -706,6 +706,12 @@ adjustments and Remap to Palette change only those frames, each frame flipped / 
 cell. The Move tool dragged in a pane moves the drawing of every selected frame. ANIM → Replace
 FG Color with BG in Frames swaps a colour in them (sheet view too). Each is one undo step.
 
+**The current frame is the canvas** (in the lightbox): Layer → Align / Distribute line the
+drawing up with its frame's edges (each selected frame on its own); with several layers selected
+they line up with each other inside the frame. Smart guides snap to the frame's edges and centre
+and to the other layers' drawing in that frame - also while the Move tool drags in a pane. The
+Transform tool takes only the current frame's drawing and keeps the result inside that frame.
+
 ---
 
 ## Audio · Music

@@ -32,6 +32,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | `TOOLS/ANIM-VIEW.BI/BM` | Frame grid overlay (`ANIM_VIEW_render_grid`, View > Frame Grid 2500), frame keys (numpad + Alt), `ANIM_VIEW_goto`, play toggle + tick, the Preview window's frame view, the `ANIM` QA dump line |
 | `TOOLS/ANIM-OPS.BI/BM` | Frame operations, layout changes (re-slice / resize), timing changes, whole-sheet snapshots, the undo record, `ANIMC` dump line |
 | `GUI/ANIM-PANEL.BI/BM` | The Animation panel (2505): FPANEL window like `GUI/PEN-PANEL` (dock slot `DP_ANIM`, `REGION_ANIM_PANEL`, `WZ_*`, auto-hide, F11, workspace element `ANIM_PANEL`, `ANIM_PANEL_VISIBLE/X/Y`) |
+| `TOOLS/ANIM-CANVAS.BI/BM` | In the lightbox the current frame is the canvas: `ANIM_CV_rect%` (the cell, else the whole canvas), `ANIM_CV_bounds%` (opaque bounds of a layer inside a rect, apron-aware), `ANIM_CV_shift` (shift one cell, cut off at its edge), `ANIM_CV_align` (1901-1908), pane Move guides (`ANIM_CV_move_begin` / `_move_guides`), `ANIM_CV_TF_F` (the transform's frame), the `ANIMCV` dump line |
 | `TOOLS/ANIM-LB.BI/BM` | The lightbox view (2.1): layout (`ANIM_LB_layout`, bands strip / transport bar / editor, `ANIM_LB_area` + `ANIM_LB_clear_floats`), `ANIM_LB_render` (cut from the composite), transport bar controls `LB_CTL_*`, `ANIM_LB_mouse`, the `ANIMLB` / `ANIMLBC` / `ANIMLBP` dump lines; drawing in the panes (2.2): the pane view (`ANIM_LB_view_push / _pick / _pop`, `ANIM_LB_pane_view%`), overlays (`ANIM_LB_overlay_begin% / _end`), strokes clipped to a frame (`ANIM_LB_clip_*`) |
 | `TOOLS/ANIM-IMPORT.BI/BM` | Bringing frames in (phase 5): `ANIM_GIF_import%` (5.1, from `DRW_load` after `GIF_load_cycling%`), `ANIM_ASE_apply` (5.2, from `FILE_ASE_load`), shared `ANIM_IMP_grid%` / `ANIM_IMP_fps%` |
 | `INPUT/NUMPAD.BI/BM` | Numpad keys from bu1ld0r: `NUMPAD_poll` (`_KEYDOWN` edges), `NUMPAD_dev` ([Linux] device ids = X11 key code + 1, catches taps quicker than a frame), `NUMPAD_of%` (which numpad key a plain code could be), `NUMPAD_sent%` |
@@ -355,6 +356,36 @@ Settings are DRAW.cfg (`ONION_*`), not undo steps: ANIM menu (2527 / 2528), Num 
 per real render (not cursor-only frames): fine for pixel-art cells; a 512x512 frame with 5 + 5
 neighbours would be the case to cache. QA dump `ANIMLBO on before after opacity tint prevPx
 nextPx`; `ANIMPL` gained `yOnion onY1..3` at the end (read it with a trailing `_`).
+
+## The current frame is the canvas (2026-11-09, `TOOLS/ANIM-CANVAS`)
+
+Rick: "anything that uses the canvas needs to consider lightbox mode, not just the drawing tools".
+The one question is `ANIM_CV_rect%(x, y, w, h)`: in the lightbox (`ANIM_LB_showing%`) the current
+frame's cell (TRUE), else `0, 0, canvasW, canvasH`. Done so far:
+
+- **Align / Distribute** (1901-1908): `CMD_execute_action` sends them to `ANIM_CV_align` while the
+  lightbox shows. Per selected frame (`ANIM_SEL_is%`), on the layers the canvas version takes
+  (multi-select or current, group expanded; `ANIM_OPS_moves%` only): bounds inside the cell
+  (`ANIM_CV_bounds%`), one layer -> the cell, several -> the same anchor / union rules as the
+  canvas version, shifted with `ANIM_CV_shift` (what leaves the cell is cut off). One
+  `ANIM_OPS_record` (sheet snapshot with pixels). Distribute needs 3+ layers.
+- **Smart guides:** `SMART_GUIDES_update` uses the cell's edges / centre, and
+  `SMART_GUIDES_compute_bbox` the layer's bounds inside the cell; the cache is keyed by frame
+  (`SG_FRAME_KEY`, 0 = sheet). The pane Move tool (`ANIM_LB_move_*`, no `MOVE.*`) gets guides too:
+  `ANIM_CV_move_begin` (press: the current layer's bounds in the current cell),
+  `ANIM_CV_move_guides ox, oy` (feeds `SMART_GUIDES_update` with `moveBBox*` set; snap adjusts the
+  offset); the render condition in `SCREEN.BM` takes `ANIM_LB.mvOn` beside `MOVE.TRANSFORMING`.
+- **Transform tool:** `TRANSFORM_activate` sets `ANIM_CV_TF_F` (the current frame) and, with no
+  selection, takes the layer's bounds inside the cell (nothing there = a status message, no
+  transform); `TRANSFORM_commit` puts only the part of the result inside that cell (no apron
+  promotion), so it never spills into a neighbour. Cleared on commit / cancel.
+- Dump `ANIMCV guidesOn snapOn moveX moveY moveW moveH` + the last pane-move guide step (offset
+  in, guides v / h, snap dx / dy, offset out). Test `anim-lightbox-canvas.sh` (fixture frames 2-5
+  are frame 1 aligned right / centred / bottom / snapped right + top).
+- Still to do (the audit, TASKS-ANIMATION-2 F11 b-o): paste placement, Select All / Invert,
+  copy / cut with no selection, symmetry centre, image drop / import, scale 2x / 50%, fill / wand
+  bounds, selection from layer, marquee clamp, text, centred effects, gradient / grid origin,
+  copy / paste layer, crop / analyzer / AI size / ref image.
 
 ## Apply to the selected frames (2.7)
 

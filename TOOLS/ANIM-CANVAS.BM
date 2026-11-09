@@ -1,0 +1,259 @@
+''
+' DRAW - TOOLS/ANIM-CANVAS.BM
+' =============================================================================
+' The current frame as the canvas in the lightbox. See ANIM-CANVAS.BI.
+'
+$INCLUDEONCE
+
+''
+' The canvas as a command sees it, in canvas pixels: in the lightbox the
+' current frame's cell (TRUE), else the whole canvas (FALSE).
+FUNCTION ANIM_CV_rect% (x AS LONG, y AS LONG, w AS LONG, h AS LONG)
+    IF ANIM_LB_showing% THEN
+        IF ANIM_cell_rect%(ANIM.current, x, y, w, h) THEN ANIM_CV_rect% = TRUE: EXIT FUNCTION
+    END IF
+    x = 0: y = 0: w = SCRN.canvasW&: h = SCRN.canvasH&
+END FUNCTION
+
+''
+' The opaque bounds of layer L inside canvas rect (rx, ry, rw, rh), in canvas
+' pixels (the apron is allowed for); FALSE when it is empty there.
+FUNCTION ANIM_CV_bounds% (L AS INTEGER, rx AS LONG, ry AS LONG, rw AS LONG, rh AS LONG, ox AS INTEGER, oy AS INTEGER, ow AS INTEGER, oh AS INTEGER)
+    DIM img AS LONG, m AS _MEM, iw AS LONG, ih AS LONG, ax AS LONG, ay AS LONG
+    DIM x AS LONG, y AS LONG, x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG
+    DIM mnX AS LONG, mnY AS LONG, mxX AS LONG, mxY AS LONG, px AS _UNSIGNED LONG
+    ox = 0: oy = 0: ow = 0: oh = 0
+    IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT FUNCTION
+    img = LAYERS(L).imgHandle&
+    IF img >= -1 THEN EXIT FUNCTION
+    iw = _WIDTH(img): ih = _HEIGHT(img)
+    ax = LAYERS(L).apronW%: ay = LAYERS(L).apronH%
+    x1 = _MAX(0, rx + ax): y1 = _MAX(0, ry + ay)
+    x2 = _MIN(iw - 1, rx + rw - 1 + ax): y2 = _MIN(ih - 1, ry + rh - 1 + ay)
+    IF x2 < x1 _ORELSE y2 < y1 THEN EXIT FUNCTION
+    mnX = x2 + 1: mnY = y2 + 1: mxX = -1: mxY = -1
+    m = _MEMIMAGE(img)
+    FOR y = y1 TO y2
+        FOR x = x1 TO x2
+            _MEMGET m, m.OFFSET + (y * iw + x) * 4, px
+            IF px AND &HFF000000~& THEN
+                IF x < mnX THEN mnX = x
+                IF x > mxX THEN mxX = x
+                IF y < mnY THEN mnY = y
+                IF y > mxY THEN mxY = y
+            END IF
+        NEXT x
+    NEXT y
+    _MEMFREE m
+    IF mxX < 0 THEN EXIT FUNCTION
+    ox = mnX - ax: oy = mnY - ay: ow = mxX - mnX + 1: oh = mxY - mnY + 1
+    ANIM_CV_bounds% = TRUE
+END FUNCTION
+
+''
+' Shift what layer L has in frame f's cell by (dx, dy) canvas pixels; what
+' leaves the cell is cut off (the neighbouring frames are not touched).
+SUB ANIM_CV_shift (L AS INTEGER, f AS INTEGER, dx AS INTEGER, dy AS INTEGER)
+    DIM img AS LONG, tmp AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG, bx AS LONG, by AS LONG
+    DIM sx1 AS LONG, sy1 AS LONG, sx2 AS LONG, sy2 AS LONG, oldDest AS LONG, ddx AS LONG, ddy AS LONG
+    ddx = dx: ddy = dy
+    IF ddx = 0 _ANDALSO ddy = 0 THEN EXIT SUB
+    img = LAYERS(L).imgHandle&
+    IF img >= -1 _ORELSE ANIM_cell_rect%(f, x, y, w, h) = 0 THEN EXIT SUB
+    bx = x + LAYERS(L).apronW%: by = y + LAYERS(L).apronH%
+    tmp = _NEWIMAGE(w, h, 32)
+    IF tmp >= -1 THEN EXIT SUB
+    _DONTBLEND tmp
+    _PUTIMAGE (0, 0), img, tmp, (bx, by)-(bx + w - 1, by + h - 1)
+    oldDest = _DEST
+    _DEST img
+    _DONTBLEND img
+    LINE (bx, by)-(bx + w - 1, by + h - 1), _RGBA32(0, 0, 0, 0), BF
+    sx1 = _MAX(0, -ddx): sy1 = _MAX(0, -ddy)
+    sx2 = _MIN(w - 1, w - 1 - ddx): sy2 = _MIN(h - 1, h - 1 - ddy)
+    IF sx2 >= sx1 _ANDALSO sy2 >= sy1 THEN _PUTIMAGE (bx + sx1 + ddx, by + sy1 + ddy), tmp, img, (sx1, sy1)-(sx2, sy2)
+    _BLEND img
+    _DEST oldDest
+    _FREEIMAGE tmp
+    LAYERS(L).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(L).apronCacheImg&: LAYERS(L).apronCacheImg& = 0
+    LAYERS(L).apronCacheValid% = FALSE
+    SYMBOL_mark_parent_dirty L
+END SUB
+
+''
+' Align / Distribute (1901-1908) in the lightbox: in each selected frame (the
+' current one when none is), inside its cell. One layer lines up with the
+' cell; several line up with each other as on the canvas (an edge: the one
+' furthest that way stays; centre / distribute: their bounds together).
+' One undo step.
+SUB ANIM_CV_align (act AS INTEGER)
+    DIM a AS INTEGER, why AS STRING, grp AS INTEGER, i AS INTEGER, j AS INTEGER, n AS INTEGER, f AS INTEGER
+    DIM multi AS INTEGER, before AS STRING, after AS STRING, lbl AS STRING, nf AS INTEGER
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG
+    DIM rx AS INTEGER, ry AS INTEGER, rw AS INTEGER, rh AS INTEGER, anchor AS INTEGER, best AS INTEGER, v AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, k AS INTEGER, tmp AS INTEGER, total AS LONG, tp AS SINGLE, gap AS SINGLE
+    a = act ' ly reference (gotcha 13)
+    why = ANIM_OPS_busy$
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    SELECT CASE a
+        CASE 1901: lbl = "Align Left"
+        CASE 1902: lbl = "Align Center H"
+        CASE 1903: lbl = "Align Right"
+        CASE 1904: lbl = "Align Top"
+        CASE 1905: lbl = "Align Middle V"
+        CASE 1906: lbl = "Align Bottom"
+        CASE 1907: lbl = "Distribute H"
+        CASE 1908: lbl = "Distribute V"
+        CASE ELSE: EXIT SUB
+    END SELECT
+    grp = CMD_group_expand_for_op%
+    multi = MULTI_SELECT_has_any%
+    DIM lay(1 TO MAX_LAYERS) AS INTEGER
+    FOR i = 1 TO MAX_LAYERS
+        IF ANIM_OPS_moves%(i) THEN
+            IF multi THEN
+                IF MULTI_SELECT_LAYERS(i) THEN n = n + 1: lay(n) = i
+            ELSEIF i = CURRENT_LAYER% THEN
+                n = n + 1: lay(n) = i
+            END IF
+        END IF
+    NEXT i
+    IF n = 0 THEN
+        STATUS_flash lbl + ": no drawing layer to move"
+        IF grp > 0 THEN CMD_group_restore_after_op grp
+        EXIT SUB
+    END IF
+    IF (a = 1907 _ORELSE a = 1908) _ANDALSO n < 3 THEN
+        STATUS_flash lbl + ": select three or more layers"
+        IF grp > 0 THEN CMD_group_restore_after_op grp
+        EXIT SUB
+    END IF
+    DIM lx(1 TO MAX_LAYERS) AS INTEGER, ly(1 TO MAX_LAYERS) AS INTEGER, lw(1 TO MAX_LAYERS) AS INTEGER, lh(1 TO MAX_LAYERS) AS INTEGER
+    DIM ok(1 TO MAX_LAYERS) AS INTEGER, ord(1 TO MAX_LAYERS) AS INTEGER
+    before = ANIM_OPS_snapshot$(TRUE)
+    FOR f = 1 TO ANIM.count
+        IF ANIM_SEL_is%(f) _ANDALSO ANIM_cell_rect%(f, cx, cy, cw, ch) THEN
+            nf = nf + 1
+            k = 0
+            FOR i = 1 TO n
+                ok(i) = ANIM_CV_bounds%(lay(i), cx, cy, cw, ch, lx(i), ly(i), lw(i), lh(i))
+                IF ok(i) THEN k = k + 1: ord(k) = i
+            NEXT i
+            IF k = 0 THEN _CONTINUE
+            IF a = 1907 _ORELSE a = 1908 THEN
+                IF k >= 3 THEN
+                    FOR i = 2 TO k ' ly position
+                        tmp = ord(i): j = i - 1
+                        DO WHILE j >= 1
+                            IF _IIF(a = 1907, lx(ord(j)), ly(ord(j))) <= _IIF(a = 1907, lx(tmp), ly(tmp)) THEN EXIT DO
+                            ord(j + 1) = ord(j): j = j - 1
+                        LOOP
+                        ord(j + 1) = tmp
+                    NEXT i
+                    total = 0
+                    FOR i = 1 TO k: total = total + _IIF(a = 1907, lw(ord(i)), lh(ord(i))): NEXT i
+                    IF a = 1907 THEN
+                        gap = ((lx(ord(k)) + lw(ord(k)) - lx(ord(1))) - total) / (k - 1): tp = lx(ord(1))
+                    ELSE
+                        gap = ((ly(ord(k)) + lh(ord(k)) - ly(ord(1))) - total) / (k - 1): tp = ly(ord(1))
+                    END IF
+                    FOR i = 1 TO k
+                        j = ord(i)
+                        IF a = 1907 THEN
+                            ANIM_CV_shift lay(j), f, INT(tp + 0.5) - lx(j), 0: tp = tp + lw(j) + gap
+                        ELSE
+                            ANIM_CV_shift lay(j), f, 0, INT(tp + 0.5) - ly(j): tp = tp + lh(j) + gap
+                        END IF
+                    NEXT i
+                END IF
+                _CONTINUE
+            END IF
+            ' the reference: the cell (one layer), or the layers themselves
+            rx = cx: ry = cy: rw = cw: rh = ch: anchor = 0
+            IF n > 1 THEN
+                IF a = 1901 _ORELSE a = 1904 _ORELSE a = 1903 _ORELSE a = 1906 THEN
+                    best = _IIF(a = 1901 _ORELSE a = 1904, 32767, -32768)
+                    FOR i = 1 TO k
+                        j = ord(i)
+                        SELECT CASE a
+                            CASE 1901: v = lx(j)
+                            CASE 1904: v = ly(j)
+                            CASE 1903: v = lx(j) + lw(j)
+                            CASE ELSE: v = ly(j) + lh(j)
+                        END SELECT
+                        IF (a = 1901 _ORELSE a = 1904) _ANDALSO v < best THEN best = v: anchor = j
+                        IF (a = 1903 _ORELSE a = 1906) _ANDALSO v > best THEN best = v: anchor = j
+                    NEXT i
+                    rx = lx(anchor): ry = ly(anchor): rw = lw(anchor): rh = lh(anchor)
+                ELSE
+                    rx = 32767: ry = 32767: rw = -32768: rh = -32768 ' (x2 / y2 while gathering)
+                    FOR i = 1 TO k
+                        j = ord(i)
+                        rx = _MIN(rx, lx(j)): ry = _MIN(ry, ly(j)): rw = _MAX(rw, lx(j) + lw(j)): rh = _MAX(rh, ly(j) + lh(j))
+                    NEXT i
+                    rw = rw - rx: rh = rh - ry
+                END IF
+            END IF
+            FOR i = 1 TO k
+                j = ord(i)
+                IF j = anchor _ANDALSO anchor > 0 THEN _CONTINUE
+                dx = 0: dy = 0
+                SELECT CASE a
+                    CASE 1901: dx = rx - lx(j)
+                    CASE 1902: dx = (rx + rw \ 2) - (lx(j) + lw(j) \ 2)
+                    CASE 1903: dx = (rx + rw - 1) - (lx(j) + lw(j) - 1)
+                    CASE 1904: dy = ry - ly(j)
+                    CASE 1905: dy = (ry + rh \ 2) - (ly(j) + lh(j) \ 2)
+                    CASE 1906: dy = (ry + rh - 1) - (ly(j) + lh(j) - 1)
+                END SELECT
+                ANIM_CV_shift lay(j), f, dx, dy
+            NEXT i
+        END IF
+    NEXT f
+    after = ANIM_OPS_snapshot$(TRUE)
+    IF after <> before THEN
+        ANIM_OPS_record before, after, lbl, 0
+        STATUS_flash lbl + _IIF(nf > 1, " in" + STR$(nf) + " frames", " in frame" + STR$(ANIM.current))
+    ELSE
+        STATUS_flash lbl + ": already there"
+    END IF
+    IF grp > 0 THEN CMD_group_restore_after_op grp
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' The pane Move tool's press (ANIM_LB_move_begin%): what layer L has in the
+' current frame's cell, for smart guides.
+SUB ANIM_CV_move_begin (L AS INTEGER)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG
+    ANIM_CV_MV_W = 0: ANIM_CV_MV_H = 0
+    IF ANIM_CV_rect%(cx, cy, cw, ch) = 0 THEN EXIT SUB
+    IF ANIM_CV_bounds%(L, cx, cy, cw, ch, ANIM_CV_MV_X, ANIM_CV_MV_Y, ANIM_CV_MV_W, ANIM_CV_MV_H) = 0 THEN ANIM_CV_MV_W = 0
+END SUB
+
+''
+' Smart guides for the pane Move tool: the drawing moved by (ox, oy) lines up
+' with the frame's edges / centre and the other layers' drawings in the frame;
+' with snap on, (ox, oy) are pulled onto the nearest line.
+SUB ANIM_CV_move_guides (ox AS INTEGER, oy AS INTEGER)
+    DIM d AS STRING
+    d = DOCK_n$(ox) + DOCK_n$(oy)
+    SMART_GUIDES_clear
+    IF NOT SMART_GUIDES.ENABLED% _ORELSE ANIM_CV_MV_W < 1 THEN EXIT SUB
+    SMART_GUIDES.moveBBoxX1% = 0: SMART_GUIDES.moveBBoxY1% = 0
+    SMART_GUIDES.moveBBoxX2% = ANIM_CV_MV_W - 1: SMART_GUIDES.moveBBoxY2% = ANIM_CV_MV_H - 1
+    SMART_GUIDES.moveBBoxValid% = TRUE
+    SMART_GUIDES_update ANIM_CV_MV_X + ox, ANIM_CV_MV_Y + oy, ANIM_CV_MV_W, ANIM_CV_MV_H
+    IF SMART_GUIDES.SNAP% THEN ox = ox + SMART_GUIDES.snapDX%: oy = oy + SMART_GUIDES.snapDY%
+    ANIM_CV_LAST = d + DOCK_n$(SMART_GUIDES.vCount%) + DOCK_n$(SMART_GUIDES.hCount%) + DOCK_n$(SMART_GUIDES.snapDX%) + DOCK_n$(SMART_GUIDES.snapDY%) + DOCK_n$(ox) + DOCK_n$(oy)
+END SUB
+
+''
+' QA dump: ANIMCV guidesOn snapOn moveX moveY moveW moveH, then the last pane-move
+' guide step (offset in, guides v / h, snap dx / dy, offset out).
+FUNCTION ANIM_CV_dump$ ()
+    ANIM_CV_dump$ = "ANIMCV" + DOCK_n$(SMART_GUIDES.ENABLED% <> 0) + DOCK_n$(SMART_GUIDES.SNAP% <> 0) + DOCK_n$(ANIM_CV_MV_X) + DOCK_n$(ANIM_CV_MV_Y) + DOCK_n$(ANIM_CV_MV_W) + DOCK_n$(ANIM_CV_MV_H) + ANIM_CV_LAST + CHR$(10)
+END FUNCTION

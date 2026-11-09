@@ -599,9 +599,23 @@ SUB TRANSFORM_activate (mode AS INTEGER)
     ' the layer stops being editable text once transformed.
     IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS _ANDALSO LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_TEXT THEN TEXT_LAYER_rasterize CURRENT_LAYER%
 
+    ' The lightbox: the current frame is the canvas - only its drawing is taken, and
+    ' the commit is clipped to its cell (TOOLS/ANIM-CANVAS).
+    DIM tfCX AS LONG, tfCY AS LONG, tfCW AS LONG, tfCH AS LONG, tfBX AS INTEGER, tfBY AS INTEGER, tfBW AS INTEGER, tfBH AS INTEGER
+    ANIM_CV_TF_F = 0
+    IF ANIM_CV_rect%(tfCX, tfCY, tfCW, tfCH) THEN ANIM_CV_TF_F = ANIM.current
     IF SELECTION_has_active% THEN
         TRANSFORM.SRC_X = MARQUEE.BOX.x : TRANSFORM.SRC_Y = MARQUEE.BOX.y
         TRANSFORM.SRC_W = MARQUEE.BOX.w : TRANSFORM.SRC_H = MARQUEE.BOX.h
+    ELSEIF ANIM_CV_TF_F > 0 THEN
+        IF ANIM_CV_bounds%(CURRENT_LAYER%, tfCX, tfCY, tfCW, tfCH, tfBX, tfBY, tfBW, tfBH) = 0 THEN
+            STATUS_flash "Transform: nothing drawn in frame" + STR$(ANIM.current) + " on this layer"
+            ANIM_CV_TF_F = 0
+            TRANSFORM_rollback_demote
+            EXIT SUB
+        END IF
+        TRANSFORM.SRC_X = tfBX : TRANSFORM.SRC_Y = tfBY
+        TRANSFORM.SRC_W = tfBW : TRANSFORM.SRC_H = tfBH
     ELSE
         ' Scan layer for opaque pixel bounding box
         DIM scanMem AS _MEM : scanMem = _MEMIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&)
@@ -851,6 +865,7 @@ SUB TRANSFORM_cancel ()
     IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
     _LOGINFO "TRANSFORM_cancel: clearing state"
     TRANSFORM_rollback_demote               ' BUG-11: restore any apron the activate demoted — cancel = full revert
+    ANIM_CV_TF_F = 0
     IF TRANSFORM.SRC_IMG < -1 THEN SAFE_FREEIMAGE TRANSFORM.SRC_IMG
     TRANSFORM.SRC_IMG = 0
     IF TRANSFORM.SRC_MASK < -1 THEN SAFE_FREEIMAGE TRANSFORM.SRC_MASK
@@ -931,7 +946,12 @@ SUB TRANSFORM_commit ()
     ' the source-clear and the result blit below. No overflow → aX/aY stay 0 and the
     ' layer stays compact, exactly as before.
     DIM aX AS INTEGER, aY AS INTEGER : aX% = 0 : aY% = 0
-    IF TRANSFORM_PREVIEW_OX% < 0 OR TRANSFORM_PREVIEW_OY% < 0 OR _
+    ' The lightbox: the result stays inside the frame's cell (TOOLS/ANIM-CANVAS), so
+    ' it never spills into the neighbouring frames and needs no apron.
+    DIM tfCell AS INTEGER, tfCX AS LONG, tfCY AS LONG, tfCW AS LONG, tfCH AS LONG
+    IF ANIM_CV_TF_F > 0 THEN tfCell% = ANIM_cell_rect%(ANIM_CV_TF_F, tfCX, tfCY, tfCW, tfCH)
+    IF tfCell% THEN
+    ELSEIF TRANSFORM_PREVIEW_OX% < 0 OR TRANSFORM_PREVIEW_OY% < 0 OR _
        TRANSFORM_PREVIEW_OX% + _WIDTH(TRANSFORM_PREVIEW_IMG) > SCRN.canvasW& OR _
        TRANSFORM_PREVIEW_OY% + _HEIGHT(TRANSFORM_PREVIEW_IMG) > SCRN.canvasH& THEN
         LAYERS_promote_to_extended CURRENT_LAYER%
@@ -982,8 +1002,21 @@ SUB TRANSFORM_commit ()
         _BLEND layImg&
     END IF
     _BLEND layImg&
-    ' BUG-12: blit the (possibly off-canvas) result at the apron-shifted origin.
-    _PUTIMAGE (TRANSFORM_PREVIEW_OX% + aX%, TRANSFORM_PREVIEW_OY% + aY%), TRANSFORM_PREVIEW_IMG, layImg&
+    IF tfCell% THEN
+        ' the part of the result inside the frame's cell (the layer is compact: demoted at activate)
+        DIM tfX1 AS LONG, tfY1 AS LONG, tfX2 AS LONG, tfY2 AS LONG
+        tfX1& = _MAX(tfCX&, TRANSFORM_PREVIEW_OX%): tfY1& = _MAX(tfCY&, TRANSFORM_PREVIEW_OY%)
+        tfX2& = _MIN(tfCX& + tfCW& - 1, TRANSFORM_PREVIEW_OX% + _WIDTH(TRANSFORM_PREVIEW_IMG) - 1)
+        tfY2& = _MIN(tfCY& + tfCH& - 1, TRANSFORM_PREVIEW_OY% + _HEIGHT(TRANSFORM_PREVIEW_IMG) - 1)
+        IF tfX2& >= tfX1& _ANDALSO tfY2& >= tfY1& THEN
+            _PUTIMAGE (tfX1& + LAYERS(CURRENT_LAYER%).apronW%, tfY1& + LAYERS(CURRENT_LAYER%).apronH%), TRANSFORM_PREVIEW_IMG, layImg&, _
+                (tfX1& - TRANSFORM_PREVIEW_OX%, tfY1& - TRANSFORM_PREVIEW_OY%)-(tfX2& - TRANSFORM_PREVIEW_OX%, tfY2& - TRANSFORM_PREVIEW_OY%)
+        END IF
+    ELSE
+        ' BUG-12: blit the (possibly off-canvas) result at the apron-shifted origin.
+        _PUTIMAGE (TRANSFORM_PREVIEW_OX% + aX%, TRANSFORM_PREVIEW_OY% + aY%), TRANSFORM_PREVIEW_IMG, layImg&
+    END IF
+    ANIM_CV_TF_F = 0
     _DEST oldDst&
 
     LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
