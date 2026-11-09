@@ -57,7 +57,12 @@ DIM SHARED ANIM_SS_H(1 TO ANIM_SS_MAX) AS LONG      ' 0 = not found / can't open
 DIM SHARED ANIM_SS_MS(1 TO ANIM_SS_MAX) AS LONG
 DIM SHARED ANIM_SS_PK0(1 TO ANIM_SS_MAX) AS LONG
 DIM SHARED ANIM_SS_PKN(1 TO ANIM_SS_MAX) AS LONG    ' 0 = no waveform (MIDI, a tracker)
-DIM SHARED ANIM_SS_SIG AS STRING ' the document folder + paths they were opened for
+DIM SHARED ANIM_SS_SIG AS STRING
+' ANIM_SND_smp! found its sound memory gone (the loop reading it stops: a
+' _MEM error is critical in QB64-PE, ON ERROR never sees it)
+DIM SHARED ANIM_SND_MEM_LOST AS INTEGER
+' ANIM_SND_close closed a sound _MEMSOUND read: ANIM_SND_let_go waits
+DIM SHARED ANIM_SND_CLOSED AS INTEGER ' the document folder + paths they were opened for
 
 ' What plays: one clip that runs to the end plays its file itself (MIDI and
 ' trackers too); anything else is mixed into one sound (_SNDNEW, files that

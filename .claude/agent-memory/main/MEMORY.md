@@ -88,3 +88,4 @@
 - [Animation project](project-animation.md) — branch animation, PLANS/ANIMATION.md; canvas = sprite sheet; requirements via field kit artifact
 - [Clipboard picture OR text](qb64pe-clipboard-image-or-text.md) — [Linux] _CLIPBOARD$ after _CLIPBOARDIMAGE drops the image (Copy Layer 715 affected); palette+tRNS PNG misread off the clipboard
 - [_SNDOPEN async vs _MEMSOUND](qb64pe-sndopen-async-memsound.md) — QB64-PE decodes in the background by default; _MEMSOUND right after = zeros on some runs; use _SNDOPEN(f, "noasync")
+- [QB64-PE _MEM errors are critical](qb64pe-mem-errors-critical.md) — 300-315 skip ON ERROR; _MEMSOUND lock race on _SNDCLOSE; QB64PE_NOPROMPT=y

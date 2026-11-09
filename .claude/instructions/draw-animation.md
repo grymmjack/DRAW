@@ -845,7 +845,13 @@ with `_SNDOPEN(f, "noasync")` - QB64-PE decodes in the background by default, an
 then reads a half-filled buffer (a flat waveform, on some runs only). MIDI gets
 `_MIDISOUNDBANK CFG.MIDI_SF2_FILE$` first when one is set. `ANIM_SND_peaks`: the loudest sample
 per 1/100 s from `_MEMSOUND(h, 0)` (INTEGER / LONG / SINGLE / unsigned byte; every `stride`-th
-sample on a long sound), scaled so the loudest is 255. *Playing:* `ANIM_SND_tick` (DRAW.BAS,
+sample on a long sound), scaled so the loudest is 255. *Closing / reading sound memory:* every
+sound `_MEMSOUND` has read (the files, a mix) is closed through `ANIM_SND_close` and then
+`ANIM_SND_let_go` (`_DELAY 0.1`): QB64-PE frees its mem lock later on its display thread, and its
+lock pool has no mutex, so a free there racing DRAW's `_MEMIMAGE` / `_FREEIMAGE` handed one lock
+out twice - "Memory has been freed" at ANIM-SOUND.BM:174, a critical error ON ERROR can't trap
+(Rick 2026-11-09). Every read (`ANIM_SND_smp!`, the mix, `ANIM_SND_write_wav%`) asks
+`_MEMEXISTS` first; `ANIM_SND_MEM_LOST` stops the loop. Test: `anim-sound-mem-race.sh`. *Playing:* `ANIM_SND_tick` (DRAW.BAS,
 after `ANIM_play_tick%`) applies `CFG.ANIM_SOUND_VOLUME` (0-100, cfg only; QA pins 0) and calls
 `ANIM_SND_follow cur, playing`, which the full-screen preview's modal loop calls too: playing,
 the next frame runs on (re-seeked only when `_SNDGETPOS` drifts more than 0.1 s + a frame), any

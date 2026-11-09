@@ -21,12 +21,37 @@ FUNCTION ANIM_SND_resolve$ (p AS STRING)
 END FUNCTION
 
 ''
+' Close sound h that _MEMSOUND has read (a file, a mix). QB64-PE frees such a
+' sound's memory lock later, on its own display thread (the audio Update,
+' ~60 Hz), and its lock pool (new_mem_lock / free_mem_lock) has no mutex: a
+' free there while this thread takes or frees a lock (_MEMSOUND, _MEMIMAGE,
+' _FREEIMAGE - the render does them all the time) can hand one lock out twice,
+' and a read through the other owner then dies with "Memory has been freed" -
+' a critical error ON ERROR never sees (Rick 2026-11-09: a mod, then a WAV
+' added to the X-sheet). ANIM_SND_let_go waits for that free.
+SUB ANIM_SND_close (h AS LONG)
+    IF h < 1 THEN EXIT SUB
+    IF _SNDPLAYING(h) THEN _SNDSTOP h
+    _SNDCLOSE h
+    ANIM_SND_CLOSED = TRUE
+END SUB
+
+''
+' After ANIM_SND_close: keep this thread off the lock pool while QB64-PE
+' frees what was closed (a few of its 16 ms audio updates).
+SUB ANIM_SND_let_go ()
+    IF ANIM_SND_CLOSED = FALSE THEN EXIT SUB
+    ANIM_SND_CLOSED = FALSE
+    _DELAY 0.1
+END SUB
+
+''
 ' Stop what plays and let it go (a mix is closed; a file's sound stays open
-' with its file).
+' with its file). The caller then calls ANIM_SND_let_go.
 SUB ANIM_SND_drop ()
     IF ANIM_SND_H > 0 THEN
         IF _SNDPLAYING(ANIM_SND_H) THEN _SNDSTOP ANIM_SND_H
-        IF ANIM_SND_MIXED THEN _SNDCLOSE ANIM_SND_H
+        IF ANIM_SND_MIXED THEN ANIM_SND_close ANIM_SND_H
     END IF
     ANIM_SND_H = 0: ANIM_SND_MIXED = FALSE: ANIM_SND_BASE = 0: ANIM_SND_FILE = "": ANIM_SND_LEN = 0
     ANIM_SND_ON = FALSE: ANIM_SND_STOP_AT = 0: ANIM_SND_VOL = -1: ANIM_SND_SKIPPED = 0
@@ -38,13 +63,11 @@ SUB ANIM_SS_close_all ()
     DIM i AS INTEGER
     ANIM_SND_drop
     FOR i = 1 TO ANIM_SS_N
-        IF ANIM_SS_H(i) > 0 THEN
-            IF _SNDPLAYING(ANIM_SS_H(i)) THEN _SNDSTOP ANIM_SS_H(i)
-            _SNDCLOSE ANIM_SS_H(i)
-        END IF
+        IF ANIM_SS_H(i) > 0 THEN ANIM_SND_close ANIM_SS_H(i)
         ANIM_SS_H(i) = 0: ANIM_SS_PATH(i) = "": ANIM_SS_FILE(i) = ""
     NEXT i
     ANIM_SS_N = 0: ANIM_SND_PKN = 0
+    ANIM_SND_let_go
 END SUB
 
 ''
@@ -151,6 +174,7 @@ END SUB
 SUB ANIM_SND_build ()
     DIM k AS INTEGER
     ANIM_SND_drop
+    ANIM_SND_let_go
     ANIM_SND_SEEN_CUR = ANIM.current: ANIM_SND_SEEN_PLAY = ANIM_PLAY.playing
     ANIM_SND_STARTS = 0: ANIM_SND_LAST_T = 0
     IF ANIM_SC_N = 0 THEN EXIT SUB
@@ -167,9 +191,13 @@ SUB ANIM_SND_build ()
 END SUB
 
 ''
-' One sample of sound memory m at off, -1..1 (tp = _MEM TYPE).
+' One sample of sound memory m at off, -1..1 (tp = _MEM TYPE). 0 and
+' ANIM_SND_MEM_LOST set when m is no longer valid: QB64-PE's _MEM errors
+' (300-315) are critical - ON ERROR can't trap them, they end DRAW with a
+' dialog - so every read of sound memory asks _MEMEXISTS first.
 FUNCTION ANIM_SND_smp! (m AS _MEM, at AS _OFFSET, tp AS LONG)
     DIM v AS SINGLE
+    IF _MEMEXISTS(m) = 0 THEN ANIM_SND_MEM_LOST = TRUE: EXIT FUNCTION
     SELECT CASE tp
         CASE 130: v = _MEMGET(m, at, INTEGER) / 32768!
         CASE 132: v = _MEMGET(m, at, LONG) / 2147483648!
@@ -212,7 +240,8 @@ SUB ANIM_SND_mix ()
     h = _SNDNEW(frames, 2, 32)
     IF h < 1 THEN _LOGWARN "ANIM_SND_mix: _SNDNEW failed": EXIT SUB
     md = _MEMSOUND(h, 0)
-    IF md.SIZE = 0 THEN _SNDCLOSE h: _LOGWARN "ANIM_SND_mix: no sound memory": EXIT SUB
+    IF md.SIZE = 0 _ORELSE _MEMEXISTS(md) = 0 THEN ANIM_SND_close h: ANIM_SND_let_go: _LOGWARN "ANIM_SND_mix: no sound memory": EXIT SUB
+    ANIM_SND_MEM_LOST = FALSE
     _MEMFILL md, md.OFFSET, md.SIZE, 0 AS _UNSIGNED _BYTE
     frames = md.SIZE \ 8
     FOR i = 1 TO ANIM_SC_N
@@ -222,7 +251,9 @@ SUB ANIM_SND_mix ()
             IF ANIM_SS_H(k) > 0 THEN
                 ms = _MEMSOUND(ANIM_SS_H(k), 0)
                 tp = ms.TYPE: es = ms.ELEMENTSIZE
-                IF ms.SIZE > 0 _ANDALSO es > 0 THEN
+                IF _MEMEXISTS(ms) = 0 THEN
+                    _LOGWARN "ANIM_SND_mix: clip" + STR$(i) + " file" + STR$(k) + " sound" + STR$(ANIM_SS_H(k)) + ": its memory is gone"
+                ELSEIF ms.SIZE > 0 _ANDALSO es > 0 THEN
                     SELECT CASE tp
                         CASE 130: bps = 2
                         CASE 132, 260: bps = 4
@@ -239,6 +270,7 @@ SUB ANIM_SND_mix ()
                     IF f0 + n > sf THEN n = sf - f0
                     IF d0 + n > frames THEN n = frames - d0
                     FOR j = 0 TO n - 1
+                        IF ANIM_SND_MEM_LOST _ORELSE _MEMEXISTS(md) = 0 THEN EXIT FOR
                         so = ms.OFFSET + (f0 + j) * es
                         l = ANIM_SND_smp!(ms, so, tp)
                         IF ch > 1 THEN r = ANIM_SND_smp!(ms, so + bps, tp) ELSE r = l
@@ -246,20 +278,25 @@ SUB ANIM_SND_mix ()
                         _MEMPUT md, doff, _MEMGET(md, doff, SINGLE) + l AS SINGLE
                         _MEMPUT md, doff + 4, _MEMGET(md, doff + 4, SINGLE) + r AS SINGLE
                     NEXT j
+                    IF ANIM_SND_MEM_LOST THEN _LOGWARN "ANIM_SND_mix: clip" + STR$(i) + " sound" + STR$(ANIM_SS_H(k)) + ": its memory went at frame" + STR$(j) + " of" + STR$(n)
                 END IF
-                _MEMFREE ms
+                IF _MEMEXISTS(ms) THEN _MEMFREE ms
             END IF
         END IF
         IF bps = 0 THEN skipped = skipped + 1
     NEXT i
+    IF _MEMEXISTS(md) = 0 THEN ' the mix itself went: nothing to play
+        ANIM_SND_close h: ANIM_SND_let_go: _LOGWARN "ANIM_SND_mix: the mix's memory is gone": EXIT SUB
+    END IF
     IF ANIM_SC_N > 1 THEN ' overlapping clips can add up past full scale
         FOR j = 0 TO frames * 2 - 1
+            IF _MEMEXISTS(md) = 0 THEN ANIM_SND_close h: ANIM_SND_let_go: _LOGWARN "ANIM_SND_mix: the mix's memory is gone": EXIT SUB
             doff = md.OFFSET + j * 4
             l = _MEMGET(md, doff, SINGLE)
             IF l > 1 THEN _MEMPUT md, doff, 1! AS SINGLE ELSE IF l < -1 THEN _MEMPUT md, doff, -1! AS SINGLE
         NEXT j
     END IF
-    _MEMFREE md
+    IF _MEMEXISTS(md) THEN _MEMFREE md
     ANIM_SND_H = h: ANIM_SND_MIXED = TRUE: ANIM_SND_BASE = 0
     ANIM_SND_LEN = frames / rate: ANIM_SND_SKIPPED = skipped
     IF skipped > 0 THEN _LOGWARN "ANIM_SND_mix:" + STR$(skipped) + " clip(s) left out (MIDI / tracker / not found)"
@@ -274,7 +311,7 @@ FUNCTION ANIM_SND_write_wav% (h AS LONG, path AS STRING)
     DIM chunk AS LONG, k AS LONG, bytes AS LONG, iv AS INTEGER
     IF h < 1 THEN EXIT FUNCTION
     m = _MEMSOUND(h, 0)
-    IF m.SIZE = 0 _ORELSE m.ELEMENTSIZE <> 8 _ORELSE m.TYPE <> 260 THEN EXIT FUNCTION
+    IF _MEMEXISTS(m) = 0 _ORELSE m.SIZE = 0 _ORELSE m.ELEMENTSIZE <> 8 _ORELSE m.TYPE <> 260 THEN EXIT FUNCTION
     rate = _SNDRATE
     n = m.SIZE \ 4 ' samples (2 per frame)
     bytes = n * 2
@@ -289,6 +326,7 @@ FUNCTION ANIM_SND_write_wav% (h AS LONG, path AS STRING)
         k = _MIN(chunk, n - j)
         buf = SPACE$(k * 2)
         FOR bytes = 0 TO k - 1
+            IF _MEMEXISTS(m) = 0 THEN EXIT DO ' (see ANIM_SND_smp!)
             v = _MEMGET(m, m.OFFSET + (j + bytes) * 4, SINGLE)
             IF v > 1 THEN v = 1
             IF v < -1 THEN v = -1
@@ -299,6 +337,7 @@ FUNCTION ANIM_SND_write_wav% (h AS LONG, path AS STRING)
         j = j + k
     LOOP
     CLOSE #ff
+    IF _MEMEXISTS(m) = 0 THEN _LOGWARN "ANIM_SND_write_wav: the sound's memory went": KILL path: EXIT FUNCTION
     _MEMFREE m
     ANIM_SND_write_wav% = _FILEEXISTS(path)
 END FUNCTION
@@ -314,26 +353,29 @@ SUB ANIM_SND_peaks (k AS INTEGER)
     IF ANIM_SS_H(k) < 1 THEN EXIT SUB
     m = _MEMSOUND(ANIM_SS_H(k), 0)
     sz = m.SIZE: es = m.ELEMENTSIZE: tp = m.TYPE
-    IF sz <= 0 _ORELSE es <= 0 THEN EXIT SUB
+    IF _MEMEXISTS(m) = 0 _ORELSE sz <= 0 _ORELSE es <= 0 THEN EXIT SUB
     SELECT CASE tp
         CASE 130: bps = 2
         CASE 132, 260: bps = 4
         CASE 1153: bps = 1
-        CASE ELSE: _MEMFREE m: EXIT SUB
+        CASE ELSE: EXIT SUB ' (_MEMFREE does nothing to sound memory)
     END SELECT
     rate = _SNDRATE
     frames = sz \ es
     nb = frames * ANIM_SND_PK_RATE \ rate + 1
     IF ANIM_SND_PKN + nb > ANIM_SND_PK_MAX THEN nb = ANIM_SND_PK_MAX - ANIM_SND_PKN
-    IF nb < 1 THEN _MEMFREE m: EXIT SUB
+    IF nb < 1 THEN EXIT SUB
     DIM pk(0 TO nb - 1) AS SINGLE
     stride = frames \ 4000000 + 1
+    ANIM_SND_MEM_LOST = FALSE
     FOR i = 0 TO frames - 1 STEP stride
+        IF ANIM_SND_MEM_LOST THEN _LOGWARN "ANIM_SND_peaks: file" + STR$(k) + " sound" + STR$(ANIM_SS_H(k)) + ": its memory went": EXIT SUB
         v = ABS(ANIM_SND_smp!(m, m.OFFSET + i * es, tp))
         b = i * ANIM_SND_PK_RATE \ rate
         IF b < nb _ANDALSO v > pk(b) THEN pk(b) = v
         IF v > top THEN top = v
     NEXT i
+    IF ANIM_SND_MEM_LOST _ORELSE _MEMEXISTS(m) = 0 THEN _LOGWARN "ANIM_SND_peaks: file" + STR$(k) + ": its memory went": EXIT SUB
     _MEMFREE m
     p0 = ANIM_SND_PKN
     REDIM _PRESERVE ANIM_SND_PK(0 TO p0 + nb - 1) AS _UNSIGNED _BYTE
