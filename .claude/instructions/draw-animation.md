@@ -418,12 +418,21 @@ frame's cell (TRUE), else `0, 0, canvasW, canvasH`. Done so far:
   (`ANIM_CV_fill_box` on `startX / startY`). Lines still run on below the cell's bottom. Dump
   `ANIMTX startX startY x y w h` (the current text layer; its pixels' bounds). Test
   `anim-lightbox-text.sh`.
+- **Centred effects** (`IMAGE_ADJ_twirl& pinch& kaleidoscope& lensflare& backlight& ripples&
+  grid& lightning& blur_typed&`): a prologue - when `ANIM_CV_fx_split%` sees a layer buffer in
+  the lightbox, the effect calls itself on each selected frame's cell (`ANIM_CV_fx_begin& /
+  _fx_cell& / _fx_put / _fx_end`; `ANIM_CV_FX_L` is the re-entry guard) and stitches the
+  results, so centre and radius are the frame's (and a blur does not bleed across frames). A
+  picked centre keeps its offset inside each frame (`ANIM_CV_fx_cen&`). The loupe preview
+  centres on the current frame (`IMAGE_ADJ_update_loupe`). Texture-like effects (weave, stone,
+  rust, noise ...) are not split. Test `anim-lightbox-effect-centre.sh` (frames 1 and 3 hold the
+  same picture; Twirl / Pinch on each must match).
 - Dump `ANIMCV guidesOn snapOn moveX moveY moveW moveH` + the last pane-move guide step (offset
   in, guides v / h, snap dx / dy, offset out). Test `anim-lightbox-canvas.sh` (fixture frames 2-5
   are frame 1 aligned right / centred / bottom / snapped right + top).
   Test `anim-lightbox-canvas-edit.sh` (Select All + Delete, Cut with no selection, Paste back,
   a symmetric dot in frame 3 = fixture frame 4).
-- Still to do (the audit, TASKS-ANIMATION-2 F11 l-o): centred effects, gradient / grid origin,
+- Still to do (the audit, TASKS-ANIMATION-2 F11 m-o): gradient / grid origin,
   copy / paste layer, crop / analyzer / AI size / ref image.
 
 ## Apply to the selected frames (2.7)

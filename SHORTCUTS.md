@@ -720,7 +720,10 @@ each selected frame about its own centre (cut off at its edges). Fill, global fi
 at the edges of the frame you click in. Select From Current Layer / Selected Layers take only the
 current frame's pixels; a marquee stops at the edges of the frame the drag began in; a moved
 selection or paste is cut off at the frame's edges when it lands (with clip to frame on). New
-Text Layer starts at the frame's centre, and text wraps at the frame's right edge.
+Text Layer starts at the frame's centre, and text wraps at the frame's right edge. Centred
+effects (Twirl, Pinch / Bulge, Kaleidoscope, Lens Flare, Backlight, Ripples, Grid, Lightning,
+the typed blurs) work on each selected frame as its own picture, centred on it; their preview
+shows the current frame.
 
 ---
 

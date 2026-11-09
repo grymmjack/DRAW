@@ -20,3 +20,8 @@ DIM SHARED ANIM_CV_MV_W AS INTEGER
 DIM SHARED ANIM_CV_MV_H AS INTEGER
 ' QA: the last pane-move guide step (ANIMCV: offset in, guides v / h, snap, offset out)
 DIM SHARED ANIM_CV_LAST AS STRING
+' A centred effect running per frame cell (ANIM_CV_fx_*): the layer it splits
+' (0 = none - also the re-entry guard) and that buffer's apron.
+DIM SHARED ANIM_CV_FX_L AS INTEGER
+DIM SHARED ANIM_CV_FX_AW AS INTEGER
+DIM SHARED ANIM_CV_FX_AH AS INTEGER
