@@ -200,10 +200,15 @@ The **Animate** built-in workspace (L.2, `ASSETS/WORKSPACES/animate.workspace`) 
   `SCREEN_render` it replaces the whole canvas branch (normal and tile mode): `RENDER_layers`
   composites with its blit thrown off screen (`useComposite` is forced while showing, so
   `CANVAS_CONTENT_SRC&` is a canvas-size composite, the one the Preview reads), then
-  `ANIM_LB_render` cuts every frame from it. Grids, the frame grid, symmetry, the border, the
+  `ANIM_LB_render` cuts every frame from it. The frame grid, symmetry, the border, the
   ref image, CRT, the text hover outline and the scrollbars are sheet-view things and are
-  skipped; tool previews, marching ants, smart guides and the pointer are drawn through a pane
-  (below). It is drawn before the scene cache, so it only
+  skipped; tool previews, smart guides and the pointer are drawn through the pointer's pane
+  (below). **Grids** (VIEW > GRID, pixel grid, char grid - field kit R-32) go over every pane,
+  on top of the picture: `ANIM_LB_grids` after `ANIM_LB_render`, `RENDER_grids` through
+  `ANIM_LB_overlay_begin%` per pane, so they line up with the sheet (as snapping does).
+  **Marching ants** go through every pane too (`SCREEN_render` after `SkipToPointer:`, only
+  while a selection shows) - each clips to its own picture, so they stay with their frame when
+  the pointer moves to another pane (R-27). Test `anim-lightbox-overlays.sh`. It is drawn before the scene cache, so it only
   re-renders when the scene does (a frame step, a playback tick, a canvas change).
 - **Bands:** strip = a quarter of the area (cells are the band's height, the frame's shape,
   integer zoom, scrolled so the current frame stays in view), the transport bar (one
@@ -344,7 +349,9 @@ for `CFG.ONION_BEFORE` / `ONION_AFTER` (0-5, `ANIM_ONION_MAX`) frames, farthest 
 nearest lands on top, it builds the cell into `ANIM_LB.onionImg` from the composite with `_MEM`
 and `_PUTIMAGE`s it scaled over the picture. Alpha = pixel alpha x `ONION_OPACITY`% x
 (n - d + 1) / n. A pixel shows only where it **differs from the current frame** and **is not
-that frame's background** (`ANIM_LB_cell_bg%`: the colour 3 or 4 corners share) - so a solid
+that frame's background** (`ANIM_LB_cell_bg%`: the colour covering at least 40% of the cell's edge - corners alone missed
+sky over a ground strip, field kit R-3, so `SAMPLES/ANIMATION/bounce-ball.png` showed no ghosts;
+test `anim-onion-solid-bg.sh`) - so a solid
 background layer doesn't tint the whole pane, and a static scene stays clear. **Ghosts go behind
 the current drawing:** only where the current frame is transparent or its own background
 (`ANIM_LB_cell_bg%` of the current cell) - drawn over it, the current frame looked faded (field
@@ -429,8 +436,13 @@ frame's cell (TRUE), else `0, 0, canvasW, canvasH`. Done so far:
   same picture; Twirl / Pinch on each must match).
 - **Gradient / image paint:** the flood fill's `GRAD_CTX_set` (`MOUSE.BM`) and
   `DRAWER_resolve_paint_color~&`'s stretched / tiled image span the cell of the frame painted in
-  (`ANIM_CV_fill_box`). The grid stays on the sheet (its snap matches the drawn grid).
-- **Paste in Place** (312, now also in the command palette): `ANIM_CV_same_spot` moves the copied
+  (`ANIM_CV_fill_box`). The grid stays on the sheet (its snap matches the drawn grid; the panes
+  draw it in sheet coordinates).
+- **Paste in Place** (312, `Ctrl+Alt+V` since field kit R-23 - `Ctrl+Shift+V` is Paste from OS
+  Clipboard, which centres; the edit bar's tooltip had named it wrongly, and so did the R2 kit.
+  `CLIPBOARD_paste_from_os` keeps the copy's origin when the OS image is DRAW's own copy, same
+  size, so a later Paste in Place still works; test `anim-paste-in-place-key.sh`):
+  `ANIM_CV_same_spot` moves the copied
   spot from its frame to the current frame; `CLIPBOARD_IN_PLACE` makes `CLIPBOARD_paste` keep the
   point instead of centring (it had centred every paste since BUG-A, so Paste in Place never
   pasted in place, lightbox or not). Copy / Paste Layer between instances stay whole-sheet (a layer
@@ -447,7 +459,11 @@ frame's cell (TRUE), else `0, 0, canvasW, canvasH`. Done so far:
   are frame 1 aligned right / centred / bottom / snapped right + top).
   Test `anim-lightbox-canvas-edit.sh` (Select All + Delete, Cut with no selection, Paste back,
   a symmetric dot in frame 3 = fixture frame 4).
-- Left on purpose / not yet: the grid stays on the sheet; Copy / Paste Layer stay whole-sheet;
+- **Import Image** (208, `IMPORT_image` in `TOOLS/LOAD`) uses `IMAGE_IMPORT_load_file%` like a
+  drop (it had its own copy that measured the whole sheet - R-25); `MOUSE_handle_image_import%`
+  calls `ANIM_LB_view_pick`, which pins the current frame's pane while an import is placed, so
+  its box, handles, drag and nudge are in the pane's view.
+- Left on purpose / not yet: Copy / Paste Layer stay whole-sheet;
   the multi-layer Move commit's sibling layers are not clipped; text lines run on below the cell;
   texture-like effects are not split per frame; Canvas Resize still resizes the sheet.
 
@@ -718,10 +734,16 @@ ones - frames put inside join it; none left = it goes). Saved as drAn **v4** onl
 the box starts with the selected tag's name (a new name renames it - another tag of that name
 goes) or the first free `tagN`. Delete Tag 2544: the selected tag, else `ANIM_TG_at%(current)`.
 One undo step each (`ANIM_OPS_snapshot$(FALSE)`).
-**X-sheet:** a TAGS row under HOLD only while tags exist (`ANIM_XS_tag_rows%`: band height and
-`rowsShown` make room; band row `rowsShown + 2`): a bar per tag (`ANIM_XS_tag_span%`), the
-selected one bright; a press on it selects the tag (`ANIM_TG_select`), so Play (which plays a
-selected span) plays the tag.
+**X-sheet:** a TAGS row under HOLD, always (field kit R-13; `ANIM_XS_tag_rows%` = 1; band row
+`rowsShown + 2`; empty, it says "double-click or right-click to tag frames"): a bar per tag
+(`ANIM_XS_tag_span%`), the selected one bright; a press on it selects the tag (`ANIM_TG_select`),
+so Play (which plays a selected span) plays the tag. A double-click (as the NOTES row's) opens
+Tag Frames... for the tag under it (rename) or the frame; OK with the name cleared deletes the
+selected tag (`MB_STATE.result = MB_RESULT_1`; Cancel changes nothing). A right-click on the
+TAGS / NOTES row (`ANIM_XS_tag_rpress%`, `ANIM_XS.rTag`) opens `ANIM_LB.menuKind` 2
+(`ANIM_XS_tag_menu_build`: Tag Frames... / Rename Tag..., Delete Tag, Frame Note..., Clear Frame
+Note). Test `anim-tag-edit.sh`. The HOLD label reads "HOLD (DRAG)" (dim); a held frame's hold
+shows in its lightbox label ("HOLD n") and top right of its strip thumbnail ("xn").
 **Exports:** `ANIM_play_order%` covers `ANIM_EXP_A..ANIM_EXP_B` when set (0 = all). The GUI
 wrapper `ANIM_EXPORT_action` sets it from `ANIM_TG_selected%` when that tag has 2+ frames (not
 the sprite sheet), calls `ANIM_EXPORT_run`, then clears it; the report adds `- tag NAME`

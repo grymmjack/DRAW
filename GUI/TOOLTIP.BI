@@ -207,7 +207,7 @@ TOOLTIP_EB_LINE2$(5) = "L-CLICK copy merged (all visible layers) to clipboard."
 TOOLTIP_EB_LINE1$(6) = "CTRL+v - Paste"
 TOOLTIP_EB_LINE2$(6) = "L-CLICK paste clipboard contents at cursor."
 ' Slot 7: Paste in Place
-TOOLTIP_EB_LINE1$(7) = "CTRL+SHIFT+v - Paste in Place"
+TOOLTIP_EB_LINE1$(7) = "CTRL+ALT+v - Paste in Place"
 TOOLTIP_EB_LINE2$(7) = "L-CLICK paste clipboard contents at original position."
 ' Slot 8: divider
 ' Slot 9: Cut to New Layer

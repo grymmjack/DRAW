@@ -73,7 +73,7 @@ END FUNCTION
 ' The band's height for avail px under it (the bar and the panes take the
 ' rest): the header, every layer row and the holds row, at most half.
 FUNCTION ANIM_XS_tag_rows% ()
-    IF ANIM_TG_N > 0 THEN ANIM_XS_tag_rows% = 1
+    ANIM_XS_tag_rows% = 1 ' always shown: somewhere to double-click / right-click to tag (field kit R-13)
 END FUNCTION
 
 FUNCTION ANIM_XS_note_rows% ()
@@ -236,7 +236,7 @@ SUB ANIM_XS_layout (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
     fw = _MAX(1, ANIM.frameW): fh = _MAX(1, ANIM.frameH)
 
     ' names: the widest label (and HOLD), at most a quarter of the band
-    nw = FPANEL_text_w%("HOLD")
+    nw = FPANEL_text_w%("HOLD (DRAG)")
     FOR r = 1 TO ANIM_XS.nRows
         w = FPANEL_text_w%(ANIM_XS_label$(ANIM_XS_ROW(r))) + 4 * ANIM_XS_DEPTH(r)
         IF w > nw THEN nw = w
@@ -464,6 +464,8 @@ SUB ANIM_XS_render (dest AS LONG)
     LINE (ANIM_XS.x1, hy)-(x2, hy), THEME.CP_border~&
     ty = hy + (rh - FPANEL.fontH%) \ 2
     FPANEL_text ANIM_XS.x1 + 4, ty, "HOLD", THEME.CP_text~&
+    ' how it works (field kit R-13): drag a frame's hold to stretch it
+    IF ANIM_XS.x1 + 4 + FPANEL_text_w%("HOLD (DRAG)") < ANIM_XS.gx - 2 THEN FPANEL_text ANIM_XS.x1 + 4 + FPANEL_text_w%("HOLD "), ty, "(DRAG)", THEME.CP_text_dim~&
     FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
         x = ANIM_XS_frame_x%(f): w = ANIM_hold%(f) * ANIM_XS.tickW
         t = _TRIM$(STR$(ANIM_hold%(f))): tw = FPANEL_text_w%(t)
@@ -528,6 +530,12 @@ SUB ANIM_XS_render_tags (y AS INTEGER)
     LINE (ANIM_XS.x1, y)-(ANIM_XS.x2, y), THEME.CP_border~&
     ty = y + (rh - FPANEL.fontH%) \ 2
     FPANEL_text ANIM_XS.x1 + 4, ty, "TAGS", THEME.CP_text~&
+    IF ANIM_TG_N = 0 THEN ' none yet: how to make one (R-13: the row is always there)
+        t = "double-click or right-click to tag frames"
+        DO WHILE LEN(t) > 0 _ANDALSO ANIM_XS.gx + 4 + FPANEL_text_w%(t) > ANIM_XS.x2: t = LEFT$(t, LEN(t) - 1): LOOP
+        IF LEN(t) > 0 THEN FPANEL_text ANIM_XS.gx + 4, ty, t, (THEME.CP_text~& AND &H00FFFFFF~&) OR &H80000000~&
+        EXIT SUB
+    END IF
     sel = ANIM_TG_selected%
     FOR k = 1 TO ANIM_TG_N
         IF ANIM_XS_tag_span%(k, xa, xb) THEN
@@ -932,9 +940,19 @@ FUNCTION ANIM_XS_press% (mx AS INTEGER, my AS INTEGER)
         EXIT FUNCTION
     END IF
     ANIM_SC_FOCUS = FALSE ' a press on the band off the SOUND rows takes the keys back
-    IF k = ANIM_XS_tags_k% THEN ' the tags row (4.4): a tag selects its frames
+    IF k = ANIM_XS_tags_k% THEN ' the tags row (4.4): a tag selects its frames; a double-click renames it (or tags the frame) - R-13
+        STATIC lastTagT AS DOUBLE, lastTagF AS INTEGER, lastTagTick AS LONG
+        DIM tdt AS DOUBLE
+        tdt = TIMER - lastTagT
         IF f > 0 THEN
-            IF ANIM_TG_at%(f) > 0 THEN ANIM_TG_select ANIM_TG_at%(f) ELSE ANIM_SEL_click f, c, s
+            IF f = lastTagF _ANDALSO c = 0 _ANDALSO s = 0 _ANDALSO tdt >= 0 _ANDALSO (tdt < 0.45 _ORELSE (ANIM_LOOP_TICK - lastTagTick <= 2 _ANDALSO tdt < 2)) THEN
+                lastTagF = 0
+                IF ANIM_TG_at%(f) > 0 THEN ANIM_TG_select ANIM_TG_at%(f) ELSE ANIM_SEL_click f, 0, 0
+                ANIM_TG_action ANIM_ACT_TAG_FRAMES
+            ELSE
+                IF ANIM_TG_at%(f) > 0 THEN ANIM_TG_select ANIM_TG_at%(f) ELSE ANIM_SEL_click f, c, s
+                lastTagF = f: lastTagT = TIMER: lastTagTick = ANIM_LOOP_TICK
+            END IF
         END IF
         ANIM_LB_changed
         EXIT FUNCTION
@@ -963,6 +981,44 @@ FUNCTION ANIM_XS_press% (mx AS INTEGER, my AS INTEGER)
     END IF
     ANIM_LB_changed
 END FUNCTION
+
+''
+' A right press on the TAGS / NOTES row (R-13): the tag under it is selected
+' (else its frame, unless already selected), for the menu that opens on the
+' release. TRUE = it was on one of those rows.
+FUNCTION ANIM_XS_tag_rpress% (mx AS INTEGER, my AS INTEGER)
+    DIM k AS INTEGER, f AS INTEGER
+    IF ANIM_XS_hit%(mx, my) = 0 THEN EXIT FUNCTION
+    k = ANIM_XS_band_row%(my)
+    IF k < 0 _ORELSE (k <> ANIM_XS_tags_k% _ANDALSO k <> ANIM_XS_notes_k%) THEN EXIT FUNCTION
+    f = ANIM_XS_frame_at%(mx)
+    IF f > 0 THEN
+        IF k = ANIM_XS_tags_k% _ANDALSO ANIM_TG_at%(f) > 0 THEN
+            ANIM_TG_select ANIM_TG_at%(f)
+        ELSEIF ANIM_SEL_is%(f) = 0 THEN
+            ANIM_SEL_click f, 0, 0
+        END IF
+        ANIM_LB_changed
+    END IF
+    ANIM_XS_tag_rpress% = TRUE
+END FUNCTION
+
+''
+' The TAGS / NOTES rows' menu (ANIM_LB.menuKind 2; values are action ids).
+SUB ANIM_XS_tag_menu_build ()
+    DIM sel AS INTEGER, j AS INTEGER, noted AS INTEGER
+    POPUP_MENU_clear_items
+    sel = ANIM_TG_selected%
+    POPUP_MENU_set_item 0, _IIF(sel > 0, "Rename Tag...", "Tag Frames..."), "", ANIM_ACT_TAG_FRAMES, 0
+    POPUP_MENU_set_item 1, "Delete Tag", "", ANIM_ACT_DELETE_TAG, _IIF(sel > 0 _ORELSE ANIM_TG_at%(ANIM.current) > 0, 0, POPUP_MENU_FLAG_DISABLED)
+    POPUP_MENU_set_item 2, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    POPUP_MENU_set_item 3, "Frame Note...", "", ANIM_ACT_FRAME_NOTE, 0
+    FOR j = 1 TO ANIM.count
+        IF (ANIM_SEL_is%(j) _ORELSE j = ANIM.current) _ANDALSO LEN(ANIM_NOTE(j)) > 0 THEN noted = TRUE: EXIT FOR
+    NEXT j
+    POPUP_MENU_set_item 4, "Clear Frame Note", "", ANIM_ACT_CLEAR_NOTE, _IIF(noted, 0, POPUP_MENU_FLAG_DISABLED)
+    ANIM_LB.menuN = 5
+END SUB
 
 ''
 ' Where dropped frames land for viewport x: before the frame whose span's

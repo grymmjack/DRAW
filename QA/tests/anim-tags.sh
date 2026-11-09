@@ -87,10 +87,10 @@ assert_no_crash
 tg_key ctrl+0
 tg_read; tg_xsheet
 tg_read
-if [[ "$A_COUNT" != 6 || "${TG_N:-}" != 0 || -n "${TR_Y:-}" || "${XTW:-0}" -lt 1 ]]; then
-    fail "start: $(tg_s), x-sheet tick '${XTW:-}' (wanted 6 frames, no tags, no TAGS row)"
+if [[ "$A_COUNT" != 6 || "${TG_N:-}" != 0 || -z "${TR_Y:-}" || "${XTW:-0}" -lt 1 ]]; then
+    fail "start: $(tg_s), x-sheet tick '${XTW:-}' (wanted 6 frames, no tags, the TAGS row there anyway - R-13)"
 else
-    pass "6 frames on the X-sheet, no tags, no TAGS row"
+    pass "6 frames on the X-sheet, no tags, the TAGS row there (R-13: always shown)"
 
     # -- Tag Frames on 2-4: "walk"; one undo step --
     tg_head 2; with_mods shift click "$(tg_hx 4)" "$(tg_hy)"; wait_for 0.4 "shift+click 4"
@@ -104,7 +104,7 @@ else
         fail "no TAGS row with tag 1 in it: '${TR[*]:-}'"
     fi
     tg_key ctrl+z; tg_read
-    [[ "$TG_N" == 0 && -z "$TR_Y" ]] && pass "undo: no tags, no TAGS row" || fail "undo tag: $(tg_s)"
+    [[ "$TG_N" == 0 && "${#TR[@]}" -le 2 ]] && pass "undo: no tags, an empty TAGS row" || fail "undo tag: $(tg_s)"
     tg_key ctrl+y; tg_read
     [[ "$TG_LIST" == "walk 2 4" ]] && pass "redo: walk 2-4 again" || fail "redo tag: $(tg_s)"
 

@@ -92,7 +92,7 @@ The complete, always-up-to-date list of keyboard **and mouse** shortcuts lives i
 | Select All / Deselect | `Ctrl+A` / `Ctrl+D` |
 | Invert | `Ctrl+Shift+I` |
 | Copy / Cut / Paste | `Ctrl+C` / `X` / `V` |
-| Paste in Place | *Edit menu* |
+| Paste in Place | `Ctrl+Alt+V` |
 | Copy Merged | `Ctrl+Shift+C` |
 | Copy / Cut to New Layer | `Ctrl+Alt+C` / `X` |
 

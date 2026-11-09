@@ -545,6 +545,13 @@ SUB ANIM_LB_render (dest AS LONG, src AS LONG)
             LINE (dx, dy)-(dx + tw + 1, dy + th - 1), THEME.ANIM_FRAME_label_bg~&, BF
             COLOR THEME.ANIM_FRAME_label_fg~&, _RGBA32(0, 0, 0, 0)
             _UPRINTSTRING (dx + 1, dy), t
+            IF ANIM_hold%(f) > 1 THEN ' a held frame: its hold top right (field kit R-13)
+                t = "x" + _TRIM$(STR$(ANIM_hold%(f))): w = _PRINTWIDTH(t)
+                IF tw + w + 6 <= dw THEN
+                    LINE (dx + dw - w - 2, dy)-(dx + dw - 1, dy + th - 1), THEME.ANIM_FRAME_label_bg~&, BF
+                    _UPRINTSTRING (dx + dw - w - 1, dy), t
+                END IF
+            END IF
         END IF
     NEXT k
     _FONT oldFont, dest
@@ -627,6 +634,9 @@ SUB ANIM_LB_render (dest AS LONG, src AS LONG)
             END IF
             t = "FRAME" + STR$(f)
             IF f = ANIM.current THEN t = t + " OF" + STR$(ANIM.count)
+            IF ANIM_hold%(f) > 1 THEN ' a held frame: how long (field kit R-13)
+                IF FPANEL_text_w%(t + "  HOLD" + STR$(ANIM_hold%(f))) <= w THEN t = t + "  HOLD" + STR$(ANIM_hold%(f)) ELSE t = t + " x" + _TRIM$(STR$(ANIM_hold%(f)))
+            END IF
             tw = FPANEL_text_w%(t)
             IF tw <= w THEN FPANEL_text x + (w - tw) \ 2, dy + dh + 3, t, fg ' under the picture
         ELSE
@@ -666,7 +676,7 @@ SUB ANIM_LB_mouse ()
         IF ANIM_LB.mvOn THEN ANIM_LB_move_end
         ANIM_LB.sPress = 0: ANIM_LB.seekHeld = FALSE: ANIM_LB.menuOpen = FALSE
         IF ANIM_LB.editing THEN ANIM_LB_edit_end
-        ANIM_XS.dMode = XS_DRAG_NONE: ANIM_XS.dOn = FALSE: ANIM_XS.oSlot = 0: ANIM_XS.rSlot = 0: ANIM_XS.rSound = 0: ANIM_SC_DRAG = FALSE
+        ANIM_XS.dMode = XS_DRAG_NONE: ANIM_XS.dOn = FALSE: ANIM_XS.oSlot = 0: ANIM_XS.rSlot = 0: ANIM_XS.rSound = 0: ANIM_XS.rTag = 0: ANIM_SC_DRAG = FALSE
         ANIM_LB_sheet_press: EXIT SUB
     END IF
     IF ANIM_XS.dMode <> XS_DRAG_NONE THEN ANIM_XS_hold: EXIT SUB ' an X-sheet drag until its release (4.2)
@@ -680,6 +690,12 @@ SUB ANIM_LB_mouse ()
     IF ANIM_XS.rSound _ANDALSO MOUSE.B2% = 0 THEN ' a right-click on a SOUND row: its menu, on the release (F6)
         k = ANIM_XS.rSound: ANIM_XS.rSound = 0
         IF ANIM_XS_sound_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = k THEN ANIM_LB.menuKind = 1: ANIM_LB_menu_at MOUSE.RAW_X%, MOUSE.RAW_Y%
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        EXIT SUB
+    END IF
+    IF ANIM_XS.rTag _ANDALSO MOUSE.B2% = 0 THEN ' a right-click on the TAGS / NOTES row: their menu, on the release (R-13)
+        ANIM_XS.rTag = 0
+        IF ANIM_XS_hit%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN ANIM_LB.menuKind = 2: ANIM_LB_menu_at MOUSE.RAW_X%, MOUSE.RAW_Y%
         MOUSE.UI_CHROME_CLICKED% = TRUE
         EXIT SUB
     END IF
@@ -712,6 +728,7 @@ SUB ANIM_LB_mouse ()
     MOUSE.UI_CHROME_CLICKED% = TRUE
     IF pressed2 _ANDALSO pressed1 = 0 THEN ANIM_XS.rSlot = ANIM_XS_slot_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) ' its menu opens on the release (F5)
     IF pressed2 _ANDALSO pressed1 = 0 THEN ANIM_XS.rSound = ANIM_XS_sound_press%(MOUSE.RAW_X%, MOUSE.RAW_Y%) ' picks the clip; the SOUND menu on the release (F6)
+    IF pressed2 _ANDALSO pressed1 = 0 THEN ANIM_XS.rTag = ANIM_XS_tag_rpress%(MOUSE.RAW_X%, MOUSE.RAW_Y%) ' picks the tag / frame; the menu on the release (R-13)
     IF pressed1 THEN IF ANIM_XS_press%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN EXIT SUB ' the X-sheet (4.1)
     f = ANIM_LB_strip_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
     IF pressed1 _ANDALSO f > 0 THEN ANIM_LB_strip_press f: EXIT SUB
@@ -867,6 +884,7 @@ END SUB
 SUB ANIM_LB_menu_build ()
     DIM i AS INTEGER
     IF ANIM_LB.menuKind = 1 THEN ANIM_SC_menu_build: EXIT SUB ' the SOUND rows' (F6)
+    IF ANIM_LB.menuKind = 2 THEN ANIM_XS_tag_menu_build: EXIT SUB ' the TAGS / NOTES rows' (R-13)
     POPUP_MENU_clear_items
     FOR i = 0 TO 3
         POPUP_MENU_set_item i, _TRIM$(MID$("Forward   Backward  Ping-pong Play once ", i * 10 + 1, 10)), "", i, _IIF(i = ANIM.loopMode, POPUP_MENU_FLAG_CHECKED, 0)
@@ -916,6 +934,15 @@ FUNCTION ANIM_LB_menu_mouse% ()
         ELSEIF MOUSE.RAW_X% >= ANIM_LB.menuX _ANDALSO MOUSE.RAW_X% < ANIM_LB.menuX + ANIM_LB.menuW _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.menuY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.menuY + POPUP_MENU_total_height%(ANIM_LB.menuN, LB_MENU_ITEM_H) THEN
             MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_SC_KEEP = TRUE ' a divider / greyed item: just closes it
             ANIM_LB_menu_mouse% = TRUE
+        END IF
+        EXIT FUNCTION
+    END IF
+    IF ANIM_LB.menuKind = 2 THEN ' the TAGS / NOTES rows' menu: v is an action (R-13)
+        IF v > 0 THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE
+            CMD_execute_action v
+        ELSEIF MOUSE.RAW_X% >= ANIM_LB.menuX _ANDALSO MOUSE.RAW_X% < ANIM_LB.menuX + ANIM_LB.menuW _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.menuY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.menuY + POPUP_MENU_total_height%(ANIM_LB.menuN, LB_MENU_ITEM_H) THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE ' a divider / greyed item: just closes it
         END IF
         EXIT FUNCTION
     END IF
@@ -1177,6 +1204,7 @@ SUB ANIM_LB_view_pick (rawX AS INTEGER, rawY AS INTEGER)
     IF ANIM_LB.pushed = 0 _ORELSE ANIM_LB.overlay THEN EXIT SUB
     ANIM_LB_view_absorb ' a zoom / pan made since the last pick
     k = ANIM_LB.strokePane
+    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN k = ANIM_LB.panes \ 2 ' an import is placed in the current frame (R-25): a drag into a neighbour pane must not jump a cell
     IF k < 0 THEN k = ANIM_LB_pane_at%(rawX, rawY)
     IF k < 0 THEN k = ANIM_LB.panes \ 2
     IF ANIM_LB_pane_view%(k, z, ox, oy) = 0 THEN EXIT SUB
@@ -1403,6 +1431,27 @@ FUNCTION ANIM_LB_overlay_begin% ()
 END FUNCTION
 
 ''
+' The grids (VIEW > GRID, the pixel grid, the character grid) over every pane
+' that shows a frame, in that pane's view: lined up with the sheet, as snapping
+' is (field kit R-32: "I cannot see the grid"). Always on top of the picture.
+SUB ANIM_LB_grids ()
+    DIM k AS INTEGER, keep AS INTEGER, zw AS LONG, zh AS LONG, dx AS LONG, dy AS LONG
+    IF GRID.SHOW% = 0 _ANDALSO PIXEL_GRID.SHOW% = 0 _ANDALSO CHARMAP.charGridShow% = 0 THEN EXIT SUB
+    keep = ANIM_LB.vPane
+    FOR k = 0 TO ANIM_LB.panes - 1
+        ANIM_LB.vPane = k
+        IF ANIM_LB_overlay_begin% THEN
+            zw = SCRN.canvasW& * SCRN.zoom!: zh = SCRN.canvasH& * SCRN.zoom!
+            dx = (SCRN.w& - zw) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+            dy = (SCRN.h& - zh) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%
+            RENDER_grids dx, dy, zw, zh
+            ANIM_LB_overlay_end
+        END IF
+    NEXT k
+    ANIM_LB.vPane = keep
+END SUB
+
+''
 ' The overlay's pane part onto the real viewport; the real view back.
 SUB ANIM_LB_overlay_end ()
     DIM f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
@@ -1465,19 +1514,44 @@ SUB ANIM_LB_onion_toggle (act AS INTEGER)
 END SUB
 
 ''
-' The colour most of a cell's corners share (3 or 4 of them) - its background.
+' A cell's background: the colour that covers most of its edge (at least 40%
+' of it). Corners alone missed a sky over a strip of ground (field kit R-3:
+' 2 corners each, so no background, and no ghosts on a solid frame at all).
 FUNCTION ANIM_LB_cell_bg% (m AS _MEM, sw AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG, bg AS _UNSIGNED LONG)
-    DIM c(3) AS _UNSIGNED LONG, i AS INTEGER, j AS INTEGER, n AS INTEGER
-    c(0) = _MEMGET(m, m.OFFSET + (y * sw + x) * 4, _UNSIGNED LONG)
-    c(1) = _MEMGET(m, m.OFFSET + (y * sw + x + w - 1) * 4, _UNSIGNED LONG)
-    c(2) = _MEMGET(m, m.OFFSET + ((y + h - 1) * sw + x) * 4, _UNSIGNED LONG)
-    c(3) = _MEMGET(m, m.OFFSET + ((y + h - 1) * sw + x + w - 1) * 4, _UNSIGNED LONG)
-    FOR i = 0 TO 1
-        n = 0
-        FOR j = 0 TO 3: IF c(j) = c(i) THEN n = n + 1
-        NEXT j
-        IF n >= 3 THEN bg = c(i): ANIM_LB_cell_bg% = TRUE: EXIT FUNCTION
-    NEXT i
+    CONST CELL_BG_KINDS = 24
+    DIM col(1 TO CELL_BG_KINDS) AS _UNSIGNED LONG, num(1 TO CELL_BG_KINDS) AS LONG, kinds AS INTEGER
+    DIM stp AS LONG, t AS LONG, per AS LONG, px AS LONG, py AS LONG, c AS _UNSIGNED LONG
+    DIM k AS INTEGER, best AS INTEGER, total AS LONG
+    IF w < 1 _ORELSE h < 1 THEN EXIT FUNCTION
+    per = 2 * (w + h) ' walk the edge clockwise; at most ~256 samples
+    stp = per \ 256: IF stp < 1 THEN stp = 1
+    FOR t = 0 TO per - 1 STEP stp
+        IF t < w THEN
+            px = t: py = 0
+        ELSEIF t < w + h THEN
+            px = w - 1: py = t - w
+        ELSEIF t < 2 * w + h THEN
+            px = w - 1 - (t - w - h): py = h - 1
+        ELSE
+            px = 0: py = h - 1 - (t - 2 * w - h)
+        END IF
+        c = _MEMGET(m, m.OFFSET + ((y + py) * sw + x + px) * 4, _UNSIGNED LONG)
+        total = total + 1
+        FOR k = 1 TO kinds
+            IF col(k) = c THEN num(k) = num(k) + 1: EXIT FOR
+        NEXT k
+        IF k > kinds _ANDALSO kinds < CELL_BG_KINDS THEN kinds = kinds + 1: col(kinds) = c: num(kinds) = 1
+    NEXT t
+    FOR k = 1 TO kinds
+        IF best = 0 THEN
+            best = k
+        ELSEIF num(k) > num(best) THEN
+            best = k
+        END IF
+    NEXT k
+    IF best = 0 THEN EXIT FUNCTION
+    IF num(best) * 5 < total * 2 THEN EXIT FUNCTION
+    bg = col(best): ANIM_LB_cell_bg% = TRUE
 END FUNCTION
 
 ''

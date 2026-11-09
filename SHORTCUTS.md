@@ -124,6 +124,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+X` | Cut selection (copy + clear with BG) |
 | `Ctrl+V` | Paste centered on the canvas (floats as a Move selection) |
 | `Ctrl+Shift+V` | Paste from OS clipboard |
+| `Ctrl+Alt+V` | Paste in Place (where it was copied from; in the lightbox, the same spot in the current frame) |
 | `Ctrl+E` | Clear/erase selection (BG color, or transparent for wand selections) |
 | `Ctrl+Alt+C` | Copy to new layer |
 | `Ctrl+Alt+X` | Cut to new layer |
@@ -999,6 +1000,7 @@ These are behaviors rather than user shortcuts, kept out of the tables above:
 | `Ctrl+Alt+X` | Cut to New Layer | central |
 | `Ctrl+V` | Paste | central |
 | `Ctrl+Shift+V` | Paste from OS Clipboard | central |
+| `Ctrl+Alt+V` | Paste in Place | central |
 | `Ctrl+E` | Clear Selection | central |
 | `Ctrl+Z` | Undo | central |
 | `Ctrl+Y` | Redo | central |

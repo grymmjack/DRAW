@@ -87,6 +87,7 @@ TYPE ANIM_XS_OBJ
     oMoved   AS INTEGER ' dragged (else a click: type it)
     rSlot    AS INTEGER ' a right press on this layer's row: its menu on the release
     rSound   AS INTEGER ' a right press on this SOUND track's row: the SOUND menu on the release (F6)
+    rTag     AS INTEGER ' a right press on the TAGS / NOTES row: their menu on the release (field kit R-13)
 END TYPE
 DIM SHARED ANIM_XS AS ANIM_XS_OBJ
 DIM SHARED ANIM_XS_ROW(1 TO MAX_LAYERS) AS INTEGER   ' layer slot of row r (display order)
