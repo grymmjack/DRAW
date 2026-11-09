@@ -679,6 +679,14 @@ Every change is one undo step. Hover a clip for its file and times. Export BAS P
 mix beside the program as NAME-sound.wav (a single sound that plays from frame 1 to its end is
 still copied as it is).
 
+**Dropping sound files, empty tracks**: every animation's X-sheet has a SOUND row; an empty one
+says "drop a sound file here, or right-click" and is silence (nothing is played, saved or
+exported). Drop a sound file (wav, ogg, mp3, flac, mid, mod, xm, it, s3m) from your file manager
+onto a SOUND row and it goes on that track from the frame under the pointer; dropped anywhere
+else it goes on a new track from the current frame. Right-click a SOUND row → **Add Empty Track**
+for another silent row to drop or paste onto (up to 4), **Remove Track** to take one away with its
+clips (the tracks under it move up). Each drop / removal is one undo step.
+
 **COPY / PASTE / CUT** (the transport bar, or the ANIM menu): COPY puts the selected frames
 (or the current one) on the clipboard; PASTE inserts them as new frames after the selection;
 `Shift`+PASTE pastes over the frames from the first selected one (adding frames past the end);

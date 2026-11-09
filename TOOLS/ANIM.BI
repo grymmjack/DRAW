@@ -178,6 +178,10 @@ DIM SHARED ANIM_SC_LEN(1 TO ANIM_SC_MAX) AS LONG
 ' clip that plays to the end then has no end). Not saved.
 DIM SHARED ANIM_SC_FMS(1 TO ANIM_SC_MAX) AS LONG
 CONST ANIM_SC_FOREVER = 1073741823 ' the end of a clip with no known end
+' The X-sheet always has a SOUND row (an empty one is silence: nothing is
+' played, saved or exported); Add Empty Track asks for more, up to
+' ANIM_SC_TRACKS - the rows shown are ANIM_SC_rows%. Not saved.
+DIM SHARED ANIM_SC_XTRA AS INTEGER
 ' The sound clipboard (F6): pieces of a copied / cut span of one track, at
 ' ms from the span's start (ANIM_SCB_SPAN ms long).
 DIM SHARED ANIM_SCB_N AS INTEGER

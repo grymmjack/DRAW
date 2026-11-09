@@ -129,9 +129,9 @@ else
 
     # -- Remove Soundtrack, undo --
     st_palette "remove soundtrack"; st_read
-    [[ "$S_NAME" == "-" && "$S_OPEN" == 0 && -z "$SS_Y" ]] && pass "Remove Soundtrack: none, no SOUND row" || fail "remove: $(st_s)"
+    [[ "$S_NAME" == "-" && "$S_OPEN" == 0 && -n "$SS_Y" ]] && pass "Remove Soundtrack: none; the SOUND row stays, empty (every animation has one)" || fail "remove: $(st_s)"
     st_key ctrl+z; st_read
-    [[ "$S_NAME" == beat.wav && "$S_OPEN" == -1 && -n "$SS_Y" ]] && pass "undo: beat.wav back, open, the SOUND row back" || fail "undo remove: $(st_s)"
+    [[ "$S_NAME" == beat.wav && "$S_OPEN" == -1 && -n "$SS_Y" ]] && pass "undo: beat.wav back on the SOUND row, open" || fail "undo remove: $(st_s)"
 
     # -- saved and back --
     st_key ctrl+s; wait_for 1.5 "saved"

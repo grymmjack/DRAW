@@ -609,6 +609,7 @@ DO
         ' Only file #1 is consumed (multi-file drops discard the rest).
         DROP_queue_dropped_file dropFile$
     END IF
+    DROP_qa_poll ' QA: a stand-in OS drop (only with DOCK_DUMP set)
 
     ' OS-initiated window resize (maximize, free drag, etc.).
     '

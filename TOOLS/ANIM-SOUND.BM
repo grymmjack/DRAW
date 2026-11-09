@@ -540,9 +540,7 @@ END FUNCTION
 ' trk from timeline ms atMs. One undo step; files that can't be played are
 ' left out (the status bar says so). The first clip added (0 none).
 FUNCTION ANIM_SND_add_files% (trk AS INTEGER, atMs AS LONG, label AS STRING)
-    DIM n AS INTEGER, i AS INTEGER, f AS STRING, default_path AS STRING, t AS INTEGER, p AS LONG
-    DIM before AS STRING, h AS LONG, k AS INTEGER, first AS INTEGER, bad AS INTEGER, msg AS STRING, added AS INTEGER, ln AS LONG
-    t = trk: p = atMs
+    DIM n AS INTEGER, i AS INTEGER, default_path AS STRING
     IF CFG.LAST_DIR_OPEN$ <> "" THEN default_path = CFG.LAST_DIR_OPEN$ + "/" ELSE IF LAST_DIRECTORY$ <> "" THEN default_path = LAST_DIRECTORY$ + "/"
     POINTER_hide_for_dialog
     n = DRAW_open_files%(label, default_path, "Sound|*.wav|*.ogg|*.mp3|*.flac|*.mid|*.midi|*.mod|*.xm|*.it|*.s3m|All Files|*.*", 0)
@@ -551,8 +549,19 @@ FUNCTION ANIM_SND_add_files% (trk AS INTEGER, atMs AS LONG, label AS STRING)
     IF n < 1 THEN EXIT FUNCTION
     DIM fl(1 TO n) AS STRING
     FOR i = 1 TO n: fl(i) = RTRIM$(FD_multiResults(i - 1)): NEXT i
+    ANIM_SND_add_files% = ANIM_SND_add_list%(fl(), n, trk, atMs, label)
+END FUNCTION
+
+''
+' Lay files fl(1..n) one after another on track trk from timeline ms atMs
+' (one undo step; files that can't be played are left out). The first clip
+' added (0 none).
+FUNCTION ANIM_SND_add_list% (fl() AS STRING, n AS INTEGER, trk AS INTEGER, atMs AS LONG, label AS STRING)
+    DIM i AS INTEGER, f AS STRING, t AS INTEGER, p AS LONG, cnt AS INTEGER
+    DIM before AS STRING, h AS LONG, k AS INTEGER, first AS INTEGER, bad AS INTEGER, msg AS STRING, added AS INTEGER, ln AS LONG
+    t = trk: p = atMs: cnt = n
     before = ANIM_OPS_snapshot$(FALSE)
-    FOR i = 1 TO n
+    FOR i = 1 TO cnt
         f = fl(i)
         h = 0
         IF _FILEEXISTS(f) THEN h = _SNDOPEN(f)
@@ -580,9 +589,45 @@ FUNCTION ANIM_SND_add_files% (trk AS INTEGER, atMs AS LONG, label AS STRING)
     msg = "Sound: " + msg + " on track" + STR$(t) + " - plays with the frames (Num Enter)"
     IF bad > 0 THEN msg = msg + ";" + STR$(bad) + " file(s) can't be played"
     STATUS_flash msg
-    ANIM_SND_add_files% = first
+    ANIM_SND_add_list% = first
     ANIM_SC_changed
 END FUNCTION
+
+''
+' A sound file by its extension (the files Soundtrack... offers).
+FUNCTION ANIM_SND_is_sound% (f AS STRING)
+    DIM e AS STRING, d AS INTEGER
+    d = _INSTRREV(f, ".")
+    IF d = 0 THEN EXIT FUNCTION
+    e = LCASE$(MID$(f, d + 1))
+    SELECT CASE e
+        CASE "wav", "ogg", "mp3", "flac", "mid", "midi", "mod", "xm", "it", "s3m": ANIM_SND_is_sound% = TRUE
+    END SELECT
+END FUNCTION
+
+''
+' A sound file dropped on DRAW (INPUT/DROP) at viewport (mx, my). On a SOUND
+' row: that track, from the start of the frame under it. Anywhere else on
+' the X-sheet: a new track from that frame; off it: a new track from the
+' current frame (all four tracks in use: the current one). One undo step.
+SUB ANIM_SND_drop_file (dropFile AS STRING, mx AS INTEGER, my AS INTEGER)
+    DIM t AS INTEGER, f AS INTEGER, p AS LONG, k AS INTEGER
+    DIM fl(1 TO 1) AS STRING
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN
+        STATUS_flash "Sound files go on an animation's X-sheet - make frames first (ANIM menu)": EXIT SUB
+    END IF
+    fl(1) = dropFile
+    IF ANIM_XS_hit%(mx, my) THEN
+        t = ANIM_XS_sound_at%(mx, my)
+        f = ANIM_XS_frame_at%(mx)
+    END IF
+    IF f < 1 THEN f = ANIM.current
+    IF t = 0 THEN t = ANIM_SC_free_trk%
+    IF t = 0 THEN t = ANIM_SC_cur_trk%
+    p = CLNG(ANIM_SND_frame_ms#(f))
+    k = ANIM_SND_add_list%(fl(), 1, t, p, "Add Sound")
+    IF k > 0 THEN SOUND_play SND_DRAG_DROP
+END SUB
 
 SUB ANIM_SC_changed ()
     GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
@@ -603,20 +648,32 @@ SUB ANIM_SND_action (act AS INTEGER)
         CASE ANIM_ACT_SOUNDTRACK ' no sound yet: track 1 from frame 1; else a new track at the current frame
             IF ANIM_SC_N = 0 THEN
                 k = ANIM_SND_add_files%(1, 0, "Soundtrack")
-            ELSEIF ANIM_SC_track_n% < ANIM_SC_TRACKS THEN
-                k = ANIM_SND_add_files%(ANIM_SC_track_n% + 1, p, "Add Sound")
+            ELSEIF ANIM_SC_free_trk% > 0 THEN
+                k = ANIM_SND_add_files%(ANIM_SC_free_trk%, p, "Add Sound")
             ELSE
                 k = ANIM_SND_add_files%(t, p, "Add Sound")
             END IF
         CASE ANIM_ACT_SOUND_ADD_HERE
             k = ANIM_SND_add_files%(t, ANIM_SC_MENU_T, "Add Sound")
-        CASE ANIM_ACT_SOUND_ADD_TRACK
-            IF ANIM_SC_track_n% >= ANIM_SC_TRACKS THEN STATUS_flash "Sound: at most" + STR$(ANIM_SC_TRACKS) + " tracks": EXIT SUB
-            k = ANIM_SND_add_files%(ANIM_SC_track_n% + 1, ANIM_SC_MENU_T, "Add Sound")
+        CASE ANIM_ACT_SOUND_ADD_TRACK ' on the first empty track
+            IF ANIM_SC_free_trk% = 0 THEN STATUS_flash "Sound: at most" + STR$(ANIM_SC_TRACKS) + " tracks": EXIT SUB
+            k = ANIM_SND_add_files%(ANIM_SC_free_trk%, ANIM_SC_MENU_T, "Add Sound")
+        CASE ANIM_ACT_SOUND_EMPTY_TRACK ' a silent row to drop or paste sound on (not saved while it is empty)
+            IF ANIM_SC_rows% >= ANIM_SC_TRACKS THEN STATUS_flash "Sound: at most" + STR$(ANIM_SC_TRACKS) + " tracks": EXIT SUB
+            ANIM_SC_XTRA = ANIM_SC_rows% + 1
+            ANIM_SC_TRACK = ANIM_SC_XTRA: ANIM_SC_SEL = 0: ANIM_SC_FOCUS = TRUE
+            STATUS_flash "Sound: empty track" + STR$(ANIM_SC_XTRA) + " - drop a sound file on it, paste, or right-click > Add Sound Here..."
+        CASE ANIM_ACT_SOUND_REMOVE_TRACK
+            IF ANIM_SC_rows% <= 1 _ANDALSO ANIM_SC_N = 0 THEN STATUS_flash "Sound: the track is empty": EXIT SUB
+            before = ANIM_OPS_snapshot$(FALSE)
+            n = ANIM_SC_drop_trk%(t)
+            ANIM_SC_SEL = 0: ANIM_SC_TRACK = _MIN(t, ANIM_SC_rows%)
+            IF ANIM_OPS_snapshot$(FALSE) <> before THEN ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Remove Track", 0 ' (an empty track under clips moves them up)
+            STATUS_flash "Sound: track" + STR$(t) + " removed" + _IIF(n > 0, " (" + _TRIM$(STR$(n)) + " clip" + _IIF(n > 1, "s", "") + ")", "")
         CASE ANIM_ACT_SOUND_REMOVE
             IF ANIM_SC_N = 0 THEN STATUS_flash "No soundtrack": EXIT SUB
             before = ANIM_OPS_snapshot$(FALSE)
-            ANIM_SC_clear: ANIM_SC_SEL = 0: ANIM_SC_FOCUS = FALSE
+            ANIM_SC_clear: ANIM_SC_SEL = 0: ANIM_SC_FOCUS = FALSE: ANIM_SC_XTRA = 0
             ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Remove Soundtrack", 0
             STATUS_flash "Soundtrack removed"
         CASE ANIM_ACT_SOUND_COPY, ANIM_ACT_SOUND_CUT, ANIM_ACT_SOUND_DELETE
@@ -739,16 +796,19 @@ SUB ANIM_SC_menu_build ()
     POPUP_MENU_clear_items
     sp = ANIM_SC_span%(a, b)
     POPUP_MENU_set_item 0, "Add Sound Here...", "", ANIM_ACT_SOUND_ADD_HERE, 0
-    POPUP_MENU_set_item 1, "Add Sound on a New Track...", "", ANIM_ACT_SOUND_ADD_TRACK, _IIF(ANIM_SC_track_n% >= ANIM_SC_TRACKS, POPUP_MENU_FLAG_DISABLED, 0)
-    POPUP_MENU_set_item 2, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    POPUP_MENU_set_item 1, "Add Sound on a New Track...", "", ANIM_ACT_SOUND_ADD_TRACK, _IIF(ANIM_SC_free_trk% = 0, POPUP_MENU_FLAG_DISABLED, 0)
+    POPUP_MENU_set_item 2, "Add Empty Track", "", ANIM_ACT_SOUND_EMPTY_TRACK, _IIF(ANIM_SC_rows% >= ANIM_SC_TRACKS, POPUP_MENU_FLAG_DISABLED, 0)
+    POPUP_MENU_set_item 3, "", "", -1, POPUP_MENU_FLAG_DIVIDER
     fl = _IIF(sp _ORELSE ANIM_SC_SEL > 0, 0, POPUP_MENU_FLAG_DISABLED)
-    POPUP_MENU_set_item 3, _IIF(sp, "Copy Frames' Sound", "Copy Clip"), "Ctrl+C", ANIM_ACT_SOUND_COPY, fl
-    POPUP_MENU_set_item 4, _IIF(sp, "Cut Frames' Sound", "Cut Clip"), "Ctrl+X", ANIM_ACT_SOUND_CUT, fl
-    POPUP_MENU_set_item 5, "Paste Here", "Ctrl+V", ANIM_ACT_SOUND_PASTE, _IIF(ANIM_SCB_N > 0, 0, POPUP_MENU_FLAG_DISABLED)
-    POPUP_MENU_set_item 6, _IIF(sp, "Delete Frames' Sound", "Delete Clip"), "Del", ANIM_ACT_SOUND_DELETE, fl
-    POPUP_MENU_set_item 7, "", "", -1, POPUP_MENU_FLAG_DIVIDER
-    POPUP_MENU_set_item 8, "Split Here", "", ANIM_ACT_SOUND_SPLIT, 0
-    POPUP_MENU_set_item 9, "Remove Soundtrack", "", ANIM_ACT_SOUND_REMOVE, 0
+    POPUP_MENU_set_item 4, _IIF(sp, "Copy Frames' Sound", "Copy Clip"), "Ctrl+C", ANIM_ACT_SOUND_COPY, fl
+    POPUP_MENU_set_item 5, _IIF(sp, "Cut Frames' Sound", "Cut Clip"), "Ctrl+X", ANIM_ACT_SOUND_CUT, fl
+    POPUP_MENU_set_item 6, "Paste Here", "Ctrl+V", ANIM_ACT_SOUND_PASTE, _IIF(ANIM_SCB_N > 0, 0, POPUP_MENU_FLAG_DISABLED)
+    POPUP_MENU_set_item 7, _IIF(sp, "Delete Frames' Sound", "Delete Clip"), "Del", ANIM_ACT_SOUND_DELETE, fl
+    POPUP_MENU_set_item 8, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    POPUP_MENU_set_item 9, "Split Here", "", ANIM_ACT_SOUND_SPLIT, _IIF(ANIM_SC_N > 0, 0, POPUP_MENU_FLAG_DISABLED)
+    POPUP_MENU_set_item 10, "Remove Track", "", ANIM_ACT_SOUND_REMOVE_TRACK, _IIF(ANIM_SC_rows% > 1 _ORELSE ANIM_SC_N > 0, 0, POPUP_MENU_FLAG_DISABLED)
+    POPUP_MENU_set_item 11, "Remove Soundtrack", "", ANIM_ACT_SOUND_REMOVE, _IIF(ANIM_SC_N > 0, 0, POPUP_MENU_FLAG_DISABLED)
+    ANIM_LB.menuN = 12
 END SUB
 
 ''

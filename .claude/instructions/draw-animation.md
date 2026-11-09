@@ -70,6 +70,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2548 | Import PNG Sequence... (`ANIM_SEQ_action`, `TOOLS/ANIM-IMPORT`, 5.4; CLI `--sequence FILE`) |
 | 2549 / 2550 | Soundtrack... / Remove Soundtrack (`ANIM_SND_action`, `TOOLS/ANIM-SOUND`, L.1) |
 | 2552-2559 | the SOUND rows (F6): Add Sound Here... / on a New Track... / Copy / Cut / Paste / Delete / Split / Remove Clip (`ANIM_SND_action`) |
+| 2560 / 2561 | Add Empty Track / Remove Track (the SOUND rows; `ANIM_SC_XTRA`, `ANIM_SC_drop_trk%`) |
 | 2551 | Create Frames from Grid (`ANIM_GRID_frames_action`, `TOOLS/ANIM-IMPORT`, F8: frame = `GRID.gridWidth` x `gridHeight`, no gutter / margin, frames up to the last drawn cell; one undo step; `anim-frames-from-grid.sh`) |
 | 2540 | X-Sheet in the lightbox's top band (`ANIM_XS_toggle`, `TOOLS/ANIM-XS`, `CFG.XSHEET`, Num 8, chip `LB_CTL_XS`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
@@ -765,6 +766,26 @@ the export line); the player opens it there or beside the program, `snd_follow` 
 length ms, then per step: step, frame, its time ms). Dump: `ANIMSND open on starts lastStartMs
 lenMs peaks name` (name "-" = none), `ANIMXSS rowY`, and `ANIMFS ... sndStarts sndLastMs sndOn`.
 QA: `anim-soundtrack.sh` (28; a -60 dB WAV, volume 0), the unit test (v6 round trip).
+
+**Sound files dropped, empty tracks (2026-11-09).** The X-sheet always has a SOUND row:
+`ANIM_XS_sound_rows%` = `ANIM_SC_rows%` = max(1, `ANIM_SC_track_n%`, `ANIM_SC_XTRA`) capped at 4.
+`ANIM_SC_XTRA` (ANIM.BI, never saved; reset in `ANIM_reset` only when not `ANIM_SB_KEEP`, so undo
+keeps it; Remove Soundtrack zeroes it) is the empty rows asked for by Add Empty Track (2560). An
+empty track draws the hint "drop a sound file here, or right-click" (`CP_text_dim`). Remove
+Track (2561, `ANIM_SC_drop_trk%`) takes a track's clips away and moves higher tracks up; undo is
+recorded when the snapshot changed (an empty track between clips moves them). New tracks
+(Soundtrack... with sound, Add Sound on a New Track, a drop off a SOUND row) use
+`ANIM_SC_free_trk%` = the first track with no clips. *Drops:* `DROP_handle_dropped_file` sends a
+sound file (`ANIM_SND_is_sound%`, the Soundtrack... extensions) to `ANIM_SND_drop_file` before
+any other route (never an image import or a new window): on a SOUND row that track from the
+start of the frame under the pointer; elsewhere on the X-sheet a new track from that frame; off
+it a new track from the current frame; a plain picture says to make frames first. Both the
+dialog and the drop go through `ANIM_SND_add_list%` (one undo step). *QA:* with `DOCK_DUMP` set,
+`DROP_qa_poll` (main loop, every 0.2 s) reads a path from `<DOCK_DUMP>.drop`, deletes it and
+queues it like an OS drop - `anim-sound-drop.sh`. The sound palette entries are registered after
+the frame ones and say "span", not "frames", so "delete frame" / "copy frame" find the frame
+commands (F6 shipped "Delete Sound (... the selected frames' sound ...)" first, which caught
+"delete frame").
 
 **Sound clips and tracks (F6, field kit T-28).** Since F6 `ANIM_SND_PATH` / `_OFS` are gone: the
 soundtrack is `ANIM_SC_*` in `TOOLS/ANIM.BI` (so the unit test sees it) - up to `ANIM_SC_MAX` (32)
