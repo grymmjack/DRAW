@@ -11,7 +11,9 @@
 '
 ' On a picture without frames the size rows show the whole canvas (one frame);
 ' changing one gives the picture a frame layout (TOOLS/ANIM ANIM_set_layout%).
-' Steppers: click - / +, Shift = 10 at a time, hold to repeat. Every change
+' Steppers: click - / +, Shift = 10 at a time, hold to repeat. A row's number:
+' wheel +/- 1 (Shift 10), drag up / down, click to type, middle click = its
+' default (ANIMP_value_at% / ANIMP_box_*, ANIMP_wheel%). Every change
 ' marks the document unsaved (the layout is saved in the drAn chunk); it is
 ' not an undo step.
 '
@@ -98,8 +100,16 @@ TYPE ANIM_PANEL_OBJ
     pendRow     AS INTEGER ' a layout change waiting for RE-SLICE / RESIZE (R-07: asked once per document)
     pendD       AS INTEGER
     onionSave   AS INTEGER ' an onion skin stepper changed DRAW.cfg: CONFIG_save on the release
+    ' number boxes (F1): a press on one drags it up / down, a click types it
+    vRow        AS INTEGER ' the box pressed (ANIMP_value_at%; 0 none)
+    vY0         AS INTEGER ' the press's viewport y
+    vApplied    AS INTEGER ' drag steps applied so far
+    vMoved      AS INTEGER ' it moved: a drag, not a click
+    wheelRow    AS INTEGER ' wheel ticks on one row close together are one undo step
+    wheelT      AS DOUBLE
 END TYPE
 
 DIM SHARED ANIMP AS ANIM_PANEL_OBJ
 DIM SHARED ANIMP_rowY(1 TO ANIMP_ROWS) AS INTEGER ' native top of each stepper row
 DIM SHARED ANIMP_onY(1 TO ANIMP_ON_ROWS) AS INTEGER ' native top of the onion skin stepper rows
+CONST ANIMP_DRAG_PX = 3 ' viewport px of drag per step on a number box

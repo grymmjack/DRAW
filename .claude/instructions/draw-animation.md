@@ -151,6 +151,19 @@ It stops playback first.
 press's (`ANIM_OPS_LAST_KEY / _REC`, no redo tail), the new "after" replaces the old one.
 `ANIMP.pressKey` increments on every fresh panel press.
 
+**Number boxes (F1, field kit T-6):** every stepper row's number - the 6 layout / timing rows
+and the 3 onion rows (box ids `ANIMP_ROWS + 1..3`) - also takes the wheel, a middle click, a
+drag and a click (`ANIMP_value_at%(nx, ny, whole)`: `whole` = anywhere on the row, for the
+wheel and middle click; else only the value between - and +). `ANIMP_box_step / _set /
+_reset% / _type` route to `ANIMP_step` or the onion CFG. Wheel (`ANIMP_wheel%`, hooked in
+`MOUSE_handle_gui_panels` after `ANIMP_mouse_input`; it eats the wheel anywhere over the
+panel): up = more, Shift = 10; ticks on one row within 0.8 s share a `pressKey` (one undo
+step). Middle click: gutter / margin 0, FPS `ANIM_FPS_DEFAULT`, hold 1, onion 1 / 1 / 40; W / H
+have no default (status hint). A press on the number sets `ANIMP.vRow`: moving
+`ANIMP_DRAG_PX` (3) viewport px a step, up = more, Shift x10, one undo step; a release without
+moving opens `DRAW_input_box_ex$` (autoselect) to type it. A layout row on a drawn sheet still
+waits for RE-SLICE / RESIZE (`pendRow`; a drag stops there).
+
 ## Playback
 
 - `ANIM_PLAY` (`playing`, `dir`, `fromF..toF`, `nextT`). `ANIM_play_start%` (count >= 2;
@@ -758,9 +771,9 @@ gotcha 15). It also stops playback and clears the ask answer.
   - `ANIMC` + per frame (<= 64): `0` for an empty cell, else the CRC32 of its pixels on every moving layer. Use it to check where drawings went.
   - `ANIMP visible docked x y w h scale% hold sizeMode pendRow`
   - `ANIMLB shown x1 y1 x2 y2 stripY stripH barY barH edY edH stripFirst stripN cellW cellH panes paneW paneH pad`, `ANIMLBC` + `x w` per transport control (1 `|<` .. 5 `>|`, 6 loop, 7 time, 8 FPS, 9 seek, 10 count, 11-13 copy / paste / cut, 14 `+`; w = 0 dropped), `ANIMLBP clipLightbox clipSheet` + `frame dx dy dw dh` per pane (its picture), `ANIMLBS dragging dropSlot anchor nSelected` + the selected frames (<= 64), `ANIMLBE editing confirmTo menuOpen menuHover seekHeld menuX menuY menuW text` (`-` = empty).
-  - `ANIMPL nav r1..r6 loop rowH minusX plusX chipW pad panelW ops mode` (native px; viewport = disp + native * scale% / 100). The nav row has 5 chips (`|< < PLAY > >|`), the others 4, and the mode row 2.
+  - `ANIMPL nav r1..r6 loop rowH minusX plusX chipW pad panelW ops mode onion on1..on3 onionBefore onionAfter onionOpacity` (native px but the last three; viewport = disp + native * scale% / 100). The nav row has 5 chips (`|< < PLAY > >|`), the others 4, and the mode row 2.
 - Tests: `anim-frame-grid`, `file-anim-chunk`, `anim-numpad-keys`, `anim-menu`,
-  `anim-panel`, `anim-frame-ops`, `anim-frame-start`, `anim-playback`, `anim-lightbox` (pane / strip contents checked by each frame's mark colour in the snapshot; the floating Preview painted out), `anim-lightbox-draw` (pane clicks / strokes / rectangles land in their frame's cell - checked with `ANIMC`; the same canvas pixel as a sheet-view click; clip on / off in both views; undo), `anim-lightbox-strip` (click / Ctrl / Shift selection, tint, Play plays the span, drag reorder of a selection / a single frame with `ANIMC` order, the drop marker, undo, wheel scroll), `anim-lightbox-bar` (loop menu, FPS spinner + wheel + undo, seek scrub, count box typing / numpad / Esc / shrink question). Unit:
+  `anim-panel`, `anim-panel-spinners` (number boxes: wheel / Shift, middle click, drag, click to type, undo), `anim-frame-ops`, `anim-frame-start`, `anim-playback`, `anim-lightbox` (pane / strip contents checked by each frame's mark colour in the snapshot; the floating Preview painted out), `anim-lightbox-draw` (pane clicks / strokes / rectangles land in their frame's cell - checked with `ANIMC`; the same canvas pixel as a sheet-view click; clip on / off in both views; undo), `anim-lightbox-strip` (click / Ctrl / Shift selection, tint, Play plays the span, drag reorder of a selection / a single frame with `ANIMC` order, the drop marker, undo, wheel scroll), `anim-lightbox-bar` (loop menu, FPS spinner + wheel + undo, seek scrub, count box typing / numpad / Esc / shrink question). Unit:
   `QA/unit/anim-unit.bas`. Fixtures are built in the test with `magick` +
   `QA/fixtures/png-chunk.py put`. Run on the user profile too (`QA_USER_PROFILE=1
   QA_USER_SCREEN=1152x712@3 QA_XVFB_RES=3840x2400`); that layout has no Preview window.

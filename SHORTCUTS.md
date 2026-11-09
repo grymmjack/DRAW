@@ -568,6 +568,7 @@ and View → Animation Panel; every item is in the command palette.)
 | `\|<` `<` `PLAY` `>` `>\|` | First / previous / play-stop / next / last frame |
 | `ADD` `DUP` `INS` `DEL` | Add (a copy of the last; `Shift+click` = blank), duplicate, insert a blank after, delete the current frame |
 | `-` / `+` on a row | Step frame W / H, gutter, margin, FPS, the current frame's hold. `Shift+click` = 10 at a time; hold the button to repeat (one undo step) |
+| A row's number | Wheel = +/- 1 (`Shift` = 10) · drag up / down = step it · click = type it · middle click = back to its default (gutter / margin 0, FPS 15, hold 1, onion 1 / 1 / 40 %). Works on the onion BEFORE / AFTER / OPACITY rows too |
 | `RE-SLICE` / `RESIZE` | What a frame size change does to a drawn sheet: the grid moves over the pixels, or the frames resize and each drawing stays in its frame (the canvas refits). Asked on the first change, then remembered for the document |
 | `FWD` `REV` `PING` `ONCE` | Loop mode: forward, backward, ping-pong, play once |
 

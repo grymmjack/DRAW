@@ -340,6 +340,127 @@ FUNCTION ANIMP_op% (c AS INTEGER)
 END FUNCTION
 
 ' ---------------------------------------------------------------------------
+' Number boxes (F1, field kit T-6): every stepper row's value also takes the
+' wheel (+/- 1, Shift +/- 10), a middle click (back to its default), a drag
+' up / down, and a click (type the number). Rows: 1..ANIMP_ROWS the layout /
+' timing rows, ANIMP_ROWS + 1..ANIMP_ON_ROWS the onion skin rows.
+' ---------------------------------------------------------------------------
+
+''
+' The number box at native (nx, ny) (0 none). whole = anywhere on its row
+' (the wheel, a middle click), else only the value between - and +.
+FUNCTION ANIMP_value_at% (nx AS INTEGER, ny AS INTEGER, whole AS INTEGER)
+    DIM r AS INTEGER, mx AS INTEGER, vx AS INTEGER, px AS INTEGER, rh AS INTEGER, inX AS INTEGER
+    rh = FPANEL.rowH
+    ANIMP_stepper_x mx, vx, px
+    IF whole THEN inX = (nx >= 0 _ANDALSO nx < ANIMP.panelW) ELSE inX = (nx >= vx _ANDALSO nx < vx + ANIMP.valW)
+    IF inX = 0 THEN EXIT FUNCTION
+    FOR r = 1 TO ANIMP_ROWS
+        IF ny >= ANIMP_rowY(r) _ANDALSO ny < ANIMP_rowY(r) + rh THEN ANIMP_value_at% = r: EXIT FUNCTION
+    NEXT r
+    FOR r = 1 TO ANIMP_ON_ROWS
+        IF ny >= ANIMP_onY(r) _ANDALSO ny < ANIMP_onY(r) + rh THEN ANIMP_value_at% = ANIMP_ROWS + r: EXIT FUNCTION
+    NEXT r
+END FUNCTION
+
+''
+' Box vr's value, label, and whether it does anything now.
+FUNCTION ANIMP_box_value% (vr AS INTEGER)
+    IF vr <= ANIMP_ROWS THEN ANIMP_box_value% = ANIMP_value%(vr) ELSE ANIMP_box_value% = ANIMP_onion_value%(vr - ANIMP_ROWS)
+END FUNCTION
+
+FUNCTION ANIMP_box_label$ (vr AS INTEGER)
+    IF vr <= ANIMP_ROWS THEN ANIMP_box_label$ = ANIMP_row_label$(vr) ELSE ANIMP_box_label$ = "ONION " + _TRIM$(MID$("BEFORE AFTER  OPACITY", (vr - ANIMP_ROWS - 1) * 7 + 1, 7))
+END FUNCTION
+
+FUNCTION ANIMP_box_on% (vr AS INTEGER)
+    IF vr <= ANIMP_ROWS THEN ANIMP_box_on% = ANIMP_row_on%(vr) ELSE ANIMP_box_on% = TRUE
+END FUNCTION
+
+''
+' Step box vr by d (the onion opacity steps 5 % at a time, as its + / -).
+SUB ANIMP_box_step (vr AS INTEGER, d AS INTEGER)
+    IF d = 0 _ORELSE ANIMP_box_on%(vr) = 0 THEN EXIT SUB
+    IF vr <= ANIMP_ROWS THEN ANIMP_step vr, d ELSE ANIMP_onion_step vr - ANIMP_ROWS, d
+END SUB
+
+''
+' Set box vr to v (typed, or its default). One undo step (ANIMP.pressKey).
+SUB ANIMP_box_set (vr AS INTEGER, v AS LONG)
+    DIM r AS INTEGER
+    IF ANIMP_box_on%(vr) = 0 THEN EXIT SUB
+    IF vr <= ANIMP_ROWS THEN
+        v = _MAX(-32000, _MIN(32000, v))
+        IF v <> ANIMP_value%(vr) THEN ANIMP_step vr, CINT(v - ANIMP_value%(vr))
+        EXIT SUB
+    END IF
+    r = vr - ANIMP_ROWS
+    SELECT CASE r
+        CASE 1: CFG.ONION_BEFORE% = _MAX(0, _MIN(ANIM_ONION_MAX, v))
+        CASE 2: CFG.ONION_AFTER% = _MAX(0, _MIN(ANIM_ONION_MAX, v))
+        CASE 3: CFG.ONION_OPACITY% = _MAX(5, _MIN(100, v))
+    END SELECT
+    CONFIG_save
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' A middle click: box vr back to its default (FALSE: it has none - the frame size).
+FUNCTION ANIMP_box_reset% (vr AS INTEGER)
+    DIM v AS LONG
+    SELECT CASE vr
+        CASE ANIMP_ROW_W, ANIMP_ROW_H: EXIT FUNCTION
+        CASE ANIMP_ROW_GUTTER, ANIMP_ROW_MARGIN: v = 0
+        CASE ANIMP_ROW_FPS: v = ANIM_FPS_DEFAULT
+        CASE ANIMP_ROW_HOLD: v = 1
+        CASE ANIMP_ROWS + 1, ANIMP_ROWS + 2: v = 1
+        CASE ANIMP_ROWS + 3: v = 40
+        CASE ELSE: EXIT FUNCTION
+    END SELECT
+    ANIMP.pressKey = ANIMP.pressKey + 1
+    ANIMP_box_set vr, v
+    ANIMP_box_reset% = TRUE
+END FUNCTION
+
+''
+' A click on box vr without a drag: type the number.
+SUB ANIMP_box_type (vr AS INTEGER)
+    DIM t AS STRING, lbl AS STRING
+    IF ANIMP_box_on%(vr) = 0 THEN EXIT SUB
+    lbl = ANIMP_box_label$(vr)
+    POINTER_hide_for_dialog
+    t = DRAW_input_box_ex$("Animation", lbl + ":", _TRIM$(STR$(ANIMP_box_value%(vr))), "A number", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    t = _TRIM$(t)
+    IF t = "" THEN EXIT SUB ' cancelled
+    IF INSTR("-0123456789", LEFT$(t, 1)) = 0 THEN STATUS_flash lbl + ": not a number": EXIT SUB
+    ANIMP.pressKey = ANIMP.pressKey + 1
+    ANIMP_box_set vr, VAL(t)
+END SUB
+
+''
+' The wheel over the panel (MOUSE_handle_gui_panels): a row's number box steps;
+' TRUE = it was over the panel (the wheel goes no further).
+FUNCTION ANIMP_wheel% (delta AS INTEGER)
+    DIM nx AS INTEGER, ny AS INTEGER, vr AS INTEGER, t AS DOUBLE
+    IF ANIMP.visible = 0 _ORELSE ANIMP.autoHidden _ORELSE ANIMP.initialized = 0 _ORELSE delta = 0 THEN EXIT FUNCTION
+    IF ANIMP_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = 0 THEN EXIT FUNCTION
+    ANIMP_wheel% = TRUE
+    IF ANIMP.renderScale <= 0 THEN EXIT FUNCTION
+    nx = INT((MOUSE.RAW_X% - ANIMP.dispX) / ANIMP.renderScale): ny = INT((MOUSE.RAW_Y% - ANIMP.dispY) / ANIMP.renderScale)
+    vr = ANIMP_value_at%(nx, ny, TRUE)
+    IF vr = 0 THEN EXIT FUNCTION
+    t = TIMER(.001)
+    IF vr <> ANIMP.wheelRow _ORELSE t < ANIMP.wheelT _ORELSE t - ANIMP.wheelT > .8 THEN ANIMP.pressKey = ANIMP.pressKey + 1
+    ANIMP.wheelRow = vr: ANIMP.wheelT = t
+    ANIMP.pendRow = 0
+    ANIMP_box_step vr, -delta * _IIF(MODIFIERS.shift%, 10, 1) ' wheel up = more
+    IF ANIMP.onionSave THEN ANIMP.onionSave = FALSE: CONFIG_save
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
 ' Render
 ' ---------------------------------------------------------------------------
 
@@ -504,7 +625,7 @@ END SUB
 ''
 ' A held stepper repeats: redraw while one is held.
 FUNCTION ANIMP_needs_redraw% ()
-    ANIMP_needs_redraw% = (ANIMP.visible <> 0 _ANDALSO ANIMP.pressCtl <> ANIMP_CTL_NONE)
+    ANIMP_needs_redraw% = (ANIMP.visible <> 0 _ANDALSO (ANIMP.pressCtl <> ANIMP_CTL_NONE _ORELSE ANIMP.vRow <> 0))
 END FUNCTION
 
 ' ---------------------------------------------------------------------------
@@ -514,6 +635,7 @@ END FUNCTION
 SUB ANIMP_mouse_input ()
     IF ANIMP.visible = 0 _ORELSE ANIMP.autoHidden _ORELSE ANIMP.initialized = 0 THEN EXIT SUB
     DIM lx AS INTEGER, ly AS INTEGER, nx AS INTEGER, ny AS INTEGER, pressed AS INTEGER, c AS INTEGER, t AS DOUBLE
+    DIM vr AS INTEGER, dy AS INTEGER, want AS INTEGER
     lx = MOUSE.RAW_X% - ANIMP.dispX: ly = MOUSE.RAW_Y% - ANIMP.dispY
     IF ANIMP.renderScale > 0 THEN nx = INT(lx / ANIMP.renderScale): ny = INT(ly / ANIMP.renderScale) ELSE nx = lx: ny = ly
     pressed = (MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0)
@@ -535,6 +657,40 @@ SUB ANIMP_mouse_input ()
         END IF
         CFG.ANIM_PANEL_X% = ANIMP.dispX: CFG.ANIM_PANEL_Y% = ANIMP.dispY
         SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    ' a number box pressed: a drag up / down steps it, a click types it (F1)
+    IF ANIMP.vRow <> 0 THEN
+        vr = ANIMP.vRow
+        IF MOUSE.B1% THEN
+            dy = ANIMP.vY0 - MOUSE.RAW_Y% ' up = more
+            IF ABS(dy) >= ANIMP_DRAG_PX THEN ANIMP.vMoved = TRUE
+            IF ANIMP.vMoved THEN
+                want = FIX(dy / ANIMP_DRAG_PX)
+                IF want <> ANIMP.vApplied THEN
+                    ANIMP_box_step vr, (want - ANIMP.vApplied) * _IIF(MODIFIERS.shift%, 10, 1)
+                    ANIMP.vApplied = want
+                    IF ANIMP.pendRow THEN ANIMP.vRow = 0 ' waits for RE-SLICE / RESIZE
+                END IF
+            END IF
+        ELSE
+            ANIMP.vRow = 0
+            IF ANIMP.vMoved = 0 THEN ANIMP_box_type vr
+            IF ANIMP.onionSave THEN ANIMP.onionSave = FALSE: CONFIG_save
+        END IF
+        SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    ' a middle click on a row: its number back to the default
+    IF MOUSE.B3% _ANDALSO MOUSE.OLD_B3% = 0 _ANDALSO lx >= 0 _ANDALSO lx < ANIMP.dispW _ANDALSO ly >= 0 _ANDALSO ly < ANIMP.dispH THEN
+        vr = ANIMP_value_at%(nx, ny, TRUE)
+        IF vr <> 0 _ANDALSO ANIMP_box_on%(vr) THEN
+            ANIMP.pendRow = 0
+            IF ANIMP_box_reset%(vr) = 0 THEN STATUS_flash ANIMP_box_label$(vr) + " has no default: click it to type a size"
+            SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        END IF
         EXIT SUB
     END IF
 
@@ -566,6 +722,16 @@ SUB ANIMP_mouse_input ()
         EXIT SUB
     END IF
 
+    vr = ANIMP_value_at%(nx, ny, FALSE)
+    IF vr <> 0 THEN
+        IF ANIMP_box_on%(vr) = 0 THEN EXIT SUB
+        ANIMP.pendRow = 0
+        ANIMP.vRow = vr: ANIMP.vY0 = MOUSE.RAW_Y%: ANIMP.vApplied = 0: ANIMP.vMoved = FALSE
+        ANIMP.pressKey = ANIMP.pressKey + 1 ' the whole drag: one undo step
+        SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
     c = ANIMP_hit%(nx, ny)
     IF c = ANIMP_CTL_NONE THEN EXIT SUB
     ANIMP.pressKey = ANIMP.pressKey + 1 ' a new press: a new undo step
@@ -577,7 +743,8 @@ END SUB
 ''
 ' QA dump line: ANIMP visible docked x y w h scale% hold sizeMode pendRow
 ' (viewport px; the current frame's hold; ANIM_SIZE_*; a change waiting for it)
-' ANIMPL nav row1..row6 loop rowH minusX plusX chipW pad panelW ops mode (native px,
+' ANIMPL nav row1..row6 loop rowH minusX plusX chipW pad panelW ops mode onion on1..on3
+' onionBefore onionAfter onionOpacity (native px but the last three,
 ' for clicking the controls: viewport = disp + native * scale% / 100)
 FUNCTION ANIMP_dump$ ()
     DIM d AS STRING, r AS INTEGER, mx AS INTEGER, vx AS INTEGER, px AS INTEGER
@@ -587,6 +754,7 @@ FUNCTION ANIMP_dump$ ()
         FOR r = 1 TO ANIMP_ROWS: d = d + DOCK_n$(ANIMP_rowY(r)): NEXT r
         d = d + DOCK_n$(ANIMP.yLoop) + DOCK_n$(FPANEL.rowH) + DOCK_n$(mx) + DOCK_n$(px) + DOCK_n$(ANIMP.chipW) + DOCK_n$(FPANEL.pad) + DOCK_n$(ANIMP.panelW) + DOCK_n$(ANIMP.yOps) + DOCK_n$(ANIMP.yMode)
         d = d + DOCK_n$(ANIMP.yOnion): FOR r = 1 TO ANIMP_ON_ROWS: d = d + DOCK_n$(ANIMP_onY(r)): NEXT r
+        FOR r = 1 TO ANIMP_ON_ROWS: d = d + DOCK_n$(ANIMP_onion_value%(r)): NEXT r ' onion BEFORE AFTER OPACITY
         d = d + CHR$(10)
     END IF
     ANIMP_dump$ = d + "ANIMP" + DOCK_n$(ANIMP.visible <> 0) + DOCK_n$(ANIMP.docked <> 0) + DOCK_n$(ANIMP.dispX) + DOCK_n$(ANIMP.dispY) + DOCK_n$(ANIMP.dispW) + DOCK_n$(ANIMP.dispH) + DOCK_n$(INT(ANIMP.renderScale * 100)) + DOCK_n$(ANIM_hold%(ANIM.current)) + DOCK_n$(ANIM_SIZE_MODE) + DOCK_n$(ANIMP.pendRow) + CHR$(10)
