@@ -56,7 +56,11 @@ CONST ANIMP_CTL_ON0    = 28
 CONST ANIMP_ON_ROWS    = 3
 CONST ANIMP_CTL_ONION  = 34
 CONST ANIMP_CTL_TINT   = 35
-CONST ANIMP_CTL_COUNT  = 35
+' export (F4, field kit T-17): the scale chips 1X / 2X / 4X (CFG.ANIM_EXPORT_SCALE)
+' and the GIF / APNG / BAS buttons (ANIM > Export ...)
+CONST ANIMP_CTL_SCALE0 = 36 ' + 0 1X, + 1 2X, + 2 4X
+CONST ANIMP_CTL_EXP0   = 39 ' + 0 GIF, + 1 APNG, + 2 BAS
+CONST ANIMP_CTL_COUNT  = 41
 
 TYPE ANIM_PANEL_OBJ
     visible           AS INTEGER
@@ -80,6 +84,8 @@ TYPE ANIM_PANEL_OBJ
 
     ' layout (native px, ANIMP_layout)
     yStatus AS INTEGER
+    yScale  AS INTEGER ' export: SCALE 1X 2X 4X (F4)
+    yExport AS INTEGER ' export: EXPORT GIF APNG BAS
     yNav    AS INTEGER
     yOps    AS INTEGER ' ADD DUP INS DEL
     yMode   AS INTEGER ' RE-SLICE RESIZE

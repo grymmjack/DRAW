@@ -56,7 +56,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2530 | Reference Layer - the current layer (`ANIM_LF_toggle ANIM_LF_REF`) |
 | 2531 | Layer Same on Every Frame - the current layer (`ANIM_LF_toggle ANIM_LF_SAME`) |
 | 2532 | Export Animated GIF... (`ANIM_EXPORT_action`, `TOOLS/ANIM-EXPORT`) |
-| 2533 | Export Scale 1x / 2x / 4x (cycles `CFG.ANIM_EXPORT_SCALE`) |
+| 2533 | Export Scale 1x / 2x / 4x (cycles `CFG.ANIM_EXPORT_SCALE`; the menu label shows the scale - `MENUBAR` per-item block, F4) |
 | 2534 | Export PNG Sequence... (`ANIM_PNGSEQ_export%`) |
 | 2535 | Export Sprite Sheet + Frame Data... (`ANIM_SHEET_export%`: .png + .json + .bi) |
 | 2536 | Export Animated PNG (APNG)... (`ANIM_APNG_export%`) |
@@ -150,6 +150,12 @@ It stops playback first.
 **Held stepper = one step:** `ANIM_OPS_record(..., pressKey)`. While the top record is this
 press's (`ANIM_OPS_LAST_KEY / _REC`, no redo tail), the new "after" replaces the old one.
 `ANIMP.pressKey` increments on every fresh panel press.
+
+**Export rows (F4, field kit T-17):** under the onion rows, `ANIMP.yScale` = SCALE + chips
+1X 2X 4X (`ANIMP_CTL_SCALE0` 36-38, the current one lit; sets `CFG.ANIM_EXPORT_SCALE` +
+`CONFIG_save`) and `ANIMP.yExport` = EXPORT + GIF APNG BAS (`ANIMP_CTL_EXP0` 39-41 ->
+`ANIM_ACT_EXPORT_GIF / _APNG / _BAS`; greyed without frames). Both rows are 4-chip rows with the
+label in slot 0. `ANIMPL` ends `... yScale yExport exportScale`. QA: `anim-panel-export`.
 
 **Number boxes (F1, field kit T-6):** every stepper row's number - the 6 layout / timing rows
 and the 3 onion rows (box ids `ANIMP_ROWS + 1..3`) - also takes the wheel, a middle click, a

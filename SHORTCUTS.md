@@ -571,6 +571,8 @@ and View → Animation Panel; every item is in the command palette.)
 | A row's number | Wheel = +/- 1 (`Shift` = 10) · drag up / down = step it · click = type it · middle click = back to its default (gutter / margin 0, FPS 15, hold 1, onion 1 / 1 / 40 %). Works on the onion BEFORE / AFTER / OPACITY rows too |
 | `RE-SLICE` / `RESIZE` | What a frame size change does to a drawn sheet: the grid moves over the pixels, or the frames resize and each drawing stays in its frame (the canvas refits). Asked on the first change, then remembered for the document |
 | `FWD` `REV` `PING` `ONCE` | Loop mode: forward, backward, ping-pong, play once |
+| SCALE `1X` `2X` `4X` | The export scale (the lit one is current; same as ANIM → Export Scale) |
+| EXPORT `GIF` `APNG` `BAS` | Export an animated GIF / animated PNG / BAS player (ANIM → Export ...) |
 
 The panel docks and floats like the other windows (drag its title bar; F11 hides it).
 
