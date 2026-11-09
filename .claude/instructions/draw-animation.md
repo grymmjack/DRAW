@@ -379,11 +379,24 @@ frame's cell (TRUE), else `0, 0, canvasW, canvasH`. Done so far:
   selection, takes the layer's bounds inside the cell (nothing there = a status message, no
   transform); `TRANSFORM_commit` puts only the part of the result inside that cell (no apron
   promotion), so it never spills into a neighbour. Cleared on commit / cancel.
+- **Select All / Invert** (`MARQUEE.BM`): Select All selects the cell; Invert ends with
+  `ANIM_CV_clip_selection` (a mask selection cleared outside the cell and its bounds rescanned -
+  empty = cleared; a box selection intersected with the cell).
+- **Copy / Cut / Copy Merged / Paste** (`SELECTION.BM`): with no selection the source is the cell
+  (Cut clears only the cell, apron-aware); Paste centres and clamps to the cell.
+- **Symmetry** (`SYMMETRY_get_mirrored_points`): `ANIM_CV_sym_center x, y, cx, cy` - the frame
+  under the point (`ANIM_frame_at%`), the centre = that cell's centre, or a user-set centre kept at
+  the same offset inside its own cell. The guides draw per pane (`ANIM_CV_sym_guides`, inside the
+  lightbox overlay in `SCREEN.BM`).
+- **Image drop / Import Image** (`DROP.BM`, `IMAGE-IMPORT.BM`): "larger than" compares against the
+  cell, `ANIM_CV_place` centres / places in it, and `ANIM_CV_keep_cell` clears what the stamp put
+  outside it.
 - Dump `ANIMCV guidesOn snapOn moveX moveY moveW moveH` + the last pane-move guide step (offset
   in, guides v / h, snap dx / dy, offset out). Test `anim-lightbox-canvas.sh` (fixture frames 2-5
   are frame 1 aligned right / centred / bottom / snapped right + top).
-- Still to do (the audit, TASKS-ANIMATION-2 F11 b-o): paste placement, Select All / Invert,
-  copy / cut with no selection, symmetry centre, image drop / import, scale 2x / 50%, fill / wand
+  Test `anim-lightbox-canvas-edit.sh` (Select All + Delete, Cut with no selection, Paste back,
+  a symmetric dot in frame 3 = fixture frame 4).
+- Still to do (the audit, TASKS-ANIMATION-2 F11 g-o): scale 2x / 50%, fill / wand
   bounds, selection from layer, marquee clamp, text, centred effects, gradient / grid origin,
   copy / paste layer, crop / analyzer / AI size / ref image.
 

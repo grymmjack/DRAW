@@ -710,7 +710,11 @@ FG Color with BG in Frames swaps a colour in them (sheet view too). Each is one 
 drawing up with its frame's edges (each selected frame on its own); with several layers selected
 they line up with each other inside the frame. Smart guides snap to the frame's edges and centre
 and to the other layers' drawing in that frame - also while the Move tool drags in a pane. The
-Transform tool takes only the current frame's drawing and keeps the result inside that frame.
+Transform tool takes only the current frame's drawing and keeps the result inside that frame. Select
+All (`Ctrl+A`) selects the current frame, and Invert Selection stays inside it. Copy / Cut / Copy
+Merged with nothing selected take only the current frame; Paste centres on it (and stays inside
+it). Symmetry mirrors about the centre of the frame you draw in. A dropped or imported image is
+sized against the frame and placed in it; what spills past the frame's edges is cut off.
 
 ---
 

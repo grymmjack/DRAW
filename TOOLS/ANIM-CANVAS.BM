@@ -257,3 +257,118 @@ END SUB
 FUNCTION ANIM_CV_dump$ ()
     ANIM_CV_dump$ = "ANIMCV" + DOCK_n$(SMART_GUIDES.ENABLED% <> 0) + DOCK_n$(SMART_GUIDES.SNAP% <> 0) + DOCK_n$(ANIM_CV_MV_X) + DOCK_n$(ANIM_CV_MV_Y) + DOCK_n$(ANIM_CV_MV_W) + DOCK_n$(ANIM_CV_MV_H) + ANIM_CV_LAST + CHR$(10)
 END FUNCTION
+
+''
+' In the lightbox, cut the selection down to the current frame's cell (a
+' mask: cleared outside it and its bounds found again; a box: intersected).
+' Nothing left: no selection.
+SUB ANIM_CV_clip_selection ()
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, mw AS LONG, mh AS LONG, oldDest AS LONG
+    DIM m AS _MEM, x AS LONG, y AS LONG, px AS _UNSIGNED LONG, mnX AS LONG, mnY AS LONG, mxX AS LONG, mxY AS LONG
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG
+    IF ANIM_CV_rect%(cx, cy, cw, ch) = 0 THEN EXIT SUB
+    IF MARQUEE.WAND_HAS_SELECTION _ANDALSO MARQUEE.SELECTION_MASK < -1 THEN
+        mw = _WIDTH(MARQUEE.SELECTION_MASK): mh = _HEIGHT(MARQUEE.SELECTION_MASK)
+        oldDest = _DEST
+        _DEST MARQUEE.SELECTION_MASK
+        _DONTBLEND MARQUEE.SELECTION_MASK
+        IF cy > 0 THEN LINE (0, 0)-(mw - 1, cy - 1), _RGBA32(0, 0, 0, 0), BF
+        IF cy + ch < mh THEN LINE (0, cy + ch)-(mw - 1, mh - 1), _RGBA32(0, 0, 0, 0), BF
+        IF cx > 0 THEN LINE (0, cy)-(cx - 1, cy + ch - 1), _RGBA32(0, 0, 0, 0), BF
+        IF cx + cw < mw THEN LINE (cx + cw, cy)-(mw - 1, cy + ch - 1), _RGBA32(0, 0, 0, 0), BF
+        _BLEND MARQUEE.SELECTION_MASK
+        _DEST oldDest
+        x1 = _MAX(0, cx): y1 = _MAX(0, cy): x2 = _MIN(mw - 1, cx + cw - 1): y2 = _MIN(mh - 1, cy + ch - 1)
+        mnX = x2 + 1: mnY = y2 + 1: mxX = -1: mxY = -1
+        m = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+        FOR y = y1 TO y2
+            FOR x = x1 TO x2
+                _MEMGET m, m.OFFSET + (y * mw + x) * 4, px
+                IF px AND &HFF000000~& THEN
+                    IF x < mnX THEN mnX = x
+                    IF x > mxX THEN mxX = x
+                    IF y < mnY THEN mnY = y
+                    IF y > mxY THEN mxY = y
+                END IF
+            NEXT x
+        NEXT y
+        _MEMFREE m
+        IF mxX < 0 THEN MARQUEE_clear: MAGIC_WAND_reset: EXIT SUB
+        MARQUEE.WAND_MIN_X = mnX: MARQUEE.WAND_MIN_Y = mnY: MARQUEE.WAND_MAX_X = mxX: MARQUEE.WAND_MAX_Y = mxY
+        MARQUEE.BOX.x = mnX: MARQUEE.BOX.y = mnY: MARQUEE.BOX.w = mxX - mnX + 1: MARQUEE.BOX.h = mxY - mnY + 1
+        MARQUEE.WAND_EDGE_DIRTY = TRUE
+    ELSEIF MARQUEE.ACTIVE _ANDALSO MARQUEE.USER_CREATED THEN
+        x1 = _MAX(cx, MARQUEE.BOX.x): y1 = _MAX(cy, MARQUEE.BOX.y)
+        x2 = _MIN(cx + cw - 1, MARQUEE.BOX.x + MARQUEE.BOX.w - 1): y2 = _MIN(cy + ch - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1)
+        IF x2 < x1 _ORELSE y2 < y1 THEN MARQUEE_clear: EXIT SUB
+        MARQUEE.BOX.x = x1: MARQUEE.BOX.y = y1: MARQUEE.BOX.w = x2 - x1 + 1: MARQUEE.BOX.h = y2 - y1 + 1
+        MARQUEE.CFG.initX = x1: MARQUEE.CFG.initY = y1: MARQUEE.CFG.initW = MARQUEE.BOX.w: MARQUEE.CFG.initH = MARQUEE.BOX.h
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
+END SUB
+
+''
+' Symmetry in the lightbox: the mirror centre (cx, cy) for canvas point (x, y)
+' moves to the frame that point is in - its cell's centre, or a centre the
+' user set kept at the same place inside its own frame's cell.
+SUB ANIM_CV_sym_center (x AS INTEGER, y AS INTEGER, cx AS INTEGER, cy AS INTEGER)
+    DIM f AS INTEGER, f0 AS INTEGER, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, x0 AS LONG, y0 AS LONG, w0 AS LONG, h0 AS LONG
+    IF ANIM_LB_showing% = 0 THEN EXIT SUB
+    f = ANIM_frame_at%(CLNG(x), CLNG(y))
+    IF f < 1 THEN f = ANIM.current
+    IF ANIM_cell_rect%(f, fx, fy, fw, fh) = 0 THEN EXIT SUB
+    IF SYMMETRY.CENTER_SET% THEN
+        f0 = ANIM_frame_at%(CLNG(SYMMETRY.CENTER_X%), CLNG(SYMMETRY.CENTER_Y%))
+        IF f0 > 0 _ANDALSO ANIM_cell_rect%(f0, x0, y0, w0, h0) THEN
+            cx = fx + (SYMMETRY.CENTER_X% - x0): cy = fy + (SYMMETRY.CENTER_Y% - y0)
+            EXIT SUB
+        END IF
+    END IF
+    cx = fx + fw \ 2: cy = fy + fh \ 2
+END SUB
+
+''
+' The symmetry guides in the current pane (SCREEN_render, inside the pane
+' overlay): drawn about the current frame's centre, then the centre is put back.
+SUB ANIM_CV_sym_guides (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
+    DIM ox AS INTEGER, oy AS INTEGER, cx AS INTEGER, cy AS INTEGER, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG
+    IF ANIM_cell_rect%(ANIM.current, fx, fy, fw, fh) = 0 THEN EXIT SUB
+    ox = SYMMETRY.CENTER_X%: oy = SYMMETRY.CENTER_Y%
+    cx = ox: cy = oy
+    ANIM_CV_sym_center CINT(fx), CINT(fy), cx, cy
+    SYMMETRY.CENTER_X% = cx: SYMMETRY.CENTER_Y% = cy
+    SYMMETRY_render_guides SCRN.CANVAS&, dx, dy, zw, zh, SCRN.zoom!
+    SYMMETRY.CENTER_X% = ox: SYMMETRY.CENTER_Y% = oy
+END SUB
+
+''
+' Where a w x h picture goes on the canvas (in the lightbox the current
+' frame's cell): its top-left corner, or centred.
+SUB ANIM_CV_place (w AS INTEGER, h AS INTEGER, centred AS INTEGER, px AS INTEGER, py AS INTEGER)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, ok AS INTEGER
+    ok = ANIM_CV_rect%(cx, cy, cw, ch)
+    IF centred THEN
+        px = cx + (cw - w) \ 2: py = cy + (ch - h) \ 2
+    ELSE
+        px = cx: py = cy
+    END IF
+END SUB
+
+''
+' In the lightbox, clear canvas-size image img outside the current frame's
+' cell (a new layer that was empty: what a placement put past the frame).
+SUB ANIM_CV_keep_cell (img AS LONG)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, iw AS LONG, ih AS LONG, oldDest AS LONG
+    IF img >= -1 THEN EXIT SUB
+    IF ANIM_CV_rect%(cx, cy, cw, ch) = 0 THEN EXIT SUB
+    iw = _WIDTH(img): ih = _HEIGHT(img)
+    oldDest = _DEST
+    _DEST img
+    _DONTBLEND img
+    IF cy > 0 THEN LINE (0, 0)-(iw - 1, cy - 1), _RGBA32(0, 0, 0, 0), BF
+    IF cy + ch < ih THEN LINE (0, cy + ch)-(iw - 1, ih - 1), _RGBA32(0, 0, 0, 0), BF
+    IF cx > 0 THEN LINE (0, cy)-(cx - 1, cy + ch - 1), _RGBA32(0, 0, 0, 0), BF
+    IF cx + cw < iw THEN LINE (cx + cw, cy)-(iw - 1, cy + ch - 1), _RGBA32(0, 0, 0, 0), BF
+    _BLEND img
+    _DEST oldDest
+END SUB
