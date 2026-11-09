@@ -436,12 +436,20 @@ frame's cell (TRUE), else `0, 0, canvasW, canvasH`. Done so far:
   pasted in place, lightbox or not). Copy / Paste Layer between instances stay whole-sheet (a layer
   is every frame). Test `anim-lightbox-paint.sh` (`DEFAULT_DRAW_MODE=2`; DRAWERL now ends with the
   first bin x y, bin w h, gaps, paint mode, gradient picked).
+- **The rest:** Crop Canvas is refused in the lightbox (`CROP_begin`; `CROP_apply` now exits
+  unless crop mode is on, so crop-to-selection can't bypass it; the marquee clamp keeps out of
+  crop mode). The Pixel Analyzer clears its flattened copy outside the cell (`ANIM_CV_keep_cell`).
+  AI New Layer defaults to the cell's size and corner, `AI_DLG_preset_pos` places inside the cell,
+  the dialog's canvas-size button gives the frame's size. A loaded reference image fits the
+  cell. Test `anim-lightbox-crop.sh`.
 - Dump `ANIMCV guidesOn snapOn moveX moveY moveW moveH` + the last pane-move guide step (offset
   in, guides v / h, snap dx / dy, offset out). Test `anim-lightbox-canvas.sh` (fixture frames 2-5
   are frame 1 aligned right / centred / bottom / snapped right + top).
   Test `anim-lightbox-canvas-edit.sh` (Select All + Delete, Cut with no selection, Paste back,
   a symmetric dot in frame 3 = fixture frame 4).
-- Still to do (the audit, TASKS-ANIMATION-2 F11 o): crop / analyzer / AI size / ref image.
+- Left on purpose / not yet: the grid stays on the sheet; Copy / Paste Layer stay whole-sheet;
+  the multi-layer Move commit's sibling layers are not clipped; text lines run on below the cell;
+  texture-like effects are not split per frame; Canvas Resize still resizes the sheet.
 
 ## Apply to the selected frames (2.7)
 

@@ -725,7 +725,9 @@ effects (Twirl, Pinch / Bulge, Kaleidoscope, Lens Flare, Backlight, Ripples, Gri
 the typed blurs) work on each selected frame as its own picture, centred on it; their preview
 shows the current frame. A fill with a drawer gradient, and drawer image paint, span the frame
 painted in. Edit → Paste in Place puts what was copied in one frame at the same spot in the
-current frame.
+current frame. The Pixel Analyzer looks at the current frame; AI New Layer defaults to the
+frame's size and place; a new reference image fits the frame. Crop Canvas is refused (it would cut
+every frame) - change the frame size with ANIM → Resize.
 
 ---
 
