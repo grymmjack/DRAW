@@ -32,7 +32,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | `TOOLS/ANIM-VIEW.BI/BM` | Frame grid overlay (`ANIM_VIEW_render_grid`, View > Frame Grid 2500), frame keys (numpad + Alt), `ANIM_VIEW_goto`, play toggle + tick, the Preview window's frame view, the `ANIM` QA dump line |
 | `TOOLS/ANIM-OPS.BI/BM` | Frame operations, layout changes (re-slice / resize), timing changes, whole-sheet snapshots, the undo record, `ANIMC` dump line |
 | `GUI/ANIM-PANEL.BI/BM` | The Animation panel (2505): FPANEL window like `GUI/PEN-PANEL` (dock slot `DP_ANIM`, `REGION_ANIM_PANEL`, `WZ_*`, auto-hide, F11, workspace element `ANIM_PANEL`, `ANIM_PANEL_VISIBLE/X/Y`) |
-| `TOOLS/ANIM-CANVAS.BI/BM` | In the lightbox the current frame is the canvas: `ANIM_CV_rect%` (the cell, else the whole canvas), `ANIM_CV_bounds%` (opaque bounds of a layer inside a rect, apron-aware), `ANIM_CV_shift` (shift one cell, cut off at its edge), `ANIM_CV_align` (1901-1908), pane Move guides (`ANIM_CV_move_begin` / `_move_guides`), `ANIM_CV_TF_F` (the transform's frame), the `ANIMCV` dump line |
+| `TOOLS/ANIM-CANVAS.BI/BM` | In the lightbox the current frame is the canvas: `ANIM_CV_rect%` (the cell, else the whole canvas), `ANIM_CV_bounds%` (opaque bounds of a layer inside a rect, apron-aware), `ANIM_CV_shift` (shift one cell, cut off at its edge), `ANIM_CV_align` (1901-1908), `ANIM_CV_scale` (317 318 331 333), pane Move guides (`ANIM_CV_move_begin` / `_move_guides`), `ANIM_CV_TF_F` (the transform's frame), the `ANIMCV` dump line |
 | `TOOLS/ANIM-LB.BI/BM` | The lightbox view (2.1): layout (`ANIM_LB_layout`, bands strip / transport bar / editor, `ANIM_LB_area` + `ANIM_LB_clear_floats`), `ANIM_LB_render` (cut from the composite), transport bar controls `LB_CTL_*`, `ANIM_LB_mouse`, the `ANIMLB` / `ANIMLBC` / `ANIMLBP` dump lines; drawing in the panes (2.2): the pane view (`ANIM_LB_view_push / _pick / _pop`, `ANIM_LB_pane_view%`), overlays (`ANIM_LB_overlay_begin% / _end`), strokes clipped to a frame (`ANIM_LB_clip_*`) |
 | `TOOLS/ANIM-IMPORT.BI/BM` | Bringing frames in (phase 5): `ANIM_GIF_import%` (5.1, from `DRW_load` after `GIF_load_cycling%`), `ANIM_ASE_apply` (5.2, from `FILE_ASE_load`), shared `ANIM_IMP_grid%` / `ANIM_IMP_fps%` |
 | `INPUT/NUMPAD.BI/BM` | Numpad keys from bu1ld0r: `NUMPAD_poll` (`_KEYDOWN` edges), `NUMPAD_dev` ([Linux] device ids = X11 key code + 1, catches taps quicker than a frame), `NUMPAD_of%` (which numpad key a plain code could be), `NUMPAD_sent%` |
@@ -391,12 +391,18 @@ frame's cell (TRUE), else `0, 0, canvasW, canvasH`. Done so far:
 - **Image drop / Import Image** (`DROP.BM`, `IMAGE-IMPORT.BM`): "larger than" compares against the
   cell, `ANIM_CV_place` centres / places in it, and `ANIM_CV_keep_cell` clears what the stamp put
   outside it.
+- **Scale -50% / 2x / 2x H / 2x V** (317 318 331 333): `ANIM_CV_scale_wants%` (lightbox, no
+  selection / floating move / custom brush / symbol child) sends them to `ANIM_CV_scale`: each
+  selected frame's cell scaled about its centre (`ANIM_CV_scale_cell`, nearest neighbour, cut off
+  at the cell), on `ANIM_CV_layers%` (multi-select or current, drawing layers only - shared with
+  align). One `ANIM_OPS_record`. Unlike the canvas version there is no kept original, so -50%
+  then 2x loses the detail. Test `anim-lightbox-scale.sh`.
 - Dump `ANIMCV guidesOn snapOn moveX moveY moveW moveH` + the last pane-move guide step (offset
   in, guides v / h, snap dx / dy, offset out). Test `anim-lightbox-canvas.sh` (fixture frames 2-5
   are frame 1 aligned right / centred / bottom / snapped right + top).
   Test `anim-lightbox-canvas-edit.sh` (Select All + Delete, Cut with no selection, Paste back,
   a symmetric dot in frame 3 = fixture frame 4).
-- Still to do (the audit, TASKS-ANIMATION-2 F11 g-o): scale 2x / 50%, fill / wand
+- Still to do (the audit, TASKS-ANIMATION-2 F11 h-o): fill / wand
   bounds, selection from layer, marquee clamp, text, centred effects, gradient / grid origin,
   copy / paste layer, crop / analyzer / AI size / ref image.
 

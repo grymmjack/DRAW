@@ -82,6 +82,25 @@ SUB ANIM_CV_shift (L AS INTEGER, f AS INTEGER, dx AS INTEGER, dy AS INTEGER)
 END SUB
 
 ''
+' The layers a canvas-wide command works on in the lightbox, into lay(1..n):
+' the multi-selected layers, else the current one (groups expanded by the
+' caller), drawing layers only (ANIM_OPS_moves%). Returns n.
+FUNCTION ANIM_CV_layers% (lay() AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER, multi AS INTEGER
+    multi = MULTI_SELECT_has_any%
+    FOR i = 1 TO MAX_LAYERS
+        IF ANIM_OPS_moves%(i) THEN
+            IF multi THEN
+                IF MULTI_SELECT_LAYERS(i) THEN n = n + 1: lay(n) = i
+            ELSEIF i = CURRENT_LAYER% THEN
+                n = n + 1: lay(n) = i
+            END IF
+        END IF
+    NEXT i
+    ANIM_CV_layers% = n
+END FUNCTION
+
+''
 ' Align / Distribute (1901-1908) in the lightbox: in each selected frame (the
 ' current one when none is), inside its cell. One layer lines up with the
 ' cell; several line up with each other as on the canvas (an edge: the one
@@ -89,11 +108,11 @@ END SUB
 ' One undo step.
 SUB ANIM_CV_align (act AS INTEGER)
     DIM a AS INTEGER, why AS STRING, grp AS INTEGER, i AS INTEGER, j AS INTEGER, n AS INTEGER, f AS INTEGER
-    DIM multi AS INTEGER, before AS STRING, after AS STRING, lbl AS STRING, nf AS INTEGER
+    DIM before AS STRING, after AS STRING, lbl AS STRING, nf AS INTEGER
     DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG
     DIM rx AS INTEGER, ry AS INTEGER, rw AS INTEGER, rh AS INTEGER, anchor AS INTEGER, best AS INTEGER, v AS INTEGER
     DIM dx AS INTEGER, dy AS INTEGER, k AS INTEGER, tmp AS INTEGER, total AS LONG, tp AS SINGLE, gap AS SINGLE
-    a = act ' ly reference (gotcha 13)
+    a = act ' by reference (gotcha 13)
     why = ANIM_OPS_busy$
     IF why <> "" THEN STATUS_flash why: EXIT SUB
     SELECT CASE a
@@ -108,17 +127,8 @@ SUB ANIM_CV_align (act AS INTEGER)
         CASE ELSE: EXIT SUB
     END SELECT
     grp = CMD_group_expand_for_op%
-    multi = MULTI_SELECT_has_any%
     DIM lay(1 TO MAX_LAYERS) AS INTEGER
-    FOR i = 1 TO MAX_LAYERS
-        IF ANIM_OPS_moves%(i) THEN
-            IF multi THEN
-                IF MULTI_SELECT_LAYERS(i) THEN n = n + 1: lay(n) = i
-            ELSEIF i = CURRENT_LAYER% THEN
-                n = n + 1: lay(n) = i
-            END IF
-        END IF
-    NEXT i
+    n = ANIM_CV_layers%(lay())
     IF n = 0 THEN
         STATUS_flash lbl + ": no drawing layer to move"
         IF grp > 0 THEN CMD_group_restore_after_op grp
@@ -143,7 +153,7 @@ SUB ANIM_CV_align (act AS INTEGER)
             IF k = 0 THEN _CONTINUE
             IF a = 1907 _ORELSE a = 1908 THEN
                 IF k >= 3 THEN
-                    FOR i = 2 TO k ' ly position
+                    FOR i = 2 TO k ' by position
                         tmp = ord(i): j = i - 1
                         DO WHILE j >= 1
                             IF _IIF(a = 1907, lx(ord(j)), ly(ord(j))) <= _IIF(a = 1907, lx(tmp), ly(tmp)) THEN EXIT DO
@@ -371,4 +381,91 @@ SUB ANIM_CV_keep_cell (img AS LONG)
     IF cx + cw < iw THEN LINE (cx + cw, cy)-(iw - 1, cy + ch - 1), _RGBA32(0, 0, 0, 0), BF
     _BLEND img
     _DEST oldDest
+END SUB
+
+''
+' Does Scale -50% / 2x / 2x H / 2x V (317 318 331 333) take the lightbox's
+' frames? Only its whole-layer case: a selection, a floating move, a custom
+' brush or a symbol child keep their own behaviour.
+FUNCTION ANIM_CV_scale_wants% ()
+    IF ANIM_LB_showing% = 0 THEN EXIT FUNCTION
+    IF SELECTION_has_active% _ORELSE CUSTOM_BRUSH_is_active% THEN EXIT FUNCTION
+    IF MOVE.ACTIVE _ANDALSO MOVE.SELECTION_IMAGE < -1 THEN EXIT FUNCTION
+    IF CURRENT_LAYER% < 1 _ORELSE CURRENT_LAYER% > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN EXIT FUNCTION
+    ANIM_CV_scale_wants% = TRUE
+END FUNCTION
+
+''
+' Scale what layer L has in frame f's cell by (sx, sy) about the cell's
+' centre (nearest neighbour); what grows past the cell is cut off.
+SUB ANIM_CV_scale_cell (L AS INTEGER, f AS INTEGER, sx AS SINGLE, sy AS SINGLE)
+    DIM img AS LONG, tmp AS LONG, scl AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG, bx AS LONG, by AS LONG
+    DIM nw AS LONG, nh AS LONG, ox AS LONG, oy AS LONG, oldDest AS LONG
+    img = LAYERS(L).imgHandle&
+    IF img >= -1 _ORELSE ANIM_cell_rect%(f, x, y, w, h) = 0 THEN EXIT SUB
+    nw = _MAX(1, INT(w * sx)): nh = _MAX(1, INT(h * sy))
+    bx = x + LAYERS(L).apronW%: by = y + LAYERS(L).apronH%
+    tmp = _NEWIMAGE(w, h, 32)
+    IF tmp >= -1 THEN EXIT SUB
+    scl = _NEWIMAGE(nw, nh, 32)
+    IF scl >= -1 THEN _FREEIMAGE tmp: EXIT SUB
+    _DONTBLEND tmp: _DONTBLEND scl
+    _PUTIMAGE (0, 0), img, tmp, (bx, by)-(bx + w - 1, by + h - 1)
+    _PUTIMAGE (0, 0)-(nw - 1, nh - 1), tmp, scl
+    oldDest = _DEST
+    _DEST img
+    _DONTBLEND img
+    LINE (bx, by)-(bx + w - 1, by + h - 1), _RGBA32(0, 0, 0, 0), BF
+    ox = (w - nw) \ 2: oy = (h - nh) \ 2 ' < 0: grown past the cell
+    _PUTIMAGE (bx + _MAX(0, ox), by + _MAX(0, oy)), scl, img, (_MAX(0, -ox), _MAX(0, -oy))-(_MAX(0, -ox) + _MIN(w, nw) - 1, _MAX(0, -oy) + _MIN(h, nh) - 1)
+    _BLEND img
+    _DEST oldDest
+    _FREEIMAGE tmp: _FREEIMAGE scl
+    LAYERS(L).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(L).apronCacheImg&: LAYERS(L).apronCacheImg& = 0
+    LAYERS(L).apronCacheValid% = FALSE
+    SYMBOL_mark_parent_dirty L
+END SUB
+
+''
+' Scale -50% / 2x / 2x H / 2x V in the lightbox: each selected frame (the
+' current one when none is) about its own cell's centre, on the layers
+' ANIM_CV_layers% gives. One undo step.
+SUB ANIM_CV_scale (sx AS SINGLE, sy AS SINGLE, label AS STRING)
+    DIM why AS STRING, grp AS INTEGER, n AS INTEGER, i AS INTEGER, f AS INTEGER, nf AS INTEGER
+    DIM before AS STRING, after AS STRING, lbl AS STRING, fx AS SINGLE, fy AS SINGLE
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG
+    fx = sx: fy = sy: lbl = label ' by reference (gotcha 13)
+    why = ANIM_OPS_busy$
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    grp = CMD_group_expand_for_op%
+    DIM lay(1 TO MAX_LAYERS) AS INTEGER
+    n = ANIM_CV_layers%(lay())
+    IF n = 0 THEN
+        STATUS_flash lbl + ": no drawing layer to scale"
+        IF grp > 0 THEN CMD_group_restore_after_op grp
+        EXIT SUB
+    END IF
+    SOUND_play SND_TRANSFORM
+    before = ANIM_OPS_snapshot$(TRUE)
+    FOR f = 1 TO ANIM.count
+        IF ANIM_SEL_is%(f) _ANDALSO ANIM_cell_rect%(f, cx, cy, cw, ch) THEN
+            nf = nf + 1
+            FOR i = 1 TO n
+                ANIM_CV_scale_cell lay(i), f, fx, fy
+            NEXT i
+        END IF
+    NEXT f
+    after = ANIM_OPS_snapshot$(TRUE)
+    IF after <> before THEN
+        ANIM_OPS_record before, after, lbl, 0
+        STATUS_flash lbl + _IIF(nf > 1, " in" + STR$(nf) + " frames", " in frame" + STR$(ANIM.current))
+    ELSE
+        STATUS_flash lbl + ": nothing to scale"
+    END IF
+    IF grp > 0 THEN CMD_group_restore_after_op grp
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
 END SUB

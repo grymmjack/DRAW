@@ -714,7 +714,9 @@ Transform tool takes only the current frame's drawing and keeps the result insid
 All (`Ctrl+A`) selects the current frame, and Invert Selection stays inside it. Copy / Cut / Copy
 Merged with nothing selected take only the current frame; Paste centres on it (and stays inside
 it). Symmetry mirrors about the centre of the frame you draw in. A dropped or imported image is
-sized against the frame and placed in it; what spills past the frame's edges is cut off.
+sized against the frame and placed in it; what spills past the frame's edges is cut off. Scale
+2x / -50% (`PgUp` / `PgDn`) and 2x H / 2x V (`Ctrl+Home` / `Ctrl+End`) with nothing selected scale
+each selected frame about its own centre (cut off at its edges).
 
 ---
 
