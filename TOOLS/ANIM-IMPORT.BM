@@ -987,3 +987,89 @@ SUB ANIM_SEQ_action ()
         STATUS_flash "Import PNG Sequence: no numbered files beside " + MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1) + " (name_0001.png, name_0002.png ...)"
     END IF
 END SUB
+
+''
+' File > New Animation (Rick 2026-11-09, field kit T-3: "let it pick the frame
+' size"): asks for the frame size and how many frames - "32x32 8", with an
+' optional "@12" for the FPS - and makes a new document whose canvas is a sheet
+' of that many blank frames, as close to square as it fits. Like File > New:
+' the unsaved-changes question first, a fresh history after.
+SUB ANIM_NEW_action ()
+    STATIC lastAsk AS STRING
+    DIM ask AS STRING, a AS STRING, xPos AS INTEGER, p AS INTEGER, k AS INTEGER
+    DIM fw AS LONG, fh AS LONG, n AS LONG, fps AS LONG, cols AS LONG, rows AS LONG, ans AS LONG
+    DIM nums(1 TO 4) AS LONG
+    IF CANVAS_DIRTY% THEN
+        POINTER_hide_for_dialog
+        ans = DRAW_message_box%("New Animation", "You have unsaved changes. Continue without saving?", MB_BTN_YES_NO, MB_ICON_WARNING)
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+        IF ans <> MB_RESULT_1 THEN EXIT SUB
+    END IF
+    IF lastAsk = "" THEN
+        IF ANIM.active _ANDALSO ANIM.count > 0 THEN
+            lastAsk = _TRIM$(STR$(ANIM.frameW)) + "x" + _TRIM$(STR$(ANIM.frameH)) + " " + _TRIM$(STR$(ANIM.count))
+        ELSE
+            lastAsk = "32x32 8"
+        END IF
+    END IF
+    POINTER_hide_for_dialog
+    ask = DRAW_input_box_ex$("New Animation", "Frame size (WxH) and number of frames:", lastAsk, "e.g. 32x32 8 - add @12 for 12 FPS", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    IF LEN(_TRIM$(ask)) = 0 THEN EXIT SUB
+    ' the numbers in order: W, H, frames; after an "@" the FPS
+    a = UCASE$(ask)
+    fps = ANIM_FPS_DEFAULT
+    p = INSTR(a, "@")
+    IF p > 0 THEN
+        nums(4) = ANIM_NEW_num&(MID$(a, p + 1), 1)
+        a = LEFT$(a, p - 1)
+    END IF
+    FOR k = 1 TO 3: nums(k) = ANIM_NEW_num&(a, k): NEXT k
+    fw = nums(1): fh = nums(2): n = nums(3)
+    IF nums(4) > 0 THEN fps = nums(4)
+    IF n < 1 THEN n = 1
+    xPos = INSTR(a, "X")
+    IF fw < 1 _ORELSE fh < 1 _ORELSE xPos = 0 THEN STATUS_flash "New Animation: type the frame size as WxH, e.g. 32x32 8": EXIT SUB
+    IF fw > 4096 _ORELSE fh > 4096 THEN STATUS_flash "New Animation: a frame can be 4096 x 4096 at most": EXIT SUB
+    IF n > ANIM_MAX_FRAMES THEN n = ANIM_MAX_FRAMES
+    ' as square as it fits: columns = the square root, rounded up, no wider than 4096
+    cols = INT(SQR(n) + .999999)
+    IF cols < 1 THEN cols = 1
+    IF cols * fw > 4096 THEN cols = 4096 \ fw
+    rows = (n + cols - 1) \ cols
+    IF rows * fh > 4096 THEN
+        STATUS_flash "New Animation: at" + STR$(fw) + "x" + _TRIM$(STR$(fh)) + " a sheet holds" + STR$(cols * (4096 \ fh)) + " frames at most"
+        EXIT SUB
+    END IF
+    lastAsk = _TRIM$(STR$(fw)) + "x" + _TRIM$(STR$(fh)) + " " + _TRIM$(STR$(n)) + _IIF(nums(4) > 0, " @" + _TRIM$(STR$(fps)), "")
+    SOUND_play SND_NEW_FILE
+    DRW_create_canvas_at_size cols * fw, rows * fh
+    ANIM.wanted = n
+    IF ANIM_set_layout%(fw, fh, 0, 0) = FALSE THEN STATUS_flash "New Animation: that does not fit": EXIT SUB
+    ANIM.count = _MIN(n, ANIM_cells%): ANIM.current = 1
+    ANIM_set_fps fps
+    CANVAS_DIRTY% = FALSE
+    BLEND_invalidate_cache
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
+    STATUS_flash "New Animation:" + STR$(ANIM.count) + " frames of" + STR$(fw) + "x" + _TRIM$(STR$(fh)) + " at" + STR$(ANIM.fps) + " FPS"
+    _LOGINFO "ANIM_NEW_action:" + STR$(ANIM.count) + " frames of" + STR$(fw) + "x" + _TRIM$(STR$(fh)) + ", sheet" + STR$(cols) + "x" + _TRIM$(STR$(rows))
+END SUB
+
+''
+' The k-th run of digits in t (0 when there is none; capped at 100000).
+FUNCTION ANIM_NEW_num& (t AS STRING, k AS INTEGER)
+    DIM i AS LONG, c AS STRING, runN AS INTEGER, inNum AS INTEGER, v AS LONG
+    FOR i = 1 TO LEN(t)
+        c = MID$(t, i, 1)
+        IF c >= "0" _ANDALSO c <= "9" THEN
+            IF inNum = FALSE THEN inNum = TRUE: runN = runN + 1: v = 0
+            IF runN = k _ANDALSO v < 100000 THEN v = v * 10 + VAL(c)
+        ELSE
+            inNum = FALSE
+            IF runN = k THEN EXIT FOR
+        END IF
+    NEXT i
+    IF runN >= k THEN ANIM_NEW_num& = v
+END FUNCTION

@@ -534,6 +534,13 @@ tool works on the sheet as usual. The numpad keys need a numpad; with Num Lock o
 off they are frame keys, not digits, only while the sheet has frames (on a plain
 picture only `Num +` is). The `Alt` keys are for keyboards without a numpad.
 
+**File → New Animation...** starts one from scratch: type the frame size and how many frames -
+`32x32 8`, add `@12` for 12 FPS - and you get a new document whose canvas is a sheet of that
+many blank frames, as square as it fits. On a plain picture the ANIM menu greys out everything
+that needs frames; only the ways in stay: Animation Panel, Add Frame, Add Blank Frame, Detect
+Frames, Create Frames from Grid, Import PNG Sequence. The frame settings (Frame Grid, Preview
+Shows Frame, Onion Skin Tint, Clip Strokes...) show unchecked there and come back once there are frames.
+
 | Key | Action |
 |-----|--------|
 | `Num 1` / `Alt+Home` | First frame |

@@ -65,6 +65,7 @@ CONST ANIM_ACT_FRAME_NOTE   = 2545 ' ANIM > Frame Note... (4.5: the current fram
 CONST ANIM_ACT_CLEAR_NOTE   = 2546 ' ANIM > Clear Frame Note (the selected frames, else the current one)
 CONST ANIM_ACT_DETECT_FRAMES = 2547 ' ANIM > Detect Frames (5.3, TOOLS/ANIM-IMPORT: the sheet's grid from its gaps)
 CONST ANIM_ACT_FRAMES_FROM_GRID = 2551 ' ANIM > Create Frames from Grid (F8, TOOLS/ANIM-IMPORT: the frame = the pixel grid's cell)
+CONST ANIM_ACT_NEW = 2562 ' File > New Animation... (TOOLS/ANIM-IMPORT: frame size + count -> a new sheet of blank frames)
 ' A selection inside the current frame's cell moves with it to the next current
 ' frame, same place in the cell (2.9, Q-18; ANIM_SELBOX_watch)
 DIM SHARED ANIM_SELBOX_LAST AS INTEGER ' the current frame the watcher last saw (0 = none)
