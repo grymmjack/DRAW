@@ -287,6 +287,14 @@ The **Animate** built-in workspace (L.2, `ASSETS/WORKSPACES/animate.workspace`) 
   (`ANIM_LB_strip_wheel%`, after the layer panel in the mouse chain) scrolls a quarter of it;
   `lastCur` makes the layout bring the current frame back only when it changes. Selected
   frames (2+) are tinted with `ANIM_FRAME_current` at alpha &H50 and outlined.
+- **Transport bar sizes (F3, field kit T-11):** the number boxes (TIME, FPS, COUNT) print in the
+  theme UI font at 2x (`ANIM_LB_big_ensure`: `GLOBAL_FONT_FILE` at `2 * GLOBAL_FONT_SIZE` =
+  Tiny5 16; `ANIM_LB_big_w% / _big_text`, falls back to the panel font). Every control is
+  `ANIM_LB.rowH` (= max(`FPANEL.rowH`, bigH + 6)) tall inside `LB_BAR_PAD` (4) px, so
+  `barH = ANIM_LB_bar_h%` (30 at Tiny5 8; `ANIM_LB_clear_floats` uses it too). Chips are
+  padded by 2 x fontW. `ANIM_LB_seek_draw`: a track rowH - 6 tall, an `LB_SEEK_THUMB` (8) px
+  handle 2 px proud with its border outside. `ANIM_LB_ctl_at%` hit-tests the same band. QA:
+  `anim-lightbox-transport`.
 - **The transport bar (2.4):** LOOP opens a `POPUP_MENU` of the four modes
   (`ANIM_LB_menu_open / _mouse% / _render`; drawn after `SkipToPointer:` every frame so it sits
   over everything; a press outside closes it). FPS is a spinner: a click on its left / right

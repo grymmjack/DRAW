@@ -63,6 +63,8 @@ CONST LB_CTLS      = 15
 
 CONST LB_PANES_MAX = 7
 CONST LB_MENU_ITEM_H = 12 ' the loop mode menu's rows (as the dock menu)
+CONST LB_BAR_PAD     = 4  ' transport bar: px above / below its controls
+CONST LB_SEEK_THUMB  = 8  ' the seek bar's handle width (px)
 
 TYPE ANIM_LB_OBJ
     shown      AS INTEGER ' drawn on the last full render
@@ -166,6 +168,12 @@ TYPE ANIM_LB_OBJ
     mvScale    AS SINGLE  ' pane px per canvas px
     mvDX       AS INTEGER ' the offset now (canvas px)
     mvDY       AS INTEGER
+    ' transport bar (F3, field kit T-11): the number boxes in the UI font at 2x
+    ' (Tiny5 16), every control rowH tall inside LB_BAR_PAD px of bar
+    bigFont    AS LONG    ' 0 = not loaded / failed (the panel font then)
+    bigH       AS INTEGER
+    bigReady   AS INTEGER
+    rowH       AS INTEGER
 END TYPE
 DIM SHARED ANIM_LB AS ANIM_LB_OBJ
 DIM SHARED ANIM_LB_EDIT AS STRING ' the count box's text while typing (2.4)
