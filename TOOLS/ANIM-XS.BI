@@ -43,6 +43,7 @@ CONST XS_DRAG_NONE   = 0
 CONST XS_DRAG_HOLD   = 1 ' along the holds row
 CONST XS_DRAG_CELL   = 2 ' a drawing to another cell
 CONST XS_DRAG_FRAMES = 3 ' frame numbers: reorder
+CONST XS_DRAG_SOUND  = 4 ' a sound clip: along its track / to another track (F6)
 CONST XS_EYE_X  = 2  ' name column: the eye from x1 + 2, the lock from x1 + 13,
 CONST XS_LOCK_X = 13 ' the name from x1 + XS_ICONS_W (F5)
 CONST XS_ICONS_W = 25
@@ -85,6 +86,7 @@ TYPE ANIM_XS_OBJ
     oV0      AS INTEGER ' its opacity at the press (0-100 %)
     oMoved   AS INTEGER ' dragged (else a click: type it)
     rSlot    AS INTEGER ' a right press on this layer's row: its menu on the release
+    rSound   AS INTEGER ' a right press on this SOUND track's row: the SOUND menu on the release (F6)
 END TYPE
 DIM SHARED ANIM_XS AS ANIM_XS_OBJ
 DIM SHARED ANIM_XS_ROW(1 TO MAX_LAYERS) AS INTEGER   ' layer slot of row r (display order)

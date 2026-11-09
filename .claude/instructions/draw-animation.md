@@ -69,6 +69,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2547 | Detect Frames (`ANIM_DT_action`, `TOOLS/ANIM-IMPORT`, 5.3: the sheet's grid from its gaps) |
 | 2548 | Import PNG Sequence... (`ANIM_SEQ_action`, `TOOLS/ANIM-IMPORT`, 5.4; CLI `--sequence FILE`) |
 | 2549 / 2550 | Soundtrack... / Remove Soundtrack (`ANIM_SND_action`, `TOOLS/ANIM-SOUND`, L.1) |
+| 2552-2559 | the SOUND rows (F6): Add Sound Here... / on a New Track... / Copy / Cut / Paste / Delete / Split / Remove Clip (`ANIM_SND_action`) |
 | 2551 | Create Frames from Grid (`ANIM_GRID_frames_action`, `TOOLS/ANIM-IMPORT`, F8: frame = `GRID.gridWidth` x `gridHeight`, no gutter / margin, frames up to the last drawn cell; one undo step; `anim-frames-from-grid.sh`) |
 | 2540 | X-Sheet in the lightbox's top band (`ANIM_XS_toggle`, `TOOLS/ANIM-XS`, `CFG.XSHEET`, Num 8, chip `LB_CTL_XS`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
@@ -764,6 +765,48 @@ the export line); the player opens it there or beside the program, `snd_follow` 
 length ms, then per step: step, frame, its time ms). Dump: `ANIMSND open on starts lastStartMs
 lenMs peaks name` (name "-" = none), `ANIMXSS rowY`, and `ANIMFS ... sndStarts sndLastMs sndOn`.
 QA: `anim-soundtrack.sh` (28; a -60 dB WAV, volume 0), the unit test (v6 round trip).
+
+**Sound clips and tracks (F6, field kit T-28).** Since F6 `ANIM_SND_PATH` / `_OFS` are gone: the
+soundtrack is `ANIM_SC_*` in `TOOLS/ANIM.BI` (so the unit test sees it) - up to `ANIM_SC_MAX` (32)
+clips, each PATH, TRK (1..`ANIM_SC_TRACKS` = 4), AT (timeline ms; 0 = frame 1's start), IN (ms
+into the file), LEN (ms; 0 = to the file's end), plus FMS (the file's length as ANIM-SOUND found
+it; not saved; 0 = unknown, then a to-the-end clip ends at `ANIM_SC_FOREVER`). Pure ops in
+ANIM.BM: `ANIM_SC_add% / _remove / _clear / _end& / _split% / _cut% (trk, a, b) / _copy% /
+_copy_clip / _paste% / _track_n% / _text$`; the sound clipboard is `ANIM_SCB_*` (pieces at ms
+from the span's start + SPAN). A cut never ripples later sound; a paste first cuts its span.
+*Saving:* the v6 block is clip 1 (ofs = IN - AT, so an older DRAW plays it); a v7 block (n, then
+trk at in len pathLen path per clip) follows only when the clips are not "one clip on track 1 from
+0 to the end" - so the simple case stays v6 (`anim-soundtrack.sh` checks `0600`). v7 replaces
+v6's clip on load. *Playing (ANIM-SOUND):* `ANIM_SS_*` caches each file once (opened noasync, ms,
+peaks at `ANIM_SND_PK(PK0..)`), reopened when `ANIM_SS_want$` (document folder + the sorted
+paths) changes. `ANIM_SND_build` (when the clip signature changes, not while `ANIM_SC_DRAG`):
+one clip with LEN 0 plays its file's own handle with `ANIM_SND_BASE = (IN - AT) / 1000` (MIDI /
+trackers keep working); anything else is `ANIM_SND_mix` - a `_SNDNEW(frames, 2, 32)` at
+`_SNDRATE` from frame 1's start, each readable clip's `_MEMSOUND` samples added in (mono spread
+to both), clamped to +-1 when more than one; unreadable clips are skipped
+(`ANIM_SND_SKIPPED`). A mix is ours to close (`ANIM_SND_MIXED`); `ANIM_SND_drop` never closes a
+file's handle. `ANIM_SND_time#(f) = ANIM_SND_frame_ms#(f) / 1000 + BASE`. Up to 10 minutes are
+mixed (`ANIM_SND_MIX_MAX_S`). *X-sheet:* a SOUND row per track (`ANIM_XS_sound_rows%` =
+`ANIM_SC_track_n%`, `ANIM_XS_sound_trk%(k)`); timeline ms <-> x is linear (`ANIM_XS_ms_x%` /
+`ANIM_XS_x_ms#`, ticks before `firstF` = `ANIM_XS_t0%`); a clip is a tinted block to the grid's
+end with its waveform (`ANIM_SC_peak%`) or its file name, the picked one outlined in
+`ANIM_FRAME_drawing`. A left / right press on a row (`ANIM_XS_sound_press%`) picks the clip,
+sets `ANIM_SC_TRACK`, `ANIM_SC_FOCUS` and `ANIM_SC_MENU_T` (the pressed frame's start); a plain
+left press on a clip starts `XS_DRAG_SOUND` (`ANIM_XS_sound_drag`: + ms dragged, `ANIM_SC_snap&`
+to a frame start unless Shift, the row under the pointer = the track; one "Move Sound" undo on
+release). A right release opens the lightbox popup as `menuKind = 1` (`ANIM_SC_menu_build`, item
+values = action ids; `ANIM_SC_FROM_MENU` makes Paste / Split act at MENU_T). *Keys:*
+`INPUT_dispatch_frame` asks `ANIM_SC_key%` first while focused (Ctrl+C / X / V, Delete,
+Backspace -> 2554-2557, so the canvas never sees them); `ANIM_SND_tick` drops the focus on Esc
+(`_KEYDOWN` edge - Esc is not a dispatcher event) or on a press anywhere but the rows (unless the
+rows' menu took it: `ANIM_SC_KEEP`). The keys act on `ANIM_SC_span%` (more than one frame
+selected: their span of the focused track) else the picked clip. Adding (`ANIM_SND_add_files%`)
+uses the multi-select dialog: files laid one after another. *BAS:* a single to-the-end clip is
+copied as before (`ANIM_BAS_SND_OFS`); otherwise `ANIM_SND_write_wav%` writes the mix as
+`NAME-sound.wav` (16-bit stereo) with SND_OFS 0. Dump: `ANIMSC n sel track focus mixed skipped
+clipN clipSpan dragging` + per clip `trk at in len end`; `ANIMXSS` = every SOUND row's y;
+`ANIMXSC clip xa xb`; `ANIMSCM x y w` + `action y` per pickable item while the menu is open;
+tooltip id 3000 + clip. QA: `anim-sound-edit.sh`, the unit test (clip ops, v6 / v7 rules).
 
 ## A selection stays put in its cell (2.9, Q-18)
 

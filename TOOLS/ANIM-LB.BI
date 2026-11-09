@@ -146,7 +146,9 @@ TYPE ANIM_LB_OBJ
 
     ' The transport bar (2.4)
     seekHeld   AS INTEGER ' the seek bar is being scrubbed (until the release)
-    menuOpen   AS INTEGER ' the loop mode menu
+    menuOpen   AS INTEGER ' the loop mode menu / the X-sheet SOUND rows' menu (menuKind)
+    menuKind   AS INTEGER ' 0 loop mode, 1 SOUND (F6)
+    menuN      AS INTEGER ' its items
     menuX      AS INTEGER
     menuY      AS INTEGER
     menuW      AS INTEGER

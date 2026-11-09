@@ -28,7 +28,7 @@ SUB ANIM_reset ()
     ANIM_LK_N = 0
     ANIM_TG_N = 0: ANIM_EXP_A = 0: ANIM_EXP_B = 0
     FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_NOTE(i) = "": NEXT i
-    ANIM_SND_PATH = "": ANIM_SND_OFS = 0
+    ANIM_SC_clear
     IF ANIM_SB_KEEP = FALSE THEN ' (ANIM_deserialize% keeps the SAME layers' pictures: undo / redo is the same document)
         FOR i = 1 TO ANIM_SB_N: ANIM_SB_PX(i) = "": NEXT i
         ANIM_SB_N = 0
@@ -263,7 +263,7 @@ FUNCTION ANIM_serialize$ ()
     NEXT i
     IF ANIM.active THEN nn = ANIM_NT_count%
     DIM snd AS INTEGER
-    snd = ANIM.active _ANDALSO LEN(ANIM_SND_PATH) > 0
+    snd = ANIM.active _ANDALSO ANIM_SC_N > 0
     s = MKI$(ANIM_CHUNK_VERSION) + MKI$(ANIM.frameW) + MKI$(ANIM.frameH) + MKI$(ANIM.gutter) + MKI$(ANIM.margin)
     s = s + MKI$(ANIM.count) + MKI$(ANIM.current) + MKI$(ANIM.fps) + MKI$(ANIM.loopMode) + MKI$(n)
     FOR i = 1 TO n: s = s + MKI$(ANIM_hold%(i)): NEXT i
@@ -290,9 +290,18 @@ FUNCTION ANIM_serialize$ ()
             IF LEN(ANIM_NOTE(i)) > 0 THEN s = s + MKI$(i) + MKI$(LEN(ANIM_NOTE(i))) + ANIM_NOTE(i)
         NEXT i
     END IF
-    IF snd THEN ' v6: the soundtrack - the path's length, the path, the offset (ms)
+    IF snd THEN ' v6: the soundtrack - the path's length, the path, the offset (ms) - clip 1 (an older DRAW plays just it)
         MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_SOUND)
-        s = s + MKI$(LEN(ANIM_SND_PATH)) + ANIM_SND_PATH + MKL$(ANIM_SND_OFS)
+        s = s + MKI$(LEN(ANIM_SC_PATH(1))) + ANIM_SC_PATH(1) + MKL$(ANIM_SC_IN(1) - ANIM_SC_AT(1))
+        IF ANIM_SC_N > 1 _ORELSE ANIM_SC_TRK(1) <> 1 _ORELSE ANIM_SC_AT(1) <> 0 _ORELSE ANIM_SC_LEN(1) <> 0 THEN
+            ' v7: every clip - track, at, in, len (ms), the path's length, the path
+            MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_SNDCLIPS)
+            s = s + MKI$(ANIM_SC_N)
+            FOR i = 1 TO ANIM_SC_N
+                s = s + MKI$(ANIM_SC_TRK(i)) + MKL$(ANIM_SC_AT(i)) + MKL$(ANIM_SC_IN(i)) + MKL$(ANIM_SC_LEN(i))
+                s = s + MKI$(LEN(ANIM_SC_PATH(i))) + ANIM_SC_PATH(i)
+            NEXT i
+        END IF
     END IF
     ANIM_serialize$ = s
 END FUNCTION
@@ -370,8 +379,24 @@ FUNCTION ANIM_deserialize% (blob AS STRING)
     IF v >= 6 _ANDALSO fp > 0 _ANDALSO fp + 1 <= LEN(blob) THEN ' v6: the soundtrack after the notes
         tl = CVI(MID$(blob, fp, 2)): fp = fp + 2
         IF tl > 0 _ANDALSO fp + tl + 3 <= LEN(blob) THEN
-            ANIM_SND_PATH = MID$(blob, fp, tl): ANIM_SND_OFS = CVL(MID$(blob, fp + tl, 4))
+            DIM so AS LONG
+            so = CVL(MID$(blob, fp + tl, 4)) ' frame 1 starts so ms into the file
+            r = ANIM_SC_add%(MID$(blob, fp, tl), 1, _IIF(so < 0, -so, 0), _IIF(so > 0, so, 0), 0)
         END IF
+        IF tl >= 0 THEN fp = fp + tl + 4
+    END IF
+    IF v >= 7 _ANDALSO fp > 0 _ANDALSO fp + 1 <= LEN(blob) THEN ' v7: every clip (it replaces v6's one)
+        DIM ct AS INTEGER, ca AS LONG, ci AS LONG, cl AS LONG
+        nf = CVI(MID$(blob, fp, 2)): fp = fp + 2
+        IF nf > 0 THEN ANIM_SC_clear
+        FOR i = 1 TO nf
+            IF fp + 15 > LEN(blob) THEN EXIT FOR
+            ct = CVI(MID$(blob, fp, 2)): ca = CVL(MID$(blob, fp + 2, 4)): ci = CVL(MID$(blob, fp + 6, 4)): cl = CVL(MID$(blob, fp + 10, 4))
+            tl = CVI(MID$(blob, fp + 14, 2)): fp = fp + 16
+            IF tl < 0 _ORELSE fp + tl - 1 > LEN(blob) THEN EXIT FOR
+            r = ANIM_SC_add%(MID$(blob, fp, tl), ct, ca, ci, cl)
+            fp = fp + tl
+        NEXT i
     END IF
     ANIM_deserialize% = ANIM.active
 END FUNCTION
@@ -1082,4 +1107,200 @@ FUNCTION ANIM_DT_runs& (mask AS STRING)
         END IF
     NEXT p
     ANIM_DT_runs& = n
+END FUNCTION
+
+''
+' The soundtrack's clips (F6, see ANIM.BI). No clips.
+SUB ANIM_SC_clear ()
+    DIM i AS INTEGER
+    FOR i = 1 TO ANIM_SC_MAX: ANIM_SC_PATH(i) = "": NEXT i
+    ANIM_SC_N = 0
+END SUB
+
+''
+' Add a clip: file path on track trk (1..ANIM_SC_TRACKS), at atMs on the
+' timeline, from inMs into the file, lenMs of it (0 = to the end). Its index,
+' or 0 when it can't be added (no path, the list is full).
+FUNCTION ANIM_SC_add% (path AS STRING, trk AS INTEGER, atMs AS LONG, inMs AS LONG, lenMs AS LONG)
+    IF LEN(path) = 0 _ORELSE ANIM_SC_N >= ANIM_SC_MAX THEN EXIT FUNCTION
+    ANIM_SC_N = ANIM_SC_N + 1
+    ANIM_SC_PATH(ANIM_SC_N) = path
+    ANIM_SC_TRK(ANIM_SC_N) = _MAX(1, _MIN(ANIM_SC_TRACKS, trk))
+    ANIM_SC_AT(ANIM_SC_N) = _MAX(0, atMs)
+    ANIM_SC_IN(ANIM_SC_N) = _MAX(0, inMs)
+    ANIM_SC_LEN(ANIM_SC_N) = _MAX(0, lenMs)
+    ANIM_SC_FMS(ANIM_SC_N) = 0
+    ANIM_SC_add% = ANIM_SC_N
+END FUNCTION
+
+''
+' Remove clip i (the later ones move down one).
+SUB ANIM_SC_remove (idx AS INTEGER)
+    DIM i AS INTEGER, k AS INTEGER
+    k = idx ' by reference (gotcha 13)
+    IF k < 1 _ORELSE k > ANIM_SC_N THEN EXIT SUB
+    FOR i = k TO ANIM_SC_N - 1
+        ANIM_SC_PATH(i) = ANIM_SC_PATH(i + 1): ANIM_SC_TRK(i) = ANIM_SC_TRK(i + 1)
+        ANIM_SC_AT(i) = ANIM_SC_AT(i + 1): ANIM_SC_IN(i) = ANIM_SC_IN(i + 1): ANIM_SC_LEN(i) = ANIM_SC_LEN(i + 1)
+        ANIM_SC_FMS(i) = ANIM_SC_FMS(i + 1)
+    NEXT i
+    ANIM_SC_PATH(ANIM_SC_N) = ""
+    ANIM_SC_N = ANIM_SC_N - 1
+END SUB
+
+''
+' The highest track any clip is on (0 = no clips): the X-sheet's SOUND rows.
+FUNCTION ANIM_SC_track_n% ()
+    DIM i AS INTEGER, t AS INTEGER
+    FOR i = 1 TO ANIM_SC_N
+        IF ANIM_SC_TRK(i) > t THEN t = ANIM_SC_TRK(i)
+    NEXT i
+    ANIM_SC_track_n% = t
+END FUNCTION
+
+''
+' The timeline ms where clip i ends (ANIM_SC_FOREVER: it plays to a file end
+' not known yet).
+FUNCTION ANIM_SC_end& (idx AS INTEGER)
+    DIM i AS INTEGER
+    i = idx
+    IF i < 1 _ORELSE i > ANIM_SC_N THEN EXIT FUNCTION
+    IF ANIM_SC_LEN(i) > 0 THEN
+        ANIM_SC_end& = ANIM_SC_AT(i) + ANIM_SC_LEN(i)
+    ELSEIF ANIM_SC_FMS(i) > 0 THEN
+        ANIM_SC_end& = ANIM_SC_AT(i) + _MAX(0, ANIM_SC_FMS(i) - ANIM_SC_IN(i))
+    ELSE
+        ANIM_SC_end& = ANIM_SC_FOREVER
+    END IF
+END FUNCTION
+
+''
+' Split clip i at timeline ms t: it ends at t, a new clip (returned; 0 = t
+' is not inside it, or the list is full) plays on from there.
+FUNCTION ANIM_SC_split% (idx AS INTEGER, atT AS LONG)
+    DIM i AS INTEGER, t AS LONG, s0 AS LONG, e AS LONG, k AS INTEGER
+    i = idx: t = atT
+    IF i < 1 _ORELSE i > ANIM_SC_N THEN EXIT FUNCTION
+    s0 = ANIM_SC_AT(i): e = ANIM_SC_end&(i)
+    IF t <= s0 _ORELSE t >= e THEN EXIT FUNCTION
+    k = ANIM_SC_add%(ANIM_SC_PATH(i), ANIM_SC_TRK(i), t, ANIM_SC_IN(i) + (t - s0), _IIF(ANIM_SC_LEN(i) > 0, e - t, 0))
+    IF k = 0 THEN EXIT FUNCTION
+    ANIM_SC_FMS(k) = ANIM_SC_FMS(i)
+    ANIM_SC_LEN(i) = t - s0
+    ANIM_SC_split% = k
+END FUNCTION
+
+''
+' Take timeline ms a..b (b not included) off track trk: the clips there are
+' cut short, split or removed. Later sound stays where it is. TRUE when any
+' clip changed.
+FUNCTION ANIM_SC_cut% (trk AS INTEGER, fromT AS LONG, toT AS LONG)
+    DIM i AS INTEGER, k AS INTEGER, a AS LONG, b AS LONG, t AS INTEGER, s0 AS LONG, e AS LONG
+    t = trk: a = fromT: b = toT
+    IF b <= a THEN EXIT FUNCTION
+    i = 1
+    DO WHILE i <= ANIM_SC_N
+        IF ANIM_SC_TRK(i) = t THEN
+            s0 = ANIM_SC_AT(i): e = ANIM_SC_end&(i)
+            IF e > a _ANDALSO s0 < b THEN
+                ANIM_SC_cut% = TRUE
+                IF s0 < a _ANDALSO e > b THEN ' the span is inside it: two pieces
+                    k = ANIM_SC_split%(i, b) ' (the piece from b is after the span: the loop leaves it)
+                    ANIM_SC_LEN(i) = a - s0
+                ELSEIF s0 < a THEN
+                    ANIM_SC_LEN(i) = a - s0
+                ELSEIF e > b THEN
+                    ANIM_SC_IN(i) = ANIM_SC_IN(i) + (b - s0)
+                    IF ANIM_SC_LEN(i) > 0 THEN ANIM_SC_LEN(i) = e - b
+                    ANIM_SC_AT(i) = b
+                ELSE
+                    ANIM_SC_remove i
+                    i = i - 1
+                END IF
+            END IF
+        END IF
+        i = i + 1
+    LOOP
+END FUNCTION
+
+''
+' Copy timeline ms a..b of track trk to the sound clipboard. The pieces
+' copied (0 = no sound there).
+FUNCTION ANIM_SC_copy% (trk AS INTEGER, fromT AS LONG, toT AS LONG)
+    DIM i AS INTEGER, a AS LONG, b AS LONG, t AS INTEGER, s0 AS LONG, e AS LONG, s2 AS LONG, e2 AS LONG, n AS INTEGER
+    t = trk: a = fromT: b = toT
+    IF b <= a THEN EXIT FUNCTION
+    FOR i = 1 TO ANIM_SC_N
+        IF ANIM_SC_TRK(i) = t THEN
+            s0 = ANIM_SC_AT(i): e = ANIM_SC_end&(i)
+            IF e > a _ANDALSO s0 < b THEN
+                s2 = _MAX(s0, a): e2 = _MIN(e, b)
+                n = n + 1
+                ANIM_SCB_PATH(n) = ANIM_SC_PATH(i): ANIM_SCB_AT(n) = s2 - a: ANIM_SCB_IN(n) = ANIM_SC_IN(i) + (s2 - s0)
+                ANIM_SCB_LEN(n) = e2 - s2: ANIM_SCB_FMS(n) = ANIM_SC_FMS(i)
+                IF e = ANIM_SC_FOREVER _ANDALSO e2 = e THEN ANIM_SCB_LEN(n) = 0
+            END IF
+        END IF
+    NEXT i
+    IF n = 0 THEN EXIT FUNCTION
+    ANIM_SCB_N = n: ANIM_SCB_SPAN = b - a
+    ANIM_SC_copy% = n
+END FUNCTION
+
+''
+' Copy all of clip i to the sound clipboard.
+SUB ANIM_SC_copy_clip (idx AS INTEGER)
+    DIM i AS INTEGER
+    i = idx
+    IF i < 1 _ORELSE i > ANIM_SC_N THEN EXIT SUB
+    ANIM_SCB_N = 1
+    ANIM_SCB_PATH(1) = ANIM_SC_PATH(i): ANIM_SCB_AT(1) = 0: ANIM_SCB_IN(1) = ANIM_SC_IN(i)
+    ANIM_SCB_LEN(1) = ANIM_SC_LEN(i): ANIM_SCB_FMS(1) = ANIM_SC_FMS(i)
+    ANIM_SCB_SPAN = _IIF(ANIM_SC_end&(i) = ANIM_SC_FOREVER, ANIM_SC_FOREVER, ANIM_SC_end&(i) - ANIM_SC_AT(i))
+END SUB
+
+''
+' Paste the sound clipboard on track trk at timeline ms p, over what is
+' there. The first clip pasted (0 = nothing pasted).
+FUNCTION ANIM_SC_paste% (trk AS INTEGER, atT AS LONG)
+    DIM i AS INTEGER, k AS INTEGER, first AS INTEGER, t AS INTEGER, p AS LONG, r AS INTEGER
+    t = trk: p = atT
+    IF ANIM_SCB_N < 1 THEN EXIT FUNCTION
+    IF ANIM_SCB_SPAN < ANIM_SC_FOREVER THEN r = ANIM_SC_cut%(t, p, p + ANIM_SCB_SPAN)
+    FOR i = 1 TO ANIM_SCB_N
+        k = ANIM_SC_add%(ANIM_SCB_PATH(i), t, p + ANIM_SCB_AT(i), ANIM_SCB_IN(i), ANIM_SCB_LEN(i))
+        IF k > 0 THEN
+            ANIM_SC_FMS(k) = ANIM_SCB_FMS(i)
+            IF first = 0 THEN first = k
+        END IF
+    NEXT i
+    ANIM_SC_paste% = first
+END FUNCTION
+
+''
+' Unit test / QA text of the clips: "track:at+in~len name" per clip, by
+' track then time (len 0 = to the end), space separated.
+FUNCTION ANIM_SC_text$ ()
+    DIM i AS INTEGER, j AS INTEGER, s AS STRING, nm AS STRING, done AS STRING, best AS INTEGER
+    done = STRING$(ANIM_SC_N, "0")
+    FOR j = 1 TO ANIM_SC_N
+        best = 0
+        FOR i = 1 TO ANIM_SC_N
+            IF MID$(done, i, 1) = "0" THEN
+                IF best = 0 THEN
+                    best = i
+                ELSEIF ANIM_SC_TRK(i) < ANIM_SC_TRK(best) _ORELSE (ANIM_SC_TRK(i) = ANIM_SC_TRK(best) _ANDALSO ANIM_SC_AT(i) < ANIM_SC_AT(best)) THEN
+                    best = i
+                END IF
+            END IF
+        NEXT i
+        MID$(done, best, 1) = "1"
+        nm = MID$(ANIM_SC_PATH(best), _MAX(_INSTRREV(ANIM_SC_PATH(best), "/"), _INSTRREV(ANIM_SC_PATH(best), "\")) + 1)
+        FOR i = 1 TO LEN(nm)
+            IF ASC(nm, i) = 32 THEN MID$(nm, i, 1) = "_"
+        NEXT i
+        IF j > 1 THEN s = s + " "
+        s = s + _TRIM$(STR$(ANIM_SC_TRK(best))) + ":" + _TRIM$(STR$(ANIM_SC_AT(best))) + "+" + _TRIM$(STR$(ANIM_SC_IN(best))) + "~" + _TRIM$(STR$(ANIM_SC_LEN(best))) + " " + nm
+    NEXT j
+    ANIM_SC_text$ = s
 END FUNCTION

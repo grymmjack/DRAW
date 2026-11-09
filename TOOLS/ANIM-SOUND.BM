@@ -20,50 +20,299 @@ FUNCTION ANIM_SND_resolve$ (p AS STRING)
     IF d <> "" _ANDALSO _FILEEXISTS(d + nm) THEN ANIM_SND_resolve$ = d + nm
 END FUNCTION
 
-SUB ANIM_SND_close ()
+''
+' Stop what plays and let it go (a mix is closed; a file's sound stays open
+' with its file).
+SUB ANIM_SND_drop ()
     IF ANIM_SND_H > 0 THEN
         IF _SNDPLAYING(ANIM_SND_H) THEN _SNDSTOP ANIM_SND_H
-        _SNDCLOSE ANIM_SND_H
+        IF ANIM_SND_MIXED THEN _SNDCLOSE ANIM_SND_H
     END IF
-    ANIM_SND_H = 0: ANIM_SND_FILE = "": ANIM_SND_LEN = 0: ANIM_SND_PKN = 0
-    ANIM_SND_ON = FALSE: ANIM_SND_STOP_AT = 0: ANIM_SND_VOL = -1
+    ANIM_SND_H = 0: ANIM_SND_MIXED = FALSE: ANIM_SND_BASE = 0: ANIM_SND_FILE = "": ANIM_SND_LEN = 0
+    ANIM_SND_ON = FALSE: ANIM_SND_STOP_AT = 0: ANIM_SND_VOL = -1: ANIM_SND_SKIPPED = 0
 END SUB
 
 ''
-' Open ANIM_SND_PATH when it is not the one open (a load, undo, a new document).
+' Close every file (and what plays).
+SUB ANIM_SS_close_all ()
+    DIM i AS INTEGER
+    ANIM_SND_drop
+    FOR i = 1 TO ANIM_SS_N
+        IF ANIM_SS_H(i) > 0 THEN
+            IF _SNDPLAYING(ANIM_SS_H(i)) THEN _SNDSTOP ANIM_SS_H(i)
+            _SNDCLOSE ANIM_SS_H(i)
+        END IF
+        ANIM_SS_H(i) = 0: ANIM_SS_PATH(i) = "": ANIM_SS_FILE(i) = ""
+    NEXT i
+    ANIM_SS_N = 0: ANIM_SND_PKN = 0
+END SUB
+
+''
+' The file entry for path p (0 = none).
+FUNCTION ANIM_SS_find% (p AS STRING)
+    DIM i AS INTEGER
+    FOR i = 1 TO ANIM_SS_N
+        IF ANIM_SS_PATH(i) = p THEN ANIM_SS_find% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' The document's folder and the clips' files, sorted, once each: when this
+' changes the files are opened again.
+FUNCTION ANIM_SS_want$ ()
+    DIM i AS INTEGER, j AS INTEGER, n AS INTEGER, t AS STRING, doc AS STRING, s AS STRING
+    IF ANIM_SC_N = 0 THEN EXIT FUNCTION
+    DIM u(1 TO ANIM_SC_MAX) AS STRING
+    FOR i = 1 TO ANIM_SC_N
+        FOR j = 1 TO n
+            IF u(j) = ANIM_SC_PATH(i) THEN EXIT FOR
+        NEXT j
+        IF j > n THEN n = n + 1: u(n) = ANIM_SC_PATH(i)
+    NEXT i
+    FOR i = 2 TO n ' (a handful: insertion sort)
+        t = u(i): j = i - 1
+        DO WHILE j >= 1
+            IF u(j) <= t THEN EXIT DO
+            u(j + 1) = u(j): j = j - 1
+        LOOP
+        u(j + 1) = t
+    NEXT i
+    doc = CURRENT_DRW_FILENAME$: IF doc = "" THEN doc = CURRENT_FILENAME$
+    s = LEFT$(doc, _MAX(_INSTRREV(doc, "/"), _INSTRREV(doc, "\")))
+    FOR i = 1 TO n: s = s + CHR$(0) + u(i): NEXT i
+    ANIM_SS_want$ = s
+END FUNCTION
+
+''
+' Open each of the clips' files once: found (its path, or beside the
+' document), its length, its waveform.
+SUB ANIM_SS_open_all ()
+    DIM i AS INTEGER, k AS INTEGER, f AS STRING, u AS STRING, h AS LONG
+    ANIM_SS_close_all
+    FOR i = 1 TO ANIM_SC_N
+        IF ANIM_SS_find%(ANIM_SC_PATH(i)) = 0 _ANDALSO ANIM_SS_N < ANIM_SS_MAX THEN
+            ANIM_SS_N = ANIM_SS_N + 1: k = ANIM_SS_N
+            ANIM_SS_PATH(k) = ANIM_SC_PATH(i): ANIM_SS_FILE(k) = "": ANIM_SS_H(k) = 0: ANIM_SS_MS(k) = 0
+            ANIM_SS_PK0(k) = 0: ANIM_SS_PKN(k) = 0
+            f = ANIM_SND_resolve$(ANIM_SC_PATH(i))
+            IF f = "" THEN
+                _LOGWARN "ANIM_SS_open_all: sound not found: " + ANIM_SC_PATH(i)
+            ELSE
+                u = UCASE$(f)
+                IF RIGHT$(u, 4) = ".MID" _ORELSE RIGHT$(u, 5) = ".MIDI" _ORELSE RIGHT$(u, 4) = ".RMI" THEN
+                    IF LEN(_TRIM$(CFG.MIDI_SF2_FILE$)) > 0 THEN _MIDISOUNDBANK CFG.MIDI_SF2_FILE$, "sf2"
+                END IF
+                ' noasync: QB64-PE decodes in the background by default, and the waveform
+                ' (_MEMSOUND) would read a buffer that is still being filled - all silence.
+                h = _SNDOPEN(f, "noasync")
+                IF h < 1 THEN
+                    _LOGWARN "ANIM_SS_open_all: can't open " + f
+                ELSE
+                    ANIM_SS_H(k) = h: ANIM_SS_FILE(k) = f
+                    ANIM_SS_MS(k) = INT(_SNDLEN(h) * 1000 + 0.5)
+                    ANIM_SND_peaks k
+                    _LOGINFO "ANIM_SS_open_all: " + f + "," + STR$(ANIM_SS_MS(k)) + " ms," + STR$(ANIM_SS_PKN(k)) + " peaks"
+                END IF
+            END IF
+        END IF
+    NEXT i
+END SUB
+
+''
+' The clips changed (a load, undo, an edit, a new document): open their
+' files when those changed, then make what plays when the clips changed -
+' not while a clip is being dragged (on its release).
 SUB ANIM_SND_sync ()
-    DIM f AS STRING, u AS STRING
-    IF ANIM_SND_PATH = ANIM_SND_LOADED THEN EXIT SUB
-    ANIM_SND_close
-    ANIM_SND_LOADED = ANIM_SND_PATH
+    DIM sig AS STRING, i AS INTEGER, k AS INTEGER, c AS STRING
+    sig = ANIM_SS_want$
+    IF sig <> ANIM_SS_SIG THEN
+        ANIM_SS_SIG = sig
+        IF sig = "" THEN ANIM_SS_close_all ELSE ANIM_SS_open_all
+        ANIM_SND_SIG = CHR$(255) ' make it again
+    END IF
+    FOR i = 1 TO ANIM_SC_N ' the clips' ends (a clip to its file's end)
+        k = ANIM_SS_find%(ANIM_SC_PATH(i))
+        IF k > 0 THEN ANIM_SC_FMS(i) = ANIM_SS_MS(k) ELSE ANIM_SC_FMS(i) = 0
+    NEXT i
+    IF ANIM_SC_SEL > ANIM_SC_N THEN ANIM_SC_SEL = 0
+    IF ANIM_SC_N = 0 THEN ANIM_SC_FOCUS = FALSE
+    IF ANIM_SC_DRAG THEN EXIT SUB
+    FOR i = 1 TO ANIM_SC_N
+        c = c + MKI$(ANIM_SS_find%(ANIM_SC_PATH(i))) + MKI$(ANIM_SC_TRK(i)) + MKL$(ANIM_SC_AT(i)) + MKL$(ANIM_SC_IN(i)) + MKL$(ANIM_SC_LEN(i))
+    NEXT i
+    IF c = ANIM_SND_SIG THEN EXIT SUB
+    ANIM_SND_SIG = c
+    ANIM_SND_build
+END SUB
+
+''
+' Make ANIM_SND_H from the clips: one clip that plays to its file's end is
+' its file (MIDI and trackers too), anything else a mix.
+SUB ANIM_SND_build ()
+    DIM k AS INTEGER
+    ANIM_SND_drop
     ANIM_SND_SEEN_CUR = ANIM.current: ANIM_SND_SEEN_PLAY = ANIM_PLAY.playing
     ANIM_SND_STARTS = 0: ANIM_SND_LAST_T = 0
-    IF ANIM_SND_PATH = "" THEN EXIT SUB
-    f = ANIM_SND_resolve$(ANIM_SND_PATH)
-    IF f = "" THEN _LOGWARN "ANIM_SND_sync: soundtrack not found: " + ANIM_SND_PATH: EXIT SUB
-    u = UCASE$(f)
-    IF RIGHT$(u, 4) = ".MID" _ORELSE RIGHT$(u, 5) = ".MIDI" _ORELSE RIGHT$(u, 4) = ".RMI" THEN
-        IF LEN(_TRIM$(CFG.MIDI_SF2_FILE$)) > 0 THEN _MIDISOUNDBANK CFG.MIDI_SF2_FILE$, "sf2"
+    IF ANIM_SC_N = 0 THEN EXIT SUB
+    IF ANIM_SC_N = 1 _ANDALSO ANIM_SC_LEN(1) = 0 THEN
+        k = ANIM_SS_find%(ANIM_SC_PATH(1))
+        IF k = 0 THEN EXIT SUB
+        IF ANIM_SS_H(k) < 1 THEN EXIT SUB
+        ANIM_SND_H = ANIM_SS_H(k): ANIM_SND_MIXED = FALSE
+        ANIM_SND_BASE = (ANIM_SC_IN(1) - ANIM_SC_AT(1)) / 1000#
+        ANIM_SND_FILE = ANIM_SS_FILE(k): ANIM_SND_LEN = ANIM_SS_MS(k) / 1000#
+        EXIT SUB
     END IF
-    ' noasync: QB64-PE decodes in the background by default, and the waveform
-    ' (_MEMSOUND) would read a buffer that is still being filled - all silence.
-    ANIM_SND_H = _SNDOPEN(f, "noasync")
-    IF ANIM_SND_H < 1 THEN ANIM_SND_H = 0: _LOGWARN "ANIM_SND_sync: can't open " + f: EXIT SUB
-    ANIM_SND_FILE = f
-    ANIM_SND_LEN = _SNDLEN(ANIM_SND_H)
-    ANIM_SND_peaks
-    _LOGINFO "ANIM_SND_sync: " + f + "," + STR$(INT(ANIM_SND_LEN * 1000)) + " ms," + STR$(ANIM_SND_PKN) + " peaks"
+    ANIM_SND_mix
 END SUB
 
 ''
-' The waveform: the loudest sample in each 1/100 s, scaled so the loudest
-' of all is 255 (every 1 in `stride` samples on a long sound).
-SUB ANIM_SND_peaks ()
+' One sample of sound memory m at off, -1..1 (tp = _MEM TYPE).
+FUNCTION ANIM_SND_smp! (m AS _MEM, at AS _OFFSET, tp AS LONG)
+    DIM v AS SINGLE
+    SELECT CASE tp
+        CASE 130: v = _MEMGET(m, at, INTEGER) / 32768!
+        CASE 132: v = _MEMGET(m, at, LONG) / 2147483648!
+        CASE 260: v = _MEMGET(m, at, SINGLE)
+        CASE 1153: v = (_MEMGET(m, at, _UNSIGNED _BYTE) - 128) / 128!
+    END SELECT
+    IF v <> v THEN v = 0 ' NaN
+    ANIM_SND_smp! = v
+END FUNCTION
+
+''
+' Sample frames (at the device rate) in ms milliseconds.
+FUNCTION ANIM_SND_frames&& (ms AS LONG)
+    DIM t AS _INTEGER64
+    t = ms
+    ANIM_SND_frames&& = t * _SNDRATE \ 1000
+END FUNCTION
+
+''
+' Mix every clip whose file _MEMSOUND can read into one stereo sound from
+' frame 1's start (the others are left out: ANIM_SND_SKIPPED).
+SUB ANIM_SND_mix ()
+    DIM i AS INTEGER, k AS INTEGER, rate AS LONG, endMs AS LONG, e AS LONG, h AS LONG
+    DIM frames AS _INTEGER64, md AS _MEM, ms AS _MEM, es AS _INTEGER64, bps AS LONG, ch AS LONG, tp AS LONG
+    DIM sf AS _INTEGER64, f0 AS _INTEGER64, d0 AS _INTEGER64, n AS _INTEGER64, j AS _INTEGER64
+    DIM so AS _OFFSET, doff AS _OFFSET, l AS SINGLE, r AS SINGLE, skipped AS INTEGER
+    rate = _SNDRATE
+    FOR i = 1 TO ANIM_SC_N
+        k = ANIM_SS_find%(ANIM_SC_PATH(i))
+        IF k > 0 THEN
+            IF ANIM_SS_H(k) > 0 THEN
+                e = ANIM_SC_end&(i)
+                IF e < ANIM_SC_FOREVER _ANDALSO e > endMs THEN endMs = e
+            END IF
+        END IF
+    NEXT i
+    IF endMs <= 0 THEN EXIT SUB
+    IF endMs > ANIM_SND_MIX_MAX_S * 1000& THEN endMs = ANIM_SND_MIX_MAX_S * 1000&: _LOGWARN "ANIM_SND_mix: cut to" + STR$(ANIM_SND_MIX_MAX_S) + " s"
+    frames = ANIM_SND_frames&&(endMs) + 1
+    h = _SNDNEW(frames, 2, 32)
+    IF h < 1 THEN _LOGWARN "ANIM_SND_mix: _SNDNEW failed": EXIT SUB
+    md = _MEMSOUND(h, 0)
+    IF md.SIZE = 0 THEN _SNDCLOSE h: _LOGWARN "ANIM_SND_mix: no sound memory": EXIT SUB
+    _MEMFILL md, md.OFFSET, md.SIZE, 0 AS _UNSIGNED _BYTE
+    frames = md.SIZE \ 8
+    FOR i = 1 TO ANIM_SC_N
+        k = ANIM_SS_find%(ANIM_SC_PATH(i))
+        bps = 0
+        IF k > 0 THEN
+            IF ANIM_SS_H(k) > 0 THEN
+                ms = _MEMSOUND(ANIM_SS_H(k), 0)
+                tp = ms.TYPE: es = ms.ELEMENTSIZE
+                IF ms.SIZE > 0 _ANDALSO es > 0 THEN
+                    SELECT CASE tp
+                        CASE 130: bps = 2
+                        CASE 132, 260: bps = 4
+                        CASE 1153: bps = 1
+                    END SELECT
+                END IF
+                IF bps > 0 THEN
+                    ch = es \ bps: IF ch < 1 THEN ch = 1
+                    sf = ms.SIZE \ es
+                    f0 = ANIM_SND_frames&&(ANIM_SC_IN(i))
+                    d0 = ANIM_SND_frames&&(ANIM_SC_AT(i))
+                    e = ANIM_SC_end&(i): IF e > endMs THEN e = endMs
+                    n = ANIM_SND_frames&&(e - ANIM_SC_AT(i))
+                    IF f0 + n > sf THEN n = sf - f0
+                    IF d0 + n > frames THEN n = frames - d0
+                    FOR j = 0 TO n - 1
+                        so = ms.OFFSET + (f0 + j) * es
+                        l = ANIM_SND_smp!(ms, so, tp)
+                        IF ch > 1 THEN r = ANIM_SND_smp!(ms, so + bps, tp) ELSE r = l
+                        doff = md.OFFSET + (d0 + j) * 8
+                        _MEMPUT md, doff, _MEMGET(md, doff, SINGLE) + l AS SINGLE
+                        _MEMPUT md, doff + 4, _MEMGET(md, doff + 4, SINGLE) + r AS SINGLE
+                    NEXT j
+                END IF
+                _MEMFREE ms
+            END IF
+        END IF
+        IF bps = 0 THEN skipped = skipped + 1
+    NEXT i
+    IF ANIM_SC_N > 1 THEN ' overlapping clips can add up past full scale
+        FOR j = 0 TO frames * 2 - 1
+            doff = md.OFFSET + j * 4
+            l = _MEMGET(md, doff, SINGLE)
+            IF l > 1 THEN _MEMPUT md, doff, 1! AS SINGLE ELSE IF l < -1 THEN _MEMPUT md, doff, -1! AS SINGLE
+        NEXT j
+    END IF
+    _MEMFREE md
+    ANIM_SND_H = h: ANIM_SND_MIXED = TRUE: ANIM_SND_BASE = 0
+    ANIM_SND_LEN = frames / rate: ANIM_SND_SKIPPED = skipped
+    IF skipped > 0 THEN _LOGWARN "ANIM_SND_mix:" + STR$(skipped) + " clip(s) left out (MIDI / tracker / not found)"
+    _LOGINFO "ANIM_SND_mix:" + STR$(ANIM_SC_N) + " clips," + STR$(endMs) + " ms"
+END SUB
+
+''
+' Write sound h (stereo 32-bit float, the device rate: a mix) to path as a
+' 16-bit stereo WAV. TRUE when written.
+FUNCTION ANIM_SND_write_wav% (h AS LONG, path AS STRING)
+    DIM m AS _MEM, n AS _INTEGER64, j AS _INTEGER64, ff AS INTEGER, buf AS STRING, v AS SINGLE, rate AS LONG
+    DIM chunk AS LONG, k AS LONG, bytes AS LONG, iv AS INTEGER
+    IF h < 1 THEN EXIT FUNCTION
+    m = _MEMSOUND(h, 0)
+    IF m.SIZE = 0 _ORELSE m.ELEMENTSIZE <> 8 _ORELSE m.TYPE <> 260 THEN EXIT FUNCTION
+    rate = _SNDRATE
+    n = m.SIZE \ 4 ' samples (2 per frame)
+    bytes = n * 2
+    IF _FILEEXISTS(path) THEN KILL path
+    ff = FREEFILE
+    OPEN path FOR BINARY AS #ff
+    buf = "RIFF" + MKL$(36 + bytes) + "WAVE" + "fmt " + MKL$(16) + MKI$(1) + MKI$(2) + MKL$(rate) + MKL$(rate * 4) + MKI$(4) + MKI$(16) + "data" + MKL$(bytes)
+    PUT #ff, , buf
+    chunk = 65536
+    j = 0
+    DO WHILE j < n
+        k = _MIN(chunk, n - j)
+        buf = SPACE$(k * 2)
+        FOR bytes = 0 TO k - 1
+            v = _MEMGET(m, m.OFFSET + (j + bytes) * 4, SINGLE)
+            IF v > 1 THEN v = 1
+            IF v < -1 THEN v = -1
+            iv = CINT(v * 32767)
+            MID$(buf, bytes * 2 + 1, 2) = MKI$(iv)
+        NEXT bytes
+        PUT #ff, , buf
+        j = j + k
+    LOOP
+    CLOSE #ff
+    _MEMFREE m
+    ANIM_SND_write_wav% = _FILEEXISTS(path)
+END FUNCTION
+
+''
+' File k's waveform: the loudest sample in each 1/100 s, scaled so its
+' loudest is 255 (every 1 in `stride` samples on a long sound), after the
+' other files' peaks in ANIM_SND_PK.
+SUB ANIM_SND_peaks (k AS INTEGER)
     DIM m AS _MEM, sz AS _INTEGER64, es AS _INTEGER64, bps AS LONG, frames AS _INTEGER64, i AS _INTEGER64
-    DIM rate AS LONG, nb AS LONG, b AS LONG, v AS SINGLE, top AS SINGLE, stride AS _INTEGER64, tp AS LONG
-    ANIM_SND_PKN = 0
-    IF ANIM_SND_H < 1 THEN EXIT SUB
-    m = _MEMSOUND(ANIM_SND_H, 0)
+    DIM rate AS LONG, nb AS LONG, b AS LONG, v AS SINGLE, top AS SINGLE, stride AS _INTEGER64, tp AS LONG, p0 AS LONG
+    ANIM_SS_PKN(k) = 0: ANIM_SS_PK0(k) = ANIM_SND_PKN
+    IF ANIM_SS_H(k) < 1 THEN EXIT SUB
+    m = _MEMSOUND(ANIM_SS_H(k), 0)
     sz = m.SIZE: es = m.ELEMENTSIZE: tp = m.TYPE
     IF sz <= 0 _ORELSE es <= 0 THEN EXIT SUB
     SELECT CASE tp
@@ -75,35 +324,78 @@ SUB ANIM_SND_peaks ()
     rate = _SNDRATE
     frames = sz \ es
     nb = frames * ANIM_SND_PK_RATE \ rate + 1
-    IF nb > ANIM_SND_PK_MAX THEN nb = ANIM_SND_PK_MAX
+    IF ANIM_SND_PKN + nb > ANIM_SND_PK_MAX THEN nb = ANIM_SND_PK_MAX - ANIM_SND_PKN
+    IF nb < 1 THEN _MEMFREE m: EXIT SUB
     DIM pk(0 TO nb - 1) AS SINGLE
     stride = frames \ 4000000 + 1
     FOR i = 0 TO frames - 1 STEP stride
-        SELECT CASE tp
-            CASE 130: v = ABS(_MEMGET(m, m.OFFSET + i * es, INTEGER)) / 32768!
-            CASE 132: v = ABS(_MEMGET(m, m.OFFSET + i * es, LONG)) / 2147483648!
-            CASE 260: v = ABS(_MEMGET(m, m.OFFSET + i * es, SINGLE))
-            CASE 1153: v = ABS((_MEMGET(m, m.OFFSET + i * es, _UNSIGNED _BYTE)) - 128) / 128!
-        END SELECT
-        IF v <> v THEN v = 0 ' NaN
+        v = ABS(ANIM_SND_smp!(m, m.OFFSET + i * es, tp))
         b = i * ANIM_SND_PK_RATE \ rate
         IF b < nb _ANDALSO v > pk(b) THEN pk(b) = v
         IF v > top THEN top = v
     NEXT i
     _MEMFREE m
-    REDIM ANIM_SND_PK(0 TO nb - 1) AS _UNSIGNED _BYTE
-    IF top > 0 THEN
-        FOR b = 0 TO nb - 1: ANIM_SND_PK(b) = INT(pk(b) / top * 255 + 0.5): NEXT b
-    END IF
-    ANIM_SND_PKN = nb
+    p0 = ANIM_SND_PKN
+    REDIM _PRESERVE ANIM_SND_PK(0 TO p0 + nb - 1) AS _UNSIGNED _BYTE
+    FOR b = 0 TO nb - 1
+        IF top > 0 THEN ANIM_SND_PK(p0 + b) = INT(pk(b) / top * 255 + 0.5) ELSE ANIM_SND_PK(p0 + b) = 0
+    NEXT b
+    ANIM_SS_PK0(k) = p0: ANIM_SS_PKN(k) = nb
+    ANIM_SND_PKN = p0 + nb
 END SUB
+
+''
+' The loudest peak (0-255) of clip i's sound between timeline ms ta and tb
+' (-1 = no sound of it there / no waveform).
+FUNCTION ANIM_SC_peak% (idx AS INTEGER, ta AS DOUBLE, tb AS DOUBLE)
+    DIM i AS INTEGER, k AS INTEGER, a AS DOUBLE, b AS DOUBLE, ba AS LONG, bb AS LONG, bn AS LONG, pk AS INTEGER, e AS LONG
+    i = idx
+    ANIM_SC_peak% = -1
+    IF i < 1 _ORELSE i > ANIM_SC_N THEN EXIT FUNCTION
+    k = ANIM_SS_find%(ANIM_SC_PATH(i))
+    IF k = 0 THEN EXIT FUNCTION
+    IF ANIM_SS_PKN(k) < 1 THEN EXIT FUNCTION
+    e = ANIM_SC_end&(i)
+    a = _MAX(ta, ANIM_SC_AT(i)): b = _MIN(tb, e)
+    IF b <= a THEN EXIT FUNCTION
+    a = a - ANIM_SC_AT(i) + ANIM_SC_IN(i): b = b - ANIM_SC_AT(i) + ANIM_SC_IN(i) ' ms into the file
+    ba = INT(a * ANIM_SND_PK_RATE / 1000 + 0.0001): bb = INT(b * ANIM_SND_PK_RATE / 1000 + 0.0001) ' 0.3 s * 100 is 29.999...: not the bin before
+    IF bb > ba THEN bb = bb - 1
+    bn = ANIM_SS_PKN(k)
+    IF ba >= bn _ORELSE bb < 0 THEN EXIT FUNCTION
+    FOR ba = _MAX(ba, 0) TO _MIN(bb, bn - 1)
+        IF ANIM_SND_PK(ANIM_SS_PK0(k) + ba) > pk THEN pk = ANIM_SND_PK(ANIM_SS_PK0(k) + ba)
+    NEXT ba
+    ANIM_SC_peak% = pk
+END FUNCTION
+
+''
+' The frame start (timeline ms) nearest to ms; f = that frame (count + 1 =
+' the end of the last).
+FUNCTION ANIM_SC_snap& (ms AS DOUBLE, f AS INTEGER)
+    DIM i AS INTEGER, acc AS DOUBLE, best AS DOUBLE, bd AS DOUBLE
+    f = 1: bd = 1E+30
+    IF ANIM.fps < 1 THEN EXIT FUNCTION
+    FOR i = 1 TO ANIM.count + 1
+        IF ABS(acc - ms) < bd THEN bd = ABS(acc - ms): best = acc: f = i
+        acc = acc + 1000# * ANIM_hold%(i) / ANIM.fps
+    NEXT i
+    ANIM_SC_snap& = CLNG(best)
+END FUNCTION
+
+''
+' The timeline ms where frame f starts (sheet order; f = count + 1 = the end).
+FUNCTION ANIM_SND_frame_ms# (f AS INTEGER)
+    DIM i AS INTEGER, ms AS DOUBLE
+    IF ANIM.fps < 1 THEN EXIT FUNCTION
+    FOR i = 1 TO f - 1: ms = ms + 1000# * ANIM_hold%(i) / ANIM.fps: NEXT i
+    ANIM_SND_frame_ms# = ms
+END FUNCTION
 
 ''
 ' Seconds into the sound where frame f starts (sheet order).
 FUNCTION ANIM_SND_time# (f AS INTEGER)
-    DIM i AS INTEGER, ms AS DOUBLE
-    FOR i = 1 TO f - 1: ms = ms + 1000# * ANIM_hold%(i) / ANIM.fps: NEXT i
-    ANIM_SND_time# = (ms + ANIM_SND_OFS) / 1000#
+    ANIM_SND_time# = ANIM_SND_frame_ms#(f) / 1000# + ANIM_SND_BASE
 END FUNCTION
 
 ''
@@ -130,6 +422,21 @@ END SUB
 ' DRAW.BAS, every frame: keep the sound with the frames.
 SUB ANIM_SND_tick ()
     DIM playing AS INTEGER, cur AS INTEGER
+    STATIC lastB1 AS INTEGER, lastB2 AS INTEGER, lastEsc AS INTEGER
+    ' Esc gives the keys back (it goes on to whatever else it does)
+    IF _KEYDOWN(27) THEN
+        IF lastEsc = 0 _ANDALSO ANIM_SC_FOCUS THEN ANIM_SC_FOCUS = FALSE: ANIM_SC_changed
+        lastEsc = TRUE
+    ELSE
+        lastEsc = FALSE
+    END IF
+    ' a press anywhere but the SOUND rows (and their menu) takes the keys back
+    IF ANIM_SC_FOCUS _ANDALSO ANIM_SC_KEEP = 0 THEN
+        IF (MOUSE.B1% <> 0 _ANDALSO lastB1 = 0) _ORELSE (MOUSE.B2% <> 0 _ANDALSO lastB2 = 0) THEN
+            IF ANIM_XS_sound_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = 0 THEN ANIM_SC_FOCUS = FALSE: ANIM_SC_changed
+        END IF
+    END IF
+    lastB1 = MOUSE.B1%: lastB2 = MOUSE.B2%: ANIM_SC_KEEP = FALSE
     ANIM_SND_sync
     IF ANIM_SND_H < 1 THEN EXIT SUB
     IF ANIM_SND_VOL <> CFG.ANIM_SOUND_VOLUME% THEN
@@ -187,56 +494,293 @@ SUB ANIM_SND_follow (frameNo AS INTEGER, isPlaying AS INTEGER)
 END SUB
 
 ''
-' ANIM > Soundtrack... (2549) / Remove Soundtrack (2550). One undo step.
-SUB ANIM_SND_action (act AS INTEGER)
-    DIM f AS STRING, before AS STRING, default_path AS STRING, nm AS STRING
-    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash ANIM_NO_FRAMES$: EXIT SUB
-    IF act = ANIM_ACT_SOUND_REMOVE THEN
-        IF ANIM_SND_PATH = "" THEN STATUS_flash "No soundtrack": EXIT SUB
-        before = ANIM_OPS_snapshot$(FALSE)
-        ANIM_SND_PATH = "": ANIM_SND_OFS = 0
-        ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Remove Soundtrack", 0
-        STATUS_flash "Soundtrack removed"
-        EXIT SUB
-    END IF
-    IF CFG.LAST_DIR_OPEN$ <> "" THEN default_path = CFG.LAST_DIR_OPEN$ + "/" ELSE IF LAST_DIRECTORY$ <> "" THEN default_path = LAST_DIRECTORY$ + "/"
-    POINTER_hide_for_dialog
-    f = DRAW_open_file$("Soundtrack", default_path, "Sound|*.wav|*.ogg|*.mp3|*.flac|*.mid|*.midi|*.mod|*.xm|*.it|*.s3m|All Files|*.*", 0)
-    POINTER_show_after_dialog
-    MOUSE_cleanup_after_dialog TRUE
-    IF f = "" THEN EXIT SUB
-    ANIM_SND_set f
-END SUB
-
-''
-' Make file f the soundtrack (one undo step); refused when it can't be opened.
-SUB ANIM_SND_set (f AS STRING)
-    DIM before AS STRING, h AS LONG, nm AS STRING
-    IF _FILEEXISTS(f) = 0 THEN STATUS_flash "Soundtrack: no such file": EXIT SUB
-    h = _SNDOPEN(f)
-    nm = MID$(f, _MAX(_INSTRREV(f, "/"), _INSTRREV(f, "\")) + 1)
-    IF h < 1 THEN STATUS_flash "Soundtrack: can't play " + nm: EXIT SUB
-    _SNDCLOSE h
-    before = ANIM_OPS_snapshot$(FALSE)
-    ANIM_SND_PATH = f: ANIM_SND_OFS = 0
-    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Soundtrack", 0
-    STATUS_flash "Soundtrack: " + nm + " - plays with the frames (Num Enter)"
-    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
-END SUB
-
-''
-' QA dump line: ANIMSND open on starts lastStartMs lenMs peaks name (name "-"
-' when there is no soundtrack; spaces as _).
-FUNCTION ANIM_SND_dump$ ()
+' The file name of path p (spaces as _ when under is TRUE: the QA dump).
+FUNCTION ANIM_SND_name$ (p AS STRING, under AS INTEGER)
     DIM nm AS STRING, i AS LONG
-    IF ANIM_SND_PATH = "" THEN
-        nm = "-"
-    ELSE
-        nm = MID$(ANIM_SND_PATH, _MAX(_INSTRREV(ANIM_SND_PATH, "/"), _INSTRREV(ANIM_SND_PATH, "\")) + 1)
+    nm = MID$(p, _MAX(_INSTRREV(p, "/"), _INSTRREV(p, "\")) + 1)
+    IF under THEN
         FOR i = 1 TO LEN(nm)
             IF ASC(nm, i) = 32 THEN MID$(nm, i, 1) = "_"
         NEXT i
     END IF
-    ANIM_SND_dump$ = "ANIMSND" + DOCK_n$(ANIM_SND_H > 0) + DOCK_n$(ANIM_SND_ON <> 0) + DOCK_n$(ANIM_SND_STARTS) + DOCK_n$(INT(ANIM_SND_LAST_T * 1000 + 0.5)) _
+    ANIM_SND_name$ = nm
+END FUNCTION
+
+''
+' The span of the selected frames (more than one selected) as timeline ms
+' a..b: TRUE. FALSE = one frame (the keys then act on the picked clip).
+FUNCTION ANIM_SC_span% (a AS LONG, b AS LONG)
+    DIM f AS INTEGER, f1 AS INTEGER, f2 AS INTEGER
+    IF ANIM_SEL_count% < 2 THEN EXIT FUNCTION
+    FOR f = 1 TO ANIM.count
+        IF ANIM_SEL(f) THEN
+            IF f1 = 0 THEN f1 = f
+            f2 = f
+        END IF
+    NEXT f
+    IF f1 = 0 THEN EXIT FUNCTION
+    a = CLNG(ANIM_SND_frame_ms#(f1)): b = CLNG(ANIM_SND_frame_ms#(f2 + 1))
+    ANIM_SC_span% = (b > a)
+END FUNCTION
+
+''
+' Seconds of ms, for the status bar ("0.40 s").
+FUNCTION ANIM_SC_secs$ (ms AS LONG)
+    ANIM_SC_secs$ = _TRIM$(STR$(INT(ms / 10 + 0.5) / 100)) + " s"
+END FUNCTION
+
+''
+' The track the keys / menu act on: the one picked, else 1.
+FUNCTION ANIM_SC_cur_trk% ()
+    ANIM_SC_cur_trk% = _IIF(ANIM_SC_TRACK >= 1 _ANDALSO ANIM_SC_TRACK <= ANIM_SC_TRACKS, ANIM_SC_TRACK, 1)
+END FUNCTION
+
+''
+' Pick sound files (several at once) and lay them one after another on track
+' trk from timeline ms atMs. One undo step; files that can't be played are
+' left out (the status bar says so). The first clip added (0 none).
+FUNCTION ANIM_SND_add_files% (trk AS INTEGER, atMs AS LONG, label AS STRING)
+    DIM n AS INTEGER, i AS INTEGER, f AS STRING, default_path AS STRING, t AS INTEGER, p AS LONG
+    DIM before AS STRING, h AS LONG, k AS INTEGER, first AS INTEGER, bad AS INTEGER, msg AS STRING, added AS INTEGER, ln AS LONG
+    t = trk: p = atMs
+    IF CFG.LAST_DIR_OPEN$ <> "" THEN default_path = CFG.LAST_DIR_OPEN$ + "/" ELSE IF LAST_DIRECTORY$ <> "" THEN default_path = LAST_DIRECTORY$ + "/"
+    POINTER_hide_for_dialog
+    n = DRAW_open_files%(label, default_path, "Sound|*.wav|*.ogg|*.mp3|*.flac|*.mid|*.midi|*.mod|*.xm|*.it|*.s3m|All Files|*.*", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+    IF n < 1 THEN EXIT FUNCTION
+    DIM fl(1 TO n) AS STRING
+    FOR i = 1 TO n: fl(i) = RTRIM$(FD_multiResults(i - 1)): NEXT i
+    before = ANIM_OPS_snapshot$(FALSE)
+    FOR i = 1 TO n
+        f = fl(i)
+        h = 0
+        IF _FILEEXISTS(f) THEN h = _SNDOPEN(f)
+        IF h < 1 THEN
+            bad = bad + 1: msg = ANIM_SND_name$(f, FALSE)
+        ELSE
+            ln = INT(_SNDLEN(h) * 1000 + 0.5)
+            _SNDCLOSE h
+            k = ANIM_SC_add%(f, t, p, 0, 0)
+            IF k = 0 THEN STATUS_flash "Sound: at most" + STR$(ANIM_SC_MAX) + " clips": EXIT FOR
+            ANIM_SC_FMS(k) = ln
+            IF first = 0 THEN first = k
+            added = added + 1
+            p = p + _MAX(ln, 1) ' the next file after it
+        END IF
+    NEXT i
+    IF added = 0 THEN
+        IF bad > 0 THEN STATUS_flash "Sound: can't play " + msg
+        EXIT FUNCTION
+    END IF
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), label, 0
+    ANIM_SC_SEL = first: ANIM_SC_TRACK = t: ANIM_SC_FOCUS = TRUE
+    msg = ANIM_SND_name$(ANIM_SC_PATH(first), FALSE)
+    IF added > 1 THEN msg = _TRIM$(STR$(added)) + " sounds"
+    msg = "Sound: " + msg + " on track" + STR$(t) + " - plays with the frames (Num Enter)"
+    IF bad > 0 THEN msg = msg + ";" + STR$(bad) + " file(s) can't be played"
+    STATUS_flash msg
+    ANIM_SND_add_files% = first
+    ANIM_SC_changed
+END FUNCTION
+
+SUB ANIM_SC_changed ()
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+    ANIM_LB_changed
+END SUB
+
+''
+' ANIM > Soundtrack... (2549), Remove Soundtrack (2550) and the SOUND rows'
+' commands (2552-2559). Each change is one undo step.
+SUB ANIM_SND_action (act AS INTEGER)
+    DIM before AS STRING, k AS INTEGER, t AS INTEGER, a AS LONG, b AS LONG, p AS LONG, n AS INTEGER, i AS INTEGER, r AS INTEGER
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash ANIM_NO_FRAMES$: EXIT SUB
+    IF ANIM_SC_SEL > ANIM_SC_N THEN ANIM_SC_SEL = 0
+    t = ANIM_SC_cur_trk%
+    p = CLNG(ANIM_SND_frame_ms#(ANIM.current))
+    IF ANIM_SC_FROM_MENU THEN p = ANIM_SC_MENU_T ' the menu's Paste / Split Here: the frame clicked
+    SELECT CASE act
+        CASE ANIM_ACT_SOUNDTRACK ' no sound yet: track 1 from frame 1; else a new track at the current frame
+            IF ANIM_SC_N = 0 THEN
+                k = ANIM_SND_add_files%(1, 0, "Soundtrack")
+            ELSEIF ANIM_SC_track_n% < ANIM_SC_TRACKS THEN
+                k = ANIM_SND_add_files%(ANIM_SC_track_n% + 1, p, "Add Sound")
+            ELSE
+                k = ANIM_SND_add_files%(t, p, "Add Sound")
+            END IF
+        CASE ANIM_ACT_SOUND_ADD_HERE
+            k = ANIM_SND_add_files%(t, ANIM_SC_MENU_T, "Add Sound")
+        CASE ANIM_ACT_SOUND_ADD_TRACK
+            IF ANIM_SC_track_n% >= ANIM_SC_TRACKS THEN STATUS_flash "Sound: at most" + STR$(ANIM_SC_TRACKS) + " tracks": EXIT SUB
+            k = ANIM_SND_add_files%(ANIM_SC_track_n% + 1, ANIM_SC_MENU_T, "Add Sound")
+        CASE ANIM_ACT_SOUND_REMOVE
+            IF ANIM_SC_N = 0 THEN STATUS_flash "No soundtrack": EXIT SUB
+            before = ANIM_OPS_snapshot$(FALSE)
+            ANIM_SC_clear: ANIM_SC_SEL = 0: ANIM_SC_FOCUS = FALSE
+            ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Remove Soundtrack", 0
+            STATUS_flash "Soundtrack removed"
+        CASE ANIM_ACT_SOUND_COPY, ANIM_ACT_SOUND_CUT, ANIM_ACT_SOUND_DELETE
+            IF ANIM_SC_span%(a, b) THEN
+                IF act <> ANIM_ACT_SOUND_DELETE THEN
+                    n = ANIM_SC_copy%(t, a, b)
+                    IF n = 0 THEN STATUS_flash "Sound: track" + STR$(t) + " has no sound in frames" + ANIM_SC_frames$: EXIT SUB
+                END IF
+                IF act <> ANIM_ACT_SOUND_COPY THEN
+                    before = ANIM_OPS_snapshot$(FALSE)
+                    r = ANIM_SC_cut%(t, a, b)
+                    IF r = 0 THEN STATUS_flash "Sound: track" + STR$(t) + " has no sound in frames" + ANIM_SC_frames$: EXIT SUB
+                    ANIM_SC_SEL = 0
+                    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), _IIF(act = ANIM_ACT_SOUND_CUT, "Cut Sound", "Delete Sound"), 0
+                END IF
+                STATUS_flash "Sound: " + _IIF(act = ANIM_ACT_SOUND_COPY, "copied", _IIF(act = ANIM_ACT_SOUND_CUT, "cut", "deleted")) + " frames" + ANIM_SC_frames$ + " of track" + STR$(t) + " (" + ANIM_SC_secs$(b - a) + ")"
+            ELSEIF ANIM_SC_SEL > 0 THEN
+                k = ANIM_SC_SEL
+                IF act <> ANIM_ACT_SOUND_DELETE THEN ANIM_SC_copy_clip k
+                STATUS_flash "Sound: " + _IIF(act = ANIM_ACT_SOUND_COPY, "copied", _IIF(act = ANIM_ACT_SOUND_CUT, "cut", "deleted")) + " " + ANIM_SND_name$(ANIM_SC_PATH(k), FALSE)
+                IF act <> ANIM_ACT_SOUND_COPY THEN
+                    before = ANIM_OPS_snapshot$(FALSE)
+                    ANIM_SC_remove k: ANIM_SC_SEL = 0
+                    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), _IIF(act = ANIM_ACT_SOUND_CUT, "Cut Sound", "Delete Sound"), 0
+                END IF
+            ELSE
+                STATUS_flash "Sound: pick a clip, or select frames (Shift+click) for a span": EXIT SUB
+            END IF
+        CASE ANIM_ACT_SOUND_PASTE
+            IF ANIM_SCB_N < 1 THEN STATUS_flash "Sound: nothing copied": EXIT SUB
+            before = ANIM_OPS_snapshot$(FALSE)
+            k = ANIM_SC_paste%(t, p)
+            IF k = 0 THEN STATUS_flash "Sound: at most" + STR$(ANIM_SC_MAX) + " clips": EXIT SUB
+            ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Paste Sound", 0
+            ANIM_SC_SEL = k
+            STATUS_flash "Sound: pasted from " + ANIM_SC_secs$(p) + " on track" + STR$(t)
+        CASE ANIM_ACT_SOUND_SPLIT ' the clip on the track under the current frame's start
+            k = 0
+            FOR i = ANIM_SC_N TO 1 STEP -1
+                IF ANIM_SC_TRK(i) = t _ANDALSO ANIM_SC_AT(i) < p _ANDALSO ANIM_SC_end&(i) > p THEN k = i: EXIT FOR
+            NEXT i
+            IF k = 0 THEN STATUS_flash "Sound: no clip on track" + STR$(t) + " goes on past " + ANIM_SC_secs$(p): EXIT SUB
+            before = ANIM_OPS_snapshot$(FALSE)
+            n = ANIM_SC_split%(k, p)
+            IF n = 0 THEN STATUS_flash "Sound: at most" + STR$(ANIM_SC_MAX) + " clips": EXIT SUB
+            ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Split Sound", 0
+            ANIM_SC_SEL = n
+            STATUS_flash "Sound: split at " + ANIM_SC_secs$(p)
+        CASE ANIM_ACT_SOUND_REMOVE_CLIP
+            IF ANIM_SC_SEL = 0 THEN STATUS_flash "Sound: no clip picked": EXIT SUB
+            before = ANIM_OPS_snapshot$(FALSE)
+            k = ANIM_SC_SEL
+            STATUS_flash "Sound: removed " + ANIM_SND_name$(ANIM_SC_PATH(k), FALSE)
+            ANIM_SC_remove k: ANIM_SC_SEL = 0
+            ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Remove Sound Clip", 0
+    END SELECT
+    ANIM_SC_changed
+END SUB
+
+''
+' " 2-5": the selected frames (status bar text).
+FUNCTION ANIM_SC_frames$ ()
+    DIM f AS INTEGER, f1 AS INTEGER, f2 AS INTEGER
+    FOR f = 1 TO ANIM.count
+        IF ANIM_SEL(f) THEN
+            IF f1 = 0 THEN f1 = f
+            f2 = f
+        END IF
+    NEXT f
+    ANIM_SC_frames$ = STR$(f1) + "-" + _TRIM$(STR$(f2))
+END FUNCTION
+
+''
+' Make file f the soundtrack: track 1 from frame 1, in place of every clip
+' (one undo step); refused when it can't be opened. (The batch CLI / QA.)
+SUB ANIM_SND_set (f AS STRING)
+    DIM before AS STRING, h AS LONG, nm AS STRING, k AS INTEGER
+    IF _FILEEXISTS(f) = 0 THEN STATUS_flash "Soundtrack: no such file": EXIT SUB
+    h = _SNDOPEN(f)
+    nm = ANIM_SND_name$(f, FALSE)
+    IF h < 1 THEN STATUS_flash "Soundtrack: can't play " + nm: EXIT SUB
+    _SNDCLOSE h
+    before = ANIM_OPS_snapshot$(FALSE)
+    ANIM_SC_clear
+    k = ANIM_SC_add%(f, 1, 0, 0, 0)
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Soundtrack", 0
+    STATUS_flash "Soundtrack: " + nm + " - plays with the frames (Num Enter)"
+    ANIM_SC_changed
+END SUB
+
+''
+' INPUT_dispatch_frame, a key press: while the SOUND rows have the keys,
+' Ctrl+C / Ctrl+X / Ctrl+V / Delete are theirs (TRUE = taken). (Esc gives
+' the keys back: ANIM_SND_tick.)
+FUNCTION ANIM_SC_key% (keycode AS LONG, mods AS INTEGER)
+    DIM m AS INTEGER, act AS INTEGER
+    IF ANIM_SC_FOCUS = 0 THEN EXIT FUNCTION
+    IF ANIM_XS_on% = 0 _ORELSE ANIM.active = 0 THEN ANIM_SC_FOCUS = FALSE: ANIM_SC_changed: EXIT FUNCTION
+    m = mods AND (MOD_CTRL OR MOD_SHIFT OR MOD_ALT)
+    IF m = MOD_CTRL THEN
+        SELECT CASE keycode
+            CASE 99, 67: act = ANIM_ACT_SOUND_COPY
+            CASE 120, 88: act = ANIM_ACT_SOUND_CUT
+            CASE 118, 86: act = ANIM_ACT_SOUND_PASTE
+        END SELECT
+    ELSEIF m = 0 _ANDALSO (keycode = 21248 _ORELSE keycode = 8) THEN
+        act = ANIM_ACT_SOUND_DELETE
+    END IF
+    IF act = 0 THEN EXIT FUNCTION
+    IF DEV_MODE% THEN INPUTS_log "[FIRE] sound rows key -> action=" + _TRIM$(STR$(act))
+    CMD_execute_action act
+    ANIM_SC_key% = TRUE
+END FUNCTION
+
+''
+' The SOUND rows' right-click menu (ANIM_LB's popup): the item values are
+' action ids.
+SUB ANIM_SC_menu_build ()
+    DIM fl AS INTEGER, n AS INTEGER, sp AS INTEGER, a AS LONG, b AS LONG
+    POPUP_MENU_clear_items
+    sp = ANIM_SC_span%(a, b)
+    POPUP_MENU_set_item 0, "Add Sound Here...", "", ANIM_ACT_SOUND_ADD_HERE, 0
+    POPUP_MENU_set_item 1, "Add Sound on a New Track...", "", ANIM_ACT_SOUND_ADD_TRACK, _IIF(ANIM_SC_track_n% >= ANIM_SC_TRACKS, POPUP_MENU_FLAG_DISABLED, 0)
+    POPUP_MENU_set_item 2, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    fl = _IIF(sp _ORELSE ANIM_SC_SEL > 0, 0, POPUP_MENU_FLAG_DISABLED)
+    POPUP_MENU_set_item 3, _IIF(sp, "Copy Frames' Sound", "Copy Clip"), "Ctrl+C", ANIM_ACT_SOUND_COPY, fl
+    POPUP_MENU_set_item 4, _IIF(sp, "Cut Frames' Sound", "Cut Clip"), "Ctrl+X", ANIM_ACT_SOUND_CUT, fl
+    POPUP_MENU_set_item 5, "Paste Here", "Ctrl+V", ANIM_ACT_SOUND_PASTE, _IIF(ANIM_SCB_N > 0, 0, POPUP_MENU_FLAG_DISABLED)
+    POPUP_MENU_set_item 6, _IIF(sp, "Delete Frames' Sound", "Delete Clip"), "Del", ANIM_ACT_SOUND_DELETE, fl
+    POPUP_MENU_set_item 7, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    POPUP_MENU_set_item 8, "Split Here", "", ANIM_ACT_SOUND_SPLIT, 0
+    POPUP_MENU_set_item 9, "Remove Soundtrack", "", ANIM_ACT_SOUND_REMOVE, 0
+END SUB
+
+''
+' QA dump lines: ANIMSND open on starts lastStartMs lenMs peaks name (clip
+' 1's file name, "-" when there is no sound; spaces as _), then ANIMSC n sel
+' track focus mixed skipped clipboardN clipboardSpan dragging, then per clip:
+' track atMs inMs lenMs endMs.
+FUNCTION ANIM_SND_dump$ ()
+    DIM nm AS STRING, i AS INTEGER, d AS STRING
+    IF ANIM_SC_N = 0 THEN nm = "-" ELSE nm = ANIM_SND_name$(ANIM_SC_PATH(1), TRUE)
+    d = "ANIMSND" + DOCK_n$(ANIM_SND_H > 0) + DOCK_n$(ANIM_SND_ON <> 0) + DOCK_n$(ANIM_SND_STARTS) + DOCK_n$(INT(ANIM_SND_LAST_T * 1000 + 0.5)) _
         + DOCK_n$(INT(ANIM_SND_LEN * 1000 + 0.5)) + DOCK_n$(ANIM_SND_PKN) + " " + nm + CHR$(10)
+    d = d + "ANIMSC" + DOCK_n$(ANIM_SC_N) + DOCK_n$(ANIM_SC_SEL) + DOCK_n$(ANIM_SC_cur_trk%) + DOCK_n$(ANIM_SC_FOCUS <> 0) + DOCK_n$(ANIM_SND_MIXED <> 0) _
+        + DOCK_n$(ANIM_SND_SKIPPED) + DOCK_n$(ANIM_SCB_N) + DOCK_n$(_MIN(ANIM_SCB_SPAN, 99999999)) + DOCK_n$(ANIM_SC_DRAG <> 0)
+    FOR i = 1 TO ANIM_SC_N
+        d = d + DOCK_n$(ANIM_SC_TRK(i)) + DOCK_n$(ANIM_SC_AT(i)) + DOCK_n$(ANIM_SC_IN(i)) + DOCK_n$(ANIM_SC_LEN(i)) + DOCK_n$(_MIN(ANIM_SC_end&(i), 99999999))
+    NEXT i
+    d = d + CHR$(10)
+    IF ANIM_LB.menuOpen _ANDALSO ANIM_LB.menuKind = 1 THEN ' ANIMSCM x y w, then per item that can be picked: action y (its top; LB_MENU_ITEM_H tall)
+        DIM y AS INTEGER
+        ANIM_SC_menu_build
+        d = d + "ANIMSCM" + DOCK_n$(ANIM_LB.menuX) + DOCK_n$(ANIM_LB.menuY) + DOCK_n$(ANIM_LB.menuW)
+        y = ANIM_LB.menuY + 2
+        FOR i = 0 TO ANIM_LB.menuN - 1
+            IF POPUP_MENU_FLAGS(i) AND POPUP_MENU_FLAG_DIVIDER THEN
+                y = y + MENU_DIVIDER_HEIGHT
+            ELSE
+                IF (POPUP_MENU_FLAGS(i) AND POPUP_MENU_FLAG_DISABLED) = 0 THEN d = d + DOCK_n$(POPUP_MENU_VALUES(i)) + DOCK_n$(y)
+                y = y + LB_MENU_ITEM_H
+            END IF
+        NEXT i
+        d = d + CHR$(10)
+    END IF
+    ANIM_SND_dump$ = d
 END FUNCTION

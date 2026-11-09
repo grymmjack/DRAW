@@ -58,6 +58,7 @@ CONST ANIM_GIF_MAX_FRAMES = 2000
 DIM SHARED ANIM_EXPORT_TAG AS INTEGER  ' the tag an export covers (4.4; 0 = all the frames)
 DIM SHARED ANIM_EXPORT_INFO AS STRING ' summary of the last export ("6 frames, 1.2 s loop, 5 colours")
 DIM SHARED ANIM_BAS_SND_NOTE AS STRING ' L.1: what became of the soundtrack in the last BAS export ("" = none)
+DIM SHARED ANIM_BAS_SND_OFS AS DOUBLE ' s into that file where frame 1 starts (a mix: 0)
 
 ' exact colour table of an export: RGB -> index (hashed on the low 16 bits)
 DIM SHARED ANIM_GH_HEAD(0 TO 65535) AS INTEGER

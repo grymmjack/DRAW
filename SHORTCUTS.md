@@ -665,6 +665,20 @@ Export BAS Player copies it beside the program as NAME-sound.EXT and plays it in
 Remove Soundtrack takes it off (one undo step). The volume is `ANIM_SOUND_VOLUME` in DRAW.cfg
 (0-100).
 
+**Sound clips and tracks**: the soundtrack can be several sounds on up to 4 tracks (SOUND 1-4
+rows on the X-sheet), mixed as they play. ANIM → Soundtrack... with sound already there adds the
+picked files on a new track from the current frame; pick several files at once and they go one
+after another. On a SOUND row: click a clip to pick it (outlined; the rows now have the keys) and
+drag it to move it - it snaps to frame starts (Shift = anywhere), and dragging it onto another
+SOUND row puts it on that track. **Ctrl+C / Ctrl+X / Delete** copy / cut / delete the picked
+clip, or, with several frames selected (Shift+click), just that span of the track's sound - the
+sound after it stays where it is. **Ctrl+V** pastes at the current frame, over what is there.
+**Esc** or a click elsewhere gives the keys back. Right-click a SOUND row for Add Sound Here... ·
+Add Sound on a New Track... · Copy / Cut / Paste Here / Delete · Split Here · Remove Soundtrack.
+Every change is one undo step. Hover a clip for its file and times. Export BAS Player writes the
+mix beside the program as NAME-sound.wav (a single sound that plays from frame 1 to its end is
+still copied as it is).
+
 **COPY / PASTE / CUT** (the transport bar, or the ANIM menu): COPY puts the selected frames
 (or the current one) on the clipboard; PASTE inserts them as new frames after the selection;
 `Shift`+PASTE pastes over the frames from the first selected one (adding frames past the end);

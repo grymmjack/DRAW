@@ -402,12 +402,37 @@ ANIM_reset: check "a new document: no notes", STR$(LEN(ANIM_NOTE(5))), STR$(0)
 
 ' --- soundtrack (L.1) ---
 ANIM_reset: r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 6: ANIM.wanted = 6: ANIM.current = 1
-ANIM_SND_PATH = "/tmp/a b/beat.ogg": ANIM_SND_OFS = 250
+r = ANIM_SC_add%("/tmp/a b/beat.ogg", 1, 0, 250, 0)
 s = ANIM_serialize$: check "a soundtrack: saved as v6", STR$(CVI(LEFT$(s, 2))), STR$(ANIM_CHUNK_VERSION_SOUND)
-ANIM_SND_PATH = "": r = ANIM_deserialize%(s): check "the soundtrack back after a load", ANIM_SND_PATH + STR$(ANIM_SND_OFS), "/tmp/a b/beat.ogg 250"
+ANIM_SC_clear: r = ANIM_deserialize%(s): check "the soundtrack back after a load", ANIM_SC_text$, "1:0+250~0 beat.ogg"
+check "  its path whole", ANIM_SC_PATH(1), "/tmp/a b/beat.ogg"
 ANIM_NT_set 2, "hit": r = ANIM_TG_put%("go", 1, 3): s = ANIM_serialize$: r = ANIM_deserialize%(s)
-check "with notes and tags: all three back", ANIM_SND_PATH + " " + notes$ + " " + tags$, "/tmp/a b/beat.ogg 2=hit go 1 3"
-ANIM_reset: check "a new document: no soundtrack", "[" + ANIM_SND_PATH + "]", "[]"
+check "with notes and tags: all three back", ANIM_SC_text$ + " " + notes$ + " " + tags$, "1:0+250~0 beat.ogg 2=hit go 1 3"
+ANIM_reset: check "a new document: no soundtrack", "[" + ANIM_SC_text$ + "]" + STR$(ANIM_SC_N), "[] 0"
+
+' --- sound clips and tracks (F6) ---
+ANIM_reset: r = ANIM_set_layout%(16, 16, 0, 0): ANIM.count = 6: ANIM.wanted = 6: ANIM.current = 1
+r = ANIM_SC_add%("/s/a.wav", 1, 0, 0, 0): ANIM_SC_FMS(1) = 1000
+r = ANIM_SC_add%("/s/b.wav", 2, 500, 100, 300)
+check "two clips on two tracks", ANIM_SC_text$ + STR$(ANIM_SC_track_n%), "1:0+0~0 a.wav 2:500+100~300 b.wav 2"
+check "  where they end", STR$(ANIM_SC_end&(1)) + STR$(ANIM_SC_end&(2)), " 1000 800"
+s = ANIM_serialize$: check "  saved as v7", STR$(CVI(LEFT$(s, 2))), STR$(ANIM_CHUNK_VERSION_SNDCLIPS)
+ANIM_SC_clear: r = ANIM_deserialize%(s): check "  both back after a load", ANIM_SC_text$, "1:0+0~0 a.wav 2:500+100~300 b.wav"
+ANIM_SC_FMS(1) = 1000
+r = ANIM_SC_split%(1, 400): check "split a.wav at 400", STR$(r) + " " + ANIM_SC_text$, " 3 1:0+0~400 a.wav 1:400+400~0 a.wav 2:500+100~300 b.wav"
+check "  not at its start", STR$(ANIM_SC_split%(1, 0)), " 0"
+ANIM_SC_clear: r = ANIM_SC_add%("/s/a.wav", 1, 0, 0, 0): ANIM_SC_FMS(1) = 1000
+r = ANIM_SC_cut%(1, 200, 300): check "cut 200..300 out of a.wav: two pieces, nothing moves", STR$(r) + " " + ANIM_SC_text$, "-1 1:0+0~200 a.wav 1:300+300~0 a.wav"
+r = ANIM_SC_copy%(1, 100, 400): check "  copy 100..400: the two pieces, from the span start", STR$(r) + STR$(ANIM_SCB_SPAN) + STR$(ANIM_SCB_AT(1)) + STR$(ANIM_SCB_IN(1)) + STR$(ANIM_SCB_LEN(1)) + STR$(ANIM_SCB_AT(2)) + STR$(ANIM_SCB_IN(2)) + STR$(ANIM_SCB_LEN(2)), " 2 300 0 100 100 200 300 100"
+r = ANIM_SC_paste%(3, 900): check "  paste at 900 on track 3", STR$(r) + " " + ANIM_SC_text$, " 3 1:0+0~200 a.wav 1:300+300~0 a.wav 3:900+100~100 a.wav 3:1100+300~100 a.wav"
+r = ANIM_SC_paste%(1, 0): check "  paste on track 1 at 0 writes over 0..300", STR$(r) + " " + ANIM_SC_text$, " 4 1:0+100~100 a.wav 1:200+300~100 a.wav 1:300+300~0 a.wav 3:900+100~100 a.wav 3:1100+300~100 a.wav"
+r = ANIM_SC_cut%(3, 0, 5000): check "cut all of track 3", STR$(r) + " " + ANIM_SC_text$, "-1 1:0+100~100 a.wav 1:200+300~100 a.wav 1:300+300~0 a.wav"
+check "  nothing there: no change", STR$(ANIM_SC_cut%(3, 0, 5000)), " 0"
+ANIM_SC_copy_clip 1: check "copy a whole clip (to the end)", STR$(ANIM_SCB_N) + STR$(ANIM_SCB_SPAN) + STR$(ANIM_SCB_LEN(1)), " 1 700 0"
+ANIM_SC_clear: r = ANIM_SC_add%("/s/a.wav", 1, 0, 50, 0)
+s = ANIM_serialize$: check "one clip from frame 1 to the end: still v6", STR$(CVI(LEFT$(s, 2))), STR$(ANIM_CHUNK_VERSION_SOUND)
+ANIM_SC_AT(1) = 40: s = ANIM_serialize$: check "  later than frame 1: v7", STR$(CVI(LEFT$(s, 2))), STR$(ANIM_CHUNK_VERSION_SNDCLIPS)
+ANIM_SC_clear: r = ANIM_deserialize%(s): check "  back at 40 ms", ANIM_SC_text$, "1:40+50~0 a.wav"
 
 ' --- Detect Frames (5.3) ---
 check "4 sprites in 64 px: 16 wide, no gutter", dt$(sheet$(4, 16, 0, 0, 3, 10), sheet$(1, 16, 0, 0, 2, 12)), "16x16 g0 m0"
