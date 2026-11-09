@@ -64,6 +64,7 @@ CONST ANIM_ACT_DELETE_TAG   = 2544 ' ANIM > Delete Tag (the selected tag, else t
 CONST ANIM_ACT_FRAME_NOTE   = 2545 ' ANIM > Frame Note... (4.5: the current frame's note; also a double-click on the X-sheet's NOTES row)
 CONST ANIM_ACT_CLEAR_NOTE   = 2546 ' ANIM > Clear Frame Note (the selected frames, else the current one)
 CONST ANIM_ACT_DETECT_FRAMES = 2547 ' ANIM > Detect Frames (5.3, TOOLS/ANIM-IMPORT: the sheet's grid from its gaps)
+CONST ANIM_ACT_FRAMES_FROM_GRID = 2551 ' ANIM > Create Frames from Grid (F8, TOOLS/ANIM-IMPORT: the frame = the pixel grid's cell)
 ' A selection inside the current frame's cell moves with it to the next current
 ' frame, same place in the cell (2.9, Q-18; ANIM_SELBOX_watch)
 DIM SHARED ANIM_SELBOX_LAST AS INTEGER ' the current frame the watcher last saw (0 = none)

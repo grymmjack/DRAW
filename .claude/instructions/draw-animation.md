@@ -69,6 +69,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2547 | Detect Frames (`ANIM_DT_action`, `TOOLS/ANIM-IMPORT`, 5.3: the sheet's grid from its gaps) |
 | 2548 | Import PNG Sequence... (`ANIM_SEQ_action`, `TOOLS/ANIM-IMPORT`, 5.4; CLI `--sequence FILE`) |
 | 2549 / 2550 | Soundtrack... / Remove Soundtrack (`ANIM_SND_action`, `TOOLS/ANIM-SOUND`, L.1) |
+| 2551 | Create Frames from Grid (`ANIM_GRID_frames_action`, `TOOLS/ANIM-IMPORT`, F8: frame = `GRID.gridWidth` x `gridHeight`, no gutter / margin, frames up to the last drawn cell; one undo step; `anim-frames-from-grid.sh`) |
 | 2540 | X-Sheet in the lightbox's top band (`ANIM_XS_toggle`, `TOOLS/ANIM-XS`, `CFG.XSHEET`, Num 8, chip `LB_CTL_XS`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
 
