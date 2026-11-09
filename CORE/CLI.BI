@@ -13,6 +13,12 @@
 '
 $INCLUDEONCE
 
+' The build's git info ("sha branch") on interim builds, "" on a release build
+' (native/build_info.h; DEV/build-info.sh writes it). See APP_version_full$.
+DECLARE LIBRARY "../native/build_info"
+    FUNCTION draw_build_info$ ()
+END DECLARE
+
 DECLARE LIBRARY "../native/cli_tty"
     FUNCTION gj_stdout_isatty& ()
     FUNCTION gj_console_prepare& ()

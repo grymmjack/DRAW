@@ -24,6 +24,9 @@ make run            # build and run
 make run-logged     # build and run with full QB64-PE logging (writes DRAW.log)
 make run-log-bas    # build and run with basic logging
 make clean          # remove binary + log
+# Interim builds show "X.Y.Z (sha branch)" in the title bar, About box and --version / -v:
+# DEV/build-info.sh writes native/build_info_gen.h (gitignored) - make and CI run it; a
+# HEAD on a v* tag gives the bare version, and so does a plain qb64pe compile without it.
 
 # Override compiler path (defaults to $HOME/git/qb64pe/qb64pe)
 make QB64PE=/path/to/qb64pe

@@ -164,6 +164,7 @@ $(OUT): $(SOURCES)
 	$(RM) $(OUT)
 	@mkdir -p $(dir $(MAKE_LOG))
 	@printf '\n=== %s  %s %s %s -o %s ===\n' "$$(date '+%Y-%m-%d %H:%M:%S')" "$(QB64PE)" "$(QB64FLAGS)" "$(SRC)" "$(OUT)" | tee -a $(MAKE_LOG)
+	@./DEV/build-info.sh | tee -a $(MAKE_LOG)
 	$(QB64PE) $(QB64FLAGS) $(SRC) -o $(OUT) 2>&1 \
 	    | sed -u 's/\x1b\[[0-9;]*[A-Za-z]//g' \
 	    | grep --line-buffered -v '^\[[ .]*\][[:space:]]*[0-9]\+%' \
