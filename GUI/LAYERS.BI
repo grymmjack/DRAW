@@ -10,8 +10,9 @@ $INCLUDEONCE
 ' Maximum layer name length (hard compile-time max)
 CONST LAYER_NAME_HARD_MAX = 64
 
-' Layer row height in panel (pixels)
-CONST LAYER_ROW_HEIGHT = 20
+' Layer row height in panel (pixels) without thumbnails; LAYER_ROW_H% is the
+' height in use (taller with small / medium thumbnails, CFG.LAYER_THUMBNAILS)
+CONST LAYER_ROW_HEIGHT_MIN = 20
 
 ' Layer panel button sizes
 CONST LAYER_BTN_SIZE = 12

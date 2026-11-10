@@ -2409,10 +2409,54 @@ END FUNCTION
 
 
 ''
+' Layer panel thumbnails (CFG.LAYER_THUMBNAILS: 0 off, 1 tiny, 2 small, 3
+' medium): their size in px, and the row height that holds them.
+FUNCTION LAYER_THUMB_PX% ()
+    SELECT CASE CFG.LAYER_THUMBNAILS%
+        CASE 1: LAYER_THUMB_PX% = 16
+        CASE 2: LAYER_THUMB_PX% = 32
+        CASE 3: LAYER_THUMB_PX% = 48
+    END SELECT
+END FUNCTION
+
+FUNCTION LAYER_ROW_H% ()
+    LAYER_ROW_H% = _MAX(LAYER_ROW_HEIGHT_MIN, LAYER_THUMB_PX% + 4)
+END FUNCTION
+
+''
+' A layer's thumbnail in a sz x sz box at (x, y) on the current _DEST: the
+' canvas (in an animation the current frame), fitted, on a checkerboard.
+SUB LAYER_PANEL_thumb (L AS INTEGER, x AS INTEGER, y AS INTEGER, sz AS INTEGER)
+    DIM sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG, dw AS INTEGER, dh AS INTEGER, ox AS INTEGER, oy AS INTEGER
+    DIM i AS INTEGER, j AS INTEGER, c AS INTEGER
+    IF sz < 4 THEN EXIT SUB
+    c = _MAX(2, sz \ 4)
+    FOR j = 0 TO sz - 1 STEP c ' the checkerboard
+        FOR i = 0 TO sz - 1 STEP c
+            LINE (x + i, y + j)-(x + _MIN(i + c, sz) - 1, y + _MIN(j + c, sz) - 1), _IIF(((i \ c) + (j \ c)) MOD 2, _RGB32(150, 150, 150), _RGB32(105, 105, 105)), BF
+        NEXT i
+    NEXT j
+    LINE (x - 1, y - 1)-(x + sz, y + sz), THEME.LAYER_PANEL_opacity_bar_bg~&, B
+    IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(L).imgHandle& >= -1 _ORELSE LAYERS(L).layerType% = LAYER_TYPE_GROUP THEN EXIT SUB
+    sx = 0: sy = 0: sw = SCRN.canvasW&: sh = SCRN.canvasH&
+    IF ANIM.active _ANDALSO ANIM.count > 0 THEN ' an animation: the current frame
+        IF ANIM_cell_rect%(ANIM.current, sx, sy, sw, sh) = 0 THEN sx = 0: sy = 0: sw = SCRN.canvasW&: sh = SCRN.canvasH&
+    END IF
+    sx = sx + LAYERS(L).apronW%: sy = sy + LAYERS(L).apronH% ' a promoted buffer is bigger than the canvas
+    IF sw < 1 _ORELSE sh < 1 _ORELSE sx + sw > _WIDTH(LAYERS(L).imgHandle&) _ORELSE sy + sh > _HEIGHT(LAYERS(L).imgHandle&) THEN EXIT SUB
+    IF sw >= sh THEN dw = sz: dh = _MAX(1, (sz * sh) \ sw) ELSE dh = sz: dw = _MAX(1, (sz * sw) \ sh)
+    ox = x + (sz - dw) \ 2: oy = y + (sz - dh) \ 2
+    _PUTIMAGE (ox, oy)-(ox + dw - 1, oy + dh - 1), LAYERS(L).imgHandle&, , (sx, sy)-(sx + sw - 1, sy + sh - 1)
+END SUB
+
+''
 ' Render the layer panel
 ' @param canvasHeight INTEGER Total viewport height used to compute panel bounds
 '
 SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
+    DIM lrOff AS INTEGER, lrThumb AS INTEGER ' rows taller than 20 px (thumbnails): the 20 px line centred in them
+    lrThumb = LAYER_THUMB_PX%: lrOff = (LAYER_ROW_H% - LAYER_ROW_HEIGHT_MIN) \ 2
     DIM panelX             AS INTEGER, panelY AS INTEGER
     DIM panelW             AS INTEGER, panelH AS INTEGER
     DIM rowY               AS INTEGER
@@ -2466,7 +2510,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
             END IF
         NEXT vrIdx%
     NEXT vri%
-    totalContentHeight% = visibleRowCount% * LAYER_ROW_HEIGHT
+    totalContentHeight% = visibleRowCount% * LAYER_ROW_H%
     
     ' Calculate max scroll offset
     maxScroll% = totalContentHeight% - listHeight%
@@ -2557,12 +2601,12 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
             drawY% = rowY% - LAYER_PANEL.scrollOffset%
             
             ' Only draw if row is visible in list area
-            IF drawY% + LAYER_ROW_HEIGHT > listTop% AND drawY% < listBottom% THEN
+            IF drawY% + LAYER_ROW_H% > listTop% AND drawY% < listBottom% THEN
                 ' Clip to list area
                 DIM clipTop AS INTEGER, clipBottom AS INTEGER
                 clipTop% = drawY%
                 IF clipTop% < listTop% THEN clipTop% = listTop%
-                clipBottom% = drawY% + LAYER_ROW_HEIGHT - 1
+                clipBottom% = drawY% + LAYER_ROW_H% - 1
                 IF clipBottom% >= listBottom% THEN clipBottom% = listBottom% - 1
                 
                 ' Group headers get their own background color
@@ -2598,7 +2642,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                 END IF
                 
                 ' Only draw text if fully visible
-                IF drawY% >= listTop% AND drawY% + LAYER_ROW_HEIGHT < = listBottom% THEN
+                IF drawY% >= listTop% AND drawY% + LAYER_ROW_H% < = listBottom% THEN
                     ' Row content X offset (includes indent for children)
                     DIM rowX AS INTEGER
                     rowX% = panelX% + 3 + rowIndent%
@@ -2608,7 +2652,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         ' Collapse triangle: right-pointing when collapsed, down when expanded
                         DIM triX AS INTEGER, triY AS INTEGER
                         triX% = rowX%
-                        triY% = drawY% + (LAYER_ROW_HEIGHT \ 2)
+                        triY% = drawY% + (LAYER_ROW_H% \ 2)
                         COLOR THEME.LAYER_PANEL_group_collapse_fg~&, _RGBA32(0, 0, 0, 0)
                         IF LAYERS(layerIdx%).collapsed% THEN
                             ' Right-pointing triangle (collapsed)
@@ -2633,7 +2677,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                             DIM gviW AS INTEGER, gviH AS INTEGER
                             gviW% = _WIDTH(gVisIcon&)
                             gviH% = _HEIGHT(gVisIcon&)
-                            _PUTIMAGE (rowX% + 10, drawY% + (LAYER_ROW_HEIGHT - gviH%) \ 2)-(rowX% + 10 + gviW% - 1, drawY% + (LAYER_ROW_HEIGHT - gviH%) \ 2 + gviH% - 1), gVisIcon&, SCRN.GUI&
+                            _PUTIMAGE (rowX% + 10, drawY% + (LAYER_ROW_H% - gviH%) \ 2)-(rowX% + 10 + gviW% - 1, drawY% + (LAYER_ROW_H% - gviH%) \ 2 + gviH% - 1), gVisIcon&, SCRN.GUI&
                         END IF
 
                         ' "Not paintable" badge — a pencil with a slash through it.
@@ -2658,7 +2702,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                             npW% = _WIDTH(LAYER_PANEL.iconNoPaint&)
                             npH% = _HEIGHT(LAYER_PANEL.iconNoPaint&)
                             npX% = panelX% + panelW% - 19 - npW%
-                            npY% = drawY% + 11
+                            npY% = drawY% + lrOff + 11
                             _PUTIMAGE (npX%, npY%)-(npX% + npW% - 1, npY% + npH% - 1), LAYER_PANEL.iconNoPaint&, SCRN.GUI&
                         END IF
 
@@ -2715,14 +2759,14 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         END IF
                         IF grpNameTruncated% THEN grpName$ = grpName$ + "..."
                         COLOR THEME.LAYER_PANEL_group_header_fg~&, _RGBA32(0, 0, 0, 0)
-                        _UPRINTSTRING (rowX% + 22, drawY% + 4), grpName$
+                        _UPRINTSTRING (rowX% + 22, drawY% + lrOff + 4), grpName$
 
                         ' Inline child count after the trimmed group name
                         IF LEN(grpCountStr$) > 0 THEN
                             DIM grpCountX AS INTEGER
                             grpCountX% = rowX% + 22 + _PRINTWIDTH(grpName$)
                             COLOR THEME.LAYER_PANEL_header_fg_dim~&, _RGBA32(0, 0, 0, 0)
-                            _UPRINTSTRING (grpCountX%, drawY% + 4), grpCountStr$
+                            _UPRINTSTRING (grpCountX%, drawY% + lrOff + 4), grpCountStr$
                         END IF
 
                         ' Right-aligned blend abbreviation
@@ -2730,7 +2774,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                             DIM grpBlendX AS INTEGER
                             grpBlendX% = panelX% + panelW% - 17 - _PRINTWIDTH(grpBlendShort$)
                             COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
-                            _UPRINTSTRING (grpBlendX%, drawY% + 4), grpBlendShort$
+                            _UPRINTSTRING (grpBlendX%, drawY% + lrOff + 4), grpBlendShort$
                         END IF
                     ELSE
                         ' === NORMAL / TEXT LAYER ROW ===
@@ -2750,11 +2794,11 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         DIM viW AS INTEGER, viH AS INTEGER
                         viW% = _WIDTH(visIcon&)
                         viH% = _HEIGHT(visIcon&)
-                        _PUTIMAGE (rowX%, drawY% + (LAYER_ROW_HEIGHT - viH%) \ 2)-(rowX% + viW% - 1, drawY% + (LAYER_ROW_HEIGHT - viH%) \ 2 + viH% - 1), visIcon&, SCRN.GUI&
+                        _PUTIMAGE (rowX%, drawY% + (LAYER_ROW_H% - viH%) \ 2)-(rowX% + viW% - 1, drawY% + (LAYER_ROW_H% - viH%) \ 2 + viH% - 1), visIcon&, SCRN.GUI&
                     ELSE
                         ' Fallback to text
                         COLOR fgColor~&, _RGBA32(0, 0, 0, 0)
-                        _UPRINTSTRING (rowX% + 1, drawY% + 4), visibleIcon$
+                        _UPRINTSTRING (rowX% + 1, drawY% + lrOff + 4), visibleIcon$
                     END IF
                     
                     ' Opacity lock icon - PNG with text fallback
@@ -2769,13 +2813,13 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         DIM lkW AS INTEGER, lkH AS INTEGER
                         lkW% = _WIDTH(lkIcon&)
                         lkH% = _HEIGHT(lkIcon&)
-                        _PUTIMAGE (rowX% + 11, drawY% + (LAYER_ROW_HEIGHT - lkH%) \ 2)-(rowX% + 11 + lkW% - 1, drawY% + (LAYER_ROW_HEIGHT - lkH%) \ 2 + lkH% - 1), lkIcon&, SCRN.GUI&
+                        _PUTIMAGE (rowX% + 11, drawY% + (LAYER_ROW_H% - lkH%) \ 2)-(rowX% + 11 + lkW% - 1, drawY% + (LAYER_ROW_H% - lkH%) \ 2 + lkH% - 1), lkIcon&, SCRN.GUI&
                     ELSE
                         ' Fallback to text (only show when locked)
                         IF LAYERS(layerIdx%).opacityLock% THEN
                             lockIcon$ = "L"
                             COLOR _RGB32(255, 180, 0), _RGBA32(0, 0, 0, 0)
-                            _UPRINTSTRING (rowX% + 11, drawY% + 4), lockIcon$
+                            _UPRINTSTRING (rowX% + 11, drawY% + lrOff + 4), lockIcon$
                         END IF
                     END IF
                     
@@ -2832,6 +2876,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     ' availW% = full row width minus left icons (24px) minus opacity bar (14px)
                     ' When a blend abbreviation is present, also subtract its width + 2px gap.
                     availW% = panelW% - rowIndent% - 24 - 14
+                    IF lrThumb > 0 THEN availW% = availW% - lrThumb - 3 ' the thumbnail before the name
                     IF showBlendInd% THEN availW% = availW% - _PRINTWIDTH(blendShort$) - 2
                     IF showAiTag% THEN availW% = availW% - _PRINTWIDTH(aiTag$) - 2
 
@@ -2852,7 +2897,8 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     ELSEIF LAYERS(layerIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
                         COLOR THEME.LAYER_PANEL_symbol_child_fg~&, _RGBA32(0, 0, 0, 0)
                     END IF
-                    _UPRINTSTRING (rowX% + 21, drawY% + 4), layerName$
+                    IF lrThumb > 0 THEN LAYER_PANEL_thumb layerIdx%, rowX% + 21, drawY% + (LAYER_ROW_H% - lrThumb) \ 2, lrThumb
+                    _UPRINTSTRING (rowX% + 21 + _IIF(lrThumb > 0, lrThumb + 3, 0), drawY% + lrOff + 4), layerName$
 
                     ' Blend mode indicator — right-aligned on the name row (y+4), just left
                     ' of the opacity bar.  Badge occupies y+12 alone so no overlap is possible.
@@ -2860,7 +2906,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         ' Right edge of blend text must sit 2px left of the opacity bar.
                         blendIndX% = panelX% + panelW% - 17 - _PRINTWIDTH(blendShort$)
                         COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
-                        _UPRINTSTRING (blendIndX%, drawY% + 4), blendShort$
+                        _UPRINTSTRING (blendIndX%, drawY% + lrOff + 4), blendShort$
                     END IF
 
                     ' [AI] tag — sits just left of the blend indicator so the two
@@ -2870,7 +2916,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         aiTagX% = panelX% + panelW% - 17 - _PRINTWIDTH(aiTag$)
                         IF showBlendInd% THEN aiTagX% = aiTagX% - _PRINTWIDTH(blendShort$) - 2
                         COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
-                        _UPRINTSTRING (aiTagX%, drawY% + 4), aiTag$
+                        _UPRINTSTRING (aiTagX%, drawY% + lrOff + 4), aiTag$
                     END IF
                     END IF ' isGroupHeader% ELSE
 
@@ -2880,10 +2926,10 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     exportBadge$ = FILE_QB64_export_badge$(layerIdx%)
                     IF LEN(exportBadge$) > 0 THEN
                         DIM badgeY AS INTEGER
-                        badgeY% = drawY% + 12
-                        IF badgeY% + 8 <= drawY% + LAYER_ROW_HEIGHT THEN
+                        badgeY% = drawY% + lrOff + 12
+                        IF badgeY% + 8 <= drawY% + LAYER_ROW_H% THEN
                             COLOR FILE_QB64_badge_color~&(layerIdx%), _RGBA32(0, 0, 0, 0)
-                            _UPRINTSTRING (rowX% + 21, badgeY%), exportBadge$
+                            _UPRINTSTRING (rowX% + 21 + _IIF(lrThumb > 0 _ANDALSO LAYERS(layerIdx%).layerType% <> LAYER_TYPE_GROUP, lrThumb + 3, 0), badgeY%), exportBadge$
                         END IF
                     END IF
 
@@ -2893,16 +2939,16 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     IF panelW% >= 80 THEN
                         opacityFill% = INT((LAYERS(layerIdx%).opacity% / 255.0) * 14)
                         ' Track background: 3px wide x 15px tall at panelW%-15 to panelW%-13
-                        LINE (panelX% + panelW% - 15, drawY% + 2)-(panelX% + panelW% - 13, drawY% + 16), THEME.LAYER_PANEL_opacity_bar_bg~&, BF
+                        LINE (panelX% + panelW% - 15, drawY% + lrOff + 2)-(panelX% + panelW% - 13, drawY% + lrOff + 16), THEME.LAYER_PANEL_opacity_bar_bg~&, BF
                         ' Fill from bottom up
                         IF opacityFill% > 0 THEN
-                            LINE (panelX% + panelW% - 15, drawY% + 16 - opacityFill%)-(panelX% + panelW% - 13, drawY% + 16), THEME.LAYER_PANEL_opacity_bar_fg~&, BF
+                            LINE (panelX% + panelW% - 15, drawY% + lrOff + 16 - opacityFill%)-(panelX% + panelW% - 13, drawY% + lrOff + 16), THEME.LAYER_PANEL_opacity_bar_fg~&, BF
                         END IF
                     END IF
                 END IF
             END IF
             
-            rowY% = rowY% + LAYER_ROW_HEIGHT
+            rowY% = rowY% + LAYER_ROW_H%
         END IF
     NEXT z%
     
@@ -2940,7 +2986,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
         ELSE
             dropRowFromTop% = dropVisRow% + 1
         END IF
-        dropY% = listTop% + (dropRowFromTop% * LAYER_ROW_HEIGHT) - LAYER_PANEL.scrollOffset%
+        dropY% = listTop% + (dropRowFromTop% * LAYER_ROW_H%) - LAYER_PANEL.scrollOffset%
         
         ' Draw indicator line if visible
         IF dropY% >= listTop% - 2 AND dropY% < = listBottom% + 2 THEN
@@ -2961,8 +3007,8 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
         DIM dragLayerName AS STRING
         DIM dragLayerZ    AS INTEGER
         
-        previewY% = LAYER_PANEL.dragPreviewY% - (LAYER_ROW_HEIGHT \ 2)
-        previewH% = LAYER_ROW_HEIGHT
+        previewY% = LAYER_PANEL.dragPreviewY% - (LAYER_ROW_H% \ 2)
+        previewH% = LAYER_ROW_H%
         
         ' Clamp preview to panel bounds
         IF previewY% < listTop% THEN previewY% = listTop%
@@ -3214,11 +3260,11 @@ FUNCTION LAYER_PANEL_get_row_slot% (rawX AS INTEGER, rawY AS INTEGER)
         LOOP
         IF ancCollapsed% THEN _CONTINUE
 
-        IF clickY% >= rowY% AND clickY% < rowY% + LAYER_ROW_HEIGHT THEN
+        IF clickY% >= rowY% AND clickY% < rowY% + LAYER_ROW_H% THEN
             LAYER_PANEL_get_row_slot% = layerIdx%
             EXIT FUNCTION
         END IF
-        rowY% = rowY% + LAYER_ROW_HEIGHT
+        rowY% = rowY% + LAYER_ROW_H%
     NEXT z%
 END FUNCTION
 
@@ -3270,7 +3316,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
     DIM sbListTop2 AS INTEGER : sbListTop2% = LAYER_PANEL_top% + THEME.LAYER_PANEL_header_height%
     DIM sbListBot2 AS INTEGER : sbListBot2% = panelH% - THEME.LAYER_PANEL_btn_bar_height%
     DIM sbListH2   AS INTEGER : sbListH2% = sbListBot2% - sbListTop2%
-    DIM sbTotalH2  AS INTEGER : sbTotalH2% = LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT
+    DIM sbTotalH2  AS INTEGER : sbTotalH2% = LAYER_PANEL_visible_row_count% * LAYER_ROW_H%
     IF sbTotalH2% > sbListH2% THEN
         DIM sbSX2 AS INTEGER: sbSX2% = panelW% - 10
         IF localRawX% >= sbSX2% AND localRawX% < = sbSX2% + 7 AND rawY% >= sbListTop2% AND rawY% < sbListBot2% THEN
@@ -3471,7 +3517,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
             LOOP
             IF clickAncCollapsed% THEN _CONTINUE
 
-            IF clickY% >= rowY% AND clickY% < rowY% + LAYER_ROW_HEIGHT THEN
+            IF clickY% >= rowY% AND clickY% < rowY% + LAYER_ROW_H% THEN
                 ' Clicked on this layer row
                 DIM localX        AS INTEGER
                 localX% = rawX% - LAYER_PANEL.panelX1%
@@ -3652,7 +3698,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                         SOUND_play SND_SLIDER
                         LAYER_PANEL.opacityDrag%      = TRUE
                         LAYER_PANEL.opacityDragLayer% = layerIdx%
-                        LAYER_PANEL.opacityDragRowY%  = rowY% - LAYER_PANEL.scrollOffset%
+                        LAYER_PANEL.opacityDragRowY%  = rowY% - LAYER_PANEL.scrollOffset% + (LAYER_ROW_H% - LAYER_ROW_HEIGHT_MIN) \ 2 ' the bar is centred in a tall row
                         DIM initBarY   AS INTEGER
                         initBarY% = rawY% - LAYER_PANEL.opacityDragRowY% - 2
                         IF initBarY% < 0 THEN initBarY% = 0
@@ -3702,7 +3748,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                 EXIT FUNCTION
             END IF
             
-            rowY% = rowY% + LAYER_ROW_HEIGHT
+            rowY% = rowY% + LAYER_ROW_H%
         END IF
     NEXT z%
     
@@ -3723,7 +3769,7 @@ SUB LAYER_PANEL_handle_scroll_drag (rawY AS INTEGER)
     DIM sbListTop AS INTEGER : sbListTop% = LAYER_PANEL_top% + THEME.LAYER_PANEL_header_height%
     DIM sbListBot AS INTEGER : sbListBot% = sbPanelH% - THEME.LAYER_PANEL_btn_bar_height%
     DIM sbListH   AS INTEGER : sbListH% = sbListBot% - sbListTop%
-    DIM sbTotalH  AS INTEGER : sbTotalH% = LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT
+    DIM sbTotalH  AS INTEGER : sbTotalH% = LAYER_PANEL_visible_row_count% * LAYER_ROW_H%
     DIM sbMaxScr  AS INTEGER : sbMaxScr% = sbTotalH% - sbListH%
     IF sbMaxScr% < 0 THEN sbMaxScr% = 0
 
@@ -3830,7 +3876,7 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
                 
                 ' Check if mouse Y is within this row's vertical opacity bar (drawY%+2 to drawY%+16)
                 IF rawY% >= drawY% + 2 AND rawY% < = drawY% + 16 THEN
-                    IF drawY% >= listTop% AND drawY% + LAYER_ROW_HEIGHT < = listBottom% THEN
+                    IF drawY% >= listTop% AND drawY% + LAYER_ROW_H% < = listBottom% THEN
                         ' Adjust opacity - wheel up (negative delta) = more opaque
                         DIM newOpacity AS INTEGER
                         newOpacity% = LAYERS(layerIdx%).opacity% - (delta% * 15) ' 15 per tick
@@ -3842,14 +3888,14 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
                     END IF
                 END IF
                 
-                rowY% = rowY% + LAYER_ROW_HEIGHT
+                rowY% = rowY% + LAYER_ROW_H%
             END IF
         NEXT z%
     END IF
     
     ' Not over opacity bar - scroll the layer list
     ' Reverse direction: wheel up (negative) = scroll up (see higher layers)
-    LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% + (delta% * LAYER_ROW_HEIGHT)
+    LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% + (delta% * LAYER_ROW_H%)
     
     ' Clamp scroll offset
     IF LAYER_PANEL.scrollOffset% < 0 THEN LAYER_PANEL.scrollOffset% = 0
@@ -3857,7 +3903,7 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
     DIM maxScroll  AS INTEGER
     DIM listHeight AS INTEGER
     listHeight% = listBottom% - listTop%
-    maxScroll%  = (LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT) - listHeight%
+    maxScroll%  = (LAYER_PANEL_visible_row_count% * LAYER_ROW_H%) - listHeight%
     IF maxScroll% < 0 THEN maxScroll% = 0
     IF LAYER_PANEL.scrollOffset% > maxScroll% THEN LAYER_PANEL.scrollOffset% = maxScroll%
     
@@ -3877,7 +3923,7 @@ SUB LAYER_PANEL_scroll_to_layer (layerIdx AS INTEGER)
     DIM lpListH      AS INTEGER : lpListH% = lpListBottom% - lpListTop%
     IF lpListH% < = 0 THEN EXIT SUB
     DIM lpMaxScroll  AS INTEGER
-    lpMaxScroll% = (LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT) - lpListH%
+    lpMaxScroll% = (LAYER_PANEL_visible_row_count% * LAYER_ROW_H%) - lpListH%
     IF lpMaxScroll% < 0 THEN lpMaxScroll% = 0
     ' Row position: the showing rows above it (highest zIndex = top row;
     ' rows inside collapsed groups take no space)
@@ -3887,11 +3933,11 @@ SUB LAYER_PANEL_scroll_to_layer (layerIdx AS INTEGER)
             IF LAYER_PANEL_row_hidden%(lpI%) = 0 THEN lpAbove% = lpAbove% + 1
         END IF
     NEXT lpI%
-    lpRowY% = lpAbove% * LAYER_ROW_HEIGHT
+    lpRowY% = lpAbove% * LAYER_ROW_H%
     IF lpRowY% < LAYER_PANEL.scrollOffset% THEN
         LAYER_PANEL.scrollOffset% = lpRowY%
-    ELSEIF lpRowY% + LAYER_ROW_HEIGHT > LAYER_PANEL.scrollOffset% + lpListH% THEN
-        LAYER_PANEL.scrollOffset% = lpRowY% + LAYER_ROW_HEIGHT - lpListH%
+    ELSEIF lpRowY% + LAYER_ROW_H% > LAYER_PANEL.scrollOffset% + lpListH% THEN
+        LAYER_PANEL.scrollOffset% = lpRowY% + LAYER_ROW_H% - lpListH%
     END IF
     IF LAYER_PANEL.scrollOffset% < 0 THEN LAYER_PANEL.scrollOffset% = 0
     IF LAYER_PANEL.scrollOffset% > lpMaxScroll% THEN LAYER_PANEL.scrollOffset% = lpMaxScroll%
@@ -3962,7 +4008,7 @@ SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
             DIM drawY AS INTEGER
             drawY% = rowY% - LAYER_PANEL.scrollOffset%
 
-            IF clickY% >= drawY% AND clickY% < drawY% + LAYER_ROW_HEIGHT THEN
+            IF clickY% >= drawY% AND clickY% < drawY% + LAYER_ROW_H% THEN
                 ' Mouse is over this layer row: on its eye? (the same zones as
                 ' a click in LAYER_PANEL_handle_click: group eye 13-23, else < 14)
                 swipeRel% = swipeLocalX% - LAYERS_nesting_depth%(layerIdx%) * swipeIndentPx%
@@ -3987,7 +4033,7 @@ SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
                 EXIT SUB
             END IF
 
-            rowY% = rowY% + LAYER_ROW_HEIGHT
+            rowY% = rowY% + LAYER_ROW_H%
         END IF
     NEXT z%
 END SUB
@@ -4128,14 +4174,14 @@ SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
     ' --- Auto-scroll logic ---
     DIM dragVisCount AS INTEGER
     dragVisCount% = LAYER_PANEL_visible_row_count%
-    maxScroll%    = (dragVisCount% * LAYER_ROW_HEIGHT) - listHeight%
+    maxScroll%    = (dragVisCount% * LAYER_ROW_H%) - listHeight%
     IF maxScroll% < 0 THEN maxScroll% = 0
     
     IF rawY% < listTop% + AUTO_SCROLL_ZONE AND rawY% >= LAYER_PANEL_top% THEN
         ' Near top edge - scroll up
         IF TIMER - LAYER_PANEL.autoScrollTimer! > AUTO_SCROLL_DELAY THEN
             IF LAYER_PANEL.scrollOffset% > 0 THEN
-                LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% - LAYER_ROW_HEIGHT
+                LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% - LAYER_ROW_H%
                 IF LAYER_PANEL.scrollOffset% < 0 THEN LAYER_PANEL.scrollOffset% = 0
                 LAYER_PANEL.autoScrollTimer! = TIMER - (AUTO_SCROLL_DELAY * 0.7) ' Faster repeat
             END IF
@@ -4144,7 +4190,7 @@ SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
         ' Near bottom edge - scroll down
         IF TIMER - LAYER_PANEL.autoScrollTimer! > AUTO_SCROLL_DELAY THEN
             IF LAYER_PANEL.scrollOffset% < maxScroll% THEN
-                LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% + LAYER_ROW_HEIGHT
+                LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% + LAYER_ROW_H%
                 IF LAYER_PANEL.scrollOffset% > maxScroll% THEN LAYER_PANEL.scrollOffset% = maxScroll%
                 LAYER_PANEL.autoScrollTimer! = TIMER - (AUTO_SCROLL_DELAY * 0.7)
             END IF
@@ -4167,7 +4213,7 @@ SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
     ' Gap 1 = between layer at zIndex=LAYER_COUNT and zIndex=LAYER_COUNT-1
     ' Gap N = below bottommost layer (insert at zIndex = 1, becomes bottom)
     DIM closestGap AS INTEGER
-    closestGap% = INT((contentY% + (LAYER_ROW_HEIGHT \ 2)) / LAYER_ROW_HEIGHT)
+    closestGap% = INT((contentY% + (LAYER_ROW_H% \ 2)) / LAYER_ROW_H%)
     
     ' Clamp gap to valid range (0 to visible row count)
     IF closestGap% < 0 THEN closestGap% = 0
@@ -7014,7 +7060,7 @@ END SUB
 ' button bar (Rick: dragged shorter, a divider squeezed the panel until its
 ' buttons and its own divider went under the status bar).
 FUNCTION LAYERS_min_height% ()
-    LAYERS_min_height% = THEME.LAYER_PANEL_header_height% + LAYER_ROW_HEIGHT + THEME.LAYER_PANEL_btn_bar_height%
+    LAYERS_min_height% = THEME.LAYER_PANEL_header_height% + LAYER_ROW_H% + THEME.LAYER_PANEL_btn_bar_height%
 END FUNCTION
 
 
