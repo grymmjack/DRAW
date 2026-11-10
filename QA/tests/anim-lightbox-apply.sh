@@ -15,7 +15,7 @@
 # mirrored - so a right flip / turn / move of frame 1 makes the very picture
 # of frame 4 / 3 / 2 (the checks compare cell CRCs).
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: apply to the selected frames ==="
 

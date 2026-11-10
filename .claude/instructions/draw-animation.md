@@ -697,6 +697,19 @@ pointer off the canvas region; the release `CONFIG_save`s. `CFG.LB_STRIP_PCT!` /
 0 = auto; the panes keep 40 px) and `CFG.XSHEET_NAME_W%` (`XSHEET_NAME_WIDTH`, px, at least
 `ANIM_XS_name_w_min%`). Double-click (0.4 s, same edge): the strip's edge
 `ANIM_LB_strip_fit_all` (every frame across, at most half), the X-sheet's edges back to 0.
+**The strip as a tray (2026-11-09, "think like an ice cube tray"):** `ANIM_LB_strip_cells`
+picks the cell from `CFG.LB_STRIP_FLOW%` (`LIGHTBOX_STRIP_FLOW` TRAY 0 / ROW 1),
+`CFG.LB_STRIP_MIN_CELL%` (32) and `CFG.LB_STRIP_CELL%` (0 = fitted; Ctrl+wheel /
+`ANIM_LB_strip_zoom`). TRAY: the biggest height from the band's down to the min whose
+`cols x rows` holds every frame (`ANIM_LB_strip_fit`: frame aspect, widest a third of the band).
+`stripCols / stripRows / stripCap`; `ANIM_LB_strip_unit%` (a tray row, or 1) - `stripFirst`
+sits on a row's start, the wheel / scroll-into-view / drag-scroll (above / below the tray) move
+by it. `ANIM_LB_strip_rect` is 2-D; `ANIM_LB_strip_slot%(mx, my, atEnd)` picks the row, then the
+column (`sDropEnd`: the mark after a row's last cell). R-click the band: `menuKind` 3
+(values 100-104, `ANIM_LB_strip_menu_pick`). The double-click fit in a tray clears the cell
+setting and grows the band (never shrinks it) until every frame fits at the min cell. The
+ANIMLB dump ends `stripCols stripRows flow cellSetting`. Older strip tests assume one row: they
+pin `LIGHTBOX_STRIP_FLOW=ROW` in QA-OPTIONS; `anim-strip-tray.sh` covers the tray.
 Labels fit their room (`ANIM_XS_label_room` / `ANIM_XS_label_fit$`, cut with `~`, the `/ R =`
 tail kept) and a cut one shows whole in a tooltip (`ANIM_XS_tip%` 4000 + slot). Cells crop
 like the Layers panel thumbnails: `ANIM_XS_scan%` now finds the drawing's box with

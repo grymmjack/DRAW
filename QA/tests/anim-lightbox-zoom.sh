@@ -19,7 +19,7 @@
 # Fixture: a 256x128 sheet of 64x64 frames (7, current 3), each cell its own
 # colour with a mark.
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt LIGHTBOX=1 XSHEET=0 LIGHTBOX_PANES=3 PREVIEW_SHOWS_FRAME=1
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt LIGHTBOX=1 XSHEET=0 LIGHTBOX_PANES=3 PREVIEW_SHOWS_FRAME=1 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: zoom in the lightbox and the Preview frame view ==="
 

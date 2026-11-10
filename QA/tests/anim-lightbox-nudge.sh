@@ -14,7 +14,7 @@
 # Fixture: a 64x16 sheet of 16x16 frames, transparent: frame 1 a shape A,
 # frame 2 = A moved 2 px right, frame 3 = A turned, frame 4 = A mirrored.
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX=0 XSHEET=0
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX=0 XSHEET=0 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: nudge / clear / fill the selected frames in the lightbox ==="
 

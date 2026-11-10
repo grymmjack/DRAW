@@ -9,7 +9,7 @@
 # Dump: ANIMC (a CRC per frame cell), ANIM (count, current).
 # Fixture: a 64x16 sheet of 16x16 frames, each with a shape.
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: no Crop Canvas in the lightbox ==="
 

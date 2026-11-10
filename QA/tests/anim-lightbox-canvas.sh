@@ -22,7 +22,7 @@
 # move 5 px right (the guides pull it 1 right and, 2 px from the top, 2 up)
 # is frame 5's (the checks compare cell CRCs).
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 SMART_GUIDES_ENABLED=TRUE SMART_GUIDES_SNAP=TRUE
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 SMART_GUIDES_ENABLED=TRUE SMART_GUIDES_SNAP=TRUE LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: the current frame is the canvas in the lightbox ==="
 

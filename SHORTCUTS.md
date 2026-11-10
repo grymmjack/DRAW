@@ -616,9 +616,17 @@ default). Zooming and panning stay with the sheet view.
 | `Ctrl+click` | Add / remove a frame from the selection |
 | `Shift+click` | Select the frames from the last one clicked to this one (`Ctrl+Shift` adds them) |
 | Drag | Move the selected frames (or the frame dragged) to where you drop them - one undo step |
-| Wheel | Scroll the strip; a frame change brings the current frame back into view |
+| Wheel | Scroll the strip (a tray: a row at a time); a frame change brings the current frame back into view |
+| `Ctrl+Wheel` | Bigger / smaller cells (Settings → Panels → Lightbox Strip → Cell Size) |
+| `R-Click` | The strip's menu: **Tray** (across, then down) or **Row** (across only), Fit Cells, Bigger / Smaller Cells |
 | Drag the strip's bottom edge | Make the strip taller or shorter (the panes get the rest); the frames grow with it |
-| Double-click the strip's bottom edge | Fit every frame across the strip |
+| Double-click the strip's bottom edge | Fit the cells again, and grow the strip until every frame shows (a row: every frame across) |
+
+The strip is a **tray** by default, like an ice cube tray: it lays the frames across, then down
+in rows, with the biggest cells that still show every frame. Cells shrink no smaller than
+**Min Cell** (32 px; Settings → Panels → Lightbox Strip); past that, the strip scrolls a row at
+a time. **Row** puts the frames in one row as tall as the strip, as before. While dragging frames
+in a tray, move above or below the strip to scroll it a row.
 
 With two or more frames selected, Play (`Num Enter`) plays just those (first to last).
 

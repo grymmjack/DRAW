@@ -16,7 +16,7 @@
 # / 4's picture, and -50% of frame 2 is frame 1's (the checks compare cell
 # CRCs).
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: Scale 2x / 2x H / 2x V / -50% on the current frame ==="
 

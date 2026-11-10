@@ -13,7 +13,7 @@
 # Fixture: a 128x32 sheet of 32x32 frames: frames 1 and 3 an L shape + a dot,
 # frames 2 and 4 a square.
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: centred effects centre on the frame ==="
 

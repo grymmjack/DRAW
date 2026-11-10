@@ -14,7 +14,7 @@
 # Fixture: a 64x16 sheet of 16x16 frames in one row, transparent, frame k a
 # 6x6 square of its own colour at (5, 5). Current 1.
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX=0 XSHEET=0 LIGHTBOX_PANES=3 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: a selection stays put in its cell ==="
 

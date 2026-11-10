@@ -18,7 +18,7 @@
 # vertical symmetry (mirror x -> 16 - x about the frame's centre 8) is frame
 # 4's picture.
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: Select All, Cut / Copy / Paste, symmetry on the current frame ==="
 

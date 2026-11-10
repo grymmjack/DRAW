@@ -12,7 +12,7 @@
 # no ring. The old build marked only the current frame (blue).
 #
 # Dump: ANIMLB (... pad drawPane), ANIMLBP (per pane: frame dx dy dw dh).
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX=0 XSHEET=0 LIGHTBOX_PANES=3
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX=0 XSHEET=0 LIGHTBOX_PANES=3 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: the lightbox marks the pane a stroke goes into ==="
 

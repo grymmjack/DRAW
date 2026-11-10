@@ -85,6 +85,9 @@ TYPE ANIM_LB_OBJ
     stripN     AS INTEGER ' frames shown in it
     cellW      AS INTEGER ' a strip cell
     cellH      AS INTEGER
+    stripCols  AS INTEGER ' cells across / rows down (a tray, CFG.LB_STRIP_FLOW 0; a row has 1)
+    stripRows  AS INTEGER
+    stripCap   AS INTEGER ' cells it holds (cols x rows)
     panes      AS INTEGER ' editor panes shown (CFG.LIGHTBOX_PANES, fewer when the area is narrow)
     paneW      AS INTEGER
     paneH      AS INTEGER ' the picture part (the label sits under it)
@@ -139,6 +142,8 @@ TYPE ANIM_LB_OBJ
     lastCur    AS INTEGER ' current frame at the last layout: a change scrolls it into view
     sPress     AS INTEGER ' frame a strip press landed on (0 none), until the release
     sPressX    AS INTEGER
+    sPressY    AS INTEGER
+    sDropEnd   AS INTEGER ' the drop mark sits after the last cell of a tray row, not before sDrop's cell
     sDrag      AS INTEGER ' the press moved far enough to be a drag
     sDrop      AS INTEGER ' drag: drop before this frame (count + 1 = the end)
     sCollapse  AS INTEGER ' a plain press on a frame already in a multi-selection: select just it on release (no drag)
@@ -147,7 +152,7 @@ TYPE ANIM_LB_OBJ
     ' The transport bar (2.4)
     seekHeld   AS INTEGER ' the seek bar is being scrubbed (until the release)
     menuOpen   AS INTEGER ' the loop mode menu / the X-sheet SOUND rows' menu (menuKind)
-    menuKind   AS INTEGER ' 0 loop mode, 1 SOUND (F6)
+    menuKind   AS INTEGER ' 0 loop mode, 1 SOUND (F6), 2 TAGS / NOTES, 3 the strip's cells
     menuN      AS INTEGER ' its items
     menuX      AS INTEGER
     menuY      AS INTEGER

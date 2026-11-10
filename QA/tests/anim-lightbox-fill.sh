@@ -17,7 +17,7 @@
 # frame 3's picture - the old build filled the bottom half too (it reached
 # it round through frame 2).
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: flood fill and magic wand stop at the frame's edges ==="
 

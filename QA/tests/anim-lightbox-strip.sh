@@ -16,7 +16,7 @@
 # Fixture: a 64x64 sheet of 16x16 frames, 12 frames, current 3, each cell
 # with a mark of its own (so every frame has its own CRC).
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt LIGHTBOX=0 XSHEET=0 LIGHTBOX_PANES=3 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: the lightbox strip ==="
 

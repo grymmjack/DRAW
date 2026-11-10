@@ -360,6 +360,9 @@ TYPE DRAW_CONFIG
     XSHEET                          AS INTEGER        ' Animation: the lightbox's top band is the X-sheet (frames x layers), not the strip (ANIM > X-Sheet, Num 8)
     LIGHTBOX_PANES                  AS INTEGER        ' Animation: lightbox editor panes 3 / 5 / 7 (ANIM > Lightbox Panes, Num *)
     LB_STRIP_PCT                    AS SINGLE         ' Animation: the lightbox's frame strip, % of the height the transport bar leaves (0 = auto); drag its edge
+    LB_STRIP_FLOW                   AS INTEGER        ' Animation: the strip's cells: 0 a tray (across, then down), 1 one row (across only)
+    LB_STRIP_MIN_CELL               AS INTEGER        ' Animation: the tray shrinks its cells to fit every frame, down to this height (px)
+    LB_STRIP_CELL                   AS INTEGER        ' Animation: the strip's cell height, px (0 = fitted to the band); Ctrl+wheel over the strip
     XSHEET_BAND_PCT                 AS SINGLE         ' Animation: the X-sheet band, % of the height the transport bar leaves (0 = auto); drag its edge
     XSHEET_NAME_W                   AS INTEGER        ' Animation: the X-sheet's layer-name column, px (0 = auto); drag its edge
     CLIP_FRAME_LIGHTBOX             AS INTEGER        ' Animation: a stroke in a lightbox pane stays inside its frame (ANIM > Clip Strokes to the Frame in the Lightbox)

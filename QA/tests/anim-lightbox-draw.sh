@@ -17,7 +17,7 @@
 # Fixture: a 64x32 sheet of 16x16 frames, 7 frames, current 3, each cell with
 # its own mark.
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: drawing in the lightbox ==="
 

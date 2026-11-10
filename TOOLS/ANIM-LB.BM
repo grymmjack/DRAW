@@ -199,7 +199,7 @@ END SUB
 SUB ANIM_LB_layout ()
     DIM aw AS INTEGER, ah AS INTEGER, pad AS INTEGER, fw AS INTEGER, fh AS INTEGER
     DIM n AS INTEGER, p AS INTEGER, k AS INTEGER, x AS INTEGER, used AS INTEGER, avail AS INTEGER
-    DIM ch AS INTEGER, cw AS INTEGER, gap AS INTEGER
+    DIM u AS INTEGER, cap AS INTEGER, lastTop AS INTEGER
 
     FPANEL_ensure
     ANIM_LB_area ANIM_LB.x1, ANIM_LB.y1, ANIM_LB.x2, ANIM_LB.y2
@@ -226,26 +226,24 @@ SUB ANIM_LB_layout ()
     ANIM_LB.labelH = FPANEL.fontH% + 4
     IF CFG.XSHEET% THEN ANIM_XS_layout ANIM_LB.x1, ANIM_LB.stripY, ANIM_LB.x2, ANIM_LB.stripY + ANIM_LB.stripH - 1
 
-    ' strip cells: the band's height, the frame's shape
-    gap = pad
-    ch = ANIM_LB.stripH - 2 * pad
-    IF ch < 4 THEN ch = 4
-    cw = (CLNG(ch) * fw + fh \ 2) \ fh
-    IF cw > aw \ 3 THEN cw = aw \ 3: ch = _MAX(4, (CLNG(cw) * fh + fw \ 2) \ fw)
-    IF cw < 4 THEN cw = 4
-    ANIM_LB.cellW = cw: ANIM_LB.cellH = ch
-    n = (aw - pad) \ (cw + gap)
-    IF n > ANIM.count THEN n = ANIM.count
-    IF n < 1 THEN n = 1
-    ANIM_LB.stripN = n
+    ' strip cells (a tray or a row, ANIM_LB_strip_cells); it scrolls a row of
+    ' the tray at a time (a frame at a time in a row), stripFirst on a row's start
+    ANIM_LB_strip_cells aw, fw, fh
+    cap = ANIM_LB.stripCap: u = ANIM_LB_strip_unit%
     IF ANIM_LB.stripFirst < 1 THEN ANIM_LB.stripFirst = 1
     IF ANIM.current <> ANIM_LB.lastCur THEN ' the current frame moved: bring it into view (the wheel may scroll it out)
-        IF ANIM.current < ANIM_LB.stripFirst THEN ANIM_LB.stripFirst = ANIM.current
-        IF ANIM.current > ANIM_LB.stripFirst + n - 1 THEN ANIM_LB.stripFirst = ANIM.current - n + 1
+        k = 1 + ((_MAX(1, ANIM.current) - 1) \ u) * u ' the start of its row
+        IF ANIM.current < ANIM_LB.stripFirst THEN ANIM_LB.stripFirst = k
+        IF ANIM.current > ANIM_LB.stripFirst + cap - 1 THEN ANIM_LB.stripFirst = k - (cap - u)
         ANIM_LB.lastCur = ANIM.current
     END IF
-    IF ANIM_LB.stripFirst > ANIM.count - n + 1 THEN ANIM_LB.stripFirst = ANIM.count - n + 1
+    lastTop = 1 + ((_MAX(1, ANIM.count) - 1) \ u) * u - (cap - u) ' the last frame's row at the bottom
+    IF ANIM_LB.stripFirst > lastTop THEN ANIM_LB.stripFirst = lastTop
     IF ANIM_LB.stripFirst < 1 THEN ANIM_LB.stripFirst = 1
+    ANIM_LB.stripFirst = 1 + ((ANIM_LB.stripFirst - 1) \ u) * u
+    n = _MIN(cap, ANIM.count - ANIM_LB.stripFirst + 1)
+    IF n < 1 THEN n = 1
+    ANIM_LB.stripN = n
 
     ' editor panes: as many as asked for while each keeps 16 px
     p = ANIM_LB_panes_wanted%
@@ -302,10 +300,68 @@ SUB ANIM_LB_layout ()
 END SUB
 
 ''
-' Strip cell k (0-based) rect.
+' The strip's cells (Rick 2026-11-09: "think like an ice cube tray for a
+' freezer.. it can accommodate up to a minimum x/y size of the cube size, as a
+' cell and it can stack across, and down, if the user prefers, or across
+' only"). A tray (LIGHTBOX_STRIP_FLOW=TRAY) lays the cells across, then down:
+' the biggest cell (the frame's shape) that holds every frame, down to
+' LIGHTBOX_STRIP_MIN_CELL px tall - past that it scrolls by rows. A row (ROW)
+' is one line of cells as tall as the band. LIGHTBOX_STRIP_CELL (Ctrl+wheel
+' over the strip) sets the cell height instead; the band then holds as many
+' rows of them as fit. Sets cellW / cellH, stripCols / stripRows / stripCap.
+SUB ANIM_LB_strip_cells (aw AS INTEGER, fw AS INTEGER, fh AS INTEGER)
+    DIM maxCh AS INTEGER, lo AS INTEGER, ch AS INTEGER, cw AS INTEGER
+    DIM cols AS INTEGER, rows AS INTEGER, n AS LONG
+    n = _MAX(1, ANIM.count)
+    maxCh = _MAX(4, ANIM_LB.stripH - 2 * ANIM_LB.pad)
+    IF CFG.LB_STRIP_CELL% > 0 THEN
+        ch = _MAX(4, _MIN(CFG.LB_STRIP_CELL%, maxCh))
+        ANIM_LB_strip_fit ch, aw, fw, fh, cw, cols, rows
+    ELSEIF CFG.LB_STRIP_FLOW% = 1 THEN
+        ch = maxCh
+        ANIM_LB_strip_fit ch, aw, fw, fh, cw, cols, rows
+    ELSE
+        lo = _MAX(4, _MIN(CFG.LB_STRIP_MIN_CELL%, maxCh))
+        ch = maxCh
+        DO
+            ANIM_LB_strip_fit ch, aw, fw, fh, cw, cols, rows
+            IF CLNG(cols) * rows >= n _ORELSE ch <= lo THEN EXIT DO
+            ch = ch - 1
+        LOOP
+    END IF
+    IF CFG.LB_STRIP_FLOW% = 1 THEN rows = 1
+    ANIM_LB.cellW = cw: ANIM_LB.cellH = ch
+    ANIM_LB.stripCols = cols: ANIM_LB.stripRows = rows
+    ANIM_LB.stripCap = _MIN(30000, CLNG(cols) * rows)
+END SUB
+
+''
+' A cell ch px tall (in / out: the widest cell is a third of the strip, the
+' height then follows the frame's shape): its width, and how many fit across
+' and down the band.
+SUB ANIM_LB_strip_fit (ch AS INTEGER, aw AS INTEGER, fw AS INTEGER, fh AS INTEGER, cw AS INTEGER, cols AS INTEGER, rows AS INTEGER)
+    DIM pad AS INTEGER
+    pad = ANIM_LB.pad
+    cw = (CLNG(ch) * fw + fh \ 2) \ fh
+    IF cw > aw \ 3 THEN cw = aw \ 3: ch = _MAX(4, (CLNG(cw) * fh + fw \ 2) \ fw)
+    IF cw < 4 THEN cw = 4
+    cols = _MAX(1, (aw - pad) \ (cw + pad))
+    rows = _MAX(1, (ANIM_LB.stripH - pad) \ (ch + pad))
+END SUB
+
+''
+' Frames per scroll step: a tray row (a row strip: 1).
+FUNCTION ANIM_LB_strip_unit% ()
+    IF CFG.LB_STRIP_FLOW% = 1 THEN ANIM_LB_strip_unit% = 1 ELSE ANIM_LB_strip_unit% = _MAX(1, ANIM_LB.stripCols)
+END FUNCTION
+
+''
+' Strip cell k (0-based, across then down) rect.
 SUB ANIM_LB_strip_rect (k AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
-    x = ANIM_LB.x1 + ANIM_LB.pad + k * (ANIM_LB.cellW + ANIM_LB.pad)
-    y = ANIM_LB.stripY + ANIM_LB.pad
+    DIM c AS INTEGER
+    c = _MAX(1, ANIM_LB.stripCols)
+    x = ANIM_LB.x1 + ANIM_LB.pad + (k MOD c) * (ANIM_LB.cellW + ANIM_LB.pad)
+    y = ANIM_LB.stripY + ANIM_LB.pad + (k \ c) * (ANIM_LB.cellH + ANIM_LB.pad)
     w = ANIM_LB.cellW: h = ANIM_LB.cellH
 END SUB
 
@@ -532,7 +588,12 @@ SUB ANIM_LB_render (dest AS LONG, src AS LONG)
     NEXT k
     ' dragging frames: where they will land
     IF ANIM_LB.sDrag _ANDALSO ANIM_LB.sDrop >= ANIM_LB.stripFirst _ANDALSO ANIM_LB.sDrop <= ANIM_LB.stripFirst + ANIM_LB.stripN THEN
-        ANIM_LB_strip_rect ANIM_LB.sDrop - ANIM_LB.stripFirst, x, y, w, h
+        k = ANIM_LB.sDrop - ANIM_LB.stripFirst
+        IF ANIM_LB.sDropEnd _ANDALSO k > 0 THEN ' after the last cell of a tray row
+            ANIM_LB_strip_rect k - 1, x, y, w, h: x = x + w + ANIM_LB.pad
+        ELSE
+            ANIM_LB_strip_rect k, x, y, w, h
+        END IF
         LINE (x - ANIM_LB.pad \ 2 - 2, y)-(x - ANIM_LB.pad \ 2, y + h - 1), THEME.ANIM_FRAME_current~&, BF
     END IF
 
@@ -740,6 +801,10 @@ SUB ANIM_LB_mouse ()
     IF pressed1 THEN IF ANIM_XS_press%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN EXIT SUB ' the X-sheet (4.1)
     f = ANIM_LB_strip_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
     IF pressed1 _ANDALSO f > 0 THEN ANIM_LB_strip_press f: EXIT SUB
+    IF pressed2 _ANDALSO pressed1 = 0 _ANDALSO CFG.XSHEET% = 0 _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.stripY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.stripY + ANIM_LB.stripH THEN
+        ANIM_LB.menuKind = 3: ANIM_LB_menu_at MOUSE.RAW_X%, MOUSE.RAW_Y% ' the strip's cells
+        EXIT SUB
+    END IF
     IF pressed1 THEN ANIM_LB_click ANIM_LB_ctl_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
 END SUB
 
@@ -811,14 +876,29 @@ SUB ANIM_LB_size_hold ()
 END SUB
 
 ''
-' The strip's height that fits every frame across its width (the cells keep
-' the frame's shape), at most half of the room.
+' A double-click on the strip's edge: the cells fitted again, and a band that
+' shows every frame - a row: the height that fits them all across its width
+' (the cells keep the frame's shape); a tray: grown (never shrunk) until they
+' all fit at its smallest cells. At most half of the room.
 SUB ANIM_LB_strip_fit_all ()
     DIM room AS INTEGER, aw AS INTEGER, cw AS LONG, ch AS LONG, n AS INTEGER, pad AS INTEGER
+    DIM cols AS LONG, rows AS LONG, need AS LONG
     room = (ANIM_LB.y2 - ANIM_LB.y1 + 1) - ANIM_LB.barH
     aw = ANIM_LB.x2 - ANIM_LB.x1 + 1: pad = ANIM_LB.pad
     n = _MAX(1, ANIM.count)
+    CFG.LB_STRIP_CELL% = 0
     IF room < 1 _ORELSE aw < 1 THEN EXIT SUB
+    IF CFG.LB_STRIP_FLOW% = 0 THEN
+        ch = _MAX(4, CFG.LB_STRIP_MIN_CELL%)
+        cw = (ch * _MAX(1, ANIM.frameW) + _MAX(1, ANIM.frameH) \ 2) \ _MAX(1, ANIM.frameH)
+        IF cw > aw \ 3 THEN cw = aw \ 3: ch = _MAX(4, (cw * _MAX(1, ANIM.frameH)) \ _MAX(1, ANIM.frameW))
+        IF cw < 4 THEN cw = 4
+        cols = _MAX(1, (aw - pad) \ (cw + pad))
+        rows = (n + cols - 1) \ cols
+        need = rows * (ch + pad) + pad
+        IF need > ANIM_LB.stripH THEN CFG.LB_STRIP_PCT! = _MAX(20, _MIN(need, room \ 2)) * 100! / room
+        EXIT SUB
+    END IF
     cw = (aw - pad) \ n - pad
     IF cw < 4 THEN cw = 4
     IF cw > aw \ 3 THEN cw = aw \ 3 ' the layout's widest cell
@@ -834,7 +914,7 @@ FUNCTION ANIM_LB_strip_at% (mx AS INTEGER, my AS INTEGER)
     IF my < ANIM_LB.stripY _ORELSE my >= ANIM_LB.stripY + ANIM_LB.stripH THEN EXIT FUNCTION
     FOR k = 0 TO ANIM_LB.stripN - 1
         ANIM_LB_strip_rect k, x, y, w, h
-        IF mx >= x - ANIM_LB.pad \ 2 _ANDALSO mx < x + w + (ANIM_LB.pad + 1) \ 2 THEN
+        IF mx >= x - ANIM_LB.pad \ 2 _ANDALSO mx < x + w + (ANIM_LB.pad + 1) \ 2 _ANDALSO my >= y - ANIM_LB.pad \ 2 _ANDALSO my < y + h + (ANIM_LB.pad + 1) \ 2 THEN
             IF ANIM_LB.stripFirst + k <= ANIM.count THEN ANIM_LB_strip_at% = ANIM_LB.stripFirst + k
             EXIT FUNCTION
         END IF
@@ -842,16 +922,26 @@ FUNCTION ANIM_LB_strip_at% (mx AS INTEGER, my AS INTEGER)
 END FUNCTION
 
 ''
-' The drop slot for a drag at viewport x: before the frame whose cell's
-' left half it is over (count + 1 past the last).
-FUNCTION ANIM_LB_strip_slot% (mx AS INTEGER)
+' The drop slot for a drag at viewport (mx, my): the tray row under my, then
+' before the frame whose cell's left half mx is over in it (count + 1 past
+' the last). atEnd = past the row's last cell (the mark goes after it).
+FUNCTION ANIM_LB_strip_slot% (mx AS INTEGER, my AS INTEGER, atEnd AS INTEGER)
     DIM k AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, s AS INTEGER
-    s = ANIM_LB.stripFirst + ANIM_LB.stripN
-    FOR k = 0 TO ANIM_LB.stripN - 1
+    DIM c AS INTEGER, r AS INTEGER, used AS INTEGER, k2 AS INTEGER
+    c = _MAX(1, ANIM_LB.stripCols)
+    used = _MAX(1, (ANIM_LB.stripN + c - 1) \ c)
+    r = (my - ANIM_LB.stripY - ANIM_LB.pad \ 2) \ _MAX(1, ANIM_LB.cellH + ANIM_LB.pad)
+    IF my < ANIM_LB.stripY THEN r = 0
+    r = _MAX(0, _MIN(r, used - 1))
+    k2 = _MIN(r * c + c, ANIM_LB.stripN)
+    s = ANIM_LB.stripFirst + k2: atEnd = TRUE
+    FOR k = r * c TO k2 - 1
         ANIM_LB_strip_rect k, x, y, w, h
-        IF mx < x + w \ 2 THEN s = ANIM_LB.stripFirst + k: EXIT FOR
+        IF mx < x + w \ 2 THEN s = ANIM_LB.stripFirst + k: atEnd = FALSE: EXIT FOR
     NEXT k
-    ANIM_LB_strip_slot% = _MAX(1, _MIN(s, ANIM.count + 1))
+    IF s > ANIM.count + 1 THEN s = ANIM.count + 1
+    IF s < 1 THEN s = 1: atEnd = FALSE
+    ANIM_LB_strip_slot% = s
 END FUNCTION
 
 FUNCTION ANIM_LB_ctrl% ()
@@ -867,7 +957,7 @@ END FUNCTION
 SUB ANIM_LB_strip_press (f AS INTEGER)
     DIM c AS INTEGER, s AS INTEGER
     c = ANIM_LB_ctrl%: s = ANIM_LB_shift%
-    ANIM_LB.sPress = f: ANIM_LB.sPressX = MOUSE.RAW_X%: ANIM_LB.sDrag = FALSE: ANIM_LB.sDrop = 0
+    ANIM_LB.sPress = f: ANIM_LB.sPressX = MOUSE.RAW_X%: ANIM_LB.sPressY = MOUSE.RAW_Y%: ANIM_LB.sDrag = FALSE: ANIM_LB.sDrop = 0
     ANIM_LB.sCollapse = FALSE
     IF c = 0 _ANDALSO s = 0 _ANDALSO ANIM_SEL_count% > 1 _ANDALSO ANIM_SEL(f) <> 0 THEN
         ' a press on the selection: it may be the start of a drag - collapse on release
@@ -885,19 +975,27 @@ END SUB
 SUB ANIM_LB_strip_hold ()
     MOUSE.UI_CHROME_CLICKED% = TRUE
     IF MOUSE.B1% THEN
-        IF ANIM_LB.sDrag = 0 _ANDALSO ABS(MOUSE.RAW_X% - ANIM_LB.sPressX) >= 4 _ANDALSO ANIM_LB_ctrl% = 0 _ANDALSO ANIM_LB_shift% = 0 THEN
+        IF ANIM_LB.sDrag = 0 _ANDALSO (ABS(MOUSE.RAW_X% - ANIM_LB.sPressX) >= 4 _ORELSE ABS(MOUSE.RAW_Y% - ANIM_LB.sPressY) >= 4) _ANDALSO ANIM_LB_ctrl% = 0 _ANDALSO ANIM_LB_shift% = 0 THEN
             ANIM_LB.sDrag = TRUE: ANIM_LB.sCollapse = FALSE
         END IF
         IF ANIM_LB.sDrag THEN
-            ' past the strip's ends it scrolls, a frame every quarter second
-            DIM sx2 AS INTEGER, t AS DOUBLE
-            sx2 = ANIM_LB.x1 + ANIM_LB.pad + ANIM_LB.stripN * (ANIM_LB.cellW + ANIM_LB.pad)
+            ' past the strip's ends (a row: left / right; a tray: above / below)
+            ' it scrolls, a frame / a row every quarter second
+            DIM sx2 AS INTEGER, t AS DOUBLE, back AS INTEGER, fwd AS INTEGER, u AS INTEGER, s AS INTEGER, e AS INTEGER
+            u = ANIM_LB_strip_unit%
+            IF CFG.LB_STRIP_FLOW% = 1 THEN
+                sx2 = ANIM_LB.x1 + ANIM_LB.pad + ANIM_LB.stripN * (ANIM_LB.cellW + ANIM_LB.pad)
+                back = (MOUSE.RAW_X% < ANIM_LB.x1 + ANIM_LB.pad): fwd = (MOUSE.RAW_X% >= sx2)
+            ELSE
+                back = (MOUSE.RAW_Y% < ANIM_LB.stripY + ANIM_LB.pad): fwd = (MOUSE.RAW_Y% >= ANIM_LB.stripY + ANIM_LB.stripH - ANIM_LB.pad)
+            END IF
             t = TIMER(.001)
             IF t >= ANIM_LB.sScrollT _ORELSE t < ANIM_LB.sScrollT - 1 THEN
-                IF MOUSE.RAW_X% < ANIM_LB.x1 + ANIM_LB.pad _ANDALSO ANIM_LB.stripFirst > 1 THEN ANIM_LB.stripFirst = ANIM_LB.stripFirst - 1: ANIM_LB.sScrollT = t + .25
-                IF MOUSE.RAW_X% >= sx2 _ANDALSO ANIM_LB.stripFirst + ANIM_LB.stripN <= ANIM.count THEN ANIM_LB.stripFirst = ANIM_LB.stripFirst + 1: ANIM_LB.sScrollT = t + .25
+                IF back _ANDALSO ANIM_LB.stripFirst > 1 THEN ANIM_LB.stripFirst = _MAX(1, ANIM_LB.stripFirst - u): ANIM_LB.sScrollT = t + .25: ANIM_LB_layout
+                IF fwd _ANDALSO ANIM_LB.stripFirst + ANIM_LB.stripCap <= ANIM.count THEN ANIM_LB.stripFirst = ANIM_LB.stripFirst + u: ANIM_LB.sScrollT = t + .25: ANIM_LB_layout
             END IF
-            IF ANIM_LB_strip_slot%(MOUSE.RAW_X%) <> ANIM_LB.sDrop THEN ANIM_LB.sDrop = ANIM_LB_strip_slot%(MOUSE.RAW_X%): ANIM_LB_changed
+            s = ANIM_LB_strip_slot%(MOUSE.RAW_X%, MOUSE.RAW_Y%, e)
+            IF s <> ANIM_LB.sDrop _ORELSE e <> ANIM_LB.sDropEnd THEN ANIM_LB.sDrop = s: ANIM_LB.sDropEnd = e: ANIM_LB_changed
         END IF
         EXIT SUB
     END IF
@@ -909,21 +1007,32 @@ SUB ANIM_LB_strip_hold ()
     ELSEIF ANIM_LB.sCollapse THEN
         ANIM_SEL_click ANIM_LB.sPress, FALSE, FALSE
     END IF
-    ANIM_LB.sPress = 0: ANIM_LB.sCollapse = FALSE: ANIM_LB.sDrop = 0
+    ANIM_LB.sPress = 0: ANIM_LB.sCollapse = FALSE: ANIM_LB.sDrop = 0: ANIM_LB.sDropEnd = FALSE
     ANIM_LB_changed
 END SUB
 
 ''
-' The wheel over the strip scrolls it (R-10); TRUE = it took the wheel.
+' The wheel over the strip scrolls it (R-10) - a tray by rows; Ctrl+wheel
+' sizes its cells (LIGHTBOX_STRIP_CELL). TRUE = it took the wheel.
 FUNCTION ANIM_LB_strip_wheel% (mx AS INTEGER, my AS INTEGER, delta AS INTEGER)
-    DIM top AS INTEGER
+    DIM top AS INTEGER, u AS INTEGER
     IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 THEN EXIT FUNCTION
     IF CFG.XSHEET% THEN ANIM_LB_strip_wheel% = ANIM_XS_wheel%(mx, my, delta): EXIT FUNCTION
     IF my < ANIM_LB.stripY _ORELSE my >= ANIM_LB.stripY + ANIM_LB.stripH THEN EXIT FUNCTION
     IF mx < ANIM_LB.x1 _ORELSE mx > ANIM_LB.x2 THEN EXIT FUNCTION
     IF REGION_hit_test%(mx, my) <> REGION_CANVAS THEN EXIT FUNCTION
-    top = _MAX(1, ANIM.count - ANIM_LB.stripN + 1)
-    ANIM_LB.stripFirst = _MAX(1, _MIN(top, ANIM_LB.stripFirst + SGN(delta) * _MAX(1, ANIM_LB.stripN \ 4)))
+    IF ANIM_LB_ctrl% THEN ' bigger (wheel up) / smaller cells
+        ANIM_LB_strip_zoom -SGN(delta)
+        ANIM_LB_strip_wheel% = TRUE
+        EXIT FUNCTION
+    END IF
+    u = ANIM_LB_strip_unit%
+    top = _MAX(1, 1 + ((_MAX(1, ANIM.count) - 1) \ u) * u - (ANIM_LB.stripCap - u))
+    IF u > 1 THEN ' a tray: a row a tick
+        ANIM_LB.stripFirst = _MAX(1, _MIN(top, ANIM_LB.stripFirst + SGN(delta) * u))
+    ELSE
+        ANIM_LB.stripFirst = _MAX(1, _MIN(top, ANIM_LB.stripFirst + SGN(delta) * _MAX(1, ANIM_LB.stripN \ 4)))
+    END IF
     ANIM_LB_changed
     ANIM_LB_strip_wheel% = TRUE
 END FUNCTION
@@ -976,11 +1085,55 @@ SUB ANIM_LB_menu_build ()
     DIM i AS INTEGER
     IF ANIM_LB.menuKind = 1 THEN ANIM_SC_menu_build: EXIT SUB ' the SOUND rows' (F6)
     IF ANIM_LB.menuKind = 2 THEN ANIM_XS_tag_menu_build: EXIT SUB ' the TAGS / NOTES rows' (R-13)
+    IF ANIM_LB.menuKind = 3 THEN ANIM_LB_strip_menu_build: EXIT SUB ' the strip's cells
     POPUP_MENU_clear_items
     FOR i = 0 TO 3
         POPUP_MENU_set_item i, _TRIM$(MID$("Forward   Backward  Ping-pong Play once ", i * 10 + 1, 10)), "", i, _IIF(i = ANIM.loopMode, POPUP_MENU_FLAG_CHECKED, 0)
     NEXT i
     ANIM_LB.menuN = 4
+END SUB
+
+''
+' The strip's right-click menu: a tray / a row, cells fitted or bigger /
+' smaller (values 100-104, ANIM_LB_strip_menu_pick).
+SUB ANIM_LB_strip_menu_build ()
+    POPUP_MENU_clear_items
+    POPUP_MENU_set_item 0, "Tray: Across, then Down", "", 100, _IIF(CFG.LB_STRIP_FLOW% = 0, POPUP_MENU_FLAG_CHECKED, 0)
+    POPUP_MENU_set_item 1, "Row: Across Only", "", 101, _IIF(CFG.LB_STRIP_FLOW% = 1, POPUP_MENU_FLAG_CHECKED, 0)
+    POPUP_MENU_set_item 2, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    POPUP_MENU_set_item 3, "Fit Cells to the Strip", "Dbl-Click Edge", 102, _IIF(CFG.LB_STRIP_CELL% = 0, POPUP_MENU_FLAG_CHECKED, 0)
+    POPUP_MENU_set_item 4, "Bigger Cells", "Ctrl+Wheel Up", 103, 0
+    POPUP_MENU_set_item 5, "Smaller Cells", "Ctrl+Wheel Down", 104, 0
+    ANIM_LB.menuN = 6
+END SUB
+
+SUB ANIM_LB_strip_menu_pick (v AS INTEGER)
+    SELECT CASE v
+        CASE 100, 101
+            CFG.LB_STRIP_FLOW% = v - 100
+            STATUS_flash _IIF(v = 100, "Strip: a tray - across, then down", "Strip: one row - across only")
+        CASE 102: CFG.LB_STRIP_CELL% = 0: STATUS_flash "Strip: cells fitted to the strip"
+        CASE 103: ANIM_LB_strip_zoom 1: EXIT SUB
+        CASE 104: ANIM_LB_strip_zoom -1: EXIT SUB
+        CASE ELSE: EXIT SUB
+    END SELECT
+    CONFIG_save
+    ANIM_LB_changed
+END SUB
+
+''
+' Bigger (dir 1) / smaller (-1) strip cells: an eighth of a cell a step, 8 px
+' up to the band's height (LIGHTBOX_STRIP_CELL, saved).
+SUB ANIM_LB_strip_zoom (dir AS INTEGER)
+    DIM v AS INTEGER, maxCh AS INTEGER
+    IF dir = 0 THEN EXIT SUB
+    maxCh = _MAX(8, ANIM_LB.stripH - 2 * ANIM_LB.pad)
+    v = ANIM_LB.cellH + SGN(dir) * _MAX(2, ANIM_LB.cellH \ 8)
+    CFG.LB_STRIP_CELL% = _MAX(8, _MIN(v, maxCh))
+    CONFIG_save
+    ANIM_LB_layout
+    STATUS_flash "Strip cells:" + STR$(ANIM_LB.cellW) + " x" + STR$(ANIM_LB.cellH) + " px (Ctrl+wheel; double-click the strip's edge to fit)"
+    ANIM_LB_changed
 END SUB
 
 SUB ANIM_LB_menu_open ()
@@ -1034,6 +1187,15 @@ FUNCTION ANIM_LB_menu_mouse% ()
             CMD_execute_action v
         ELSEIF MOUSE.RAW_X% >= ANIM_LB.menuX _ANDALSO MOUSE.RAW_X% < ANIM_LB.menuX + ANIM_LB.menuW _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.menuY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.menuY + POPUP_MENU_total_height%(ANIM_LB.menuN, LB_MENU_ITEM_H) THEN
             MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE ' a divider / greyed item: just closes it
+        END IF
+        EXIT FUNCTION
+    END IF
+    IF ANIM_LB.menuKind = 3 THEN ' the strip's menu
+        IF v >= 100 THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE
+            ANIM_LB_strip_menu_pick v
+        ELSEIF MOUSE.RAW_X% >= ANIM_LB.menuX _ANDALSO MOUSE.RAW_X% < ANIM_LB.menuX + ANIM_LB.menuW _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.menuY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.menuY + POPUP_MENU_total_height%(ANIM_LB.menuN, LB_MENU_ITEM_H) THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE ' the divider: just closes it
         END IF
         EXIT FUNCTION
     END IF
@@ -1195,13 +1357,15 @@ END SUB
 ''
 ' QA dump lines:
 ' ANIMLB shown x1 y1 x2 y2 stripY stripH barY barH edY edH stripFirst stripN cellW cellH panes paneW paneH pad drawPane
+'        stripCols stripRows flow (0 tray, 1 row) cellSetting (0 fitted)
 ' ANIMLBC x w (for each control 1..14, w = 0 hidden)
 FUNCTION ANIM_LB_dump$ ()
     DIM d AS STRING, k AS INTEGER
     d = "ANIMLB" + DOCK_n$(ANIM_LB.shown <> 0 _ANDALSO ANIM_LB_showing% <> 0) + DOCK_n$(ANIM_LB.x1) + DOCK_n$(ANIM_LB.y1) + DOCK_n$(ANIM_LB.x2) + DOCK_n$(ANIM_LB.y2)
     d = d + DOCK_n$(ANIM_LB.stripY) + DOCK_n$(ANIM_LB.stripH) + DOCK_n$(ANIM_LB.barY) + DOCK_n$(ANIM_LB.barH) + DOCK_n$(ANIM_LB.edY) + DOCK_n$(ANIM_LB.edH)
     d = d + DOCK_n$(ANIM_LB.stripFirst) + DOCK_n$(ANIM_LB.stripN) + DOCK_n$(ANIM_LB.cellW) + DOCK_n$(ANIM_LB.cellH)
-    d = d + DOCK_n$(ANIM_LB.panes) + DOCK_n$(ANIM_LB.paneW) + DOCK_n$(ANIM_LB.paneH) + DOCK_n$(ANIM_LB.pad) + DOCK_n$(ANIM_LB.drawPane) + CHR$(10)
+    d = d + DOCK_n$(ANIM_LB.panes) + DOCK_n$(ANIM_LB.paneW) + DOCK_n$(ANIM_LB.paneH) + DOCK_n$(ANIM_LB.pad) + DOCK_n$(ANIM_LB.drawPane)
+    d = d + DOCK_n$(ANIM_LB.stripCols) + DOCK_n$(ANIM_LB.stripRows) + DOCK_n$(CFG.LB_STRIP_FLOW%) + DOCK_n$(CFG.LB_STRIP_CELL%) + CHR$(10)
     d = d + "ANIMLBC"
     FOR k = 1 TO LB_CTLS: d = d + DOCK_n$(ANIM_LB_CX(k)) + DOCK_n$(ANIM_LB_CW(k)): NEXT k
     d = d + CHR$(10)

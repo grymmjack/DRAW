@@ -11,7 +11,7 @@
 # its pixels' bounds), ANIM (count, current).
 # Fixture: a 128x32 sheet of 32x32 frames, empty; frame 2's cell is x 32-63.
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: a new text layer starts and wraps in the current frame ==="
 

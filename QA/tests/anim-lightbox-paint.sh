@@ -16,7 +16,7 @@
 # Fixture: a 64x16 sheet of 16x16 frames: frame 1 a shape inside (2,2)-(9,9),
 # frames 2-4 empty.
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 DEFAULT_DRAW_MODE=2
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 DEFAULT_DRAW_MODE=2 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: Paste in Place and gradient fills in the current frame ==="
 

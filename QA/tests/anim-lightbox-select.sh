@@ -16,7 +16,7 @@
 # blue, frame 3 red in its left half (columns 0-7), frame 4 empty. So frame 1
 # with its right half deleted is frame 3's picture.
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX_STRIP_FLOW=ROW
 # =============================================================================
 info "=== Animation: selections and pastes stay inside the current frame ==="
 
