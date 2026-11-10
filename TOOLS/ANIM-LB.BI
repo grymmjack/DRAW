@@ -176,6 +176,14 @@ TYPE ANIM_LB_OBJ
     bigH       AS INTEGER
     bigReady   AS INTEGER
     rowH       AS INTEGER
+    ' sizing (field kit, Rick 2026-11-09: "more lightbox, more sequence, more
+    ' x-sheet"): dragging the band's bottom edge (1) or the X-sheet's name
+    ' column edge (2)
+    szMode     AS INTEGER
+    szP0       AS INTEGER ' the press (viewport y / x)
+    szV0       AS INTEGER ' the band height / column width at the press
+    szLastT    AS DOUBLE  ' the last press on an edge (a double-click)
+    szLastMode AS INTEGER
 END TYPE
 DIM SHARED ANIM_LB AS ANIM_LB_OBJ
 DIM SHARED ANIM_LB_EDIT AS STRING ' the count box's text while typing (2.4)

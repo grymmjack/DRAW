@@ -617,6 +617,8 @@ default). Zooming and panning stay with the sheet view.
 | `Shift+click` | Select the frames from the last one clicked to this one (`Ctrl+Shift` adds them) |
 | Drag | Move the selected frames (or the frame dragged) to where you drop them - one undo step |
 | Wheel | Scroll the strip; a frame change brings the current frame back into view |
+| Drag the strip's bottom edge | Make the strip taller or shorter (the panes get the rest); the frames grow with it |
+| Double-click the strip's bottom edge | Fit every frame across the strip |
 
 With two or more frames selected, Play (`Num Enter`) plays just those (first to last).
 
@@ -626,7 +628,9 @@ one tick at the FPS, so a frame held 3 spans three columns; the header numbers t
 the bottom row gives each one's hold. A cell shows that layer's drawing in that frame, with a
 line along the rest of its hold; a blank cell has nothing drawn. The current frame's column is
 tinted, the current layer's row highlighted; hidden layers are dim, `R` marks a reference
-layer, `=` a layer the same on every frame.
+layer, `=` a layer the same on every frame. Cells show what's drawn in them zoomed in, as the
+Layers panel thumbnails do (Settings → Panels → Thumbnail Shows / Min Crop). A name too long
+for its column ends in `~`; hover it for the whole name.
 
 | X-sheet | Action |
 |---------|--------|
@@ -638,6 +642,8 @@ layer, `=` a layer the same on every frame.
 | Drag a cell | Move its drawing to the cell you drop it on - another frame, another layer, or both; the drawing there is replaced. Hold `Ctrl` as you let go to copy it instead |
 | Drag a frame number | Move the selected frames (or that one) to where you drop them, as in the strip |
 | `Shift` + drag a cell (same row) | Link the cell you drop it on to the dragged cell's drawing (hatched; painting either changes both) |
+| Drag the name column's right edge | Widen / narrow the layer names (double-click it: automatic) |
+| Drag the X-sheet's bottom edge | More X-sheet, less panes or the other way (double-click it: automatic) |
 
 Each drag is one undo step. Dragging past the left or right edge scrolls the grid.
 

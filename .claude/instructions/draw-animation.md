@@ -687,6 +687,23 @@ current. Frames: `ANIM_XS_drop_slot%` (left half of a span) -> `ANIM_MOVE_TO` +
 `ANIM_OP_MOVE_SEL` (holds travel with their frames); a plain press on a multi-selection
 collapses on a click release. Past the grid's ends a cell / frame drag scrolls a frame / 0.25 s.
 Dump `ANIMXSD mode on frame slot to toSlot`. QA: `anim-xsheet-edit.sh`.
+**Sizing / thumbnails / names (2026-11-09, Rick's thumbnails round):** the band's bottom edge
+(`ANIM_LB.barY` -3..+1) and the X-sheet's name column edge (`gx - 1` +-2) drag:
+`ANIM_LB_sizer_at%` (1 / 2; also the pointer's resize cursor in `GUI/POINTER.BM`),
+`ANIM_LB_size_press%` from `ANIM_LB_mouse` before the panes / X-sheet, `ANIM_LB_size_hold` -
+called from `MOUSE_process_frame%` too (beside `DOCK_handle_mouse%`) so the drag follows the
+pointer off the canvas region; the release `CONFIG_save`s. `CFG.LB_STRIP_PCT!` /
+`CFG.XSHEET_BAND_PCT!` (`LIGHTBOX_STRIP_SIZE` / `XSHEET_SIZE`, % of the height the bar leaves,
+0 = auto; the panes keep 40 px) and `CFG.XSHEET_NAME_W%` (`XSHEET_NAME_WIDTH`, px, at least
+`ANIM_XS_name_w_min%`). Double-click (0.4 s, same edge): the strip's edge
+`ANIM_LB_strip_fit_all` (every frame across, at most half), the X-sheet's edges back to 0.
+Labels fit their room (`ANIM_XS_label_room` / `ANIM_XS_label_fit$`, cut with `~`, the `/ R =`
+tail kept) and a cut one shows whole in a tooltip (`ANIM_XS_tip%` 4000 + slot). Cells crop
+like the Layers panel thumbnails: `ANIM_XS_scan%` now finds the drawing's box with
+`LAYER_content_box` (GUI/LAYERS) and `ANIM_XS_filled%` caches it in `ANIM_XS_BOXES()` (16
+bytes a frame) beside `ANIM_XS_FILL`; `ANIM_XS_cell` grows it to `CFG.LAYER_THUMB_MIN_CROP`
+(`LAYER_PANEL_thumb_span`) or shows the whole cell with `LAYER_THUMB_FIT` = CANVAS, centred
+in the tick. QA: `anim-xsheet-sizing.sh`.
 QA dump: `ANIMXS on shown x1 y1 x2 y2 nameW rowH tickW gx firstF lastF nRows firstRow
 rowsShown currentLayer`, `ANIMXSF f x w ...` (spans), `ANIMXSR r slot y fill` (fill = 1 / 0 per
 frame, `-` a group; y -1 scrolled out). The chip is `ANIMLBC` pair 15. QA: `anim-xsheet.sh`.

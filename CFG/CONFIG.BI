@@ -359,6 +359,9 @@ TYPE DRAW_CONFIG
     LIGHTBOX                        AS INTEGER        ' Animation: lightbox view (strip, transport bar, 3/5/7 panes) on a sheet with frames (ANIM > Lightbox, Num 0)
     XSHEET                          AS INTEGER        ' Animation: the lightbox's top band is the X-sheet (frames x layers), not the strip (ANIM > X-Sheet, Num 8)
     LIGHTBOX_PANES                  AS INTEGER        ' Animation: lightbox editor panes 3 / 5 / 7 (ANIM > Lightbox Panes, Num *)
+    LB_STRIP_PCT                    AS SINGLE         ' Animation: the lightbox's frame strip, % of the height the transport bar leaves (0 = auto); drag its edge
+    XSHEET_BAND_PCT                 AS SINGLE         ' Animation: the X-sheet band, % of the height the transport bar leaves (0 = auto); drag its edge
+    XSHEET_NAME_W                   AS INTEGER        ' Animation: the X-sheet's layer-name column, px (0 = auto); drag its edge
     CLIP_FRAME_LIGHTBOX             AS INTEGER        ' Animation: a stroke in a lightbox pane stays inside its frame (ANIM > Clip Strokes to the Frame in the Lightbox)
     CLIP_FRAME_SHEET                AS INTEGER        ' Animation: a stroke in sheet view stays inside the frame it starts in (ANIM > Clip Strokes to the Frame in Sheet View)
     ONION_SKIN                      AS INTEGER        ' Animation: the lightbox's current pane shows the frames before / after it (ANIM > Onion Skin, Num /)
