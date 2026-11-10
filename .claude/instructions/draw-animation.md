@@ -710,6 +710,27 @@ column (`sDropEnd`: the mark after a row's last cell). R-click the band: `menuKi
 setting and grows the band (never shrinks it) until every frame fits at the min cell. The
 ANIMLB dump ends `stripCols stripRows flow cellSetting`. Older strip tests assume one row: they
 pin `LIGHTBOX_STRIP_FLOW=ROW` in QA-OPTIONS; `anim-strip-tray.sh` covers the tray.
+**X-sheet zoom / row sizes / tag jumps (2026-11-10, Rick's Girl.ase: 60 frames x hold 24
+filled the band with two frames):** the tick is fractional - `ANIM_XS.tick!` (px per tick),
+`tickAuto` (the default: a thumbnail a tick, from the layer row's height), `tickMin` (every frame
+across, >= 0.02); `CFG.XSHEET_ZOOM!` (`XSHEET_ZOOM`, 0 = the default) is clamped to
+[tickMin, tickAuto]. Positions: `ANIM_XS_tick_off&` (ticks from firstF) -> `ANIM_XS_tick_px%`
+(INT of ticks x tick), `ANIM_XS_frame_x%`, and `ANIM_XS_span_w%(f)` - use it, never
+`hold * tickW` (`tickW` is only the rounded tick for the dump). The header's LAYER cell holds the
+slider (`ANIM_XS_render_zoom`, log scale `ANIM_XS_zoom_x%`, `zx1 / zx2`; `ANIM_XS_zoom_press%` /
+`_hold` - `zDrag`, held from `MOUSE_process_frame%` too; a double-click = default);
+`ANIM_XS_zoom_set t, f, mx` keeps frame f under mx; Ctrl+wheel `ANIM_XS_zoom_wheel`. Zoomed so
+a span is under 7 px a cell is a bar, not a thumbnail; frame lines under 3 px are left out.
+Layer rows: `CFG.XSHEET_ROWS%` (`XSHEET_ROWS` TEXT / TINY / SMALL / MEDIUM -> `ANIM_XS.layH`
+via `ANIM_XS_lay_h%`, 20 / 36 / 52 px); the header / HOLD / TAGS / NOTES / SOUND rows stay
+`rowH`, so `ANIM_XS_row_y%` / `ANIM_XS_band_row%` are piecewise and `ANIM_XS_min_h%` is the
+band's least height (ANIM_LB_layout uses it). Ctrl+Shift+wheel / `ANIM_XS_rows_set`. R-click
+the header: `menuKind` 4 (`ANIM_XS_view_menu_build`, values 200-213). TAGS row: `<` / `>`
+(`ANIM_XS_tag_btn_x%`, `ANIM_XS_tag_step`, `ANIM_XS_tag_go` = `ANIM_TG_select` + flash); its
+menu lists the tags first in frame order (values 30000 + tag, at most 24). ANIMXS dump appends
+`layH tick*100 tickAuto*100 tickMin*100 zx1 zx2 tagBtnX`. Test: `anim-xsheet-zoom.sh`. X-sheet
+tests pin `XSHEET_NAME_WIDTH=0 XSHEET_SIZE=0` (and LIGHTBOX / XSHEET = 0): a user profile keeps
+the sizes it was dragged to.
 Labels fit their room (`ANIM_XS_label_room` / `ANIM_XS_label_fit$`, cut with `~`, the `/ R =`
 tail kept) and a cut one shows whole in a tooltip (`ANIM_XS_tip%` 4000 + slot). Cells crop
 like the Layers panel thumbnails: `ANIM_XS_scan%` now finds the drawing's box with

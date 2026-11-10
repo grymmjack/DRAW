@@ -21,7 +21,7 @@
 #
 # Dump: ANIMXS (nameW rowH tickW gx ... CURRENT_LAYER), ANIMXSF (frame spans),
 # ANIMLB (stripY stripH barY ... stripFirst stripN), TIP.
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX=0 XSHEET=0 TOOLTIPS_DISABLED=FALSE LAYER_THUMBNAIL_MIN_CROP=1 LIGHTBOX_STRIP_FLOW=ROW
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX=0 XSHEET=0 TOOLTIPS_DISABLED=FALSE LAYER_THUMBNAIL_MIN_CROP=1 LIGHTBOX_STRIP_FLOW=ROW XSHEET_NAME_WIDTH=0 XSHEET_SIZE=0 LIGHTBOX_STRIP_SIZE=0
 # =============================================================================
 info "=== Animation: X-sheet / strip sizing, cell thumbnails, cut names ==="
 

@@ -652,8 +652,20 @@ for its column ends in `~`; hover it for the whole name.
 | `Shift` + drag a cell (same row) | Link the cell you drop it on to the dragged cell's drawing (hatched; painting either changes both) |
 | Drag the name column's right edge | Widen / narrow the layer names (double-click it: automatic) |
 | Drag the X-sheet's bottom edge | More X-sheet, less panes or the other way (double-click it: automatic) |
+| Drag the slider in the header's `LAYER` cell | Zoom the time line: left = every frame fits across, right = the default (a thumbnail per tick). Double-click it for the default. Shown only when the frames don't all fit |
+| `Ctrl+Wheel` over the grid | Zoom the time line in / out around the frame under the pointer |
+| `Ctrl+Shift+Wheel` | Layer rows' size: Text → Tiny → Small → Medium (thumbnails as in the Layers panel) |
+| `R-Click` the header (frame numbers) | Zoom to Fit All Frames, Default Size, Zoom In / Out, Layer Rows: Text / Tiny / Small / Medium |
+| `<` / `>` on the TAGS row | Go to the previous / next tag (selects its frames) |
+| `R-Click` the TAGS row | Every tag listed at the top (with its frames): pick one to go to it; then Tag / Rename / Delete Tag and the frame notes |
 
 Each drag is one undo step. Dragging past the left or right edge scrolls the grid.
+
+The X-sheet is drawn to time: a frame is as wide as its hold, so a long animation with long holds
+(60 frames held 24 ticks each) shows only a few frames at the default size. Zoom out with the
+header's slider or `Ctrl+Wheel` to see them all; zoomed far out, a drawn cell shows as a bar
+instead of a thumbnail. Settings → Panels → Lightbox Strip / X-Sheet → X-Sheet Rows sets the
+layer rows' size.
 
 **Opening an animated GIF** gives you its frames on a sheet: each frame as a browser shows it, the delays as the FPS and holds, looping as the GIF does. With Save .draw Beside Images off, Ctrl+S writes it back as an animated GIF.
 

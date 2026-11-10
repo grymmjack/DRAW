@@ -47,6 +47,7 @@ CONST XS_DRAG_SOUND  = 4 ' a sound clip: along its track / to another track (F6)
 CONST XS_EYE_X  = 2  ' name column: the eye from x1 + 2, the lock from x1 + 13,
 CONST XS_LOCK_X = 13 ' the name from x1 + XS_ICONS_W (F5)
 CONST XS_ICONS_W = 25
+CONST XS_TAG_BTN_W = 11 ' the TAGS row's < / > buttons
 DIM SHARED ANIM_LOOP_TICK AS LONG ' main-loop passes (DRAW.BAS): a double-click is two presses within 0.45 s, or seen two passes apart when frames are slow
 DIM SHARED ANIM_XS_BEFORE AS STRING ' ANIM_OPS_snapshot$ at a hold drag's press
 
@@ -58,7 +59,15 @@ TYPE ANIM_XS_OBJ
     y2       AS INTEGER
     nameW    AS INTEGER ' the layer name column
     rowH     AS INTEGER
-    tickW    AS INTEGER ' one tick (a frame spans hold x tickW)
+    tickW    AS INTEGER ' one tick, rounded (the dump; a frame spans hold x tick)
+    tick     AS SINGLE  ' one tick in px - fractional when zoomed out (XSHEET_ZOOM)
+    tickAuto AS SINGLE  ' the tick at the default size: a thumbnail wide
+    tickMin  AS SINGLE  ' the smallest zoom: every frame fits across (tickAuto when they already do)
+    layH     AS INTEGER ' a layer row's height (XSHEET_ROWS: text / thumbnail sizes); the other rows are rowH
+    zx1      AS INTEGER ' the zoom slider in the header's name cell (0 = not shown)
+    zx2      AS INTEGER
+    zDrag    AS INTEGER ' dragging its handle
+    zLastT   AS DOUBLE  ' its last press (a double-click: the default size)
     gx       AS INTEGER ' the grid's left edge (after the names)
     firstF   AS INTEGER ' first frame shown
     lastF    AS INTEGER ' last frame shown (it may be cut at the right edge)

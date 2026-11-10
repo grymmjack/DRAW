@@ -17,7 +17,7 @@
 # its own colour (the frame's middle pixel is inside it); 4 frames at 10 fps,
 # frame 2 held 3, current 1. One layer.
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX=0 XSHEET=0 XSHEET_NAME_WIDTH=0 XSHEET_SIZE=0
 # =============================================================================
 info "=== Animation: the X-sheet ==="
 
