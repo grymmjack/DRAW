@@ -182,7 +182,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Dbl M-Click` | Reset zoom & pan |
 
 **Zoom snap levels:** 25, 50, 100, 200, 300, 400, 500, 600, 700, 800%.
-**Display Scale (window size):** Settings (`Ctrl+,`) → Display → UI Scale (`0`=auto, `1`–`8`).
+**Display Scale (window size):** Settings (`Ctrl+,`) → Display → UI Scale (`0`=auto, `1`–`8`), or the command palette (`?`): Display Scale Up / Down / Reset.
 
 ---
 
