@@ -2424,8 +2424,62 @@ FUNCTION LAYER_ROW_H% ()
 END FUNCTION
 
 ''
-' A layer's thumbnail in a sz x sz box at (x, y) on the current _DEST: the
-' canvas (in an animation the current frame), fitted, on a checkerboard.
+' The box round layer L's non-transparent pixels inside the buffer rect (sx,
+' sy, sw, sh), returned in those same variables (sw = 0: none). Cached in
+' LAYER_THUMB_BOXES (see LAYERS.BI). A transparent pixel is nearly always all
+' zero bytes, so a row is first compared whole with a zero row; only rows
+' that differ are looked at a pixel at a time, from each end inwards.
+SUB LAYER_PANEL_thumb_box (L AS INTEGER, sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG)
+    DIM img AS LONG, iw AS LONG, y AS LONG, i AS LONG, j AS LONG, a AS LONG
+    DIM minX AS LONG, maxX AS LONG, minY AS LONG, maxY AS LONG, row AS STRING, zero AS STRING, m AS _MEM
+    img = LAYERS(L).imgHandle&
+    IF LAYER_THUMB_BOXES(L).gen = LAYER_THUMB_GEN _ANDALSO LAYER_THUMB_BOXES(L).img = img _ANDALSO LAYER_THUMB_BOXES(L).hid = LAYERS(L).historyId& _ANDALSO _
+       LAYER_THUMB_BOXES(L).sx = sx _ANDALSO LAYER_THUMB_BOXES(L).sy = sy _ANDALSO LAYER_THUMB_BOXES(L).sw = sw _ANDALSO LAYER_THUMB_BOXES(L).sh = sh THEN
+        sx = LAYER_THUMB_BOXES(L).bx: sy = LAYER_THUMB_BOXES(L).by: sw = LAYER_THUMB_BOXES(L).bw: sh = LAYER_THUMB_BOXES(L).bh
+        EXIT SUB
+    END IF
+    LAYER_THUMB_BOXES(L).gen = LAYER_THUMB_GEN: LAYER_THUMB_BOXES(L).img = img: LAYER_THUMB_BOXES(L).hid = LAYERS(L).historyId&
+    LAYER_THUMB_BOXES(L).sx = sx: LAYER_THUMB_BOXES(L).sy = sy: LAYER_THUMB_BOXES(L).sw = sw: LAYER_THUMB_BOXES(L).sh = sh
+    iw = _WIDTH(img)
+    minX = sw: maxX = -1: minY = -1: maxY = -1
+    row = SPACE$(sw * 4): zero = STRING$(sw * 4, 0)
+    m = _MEMIMAGE(img)
+    FOR y = 0 TO sh - 1
+        _MEMGET m, m.OFFSET + ((sy + y) * iw + sx) * 4, row
+        IF row <> zero THEN
+            i = 0 ' the first opaque pixel from the left (alpha is the 4th byte, BGRA)
+            DO WHILE i < sw
+                IF ASC(row, i * 4 + 4) THEN EXIT DO
+                i = i + 1
+            LOOP
+            IF i < sw THEN
+                IF minY < 0 THEN minY = y
+                maxY = y
+                IF i < minX THEN minX = i
+                j = sw - 1 ' the last, down to what is already known
+                a = _MAX(i, maxX + 1)
+                DO WHILE j >= a
+                    IF ASC(row, j * 4 + 4) THEN EXIT DO
+                    j = j - 1
+                LOOP
+                IF j >= a THEN maxX = j
+                IF i > maxX THEN maxX = i
+            END IF
+        END IF
+    NEXT y
+    _MEMFREE m
+    IF minY < 0 THEN
+        sw = 0: sh = 0
+    ELSE
+        sx = sx + minX: sy = sy + minY: sw = maxX - minX + 1: sh = maxY - minY + 1
+    END IF
+    LAYER_THUMB_BOXES(L).bx = sx: LAYER_THUMB_BOXES(L).by = sy: LAYER_THUMB_BOXES(L).bw = sw: LAYER_THUMB_BOXES(L).bh = sh
+END SUB
+
+''
+' A layer's thumbnail in a sz x sz box at (x, y) on the current _DEST: its
+' content (the box round its non-transparent pixels on the canvas, in an
+' animation in the current frame), fitted, on a checkerboard.
 SUB LAYER_PANEL_thumb (L AS INTEGER, x AS INTEGER, y AS INTEGER, sz AS INTEGER)
     DIM sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG, dw AS INTEGER, dh AS INTEGER, ox AS INTEGER, oy AS INTEGER
     DIM i AS INTEGER, j AS INTEGER, c AS INTEGER
@@ -2445,6 +2499,8 @@ SUB LAYER_PANEL_thumb (L AS INTEGER, x AS INTEGER, y AS INTEGER, sz AS INTEGER)
     END IF
     sx = sx + LAYERS(L).apronW%: sy = sy + LAYERS(L).apronH% ' a promoted buffer is bigger than the canvas
     IF sw < 1 _ORELSE sh < 1 _ORELSE sx + sw > _WIDTH(LAYERS(L).imgHandle&) _ORELSE sy + sh > _HEIGHT(LAYERS(L).imgHandle&) THEN EXIT SUB
+    LAYER_PANEL_thumb_box L, sx, sy, sw, sh ' crop to the layer's content
+    IF sw < 1 THEN EXIT SUB ' nothing on it: the checkerboard
     IF sw >= sh THEN dw = sz: dh = _MAX(1, (sz * sh) \ sw) ELSE dh = sz: dw = _MAX(1, (sz * sw) \ sh)
     ox = x + (sz - dw) \ 2: oy = y + (sz - dh) \ 2
     _PUTIMAGE (ox, oy)-(ox + dw - 1, oy + dh - 1), LAYERS(L).imgHandle&, , (sx, sy)-(sx + sw - 1, sy + sh - 1)

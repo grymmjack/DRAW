@@ -192,6 +192,26 @@ CONST LAYER_CTX_ITEM_H = 12
 ' Layer render order — pre-sorted array avoids O(n×64) lookup per frame
 ' RENDER_ORDER%(i) = layer index for z-level i, rebuilt when layer order changes
 DIM SHARED RENDER_ORDER(1 TO MAX_LAYERS) AS INTEGER
+
+' Layers panel thumbnails: each layer's picture is cropped to its content (the
+' box round its non-transparent pixels). The box is cached per layer and kept
+' while LAYER_THUMB_GEN, the layer and the region scanned are the same;
+' history commits, undo / redo and a history clear bump LAYER_THUMB_GEN.
+TYPE LAYER_THUMB_BOX
+    gen AS LONG
+    img AS LONG
+    hid AS LONG
+    sx  AS LONG
+    sy  AS LONG
+    sw  AS LONG
+    sh  AS LONG
+    bx  AS LONG
+    by  AS LONG
+    bw  AS LONG ' 0 = no content
+    bh  AS LONG
+END TYPE
+DIM SHARED LAYER_THUMB_GEN AS LONG
+DIM SHARED LAYER_THUMB_BOXES(1 TO MAX_LAYERS) AS LAYER_THUMB_BOX
 DIM SHARED RENDER_ORDER_COUNT AS INTEGER
 DIM SHARED RENDER_ORDER_DIRTY AS INTEGER                           ' TRUE = must rebuild
 RENDER_ORDER_DIRTY% = TRUE                                         ' Start dirty

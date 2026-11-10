@@ -46,7 +46,7 @@ Each layer row has three persistent controls:
 
 ### Layer thumbnails
 
-**Settings → Panels → Thumbnails** puts a small picture of each layer before its name: **Off**, **Tiny** (16 px), **Small** (32 px) or **Medium** (48 px). The rows grow to fit. The picture is fitted to the box on a checkerboard; in an animation it shows the current frame. It's also `LAYER_THUMBNAILS=OFF|TINY|SMALL|MEDIUM` in `DRAW.cfg`.
+**Settings → Panels → Thumbnails** puts a small picture of each layer before its name: **Off**, **Tiny** (16 px), **Small** (32 px) or **Medium** (48 px). The rows grow to fit. A thumbnail shows the layer's content, cropped to the box round its non-transparent pixels, so a small logo on a big canvas still fills it; an empty layer shows just the checkerboard. In an animation it shows the current frame. It's also `LAYER_THUMBNAILS=OFF|TINY|SMALL|MEDIUM` in `DRAW.cfg`.
 
 <div class="page-break"></div>
 
