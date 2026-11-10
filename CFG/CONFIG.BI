@@ -364,7 +364,7 @@ TYPE DRAW_CONFIG
     LB_STRIP_MIN_CELL               AS INTEGER        ' Animation: the tray shrinks its cells to fit every frame, down to this height (px)
     LB_STRIP_CELL                   AS INTEGER        ' Animation: the strip's cell height, px (0 = fitted to the band); Ctrl+wheel over the strip
     XSHEET_BAND_PCT                 AS SINGLE         ' Animation: the X-sheet band, % of the height the transport bar leaves (0 = auto); drag its edge
-    XSHEET_ROWS                     AS INTEGER        ' Animation: the X-sheet's layer rows: 0 text height, 1 / 2 / 3 a tiny / small / medium thumbnail (Ctrl+Shift+wheel)
+    XSHEET_ROWS                     AS INTEGER        ' Animation: the X-sheet's layer and SOUND rows: 0 text height, 1 / 2 / 3 a tiny / small / medium thumbnail (Ctrl+Shift+wheel)
     XSHEET_ZOOM                     AS SINGLE         ' Animation: the X-sheet's time line, px per tick (0 = the default, a thumbnail a tick); its header slider / Ctrl+wheel
     XSHEET_NAME_W                   AS INTEGER        ' Animation: the X-sheet's layer-name column, px (0 = auto); drag its edge
     CLIP_FRAME_LIGHTBOX             AS INTEGER        ' Animation: a stroke in a lightbox pane stays inside its frame (ANIM > Clip Strokes to the Frame in the Lightbox)

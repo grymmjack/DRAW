@@ -110,7 +110,7 @@ END FUNCTION
 ' Open each of the clips' files once: found (its path, or beside the
 ' document), its length, its waveform.
 SUB ANIM_SS_open_all ()
-    DIM i AS INTEGER, k AS INTEGER, f AS STRING, u AS STRING, h AS LONG
+    DIM i AS INTEGER, k AS INTEGER, f AS STRING, u AS STRING, h AS LONG, h2 AS LONG
     ANIM_SS_close_all
     FOR i = 1 TO ANIM_SC_N
         IF ANIM_SS_find%(ANIM_SC_PATH(i)) = 0 _ANDALSO ANIM_SS_N < ANIM_SS_MAX THEN
@@ -131,6 +131,13 @@ SUB ANIM_SS_open_all ()
                 IF h < 1 THEN
                     _LOGWARN "ANIM_SS_open_all: can't open " + f
                 ELSE
+                    ' a sound _MEMSOUND can't read (QB64-PE gives no samples for 24-bit
+                    ' audio - Rick 2026-11-10: "i cannot see the sound waveform"): a WAV
+                    ' DRAW reads itself into a sound it can (the waveform, the mix)
+                    IF ANIM_SND_readable%(h) = 0 THEN
+                        h2 = ANIM_SND_wav_load&(f)
+                        IF h2 > 0 THEN ANIM_SND_close h: h = h2: _LOGINFO "ANIM_SS_open_all: " + f + ": read as a WAV by DRAW"
+                    END IF
                     ANIM_SS_H(k) = h: ANIM_SS_FILE(k) = f
                     ANIM_SS_MS(k) = INT(_SNDLEN(h) * 1000 + 0.5)
                     ANIM_SND_peaks k
@@ -206,6 +213,126 @@ FUNCTION ANIM_SND_smp! (m AS _MEM, at AS _OFFSET, tp AS LONG)
     END SELECT
     IF v <> v THEN v = 0 ' NaN
     ANIM_SND_smp! = v
+END FUNCTION
+
+''
+' TRUE when _MEMSOUND gives sound h's samples in a type DRAW reads.
+FUNCTION ANIM_SND_readable% (h AS LONG)
+    DIM m AS _MEM
+    IF h < 1 THEN EXIT FUNCTION
+    m = _MEMSOUND(h, 0)
+    IF _MEMEXISTS(m) = 0 _ORELSE m.SIZE <= 0 _ORELSE m.ELEMENTSIZE <= 0 THEN EXIT FUNCTION
+    SELECT CASE m.TYPE
+        CASE 130, 132, 260, 1153: ANIM_SND_readable% = TRUE
+    END SELECT
+END FUNCTION
+
+''
+' Read WAV file f (PCM 8 / 16 / 24 / 32-bit, float 32 / 64-bit, plain or
+' WAVE_FORMAT_EXTENSIBLE) into a new stereo 32-bit float sound at the device
+' rate (linear resampling), for files whose samples _MEMSOUND won't give.
+' 0 when f is no such WAV or is longer than a mix can be (it plays as it is,
+' without a waveform).
+FUNCTION ANIM_SND_wav_load& (f AS STRING)
+    DIM ff AS INTEGER, id AS STRING * 4, sz AS _UNSIGNED LONG, at AS _INTEGER64, flen AS _INTEGER64
+    DIM tag AS LONG, ch AS LONG, sr AS LONG, ba AS LONG, bits AS LONG, wv AS INTEGER, fv AS INTEGER
+    DIM dPos AS _INTEGER64, dLen AS _INTEGER64, haveFmt AS INTEGER
+    DIM l32 AS LONG, u16 AS _UNSIGNED INTEGER
+    IF UCASE$(RIGHT$(f, 4)) <> ".WAV" _ANDALSO UCASE$(RIGHT$(f, 5)) <> ".WAVE" THEN EXIT FUNCTION
+    IF _FILEEXISTS(f) = 0 THEN EXIT FUNCTION
+    ff = FREEFILE
+    OPEN f FOR BINARY ACCESS READ AS #ff
+    flen = LOF(ff)
+    IF flen < 44 THEN CLOSE #ff: EXIT FUNCTION
+    GET #ff, 1, id: IF id <> "RIFF" THEN CLOSE #ff: EXIT FUNCTION
+    GET #ff, 9, id: IF id <> "WAVE" THEN CLOSE #ff: EXIT FUNCTION
+    at = 13 ' the chunks (1-based file positions)
+    DO WHILE at + 8 <= flen + 1
+        GET #ff, at, id: GET #ff, at + 4, sz
+        IF id = "fmt " _ANDALSO sz >= 16 THEN
+            GET #ff, at + 8, u16: tag = u16
+            GET #ff, at + 10, u16: ch = u16
+            GET #ff, at + 12, l32: sr = l32
+            GET #ff, at + 20, u16: ba = u16
+            GET #ff, at + 22, u16: bits = u16
+            IF tag = &HFFFE& _ANDALSO sz >= 40 THEN GET #ff, at + 32, u16: tag = u16 ' the sub-format GUID's first two bytes
+            haveFmt = TRUE
+        ELSEIF id = "data" _ANDALSO haveFmt THEN
+            dPos = at + 8: dLen = sz
+            IF dPos + dLen > flen + 1 THEN dLen = flen + 1 - dPos ' (cut short / size 0 while recording)
+            EXIT DO
+        END IF
+        at = at + 8 + sz + (sz AND 1)
+    LOOP
+    IF dLen <= 0 _ORELSE ch < 1 _ORELSE sr < 1 THEN CLOSE #ff: EXIT FUNCTION
+    SELECT CASE tag
+        CASE 1: IF bits = 8 _ORELSE bits = 16 _ORELSE bits = 24 _ORELSE bits = 32 THEN wv = bits \ 8
+        CASE 3: IF bits = 32 _ORELSE bits = 64 THEN wv = bits \ 8: fv = TRUE
+    END SELECT
+    IF wv = 0 _ORELSE ba < wv * ch THEN CLOSE #ff: _LOGWARN "ANIM_SND_wav_load: " + f + ": format" + STR$(tag) + "," + STR$(bits) + " bit - not read": EXIT FUNCTION
+
+    DIM srcN AS _INTEGER64, dr AS LONG, dstN AS _INTEGER64, h AS LONG, md AS _MEM
+    srcN = dLen \ ba
+    dr = _SNDRATE
+    IF srcN < 2 _ORELSE srcN / sr > ANIM_SND_MIX_MAX_S THEN CLOSE #ff: _LOGWARN "ANIM_SND_wav_load: " + f + ": too short / long to read": EXIT FUNCTION
+    dstN = (srcN - 1) * dr \ sr + 1
+    h = _SNDNEW(dstN, 2, 32)
+    IF h < 1 THEN CLOSE #ff: EXIT FUNCTION
+    md = _MEMSOUND(h, 0)
+    IF _MEMEXISTS(md) = 0 _ORELSE md.SIZE < dstN * 8 _ORELSE md.TYPE <> 260 THEN CLOSE #ff: ANIM_SND_close h: EXIT FUNCTION
+
+    ' the samples a block of frames at a time
+    CONST WAV_BLK = 65536
+    DIM buf(0 TO WAV_BLK * ba + 7) AS _UNSIGNED _BYTE, mb AS _MEM
+    DIM b0 AS _INTEGER64, bn AS _INTEGER64, pi0 AS _INTEGER64, j AS _INTEGER64, i0 AS _INTEGER64, i1 AS _INTEGER64, sp AS DOUBLE, fr AS SINGLE
+    DIM l0 AS SINGLE, r0 AS SINGLE, l1 AS SINGLE, r1 AS SINGLE, o AS _OFFSET, step2 AS _OFFSET
+    mb = _MEM(buf())
+    step2 = _IIF(ch > 1, wv, 0) ' a mono file: both sides the one sample
+    b0 = -1: bn = 0: pi0 = -2
+    FOR j = 0 TO dstN - 1
+        sp = j * (sr / dr): i0 = INT(sp): fr = sp - i0
+        IF i0 >= srcN THEN i0 = srcN - 1
+        i1 = i0 + 1: IF i1 >= srcN THEN i1 = srcN - 1
+        IF b0 < 0 _ORELSE i1 >= b0 + bn THEN ' load the block from i0
+            b0 = i0: bn = _MIN(WAV_BLK, srcN - b0)
+            GET #ff, dPos + b0 * ba, buf()
+        END IF
+        IF i0 <> pi0 THEN ' (the frames the last one read: kept)
+            IF i0 = pi0 + 1 THEN
+                l0 = l1: r0 = r1
+            ELSE
+                o = mb.OFFSET + (i0 - b0) * ba
+                l0 = ANIM_WAV_smp!(mb, o, wv, fv): r0 = ANIM_WAV_smp!(mb, o + step2, wv, fv)
+            END IF
+            o = mb.OFFSET + (i1 - b0) * ba
+            l1 = ANIM_WAV_smp!(mb, o, wv, fv): r1 = ANIM_WAV_smp!(mb, o + step2, wv, fv)
+            pi0 = i0
+        END IF
+        IF (j AND 65535) = 0 THEN IF _MEMEXISTS(md) = 0 THEN EXIT FOR
+        _MEMPUT md, md.OFFSET + j * 8, l0 + (l1 - l0) * fr AS SINGLE
+        _MEMPUT md, md.OFFSET + j * 8 + 4, r0 + (r1 - r0) * fr AS SINGLE
+    NEXT j
+    _MEMFREE mb
+    CLOSE #ff
+    IF _MEMEXISTS(md) = 0 THEN ANIM_SND_close h: EXIT FUNCTION
+    _MEMFREE md
+    ANIM_SND_wav_load& = h
+END FUNCTION
+
+''
+' One WAV sample at o in mb (-1..1): wv bytes, float when fv.
+FUNCTION ANIM_WAV_smp! (mb AS _MEM, o AS _OFFSET, wv AS LONG, fv AS INTEGER)
+    DIM v AS SINGLE
+    SELECT CASE wv
+        CASE 1: v = (_MEMGET(mb, o, _UNSIGNED _BYTE) - 128) / 128!
+        CASE 2: v = _MEMGET(mb, o, INTEGER) / 32768!
+        CASE 3: v = (_MEMGET(mb, o + 1, INTEGER) * 256& + _MEMGET(mb, o, _UNSIGNED _BYTE)) / 8388608!
+        CASE 4: IF fv THEN v = _MEMGET(mb, o, SINGLE) ELSE v = _MEMGET(mb, o, LONG) / 2147483648!
+        CASE 8: v = _MEMGET(mb, o, DOUBLE)
+    END SELECT
+    IF v <> v THEN v = 0 ' NaN
+    IF v > 1 THEN v = 1 ELSE IF v < -1 THEN v = -1
+    ANIM_WAV_smp! = v
 END FUNCTION
 
 ''

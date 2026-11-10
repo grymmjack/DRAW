@@ -116,6 +116,21 @@ FUNCTION ANIM_XS_extra% ()
 END FUNCTION
 
 ''
+' A SOUND row's height: the layer rows' (Rick 2026-11-10: "see that [the
+' waveform] in relation to the layer row heights ... text can be what it is
+' now") - TEXT rows: a text row, as before.
+FUNCTION ANIM_XS_snd_h% ()
+    ANIM_XS_snd_h% = _MAX(ANIM_XS.rowH, ANIM_XS.layH)
+END FUNCTION
+
+''
+' The height of the band's rows other than the layer rows: the header, the
+' holds, tags and notes rows (a text row each) and the SOUND rows.
+FUNCTION ANIM_XS_fixed_h% ()
+    ANIM_XS_fixed_h% = (2 + ANIM_XS_tag_rows% + ANIM_XS_note_rows%) * ANIM_XS.rowH + ANIM_XS_sound_rows% * ANIM_XS_snd_h%
+END FUNCTION
+
+''
 ' SOUND (L.1) under them: a row per track (F6) - always at least one (an
 ' empty one is silence, to drop or paste sound on).
 FUNCTION ANIM_XS_sound_rows% ()
@@ -233,7 +248,7 @@ FUNCTION ANIM_XS_band_h% (avail AS INTEGER)
     rh = FPANEL.rowH% + 6 ' room for a thumbnail
     ANIM_XS.rowH = rh
     ANIM_XS.layH = ANIM_XS_lay_h%
-    need = (2 + ANIM_XS_extra%) * rh + ANIM_XS.nRows * ANIM_XS.layH + 2
+    need = ANIM_XS_fixed_h% + ANIM_XS.nRows * ANIM_XS.layH + 2
     mx = avail \ 2
     IF need > mx THEN need = mx
     IF need < ANIM_XS_min_h% THEN need = ANIM_XS_min_h%
@@ -244,7 +259,7 @@ END FUNCTION
 ' The band's least height: the header, one layer row, the holds row and the
 ' rows under it.
 FUNCTION ANIM_XS_min_h% ()
-    ANIM_XS_min_h% = (2 + ANIM_XS_extra%) * ANIM_XS.rowH + ANIM_XS.layH + 2
+    ANIM_XS_min_h% = ANIM_XS_fixed_h% + ANIM_XS.layH + 2
 END FUNCTION
 
 ''
@@ -365,7 +380,7 @@ SUB ANIM_XS_layout (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
     LOOP
 
     ' rows: as many as fit between the header and the holds row; the current layer in view
-    ANIM_XS.rowsShown = (y2 - y1 + 1 - 2 - (2 + ANIM_XS_extra%) * ANIM_XS.rowH) \ _MAX(1, ANIM_XS.layH)
+    ANIM_XS.rowsShown = (y2 - y1 + 1 - 2 - ANIM_XS_fixed_h%) \ _MAX(1, ANIM_XS.layH)
     IF ANIM_XS.rowsShown < 1 THEN ANIM_XS.rowsShown = 1
     IF ANIM_XS.rowsShown > ANIM_XS.nRows THEN ANIM_XS.rowsShown = ANIM_XS.nRows
     IF CURRENT_LAYER% <> ANIM_XS.lastLayer THEN
@@ -391,8 +406,11 @@ FUNCTION ANIM_XS_row_y% (k AS INTEGER)
         ANIM_XS_row_y% = ANIM_XS.y1 + 1 + k * ANIM_XS.rowH
     ELSEIF k <= ANIM_XS.rowsShown THEN ' the layer rows (layH each)
         ANIM_XS_row_y% = ANIM_XS.y1 + 1 + ANIM_XS.rowH + (k - 1) * ANIM_XS.layH
-    ELSE
-        ANIM_XS_row_y% = ANIM_XS.y1 + 1 + ANIM_XS.rowH + ANIM_XS.rowsShown * ANIM_XS.layH + (k - ANIM_XS.rowsShown - 1) * ANIM_XS.rowH
+    ELSE ' the holds / tags / notes rows (rowH each), then the SOUND rows (ANIM_XS_snd_h%)
+        DIM sk AS INTEGER, nTxt AS INTEGER, nSnd AS INTEGER
+        sk = ANIM_XS_sound_k%: nTxt = k - ANIM_XS.rowsShown - 1
+        IF sk >= 0 _ANDALSO k > sk THEN nTxt = sk - ANIM_XS.rowsShown - 1: nSnd = k - sk
+        ANIM_XS_row_y% = ANIM_XS.y1 + 1 + ANIM_XS.rowH + ANIM_XS.rowsShown * ANIM_XS.layH + nTxt * ANIM_XS.rowH + nSnd * ANIM_XS_snd_h%
     END IF
 END FUNCTION
 
@@ -489,7 +507,7 @@ SUB ANIM_XS_render (dest AS LONG)
     x2 = ANIM_XS.x2
     yTop = ANIM_XS_row_y%(0)
     hy = ANIM_XS_row_y%(ANIM_XS.rowsShown + 1) ' the holds row
-    yBot = hy + rh - 1 + ANIM_XS_extra% * rh
+    yBot = ANIM_XS_row_y%(ANIM_XS.rowsShown + 2 + ANIM_XS_extra%) - 1 ' the last row's bottom
     lh = ANIM_XS.layH
     oldFont = FPANEL_begin&
 
@@ -886,21 +904,30 @@ END SUB
 
 ''
 ' SOUND track trk's row at y (F6): each clip a block along its frames with
-' its waveform in it - per pixel the loudest moment of that slice, as a line
-' up and down from the middle (no waveform: MIDI, a tracker, not found - the
-' file's name). The picked clip is outlined; the label is bright while the
+' its file name and (rows taller than text) its waveform - per pixel the
+' loudest moment of that slice, as a line up and down from the middle (none:
+' MIDI, a tracker, not found). The picked clip is outlined; the label is bright while the
 ' rows have the keys.
 SUB ANIM_XS_render_sound (y AS INTEGER, trk AS INTEGER)
     DIM i AS INTEGER, xa AS INTEGER, xb AS INTEGER, px AS INTEGER, ty AS INTEGER, midY AS INTEGER, hh AS INTEGER
     DIM pk AS INTEGER, a AS INTEGER, k AS INTEGER, cx1 AS INTEGER, cx2 AS INTEGER, rh AS INTEGER, wave AS INTEGER
     DIM c AS _UNSIGNED LONG, cb AS _UNSIGNED LONG, t AS STRING, lbl AS STRING, sel AS INTEGER, ta AS DOUBLE, tb AS DOUBLE
-    rh = ANIM_XS.rowH
+    rh = ANIM_XS_snd_h% ' (the layer rows' height: a taller waveform)
     LINE (ANIM_XS.x1, y)-(ANIM_XS.x2, y), THEME.CP_border~&
-    ty = y + (rh - FPANEL.fontH%) \ 2
+    ty = y + (ANIM_XS.rowH - FPANEL.fontH%) \ 2 ' the label and names on its first text line
     lbl = "SOUND": IF ANIM_XS_sound_rows% > 1 THEN lbl = "SOUND" + STR$(trk)
     FPANEL_text ANIM_XS.x1 + 4, ty, lbl, _IIF(ANIM_SC_FOCUS <> 0 _ANDALSO trk = ANIM_SC_cur_trk%, THEME.CP_text_bright~&, THEME.CP_text~&)
     IF ANIM.fps < 1 THEN EXIT SUB
-    midY = y + rh \ 2: hh = (rh - 6) \ 2
+    ' Each clip shows its file name and its waveform (Rick 2026-11-10: "text can
+    ' be what it is now (i love that) but also i'd love to see the soundwave"):
+    ' rows taller than text (SMALL / MEDIUM) - the name on the first text line,
+    ' the waveform under it; text-high rows (TEXT / TINY) - the waveform the
+    ' row's height, softer, the name over it.
+    DIM nameTop AS INTEGER, wy1 AS INTEGER, wy2 AS INTEGER
+    nameTop = (rh - ANIM_XS.rowH >= 10)
+    IF nameTop THEN wy1 = y + ANIM_XS.rowH - 1 ELSE wy1 = y + 3
+    wy2 = y + rh - 3
+    midY = (wy1 + wy2) \ 2: hh = _MAX(1, (wy2 - wy1) \ 2)
     IF ANIM_SC_on_trk%(trk) = 0 THEN ' an empty track: how to put sound on it
         t = "drop a sound file here, or right-click"
         DO WHILE LEN(t) > 0 _ANDALSO ANIM_XS.gx + 4 + FPANEL_text_w%(t) > ANIM_XS_grid_end%: t = LEFT$(t, LEN(t) - 1): LOOP
@@ -923,15 +950,15 @@ SUB ANIM_XS_render_sound (y AS INTEGER, trk AS INTEGER)
                     IF pk >= 0 THEN
                         a = (pk * hh + 127) \ 255
                         c = _IIF(sel _ORELSE (px >= cx1 _ANDALSO px <= cx2), THEME.CP_text_bright~&, THEME.CP_text~&)
+                        IF _NEGATE nameTop THEN c = (c AND &H00FFFFFF~&) OR &H90000000~& ' under the name: softer
                         LINE (px, midY - a)-(px, midY + a), c
                     END IF
                 NEXT px
-            ELSE
-                t = ANIM_SND_name$(ANIM_SC_PATH(i), FALSE)
-                IF k = 0 THEN t = t + " (not found)" ELSE IF ANIM_SS_H(k) < 1 THEN t = t + " (not found)"
-                DO WHILE LEN(t) > 0 _ANDALSO xa + 4 + FPANEL_text_w%(t) > xb: t = LEFT$(t, LEN(t) - 1): LOOP
-                IF LEN(t) > 0 THEN FPANEL_text xa + 4, ty, t, _IIF(sel, THEME.CP_text_bright~&, THEME.CP_text~&)
             END IF
+            t = ANIM_SND_name$(ANIM_SC_PATH(i), FALSE) ' its name (with or without the waveform)
+            IF k = 0 THEN t = t + " (not found)" ELSE IF ANIM_SS_H(k) < 1 THEN t = t + " (not found)"
+            DO WHILE LEN(t) > 0 _ANDALSO xa + 4 + FPANEL_text_w%(t) > xb: t = LEFT$(t, LEN(t) - 1): LOOP
+            IF LEN(t) > 0 THEN FPANEL_text xa + 4, ty, t, _IIF(sel, THEME.CP_text_bright~&, THEME.CP_text~&)
             ' its start, and the picked clip's outline
             LINE (xa, y + 2)-(xa, y + rh - 2), THEME.ANIM_FRAME_current~&
             IF sel THEN
@@ -1222,7 +1249,13 @@ FUNCTION ANIM_XS_band_row% (my AS INTEGER)
     IF my < ANIM_XS_row_y%(0) THEN EXIT FUNCTION
     IF my < ANIM_XS_row_y%(1) THEN ANIM_XS_band_row% = 0: EXIT FUNCTION
     IF my < ANIM_XS_row_y%(ANIM_XS.rowsShown + 1) THEN ANIM_XS_band_row% = 1 + (my - ANIM_XS_row_y%(1)) \ _MAX(1, ANIM_XS.layH): EXIT FUNCTION
-    k = ANIM_XS.rowsShown + 1 + (my - ANIM_XS_row_y%(ANIM_XS.rowsShown + 1)) \ ANIM_XS.rowH
+    DIM sk AS INTEGER
+    sk = ANIM_XS_sound_k%
+    IF sk >= 0 _ANDALSO my >= ANIM_XS_row_y%(sk) THEN ' the SOUND rows (taller with the layer rows)
+        k = sk + (my - ANIM_XS_row_y%(sk)) \ _MAX(1, ANIM_XS_snd_h%)
+    ELSE
+        k = ANIM_XS.rowsShown + 1 + (my - ANIM_XS_row_y%(ANIM_XS.rowsShown + 1)) \ ANIM_XS.rowH
+    END IF
     IF k <= ANIM_XS.rowsShown + 1 + ANIM_XS_extra% THEN ANIM_XS_band_row% = k
 END FUNCTION
 

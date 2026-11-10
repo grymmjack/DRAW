@@ -63,7 +63,7 @@ TYPE ANIM_XS_OBJ
     tick     AS SINGLE  ' one tick in px - fractional when zoomed out (XSHEET_ZOOM)
     tickAuto AS SINGLE  ' the tick at the default size: a thumbnail wide
     tickMin  AS SINGLE  ' the smallest zoom: every frame fits across (tickAuto when they already do)
-    layH     AS INTEGER ' a layer row's height (XSHEET_ROWS: text / thumbnail sizes); the other rows are rowH
+    layH     AS INTEGER ' a layer row's height (XSHEET_ROWS: text / thumbnail sizes) - the SOUND rows' too; the other rows are rowH
     zx1      AS INTEGER ' the zoom slider in the header's name cell (0 = not shown)
     zx2      AS INTEGER
     zDrag    AS INTEGER ' dragging its handle

@@ -89,6 +89,7 @@
 - [Animation project](project-animation.md) — branch animation, PLANS/ANIMATION.md; canvas = sprite sheet; requirements via field kit artifact
 - [Clipboard picture OR text](qb64pe-clipboard-image-or-text.md) — [Linux] _CLIPBOARD$ after _CLIPBOARDIMAGE drops the image (Copy Layer 715 affected); palette+tRNS PNG misread off the clipboard
 - [_SNDOPEN async vs _MEMSOUND](qb64pe-sndopen-async-memsound.md) — QB64-PE decodes in the background by default; _MEMSOUND right after = zeros on some runs; use _SNDOPEN(f, "noasync")
+- [_MEMSOUND gives nothing for 24-bit audio](qb64pe-memsound-24bit.md) — [Linux] SIZE 0 though it plays; DRAW reads 24-bit WAVs itself (ANIM_SND_wav_load&)
 - [QB64-PE _MEM errors are critical](qb64pe-mem-errors-critical.md) — 300-315 skip ON ERROR; _MEMSOUND lock race on _SNDCLOSE; QB64PE_NOPROMPT=y
 - [Never run qb64pe bare](feedback-qb64pe-never-bare.md) — no -x/-z opens the IDE on Rick's desktop; read version.bas for the version
 - [Reply where the comment was](feedback-reply-where-comment-was.md) — check PR vs issue with gh before replying to pasted upstream feedback

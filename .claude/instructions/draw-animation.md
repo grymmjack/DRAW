@@ -722,8 +722,9 @@ slider (`ANIM_XS_render_zoom`, log scale `ANIM_XS_zoom_x%`, `zx1 / zx2`; `ANIM_X
 `ANIM_XS_zoom_set t, f, mx` keeps frame f under mx; Ctrl+wheel `ANIM_XS_zoom_wheel`. Zoomed so
 a span is under 7 px a cell is a bar, not a thumbnail; frame lines under 3 px are left out.
 Layer rows: `CFG.XSHEET_ROWS%` (`XSHEET_ROWS` TEXT / TINY / SMALL / MEDIUM -> `ANIM_XS.layH`
-via `ANIM_XS_lay_h%`, 20 / 36 / 52 px); the header / HOLD / TAGS / NOTES / SOUND rows stay
-`rowH`, so `ANIM_XS_row_y%` / `ANIM_XS_band_row%` are piecewise and `ANIM_XS_min_h%` is the
+via `ANIM_XS_lay_h%`, 20 / 36 / 52 px); the header / HOLD / TAGS / NOTES rows stay `rowH`,
+the SOUND rows (last) are `ANIM_XS_snd_h%` = layH (taller waveform; `ANIM_XS_fixed_h%` = all
+the non-layer rows' height), so `ANIM_XS_row_y%` / `ANIM_XS_band_row%` are piecewise and `ANIM_XS_min_h%` is the
 band's least height (ANIM_LB_layout uses it). Ctrl+Shift+wheel / `ANIM_XS_rows_set`. R-click
 the header: `menuKind` 4 (`ANIM_XS_view_menu_build`, values 200-213). TAGS row: `<` / `>`
 (`ANIM_XS_tag_btn_x%`, `ANIM_XS_tag_step`, `ANIM_XS_tag_go` = `ANIM_TG_select` + flash); its
@@ -918,7 +919,14 @@ with `_SNDOPEN(f, "noasync")` - QB64-PE decodes in the background by default, an
 then reads a half-filled buffer (a flat waveform, on some runs only). MIDI gets
 `_MIDISOUNDBANK CFG.MIDI_SF2_FILE$` first when one is set. `ANIM_SND_peaks`: the loudest sample
 per 1/100 s from `_MEMSOUND(h, 0)` (INTEGER / LONG / SINGLE / unsigned byte; every `stride`-th
-sample on a long sound), scaled so the loudest is 255. *Closing / reading sound memory:* every
+sample on a long sound), scaled so the loudest is 255. *24-bit (Linux, QB64-PE v4.6+, 2026-11-10):*
+`_MEMSOUND` gives NO samples (SIZE 0) for 24-bit audio though it plays - 16-bit of the same
+file, any length, works; the flags don't matter. `ANIM_SS_open_all` asks `ANIM_SND_readable%`
+and, for a WAV, swaps the handle for `ANIM_SND_wav_load&` (DRAW's own RIFF reader: PCM 8 / 16 /
+24 / 32, float 32 / 64, EXTENSIBLE; skips LIST / bext; linear resample to `_SNDRATE` into a
+`_SNDNEW` stereo float sound, up to `ANIM_SND_MIX_MAX_S`), so the waveform, the mix and playback
+all use it. Before this a 24-bit file had no waveform and was LEFT OUT of a mix (ANIMSC skipped).
+24-bit FLAC / AIFF still get no waveform. Test: `anim-sound-24bit.sh`. *Closing / reading sound memory:* every
 sound `_MEMSOUND` has read (the files, a mix) is closed through `ANIM_SND_close` and then
 `ANIM_SND_let_go` (`_DELAY 0.1`): QB64-PE frees its mem lock later on its display thread, and its
 lock pool has no mutex, so a free there racing DRAW's `_MEMIMAGE` / `_FREEIMAGE` handed one lock
@@ -984,7 +992,9 @@ file's handle. `ANIM_SND_time#(f) = ANIM_SND_frame_ms#(f) / 1000 + BASE`. Up to 
 mixed (`ANIM_SND_MIX_MAX_S`). *X-sheet:* a SOUND row per track (`ANIM_XS_sound_rows%` =
 `ANIM_SC_track_n%`, `ANIM_XS_sound_trk%(k)`); timeline ms <-> x is linear (`ANIM_XS_ms_x%` /
 `ANIM_XS_x_ms#`, ticks before `firstF` = `ANIM_XS_t0%`); a clip is a tinted block to the grid's
-end with its waveform (`ANIM_SC_peak%`) or its file name, the picked one outlined in
+end with its file name and waveform (`ANIM_SC_peak%`): a row taller than text by 10+ px has
+the name on its first text line and the waveform under it; a text-high row draws the waveform
+softer (alpha &H90) with the name over it. The picked one is outlined in
 `ANIM_FRAME_drawing`. A left / right press on a row (`ANIM_XS_sound_press%`) picks the clip,
 sets `ANIM_SC_TRACK`, `ANIM_SC_FOCUS` and `ANIM_SC_MENU_T` (the pressed frame's start); a plain
 left press on a clip starts `XS_DRAG_SOUND` (`ANIM_XS_sound_drag`: + ms dragged, `ANIM_SC_snap&`

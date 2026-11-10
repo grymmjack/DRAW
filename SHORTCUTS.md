@@ -665,7 +665,8 @@ The X-sheet is drawn to time: a frame is as wide as its hold, so a long animatio
 (60 frames held 24 ticks each) shows only a few frames at the default size. Zoom out with the
 header's slider or `Ctrl+Wheel` to see them all; zoomed far out, a drawn cell shows as a bar
 instead of a thumbnail. Settings → Panels → Lightbox Strip / X-Sheet → X-Sheet Rows sets the
-layer rows' size.
+size of the layer rows and the SOUND rows. In Text and Tiny rows a sound clip's name sits over its
+waveform. In Small and Medium rows the name is on the first line, with a taller waveform under it.
 
 **Opening an animated GIF** gives you its frames on a sheet: each frame as a browser shows it, the delays as the FPS and holds, looping as the GIF does. With Save .draw Beside Images off, Ctrl+S writes it back as an animated GIF.
 
@@ -693,7 +694,7 @@ the frames. Each frame starts at its place in the sound (the frames before it, t
 the FPS), so playing from any frame plays the sound from there, and the loop back to frame 1
 starts it again. Stepping frames while stopped plays just that frame's bit of the sound (a
 scrub), as do the full-screen preview's steps. The X-sheet shows a SOUND row with the waveform
-under the frames it plays over; click it to go to a frame and hear it. The soundtrack is saved
+under the frames it plays over (24-bit WAVs too: DRAW reads those itself); click it to go to a frame and hear it. The soundtrack is saved
 with the document (by its path; a sound moved along with the document is found beside it), and
 Export BAS Player copies it beside the program as NAME-sound.EXT and plays it in step. ANIM →
 Remove Soundtrack takes it off (one undo step). The volume is `ANIM_SOUND_VOLUME` in DRAW.cfg
