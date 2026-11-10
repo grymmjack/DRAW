@@ -46,7 +46,12 @@ Each layer row has three persistent controls:
 
 ### Layer thumbnails
 
-**Settings → Panels → Thumbnails** puts a small picture of each layer before its name: **Off**, **Tiny** (16 px), **Small** (32 px) or **Medium** (48 px). The rows grow to fit. A thumbnail shows the layer's content, cropped to the box round its non-transparent pixels, so a small logo on a big canvas still fills it; an empty layer shows just the checkerboard. In an animation it shows the current frame. It's also `LAYER_THUMBNAILS=OFF|TINY|SMALL|MEDIUM` in `DRAW.cfg`.
+**Settings → Panels → Thumbnails** puts a small picture of each layer before its name: **Off**, **Tiny** (16 px), **Small** (32 px) or **Medium** (48 px). The rows grow to fit. In an animation a thumbnail shows the current frame. Two more settings sit under it:
+
+- **Thumbnail Shows** — **Content** (the default) zooms in on what's on the layer: the box round its non-transparent pixels, so a small logo on a big canvas is still easy to see. An empty layer shows just the checkerboard. **Canvas** shows the whole canvas, the same framing for every layer.
+- **Min Crop (px)** — for Content, the smallest area a thumbnail shows, in canvas pixels each way (default 16). It caps the zoom, so a single dot stays a dot instead of filling the thumbnail. Set it to 1 for no limit.
+
+In `DRAW.cfg`: `LAYER_THUMBNAILS=OFF|TINY|SMALL|MEDIUM`, `LAYER_THUMBNAIL_FIT=CONTENT|CANVAS`, `LAYER_THUMBNAIL_MIN_CROP=16`.
 
 <div class="page-break"></div>
 
