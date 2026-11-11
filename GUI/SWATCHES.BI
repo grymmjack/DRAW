@@ -55,6 +55,7 @@ CONST SWP_MI_CHECK  = 3 ' an on / off option
 CONST SWP_MI_CHIPS  = 4 ' a row of choices ("COLS  SET FIT 8 12 16")
 
 CONST SWP_MENU_MAX  = 400 ' rows
+CONST SWP_REC_MAX = 32 ' recent colors kept
 CONST SWP_MENU_VIS  = 40  ' rows shown before it scrolls (fewer when the window is short: SWP_menu_vis%)
 
 TYPE SWATCHES_PANEL_OBJ
@@ -125,6 +126,13 @@ TYPE SWATCHES_PANEL_OBJ
     dragPend   AS INTEGER ' the press was on a selected swatch: its click waits for the release (no drag = the click)
     dragPendShift AS INTEGER
     dragPendCtrl  AS INTEGER
+    recY          AS INTEGER ' the recent colors row (recH = 0: not shown)
+    recH          AS INTEGER
+    recShown      AS INTEGER ' chips in it
+    hoverRec      AS INTEGER ' the recent chip under the pointer (0 = none)
+    recLoaded     AS INTEGER
+    recLast       AS _UNSIGNED LONG ' the FG last seen (a change of it is a recent color)
+    recSaveT      AS DOUBLE ' a recent color to save to the config (when; 0 = none)
     dragStrip     AS INTEGER ' dragging over the palette strip: insert before this strip index (-1 = not over it)
     ' live edit: one swatch selected, the color panels change it (SWP_tick)
     liveIdx  AS LONG           ' the swatch being followed (0 = none)
@@ -190,3 +198,5 @@ DIM SHARED SWP_SET_N AS INTEGER
 REDIM SHARED SWP_SET_PATH(0 TO 16) AS STRING
 REDIM SHARED SWP_SET_LABEL(0 TO 16) AS STRING
 REDIM SHARED SWP_SET_GROUP(0 TO 16) AS STRING
+DIM SHARED SWP_REC(1 TO SWP_REC_MAX) AS _UNSIGNED LONG ' the recent FG colors, newest first
+DIM SHARED SWP_REC_N AS INTEGER

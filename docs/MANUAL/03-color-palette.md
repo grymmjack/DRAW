@@ -161,12 +161,14 @@ Palette workflows DRAW supports natively:
 
 | Option | What it does |
 | --- | --- |
+| **View** | **GRID** = swatches side by side · **LIST** = one row per swatch: the color, its hex and its name. A row break shows as a divider. Everything else works the same; in a list a drag drops above or below a row |
 | **Columns** | **SET** = the set's own column count · **FIT** = as many as fit · or a fixed 8 / 12 / 16 / 24 / 32 |
 | **Cell** | swatch size, 6 – 24 px |
 | **Gap** | space between swatches, 0 – 3 px |
 | **Stretch to width** | swatches grow (or shrink) to fill the panel's width |
 | **Square cells** | keep swatches square when stretching |
 | **Cell borders** | a thin border around every swatch |
+| **Recent colors row** | a row above the swatches with the FG colors you used last, newest at the left (each once). **Click** one = FG, **right-click** = BG. DRAW remembers them between sessions |
 
 ### Swatches and the palette strip
 
@@ -223,6 +225,7 @@ DRAW never changes a swatch set it did not make. The first time you edit a shipp
 | **New Set from Strip** | | a new set in My Swatches with the strip's colors |
 | **New Set from Image** / **from Selection** | | a new set with every color the image uses (all visible layers, as you see them), in reading order — only the selection's colors when there is a selection. More than 1024 colors is refused: select a smaller area |
 | **Lospec…** | | opens the Lospec browser (Palette → Load from Lospec); each palette you download also becomes a set |
+| **Find FG Color** | **`F`** | selects the swatch that is the FG color and scrolls to it — or, when the set doesn't have it, the nearest one (by how close they look, OKLab). The FG stays as it is |
 | **Select All / Select None** | **`Ctrl+A`** / **`Ctrl+D`** or **`Esc`** | |
 | **Undo / Redo** | **`Ctrl+Z`** / **`Ctrl+Y`** | the last swatch edit |
 
@@ -230,7 +233,7 @@ DRAW never changes a swatch set it did not make. The first time you edit a shipp
 
 **Drag to rearrange.** Drag a selected swatch and every selected swatch goes with it; scattered ones land side by side. A bright bar shows where they will land: the left half of a swatch drops them before it, the right half after it, and past the end of a row drops them at the end of that row. Hold **`Ctrl`** when you let go to **copy** them instead (the copies become the selection). Drag below or above the grid and it scrolls. Let go off the panel, or right where they already are, and nothing changes. A plain click on a selected swatch still selects it alone — it just happens when you let go, so a drag can start first.
 
-A locked swatch stays where it is: it survives Delete and Remove Duplicates, and a drag moves the swatches around it (a locked one in the selection stays put). Each set keeps its own undo steps while DRAW is running. With the pointer anywhere else these keys keep their usual jobs — `L` is still the Line tool, `Del`, `Ins`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+A` and `Ctrl+D` still work on the canvas.
+A locked swatch stays where it is: it survives Delete and Remove Duplicates, and a drag moves the swatches around it (a locked one in the selection stays put). Each set keeps its own undo steps while DRAW is running. With the pointer anywhere else these keys keep their usual jobs — `L` is still the Line tool, `F` the Fill tool, `Del`, `Ins`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+A` and `Ctrl+D` still work on the canvas.
 
 **Docking.** Like the Preview and the color pickers, the Swatches panel floats in its own window (drag the corner grip to resize it) or docks: drag its title bar onto a dock target. Docked, it takes the slot's size and scrolls. Right-click its title bar → **Scale** to give it its own size.
 

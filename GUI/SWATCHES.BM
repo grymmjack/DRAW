@@ -320,6 +320,13 @@ SUB SWP_layout ()
     SWP.barH = f + 4
     SWP.gridX = 3
     SWP.gridY = SWP.barY + SWP.barH + 2
+    SWP.recH = 0: SWP.recShown = 0
+    IF CFG.SWATCHES_RECENT% THEN
+        SWP.recY = SWP.gridY
+        SWP.recH = _MAX(6, _MIN(CFG.SWATCHES_CELL%, 14))
+        SWP.recShown = _MIN(SWP_REC_MAX, (SWP.panelW - 6 + 1) \ (SWP.recH + 1))
+        SWP.gridY = SWP.recY + SWP.recH + 3
+    END IF
     SWP.statY = SWP.panelH - (f + 4) - 1
     SWP.gridH = _MAX(4, SWP.statY - 2 - SWP.gridY)
     availW = _MAX(4, SWP.panelW - 6)
@@ -346,6 +353,11 @@ SUB SWP_size_cells ()
     cell = CFG.SWATCHES_CELL%
     IF cell < 3 _ORELSE cell > 64 THEN cell = 10
     g = SWP.gap
+    IF CFG.SWATCHES_VIEW% = 1 THEN ' a list: one full-width row per swatch
+        SWP.cols = 1: SWP.cellW = _MAX(2, SWP.gridW)
+        SWP.cellH = _MAX(cell, FPANEL.fontH% + 2)
+        EXIT SUB
+    END IF
     SELECT CASE CFG.SWATCHES_COLS%
         CASE 0: c = SWS_COLS ' the set's own layout
         CASE IS < 0: c = (SWP.gridW + g) \ (cell + g) ' as many as fit
@@ -376,6 +388,7 @@ SUB SWP_reflow ()
         IF SWS(i).kind = SWS_KIND_BREAK THEN
             IF c > 0 THEN r = r + 1: c = 0
             SWP_ER(i) = r: SWP_EC(i) = -1
+            IF CFG.SWATCHES_VIEW% = 1 THEN last = r: r = r + 1 ' a list: the break is a divider row
         ELSE
             IF c >= SWP.cols THEN r = r + 1: c = 0
             SWP_ER(i) = r: SWP_EC(i) = c
@@ -453,10 +466,16 @@ END FUNCTION
 ''
 ' Entry i becomes the FG color (toBG = the BG), as a palette chip would.
 SUB SWP_pick (i AS LONG, toBG AS INTEGER)
-    DIM c AS _UNSIGNED LONG, pIdx AS INTEGER
     IF i < 1 _ORELSE i > SWS_N THEN EXIT SUB
     IF SWS(i).kind <> SWS_KIND_COLOR THEN EXIT SUB
-    c = _RGB32(_RED32(SWS(i).c), _GREEN32(SWS(i).c), _BLUE32(SWS(i).c))
+    SWP_pick_color SWS(i).c, toBG
+END SUB
+
+''
+' Color col becomes the FG (toBG = the BG).
+SUB SWP_pick_color (col AS _UNSIGNED LONG, toBG AS INTEGER)
+    DIM c AS _UNSIGNED LONG, pIdx AS INTEGER
+    c = _RGB32(_RED32(col), _GREEN32(col), _BLUE32(col))
     pIdx = PAL_find_index%(c)
     IF pIdx < 0 THEN pIdx = PAL_find_closest%(c)
     IF toBG THEN
@@ -501,6 +520,8 @@ SUB SWP_render ()
         SWP.hoverIdx = SWP_entry_at&(nx, ny)
         SWP.hoverBar = SWP_bar_at%(nx, ny)
     END IF
+    SWP.hoverRec = 0
+    IF over THEN SWP.hoverRec = SWP_rec_at%(nx, ny)
 
     DIM oldDest AS LONG, oldFont AS LONG
     oldDest = _DEST
@@ -548,7 +569,9 @@ SUB SWP_render ()
             IF y > gBot THEN EXIT FOR
             IF y + SWP.cellH - 1 >= gTop THEN
                 y0 = _MAX(y, gTop): y1 = _MIN(y + SWP.cellH - 1, gBot)
-                IF SWS(i).kind = SWS_KIND_COLOR THEN
+                IF CFG.SWATCHES_VIEW% = 1 THEN
+                    SWP_render_list_row i, x, y, gTop, gBot
+                ELSEIF SWS(i).kind = SWS_KIND_COLOR THEN
                     LINE (x, y0)-(x + SWP.cellW - 1, y1), SWS(i).c OR &HFF000000~&, BF
                     IF CFG.SWATCHES_BORDER% _ANDALSO SWP.cellW >= 4 _ANDALSO SWP.cellH >= 4 THEN SWP_clip_box x, y, SWP.cellW, SWP.cellH, gTop, gBot, THEME.CP_slider_border~&
                     IF SWS(i).flags AND SWS_FLAG_LOCK THEN
@@ -560,9 +583,23 @@ SUB SWP_render ()
             END IF
         END IF
     NEXT i
+    ' a list: row breaks are divider lines
+    IF CFG.SWATCHES_VIEW% = 1 THEN
+        FOR i = 1 TO SWS_N
+            IF SWS(i).kind = SWS_KIND_BREAK THEN
+                y = SWP.gridY + SWP_ER(i) * (SWP.cellH + SWP.gap) - SWP.scrollY + SWP.cellH \ 2
+                IF y > gBot THEN EXIT FOR
+                IF y >= gTop THEN LINE (SWP.gridX + 2, y)-(SWP.gridX + SWP.gridW - 3, y), THEME.CP_text_dim~&
+            END IF
+        NEXT i
+    END IF
+    ' the recent colors row
+    IF SWP.recH > 0 THEN SWP_render_recent
     ' selected: a frame inside the cell in the swatch's contrast color (empty
-    ' cells: a dim fill), so the FG / BG frames outside stay readable
+    ' cells: a dim fill), so the FG / BG frames outside stay readable (a list
+    ' fills the row instead: SWP_render_list_row)
     FOR i = 1 TO SWS_N
+        IF CFG.SWATCHES_VIEW% = 1 THEN EXIT FOR
         IF SWS(i).sel _ANDALSO SWS(i).kind <> SWS_KIND_BREAK THEN
             IF SWP_cell_rect%(i, x, y) THEN
                 IF y > gBot THEN EXIT FOR
@@ -609,7 +646,13 @@ SUB SWP_render ()
     ' swatches being dragged: where they will land
     IF SWP.dragMoving _ANDALSO SWP.dragDrop > 0 THEN
         DIM mkx AS INTEGER, mky AS INTEGER
-        IF SWP_drop_xy%(SWP.dragDrop, mkx, mky) THEN SWP_clip_box mkx, mky - 1, 2, SWP.cellH + 2, gTop, gBot, THEME.CP_text_bright~&
+        IF SWP_drop_xy%(SWP.dragDrop, mkx, mky) THEN
+            IF CFG.SWATCHES_VIEW% = 1 THEN
+                SWP_clip_box mkx, mky, SWP.cellW, 2, gTop, gBot, THEME.CP_text_bright~&
+            ELSE
+                SWP_clip_box mkx, mky - 1, 2, SWP.cellH + 2, gTop, gBot, THEME.CP_text_bright~&
+            END IF
+        END IF
     END IF
 
     ' scroll bar
@@ -623,7 +666,9 @@ SUB SWP_render ()
 
     ' status: what the pointer is on, else the set's size
     DIM st AS STRING
-    IF SWP.dragMoving THEN
+    IF SWP.hoverRec > 0 _ANDALSO SWP.dragMoving = 0 THEN
+        IF SWP.hoverRec <= SWP_REC_N THEN st = "RECENT #" + RIGHT$("000000" + HEX$(SWP_REC(SWP.hoverRec) AND &HFFFFFF~&), 6)
+    ELSEIF SWP.dragMoving THEN
         IF SWP.dragStrip >= 0 THEN
             st = "ADD " + _TRIM$(STR$(SWS_sel_count&)) + " TO THE STRIP"
         ELSE
@@ -775,6 +820,7 @@ FUNCTION SWP_chip_values$ (id AS INTEGER)
         CASE 12: SWP_chip_values$ = "0|1|2|3"
         CASE 30: SWP_chip_values$ = "4|5|6|8|10|12|16"
         CASE 31: SWP_chip_values$ = "1|2|3|4|0"
+        CASE 32: SWP_chip_values$ = "0|1"
     END SELECT
 END FUNCTION
 
@@ -785,6 +831,7 @@ FUNCTION SWP_chip_now% (id AS INTEGER)
         CASE 11: v = CFG.SWATCHES_CELL%
         CASE 12: v = CFG.SWATCHES_GAP%
         CASE 30: v = CFG.RAMP_STEPS%
+        CASE 32: v = CFG.SWATCHES_VIEW%
         CASE 31: EXIT FUNCTION ' (actions, not a setting)
     END SELECT
     vals = SWP_chip_values$(id)
@@ -819,12 +866,14 @@ END FUNCTION
 SUB SWP_build_gear ()
     SWP_menu_clear
     SWP_menu_add SWP_MI_HEAD, "LAYOUT", 0, 0, ""
+    SWP_menu_add SWP_MI_CHIPS, "VIEW", 32, SWP_chip_now%(32), "GRID|LIST"
     SWP_menu_add SWP_MI_CHIPS, "COLUMNS", 10, SWP_chip_now%(10), "SET|FIT|8|12|16|24|32"
     SWP_menu_add SWP_MI_CHIPS, "CELL", 11, SWP_chip_now%(11), "6|8|10|12|16|20|24"
     SWP_menu_add SWP_MI_CHIPS, "GAP", 12, SWP_chip_now%(12), "0|1|2|3"
     SWP_menu_add SWP_MI_CHECK, "STRETCH TO WIDTH", 13, CFG.SWATCHES_STRETCH%, ""
     SWP_menu_add SWP_MI_CHECK, "SQUARE CELLS", 14, CFG.SWATCHES_SQUARE%, ""
     SWP_menu_add SWP_MI_CHECK, "CELL BORDERS", 15, CFG.SWATCHES_BORDER%, ""
+    SWP_menu_add SWP_MI_CHECK, "RECENT COLORS ROW", 18, CFG.SWATCHES_RECENT%, ""
     SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
     SWP_menu_add SWP_MI_HEAD, "EDITING", 0, 0, ""
     SWP_menu_add SWP_MI_CHECK, "COLOR PANELS EDIT THE SELECTED", 17, CFG.SWATCHES_LIVE_EDIT%, ""
@@ -849,6 +898,7 @@ SUB SWP_build_edit ()
     SWP_menu_add SWP_MI_ITEM, "DUPLICATE", 206, 0, ""
     SWP_menu_add SWP_MI_ITEM, "EDIT COLOR...   DBL-CLICK", 212, 0, ""
     SWP_menu_add SWP_MI_ITEM, "RENAME...", 213, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "FIND FG COLOR       F", 224, 0, ""
     SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
     SWP_menu_add SWP_MI_ITEM, "INSERT EMPTY CELL", 204, 0, ""
     SWP_menu_add SWP_MI_ITEM, "INSERT ROW BREAK", 205, 0, ""
@@ -1084,6 +1134,7 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
                 CASE 10: CFG.SWATCHES_COLS% = VAL(SWP_field$(SWP_chip_values$(10), k))
                 CASE 11: CFG.SWATCHES_CELL% = VAL(SWP_field$(SWP_chip_values$(11), k))
                 CASE 12: CFG.SWATCHES_GAP% = VAL(SWP_field$(SWP_chip_values$(12), k))
+                CASE 32: CFG.SWATCHES_VIEW% = VAL(SWP_field$(SWP_chip_values$(32), k)): SWP.scrollY = 0
             END SELECT
             SWP_MI(r).chk = k
             SWP_option_changed
@@ -1096,6 +1147,7 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
                 CASE 15: CFG.SWATCHES_BORDER% = _NEGATE CFG.SWATCHES_BORDER%
                 CASE 16: CFG.SWATCHES_BLACK_SPACERS% = _NEGATE CFG.SWATCHES_BLACK_SPACERS%
                 CASE 17: CFG.SWATCHES_LIVE_EDIT% = _NEGATE CFG.SWATCHES_LIVE_EDIT%
+                CASE 18: CFG.SWATCHES_RECENT% = _NEGATE CFG.SWATCHES_RECENT%
             END SELECT
             SELECT CASE id
                 CASE 13: SWP_MI(r).chk = CFG.SWATCHES_STRETCH%
@@ -1103,6 +1155,7 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
                 CASE 15: SWP_MI(r).chk = CFG.SWATCHES_BORDER%
                 CASE 16: SWP_MI(r).chk = CFG.SWATCHES_BLACK_SPACERS%
                 CASE 17: SWP_MI(r).chk = CFG.SWATCHES_LIVE_EDIT%
+                CASE 18: SWP_MI(r).chk = CFG.SWATCHES_RECENT%
             END SELECT
             SWP_option_changed
             EXIT FUNCTION
@@ -1126,6 +1179,7 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
         CASE 218: SWP_from_strip
         CASE 219: SWP_from_image
         CASE 223: SWP_lospec
+        CASE 224: SWP_find_fg
         CASE 220: SWP_ramp
         CASE 221: SWP_insert_ramp 1
         CASE 222: SWP_insert_ramp 2
@@ -1343,6 +1397,15 @@ SUB SWP_mouse_input ()
             SWP.sbDrag = TRUE: SWP.sbGrabY = ny: SWP.sbStartScroll = SWP.scrollY
         END IF
         SWP_clamp_scroll
+        SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    ' the recent colors: left = FG, right = BG
+    DIM rk AS INTEGER
+    rk = SWP_rec_at%(nx, ny)
+    IF rk > 0 THEN
+        IF rk <= SWP_REC_N THEN SWP_pick_color SWP_REC(rk), (press2 <> 0)
         SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
         EXIT SUB
     END IF
@@ -1705,7 +1768,12 @@ FUNCTION SWP_drop_at& (nx AS INTEGER, ny AS INTEGER)
         IF SWP_EC(i) >= 0 THEN
             IF SWP_ER(i) = r THEN
                 IF SWP_EC(i) = c THEN
-                    d = i: IF (px MOD pw) >= pw \ 2 THEN d = i + 1
+                    d = i
+                    IF CFG.SWATCHES_VIEW% = 1 THEN
+                        IF (py MOD ph) >= ph \ 2 THEN d = i + 1
+                    ELSEIF (px MOD pw) >= pw \ 2 THEN
+                        d = i + 1
+                    END IF
                     SWP_drop_at& = d: EXIT FUNCTION
                 END IF
                 IF SWP_EC(i) < c THEN lastI = i
@@ -1733,11 +1801,17 @@ FUNCTION SWP_drop_xy% (d AS LONG, x AS INTEGER, y AS INTEGER)
     DIM cx AS INTEGER, cy AS INTEGER
     IF d > 1 _ANDALSO d - 1 <= SWS_N THEN
         IF SWP_EC(d - 1) >= 0 _ANDALSO SWP_ER(d - 1) = SWP.dragRow THEN
-            IF SWP_cell_rect%(d - 1, cx, cy) THEN x = cx + SWP.cellW: y = cy: SWP_drop_xy% = TRUE: EXIT FUNCTION
+            IF SWP_cell_rect%(d - 1, cx, cy) THEN
+                IF CFG.SWATCHES_VIEW% = 1 THEN x = cx: y = cy + SWP.cellH ELSE x = cx + SWP.cellW: y = cy
+                SWP_drop_xy% = TRUE: EXIT FUNCTION
+            END IF
         END IF
     END IF
     IF d >= 1 _ANDALSO d <= SWS_N THEN
-        IF SWP_cell_rect%(d, cx, cy) THEN x = cx - 2: y = cy: SWP_drop_xy% = TRUE: EXIT FUNCTION
+        IF SWP_cell_rect%(d, cx, cy) THEN
+            IF CFG.SWATCHES_VIEW% = 1 THEN x = cx: y = cy - 2 ELSE x = cx - 2: y = cy
+            SWP_drop_xy% = TRUE: EXIT FUNCTION
+        END IF
     END IF
     IF d > 1 _ANDALSO d - 1 <= SWS_N THEN
         IF SWP_cell_rect%(d - 1, cx, cy) THEN x = cx + SWP.cellW: y = cy: SWP_drop_xy% = TRUE
@@ -1833,6 +1907,22 @@ END FUNCTION
 ' held are one edit (one undo step, saved on the mouse-up).
 SUB SWP_tick ()
     DIM i AS LONG, cur AS _UNSIGNED LONG
+    ' the recent colors: the FG once the buttons are up (a slider drag adds
+    ' one color, not every step)
+    ' (the FG DRAW starts with is not one you used: only changes count)
+    IF SWP.recLoaded = 0 THEN SWP_rec_load: SWP.recLast = PAINT_COLOR~& OR &HFF000000~&
+    IF PAL_FG_IS_TRANSPARENT% = 0 _ANDALSO MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 THEN
+        cur = PAINT_COLOR~& OR &HFF000000~&
+        IF cur <> SWP.recLast THEN
+            SWP.recLast = cur
+            IF SWP_REC_N = 0 _ORELSE SWP_REC(1) <> cur THEN SWP_rec_push cur: SWP.recSaveT = TIMER(.001)
+        END IF
+    END IF
+    ' kept in the config a moment after the last change (while the row is on;
+    ' otherwise when DRAW exits)
+    IF SWP.recSaveT > 0 _ANDALSO CFG.SWATCHES_RECENT% THEN
+        IF TIMER(.001) - SWP.recSaveT > 1.5 _ORELSE TIMER(.001) < SWP.recSaveT THEN SWP.recSaveT = 0: CONFIG_save
+    END IF
     IF SWP.initialized = 0 THEN EXIT SUB
     IF SWP.visible _ANDALSO SWS_sel_count& = 1 THEN i = SWP_first_sel&
     IF i <> SWP.liveIdx THEN
@@ -2242,6 +2332,7 @@ FUNCTION SWP_take_action% (actionId AS INTEGER)
     SELECT CASE actionId
         CASE 306, 308: SWP_delete_selected
         CASE 105: SWP_lock_toggle ' L (the Line tool otherwise)
+        CASE 103: SWP_find_fg ' F (the Fill tool otherwise)
         CASE 310: SWP_select_all
         CASE 307: SWS_select_none: SWP.anchor = 0: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
         CASE 301: SWP_undo FALSE
@@ -2409,6 +2500,15 @@ FUNCTION SWP_dump$ ()
     ' editing: undo steps, redo steps, saves, the set is in My Swatches
     d = d + "SWATE" + DOCK_n$(SWP_undo_count%(SWP.setKey, 0)) + DOCK_n$(SWP_undo_count%(SWP.setKey, 1)) + DOCK_n$(SWP_SAVES) + DOCK_n$(-(SWP_is_mine%(SWP.setKey) <> 0)) + lf
     d = d + "SWATD" + DOCK_n$(-(SWP.dragMoving <> 0)) + DOCK_n$(SWP.dragDrop) + DOCK_n$(SWP.dragRow) + DOCK_n$(SWP.dragStrip) + lf
+    ' the view, the recent colors row and its chips
+    d = d + "SWATV" + DOCK_n$(CFG.SWATCHES_VIEW%) + DOCK_n$(SWP.recShown) + DOCK_n$(SWP_REC_N) + lf
+    DIM rq AS INTEGER, rqx AS INTEGER
+    FOR rq = 1 TO SWP.recShown
+        rqx = 3 + (rq - 1) * (SWP.recH + 1)
+        d = d + "SWATR" + DOCK_n$(rq) + SWP_vrect$(rqx, SWP.recY, SWP.recH, SWP.recH)
+        IF rq <= SWP_REC_N THEN d = d + " " + RIGHT$("000000" + HEX$(SWP_REC(rq) AND &HFFFFFF~&), 6) ELSE d = d + " -"
+        d = d + lf
+    NEXT rq
     ' the palette strip: count, FG chip, every color; and where its chips are
     DIM pi AS INTEGER, ps AS STRING
     ps = "SWATP" + DOCK_n$(PAL_COLOR_COUNT%) + DOCK_n$(PAL_FG_IDX%)
@@ -2461,6 +2561,161 @@ FUNCTION SWP_dump$ ()
     END IF
     SWP_dump$ = d
 END FUNCTION
+
+
+' ===========================================================================
+' List view, recent colors, Find FG
+' ===========================================================================
+
+''
+' A list row: the swatch, then "#RRGGBB name" (a selected row is filled; the
+' text only on a row the grid shows whole).
+SUB SWP_render_list_row (i AS LONG, x AS INTEGER, y AS INTEGER, gTop AS INTEGER, gBot AS INTEGER)
+    DIM y0 AS INTEGER, y1 AS INTEGER, sq AS INTEGER, t AS STRING, tc AS _UNSIGNED LONG
+    y0 = _MAX(y, gTop): y1 = _MIN(y + SWP.cellH - 1, gBot)
+    IF y1 < y0 THEN EXIT SUB
+    IF SWS(i).sel THEN LINE (x, y0)-(x + SWP.cellW - 1, y1), THEME.CP_button_sec_hover~&, BF
+    sq = SWP.cellH - 2
+    IF SWS(i).kind = SWS_KIND_COLOR THEN
+        SWP_clip_fill x + 1, y + 1, sq, sq, gTop, gBot, SWS(i).c OR &HFF000000~&
+        IF SWS(i).flags AND SWS_FLAG_LOCK THEN
+            IF y + 2 >= gTop _ANDALSO y + 3 <= gBot THEN LINE (x + sq - 2, y + 2)-(x + sq - 1, y + 3), SWP_contrast~&(SWS(i).c), BF
+        END IF
+    ELSE
+        SWP_clip_box x + 1, y + 1, sq, sq, gTop, gBot, THEME.CP_text_dim~&
+    END IF
+    IF y < gTop _ORELSE y + SWP.cellH - 1 > gBot THEN EXIT SUB
+    IF SWS(i).kind = SWS_KIND_COLOR THEN
+        t = "#" + RIGHT$("000000" + HEX$(SWS(i).c AND &HFFFFFF~&), 6)
+        IF LEN(SWS(i).nm) THEN t = t + "  " + SWP_ascii$(SWS(i).nm)
+    ELSE
+        t = "(empty)"
+    END IF
+    DO WHILE LEN(t) > 1 _ANDALSO _UPRINTWIDTH(t) > SWP.cellW - sq - 6
+        t = LEFT$(t, LEN(t) - 1)
+    LOOP
+    IF SWS(i).sel _ORELSE i = SWP.hoverIdx THEN tc = THEME.CP_text_bright~& ELSE tc = THEME.CP_text~&
+    FPANEL_text x + sq + 4, y + (SWP.cellH - FPANEL.fontH%) \ 2, t, tc
+END SUB
+
+
+''
+' A filled rect clipped to the grid's rows gTop..gBot.
+SUB SWP_clip_fill (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, gTop AS INTEGER, gBot AS INTEGER, c AS _UNSIGNED LONG)
+    DIM y0 AS INTEGER, y1 AS INTEGER
+    y0 = _MAX(y, gTop): y1 = _MIN(y + h - 1, gBot)
+    IF y1 >= y0 _ANDALSO w > 0 THEN LINE (x, y0)-(x + w - 1, y1), c, BF
+END SUB
+
+
+''
+' The recent colors row: newest at the left; empty slots are outlined.
+SUB SWP_render_recent ()
+    DIM k AS INTEGER, x AS INTEGER
+    FOR k = 1 TO SWP.recShown
+        x = 3 + (k - 1) * (SWP.recH + 1)
+        IF k <= SWP_REC_N THEN
+            LINE (x, SWP.recY)-(x + SWP.recH - 1, SWP.recY + SWP.recH - 1), SWP_REC(k), BF
+            IF (PAINT_COLOR~& AND &HFFFFFF~&) = (SWP_REC(k) AND &HFFFFFF~&) _ANDALSO PAL_FG_IS_TRANSPARENT% = 0 THEN
+                LINE (x - 1, SWP.recY - 1)-(x + SWP.recH, SWP.recY + SWP.recH), THEME.CP_text_bright~&, B
+            ELSEIF k = SWP.hoverRec THEN
+                LINE (x - 1, SWP.recY - 1)-(x + SWP.recH, SWP.recY + SWP.recH), THEME.CP_text~&, B
+            END IF
+        ELSE
+            LINE (x, SWP.recY)-(x + SWP.recH - 1, SWP.recY + SWP.recH - 1), THEME.CP_slider_border~&, B
+        END IF
+    NEXT k
+END SUB
+
+
+''
+' The recent chip at native (nx, ny): 1 = the newest, 0 = none.
+FUNCTION SWP_rec_at% (nx AS INTEGER, ny AS INTEGER)
+    DIM k AS INTEGER
+    IF SWP.recH < 1 THEN EXIT FUNCTION
+    IF ny < SWP.recY _ORELSE ny >= SWP.recY + SWP.recH THEN EXIT FUNCTION
+    IF nx < 3 THEN EXIT FUNCTION
+    k = (nx - 3) \ (SWP.recH + 1) + 1
+    IF (nx - 3) MOD (SWP.recH + 1) >= SWP.recH THEN EXIT FUNCTION
+    IF k >= 1 _ANDALSO k <= SWP.recShown THEN SWP_rec_at% = k
+END FUNCTION
+
+
+''
+' Color c is the newest recent color (once: an older copy moves up).
+SUB SWP_rec_push (c AS _UNSIGNED LONG)
+    DIM k AS INTEGER, j AS INTEGER, s AS STRING
+    c = c OR &HFF000000~&
+    FOR k = 1 TO SWP_REC_N
+        IF SWP_REC(k) = c THEN EXIT FOR
+    NEXT k
+    IF k > SWP_REC_N THEN
+        IF SWP_REC_N < SWP_REC_MAX THEN SWP_REC_N = SWP_REC_N + 1
+        k = SWP_REC_N
+    END IF
+    FOR j = k TO 2 STEP -1
+        SWP_REC(j) = SWP_REC(j - 1)
+    NEXT j
+    SWP_REC(1) = c
+    FOR k = 1 TO SWP_REC_N
+        IF k > 1 THEN s = s + ","
+        s = s + RIGHT$("000000" + HEX$(SWP_REC(k) AND &HFFFFFF~&), 6)
+    NEXT k
+    CFG.SWATCHES_RECENT_COLORS = s
+    IF SWP.recH > 0 THEN SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' The recent colors from the config (once).
+SUB SWP_rec_load ()
+    DIM s AS STRING, p AS INTEGER, h AS STRING
+    SWP.recLoaded = TRUE
+    SWP_REC_N = 0
+    s = CFG.SWATCHES_RECENT_COLORS
+    DO WHILE LEN(s) _ANDALSO SWP_REC_N < SWP_REC_MAX
+        p = INSTR(s, ",")
+        IF p THEN h = LEFT$(s, p - 1): s = MID$(s, p + 1) ELSE h = s: s = ""
+        h = _TRIM$(h)
+        IF LEN(h) = 6 THEN
+            SWP_REC_N = SWP_REC_N + 1
+            SWP_REC(SWP_REC_N) = VAL("&H" + h + "~&") OR &HFF000000~&
+        END IF
+    LOOP
+END SUB
+
+
+''
+' Find FG (F over the panel, the edit menu): select the swatch that is the FG
+' color, else the nearest one (OKLab), and scroll to it. The FG stays as it is.
+SUB SWP_find_fg ()
+    DIM i AS LONG, best AS LONG, d AS SINGLE, bd AS SINGLE
+    DIM l1 AS SINGLE, a1 AS SINGLE, b1 AS SINGLE, l2 AS SINGLE, a2 AS SINGLE, b2 AS SINGLE
+    DIM fgHex AS STRING, msg AS STRING
+    IF SWP.initialized = 0 THEN EXIT SUB
+    IF PAL_FG_IS_TRANSPARENT% THEN STATUS_flash "Swatches: the FG is transparent": EXIT SUB
+    fgHex = RIGHT$("000000" + HEX$(PAINT_COLOR~& AND &HFFFFFF~&), 6)
+    best = SWP_find_color&(PAINT_COLOR~&)
+    IF best THEN
+        msg = "#" + fgHex + " is swatch " + _TRIM$(STR$(best))
+    ELSE
+        CLR_rgb32_to_oklab PAINT_COLOR~& OR &HFF000000~&, l1, a1, b1
+        bd = 1E+30
+        FOR i = 1 TO SWS_N
+            IF SWS(i).kind = SWS_KIND_COLOR THEN
+                CLR_rgb32_to_oklab SWS(i).c OR &HFF000000~&, l2, a2, b2
+                d = (l1 - l2) * (l1 - l2) + (a1 - a2) * (a1 - a2) + (b1 - b2) * (b1 - b2)
+                IF d < bd THEN bd = d: best = i
+            END IF
+        NEXT i
+        IF best = 0 THEN STATUS_flash "Swatches: no colors in this set": EXIT SUB
+        msg = "nearest to #" + fgHex + ": #" + RIGHT$("000000" + HEX$(SWS(best).c AND &HFFFFFF~&), 6) + " (" + _TRIM$(STR$(INT(SQR(bd) * 1000) / 10)) + " apart)"
+    END IF
+    SWS_select_none: SWS(best).sel = -1: SWP.anchor = best
+    SWP_scroll_to best
+    STATUS_flash "Swatches: " + msg
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
 
 
 ''

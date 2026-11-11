@@ -518,6 +518,9 @@ TYPE DRAW_CONFIG
     SWATCHES_BORDER                 AS INTEGER        ' A 1px border round each cell
     SWATCHES_BLACK_SPACERS          AS INTEGER        ' Importing a Photoshop .aco: black filler becomes empty cells (the first black stays)
     SWATCHES_LIVE_EDIT              AS INTEGER        ' One swatch selected: the Color Mixer / Advanced Color Picker / 3D Color Space change it live
+    SWATCHES_VIEW                   AS INTEGER        ' 0 = a grid of swatches, 1 = a list (swatch + hex + name rows)
+    SWATCHES_RECENT                 AS INTEGER        ' A row of the FG colors used last, above the swatches
+    SWATCHES_RECENT_COLORS          AS STRING         ' Those colors, newest first (RRGGBB, comma separated)
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)
