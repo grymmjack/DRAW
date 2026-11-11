@@ -80,6 +80,7 @@ in through the last frame. In the same menu:
 - **Next Cel Every Frame / 2 / 3 / 4** - with an AnimBrush, how often it moves on to its next cel
   (a slow walk: every 2 frames).
 
+### Transform controls
 
 | Action | Key |
 | --- | --- |

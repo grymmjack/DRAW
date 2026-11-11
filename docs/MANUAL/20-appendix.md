@@ -126,6 +126,35 @@ The complete, always-up-to-date list of keyboard **and mouse** shortcuts lives i
 | Cycle geometry | `Ctrl+'` |
 | Cycle symmetry | `F7` |
 
+### Swatches panel (View → Swatches; keys with the pointer over the panel)
+
+| Action | Shortcut |
+| --- | --- |
+| Swatch → FG / BG | L-click / R-click |
+| Select a range / toggle one / box select | `Shift`+click / `Ctrl`+click / drag from an empty place |
+| Select all / none | `Ctrl+A` / `Ctrl+D` or `Esc` |
+| Move / copy the selection | Drag a selected swatch / `Ctrl`+drag |
+| Edit the color | Double-click a swatch |
+| Add the FG / delete / lock | `Ins` / `Del` / `L` |
+| Find the FG's swatch | `F` |
+| Undo / redo swatch edits | `Ctrl+Z` / `Ctrl+Y` |
+| The edit menu | ☰ or `Shift`+R-click |
+
+See [Ch. 3 — Color & Palette](03-color-palette.md).
+
+### Animation brushes
+
+| Action | Shortcut |
+| --- | --- |
+| AnimBrush: pick up / load | *ANIM → AnimBrush → Pick Up / Load…* |
+| Previous / next cel | `Alt+[` / `Alt+]` |
+| Current frame gets cel 1 | `Alt+\` |
+| Drop the AnimBrush | `Ctrl+B` |
+| Store in a Drawer bin (every cel) | `Shift`+click the bin |
+| Move Brush: start / apply / cancel | *ANIM → Move Brush → Start*, drag the path, `Enter` / `Esc` |
+
+See [Ch. 9 — Custom Brushes & Drawer Panel](09-brushes-drawer.md).
+
 ### AI (only when AI features are enabled)
 
 | Action | Shortcut |
