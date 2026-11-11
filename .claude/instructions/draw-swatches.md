@@ -42,10 +42,16 @@ stays the document palette). Two layers:
 - Dump lines (dock dump, after `ADVCP_dump$`), viewport px:
   - `SWAT entries colors cols cellW cellH gap rows scrollY maxScroll fgIdx bgIdx menu menuRows setKey`
   - `SWATG` grid rect, set-button rect, gear rect
-  - `SWATC i x y w h kind hex` (first 48 entries + the last)
+  - `SWATS selected anchor i ...` (up to 64 selected entries)
+  - `SWATC i x y w h kind hex` (first 48 entries, every entry showing in the grid (up to 400), the last)
   - `SWATM x y w h rowH top`, `SWATMI row kind id chk x y w h label`, `SWATMC id k x y w h label` (chip k of chips row `id`; COLUMNS = 10, CELL = 11, GAP = 12)
-- Fixtures: `QA/fixtures/make-swatch-fixtures.py` -> `swatches-ramps.gpl` (8 columns, 160 colors, a SPACE at 6, entry 3 "Named Teal") and `swatches-pad.aco` (6 wide, 4 ramps + 2 black per row: 22 entries, 5 empty, 17 colors after loading).
-- Tests: `swatches-panel.sh` (layout, FG/BG pick, wheel, gear chips, set list, Esc, dock + float), `swatches-aco.sh` (aco guess + black filler), `dock-native-swatches.sh` (the dock-native family). `swatches` is in `dock-lib.sh`'s `DK_NATIVE` list (its floating position is saved in its own CFG keys, not `DOCK_FLOAT_*`).
+- Helpers: `QA/swatches-lib.sh` (`sw_read`, `sw_sel`, `sw_cell`, `sw_click N [shift|ctrl|right]`, `sw_pitch`, `sw_empty_xy`).
+- Fixtures: `QA/fixtures/make-swatch-fixtures.py` -> `swatches-edit.gpl` (8 columns: row 0 = 1-8 reds, row 1 = 9-12 greens (12 LOCKED) + a BREAK (13), row 2 = 14-19 blues, 20 SPACE, 21 Gold; row 1 columns 4-7 empty), `swatches-ramps.gpl` (8 columns, 160 colors, a SPACE at 6, entry 3 "Named Teal") and `swatches-pad.aco` (6 wide, 4 ramps + 2 black per row: 22 entries, 5 empty, 17 colors after loading).
+- Tests: `swatches-panel.sh` (layout, FG/BG pick, wheel, gear chips, set list, Esc, dock + float), `swatches-aco.sh` (aco guess + black filler), `dock-native-swatches.sh` (the dock-native family), `swatches-dock-resize.sh`, `swatches-select.sh` (click / Shift / Ctrl / box / Ctrl+box / Ctrl+A / Esc / right-click), `swatches-select-scroll.sh` (scrolled range, box autoscroll, set switch clears, docked). `swatches` is in `dock-lib.sh`'s `DK_NATIVE` list (its floating position is saved in its own CFG keys, not `DOCK_FLOAT_*`).
+
+## Selection (phase 2)
+
+`SWS(i).sel` is the selection (the library's ops act on it). `SWP_click_entry` (plain = alone + FG via `SWP_pick`, Shift = range from `SWP.anchor`, Ctrl = toggle), box drag from an empty place (`SWP.boxing`, content coords so it survives scrolling; autoscrolls past the grid; Ctrl / Shift adds on top of `SWP.selBase`), `SWP_select_all`. Keys only while the pointer is on the panel (`SWP_has_keys%`): `SWP_key_input%` in `KEYBOARD_input_handler` (Esc), Ctrl+A in `CMD_execute_action 310`. `SWP_load_set` clears the selection.
 
 ## Phases
 

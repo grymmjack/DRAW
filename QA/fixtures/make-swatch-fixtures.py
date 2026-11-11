@@ -8,6 +8,12 @@ swatches-pad.aco    a Photoshop swatch file laid out 6 wide: 4 rows of ramps,
                     each row padded with black to 6 (Photoshop has no empty
                     cell); version 1 + version 2 (names). Loading it guesses
                     6 columns and turns the black filler into empty cells.
+swatches-edit.gpl   a small set for the editing tests (swatches-select / -edit /
+                    -move / -undo ...), 8 columns:
+                      row 0: 1-8   a red ramp ("Red 1".."Red 8")
+                      row 1: 9-12  a green ramp, 12 LOCKED; 13 = a row BREAK
+                             (row 1 columns 4-7 stay empty: room for a box drag)
+                      row 2: 14-19 a blue ramp, 20 an empty cell, 21 "Gold"
 Run from anywhere: writes next to this script.
 """
 import os, struct, colorsys
@@ -46,4 +52,21 @@ for e in ents:
     b += rec(e) + struct.pack('>I', len(nm) + 1) + nm.encode('utf-16-be') + b'\0\0'
 with open(os.path.join(here, 'swatches-pad.aco'), 'wb') as f:
     f.write(b)
+# the editing set
+with open(os.path.join(here, 'swatches-edit.gpl'), 'w') as f:
+    f.write('GIMP Palette\nName: QA Edit\nColumns: 8\n#\n')
+    for k in range(8):
+        v = 60 + k * 25
+        f.write('%3d %3d %3d\tRed %d\n' % (v, 0, 0, k + 1))
+    for k in range(4):
+        v = 60 + k * 50
+        if k == 3:
+            f.write('#SWS:LOCK\n')
+        f.write('%3d %3d %3d\tGreen %d\n' % (0, v, 0, k + 1))
+    f.write('#SWS:BREAK\n')
+    for k in range(6):
+        v = 60 + k * 35
+        f.write('%3d %3d %3d\tBlue %d\n' % (0, 0, v, k + 1))
+    f.write('#SWS:SPACE\n')
+    f.write('%3d %3d %3d\tGold\n' % (255, 200, 0))
 print('wrote swatches-ramps.gpl (%d colors), swatches-pad.aco (%d entries)' % (len(rows), len(ents)))

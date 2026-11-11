@@ -163,6 +163,23 @@ Palette workflows DRAW supports natively:
 | **Square cells** | keep swatches square when stretching |
 | **Cell borders** | a thin border around every swatch |
 
+### Selecting swatches
+
+The edits below act on the **selected** swatches. A selected swatch gets a thin frame inside it, in a color that stands out against it.
+
+| Do this | To |
+| --- | --- |
+| **Click** a swatch | select it alone (it also becomes the FG) |
+| **`Shift`+click** | select the range from the last clicked swatch (row breaks are skipped) |
+| **`Ctrl`+click** | add it to the selection, or take it out |
+| **Drag a box** from an empty place in the grid | select every swatch it touches; drag below or above the grid and it scrolls |
+| **`Ctrl`+drag** (or `Shift`) a box | add to the selection |
+| **Click an empty place** | select nothing |
+| **`Ctrl+A`** with the pointer on the panel | select every swatch (over the canvas, `Ctrl+A` still selects the canvas) |
+| **`Esc`** with the pointer on the panel | select nothing |
+
+Right-click still sets the BG and leaves the selection alone. Switching to another set clears the selection. With more than one swatch selected, the panel's bottom line counts them.
+
 **Docking.** Like the Preview and the color pickers, the Swatches panel floats in its own window (drag the corner grip to resize it) or docks: drag its title bar onto a dock target. Docked, it takes the slot's size and scrolls. Right-click its title bar → **Scale** to give it its own size.
 
 <div class="page-break"></div>

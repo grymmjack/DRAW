@@ -94,6 +94,18 @@ TYPE SWATCHES_PANEL_OBJ
     palSig   AS STRING  ' document palette signature (refresh when it changes)
 
     hoverIdx   AS LONG    ' entry under the pointer (0 = none)
+
+    ' selection (SWS(i).sel): click / Shift+click range / Ctrl+click toggle /
+    ' a box dragged from an empty place (Ctrl+box adds); Ctrl+A, Esc
+    anchor   AS LONG    ' where a Shift+click range starts
+    boxing   AS INTEGER ' a box drag is on
+    boxMoved AS INTEGER ' ... and has moved (a plain click on an empty place just clears)
+    boxAdd   AS INTEGER ' Ctrl / Shift held at the start: add to the selection
+    boxX0    AS INTEGER ' native x, content y (scroll included)
+    boxY0    AS LONG
+    boxX1    AS INTEGER
+    boxY1    AS LONG
+    selBase  AS STRING  ' the selection before an adding box (CHR$(0/1) per entry)
     closeHover AS INTEGER
     hoverBar   AS INTEGER ' 1 = the set name, 2 = the gear
 

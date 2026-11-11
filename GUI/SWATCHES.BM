@@ -242,6 +242,8 @@ SUB SWP_load_set (setPath AS STRING)
     SWP.setKey = k
     CFG.SWATCHES_SET = k
     SWP.scrollY = 0: SWP.flowOk = FALSE: SWP.hoverIdx = 0
+    SWP.anchor = 0: SWP.boxing = FALSE
+    SWS_select_none
     IF SWP.initialized THEN SWP_layout
     SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
 END SUB
@@ -560,6 +562,27 @@ SUB SWP_render ()
             END IF
         END IF
     NEXT i
+    ' selected: a frame inside the cell in the swatch's contrast color (empty
+    ' cells: a dim fill), so the FG / BG frames outside stay readable
+    FOR i = 1 TO SWS_N
+        IF SWS(i).sel _ANDALSO SWS(i).kind <> SWS_KIND_BREAK THEN
+            IF SWP_cell_rect%(i, x, y) THEN
+                IF y > gBot THEN EXIT FOR
+                IF SWS(i).kind = SWS_KIND_COLOR THEN
+                    IF SWP.cellW >= 6 _ANDALSO SWP.cellH >= 6 THEN
+                        SWP_clip_box x + 1, y + 1, SWP.cellW - 2, SWP.cellH - 2, gTop, gBot, SWP_contrast~&(SWS(i).c)
+                        SWP_clip_box x + 2, y + 2, SWP.cellW - 4, SWP.cellH - 4, gTop, gBot, SWS(i).c OR &HFF000000~&
+                    ELSE
+                        SWP_clip_box x, y, SWP.cellW, SWP.cellH, gTop, gBot, SWP_contrast~&(SWS(i).c)
+                    END IF
+                ELSE
+                    y0 = _MAX(y, gTop): y1 = _MIN(y + SWP.cellH - 1, gBot)
+                    IF y1 >= y0 THEN LINE (x, y0)-(x + SWP.cellW - 1, y1), THEME.CP_text_dim~&, B
+                    IF y1 - y0 >= 2 _ANDALSO SWP.cellW >= 3 THEN LINE (x + 1, y0 + 1)-(x + SWP.cellW - 2, y1 - 1), THEME.CP_slider_border~&, BF
+                END IF
+            END IF
+        END IF
+    NEXT i
     ' FG / BG frames: FG a solid double frame, BG a dotted one
     IF bgIdx > 0 _ANDALSO bgIdx <> fgIdx THEN
         IF SWP_cell_rect%(bgIdx, x, y) THEN SWP_clip_box x - 1, y - 1, SWP.cellW + 2, SWP.cellH + 2, gTop, gBot, THEME.CP_text~&
@@ -574,6 +597,15 @@ SUB SWP_render ()
         IF SWS(SWP.hoverIdx).kind = SWS_KIND_COLOR THEN
             IF SWP_cell_rect%(SWP.hoverIdx, x, y) THEN SWP_clip_box x - 1, y - 1, SWP.cellW + 2, SWP.cellH + 2, gTop, gBot, THEME.CP_text~&
         END IF
+    END IF
+
+    ' the selection box being dragged
+    IF SWP.boxing _ANDALSO SWP.boxMoved THEN
+        DIM bx0 AS INTEGER, bx1 AS INTEGER, by0 AS INTEGER, by1 AS INTEGER
+        bx0 = _MAX(_MIN(SWP.boxX0, SWP.boxX1), SWP.gridX): bx1 = _MIN(_MAX(SWP.boxX0, SWP.boxX1), SWP.gridX + SWP.gridW - 1)
+        by0 = _MAX(SWP.gridY + _MIN(SWP.boxY0, SWP.boxY1) - SWP.scrollY, gTop - 1)
+        by1 = _MIN(SWP.gridY + _MAX(SWP.boxY0, SWP.boxY1) - SWP.scrollY, gBot + 1)
+        IF bx1 >= bx0 THEN SWP_clip_box bx0, by0, bx1 - bx0 + 1, by1 - by0 + 1, gTop, gBot, THEME.CP_text_bright~&
     END IF
 
     ' scroll bar
@@ -592,6 +624,8 @@ SUB SWP_render ()
             st = "#" + RIGHT$("000000" + HEX$(SWS(SWP.hoverIdx).c AND &HFFFFFF~&), 6)
             IF LEN(SWS(SWP.hoverIdx).nm) THEN st = st + " " + SWP_ascii$(SWS(SWP.hoverIdx).nm)
         END IF
+    ELSEIF SWS_sel_count& > 1 THEN
+        st = _TRIM$(STR$(SWS_sel_count&)) + " SELECTED"
     ELSE
         st = _TRIM$(STR$(SWS_color_count&)) + " COLORS"
         IF CFG.SWATCHES_COLS% = 0 THEN st = st + " - " + _TRIM$(STR$(SWP.cols)) + " COLUMNS"
@@ -1085,6 +1119,21 @@ SUB SWP_mouse_input ()
         EXIT SUB
     END IF
 
+    ' a selection box being dragged (it may leave the panel: it scrolls the grid)
+    IF SWP.boxing THEN
+        IF MOUSE.B1% THEN
+            IF ny < SWP.gridY THEN SWP.scrollY = SWP.scrollY - (SWP.cellH + SWP.gap) \ 2: SWP_clamp_scroll
+            IF ny >= SWP.gridY + SWP.gridH THEN SWP.scrollY = SWP.scrollY + (SWP.cellH + SWP.gap) \ 2: SWP_clamp_scroll
+            SWP.boxX1 = nx: SWP.boxY1 = CLNG(ny - SWP.gridY) + SWP.scrollY
+            IF ABS(SWP.boxX1 - SWP.boxX0) > 1 _ORELSE ABS(SWP.boxY1 - SWP.boxY0) > 1 THEN SWP.boxMoved = TRUE
+            IF SWP.boxMoved THEN SWP_box_apply
+        ELSE
+            SWP.boxing = FALSE
+        END IF
+        SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
     IF inside = 0 THEN EXIT SUB
     IF press1 _ORELSE press2 THEN MOUSE.UI_CHROME_CLICKED% = TRUE
     IF press1 = 0 _ANDALSO press2 = 0 THEN EXIT SUB
@@ -1134,10 +1183,119 @@ SUB SWP_mouse_input ()
         EXIT SUB
     END IF
 
-    ' a swatch: left = FG, right = BG
+    ' a swatch: left = select (+ FG), right = BG
     i = SWP_entry_at&(nx, ny)
-    IF i > 0 THEN SWP_pick i, press2
+    IF press2 THEN
+        IF i > 0 THEN SWP_pick i, TRUE
+        EXIT SUB
+    END IF
+    IF i > 0 THEN
+        SWP_click_entry i
+    ELSEIF nx >= SWP.gridX _ANDALSO nx < SWP.gridX + SWP.gridW _ANDALSO ny >= SWP.gridY _ANDALSO ny < SWP.gridY + SWP.gridH THEN
+        ' an empty place: a selection box starts (a click alone clears)
+        SWP.boxing = TRUE: SWP.boxMoved = FALSE
+        SWP.boxAdd = (MODIFIERS.ctrl% <> 0 _ORELSE MODIFIERS.shift% <> 0)
+        SWP.boxX0 = nx: SWP.boxY0 = CLNG(ny - SWP.gridY) + SWP.scrollY
+        SWP.boxX1 = SWP.boxX0: SWP.boxY1 = SWP.boxY0
+        IF SWP.boxAdd = 0 THEN SWS_select_none
+        SWP.selBase = SWP_sel_save$
+    END IF
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
 END SUB
+
+
+' ===========================================================================
+' Selection
+' ===========================================================================
+
+''
+' A left click on entry i: plain = select it alone (a color also becomes the
+' FG), Shift = the range from the anchor, Ctrl = toggle it.
+SUB SWP_click_entry (i AS LONG)
+    IF i < 1 _ORELSE i > SWS_N THEN EXIT SUB
+    IF MODIFIERS.shift% _ANDALSO SWP.anchor >= 1 _ANDALSO SWP.anchor <= SWS_N THEN
+        IF MODIFIERS.ctrl% = 0 THEN SWS_select_none
+        SWS_select_range SWP.anchor, i
+    ELSEIF MODIFIERS.ctrl% THEN
+        SWS(i).sel = _IIF(SWS(i).sel <> 0, 0, -1)
+        SWP.anchor = i
+    ELSE
+        SWS_select_none
+        SWS(i).sel = -1
+        SWP.anchor = i
+        SWP_pick i, FALSE
+    END IF
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' The selection as CHR$(0 / 1) per entry (and back).
+FUNCTION SWP_sel_save$ ()
+    DIM r AS STRING, i AS LONG
+    r = STRING$(SWS_N, 0)
+    FOR i = 1 TO SWS_N
+        IF SWS(i).sel THEN MID$(r, i, 1) = CHR$(1)
+    NEXT i
+    SWP_sel_save$ = r
+END FUNCTION
+
+
+''
+' The box: every entry whose cell it touches is selected, on top of the
+' selection it started from (selBase).
+SUB SWP_box_apply ()
+    DIM i AS LONG, x0 AS LONG, x1 AS LONG, y0 AS LONG, y1 AS LONG, cx AS LONG, cy AS LONG
+    x0 = _MIN(SWP.boxX0, SWP.boxX1) - SWP.gridX: x1 = _MAX(SWP.boxX0, SWP.boxX1) - SWP.gridX
+    y0 = _MIN(SWP.boxY0, SWP.boxY1): y1 = _MAX(SWP.boxY0, SWP.boxY1)
+    FOR i = 1 TO SWS_N
+        SWS(i).sel = 0
+        IF i <= LEN(SWP.selBase) THEN
+            IF ASC(SWP.selBase, i) THEN SWS(i).sel = -1
+        END IF
+        IF SWP_EC(i) >= 0 _ANDALSO SWS(i).kind <> SWS_KIND_BREAK THEN
+            cx = CLNG(SWP_EC(i)) * (SWP.cellW + SWP.gap): cy = SWP_ER(i) * (SWP.cellH + SWP.gap)
+            IF cx <= x1 _ANDALSO cx + SWP.cellW - 1 >= x0 _ANDALSO cy <= y1 _ANDALSO cy + SWP.cellH - 1 >= y0 THEN SWS(i).sel = -1
+        END IF
+    NEXT i
+END SUB
+
+
+''
+' Select every entry (row breaks aside).
+SUB SWP_select_all ()
+    SWS_select_none
+    IF SWS_N > 0 THEN SWS_select_range 1, SWS_N
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Is the pointer over the panel (no menu open)? Its keys - Ctrl+A, Esc and the
+' edit keys - work only then, so the canvas keeps them otherwise.
+FUNCTION SWP_has_keys% ()
+    IF SWP.visible = 0 _ORELSE SWP.autoHidden _ORELSE SWP.initialized = 0 THEN EXIT FUNCTION
+    IF SWP.menu <> SWP_MENU_NONE THEN EXIT FUNCTION
+    SWP_has_keys% = SWP_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+END FUNCTION
+
+
+''
+' The panel's keys (KEYBOARD_input_handler, before the canvas's): TRUE = taken.
+' Esc clears the selection.
+FUNCTION SWP_key_input% ()
+    STATIC escWas AS INTEGER
+    DIM esc AS INTEGER
+    esc = _KEYDOWN(27)
+    IF SWP_has_keys% THEN
+        IF esc _ANDALSO escWas = 0 _ANDALSO SWS_sel_count& > 0 THEN
+            SWS_select_none: SWP.anchor = 0
+            SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+            SWP_key_input% = TRUE
+        END IF
+    END IF
+    escWas = esc
+END FUNCTION
 
 
 ''
@@ -1165,8 +1323,9 @@ END FUNCTION
 ' ===========================================================================
 ' QA (DOCK_DUMP), viewport px:
 '   SWAT  <entries> <colors> <cols> <cellW> <cellH> <gap> <rows> <scrollY> <maxScroll> <fgIdx> <bgIdx> <menu> <menuRows> <setKey>
+'   SWATS <selected> <anchor> <i> ...           (up to 64 selected entries)
 '   SWATG <gridX> <gridY> <gridW> <gridH> <setButton x y w h> <gear x y w h>
-'   SWATC <i> <x> <y> <w> <h> <kind> <RRGGBB>   (the first 48 entries, and the last)
+'   SWATC <i> <x> <y> <w> <h> <kind> <RRGGBB>   (the first 48 entries, the ones showing, the last)
 '   SWATM <x> <y> <w> <h> <rowH> <top row>       (an open menu), then per row shown:
 '   SWATMI <row> <kind> <id> <checked> <x> <y> <w> <h> <label>
 '   SWATMC <id> <k> <x> <y> <w> <h> <label>     (each chip of a chips row)
@@ -1182,11 +1341,26 @@ FUNCTION SWP_dump$ ()
     IF PAL_BG_IS_TRANSPARENT% = 0 THEN bgIdx = SWP_find_color&(PAINT_BG_COLOR~&)
     d = "SWAT" + DOCK_n$(SWS_N) + DOCK_n$(SWS_color_count&) + DOCK_n$(SWP.cols) + DOCK_n$(SWP.cellW) + DOCK_n$(SWP.cellH) + DOCK_n$(SWP.gap)
     d = d + DOCK_n$(SWP.rows) + DOCK_n$(SWP.scrollY) + DOCK_n$(SWP_max_scroll&) + DOCK_n$(fgIdx) + DOCK_n$(bgIdx) + DOCK_n$(SWP.menu) + DOCK_n$(SWP.menuRows) + " " + SWP.setKey + lf
+    ' selection: count, anchor, then up to 64 selected entries
+    DIM sn AS LONG
+    d = d + "SWATS" + DOCK_n$(SWS_sel_count&) + DOCK_n$(SWP.anchor)
+    FOR i = 1 TO SWS_N
+        IF SWS(i).sel THEN
+            sn = sn + 1
+            IF sn <= 64 THEN d = d + DOCK_n$(i)
+        END IF
+    NEXT i
+    d = d + lf
     SWP_gear_xy gx, gy
     d = d + "SWATG" + SWP_vrect$(SWP.gridX, SWP.gridY, SWP.gridW, SWP.gridH) + SWP_vrect$(2, SWP.barY, gx - 6, SWP.barH) + SWP_vrect$(gx, gy, 11, 11) + lf
+    DIM cn AS INTEGER
     FOR i = 1 TO SWS_N
-        IF i <= 48 _ORELSE i = SWS_N THEN
+        IF i <= 48 _ORELSE i = SWS_N _ORELSE cn < 400 THEN
             IF SWP_cell_rect%(i, x, y) THEN
+                IF i > 48 _ANDALSO i < SWS_N THEN ' past the first 48: the ones showing in the grid
+                    IF y + SWP.cellH <= SWP.gridY _ORELSE y >= SWP.gridY + SWP.gridH THEN _CONTINUE
+                    cn = cn + 1
+                END IF
                 d = d + "SWATC" + DOCK_n$(i) + SWP_vrect$(x, y, SWP.cellW, SWP.cellH) + DOCK_n$(SWS(i).kind) + " " + RIGHT$("000000" + HEX$(SWS(i).c AND &HFFFFFF~&), 6) + lf
             END IF
         END IF
