@@ -39,6 +39,7 @@ CONST SWP_SBAR_W = 4  ' scroll bar width (native px)
 CONST SWP_MENU_NONE = 0
 CONST SWP_MENU_SETS = 1 ' the set list
 CONST SWP_MENU_GEAR = 2 ' layout options
+CONST SWP_MENU_EDIT = 3 ' edits (the ☰ button, Shift+right-click)
 
 ' menu row kinds
 CONST SWP_MI_ITEM   = 0 ' a choice / action
@@ -132,6 +133,7 @@ TYPE SWATCHES_PANEL_OBJ
     menuHover AS INTEGER
     menuChip  AS INTEGER ' chip under the pointer in a chips row
     menuRowH  AS INTEGER
+    menuAtMouse AS INTEGER ' the next SWP_menu_open opens at the pointer (Shift+right-click)
 END TYPE
 
 DIM SHARED SWP AS SWATCHES_PANEL_OBJ

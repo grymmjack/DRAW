@@ -184,13 +184,21 @@ Right-click still sets the BG and leaves the selection alone. Switching to anoth
 
 DRAW never changes a swatch set it did not make. The first time you edit a shipped set, one of the palettes, the Document Palette set or a file you pointed DRAW at, it saves a copy of it in **My Swatches** under the set's name (`Name (1)` if that name is taken) and edits the copy from then on. The status bar says so. After that, every edit is saved straight away, so there is no Save step.
 
-| Do this (pointer on the panel) | To |
-| --- | --- |
-| **`Del`** | delete the selected swatches; locked swatches stay |
-| **`Ctrl+Z`** | undo the last swatch edit |
-| **`Ctrl+Y`** | redo it |
+**The edit menu.** Click the **☰** button (left of the gear), or **`Shift`+right-click** in the grid to open it at the pointer. Shift+right-clicking a swatch that isn't selected selects it alone first; on a selected swatch, or an empty place, the selection stays. The menu's top line counts the selected swatches.
 
-Each set keeps its own undo steps while DRAW is running. With the pointer anywhere else, `Del`, `Ctrl+Z` and `Ctrl+Y` work on the canvas as usual.
+| Menu item | Key (pointer on the panel) | What it does |
+| --- | --- | --- |
+| **Add FG Color** | **`Ins`** | adds the FG color after the last selected swatch (nothing selected: at the end) and selects it |
+| **Delete** | **`Del`** | deletes the selected swatches; locked swatches stay |
+| **Lock / Unlock** | **`L`** | locks the selected swatches (a small corner mark); if they are all locked already, unlocks them |
+| **Duplicate** | | copies the selected swatches right after the last one; the copies become the selection |
+| **Insert Empty Cell** | | an empty cell before the first selected swatch (nothing selected: at the end) |
+| **Insert Row Break** | | the swatches from the first selected one start a new row |
+| **Remove Duplicates** | | keeps the first of each color; a locked swatch is never removed |
+| **Select All / Select None** | **`Ctrl+A`** / **`Ctrl+D`** or **`Esc`** | |
+| **Undo / Redo** | **`Ctrl+Z`** / **`Ctrl+Y`** | the last swatch edit |
+
+A locked swatch stays where it is and survives Delete and Remove Duplicates. Each set keeps its own undo steps while DRAW is running. With the pointer anywhere else these keys keep their usual jobs — `L` is still the Line tool, `Del`, `Ins`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+A` and `Ctrl+D` still work on the canvas.
 
 **Docking.** Like the Preview and the color pickers, the Swatches panel floats in its own window (drag the corner grip to resize it) or docks: drag its title bar onto a dock target. Docked, it takes the slot's size and scrolls. Right-click its title bar → **Scale** to give it its own size.
 

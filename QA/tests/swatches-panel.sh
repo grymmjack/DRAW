@@ -11,8 +11,8 @@
 source "$DRAW_ROOT/QA/dock-lib.sh"
 
 sw_read() { read -r _ SW_N SW_COLORS SW_COLS SW_CW SW_CH SW_GAP SW_ROWS SW_SCROLL SW_MAXS SW_FG SW_BG SW_MENU SW_MROWS SW_KEY <<< "$(grep '^SWAT ' "$DK_DUMP")"; }
-sw_geo()  { read -r _ G_X G_Y G_W G_H B_X B_Y B_W B_H E_X E_Y E_W E_H <<< "$(grep '^SWATG ' "$DK_DUMP")"; }
-sw_cell() { read -r _ _ C_X C_Y C_W C_H C_KIND C_HEX <<< "$(grep "^SWATC $1 " "$DK_DUMP")"; }
+sw_geo()  { read -r _ G_X G_Y G_W G_H B_X B_Y B_W B_H E_X E_Y E_W E_H M_X M_Y M_W M_H <<< "$(grep '^SWATG ' "$DK_DUMP")"; }
+sw_cell() { read -r _ _ C_X C_Y C_W C_H C_KIND C_HEX C_FLAGS <<< "$(grep "^SWATC $1 " "$DK_DUMP")"; }
 # the chip labelled $2 in the chips row with id $1
 sw_chip() { read -r _ _ _ K_X K_Y K_W K_H _ <<< "$(awk -v id="$1" -v lb="$2" '$1=="SWATMC" && $2==id && $8==lb' "$DK_DUMP" | head -1)"; }
 sw_expect() { # LABEL VALUE WANT

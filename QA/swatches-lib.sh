@@ -2,8 +2,8 @@
 # Helpers for the Swatches panel tests (GUI/SWATCHES.BM dump lines: SWAT,
 # SWATS, SWATG, SWATC, SWATM*). Source after dock-lib.sh.
 sw_read() { read -r _ SW_N SW_COLORS SW_COLS SW_CW SW_CH SW_GAP SW_ROWS SW_SCROLL SW_MAXS SW_FG SW_BG SW_MENU SW_MROWS SW_KEY <<< "$(grep '^SWAT ' "$DK_DUMP")"; }
-sw_geo()  { read -r _ G_X G_Y G_W G_H B_X B_Y B_W B_H E_X E_Y E_W E_H <<< "$(grep '^SWATG ' "$DK_DUMP")"; }
-sw_cell() { C_X=; read -r _ _ C_X C_Y C_W C_H C_KIND C_HEX <<< "$(grep "^SWATC $1 " "$DK_DUMP")"; }
+sw_geo()  { read -r _ G_X G_Y G_W G_H B_X B_Y B_W B_H E_X E_Y E_W E_H M_X M_Y M_W M_H <<< "$(grep '^SWATG ' "$DK_DUMP")"; }
+sw_cell() { C_X=; read -r _ _ C_X C_Y C_W C_H C_KIND C_HEX C_FLAGS <<< "$(grep "^SWATC $1 " "$DK_DUMP")"; }
 # the selection: SS_N, SS_ANCHOR, SS_LIST ("3 4 5")
 sw_sel()  { local a; read -r _ SS_N SS_ANCHOR a <<< "$(grep '^SWATS ' "$DK_DUMP")"; SS_LIST="$a"; }
 sw_expect() { if [[ "$2" == "$3" ]]; then pass "$1 = $3"; else fail "$1 = '$2', want '$3'"; fi; }
@@ -22,9 +22,14 @@ sw_click() {
 }
 # the cell pitch (viewport px): entry 2's x - entry 1's x (both on row 0)
 sw_pitch() { local x1; sw_cell 1; x1=$C_X; sw_cell 2; SW_PITCH=$(( C_X - x1 )); }
-# an empty place in the grid: column 6 of row 1 in swatches-edit.gpl (right of
-# the row break) - entry 12's cell (row 1, column 3) + 3 cells
-sw_empty_xy() { sw_pitch; sw_cell 12; EX=$(( C_X + C_W / 2 + 3 * SW_PITCH )); EY=$(( C_Y + C_H / 2 )); }
+# an empty place in the grid: 3 cells right of the last swatch before the
+# first row break (the fixture's green row is half empty)
+sw_empty_xy() {
+    local k; sw_pitch
+    # a row break has no cell, so SWATC skips its number
+    k=$(awk '$1=="SWATC" { if (p && $2 > p + 1) {print p; exit} p = $2 }' "$DK_DUMP")
+    sw_cell "${k:-12}"; EX=$(( C_X + C_W / 2 + 3 * SW_PITCH )); EY=$(( C_Y + C_H / 2 ))
+}
 
 # Edits save into My Swatches (PATHS_data$("SWATCHES/")). A normal QA run
 # shares the real ~/.local/share/DRAW, so an editing test relaunches DRAW on a
@@ -73,3 +78,15 @@ sw_relaunch_saved() {
 sw_edit_state() { read -r _ SE_UNDO SE_REDO SE_SAVES SE_MINE <<< "$(grep '^SWATE ' "$DK_DUMP")"; }
 # hover the panel's first cell (the keys work only with the pointer on it)
 sw_hover_panel() { sw_cell 1; hover $(( C_X + C_W / 2 )) $(( C_Y + C_H / 2 )); sleep 0.2; }
+# the open menu's item with id $1: click it (SWATMI row kind id chk x y w h label)
+sw_menu_click() {
+    local r mx my mw mh
+    r=$(awk -v id="$1" '$1=="SWATMI" && $4==id {print; exit}' "$DK_DUMP")
+    read -r _ _ _ _ _ mx my mw mh _ <<< "$r"
+    if [[ -z "$mx" ]]; then fail "no menu item $1 in the open menu"; return 1; fi
+    click $(( mx + mw / 2 )) $(( my + mh / 2 )); dk_settle
+}
+# open the edit menu with its button
+sw_menu_edit() { sw_geo; click $(( M_X + M_W / 2 )) $(( M_Y + M_H / 2 )); dk_settle; }
+# the hex of every entry in order ("-" = empty cell, "|" = row break), from SWATC
+sw_hexes() { awk '$1=="SWATC" { for (k = p + 1; p && k < $2; k++) printf " |"; printf "%s%s", (n++ ? " " : ""), ($7==1 ? "-" : $8); p = $2 } END {print ""}' "$DK_DUMP"; }
