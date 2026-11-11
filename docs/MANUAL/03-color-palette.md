@@ -197,6 +197,11 @@ DRAW never changes a swatch set it did not make. The first time you edit a shipp
 | **Insert Empty Cell** | | an empty cell before the first selected swatch (nothing selected: at the end) |
 | **Insert Row Break** | | the swatches from the first selected one start a new row |
 | **Remove Duplicates** | | keeps the first of each color; a locked swatch is never removed |
+| **Ramp First > Last** | | the colors between the first and last selected swatch blend from one to the other (in the *Gradient Blend* space, like the palette strip's Shift+click ramp); empty cells are skipped, locked swatches keep their color |
+| **Insert Ramp FG > BG** | | inserts **Steps** swatches from the FG to the BG after the selection (nothing selected: at the end) |
+| **Insert OKLCh Ramp from FG** | | inserts an even dark-to-light ramp of the FG, using the *Generate OKLCh Ramp* settings (Settings → Panels → Color Blending + Ramps) |
+| **Steps** chips | | how many swatches an inserted ramp has (the same setting as Palette → Generate OKLCh Ramp) |
+| **Sort** chips: Hue · Light · Sat · Luma · Rev | | sort the selection (two or more selected), else the whole set, by hue, OKLab lightness, chroma or luminance — or reverse it. Only colors move: empty cells, row breaks and locked swatches stay put |
 | **Select All / Select None** | **`Ctrl+A`** / **`Ctrl+D`** or **`Esc`** | |
 | **Undo / Redo** | **`Ctrl+Z`** / **`Ctrl+Y`** | the last swatch edit |
 

@@ -110,3 +110,11 @@ sw_drag_hold() {
 }
 # drag entry $1 to (TX, TY)
 sw_drag_entry() { local fx fy; sw_cell "$1"; fx=$(( C_X + C_W / 2 )); fy=$(( C_Y + C_H / 2 )); sw_drag_hold "$fx" "$fy" "$TX" "$TY" "${2:-}"; }
+# click the chip labelled $2 in the open menu's chips row with id $1
+sw_chip_click() {
+    local r kx ky kw kh
+    r=$(awk -v id="$1" -v lb="$2" '$1=="SWATMC" && $2==id && $8==lb {print; exit}' "$DK_DUMP")
+    read -r _ _ _ kx ky kw kh _ <<< "$r"
+    if [[ -z "$kx" ]]; then fail "no chip $2 in menu row $1"; return 1; fi
+    click $(( kx + kw / 2 )) $(( ky + kh / 2 )); dk_settle
+}

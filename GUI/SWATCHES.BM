@@ -780,6 +780,8 @@ FUNCTION SWP_chip_values$ (id AS INTEGER)
         CASE 10: SWP_chip_values$ = "0|-1|8|12|16|24|32"
         CASE 11: SWP_chip_values$ = "6|8|10|12|16|20|24"
         CASE 12: SWP_chip_values$ = "0|1|2|3"
+        CASE 30: SWP_chip_values$ = "4|5|6|8|10|12|16"
+        CASE 31: SWP_chip_values$ = "1|2|3|4|0"
     END SELECT
 END FUNCTION
 
@@ -789,6 +791,8 @@ FUNCTION SWP_chip_now% (id AS INTEGER)
         CASE 10: v = CFG.SWATCHES_COLS%
         CASE 11: v = CFG.SWATCHES_CELL%
         CASE 12: v = CFG.SWATCHES_GAP%
+        CASE 30: v = CFG.RAMP_STEPS%
+        CASE 31: EXIT FUNCTION ' (actions, not a setting)
     END SELECT
     vals = SWP_chip_values$(id)
     FOR k = 1 TO SWP_field_count%(vals)
@@ -856,6 +860,12 @@ SUB SWP_build_edit ()
     SWP_menu_add SWP_MI_ITEM, "INSERT EMPTY CELL", 204, 0, ""
     SWP_menu_add SWP_MI_ITEM, "INSERT ROW BREAK", 205, 0, ""
     SWP_menu_add SWP_MI_ITEM, "REMOVE DUPLICATES", 207, 0, ""
+    SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "RAMP FIRST > LAST", 220, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "INSERT RAMP FG > BG", 221, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "INSERT OKLCH RAMP FROM FG", 222, 0, ""
+    SWP_menu_add SWP_MI_CHIPS, "STEPS", 30, SWP_chip_now%(30), "4|5|6|8|10|12|16"
+    SWP_menu_add SWP_MI_CHIPS, "SORT", 31, 0, "HUE|LIGHT|SAT|LUMA|REV"
     SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
     SWP_menu_add SWP_MI_ITEM, "SELECT ALL     CTRL+A", 208, 0, ""
     SWP_menu_add SWP_MI_ITEM, "SELECT NONE    CTRL+D", 209, 0, ""
@@ -1048,7 +1058,13 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
         CASE SWP_MI_CHIPS
             SWP_menu_act% = TRUE
             IF k < 1 THEN EXIT FUNCTION
+            IF id = 31 THEN ' SORT: an action, the menu closes
+                SWP_menu_close
+                SWP_sort VAL(SWP_field$(SWP_chip_values$(31), k))
+                EXIT FUNCTION
+            END IF
             SELECT CASE id
+                CASE 30: CFG.RAMP_STEPS% = VAL(SWP_field$(SWP_chip_values$(30), k))
                 CASE 10: CFG.SWATCHES_COLS% = VAL(SWP_field$(SWP_chip_values$(10), k))
                 CASE 11: CFG.SWATCHES_CELL% = VAL(SWP_field$(SWP_chip_values$(11), k))
                 CASE 12: CFG.SWATCHES_GAP% = VAL(SWP_field$(SWP_chip_values$(12), k))
@@ -1087,6 +1103,9 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
         CASE 205: SWP_insert_kind SWS_KIND_BREAK
         CASE 206: SWP_duplicate
         CASE 212: SWP_edit_color SWP_first_sel&
+        CASE 220: SWP_ramp
+        CASE 221: SWP_insert_ramp 1
+        CASE 222: SWP_insert_ramp 2
         CASE 213: SWP_rename SWP_first_sel&
         CASE 207: SWP_remove_dups
         CASE 208: SWP_select_all
@@ -1800,6 +1819,95 @@ SUB SWP_tick ()
     IF SWP.liveOpen _ANDALSO MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 _ANDALSO MOUSE.B3% = 0 THEN
         SWP_edit_end: SWP.liveOpen = FALSE
     END IF
+END SUB
+
+
+''
+' Ramp: the colors between the first and last selected swatch blend from the
+' one to the other (the Gradient Blend space, like the palette strip's
+' Shift+click ramp). Empty cells are skipped, locked swatches keep their color.
+SUB SWP_ramp ()
+    DIM a AS LONG, b AS LONG, i AS LONG, n AS LONG, k AS LONG, changed AS LONG
+    DIM c1 AS _UNSIGNED LONG, c2 AS _UNSIGNED LONG
+    a = SWP_first_sel&: b = SWP_last_sel&
+    IF a = 0 _ORELSE a = b THEN STATUS_flash "Swatches: select the two ends of the ramp": EXIT SUB
+    REDIM ix(1 TO b - a + 1) AS LONG, nc(1 TO b - a + 1) AS _UNSIGNED LONG
+    FOR i = a TO b
+        IF SWS(i).kind = SWS_KIND_COLOR THEN n = n + 1: ix(n) = i
+    NEXT i
+    IF n < 3 THEN STATUS_flash "Swatches: no swatches between the ends": EXIT SUB
+    c1 = SWS(ix(1)).c OR &HFF000000~&: c2 = SWS(ix(n)).c OR &HFF000000~&
+    FOR k = 2 TO n - 1
+        nc(k) = DRAWER_gradient_lerp_color~&(c1, c2, (k - 1) / (n - 1)) OR &HFF000000~&
+        IF (SWS(ix(k)).flags AND SWS_FLAG_LOCK) = 0 _ANDALSO (SWS(ix(k)).c AND &HFFFFFF~&) <> (nc(k) AND &HFFFFFF~&) THEN changed = changed + 1
+    NEXT k
+    IF changed = 0 THEN STATUS_flash "Swatches: already a ramp": EXIT SUB
+    IF SWP_edit_begin% = 0 THEN EXIT SUB
+    FOR k = 2 TO n - 1
+        IF (SWS(ix(k)).flags AND SWS_FLAG_LOCK) = 0 THEN SWS(ix(k)).c = nc(k)
+    NEXT k
+    SWP_edit_end
+    STATUS_flash "Swatches: ramp of " + _TRIM$(STR$(n)) + " swatches"
+END SUB
+
+
+''
+' Insert a ramp of CFG.RAMP_STEPS% swatches after the selection (else at the
+' end): kind 1 = FG to BG (Gradient Blend space), 2 = an OKLCh lightness ramp
+' of the FG (the Palette > Generate OKLCh Ramp settings). The new swatches
+' are the selection.
+SUB SWP_insert_ramp (kind AS INTEGER)
+    DIM steps AS INTEGER, i AS INTEGER, at AS LONG
+    IF PAL_FG_IS_TRANSPARENT% THEN STATUS_flash "Swatches: the FG is transparent": EXIT SUB
+    IF kind = 1 _ANDALSO PAL_BG_IS_TRANSPARENT% THEN STATUS_flash "Swatches: the BG is transparent": EXIT SUB
+    steps = CFG.RAMP_STEPS%
+    IF steps < 2 THEN steps = 2
+    IF steps > 32 THEN steps = 32
+    DIM ramp(0 TO 31) AS _UNSIGNED LONG
+    IF kind = 1 THEN
+        FOR i = 0 TO steps - 1
+            ramp(i) = DRAWER_gradient_lerp_color~&(PAINT_COLOR~& OR &HFF000000~&, PAINT_BG_COLOR~& OR &HFF000000~&, i / (steps - 1)) OR &HFF000000~&
+        NEXT i
+    ELSE
+        DIM lMin AS SINGLE, lMax AS SINGLE, chromaEnd AS SINGLE
+        lMin = CFG.RAMP_L_MIN% / 100!: lMax = CFG.RAMP_L_MAX% / 100!
+        IF lMin < 0 THEN lMin = 0
+        IF lMax > 1 THEN lMax = 1
+        IF lMax <= lMin THEN lMin = 0.15: lMax = 0.95
+        chromaEnd = CFG.RAMP_CHROMA_END% / 100!
+        IF chromaEnd < 0 THEN chromaEnd = 0
+        IF chromaEnd > 1 THEN chromaEnd = 1
+        CLR_oklch_ramp PAINT_COLOR~& OR &HFF000000~&, steps, lMin, lMax, CFG.RAMP_HUE_SHIFT%, chromaEnd, ramp()
+    END IF
+    IF SWP_edit_begin% = 0 THEN EXIT SUB
+    at = SWP_last_sel& + 1
+    IF at < 2 THEN at = SWS_N + 1
+    SWS_select_none
+    FOR i = 0 TO steps - 1
+        SWS_insert at + i, ramp(i) OR &HFF000000~&, "", SWS_KIND_COLOR, 0
+        SWS(at + i).sel = -1
+    NEXT i
+    SWP.anchor = at
+    SWP_edit_end
+    SWP_scroll_to at + steps - 1
+    STATUS_flash "Swatches: inserted a ramp of " + _TRIM$(STR$(steps))
+END SUB
+
+
+''
+' Sort (SWS_SORT_* mode; 0 = reverse) the selection - two or more selected -
+' else the whole set. Only colors move; empty cells, row breaks and locked
+' swatches keep their places.
+SUB SWP_sort (mode AS INTEGER)
+    DIM s0 AS STRING
+    s0 = SWS_snapshot$
+    SWS_sort_selected mode
+    IF SWS_snapshot$ = s0 THEN STATUS_flash "Swatches: already in that order": EXIT SUB
+    SWS_restore s0
+    IF SWP_edit_begin% = 0 THEN EXIT SUB
+    SWS_sort_selected mode
+    SWP_edit_end
+    STATUS_flash "Swatches: sorted"
 END SUB
 
 
