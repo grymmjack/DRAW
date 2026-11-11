@@ -1126,6 +1126,22 @@ gotcha 15). It also stops playback and clears the ask answer.
   column of squares). Caps: `AB_MAX_CELS`, `AB_LOAD_MAX_PIXELS` (16M px read). `AB_install_loaded%`
   crops to the union box of drawn pixels. Test `animbrush-load` (11: strip, GIF, partial-frame
   GIF, APNG, sheet, plain; drops on bins via the QA drop hook `<DOCK_DUMP>.drop`).
+- A6 Move Brush (TOOLS/ANIM-MVBRUSH, actions 2576 start / 2577-2580 ease / 2581-2584 next cel
+  every N / 2585 apply / 2586 cancel): `MVB.active` makes `MOUSE_handle_tool_phase` hand the
+  mouse to `MVB_mouse` and exit (like the grid-offset pick), so no tool acts; the path is kept
+  relative to the press frame's cell (`MVB.fromF`, `rx0..ry1` = the brush's middle). Range
+  `MVB_frames%` (strip selection 2+, else fromF..last). Step i of n: t = i/(n-1) eased
+  (in t², out t(2-t), in-out t²(3-2t)), top left = INT(r0 + (r1-r0)e + .5) - W\2, cel
+  `AB_seq%(i \ MVB_EVERY)`. Enter (KEYBOARD.BM `CHR$(13)`, first branch) -> `MVB_apply`: per
+  cell temp copy + `CUSTOM_BRUSH_render` + `_DONTBLEND` put back (as `AB_stamp_all`), one
+  `HISTORY_record_brush` with a full-layer before copy; Esc (first branch) -> `MVB_cancel`.
+  Preview: `MVB_previewing%` sets `need_shape_preview%` in `RENDER_tool_previews`;
+  `MVB_preview` puts the cached ghost (every stamp, alpha halved, keyed by path + settings +
+  brush) at the press cell + the path line and a dot per step. `AB_new_document` cancels it
+  (all three document paths). Dump `MVB active dragging hasPath fromF ease every rx0 ry0 rx1 ry1
+  n`, `MVBP f:x:y:cel`, `MVBB f:x:y:w:h` (drawn bounds per cell), `MVBK f:cel`. Test `anim-move`
+  (24: no brush, path, ghost shows / goes, Esc, plain brush x 4 eases, undo / redo, AnimBrush
+  cels every 1 / 2 frames, range from frame 3).
 - Dump: `ABR n cur w h merged srcFrame brushActive brushW brushH brushCrc`,
   `ABRC frame:crc ...` (BGRA CRC32, `0` = clear). Tests `animbrush-pickup` (expected CRCs
   worked out from the fixture in python), `animbrush-pickup-edges` (wand shape, stash, plain

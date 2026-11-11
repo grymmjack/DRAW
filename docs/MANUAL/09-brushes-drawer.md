@@ -58,7 +58,28 @@ to whichever cel a stamp uses. With the **Eraser** an AnimBrush erases each fram
 shape (with *Every frame at once*, the whole animation in one press). In the lightbox, a stamp
 in another frame's pane lands in that frame and uses that frame's cel.
 
-### Transform controls
+### Move Brush - a brush that travels across the frames
+
+**ANIM → Move Brush** stamps the brush once in each frame along a path, so a ball rolls or a
+bird flies through the animation without placing every frame by hand. It works with any custom
+brush; with an AnimBrush the bird flaps as it flies.
+
+1. Pick up a brush (`Ctrl+B` over a selection, or an AnimBrush).
+2. Choose **ANIM → Move Brush → Start**. The status bar shows `MOVE BRUSH`.
+3. Drag the path in a frame - on the sheet, or in a lightbox pane. A see-through ghost of every
+   stamp shows along it, with a dot for each frame. Drag again to try another path.
+4. Press `Enter` to stamp it (`Esc` cancels). The first frame gets the brush at the start of the
+   path, the last frame at its end, the frames between along the way - each in its own cell.
+   `Ctrl+Z` takes the whole move away in one step.
+
+Which frames: the ones selected in the strip (Ctrl+click two or more), else the frame you drag
+in through the last frame. In the same menu:
+
+- **Ease** - *None* spaces the stamps evenly; *In* starts slow and speeds up; *Out* starts fast
+  and slows down; *In-Out* is slow at both ends.
+- **Next Cel Every Frame / 2 / 3 / 4** - with an AnimBrush, how often it moves on to its next cel
+  (a slow walk: every 2 frames).
+
 
 | Action | Key |
 | --- | --- |

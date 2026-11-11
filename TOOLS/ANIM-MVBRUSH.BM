@@ -1,0 +1,324 @@
+$INCLUDEONCE
+' =============================================================================
+' ANIM-MVBRUSH.BM — ANIM > Move Brush (see ANIM-MVBRUSH.BI).
+' =============================================================================
+
+''
+' Start the mode (needs frames and a custom brush); while on, Start cancels.
+SUB MVB_start ()
+    IF MVB.active THEN MVB_cancel: EXIT SUB
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "Move Brush: set up frames first (ANIM > Frame Grid)": EXIT SUB
+    IF CUSTOM_BRUSH.ACTIVE% = 0 THEN STATUS_flash "Move Brush: pick up a brush first (Ctrl+B or ANIM > AnimBrush > Pick Up)": EXIT SUB
+    MVB.active = TRUE: MVB.dragging = FALSE: MVB.hasPath = FALSE
+    STATUS_flash "Move Brush: drag the path in a frame, Enter stamps it in every frame, Esc cancels"
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Leave the mode without stamping (Esc, a new / opened document).
+SUB MVB_cancel ()
+    IF MVB.active _ORELSE MVB.ghost < -1 THEN SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    MVB.active = FALSE: MVB.dragging = FALSE: MVB.hasPath = FALSE
+    SAFE_FREEIMAGE MVB.ghost: MVB.ghost = 0: MVB_GHOST_KEY = ""
+END SUB
+
+''
+' Actions 2576-2586.
+SUB MVB_action (act AS INTEGER)
+    SELECT CASE act
+        CASE MVB_ACT_START: MVB_start
+        CASE MVB_ACT_EASE0 TO MVB_ACT_EASE3
+            MVB_EASE = act - MVB_ACT_EASE0
+            STATUS_flash "Move Brush ease: " + MID$("none  in    out   in-out", MVB_EASE * 6 + 1, 6)
+        CASE MVB_ACT_EVERY1 TO MVB_ACT_EVERY4
+            MVB_EVERY = act - MVB_ACT_EVERY1 + 1
+            IF MVB_EVERY = 1 THEN STATUS_flash "Move Brush: next cel every frame" ELSE STATUS_flash "Move Brush: next cel every" + STR$(MVB_EVERY) + " frames"
+        CASE MVB_ACT_APPLY: MVB_apply
+        CASE MVB_ACT_CANCEL: MVB_cancel
+    END SELECT
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Menu checkmarks.
+FUNCTION MVB_menu_checked% (act AS INTEGER)
+    SELECT CASE act
+        CASE MVB_ACT_START: MVB_menu_checked% = (MVB.active <> 0)
+        CASE MVB_ACT_EASE0 TO MVB_ACT_EASE3: MVB_menu_checked% = (MVB_EASE = act - MVB_ACT_EASE0)
+        CASE MVB_ACT_EVERY1 TO MVB_ACT_EVERY4: MVB_menu_checked% = (MVB_EVERY = act - MVB_ACT_EVERY1 + 1)
+    END SELECT
+END FUNCTION
+
+''
+' Mouse, while the mode is on (MOUSE_handle_tool_phase: no tool acts): the
+' press starts the path, the drag moves its end, the release keeps it.
+SUB MVB_mouse ()
+    DIM sx AS LONG, sy AS LONG, fw AS LONG, fh AS LONG, f AS INTEGER
+    IF MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0 THEN
+        f = AB_frame_of%(CLNG(MOUSE.X%), CLNG(MOUSE.Y%))
+        IF ANIM_cell_rect%(f, sx, sy, fw, fh) = 0 THEN EXIT SUB
+        MVB.fromF = f
+        MVB.rx0 = MOUSE.X% - sx: MVB.ry0 = MOUSE.Y% - sy
+        MVB.rx1 = MVB.rx0: MVB.ry1 = MVB.ry0
+        MVB.dragging = TRUE: MVB.hasPath = FALSE
+        SCENE_DIRTY% = TRUE
+    ELSEIF MOUSE.B1% _ANDALSO MVB.dragging THEN
+        IF ANIM_cell_rect%(MVB.fromF, sx, sy, fw, fh) = 0 THEN EXIT SUB
+        IF MOUSE.X% - sx <> MVB.rx1 _ORELSE MOUSE.Y% - sy <> MVB.ry1 THEN
+            MVB.rx1 = MOUSE.X% - sx: MVB.ry1 = MOUSE.Y% - sy
+            SCENE_DIRTY% = TRUE
+        END IF
+    ELSEIF MOUSE.B1% = 0 _ANDALSO MVB.dragging THEN
+        MVB.dragging = FALSE: MVB.hasPath = TRUE
+        STATUS_flash "Move Brush:" + STR$(MVB_frames%) + " frames - Enter stamps, Esc cancels, drag again to redo the path"
+        SCENE_DIRTY% = TRUE
+    END IF
+END SUB
+
+''
+' The range into MVB_F (returns how many): the frames selected in the strip
+' when two or more are, else the path's frame through the last.
+FUNCTION MVB_frames% ()
+    DIM i AS INTEGER, n AS INTEGER
+    IF ANIM_SEL_count% > 1 THEN
+        FOR i = 1 TO ANIM.count
+            IF ANIM_SEL(i) <> 0 THEN n = n + 1: MVB_F(n) = i
+        NEXT i
+    ELSE
+        FOR i = _MAX(1, MVB.fromF) TO ANIM.count
+            n = n + 1: MVB_F(n) = i
+        NEXT i
+    END IF
+    MVB_frames% = n
+END FUNCTION
+
+''
+' The eased fraction for step i of n (0-based).
+FUNCTION MVB_eased! (i AS INTEGER, n AS INTEGER)
+    DIM t AS SINGLE
+    IF n < 2 THEN EXIT FUNCTION
+    t = i / (n - 1)
+    SELECT CASE MVB_EASE
+        CASE MVB_EASE_IN: t = t * t
+        CASE MVB_EASE_OUT: t = t * (2 - t)
+        CASE MVB_EASE_INOUT: t = t * t * (3 - 2 * t)
+    END SELECT
+    MVB_eased! = t
+END FUNCTION
+
+''
+' Step i of n (0-based): the brush's top left relative to the cell, and the
+' cel it uses (0 = a plain brush).
+SUB MVB_step (i AS INTEGER, n AS INTEGER, x AS LONG, y AS LONG, k AS INTEGER)
+    DIM e AS SINGLE
+    e = MVB_eased!(i, n)
+    x = INT(MVB.rx0 + (MVB.rx1 - MVB.rx0) * e + .5) - CUSTOM_BRUSH.WIDTH% \ 2
+    y = INT(MVB.ry0 + (MVB.ry1 - MVB.ry0) * e + .5) - CUSTOM_BRUSH.HEIGHT% \ 2
+    k = 0
+    IF AB_active% THEN k = AB_seq%(CLNG(i \ _MAX(1, MVB_EVERY)))
+END SUB
+
+''
+' Enter: stamp the brush once in each frame of the range, along the path,
+' each clipped to its cell. One undo step.
+SUB MVB_apply ()
+    DIM n AS INTEGER, i AS INTEGER, f AS INTEGER, k AS INTEGER, keep AS INTEGER
+    DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, x AS LONG, y AS LONG
+    DIM img AS LONG, tmp AS LONG, before AS LONG, aw AS INTEGER, ah AS INTEGER, oldD AS LONG, done AS INTEGER
+    IF MVB.active = FALSE THEN EXIT SUB
+    IF MVB.hasPath = FALSE THEN STATUS_flash "Move Brush: drag a path first (Esc cancels)": EXIT SUB
+    IF CUSTOM_BRUSH.ACTIVE% = 0 THEN STATUS_flash "Move Brush: no brush": MVB_cancel: EXIT SUB
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN MVB_cancel: EXIT SUB
+    img = LAYER_current_image&
+    IF img >= -1 _ORELSE CURRENT_LAYER% < 1 THEN STATUS_flash "Move Brush: no layer to draw on": EXIT SUB
+    n = MVB_frames%
+    IF n < 1 THEN MVB_cancel: EXIT SUB
+    ANIM_LB_clip_end ' a lightbox stroke clip would put the other cells back
+    SELECTION_layer_apron img, aw, ah
+    before = _COPYIMAGE(img, 32)
+    keep = AB.cur
+    oldD = _DEST
+    FOR i = 0 TO n - 1
+        f = MVB_F(i + 1)
+        IF ANIM_cell_rect%(f, fx, fy, fw, fh) THEN
+            MVB_step i, n, x, y, k
+            IF x + CUSTOM_BRUSH.WIDTH% > 0 _ANDALSO y + CUSTOM_BRUSH.HEIGHT% > 0 _ANDALSO x < fw _ANDALSO y < fh THEN
+                tmp = _NEWIMAGE(fw, fh, 32)
+                _DONTBLEND tmp
+                _PUTIMAGE (0, 0), img, tmp, (fx + aw, fy + ah)-(fx + aw + fw - 1, fy + ah + fh - 1)
+                _BLEND tmp
+                IF k > 0 THEN AB_show k
+                CUSTOM_BRUSH_render x, y, tmp
+                _DONTBLEND img
+                _PUTIMAGE (fx + aw, fy + ah), tmp, img
+                _BLEND img
+                _FREEIMAGE tmp
+                done = done + 1
+            END IF
+        END IF
+    NEXT i
+    _DEST oldD
+    IF AB_active% _ANDALSO keep > 0 THEN AB_show keep
+    IF done > 0 THEN
+        HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, _RGBA32(0, 0, 0, 0), 0, before, "Move Brush"
+        HISTORY_saved_this_frame% = TRUE
+        LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+        BLEND_invalidate_cache
+        INVALIDATE_canvas
+        CANVAS_DIRTY% = TRUE
+        STATUS_flash "Move Brush: stamped in" + STR$(done) + " frames"
+    ELSE
+        SAFE_FREEIMAGE before
+        STATUS_flash "Move Brush: the path is outside the frames"
+    END IF
+    MVB_cancel
+END SUB
+
+''
+' The preview (RENDER_tool_previews, on the canvas-sized overlay): every
+' stamp, half see-through, in the path's frame; the path and a dot per frame.
+SUB MVB_preview (shp AS LONG)
+    DIM n AS INTEGER, i AS INTEGER, k AS INTEGER, keep AS INTEGER
+    DIM sx AS LONG, sy AS LONG, fw AS LONG, fh AS LONG, x AS LONG, y AS LONG, e AS SINGLE
+    DIM gk AS STRING, oldD AS LONG, m AS _MEM, o AS _OFFSET, oEnd AS _OFFSET, a AS _UNSIGNED _BYTE
+    DIM c AS _UNSIGNED LONG
+    IF MVB.active = FALSE _ORELSE (MVB.hasPath = FALSE _ANDALSO MVB.dragging = FALSE) THEN EXIT SUB
+    IF ANIM_cell_rect%(MVB.fromF, sx, sy, fw, fh) = 0 THEN EXIT SUB
+    n = MVB_frames%
+    IF n < 1 THEN EXIT SUB
+    oldD = _DEST
+    IF CUSTOM_BRUSH.ACTIVE% THEN
+        gk = STR$(MVB.rx0) + STR$(MVB.ry0) + STR$(MVB.rx1) + STR$(MVB.ry1) + STR$(MVB_EASE) + STR$(MVB_EVERY) + STR$(n) + STR$(MVB_F(1)) + STR$(fw) + STR$(fh)
+        gk = gk + STR$(AB.n) + STR$(AB_ORDER) + STR$(CUSTOM_BRUSH.WIDTH%) + STR$(CUSTOM_BRUSH.HEIGHT%) + STR$(CUSTOM_BRUSH.FLIP_H%) + STR$(CUSTOM_BRUSH.FLIP_V%) + STR$(PAINT_COLOR~&)
+        IF gk <> MVB_GHOST_KEY _ORELSE MVB.ghost >= -1 THEN
+            SAFE_FREEIMAGE MVB.ghost
+            MVB.ghost = _NEWIMAGE(fw, fh, 32)
+            keep = AB.cur
+            FOR i = 0 TO n - 1
+                MVB_step i, n, x, y, k
+                IF k > 0 THEN AB_show k
+                CUSTOM_BRUSH_render x, y, MVB.ghost
+            NEXT i
+            IF AB_active% _ANDALSO keep > 0 THEN AB_show keep
+            ' half see-through
+            m = _MEMIMAGE(MVB.ghost)
+            o = m.OFFSET + 3: oEnd = m.OFFSET + m.SIZE
+            DO WHILE o < oEnd
+                _MEMGET m, o, a
+                IF a THEN a = a \ 2: _MEMPUT m, o, a
+                o = o + 4
+            LOOP
+            _MEMFREE m
+            MVB_GHOST_KEY = gk
+        END IF
+        _DONTBLEND shp
+        _PUTIMAGE (sx, sy), MVB.ghost, shp
+    END IF
+    _DEST shp
+    c = _RGBA32(255, 64, 160, 255)
+    LINE (sx + MVB.rx0, sy + MVB.ry0)-(sx + MVB.rx1, sy + MVB.ry1), _RGBA32(255, 64, 160, 160)
+    FOR i = 0 TO n - 1
+        e = MVB_eased!(i, n)
+        PSET (sx + INT(MVB.rx0 + (MVB.rx1 - MVB.rx0) * e + .5), sy + INT(MVB.ry0 + (MVB.ry1 - MVB.ry0) * e + .5)), c
+    NEXT i
+    _DEST oldD
+END SUB
+
+''
+' Does the overlay need drawing (RENDER_tool_previews)?
+FUNCTION MVB_previewing% ()
+    MVB_previewing% = (MVB.active <> 0 _ANDALSO (MVB.hasPath <> 0 _ORELSE MVB.dragging <> 0))
+END FUNCTION
+
+''
+' QA dump (DOCK_dump):
+'   MVB on dragging hasPath fromF ease every rx0 ry0 rx1 ry1 frames
+'   MVBP f:x:y:k ...  each step's planned top left (cell-relative) and cel
+'   MVBB f:x:y:w:h ... what is drawn in each frame's cell on the current layer
+'                      (its bounds, cell-relative; "-" nothing)
+'   MVBK f:k ...     the AnimBrush cel at each step's spot ("-" nothing, "0" not a cel)
+FUNCTION MVB_dump$ ()
+    DIM d AS STRING, n AS INTEGER, i AS INTEGER, x AS LONG, y AS LONG, k AS INTEGER
+    n = MVB_frames%
+    d = "MVB" + DOCK_n$(MVB.active <> 0) + DOCK_n$(MVB.dragging <> 0) + DOCK_n$(MVB.hasPath <> 0) + DOCK_n$(MVB.fromF) + DOCK_n$(MVB_EASE) + DOCK_n$(MVB_EVERY)
+    d = d + DOCK_n$(MVB.rx0) + DOCK_n$(MVB.ry0) + DOCK_n$(MVB.rx1) + DOCK_n$(MVB.ry1) + DOCK_n$(n) + DOCK_n$(HISTORY.current) + CHR$(10) + "MVBP"
+    FOR i = 0 TO _MIN(n, 64) - 1
+        MVB_step i, n, x, y, k
+        d = d + " " + _TRIM$(STR$(MVB_F(i + 1))) + ":" + _TRIM$(STR$(x)) + ":" + _TRIM$(STR$(y)) + ":" + _TRIM$(STR$(k))
+    NEXT i
+    d = d + CHR$(10) + "MVBB"
+    FOR i = 1 TO _MIN(ANIM.count, 64)
+        d = d + " " + _TRIM$(STR$(i)) + ":" + MVB_bounds$(i)
+    NEXT i
+    d = d + CHR$(10) + "MVBK"
+    FOR i = 0 TO _MIN(n, 64) - 1
+        MVB_step i, n, x, y, k
+        d = d + " " + _TRIM$(STR$(MVB_F(i + 1))) + ":" + MVB_cel_at$(MVB_F(i + 1), x, y)
+    NEXT i
+    MVB_dump$ = d + CHR$(10)
+END FUNCTION
+
+''
+' QA: which AnimBrush cel is on the current layer in frame f's cell at
+' (x, y) (cell-relative top left): "-" nothing, "0" not a cel, else its number.
+FUNCTION MVB_cel_at$ (f AS INTEGER, x AS LONG, y AS LONG)
+    DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, img AS LONG, tmp AS LONG, aw AS INTEGER, ah AS INTEGER
+    DIM s AS STRING, c AS STRING, k AS INTEGER, m AS _MEM, ox AS LONG, oy AS LONG
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG
+    MVB_cel_at$ = "-"
+    IF AB.n < 1 _ORELSE AB.w < 1 _ORELSE AB.h < 1 THEN EXIT FUNCTION
+    IF ANIM_cell_rect%(f, fx, fy, fw, fh) = 0 THEN EXIT FUNCTION
+    img = LAYER_current_image&
+    IF img >= -1 THEN EXIT FUNCTION
+    SELECTION_layer_apron img, aw, ah
+    tmp = _NEWIMAGE(AB.w, AB.h, 32)
+    _DONTBLEND tmp
+    ox = fx + x + aw: oy = fy + y + ah
+    x1 = _MAX(0, ox): y1 = _MAX(0, oy): x2 = _MIN(_WIDTH(img) - 1, ox + AB.w - 1): y2 = _MIN(_HEIGHT(img) - 1, oy + AB.h - 1)
+    IF x2 >= x1 _ANDALSO y2 >= y1 THEN _PUTIMAGE (x1 - ox, y1 - oy), img, tmp, (x1, y1)-(x2, y2)
+    m = _MEMIMAGE(tmp): s = SPACE$(m.SIZE): _MEMGET m, m.OFFSET, s: _MEMFREE m
+    _FREEIMAGE tmp
+    IF s = STRING$(LEN(s), 0) THEN EXIT FUNCTION
+    MVB_cel_at$ = "0"
+    FOR k = 1 TO AB.n
+        IF AB_CEL(k) < -1 THEN
+            IF _WIDTH(AB_CEL(k)) = AB.w _ANDALSO _HEIGHT(AB_CEL(k)) = AB.h THEN
+                m = _MEMIMAGE(AB_CEL(k)): c = SPACE$(m.SIZE): _MEMGET m, m.OFFSET, c: _MEMFREE m
+                IF c = s THEN MVB_cel_at$ = _TRIM$(STR$(k)): EXIT FUNCTION
+            END IF
+        END IF
+    NEXT k
+END FUNCTION
+
+''
+' QA: the bounds of what is drawn in frame f's cell on the current layer,
+' "x:y:w:h" relative to the cell, "-" when it is empty.
+FUNCTION MVB_bounds$ (f AS INTEGER)
+    DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, img AS LONG, aw AS INTEGER, ah AS INTEGER
+    DIM x AS LONG, y AS LONG, x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, m AS _MEM, a AS _UNSIGNED _BYTE
+    MVB_bounds$ = "-"
+    IF ANIM_cell_rect%(f, fx, fy, fw, fh) = 0 THEN EXIT FUNCTION
+    img = LAYER_current_image&
+    IF img >= -1 THEN EXIT FUNCTION
+    SELECTION_layer_apron img, aw, ah
+    x1 = fw: y1 = fh: x2 = -1: y2 = -1
+    m = _MEMIMAGE(img)
+    FOR y = 0 TO fh - 1
+        IF fy + ah + y >= 0 _ANDALSO fy + ah + y < _HEIGHT(img) THEN
+            FOR x = 0 TO fw - 1
+                IF fx + aw + x >= 0 _ANDALSO fx + aw + x < _WIDTH(img) THEN
+                    _MEMGET m, m.OFFSET + ((fy + ah + y) * _WIDTH(img) + fx + aw + x) * 4 + 3, a
+                    IF a THEN
+                        IF x < x1 THEN x1 = x
+                        IF x > x2 THEN x2 = x
+                        IF y < y1 THEN y1 = y
+                        IF y > y2 THEN y2 = y
+                    END IF
+                END IF
+            NEXT x
+        END IF
+    NEXT y
+    _MEMFREE m
+    IF x2 < 0 THEN EXIT FUNCTION
+    MVB_bounds$ = _TRIM$(STR$(x1)) + ":" + _TRIM$(STR$(y1)) + ":" + _TRIM$(STR$(x2 - x1 + 1)) + ":" + _TRIM$(STR$(y2 - y1 + 1))
+END FUNCTION

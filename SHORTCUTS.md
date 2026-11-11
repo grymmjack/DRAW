@@ -795,6 +795,23 @@ pointer is the cel the next stamp uses; the status bar reads e.g. `ANIMBRUSH 3/8
 (that cel / how many, the step mode, the order when it is not forward). Pattern / Gradient Mode put the AnimBrush away with
 the custom brush and Color Mode brings it back with its cels.
 
+### Move Brush (ANIM → Move Brush)
+
+Stamps the brush once per frame along a path you drag - a ball that rolls across the frames, a
+bird that flies through them. Works with a plain brush or an AnimBrush.
+
+| Shortcut / Menu | Action |
+| --- | --- |
+| ANIM → Move Brush → **Start** | Turns the mode on (needs frames and a brush; Start again cancels). The status bar reads `MOVE BRUSH` |
+| Drag on the canvas (in the mode) | Sets the path, from the press to the release, in the frame you drag in (a lightbox pane works too). A ghost of every stamp shows along it, with a dot for each frame. Drag again to redo it. No tool draws while the mode is on |
+| `Enter` / ANIM → Move Brush → **Apply** | Stamps the brush once in each frame of the range, each in its own cell at the same spot relative to the cell: the first frame at the start of the path, the last at its end. One undo step |
+| `Esc` / ANIM → Move Brush → **Cancel** | Leaves the mode; nothing is stamped |
+| ANIM → Move Brush → **Ease: None / In / Out / In-Out** | How the stamps are spaced: evenly, slow then fast, fast then slow, slow at both ends |
+| ANIM → Move Brush → **Next Cel Every Frame / 2 / 3 / 4** | An AnimBrush moves on one cel each frame, or every 2, 3 or 4 frames (in its order) |
+
+Which frames: the frames selected in the strip (two or more, Ctrl+click), else from the frame
+the path is in to the last. Every command is in the command palette too ("Move Brush: ...").
+
 ---
 
 ## Audio · Music
