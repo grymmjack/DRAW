@@ -1064,6 +1064,27 @@ gotcha 15). It also stops playback and clears the ask answer.
 - `assert_regions_differ` takes the snapshot **file paths** (`$SNAP_RESULT`), not labels.
   `snap_region` takes ~1.3 s, so don't time playback with it.
 
+## AnimBrush (TOOLS/ANIM-BRUSH, branch `animation`, A1)
+
+- Cels live in `AB_CEL()` (`AB.n`, `AB.cur`, `AB.w/h`, `AB_FROM()` = source frame);
+  `CUSTOM_BRUSH.IMAGE` is a **copy** of the current cel (`AB_show k`), so every custom
+  brush routine works unchanged and may replace IMAGE freely. Never alias a cel handle
+  into IMAGE (double free).
+- `CUSTOM_BRUSH_reset` calls `AB_clear` - Ctrl+B, Drawer brushes and the char map brush
+  are one picture. The stash keeps cels: `CUSTOM_BRUSH_stash` -> `AB_stash` (moves the
+  handles to `AB_SV_*` before the reset), `_unstash` -> `AB_unstash`, `_clear_stash` ->
+  `AB_clear_stash`.
+- `AB_pick_up merged`: source frame = `ANIM_frame_at%` of the box's middle (else
+  `ANIM.current`); each cel reads `box + (cell(f) - cell(srcF))` (+ apron on the layer
+  path; `LAYERS_flatten&` for merged). The selection shape is read once into a string
+  before `MARQUEE_reset`. Pixels copied with `_DONTBLEND`; BG-colored = clear (as Ctrl+B).
+  Frames: `ANIM_SEL_count% > 1` (a strip click selects one) -> those, else srcF..count.
+- Actions 2563 / 2564 (ANIM > ANIMBRUSH flyout + command palette "AnimBrush: Pick Up ...").
+- Dump: `ABR n cur w h merged srcFrame brushActive brushW brushH brushCrc`,
+  `ABRC frame:crc ...` (BGRA CRC32, `0` = clear). Tests `animbrush-pickup` (expected CRCs
+  worked out from the fixture in python), `animbrush-pickup-edges` (wand shape, stash, plain
+  Ctrl+B, no frames).
+
 ## Gotchas met here
 
 - Reserved words as names: `on`, `off`, `key` (gotcha 20).

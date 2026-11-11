@@ -1,0 +1,202 @@
+$INCLUDEONCE
+' =============================================================================
+' ANIM-BRUSH.BM — AnimBrush (see ANIM-BRUSH.BI): pick up, cels, stash, dump.
+' =============================================================================
+
+''
+' Drop every cel (CUSTOM_BRUSH_reset calls this: a reset brush is one picture).
+SUB AB_clear ()
+    DIM k AS INTEGER
+    FOR k = 1 TO AB.n
+        SAFE_FREEIMAGE AB_CEL(k): AB_CEL(k) = 0: AB_FROM(k) = 0
+    NEXT k
+    AB.n = 0: AB.cur = 0: AB.w = 0: AB.h = 0: AB.merged = FALSE: AB.srcF = 0
+END SUB
+
+''
+' Is the custom brush an AnimBrush (more than one picture)?
+FUNCTION AB_active% ()
+    AB_active% = (AB.n > 0 _ANDALSO CUSTOM_BRUSH.ACTIVE% <> 0)
+END FUNCTION
+
+''
+' Show cel k: CUSTOM_BRUSH.IMAGE becomes a copy of it (the brush routines own
+' and may replace IMAGE; the cel stays the source).
+SUB AB_show (k AS INTEGER)
+    IF k < 1 _ORELSE k > AB.n THEN EXIT SUB
+    IF AB_CEL(k) >= -1 THEN EXIT SUB
+    AB.cur = k
+    SAFE_FREEIMAGE CUSTOM_BRUSH.IMAGE&: CUSTOM_BRUSH.IMAGE& = _COPYIMAGE(AB_CEL(k), 32)
+    SAFE_FREEIMAGE CUSTOM_BRUSH.PREVIEW_CACHE&: CUSTOM_BRUSH.PREVIEW_CACHE& = 0
+    CUSTOM_BRUSH.PREVIEW_CACHE_OPACITY% = -1
+    CUSTOM_BRUSH.WIDTH% = _WIDTH(CUSTOM_BRUSH.IMAGE&)
+    CUSTOM_BRUSH.HEIGHT% = _HEIGHT(CUSTOM_BRUSH.IMAGE&)
+END SUB
+
+''
+' The frames to pick up from, in order, into AB_FROM (returns how many): the
+' frames selected in the strip when two or more are (a plain strip click
+' selects just the frame it makes current), else from frame `fromF` to the last.
+FUNCTION AB_pick_frames% (fromF AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER
+    IF ANIM_SEL_count% > 1 THEN
+        FOR i = 1 TO ANIM.count
+            IF ANIM_SEL(i) <> 0 _ANDALSO n < AB_MAX_CELS THEN n = n + 1: AB_FROM(n) = i
+        NEXT i
+    ELSE
+        FOR i = fromF TO ANIM.count
+            IF n < AB_MAX_CELS THEN n = n + 1: AB_FROM(n) = i
+        NEXT i
+    END IF
+    AB_pick_frames% = n
+END FUNCTION
+
+''
+' ANIM > AnimBrush > Pick Up (merged = every visible layer): the marquee's
+' area from each frame - the same spot in every frame's cell, measured from
+' the frame the selection is in. The selection's shape (ellipse, wand ...)
+' and the BG-color-is-transparent rule are as Ctrl+B. Cel 1 is shown.
+SUB AB_pick_up (merged AS INTEGER)
+    DIM bx AS LONG, by AS LONG, bw AS LONG, bh AS LONG
+    DIM sf AS INTEGER, sx AS LONG, sy AS LONG, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG
+    DIM n AS INTEGER, k AS INTEGER, src AS LONG, aw AS INTEGER, ah AS INTEGER, sw AS LONG, sh AS LONG
+    DIM px AS LONG, py AS LONG, qx AS LONG, qy AS LONG, c AS _UNSIGNED LONG, img AS LONG
+    DIM bgR AS INTEGER, bgG AS INTEGER, bgB AS INTEGER, oldD AS LONG, oldS AS LONG
+    DIM inside AS STRING
+
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "AnimBrush: set up frames first (ANIM > Frame Grid)": EXIT SUB
+    IF MARQUEE.ACTIVE% = 0 _ORELSE MARQUEE.BOX.w <= 0 _ORELSE MARQUEE.BOX.h <= 0 THEN STATUS_flash "AnimBrush: select an area in a frame first": EXIT SUB
+    bx = MARQUEE.BOX.x: by = MARQUEE.BOX.y: bw = MARQUEE.BOX.w: bh = MARQUEE.BOX.h
+
+    ' the frame the selection is in (its middle), else the current one
+    sf = ANIM_frame_at%(bx + bw \ 2, by + bh \ 2)
+    IF sf < 1 THEN sf = ANIM.current
+    IF ANIM_cell_rect%(sf, sx, sy, fw, fh) = 0 THEN STATUS_flash "AnimBrush: the selection is not in a frame": EXIT SUB
+
+    ' the selection's shape, read once (the marquee goes after the pick up)
+    inside = STRING$(bw * bh, 0)
+    FOR py = 0 TO bh - 1
+        FOR px = 0 TO bw - 1
+            IF SELECTION_is_point_inside%(bx + px, by + py) THEN MID$(inside, py * bw + px + 1, 1) = CHR$(1)
+        NEXT px
+    NEXT py
+
+    IF merged THEN
+        src = LAYERS_flatten&: aw = 0: ah = 0
+    ELSE
+        src = LAYER_current_image&
+        SELECTION_layer_apron src, aw, ah
+    END IF
+    IF src >= -1 THEN STATUS_flash "AnimBrush: nothing to pick up": EXIT SUB
+    sw = _WIDTH(src): sh = _HEIGHT(src)
+
+    CUSTOM_BRUSH_reset ' (drops any cels: AB_clear)
+    n = AB_pick_frames%(sf)
+    bgR = _RED32(PAINT_BG_COLOR~&): bgG = _GREEN32(PAINT_BG_COLOR~&): bgB = _BLUE32(PAINT_BG_COLOR~&)
+    oldD = _DEST: oldS = _SOURCE
+    _SOURCE src
+    FOR k = 1 TO n
+        img = _NEWIMAGE(bw, bh, 32)
+        _DEST img: _DONTBLEND img: CLS , _RGBA32(0, 0, 0, 0) ' (copied as is: a half-clear pixel keeps its alpha)
+        IF ANIM_cell_rect%(AB_FROM(k), fx, fy, fw, fh) THEN
+            FOR py = 0 TO bh - 1
+                FOR px = 0 TO bw - 1
+                    IF ASC(inside, py * bw + px + 1) THEN
+                        qx = bx + px + (fx - sx) + aw: qy = by + py + (fy - sy) + ah
+                        IF qx >= 0 _ANDALSO qy >= 0 _ANDALSO qx < sw _ANDALSO qy < sh THEN
+                            c = POINT(qx, qy)
+                            IF _ALPHA32(c) = 0 THEN
+                            ELSEIF _RED32(c) = bgR _ANDALSO _GREEN32(c) = bgG _ANDALSO _BLUE32(c) = bgB THEN
+                            ELSE
+                                PSET (px, py), c
+                            END IF
+                        END IF
+                    END IF
+                NEXT px
+            NEXT py
+        END IF
+        _BLEND img
+        AB_CEL(k) = img
+    NEXT k
+    _SOURCE oldS: _DEST oldD
+    IF merged THEN SAFE_FREEIMAGE src
+
+    AB.n = n: AB.w = bw: AB.h = bh: AB.merged = (merged <> 0): AB.srcF = sf
+    CUSTOM_BRUSH.ACTIVE% = TRUE
+    CUSTOM_BRUSH.ORIG_WIDTH% = bw: CUSTOM_BRUSH.ORIG_HEIGHT% = bh
+    CUSTOM_BRUSH.HAS_TRANSPARENCY% = TRUE
+    CUSTOM_BRUSH.BG_COLOR~& = PAINT_BG_COLOR~&
+    CUSTOM_BRUSH.FLIP_H% = FALSE: CUSTOM_BRUSH.FLIP_V% = FALSE
+    CUSTOM_BRUSH.SCALE! = 1.0
+    AB_show 1
+    MARQUEE_reset
+    IF merged THEN STATUS_flash "AnimBrush: " + _TRIM$(STR$(n)) + " cels picked up (merged)" ELSE STATUS_flash "AnimBrush: " + _TRIM$(STR$(n)) + " cels picked up"
+END SUB
+
+''
+' Status bar badge: "ANIMBRUSH cur/n" ("" when the brush is one picture).
+FUNCTION AB_status$ ()
+    IF AB_active% = 0 THEN EXIT FUNCTION
+    AB_status$ = "ANIMBRUSH " + _TRIM$(STR$(AB.cur)) + "/" + _TRIM$(STR$(AB.n))
+END FUNCTION
+
+''
+' The brush stash (CUSTOM_BRUSH_stash): the cels go with it. Call BEFORE the
+' brush is reset.
+SUB AB_stash ()
+    DIM k AS INTEGER
+    AB_clear_stash
+    AB_SV = AB
+    FOR k = 1 TO AB.n
+        AB_SV_CEL(k) = AB_CEL(k): AB_SV_FROM(k) = AB_FROM(k): AB_CEL(k) = 0: AB_FROM(k) = 0
+    NEXT k
+    AB.n = 0: AB.cur = 0
+END SUB
+
+''
+' CUSTOM_BRUSH_unstash: the cels come back (after the brush fields did).
+SUB AB_unstash ()
+    DIM k AS INTEGER
+    AB_clear
+    AB = AB_SV
+    FOR k = 1 TO AB_SV.n
+        AB_CEL(k) = AB_SV_CEL(k): AB_FROM(k) = AB_SV_FROM(k): AB_SV_CEL(k) = 0: AB_SV_FROM(k) = 0
+    NEXT k
+    AB_SV.n = 0
+    IF AB.n > 0 THEN AB_show _MAX(1, _MIN(AB.cur, AB.n))
+END SUB
+
+SUB AB_clear_stash ()
+    DIM k AS INTEGER
+    FOR k = 1 TO AB_SV.n
+        SAFE_FREEIMAGE AB_SV_CEL(k): AB_SV_CEL(k) = 0
+    NEXT k
+    AB_SV.n = 0
+END SUB
+
+''
+' CRC32 (hex) of an image's pixels, "0" when every pixel is clear.
+FUNCTION AB_crc$ (img AS LONG)
+    DIM m AS _MEM, s AS STRING
+    IF img >= -1 THEN AB_crc$ = "-": EXIT FUNCTION
+    m = _MEMIMAGE(img)
+    s = SPACE$(m.SIZE)
+    _MEMGET m, m.OFFSET, s
+    _MEMFREE m
+    IF s = STRING$(LEN(s), 0) THEN AB_crc$ = "0" ELSE AB_crc$ = LCASE$(HEX$(_CRC32(s)))
+END FUNCTION
+
+''
+' QA dump (DOCK_dump):
+'   ABR n cur w h merged srcFrame brushActive brushW brushH brushCrc
+'   ABRC frame:crc ... (one per cel, up to 64)
+FUNCTION AB_dump$ ()
+    DIM d AS STRING, k AS INTEGER
+    d = "ABR" + DOCK_n$(AB.n) + DOCK_n$(AB.cur) + DOCK_n$(AB.w) + DOCK_n$(AB.h) + DOCK_n$(AB.merged <> 0) + DOCK_n$(AB.srcF)
+    d = d + DOCK_n$(CUSTOM_BRUSH.ACTIVE% <> 0) + DOCK_n$(CUSTOM_BRUSH.WIDTH%) + DOCK_n$(CUSTOM_BRUSH.HEIGHT%) + " " + AB_crc$(CUSTOM_BRUSH.IMAGE&) + CHR$(10)
+    d = d + "ABRC"
+    FOR k = 1 TO _MIN(AB.n, 64)
+        d = d + " " + _TRIM$(STR$(AB_FROM(k))) + ":" + AB_crc$(AB_CEL(k))
+    NEXT k
+    AB_dump$ = d + CHR$(10)
+END FUNCTION

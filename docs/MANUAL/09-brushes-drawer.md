@@ -19,6 +19,24 @@ Make a selection, then capture it as a brush via the Brush menu, the Organizer b
 
 Non-rectangular shapes are preserved via the alpha channel.
 
+### AnimBrush - a brush with a picture per frame
+
+On a sprite sheet (a document with frames), **ANIM → AnimBrush → Pick Up** makes a brush
+that has one picture - a *cel* - for each frame:
+
+1. Draw a selection around the part you want inside one frame (a marquee, ellipse, lasso or
+   magic wand; the shape is kept).
+2. To take only some frames, Ctrl+click them in the lightbox strip first. Otherwise the cels
+   come from the frame the selection is in through the last frame.
+3. Choose **Pick Up** (the current layer) or **Pick Up Merged** (every visible layer).
+
+DRAW reads the same spot in every frame's cell - the gutter and margin between cells are
+skipped - so a walk cycle becomes a walking brush. The tool switches to the Brush and the
+status bar shows `ANIMBRUSH 1/8`: cel 1 of 8 is the one the next stamp uses. `Ctrl+B`
+drops the AnimBrush; `Ctrl+B` over a selection still makes an ordinary one-picture brush.
+Switching to Pattern or Gradient mode puts the AnimBrush away with its cels, and Color mode
+brings it back.
+
 ### Transform controls
 
 | Action | Key |

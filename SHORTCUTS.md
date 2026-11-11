@@ -767,6 +767,23 @@ current frame. The Pixel Analyzer looks at the current frame; AI New Layer defau
 frame's size and place; a new reference image fits the frame. Crop Canvas is refused (it would cut
 every frame) - change the frame size with ANIM → Resize.
 
+### AnimBrush (ANIM → AnimBrush)
+
+An AnimBrush is a custom brush with one picture (a **cel**) per frame - pick up a walk cycle
+and paint with it.
+
+| Trigger | Action |
+|---------|--------|
+| ANIM → AnimBrush → **Pick Up** | Select an area inside a frame first. Takes that same spot from each frame's cell on the **current layer** (gutters and margins skipped) and makes the cels; the tool becomes the Brush, the brush shows cel 1 |
+| ANIM → AnimBrush → **Pick Up Merged** | The same from every visible layer |
+| `Ctrl+B` (with an AnimBrush) | Drops it, cels and all. `Ctrl+B` over a selection is always a plain one-picture brush |
+
+Which frames: the frames selected in the strip (two or more, Ctrl+click), else from the frame
+the selection is in to the last. The selection's shape (ellipse, lasso, magic wand) is kept in
+every cel, and the BG color is clear, as with `Ctrl+B`. The status bar reads `ANIMBRUSH 1/8`
+(the cel the next stamp uses / how many). Pattern / Gradient Mode put the AnimBrush away with
+the custom brush and Color Mode brings it back with its cels.
+
 ---
 
 ## Audio · Music
