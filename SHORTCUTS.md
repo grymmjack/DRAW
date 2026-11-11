@@ -776,6 +776,7 @@ and paint with it.
 |---------|--------|
 | ANIM → AnimBrush → **Pick Up** | Select an area inside a frame first. Takes that same spot from each frame's cell on the **current layer** (gutters and margins skipped) and makes the cels; the tool becomes the Brush, the brush shows cel 1 |
 | ANIM → AnimBrush → **Pick Up Merged** | The same from every visible layer |
+| ANIM → AnimBrush → **Load…** | An AnimBrush from an animated GIF / APNG, a PNG or .draw with frames, or a strip (a row / column of squares); cels cropped to what is drawn. Dropping such a file on a Drawer bin puts it in that bin |
 | `Ctrl+B` (with an AnimBrush) | Drops it, cels and all. `Ctrl+B` over a selection is always a plain one-picture brush |
 | `Alt+]` / `Alt+[` | Next / previous cel |
 | `Alt+\` | Back to cel 1 (following the frame: the current frame gets cel 1) |

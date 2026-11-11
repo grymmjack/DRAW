@@ -1117,6 +1117,15 @@ gotcha 15). It also stops playback and clears the ask answer.
   DSA1). Dump `ABBIN slot:n:cw:ch:stripCrc`, `ABQL hoverSlot hoverCel qlSlot qlCel qlCrc`. Test
   `animbrush-bin` (20: .dset load, pick, hover plays + Quick Look, store, Ctrl+B, drag, plain
   over it, Save Drawer Set via the dialog with an absolute path, reload, .draw drAb + Ctrl+S).
+- A5 load (action 2575, `AB_load_dialog` / `AB_load_file%`; drops: `AB_drop_on_bin%` from
+  INPUT/DROP.BM): `AB_frames_from_file%` fills `AB_LD()` (all one size) - GIF via
+  `ANIM_GIF_frames%` (TOOLS/ANIM-IMPORT, the decode loop shared with the GIF import: toBrush =
+  TRUE puts frame k in `AB_LD(k)`), APNG via `AB_apng_frames%` (each frame's fdAT/IDAT rebuilt as
+  its own PNG, `_LOADIMAGE(..., 32, "memory")`, blend source / over, dispose none / background /
+  previous), else `AB_sheet_frames%` (drAn layout via `ANIM_fit%` + `ANIM_rect_at`, or a row /
+  column of squares). Caps: `AB_MAX_CELS`, `AB_LOAD_MAX_PIXELS` (16M px read). `AB_install_loaded%`
+  crops to the union box of drawn pixels. Test `animbrush-load` (11: strip, GIF, partial-frame
+  GIF, APNG, sheet, plain; drops on bins via the QA drop hook `<DOCK_DUMP>.drop`).
 - Dump: `ABR n cur w h merged srcFrame brushActive brushW brushH brushCrc`,
   `ABRC frame:crc ...` (BGRA CRC32, `0` = clear). Tests `animbrush-pickup` (expected CRCs
   worked out from the fixture in python), `animbrush-pickup-edges` (wand shape, stash, plain

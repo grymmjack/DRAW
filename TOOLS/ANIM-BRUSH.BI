@@ -25,6 +25,7 @@ CONST AB_ACT_ORD_FWD       = 2571 ' Order: forward / reverse / ping-pong / once
 CONST AB_ACT_ORD_REV       = 2572
 CONST AB_ACT_ORD_PING      = 2573
 CONST AB_ACT_ORD_ONCE      = 2574
+CONST AB_ACT_LOAD          = 2575 ' ANIM > AnimBrush > Load... (an animated GIF / APNG, a sheet with frames, a strip)
 
 ' Brush routines that change the picture itself: AB_each% runs them on every cel
 CONST AB_OP_ROT_CW  = 1
@@ -77,3 +78,8 @@ DIM SHARED AB_SV_FROM(1 TO AB_MAX_CELS) AS INTEGER
 CONST AB_DSET_MAGIC$ = "DSA1"
 CONST AB_DRAB_VERSION = 1
 DIM SHARED AB_QL_CEL AS INTEGER ' the cel the Preview's Quick Look shows (0 = not an AnimBrush slot)
+
+' Loading an AnimBrush from a file (A5): the frames, all one size, before the
+' crop to what is drawn in them
+DIM SHARED AB_LD(1 TO AB_MAX_CELS) AS LONG
+CONST AB_LOAD_MAX_PIXELS = 16777216 ' frames x width x height read at most (64 MB)

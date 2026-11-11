@@ -108,6 +108,94 @@ FUNCTION ANIM_IMP_grid% (n AS LONG, w AS LONG, h AS LONG, cols AS LONG, rows AS 
 END FUNCTION
 
 ''
+' Decode GIF data s from block position p (after the global colour table) for
+' a w x h logical screen of n images: each image composited over what was
+' there (transparent index, disposal 2 / 3), the screen after it = one frame.
+' toBrush FALSE: frame k into cell k of the current layer (the layout set);
+' TRUE: frame k into AB_LD(k), a w x h image (TOOLS/ANIM-BRUSH; at most
+' AB_MAX_CELS). delays(k) = its delay (centiseconds); loopSeen = a loop
+' extension was met. Returns the frames decoded.
+FUNCTION ANIM_GIF_frames% (s AS STRING, p AS LONG, w AS LONG, h AS LONG, n AS INTEGER, gct AS STRING, toBrush AS INTEGER, delays() AS LONG, loopSeen AS INTEGER)
+    DIM k AS INTEGER, pk AS INTEGER, lbl AS INTEGER, id AS STRING, dat AS STRING, delay AS LONG, disposal AS INTEGER, transIdx AS INTEGER
+    DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, lct AS STRING, pal AS STRING, minCode AS INTEGER
+    DIM idx AS STRING, scr AS STRING, prev AS STRING, x AS LONG, y AS LONG, c AS INTEGER
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, m AS _MEM, imgW AS LONG, row AS LONG
+    DIM rgb(0 TO 255) AS _UNSIGNED LONG
+    ' decode: the logical screen (RGBA, transparent to start) after each image
+    scr = STRING$(w * h * 4, 0)
+    IF toBrush = FALSE THEN
+        m = _MEMIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&)
+        imgW = _WIDTH(LAYERS(CURRENT_LAYER%).imgHandle&)
+    END IF
+    transIdx = -1: disposal = 0: delay = 0: k = 0
+    DO WHILE p <= LEN(s) _ANDALSO k < n
+        SELECT CASE ASC(s, p)
+            CASE &H21
+                lbl = ASC(s, p + 1): p = p + 2
+                IF lbl = &HFF THEN
+                    id = MID$(s, p + 1, ASC(s, p)): p = p + 1 + ASC(s, p)
+                    dat = GIF_read_subblocks$(s, p)
+                    IF LEFT$(id, 8) = "NETSCAPE" _ORELSE LEFT$(id, 8) = "ANIMEXTS" THEN loopSeen = TRUE
+                ELSE
+                    dat = GIF_read_subblocks$(s, p)
+                    IF lbl = &HF9 _ANDALSO LEN(dat) >= 4 THEN ' graphic control: for the next image
+                        disposal = (ASC(dat, 1) \ 4) AND 7
+                        delay = ASC(dat, 2) + ASC(dat, 3) * 256&
+                        IF ASC(dat, 1) AND 1 THEN transIdx = ASC(dat, 4) ELSE transIdx = -1
+                    END IF
+                END IF
+            CASE &H2C
+                fx = ASC(s, p + 1) + ASC(s, p + 2) * 256&: fy = ASC(s, p + 3) + ASC(s, p + 4) * 256&
+                fw = ASC(s, p + 5) + ASC(s, p + 6) * 256&: fh = ASC(s, p + 7) + ASC(s, p + 8) * 256&
+                pk = ASC(s, p + 9): p = p + 10
+                lct = ""
+                IF pk AND &H80 THEN lct = MID$(s, p, 3 * 2 ^ ((pk AND 7) + 1)): p = p + LEN(lct)
+                minCode = ASC(s, p): p = p + 1
+                dat = GIF_read_subblocks$(s, p)
+                IF minCode < 1 _ORELSE minCode > 11 THEN minCode = 8
+                idx = GIF_lzw_decode$(dat, minCode, fw * fh)
+                IF pk AND &H40 THEN idx = ANIM_GIF_deinterlace$(idx, fw, fh)
+                IF LEN(lct) > 0 THEN pal = lct ELSE pal = gct
+                FOR c = 0 TO 255
+                    IF c * 3 + 3 <= LEN(pal) THEN rgb(c) = _RGB32(ASC(pal, c * 3 + 1), ASC(pal, c * 3 + 2), ASC(pal, c * 3 + 3)) ELSE rgb(c) = _RGB32(0, 0, 0)
+                NEXT c
+                IF disposal = 3 THEN prev = scr
+                ' the image over the screen (its transparent index leaves what is there)
+                cx = _MAX(0, fx): cy = _MAX(0, fy): cw = _MIN(fx + fw, w) - cx: ch = _MIN(fy + fh, h) - cy
+                FOR y = 0 TO ch - 1
+                    FOR x = 0 TO cw - 1
+                        c = ASC(idx, (cy - fy + y) * fw + (cx - fx + x) + 1)
+                        IF c <> transIdx THEN MID$(scr, ((cy + y) * w + cx + x) * 4 + 1, 4) = MKL$(rgb(c))
+                    NEXT x
+                NEXT y
+                k = k + 1
+                delays(k) = delay
+                ' frame k = the screen now: into its cell, or an AnimBrush cel (AB_LD)
+                IF toBrush THEN
+                    AB_LD(k) = _NEWIMAGE(w, h, 32)
+                    m = _MEMIMAGE(AB_LD(k)): _MEMPUT m, m.OFFSET, scr: _MEMFREE m
+                    IF k >= AB_MAX_CELS THEN EXIT DO
+                ELSEIF ANIM_cell_rect%(k, x, y, fw, fh) THEN
+                    FOR row = 0 TO h - 1
+                        _MEMPUT m, m.OFFSET + ((y + row) * imgW + x) * 4, MID$(scr, row * w * 4 + 1, w * 4)
+                    NEXT row
+                END IF
+                ' then the disposal before the next image
+                IF disposal = 2 _ANDALSO cw > 0 THEN
+                    FOR y = 0 TO ch - 1: MID$(scr, ((cy + y) * w + cx) * 4 + 1, cw * 4) = STRING$(cw * 4, 0): NEXT y
+                ELSEIF disposal = 3 _ANDALSO LEN(prev) = LEN(scr) THEN
+                    scr = prev
+                END IF
+                transIdx = -1: disposal = 0: delay = 0
+            CASE ELSE
+                EXIT DO
+        END SELECT
+    LOOP
+    IF toBrush = FALSE THEN _MEMFREE m
+    ANIM_GIF_frames% = k
+END FUNCTION
+
+''
 ' Open GIF file filename as a sheet with frames when it has two or more
 ' images. FALSE (nothing changed) for a single image, a GIF with colour
 ' cycling ranges, or a sheet too big - the caller opens it as a picture.
@@ -163,71 +251,7 @@ FUNCTION ANIM_GIF_import% (filename AS STRING)
     IF r = FALSE _ORELSE LAYERS(CURRENT_LAYER%).imgHandle& >= -1 THEN EXIT FUNCTION
     ANIM.count = n: ANIM.wanted = n: ANIM.current = 1
 
-    ' decode: the logical screen (RGBA, transparent to start) after each image
-    scr = STRING$(w * h * 4, 0)
-    m = _MEMIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&)
-    imgW = _WIDTH(LAYERS(CURRENT_LAYER%).imgHandle&)
-    transIdx = -1: disposal = 0: delay = 0: k = 0
-    DO WHILE p <= LEN(s) _ANDALSO k < n
-        SELECT CASE ASC(s, p)
-            CASE &H21
-                lbl = ASC(s, p + 1): p = p + 2
-                IF lbl = &HFF THEN
-                    id = MID$(s, p + 1, ASC(s, p)): p = p + 1 + ASC(s, p)
-                    dat = GIF_read_subblocks$(s, p)
-                    IF LEFT$(id, 8) = "NETSCAPE" _ORELSE LEFT$(id, 8) = "ANIMEXTS" THEN loopSeen = TRUE
-                ELSE
-                    dat = GIF_read_subblocks$(s, p)
-                    IF lbl = &HF9 _ANDALSO LEN(dat) >= 4 THEN ' graphic control: for the next image
-                        disposal = (ASC(dat, 1) \ 4) AND 7
-                        delay = ASC(dat, 2) + ASC(dat, 3) * 256&
-                        IF ASC(dat, 1) AND 1 THEN transIdx = ASC(dat, 4) ELSE transIdx = -1
-                    END IF
-                END IF
-            CASE &H2C
-                fx = ASC(s, p + 1) + ASC(s, p + 2) * 256&: fy = ASC(s, p + 3) + ASC(s, p + 4) * 256&
-                fw = ASC(s, p + 5) + ASC(s, p + 6) * 256&: fh = ASC(s, p + 7) + ASC(s, p + 8) * 256&
-                pk = ASC(s, p + 9): p = p + 10
-                lct = ""
-                IF pk AND &H80 THEN lct = MID$(s, p, 3 * 2 ^ ((pk AND 7) + 1)): p = p + LEN(lct)
-                minCode = ASC(s, p): p = p + 1
-                dat = GIF_read_subblocks$(s, p)
-                IF minCode < 1 _ORELSE minCode > 11 THEN minCode = 8
-                idx = GIF_lzw_decode$(dat, minCode, fw * fh)
-                IF pk AND &H40 THEN idx = ANIM_GIF_deinterlace$(idx, fw, fh)
-                IF LEN(lct) > 0 THEN pal = lct ELSE pal = gct
-                FOR c = 0 TO 255
-                    IF c * 3 + 3 <= LEN(pal) THEN rgb(c) = _RGB32(ASC(pal, c * 3 + 1), ASC(pal, c * 3 + 2), ASC(pal, c * 3 + 3)) ELSE rgb(c) = _RGB32(0, 0, 0)
-                NEXT c
-                IF disposal = 3 THEN prev = scr
-                ' the image over the screen (its transparent index leaves what is there)
-                cx = _MAX(0, fx): cy = _MAX(0, fy): cw = _MIN(fx + fw, w) - cx: ch = _MIN(fy + fh, h) - cy
-                FOR y = 0 TO ch - 1
-                    FOR x = 0 TO cw - 1
-                        c = ASC(idx, (cy - fy + y) * fw + (cx - fx + x) + 1)
-                        IF c <> transIdx THEN MID$(scr, ((cy + y) * w + cx + x) * 4 + 1, 4) = MKL$(rgb(c))
-                    NEXT x
-                NEXT y
-                k = k + 1
-                delays(k) = delay
-                ' frame k = the screen now
-                IF ANIM_cell_rect%(k, x, y, fw, fh) THEN
-                    FOR row = 0 TO h - 1
-                        _MEMPUT m, m.OFFSET + ((y + row) * imgW + x) * 4, MID$(scr, row * w * 4 + 1, w * 4)
-                    NEXT row
-                END IF
-                ' then the disposal before the next image
-                IF disposal = 2 _ANDALSO cw > 0 THEN
-                    FOR y = 0 TO ch - 1: MID$(scr, ((cy + y) * w + cx) * 4 + 1, cw * 4) = STRING$(cw * 4, 0): NEXT y
-                ELSEIF disposal = 3 _ANDALSO LEN(prev) = LEN(scr) THEN
-                    scr = prev
-                END IF
-                transIdx = -1: disposal = 0: delay = 0
-            CASE ELSE
-                EXIT DO
-        END SELECT
-    LOOP
-    _MEMFREE m
+    k = ANIM_GIF_frames%(s, p, w, h, n, gct, FALSE, delays(), loopSeen)
     IF k < n THEN ANIM.count = _MAX(1, k): ANIM.wanted = ANIM.count ' a cut-off file: the frames it had
 
     fps = ANIM_GIF_fps%(delays(), ANIM.count)

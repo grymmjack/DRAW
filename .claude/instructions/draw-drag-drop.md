@@ -19,6 +19,11 @@ OS. Shift state comes from `MODIFIERS.shift%`.
 ## Routing (`DROP_handle_dropped_file` → `DROP_handle_image`)
 0. A sound file (`ANIM_SND_is_sound%`) → `ANIM_SND_drop_file` (the animation's X-sheet SOUND rows; see
    draw-animation.md) - before every other route, the menu bar included.
+0b. `REGION_DRAWER` (after the menu-bar route, before `.drawlayer` / `.draw`): a file with
+   frames - an animated GIF / APNG, a PNG or `.draw` with frames (drAn), a row / column of
+   squares - becomes an AnimBrush in the hovered bin (if empty, else the first free one) via
+   `AB_drop_on_bin%` (TOOLS/ANIM-BRUSH). FALSE (no frames) → the routes below as before, so a
+   plain picture still makes a one-picture brush and a `.draw` without frames still opens.
 1. `.drawlayer` → `LAYERXFER_deserialize%` (new layer). `.draw` → `DRW_load` (document).
    Both bypass targeting **except** a menu-bar drop of an openable file.
 2. `REGION_MENUBAR` (not `.drawlayer`) → `INSTANCE_launch_new_with_file` opens it in a new

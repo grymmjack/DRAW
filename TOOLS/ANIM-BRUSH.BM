@@ -754,3 +754,310 @@ FUNCTION AB_bin_dump$ ()
     END IF
     AB_bin_dump$ = d + CHR$(10)
 END FUNCTION
+
+
+' =============================================================================
+' Loading an AnimBrush from a file (A5): ANIM > AnimBrush > Load..., or a drop
+' on a Drawer bin. An animated GIF or APNG gives its frames; a PNG / .draw
+' with frames (the drAn chunk) gives its cells; a plain picture that is a row
+' (or column) of squares gives those. The cels are cropped to what is drawn
+' in any of them, keeping their places.
+' =============================================================================
+
+''
+' Free AB_LD.
+SUB AB_ld_free ()
+    DIM k AS INTEGER
+    FOR k = 1 TO AB_MAX_CELS
+        IF AB_LD(k) < -1 THEN _FREEIMAGE AB_LD(k)
+        AB_LD(k) = 0
+    NEXT k
+END SUB
+
+FUNCTION AB_be32&& (s AS STRING, p AS LONG)
+    IF p + 3 > LEN(s) THEN EXIT FUNCTION
+    AB_be32&& = ASC(s, p) * 16777216&& + ASC(s, p + 1) * 65536&& + ASC(s, p + 2) * 256&& + ASC(s, p + 3)
+END FUNCTION
+
+FUNCTION AB_mkbe32$ (v AS _INTEGER64)
+    AB_mkbe32$ = CHR$((v \ 16777216) AND 255) + CHR$((v \ 65536) AND 255) + CHR$((v \ 256) AND 255) + CHR$(v AND 255)
+END FUNCTION
+
+''
+' A PNG chunk: length, type, data, CRC.
+FUNCTION AB_png_chunk_mk$ (typ AS STRING, dat AS STRING)
+    DIM c AS _UNSIGNED LONG
+    c = _CRC32(typ + dat)
+    AB_png_chunk_mk$ = AB_mkbe32$(LEN(dat)) + typ + dat + AB_mkbe32$(c)
+END FUNCTION
+
+''
+' The data of PNG s's first chunk of type typ ("" = none).
+FUNCTION AB_png_chunk$ (s AS STRING, typ AS STRING)
+    DIM p AS LONG, ln AS _INTEGER64
+    IF LEFT$(s, 8) <> CHR$(137) + "PNG" + CHR$(13) + CHR$(10) + CHR$(26) + CHR$(10) THEN EXIT FUNCTION
+    p = 9
+    DO WHILE p + 7 <= LEN(s)
+        ln = AB_be32&&(s, p)
+        IF MID$(s, p + 4, 4) = typ THEN AB_png_chunk$ = MID$(s, p + 8, ln): EXIT FUNCTION
+        IF MID$(s, p + 4, 4) = "IEND" THEN EXIT DO
+        p = p + 12 + ln
+    LOOP
+END FUNCTION
+
+''
+' An animated GIF's frames into AB_LD. Returns how many (0 = not a GIF).
+FUNCTION AB_gif_frames% (s AS STRING)
+    DIM n AS INTEGER, w AS LONG, h AS LONG, pk AS INTEGER, p AS LONG, gct AS STRING, loopSeen AS INTEGER
+    DIM delays(1 TO AB_MAX_CELS) AS LONG
+    n = ANIM_GIF_count%(s)
+    IF n < 1 _ORELSE LEN(s) < 13 THEN EXIT FUNCTION
+    w = ASC(s, 7) + ASC(s, 8) * 256&: h = ASC(s, 9) + ASC(s, 10) * 256&
+    IF w < 1 _ORELSE h < 1 THEN EXIT FUNCTION
+    n = _MIN(n, AB_MAX_CELS)
+    IF CLNG(n) * w * h > AB_LOAD_MAX_PIXELS THEN n = _MAX(1, AB_LOAD_MAX_PIXELS \ (w * h))
+    pk = ASC(s, 11): p = 14
+    IF pk AND &H80 THEN gct = MID$(s, p, 3 * 2 ^ ((pk AND 7) + 1)): p = p + LEN(gct)
+    AB_gif_frames% = ANIM_GIF_frames%(s, p, w, h, n, gct, TRUE, delays(), loopSeen)
+END FUNCTION
+
+''
+' An APNG's frames into AB_LD: each frame's PNG data rebuilt as a PNG of its
+' own, put on the canvas (blend op source / over), the canvas after it = one
+' frame, then its dispose op (none / clear its area / back as before).
+' Returns how many (0 = not an APNG).
+FUNCTION AB_apng_frames% (s AS STRING)
+    DIM p AS LONG, ln AS _INTEGER64, typ AS STRING, dat AS STRING, ihdr AS STRING, extra AS STRING
+    DIM w AS LONG, h AS LONG, k AS INTEGER, have AS INTEGER, fd AS STRING, canvas AS LONG, done AS INTEGER
+    DIM fw AS LONG, fh AS LONG, fx AS LONG, fy AS LONG, dop AS INTEGER, bop AS INTEGER
+    IF LEN(AB_png_chunk$(s, "acTL")) = 0 THEN EXIT FUNCTION
+    p = 9
+    DO WHILE p + 7 <= LEN(s) _ANDALSO done = FALSE
+        ln = AB_be32&&(s, p): typ = MID$(s, p + 4, 4): dat = MID$(s, p + 8, ln): p = p + 12 + ln
+        SELECT CASE typ
+            CASE "IHDR"
+                ihdr = dat: w = AB_be32&&(dat, 1): h = AB_be32&&(dat, 5)
+                IF w < 1 _ORELSE h < 1 _ORELSE w > 16384 _ORELSE h > 16384 THEN EXIT FUNCTION
+                canvas = _NEWIMAGE(w, h, 32)
+            CASE "PLTE", "tRNS"
+                extra = extra + AB_png_chunk_mk$(typ, dat)
+            CASE "fcTL", "IEND"
+                IF have _ANDALSO canvas < -1 THEN
+                    AB_apng_put canvas, ihdr, extra, fd, fw, fh, fx, fy, dop, bop, k
+                    IF k >= AB_MAX_CELS _ORELSE CLNG(k + 1) * w * h > AB_LOAD_MAX_PIXELS THEN done = TRUE
+                END IF
+                IF typ = "IEND" THEN done = TRUE
+                IF typ = "fcTL" _ANDALSO LEN(dat) >= 26 THEN
+                    have = TRUE: fd = ""
+                    fw = AB_be32&&(dat, 5): fh = AB_be32&&(dat, 9): fx = AB_be32&&(dat, 13): fy = AB_be32&&(dat, 17)
+                    dop = ASC(dat, 25): bop = ASC(dat, 26)
+                    IF k = 0 _ANDALSO dop = 2 THEN dop = 1 ' the first frame: "previous" is the cleared canvas
+                END IF
+            CASE "IDAT"
+                IF have THEN fd = fd + dat ' the default image is frame 1 only after an fcTL
+            CASE "fdAT"
+                IF have _ANDALSO LEN(dat) > 4 THEN fd = fd + MID$(dat, 5)
+        END SELECT
+    LOOP
+    IF canvas < -1 THEN _FREEIMAGE canvas
+    AB_apng_frames% = k
+END FUNCTION
+
+SUB AB_apng_put (canvas AS LONG, ihdr AS STRING, extra AS STRING, fd AS STRING, fw AS LONG, fh AS LONG, fx AS LONG, fy AS LONG, dop AS INTEGER, bop AS INTEGER, k AS INTEGER)
+    DIM png AS STRING, img AS LONG, prevImg AS LONG, od AS LONG
+    IF LEN(fd) = 0 _ORELSE fw < 1 _ORELSE fh < 1 _ORELSE LEN(ihdr) < 13 THEN EXIT SUB
+    png = CHR$(137) + "PNG" + CHR$(13) + CHR$(10) + CHR$(26) + CHR$(10)
+    png = png + AB_png_chunk_mk$("IHDR", AB_mkbe32$(fw) + AB_mkbe32$(fh) + MID$(ihdr, 9)) + extra
+    png = png + AB_png_chunk_mk$("IDAT", fd) + AB_png_chunk_mk$("IEND", "")
+    img = _LOADIMAGE(png, 32, "memory")
+    IF img >= -1 THEN EXIT SUB
+    IF dop = 2 THEN prevImg = _COPYIMAGE(canvas, 32)
+    IF bop = 0 THEN _DONTBLEND canvas ELSE _BLEND canvas
+    _PUTIMAGE (fx, fy), img, canvas
+    _BLEND canvas
+    _FREEIMAGE img
+    k = k + 1
+    AB_LD(k) = _COPYIMAGE(canvas, 32)
+    SELECT CASE dop
+        CASE 1
+            od = _DEST: _DEST canvas: _DONTBLEND canvas
+            LINE (fx, fy)-(fx + fw - 1, fy + fh - 1), _RGBA32(0, 0, 0, 0), BF
+            _BLEND canvas: _DEST od
+        CASE 2
+            IF prevImg < -1 THEN _DONTBLEND canvas: _PUTIMAGE (0, 0), prevImg, canvas: _BLEND canvas: _FREEIMAGE prevImg
+    END SELECT
+END SUB
+
+''
+' A picture's frames into AB_LD: a PNG / .draw with frames (drAn) gives its
+' cells; else a row of squares (width a multiple of the height) or a column
+' of them. Returns how many (0 = neither).
+FUNCTION AB_sheet_frames% (filename AS STRING, s AS STRING)
+    DIM img AS LONG, sw AS LONG, sh AS LONG, an AS STRING, k AS INTEGER, n AS INTEGER
+    DIM fw AS INTEGER, fh AS INTEGER, gutter AS INTEGER, margin AS INTEGER, cols AS INTEGER, x AS LONG, y AS LONG
+    img = _LOADIMAGE(filename, 32)
+    IF img >= -1 THEN EXIT FUNCTION
+    sw = _WIDTH(img): sh = _HEIGHT(img)
+    an = AB_png_chunk$(s, "drAn")
+    IF LEN(an) >= 12 _ANDALSO CVI(LEFT$(an, 2)) >= 1 THEN
+        fw = CVI(MID$(an, 3, 2)): fh = CVI(MID$(an, 5, 2)): gutter = CVI(MID$(an, 7, 2)): margin = CVI(MID$(an, 9, 2)): n = CVI(MID$(an, 11, 2))
+        cols = ANIM_fit%(sw, fw, gutter, margin)
+    ELSEIF sw > sh _ANDALSO sw MOD sh = 0 THEN
+        fw = sh: fh = sh: n = sw \ sh: cols = n
+    ELSEIF sh > sw _ANDALSO sh MOD sw = 0 THEN
+        fw = sw: fh = sw: n = sh \ sw: cols = 1
+    END IF
+    IF fw < 1 _ORELSE fh < 1 _ORELSE cols < 1 _ORELSE n < 1 THEN _FREEIMAGE img: EXIT FUNCTION
+    n = _MIN(n, AB_MAX_CELS)
+    IF CLNG(n) * fw * fh > AB_LOAD_MAX_PIXELS THEN n = _MAX(1, AB_LOAD_MAX_PIXELS \ (CLNG(fw) * fh))
+    FOR k = 1 TO n
+        ANIM_rect_at k, cols, fw, fh, gutter, margin, x, y
+        IF x + fw > sw _ORELSE y + fh > sh THEN EXIT FOR
+        AB_LD(k) = _NEWIMAGE(fw, fh, 32)
+        _DONTBLEND AB_LD(k)
+        _PUTIMAGE (0, 0), img, AB_LD(k), (x, y)-(x + fw - 1, y + fh - 1)
+        _BLEND AB_LD(k)
+        AB_sheet_frames% = k
+    NEXT k
+    _FREEIMAGE img
+END FUNCTION
+
+''
+' File filename's frames into AB_LD (all one size). Returns how many.
+FUNCTION AB_frames_from_file% (filename AS STRING)
+    DIM s AS STRING, ff AS INTEGER
+    AB_ld_free
+    IF _FILEEXISTS(filename) = 0 THEN EXIT FUNCTION
+    ff = FREEFILE
+    OPEN filename FOR BINARY AS #ff
+    IF LOF(ff) > 268435456 THEN CLOSE #ff: EXIT FUNCTION
+    s = SPACE$(LOF(ff))
+    GET #ff, 1, s
+    CLOSE #ff
+    IF LEFT$(s, 4) = "GIF8" THEN
+        AB_frames_from_file% = AB_gif_frames%(s)
+    ELSEIF LEN(AB_png_chunk$(s, "acTL")) THEN
+        AB_frames_from_file% = AB_apng_frames%(s)
+    ELSE
+        AB_frames_from_file% = AB_sheet_frames%(filename, s)
+    END IF
+END FUNCTION
+
+''
+' AB_LD(1..n) become the AnimBrush: each cropped to the box around what is
+' drawn in any of them. FALSE (and AB_LD freed) when nothing is drawn.
+FUNCTION AB_install_loaded% (n AS INTEGER)
+    DIM k AS INTEGER, m AS _MEM, row AS STRING, zero AS STRING, w AS LONG, h AS LONG, y AS LONG, x AS LONG
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, bw AS LONG, bh AS LONG
+    IF n < 1 _ORELSE AB_LD(1) >= -1 THEN AB_ld_free: EXIT FUNCTION
+    w = _WIDTH(AB_LD(1)): h = _HEIGHT(AB_LD(1))
+    x1 = w: y1 = h: x2 = -1: y2 = -1
+    row = SPACE$(w * 4): zero = STRING$(w * 4, 0)
+    FOR k = 1 TO n
+        IF AB_LD(k) < -1 THEN
+            m = _MEMIMAGE(AB_LD(k))
+            FOR y = 0 TO h - 1
+                _MEMGET m, m.OFFSET + y * w * 4, row
+                IF row <> zero THEN
+                    FOR x = 0 TO w - 1
+                        IF ASC(row, x * 4 + 4) THEN
+                            IF x < x1 THEN x1 = x
+                            IF x > x2 THEN x2 = x
+                            IF y < y1 THEN y1 = y
+                            IF y > y2 THEN y2 = y
+                        END IF
+                    NEXT x
+                END IF
+            NEXT y
+            _MEMFREE m
+        END IF
+    NEXT k
+    IF x2 < x1 _ORELSE y2 < y1 THEN AB_ld_free: EXIT FUNCTION
+    bw = x2 - x1 + 1: bh = y2 - y1 + 1
+    CUSTOM_BRUSH_reset
+    FOR k = 1 TO n
+        AB_CEL(k) = _NEWIMAGE(bw, bh, 32)
+        _DONTBLEND AB_CEL(k)
+        IF AB_LD(k) < -1 THEN _PUTIMAGE (0, 0), AB_LD(k), AB_CEL(k), (x1, y1)-(x2, y2)
+        _BLEND AB_CEL(k)
+        AB_FROM(k) = k
+    NEXT k
+    AB_ld_free
+    AB.n = n: AB.w = bw: AB.h = bh
+    AB.merged = FALSE: AB.srcF = 1: AB.anchor = 1: AB.clickPos = 0: AB.cur = 0
+    CUSTOM_BRUSH.IMAGE& = _COPYIMAGE(AB_CEL(1), 32)
+    CUSTOM_BRUSH.WIDTH% = bw: CUSTOM_BRUSH.HEIGHT% = bh
+    CUSTOM_BRUSH.ORIG_WIDTH% = bw: CUSTOM_BRUSH.ORIG_HEIGHT% = bh
+    CUSTOM_BRUSH.SCALE! = 1.0
+    CUSTOM_BRUSH.ACTIVE% = TRUE
+    AB.cur = 1
+    AB_install_loaded% = TRUE
+END FUNCTION
+
+''
+' Load file filename as the AnimBrush. FALSE (a status line) when it has no
+' frames to make one from.
+FUNCTION AB_load_file% (filename AS STRING)
+    DIM n AS INTEGER, nm AS STRING
+    nm = MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1)
+    n = AB_frames_from_file%(filename)
+    IF n < 2 THEN
+        AB_ld_free
+        STATUS_flash "AnimBrush: " + nm + " has no frames - an animated GIF / APNG, a picture with frames, or a row of squares"
+        EXIT FUNCTION
+    END IF
+    IF AB_install_loaded%(n) = FALSE THEN STATUS_flash "AnimBrush: " + nm + " - nothing drawn in its frames": EXIT FUNCTION
+    STATUS_flash "AnimBrush: " + nm + " - " + _TRIM$(STR$(AB.n)) + " cels of" + STR$(AB.w) + "x" + _TRIM$(STR$(AB.h))
+    _LOGINFO "AB_load_file: " + filename + " ->" + STR$(AB.n) + " cels"
+    AB_load_file% = TRUE
+END FUNCTION
+
+''
+' ANIM > AnimBrush > Load...
+SUB AB_load_dialog ()
+    DIM filename AS STRING, default_path AS STRING
+    IF CFG.LAST_DIR_OPEN$ <> "" THEN
+        default_path = CFG.LAST_DIR_OPEN$ + "/"
+    ELSEIF LAST_DIRECTORY$ <> "" THEN
+        default_path = LAST_DIRECTORY$ + "/"
+    END IF
+    POINTER_hide_for_dialog
+    filename = DRAW_open_file$("Load AnimBrush (an animated GIF / APNG, a picture with frames, a strip)", default_path, "Animations|*.gif|*.png|*.apng|*.draw|All Files|*.*", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+    IF filename = "" THEN EXIT SUB
+    CFG.LAST_DIR_OPEN$ = CONFIG_extract_dir$(filename)
+    LAST_DIRECTORY$ = CFG.LAST_DIR_OPEN$
+    CONFIG_save
+    IF AB_load_file%(filename) THEN SOUND_play SND_CLIPBOARD: CMD_execute_action 101 ' to the Brush tool
+END SUB
+
+''
+' A file dropped on the Drawer: when it has frames it becomes the AnimBrush and
+' goes in the bin under the pointer (when empty, else the first free one).
+' FALSE = no frames (the drop goes on as a picture).
+FUNCTION AB_drop_on_bin% (filename AS STRING, rawX AS INTEGER, rawY AS INTEGER)
+    DIM n AS INTEGER, slot AS INTEGER, r AS INTEGER
+    n = AB_frames_from_file%(filename)
+    IF n < 2 THEN AB_ld_free: EXIT FUNCTION
+    IF AB_install_loaded%(n) = FALSE THEN EXIT FUNCTION
+    slot = DRAWER_slot_at%(rawX, rawY)
+    IF slot >= 1 THEN
+        IF DRAWER_BRUSH_SLOTS(slot).IMG < -1 THEN slot = DRAWER_first_free_slot%
+    ELSE
+        slot = DRAWER_first_free_slot%
+    END IF
+    IF slot >= 1 THEN
+        r = AB_slot_store%(slot)
+        IF r = FALSE THEN ' too wide for a bin: one picture
+            SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(slot).IMG
+            DRAWER_BRUSH_SLOTS(slot).IMG = _COPYIMAGE(AB_CEL(1), 32)
+            DRAWER_BRUSH_SLOTS(slot).W = AB.w: DRAWER_BRUSH_SLOTS(slot).H = AB.h
+        END IF
+        DRAWER.brushSelected% = slot
+        DRAWER.brushSetDirty% = TRUE
+    END IF
+    STATUS_flash "AnimBrush: " + _TRIM$(STR$(AB.n)) + " cels" + _IIF(slot >= 1, " in bin" + STR$(slot), "")
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    AB_drop_on_bin% = TRUE
+END FUNCTION

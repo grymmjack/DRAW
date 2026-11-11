@@ -121,6 +121,13 @@ The **Drawer panel** is a docked grid of 96 slots per mode that hold reusable br
 | Drag-and-drop slots | Reorder. |
 | Drop image files onto the panel | Batch import as slot brushes. |
 
+**Load an AnimBrush from a file.** **ANIM → AnimBrush → Load…** makes an AnimBrush from an
+animated GIF or APNG (its frames, as a player shows them), a PNG or `.draw` with frames (its
+cells), or a plain picture that is a row or column of squares (a strip). The cels are cropped
+to the area anything is drawn in, keeping each cel's place. Drop such a file on a Drawer bin
+and it lands there as an AnimBrush bin (the bin under the pointer if it is empty, else the
+first free one); a picture without frames dropped on a bin is an ordinary brush, as before.
+
 **AnimBrush bins.** `Shift`+click a bin while you hold an AnimBrush and the bin keeps every
 cel: it shows cel 1 with a small film-strip badge holding the cel count, and while you hover
 it the bin plays (at the animation's FPS) - so does the Preview's Bin Quick Look. Click the
