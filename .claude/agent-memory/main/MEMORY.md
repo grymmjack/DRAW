@@ -96,3 +96,4 @@
 - [Never run qb64pe bare](feedback-qb64pe-never-bare.md) — no -x/-z opens the IDE on Rick's desktop; read version.bas for the version
 - [Reply where the comment was](feedback-reply-where-comment-was.md) — check PR vs issue with gh before replying to pasted upstream feedback
 - [QA shares the real data dir](qa-data-dir-not-isolated.md) — [Linux] XDG_DATA_HOME is only isolated under QA_USER_PROFILE=1; scans must never create folders
+- [Palette typing loses keys on the slow profile](qa-palette-typing-loses-keys.md) — [Linux] long xdotool queries drop a key under QA_USER_PROFILE; short queries + read back + retry
