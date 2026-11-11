@@ -8,7 +8,8 @@
 ' library does in CP_THEME_scale_geometry (CP-API.BM); colors are THEME.CP_*.
 '
 ' Callers draw into their own native-resolution panel image, then blit it at
-' the integer toolbar scale (USCALE.mixer) like COLORMIXER_render.
+' the integer panel scale (USCALE.mixer - by default the UI Scale) like
+' COLORMIXER_render.
 '
 ' Placement: every floating window (Color Mixer, Advanced Color Picker, 3D
 ' Color Space, Pen Pressure, Image Browser, Preview, Customize Toolbars) runs its drag through

@@ -12,7 +12,8 @@
 # after.
 # Compared: COL / SLOT / SCR lines whole; P lines (shown, box when visible,
 # slot, floating, and a floating panel's size); WIN lines (size; place too
-# when docked).
+# when docked). A test may define ds_check_live, called after C with the
+# snapshots in $DS_T (NAME, and NAME.raw = the whole dump).
 # =============================================================================
 
 DS_DUMP="$DRAW_ROOT/QA/.dock-dump.txt"
@@ -22,6 +23,7 @@ ds_settle() { { hover 300 250; wait_for 0.3 "render"; hover 305 252; wait_for 0.
 # NAME -> $DS_T/NAME: the layout lines of the dump
 ds_snap() {
     ds_settle
+    cp "$DS_DUMP" "$DS_T/$1.raw"
     python3 - "$DS_DUMP" > "$DS_T/$1" <<'PY'
 import sys
 for ln in open(sys.argv[1]):
@@ -91,6 +93,8 @@ ds_run() {
     ds_snap C
     info "C (live back to $S0): viewport $(ds_scale C)"
     assert_no_crash
+    # a test's own checks on A / B / C ($DS_T/NAME, $DS_T/NAME.raw = the whole dump)
+    declare -F ds_check_live >/dev/null && ds_check_live
 
     DS_SAVE=("$DISPLAY_SCALE" "$VIEWPORT_W" "$VIEWPORT_H")
     read -r BW BH <<< "$(ds_scale B)"; read -r CW CH <<< "$(ds_scale C)"
