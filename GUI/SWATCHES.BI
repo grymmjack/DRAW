@@ -30,6 +30,11 @@ CONST SWP_ACT_TOGGLE = 2600 ' View > Swatches
 CONST SWP_ACT_LOAD   = 2601 ' Load swatches... (any format -> My Swatches)
 CONST SWP_ACT_FOLDER = 2602 ' Open the My Swatches folder
 CONST SWP_ACT_SAVEAS = 2603 ' Save swatches as... (.gpl .aco .ase .act .pal .hex .txt .png)
+CONST SWP_ACT_STRIP_REPLACE = 2604 ' the selected swatches (else the set) become the palette strip
+CONST SWP_ACT_STRIP_ADD     = 2605 ' ... added to the end of the strip (colors it has are skipped)
+CONST SWP_ACT_FROM_STRIP    = 2606 ' a new set in My Swatches from the strip's colors
+CONST SWP_ACT_FROM_IMAGE    = 2607 ' a new set from the image's colors (the selection's, if any)
+CONST SWP_ACT_LOSPEC        = 2608 ' browse Lospec; what you download also becomes a set
 
 CONST SWP_MIN_W = 64  ' native px
 CONST SWP_MIN_H = 60
@@ -50,7 +55,7 @@ CONST SWP_MI_CHECK  = 3 ' an on / off option
 CONST SWP_MI_CHIPS  = 4 ' a row of choices ("COLS  SET FIT 8 12 16")
 
 CONST SWP_MENU_MAX  = 400 ' rows
-CONST SWP_MENU_VIS  = 22  ' rows shown before it scrolls
+CONST SWP_MENU_VIS  = 40  ' rows shown before it scrolls (fewer when the window is short: SWP_menu_vis%)
 
 TYPE SWATCHES_PANEL_OBJ
     visible           AS INTEGER
@@ -120,6 +125,7 @@ TYPE SWATCHES_PANEL_OBJ
     dragPend   AS INTEGER ' the press was on a selected swatch: its click waits for the release (no drag = the click)
     dragPendShift AS INTEGER
     dragPendCtrl  AS INTEGER
+    dragStrip     AS INTEGER ' dragging over the palette strip: insert before this strip index (-1 = not over it)
     ' live edit: one swatch selected, the color panels change it (SWP_tick)
     liveIdx  AS LONG           ' the swatch being followed (0 = none)
     liveLast AS _UNSIGNED LONG ' the FG last seen
@@ -152,6 +158,7 @@ TYPE SWATCHES_PANEL_OBJ
     menuHover AS INTEGER
     menuChip  AS INTEGER ' chip under the pointer in a chips row
     menuRowH  AS INTEGER
+    menuVis     AS INTEGER ' rows it shows before it scrolls (set when it opens)
     menuAtMouse AS INTEGER ' the next SWP_menu_open opens at the pointer (Shift+right-click)
 END TYPE
 

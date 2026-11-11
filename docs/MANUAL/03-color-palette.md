@@ -168,6 +168,16 @@ Palette workflows DRAW supports natively:
 | **Square cells** | keep swatches square when stretching |
 | **Cell borders** | a thin border around every swatch |
 
+### Swatches and the palette strip
+
+The **palette strip** is the document's own palette; a swatch set is a separate collection you keep across documents. To move colors between them:
+
+- **Drag** selected swatches **onto the strip**: they are inserted after the chip under the pointer (drop past the last chip to add them at the end). The panel's bottom line reads **ADD n TO THE STRIP** while you are over it. The swatches stay in the set.
+- ☰ → **Selected to Strip: Replace / Add** does the same from the menu.
+- ☰ → **New Set from Strip** goes the other way.
+
+Each change to the strip is one undo step: **`Ctrl+Z`** with the pointer over the canvas takes it back.
+
 ### Selecting swatches
 
 The edits below act on the **selected** swatches. A selected swatch gets a thin frame inside it, in a color that stands out against it.
@@ -207,7 +217,12 @@ DRAW never changes a swatch set it did not make. The first time you edit a shipp
 | **Insert OKLCh Ramp from FG** | | inserts an even dark-to-light ramp of the FG, using the *Generate OKLCh Ramp* settings (Settings → Panels → Color Blending + Ramps) |
 | **Steps** chips | | how many swatches an inserted ramp has (the same setting as Palette → Generate OKLCh Ramp) |
 | **Sort** chips: Hue · Light · Sat · Luma · Rev | | sort the selection (two or more selected), else the whole set, by hue, OKLab lightness, chroma or luminance — or reverse it. Only colors move: empty cells, row breaks and locked swatches stay put |
+| **Selected to Strip: Replace** | | the selected swatches become the palette strip, in order (nothing selected: **All to Strip** — the whole set). The FG and BG keep their colors |
+| **Selected to Strip: Add** | | adds them to the end of the strip; colors the strip already has are skipped, and it holds 256 at most |
 | **Load…** / **Save As…** | | open a swatch file as a new set · save this set in another format (see above) |
+| **New Set from Strip** | | a new set in My Swatches with the strip's colors |
+| **New Set from Image** / **from Selection** | | a new set with every color the image uses (all visible layers, as you see them), in reading order — only the selection's colors when there is a selection. More than 1024 colors is refused: select a smaller area |
+| **Lospec…** | | opens the Lospec browser (Palette → Load from Lospec); each palette you download also becomes a set |
 | **Select All / Select None** | **`Ctrl+A`** / **`Ctrl+D`** or **`Esc`** | |
 | **Undo / Redo** | **`Ctrl+Z`** / **`Ctrl+Y`** | the last swatch edit |
 

@@ -79,10 +79,26 @@ sw_edit_state() { read -r _ SE_UNDO SE_REDO SE_SAVES SE_MINE <<< "$(grep '^SWATE
 # hover the panel's first cell (the keys work only with the pointer on it)
 sw_hover_panel() { sw_cell 1; hover $(( C_X + C_W / 2 )) $(( C_Y + C_H / 2 )); sleep 0.2; }
 # the open menu's item with id $1: click it (SWATMI row kind id chk x y w h label)
+# the open menu's row for item id $1 -> SM_ROW ("" = none); an item scrolled
+# out of view is brought in with the wheel over the menu
+sw_menu_find() {
+    local i dir m mx my mw mh
+    SM_ROW=$(awk -v id="$1" '$1=="SWATMI" && $4==id {print; exit}' "$DK_DUMP")
+    for dir in down up; do
+        for (( i = 0; i < 12 && ${#SM_ROW} == 0; i++ )); do
+            read -r _ mx my mw mh _ <<< "$(grep '^SWATM ' "$DK_DUMP")"
+            [[ -z "$mx" ]] && return 1
+            m="scroll_$dir"; $m $(( mx + mw / 2 )) $(( my + mh / 2 )); dk_settle
+            SM_ROW=$(awk -v id="$1" '$1=="SWATMI" && $4==id {print; exit}' "$DK_DUMP")
+        done
+    done
+    [[ -n "$SM_ROW" ]]
+}
 sw_menu_click() {
     local r mx my mw mh
-    r=$(awk -v id="$1" '$1=="SWATMI" && $4==id {print; exit}' "$DK_DUMP")
+    sw_menu_find "$1"; r=$SM_ROW
     read -r _ _ _ _ _ mx my mw mh _ <<< "$r"
+    SM_LABEL=$(cut -d' ' -f10- <<< "$r")   # the item's label, for a check
     if [[ -z "$mx" ]]; then fail "no menu item $1 in the open menu"; return 1; fi
     click $(( mx + mw / 2 )) $(( my + mh / 2 )); dk_settle
 }
@@ -91,7 +107,17 @@ sw_menu_edit() { sw_geo; click $(( M_X + M_W / 2 )) $(( M_Y + M_H / 2 )); dk_set
 # the hex of every entry in order ("-" = empty cell, "|" = row break), from SWATC
 sw_hexes() { awk '$1=="SWATC" { for (k = p + 1; p && k < $2; k++) printf " |"; printf "%s%s", (n++ ? " " : ""), ($7==1 ? "-" : $8); p = $2 } END {print ""}' "$DK_DUMP"; }
 # SWATD: a swatch drag - on 0/1, the entry it would drop before (0 = none), the pointer's row
-sw_dragstate() { read -r _ SD_ON SD_DROP SD_ROW <<< "$(grep '^SWATD ' "$DK_DUMP")"; }
+sw_dragstate() { read -r _ SD_ON SD_DROP SD_ROW SD_STRIP <<< "$(grep '^SWATD ' "$DK_DUMP")"; }
+# the palette strip: SP_N colors, SP_FG = the FG chip, SP_HEX = "RRGGBB RRGGBB ..."
+sw_strip() { local l; l=$(grep '^SWATP ' "$DK_DUMP"); read -r _ SP_N SP_FG _ <<< "$l"; SP_HEX=$(cut -d' ' -f4- <<< "$l"); [[ "$SP_N" == 0 ]] && SP_HEX=""; }
+# the viewport point of strip chip $1 (row 0..): TX TY, or the strip past its last chip ($1 = end)
+sw_strip_xy() {
+    local sx sy cw rh per rows scr k
+    read -r _ sx sy cw rh per rows scr _ <<< "$(grep '^SWATPG ' "$DK_DUMP")"
+    if [[ "$1" == end ]]; then TX=$(( sx + per * cw + 3 )); TY=$(( sy + rh / 2 )); return; fi
+    k=$(( $1 - scr ))
+    TX=$(( sx + (k % per) * cw + cw / 2 )); TY=$(( sy + (k / per) * rh + rh / 2 ))
+}
 # the left / right half of entry $1's cell (where a drop goes before / after it)
 sw_left_of()  { sw_cell "$1"; TX=$(( C_X + 1 )); TY=$(( C_Y + C_H / 2 )); }
 sw_right_of() { sw_cell "$1"; TX=$(( C_X + C_W - 2 )); TY=$(( C_Y + C_H / 2 )); }

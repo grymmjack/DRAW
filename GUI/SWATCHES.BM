@@ -283,25 +283,14 @@ END FUNCTION
 ' Load any swatch / palette file: converted to a .gpl in My Swatches (the
 ' original is never written) and shown.
 SUB SWP_import (path AS STRING)
-    DIM dst AS STRING, baseNm AS STRING, n AS INTEGER, ok AS INTEGER
     IF SWS_load%(path) = 0 THEN
         STATUS_flash "Swatches: " + SWS_ERR
         EXIT SUB
     END IF
     IF SWS_COLS < 1 THEN SWS_COLS = SWS_guess_cols%
     IF SWS_ext$(path) = "aco" _ANDALSO CFG.SWATCHES_BLACK_SPACERS% THEN SWS_black_to_spaces TRUE
-    PATHS_ensure_dir PATHS_data$("SWATCHES/")
-    baseNm = SWP_safe_name$(SWS_base_name$(path))
-    dst = PATHS_data$("SWATCHES/") + baseNm + ".gpl"
-    DO WHILE _FILEEXISTS(dst)
-        n = n + 1
-        dst = PATHS_data$("SWATCHES/") + baseNm + " (" + _TRIM$(STR$(n)) + ").gpl"
-    LOOP
-    ok = SWS_save_gpl%(dst)
-    IF ok = 0 _ORELSE _FILEEXISTS(dst) = 0 THEN STATUS_flash "Swatches: could not write " + dst: EXIT SUB
-    _LOGINFO "SWATCHES: imported " + path + " -> " + dst + " (" + _TRIM$(STR$(SWS_N)) + " entries, " + _TRIM$(STR$(SWS_COLS)) + " columns)"
-    SWP_load_set dst
-    CONFIG_save
+    IF SWP_save_new_set%(SWS_base_name$(path)) = 0 THEN EXIT SUB
+    _LOGINFO "SWATCHES: imported " + path + " -> " + SWP.setKey + " (" + _TRIM$(STR$(SWS_N)) + " entries, " + _TRIM$(STR$(SWS_COLS)) + " columns)"
     STATUS_flash "Swatches: " + SWP.setLabel + " - " + _TRIM$(STR$(SWS_color_count&)) + " colors, " + _TRIM$(STR$(SWS_COLS)) + " columns"
 END SUB
 
@@ -635,8 +624,12 @@ SUB SWP_render ()
     ' status: what the pointer is on, else the set's size
     DIM st AS STRING
     IF SWP.dragMoving THEN
-        st = _IIF(MODIFIERS.ctrl% <> 0, "COPY ", "MOVE ") + _TRIM$(STR$(SWS_sel_count&))
-        IF SWP.dragDrop = 0 THEN st = st + " - DROP ON THE GRID"
+        IF SWP.dragStrip >= 0 THEN
+            st = "ADD " + _TRIM$(STR$(SWS_sel_count&)) + " TO THE STRIP"
+        ELSE
+            st = _IIF(MODIFIERS.ctrl% <> 0, "COPY ", "MOVE ") + _TRIM$(STR$(SWS_sel_count&))
+            IF SWP.dragDrop = 0 THEN st = st + " - DROP ON THE GRID OR THE STRIP"
+        END IF
     ELSEIF SWP.hoverIdx > 0 THEN
         IF SWS(SWP.hoverIdx).kind = SWS_KIND_COLOR THEN
             st = "#" + RIGHT$("000000" + HEX$(SWS(SWP.hoverIdx).c AND &HFFFFFF~&), 6)
@@ -867,8 +860,14 @@ SUB SWP_build_edit ()
     SWP_menu_add SWP_MI_CHIPS, "STEPS", 30, SWP_chip_now%(30), "4|5|6|8|10|12|16"
     SWP_menu_add SWP_MI_CHIPS, "SORT", 31, 0, "HUE|LIGHT|SAT|LUMA|REV"
     SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
+    SWP_menu_add SWP_MI_ITEM, _IIF(n > 0, "SELECTED", "ALL") + " TO STRIP: REPLACE", 216, 0, ""
+    SWP_menu_add SWP_MI_ITEM, _IIF(n > 0, "SELECTED", "ALL") + " TO STRIP: ADD", 217, 0, ""
+    SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
     SWP_menu_add SWP_MI_ITEM, "LOAD...", 214, 0, ""
     SWP_menu_add SWP_MI_ITEM, "SAVE AS...", 215, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "NEW SET FROM STRIP", 218, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "NEW SET FROM " + _IIF(SELECTION_has_active%, "SELECTION", "IMAGE"), 219, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "LOSPEC...", 223, 0, ""
     SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
     SWP_menu_add SWP_MI_ITEM, "SELECT ALL     CTRL+A", 208, 0, ""
     SWP_menu_add SWP_MI_ITEM, "SELECT NONE    CTRL+D", 209, 0, ""
@@ -919,12 +918,18 @@ SUB SWP_menu_open (kind AS INTEGER, ax AS INTEGER)
         END SELECT
     NEXT i
     SWP.menuW = w
-    vis = _MIN(SWP.menuRows, SWP_MENU_VIS)
     rs = SWP.renderScale: IF rs <= 0 THEN rs = 1
     IF ax < 0 THEN SWP.menuX = SWP.dispX + INT((-ax - w) * rs) ELSE SWP.menuX = SWP.dispX + INT(ax * rs)
     SWP.menuY = SWP.dispY + INT((SWP.barY + SWP.barH) * rs)
     IF SWP.menuAtMouse THEN SWP.menuX = MOUSE.RAW_X% + 2: SWP.menuY = MOUSE.RAW_Y% + 2
     SWP.menuAtMouse = FALSE
+    ' the rows that fit below it (it scrolls the rest); fewer than 6: it moves up
+    DIM fitBelow AS INTEGER, fitAll AS INTEGER
+    fitBelow = INT((SCRN.h& - SWP.menuY - 2) / (SWP.menuRowH * rs))
+    fitAll = INT((SCRN.h& - 4) / (SWP.menuRowH * rs))
+    IF fitBelow >= 6 THEN vis = fitBelow ELSE vis = _MAX(1, fitAll)
+    vis = _MIN(SWP.menuRows, _MIN(SWP_MENU_VIS, vis))
+    SWP.menuVis = vis
     IF SWP.menuX + INT(w * rs) > SCRN.w& THEN SWP.menuX = SCRN.w& - INT(w * rs)
     IF SWP.menuY + INT(vis * SWP.menuRowH * rs) > SCRN.h& THEN SWP.menuY = SCRN.h& - INT(vis * SWP.menuRowH * rs)
     IF SWP.menuX < 0 THEN SWP.menuX = 0
@@ -942,6 +947,14 @@ SUB SWP_menu_open (kind AS INTEGER, ax AS INTEGER)
     SWP.menuHover = 0: SWP.menuChip = 0
     SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
 END SUB
+
+
+''
+' Rows the open menu shows before it scrolls (SWP_menu_open: as many as fit
+' below it, at most SWP_MENU_VIS).
+FUNCTION SWP_menu_rows_shown% ()
+    IF SWP.menuVis > 0 THEN SWP_menu_rows_shown% = _MIN(SWP.menuRows, SWP.menuVis) ELSE SWP_menu_rows_shown% = _MIN(SWP.menuRows, 22)
+END FUNCTION
 
 
 SUB SWP_menu_close ()
@@ -982,7 +995,7 @@ FUNCTION SWP_menu_row_at% (rx AS INTEGER, ry AS INTEGER, chip AS INTEGER)
     IF SWP.menu = SWP_MENU_NONE THEN EXIT FUNCTION
     rs = SWP.renderScale: IF rs <= 0 THEN rs = 1
     nx = INT((rx - SWP.menuX) / rs): ny = INT((ry - SWP.menuY) / rs)
-    vis = _MIN(SWP.menuRows, SWP_MENU_VIS)
+    vis = SWP_menu_rows_shown%
     IF nx < 0 _ORELSE nx >= SWP.menuW _ORELSE ny < 0 _ORELSE ny >= vis * SWP.menuRowH THEN EXIT FUNCTION
     r = SWP.menuTop + ny \ SWP.menuRowH
     IF r < 1 _ORELSE r > SWP.menuRows THEN EXIT FUNCTION
@@ -1000,7 +1013,7 @@ SUB SWP_render_menu ()
     DIM od AS LONG, ofn AS LONG, i AS INTEGER, r AS INTEGER, y AS INTEGER, vis AS INTEGER, k AS INTEGER
     DIM fg AS _UNSIGNED LONG, cx AS INTEGER, cw AS INTEGER, t AS STRING, rh AS INTEGER
     IF SWP.menu = SWP_MENU_NONE _ORELSE SWP.menuImg >= -1 THEN EXIT SUB
-    vis = _MIN(SWP.menuRows, SWP_MENU_VIS)
+    vis = SWP_menu_rows_shown%
     rh = SWP.menuRowH
     od = _DEST
     _DEST SWP.menuImg
@@ -1108,6 +1121,11 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
         CASE 212: SWP_edit_color SWP_first_sel&
         CASE 214: CMD_execute_action SWP_ACT_LOAD
         CASE 215: CMD_execute_action SWP_ACT_SAVEAS
+        CASE 216: SWP_to_strip 0, -1
+        CASE 217: SWP_to_strip 1, -1
+        CASE 218: SWP_from_strip
+        CASE 219: SWP_from_image
+        CASE 223: SWP_lospec
         CASE 220: SWP_ramp
         CASE 221: SWP_insert_ramp 1
         CASE 222: SWP_insert_ramp 2
@@ -1243,22 +1261,33 @@ SUB SWP_mouse_input ()
         IF MOUSE.B1% THEN
             IF SWP.dragMoving = 0 _ANDALSO (ABS(nx - SWP.dragX0) > 3 _ORELSE ABS(ny - SWP.dragY0) > 3) THEN SWP.dragMoving = TRUE
             IF SWP.dragMoving THEN
-                IF lx >= 0 _ANDALSO lx < SWP.dispW THEN
+                SWP.dragStrip = -1
+                IF lx >= 0 _ANDALSO lx < SWP.dispW _ANDALSO ly >= 0 _ANDALSO ly < SWP.dispH THEN
                     IF ny < SWP.gridY THEN SWP.scrollY = SWP.scrollY - (SWP.cellH + SWP.gap) \ 2: SWP_clamp_scroll
                     IF ny >= SWP.gridY + SWP.gridH THEN SWP.scrollY = SWP.scrollY + (SWP.cellH + SWP.gap) \ 2: SWP_clamp_scroll
                     SWP.dragDrop = SWP_drop_at&(nx, ny)
                 ELSE
-                    SWP.dragDrop = 0 ' off the panel: no drop
+                    SWP.dragDrop = 0 ' off the panel: no drop - unless it is over the palette strip
+                    SWP.dragStrip = SWP_strip_drop_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+                    IF SWP.dragStrip < 0 _ANDALSO lx >= 0 _ANDALSO lx < SWP.dispW THEN
+                        IF ny < SWP.gridY THEN SWP.scrollY = SWP.scrollY - (SWP.cellH + SWP.gap) \ 2: SWP_clamp_scroll
+                        IF ny >= SWP.gridY + SWP.gridH THEN SWP.scrollY = SWP.scrollY + (SWP.cellH + SWP.gap) \ 2: SWP_clamp_scroll
+                        SWP.dragDrop = SWP_drop_at&(nx, ny)
+                    END IF
                 END IF
             END IF
         ELSE
             SWP.dragArm = FALSE
             IF SWP.dragMoving THEN
-                IF SWP.dragDrop > 0 THEN SWP_drop SWP.dragDrop, (MODIFIERS.ctrl% <> 0)
+                IF SWP.dragStrip >= 0 THEN
+                    SWP_to_strip 1, SWP.dragStrip
+                ELSEIF SWP.dragDrop > 0 THEN
+                    SWP_drop SWP.dragDrop, (MODIFIERS.ctrl% <> 0)
+                END IF
             ELSEIF SWP.dragPend THEN
                 SWP_click_with SWP.dragFrom, SWP.dragPendShift, SWP.dragPendCtrl
             END IF
-            SWP.dragMoving = FALSE: SWP.dragPend = FALSE: SWP.dragDrop = 0
+            SWP.dragMoving = FALSE: SWP.dragPend = FALSE: SWP.dragDrop = 0: SWP.dragStrip = -1
         END IF
         SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
         EXIT SUB
@@ -1352,7 +1381,7 @@ SUB SWP_mouse_input ()
             SWP_click_entry i
         END IF
         IF SWS(i).sel THEN
-            SWP.dragArm = TRUE: SWP.dragMoving = FALSE: SWP.dragFrom = i
+            SWP.dragArm = TRUE: SWP.dragMoving = FALSE: SWP.dragStrip = -1: SWP.dragFrom = i
             SWP.dragX0 = nx: SWP.dragY0 = ny: SWP.dragDrop = 0
         END IF
     ELSEIF nx >= SWP.gridX _ANDALSO nx < SWP.gridX + SWP.gridW _ANDALSO ny >= SWP.gridY _ANDALSO ny < SWP.gridY + SWP.gridH THEN
@@ -1852,6 +1881,272 @@ SUB SWP_save_as ()
     END IF
 END SUB
 
+' ===========================================================================
+' Bridges: the palette strip, the image, Lospec
+' ===========================================================================
+
+''
+' Save SWS() as a new .gpl in My Swatches (a unique name from baseNm) and show
+' it. TRUE = done.
+FUNCTION SWP_save_new_set% (baseNm AS STRING)
+    DIM dst AS STRING, nm AS STRING, n AS INTEGER
+    PATHS_ensure_dir PATHS_data$("SWATCHES/")
+    nm = SWP_safe_name$(baseNm)
+    dst = PATHS_data$("SWATCHES/") + nm + ".gpl"
+    DO WHILE _FILEEXISTS(dst)
+        n = n + 1
+        dst = PATHS_data$("SWATCHES/") + nm + " (" + _TRIM$(STR$(n)) + ").gpl"
+    LOOP
+    IF SWS_save_gpl%(dst) = 0 _ORELSE _FILEEXISTS(dst) = 0 THEN
+        STATUS_flash "Swatches: could not write " + dst
+        EXIT FUNCTION
+    END IF
+    _LOGINFO "SWATCHES: new set " + dst + " (" + _TRIM$(STR$(SWS_N)) + " entries)"
+    SWP_load_set dst
+    CONFIG_save
+    SWP_save_new_set% = TRUE
+END FUNCTION
+
+
+''
+' The selected swatches (none selected = every color of the set) to the
+' palette strip: mode 0 = they become the strip, 1 = they are inserted before
+' strip index atPos (-1 = at the end). The strip never gets a color twice, and
+' holds 256 at most. One palette undo step (Ctrl+Z over the canvas).
+SUB SWP_to_strip (mode AS INTEGER, atPos AS INTEGER)
+    DIM i AS LONG, j AS INTEGER, k AS INTEGER, n AS INTEGER, room AS INTEGER, p AS INTEGER
+    DIM useAll AS INTEGER, dup AS INTEGER, skipped AS LONG, over AS LONG
+    DIM c AS _UNSIGNED LONG, before AS STRING, msg AS STRING
+    DIM cols(1 TO 256) AS _UNSIGNED LONG, nms(1 TO 256) AS STRING
+    IF SWP.initialized = 0 THEN EXIT SUB
+    useAll = (SWS_sel_count& = 0)
+    IF mode = 0 THEN room = 256 ELSE room = 256 - PAL_COLOR_COUNT%
+    FOR i = 1 TO SWS_N
+        IF SWS(i).kind = SWS_KIND_COLOR _ANDALSO (useAll _ORELSE SWS(i).sel <> 0) THEN
+            c = SWS(i).c OR &HFF000000~&
+            dup = FALSE
+            FOR j = 1 TO n
+                IF cols(j) = c THEN dup = TRUE: EXIT FOR
+            NEXT j
+            IF dup = 0 _ANDALSO mode = 1 THEN
+                FOR j = 0 TO PAL_COLOR_COUNT% - 1
+                    IF (PAL(j).value AND &HFFFFFF~&) = (c AND &HFFFFFF~&) _ANDALSO (PAL(j).value AND &HFF000000~&) <> 0 THEN dup = TRUE: EXIT FOR
+                NEXT j
+            END IF
+            IF dup THEN
+                skipped = skipped + 1
+            ELSEIF n >= room THEN
+                over = over + 1
+            ELSE
+                n = n + 1: cols(n) = c: nms(n) = SWS(i).nm
+            END IF
+        END IF
+    NEXT i
+    IF n = 0 THEN
+        IF skipped > 0 THEN
+            STATUS_flash "Swatches: the strip has those colors already"
+        ELSEIF over > 0 THEN
+            STATUS_flash "Swatches: the strip is full (256 colors)"
+        ELSE
+            STATUS_flash "Swatches: no colors to send"
+        END IF
+        EXIT SUB
+    END IF
+
+    PALETTE_OPS_edit_commit
+    before = PALETTE_snapshot$
+    IF mode = 0 THEN
+        FOR k = 1 TO n
+            PAL(k - 1).value = cols(k): PAL(k - 1).name = nms(k)
+        NEXT k
+        FOR k = 0 TO 255
+            PALETTE_OPS_MARKED(k) = FALSE
+        NEXT k
+        PAL_COLOR_COUNT% = n
+        PCYC_validate
+        PALETTE_OPS.SEL_IDX% = -1
+    ELSE
+        p = atPos
+        IF p < 0 _ORELSE p > PAL_COLOR_COUNT% THEN p = PAL_COLOR_COUNT%
+        FOR k = PAL_COLOR_COUNT% - 1 TO p STEP -1
+            PAL(k + n).value = PAL(k).value: PAL(k + n).name = PAL(k).name
+            PALETTE_OPS_MARKED(k + n) = PALETTE_OPS_MARKED(k)
+        NEXT k
+        FOR k = 1 TO n
+            PAL(p + k - 1).value = cols(k): PAL(p + k - 1).name = nms(k)
+            PALETTE_OPS_MARKED(p + k - 1) = FALSE
+            PCYC_on_insert p + k - 1
+        NEXT k
+        IF PAL_FG_IDX% >= p THEN PAL_FG_IDX% = PAL_FG_IDX% + n
+        IF PAL_BG_IDX% >= p THEN PAL_BG_IDX% = PAL_BG_IDX% + n
+        IF PALETTE_OPS.SEL_IDX% >= p THEN PALETTE_OPS.SEL_IDX% = PALETTE_OPS.SEL_IDX% + n
+        PAL_COLOR_COUNT% = PAL_COLOR_COUNT% + n
+    END IF
+    ' the FG / BG keep their colors; their chips are found again
+    PAL_FG_IDX% = _MAX(0, PALETTE_STRIP_chip_for_color%(PAL_FG_IDX%, PAINT_COLOR~&, PAL_FG_IS_TRANSPARENT%, PAL_COLOR_COUNT%))
+    PAL_BG_IDX% = _MAX(0, PALETTE_STRIP_chip_for_color%(PAL_BG_IDX%, PAINT_BG_COLOR~&, PAL_BG_IS_TRANSPARENT%, PAL_COLOR_COUNT%))
+    HISTORY_record_palette before, PALETTE_snapshot$, _IIF(mode = 0, "Swatches to Strip", "Add Swatches to Strip")
+    PALETTE_OPS_mark_document_palette
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+
+    IF mode = 0 THEN msg = "the strip is now " ELSE msg = "added "
+    msg = msg + _TRIM$(STR$(n)) + " color" + _IIF(n = 1, "", "s")
+    IF mode = 1 THEN msg = msg + " to the strip"
+    IF skipped > 0 THEN msg = msg + " (" + _TRIM$(STR$(skipped)) + " already there)"
+    IF over > 0 THEN msg = msg + " - " + _TRIM$(STR$(over)) + " left out: 256 is the most"
+    STATUS_flash "Swatches: " + msg
+    _LOGINFO "SWATCHES: " + msg
+END SUB
+
+
+''
+' A new set in My Swatches from the palette strip's colors.
+SUB SWP_from_strip ()
+    DIM nm AS STRING, was AS STRING
+    IF PALETTE_LOADER_get_color_count% < 1 THEN STATUS_flash "Swatches: the strip is empty": EXIT SUB
+    was = SWP.setKey
+    SWP_load_doc_palette
+    nm = PALETTE_LOADER_get_name$
+    IF LEN(_TRIM$(nm)) = 0 _ORELSE LEFT$(nm, 1) = "[" THEN nm = "Document Palette"
+    SWS_NAME = nm
+    IF SWP_save_new_set%(nm) = 0 THEN SWP_load_set was: EXIT SUB
+    STATUS_flash "Swatches: new set " + SWP.setLabel + " - " + _TRIM$(STR$(SWS_color_count&)) + " colors from the strip"
+END SUB
+
+
+''
+' A new set in My Swatches from the image's colors (every visible layer, as
+' the canvas shows it) - only the selection's, when there is one. Each
+' distinct opaque color once, in reading order; more than 1024 is refused.
+SUB SWP_from_image ()
+    DIM img AS LONG, m AS _MEM, mm AS _MEM, w AS LONG, h AS LONG, x AS LONG, y AS LONG
+    DIM x0 AS LONG, y0 AS LONG, x1 AS LONG, y1 AS LONG, useSel AS INTEGER, useMask AS INTEGER
+    DIM c AS _UNSIGNED LONG, mc AS _UNSIGNED LONG, hb AS LONG, k AS LONG, n AS LONG, over AS INTEGER
+    DIM head(0 TO 4095) AS LONG, nxt(1 TO 1025) AS LONG, cols(1 TO 1025) AS _UNSIGNED LONG
+    DIM nm AS STRING, was AS STRING
+    img = LAYERS_flatten&
+    IF img >= -1 THEN STATUS_flash "Swatches: could not read the image": EXIT SUB
+    w = _WIDTH(img): h = _HEIGHT(img)
+    x0 = 0: y0 = 0: x1 = w - 1: y1 = h - 1
+    useSel = SELECTION_has_active%
+    IF useSel THEN
+        IF MARQUEE.WAND_HAS_SELECTION _ANDALSO MARQUEE.SELECTION_MASK < -1 THEN
+            x0 = MARQUEE.WAND_MIN_X: y0 = MARQUEE.WAND_MIN_Y: x1 = MARQUEE.WAND_MAX_X: y1 = MARQUEE.WAND_MAX_Y
+            IF _WIDTH(MARQUEE.SELECTION_MASK) = w _ANDALSO _HEIGHT(MARQUEE.SELECTION_MASK) = h THEN useMask = TRUE
+        ELSE
+            x0 = MARQUEE.BOX.x: y0 = MARQUEE.BOX.y: x1 = x0 + MARQUEE.BOX.w - 1: y1 = y0 + MARQUEE.BOX.h - 1
+        END IF
+        x0 = _MAX(x0, 0): y0 = _MAX(y0, 0): x1 = _MIN(x1, w - 1): y1 = _MIN(y1, h - 1)
+    END IF
+    m = _MEMIMAGE(img)
+    IF useMask THEN mm = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+    FOR y = y0 TO y1
+        FOR x = x0 TO x1
+            IF useMask THEN
+                mc = _MEMGET(mm, mm.OFFSET + (y * w + x) * 4, _UNSIGNED LONG)
+                IF (mc AND &HFFFFFF~&) <> &HFFFFFF~& THEN _CONTINUE
+            END IF
+            c = _MEMGET(m, m.OFFSET + (y * w + x) * 4, _UNSIGNED LONG)
+            IF (c AND &HFF000000~&) = 0 THEN _CONTINUE
+            c = c OR &HFF000000~&
+            hb = ((c AND &HFFFFFF~&) XOR ((c AND &HFFFFFF~&) \ 4093)) MOD 4096
+            k = head(hb)
+            DO WHILE k
+                IF cols(k) = c THEN EXIT DO
+                k = nxt(k)
+            LOOP
+            IF k = 0 THEN
+                IF n >= 1024 THEN over = TRUE: EXIT FOR
+                n = n + 1: cols(n) = c: nxt(n) = head(hb): head(hb) = n
+            END IF
+        NEXT x
+        IF over THEN EXIT FOR
+    NEXT y
+    _MEMFREE m
+    IF useMask THEN _MEMFREE mm
+    _FREEIMAGE img
+    IF over THEN STATUS_flash "Swatches: more than 1024 colors - select a smaller area": EXIT SUB
+    IF n = 0 THEN STATUS_flash "Swatches: no colors there (all transparent)": EXIT SUB
+
+    was = SWP.setKey
+    SWS_clear
+    FOR k = 1 TO n
+        x = SWS_add&(cols(k), "", SWS_KIND_COLOR, 0)
+    NEXT k
+    IF n >= 16 THEN SWS_COLS = 16 ELSE SWS_COLS = n
+    nm = SWS_base_name$(RTRIM$(LTRIM$(CURRENT_DRW_FILENAME$)))
+    IF LEN(nm) = 0 THEN nm = "Image"
+    nm = nm + _IIF(useSel, " selection", " colors")
+    SWS_NAME = nm
+    IF SWP_save_new_set%(nm) = 0 THEN SWP_load_set was: EXIT SUB
+    STATUS_flash "Swatches: new set " + SWP.setLabel + " - " + _TRIM$(STR$(n)) + " colors from the " + _IIF(useSel, "selection", "image")
+END SUB
+
+
+''
+' The palette files in folder, as "|name|name|".
+FUNCTION SWP_dir_list$ (folder AS STRING)
+    DIM f AS STRING, s AS STRING
+    s = "|"
+    IF _DIREXISTS(folder) THEN
+        f = _FILES$(folder)
+        DO WHILE LEN(f)
+            IF RIGHT$(f, 1) <> "/" _ANDALSO RIGHT$(f, 1) <> "\" THEN s = s + f + "|"
+            f = _FILES$
+        LOOP
+    END IF
+    SWP_dir_list$ = s
+END FUNCTION
+
+
+''
+' Browse Lospec (Palette > Load from Lospec's dialog); every palette it
+' downloads also becomes a set in My Swatches, and the last one is shown.
+SUB SWP_lospec ()
+    DIM dir AS STRING, before AS STRING, f AS STRING, got AS INTEGER, lastF AS STRING
+    dir = PATHS_data$("PALETTES/")
+    before = SWP_dir_list$(dir)
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
+    SCREEN_render
+    _DISPLAY
+    LOSPEC_show_dialog
+    MOUSE_reset_buttons
+    IF _DIREXISTS(dir) THEN
+        f = _FILES$(dir)
+        DO WHILE LEN(f)
+            IF RIGHT$(f, 1) <> "/" _ANDALSO RIGHT$(f, 1) <> "\" _ANDALSO SWS_can_load%(f) THEN
+                IF INSTR(before, "|" + f + "|") = 0 THEN
+                    got = got + 1
+                    lastF = lastF + f + "|"
+                END IF
+            END IF
+            f = _FILES$
+        LOOP
+    END IF
+    ' (import after the listing: SWP_import lists folders too)
+    DO WHILE LEN(lastF)
+        f = LEFT$(lastF, INSTR(lastF, "|") - 1)
+        lastF = MID$(lastF, INSTR(lastF, "|") + 1)
+        SWP_import dir + f
+    LOOP
+    IF got = 0 THEN STATUS_flash "Swatches: nothing new from Lospec (your Lospec palettes are in the set list, under My Palettes)"
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' The strip index a drag over viewport (rx, ry) would insert before: after
+' the chip under the pointer, else the end. -1 = not over the strip.
+FUNCTION SWP_strip_drop_at% (rx AS INTEGER, ry AS INTEGER)
+    DIM i AS INTEGER
+    SWP_strip_drop_at% = -1
+    IF PALETTE_STRIP_VISIBLE% = 0 THEN EXIT FUNCTION
+    IF PALETTE_STRIP_in_bounds%(rx, ry) = 0 THEN EXIT FUNCTION
+    i = PALETTE_OPS_calc_strip_index%(rx, ry)
+    IF i < 0 THEN SWP_strip_drop_at% = PAL_COLOR_COUNT% ELSE SWP_strip_drop_at% = i + 1
+END FUNCTION
+
+
 
 ''
 ' Ramp: the colors between the first and last selected swatch blend from the
@@ -2070,7 +2365,7 @@ FUNCTION SWP_wheel% (delta AS INTEGER)
     IF SWP.menu <> SWP_MENU_NONE THEN
         DIM vis AS INTEGER
         SWP_wheel% = TRUE
-        vis = _MIN(SWP.menuRows, SWP_MENU_VIS)
+        vis = SWP_menu_rows_shown%
         SWP.menuTop = SWP.menuTop + delta * 3
         IF SWP.menuTop > SWP.menuRows - vis + 1 THEN SWP.menuTop = SWP.menuRows - vis + 1
         IF SWP.menuTop < 1 THEN SWP.menuTop = 1
@@ -2113,7 +2408,14 @@ FUNCTION SWP_dump$ ()
     DIM sn AS LONG
     ' editing: undo steps, redo steps, saves, the set is in My Swatches
     d = d + "SWATE" + DOCK_n$(SWP_undo_count%(SWP.setKey, 0)) + DOCK_n$(SWP_undo_count%(SWP.setKey, 1)) + DOCK_n$(SWP_SAVES) + DOCK_n$(-(SWP_is_mine%(SWP.setKey) <> 0)) + lf
-    d = d + "SWATD" + DOCK_n$(-(SWP.dragMoving <> 0)) + DOCK_n$(SWP.dragDrop) + DOCK_n$(SWP.dragRow) + lf
+    d = d + "SWATD" + DOCK_n$(-(SWP.dragMoving <> 0)) + DOCK_n$(SWP.dragDrop) + DOCK_n$(SWP.dragRow) + DOCK_n$(SWP.dragStrip) + lf
+    ' the palette strip: count, FG chip, every color; and where its chips are
+    DIM pi AS INTEGER, ps AS STRING
+    ps = "SWATP" + DOCK_n$(PAL_COLOR_COUNT%) + DOCK_n$(PAL_FG_IDX%)
+    FOR pi = 0 TO PAL_COLOR_COUNT% - 1
+        ps = ps + " " + RIGHT$("000000" + HEX$(PAL(pi).value AND &HFFFFFF~&), 6)
+    NEXT pi
+    d = d + ps + lf + SWP_strip_geo$ + lf
     i = SWP_first_sel&
     d = d + "SWATN" + DOCK_n$(i) + DOCK_n$(-(SWP.liveOpen <> 0)) + " " + RIGHT$("000000" + HEX$(PAINT_COLOR~& AND &HFFFFFF~&), 6)
     IF i > 0 THEN d = d + " " + SWP_ascii$(SWS(i).nm)
@@ -2144,8 +2446,8 @@ FUNCTION SWP_dump$ ()
     NEXT i
     IF SWP.menu <> SWP_MENU_NONE THEN
         DIM r AS INTEGER, k AS INTEGER, ry AS INTEGER, cx AS INTEGER
-        d = d + "SWATM" + DOCK_n$(SWP.menuX) + DOCK_n$(SWP.menuY) + DOCK_n$(INT(SWP.menuW * rs)) + DOCK_n$(INT(_MIN(SWP.menuRows, SWP_MENU_VIS) * SWP.menuRowH * rs)) + DOCK_n$(INT(SWP.menuRowH * rs)) + DOCK_n$(SWP.menuTop) + lf
-        FOR r = SWP.menuTop TO _MIN(SWP.menuRows, SWP.menuTop + SWP_MENU_VIS - 1)
+        d = d + "SWATM" + DOCK_n$(SWP.menuX) + DOCK_n$(SWP.menuY) + DOCK_n$(INT(SWP.menuW * rs)) + DOCK_n$(INT(SWP_menu_rows_shown% * SWP.menuRowH * rs)) + DOCK_n$(INT(SWP.menuRowH * rs)) + DOCK_n$(SWP.menuTop) + lf
+        FOR r = SWP.menuTop TO _MIN(SWP.menuRows, SWP.menuTop + SWP_menu_rows_shown% - 1)
             ry = (r - SWP.menuTop) * SWP.menuRowH
             d = d + "SWATMI" + DOCK_n$(r) + DOCK_n$(SWP_MI(r).kind) + DOCK_n$(SWP_MI(r).id) + DOCK_n$(SWP_MI(r).chk <> 0)
             d = d + DOCK_n$(SWP.menuX) + DOCK_n$(SWP.menuY + INT(ry * rs)) + DOCK_n$(INT(SWP.menuW * rs)) + DOCK_n$(INT(SWP.menuRowH * rs)) + " " + SWP_MI(r).label + lf
@@ -2158,6 +2460,23 @@ FUNCTION SWP_dump$ ()
         NEXT r
     END IF
     SWP_dump$ = d
+END FUNCTION
+
+
+''
+' "SWATPG startX y chipW rowH perRow rows scroll": the palette strip's chips
+' (the math of PALETTE_OPS_calc_strip_index%), for QA.
+FUNCTION SWP_strip_geo$ ()
+    DIM sw AS INTEGER, rowH AS INTEGER, availW AS INTEGER, per AS INTEGER, rows AS INTEGER, n AS INTEGER
+    sw = CFG.PALETTE_CHIP_WIDTH%: rowH = CFG.PALETTE_CHIP_HEIGHT% + 1
+    availW = SCRN.w& - (PALETTE_STRIP_ARROW_WIDTH * 2) - PALETTE_STRIP_name_w% - 12
+    per = availW \ (sw + 1)
+    IF per > CFG.PALETTE_MAX_CHIPS_PER_ROW% THEN per = CFG.PALETTE_MAX_CHIPS_PER_ROW%
+    n = PALETTE_LOADER_get_color_count%
+    IF per >= 1 _ANDALSO n > 0 THEN rows = ((n - 1) \ per) + 1
+    IF rows < CFG.PALETTE_MIN_ROWS% THEN rows = CFG.PALETTE_MIN_ROWS%
+    IF rows > CFG.PALETTE_MAX_ROWS% THEN rows = CFG.PALETTE_MAX_ROWS%
+    SWP_strip_geo$ = "SWATPG" + DOCK_n$(2 + PALETTE_STRIP_ARROW_WIDTH + 2) + DOCK_n$(PALETTE_STRIP_Y% + 2) + DOCK_n$(sw + 1) + DOCK_n$(rowH) + DOCK_n$(per) + DOCK_n$(rows) + DOCK_n$(PALETTE_STRIP_SCROLL_OFFSET%) + DOCK_n$(-(PALETTE_STRIP_VISIBLE% <> 0))
 END FUNCTION
 
 

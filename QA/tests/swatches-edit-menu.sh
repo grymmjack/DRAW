@@ -22,11 +22,11 @@ if [[ -n "$M_X" ]] && (( M_X > B_X + B_W && M_X < E_X )); then pass "the ☰ but
 
 sw_menu_edit; sw_read
 sw_expect "☰ opens the edit menu" "$SW_MENU" 3
+sw_expect "header with nothing selected" "$(menu_head)" "NOTHING SELECTED"
 for id in 201 202 203 204 205 206 207 208 209 210 211; do
-    if awk -v id=$id '$1=="SWATMI" && $4==id' "$DK_DUMP" | grep -q .; then :; else fail "edit menu has no item $id"; fi
+    sw_menu_find $id || fail "edit menu has no item $id"
 done
 pass "the edit menu has items 201-211"
-sw_expect "header with nothing selected" "$(menu_head)" "NOTHING SELECTED"
 screenshot "swatches-edit-menu"
 key Escape; dk_settle; sw_read; sw_expect "Esc closes it" "$SW_MENU" 0
 sw_menu_edit; sw_menu_edit; sw_read; sw_expect "the button again closes it" "$SW_MENU" 0
