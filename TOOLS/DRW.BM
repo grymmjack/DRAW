@@ -331,7 +331,7 @@ SUB DRW_save_binary (filename AS STRING)
 
     ' === GRADIENT STOP TYPES (v13+) ===
     DIM gsi AS INTEGER, gsj AS INTEGER
-    FOR gsi% = 1 TO DRAWER_SLOT_COUNT
+    FOR gsi% = 1 TO DRAWER_FILE_SLOTS ' the classic 30 (the rest: drAx)
         FOR gsj% = 1 TO GRADIENT_MAX_STOPS
             PUT #fh%, , GRAD_STOP_TYPES(gsi%, gsj%)
         NEXT gsj%
@@ -1214,7 +1214,7 @@ SUB DRW_load_binary (filename AS STRING)
     ' === GRADIENT STOP TYPES (v13+) ===
     IF version% >= 13 THEN
         DIM gsi AS INTEGER, gsj AS INTEGER
-        FOR gsi% = 1 TO DRAWER_SLOT_COUNT
+        FOR gsi% = 1 TO DRAWER_FILE_SLOTS
             FOR gsj% = 1 TO GRADIENT_MAX_STOPS
                 GET #fh%, , GRAD_STOP_TYPES(gsi%, gsj%)
             NEXT gsj%
@@ -1929,6 +1929,27 @@ SUB DRW_embed_chunk_in_png (pngFilePath AS STRING)
     DIM animBlob AS STRING
     animBlob$ = ANIM_serialize$
     IF LEN(animBlob$) THEN drAwChunk$ = drAwChunk$ + PNG_make_chunk$("drAn", animBlob$)
+    ' Drawer slots past the classic 30 ride in "drAx" (an older DRAW skips it
+    ' and opens the file with its 30): MKL$(raw size) + DEFLATE(DRAWER_write_ext_draw)
+    DIM drAxLast AS INTEGER, drAxRaw AS STRING, drAxTmp AS STRING
+    drAxLast% = DRAWER_last_used_slot%(0)
+    IF drAxLast% > DRAWER_FILE_SLOTS THEN
+        drAxTmp$ = pngFilePath$ + "~drawer.tmp"
+        fh% = FREEFILE
+        OPEN drAxTmp$ FOR OUTPUT AS #fh%: CLOSE #fh%
+        fh% = FREEFILE
+        OPEN drAxTmp$ FOR BINARY AS #fh%
+        DRAWER_write_ext_draw fh%, drAxLast%
+        CLOSE #fh%
+        fh% = FREEFILE
+        OPEN drAxTmp$ FOR BINARY AS #fh%
+        drAxRaw$ = SPACE$(LOF(fh%))
+        GET #fh%, 1, drAxRaw$
+        CLOSE #fh%
+        KILL drAxTmp$
+        drAwChunk$ = drAwChunk$ + PNG_make_chunk$("drAx", MKL$(LEN(drAxRaw$)) + _DEFLATE$(drAxRaw$, 9))
+        _LOGINFO "DRW_embed_chunk_in_png: drAx - drawer slots" + STR$(DRAWER_FILE_SLOTS + 1) + " to" + STR$(drAxLast%)
+    END IF
     newPng$ = LEFT$(pngData$, LEN(pngData$) - 12) + drAwChunk$ + RIGHT$(pngData$, 12)
 
     ' Step 7: Write modified PNG back
@@ -2099,6 +2120,7 @@ SUB DRW_load_from_png (filename AS STRING)
     DIM tmpBin       AS STRING
     DIM found        AS INTEGER
     DIM animBlob     AS STRING
+    DIM drAxBlob     AS STRING ' drawer slots past the classic 30
     DIM flatOk       AS INTEGER
 
     ' Read entire PNG file
@@ -2137,6 +2159,8 @@ SUB DRW_load_from_png (filename AS STRING)
             found%       = TRUE
         ELSEIF chunkType$ = "drAn" THEN
             animBlob$ = MID$(pngData$, scanPos& + 8, chunkLen~&)
+        ELSEIF chunkType$ = "drAx" THEN
+            drAxBlob$ = MID$(pngData$, scanPos& + 8, chunkLen~&)
         END IF
 
         ' Move to next chunk: length(4) + type(4) + data(chunkLen) + CRC(4)
@@ -2161,6 +2185,25 @@ SUB DRW_load_from_png (filename AS STRING)
         ' Load using binary format parser
         DRW_load_binary tmpBin$
         KILL tmpBin$
+
+        ' the drawer's slots past the classic 30 (DRW_load_binary emptied them)
+        IF LEN(drAxBlob$) > 4 THEN
+            DIM drAxRaw AS STRING
+            drAxRaw$ = _INFLATE$(MID$(drAxBlob$, 5), CVL(LEFT$(drAxBlob$, 4)))
+            IF LEN(drAxRaw$) >= 4 THEN
+                tmpBin$ = filename$ + "~drawer.tmp"
+                fh% = FREEFILE
+                OPEN tmpBin$ FOR OUTPUT AS #fh%: CLOSE #fh%
+                fh% = FREEFILE
+                OPEN tmpBin$ FOR BINARY AS #fh%
+                PUT #fh%, 1, drAxRaw$
+                SEEK #fh%, 1
+                DRAWER_read_ext_draw fh%
+                CLOSE #fh%
+                KILL tmpBin$
+            END IF
+        END IF
+        DRAWER_PENDING_CUSTOM = FALSE
 
         _LOGINFO "DRW_load_from_png: Successfully loaded from PNG with drAw chunk: " + filename$
     ELSE

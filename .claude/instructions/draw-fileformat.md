@@ -55,6 +55,33 @@ a reference layer but no frames writes the chunk with frameW 0 / count 0. Every 
 answer and playback are session state, not saved. Test: `QA/tests/file-anim-chunk.sh`
 (`QA/fixtures/png-chunk.py put|get` writes / reads chunks for fixtures).
 
+### drAx Chunk (drawer slots past the classic 30)
+
+2.8 raised `DRAWER_SLOT_COUNT` from 30 to 96 per mode **without a .draw version bump**: the
+drAw payload still holds exactly `DRAWER_FILE_SLOTS` (30) slots in every place it did (drawer
+state, gradient defs, stop types), and slots 31 .. last used ride in their own ancillary chunk
+`drAx`, written by `DRW_embed_chunk_in_png` only when a slot past 30 holds something. An older
+DRAW skips the chunk and opens the file with its 30 slots. Payload: `MKL$(raw size)` +
+`_DEFLATE$(raw)`, raw = `DRAWER_write_ext_draw`:
+
+```
+version (DRAWER_EXT_VERSION = 1), lastSlot,
+then per slot 31 .. lastSlot: brush image, pattern image, gradient image
+    (DRAWER_save_slot_image: hasImage -1/0, w, h, w*h _UNSIGNED LONG),
+    gradient record (DRAWER_put_grad_record = the .dset v2 per-slot record)
+```
+
+`DRW_load_from_png` reads it after `DRW_load_binary` (which emptied every slot) through
+`DRAWER_read_ext_draw`; a custom brush saved on a slot past 30 is set up there
+(`DRAWER_PENDING_CUSTOM`). A slot index past this build's `DRAWER_SLOT_COUNT` is read and dropped.
+
+**.dset** gets the same treatment: the classic 30 slot images (+ 30 gradient records in v2),
+then - only when a slot past 30 is used - `DSX1` (`DRAWER_EXT_MAGIC$`), lastSlot(2), per slot
+its image (+ its gradient record for a gradient set). An older DRAW stops reading after the
+30. Both readers (set cycling / defaults and the import dialog) go through
+`DRAWER_read_dset_slots`; the writer truncates first so a shorter set never keeps an old tail.
+Test: `QA/tests/drawer-slots.sh`, fixtures `QA/fixtures/make-drawer-fixtures.py`.
+
 ### Binary Project Data
 
 | Section         | Fields | Version |
@@ -68,7 +95,7 @@ answer and playback are session state, not saved. Test: `QA/tests/file-anim-chun
 | Brush Shape     | shape(2) | v5+ |
 | Grid State      | mode(2), cellFill(2), snap(2), alignMode(2) | v6+ |
 | Unified History | stable layer ids + history records/payloads for replay/export | v7+ |
-| Drawer State    | visible(2), mode(2), miniPaletteOffset(2), selected slots(2 each), customBrushActive(2), 30 brush slots, 30 pattern slots, 30 gradient slots | v10+ |
+| Drawer State    | visible(2), mode(2), miniPaletteOffset(2), selected slots(2 each), customBrushActive(2), 30 brush slots, 30 pattern slots, 30 gradient slots (`DRAWER_FILE_SLOTS`; slots past 30 are in the `drAx` chunk) | v10+ |
 | Pattern Tile Mode | enabled(2) | v11+ |
 | Gradient Definitions | per-slot gradient defs, color stops, opacity stops | v12+ |
 | Gradient Stop Types | per-slot stop type arrays for gradient editors/export | v13+ |

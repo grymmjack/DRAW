@@ -55,11 +55,11 @@ Non-rectangular shapes are preserved via the alpha channel.
 
 <div class="page-break"></div>
 
-## Drawer Panel — 30 Reusable Slots
+## Drawer Panel — 96 Reusable Slots
 
 > 🎯 **Goal:** Organize and reuse brushes and patterns.
 
-The **Drawer panel** is a docked grid of 30 slots that hold reusable brushes, patterns, or gradients. Each slot is one click away from being the active stamp.
+The **Drawer panel** is a docked grid of 96 slots per mode that hold reusable brushes, patterns, or gradients. Each slot is one click away from being the active stamp.
 
 <div align="center">
   <img src="images/ch09-brush-sets.png" alt="Chapter 9 - Brush Sets" style="max-width: 6.0in; width: 90%; height: auto;" />
@@ -88,9 +88,11 @@ The **Drawer panel** is a docked grid of 30 slots that hold reusable brushes, pa
 
 The drawer state can be saved as a `.dset` file and reloaded later — a clean way to share brush packs and pattern libraries between projects or with other artists. There's a sample set in `DEV/brush-set.dset`.
 
+DRAW 2.8 has **96 slots** per mode (earlier versions had 30). Sets and `.draw` files keep working both ways: an older DRAW opens a new file with its first 30 slots, and a new DRAW opens an old file with the slots after 30 empty.
+
 ### Mini palette
 
-The Drawer can show a **mini palette** beside its bins for quick FG / BG selection (left / right click). It is **off by default**: turn it on in **Settings → Panels → Drawer → Mini Palette**. With it off, the bins take its space (more columns, so every slot shows). For a full swatch panel, see **View → Swatches**.
+The Drawer can show a **mini palette** beside its bins for quick FG / BG selection (left / right click). It is **off by default**: turn it on in **Settings → Panels → Drawer → Mini Palette**. With it off, the bins take its space (more columns and rows). For a full swatch panel, see **View → Swatches**.
 
 ### Narrow and wide toolboxes
 

@@ -10,7 +10,14 @@ CONST DRAWER_MODE_NONE     = 0
 CONST DRAWER_MODE_BRUSH    = 1
 CONST DRAWER_MODE_PATTERN  = 2
 CONST DRAWER_MODE_GRADIENT = 3
-CONST DRAWER_SLOT_COUNT    = 30
+CONST DRAWER_SLOT_COUNT    = 96 ' bins per mode (30 before 2.8)
+' The files keep the classic 30 slots where every DRAW reads them; the rest
+' ride in an extension older builds skip (a .dset: a block after the 30
+' slots, DRAWER_EXT_MAGIC$; a .draw: its own PNG chunk, "drAx").
+CONST DRAWER_FILE_SLOTS    = 30
+CONST DRAWER_EXT_MAGIC$    = "DSX1"
+CONST DRAWER_EXT_VERSION   = 1 ' the drAx chunk's layout
+DIM SHARED DRAWER_PENDING_CUSTOM AS INTEGER ' a .draw's custom brush is in a slot past 30: set it up once drAx is read
 CONST DRAWER_GRID_COLS     = 3 ' the classic layout; DRAWER_layout reflows to the panel width
 CONST DRAWER_GRID_ROWS     = 10
 CONST DRAWER_MAX_COLS      = 6
