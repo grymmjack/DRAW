@@ -1080,6 +1080,31 @@ gotcha 15). It also stops playback and clears the ask answer.
   before `MARQUEE_reset`. Pixels copied with `_DONTBLEND`; BG-colored = clear (as Ctrl+B).
   Frames: `ANIM_SEL_count% > 1` (a strip click selects one) -> those, else srcF..count.
 - Actions 2563 / 2564 (ANIM > ANIMBRUSH flyout + command palette "AnimBrush: Pick Up ...").
+- A2 step modes (`AB_STEP` global, kept across pick ups): FOLLOW = cel `AB_seq%(f - AB.anchor)`
+  (anchor = pick up frame, 1 after a new / opened document - `AB_new_document` beside every
+  `ANIM_reset ' frame layout belongs to the old document`), CLICK = `AB_seq%(AB.clickPos)`,
+  moved on in `AB_tick` (main loop, inside the lightbox view push) at the release of a press
+  that stamped, ALL = `AB_stamp_all`: each frame's cell copied to a temp, the brush rendered
+  into it, put back with `_DONTBLEND` (clipped per cell; ends the lightbox one-frame clip
+  first). A picture without frames is CLICK (`AB_mode%`). Hook: `CUSTOM_BRUSH_stamp` asks
+  `AB_stamp%` first. Orders `AB_ORDER` via `AB_seq%`. The brush stroke's history is a whole
+  layer before/after, so ALL is one undo step with no extra code.
+- `AB_show` must keep `CUSTOM_BRUSH.WIDTH/HEIGHT` (the scaled size); only pick up sets them.
+- Keys Alt+[ / Alt+] / Alt+\ = 2565-2567 in `INPUT_register_key%` (MOD_ALT, like Alt+,);
+  FOLLOW/ALL shift `AB.anchor`, CLICK shifts `AB.clickPos`. Step / order 2568-2574 are
+  checkbox rows in the flyout (`hasCheckbox` set after `MENUBAR_register_submenu_child`).
+- Dump `ABRS step order anchor clickPos mode`, `ABRP f:cel ...` (which cel is on the current
+  layer at the last stamp's spot moved to each frame's cell; `-` empty, `0` other). Test
+  `animbrush-step-modes` (31: follow / click / all + undo / 4 orders / edge clip by ANIMC CRCs).
+- A3 transforms: rotate cw / ccw, 2x h / v and outline change the picture itself, so each
+  calls `AB_each%(AB_OP_*)` right after its ACTIVE / IMAGE checks: for every cel it hands the
+  cel to `CUSTOM_BRUSH.IMAGE`, restores the brush fields (size, flips), runs the routine again
+  (`AB.inEach` stops the recursion), keeps the result; then `AB.w/h` = ORIG size and the
+  current cel is shown again. Flip / scale / recolor are drawn at stamp time, so they need
+  nothing. The Eraser goes through `CUSTOM_BRUSH_render`'s eraser branch per cel (and inside
+  `AB_stamp_all`'s temps). A lightbox pane stamp picks its cel by `AB_frame_of%` (the frame under
+  the stamp). Test `animbrush-transforms` (19: exact cel CRCs for rotate / 2x, outline sizes,
+  eraser + flip via every-frame stamps checked with ANIMC, a pane stamp via ABRP).
 - Dump: `ABR n cur w h merged srcFrame brushActive brushW brushH brushCrc`,
   `ABRC frame:crc ...` (BGRA CRC32, `0` = clear). Tests `animbrush-pickup` (expected CRCs
   worked out from the fixture in python), `animbrush-pickup-edges` (wand shape, stash, plain

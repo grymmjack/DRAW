@@ -11,6 +11,7 @@ SUB AB_clear ()
         SAFE_FREEIMAGE AB_CEL(k): AB_CEL(k) = 0: AB_FROM(k) = 0
     NEXT k
     AB.n = 0: AB.cur = 0: AB.w = 0: AB.h = 0: AB.merged = FALSE: AB.srcF = 0
+    AB.anchor = 1: AB.clickPos = 0: AB.stamped = FALSE
 END SUB
 
 ''
@@ -25,12 +26,230 @@ END FUNCTION
 SUB AB_show (k AS INTEGER)
     IF k < 1 _ORELSE k > AB.n THEN EXIT SUB
     IF AB_CEL(k) >= -1 THEN EXIT SUB
+    IF k = AB.cur _ANDALSO CUSTOM_BRUSH.IMAGE& < -1 THEN EXIT SUB
     AB.cur = k
     SAFE_FREEIMAGE CUSTOM_BRUSH.IMAGE&: CUSTOM_BRUSH.IMAGE& = _COPYIMAGE(AB_CEL(k), 32)
     SAFE_FREEIMAGE CUSTOM_BRUSH.PREVIEW_CACHE&: CUSTOM_BRUSH.PREVIEW_CACHE& = 0
     CUSTOM_BRUSH.PREVIEW_CACHE_OPACITY% = -1
-    CUSTOM_BRUSH.WIDTH% = _WIDTH(CUSTOM_BRUSH.IMAGE&)
-    CUSTOM_BRUSH.HEIGHT% = _HEIGHT(CUSTOM_BRUSH.IMAGE&)
+    ' (WIDTH / HEIGHT are the brush's size on the canvas - scaled - so they stay)
+END SUB
+
+''
+' A custom-brush routine that changes the picture (rotate, 2x, outline) asks
+' this first: with an AnimBrush it runs the routine on every cel, each from
+' the same brush state, and the brush shows its cel again. TRUE = done (the
+' caller exits). Flip / scale / recolor are drawn at stamp time: every cel
+' gets them anyway.
+FUNCTION AB_each% (op AS INTEGER)
+    DIM k AS INTEGER, keep AS INTEGER, w AS INTEGER, h AS INTEGER, ow AS INTEGER, oh AS INTEGER
+    DIM fh AS INTEGER, fv AS INTEGER
+    IF AB_active% = 0 _ORELSE AB.inEach THEN EXIT FUNCTION
+    AB.inEach = TRUE
+    keep = AB.cur
+    w = CUSTOM_BRUSH.WIDTH%: h = CUSTOM_BRUSH.HEIGHT%
+    ow = CUSTOM_BRUSH.ORIG_WIDTH%: oh = CUSTOM_BRUSH.ORIG_HEIGHT%
+    fh = CUSTOM_BRUSH.FLIP_H%: fv = CUSTOM_BRUSH.FLIP_V%
+    SAFE_FREEIMAGE CUSTOM_BRUSH.IMAGE&: CUSTOM_BRUSH.IMAGE& = 0
+    FOR k = 1 TO AB.n
+        CUSTOM_BRUSH.IMAGE& = AB_CEL(k): AB_CEL(k) = 0 ' the routine owns it now (and frees it)
+        CUSTOM_BRUSH.WIDTH% = w: CUSTOM_BRUSH.HEIGHT% = h
+        CUSTOM_BRUSH.ORIG_WIDTH% = ow: CUSTOM_BRUSH.ORIG_HEIGHT% = oh
+        CUSTOM_BRUSH.FLIP_H% = fh: CUSTOM_BRUSH.FLIP_V% = fv
+        SELECT CASE op
+            CASE AB_OP_ROT_CW: CUSTOM_BRUSH_rotate_cw
+            CASE AB_OP_ROT_CCW: CUSTOM_BRUSH_rotate_ccw
+            CASE AB_OP_2X_H: CUSTOM_BRUSH_scale_2x_horizontal
+            CASE AB_OP_2X_V: CUSTOM_BRUSH_scale_2x_vertical
+            CASE AB_OP_OUTLINE: CUSTOM_BRUSH_apply_outline
+        END SELECT
+        AB_CEL(k) = CUSTOM_BRUSH.IMAGE&: CUSTOM_BRUSH.IMAGE& = 0
+    NEXT k
+    AB.w = CUSTOM_BRUSH.ORIG_WIDTH%: AB.h = CUSTOM_BRUSH.ORIG_HEIGHT%
+    AB.cur = 0
+    AB_show _MAX(1, keep)
+    AB.inEach = FALSE
+    AB_each% = TRUE
+END FUNCTION
+
+''
+' The step mode in effect: a picture without frames steps per click.
+FUNCTION AB_mode% ()
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN AB_mode% = AB_STEP_CLICK ELSE AB_mode% = AB_STEP
+END FUNCTION
+
+''
+' The cel for step s (0 = the first) in the brush's order. s may be negative
+' (frames before the anchor).
+FUNCTION AB_seq% (s AS LONG)
+    DIM n AS LONG, p AS LONG, m AS LONG
+    n = AB.n
+    IF n < 1 THEN EXIT FUNCTION
+    SELECT CASE AB_ORDER
+        CASE AB_ORD_REV
+            m = ((s MOD n) + n) MOD n: AB_seq% = n - m
+        CASE AB_ORD_PING
+            IF n < 2 THEN AB_seq% = 1: EXIT FUNCTION
+            p = 2 * n - 2: m = ((s MOD p) + p) MOD p
+            IF m < n THEN AB_seq% = m + 1 ELSE AB_seq% = 2 * n - 1 - m
+        CASE AB_ORD_ONCE
+            AB_seq% = _MAX(1, _MIN(n, s + 1))
+        CASE ELSE
+            m = ((s MOD n) + n) MOD n: AB_seq% = m + 1
+    END SELECT
+END FUNCTION
+
+''
+' The cel frame f gets (follows the frame / every frame at once).
+FUNCTION AB_cel_for_frame% (f AS INTEGER)
+    AB_cel_for_frame% = AB_seq%(CLNG(f) - AB.anchor)
+END FUNCTION
+
+''
+' The frame a stamp at canvas (cx, cy) - the brush's middle - lands in: the
+' frame under it, else the current frame.
+FUNCTION AB_frame_of% (cx AS LONG, cy AS LONG)
+    DIM f AS INTEGER
+    f = ANIM_frame_at%(cx, cy)
+    IF f < 1 THEN f = ANIM.current
+    AB_frame_of% = f
+END FUNCTION
+
+''
+' The cel the next stamp at canvas (cx, cy) uses.
+FUNCTION AB_next_cel% (cx AS LONG, cy AS LONG)
+    IF AB_mode% = AB_STEP_CLICK THEN
+        AB_next_cel% = AB_seq%(CLNG(AB.clickPos))
+    ELSE
+        AB_next_cel% = AB_cel_for_frame%(AB_frame_of%(cx, cy))
+    END IF
+END FUNCTION
+
+''
+' CUSTOM_BRUSH_stamp (x, y = the stamp's top left, canvas px): pick the cel
+' for this stamp. TRUE = it was stamped here already (every frame at once).
+FUNCTION AB_stamp% (x AS INTEGER, y AS INTEGER)
+    DIM cx AS LONG, cy AS LONG
+    IF AB_active% = 0 THEN EXIT FUNCTION
+    AB.stamped = TRUE
+    cx = x + CUSTOM_BRUSH.WIDTH% \ 2: cy = y + CUSTOM_BRUSH.HEIGHT% \ 2
+    AB.lastX = x: AB.lastY = y: AB.lastF = AB_frame_of%(cx, cy)
+    SELECT CASE AB_mode%
+        CASE AB_STEP_ALL
+            AB_stamp_all x, y
+            AB_stamp% = TRUE
+        CASE ELSE
+            AB_show AB_next_cel%(cx, cy)
+    END SELECT
+END FUNCTION
+
+''
+' Every frame at once: the stamp at (x, y) in the frame it lands in goes to
+' the same spot in every frame's cell, each with its own cel, each clipped
+' to its cell. Part of the press's brush stroke, so one undo step.
+SUB AB_stamp_all (x AS INTEGER, y AS INTEGER)
+    DIM fs AS INTEGER, f AS INTEGER, sx AS LONG, sy AS LONG, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG
+    DIM tx AS LONG, ty AS LONG, img AS LONG, tmp AS LONG, aw AS INTEGER, ah AS INTEGER, keep AS INTEGER
+    DIM bw AS LONG, bh AS LONG, oldD AS LONG
+    fs = AB_frame_of%(x + CUSTOM_BRUSH.WIDTH% \ 2, y + CUSTOM_BRUSH.HEIGHT% \ 2)
+    IF ANIM_cell_rect%(fs, sx, sy, fw, fh) = 0 THEN EXIT SUB
+    img = LAYER_current_image&
+    IF img >= -1 THEN EXIT SUB
+    SELECTION_layer_apron img, aw, ah
+    ANIM_LB_clip_end ' the lightbox's one-frame stroke clip would put the other cells back
+    keep = AB.cur
+    bw = CUSTOM_BRUSH.WIDTH%: bh = CUSTOM_BRUSH.HEIGHT%
+    oldD = _DEST
+    FOR f = 1 TO ANIM.count
+        IF ANIM_cell_rect%(f, fx, fy, fw, fh) THEN
+            tx = x + fx - sx: ty = y + fy - sy
+            IF tx + bw > fx _ANDALSO ty + bh > fy _ANDALSO tx < fx + fw _ANDALSO ty < fy + fh THEN
+                tmp = _NEWIMAGE(fw, fh, 32)
+                _DONTBLEND tmp
+                _PUTIMAGE (0, 0), img, tmp, (fx + aw, fy + ah)-(fx + aw + fw - 1, fy + ah + fh - 1)
+                _BLEND tmp
+                AB_show AB_cel_for_frame%(f)
+                CUSTOM_BRUSH_render tx - fx, ty - fy, tmp
+                _DONTBLEND img
+                _PUTIMAGE (fx + aw, fy + ah), tmp, img
+                _BLEND img
+                _FREEIMAGE tmp
+                COMP_mark_dirty _MAX(fx, tx), _MAX(fy, ty), _MIN(fx + fw, tx + bw) - 1, _MIN(fy + fh, ty + bh) - 1
+            END IF
+        END IF
+    NEXT f
+    _DEST oldD
+    AB_show keep
+    IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    INVALIDATE_canvas
+END SUB
+
+''
+' Main loop (after the mouse, in the lightbox pane's view): the click step
+' moves on when a press that stamped is let go; between presses the brush
+' shows the cel the next stamp under the pointer uses.
+SUB AB_tick ()
+    DIM want AS INTEGER
+    IF AB_active% = 0 THEN AB.stamped = FALSE: EXIT SUB
+    IF MOUSE.B1% _ORELSE MOUSE.B2% THEN EXIT SUB
+    IF AB.stamped THEN
+        AB.stamped = FALSE
+        IF AB_mode% = AB_STEP_CLICK THEN AB.clickPos = AB.clickPos + 1
+    END IF
+    want = AB_next_cel%(CLNG(MOUSE.X%), CLNG(MOUSE.Y%))
+    IF want <> AB.cur _ANDALSO want > 0 THEN
+        AB_show want
+        SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    END IF
+END SUB
+
+''
+' Actions 2565-2574: cel keys, step mode, order.
+SUB AB_action (act AS INTEGER)
+    DIM msg AS STRING
+    SELECT CASE act
+        CASE AB_ACT_STEP_FOLLOW: AB_STEP = AB_STEP_FOLLOW: msg = "AnimBrush: the cel follows the frame"
+        CASE AB_ACT_STEP_CLICK: AB_STEP = AB_STEP_CLICK: msg = "AnimBrush: next cel each click"
+        CASE AB_ACT_STEP_ALL: AB_STEP = AB_STEP_ALL: msg = "AnimBrush: every frame at once"
+        CASE AB_ACT_ORD_FWD: AB_ORDER = AB_ORD_FWD: msg = "AnimBrush order: forward"
+        CASE AB_ACT_ORD_REV: AB_ORDER = AB_ORD_REV: msg = "AnimBrush order: reverse"
+        CASE AB_ACT_ORD_PING: AB_ORDER = AB_ORD_PING: msg = "AnimBrush order: ping-pong"
+        CASE AB_ACT_ORD_ONCE: AB_ORDER = AB_ORD_ONCE: msg = "AnimBrush order: once"
+        CASE AB_ACT_PREV_CEL, AB_ACT_NEXT_CEL, AB_ACT_FIRST_CEL
+            IF AB_active% = 0 THEN STATUS_flash "No AnimBrush: ANIM > AnimBrush > Pick Up": EXIT SUB
+            IF AB_mode% = AB_STEP_CLICK THEN
+                SELECT CASE act
+                    CASE AB_ACT_PREV_CEL: AB.clickPos = AB.clickPos - 1
+                    CASE AB_ACT_NEXT_CEL: AB.clickPos = AB.clickPos + 1
+                    CASE ELSE: AB.clickPos = 0
+                END SELECT
+            ELSE ' the frames' cels shift: the current frame shows the previous / next cel
+                SELECT CASE act
+                    CASE AB_ACT_PREV_CEL: AB.anchor = AB.anchor + 1
+                    CASE AB_ACT_NEXT_CEL: AB.anchor = AB.anchor - 1
+                    CASE ELSE: AB.anchor = ANIM.current
+                END SELECT
+            END IF
+            AB_show AB_next_cel%(CLNG(MOUSE.X%), CLNG(MOUSE.Y%))
+            msg = "AnimBrush cel" + STR$(AB.cur) + " of" + STR$(AB.n)
+    END SELECT
+    IF AB_active% THEN AB_show AB_next_cel%(CLNG(MOUSE.X%), CLNG(MOUSE.Y%))
+    STATUS_flash msg
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Menu checkmarks (MENUBAR_update_states).
+FUNCTION AB_menu_checked% (act AS INTEGER)
+    SELECT CASE act
+        CASE AB_ACT_STEP_FOLLOW TO AB_ACT_STEP_ALL: AB_menu_checked% = (AB_STEP = act - AB_ACT_STEP_FOLLOW)
+        CASE AB_ACT_ORD_FWD TO AB_ACT_ORD_ONCE: AB_menu_checked% = (AB_ORDER = act - AB_ACT_ORD_FWD)
+    END SELECT
+END FUNCTION
+
+''
+' A new / opened document: "follows the frame" starts from frame 1 again.
+SUB AB_new_document ()
+    AB.anchor = 1: AB.clickPos = 0: AB.stamped = FALSE
 END SUB
 
 ''
@@ -122,7 +341,9 @@ SUB AB_pick_up (merged AS INTEGER)
     IF merged THEN SAFE_FREEIMAGE src
 
     AB.n = n: AB.w = bw: AB.h = bh: AB.merged = (merged <> 0): AB.srcF = sf
+    AB.anchor = sf: AB.clickPos = 0: AB.stamped = FALSE ' stamped back into this sheet, frame sf gets cel 1
     CUSTOM_BRUSH.ACTIVE% = TRUE
+    CUSTOM_BRUSH.WIDTH% = bw: CUSTOM_BRUSH.HEIGHT% = bh
     CUSTOM_BRUSH.ORIG_WIDTH% = bw: CUSTOM_BRUSH.ORIG_HEIGHT% = bh
     CUSTOM_BRUSH.HAS_TRANSPARENCY% = TRUE
     CUSTOM_BRUSH.BG_COLOR~& = PAINT_BG_COLOR~&
@@ -137,7 +358,18 @@ END SUB
 ' Status bar badge: "ANIMBRUSH cur/n" ("" when the brush is one picture).
 FUNCTION AB_status$ ()
     IF AB_active% = 0 THEN EXIT FUNCTION
-    AB_status$ = "ANIMBRUSH " + _TRIM$(STR$(AB.cur)) + "/" + _TRIM$(STR$(AB.n))
+    DIM t AS STRING
+    SELECT CASE AB_mode%
+        CASE AB_STEP_CLICK: t = " CLICK"
+        CASE AB_STEP_ALL: t = " ALL FRAMES"
+        CASE ELSE: t = " FOLLOWS FRAME"
+    END SELECT
+    SELECT CASE AB_ORDER
+        CASE AB_ORD_REV: t = t + " REV"
+        CASE AB_ORD_PING: t = t + " PING-PONG"
+        CASE AB_ORD_ONCE: t = t + " ONCE"
+    END SELECT
+    AB_status$ = "ANIMBRUSH " + _TRIM$(STR$(AB.cur)) + "/" + _TRIM$(STR$(AB.n)) + t
 END FUNCTION
 
 ''
@@ -189,14 +421,51 @@ END FUNCTION
 ''
 ' QA dump (DOCK_dump):
 '   ABR n cur w h merged srcFrame brushActive brushW brushH brushCrc
+'   ABRS step order anchor clickPos modeInEffect
 '   ABRC frame:crc ... (one per cel, up to 64)
 FUNCTION AB_dump$ ()
     DIM d AS STRING, k AS INTEGER
     d = "ABR" + DOCK_n$(AB.n) + DOCK_n$(AB.cur) + DOCK_n$(AB.w) + DOCK_n$(AB.h) + DOCK_n$(AB.merged <> 0) + DOCK_n$(AB.srcF)
     d = d + DOCK_n$(CUSTOM_BRUSH.ACTIVE% <> 0) + DOCK_n$(CUSTOM_BRUSH.WIDTH%) + DOCK_n$(CUSTOM_BRUSH.HEIGHT%) + " " + AB_crc$(CUSTOM_BRUSH.IMAGE&) + CHR$(10)
+    d = d + "ABRS" + DOCK_n$(AB_STEP) + DOCK_n$(AB_ORDER) + DOCK_n$(AB.anchor) + DOCK_n$(AB.clickPos) + DOCK_n$(AB_mode%) + CHR$(10)
     d = d + "ABRC"
     FOR k = 1 TO _MIN(AB.n, 64)
         d = d + " " + _TRIM$(STR$(AB_FROM(k))) + ":" + AB_crc$(AB_CEL(k))
     NEXT k
+    d = d + CHR$(10) + "ABRP"
+    FOR k = 1 TO _MIN(ANIM.count, 64)
+        d = d + " " + _TRIM$(STR$(k)) + ":" + AB_cel_at$(k)
+    NEXT k
     AB_dump$ = d + CHR$(10)
+END FUNCTION
+
+''
+' QA: which cel is on the current layer in frame f at the last stamp's spot
+' (moved to frame f's cell): "-" nothing there, "0" not a cel, else its number.
+FUNCTION AB_cel_at$ (f AS INTEGER)
+    DIM sx AS LONG, sy AS LONG, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, img AS LONG, tmp AS LONG
+    DIM aw AS INTEGER, ah AS INTEGER, s AS STRING, c AS STRING, k AS INTEGER, m AS _MEM, w AS LONG, h AS LONG
+    AB_cel_at$ = "-"
+    IF AB.lastF < 1 _ORELSE AB.n < 1 THEN EXIT FUNCTION
+    IF ANIM_cell_rect%(AB.lastF, sx, sy, fw, fh) = 0 _ORELSE ANIM_cell_rect%(f, fx, fy, fw, fh) = 0 THEN EXIT FUNCTION
+    img = LAYER_current_image&
+    IF img >= -1 THEN EXIT FUNCTION
+    SELECTION_layer_apron img, aw, ah
+    w = AB.w: h = AB.h
+    tmp = _NEWIMAGE(w, h, 32)
+    _DONTBLEND tmp
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, ox AS LONG, oy AS LONG
+    ox = AB.lastX + fx - sx + aw: oy = AB.lastY + fy - sy + ah ' the spot in the buffer; only its part on the buffer is read
+    x1 = _MAX(0, ox): y1 = _MAX(0, oy): x2 = _MIN(_WIDTH(img) - 1, ox + w - 1): y2 = _MIN(_HEIGHT(img) - 1, oy + h - 1)
+    IF x2 >= x1 _ANDALSO y2 >= y1 THEN _PUTIMAGE (x1 - ox, y1 - oy), img, tmp, (x1, y1)-(x2, y2)
+    m = _MEMIMAGE(tmp): s = SPACE$(m.SIZE): _MEMGET m, m.OFFSET, s: _MEMFREE m
+    _FREEIMAGE tmp
+    IF s = STRING$(LEN(s), 0) THEN EXIT FUNCTION
+    AB_cel_at$ = "0"
+    FOR k = 1 TO AB.n
+        IF AB_CEL(k) < -1 THEN
+            m = _MEMIMAGE(AB_CEL(k)): c = SPACE$(m.SIZE): _MEMGET m, m.OFFSET, c: _MEMFREE m
+            IF c = s THEN AB_cel_at$ = _TRIM$(STR$(k)): EXIT FUNCTION
+        END IF
+    NEXT k
 END FUNCTION

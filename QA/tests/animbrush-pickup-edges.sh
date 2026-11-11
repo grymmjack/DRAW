@@ -76,7 +76,7 @@ ae_cmd() {
     park_mouse; key question; wait_for 1.0 "Command palette"
     type_text "$1"; wait_for 0.4 "Filtered"; key Return; wait_for 1.0 "$1"
 }
-ae_first_crc() { local t=${1%% *}; echo "${t#*:}"; }
+ae_cel_crc() { local a=($2); local t=${a[$(( $1 - 1 ))]:-}; echo "${t#*:}"; } # cel K's CRC in "frame:crc .."
 
 info "Launching DRAW with a 64x16 sheet of 16x16 frames (4)"
 draw_quit
@@ -109,8 +109,8 @@ else
         ae_key F3; ae_read
         [[ "$AB_N" == 0 && "$AB_ON" == 0 ]] && pass "F3 Pattern Mode: the AnimBrush is put away" || fail "F3: $(ae_s)"
         ae_key F1; ae_read
-        [[ "$AB_N" == 4 && "$AB_CUR" == 1 && "$AB_ON" == -1 && "$AB_CELS" == "$CELS1" && "$AB_BCRC" == "$(ae_first_crc "$CELS1")" ]] \
-            && pass "F1 Color Mode: it comes back with its 4 cels, on cel 1" || fail "F1: $(ae_s)"
+        [[ "$AB_N" == 4 && "$AB_CUR" -ge 1 && "$AB_ON" == -1 && "$AB_CELS" == "$CELS1" && "$AB_BCRC" == "$(ae_cel_crc "$AB_CUR" "$CELS1")" ]] \
+            && pass "F1 Color Mode: it comes back with its 4 cels, showing cel $AB_CUR" || fail "F1: $(ae_s)"
         ae_key F3; ae_key F1; ae_read
         [[ "$AB_N" == 4 && "$AB_CELS" == "$CELS1" ]] && pass "a second round trip keeps them too" || fail "second round trip: $(ae_s)"
         screenshot "animbrush-edges-stash"

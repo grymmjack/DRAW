@@ -31,11 +31,32 @@ that has one picture - a *cel* - for each frame:
 3. Choose **Pick Up** (the current layer) or **Pick Up Merged** (every visible layer).
 
 DRAW reads the same spot in every frame's cell - the gutter and margin between cells are
-skipped - so a walk cycle becomes a walking brush. The tool switches to the Brush and the
-status bar shows `ANIMBRUSH 1/8`: cel 1 of 8 is the one the next stamp uses. `Ctrl+B`
+skipped - so a walk cycle becomes a walking brush. The tool switches to the Brush, and the
+brush under the pointer is always the cel your next stamp will use; the status bar shows it
+too (`ANIMBRUSH 3/8 FOLLOWS FRAME`: cel 3 of 8).
+
+**Step modes** (ANIM → AnimBrush):
+
+- **Cel follows the frame** (the default) - on frame 5 the brush uses frame 5's cel. Stamp the
+  same spot on each frame and the flame burns there. The frame you picked the brush up from gets
+  cel 1; `Alt+\` makes the current frame cel 1 instead.
+- **Next cel each click** - every press moves on one cel, so a row of torches on one frame
+  don't flicker in step. On a picture without frames the brush always works this way.
+- **Every frame at once** - one press stamps the brush on every frame, each with its own cel,
+  cut at the edge of each frame's cell. Ctrl+Z takes the whole thing away in one step.
+
+**Order** runs the cels Forward, Reverse, Ping-Pong (1 2 3 4 3 2 ...) or Once (holds the last
+cel). `Alt+]` and `Alt+[` step to the next / previous cel. `Ctrl+B`
 drops the AnimBrush; `Ctrl+B` over a selection still makes an ordinary one-picture brush.
 Switching to Pattern or Gradient mode puts the AnimBrush away with its cels, and Color mode
 brings it back.
+
+Everything in **Transform controls** and the recolor / outline modes below works on an
+AnimBrush too: Rotate 90° (`>` / `<`), Scale 2x (`Ctrl+Home` / `Ctrl+End`) and Outline
+(`Shift+O`) change **every** cel, not just the one you see; Flip, Scale and Recolor are applied
+to whichever cel a stamp uses. With the **Eraser** an AnimBrush erases each frame's own cel
+shape (with *Every frame at once*, the whole animation in one press). In the lightbox, a stamp
+in another frame's pane lands in that frame and uses that frame's cel.
 
 ### Transform controls
 

@@ -758,6 +758,7 @@ DO
     PERF_start PERF_MOUSE_INPUT
     ANIM_LB_view_push ' lightbox: the handler sees the view of the pane under the pointer (2.2)
     MOUSE_input_handler
+    AB_tick ' AnimBrush: the click step moves on at a release; the brush shows the next cel (TOOLS/ANIM-BRUSH)
     ANIM_LB_view_pop
     PALETTE_OPS_tick
     SWP_tick ' a selected swatch follows the color panels (live edit)

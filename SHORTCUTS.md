@@ -777,11 +777,20 @@ and paint with it.
 | ANIM → AnimBrush → **Pick Up** | Select an area inside a frame first. Takes that same spot from each frame's cell on the **current layer** (gutters and margins skipped) and makes the cels; the tool becomes the Brush, the brush shows cel 1 |
 | ANIM → AnimBrush → **Pick Up Merged** | The same from every visible layer |
 | `Ctrl+B` (with an AnimBrush) | Drops it, cels and all. `Ctrl+B` over a selection is always a plain one-picture brush |
+| `Alt+]` / `Alt+[` | Next / previous cel |
+| `Alt+\` | Back to cel 1 (following the frame: the current frame gets cel 1) |
+| ANIM → AnimBrush → **Step: Cel Follows Frame** (default) | A stamp on frame f uses that frame's cel: stamp the same spot on each frame and it plays. The frame you picked up from gets cel 1 |
+| ANIM → AnimBrush → **Step: Next Cel Each Click** | Each press uses the next cel (Deluxe Paint). A picture without frames always steps this way |
+| ANIM → AnimBrush → **Step: Every Frame at Once** | One press stamps every frame with its own cel, each cut at its cell's edge - one undo step |
+| ANIM → AnimBrush → **Order: Forward / Reverse / Ping-Pong / Once** | How the cels run (Once holds the last cel) |
+| `>` / `<`, `Ctrl+Home` / `Ctrl+End`, `Shift+O` (with an AnimBrush) | Rotate 90° / Scale 2x / Outline change **every** cel; Flip (`Home` / `End`), Scale (`PgUp` / `PgDn`) and Recolor (`F9`) apply to whichever cel a stamp uses |
+| `E` Eraser (with an AnimBrush) | Erases each frame's own cel shape; with Every Frame at Once, the whole animation in one press |
 
 Which frames: the frames selected in the strip (two or more, Ctrl+click), else from the frame
 the selection is in to the last. The selection's shape (ellipse, lasso, magic wand) is kept in
-every cel, and the BG color is clear, as with `Ctrl+B`. The status bar reads `ANIMBRUSH 1/8`
-(the cel the next stamp uses / how many). Pattern / Gradient Mode put the AnimBrush away with
+every cel, and the BG color is clear, as with `Ctrl+B`. Between presses the brush under the
+pointer is the cel the next stamp uses; the status bar reads e.g. `ANIMBRUSH 3/8 FOLLOWS FRAME`
+(that cel / how many, the step mode, the order when it is not forward). Pattern / Gradient Mode put the AnimBrush away with
 the custom brush and Color Mode brings it back with its cels.
 
 ---

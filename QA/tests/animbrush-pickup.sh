@@ -4,7 +4,8 @@
 #
 # ANIM > AnimBrush > Pick Up takes the marquee's area from several frames -
 # the same spot in each frame's cell, measured from the frame the selection
-# is in - as the cels of a custom brush; the brush shows cel 1 and the tool
+# is in - as the cels of a custom brush; the brush shows one of them (the
+# cel the next stamp uses - TOOLS/ANIM-BRUSH A2 checks which) and the tool
 # becomes the Brush. Which frames: the frames selected in the strip (2 or
 # more), else the selection's frame to the last. Pick Up takes the current layer; Pick Up
 # Merged every visible layer. Ctrl+B drops it (one picture again).
@@ -102,8 +103,8 @@ ab_marquee() { # X1 Y1 X2 Y2 (cell px in the current pane)
     hover "$(ab_px "$3")" "$(ab_py "$4")"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"; ab_read
 }
-# the first cel's CRC (the brush shows cel 1)
-ab_first_crc() { local t=${1%% *}; echo "${t#*:}"; }
+# cel K's CRC in "frame:crc ..." (the brush shows cel AB_CUR)
+ab_cel_crc() { local a=($2); local t=${a[$(( $1 - 1 ))]:-}; echo "${t#*:}"; }
 
 info "Launching DRAW with a 76x40 sheet: 8 frames of 16x16, gutter 2, margin 3"
 draw_quit
@@ -134,10 +135,10 @@ else
         info "box $BX,$BY ${BW}x$BH in frame 3"
         WANT=$(ab_exp "$BX" "$BY" "$BW" "$BH" 3 3 4 5 6 7 8)
         ab_cmd "animbrush: pick up (the"; ab_read
-        [[ "$AB_N" == 6 && "$AB_CUR" == 1 && "$AB_SF" == 3 && "$AB_MERGED" == 0 ]] && pass "Pick Up from frame 3: 6 cels (frames 3-8), cel 1 shown" || fail "pick up from frame 3: $(ab_s)"
+        [[ "$AB_N" == 6 && "$AB_CUR" -ge 1 && "$AB_SF" == 3 && "$AB_MERGED" == 0 ]] && pass "Pick Up from frame 3: 6 cels (frames 3-8)" || fail "pick up from frame 3: $(ab_s)"
         [[ "$AB_CELS" == "$WANT" ]] && pass "each cel is the box's spot in its frame's cell (gutter + margin skipped)" || fail "cels [$AB_CELS], wanted [$WANT]"
         [[ "$AB_W" == "$BW" && "$AB_H" == "$BH" && "$AB_BW" == "$BW" && "$AB_BH" == "$BH" ]] && pass "cels and brush are the box's size (${BW}x$BH)" || fail "size: $(ab_s), box ${BW}x$BH"
-        [[ "$AB_ON" == -1 && "$AB_BCRC" == "$(ab_first_crc "$WANT")" ]] && pass "the brush is on and shows cel 1" || fail "brush: $(ab_s)"
+        [[ "$AB_ON" == -1 && "$AB_BCRC" == "$(ab_cel_crc "$AB_CUR" "$WANT")" ]] && pass "the brush is on and shows its cel $AB_CUR" || fail "brush: $(ab_s)"
         [[ "$V_TOOL" == 1 ]] && pass "the tool is the Brush" || fail "tool $V_TOOL after Pick Up"
         [[ "$S_ON" == 0 ]] && pass "the marquee is gone (as Ctrl+B)" || fail "the marquee stayed: $S_ON"
         screenshot "animbrush-picked"
@@ -160,7 +161,7 @@ else
         WANT=$(ab_exp "$BX" "$BY" "$BW" "$BH" 6 2 4 6)
         ab_cmd "animbrush: pick up (the"; ab_read
         [[ "$AB_N" == 3 && "$AB_SF" == 6 && "$AB_CELS" == "$WANT" ]] && pass "selected frames 2, 4, 6: 3 cels in strip order from each frame's cell" || fail "selected frames: $(ab_s), wanted [$WANT]"
-        [[ "$AB_BCRC" == "$(ab_first_crc "$WANT")" ]] && pass "the brush shows cel 1 (frame 2's)" || fail "brush crc $AB_BCRC"
+        [[ "$AB_BCRC" == "$(ab_cel_crc "$AB_CUR" "$WANT")" ]] && pass "the brush shows its cel $AB_CUR" || fail "brush crc $AB_BCRC (cel $AB_CUR)"
         ab_key ctrl+b; ab_read
     fi
 
