@@ -130,6 +130,43 @@ Palette workflows DRAW supports natively:
 
 <div class="page-break"></div>
 
+## Swatches Panel — Your Swatch Sets, Laid Out Your Way
+
+> 🎯 **Goal:** Keep your own swatch sets — ramps, gaps and all — one click away, beside the palette strip.
+
+**View → Swatches** opens a panel with a grid of color swatches. It does not replace the palette strip: the strip stays the document's palette, and the Swatches panel shows any swatch set you like next to it.
+
+- **Left-click** a swatch → it becomes the **FG** color. **Right-click** → **BG**.
+- The FG swatch gets a double frame and the BG swatch a single one, so you can see where you are in the set.
+- Hover a swatch to see its hex value and name on the panel's bottom line.
+- **Wheel** scrolls the grid; drag the thin scroll bar on the right for big sets.
+
+**Choosing a set.** Click the set's name at the top of the panel. The list shows:
+
+- **Document Palette** — the palette the strip shows, 16 to a row.
+- **My Swatches** — sets you loaded (see below).
+- **Swatches** — the sets that ship with DRAW.
+- **Palettes** — the 56 built-in palettes, and your own saved ones under **My Palettes**.
+
+**Loading your own swatches.** Gear → **Load Swatches…** opens Photoshop **`.aco`** swatch files, GIMP / Aseprite / Inkscape / Krita **`.gpl`** palettes, Photoshop **`.act`** color tables, JASC / RIFF **`.pal`**, Lospec **`.hex`** and Paint.NET **`.txt`**. DRAW never changes your original: it saves a `.gpl` copy in **My Swatches** (Gear → **Open My Swatches Folder** shows where) and uses that.
+
+**Laid out the way you made it.** A `.gpl` remembers its column count. A Photoshop `.aco` does not, so DRAW works it out from the ramps. Many Photoshop swatch sets pad their rows with black to line the ramps up; with **Black filler = empty cells** on (the default), that padding becomes empty cells and only the first black stays as a color.
+
+**The gear** (the cog at the top right) changes the layout:
+
+| Option | What it does |
+| --- | --- |
+| **Columns** | **SET** = the set's own column count · **FIT** = as many as fit · or a fixed 8 / 12 / 16 / 24 / 32 |
+| **Cell** | swatch size, 6 – 24 px |
+| **Gap** | space between swatches, 0 – 3 px |
+| **Stretch to width** | swatches grow (or shrink) to fill the panel's width |
+| **Square cells** | keep swatches square when stretching |
+| **Cell borders** | a thin border around every swatch |
+
+**Docking.** Like the Preview and the color pickers, the Swatches panel floats in its own window (drag the corner grip to resize it) or docks: drag its title bar onto a dock target. Docked, it takes the slot's size and scrolls. Right-click its title bar → **Scale** to give it its own size.
+
+<div class="page-break"></div>
+
 ## Palette Ops — Edit Colors Directly
 
 > 🎯 **Goal:** Modify palette colors and remap on canvas.

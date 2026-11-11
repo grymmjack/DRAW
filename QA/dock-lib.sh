@@ -31,7 +31,7 @@
 # =============================================================================
 
 DK_DUMP="$DRAW_ROOT/QA/.dock-dump.txt"
-DK_NATIVE=" preview colormixer advcolorpicker colorspace3d pen browser animation "
+DK_NATIVE=" preview colormixer advcolorpicker colorspace3d pen browser animation swatches "
 
 dk_seq()  { if [[ -f "$DK_DUMP" ]]; then awk 'NR==1 {print $2}' "$DK_DUMP"; else echo 0; fi; }
 dk_tree() { sed -n 's/^TREE //p' "$DK_DUMP" 2>/dev/null; }

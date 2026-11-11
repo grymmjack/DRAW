@@ -1,0 +1,1246 @@
+''
+' DRAW - GUI/SWATCHES.BM
+' =============================================================================
+' Swatches panel implementation. See GUI/SWATCHES.BI. The set itself (SWS(),
+' its loaders and edits) is QB64_GJ_LIB/SWATCH.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+
+' ===========================================================================
+' Life cycle
+' ===========================================================================
+
+SUB SWP_init ()
+    SWP.visible = FALSE: SWP.positioned = FALSE: SWP.initialized = FALSE
+    SWP.autoHidden = FALSE: SWP.renderScale = 1
+    SWP.panelImg = 0: SWP.menuImg = 0: SWP.menu = SWP_MENU_NONE
+    SWP.hoverIdx = 0: SWP.setKey = CHR$(0) ' nothing loaded yet
+    IF CFG.SWATCHES_VISIBLE% THEN SWP.visible = TRUE
+END SUB
+
+
+SUB SWP_ensure_initialized ()
+    IF SWP.initialized THEN EXIT SUB
+    FPANEL_ensure
+    SWP_load_set CFG.SWATCHES_SET
+    SWP_relayout
+    SWP_compute_display_size
+    IF CFG.SWATCHES_X% > -1 _ANDALSO CFG.SWATCHES_Y% > -1 THEN
+        SWP.dispX = CFG.SWATCHES_X%: SWP.dispY = CFG.SWATCHES_Y%
+        SWP.positioned = TRUE
+    END IF
+    SWP.initialized = TRUE
+END SUB
+
+
+''
+' Its floating size (native px): CFG.SWATCHES_W / _H, or the color panels'
+' width and a few rows.
+FUNCTION SWP_nat_w% ()
+    DIM w AS INTEGER
+    w = CFG.SWATCHES_W%
+    IF w < SWP_MIN_W THEN w = FPANEL_panel_w%
+    SWP_nat_w% = w
+END FUNCTION
+
+FUNCTION SWP_nat_h% ()
+    DIM h AS INTEGER
+    h = CFG.SWATCHES_H%
+    IF h < SWP_MIN_H THEN h = 150
+    SWP_nat_h% = h
+END FUNCTION
+
+
+''
+' Lay out to the size it draws at (docked: the slot's; floating: its own) and
+' make the panel image that size.
+SUB SWP_relayout ()
+    DIM w AS INTEGER, h AS INTEGER
+    IF SWP.fitW > 0 THEN w = SWP.fitW ELSE w = SWP_nat_w%
+    IF SWP.fitH > 0 THEN h = SWP.fitH ELSE h = SWP_nat_h%
+    IF w < SWP_MIN_W THEN w = SWP_MIN_W
+    IF h < SWP_MIN_H THEN h = SWP_MIN_H
+    IF w <> SWP.panelW _ORELSE h <> SWP.panelH _ORELSE SWP.panelImg >= -1 THEN
+        IF SWP.panelImg < -1 THEN _FREEIMAGE SWP.panelImg
+        SWP.panelW = w: SWP.panelH = h
+        SWP.panelImg = _NEWIMAGE(w, h, 32)
+    END IF
+    SWP_layout
+END SUB
+
+
+''
+' Docked: lay out to nw x nh native px (0, 0 = floating, its own size).
+SUB SWP_fit (nw AS INTEGER, nh AS INTEGER)
+    IF nw = SWP.fitW _ANDALSO nh = SWP.fitH THEN EXIT SUB
+    SWP.fitW = nw: SWP.fitH = nh
+    IF SWP.initialized = 0 THEN EXIT SUB ' SWP_ensure_initialized lays it out
+    SWP_relayout
+    SWP_compute_display_size
+END SUB
+
+
+SUB SWP_compute_display_size ()
+    DIM ts AS INTEGER, ds AS INTEGER
+    ts = FPANEL_scale%(DP_SWATCH): IF ts < 1 THEN ts = 1
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    SWP.renderScale = CSNG(ts) / CSNG(ds)
+    SWP.dispW = INT(CSNG(SWP.panelW) * ts / ds + 0.5)
+    SWP.dispH = INT(CSNG(SWP.panelH) * ts / ds + 0.5)
+END SUB
+
+
+SUB SWP_reset ()
+    SWP.autoHidden = FALSE
+    SWP.dragging = FALSE: SWP.resizing = FALSE: SWP.sbDrag = FALSE
+    SWP_menu_close
+    ' a palette that came with the document: show the new one
+    IF SWP.setKey = "" THEN SWP.palSig = ""
+END SUB
+
+
+SUB SWP_toggle ()
+    IF SWP.visible THEN
+        SWP.visible = FALSE
+        SWP_menu_close
+    ELSE
+        SWP.visible = TRUE
+        SWP.autoHidden = FALSE
+        SWP_ensure_initialized
+        IF SWP.positioned = 0 THEN SWP_auto_position
+        FPANEL_place REGION_SWATCHES, SWP.dispX, SWP.dispY, SWP.dispW, SWP.dispH, SWP.dispX, SWP.dispY
+        CFG.SWATCHES_X% = SWP.dispX: CFG.SWATCHES_Y% = SWP.dispY
+    END IF
+    CFG.SWATCHES_VISIBLE% = SWP.visible
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' First open: the top right of the work area.
+SUB SWP_auto_position ()
+    DIM minY AS INTEGER, maxY AS INTEGER
+    CS3D_work_area minY, maxY
+    SWP.dispX = SCRN.uiRightEdge% - SWP.dispW - 8
+    IF SWP.dispX < SCRN.uiLeftEdge% THEN SWP.dispX = SCRN.uiLeftEdge%
+    SWP.dispY = minY + 8
+    SWP.positioned = TRUE
+    CFG.SWATCHES_X% = SWP.dispX: CFG.SWATCHES_Y% = SWP.dispY
+END SUB
+
+
+SUB SWP_clamp_to_work_area ()
+    IF SWP.initialized = 0 _ORELSE SWP.docked THEN EXIT SUB
+    DIM minY AS INTEGER, maxY AS INTEGER, lx AS LONG, ly AS LONG
+    CS3D_work_area minY, maxY
+    lx = SWP.dispX: ly = SWP.dispY
+    LAY_clamp lx, ly, CLNG(SWP.dispW), CLNG(SWP.dispH), CLNG(SCRN.uiLeftEdge%), CLNG(minY), CLNG(SCRN.uiRightEdge%), CLNG(maxY)
+    SWP.dispX = lx: SWP.dispY = ly
+END SUB
+
+
+FUNCTION SWP_hit_window% (rawX AS INTEGER, rawY AS INTEGER)
+    IF DOCK_native_off%(DP_SWATCH) THEN EXIT FUNCTION
+    IF SWP.initialized = 0 THEN EXIT FUNCTION
+    IF rawX >= SWP.dispX _ANDALSO rawX < SWP.dispX + SWP.dispW _ANDALSO rawY >= SWP.dispY _ANDALSO rawY < SWP.dispY + SWP.dispH THEN SWP_hit_window% = TRUE
+END FUNCTION
+
+FUNCTION SWP_active_hit% (rawX AS INTEGER, rawY AS INTEGER)
+    IF SWP.visible = 0 _ORELSE SWP.autoHidden THEN EXIT FUNCTION
+    SWP_active_hit% = SWP_hit_window%(rawX, rawY)
+END FUNCTION
+
+
+''
+' Does the panel take the mouse this frame (a drag, a menu, or over it)?
+FUNCTION SWP_owns_mouse% (rawX AS INTEGER, rawY AS INTEGER)
+    IF SWP.visible = 0 _ORELSE SWP.autoHidden _ORELSE SWP.initialized = 0 THEN EXIT FUNCTION
+    IF SWP.dragging _ORELSE SWP.resizing _ORELSE SWP.sbDrag _ORELSE SWP.menu <> SWP_MENU_NONE THEN SWP_owns_mouse% = TRUE: EXIT FUNCTION
+    SWP_owns_mouse% = SWP_hit_window%(rawX, rawY)
+END FUNCTION
+
+
+' ===========================================================================
+' Sets
+' ===========================================================================
+
+''
+' Every set the list offers: the document palette (0), My Swatches, the
+' shipped swatch sets, the shipped palettes, My Palettes.
+SUB SWP_scan_sets ()
+    SWP_SET_N = 0
+    SWP_SET_PATH(0) = "": SWP_SET_LABEL(0) = "DOCUMENT PALETTE": SWP_SET_GROUP(0) = ""
+    SWP_scan_folder PATHS_data$("SWATCHES/"), "MY SWATCHES" ' (made by the first import: listing never writes)
+    SWP_scan_folder "./ASSETS/SWATCHES/", "SWATCHES"
+    SWP_scan_folder "./ASSETS/PALETTES/", "PALETTES"
+    SWP_scan_folder PATHS_data$("PALETTES/"), "MY PALETTES"
+    SWP_scan_folder PATHS_data$("PALETTES/CREATED/"), "MY PALETTES"
+END SUB
+
+
+SUB SWP_scan_folder (folder AS STRING, grp AS STRING)
+    DIM f AS STRING, first AS INTEGER, i AS INTEGER, j AS INTEGER
+    DIM tp AS STRING, tl AS STRING
+    IF _DIREXISTS(folder) = 0 THEN EXIT SUB
+    first = SWP_SET_N + 1
+    f = _FILES$(folder)
+    DO WHILE LEN(f)
+        IF RIGHT$(f, 1) <> "/" _ANDALSO RIGHT$(f, 1) <> "\" _ANDALSO SWS_can_load%(f) THEN
+            SWP_SET_N = SWP_SET_N + 1
+            IF SWP_SET_N > UBOUND(SWP_SET_PATH) THEN
+                REDIM _PRESERVE SWP_SET_PATH(0 TO SWP_SET_N * 2) AS STRING
+                REDIM _PRESERVE SWP_SET_LABEL(0 TO SWP_SET_N * 2) AS STRING
+                REDIM _PRESERVE SWP_SET_GROUP(0 TO SWP_SET_N * 2) AS STRING
+            END IF
+            SWP_SET_PATH(SWP_SET_N) = folder + f
+            SWP_SET_LABEL(SWP_SET_N) = SWS_base_name$(f)
+            SWP_SET_GROUP(SWP_SET_N) = grp
+        END IF
+        f = _FILES$
+    LOOP
+    ' by name (case-insensitive)
+    FOR i = first + 1 TO SWP_SET_N
+        tp = SWP_SET_PATH(i): tl = SWP_SET_LABEL(i)
+        j = i - 1
+        DO WHILE j >= first
+            IF UCASE$(SWP_SET_LABEL(j)) <= UCASE$(tl) THEN EXIT DO
+            SWP_SET_PATH(j + 1) = SWP_SET_PATH(j): SWP_SET_LABEL(j + 1) = SWP_SET_LABEL(j)
+            j = j - 1
+        LOOP
+        SWP_SET_PATH(j + 1) = tp: SWP_SET_LABEL(j + 1) = tl
+    NEXT i
+END SUB
+
+
+''
+' Show set setPath$ (a file path; "" = the document palette). A file that will not
+' load falls back to the document palette and says why.
+SUB SWP_load_set (setPath AS STRING)
+    DIM k AS STRING
+    k = setPath
+    IF LEN(k) _ANDALSO _FILEEXISTS(k) = 0 THEN
+        _LOGWARN "SWATCHES: set not found: " + k
+        k = ""
+    END IF
+    IF LEN(k) THEN
+        IF SWS_load%(k) THEN
+            IF SWS_COLS < 1 THEN SWS_COLS = SWS_guess_cols% ' before any black becomes a gap
+            IF SWS_ext$(k) = "aco" _ANDALSO CFG.SWATCHES_BLACK_SPACERS% THEN SWS_black_to_spaces TRUE
+            SWP.setLabel = SWP_ascii$(SWS_NAME)
+        ELSE
+            STATUS_flash "Swatches: " + SWS_ERR
+            _LOGWARN "SWATCHES: " + SWS_ERR
+            k = ""
+        END IF
+    END IF
+    IF LEN(k) = 0 THEN SWP_load_doc_palette
+    SWP.setKey = k
+    CFG.SWATCHES_SET = k
+    SWP.scrollY = 0: SWP.flowOk = FALSE: SWP.hoverIdx = 0
+    IF SWP.initialized THEN SWP_layout
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' The document's palette (the strip's), 16 to a row.
+SUB SWP_load_doc_palette ()
+    DIM i AS INTEGER, n AS INTEGER, idx AS LONG
+    SWS_clear
+    n = PALETTE_LOADER_get_color_count%
+    FOR i = 0 TO n - 1
+        idx = SWS_add&(PAL(i).value, "", SWS_KIND_COLOR, 0)
+    NEXT i
+    SWS_NAME = PALETTE_LOADER_get_name$
+    IF n >= 16 THEN SWS_COLS = 16 ELSE SWS_COLS = _MAX(1, n)
+    SWP.setLabel = "PALETTE: " + SWP_ascii$(SWS_NAME)
+    SWP.palSig = SWP_pal_sig$
+END SUB
+
+
+''
+' The document palette's name + colors, to notice it changing.
+FUNCTION SWP_pal_sig$ ()
+    DIM i AS INTEGER, n AS INTEGER, h AS _UNSIGNED _INTEGER64
+    n = PALETTE_LOADER_get_color_count%
+    FOR i = 0 TO n - 1
+        h = (h * 31 + (PAL(i).value AND &HFFFFFF~&)) AND &HFFFFFFFFFF~&&
+    NEXT i
+    SWP_pal_sig$ = PALETTE_LOADER_get_name$ + "|" + _TRIM$(STR$(n)) + "|" + HEX$(h)
+END FUNCTION
+
+
+''
+' Load any swatch / palette file: converted to a .gpl in My Swatches (the
+' original is never written) and shown.
+SUB SWP_import (path AS STRING)
+    DIM dst AS STRING, baseNm AS STRING, n AS INTEGER, ok AS INTEGER
+    IF SWS_load%(path) = 0 THEN
+        STATUS_flash "Swatches: " + SWS_ERR
+        EXIT SUB
+    END IF
+    IF SWS_COLS < 1 THEN SWS_COLS = SWS_guess_cols%
+    IF SWS_ext$(path) = "aco" _ANDALSO CFG.SWATCHES_BLACK_SPACERS% THEN SWS_black_to_spaces TRUE
+    PATHS_ensure_dir PATHS_data$("SWATCHES/")
+    baseNm = SWP_safe_name$(SWS_base_name$(path))
+    dst = PATHS_data$("SWATCHES/") + baseNm + ".gpl"
+    DO WHILE _FILEEXISTS(dst)
+        n = n + 1
+        dst = PATHS_data$("SWATCHES/") + baseNm + " (" + _TRIM$(STR$(n)) + ").gpl"
+    LOOP
+    ok = SWS_save_gpl%(dst)
+    IF ok = 0 _ORELSE _FILEEXISTS(dst) = 0 THEN STATUS_flash "Swatches: could not write " + dst: EXIT SUB
+    _LOGINFO "SWATCHES: imported " + path + " -> " + dst + " (" + _TRIM$(STR$(SWS_N)) + " entries, " + _TRIM$(STR$(SWS_COLS)) + " columns)"
+    SWP_load_set dst
+    CONFIG_save
+    STATUS_flash "Swatches: " + SWP.setLabel + " - " + _TRIM$(STR$(SWS_color_count&)) + " colors, " + _TRIM$(STR$(SWS_COLS)) + " columns"
+END SUB
+
+
+FUNCTION SWP_safe_name$ (s AS STRING)
+    DIM i AS INTEGER, r AS STRING, ch AS STRING
+    r = s
+    FOR i = 1 TO LEN(r)
+        ch = MID$(r, i, 1)
+        IF INSTR("/\:*?<>|" + CHR$(34), ch) THEN MID$(r, i, 1) = "_"
+    NEXT i
+    IF LEN(_TRIM$(r)) = 0 THEN r = "Swatches"
+    SWP_safe_name$ = r
+END FUNCTION
+
+
+' ===========================================================================
+' Layout
+' ===========================================================================
+
+''
+' Rows of the panel and the grid's columns / cells for the current set.
+SUB SWP_layout ()
+    DIM f AS INTEGER, availW AS INTEGER, pass AS INTEGER
+    f = FPANEL.fontH%
+    SWP.barY = FPANEL.titleH% + 2
+    SWP.barH = f + 4
+    SWP.gridX = 3
+    SWP.gridY = SWP.barY + SWP.barH + 2
+    SWP.statY = SWP.panelH - (f + 4) - 1
+    SWP.gridH = _MAX(4, SWP.statY - 2 - SWP.gridY)
+    availW = _MAX(4, SWP.panelW - 6)
+    SWP.gap = CFG.SWATCHES_GAP%
+    IF SWP.gap < 0 _ORELSE SWP.gap > 4 THEN SWP.gap = 1
+    SWP.sbar = FALSE
+    FOR pass = 1 TO 2
+        SWP.gridW = availW
+        IF SWP.sbar THEN SWP.gridW = availW - SWP_SBAR_W - 1
+        SWP_size_cells
+        SWP_reflow
+        IF pass = 1 THEN
+            IF SWP.contentH > SWP.gridH THEN SWP.sbar = TRUE ELSE EXIT FOR
+        END IF
+    NEXT pass
+    SWP_clamp_scroll
+END SUB
+
+
+''
+' Columns and cell size for a grid SWP.gridW wide.
+SUB SWP_size_cells ()
+    DIM c AS INTEGER, cell AS INTEGER, g AS INTEGER, fitW AS INTEGER
+    cell = CFG.SWATCHES_CELL%
+    IF cell < 3 _ORELSE cell > 64 THEN cell = 10
+    g = SWP.gap
+    SELECT CASE CFG.SWATCHES_COLS%
+        CASE 0: c = SWS_COLS ' the set's own layout
+        CASE IS < 0: c = (SWP.gridW + g) \ (cell + g) ' as many as fit
+        CASE ELSE: c = CFG.SWATCHES_COLS%
+    END SELECT
+    IF c < 1 THEN c = 16
+    IF c > 256 THEN c = 256
+    SWP.cols = c
+    ' fit the columns in the width: stretch fills it; otherwise a layout too
+    ' wide for the panel shrinks rather than losing its right side
+    fitW = (SWP.gridW - (c - 1) * g) \ c
+    IF CFG.SWATCHES_STRETCH% _ORELSE fitW < cell THEN SWP.cellW = fitW ELSE SWP.cellW = cell
+    IF SWP.cellW < 2 THEN SWP.cellW = 2
+    IF CFG.SWATCHES_SQUARE% THEN SWP.cellH = SWP.cellW ELSE SWP.cellH = cell
+END SUB
+
+
+''
+' Each entry's row / column: wraps at SWP.cols, a row break starts a new row.
+SUB SWP_reflow ()
+    DIM i AS LONG, r AS LONG, c AS INTEGER, last AS LONG
+    IF UBOUND(SWP_ER) < SWS_N THEN
+        REDIM SWP_ER(1 TO SWS_N + 64) AS LONG
+        REDIM SWP_EC(1 TO SWS_N + 64) AS INTEGER
+    END IF
+    last = -1
+    FOR i = 1 TO SWS_N
+        IF SWS(i).kind = SWS_KIND_BREAK THEN
+            IF c > 0 THEN r = r + 1: c = 0
+            SWP_ER(i) = r: SWP_EC(i) = -1
+        ELSE
+            IF c >= SWP.cols THEN r = r + 1: c = 0
+            SWP_ER(i) = r: SWP_EC(i) = c
+            last = r
+            c = c + 1
+        END IF
+    NEXT i
+    SWP.rows = last + 1
+    IF SWP.rows > 0 THEN SWP.contentH = SWP.rows * (SWP.cellH + SWP.gap) - SWP.gap ELSE SWP.contentH = 0
+    SWP.flowOk = TRUE
+END SUB
+
+
+SUB SWP_clamp_scroll ()
+    DIM mx AS LONG
+    mx = SWP.contentH - SWP.gridH
+    IF mx < 0 THEN mx = 0
+    IF SWP.scrollY > mx THEN SWP.scrollY = mx
+    IF SWP.scrollY < 0 THEN SWP.scrollY = 0
+END SUB
+
+
+FUNCTION SWP_max_scroll& ()
+    SWP_max_scroll& = _MAX(0, SWP.contentH - SWP.gridH)
+END FUNCTION
+
+
+''
+' Entry i's cell (native px, panel space, scrolled). FALSE for a row break.
+FUNCTION SWP_cell_rect% (i AS LONG, x AS INTEGER, y AS INTEGER)
+    IF i < 1 _ORELSE i > SWS_N THEN EXIT FUNCTION
+    IF SWP_EC(i) < 0 THEN EXIT FUNCTION
+    x = SWP.gridX + SWP_EC(i) * (SWP.cellW + SWP.gap)
+    y = SWP.gridY + SWP_ER(i) * (SWP.cellH + SWP.gap) - SWP.scrollY
+    SWP_cell_rect% = TRUE
+END FUNCTION
+
+
+''
+' The entry whose cell is at native (nx, ny) - 0 = none (a gap, an empty
+' place, outside the grid).
+FUNCTION SWP_entry_at& (nx AS INTEGER, ny AS INTEGER)
+    DIM px AS INTEGER, py AS LONG, c AS INTEGER, r AS LONG, i AS LONG
+    IF nx < SWP.gridX _ORELSE nx >= SWP.gridX + SWP.gridW THEN EXIT FUNCTION
+    IF ny < SWP.gridY _ORELSE ny >= SWP.gridY + SWP.gridH THEN EXIT FUNCTION
+    px = nx - SWP.gridX: py = ny - SWP.gridY + SWP.scrollY
+    c = px \ (SWP.cellW + SWP.gap): r = py \ (SWP.cellH + SWP.gap)
+    IF px MOD (SWP.cellW + SWP.gap) >= SWP.cellW THEN EXIT FUNCTION
+    IF py MOD (SWP.cellH + SWP.gap) >= SWP.cellH THEN EXIT FUNCTION
+    IF c >= SWP.cols THEN EXIT FUNCTION
+    FOR i = 1 TO SWS_N
+        IF SWP_ER(i) = r _ANDALSO SWP_EC(i) = c THEN SWP_entry_at& = i: EXIT FUNCTION
+        IF SWP_ER(i) > r THEN EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' The first color entry that is c (RGB), 0 = none.
+FUNCTION SWP_find_color& (c AS _UNSIGNED LONG)
+    DIM i AS LONG, k AS _UNSIGNED LONG
+    k = c AND &HFFFFFF~&
+    FOR i = 1 TO SWS_N
+        IF SWS(i).kind = SWS_KIND_COLOR THEN
+            IF (SWS(i).c AND &HFFFFFF~&) = k THEN SWP_find_color& = i: EXIT FUNCTION
+        END IF
+    NEXT i
+END FUNCTION
+
+
+' ===========================================================================
+' Picking
+' ===========================================================================
+
+''
+' Entry i becomes the FG color (toBG = the BG), as a palette chip would.
+SUB SWP_pick (i AS LONG, toBG AS INTEGER)
+    DIM c AS _UNSIGNED LONG, pIdx AS INTEGER
+    IF i < 1 _ORELSE i > SWS_N THEN EXIT SUB
+    IF SWS(i).kind <> SWS_KIND_COLOR THEN EXIT SUB
+    c = _RGB32(_RED32(SWS(i).c), _GREEN32(SWS(i).c), _BLUE32(SWS(i).c))
+    pIdx = PAL_find_index%(c)
+    IF pIdx < 0 THEN pIdx = PAL_find_closest%(c)
+    IF toBG THEN
+        PAL_BG_IS_TRANSPARENT% = FALSE
+        PAINT_BG_COLOR~& = c
+        PAL_BG_IDX% = pIdx
+    ELSE
+        PAL_FG_IS_TRANSPARENT% = FALSE
+        PAINT_COLOR~& = c
+        DRAW_COLOR~& = c
+        PAL_FG_IDX% = pIdx
+        POINTER.C~& = c
+    END IF
+    STATUS_NEEDS_REDRAW% = TRUE: GUI_NEEDS_REDRAW% = TRUE
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+' ===========================================================================
+' Render
+' ===========================================================================
+
+SUB SWP_render ()
+    IF SWP.visible = 0 _ORELSE SWP.autoHidden THEN EXIT SUB
+    SWP_ensure_initialized
+    IF SWP.positioned = 0 THEN SWP_auto_position
+    SWP_clamp_to_work_area
+    ' the document palette changed (the strip switched, a document loaded)
+    IF SWP.setKey = "" THEN
+        IF SWP_pal_sig$ <> SWP.palSig THEN SWP_load_set ""
+    END IF
+    IF SWP.flowOk = 0 THEN SWP_layout
+    REGION_set_bounds REGION_SWATCHES, SWP.dispX, SWP.dispY, SWP.dispW, SWP.dispH, _IIF(SWP.docked <> 0, ZORDER_DOCKED_WINDOW, ZORDER_FLOATING)
+
+    DIM rs AS SINGLE, nx AS INTEGER, ny AS INTEGER, over AS INTEGER
+    rs = SWP.renderScale: IF rs <= 0 THEN rs = 1
+    nx = INT((MOUSE.RAW_X% - SWP.dispX) / rs): ny = INT((MOUSE.RAW_Y% - SWP.dispY) / rs)
+    over = SWP_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) _ANDALSO SWP.menu = SWP_MENU_NONE _ANDALSO SWP.dragging = 0 _ANDALSO SWP.resizing = 0
+    SWP.hoverIdx = 0: SWP.closeHover = FALSE: SWP.hoverBar = 0
+    IF over THEN
+        SWP.closeHover = FPANEL_over_close%(nx, ny, SWP.panelW)
+        SWP.hoverIdx = SWP_entry_at&(nx, ny)
+        SWP.hoverBar = SWP_bar_at%(nx, ny)
+    END IF
+
+    DIM oldDest AS LONG, oldFont AS LONG
+    oldDest = _DEST
+    _DEST SWP.panelImg
+    oldFont = FPANEL_begin&
+    CLS , THEME.CP_bg~&
+    FPANEL_title_bar SWP.panelW, "SWATCHES", SWP.closeHover
+
+    ' bar: the set's name (opens the list) and the gear
+    DIM gx AS INTEGER, gy AS INTEGER, lbl AS STRING, lw AS INTEGER, fg AS _UNSIGNED LONG
+    SWP_gear_xy gx, gy
+    IF SWP.hoverBar = 1 _ORELSE SWP.menu = SWP_MENU_SETS THEN
+        LINE (2, SWP.barY)-(gx - 4, SWP.barY + SWP.barH - 1), THEME.CP_button_sec_hover~&, BF
+        fg = THEME.CP_text_bright~&
+    ELSE
+        LINE (2, SWP.barY)-(gx - 4, SWP.barY + SWP.barH - 1), THEME.CP_button_secondary~&, BF
+        fg = THEME.CP_button_sec_text~&
+    END IF
+    lbl = UCASE$(SWP.setLabel)
+    lw = gx - 4 - 2 - 14
+    DO WHILE LEN(lbl) > 1 _ANDALSO _UPRINTWIDTH(lbl) > lw
+        lbl = LEFT$(lbl, LEN(lbl) - 1)
+    LOOP
+    FPANEL_text 5, SWP.barY + 2, lbl, fg
+    SWP_draw_arrow gx - 10, SWP.barY + SWP.barH \ 2 - 1, fg
+    IF SWP.hoverBar = 2 _ORELSE SWP.menu = SWP_MENU_GEAR THEN fg = THEME.CP_text_bright~& ELSE fg = THEME.CP_text_dim~&
+    ADVCP_draw_gear gx, gy, fg
+
+    ' grid
+    LINE (SWP.gridX - 1, SWP.gridY - 1)-(SWP.gridX + SWP.gridW, SWP.gridY + SWP.gridH), THEME.CP_slider_bg~&, BF
+    DIM i AS LONG, x AS INTEGER, y AS INTEGER, y0 AS INTEGER, y1 AS INTEGER, gTop AS INTEGER, gBot AS INTEGER
+    DIM fgIdx AS LONG, bgIdx AS LONG
+    gTop = SWP.gridY: gBot = SWP.gridY + SWP.gridH - 1
+    IF PAL_FG_IS_TRANSPARENT% = 0 THEN fgIdx = SWP_find_color&(PAINT_COLOR~&)
+    IF PAL_BG_IS_TRANSPARENT% = 0 THEN bgIdx = SWP_find_color&(PAINT_BG_COLOR~&)
+    FOR i = 1 TO SWS_N
+        IF SWP_cell_rect%(i, x, y) THEN
+            IF y > gBot THEN EXIT FOR
+            IF y + SWP.cellH - 1 >= gTop THEN
+                y0 = _MAX(y, gTop): y1 = _MIN(y + SWP.cellH - 1, gBot)
+                IF SWS(i).kind = SWS_KIND_COLOR THEN
+                    LINE (x, y0)-(x + SWP.cellW - 1, y1), SWS(i).c OR &HFF000000~&, BF
+                    IF CFG.SWATCHES_BORDER% _ANDALSO SWP.cellW >= 4 _ANDALSO SWP.cellH >= 4 THEN SWP_clip_box x, y, SWP.cellW, SWP.cellH, gTop, gBot, THEME.CP_slider_border~&
+                    IF SWS(i).flags AND SWS_FLAG_LOCK THEN
+                        IF SWP.cellW >= 5 _ANDALSO y >= gTop _ANDALSO y + 2 <= gBot THEN LINE (x + SWP.cellW - 3, y + 1)-(x + SWP.cellW - 2, y + 2), SWP_contrast~&(SWS(i).c), BF
+                    END IF
+                ELSEIF i = SWP.hoverIdx THEN
+                    SWP_clip_box x, y, SWP.cellW, SWP.cellH, gTop, gBot, THEME.CP_text_dim~&
+                END IF
+            END IF
+        END IF
+    NEXT i
+    ' FG / BG frames: FG a solid double frame, BG a dotted one
+    IF bgIdx > 0 _ANDALSO bgIdx <> fgIdx THEN
+        IF SWP_cell_rect%(bgIdx, x, y) THEN SWP_clip_box x - 1, y - 1, SWP.cellW + 2, SWP.cellH + 2, gTop, gBot, THEME.CP_text~&
+    END IF
+    IF fgIdx > 0 THEN
+        IF SWP_cell_rect%(fgIdx, x, y) THEN
+            SWP_clip_box x - 1, y - 1, SWP.cellW + 2, SWP.cellH + 2, gTop, gBot, THEME.CP_text_bright~&
+            IF SWP.cellW >= 5 THEN SWP_clip_box x, y, SWP.cellW, SWP.cellH, gTop, gBot, _RGB32(0, 0, 0)
+        END IF
+    END IF
+    IF SWP.hoverIdx > 0 _ANDALSO SWP.hoverIdx <> fgIdx THEN
+        IF SWS(SWP.hoverIdx).kind = SWS_KIND_COLOR THEN
+            IF SWP_cell_rect%(SWP.hoverIdx, x, y) THEN SWP_clip_box x - 1, y - 1, SWP.cellW + 2, SWP.cellH + 2, gTop, gBot, THEME.CP_text~&
+        END IF
+    END IF
+
+    ' scroll bar
+    IF SWP.sbar THEN
+        DIM sx AS INTEGER, ty AS INTEGER, th AS INTEGER
+        sx = SWP.gridX + SWP.gridW + 1
+        LINE (sx, SWP.gridY)-(sx + SWP_SBAR_W - 1, gBot), THEME.CP_slider_border~&, BF
+        SWP_thumb ty, th
+        LINE (sx, ty)-(sx + SWP_SBAR_W - 1, ty + th - 1), THEME.CP_text_dim~&, BF
+    END IF
+
+    ' status: what the pointer is on, else the set's size
+    DIM st AS STRING
+    IF SWP.hoverIdx > 0 THEN
+        IF SWS(SWP.hoverIdx).kind = SWS_KIND_COLOR THEN
+            st = "#" + RIGHT$("000000" + HEX$(SWS(SWP.hoverIdx).c AND &HFFFFFF~&), 6)
+            IF LEN(SWS(SWP.hoverIdx).nm) THEN st = st + " " + SWP_ascii$(SWS(SWP.hoverIdx).nm)
+        END IF
+    ELSE
+        st = _TRIM$(STR$(SWS_color_count&)) + " COLORS"
+        IF CFG.SWATCHES_COLS% = 0 THEN st = st + " - " + _TRIM$(STR$(SWP.cols)) + " COLUMNS"
+    END IF
+    DO WHILE LEN(st) > 1 _ANDALSO _UPRINTWIDTH(st) > SWP.panelW - 6 - SWP_GRIP
+        st = LEFT$(st, LEN(st) - 1)
+    LOOP
+    FPANEL_text 4, SWP.statY + 2, st, THEME.CP_text_dim~&
+
+    ' floating: the resize grip
+    IF SWP.docked = 0 THEN
+        DIM k AS INTEGER
+        FOR k = 2 TO SWP_GRIP - 1 STEP 2
+            LINE (SWP.panelW - 2 - k, SWP.panelH - 2)-(SWP.panelW - 2, SWP.panelH - 2 - k), THEME.CP_text_dim~&
+        NEXT k
+    END IF
+
+    FPANEL_frame SWP.panelW, SWP.panelH
+    _FONT oldFont
+    _DEST oldDest
+    SWP_blit SWP.panelImg, SWP.dispX, SWP.dispY, SWP.panelW, SWP.panelH
+    ' (its menu is drawn by SCREEN_render_windows after every window and the
+    ' dock seams: docked, a seam line cut through it)
+END SUB
+
+
+SUB SWP_blit (img AS LONG, vx AS INTEGER, vy AS INTEGER, nw AS INTEGER, nh AS INTEGER)
+    DIM ts AS INTEGER, ds AS INTEGER, sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG, od AS LONG
+    IF img >= -1 THEN EXIT SUB
+    ts = FPANEL_scale%(DP_SWATCH): IF ts < 1 THEN ts = 1
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    sx = CLNG(vx) * ds: sy = CLNG(vy) * ds
+    sw = CLNG(nw) * ts: sh = CLNG(nh) * ts
+    od = _DEST
+    _DEST 0
+    _PUTIMAGE (sx, sy)-(sx + sw - 1, sy + sh - 1), img, 0
+    _DEST od
+END SUB
+
+
+''
+' A 1px box, the parts of it inside rows gTop..gBot.
+SUB SWP_clip_box (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, gTop AS INTEGER, gBot AS INTEGER, c AS _UNSIGNED LONG)
+    DIM y0 AS INTEGER, y1 AS INTEGER
+    y0 = _MAX(y, gTop): y1 = _MIN(y + h - 1, gBot)
+    IF y1 < y0 THEN EXIT SUB
+    LINE (x, y0)-(x, y1), c
+    LINE (x + w - 1, y0)-(x + w - 1, y1), c
+    IF y >= gTop _ANDALSO y <= gBot THEN LINE (x, y)-(x + w - 1, y), c
+    IF y + h - 1 >= gTop _ANDALSO y + h - 1 <= gBot THEN LINE (x, y + h - 1)-(x + w - 1, y + h - 1), c
+END SUB
+
+
+FUNCTION SWP_contrast~& (c AS _UNSIGNED LONG)
+    IF 0.299 * _RED32(c) + 0.587 * _GREEN32(c) + 0.114 * _BLUE32(c) > 140 THEN SWP_contrast~& = _RGB32(0, 0, 0) ELSE SWP_contrast~& = _RGB32(255, 255, 255)
+END FUNCTION
+
+
+SUB SWP_draw_arrow (x AS INTEGER, y AS INTEGER, c AS _UNSIGNED LONG)
+    LINE (x, y)-(x + 4, y), c
+    LINE (x + 1, y + 1)-(x + 3, y + 1), c
+    PSET (x + 2, y + 2), c
+END SUB
+
+
+''
+' The gear (11 x 11, native px) at the bar's right end.
+SUB SWP_gear_xy (x AS INTEGER, y AS INTEGER)
+    x = SWP.panelW - 11 - 4
+    y = SWP.barY + (SWP.barH - 11) \ 2
+END SUB
+
+
+''
+' 1 = the set name, 2 = the gear, 0 = neither (native px).
+FUNCTION SWP_bar_at% (nx AS INTEGER, ny AS INTEGER)
+    DIM gx AS INTEGER, gy AS INTEGER
+    IF ny < SWP.barY _ORELSE ny >= SWP.barY + SWP.barH THEN EXIT FUNCTION
+    SWP_gear_xy gx, gy
+    IF nx >= gx - 2 _ANDALSO nx < gx + 13 THEN SWP_bar_at% = 2: EXIT FUNCTION
+    IF nx >= 2 _ANDALSO nx <= gx - 4 THEN SWP_bar_at% = 1
+END FUNCTION
+
+
+''
+' The scroll thumb's top and height (native px).
+SUB SWP_thumb (ty AS INTEGER, th AS INTEGER)
+    DIM mx AS LONG
+    th = SWP.gridH
+    IF SWP.contentH > 0 THEN th = _MAX(6, CLNG(SWP.gridH) * SWP.gridH \ SWP.contentH)
+    IF th > SWP.gridH THEN th = SWP.gridH
+    mx = SWP_max_scroll&
+    ty = SWP.gridY
+    IF mx > 0 THEN ty = SWP.gridY + CLNG(SWP.gridH - th) * SWP.scrollY \ mx
+END SUB
+
+
+' ===========================================================================
+' Menus (set list, gear) - own image over the panel, like the ACP's
+' ===========================================================================
+
+SUB SWP_menu_clear ()
+    SWP.menuRows = 0
+END SUB
+
+SUB SWP_menu_add (kind AS INTEGER, label AS STRING, id AS INTEGER, chk AS INTEGER, chips AS STRING)
+    IF SWP.menuRows >= SWP_MENU_MAX THEN EXIT SUB
+    SWP.menuRows = SWP.menuRows + 1
+    SWP_MI(SWP.menuRows).kind = kind
+    SWP_MI(SWP.menuRows).label = SWP_ascii$(label)
+    SWP_MI(SWP.menuRows).id = id
+    SWP_MI(SWP.menuRows).chk = chk
+    SWP_MI(SWP.menuRows).chips = chips
+END SUB
+
+
+''
+' The chip choices of the gear's chip rows, and which one is in use.
+FUNCTION SWP_chip_values$ (id AS INTEGER)
+    SELECT CASE id
+        CASE 10: SWP_chip_values$ = "0|-1|8|12|16|24|32"
+        CASE 11: SWP_chip_values$ = "6|8|10|12|16|20|24"
+        CASE 12: SWP_chip_values$ = "0|1|2|3"
+    END SELECT
+END FUNCTION
+
+FUNCTION SWP_chip_now% (id AS INTEGER)
+    DIM v AS INTEGER, k AS INTEGER, vals AS STRING
+    SELECT CASE id
+        CASE 10: v = CFG.SWATCHES_COLS%
+        CASE 11: v = CFG.SWATCHES_CELL%
+        CASE 12: v = CFG.SWATCHES_GAP%
+    END SELECT
+    vals = SWP_chip_values$(id)
+    FOR k = 1 TO SWP_field_count%(vals)
+        IF VAL(SWP_field$(vals, k)) = v THEN SWP_chip_now% = k: EXIT FUNCTION
+    NEXT k
+END FUNCTION
+
+
+FUNCTION SWP_field_count% (s AS STRING)
+    DIM n AS INTEGER, p AS INTEGER
+    IF LEN(s) = 0 THEN EXIT FUNCTION
+    n = 1: p = INSTR(s, "|")
+    DO WHILE p
+        n = n + 1: p = INSTR(p + 1, s, "|")
+    LOOP
+    SWP_field_count% = n
+END FUNCTION
+
+FUNCTION SWP_field$ (s AS STRING, k AS INTEGER)
+    DIM i AS INTEGER, p AS INTEGER, q AS INTEGER
+    p = 1
+    FOR i = 2 TO k
+        p = INSTR(p, s, "|") + 1
+        IF p = 1 THEN EXIT FUNCTION
+    NEXT i
+    q = INSTR(p, s, "|"): IF q = 0 THEN q = LEN(s) + 1
+    SWP_field$ = MID$(s, p, q - p)
+END FUNCTION
+
+
+SUB SWP_build_gear ()
+    SWP_menu_clear
+    SWP_menu_add SWP_MI_HEAD, "LAYOUT", 0, 0, ""
+    SWP_menu_add SWP_MI_CHIPS, "COLUMNS", 10, SWP_chip_now%(10), "SET|FIT|8|12|16|24|32"
+    SWP_menu_add SWP_MI_CHIPS, "CELL", 11, SWP_chip_now%(11), "6|8|10|12|16|20|24"
+    SWP_menu_add SWP_MI_CHIPS, "GAP", 12, SWP_chip_now%(12), "0|1|2|3"
+    SWP_menu_add SWP_MI_CHECK, "STRETCH TO WIDTH", 13, CFG.SWATCHES_STRETCH%, ""
+    SWP_menu_add SWP_MI_CHECK, "SQUARE CELLS", 14, CFG.SWATCHES_SQUARE%, ""
+    SWP_menu_add SWP_MI_CHECK, "CELL BORDERS", 15, CFG.SWATCHES_BORDER%, ""
+    SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
+    SWP_menu_add SWP_MI_HEAD, "IMPORT", 0, 0, ""
+    SWP_menu_add SWP_MI_CHECK, "BLACK FILLER = EMPTY CELLS", 16, CFG.SWATCHES_BLACK_SPACERS%, ""
+    SWP_menu_add SWP_MI_ITEM, "LOAD SWATCHES...", 20, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "OPEN MY SWATCHES FOLDER", 21, 0, ""
+END SUB
+
+
+SUB SWP_build_sets ()
+    DIM i AS INTEGER, grp AS STRING
+    SWP_scan_sets
+    SWP_menu_clear
+    SWP_menu_add SWP_MI_ITEM, SWP_SET_LABEL(0), 100, (SWP.setKey = ""), ""
+    FOR i = 1 TO SWP_SET_N
+        IF SWP.menuRows >= SWP_MENU_MAX - 1 THEN EXIT FOR
+        IF SWP_SET_GROUP(i) <> grp THEN
+            grp = SWP_SET_GROUP(i)
+            SWP_menu_add SWP_MI_HEAD, grp, 0, 0, ""
+        END IF
+        SWP_menu_add SWP_MI_ITEM, UCASE$(SWP_SET_LABEL(i)), 100 + i, (SWP_SET_PATH(i) = SWP.setKey), ""
+    NEXT i
+END SUB
+
+
+''
+' Open menu kind under the bar: its left edge at native x ax, or (ax < 0) its
+' right edge at native x -ax.
+SUB SWP_menu_open (kind AS INTEGER, ax AS INTEGER)
+    DIM i AS INTEGER, w AS INTEGER, lw AS INTEGER, rs AS SINGLE, vis AS INTEGER, k AS INTEGER, cur AS INTEGER
+    IF kind = SWP_MENU_SETS THEN SWP_build_sets ELSE SWP_build_gear
+    IF SWP.menuRows = 0 THEN EXIT SUB
+    SWP.menu = kind
+    SWP.menuRowH = FPANEL.fontH% + 4
+    ' width: the widest label (chip rows: label column + chips)
+    lw = SWP_chip_label_w%
+    w = 80
+    FOR i = 1 TO SWP.menuRows
+        SELECT CASE SWP_MI(i).kind
+            CASE SWP_MI_CHIPS
+                k = SWP_field_count%(SWP_MI(i).chips)
+                w = _MAX(w, SWP_chip_x%(i, k) + FPANEL_text_w%(SWP_field$(SWP_MI(i).chips, k)) + 6 + 4)
+            CASE ELSE
+                w = _MAX(w, FPANEL_text_w%(SWP_MI(i).label) + 18 + 6)
+        END SELECT
+    NEXT i
+    SWP.menuW = w
+    vis = _MIN(SWP.menuRows, SWP_MENU_VIS)
+    rs = SWP.renderScale: IF rs <= 0 THEN rs = 1
+    IF ax < 0 THEN SWP.menuX = SWP.dispX + INT((-ax - w) * rs) ELSE SWP.menuX = SWP.dispX + INT(ax * rs)
+    SWP.menuY = SWP.dispY + INT((SWP.barY + SWP.barH) * rs)
+    IF SWP.menuX + INT(w * rs) > SCRN.w& THEN SWP.menuX = SCRN.w& - INT(w * rs)
+    IF SWP.menuY + INT(vis * SWP.menuRowH * rs) > SCRN.h& THEN SWP.menuY = SCRN.h& - INT(vis * SWP.menuRowH * rs)
+    IF SWP.menuX < 0 THEN SWP.menuX = 0
+    IF SWP.menuY < 0 THEN SWP.menuY = 0
+    ' the set list opens scrolled to the set in use
+    SWP.menuTop = 1
+    IF kind = SWP_MENU_SETS THEN
+        FOR i = 1 TO SWP.menuRows
+            IF SWP_MI(i).chk _ANDALSO SWP_MI(i).kind = SWP_MI_ITEM THEN cur = i
+        NEXT i
+        IF cur > vis THEN SWP.menuTop = _MIN(cur - vis \ 2, SWP.menuRows - vis + 1)
+    END IF
+    IF SWP.menuImg < -1 THEN _FREEIMAGE SWP.menuImg
+    SWP.menuImg = _NEWIMAGE(SWP.menuW, vis * SWP.menuRowH, 32)
+    SWP.menuHover = 0: SWP.menuChip = 0
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+SUB SWP_menu_close ()
+    IF SWP.menu = SWP_MENU_NONE THEN EXIT SUB
+    SWP.menu = SWP_MENU_NONE
+    IF SWP.menuImg < -1 THEN _FREEIMAGE SWP.menuImg
+    SWP.menuImg = 0
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+FUNCTION SWP_chip_label_w% ()
+    DIM i AS INTEGER, w AS INTEGER
+    FOR i = 1 TO SWP.menuRows
+        IF SWP_MI(i).kind = SWP_MI_CHIPS THEN w = _MAX(w, FPANEL_text_w%(SWP_MI(i).label))
+    NEXT i
+    SWP_chip_label_w% = w
+END FUNCTION
+
+
+''
+' Native x of chip k in chips row r (menu space).
+FUNCTION SWP_chip_x% (r AS INTEGER, k AS INTEGER)
+    DIM x AS INTEGER, j AS INTEGER
+    x = 6 + SWP_chip_label_w% + 6
+    FOR j = 1 TO k - 1
+        x = x + FPANEL_text_w%(SWP_field$(SWP_MI(r).chips, j)) + 6 + 2
+    NEXT j
+    SWP_chip_x% = x
+END FUNCTION
+
+
+''
+' The menu row under viewport (rx, ry) - 0 = none; chip = the chip in it.
+FUNCTION SWP_menu_row_at% (rx AS INTEGER, ry AS INTEGER, chip AS INTEGER)
+    DIM rs AS SINGLE, nx AS INTEGER, ny AS INTEGER, r AS INTEGER, vis AS INTEGER, k AS INTEGER, cx AS INTEGER
+    chip = 0
+    IF SWP.menu = SWP_MENU_NONE THEN EXIT FUNCTION
+    rs = SWP.renderScale: IF rs <= 0 THEN rs = 1
+    nx = INT((rx - SWP.menuX) / rs): ny = INT((ry - SWP.menuY) / rs)
+    vis = _MIN(SWP.menuRows, SWP_MENU_VIS)
+    IF nx < 0 _ORELSE nx >= SWP.menuW _ORELSE ny < 0 _ORELSE ny >= vis * SWP.menuRowH THEN EXIT FUNCTION
+    r = SWP.menuTop + ny \ SWP.menuRowH
+    IF r < 1 _ORELSE r > SWP.menuRows THEN EXIT FUNCTION
+    IF SWP_MI(r).kind = SWP_MI_CHIPS THEN
+        FOR k = 1 TO SWP_field_count%(SWP_MI(r).chips)
+            cx = SWP_chip_x%(r, k)
+            IF nx >= cx _ANDALSO nx < cx + FPANEL_text_w%(SWP_field$(SWP_MI(r).chips, k)) + 6 THEN chip = k
+        NEXT k
+    END IF
+    SWP_menu_row_at% = r
+END FUNCTION
+
+
+SUB SWP_render_menu ()
+    DIM od AS LONG, ofn AS LONG, i AS INTEGER, r AS INTEGER, y AS INTEGER, vis AS INTEGER, k AS INTEGER
+    DIM fg AS _UNSIGNED LONG, cx AS INTEGER, cw AS INTEGER, t AS STRING, rh AS INTEGER
+    IF SWP.menu = SWP_MENU_NONE _ORELSE SWP.menuImg >= -1 THEN EXIT SUB
+    vis = _MIN(SWP.menuRows, SWP_MENU_VIS)
+    rh = SWP.menuRowH
+    od = _DEST
+    _DEST SWP.menuImg
+    ofn = FPANEL_begin&
+    CLS , THEME.CP_bg~&
+    FOR i = 0 TO vis - 1
+        r = SWP.menuTop + i
+        IF r > SWP.menuRows THEN EXIT FOR
+        y = i * rh
+        SELECT CASE SWP_MI(r).kind
+            CASE SWP_MI_HEAD
+                FPANEL_text 4, y + 2, SWP_MI(r).label, THEME.CP_text_dim~&
+            CASE SWP_MI_SEP
+                LINE (4, y + rh \ 2)-(SWP.menuW - 5, y + rh \ 2), THEME.CP_slider_border~&
+            CASE SWP_MI_CHIPS
+                FPANEL_text 6, y + 2, SWP_MI(r).label, THEME.CP_text~&
+                FOR k = 1 TO SWP_field_count%(SWP_MI(r).chips)
+                    t = SWP_field$(SWP_MI(r).chips, k)
+                    cx = SWP_chip_x%(r, k): cw = FPANEL_text_w%(t) + 6
+                    FPANEL_chip cx, y + 1, cw, rh - 2, t, (SWP_MI(r).chk = k), (r = SWP.menuHover _ANDALSO k = SWP.menuChip)
+                NEXT k
+            CASE ELSE
+                IF r = SWP.menuHover THEN LINE (1, y)-(SWP.menuW - 2, y + rh - 1), THEME.CP_title_bg~&, BF
+                IF r = SWP.menuHover THEN fg = THEME.CP_title_fg~& ELSE fg = THEME.CP_text~&
+                IF SWP_MI(r).kind = SWP_MI_CHECK THEN
+                    FPANEL_checkbox 6, y + 2, SWP_MI(r).chk, SWP_MI(r).label, TRUE, (r = SWP.menuHover)
+                ELSE
+                    IF SWP_MI(r).chk THEN FPANEL_text 4, y + 2, ">", fg
+                    FPANEL_text 14, y + 2, SWP_MI(r).label, fg
+                END IF
+        END SELECT
+    NEXT i
+    ' more above / below
+    IF SWP.menuTop > 1 THEN SWP_draw_arrow_up SWP.menuW - 9, 2, THEME.CP_text~&
+    IF SWP.menuTop + vis - 1 < SWP.menuRows THEN SWP_draw_arrow SWP.menuW - 9, vis * rh - 5, THEME.CP_text~&
+    LINE (0, 0)-(SWP.menuW - 1, vis * rh - 1), THEME.CP_border~&, B
+    _FONT ofn
+    _DEST od
+    SWP_blit SWP.menuImg, SWP.menuX, SWP.menuY, SWP.menuW, vis * rh
+END SUB
+
+
+SUB SWP_draw_arrow_up (x AS INTEGER, y AS INTEGER, c AS _UNSIGNED LONG)
+    PSET (x + 2, y), c
+    LINE (x + 1, y + 1)-(x + 3, y + 1), c
+    LINE (x, y + 2)-(x + 4, y + 2), c
+END SUB
+
+
+''
+' Do menu row r (chip k in a chips row). TRUE = keep the menu open.
+FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
+    DIM id AS INTEGER
+    IF r < 1 _ORELSE r > SWP.menuRows THEN EXIT FUNCTION
+    id = SWP_MI(r).id
+    SELECT CASE SWP_MI(r).kind
+        CASE SWP_MI_HEAD, SWP_MI_SEP: SWP_menu_act% = TRUE: EXIT FUNCTION
+        CASE SWP_MI_CHIPS
+            SWP_menu_act% = TRUE
+            IF k < 1 THEN EXIT FUNCTION
+            SELECT CASE id
+                CASE 10: CFG.SWATCHES_COLS% = VAL(SWP_field$(SWP_chip_values$(10), k))
+                CASE 11: CFG.SWATCHES_CELL% = VAL(SWP_field$(SWP_chip_values$(11), k))
+                CASE 12: CFG.SWATCHES_GAP% = VAL(SWP_field$(SWP_chip_values$(12), k))
+            END SELECT
+            SWP_MI(r).chk = k
+            SWP_option_changed
+            EXIT FUNCTION
+        CASE SWP_MI_CHECK
+            SWP_menu_act% = TRUE
+            SELECT CASE id
+                CASE 13: CFG.SWATCHES_STRETCH% = _NEGATE CFG.SWATCHES_STRETCH%
+                CASE 14: CFG.SWATCHES_SQUARE% = _NEGATE CFG.SWATCHES_SQUARE%
+                CASE 15: CFG.SWATCHES_BORDER% = _NEGATE CFG.SWATCHES_BORDER%
+                CASE 16: CFG.SWATCHES_BLACK_SPACERS% = _NEGATE CFG.SWATCHES_BLACK_SPACERS%
+            END SELECT
+            SELECT CASE id
+                CASE 13: SWP_MI(r).chk = CFG.SWATCHES_STRETCH%
+                CASE 14: SWP_MI(r).chk = CFG.SWATCHES_SQUARE%
+                CASE 15: SWP_MI(r).chk = CFG.SWATCHES_BORDER%
+                CASE 16: SWP_MI(r).chk = CFG.SWATCHES_BLACK_SPACERS%
+            END SELECT
+            SWP_option_changed
+            EXIT FUNCTION
+    END SELECT
+    ' items: the menu closes first (an action may open a dialog)
+    SWP_menu_close
+    SELECT CASE id
+        CASE 20: CMD_execute_action SWP_ACT_LOAD
+        CASE 21: CMD_execute_action SWP_ACT_FOLDER
+        CASE 100 TO 100 + SWP_SET_N
+            SWP_load_set SWP_SET_PATH(id - 100)
+            CONFIG_save
+    END SELECT
+END FUNCTION
+
+
+SUB SWP_option_changed ()
+    SWP.flowOk = FALSE
+    SWP_layout
+    CONFIG_save
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+' ===========================================================================
+' Input
+' ===========================================================================
+
+SUB SWP_mouse_input ()
+    IF SWP.visible = 0 _ORELSE SWP.autoHidden _ORELSE SWP.initialized = 0 THEN EXIT SUB
+    DIM rs AS SINGLE, nx AS INTEGER, ny AS INTEGER, lx AS INTEGER, ly AS INTEGER
+    DIM press1 AS INTEGER, press2 AS INTEGER, inside AS INTEGER, i AS LONG
+    rs = SWP.renderScale: IF rs <= 0 THEN rs = 1
+    lx = MOUSE.RAW_X% - SWP.dispX: ly = MOUSE.RAW_Y% - SWP.dispY
+    nx = INT(lx / rs): ny = INT(ly / rs)
+    press1 = (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0)
+    press2 = (MOUSE.B2% <> 0 _ANDALSO MOUSE.OLD_B2% = 0)
+    inside = (lx >= 0 _ANDALSO lx < SWP.dispW _ANDALSO ly >= 0 _ANDALSO ly < SWP.dispH)
+
+    ' a menu takes every click until it closes
+    IF SWP.menu <> SWP_MENU_NONE THEN
+        DIM oh AS INTEGER, oc AS INTEGER
+        oh = SWP.menuHover: oc = SWP.menuChip
+        SWP.menuHover = SWP_menu_row_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%, SWP.menuChip)
+        IF SWP.menuHover <> oh _ORELSE SWP.menuChip <> oc THEN SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+        IF press1 _ORELSE press2 THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            IF SWP.menuHover > 0 THEN
+                IF SWP_menu_act%(SWP.menuHover, SWP.menuChip) = 0 THEN EXIT SUB
+                SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+            ELSE
+                ' a press on the bar button that opened it closes it (no reopen)
+                SWP_menu_close
+            END IF
+        END IF
+        EXIT SUB
+    END IF
+
+    ' title-bar drag
+    IF SWP.dragging THEN
+        IF MOUSE.B1% THEN
+            DOCK_native_drag DP_SWATCH, MOUSE.RAW_X%, MOUSE.RAW_Y%
+            DIM px AS INTEGER, py AS INTEGER
+            px = SWP.dispX: py = SWP.dispY
+            SWP.dispX = SWP.dragStartDX + (MOUSE.RAW_X% - SWP.dragStartMX)
+            SWP.dispY = SWP.dragStartDY + (MOUSE.RAW_Y% - SWP.dragStartMY)
+            SWP_clamp_to_work_area
+            FPANEL_place REGION_SWATCHES, SWP.dispX, SWP.dispY, SWP.dispW, SWP.dispH, px, py
+            SWP_clamp_to_work_area
+        ELSE
+            IF DOCK_native_drag_end%(DP_SWATCH) THEN SWP.dragging = FALSE: EXIT SUB ' docked
+            SWP.dragging = FALSE
+            CONFIG_save
+        END IF
+        CFG.SWATCHES_X% = SWP.dispX: CFG.SWATCHES_Y% = SWP.dispY
+        SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    ' corner grip (floating): its own size, native px
+    IF SWP.resizing THEN
+        IF MOUSE.B1% THEN
+            DIM nw AS INTEGER, nh AS INTEGER
+            nw = SWP.rsStartW + INT((MOUSE.RAW_X% - SWP.dragStartMX) / rs)
+            nh = SWP.rsStartH + INT((MOUSE.RAW_Y% - SWP.dragStartMY) / rs)
+            nw = _MAX(SWP_MIN_W, _MIN(nw, 2000)): nh = _MAX(SWP_MIN_H, _MIN(nh, 2000))
+            IF nw <> CFG.SWATCHES_W% _ORELSE nh <> CFG.SWATCHES_H% THEN
+                CFG.SWATCHES_W% = nw: CFG.SWATCHES_H% = nh
+                SWP_relayout
+                SWP_compute_display_size
+                SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+            END IF
+        ELSE
+            SWP.resizing = FALSE
+            SWP_clamp_to_work_area
+            CONFIG_save
+        END IF
+        EXIT SUB
+    END IF
+
+    ' scroll bar drag
+    IF SWP.sbDrag THEN
+        IF MOUSE.B1% THEN
+            DIM ty AS INTEGER, th AS INTEGER, mx AS LONG
+            SWP_thumb ty, th
+            mx = SWP_max_scroll&
+            IF SWP.gridH > th THEN SWP.scrollY = SWP.sbStartScroll + CLNG(ny - SWP.sbGrabY) * mx \ (SWP.gridH - th)
+            SWP_clamp_scroll
+        ELSE
+            SWP.sbDrag = FALSE
+        END IF
+        SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    IF inside = 0 THEN EXIT SUB
+    IF press1 _ORELSE press2 THEN MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF press1 = 0 _ANDALSO press2 = 0 THEN EXIT SUB
+
+    ' title bar: close, else drag
+    IF ny < FPANEL.titleH% THEN
+        IF press1 = 0 THEN EXIT SUB
+        IF FPANEL_over_close%(nx, ny, SWP.panelW) THEN SWP_toggle: CONFIG_save: EXIT SUB
+        SWP.dragging = LAYOUT_unlocked%
+        SWP.dragStartMX = MOUSE.RAW_X%: SWP.dragStartMY = MOUSE.RAW_Y%
+        SWP.dragStartDX = SWP.dispX: SWP.dragStartDY = SWP.dispY
+        EXIT SUB
+    END IF
+
+    ' grip
+    IF press1 _ANDALSO SWP.docked = 0 _ANDALSO nx >= SWP.panelW - SWP_GRIP - 2 _ANDALSO ny >= SWP.panelH - SWP_GRIP - 2 THEN
+        IF LAYOUT_unlocked% THEN
+            SWP.resizing = TRUE
+            SWP.dragStartMX = MOUSE.RAW_X%: SWP.dragStartMY = MOUSE.RAW_Y%
+            SWP.rsStartW = SWP.panelW: SWP.rsStartH = SWP.panelH
+        END IF
+        EXIT SUB
+    END IF
+
+    ' bar
+    SELECT CASE SWP_bar_at%(nx, ny)
+        CASE 1: SWP_menu_open SWP_MENU_SETS, 2: EXIT SUB
+        CASE 2
+            DIM gx AS INTEGER, gy AS INTEGER
+            SWP_gear_xy gx, gy
+            SWP_menu_open SWP_MENU_GEAR, -(gx + 11): EXIT SUB
+    END SELECT
+
+    ' scroll bar
+    IF SWP.sbar _ANDALSO press1 _ANDALSO nx > SWP.gridX + SWP.gridW _ANDALSO ny >= SWP.gridY _ANDALSO ny < SWP.gridY + SWP.gridH THEN
+        DIM sty AS INTEGER, sth AS INTEGER
+        SWP_thumb sty, sth
+        IF ny < sty THEN
+            SWP.scrollY = SWP.scrollY - SWP.gridH
+        ELSEIF ny >= sty + sth THEN
+            SWP.scrollY = SWP.scrollY + SWP.gridH
+        ELSE
+            SWP.sbDrag = TRUE: SWP.sbGrabY = ny: SWP.sbStartScroll = SWP.scrollY
+        END IF
+        SWP_clamp_scroll
+        SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    ' a swatch: left = FG, right = BG
+    i = SWP_entry_at&(nx, ny)
+    IF i > 0 THEN SWP_pick i, press2
+END SUB
+
+
+''
+' Mouse wheel over the panel (or its menu): scroll. TRUE = it took the wheel.
+FUNCTION SWP_wheel% (delta AS INTEGER)
+    IF delta = 0 _ORELSE SWP.visible = 0 _ORELSE SWP.autoHidden _ORELSE SWP.initialized = 0 THEN EXIT FUNCTION
+    IF SWP.menu <> SWP_MENU_NONE THEN
+        DIM vis AS INTEGER
+        SWP_wheel% = TRUE
+        vis = _MIN(SWP.menuRows, SWP_MENU_VIS)
+        SWP.menuTop = SWP.menuTop + delta * 3
+        IF SWP.menuTop > SWP.menuRows - vis + 1 THEN SWP.menuTop = SWP.menuRows - vis + 1
+        IF SWP.menuTop < 1 THEN SWP.menuTop = 1
+        SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+        EXIT FUNCTION
+    END IF
+    IF SWP_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = 0 THEN EXIT FUNCTION
+    SWP_wheel% = TRUE
+    SWP.scrollY = SWP.scrollY + CLNG(delta) * 2 * (SWP.cellH + SWP.gap)
+    SWP_clamp_scroll
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+
+' ===========================================================================
+' QA (DOCK_DUMP), viewport px:
+'   SWAT  <entries> <colors> <cols> <cellW> <cellH> <gap> <rows> <scrollY> <maxScroll> <fgIdx> <bgIdx> <menu> <menuRows> <setKey>
+'   SWATG <gridX> <gridY> <gridW> <gridH> <setButton x y w h> <gear x y w h>
+'   SWATC <i> <x> <y> <w> <h> <kind> <RRGGBB>   (the first 48 entries, and the last)
+'   SWATM <x> <y> <w> <h> <rowH> <top row>       (an open menu), then per row shown:
+'   SWATMI <row> <kind> <id> <checked> <x> <y> <w> <h> <label>
+'   SWATMC <id> <k> <x> <y> <w> <h> <label>     (each chip of a chips row)
+' ===========================================================================
+FUNCTION SWP_dump$ ()
+    DIM d AS STRING, lf AS STRING, rs AS SINGLE, i AS LONG, x AS INTEGER, y AS INTEGER, gx AS INTEGER, gy AS INTEGER
+    DIM fgIdx AS LONG, bgIdx AS LONG
+    IF SWP.initialized = 0 _ORELSE SWP.visible = 0 _ORELSE SWP.autoHidden THEN EXIT FUNCTION
+    IF DOCK_native_off%(DP_SWATCH) THEN EXIT FUNCTION
+    lf = CHR$(10)
+    rs = SWP.renderScale: IF rs <= 0 THEN rs = 1
+    IF PAL_FG_IS_TRANSPARENT% = 0 THEN fgIdx = SWP_find_color&(PAINT_COLOR~&)
+    IF PAL_BG_IS_TRANSPARENT% = 0 THEN bgIdx = SWP_find_color&(PAINT_BG_COLOR~&)
+    d = "SWAT" + DOCK_n$(SWS_N) + DOCK_n$(SWS_color_count&) + DOCK_n$(SWP.cols) + DOCK_n$(SWP.cellW) + DOCK_n$(SWP.cellH) + DOCK_n$(SWP.gap)
+    d = d + DOCK_n$(SWP.rows) + DOCK_n$(SWP.scrollY) + DOCK_n$(SWP_max_scroll&) + DOCK_n$(fgIdx) + DOCK_n$(bgIdx) + DOCK_n$(SWP.menu) + DOCK_n$(SWP.menuRows) + " " + SWP.setKey + lf
+    SWP_gear_xy gx, gy
+    d = d + "SWATG" + SWP_vrect$(SWP.gridX, SWP.gridY, SWP.gridW, SWP.gridH) + SWP_vrect$(2, SWP.barY, gx - 6, SWP.barH) + SWP_vrect$(gx, gy, 11, 11) + lf
+    FOR i = 1 TO SWS_N
+        IF i <= 48 _ORELSE i = SWS_N THEN
+            IF SWP_cell_rect%(i, x, y) THEN
+                d = d + "SWATC" + DOCK_n$(i) + SWP_vrect$(x, y, SWP.cellW, SWP.cellH) + DOCK_n$(SWS(i).kind) + " " + RIGHT$("000000" + HEX$(SWS(i).c AND &HFFFFFF~&), 6) + lf
+            END IF
+        END IF
+    NEXT i
+    IF SWP.menu <> SWP_MENU_NONE THEN
+        DIM r AS INTEGER, k AS INTEGER, ry AS INTEGER, cx AS INTEGER
+        d = d + "SWATM" + DOCK_n$(SWP.menuX) + DOCK_n$(SWP.menuY) + DOCK_n$(INT(SWP.menuW * rs)) + DOCK_n$(INT(_MIN(SWP.menuRows, SWP_MENU_VIS) * SWP.menuRowH * rs)) + DOCK_n$(INT(SWP.menuRowH * rs)) + DOCK_n$(SWP.menuTop) + lf
+        FOR r = SWP.menuTop TO _MIN(SWP.menuRows, SWP.menuTop + SWP_MENU_VIS - 1)
+            ry = (r - SWP.menuTop) * SWP.menuRowH
+            d = d + "SWATMI" + DOCK_n$(r) + DOCK_n$(SWP_MI(r).kind) + DOCK_n$(SWP_MI(r).id) + DOCK_n$(SWP_MI(r).chk <> 0)
+            d = d + DOCK_n$(SWP.menuX) + DOCK_n$(SWP.menuY + INT(ry * rs)) + DOCK_n$(INT(SWP.menuW * rs)) + DOCK_n$(INT(SWP.menuRowH * rs)) + " " + SWP_MI(r).label + lf
+            IF SWP_MI(r).kind = SWP_MI_CHIPS THEN
+                FOR k = 1 TO SWP_field_count%(SWP_MI(r).chips)
+                    cx = SWP_chip_x%(r, k)
+                    d = d + "SWATMC" + DOCK_n$(SWP_MI(r).id) + DOCK_n$(k) + DOCK_n$(SWP.menuX + INT(cx * rs)) + DOCK_n$(SWP.menuY + INT(ry * rs)) + DOCK_n$(INT((FPANEL_text_w%(SWP_field$(SWP_MI(r).chips, k)) + 6) * rs)) + DOCK_n$(INT(SWP.menuRowH * rs)) + " " + SWP_field$(SWP_MI(r).chips, k) + lf
+                NEXT k
+            END IF
+        NEXT r
+    END IF
+    SWP_dump$ = d
+END FUNCTION
+
+
+FUNCTION SWP_vrect$ (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    DIM rs AS SINGLE
+    rs = SWP.renderScale: IF rs <= 0 THEN rs = 1
+    SWP_vrect$ = DOCK_n$(SWP.dispX + INT(x * rs)) + DOCK_n$(SWP.dispY + INT(y * rs)) + DOCK_n$(INT(w * rs)) + DOCK_n$(INT(h * rs))
+END FUNCTION
+
+
+''
+' A name for the panel's pixel font, which has ASCII only: UTF-8 Latin
+' letters lose their accents (the SAM Coupe palette's e-acute showed as two
+' boxes), anything else becomes "?".
+FUNCTION SWP_ascii$ (t AS STRING)
+    DIM lat AS STRING, r AS STRING, i AS LONG, b AS INTEGER, b2 AS INTEGER, cp AS LONG
+    lat = "AAAAAAACEEEEIIIIDNOOOOOxOUUUUYTsaaaaaaaceeeeiiiidnooooo/ouuuuyty" ' U+00C0 .. U+00FF
+    i = 1
+    DO WHILE i <= LEN(t)
+        b = ASC(t, i)
+        IF b < 128 THEN
+            r = r + CHR$(b): i = i + 1
+        ELSEIF (b AND &HE0) = &HC0 _ANDALSO i < LEN(t) THEN
+            b2 = ASC(t, i + 1)
+            cp = (b AND &H1F) * 64 + (b2 AND &H3F)
+            IF cp >= 192 _ANDALSO cp <= 255 THEN r = r + MID$(lat, cp - 191, 1) ELSE r = r + "?"
+            i = i + 2
+        ELSEIF (b AND &HF0) = &HE0 THEN
+            r = r + "?": i = i + 3
+        ELSEIF (b AND &HF8) = &HF0 THEN
+            r = r + "?": i = i + 4
+        ELSE
+            r = r + "?": i = i + 1 ' a stray byte (Latin-1 text)
+        END IF
+    LOOP
+    SWP_ascii$ = r
+END FUNCTION

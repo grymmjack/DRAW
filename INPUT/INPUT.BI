@@ -119,7 +119,8 @@ CONST REGION_COLOR_SPACE_3D       = 29              ' 3D Color Space floating pa
 CONST REGION_PEN_PANEL            = 30              ' Pen Pressure floating panel
 CONST REGION_TOOLBAR_EDITOR       = 31              ' Customize Toolbars floating window
 CONST REGION_ANIM_PANEL           = 32              ' Animation floating panel (GUI/ANIM-PANEL)
-' --- 33-63 reserved ---
+CONST REGION_SWATCHES             = 33              ' Swatches floating panel (GUI/SWATCHES)
+' --- 34-63 reserved ---
 
 CONST REGION_TABLE_SIZE = 64                        ' max regions; bumps require type fitness check
 

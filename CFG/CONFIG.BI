@@ -503,6 +503,20 @@ TYPE DRAW_CONFIG
     ANIM_PANEL_SCALE                AS INTEGER        ' Animation panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     ANIM_PANEL_X                    AS INTEGER        ' Last Animation panel X (-1 = auto-position)
     ANIM_PANEL_Y                    AS INTEGER        ' Last Animation panel Y (-1 = auto-position)
+    SWATCHES_VISIBLE                AS INTEGER        ' TRUE = Swatches panel open at startup
+    SWATCHES_SCALE                  AS INTEGER        ' Swatches panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
+    SWATCHES_X                      AS INTEGER        ' Last Swatches panel X (-1 = auto-position)
+    SWATCHES_Y                      AS INTEGER        ' Last Swatches panel Y (-1 = auto-position)
+    SWATCHES_W                      AS INTEGER        ' Floating size, native px (0 = default)
+    SWATCHES_H                      AS INTEGER
+    SWATCHES_SET                    AS STRING         ' The set shown: a file path ("" = the document palette)
+    SWATCHES_COLS                   AS INTEGER        ' 0 = the set's own layout, -1 = as many as fit, N = N columns
+    SWATCHES_CELL                   AS INTEGER        ' Cell size, native px (3-64)
+    SWATCHES_GAP                    AS INTEGER        ' Gap between cells, native px (0-4)
+    SWATCHES_STRETCH                AS INTEGER        ' Cells stretch to fill the panel's width
+    SWATCHES_SQUARE                 AS INTEGER        ' Cells as tall as wide (else CELL tall)
+    SWATCHES_BORDER                 AS INTEGER        ' A 1px border round each cell
+    SWATCHES_BLACK_SPACERS          AS INTEGER        ' Importing a Photoshop .aco: black filler becomes empty cells (the first black stays)
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)

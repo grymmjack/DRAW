@@ -340,6 +340,7 @@ ADVCP_init                            ' Initialise advanced color picker panel (
 CS3D_init                             ' Initialise 3D color space panel (OKLab / CIELAB / XYZ / RGB gamut)
 PENP_init                             ' Initialise Pen Pressure panel (View > Pen Pressure)
 ANIMP_init                            ' Initialise Animation panel (View / ANIM > Animation Panel)
+SWP_init                              ' Initialise Swatches panel (View > Swatches)
 TBED_init                             ' Customize Toolbars window (View > Customize Toolbars)
 BROWSER_init                          ' Initialise floating browser panel scaffold
 SMART_SHAPES_init                     ' Register Smart Shapes flyout sub-tools

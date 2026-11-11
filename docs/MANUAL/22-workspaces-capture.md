@@ -101,7 +101,7 @@ Pressure and Browser windows.
 | **Click a collapsed title** | Opens it again (click one of its tabs to open on that tab) |
 | **Double-click a floating panel's title** | Docks it back where it was |
 | **Drag a floating panel's right or bottom edge, or its corner** | Resizes it; a bar adds icon columns as it gets wider |
-| **Right-click a handle** | Move to Left Edge / Move to Right Edge, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement, and Scale (Auto or 1×–4×) on the Animation, Color Mixer, color picker, 3D Color Space and Pen Pressure panels |
+| **Right-click a handle** | Move to Left Edge / Move to Right Edge, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement, and Scale (Auto or 1×–4×) on the Animation, Color Mixer, color picker, 3D Color Space, Pen Pressure and Swatches panels |
 
 **The Browser can also dock along the top or bottom** of the canvas area (the one
 exception to left/right docking): drag its title bar to the top or bottom of

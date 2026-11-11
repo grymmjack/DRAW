@@ -36,7 +36,8 @@ CONST DP_CS3D      = 11
 CONST DP_PEN       = 12
 CONST DP_BROWSER   = 13
 CONST DP_ANIM      = 14
-CONST DP_COUNT     = 14
+CONST DP_SWATCH    = 15
+CONST DP_COUNT     = 15
 
 ' how a panel's height is decided inside its column
 CONST DP_H_FIXED = 1 ' its own content height (toolbar rows, organizer)

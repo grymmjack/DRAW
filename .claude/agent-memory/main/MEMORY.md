@@ -95,3 +95,4 @@
 - [QB64-PE _MEM errors are critical](qb64pe-mem-errors-critical.md) — 300-315 skip ON ERROR; _MEMSOUND lock race on _SNDCLOSE; QB64PE_NOPROMPT=y
 - [Never run qb64pe bare](feedback-qb64pe-never-bare.md) — no -x/-z opens the IDE on Rick's desktop; read version.bas for the version
 - [Reply where the comment was](feedback-reply-where-comment-was.md) — check PR vs issue with gh before replying to pasted upstream feedback
+- [QA shares the real data dir](qa-data-dir-not-isolated.md) — [Linux] XDG_DATA_HOME is only isolated under QA_USER_PROFILE=1; scans must never create folders
