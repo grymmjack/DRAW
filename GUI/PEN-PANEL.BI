@@ -50,6 +50,10 @@ TYPE PEN_PANEL_OBJ
     panelImg   AS LONG           ' native panel image
     panelW     AS INTEGER        ' native panel width (shared floating-panel width)
     panelH     AS INTEGER        ' native panel height (font-derived, PENP_layout)
+    fitW AS INTEGER ' docked: native size its slot gives it (0 = natural) - FPANEL_fit
+    fitH AS INTEGER
+    natW AS INTEGER ' its natural (floating) native size, from its layout
+    natH AS INTEGER
     hoverCtl   AS INTEGER        ' PENP_CTL_* under the pointer (hover highlight)
     closeHover AS INTEGER        ' pointer is on the close box
 
@@ -57,6 +61,7 @@ TYPE PEN_PANEL_OBJ
     yStatus  AS INTEGER
     yMeter   AS INTEGER
     yGraph   AS INTEGER
+    graphH   AS INTEGER ' response graph height (PENP_GRAPH_H, taller docked with room)
     subX     AS INTEGER          ' x of a checkbox's label (sub-slider labels align here)
     trackX0  AS INTEGER
     trackX1  AS INTEGER

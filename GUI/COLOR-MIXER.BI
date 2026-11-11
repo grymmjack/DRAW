@@ -23,6 +23,10 @@ TYPE COLOR_MIXER_OBJ
     renderScale   AS SINGLE         ' Scale factor for display (<= 1.0)
     dispW         AS INTEGER        ' Displayed width on SCRN.CANVAS
     dispH         AS INTEGER        ' Displayed height on SCRN.CANVAS
+    fitW AS INTEGER ' docked: native size its slot gives it (0 = natural) - FPANEL_fit
+    fitH AS INTEGER
+    natW AS INTEGER ' its natural (floating) native size, from its layout
+    natH AS INTEGER
     docked      AS INTEGER ' in a dock slot (GUI/DOCK): the slot places it; no clamp
     dispX         AS INTEGER        ' Displayed X (viewport coords)
     dispY         AS INTEGER        ' Displayed Y (viewport coords)

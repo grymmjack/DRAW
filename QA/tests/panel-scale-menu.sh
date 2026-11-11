@@ -15,9 +15,12 @@
 # - > Scale: 3x - 150%; > Scale: Auto - back to 100%
 # - the floating Color Mixer keeps its size the whole time (its own setting)
 # Builds before had no Scale rows in the menu.
+# Sizes are the panel's natural width (FIT): docked it fills its slot - the
+# slot's width when that is wider (dock-fill-*.sh), its own when not.
 #
-# Dump: ANIMP (... dispW dispH renderScale*100), P animation (... the title
-# handle hx hy hw hh), WIN (native windows), DMENU / DMENUR (the open menu).
+# Dump: ANIMP (... dispW dispH renderScale*100), P animation (... its slot
+# rect, the title handle hx hy hw hh), WIN (native windows), FIT (natural
+# size), DMENU / DMENUR (the open menu).
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt TOOLBAR_SCALE=0 ANIM_PANEL_VISIBLE=-1 COLOR_MIXER_VISIBLE=1 LAYER_PANEL_WIDTH=120 DOCK_CUSTOM=1 DOCK_LEFT_1=AUTO;toolbox|organizer|drawer DOCK_LEFT_2=AUTO;editbar DOCK_RIGHT_1=AUTO;animation|layers DOCK_RIGHT_2=AUTO;advbar
 # =============================================================================
 info "=== Panels: per-panel scale from the title bar menu ==="
@@ -27,6 +30,8 @@ PS_CFG="$DRAW_ROOT/QA/DRAW.qa.cfg"
 ps_read() {
     { hover 300 250; wait_for 0.2 "render"; hover 305 252; wait_for 0.4 "render"; } >&2
     read -r _ _ _ _ _ A_W A_H A_RS _ <<< "$(grep -m1 '^ANIMP ' "$PS_DUMP")"
+    read -r _ _ N_W _ <<< "$(grep -m1 '^FIT animation ' "$PS_DUMP")"
+    read -r _ _ _ _ _ _ S_W _ <<< "$(grep -m1 '^P animation ' "$PS_DUMP")"
     read -r _ _ _ _ _ _ _ _ _ _ _ _ _ _ H_X H_Y H_W H_H _ <<< "$(grep -m1 '^P animation ' "$PS_DUMP")"
     read -r _ _ _ _ AW_W _ _ <<< "$(grep -m1 '^WIN animation ' "$PS_DUMP")"
     read -r _ _ _ _ M_W M_H _ <<< "$(grep -m1 '^WIN colormixer ' "$PS_DUMP")"
@@ -55,8 +60,21 @@ ps_pick() {
 # K -> WANT_RS (renderScale*100) / WANT_W for Scale: Kx at this display scale (Auto = the display scale)
 ps_want() { WANT_RS=$(( $1 * 100 / DISPLAY_SCALE )); WANT_W=$(( (W0 * $1 * 2 + DISPLAY_SCALE) / (2 * DISPLAY_SCALE) )); }
 
+# docked, it is as wide as its slot when the slot is wider than it (FPANEL_fit)
+ps_fills() {
+    local want=$N_W; (( S_W > want )) && want=$S_W
+    (( A_W >= want - 1 && A_W <= want + 1 )) && pass "$1: docked, $A_W px wide (natural $N_W, slot $S_W)" \
+        || fail "$1: docked, $A_W px wide - wanted $want (natural $N_W, slot $S_W)"
+}
+
 ps_read
-W0=$A_W; MW0="$M_W $M_H"
+# a profile with its own scale (a user's DRAW.cfg): back to Auto from the menu
+# first (an --option pin is never saved, and the test checks what is)
+if [[ "$A_RS" != 100 ]]; then
+    info "the Animation panel starts at a fixed scale (renderScale ${A_RS}%) - choosing Auto first"
+    ps_pick 20
+fi
+W0=$N_W; MW0="$M_W $M_H"
 [[ "$A_RS" == 100 ]] && pass "Auto: the Animation panel draws at the display scale (renderScale ${A_RS}%, ${A_W}x${A_H})" \
     || fail "Auto: renderScale '${A_RS:-?}' (wanted 100)"
 [[ -n "$M_W" ]] || fail "the Color Mixer is not floating: $(grep '^WIN colormixer' "$PS_DUMP")"
@@ -65,8 +83,9 @@ W0=$A_W; MW0="$M_W $M_H"
 if ps_pick 21; then
     [[ "$PS_CHECKED_BEFORE" == 20 ]] && pass "the menu has the Scale rows, Auto checked" || fail "the checked row before: '$PS_CHECKED_BEFORE' (wanted 20, Auto)"
     ps_want 1
-    (( A_RS == WANT_RS && A_W >= WANT_W - 1 && A_W <= WANT_W + 1 )) && pass "Scale: 1x - 1/$DISPLAY_SCALE of the display scale (renderScale ${A_RS}%, ${W0} -> ${A_W} px)" \
-        || fail "Scale: 1x - renderScale '$A_RS' (wanted $WANT_RS), width $W0 -> '$A_W' (wanted ~$WANT_W)"
+    (( A_RS == WANT_RS && N_W >= WANT_W - 1 && N_W <= WANT_W + 1 )) && pass "Scale: 1x - 1/$DISPLAY_SCALE of the display scale (renderScale ${A_RS}%, natural ${W0} -> ${N_W} px)" \
+        || fail "Scale: 1x - renderScale '$A_RS' (wanted $WANT_RS), natural width $W0 -> '$N_W' (wanted ~$WANT_W)"
+    ps_fills "Scale: 1x"
     [[ "$AW_W" == "$A_W" ]] && pass "the dock places it at its new width ($AW_W px)" || fail "the docked window is $AW_W px wide, the panel $A_W"
     grep -q '^ANIM_PANEL_SCALE=1\b' "$PS_CFG" && pass "ANIM_PANEL_SCALE=1 saved" || fail "saved: '$(grep '^ANIM_PANEL_SCALE' "$PS_CFG")'"
     screenshot "panel-scale-1x"
@@ -76,14 +95,16 @@ fi
 if ps_pick 23; then
     [[ "$PS_CHECKED_BEFORE" == 21 ]] && pass "reopened: 1x checked" || fail "the checked row: '$PS_CHECKED_BEFORE' (wanted 21, 1x)"
     ps_want 3
-    (( A_RS == WANT_RS && A_W >= WANT_W - 1 && A_W <= WANT_W + 1 )) && pass "Scale: 3x - renderScale ${A_RS}% (${A_W}x${A_H})" \
-        || fail "Scale: 3x - renderScale '$A_RS' (wanted $WANT_RS), width '$A_W' (wanted ~$WANT_W)"
+    (( A_RS == WANT_RS && N_W >= WANT_W - 1 && N_W <= WANT_W + 1 )) && pass "Scale: 3x - renderScale ${A_RS}% (natural $N_W px, ${A_W}x${A_H} docked)" \
+        || fail "Scale: 3x - renderScale '$A_RS' (wanted $WANT_RS), natural width '$N_W' (wanted ~$WANT_W)"
+    ps_fills "Scale: 3x"
     screenshot "panel-scale-3x"
 fi
 
 # -- Scale: Auto --
 if ps_pick 20; then
-    (( A_RS == 100 && A_W == W0 )) && pass "Scale: Auto - the UI Scale again (renderScale ${A_RS}%, ${A_W} px)" || fail "Scale: Auto - renderScale '$A_RS', width '$A_W' (was $W0)"
+    (( A_RS == 100 && N_W == W0 )) && pass "Scale: Auto - the UI Scale again (renderScale ${A_RS}%, natural ${N_W} px)" || fail "Scale: Auto - renderScale '$A_RS', natural width '$N_W' (was $W0)"
+    ps_fills "Scale: Auto"
     grep -q '^ANIM_PANEL_SCALE=0\b' "$PS_CFG" && pass "ANIM_PANEL_SCALE=0 saved" || fail "saved: '$(grep '^ANIM_PANEL_SCALE' "$PS_CFG")'"
 fi
 [[ "$M_W $M_H" == "$MW0" ]] && pass "the Color Mixer kept its size throughout ($MW0)" || fail "the Color Mixer: $MW0 -> $M_W $M_H"

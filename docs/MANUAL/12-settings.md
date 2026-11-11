@@ -119,7 +119,12 @@ grip that appears on a panel's top edge), and right-click a handle for Move to
 Left/Right Edge, Collapse, Float, Reset Arrangement and — on the Animation, Color
 Mixer, color picker, 3D Color Space and Pen Pressure panels — **Scale** (Auto or 1×–4×). The floating windows
 (Preview, Color Mixer, the color pickers, Pen Pressure, Browser) dock by
-dragging their title bar onto a dock target. See **[Chapter 22 — Moving,
+dragging their title bar onto a dock target. Docked, the Animation, Color
+Mixer, color picker, 3D Color Space and Pen Pressure panels fill their slot:
+their rows and sliders stretch to the column's width, and in a column with
+room to spare their big area — the color field, the wheel and its shade rows,
+the 3D view, the response graph — grows taller. Floating, they go back to
+their own size. See **[Chapter 22 — Moving,
 stacking, tabbing and floating panels](22-workspaces-capture.md#moving-stacking-tabbing-and-floating-panels)**.
 
 ### UI master toggles

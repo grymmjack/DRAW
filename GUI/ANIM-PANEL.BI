@@ -79,6 +79,10 @@ TYPE ANIM_PANEL_OBJ
     panelImg   AS LONG
     panelW     AS INTEGER
     panelH     AS INTEGER
+    fitW AS INTEGER ' docked: native size its slot gives it (0 = natural) - FPANEL_fit
+    fitH AS INTEGER
+    natW AS INTEGER ' its natural (floating) native size, from its layout
+    natH AS INTEGER
     hoverCtl   AS INTEGER
     closeHover AS INTEGER
 

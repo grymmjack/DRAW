@@ -145,6 +145,97 @@ SUB FPANEL_set_scale (dp AS INTEGER, v AS INTEGER)
 END SUB
 
 ' ---------------------------------------------------------------------------
+' Docked fill (Rick 2026-11-10, PLANS/FLEXPANELS.svg: "can the panels be
+' responsive? like width/height grow when docked to not be a giant gap").
+' Docked, each of the five panels lays itself out to its slot: rows, sliders
+' and chip rows stretch across the slot's width, and when the column has
+' height to spare (no flex panel like the layers in it) its big area - the
+' color field, the wheel, the 3D view, the response graph - takes it, up to
+' FPANEL_grow_max%. Floating, it is its natural size. The dock still sizes
+' columns from the natural size (FPANEL_nat_w%), never the fitted one, or a
+' docked panel would hold its column at its widest.
+' ---------------------------------------------------------------------------
+
+' Viewport px -> native px of panel dp (rounded down: never past the slot)
+FUNCTION FPANEL_native_of% (dp AS INTEGER, px AS INTEGER)
+    DIM ds AS INTEGER
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    FPANEL_native_of% = INT(CLNG(px) * ds / FPANEL_scale%(dp))
+END FUNCTION
+
+' Native px -> viewport px of panel dp (the panels' dispW / dispH rounding)
+FUNCTION FPANEL_disp_of% (dp AS INTEGER, n AS INTEGER)
+    DIM ds AS INTEGER
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    FPANEL_disp_of% = INT(CSNG(n) * FPANEL_scale%(dp) / ds + 0.5)
+END FUNCTION
+
+' Its natural (floating) size in viewport px - what the dock sizes columns by
+FUNCTION FPANEL_nat_w% (dp AS INTEGER)
+    DIM n AS INTEGER
+    SELECT CASE dp
+        CASE DP_ANIM: n = ANIMP.natW
+        CASE DP_PEN: n = PENP.natW%
+        CASE DP_CS3D: n = CS3D.natW%
+        CASE DP_MIXER: n = COLORMIXER.natW%
+        CASE DP_ADVCP: n = ADVCP.natW%
+    END SELECT
+    FPANEL_nat_w% = FPANEL_disp_of%(dp, n)
+END FUNCTION
+
+FUNCTION FPANEL_nat_h% (dp AS INTEGER)
+    DIM n AS INTEGER
+    SELECT CASE dp
+        CASE DP_ANIM: n = ANIMP.natH
+        CASE DP_PEN: n = PENP.natH%
+        CASE DP_CS3D: n = CS3D.natH%
+        CASE DP_MIXER: n = COLORMIXER.natH%
+        CASE DP_ADVCP: n = ADVCP.natH%
+    END SELECT
+    FPANEL_nat_h% = FPANEL_disp_of%(dp, n)
+END FUNCTION
+
+' Extra height (viewport px) panel dp can use below its natural height in a
+' column w px wide: its big area grows - the color field and the 3D view up
+' to 1.5x as tall as wide, the response graph to square, the wheel to the
+' panel's width and then its shade rows. The Animation panel has nothing to
+' grow (0).
+FUNCTION FPANEL_grow_max% (dp AS INTEGER, w AS INTEGER)
+    DIM nw AS INTEGER, g AS INTEGER
+    nw = _MAX(FPANEL_native_of%(dp, w), 0)
+    SELECT CASE dp
+        CASE DP_PEN: g = PENP_graph_max_h%(nw) - PENP_GRAPH_H
+        CASE DP_CS3D: g = CS3D_view_max_h%(nw) - CS3D_view_nat_h%
+        CASE DP_MIXER: g = COLORMIXER_field_max_h%(nw) - COLORMIXER_field_nat_h%
+        CASE DP_ADVCP: g = ADVCP_grow_max%(nw)
+    END SELECT
+    IF g < 0 THEN g = 0
+    FPANEL_grow_max% = FPANEL_disp_of%(dp, g)
+END FUNCTION
+
+' Lay panel dp out to a slot w x h viewport px (0, 0 = its natural size).
+' Each panel's *_fit only relayouts when its size changes.
+SUB FPANEL_fit (dp AS INTEGER, w AS INTEGER, h AS INTEGER)
+    DIM nw AS INTEGER, nh AS INTEGER, oldDest AS LONG, oldSrc AS LONG, oldFont AS LONG
+    IF w > 0 THEN nw = FPANEL_native_of%(dp, w)
+    IF h > 0 THEN nh = FPANEL_native_of%(dp, h)
+    oldDest = _DEST: oldSrc = _SOURCE: oldFont = _FONT
+    SELECT CASE dp
+        CASE DP_ANIM: ANIMP_fit nw, nh
+        CASE DP_PEN: PENP_fit nw, nh
+        CASE DP_CS3D: CS3D_fit nw, nh
+        CASE DP_MIXER: COLORMIXER_fit nw, nh
+        CASE DP_ADVCP: ADVCP_fit nw, nh
+    END SELECT
+    _DEST oldDest: _SOURCE oldSrc: _FONT oldFont
+END SUB
+
+' The size its layout uses on one axis: the fitted size, never below natural
+FUNCTION FPANEL_fit_size% (natS AS INTEGER, fitS AS INTEGER)
+    FPANEL_fit_size% = _MAX(natS, fitS)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
 ' FPANEL_panel_w% — Native width shared by the color / pen panels (Color
 ' Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure) so they line up
 ' when stacked. It is the Color Mixer's width, which the Color Picker library
@@ -154,7 +245,7 @@ END SUB
 FUNCTION FPANEL_panel_w% ()
     IF FPANEL.panelW% < 1 THEN
         COLORMIXER_ensure_initialized
-        FPANEL.panelW% = CP_STATE.dialogW
+        FPANEL.panelW% = COLORMIXER.natW% ' natural, not a docked mixer's fitted width
         IF FPANEL.panelW% < 160 THEN FPANEL.panelW% = 160 ' C3D widget minimum
     END IF
     FPANEL_panel_w% = FPANEL.panelW%

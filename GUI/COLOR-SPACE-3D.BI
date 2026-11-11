@@ -38,6 +38,10 @@ TYPE COLOR_SPACE_3D_OBJ
     panelImg  AS LONG                   ' native composite (title bar + widget)
     panelW    AS INTEGER
     panelH    AS INTEGER
+    fitW AS INTEGER ' docked: native size its slot gives it (0 = natural) - FPANEL_fit
+    fitH AS INTEGER
+    natW AS INTEGER ' its natural (floating) native size, from its layout
+    natH AS INTEGER
     bodyX     AS INTEGER                ' widget origin inside the panel (native px)
     bodyY     AS INTEGER
 
