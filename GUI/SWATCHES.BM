@@ -1205,6 +1205,170 @@ END SUB
 
 
 ' ===========================================================================
+' Editing: every edit is SWP_edit_begin% -> change SWS() -> SWP_edit_end.
+' A set that is not in My Swatches (a shipped set, a palette, the document
+' palette, a fixture) is copied there on its first edit, and the copy is
+' edited from then on: DRAW never writes over a set it did not make. Each
+' edit saves the .gpl straight away.
+' ===========================================================================
+
+''
+' Is path in My Swatches (PATHS_data$("SWATCHES/"))?
+FUNCTION SWP_is_mine% (path AS STRING)
+    DIM d AS STRING
+    IF LEN(path) = 0 THEN EXIT FUNCTION
+    d = PATHS_data$("SWATCHES/")
+    IF LEN(path) > LEN(d) _ANDALSO LCASE$(LEFT$(path, LEN(d))) = LCASE$(d) THEN SWP_is_mine% = TRUE
+END FUNCTION
+
+
+''
+' Save the set showing as a new .gpl in My Swatches and show that copy.
+' TRUE = done.
+FUNCTION SWP_make_own% ()
+    DIM dst AS STRING, baseNm AS STRING, n AS INTEGER, was AS STRING
+    PATHS_ensure_dir PATHS_data$("SWATCHES/")
+    baseNm = SWS_NAME
+    IF LEN(_TRIM$(baseNm)) = 0 THEN baseNm = SWP.setLabel
+    baseNm = SWP_safe_name$(baseNm)
+    dst = PATHS_data$("SWATCHES/") + baseNm + ".gpl"
+    DO WHILE _FILEEXISTS(dst)
+        n = n + 1
+        dst = PATHS_data$("SWATCHES/") + baseNm + " (" + _TRIM$(STR$(n)) + ").gpl"
+    LOOP
+    IF SWS_save_gpl%(dst) = 0 _ORELSE _FILEEXISTS(dst) = 0 THEN
+        STATUS_flash "Swatches: could not write " + dst
+        EXIT FUNCTION
+    END IF
+    was = SWP.setKey
+    SWP.setKey = dst: CFG.SWATCHES_SET = dst
+    IF SWP.setLabel = "" _ORELSE LEFT$(SWP.setLabel, 9) = "PALETTE: " THEN SWP.setLabel = SWP_ascii$(SWS_NAME)
+    SWP_SAVES = SWP_SAVES + 1
+    CONFIG_save
+    _LOGINFO "SWATCHES: editing a copy: " + was + " -> " + dst
+    STATUS_flash "Swatches: editing your copy in My Swatches (" + baseNm + ")"
+    SWP_make_own% = TRUE
+END FUNCTION
+
+
+''
+' Before an edit: a set of your own to edit (SWP_make_own%), and an undo
+' step. FALSE = no edit (nothing loaded, or the copy could not be written).
+FUNCTION SWP_edit_begin% ()
+    IF SWP.initialized = 0 THEN EXIT FUNCTION
+    IF SWP_is_mine%(SWP.setKey) = 0 THEN
+        IF SWP_make_own% = 0 THEN EXIT FUNCTION
+    END IF
+    SWP_undo_drop SWP.setKey, 1 ' a new edit ends the redo chain
+    SWP_undo_push SWP.setKey, SWS_snapshot$, 0
+    SWP_edit_begin% = TRUE
+END FUNCTION
+
+
+''
+' After an edit: lay out again and save.
+SUB SWP_edit_end ()
+    SWP.flowOk = FALSE
+    SWP_layout
+    SWP_clamp_scroll
+    SWP_save_now
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+SUB SWP_save_now ()
+    IF SWP_is_mine%(SWP.setKey) = 0 THEN EXIT SUB
+    IF SWS_save_gpl%(SWP.setKey) THEN
+        SWP_SAVES = SWP_SAVES + 1
+    ELSE
+        STATUS_flash "Swatches: could not save " + SWP.setKey
+    END IF
+END SUB
+
+
+SUB SWP_undo_push (k AS STRING, snap AS STRING, kind AS INTEGER)
+    DIM i AS INTEGER
+    IF SWP_UNDO_N >= SWP_UNDO_MAX THEN ' drop the oldest
+        FOR i = 2 TO SWP_UNDO_N
+            SWP_UNDO_KEY(i - 1) = SWP_UNDO_KEY(i): SWP_UNDO_SNAP(i - 1) = SWP_UNDO_SNAP(i): SWP_UNDO_KIND(i - 1) = SWP_UNDO_KIND(i)
+        NEXT i
+        SWP_UNDO_N = SWP_UNDO_N - 1
+    END IF
+    SWP_UNDO_N = SWP_UNDO_N + 1
+    SWP_UNDO_KEY(SWP_UNDO_N) = k: SWP_UNDO_SNAP(SWP_UNDO_N) = snap: SWP_UNDO_KIND(SWP_UNDO_N) = kind
+END SUB
+
+
+''
+' Remove entry j from the undo list.
+SUB SWP_undo_remove (j AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = j + 1 TO SWP_UNDO_N
+        SWP_UNDO_KEY(i - 1) = SWP_UNDO_KEY(i): SWP_UNDO_SNAP(i - 1) = SWP_UNDO_SNAP(i): SWP_UNDO_KIND(i - 1) = SWP_UNDO_KIND(i)
+    NEXT i
+    IF SWP_UNDO_N > 0 THEN SWP_UNDO_N = SWP_UNDO_N - 1
+END SUB
+
+
+''
+' Drop every step of one kind for set k.
+SUB SWP_undo_drop (k AS STRING, kind AS INTEGER)
+    DIM i AS INTEGER
+    i = SWP_UNDO_N
+    DO WHILE i >= 1
+        IF SWP_UNDO_KIND(i) = kind _ANDALSO SWP_UNDO_KEY(i) = k THEN SWP_undo_remove i
+        i = i - 1
+    LOOP
+END SUB
+
+
+''
+' Steps of one kind for set k.
+FUNCTION SWP_undo_count% (k AS STRING, kind AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO SWP_UNDO_N
+        IF SWP_UNDO_KIND(i) = kind _ANDALSO SWP_UNDO_KEY(i) = k THEN n = n + 1
+    NEXT i
+    SWP_undo_count% = n
+END FUNCTION
+
+
+''
+' Undo (redo = FALSE) or redo the last edit of the set showing.
+SUB SWP_undo (redo AS INTEGER)
+    DIM i AS INTEGER, j AS INTEGER, kind AS INTEGER, snap AS STRING
+    kind = _IIF(redo, 1, 0)
+    FOR i = SWP_UNDO_N TO 1 STEP -1
+        IF SWP_UNDO_KIND(i) = kind _ANDALSO SWP_UNDO_KEY(i) = SWP.setKey THEN j = i: EXIT FOR
+    NEXT i
+    IF j = 0 THEN
+        STATUS_flash _IIF(redo, "Swatches: nothing to redo", "Swatches: nothing to undo")
+        EXIT SUB
+    END IF
+    snap = SWP_UNDO_SNAP(j)
+    SWP_undo_remove j
+    SWP_undo_push SWP.setKey, SWS_snapshot$, 1 - kind
+    SWS_restore snap
+    SWP.anchor = 0
+    SWP_edit_end
+    STATUS_flash _IIF(redo, "Swatches: redo", "Swatches: undo")
+END SUB
+
+
+''
+' Delete the selected entries (locked ones stay).
+SUB SWP_delete_selected ()
+    DIM n AS LONG
+    IF SWS_sel_count& = 0 THEN STATUS_flash "Swatches: nothing selected": EXIT SUB
+    IF SWP_edit_begin% = 0 THEN EXIT SUB
+    n = SWS_delete_selected&
+    SWP.anchor = 0
+    SWP_edit_end
+    IF n < 1 THEN STATUS_flash "Swatches: locked swatches stay" ELSE STATUS_flash "Swatches: deleted " + _TRIM$(STR$(n))
+END SUB
+
+
+' ===========================================================================
 ' Selection
 ' ===========================================================================
 
@@ -1323,6 +1487,7 @@ END FUNCTION
 ' ===========================================================================
 ' QA (DOCK_DUMP), viewport px:
 '   SWAT  <entries> <colors> <cols> <cellW> <cellH> <gap> <rows> <scrollY> <maxScroll> <fgIdx> <bgIdx> <menu> <menuRows> <setKey>
+'   SWATE <undo steps> <redo steps> <saves> <in My Swatches 0/1>
 '   SWATS <selected> <anchor> <i> ...           (up to 64 selected entries)
 '   SWATG <gridX> <gridY> <gridW> <gridH> <setButton x y w h> <gear x y w h>
 '   SWATC <i> <x> <y> <w> <h> <kind> <RRGGBB>   (the first 48 entries, the ones showing, the last)
@@ -1343,6 +1508,8 @@ FUNCTION SWP_dump$ ()
     d = d + DOCK_n$(SWP.rows) + DOCK_n$(SWP.scrollY) + DOCK_n$(SWP_max_scroll&) + DOCK_n$(fgIdx) + DOCK_n$(bgIdx) + DOCK_n$(SWP.menu) + DOCK_n$(SWP.menuRows) + " " + SWP.setKey + lf
     ' selection: count, anchor, then up to 64 selected entries
     DIM sn AS LONG
+    ' editing: undo steps, redo steps, saves, the set is in My Swatches
+    d = d + "SWATE" + DOCK_n$(SWP_undo_count%(SWP.setKey, 0)) + DOCK_n$(SWP_undo_count%(SWP.setKey, 1)) + DOCK_n$(SWP_SAVES) + DOCK_n$(-(SWP_is_mine%(SWP.setKey) <> 0)) + lf
     d = d + "SWATS" + DOCK_n$(SWS_sel_count&) + DOCK_n$(SWP.anchor)
     FOR i = 1 TO SWS_N
         IF SWS(i).sel THEN

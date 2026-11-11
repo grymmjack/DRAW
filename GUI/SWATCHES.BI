@@ -148,6 +148,15 @@ TYPE SWP_MENU_ROW
 END TYPE
 DIM SHARED SWP_MI(1 TO SWP_MENU_MAX) AS SWP_MENU_ROW
 
+' undo / redo of swatch edits, per set (the key is the set's path): a
+' snapshot (SWS_snapshot$) before each edit. Kind 0 = undo, 1 = redo.
+CONST SWP_UNDO_MAX = 200
+DIM SHARED SWP_UNDO_N AS INTEGER
+DIM SHARED SWP_UNDO_KEY(1 TO SWP_UNDO_MAX) AS STRING
+DIM SHARED SWP_UNDO_SNAP(1 TO SWP_UNDO_MAX) AS STRING
+DIM SHARED SWP_UNDO_KIND(1 TO SWP_UNDO_MAX) AS INTEGER
+DIM SHARED SWP_SAVES AS LONG ' times the set was written (QA)
+
 ' the set list (SWP_scan_sets): 0 = the document palette
 DIM SHARED SWP_SET_N AS INTEGER
 REDIM SHARED SWP_SET_PATH(0 TO 16) AS STRING

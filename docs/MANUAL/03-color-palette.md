@@ -180,6 +180,18 @@ The edits below act on the **selected** swatches. A selected swatch gets a thin 
 
 Right-click still sets the BG and leaves the selection alone. Switching to another set clears the selection. With more than one swatch selected, the panel's bottom line counts them.
 
+### Editing swatches — your copy, saved as you go
+
+DRAW never changes a swatch set it did not make. The first time you edit a shipped set, one of the palettes, the Document Palette set or a file you pointed DRAW at, it saves a copy of it in **My Swatches** under the set's name (`Name (1)` if that name is taken) and edits the copy from then on. The status bar says so. After that, every edit is saved straight away, so there is no Save step.
+
+| Do this (pointer on the panel) | To |
+| --- | --- |
+| **`Del`** | delete the selected swatches; locked swatches stay |
+| **`Ctrl+Z`** | undo the last swatch edit |
+| **`Ctrl+Y`** | redo it |
+
+Each set keeps its own undo steps while DRAW is running. With the pointer anywhere else, `Del`, `Ctrl+Z` and `Ctrl+Y` work on the canvas as usual.
+
 **Docking.** Like the Preview and the color pickers, the Swatches panel floats in its own window (drag the corner grip to resize it) or docks: drag its title bar onto a dock target. Docked, it takes the slot's size and scrolls. Right-click its title bar → **Scale** to give it its own size.
 
 <div class="page-break"></div>

@@ -25,3 +25,51 @@ sw_pitch() { local x1; sw_cell 1; x1=$C_X; sw_cell 2; SW_PITCH=$(( C_X - x1 )); 
 # an empty place in the grid: column 6 of row 1 in swatches-edit.gpl (right of
 # the row break) - entry 12's cell (row 1, column 3) + 3 cells
 sw_empty_xy() { sw_pitch; sw_cell 12; EX=$(( C_X + C_W / 2 + 3 * SW_PITCH )); EY=$(( C_Y + C_H / 2 )); }
+
+# Edits save into My Swatches (PATHS_data$("SWATCHES/")). A normal QA run
+# shares the real ~/.local/share/DRAW, so an editing test relaunches DRAW on a
+# scratch XDG_DATA_HOME first ([Linux]). In a user-profile run the scratch
+# folder starts as a copy of the profile's data, and the harness's re-copy on
+# every launch is switched off for this test (it would wipe what the test
+# saved before a restart). SW_MINE = the My Swatches folder DRAW now uses.
+#   sw_isolate [KEY=VALUE ...]   the pairs go into the QA cfg while DRAW is
+#                                closed (sw_cfg_set), so DRAW saves them later
+sw_isolate() {
+    local kv src="${XDG_DATA_HOME:-}"
+    sw_quit_wait
+    export XDG_DATA_HOME="${RESULTS_DIR:-/tmp}/sw-data-$RANDOM$RANDOM"
+    rm -rf "$XDG_DATA_HOME"; mkdir -p "$XDG_DATA_HOME"
+    if [[ "${QA_USER_PROFILE:-0}" == 1 ]]; then
+        [[ -n "$src" && -n "${RESULTS_DIR:-}" && "$src" == "$RESULTS_DIR"/* && -d "$src/DRAW" ]] && cp -a "$src/DRAW" "$XDG_DATA_HOME/DRAW"
+        QA_USER_PROFILE=0 # this test's subshell only
+    fi
+    SW_MINE="$XDG_DATA_HOME/DRAW/SWATCHES"
+    for kv in "$@"; do sw_cfg_set "${kv%%=*}" "${kv#*=}"; done
+    draw_launch 15
+    wait_for 1.0 "relaunched (My Swatches: $SW_MINE)"
+}
+# draw_quit, then wait until that DRAW is really gone: draw_quit does not wait,
+# and the window search can otherwise grab the closing window (0x0 -> the
+# harness refuses the run)
+sw_quit_wait() {
+    local pid=$DRAW_PID n=0
+    draw_quit
+    while [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && (( n < 50 )); do sleep 0.1; n=$((n + 1)); done
+    sleep 0.4
+}
+# set KEY=VALUE in the QA config itself (rebuilt for every test). Unlike a
+# QA-OPTIONS --option, which "beats the .cfg, never saved", DRAW then saves
+# the key itself - what a test of a saved setting needs.
+sw_cfg_set() {
+    if grep -q "^$1=" "$QA_CFG"; then sed -i "s|^$1=.*|$1=$2|" "$QA_CFG"; else echo "$1=$2" >> "$QA_CFG"; fi
+}
+# quit and start again (the config DRAW saved is kept)
+sw_relaunch_saved() {
+    sw_quit_wait
+    draw_launch 15
+    wait_for 1.0 "relaunched"
+}
+# SWATE: undo steps, redo steps, saves, in My Swatches
+sw_edit_state() { read -r _ SE_UNDO SE_REDO SE_SAVES SE_MINE <<< "$(grep '^SWATE ' "$DK_DUMP")"; }
+# hover the panel's first cell (the keys work only with the pointer on it)
+sw_hover_panel() { sw_cell 1; hover $(( C_X + C_W / 2 )) $(( C_Y + C_H / 2 )); sleep 0.2; }

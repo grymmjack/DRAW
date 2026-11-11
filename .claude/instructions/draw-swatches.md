@@ -53,6 +53,10 @@ stays the document palette). Two layers:
 
 `SWS(i).sel` is the selection (the library's ops act on it). `SWP_click_entry` (plain = alone + FG via `SWP_pick`, Shift = range from `SWP.anchor`, Ctrl = toggle), box drag from an empty place (`SWP.boxing`, content coords so it survives scrolling; autoscrolls past the grid; Ctrl / Shift adds on top of `SWP.selBase`), `SWP_select_all`. Keys only while the pointer is on the panel (`SWP_has_keys%`): `SWP_key_input%` in `KEYBOARD_input_handler` (Esc), Ctrl+A in `CMD_execute_action 310`. `SWP_load_set` clears the selection.
 
+## Editing (phase 2)
+
+Every edit: `SWP_edit_begin%` (copy to My Swatches via `SWP_make_own%` if `SWP_is_mine%(setKey)` is false - the source is never written; a new undo step = `SWS_snapshot$`; the set's redo chain dropped) -> change `SWS()` -> `SWP_edit_end` (relayout + `SWP_save_now`, `.gpl` with `#SWS:` extras). Undo list `SWP_UNDO_*` (200 steps, keyed by set path, kind 0 undo / 1 redo), `SWP_undo redo%`. Keys while the pointer is on the panel: Del / Edit > Clear (CMD 306/308, intercepted at the top of `CMD_execute_action`), Ctrl+Z / Ctrl+Y (CMD 301 / 302). Dump `SWATE undo redo saves mine`. Tests run on a scratch data dir: `sw_isolate` (see memory qa-data-dir-not-isolated). Tests: `swatches-undo.sh`, `swatches-copy-names.sh`.
+
 ## Phases
 
 1. Panel + loading (done).
