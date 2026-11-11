@@ -192,13 +192,19 @@ DRAW never changes a swatch set it did not make. The first time you edit a shipp
 | **Delete** | **`Del`** | deletes the selected swatches; locked swatches stay |
 | **Lock / Unlock** | **`L`** | locks the selected swatches (a small corner mark); if they are all locked already, unlocks them |
 | **Duplicate** | | copies the selected swatches right after the last one; the copies become the selection |
+| **Edit Color…** | double-click the swatch | opens the color dialog for it |
+| **Rename…** | | names the swatch (the name shows when you hover it, and is saved in the `.gpl`) |
 | **Insert Empty Cell** | | an empty cell before the first selected swatch (nothing selected: at the end) |
 | **Insert Row Break** | | the swatches from the first selected one start a new row |
 | **Remove Duplicates** | | keeps the first of each color; a locked swatch is never removed |
 | **Select All / Select None** | **`Ctrl+A`** / **`Ctrl+D`** or **`Esc`** | |
 | **Undo / Redo** | **`Ctrl+Z`** / **`Ctrl+Y`** | the last swatch edit |
 
-A locked swatch stays where it is and survives Delete and Remove Duplicates. Each set keeps its own undo steps while DRAW is running. With the pointer anywhere else these keys keep their usual jobs — `L` is still the Line tool, `Del`, `Ins`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+A` and `Ctrl+D` still work on the canvas.
+**Changing a swatch's color.** Double-click a swatch for the color dialog. Or keep one swatch selected and use the **Color Mixer**, **Advanced Color Picker** or **3D Color Space**: the swatch follows them live, and each drag is one undo step. The panel's bottom line reads `COLOR PANELS EDIT #RRGGBB` while that is on. Only those panels change it — picking a color from the palette strip, the canvas or another swatch just sets the FG. Turn it off with gear → **Color panels edit the selected**.
+
+**Drag to rearrange.** Drag a selected swatch and every selected swatch goes with it; scattered ones land side by side. A bright bar shows where they will land: the left half of a swatch drops them before it, the right half after it, and past the end of a row drops them at the end of that row. Hold **`Ctrl`** when you let go to **copy** them instead (the copies become the selection). Drag below or above the grid and it scrolls. Let go off the panel, or right where they already are, and nothing changes. A plain click on a selected swatch still selects it alone — it just happens when you let go, so a drag can start first.
+
+A locked swatch stays where it is: it survives Delete and Remove Duplicates, and a drag moves the swatches around it (a locked one in the selection stays put). Each set keeps its own undo steps while DRAW is running. With the pointer anywhere else these keys keep their usual jobs — `L` is still the Line tool, `Del`, `Ins`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+A` and `Ctrl+D` still work on the canvas.
 
 **Docking.** Like the Preview and the color pickers, the Swatches panel floats in its own window (drag the corner grip to resize it) or docks: drag its title bar onto a dock target. Docked, it takes the slot's size and scrolls. Right-click its title bar → **Scale** to give it its own size.
 

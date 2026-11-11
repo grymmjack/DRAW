@@ -160,7 +160,7 @@ END FUNCTION
 ' Does the panel take the mouse this frame (a drag, a menu, or over it)?
 FUNCTION SWP_owns_mouse% (rawX AS INTEGER, rawY AS INTEGER)
     IF SWP.visible = 0 _ORELSE SWP.autoHidden _ORELSE SWP.initialized = 0 THEN EXIT FUNCTION
-    IF SWP.dragging _ORELSE SWP.resizing _ORELSE SWP.sbDrag _ORELSE SWP.menu <> SWP_MENU_NONE THEN SWP_owns_mouse% = TRUE: EXIT FUNCTION
+    IF SWP.dragging _ORELSE SWP.resizing _ORELSE SWP.sbDrag _ORELSE SWP.boxing _ORELSE SWP.dragArm _ORELSE SWP.menu <> SWP_MENU_NONE THEN SWP_owns_mouse% = TRUE: EXIT FUNCTION
     SWP_owns_mouse% = SWP_hit_window%(rawX, rawY)
 END FUNCTION
 
@@ -242,7 +242,9 @@ SUB SWP_load_set (setPath AS STRING)
     SWP.setKey = k
     CFG.SWATCHES_SET = k
     SWP.scrollY = 0: SWP.flowOk = FALSE: SWP.hoverIdx = 0
-    SWP.anchor = 0: SWP.boxing = FALSE
+    SWP.anchor = 0: SWP.boxing = FALSE: SWP.dragArm = FALSE: SWP.dragMoving = FALSE: SWP.dragPend = FALSE
+    IF SWP.liveOpen THEN SWP.liveOpen = FALSE ' (its undo step stays with the set it was made on)
+    SWP.liveIdx = 0: SWP.clickI = 0
     SWS_select_none
     IF SWP.initialized THEN SWP_layout
     SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
@@ -600,7 +602,7 @@ SUB SWP_render ()
             IF SWP.cellW >= 5 THEN SWP_clip_box x, y, SWP.cellW, SWP.cellH, gTop, gBot, _RGB32(0, 0, 0)
         END IF
     END IF
-    IF SWP.hoverIdx > 0 _ANDALSO SWP.hoverIdx <> fgIdx THEN
+    IF SWP.hoverIdx > 0 _ANDALSO SWP.hoverIdx <> fgIdx _ANDALSO SWP.dragMoving = 0 THEN
         IF SWS(SWP.hoverIdx).kind = SWS_KIND_COLOR THEN
             IF SWP_cell_rect%(SWP.hoverIdx, x, y) THEN SWP_clip_box x - 1, y - 1, SWP.cellW + 2, SWP.cellH + 2, gTop, gBot, THEME.CP_text~&
         END IF
@@ -615,6 +617,12 @@ SUB SWP_render ()
         IF bx1 >= bx0 THEN SWP_clip_box bx0, by0, bx1 - bx0 + 1, by1 - by0 + 1, gTop, gBot, THEME.CP_text_bright~&
     END IF
 
+    ' swatches being dragged: where they will land
+    IF SWP.dragMoving _ANDALSO SWP.dragDrop > 0 THEN
+        DIM mkx AS INTEGER, mky AS INTEGER
+        IF SWP_drop_xy%(SWP.dragDrop, mkx, mky) THEN SWP_clip_box mkx, mky - 1, 2, SWP.cellH + 2, gTop, gBot, THEME.CP_text_bright~&
+    END IF
+
     ' scroll bar
     IF SWP.sbar THEN
         DIM sx AS INTEGER, ty AS INTEGER, th AS INTEGER
@@ -626,13 +634,18 @@ SUB SWP_render ()
 
     ' status: what the pointer is on, else the set's size
     DIM st AS STRING
-    IF SWP.hoverIdx > 0 THEN
+    IF SWP.dragMoving THEN
+        st = _IIF(MODIFIERS.ctrl% <> 0, "COPY ", "MOVE ") + _TRIM$(STR$(SWS_sel_count&))
+        IF SWP.dragDrop = 0 THEN st = st + " - DROP ON THE GRID"
+    ELSEIF SWP.hoverIdx > 0 THEN
         IF SWS(SWP.hoverIdx).kind = SWS_KIND_COLOR THEN
             st = "#" + RIGHT$("000000" + HEX$(SWS(SWP.hoverIdx).c AND &HFFFFFF~&), 6)
             IF LEN(SWS(SWP.hoverIdx).nm) THEN st = st + " " + SWP_ascii$(SWS(SWP.hoverIdx).nm)
         END IF
     ELSEIF SWS_sel_count& > 1 THEN
         st = _TRIM$(STR$(SWS_sel_count&)) + " SELECTED"
+    ELSEIF SWP.liveIdx > 0 _ANDALSO CFG.SWATCHES_LIVE_EDIT% THEN
+        IF SWS(SWP.liveIdx).kind = SWS_KIND_COLOR THEN st = "COLOR PANELS EDIT #" + RIGHT$("000000" + HEX$(SWS(SWP.liveIdx).c AND &HFFFFFF~&), 6)
     ELSE
         st = _TRIM$(STR$(SWS_color_count&)) + " COLORS"
         IF CFG.SWATCHES_COLS% = 0 THEN st = st + " - " + _TRIM$(STR$(SWP.cols)) + " COLUMNS"
@@ -816,6 +829,9 @@ SUB SWP_build_gear ()
     SWP_menu_add SWP_MI_CHECK, "SQUARE CELLS", 14, CFG.SWATCHES_SQUARE%, ""
     SWP_menu_add SWP_MI_CHECK, "CELL BORDERS", 15, CFG.SWATCHES_BORDER%, ""
     SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
+    SWP_menu_add SWP_MI_HEAD, "EDITING", 0, 0, ""
+    SWP_menu_add SWP_MI_CHECK, "COLOR PANELS EDIT THE SELECTED", 17, CFG.SWATCHES_LIVE_EDIT%, ""
+    SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
     SWP_menu_add SWP_MI_HEAD, "IMPORT", 0, 0, ""
     SWP_menu_add SWP_MI_CHECK, "BLACK FILLER = EMPTY CELLS", 16, CFG.SWATCHES_BLACK_SPACERS%, ""
     SWP_menu_add SWP_MI_ITEM, "LOAD SWATCHES...", 20, 0, ""
@@ -834,6 +850,8 @@ SUB SWP_build_edit ()
     SWP_menu_add SWP_MI_ITEM, "DELETE            DEL", 202, 0, ""
     SWP_menu_add SWP_MI_ITEM, "LOCK / UNLOCK       L", 203, 0, ""
     SWP_menu_add SWP_MI_ITEM, "DUPLICATE", 206, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "EDIT COLOR...   DBL-CLICK", 212, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "RENAME...", 213, 0, ""
     SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
     SWP_menu_add SWP_MI_ITEM, "INSERT EMPTY CELL", 204, 0, ""
     SWP_menu_add SWP_MI_ITEM, "INSERT ROW BREAK", 205, 0, ""
@@ -1045,12 +1063,14 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
                 CASE 14: CFG.SWATCHES_SQUARE% = _NEGATE CFG.SWATCHES_SQUARE%
                 CASE 15: CFG.SWATCHES_BORDER% = _NEGATE CFG.SWATCHES_BORDER%
                 CASE 16: CFG.SWATCHES_BLACK_SPACERS% = _NEGATE CFG.SWATCHES_BLACK_SPACERS%
+                CASE 17: CFG.SWATCHES_LIVE_EDIT% = _NEGATE CFG.SWATCHES_LIVE_EDIT%
             END SELECT
             SELECT CASE id
                 CASE 13: SWP_MI(r).chk = CFG.SWATCHES_STRETCH%
                 CASE 14: SWP_MI(r).chk = CFG.SWATCHES_SQUARE%
                 CASE 15: SWP_MI(r).chk = CFG.SWATCHES_BORDER%
                 CASE 16: SWP_MI(r).chk = CFG.SWATCHES_BLACK_SPACERS%
+                CASE 17: SWP_MI(r).chk = CFG.SWATCHES_LIVE_EDIT%
             END SELECT
             SWP_option_changed
             EXIT FUNCTION
@@ -1066,6 +1086,8 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
         CASE 204: SWP_insert_kind SWS_KIND_SPACE
         CASE 205: SWP_insert_kind SWS_KIND_BREAK
         CASE 206: SWP_duplicate
+        CASE 212: SWP_edit_color SWP_first_sel&
+        CASE 213: SWP_rename SWP_first_sel&
         CASE 207: SWP_remove_dups
         CASE 208: SWP_select_all
         CASE 209: SWS_select_none: SWP.anchor = 0: SCENE_DIRTY% = TRUE
@@ -1192,6 +1214,32 @@ SUB SWP_mouse_input ()
         EXIT SUB
     END IF
 
+    ' swatches being dragged: a move (Ctrl at the drop = a copy)
+    IF SWP.dragArm THEN
+        IF MOUSE.B1% THEN
+            IF SWP.dragMoving = 0 _ANDALSO (ABS(nx - SWP.dragX0) > 3 _ORELSE ABS(ny - SWP.dragY0) > 3) THEN SWP.dragMoving = TRUE
+            IF SWP.dragMoving THEN
+                IF lx >= 0 _ANDALSO lx < SWP.dispW THEN
+                    IF ny < SWP.gridY THEN SWP.scrollY = SWP.scrollY - (SWP.cellH + SWP.gap) \ 2: SWP_clamp_scroll
+                    IF ny >= SWP.gridY + SWP.gridH THEN SWP.scrollY = SWP.scrollY + (SWP.cellH + SWP.gap) \ 2: SWP_clamp_scroll
+                    SWP.dragDrop = SWP_drop_at&(nx, ny)
+                ELSE
+                    SWP.dragDrop = 0 ' off the panel: no drop
+                END IF
+            END IF
+        ELSE
+            SWP.dragArm = FALSE
+            IF SWP.dragMoving THEN
+                IF SWP.dragDrop > 0 THEN SWP_drop SWP.dragDrop, (MODIFIERS.ctrl% <> 0)
+            ELSEIF SWP.dragPend THEN
+                SWP_click_with SWP.dragFrom, SWP.dragPendShift, SWP.dragPendCtrl
+            END IF
+            SWP.dragMoving = FALSE: SWP.dragPend = FALSE: SWP.dragDrop = 0
+        END IF
+        SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
     IF inside = 0 THEN EXIT SUB
     IF press1 _ORELSE press2 THEN MOUSE.UI_CHROME_CLICKED% = TRUE
     IF press1 = 0 _ANDALSO press2 = 0 THEN EXIT SUB
@@ -1262,8 +1310,27 @@ SUB SWP_mouse_input ()
         IF i > 0 THEN SWP_pick i, TRUE
         EXIT SUB
     END IF
+    IF i > 0 _ANDALSO i = SWP.clickI _ANDALSO TIMER(.001) - SWP.clickT >= 0 _ANDALSO TIMER(.001) - SWP.clickT < 0.4 _ANDALSO MODIFIERS.none% THEN
+        ' a double-click: edit the swatch's color (it alone selected)
+        SWP.clickI = 0: SWP.dragArm = FALSE: SWP.dragPend = FALSE
+        SWS_select_none: SWS(i).sel = -1: SWP.anchor = i
+        SWP_edit_color i
+        EXIT SUB
+    END IF
+    SWP.clickI = i: SWP.clickT = TIMER(.001)
     IF i > 0 THEN
-        SWP_click_entry i
+        ' a press on a selected swatch keeps the selection, so it can be
+        ' dragged; its click happens on the release if it is not dragged
+        SWP.dragPend = (SWS(i).sel <> 0 _ANDALSO MODIFIERS.shift% = 0)
+        IF SWP.dragPend THEN
+            SWP.dragPendShift = 0: SWP.dragPendCtrl = (MODIFIERS.ctrl% <> 0)
+        ELSE
+            SWP_click_entry i
+        END IF
+        IF SWS(i).sel THEN
+            SWP.dragArm = TRUE: SWP.dragMoving = FALSE: SWP.dragFrom = i
+            SWP.dragX0 = nx: SWP.dragY0 = ny: SWP.dragDrop = 0
+        END IF
     ELSEIF nx >= SWP.gridX _ANDALSO nx < SWP.gridX + SWP.gridW _ANDALSO ny >= SWP.gridY _ANDALSO ny < SWP.gridY + SWP.gridH THEN
         ' an empty place: a selection box starts (a click alone clears)
         SWP.boxing = TRUE: SWP.boxMoved = FALSE
@@ -1563,6 +1630,179 @@ END SUB
 ' The panel's share of the dispatched actions while the pointer is on it:
 ' TRUE = taken (CMD_execute_action stops). Del / Edit > Clear, L, Ctrl+A,
 ' Ctrl+D, Ctrl+Z, Ctrl+Y.
+''
+' Where dragged swatches would land with the pointer at native (nx, ny): the
+' entry to insert before (SWS_N + 1 = the end). Left half of a cell = before
+' it, right half = after it; past a row's last cell = the end of that row.
+FUNCTION SWP_drop_at& (nx AS INTEGER, ny AS INTEGER)
+    DIM pw AS INTEGER, ph AS INTEGER, px AS LONG, py AS LONG, c AS LONG, r AS LONG
+    DIM i AS LONG, lastI AS LONG, nextI AS LONG, d AS LONG
+    pw = SWP.cellW + SWP.gap: ph = SWP.cellH + SWP.gap
+    IF pw < 1 _ORELSE ph < 1 THEN EXIT FUNCTION
+    px = nx - SWP.gridX: py = ny - SWP.gridY
+    IF px < 0 THEN px = 0
+    IF px > SWP.gridW - 1 THEN px = SWP.gridW - 1
+    IF py < 0 THEN py = 0
+    IF py > SWP.gridH - 1 THEN py = SWP.gridH - 1
+    py = py + SWP.scrollY
+    c = px \ pw: r = py \ ph
+    IF c > SWP.cols - 1 THEN c = SWP.cols - 1
+    SWP.dragRow = r
+    FOR i = 1 TO SWS_N
+        IF SWP_EC(i) >= 0 THEN
+            IF SWP_ER(i) = r THEN
+                IF SWP_EC(i) = c THEN
+                    d = i: IF (px MOD pw) >= pw \ 2 THEN d = i + 1
+                    SWP_drop_at& = d: EXIT FUNCTION
+                END IF
+                IF SWP_EC(i) < c THEN lastI = i
+            ELSEIF SWP_ER(i) > r THEN
+                nextI = i: EXIT FOR
+            END IF
+        END IF
+    NEXT i
+    IF lastI > 0 THEN
+        d = lastI + 1
+    ELSEIF nextI > 0 THEN
+        d = nextI
+    ELSE
+        d = SWS_N + 1
+    END IF
+    SWP_drop_at& = d
+END FUNCTION
+
+
+''
+' The drop marker for drop index d: native x, y of a 2 px bar right of the
+' cell it goes after (on the pointer's row), else left of the cell it goes
+' before. FALSE = nowhere to show it.
+FUNCTION SWP_drop_xy% (d AS LONG, x AS INTEGER, y AS INTEGER)
+    DIM cx AS INTEGER, cy AS INTEGER
+    IF d > 1 _ANDALSO d - 1 <= SWS_N THEN
+        IF SWP_EC(d - 1) >= 0 _ANDALSO SWP_ER(d - 1) = SWP.dragRow THEN
+            IF SWP_cell_rect%(d - 1, cx, cy) THEN x = cx + SWP.cellW: y = cy: SWP_drop_xy% = TRUE: EXIT FUNCTION
+        END IF
+    END IF
+    IF d >= 1 _ANDALSO d <= SWS_N THEN
+        IF SWP_cell_rect%(d, cx, cy) THEN x = cx - 2: y = cy: SWP_drop_xy% = TRUE: EXIT FUNCTION
+    END IF
+    IF d > 1 _ANDALSO d - 1 <= SWS_N THEN
+        IF SWP_cell_rect%(d - 1, cx, cy) THEN x = cx + SWP.cellW: y = cy: SWP_drop_xy% = TRUE
+    END IF
+END FUNCTION
+
+
+''
+' Drop the selected swatches before entry d: a move, or a copy (the copies
+' become the selection). Locked swatches stay where they are. A drop that
+' changes nothing is not an edit (no undo step, no My Swatches copy).
+SUB SWP_drop (d AS LONG, copyIt AS INTEGER)
+    DIM s0 AS STRING, n AS LONG
+    n = SWS_sel_count&
+    IF n = 0 THEN EXIT SUB
+    s0 = SWS_snapshot$
+    IF copyIt THEN SWS_copy_selected d ELSE SWS_move_selected d
+    IF SWS_snapshot$ = s0 THEN EXIT SUB
+    SWS_restore s0
+    IF SWP_edit_begin% = 0 THEN EXIT SUB
+    IF copyIt THEN SWS_copy_selected d ELSE SWS_move_selected d
+    SWP.anchor = SWP_first_sel&
+    SWP_edit_end
+    STATUS_flash "Swatches: " + _IIF(copyIt, "copied ", "moved ") + _TRIM$(STR$(n)) + " swatch" + _IIF(n = 1, "", "es")
+END SUB
+
+
+''
+' Edit swatch i's color in the color dialog (a double-click, or the edit menu).
+' One edit; the FG follows when it was that color.
+SUB SWP_edit_color (i AS LONG)
+    DIM oldC AS _UNSIGNED LONG, newC AS _UNSIGNED LONG
+    IF i < 1 _ORELSE i > SWS_N THEN STATUS_flash "Swatches: nothing selected": EXIT SUB
+    IF SWS(i).kind <> SWS_KIND_COLOR THEN STATUS_flash "Swatches: not a color": EXIT SUB
+    oldC = SWS(i).c OR &HFF000000~&
+    CP_reset_options
+    POINTER_hide_for_dialog
+    newC = DRAW_pick_color&("Swatch Color", oldC)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    ' (cancel = the color it started with - the contract every caller uses)
+    IF (newC AND &HFFFFFF~&) = (oldC AND &HFFFFFF~&) THEN EXIT SUB
+    IF SWP_edit_begin% = 0 THEN EXIT SUB
+    SWS(i).c = newC OR &HFF000000~&
+    SWP_edit_end
+    IF PAL_FG_IS_TRANSPARENT% = 0 _ANDALSO ((PAINT_COLOR~& AND &HFFFFFF~&) = (oldC AND &HFFFFFF~&) _ORELSE (PAINT_COLOR~& AND &HFFFFFF~&) = (newC AND &HFFFFFF~&)) THEN
+        PAINT_COLOR~& = SWS(i).c
+    END IF
+    SWP.liveIdx = i: SWP.liveLast = PAINT_COLOR~& ' not an FG change to follow
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Rename swatch i (the edit menu). An empty name clears it.
+SUB SWP_rename (i AS LONG)
+    DIM nm AS STRING, oldNm AS STRING
+    IF i < 1 _ORELSE i > SWS_N THEN STATUS_flash "Swatches: nothing selected": EXIT SUB
+    IF SWS(i).kind <> SWS_KIND_COLOR THEN STATUS_flash "Swatches: not a color": EXIT SUB
+    oldNm = SWS(i).nm
+    POINTER_hide_for_dialog
+    nm = DRAW_input_box_ex$("Rename Swatch", "Name:", oldNm, "Swatch name", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    nm = _TRIM$(nm)
+    IF nm = oldNm _ORELSE LEN(nm) = 0 THEN EXIT SUB ' unchanged / cancelled
+    IF SWP_edit_begin% = 0 THEN EXIT SUB
+    SWS(i).nm = nm
+    SWP_edit_end
+END SUB
+
+
+''
+' Is the pointer on a color panel (Color Mixer, Advanced Color Picker, 3D
+' Color Space)? Only their FG changes edit a selected swatch live: a click on
+' the palette strip, a picked pixel or a swatch sets the FG and leaves it.
+FUNCTION SWP_color_panel_has_mouse% ()
+    DIM mx AS INTEGER, my AS INTEGER
+    mx = MOUSE.RAW_X%: my = MOUSE.RAW_Y%
+    IF COLORMIXER.visible% _ANDALSO COLORMIXER.autoHidden% = 0 THEN
+        IF COLORMIXER_hit_window%(mx, my) THEN SWP_color_panel_has_mouse% = TRUE: EXIT FUNCTION
+    END IF
+    IF ADVCP.visible% _ANDALSO ADVCP.autoHidden% = 0 THEN
+        IF ADVCP_hit_window%(mx, my) THEN SWP_color_panel_has_mouse% = TRUE: EXIT FUNCTION
+    END IF
+    IF CS3D_active_hit%(mx, my) THEN SWP_color_panel_has_mouse% = TRUE
+END FUNCTION
+
+
+''
+' Per frame (main loop, after the mouse): with one swatch selected, an FG
+' change made on a color panel recolors it. The changes while a button is
+' held are one edit (one undo step, saved on the mouse-up).
+SUB SWP_tick ()
+    DIM i AS LONG, cur AS _UNSIGNED LONG
+    IF SWP.initialized = 0 THEN EXIT SUB
+    IF SWP.visible _ANDALSO SWS_sel_count& = 1 THEN i = SWP_first_sel&
+    IF i <> SWP.liveIdx THEN
+        IF SWP.liveOpen THEN SWP_edit_end: SWP.liveOpen = FALSE
+        SWP.liveIdx = i: SWP.liveLast = PAINT_COLOR~&
+        EXIT SUB
+    END IF
+    cur = PAINT_COLOR~& OR &HFF000000~&
+    IF i > 0 _ANDALSO CFG.SWATCHES_LIVE_EDIT% _ANDALSO PAL_FG_IS_TRANSPARENT% = 0 _ANDALSO (cur AND &HFFFFFF~&) <> (SWP.liveLast AND &HFFFFFF~&) THEN
+        IF SWS(i).kind = SWS_KIND_COLOR _ANDALSO SWP_color_panel_has_mouse% THEN
+            IF (SWS(i).c AND &HFFFFFF~&) <> (cur AND &HFFFFFF~&) THEN
+                IF SWP.liveOpen = 0 THEN SWP.liveOpen = SWP_edit_begin%
+                IF SWP.liveOpen THEN SWS(i).c = cur: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+            END IF
+        END IF
+    END IF
+    SWP.liveLast = cur
+    IF SWP.liveOpen _ANDALSO MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 _ANDALSO MOUSE.B3% = 0 THEN
+        SWP_edit_end: SWP.liveOpen = FALSE
+    END IF
+END SUB
+
+
 FUNCTION SWP_take_action% (actionId AS INTEGER)
     IF SWP_has_keys% = 0 THEN EXIT FUNCTION
     SELECT CASE actionId
@@ -1586,11 +1826,17 @@ END FUNCTION
 ' A left click on entry i: plain = select it alone (a color also becomes the
 ' FG), Shift = the range from the anchor, Ctrl = toggle it.
 SUB SWP_click_entry (i AS LONG)
+    SWP_click_with i, (MODIFIERS.shift% <> 0), (MODIFIERS.ctrl% <> 0)
+END SUB
+
+''
+' The same, with the modifiers given (a click held back until the release).
+SUB SWP_click_with (i AS LONG, sh AS INTEGER, ct AS INTEGER)
     IF i < 1 _ORELSE i > SWS_N THEN EXIT SUB
-    IF MODIFIERS.shift% _ANDALSO SWP.anchor >= 1 _ANDALSO SWP.anchor <= SWS_N THEN
-        IF MODIFIERS.ctrl% = 0 THEN SWS_select_none
+    IF sh _ANDALSO SWP.anchor >= 1 _ANDALSO SWP.anchor <= SWS_N THEN
+        IF ct = 0 THEN SWS_select_none
         SWS_select_range SWP.anchor, i
-    ELSEIF MODIFIERS.ctrl% THEN
+    ELSEIF ct THEN
         SWS(i).sel = _IIF(SWS(i).sel <> 0, 0, -1)
         SWP.anchor = i
     ELSE
@@ -1704,6 +1950,8 @@ END FUNCTION
 ' QA (DOCK_DUMP), viewport px:
 '   SWAT  <entries> <colors> <cols> <cellW> <cellH> <gap> <rows> <scrollY> <maxScroll> <fgIdx> <bgIdx> <menu> <menuRows> <setKey>
 '   SWATE <undo steps> <redo steps> <saves> <in My Swatches 0/1>
+'   SWATD <dragging 0/1> <drop before entry, 0 = none> <pointer's grid row>
+'   SWATN <first selected> <live edit open 0/1> <FG RRGGBB> <its name>
 '   SWATS <selected> <anchor> <i> ...           (up to 64 selected entries)
 '   SWATG <gridX> <gridY> <gridW> <gridH> <setButton x y w h> <gear x y w h> <edit menu button x y w h>
 '   SWATC <i> <x> <y> <w> <h> <kind> <RRGGBB> <flags: 1 lock 2 group>   (the first 48 entries, the ones showing, the last)
@@ -1726,6 +1974,11 @@ FUNCTION SWP_dump$ ()
     DIM sn AS LONG
     ' editing: undo steps, redo steps, saves, the set is in My Swatches
     d = d + "SWATE" + DOCK_n$(SWP_undo_count%(SWP.setKey, 0)) + DOCK_n$(SWP_undo_count%(SWP.setKey, 1)) + DOCK_n$(SWP_SAVES) + DOCK_n$(-(SWP_is_mine%(SWP.setKey) <> 0)) + lf
+    d = d + "SWATD" + DOCK_n$(-(SWP.dragMoving <> 0)) + DOCK_n$(SWP.dragDrop) + DOCK_n$(SWP.dragRow) + lf
+    i = SWP_first_sel&
+    d = d + "SWATN" + DOCK_n$(i) + DOCK_n$(-(SWP.liveOpen <> 0)) + " " + RIGHT$("000000" + HEX$(PAINT_COLOR~& AND &HFFFFFF~&), 6)
+    IF i > 0 THEN d = d + " " + SWP_ascii$(SWS(i).nm)
+    d = d + lf
     d = d + "SWATS" + DOCK_n$(SWS_sel_count&) + DOCK_n$(SWP.anchor)
     FOR i = 1 TO SWS_N
         IF SWS(i).sel THEN

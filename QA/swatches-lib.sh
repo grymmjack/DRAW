@@ -90,3 +90,23 @@ sw_menu_click() {
 sw_menu_edit() { sw_geo; click $(( M_X + M_W / 2 )) $(( M_Y + M_H / 2 )); dk_settle; }
 # the hex of every entry in order ("-" = empty cell, "|" = row break), from SWATC
 sw_hexes() { awk '$1=="SWATC" { for (k = p + 1; p && k < $2; k++) printf " |"; printf "%s%s", (n++ ? " " : ""), ($7==1 ? "-" : $8); p = $2 } END {print ""}' "$DK_DUMP"; }
+# SWATD: a swatch drag - on 0/1, the entry it would drop before (0 = none), the pointer's row
+sw_dragstate() { read -r _ SD_ON SD_DROP SD_ROW <<< "$(grep '^SWATD ' "$DK_DUMP")"; }
+# the left / right half of entry $1's cell (where a drop goes before / after it)
+sw_left_of()  { sw_cell "$1"; TX=$(( C_X + 1 )); TY=$(( C_Y + C_H / 2 )); }
+sw_right_of() { sw_cell "$1"; TX=$(( C_X + C_W - 2 )); TY=$(( C_Y + C_H / 2 )); }
+# sw_drag_hold X1 Y1 X2 Y2 [SHOT] - press, travel, hold still (SWATD read into
+# SD_* while the button is down; SHOT = a screenshot then), release. Wrap it in
+# `with_mods ctrl` for a copy.
+sw_drag_hold() {
+    local x1=$1 y1=$2 x2=$3 y2=$4 i
+    mouse_down "$x1" "$y1"; sleep 0.2
+    for (( i = 1; i <= 6; i++ )); do
+        hover $(( x1 + (x2 - x1) * i / 6 )) $(( y1 + (y2 - y1) * i / 6 )); sleep 0.1
+    done
+    hover "$x2" "$y2"; dk_settle; sw_dragstate
+    [[ -n "${5:-}" ]] && screenshot "$5"
+    mouse_up; dk_settle
+}
+# drag entry $1 to (TX, TY)
+sw_drag_entry() { local fx fy; sw_cell "$1"; fx=$(( C_X + C_W / 2 )); fy=$(( C_Y + C_H / 2 )); sw_drag_hold "$fx" "$fy" "$TX" "$TY" "${2:-}"; }

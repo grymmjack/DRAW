@@ -760,6 +760,7 @@ DO
     MOUSE_input_handler
     ANIM_LB_view_pop
     PALETTE_OPS_tick
+    SWP_tick ' a selected swatch follows the color panels (live edit)
     PALETTE_STRIP_watch_colors ' FG/BG changed elsewhere -> refresh the chip frames
     PERF_stop PERF_MOUSE_INPUT
     PERF_start PERF_KEYBOARD_INPUT

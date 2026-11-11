@@ -107,6 +107,24 @@ TYPE SWATCHES_PANEL_OBJ
     boxX1    AS INTEGER
     boxY1    AS LONG
     selBase  AS STRING  ' the selection before an adding box (CHR$(0/1) per entry)
+    ' dragging swatches: a press on a selected swatch arms it, 4 px of travel
+    ' starts the move; the release drops before dragDrop (Ctrl = a copy)
+    dragArm    AS INTEGER ' B1 went down on a selected swatch
+    dragMoving AS INTEGER ' ... and has travelled: a move / copy is on
+    dragFrom   AS LONG    ' the swatch pressed
+    dragX0     AS INTEGER ' native px where it was pressed
+    dragY0     AS INTEGER
+    dragDrop   AS LONG    ' insert before this entry (SWS_N + 1 = the end; 0 = no drop: off the panel)
+    dragRow    AS LONG    ' the grid row the pointer is on (where the drop marker goes)
+    dragPend   AS INTEGER ' the press was on a selected swatch: its click waits for the release (no drag = the click)
+    dragPendShift AS INTEGER
+    dragPendCtrl  AS INTEGER
+    ' live edit: one swatch selected, the color panels change it (SWP_tick)
+    liveIdx  AS LONG           ' the swatch being followed (0 = none)
+    liveLast AS _UNSIGNED LONG ' the FG last seen
+    liveOpen AS INTEGER        ' an edit step is open (closed on the mouse-up)
+    clickT   AS DOUBLE         ' the last press on a swatch (double-click = edit its color)
+    clickI   AS LONG
     closeHover AS INTEGER
     hoverBar   AS INTEGER ' 1 = the set name, 2 = the gear
 
