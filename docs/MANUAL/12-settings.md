@@ -89,6 +89,7 @@ Anything you can theme — UI palette, transform-overlay frame, smart-guide colo
 
 - **Display Scale** — 1× through 8×. Suits HiDPI monitors.
 - **Toolbar Scale** — 1× through 4×. Independent of display scale, so you can have small toolbar icons on a HiDPI display.
+- **Panel Scale** — the Animation, Color Mixer, Advanced Color Picker, 3D Color Space and Pen Pressure panels each have their own size: **Auto** (the default) follows the UI Scale, or fix one at 1× through 8×. Right-click the panel's title bar → **Scale**, or Settings → Panels → Panel Scale.
 
 <div class="page-break"></div>
 
@@ -115,7 +116,8 @@ Beyond left and right, panels can be **stacked** in one column, **tabbed**,
 **collapsed** to their title, **floated** in their own window and docked back.
 Drag a panel by its handle (its title strip, the layers header, or the thin
 grip that appears on a panel's top edge), and right-click a handle for Move to
-Left/Right Edge, Collapse, Float and Reset Arrangement. The floating windows
+Left/Right Edge, Collapse, Float, Reset Arrangement and — on the Animation, Color
+Mixer, color picker, 3D Color Space and Pen Pressure panels — **Scale** (Auto or 1×–4×). The floating windows
 (Preview, Color Mixer, the color pickers, Pen Pressure, Browser) dock by
 dragging their title bar onto a dock target. See **[Chapter 22 — Moving,
 stacking, tabbing and floating panels](22-workspaces-capture.md#moving-stacking-tabbing-and-floating-panels)**.

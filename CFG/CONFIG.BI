@@ -442,9 +442,11 @@ TYPE DRAW_CONFIG
     PREVIEW_FLOAT_LAST_DIR          AS STRING         ' Last directory used for Load Image dialog
     ' Color Mixer settings
     COLOR_MIXER_VISIBLE             AS INTEGER        ' TRUE = color mixer panel open at startup
+    COLOR_MIXER_SCALE               AS INTEGER        ' Color Mixer scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     COLOR_MIXER_X                   AS INTEGER        ' Last panel X (-1 = auto-position)
     COLOR_MIXER_Y                   AS INTEGER        ' Last panel Y (-1 = auto-position)
     ADV_COLOR_PICKER_VISIBLE        AS INTEGER        ' TRUE = advanced color picker panel open at startup
+    ADV_COLOR_PICKER_SCALE          AS INTEGER        ' Advanced Color Picker scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     ADV_COLOR_PICKER_X              AS INTEGER        ' Last panel X (-1 = auto-position)
     ADV_COLOR_PICKER_Y              AS INTEGER        ' Last panel Y (-1 = auto-position)
     ADV_COLOR_PICKER_SHADE_PATCHES  AS INTEGER        ' Shade selector: patches per row (3-15)
@@ -463,6 +465,7 @@ TYPE DRAW_CONFIG
     ADV_COLOR_PICKER_HUE_NEIGHBORS  AS INTEGER        ' Hue-neighbors ± range (deg); draggable on the ring
     ' 3D Color Space picker (GUI/COLOR-SPACE-3D, QB64_GJ_LIB COLOR-3D widget)
     COLOR_SPACE_3D_VISIBLE          AS INTEGER        ' TRUE = 3D color space panel open at startup
+    COLOR_SPACE_3D_SCALE            AS INTEGER        ' 3D Color Space panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     COLOR_SPACE_3D_X                AS INTEGER        ' Last panel X (-1 = auto-position)
     COLOR_SPACE_3D_Y                AS INTEGER        ' Last panel Y (-1 = auto-position)
     COLOR_SPACE_3D_SPACE            AS INTEGER        ' 0=OKLab, 1=CIELAB, 2=XYZ, 3=RGB
@@ -493,9 +496,11 @@ TYPE DRAW_CONFIG
     PEN_MIN_OPACITY                 AS INTEGER        ' Opacity at the lightest touch, percent (0-100)
     PEN_TIP_THRESHOLD               AS INTEGER        ' Pen draws only once pressure reaches this percent (0-50); ignores grazes that register as clicks
     PEN_PANEL_VISIBLE               AS INTEGER        ' TRUE = Pen Pressure panel open at startup
+    PEN_PANEL_SCALE                 AS INTEGER        ' Pen Pressure panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     PEN_PANEL_X                     AS INTEGER        ' Last panel X (-1 = auto-position)
     PEN_PANEL_Y                     AS INTEGER        ' Last panel Y (-1 = auto-position)
     ANIM_PANEL_VISIBLE              AS INTEGER        ' TRUE = Animation panel open at startup
+    ANIM_PANEL_SCALE                AS INTEGER        ' Animation panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     ANIM_PANEL_X                    AS INTEGER        ' Last Animation panel X (-1 = auto-position)
     ANIM_PANEL_Y                    AS INTEGER        ' Last Animation panel Y (-1 = auto-position)
     ' Browser panel settings

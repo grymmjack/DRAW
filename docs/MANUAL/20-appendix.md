@@ -141,7 +141,7 @@ See [Ch. 21 — AI Image Generation](21-ai-generation.md).
 | Workspace switcher | `Ctrl+Shift+W` |
 | Show what a workspace hid / hide it again | `F11` (inside a workspace) |
 | Move a panel (new column / stack / tab / float) | Drag its handle (title strip, layers header, top-edge grip) |
-| Panel menu: Move to Left/Right, Collapse, Float / Dock Back, Reset Arrangement | Right-click a handle |
+| Panel menu: Move to Left/Right, Collapse, Float / Dock Back, Scale (floating-panel family), Reset Arrangement | Right-click a handle |
 | Collapse / expand a slot | Click its chevron, or double-click its title; click a collapsed title to open it |
 | Dock a floating window | Drag its title bar onto a dock target |
 | Capture Screen | `Ctrl+Shift+P` (or `DRAW --capture`) |
