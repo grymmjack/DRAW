@@ -73,6 +73,7 @@ mv_undo() { # KEY (ctrl+z / ctrl+y) - the undo position must move; a key the app
     [[ "$M_HIST" == "$h0" ]] && { info "$1 not seen (undo position $h0) - once more"; mv_key "$1"; mv_read; }
 }
 mv_set() { # "COMMAND" VAR WANT - a setting from the palette, once more if the palette missed it
+    # (short queries: on the slow user profile a long one can lose a typed key)
     mv_cmd "$1"; mv_read
     [[ "${!2}" == "$3" ]] || { mv_cmd "$1"; mv_read; }
 }
@@ -196,7 +197,7 @@ else
         [[ "$M_B" == "$mv_empty" ]] && pass "AnimBrush: Ctrl+Z takes it all away" || fail "AnimBrush undo: [$M_B]"
 
         # -- next cel every 2 frames --
-        mv_set "move brush: next cel every 2" M_EVERY 2
+        mv_set "cel every 2" M_EVERY 2
         mv_cmd "move brush: start"; mv_drag 2 2 12 10
         mv_key Return; mv_read
         K=$(mv_want_k 1 4 2)
