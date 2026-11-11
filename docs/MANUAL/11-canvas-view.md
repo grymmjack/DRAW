@@ -44,7 +44,7 @@ Scrollbars appear automatically for canvases larger than the viewport. The canva
 
 1. **Follow** — a magnifier that tracks the cursor.
 2. **Floating Image** — a static reference display (e.g., the source you're tracing).
-3. **Bin Quick Look** — hover any drawer slot to see its content full-size in the preview.
+3. **Bin Quick Look** — hover any drawer slot to see its content big in the preview. A small brush grows by whole steps (a 7×5 brush shows at 7×5 × 4, say), so pixel art stays crisp; a big one shrinks to fit. Patterns tile the pane. Works on bins you scrolled to as well. Turn it off in **Settings → Panels → Preview → Bin Quick Look**.
 
 Independent zoom and pan inside the preview, plus **`Alt`+Click to color-pick** without switching tools. The preview also remembers up to 10 recent images for quick swaps.
 

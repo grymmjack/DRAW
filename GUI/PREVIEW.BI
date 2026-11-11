@@ -101,9 +101,11 @@ TYPE PREVIEW_OBJ
     ' Bin Quick Look state
     binQuickLookEnabled AS INTEGER    ' TRUE = show bin preview on drawer hover
     binQuickLookActive  AS INTEGER    ' TRUE = currently showing a bin preview
-    binQuickLookSlot    AS INTEGER    ' Which drawer slot (1..30) is previewed
+    binQuickLookSlot    AS INTEGER    ' Which drawer slot (1..DRAWER_SLOT_COUNT) is previewed
     binQuickLookMode    AS INTEGER    ' DRAWER_MODE_BRUSH / PATTERN / GRADIENT
     binQuickLookImg     AS LONG       ' Temp image handle for bin preview content
+    binQuickLookDrawW   AS INTEGER    ' size the brush was last drawn at in the pane (QA dump PVQL)
+    binQuickLookDrawH   AS INTEGER
 
     ' Floating image tooltip hover tracking
     floatTooltipHoverStart AS DOUBLE  ' TIMER value when hover began

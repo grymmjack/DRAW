@@ -103,6 +103,7 @@ set its columns in a workspace):
 - **Narrow:** fewer bin columns. When even one bin can't sit beside the mini palette (if it's on), the palette moves under the bins.
 - **Not every row fits:** **`Shift`+wheel** over the bins scrolls them. The plain wheel still switches `.dset` sets.
 - **The bins fill the width:** they grow to span the drawer, so no strip is left at the right.
+- **See a bin big:** hover it and the Preview panel shows it enlarged (Bin Quick Look, see Chapter 11).
 - **Zoom:** **`Ctrl`+wheel** over the bins zooms them: wheel up gives fewer, bigger bins per row (down to 1), wheel down gives more, smaller ones (up to 12). DRAW remembers the zoom (`DRAWER_BIN_COLS` in DRAW.cfg). To go back to the automatic size, right-click a bin and choose **Bin Size: Auto**.
 
 ### 1-bit patterns
