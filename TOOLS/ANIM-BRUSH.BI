@@ -68,3 +68,12 @@ DIM SHARED AB_ORDER AS INTEGER ' AB_ORD_*
 DIM SHARED AB_SV AS AB_OBJ
 DIM SHARED AB_SV_CEL(1 TO AB_MAX_CELS) AS LONG
 DIM SHARED AB_SV_FROM(1 TO AB_MAX_CELS) AS INTEGER
+
+' An AnimBrush in a Drawer brush slot (DRAW_BRUSH.CELS / N / CW / CH): stored
+' with Shift+click like any brush, a film-strip badge with the cel count on the
+' bin, hovering plays it in the bin and in the Preview's Quick Look. Files: a
+' .dset block after the slots (AB_DSET_MAGIC$, skipped by older DRAWs), and
+' the "drAb" PNG chunk in a .draw.
+CONST AB_DSET_MAGIC$ = "DSA1"
+CONST AB_DRAB_VERSION = 1
+DIM SHARED AB_QL_CEL AS INTEGER ' the cel the Preview's Quick Look shows (0 = not an AnimBrush slot)

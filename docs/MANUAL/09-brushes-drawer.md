@@ -121,6 +121,13 @@ The **Drawer panel** is a docked grid of 96 slots per mode that hold reusable br
 | Drag-and-drop slots | Reorder. |
 | Drop image files onto the panel | Batch import as slot brushes. |
 
+**AnimBrush bins.** `Shift`+click a bin while you hold an AnimBrush and the bin keeps every
+cel: it shows cel 1 with a small film-strip badge holding the cel count, and while you hover
+it the bin plays (at the animation's FPS) - so does the Preview's Bin Quick Look. Click the
+bin to get the AnimBrush back, cels and all. Dragging the bin moves its cels with it; storing
+a plain brush over it makes it one picture again. AnimBrush bins are saved in `.dset` sets and
+in `.draw` files; an older DRAW opens those with the bin's first cel only.
+
 <div class="page-break"></div>
 
 ### `.dset` import / export

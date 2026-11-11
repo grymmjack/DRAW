@@ -469,3 +469,288 @@ FUNCTION AB_cel_at$ (f AS INTEGER)
         END IF
     NEXT k
 END FUNCTION
+
+
+' =============================================================================
+' An AnimBrush in a Drawer brush slot (A4)
+' =============================================================================
+
+''
+' Forget slot i's cels (its picture stays).
+SUB AB_slot_drop (i AS INTEGER)
+    IF i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN EXIT SUB
+    IF DRAWER_BRUSH_SLOTS(i).CELS < -1 THEN _FREEIMAGE DRAWER_BRUSH_SLOTS(i).CELS
+    DRAWER_BRUSH_SLOTS(i).CELS = 0: DRAWER_BRUSH_SLOTS(i).N = 0
+    DRAWER_BRUSH_SLOTS(i).CW = 0: DRAWER_BRUSH_SLOTS(i).CH = 0
+END SUB
+
+''
+' Does slot i hold an AnimBrush?
+FUNCTION AB_slot_has% (i AS INTEGER)
+    IF i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN EXIT FUNCTION
+    AB_slot_has% = (DRAWER_BRUSH_SLOTS(i).N > 0 _ANDALSO DRAWER_BRUSH_SLOTS(i).CELS < -1 _ANDALSO DRAWER_BRUSH_SLOTS(i).IMG < -1)
+END FUNCTION
+
+''
+' Shift+click on a bin with an AnimBrush: the slot keeps every cel (its
+' picture is cel 1). TRUE = stored. Too wide for the file format (the strip
+' is one INTEGER wide) = FALSE, and the slot takes the one picture.
+FUNCTION AB_slot_store% (i AS INTEGER)
+    DIM k AS INTEGER, strip AS LONG
+    AB_slot_drop i
+    IF AB_active% = 0 _ORELSE i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN EXIT FUNCTION
+    IF AB.w < 1 _ORELSE AB.h < 1 THEN EXIT FUNCTION
+    IF CLNG(AB.w) * AB.n > 32767 THEN
+        _LOGWARN "AnimBrush: " + _TRIM$(STR$(AB.n)) + " cels of" + STR$(AB.w) + " px are too wide for a bin - stored as one picture"
+        EXIT FUNCTION
+    END IF
+    strip = _NEWIMAGE(CLNG(AB.w) * AB.n, AB.h, 32)
+    _DONTBLEND strip
+    FOR k = 1 TO AB.n
+        IF AB_CEL(k) < -1 THEN _PUTIMAGE ((k - 1) * CLNG(AB.w), 0), AB_CEL(k), strip
+    NEXT k
+    _BLEND strip
+    SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(i).IMG
+    DRAWER_BRUSH_SLOTS(i).IMG = _COPYIMAGE(AB_CEL(1), 32)
+    DRAWER_BRUSH_SLOTS(i).W = AB.w: DRAWER_BRUSH_SLOTS(i).H = AB.h
+    DRAWER_BRUSH_SLOTS(i).CELS = strip: DRAWER_BRUSH_SLOTS(i).N = AB.n
+    DRAWER_BRUSH_SLOTS(i).CW = AB.w: DRAWER_BRUSH_SLOTS(i).CH = AB.h
+    AB_slot_store% = TRUE
+END FUNCTION
+
+''
+' A copy of slot i's cel k (the caller frees it); 0 = none.
+FUNCTION AB_slot_cel_img& (i AS INTEGER, k AS INTEGER)
+    DIM img AS LONG, cw AS LONG, ch AS LONG
+    IF AB_slot_has%(i) = 0 _ORELSE k < 1 _ORELSE k > DRAWER_BRUSH_SLOTS(i).N THEN EXIT FUNCTION
+    cw = DRAWER_BRUSH_SLOTS(i).CW: ch = DRAWER_BRUSH_SLOTS(i).CH
+    img = _NEWIMAGE(cw, ch, 32)
+    _DONTBLEND img
+    _PUTIMAGE (0, 0), DRAWER_BRUSH_SLOTS(i).CELS, img, ((k - 1) * cw, 0)-(k * cw - 1, ch - 1)
+    _BLEND img
+    AB_slot_cel_img& = img
+END FUNCTION
+
+''
+' Picking slot i (DRAWER_load_brush_slot_to_custom, after it set the brush up
+' from the slot's picture): the AnimBrush comes back, every cel. Cel 1 goes
+' on frame 1 (cel follows the frame).
+SUB AB_slot_load (i AS INTEGER)
+    DIM k AS INTEGER, n AS INTEGER
+    IF AB_slot_has%(i) = 0 _ORELSE CUSTOM_BRUSH.ACTIVE% = 0 THEN EXIT SUB
+    AB_clear
+    n = _MIN(DRAWER_BRUSH_SLOTS(i).N, AB_MAX_CELS)
+    FOR k = 1 TO n
+        AB_CEL(k) = AB_slot_cel_img&(i, k)
+        AB_FROM(k) = k
+    NEXT k
+    AB.n = n: AB.w = DRAWER_BRUSH_SLOTS(i).CW: AB.h = DRAWER_BRUSH_SLOTS(i).CH
+    AB.merged = FALSE: AB.srcF = 1: AB.anchor = 1: AB.clickPos = 0
+    AB.cur = 0
+    AB_show 1
+END SUB
+
+''
+' The cel a bin shows while hovered: the cels play at the animation's FPS
+' (12 without frames).
+FUNCTION AB_slot_cel_now% (i AS INTEGER)
+    DIM fps AS LONG, n AS LONG
+    IF AB_slot_has%(i) = 0 THEN EXIT FUNCTION
+    n = DRAWER_BRUSH_SLOTS(i).N
+    fps = 12
+    IF ANIM.active _ANDALSO ANIM.fps > 0 THEN fps = ANIM.fps
+    AB_slot_cel_now% = 1 + (INT(TIMER(.001) * fps) MOD n)
+END FUNCTION
+
+''
+' Draw slot i's cel k into (x1, y1)-(x2, y2) of dest (the bin).
+SUB AB_slot_put (i AS INTEGER, k AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, dest AS LONG)
+    DIM cw AS LONG, ch AS LONG
+    IF AB_slot_has%(i) = 0 _ORELSE k < 1 _ORELSE k > DRAWER_BRUSH_SLOTS(i).N THEN EXIT SUB
+    cw = DRAWER_BRUSH_SLOTS(i).CW: ch = DRAWER_BRUSH_SLOTS(i).CH
+    _PUTIMAGE (x1, y1)-(x2, y2), DRAWER_BRUSH_SLOTS(i).CELS, dest, ((k - 1) * cw, 0)-(k * cw - 1, ch - 1)
+END SUB
+
+''
+' The bin's film-strip badge, bottom right at (x2, y2): sprocket holes along
+' the top and bottom edges and the cel count in 3x5 digits (on the current _DEST).
+SUB AB_slot_badge (i AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    DIM t AS STRING, d AS INTEGER, bw AS INTEGER, bx AS INTEGER, by AS INTEGER
+    DIM gx AS INTEGER, gy AS INTEGER, g AS STRING, x AS INTEGER, bg AS _UNSIGNED LONG, fg AS _UNSIGNED LONG
+    IF AB_slot_has%(i) = 0 THEN EXIT SUB
+    t = _TRIM$(STR$(_MIN(DRAWER_BRUSH_SLOTS(i).N, 999)))
+    bw = LEN(t) * 4 + 3 ' 1 px pad, 3 px digits + 1 gap, 1 px pad
+    bx = x2 - bw + 1: by = y2 - 8: IF bx < x1 THEN bx = x1
+    IF by < y1 THEN by = y1
+    bg = THEME.DRAWER_BIN_1BIT_SIGIL_BG~&: fg = THEME.DRAWER_BIN_1BIT_SIGIL_FG~&
+    LINE (bx, by)-(bx + bw - 1, by + 8), bg, BF
+    FOR x = bx + 1 TO bx + bw - 2 STEP 2 ' the sprocket holes
+        PSET (x, by), fg: PSET (x, by + 8), fg
+    NEXT x
+    FOR d = 1 TO LEN(t)
+        g = AB_digit$(ASC(t, d) - 48)
+        FOR gy = 0 TO 4
+            FOR gx = 0 TO 2
+                IF MID$(g, gy * 3 + gx + 1, 1) = "1" THEN PSET (bx + 2 + (d - 1) * 4 + gx, by + 2 + gy), fg
+            NEXT gx
+        NEXT gy
+    NEXT d
+END SUB
+
+FUNCTION AB_digit$ (n AS INTEGER)
+    SELECT CASE n
+        CASE 0: AB_digit$ = "111101101101111"
+        CASE 1: AB_digit$ = "010110010010111"
+        CASE 2: AB_digit$ = "111001111100111"
+        CASE 3: AB_digit$ = "111001111001111"
+        CASE 4: AB_digit$ = "101101111001001"
+        CASE 5: AB_digit$ = "111100111001111"
+        CASE 6: AB_digit$ = "111100111101111"
+        CASE 7: AB_digit$ = "111001001001001"
+        CASE 8: AB_digit$ = "111101111101111"
+        CASE ELSE: AB_digit$ = "111101111001111"
+    END SELECT
+END FUNCTION
+
+''
+' Main loop: a hovered AnimBrush bin plays - redraw when its cel changes.
+FUNCTION AB_bin_needs_redraw% ()
+    STATIC lastSlot AS INTEGER, lastK AS INTEGER
+    DIM s AS INTEGER, k AS INTEGER
+    IF DRAWER.visible% _ANDALSO DRAWER.mode% = DRAWER_MODE_BRUSH THEN
+        s = DRAWER_slot_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+        IF s > 0 THEN k = AB_slot_cel_now%(s)
+    END IF
+    IF k = 0 THEN s = 0
+    IF s <> lastSlot _ORELSE k <> lastK THEN
+        AB_bin_needs_redraw% = (k > 0 _ORELSE lastK > 0)
+        lastSlot = s: lastK = k
+    END IF
+END FUNCTION
+
+''
+' Slot i's cels as bytes: the strip's pixels (BGRA, row by row).
+FUNCTION AB_slot_bytes$ (i AS INTEGER)
+    DIM m AS _MEM, s AS STRING
+    IF AB_slot_has%(i) = 0 THEN EXIT FUNCTION
+    m = _MEMIMAGE(DRAWER_BRUSH_SLOTS(i).CELS)
+    s = SPACE$(m.SIZE): _MEMGET m, m.OFFSET, s
+    _MEMFREE m
+    AB_slot_bytes$ = s
+END FUNCTION
+
+''
+' Give slot i (holding its picture already) the cels in bytes - n cels of
+' cw x ch side by side. Anything that does not add up is dropped.
+SUB AB_slot_set_bytes (i AS INTEGER, n AS INTEGER, cw AS INTEGER, ch AS INTEGER, b AS STRING)
+    DIM strip AS LONG, m AS _MEM
+    AB_slot_drop i
+    IF i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN EXIT SUB
+    IF DRAWER_BRUSH_SLOTS(i).IMG >= -1 _ORELSE n < 1 _ORELSE cw < 1 _ORELSE ch < 1 THEN EXIT SUB
+    IF CLNG(cw) * n > 32767 _ORELSE LEN(b) <> CLNG(cw) * n * ch * 4 THEN EXIT SUB
+    strip = _NEWIMAGE(CLNG(cw) * n, ch, 32)
+    m = _MEMIMAGE(strip)
+    _MEMPUT m, m.OFFSET, b
+    _MEMFREE m
+    DRAWER_BRUSH_SLOTS(i).CELS = strip: DRAWER_BRUSH_SLOTS(i).N = n
+    DRAWER_BRUSH_SLOTS(i).CW = cw: DRAWER_BRUSH_SLOTS(i).CH = ch
+END SUB
+
+''
+' The AnimBrush slots, for a .dset (after its slots) or the drAb chunk:
+' count, then per slot: slot, n, cw, ch, the strip's bytes.
+FUNCTION AB_slots_blob$ ()
+    DIM i AS INTEGER, c AS INTEGER, s AS STRING
+    FOR i = 1 TO DRAWER_SLOT_COUNT
+        IF AB_slot_has%(i) THEN
+            c = c + 1
+            s = s + MKI$(i) + MKI$(DRAWER_BRUSH_SLOTS(i).N) + MKI$(DRAWER_BRUSH_SLOTS(i).CW) + MKI$(DRAWER_BRUSH_SLOTS(i).CH) + AB_slot_bytes$(i)
+        END IF
+    NEXT i
+    IF c THEN AB_slots_blob$ = MKI$(c) + s
+END FUNCTION
+
+''
+' Read AB_slots_blob$ from b starting at p (moves p past it).
+SUB AB_slots_from_blob (b AS STRING, p AS LONG)
+    DIM c AS INTEGER, j AS INTEGER, i AS INTEGER, n AS INTEGER, cw AS INTEGER, ch AS INTEGER, sz AS LONG
+    IF p + 1 > LEN(b) THEN EXIT SUB
+    c = CVI(MID$(b, p, 2)): p = p + 2
+    FOR j = 1 TO c
+        IF p + 7 > LEN(b) THEN EXIT FOR
+        i = CVI(MID$(b, p, 2)): n = CVI(MID$(b, p + 2, 2)): cw = CVI(MID$(b, p + 4, 2)): ch = CVI(MID$(b, p + 6, 2)): p = p + 8
+        IF n < 1 _ORELSE cw < 1 _ORELSE ch < 1 THEN EXIT FOR
+        sz = CLNG(cw) * n * ch * 4
+        IF p + sz - 1 > LEN(b) THEN EXIT FOR
+        AB_slot_set_bytes i, n, cw, ch, MID$(b, p, sz)
+        p = p + sz
+    NEXT j
+END SUB
+
+''
+' .dset (brush mode): the AnimBrush slots after the slots and the DSX1 block.
+SUB AB_slots_write_dset (fh AS INTEGER)
+    DIM b AS STRING, mg AS STRING * 4
+    b = AB_slots_blob$
+    IF LEN(b) = 0 THEN EXIT SUB
+    mg = AB_DSET_MAGIC$
+    PUT #fh, , mg
+    PUT #fh, , b
+END SUB
+
+''
+' .dset: read the AnimBrush block (its magic already read).
+SUB AB_slots_read_dset (fh AS INTEGER)
+    DIM b AS STRING, p AS LONG
+    IF SEEK(fh) > LOF(fh) THEN EXIT SUB
+    b = SPACE$(LOF(fh) - SEEK(fh) + 1)
+    GET #fh, , b
+    p = 1
+    AB_slots_from_blob b, p
+END SUB
+
+''
+' The .draw's "drAb" chunk data: version, then AB_slots_blob$ ("" = none).
+FUNCTION AB_drab$ ()
+    DIM b AS STRING
+    b = AB_slots_blob$
+    IF LEN(b) THEN AB_drab$ = MKI$(AB_DRAB_VERSION) + b
+END FUNCTION
+
+''
+' Read a .draw's drAb chunk (after the drawer's slots are in). The custom
+' brush, picked from its slot when saved, comes back as the AnimBrush.
+SUB AB_read_drab (raw AS STRING)
+    DIM p AS LONG
+    IF LEN(raw) < 4 THEN EXIT SUB
+    IF CVI(LEFT$(raw, 2)) < 1 _ORELSE CVI(LEFT$(raw, 2)) > AB_DRAB_VERSION THEN
+        _LOGWARN "AnimBrush: drAb chunk version" + STR$(CVI(LEFT$(raw, 2))) + " is newer than this DRAW - the bins keep one picture"
+        EXIT SUB
+    END IF
+    p = 3
+    AB_slots_from_blob raw, p
+    IF CUSTOM_BRUSH_is_active% _ANDALSO AB_slot_has%(DRAWER.brushSelected%) THEN DRAWER_load_brush_slot_to_custom DRAWER.brushSelected%
+END SUB
+
+''
+' QA dump: ABBIN slot:n:cw:ch:stripCrc ... ; ABQL hoverSlot hoverCel qlSlot qlCel qlCrc
+FUNCTION AB_bin_dump$ ()
+    DIM d AS STRING, i AS INTEGER, s AS INTEGER, k AS INTEGER
+    d = "ABBIN"
+    FOR i = 1 TO DRAWER_SLOT_COUNT
+        IF AB_slot_has%(i) THEN
+            d = d + " " + _TRIM$(STR$(i)) + ":" + _TRIM$(STR$(DRAWER_BRUSH_SLOTS(i).N)) + ":" + _TRIM$(STR$(DRAWER_BRUSH_SLOTS(i).CW)) + ":" + _TRIM$(STR$(DRAWER_BRUSH_SLOTS(i).CH)) + ":" + AB_crc$(DRAWER_BRUSH_SLOTS(i).CELS)
+        END IF
+    NEXT i
+    IF DRAWER.visible% _ANDALSO DRAWER.mode% = DRAWER_MODE_BRUSH THEN
+        s = DRAWER_slot_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+        IF s > 0 THEN k = AB_slot_cel_now%(s)
+    END IF
+    d = d + CHR$(10) + "ABQL" + DOCK_n$(s) + DOCK_n$(k)
+    IF PREVIEW.binQuickLookActive% _ANDALSO AB_QL_CEL > 0 THEN
+        d = d + DOCK_n$(PREVIEW.binQuickLookSlot%) + DOCK_n$(AB_QL_CEL) + " " + AB_crc$(PREVIEW.binQuickLookImg&)
+    ELSE
+        d = d + " 0 0 -"
+    END IF
+    AB_bin_dump$ = d + CHR$(10)
+END FUNCTION

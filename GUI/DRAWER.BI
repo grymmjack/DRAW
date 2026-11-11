@@ -57,9 +57,13 @@ CONST GRAD_STOP_BG   = 2 ' References current background (PAINT_BG_COLOR~&)
 
 ' A drawer brush slot: image handle plus its dimensions
 TYPE DRAW_BRUSH
-    IMG AS LONG
-    W   AS INTEGER
-    H   AS INTEGER
+    IMG  AS LONG
+    W    AS INTEGER
+    H    AS INTEGER
+    CELS AS LONG    ' an AnimBrush's cels side by side (N x CW wide, CH high); IMG is cel 1 (TOOLS/ANIM-BRUSH)
+    N    AS INTEGER ' cels (0 = a one-picture brush)
+    CW   AS INTEGER
+    CH   AS INTEGER
 END TYPE
 
 ' A single color stop in a gradient definition

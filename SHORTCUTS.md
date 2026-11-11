@@ -785,6 +785,7 @@ and paint with it.
 | ANIM → AnimBrush → **Order: Forward / Reverse / Ping-Pong / Once** | How the cels run (Once holds the last cel) |
 | `>` / `<`, `Ctrl+Home` / `Ctrl+End`, `Shift+O` (with an AnimBrush) | Rotate 90° / Scale 2x / Outline change **every** cel; Flip (`Home` / `End`), Scale (`PgUp` / `PgDn`) and Recolor (`F9`) apply to whichever cel a stamp uses |
 | `E` Eraser (with an AnimBrush) | Erases each frame's own cel shape; with Every Frame at Once, the whole animation in one press |
+| `Shift`+click a Drawer bin (with an AnimBrush) | Stores every cel; the bin shows a film-strip badge with the cel count and plays while hovered (the Preview's Quick Look too). Click the bin: the AnimBrush comes back. Saved in .dset and .draw |
 
 Which frames: the frames selected in the strip (two or more, Ctrl+click), else from the frame
 the selection is in to the last. The selection's shape (ellipse, lasso, magic wand) is kept in

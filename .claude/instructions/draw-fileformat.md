@@ -82,6 +82,19 @@ its image (+ its gradient record for a gradient set). An older DRAW stops readin
 `DRAWER_read_dset_slots`; the writer truncates first so a shorter set never keeps an old tail.
 Test: `QA/tests/drawer-slots.sh`, fixtures `QA/fixtures/make-drawer-fixtures.py`.
 
+### drAb Chunk / DSA1 block (AnimBrush bins, A4)
+
+A Drawer brush slot can hold an AnimBrush (`DRAW_BRUSH.CELS` = the cels side by side, `N`,
+`CW`, `CH`; `IMG` stays cel 1, so every older path - and an older DRAW - sees a one-picture
+brush). The cels ride outside every existing layout: a `.draw` gets an ancillary `drAb` chunk
+(`MKL$(raw size)` + `_DEFLATE$(raw)`, raw = `AB_drab$`: version(2) = `AB_DRAB_VERSION`, count(2),
+per slot: slot(2), n(2), cw(2), ch(2), the strip's BGRA bytes), read after drAx by
+`AB_read_drab` (which re-picks the custom brush from its slot so the AnimBrush comes back).
+A brush `.dset` gets `DSA1` (`AB_DSET_MAGIC$`) + the same count / slot records after the
+slots and any `DSX1` block (`AB_slots_write_dset` / `AB_slots_read_dset`, from
+`DRAWER_read_dset_slots`). Strips wider than 32767 px are not stored (the bin keeps one
+picture). Test: `QA/tests/animbrush-bin.sh` (fixtures made in the test).
+
 ### Binary Project Data
 
 | Section         | Fields | Version |

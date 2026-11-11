@@ -1105,6 +1105,18 @@ gotcha 15). It also stops playback and clears the ask answer.
   `AB_stamp_all`'s temps). A lightbox pane stamp picks its cel by `AB_frame_of%` (the frame under
   the stamp). Test `animbrush-transforms` (19: exact cel CRCs for rotate / 2x, outline sizes,
   eraser + flip via every-frame stamps checked with ANIMC, a pane stamp via ABRP).
+- A4 Drawer bins: `DRAW_BRUSH` has `CELS` (strip), `N`, `CW`, `CH`; `AB_slot_drop` at every
+  site that replaces or frees a brush slot's `IMG` (free_samples, clear_slot, slot_clear, the
+  import paths, clear_active_set); `DRAWER_swap_slots` swaps the whole TYPE so drags carry the
+  cels. Shift+click: `DRAWER_store_to_slot` -> `AB_slot_store%` when the source is the custom
+  brush and an AnimBrush is up. Picking: `DRAWER_load_brush_slot_to_custom` ends with
+  `AB_slot_load` (anchor 1). Render: `AB_slot_put` (hovered = `AB_slot_cel_now%`, TIMER x
+  `ANIM.fps`, 12 without frames) + `AB_slot_badge` (film strip, 3x5 digits). The main loop's
+  `AB_bin_needs_redraw%` keeps a hovered bin playing (redraw only when the cel changes); the
+  Preview's Quick Look re-copies when `AB_QL_CEL` changes. Files: see draw-fileformat.md (drAb /
+  DSA1). Dump `ABBIN slot:n:cw:ch:stripCrc`, `ABQL hoverSlot hoverCel qlSlot qlCel qlCrc`. Test
+  `animbrush-bin` (20: .dset load, pick, hover plays + Quick Look, store, Ctrl+B, drag, plain
+  over it, Save Drawer Set via the dialog with an absolute path, reload, .draw drAb + Ctrl+S).
 - Dump: `ABR n cur w h merged srcFrame brushActive brushW brushH brushCrc`,
   `ABRC frame:crc ...` (BGRA CRC32, `0` = clear). Tests `animbrush-pickup` (expected CRCs
   worked out from the fixture in python), `animbrush-pickup-edges` (wand shape, stash, plain
