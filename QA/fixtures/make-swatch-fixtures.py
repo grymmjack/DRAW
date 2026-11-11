@@ -70,3 +70,27 @@ with open(os.path.join(here, 'swatches-edit.gpl'), 'w') as f:
     f.write('#SWS:SPACE\n')
     f.write('%3d %3d %3d\tGold\n' % (255, 200, 0))
 print('wrote swatches-ramps.gpl (%d colors), swatches-pad.aco (%d entries)' % (len(rows), len(ents)))
+
+# swatches-groups.ase  an Adobe Swatch Exchange file written here (not by
+#                      DRAW): "Ink" (RGB), group "Skin" (3 RGB), group "Sky"
+#                      (a CMYK cyan, a 50% Gray). DRAW reads it as
+#                      Ink | Skin1 Skin2 Skin3 | Cyan Gray, the group labels
+#                      on Skin1 and Cyan.
+def ase_name(n):
+    return struct.pack('>H', len(n) + 1) + n.encode('utf-16-be') + b'\0\0'
+def ase_block(t, data):
+    return struct.pack('>HI', t, len(data)) + data
+def ase_color(n, model, vals):
+    return ase_block(1, ase_name(n) + model + b''.join(struct.pack('>f', v) for v in vals) + struct.pack('>H', 2))
+blocks = [ase_color('Ink', b'RGB ', [16/255, 32/255, 48/255]),
+          ase_block(0xC001, ase_name('Skin')),
+          ase_color('Skin1', b'RGB ', [1.0, 224/255, 189/255]),
+          ase_color('Skin2', b'RGB ', [234/255, 192/255, 134/255]),
+          ase_color('Skin3', b'RGB ', [141/255, 85/255, 36/255]),
+          ase_block(0xC002, b''),
+          ase_block(0xC001, ase_name('Sky')),
+          ase_color('Cyan', b'CMYK', [1.0, 0.0, 0.0, 0.0]),
+          ase_color('Gray', b'Gray', [0.5]),
+          ase_block(0xC002, b'')]
+with open(os.path.join(here, 'swatches-groups.ase'), 'wb') as f:
+    f.write(b'ASEF' + struct.pack('>HHI', 1, 0, len(blocks)) + b''.join(blocks))

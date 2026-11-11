@@ -29,6 +29,7 @@ OPTION _EXPLICITARRAY
 CONST SWP_ACT_TOGGLE = 2600 ' View > Swatches
 CONST SWP_ACT_LOAD   = 2601 ' Load swatches... (any format -> My Swatches)
 CONST SWP_ACT_FOLDER = 2602 ' Open the My Swatches folder
+CONST SWP_ACT_SAVEAS = 2603 ' Save swatches as... (.gpl .aco .ase .act .pal .hex .txt .png)
 
 CONST SWP_MIN_W = 64  ' native px
 CONST SWP_MIN_H = 60

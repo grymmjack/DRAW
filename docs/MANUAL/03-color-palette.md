@@ -148,7 +148,12 @@ Palette workflows DRAW supports natively:
 - **Swatches** — the sets that ship with DRAW.
 - **Palettes** — the 56 built-in palettes, and your own saved ones under **My Palettes**.
 
-**Loading your own swatches.** Gear → **Load Swatches…** opens Photoshop **`.aco`** swatch files, GIMP / Aseprite / Inkscape / Krita **`.gpl`** palettes, Photoshop **`.act`** color tables, JASC / RIFF **`.pal`**, Lospec **`.hex`** and Paint.NET **`.txt`**. DRAW never changes your original: it saves a `.gpl` copy in **My Swatches** (Gear → **Open My Swatches Folder** shows where) and uses that.
+**Loading your own swatches.** Gear → **Load Swatches…** (or ☰ → **Load…**) opens Photoshop **`.aco`** swatch files, Adobe **`.ase`** swatch exchange files (Illustrator, InDesign, Photoshop), GIMP / Aseprite / Inkscape / Krita **`.gpl`** palettes, Photoshop **`.act`** color tables, JASC / RIFF **`.pal`**, Lospec **`.hex`**, Paint.NET **`.txt`** and **`.png`** images. DRAW never changes your original: it saves a `.gpl` copy in **My Swatches** (Gear → **Open My Swatches Folder** shows where) and uses that.
+
+- An **`.ase`** file's groups each start a new row, and the first swatch of a group carries the group's name. CMYK, Lab and gray swatches come in as their RGB colors.
+- A **`.png`** gives one swatch per distinct color, in reading order (left to right, top to bottom); transparent pixels are skipped. The number of colors on its first row sets the columns, so a palette strip or a grid of color cells comes back laid out the same way. An image with more than 1024 colors is refused.
+
+**Saving a set in another format.** ☰ → **Save As…** writes the set as `.gpl` (the default, and the only one that keeps empty cells, row breaks and locks), `.aco`, `.ase`, `.act`, `.pal`, `.hex`, `.txt`, or a **`.png`** of the grid as you see it (one cell per swatch, row breaks start a new row, empty cells are transparent). Type a name without an extension and you get a `.gpl`. The panel keeps showing the set you were on.
 
 **Laid out the way you made it.** A `.gpl` remembers its column count. A Photoshop `.aco` does not, so DRAW works it out from the ramps. Many Photoshop swatch sets pad their rows with black to line the ramps up; with **Black filler = empty cells** on (the default), that padding becomes empty cells and only the first black stays as a color.
 
@@ -202,6 +207,7 @@ DRAW never changes a swatch set it did not make. The first time you edit a shipp
 | **Insert OKLCh Ramp from FG** | | inserts an even dark-to-light ramp of the FG, using the *Generate OKLCh Ramp* settings (Settings → Panels → Color Blending + Ramps) |
 | **Steps** chips | | how many swatches an inserted ramp has (the same setting as Palette → Generate OKLCh Ramp) |
 | **Sort** chips: Hue · Light · Sat · Luma · Rev | | sort the selection (two or more selected), else the whole set, by hue, OKLab lightness, chroma or luminance — or reverse it. Only colors move: empty cells, row breaks and locked swatches stay put |
+| **Load…** / **Save As…** | | open a swatch file as a new set · save this set in another format (see above) |
 | **Select All / Select None** | **`Ctrl+A`** / **`Ctrl+D`** or **`Esc`** | |
 | **Undo / Redo** | **`Ctrl+Z`** / **`Ctrl+Y`** | the last swatch edit |
 
