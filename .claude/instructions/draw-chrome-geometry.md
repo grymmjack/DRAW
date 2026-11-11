@@ -133,7 +133,7 @@ DRAWER.panelY2% = SCRN.h& - toolbarBottomBars% - 1
   where toolbarBottomBars% = STATUS_height + PALETTE_STRIP_get_height%
 ```
 
-**Mini-palette rail** occupies ~34% of panel width (right side):
+**Mini-palette rail** occupies ~34% of panel width (right side) - only when `CFG.DRAWER_MINI_PALETTE` is on (default **off** since 2026-11-10: `DRAWER_layout` then gives the bins the whole width, up to `DRAWER_MAX_COLS`, `miniCellW/H` = 0 and `DRAWER_palette_cell_at%` returns 0; the QA adapter pins it on for the suite, `drawer-minipal-off.sh` covers off):
 
 | Source                            | Default | Description           |
 |-----------------------------------|---------|----------------------|

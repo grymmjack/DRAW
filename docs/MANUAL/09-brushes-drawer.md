@@ -90,14 +90,15 @@ The drawer state can be saved as a `.dset` file and reloaded later — a clean w
 
 ### Mini palette
 
-The Drawer also hosts a **mini palette** for quick FG / BG selection without hopping back to the main palette strip.
+The Drawer can show a **mini palette** beside its bins for quick FG / BG selection (left / right click). It is **off by default**: turn it on in **Settings → Panels → Drawer → Mini Palette**. With it off, the bins take its space (more columns, so every slot shows). For a full swatch panel, see **View → Swatches**.
 
 ### Narrow and wide toolboxes
 
 The drawer fits the toolbox column's width (drag the toolbox's inner edge, or
 set its columns in a workspace):
 - **Wider than the default 4 columns:** up to 6 bin columns, so fewer rows.
-- **Narrow:** fewer bin columns. When even one bin can't sit beside the mini palette, the palette moves under the bins.
+- **Without the mini palette** (the default): as many bin columns as fit the width, up to 6.
+- **Narrow:** fewer bin columns. When even one bin can't sit beside the mini palette (if it's on), the palette moves under the bins.
 - **Not every row fits:** **`Shift`+wheel** over the bins scrolls them. The plain wheel still switches `.dset` sets.
 
 ### 1-bit patterns

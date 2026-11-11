@@ -530,6 +530,7 @@ TYPE DRAW_CONFIG
     EDIT_BAR_COLUMNS                AS INTEGER        ' Edit bar icon columns (1-4, default 1)
     ADV_BAR_COLUMNS                 AS INTEGER        ' Advanced bar icon columns (1-4, default 1)
     ' Default drawer set files (path to .dset, empty = use built-in samples)
+    DRAWER_MINI_PALETTE             AS INTEGER        ' TRUE = the Drawer shows its mini palette beside / under the bins (off = the bins take its space)
     DEFAULT_DSET_BRUSHES_FILE       AS STRING         ' Default brush drawer set (.dset)
     DEFAULT_DSET_PATTERNS_FILE      AS STRING         ' Default pattern drawer set (.dset)
     DEFAULT_DSET_GRADIENTS_FILE     AS STRING         ' Default gradient drawer set (.dset)
