@@ -544,6 +544,7 @@ TYPE DRAW_CONFIG
     EDIT_BAR_COLUMNS                AS INTEGER        ' Edit bar icon columns (1-4, default 1)
     ADV_BAR_COLUMNS                 AS INTEGER        ' Advanced bar icon columns (1-4, default 1)
     ' Default drawer set files (path to .dset, empty = use built-in samples)
+    DRAWER_BIN_COLS                 AS INTEGER        ' bins per row (Ctrl+wheel over the bins; 0 = as many as the theme's bin size fits)
     DRAWER_MINI_PALETTE             AS INTEGER        ' TRUE = the Drawer shows its mini palette beside / under the bins (off = the bins take its space)
     DEFAULT_DSET_BRUSHES_FILE       AS STRING         ' Default brush drawer set (.dset)
     DEFAULT_DSET_PATTERNS_FILE      AS STRING         ' Default pattern drawer set (.dset)

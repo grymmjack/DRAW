@@ -1828,6 +1828,15 @@ SUB DRAWER_layout (contentX AS INTEGER, contentY AS INTEGER, binW AS INTEGER, bi
         END IF
         IF cols% > maxCols% THEN cols% = maxCols%
     END IF
+    ' Ctrl+wheel zoom: a set number of bins per row. Either way the bins are
+    ' sized to fill the width exactly - square, no strip left at the right
+    ' (Rick: "so they fit elegantly under the organizer with no wasted space").
+    DIM areaW AS INTEGER, used AS INTEGER
+    IF CFG.DRAWER_MINI_PALETTE% <> 0 _ANDALSO DRAWER_STACKED = FALSE THEN areaW% = leftAreaW% ELSE areaW% = contentW%
+    binW% = DRAWER_fill_bin%(areaW%, cols%, binGapX%, uiScale%)
+    binH% = binW%
+    used% = cols% * binW% + (cols% - 1) * binGapX%
+    IF used% < areaW% THEN contentX% = contentX% + (areaW% - used%) \ 2 ' the odd pixels, split
     totalRows% = (DRAWER_SLOT_COUNT + cols% - 1) \ cols%
     IF DRAWER_STACKED THEN
         ' the palette under the bins gets its own height (its image at the
@@ -1939,6 +1948,7 @@ FUNCTION DRAWER_content_h% (pw AS INTEGER)
         cols = (contentW + gx) \ (binW + gx)
         IF cols < 1 THEN cols = 1: binH = _MAX(contentW, 4 * s)
         IF cols > DRAWER_MAX_COLS THEN cols = DRAWER_MAX_COLS
+        binH = DRAWER_fill_bin%(contentW, cols, gx, s)
         rows = (DRAWER_SLOT_COUNT + cols - 1) \ cols
         DRAWER_content_h% = rows * (binH + gy) - gy + padY * 2
         EXIT FUNCTION
@@ -1951,6 +1961,7 @@ FUNCTION DRAWER_content_h% (pw AS INTEGER)
         railW = contentW
     END IF
     IF cols > maxCols THEN cols = maxCols
+    IF stacked THEN binH = DRAWER_fill_bin%(contentW, cols, gx, s) ELSE binH = DRAWER_fill_bin%(contentW - sep - railW, cols, gx, s)
     rows = (DRAWER_SLOT_COUNT + cols - 1) \ cols
     binsH = rows * (binH + gy) - gy
     palH = 8 * s
@@ -1958,6 +1969,24 @@ FUNCTION DRAWER_content_h% (pw AS INTEGER)
         IF _WIDTH(DRAWER_PALETTE_IMG&) > 0 _ANDALSO _HEIGHT(DRAWER_PALETTE_IMG&) > 0 THEN palH = (_HEIGHT(DRAWER_PALETTE_IMG&) * railW) \ _WIDTH(DRAWER_PALETTE_IMG&)
     END IF
     IF stacked THEN DRAWER_content_h% = binsH + sep + palH + padY * 2 ELSE DRAWER_content_h% = _MAX(binsH, palH) + padY * 2
+END FUNCTION
+
+
+''
+' DRAWER_layout's bin size for an area areaW wide: the zoom's columns (or the
+' auto ones, cols, BYREF) - each bin as wide as fills the width. Returns it.
+FUNCTION DRAWER_fill_bin% (areaW AS INTEGER, cols AS INTEGER, gx AS INTEGER, s AS INTEGER)
+    DIM b AS INTEGER
+    IF CFG.DRAWER_BIN_COLS% > 0 THEN cols = CFG.DRAWER_BIN_COLS%
+    IF cols > DRAWER_ZOOM_MAX_COLS THEN cols = DRAWER_ZOOM_MAX_COLS
+    IF cols < 1 THEN cols = 1
+    DO
+        b = (areaW - (cols - 1) * gx) \ cols
+        IF b >= 6 * s _ORELSE cols = 1 THEN EXIT DO
+        cols = cols - 1
+    LOOP
+    IF b < 4 THEN b = 4
+    DRAWER_fill_bin% = b
 END FUNCTION
 
 
@@ -3293,6 +3322,25 @@ SUB DRAWER_handle_wheel (mouseX AS INTEGER, mouseY AS INTEGER, wheelDelta AS INT
     IF wheelDelta% = 0 THEN EXIT SUB
     IF DRAWER.contextMenuOpen% THEN EXIT SUB
 
+    ' Ctrl+wheel zooms the bins: wheel up = bigger (fewer per row)
+    IF MODIFIERS.ctrl% THEN
+        DIM zc AS INTEGER
+        zc% = CFG.DRAWER_BIN_COLS%
+        IF zc% < 1 THEN zc% = DRAWER_COLS
+        IF wheelDelta% < 0 THEN zc% = zc% - 1 ELSE zc% = zc% + 1
+        IF zc% < 1 THEN zc% = 1
+        IF zc% > DRAWER_ZOOM_MAX_COLS THEN zc% = DRAWER_ZOOM_MAX_COLS
+        IF zc% <> CFG.DRAWER_BIN_COLS% THEN
+            CFG.DRAWER_BIN_COLS% = zc%
+            CONFIG_save
+            STATUS_flash "Drawer: " + _TRIM$(STR$(zc%)) + " bins per row (right-click > Bin Size: Auto to reset)"
+        END IF
+        GUI_NEEDS_REDRAW% = TRUE
+        SCENE_DIRTY%      = TRUE
+        FRAME_IDLE%       = FALSE
+        EXIT SUB
+    END IF
+
     ' Shift+wheel scrolls the bins when a narrow drawer can't show every row
     IF MODIFIERS.shift% THEN
         IF wheelDelta% > 0 THEN DRAWER_ROW0 = DRAWER_ROW0 + 1 ELSE DRAWER_ROW0 = DRAWER_ROW0 - 1
@@ -3453,6 +3501,10 @@ SUB DRAWER_context_menu_activate (actionValue AS INTEGER)
             GRADIENT_editor_dialog
         CASE DRAWER_CONTEXT_LOAD_IMAGES
             DRAWER_load_images_into_slots savedSlot%
+        CASE DRAWER_CONTEXT_BIN_AUTO
+            CFG.DRAWER_BIN_COLS% = 0
+            CONFIG_save
+            GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
     END SELECT
 END SUB
 
@@ -3546,6 +3598,14 @@ SUB DRAWER_context_menu_build (itemCount AS INTEGER)
     itemCount% = itemCount% + 1
 
     POPUP_MENU_set_item itemCount%, "EXPLORE FOLDER", "", DRAWER_CONTEXT_EXPLORE_FOLDER, 0
+    itemCount% = itemCount% + 1
+
+    ' bin size: Ctrl+wheel zooms; this puts it back to the theme's size
+    IF CFG.DRAWER_BIN_COLS% > 0 THEN
+        POPUP_MENU_set_item itemCount%, "BIN SIZE: AUTO", "CTRL+WHEEL", DRAWER_CONTEXT_BIN_AUTO, 0
+    ELSE
+        POPUP_MENU_set_item itemCount%, "BIN SIZE: AUTO", "CTRL+WHEEL", -1, POPUP_MENU_FLAG_DISABLED
+    END IF
     itemCount% = itemCount% + 1
 END SUB
 
@@ -3982,6 +4042,7 @@ END SUB
 ' @param target LONG Destination image handle to draw onto
 '
 SUB DRAWER_wheel_tooltip_render (target AS LONG)
+    DRAWER_WTT_W = 0
     IF NOT DRAWER.wheelTooltipActive% THEN EXIT SUB
 
     DIM elapsed AS DOUBLE
@@ -4065,9 +4126,13 @@ SUB DRAWER_wheel_tooltip_render (target AS LONG)
     drawerCenterX% = (DRAWER.panelX1% + DRAWER.panelX2%) \ 2
     ttX%           = drawerCenterX% - ttW% \ 2
     ttY%           = lastBinBottomY% + 2
+    ' inside the drawer: under it is another panel (the Preview, docked), which
+    ' is painted after this and covered it (Rick)
+    IF ttY% + ttH% > DRAWER.panelY2% THEN ttY% = DRAWER.panelY2% - ttH% - 1
     IF ttX% < 2 THEN ttX% = 2
     IF ttX% + ttW% > scrW% - 2 THEN ttX% = scrW% - ttW% - 2
     IF ttY% + ttH% > scrH% - 2 THEN ttY% = lastBinBottomY% - ttH% - 2
+    DRAWER_WTT_X = ttX%: DRAWER_WTT_Y = ttY%: DRAWER_WTT_W = ttW%: DRAWER_WTT_H = ttH%
 
     ' Resolve colors with same fallbacks as TOOLTIP_render
     DIM bgColor AS _UNSIGNED LONG, borderColor AS _UNSIGNED LONG
@@ -5652,4 +5717,19 @@ SUB DRAWER_restore_pending_custom ()
     IF DRAWER.brushSelected% >= 1 _ANDALSO DRAWER.brushSelected% <= DRAWER_SLOT_COUNT THEN
         IF DRAWER_BRUSH_SLOTS(DRAWER.brushSelected%).IMG < -1 THEN DRAWER_load_brush_slot_to_custom DRAWER.brushSelected%
     END IF
+END SUB
+
+
+''
+' The wheel tooltip (the .dset name) over the native windows: copy its rect
+' from the canvas to screen 0 after SCREEN_render_windows, as
+' TOOLTIP_reblit_to_screen0 does for the hover tooltips.
+SUB DRAWER_wheel_tooltip_reblit ()
+    IF DRAWER_WTT_W <= 0 _ORELSE DRAWER.wheelTooltipActive% = 0 THEN EXIT SUB
+    DIM ds AS INTEGER, od AS LONG
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    od = _DEST
+    _DEST 0
+    _PUTIMAGE (CLNG(DRAWER_WTT_X) * ds, CLNG(DRAWER_WTT_Y) * ds)-((CLNG(DRAWER_WTT_X) + DRAWER_WTT_W) * ds - 1, (CLNG(DRAWER_WTT_Y) + DRAWER_WTT_H) * ds - 1), SCRN.CANVAS&, 0, (DRAWER_WTT_X, DRAWER_WTT_Y)-(DRAWER_WTT_X + DRAWER_WTT_W - 1, DRAWER_WTT_Y + DRAWER_WTT_H - 1)
+    _DEST od
 END SUB

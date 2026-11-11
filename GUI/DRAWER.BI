@@ -21,6 +21,8 @@ DIM SHARED DRAWER_PENDING_CUSTOM AS INTEGER ' a .draw's custom brush is in a slo
 CONST DRAWER_GRID_COLS     = 3 ' the classic layout; DRAWER_layout reflows to the panel width
 CONST DRAWER_GRID_ROWS     = 10
 CONST DRAWER_MAX_COLS      = 6
+CONST DRAWER_ZOOM_MAX_COLS = 12 ' Ctrl+wheel: bins per row, 1 .. this
+CONST DRAWER_CONTEXT_BIN_AUTO = 7 ' context menu: Bin Size: Auto
 ' Live bin grid (DRAWER_layout): columns, rows on screen, first row shown
 ' (Shift+wheel scrolls when the rows don't fit), and whether the mini palette
 ' sits UNDER the bins (panel too narrow for the side rail).
@@ -142,6 +144,8 @@ DIM SHARED DRAWER_GRADIENT_SET_PATH AS STRING
 
 ' Wheel tooltip text (stripped filename, no path/extension)
 DIM SHARED DRAWER_WHEEL_TOOLTIP_TEXT AS STRING
+DIM SHARED DRAWER_WTT_X AS INTEGER, DRAWER_WTT_Y AS INTEGER ' where it was drawn this frame (canvas px;
+DIM SHARED DRAWER_WTT_W AS INTEGER, DRAWER_WTT_H AS INTEGER '  W 0 = none): re-blitted over the windows
 
 DIM SHARED DRAWER                      AS DRAWER_STATE
 
