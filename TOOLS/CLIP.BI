@@ -48,6 +48,9 @@ CONST CLIP_ACT_CUE_CLEAR = 2641 ' ANIM > Clip Layer > Remove the Clip's Sounds (
 CONST CLIP_ACT_CUE_PREV = 2642 ' the Animation panel's sound list: the previous / next sound, remove it (K9)
 CONST CLIP_ACT_CUE_NEXT = 2643
 CONST CLIP_ACT_CUE_DEL  = 2644
+CONST CLIP_ACT_EDIT    = 2645 ' ANIM > Clip Layer > Edit Clip Cels (a layer with cel k on frame k)
+CONST CLIP_ACT_EDIT_OK = 2646 ' ANIM > Clip Layer > Apply Cel Edits (a new source; every clip on the old one moves to it)
+CONST CLIP_ACT_EDIT_NO = 2647 ' ANIM > Clip Layer > Discard Cel Edits
 
 TYPE CLIP_SRC_OBJ
     nm      AS STRING * 32
@@ -107,3 +110,14 @@ DIM SHARED CLIP_DRAG_SLOT AS INTEGER ' a lightbox pane drag of a clip layer (the
 DIM SHARED CLIP_DRAG_BEFORE AS STRING, CLIP_DRAG_X0 AS INTEGER, CLIP_DRAG_Y0 AS INTEGER
 DIM SHARED CLIP_XS_KEY AS LONG ' the X-sheet bar's press keys (negative: never an Animation panel press's)
 DIM SHARED CLIP_PLACING AS INTEGER ' 1 = Place as Clip waits for a click, 2 = placed, waiting for the release
+' Edit Clip Cels (phase 2 K10a): an ordinary image layer, "Cels of <name>",
+' with cel k drawn into frame k's cell at (px, py); Apply reads them back.
+' Kept by the layer's historyId (never cleared on Apply, so an undo of the
+' Apply leaves the layer editable again). HID: the clip layers it hid (MKL$ ids).
+CONST CLIP_ED_MAX = 16
+DIM SHARED CLIP_ED_N AS INTEGER
+DIM SHARED CLIP_ED_ID(1 TO CLIP_ED_MAX) AS LONG
+DIM SHARED CLIP_ED_SRC(1 TO CLIP_ED_MAX) AS INTEGER
+DIM SHARED CLIP_ED_PX(1 TO CLIP_ED_MAX) AS INTEGER
+DIM SHARED CLIP_ED_PY(1 TO CLIP_ED_MAX) AS INTEGER
+DIM SHARED CLIP_ED_HID(1 TO CLIP_ED_MAX) AS STRING

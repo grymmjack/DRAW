@@ -16,6 +16,7 @@ SUB CLIP_new_document ()
     CLIP_SRC_N = 0: CLIP_INST_N = 0: CLIP_SIG = "": CLIP_PLACING = 0
     FOR i = 1 TO CLIP_CUE_N: CLIP_CUE_PATH(i) = "": NEXT i
     CLIP_CUE_N = 0: CLIP_CUE_GSIG = CHR$(255) ' (the generated clips go at the next tick)
+    CLIP_ED_N = 0
 END SUB
 
 ''
@@ -1095,8 +1096,156 @@ SUB CLIP_update (fromBin AS INTEGER)
     STATUS_flash lbl
 END SUB
 
+' ---------------------------------------------------------------------------
+' Edit Clip Cels (phase 2 K10a)
+' ---------------------------------------------------------------------------
+
 ''
-' Actions 2620-2644.
+' Where the cels sit in each frame's cell: the clip's place, kept inside the cell.
+SUB CLIP_edit_pos (s AS INTEGER, px AS INTEGER, py AS INTEGER)
+    px = _MAX(0, _MIN(px, ANIM.frameW - CLIP_SRC(s).cw))
+    py = _MAX(0, _MIN(py, ANIM.frameH - CLIP_SRC(s).ch))
+END SUB
+
+''
+' "" = the source's cels fit the frames; else why not.
+FUNCTION CLIP_edit_fits$ (s AS INTEGER)
+    IF s < 1 _ORELSE s > CLIP_SRC_N THEN CLIP_edit_fits$ = "the clip has no cels": EXIT FUNCTION
+    IF CLIP_SRC(s).strip >= -1 THEN CLIP_edit_fits$ = "the clip has no cels": EXIT FUNCTION
+    IF ANIM.active = 0 THEN CLIP_edit_fits$ = "no frames": EXIT FUNCTION
+    IF CLIP_SRC(s).n > ANIM.count THEN CLIP_edit_fits$ = "its" + STR$(CLIP_SRC(s).n) + " cels need" + STR$(CLIP_SRC(s).n) + " frames (there are" + STR$(ANIM.count) + ")": EXIT FUNCTION
+    IF CLIP_SRC(s).cw > ANIM.frameW _ORELSE CLIP_SRC(s).ch > ANIM.frameH THEN CLIP_edit_fits$ = "its cels are bigger than a frame": EXIT FUNCTION
+END FUNCTION
+
+''
+' The open cel edit: the current layer's, else the newest whose layer is
+' there (0 = none).
+FUNCTION CLIP_edit_find% ()
+    DIM e AS INTEGER, id AS LONG
+    IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN id = LAYERS(CURRENT_LAYER%).historyId&
+    FOR e = CLIP_ED_N TO 1 STEP -1
+        IF CLIP_ED_ID(e) = id _ANDALSO id <> 0 THEN CLIP_edit_find% = e: EXIT FUNCTION
+    NEXT e
+    FOR e = CLIP_ED_N TO 1 STEP -1
+        IF HISTORY_find_layer_slot_by_id%(CLIP_ED_ID(e)) THEN CLIP_edit_find% = e: EXIT FUNCTION
+    NEXT e
+END FUNCTION
+
+SUB CLIP_edit_open ()
+    DIM k AS INTEGER, s AS INTEGER, slot AS INTEGER, c AS INTEGER, i AS INTEGER, kk AS INTEGER, e AS INTEGER
+    DIM px AS INTEGER, py AS INTEGER, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, img AS LONG
+    DIM why AS STRING, hid AS STRING, nm AS STRING
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "Edit Clip Cels: the current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    why = CLIP_edit_fits$(s)
+    IF why <> "" THEN STATUS_flash "Edit Clip Cels: " + why: EXIT SUB
+    px = CLIP_INST(k).px: py = CLIP_INST(k).py: CLIP_edit_pos s, px, py
+    nm = AB_clean$(CLIP_SRC(s).nm)
+    slot = LAYERS_new%
+    IF slot = 0 THEN STATUS_flash "Edit Clip Cels: no room for another layer": EXIT SUB
+    LAYERS(slot).name = "Cels of " + nm
+    img = LAYERS(slot).imgHandle&
+    _DONTBLEND img
+    FOR c = 1 TO CLIP_SRC(s).n
+        IF ANIM_cell_rect%(c, fx, fy, fw, fh) THEN
+            _PUTIMAGE (fx + px + LAYERS(slot).apronW%, fy + py + LAYERS(slot).apronH%), CLIP_SRC(s).strip, img, ((c - 1) * CLIP_SRC(s).cw, 0)-STEP(CLIP_SRC(s).cw - 1, CLIP_SRC(s).ch - 1)
+        END IF
+    NEXT c
+    _BLEND img
+    LAYERS(slot).contentDirty% = TRUE
+    IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_refresh_layer_add_snapshot LAYERS(slot).historyId&
+    FOR i = 1 TO MAX_LAYERS ' the clips on this source would draw over the cels: hidden while editing
+        kk = CLIP_inst_of%(i)
+        IF kk _ANDALSO i <> slot THEN
+            IF CLIP_INST(kk).src = s _ANDALSO LAYERS(i).visible% THEN LAYERS(i).visible% = FALSE: hid = hid + MKL$(LAYERS(i).historyId&)
+        END IF
+    NEXT i
+    IF CLIP_ED_N >= CLIP_ED_MAX THEN ' the oldest goes
+        FOR e = 1 TO CLIP_ED_MAX - 1
+            CLIP_ED_ID(e) = CLIP_ED_ID(e + 1): CLIP_ED_SRC(e) = CLIP_ED_SRC(e + 1)
+            CLIP_ED_PX(e) = CLIP_ED_PX(e + 1): CLIP_ED_PY(e) = CLIP_ED_PY(e + 1): CLIP_ED_HID(e) = CLIP_ED_HID(e + 1)
+        NEXT e
+        CLIP_ED_N = CLIP_ED_MAX - 1
+    END IF
+    CLIP_ED_N = CLIP_ED_N + 1: e = CLIP_ED_N
+    CLIP_ED_ID(e) = LAYERS(slot).historyId&: CLIP_ED_SRC(e) = s
+    CLIP_ED_PX(e) = px: CLIP_ED_PY(e) = py: CLIP_ED_HID(e) = hid
+    HISTORY_saved_this_frame% = TRUE
+    BLEND_invalidate_cache: INVALIDATE_canvas: GUI_NEEDS_REDRAW% = TRUE
+    STATUS_flash "Cels of '" + nm + "': cel 1-" + _TRIM$(STR$(CLIP_SRC(s).n)) + " on frame 1-" + _TRIM$(STR$(CLIP_SRC(s).n)) + " - paint, then ANIM > Clip Layer > Apply Cel Edits (or Discard)"
+END SUB
+
+''
+' Show the clip layers the edit hid (the ones still there).
+SUB CLIP_edit_unhide (e AS INTEGER)
+    DIM j AS INTEGER, i AS INTEGER
+    FOR j = 1 TO LEN(CLIP_ED_HID(e)) - 3 STEP 4
+        i = HISTORY_find_layer_slot_by_id%(CVL(MID$(CLIP_ED_HID(e), j, 4)))
+        IF i THEN LAYERS(i).visible% = TRUE
+    NEXT j
+    CLIP_ED_HID(e) = ""
+END SUB
+
+SUB CLIP_edit_close (keepEdits AS INTEGER)
+    DIM e AS INTEGER, slot AS INTEGER, s AS INTEGER, c AS INTEGER, i AS INTEGER, kk AS INTEGER, n AS INTEGER
+    DIM px AS INTEGER, py AS INTEGER, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, strip AS LONG, oldD AS LONG
+    DIM newSrc AS INTEGER, grp AS INTEGER, before AS STRING, why AS STRING, nm AS STRING, lbl AS STRING
+    e = CLIP_edit_find%
+    IF e = 0 THEN STATUS_flash "No clip cels being edited - ANIM > Clip Layer > Edit Clip Cels first": EXIT SUB
+    slot = HISTORY_find_layer_slot_by_id%(CLIP_ED_ID(e))
+    s = CLIP_ED_SRC(e)
+    IF keepEdits = 0 THEN
+        CLIP_edit_unhide e
+        LAYERS_delete slot
+        HISTORY_saved_this_frame% = TRUE
+        BLEND_invalidate_cache: INVALIDATE_canvas: GUI_NEEDS_REDRAW% = TRUE
+        STATUS_flash "Cel edits discarded"
+        EXIT SUB
+    END IF
+    why = CLIP_edit_fits$(s)
+    IF why <> "" THEN STATUS_flash "Apply Cel Edits: " + why: EXIT SUB
+    px = CLIP_ED_PX(e): py = CLIP_ED_PY(e): CLIP_edit_pos s, px, py
+    strip = _NEWIMAGE(CLIP_SRC(s).n * CLNG(CLIP_SRC(s).cw), CLIP_SRC(s).ch, 32)
+    IF strip >= -1 THEN STATUS_flash "Apply Cel Edits: out of memory": EXIT SUB
+    oldD = _DEST: _DEST strip: CLS , _RGBA32(0, 0, 0, 0): _DEST oldD
+    _DONTBLEND strip
+    FOR c = 1 TO CLIP_SRC(s).n
+        IF ANIM_cell_rect%(c, fx, fy, fw, fh) THEN
+            fx = fx + px + LAYERS(slot).apronW%: fy = fy + py + LAYERS(slot).apronH%
+            _PUTIMAGE ((c - 1) * CLIP_SRC(s).cw, 0), LAYERS(slot).imgHandle&, strip, (fx, fy)-STEP(CLIP_SRC(s).cw - 1, CLIP_SRC(s).ch - 1)
+        END IF
+    NEXT c
+    _BLEND strip
+    nm = AB_clean$(CLIP_SRC(s).nm)
+    newSrc = CLIP_src_new%(strip, CLIP_SRC(s).n, CLIP_SRC(s).cw, CLIP_SRC(s).ch, nm, CLIP_SRC(s).binSlot)
+    IF newSrc = 0 THEN STATUS_flash "Apply Cel Edits: no room for more clip sources (" + _TRIM$(STR$(CLIP_SRC_MAX)) + ")": EXIT SUB
+    CLIP_cues_from_blob newSrc, CLIP_cues_blob$(s) ' the same sounds
+    CLIP_edit_unhide e
+    IF NOT HISTORY_IN_PROGRESS% _ANDALSO NOT HISTORY_GROUP_ACTIVE% THEN HISTORY_begin_group: grp = TRUE
+    FOR i = 1 TO MAX_LAYERS
+        kk = CLIP_inst_of%(i)
+        IF kk THEN
+            IF CLIP_INST(kk).src = s THEN
+                before = CLIP_state$(i)
+                CLIP_INST(kk).src = newSrc
+                CLIP_rebuild i
+                HISTORY_record_clip LAYERS(i).historyId&, i, before, CLIP_state$(i), "Apply Cel Edits"
+                n = n + 1
+            END IF
+        END IF
+    NEXT i
+    LAYERS_delete slot
+    IF grp THEN HISTORY_end_group
+    HISTORY_saved_this_frame% = TRUE
+    BLEND_invalidate_cache: INVALIDATE_canvas: GUI_NEEDS_REDRAW% = TRUE
+    lbl = "Cel edits applied to '" + nm + "'"
+    IF n = 1 THEN lbl = lbl + " (1 clip layer)" ELSE lbl = lbl + " (" + _TRIM$(STR$(n)) + " clip layers)"
+    STATUS_flash lbl
+END SUB
+
+''
+' Actions 2620-2647.
 SUB CLIP_action (act AS INTEGER)
     SELECT CASE act
         CASE CLIP_ACT_PLACE: CLIP_place_start
@@ -1117,6 +1266,9 @@ SUB CLIP_action (act AS INTEGER)
         CASE CLIP_ACT_CUE_PREV: CLIP_cue_step -1
         CASE CLIP_ACT_CUE_NEXT: CLIP_cue_step 1
         CASE CLIP_ACT_CUE_DEL: CLIP_cue_del
+        CASE CLIP_ACT_EDIT: CLIP_edit_open
+        CASE CLIP_ACT_EDIT_OK: CLIP_edit_close TRUE
+        CASE CLIP_ACT_EDIT_NO: CLIP_edit_close FALSE
         CASE CLIP_ACT_MODE0 TO CLIP_ACT_MODE0 + 4: CLIP_set 5, act - CLIP_ACT_MODE0
         CASE CLIP_ACT_FLIP_X: CLIP_set 6, NOT CLIP_get&(6)
         CASE CLIP_ACT_FLIP_Y: CLIP_set 7, NOT CLIP_get&(7)
@@ -1304,6 +1456,9 @@ END FUNCTION
 '   CLIPSU src:users ...  (the clip layers using each listed source)
 '   CLIPQP pick  (the Animation panel's picked sound of the current clip)
 '   CLIPQ src kind cel name  (each sound cue: kind 0 on cel, 1 when the clip starts, 2 each time it starts over)
+'   CLIPE slot src px py  (the open Edit Clip Cels layer; CLIPE 0 = none)
+'   CLIPEX  its pixels per frame, as CLIPX
+'   CLIPV slot:shown ...  (each clip layer's eye)
 '   CLIPP placing
 ' ---------------------------------------------------------------------------
 FUNCTION CLIP_dump$ ()
@@ -1342,7 +1497,19 @@ FUNCTION CLIP_dump$ ()
     FOR i = 1 TO CLIP_CUE_N ' each sound cue: source kind cel file name
         s = s + "CLIPQ" + STR$(CLIP_CUE_SRC(i)) + STR$(CLIP_CUE_KIND(i)) + STR$(CLIP_CUE_CELN(i)) + " " + CLIP_cue_name$(CLIP_CUE_PATH(i)) + lf
     NEXT i
+    cs = "CLIPV" ' each clip layer: slot:shown
+    FOR i = 1 TO MAX_LAYERS
+        IF CLIP_inst_of%(i) THEN cs = cs + " " + _TRIM$(STR$(i)) + ":" + _TRIM$(STR$(ABS(LAYERS(i).visible% <> 0)))
+    NEXT i
+    s = s + cs + lf
     s = s + "CLIPQP" + STR$(CLIP_cue_picked%) + lf ' the panel's picked sound (0 = none)
+    k = CLIP_edit_find% ' the open cel edit: its layer slot, source, place (0 = none)
+    IF k THEN
+        s = s + "CLIPE" + STR$(HISTORY_find_layer_slot_by_id%(CLIP_ED_ID(k))) + STR$(CLIP_ED_SRC(k)) + STR$(CLIP_ED_PX(k)) + STR$(CLIP_ED_PY(k)) + lf
+        s = s + "CLIPEX" + CLIP_dump_px$(HISTORY_find_layer_slot_by_id%(CLIP_ED_ID(k))) + lf
+    ELSE
+        s = s + "CLIPE 0" + lf
+    END IF
     CLIP_dump$ = s
 END FUNCTION
 

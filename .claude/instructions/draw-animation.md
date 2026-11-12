@@ -1338,7 +1338,21 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   track with no clips, else track 4 - clips on a track mix). Yes = the bake's CLIP record + an
   `ANIM_OPS_record` of the soundtrack in one history group (one Ctrl+Z); no room past
   `ANIM_SC_MAX` = the rest left out, said in the status. Test `QA/tests/clip-bake-sound.sh`.
-- **Phase 2** (not built yet): edit a source's cels (K10a).
+- **Edit Clip Cels (phase 2 K10a, actions 2645-2647).** `CLIP_edit_open` puts the current
+  clip's source on a new ordinary IMAGE layer, "Cels of <name>": cel k in frame k's cell at
+  the clip's (px, py), kept inside the cell (`CLIP_edit_pos`). It refuses when the source has
+  more cels than there are frames or a cel is bigger than a frame (`CLIP_edit_fits$`). The
+  clip layers on that source are hidden while editing (their eyes are not undo steps) and
+  shown again on Apply / Discard. `CLIP_edit_close TRUE` (Apply) reads each cell back into a
+  NEW source (same name, bin and sounds), moves every clip on the old source to it and
+  deletes the cels layer - one history group, so one Ctrl+Z brings the layer back and the
+  clips' old cels. The old source stays (unused; Remove Unused takes it). Discard just
+  deletes the layer (its own undo step). The open edits are a small table keyed by the
+  layer's historyId (`CLIP_ED_*`, 16, oldest dropped), never cleared on Apply, so after an
+  undo of the Apply the layer can be applied again; `CLIP_edit_find%` = the current layer's
+  entry, else the newest whose layer is there. Dumps: `CLIPE slot src px py` (0 = none),
+  `CLIPEX` (its pixels per frame, as CLIPX), `CLIPV slot:shown`. Test:
+  `QA/tests/clip-edit-cels.sh`.
 
 ## Gotchas met here
 
