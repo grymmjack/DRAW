@@ -1,11 +1,12 @@
 """fireworks - a night show over the harbour with a grand finale (60 frames, 12 fps).
 
 Rockets climb on straight paths (ease out: they slow at the top), each burst is ONE still
-brush grown and faded by the Move Brush - SIZE 20 > 150, OPACITY 100 > 0, TINT from white-hot
-to its own colour (TINT 70 > 0 toward white) - a ring burst is tilted in 3D (TURN X 65), the
-willow sags (a straight path down while it grows), a pinwheel spins on its post the whole
-time (TURN Z 1440), smoke drifts off and thins (SIZE + OPACITY), the crowd bobs (AnimBrush
-stamp), and the finale fires three at once, a sky flash (OPACITY 45 > 0) and glitter.
+brush and two Move Brushes: a fast bloom (SIZE 20 > 150, TINT from white-hot to its own
+colour: 80 > 0 toward white, ease out), then a slow sag and fade (OPACITY 100 > 0, ease in).
+A ring burst is tilted in 3D (TURN X 65), the willow sags further, a pinwheel spins on its
+post the whole time (TURN Z 1440), smoke drifts off and thins (SIZE + OPACITY), the crowd
+bobs (AnimBrush stamp), and the finale fires three at once, a sky flash (OPACITY 75 > 0)
+and glitter.
 """
 import math, os, random, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
@@ -75,7 +76,7 @@ def burst(cols_, rays=18, size=64, willow=False, seed=1):
             u = t / L
             x = m + math.cos(ang) * t
             y = m + math.sin(ang) * t + (willow * 10 * u * u)
-            if u > 0.35 and (t % 2 == 0 or u > 0.8):
+            if u > 0.3:
                 c.set(x, y, col(cols_[min(len(cols_) - 1, int(u * len(cols_)))]))
         x = m + math.cos(ang) * L; y = m + math.sin(ang) * L + willow * 10
         c.disc(x, y, 1.2, col('white'))
@@ -159,7 +160,7 @@ S.brush(6, 'pinwheel', wheel(), 'a pinwheel on its post: TURN Z 1440 over the wh
 S.brush(7, 'glitter', glitter(), 'finale glitter: stamped, twinkling')
 S.brush(8, 'smoke', smoke(), 'burst smoke: drifts, SIZE 100 > 200, OPACITY 100 > 0')
 S.brush(9, 'crowd', crowd(), 'the crowd on the quay, bobbing: stamp')
-S.brush(10, 'flash', flash(), 'the finale sky flash: OPACITY 45 > 0')
+S.brush(10, 'flash', flash(), 'the finale sky flash: OPACITY 75 > 0')
 print('\n'.join(S.write_pack()))
 S.write_base(bg)
 S.keys(KEY_WHITE=S.find(bg, E['white'], 2, 106, 10, 112))
@@ -178,20 +179,24 @@ mv = ['layer crowd; pick 9 2 crowd', 'stamp 36 110 0', 'stamp 106 111 1',
 for x, top, f, n, _, _, _ in SHOTS:
     mv.append('mv %d 100 %d %d label="a rocket climbs to %d (ease out)" from=%d count=%d ease=2' % (x, x, top, top, f, n))
 mv.append('mv 110 100 125 44 label="a rocket for the ring" from=22 count=7 ease=2')
-mv += ['fg_key "$KEY_WHITE"', 'layer bursts']
+mv += ['fg_white', 'layer bursts']
 for x, top, f, n, (slot, name), bn, extra in SHOTS:
     s1 = 190 if 'big' in extra else 150
-    y1 = top + (12 if 'sag' in extra else 2)
+    sag = 12 if 'sag' in extra else 4
+    grow = 5
     mv.append('pick %d 1 %s' % (slot, name))
-    mv.append('mv %d %d %d %d label="%s bursts (SIZE 20 > %d, OPACITY > 0, TINT white 70 > 0, ease out)" from=%d count=%d s0=20 s1=%d o1=0 t0=70 ease=2'
-              % (x, top, x, y1, name, s1, f + n, bn, s1))
+    # two moves: a fast white-hot bloom at full strength, then a slow fade while it sags
+    mv.append('mv %d %d %d %d label="%s blooms (SIZE 20 > %d, TINT white 80 > 0, ease out)" from=%d count=%d s0=20 s1=%d t0=80 ease=2'
+              % (x, top, x, top + 1, name, s1, f + n, grow, s1))
+    mv.append('mv %d %d %d %d label="... then sags and fades (SIZE %d > %d, OPACITY 100 > 0, ease in)" from=%d count=%d s0=%d s1=%d o1=0 ease=1'
+              % (x, top + 1, x, top + 1 + sag, s1, s1 + 15, f + n + grow, bn - grow, s1, s1 + 15))
 mv += ['pick 5 1 ring-green',
-       'mv 125 44 125 46 label="a ring bursts, tilted in 3D (TURN X 65, TURN Z 40, SIZE 20 > 140, OPACITY > 0)" from=29 count=12 tx=65 tz=40 s0=20 s1=140 o1=0 t0=70 ease=2',
+       'mv 125 44 125 46 label="a ring bursts, tilted in 3D (TURN X 65, TURN Z 40, SIZE 20 > 140, TINT white 80 > 0, OPACITY > 0)" from=29 count=12 tx=65 tz=40 s0=20 s1=140 o1=0 t0=80 ease=2',
        'layer smoke; pick 8 1 smoke',
        'mv 40 40 70 30 label="smoke drifts off and thins (SIZE 100 > 200, OPACITY 70 > 0)" from=14 count=24 s1=200 o0=70 o1=0',
        'mv 110 32 140 22 label="more smoke" from=20 count=22 s1=200 o0=70 o1=0',
        'layer flash; pick 10 1 flash',
-       'mv 80 43 80 43 label="the finale flash (OPACITY 45 > 0, ease out)" from=43 count=6 o0=45 o1=0 ease=2',
+       'mv 80 43 80 43 label="the finale flash (OPACITY 75 > 0, ease out)" from=43 count=6 o0=75 o1=0 ease=2',
        'layer glitter; pick 7 4 glitter',
        'mv 50 30 50 50 label="finale glitter falls and fades (OPACITY > 0)" from=48 count=13 o1=0',
        'mv 110 28 110 50 label="more glitter" from=50 count=11 o1=0']
