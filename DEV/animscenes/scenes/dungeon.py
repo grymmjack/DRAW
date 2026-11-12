@@ -3,7 +3,7 @@
 Torches and skull candles flicker (AnimBrush stamps, every frame at once, phases offset),
 the torchlight swells and ebbs (OPACITY 55 > 100 + TINT toward orange, there and back),
 two spiders lower themselves on silk and climb back (straight paths, ease, TURN Z 20 twist),
-a bat bursts out of the doorway at us (SIZE 15 > 260), a ghost drifts and fades in and out
+a bat bursts out of the doorway at us (SIZE 15 > 420), a ghost drifts and fades in and out
 (OPACITY 0 > 75 > 0, TURN Y), water drips from the ceiling (straight paths, OPACITY > 0),
 a key turns on its nail (TURN Y 353, one turn per loop).
 """
@@ -103,8 +103,8 @@ def glow():
     for y in range(64):
         for x in range(64):
             d = math.hypot(x - 31.5, y - 31.5) / 32.0
-            if d < 1 and dith(x, y, (1 - d) * 0.55):
-                c.set(x, y, col('amber', 60))
+            if d < 1 and dith(x, y, (1 - d) * 0.9):
+                c.set(x, y, col('amber', 120 if d < 0.5 else 80))
     return [c]
 
 
@@ -166,7 +166,7 @@ S.brush(1, 'torch', torch(), 'a torch flame: stamp, every frame at once')
 S.brush(2, 'candle', candle(), 'a skull candle flame: stamp, phases offset')
 S.brush(3, 'torchglow', glow(), 'the torch glow: still, OPACITY 55 > 100 + TINT orange, there and back')
 S.brush(4, 'spider', spider(), 'a spider on its silk (90 px tall): straight paths down and up, TURN Z twist')
-S.brush(5, 'bat', bat(), 'a bat: out of the door at us, SIZE 15 > 260')
+S.brush(5, 'bat', bat(), 'a bat: out of the door at us, SIZE 15 > 420')
 S.brush(6, 'ghost', ghost(), 'a ghost: OPACITY 0 > 75 > 0, TURN Y')
 S.brush(7, 'drip', drop(), 'a water drip: straight down, OPACITY > 0')
 S.brush(8, 'key', key(), 'a key on a nail: TURN Y 353, one turn per loop')
@@ -174,13 +174,13 @@ print('\n'.join(S.write_pack()))
 S.write_base(bg)
 S.keys(KEY_ORANGE=S.find(bg, E['orange'], 110, 98, 118, 104))
 
-mv = ['layer glow', 'fg_key "$KEY_ORANGE"', 'pick 3 1 torchglow',
+mv = ['layer torches; pick 1 6 torch', 'stamp 36 41 0', 'stamp 124 41 3',
+      'layer candles; pick 2 6 candle', 'stamp 14 69 0', 'stamp 30 69 2', 'stamp 46 69 4',
+      'layer glow', 'fg_key "$KEY_ORANGE"', 'pick 3 1 torchglow',
       'mv 36 46 36 46 label="the left torchlight swells (OPACITY 55 > 100, TINT orange 0 > 40)" from=1 count=24 o0=55 t1=40 ease=3',
       'mv 36 46 36 46 label="... and ebbs" from=25 count=24 o1=55 t0=40 ease=3',
       'mv 124 46 124 46 label="the right torchlight ebbs" from=1 count=24 o1=55 t0=40 ease=3',
       'mv 124 46 124 46 label="... and swells" from=25 count=24 o0=55 t1=40 ease=3',
-      'layer torches; pick 1 6 torch', 'stamp 36 41 0', 'stamp 124 41 3',
-      'layer candles; pick 2 6 candle', 'stamp 14 69 0', 'stamp 30 69 2', 'stamp 46 69 4',
       'layer key; pick 8 1 key',
       'mv 109 36 109 36 label="a key turns on its nail (TURN Y 353)" from=1 count=48 ty=353',
       'layer spiders; pick 4 2 spider',
@@ -196,7 +196,7 @@ mv = ['layer glow', 'fg_key "$KEY_ORANGE"', 'pick 3 1 torchglow',
       'mv 104 3 104 91 label="another drip" from=22 count=10 o1=30 ease=1',
       'mv 88 3 88 91 label="and another" from=37 count=10 o1=30 ease=1',
       'layer bat; pick 5 4 bat',
-      'mv 80 58 40 -20 label="a bat bursts out of the door at us (SIZE 15 > 260, ease in)" from=12 count=18 s0=15 s1=260 ease=1']
+      'mv 80 58 40 -20 label="a bat bursts out of the door at us (SIZE 15 > 420, ease in)" from=12 count=18 s0=15 s1=420 ease=1']
 open(os.path.join(S.dir, 'moves.sh'), 'w').write('\n'.join(mv) + '\n')
 
 A = os.path.join(S.dir, 'audio'); T = S.seconds()
