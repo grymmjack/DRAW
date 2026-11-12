@@ -60,7 +60,16 @@ CONST ANIMP_CTL_TINT   = 35
 ' and the GIF / APNG / BAS buttons (ANIM > Export ...)
 CONST ANIMP_CTL_SCALE0 = 36 ' + 0 1X, + 1 2X, + 2 4X
 CONST ANIMP_CTL_EXP0   = 39 ' + 0 GIF, + 1 APNG, + 2 BAS
-CONST ANIMP_CTL_COUNT  = 41
+' Move Brush (TOOLS/ANIM-MVBRUSH): while it is on, the rows under the status
+' show the move's settings instead (ANIMP_mvY): PATH chips / FRAMES / MOVE /
+' TURN / SIZE / OPACITY / TINT / CEL EVERY number boxes / EASE chips / PLAY
+' RESET STAMP CANCEL. The boxes are ANIMP_MV_BOX0 + MVB_BOX_* (ANIMP_box_*).
+CONST ANIMP_CTL_MVPATH0 = 42 ' + 0 LINE, + 1 DRAWN, + 2 LIVE
+CONST ANIMP_CTL_MVEASE0 = 45 ' + 0 NONE, + 1 IN, + 2 OUT, + 3 BOTH
+CONST ANIMP_CTL_MVBTN0  = 49 ' + 0 PLAY, + 1 RESET, + 2 STAMP, + 3 CANCEL
+CONST ANIMP_CTL_COUNT  = 52
+CONST ANIMP_MV_ROWS    = 10
+CONST ANIMP_MV_BOX0    = 20 ' number box vr of MVB box j = ANIMP_MV_BOX0 + j
 
 TYPE ANIM_PANEL_OBJ
     visible           AS INTEGER
@@ -122,4 +131,5 @@ END TYPE
 DIM SHARED ANIMP AS ANIM_PANEL_OBJ
 DIM SHARED ANIMP_rowY(1 TO ANIMP_ROWS) AS INTEGER ' native top of each stepper row
 DIM SHARED ANIMP_onY(1 TO ANIMP_ON_ROWS) AS INTEGER ' native top of the onion skin stepper rows
+DIM SHARED ANIMP_mvY(1 TO ANIMP_MV_ROWS) AS INTEGER ' native top of the Move Brush rows (over the others)
 CONST ANIMP_DRAG_PX = 3 ' viewport px of drag per step on a number box

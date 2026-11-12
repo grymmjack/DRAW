@@ -1150,6 +1150,33 @@ gotcha 15). It also stops playback and clears the ask answer.
   n`, `MVBP f:x:y:cel`, `MVBB f:x:y:w:h` (drawn bounds per cell), `MVBK f:cel`. Test `anim-move`
   (24: no brush, path, ghost shows / goes, Esc, plain brush x 4 eases, undo / redo, AnimBrush
   cels every 1 / 2 frames, range from frame 3).
+- Move Brush in 3D + typed values + AnimPaint (2026-11-11, Rick: "1, 2 and 3 ... scale, rotate,
+  position, opacity, tint"; actions 2587-2589 path LINE / DRAWN / LIVE, 2590 AnimPaint (start
+  with the live path; again stops), 2591 PLAY, 2592 RESET). Settings `MVB_V(MVB_BOX_Z..T1)`
+  (Z, turn X/Y/Z degrees, size / opacity / tint start + end %), `MVB_COUNT` (0 = through the
+  last), `MVB_PATH`; session-only, not undo steps. `MVB_pose i, n, cx, cy, e, k`: the middle
+  (LINE lerp; DRAWN by arc length over `MVB_PX/PY`; LIVE the last point at or before the step's
+  start time = sum of holds / fps, `MVB_step_time#`), e = eased t, cel. `MVB_stamp` keeps the old
+  `CUSTOM_BRUSH_render` path exactly when `MVB_plain%`; otherwise `MVB_stamp_xf`: brush rendered
+  to a W x H temp (eraser: its shape), corners at +-W/2 x size, turn Z, tilt X, turn Y, + Z, then
+  perspective toward the cell's middle (`MVB_EYE` 300: f = 300 / (300 + z)); inverse of the
+  square-to-quad homography (Heckbert) sampled per dest pixel centre, nearest pixel - no
+  `_MAPTRIANGLE` (two affine triangles kink a tilt). Tint toward FG, opacity, src-over by hand (or
+  erase alpha). The middle is rounded like the plain stamp (`INT(cx + .5) - W\2 + W/2`) so an
+  identity transform lands on the same pixels. LIVE: the press stores t0, each moved point its
+  time, `MVB.dur` the stroke length (`MVB_needs_redraw%` keeps it counting while still); the
+  release calls `MVB_apply`, which for LIVE keeps the mode on. Frames: `MVB_live_n%` = frames
+  whose start time <= dur. Panel: `ANIMP_render_move` replaces the frame rows from `yNav` down
+  (`ANIMP_mvY(1..10)`, boxes right-aligned in 3 slots `ANIMP_mv_box_x%`, vr = `ANIMP_MV_BOX0` +
+  `MVB_BOX_*` routed through `ANIMP_box_*` to `MVB_box_value& / _on% / _step / _set /
+  _default&`); `MVB_start` opens the panel when shut (`MVB.openedPanel`) and `MVB_cancel` shuts it
+  again. Typing a box with no LINE path puts a still path at the cell middle. Dumps: `MVBV path
+  count z tx ty tz s0 s1 o0 o1 t0 t1 playing nPts durMs plain fgHex`, `MVBA f:a:r:g:b` (most
+  opaque pixel per cell), `ANIMPM on y1..y10 slotX1 slotX2 slotX3 valW`. Test `anim-move-3d`
+  (23: panel opens / shuts, typed TURN Z 90 in place (bounds 12:14:8:4 -> 14:12:4:8), RESET,
+  SIZE 50, middle click, OPACITY fade (frame 3 alpha 153), TINT to FG, Z 300 + X 8 (18:15:4:2),
+  DRAWN L path, PLAY / STOP, Esc, AnimPaint stroke + one undo + stays on). Palette: "AnimPaint"
+  is registered before the path commands, or "animpaint" would match "Path Live (AnimPaint)".
 - Dump: `ABR n cur w h merged srcFrame brushActive brushW brushH brushCrc`,
   `ABRC frame:crc ...` (BGRA CRC32, `0` = clear). Tests `animbrush-pickup` (expected CRCs
   worked out from the fixture in python), `animbrush-pickup-edges` (wand shape, stash, plain

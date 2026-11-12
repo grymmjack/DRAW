@@ -80,6 +80,32 @@ in through the last frame. In the same menu:
 - **Next Cel Every Frame / 2 / 3 / 4** - with an AnimBrush, how often it moves on to its next cel
   (a slow walk: every 2 frames).
 
+**Turn, size, fade and tint over the move.** While Move Brush is on, the Animation panel shows
+the move's settings in place of its frame rows (it opens for the move if it was shut). Every
+number is a box you can drag, wheel, click to type, or middle-click for its default:
+
+- **MOVE X / Y / Z** - X and Y are where a straight path ends. Type them instead of dragging: with
+  no path yet the move starts in the middle of the frame. **Z** moves the brush away from you
+  (or toward you, with a minus) in perspective: it shrinks as it heads for the middle of the frame.
+- **TURN X / Y / Z** - degrees over the move. Z spins the brush flat (360 = once round); X and Y
+  tilt it in 3D, like a coin flipping.
+- **SIZE**, **OPACITY**, **TINT** - each has a start and an end value: grow from 20 % to 100 %,
+  fade in from 0 to 100, or turn toward the FG colour.
+- The **ease** applies to all of them. **PLAY** shows the ghost one step at a time; **RESET**
+  puts Z, turn, size, opacity and tint back.
+- **PATH: DRAWN** makes the stamps follow the shape you drag instead of a straight line.
+
+So a coin spinning in place is: pick up the coin, Start, type **TURN Y 360**, Enter.
+
+### AnimPaint - painting across the frames
+
+**ANIM → AnimPaint** turns the brush into a recorder: press in a frame, drag, let go, and each
+frame from there on gets the brush where the pointer was at that frame's moment - at the
+animation's FPS, each frame lasting its hold. Draw a slow wiggle and a firefly wanders; draw
+quickly and it darts. The stroke lands when you let go (Ctrl+Z takes it back in one step) and
+AnimPaint stays on for the next stroke; Esc stops it. The size, turn, opacity and tint settings
+above apply here too.
+
 ### The AnimBrush pack and example scenes
 
 DRAW ships with **`animbrush-pack`**, a Drawer brush set of 15 AnimBrushes: torch, campfire,

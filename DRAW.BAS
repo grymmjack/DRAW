@@ -870,6 +870,7 @@ DO
     IF PENP_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' Pen Pressure panel live meter
     IF ANIMP_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' Animation panel: a held stepper repeats
     IF AB_bin_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' a hovered AnimBrush bin plays (TOOLS/ANIM-BRUSH)
+    IF MVB_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' Move Brush PLAY / an AnimPaint stroke counting (TOOLS/ANIM-MVBRUSH)
     IF CRASH.NOTIFY_UNTIL# > 0 THEN FRAME_IDLE% = FALSE   ' Crash banner up — keep painting so it shows and can self-dismiss
     IF modifiersChanged% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Modifier overlays affect cached scene and must repaint on press/release
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE                             ' Panning active — only dirty scene when mouse moves

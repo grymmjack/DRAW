@@ -812,7 +812,34 @@ bird that flies through them. Works with a plain brush or an AnimBrush.
 | ANIM → Move Brush → **Next Cel Every Frame / 2 / 3 / 4** | An AnimBrush moves on one cel each frame, or every 2, 3 or 4 frames (in its order) |
 
 Which frames: the frames selected in the strip (two or more, Ctrl+click), else from the frame
-the path is in to the last. Every command is in the command palette too ("Move Brush: ...").
+the path is in for FRAMES frames (through the last by default). Every command is in the command
+palette too ("Move Brush: ...").
+
+**The move's settings** (DPaint's Move requester). While the mode is on, the Animation panel
+(it opens if it is shut, and shuts again after) shows the move instead of the frame rows. Each
+number is a box: drag it up / down, wheel over it (`Shift` = 10 steps), click it to type a
+number, middle-click it for its default.
+
+| Row | What it does over the move (from the first frame to the last, with the ease) |
+| --- | --- |
+| **PATH** LINE / DRAWN / LIVE | A straight drag; the shape you drag (the stamps spaced along it); a live stroke (AnimPaint, below) |
+| **FRAMES** from / count | The first frame and how many (`*` = through the last). The strip's selection sets them |
+| **MOVE XYZ** | X / Y: where the straight path ends, from its start (typing one with no path puts the path in the middle of the frame, so a move needs no drag). Z: away (+) or toward you (-) with perspective - it shrinks and heads for the middle of the frame |
+| **TURN XYZ** | Degrees: X and Y tilt the brush in 3D (foreshortened; the back shows mirrored), Z spins it flat. 360 = once round |
+| **SIZE %** start / end | Grows or shrinks it (100 = as it is) |
+| **OPACITY** start / end | Fades it in or out |
+| **TINT %** start / end | Toward the FG colour (100 = all FG) |
+| **CEL EVERY** | An AnimBrush's next cel every N frames |
+| NONE / IN / OUT / BOTH | The ease, for all of the above |
+| PLAY / RESET / STAMP / ESC | Play the ghost one step at a time / no Z, turn, size, opacity or tint / `Enter` / `Esc` |
+
+### AnimPaint (ANIM → AnimPaint)
+
+Paint across the frames in real time: press, drag, let go, and each frame gets the brush where
+the pointer was at that frame's time (the animation's FPS and each frame's hold), starting at the
+frame you press in. It is Move Brush with the LIVE path, so the size / turn / opacity / tint
+settings apply too. The stroke is stamped when you let go (one undo step) and AnimPaint stays on
+for the next one; `Esc` (or the menu item again) stops it.
 
 ---
 

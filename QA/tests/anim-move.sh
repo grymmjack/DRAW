@@ -134,6 +134,9 @@ else
     mv_key ctrl+b; mv_key ctrl+shift+n; mv_read
     [[ "$M_B" == "$mv_empty" ]] && pass "the stamps' layer is empty" || fail "new layer: [$M_B]"
 
+    # the pane before Start: Start opens the Animation panel on its Move rows
+    # (2026-11-11) and the end of the move shuts it, so compare after Esc to this
+    mv_read; snap_region "$PX" "$PY" "$PW" "$PH" "mv-idle"; MV_SNAP_IDLE=$SNAP_RESULT
     mv_cmd "move brush: start"; mv_read
     [[ "$M_ON" == -1 && "$M_PATH" == 0 ]] && pass "Start with a brush: the mode is on, no path yet" || fail "start: $(mv_s)"
     mv_read; snap_region "$PX" "$PY" "$PW" "$PH" "mv-before"; MV_SNAP_BEFORE=$SNAP_RESULT
@@ -148,7 +151,7 @@ else
     mv_key Escape; mv_read
     [[ "$M_ON" == 0 && "$M_B" == "$mv_empty" ]] && pass "Esc: the mode is off, nothing stamped" || fail "Esc: $(mv_s) [$M_B]"
     snap_region "$PX" "$PY" "$PW" "$PH" "mv-after-esc"
-    assert_regions_same "$MV_SNAP_BEFORE" "$SNAP_RESULT" "after Esc the ghost is gone"
+    assert_regions_same "$MV_SNAP_IDLE" "$SNAP_RESULT" "after Esc the ghost is gone"
 
     # -- Enter with a plain brush, ease none --
     mv_cmd "move brush: start"; mv_drag 2 2 12 10
