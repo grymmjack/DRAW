@@ -32,6 +32,8 @@ CONST CLIP_ACT_BAKE    = 2621 ' ANIM > Clip > Bake Clip to Pixels
 CONST CLIP_ACT_MODE0   = 2622 ' 2622-2626: Loop / Ping-pong / Once / Hold / Reverse
 CONST CLIP_ACT_FLIP_X  = 2627
 CONST CLIP_ACT_FLIP_Y  = 2628
+CONST CLIP_ACT_UPD_BIN = 2629 ' ANIM > Clip Layer > Update Clip from Bin (the Drawer bin its cels came from)
+CONST CLIP_ACT_UPD_AB  = 2630 ' ANIM > Clip Layer > Update Clip from AnimBrush (the current AnimBrush's cels)
 
 TYPE CLIP_SRC_OBJ
     nm      AS STRING * 32

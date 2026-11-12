@@ -59,6 +59,7 @@ TYPE AB_OBJ
     lastF    AS INTEGER
     inEach   AS INTEGER ' AB_each% is running a brush routine on each cel
     nm       AS STRING * 32 ' a name: the tag it was picked up from, the file it came from, its bin's (AB_name$)
+    binSlot  AS INTEGER ' the Drawer bin it was loaded from (0 = none); a clip made from it keeps it (Update Clip from Bin)
 END TYPE
 DIM SHARED AB AS AB_OBJ
 DIM SHARED AB_CEL(1 TO AB_MAX_CELS) AS LONG      ' cel images (32-bit, w x h)

@@ -1259,8 +1259,15 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   `QA/tests/clip-guards.sh` (13: Desaturate refused / multi-select, sheet-view move, linked
   move). Shared fixture + helpers: `QA/clip-lib.sh` (`cl_setup`, `cl_cx/cl_cy` from the ANIM
   line's dx dy - VIEW's offset is not the canvas origin).
-- **Phase 2** (not built): X-sheet clip row, Update from Bin (`binSlot` is saved for it),
-  dropping a GIF / APNG on the canvas as a clip, clip sound cues.
+- **Update Clip from Bin / from AnimBrush** (2629 / 2630, `CLIP_update fromBin`): a NEW source
+  (`CLIP_src_from_bin%` / `CLIP_src_from_ab%`, both via `CLIP_src_new%`) and every clip layer
+  on the old source points at it, one history group; undo points them back (old sources stay in
+  the table; a save writes only the used ones). `AB.binSlot` = the Drawer bin `AB_slot_load`
+  loaded (0 after `AB_clear`); a source copies it. From Bin with no bin, or the bin no longer an
+  AnimBrush: refused with a message. `CLIPS src n cw ch bin name`. Test
+  `QA/tests/clip-update.sh` (15).
+- **Phase 2** (not built yet): X-sheet clip row, dropping a GIF / APNG on the canvas as a clip,
+  clip sound cues, Make Clip from Selected Frames, Clip Sources list.
 
 ## Gotchas met here
 

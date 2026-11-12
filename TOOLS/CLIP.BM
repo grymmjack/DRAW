@@ -48,14 +48,26 @@ FUNCTION CLIP_current% ()
 END FUNCTION
 
 ''
-' A new source from the AnimBrush's cels (0 = no room / no AnimBrush).
-FUNCTION CLIP_src_from_ab% ()
-    DIM i AS INTEGER, k AS INTEGER, oldD AS LONG, img AS LONG
-    IF AB_active% = 0 THEN EXIT FUNCTION
+' A new source holding strip (n cels of cw x ch, taken over: freed on 0 = no room).
+FUNCTION CLIP_src_new% (strip AS LONG, n AS INTEGER, cw AS INTEGER, ch AS INTEGER, nm AS STRING, bs AS INTEGER)
+    DIM i AS INTEGER
+    IF strip >= -1 THEN EXIT FUNCTION
     FOR i = 1 TO CLIP_SRC_MAX
         IF CLIP_SRC(i).strip = 0 THEN EXIT FOR
     NEXT i
-    IF i > CLIP_SRC_MAX THEN EXIT FUNCTION
+    IF i > CLIP_SRC_MAX THEN _FREEIMAGE strip: EXIT FUNCTION
+    CLIP_SRC(i).strip = strip: CLIP_SRC(i).n = n: CLIP_SRC(i).cw = cw: CLIP_SRC(i).ch = ch
+    CLIP_SRC(i).nm = nm: CLIP_SRC(i).binSlot = bs
+    IF AB_clean$(CLIP_SRC(i).nm) = "" THEN CLIP_SRC(i).nm = "AnimBrush"
+    IF i > CLIP_SRC_N THEN CLIP_SRC_N = i
+    CLIP_src_new% = i
+END FUNCTION
+
+''
+' A new source from the AnimBrush's cels (0 = no room / no AnimBrush).
+FUNCTION CLIP_src_from_ab% ()
+    DIM k AS INTEGER, oldD AS LONG, img AS LONG
+    IF AB_active% = 0 THEN EXIT FUNCTION
     img = _NEWIMAGE(AB.n * CLNG(AB.w), AB.h, 32)
     IF img >= -1 THEN EXIT FUNCTION
     oldD = _DEST: _DEST img: CLS , _RGBA32(0, 0, 0, 0): _DEST oldD
@@ -64,10 +76,16 @@ FUNCTION CLIP_src_from_ab% ()
         IF AB_CEL(k) < -1 THEN _PUTIMAGE ((k - 1) * AB.w, 0), AB_CEL(k), img
     NEXT k
     _BLEND img
-    CLIP_SRC(i).strip = img: CLIP_SRC(i).n = AB.n: CLIP_SRC(i).cw = AB.w: CLIP_SRC(i).ch = AB.h
-    CLIP_SRC(i).nm = AB_name$: CLIP_SRC(i).binSlot = 0
-    IF i > CLIP_SRC_N THEN CLIP_SRC_N = i
-    CLIP_src_from_ab% = i
+    CLIP_src_from_ab% = CLIP_src_new%(img, AB.n, AB.w, AB.h, AB_name$, AB.binSlot)
+END FUNCTION
+
+''
+' A new source from Drawer bin i's AnimBrush (0 = none there / no room).
+FUNCTION CLIP_src_from_bin% (i AS INTEGER)
+    DIM img AS LONG
+    IF AB_slot_has%(i) = 0 THEN EXIT FUNCTION
+    img = _COPYIMAGE(DRAWER_BRUSH_SLOTS(i).CELS, 32)
+    CLIP_src_from_bin% = CLIP_src_new%(img, DRAWER_BRUSH_SLOTS(i).N, DRAWER_BRUSH_SLOTS(i).CW, DRAWER_BRUSH_SLOTS(i).CH, AB_clean$(DRAWER_BRUSH_SLOTS(i).NM), i)
 END FUNCTION
 
 ''
@@ -418,11 +436,55 @@ SUB CLIP_bake ()
 END SUB
 
 ''
-' Actions 2620-2628.
+' Update Clip from Bin (fromBin) / from AnimBrush: the clip's cels become the
+' Drawer bin's they came from / the current AnimBrush's. A new source, so undo
+' points the clips back at the old one; every clip layer on the old source takes
+' it (one undo step). In / Out, the mode and the place stay.
+SUB CLIP_update (fromBin AS INTEGER)
+    DIM k AS INTEGER, s AS INTEGER, newSrc AS INTEGER, bs AS INTEGER, i AS INTEGER, kk AS INTEGER
+    DIM n AS INTEGER, before AS STRING, lbl AS STRING, grp AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    IF fromBin THEN
+        IF s >= 1 _ANDALSO s <= CLIP_SRC_N THEN bs = CLIP_SRC(s).binSlot
+        IF bs = 0 THEN STATUS_flash "This clip's cels did not come from a Drawer bin - pick an AnimBrush and use Update Clip from AnimBrush": EXIT SUB
+        IF AB_slot_has%(bs) = 0 THEN STATUS_flash "Drawer bin" + STR$(bs) + " no longer holds an AnimBrush": EXIT SUB
+        newSrc = CLIP_src_from_bin%(bs): lbl = "Update Clip from Bin"
+    ELSE
+        IF AB_active% = 0 THEN STATUS_flash "Pick an AnimBrush first: its cels replace the clip's": EXIT SUB
+        newSrc = CLIP_src_from_ab%: lbl = "Update Clip from AnimBrush"
+    END IF
+    IF newSrc = 0 THEN STATUS_flash "No room for more clip sources (" + _TRIM$(STR$(CLIP_SRC_MAX)) + ")": EXIT SUB
+    IF NOT HISTORY_IN_PROGRESS% _ANDALSO NOT HISTORY_GROUP_ACTIVE% THEN HISTORY_begin_group: grp = TRUE
+    FOR i = 1 TO MAX_LAYERS
+        kk = CLIP_inst_of%(i)
+        IF kk _ANDALSO (kk = k _ORELSE (s > 0 _ANDALSO CLIP_INST(kk).src = s)) THEN
+            before = CLIP_state$(i)
+            CLIP_INST(kk).src = newSrc
+            IF CLIP_INST(kk).startCel > CLIP_SRC(newSrc).n THEN CLIP_INST(kk).startCel = 1
+            CLIP_rebuild i
+            HISTORY_record_clip LAYERS(i).historyId&, i, before, CLIP_state$(i), lbl
+            n = n + 1
+        END IF
+    NEXT i
+    IF grp THEN HISTORY_end_group
+    HISTORY_saved_this_frame% = TRUE
+    BLEND_invalidate_cache: INVALIDATE_canvas: GUI_NEEDS_REDRAW% = TRUE
+    lbl = "Clip updated: " + _TRIM$(STR$(CLIP_SRC(newSrc).n)) + " cels"
+    IF fromBin THEN lbl = lbl + " from Drawer bin" + STR$(bs) ELSE lbl = lbl + " from the AnimBrush"
+    IF n > 1 THEN lbl = lbl + " (" + _TRIM$(STR$(n)) + " clip layers)"
+    STATUS_flash lbl
+END SUB
+
+''
+' Actions 2620-2630.
 SUB CLIP_action (act AS INTEGER)
     SELECT CASE act
         CASE CLIP_ACT_PLACE: CLIP_place_start
         CASE CLIP_ACT_BAKE: CLIP_bake
+        CASE CLIP_ACT_UPD_BIN: CLIP_update TRUE
+        CASE CLIP_ACT_UPD_AB: CLIP_update FALSE
         CASE CLIP_ACT_MODE0 TO CLIP_ACT_MODE0 + 4: CLIP_set 5, act - CLIP_ACT_MODE0
         CASE CLIP_ACT_FLIP_X: CLIP_set 6, NOT CLIP_get&(6)
         CASE CLIP_ACT_FLIP_Y: CLIP_set 7, NOT CLIP_get&(7)
@@ -581,7 +643,7 @@ END FUNCTION
 ' QA dump lines (DOCK_DUMP):
 '   CLIP slot src in out start every mode flipX flipY px py   (one per clip layer)
 '   CLIPC slot cels         the cel each frame shows ("." none, cel 10+ as letters)
-'   CLIPS src n cw ch name  (each source in use)
+'   CLIPS src n cw ch bin name  (each source; bin = the Drawer bin it came from, 0 = none)
 '   CLIPP placing
 ' ---------------------------------------------------------------------------
 FUNCTION CLIP_dump$ ()
@@ -610,7 +672,7 @@ FUNCTION CLIP_dump$ ()
         END IF
     NEXT i
     FOR i = 1 TO CLIP_SRC_N
-        IF CLIP_SRC(i).strip < -1 THEN s = s + "CLIPS" + STR$(i) + STR$(CLIP_SRC(i).n) + STR$(CLIP_SRC(i).cw) + STR$(CLIP_SRC(i).ch) + " " + AB_us$(AB_clean$(CLIP_SRC(i).nm)) + lf
+        IF CLIP_SRC(i).strip < -1 THEN s = s + "CLIPS" + STR$(i) + STR$(CLIP_SRC(i).n) + STR$(CLIP_SRC(i).cw) + STR$(CLIP_SRC(i).ch) + STR$(CLIP_SRC(i).binSlot) + " " + AB_us$(AB_clean$(CLIP_SRC(i).nm)) + lf
     NEXT i
     CLIP_dump$ = s
 END FUNCTION
