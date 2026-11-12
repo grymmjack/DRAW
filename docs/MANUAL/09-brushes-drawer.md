@@ -127,6 +127,35 @@ Three finished scenes built this way are in **`SAMPLES/ANIMBRUSH/scenes/`**: a c
 a campfire in the woods and a waterfall valley, every element on its own layer. Each brush is
 also in `SAMPLES/ANIMBRUSH/brushes/` as a strip with frame data, for **AnimBrush → Load…**.
 
+### Animated scenes with sound
+
+**`SAMPLES/ANIMSCENES/`** has nine longer scenes (48–64 frames, 12 fps), each with its **own
+AnimBrush pack** and a **soundtrack** (a music track and a sound-effects track, timed to the
+frames). They show what the Move Brush's numbers do across many frames - position on straight
+and drawn paths, SIZE, MOVE Z (perspective), TURN X / Y / Z, OPACITY and TINT:
+
+| Scene | What moves |
+| --- | --- |
+| `space` | parallax star layers, a ship curving down to the planet (Z + turn + tint), a cut to the surface through black, a lander touching down in dust |
+| `alien-attack` | an invaders-style loop: a marching formation, a tracking tank, shots, flipping bombs, a mothership blown apart (size + spin + tint + fade) |
+| `brick-breaker` | a simulated rally: the ball on a drawn path, bricks bursting, a capsule flipping into the paddle |
+| `bakery` | a sunlit table: steam puffs that grow and fade, dust motes on drawn loops, a sunbeam that brightens and warms |
+| `beach` | flapping umbrellas, rolling surf, a spinning beach ball, a gull sailing toward you (size) and one flying away (Z), a sunbather turning red (tint) |
+| `dungeon` | flickering torches and skull candles, spiders on silk, a ghost fading in and out, a bat flying at you |
+| `fireworks` | rockets, bursts that grow, fade and cool from white (size + opacity + tint), a tilted ring (turn X), a pinwheel, a finale |
+| `platformer` | a robot running and jumping on drawn arcs, coins flipping (turn Y), the fall into the pit (tumble + Z + red + fade), GAME OVER |
+| `stormy-night` | the extra pack: rain and lightning, a TV, a radio, a computer, a snow globe, a dog, a cat and two monsters |
+
+Open `NAME.draw`, `Num 0` for the lightbox and `Num Enter` to play it with its sound. The
+pack is `NAME-pack.dset` (Drawer → Load Set); `NAME-moves.txt` lists every Move Brush the
+scene used with its numbers, so you can rebuild any element yourself: pick the bin, **Move
+Brush → Start**, drag the path, type the same values and `Enter`.
+
+> 💡 For composing a scene like these, **ANIM → Big Frame + X-Sheet** shows the lightbox as one
+> big pane (the current frame) under the X-sheet: you see the whole picture large while every
+> layer's frames and the sound stay in view. Choose it again (or `Num *`, which steps
+> 1 / 3 / 5 / 7 panes) to go back.
+
 ### Transform controls
 
 | Action | Key |
