@@ -32,6 +32,8 @@
 '     cell it lands on is replaced, the one it left is cleared); Ctrl when
 '     dropping copies it instead
 '   - drag a frame number: the selected frames move there (as the strip)
+'   - a clip layer's row is a bar from In to Out with the cel in each frame:
+'     drag an end to set In / Out, the middle to slide both (TOOLS/CLIP)
 ' Past the grid's left / right edge a drag scrolls it.
 '
 ' @author Rick Christy <grymmjack@gmail.com>
@@ -44,6 +46,7 @@ CONST XS_DRAG_HOLD   = 1 ' along the holds row
 CONST XS_DRAG_CELL   = 2 ' a drawing to another cell
 CONST XS_DRAG_FRAMES = 3 ' frame numbers: reorder
 CONST XS_DRAG_SOUND  = 4 ' a sound clip: along its track / to another track (F6)
+CONST XS_DRAG_CLIP   = 5 ' a clip layer's bar: its In end, its Out end or the whole bar (TOOLS/CLIP, phase 2 K5)
 CONST XS_EYE_X  = 2  ' name column: the eye from x1 + 2, the lock from x1 + 13,
 CONST XS_LOCK_X = 13 ' the name from x1 + XS_ICONS_W (F5)
 CONST XS_ICONS_W = 25
@@ -97,6 +100,9 @@ TYPE ANIM_XS_OBJ
     rSlot    AS INTEGER ' a right press on this layer's row: its menu on the release
     rSound   AS INTEGER ' a right press on this SOUND track's row: the SOUND menu on the release (F6)
     rTag     AS INTEGER ' a right press on the TAGS / NOTES row: their menu on the release (field kit R-13)
+    cEnd     AS INTEGER ' XS_DRAG_CLIP: 1 the In end, 2 the Out end, 3 the whole bar
+    cIn0     AS INTEGER ' the clip's In / Out at the press (Out 0 = to the end)
+    cOut0    AS INTEGER
 END TYPE
 DIM SHARED ANIM_XS AS ANIM_XS_OBJ
 DIM SHARED ANIM_XS_ROW(1 TO MAX_LAYERS) AS INTEGER   ' layer slot of row r (display order)

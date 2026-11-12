@@ -571,7 +571,9 @@ SUB ANIM_XS_render (dest AS LONG)
         ANIM_XS_label_room r, lx, lw
         FPANEL_text lx, y + (lh - FPANEL.fontH%) \ 2, ANIM_XS_label_fit$(r, lw), fg
         ANIM_XS_layer_controls slot, y
-        IF LAYERS(slot).layerType% <> LAYER_TYPE_GROUP THEN
+        IF CLIP_inst_of%(slot) THEN
+            ANIM_XS_cl_row slot, y ' a clip layer: its bar, In to Out, the cel in each frame
+        ELSEIF LAYERS(slot).layerType% <> LAYER_TYPE_GROUP THEN
             FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
                 IF ANIM_XS_filled%(slot, f) THEN ANIM_XS_cell dest, slot, f, y
                 IF ANIM_LK_N > 0 THEN ' a linked cell (4.3): hatched over its first tick
@@ -1372,6 +1374,8 @@ FUNCTION ANIM_XS_press% (mx AS INTEGER, my AS INTEGER)
                 ANIM_XS.dMode = XS_DRAG_FRAMES
             ELSEIF k = ANIM_XS.rowsShown + 1 THEN
                 ANIM_XS.dMode = XS_DRAG_HOLD: ANIM_XS.dHold0 = ANIM_hold%(f)
+            ELSEIF slot > 0 _ANDALSO CLIP_inst_of%(slot) > 0 THEN
+                ANIM_XS_cl_press slot, mx ' a clip layer's bar: an end or the whole bar
             ELSEIF slot > 0 THEN
                 IF ANIM_OPS_moves%(slot) _ANDALSO ANIM_XS_filled%(slot, f) THEN ANIM_XS.dMode = XS_DRAG_CELL: ANIM_XS.dSlot = slot ' an empty cell has nothing to move
             END IF
@@ -1490,6 +1494,8 @@ SUB ANIM_XS_hold ()
                 IF h <> ANIM_XS.dTo THEN ANIM_XS.dTo = h: ANIM_LB_changed
             CASE XS_DRAG_SOUND ' the clip: by the ms dragged, snapped to a frame start (Shift: free); another SOUND row = that track
                 ANIM_XS_sound_drag mx, my
+            CASE XS_DRAG_CLIP
+                ANIM_XS_cl_drag mx
         END SELECT
         EXIT SUB
     END IF
@@ -1520,6 +1526,110 @@ SUB ANIM_XS_hold ()
     END IF
     ANIM_XS_BEFORE = "": ANIM_SC_DRAG = FALSE
     ANIM_XS.dMode = XS_DRAG_NONE: ANIM_XS.dOn = FALSE: ANIM_XS.dCollapse = FALSE: ANIM_XS.dTo = 0: ANIM_XS.dToSlot = 0
+    ANIM_LB_changed
+END SUB
+
+' ---------------------------------------------------------------------------
+' A clip layer's row (TOOLS/CLIP, phase 2 K5): a bar from In to the last frame
+' it shows (Out, or the last frame), each frame's cel number in it. Drag an end
+' to set In / Out, the middle to slide both - one undo step a drag (CLIP_KEY).
+' ---------------------------------------------------------------------------
+
+''
+' The clip's frames a..b and the bar's viewport x (cut to the grid; FALSE =
+' not in view). inA / inB: that end is in view.
+FUNCTION ANIM_XS_cl_span% (slot AS INTEGER, a AS INTEGER, b AS INTEGER, xa AS INTEGER, xb AS INTEGER, inA AS INTEGER, inB AS INTEGER)
+    DIM k AS INTEGER
+    k = CLIP_inst_of%(slot)
+    IF k = 0 THEN EXIT FUNCTION
+    a = CLIP_INST(k).inF: b = CLIP_INST(k).outF
+    IF b <= 0 _ORELSE b > ANIM.count THEN b = ANIM.count
+    IF a < 1 THEN a = 1
+    IF b < ANIM_XS.firstF _ORELSE a > ANIM_XS.lastF _ORELSE b < a THEN EXIT FUNCTION
+    inA = (a >= ANIM_XS.firstF): inB = (b <= ANIM_XS.lastF)
+    xa = ANIM_XS_frame_x%(_MAX(a, ANIM_XS.firstF))
+    xb = ANIM_XS_frame_x%(b) + ANIM_XS_span_w%(b) - 1
+    IF xa < ANIM_XS.gx THEN xa = ANIM_XS.gx: inA = FALSE
+    IF xb > ANIM_XS.x2 THEN xb = ANIM_XS.x2: inB = FALSE
+    ANIM_XS_cl_span% = (xb > xa)
+END FUNCTION
+
+SUB ANIM_XS_cl_row (slot AS INTEGER, y AS INTEGER)
+    DIM k AS INTEGER, a AS INTEGER, b AS INTEGER, xa AS INTEGER, xb AS INTEGER, inA AS INTEGER, inB AS INTEGER
+    DIM f AS INTEGER, x AS INTEGER, w AS INTEGER, c AS INTEGER, t AS STRING, tw AS INTEGER, lh AS INTEGER
+    DIM fill AS _UNSIGNED LONG, edge AS _UNSIGNED LONG, fg AS _UNSIGNED LONG, cur AS INTEGER
+    IF ANIM_XS_cl_span%(slot, a, b, xa, xb, inA, inB) = 0 THEN EXIT SUB
+    k = CLIP_inst_of%(slot): lh = ANIM_XS.layH: cur = (slot = CURRENT_LAYER%)
+    edge = THEME.ANIM_FRAME_current~&
+    fill = (edge AND &H00FFFFFF~&) OR _IIF(cur, &H90000000~&, &H48000000~&)
+    fg = _IIF(cur, THEME.CP_text_bright~&, THEME.CP_text~&)
+    LINE (xa + 1, y + 2)-(xb - 1, y + lh - 3), fill, BF
+    LINE (xa + 1, y + 2)-(xb - 1, y + lh - 3), edge, B
+    ' the ends: grips (drag them)
+    IF inA THEN LINE (xa + 1, y + 2)-(xa + 3, y + lh - 3), edge, BF
+    IF inB THEN LINE (xb - 3, y + 2)-(xb - 1, y + lh - 3), edge, BF
+    FOR f = _MAX(a, ANIM_XS.firstF) TO _MIN(b, ANIM_XS.lastF)
+        x = ANIM_XS_frame_x%(f): w = ANIM_XS_span_w%(f)
+        c = CLIP_cel_at%(k, f)
+        IF c > 0 THEN t = _TRIM$(STR$(c)) ELSE t = "-"
+        tw = FPANEL_text_w%(t)
+        IF tw + 8 <= w _ANDALSO x + (w + tw) \ 2 <= ANIM_XS.x2 THEN FPANEL_text x + (w - tw) \ 2, y + (lh - FPANEL.fontH%) \ 2, t, fg
+    NEXT f
+END SUB
+
+''
+' A plain press on a clip layer's row (it is the current layer now): on an end
+' (3 px) = drag it, inside the bar = slide it.
+SUB ANIM_XS_cl_press (slot AS INTEGER, mx AS INTEGER)
+    DIM k AS INTEGER, a AS INTEGER, b AS INTEGER, xa AS INTEGER, xb AS INTEGER, inA AS INTEGER, inB AS INTEGER, e AS INTEGER
+    IF ANIM_XS_cl_span%(slot, a, b, xa, xb, inA, inB) = 0 THEN EXIT SUB
+    k = CLIP_inst_of%(slot)
+    IF inA _ANDALSO ABS(mx - xa) <= 3 _ANDALSO (inB = 0 _ORELSE ABS(mx - xa) <= ABS(mx - xb)) THEN
+        e = 1
+    ELSEIF inB _ANDALSO ABS(mx - xb) <= 3 THEN
+        e = 2
+    ELSEIF mx > xa _ANDALSO mx < xb THEN
+        e = 3
+    END IF
+    IF e = 0 THEN EXIT SUB
+    ANIM_XS.dMode = XS_DRAG_CLIP: ANIM_XS.dSlot = slot: ANIM_XS.cEnd = e
+    ANIM_XS.cIn0 = CLIP_INST(k).inF: ANIM_XS.cOut0 = CLIP_INST(k).outF
+    CLIP_XS_KEY = CLIP_XS_KEY - 1
+END SUB
+
+''
+' XS_DRAG_CLIP: the end / the bar follows the frame under the pointer.
+SUB ANIM_XS_cl_drag (mx AS INTEGER)
+    DIM fm AS INTEGER, d AS INTEGER, v AS INTEGER, out0 AS INTEGER, last0 AS INTEGER
+    IF CURRENT_LAYER% <> ANIM_XS.dSlot _ORELSE CLIP_current% = 0 THEN EXIT SUB
+    fm = ANIM_XS_frame_at%(mx)
+    IF fm = 0 THEN fm = _IIF(mx < ANIM_XS.gx, ANIM_XS.firstF, ANIM_XS.lastF)
+    out0 = ANIM_XS.cOut0
+    last0 = out0: IF last0 <= 0 THEN last0 = ANIM.count
+    SELECT CASE ANIM_XS.cEnd
+        CASE 1 ' In: not past the last frame it shows
+            v = _MAX(1, _MIN(fm, last0))
+            IF v <> CLIP_get&(1) THEN CLIP_set_keyed 1, v, CLIP_XS_KEY
+        CASE 2 ' Out: not before In; the last frame = to the end
+            v = _MAX(ANIM_XS.cIn0, fm)
+            IF v >= ANIM.count THEN v = 0
+            IF v <> CLIP_get&(2) THEN CLIP_set_keyed 2, v, CLIP_XS_KEY
+        CASE 3 ' the bar: In and Out move together, inside the frames
+            d = fm - ANIM_XS.dFrame
+            IF ANIM_XS.cIn0 + d < 1 THEN d = 1 - ANIM_XS.cIn0
+            IF out0 > 0 THEN
+                IF out0 + d > ANIM.count THEN d = ANIM.count - out0
+            ELSE
+                IF ANIM_XS.cIn0 + d > ANIM.count THEN d = ANIM.count - ANIM_XS.cIn0
+            END IF
+            IF ANIM_XS.cIn0 + d <> CLIP_get&(1) THEN
+                IF d > 0 _ANDALSO out0 > 0 THEN CLIP_set_keyed 2, out0 + d, CLIP_XS_KEY
+                CLIP_set_keyed 1, ANIM_XS.cIn0 + d, CLIP_XS_KEY
+                IF d <= 0 _ANDALSO out0 > 0 THEN CLIP_set_keyed 2, out0 + d, CLIP_XS_KEY
+            END IF
+    END SELECT
+    v = CLIP_get&(2)
+    STATUS_flash "Clip: In" + STR$(CLIP_get&(1)) + ", Out " + _IIF(v = 0, "to the end", _TRIM$(STR$(v)))
     ANIM_LB_changed
 END SUB
 
@@ -1700,6 +1810,12 @@ FUNCTION ANIM_XS_dump$ ()
         NEXT f
         d = d + CHR$(10)
     END IF
+    ' ANIMXSCL slot y xa xb in out: each clip layer's bar in view (TOOLS/CLIP, K5; y = its row)
+    FOR r = ANIM_XS.firstRow TO _MIN(ANIM_XS.nRows, ANIM_XS.firstRow + ANIM_XS.rowsShown - 1)
+        slot = ANIM_XS_ROW(r)
+        DIM cla AS INTEGER, clb AS INTEGER, cia AS INTEGER, cib AS INTEGER
+        IF ANIM_XS_cl_span%(slot, cla, clb, xa, xb, cia, cib) THEN d = d + "ANIMXSCL" + DOCK_n$(slot) + DOCK_n$(ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1)) + DOCK_n$(xa) + DOCK_n$(xb) + DOCK_n$(cla) + DOCK_n$(clb) + CHR$(10)
+    NEXT r
     ' ANIMXSL eyeX lockX opX opW, then per row (<= 64): slot visible opacityLock opacity% (F5)
     d = d + "ANIMXSL" + DOCK_n$(ANIM_XS.x1 + XS_EYE_X) + DOCK_n$(ANIM_XS.x1 + XS_LOCK_X) + DOCK_n$(ANIM_XS_op_x%) + DOCK_n$(ANIM_XS_op_w%)
     FOR r = 1 TO _MIN(ANIM_XS.nRows, 64)

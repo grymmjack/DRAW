@@ -69,4 +69,5 @@ DIM SHARED CLIP_KEY AS LONG       ' the panel press CLIP_set belongs to (0 = non
 DIM SHARED CLIP_LAST_KEY AS LONG, CLIP_LAST_REC AS INTEGER
 DIM SHARED CLIP_DRAG_SLOT AS INTEGER ' a lightbox pane drag of a clip layer (the Move tool): its slot, 0 = none
 DIM SHARED CLIP_DRAG_BEFORE AS STRING, CLIP_DRAG_X0 AS INTEGER, CLIP_DRAG_Y0 AS INTEGER
+DIM SHARED CLIP_XS_KEY AS LONG ' the X-sheet bar's press keys (negative: never an Animation panel press's)
 DIM SHARED CLIP_PLACING AS INTEGER ' 1 = Place as Clip waits for a click, 2 = placed, waiting for the release

@@ -1276,7 +1276,15 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   with the document's frames on = Place as Clip at the frame under the pointer, centred. Only
   GIF / APNG: a `.draw` with frames still opens as a document and a PNG sheet still stamps
   (a row-of-squares PNG would be misread as frames). Test `QA/tests/clip-drop.sh` (9).
-- **Phase 2** (not built yet): X-sheet clip row, clip sound cues, Clip Sources list.
+- **X-sheet clip row** (TOOLS/ANIM-XS `ANIM_XS_cl_*`): a clip layer's row is a bar from In to
+  its last frame (Out, or the last) with each frame's cel number (`-` none) and grips at both
+  ends, in place of the cell thumbnails. A plain press (`ANIM_XS_cl_press`, after the row's layer
+  is selected): within 3 px of an end = `XS_DRAG_CLIP` that end, inside = the whole bar;
+  `ANIM_XS_cl_drag` follows the frame under the pointer via `CLIP_set_keyed` with
+  `CLIP_XS_KEY` (a new negative key a press - never an Animation panel press key), so a drag is
+  one undo step. Out dragged to the last frame = 0 (to the end). Dump `ANIMXSCL slot y xa xb in
+  out` (NOT `ANIMXSC`: that one is the SOUND clips'). Test `QA/tests/clip-xsheet.sh` (9).
+- **Phase 2** (not built yet): clip sound cues, Clip Sources list.
 
 ## Gotchas met here
 
