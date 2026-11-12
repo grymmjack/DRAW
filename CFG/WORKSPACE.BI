@@ -39,6 +39,7 @@ TYPE WS_INFO
     id       AS STRING  ' lowercase file stem ("annotate")
     title    AS STRING  ' [WORKSPACE] NAME (falls back to the id)
     desc     AS STRING  ' [WORKSPACE] DESCRIPTION
+    short    AS STRING  ' [WORKSPACE] SHORT: its workflow button label ("" = the title)
     basedOn  AS STRING  ' [WORKSPACE] BASED_ON id ("" = none)
     fpath    AS STRING  ' the file that wins ("" = virtual default)
     builtin  AS INTEGER ' a built-in with this id exists (Reset is possible)

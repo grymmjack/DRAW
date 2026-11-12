@@ -222,6 +222,8 @@ TYPE DRAW_CONFIG
     WORKSPACE                       AS STRING         ' Last workspace id (CFG/WORKSPACE); DRAW reopens in it. "default" = no overlay
     STOCK_DEFAULT_LAYOUT            AS INTEGER        ' TRUE = Default keeps the stock panel layout: moving / docking / resizing panels there goes into the CURRENT workspace
     WORKSPACE_SAVE_PROMPT           AS INTEGER        ' TRUE = on exit in a modified CURRENT workspace, offer to save it under a name
+    WORKFLOW_BAR                    AS INTEGER        ' TRUE = the workflow buttons strip at the top of the toolbox (GUI/WORKFLOW)
+    WORKFLOW_BUTTONS                AS STRING         ' its buttons: workspace ids, comma list (max 8; "" / NONE = no strip)
     FULLSCREEN                      AS INTEGER        ' TRUE = fullscreen, FALSE = windowed
     SPLASH_ENABLED                  AS INTEGER        ' TRUE = show splash screen on startup (default TRUE)
     UI_SCALE                        AS INTEGER        ' MASTER scale (0 = auto, 1-8). Drives DISPLAY_SCALE + TOOLBAR_SCALE; dialog/browser scales derive from it.

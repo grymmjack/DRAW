@@ -146,6 +146,7 @@ TYPE DOCK_UI_OBJ
     hoverSlot AS INTEGER ' slot whose handle the pointer is over (0 = none)
     menuOpen  AS INTEGER
     menuPanel AS INTEGER ' panel the menu acts on
+    menuWf    AS INTEGER ' > 0: workflow button n's menu instead (GUI/WORKFLOW)
     menuX     AS INTEGER
     menuY     AS INTEGER
     menuW     AS INTEGER
