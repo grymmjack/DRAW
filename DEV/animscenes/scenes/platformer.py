@@ -202,7 +202,7 @@ mv = ['layer clouds; pick 6 1 cloud',
       'pick 2 2 robot-jump',
       'mv 0 0 0 0 label="jump 1 (DRAWN arc, one point per frame)" path=drawn pts="%s" from=9 count=8 every=8' % pts_s(J1),
       'mv 0 0 0 0 label="jump 2" path=drawn pts="%s" from=21 count=8 every=8' % pts_s(J2),
-      'mv 0 0 0 0 label="the big jump comes up short, into the pit" path=drawn pts="%s" from=33 count=%d every=20' % (pts_s(J3), len(J3)),
+      'mv 0 0 0 0 label="the big jump comes up short, into the pit" path=drawn pts="%s" from=33 count=%d every=12' % (pts_s(J3), len(J3)),
       'fg_key "$KEY_RED"; pick 3 1 robot-hurt',
       'mv %d %d %d %d label="the fall: tumbles away (TURN Z 720, MOVE Z 0 > 600), flashes red (TINT 0 > 70), fades" from=%d count=8 z=600 tz=720 t1=70 o1=0 ease=1'
       % (J3[-1] + (J3[-1][0], J3[-1][1] - 4, 33 + len(J3))),
