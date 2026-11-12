@@ -19,6 +19,28 @@ Make a selection, then capture it as a brush via the Brush menu, the Organizer b
 
 Non-rectangular shapes are preserved via the alpha channel.
 
+### The ANIM menu
+
+![The ANIM menu with its Frames flyout](images/ch09-anim-menu.png)
+
+Everything for frames lives in the **ANIM** menu. The things you use all the time
+are on top - the Animation panel, First / Previous / Next / Last Frame, Play and
+Full-Screen Preview - and the rest is grouped in flyouts:
+
+| Flyout | What's in it |
+| --- | --- |
+| **Frames** | Add, insert, duplicate, delete, move, reverse, copy / cut / paste frames |
+| **Set Up** | Frame Grid, Detect Frames, Import PNG Sequence; reference / same-on-every-frame / linked layers; tags and frame notes |
+| **View** | Lightbox, panes, X-sheet, Big Frame + X-Sheet, onion skin, Preview Shows Frame, clip strokes to the frame |
+| **AnimBrush**, **Move Brush** | The two brushes below |
+| **Clip Layer**, **Clip Lanes**, **Clip Sounds** | Clip layers, their keyframe lanes and their sounds (below) |
+| **Export** | Animated GIF, APNG, PNG sequence, sprite sheet, BAS player, export scale |
+
+AnimPaint and the soundtrack stay on the top level. Every item is also in the
+command palette (`?`), so you can type its name instead. The **Sprite**, **Animate**
+and **Scene** workspaces ([Chapter 22](22-workspaces-capture.md#workflow-buttons)) set DRAW up for each kind of animation work
+with one click on the workflow buttons at the top of the toolbox.
+
 ### AnimBrush - a brush with a picture per frame
 
 On a sprite sheet (a document with frames), **ANIM → AnimBrush → Pick Up** makes a brush
@@ -251,7 +273,7 @@ Other ways to key:
   frames, with the move in its lanes - a straight path as two keys with the move's ease, a
   drawn path as a key per frame, plus its SIZE, OPACITY, TINT and TURN Z. Z and the 3D
   turns have no lane and are left out (Apply still stamps them).
-- **ANIM → Clip Layer**: **Clear This Lane**, **Clear All Lanes**, **Copy Lanes** /
+- **ANIM → Clip Lanes**: **Clear This Lane**, **Clear All Lanes**, **Copy Lanes** /
   **Paste Lanes** (onto another clip layer), **Tint Toward the Foreground Colour** (the
   colour the TINT lane goes toward).
 
@@ -271,7 +293,7 @@ To build a scene from it:
 
 1. **File → New Animation…** - choose a frame count every loop divides into (24 fits loops of
    2, 3, 4, 6, 8 and 12 cels, so nothing jumps when the scene wraps).
-2. Draw the background in frame 1 and turn on **ANIM → Layer Same on Every Frame**.
+2. Draw the background in frame 1 and turn on **ANIM → Set Up → Layer Same on Every Frame**.
 3. `Num 0` (the lightbox), then **ANIM → AnimBrush → Every Frame at Once**.
 4. For each thing that animates in place: a new layer (`Ctrl+Shift+N`), click its bin, press
    `Alt+]` a few times so it is out of step with its neighbours, and click where it goes.
@@ -305,7 +327,7 @@ pack is `NAME-pack.dset` (Drawer → Load Set); `NAME-moves.txt` lists every Mov
 scene used with its numbers, so you can rebuild any element yourself: pick the bin, **Move
 Brush → Start**, drag the path, type the same values and `Enter`.
 
-> 💡 For composing a scene like these, **ANIM → Big Frame + X-Sheet** shows the lightbox as one
+> 💡 For composing a scene like these, **ANIM → View → Big Frame + X-Sheet** shows the lightbox as one
 > big pane (the current frame) under the X-sheet: you see the whole picture large while every
 > layer's frames and the sound stay in view. Choose it again (or `Num *`, which steps
 > 1 / 3 / 5 / 7 panes) to go back.

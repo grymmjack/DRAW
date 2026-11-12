@@ -28,6 +28,8 @@ only remembers *which* workspace you were in, so it reopens there.
 | **Default** | The stock panel layout. No overlay. Always there; can't be deleted. Moving or resizing panels in it starts a workspace of your own (see below). |
 | **Simple** | Everyday drawing: a 2-column toolbox of 10 tools, File / Edit / View / Help menus, no advanced bar or power panels. |
 | **Animate** | Frame-by-frame animation: the lightbox (strip, transport bar, the frames before and after side by side) with onion skin and the frame grid, and the Animation panel; the character map, 3D color space and browser are put away. On a picture without frames, `Num +` makes frames and the lightbox opens on them. |
+| **Sprite** | One sprite or a short loop: the Preview (showing the current frame), the Animation panel and the Drawer; the frame grid on, no lightbox or onion skin; the Brush; no EFFECTS / AUDIO menus. |
+| **Scene** | A scene of clips and layers: Big Frame + X-sheet (the lightbox as one large pane, the X-sheet under it), the Animation panel, the Drawer and the layers; onion skin off; the Move tool; every menu. |
 | **Annotate** | Screenshot markup: a 1-column annotation toolbox docked left, a trimmed edit bar, the palette strip, single-key annotation tools, Rect in red, zoomed to fit. Capture Screen lands here. |
 
 ### Switching
@@ -40,6 +42,7 @@ only remembers *which* workspace you were in, so it reopens there.
 | **`[WS: name]` badge** | At the right end of the status bar; click it to open the switcher |
 | `DRAW --workspace annotate shot.png` | Start in a workspace **for this run only** (not remembered) |
 | `DRAW --workspaces` | List the workspaces (the remembered one is starred) and exit |
+| **Workflow buttons** | The labelled buttons at the top of the toolbox (below) |
 
 **There is always a way back.** Whatever a workspace hides:
 - `Ctrl+Shift+W` and the command palette still work.
@@ -48,6 +51,28 @@ only remembers *which* workspace you were in, so it reopens there.
 
 Things you toggle while in a workspace (opening the Color Mixer, say) last for
 that session. To make them part of the workspace, save the layout (below).
+
+### Workflow buttons
+
+![Workflow buttons](images/ch22-workflow-buttons.png)
+
+The strip at the top of the toolbox has one button per workspace - by default
+**SPRITE**, **ANIMATE**, **SCENE** and **ANNOTATE**. Click one to switch to that
+workspace; it lights while you are in it. Click the lit one again to go back to
+Default.
+
+Right-click a button to change the strip:
+- pick the workspace it opens (every workspace is listed, yours too);
+- **Move Left / Move Right**;
+- **Add a Button** (after this one; it takes the first workspace not already on the strip);
+- **Remove This Button**;
+- **Hide Workflow Buttons**. **View → Workflow Buttons** brings the strip back.
+
+The command palette has **Workflow Button 1** to **8** (type `workflow button 2`).
+The strip is the same in every workspace: it is saved
+in `DRAW.cfg` as `WORKFLOW_BUTTONS=sprite,animate,scene,annotate` (and
+`WORKFLOW_BAR=1` or `0`). A button's label is the workspace's `SHORT=` name, or
+its name when it has none.
 
 ### Arranging and saving a layout
 
@@ -282,6 +307,7 @@ Workspaces are plain `.workspace` text files, INI style:
 [WORKSPACE]
 NAME=Annotate
 DESCRIPTION=Mark up screenshots
+SHORT=ANNOTATE           ; the workflow button's label (optional)
 BASED_ON=default          ; inherit another workspace, override only what you list
 
 [CHROME]                  ; SHOW | HIDE | KEEP

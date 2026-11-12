@@ -565,14 +565,43 @@ Shows Frame, Onion Skin Tint, Clip Strokes...) show unchecked there and come bac
 
 Main-row digits keep setting opacity; `Alt+Home` / `Alt+End` no longer flip.
 
-**ANIM menu:** Animation Panel · First / Previous / Next / Last Frame · Play · Add Frame ·
-Add Blank Frame · Insert Frame Before / After · Duplicate Frame · Delete Frame · Move Frame
-Earlier / Later · Reverse Frames · Copy Frames · Cut Frames · Paste Frames as New · Paste
-Frames Over · Replace FG Color with BG in Frames · Frame Grid · Preview Shows Frame · Lightbox · Lightbox
-Panes 1 / 3 / 5 / 7 · X-Sheet · Big Frame + X-Sheet · Onion Skin · Onion Skin Red / Blue Tint · Clip Strokes to the Frame in the Lightbox · Clip Strokes to the Frame in
-Sheet View · Reference Layer (the current layer: shown, left out of every export; `[R]` in the
-layers panel) · Layer Same on Every Frame (the current layer's drawing on every frame - draw in
-any frame and it lands on all of them; `[=]`) · Link Cells (the current layer: with frames selected, their cells all show the first selected frame's drawing; with one frame, it links to the frame before. Paint any linked cell and the others change with it; linked cells are hatched in sheet view and the X-sheet) · Unlink Cells (the selected frames' cells keep their pixels and stop following). · Tag Frames... (name the selected frames; see Tags below) · Delete Tag · Frame Note... (the current frame's note; see Frame notes below) · Clear Frame Note · Soundtrack... (a WAV / OGG / MP3 / FLAC / MIDI that plays with the frames; see Soundtrack below) · Remove Soundtrack · Detect Frames (a sprite sheet without frames: finds the frame grid from the gaps between the sprites - frame size, gutter, margin - and slices it there) · Import PNG Sequence... (pick any file of name_0001.png, name_0002.png ...: they all come in as frames, a repeated file as a held frame). A marquee or wand selection inside the current frame moves with it to the next frame (same place in the cell). Export Animated GIF... (frames in loop order, holds, transparency, colour cycling) · Export Animated PNG (APNG)... (exact delays, every alpha level) · Export PNG Sequence... (one PNG per tick at the FPS) · Export BAS Player (DATA)... (a QB64 program that plays the frames, colour cycling along) · Export BAS Player + Sheet PNG... (the same, the frames cut out of a PNG beside it) · Export Sprite Sheet + Frame Data... (the sheet PNG + Aseprite-style JSON + a QB64 .bi of the frame rects) · Export Scale 1× / 2× / 4×. (Also View → Frame Grid
+**ANIM menu** (since the personas work it fits on one screen: the everyday items on top, the
+rest in flyouts):
+
+- **Top level:** Animation Panel · First / Previous / Next / Last Frame · Play · AnimPaint ·
+  Soundtrack... (a WAV / OGG / MP3 / FLAC / MIDI that plays with the frames; see Soundtrack
+  below) · Remove Soundtrack · Full-Screen Preview.
+- **Frames ›** Add Frame · Add Blank Frame · Insert Frame Before / After · Duplicate Frame ·
+  Delete Frame | Move Frame Earlier / Later · Reverse Frames | Copy Frames · Cut Frames ·
+  Paste Frames as New · Paste Frames Over · Replace FG Color with BG in Frames.
+- **Set Up ›** Frame Grid · Detect Frames (a sprite sheet without frames: finds the frame grid
+  from the gaps between the sprites - frame size, gutter, margin - and slices it there) ·
+  Create Frames from Grid · Import PNG Sequence... (pick any file of name_0001.png,
+  name_0002.png ...: they all come in as frames, a repeated file as a held frame) |
+  Reference Layer (the current layer: shown, left out of every export; `[R]` in the layers
+  panel) · Layer Same on Every Frame (the current layer's drawing on every frame - draw in any
+  frame and it lands on all of them; `[=]`) · Link Cells (the current layer: with frames
+  selected, their cells all show the first selected frame's drawing; with one frame, it links
+  to the frame before. Paint any linked cell and the others change with it; linked cells are
+  hatched in sheet view and the X-sheet) · Unlink Cells (the selected frames' cells keep their
+  pixels and stop following) | Tag Frames... (name the selected frames; see Tags below) ·
+  Delete Tag · Frame Note... (the current frame's note; see Frame notes below) · Clear Frame
+  Note.
+- **View ›** Lightbox · Lightbox Panes 1 / 3 / 5 / 7 · X-Sheet · Big Frame + X-Sheet | Onion
+  Skin · Onion Skin Red / Blue Tint · Preview Shows Frame | Clip Strokes to the Frame in the
+  Lightbox · Clip Strokes to the Frame in Sheet View.
+- **AnimBrush ›**, **Move Brush ›** - see AnimBrush and Move Brush below.
+- **Clip Layer ›**, **Clip Lanes ›**, **Clip Sounds ›** - see Clip layers below (greyed with
+  one frame).
+- **Export ›** Animated GIF... (frames in loop order, holds, transparency, colour cycling) ·
+  Animated PNG (APNG)... (exact delays, every alpha level) · PNG Sequence... (one PNG per tick
+  at the FPS) · Sprite Sheet + Frame Data... (the sheet PNG + Aseprite-style JSON + a QB64 .bi
+  of the frame rects) | BAS Player (DATA)... (a QB64 program that plays the frames, colour
+  cycling along) · BAS Player + Sheet PNG... (the same, the frames cut out of a PNG beside
+  it) | Export Scale 1× / 2× / 4×.
+
+A marquee or wand selection inside the current frame moves with it to the next frame (same
+place in the cell). (Also View → Frame Grid
 and View → Animation Panel; every item is in the command palette.)
 
 ### Animation panel (View / ANIM → Animation Panel)
@@ -584,12 +613,12 @@ and View → Animation Panel; every item is in the command palette.)
 | A row's number | Wheel = +/- 1 (`Shift` = 10) · drag up / down = step it · click = type it · middle click = back to its default (gutter / margin 0, FPS 15, hold 1, onion 1 / 1 / 40 %). Works on the onion BEFORE / AFTER / OPACITY rows too |
 | `RE-SLICE` / `RESIZE` | What a frame size change does to a drawn sheet: the grid moves over the pixels, or the frames resize and each drawing stays in its frame (the canvas refits). Asked on the first change, then remembered for the document |
 | `FWD` `REV` `PING` `ONCE` | Loop mode: forward, backward, ping-pong, play once |
-| SCALE `1X` `2X` `4X` | The export scale (the lit one is current; same as ANIM → Export Scale) |
+| SCALE `1X` `2X` `4X` | The export scale (the lit one is current; same as ANIM → Export → Export Scale) |
 | EXPORT `GIF` `APNG` `BAS` | Export an animated GIF / animated PNG / BAS player (ANIM → Export ...) |
 
 The panel docks and floats like the other windows (drag its title bar; F11 hides it).
 
-### Lightbox (ANIM → Lightbox, `Num 0`)
+### Lightbox (ANIM → View → Lightbox, `Num 0`)
 The **Animate** workspace (`Ctrl+Shift+W`, `anim`) opens it with onion skin, the frame grid and the Animation panel; leaving it puts your own view back.
 
 The work area shows the frames instead of the sheet: a **strip** of frames along the top
@@ -597,7 +626,7 @@ The work area shows the frames instead of the sheet: a **strip** of frames along
 **panes** (`Num *`) with the current frame in the middle and the frames before / after it
 round it. **One pane** is the big frame: the current frame alone fills the area, zoomed and
 panned like any pane (`Ctrl+wheel`, the Zoom tool) - for a large picture, or compositing in one
-spot the way Deluxe Paint animates. **ANIM → Big Frame + X-Sheet** switches straight to one pane
+spot the way Deluxe Paint animates. **ANIM → View → Big Frame + X-Sheet** switches straight to one pane
 with the X-sheet above it (again = back to 3 panes). You can draw in any pane: the one your stroke goes into (under the pointer) has a
 thick magenta ring with a dashed edge (theme `ANIM_FRAME_DRAWING`). The frame keys, Play and frame operations work as in sheet view. A floating window
 parked on the work area's left or right edge over the strip (a Color Mixer, say) moves the
@@ -614,8 +643,8 @@ lightbox over beside it.
 | `+` | Add a frame (a copy of the last; `Shift+click` = blank) |
 
 **Draw in any pane** with any tool: it paints that frame. A stroke stays inside its frame
-(ANIM → Clip Strokes to the Frame in the Lightbox, on by default; turn it off to run over the
-edge). ANIM → Clip Strokes to the Frame in Sheet View does the same on the sheet (off by
+(ANIM → View → Clip Strokes to the Frame in the Lightbox, on by default; turn it off to run over the
+edge). ANIM → View → Clip Strokes to the Frame in Sheet View does the same on the sheet (off by
 default). Zooming and panning stay with the sheet view.
 
 | Strip | Action |
@@ -638,7 +667,7 @@ in a tray, move above or below the strip to scroll it a row.
 
 With two or more frames selected, Play (`Num Enter`) plays just those (first to last).
 
-**X-sheet** (`Num 8`, ANIM → X-Sheet, or the transport bar's `X-SHEET`): the strip becomes a
+**X-sheet** (`Num 8`, ANIM → View → X-Sheet, or the transport bar's `X-SHEET`): the strip becomes a
 grid of frames across and layers down, top layer first as in the Layers panel. Each column is
 one tick at the FPS, so a frame held 3 spans three columns; the header numbers the frames and
 the bottom row gives each one's hold. A cell shows that layer's drawing in that frame, with a
@@ -678,23 +707,23 @@ waveform. In Small and Medium rows the name is on the first line, with a taller 
 
 **Opening an animated GIF** gives you its frames on a sheet: each frame as a browser shows it, the delays as the FPS and holds, looping as the GIF does. With Save .draw Beside Images off, Ctrl+S writes it back as an animated GIF.
 
-**Opening a sprite sheet PNG with its frame data beside it** (`name.json` from Aseprite's Export Sprite Sheet, TexturePacker or DRAW's own Export Sprite Sheet) gives you its frames: a regular grid is sliced where it is, a packed atlas (trimmed or rotated sprites) is laid out again on a grid; durations become the FPS and holds, tags become tags. Without a .json, ANIM → Detect Frames finds the grid.
+**Opening a sprite sheet PNG with its frame data beside it** (`name.json` from Aseprite's Export Sprite Sheet, TexturePacker or DRAW's own Export Sprite Sheet) gives you its frames: a regular grid is sliced where it is, a packed atlas (trimmed or rotated sprites) is laid out again on a grid; durations become the FPS and holds, tags become tags. Without a .json, ANIM → Set Up → Detect Frames finds the grid.
 
 **Opening an Aseprite file with two or more frames** does the same: every layer keeps its own cels, one per frame cell; the frame durations become the FPS and holds, Aseprite's tags become tags, and linked cels become linked cells. A tag over all the frames sets the loop (reverse or ping-pong).
 
 **Tags** name a run of frames - "walk", "jump". Select the frames (strip or X-sheet), then
-ANIM → Tag Frames... and type a name (a name you already used moves that tag). Once a document
+ANIM → Set Up → Tag Frames... and type a name (a name you already used moves that tag). Once a document
 has tags, the X-sheet shows a TAGS row under HOLD: click a tag to select its frames, then Play
 plays just that tag, and Export Animated GIF / APNG / PNG Sequence / BAS Player write just its
 frames. The sprite sheet export keeps every frame and lists the tags in its JSON and .bi. With a
-tag selected, Tag Frames... renames it; ANIM → Delete Tag removes it. Tags move with their
+tag selected, Tag Frames... renames it; ANIM → Set Up → Delete Tag removes it. Tags move with their
 frames when you add, delete or move frames, and are saved with the document.
 
 **Frame notes** are a line of text per frame - "foot down", "ka-" - like the action column of a
-paper X-sheet. ANIM → Frame Note... writes the current frame's note; once any frame has one, the
+paper X-sheet. ANIM → Set Up → Frame Note... writes the current frame's note; once any frame has one, the
 X-sheet shows a NOTES row (each note runs from its frame to the next note). Click a note to go to
 its frame (the full note shows on the status bar); double-click anywhere on the row to write or
-change that frame's note. ANIM → Clear Frame Note removes the selected frames' notes. Notes move
+change that frame's note. ANIM → Set Up → Clear Frame Note removes the selected frames' notes. Notes move
 with their frames and are saved with the document.
 
 **Soundtrack**: ANIM → Soundtrack... picks a sound (WAV, OGG, MP3, FLAC, MIDI ...) that plays with
@@ -737,7 +766,7 @@ CUT copies then deletes them. Each is one undo step, the pasted frames end up se
 another DRAW window can paste them too. Elsewhere in the lightbox a click only works the
 transport bar.
 
-**Onion skin** (`Num /`, ANIM → Onion Skin, on by default): the current pane shows the frames
+**Onion skin** (`Num /`, ANIM → View → Onion Skin, on by default): the current pane shows the frames
 before it (red) and after it (blue) faintly over its picture, so you can draw the in-between.
 Only what differs from the current frame shows - a solid background stays clear. Set how many
 frames each side (BEFORE / AFTER, 0-5) and how strong (OPACITY) in the Animation panel; ANIM →
@@ -746,7 +775,7 @@ Onion Skin Red / Blue Tint shows them in their own colours instead. Hidden while
 **Apply to the selected frames** (in the lightbox): with frames selected in the strip (or just
 the current one), Flip (`Home` / `End`), Rotate (`>` / `<`, square frames), the IMAGE / EFFECTS
 adjustments and Remap to Palette change only those frames, each frame flipped / turned in its own
-cell. The Move tool dragged in a pane moves the drawing of every selected frame. ANIM → Replace
+cell. The Move tool dragged in a pane moves the drawing of every selected frame. ANIM → Frames → Replace
 FG Color with BG in Frames swaps a colour in them (sheet view too). Each is one undo step.
 
 **The current frame is the canvas** (in the lightbox): Layer → Align / Distribute line the
@@ -770,7 +799,7 @@ shows the current frame. A fill with a drawer gradient, and drawer image paint, 
 painted in. Edit → Paste in Place puts what was copied in one frame at the same spot in the
 current frame. The Pixel Analyzer looks at the current frame; AI New Layer defaults to the
 frame's size and place; a new reference image fits the frame. Crop Canvas is refused (it would cut
-every frame) - change the frame size with ANIM → Resize.
+every frame) - change the frame size with RESIZE in the Animation panel.
 
 ### AnimBrush (ANIM → AnimBrush)
 
@@ -846,7 +875,7 @@ frame you press in. It is Move Brush with the LIVE path, so the size / turn / op
 settings apply too. The stroke is stamped when you let go (one undo step) and AnimPaint stays on
 for the next one; `Esc` (or the menu item again) stops it.
 
-### Clip layers (ANIM → Clip Layer)
+### Clip layers (ANIM → Clip Layer / Clip Lanes / Clip Sounds)
 
 A clip layer keeps the AnimBrush and plays it across the frames, so its timing and place can
 change at any time (stamps are just pixels). Every change is one undo step.
@@ -865,11 +894,11 @@ change at any time (stamps are just pixels). Every change is one undo step.
 | ANIM → Clip Layer → **Update Clip from Bin / from AnimBrush** | New cels from the Drawer bin it came from / the current AnimBrush (every clip on the same source) |
 | ANIM → Clip Layer → **Edit Clip Cels** | A layer "Cels of …" with cel k on frame k; paint, then **Apply Cel Edits** (every clip on the source, one undo step) or **Discard Cel Edits** |
 | ANIM → Clip Layer → **Clip Sources...** / **Remove Unused Clip Sources** | List every source and its layers / clear the unused ones |
-| ANIM → Clip Layer → **Sound on This Cel... / When the Clip Starts... / Each Time the Clip Starts Over...** | Add a sound to the clip's source; **Remove the Clip's Sounds** clears them |
+| ANIM → Clip Sounds → **Sound on This Cel... / When the Clip Starts... / Each Time the Clip Starts Over...** | Add a sound to the clip's source; **Remove the Clip's Sounds** clears them |
 | `L-Drag` an end / the middle of a clip's X-sheet bar | Change IN / OUT, or slide the clip |
 | `L-Drag` a diamond on a clip's X-sheet **LANES** row | Move every lane's key on that frame to another frame (one undo step) |
 | Move tool (`V`) drag / arrow keys on a clip with X / Y keys | Key X / Y on the current frame (without X / Y keys: move the whole clip) |
-| ANIM → Clip Layer → **Clear This Lane / Clear All Lanes / Copy Lanes / Paste Lanes / Tint Toward the Foreground Colour** | Lane housekeeping; the tint colour is what the TINT lane goes toward |
+| ANIM → Clip Lanes → **Clear This Lane / Clear All Lanes / Copy Lanes / Paste Lanes / Tint Toward the Foreground Colour** | Lane housekeeping; the tint colour is what the TINT lane goes toward |
 
 Animation panel, while a clip layer is current (in place of the frame rows; the
 `|< < PLAY > >|` row stays): **LOOP PING ONCE HOLD REV** chips; **IN / OUT** (OUT `END` = to the
@@ -1028,6 +1057,24 @@ Hold a **non-modifier** key, then click/press/drag. Easy to miss:
 | `Ctrl+Enter` | Done — save, copy, back to the previous document + workspace (a cold `DRAW --capture` launch closes DRAW instead) |
 
 A workspace's `[KEYS]` can remap any of these; menus and the command palette show the active workspace's keys.
+
+### Workflow buttons (top of the toolbox)
+
+A strip of labelled buttons above the tools, one per workspace. Default:
+**SPRITE · ANIMATE · SCENE · ANNOTATE**.
+
+| Input | Action |
+|-------|--------|
+| `L-Click` a button | Switch to that workspace (the button lights) |
+| `L-Click` the lit button | Back to Default |
+| `R-Click` a button | Pick its workspace · Add a Button · Move Left / Right · Remove This Button · Hide Workflow Buttons |
+| View → Workflow Buttons | Show / hide the strip |
+| Command palette: Workflow Button 1–8 | Press button N (actions 2661–2668; 2660 = show / hide) |
+
+The list is global (`WORKFLOW_BUTTONS` in DRAW.cfg, `WORKFLOW_BAR` shows it); a button's label
+is the workspace's `SHORT=` name. **Sprite** = one sprite: Preview + Animation panel + Drawer,
+frame grid, Preview Shows Frame, Brush, no EFFECTS / AUDIO menus. **Scene** = a scene: Big
+Frame + X-sheet, Animation panel + Drawer, Move tool, every menu.
 
 ---
 

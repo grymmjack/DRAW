@@ -12,7 +12,7 @@
 
 | Format | Shortcut / menu |
 | --- | --- |
-| Image (PNG / BMP / JPG / GIF) | `Ctrl+O` (a sprite sheet PNG with its `.json` frame data beside it - Aseprite, TexturePacker, DRAW - opens with its frames; otherwise ANIM → Detect Frames slices it at its gaps) |
+| Image (PNG / BMP / JPG / GIF) | `Ctrl+O` (a sprite sheet PNG with its `.json` frame data beside it - Aseprite, TexturePacker, DRAW - opens with its frames; otherwise ANIM → Set Up → Detect Frames slices it at its gaps) |
 | Project (`.draw`) | `Alt+O` |
 | Aseprite (`.ase` / `.aseprite`) | File → Open Aseprite (two or more frames open as animation frames on a sheet, with their durations, tags and linked cels) |
 | Photoshop (`.psd`) | File → Open Photoshop |
@@ -53,7 +53,7 @@ The **Recent Files** list holds up to 10 entries with quick-jump shortcuts `Alt+
 
 `File → New from Template…` reads from `ASSETS/TEMPLATES/` and gives you a starter canvas with appropriate dimensions, palette, and grid for common targets (NES sprite, Game Boy tile, Lospec sheet, etc.).
 
-`ASSETS/TEMPLATES/ANIMATION/` holds animation starters - 16x16, 32x32, 64x64 and 128x128 with 8 blank frames, 320x200 with 4 - that open with their frames already set up, so the ANIM menu, the lightbox (`Num 0`) and the frame keys work straight away. On any other picture, `ANIM → Add Frame` (`Num +`) makes frames 1 and 2; until then the frame commands are greyed out.
+`ASSETS/TEMPLATES/ANIMATION/` holds animation starters - 16x16, 32x32, 64x64 and 128x128 with 8 blank frames, 320x200 with 4 - that open with their frames already set up, so the ANIM menu, the lightbox (`Num 0`) and the frame keys work straight away. On any other picture, `ANIM → Frames → Add Frame` (`Num +`) makes frames 1 and 2; until then the frame commands are greyed out.
 
 <div class="page-break"></div>
 
@@ -166,7 +166,7 @@ DRAW walk.draw --tag jump --export-anim jump.gif   # just the frames tagged "jum
 DRAW --sequence frames/run_0001.png --export-anim run.gif   # a numbered PNG sequence as frames
 ```
 
-`.gif` and `.bas` mean the frames only with `--export-anim` (with `--export` they are the color cycling formats); `.apng`, `.json` and `.sheet.bas` work with either flag, and `--export walk.png` writes the picture flattened. Each export prints one line - `wrote PATH (summary)` or `FAILED PATH: why` - and the exit status is 1 when any of them failed. `--tag NAME` limits the animated exports to that tag's frames (the sprite sheet still has every frame and lists the tags); a name the document doesn't have fails the run before anything is written. `--sequence` opens the file named with all its numbered siblings (`run_0001.png`, `run_0002.png` ... or `run1.png` ... `run10.png`) as frames, in number order; a file the same as the one before it becomes a held frame (ANIM → Import PNG Sequence... does the same from the menu). A document with a soundtrack (ANIM → Soundtrack...) exports its BAS players with the sound copied beside them as `walk-sound.ogg` (named after the `.bas`), and the program plays it in step with the frames; keep the two together. The batch runs in DRAW's own window for a moment, so on a server run it under Xvfb.
+`.gif` and `.bas` mean the frames only with `--export-anim` (with `--export` they are the color cycling formats); `.apng`, `.json` and `.sheet.bas` work with either flag, and `--export walk.png` writes the picture flattened. Each export prints one line - `wrote PATH (summary)` or `FAILED PATH: why` - and the exit status is 1 when any of them failed. `--tag NAME` limits the animated exports to that tag's frames (the sprite sheet still has every frame and lists the tags); a name the document doesn't have fails the run before anything is written. `--sequence` opens the file named with all its numbered siblings (`run_0001.png`, `run_0002.png` ... or `run1.png` ... `run10.png`) as frames, in number order; a file the same as the one before it becomes a held frame (ANIM → Set Up → Import PNG Sequence... does the same from the menu). A document with a soundtrack (ANIM → Soundtrack...) exports its BAS players with the sound copied beside them as `walk-sound.ogg` (named after the `.bas`), and the program plays it in step with the frames; keep the two together. The batch runs in DRAW's own window for a moment, so on a server run it under Xvfb.
 
 <div class="page-break"></div>
 

@@ -13,6 +13,7 @@ Plan + decisions: `PLANS/_/WORKSPACES-AND-CAPTURE-PLAN.md`; review notes:
 | `GUI/WORKSPACE-CONFIG.BI/BM` | `WSC_` | Configurator dialog (action 2401), on DIALOG_* + SW_* (same pattern as Settings). Edits a flattened store, saves a complete file to the user folder. |
 | `GUI/CAPTURE.BI/BM` | `CAP_` | Capture backends, hide/delay/grab/show, region picker (`CAP_pick_region&`), 4096 fit, new document, `--capture` startup + mailbox handoff poll. Action 2450. |
 | `GUI/ANNOTATE.BI/BM` | `ANN_` | Arrow / highlighter / redact / callout / quick save / Done; actions 2451-2457; armed modes polled by `ANN_tick`. Also holds the capture stash vars (`CAP_STASH_*`). |
+| `GUI/WORKFLOW.BI/BM` | `WF_` | Workflow buttons (PLANS/PERSONAS.md, 2026-11-12): the labelled strip at the top of the toolbox, one button per id in `CFG.WORKFLOW_BUTTONS` (global, DRAW.cfg; `CFG.WORKFLOW_BAR` shows it). See below. |
 
 ## The overlay contract (`WS_apply%` / `WS_restore`)
 
@@ -62,11 +63,42 @@ Full guide: `.claude/instructions/draw-docking.md`.
 - A cold `--capture` launch is one-shot (`CAP_ONE_SHOT`): no splash (DRAW.BAS), Done → `ANN_EXIT_FRAMES` (10 frames so a clipboard manager can take the image) → action 212; Esc in the picker → exit too. Capture/Done workspace switches use `WS_NO_REMEMBER` (not the next launch's workspace). Test: `DRAW_EXTRA_ARGS=--capture ./draw-qa.sh tests/capture-oneshot.sh`.
 - `--capture` with a live instance: `INSTANCE_bootstrap` posts `capture.request` to that slot's mailbox *before claiming a slot* and exits; `CAP_tick` polls (`INSTANCE_take_request%`, ~0.3 s).
 
+## Workflow buttons (`GUI/WORKFLOW`)
+
+- **List:** `CFG.WORKFLOW_BUTTONS$` (comma ids, default `sprite,animate,scene,annotate`, saved
+  as `NONE` when empty) is parsed by `WF_sync` whenever the string changed (signature compare
+  against `WF_PARSED`; no dirty flag - CONFIG.BM is included before WORKFLOW). Up to `WF_MAX` = 8.
+- **Labels:** `WS_INFO.short` from `[WORKSPACE] SHORT=` (reset in `WS_list_add`, Default and
+  Current), else the title, upper-cased; an id with no workspace shows `?ID` and a click says so.
+- **Geometry:** `DOCK_apply_rect` for the toolbox does `TB_RECT_Y = y + DOCK_tb_inset%` then
+  `+ WF_place%(x, TB_RECT_Y, w)`, so the strip sits on top and every `TB_SLOT_Y` hit test is
+  unchanged. `DOCK_fixed_h%` and `TOOLBAR_reflow` add `WF_height%(w)` (2 buttons per row when
+  `(w-3)\2 >= 24`, button = font height + 4). The toolbar region / `TOOLBAR_is_over_area` reach up
+  to `WF_Y`; `TOOLBAR_handle_click%` / `_right_click` try `WF_click%` / `WF_right_click%` first;
+  `WF_track` (POINTER.BM) keeps the hover.
+- **Click:** `WF_press n` = `WS_action WS_ACT_SLOT0 + k`, or `WS_ACT_LEAVE` when the button is the
+  active non-default workspace (lit-again = back to Default, PERSONAS Q1).
+- **Right-click menu** reuses the dock handle menu: `WF_MENU_NEXT = n` then `DOCK_menu_open
+  DP_TOOLBOX`; `DOCK_UI.menuWf` routes `DOCK_menu_build` / `DOCK_menu_do` to `WF_menu_build` /
+  `WF_menu_do`. Values: 4000 + WS_LIST index (set), 3901 add (first unused named workspace, not
+  Default / Current), 3902 remove, 3903 hide, 3904 / 3905 move. Every change → `WF_save_list`
+  (`CONFIG_save`).
+- **Dump:** `WF on n x y w h active` + `WFB i x y w h lit id label` in the dock dump (`WF_dump$`).
+- **QA:** the harness pins `WORKFLOW_BAR=0` (qa-harness `_qa_cfg_overrides`) so existing toolbox
+  coordinates hold; `workflow-buttons.sh` turns it on. Tests of built-in workspaces must pin
+  `WORKSPACES_DIR` to an empty folder (`/tmp/draw-qa-ws-none`): the harness does not isolate
+  XDG_DATA_HOME, and a user workspace with a built-in's id replaces it (memory
+  `qa-user-workspaces-override-builtins`).
+- **Sprite / Scene** (`ASSETS/WORKSPACES/sprite|scene.workspace`): contents in PLANS/PERSONAS.md
+  Q4; `workspace-sprite-scene.sh`. `[MENUS] ROOTS=` knows `ANIM` (WS_apply_menus' list; before,
+  a ROOTS naming only ANIM was "names no menu" and ignored).
+
 ## Action ids
 
 | Range | Owner |
 |-------|-------|
 | 2400 switcher · 2401 configure · 2402 folder · 2403 reload · 2404 leave · 2405 save current layout as · 2406 update from layout · 2410-2441 workspace slot n | WORKSPACE-APPLY |
+| 2660 View > Workflow Buttons (show / hide) · 2661-2668 Workflow Button 1-8 | WORKFLOW |
 | 2450 capture · 2451 quick save · 2452 done · 2453 arrow · 2454 highlighter · 2455 redact · 2456 callout · 2457 restart numbers | CAPTURE / ANNOTATE |
 
 ## Gotchas met on the way

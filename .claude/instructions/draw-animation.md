@@ -22,7 +22,16 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 - A plain picture has `ANIM.active = FALSE`. Everything is additive: nothing changes for a
   document without frames.
 
-**Starting one:** a plain picture has no frames, so the ANIM menu greys out the frame commands until `Num +` / ANIM > Add Frame. Lightbox / Panes / X-Sheet / Onion Skin are views of the frames: greyed **and shown unchecked** on a plain picture (`MENUBAR_update_checkboxes`; their DRAW.cfg settings are kept and apply once there are frames - field kit T-3, the X-Sheet could not be unchecked there). A refused frame command says `ANIM_NO_FRAMES$` (how to start). Rick's T-3 decision (2026-11-09): every item that needs frames is greyed on a plain picture too (copy / cut / paste frames, replace FG, Frame Grid, Preview Shows Frame, onion tint, both clips, reference / same layer, link / unlink, tags, notes, soundtrack, full-screen preview, every export and Export Scale) - the toggles shown unchecked; only Animation Panel, Add Frame, Add Blank Frame, Detect Frames, Create Frames from Grid and Import PNG Sequence stay. File > New Animation... (`ANIM_ACT_NEW` 2562, `ANIM_NEW_action` in TOOLS/ANIM-IMPORT) asks "WxH N [@FPS]" (`DRAW_input_box_ex$`, remembered) and makes a new document (`DRW_create_canvas_at_size`, fresh history) of ceil(sqrt(N)) columns, sheet <= 4096. QA dump `ANIMMENU id:checked:enabled` (the four views) + `ANIMMENUX` (every 2500-2599 item), `anim-menu-plain.sh`, `anim-new-animation.sh`. `ASSETS/TEMPLATES/ANIMATION/*.png` (16 / 32 / 64 / 128 square x 8 frames, 320x200 x 4, 15 fps) are blank sheets with a `drAn` chunk, made by DRAW itself (`DRAW.run sheet.png --export out.draw` from a transparent PNG carrying a v1 drAn), so File > New from Template opens them with frames.
+**The ANIM menu** (`MENUBAR_init`, Personas P3, 2026-11-12) fits one screen (254 px at QA
+scale): top level = Animation Panel, First / Previous / Next / Last Frame, Play, AnimPaint,
+Soundtrack..., Remove Soundtrack, Full-Screen Preview; flyouts (`MENUBAR_register_submenu_parent%`
+/ `_child`) FRAMES, SET UP, VIEW, ANIMBRUSH, MOVE BRUSH, CLIP LAYER, CLIP LANES, CLIP SOUNDS,
+EXPORT. Checkbox children get `hasCheckbox` through `MENUBAR_last_checkbox act`. CLIP LANES /
+CLIP SOUNDS (`MENU_IDX_CLIPLANES` / `MENU_IDX_CLIPSOUNDS`) grey with CLIP when there are < 2
+frames. Flyout geometry in QA: the open flyout dumps `POPUP flyout-gen x y w h`; rows like a
+dropdown (row k centre = y + 9 + 12(k-1), dividers 5 px) - `anim-menu.sh` `am_fly`.
+
+**Starting one:** a plain picture has no frames, so the ANIM menu greys out the frame commands until `Num +` / ANIM > Frames > Add Frame. Lightbox / Panes / X-Sheet / Onion Skin are views of the frames: greyed **and shown unchecked** on a plain picture (`MENUBAR_update_checkboxes`; their DRAW.cfg settings are kept and apply once there are frames - field kit T-3, the X-Sheet could not be unchecked there). A refused frame command says `ANIM_NO_FRAMES$` (how to start). Rick's T-3 decision (2026-11-09): every item that needs frames is greyed on a plain picture too (copy / cut / paste frames, replace FG, Frame Grid, Preview Shows Frame, onion tint, both clips, reference / same layer, link / unlink, tags, notes, soundtrack, full-screen preview, every export and Export Scale) - the toggles shown unchecked; only Animation Panel, Add Frame, Add Blank Frame, Detect Frames, Create Frames from Grid and Import PNG Sequence stay. File > New Animation... (`ANIM_ACT_NEW` 2562, `ANIM_NEW_action` in TOOLS/ANIM-IMPORT) asks "WxH N [@FPS]" (`DRAW_input_box_ex$`, remembered) and makes a new document (`DRW_create_canvas_at_size`, fresh history) of ceil(sqrt(N)) columns, sheet <= 4096. QA dump `ANIMMENU id:checked:enabled` (the four views) + `ANIMMENUX` (every 2500-2599 item), `anim-menu-plain.sh`, `anim-new-animation.sh`. `ASSETS/TEMPLATES/ANIMATION/*.png` (16 / 32 / 64 / 128 square x 8 frames, 320x200 x 4, 15 fps) are blank sheets with a `drAn` chunk, made by DRAW itself (`DRAW.run sheet.png --export out.draw` from a transparent PNG carrying a v1 drAn), so File > New from Template opens them with frames.
 
 ## Files
 
@@ -505,7 +514,7 @@ when none is), each one undo step. A user marquee selection keeps the commands' 
   `ANIM_OPS_record` per press. Not with Alt (clone), a marquee, a transform, or a floating
   selection that has moved; an untouched whole-layer lift is dropped first. Test:
   `anim-lightbox-nudge.sh`.
-- **Palette swap**: ANIM > Replace FG Color with BG in Frames (2529) - exact RGBA matches on the
+- **Palette swap**: ANIM > Frames > Replace FG Color with BG in Frames (2529) - exact RGBA matches on the
   current / selected layers, sheet view or lightbox.
 
 QA: `anim-lightbox-apply.sh` - its fixture's frames 2 / 3 / 4 are frame 1 moved / turned /
@@ -542,7 +551,7 @@ QA: `anim-layer-flags.sh` (`ANIMLF curRef curSame nFlags flatCrc`, flatCrc = CRC
 
 ## Exports (`TOOLS/ANIM-EXPORT`, phase 3)
 
-**Animated GIF** (3.1, `ANIM_GIF_export% path`; ANIM > Export Animated GIF..., batch
+**Animated GIF** (3.1, `ANIM_GIF_export% path`; ANIM > Export > Animated GIF..., batch
 `--export-anim out.gif` on a document with frames - without frames it is still the colour
 cycle GIF): pixels from `LAYERS_flatten&` (hidden / reference layers out), the frames in
 `ANIM_play_order%` (pure, unit-tested: ping-pong written out 1..n..2; play once = no NETSCAPE
@@ -577,7 +586,7 @@ In the batch CLI the .png / .json cases run before `BATCH_export%`'s `KILL path`
 QA: `file-anim-sheet.sh` (batch CLI: files per tick, exact pixels per cell, stale files,
 2x, JSON via python, the .bi compiled and run with qb64pe, gutter / margin rects, the
 document guard).
-**APNG** (3.3, `ANIM_APNG_export% path`; ANIM > Export Animated PNG (APNG)..., batch
+**APNG** (3.3, `ANIM_APNG_export% path`; ANIM > Export > Animated PNG (APNG)..., batch
 `--export-anim out.apng`): written by hand - IHDR (RGBA 8-bit), acTL (frames, num_plays 0 or
 1 for play once), then per frame in `ANIM_play_order%` a full-frame fcTL (delay_num = hold,
 delay_den = fps: exact; dispose none, blend source) + IDAT for frame 1 (the default image a
@@ -587,7 +596,7 @@ frame; chunks via `PNG_make_chunk$` (DRW.BM). No colour cycling (flagged in
 `ANIM_EXPORT_INFO`; the GIF runs it). Refuses the open document's own path (the dialog
 suggests name.png). QA: `file-anim-apng.sh` (a python stdlib reader: CRCs, zlib + adler,
 sequence, delays, RGBA per cell; ffprobe frame count; ImageMagick default image).
-**BAS player** (3.4, `ANIM_BAS_export% path`; ANIM > Export BAS Player (DATA)..., batch
+**BAS player** (3.4, `ANIM_BAS_export% path`; ANIM > Export > BAS Player (DATA)..., batch
 `--export-anim out.bas` on a document with frames - without, `.bas` is still the colour
 cycling program): one self-contained .bas. `ANIM_BAS_blob$(pixels, nCyc)` = "DANM" v1:
 MKI frameW, frameH, count, fps, loopMode, nOrder, the play order, the holds, the palette,
@@ -913,7 +922,7 @@ file twice - pass 1 for the largest size and repeats (a file whose pixels equal 
 one's adds a tick to that frame, up to `ANIM_HOLD_MAX`), pass 2 `_PUTIMAGE`s each kept file
 `_DONTBLEND` into its cell (top left) - on a `DRW_create_canvas_at_size` document (untitled: Ctrl+S
 asks a name, never overwrites frame 1). FPS stays the default (files carry no timing). Entry
-points: ANIM > Import PNG Sequence... 2548 (`DRAW_open_file$`, pick any file) and `--sequence`
+points: ANIM > Set Up > Import PNG Sequence... 2548 (`DRAW_open_file$`, pick any file) and `--sequence`
 (`ANIM_SEQ_CLI`, scanned at include time in ANIM-IMPORT.BI; the deferred command-line load tries
 it first and falls back to a plain open). QA: `file-anim-seq-import.sh` (9): padded with a
 repeat + non-frames beside it, unpadded 1-10 with a smaller file, round trip through
@@ -1301,7 +1310,7 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   over). Every clip on the source plays them. Undo: `CLIP_state$` = type + instance blob +
   `CLIP_cues_blob$(src)`, so every clip undo record snapshots its source's cues and linear undo
   stays right without a new history kind; `CLIP_history_apply` puts them back. Update Clip from
-  Bin / AnimBrush copies the cues to the new source. Commands: ANIM > Clip Layer > Sound on This
+  Bin / AnimBrush copies the cues to the new source. Commands: ANIM > Clip Sounds > Sound on This
   Cel... (the cel the current frame shows; refused where it shows none), Sound When the Clip
   Starts..., Sound Each Time the Clip Starts Over..., Remove the Clip's Sounds. Saved in drCl
   v2. Dump `CLIPQ src kind cel name`. Test `QA/tests/clip-cues.sh` (`CL_EXTRA` in clip-lib
