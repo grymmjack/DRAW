@@ -92,3 +92,136 @@ FUNCTION CLIP_remap% (src() AS INTEGER, newCount AS INTEGER, oldCount AS INTEGER
     IF outF > 0 THEN outF = b ' open-ended (0) stays open: frames added at the end get the clip too
     CLIP_remap% = TRUE
 END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Keyframe lanes (phase 3, PLANS/KEYFRAME-LANES.md). A lane's keys are a
+' string of 8-byte keys sorted by frame: MKI$(frame from In) + MKS$(value) +
+' MKI$(ease). Ease (the curve from that key to the next): 0 linear, 1 in,
+' 2 out, 3 in-out (the Move Brush's MVB_EASE_*), 4 hold.
+' ---------------------------------------------------------------------------
+
+FUNCTION CLIP_lk$ (f AS INTEGER, v AS SINGLE, e AS INTEGER)
+    CLIP_lk$ = MKI$(f) + MKS$(v) + MKI$(e)
+END FUNCTION
+
+FUNCTION CLIP_lks_n% (keys AS STRING)
+    CLIP_lks_n% = LEN(keys) \ 8
+END FUNCTION
+
+FUNCTION CLIP_lk_f% (keys AS STRING, i AS INTEGER) ' 1-based
+    CLIP_lk_f% = CVI(MID$(keys, (i - 1) * 8 + 1, 2))
+END FUNCTION
+
+FUNCTION CLIP_lk_v! (keys AS STRING, i AS INTEGER)
+    CLIP_lk_v! = CVS(MID$(keys, (i - 1) * 8 + 3, 4))
+END FUNCTION
+
+FUNCTION CLIP_lk_e% (keys AS STRING, i AS INTEGER)
+    CLIP_lk_e% = CVI(MID$(keys, (i - 1) * 8 + 7, 2))
+END FUNCTION
+
+''
+' The eased fraction t (0..1) for ease e.
+FUNCTION CLIP_ease! (e AS INTEGER, t AS SINGLE)
+    DIM r AS SINGLE
+    r = t
+    SELECT CASE e
+        CASE 1: r = t * t
+        CASE 2: r = t * (2 - t)
+        CASE 3: r = t * t * (3 - 2 * t)
+        CASE 4: r = 0
+    END SELECT
+    CLIP_ease! = r
+END FUNCTION
+
+''
+' The keyed value at frame rel (from In); dflt when there are no keys. Before
+' the first key: its value; after the last: the last's.
+FUNCTION CLIP_lane_keyed! (keys AS STRING, rel AS INTEGER, dflt AS SINGLE)
+    DIM n AS INTEGER, i AS INTEGER, f0 AS INTEGER, f1 AS INTEGER, v0 AS SINGLE, v1 AS SINGLE
+    n = CLIP_lks_n%(keys)
+    IF n = 0 THEN CLIP_lane_keyed! = dflt: EXIT FUNCTION
+    IF rel <= CLIP_lk_f%(keys, 1) THEN CLIP_lane_keyed! = CLIP_lk_v!(keys, 1): EXIT FUNCTION
+    IF rel >= CLIP_lk_f%(keys, n) THEN CLIP_lane_keyed! = CLIP_lk_v!(keys, n): EXIT FUNCTION
+    FOR i = 1 TO n - 1
+        f1 = CLIP_lk_f%(keys, i + 1)
+        IF rel < f1 THEN EXIT FOR
+    NEXT i
+    f0 = CLIP_lk_f%(keys, i): v0 = CLIP_lk_v!(keys, i): v1 = CLIP_lk_v!(keys, i + 1)
+    IF f1 <= f0 THEN CLIP_lane_keyed! = v1: EXIT FUNCTION
+    CLIP_lane_keyed! = v0 + (v1 - v0) * CLIP_ease!(CLIP_lk_e%(keys, i), (rel - f0) / (f1 - f0))
+END FUNCTION
+
+''
+' keys with a key at frame rel set to v (added in order, or replaced; a
+' replaced key keeps its ease, a new one takes ease e).
+FUNCTION CLIP_lks_put$ (keys AS STRING, rel AS INTEGER, v AS SINGLE, e AS INTEGER)
+    DIM n AS INTEGER, i AS INTEGER, f AS INTEGER
+    n = CLIP_lks_n%(keys)
+    FOR i = 1 TO n
+        f = CLIP_lk_f%(keys, i)
+        IF f = rel THEN CLIP_lks_put$ = LEFT$(keys, (i - 1) * 8) + CLIP_lk$(rel, v, CLIP_lk_e%(keys, i)) + MID$(keys, i * 8 + 1): EXIT FUNCTION
+        IF f > rel THEN CLIP_lks_put$ = LEFT$(keys, (i - 1) * 8) + CLIP_lk$(rel, v, e) + MID$(keys, (i - 1) * 8 + 1): EXIT FUNCTION
+    NEXT i
+    CLIP_lks_put$ = keys + CLIP_lk$(rel, v, e)
+END FUNCTION
+
+''
+' keys without the key at frame rel (unchanged when there is none).
+FUNCTION CLIP_lks_del$ (keys AS STRING, rel AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 1 TO CLIP_lks_n%(keys)
+        IF CLIP_lk_f%(keys, i) = rel THEN CLIP_lks_del$ = LEFT$(keys, (i - 1) * 8) + MID$(keys, i * 8 + 1): EXIT FUNCTION
+    NEXT i
+    CLIP_lks_del$ = keys
+END FUNCTION
+
+''
+' The index of the key at frame rel, or of the last key before it (0 = none).
+FUNCTION CLIP_lk_at_or_before% (keys AS STRING, rel AS INTEGER)
+    DIM i AS INTEGER, r AS INTEGER
+    FOR i = 1 TO CLIP_lks_n%(keys)
+        IF CLIP_lk_f%(keys, i) <= rel THEN r = i ELSE EXIT FOR
+    NEXT i
+    CLIP_lk_at_or_before% = r
+END FUNCTION
+
+''
+' Seeded value noise in -1..1: the same (seed, i) always gives the same value.
+FUNCTION CLIP_hash! (seed AS LONG, i AS LONG)
+    DIM x AS DOUBLE
+    x = SIN(i * 12.9898# + seed * 78.233# + 0.5#) * 43758.5453#
+    CLIP_hash! = (x - INT(x)) * 2 - 1
+END FUNCTION
+
+''
+' A modulator's offset at frame rel. kind 0 none, 1 LFO, 2 noise. LFO shape:
+' 0 sine, 1 triangle (both start at 0, rising), 2 square (+ then -), 3 saw
+' (-1 rising to 1). Noise: a new seeded value every `period` frames, eased
+' between them. phase shifts the wave (frames).
+FUNCTION CLIP_mod! (kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, rel AS INTEGER)
+    DIM p AS DOUBLE, w AS SINGLE, x AS DOUBLE, i AS LONG, t AS SINGLE, per AS SINGLE
+    IF kind = 0 _ORELSE amount = 0 THEN EXIT FUNCTION
+    per = period: IF per < 1 THEN per = 1 ' (a local: the caller's period stays)
+    x = (rel + phase) / per
+    IF kind = 1 THEN
+        p = x - INT(x)
+        SELECT CASE shape
+            CASE 0: w = SIN(2 * _PI * p)
+            CASE 1
+                IF p < .25 THEN
+                    w = 4 * p
+                ELSEIF p < .75 THEN
+                    w = 2 - 4 * p
+                ELSE
+                    w = 4 * p - 4
+                END IF
+            CASE 2: w = _IIF(p < .5, 1, -1)
+            CASE ELSE: w = 2 * p - 1
+        END SELECT
+    ELSE
+        i = INT(x): t = x - i
+        w = CLIP_hash!(seed, i) + (CLIP_hash!(seed, i + 1) - CLIP_hash!(seed, i)) * CLIP_ease!(3, t)
+    END IF
+    CLIP_mod! = amount * w
+END FUNCTION

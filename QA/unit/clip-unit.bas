@@ -88,8 +88,85 @@ check "cue each loop, once", cues$(10, 2, 0, 4, 1, 1, 1, 0, CLIP_MODE_ONCE), "x.
 check "cue each loop, hold", cues$(10, 2, 0, 4, 1, 1, 1, 0, CLIP_MODE_HOLD), "x........."
 check "cue each loop, out 6", cues$(10, 2, 0, 4, 1, 1, 1, 6, CLIP_MODE_LOOP), "x...x....."
 
+' keyframe lanes (phase 3): keyed values, eases, put / del, modulators
+DIM ks AS STRING
+ks = CLIP_lk$(0, 0, 0) + CLIP_lk$(4, 8, 0)
+check "lane linear", lanes$(ks, -1, 5), "0 0 2 4 6 8 8"
+ks = CLIP_lk$(0, 0, 4) + CLIP_lk$(4, 8, 0)
+check "lane hold", lanes$(ks, -1, 5), "0 0 0 0 0 8 8"
+ks = CLIP_lk$(0, 0, 1) + CLIP_lk$(4, 16, 0)
+check "lane ease in", lanes$(ks, 0, 4), "0 1 4 9 16"
+ks = CLIP_lk$(0, 0, 2) + CLIP_lk$(4, 16, 0)
+check "lane ease out", lanes$(ks, 0, 4), "0 7 12 15 16"
+ks = CLIP_lk$(0, 0, 3) + CLIP_lk$(4, 32, 0)
+check "lane ease in-out", lanes$(ks, 0, 4), "0 5 16 27 32"
+check "lane no keys = default", lanes$("", 0, 2), "100 100 100"
+ks = CLIP_lk$(2, 5, 0)
+check "lane one key", lanes$(ks, 0, 4), "5 5 5 5 5"
+ks = CLIP_lk$(0, 0, 0) + CLIP_lk$(2, 10, 4) + CLIP_lk$(4, 0, 0)
+check "lane three keys, hold in the middle", lanes$(ks, 0, 5), "0 5 10 10 0 0"
+ks = ""
+ks = CLIP_lks_put$(ks, 4, 1, 0): ks = CLIP_lks_put$(ks, 0, 2, 3): ks = CLIP_lks_put$(ks, 2, 3, 4)
+check "keys put in order", keylist$(ks), "0:2:3 2:3:4 4:1:0"
+ks = CLIP_lks_put$(ks, 2, 9, 0)
+check "keys put replaces, keeps the ease", keylist$(ks), "0:2:3 2:9:4 4:1:0"
+ks = CLIP_lks_del$(ks, 2)
+check "keys del", keylist$(ks), "0:2:3 4:1:0"
+check "keys del none", keylist$(CLIP_lks_del$(ks, 3)), "0:2:3 4:1:0"
+check "key at or before", STR$(CLIP_lk_at_or_before%(ks, -1)) + STR$(CLIP_lk_at_or_before%(ks, 0)) + STR$(CLIP_lk_at_or_before%(ks, 3)) + STR$(CLIP_lk_at_or_before%(ks, 9)), " 0 1 1 2"
+check "lfo sine", mods$(1, 0, 10, 4, 0, 0, 0, 4), "0 10 0 -10 0"
+check "lfo triangle", mods$(1, 1, 8, 8, 0, 0, 0, 8), "0 4 8 4 0 -4 -8 -4 0"
+check "lfo square", mods$(1, 2, 3, 4, 0, 0, 0, 4), "3 3 -3 -3 3"
+check "lfo saw", mods$(1, 3, 4, 4, 0, 0, 0, 3), "-4 -2 0 2"
+check "lfo phase", mods$(1, 0, 10, 4, 1, 0, 0, 2), "10 0 -10"
+check "lfo none", mods$(0, 0, 10, 4, 0, 0, 0, 2), "0 0 0"
+check "noise stable", mods$(2, 0, 10, 2, 0, 7, 0, 6), mods$(2, 0, 10, 2, 0, 7, 0, 6)
+check "noise seed matters", STR$(mods$(2, 0, 10, 1, 0, 7, 0, 6) <> mods$(2, 0, 10, 1, 0, 8, 0, 6)), STR$(TRUE)
+check "noise in range", STR$(noise_ok%(10, 3, 200)), STR$(TRUE)
+check "noise on the key frames", nkey$(10, 3, 5), "ok"
+
 PRINT "clip-unit:"; PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
+
+FUNCTION lanes$ (ks AS STRING, f0 AS INTEGER, f1 AS INTEGER)
+    DIM f AS INTEGER, s AS STRING
+    FOR f = f0 TO f1: s = s + " " + _TRIM$(STR$(CINT(CLIP_lane_keyed!(ks, f, 100)))): NEXT f
+    lanes$ = MID$(s, 2)
+END FUNCTION
+
+FUNCTION keylist$ (ks AS STRING)
+    DIM i AS INTEGER, s AS STRING
+    FOR i = 1 TO CLIP_lks_n%(ks)
+        s = s + " " + _TRIM$(STR$(CLIP_lk_f%(ks, i))) + ":" + _TRIM$(STR$(CLIP_lk_v!(ks, i))) + ":" + _TRIM$(STR$(CLIP_lk_e%(ks, i)))
+    NEXT i
+    keylist$ = MID$(s, 2)
+END FUNCTION
+
+FUNCTION mods$ (kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, f0 AS INTEGER, f1 AS INTEGER)
+    DIM f AS INTEGER, s AS STRING
+    FOR f = f0 TO f1: s = s + " " + _TRIM$(STR$(CINT(CLIP_mod!(kind, shape, amount, period, phase, seed, f)))): NEXT f
+    mods$ = MID$(s, 2)
+END FUNCTION
+
+FUNCTION noise_ok% (amount AS SINGLE, period AS SINGLE, n AS INTEGER)
+    DIM f AS INTEGER, v AS SINGLE, lo AS SINGLE, hi AS SINGLE
+    lo = 1E+09: hi = -1E+09
+    FOR f = 0 TO n
+        v = CLIP_mod!(2, 0, amount, period, 0, 42, f)
+        IF v < lo THEN lo = v
+        IF v > hi THEN hi = v
+    NEXT f
+    noise_ok% = (lo >= -amount _ANDALSO hi <= amount _ANDALSO hi - lo > amount / 2)
+END FUNCTION
+
+' on frames that are multiples of the period, noise = amount * hash(seed, frame / period)
+FUNCTION nkey$ (amount AS SINGLE, period AS INTEGER, n AS INTEGER)
+    DIM i AS INTEGER
+    nkey$ = "ok"
+    FOR i = 0 TO n
+        IF ABS(CLIP_mod!(2, 0, amount, period, 0, 9, i * period) - amount * CLIP_hash!(9, i)) > .001 THEN nkey$ = "bad at" + STR$(i)
+    NEXT i
+END FUNCTION
 
 SUB check (lbl AS STRING, got AS STRING, want AS STRING)
     IF got = want THEN
