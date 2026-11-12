@@ -15,7 +15,7 @@ SUB CLIP_new_document ()
     FOR i = 1 TO CLIP_INST_N: CLIP_INST(i).layerId = 0: NEXT i
     CLIP_SRC_N = 0: CLIP_INST_N = 0: CLIP_SIG = "": CLIP_PLACING = 0
     FOR i = 1 TO CLIP_CUE_N: CLIP_CUE_PATH(i) = "": NEXT i
-    CLIP_CUE_N = 0
+    CLIP_CUE_N = 0: CLIP_CUE_GSIG = CHR$(255) ' (the generated clips go at the next tick)
 END SUB
 
 ''
@@ -816,6 +816,90 @@ SUB CLIP_cue_clear ()
     CLIP_record before, "Remove Clip Sounds"
     STATUS_flash "Removed the clip's" + STR$(n) + " sound" + _IIF(n = 1, "", "s")
     GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Is clip layer slot heard: shown, and no group it is in hidden?
+FUNCTION CLIP_layer_heard% (slot AS INTEGER)
+    DIM p AS INTEGER, n AS INTEGER
+    IF LAYERS(slot).visible% = 0 THEN EXIT FUNCTION
+    p = LAYERS(slot).parentGroupIdx%
+    DO WHILE p >= 1 _ANDALSO p <= MAX_LAYERS _ANDALSO n < MAX_LAYERS
+        IF LAYERS(p).visible% = 0 THEN EXIT FUNCTION
+        p = LAYERS(p).parentGroupIdx%: n = n + 1
+    LOOP
+    CLIP_layer_heard% = TRUE
+END FUNCTION
+
+''
+' What the clip layers' sounds hang on ("" = no clip layer with sounds).
+FUNCTION CLIP_cues_sig$ ()
+    DIM i AS INTEGER, k AS INTEGER, s AS STRING, f AS INTEGER
+    IF CLIP_CUE_N = 0 _ORELSE ANIM.active = 0 THEN EXIT FUNCTION
+    FOR i = 1 TO MAX_LAYERS
+        k = CLIP_inst_of%(i)
+        IF k THEN
+            IF CLIP_cues_of%(CLIP_INST(k).src) > 0 THEN
+                s = s + MKI$(i) + MKI$(CLIP_layer_heard%(i)) + CLIP_inst_blob$(k) + MKI$(CLIP_SRC(CLIP_INST(k).src).n) + CLIP_cues_blob$(CLIP_INST(k).src)
+            END IF
+        END IF
+    NEXT i
+    IF s = "" THEN EXIT FUNCTION
+    s = s + MKI$(ANIM.count) + MKI$(ANIM.fps)
+    FOR f = 1 TO ANIM.count: s = s + MKI$(ANIM_hold%(f)): NEXT f
+    CLIP_cues_sig$ = s
+END FUNCTION
+
+''
+' Make the clip layers' sounds again when what they hang on changed.
+SUB CLIP_cues_gen_sync ()
+    DIM sig AS STRING
+    sig = CLIP_cues_sig$
+    IF sig = CLIP_CUE_GSIG THEN EXIT SUB
+    CLIP_CUE_GSIG = sig
+    CLIP_cues_gen
+END SUB
+
+''
+' The clip layers' sounds as generated soundtrack clips: each cue at the
+' start of each frame it fires in (CLIP_cue_fires%), for every heard clip
+' layer on its source.
+SUB CLIP_cues_gen ()
+    DIM i AS INTEGER, k AS INTEGER, s AS INTEGER, f AS INTEGER, q AS INTEGER, lastF AS INTEGER, j AS INTEGER
+    DIM acc AS DOUBLE, full AS INTEGER
+    FOR i = 1 TO ANIM_SC_GN: ANIM_SC_PATH(ANIM_SC_MAX + i) = "": NEXT i
+    ANIM_SC_GN = 0
+    IF CLIP_CUE_N = 0 _ORELSE ANIM.active = 0 _ORELSE ANIM.count < 1 _ORELSE ANIM.fps < 1 THEN EXIT SUB
+    DIM t(1 TO ANIM.count) AS LONG ' each frame's start, ms
+    FOR f = 1 TO ANIM.count
+        t(f) = INT(acc + 0.5): acc = acc + 1000# * ANIM_hold%(f) / ANIM.fps
+    NEXT f
+    FOR i = 1 TO MAX_LAYERS
+        k = CLIP_inst_of%(i)
+        IF k THEN
+            s = CLIP_INST(k).src
+            IF s >= 1 _ANDALSO s <= CLIP_SRC_N _ANDALSO CLIP_layer_heard%(i) THEN
+                lastF = CLIP_INST(k).outF: IF lastF < 1 _ORELSE lastF > ANIM.count THEN lastF = ANIM.count
+                FOR f = _MAX(1, CLIP_INST(k).inF) TO lastF
+                    FOR q = 1 TO CLIP_CUE_N
+                        IF CLIP_CUE_SRC(q) = s THEN
+                            IF CLIP_cue_fires%(CLIP_CUE_KIND(q), CLIP_CUE_CELN(q), f, CLIP_SRC(s).n, CLIP_INST(k).every, CLIP_INST(k).startCel, CLIP_INST(k).inF, CLIP_INST(k).outF, CLIP_INST(k).mode) THEN
+                                IF ANIM_SC_GN >= ANIM_GC_MAX THEN full = TRUE: EXIT FOR
+                                ANIM_SC_GN = ANIM_SC_GN + 1: j = ANIM_SC_MAX + ANIM_SC_GN
+                                ANIM_SC_PATH(j) = CLIP_CUE_PATH(q): ANIM_SC_TRK(j) = 0: ANIM_SC_AT(j) = t(f)
+                                ANIM_SC_IN(j) = 0: ANIM_SC_LEN(j) = 0: ANIM_SC_FMS(j) = 0
+                                ANIM_SC_GSLOT(ANIM_SC_GN) = i
+                            END IF
+                        END IF
+                    NEXT q
+                    IF full THEN EXIT FOR
+                NEXT f
+            END IF
+        END IF
+        IF full THEN EXIT FOR
+    NEXT i
+    IF full _ANDALSO CLIP_CUE_GFULL = 0 THEN STATUS_flash "Clip sounds: only the first" + STR$(ANIM_GC_MAX) + " play"
+    CLIP_CUE_GFULL = full
 END SUB
 
 ''

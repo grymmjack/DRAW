@@ -85,6 +85,12 @@ DIM SHARED CLIP_CUE_SRC(1 TO CLIP_CUE_MAX) AS INTEGER
 DIM SHARED CLIP_CUE_KIND(1 TO CLIP_CUE_MAX) AS INTEGER
 DIM SHARED CLIP_CUE_CELN(1 TO CLIP_CUE_MAX) AS INTEGER ' CEL: the cel (1-based); else 0
 DIM SHARED CLIP_CUE_PATH(1 TO CLIP_CUE_MAX) AS STRING
+' What plays them (K8): CLIP_cues_gen_sync (from ANIM_SND_sync, every tick)
+' makes them generated soundtrack clips (ANIM_SC_MAX + 1 ..) when anything
+' they hang on changed - the clips, the cues, a layer shown / hidden, the
+' frames' timing. A hidden clip layer (or one in a hidden group) is silent.
+DIM SHARED CLIP_CUE_GSIG AS STRING
+DIM SHARED CLIP_CUE_GFULL AS INTEGER ' the last make ran out of room (ANIM_GC_MAX): said once
 
 DIM SHARED CLIP_SRC(1 TO CLIP_SRC_MAX) AS CLIP_SRC_OBJ
 DIM SHARED CLIP_INST(1 TO CLIP_INST_MAX) AS CLIP_INST_OBJ

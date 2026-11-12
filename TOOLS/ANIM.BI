@@ -168,15 +168,23 @@ DIM SHARED ANIM_NOTE(1 TO ANIM_MAX_FRAMES) AS STRING
 ' and editing them is TOOLS/ANIM-SOUND.
 CONST ANIM_SC_MAX = 32
 CONST ANIM_SC_TRACKS = 4
+' Generated clips (clip layers' sound cues, TOOLS/CLIP K8): ANIM_SC_GN of them
+' at ANIM_SC_MAX + 1 .. ANIM_SC_MAX + ANIM_SC_GN, made by CLIP_cues_gen_sync
+' (never edited, saved or counted against the tracks). What plays the sound
+' (ANIM-SOUND: open / sync / mix, the BAS export) walks both: ANIM_SC_all%
+' clips, ANIM_SC_ix%(1..) their indexes; what edits / saves walks 1..ANIM_SC_N.
+CONST ANIM_GC_MAX = 256
 DIM SHARED ANIM_SC_N AS INTEGER
-DIM SHARED ANIM_SC_PATH(1 TO ANIM_SC_MAX) AS STRING
-DIM SHARED ANIM_SC_TRK(1 TO ANIM_SC_MAX) AS INTEGER
-DIM SHARED ANIM_SC_AT(1 TO ANIM_SC_MAX) AS LONG
-DIM SHARED ANIM_SC_IN(1 TO ANIM_SC_MAX) AS LONG
-DIM SHARED ANIM_SC_LEN(1 TO ANIM_SC_MAX) AS LONG
+DIM SHARED ANIM_SC_GN AS INTEGER
+DIM SHARED ANIM_SC_GSLOT(1 TO ANIM_GC_MAX) AS INTEGER ' the clip layer each generated clip is for
+DIM SHARED ANIM_SC_PATH(1 TO ANIM_SC_MAX + ANIM_GC_MAX) AS STRING
+DIM SHARED ANIM_SC_TRK(1 TO ANIM_SC_MAX + ANIM_GC_MAX) AS INTEGER
+DIM SHARED ANIM_SC_AT(1 TO ANIM_SC_MAX + ANIM_GC_MAX) AS LONG
+DIM SHARED ANIM_SC_IN(1 TO ANIM_SC_MAX + ANIM_GC_MAX) AS LONG
+DIM SHARED ANIM_SC_LEN(1 TO ANIM_SC_MAX + ANIM_GC_MAX) AS LONG
 ' the file's length in ms as TOOLS/ANIM-SOUND found it (0 = not known: a
 ' clip that plays to the end then has no end). Not saved.
-DIM SHARED ANIM_SC_FMS(1 TO ANIM_SC_MAX) AS LONG
+DIM SHARED ANIM_SC_FMS(1 TO ANIM_SC_MAX + ANIM_GC_MAX) AS LONG
 CONST ANIM_SC_FOREVER = 1073741823 ' the end of a clip with no known end
 ' The X-sheet always has a SOUND row (an empty one is silence: nothing is
 ' played, saved or exported); Add Empty Track asks for more, up to

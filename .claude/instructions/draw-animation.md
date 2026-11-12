@@ -1306,7 +1306,21 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   Starts..., Sound Each Time the Clip Starts Over..., Remove the Clip's Sounds. Saved in drCl
   v2. Dump `CLIPQ src kind cel name`. Test `QA/tests/clip-cues.sh` (`CL_EXTRA` in clip-lib
   passes `--option LAST_DIR_OPEN=` so the file dialog opens on the fixtures).
-- **Phase 2** (not built yet): cues playing (K8), their UI (K9), bake keeps them (K10).
+- **Sound cues, playing** (K8): `CLIP_cues_gen_sync` (first thing in `ANIM_SND_sync`, every
+  tick, and in `ANIM_BAS_sound$`) rebuilds them as **generated soundtrack clips** at
+  `ANIM_SC_MAX + 1 .. + ANIM_SC_GN` (max `ANIM_GC_MAX` 256, `ANIM_SC_GSLOT` = the clip layer)
+  whenever `CLIP_cues_sig$` changes (each clip layer with cues: heard, instance blob, cel count,
+  cues; frame count, fps, holds). The sound side (`ANIM_SS_want$`, `ANIM_SS_open_all`,
+  `ANIM_SND_sync`, `ANIM_SND_build`, `ANIM_SND_mix`, the BAS export) walks
+  `ANIM_SC_all%` clips through `ANIM_SC_ix%`; everything that edits, saves or draws the SOUND rows
+  still walks `1..ANIM_SC_N`, so the generated ones never count against the 4 tracks or 32 clips.
+  When a cue fires is pure math: `CLIP_cue_fires%` (TOOLS/CLIP-MATH, unit test
+  `QA/unit/clip-unit.bas`): on cel = each time that cel comes up (a step boundary, every `every`
+  frames from In; not while HOLD keeps its last cel); start = In; each loop = In + every period
+  (LOOP / REV n steps, PING 2n-2, ONCE / HOLD none). A hidden clip layer, or one in a hidden
+  group (`CLIP_layer_heard%`), is silent. Dump `ANIMSCG n (slot ms file)...`. Test
+  `QA/tests/clip-cues-play.sh` (incl. the BAS export's mixed WAV onset).
+- **Phase 2** (not built yet): cue UI + X-sheet SOUND row (K9), bake keeps them (K10).
 
 ## Gotchas met here
 

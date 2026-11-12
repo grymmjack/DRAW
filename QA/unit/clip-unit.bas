@@ -21,6 +21,15 @@ FUNCTION row$ (frames AS INTEGER, n AS INTEGER, every AS INTEGER, start AS INTEG
     row$ = s
 END FUNCTION
 
+' the frames 1..frames a sound cue fires in ("x")
+FUNCTION cues$ (frames AS INTEGER, kind AS INTEGER, cel AS INTEGER, n AS INTEGER, every AS INTEGER, start AS INTEGER, inF AS INTEGER, outF AS INTEGER, mode AS INTEGER)
+    DIM f AS INTEGER, s AS STRING
+    FOR f = 1 TO frames
+        IF CLIP_cue_fires%(kind, cel, f, n, every, start, inF, outF, mode) THEN s = s + "x" ELSE s = s + "."
+    NEXT f
+    cues$ = s
+END FUNCTION
+
 check "loop 4 cels", row$(10, 4, 1, 1, 1, 0, CLIP_MODE_LOOP), "1234123412"
 check "loop from frame 3", row$(10, 4, 1, 1, 3, 0, CLIP_MODE_LOOP), "..12341234"
 check "loop out 7", row$(10, 4, 1, 1, 3, 7, CLIP_MODE_LOOP), "..12341..."
@@ -61,6 +70,23 @@ a = 2: b = 0: r = CLIP_remap%(src(), 7, 6, a, b)
 check "append: open end stays open", STR$(a) + STR$(b), STR$(2) + STR$(0)
 a = 2: b = 6: r = CLIP_remap%(src(), 7, 6, a, b)
 check "append: a closed end stays", STR$(a) + STR$(b), STR$(2) + STR$(6)
+
+' sound cues: the frames a cue fires in ("x" = fires)
+check "cue cel 1, loop 4", cues$(10, 0, 1, 4, 1, 1, 1, 0, CLIP_MODE_LOOP), "x...x...x."
+check "cue cel 3, loop from 2", cues$(8, 0, 3, 4, 1, 1, 2, 0, CLIP_MODE_LOOP), "...x...x"
+check "cue cel 2, on twos", cues$(12, 0, 2, 4, 2, 1, 1, 0, CLIP_MODE_LOOP), "..x.......x."
+check "cue cel 1, 1 cel looping on twos", cues$(6, 0, 1, 1, 2, 1, 1, 0, CLIP_MODE_LOOP), "x.x.x."
+check "cue cel 4, hold: once", cues$(8, 0, 4, 4, 1, 1, 1, 0, CLIP_MODE_HOLD), "...x...."
+check "cue cel 2, ping 4", cues$(12, 0, 2, 4, 1, 1, 1, 0, CLIP_MODE_PING), ".x...x.x...x"
+check "cue cel 1, once, out 3", cues$(8, 0, 1, 4, 1, 1, 1, 3, CLIP_MODE_ONCE), "x......."
+check "cue start", cues$(10, 1, 0, 4, 1, 1, 3, 0, CLIP_MODE_LOOP), "..x......."
+check "cue each loop, loop 4", cues$(10, 2, 0, 4, 1, 1, 1, 0, CLIP_MODE_LOOP), "x...x...x."
+check "cue each loop, start cel 3", cues$(10, 2, 0, 4, 1, 3, 1, 0, CLIP_MODE_LOOP), "x...x...x."
+check "cue each loop, ping 3", cues$(10, 2, 0, 3, 1, 1, 1, 0, CLIP_MODE_PING), "x...x...x."
+check "cue each loop, on twos", cues$(12, 2, 0, 2, 2, 1, 1, 0, CLIP_MODE_LOOP), "x...x...x..."
+check "cue each loop, once", cues$(10, 2, 0, 4, 1, 1, 1, 0, CLIP_MODE_ONCE), "x........."
+check "cue each loop, hold", cues$(10, 2, 0, 4, 1, 1, 1, 0, CLIP_MODE_HOLD), "x........."
+check "cue each loop, out 6", cues$(10, 2, 0, 4, 1, 1, 1, 6, CLIP_MODE_LOOP), "x...x....."
 
 PRINT "clip-unit:"; PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
