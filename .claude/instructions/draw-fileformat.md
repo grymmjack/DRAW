@@ -108,8 +108,13 @@ with the pixels it shows, so an older DRAW opens it baked. Its clip rides in an 
 binSlot(2), name length(2), the name, the strip's BGRA bytes (n*cw x ch); then instance
 count(2), per instance whose layer exists: the layer's historyId(4) + the 20-byte
 `CLIP_inst_blob$` (src, in, out, start cel, every, mode, flipX, flipY, px, py, 2 bytes each).
+**Version 2** (phase 2 K7, 2026-11-12) appends the sound cues: count(2), per cue of a written
+source: source index(2), kind(2) (0 on cel, 1 when the clip starts, 2 each time it starts
+over), cel(2) (kind 0; else 0), path length(2), the path as picked (found later the way
+soundtrack files are: that path, else the same name beside the document). A version-1 reader
+stops after the instances, so an older DRAW keeps the clips and drops the sounds.
 Only sources an instance uses are written; nothing is written without a clip layer. `CLIP_read_chunk` (after `AB_read_drab` in `DRW_load_binary`)
-sets those layers back to CLIP and rebuilds them. Test: `QA/tests/clip-layers.sh`.
+sets those layers back to CLIP and rebuilds them. Tests: `QA/tests/clip-layers.sh`, `clip-cues.sh`.
 
 ### Binary Project Data
 

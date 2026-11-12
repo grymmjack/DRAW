@@ -14,6 +14,8 @@ SUB CLIP_new_document ()
     NEXT i
     FOR i = 1 TO CLIP_INST_N: CLIP_INST(i).layerId = 0: NEXT i
     CLIP_SRC_N = 0: CLIP_INST_N = 0: CLIP_SIG = "": CLIP_PLACING = 0
+    FOR i = 1 TO CLIP_CUE_N: CLIP_CUE_PATH(i) = "": NEXT i
+    CLIP_CUE_N = 0
 END SUB
 
 ''
@@ -319,7 +321,7 @@ FUNCTION CLIP_state$ (slot AS INTEGER)
     DIM k AS INTEGER
     k = CLIP_inst_by_id%(LAYERS(slot).historyId&)
     IF k = 0 THEN EXIT FUNCTION
-    CLIP_state$ = MKI$(LAYERS(slot).layerType%) + CLIP_inst_blob$(k)
+    CLIP_state$ = MKI$(LAYERS(slot).layerType%) + CLIP_inst_blob$(k) + CLIP_cues_blob$(CLIP_INST(k).src)
 END FUNCTION
 
 ''
@@ -333,6 +335,7 @@ SUB CLIP_history_apply (id AS LONG, st AS STRING)
     IF k = 0 THEN EXIT SUB
     LAYERS(slot).layerType% = CVI(LEFT$(st, 2))
     CLIP_inst_from_blob k, MID$(st, 3)
+    IF LEN(st) >= 24 THEN CLIP_cues_from_blob CLIP_INST(k).src, MID$(st, 23) ' its source's sound cues
     IF LAYERS(slot).layerType% = LAYER_TYPE_CLIP THEN CLIP_rebuild slot
     LAYERS(slot).contentDirty% = TRUE
     GUI_NEEDS_REDRAW% = TRUE
@@ -675,6 +678,146 @@ SUB CLIP_sources_purge ()
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
+' ---------------------------------------------------------------------------
+' Sound cues (phase 2 K7): the table, its undo blob, the commands.
+' ---------------------------------------------------------------------------
+
+''
+' Source s's cues as a blob: MKI n, per cue MKI kind, MKI cel, MKI path
+' length, the path.
+FUNCTION CLIP_cues_blob$ (s AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER, t AS STRING
+    FOR i = 1 TO CLIP_CUE_N
+        IF CLIP_CUE_SRC(i) = s THEN
+            n = n + 1
+            t = t + MKI$(CLIP_CUE_KIND(i)) + MKI$(CLIP_CUE_CELN(i)) + MKI$(LEN(CLIP_CUE_PATH(i))) + CLIP_CUE_PATH(i)
+        END IF
+    NEXT i
+    CLIP_cues_blob$ = MKI$(n) + t
+END FUNCTION
+
+''
+' Source s's cues become the ones in blob b (CLIP_cues_blob$).
+SUB CLIP_cues_from_blob (s AS INTEGER, b AS STRING)
+    DIM n AS INTEGER, j AS INTEGER, p AS LONG, kind AS INTEGER, cel AS INTEGER, pl AS INTEGER
+    CLIP_cues_drop s
+    IF LEN(b) < 2 THEN EXIT SUB
+    n = CVI(LEFT$(b, 2)): p = 3
+    FOR j = 1 TO n
+        IF p + 5 > LEN(b) THEN EXIT FOR
+        kind = CVI(MID$(b, p, 2)): cel = CVI(MID$(b, p + 2, 2)): pl = CVI(MID$(b, p + 4, 2))
+        IF pl < 0 _ORELSE p + 5 + pl > LEN(b) THEN EXIT FOR
+        IF CLIP_cue_put%(s, kind, cel, MID$(b, p + 6, pl)) = 0 THEN EXIT FOR
+        p = p + 6 + pl
+    NEXT j
+END SUB
+
+''
+' Every cue of source s goes.
+SUB CLIP_cues_drop (s AS INTEGER)
+    DIM i AS INTEGER, j AS INTEGER
+    FOR i = 1 TO CLIP_CUE_N
+        IF CLIP_CUE_SRC(i) <> s THEN
+            j = j + 1
+            IF j <> i THEN
+                CLIP_CUE_SRC(j) = CLIP_CUE_SRC(i): CLIP_CUE_KIND(j) = CLIP_CUE_KIND(i)
+                CLIP_CUE_CELN(j) = CLIP_CUE_CELN(i): CLIP_CUE_PATH(j) = CLIP_CUE_PATH(i)
+            END IF
+        END IF
+    NEXT i
+    FOR i = j + 1 TO CLIP_CUE_N: CLIP_CUE_PATH(i) = "": CLIP_CUE_SRC(i) = 0: NEXT i
+    CLIP_CUE_N = j
+END SUB
+
+''
+' A cue at the end of the table (0 = full).
+FUNCTION CLIP_cue_put% (s AS INTEGER, kind AS INTEGER, cel AS INTEGER, path AS STRING)
+    IF CLIP_CUE_N >= CLIP_CUE_MAX _ORELSE kind < CLIP_CUEK_CEL _ORELSE kind > CLIP_CUEK_LOOP THEN EXIT FUNCTION
+    CLIP_CUE_N = CLIP_CUE_N + 1
+    CLIP_CUE_SRC(CLIP_CUE_N) = s: CLIP_CUE_KIND(CLIP_CUE_N) = kind
+    CLIP_CUE_CELN(CLIP_CUE_N) = _IIF(kind = CLIP_CUEK_CEL, cel, 0): CLIP_CUE_PATH(CLIP_CUE_N) = path
+    CLIP_cue_put% = CLIP_CUE_N
+END FUNCTION
+
+''
+' How many cues source s has.
+FUNCTION CLIP_cues_of% (s AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO CLIP_CUE_N
+        IF CLIP_CUE_SRC(i) = s THEN n = n + 1
+    NEXT i
+    CLIP_cues_of% = n
+END FUNCTION
+
+''
+' A sound file's name, for messages and the dump.
+FUNCTION CLIP_cue_name$ (p AS STRING)
+    CLIP_cue_name$ = MID$(p, _MAX(_INSTRREV(p, "/"), _INSTRREV(p, "\")) + 1)
+END FUNCTION
+
+''
+' Add a sound cue to the current clip's source (kind CLIP_CUEK_*): pick a
+' file; CEL plays on the cel the current frame shows. One undo step.
+SUB CLIP_cue_add (kind AS INTEGER)
+    DIM k AS INTEGER, s AS INTEGER, c AS INTEGER, f AS STRING, h AS LONG, i AS INTEGER, before AS STRING
+    DIM lbl AS STRING, default_path AS STRING, n AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    IF s < 1 _ORELSE s > CLIP_SRC_N THEN EXIT SUB
+    IF kind = CLIP_CUEK_CEL THEN
+        c = CLIP_cel_at%(k, ANIM.current)
+        IF c = 0 THEN STATUS_flash "Frame" + STR$(ANIM.current) + " shows none of this clip's cels - go to a frame where it shows the cel": EXIT SUB
+        lbl = "Sound on Cel" + STR$(c)
+    ELSEIF kind = CLIP_CUEK_ONCE THEN
+        lbl = "Sound When the Clip Starts"
+    ELSE
+        lbl = "Sound Each Time the Clip Starts Over"
+    END IF
+    IF CLIP_CUE_N >= CLIP_CUE_MAX THEN STATUS_flash "At most" + STR$(CLIP_CUE_MAX) + " clip sound cues": EXIT SUB
+    IF CFG.LAST_DIR_OPEN$ <> "" THEN default_path = CFG.LAST_DIR_OPEN$ + "/" ELSE IF LAST_DIRECTORY$ <> "" THEN default_path = LAST_DIRECTORY$ + "/"
+    POINTER_hide_for_dialog
+    n = DRAW_open_files%(lbl, default_path, "Sound|*.wav|*.ogg|*.mp3|*.flac|*.mid|*.midi|*.mod|*.xm|*.it|*.s3m|All Files|*.*", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+    IF n < 1 THEN EXIT SUB
+    f = RTRIM$(FD_multiResults(0))
+    IF _FILEEXISTS(f) THEN h = _SNDOPEN(f)
+    IF h < 1 THEN STATUS_flash "Sound: can't play " + CLIP_cue_name$(f): EXIT SUB
+    _SNDCLOSE h
+    FOR i = 1 TO CLIP_CUE_N
+        IF CLIP_CUE_SRC(i) = s _ANDALSO CLIP_CUE_KIND(i) = kind _ANDALSO CLIP_CUE_CELN(i) = _IIF(kind = CLIP_CUEK_CEL, c, 0) _ANDALSO CLIP_CUE_PATH(i) = f THEN
+            STATUS_flash "The clip already has that sound there": EXIT SUB
+        END IF
+    NEXT i
+    before = CLIP_state$(CURRENT_LAYER%)
+    IF CLIP_cue_put%(s, kind, c, f) = 0 THEN EXIT SUB
+    CLIP_record before, lbl
+    SELECT CASE kind
+        CASE CLIP_CUEK_CEL: lbl = " plays whenever cel" + STR$(c) + " shows"
+        CASE CLIP_CUEK_ONCE: lbl = " plays when the clip starts"
+        CASE ELSE: lbl = " plays each time the clip starts over"
+    END SELECT
+    STATUS_flash "Clip sound: " + CLIP_cue_name$(f) + lbl
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Every sound cue of the current clip's source goes. One undo step.
+SUB CLIP_cue_clear ()
+    DIM k AS INTEGER, s AS INTEGER, before AS STRING, n AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    n = CLIP_cues_of%(s)
+    IF n = 0 THEN STATUS_flash "This clip has no sounds": EXIT SUB
+    before = CLIP_state$(CURRENT_LAYER%)
+    CLIP_cues_drop s
+    CLIP_record before, "Remove Clip Sounds"
+    STATUS_flash "Removed the clip's" + STR$(n) + " sound" + _IIF(n = 1, "", "s")
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
 ''
 ' Update Clip from Bin (fromBin) / from AnimBrush: the clip's cels become the
 ' Drawer bin's they came from / the current AnimBrush's. A new source, so undo
@@ -696,6 +839,7 @@ SUB CLIP_update (fromBin AS INTEGER)
         newSrc = CLIP_src_from_ab%: lbl = "Update Clip from AnimBrush"
     END IF
     IF newSrc = 0 THEN STATUS_flash "No room for more clip sources (" + _TRIM$(STR$(CLIP_SRC_MAX)) + ")": EXIT SUB
+    IF s >= 1 _ANDALSO s <= CLIP_SRC_N THEN CLIP_cues_from_blob newSrc, CLIP_cues_blob$(s) ' new cels, the same sounds
     IF NOT HISTORY_IN_PROGRESS% _ANDALSO NOT HISTORY_GROUP_ACTIVE% THEN HISTORY_begin_group: grp = TRUE
     FOR i = 1 TO MAX_LAYERS
         kk = CLIP_inst_of%(i)
@@ -718,7 +862,7 @@ SUB CLIP_update (fromBin AS INTEGER)
 END SUB
 
 ''
-' Actions 2620-2637.
+' Actions 2620-2641.
 SUB CLIP_action (act AS INTEGER)
     SELECT CASE act
         CASE CLIP_ACT_PLACE: CLIP_place_start
@@ -732,6 +876,10 @@ SUB CLIP_action (act AS INTEGER)
         CASE CLIP_ACT_SRC_RENAME: CLIP_src_rename
         CASE CLIP_ACT_SRC_LAYERS: CLIP_src_select_layers
         CASE CLIP_ACT_PURGE: CLIP_sources_purge
+        CASE CLIP_ACT_CUE_CEL: CLIP_cue_add CLIP_CUEK_CEL
+        CASE CLIP_ACT_CUE_ONCE: CLIP_cue_add CLIP_CUEK_ONCE
+        CASE CLIP_ACT_CUE_LOOP: CLIP_cue_add CLIP_CUEK_LOOP
+        CASE CLIP_ACT_CUE_CLEAR: CLIP_cue_clear
         CASE CLIP_ACT_MODE0 TO CLIP_ACT_MODE0 + 4: CLIP_set 5, act - CLIP_ACT_MODE0
         CASE CLIP_ACT_FLIP_X: CLIP_set 6, NOT CLIP_get&(6)
         CASE CLIP_ACT_FLIP_Y: CLIP_set 7, NOT CLIP_get&(7)
@@ -799,7 +947,8 @@ END SUB
 ' instances (the ones whose layer is there).
 '   MKI version, MKI nSrc, per source: MKI index, n, cw, ch, binSlot, name
 '   length, name, the strip's BGRA; MKI nInst, per instance: MKL layer id,
-'   the 20-byte instance blob.
+'   the 20-byte instance blob. Version 2: MKI nCue, per cue MKI source index,
+'   kind, cel, path length, the path (the written sources' cues).
 ' ---------------------------------------------------------------------------
 
 FUNCTION CLIP_chunk$ ()
@@ -823,6 +972,17 @@ FUNCTION CLIP_chunk$ ()
         END IF
     NEXT i
     s = MKI$(CLIP_CHUNK_VERSION) + MKI$(nSrc) + si + MKI$(nInst) + ii
+    nSrc = 0: si = ""
+    FOR i = 1 TO CLIP_CUE_N
+        k = CLIP_CUE_SRC(i)
+        IF k >= 1 _ANDALSO k <= CLIP_SRC_N THEN
+            IF used(k) _ANDALSO CLIP_SRC(k).strip < -1 THEN
+                nSrc = nSrc + 1
+                si = si + MKI$(k) + MKI$(CLIP_CUE_KIND(i)) + MKI$(CLIP_CUE_CELN(i)) + MKI$(LEN(CLIP_CUE_PATH(i))) + CLIP_CUE_PATH(i)
+            END IF
+        END IF
+    NEXT i
+    s = s + MKI$(nSrc) + si
     CLIP_chunk$ = MKL$(LEN(s)) + _DEFLATE$(s, 9)
 END FUNCTION
 
@@ -870,6 +1030,19 @@ SUB CLIP_read_chunk (blob AS STRING)
         END IF
         p = p + 24
     NEXT i
+    IF CVI(MID$(s, 1, 2)) >= 2 _ANDALSO p + 1 <= LEN(s) THEN ' the sound cues
+        DIM nCue AS INTEGER, kind AS INTEGER, cel AS INTEGER, pl AS INTEGER
+        nCue = CVI(MID$(s, p, 2)): p = p + 2
+        FOR i = 1 TO nCue
+            IF p + 7 > LEN(s) THEN EXIT FOR
+            idx = CVI(MID$(s, p, 2)): kind = CVI(MID$(s, p + 2, 2)): cel = CVI(MID$(s, p + 4, 2)): pl = CVI(MID$(s, p + 6, 2))
+            IF pl < 0 _ORELSE p + 7 + pl > LEN(s) THEN EXIT FOR
+            IF idx >= 1 _ANDALSO idx <= CLIP_SRC_N THEN
+                IF CLIP_cue_put%(idx, kind, cel, MID$(s, p + 8, pl)) = 0 THEN EXIT FOR
+            END IF
+            p = p + 8 + pl
+        NEXT i
+    END IF
     CLIP_SIG = "" ' rebuild at the first tick, once the frames are read (drAn comes after)
 END SUB
 
@@ -892,6 +1065,7 @@ END FUNCTION
 '   CLIPC slot cels         the cel each frame shows ("." none, cel 10+ as letters)
 '   CLIPS src n cw ch bin name  (each source on the list; bin = the Drawer bin it came from, 0 = none)
 '   CLIPSU src:users ...  (the clip layers using each listed source)
+'   CLIPQ src kind cel name  (each sound cue: kind 0 on cel, 1 when the clip starts, 2 each time it starts over)
 '   CLIPP placing
 ' ---------------------------------------------------------------------------
 FUNCTION CLIP_dump$ ()
@@ -927,6 +1101,9 @@ FUNCTION CLIP_dump$ ()
         IF CLIP_src_listed%(i) THEN cs = cs + " " + _TRIM$(STR$(i)) + ":" + _TRIM$(STR$(CLIP_src_users%(i)))
     NEXT i
     s = s + cs + lf
+    FOR i = 1 TO CLIP_CUE_N ' each sound cue: source kind cel file name
+        s = s + "CLIPQ" + STR$(CLIP_CUE_SRC(i)) + STR$(CLIP_CUE_KIND(i)) + STR$(CLIP_CUE_CELN(i)) + " " + CLIP_cue_name$(CLIP_CUE_PATH(i)) + lf
+    NEXT i
     CLIP_dump$ = s
 END FUNCTION
 

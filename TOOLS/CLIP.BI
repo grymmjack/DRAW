@@ -25,7 +25,7 @@ CONST CLIP_MODE_REV  = 4
 
 CONST CLIP_SRC_MAX  = 64
 CONST CLIP_INST_MAX = 256
-CONST CLIP_CHUNK_VERSION = 1
+CONST CLIP_CHUNK_VERSION = 2 ' 2: + the sound cues (phase 2 K7; a version-1 reader stops before them)
 
 CONST CLIP_ACT_PLACE   = 2620 ' ANIM > Clip > Place AnimBrush as Clip (click a frame)
 CONST CLIP_ACT_BAKE    = 2621 ' ANIM > Clip > Bake Clip to Pixels
@@ -41,6 +41,10 @@ CONST CLIP_ACT_SRC_NEXT = 2634
 CONST CLIP_ACT_SRC_RENAME = 2635 ' rename the current clip's source
 CONST CLIP_ACT_SRC_LAYERS = 2636 ' select every layer using the current clip's source
 CONST CLIP_ACT_PURGE   = 2637 ' ANIM > Clip Layer > Remove Unused Clip Sources
+CONST CLIP_ACT_CUE_CEL  = 2638 ' ANIM > Clip Layer > Sound on This Cel... (the cel the current frame shows)
+CONST CLIP_ACT_CUE_ONCE = 2639 ' ANIM > Clip Layer > Sound When the Clip Starts... (its In frame, once)
+CONST CLIP_ACT_CUE_LOOP = 2640 ' ANIM > Clip Layer > Sound Each Time the Clip Starts Over... (In, and every loop)
+CONST CLIP_ACT_CUE_CLEAR = 2641 ' ANIM > Clip Layer > Remove the Clip's Sounds (every cue of its source)
 
 TYPE CLIP_SRC_OBJ
     nm      AS STRING * 32
@@ -66,6 +70,21 @@ TYPE CLIP_INST_OBJ
     py       AS INTEGER
     dirty    AS INTEGER ' rebuild at the next CLIP_tick%
 END TYPE
+
+' Sound cues (phase 2 K7): a source's sounds - one plays whenever cel k
+' shows (CEL), or when the clip starts (ONCE: its In frame; LOOP: and each
+' time its cels start over). Every clip on the source plays them; the clip
+' layer's undo state (CLIP_state$) carries its source's cues. The paths are
+' kept as picked and found the way soundtrack files are (ANIM_SND_resolve$).
+CONST CLIP_CUE_MAX = 128
+CONST CLIP_CUEK_CEL  = 0
+CONST CLIP_CUEK_ONCE = 1
+CONST CLIP_CUEK_LOOP = 2
+DIM SHARED CLIP_CUE_N AS INTEGER
+DIM SHARED CLIP_CUE_SRC(1 TO CLIP_CUE_MAX) AS INTEGER
+DIM SHARED CLIP_CUE_KIND(1 TO CLIP_CUE_MAX) AS INTEGER
+DIM SHARED CLIP_CUE_CELN(1 TO CLIP_CUE_MAX) AS INTEGER ' CEL: the cel (1-based); else 0
+DIM SHARED CLIP_CUE_PATH(1 TO CLIP_CUE_MAX) AS STRING
 
 DIM SHARED CLIP_SRC(1 TO CLIP_SRC_MAX) AS CLIP_SRC_OBJ
 DIM SHARED CLIP_INST(1 TO CLIP_INST_MAX) AS CLIP_INST_OBJ

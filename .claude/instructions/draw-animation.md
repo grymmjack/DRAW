@@ -1295,7 +1295,18 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   The panel info line adds the layer count when a source is shared. Dump: `CLIPS` lists only
   listed sources; `CLIPSU src:users ...`. `CLIP_current%` is an instance index - tests read the
   current layer's clip via `LPANEL` field 3. Test `QA/tests/clip-sources.sh`.
-- **Phase 2** (not built yet): clip sound cues.
+- **Sound cues, data** (2638-2641, `CLIP_cue_*` / `CLIP_cues_*`, K7): a source's sounds in a
+  document-wide table (`CLIP_CUE_SRC / KIND / CELN / PATH`, max 128): kind `CLIP_CUEK_CEL` (plays
+  whenever cel k shows), `_ONCE` (the clip's In frame), `_LOOP` (In and each time the cels start
+  over). Every clip on the source plays them. Undo: `CLIP_state$` = type + instance blob +
+  `CLIP_cues_blob$(src)`, so every clip undo record snapshots its source's cues and linear undo
+  stays right without a new history kind; `CLIP_history_apply` puts them back. Update Clip from
+  Bin / AnimBrush copies the cues to the new source. Commands: ANIM > Clip Layer > Sound on This
+  Cel... (the cel the current frame shows; refused where it shows none), Sound When the Clip
+  Starts..., Sound Each Time the Clip Starts Over..., Remove the Clip's Sounds. Saved in drCl
+  v2. Dump `CLIPQ src kind cel name`. Test `QA/tests/clip-cues.sh` (`CL_EXTRA` in clip-lib
+  passes `--option LAST_DIR_OPEN=` so the file dialog opens on the fixtures).
+- **Phase 2** (not built yet): cues playing (K8), their UI (K9), bake keeps them (K10).
 
 ## Gotchas met here
 

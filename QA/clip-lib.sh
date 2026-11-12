@@ -128,7 +128,7 @@ cl_setup() {
     [[ -s "$CL_DIR/clip.draw" ]] || { fail "no .draw fixture: $(tail -3 "$CL_DIR/batch.txt" | tr '\n' ' ')"; return 1; }
     draw_quit
     draw_settle
-    DRAW_EXTRA_ARGS="$CL_DIR/clip.draw"
+    DRAW_EXTRA_ARGS="${CL_EXTRA:+$CL_EXTRA }$CL_DIR/clip.draw" # CL_EXTRA: more launch args (--option ...)
     draw_launch 15
     wait_for 1.5 "Sheet loaded"
     assert_no_crash
