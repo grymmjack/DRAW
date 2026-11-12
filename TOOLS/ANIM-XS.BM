@@ -42,16 +42,19 @@ SUB ANIM_XS_rows_build ()
     FOR z = LAYER_COUNT% TO 1 STEP -1
         FOR i = 1 TO MAX_LAYERS
             IF LAYERS(i).imgHandle& <> 0 _ANDALSO LAYERS(i).zIndex% = z THEN
-                IF LAYER_PANEL_row_hidden%(i) = 0 _ANDALSO n < 2 * MAX_LAYERS THEN
-                    n = n + 1: ANIM_XS_ROW(n) = i
+                IF LAYER_PANEL_row_hidden%(i) = 0 _ANDALSO n < 3 * MAX_LAYERS THEN
+                    n = n + 1: ANIM_XS_ROW(n) = i: ANIM_XS_RKIND(n) = 0
                     d = 0: p = LAYERS(i).parentGroupIdx%
                     DO WHILE p > 0 _ANDALSO p <= MAX_LAYERS _ANDALSO d < 8
                         d = d + 1: p = LAYERS(p).parentGroupIdx%
                     LOOP
                     ANIM_XS_DEPTH(n) = d
-                    p = CLIP_inst_of%(i) ' a clip layer with sounds: its SOUND row under it
-                    IF p _ANDALSO n < 2 * MAX_LAYERS THEN
-                        IF CLIP_cues_of%(CLIP_INST(p).src) > 0 THEN n = n + 1: ANIM_XS_ROW(n) = -i: ANIM_XS_DEPTH(n) = d + 1
+                    p = CLIP_inst_of%(i) ' a clip layer with sounds: its SOUND row under it; with keys: its LANES row
+                    IF p _ANDALSO n < 3 * MAX_LAYERS THEN
+                        IF CLIP_cues_of%(CLIP_INST(p).src) > 0 THEN n = n + 1: ANIM_XS_ROW(n) = -i: ANIM_XS_DEPTH(n) = d + 1: ANIM_XS_RKIND(n) = XS_ROW_SOUND
+                    END IF
+                    IF p _ANDALSO n < 3 * MAX_LAYERS THEN
+                        IF CLIP_has_keys%(p) THEN n = n + 1: ANIM_XS_ROW(n) = -i: ANIM_XS_DEPTH(n) = d + 1: ANIM_XS_RKIND(n) = XS_ROW_LANES
                     END IF
                 END IF
                 EXIT FOR
@@ -82,7 +85,10 @@ END FUNCTION
 FUNCTION ANIM_XS_label_fit$ (r AS INTEGER, w AS INTEGER)
     DIM slot AS INTEGER, nm AS STRING, tl AS STRING, n AS INTEGER
     slot = ANIM_XS_ROW(r)
-    IF slot < 0 THEN ANIM_XS_label_fit$ = _IIF(FPANEL_text_w%("SOUND") <= w, "SOUND", ""): EXIT FUNCTION
+    IF slot < 0 THEN
+        nm = _IIF(ANIM_XS_RKIND(r) = XS_ROW_LANES, "LANES", "SOUND")
+        ANIM_XS_label_fit$ = _IIF(FPANEL_text_w%(nm) <= w, nm, ""): EXIT FUNCTION
+    END IF
     nm = _TRIM$(LAYERS(slot).name): tl = ANIM_XS_label_tail$(slot)
     IF FPANEL_text_w%(nm + tl) <= w THEN ANIM_XS_label_fit$ = nm + tl: EXIT FUNCTION
     n = LEN(nm)
@@ -570,7 +576,7 @@ SUB ANIM_XS_render (dest AS LONG)
             DIM sx AS INTEGER, sw AS INTEGER
             ANIM_XS_label_room r, sx, sw
             FPANEL_text sx, y + (lh - FPANEL.fontH%) \ 2, ANIM_XS_label_fit$(r, sw), THEME.CP_text_dim~&
-            ANIM_XS_cl_snd_row -slot, y
+            IF ANIM_XS_RKIND(r) = XS_ROW_LANES THEN ANIM_XS_cl_lanes_row -slot, y ELSE ANIM_XS_cl_snd_row -slot, y
             LINE (ANIM_XS.x1, y + lh - 1)-(x2, y + lh - 1), (THEME.CP_border~& AND &H00FFFFFF~&) OR &H60000000~&
             _CONTINUE
         END IF
@@ -1316,6 +1322,9 @@ FUNCTION ANIM_XS_press% (mx AS INTEGER, my AS INTEGER)
         IF ANIM_XS_ROW(ANIM_XS.firstRow + k - 1) < 0 THEN
             IF slot <> CURRENT_LAYER% THEN LAYERS_select slot
             IF f > 0 THEN ANIM_SEL_click f, c, s
+            IF ANIM_XS_RKIND(ANIM_XS.firstRow + k - 1) = XS_ROW_LANES _ANDALSO f > 0 _ANDALSO c = 0 _ANDALSO s = 0 THEN ' a key: drag it in time
+                IF CLIP_key_mark%(CLIP_inst_of%(slot), f - CLIP_INST(CLIP_inst_of%(slot)).inF) THEN ANIM_XS.dMode = XS_DRAG_LKEY: ANIM_XS.dSlot = slot: ANIM_XS.dTo = f
+            END IF
             ANIM_LB_changed
             EXIT FUNCTION
         END IF
@@ -1518,6 +1527,9 @@ SUB ANIM_XS_hold ()
                 ANIM_XS_sound_drag mx, my
             CASE XS_DRAG_CLIP
                 ANIM_XS_cl_drag mx
+            CASE XS_DRAG_LKEY ' the keys' new frame (shown on the row; moved on the release)
+                h = ANIM_XS_frame_at%(mx)
+                IF h > 0 _ANDALSO h <> ANIM_XS.dTo THEN ANIM_XS.dTo = h: ANIM_LB_changed
         END SELECT
         EXIT SUB
     END IF
@@ -1530,6 +1542,13 @@ SUB ANIM_XS_hold ()
                     STATUS_flash "Frame" + STR$(f) + ": hold" + STR$(ANIM_hold%(f))
                 END IF
             CASE XS_DRAG_CELL: ANIM_XS_drop
+            CASE XS_DRAG_LKEY
+                h = CLIP_inst_of%(ANIM_XS.dSlot)
+                IF h _ANDALSO ANIM_XS.dTo > 0 _ANDALSO ANIM_XS.dTo <> f THEN
+                    CLIP_keys_shift ANIM_XS.dSlot, f - CLIP_INST(h).inF, ANIM_XS.dTo - CLIP_INST(h).inF
+                    ANIM.current = _MAX(ANIM_XS.dTo, CLIP_INST(h).inF): ANIM_SEL_click ANIM.current, FALSE, FALSE
+                    STATUS_flash "Keys moved from frame" + STR$(f) + " to frame" + STR$(ANIM.current)
+                END IF
             CASE XS_DRAG_FRAMES
                 ANIM_MOVE_TO = ANIM_XS.dTo
                 ANIM_OPS_run ANIM_OP_MOVE_SEL ' nothing when dropped where they are
@@ -1650,6 +1669,41 @@ SUB ANIM_XS_cl_snd_row (slot AS INTEGER, y AS INTEGER)
             END IF
         END IF
     NEXT gi
+END SUB
+
+''
+' A clip layer's LANES row (TOOLS/CLIP L7): a diamond on each frame with a key
+' in any lane, filled where the picked lane (the panel's LANE row) has one.
+' Drag a diamond along the row to move that frame's keys (XS_DRAG_LKEY): the
+' frame it leaves is dimmed, the frame it goes to outlined until the release.
+SUB ANIM_XS_cl_lanes_row (slot AS INTEGER, y AS INTEGER)
+    DIM k AS INTEGER, f AS INTEGER, x AS INTEGER, w AS INTEGER, lh AS INTEGER, m AS INTEGER, rr AS INTEGER
+    DIM cx AS INTEGER, cy AS INTEGER, dy AS INTEGER, hw AS INTEGER, dragging AS INTEGER
+    DIM edge AS _UNSIGNED LONG, dim1 AS _UNSIGNED LONG
+    k = CLIP_inst_of%(slot): IF k = 0 THEN EXIT SUB
+    lh = ANIM_XS.layH
+    edge = THEME.ANIM_FRAME_current~&: dim1 = (edge AND &H00FFFFFF~&) OR &H60000000~&
+    dragging = (ANIM_XS.dMode = XS_DRAG_LKEY _ANDALSO ANIM_XS.dOn <> 0 _ANDALSO ANIM_XS.dSlot = slot)
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        m = CLIP_key_mark%(k, f - CLIP_INST(k).inF)
+        IF dragging _ANDALSO f = ANIM_XS.dFrame THEN m = -m ' (leaving: dimmed)
+        IF dragging _ANDALSO f = ANIM_XS.dTo _ANDALSO f <> ANIM_XS.dFrame THEN m = 3 ' (arriving: outlined)
+        IF m THEN
+            x = ANIM_XS_frame_x%(f): w = ANIM_XS_span_w%(f)
+            rr = _MAX(1, _MIN(4, _MIN((lh - 4) \ 2, (w - 2) \ 2)))
+            cx = x + w \ 2: cy = y + lh \ 2
+            IF cx + rr <= ANIM_XS.x2 THEN
+                FOR dy = -rr TO rr
+                    hw = rr - ABS(dy)
+                    SELECT CASE m
+                        CASE 2: LINE (cx - hw, cy + dy)-(cx + hw, cy + dy), edge
+                        CASE 1, 3: PSET (cx - hw, cy + dy), edge: PSET (cx + hw, cy + dy), edge
+                        CASE ELSE: PSET (cx - hw, cy + dy), dim1: PSET (cx + hw, cy + dy), dim1
+                    END SELECT
+                NEXT dy
+            END IF
+        END IF
+    NEXT f
 END SUB
 
 ''
@@ -1889,7 +1943,14 @@ FUNCTION ANIM_XS_dump$ ()
     FOR r = ANIM_XS.firstRow TO _MIN(ANIM_XS.nRows, ANIM_XS.firstRow + ANIM_XS.rowsShown - 1)
         slot = ANIM_XS_ROW(r)
         DIM cla AS INTEGER, clb AS INTEGER, cia AS INTEGER, cib AS INTEGER, gi AS INTEGER
-        IF slot < 0 THEN ' ANIMXSQ slot y heard ms...: a clip layer's SOUND row (K9), where its sounds start
+        IF slot < 0 _ANDALSO ANIM_XS_RKIND(r) = XS_ROW_LANES THEN ' ANIMXSK slot y f:mark ...: a clip layer's LANES row (L7; mark 2 = the picked lane)
+            d = d + "ANIMXSK" + DOCK_n$(-slot) + DOCK_n$(ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1))
+            gi = CLIP_inst_of%(-slot)
+            FOR f = 1 TO _MIN(ANIM.count, 200)
+                IF CLIP_key_mark%(gi, f - CLIP_INST(gi).inF) THEN d = d + " " + _TRIM$(STR$(f)) + ":" + _TRIM$(STR$(CLIP_key_mark%(gi, f - CLIP_INST(gi).inF)))
+            NEXT f
+            d = d + CHR$(10)
+        ELSEIF slot < 0 THEN ' ANIMXSQ slot y heard ms...: a clip layer's SOUND row (K9), where its sounds start
             d = d + "ANIMXSQ" + DOCK_n$(-slot) + DOCK_n$(ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1)) + DOCK_n$(CLIP_layer_heard%(-slot) <> 0)
             FOR gi = 1 TO ANIM_SC_GN
                 IF ANIM_SC_GSLOT(gi) = -slot THEN d = d + DOCK_n$(ANIM_SC_AT(ANIM_SC_MAX + gi))

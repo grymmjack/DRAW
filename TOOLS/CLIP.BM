@@ -17,6 +17,7 @@ SUB CLIP_new_document ()
     FOR i = 1 TO CLIP_CUE_N: CLIP_CUE_PATH(i) = "": NEXT i
     CLIP_CUE_N = 0: CLIP_CUE_GSIG = CHR$(255) ' (the generated clips go at the next tick)
     CLIP_ED_N = 0
+    FOR i = 1 TO CLIP_INST_N: CLIP_lanes_clear i: NEXT i
 END SUB
 
 ''
@@ -106,6 +107,7 @@ FUNCTION CLIP_inst_new% (id AS LONG)
     CLIP_INST(i).src = 0: CLIP_INST(i).inF = 1: CLIP_INST(i).outF = 0: CLIP_INST(i).startCel = 1
     CLIP_INST(i).every = 1: CLIP_INST(i).mode = CLIP_MODE_LOOP: CLIP_INST(i).flipX = 0: CLIP_INST(i).flipY = 0
     CLIP_INST(i).px = 0: CLIP_INST(i).py = 0: CLIP_INST(i).dirty = TRUE
+    CLIP_lanes_clear i
     IF i > CLIP_INST_N THEN CLIP_INST_N = i
     CLIP_inst_new% = i
 END FUNCTION
@@ -127,9 +129,10 @@ SUB CLIP_rebuild (slot AS INTEGER)
     DIM k AS INTEGER, s AS INTEGER, img AS LONG, oldD AS LONG, f AS INTEGER, c AS INTEGER
     DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, aw AS INTEGER, ah AS INTEGER
     DIM tmp AS LONG, tw AS LONG, th AS LONG, sx AS LONG, cw AS LONG, ch AS LONG
-    DIM dx1 AS LONG, dy1 AS LONG, dx2 AS LONG, dy2 AS LONG
+    DIM dx1 AS LONG, dy1 AS LONG, dx2 AS LONG, dy2 AS LONG, lanes AS INTEGER
     k = CLIP_inst_of%(slot)
     IF k = 0 THEN EXIT SUB
+    lanes = CLIP_has_lanes%(k) ' keyed / modulated: each cel through XF_draw
     CLIP_INST(k).dirty = FALSE
     img = LAYERS(slot).imgHandle&
     aw = LAYERS(slot).apronW%: ah = LAYERS(slot).apronH%
@@ -149,11 +152,15 @@ SUB CLIP_rebuild (slot AS INTEGER)
                     END IF
                     _DEST tmp: CLS , _RGBA32(0, 0, 0, 0)
                     sx = (c - 1) * cw
-                    dx1 = CLIP_INST(k).px: dx2 = dx1 + cw - 1
-                    dy1 = CLIP_INST(k).py: dy2 = dy1 + ch - 1
-                    IF CLIP_INST(k).flipX THEN SWAP dx1, dx2
-                    IF CLIP_INST(k).flipY THEN SWAP dy1, dy2
-                    _PUTIMAGE (dx1, dy1)-(dx2, dy2), CLIP_SRC(s).strip, tmp, (sx, 0)-(sx + cw - 1, ch - 1)
+                    IF lanes THEN
+                        CLIP_draw_cel_xf k, f, s, c, tmp
+                    ELSE
+                        dx1 = CLIP_INST(k).px: dx2 = dx1 + cw - 1
+                        dy1 = CLIP_INST(k).py: dy2 = dy1 + ch - 1
+                        IF CLIP_INST(k).flipX THEN SWAP dx1, dx2
+                        IF CLIP_INST(k).flipY THEN SWAP dy1, dy2
+                        _PUTIMAGE (dx1, dy1)-(dx2, dy2), CLIP_SRC(s).strip, tmp, (sx, 0)-(sx + cw - 1, ch - 1)
+                    END IF
                     _DONTBLEND img
                     _PUTIMAGE (fx + aw, fy + ah), tmp, img
                     _BLEND img
@@ -165,6 +172,34 @@ SUB CLIP_rebuild (slot AS INTEGER)
     _DEST oldD
     LAYERS(slot).contentDirty% = TRUE
     COMP_mark_dirty 0, 0, SCRN.canvasW& - 1, SCRN.canvasH& - 1
+END SUB
+
+''
+' Cel c of source s into cell image tmp (cleared) for frame f, through
+' instance k's lanes: X / Y (whole pixels) added to its place, scale and
+' rotate about the pivot, opacity, tint; flips first.
+SUB CLIP_draw_cel_xf (k AS INTEGER, f AS INTEGER, s AS INTEGER, c AS INTEGER, tmp AS LONG)
+    DIM cel AS LONG, cw AS LONG, ch AS LONG, sx AS LONG, x1 AS LONG, x2 AS LONG, y1 AS LONG, y2 AS LONG
+    DIM ccx AS SINGLE, ccy AS SINGLE, pvx AS SINGLE, pvy AS SINGLE, scx AS SINGLE, scy AS SINGLE
+    DIM az AS SINGLE, op AS SINGLE, tn AS SINGLE, z0 AS SINGLE
+    cw = CLIP_SRC(s).cw: ch = CLIP_SRC(s).ch
+    cel = _NEWIMAGE(cw, ch, 32)
+    IF cel >= -1 THEN EXIT SUB
+    _DONTBLEND cel
+    sx = (c - 1) * cw
+    x1 = 0: x2 = cw - 1: y1 = 0: y2 = ch - 1
+    IF CLIP_INST(k).flipX THEN SWAP x1, x2
+    IF CLIP_INST(k).flipY THEN SWAP y1, y2
+    _PUTIMAGE (x1, y1)-(x2, y2), CLIP_SRC(s).strip, cel, (sx, 0)-(sx + cw - 1, ch - 1)
+    _BLEND cel
+    pvx = CLIP_lane_value!(k, CLIP_LANE_PVX, f): pvy = CLIP_lane_value!(k, CLIP_LANE_PVY, f)
+    ccx = CLIP_INST(k).px + INT(CLIP_lane_value!(k, CLIP_LANE_X, f) + .5) + pvx ' (whole pixels, half up: as the Move Brush rounds)
+    ccy = CLIP_INST(k).py + INT(CLIP_lane_value!(k, CLIP_LANE_Y, f) + .5) + pvy
+    scx = CLIP_lane_value!(k, CLIP_LANE_SX, f) / 100: scy = CLIP_lane_value!(k, CLIP_LANE_SY, f) / 100
+    az = CLIP_lane_value!(k, CLIP_LANE_ROT, f) * _PI / 180
+    op = CLIP_lane_value!(k, CLIP_LANE_OP, f) / 100: tn = CLIP_lane_value!(k, CLIP_LANE_TINT, f) / 100
+    XF_draw cel, tmp, ccx, ccy, pvx, pvy, scx, scy, az, z0, z0, z0, op, tn, CLIP_INST(k).tint, FALSE
+    _FREEIMAGE cel
 END SUB
 
 SUB CLIP_mark_all_dirty ()
@@ -266,7 +301,7 @@ END SUB
 FUNCTION CLIP_place_core% (f AS INTEGER, x AS LONG, y AS LONG, outF AS INTEGER, mode AS INTEGER)
     DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, s AS INTEGER, k AS INTEGER, slot AS INTEGER, nm AS STRING
     IF ANIM_cell_rect%(f, fx, fy, fw, fh) = 0 THEN EXIT FUNCTION
-    s = CLIP_src_from_ab%
+    IF CLIP_PLACE_SRC THEN s = CLIP_PLACE_SRC ELSE s = CLIP_src_from_ab% ' (Move Brush > Apply as Clip: a plain brush's own source)
     IF s = 0 THEN STATUS_flash "Place as Clip: no room for another clip source": EXIT FUNCTION
     slot = LAYERS_new%
     IF slot = 0 THEN STATUS_flash "Place as Clip: no room for another layer": EXIT FUNCTION
@@ -284,6 +319,7 @@ FUNCTION CLIP_place_core% (f AS INTEGER, x AS LONG, y AS LONG, outF AS INTEGER, 
         CASE ELSE: CLIP_INST(k).mode = CLIP_MODE_LOOP
     END SELECT
     IF mode >= 0 THEN CLIP_INST(k).mode = mode
+    IF CLIP_PLACE_MVB THEN MVB_clip_lanes k ' Move Brush > Apply as Clip: the move as lanes (in the layer-add snapshot)
     CLIP_rebuild slot
     IF ANIMP.visible = 0 THEN ANIMP_toggle ' its settings are the Animation panel's clip rows
     IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_refresh_layer_add_snapshot LAYERS(slot).historyId&
@@ -299,6 +335,173 @@ END FUNCTION
 ' Settings, bake and undo (HISTORY_KIND_CLIP: the layer type + the instance,
 ' before and after)
 ' ---------------------------------------------------------------------------
+
+' ---------------------------------------------------------------------------
+' Keyframe lanes (phase 3): per instance, see CLIP.BI
+' ---------------------------------------------------------------------------
+
+SUB CLIP_lanes_clear (k AS INTEGER)
+    DIM L AS INTEGER
+    IF k < 1 _ORELSE k > CLIP_INST_MAX THEN EXIT SUB
+    FOR L = 1 TO CLIP_LANES: CLIP_LN_KEYS(k, L) = "": CLIP_LN_MOD(k, L) = "": NEXT L
+    CLIP_INST(k).tint = &HFFFFFFFF~&
+END SUB
+
+FUNCTION CLIP_lane_name$ (L AS INTEGER)
+    IF L < 1 _ORELSE L > CLIP_LANES THEN EXIT FUNCTION
+    CLIP_lane_name$ = _TRIM$(MID$("X       Y       SCALE X SCALE Y ROTATE  OPACITY TINT    PIVOT X PIVOT Y VOLUME  PAN     ", (L - 1) * 8 + 1, 8))
+END FUNCTION
+
+''
+' A lane's value with no keys: SCALE / OPACITY / VOLUME 100, the pivot the
+' cel's middle, the rest 0.
+FUNCTION CLIP_lane_default! (k AS INTEGER, L AS INTEGER)
+    DIM s AS INTEGER
+    SELECT CASE L
+        CASE CLIP_LANE_SX, CLIP_LANE_SY, CLIP_LANE_OP, CLIP_LANE_VOL: CLIP_lane_default! = 100
+        CASE CLIP_LANE_PVX, CLIP_LANE_PVY
+            s = CLIP_INST(k).src
+            IF s >= 1 _ANDALSO s <= CLIP_SRC_N THEN
+                IF L = CLIP_LANE_PVX THEN CLIP_lane_default! = CLIP_SRC(s).cw / 2 ELSE CLIP_lane_default! = CLIP_SRC(s).ch / 2
+            END IF
+    END SELECT
+END FUNCTION
+
+FUNCTION CLIP_mod_pack$ (kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG)
+    IF kind = 0 THEN EXIT FUNCTION
+    CLIP_mod_pack$ = MKI$(kind) + MKI$(shape) + MKS$(amount) + MKS$(period) + MKS$(phase) + MKL$(seed)
+END FUNCTION
+
+''
+' Unpack a modulator into the caller's locals (kind 0 = none).
+SUB CLIP_mod_unpack (m AS STRING, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG)
+    kind = 0: shape = 0: amount = 0: period = 12: phase = 0: seed = 1
+    IF LEN(m) < 20 THEN EXIT SUB
+    kind = CVI(MID$(m, 1, 2)): shape = CVI(MID$(m, 3, 2)): amount = CVS(MID$(m, 5, 4))
+    period = CVS(MID$(m, 9, 4)): phase = CVS(MID$(m, 13, 4)): seed = CVL(MID$(m, 17, 4))
+END SUB
+
+''
+' Lane L of instance k at frame f: the keyed value (or the default) plus the
+' modulator.
+FUNCTION CLIP_lane_value! (k AS INTEGER, L AS INTEGER, f AS INTEGER)
+    DIM rel AS INTEGER, v AS SINGLE, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    IF k < 1 _ORELSE k > CLIP_INST_MAX _ORELSE L < 1 _ORELSE L > CLIP_LANES THEN EXIT FUNCTION
+    rel = f - CLIP_INST(k).inF
+    v = CLIP_lane_keyed!(CLIP_LN_KEYS(k, L), rel, CLIP_lane_default!(k, L))
+    IF LEN(CLIP_LN_MOD(k, L)) THEN
+        CLIP_mod_unpack CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed
+        v = v + CLIP_mod!(kind, shape, amount, period, phase, seed, rel)
+    END IF
+    CLIP_lane_value! = v
+END FUNCTION
+
+''
+' TRUE when any picture lane (X .. PIVOT Y) has keys or a modulator.
+FUNCTION CLIP_has_lanes% (k AS INTEGER)
+    DIM L AS INTEGER
+    IF k < 1 _ORELSE k > CLIP_INST_MAX THEN EXIT FUNCTION
+    FOR L = CLIP_LANE_X TO CLIP_LANE_PVY
+        IF LEN(CLIP_LN_KEYS(k, L)) _ORELSE LEN(CLIP_LN_MOD(k, L)) THEN CLIP_has_lanes% = TRUE: EXIT FUNCTION
+    NEXT L
+END FUNCTION
+
+''
+' Has instance k a key in any lane (the X-sheet's LANES row)?
+FUNCTION CLIP_has_keys% (k AS INTEGER)
+    DIM L AS INTEGER
+    IF k < 1 _ORELSE k > CLIP_INST_MAX THEN EXIT FUNCTION
+    FOR L = 1 TO CLIP_LANES
+        IF LEN(CLIP_LN_KEYS(k, L)) THEN CLIP_has_keys% = TRUE: EXIT FUNCTION
+    NEXT L
+END FUNCTION
+
+''
+' The index of lane L's key at rel (frames from In), else 0.
+FUNCTION CLIP_lk_index% (k AS INTEGER, L AS INTEGER, rel AS INTEGER)
+    DIM i AS INTEGER, ks AS STRING
+    ks = CLIP_LN_KEYS(k, L)
+    FOR i = 1 TO CLIP_lks_n%(ks)
+        IF CLIP_lk_f%(ks, i) = rel THEN CLIP_lk_index% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' A key at rel: 0 none, 1 in some lane, 2 in the picked lane (CLIP_LANE_PICK).
+FUNCTION CLIP_key_mark% (k AS INTEGER, rel AS INTEGER)
+    DIM L AS INTEGER, m AS INTEGER
+    IF k < 1 _ORELSE k > CLIP_INST_MAX THEN EXIT FUNCTION
+    FOR L = 1 TO CLIP_LANES
+        IF CLIP_lk_index%(k, L, rel) THEN
+            IF L = CLIP_LANE_PICK THEN CLIP_key_mark% = 2: EXIT FUNCTION
+            m = 1
+        END IF
+    NEXT L
+    CLIP_key_mark% = m
+END FUNCTION
+
+''
+' Move every lane's key at fromRel to toRel (replacing a key there), one undo
+' step (the X-sheet's LANES row drag).
+SUB CLIP_keys_shift (slot AS INTEGER, fromRel AS INTEGER, toRel AS INTEGER)
+    DIM k AS INTEGER, L AS INTEGER, i AS INTEGER, ks AS STRING, v AS SINGLE, e AS INTEGER, before AS STRING, dst AS INTEGER
+    k = CLIP_inst_of%(slot): dst = _MAX(0, toRel)
+    IF k = 0 _ORELSE fromRel = dst THEN EXIT SUB
+    before = CLIP_state$(slot)
+    FOR L = 1 TO CLIP_LANES
+        i = CLIP_lk_index%(k, L, fromRel)
+        IF i THEN
+            ks = CLIP_LN_KEYS(k, L)
+            v = CLIP_lk_v!(ks, i): e = CLIP_lk_e%(ks, i)
+            ks = CLIP_lks_del$(CLIP_lks_del$(ks, fromRel), dst)
+            CLIP_LN_KEYS(k, L) = CLIP_lks_put$(ks, dst, v, e)
+        END IF
+    NEXT L
+    CLIP_rebuild slot
+    IF NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_clip LAYERS(slot).historyId&, slot, before, CLIP_state$(slot), "Clip Move Keys"
+        HISTORY_saved_this_frame% = TRUE
+    END IF
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+END SUB
+
+''
+' Instance k's lanes: tint colour, count, then per lane with keys or a
+' modulator: lane, keys (length first), modulator (length first).
+FUNCTION CLIP_lanes_blob$ (k AS INTEGER)
+    DIM L AS INTEGER, n AS INTEGER, s AS STRING
+    IF k < 1 _ORELSE k > CLIP_INST_MAX THEN EXIT FUNCTION
+    FOR L = 1 TO CLIP_LANES
+        IF LEN(CLIP_LN_KEYS(k, L)) _ORELSE LEN(CLIP_LN_MOD(k, L)) THEN
+            n = n + 1
+            s = s + MKI$(L) + MKI$(LEN(CLIP_LN_KEYS(k, L))) + CLIP_LN_KEYS(k, L) + MKI$(LEN(CLIP_LN_MOD(k, L))) + CLIP_LN_MOD(k, L)
+        END IF
+    NEXT L
+    CLIP_lanes_blob$ = MKL$(CLIP_INST(k).tint) + MKI$(n) + s
+END FUNCTION
+
+SUB CLIP_lanes_from_blob (k AS INTEGER, b AS STRING)
+    DIM n AS INTEGER, j AS INTEGER, p AS LONG, L AS INTEGER, kl AS INTEGER, ml AS INTEGER
+    IF k < 1 _ORELSE k > CLIP_INST_MAX THEN EXIT SUB
+    CLIP_lanes_clear k
+    IF LEN(b) < 6 THEN EXIT SUB
+    CLIP_INST(k).tint = CVL(LEFT$(b, 4))
+    n = CVI(MID$(b, 5, 2)): p = 7
+    FOR j = 1 TO n
+        IF p + 3 > LEN(b) THEN EXIT FOR
+        L = CVI(MID$(b, p, 2)): kl = CVI(MID$(b, p + 2, 2))
+        IF kl < 0 _ORELSE p + 5 + kl > LEN(b) THEN EXIT FOR
+        ml = CVI(MID$(b, p + 4 + kl, 2))
+        IF ml < 0 _ORELSE p + 5 + kl + ml > LEN(b) THEN EXIT FOR
+        IF L >= 1 _ANDALSO L <= CLIP_LANES THEN
+            CLIP_LN_KEYS(k, L) = MID$(b, p + 4, kl - (kl MOD 8))
+            CLIP_LN_MOD(k, L) = MID$(b, p + 6 + kl, ml)
+        END IF
+        p = p + 6 + kl + ml
+    NEXT j
+    CLIP_INST(k).dirty = TRUE
+END SUB
 
 FUNCTION CLIP_inst_blob$ (k AS INTEGER)
     DIM s AS STRING
@@ -322,7 +525,10 @@ FUNCTION CLIP_state$ (slot AS INTEGER)
     DIM k AS INTEGER
     k = CLIP_inst_by_id%(LAYERS(slot).historyId&)
     IF k = 0 THEN EXIT FUNCTION
-    CLIP_state$ = MKI$(LAYERS(slot).layerType%) + CLIP_inst_blob$(k) + CLIP_cues_blob$(CLIP_INST(k).src)
+    DIM cb AS STRING
+    cb = CLIP_cues_blob$(CLIP_INST(k).src)
+    ' type, instance, its source's cues (length first), its lanes
+    CLIP_state$ = MKI$(LAYERS(slot).layerType%) + CLIP_inst_blob$(k) + MKL$(LEN(cb)) + cb + CLIP_lanes_blob$(k)
 END FUNCTION
 
 ''
@@ -336,7 +542,12 @@ SUB CLIP_history_apply (id AS LONG, st AS STRING)
     IF k = 0 THEN EXIT SUB
     LAYERS(slot).layerType% = CVI(LEFT$(st, 2))
     CLIP_inst_from_blob k, MID$(st, 3)
-    IF LEN(st) >= 24 THEN CLIP_cues_from_blob CLIP_INST(k).src, MID$(st, 23) ' its source's sound cues
+    IF LEN(st) >= 26 THEN
+        DIM cl AS LONG
+        cl = CVL(MID$(st, 23, 4))
+        CLIP_cues_from_blob CLIP_INST(k).src, MID$(st, 27, cl) ' its source's sound cues
+        CLIP_lanes_from_blob k, MID$(st, 27 + cl) ' its lanes
+    END IF
     IF LAYERS(slot).layerType% = LAYER_TYPE_CLIP THEN CLIP_rebuild slot
     LAYERS(slot).contentDirty% = TRUE
     GUI_NEEDS_REDRAW% = TRUE
@@ -406,6 +617,7 @@ SUB CLIP_set (which AS INTEGER, v AS LONG)
         CASE 7: CLIP_INST(k).flipY = _IIF(v, TRUE, FALSE): lbl = "Clip Flip Y"
         CASE 8: CLIP_INST(k).px = _MAX(-9999, _MIN(v, 9999)): lbl = "Clip Move"
         CASE 9: CLIP_INST(k).py = _MAX(-9999, _MIN(v, 9999)): lbl = "Clip Move"
+        CASE 20 TO 31: lbl = CLIP_lane_set$(k, which, v)
         CASE 10: lbl = "Clip Source" ' another of the document's sources (the SOURCE row's < / >)
             IF v >= 1 _ANDALSO v <= CLIP_SRC_N THEN
                 IF CLIP_SRC(v).strip < -1 THEN
@@ -436,6 +648,100 @@ FUNCTION CLIP_get& (which AS INTEGER)
         CASE 8: CLIP_get& = CLIP_INST(k).px
         CASE 9: CLIP_get& = CLIP_INST(k).py
         CASE 10: CLIP_get& = CLIP_INST(k).src
+        CASE 20 TO 25: CLIP_get& = CLIP_lane_get&(k, which)
+    END SELECT
+END FUNCTION
+
+''
+' The panel's lane fields of instance k (on the picked lane, at the current
+' frame): 20 the keyed value, 21 / 22 / 23 the modulator's amount / period /
+' phase (noise: seed), 24 the modulator (0 off, 1-4 LFO sine / triangle /
+' square / saw, 5 noise), 25 the ease of the key at / before this frame (-1 none).
+FUNCTION CLIP_lane_get& (k AS INTEGER, which AS INTEGER)
+    DIM L AS INTEGER, rel AS INTEGER, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, i AS INTEGER
+    L = CLIP_LANE_PICK: rel = ANIM.current - CLIP_INST(k).inF
+    CLIP_mod_unpack CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed
+    SELECT CASE which
+        CASE 20: CLIP_lane_get& = CINT(CLIP_lane_keyed!(CLIP_LN_KEYS(k, L), rel, CLIP_lane_default!(k, L)))
+        CASE 21: CLIP_lane_get& = CINT(amount)
+        CASE 22: CLIP_lane_get& = CINT(period)
+        CASE 23: IF kind = 2 THEN CLIP_lane_get& = seed ELSE CLIP_lane_get& = CINT(phase)
+        CASE 24: IF kind = 1 THEN CLIP_lane_get& = 1 + shape ELSE IF kind = 2 THEN CLIP_lane_get& = 5
+        CASE 25
+            i = CLIP_lk_at_or_before%(CLIP_LN_KEYS(k, L), rel)
+            IF i THEN CLIP_lane_get& = CLIP_lk_e%(CLIP_LN_KEYS(k, L), i) ELSE CLIP_lane_get& = -1
+    END SELECT
+END FUNCTION
+
+FUNCTION CLIP_lane_clamp! (L AS INTEGER, v AS SINGLE)
+    DIM lo AS SINGLE, hi AS SINGLE
+    lo = -9999: hi = 9999
+    SELECT CASE L
+        CASE CLIP_LANE_SX, CLIP_LANE_SY: lo = 0: hi = 1000
+        CASE CLIP_LANE_ROT: lo = -3600: hi = 3600
+        CASE CLIP_LANE_OP, CLIP_LANE_TINT: lo = 0: hi = 100
+        CASE CLIP_LANE_VOL: lo = 0: hi = 200
+        CASE CLIP_LANE_PAN: lo = -100: hi = 100
+    END SELECT
+    CLIP_lane_clamp! = _MAX(lo, _MIN(hi, v))
+END FUNCTION
+
+''
+' A new modulator's amount on lane L (a visible wobble).
+FUNCTION CLIP_mod_default_amount! (L AS INTEGER)
+    SELECT CASE L
+        CASE CLIP_LANE_X, CLIP_LANE_Y, CLIP_LANE_PVX, CLIP_LANE_PVY: CLIP_mod_default_amount! = 2
+        CASE CLIP_LANE_SX, CLIP_LANE_SY: CLIP_mod_default_amount! = 10
+        CASE CLIP_LANE_ROT: CLIP_mod_default_amount! = 15
+        CASE CLIP_LANE_OP, CLIP_LANE_VOL: CLIP_mod_default_amount! = 30
+        CASE ELSE: CLIP_mod_default_amount! = 50
+    END SELECT
+END FUNCTION
+
+''
+' CLIP_set's lane fields (20-31) on instance k; returns the undo label.
+FUNCTION CLIP_lane_set$ (k AS INTEGER, which AS INTEGER, v AS LONG)
+    DIM L AS INTEGER, rel AS INTEGER, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    DIM ks AS STRING, i AS INTEGER, nm AS STRING
+    L = CLIP_LANE_PICK: rel = ANIM.current - CLIP_INST(k).inF: nm = CLIP_lane_name$(L)
+    CLIP_mod_unpack CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed
+    ks = CLIP_LN_KEYS(k, L)
+    SELECT CASE which
+        CASE 20 ' auto-key: the value on this frame
+            CLIP_LN_KEYS(k, L) = CLIP_lks_put$(ks, rel, CLIP_lane_clamp!(L, v), CLIP_EASE_LINEAR)
+            CLIP_lane_set$ = "Clip Key " + nm
+        CASE 21 TO 23
+            IF kind = 0 THEN kind = 1: shape = 0: amount = CLIP_mod_default_amount!(L) ' a box set while OFF turns on a sine
+            SELECT CASE which
+                CASE 21: amount = _MAX(-9999, _MIN(9999, v))
+                CASE 22: period = _MAX(1, _MIN(999, v))
+                CASE 23: IF kind = 2 THEN seed = v ELSE phase = _MAX(-999, _MIN(999, v))
+            END SELECT
+            CLIP_LN_MOD(k, L) = CLIP_mod_pack$(kind, shape, amount, period, phase, seed)
+            CLIP_lane_set$ = "Clip Modulator " + nm
+        CASE 24
+            IF kind = 0 THEN amount = CLIP_mod_default_amount!(L)
+            SELECT CASE v
+                CASE 1 TO 4: kind = 1: shape = v - 1
+                CASE 5: kind = 2
+                CASE ELSE: kind = 0
+            END SELECT
+            CLIP_LN_MOD(k, L) = CLIP_mod_pack$(kind, shape, amount, period, phase, seed)
+            CLIP_lane_set$ = "Clip Modulator " + nm
+        CASE 25
+            i = CLIP_lk_at_or_before%(ks, rel)
+            IF i THEN CLIP_LN_KEYS(k, L) = CLIP_lks_put$(LEFT$(ks, (i - 1) * 8) + MID$(ks, i * 8 + 1), CLIP_lk_f%(ks, i), CLIP_lk_v!(ks, i), _MAX(0, _MIN(4, v)))
+            CLIP_lane_set$ = "Clip Key Ease"
+        CASE 26: CLIP_LN_KEYS(k, L) = CLIP_lks_put$(ks, rel, CLIP_lane_keyed!(ks, rel, CLIP_lane_default!(k, L)), CLIP_EASE_LINEAR): CLIP_lane_set$ = "Clip Key " + nm
+        CASE 27: CLIP_LN_KEYS(k, L) = CLIP_lks_del$(ks, rel): CLIP_lane_set$ = "Clip Delete Key"
+        CASE 28: CLIP_LN_KEYS(k, L) = "": CLIP_LN_MOD(k, L) = "": CLIP_lane_set$ = "Clip Clear Lane"
+        CASE 29
+            DIM keepTint AS _UNSIGNED LONG
+            keepTint = CLIP_INST(k).tint: CLIP_lanes_clear k: CLIP_INST(k).tint = keepTint
+            CLIP_lane_set$ = "Clip Clear Lanes"
+        CASE 30: IF LEN(CLIP_LANES_CLIPBOARD) THEN CLIP_lanes_from_blob k, CLIP_LANES_CLIPBOARD
+            CLIP_lane_set$ = "Clip Paste Lanes"
+        CASE 31: CLIP_INST(k).tint = v: CLIP_lane_set$ = "Clip Tint Colour"
     END SELECT
 END FUNCTION
 
@@ -992,6 +1298,8 @@ FUNCTION CLIP_cues_sig$ ()
         IF k THEN
             IF CLIP_cues_of%(CLIP_INST(k).src) > 0 THEN
                 s = s + MKI$(i) + MKI$(CLIP_layer_heard%(i)) + CLIP_inst_blob$(k) + MKI$(CLIP_SRC(CLIP_INST(k).src).n) + CLIP_cues_blob$(CLIP_INST(k).src)
+                s = s + MKI$(LEN(CLIP_LN_KEYS(k, CLIP_LANE_VOL))) + CLIP_LN_KEYS(k, CLIP_LANE_VOL) + MKI$(LEN(CLIP_LN_MOD(k, CLIP_LANE_VOL))) + CLIP_LN_MOD(k, CLIP_LANE_VOL)
+                s = s + MKI$(LEN(CLIP_LN_KEYS(k, CLIP_LANE_PAN))) + CLIP_LN_KEYS(k, CLIP_LANE_PAN) + MKI$(LEN(CLIP_LN_MOD(k, CLIP_LANE_PAN))) + CLIP_LN_MOD(k, CLIP_LANE_PAN)
             END IF
         END IF
     NEXT i
@@ -1040,6 +1348,8 @@ SUB CLIP_cues_gen ()
                                 ANIM_SC_PATH(j) = CLIP_CUE_PATH(q): ANIM_SC_TRK(j) = 0: ANIM_SC_AT(j) = t(f)
                                 ANIM_SC_IN(j) = 0: ANIM_SC_LEN(j) = 0: ANIM_SC_FMS(j) = 0
                                 ANIM_SC_GSLOT(ANIM_SC_GN) = i
+                                ANIM_SC_GVOL(ANIM_SC_GN) = _MAX(0, _MIN(2, CLIP_lane_value!(k, CLIP_LANE_VOL, f) / 100))
+                                ANIM_SC_GPAN(ANIM_SC_GN) = _MAX(-1, _MIN(1, CLIP_lane_value!(k, CLIP_LANE_PAN, f) / 100))
                             END IF
                         END IF
                     NEXT q
@@ -1245,7 +1555,7 @@ SUB CLIP_edit_close (keepEdits AS INTEGER)
 END SUB
 
 ''
-' Actions 2620-2647.
+' Actions 2620-2658.
 SUB CLIP_action (act AS INTEGER)
     SELECT CASE act
         CASE CLIP_ACT_PLACE: CLIP_place_start
@@ -1267,6 +1577,24 @@ SUB CLIP_action (act AS INTEGER)
         CASE CLIP_ACT_CUE_NEXT: CLIP_cue_step 1
         CASE CLIP_ACT_CUE_DEL: CLIP_cue_del
         CASE CLIP_ACT_EDIT: CLIP_edit_open
+        CASE CLIP_ACT_LANE_PREV, CLIP_ACT_LANE_NEXT
+            CLIP_LANE_PICK = CLIP_LANE_PICK + _IIF(act = CLIP_ACT_LANE_NEXT, 1, -1)
+            IF CLIP_LANE_PICK < 1 THEN CLIP_LANE_PICK = CLIP_LANES
+            IF CLIP_LANE_PICK > CLIP_LANES THEN CLIP_LANE_PICK = 1
+            GUI_NEEDS_REDRAW% = TRUE
+            STATUS_flash "Lane: " + CLIP_lane_name$(CLIP_LANE_PICK)
+        CASE CLIP_ACT_KEY: CLIP_set 26, 0
+        CASE CLIP_ACT_KEY_DEL: CLIP_set 27, 0
+        CASE CLIP_ACT_KEY_EASE
+            IF CLIP_get&(25) < 0 THEN STATUS_flash "No key on or before this frame" ELSE CLIP_set 25, (CLIP_get&(25) + 1) MOD 5
+        CASE CLIP_ACT_MOD: CLIP_set 24, (CLIP_get&(24) + 1) MOD 6
+        CASE CLIP_ACT_LANE_CLR: CLIP_set 28, 0
+        CASE CLIP_ACT_LANES_CLR: CLIP_set 29, 0
+        CASE CLIP_ACT_LANES_CPY
+            IF CLIP_current% = 0 THEN STATUS_flash "The current layer is not a clip layer" ELSE CLIP_LANES_CLIPBOARD = CLIP_lanes_blob$(CLIP_current%): STATUS_flash "Lanes copied"
+        CASE CLIP_ACT_LANES_PST
+            IF LEN(CLIP_LANES_CLIPBOARD) = 0 THEN STATUS_flash "Copy a clip's lanes first" ELSE CLIP_set 30, 0
+        CASE CLIP_ACT_TINT_FG: CLIP_set 31, PAINT_COLOR~&
         CASE CLIP_ACT_EDIT_OK: CLIP_edit_close TRUE
         CASE CLIP_ACT_EDIT_NO: CLIP_edit_close FALSE
         CASE CLIP_ACT_MODE0 TO CLIP_ACT_MODE0 + 4: CLIP_set 5, act - CLIP_ACT_MODE0
@@ -1372,6 +1700,15 @@ FUNCTION CLIP_chunk$ ()
         END IF
     NEXT i
     s = s + MKI$(nSrc) + si
+    nInst = 0: ii = "" ' version 3: each written instance's lanes
+    FOR i = 1 TO MAX_LAYERS
+        k = CLIP_inst_of%(i)
+        IF k THEN
+            si = CLIP_lanes_blob$(k)
+            nInst = nInst + 1: ii = ii + MKL$(CLIP_INST(k).layerId) + MKL$(LEN(si)) + si
+        END IF
+    NEXT i
+    s = s + MKI$(nInst) + ii
     CLIP_chunk$ = MKL$(LEN(s)) + _DEFLATE$(s, 9)
 END FUNCTION
 
@@ -1432,6 +1769,18 @@ SUB CLIP_read_chunk (blob AS STRING)
             p = p + 8 + pl
         NEXT i
     END IF
+    IF CVI(MID$(s, 1, 2)) >= 3 _ANDALSO p + 1 <= LEN(s) THEN ' the lanes
+        DIM nl3 AS INTEGER, bl AS LONG
+        nl3 = CVI(MID$(s, p, 2)): p = p + 2
+        FOR i = 1 TO nl3
+            IF p + 7 > LEN(s) THEN EXIT FOR
+            id = CVL(MID$(s, p, 4)): bl = CVL(MID$(s, p + 4, 4))
+            IF bl < 0 _ORELSE p + 7 + bl > LEN(s) THEN EXIT FOR
+            k = CLIP_inst_by_id%(id)
+            IF k THEN CLIP_lanes_from_blob k, MID$(s, p + 8, bl)
+            p = p + 8 + bl
+        NEXT i
+    END IF
     CLIP_SIG = "" ' rebuild at the first tick, once the frames are read (drAn comes after)
 END SUB
 
@@ -1459,6 +1808,7 @@ END FUNCTION
 '   CLIPE slot src px py  (the open Edit Clip Cels layer; CLIPE 0 = none)
 '   CLIPEX  its pixels per frame, as CLIPX
 '   CLIPV slot:shown ...  (each clip layer's eye)
+'   CLIPL / CLIPLM / CLIPLV  the lanes (CLIP_dump_lanes$)
 '   CLIPP placing
 ' ---------------------------------------------------------------------------
 FUNCTION CLIP_dump$ ()
@@ -1484,6 +1834,7 @@ FUNCTION CLIP_dump$ ()
             NEXT f
             s = s + "CLIPC" + STR$(i) + " " + cs + lf
             s = s + "CLIPX" + STR$(i) + CLIP_dump_px$(i) + lf
+            s = s + "CLIPXA" + STR$(i) + CLIP_dump_alpha$(i) + lf
         END IF
     NEXT i
     FOR i = 1 TO CLIP_SRC_N
@@ -1502,6 +1853,10 @@ FUNCTION CLIP_dump$ ()
         IF CLIP_inst_of%(i) THEN cs = cs + " " + _TRIM$(STR$(i)) + ":" + _TRIM$(STR$(ABS(LAYERS(i).visible% <> 0)))
     NEXT i
     s = s + cs + lf
+    FOR i = 1 TO MAX_LAYERS ' each keyed / modulated lane
+        k = CLIP_inst_of%(i)
+        IF k THEN s = s + CLIP_dump_lanes$(i, k)
+    NEXT i
     s = s + "CLIPQP" + STR$(CLIP_cue_picked%) + lf ' the panel's picked sound (0 = none)
     k = CLIP_edit_find% ' the open cel edit: its layer slot, source, place (0 = none)
     IF k THEN
@@ -1549,6 +1904,69 @@ FUNCTION CLIP_dump_px$ (slot AS INTEGER)
     NEXT f
     _SOURCE oldS
     CLIP_dump_px$ = s
+END FUNCTION
+
+''
+' CLIPXA slot f:a ...  (the highest alpha in each frame's cell; "-" = empty)
+FUNCTION CLIP_dump_alpha$ (slot AS INTEGER)
+    DIM f AS INTEGER, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, x AS LONG, y AS LONG
+    DIM img AS LONG, oldS AS LONG, s AS STRING, a AS LONG, m AS LONG
+    img = LAYERS(slot).imgHandle&
+    IF img >= -1 THEN EXIT FUNCTION
+    oldS = _SOURCE
+    _SOURCE img
+    FOR f = 1 TO _MIN(ANIM.count, 64)
+        IF ANIM_cell_rect%(f, fx, fy, fw, fh) _ANDALSO fw <= 64 _ANDALSO fh <= 64 THEN
+            m = 0
+            FOR y = 0 TO fh - 1
+                FOR x = 0 TO fw - 1
+                    a = _ALPHA32(POINT(fx + x + LAYERS(slot).apronW%, fy + y + LAYERS(slot).apronH%))
+                    IF a > m THEN m = a
+                NEXT x
+            NEXT y
+            s = s + " " + _TRIM$(STR$(f)) + ":" + _IIF(m > 0, _TRIM$(STR$(m)), "-")
+        END IF
+    NEXT f
+    _SOURCE oldS
+    CLIP_dump_alpha$ = s
+END FUNCTION
+
+''
+' CLIPL slot lane n f:v:e ...  (keys; v to 2 decimals)
+' CLIPLM slot lane kind shape amount period phase seed
+' CLIPLV slot lane v1 v2 ...  (the value per frame, rounded half up, first 64 frames)
+FUNCTION CLIP_dump_lanes$ (slot AS INTEGER, k AS INTEGER)
+    DIM L AS INTEGER, i AS INTEGER, f AS INTEGER, s AS STRING, lf AS STRING, ks AS STRING
+    DIM kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    lf = CHR$(10)
+    FOR L = 1 TO CLIP_LANES
+        ks = CLIP_LN_KEYS(k, L)
+        IF LEN(ks) _ORELSE LEN(CLIP_LN_MOD(k, L)) THEN
+            s = s + "CLIPL" + STR$(slot) + STR$(L) + STR$(CLIP_lks_n%(ks))
+            FOR i = 1 TO CLIP_lks_n%(ks)
+                s = s + " " + _TRIM$(STR$(CLIP_lk_f%(ks, i))) + ":" + CLIP_num$(CLIP_lk_v!(ks, i)) + ":" + _TRIM$(STR$(CLIP_lk_e%(ks, i)))
+            NEXT i
+            s = s + lf
+            IF LEN(CLIP_LN_MOD(k, L)) THEN
+                CLIP_mod_unpack CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed
+                s = s + "CLIPLM" + STR$(slot) + STR$(L) + STR$(kind) + STR$(shape) + " " + CLIP_num$(amount) + " " + CLIP_num$(period) + " " + CLIP_num$(phase) + " " + _TRIM$(STR$(seed)) + lf
+            END IF
+            s = s + "CLIPLV" + STR$(slot) + STR$(L)
+            FOR f = 1 TO _MIN(ANIM.count, 64)
+                s = s + " " + _TRIM$(STR$(INT(CLIP_lane_value!(k, L, f) + .5)))
+            NEXT f
+            s = s + lf
+        END IF
+    NEXT L
+    CLIP_dump_lanes$ = s
+END FUNCTION
+
+FUNCTION CLIP_num$ (v AS SINGLE) ' up to 2 decimals, no trailing zeros
+    DIM s AS STRING
+    s = _TRIM$(STR$(CLNG(v * 100) / 100))
+    IF LEFT$(s, 1) = "." THEN s = "0" + s
+    IF LEFT$(s, 2) = "-." THEN s = "-0" + MID$(s, 2)
+    CLIP_num$ = s
 END FUNCTION
 
 FUNCTION CLIP_hex6$ (c AS _UNSIGNED LONG)
@@ -1613,6 +2031,7 @@ SUB CLIP_duplicate (fromSlot AS INTEGER, toSlot AS INTEGER)
     b = CLIP_inst_new%(LAYERS(toSlot).historyId&)
     IF b = 0 THEN LAYERS(toSlot).layerType% = LAYER_TYPE_IMAGE: EXIT SUB
     CLIP_inst_from_blob b, CLIP_inst_blob$(a)
+    CLIP_lanes_from_blob b, CLIP_lanes_blob$(a)
     LAYERS(toSlot).layerType% = LAYER_TYPE_CLIP
 END SUB
 
@@ -1637,6 +2056,9 @@ SUB CLIP_drag_begin (slot AS INTEGER)
     IF k = 0 THEN EXIT SUB
     CLIP_DRAG_SLOT = slot: CLIP_DRAG_BEFORE = CLIP_state$(slot)
     CLIP_DRAG_X0 = CLIP_INST(k).px: CLIP_DRAG_Y0 = CLIP_INST(k).py
+    CLIP_DRAG_KX = CLIP_LN_KEYS(k, CLIP_LANE_X): CLIP_DRAG_KY = CLIP_LN_KEYS(k, CLIP_LANE_Y)
+    CLIP_DRAG_REL = ANIM.current - CLIP_INST(k).inF
+    IF LEN(CLIP_DRAG_KX) = 0 _ANDALSO LEN(CLIP_DRAG_KY) = 0 THEN CLIP_DRAG_REL = -1 ' no X / Y keys: the whole clip moves
 END SUB
 
 SUB CLIP_drag_to (dx AS INTEGER, dy AS INTEGER)
@@ -1644,8 +2066,14 @@ SUB CLIP_drag_to (dx AS INTEGER, dy AS INTEGER)
     IF CLIP_DRAG_SLOT = 0 THEN EXIT SUB
     k = CLIP_inst_of%(CLIP_DRAG_SLOT)
     IF k = 0 THEN CLIP_DRAG_SLOT = 0: EXIT SUB
-    CLIP_INST(k).px = _MAX(-9999, _MIN(CLIP_DRAG_X0 + dx, 9999))
-    CLIP_INST(k).py = _MAX(-9999, _MIN(CLIP_DRAG_Y0 + dy, 9999))
+    IF CLIP_DRAG_REL >= 0 THEN ' X / Y keys: key this frame (as CLIP_move_by)
+        CLIP_LN_KEYS(k, CLIP_LANE_X) = CLIP_DRAG_KX: CLIP_LN_KEYS(k, CLIP_LANE_Y) = CLIP_DRAG_KY
+        IF dx THEN CLIP_LN_KEYS(k, CLIP_LANE_X) = CLIP_lks_put$(CLIP_DRAG_KX, CLIP_DRAG_REL, CLIP_lane_clamp!(CLIP_LANE_X, CLIP_lane_keyed!(CLIP_DRAG_KX, CLIP_DRAG_REL, 0) + dx), CLIP_EASE_LINEAR)
+        IF dy THEN CLIP_LN_KEYS(k, CLIP_LANE_Y) = CLIP_lks_put$(CLIP_DRAG_KY, CLIP_DRAG_REL, CLIP_lane_clamp!(CLIP_LANE_Y, CLIP_lane_keyed!(CLIP_DRAG_KY, CLIP_DRAG_REL, 0) + dy), CLIP_EASE_LINEAR)
+    ELSE
+        CLIP_INST(k).px = _MAX(-9999, _MIN(CLIP_DRAG_X0 + dx, 9999))
+        CLIP_INST(k).py = _MAX(-9999, _MIN(CLIP_DRAG_Y0 + dy, 9999))
+    END IF
     CLIP_rebuild CLIP_DRAG_SLOT
     BLEND_invalidate_cache
     INVALIDATE_canvas
@@ -1659,9 +2087,13 @@ SUB CLIP_drag_end ()
     IF k _ANDALSO NOT HISTORY_IN_PROGRESS% THEN
         after = CLIP_state$(slot)
         IF after <> CLIP_DRAG_BEFORE _ANDALSO CLIP_DRAG_BEFORE <> "" THEN
-            HISTORY_record_clip LAYERS(slot).historyId&, slot, CLIP_DRAG_BEFORE, after, "Clip Move"
+            HISTORY_record_clip LAYERS(slot).historyId&, slot, CLIP_DRAG_BEFORE, after, _IIF(CLIP_DRAG_REL >= 0, "Clip Key X / Y", "Clip Move")
             HISTORY_saved_this_frame% = TRUE
-            STATUS_flash "Moved the clip by" + STR$(CLIP_INST(k).px - CLIP_DRAG_X0) + "," + STR$(CLIP_INST(k).py - CLIP_DRAG_Y0) + " (every frame)"
+            IF CLIP_DRAG_REL >= 0 THEN
+                STATUS_flash "Keyed X / Y on frame" + STR$(ANIM.current) + " (the clip has X / Y keys)"
+            ELSE
+                STATUS_flash "Moved the clip by" + STR$(CLIP_INST(k).px - CLIP_DRAG_X0) + "," + STR$(CLIP_INST(k).py - CLIP_DRAG_Y0) + " (every frame)"
+            END IF
         END IF
     END IF
     CLIP_DRAG_BEFORE = ""
@@ -1671,12 +2103,27 @@ SUB CLIP_move_by (slot AS INTEGER, dx AS LONG, dy AS LONG)
     DIM k AS INTEGER, before AS STRING
     k = CLIP_inst_of%(slot)
     IF k = 0 _ORELSE (dx = 0 _ANDALSO dy = 0) THEN EXIT SUB
-    before = CLIP_state$(slot)
-    CLIP_INST(k).px = _MAX(-9999, _MIN(CLIP_INST(k).px + dx, 9999))
-    CLIP_INST(k).py = _MAX(-9999, _MIN(CLIP_INST(k).py + dy, 9999))
+    DIM rel AS INTEGER, ks AS STRING, nm AS STRING
+    before = CLIP_state$(slot): nm = "Clip Move"
+    rel = ANIM.current - CLIP_INST(k).inF
+    IF (LEN(CLIP_LN_KEYS(k, CLIP_LANE_X)) _ORELSE LEN(CLIP_LN_KEYS(k, CLIP_LANE_Y))) _ANDALSO rel >= 0 THEN
+        ' X / Y keys: the move keys this frame (auto-key); the other frames keep their keys
+        IF dx THEN
+            ks = CLIP_LN_KEYS(k, CLIP_LANE_X)
+            CLIP_LN_KEYS(k, CLIP_LANE_X) = CLIP_lks_put$(ks, rel, CLIP_lane_clamp!(CLIP_LANE_X, CLIP_lane_keyed!(ks, rel, 0) + dx), CLIP_EASE_LINEAR)
+        END IF
+        IF dy THEN
+            ks = CLIP_LN_KEYS(k, CLIP_LANE_Y)
+            CLIP_LN_KEYS(k, CLIP_LANE_Y) = CLIP_lks_put$(ks, rel, CLIP_lane_clamp!(CLIP_LANE_Y, CLIP_lane_keyed!(ks, rel, 0) + dy), CLIP_EASE_LINEAR)
+        END IF
+        nm = "Clip Key X / Y"
+    ELSE
+        CLIP_INST(k).px = _MAX(-9999, _MIN(CLIP_INST(k).px + dx, 9999))
+        CLIP_INST(k).py = _MAX(-9999, _MIN(CLIP_INST(k).py + dy, 9999))
+    END IF
     CLIP_rebuild slot
     IF NOT HISTORY_IN_PROGRESS% THEN
-        HISTORY_record_clip LAYERS(slot).historyId&, slot, before, CLIP_state$(slot), "Clip Move"
+        HISTORY_record_clip LAYERS(slot).historyId&, slot, before, CLIP_state$(slot), nm
         HISTORY_saved_this_frame% = TRUE
     END IF
 END SUB

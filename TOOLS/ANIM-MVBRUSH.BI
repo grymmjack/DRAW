@@ -45,6 +45,7 @@ CONST MVB_ACT_PATH2   = 2589
 CONST MVB_ACT_ANIMPAINT = 2590 ' ANIM > AnimPaint: Start with the live path (again: stop)
 CONST MVB_ACT_PLAY    = 2591 ' Preview: play the ghost through the steps (again: stop)
 CONST MVB_ACT_RESET   = 2592 ' Reset the move's settings (Z, turns, size, opacity, tint)
+CONST MVB_ACT_CLIP    = 2594 ' Apply as Clip: a clip layer that plays the move (lanes; TOOLS/CLIP L9)
 
 CONST MVB_EASE_NONE  = 0
 CONST MVB_EASE_IN    = 1

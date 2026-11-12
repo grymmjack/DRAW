@@ -25,7 +25,7 @@ CONST CLIP_MODE_REV  = 4
 
 CONST CLIP_SRC_MAX  = 64
 CONST CLIP_INST_MAX = 256
-CONST CLIP_CHUNK_VERSION = 2 ' 2: + the sound cues (phase 2 K7; a version-1 reader stops before them)
+CONST CLIP_CHUNK_VERSION = 3 ' 2: + the sound cues (phase 2 K7); 3: + the lanes (phase 3 L3). An older reader stops before them
 
 CONST CLIP_ACT_PLACE   = 2620 ' ANIM > Clip > Place AnimBrush as Clip (click a frame)
 CONST CLIP_ACT_BAKE    = 2621 ' ANIM > Clip > Bake Clip to Pixels
@@ -51,6 +51,17 @@ CONST CLIP_ACT_CUE_DEL  = 2644
 CONST CLIP_ACT_EDIT    = 2645 ' ANIM > Clip Layer > Edit Clip Cels (a layer with cel k on frame k)
 CONST CLIP_ACT_EDIT_OK = 2646 ' ANIM > Clip Layer > Apply Cel Edits (a new source; every clip on the old one moves to it)
 CONST CLIP_ACT_EDIT_NO = 2647 ' ANIM > Clip Layer > Discard Cel Edits
+CONST CLIP_ACT_LANE_PREV = 2648 ' phase 3 lanes: the Animation panel's LANE row < > (the lane it shows)
+CONST CLIP_ACT_LANE_NEXT = 2649
+CONST CLIP_ACT_KEY       = 2650 ' a key on this frame (the lane's value here)
+CONST CLIP_ACT_KEY_DEL   = 2651 ' remove the key on this frame
+CONST CLIP_ACT_KEY_EASE  = 2652 ' the next ease for the key at / before this frame
+CONST CLIP_ACT_MOD       = 2653 ' the next modulator: OFF SINE TRIANGLE SQUARE SAW NOISE
+CONST CLIP_ACT_LANE_CLR  = 2654 ' clear this lane (keys and modulator)
+CONST CLIP_ACT_LANES_CLR = 2655 ' clear every lane
+CONST CLIP_ACT_LANES_CPY = 2656 ' copy the clip's lanes / paste them onto another clip
+CONST CLIP_ACT_LANES_PST = 2657
+CONST CLIP_ACT_TINT_FG   = 2658 ' the TINT lane goes toward the foreground colour
 
 TYPE CLIP_SRC_OBJ
     nm      AS STRING * 32
@@ -75,6 +86,7 @@ TYPE CLIP_INST_OBJ
     px       AS INTEGER ' the cel's top left, relative to each frame's cell
     py       AS INTEGER
     dirty    AS INTEGER ' rebuild at the next CLIP_tick%
+    tint     AS _UNSIGNED LONG ' the colour the TINT lane goes toward (phase 3)
 END TYPE
 
 ' Sound cues (phase 2 K7): a source's sounds - one plays whenever cel k
@@ -99,6 +111,22 @@ DIM SHARED CLIP_CUE_PICK AS INTEGER ' the sound the panel's list shows (1.. of t
 DIM SHARED CLIP_CUE_GSIG AS STRING
 DIM SHARED CLIP_CUE_GFULL AS INTEGER ' the last make ran out of room (ANIM_GC_MAX): said once
 
+' Keyframe lanes (phase 3, PLANS/KEYFRAME-LANES.md): per instance and lane,
+' the keys (TOOLS/CLIP-MATH CLIP_lk*: 8 bytes each, frames from In) and a
+' modulator ("" = none, else CLIP_mod_pack$: kind, shape, amount, period,
+' phase, seed). CLIP_state$ carries them, so every clip undo record does.
+CONST CLIP_LANES = 11
+CONST CLIP_LANE_X = 1, CLIP_LANE_Y = 2, CLIP_LANE_SX = 3, CLIP_LANE_SY = 4, CLIP_LANE_ROT = 5
+CONST CLIP_LANE_OP = 6, CLIP_LANE_TINT = 7, CLIP_LANE_PVX = 8, CLIP_LANE_PVY = 9
+CONST CLIP_LANE_VOL = 10, CLIP_LANE_PAN = 11
+CONST CLIP_EASE_LINEAR = 0, CLIP_EASE_IN = 1, CLIP_EASE_OUT = 2, CLIP_EASE_INOUT = 3, CLIP_EASE_HOLD = 4
+DIM SHARED CLIP_LN_KEYS(1 TO CLIP_INST_MAX, 1 TO CLIP_LANES) AS STRING
+DIM SHARED CLIP_LN_MOD(1 TO CLIP_INST_MAX, 1 TO CLIP_LANES) AS STRING
+DIM SHARED CLIP_LANE_PICK AS INTEGER ' the lane the Animation panel shows (1..CLIP_LANES)
+CLIP_LANE_PICK = 1
+DIM SHARED CLIP_LANES_CLIPBOARD AS STRING ' Copy Lanes (a CLIP_lanes_blob$; "" = nothing copied)
+DIM SHARED CLIP_PLACE_SRC AS INTEGER ' CLIP_place_core% takes this source (0 = the AnimBrush's); Move Brush > Apply as Clip
+DIM SHARED CLIP_PLACE_MVB AS INTEGER ' CLIP_place_core% gives the new clip the Move Brush's move as lanes (MVB_clip_lanes)
 DIM SHARED CLIP_SRC(1 TO CLIP_SRC_MAX) AS CLIP_SRC_OBJ
 DIM SHARED CLIP_INST(1 TO CLIP_INST_MAX) AS CLIP_INST_OBJ
 DIM SHARED CLIP_SRC_N AS INTEGER  ' highest source slot in use
@@ -108,6 +136,8 @@ DIM SHARED CLIP_KEY AS LONG       ' the panel press CLIP_set belongs to (0 = non
 DIM SHARED CLIP_LAST_KEY AS LONG, CLIP_LAST_REC AS INTEGER
 DIM SHARED CLIP_DRAG_SLOT AS INTEGER ' a lightbox pane drag of a clip layer (the Move tool): its slot, 0 = none
 DIM SHARED CLIP_DRAG_BEFORE AS STRING, CLIP_DRAG_X0 AS INTEGER, CLIP_DRAG_Y0 AS INTEGER
+DIM SHARED CLIP_DRAG_KX AS STRING, CLIP_DRAG_KY AS STRING ' its X / Y keys at the press; CLIP_DRAG_REL >= 0 = the drag keys that frame (L6)
+DIM SHARED CLIP_DRAG_REL AS INTEGER
 DIM SHARED CLIP_XS_KEY AS LONG ' the X-sheet bar's press keys (negative: never an Animation panel press's)
 DIM SHARED CLIP_PLACING AS INTEGER ' 1 = Place as Clip waits for a click, 2 = placed, waiting for the release
 ' Edit Clip Cels (phase 2 K10a): an ordinary image layer, "Cels of <name>",

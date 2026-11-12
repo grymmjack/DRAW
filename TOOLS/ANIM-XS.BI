@@ -47,6 +47,9 @@ CONST XS_DRAG_CELL   = 2 ' a drawing to another cell
 CONST XS_DRAG_FRAMES = 3 ' frame numbers: reorder
 CONST XS_DRAG_SOUND  = 4 ' a sound clip: along its track / to another track (F6)
 CONST XS_DRAG_CLIP   = 5 ' a clip layer's bar: its In end, its Out end or the whole bar (TOOLS/CLIP, phase 2 K5)
+CONST XS_DRAG_LKEY   = 6 ' a clip layer's LANES row: the keys on a frame to another frame (TOOLS/CLIP, phase 3 L7)
+CONST XS_ROW_SOUND   = 1 ' (ANIM_XS_RKIND)
+CONST XS_ROW_LANES   = 2
 CONST XS_EYE_X  = 2  ' name column: the eye from x1 + 2, the lock from x1 + 13,
 CONST XS_LOCK_X = 13 ' the name from x1 + XS_ICONS_W (F5)
 CONST XS_ICONS_W = 25
@@ -107,7 +110,8 @@ END TYPE
 DIM SHARED ANIM_XS AS ANIM_XS_OBJ
 ' layer slot of row r (display order); -slot = the read-only SOUND row under a
 ' clip layer with sounds (TOOLS/CLIP K9) - ANIM_XS_row_slot% gives its layer
-DIM SHARED ANIM_XS_ROW(1 TO 2 * MAX_LAYERS) AS INTEGER
-DIM SHARED ANIM_XS_DEPTH(1 TO 2 * MAX_LAYERS) AS INTEGER ' its group depth (indent)
+DIM SHARED ANIM_XS_ROW(1 TO 3 * MAX_LAYERS) AS INTEGER
+DIM SHARED ANIM_XS_DEPTH(1 TO 3 * MAX_LAYERS) AS INTEGER ' its group depth (indent)
+DIM SHARED ANIM_XS_RKIND(1 TO 3 * MAX_LAYERS) AS INTEGER ' a clip layer's sub-row (ANIM_XS_ROW = -slot): XS_ROW_SOUND / XS_ROW_LANES
 DIM SHARED ANIM_XS_FILL(1 TO MAX_LAYERS) AS STRING   ' per layer slot: per frame "1" drawn, "0" empty, " " not known yet
 DIM SHARED ANIM_XS_BOXES(1 TO MAX_LAYERS) AS STRING    ' per layer slot: per frame 16 bytes, MKL$ x y w h of the box round its drawing (buffer coords), set with a "1" in ANIM_XS_FILL

@@ -76,11 +76,15 @@ CONST ANIMP_CTL_CLBTN0  = 57 ' + 0 FLIP X, + 1 FLIP Y, + 2 BAKE
 CONST ANIMP_CTL_CLSRC0  = 60 ' the SOURCE row: + 0 <, + 1 >, + 2 RENAME, + 3 LAYERS
 CONST ANIMP_CTL_CLSND0  = 64 ' the SOUND row: + 0 CEL, + 1 START, + 2 LOOP (add a sound)
 CONST ANIMP_CTL_CLCUE0  = 67 ' the sound list row: + 0 <, + 1 >, + 2 X (remove it)
-CONST ANIMP_CTL_COUNT  = 70
+CONST ANIMP_CTL_CLLANE0 = 70 ' phase 3: the LANE row: + 0 <, + 1 > (pick the lane)
+CONST ANIMP_CTL_CLKEY0  = 72 ' the KEYS row: + 0 KEY, + 1 DEL, + 2 the ease
+CONST ANIMP_CTL_CLMOD   = 75 ' the MOD row's chip (OFF SINE TRIANGLE SQUARE SAW NOISE)
+CONST ANIMP_CTL_COUNT  = 76
 CONST ANIMP_MV_ROWS    = 10
 CONST ANIMP_MV_BOX0    = 20 ' number box vr of MVB box j = ANIMP_MV_BOX0 + j
 CONST ANIMP_CL_BOX0    = 40 ' number box vr of clip box j (1 IN, 2 OUT, 3 START, 4 EVERY, 5 X, 6 Y) = ANIMP_CL_BOX0 + j
-CONST ANIMP_CL_BOXES   = 6
+CONST ANIMP_CL_BOXES   = 10 ' + 7 the lane's value, 8-10 the modulator's AMOUNT PERIOD PHASE (noise: SEED)
+CONST ANIMP_CL_ROWS    = 12 ' the clip rows' places (ANIMP_mvY): the Move rows' 10, then LANE / KEYS / MOD go on
 
 TYPE ANIM_PANEL_OBJ
     visible           AS INTEGER
@@ -142,5 +146,5 @@ END TYPE
 DIM SHARED ANIMP AS ANIM_PANEL_OBJ
 DIM SHARED ANIMP_rowY(1 TO ANIMP_ROWS) AS INTEGER ' native top of each stepper row
 DIM SHARED ANIMP_onY(1 TO ANIMP_ON_ROWS) AS INTEGER ' native top of the onion skin stepper rows
-DIM SHARED ANIMP_mvY(1 TO ANIMP_MV_ROWS) AS INTEGER ' native top of the Move Brush rows (over the others)
+DIM SHARED ANIMP_mvY(1 TO ANIMP_CL_ROWS) AS INTEGER ' native top of the Move Brush rows (over the others)
 CONST ANIMP_DRAG_PX = 3 ' viewport px of drag per step on a number box

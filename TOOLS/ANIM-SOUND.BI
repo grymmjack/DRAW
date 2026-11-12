@@ -98,3 +98,5 @@ DIM SHARED ANIM_SC_DRAG AS INTEGER   ' a clip is being dragged: no new mix until
 DIM SHARED ANIM_SC_DRAG_AT AS LONG   ' its at / track at the press
 DIM SHARED ANIM_SC_DRAG_TRK AS INTEGER
 DIM SHARED ANIM_SC_BEFORE AS STRING  ' the undo snapshot from the press
+DIM SHARED ANIM_SND_PEAK_L AS SINGLE ' the last mix's loudest sample, left / right (QA: ANIMSCGV)
+DIM SHARED ANIM_SND_PEAK_R AS SINGLE

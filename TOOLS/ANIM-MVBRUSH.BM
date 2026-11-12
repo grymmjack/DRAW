@@ -45,6 +45,7 @@ SUB MVB_action (act AS INTEGER)
             MVB_EVERY = act - MVB_ACT_EVERY1 + 1
             IF MVB_EVERY = 1 THEN STATUS_flash "Move Brush: next cel every frame" ELSE STATUS_flash "Move Brush: next cel every" + STR$(MVB_EVERY) + " frames"
         CASE MVB_ACT_APPLY: MVB_apply
+        CASE MVB_ACT_CLIP: MVB_apply_clip
         CASE MVB_ACT_CANCEL: MVB_cancel
         CASE MVB_ACT_PATH0 TO MVB_ACT_PATH2
             MVB_set_path act - MVB_ACT_PATH0
@@ -297,16 +298,7 @@ END SUB
 SUB MVB_stamp_xf (cx AS SINGLE, cy AS SINGLE, e AS SINGLE, dest AS LONG, preview AS INTEGER)
     DIM W AS INTEGER, H AS INTEGER, src AS LONG, sz AS SINGLE, op AS SINGLE, tn AS SINGLE, doErase AS INTEGER
     DIM ax AS SINGLE, ay AS SINGLE, az AS SINGLE, zz AS SINGLE, ccx AS SINGLE, ccy AS SINGLE
-    DIM qx(0 TO 3) AS SINGLE, qy(0 TO 3) AS SINGLE, lx AS SINGLE, ly AS SINGLE, lz AS SINGLE, t AS SINGLE
-    DIM c AS INTEGER, dw AS LONG, dh AS LONG, vx AS SINGLE, vy AS SINGLE, den AS SINGLE
-    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, px AS LONG, py AS LONG
-    DIM sxx AS SINGLE, syy AS SINGLE, dx1 AS SINGLE, dx2 AS SINGLE, dy1 AS SINGLE, dy2 AS SINGLE, dd AS SINGLE
-    DIM ma AS SINGLE, mb AS SINGLE, mc AS SINGLE, md AS SINGLE, me AS SINGLE, mf AS SINGLE, mg AS SINGLE, mh AS SINGLE
-    DIM i11 AS SINGLE, i12 AS SINGLE, i13 AS SINGLE, i21 AS SINGLE, i22 AS SINGLE, i23 AS SINGLE, i31 AS SINGLE, i32 AS SINGLE, i33 AS SINGLE
-    DIM fx AS SINGLE, fy AS SINGLE, ww AS SINGLE, u AS SINGLE, v AS SINGLE, su AS LONG, sv AS LONG
-    DIM ms AS _MEM, md2 AS _MEM, sp AS _UNSIGNED LONG, dpx AS _UNSIGNED LONG, o AS _OFFSET
-    DIM sa AS SINGLE, sr AS SINGLE, sg AS SINGLE, sb AS SINGLE, da AS SINGLE, oa AS SINGLE
-    DIM tr AS SINGLE, tg AS SINGLE, tb AS SINGLE, oldD AS LONG, bxz AS INTEGER, byz AS INTEGER
+    DIM oldD AS LONG, bxz AS INTEGER, byz AS INTEGER
     W = CUSTOM_BRUSH.WIDTH%: H = CUSTOM_BRUSH.HEIGHT%
     IF W < 1 _ORELSE H < 1 _ORELSE dest >= -1 THEN EXIT SUB
     doErase = (PAL_FG_IS_TRANSPARENT% <> 0 _ANDALSO preview = 0)
@@ -338,11 +330,42 @@ SUB MVB_stamp_xf (cx AS SINGLE, cy AS SINGLE, e AS SINGLE, dest AS LONG, preview
     zz = MVB_V(MVB_BOX_Z) * e
     ' the middle, in pixel-edge space, rounded as the plain stamp is
     ccx = INT(cx + .5) - W \ 2 + W / 2: ccy = INT(cy + .5) - H \ 2 + H / 2
+    DIM pvx AS SINGLE, pvy AS SINGLE
+    pvx = W / 2: pvy = H / 2
+    XF_draw src, dest, ccx, ccy, pvx, pvy, sz, sz, az, ax, ay, zz, op, tn, PAINT_COLOR~&, doErase
+    _FREEIMAGE src
+END SUB
+
+''
+' Draw image src into dest through a transform (the Move Brush's, shared with
+' clip layer lanes): src's pivot (pvx, pvy, in its pixels) lands on (ccx, ccy)
+' in dest (pixel-edge space); scale sx / sy and turn az (radians, Z) about the
+' pivot, then tilt ax (X) / turn ay (Y) and depth zz with a perspective
+' (MVB_EYE) about dest's middle. Nearest sampling; opacity op (0..1), tint tn
+' (0..1) toward colour tint; doErase = src's alpha erases dest instead.
+SUB XF_draw (src AS LONG, dest AS LONG, ccx AS SINGLE, ccy AS SINGLE, pvx AS SINGLE, pvy AS SINGLE, sx AS SINGLE, sy AS SINGLE, az AS SINGLE, ax AS SINGLE, ay AS SINGLE, zz AS SINGLE, op AS SINGLE, tn AS SINGLE, tint AS _UNSIGNED LONG, doErase AS INTEGER)
+    DIM W AS INTEGER, H AS INTEGER
+    DIM qx(0 TO 3) AS SINGLE, qy(0 TO 3) AS SINGLE, lx AS SINGLE, ly AS SINGLE, lz AS SINGLE, t AS SINGLE
+    DIM c AS INTEGER, dw AS LONG, dh AS LONG, vx AS SINGLE, vy AS SINGLE, den AS SINGLE
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, px AS LONG, py AS LONG
+    DIM sxx AS SINGLE, syy AS SINGLE, dx1 AS SINGLE, dx2 AS SINGLE, dy1 AS SINGLE, dy2 AS SINGLE, dd AS SINGLE
+    DIM ma AS SINGLE, mb AS SINGLE, mc AS SINGLE, md AS SINGLE, me AS SINGLE, mf AS SINGLE, mg AS SINGLE, mh AS SINGLE
+    DIM i11 AS SINGLE, i12 AS SINGLE, i13 AS SINGLE, i21 AS SINGLE, i22 AS SINGLE, i23 AS SINGLE, i31 AS SINGLE, i32 AS SINGLE, i33 AS SINGLE
+    DIM fx AS SINGLE, fy AS SINGLE, ww AS SINGLE, u AS SINGLE, v AS SINGLE, su AS LONG, sv AS LONG
+    DIM ms AS _MEM, md2 AS _MEM, sp AS _UNSIGNED LONG, dpx AS _UNSIGNED LONG, o AS _OFFSET
+    DIM sa AS SINGLE, sr AS SINGLE, sg AS SINGLE, sb AS SINGLE, da AS SINGLE, oa AS SINGLE
+    DIM tr AS SINGLE, tg AS SINGLE, tb AS SINGLE, opc AS SINGLE, tnc AS SINGLE
+    IF src >= -1 _ORELSE dest >= -1 THEN EXIT SUB
+    W = _WIDTH(src): H = _HEIGHT(src)
+    IF W < 1 _ORELSE H < 1 _ORELSE ABS(sx) < .001 _ORELSE ABS(sy) < .001 _ORELSE op <= 0 THEN EXIT SUB
+    opc = op: IF opc > 1 THEN opc = 1
+    tnc = tn: IF tnc < 0 THEN tnc = 0
+    IF tnc > 1 THEN tnc = 1
     dw = _WIDTH(dest): dh = _HEIGHT(dest): vx = dw / 2: vy = dh / 2
-    ' corners (u, v) = (0, 0) (1, 0) (1, 1) (0, 1): size, turn Z, tilt X, turn Y, Z, project
+    ' corners (u, v) = (0, 0) (1, 0) (1, 1) (0, 1): about the pivot - size, turn Z, tilt X, turn Y, Z, project
     FOR c = 0 TO 3
-        lx = _IIF(c = 1 _ORELSE c = 2, W / 2, -W / 2) * sz
-        ly = _IIF(c >= 2, H / 2, -H / 2) * sz
+        lx = (_IIF(c = 1 _ORELSE c = 2, W, 0) - pvx) * sx
+        ly = (_IIF(c >= 2, H, 0) - pvy) * sy
         t = lx * COS(az) - ly * SIN(az): ly = lx * SIN(az) + ly * COS(az): lx = t
         lz = ly * SIN(ax): ly = ly * COS(ax)
         t = lx * COS(ay) + lz * SIN(ay): lz = -lx * SIN(ay) + lz * COS(ay): lx = t
@@ -360,7 +383,7 @@ SUB MVB_stamp_xf (cx AS SINGLE, cy AS SINGLE, e AS SINGLE, dest AS LONG, preview
     ELSE
         dx1 = qx(1) - qx(2): dx2 = qx(3) - qx(2): dy1 = qy(1) - qy(2): dy2 = qy(3) - qy(2)
         dd = dx1 * dy2 - dx2 * dy1
-        IF ABS(dd) < .0001 THEN _FREEIMAGE src: EXIT SUB ' edge on: nothing to see
+        IF ABS(dd) < .0001 THEN EXIT SUB ' edge on: nothing to see
         mg = (sxx * dy2 - dx2 * syy) / dd: mh = (dx1 * syy - sxx * dy1) / dd
         ma = qx(1) - qx(0) + mg * qx(1): mb = qx(3) - qx(0) + mh * qx(3): mc = qx(0)
         md = qy(1) - qy(0) + mg * qy(1): me = qy(3) - qy(0) + mh * qy(3): mf = qy(0)
@@ -374,7 +397,7 @@ SUB MVB_stamp_xf (cx AS SINGLE, cy AS SINGLE, e AS SINGLE, dest AS LONG, preview
     IF y1 < 0 THEN y1 = 0
     IF x2 > dw - 1 THEN x2 = dw - 1
     IF y2 > dh - 1 THEN y2 = dh - 1
-    tr = _RED32(PAINT_COLOR~&): tg = _GREEN32(PAINT_COLOR~&): tb = _BLUE32(PAINT_COLOR~&)
+    tr = _RED32(tint): tg = _GREEN32(tint): tb = _BLUE32(tint)
     ms = _MEMIMAGE(src): md2 = _MEMIMAGE(dest)
     FOR py = y1 TO y2
         FOR px = x1 TO x2
@@ -389,7 +412,7 @@ SUB MVB_stamp_xf (cx AS SINGLE, cy AS SINGLE, e AS SINGLE, dest AS LONG, preview
                     sp = _MEMGET(ms, ms.OFFSET + (sv * W + su) * 4, _UNSIGNED LONG)
                     sa = _SHR(sp, 24)
                     IF sa > 0 THEN
-                        sa = sa * op / 255
+                        sa = sa * opc / 255
                         o = md2.OFFSET + (py * dw + px) * 4
                         dpx = _MEMGET(md2, o, _UNSIGNED LONG)
                         da = _SHR(dpx, 24) / 255
@@ -398,7 +421,7 @@ SUB MVB_stamp_xf (cx AS SINGLE, cy AS SINGLE, e AS SINGLE, dest AS LONG, preview
                             dpx = _RGBA32(_SHR(dpx, 16) AND 255, _SHR(dpx, 8) AND 255, dpx AND 255, CINT(da * 255))
                         ELSE
                             sr = _SHR(sp, 16) AND 255: sg = _SHR(sp, 8) AND 255: sb = sp AND 255
-                            sr = sr + (tr - sr) * tn: sg = sg + (tg - sg) * tn: sb = sb + (tb - sb) * tn
+                            sr = sr + (tr - sr) * tnc: sg = sg + (tg - sg) * tnc: sb = sb + (tb - sb) * tnc
                             oa = sa + da * (1 - sa)
                             IF oa > 0 THEN
                                 sr = (sr * sa + (_SHR(dpx, 16) AND 255) * da * (1 - sa)) / oa
@@ -414,7 +437,6 @@ SUB MVB_stamp_xf (cx AS SINGLE, cy AS SINGLE, e AS SINGLE, dest AS LONG, preview
         NEXT px
     NEXT py
     _MEMFREE ms: _MEMFREE md2
-    _FREEIMAGE src
 END SUB
 
 ''
@@ -477,6 +499,105 @@ SUB MVB_apply ()
         SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE
     ELSE
         MVB_cancel
+    END IF
+END SUB
+
+''
+' Apply as Clip (TOOLS/CLIP L9): instead of stamping, a new clip layer that
+' plays the brush over the move's frames - an AnimBrush's cels, or a plain
+' brush as one cel - with the move as its lanes (MVB_clip_lanes), so the move
+' can still be changed. One undo step (the layer add). Z and TURN X / Y have no
+' lane: left out (Apply bakes them).
+SUB MVB_apply_clip ()
+    DIM n AS INTEGER, i AS INTEGER, f AS INTEGER, k AS INTEGER, cx AS SINGLE, cy AS SINGLE, e AS SINGLE
+    DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, img AS LONG, oldD AS LONG, W AS INTEGER, H AS INTEGER
+    DIM bx AS INTEGER, by AS INTEGER, ok AS INTEGER, note AS STRING
+    IF MVB.active = FALSE THEN EXIT SUB
+    IF MVB.hasPath = FALSE THEN STATUS_flash "Move Brush: drag a path first (Esc cancels)": EXIT SUB
+    IF MVB_PATH = MVB_PATH_LIVE THEN STATUS_flash "Apply as Clip: AnimPaint stamps as you let go - use a straight or drawn path": EXIT SUB
+    IF CUSTOM_BRUSH.ACTIVE% = 0 THEN STATUS_flash "Move Brush: no brush": EXIT SUB
+    IF PAL_FG_IS_TRANSPARENT% THEN STATUS_flash "Apply as Clip: an eraser brush can't be a clip - pick a colour": EXIT SUB
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN EXIT SUB
+    note = ANIM_OPS_busy$
+    IF note <> "" THEN STATUS_flash note: EXIT SUB
+    n = MVB_frames%
+    IF n < 2 THEN STATUS_flash "Apply as Clip: the move needs two frames or more": EXIT SUB
+    FOR i = 2 TO n
+        IF MVB_F(i) <> MVB_F(i - 1) + 1 THEN STATUS_flash "Apply as Clip: the frames must follow each other (a clip runs In to Out)": EXIT SUB
+    NEXT i
+    f = MVB_F(1)
+    IF ANIM_cell_rect%(f, fx, fy, fw, fh) = 0 THEN EXIT SUB
+    MVB.playing = FALSE
+    CLIP_PLACE_SRC = 0
+    IF AB_active% THEN
+        W = AB.w: H = AB.h
+    ELSE ' a plain brush: one cel, as it stamps (flips, scale, recolor)
+        W = CUSTOM_BRUSH.WIDTH%: H = CUSTOM_BRUSH.HEIGHT%
+        IF W < 1 _ORELSE H < 1 THEN EXIT SUB
+        oldD = _DEST
+        img = _NEWIMAGE(W, H, 32)
+        IF img >= -1 THEN EXIT SUB
+        _DEST img: CLS , _RGBA32(0, 0, 0, 0): _DEST oldD
+        bx = 0: by = 0
+        CUSTOM_BRUSH_render bx, by, img
+        _DEST oldD
+        CLIP_PLACE_SRC = CLIP_src_new%(img, 1, W, H, "Brush", 0)
+        IF CLIP_PLACE_SRC = 0 THEN STATUS_flash "Apply as Clip: no room for another clip source": EXIT SUB
+    END IF
+    MVB_pose 0, n, cx, cy, e, k
+    k = -1 ' the AnimBrush's order; ONCE stays on its last cel here, as the stamps do (a clip's ONCE is gone after it)
+    IF AB_active% _ANDALSO AB_ORDER = AB_ORD_ONCE THEN k = CLIP_MODE_HOLD
+    CLIP_PLACE_MVB = TRUE
+    ok = CLIP_place_core%(f, fx + INT(cx + .5) - W \ 2, fy + INT(cy + .5) - H \ 2, MVB_F(n), k)
+    CLIP_PLACE_MVB = FALSE: CLIP_PLACE_SRC = 0
+    IF ok = 0 THEN EXIT SUB
+    IF MVB_V(MVB_BOX_Z) <> 0 _ORELSE MVB_V(MVB_BOX_TX) <> 0 _ORELSE MVB_V(MVB_BOX_TY) <> 0 THEN note = " (Z and TURN X / Y left out: no lane for them)"
+    STATUS_flash "Move Brush as a clip: frames" + STR$(MVB_F(1)) + " to" + STR$(MVB_F(n)) + ", the move in its lanes" + note
+    MVB_cancel
+END SUB
+
+''
+' The Move Brush's move as instance k's lanes (CLIP_place_core%, Apply as
+' Clip). Keys count from the first frame of the range (the clip's In). A
+' straight path: X / Y keys at its two ends with the move's ease; a drawn one:
+' an X / Y key per frame. SIZE, OPACITY, TINT (toward FG: the clip's tint
+' colour) and TURN Z: a key at each end where they change.
+SUB MVB_clip_lanes (k AS INTEGER)
+    DIM n AS INTEGER, i AS INTEGER, c AS INTEGER, last AS INTEGER, ez AS INTEGER, moved AS INTEGER
+    DIM cx AS SINGLE, cy AS SINGLE, e AS SINGLE, x0 AS SINGLE, y0 AS SINGLE, a AS SINGLE, b AS SINGLE
+    DIM xs AS STRING, ys AS STRING
+    n = MVB_frames%: IF n < 2 THEN EXIT SUB
+    last = n - 1
+    CLIP_INST(k).every = MVB_EVERY
+    ez = MVB_EASE ' MVB_EASE_IN / OUT / INOUT are CLIP_EASE 1 / 2 / 3; none is linear
+    MVB_pose 0, n, cx, cy, e, c: x0 = INT(cx + .5): y0 = INT(cy + .5)
+    IF MVB_PATH = MVB_PATH_LINE THEN
+        MVB_pose last, n, cx, cy, e, c
+        a = INT(cx + .5) - x0: b = INT(cy + .5) - y0
+        IF a <> 0 THEN CLIP_LN_KEYS(k, CLIP_LANE_X) = CLIP_lk$(0, 0, ez) + CLIP_lk$(last, a, 0)
+        IF b <> 0 THEN CLIP_LN_KEYS(k, CLIP_LANE_Y) = CLIP_lk$(0, 0, ez) + CLIP_lk$(last, b, 0)
+    ELSE
+        FOR i = 0 TO last
+            MVB_pose i, n, cx, cy, e, c
+            a = INT(cx + .5) - x0: b = INT(cy + .5) - y0
+            IF a <> 0 _ORELSE b <> 0 THEN moved = TRUE
+            xs = xs + CLIP_lk$(i, a, 0): ys = ys + CLIP_lk$(i, b, 0)
+        NEXT i
+        IF moved THEN CLIP_LN_KEYS(k, CLIP_LANE_X) = xs: CLIP_LN_KEYS(k, CLIP_LANE_Y) = ys
+    END IF
+    a = MVB_V(MVB_BOX_S0): b = MVB_V(MVB_BOX_S1)
+    IF a <> 100 _ORELSE b <> 100 THEN
+        CLIP_LN_KEYS(k, CLIP_LANE_SX) = CLIP_lk$(0, a, ez) + CLIP_lk$(last, b, 0)
+        CLIP_LN_KEYS(k, CLIP_LANE_SY) = CLIP_LN_KEYS(k, CLIP_LANE_SX)
+    END IF
+    b = MVB_V(MVB_BOX_TZ): a = 0
+    IF b <> 0 THEN CLIP_LN_KEYS(k, CLIP_LANE_ROT) = CLIP_lk$(0, a, ez) + CLIP_lk$(last, b, 0)
+    a = MVB_V(MVB_BOX_O0): b = MVB_V(MVB_BOX_O1)
+    IF a <> 100 _ORELSE b <> 100 THEN CLIP_LN_KEYS(k, CLIP_LANE_OP) = CLIP_lk$(0, a, ez) + CLIP_lk$(last, b, 0)
+    a = MVB_V(MVB_BOX_T0): b = MVB_V(MVB_BOX_T1)
+    IF a <> 0 _ORELSE b <> 0 THEN
+        CLIP_LN_KEYS(k, CLIP_LANE_TINT) = CLIP_lk$(0, a, ez) + CLIP_lk$(last, b, 0)
+        CLIP_INST(k).tint = PAINT_COLOR~&
     END IF
 END SUB
 
