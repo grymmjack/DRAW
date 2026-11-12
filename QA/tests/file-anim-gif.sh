@@ -12,6 +12,7 @@
 # Exported through the batch CLI (`--export-anim out.gif`, throwaway HOME, no
 # window), read back with ImageMagick: frame count, delays, size, disposal,
 # and each frame's pixels against its cell of the sheet (exact colours).
+# Over 256 colours: the adaptive (median cut) table keeps every frame close.
 # Fixture: a 64x16 sheet of 16x16 frames, transparent, frame k a 6x6 square of
 # its own colour; 4 frames at 10 fps, frame 2 held 3.
 # =============================================================================
@@ -103,6 +104,32 @@ if ag_same_cell "$AG_T/fr-0.png" 1 1 && ! ag_same_cell "$AG_T/fr-1.png" 1 1; the
     pass "the first GIF frame is frame 1 as drawn, the next shows frame 1 with the colours moved on"
 else
     fail "colour cycling frames: the first two GIF frames do not show frame 1 then frame 1 cycled"
+fi
+
+# -- more than 256 colours: an adaptive table of the frames' own colours --
+# 4 frames of 16x16, 1024 colours in all (fades / tints / soft edges do this). The old
+# export snapped every pixel to the document palette (RMSE ~0.13 here); a median-cut
+# table of the frames' own colours keeps them close (~0.05).
+python3 -c "
+w,h=64,16
+print('P3',w,h,255)
+for j in range(h):
+    print(' '.join('%d %d %d'%(i*4, j*17, ((i*7+j*3)%64)*4) for i in range(w)))" > "$AG_T/grad.ppm"
+magick "$AG_T/grad.ppm" "PNG32:$AG_T/grad-plain.png"
+python3 "$AG_PY" put "$AG_T/grad-plain.png" "$AG_T/grad.png" drAn "$(ag_blob 0)"
+ag_export "$AG_T/grad.png" "$AG_T/grad.gif"
+if [[ -s "$AG_T/grad.gif" ]]; then
+    AG_WORST=0
+    for k in 0 1 2 3; do
+        magick "$AG_T/grad.gif[$k]" "PNG24:$AG_T/got.png"
+        magick "$AG_T/grad-plain.png" -crop "16x16+$(( k * 16 ))+0" +repage "PNG24:$AG_T/want.png"
+        AG_E=$(magick compare -metric RMSE "$AG_T/got.png" "$AG_T/want.png" null: 2>&1 | sed -n 's/.*(\([0-9.e-]*\)).*/\1/p')
+        AG_WORST=$(python3 -c "print(max($AG_WORST, ${AG_E:-1}))")
+    done
+    python3 -c "import sys; sys.exit(0 if $AG_WORST < 0.07 else 1)" \
+        && pass "1024 colours: an adaptive 256-colour table, every frame close to its cell (worst RMSE $AG_WORST)" \
+        || fail "1024 colours: worst frame RMSE $AG_WORST (wanted < 0.07: the frames' own colours, not the palette's)"
+    grep -q "the frames' own 256 nearest" "$AG_T/log.txt" && pass "the export says so (the frames' own 256 nearest)" || fail "export message: $(grep -a 'grad.gif' "$AG_T/log.txt" | tail -1)"
 fi
 
 rm -rf "$AG_T"

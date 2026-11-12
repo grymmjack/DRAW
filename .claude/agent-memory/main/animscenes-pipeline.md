@@ -24,6 +24,16 @@ Gotchas it hit:
   command palette stuck open. Fixed in a705df2b (preallocated, cached on a scene signature).
 - The Move Brush press must be inside the frame; an end off-frame is dragged to the edge and the
   exact delta typed after. Values persist between Starts - tap RESET first.
+- **Picking a colour leaves the PICKER tool on**: after `fg_key` the next "stamp" clicks just
+  picked colours and nothing landed (dungeon run 1). `fg_pick` now presses B after. Put every
+  plain stamp before the first Move Brush in a scene script.
+- Box limits: EVERY 1-12 (a script asking 20 is rejected), SIZE 1-999, Z -250..5000,
+  TURN +-3600, OPACITY / TINT 0-100. The harness kills a test at 600 s unless it has
+  `# QA-TIMEOUT: <s>` (run-scene.sh has 2700).
+- **GIF over 256 colours** (tints, fades, soft glows): the exporter used to snap every pixel to
+  the document palette, so the space planet came out teal / grey. Since 2026-11-12 it builds an
+  adaptive median-cut table of the frames' own colours (`ANIM_MC_palette%`, TOOLS/ANIM-EXPORT.BM)
+  unless colour cycling is on (then it must stay on the palette). QA: file-anim-gif.sh RMSE check.
 - SA3 (GPU audio) on the rtx ComfyUI gives static unless that server runs --force-fp32; the
   scenes use soundmon's CPU engines instead.
 

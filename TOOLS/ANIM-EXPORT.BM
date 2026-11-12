@@ -112,6 +112,148 @@ FUNCTION ANIM_GH_index% (rgb AS _UNSIGNED LONG, add AS INTEGER)
     ANIM_GH_index% = ANIM_GH_N - 1
 END FUNCTION
 
+''
+' An adaptive colour table for frames with more colours than a GIF holds:
+' median cut over a 15-bit (5:5:5) histogram of every frame's opaque pixels.
+' Puts up to k colours in ANIM_GH_RGB(1..) (ANIM_GH_N = the count; the hash is
+' not used) and, for each 15-bit bucket the frames use, its table index (0-based)
+' in map(); other buckets stay -1 (ANIM_MC_nearest% fills them on demand).
+' Returns the count. Fades, tints and soft edges keep their own shades instead of
+' snapping to the document palette.
+FUNCTION ANIM_MC_palette% (flat AS LONG, k AS INTEGER, map() AS INTEGER)
+    DIM hist(0 TO 32767) AS LONG, sR(0 TO 32767) AS DOUBLE, sG(0 TO 32767) AS DOUBLE, sB(0 TO 32767) AS DOUBLE
+    DIM m AS _MEM, p AS _OFFSET, v AS _UNSIGNED LONG, b AS LONG, sw AS LONG
+    DIM f AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG, i AS LONG, j AS LONG
+    sw = _WIDTH(flat)
+    m = _MEMIMAGE(flat)
+    FOR f = 1 TO ANIM.count
+        IF ANIM_cell_rect%(f, x, y, w, h) THEN
+            FOR j = 0 TO h - 1
+                p = m.OFFSET + ((y + j) * sw + x) * 4
+                FOR i = 0 TO w - 1
+                    v = _MEMGET(m, p, _UNSIGNED LONG)
+                    IF v >= &H80000000~& THEN
+                        b = ANIM_MC_bucket&(v)
+                        hist(b) = hist(b) + 1
+                        sR(b) = sR(b) + _RED32(v): sG(b) = sG(b) + _GREEN32(v): sB(b) = sB(b) + _BLUE32(v)
+                    END IF
+                    p = p + 4
+                NEXT i
+            NEXT j
+        END IF
+    NEXT f
+    _MEMFREE m
+
+    ' the buckets in use, then boxes of them: box n is arr(bLo(n) .. bHi(n))
+    DIM arr(1 TO 32768) AS LONG, tmp(1 TO 32768) AS LONG, nb AS LONG
+    FOR b = 0 TO 32767
+        map(b) = -1
+        IF hist(b) THEN nb = nb + 1: arr(nb) = b
+    NEXT b
+    IF nb = 0 THEN ANIM_GH_N = 0: ANIM_MC_palette% = 0: EXIT FUNCTION
+    IF k > 256 THEN k = 256
+    DIM bLo(1 TO 256) AS LONG, bHi(1 TO 256) AS LONG, bAx(1 TO 256) AS INTEGER, bScore(1 TO 256) AS DOUBLE
+    DIM nBox AS INTEGER, best AS INTEGER, c AS INTEGER, cnt(0 TO 31) AS LONG, st(0 TO 31) AS LONG
+    DIM tot AS DOUBLE, acc AS DOUBLE, s AS LONG
+    nBox = 1: bLo(1) = 1: bHi(1) = nb
+    ANIM_MC_box_stats arr(), hist(), bLo(1), bHi(1), bAx(1), bScore(1)
+    DO WHILE nBox < k
+        best = 0
+        FOR i = 1 TO nBox
+            IF bScore(i) > 0 THEN
+                IF best = 0 THEN best = i ELSE IF bScore(i) > bScore(best) THEN best = i
+            END IF
+        NEXT i
+        IF best = 0 THEN EXIT DO ' every box is one bucket
+        ' sort the box's buckets on its longest axis (counting sort: 32 values)
+        FOR c = 0 TO 31: cnt(c) = 0: NEXT c
+        FOR i = bLo(best) TO bHi(best): c = ANIM_MC_chan%(arr(i), bAx(best)): cnt(c) = cnt(c) + 1: NEXT i
+        st(0) = bLo(best)
+        FOR c = 1 TO 31: st(c) = st(c - 1) + cnt(c - 1): NEXT c
+        FOR i = bLo(best) TO bHi(best)
+            c = ANIM_MC_chan%(arr(i), bAx(best)): tmp(st(c)) = arr(i): st(c) = st(c) + 1
+        NEXT i
+        tot = 0
+        FOR i = bLo(best) TO bHi(best): arr(i) = tmp(i): tot = tot + hist(arr(i)): NEXT i
+        ' split where half the pixels are behind (never empty on either side)
+        acc = 0: s = bLo(best)
+        FOR i = bLo(best) TO bHi(best) - 1
+            acc = acc + hist(arr(i)): s = i
+            IF acc * 2 >= tot THEN EXIT FOR
+        NEXT i
+        nBox = nBox + 1
+        bLo(nBox) = s + 1: bHi(nBox) = bHi(best): bHi(best) = s
+        ANIM_MC_box_stats arr(), hist(), bLo(best), bHi(best), bAx(best), bScore(best)
+        ANIM_MC_box_stats arr(), hist(), bLo(nBox), bHi(nBox), bAx(nBox), bScore(nBox)
+    LOOP
+
+    ' each box's colour: the mean of its pixels
+    DIM r AS DOUBLE, g AS DOUBLE, bl AS DOUBLE
+    FOR i = 1 TO nBox
+        r = 0: g = 0: bl = 0: tot = 0
+        FOR j = bLo(i) TO bHi(i)
+            b = arr(j): r = r + sR(b): g = g + sG(b): bl = bl + sB(b): tot = tot + hist(b)
+            map(b) = i - 1
+        NEXT j
+        ANIM_GH_RGB(i) = _RGB32(INT(r / tot + 0.5), INT(g / tot + 0.5), INT(bl / tot + 0.5)) AND &HFFFFFF~&
+    NEXT i
+    ANIM_GH_N = nBox
+    ANIM_MC_palette% = nBox
+END FUNCTION
+
+''
+' The 15-bit bucket of an RGB32 colour (5 bits each of red, green, blue).
+FUNCTION ANIM_MC_bucket& (v AS _UNSIGNED LONG)
+    ANIM_MC_bucket& = ((v \ &H80000) AND 31) * 1024 + ((v \ &H800) AND 31) * 32 + ((v \ 8) AND 31)
+END FUNCTION
+
+''
+' Channel ax (0 red, 1 green, 2 blue) of a 15-bit bucket, 0..31.
+FUNCTION ANIM_MC_chan% (b AS LONG, ax AS INTEGER)
+    SELECT CASE ax
+        CASE 0: ANIM_MC_chan% = (b \ 1024) AND 31
+        CASE 1: ANIM_MC_chan% = (b \ 32) AND 31
+        CASE ELSE: ANIM_MC_chan% = b AND 31
+    END SELECT
+END FUNCTION
+
+''
+' A box's longest axis and its split priority (pixels x that side; 0 = one bucket,
+' nothing to split).
+SUB ANIM_MC_box_stats (arr() AS LONG, hist() AS LONG, lo AS LONG, hi AS LONG, ax AS INTEGER, score AS DOUBLE)
+    DIM mn(0 TO 2) AS INTEGER, mx(0 TO 2) AS INTEGER, i AS LONG, c AS INTEGER, v AS INTEGER, pop AS DOUBLE, side AS INTEGER
+    FOR c = 0 TO 2: mn(c) = 31: mx(c) = 0: NEXT c
+    FOR i = lo TO hi
+        pop = pop + hist(arr(i))
+        FOR c = 0 TO 2
+            v = ANIM_MC_chan%(arr(i), c)
+            IF v < mn(c) THEN mn(c) = v
+            IF v > mx(c) THEN mx(c) = v
+        NEXT c
+    NEXT i
+    ax = 0: side = mx(0) - mn(0)
+    FOR c = 1 TO 2
+        IF mx(c) - mn(c) > side THEN side = mx(c) - mn(c): ax = c
+    NEXT c
+    IF hi <= lo _ORELSE side = 0 THEN score = 0 ELSE score = pop * side
+END SUB
+
+''
+' The table entry nearest a bucket no frame pixel used (a pixel outside the frame
+' cells), remembered in map().
+FUNCTION ANIM_MC_nearest% (b AS LONG, map() AS INTEGER)
+    DIM e AS INTEGER, best AS INTEGER, d AS LONG, bd AS LONG, r AS LONG, g AS LONG, bl AS LONG
+    IF map(b) >= 0 THEN ANIM_MC_nearest% = map(b): EXIT FUNCTION
+    r = ANIM_MC_chan%(b, 0) * 8 + 4: g = ANIM_MC_chan%(b, 1) * 8 + 4: bl = ANIM_MC_chan%(b, 2) * 8 + 4
+    bd = &H7FFFFFFF
+    FOR e = 1 TO ANIM_GH_N
+        d = (r - _RED32(ANIM_GH_RGB(e))) ^ 2 + (g - _GREEN32(ANIM_GH_RGB(e))) ^ 2 + (bl - _BLUE32(ANIM_GH_RGB(e))) ^ 2
+        IF d < bd THEN bd = d: best = e - 1
+    NEXT e
+    map(b) = best
+    ANIM_MC_nearest% = best
+END FUNCTION
+
 ' ---------------------------------------------------------------------------
 ' 3.1 Animated GIF
 ' ---------------------------------------------------------------------------
@@ -158,7 +300,7 @@ FUNCTION ANIM_GIF_export% (path AS STRING)
     IF flat >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document": EXIT FUNCTION
     sw = _WIDTH(flat): sh = _HEIGHT(flat)
 
-    ' -- colours: exact when the frames use 256 or fewer, else the palette --
+    ' -- colours: exact when the frames use 256 or fewer, else adaptive (or the palette when cycling) --
     DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, j AS LONG, p AS _OFFSET
     ANIM_GH_clear
     exact = TRUE
@@ -180,7 +322,26 @@ FUNCTION ANIM_GIF_export% (path AS STRING)
         END IF
     NEXT f
     IF exact _ANDALSO hasT _ANDALSO ANIM_GH_N >= 256 THEN exact = FALSE ' no room for the transparent entry
-    IF exact THEN
+    ' more colours than a GIF holds: an adaptive table of the frames' own colours (median cut),
+    ' unless colour cycling runs - its table entries have to be the palette's chips
+    DIM adaptive AS INTEGER, mcMap(0 TO 32767) AS INTEGER, spt0(1 TO PCYC_MAX) AS DOUBLE, anyCyc0 AS INTEGER, cyc0 AS LONG
+    IF exact = FALSE THEN
+        cyc0 = GIF_cycle_ticks&(spt0(), anyCyc0, ANIM_GIF_MAX_TICKS)
+        adaptive = (anyCyc0 = FALSE)
+    END IF
+    IF adaptive THEN
+        nCol = ANIM_MC_palette%(flat, _IIF(hasT, 255, 256), mcMap())
+        transIdx = -1: IF hasT THEN transIdx = nCol: nCol = nCol + 1
+        idx = STRING$(sw * sh, 0)
+        FOR i = 0 TO sw * sh - 1
+            v = _MEMGET(m, m.OFFSET + i * 4, _UNSIGNED LONG)
+            IF v < &H80000000~& THEN
+                IF transIdx >= 0 THEN ASC(idx, i + 1) = transIdx
+            ELSE
+                ASC(idx, i + 1) = ANIM_MC_nearest%(ANIM_MC_bucket&(v), mcMap())
+            END IF
+        NEXT i
+    ELSEIF exact THEN
         nCol = ANIM_GH_N
         transIdx = -1: IF hasT THEN transIdx = nCol: nCol = nCol + 1
         idx = STRING$(sw * sh, 0)
@@ -203,7 +364,7 @@ FUNCTION ANIM_GIF_export% (path AS STRING)
     SAFE_FREEIMAGE flat
     bits = GIF_color_bits%(nCol)
     minCode = bits: IF minCode < 2 THEN minCode = 2
-    IF exact THEN
+    IF exact _ORELSE adaptive THEN
         gct = STRING$((2 ^ bits) * 3, 0)
         FOR e = 1 TO ANIM_GH_N
             ASC(gct, (e - 1) * 3 + 1) = _RED32(ANIM_GH_RGB(e)): ASC(gct, (e - 1) * 3 + 2) = _GREEN32(ANIM_GH_RGB(e)): ASC(gct, (e - 1) * 3 + 3) = _BLUE32(ANIM_GH_RGB(e))
@@ -304,7 +465,11 @@ FUNCTION ANIM_GIF_export% (path AS STRING)
     IF _FILEEXISTS(path) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + path: EXIT FUNCTION
     ANIM_EXPORT_INFO = _TRIM$(STR$(frames)) + " frames, " + _TRIM$(STR$(loopCs / 100)) + " s" + _IIF(ANIM.loopMode = ANIM_LOOP_ONCE, " once", " loop") + ", " + _TRIM$(STR$(nCol)) + " colours"
     IF sc > 1 THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + ", " + _TRIM$(STR$(sc)) + "x"
-    IF exact = FALSE THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (over 256 colours: the palette's nearest)"
+    IF adaptive THEN
+        ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (over 256 colours: the frames' own 256 nearest)"
+    ELSEIF exact = FALSE THEN
+        ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (over 256 colours and colour cycling: the palette's nearest)"
+    END IF
     IF fast THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (faster than 50 fps: shown at 50)"
     IF capped THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (cut at" + STR$(ANIM_GIF_MAX_TICKS \ 50) + " s: the colour cycle and the frames line up later than that)"
     _LOGINFO "ANIM_GIF_export: " + path + " - " + ANIM_EXPORT_INFO
