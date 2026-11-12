@@ -1232,13 +1232,19 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
 - **Refusals** (Q4): the paint-tool guard in `MOUSE.BM` (same tool list as the symbol guard,
   `CLIP_refuse%`), `CLIP_cmd_filter%` at the top of `CMD_execute_action` (315 / 316 flip the
   clip instead; Cut / Paste / Clear / Scale / Rotate / Stroke Selection / Transform / Effects
-  2001-2281 refused), Merge Down onto a clip (LAYERS). Not yet covered: IMAGE-ADJ and other
-  paths that write a layer's pixels directly.
+  2001-2281 refused unless a pixel layer is selected too - `CLIP_others_selected%`, the
+  topmost one or 0), Merge Down onto a clip (LAYERS). `IMAGE_ADJ_collect_targets` skips clip
+  layers, so a multi-select Image command changes the pixel layers only.
 - **Move**: in a lightbox pane `ANIM_LB_move_begin%` hands a clip layer to `CLIP_drag_begin /
   _to / _end` (live px / py, one record at the release, also from `ANIM_LB_move_end`); arrows
   with the Move tool -> `ANIM_LB_nudge` -> `CLIP_move_by`. Sheet view: `MOVE_capture_selection`
   treats a clip like a symbol child (snapshot shifted live), `MOVE_apply_transform`'s clip
-  branch -> `CLIP_move_by` + rebuild (scaling refused).
+  branch -> `CLIP_move_by` + rebuild (scaling refused; a press on a box handle just moves -
+  `MOUSE_tool_move`). V already lifts the layer, so the box's corner is a handle. With pixel
+  layers selected too, the capture lifts the topmost of them as the primary (`GROUP_ORIGIN` =
+  the clip, so `MOVE_reset` makes it current again) and the clip moves in the linked loop.
+  Dump `MOVE active transforming symbolChild captured origX origY curX curY` (GUI/DOCK).
+  Every release calls `MOVE_sync_base` (ORIGINAL = CURRENT), so a commit's delta is per drag.
 - **Frame ops**: `ANIM_OPS_moves%` / `ANIM_CV_scale_wants%` skip clip layers (they stay put);
   `CLIP_remap_all oldCount, newCount` after both `ANIM_apply_plan` calls; frame-op snapshots
   get a `CLP1` block (`CLIP_snapshot$` / `CLIP_snapshot_apply`) so undo puts In / Out back.
@@ -1249,7 +1255,10 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   `CLIPC slot cels` (`.` none, 10+ letters), `CLIPX slot f:x:y:w:h:TL:TR` (pixel bounds in
   each cell, cells up to 64 px), `CLIPS src n cw ch name`, `ANIMPC clipRowsOn`. Test
   `QA/tests/clip-layers.sh` (42 checks: place, modes, panel boxes typed, flip, refused brush,
-  pane drag + nudge, insert / delete frames, bake, Ctrl+S + reload, batch export).
+  pane drag + nudge, insert / delete frames, bake, Ctrl+S + reload, batch export) and
+  `QA/tests/clip-guards.sh` (13: Desaturate refused / multi-select, sheet-view move, linked
+  move). Shared fixture + helpers: `QA/clip-lib.sh` (`cl_setup`, `cl_cx/cl_cy` from the ANIM
+  line's dx dy - VIEW's offset is not the canvas origin).
 - **Phase 2** (not built): X-sheet clip row, Update from Bin (`binSlot` is saved for it),
   dropping a GIF / APNG on the canvas as a clip, clip sound cues.
 
