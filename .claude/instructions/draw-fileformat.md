@@ -94,6 +94,10 @@ A brush `.dset` gets `DSA1` (`AB_DSET_MAGIC$`) + the same count / slot records a
 slots and any `DSX1` block (`AB_slots_write_dset` / `AB_slots_read_dset`, from
 `DRAWER_read_dset_slots`). Strips wider than 32767 px are not stored (the bin keeps one
 picture). Test: `QA/tests/animbrush-bin.sh` (fixtures made in the test).
+Names (2026-11-12): after the last slot record, in both DSA1 and drAb, an optional
+`ABN1` (`AB_NAMES_MAGIC$`) + count(2) + per name slot(2), length(2), the name (<= 32). Older
+DRAWs stop reading after the records, so no version bump; `AB_names_from_blob` reads it
+(`animbrush-hold-pickup.sh`).
 
 ### Binary Project Data
 

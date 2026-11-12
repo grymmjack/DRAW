@@ -11,8 +11,33 @@ SUB AB_clear ()
         SAFE_FREEIMAGE AB_CEL(k): AB_CEL(k) = 0: AB_FROM(k) = 0
     NEXT k
     AB.n = 0: AB.cur = 0: AB.w = 0: AB.h = 0: AB.merged = FALSE: AB.srcF = 0
-    AB.anchor = 1: AB.clickPos = 0: AB.stamped = FALSE
+    AB.anchor = 1: AB.clickPos = 0: AB.stamped = FALSE: AB.nm = ""
 END SUB
+
+''
+' A name field as text: up to its first NUL, no trailing spaces.
+FUNCTION AB_clean$ (s AS STRING)
+    DIM z AS LONG
+    z = INSTR(s, CHR$(0))
+    IF z THEN AB_clean$ = RTRIM$(LEFT$(s, z - 1)) ELSE AB_clean$ = RTRIM$(s)
+END FUNCTION
+
+''
+' Spaces as _ (a name in a space-separated QA dump line).
+FUNCTION AB_us$ (t AS STRING)
+    DIM r AS STRING, i AS LONG
+    r = t
+    FOR i = 1 TO LEN(r)
+        IF ASC(r, i) = 32 THEN MID$(r, i, 1) = "_"
+    NEXT i
+    AB_us$ = r
+END FUNCTION
+
+''
+' The AnimBrush's name ("" = none): the tag it was picked up from, its file, its bin.
+FUNCTION AB_name$ ()
+    IF AB.n > 0 THEN AB_name$ = AB_clean$(AB.nm)
+END FUNCTION
 
 ''
 ' Is the custom brush an AnimBrush (more than one picture)?
@@ -255,16 +280,17 @@ END SUB
 
 ''
 ' The frames to pick up from, in order, into AB_FROM (returns how many): the
-' frames selected in the strip when two or more are (a plain strip click
-' selects just the frame it makes current), else from frame `fromF` to the last.
-FUNCTION AB_pick_frames% (fromF AS INTEGER)
+' frames selected in the strip / X-sheet when two or more are (a clicked tag
+' selects its span; a plain strip click selects just the frame it makes
+' current), else every frame (Rick, 2026-11-12 - was `fromF` to the last).
+FUNCTION AB_pick_frames% ()
     DIM i AS INTEGER, n AS INTEGER
     IF ANIM_SEL_count% > 1 THEN
         FOR i = 1 TO ANIM.count
             IF ANIM_SEL(i) <> 0 _ANDALSO n < AB_MAX_CELS THEN n = n + 1: AB_FROM(n) = i
         NEXT i
     ELSE
-        FOR i = fromF TO ANIM.count
+        FOR i = 1 TO ANIM.count
             IF n < AB_MAX_CELS THEN n = n + 1: AB_FROM(n) = i
         NEXT i
     END IF
@@ -282,7 +308,7 @@ SUB AB_pick_up (merged AS INTEGER)
     DIM n AS INTEGER, k AS INTEGER, src AS LONG, aw AS INTEGER, ah AS INTEGER, sw AS LONG, sh AS LONG
     DIM px AS LONG, py AS LONG, qx AS LONG, qy AS LONG, c AS _UNSIGNED LONG, img AS LONG
     DIM bgR AS INTEGER, bgG AS INTEGER, bgB AS INTEGER, oldD AS LONG, oldS AS LONG
-    DIM inside AS STRING
+    DIM inside AS STRING, t AS STRING
 
     IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "AnimBrush: set up frames first (ANIM > Frame Grid)": EXIT SUB
     IF MARQUEE.ACTIVE% = 0 _ORELSE MARQUEE.BOX.w <= 0 _ORELSE MARQUEE.BOX.h <= 0 THEN STATUS_flash "AnimBrush: select an area in a frame first": EXIT SUB
@@ -311,7 +337,7 @@ SUB AB_pick_up (merged AS INTEGER)
     sw = _WIDTH(src): sh = _HEIGHT(src)
 
     CUSTOM_BRUSH_reset ' (drops any cels: AB_clear)
-    n = AB_pick_frames%(sf)
+    n = AB_pick_frames%
     bgR = _RED32(PAINT_BG_COLOR~&): bgG = _GREEN32(PAINT_BG_COLOR~&): bgB = _BLUE32(PAINT_BG_COLOR~&)
     oldD = _DEST: oldS = _SOURCE
     _SOURCE src
@@ -342,7 +368,14 @@ SUB AB_pick_up (merged AS INTEGER)
     IF merged THEN SAFE_FREEIMAGE src
 
     AB.n = n: AB.w = bw: AB.h = bh: AB.merged = (merged <> 0): AB.srcF = sf
-    AB.anchor = sf: AB.clickPos = 0: AB.stamped = FALSE ' stamped back into this sheet, frame sf gets cel 1
+    ' stamped back into this sheet each frame gets its own cel: every frame picked up = cel k
+    ' is frame k (anchor 1); picked from selected frames, frame sf gets cel 1
+    IF ANIM_SEL_count% > 1 THEN AB.anchor = sf ELSE AB.anchor = 1
+    AB.clickPos = 0: AB.stamped = FALSE
+    IF ANIM_SEL_count% > 1 THEN ' picked up from a tag's frames (the selection IS a tag): the brush takes its name
+        k = ANIM_TG_selected%
+        IF k > 0 THEN AB.nm = ANIM_TG_NAME(k)
+    END IF
     CUSTOM_BRUSH.ACTIVE% = TRUE
     CUSTOM_BRUSH.WIDTH% = bw: CUSTOM_BRUSH.HEIGHT% = bh
     CUSTOM_BRUSH.ORIG_WIDTH% = bw: CUSTOM_BRUSH.ORIG_HEIGHT% = bh
@@ -352,7 +385,10 @@ SUB AB_pick_up (merged AS INTEGER)
     CUSTOM_BRUSH.SCALE! = 1.0
     AB_show 1
     MARQUEE_reset
-    IF merged THEN STATUS_flash "AnimBrush: " + _TRIM$(STR$(n)) + " cels picked up (merged)" ELSE STATUS_flash "AnimBrush: " + _TRIM$(STR$(n)) + " cels picked up"
+    t = "AnimBrush": IF LEN(AB_name$) THEN t = t + " '" + AB_name$ + "'"
+    t = t + ": " + _TRIM$(STR$(n)) + " cels picked up"
+    IF merged THEN t = t + " (merged)"
+    STATUS_flash t
 END SUB
 
 ''
@@ -370,7 +406,7 @@ FUNCTION AB_status$ ()
         CASE AB_ORD_PING: t = t + " PING-PONG"
         CASE AB_ORD_ONCE: t = t + " ONCE"
     END SELECT
-    AB_status$ = "ANIMBRUSH " + _TRIM$(STR$(AB.cur)) + "/" + _TRIM$(STR$(AB.n)) + t
+    IF LEN(AB_name$) THEN AB_status$ = "ANIMBRUSH " + UCASE$(AB_name$) + " " + _TRIM$(STR$(AB.cur)) + "/" + _TRIM$(STR$(AB.n)) + t ELSE AB_status$ = "ANIMBRUSH " + _TRIM$(STR$(AB.cur)) + "/" + _TRIM$(STR$(AB.n)) + t
 END FUNCTION
 
 ''
@@ -428,6 +464,8 @@ FUNCTION AB_dump$ ()
     DIM d AS STRING, k AS INTEGER
     d = "ABR" + DOCK_n$(AB.n) + DOCK_n$(AB.cur) + DOCK_n$(AB.w) + DOCK_n$(AB.h) + DOCK_n$(AB.merged <> 0) + DOCK_n$(AB.srcF)
     d = d + DOCK_n$(CUSTOM_BRUSH.ACTIVE% <> 0) + DOCK_n$(CUSTOM_BRUSH.WIDTH%) + DOCK_n$(CUSTOM_BRUSH.HEIGHT%) + " " + AB_crc$(CUSTOM_BRUSH.IMAGE&) + CHR$(10)
+    d = d + "ABRN " + AB_name$ + CHR$(10) ' the AnimBrush's name (empty = none)
+    d = d + "ABRH" + DOCK_n$(AB_HOLD_STATE) + CHR$(10) ' the last Brush-key hold with a selection tool: 1 held, 2 picked up, 3 tapped
     d = d + "ABRS" + DOCK_n$(AB_STEP) + DOCK_n$(AB_ORDER) + DOCK_n$(AB.anchor) + DOCK_n$(AB.clickPos) + DOCK_n$(AB_mode%) + CHR$(10)
     d = d + "ABRC"
     FOR k = 1 TO _MIN(AB.n, 64)
@@ -482,7 +520,7 @@ SUB AB_slot_drop (i AS INTEGER)
     IF i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN EXIT SUB
     IF DRAWER_BRUSH_SLOTS(i).CELS < -1 THEN _FREEIMAGE DRAWER_BRUSH_SLOTS(i).CELS
     DRAWER_BRUSH_SLOTS(i).CELS = 0: DRAWER_BRUSH_SLOTS(i).N = 0
-    DRAWER_BRUSH_SLOTS(i).CW = 0: DRAWER_BRUSH_SLOTS(i).CH = 0
+    DRAWER_BRUSH_SLOTS(i).CW = 0: DRAWER_BRUSH_SLOTS(i).CH = 0: DRAWER_BRUSH_SLOTS(i).NM = ""
 END SUB
 
 ''
@@ -516,6 +554,7 @@ FUNCTION AB_slot_store% (i AS INTEGER)
     DRAWER_BRUSH_SLOTS(i).W = AB.w: DRAWER_BRUSH_SLOTS(i).H = AB.h
     DRAWER_BRUSH_SLOTS(i).CELS = strip: DRAWER_BRUSH_SLOTS(i).N = AB.n
     DRAWER_BRUSH_SLOTS(i).CW = AB.w: DRAWER_BRUSH_SLOTS(i).CH = AB.h
+    DRAWER_BRUSH_SLOTS(i).NM = AB_name$
     AB_slot_store% = TRUE
 END FUNCTION
 
@@ -547,7 +586,7 @@ SUB AB_slot_load (i AS INTEGER)
     NEXT k
     AB.n = n: AB.w = DRAWER_BRUSH_SLOTS(i).CW: AB.h = DRAWER_BRUSH_SLOTS(i).CH
     AB.merged = FALSE: AB.srcF = 1: AB.anchor = 1: AB.clickPos = 0
-    AB.cur = 0
+    AB.cur = 0: AB.nm = AB_clean$(DRAWER_BRUSH_SLOTS(i).NM)
     AB_show 1
 END SUB
 
@@ -668,8 +707,40 @@ FUNCTION AB_slots_blob$ ()
             s = s + MKI$(i) + MKI$(DRAWER_BRUSH_SLOTS(i).N) + MKI$(DRAWER_BRUSH_SLOTS(i).CW) + MKI$(DRAWER_BRUSH_SLOTS(i).CH) + AB_slot_bytes$(i)
         END IF
     NEXT i
-    IF c THEN AB_slots_blob$ = MKI$(c) + s
+    IF c = 0 THEN EXIT FUNCTION
+    AB_slots_blob$ = MKI$(c) + s + AB_names_blob$
 END FUNCTION
+
+''
+' The bins' AnimBrush names, after the slot records (2026-11-12): AB_NAMES_MAGIC$,
+' count, then per name: slot, length, the name. An older DRAW stops reading after
+' the records, so it never sees them; "" when no bin has a name.
+FUNCTION AB_names_blob$ ()
+    DIM i AS INTEGER, c AS INTEGER, s AS STRING, t AS STRING
+    FOR i = 1 TO DRAWER_SLOT_COUNT
+        IF AB_slot_has%(i) THEN
+            t = AB_clean$(DRAWER_BRUSH_SLOTS(i).NM)
+            IF LEN(t) THEN c = c + 1: s = s + MKI$(i) + MKI$(LEN(t)) + t
+        END IF
+    NEXT i
+    IF c THEN AB_names_blob$ = AB_NAMES_MAGIC$ + MKI$(c) + s
+END FUNCTION
+
+''
+' Read AB_names_blob$ from b at p, when it is there (moves p past it).
+SUB AB_names_from_blob (b AS STRING, p AS LONG)
+    DIM c AS INTEGER, j AS INTEGER, i AS INTEGER, ln AS INTEGER
+    IF p + 5 > LEN(b) THEN EXIT SUB
+    IF MID$(b, p, 4) <> AB_NAMES_MAGIC$ THEN EXIT SUB
+    c = CVI(MID$(b, p + 4, 2)): p = p + 6
+    FOR j = 1 TO c
+        IF p + 3 > LEN(b) THEN EXIT FOR
+        i = CVI(MID$(b, p, 2)): ln = CVI(MID$(b, p + 2, 2)): p = p + 4
+        IF ln < 0 _ORELSE p + ln - 1 > LEN(b) THEN EXIT FOR
+        IF AB_slot_has%(i) THEN DRAWER_BRUSH_SLOTS(i).NM = LEFT$(MID$(b, p, ln), ANIM_TG_NAME_MAX)
+        p = p + ln
+    NEXT j
+END SUB
 
 ''
 ' Read AB_slots_blob$ from b starting at p (moves p past it).
@@ -686,6 +757,7 @@ SUB AB_slots_from_blob (b AS STRING, p AS LONG)
         AB_slot_set_bytes i, n, cw, ch, MID$(b, p, sz)
         p = p + sz
     NEXT j
+    AB_names_from_blob b, p
 END SUB
 
 ''
@@ -747,6 +819,10 @@ FUNCTION AB_bin_dump$ ()
         s = DRAWER_slot_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
         IF s > 0 THEN k = AB_slot_cel_now%(s)
     END IF
+    d = d + CHR$(10) + "ABBN" ' the bins' AnimBrush names, slot:name (spaces as _)
+    FOR i = 1 TO DRAWER_SLOT_COUNT
+        IF AB_slot_has%(i) _ANDALSO LEN(AB_clean$(DRAWER_BRUSH_SLOTS(i).NM)) > 0 THEN d = d + " " + _TRIM$(STR$(i)) + ":" + AB_us$(AB_clean$(DRAWER_BRUSH_SLOTS(i).NM))
+    NEXT i
     d = d + CHR$(10) + "ABQL" + DOCK_n$(s) + DOCK_n$(k)
     IF PREVIEW.binQuickLookActive% _ANDALSO AB_QL_CEL > 0 THEN
         d = d + DOCK_n$(PREVIEW.binQuickLookSlot%) + DOCK_n$(AB_QL_CEL) + " " + AB_crc$(PREVIEW.binQuickLookImg&)
@@ -999,7 +1075,7 @@ END FUNCTION
 ' Load file filename as the AnimBrush. FALSE (a status line) when it has no
 ' frames to make one from.
 FUNCTION AB_load_file% (filename AS STRING)
-    DIM n AS INTEGER, nm AS STRING
+    DIM n AS INTEGER, nm AS STRING, dot AS LONG
     nm = MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1)
     n = AB_frames_from_file%(filename)
     IF n < 2 THEN
@@ -1008,6 +1084,8 @@ FUNCTION AB_load_file% (filename AS STRING)
         EXIT FUNCTION
     END IF
     IF AB_install_loaded%(n) = FALSE THEN STATUS_flash "AnimBrush: " + nm + " - nothing drawn in its frames": EXIT FUNCTION
+    dot = _INSTRREV(nm, ".") ' named after the file, without its extension
+    IF dot > 1 THEN AB.nm = LEFT$(nm, dot - 1) ELSE AB.nm = nm
     STATUS_flash "AnimBrush: " + nm + " - " + _TRIM$(STR$(AB.n)) + " cels of" + STR$(AB.w) + "x" + _TRIM$(STR$(AB.h))
     _LOGINFO "AB_load_file: " + filename + " ->" + STR$(AB.n) + " cels"
     AB_load_file% = TRUE
@@ -1062,3 +1140,84 @@ FUNCTION AB_drop_on_bin% (filename AS STRING, rawX AS INTEGER, rawY AS INTEGER)
     GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
     AB_drop_on_bin% = TRUE
 END FUNCTION
+
+
+' =============================================================================
+' Hold the Brush key + make a selection = pick it up (Rick's planning handoff,
+' 2026-11-12, PLANS/ANIMATION.md round 3). With a selection tool in hand the
+' Brush key (B, or whatever the Brush tool is rebound to) does not switch tools
+' on its press (CTX_SELECT_TOOL_ACTIVE keeps the dispatcher off it):
+'   - held while a selection is made (drag, wand click, polygon closed): the
+'     selection is picked up - an AnimBrush when the picture has 2+ frames (as
+'     ANIM > AnimBrush > Pick Up: the selected / tagged frames, else all), else a
+'     still brush (as Ctrl+B) - and the tool becomes the Brush;
+'   - tapped (released with no selection made): the Brush tool, as before.
+' =============================================================================
+
+''
+' A selection tool in hand: the marquees (rectangle, ellipse, lasso, polygon) and the wand.
+FUNCTION AB_sel_tool% ()
+    SELECT CASE CURRENT_TOOL%
+        CASE TOOL_MARQUEE, TOOL_SELECT_RECT, TOOL_SELECT_POLY, TOOL_SELECT_ELLIPSE, TOOL_SELECT_FREE, TOOL_SELECT_WAND
+            AB_sel_tool% = TRUE
+    END SELECT
+END FUNCTION
+
+''
+' The key that picks the Brush tool (its binding, so a rebind moves the hold too); B by default.
+FUNCTION AB_brush_key& ()
+    DIM i AS INTEGER
+    AB_brush_key& = 98
+    FOR i = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i).actionId = 101 _ANDALSO INPUT_BINDS(i).eventType = EVT_KEY_PRESS _ANDALSO INPUT_BINDS(i).requireMods = 0 THEN
+            IF INPUT_BINDS(i).keycode > 0 THEN AB_brush_key& = INPUT_BINDS(i).keycode
+            EXIT FUNCTION
+        END IF
+    NEXT i
+END FUNCTION
+
+''
+' The selection as it stands ("" = none finished): changes when a new one is made.
+FUNCTION AB_sel_sig$ ()
+    IF MARQUEE.ACTIVE% = 0 _ORELSE MARQUEE.DRAGGING <> 0 THEN EXIT FUNCTION
+    IF MARQUEE.BOX.w <= 0 _ORELSE MARQUEE.BOX.h <= 0 THEN EXIT FUNCTION
+    AB_sel_sig$ = STR$(MARQUEE.BOX.x) + STR$(MARQUEE.BOX.y) + STR$(MARQUEE.BOX.w) + STR$(MARQUEE.BOX.h)
+END FUNCTION
+
+''
+' Every frame (KEYBOARD_input_handler): the Brush key held with a selection tool.
+SUB AB_hold_pickup ()
+    STATIC held AS INTEGER, armed AS INTEGER, used AS INTEGER, pressed AS INTEGER, sig0 AS STRING
+    DIM k AS LONG, down AS INTEGER, sig AS STRING
+    k = AB_brush_key&
+    down = _KEYDOWN(k)
+    IF k >= 97 _ANDALSO k <= 122 THEN down = down _ORELSE _KEYDOWN(k - 32)
+    IF MODIFIERS.ctrl% _ORELSE MODIFIERS.alt% THEN down = FALSE
+    IF (INPUT_CONTEXT AND CTX_TEXT_ACTIVE) <> 0 _ORELSE CMD_PALETTE.visible _ORELSE TBED_typing% THEN down = FALSE
+    IF down THEN
+        IF held = FALSE THEN ' the press: armed only with a selection tool in hand
+            held = TRUE: used = FALSE: armed = AB_sel_tool%: pressed = FALSE: sig0 = AB_sel_sig$
+            IF armed THEN AB_HOLD_STATE = 1
+        ELSEIF armed _ANDALSO used = FALSE THEN
+            IF MOUSE.B1% THEN
+                pressed = TRUE
+            ELSEIF pressed THEN
+                sig = AB_sel_sig$
+                IF LEN(sig) > 0 _ANDALSO sig <> sig0 THEN ' a new selection was made while held
+                    used = TRUE: AB_HOLD_STATE = 2
+                    IF ANIM.active _ANDALSO ANIM.count >= 2 THEN
+                        CMD_execute_action AB_ACT_PICKUP ' (to the Brush tool)
+                    ELSE
+                        CUSTOM_BRUSH_capture_from_marquee
+                        IF CUSTOM_BRUSH_is_active% THEN SOUND_play SND_CLIPBOARD: CMD_execute_action 101
+                    END IF
+                    GUI_NEEDS_REDRAW% = TRUE
+                END IF
+            END IF
+        END IF
+    ELSEIF held THEN ' the release
+        held = FALSE
+        IF armed _ANDALSO used = FALSE THEN CMD_execute_action 101: AB_HOLD_STATE = 3 ' a tap: the Brush tool
+        armed = FALSE
+    END IF
+END SUB

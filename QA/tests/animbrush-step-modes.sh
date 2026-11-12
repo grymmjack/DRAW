@@ -17,7 +17,7 @@
 # frame - which cel is on the current layer at the last stamp's spot in each
 # frame's cell ("-" nothing, "0" not a cel).
 # Fixture: a 96x16 sheet of 6 frames of 16x16, transparent; frame k a 4x4
-# square of its own colour at (6, 6). The cels are picked up from frames 3-6
+# square of its own colour at (6, 6). The cels are picked up from frames 3-6 (selected)
 # onto the stamps' own empty layer.
 #
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ONION_SKIN=0 LIGHTBOX=0 XSHEET=0 LIGHTBOX_PANES=3 LIGHTBOX_STRIP_FLOW=ROW
@@ -73,6 +73,13 @@ sm_expect_p() { # WANT LABEL - the ABRP line (frame:cel ...)
     sm_read
     [[ "$AB_P" == "$1" ]] && pass "$2" || fail "$2: [$AB_P], wanted [$1]"
 }
+sm_strip() { # F [shift] - click frame F in the lightbox strip
+    local x1 sy sf cw ch pad
+    read -r _ _ x1 _ _ _ sy _ _ _ _ _ sf _ cw ch _ _ _ pad _ <<< "$(sm_line ANIMLB)"
+    local x=$(( x1 + pad + ($1 - sf) * (cw + pad) + cw / 2 )) y=$(( sy + pad + ch / 2 ))
+    if [[ "${2:-}" == shift ]]; then with_mods shift click "$x" "$y"; else click "$x" "$y"; fi
+    wait_for 0.4 "strip $1"
+}
 sm_undo_all() { local k; for (( k = 0; k < $1; k++ )); do sm_key ctrl+z; done; }
 
 info "Launching DRAW with a 96x16 sheet of 6 frames"
@@ -88,8 +95,10 @@ sm_read
 if [[ "$A_COUNT" != 6 || -z "${PX:-}" ]]; then
     fail "lightbox: $A_COUNT frames, current pane '${PX:-}'"
 else
-    # -- pick up frames 3-6 (4 cels) --
+    # -- pick up frames 3-6 (4 cels): selected in the strip (6, then Shift+3 - frame 3 current);
+    #    with nothing selected a pick up takes every frame (animbrush-pickup) --
     sm_key KP_5; sm_key KP_5; sm_read
+    sm_strip 6; sm_strip 3 shift; sm_read
     sm_key m
     mouse_down "$(sm_px 6)" "$(sm_py 6)"; hover "$(sm_px 8)" "$(sm_py 8)"; sleep 0.2; hover "$(sm_px 9)" "$(sm_py 9)"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"
@@ -98,6 +107,7 @@ else
         fail "pick up from frame 3: $(sm_s) (n $AB_N ${AB_W}x$AB_H)"
     else
         pass "4 cels of 4x4 from frames 3-6"
+        sm_strip 3; sm_read # one frame selected again (the stamps below go by frame, not by the selection)
         [[ "$ST_STEP" == 0 && "$ST_ORD" == 0 && "$ST_ANCHOR" == 3 && "$ST_MODE" == 0 ]] && pass "default: cel follows the frame, forward, the pick up's frame (3) gets cel 1" || fail "defaults: $(sm_s)"
         sm_key ctrl+shift+n; sm_read # the stamps go on an empty layer
 

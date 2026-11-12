@@ -779,7 +779,8 @@ and paint with it.
 
 | Trigger | Action |
 |---------|--------|
-| ANIM → AnimBrush → **Pick Up** | Select an area inside a frame first. Takes that same spot from each frame's cell on the **current layer** (gutters and margins skipped) and makes the cels; the tool becomes the Brush, the brush shows cel 1 |
+| ANIM → AnimBrush → **Pick Up** | Select an area inside a frame first. Takes that same spot from each frame's cell on the **current layer** (gutters and margins skipped) and makes the cels; the tool becomes the Brush. Frames: the ones selected in the strip / X-sheet (a clicked tag selects its span - the brush is then named after the tag), else every frame |
+| Hold `B` + make a selection (any selection tool) | Picks it up as you finish the selection: an AnimBrush when the picture has 2+ frames (as Pick Up), else a plain brush (as `Ctrl+B`); the tool becomes the Brush. A tap of `B` with a selection tool still switches to the Brush (on release). The key follows the Brush tool's binding |
 | ANIM → AnimBrush → **Pick Up Merged** | The same from every visible layer |
 | ANIM → AnimBrush → **Load…** | An AnimBrush from an animated GIF / APNG, a PNG or .draw with frames, or a strip (a row / column of squares); cels cropped to what is drawn. Dropping such a file on a Drawer bin puts it in that bin |
 | `Ctrl+B` (with an AnimBrush) | Drops it, cels and all. `Ctrl+B` over a selection is always a plain one-picture brush |

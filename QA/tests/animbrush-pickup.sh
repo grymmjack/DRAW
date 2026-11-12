@@ -7,7 +7,7 @@
 # is in - as the cels of a custom brush; the brush shows one of them (the
 # cel the next stamp uses - TOOLS/ANIM-BRUSH A2 checks which) and the tool
 # becomes the Brush. Which frames: the frames selected in the strip (2 or
-# more), else the selection's frame to the last. Pick Up takes the current layer; Pick Up
+# more), else every frame (since 2026-11-12; was the selection's frame to the last). Pick Up takes the current layer; Pick Up
 # Merged every visible layer. Ctrl+B drops it (one picture again).
 #
 # Dump: ABR n cur w h merged srcFrame active brushW brushH brushCrc,
@@ -125,7 +125,7 @@ else
     ab_cmd "animbrush: pick up (the"; ab_read
     [[ "${AB_N:-x}" == 0 && "$AB_ON" == 0 ]] && pass "no selection: Pick Up does nothing ($(ab_s))" || fail "no selection: $(ab_s)"
 
-    # -- frame 3, a box inside its cell: frames 3..8 --
+    # -- frame 3, a box inside its cell: every frame, 1..8 --
     ab_pick 3
     ab_marquee 1 1 12 12
     if [[ "$S_ON" != -1 || "$A_CUR" != 3 ]]; then
@@ -133,9 +133,9 @@ else
     else
         BX=$S_X; BY=$S_Y; BW=$S_W; BH=$S_H
         info "box $BX,$BY ${BW}x$BH in frame 3"
-        WANT=$(ab_exp "$BX" "$BY" "$BW" "$BH" 3 3 4 5 6 7 8)
+        WANT=$(ab_exp "$BX" "$BY" "$BW" "$BH" 3 1 2 3 4 5 6 7 8)
         ab_cmd "animbrush: pick up (the"; ab_read
-        [[ "$AB_N" == 6 && "$AB_CUR" -ge 1 && "$AB_SF" == 3 && "$AB_MERGED" == 0 ]] && pass "Pick Up from frame 3: 6 cels (frames 3-8)" || fail "pick up from frame 3: $(ab_s)"
+        [[ "$AB_N" == 8 && "$AB_CUR" -ge 1 && "$AB_SF" == 3 && "$AB_MERGED" == 0 ]] && pass "Pick Up in frame 3, nothing selected: 8 cels (every frame)" || fail "pick up from frame 3: $(ab_s)"
         [[ "$AB_CELS" == "$WANT" ]] && pass "each cel is the box's spot in its frame's cell (gutter + margin skipped)" || fail "cels [$AB_CELS], wanted [$WANT]"
         [[ "$AB_W" == "$BW" && "$AB_H" == "$BH" && "$AB_BW" == "$BW" && "$AB_BH" == "$BH" ]] && pass "cels and brush are the box's size (${BW}x$BH)" || fail "size: $(ab_s), box ${BW}x$BH"
         [[ "$AB_ON" == -1 && "$AB_BCRC" == "$(ab_cel_crc "$AB_CUR" "$WANT")" ]] && pass "the brush is on and shows its cel $AB_CUR" || fail "brush: $(ab_s)"
@@ -144,7 +144,7 @@ else
         screenshot "animbrush-picked"
         # distinct pictures: no two cels alike (the fixture's frames all differ)
         U=$(tr ' ' '\n' <<< "$AB_CELS" | cut -d: -f2 | sort -u | wc -l)
-        [[ "$U" == 6 ]] && pass "6 different cels" || fail "only $U different cels"
+        [[ "$U" == 8 ]] && pass "8 different cels" || fail "only $U different cels"
 
         # -- Ctrl+B: the brush goes, cels and all --
         ab_key ctrl+b; ab_read
@@ -165,14 +165,14 @@ else
         ab_key ctrl+b; ab_read
     fi
 
-    # -- the last frame alone: one cel; a box partly in the margin keeps clear there --
+    # -- in the last frame: still every frame; a box partly in the margin keeps clear there --
     ab_pick 1; ab_key KP_9; ab_read
     ab_marquee 0 0 15 15
     if [[ "$S_ON" == -1 && "$A_CUR" == 8 ]]; then
         BX=$S_X; BY=$S_Y; BW=$S_W; BH=$S_H
-        WANT=$(ab_exp "$BX" "$BY" "$BW" "$BH" 8 8)
+        WANT=$(ab_exp "$BX" "$BY" "$BW" "$BH" 8 1 2 3 4 5 6 7 8)
         ab_cmd "animbrush: pick up (the"; ab_read
-        [[ "$AB_N" == 1 && "$AB_CELS" == "$WANT" ]] && pass "the last frame: one cel ($WANT)" || fail "last frame: $(ab_s), wanted [$WANT]"
+        [[ "$AB_N" == 8 && "$AB_CELS" == "$WANT" ]] && pass "in the last frame: 8 cels, each from its cell measured from frame 8" || fail "last frame: $(ab_s), wanted [$WANT]"
         ab_key ctrl+b; ab_read
     else
         fail "marquee in frame 8: sel $S_ON, current $A_CUR"

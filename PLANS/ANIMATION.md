@@ -135,3 +135,22 @@ layers, recorded in the one history.
 | 10 | Animation data in its own PNG chunk; older DRAW opens the file as a plain sheet |
 | 11 | APNG in phase 3; WebP later if still wanted |
 | 12 | Soundtrack in sync with playback / scrub / BAS export, plus its waveform along the X-sheet |
+
+## Round 3: clips, keyframes, personas (planning-chat handoff, 2026-11-12)
+
+Rick's handoff from a planning chat, checked against this plan and the code. Status per item and
+his decisions (2026-11-12, all four as recommended):
+
+| # | Handoff item | Already built | New work | Decision |
+| --- | --- | --- | --- | --- |
+| 1 | AnimBrush pickup (**done**, see the commit "Hold B + select") | ANIM > AnimBrush > Pick Up / Pick Up Merged (any selection shape, wand too); a strip / X-sheet selection of 2+ frames = those frames; clicking a tag selects its span | Hold the Brush key (B) while making a selection = pick up + Brush tool (2+ frames: AnimBrush, else a still brush like Ctrl+B; a tap still switches to Brush). The key follows the Brush tool's binding. Name the brush after the selected tag (shown in the status bar and on a bin; saved in .dset / .draw) | No selection: **all frames** (was: the selection's frame to the last) |
+| 2 | Single-cel "DPaint mode" | Done: ANIM > Big Frame + X-Sheet (49cad8d9), one pane under the X-sheet, Num * cycles 1 / 3 / 5 / 7 panes; same frames, two views | - | - |
+| 3 | AnimBrushes as clips / symbols | Stamps bake pixels (follow / click / all frames, orders fwd / rev / ping-pong / once, start cel Alt+[ / Alt+]); Move Brush bakes a moving stamp. Symbols are layer-level (a static picture + per-child position / scale / rotation / opacity / blend) | **Clip layer**: a layer type holding a bin brush reference + clip settings (start offset, rate, loop / ping-pong / once / hold), drawn into every frame's cell at render time; Bake to pixels; later keyframe lanes. Render, every exporter, .draw, undo and the QA dump must learn it | **Clip layer** |
+| 4 | Keyframe lanes | Move Brush is the baked form: two keys per move (start / end), ease none / in / out / in-out, line / drawn / live path, Z, turn X / Y / Z, size, opacity, tint, whole-pixel positions, nearest sampling | Lanes on clip layers in the X-sheet: pos X / Y, scale X / Y, opacity, tint, rotation, origin; stepped / linear / Bezier; seeded LFO / noise modulators | Spec first (below, to write) |
+| 5 | Brush file format | PNG strip + frame data in DRAW's PNG chunk (Load: GIF, APNG, sheet); sets in .dset; sprite sheet export writes Aseprite-style JSON (frameTags); documents read Aseprite / TexturePacker JSON on open | Save an AnimBrush; export it as GIF / APNG / sheet + JSON; read Aseprite / TexturePacker JSON in AnimBrush Load | **Chunk stays native**, JSON on export / import only |
+| 6 | Personas | Workspaces: menus (ROOTS= / HIDE_ITEMS=), keys, toolbars, panels; `--workspace NAME`; switcher (2400) + status badge; Animate, Annotate, Default, Simple ship | Sprite and Scene presets, a one-click switch button, ANIM menu split (60 rows + 2 flyouts scroll) | **Workspaces are the personas** (no rename) |
+
+Order: 1 (hold-B pickup, all-frames range, tag names) -> clip layer design note -> clip layer ->
+keyframe / modulator spec -> personas. Reference: Pro Motion NG anim painting
+(https://www.cosmigo.com/promotion/docs/onlinehelp/animPainting.htm) - its "keyframes" are
+light-table markers only, so property lanes would be new.

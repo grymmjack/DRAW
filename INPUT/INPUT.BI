@@ -159,7 +159,8 @@ CONST CTX_COMMAND_PALETTE_OPEN = &H0000000000000200
 CONST CTX_TRANSFORM_ACTIVE     = &H0000000000000400
 CONST CTX_DRAWING_IN_PROGRESS  = &H0000000000000800
 CONST CTX_CUSTOM_BRUSH_ACTIVE  = &H0000000000001000 ' bit 12 — a custom brush is loaded; Home/End/PgUp/PgDn/`/` transform the brush, not the layer
-' bits 12-19 reserved
+CONST CTX_SELECT_TOOL_ACTIVE  = &H0000000000002000 ' bit 13 — a selection tool in hand: the Brush key is held for a pick up, a tap switches on release (AB_hold_pickup)
+' bits 14-19 reserved
 
 ' Held-key chord initiators (set by INPUT_update_context from raw key state)
 CONST CTX_G_HELD      = &H0000000000100000          ' bit 20

@@ -56,6 +56,13 @@ mv_read() {
 mv_s() { echo "MVB on ${M_ON:-?} drag ${M_DRAG:-?} path ${M_PATH:-?} from ${M_FROM:-?} ease ${M_EASE:-?} every ${M_EVERY:-?} (${M_X0:-?},${M_Y0:-?})-(${M_X1:-?},${M_Y1:-?}) n ${M_N:-?}"; }
 mv_px() { echo $(( PX + (2 * $1 + 1) * PW / 32 )); }
 mv_py() { echo $(( PY + (2 * $1 + 1) * PH / 32 )); }
+mv_strip() { # F [shift] - click frame F in the lightbox strip
+    local x1 sy sf cw ch pad
+    read -r _ _ x1 _ _ _ sy _ _ _ _ _ sf _ cw ch _ _ _ pad _ <<< "$(mv_line ANIMLB)"
+    local x=$(( x1 + pad + ($1 - sf) * (cw + pad) + cw / 2 )) y=$(( sy + pad + ch / 2 ))
+    if [[ "${2:-}" == shift ]]; then with_mods shift click "$x" "$y"; else click "$x" "$y"; fi
+    wait_for 0.4 "strip $1"
+}
 mv_key() { park_mouse; key "$1"; wait_for 0.6 "$1"; }
 mv_cmd() {
     park_mouse; key question; wait_for 1.0 "Command palette"
@@ -182,6 +189,7 @@ else
     # -- an AnimBrush: 4 cels from frames 3-6 (merged: the stamps' layer is empty) --
     mv_key ctrl+b
     mv_key KP_5; mv_key KP_5; mv_read
+    mv_strip 6; mv_strip 3 shift; mv_read # frames 3-6 selected (nothing selected = every frame)
     mv_key m
     mouse_down "$(mv_px 6)" "$(mv_py 6)"; hover "$(mv_px 8)" "$(mv_py 8)"; sleep 0.2; hover "$(mv_px 9)" "$(mv_py 9)"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"
@@ -190,7 +198,7 @@ else
         fail "AnimBrush pick up: $AB_N cels ${AB_W}x$AB_H"
     else
         pass "AnimBrush of 4 cels picked up"
-        mv_key KP_1; mv_read
+        mv_strip 1; mv_read # frame 1, alone selected (the Move Brush range follows a selection)
         mv_cmd "move brush: start"; mv_drag 2 2 12 10
         mv_key Return; mv_read
         W=$(mv_want_b 1 0 4 4); K=$(mv_want_k 1 4 1)

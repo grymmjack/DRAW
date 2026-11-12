@@ -26,9 +26,14 @@ that has one picture - a *cel* - for each frame:
 
 1. Draw a selection around the part you want inside one frame (a marquee, ellipse, lasso or
    magic wand; the shape is kept).
-2. To take only some frames, Ctrl+click them in the lightbox strip first. Otherwise the cels
-   come from the frame the selection is in through the last frame.
+2. To take only some frames, Ctrl+click them in the lightbox strip first, or click a tag on the
+   X-sheet (the brush is then named after the tag - you see the name in the status bar and on
+   its bin). Otherwise the cels come from every frame.
 3. Choose **Pick Up** (the current layer) or **Pick Up Merged** (every visible layer).
+
+> 💡 **Quicker: hold `B` while you make the selection.** When you let go of the mouse the
+> selection is picked up and you are on the Brush: an AnimBrush on a picture with frames, a
+> plain brush (as `Ctrl+B`) on one without. A quick tap of `B` still just picks the Brush.
 
 DRAW reads the same spot in every frame's cell - the gutter and margin between cells are
 skipped - so a walk cycle becomes a walking brush. The tool switches to the Brush, and the

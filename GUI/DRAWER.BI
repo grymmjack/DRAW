@@ -64,6 +64,7 @@ TYPE DRAW_BRUSH
     N    AS INTEGER ' cels (0 = a one-picture brush)
     CW   AS INTEGER
     CH   AS INTEGER
+    NM   AS STRING * 32 ' an AnimBrush's name (its tag / file), saved after the slot records (TOOLS/ANIM-BRUSH)
 END TYPE
 
 ' A single color stop in a gradient definition

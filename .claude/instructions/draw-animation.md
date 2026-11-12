@@ -1087,7 +1087,20 @@ gotcha 15). It also stops playback and clears the ask answer.
   `ANIM.current`); each cel reads `box + (cell(f) - cell(srcF))` (+ apron on the layer
   path; `LAYERS_flatten&` for merged). The selection shape is read once into a string
   before `MARQUEE_reset`. Pixels copied with `_DONTBLEND`; BG-colored = clear (as Ctrl+B).
-  Frames: `ANIM_SEL_count% > 1` (a strip click selects one) -> those, else srcF..count.
+  Frames: `ANIM_SEL_count% > 1` (a strip click selects one; a tag click selects its span) -> those
+  (anchor = srcF), else **every frame** 1..count (anchor 1; Rick 2026-11-12, was srcF..count).
+  Picked from a span that IS a tag (`ANIM_TG_selected%`): `AB.nm` = the tag's name (status badge
+  `ANIMBRUSH WALK 3/8`, stored in the bin's `DRAWER_BRUSH_SLOTS().NM` by `AB_slot_store%`, back via
+  `AB_slot_load`; Load names it after the file; `AB_clear` empties it). Saved after the slot records
+  as `ABN1` (`AB_names_blob$`, see draw-fileformat.md). Dumps `ABRN name`, `ABBN slot:name`.
+- Hold the Brush key + select (`AB_hold_pickup`, called every frame from KEYBOARD_input_handler
+  beside the eraser hold): with `AB_sel_tool%` (marquee 5, select 30-33, wand 40) the Brush
+  binding (98) forbids `CTX_SELECT_TOOL_ACTIVE` (bit 13), so its press does not switch tools. Held
+  through a press + release that leaves a new finished selection (`AB_sel_sig$` changed): 2+
+  frames -> action 2563, else `CUSTOM_BRUSH_capture_from_marquee` + 101 (not 1101, which drops a
+  brush). Released with no pick up = a tap -> 101. The key is the Brush tool's binding
+  (`AB_brush_key&`, rebinds follow). Dump `ABRH` (1 held, 2 picked up, 3 tapped). Test
+  `animbrush-hold-pickup` (18). step-modes / anim-move select frames 3-6 before their pick up.
 - Actions 2563 / 2564 (ANIM > ANIMBRUSH flyout + command palette "AnimBrush: Pick Up ...").
 - A2 step modes (`AB_STEP` global, kept across pick ups): FOLLOW = cel `AB_seq%(f - AB.anchor)`
   (anchor = pick up frame, 1 after a new / opened document - `AB_new_document` beside every

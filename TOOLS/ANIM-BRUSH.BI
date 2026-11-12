@@ -58,6 +58,7 @@ TYPE AB_OBJ
     lastY    AS INTEGER
     lastF    AS INTEGER
     inEach   AS INTEGER ' AB_each% is running a brush routine on each cel
+    nm       AS STRING * 32 ' a name: the tag it was picked up from, the file it came from, its bin's (AB_name$)
 END TYPE
 DIM SHARED AB AS AB_OBJ
 DIM SHARED AB_CEL(1 TO AB_MAX_CELS) AS LONG      ' cel images (32-bit, w x h)
@@ -76,6 +77,7 @@ DIM SHARED AB_SV_FROM(1 TO AB_MAX_CELS) AS INTEGER
 ' .dset block after the slots (AB_DSET_MAGIC$, skipped by older DRAWs), and
 ' the "drAb" PNG chunk in a .draw.
 CONST AB_DSET_MAGIC$ = "DSA1"
+CONST AB_NAMES_MAGIC$ = "ABN1" ' the bins' names, after the slot records in DSA1 / drAb (AB_names_blob$)
 CONST AB_DRAB_VERSION = 1
 DIM SHARED AB_QL_CEL AS INTEGER ' the cel the Preview's Quick Look shows (0 = not an AnimBrush slot)
 
@@ -83,3 +85,4 @@ DIM SHARED AB_QL_CEL AS INTEGER ' the cel the Preview's Quick Look shows (0 = no
 ' crop to what is drawn in them
 DIM SHARED AB_LD(1 TO AB_MAX_CELS) AS LONG
 CONST AB_LOAD_MAX_PIXELS = 16777216 ' frames x width x height read at most (64 MB)
+DIM SHARED AB_HOLD_STATE AS INTEGER ' QA: the last hold of the Brush key with a selection tool - 1 held, 2 picked up, 3 tapped (AB_hold_pickup)
