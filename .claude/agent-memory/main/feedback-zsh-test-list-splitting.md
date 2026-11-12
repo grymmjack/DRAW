@@ -21,3 +21,9 @@ and ties up DRAW.run for hours, so no rebuilds.
 nothing, and the harness runs the FULL suite again - happened 2026-11-11 (474 files,
 stopped at 1/474). Literal arrays `T=(tests/a.sh tests/b.sh)` are fine in zsh. Then check the run's `ETA — N test(s)` line, or the dash, within
 a minute of starting.
+
+Third time 2026-11-12: `T="a b c"; for t in $T ...; ./draw-qa.sh $(for t in $T; do echo tests/$t.sh; done)`
+- the `for` over `$T` loops once in zsh, so the harness got one bogus path and ran all 490
+tests (stopped after 13 min). A `"missing ..."` check printed the WHOLE list on one line:
+that line is the tell. Wrap the whole command in `bash -c '...'`, and read the
+`ETA — N test(s)` line before walking away.

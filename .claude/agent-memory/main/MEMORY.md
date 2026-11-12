@@ -1,7 +1,7 @@
 - [QA build must be in the repo](qa-draw-bin-in-repo.md) — a test build in the scratchpad dies at startup (no ASSETS), QA says window 0x0
 - **[NEVER an error dialog - PERMANENT](feedback-no-error-dialogs.md) — every program traps its errors (ON ERROR); untrappable runtime alerts are prevented by guarding first; never cause them (don't kill a display a run still uses) (2026-10-11)**
 - **[Test scope - HARD RULE](feedback-test-scope.md) — run ONLY tests that might touch the change; FULL suite only overnight while Rick sleeps; >5 files = count + ETA and ASK (told 4x, last 2026-11-06)**
-- [zsh: test list is ONE arg](feedback-zsh-test-list-splitting.md) — unquoted `$FILES` in zsh made draw-qa.sh run all 425 tests; use a bash array, check the ETA count; zsh has no `mapfile` (empty list = full suite) (2026-11-09, 2026-11-11)
+- [zsh: test list is ONE arg](feedback-zsh-test-list-splitting.md) — unquoted `$FILES` in zsh made draw-qa.sh run all 425 tests; use a bash array, check the ETA count; zsh has no `mapfile` (empty list = full suite) (2026-11-09, 2026-11-11, 2026-11-12: wrap in `bash -c`)
 - **[Test with Rick's own profile](feedback-test-with-user-profile.md) — also run bug tests with HIS cfg/workspace/scale: `QA_USER_PROFILE=1 QA_USER_SCREEN=1152x648@3 QA_XVFB_RES=3840x2160` before saying "can't reproduce" (2026-11-06)**
 - [User background & collaboration style](user_background_and_collaboration.md) — career BASIC programmer, learning-mode, wants visibility not autonomy
 - [DRAW compile convention](feedback_draw_compile_convention.md) — build qb64pe in FOREGROUND, 600000ms timeout, never background
@@ -102,3 +102,4 @@
 - [Animated example scenes pipeline](animscenes-pipeline.md) — DEV/animscenes: Python art/audio, DRAW drives the Move Brush under QA; QA-OPTIONS beat --option, wait for drAw on save
 - [Build with split objects](build-split-objects.md) — hand-run qb64pe needs -f:SplitObjectfiles=true (33 s vs ~5 min)
 - [QA screenshots cleared per run](qa-screenshots-cleared-per-run.md) — copy shots before the next run; md-to-pdf hang needs a timeout
+- [New palette commands steal queries](palette-new-commands-steal-queries.md) — subsequence match, first registered wins: register new commands at the end of CMD_init ; mind CMD_MAX_COMMANDS (1024) (2026-11-12)
