@@ -216,6 +216,11 @@ DIM SHARED DOCK_RZ AS DOCK_RZ_OBJ
 ' they change, with a sequence number - the QA dock tests read it to find where
 ' to grab and drop (QA/dock-lib.sh).
 DIM SHARED DOCK_DUMP_PATH AS STRING
+' The scene was rebuilt (SCREEN_render saw SCENE_DIRTY / CANVAS_DIRTY): the QA dump's
+' per-frame pixel lines (ANIMC, MVBB / MVBA / MVBK) are recomputed only when this or
+' the rest of their signature changes (DOCK_anim_pixels$) - a 64-frame sheet with big
+' brushes made every frame crawl under QA (2026-11-12).
+DIM SHARED QA_SCENE_GEN AS LONG
 DIM SHARED DOCK_DUMP_LAST AS STRING
 DIM SHARED DOCK_DUMP_SEQ AS LONG
 
