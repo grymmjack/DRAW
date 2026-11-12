@@ -153,6 +153,9 @@ END TYPE
 DIM SHARED MENU_BAR        AS MENU_BAR_OBJ
 DIM SHARED MENU_ITEMS(MENU_MAX_ITEMS) AS MENU_ITEM_OBJ
 DIM SHARED MENU_ITEM_COUNT AS INTEGER
+' ANIM > AnimBrush / Move Brush flyout parents (MENU_ITEMS index; < 0 = not
+' registered): greyed until the picture has 2+ frames (MENUBAR_update_states)
+DIM SHARED MENU_IDX_ANIMBRUSH AS INTEGER, MENU_IDX_MOVEBRUSH AS INTEGER
 
 ' Precomputed root label positions
 DIM SHARED MENU_ROOT_X(MENU_MAX_ROOT) AS INTEGER         ' X position of each root label
