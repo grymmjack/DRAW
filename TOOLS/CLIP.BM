@@ -10,7 +10,7 @@ SUB CLIP_new_document ()
     DIM i AS INTEGER
     FOR i = 1 TO CLIP_SRC_N
         IF CLIP_SRC(i).strip < -1 THEN _FREEIMAGE CLIP_SRC(i).strip
-        CLIP_SRC(i).strip = 0: CLIP_SRC(i).n = 0
+        CLIP_SRC(i).strip = 0: CLIP_SRC(i).n = 0: CLIP_SRC(i).gone = 0
     NEXT i
     FOR i = 1 TO CLIP_INST_N: CLIP_INST(i).layerId = 0: NEXT i
     CLIP_SRC_N = 0: CLIP_INST_N = 0: CLIP_SIG = "": CLIP_PLACING = 0
@@ -57,7 +57,7 @@ FUNCTION CLIP_src_new% (strip AS LONG, n AS INTEGER, cw AS INTEGER, ch AS INTEGE
     NEXT i
     IF i > CLIP_SRC_MAX THEN _FREEIMAGE strip: EXIT FUNCTION
     CLIP_SRC(i).strip = strip: CLIP_SRC(i).n = n: CLIP_SRC(i).cw = cw: CLIP_SRC(i).ch = ch
-    CLIP_SRC(i).nm = nm: CLIP_SRC(i).binSlot = bs
+    CLIP_SRC(i).nm = nm: CLIP_SRC(i).binSlot = bs: CLIP_SRC(i).gone = 0
     IF AB_clean$(CLIP_SRC(i).nm) = "" THEN CLIP_SRC(i).nm = "AnimBrush"
     IF i > CLIP_SRC_N THEN CLIP_SRC_N = i
     CLIP_src_new% = i
@@ -402,6 +402,13 @@ SUB CLIP_set (which AS INTEGER, v AS LONG)
         CASE 7: CLIP_INST(k).flipY = _IIF(v, TRUE, FALSE): lbl = "Clip Flip Y"
         CASE 8: CLIP_INST(k).px = _MAX(-9999, _MIN(v, 9999)): lbl = "Clip Move"
         CASE 9: CLIP_INST(k).py = _MAX(-9999, _MIN(v, 9999)): lbl = "Clip Move"
+        CASE 10: lbl = "Clip Source" ' another of the document's sources (the SOURCE row's < / >)
+            IF v >= 1 _ANDALSO v <= CLIP_SRC_N THEN
+                IF CLIP_SRC(v).strip < -1 THEN
+                    CLIP_INST(k).src = v
+                    IF CLIP_INST(k).startCel > CLIP_SRC(v).n THEN CLIP_INST(k).startCel = 1
+                END IF
+            END IF
     END SELECT
     CLIP_rebuild CURRENT_LAYER%
     CLIP_record before, lbl
@@ -424,6 +431,7 @@ FUNCTION CLIP_get& (which AS INTEGER)
         CASE 7: CLIP_get& = CLIP_INST(k).flipY
         CASE 8: CLIP_get& = CLIP_INST(k).px
         CASE 9: CLIP_get& = CLIP_INST(k).py
+        CASE 10: CLIP_get& = CLIP_INST(k).src
     END SELECT
 END FUNCTION
 
@@ -535,6 +543,138 @@ SUB CLIP_make ()
     HISTORY_saved_this_frame% = TRUE
 END SUB
 
+' ---------------------------------------------------------------------------
+' Clip sources (phase 2 K6): the document's table of cels. The Animation
+' panel's SOURCE row steps the current clip through them (< / >), renames its
+' source and selects the layers using it; Clip Sources... lists them all;
+' Remove Unused Clip Sources takes the unused ones off the list (they stay in
+' memory for undo, and a save never writes them).
+' ---------------------------------------------------------------------------
+
+''
+' How many clip layers use source s.
+FUNCTION CLIP_src_users% (s AS INTEGER)
+    DIM i AS INTEGER, k AS INTEGER, n AS INTEGER
+    FOR i = 1 TO MAX_LAYERS
+        k = CLIP_inst_of%(i)
+        IF k THEN IF CLIP_INST(k).src = s THEN n = n + 1
+    NEXT i
+    CLIP_src_users% = n
+END FUNCTION
+
+''
+' Is source s on the list (it has cels; removed only while no layer uses it)?
+FUNCTION CLIP_src_listed% (s AS INTEGER)
+    IF s < 1 _ORELSE s > CLIP_SRC_N THEN EXIT FUNCTION
+    IF CLIP_SRC(s).strip >= -1 THEN EXIT FUNCTION
+    IF CLIP_SRC(s).gone _ANDALSO CLIP_src_users%(s) = 0 THEN EXIT FUNCTION
+    CLIP_src_listed% = TRUE
+END FUNCTION
+
+''
+' Source s in a line: "name - n cels w x h - m layers".
+FUNCTION CLIP_src_desc$ (s AS INTEGER)
+    DIM u AS INTEGER, t AS STRING
+    u = CLIP_src_users%(s)
+    t = AB_clean$(CLIP_SRC(s).nm) + " -" + STR$(CLIP_SRC(s).n) + " cels" + STR$(CLIP_SRC(s).cw) + "x" + _TRIM$(STR$(CLIP_SRC(s).ch)) + " - "
+    IF u = 0 THEN t = t + "not used" ELSE t = t + "used by" + STR$(u) + _IIF(u = 1, " layer", " layers")
+    CLIP_src_desc$ = t
+END FUNCTION
+
+''
+' The current clip: the previous (dir -1) / next (1) source on the list. One undo step.
+SUB CLIP_src_step (dir AS INTEGER)
+    DIM k AS INTEGER, s AS INTEGER, i AS INTEGER, n AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src: i = s
+    FOR n = 1 TO CLIP_SRC_N
+        i = i + SGN(dir)
+        IF i > CLIP_SRC_N THEN i = 1
+        IF i < 1 THEN i = CLIP_SRC_N
+        IF CLIP_src_listed%(i) THEN EXIT FOR
+    NEXT n
+    IF i = s _ORELSE CLIP_src_listed%(i) = 0 THEN STATUS_flash "This document has one clip source": EXIT SUB
+    CLIP_set 10, i
+    STATUS_flash "Clip source " + _TRIM$(STR$(i)) + ": " + CLIP_src_desc$(i)
+END SUB
+
+''
+' Rename the current clip's source (every clip on it shows the new name; not an undo step).
+SUB CLIP_src_rename ()
+    DIM k AS INTEGER, s AS INTEGER, t AS STRING
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    IF s < 1 _ORELSE s > CLIP_SRC_N THEN EXIT SUB
+    POINTER_hide_for_dialog
+    t = DRAW_input_box_ex$("Clip Source", "A name for this clip source (" + _TRIM$(STR$(CLIP_SRC(s).n)) + " cels):", AB_clean$(CLIP_SRC(s).nm), "A name", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    t = _TRIM$(t)
+    IF t = "" THEN EXIT SUB ' cancelled
+    CLIP_SRC(s).nm = LEFT$(t, 32)
+    STATUS_flash "Clip source renamed: " + CLIP_src_desc$(s)
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Select every layer using the current clip's source (the layers panel's multi-select).
+SUB CLIP_src_select_layers ()
+    DIM k AS INTEGER, s AS INTEGER, i AS INTEGER, kk AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    MULTI_SELECT_clear
+    FOR i = 1 TO MAX_LAYERS
+        kk = CLIP_inst_of%(i)
+        IF kk _ANDALSO i <> CURRENT_LAYER% THEN
+            IF CLIP_INST(kk).src = s _ANDALSO MULTI_SELECT_LAYERS(i) = 0 THEN MULTI_SELECT_toggle i
+        END IF
+    NEXT i
+    STATUS_flash "Selected the" + STR$(MULTI_SELECT_COUNT%) + " layer(s) using clip source '" + AB_clean$(CLIP_SRC(s).nm) + "'"
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' ANIM > Clip Layer > Clip Sources...: every source on the list and the layers using it.
+SUB CLIP_sources_show ()
+    DIM s AS INTEGER, i AS INTEGER, k AS INTEGER, t AS STRING, ln AS STRING, n AS INTEGER, un AS INTEGER
+    FOR s = 1 TO CLIP_SRC_N
+        IF CLIP_src_listed%(s) THEN
+            n = n + 1
+            t = t + _TRIM$(STR$(s)) + ". " + CLIP_src_desc$(s) + CHR$(10)
+            ln = ""
+            FOR i = 1 TO MAX_LAYERS
+                k = CLIP_inst_of%(i)
+                IF k THEN IF CLIP_INST(k).src = s THEN ln = ln + _IIF(ln = "", "", ", ") + AB_clean$(LAYERS(i).name)
+            NEXT i
+            IF ln <> "" THEN t = t + "   " + ln + CHR$(10) ELSE un = un + 1
+        END IF
+    NEXT s
+    IF n = 0 THEN t = "This document has no clip sources." + CHR$(10) + "ANIM > Clip Layer > Place AnimBrush as Clip makes one." ELSE t = _TRIM$(STR$(n)) + " clip source" + _IIF(n = 1, "", "s") + ":" + CHR$(10) + CHR$(10) + t
+    IF un > 0 THEN t = t + CHR$(10) + "ANIM > Clip Layer > Remove Unused Clip Sources takes the unused ones off this list."
+    t = t + CHR$(10) + "On a clip layer, the Animation panel's SOURCE row picks / renames its source."
+    POINTER_hide_for_dialog
+    DRAW_alert "Clip Sources", t
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+END SUB
+
+''
+' ANIM > Clip Layer > Remove Unused Clip Sources: the sources no layer uses go
+' off the list (kept for undo; a save never writes them).
+SUB CLIP_sources_purge ()
+    DIM s AS INTEGER, n AS INTEGER
+    FOR s = 1 TO CLIP_SRC_N
+        IF CLIP_SRC(s).strip < -1 _ANDALSO CLIP_SRC(s).gone = 0 THEN
+            IF CLIP_src_users%(s) = 0 THEN CLIP_SRC(s).gone = TRUE: n = n + 1
+        END IF
+    NEXT s
+    IF n = 0 THEN STATUS_flash "No unused clip sources" ELSE STATUS_flash "Removed" + STR$(n) + " unused clip source" + _IIF(n = 1, "", "s") + " from the list"
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
 ''
 ' Update Clip from Bin (fromBin) / from AnimBrush: the clip's cels become the
 ' Drawer bin's they came from / the current AnimBrush's. A new source, so undo
@@ -578,7 +718,7 @@ SUB CLIP_update (fromBin AS INTEGER)
 END SUB
 
 ''
-' Actions 2620-2631.
+' Actions 2620-2637.
 SUB CLIP_action (act AS INTEGER)
     SELECT CASE act
         CASE CLIP_ACT_PLACE: CLIP_place_start
@@ -586,6 +726,12 @@ SUB CLIP_action (act AS INTEGER)
         CASE CLIP_ACT_UPD_BIN: CLIP_update TRUE
         CASE CLIP_ACT_UPD_AB: CLIP_update FALSE
         CASE CLIP_ACT_MAKE: CLIP_make
+        CASE CLIP_ACT_SOURCES: CLIP_sources_show
+        CASE CLIP_ACT_SRC_PREV: CLIP_src_step -1
+        CASE CLIP_ACT_SRC_NEXT: CLIP_src_step 1
+        CASE CLIP_ACT_SRC_RENAME: CLIP_src_rename
+        CASE CLIP_ACT_SRC_LAYERS: CLIP_src_select_layers
+        CASE CLIP_ACT_PURGE: CLIP_sources_purge
         CASE CLIP_ACT_MODE0 TO CLIP_ACT_MODE0 + 4: CLIP_set 5, act - CLIP_ACT_MODE0
         CASE CLIP_ACT_FLIP_X: CLIP_set 6, NOT CLIP_get&(6)
         CASE CLIP_ACT_FLIP_Y: CLIP_set 7, NOT CLIP_get&(7)
@@ -704,7 +850,7 @@ SUB CLIP_read_chunk (blob AS STRING)
             m = _MEMIMAGE(img): _MEMPUT m, m.OFFSET, MID$(s, p, bytes): _MEMFREE m
             IF CLIP_SRC(idx).strip < -1 THEN _FREEIMAGE CLIP_SRC(idx).strip
             CLIP_SRC(idx).strip = img: CLIP_SRC(idx).n = n: CLIP_SRC(idx).cw = cw: CLIP_SRC(idx).ch = ch
-            CLIP_SRC(idx).binSlot = bs: CLIP_SRC(idx).nm = nm
+            CLIP_SRC(idx).binSlot = bs: CLIP_SRC(idx).nm = nm: CLIP_SRC(idx).gone = 0
             IF idx > CLIP_SRC_N THEN CLIP_SRC_N = idx
         END IF
         p = p + bytes
@@ -744,7 +890,8 @@ END FUNCTION
 ' QA dump lines (DOCK_DUMP):
 '   CLIP slot src in out start every mode flipX flipY px py   (one per clip layer)
 '   CLIPC slot cels         the cel each frame shows ("." none, cel 10+ as letters)
-'   CLIPS src n cw ch bin name  (each source; bin = the Drawer bin it came from, 0 = none)
+'   CLIPS src n cw ch bin name  (each source on the list; bin = the Drawer bin it came from, 0 = none)
+'   CLIPSU src:users ...  (the clip layers using each listed source)
 '   CLIPP placing
 ' ---------------------------------------------------------------------------
 FUNCTION CLIP_dump$ ()
@@ -773,8 +920,13 @@ FUNCTION CLIP_dump$ ()
         END IF
     NEXT i
     FOR i = 1 TO CLIP_SRC_N
-        IF CLIP_SRC(i).strip < -1 THEN s = s + "CLIPS" + STR$(i) + STR$(CLIP_SRC(i).n) + STR$(CLIP_SRC(i).cw) + STR$(CLIP_SRC(i).ch) + STR$(CLIP_SRC(i).binSlot) + " " + AB_us$(AB_clean$(CLIP_SRC(i).nm)) + lf
+        IF CLIP_src_listed%(i) THEN s = s + "CLIPS" + STR$(i) + STR$(CLIP_SRC(i).n) + STR$(CLIP_SRC(i).cw) + STR$(CLIP_SRC(i).ch) + STR$(CLIP_SRC(i).binSlot) + " " + AB_us$(AB_clean$(CLIP_SRC(i).nm)) + lf
     NEXT i
+    cs = "CLIPSU" ' each listed source's users: src:layers
+    FOR i = 1 TO CLIP_SRC_N
+        IF CLIP_src_listed%(i) THEN cs = cs + " " + _TRIM$(STR$(i)) + ":" + _TRIM$(STR$(CLIP_src_users%(i)))
+    NEXT i
+    s = s + cs + lf
     CLIP_dump$ = s
 END FUNCTION
 

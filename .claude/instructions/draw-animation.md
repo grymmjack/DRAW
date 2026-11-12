@@ -1284,7 +1284,18 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   `CLIP_XS_KEY` (a new negative key a press - never an Animation panel press key), so a drag is
   one undo step. Out dragged to the last frame = 0 (to the end). Dump `ANIMXSCL slot y xa xb in
   out` (NOT `ANIMXSC`: that one is the SOUND clips'). Test `QA/tests/clip-xsheet.sh` (9).
-- **Phase 2** (not built yet): clip sound cues, Clip Sources list.
+- **Clip sources** (2632-2637, `CLIP_src_*` / `CLIP_sources_*`): the Animation panel's SOURCE
+  row (`ANIMPM` place 7, `ANIMP_CTL_CLSRC0` 60-63, `ANIMP_cl_src_x`) has `<` / `>` (the current
+  clip's previous / next listed source - `CLIP_set 10`, one undo step; Start Cel clamps), RENAME
+  (input box; every clip on that source shows it; not an undo step) and LAYERS (multi-selects
+  every clip layer on the source). ANIM > Clip Layer > Clip Sources... is a `DRAW_alert` overview
+  (each source, its cels / size, the layers using it); Remove Unused Clip Sources sets
+  `CLIP_SRC().gone` on unused sources. A gone source stays in memory for undo and comes back on
+  the list as soon as a layer uses it again (`CLIP_src_listed%`); a save writes only used sources.
+  The panel info line adds the layer count when a source is shared. Dump: `CLIPS` lists only
+  listed sources; `CLIPSU src:users ...`. `CLIP_current%` is an instance index - tests read the
+  current layer's clip via `LPANEL` field 3. Test `QA/tests/clip-sources.sh`.
+- **Phase 2** (not built yet): clip sound cues.
 
 ## Gotchas met here
 

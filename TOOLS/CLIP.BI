@@ -35,6 +35,12 @@ CONST CLIP_ACT_FLIP_Y  = 2628
 CONST CLIP_ACT_UPD_BIN = 2629 ' ANIM > Clip Layer > Update Clip from Bin (the Drawer bin its cels came from)
 CONST CLIP_ACT_UPD_AB  = 2630 ' ANIM > Clip Layer > Update Clip from AnimBrush (the current AnimBrush's cels)
 CONST CLIP_ACT_MAKE    = 2631 ' ANIM > Clip Layer > Make Clip from Selected Frames (pick up, cut, place)
+CONST CLIP_ACT_SOURCES = 2632 ' ANIM > Clip Layer > Clip Sources... (every source, the layers using it)
+CONST CLIP_ACT_SRC_PREV = 2633 ' the current clip: the previous / next source (Animation panel SOURCE row)
+CONST CLIP_ACT_SRC_NEXT = 2634
+CONST CLIP_ACT_SRC_RENAME = 2635 ' rename the current clip's source
+CONST CLIP_ACT_SRC_LAYERS = 2636 ' select every layer using the current clip's source
+CONST CLIP_ACT_PURGE   = 2637 ' ANIM > Clip Layer > Remove Unused Clip Sources
 
 TYPE CLIP_SRC_OBJ
     nm      AS STRING * 32
@@ -42,7 +48,8 @@ TYPE CLIP_SRC_OBJ
     n       AS INTEGER
     cw      AS INTEGER
     ch      AS INTEGER
-    binSlot AS INTEGER ' the Drawer slot it came from (0 = none; for Update from Bin, phase 2)
+    binSlot AS INTEGER ' the Drawer slot it came from (0 = none; Update Clip from Bin)
+    gone    AS INTEGER ' Remove Unused Clip Sources took it off the list (kept for undo; never saved)
 END TYPE
 
 TYPE CLIP_INST_OBJ
