@@ -150,6 +150,8 @@ his decisions (2026-11-12, all four as recommended):
 | 5 | Brush file format | PNG strip + frame data in DRAW's PNG chunk (Load: GIF, APNG, sheet); sets in .dset; sprite sheet export writes Aseprite-style JSON (frameTags); documents read Aseprite / TexturePacker JSON on open | Save an AnimBrush; export it as GIF / APNG / sheet + JSON; read Aseprite / TexturePacker JSON in AnimBrush Load | **Chunk stays native**, JSON on export / import only |
 | 6 | Personas | Workspaces: menus (ROOTS= / HIDE_ITEMS=), keys, toolbars, panels; `--workspace NAME`; switcher (2400) + status badge; Animate, Annotate, Default, Simple ship | Sprite and Scene presets, a one-click switch button, ANIM menu split (60 rows + 2 flyouts scroll) | **Workspaces are the personas** (no rename) |
 
+Clip layer design note: **PLANS/CLIP-LAYERS.md** (2026-11-12, waiting on Rick's answers to its open questions).
+
 Order: 1 (hold-B pickup, all-frames range, tag names) -> clip layer design note -> clip layer ->
 keyframe / modulator spec -> personas. Reference: Pro Motion NG anim painting
 (https://www.cosmigo.com/promotion/docs/onlinehelp/animPainting.htm) - its "keyframes" are
