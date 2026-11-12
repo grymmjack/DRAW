@@ -47,7 +47,8 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2506 | Play / stop (`ANIM_VIEW_play_toggle`) |
 | 2507 | Preview Shows Frame (`CFG.PREVIEW_SHOWS_FRAME`) |
 | 2519 | Lightbox on / off (`CFG.LIGHTBOX`, Num 0) |
-| 2520 | Lightbox panes 3 → 5 → 7 (`CFG.LIGHTBOX_PANES`, Num *) |
+| 2520 | Lightbox panes 1 → 3 → 5 → 7 (`CFG.LIGHTBOX_PANES`, Num *; 1 = the big frame) |
+| 2593 | Big Frame + X-Sheet (`ANIM_LB_big_toggle`: lightbox on, 1 pane, X-sheet on; again = 3 panes; checked = `ANIM_LB_big_on%`). Rick 2026-11-12: "see the XSHEET without the lightbox ... a single cell that spans the entire bottom area ... like DP". One pane needs nothing else: every pane loop is `current + k - panes \ 2`, and panes already zoom / pan (lightbox zoom). Test `anim-big-frame.sh` |
 | 2521 | Clip strokes to the frame in the lightbox (`CFG.CLIP_FRAME_LIGHTBOX`, on by default) |
 | 2522 | Clip strokes to the frame in sheet view (`CFG.CLIP_FRAME_SHEET`, off by default) |
 | 2523-2526 | Copy / Cut / Paste Frames as New / Paste Frames Over (`ANIM_OPS_clip_action`, 2.5) |

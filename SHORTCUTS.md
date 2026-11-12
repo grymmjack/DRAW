@@ -569,7 +569,7 @@ Main-row digits keep setting opacity; `Alt+Home` / `Alt+End` no longer flip.
 Add Blank Frame · Insert Frame Before / After · Duplicate Frame · Delete Frame · Move Frame
 Earlier / Later · Reverse Frames · Copy Frames · Cut Frames · Paste Frames as New · Paste
 Frames Over · Replace FG Color with BG in Frames · Frame Grid · Preview Shows Frame · Lightbox · Lightbox
-Panes 3 / 5 / 7 · Onion Skin · Onion Skin Red / Blue Tint · Clip Strokes to the Frame in the Lightbox · Clip Strokes to the Frame in
+Panes 1 / 3 / 5 / 7 · X-Sheet · Big Frame + X-Sheet · Onion Skin · Onion Skin Red / Blue Tint · Clip Strokes to the Frame in the Lightbox · Clip Strokes to the Frame in
 Sheet View · Reference Layer (the current layer: shown, left out of every export; `[R]` in the
 layers panel) · Layer Same on Every Frame (the current layer's drawing on every frame - draw in
 any frame and it lands on all of them; `[=]`) · Link Cells (the current layer: with frames selected, their cells all show the first selected frame's drawing; with one frame, it links to the frame before. Paint any linked cell and the others change with it; linked cells are hatched in sheet view and the X-sheet) · Unlink Cells (the selected frames' cells keep their pixels and stop following). · Tag Frames... (name the selected frames; see Tags below) · Delete Tag · Frame Note... (the current frame's note; see Frame notes below) · Clear Frame Note · Soundtrack... (a WAV / OGG / MP3 / FLAC / MIDI that plays with the frames; see Soundtrack below) · Remove Soundtrack · Detect Frames (a sprite sheet without frames: finds the frame grid from the gaps between the sprites - frame size, gutter, margin - and slices it there) · Import PNG Sequence... (pick any file of name_0001.png, name_0002.png ...: they all come in as frames, a repeated file as a held frame). A marquee or wand selection inside the current frame moves with it to the next frame (same place in the cell). Export Animated GIF... (frames in loop order, holds, transparency, colour cycling) · Export Animated PNG (APNG)... (exact delays, every alpha level) · Export PNG Sequence... (one PNG per tick at the FPS) · Export BAS Player (DATA)... (a QB64 program that plays the frames, colour cycling along) · Export BAS Player + Sheet PNG... (the same, the frames cut out of a PNG beside it) · Export Sprite Sheet + Frame Data... (the sheet PNG + Aseprite-style JSON + a QB64 .bi of the frame rects) · Export Scale 1× / 2× / 4×. (Also View → Frame Grid
@@ -593,9 +593,12 @@ The panel docks and floats like the other windows (drag its title bar; F11 hides
 The **Animate** workspace (`Ctrl+Shift+W`, `anim`) opens it with onion skin, the frame grid and the Animation panel; leaving it puts your own view back.
 
 The work area shows the frames instead of the sheet: a **strip** of frames along the top
-(the current one outlined; it scrolls to keep it in view), the **transport bar**, and 3 / 5 / 7
+(the current one outlined; it scrolls to keep it in view), the **transport bar**, and 1 / 3 / 5 / 7
 **panes** (`Num *`) with the current frame in the middle and the frames before / after it
-round it. You can draw in any pane: the one your stroke goes into (under the pointer) has a
+round it. **One pane** is the big frame: the current frame alone fills the area, zoomed and
+panned like any pane (`Ctrl+wheel`, the Zoom tool) - for a large picture, or compositing in one
+spot the way Deluxe Paint animates. **ANIM → Big Frame + X-Sheet** switches straight to one pane
+with the X-sheet above it (again = back to 3 panes). You can draw in any pane: the one your stroke goes into (under the pointer) has a
 thick magenta ring with a dashed edge (theme `ANIM_FRAME_DRAWING`). The frame keys, Play and frame operations work as in sheet view. A floating window
 parked on the work area's left or right edge over the strip (a Color Mixer, say) moves the
 lightbox over beside it.

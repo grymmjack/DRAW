@@ -8,7 +8,7 @@
 '     outlined, scrolled to keep it in view (Q-10)
 '   - the transport bar: |< < PLAY > >|, loop mode, time, FPS, seek bar,
 '     current / total, COPY PASTE CUT, +
-'   - the editor: 3 / 5 / 7 panes (Q-08), the current frame in the middle,
+'   - the editor: 1 / 3 / 5 / 7 panes (Q-08), the current frame in the middle,
 '     the frames before and after it round it
 ' Every picture is cut from the composited sheet (the same composite the
 ' Preview window reads), so the lightbox shows exactly what sheet view does.
@@ -27,7 +27,8 @@
 $INCLUDEONCE
 
 CONST ANIM_ACT_LIGHTBOX = 2519 ' ANIM > Lightbox (Num 0)
-CONST ANIM_ACT_LB_PANES = 2520 ' ANIM > Lightbox Panes 3 / 5 / 7 (Num *)
+CONST ANIM_ACT_LB_PANES = 2520 ' ANIM > Lightbox Panes 1 / 3 / 5 / 7 (Num *)
+CONST ANIM_ACT_BIG_FRAME = 2593 ' ANIM > Big Frame + X-Sheet: one pane filling the area under the X-sheet
 CONST ANIM_ACT_CLIP_LB  = 2521 ' ANIM > Clip Strokes to the Frame in the Lightbox (R-06; on by default)
 CONST ANIM_ACT_CLIP_SHEET = 2522 ' ANIM > Clip Strokes to the Frame in Sheet View (off by default)
 ' Onion skin (2.6, R-09: the lightbox only): the current pane shows up to

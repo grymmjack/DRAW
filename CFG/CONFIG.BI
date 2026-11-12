@@ -358,7 +358,7 @@ TYPE DRAW_CONFIG
     FRAME_GRID                      AS INTEGER        ' Animation: show the frame grid (cell borders, numbers, current frame) on a sheet with frames (View > Frame Grid)
     LIGHTBOX                        AS INTEGER        ' Animation: lightbox view (strip, transport bar, 3/5/7 panes) on a sheet with frames (ANIM > Lightbox, Num 0)
     XSHEET                          AS INTEGER        ' Animation: the lightbox's top band is the X-sheet (frames x layers), not the strip (ANIM > X-Sheet, Num 8)
-    LIGHTBOX_PANES                  AS INTEGER        ' Animation: lightbox editor panes 3 / 5 / 7 (ANIM > Lightbox Panes, Num *)
+    LIGHTBOX_PANES                  AS INTEGER        ' Animation: lightbox editor panes 1 / 3 / 5 / 7 (ANIM > Lightbox Panes, Num *; 1 = ANIM > Big Frame + X-Sheet)
     LB_STRIP_PCT                    AS SINGLE         ' Animation: the lightbox's frame strip, % of the height the transport bar leaves (0 = auto); drag its edge
     LB_STRIP_FLOW                   AS INTEGER        ' Animation: the strip's cells: 0 a tray (across, then down), 1 one row (across only)
     LB_STRIP_MIN_CELL               AS INTEGER        ' Animation: the tray shrinks its cells to fit every frame, down to this height (px)

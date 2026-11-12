@@ -140,7 +140,7 @@ if [[ "${LB_SHOWN:-}" == -1 ]]; then
     lb_read
     [[ "$A_CUR" == 4 ]] && lb_panes_expect "3|4|5" "Num 5: the panes follow (3 4 5)" || fail "Num 5: current $A_CUR"
 
-    # -- Num *: 5 panes, then 7, then 3 --
+    # -- Num *: 5 panes, then 7, then 1 (the big frame, 2026-11-12), then 3 --
     lb_key KP_Multiply
     lb_read
     [[ "$LB_P" == 5 ]] && lb_panes_expect "2|3|4|5|6" "Num *: 5 panes round frame 4" || fail "Num *: panes $LB_P, wanted 5"
@@ -149,6 +149,8 @@ if [[ "${LB_SHOWN:-}" == -1 ]]; then
     [[ "$A_CUR" == 1 ]] && lb_panes_expect "||1|2|3" "Num 1: frame 1 in the middle, nothing before it" || fail "Num 1: current $A_CUR"
     lb_key KP_Multiply
     lb_read; [[ "$LB_P" == 7 ]] && pass "Num * again: 7 panes" || fail "panes $LB_P, wanted 7"
+    lb_key KP_Multiply
+    lb_read; [[ "$LB_P" == 1 ]] && lb_panes_expect "1" "Num * again: 1 pane, the current frame (big frame)" || fail "panes $LB_P, wanted 1"
     lb_key KP_Multiply
     lb_read; [[ "$LB_P" == 3 ]] && pass "Num * again: back to 3 panes" || fail "panes $LB_P, wanted 3"
 
