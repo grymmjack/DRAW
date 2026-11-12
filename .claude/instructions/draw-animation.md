@@ -1272,8 +1272,11 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   top left in the first picked frame, Out = first + n - 1 (0 when that is the last frame), mode
   Loop - the frames look the same. One history group. Refused on a non-IMAGE layer. Test
   `QA/tests/clip-make.sh` (12). `CLIP_place_at` = `CLIP_place_core%(f, x, y, 0, -1)`.
-- **Phase 2** (not built yet): X-sheet clip row, dropping a GIF / APNG on the canvas as a clip,
-  clip sound cues, Clip Sources list.
+- **Drop on the canvas** (`CLIP_drop_file%`, INPUT/DROP route 0c): an animated GIF / APNG
+  with the document's frames on = Place as Clip at the frame under the pointer, centred. Only
+  GIF / APNG: a `.draw` with frames still opens as a document and a PNG sheet still stamps
+  (a row-of-squares PNG would be misread as frames). Test `QA/tests/clip-drop.sh` (9).
+- **Phase 2** (not built yet): X-sheet clip row, clip sound cues, Clip Sources list.
 
 ## Gotchas met here
 

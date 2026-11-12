@@ -24,6 +24,11 @@ OS. Shift state comes from `MODIFIERS.shift%`.
    squares - becomes an AnimBrush in the hovered bin (if empty, else the first free one) via
    `AB_drop_on_bin%` (TOOLS/ANIM-BRUSH). FALSE (no frames) → the routes below as before, so a
    plain picture still makes a one-picture brush and a `.draw` without frames still opens.
+0c. `REGION_CANVAS` (after the Drawer route): an animated GIF / APNG (2+ frames) while the
+   document has 2+ frames → `CLIP_drop_file%` (TOOLS/CLIP): it becomes the AnimBrush and is
+   placed as a clip layer, cel 1 in the frame under the pointer, centred on it. FALSE (not a
+   GIF / APNG, one frame, no frames in the document) → the routes below: a `.draw` still opens,
+   a plain PNG still stamps. Test `QA/tests/clip-drop.sh`.
 1. `.drawlayer` → `LAYERXFER_deserialize%` (new layer). `.draw` → `DRW_load` (document).
    Both bypass targeting **except** a menu-bar drop of an openable file.
 2. `REGION_MENUBAR` (not `.drawlayer`) → `INSTANCE_launch_new_with_file` opens it in a new
