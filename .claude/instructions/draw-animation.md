@@ -1320,7 +1320,19 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   (LOOP / REV n steps, PING 2n-2, ONCE / HOLD none). A hidden clip layer, or one in a hidden
   group (`CLIP_layer_heard%`), is silent. Dump `ANIMSCG n (slot ms file)...`. Test
   `QA/tests/clip-cues-play.sh` (incl. the BAS export's mixed WAV onset).
-- **Phase 2** (not built yet): cue UI + X-sheet SOUND row (K9), bake keeps them (K10).
+- **Sound cue UI** (K9): Animation panel clip rows 8-9 (`ANIMPM` places): SOUND `CEL START LOOP`
+  (`ANIMP_CTL_CLSND0` 64-66 → actions 2638-2640, `ANIMP_cl_snd_x`) and the sound list (the picked
+  sound in words, `< > X` = `ANIMP_CTL_CLCUE0` 67-69 → 2642-2644, `ANIMP_cl_cue_x`;
+  `CLIP_CUE_PICK` / `CLIP_cue_picked%`, a new cue becomes the picked one; X = `CLIP_cue_del`, one
+  undo step). `ANIMPC` now ends with x w of the SOURCE (4), SOUND (3) and list (3) chips. X-sheet:
+  a clip layer whose source has sounds gets a read-only **SOUND row** under it, stored in
+  `ANIM_XS_ROW` as **-slot** (`ANIM_XS_ROW` / `ANIM_XS_DEPTH` are `2 * MAX_LAYERS` long);
+  `ANIM_XS_row_slot%` returns ABS (so menus / selection act on its layer); a press on it only
+  makes the layer current and picks the frame (no drag). `ANIM_XS_cl_snd_row` draws a mark + flag
+  at each generated clip's start, names after it ("A+B", "A+1", "A" as room allows), MUTED when
+  the layer is not heard. ANIMXSL / ANIMXSR skip sound rows; dump `ANIMXSQ slot y heard ms...`,
+  `CLIPQP pick`. Test `QA/tests/clip-cues-ui.sh`.
+- **Phase 2** (not built yet): bake keeps the sounds (K10), edit a source's cels (K10a).
 
 ## Gotchas met here
 

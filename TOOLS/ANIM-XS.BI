@@ -105,7 +105,9 @@ TYPE ANIM_XS_OBJ
     cOut0    AS INTEGER
 END TYPE
 DIM SHARED ANIM_XS AS ANIM_XS_OBJ
-DIM SHARED ANIM_XS_ROW(1 TO MAX_LAYERS) AS INTEGER   ' layer slot of row r (display order)
-DIM SHARED ANIM_XS_DEPTH(1 TO MAX_LAYERS) AS INTEGER ' its group depth (indent)
+' layer slot of row r (display order); -slot = the read-only SOUND row under a
+' clip layer with sounds (TOOLS/CLIP K9) - ANIM_XS_row_slot% gives its layer
+DIM SHARED ANIM_XS_ROW(1 TO 2 * MAX_LAYERS) AS INTEGER
+DIM SHARED ANIM_XS_DEPTH(1 TO 2 * MAX_LAYERS) AS INTEGER ' its group depth (indent)
 DIM SHARED ANIM_XS_FILL(1 TO MAX_LAYERS) AS STRING   ' per layer slot: per frame "1" drawn, "0" empty, " " not known yet
 DIM SHARED ANIM_XS_BOXES(1 TO MAX_LAYERS) AS STRING    ' per layer slot: per frame 16 bytes, MKL$ x y w h of the box round its drawing (buffer coords), set with a "1" in ANIM_XS_FILL

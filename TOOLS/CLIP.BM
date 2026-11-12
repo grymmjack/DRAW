@@ -792,6 +792,7 @@ SUB CLIP_cue_add (kind AS INTEGER)
     NEXT i
     before = CLIP_state$(CURRENT_LAYER%)
     IF CLIP_cue_put%(s, kind, c, f) = 0 THEN EXIT SUB
+    CLIP_CUE_PICK = CLIP_cues_of%(s) ' the panel's list shows the new one
     CLIP_record before, lbl
     SELECT CASE kind
         CASE CLIP_CUEK_CEL: lbl = " plays whenever cel" + STR$(c) + " shows"
@@ -799,6 +800,83 @@ SUB CLIP_cue_add (kind AS INTEGER)
         CASE ELSE: lbl = " plays each time the clip starts over"
     END SELECT
     STATUS_flash "Clip sound: " + CLIP_cue_name$(f) + lbl
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' The table index of source s's j-th cue (0 = none).
+FUNCTION CLIP_cue_nth% (s AS INTEGER, j AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO CLIP_CUE_N
+        IF CLIP_CUE_SRC(i) = s THEN
+            n = n + 1
+            IF n = j THEN CLIP_cue_nth% = i: EXIT FUNCTION
+        END IF
+    NEXT i
+END FUNCTION
+
+''
+' Cue i in words: "STEP.WAV ON CEL 3" / "AT START" / "EVERY LOOP".
+FUNCTION CLIP_cue_desc$ (i AS INTEGER)
+    DIM t AS STRING
+    IF i < 1 _ORELSE i > CLIP_CUE_N THEN EXIT FUNCTION
+    t = UCASE$(CLIP_cue_name$(CLIP_CUE_PATH(i)))
+    SELECT CASE CLIP_CUE_KIND(i)
+        CASE CLIP_CUEK_CEL: t = t + " ON CEL" + STR$(CLIP_CUE_CELN(i))
+        CASE CLIP_CUEK_ONCE: t = t + " AT START"
+        CASE ELSE: t = t + " EVERY LOOP"
+    END SELECT
+    CLIP_cue_desc$ = t
+END FUNCTION
+
+''
+' The current clip's picked sound (CLIP_CUE_PICK, kept in 1..its count; 0 = it has none).
+FUNCTION CLIP_cue_picked% ()
+    DIM k AS INTEGER, n AS INTEGER
+    k = CLIP_current%: IF k = 0 THEN EXIT FUNCTION
+    n = CLIP_cues_of%(CLIP_INST(k).src)
+    IF n = 0 THEN EXIT FUNCTION
+    IF CLIP_CUE_PICK < 1 THEN CLIP_CUE_PICK = 1
+    IF CLIP_CUE_PICK > n THEN CLIP_CUE_PICK = n
+    CLIP_cue_picked% = CLIP_CUE_PICK
+END FUNCTION
+
+''
+' The panel's sound list: the previous (-1) / next (1) sound of the current clip.
+SUB CLIP_cue_step (dir AS INTEGER)
+    DIM k AS INTEGER, n AS INTEGER, j AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    n = CLIP_cues_of%(CLIP_INST(k).src)
+    IF n = 0 THEN STATUS_flash "This clip has no sounds - SOUND: CEL / START / LOOP adds one": EXIT SUB
+    j = CLIP_cue_picked% + SGN(dir)
+    IF j < 1 THEN j = n
+    IF j > n THEN j = 1
+    CLIP_CUE_PICK = j
+    STATUS_flash "Clip sound" + STR$(j) + " of" + STR$(n) + ": " + CLIP_cue_desc$(CLIP_cue_nth%(CLIP_INST(k).src, j))
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' The panel's sound list: remove the picked sound. One undo step.
+SUB CLIP_cue_del ()
+    DIM k AS INTEGER, s AS INTEGER, i AS INTEGER, j AS INTEGER, before AS STRING, t AS STRING
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    j = CLIP_cue_picked%
+    IF j = 0 THEN STATUS_flash "This clip has no sounds": EXIT SUB
+    i = CLIP_cue_nth%(s, j)
+    IF i = 0 THEN EXIT SUB
+    t = CLIP_cue_desc$(i)
+    before = CLIP_state$(CURRENT_LAYER%)
+    FOR j = i TO CLIP_CUE_N - 1
+        CLIP_CUE_SRC(j) = CLIP_CUE_SRC(j + 1): CLIP_CUE_KIND(j) = CLIP_CUE_KIND(j + 1)
+        CLIP_CUE_CELN(j) = CLIP_CUE_CELN(j + 1): CLIP_CUE_PATH(j) = CLIP_CUE_PATH(j + 1)
+    NEXT j
+    CLIP_CUE_PATH(CLIP_CUE_N) = "": CLIP_CUE_SRC(CLIP_CUE_N) = 0: CLIP_CUE_N = CLIP_CUE_N - 1
+    CLIP_record before, "Remove Clip Sound"
+    STATUS_flash "Removed the clip sound " + t
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -946,7 +1024,7 @@ SUB CLIP_update (fromBin AS INTEGER)
 END SUB
 
 ''
-' Actions 2620-2641.
+' Actions 2620-2644.
 SUB CLIP_action (act AS INTEGER)
     SELECT CASE act
         CASE CLIP_ACT_PLACE: CLIP_place_start
@@ -964,6 +1042,9 @@ SUB CLIP_action (act AS INTEGER)
         CASE CLIP_ACT_CUE_ONCE: CLIP_cue_add CLIP_CUEK_ONCE
         CASE CLIP_ACT_CUE_LOOP: CLIP_cue_add CLIP_CUEK_LOOP
         CASE CLIP_ACT_CUE_CLEAR: CLIP_cue_clear
+        CASE CLIP_ACT_CUE_PREV: CLIP_cue_step -1
+        CASE CLIP_ACT_CUE_NEXT: CLIP_cue_step 1
+        CASE CLIP_ACT_CUE_DEL: CLIP_cue_del
         CASE CLIP_ACT_MODE0 TO CLIP_ACT_MODE0 + 4: CLIP_set 5, act - CLIP_ACT_MODE0
         CASE CLIP_ACT_FLIP_X: CLIP_set 6, NOT CLIP_get&(6)
         CASE CLIP_ACT_FLIP_Y: CLIP_set 7, NOT CLIP_get&(7)
@@ -1149,6 +1230,7 @@ END FUNCTION
 '   CLIPC slot cels         the cel each frame shows ("." none, cel 10+ as letters)
 '   CLIPS src n cw ch bin name  (each source on the list; bin = the Drawer bin it came from, 0 = none)
 '   CLIPSU src:users ...  (the clip layers using each listed source)
+'   CLIPQP pick  (the Animation panel's picked sound of the current clip)
 '   CLIPQ src kind cel name  (each sound cue: kind 0 on cel, 1 when the clip starts, 2 each time it starts over)
 '   CLIPP placing
 ' ---------------------------------------------------------------------------
@@ -1188,6 +1270,7 @@ FUNCTION CLIP_dump$ ()
     FOR i = 1 TO CLIP_CUE_N ' each sound cue: source kind cel file name
         s = s + "CLIPQ" + STR$(CLIP_CUE_SRC(i)) + STR$(CLIP_CUE_KIND(i)) + STR$(CLIP_CUE_CELN(i)) + " " + CLIP_cue_name$(CLIP_CUE_PATH(i)) + lf
     NEXT i
+    s = s + "CLIPQP" + STR$(CLIP_cue_picked%) + lf ' the panel's picked sound (0 = none)
     CLIP_dump$ = s
 END FUNCTION
 

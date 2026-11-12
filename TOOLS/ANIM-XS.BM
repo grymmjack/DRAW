@@ -42,13 +42,17 @@ SUB ANIM_XS_rows_build ()
     FOR z = LAYER_COUNT% TO 1 STEP -1
         FOR i = 1 TO MAX_LAYERS
             IF LAYERS(i).imgHandle& <> 0 _ANDALSO LAYERS(i).zIndex% = z THEN
-                IF LAYER_PANEL_row_hidden%(i) = 0 _ANDALSO n < MAX_LAYERS THEN
+                IF LAYER_PANEL_row_hidden%(i) = 0 _ANDALSO n < 2 * MAX_LAYERS THEN
                     n = n + 1: ANIM_XS_ROW(n) = i
                     d = 0: p = LAYERS(i).parentGroupIdx%
                     DO WHILE p > 0 _ANDALSO p <= MAX_LAYERS _ANDALSO d < 8
                         d = d + 1: p = LAYERS(p).parentGroupIdx%
                     LOOP
                     ANIM_XS_DEPTH(n) = d
+                    p = CLIP_inst_of%(i) ' a clip layer with sounds: its SOUND row under it
+                    IF p _ANDALSO n < 2 * MAX_LAYERS THEN
+                        IF CLIP_cues_of%(CLIP_INST(p).src) > 0 THEN n = n + 1: ANIM_XS_ROW(n) = -i: ANIM_XS_DEPTH(n) = d + 1
+                    END IF
                 END IF
                 EXIT FOR
             END IF
@@ -60,6 +64,7 @@ END SUB
 ''
 ' A row's label: the name, a group's with "/", then [R] / [=].
 FUNCTION ANIM_XS_label$ (slot AS INTEGER)
+    IF slot < 0 THEN ANIM_XS_label$ = "SOUND": EXIT FUNCTION ' a clip layer's SOUND row
     ANIM_XS_label$ = _TRIM$(LAYERS(slot).name) + ANIM_XS_label_tail$(slot)
 END FUNCTION
 
@@ -77,6 +82,7 @@ END FUNCTION
 FUNCTION ANIM_XS_label_fit$ (r AS INTEGER, w AS INTEGER)
     DIM slot AS INTEGER, nm AS STRING, tl AS STRING, n AS INTEGER
     slot = ANIM_XS_ROW(r)
+    IF slot < 0 THEN ANIM_XS_label_fit$ = _IIF(FPANEL_text_w%("SOUND") <= w, "SOUND", ""): EXIT FUNCTION
     nm = _TRIM$(LAYERS(slot).name): tl = ANIM_XS_label_tail$(slot)
     IF FPANEL_text_w%(nm + tl) <= w THEN ANIM_XS_label_fit$ = nm + tl: EXIT FUNCTION
     n = LEN(nm)
@@ -560,6 +566,14 @@ SUB ANIM_XS_render (dest AS LONG)
         IF r > ANIM_XS.nRows THEN EXIT FOR
         slot = ANIM_XS_ROW(r)
         y = ANIM_XS_row_y%(k)
+        IF slot < 0 THEN ' a clip layer's SOUND row (read-only): where its sounds start
+            DIM sx AS INTEGER, sw AS INTEGER
+            ANIM_XS_label_room r, sx, sw
+            FPANEL_text sx, y + (lh - FPANEL.fontH%) \ 2, ANIM_XS_label_fit$(r, sw), THEME.CP_text_dim~&
+            ANIM_XS_cl_snd_row -slot, y
+            LINE (ANIM_XS.x1, y + lh - 1)-(x2, y + lh - 1), (THEME.CP_border~& AND &H00FFFFFF~&) OR &H60000000~&
+            _CONTINUE
+        END IF
         IF slot = CURRENT_LAYER% THEN
             fg = THEME.CP_text_bright~&
         ELSEIF LAYERS(slot).visible% = 0 THEN
@@ -1001,7 +1015,7 @@ FUNCTION ANIM_XS_tip% (mx AS INTEGER, my AS INTEGER, l1 AS STRING, l2 AS STRING)
         IF k >= 1 _ANDALSO k <= ANIM_XS.nRows THEN
             DIM lx AS INTEGER, lw AS INTEGER
             ANIM_XS_label_room k, lx, lw
-            IF mx >= lx _ANDALSO mx < lx + lw _ANDALSO ANIM_XS_label_fit$(k, lw) <> ANIM_XS_label$(ANIM_XS_ROW(k)) THEN
+            IF ANIM_XS_ROW(k) > 0 _ANDALSO mx >= lx _ANDALSO mx < lx + lw _ANDALSO ANIM_XS_label_fit$(k, lw) <> ANIM_XS_label$(ANIM_XS_ROW(k)) THEN
                 l1 = _TRIM$(LAYERS(ANIM_XS_ROW(k)).name)
                 l2 = _IIF(LAYERS(ANIM_XS_ROW(k)).layerType% = LAYER_TYPE_GROUP, "Group", "Layer") + " - drag the column's edge to widen it"
                 ANIM_XS_tip% = 4000 + ANIM_XS_ROW(k)
@@ -1277,7 +1291,7 @@ END FUNCTION
 FUNCTION ANIM_XS_row_slot% (k AS INTEGER)
     IF k < 1 _ORELSE k > ANIM_XS.rowsShown THEN EXIT FUNCTION
     IF ANIM_XS.firstRow + k - 1 > ANIM_XS.nRows THEN EXIT FUNCTION
-    ANIM_XS_row_slot% = ANIM_XS_ROW(ANIM_XS.firstRow + k - 1)
+    ANIM_XS_row_slot% = ABS(ANIM_XS_ROW(ANIM_XS.firstRow + k - 1)) ' (a SOUND row: its clip layer)
 END FUNCTION
 
 ''
@@ -1298,6 +1312,14 @@ FUNCTION ANIM_XS_press% (mx AS INTEGER, my AS INTEGER)
     c = ANIM_LB_ctrl%: s = ANIM_LB_shift%
     ANIM_XS.dMode = XS_DRAG_NONE: ANIM_XS.dOn = FALSE: ANIM_XS.dCollapse = FALSE
     ANIM_XS.dPressX = mx: ANIM_XS.dPressY = my: ANIM_XS.dFrame = f: ANIM_XS.dSlot = 0: ANIM_XS.dTo = 0: ANIM_XS.dToSlot = 0
+    IF k >= 1 _ANDALSO k <= ANIM_XS.rowsShown _ANDALSO slot > 0 THEN ' a clip layer's SOUND row: read-only - its layer, the frame
+        IF ANIM_XS_ROW(ANIM_XS.firstRow + k - 1) < 0 THEN
+            IF slot <> CURRENT_LAYER% THEN LAYERS_select slot
+            IF f > 0 THEN ANIM_SEL_click f, c, s
+            ANIM_LB_changed
+            EXIT FUNCTION
+        END IF
+    END IF
     IF slot > 0 _ANDALSO mx < ANIM_XS.gx THEN IF ANIM_XS_ctl_press%(mx, my, slot) THEN EXIT FUNCTION ' eye / lock / opacity (F5)
     IF k = 0 _ANDALSO mx < ANIM_XS.gx THEN ' the header's name cell: the zoom slider
         IF ANIM_XS_zoom_press%(mx, my) THEN ANIM_LB_changed
@@ -1578,6 +1600,59 @@ SUB ANIM_XS_cl_row (slot AS INTEGER, y AS INTEGER)
 END SUB
 
 ''
+' A clip layer's SOUND row (TOOLS/CLIP K9; read-only): a mark where each of its
+' sounds starts (the generated soundtrack clips), the file's name after it
+' while there is room; MUTED when the layer is hidden. Edit the sounds in the
+' Animation panel's clip rows.
+SUB ANIM_XS_cl_snd_row (slot AS INTEGER, y AS INTEGER)
+    DIM gi AS INTEGER, gj AS INTEGER, x AS INTEGER, nx AS INTEGER, lh AS INTEGER, t AS STRING, tw AS INTEGER
+    DIM edge AS _UNSIGNED LONG, fg AS _UNSIGNED LONG, x2 AS INTEGER, first AS INTEGER, t1 AS STRING, nSame AS INTEGER
+    lh = ANIM_XS.layH: x2 = ANIM_XS.x2
+    edge = THEME.ANIM_FRAME_current~&: fg = THEME.CP_text_dim~&
+    IF CLIP_layer_heard%(slot) = 0 THEN
+        FPANEL_text ANIM_XS.gx + 4, y + (lh - FPANEL.fontH%) \ 2, "MUTED (THE LAYER IS HIDDEN)", fg
+        EXIT SUB
+    END IF
+    FOR gi = 1 TO ANIM_SC_GN
+        IF ANIM_SC_GSLOT(gi) = slot THEN
+            x = ANIM_XS_ms_x%(ANIM_SC_AT(ANIM_SC_MAX + gi))
+            IF x >= ANIM_XS.gx _ANDALSO x + 1 <= x2 THEN
+
+                LINE (x, y + 2)-(x + 1, y + lh - 3), edge, BF
+                LINE (x + 2, y + 2)-(_MIN(x + 5, x2), y + 4), edge, BF ' a little flag
+                ' the names: the first mark at an x shows every sound starting there
+                ' ("A+B"), up to the next mark further on
+                first = TRUE
+                FOR gj = 1 TO gi - 1
+                    IF ANIM_SC_GSLOT(gj) = slot THEN
+                        IF ANIM_XS_ms_x%(ANIM_SC_AT(ANIM_SC_MAX + gj)) = x THEN first = FALSE: EXIT FOR
+                    END IF
+                NEXT gj
+                IF first THEN
+                    nx = x2: t = "": t1 = "": nSame = 0
+                    FOR gj = gi TO ANIM_SC_GN
+                        IF ANIM_SC_GSLOT(gj) = slot THEN
+                            IF ANIM_XS_ms_x%(ANIM_SC_AT(ANIM_SC_MAX + gj)) = x THEN
+                                nSame = nSame + 1
+                                IF t1 = "" THEN t1 = UCASE$(CLIP_cue_name$(ANIM_SC_PATH(ANIM_SC_MAX + gj)))
+                                t = t + _IIF(t = "", "", "+") + UCASE$(CLIP_cue_name$(ANIM_SC_PATH(ANIM_SC_MAX + gj)))
+                            ELSEIF ANIM_XS_ms_x%(ANIM_SC_AT(ANIM_SC_MAX + gj)) > x THEN
+                                nx = ANIM_XS_ms_x%(ANIM_SC_AT(ANIM_SC_MAX + gj)): EXIT FOR
+                            END IF
+                        END IF
+                    NEXT gj
+                    ' all the names, else the first + how many more, else the first
+                    IF x + 7 + FPANEL_text_w%(t) >= nx - 2 _ANDALSO nSame > 1 THEN t = t1 + "+" + _TRIM$(STR$(nSame - 1))
+                    IF x + 7 + FPANEL_text_w%(t) >= nx - 2 THEN t = t1
+                    tw = FPANEL_text_w%(t)
+                    IF x + 7 + tw < nx - 2 THEN FPANEL_text x + 7, y + (lh - FPANEL.fontH%) \ 2, t, fg
+                END IF
+            END IF
+        END IF
+    NEXT gi
+END SUB
+
+''
 ' A plain press on a clip layer's row (it is the current layer now): on an end
 ' (3 px) = drag it, inside the bar = slide it.
 SUB ANIM_XS_cl_press (slot AS INTEGER, mx AS INTEGER)
@@ -1813,18 +1888,28 @@ FUNCTION ANIM_XS_dump$ ()
     ' ANIMXSCL slot y xa xb in out: each clip layer's bar in view (TOOLS/CLIP, K5; y = its row)
     FOR r = ANIM_XS.firstRow TO _MIN(ANIM_XS.nRows, ANIM_XS.firstRow + ANIM_XS.rowsShown - 1)
         slot = ANIM_XS_ROW(r)
-        DIM cla AS INTEGER, clb AS INTEGER, cia AS INTEGER, cib AS INTEGER
-        IF ANIM_XS_cl_span%(slot, cla, clb, xa, xb, cia, cib) THEN d = d + "ANIMXSCL" + DOCK_n$(slot) + DOCK_n$(ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1)) + DOCK_n$(xa) + DOCK_n$(xb) + DOCK_n$(cla) + DOCK_n$(clb) + CHR$(10)
+        DIM cla AS INTEGER, clb AS INTEGER, cia AS INTEGER, cib AS INTEGER, gi AS INTEGER
+        IF slot < 0 THEN ' ANIMXSQ slot y heard ms...: a clip layer's SOUND row (K9), where its sounds start
+            d = d + "ANIMXSQ" + DOCK_n$(-slot) + DOCK_n$(ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1)) + DOCK_n$(CLIP_layer_heard%(-slot) <> 0)
+            FOR gi = 1 TO ANIM_SC_GN
+                IF ANIM_SC_GSLOT(gi) = -slot THEN d = d + DOCK_n$(ANIM_SC_AT(ANIM_SC_MAX + gi))
+            NEXT gi
+            d = d + CHR$(10)
+        ELSEIF ANIM_XS_cl_span%(slot, cla, clb, xa, xb, cia, cib) THEN
+            d = d + "ANIMXSCL" + DOCK_n$(slot) + DOCK_n$(ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1)) + DOCK_n$(xa) + DOCK_n$(xb) + DOCK_n$(cla) + DOCK_n$(clb) + CHR$(10)
+        END IF
     NEXT r
     ' ANIMXSL eyeX lockX opX opW, then per row (<= 64): slot visible opacityLock opacity% (F5)
     d = d + "ANIMXSL" + DOCK_n$(ANIM_XS.x1 + XS_EYE_X) + DOCK_n$(ANIM_XS.x1 + XS_LOCK_X) + DOCK_n$(ANIM_XS_op_x%) + DOCK_n$(ANIM_XS_op_w%)
     FOR r = 1 TO _MIN(ANIM_XS.nRows, 64)
         slot = ANIM_XS_ROW(r)
+        IF slot < 0 THEN _CONTINUE ' (a SOUND row: ANIMXSQ)
         d = d + DOCK_n$(slot) + DOCK_n$(LAYERS(slot).visible% <> 0) + DOCK_n$(LAYERS(slot).opacityLock% <> 0) + DOCK_n$(ANIM_XS_op_pct%(slot))
     NEXT r
     d = d + CHR$(10)
     FOR r = 1 TO _MIN(ANIM_XS.nRows, 64)
         slot = ANIM_XS_ROW(r)
+        IF slot < 0 THEN _CONTINUE ' (a SOUND row: ANIMXSQ)
         y = -1
         IF r >= ANIM_XS.firstRow _ANDALSO r < ANIM_XS.firstRow + ANIM_XS.rowsShown THEN y = ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1)
         IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN

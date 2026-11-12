@@ -45,6 +45,9 @@ CONST CLIP_ACT_CUE_CEL  = 2638 ' ANIM > Clip Layer > Sound on This Cel... (the c
 CONST CLIP_ACT_CUE_ONCE = 2639 ' ANIM > Clip Layer > Sound When the Clip Starts... (its In frame, once)
 CONST CLIP_ACT_CUE_LOOP = 2640 ' ANIM > Clip Layer > Sound Each Time the Clip Starts Over... (In, and every loop)
 CONST CLIP_ACT_CUE_CLEAR = 2641 ' ANIM > Clip Layer > Remove the Clip's Sounds (every cue of its source)
+CONST CLIP_ACT_CUE_PREV = 2642 ' the Animation panel's sound list: the previous / next sound, remove it (K9)
+CONST CLIP_ACT_CUE_NEXT = 2643
+CONST CLIP_ACT_CUE_DEL  = 2644
 
 TYPE CLIP_SRC_OBJ
     nm      AS STRING * 32
@@ -89,6 +92,7 @@ DIM SHARED CLIP_CUE_PATH(1 TO CLIP_CUE_MAX) AS STRING
 ' makes them generated soundtrack clips (ANIM_SC_MAX + 1 ..) when anything
 ' they hang on changed - the clips, the cues, a layer shown / hidden, the
 ' frames' timing. A hidden clip layer (or one in a hidden group) is silent.
+DIM SHARED CLIP_CUE_PICK AS INTEGER ' the sound the panel's list shows (1.. of the current clip's source)
 DIM SHARED CLIP_CUE_GSIG AS STRING
 DIM SHARED CLIP_CUE_GFULL AS INTEGER ' the last make ran out of room (ANIM_GC_MAX): said once
 
