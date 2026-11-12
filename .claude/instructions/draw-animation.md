@@ -1332,7 +1332,13 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   at each generated clip's start, names after it ("A+B", "A+1", "A" as room allows), MUTED when
   the layer is not heard. ANIMXSL / ANIMXSR skip sound rows; dump `ANIMXSQ slot y heard ms...`,
   `CLIPQP pick`. Test `QA/tests/clip-cues-ui.sh`.
-- **Phase 2** (not built yet): bake keeps the sounds (K10), edit a source's cels (K10a).
+- **Bake keeps the sounds** (K10): `CLIP_bake` lists the layer's sounds (`CLIP_cue_events%`, heard
+  or not, the way `CLIP_cues_gen` makes them) and, when there are any, asks (`DRAW_confirm%`; Enter =
+  Yes, Esc = No) whether to keep them as ordinary soundtrack clips on `CLIP_free_track%` (the first
+  track with no clips, else track 4 - clips on a track mix). Yes = the bake's CLIP record + an
+  `ANIM_OPS_record` of the soundtrack in one history group (one Ctrl+Z); no room past
+  `ANIM_SC_MAX` = the rest left out, said in the status. Test `QA/tests/clip-bake-sound.sh`.
+- **Phase 2** (not built yet): edit a source's cels (K10a).
 
 ## Gotchas met here
 

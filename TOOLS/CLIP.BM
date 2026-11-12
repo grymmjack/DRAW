@@ -442,19 +442,91 @@ END FUNCTION
 ' Bake Clip to Pixels: the clip layer becomes a plain layer with the pixels it
 ' shows (one undo step; undo brings the clip back).
 SUB CLIP_bake ()
-    DIM before AS STRING, slot AS INTEGER
+    DIM before AS STRING, slot AS INTEGER, k AS INTEGER, n AS INTEGER, keep AS INTEGER, grp AS INTEGER
+    DIM trk AS INTEGER, i AS INTEGER, added AS INTEGER, sb AS STRING, msg AS STRING
     slot = CURRENT_LAYER%
-    IF CLIP_inst_of%(slot) = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    k = CLIP_inst_of%(slot)
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    ' its sounds (K10): keep them as soundtrack clips?
+    DIM sp(1 TO ANIM_GC_MAX) AS STRING, sat(1 TO ANIM_GC_MAX) AS LONG
+    n = CLIP_cue_events%(slot, sp(), sat())
+    IF n > 0 THEN
+        trk = CLIP_free_track%
+        POINTER_hide_for_dialog
+        keep = DRAW_confirm%("Bake Clip", "This clip plays" + STR$(n) + " sound" + _IIF(n = 1, "", "s") + "." + CHR$(10) + CHR$(10) + _
+            "Keep " + _IIF(n = 1, "it", "them") + " as ordinary soundtrack clips on track" + STR$(trk) + "?" + CHR$(10) + _
+            "(No: the baked layer is silent.)")
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+    END IF
+    IF keep _ANDALSO NOT HISTORY_IN_PROGRESS% _ANDALSO NOT HISTORY_GROUP_ACTIVE% THEN HISTORY_begin_group: grp = TRUE
     CLIP_rebuild slot ' the pixels it shows now
     before = CLIP_state$(slot)
     LAYERS(slot).layerType% = LAYER_TYPE_IMAGE
     CLIP_record before, "Bake Clip"
+    IF keep THEN
+        sb = ANIM_OPS_snapshot$(FALSE)
+        FOR i = 1 TO n
+            IF ANIM_SC_add%(sp(i), trk, sat(i), 0, 0) = 0 THEN EXIT FOR
+            added = added + 1
+        NEXT i
+        IF added > 0 THEN ANIM_OPS_record sb, ANIM_OPS_snapshot$(FALSE), "Bake Clip Sounds", 0: ANIM_SC_changed
+        IF grp THEN HISTORY_end_group
+        HISTORY_saved_this_frame% = TRUE
+    END IF
     LAYERS(slot).contentDirty% = TRUE
     BLEND_invalidate_cache
     INVALIDATE_canvas
     GUI_NEEDS_REDRAW% = TRUE
-    STATUS_flash "Clip baked to pixels: " + AB_clean$(LAYERS(slot).name)
+    msg = "Clip baked to pixels: " + AB_clean$(LAYERS(slot).name)
+    IF keep THEN
+        msg = msg + ";" + STR$(added) + " sound" + _IIF(added = 1, "", "s") + " on soundtrack track" + STR$(trk)
+        IF added < n THEN msg = msg + " (" + _TRIM$(STR$(n - added)) + " left out: at most" + STR$(ANIM_SC_MAX) + " soundtrack clips)"
+    END IF
+    STATUS_flash msg
 END SUB
+
+''
+' Clip layer slot's sounds, heard or not: each sound's file and the ms its
+' frame starts (the way CLIP_cues_gen makes them). How many (at most ANIM_GC_MAX).
+FUNCTION CLIP_cue_events% (slot AS INTEGER, sp() AS STRING, sat() AS LONG)
+    DIM k AS INTEGER, s AS INTEGER, f AS INTEGER, q AS INTEGER, lastF AS INTEGER, n AS INTEGER, acc AS DOUBLE
+    k = CLIP_inst_of%(slot)
+    IF k = 0 _ORELSE ANIM.active = 0 _ORELSE ANIM.count < 1 _ORELSE ANIM.fps < 1 THEN EXIT FUNCTION
+    s = CLIP_INST(k).src
+    IF s < 1 _ORELSE s > CLIP_SRC_N THEN EXIT FUNCTION
+    IF CLIP_cues_of%(s) = 0 THEN EXIT FUNCTION
+    DIM t(1 TO ANIM.count) AS LONG
+    FOR f = 1 TO ANIM.count
+        t(f) = INT(acc + 0.5): acc = acc + 1000# * ANIM_hold%(f) / ANIM.fps
+    NEXT f
+    lastF = CLIP_INST(k).outF: IF lastF < 1 _ORELSE lastF > ANIM.count THEN lastF = ANIM.count
+    FOR f = _MAX(1, CLIP_INST(k).inF) TO lastF
+        FOR q = 1 TO CLIP_CUE_N
+            IF CLIP_CUE_SRC(q) = s THEN
+                IF CLIP_cue_fires%(CLIP_CUE_KIND(q), CLIP_CUE_CELN(q), f, CLIP_SRC(s).n, CLIP_INST(k).every, CLIP_INST(k).startCel, CLIP_INST(k).inF, CLIP_INST(k).outF, CLIP_INST(k).mode) THEN
+                    IF n >= UBOUND(sp) THEN CLIP_cue_events% = n: EXIT FUNCTION
+                    n = n + 1: sp(n) = CLIP_CUE_PATH(q): sat(n) = t(f)
+                END IF
+            END IF
+        NEXT q
+    NEXT f
+    CLIP_cue_events% = n
+END FUNCTION
+
+''
+' A soundtrack track with no clips on it (else the last track: clips on one track mix).
+FUNCTION CLIP_free_track% ()
+    DIM t AS INTEGER, i AS INTEGER, used AS INTEGER
+    FOR t = 1 TO ANIM_SC_TRACKS
+        used = FALSE
+        FOR i = 1 TO ANIM_SC_N
+            IF ANIM_SC_TRK(i) = t THEN used = TRUE: EXIT FOR
+        NEXT i
+        IF used = FALSE THEN CLIP_free_track% = t: EXIT FUNCTION
+    NEXT t
+    CLIP_free_track% = ANIM_SC_TRACKS
+END FUNCTION
 
 ''
 ' An animated GIF / APNG dropped on the canvas (INPUT/DROP) while there are
