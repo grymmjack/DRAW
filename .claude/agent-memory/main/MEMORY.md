@@ -1,6 +1,6 @@
 - **[NEVER an error dialog - PERMANENT](feedback-no-error-dialogs.md) — every program traps its errors (ON ERROR); untrappable runtime alerts are prevented by guarding first; never cause them (don't kill a display a run still uses) (2026-10-11)**
 - **[Test scope - HARD RULE](feedback-test-scope.md) — run ONLY tests that might touch the change; FULL suite only overnight while Rick sleeps; >5 files = count + ETA and ASK (told 4x, last 2026-11-06)**
-- [zsh: test list is ONE arg](feedback-zsh-test-list-splitting.md) — unquoted `$FILES` in zsh made draw-qa.sh run all 425 tests; use a bash array, check the ETA count (2026-11-09)
+- [zsh: test list is ONE arg](feedback-zsh-test-list-splitting.md) — unquoted `$FILES` in zsh made draw-qa.sh run all 425 tests; use a bash array, check the ETA count; zsh has no `mapfile` (empty list = full suite) (2026-11-09, 2026-11-11)
 - **[Test with Rick's own profile](feedback-test-with-user-profile.md) — also run bug tests with HIS cfg/workspace/scale: `QA_USER_PROFILE=1 QA_USER_SCREEN=1152x648@3 QA_XVFB_RES=3840x2160` before saying "can't reproduce" (2026-11-06)**
 - [User background & collaboration style](user_background_and_collaboration.md) — career BASIC programmer, learning-mode, wants visibility not autonomy
 - [DRAW compile convention](feedback_draw_compile_convention.md) — build qb64pe in FOREGROUND, 600000ms timeout, never background
@@ -97,3 +97,4 @@
 - [Reply where the comment was](feedback-reply-where-comment-was.md) — check PR vs issue with gh before replying to pasted upstream feedback
 - [QA shares the real data dir](qa-data-dir-not-isolated.md) — [Linux] XDG_DATA_HOME is only isolated under QA_USER_PROFILE=1; scans must never create folders
 - [Palette typing loses keys on the slow profile](qa-palette-typing-loses-keys.md) — [Linux] long xdotool queries drop a key under QA_USER_PROFILE; short queries + read back + retry
+- [Driving DRAW reliably from scripts](qa-driving-draw-reliably.md) — [Linux] quick clicks, the palette's "?" and Alt+] get lost on slow frames; hold clicks, check POPUP cmdpalette before typing, verify stamps by ANIMC
