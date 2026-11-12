@@ -1,8 +1,8 @@
 # Clip layers - design note
 
-Status: **proposal, no code yet** (2026-11-12). Item 3 of the Round 3 handoff
-(PLANS/ANIMATION.md, "Round 3"). Rick picked "clip layer" over the other options; this note is how
-I'd build it. Please read the "Open questions" at the end before I start.
+Status: **agreed, phase 1 in progress** (2026-11-12). Item 3 of the Round 3 handoff
+(PLANS/ANIMATION.md, "Round 3"). Rick picked "clip layer" over the other options and answered the
+five questions (see "Decisions" at the end); this note is the build plan.
 
 ## In one paragraph
 
@@ -176,6 +176,29 @@ Clear the source and instance tables (and free the strips) in all three:
 
 A step in `clip-place.sh` checks it: place a clip, File > New, then no CLIP lines.
 
+## Sound (phase 2; lanes in phase 3)
+
+Rick, 2026-11-12: "can each clip have its own soundtrack(s), like a regular root animation?" Yes,
+the same way as its pixels: **generated** from the clip.
+
+- A clip source carries **sound cues**, two kinds:
+  - **On cel**: sound S plays whenever cel k shows (footsteps on cels 2 and 6 of a walk; they
+    follow the clip's rate, start cel, mode, In / Out).
+  - **With the clip**: sound S starts on the clip's In frame, once or again on every loop.
+- On rebuild, the cues expand to ordinary soundtrack clips at the frames where they fire
+  (`ANIM_SC_*`), on a generated track per clip layer. The existing player, scrubbing, the
+  waveform rows and the .bas mix then work unchanged.
+- X-sheet: the clip's sound shows as a read-only SOUND row under its layer; edit the cues in the
+  clip's rows of the Animation panel. Hiding the clip layer mutes it.
+- Saved in drCl with the source; the sound files are found the way soundtrack files are
+  (`ANIM_SS_*`). The document limits (4 tracks, 32 files) need a look: generated tracks should
+  probably not count against the 4.
+- Bake to Pixels asks whether to keep the sound as ordinary soundtrack clips.
+- **Later, with the keyframe lanes (phase 3)**: lanes for volume, pan, pitch, length and loop
+  type on each cue. Volume and pan can be set on a playing sound in QB64-PE; pitch has no
+  built-in control, so DRAW would resample the sound itself (easy in the export mix, harder for
+  live playback).
+
 ## Keyframe lanes later (own spec)
 
 The instance is where lanes attach. Each property (pos X / Y, scale X / Y, rotation, opacity,
@@ -198,8 +221,11 @@ Phase 1 keeps that door open, but ships none of it.
    - painting refused; frame ops remap In / Out
    - drCl save / load; undo (CLIP kind, rasterize, frame-op snapshots)
    - QA dumps; the three document paths; manual section and SHORTCUTS rows
-2. **Editing**:
+2. **Editing and sound**:
    - the X-sheet clip row with In / Out drag
+   - sound cues (see "Sound")
+   - drop an animated GIF / APNG / .draw with frames on the canvas = Place as Clip (a drop on the
+     Drawer already makes an AnimBrush in that bin)
    - Update from Bin; Make Clip from Selected Frames
    - a Clip Sources list (rename, see which layers use a source)
    - edit a source's cels: open them as a sheet, then Apply
@@ -230,17 +256,12 @@ Existing tests to rerun:
 
 That is about 22 files. I'll give the count and an ETA before running.
 
-## Open questions for Rick
+## Decisions (Rick, 2026-11-12)
 
-1. **Where the cels live.** You said "a bin brush reference". I'd **copy** the cels into the
-   document (a shared source table) and keep the bin slot only so "Update from Bin" knows
-   where to look. A live reference to a bin breaks when the bin changes or the file goes to
-   someone without your drawer. OK?
-2. **Once mode after the last cel**: empty (my pick, since Hold covers "stay on the last
-   cel"), or hold?
-3. **Where it starts**: In = the frame you click in (my pick), or always frame 1?
-4. **Painting on a clip**: refuse with a message (my pick), or offer "Bake and paint"?
-5. **Settings UI for phase 1**: rows in the Animation panel (my pick), or a dialog? The panel
-   already swaps its rows: frame rows normally, the Move Brush rows (FRAMES, MOVE XYZ, TURN XYZ,
-   SIZE %, OPACITY, TINT %, CEL EVERY) while the Move Brush is on. Clip rows would show the same
-   way while the current layer is a clip layer.
+| # | Question | Answer |
+| --- | --- | --- |
+| 1 | Where the cels live | **Copied into the document** (a shared source table); the bin slot is kept only for Update from Bin |
+| 2 | Once mode after the last cel | **Nothing** (the clip is gone); Hold keeps the last cel |
+| 3 | Where a placed clip starts | **The frame you click in** (In = that frame) |
+| 4 | Painting on a clip | **Refused with a message** |
+| 5 | Settings UI in phase 1 | **Animation panel rows**, shown while a clip layer is the current layer, the way the Move Brush rows replace the frame rows |

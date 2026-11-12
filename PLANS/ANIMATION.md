@@ -150,7 +150,21 @@ his decisions (2026-11-12, all four as recommended):
 | 5 | Brush file format | PNG strip + frame data in DRAW's PNG chunk (Load: GIF, APNG, sheet); sets in .dset; sprite sheet export writes Aseprite-style JSON (frameTags); documents read Aseprite / TexturePacker JSON on open | Save an AnimBrush; export it as GIF / APNG / sheet + JSON; read Aseprite / TexturePacker JSON in AnimBrush Load | **Chunk stays native**, JSON on export / import only |
 | 6 | Personas | Workspaces: menus (ROOTS= / HIDE_ITEMS=), keys, toolbars, panels; `--workspace NAME`; switcher (2400) + status badge; Animate, Annotate, Default, Simple ship | Sprite and Scene presets, a one-click switch button, ANIM menu split (60 rows + 2 flyouts scroll) | **Workspaces are the personas** (no rename) |
 
-Clip layer design note: **PLANS/CLIP-LAYERS.md** (2026-11-12, waiting on Rick's answers to its open questions).
+Clip layer design note: **PLANS/CLIP-LAYERS.md** (2026-11-12; Rick answered its questions, phase 1 in progress).
+
+Rick's notes, 2026-11-12:
+- **Workflow buttons (item 6):** the ANIM menu is too dense. Put workflow buttons at the top of the
+  toolbox (e.g. SPRITE | ANIMATE | EXPORT | ANNOTATE), each slot set by the user to the workspace
+  it switches to. Workspaces already switch menus (ROOTS= / HIDE_ITEMS=), keys, toolbars and panels,
+  and each has a switch action (WS_ACT_SLOT0 + n, placeable as `cmd:<id>` in Customize Toolbars,
+  but numbered by list order and drawn with a generic icon); the named, assignable slots are new.
+  Rick may write more on this.
+- **Drops (item 5):** an animated GIF / APNG / .draw with frames dropped on the Drawer already
+  makes an AnimBrush (INPUT/DROP.BM -> AB_drop_on_bin%). Dropping one on the canvas to place it as a
+  clip layer goes in clip phase 2.
+- **Clip sound:** each clip can carry its own sounds, generated into soundtrack clips like its
+  pixels; volume / pan / pitch / length / loop lanes come with the keyframe lanes (CLIP-LAYERS.md,
+  "Sound").
 
 Order: 1 (hold-B pickup, all-frames range, tag names) -> clip layer design note -> clip layer ->
 keyframe / modulator spec -> personas. Reference: Pro Motion NG anim painting
