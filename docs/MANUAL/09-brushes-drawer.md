@@ -80,6 +80,27 @@ in through the last frame. In the same menu:
 - **Next Cel Every Frame / 2 / 3 / 4** - with an AnimBrush, how often it moves on to its next cel
   (a slow walk: every 2 frames).
 
+### The AnimBrush pack and example scenes
+
+DRAW ships with **`animbrush-pack`**, a Drawer brush set of 15 AnimBrushes: torch, campfire,
+smoke, star, firefly, flag, bat, ghost, owl, waterfall, splash, ripple, grass, butterfly and
+bird. Pick it from the Drawer's brush set list; hovering a bin plays it, and the number in its
+corner is its cel count.
+
+To build a scene from it:
+
+1. **File → New Animation…** - choose a frame count every loop divides into (24 fits loops of
+   2, 3, 4, 6, 8 and 12 cels, so nothing jumps when the scene wraps).
+2. Draw the background in frame 1 and turn on **ANIM → Layer Same on Every Frame**.
+3. `Num 0` (the lightbox), then **ANIM → AnimBrush → Every Frame at Once**.
+4. For each thing that animates in place: a new layer (`Ctrl+Shift+N`), click its bin, press
+   `Alt+]` a few times so it is out of step with its neighbours, and click where it goes.
+5. For each thing that travels: **Move Brush**, drag its path, `Enter`.
+
+Three finished scenes built this way are in **`SAMPLES/ANIMBRUSH/scenes/`**: a castle at night,
+a campfire in the woods and a waterfall valley, every element on its own layer. Each brush is
+also in `SAMPLES/ANIMBRUSH/brushes/` as a strip with frame data, for **AnimBrush → Load…**.
+
 ### Transform controls
 
 | Action | Key |
