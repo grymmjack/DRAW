@@ -6,7 +6,8 @@
 #     and Shift ranges as in the grid, a drag drops above / below a row; the
 #     view is saved (SWATCHES_VIEW); GRID puts it back
 #   RECENT COLORS ROW: the FG colors used last, newest first, each once;
-#     click = FG, right-click = BG; kept across a restart
+#     click = FG, right-click = BG; kept across a restart; the gear's CLEAR
+#     RECENT COLORS empties it
 #   F over the panel / ☰ FIND FG COLOR: selects the FG's swatch (scrolled to),
 #     else the nearest in OKLab; the FG itself is not changed
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt SWATCHES_VISIBLE=1 SWATCHES_X=-1 SWATCHES_Y=-1 SWATCHES_W=0 SWATCHES_H=0 SWATCHES_SCALE=0 SWATCHES_COLS=0 SWATCHES_CELL=10 SWATCHES_GAP=1 SWATCHES_STRETCH=FALSE
@@ -77,6 +78,14 @@ grep -q '^SWATCHES_RECENT=TRUE' "$QA_CFG" && pass "SWATCHES_RECENT=TRUE saved" |
 sw_relaunch_saved
 sw_view; sw_expect "after a restart: the row" "$(( SV_RSHOWN > 0 ))" 1
 sw_expect "after a restart: the colors" "$(sw_rec_hexes | cut -d' ' -f1-3)" "$REC"
+# CLEAR RECENT COLORS (gear): the row empties, the config key too; the next FG starts it again
+sw_gear; sw_menu_click 19; sw_read
+sw_expect "CLEAR RECENT COLORS closes the menu" "$SW_MENU" 0
+sw_expect "CLEAR RECENT COLORS empties the row" "$(sw_rec_hexes)" ""
+sw_view; sw_expect "... the row itself stays on" "$(( SV_RSHOWN > 0 ))" 1
+sw_expect "SWATCHES_RECENT_COLORS cleared in the config" "$(grep '^SWATCHES_RECENT_COLORS' "$QA_CFG" | tr -d '[:space:]')" "SWATCHES_RECENT_COLORS="
+sw_click 9; dk_park; dk_settle
+sw_expect "after a clear, the next FG is the only recent" "$(sw_rec_hexes)" "003C00"
 
 # --- FIND FG ---
 sw_click 5; sw_hover_panel; key Escape; dk_settle; sw_sel

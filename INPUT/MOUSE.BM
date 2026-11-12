@@ -1384,6 +1384,12 @@ SUB MOUSE_handle_b3_dblclick_reset_zoom ()
     ' can't leak through a panel that isn't in the hand-maintained list above.
     IF REGION_hit_test%(mx%, my%) > REGION_CANVAS THEN EXIT SUB
 
+    ' Ctrl+Alt+Shift+middle-click: the overlay opacities back as configured
+    IF MOUSE.B3% _ANDALSO MOUSE.OLD_B3% = 0 _ANDALSO MODIFIERS.ctrlShiftAlt% THEN
+        GRID_fade_reset
+        MOUSE.B3_CLICK_TIME# = 0 ' not half of a double-click
+        EXIT SUB
+    END IF
     IF MOUSE.B3% AND NOT MOUSE.OLD_B3% THEN
         DIM clickTime AS DOUBLE
         clickTime# = TIMER
@@ -1605,6 +1611,7 @@ SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
     ' is rebindable (MB_PAN, default 3 = middle); MOUSE_button_down% maps it to state.
     DIM allowB3Pan AS INTEGER
     allowB3Pan% = MOUSE_button_down%(MOUSE_intent_button%(MB_PAN, 3), FALSE)
+    IF MODIFIERS.ctrlShiftAlt% _ANDALSO SCRN.panning% = 0 THEN allowB3Pan% = FALSE ' Ctrl+Alt+Shift+middle-click resets the overlay fade
     IF allowB3Pan% AND NOT SCRN.panning% THEN
         ' Only block on pan START (not while already panning)
         IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN allowB3Pan% = FALSE
@@ -4393,6 +4400,11 @@ SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
         ' Check if over status bar area (don't zoom when over status bar) - use RAW screen coords
         ELSEIF SCRN.showStatus% AND rawY% >= SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% THEN
             MOUSE.SW% = 0    ' Consume — ignored
+        ' CTRL+ALT+SHIFT: the grid, pixel grid and checkerboard opacity together
+        ' (session only; Ctrl+Alt+Shift+middle-click resets - GRID_fade_*)
+        ELSEIF MODIFIERS.ctrlShiftAlt% THEN
+            IF MOUSE.SW% <> 0 THEN GRID_fade_step -SGN(MOUSE.SW%) ' wheel up (SW < 0): stronger
+            MOUSE.SW% = 0    ' Consume
         ' Check if CTRL+SHIFT is held for reference image / canvas border opacity adjustment
         ELSEIF MODIFIERS.ctrl% AND MODIFIERS.shift% THEN
             ' Adjust canvas border opacity
@@ -5700,14 +5712,21 @@ SUB MOUSE_handle_gui_panels (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS IN
     END IF
 
     ' Swatches panel (floats above the docked panels; GUI/SWATCHES)
-    IF SWP.visible _ANDALSO SWP.autoHidden = 0 _ANDALSO BROWSER_owns_mouse%(rawX%, rawY%) = 0 _ANDALSO (SWP.menu <> SWP_MENU_NONE _ORELSE WZ_blocked%(DP_SWATCH, rawX%, rawY%) = 0) THEN
+    IF SWP.swallow _ORELSE (SWP.visible _ANDALSO SWP.autoHidden = 0 _ANDALSO BROWSER_owns_mouse%(rawX%, rawY%) = 0 _ANDALSO (SWP.menu <> SWP_MENU_NONE _ORELSE WZ_blocked%(DP_SWATCH, rawX%, rawY%) = 0)) THEN
+        ' A press while one of its menus is open belongs to the menu, even when
+        ' the press closes it (an item, a chip, a click outside): it must not
+        ' reach the toolbox / Drawer / layers under it, on this frame or until
+        ' the buttons are up (Rick 2026-11-11: SORT > HUE clicked the T tool).
+        DIM swpMenuWas AS INTEGER, swpPress AS INTEGER
+        swpMenuWas = (SWP.menu <> SWP_MENU_NONE)
+        swpPress = (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) OR (MOUSE.B3% AND NOT MOUSE.OLD_B3%)
         IF SWP_owns_mouse%(rawX%, rawY%) THEN SWP_mouse_input
         IF wheel_delta% <> 0 THEN IF SWP_wheel%(wheel_delta%) THEN wheel_delta% = 0
-        IF SWP_hit_window%(rawX%, rawY%) _ORELSE SWP.menu <> SWP_MENU_NONE THEN
-            IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) OR (MOUSE.B3% AND NOT MOUSE.OLD_B3%) THEN
-                MOUSE.UI_CHROME_CLICKED% = TRUE
-            END IF
+        IF SWP_hit_window%(rawX%, rawY%) _ORELSE swpMenuWas _ORELSE SWP.menu <> SWP_MENU_NONE THEN
+            IF swpPress THEN MOUSE.UI_CHROME_CLICKED% = TRUE
         END IF
+        IF swpMenuWas _ANDALSO swpPress THEN SWP.swallow = TRUE
+        IF SWP.swallow THEN MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB ' nothing under the menu sees this click
     END IF
 
     ' Customize Toolbars window (floats above the docked panels)
@@ -5884,6 +5903,13 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
         MOUSE_process_frame% = FALSE
         EXIT FUNCTION
     END IF
+    ' A Swatches menu has the pointer (open, or a press on one still held): the
+    ' dock, the Alt chrome eyedropper, the menu / text bars, symmetry Ctrl+click
+    ' and the scroll bars under it leave the click alone - the panel takes it in
+    ' MOUSE_handle_gui_panels (Rick 2026-11-11: SORT > HUE clicked the T tool)
+    DIM swpMenuBusy AS INTEGER
+    swpMenuBusy = SWP_menu_busy%
+    IF swpMenuBusy = 0 THEN
     ' Side-dock edges: grab / drag / drop resizes a docked panel (GUI/DOCK-RESIZE).
     ' Before gui_early and the panels so the press isn't also a panel click;
     ' DOCK_edge_at% stays inert under menus, popups and floating windows.
@@ -5922,16 +5948,17 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
         MOUSE_process_frame% = FALSE
         EXIT FUNCTION
     END IF
+    END IF ' swpMenuBusy = 0
 
     ' CTRL+click sets symmetry center
-    MOUSE_handle_symmetry_ctrl_click
+    IF swpMenuBusy = 0 THEN MOUSE_handle_symmetry_ctrl_click
 
     ' Set drawing color based on active mouse button
     ' Left button (B1) uses foreground, Right button (B2) uses background
     MOUSE_update_draw_color
 
     ' Scrollbar interaction (before other GUI panels so scrollbar clicks are consumed)
-    IF SCROLLBAR_handle_mouse%(rawX%, rawY%, MOUSE.B1%, MOUSE.OLD_B1%) THEN
+    IF swpMenuBusy = 0 _ANDALSO SCROLLBAR_handle_mouse%(rawX%, rawY%, MOUSE.B1%, MOUSE.OLD_B1%) THEN
         MOUSE.UI_CHROME_CLICKED% = TRUE
         MOUSE_process_frame%     = FALSE
         EXIT FUNCTION
@@ -5939,17 +5966,17 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
 
     MOUSE_handle_gui_panels rawX%, rawY%, wheel_delta%
 
-    MOUSE_handle_alt_picker rawX%, rawY%
+    IF swpMenuBusy = 0 THEN MOUSE_handle_alt_picker rawX%, rawY%
 
     ' Spacebar temporary pan tool switch
     MOUSE_handle_space_pan
 
     ' Double middle-click reset + UI auto-hide/restore
-    MOUSE_handle_b3_dblclick_reset_zoom
+    IF swpMenuBusy = 0 THEN MOUSE_handle_b3_dblclick_reset_zoom
     MOUSE_handle_ui_autohide_restore rawX%, rawY%
 
-    ' Pan mode (spacebar + LMB OR MMB OR PAN tool + LMB)
-    MOUSE_handle_panning rawX%, rawY%
+    ' Pan mode (spacebar + LMB OR MMB OR PAN tool + LMB) - not from a press on a Swatches menu
+    IF swpMenuBusy = 0 _ORELSE SCRN.panning% THEN MOUSE_handle_panning rawX%, rawY%
 
     ' Smart-shapes / sub-tool flyout intercepts all input while open
     IF SUBTOOL_FLYOUT.ACTIVE THEN

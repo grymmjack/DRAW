@@ -7,6 +7,8 @@
 #   - an item runs on the selection and closes the menu (DELETE)
 #   - Shift+right-click on an unselected swatch selects it alone and opens the
 #     menu at the pointer; on a selected one the selection stays
+#   - OVERWRITE WITH FG sets the selection in place (locked kept, an empty
+#     cell becomes a color); INS OVERWRITES swaps Ins / Shift+Ins
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt SWATCHES_VISIBLE=1 SWATCHES_X=-1 SWATCHES_Y=-1 SWATCHES_W=0 SWATCHES_H=0 SWATCHES_SCALE=0 SWATCHES_SET=QA/fixtures/swatches-edit.gpl SWATCHES_COLS=0 SWATCHES_CELL=10 SWATCHES_GAP=1 SWATCHES_STRETCH=FALSE
 # =============================================================================
 source "$DRAW_ROOT/QA/dock-lib.sh"
@@ -71,5 +73,35 @@ sw_menu_edit; sw_menu_click 210; sw_read
 sw_expect "UNDO (the delete)" "$SW_N" 21
 sw_menu_edit; sw_menu_click 211; sw_read
 sw_expect "REDO" "$SW_N" 20
+
+# OVERWRITE WITH FG: the selected swatches become the FG in place - nothing
+# moves; a locked one is kept; an empty cell becomes a color. Entries now:
+# 3 Red 4, 4 Red 5, 10 Green 3, 11 Green 4 (locked), 19 the empty cell, 20 Gold.
+HEXB=$(sw_hexes)
+sw_click 3; sw_click 4 shift
+sw_strip_xy 0; click "$TX" "$TY"; dk_settle    # FG = the strip's black, the selection stays
+sw_menu_edit; sw_menu_click 225; sw_read
+sw_expect "OVERWRITE WITH FG: nothing inserted" "$SW_N" 20
+sw_cell 3; sw_expect "... entry 3 is the FG" "$C_HEX" "000000"
+sw_cell 4; sw_expect "... entry 4 is the FG" "$C_HEX" "000000"
+sw_cell 5; sw_expect "... entry 5 did not move" "$C_HEX" "B90000"
+sw_hover_panel; key ctrl+z; dk_settle
+sw_expect "Ctrl+Z puts them back" "$(sw_hexes)" "$HEXB"
+sw_click 10; sw_click 11 shift
+sw_strip_xy 0; click "$TX" "$TY"; dk_settle
+sw_menu_edit; sw_menu_click 225
+sw_cell 10; sw_expect "overwrite: an unlocked swatch changes" "$C_HEX" "000000"
+sw_cell 11; sw_expect "overwrite: the locked one is kept" "$C_HEX" "00D200"
+# INS OVERWRITES (a check row: the menu stays): Ins overwrites, Shift+Ins adds
+sw_menu_edit; sw_menu_click 26; sw_read
+sw_expect "INS OVERWRITES keeps the menu open" "$SW_MENU" 3
+key Escape; dk_settle
+grep -q '^SWATCHES_OVERWRITE=TRUE' "$QA_CFG" && pass "SWATCHES_OVERWRITE=TRUE saved" || fail "SWATCHES_OVERWRITE = $(grep '^SWATCHES_OVERWRITE' "$QA_CFG")"
+sw_click 19; sw_strip_xy 0; click "$TX" "$TY"; dk_settle
+sw_hover_panel; key Insert; dk_settle; sw_read
+sw_expect "Ins (overwrite on): nothing inserted" "$SW_N" 20
+sw_cell 19; sw_expect "Ins (overwrite on): the empty cell is a color now" "$C_KIND $C_HEX" "0 000000"
+sw_hover_panel; key shift+Insert; dk_settle; sw_read
+sw_expect "Shift+Ins (overwrite on): adds" "$SW_N" 21
 assert_window_exists
 info "=== Swatches: the edit menu PASSED ==="

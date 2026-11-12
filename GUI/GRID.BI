@@ -58,5 +58,11 @@ TYPE DRAW_PIXEL_GRID
 END TYPE
 
 DIM SHARED GRID       AS DRAW_GRID
+' Ctrl+Alt+Shift+wheel over the canvas: one shift (alpha units, -255..255)
+' on the grid's, the pixel grid's and the checkerboard's opacity together;
+' Ctrl+Alt+Shift+middle-click puts it back to 0 (each its configured value).
+' This session only - never saved (GRID_fade_* in GRID.BM).
+DIM SHARED OVERLAY_FADE AS INTEGER
+CONST OVERLAY_FADE_STEP = 16
 DIM SHARED PIXEL_GRID AS DRAW_PIXEL_GRID
 

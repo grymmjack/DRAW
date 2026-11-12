@@ -35,6 +35,7 @@ CONST SWP_ACT_STRIP_ADD     = 2605 ' ... added to the end of the strip (colors i
 CONST SWP_ACT_FROM_STRIP    = 2606 ' a new set in My Swatches from the strip's colors
 CONST SWP_ACT_FROM_IMAGE    = 2607 ' a new set from the image's colors (the selection's, if any)
 CONST SWP_ACT_LOSPEC        = 2608 ' browse Lospec; what you download also becomes a set
+CONST SWP_ACT_REC_CLEAR     = 2609 ' empty the recent colors row
 
 CONST SWP_MIN_W = 64  ' native px
 CONST SWP_MIN_H = 60
@@ -168,6 +169,7 @@ TYPE SWATCHES_PANEL_OBJ
     menuRowH  AS INTEGER
     menuVis     AS INTEGER ' rows it shows before it scrolls (set when it opens)
     menuAtMouse AS INTEGER ' the next SWP_menu_open opens at the pointer (Shift+right-click)
+    swallow     AS INTEGER ' a press made while a menu was open: nothing under it gets that click (until every button is up)
 END TYPE
 
 DIM SHARED SWP AS SWATCHES_PANEL_OBJ
@@ -181,7 +183,16 @@ TYPE SWP_MENU_ROW
     id    AS INTEGER ' what it does (SWP_menu_act)
     chk   AS INTEGER ' checked / the chosen chip (1-based)
     chips AS STRING  ' SWP_MI_CHIPS: "|"-separated choices
+    hotkey AS STRING ' shown right-aligned in its own column (SWP_menu_key)
 END TYPE
+' Menu row layout (native px), like the main menu's: item text and chip-row
+' labels share one left edge, hotkeys a right-aligned column.
+CONST SWP_MI_TEXT_X = 14
+CONST SWP_MI_KEY_GAP = 16 ' between the widest label and the hotkey column
+CONST SWP_MI_PAD_R = 12 ' right margin (clear of the scroll arrows)
+CONST SWP_CHIP_PAD = 10 ' a chip is its text + this wide
+CONST SWP_CHIP_GAP = 4 ' between chips
+CONST SWP_CHIP_LEAD = 10 ' between a chip row's label column and its first chip
 DIM SHARED SWP_MI(1 TO SWP_MENU_MAX) AS SWP_MENU_ROW
 
 ' undo / redo of swatch edits, per set (the key is the set's path): a

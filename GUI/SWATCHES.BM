@@ -159,9 +159,33 @@ END FUNCTION
 ''
 ' Does the panel take the mouse this frame (a drag, a menu, or over it)?
 FUNCTION SWP_owns_mouse% (rawX AS INTEGER, rawY AS INTEGER)
+    IF SWP.swallow THEN
+        IF MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 _ANDALSO MOUSE.B3% = 0 THEN SWP.swallow = FALSE ELSE SWP_owns_mouse% = TRUE: EXIT FUNCTION
+    END IF
     IF SWP.visible = 0 _ORELSE SWP.autoHidden _ORELSE SWP.initialized = 0 THEN EXIT FUNCTION
     IF SWP.dragging _ORELSE SWP.resizing _ORELSE SWP.sbDrag _ORELSE SWP.boxing _ORELSE SWP.dragArm _ORELSE SWP.menu <> SWP_MENU_NONE THEN SWP_owns_mouse% = TRUE: EXIT FUNCTION
     SWP_owns_mouse% = SWP_hit_window%(rawX, rawY)
+END FUNCTION
+
+''
+' A Swatches menu has the pointer: one is open, or a press made on one is still
+' held (SWP.swallow). Everything under it - the dock's edges and handles, the
+' menu bar, the scroll bars, the toolbox, the Drawer - leaves the click alone.
+FUNCTION SWP_menu_busy% ()
+    IF SWP.swallow THEN SWP_menu_busy% = TRUE: EXIT FUNCTION
+    SWP_menu_busy% = (SWP.visible <> 0 _ANDALSO SWP.autoHidden = 0 _ANDALSO SWP.menu <> SWP_MENU_NONE)
+END FUNCTION
+
+''
+' Is one of the panel's menus (set list, edit, gear) open, and drawn over
+' screen point (rawX, rawY)? Panels under it must not take hover there.
+FUNCTION SWP_menu_covers% (rawX AS INTEGER, rawY AS INTEGER)
+    DIM rs AS SINGLE
+    IF SWP.menu = SWP_MENU_NONE _ORELSE SWP.visible = 0 _ORELSE SWP.autoHidden THEN EXIT FUNCTION
+    rs = SWP.renderScale: IF rs <= 0 THEN rs = 1
+    IF rawX < SWP.menuX _ORELSE rawY < SWP.menuY THEN EXIT FUNCTION
+    IF rawX >= SWP.menuX + INT(SWP.menuW * rs) _ORELSE rawY >= SWP.menuY + INT(SWP_menu_rows_shown% * SWP.menuRowH * rs) THEN EXIT FUNCTION
+    SWP_menu_covers% = TRUE
 END FUNCTION
 
 
@@ -808,7 +832,20 @@ SUB SWP_menu_add (kind AS INTEGER, label AS STRING, id AS INTEGER, chk AS INTEGE
     SWP_MI(SWP.menuRows).id = id
     SWP_MI(SWP.menuRows).chk = chk
     SWP_MI(SWP.menuRows).chips = chips
+    SWP_MI(SWP.menuRows).hotkey = ""
 END SUB
+
+''
+' The hotkey of the row just added (drawn right-aligned, like the main menu).
+SUB SWP_menu_key (k AS STRING)
+    IF SWP.menuRows > 0 THEN SWP_MI(SWP.menuRows).hotkey = k
+END SUB
+
+''
+' Width of a chip showing t.
+FUNCTION SWP_chip_w% (t AS STRING)
+    SWP_chip_w% = FPANEL_text_w%(t) + SWP_CHIP_PAD
+END FUNCTION
 
 
 ''
@@ -874,6 +911,7 @@ SUB SWP_build_gear ()
     SWP_menu_add SWP_MI_CHECK, "SQUARE CELLS", 14, CFG.SWATCHES_SQUARE%, ""
     SWP_menu_add SWP_MI_CHECK, "CELL BORDERS", 15, CFG.SWATCHES_BORDER%, ""
     SWP_menu_add SWP_MI_CHECK, "RECENT COLORS ROW", 18, CFG.SWATCHES_RECENT%, ""
+    SWP_menu_add SWP_MI_ITEM, "CLEAR RECENT COLORS", 19, 0, ""
     SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
     SWP_menu_add SWP_MI_HEAD, "EDITING", 0, 0, ""
     SWP_menu_add SWP_MI_CHECK, "COLOR PANELS EDIT THE SELECTED", 17, CFG.SWATCHES_LIVE_EDIT%, ""
@@ -891,14 +929,21 @@ SUB SWP_build_edit ()
     DIM n AS LONG
     n = SWS_sel_count&
     SWP_menu_clear
+    ' row 1 stays the selection header (QA swatches-edit-menu reads it)
     IF n > 0 THEN SWP_menu_add SWP_MI_HEAD, _TRIM$(STR$(n)) + " SELECTED", 0, 0, "" ELSE SWP_menu_add SWP_MI_HEAD, "NOTHING SELECTED", 0, 0, ""
-    SWP_menu_add SWP_MI_ITEM, "ADD FG COLOR      INS", 201, 0, ""
-    SWP_menu_add SWP_MI_ITEM, "DELETE            DEL", 202, 0, ""
-    SWP_menu_add SWP_MI_ITEM, "LOCK / UNLOCK       L", 203, 0, ""
+    SWP_menu_add SWP_MI_CHIPS, "STEPS", 30, SWP_chip_now%(30), "4|5|6|8|10|12|16"
+    SWP_menu_add SWP_MI_CHIPS, "SORT", 31, 0, "HUE|LIGHT|SAT|LUMA|REV"
+    SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "ADD FG COLOR", 201, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "OVERWRITE WITH FG", 225, 0, ""
+    SWP_menu_add SWP_MI_CHECK, "INS OVERWRITES", 26, CFG.SWATCHES_OVERWRITE%, ""
+    SWP_menu_ins_keys
+    SWP_menu_add SWP_MI_ITEM, "DELETE", 202, 0, "": SWP_menu_key "DEL"
+    SWP_menu_add SWP_MI_ITEM, "LOCK / UNLOCK", 203, 0, "": SWP_menu_key "L"
     SWP_menu_add SWP_MI_ITEM, "DUPLICATE", 206, 0, ""
-    SWP_menu_add SWP_MI_ITEM, "EDIT COLOR...   DBL-CLICK", 212, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "EDIT COLOR...", 212, 0, "": SWP_menu_key "DBL-CLICK"
     SWP_menu_add SWP_MI_ITEM, "RENAME...", 213, 0, ""
-    SWP_menu_add SWP_MI_ITEM, "FIND FG COLOR       F", 224, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "FIND FG COLOR", 224, 0, "": SWP_menu_key "F"
     SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
     SWP_menu_add SWP_MI_ITEM, "INSERT EMPTY CELL", 204, 0, ""
     SWP_menu_add SWP_MI_ITEM, "INSERT ROW BREAK", 205, 0, ""
@@ -907,8 +952,6 @@ SUB SWP_build_edit ()
     SWP_menu_add SWP_MI_ITEM, "RAMP FIRST > LAST", 220, 0, ""
     SWP_menu_add SWP_MI_ITEM, "INSERT RAMP FG > BG", 221, 0, ""
     SWP_menu_add SWP_MI_ITEM, "INSERT OKLCH RAMP FROM FG", 222, 0, ""
-    SWP_menu_add SWP_MI_CHIPS, "STEPS", 30, SWP_chip_now%(30), "4|5|6|8|10|12|16"
-    SWP_menu_add SWP_MI_CHIPS, "SORT", 31, 0, "HUE|LIGHT|SAT|LUMA|REV"
     SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
     SWP_menu_add SWP_MI_ITEM, _IIF(n > 0, "SELECTED", "ALL") + " TO STRIP: REPLACE", 216, 0, ""
     SWP_menu_add SWP_MI_ITEM, _IIF(n > 0, "SELECTED", "ALL") + " TO STRIP: ADD", 217, 0, ""
@@ -919,10 +962,10 @@ SUB SWP_build_edit ()
     SWP_menu_add SWP_MI_ITEM, "NEW SET FROM " + _IIF(SELECTION_has_active%, "SELECTION", "IMAGE"), 219, 0, ""
     SWP_menu_add SWP_MI_ITEM, "LOSPEC...", 223, 0, ""
     SWP_menu_add SWP_MI_SEP, "", 0, 0, ""
-    SWP_menu_add SWP_MI_ITEM, "SELECT ALL     CTRL+A", 208, 0, ""
-    SWP_menu_add SWP_MI_ITEM, "SELECT NONE    CTRL+D", 209, 0, ""
-    SWP_menu_add SWP_MI_ITEM, "UNDO           CTRL+Z", 210, 0, ""
-    SWP_menu_add SWP_MI_ITEM, "REDO           CTRL+Y", 211, 0, ""
+    SWP_menu_add SWP_MI_ITEM, "SELECT ALL", 208, 0, "": SWP_menu_key "CTRL+A"
+    SWP_menu_add SWP_MI_ITEM, "SELECT NONE", 209, 0, "": SWP_menu_key "CTRL+D"
+    SWP_menu_add SWP_MI_ITEM, "UNDO", 210, 0, "": SWP_menu_key "CTRL+Z"
+    SWP_menu_add SWP_MI_ITEM, "REDO", 211, 0, "": SWP_menu_key "CTRL+Y"
 END SUB
 
 
@@ -955,18 +998,25 @@ SUB SWP_menu_open (kind AS INTEGER, ax AS INTEGER)
     IF SWP.menuRows = 0 THEN SWP.menuAtMouse = FALSE: EXIT SUB
     SWP.menu = kind
     SWP.menuRowH = FPANEL.fontH% + 4
-    ' width: the widest label (chip rows: label column + chips)
-    lw = SWP_chip_label_w%
+    ' width: the widest of the chip rows (label column + chips) and the item
+    ' rows (label + the hotkey column, like the main menu)
+    DIM itemW AS INTEGER, keyW AS INTEGER
     w = 80
     FOR i = 1 TO SWP.menuRows
         SELECT CASE SWP_MI(i).kind
             CASE SWP_MI_CHIPS
                 k = SWP_field_count%(SWP_MI(i).chips)
-                w = _MAX(w, SWP_chip_x%(i, k) + FPANEL_text_w%(SWP_field$(SWP_MI(i).chips, k)) + 6 + 4)
+                w = _MAX(w, SWP_chip_x%(i, k) + SWP_chip_w%(SWP_field$(SWP_MI(i).chips, k)) + SWP_MI_PAD_R)
+            CASE SWP_MI_ITEM
+                itemW = _MAX(itemW, FPANEL_text_w%(SWP_MI(i).label))
+                IF LEN(SWP_MI(i).hotkey) THEN keyW = _MAX(keyW, FPANEL_text_w%(SWP_MI(i).hotkey))
             CASE ELSE
                 w = _MAX(w, FPANEL_text_w%(SWP_MI(i).label) + 18 + 6)
         END SELECT
     NEXT i
+    lw = SWP_MI_TEXT_X + itemW + SWP_MI_PAD_R
+    IF keyW > 0 THEN lw = lw + SWP_MI_KEY_GAP + keyW
+    w = _MAX(w, lw)
     SWP.menuW = w
     rs = SWP.renderScale: IF rs <= 0 THEN rs = 1
     IF ax < 0 THEN SWP.menuX = SWP.dispX + INT((-ax - w) * rs) ELSE SWP.menuX = SWP.dispX + INT(ax * rs)
@@ -1029,9 +1079,9 @@ END FUNCTION
 ' Native x of chip k in chips row r (menu space).
 FUNCTION SWP_chip_x% (r AS INTEGER, k AS INTEGER)
     DIM x AS INTEGER, j AS INTEGER
-    x = 6 + SWP_chip_label_w% + 6
+    x = SWP_MI_TEXT_X + SWP_chip_label_w% + SWP_CHIP_LEAD
     FOR j = 1 TO k - 1
-        x = x + FPANEL_text_w%(SWP_field$(SWP_MI(r).chips, j)) + 6 + 2
+        x = x + SWP_chip_w%(SWP_field$(SWP_MI(r).chips, j)) + SWP_CHIP_GAP
     NEXT j
     SWP_chip_x% = x
 END FUNCTION
@@ -1052,7 +1102,7 @@ FUNCTION SWP_menu_row_at% (rx AS INTEGER, ry AS INTEGER, chip AS INTEGER)
     IF SWP_MI(r).kind = SWP_MI_CHIPS THEN
         FOR k = 1 TO SWP_field_count%(SWP_MI(r).chips)
             cx = SWP_chip_x%(r, k)
-            IF nx >= cx _ANDALSO nx < cx + FPANEL_text_w%(SWP_field$(SWP_MI(r).chips, k)) + 6 THEN chip = k
+            IF nx >= cx _ANDALSO nx < cx + SWP_chip_w%(SWP_field$(SWP_MI(r).chips, k)) THEN chip = k
         NEXT k
     END IF
     SWP_menu_row_at% = r
@@ -1079,20 +1129,22 @@ SUB SWP_render_menu ()
             CASE SWP_MI_SEP
                 LINE (4, y + rh \ 2)-(SWP.menuW - 5, y + rh \ 2), THEME.CP_slider_border~&
             CASE SWP_MI_CHIPS
-                FPANEL_text 6, y + 2, SWP_MI(r).label, THEME.CP_text~&
+                FPANEL_text SWP_MI_TEXT_X, y + 2, SWP_MI(r).label, THEME.CP_text~&
                 FOR k = 1 TO SWP_field_count%(SWP_MI(r).chips)
                     t = SWP_field$(SWP_MI(r).chips, k)
-                    cx = SWP_chip_x%(r, k): cw = FPANEL_text_w%(t) + 6
+                    cx = SWP_chip_x%(r, k): cw = SWP_chip_w%(t)
                     FPANEL_chip cx, y + 1, cw, rh - 2, t, (SWP_MI(r).chk = k), (r = SWP.menuHover _ANDALSO k = SWP.menuChip)
                 NEXT k
             CASE ELSE
                 IF r = SWP.menuHover THEN LINE (1, y)-(SWP.menuW - 2, y + rh - 1), THEME.CP_title_bg~&, BF
                 IF r = SWP.menuHover THEN fg = THEME.CP_title_fg~& ELSE fg = THEME.CP_text~&
                 IF SWP_MI(r).kind = SWP_MI_CHECK THEN
-                    FPANEL_checkbox 6, y + 2, SWP_MI(r).chk, SWP_MI(r).label, TRUE, (r = SWP.menuHover)
+                    ' the box in the gutter, so its label starts on the items' text edge
+                    FPANEL_checkbox _MAX(1, SWP_MI_TEXT_X - _MAX(7, FPANEL.fontH% - 1) - 4), y + 2, SWP_MI(r).chk, SWP_MI(r).label, TRUE, (r = SWP.menuHover)
                 ELSE
                     IF SWP_MI(r).chk THEN FPANEL_text 4, y + 2, ">", fg
-                    FPANEL_text 14, y + 2, SWP_MI(r).label, fg
+                    FPANEL_text SWP_MI_TEXT_X, y + 2, SWP_MI(r).label, fg
+                    IF LEN(SWP_MI(r).hotkey) THEN FPANEL_text SWP.menuW - SWP_MI_PAD_R - FPANEL_text_w%(SWP_MI(r).hotkey), y + 2, SWP_MI(r).hotkey, fg
                 END IF
         END SELECT
     NEXT i
@@ -1148,6 +1200,7 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
                 CASE 16: CFG.SWATCHES_BLACK_SPACERS% = _NEGATE CFG.SWATCHES_BLACK_SPACERS%
                 CASE 17: CFG.SWATCHES_LIVE_EDIT% = _NEGATE CFG.SWATCHES_LIVE_EDIT%
                 CASE 18: CFG.SWATCHES_RECENT% = _NEGATE CFG.SWATCHES_RECENT%
+                CASE 26: CFG.SWATCHES_OVERWRITE% = _NEGATE CFG.SWATCHES_OVERWRITE%: SWP_menu_ins_keys
             END SELECT
             SELECT CASE id
                 CASE 13: SWP_MI(r).chk = CFG.SWATCHES_STRETCH%
@@ -1156,6 +1209,7 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
                 CASE 16: SWP_MI(r).chk = CFG.SWATCHES_BLACK_SPACERS%
                 CASE 17: SWP_MI(r).chk = CFG.SWATCHES_LIVE_EDIT%
                 CASE 18: SWP_MI(r).chk = CFG.SWATCHES_RECENT%
+                CASE 26: SWP_MI(r).chk = CFG.SWATCHES_OVERWRITE%
             END SELECT
             SWP_option_changed
             EXIT FUNCTION
@@ -1163,9 +1217,11 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
     ' items: the menu closes first (an action may open a dialog)
     SWP_menu_close
     SELECT CASE id
+        CASE 19: SWP_rec_clear
         CASE 20: CMD_execute_action SWP_ACT_LOAD
         CASE 21: CMD_execute_action SWP_ACT_FOLDER
         CASE 201: SWP_add_fg
+        CASE 225: SWP_overwrite_fg
         CASE 202: SWP_delete_selected
         CASE 203: SWP_lock_toggle
         CASE 204: SWP_insert_kind SWS_KIND_SPACE
@@ -1210,6 +1266,7 @@ END SUB
 
 SUB SWP_mouse_input ()
     IF SWP.visible = 0 _ORELSE SWP.autoHidden _ORELSE SWP.initialized = 0 THEN EXIT SUB
+    IF SWP.swallow _ANDALSO SWP.menu = SWP_MENU_NONE THEN EXIT SUB ' the rest of a click that closed a menu
     DIM rs AS SINGLE, nx AS INTEGER, ny AS INTEGER, lx AS INTEGER, ly AS INTEGER
     DIM press1 AS INTEGER, press2 AS INTEGER, inside AS INTEGER, i AS LONG
     rs = SWP.renderScale: IF rs <= 0 THEN rs = 1
@@ -1656,6 +1713,48 @@ SUB SWP_add_fg ()
     SWP_edit_end
     SWP_scroll_to at
     STATUS_flash "Swatches: added #" + RIGHT$("000000" + HEX$(PAINT_COLOR~& AND &HFFFFFF~&), 6)
+END SUB
+
+
+''
+' Overwrite: every selected swatch (an empty cell too) becomes the FG, in
+' place - nothing after it moves. Locked swatches and row breaks are skipped;
+' a name goes (it named the old color). One edit.
+SUB SWP_overwrite_fg ()
+    DIM i AS LONG, n AS LONG, locked AS LONG
+    IF PAL_FG_IS_TRANSPARENT% THEN STATUS_flash "Swatches: the FG is transparent": EXIT SUB
+    IF SWS_sel_count& = 0 THEN STATUS_flash "Swatches: select the swatches to overwrite": EXIT SUB
+    FOR i = 1 TO SWS_N
+        IF SWS(i).sel _ANDALSO SWS(i).kind <> SWS_KIND_BREAK THEN
+            IF SWS(i).flags AND SWS_FLAG_LOCK THEN locked = locked + 1 ELSE n = n + 1
+        END IF
+    NEXT i
+    IF n = 0 THEN STATUS_flash "Swatches: " + _IIF(locked > 0, "the selection is locked", "nothing to overwrite"): EXIT SUB
+    IF SWP_edit_begin% = 0 THEN EXIT SUB
+    FOR i = 1 TO SWS_N
+        IF SWS(i).sel _ANDALSO SWS(i).kind <> SWS_KIND_BREAK _ANDALSO (SWS(i).flags AND SWS_FLAG_LOCK) = 0 THEN
+            SWS(i).kind = SWS_KIND_COLOR
+            SWS(i).c = PAINT_COLOR~& OR &HFF000000~&
+            SWS(i).nm = ""
+        END IF
+    NEXT i
+    SWP_edit_end
+    SWP.liveIdx = SWP_first_sel&: SWP.liveLast = PAINT_COLOR~& ' not an FG change to follow
+    STATUS_flash "Swatches: " + _TRIM$(STR$(n)) + " set to #" + RIGHT$("000000" + HEX$(PAINT_COLOR~& AND &HFFFFFF~&), 6) + _IIF(locked > 0, " (" + _TRIM$(STR$(locked)) + " locked, kept)", "")
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' The edit menu's hotkey column for ADD FG / OVERWRITE WITH FG: Ins does the
+' one SWATCHES_OVERWRITE picks, Shift+Ins the other.
+SUB SWP_menu_ins_keys ()
+    DIM r AS INTEGER
+    FOR r = 1 TO SWP.menuRows
+        SELECT CASE SWP_MI(r).id
+            CASE 201: SWP_MI(r).hotkey = _IIF(CFG.SWATCHES_OVERWRITE%, "SHIFT+INS", "INS")
+            CASE 225: SWP_MI(r).hotkey = _IIF(CFG.SWATCHES_OVERWRITE%, "INS", "SHIFT+INS")
+        END SELECT
+    NEXT r
 END SUB
 
 
@@ -2443,7 +2542,12 @@ FUNCTION SWP_key_input% ()
             SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
             SWP_key_input% = TRUE
         END IF
-        IF ins _ANDALSO insWas = 0 _ANDALSO MODIFIERS.none% THEN SWP_add_fg: SWP_key_input% = TRUE ' Ins: add the FG
+        ' Ins: add the FG (SWATCHES_OVERWRITE: overwrite the selection with
+        ' it); Shift+Ins: the other one
+        IF ins _ANDALSO insWas = 0 _ANDALSO (MODIFIERS.none% _ORELSE MODIFIERS.shiftOnly%) THEN
+            IF (CFG.SWATCHES_OVERWRITE% <> 0) XOR (MODIFIERS.shiftOnly% <> 0) THEN SWP_overwrite_fg ELSE SWP_add_fg
+            SWP_key_input% = TRUE
+        END IF
     END IF
     escWas = esc: insWas = ins
 END FUNCTION
@@ -2554,7 +2658,7 @@ FUNCTION SWP_dump$ ()
             IF SWP_MI(r).kind = SWP_MI_CHIPS THEN
                 FOR k = 1 TO SWP_field_count%(SWP_MI(r).chips)
                     cx = SWP_chip_x%(r, k)
-                    d = d + "SWATMC" + DOCK_n$(SWP_MI(r).id) + DOCK_n$(k) + DOCK_n$(SWP.menuX + INT(cx * rs)) + DOCK_n$(SWP.menuY + INT(ry * rs)) + DOCK_n$(INT((FPANEL_text_w%(SWP_field$(SWP_MI(r).chips, k)) + 6) * rs)) + DOCK_n$(INT(SWP.menuRowH * rs)) + " " + SWP_field$(SWP_MI(r).chips, k) + lf
+                    d = d + "SWATMC" + DOCK_n$(SWP_MI(r).id) + DOCK_n$(k) + DOCK_n$(SWP.menuX + INT(cx * rs)) + DOCK_n$(SWP.menuY + INT(ry * rs)) + DOCK_n$(INT(SWP_chip_w%(SWP_field$(SWP_MI(r).chips, k)) * rs)) + DOCK_n$(INT(SWP.menuRowH * rs)) + " " + SWP_field$(SWP_MI(r).chips, k) + lf
                 NEXT k
             END IF
         NEXT r
@@ -2663,6 +2767,22 @@ SUB SWP_rec_push (c AS _UNSIGNED LONG)
     NEXT k
     CFG.SWATCHES_RECENT_COLORS = s
     IF SWP.recH > 0 THEN SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Empty the recent colors (gear menu, the command palette). The FG in use now
+' is not added back until it changes.
+SUB SWP_rec_clear ()
+    IF SWP.recLoaded = 0 THEN SWP_rec_load
+    SWP_REC_N = 0
+    CFG.SWATCHES_RECENT_COLORS = ""
+    SWP.recLast = PAINT_COLOR~& OR &HFF000000~&
+    SWP.recSaveT = 0
+    SWP.hoverRec = 0
+    CONFIG_save
+    STATUS_flash "Recent colors cleared"
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
 END SUB
 
 

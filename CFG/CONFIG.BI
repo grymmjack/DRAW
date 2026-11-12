@@ -520,6 +520,7 @@ TYPE DRAW_CONFIG
     SWATCHES_LIVE_EDIT              AS INTEGER        ' One swatch selected: the Color Mixer / Advanced Color Picker / 3D Color Space change it live
     SWATCHES_VIEW                   AS INTEGER        ' 0 = a grid of swatches, 1 = a list (swatch + hex + name rows)
     SWATCHES_RECENT                 AS INTEGER        ' A row of the FG colors used last, above the swatches
+    SWATCHES_OVERWRITE              AS INTEGER        ' Ins overwrites the selected swatches with the FG (Shift+Ins adds); FALSE: the other way round
     SWATCHES_RECENT_COLORS          AS STRING         ' Those colors, newest first (RRGGBB, comma separated)
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
