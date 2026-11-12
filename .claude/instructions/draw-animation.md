@@ -1266,8 +1266,14 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   loaded (0 after `AB_clear`); a source copies it. From Bin with no bin, or the bin no longer an
   AnimBrush: refused with a message. `CLIPS src n cw ch bin name`. Test
   `QA/tests/clip-update.sh` (15).
+- **Make Clip from Selected Frames** (2631, `CLIP_make`): `AB_pick_up FALSE` on the marquee
+  (selected frames, or all), then each cel's drawn pixels are CUT from the current pixel layer
+  (`HISTORY_record_transform`, before image) and `CLIP_place_core%` places it at the marquee's
+  top left in the first picked frame, Out = first + n - 1 (0 when that is the last frame), mode
+  Loop - the frames look the same. One history group. Refused on a non-IMAGE layer. Test
+  `QA/tests/clip-make.sh` (12). `CLIP_place_at` = `CLIP_place_core%(f, x, y, 0, -1)`.
 - **Phase 2** (not built yet): X-sheet clip row, dropping a GIF / APNG on the canvas as a clip,
-  clip sound cues, Make Clip from Selected Frames, Clip Sources list.
+  clip sound cues, Clip Sources list.
 
 ## Gotchas met here
 

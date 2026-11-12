@@ -34,6 +34,7 @@ CONST CLIP_ACT_FLIP_X  = 2627
 CONST CLIP_ACT_FLIP_Y  = 2628
 CONST CLIP_ACT_UPD_BIN = 2629 ' ANIM > Clip Layer > Update Clip from Bin (the Drawer bin its cels came from)
 CONST CLIP_ACT_UPD_AB  = 2630 ' ANIM > Clip Layer > Update Clip from AnimBrush (the current AnimBrush's cels)
+CONST CLIP_ACT_MAKE    = 2631 ' ANIM > Clip Layer > Make Clip from Selected Frames (pick up, cut, place)
 
 TYPE CLIP_SRC_OBJ
     nm      AS STRING * 32

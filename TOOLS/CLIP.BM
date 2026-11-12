@@ -253,18 +253,26 @@ END SUB
 ' A new clip layer above the current one: the AnimBrush's cels, cel 1 in
 ' frame f with its top left at canvas (x, y), running to the last frame.
 SUB CLIP_place_at (f AS INTEGER, x AS LONG, y AS LONG)
+    DIM ok AS INTEGER
+    ok = CLIP_place_core%(f, x, y, 0, -1)
+END SUB
+
+''
+' CLIP_place_at with Out (0 = to the end) and a mode (-1 = from the AnimBrush's
+' order). TRUE = placed.
+FUNCTION CLIP_place_core% (f AS INTEGER, x AS LONG, y AS LONG, outF AS INTEGER, mode AS INTEGER)
     DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, s AS INTEGER, k AS INTEGER, slot AS INTEGER, nm AS STRING
-    IF ANIM_cell_rect%(f, fx, fy, fw, fh) = 0 THEN EXIT SUB
+    IF ANIM_cell_rect%(f, fx, fy, fw, fh) = 0 THEN EXIT FUNCTION
     s = CLIP_src_from_ab%
-    IF s = 0 THEN STATUS_flash "Place as Clip: no room for another clip source": EXIT SUB
+    IF s = 0 THEN STATUS_flash "Place as Clip: no room for another clip source": EXIT FUNCTION
     slot = LAYERS_new%
-    IF slot = 0 THEN STATUS_flash "Place as Clip: no room for another layer": EXIT SUB
+    IF slot = 0 THEN STATUS_flash "Place as Clip: no room for another layer": EXIT FUNCTION
     k = CLIP_inst_new%(LAYERS(slot).historyId&)
-    IF k = 0 THEN STATUS_flash "Place as Clip: too many clips": EXIT SUB
+    IF k = 0 THEN STATUS_flash "Place as Clip: too many clips": EXIT FUNCTION
     nm = AB_clean$(CLIP_SRC(s).nm): IF nm = "" THEN nm = "AnimBrush": CLIP_SRC(s).nm = nm ' an unnamed AnimBrush: the panel and the dump show a name
     LAYERS(slot).layerType% = LAYER_TYPE_CLIP
     LAYERS(slot).name = nm + " (clip)"
-    CLIP_INST(k).src = s: CLIP_INST(k).inF = f: CLIP_INST(k).outF = 0: CLIP_INST(k).startCel = 1
+    CLIP_INST(k).src = s: CLIP_INST(k).inF = f: CLIP_INST(k).outF = outF: CLIP_INST(k).startCel = 1
     CLIP_INST(k).px = x - fx: CLIP_INST(k).py = y - fy
     SELECT CASE AB_ORDER
         CASE AB_ORD_REV: CLIP_INST(k).mode = CLIP_MODE_REV
@@ -272,6 +280,7 @@ SUB CLIP_place_at (f AS INTEGER, x AS LONG, y AS LONG)
         CASE AB_ORD_ONCE: CLIP_INST(k).mode = CLIP_MODE_ONCE
         CASE ELSE: CLIP_INST(k).mode = CLIP_MODE_LOOP
     END SELECT
+    IF mode >= 0 THEN CLIP_INST(k).mode = mode
     CLIP_rebuild slot
     IF ANIMP.visible = 0 THEN ANIMP_toggle ' its settings are the Animation panel's clip rows
     IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_refresh_layer_add_snapshot LAYERS(slot).historyId&
@@ -280,7 +289,8 @@ SUB CLIP_place_at (f AS INTEGER, x AS LONG, y AS LONG)
     INVALIDATE_canvas
     SOUND_play SND_NEW_LAYER
     STATUS_flash "Clip '" + nm + "':" + STR$(CLIP_SRC(s).n) + " cels from frame" + STR$(f) + " (ANIM panel: In / Out / Every / mode)"
-END SUB
+    CLIP_place_core% = TRUE
+END FUNCTION
 
 ' ---------------------------------------------------------------------------
 ' Settings, bake and undo (HISTORY_KIND_CLIP: the layer type + the instance,
@@ -436,6 +446,68 @@ SUB CLIP_bake ()
 END SUB
 
 ''
+' Make Clip from Selected Frames: the marquee's area of the selected frames (all
+' of them, none selected) is picked up as an AnimBrush, cut from the current
+' layer and placed as a clip that shows it where it was - In = the first of
+' those frames, Out = the last; the frames look the same. One undo step.
+SUB CLIP_make ()
+    DIM slot AS INTEGER, img AS LONG, before AS LONG, bx AS LONG, by AS LONG, bw AS LONG, bh AS LONG
+    DIM sf AS INTEGER, sx AS LONG, sy AS LONG, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG
+    DIM aw AS INTEGER, ah AS INTEGER, k AS INTEGER, n AS INTEGER, f1 AS INTEGER, outF AS INTEGER
+    DIM m AS _MEM, mc AS _MEM, px AS LONG, py AS LONG, qx AS LONG, qy AS LONG, c AS _UNSIGNED LONG
+    DIM iw AS LONG, ih AS LONG, grp AS INTEGER, why AS STRING
+    IF ANIM.active = FALSE THEN STATUS_flash "Clip layers need frames: ANIM > Add Frame (Num +) first": EXIT SUB
+    why = ANIM_OPS_busy$: IF why <> "" THEN STATUS_flash why: EXIT SUB
+    IF MARQUEE.ACTIVE% = 0 _ORELSE MARQUEE.BOX.w <= 0 _ORELSE MARQUEE.BOX.h <= 0 THEN STATUS_flash "Make Clip: select an area in a frame first": EXIT SUB
+    slot = CURRENT_LAYER%
+    IF slot < 1 _ORELSE slot > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(slot).layerType% <> LAYER_TYPE_IMAGE THEN STATUS_flash "Make Clip: select an area on a pixel layer": EXIT SUB
+    bx = MARQUEE.BOX.x: by = MARQUEE.BOX.y: bw = MARQUEE.BOX.w: bh = MARQUEE.BOX.h
+    sf = ANIM_frame_at%(bx + bw \ 2, by + bh \ 2)
+    IF sf < 1 THEN sf = ANIM.current
+    IF ANIM_cell_rect%(sf, sx, sy, fw, fh) = 0 THEN STATUS_flash "Make Clip: the selection is not in a frame": EXIT SUB
+    AB_pick_up FALSE ' (says why when it cannot)
+    IF AB_active% = 0 _ORELSE AB.w <> bw _ORELSE AB.h <> bh THEN EXIT SUB
+    n = AB.n: f1 = AB_FROM(1)
+    ' cut what went into the cels: each cel's drawn pixels, from its frame
+    img = LAYERS(slot).imgHandle&
+    IF img >= -1 THEN EXIT SUB
+    aw = LAYERS(slot).apronW%: ah = LAYERS(slot).apronH%
+    iw = _WIDTH(img): ih = _HEIGHT(img)
+    before = _COPYIMAGE(img, 32)
+    m = _MEMIMAGE(img)
+    FOR k = 1 TO n
+        IF AB_CEL(k) < -1 _ANDALSO ANIM_cell_rect%(AB_FROM(k), fx, fy, fw, fh) THEN
+            mc = _MEMIMAGE(AB_CEL(k))
+            FOR py = 0 TO bh - 1
+                FOR px = 0 TO bw - 1
+                    _MEMGET mc, mc.OFFSET + (py * bw + px) * 4, c
+                    IF _ALPHA32(c) THEN
+                        qx = bx + px + (fx - sx) + aw: qy = by + py + (fy - sy) + ah
+                        IF qx >= 0 _ANDALSO qy >= 0 _ANDALSO qx < iw _ANDALSO qy < ih THEN _MEMPUT m, m.OFFSET + (qy * iw + qx) * 4, 0 AS _UNSIGNED LONG
+                    END IF
+                NEXT px
+            NEXT py
+            _MEMFREE mc
+        END IF
+    NEXT k
+    _MEMFREE m
+    LAYERS(slot).contentDirty% = TRUE
+    IF NOT HISTORY_IN_PROGRESS% _ANDALSO NOT HISTORY_GROUP_ACTIVE% THEN HISTORY_begin_group: grp = TRUE
+    HISTORY_record_transform LAYERS(slot).historyId&, slot, 0, before, "Make Clip"
+    ' Out: the last picked frame (the cels in a row from In look as before)
+    outF = f1 + n - 1
+    IF outF >= ANIM.count THEN outF = 0
+    IF ANIM_cell_rect%(f1, fx, fy, fw, fh) THEN
+        IF CLIP_place_core%(f1, bx + (fx - sx), by + (fy - sy), outF, CLIP_MODE_LOOP) THEN
+            STATUS_flash "Made a clip of" + STR$(n) + " frames (" + _TRIM$(STR$(f1)) + "-" + _TRIM$(STR$(f1 + n - 1)) + ") - the frames look the same; ANIM panel: In / Out / Every / mode"
+        END IF
+    END IF
+    IF grp THEN HISTORY_end_group
+    HISTORY_saved_this_frame% = TRUE
+END SUB
+
+''
 ' Update Clip from Bin (fromBin) / from AnimBrush: the clip's cels become the
 ' Drawer bin's they came from / the current AnimBrush's. A new source, so undo
 ' points the clips back at the old one; every clip layer on the old source takes
@@ -478,13 +550,14 @@ SUB CLIP_update (fromBin AS INTEGER)
 END SUB
 
 ''
-' Actions 2620-2630.
+' Actions 2620-2631.
 SUB CLIP_action (act AS INTEGER)
     SELECT CASE act
         CASE CLIP_ACT_PLACE: CLIP_place_start
         CASE CLIP_ACT_BAKE: CLIP_bake
         CASE CLIP_ACT_UPD_BIN: CLIP_update TRUE
         CASE CLIP_ACT_UPD_AB: CLIP_update FALSE
+        CASE CLIP_ACT_MAKE: CLIP_make
         CASE CLIP_ACT_MODE0 TO CLIP_ACT_MODE0 + 4: CLIP_set 5, act - CLIP_ACT_MODE0
         CASE CLIP_ACT_FLIP_X: CLIP_set 6, NOT CLIP_get&(6)
         CASE CLIP_ACT_FLIP_Y: CLIP_set 7, NOT CLIP_get&(7)
