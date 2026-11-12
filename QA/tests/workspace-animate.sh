@@ -14,7 +14,7 @@
 # Read back: the dump (ANIMLB shown, ANIMP visible, ANIM count) and the QA
 # config file after DRAW has quit (its exit CONFIG_save).
 #
-# QA-OPTIONS: WORKSPACE=animate DOCK_DUMP=QA/.dock-dump.txt
+# QA-OPTIONS: WORKSPACE=animate DOCK_DUMP=QA/.dock-dump.txt WORKSPACES_DIR=/tmp/draw-qa-ws-none
 # =============================================================================
 info "=== Workspace: Animate ==="
 
