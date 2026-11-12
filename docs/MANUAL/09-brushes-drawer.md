@@ -214,6 +214,52 @@ the BAS export's audio. **Bake Clip to Pixels** asks whether to keep them: **Yes
 turns them into ordinary soundtrack clips, **No** (`Esc`) drops them. The `.draw` file keeps
 the sounds' file paths, the same way the soundtrack does.
 
+#### Moving a clip - keyframe lanes
+
+A clip can move, grow, turn, fade or change colour over its frames. Each of these is a
+**lane**: **X**, **Y**, **SCALE X**, **SCALE Y**, **ROTATE**, **OPACITY**, **TINT** (toward
+the clip's tint colour), **PIVOT X** / **PIVOT Y** (where it scales and turns about), and for
+its sounds **VOLUME** and **PAN**. A lane holds **keys** - a frame and a value - and moves
+smoothly from one key to the next.
+
+In the Animation panel's clip rows:
+
+- **LANE** - `<` / `>` pick the lane; the box shows its value on the current frame. Type,
+  drag or wheel the box and the value is **keyed on this frame** (a new key, or the one
+  already there). A `*` after the lane's name means this frame has a key.
+- **KEYS** - how many keys the lane has, **KEY** (key the value here), **DEL** (remove the
+  key here) and the **ease** of the key at or before this frame: LINEAR, IN, OUT, IN-OUT
+  (the Move Brush's eases) or HOLD (stays put until the next key).
+- **MOD** - a wobble added on top of the lane: OFF, SINE, TRI, SQUARE, SAW (repeating) or
+  NOISE (a seeded jitter - the same every time it plays). Its boxes are AMOUNT (in the
+  lane's unit), PERIOD (frames) and PHASE (frames; the SEED for noise). A firefly bobbing:
+  Y, SINE, amount 3, period 12. A flame flickering: OPACITY, NOISE, amount 20, period 2.
+
+Keys count from the clip's IN, so a clip slid along the X-sheet keeps its moves. Before the
+first key the lane holds the first key's value, after the last the last one's. Positions are
+whole pixels, so a slow move steps one pixel at a time.
+
+Other ways to key:
+
+- The **Move tool** on a clip that has X or Y keys keys the current frame instead of moving
+  the whole clip (drag or arrow keys). Without X / Y keys it moves the clip as before.
+- The **X-sheet** shows a **LANES** row under a clip with keys: a diamond on each frame with
+  a key, filled where the lane picked in the panel has one. Drag a diamond along the row to
+  move that frame's keys to another frame.
+- **ANIM → Move Brush → Apply as Clip** makes the Move Brush's move a clip layer instead of
+  stamping it: the brush (an AnimBrush's cels, or a plain brush) plays over the move's
+  frames, with the move in its lanes - a straight path as two keys with the move's ease, a
+  drawn path as a key per frame, plus its SIZE, OPACITY, TINT and TURN Z. Z and the 3D
+  turns have no lane and are left out (Apply still stamps them).
+- **ANIM → Clip Layer**: **Clear This Lane**, **Clear All Lanes**, **Copy Lanes** /
+  **Paste Lanes** (onto another clip layer), **Tint Toward the Foreground Colour** (the
+  colour the TINT lane goes toward).
+
+VOLUME and PAN set each of the clip's sounds to the lane's value on the frame it starts
+(a sound keeps its level while it plays). Every lane is one `Ctrl+Z` per change, is saved
+in the `.draw` file, and is in the pixels that onion skin, playback, Bake and every export
+use.
+
 ### The AnimBrush pack and example scenes
 
 DRAW ships with **`animbrush-pack`**, a Drawer brush set of 15 AnimBrushes: torch, campfire,

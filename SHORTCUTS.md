@@ -814,6 +814,7 @@ bird that flies through them. Works with a plain brush or an AnimBrush.
 | `Esc` / ANIM → Move Brush → **Cancel** | Leaves the mode; nothing is stamped |
 | ANIM → Move Brush → **Ease: None / In / Out / In-Out** | How the stamps are spaced: evenly, slow then fast, fast then slow, slow at both ends |
 | ANIM → Move Brush → **Next Cel Every Frame / 2 / 3 / 4** | An AnimBrush moves on one cel each frame, or every 2, 3 or 4 frames (in its order) |
+| ANIM → Move Brush → **Apply as Clip** | Instead of stamping: a clip layer that plays the brush over the move's frames, the move in its keyframe lanes (straight path = two keys with the ease, drawn = a key per frame; size / opacity / tint / turn Z too). One undo step |
 
 Which frames: the frames selected in the strip (two or more, Ctrl+click), else from the frame
 the path is in for FRAMES frames (through the last by default). Every command is in the command
@@ -866,6 +867,9 @@ change at any time (stamps are just pixels). Every change is one undo step.
 | ANIM → Clip Layer → **Clip Sources...** / **Remove Unused Clip Sources** | List every source and its layers / clear the unused ones |
 | ANIM → Clip Layer → **Sound on This Cel... / When the Clip Starts... / Each Time the Clip Starts Over...** | Add a sound to the clip's source; **Remove the Clip's Sounds** clears them |
 | `L-Drag` an end / the middle of a clip's X-sheet bar | Change IN / OUT, or slide the clip |
+| `L-Drag` a diamond on a clip's X-sheet **LANES** row | Move every lane's key on that frame to another frame (one undo step) |
+| Move tool (`V`) drag / arrow keys on a clip with X / Y keys | Key X / Y on the current frame (without X / Y keys: move the whole clip) |
+| ANIM → Clip Layer → **Clear This Lane / Clear All Lanes / Copy Lanes / Paste Lanes / Tint Toward the Foreground Colour** | Lane housekeeping; the tint colour is what the TINT lane goes toward |
 
 Animation panel, while a clip layer is current (in place of the frame rows; the
 `|< < PLAY > >|` row stays): **LOOP PING ONCE HOLD REV** chips; **IN / OUT** (OUT `END` = to the
@@ -875,7 +879,11 @@ Cut, Paste, Clear, Scale, Rotate, Transform, Effects and Merge Down onto a clip 
 (status bar). Frame ops leave it in place and move its IN / OUT with the frames. Below them:
 **SOURCE** `<` `>` (previous / next source) **RENAME LAYERS** (select the layers on it);
 **SOUND** `CEL START LOOP` (add a sound) and the sound list `<` `>` `X` (step / remove).
-Bake asks whether to keep the clip's sounds (`Enter` Yes / `Esc` No). Actions 2620-2647.
+Bake asks whether to keep the clip's sounds (`Enter` Yes / `Esc` No). Then the keyframe lanes:
+**LANE** `<` `>` (X, Y, SCALE X / Y, ROTATE, OPACITY, TINT, PIVOT X / Y, VOLUME, PAN) and its
+value box - changing it keys the current frame; **KEYS** `KEY` `DEL` and the ease chip
+(LINEAR IN OUT IN-OUT HOLD); **MOD** chip (OFF SINE TRI SQUARE SAW NOISE) with AMOUNT,
+PERIOD, PHASE / SEED. Actions 2620-2658; Move Brush → Apply as Clip 2594.
 
 ---
 

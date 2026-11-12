@@ -1354,10 +1354,51 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   `CLIPEX` (its pixels per frame, as CLIPX), `CLIPV slot:shown`. Test:
   `QA/tests/clip-edit-cels.sh`.
 
+### Keyframe lanes (phase 3, PLANS/KEYFRAME-LANES.md)
+
+- **Data (L3).** Per instance (not per source): `CLIP_LN_KEYS(k, L)` (8-byte keys, `CLIP_lk$` =
+  MKI$ frame-from-In + MKS$ value + MKI$ ease) and `CLIP_LN_MOD(k, L)` (20 bytes, "" = none,
+  `CLIP_mod_pack$` / `CLIP_mod_unpack`), lanes `CLIP_LANE_X .. PAN` (11), plus
+  `CLIP_INST(k).tint` (not keyed). Maths in `TOOLS/CLIP-MATH.BM` (`CLIP_lane_keyed!`,
+  `CLIP_ease!`, `CLIP_mod!`, unit test). `CLIP_lane_value!(k, L, f)` = keyed + modulator.
+  `CLIP_state$` ends with `CLIP_lanes_blob$`, so every clip undo record carries the lanes.
+  drCl v3 appends a lanes block per written instance. New / duplicate / document paths clear or
+  copy them.
+- **Rendering (L4).** `CLIP_has_lanes%` (a key or modulator on lanes 1-9) sends a frame's cel
+  through `CLIP_draw_cel_xf` -> `XF_draw` (split out of `MVB_stamp_xf`, shared). X / Y are
+  rounded **half up** (`INT(v + .5)`, as the Move Brush rounds; CLIPLV too), not `CINT`.
+  Without lanes the old `_PUTIMAGE` path is unchanged.
+- **Panel (L5).** Clip rows 10-12: LANE (`<` `>` = `CLIP_LANE_PICK`, not an undo step; the value
+  box auto-keys), KEYS (KEY / DEL / ease chip), MOD (chip cycles OFF SINE TRI SQUARE SAW NOISE;
+  AMOUNT PERIOD PHASE-or-SEED). Fields 20-31 in `CLIP_get&` / `CLIP_lane_set$`. Actions
+  2648-2658. Dump `ANIMPLN` (rows, chips, pick).
+- **Move tool (L6).** `CLIP_move_by` on a clip with X or Y keys keys the current frame
+  (`rel >= 0`) instead of moving `px / py` - drag, nudge and the linked multi-layer move alike.
+- **X-sheet (L7).** `ANIM_XS_RKIND` tells a clip layer's sub-rows apart (`ANIM_XS_ROW` = -slot
+  for both SOUND and LANES). LANES row: a diamond per frame with a key (`CLIP_key_mark%`: 2 =
+  the picked lane, filled); a drag (`XS_DRAG_LKEY`) moves every lane's key on that frame,
+  `CLIP_keys_shift`, one undo step. Dump `ANIMXSK slot y f:mark ...`.
+- **Sound (L8).** `CLIP_cues_gen` gives each generated clip `ANIM_SC_GVOL` / `ANIM_SC_GPAN` (the
+  lanes at the frame it starts); `ANIM_SND_mix` applies them (balance pan); the VOLUME / PAN
+  lanes are in `CLIP_cues_sig$` and the sync signature. The BAS export uses the mix. Dump
+  `ANIMSCGV peakL peakR vol pan ...` (the last mix's peaks, %).
+- **Move Brush > Apply as Clip (L9, action 2594).** `MVB_apply_clip`: the range must be a run
+  of frames; a plain brush becomes a one-cel source (`CLIP_PLACE_SRC`); `CLIP_place_core%` calls
+  `MVB_clip_lanes` (`CLIP_PLACE_MVB`) **before** the layer-add snapshot so redo keeps the lanes.
+  Straight path = two X / Y keys with the move's ease (MVB ease 1-3 = CLIP ease 1-3); drawn = a
+  key per frame; SIZE / OPACITY / TINT (toward FG = the clip's tint) / TURN Z = two keys. Z and
+  TURN X / Y have no lane (left out, said in the status). AnimPaint (live) is refused.
+- Tests: `clip-lanes.sh`, `clip-lanes-mod.sh`, `clip-lanes-canvas.sh`, `clip-lanes-xsheet.sh`,
+  `clip-lanes-sound.sh`, `clip-lanes-mvb.sh`.
+
 ## Gotchas met here
 
 - Reserved words as names: `on`, `off`, `key` (gotcha 20).
 - In a unit test, `STR$(f%(x)) + STR$(global)` may read the global before the call (C++
   argument order). Call into a variable first.
+- `STR$` of a negative number has no leading space: `"X" + STR$(-1)` is `"X-1"`. Dump lines
+  build fields with `" " + _TRIM$(STR$(v))` (or `DOCK_n$`).
+- The lightbox strip shows only some frames: `cl_strip 6` clicked past it (onto the panel's
+  ONCE chip). Reach far frames with `Num 1` / `Num 5` / `Num 9`.
 - A harness script error (`set -u`) still reports PASS. Count the checks after a change to
   a test's dump parsing (e.g. a new field caught by the last `read` variable).

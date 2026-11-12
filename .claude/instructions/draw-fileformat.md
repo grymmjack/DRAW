@@ -113,6 +113,13 @@ source: source index(2), kind(2) (0 on cel, 1 when the clip starts, 2 each time 
 over), cel(2) (kind 0; else 0), path length(2), the path as picked (found later the way
 soundtrack files are: that path, else the same name beside the document). A version-1 reader
 stops after the instances, so an older DRAW keeps the clips and drops the sounds.
+**Version 3** (phase 3 keyframe lanes, 2026-11-12) appends the lanes: instance count(2), per
+written instance: layer historyId(4), blob length(4), then `CLIP_lanes_blob$`: tint colour(4),
+lane count(2), per lane with keys or a modulator: lane(2) (1 X .. 11 PAN), keys length(2) +
+the keys (8 bytes each: frame from In(2), value SINGLE(4), ease(2) 0 linear 1 in 2 out
+3 in-out 4 hold), modulator length(2) + the modulator (20 bytes: kind(2) 1 LFO 2 noise,
+shape(2), amount / period / phase SINGLE(4 each), seed(4); 0 bytes = none). A version-2 reader
+stops before them: the clips play without their moves (drAw still holds the moved pixels).
 Only sources an instance uses are written; nothing is written without a clip layer. `CLIP_read_chunk` (after `AB_read_drab` in `DRW_load_binary`)
 sets those layers back to CLIP and rebuilds them. Tests: `QA/tests/clip-layers.sh`, `clip-cues.sh`.
 
