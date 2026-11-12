@@ -121,7 +121,8 @@ fg_pick() { # CX CY HEX - the picker (I) on frame 1's pixel, read back
         k_ i; rd
         hover "$(sx "$1")" "$(sy "$2")"; wait_for 0.3 "over"
         hclick "$(sx "$1")" "$(sy "$2")"; wait_for 0.5 "picked"; rd
-        [[ "${V_FG,,}" == "${3,,}" ]] && { info "FG = $V_FG (picked at $1,$2)"; return 0; }
+        # back to the brush (B): left on the picker, the next stamp would pick a colour instead
+        [[ "${V_FG,,}" == "${3,,}" ]] && { info "FG = $V_FG (picked at $1,$2)"; k_ b; return 0; }
         info "  picked $V_FG at $1,$2, wanted $3 - again"
     done
     fail "FG $V_FG, wanted $3"
