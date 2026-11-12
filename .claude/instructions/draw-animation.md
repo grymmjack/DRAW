@@ -353,9 +353,17 @@ that frame's background** (`ANIM_LB_cell_bg%`: the colour covering at least 40% 
 sky over a ground strip, field kit R-3, so `SAMPLES/ANIMATION/bounce-ball.png` showed no ghosts;
 test `anim-onion-solid-bg.sh`) - so a solid
 background layer doesn't tint the whole pane, and a static scene stays clear. **Ghosts go behind
-the current drawing:** only where the current frame is transparent or its own background
-(`ANIM_LB_cell_bg%` of the current cell) - drawn over it, the current frame looked faded (field
-kit T-13). Tint: 3/4 red
+the current drawing, decided per layer** (2026-11-11, Rick's report: stamping an AnimBrush frame
+by frame over a painted scene showed no ghosts - the scene had no 40% edge colour and no
+transparency, so the old composite rule hid everything). For each pixel, walk the visible,
+frame-moving layers (`ANIM_OPS_moves%`, `LAYERS_groups_shown%`) from the top of `RENDER_ORDER`
+down: a layer identical in both frames is skipped; the **first one that differs** decides - its
+neighbour pixel is the ghost if this frame's pixel on that layer is transparent (or the composite
+is the cell's flat background). So a painted background never hides a ghost drawn on a layer
+above it; drawing on the background layer itself still hides it (that layer is opaque there).
+Drawn over the current frame, ghosts made it look faded (field kit T-13). Test
+`anim-onion-painted-bg.sh` (castle-night.draw 90 / 93 ghost px; its base PNG with Same on Every
+Frame 0 / 0). Tint: 3/4 red
 (255,48,48) before, 3/4 blue (48,112,255) after. No wrap at the ends; nothing while playing.
 Settings are DRAW.cfg (`ONION_*`), not undo steps: ANIM menu (2527 / 2528), Num / (numpad slot
 15), and the Animation panel's ONION / TINT chips + BEFORE / AFTER / OPACITY steppers

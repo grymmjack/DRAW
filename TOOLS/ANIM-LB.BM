@@ -1833,18 +1833,28 @@ END FUNCTION
 
 ''
 ' Over the current pane's picture (dx, dy, dw, dh) of frame f: the frames
-' before / after it from composite src, farthest first, each fading with
-' distance; tinted red / blue (CFG.ONION_TINT%). A pixel shows only where it
-' differs from frame f and from its own frame's background, and only where
-' frame f itself is empty or its background: the ghosts go behind the current
-' drawing, never over it (field kit T-13: the current frame looked faded).
+' before / after it, farthest first, each fading with distance; tinted red /
+' blue (CFG.ONION_TINT%). Decided per LAYER, not from the flattened picture
+' (field report 2026-11-11: no ghosts at all over a painted background - every
+' pixel of frame f was "drawing", so nothing could go behind it):
+'   - a layer whose pixel is the same in both frames (a background, a layer
+'     Same on Every Frame) neither makes a ghost nor hides one;
+'   - from the top down, the first layer that differs at a pixel decides: if
+'     frame f has something there, that is the current drawing and the ghost
+'     goes behind it (field kit T-13: drawn over it, the current frame looked
+'     faded); else the neighbour's pixel on that layer is the ghost.
+'   - frame f's flat background colour (composite src, ANIM_LB_cell_bg%) still
+'     counts as empty, so one layer holding both a flat background and the
+'     drawing keeps its ghosts; the neighbour's own background never ghosts.
 SUB ANIM_LB_onion (dest AS LONG, src AS LONG, f AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
     DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, gx AS LONG, gy AS LONG, gw AS LONG, gh AS LONG
     DIM side AS INTEGER, n AS INTEGER, d AS INTEGER, g AS INTEGER, i AS LONG, j AS LONG, sw AS LONG, sh AS LONG
     DIM ms AS _MEM, mo AS _MEM, nb AS _UNSIGNED LONG, cur AS _UNSIGNED LONG, bg AS _UNSIGNED LONG, hasBg AS INTEGER
     DIM curBg AS _UNSIGNED LONG, hasCurBg AS INTEGER
     DIM a AS SINGLE, na AS LONG, tr AS LONG, tg AS LONG, tb AS LONG, r AS LONG, gg AS LONG, b AS LONG, cnt AS LONG
-    DIM po AS _OFFSET, rowS AS _OFFSET, rowC AS _OFFSET
+    DIM po AS _OFFSET, rowC AS _OFFSET
+    DIM nL AS INTEGER, k AS INTEGER, L AS INTEGER, ghost AS _UNSIGNED LONG, lp AS _UNSIGNED LONG, lc AS _UNSIGNED LONG
+    DIM lm(1 TO MAX_LAYERS) AS _MEM, lw(1 TO MAX_LAYERS) AS LONG, lax(1 TO MAX_LAYERS) AS LONG, lay(1 TO MAX_LAYERS) AS LONG
 
     ANIM_LB.onionPrev = 0: ANIM_LB.onionNext = 0
     IF CFG.ONION_SKIN% = 0 _ORELSE ANIM_PLAY.playing _ORELSE src >= -1 _ORELSE dest >= -1 THEN EXIT SUB
@@ -1857,6 +1867,24 @@ SUB ANIM_LB_onion (dest AS LONG, src AS LONG, f AS INTEGER, dx AS INTEGER, dy AS
     END IF
     IF ANIM_LB.onionImg >= -1 THEN ANIM_LB.onionImg = _NEWIMAGE(cw, ch, 32)
     IF ANIM_LB.onionImg >= -1 THEN EXIT SUB
+
+    ' the drawing layers, top first, that hold the whole sheet (apron included)
+    IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
+    FOR k = RENDER_ORDER_COUNT% TO 1 STEP -1
+        L = RENDER_ORDER%(k)
+        IF L >= 1 _ANDALSO L <= MAX_LAYERS THEN
+            IF LAYERS(L).visible% _ANDALSO ANIM_OPS_moves%(L) THEN
+                IF LAYERS_groups_shown%(L) THEN
+                    IF _WIDTH(LAYERS(L).imgHandle&) >= sw + LAYERS(L).apronW% _ANDALSO _HEIGHT(LAYERS(L).imgHandle&) >= sh + LAYERS(L).apronH% THEN
+                        nL = nL + 1
+                        lm(nL) = _MEMIMAGE(LAYERS(L).imgHandle&)
+                        lw(nL) = _WIDTH(LAYERS(L).imgHandle&): lax(nL) = LAYERS(L).apronW%: lay(nL) = LAYERS(L).apronH%
+                    END IF
+                END IF
+            END IF
+        END IF
+    NEXT k
+    IF nL = 0 THEN EXIT SUB
 
     ms = _MEMIMAGE(src): mo = _MEMIMAGE(ANIM_LB.onionImg)
     hasCurBg = ANIM_LB_cell_bg%(ms, sw, cx, cy, cw, ch, curBg)
@@ -1873,13 +1901,21 @@ SUB ANIM_LB_onion (dest AS LONG, src AS LONG, f AS INTEGER, dx AS INTEGER, dy AS
                     cnt = 0
                     po = mo.OFFSET
                     FOR j = 0 TO ch - 1
-                        rowS = ms.OFFSET + ((gy + j) * sw + gx) * 4
                         rowC = ms.OFFSET + ((cy + j) * sw + cx) * 4
                         FOR i = 0 TO cw - 1
-                            nb = _MEMGET(ms, rowS + i * 4, _UNSIGNED LONG)
                             cur = _MEMGET(ms, rowC + i * 4, _UNSIGNED LONG)
-                            na = _SHR(nb, 24)
-                            IF nb <> cur _ANDALSO na > 0 _ANDALSO (hasBg = 0 _ORELSE nb <> bg) _ANDALSO (_SHR(cur, 24) = 0 _ORELSE (hasCurBg _ANDALSO cur = curBg)) THEN
+                            ' the first layer, from the top, that differs here decides
+                            ghost = 0
+                            FOR k = 1 TO nL
+                                lp = _MEMGET(lm(k), lm(k).OFFSET + ((gy + j + lay(k)) * lw(k) + gx + i + lax(k)) * 4, _UNSIGNED LONG)
+                                lc = _MEMGET(lm(k), lm(k).OFFSET + ((cy + j + lay(k)) * lw(k) + cx + i + lax(k)) * 4, _UNSIGNED LONG)
+                                IF lp <> lc THEN
+                                    IF _SHR(lc, 24) = 0 _ORELSE (hasCurBg _ANDALSO cur = curBg) THEN ghost = lp
+                                    EXIT FOR
+                                END IF
+                            NEXT k
+                            nb = ghost: na = _SHR(nb, 24)
+                            IF na > 0 _ANDALSO (hasBg = 0 _ORELSE nb <> bg) THEN
                                 r = _SHR(nb, 16) AND 255: gg = _SHR(nb, 8) AND 255: b = nb AND 255
                                 IF CFG.ONION_TINT% THEN r = (r + tr * 3) \ 4: gg = (gg + tg * 3) \ 4: b = (b + tb * 3) \ 4
                                 _MEMPUT mo, po, _RGBA32(r, gg, b, CINT(na * a)) AS _UNSIGNED LONG
@@ -1897,6 +1933,7 @@ SUB ANIM_LB_onion (dest AS LONG, src AS LONG, f AS INTEGER, dx AS INTEGER, dy AS
         NEXT d
     NEXT side
     _MEMFREE ms: _MEMFREE mo
+    FOR k = 1 TO nL: _MEMFREE lm(k): NEXT k
 END SUB
 
 ' ---------------------------------------------------------------------------
