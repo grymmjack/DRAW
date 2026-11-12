@@ -152,7 +152,7 @@ def flash():
 
 
 S.brush(1, 'rocket', rocket(), 'a rocket with its spark trail: straight up, ease out')
-S.brush(2, 'peony-red', burst(['red', 'pink', 'rose'], 20, seed=3), 'a red peony burst: SIZE 20 > 150, OPACITY > 0, TINT white 70 > 0')
+S.brush(2, 'peony-red', burst(['red', 'pink', 'rose'], 20, seed=3), 'a red peony burst: SIZE 20 > 150, OPACITY > 0, TINT white 80 > 0')
 S.brush(3, 'chrysanth-blue', burst(['blue', 'cyan', 'mist'], 26, seed=5), 'a blue chrysanthemum: the same grow / fade / cool')
 S.brush(4, 'willow-gold', burst(['amber', 'yellow', 'orange'], 16, willow=True, seed=7), 'a gold willow: grows while it sags (a path down)')
 S.brush(5, 'ring-green', ring(), 'a ring burst: TURN X 65 tilts it in 3D')
