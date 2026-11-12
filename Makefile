@@ -68,7 +68,7 @@ else
     QB64PE ?= $(HOME)/git/qb64pe/qb64pe
 endif
 THREADS   ?= 16
-QB64FLAGS := -w -x -f:MaxCompilerProcesses=$(THREADS)
+QB64FLAGS := -w -x -f:MaxCompilerProcesses=$(THREADS) -f:SplitObjectfiles=true
 
 # ---------- Runtime arguments forwarded to DRAW -------------------------------
 # The run targets (run / run-logged / run-log-bas / dev-run) append $(ARGS) to the
