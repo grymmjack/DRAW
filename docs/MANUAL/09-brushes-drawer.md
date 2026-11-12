@@ -153,6 +153,67 @@ file with a copy of its cels, so it doesn't need the Drawer slot it came from; e
 GIF, APNG, PNG sequence, sprite sheet, BAS - shows it frame by frame. A DRAW too old to know
 clip layers opens the file with the clip as a normal layer of pixels.
 
+#### More ways to make a clip
+
+- **Make Clip from Selected Frames** (ANIM → Clip Layer): draw a selection around something
+  that already moves across your frames - select the frames in the lightbox strip first, or
+  leave them all - and it becomes a clip. The pixels are cut from the layer and the clip shows
+  them in the same frames at the same place, so nothing looks different, but now you can move
+  it, slow it down or loop it.
+- **Drop an animated GIF or APNG** onto the canvas while the document has frames: it becomes a
+  clip starting in the frame under the pointer. (A `.draw` file still opens as a document, and a
+  PNG sprite sheet still becomes a brush.)
+- **Update Clip from Bin / from AnimBrush** swaps a clip's cels for the Drawer bin it came from
+  (after you changed that bin) or for the AnimBrush you are holding. Every clip using the same
+  cels changes with it.
+
+#### The clip on the X-sheet
+
+On the X-sheet a clip layer's row is a bar from its IN to its last frame, with the cel each
+frame shows. Drag either end to change IN or OUT, or drag the middle to slide the whole clip
+along the frames. Each drag is one undo step.
+
+#### Sharing cels between clips - clip sources
+
+The cels of a clip are its **source**. Duplicating a clip layer gives you a second clip on the
+same source, and the Animation panel's **SOURCE** row (under the clip settings) works on it:
+
+- `<` / `>` - switch the clip to the previous / next source in the document.
+- **RENAME** - name the source (every clip on it shows the new name).
+- **LAYERS** - select every layer using this source.
+
+**ANIM → Clip Layer → Clip Sources...** lists every source, its cels and the layers using it.
+**Remove Unused Clip Sources** clears the ones no layer uses (they come back if you undo your
+way to a layer that used them).
+
+#### Editing a clip's cels
+
+**ANIM → Clip Layer → Edit Clip Cels** puts the clip's cels on a new layer (named
+after them, e.g. **Cels of torch**): cel 1 on frame 1, cel 2 on frame 2 and so on, where the clip sits. The clips using
+those cels are hidden while you work. Paint on that layer with any tool, then choose
+**Apply Cel Edits**: every clip on that source plays the new cels, and the layer goes away.
+One `Ctrl+Z` undoes the whole Apply. **Discard Cel Edits** just removes the layer. The clip
+needs as many frames as it has cels, and its cels must fit in a frame.
+
+#### Sounds on a clip
+
+A clip can carry its own sounds, and they travel with it wherever it plays:
+
+- **Sound on This Cel...** - plays whenever the cel showing in the current frame comes up (a
+  footstep on the walk cycle's contact cel).
+- **Sound When the Clip Starts...** - once, on its IN frame.
+- **Sound Each Time the Clip Starts Over...** - on IN, and again each time its cels loop.
+- **Remove the Clip's Sounds** - all of them.
+
+The same three are the **SOUND** row's `CEL` `START` `LOOP` buttons in the Animation panel;
+the row under it shows one sound at a time - `<` / `>` step through them, `X` removes that
+one. Every clip on the same source plays the sounds. A hidden clip layer is silent. On the
+X-sheet, a clip with sounds has a **SOUND** row under it that marks where each one plays
+(read-only - edit the sounds in the panel). The sounds play with the animation and go into
+the BAS export's audio. **Bake Clip to Pixels** asks whether to keep them: **Yes** (`Enter`)
+turns them into ordinary soundtrack clips, **No** (`Esc`) drops them. The `.draw` file keeps
+the sounds' file paths, the same way the soundtrack does.
+
 ### The AnimBrush pack and example scenes
 
 DRAW ships with **`animbrush-pack`**, a Drawer brush set of 15 AnimBrushes: torch, campfire,

@@ -859,14 +859,23 @@ change at any time (stamps are just pixels). Every change is one undo step.
 | ANIM → Clip Layer → **Bake Clip to Pixels** (or the layer's right-click menu, or BAKE) | A normal layer with the pixels it shows; `Ctrl+Z` brings the clip back |
 | `V` + `L-Drag` in a lightbox pane | Move the clip (every frame) |
 | `Arrows` with the Move tool (lightbox) | Nudge the clip 1 px |
+| ANIM → Clip Layer → **Make Clip from Selected Frames** | The selection (in the selected frames, or all) becomes a clip; the pixels are cut, so the frames look the same |
+| Drop an animated GIF / APNG on the canvas | A clip from the frame under the pointer |
+| ANIM → Clip Layer → **Update Clip from Bin / from AnimBrush** | New cels from the Drawer bin it came from / the current AnimBrush (every clip on the same source) |
+| ANIM → Clip Layer → **Edit Clip Cels** | A layer "Cels of …" with cel k on frame k; paint, then **Apply Cel Edits** (every clip on the source, one undo step) or **Discard Cel Edits** |
+| ANIM → Clip Layer → **Clip Sources...** / **Remove Unused Clip Sources** | List every source and its layers / clear the unused ones |
+| ANIM → Clip Layer → **Sound on This Cel... / When the Clip Starts... / Each Time the Clip Starts Over...** | Add a sound to the clip's source; **Remove the Clip's Sounds** clears them |
+| `L-Drag` an end / the middle of a clip's X-sheet bar | Change IN / OUT, or slide the clip |
 
 Animation panel, while a clip layer is current (in place of the frame rows; the
 `|< < PLAY > >|` row stays): **LOOP PING ONCE HOLD REV** chips; **IN / OUT** (OUT `END` = to the
 last frame), **CEL / EVERY** (the first cel, a new cel every N frames), **X / Y** (in the cell)
 boxes - drag, wheel, click to type, `M-Click` = default; **FLIP X / FLIP Y / BAKE**. Painting,
 Cut, Paste, Clear, Scale, Rotate, Transform, Effects and Merge Down onto a clip layer are refused
-(status bar). Frame ops leave it in place and move its IN / OUT with the frames. Actions
-2620-2628.
+(status bar). Frame ops leave it in place and move its IN / OUT with the frames. Below them:
+**SOURCE** `<` `>` (previous / next source) **RENAME LAYERS** (select the layers on it);
+**SOUND** `CEL START LOOP` (add a sound) and the sound list `<` `>` `X` (step / remove).
+Bake asks whether to keep the clip's sounds (`Enter` Yes / `Esc` No). Actions 2620-2647.
 
 ---
 
