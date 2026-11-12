@@ -113,7 +113,8 @@ stepset() { # "COMMAND" WANT-STEP (0 one frame, 1 next frame, 2 every frame at o
 orderset() { local t; for t in 1 2 3; do cmd "$1"; rd; [[ "$ST_ORD" == "$2" ]] && return 0; done; fail "$1: order $ST_ORD, wanted $2"; }
 
 # ---------------------------------------------------------- the FG colour ---
-fg_white() { local t; for t in 1 2; do cmd "default colors"; rd; [[ "$V_FG" == ffffff ]] && return 0; done; fail "FG is $V_FG, not white"; }
+fg_white() { local t; for t in 1 2; do cmd "default colors"; rd; [[ "${V_FG,,}" == ffffff ]] && return 0; done; fail "FG is $V_FG, not white"; }
+fg_key() { fg_pick $1; }   # "X Y HEX" from keys.sh (unquoted on purpose: three words)
 fg_pick() { # CX CY HEX - the picker (I) on frame 1's pixel, read back
     local t
     for t in 1 2 3; do
@@ -192,8 +193,11 @@ mv() {
     if [[ "${o[path]}" == drawn ]]; then
         drag_pts "${o[pts]}"
     else
-        local i P="$x0,$y0"
-        for (( i = 1; i <= 6; i++ )); do P+=" $(( x0 + (x1 - x0) * i / 6 )),$(( y0 + (y1 - y0) * i / 6 ))"; done
+        # the drag stays in the frame; an end outside it (flying off) is typed after
+        local i P="$x0,$y0" cx1=$x1 cy1=$y1
+        (( cx1 < 0 )) && cx1=0; (( cx1 > FW - 1 )) && cx1=$(( FW - 1 ))
+        (( cy1 < 0 )) && cy1=0; (( cy1 > FH - 1 )) && cy1=$(( FH - 1 ))
+        for (( i = 1; i <= 6; i++ )); do P+=" $(( x0 + (cx1 - x0) * i / 6 )),$(( y0 + (cy1 - y0) * i / 6 ))"; done
         drag_pts "$P"
     fi
     rd
@@ -239,7 +243,15 @@ save_as() { # PATH
     cmd "save project as"; wait_for 1.0 "the dialog"
     for (( i = 0; i < 60; i++ )); do key BackSpace; done
     type_text "$1"; wait_for 0.3 "typed"; key Return; wait_for 2.5 "written"
-    [[ -s "$1" ]] && pass "wrote $(basename "$1") ($(stat -c %s "$1") bytes)" || { fail "no $1"; screenshot "ans-save"; }
+    # DRAW writes the flat PNG first, then deflates the layers into a drAw chunk (+ drAn for
+    # the frames): a big sheet takes many seconds, and quitting before then leaves a flat PNG
+    for (( i = 0; i < 240; i++ )); do
+        [[ -s "$1" ]] && python3 "$DRAW_ROOT/DEV/animscenes/pngchunks.py" "$1" drAw drAn >/dev/null 2>&1 && break
+        wait_for 0.5 "the drAw chunk"
+    done
+    python3 "$DRAW_ROOT/DEV/animscenes/pngchunks.py" "$1" drAw drAn >/dev/null 2>&1 \
+        && pass "wrote $(basename "$1") ($(stat -c %s "$1") bytes, $(python3 "$DRAW_ROOT/DEV/animscenes/pngchunks.py" "$1"))" \
+        || { fail "$1 has no drAw + drAn chunks ($(python3 "$DRAW_ROOT/DEV/animscenes/pngchunks.py" "$1" 2>&1))"; screenshot "ans-save"; }
 }
 sound_drop() { # FILE - a new SOUND track from the current frame (frame 1)
     local n0 n1
@@ -248,7 +260,8 @@ sound_drop() { # FILE - a new SOUND track from the current frame (frame 1)
     read -r _ n1 _ <<< "$(ln_ ANIMSC)"
     (( ${n1:-0} > ${n0:-0} )) && pass "soundtrack: $(basename "$1") on a new track ($(ln_ ANIMSND | cut -c1-80))" || fail "the drop of $(basename "$1") made no clip (clips ${n0:-?} -> ${n1:-?})"
 }
-open_scene() { # NAME FRAMES - open NAME-base.png with NAME-pack.dset in the Drawer, lightbox, background spread
+open_scene() { # NAME FRAMES [shots] - open NAME-base.png with NAME-pack.dset in the Drawer, lightbox,
+    # the background spread (Layer Same on Every Frame) unless "shots" (a picture per frame)
     info "--- scene $1 ---"
     draw_quit; draw_settle
     DRAW_EXTRA_ARGS="--option DEFAULT_DSET_BRUSHES_FILE=$ANS_DIR/$1-pack.dset $ANS_DIR/$1-base.png"
@@ -257,8 +270,11 @@ open_scene() { # NAME FRAMES - open NAME-base.png with NAME-pack.dset in the Dra
     k_ KP_0; rd
     [[ "$A_COUNT" == "$2" && -n "$PX" ]] || { fail "$1: $A_COUNT frames (wanted $2), pane '${PX}'"; return 1; }
     info "lightbox pane $PX,$PY ${PW}x$PH, frame $A_CUR"
-    cmd "same on every frame"; rd
-    [[ "$LF_SAME" == -1 || "$LF_SAME" == 1 ]] && pass "$1: background = Layer Same on Every Frame" || info "$1: ANIMLF same '$LF_SAME'"
+    if [[ "${3:-}" != shots ]]; then
+        cmd "same on every frame"; rd
+        [[ "$LF_SAME" == -1 || "$LF_SAME" == 1 ]] && pass "$1: background = Layer Same on Every Frame" || info "$1: ANIMLF same '$LF_SAME'"
+    fi
+    [[ -f "$ANS_DIR/keys.sh" ]] && source "$ANS_DIR/keys.sh"
     stepset "animbrush step: every frame at once" 2
     MV_LOG=""
 }

@@ -144,6 +144,37 @@ class Scene:
         write_png(os.path.join(s.dir, s.name + '-base.png'), sheet, dran(s.w, s.h, s.frames, s.fps))
         write_png(os.path.join(s.dir, s.name + '-bg.png'), bg)
 
+    def write_base_shots(s, shots):
+        """A base with a background per shot: shots = [(first, last, Img), ...] (1-based
+        frames). Every frame of a shot gets its picture (no Layer Same on Every Frame)."""
+        rows = (s.frames + s.cols - 1) // s.cols
+        sheet = Img(s.cols * s.w, rows * s.h)
+        for first, last, img in shots:
+            for f in range(first - 1, last):
+                sheet.blit(img, (f % s.cols) * s.w, (f // s.cols) * s.h)
+        write_png(os.path.join(s.dir, s.name + '-base.png'), sheet, dran(s.w, s.h, s.frames, s.fps))
+        write_png(os.path.join(s.dir, s.name + '-bg.png'), shots[0][2])
+
+    def keys(s, **kv):
+        """Values for the driver (scenes/NAME.sh sources OUT/NAME/keys.sh): colour keys
+        "x y hex" the picker reads, sizes ..."""
+        with open(os.path.join(s.dir, 'keys.sh'), 'w') as f:
+            for k, v in kv.items():
+                f.write('%s="%s"\n' % (k, v))
+        open(os.path.join(s.dir, 'size.txt'), 'w').write('%d %d\n' % (s.w, s.h))
+
+    def find(s, img, hexcol, x0=0, y0=0, x1=None, y1=None):
+        """The first pixel of colour hexcol in img (a picker key): 'x y hex'."""
+        x1 = img.w - 1 if x1 is None else x1; y1 = img.h - 1 if y1 is None else y1
+        want = col(hexcol)[:3]
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                p = img.get(x, y)
+                # the middle of a run of 3 x 3, so a pixel off still hits it
+                if p and p[:3] == want and all((img.get(x + i, y + j) or (0, 0, 0, 0))[:3] == want for i in (-1, 0, 1) for j in (-1, 0, 1)):
+                    return '%d %d %02x%02x%02x' % (x, y, want[0], want[1], want[2])
+        raise ValueError('no 3x3 patch of %s' % hexcol)
+
     def write_sheet(s, fname, cells):
         """A sheet with per-frame content (a list of Img, one per frame) - e.g. a layer
         drawn in Python that the driver opens as its own document."""
