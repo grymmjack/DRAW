@@ -229,7 +229,7 @@ Phase 1 keeps that door open, but ships none of it.
    - Update from Bin; Make Clip from Selected Frames
    - a Clip Sources list (rename, see which layers use a source)
    - edit a source's cels: open them as a sheet, then Apply
-3. **Keyframe lanes and modulators**: the separate spec, then build.
+3. **Keyframe lanes and modulators**: the separate spec (**PLANS/KEYFRAME-LANES.md**, 2026-11-12), then build.
 
 ## QA plan (phase 1)
 
