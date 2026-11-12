@@ -67,9 +67,17 @@ CONST ANIMP_CTL_EXP0   = 39 ' + 0 GIF, + 1 APNG, + 2 BAS
 CONST ANIMP_CTL_MVPATH0 = 42 ' + 0 LINE, + 1 DRAWN, + 2 LIVE
 CONST ANIMP_CTL_MVEASE0 = 45 ' + 0 NONE, + 1 IN, + 2 OUT, + 3 BOTH
 CONST ANIMP_CTL_MVBTN0  = 49 ' + 0 PLAY, + 1 RESET, + 2 STAMP, + 3 CANCEL
-CONST ANIMP_CTL_COUNT  = 52
+' Clip layers (TOOLS/CLIP): while the current layer is a clip layer (and Move
+' Brush is off) the rows under the nav row show the clip's settings: mode
+' chips / FRAMES IN OUT / CEL START EVERY / POSITION X Y boxes / FLIP X FLIP Y
+' BAKE. The boxes are ANIMP_CL_BOX0 + 1..6 (ANIMP_box_*).
+CONST ANIMP_CTL_CLMODE0 = 52 ' + CLIP_MODE_* (LOOP PING ONCE HOLD REV)
+CONST ANIMP_CTL_CLBTN0  = 57 ' + 0 FLIP X, + 1 FLIP Y, + 2 BAKE
+CONST ANIMP_CTL_COUNT  = 60
 CONST ANIMP_MV_ROWS    = 10
 CONST ANIMP_MV_BOX0    = 20 ' number box vr of MVB box j = ANIMP_MV_BOX0 + j
+CONST ANIMP_CL_BOX0    = 40 ' number box vr of clip box j (1 IN, 2 OUT, 3 START, 4 EVERY, 5 X, 6 Y) = ANIMP_CL_BOX0 + j
+CONST ANIMP_CL_BOXES   = 6
 
 TYPE ANIM_PANEL_OBJ
     visible           AS INTEGER

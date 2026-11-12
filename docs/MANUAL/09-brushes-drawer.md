@@ -111,6 +111,48 @@ quickly and it darts. The stroke lands when you let go (Ctrl+Z takes it back in 
 AnimPaint stays on for the next stroke; Esc stops it. The size, turn, opacity and tint settings
 above apply here too.
 
+### Clip layers - an AnimBrush that keeps playing
+
+A stamp is pixels: once it lands, changing your mind about timing means erasing and stamping
+again. A **clip layer** keeps the AnimBrush itself, so a torch flickers, a coin spins or a
+character walks on the spot for as long as the animation runs, and you can change when it
+starts, how fast it plays or where it sits at any time.
+
+1. Pick up an AnimBrush.
+2. Choose **ANIM → Clip Layer → Place AnimBrush as Clip**, then click in a frame. A new layer
+   appears above the current one, named after the AnimBrush with `[C]` in front. Cel 1 is in the
+   frame you clicked, where you clicked, and the clip plays to the last frame. `Esc` or a
+   right-click cancels before you click.
+3. The Animation panel opens on the clip's settings (they replace the frame rows while a clip
+   layer is the current layer; the `|< < PLAY > >|` row stays so you can scrub):
+   - **LOOP / PING / ONCE / HOLD / REV** - play the cels round and round, back and forth, once
+     (then nothing), once and stay on the last cel, or backwards.
+   - **IN / OUT** - the first and last frame it shows in. `END` means to the last frame, and
+     stays that way when you add frames.
+   - **CEL / EVERY** - the cel it starts on, and a new cel every N frames (2 = on twos).
+   - **X / Y** - where the cel sits in each frame's cell.
+   - **FLIP X / FLIP Y** mirror every cel. **BAKE** - see below.
+
+   Each number is a box: drag it, wheel over it, click to type, or middle-click for its default.
+   The same settings are in **ANIM → Clip Layer**, and `Image → Flip Horizontal / Vertical`
+   flip the clip too.
+
+**Moving it:** the Move tool (`V`) drags the clip in a lightbox pane and every frame follows; the
+arrow keys nudge it 1 px. **Frames:** adding, inserting, deleting or reordering frames leaves the
+clip layer alone and moves its IN / OUT with the frames around it.
+
+**What you can't do to it:** a clip layer's pixels are rebuilt from the clip, so painting on it,
+Cut, Paste, Clear, Scale, Rotate, Transform and Effects are refused with a message in the status
+bar, and Merge Down onto it is refused. **Bake Clip to Pixels** (ANIM → Clip Layer, the panel's
+BAKE button, or the layer's right-click menu) turns it into a normal layer with the pixels it
+shows; `Ctrl+Z` brings the clip back. Merging a clip layer down into the layer below also
+keeps just its pixels.
+
+Every change is one undo step (a drag on a number box too). The clip is saved in the `.draw`
+file with a copy of its cels, so it doesn't need the Drawer slot it came from; every export -
+GIF, APNG, PNG sequence, sprite sheet, BAS - shows it frame by frame. A DRAW too old to know
+clip layers opens the file with the clip as a normal layer of pixels.
+
 ### The AnimBrush pack and example scenes
 
 DRAW ships with **`animbrush-pack`**, a Drawer brush set of 15 AnimBrushes: torch, campfire,

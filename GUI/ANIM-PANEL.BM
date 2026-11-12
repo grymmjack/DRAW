@@ -93,6 +93,40 @@ FUNCTION ANIMP_mv_row_label$ (r AS INTEGER)
 END FUNCTION
 
 ''
+' Clip rows instead of the frame rows: the current layer is a clip layer (and
+' Move Brush, which has its own rows, is off). They use the Move rows' places:
+' 1 nav, 2 mode chips, 3 IN OUT, 4 START EVERY, 5 X Y, 6 FLIP X FLIP Y BAKE.
+FUNCTION ANIMP_clip_on% ()
+    IF MVB.active THEN EXIT FUNCTION
+    ANIMP_clip_on% = (CLIP_current% <> 0)
+END FUNCTION
+
+''
+' Clip row r's number boxes: the first clip box and how many (0 = a chip row).
+SUB ANIMP_cl_row_boxes (r AS INTEGER, j0 AS INTEGER, nb AS INTEGER)
+    j0 = 0: nb = 0
+    SELECT CASE r
+        CASE 3: j0 = 1: nb = 2
+        CASE 4: j0 = 3: nb = 2
+        CASE 5: j0 = 5: nb = 2
+    END SELECT
+END SUB
+
+FUNCTION ANIMP_cl_row_label$ (r AS INTEGER)
+    SELECT CASE r
+        CASE 3: ANIMP_cl_row_label$ = "IN / OUT"
+        CASE 4: ANIMP_cl_row_label$ = "CEL / EVERY"
+        CASE 5: ANIMP_cl_row_label$ = "X / Y"
+    END SELECT
+END FUNCTION
+
+''
+' The CLIP_set / CLIP_get& setting of clip box j (1 IN, 2 OUT, 3 START, 4 EVERY, 5 X, 6 Y).
+FUNCTION ANIMP_cl_field% (j AS INTEGER)
+    IF j >= 1 _ANDALSO j <= ANIMP_CL_BOXES THEN ANIMP_cl_field% = VAL(MID$("123489", j, 1))
+END FUNCTION
+
+''
 ' Docked: lay out to nw native px wide (0 = natural); the height stays.
 SUB ANIMP_fit (nw AS INTEGER, nh AS INTEGER)
     IF nw = ANIMP.fitW _ANDALSO nh = ANIMP.fitH THEN EXIT SUB
@@ -212,6 +246,27 @@ FUNCTION ANIMP_hit% (nx AS INTEGER, ny AS INTEGER)
             FOR k = 0 TO 3
                 ANIMP_chip_x k, 4, cx, cw
                 IF nx >= cx _ANDALSO nx < cx + cw THEN ANIMP_hit% = ANIMP_CTL_MVBTN0 + k: EXIT FUNCTION
+            NEXT k
+        END IF
+        EXIT FUNCTION
+    END IF
+    IF ANIMP_clip_on% THEN ' the nav row, then the clip rows: mode chips / FLIP X FLIP Y BAKE
+        IF ny >= ANIMP.yNav _ANDALSO ny < ANIMP.yNav + rh THEN
+            FOR k = 0 TO 4
+                ANIMP_chip_x k, 5, cx, cw
+                IF nx >= cx _ANDALSO nx < cx + cw THEN ANIMP_hit% = ANIMP_nav_ctl%(k): EXIT FUNCTION
+            NEXT k
+        END IF
+        IF ny >= ANIMP_mvY(2) _ANDALSO ny < ANIMP_mvY(2) + rh THEN
+            FOR k = 0 TO 4
+                ANIMP_chip_x k, 5, cx, cw
+                IF nx >= cx _ANDALSO nx < cx + cw THEN ANIMP_hit% = ANIMP_CTL_CLMODE0 + k: EXIT FUNCTION
+            NEXT k
+        END IF
+        IF ny >= ANIMP_mvY(6) _ANDALSO ny < ANIMP_mvY(6) + rh THEN
+            FOR k = 0 TO 2
+                ANIMP_chip_x k, 3, cx, cw
+                IF nx >= cx _ANDALSO nx < cx + cw THEN ANIMP_hit% = ANIMP_CTL_CLBTN0 + k: EXIT FUNCTION
             NEXT k
         END IF
         EXIT FUNCTION
@@ -354,6 +409,14 @@ SUB ANIMP_do (c AS INTEGER)
                 CASE 2: CMD_execute_action MVB_ACT_APPLY
                 CASE 3: CMD_execute_action MVB_ACT_CANCEL
             END SELECT
+        CASE ANIMP_CTL_CLMODE0 TO ANIMP_CTL_CLMODE0 + 4: CMD_execute_action CLIP_ACT_MODE0 + c - ANIMP_CTL_CLMODE0
+        CASE ANIMP_CTL_CLBTN0 TO ANIMP_CTL_CLBTN0 + 2
+            ANIMP.pressCtl = ANIMP_CTL_NONE
+            SELECT CASE c - ANIMP_CTL_CLBTN0
+                CASE 0: CMD_execute_action CLIP_ACT_FLIP_X
+                CASE 1: CMD_execute_action CLIP_ACT_FLIP_Y
+                CASE 2: CMD_execute_action CLIP_ACT_BAKE
+            END SELECT
         CASE 1 TO 2 * ANIMP_ROWS
             DIM r AS INTEGER
             d = _IIF(MODIFIERS.shift%, 10, 1)
@@ -474,6 +537,21 @@ FUNCTION ANIMP_value_at% (nx AS INTEGER, ny AS INTEGER, whole AS INTEGER)
         NEXT r
         EXIT FUNCTION
     END IF
+    IF ANIMP_clip_on% THEN
+        DIM cj0 AS INTEGER, cnb AS INTEGER, cb AS INTEGER, cbx AS INTEGER
+        FOR r = 3 TO 5
+            IF ny >= ANIMP_mvY(r) _ANDALSO ny < ANIMP_mvY(r) + rh THEN
+                ANIMP_cl_row_boxes r, cj0, cnb
+                FOR cb = 1 TO cnb
+                    cbx = ANIMP_mv_box_x%(3 - cnb + cb)
+                    IF nx >= cbx _ANDALSO nx < cbx + ANIMP.valW THEN ANIMP_value_at% = ANIMP_CL_BOX0 + cj0 + cb - 1: EXIT FUNCTION
+                NEXT cb
+                IF whole _ANDALSO cnb > 0 _ANDALSO nx >= 0 _ANDALSO nx < ANIMP.panelW THEN ANIMP_value_at% = ANIMP_CL_BOX0 + cj0
+                EXIT FUNCTION
+            END IF
+        NEXT r
+        EXIT FUNCTION
+    END IF
     ANIMP_stepper_x mx, vx, px
     IF whole THEN inX = (nx >= 0 _ANDALSO nx < ANIMP.panelW) ELSE inX = (nx >= vx _ANDALSO nx < vx + ANIMP.valW)
     IF inX = 0 THEN EXIT FUNCTION
@@ -488,16 +566,19 @@ END FUNCTION
 ''
 ' Box vr's value, label, and whether it does anything now.
 FUNCTION ANIMP_box_value% (vr AS INTEGER)
+    IF vr > ANIMP_CL_BOX0 THEN ANIMP_box_value% = CLIP_get&(ANIMP_cl_field%(vr - ANIMP_CL_BOX0)): EXIT FUNCTION
     IF vr > ANIMP_MV_BOX0 THEN ANIMP_box_value% = MVB_box_value&(vr - ANIMP_MV_BOX0): EXIT FUNCTION
     IF vr <= ANIMP_ROWS THEN ANIMP_box_value% = ANIMP_value%(vr) ELSE ANIMP_box_value% = ANIMP_onion_value%(vr - ANIMP_ROWS)
 END FUNCTION
 
 FUNCTION ANIMP_box_label$ (vr AS INTEGER)
+    IF vr > ANIMP_CL_BOX0 THEN ANIMP_box_label$ = "CLIP " + _TRIM$(MID$("IN        OUT       START CEL EVERY     X         Y         ", (vr - ANIMP_CL_BOX0 - 1) * 10 + 1, 10)): EXIT FUNCTION
     IF vr > ANIMP_MV_BOX0 THEN ANIMP_box_label$ = MVB_box_label$(vr - ANIMP_MV_BOX0): EXIT FUNCTION
     IF vr <= ANIMP_ROWS THEN ANIMP_box_label$ = ANIMP_row_label$(vr) ELSE ANIMP_box_label$ = "ONION " + _TRIM$(MID$("BEFORE AFTER  OPACITY", (vr - ANIMP_ROWS - 1) * 7 + 1, 7))
 END FUNCTION
 
 FUNCTION ANIMP_box_on% (vr AS INTEGER)
+    IF vr > ANIMP_CL_BOX0 THEN ANIMP_box_on% = ANIMP_clip_on%: EXIT FUNCTION
     IF vr > ANIMP_MV_BOX0 THEN ANIMP_box_on% = MVB_box_on%(vr - ANIMP_MV_BOX0): EXIT FUNCTION
     IF vr <= ANIMP_ROWS THEN ANIMP_box_on% = ANIMP_row_on%(vr) ELSE ANIMP_box_on% = TRUE
 END FUNCTION
@@ -506,6 +587,12 @@ END FUNCTION
 ' Step box vr by d (the onion opacity steps 5 % at a time, as its + / -).
 SUB ANIMP_box_step (vr AS INTEGER, d AS INTEGER)
     IF d = 0 _ORELSE ANIMP_box_on%(vr) = 0 THEN EXIT SUB
+    IF vr > ANIMP_CL_BOX0 THEN
+        DIM cf AS INTEGER
+        cf = ANIMP_cl_field%(vr - ANIMP_CL_BOX0)
+        CLIP_set_keyed cf, CLIP_get&(cf) + d, ANIMP.pressKey
+        EXIT SUB
+    END IF
     IF vr > ANIMP_MV_BOX0 THEN MVB_box_step vr - ANIMP_MV_BOX0, d: EXIT SUB
     IF vr <= ANIMP_ROWS THEN ANIMP_step vr, d ELSE ANIMP_onion_step vr - ANIMP_ROWS, d
 END SUB
@@ -515,6 +602,7 @@ END SUB
 SUB ANIMP_box_set (vr AS INTEGER, v AS LONG)
     DIM r AS INTEGER
     IF ANIMP_box_on%(vr) = 0 THEN EXIT SUB
+    IF vr > ANIMP_CL_BOX0 THEN CLIP_set_keyed ANIMP_cl_field%(vr - ANIMP_CL_BOX0), v, ANIMP.pressKey: EXIT SUB
     IF vr > ANIMP_MV_BOX0 THEN MVB_box_set vr - ANIMP_MV_BOX0, v: EXIT SUB
     IF vr <= ANIMP_ROWS THEN
         v = _MAX(-32000, _MIN(32000, v))
@@ -535,6 +623,13 @@ END SUB
 ' A middle click: box vr back to its default (FALSE: it has none - the frame size).
 FUNCTION ANIMP_box_reset% (vr AS INTEGER)
     DIM v AS LONG
+    IF vr > ANIMP_CL_BOX0 THEN ' IN 1, OUT the end, START 1, EVERY 1, X 0, Y 0
+        v = _IIF(vr - ANIMP_CL_BOX0 = 1 _ORELSE vr - ANIMP_CL_BOX0 = 3 _ORELSE vr - ANIMP_CL_BOX0 = 4, 1, 0)
+        ANIMP.pressKey = ANIMP.pressKey + 1
+        ANIMP_box_set vr, v
+        ANIMP_box_reset% = TRUE
+        EXIT FUNCTION
+    END IF
     IF vr > ANIMP_MV_BOX0 THEN
         MVB_box_set vr - ANIMP_MV_BOX0, MVB_box_default&(vr - ANIMP_MV_BOX0)
         ANIMP_box_reset% = TRUE
@@ -561,7 +656,11 @@ SUB ANIMP_box_type (vr AS INTEGER)
     IF ANIMP_box_on%(vr) = 0 THEN EXIT SUB
     lbl = ANIMP_box_label$(vr)
     POINTER_hide_for_dialog
-    t = DRAW_input_box_ex$(_IIF(vr > ANIMP_MV_BOX0, "Move Brush", "Animation"), lbl + ":", _TRIM$(STR$(ANIMP_box_value%(vr))), "A number", TRUE)
+    IF vr > ANIMP_CL_BOX0 THEN
+        t = DRAW_input_box_ex$("Clip Layer", lbl + ":", _TRIM$(STR$(ANIMP_box_value%(vr))), _IIF(vr - ANIMP_CL_BOX0 = 2, "A frame (0 = to the end)", "A number"), TRUE)
+    ELSE
+        t = DRAW_input_box_ex$(_IIF(vr > ANIMP_MV_BOX0, "Move Brush", "Animation"), lbl + ":", _TRIM$(STR$(ANIMP_box_value%(vr))), "A number", TRUE)
+    END IF
     POINTER_show_after_dialog
     MOUSE_cleanup_after_dialog FALSE
     t = _TRIM$(t)
@@ -627,6 +726,11 @@ SUB ANIMP_render ()
         IF MVB.dragging _ANDALSO MVB_PATH = MVB_PATH_LIVE THEN t = t + ": REC" ELSE t = t + ":"
         t = t + STR$(MVB_frames%) + " FRAMES"
         FPANEL_text pad, ANIMP.yStatus, t, THEME.CP_text_bright~&
+    ELSEIF ANIMP_clip_on% THEN
+        DIM cel AS INTEGER
+        cel = CLIP_cel_at%(CLIP_current%, ANIM.current)
+        t = "CLIP: FRAME" + STR$(ANIM.current) + _IIF(cel > 0, " CEL" + STR$(cel), " NO CEL")
+        FPANEL_text pad, ANIMP.yStatus, t, THEME.CP_text_bright~&
     ELSEIF ANIMP.pendRow _ANDALSO isOn THEN
         FPANEL_text pad, ANIMP.yStatus, "RE-SLICE OR RESIZE?", THEME.CP_text_bright~&
     ELSEIF isOn THEN
@@ -636,10 +740,18 @@ SUB ANIMP_render ()
         FPANEL_text pad, ANIMP.yStatus, "NO FRAMES - SET A SIZE", THEME.CP_text_dim~&
     END IF
 
-    IF MVB.active THEN ANIMP_render_move ELSE ANIMP_render_body
+    IF MVB.active THEN
+        ANIMP_render_move
+    ELSEIF ANIMP_clip_on% THEN
+        ANIMP_render_clip
+    ELSE
+        ANIMP_render_body
+    END IF
 
     IF MVB.active THEN
         IF MVB_PATH = MVB_PATH_LIVE THEN t = "PAINT A STROKE  ESC STOPS" ELSE t = "ENTER STAMPS  ESC CANCELS"
+    ELSEIF ANIMP_clip_on% THEN
+        t = ANIMP_clip_info$
     ELSEIF isOn THEN
         t = _TRIM$(STR$(ANIM_cols%)) + " X" + STR$(ANIM_rows%) + " CELLS," + STR$(ANIM_cells% - ANIM.count) + " SPARE"
     ELSE
@@ -792,6 +904,65 @@ SUB ANIMP_render_move ()
         ANIMP_chip cx, y, cw, t, (k = 0 _ANDALSO MVB.playing <> 0), ANIMP.hoverCtl = ANIMP_CTL_MVBTN0 + k, (k = 1 _ORELSE k = 3) _ORELSE MVB.hasPath <> 0
     NEXT k
 END SUB
+
+''
+' The clip rows (ANIMP_render, while the current layer is a clip layer).
+SUB ANIMP_render_clip ()
+    DIM pad AS INTEGER, f AS INTEGER, rh AS INTEGER, r AS INTEGER, k AS INTEGER, cx AS INTEGER, cw AS INTEGER
+    DIM j0 AS INTEGER, nb AS INTEGER, b AS INTEGER, bx AS INTEGER, j AS INTEGER, isOn AS INTEGER
+    DIM t AS STRING, ty AS INTEGER, y AS INTEGER, v AS LONG
+    pad = FPANEL.pad: f = FPANEL.fontH: rh = FPANEL.rowH: isOn = ANIM.active
+    FOR k = 0 TO 4 ' first / previous / play / next / last: scrub to see the clip move
+        ANIMP_chip_x k, 5, cx, cw
+        IF k = 2 THEN
+            t = _IIF(ANIM_PLAY.playing, "STOP", "PLAY")
+            ANIMP_chip cx, ANIMP.yNav, cw, t, ANIM_PLAY.playing <> 0, ANIMP.hoverCtl = ANIMP_CTL_PLAY, isOn _ANDALSO ANIM.count > 1
+        ELSE
+            t = MID$("|< <     >  >|", k * 3 + 1, 2)
+            ANIMP_chip cx, ANIMP.yNav, cw, _TRIM$(t), FALSE, ANIMP.hoverCtl = ANIMP_nav_ctl%(k), isOn
+        END IF
+    NEXT k
+    y = ANIMP_mvY(2)
+    FOR k = 0 TO 4
+        ANIMP_chip_x k, 5, cx, cw
+        ANIMP_chip cx, y, cw, CLIP_mode_name$(k), CLIP_get&(5) = k, ANIMP.hoverCtl = ANIMP_CTL_CLMODE0 + k, TRUE
+    NEXT k
+    FOR r = 3 TO 5
+        y = ANIMP_mvY(r): ty = y + (rh - f) \ 2
+        ANIMP_cl_row_boxes r, j0, nb
+        FOR b = 1 TO nb
+            j = j0 + b - 1
+            bx = ANIMP_mv_box_x%(3 - nb + b)
+            LINE (bx, y)-(bx + ANIMP.valW - 1, y + rh - 1), THEME.CP_slider_bg~&, BF
+            LINE (bx, y)-(bx + ANIMP.valW - 1, y + rh - 1), _IIF(ANIMP.vRow = ANIMP_CL_BOX0 + j, THEME.CP_text_bright~&, THEME.CP_slider_border~&), B
+            v = CLIP_get&(ANIMP_cl_field%(j))
+            IF j = 2 _ANDALSO v = 0 THEN t = "END" ELSE t = _TRIM$(STR$(v))
+            FPANEL_text bx + ANIMP.valW - 2 - FPANEL_text_w%(t), ty, t, THEME.CP_text~&
+        NEXT b
+        FPANEL_text pad, ty, ANIMP_cl_row_label$(r), THEME.CP_text~&
+    NEXT r
+    y = ANIMP_mvY(6)
+    FOR k = 0 TO 2
+        ANIMP_chip_x k, 3, cx, cw
+        SELECT CASE k
+            CASE 0: ANIMP_chip cx, y, cw, "FLIP X", CLIP_get&(6) <> 0, ANIMP.hoverCtl = ANIMP_CTL_CLBTN0, TRUE
+            CASE 1: ANIMP_chip cx, y, cw, "FLIP Y", CLIP_get&(7) <> 0, ANIMP.hoverCtl = ANIMP_CTL_CLBTN0 + 1, TRUE
+            CASE 2: ANIMP_chip cx, y, cw, "BAKE", FALSE, ANIMP.hoverCtl = ANIMP_CTL_CLBTN0 + 2, TRUE
+        END SELECT
+    NEXT k
+END SUB
+
+''
+' The info line under the clip rows: its AnimBrush and how many cels.
+FUNCTION ANIMP_clip_info$ ()
+    DIM k AS INTEGER, s AS INTEGER, nm AS STRING
+    k = CLIP_current%: IF k = 0 THEN EXIT FUNCTION
+    s = CLIP_INST(k).src
+    IF s < 1 _ORELSE s > CLIP_SRC_MAX THEN ANIMP_clip_info$ = "NO CELS": EXIT FUNCTION
+    nm = UCASE$(_TRIM$(CLIP_SRC(s).nm))
+    IF LEN(nm) > 14 THEN nm = LEFT$(nm, 13) + "~"
+    ANIMP_clip_info$ = nm + "," + STR$(CLIP_SRC(s).n) + " CELS"
+END FUNCTION
 
 FUNCTION ANIMP_row_label$ (r AS INTEGER)
     SELECT CASE r
@@ -963,6 +1134,7 @@ FUNCTION ANIMP_dump$ ()
         d = d + CHR$(10) + "ANIMPM" + DOCK_n$(MVB.active <> 0)
         FOR r = 1 TO ANIMP_MV_ROWS: d = d + DOCK_n$(ANIMP_mvY(r)): NEXT r
         d = d + DOCK_n$(ANIMP_mv_box_x%(1)) + DOCK_n$(ANIMP_mv_box_x%(2)) + DOCK_n$(ANIMP_mv_box_x%(3)) + DOCK_n$(ANIMP.valW)
+        d = d + CHR$(10) + "ANIMPC" + DOCK_n$(ANIMP_clip_on% <> 0) ' the clip rows are up (they use the ANIMPM places)
         d = d + CHR$(10)
     END IF
     ANIMP_dump$ = d + "ANIMP" + DOCK_n$(ANIMP.visible <> 0) + DOCK_n$(ANIMP.docked <> 0) + DOCK_n$(ANIMP.dispX) + DOCK_n$(ANIMP.dispY) + DOCK_n$(ANIMP.dispW) + DOCK_n$(ANIMP.dispH) + DOCK_n$(INT(ANIMP.renderScale * 100)) + DOCK_n$(ANIM_hold%(ANIM.current)) + DOCK_n$(ANIM_SIZE_MODE) + DOCK_n$(ANIMP.pendRow) + CHR$(10)

@@ -48,6 +48,7 @@ CONST LAYER_TYPE_GROUP         = 2         ' Group container (no pixel data, org
 CONST LAYER_TYPE_SYMBOL_PARENT = 3         ' Symbol parent : editable source layer for linked instances
 CONST LAYER_TYPE_SYMBOL_CHILD  = 4         ' Symbol child  : non-editable linked instance of a parent
 CONST LAYER_TYPE_AI            = 5         ' AI-generated layer (prompt/seed embedded, regenerable)
+CONST LAYER_TYPE_CLIP          = 6         ' Clip layer: an AnimBrush played across the frames, rebuilt from its settings (TOOLS/CLIP)
 
 ' Export mode constants (QB64PE Code Export classification)
 CONST EXPORT_MODE_VECTOR = 0               ' All ops are vector-exportable (SUB)

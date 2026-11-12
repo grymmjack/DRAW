@@ -845,6 +845,29 @@ frame you press in. It is Move Brush with the LIVE path, so the size / turn / op
 settings apply too. The stroke is stamped when you let go (one undo step) and AnimPaint stays on
 for the next one; `Esc` (or the menu item again) stops it.
 
+### Clip layers (ANIM → Clip Layer)
+
+A clip layer keeps the AnimBrush and plays it across the frames, so its timing and place can
+change at any time (stamps are just pixels). Every change is one undo step.
+
+| Keys / item | Action |
+|-------------|--------|
+| ANIM → Clip Layer → **Place AnimBrush as Clip**, then `L-Click` a frame | A new layer above the current one (`[C]` in the layer panel): cel 1 in the frame you click, where you click, to the last frame. Opens the Animation panel on the clip rows |
+| `Esc` / `R-Click` before the click | Cancel placing |
+| ANIM → Clip Layer → **Mode: Loop / Ping-Pong / Once / Hold / Reverse** | Round and round / back and forth / once, then nothing / once, then stays on the last cel / backwards |
+| ANIM → Clip Layer → **Flip X / Flip Y**, `Image → Flip Horizontal / Vertical` | Mirror every cel |
+| ANIM → Clip Layer → **Bake Clip to Pixels** (or the layer's right-click menu, or BAKE) | A normal layer with the pixels it shows; `Ctrl+Z` brings the clip back |
+| `V` + `L-Drag` in a lightbox pane | Move the clip (every frame) |
+| `Arrows` with the Move tool (lightbox) | Nudge the clip 1 px |
+
+Animation panel, while a clip layer is current (in place of the frame rows; the
+`|< < PLAY > >|` row stays): **LOOP PING ONCE HOLD REV** chips; **IN / OUT** (OUT `END` = to the
+last frame), **CEL / EVERY** (the first cel, a new cel every N frames), **X / Y** (in the cell)
+boxes - drag, wheel, click to type, `M-Click` = default; **FLIP X / FLIP Y / BAKE**. Painting,
+Cut, Paste, Clear, Scale, Rotate, Transform, Effects and Merge Down onto a clip layer are refused
+(status bar). Frame ops leave it in place and move its IN / OUT with the frames. Actions
+2620-2628.
+
 ---
 
 ## Audio · Music

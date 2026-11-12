@@ -33,6 +33,7 @@ DRAW uses a **unified history system** (`TOOLS/HISTORY.BI` / `HISTORY.BM`) for a
 | `HISTORY_KIND_BEZIER` | 19 | Bezier path (polyline record) |
 | `HISTORY_KIND_PALETTE` | 20 | Palette snapshot, before + after |
 | `HISTORY_KIND_ANIM_FRAMES` | 21 | Animation frame op / frame layout / timing: whole-sheet snapshots before + after (`TOOLS/ANIM-OPS`) |
+| `HISTORY_KIND_CLIP` | 22 | Clip layer setting / move / bake: `MKL$(len before) + before + after`, each `CLIP_state$` = layer type(2) + instance blob(20) (`TOOLS/CLIP`). A held Animation-panel drag merges into one record (`CLIP_KEY`, like `ANIM_OPS_record`'s pressKey) |
 
 ### Key Types
 

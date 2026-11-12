@@ -76,6 +76,7 @@ round 2 R-01..R-12). Checklist: `.claude/TASKS-ANIMATION.md`. Branch: `animation
 | 2551 | Create Frames from Grid (`ANIM_GRID_frames_action`, `TOOLS/ANIM-IMPORT`, F8: frame = `GRID.gridWidth` x `gridHeight`, no gutter / margin, frames up to the last drawn cell; one undo step; `anim-frames-from-grid.sh`) |
 | 2540 | X-Sheet in the lightbox's top band (`ANIM_XS_toggle`, `TOOLS/ANIM-XS`, `CFG.XSHEET`, Num 8, chip `LB_CTL_XS`) |
 | 2510-2518 | Frame ops: op = id - `ANIM_ACT_OP0` (2509) = `ANIM_OP_APPEND` .. `ANIM_OP_REVERSE` (`ANIM_OPS_action`; Shift on Add = blank) |
+| 2620-2628 | Clip layers (`CLIP_action`, `TOOLS/CLIP`): Place AnimBrush as Clip / Bake Clip to Pixels / Mode Loop, Ping, Once, Hold, Rev (2622-2626) / Flip X / Flip Y - see "Clip layers" below |
 
 Grep before adding one (CLAUDE.md gotcha 17).
 
@@ -1195,6 +1196,62 @@ gotcha 15). It also stops playback and clears the ask answer.
   `ABRC frame:crc ...` (BGRA CRC32, `0` = clear). Tests `animbrush-pickup` (expected CRCs
   worked out from the fixture in python), `animbrush-pickup-edges` (wand shape, stash, plain
   Ctrl+B, no frames).
+
+## Clip layers (`TOOLS/CLIP`, PLANS/CLIP-LAYERS.md, phase 1 2026-11-12)
+
+A clip layer (`LAYER_TYPE_CLIP` = 6) plays an AnimBrush across the frames. It is a
+**generated layer**: `CLIP_rebuild slot` redraws its `imgHandle&` from the clip (cel
+`CLIP_cel_for%` in each frame's cell, flipped, at px / py relative to the cell, `_DONTBLEND`,
+apron-aware), the way a symbol child is rebuilt from its parent - so the render, onion skin,
+playback and every exporter (`LAYERS_flatten&`) read it unchanged.
+
+- **Data** (`CLIP.BI`): `CLIP_SRC()` = the cels copied into the document (Rick Q1: copy, not a
+  Drawer link), one strip `n * cw` wide; `CLIP_INST()` = one per clip layer, found by the
+  layer's **historyId** (kept when the layer goes, so undo of a delete brings the clip back;
+  a save writes only instances whose layer is there). `CLIP_tick%` (main loop, after
+  `ANIM_SND_tick`) rebuilds dirty instances and all of them when the frame layout signature
+  (`CLIP_layout_sig$`) changes.
+- **Pure math** `CLIP-MATH.BM`: `CLIP_cel_for%(f, n, every, start, in, out, mode)` (LOOP /
+  PING / ONCE = nothing after the last cel (Q2) / HOLD / REV) and `CLIP_remap%` (In / Out
+  through a frame op's `ANIM_SRC` plan; an open Out (0) stays open). Unit test
+  `QA/unit/clip-unit.bas` (25 checks).
+- **Place** (2620): `CLIP_place_start` (refusals; Move Brush cancelled; Brush tool so the brush
+  shows the cel), `CLIP_PLACING` 1 waits for a click in `MOUSE_input_handler` (after the MVB
+  intercept), `CLIP_place_at` puts cel 1 in the clicked frame (Q3), opens the Animation panel,
+  and records the layer add (`HISTORY_refresh_layer_add_snapshot` - its payload carries
+  layerType, so redo brings a CLIP layer back). Esc / right-click cancel.
+- **Settings**: `CLIP_set which, v` (1 In, 2 Out, 3 start, 4 every, 5 mode, 6 flipX, 7 flipY,
+  8 x, 9 y) - one `HISTORY_KIND_CLIP` (22) record each; `CLIP_set_keyed` from the panel merges
+  a held drag into one record (`CLIP_KEY` / `CLIP_LAST_KEY`, same idea as `ANIM_OPS_record`).
+  Bake (2621) sets the type to IMAGE in one record (undo brings the clip back).
+- **Animation panel** (Q5): while `ANIMP_clip_on%` (current layer is a clip, Move Brush off)
+  `ANIMP_render_clip` replaces the frame rows on the Move rows' places (`ANIMP_mvY`): 1 nav,
+  2 mode chips (`ANIMP_CTL_CLMODE0` 52), 3 IN OUT, 4 CEL EVERY, 5 X Y (boxes
+  `ANIMP_CL_BOX0` 40 + 1..6 -> `ANIMP_cl_field%`), 6 FLIP X / FLIP Y / BAKE
+  (`ANIMP_CTL_CLBTN0` 57). Box checks test `vr > ANIMP_CL_BOX0` before `vr > ANIMP_MV_BOX0`.
+- **Refusals** (Q4): the paint-tool guard in `MOUSE.BM` (same tool list as the symbol guard,
+  `CLIP_refuse%`), `CLIP_cmd_filter%` at the top of `CMD_execute_action` (315 / 316 flip the
+  clip instead; Cut / Paste / Clear / Scale / Rotate / Stroke Selection / Transform / Effects
+  2001-2281 refused), Merge Down onto a clip (LAYERS). Not yet covered: IMAGE-ADJ and other
+  paths that write a layer's pixels directly.
+- **Move**: in a lightbox pane `ANIM_LB_move_begin%` hands a clip layer to `CLIP_drag_begin /
+  _to / _end` (live px / py, one record at the release, also from `ANIM_LB_move_end`); arrows
+  with the Move tool -> `ANIM_LB_nudge` -> `CLIP_move_by`. Sheet view: `MOVE_capture_selection`
+  treats a clip like a symbol child (snapshot shifted live), `MOVE_apply_transform`'s clip
+  branch -> `CLIP_move_by` + rebuild (scaling refused).
+- **Frame ops**: `ANIM_OPS_moves%` / `ANIM_CV_scale_wants%` skip clip layers (they stay put);
+  `CLIP_remap_all oldCount, newCount` after both `ANIM_apply_plan` calls; frame-op snapshots
+  get a `CLP1` block (`CLIP_snapshot$` / `CLIP_snapshot_apply`) so undo puts In / Out back.
+- **Documents**: `AB_new_document` calls `CLIP_new_document` (every document path calls it).
+  Saved as IMAGE in drAw + the `drCl` chunk (draw-fileformat.md). Duplicate Layer copies the
+  instance (`CLIP_duplicate`); the layer panel shows `[C] `.
+- **Dump**: `CLIPP placing current`, `CLIP slot src in out start every MODE flipX flipY px py`,
+  `CLIPC slot cels` (`.` none, 10+ letters), `CLIPX slot f:x:y:w:h:TL:TR` (pixel bounds in
+  each cell, cells up to 64 px), `CLIPS src n cw ch name`, `ANIMPC clipRowsOn`. Test
+  `QA/tests/clip-layers.sh` (42 checks: place, modes, panel boxes typed, flip, refused brush,
+  pane drag + nudge, insert / delete frames, bake, Ctrl+S + reload, batch export).
+- **Phase 2** (not built): X-sheet clip row, Update from Bin (`binSlot` is saved for it),
+  dropping a GIF / APNG on the canvas as a clip, clip sound cues.
 
 ## Gotchas met here
 

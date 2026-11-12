@@ -99,6 +99,18 @@ Names (2026-11-12): after the last slot record, in both DSA1 and drAb, an option
 DRAWs stop reading after the records, so no version bump; `AB_names_from_blob` reads it
 (`animbrush-hold-pickup.sh`).
 
+### drCl Chunk (clip layers, 2026-11-12)
+
+A clip layer (`LAYER_TYPE_CLIP` = 6, `TOOLS/CLIP`) is written into drAw as a plain IMAGE layer
+with the pixels it shows, so an older DRAW opens it baked. Its clip rides in an ancillary
+`drCl` chunk after drAb: `MKL$(raw size)` + `_DEFLATE$(raw)`, raw = `CLIP_chunk$`: version(2)
+= `CLIP_CHUNK_VERSION`, source count(2), per source: index(2), n(2), cw(2), ch(2),
+binSlot(2), name length(2), the name, the strip's BGRA bytes (n*cw x ch); then instance
+count(2), per instance whose layer exists: the layer's historyId(4) + the 20-byte
+`CLIP_inst_blob$` (src, in, out, start cel, every, mode, flipX, flipY, px, py, 2 bytes each).
+Only sources an instance uses are written; nothing is written without a clip layer. `CLIP_read_chunk` (after `AB_read_drab` in `DRW_load_binary`)
+sets those layers back to CLIP and rebuilds them. Test: `QA/tests/clip-layers.sh`.
+
 ### Binary Project Data
 
 | Section         | Fields | Version |
