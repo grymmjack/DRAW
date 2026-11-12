@@ -4,12 +4,15 @@
 #
 # Animation 1.5 (PLANS/ANIMATION.md): an ANIM root between AI (off in QA) and
 # HELP, with Animation Panel (1.6), First / Previous / Next / Last Frame, Play
-# (1.9), the frame operations (1.7), Frame Grid and Preview Shows Frame (checkbox, same action as View > Frame Grid). On a picture without
-# frames the frame items are greyed and do nothing.
+# (1.9), then flyouts (PLANS/PERSONAS.md, 2026-11-12): FRAMES (the frame
+# operations, 1.7), SET UP (Frame Grid - checkbox, same action as View > Frame
+# Grid - ...), VIEW, ANIMBRUSH ... EXPORT. On a picture without frames the frame
+# items are greyed and do nothing.
 #
 # Where the root and its dropdown sit comes from the QA dump (MROOT / MENU);
 # a dropdown row k (1-based, no divider above) is centred at MENU y + 9 +
-# 12 (k - 1) (GUI/MENUBAR: rows from subY + 2, 12 px; dividers 5 px).
+# 12 (k - 1) (GUI/MENUBAR: rows from subY + 2, 12 px; dividers 5 px). A
+# flyout (POPUP flyout-gen x y w h) has the same row geometry.
 # Fixture: the 64x32 sheet of anim-frame-grid.sh (7 frames, current 3).
 #
 # QA-OPTIONS: DOCK_DUMP=QA/.dock-dump.txt
@@ -39,6 +42,20 @@ am_pick() { # ROW_Y_OFFSET LABEL - open ANIM, click the row at MENU y + offset
     click $(( mx + 30 )) $(( my + $1 ))
     wait_for 0.5 "$2"
 }
+am_fly() { # PARENT_ROW_OFFSET FLY_ROW_OFFSET LABEL - open ANIM, hover a flyout parent, click its row
+    local ax aw mx my fx fy
+    read -r _ _ ax aw <<< "$(am_line 'MROOT anim ')"
+    click $(( ax + aw / 2 )) 6
+    wait_for 0.5 "ANIM menu open"
+    read -r _ mx my _ _ <<< "$(am_line 'MENU ')"
+    [[ -z "$mx" ]] && { fail "$3: the ANIM menu did not open"; return 1; }
+    hover $(( mx + 30 )) $(( my + $1 )); wait_for 0.8 "flyout"
+    read -r _ _ fx fy _ _ <<< "$(grep -m1 '^POPUP flyout-gen ' "$AM_DUMP" 2>/dev/null)"
+    [[ -z "$fx" ]] && { fail "$3: the flyout did not open"; key Escape; return 1; }
+    hover $(( fx + 30 )) $(( fy + $2 )); wait_for 0.3 "row"
+    click $(( fx + 30 )) $(( fy + $2 ))
+    wait_for 0.5 "$3"
+}
 am_expect() { # ROW_OFFSET WANT LABEL
     am_pick "$1" "$3" || return
     local got; got=$(am_cur)
@@ -47,9 +64,9 @@ am_expect() { # ROW_OFFSET WANT LABEL
 ROW_PANEL=9 # Animation Panel, then a divider
 ROW_FIRST=$(( 9 + 12 + 5 )); ROW_PREV=$(( ROW_FIRST + 12 )); ROW_NEXT=$(( ROW_FIRST + 24 )); ROW_LAST=$(( ROW_FIRST + 36 ))
 ROW_PLAY=$(( ROW_LAST + 12 ))                    # Play (1.9), then a divider
-ROW_ADD=$(( ROW_PLAY + 12 + 5 ))                 # Add Frame .. Delete Frame (6), divider,
-ROW_GRID=$(( ROW_ADD + 6 * 12 + 5 + 3 * 12 + 5 + 5 * 12 + 5 )) # Move Earlier / Later / Reverse, divider,
-                                                  # Copy / Cut / Paste as New / Paste Over (2.5), Replace FG (2.7), divider
+ROW_FRAMES=$(( ROW_PLAY + 12 + 5 ))              # FRAMES >, SET UP >, VIEW >, divider, ANIMBRUSH > ...
+ROW_SETUP=$(( ROW_FRAMES + 12 ))
+FLY_ROW1=9                                        # a flyout's first row (Add Frame / Frame Grid)
 
 info "Launching DRAW with a 64x32 sheet of 16x16 frames (current 3)"
 draw_quit
@@ -67,6 +84,14 @@ info "roots: effects x=$EX, anim x=$AX, help x=$HX"
 [[ -n "$AX" && -n "$EX" && -n "$HX" ]] && (( EX < AX && AX < HX )) \
     && pass "ANIM sits between EFFECTS (AI is off) and HELP" || fail "ANIM is not between EFFECTS and HELP"
 
+# the dropdown is short now (it was ~50 rows and ran off a 514 px window)
+read -r _ _ AX AW <<< "$(am_line 'MROOT anim ')"
+click $(( AX + AW / 2 )) 6; wait_for 0.5 "ANIM menu open"
+read -r _ _ _ _ MH <<< "$(grep -m1 '^MENU ' "$AM_DUMP")"
+key Escape; wait_for 0.3 "closed"
+info "ANIM dropdown height: ${MH:-?} px"
+[[ -n "$MH" ]] && (( MH <= 300 )) && pass "the ANIM dropdown fits ($MH px tall)" || fail "ANIM dropdown ${MH:-?} px tall"
+
 am_expect $ROW_NEXT 4 "Next Frame"
 am_expect $ROW_FIRST 1 "First Frame"
 am_expect $ROW_LAST 7 "Last Frame"
@@ -77,7 +102,7 @@ P=$(am_line "ANIM " | awk '{print $18}'); [[ "$P" == -1 ]] && pass "ANIM > Play 
 am_pick $ROW_PLAY "Stop"
 P=$(am_line "ANIM " | awk '{print $18}'); [[ "$P" == 0 ]] && pass "ANIM > Play again stops" || fail "ANIM > Play again: playing '$P'"
 am_pick $ROW_FIRST "First Frame"
-am_pick $ROW_ADD "Add Frame"
+am_fly $ROW_FRAMES $FLY_ROW1 "Add Frame"
 read -r _ _ AC ACUR _ <<< "$(am_line 'ANIM ')"
 [[ "$AC" == 8 && "$ACUR" == 8 ]] && pass "ANIM > Add Frame: 8 frames, the new one current" || fail "ANIM > Add Frame: count $AC current $ACUR, wanted 8 / 8"
 key ctrl+z
@@ -90,9 +115,9 @@ am_pick $ROW_PANEL "Animation Panel"
 V=$(am_line "ANIMP " | awk '{print $2}'); [[ "$V" == 0 ]] && pass "ANIM > Animation Panel closes it again" || fail "the panel still open after a second ANIM > Animation Panel (visible=$V)"
 
 info "ANIM > Frame Grid: off, then on"
-am_pick $ROW_GRID "Frame Grid"
+am_fly $ROW_SETUP $FLY_ROW1 "Frame Grid"
 D=$(am_drawn); [[ "$D" == 0 ]] && pass "ANIM > Frame Grid hides the grid" || fail "the grid still drawn after ANIM > Frame Grid (drawn=$D)"
-am_pick $ROW_GRID "Frame Grid"
+am_fly $ROW_SETUP $FLY_ROW1 "Frame Grid"
 D=$(am_drawn); [[ "$D" == -1 ]] && pass "ANIM > Frame Grid shows it again" || fail "the grid not back after a second ANIM > Frame Grid (drawn=$D)"
 
 # -- a picture without frames: the items are greyed and do nothing --
