@@ -100,3 +100,4 @@
 - [Palette typing loses keys on the slow profile](qa-palette-typing-loses-keys.md) — [Linux] long xdotool queries drop a key under QA_USER_PROFILE; short queries + read back + retry
 - [Driving DRAW reliably from scripts](qa-driving-draw-reliably.md) — [Linux] quick clicks, the palette's "?" and Alt+] get lost on slow frames; hold clicks, check POPUP cmdpalette before typing, verify stamps by ANIMC
 - [Animated example scenes pipeline](animscenes-pipeline.md) — DEV/animscenes: Python art/audio, DRAW drives the Move Brush under QA; QA-OPTIONS beat --option, wait for drAw on save
+- [Build with split objects](build-split-objects.md) — hand-run qb64pe needs -f:SplitObjectfiles=true (33 s vs ~5 min)

@@ -240,5 +240,7 @@ That is about 22 files. I'll give the count and an ETA before running.
    cel"), or hold?
 3. **Where it starts**: In = the frame you click in (my pick), or always frame 1?
 4. **Painting on a clip**: refuse with a message (my pick), or offer "Bake and paint"?
-5. **Settings UI for phase 1**: a section in the Animation panel (my pick, next to the Move
-   boxes), or a dialog?
+5. **Settings UI for phase 1**: rows in the Animation panel (my pick), or a dialog? The panel
+   already swaps its rows: frame rows normally, the Move Brush rows (FRAMES, MOVE XYZ, TURN XYZ,
+   SIZE %, OPACITY, TINT %, CEL EVERY) while the Move Brush is on. Clip rows would show the same
+   way while the current layer is a clip layer.
