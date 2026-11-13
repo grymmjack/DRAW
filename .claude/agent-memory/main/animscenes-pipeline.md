@@ -47,6 +47,10 @@ clips + lanes through the command palette and the Animation panel's boxes. Learn
 - **The dock dump can lag one step** behind a palette command: a stepper that reads it right
   away overshoots (lane / modulator / ease cycled past the target, other lanes got modulators).
   `step_cmd CMD STATE-FN` waits until the state changes.
+- **[Linux/Xvfb] typed keys get DROPPED under load** (11 of 35 at the harness's 30 ms/key in a
+  20-clip project), and the shortened query can still match - ANOTHER command ("clip layer: mode
+  on" = Mode Ping-Pong). The dump's `CMDPAL searchLen results hover name` (palette open) lets
+  cmd() check searchLen == the query before Enter; drive-lib types at 75 ms and retypes slower.
 - CLIPLM `kind shape ...`: noise is kind 2 (shape stale) - test kind, not just shape.
 - Make Clip from Selected Frames gives IN..OUT = the made frames: set OUT for a longer life.
 - A clip with X / Y keys is keyed by Ctrl+arrows in the lightbox (CLIP_move_by auto-keys).
