@@ -40,15 +40,28 @@ pal_open() { grep -q '^POPUP cmdpalette' "$DK_DUMP" 2>/dev/null; }
 mvs() { echo "MVB on $M_ON has $M_HAS from $M_FROM ease $M_EASE every $M_EVERY ($M_X0,$M_Y0)-($M_X1,$M_Y1) n $M_N | path $V_PATH count $V_COUNT z $V_Z turn $V_TX/$V_TY/$V_TZ size $V_S0>$V_S1 op $V_O0>$V_O1 tint $V_T0>$V_T1 pts $V_NPTS fg $V_FG"; }
 
 # run a command from the palette; never types unless the palette is open
+# typing: the harness types 30 ms a key, and a busy DRAW frame drops some (2026-11-12: 11 of 35
+# lost) - type slower here (X11 only; the scenes are built on Linux)
+type_text() { _qa_pre_input; xdotool type --clearmodifiers --delay "${ANS_TYPE_MS:-75}" -- "$1"; sleep 0.1; }
 cmd() {
-    local t
-    for t in 1 2 3 4; do
-        park_mouse; key question; wait_for 1.0 "Command palette"; dk_settle
-        pal_open && break
-        info "  the command palette did not open (try $t)"
+    local t a i pl n
+    for a in 1 2 3; do
+        for t in 1 2 3 4; do
+            park_mouse; key question; wait_for 1.0 "Command palette"; dk_settle
+            pal_open && break
+            info "  the command palette did not open (try $t)"
+        done
+        pal_open || { fail "the command palette would not open for '$1'"; return 1; }
+        type_text "$1"; wait_for 0.4 "filtered"
+        # every key in? (a dropped key can leave a query that runs ANOTHER command:
+        # "mode on" is Ping-Pong). CMDPAL searchLen results hover name
+        for i in $(seq 1 20); do
+            pl=$(ln_ CMDPAL); n=$(cut -d' ' -f2 <<< "$pl"); [[ -z "$pl" || "$n" == "${#1}" ]] && break; sleep 0.25
+        done
+        [[ -z "$pl" || "$n" == "${#1}" ]] && break
+        info "  palette got $n of ${#1} keys for '$1' - again"; key Escape; wait_for 0.5 "close"
+        ANS_TYPE_MS=$(( ${ANS_TYPE_MS:-75} + 40 ))
     done
-    pal_open || { fail "the command palette would not open for '$1'"; return 1; }
-    type_text "$1"; wait_for "$(awk -v n=${#1} 'BEGIN{printf "%.1f", 0.6 + n * 0.08}')" "filtered"
     key Return; wait_for 1.0 "$1"; dk_settle
     if pal_open; then key Escape; wait_for 0.5 "close"; fail "'$1': the palette was still open after Enter"; return 1; fi
 }

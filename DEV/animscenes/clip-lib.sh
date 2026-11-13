@@ -131,10 +131,14 @@ clip_in()    { cset 3 2 "$1" C_IN IN; }
 clip_out()   { cset 3 3 "$1" C_OUT OUT; }
 clip_cel()   { cset 4 2 "$1" C_START "START CEL"; }
 clip_every() { cset 4 3 "$1" C_EVERY EVERY; }
-clip_mode() { # LOOP PING ONCE HOLD REV
-    local c; case $1 in LOOP) c="mode loop" ;; PING) c="mode ping-pong" ;; ONCE) c="mode once" ;; HOLD) c="mode hold" ;; REV) c="mode reverse" ;; esac
-    cmd "clip layer: $c"; crd
-    [[ "$C_MODE" == "$1"* || "$C_MODE" == "${1:0:3}"* ]] && pjlog "  mode $C_MODE" || fail "mode $1: [$C_LINE]"
+clip_mode() { # LOOP PING ONCE HOLD REV - (the dump can lag: wait for it, try again)
+    local c t i; case $1 in LOOP) c="mode loop" ;; PING) c="mode ping-pong" ;; ONCE) c="mode once" ;; HOLD) c="mode hold" ;; REV) c="mode reverse" ;; esac
+    for t in 1 2 3; do
+        cmd "clip layer: $c"
+        for i in 1 2 3 4 5 6; do crd; [[ "$C_MODE" == "$1"* || "$C_MODE" == "${1:0:3}"* ]] && { pjlog "  mode $C_MODE"; return 0; }; sleep 0.3; done
+        info "  mode $1: got $C_MODE - again"
+    done
+    fail "mode $1: [$C_LINE]"
 }
 clip_flip() { cmd "clip layer: flip ${1,,}"; crd; pjlog "  flip $1 [$C_FX $C_FY]"; }
 
