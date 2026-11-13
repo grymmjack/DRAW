@@ -230,6 +230,16 @@ mv() {
     [[ "$got" == "$want" ]] || fail "${o[label]}: values [$got], wanted [$want]"
     info "  ${o[label]}: $(mvs)"
     MV_LOG+="${o[label]}|${o[path]}|$M_X0,$M_Y0>$M_X1,$M_Y1|from ${o[from]} count ${o[count]} every ${o[every]} ease ${o[ease]}|z ${o[z]} turn ${o[tx]}/${o[ty]}/${o[tz]} size ${o[s0]}>${o[s1]} op ${o[o0]}>${o[o1]} tint ${o[t0]}>${o[t1]} fg $V_FG"$'\n'
+    if [[ "${MV_APPLY:-}" == clip ]]; then   # Move Brush > Apply as Clip: a clip layer, the move in its lanes
+        local nc0; nc0=$(grep -c '^CLIP [0-9]' "$DK_DUMP")
+        for t in 1 2; do
+            cmd "move brush: apply as clip"; rd
+            [[ "$M_ON" == 0 ]] && break
+        done
+        (( $(grep -c '^CLIP [0-9]' "$DK_DUMP") > nc0 )) && pass "${o[label]}: applied as a clip" || fail "${o[label]}: Apply as Clip made no clip"
+        MV_LOG+="  (applied as a clip)"$'\n'
+        return 0
+    fi
     for t in 1 2; do
         k_ Return; rd
         [[ "$M_ON" == 0 ]] && break
@@ -265,7 +275,7 @@ open_scene() { # NAME FRAMES [shots] - open NAME-base.png with NAME-pack.dset in
     # the background spread (Layer Same on Every Frame) unless "shots" (a picture per frame)
     info "--- scene $1 ---"
     draw_quit; draw_settle
-    DRAW_EXTRA_ARGS="--option DEFAULT_DSET_BRUSHES_FILE=$ANS_DIR/$1-pack.dset $ANS_DIR/$1-base.png"
+    DRAW_EXTRA_ARGS="${ANS_EXTRA:+$ANS_EXTRA }--option DEFAULT_DSET_BRUSHES_FILE=$ANS_DIR/$1-pack.dset --option LAST_DIR_OPEN=$ANS_DIR $ANS_DIR/$1-base.png"
     draw_launch 15; wait_for 1.5 "loaded"; assert_no_crash
     dk_begin
     k_ KP_0; rd
