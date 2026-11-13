@@ -327,6 +327,27 @@ pack is `NAME-pack.dset` (Drawer → Load Set); `NAME-moves.txt` lists every Mov
 scene used with its numbers, so you can rebuild any element yourself: pick the bin, **Move
 Brush → Start**, drag the path, type the same values and `Enter`.
 
+### Animation projects - clips, lanes and tags together
+
+**`SAMPLES/ANIMPROJECTS/`** has four complete projects (64 frames, 12 fps) that use the clip
+features together: clip layers with keyframe lanes and every ease, modulators, clips sharing
+one source, sounds on clips (on a cel, when it starts, each time it loops) with VOLUME and
+PAN lanes, Make Clip from Selected Frames, Move Brush → Apply as Clip, Bake Clip to Pixels,
+tags for the acts, frame notes, holds, a reference layer and linked cells - and a soundtrack.
+
+| Project | Acts (tags) | What to look at |
+| --- | --- | --- |
+| `reef` | CALM / SHARK / TREASURE | five fish of one source darting (X keys, ease in) at five Y-sine phases; kelp swaying about its foot (ROTATE triangle + PIVOT Y); a jellyfish rising and pulsing (SCALE Y sine) that blubs each loop; the shark's rumble panned left to right (VOLUME / PAN keys); the chest held open and tinted gold |
+| `neon` | RAIN / TRAFFIC / BLACKOUT | windows tinted toward TV cyan going dark one by one (OPACITY hold keys); BAR blinking (square), HOTEL buzzing (noise) then dying; two cars, one flipped, their engines faded and panned; lightning with thunder when it starts |
+| `carnival` | DAY / DUSK / LIGHTS | a ferris wheel (ROTATE saw) with four gondolas riding its circle (X sine + Y sine a quarter apart); three balloons of one source turned blue in one step (Update Clip from AnimBrush); a runaway balloon (mode Once, a pop on a cel); the lights chasing (OPACITY square) |
+| `farm` | DAWN / NOON / DUSK / NIGHT | the sun's arc (X / Y keys with eases, TINT keys); a far windmill baked to pixels; the tractor's bump keyed by nudging the clip with `Ctrl`+arrows; a sheep drawn as four frames and made into a clip; fireflies (X / Y noise, own seeds) and the owl at night |
+
+Open `NAME.draw`, `Num 0` and `Num Enter` to play it with its sounds. Click a clip layer and
+the Animation panel shows its settings: pick a lane with **LANE `<` `>`** to see its keys and
+modulator, then step through the frames to watch the values change. `NAME-clips.txt` lists how the project was built, clip by
+clip and key by key, so you can rebuild any part of it. Keep the WAVs beside the `.draw` -
+DRAW finds the clips' sounds and the soundtrack there by name.
+
 > 💡 For composing a scene like these, **ANIM → View → Big Frame + X-Sheet** shows the lightbox as one
 > big pane (the current frame) under the X-sheet: you see the whole picture large while every
 > layer's frames and the sound stay in view. Choose it again (or `Num *`, which steps
