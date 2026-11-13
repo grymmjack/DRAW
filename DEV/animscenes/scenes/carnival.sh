@@ -8,11 +8,12 @@ if pj_open carnival 64; then
     clip_sound start creak.wav
 
     # -- four gondolas on the circle: X sine + Y sine a quarter period (16) apart, one source,
-    #    the four clips a quarter loop apart
+    #    the four clips a quarter loop apart. X is half a period on (= -sine), so they go round
+    #    clockwise like the wheel (ROTATE + is clockwise on screen, the saw ramps up)
     pick 3 1 gondola
     clip_place "$WX" $(( WY + 6 )) 1 "gondola 1"
     share gondola
-    lane X; mod SINE "$WR" 64 0
+    lane X; mod SINE "$WR" 64 32
     lane Y; mod SINE "$WR" 64 16
     lanes_copy
     for p in 16 32 48; do
@@ -20,7 +21,7 @@ if pj_open carnival 64; then
         clip_place "$WX" $(( WY + 6 )) 1 "gondola $(( p / 16 + 1 ))"
         share gondola
         lanes_paste
-        lane X; mod SINE "$WR" 64 "$p"
+        lane X; mod SINE "$WR" 64 $(( (p + 32) % 64 ))
         lane Y; mod SINE "$WR" 64 $(( (p + 16) % 64 ))
     done
 
