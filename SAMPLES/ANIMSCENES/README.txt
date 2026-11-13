@@ -15,6 +15,8 @@ IN EACH FOLDER
   NAME-pack.dset     its AnimBrush pack: Drawer > Load Set. Hover a bin to play it.
   NAME-pack.txt      what each bin is and how the scene uses it
   brushes/*.png      each brush as a strip with frame data: ANIM > AnimBrush > Load...
+  brushes/*.gif      the same brushes as animated GIFs (1:1, transparent, at the brush's
+                     fps): view them anywhere, or load one as an AnimBrush (Load from GIF)
   NAME-music.wav     the music track       NAME-sfx.wav   the effects track
   NAME-moves.txt     every Move Brush in the scene, one per line:
                      label | path | from>to | from F count C every E ease E |
