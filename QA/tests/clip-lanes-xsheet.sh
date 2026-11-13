@@ -8,6 +8,10 @@
 #   - drag frame 6's diamond to frame 4: the key moves (X 0 -> 8 over two
 #     frames), the current frame is 4; one Ctrl+Z puts it back
 #   - Clear All Lanes: the LANES row goes
+#   - Ctrl+Z (the keys and the row back), then Bake Clip to Pixels with the
+#     X-sheet showing: DRAW lives on (the dump read CLIP_INST(0) from the stale
+#     LANES row - ERR 9 every frame, aborted after 21: the farm sample build,
+#     2026-11-12); no clip, no LANES row
 #
 # Dump: CLIP / CLIPL (clip-lib.sh), ANIMXSF f x w ... (frame spans), ANIMXSK
 # slot y f:mark ... (the LANES row; mark 2 = the picked lane has a key there).
@@ -65,6 +69,15 @@ if (( CL_OK )); then
     # -- no keys, no row --
     cl_cmd "clip layer: clear all lanes"; ln_read
     [[ -z "$XK_SLOT" ]] && pass "Clear All Lanes: the LANES row goes" || fail "row after clear: $(xk_s)"
+
+    # -- bake a keyed clip with the X-sheet up --
+    cl_key ctrl+z; ln_read
+    [[ -n "$XK_SLOT" && "$(ln_keys 1)" == "2 0:0:0 4:8:0" ]] && pass "Ctrl+Z: the keys and the LANES row back" || fail "undo clear: $(xk_s)"
+    cl_cmd "clip layer: bake clip to pixels"; wait_for 2.5 "baked, a few frames"; ln_read
+    assert_no_crash
+    [[ -z "$C_SLOT" && -z "$XK_SLOT" ]] && pass "Bake Clip to Pixels: no clip, no LANES row, DRAW still here" || fail "after bake: $(xk_s)"
+    cl_key ctrl+z; wait_for 1.0 "a few frames"; ln_read
+    [[ -n "$C_SLOT" && -n "$XK_SLOT" ]] && pass "Ctrl+Z: the clip and its LANES row back" || fail "undo bake: $(xk_s)"
     assert_no_crash
 fi
 cl_done
