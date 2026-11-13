@@ -15,5 +15,6 @@ for N in "$@"; do
     for f in "$S/$N-moves.txt" "$S/$N-clips.txt"; do [[ -s "$f" ]] && cp "$f" "$D/"; done
     cp "$S"/brushes/*.png "$D/brushes/"
     cp "$S/pack.txt" "$D/$N-pack.txt"
+    python3 "$H/brush-gifs.py" "$(dirname "$D")" >/dev/null   # brushes/*.gif beside the strips
     echo "$N -> $D ($(du -sh "$D" | cut -f1))"
 done

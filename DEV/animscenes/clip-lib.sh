@@ -31,7 +31,7 @@ crd() { # rd + the X-sheet + the current clip + its lanes
     read -r _ CP_PLACING CP_CUR _ <<< "$(ln_ CLIPP)"
     read -r _ P_VIS _ _ _ _ _ _ P_HOLD _ <<< "$(ln_ ANIMP)"
     read -r _ L_NAV L_R1 L_R2 L_R3 L_R4 L_R5 L_R6 _ L_RH L_MX L_PX L_CW _ <<< "$(ln_ ANIMPL)"
-    read -r _ LN_Y10 LN_Y11 LN_Y12 _ _ _ _ _ _ _ _ _ _ _ _ LN_PICK _ <<< "$(ln_ ANIMPLN)"
+    read -r _ LN_Y10 LN_Y11 LN_Y12 LN_LX LN_LW LN_RX LN_RW _ _ _ _ LN_EX LN_EW LN_MX LN_MW LN_PICK _ <<< "$(ln_ ANIMPLN)"
     C_LINE=""; C_SLOT=""
     read -r _ _ CUR_LAYER _ <<< "$(ln_ LPANEL)"   # CLIPP's current is the clip's index; CLIP lines go by layer
     if [[ -n "$CP_CUR" && "$CP_CUR" != 0 && -n "$CUR_LAYER" ]]; then
@@ -140,14 +140,26 @@ clip_flip() { cmd "clip layer: flip ${1,,}"; crd; pjlog "  flip $1 [$C_FX $C_FY]
 
 # lanes: values are offsets / percents / degrees as the panel shows them; keys are frames
 # from the clip's IN (LANE row value box = auto-key)
-# step_cmd "CMD" STATE-FN - run CMD once and wait (up to ~3 s) for STATE-FN's output to
-# change: the dump can lag a step behind, and reading it early makes a stepper overshoot
+# step_cmd "CMD" STATE-FN [CLICK-FN] - one step (the panel chip CLICK-FN if given - fast -
+# else / then the palette CMD), then wait (up to ~3 s) for STATE-FN's output to change: the
+# dump can lag a step behind, and reading it early makes a stepper overshoot
 step_cmd() {
     local before now i; crd; before=$($2)
+    if [[ -n "${3:-}" ]]; then
+        $3
+        for i in 1 2 3 4 5 6; do crd; now=$($2); [[ "$now" != "$before" ]] && return 0; sleep 0.25; done
+        info "  click step for '$1' changed nothing - the palette"
+    fi
     cmd "$1"
     for i in 1 2 3 4 5 6 7 8 9 10; do crd; now=$($2); [[ "$now" != "$before" ]] && return 0; sleep 0.3; done
     info "  '$1' changed nothing visible ($before)"
 }
+# pclick ROWY X W - click a chip of the panel's lane rows (panel units, as ANIMPLN gives them)
+pclick() { local x y; x=$(( P_X + ($2 + $3 / 2) * P_SC / 100 )); y=$(( P_Y + ($1 + L_RH / 2) * P_SC / 100 )); hover "$x" "$y"; sleep 0.15; hclick "$x" "$y"; sleep 0.35; }
+ck_lane_next() { pclick "$LN_Y10" "$LN_RX" "$LN_RW"; }
+ck_lane_prev() { pclick "$LN_Y10" "$LN_LX" "$LN_LW"; }
+ck_ease()      { pclick "$LN_Y11" "$LN_EX" "$LN_EW"; }
+ck_mod()       { pclick "$LN_Y12" "$LN_MX" "$LN_MW"; }
 st_pick() { echo "$LN_PICK"; }
 st_mod()  { lane_mod "$LN_PICK"; }
 st_keys() { lane_keys "$LN_PICK"; }
@@ -155,7 +167,7 @@ lane() { # NAME (X Y SX SY ROT OP TINT PVX PVY VOL PAN)
     local want t; want=$(lane_id "$1")
     for (( t = 0; t < 13; t++ )); do
         crd; [[ "$LN_PICK" == "$want" ]] && return 0
-        if (( (want - LN_PICK + 11) % 11 <= 5 )); then step_cmd "next lane (the panel's lane" st_pick; else step_cmd "previous lane (the panel's lane" st_pick; fi
+        if (( (want - LN_PICK + 11) % 11 <= 5 )); then step_cmd "next lane (the panel's lane" st_pick ck_lane_next; else step_cmd "previous lane (the panel's lane" st_pick ck_lane_prev; fi
     done
     fail "lane $1: picked $LN_PICK"
 }
@@ -179,7 +191,7 @@ ease() { # E - the current frame's key on the picked lane gets ease E
     for t in 1 2 3 4 5 6; do
         e=$(lane_keys "$L" | tr ' ' '\n' | grep "^$f:" | cut -d: -f3)
         [[ "$e" == "$1" ]] && return 0
-        step_cmd "clip layer: next key ease" st_keys
+        step_cmd "clip layer: next key ease" st_keys ck_ease
     done
     fail "ease $1 on frame $A_CUR: [$(lane_keys "$L")]"
 }
@@ -190,7 +202,7 @@ mod() { # SHAPE AMOUNT PERIOD [PHASE|SEED] - SINE TRI SQUARE SAW NOISE (OFF)
         m=$(lane_mod "$L"); s=0
         if [[ -n "$m" ]]; then read -r mk ms _ <<< "$m"; case $mk in 1) s=$(( ms + 1 )) ;; 2) s=5 ;; esac; fi
         (( s == want )) && break
-        step_cmd "clip layer: next lane modulator" st_mod
+        step_cmd "clip layer: next lane modulator" st_mod ck_mod
     done
     (( s == want )) || { fail "mod $1 on ${CL_LANES[$L]}: [$(lane_mod "$L")]"; return 1; }
     [[ "$1" == OFF ]] && return 0
@@ -211,13 +223,21 @@ lanes_copy()  { cmd "clip layer: copy lanes"; pjlog "  copy lanes"; }
 lanes_paste() { cmd "clip layer: paste lanes"; crd; pjlog "  paste lanes"; }
 tint_fg()     { cmd "clip layer: tint toward the foreground"; pjlog "  tint toward FG $V_FG"; }
 # sounds: a WAV in ANS_DIR (the file dialog opens there: LAST_DIR_OPEN)
-clip_sound() { # cel|start|loop FILE
-    local c n0 n1; case $1 in cel) c="sound on this cel" ;; start) c="sound when the clip starts" ;; loop) c="sound each time the clip starts" ;; esac
-    n0=$(grep -c '^CLIPQ ' "$DK_DUMP")
-    cmd "clip layer: $c"; wait_for 0.8 "the file dialog"
-    type_text "$2"; wait_for 0.4 "typed"; key Return; wait_for 1.0 "picked"; crd
-    n1=$(grep -c '^CLIPQ ' "$DK_DUMP")
-    (( n1 > n0 )) && pjlog "  sound ($1) $2" || fail "clip sound $1 $2: CLIPQ $n0 -> $n1"
+clip_sound() { # cel|start|loop FILE - checks the new cue's kind (0 cel 1 start 2 loop) and redoes a wrong one
+    local c want n0 n1 k t
+    case $1 in cel) c="sound on this cel"; want=0 ;; start) c="sound when the clip starts"; want=1 ;; loop) c="sound each time the clip starts"; want=2 ;; esac
+    for t in 1 2 3; do
+        n0=$(grep -c '^CLIPQ ' "$DK_DUMP")
+        cmd "clip layer: $c"; wait_for 0.8 "the file dialog"
+        type_text "$2"; wait_for 0.4 "typed"; key Return; wait_for 1.0 "picked"; crd
+        n1=$(grep -c '^CLIPQ ' "$DK_DUMP")
+        (( n1 > n0 )) || { info "  clip sound $1 $2: CLIPQ $n0 -> $n1"; continue; }
+        k=$(grep '^CLIPQ ' "$DK_DUMP" | tail -1 | cut -d' ' -f3)
+        [[ "$k" == "$want" ]] && { pass "clip sound ($1) $2"; pjlog "  sound ($1) $2"; return 0; }
+        info "  clip sound $1 $2 came out as kind $k - removed, again"
+        cmd "clip layer: remove this clip sound"; crd
+    done
+    fail "clip sound $1 $2: [$(grep '^CLIPQ ' "$DK_DUMP" | tail -1)]"
 }
 clip_update_ab() { cmd "clip layer: update clip from animbrush"; crd; pjlog "  update clip from AnimBrush (src $C_SRC)"; }
 clip_make() { # A B X0 Y0 X1 Y1 LABEL - Make Clip from Selected Frames: frames A..B, the box
@@ -246,11 +266,15 @@ clip_bake() {
     pjlog "  BAKED to pixels"
 }
 # clip_src SRC - Next Clip Source until the current clip uses source SRC
-clip_src() {
-    local t; for t in $(seq 1 12); do crd; [[ "$C_SRC" == "$1" ]] && break; cmd "clip layer: next clip source"; done
+clip_src() { # SRC - Next / Previous Clip Source (the shorter way) until the current clip uses SRC
+    local t; for t in $(seq 1 40); do
+        crd; [[ "$C_SRC" == "$1" ]] && break
+        if (( C_SRC > $1 )); then step_cmd "clip layer: previous clip source" st_src; else step_cmd "clip layer: next clip source" st_src; fi
+    done
     crd; [[ "$C_SRC" == "$1" ]] && pass "clip source -> $1" || fail "clip source is $C_SRC, wanted $1"
-    pjlog "  source switched to $1 (Next Clip Source)"
+    pjlog "  source switched to $1 (Next / Previous Clip Source)"
 }
+st_src() { echo "$C_SRC"; }
 # clip_purge - Remove Unused Clip Sources
 clip_purge() { cmd "clip layer: remove unused clip sources"; crd; pjlog "remove unused clip sources"; }
 # share NAME - right after clip_place: the first clip of NAME keeps its new source, the
