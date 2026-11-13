@@ -1,6 +1,6 @@
 ---
 name: animscenes-pipeline
-description: How the animated example scenes (SAMPLES/ANIMSCENES) are built - Python art + audio, DRAW drives the Move Brush under the QA harness; the gotchas it hit (QA-OPTIONS beat --option, save race, dump cost)
+description: How the animated example scenes (SAMPLES/ANIMSCENES) and clip projects (ANIMPROJECTS) are built - Python art + audio, DRAW drives the Move Brush under the QA harness; the gotchas it hit (QA-OPTIONS beat --option, save race, dump cost)
 metadata:
   type: project
 ---
@@ -29,12 +29,30 @@ Gotchas it hit:
   plain stamp before the first Move Brush in a scene script.
 - Box limits: EVERY 1-12 (a script asking 20 is rejected), SIZE 1-999, Z -250..5000,
   TURN +-3600, OPACITY / TINT 0-100. The harness kills a test at 600 s unless it has
-  `# QA-TIMEOUT: <s>` (run-scene.sh has 2700).
+  `# QA-TIMEOUT: <s>` (run-scene.sh has 7200 since the projects: ~2 min per clip, a 25-clip
+  project runs over an hour).
 - **GIF over 256 colours** (tints, fades, soft glows): the exporter used to snap every pixel to
   the document palette, so the space planet came out teal / grey. Since 2026-11-12 it builds an
   adaptive median-cut table of the frames' own colours (`ANIM_MC_palette%`, TOOLS/ANIM-EXPORT.BM)
   unless colour cycling is on (then it must stay on the palette). QA: file-anim-gif.sh RMSE check.
 - SA3 (GPU audio) on the rtx ComfyUI gives static unless that server runs --force-fp32; the
   scenes use soundmon's CPU engines instead.
+
+**Projects (SAMPLES/ANIMPROJECTS, 2026-11-12, [Linux])** - clip-lib.sh on top of drive-lib.sh drives
+clips + lanes through the command palette and the Animation panel's boxes. Learned:
+- **Every placed clip gets its OWN source** (CLIP_src_from_ab, no dedupe). "Many clips of one
+  source" = switch each later clip with Next Clip Source (`share NAME`), then Remove Unused Clip
+  Sources (pj_finish does). Clip SOUNDS live on the source: shared clips share them, so add a
+  sound once per source or it doubles.
+- **The dock dump can lag one step** behind a palette command: a stepper that reads it right
+  away overshoots (lane / modulator / ease cycled past the target, other lanes got modulators).
+  `step_cmd CMD STATE-FN` waits until the state changes.
+- CLIPLM `kind shape ...`: noise is kind 2 (shape stale) - test kind, not just shape.
+- Make Clip from Selected Frames gives IN..OUT = the made frames: set OUT for a longer life.
+- A clip with X / Y keys is keyed by Ctrl+arrows in the lightbox (CLIP_move_by auto-keys).
+- Cue / soundtrack paths are absolute but resolve by name beside the .draw (ANIM_SND_resolve$),
+  so publish copies every WAV next to it.
+- pgrep -f / pkill -f with a pattern that is also in your own command line kills or waits on
+  yourself; zsh does not word-split `$P` for kill. Use `[b]uild.sh` greps and explicit PIDs.
 
 See [[qa-driving-draw-reliably]], [[project-animation]].

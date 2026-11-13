@@ -10,7 +10,7 @@
 # Sound is off (ANIM_SOUND_VOLUME=0): a dropped soundtrack is never heard.
 #
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt DRAWER_MINI_PALETTE=0 TOOLTIPS_DISABLED=TRUE ONION_SKIN=0 LIGHTBOX=0 XSHEET=0 LIGHTBOX_PANES=3 LIGHTBOX_STRIP_FLOW=ROW ANIM_SOUND_VOLUME=0 XSHEET_ZOOM=4
-# QA-TIMEOUT: 2700
+# QA-TIMEOUT: 7200
 # =============================================================================
 source "$DRAW_ROOT/QA/dock-lib.sh"
 source "$DRAW_ROOT/DEV/animscenes/drive-lib.sh"

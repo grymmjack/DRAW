@@ -99,7 +99,7 @@
 - [QA shares the real data dir](qa-data-dir-not-isolated.md) — [Linux] XDG_DATA_HOME is only isolated under QA_USER_PROFILE=1; scans must never create folders
 - [Palette typing loses keys on the slow profile](qa-palette-typing-loses-keys.md) — [Linux] long xdotool queries drop a key under QA_USER_PROFILE; short queries + read back + retry
 - [Driving DRAW reliably from scripts](qa-driving-draw-reliably.md) — [Linux] quick clicks, the palette's "?" and Alt+] get lost on slow frames; hold clicks, check POPUP cmdpalette before typing, verify stamps by ANIMC
-- [Animated example scenes pipeline](animscenes-pipeline.md) — DEV/animscenes: Python art/audio, DRAW drives the Move Brush under QA; QA-OPTIONS beat --option, wait for drAw on save
+- [Animated example scenes pipeline](animscenes-pipeline.md) — DEV/animscenes: Python art/audio, DRAW drives Move Brush + clips under QA; one source per placed clip, dump lags a step
 - [Build with split objects](build-split-objects.md) — hand-run qb64pe needs -f:SplitObjectfiles=true (33 s vs ~5 min)
 - [QA screenshots cleared per run](qa-screenshots-cleared-per-run.md) — copy shots before the next run; md-to-pdf hang needs a timeout
 - [New palette commands steal queries](palette-new-commands-steal-queries.md) — subsequence match, first registered wins: register new commands at the end of CMD_init ; mind CMD_MAX_COMMANDS (1024) (2026-11-12)
