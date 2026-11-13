@@ -63,6 +63,8 @@ cmd() {
         ANS_TYPE_MS=$(( ${ANS_TYPE_MS:-75} + 40 ))
     done
     key Return; wait_for 1.0 "$1"; dk_settle
+    # a slow command (Link Cells over 64 frames) keeps the dump showing the palette a while
+    for i in 1 2 3 4 5 6 7 8; do pal_open || break; sleep 0.4; dk_settle; done
     if pal_open; then key Escape; wait_for 0.5 "close"; fail "'$1': the palette was still open after Enter"; return 1; fi
 }
 bin_xy() {

@@ -64,7 +64,7 @@ if pj_open farm 64; then
     lane X; mod SINE 18 64 0
     lanes_copy
     # -- a second sheep: placed from the brush, then switched to the made clip's source
-    pick 10 1 sheep
+    pick 10 4 sheep
     clip_place 92 110 1 "sheep 2"
     clip_src "$SHEEP_SRC"
     clip_every 2; clip_cel 3

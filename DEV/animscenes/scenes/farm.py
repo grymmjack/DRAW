@@ -25,7 +25,7 @@ S = Scene('farm', sys.argv[1], frames=64, cols=8, fps=12)
 W, H = S.w, S.h
 R = random.Random(31)
 M1 = (118, 52)    # the near windmill's hub
-M2 = (148, 66)    # the far one's
+M2 = (84, 64)     # the far one's: on the hills, behind the fence
 
 bg = Img(W, H)
 vgrad(bg, 0, 0, W - 1, 80, ['blue', 'cyan', 'mist'])
