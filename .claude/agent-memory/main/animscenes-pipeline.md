@@ -58,5 +58,10 @@ clips + lanes through the command palette and the Animation panel's boxes. Learn
   so publish copies every WAV next to it.
 - pgrep -f / pkill -f with a pattern that is also in your own command line kills or waits on
   yourself; zsh does not word-split `$P` for kill. Use `[b]uild.sh` greps and explicit PIDs.
+- [Linux] If DRAW dies mid-build the driver keeps typing into nothing: every step then FAILs with
+  "palette was still open" / a stale dump. Check `ps` for DRAW-swm.run, then
+  `/tmp/draw-qa-console.log` (DRAW's stdout: "runtime error N in FILE:LINE", "21 runtime errors --
+  not survivable") and the crash report in DRAW-log/DRAW-crash-logs. 2026-11-12 the farm build
+  found Bake Clip to Pixels + X-sheet LANES row -> CLIP_INST(0) (fixed 26a9ef92).
 
 See [[qa-driving-draw-reliably]], [[project-animation]].
