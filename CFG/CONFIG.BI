@@ -305,6 +305,7 @@ TYPE DRAW_CONFIG
     LAYER_THUMBNAILS                AS INTEGER        ' Layer panel thumbnails: 0 off, 1 tiny (16 px), 2 small (32 px), 3 medium (48 px)
     LAYER_THUMB_FIT                 AS INTEGER        ' What a thumbnail shows: 0 the layer's content (zoomed), 1 the whole canvas / frame
     LAYER_THUMB_MIN_CROP            AS INTEGER        ' Content thumbnails: the crop is at least this many canvas px each way (caps the zoom; 1 = no cap)
+    LAYER_PANEL_BAR                 AS INTEGER        ' The layer bar (blend / show-hide all / lock all / opacity): 0 off, 1 at the top of the Layers panel, 2 at the bottom
     GROUP_DRAW_NOTIFY               AS INTEGER        ' TRUE = alert when a drawing tool is used on a group header layer
     GROUP_DRAW_AUTO_LAYER           AS INTEGER        ' TRUE = auto-create a layer inside the group and draw on that instead
     LAYERS_PANEL_DOCK_EDGE          AS STRING         ' "LEFT" or "RIGHT" (default : "LEFT")

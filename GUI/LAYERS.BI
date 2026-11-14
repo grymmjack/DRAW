@@ -20,6 +20,8 @@ CONST LAYER_BTN_SIZE = 12
 ' Layer blend mode constants
 CONST BLEND_PASS_THROUGH             = -1  ' Group-only: children composite AS if no group exists
 CONST BLEND_PASS_THROUGH_POPUP_VALUE = 100 ' Popup menu sentinel (avoids -1 collision with POPUP_MENU_hit_value%)
+CONST LAYER_BAR_POPUP_BASE = 220 ' Layer bar menu values: +0..+2 LAYER_PANEL_BAR (off / top / bottom)
+CONST LAYER_BAR_H = 14 ' The layer bar's height (panel px)
 CONST LAYER_THUMB_POPUP_BASE = 200 ' Thumbnail menu values: +0..+3 LAYER_THUMBNAILS (off / tiny / small / medium), +10..+11 LAYER_THUMB_FIT (content / canvas)
 CONST BLEND_NORMAL                   = 0
 CONST BLEND_MULTIPLY                 = 1
@@ -116,6 +118,7 @@ TYPE LAYER_PANEL_OBJ
     dragStartX       AS INTEGER             ' X position when drag started (for threshold)
     opacityDrag      AS INTEGER             ' TRUE if dragging opacity slider
     opacityDragLayer AS INTEGER             ' Layer index being opacity-adjusted
+    opacityDragBar   AS INTEGER             ' TRUE: the drag is on the layer bar's (horizontal) opacity slider, not a row's
     ' Layer drag-and-drop reordering state
     dragPending      AS INTEGER             ' TRUE when mouse down but not yet moved threshold
     isDragging       AS INTEGER             ' TRUE while actively dragging layer for reorder
@@ -161,6 +164,7 @@ TYPE LAYER_PANEL_OBJ
     ctxMenuW         AS INTEGER             ' Popup width in pixels
     ctxMenuHover     AS INTEGER             ' Currently hovered row (-1 = none)
     ctxMenuItems     AS INTEGER             ' Number of items in current menu
+    ctxMenuBar       AS INTEGER             ' TRUE: the menu is the layer bar's (right-click on it: top / bottom / hide)
     ctxMenuThumb     AS INTEGER             ' TRUE: the menu is the thumbnail menu (right-click on a layer's thumbnail: its size / what it shows)
     ' Opacity drag anchor
     opacityDragRowY  AS INTEGER             ' Rendered Y (drawY%) of row top when vertical opacity drag started
@@ -221,6 +225,10 @@ DIM SHARED LAYER_THUMB_GEN AS LONG
 ' the selection it was made for - the mask handle and box below; any other
 ' change to the selection forgets it.
 DIM SHARED LAYER_SEL_FROM AS STRING
+
+' The layer bar's eye: the layers it hid (CHR$(1) each), shown again by its
+' next click.
+DIM SHARED LAYER_BAR_HIDDEN AS STRING
 DIM SHARED LAYER_SEL_MASK AS LONG
 DIM SHARED LAYER_SEL_BOX AS STRING
 DIM SHARED LAYER_THUMB_BOXES(1 TO MAX_LAYERS) AS LAYER_THUMB_BOX

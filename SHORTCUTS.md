@@ -308,6 +308,8 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 ### Layer panel mouse
 `L-Click` select · `Ctrl/Shift+L-Click` add/remove from multi-selection · `R-Click` the layer menu · `Ctrl+L-Click thumbnail` selection from that layer · `Ctrl+Shift+L-Click thumbnail` add its pixels to the selection (already in: take them out) · `R-Click thumbnail` thumbnail size (Tiny / Small / Medium / Hide) and what it shows (Content / Canvas) · `Shift+R-Click` cycle blend mode · `Alt+L-Click eye` solo · `Click eye` toggle visibility · `Drag across eyes` swipe show/hide · `Click lock` opacity lock · `Click/Drag opacity bar` adjust · `Drag row` reorder · `Wheel` scroll list · `Wheel on opacity bar` adjust · `Esc` cancel drag · `Click triangle` collapse/expand group.
 
+**Layer bar** (under the title; right-click it: top / bottom / hide): `Click blend` the blend list · `Wheel on blend` next / previous mode · `Click eye` hide the visible layers / show them again · `Click lock` lock all but the current layer / unlock all · `Click/Drag/Wheel opacity` the current layer's opacity · `1`…`0` with the pointer on the opacity slider: the layer's opacity 10–100 % (elsewhere: the paint opacity).
+
 > 19 blend modes (Shift+R-Click a row to cycle). Groups have their own opacity/blend
 > (Pass-Through default) and can nest. Symbol layers link a parent to children (Layer
 > menu: Convert to Symbol, Add Instance, Sync, Rasterize, Detach, Select Parent).

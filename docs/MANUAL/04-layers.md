@@ -44,6 +44,17 @@ Each layer row has three persistent controls:
 > 2. Toggle the lock icon on that layer.
 > 3. Take a giant brush and slosh new color over the whole canvas. Notice it only paints inside the silhouette.
 
+### The layer bar
+
+A bar under the panel's title holds the controls for the **current layer**, and two for **all layers**:
+
+- **Blend mode** (the dropdown) — click for the list of blend modes, or use the mouse wheel on it to step through them.
+- **Eye** — hide every visible layer. Click it again to show those same layers again; a layer you had hidden before stays hidden.
+- **Lock** — Opacity Lock on every layer but the current one, so nothing else can be painted by accident. Click it again to unlock all layers.
+- **Opacity** (the slider) — click or drag along it, use the mouse wheel on it, or point at it and press `1` … `9`, `0` for 10 % … 100 % (anywhere else those keys set the paint opacity).
+
+**Right-click the bar** to put it **at the bottom** (over the buttons), back **at the top**, or **hide** it. With the bar hidden, the layer's right-click menu ends with **Show Layer Bar**. It is also in **Settings → Panels → Layer Bar**, and `LAYER_PANEL_BAR=TOP|BOTTOM|OFF` in `DRAW.cfg`. The Command Palette has **Layer Opacity −10 % / +10 %**, **Show / Hide All Layers** and **Lock All Layers but the Current One / Unlock All**, to put on keys of your own.
+
 ### Layer thumbnails
 
 **Settings → Panels → Thumbnails** puts a small picture of each layer before its name: **Off**, **Tiny** (16 px), **Small** (32 px) or **Medium** (48 px). The rows grow to fit. In an animation a thumbnail shows the current frame. Two more settings sit under it:
