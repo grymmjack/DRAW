@@ -1,0 +1,199 @@
+''
+' DRAW - GUI/PANEL-SURFACE.BM
+' =============================================================================
+' Panel surfaces - see GUI/PANEL-SURFACE.BI for the model.
+' =============================================================================
+$INCLUDEONCE
+
+''
+' Does dock panel id draw into its own surface (a Scale that is not its Auto)?
+FUNCTION PSURF_on% (id AS INTEGER)
+    DIM s AS INTEGER
+    IF id < 1 _ORELSE id > PSURF_N THEN EXIT FUNCTION
+    IF FPANEL_has_scale%(id) = 0 THEN EXIT FUNCTION
+    s = FPANEL_scale_setting%(id)
+    IF s = 0 THEN EXIT FUNCTION
+    PSURF_on% = (s <> FPANEL_auto_scale%(id))
+END FUNCTION
+
+
+FUNCTION PSURF_ds% ()
+    DIM ds AS INTEGER
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    PSURF_ds% = ds
+END FUNCTION
+
+
+''
+' Screen px a panel unit of panel id (its Scale over its unit: a unit is one
+' viewport px of the panel drawn at Auto, which is PSURF_unit_k% screen px).
+FUNCTION PSURF_k% (id AS INTEGER)
+    DIM k AS INTEGER
+    k = FPANEL_scale%(id)
+    IF k < 1 THEN k = 1
+    PSURF_k% = k
+END FUNCTION
+
+
+''
+' Panel units -> viewport px (rounded up: the footprint holds every unit)
+FUNCTION PSURF_v% (id AS INTEGER, u AS INTEGER)
+    IF PSURF_on%(id) = 0 THEN PSURF_v% = u: EXIT FUNCTION
+    PSURF_v% = -INT(-(CLNG(u) * PSURF_k%(id)) / PSURF_ds%)
+END FUNCTION
+
+
+''
+' Viewport px -> panel units (rounded down: never past the footprint)
+FUNCTION PSURF_u% (id AS INTEGER, v AS INTEGER)
+    IF PSURF_on%(id) = 0 THEN PSURF_u% = v: EXIT FUNCTION
+    PSURF_u% = INT(CLNG(v) * PSURF_ds% / PSURF_k%(id))
+END FUNCTION
+
+
+''
+' The dock gave panel id the viewport rect (x, y, w, h): its footprint; the
+' panel lays out in uw x uh units from (x, y).
+SUB PSURF_set_rect (id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    IF id < 1 _ORELSE id > PSURF_N THEN EXIT SUB
+    PSURF(id).vx = x: PSURF(id).vy = y: PSURF(id).vw = w: PSURF(id).vh = h
+    PSURF(id).uw = PSURF_u%(id, w): PSURF(id).uh = PSURF_u%(id, h)
+END SUB
+
+
+''
+' The pointer's window position on one axis for viewport coord raw (the live
+' window position when raw is the pointer's own, else raw's middle).
+FUNCTION PSURF_win% (raw AS INTEGER, liveRaw AS INTEGER, liveWin AS INTEGER)
+    DIM ds AS INTEGER
+    ds = PSURF_ds%
+    IF raw = liveRaw _ANDALSO liveWin \ ds = raw THEN PSURF_win% = liveWin ELSE PSURF_win% = raw * ds + ds \ 2
+END FUNCTION
+
+
+''
+' Viewport x / y of the pointer -> panel id's units (unchanged when id draws
+' into the viewport).
+FUNCTION PSURF_mx% (id AS INTEGER, rawX AS INTEGER)
+    IF PSURF_on%(id) = 0 THEN PSURF_mx% = rawX: EXIT FUNCTION
+    PSURF_mx% = PSURF(id).vx + INT((PSURF_win%(rawX, MOUSE.RAW_X%, MOUSE.WIN_X%) - CLNG(PSURF(id).vx) * PSURF_ds%) / PSURF_k%(id))
+END FUNCTION
+
+FUNCTION PSURF_my% (id AS INTEGER, rawY AS INTEGER)
+    IF PSURF_on%(id) = 0 THEN PSURF_my% = rawY: EXIT FUNCTION
+    PSURF_my% = PSURF(id).vy + INT((PSURF_win%(rawY, MOUSE.RAW_Y%, MOUSE.WIN_Y%) - CLNG(PSURF(id).vy) * PSURF_ds%) / PSURF_k%(id))
+END FUNCTION
+
+
+''
+' A rect of panel id in units -> viewport px (tooltips, the toolbar editor's
+' marks, QA dumps).
+SUB PSURF_rect_to_view (id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    DIM k AS INTEGER, ds AS INTEGER, x2 AS LONG, y2 AS LONG
+    IF PSURF_on%(id) = 0 _ORELSE w <= 0 _ORELSE h <= 0 THEN EXIT SUB ' (not drawn: left as it is)
+    k = PSURF_k%(id): ds = PSURF_ds%
+    x2 = x + w: y2 = y + h
+    x = PSURF(id).vx + INT(CLNG(x - PSURF(id).vx) * k / ds)
+    y = PSURF(id).vy + INT(CLNG(y - PSURF(id).vy) * k / ds)
+    w = -INT(-(CLNG(PSURF(id).vx) * ds + (x2 - PSURF(id).vx) * k) / ds) - x
+    h = -INT(-(CLNG(PSURF(id).vy) * ds + (y2 - PSURF(id).vy) * k) / ds) - y
+END SUB
+
+
+''
+' Is viewport (mx, my) on panel id's footprint?
+FUNCTION PSURF_in% (id AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    PSURF_in% = (mx >= PSURF(id).vx _ANDALSO mx < PSURF(id).vx + PSURF(id).vw _ANDALSO my >= PSURF(id).vy _ANDALSO my < PSURF(id).vy + PSURF(id).vh)
+END FUNCTION
+
+
+''
+' The background a panel's footprint shows in the viewport (under its surface).
+FUNCTION PSURF_bg~& (id AS INTEGER)
+    SELECT CASE id
+        CASE DP_LAYERS: PSURF_bg~& = THEME.LAYER_PANEL_bg~&
+        CASE ELSE: PSURF_bg~& = THEME.EDIT_BAR_BG_COLOR~&
+    END SELECT
+END FUNCTION
+
+
+''
+' Draw dock panel id: into the current destination (Auto), or into its own
+' surface at its Scale, leaving its footprint here filled with its background.
+SUB PSURF_render (id AS INTEGER)
+    DIM oldDest AS LONG, oldFont AS LONG, needW AS INTEGER, needH AS INTEGER, rg AS INTEGER
+    IF PSURF_on%(id) = 0 THEN
+        IF id >= 1 _ANDALSO id <= PSURF_N THEN PSURF(id).ready = FALSE
+        DOCK_render_panel_content id
+        EXIT SUB
+    END IF
+    IF PSURF(id).uw < 1 _ORELSE PSURF(id).uh < 1 THEN EXIT SUB
+    oldDest = _DEST: oldFont = _FONT
+    needW = PSURF(id).vx + PSURF(id).uw: needH = PSURF(id).vy + PSURF(id).uh
+    IF PSURF(id).img < -1 THEN
+        IF _WIDTH(PSURF(id).img) < needW _ORELSE _HEIGHT(PSURF(id).img) < needH THEN _FREEIMAGE PSURF(id).img: PSURF(id).img = 0
+    END IF
+    IF PSURF(id).img >= -1 THEN PSURF(id).img = _NEWIMAGE(_MAX(needW, 16), _MAX(needH, 16), 32)
+    _DEST PSURF(id).img
+    _FONT oldFont
+    LINE (PSURF(id).vx, PSURF(id).vy)-(needW - 1, needH - 1), PSURF_bg~&(id), BF
+    DOCK_render_panel_content id
+    _DEST oldDest: _FONT oldFont
+    ' the viewport keeps the footprint: background, and the hit region
+    LINE (PSURF(id).vx, PSURF(id).vy)-(PSURF(id).vx + PSURF(id).vw - 1, PSURF(id).vy + PSURF(id).vh - 1), PSURF_bg~&(id), BF
+    rg = DOCK_panel_region%(id)
+    IF rg > 0 THEN
+        REGION_BOUNDS_TABLE(rg).x = PSURF(id).vx: REGION_BOUNDS_TABLE(rg).y = PSURF(id).vy
+        REGION_BOUNDS_TABLE(rg).w = PSURF(id).vw: REGION_BOUNDS_TABLE(rg).h = PSURF(id).vh
+    END IF
+    PSURF(id).k = PSURF_k%(id)
+    PSURF(id).ready = TRUE
+END SUB
+
+
+''
+' Panel id's surface onto the window (screen 0), over its footprint.
+SUB PSURF_blit (id AS INTEGER)
+    DIM sx AS SINGLE, sy AS SINGLE, x0 AS LONG, y0 AS LONG, fw AS LONG, fh AS LONG
+    DIM k AS INTEGER, uw AS INTEGER, uh AS INTEGER, oldDest AS LONG
+    IF id < 1 _ORELSE id > PSURF_N THEN EXIT SUB
+    IF PSURF(id).ready = 0 _ORELSE PSURF(id).img >= -1 THEN EXIT SUB
+    IF PSURF_on%(id) = 0 _ORELSE DOCK_live%(id) = 0 THEN EXIT SUB
+    IF SCRN.w& < 1 _ORELSE SCRN.h& < 1 THEN EXIT SUB
+    sx = _WIDTH(0) / SCRN.w&: sy = _HEIGHT(0) / SCRN.h&
+    k = PSURF(id).k: IF k < 1 THEN k = 1
+    x0 = INT(PSURF(id).vx * sx): y0 = INT(PSURF(id).vy * sy)
+    fw = INT((PSURF(id).vx + PSURF(id).vw) * sx) - x0
+    fh = INT((PSURF(id).vy + PSURF(id).vh) * sy) - y0
+    uw = _MIN(PSURF(id).uw, fw \ k): uh = _MIN(PSURF(id).uh, fh \ k)
+    IF uw < 1 _ORELSE uh < 1 THEN EXIT SUB
+    oldDest = _DEST
+    _PUTIMAGE (x0, y0)-(x0 + CLNG(uw) * k - 1, y0 + CLNG(uh) * k - 1), PSURF(id).img, 0, (PSURF(id).vx, PSURF(id).vy)-(PSURF(id).vx + uw - 1, PSURF(id).vy + uh - 1)
+    _DEST oldDest
+END SUB
+
+
+''
+' Every docked (not floating) panel's surface onto the window - the floating
+' ones go in their z order (SCREEN_render_windows).
+SUB PSURF_blit_docked ()
+    DIM id AS INTEGER, c AS INTEGER, sx AS INTEGER, ds AS INTEGER, oldDest AS LONG
+    ds = PSURF_ds%
+    FOR id = 1 TO PSURF_N
+        IF DOCK_floating%(id) = 0 _ANDALSO PSURF(id).ready _ANDALSO PSURF_on%(id) _ANDALSO DOCK_live%(id) THEN
+            PSURF_blit id
+            ' its column's seam (the one line on the column's inner edge) back
+            ' over it, as for the docked native windows (DOCK_render_native_seams)
+            IF DPANEL(id).slot > 0 THEN
+                c = DOCK_SLOT(DPANEL(id).slot).col
+                IF DOCK_seam_x%(c, sx) THEN
+                    IF sx >= PSURF(id).vx _ANDALSO sx < PSURF(id).vx + PSURF(id).vw THEN
+                        oldDest = _DEST: _DEST 0
+                        LINE (CLNG(sx) * ds, CLNG(PSURF(id).vy) * ds)-(CLNG(sx) * ds + ds - 1, CLNG(PSURF(id).vy + PSURF(id).vh) * ds - 1), DOCK_seam_color~&(c), BF
+                        _DEST oldDest
+                    END IF
+                END IF
+            END IF
+        END IF
+    NEXT id
+END SUB

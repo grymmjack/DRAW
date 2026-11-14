@@ -126,6 +126,7 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/DOCK-RESIZE.BI'
 '$INCLUDE:'./GUI/DOCK.BI'
 '$INCLUDE:'./GUI/WINZ.BI'
+'$INCLUDE:'./GUI/PANEL-SURFACE.BI'
 '$INCLUDE:'./GUI/CONTROLS.BI'
 
 ' INPUT -----------------------------------------------------------------------

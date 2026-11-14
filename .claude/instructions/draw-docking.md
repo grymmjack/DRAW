@@ -177,3 +177,34 @@ pen=640,120,220,300
 - Title strips must use the layer panel's header font/colors; `THEME.MENU_BAR_FG` is unset (0).
 - A floating native window draws onto the display **after** the canvas is scaled, so any overlay on `SCRN.CANVAS&` is under it: the drop label for a window drag sits above the window's title bar.
 - [Linux] the QA harness at 958×514 @2x: press a floating window's title a few px below its top edge — the top 3–4px is its resize edge.
+
+
+## Panel surfaces: a docked panel at its own Scale (GUI/PANEL-SURFACE, 2026-11-14)
+
+The dock panels (toolbox family, layers, edit / advanced bars, charmap) draw
+into the viewport, so one panel px = displayScale screen px. Rick wanted "real
+1x like the floating panels": `CFG.<PANEL>_SCALE` (`EDIT_BAR_SCALE`,
+`ADV_BAR_SCALE`, `TOOLBOX_PANEL_SCALE`, ... 0 = Auto) through the FPANEL scale
+family (`FPANEL_has_scale%` / `_scale_setting%` / `_auto_scale%` /
+`FPANEL_set_scale`, the handle menu's Scale rows, Settings > Panel Scale).
+
+- `PSURF_on%(id)`: a Scale set and not equal to its Auto (displayScale x the
+  panel's own widget scale). Off = the old path, untouched.
+- On: `DOCK_apply_rect` calls `PSURF_set_rect` (the footprint = the dock rect,
+  viewport px) and gives the panel a rect of `uw x uh` **panel units** from the
+  same top-left (`PSURF_u%` = v x ds / k). The panel's code is unchanged: it
+  draws at its usual absolute coords into `PSURF(id).img` (`PSURF_render`,
+  called where the render lists called the panel's render SUB), the footprint
+  in SCRN.GUI& gets the background, its REGION gets the footprint.
+- `PSURF_blit_docked` (start of `SCREEN_render_windows`, every present path)
+  puts the surface on screen 0 at k screen px a unit, then the column seam
+  back over it; floating ones blit in their WZ turn.
+- Sizes the dock asks for go through `DOCK_panel_w%` = `PSURF_v%(id,
+  DOCK_panel_w_units%(id))` (and `DOCK_float_content_h%`).
+- Hit tests: map the pointer with `PSURF_mx%` / `PSURF_my%` (from
+  `MOUSE.WIN_X/Y` = `_MOUSEX/_MOUSEY`, so 1x resolves single screen px) **in
+  the leaf functions only** (`EDITBAR_hit_test%`) - never twice. "Is over the
+  panel" tests use the footprint (`PSURF_in%`). Rects read by others (toolbar
+  editor marks, BTN dump) go through `PSURF_rect_to_view`.
+- Dump: `PSURF id on k vx vy vw vh uw uh ready`, `BARHOVER bar idx`.
+  Test: `panel-scale-bars.sh`.

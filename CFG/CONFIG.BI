@@ -511,6 +511,13 @@ TYPE DRAW_CONFIG
     SWATCHES_SCALE                  AS INTEGER        ' Swatches panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     PREVIEW_SCALE                   AS INTEGER        ' Preview window scale: 0 = auto (the UI Scale ratio), 1-8 = fixed
     BROWSER_SCALE                   AS INTEGER        ' Browser scale: 0 = auto (the UI Scale ratio), 1-8 = fixed
+    TOOLBOX_PANEL_SCALE             AS INTEGER        ' Toolbox scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    ORGANIZER_PANEL_SCALE           AS INTEGER        ' Organizer scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    DRAWER_PANEL_SCALE              AS INTEGER        ' Drawer scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    LAYER_PANEL_SCALE               AS INTEGER        ' Layers panel scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    EDIT_BAR_SCALE                  AS INTEGER        ' Edit bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    ADV_BAR_SCALE                   AS INTEGER        ' Advanced bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    CHARMAP_PANEL_SCALE             AS INTEGER        ' Character map scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
     SWATCHES_X                      AS INTEGER        ' Last Swatches panel X (-1 = auto-position)
     SWATCHES_Y                      AS INTEGER        ' Last Swatches panel Y (-1 = auto-position)
     SWATCHES_W                      AS INTEGER        ' Floating size, native px (0 = default)

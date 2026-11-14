@@ -15,6 +15,8 @@ TYPE MOUSE_OBJ
     OLD_Y             AS INTEGER
     RAW_X             AS INTEGER ' Raw screen X coordinate (for GUI hover)
     RAW_Y             AS INTEGER ' Raw screen Y coordinate (for GUI hover)
+    WIN_X             AS INTEGER ' the pointer in window px (_MOUSEX) - finer than RAW_X at a display scale > 1 (GUI/PANEL-SURFACE)
+    WIN_Y             AS INTEGER
     UNSNAPPED_X       AS INTEGER ' Canvas X before grid snap (for fill, picker, etc.)
     UNSNAPPED_Y       AS INTEGER ' Canvas Y before grid snap (for fill, picker, etc.)
     CON_X             AS INTEGER
