@@ -583,6 +583,10 @@ SUB BROWSER_toggle ()
         BROWSER.visible%            = TRUE
         SCRN.showBrowser%           = TRUE
         SCRN.browserManuallyHidden% = FALSE
+        ' a stroke's auto-hide (restored only when that stroke - or a polygon /
+        ' bezier still in progress - ends) must not outlive a toggle: shown means
+        ' shown (Rick, 2026-11-14: "i couldn't get it to show up by toggling it")
+        BROWSER.autoHidden%         = FALSE
         BROWSER_ensure_initialized
         ' BUG (toolbox re-opens last image): the browser reuses the persistent
         ' FILE_DIALOG singleton across show/hide. A confirmed-open result left in
@@ -604,6 +608,32 @@ SUB BROWSER_toggle ()
     SCENE_DIRTY%         = TRUE
     FRAME_IDLE%          = FALSE
 END SUB
+
+'' The floating Browser's resize edge under viewport (rawX, rawY): FD_RESIZE_*.
+' Its title bar is for moving it: only a 2px strip along its top resizes (the
+' file dialog's 6 native px were a third of the title at 2x / 3x, so grabbing
+' the title's top resized the window instead of moving it - Rick, 2026-11-14,
+' "couldn't unsnap it"). One function for the press and the pointer, which
+' had drifted (INT vs rounded native coords).
+FUNCTION BROWSER_resize_edge% (rawX AS INTEGER, rawY AS INTEGER)
+    DIM lx AS INTEGER, ly AS INTEGER, nx AS INTEGER, ny AS INTEGER, e AS INTEGER
+    IF BROWSER.docked% THEN BROWSER_resize_edge% = FD_RESIZE_NONE: EXIT FUNCTION
+    lx = rawX - BROWSER.dispX%: ly = rawY - BROWSER.dispY%
+    IF BROWSER.renderScale! > 0 THEN
+        nx = INT(CSNG(lx) / BROWSER.renderScale!): ny = INT(CSNG(ly) / BROWSER.renderScale!)
+    ELSE
+        nx = lx: ny = ly
+    END IF
+    e = FD_INPUT_hit_resize_edge%(nx, ny)
+    IF ly >= 2 THEN
+        SELECT CASE e
+            CASE FD_RESIZE_N: e = FD_RESIZE_NONE
+            CASE FD_RESIZE_NE: e = FD_RESIZE_E
+            CASE FD_RESIZE_NW: e = FD_RESIZE_W
+        END SELECT
+    END IF
+    BROWSER_resize_edge% = e
+END FUNCTION
 
 FUNCTION BROWSER_hit_window% (rawX AS INTEGER, rawY AS INTEGER)
     IF DOCK_native_off%(DP_BROWSER) THEN EXIT FUNCTION ' docked in a slot that shows nothing this frame
@@ -704,6 +734,27 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
         IF MOUSE.B1% THEN
             DIM brPrevX AS INTEGER, brPrevY AS INTEGER
             brPrevX% = BROWSER.dispX% : brPrevY% = BROWSER.dispY%
+            ' Maximized (a double-click on the title) fills the work area, so a
+            ' drag could not move it at all - stuck at the left edge (Rick,
+            ' 2026-11-14). Like an OS window: the first real move restores the
+            ' size it had, the grab point at the same fraction of the title.
+            IF BROWSER.maximized% _ANDALSO ABS(MOUSE.RAW_X% - BROWSER.dragStartMX%) + ABS(MOUSE.RAW_Y% - BROWSER.dragStartMY%) > 3 THEN
+                IF BROWSER.restoreW% > 0 _ANDALSO BROWSER.restoreH% > 0 THEN
+                    DIM brFrac AS SINGLE
+                    brFrac! = 0.5
+                    IF BROWSER.dispW% > 0 THEN brFrac! = CSNG(BROWSER.dragStartMX% - BROWSER.dragStartDX%) / CSNG(BROWSER.dispW%)
+                    BROWSER.dispW% = BROWSER.restoreW%
+                    BROWSER.dispH% = BROWSER.restoreH%
+                    BROWSER_clamp_size
+                    BROWSER.dragStartDX% = BROWSER.dragStartMX% - INT(brFrac! * BROWSER.dispW%)
+                    BROWSER_sync_fd_from_display ' (the file dialog's size is what it draws at)
+                    IF CFG.BROWSER_AUTOSAVE_GEOMETRY% THEN
+                        CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
+                        CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+                    END IF
+                END IF
+                BROWSER.maximized% = FALSE
+            END IF
             BROWSER.dispX% = BROWSER.dragStartDX% + (MOUSE.RAW_X% - BROWSER.dragStartMX%)
             BROWSER.dispY% = BROWSER.dragStartDY% + (MOUSE.RAW_Y% - BROWSER.dragStartMY%)
             DOCK_native_drag DP_BROWSER, MOUSE.RAW_X%, MOUSE.RAW_Y%
@@ -712,7 +763,8 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
             FPANEL_place REGION_IMAGE_BROWSER, BROWSER.dispX%, BROWSER.dispY%, BROWSER.dispW%, BROWSER.dispH%, brPrevX%, brPrevY%
             BROWSER_clamp_to_work_area
             BROWSER_sync_fd_from_display
-            BROWSER.maximized%  = FALSE
+            ' (maximized is cleared above, once it really moves: a press that
+            ' has not moved yet must not drop it - the restore never ran)
             BROWSER.positioned% = TRUE
             IF CFG.BROWSER_AUTOSAVE_GEOMETRY% THEN
                 CFG.BROWSER_POS_X% = BROWSER.dispX%
@@ -810,7 +862,7 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
     IF justPressed% AND overPanel% AND closePress% = 0 THEN
         DIM edgeHit AS INTEGER
         edgeHit% = FD_RESIZE_NONE
-        IF BROWSER.docked% = 0 THEN edgeHit% = FD_INPUT_hit_resize_edge%(nativeX%, nativeY%) ' docked: the slot sizes it
+        edgeHit% = BROWSER_resize_edge%(MOUSE.RAW_X%, MOUSE.RAW_Y%) ' docked: none, the slot sizes it
         IF edgeHit% <> FD_RESIZE_NONE THEN
             BROWSER.resizing%      = LAYOUT_unlocked% ' Lock Layout: no move / resize
             BROWSER.resizeEdge%    = edgeHit%
