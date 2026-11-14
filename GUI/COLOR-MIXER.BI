@@ -35,6 +35,7 @@ TYPE COLOR_MIXER_OBJ
     dragStartMY   AS INTEGER        ' Raw mouse Y at drag start
     dragStartDX   AS INTEGER        ' dispX at drag start
     dragStartDY   AS INTEGER        ' dispY at drag start
+    moreHover     AS INTEGER        ' the pointer is on the MORE row (redraw when it changes)
 END TYPE
 
 DIM SHARED COLORMIXER AS COLOR_MIXER_OBJ

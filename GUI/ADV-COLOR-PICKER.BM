@@ -324,8 +324,15 @@ SUB ADVCP_render ()
     END IF
     ADVCP_draw_gear gx, gy, gCol
 
+    ' The VARIATIONS disclosure row
+    DIM dOver AS INTEGER
+    IF ADVCP.renderScale! > 0 _ANDALSO ADVCP_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
+        dOver = ADVCP_over_disclose%(INT((MOUSE.RAW_X% - ADVCP.dispX%) / ADVCP.renderScale!), INT((MOUSE.RAW_Y% - ADVCP.dispY%) / ADVCP.renderScale!))
+    END IF
+    FPANEL_disclosure ADVCP.labelFont&, ACP_SHADE_GAP + 1, ADVCP_title_h% + ACP_disclose_row_y%, ADVCP.panelW% - 2 * ACP_SHADE_GAP - 2, ADVCP_DISCLOSE_H, "VARIATIONS", CFG.ADV_COLOR_PICKER_VARIATIONS% <> 0, dOver
+
     ' Per-shade-row labels (Tiny5) above each row.
-    IF CFG.ADV_COLOR_PICKER_SHADE_LABELS% THEN
+    IF CFG.ADV_COLOR_PICKER_SHADE_LABELS% _ANDALSO ACP_STATE.collapsed% = 0 THEN
         DIM slOldF AS LONG : slOldF& = _FONT
         IF ADVCP.labelFont& > 0 THEN _FONT ADVCP.labelFont& ELSE _FONT 8
         COLOR THEME.CP_text_dim~&, _RGBA32(0, 0, 0, 0)
@@ -337,7 +344,7 @@ SUB ADVCP_render ()
     END IF
 
     ' "COLOR HISTORY" label (Tiny5) above the history strip.
-    IF CFG.ADV_COLOR_PICKER_HISTORY% THEN
+    IF ACP_history_area_h% > 0 THEN
         DIM lblY AS INTEGER : lblY% = ADVCP_title_h% + ACP_history_top%
         DIM oldF AS LONG    : oldF& = _FONT
         IF ADVCP.labelFont& > 0 THEN _FONT ADVCP.labelFont& ELSE _FONT 8
@@ -457,6 +464,13 @@ SUB ADVCP_mouse_input ()
         EXIT SUB
     END IF
 
+    ' The VARIATIONS row: open / close the shade rows + history
+    IF justPressed% AND overPanel% _ANDALSO ACP_STATE.dragging% = ACP_DRAG_NONE _ANDALSO ADVCP_over_disclose%(nativeX%, nativeY%) THEN
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        ADVCP_set_variations _IIF(CFG.ADV_COLOR_PICKER_VARIATIONS% <> 0, FALSE, TRUE)
+        EXIT SUB
+    END IF
+
     ' The gear (top right, under the title bar): Settings > Panels > Advanced
     ' Color Picker (Rick, 2026-11-07)
     IF justPressed% AND overPanel% _ANDALSO ACP_STATE.dragging% = ACP_DRAG_NONE _ANDALSO ADVCP_over_gear%(nativeX%, nativeY%) THEN
@@ -513,6 +527,10 @@ SUB ADVCP_apply_shade_config ()
 
     ACP_STATE.historyShow% = CFG.ADV_COLOR_PICKER_HISTORY%                       ' affects widget height
     ACP_STATE.quantBar%    = CFG.ADV_COLOR_PICKER_QUANTIZE_BAR%                  ' affects widget height
+    ' VARIATIONS (Rick 2026-11-14): a disclosure row under the quantize slider;
+    ' closed, the shade rows and the history go and the panel ends at the row
+    ACP_STATE.discloseH%   = ADVCP_DISCLOSE_H
+    ACP_STATE.collapsed%   = _IIF(CFG.ADV_COLOR_PICKER_VARIATIONS% <> 0, FALSE, TRUE)
     IF ACP_STATE.quantBar% _ANDALSO ACP_STATE.quantInsetL% = 0 _ANDALSO ADVCP.panelImg& < -1 THEN ' room for "QUANTIZE" and "OFF" / "32"
         DIM qiF AS LONG, qiD AS LONG : qiF& = _FONT: qiD& = _DEST: _DEST ADVCP.panelImg&
         IF ADVCP.labelFont& > 0 THEN _FONT ADVCP.labelFont& ELSE _FONT 8
@@ -579,7 +597,7 @@ SUB ADVCP_layout ()
     nat% = ADVCP_wheel_nat%
     oldPh% = ACP_STATE.patchH%: ACP_STATE.patchH% = 0 ' the natural rows (ACP_resize compares against oldPh)
     ADVCP.natW% = nat%
-    ADVCP.natH% = ADVCP_title_h% + nat% + ACP_quant_area_h% + ACP_shade_area_h% + ACP_history_area_h%
+    ADVCP.natH% = ADVCP_title_h% + nat% + ACP_full_h% - ACP_STATE.wheel% ' wheel + quantize + VARIATIONS + its rows
     ACP_STATE.patchH% = oldPh%
     w% = FPANEL_fit_size%(nat%, ADVCP.fitW%)
     spare% = _MAX(0, ADVCP.fitH% - ADVCP.natH%)
@@ -600,7 +618,7 @@ END FUNCTION
 ' Most extra height (native px) it can use nw native px wide: a wheel as wide
 ' as the panel, then taller shade patches
 FUNCTION ADVCP_grow_max% (nw AS INTEGER)
-    ADVCP_grow_max% = _MAX(0, nw - ADVCP_wheel_nat%) + ACP_shade_line_count% * ACP_SHADE_PATCH_H * (ADVCP_PATCH_GROW - 1)
+    ADVCP_grow_max% = _MAX(0, nw - ADVCP_wheel_nat%) + _IIF(ACP_STATE.collapsed% <> 0, 0, ACP_shade_line_count% * ACP_SHADE_PATCH_H * (ADVCP_PATCH_GROW - 1))
 END FUNCTION
 
 ' ---------------------------------------------------------------------------
@@ -780,6 +798,24 @@ END SUB
 ' ---------------------------------------------------------------------------
 ' QA (DOCK_DUMP): ACPQ <track x y w h> <steps> <gear x y w h> - viewport px.
 ' ---------------------------------------------------------------------------
+' Over the VARIATIONS row (native panel coords)?
+FUNCTION ADVCP_over_disclose% (nx AS INTEGER, ny AS INTEGER)
+    DIM y AS INTEGER
+    y = ADVCP_title_h% + ACP_disclose_row_y%
+    ADVCP_over_disclose% = (nx >= 0 _ANDALSO nx < ADVCP.panelW% _ANDALSO ny >= y _ANDALSO ny < y + ADVCP_DISCLOSE_H)
+END FUNCTION
+
+' Open (TRUE) / close the VARIATIONS rows: the panel grows / shrinks, the dock relays out
+SUB ADVCP_set_variations (onOff AS INTEGER)
+    CFG.ADV_COLOR_PICKER_VARIATIONS% = _IIF(onOff <> 0, TRUE, FALSE)
+    IF ADVCP.initialized% THEN ADVCP_apply_shade_config
+    SCREEN_compute_layout
+    ADVCP_clamp_to_work_area
+    CONFIG_save
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+    INVALIDATE_scene
+END SUB
+
 FUNCTION ADVCP_dump$ ()
     DIM rs AS SINGLE, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, th AS INTEGER
     DIM gx AS INTEGER, gy AS INTEGER, gw AS INTEGER, gh AS INTEGER, d AS STRING
@@ -797,5 +833,8 @@ FUNCTION ADVCP_dump$ ()
     d = d + DOCK_n$(ACP_STATE.quantizeSteps%)
     ADVCP_gear_rect gx, gy, gw, gh
     d = d + DOCK_n$(ADVCP.dispX% + INT(gx * rs)) + DOCK_n$(ADVCP.dispY% + INT(gy * rs)) + DOCK_n$(INT(gw * rs)) + DOCK_n$(INT(gh * rs))
+    ' ACPV x y w h open: the VARIATIONS row (viewport px), 1 = open
+    d = d + CHR$(10) + "ACPV" + DOCK_n$(ADVCP.dispX% + INT((ACP_SHADE_GAP + 1) * rs)) + DOCK_n$(ADVCP.dispY% + INT((th + ACP_disclose_row_y%) * rs))
+    d = d + DOCK_n$(INT((ADVCP.panelW% - 2 * ACP_SHADE_GAP - 2) * rs)) + DOCK_n$(INT(ADVCP_DISCLOSE_H * rs)) + DOCK_n$(_IIF(CFG.ADV_COLOR_PICKER_VARIATIONS% <> 0, 1, 0))
     ADVCP_dump$ = d + CHR$(10)
 END FUNCTION

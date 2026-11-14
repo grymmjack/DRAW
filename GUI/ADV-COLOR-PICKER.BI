@@ -17,6 +17,7 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
 ' Native (pre-upscale) geometry of the panel.
+CONST ADVCP_DISCLOSE_H = 11 ' the VARIATIONS row under the quantize slider (native px)
 CONST ADVCP_PATCH_GROW = 3 ' docked with height to spare, shade patches grow up to this many times
 CONST ADVCP_WHEEL_NATIVE = 190 ' Placeholder footprint until ACP_init (real width = FPANEL_panel_w%)
 

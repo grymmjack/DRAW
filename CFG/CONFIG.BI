@@ -462,6 +462,8 @@ TYPE DRAW_CONFIG
     ADV_COLOR_PICKER_SHADE_PRESET   AS INTEGER        ' Shade line-set: 0=Basic, 1=+Warm/Cool, 2=Full
     ADV_COLOR_PICKER_WARMCOOL       AS INTEGER        ' Warm/cool hue shift for those lines, degrees (0-60)
     ADV_COLOR_PICKER_HISTORY        AS INTEGER        ' TRUE = show the recent-colors history strip
+    ADV_COLOR_PICKER_VARIATIONS     AS INTEGER        ' TRUE = the VARIATIONS rows (shades + history) are open; FALSE = just the wheel + quantize
+    COLOR_MIXER_MORE                AS INTEGER        ' TRUE = the Color Mixer's MORE rows (sliders, hex, snap, history, FG<>BG) are open; FALSE = the field, hue bar, OLD / NEW
     ADV_COLOR_PICKER_SHADE_LABELS   AS INTEGER        ' TRUE = show a name label above each shade row
     ADV_COLOR_PICKER_SHADE_CURVE    AS INTEGER        ' 0 = linear spread; 1 = exponential (ends more severe)
     ADV_COLOR_PICKER_HUE_NEIGHBORS  AS INTEGER        ' Hue-neighbors ± range (deg); draggable on the ring
