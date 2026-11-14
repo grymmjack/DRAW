@@ -73,3 +73,7 @@ TYPE BROWSER_OBJ
 END TYPE
 
 DIM SHARED BROWSER AS BROWSER_OBJ
+
+' The file dialog's preview asks DRAW for a file's frames (an animated GIF /
+' APNG, a sheet with frames): FD_HOST_preview_frames in GUI/BROWSER.BM.
+$LET FD_HAS_HOST_FRAMES = TRUE

@@ -363,7 +363,7 @@ SUB BROWSER_ensure_initialized ()
     IF BROWSER.sortOrder% > 1 THEN BROWSER.sortOrder% = 0
 
     DRAW_FD_register_custom_places
-    FD_init FD_MODE_OPEN, "BROWSER", "OPEN", BROWSER.lastDir$, "Image Files|*.png|*.bmp|*.jpg|*.jpeg|*.gif|*.webp|*.qoi|*.drw|All Files|*.*", 0, ""
+    FD_init FD_MODE_OPEN, "BROWSER", "OPEN", BROWSER.lastDir$, "Image Files|*.png|*.bmp|*.jpg|*.jpeg|*.gif|*.webp|*.qoi|*.draw|*.drw|All Files|*.*", 0, ""
     DRAW_FD_load_icons
 
     ' Use compact browser-specific font/icon scales (CFG.BROWSER_FONT_SCALE%,
@@ -934,7 +934,8 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
     ' Note: FD_STATE.selectedIndex is a *filtered* index; use FD_filtered() for raw entry.
     ' IMPORTANT: FD_entries().fileName and FD_STATE.currentPath are STRING * 260 (null-padded).
     ' RTRIM$ only strips spaces; CHR$(0) padding requires FD_PLAT_trim_cstr$.
-    IF justPressed% AND overPanel% AND closePress% = 0 THEN
+    ' (not from the animated preview's play / pause box or seek track)
+    IF justPressed% AND overPanel% AND closePress% = 0 _ANDALSO FD_STATE.pvSeek = 0 _ANDALSO FD_PV_hit%(nativeX%, nativeY%) = 0 THEN
         DIM dragRawIdx AS INTEGER
         IF FD_STATE.selectedIndex >= 0 AND FD_STATE.selectedIndex < FD_STATE.visibleCount THEN
             dragRawIdx% = FD_filtered(FD_STATE.selectedIndex)
@@ -1511,3 +1512,89 @@ SUB BROWSER_render ()
         _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), FD_STATE.imgHandle&, 0
     END IF
 END SUB
+
+
+''
+' The preview pane's frames for fullPath (FILE_DIALOG calls it when it shows a
+' file, with $LET FD_HAS_HOST_FRAMES = TRUE in GUI/BROWSER.BI): an animated GIF
+' (its delays), an APNG (its fcTL delays), a PNG / .draw with frames (the drAn
+' chunk: its fps and holds). Each frame goes to FD_PV_add; two or more play
+' (Rick, 2026-11-14: "let's also make the preview of browser support
+' animations"). The loaders are the AnimBrush's (TOOLS/ANIM-BRUSH, AB_LD).
+SUB FD_HOST_preview_frames (fullPath AS STRING, ext AS STRING)
+    DIM s AS STRING, ff AS INTEGER, n AS INTEGER, k AS INTEGER, w AS LONG, h AS LONG, pk AS INTEGER, p AS LONG
+    DIM gct AS STRING, loopSeen AS INTEGER, an AS STRING, fps AS INTEGER, nHolds AS INTEGER, hold AS INTEGER
+    DIM ln AS _INTEGER64, typ AS STRING, dat AS STRING, dn AS LONG, dd AS LONG
+    DIM delays(1 TO AB_MAX_CELS) AS LONG
+    DIM dur(1 TO AB_MAX_CELS) AS SINGLE
+    IF ext <> "gif" _ANDALSO ext <> "png" _ANDALSO ext <> "draw" THEN EXIT SUB
+    IF _FILEEXISTS(fullPath) = 0 THEN EXIT SUB
+    ff = FREEFILE
+    OPEN fullPath FOR BINARY AS #ff
+    IF LOF(ff) > 67108864 _ORELSE LOF(ff) < 16 THEN CLOSE #ff: EXIT SUB
+    s = SPACE$(LOF(ff))
+    GET #ff, 1, s
+    CLOSE #ff
+    AB_ld_free
+    IF LEFT$(s, 4) = "GIF8" THEN
+        ' an animated GIF: its delays (centiseconds; 0 / 1 play as 10, like browsers)
+        n = ANIM_GIF_count%(s)
+        IF n < 2 THEN EXIT SUB
+        w = ASC(s, 7) + ASC(s, 8) * 256&: h = ASC(s, 9) + ASC(s, 10) * 256&
+        IF w < 1 _ORELSE h < 1 THEN EXIT SUB
+        n = _MIN(n, AB_MAX_CELS)
+        IF CLNG(n) * w * h > AB_LOAD_MAX_PIXELS THEN n = _MAX(1, AB_LOAD_MAX_PIXELS \ (w * h))
+        pk = ASC(s, 11): p = 14
+        IF pk AND &H80 THEN gct = MID$(s, p, 3 * 2 ^ ((pk AND 7) + 1)): p = p + LEN(gct)
+        n = ANIM_GIF_frames%(s, p, w, h, n, gct, TRUE, delays(), loopSeen)
+        FOR k = 1 TO n
+            IF delays(k) <= 1 THEN dur(k) = 0.1 ELSE dur(k) = delays(k) / 100
+        NEXT k
+    ELSEIF LEN(AB_png_chunk$(s, "acTL")) THEN
+        ' an APNG: each fcTL's delay (num / den seconds, den 0 = 100)
+        n = AB_apng_frames%(s)
+        p = 9: k = 0
+        DO WHILE p + 7 <= LEN(s) _ANDALSO k < n
+            ln = AB_be32&&(s, p): typ = MID$(s, p + 4, 4)
+            IF typ = "fcTL" _ANDALSO ln >= 26 THEN
+                dat = MID$(s, p + 8, ln)
+                dn = ASC(dat, 21) * 256& + ASC(dat, 22): dd = ASC(dat, 23) * 256& + ASC(dat, 24)
+                IF dd = 0 THEN dd = 100
+                k = k + 1: dur(k) = dn / dd
+                IF dur(k) < 0.02 THEN dur(k) = 0.1
+            END IF
+            IF typ = "IEND" THEN EXIT DO
+            p = p + 12 + ln
+        LOOP
+        FOR k = k + 1 TO n: dur(k) = 0.1: NEXT k
+    ELSE
+        ' a sheet with frames: drAn = version, w, h, gutter, margin, count,
+        ' current, fps, loop, nHolds, holds... (little-endian INTEGERs)
+        an = AB_png_chunk$(s, "drAn")
+        IF LEN(an) < 16 THEN EXIT SUB
+        IF CVI(MID$(an, 11, 2)) < 2 THEN EXIT SUB
+        n = AB_sheet_frames%(fullPath, s)
+        fps = CVI(MID$(an, 15, 2)): IF fps < 1 _ORELSE fps > 120 THEN fps = 12
+        IF LEN(an) >= 20 THEN nHolds = CVI(MID$(an, 19, 2))
+        FOR k = 1 TO n
+            hold = 1
+            IF k <= nHolds _ANDALSO 20 + k * 2 <= LEN(an) THEN hold = CVI(MID$(an, 19 + k * 2, 2))
+            IF hold < 1 _ORELSE hold > 1000 THEN hold = 1
+            dur(k) = hold / fps
+        NEXT k
+    END IF
+    FOR k = 1 TO n
+        IF AB_LD(k) < -1 THEN
+            IF FD_PV_add%(AB_LD(k), dur(k)) THEN AB_LD(k) = 0
+        END IF
+    NEXT k
+    AB_ld_free
+END SUB
+
+''
+' The Browser's animated preview: the next frame when it is due. TRUE = it
+' moved on (DRAW.BAS keeps the frame loop running).
+FUNCTION BROWSER_pv_needs_redraw% ()
+    IF BROWSER.visible% = 0 _ORELSE BROWSER.autoHidden% _ORELSE BROWSER.initialized% = 0 THEN EXIT FUNCTION
+    IF FD_PV_tick% THEN BROWSER_pv_needs_redraw% = TRUE
+END FUNCTION
