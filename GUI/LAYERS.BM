@@ -3641,6 +3641,12 @@ FUNCTION LAYER_PANEL_handle_click% (inX AS INTEGER, inY AS INTEGER, button AS IN
                     DIM shiftHeld AS INTEGER
                     ctrlHeld%  = (_KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&))
                     shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
+                    ' Ctrl+click a thumbnail: a selection from the layer; Ctrl+Shift+click: add it / take it out
+                    IF ctrlHeld% _ANDALSO LAYER_PANEL_thumb_at%(inX, inY) = layerIdx% THEN
+                        LAYER_PANEL_thumb_select layerIdx%, shiftHeld% <> 0
+                        LAYER_PANEL_handle_click% = TRUE
+                        EXIT FUNCTION
+                    END IF
                     IF ctrlHeld% OR shiftHeld% THEN
                         IF ctrlHeld% AND LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
                             ' Ctrl+Click on group header: add group + all descendants to multi-select
@@ -3842,11 +3848,7 @@ FUNCTION LAYER_PANEL_handle_click% (inX AS INTEGER, inY AS INTEGER, button AS IN
                         CURRENT_LAYER% = layerIdx%
                     END IF
                     ' On the layer's thumbnail: the thumbnail menu (its size, what it shows)
-                    DIM ctxThumb AS INTEGER, ctxThumbY AS INTEGER
-                    ctxThumb = LAYER_THUMB_PX%
-                    ctxThumbY = clickY% - rowY% - (LAYER_ROW_H% - ctxThumb) \ 2
-                    LAYER_PANEL.ctxMenuThumb% = ctxThumb > 0 _ANDALSO LAYERS(layerIdx%).layerType% <> LAYER_TYPE_GROUP _ANDALSO _
-                        localX% >= 23 _ANDALSO localX% <= 24 + ctxThumb _ANDALSO ctxThumbY >= -1 _ANDALSO ctxThumbY <= ctxThumb
+                    LAYER_PANEL.ctxMenuThumb% = (LAYER_PANEL_thumb_at%(inX, inY) = layerIdx%)
                     LAYER_PANEL_ctx_menu_show layerIdx%, inX, inY ' (the menu opens in the viewport, at the pointer)
                     GUI_NEEDS_REDRAW% = TRUE
                     FRAME_IDLE%       = FALSE
@@ -4949,6 +4951,121 @@ SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
     GUI_NEEDS_REDRAW% = TRUE
     _DEST old_dest&
     _SOURCE old_source&
+END SUB
+
+
+''
+' The layer whose thumbnail is under the pointer (0: none, or thumbnails off):
+' an image layer's thumbnail (at rowX + 21 in LAYER_PANEL_render, centred in
+' its row), with a px of slack round it.
+'
+FUNCTION LAYER_PANEL_thumb_at% (inX AS INTEGER, inY AS INTEGER)
+    DIM L AS INTEGER, t AS INTEGER, rawX AS INTEGER, rawY AS INTEGER
+    DIM cy AS INTEGER, dy AS INTEGER, lx AS INTEGER, ind AS INTEGER
+    LAYER_PANEL_thumb_at% = 0
+    t = LAYER_THUMB_PX%
+    IF t <= 0 THEN EXIT FUNCTION
+    L = LAYER_PANEL_get_row_slot%(inX, inY)
+    IF L <= 0 THEN EXIT FUNCTION
+    IF LAYERS(L).layerType% = LAYER_TYPE_GROUP THEN EXIT FUNCTION
+    rawX = PSURF_mx%(DP_LAYERS, inX): rawY = PSURF_my%(DP_LAYERS, inY) ' (its units at its own Scale)
+    cy = rawY + LAYER_PANEL.scrollOffset% - (LAYER_PANEL_top% + THEME.LAYER_PANEL_header_height%)
+    dy = (cy MOD LAYER_ROW_H%) - (LAYER_ROW_H% - t) \ 2 ' (the rows are all one height, from the list's top)
+    IF CFG.LAYER_GROUP_INDENT% > 0 THEN ind = CFG.LAYER_GROUP_INDENT% ELSE ind = THEME.LAYER_PANEL_group_indent%
+    lx = rawX - LAYER_PANEL.panelX1% - LAYERS_nesting_depth%(L) * ind
+    IF lx >= 23 _ANDALSO lx <= 24 + t _ANDALSO dy >= -1 _ANDALSO dy <= t THEN LAYER_PANEL_thumb_at% = L
+END FUNCTION
+
+
+''
+' A canvas-sized mask (white where layer L has a pixel, alpha > 0; canvas
+' coords, its apron left out) - like LAYER_select_non_transparent's, for
+' SELECTION_merge_mask (which frees it). 0 when it can't be made.
+'
+FUNCTION LAYER_alpha_mask& (L AS INTEGER)
+    DIM img AS LONG, mask AS LONG, w AS LONG, h AS LONG, aW AS LONG, aH AS LONG
+    DIM ms AS _MEM, md AS _MEM, x AS LONG, y AS LONG, sRow AS _OFFSET, dRow AS _OFFSET
+    DIM white AS _UNSIGNED LONG
+    LAYER_alpha_mask& = 0
+    IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT FUNCTION
+    img = LAYERS(L).imgHandle&
+    IF img >= -1 THEN EXIT FUNCTION
+    w = SCRN.canvasW&: h = SCRN.canvasH&
+    aW = LAYERS(L).apronW%: aH = LAYERS(L).apronH%
+    IF _WIDTH(img) < w + aW _ORELSE _HEIGHT(img) < h + aH THEN EXIT FUNCTION
+    mask = _NEWIMAGE(w, h, 32)
+    IF mask >= -1 THEN EXIT FUNCTION
+    white = _RGB32(255, 255, 255)
+    ms = _MEMIMAGE(img): md = _MEMIMAGE(mask)
+    IF _MEMEXISTS(ms) _ANDALSO _MEMEXISTS(md) THEN
+        _MEMFILL md, md.OFFSET, md.SIZE, 0 AS _UNSIGNED LONG
+        FOR y = 0 TO h - 1
+            sRow = ms.OFFSET + ((y + aH) * _WIDTH(img) + aW) * 4
+            dRow = md.OFFSET + y * w * 4
+            FOR x = 0 TO w - 1
+                IF _MEMGET(ms, sRow + x * 4 + 3, _UNSIGNED _BYTE) > 0 THEN _MEMPUT md, dRow + x * 4, white
+            NEXT x
+        NEXT y
+    END IF
+    IF _MEMEXISTS(ms) THEN _MEMFREE ms
+    IF _MEMEXISTS(md) THEN _MEMFREE md
+    LAYER_alpha_mask& = mask
+END FUNCTION
+
+
+''
+' Is LAYER_SEL_FROM still about the selection on the canvas (the one it was
+' made for)?
+FUNCTION LAYER_SEL_holds% ()
+    LAYER_SEL_holds% = SELECTION_has_active% _ANDALSO LEN(LAYER_SEL_FROM) = MAX_LAYERS _ANDALSO _
+        LAYER_SEL_MASK = MARQUEE.SELECTION_MASK _ANDALSO LAYER_SEL_BOX = LAYER_SEL_box_sig$
+END FUNCTION
+
+FUNCTION LAYER_SEL_box_sig$ ()
+    LAYER_SEL_box_sig$ = MKL$(MARQUEE.BOX.x) + MKL$(MARQUEE.BOX.y) + MKL$(MARQUEE.BOX.w) + MKL$(MARQUEE.BOX.h)
+END FUNCTION
+
+
+''
+' A layer's thumbnail Ctrl+clicked (addOrRemove FALSE): the selection becomes
+' its pixels (Selection from Layer). Ctrl+Shift+clicked (TRUE): its pixels are
+' added to the selection - or, when it is already in (from an earlier click
+' on this selection), taken out again, the other layers' pixels kept.
+'
+SUB LAYER_PANEL_thumb_select (layerIdx AS INTEGER, addOrRemove AS INTEGER)
+    DIM L AS INTEGER, j AS INTEGER, m AS LONG
+    L = layerIdx ' (a copy: the param is by reference)
+    IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(L).imgHandle& = 0 THEN EXIT SUB
+    IF addOrRemove = 0 _ORELSE SELECTION_has_active% = 0 THEN
+        LAYER_select_non_transparent L
+        LAYER_SEL_FROM = STRING$(MAX_LAYERS, 0)
+        MID$(LAYER_SEL_FROM, L, 1) = CHR$(1)
+    ELSE
+        IF LAYER_SEL_holds% = 0 THEN LAYER_SEL_FROM = STRING$(MAX_LAYERS, 0) ' (a selection made some other way: none of it from layers)
+        IF ASC(LAYER_SEL_FROM, L) THEN ' in: take its pixels out, then put back the other layers' (where they overlap it)
+            MID$(LAYER_SEL_FROM, L, 1) = CHR$(0)
+            m = LAYER_alpha_mask&(L)
+            IF m < -1 THEN SELECTION_merge_mask m, SEL_MODE_SUBTRACT
+            FOR j = 1 TO MAX_LAYERS
+                IF ASC(LAYER_SEL_FROM, j) _ANDALSO LAYERS(j).imgHandle& <> 0 THEN
+                    m = LAYER_alpha_mask&(j)
+                    IF m < -1 THEN SELECTION_merge_mask m, SEL_MODE_ADD
+                END IF
+            NEXT j
+        ELSE
+            m = LAYER_alpha_mask&(L)
+            IF m < -1 THEN SELECTION_merge_mask m, SEL_MODE_ADD
+            MID$(LAYER_SEL_FROM, L, 1) = CHR$(1)
+        END IF
+        ANIM_CV_clip_selection ' the lightbox: only the current frame's pixels
+    END IF
+    LAYER_SEL_MASK = MARQUEE.SELECTION_MASK
+    LAYER_SEL_BOX = LAYER_SEL_box_sig$
+    SOUND_play SND_SELECTION
+    GUI_NEEDS_REDRAW% = TRUE
+    SCENE_DIRTY%      = TRUE
+    FRAME_IDLE%       = FALSE
 END SUB
 
 

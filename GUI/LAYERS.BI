@@ -214,6 +214,15 @@ TYPE LAYER_THUMB_BOX
     bh  AS LONG
 END TYPE
 DIM SHARED LAYER_THUMB_GEN AS LONG
+
+' Selections from layer thumbnails (Ctrl+click one: the selection is its
+' pixels; Ctrl+Shift+click: add a layer's pixels, or take them out again if it
+' is already in). LAYER_SEL_FROM: CHR$(1) at each layer in it. It holds for
+' the selection it was made for - the mask handle and box below; any other
+' change to the selection forgets it.
+DIM SHARED LAYER_SEL_FROM AS STRING
+DIM SHARED LAYER_SEL_MASK AS LONG
+DIM SHARED LAYER_SEL_BOX AS STRING
 DIM SHARED LAYER_THUMB_BOXES(1 TO MAX_LAYERS) AS LAYER_THUMB_BOX
 DIM SHARED RENDER_ORDER_COUNT AS INTEGER
 DIM SHARED RENDER_ORDER_DIRTY AS INTEGER                           ' TRUE = must rebuild

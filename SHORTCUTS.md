@@ -306,7 +306,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `Ctrl+Alt+Shift+V` | Paste Layer as new layer |
 
 ### Layer panel mouse
-`L-Click` select · `Ctrl/Shift+L-Click` add/remove from multi-selection · `R-Click` the layer menu · `R-Click thumbnail` thumbnail size (Tiny / Small / Medium / Hide) and what it shows (Content / Canvas) · `Shift+R-Click` cycle blend mode · `Alt+L-Click eye` solo · `Click eye` toggle visibility · `Drag across eyes` swipe show/hide · `Click lock` opacity lock · `Click/Drag opacity bar` adjust · `Drag row` reorder · `Wheel` scroll list · `Wheel on opacity bar` adjust · `Esc` cancel drag · `Click triangle` collapse/expand group.
+`L-Click` select · `Ctrl/Shift+L-Click` add/remove from multi-selection · `R-Click` the layer menu · `Ctrl+L-Click thumbnail` selection from that layer · `Ctrl+Shift+L-Click thumbnail` add its pixels to the selection (already in: take them out) · `R-Click thumbnail` thumbnail size (Tiny / Small / Medium / Hide) and what it shows (Content / Canvas) · `Shift+R-Click` cycle blend mode · `Alt+L-Click eye` solo · `Click eye` toggle visibility · `Drag across eyes` swipe show/hide · `Click lock` opacity lock · `Click/Drag opacity bar` adjust · `Drag row` reorder · `Wheel` scroll list · `Wheel on opacity bar` adjust · `Esc` cancel drag · `Click triangle` collapse/expand group.
 
 > 19 blend modes (Shift+R-Click a row to cycle). Groups have their own opacity/blend
 > (Pass-Through default) and can nest. Symbol layers link a parent to children (Layer
@@ -479,7 +479,7 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 ## Panels · Docking
 
 ### Docking
-`Ctrl+Shift+Click` a panel → toggle dock side (left ↔ right). Panels: Toolbox, Layer Panel, Edit Bar, Advanced Bar, Character Map (View → Layout menu).
+`Ctrl+Shift+Click` a panel → toggle dock side (left ↔ right; on a layer thumbnail it adds to the selection instead). Panels: Toolbox, Layer Panel, Edit Bar, Advanced Bar, Character Map (View → Layout menu).
 
 **Arranging panels** — the *handle* is a panel's title strip, the layers header, or the thin grip that appears when you hover the top edge of the toolbox, organizer, drawer or a bar.
 

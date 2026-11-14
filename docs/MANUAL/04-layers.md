@@ -53,6 +53,8 @@ Each layer row has three persistent controls:
 
 **Right-click a thumbnail** for the same choices in place: **Tiny**, **Small** or **Medium** (the current size is checked), **Show Content** or **Show Canvas**, and **Hide Thumbnails**. With thumbnails off, the layer's right-click menu ends with **Show Thumbnails** (Small). A pick is saved like the setting.
 
+**Selections from thumbnails.** `Ctrl`+click a layer's thumbnail and the selection becomes that layer's pixels, without changing the current layer (the same as **Selection from Layer**). `Ctrl+Shift`+click another layer's thumbnail to add its pixels. `Ctrl+Shift`+click a layer that is already in to take its pixels out again: where another layer in the selection has pixels too, those stay selected. `Ctrl+Shift`+click a thumbnail on a selection made some other way (a marquee, Select All) to add to it.
+
 In `DRAW.cfg`: `LAYER_THUMBNAILS=OFF|TINY|SMALL|MEDIUM`, `LAYER_THUMBNAIL_FIT=CONTENT|CANVAS`, `LAYER_THUMBNAIL_MIN_CROP=16`.
 
 <div class="page-break"></div>
