@@ -34,6 +34,7 @@ TYPE SCALE_OBJ
     flyout        AS INTEGER ' subtool flyout
     tooltip       AS INTEGER ' tooltips
     preview       AS INTEGER ' preview window chrome
+    previewAuto   AS INTEGER ' preview before CFG.PREVIEW_SCALE (the menu's "Auto")
     mixer         AS INTEGER ' color mixer chrome
     dialog        AS INTEGER ' generic modal dialog chrome
     about         AS INTEGER ' about dialog
@@ -44,6 +45,7 @@ TYPE SCALE_OBJ
     msgBox        AS INTEGER ' message box dialog
     inputBox      AS INTEGER ' input box dialog
     browser       AS INTEGER ' docked browser render scale
+    browserAuto   AS INTEGER ' browser before CFG.BROWSER_SCALE (the menu's "Auto")
     browserFont   AS INTEGER ' docked browser font
     browserIcon   AS INTEGER ' docked browser icons
 END TYPE

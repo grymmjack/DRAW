@@ -509,6 +509,8 @@ TYPE DRAW_CONFIG
     ANIM_PANEL_Y                    AS INTEGER        ' Last Animation panel Y (-1 = auto-position)
     SWATCHES_VISIBLE                AS INTEGER        ' TRUE = Swatches panel open at startup
     SWATCHES_SCALE                  AS INTEGER        ' Swatches panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
+    PREVIEW_SCALE                   AS INTEGER        ' Preview window scale: 0 = auto (the UI Scale ratio), 1-8 = fixed
+    BROWSER_SCALE                   AS INTEGER        ' Browser scale: 0 = auto (the UI Scale ratio), 1-8 = fixed
     SWATCHES_X                      AS INTEGER        ' Last Swatches panel X (-1 = auto-position)
     SWATCHES_Y                      AS INTEGER        ' Last Swatches panel Y (-1 = auto-position)
     SWATCHES_W                      AS INTEGER        ' Floating size, native px (0 = default)
