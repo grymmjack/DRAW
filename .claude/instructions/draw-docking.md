@@ -206,5 +206,35 @@ family (`FPANEL_has_scale%` / `_scale_setting%` / `_auto_scale%` /
   the leaf functions only** (`EDITBAR_hit_test%`) - never twice. "Is over the
   panel" tests use the footprint (`PSURF_in%`). Rects read by others (toolbar
   editor marks, BTN dump) go through `PSURF_rect_to_view`.
-- Dump: `PSURF id on k vx vy vw vh uw uh ready`, `BARHOVER bar idx`.
+- Dump: `PSURF id on k vx vy vw vh uw uh ready`, `PSURFP id ux uy` (the
+  pointer in its units), `PTR rawX rawY winX winY`, `BARHOVER bar idx`.
   Test: `panel-scale-bars.sh`.
+- **Toolbox family (P5).** Their widget scale (`TOOLBAR_scale%`,
+  `ORGANIZER_scale%`, `DRAWER_scale%` = `PSURF_unit_scale%`) is 1 at their own
+  Scale - a unit is one icon px, k screen px - and their Auto (CFG.TOOLBAR_SCALE
+  / USCALE.organizer / .drawer) otherwise; every read of those scales in their
+  code goes through the accessors. They share a column width in **different
+  units**: convert through the viewport with `PSURF_u_of%(b, a, u)`
+  (`TOOLBAR_reflow`, `DOCK_panel_w_units%`). `DOCK_fixed_h%` wraps
+  `DOCK_fixed_h_units%`; `DOCK_tb_inset%` is 1 at its own Scale (its top border
+  row inside its surface). Their render code must draw into **`_DEST`**, never
+  `SCRN.GUI&` by name (the surface is the destination) - that was the one real
+  trap - and must not leave a font it may free bound to a surface
+  (`PSURF_font_release`). Hit tests map at the entry points that take raw
+  coords and pass them down (`TOOLBAR_handle_*`, `ORGANIZER_handle_*`,
+  `TOOLTIP_get_hovered_btn/org_idx%`) or at the drawer's leaves
+  (`DRAWER_slot_at%`, `_palette_cell_at%`, `_select_palette_color`), the
+  workflow strip through `WF_track` in POINTER.BM. Dumps `ORGW i x y w h`,
+  `DRWB x y w h`, `DRWAT slot` (viewport px). BTN's id is the **button** id,
+  VIEW's the **tool** id (marquee button 7 = tool 5). Test:
+  `panel-scale-toolbox.sh`.
+- **Character map (P7).** Like the bars (a unit = a viewport px at Auto).
+  `CHARMAP_render` used to `_DEST SCRN.GUI&` itself - at its own Scale that drew
+  the grid into the viewport at unit coords, spilling over the next column
+  (the QA dumps were all right; only a picture showed it). Now it draws into
+  the current destination. `CHARMAP_fit_scale!`'s width cap is in its units;
+  `CHARMAP_fill_stub` (viewport) fills the footprint's columns. Dump `CMAPV x y
+  w h` (cell A, viewport px). Test: `panel-scale-charmap.sh` - with a "nothing
+  spilled onto the panel beside it" region check.
+- **Grep a panel's render path for `SCRN.GUI&` by name** before putting it on
+  a surface: `_DEST SCRN.GUI&`, `_PUTIMAGE ..., SCRN.GUI&`, `_FONT f, SCRN.GUI&`.
