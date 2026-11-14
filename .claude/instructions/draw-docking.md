@@ -236,5 +236,15 @@ family (`FPANEL_has_scale%` / `_scale_setting%` / `_auto_scale%` /
   `CHARMAP_fill_stub` (viewport) fills the footprint's columns. Dump `CMAPV x y
   w h` (cell A, viewport px). Test: `panel-scale-charmap.sh` - with a "nothing
   spilled onto the panel beside it" region check.
+- **Layers (P8).** A unit = a viewport px at Auto. `LAYER_PANEL_render` used to
+  `_DEST SCRN.GUI&` and blit thumbnails / icons `_PUTIMAGE ..., SCRN.GUI&`; now
+  the current destination (`oldDest&`). The leaf hit tests (`handle_click`,
+  `opacity_drag`, `wheel`, `vis_swipe`, `drag`, `scroll_drag`,
+  `get_row_slot`, the context menu) map the pointer; `LAYER_PANEL_in_bounds%`
+  is the footprint. Code outside the panel that used its x2 / bottom in
+  viewport px (POINTER.BM `WF_track`, PICKER-LOUPE, MOUSE.BM's loupe guard)
+  goes through `LAYER_PANEL_view_x2%` / `LAYER_PANEL_view_bot%`. The tooltip's
+  layer rows map with `PSURF_my%`. Dumps `LPHIT slot` (row under the pointer),
+  `LPGEO header row btnbar` (viewport px). Test: `panel-scale-layers.sh`.
 - **Grep a panel's render path for `SCRN.GUI&` by name** before putting it on
   a surface: `_DEST SCRN.GUI&`, `_PUTIMAGE ..., SCRN.GUI&`, `_FONT f, SCRN.GUI&`.

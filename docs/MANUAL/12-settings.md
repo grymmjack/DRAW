@@ -89,7 +89,7 @@ Anything you can theme — UI palette, transform-overlay frame, smart-guide colo
 
 - **Display Scale** — 1× through 8×. Suits HiDPI monitors.
 - **Toolbar Scale** — 1× through 4×. Independent of display scale, so you can have small toolbar icons on a HiDPI display.
-- **Panel Scale** — the Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Swatches, Preview and Browser panels, and the docked Toolbox, Organizer, Drawer, Edit Bar, Advanced Bar and Character Map, each have their own size: **Auto** (the default) follows the UI Scale, or fix one at 1× through 8× — that many screen pixels for each of the panel's pixels, so 1× is as small and sharp as your screen draws. Right-click the panel's title bar (a docked panel's handle) → **Scale**, or Settings → Panels → Panel Scale.
+- **Panel Scale** — the Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Swatches, Preview and Browser panels, and the docked Toolbox, Organizer, Drawer, Layers, Edit Bar, Advanced Bar and Character Map, each have their own size: **Auto** (the default) follows the UI Scale, or fix one at 1× through 8× — that many screen pixels for each of the panel's pixels, so 1× is as small and sharp as your screen draws. Right-click the panel's title bar (a docked panel's handle) → **Scale**, or Settings → Panels → Panel Scale.
 
 <div class="page-break"></div>
 
