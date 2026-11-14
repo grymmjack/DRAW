@@ -20,6 +20,7 @@ CONST LAYER_BTN_SIZE = 12
 ' Layer blend mode constants
 CONST BLEND_PASS_THROUGH             = -1  ' Group-only: children composite AS if no group exists
 CONST BLEND_PASS_THROUGH_POPUP_VALUE = 100 ' Popup menu sentinel (avoids -1 collision with POPUP_MENU_hit_value%)
+CONST LAYER_THUMB_POPUP_BASE = 200 ' Thumbnail menu values: +0..+3 LAYER_THUMBNAILS (off / tiny / small / medium), +10..+11 LAYER_THUMB_FIT (content / canvas)
 CONST BLEND_NORMAL                   = 0
 CONST BLEND_MULTIPLY                 = 1
 CONST BLEND_SCREEN                   = 2
@@ -160,6 +161,7 @@ TYPE LAYER_PANEL_OBJ
     ctxMenuW         AS INTEGER             ' Popup width in pixels
     ctxMenuHover     AS INTEGER             ' Currently hovered row (-1 = none)
     ctxMenuItems     AS INTEGER             ' Number of items in current menu
+    ctxMenuThumb     AS INTEGER             ' TRUE: the menu is the thumbnail menu (right-click on a layer's thumbnail: its size / what it shows)
     ' Opacity drag anchor
     opacityDragRowY  AS INTEGER             ' Rendered Y (drawY%) of row top when vertical opacity drag started
     ' Stored panel bounds (set each render, used for hit-testing next frame)

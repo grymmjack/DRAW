@@ -3841,6 +3841,12 @@ FUNCTION LAYER_PANEL_handle_click% (inX AS INTEGER, inY AS INTEGER, button AS IN
                         ' Switch current layer without clearing multi-select
                         CURRENT_LAYER% = layerIdx%
                     END IF
+                    ' On the layer's thumbnail: the thumbnail menu (its size, what it shows)
+                    DIM ctxThumb AS INTEGER, ctxThumbY AS INTEGER
+                    ctxThumb = LAYER_THUMB_PX%
+                    ctxThumbY = clickY% - rowY% - (LAYER_ROW_H% - ctxThumb) \ 2
+                    LAYER_PANEL.ctxMenuThumb% = ctxThumb > 0 _ANDALSO LAYERS(layerIdx%).layerType% <> LAYER_TYPE_GROUP _ANDALSO _
+                        localX% >= 23 _ANDALSO localX% <= 24 + ctxThumb _ANDALSO ctxThumbY >= -1 _ANDALSO ctxThumbY <= ctxThumb
                     LAYER_PANEL_ctx_menu_show layerIdx%, inX, inY ' (the menu opens in the viewport, at the pointer)
                     GUI_NEEDS_REDRAW% = TRUE
                     FRAME_IDLE%       = FALSE
@@ -6607,6 +6613,18 @@ SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
     IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& = 0 THEN EXIT SUB
 
+    IF LAYER_PANEL.ctxMenuThumb% THEN ' right-click on a thumbnail: its size and what it shows
+        POPUP_MENU_set_item itemCount%, "TINY", "16 PX", LAYER_THUMB_POPUP_BASE + 1, _IIF(CFG.LAYER_THUMBNAILS% = 1, POPUP_MENU_FLAG_CHECKED, 0): itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "SMALL", "32 PX", LAYER_THUMB_POPUP_BASE + 2, _IIF(CFG.LAYER_THUMBNAILS% = 2, POPUP_MENU_FLAG_CHECKED, 0): itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "MEDIUM", "48 PX", LAYER_THUMB_POPUP_BASE + 3, _IIF(CFG.LAYER_THUMBNAILS% = 3, POPUP_MENU_FLAG_CHECKED, 0): itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER: itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "SHOW CONTENT", "", LAYER_THUMB_POPUP_BASE + 10, _IIF(CFG.LAYER_THUMB_FIT% = 0, POPUP_MENU_FLAG_CHECKED, 0): itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "SHOW CANVAS", "", LAYER_THUMB_POPUP_BASE + 11, _IIF(CFG.LAYER_THUMB_FIT% = 1, POPUP_MENU_FLAG_CHECKED, 0): itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER: itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "HIDE THUMBNAILS", "", LAYER_THUMB_POPUP_BASE, 0: itemCount% = itemCount% + 1
+        EXIT SUB
+    END IF
+
     isGroup%     = (LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP)
     isTextLayer% = (LAYERS(layerIdx%).layerType% = LAYER_TYPE_TEXT)
     inGroup%     = (LAYERS(layerIdx%).parentGroupIdx% > 0)
@@ -6775,6 +6793,14 @@ SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
         POPUP_MENU_set_item itemCount%, "SELECT PARENT", "", 736, 0
         itemCount% = itemCount% + 1
     END IF
+
+    ' Thumbnails off: a way back (on, right-click a thumbnail for its menu)
+    IF CFG.LAYER_THUMBNAILS% = 0 THEN
+        POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+        itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "SHOW THUMBNAILS", "", LAYER_THUMB_POPUP_BASE + 2, 0
+        itemCount% = itemCount% + 1
+    END IF
 END SUB
 
 
@@ -6818,6 +6844,7 @@ SUB LAYER_PANEL_ctx_menu_close ()
     LAYER_PANEL.ctxMenuOpen%  = FALSE
     LAYER_PANEL.ctxMenuLayer% = 0
     LAYER_PANEL.ctxMenuHover% = -1
+    LAYER_PANEL.ctxMenuThumb% = FALSE
     GUI_NEEDS_REDRAW%         = TRUE
     FRAME_IDLE%               = FALSE
 END SUB
@@ -6846,7 +6873,9 @@ SUB LAYER_PANEL_ctx_menu_render ()
     ELSE
         currentMode% = BLEND_NORMAL
     END IF
-    IF ctxIsGroup% THEN
+    IF LAYER_PANEL.ctxMenuThumb% THEN
+        checkedRow% = -1 ' (the thumbnail menu checks its own rows)
+    ELSEIF ctxIsGroup% THEN
         ' Groups: PT(0), div(1), Normal(2), div(3), modes(4+)
         IF LAYERS(ctxLayer%).passThrough% THEN
             checkedRow% = 0                ' Pass Through row
@@ -6862,7 +6891,7 @@ SUB LAYER_PANEL_ctx_menu_render ()
             checkedRow% = currentMode% + 1 ' +1 for divider row after Normal
         END IF
     END IF
-    POPUP_MENU_FLAGS(checkedRow%) = POPUP_MENU_FLAGS(checkedRow%) OR POPUP_MENU_FLAG_CHECKED
+    IF checkedRow% >= 0 THEN POPUP_MENU_FLAGS(checkedRow%) = POPUP_MENU_FLAGS(checkedRow%) OR POPUP_MENU_FLAG_CHECKED
 
     IF MENU_BAR.fontHandle& > 0 THEN
         popupFont& = MENU_BAR.fontHandle&
@@ -6921,6 +6950,29 @@ END SUB
 ' Execute a layer context menu action.
 ' @param actionValue INTEGER Action ID to execute
 '
+''
+' A thumbnail menu row (LAYER_THUMB_POPUP_BASE + n): n 0..3 the thumbnail size
+' (off / tiny / small / medium), 10..11 what it shows (content / canvas).
+' Saved like Settings > Panels > Thumbnails.
+'
+SUB LAYER_PANEL_thumb_pick (popupValue AS INTEGER)
+    DIM n AS INTEGER
+    n = popupValue - LAYER_THUMB_POPUP_BASE
+    LAYER_PANEL_ctx_menu_close
+    SELECT CASE n
+        CASE 0 TO 3: CFG.LAYER_THUMBNAILS% = n
+        CASE 10, 11: CFG.LAYER_THUMB_FIT% = n - 10
+        CASE ELSE: EXIT SUB
+    END SELECT
+    LAYER_THUMB_GEN = LAYER_THUMB_GEN + 1
+    SOUND_play SND_MENU_SELECT
+    CONFIG_save
+    GUI_NEEDS_REDRAW% = TRUE
+    SCENE_DIRTY%      = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+
 SUB LAYER_PANEL_ctx_menu_activate (actionValue AS INTEGER)
     LAYER_PANEL_ctx_menu_close
     IF actionValue% > 0 THEN

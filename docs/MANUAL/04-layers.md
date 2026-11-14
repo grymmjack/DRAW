@@ -51,6 +51,8 @@ Each layer row has three persistent controls:
 - **Thumbnail Shows** — **Content** (the default) zooms in on what's on the layer: the box round its non-transparent pixels, so a small logo on a big canvas is still easy to see. An empty layer shows just the checkerboard. **Canvas** shows the whole canvas, the same framing for every layer.
 - **Min Crop (px)** — for Content, the smallest area a thumbnail shows, in canvas pixels each way (default 16). It caps the zoom, so a single dot stays a dot instead of filling the thumbnail. Set it to 1 for no limit.
 
+**Right-click a thumbnail** for the same choices in place: **Tiny**, **Small** or **Medium** (the current size is checked), **Show Content** or **Show Canvas**, and **Hide Thumbnails**. With thumbnails off, the layer's right-click menu ends with **Show Thumbnails** (Small). A pick is saved like the setting.
+
 In `DRAW.cfg`: `LAYER_THUMBNAILS=OFF|TINY|SMALL|MEDIUM`, `LAYER_THUMBNAIL_FIT=CONTENT|CANVAS`, `LAYER_THUMBNAIL_MIN_CROP=16`.
 
 <div class="page-break"></div>

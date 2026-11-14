@@ -306,7 +306,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `Ctrl+Alt+Shift+V` | Paste Layer as new layer |
 
 ### Layer panel mouse
-`L-Click` select · `Ctrl/Shift+L-Click` add/remove from multi-selection · `R-Click` select+rename · `Shift+R-Click` cycle blend mode · `Alt+L-Click eye` solo · `Click eye` toggle visibility · `Drag across eyes` swipe show/hide · `Click lock` opacity lock · `Click/Drag opacity bar` adjust · `Drag row` reorder · `Wheel` scroll list · `Wheel on opacity bar` adjust · `Esc` cancel drag · `Click triangle` collapse/expand group.
+`L-Click` select · `Ctrl/Shift+L-Click` add/remove from multi-selection · `R-Click` the layer menu · `R-Click thumbnail` thumbnail size (Tiny / Small / Medium / Hide) and what it shows (Content / Canvas) · `Shift+R-Click` cycle blend mode · `Alt+L-Click eye` solo · `Click eye` toggle visibility · `Drag across eyes` swipe show/hide · `Click lock` opacity lock · `Click/Drag opacity bar` adjust · `Drag row` reorder · `Wheel` scroll list · `Wheel on opacity bar` adjust · `Esc` cancel drag · `Click triangle` collapse/expand group.
 
 > 19 blend modes (Shift+R-Click a row to cycle). Groups have their own opacity/blend
 > (Pass-Through default) and can nest. Symbol layers link a parent to children (Layer
