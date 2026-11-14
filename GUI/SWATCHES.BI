@@ -39,7 +39,7 @@ CONST SWP_ACT_REC_CLEAR     = 2609 ' empty the recent colors row
 
 CONST SWP_MIN_W = 64  ' native px
 CONST SWP_MIN_H = 60
-CONST SWP_GRIP  = 7   ' floating resize grip (native px, bottom-right)
+CONST SWP_GRIP  = 7   ' floating resize grip hit area (native px, bottom-right)
 CONST SWP_SBAR_W = 4  ' scroll bar width (native px)
 
 ' menus (SWP.menu)
@@ -149,9 +149,11 @@ TYPE SWATCHES_PANEL_OBJ
     dragStartMY AS INTEGER
     dragStartDX AS INTEGER
     dragStartDY AS INTEGER
-    resizing    AS INTEGER ' corner grip (floating)
+    resizing    AS INTEGER ' an edge / corner (floating)
+    rsEdge      AS INTEGER ' SWP_edge_at%: 3 E, 4 SE, 5 S, 6 SW, 7 W
     rsStartW    AS INTEGER
     rsStartH    AS INTEGER
+    rsStartR    AS INTEGER ' the right edge (viewport px) a W / SW drag keeps still
     sbDrag      AS INTEGER ' scroll bar thumb drag
     sbGrabY     AS INTEGER
     sbStartScroll AS LONG

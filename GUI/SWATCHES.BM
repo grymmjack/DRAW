@@ -158,6 +158,40 @@ END FUNCTION
 
 ''
 ' Does the panel take the mouse this frame (a drag, a menu, or over it)?
+''
+' The resize zone at (lx, ly) - viewport px from the panel's top-left - when it
+' floats: 3 E, 4 SE, 5 S, 6 SW, 7 W (PREVIEW's compass numbers, so the pointer
+' maps them the same way), 0 = none. No top edge: that is the title bar's drag.
+FUNCTION SWP_edge_zone% (lx AS INTEGER, ly AS INTEGER)
+    IF SWP.docked <> 0 _ORELSE SWP.initialized = 0 THEN EXIT FUNCTION
+    IF lx < 0 _ORELSE ly < 0 _ORELSE lx >= SWP.dispW _ORELSE ly >= SWP.dispH THEN EXIT FUNCTION
+    DIM rs AS SINGLE, t AS INTEGER, nx AS INTEGER, ny AS INTEGER
+    DIM lz AS INTEGER, rz AS INTEGER, bz AS INTEGER
+    rs = SWP.renderScale: IF rs <= 0 THEN rs = 1
+    nx = INT(lx / rs): ny = INT(ly / rs)
+    IF ny < FPANEL.titleH% THEN EXIT FUNCTION
+    ' the grip's own area stays the SE corner
+    IF nx >= SWP.panelW - SWP_GRIP - 2 _ANDALSO ny >= SWP.panelH - SWP_GRIP - 2 THEN SWP_edge_zone% = 4: EXIT FUNCTION
+    t = _MAX(2, CINT(2 * rs))
+    lz = (lx < t): rz = (lx >= SWP.dispW - t): bz = (ly >= SWP.dispH - t)
+    IF (bz _ANDALSO lx < 2 * t) _ORELSE (lz _ANDALSO ly >= SWP.dispH - 2 * t) THEN SWP_edge_zone% = 6: EXIT FUNCTION
+    IF (bz _ANDALSO lx >= SWP.dispW - 2 * t) _ORELSE (rz _ANDALSO ly >= SWP.dispH - 2 * t) THEN SWP_edge_zone% = 4: EXIT FUNCTION
+    IF lz THEN SWP_edge_zone% = 7: EXIT FUNCTION
+    IF rz THEN SWP_edge_zone% = 3: EXIT FUNCTION
+    IF bz THEN SWP_edge_zone% = 5
+END FUNCTION
+
+
+''
+' POINTER_build: the edge being dragged, else the one under (rawX, rawY); 0 = none.
+FUNCTION SWP_resize_edge% (rawX AS INTEGER, rawY AS INTEGER)
+    IF SWP.visible = 0 _ORELSE SWP.autoHidden _ORELSE SWP.initialized = 0 THEN EXIT FUNCTION
+    IF SWP.resizing THEN SWP_resize_edge% = SWP.rsEdge: EXIT FUNCTION
+    IF CFG.LAYOUT_LOCKED% _ORELSE SWP.menu <> SWP_MENU_NONE _ORELSE SWP.dragging THEN EXIT FUNCTION
+    SWP_resize_edge% = SWP_edge_zone%(rawX - SWP.dispX, rawY - SWP.dispY)
+END FUNCTION
+
+
 FUNCTION SWP_owns_mouse% (rawX AS INTEGER, rawY AS INTEGER)
     IF SWP.swallow THEN
         IF MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 _ANDALSO MOUSE.B3% = 0 THEN SWP.swallow = FALSE ELSE SWP_owns_mouse% = TRUE: EXIT FUNCTION
@@ -717,12 +751,12 @@ SUB SWP_render ()
     LOOP
     FPANEL_text 4, SWP.statY + 2, st, THEME.CP_text_dim~&
 
-    ' floating: the resize grip
+    ' floating: the resize grip - the three dots every floating window has
+    ' (DOCK_render_float_frame, the Preview), not a hatched triangle (Rick, 2026-11-14)
     IF SWP.docked = 0 THEN
-        DIM k AS INTEGER
-        FOR k = 2 TO SWP_GRIP - 1 STEP 2
-            LINE (SWP.panelW - 2 - k, SWP.panelH - 2)-(SWP.panelW - 2, SWP.panelH - 2 - k), THEME.CP_text_dim~&
-        NEXT k
+        PSET (SWP.panelW - 3, SWP.panelH - 3), THEME.CP_text_dim~&
+        PSET (SWP.panelW - 5, SWP.panelH - 3), THEME.CP_text_dim~&
+        PSET (SWP.panelW - 3, SWP.panelH - 5), THEME.CP_text_dim~&
     END IF
 
     FPANEL_frame SWP.panelW, SWP.panelH
@@ -1316,17 +1350,30 @@ SUB SWP_mouse_input ()
         EXIT SUB
     END IF
 
-    ' corner grip (floating): its own size, native px
+    ' an edge or corner (floating): its own size, native px. W / SW move the
+    ' left side and keep the right one still; S is height only, E / W width only.
     IF SWP.resizing THEN
         IF MOUSE.B1% THEN
-            DIM nw AS INTEGER, nh AS INTEGER
-            nw = SWP.rsStartW + INT((MOUSE.RAW_X% - SWP.dragStartMX) / rs)
-            nh = SWP.rsStartH + INT((MOUSE.RAW_Y% - SWP.dragStartMY) / rs)
+            DIM nw AS INTEGER, nh AS INTEGER, dxn AS INTEGER, dyn AS INTEGER
+            dxn = INT((MOUSE.RAW_X% - SWP.dragStartMX) / rs)
+            dyn = INT((MOUSE.RAW_Y% - SWP.dragStartMY) / rs)
+            nw = SWP.rsStartW: nh = SWP.rsStartH
+            SELECT CASE SWP.rsEdge
+                CASE 3: nw = nw + dxn
+                CASE 4: nw = nw + dxn: nh = nh + dyn
+                CASE 5: nh = nh + dyn
+                CASE 6: nw = nw - dxn: nh = nh + dyn
+                CASE 7: nw = nw - dxn
+            END SELECT
             nw = _MAX(SWP_MIN_W, _MIN(nw, 2000)): nh = _MAX(SWP_MIN_H, _MIN(nh, 2000))
             IF nw <> CFG.SWATCHES_W% _ORELSE nh <> CFG.SWATCHES_H% THEN
                 CFG.SWATCHES_W% = nw: CFG.SWATCHES_H% = nh
                 SWP_relayout
                 SWP_compute_display_size
+                IF SWP.rsEdge = 6 _ORELSE SWP.rsEdge = 7 THEN
+                    SWP.dispX = SWP.rsStartR - SWP.dispW
+                    CFG.SWATCHES_X% = SWP.dispX
+                END IF
                 SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
             END IF
         ELSE
@@ -1418,12 +1465,14 @@ SUB SWP_mouse_input ()
         EXIT SUB
     END IF
 
-    ' grip
-    IF press1 _ANDALSO SWP.docked = 0 _ANDALSO nx >= SWP.panelW - SWP_GRIP - 2 _ANDALSO ny >= SWP.panelH - SWP_GRIP - 2 THEN
+    ' an edge or the grip (floating)
+    IF press1 _ANDALSO SWP.docked = 0 _ANDALSO SWP_edge_zone%(lx, ly) <> 0 THEN
         IF LAYOUT_unlocked% THEN
             SWP.resizing = TRUE
+            SWP.rsEdge = SWP_edge_zone%(lx, ly)
             SWP.dragStartMX = MOUSE.RAW_X%: SWP.dragStartMY = MOUSE.RAW_Y%
             SWP.rsStartW = SWP.panelW: SWP.rsStartH = SWP.panelH
+            SWP.rsStartR = SWP.dispX + SWP.dispW
         END IF
         EXIT SUB
     END IF
@@ -2599,6 +2648,8 @@ FUNCTION SWP_dump$ ()
     IF PAL_BG_IS_TRANSPARENT% = 0 THEN bgIdx = SWP_find_color&(PAINT_BG_COLOR~&)
     d = "SWAT" + DOCK_n$(SWS_N) + DOCK_n$(SWS_color_count&) + DOCK_n$(SWP.cols) + DOCK_n$(SWP.cellW) + DOCK_n$(SWP.cellH) + DOCK_n$(SWP.gap)
     d = d + DOCK_n$(SWP.rows) + DOCK_n$(SWP.scrollY) + DOCK_n$(SWP_max_scroll&) + DOCK_n$(fgIdx) + DOCK_n$(bgIdx) + DOCK_n$(SWP.menu) + DOCK_n$(SWP.menuRows) + " " + SWP.setKey + lf
+    ' the window: viewport rect, native size, docked, the edge being dragged
+    d = d + "SWATW" + DOCK_n$(SWP.dispX) + DOCK_n$(SWP.dispY) + DOCK_n$(SWP.dispW) + DOCK_n$(SWP.dispH) + DOCK_n$(SWP.panelW) + DOCK_n$(SWP.panelH) + DOCK_n$(-(SWP.docked <> 0)) + DOCK_n$(_IIF(SWP.resizing <> 0, SWP.rsEdge, 0)) + lf
     ' selection: count, anchor, then up to 64 selected entries
     DIM sn AS LONG
     ' editing: undo steps, redo steps, saves, the set is in My Swatches
