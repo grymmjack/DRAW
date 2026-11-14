@@ -104,3 +104,4 @@
 - [QA screenshots cleared per run](qa-screenshots-cleared-per-run.md) — copy shots before the next run; md-to-pdf hang needs a timeout
 - [New palette commands steal queries](palette-new-commands-steal-queries.md) — subsequence match, first registered wins: register new commands at the end of CMD_init ; mind CMD_MAX_COMMANDS (1024) (2026-11-12)
 - [QA reads the user workspaces folder](qa-user-workspaces-override-builtins.md) — a user animate.workspace replaced the built-in in tests; pin WORKSPACES_DIR in QA-OPTIONS [Linux] (2026-11-12)
+- [Panel surfaces cover canvas overlays](panel-surface-covers-canvas-overlays.md) — a docked panel at a set Scale is blitted after the canvas: re-blit overlays (hover grip) in DOCK_reblit_to_screen0 (2026-11-14)
