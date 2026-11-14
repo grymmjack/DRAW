@@ -2,8 +2,8 @@
 ' DRAW - GUI/WINZ.BI
 ' =============================================================================
 ' One front-to-back order for every floating window: the floating dock panels
-' (toolbox, organizer, drawer, layers, edit bar, advanced bar, charmap - by
-' their DP_ id) and the native windows (Preview, Color Mixer, Advanced Color
+' (toolbox, organizer, drawer, layers, edit bar, advanced bar, charmap,
+' workflow buttons - by their DP_ id) and the native windows (Preview, Color Mixer, Advanced Color
 ' Picker, 3D Color Space, Pen, Browser, Animation - DP_ ids too - and Customize Toolbars,
 ' WZ_TBED). A press on a window brings it to the front, like an OS window;
 ' the window pressed keeps the mouse until the buttons are up.
@@ -25,8 +25,8 @@ $INCLUDEONCE
 OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
-CONST WZ_TBED  = 16 ' Customize Toolbars (no DP_ id: it never docks)
-CONST WZ_COUNT = 16 ' DP_COUNT + 1
+CONST WZ_TBED  = 17 ' Customize Toolbars (no DP_ id: it never docks)
+CONST WZ_COUNT = 17 ' DP_COUNT + 1
 
 DIM SHARED WZ_Z(1 TO WZ_COUNT) AS LONG ' higher = nearer the front
 DIM SHARED WZ_TOP AS LONG               ' the frontmost z handed out so far

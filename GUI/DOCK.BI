@@ -29,15 +29,16 @@ CONST DP_LAYERS    = 4
 CONST DP_EDITBAR   = 5
 CONST DP_ADVBAR    = 6
 CONST DP_CHARMAP   = 7
-CONST DP_PREVIEW   = 8
-CONST DP_MIXER     = 9
-CONST DP_ADVCP     = 10
-CONST DP_CS3D      = 11
-CONST DP_PEN       = 12
-CONST DP_BROWSER   = 13
-CONST DP_ANIM      = 14
-CONST DP_SWATCH    = 15
-CONST DP_COUNT     = 15
+CONST DP_WORKFLOW  = 8  ' the workflow buttons (GUI/WORKFLOW) - the last dock panel
+CONST DP_PREVIEW   = 9  ' the first native window: id < DP_PREVIEW = a dock panel
+CONST DP_MIXER     = 10
+CONST DP_ADVCP     = 11
+CONST DP_CS3D      = 12
+CONST DP_PEN       = 13
+CONST DP_BROWSER   = 14
+CONST DP_ANIM      = 15
+CONST DP_SWATCH    = 16
+CONST DP_COUNT     = 16
 
 ' how a panel's height is decided inside its column
 CONST DP_H_FIXED = 1 ' its own content height (toolbar rows, organizer)
@@ -116,6 +117,7 @@ DIM SHARED DOCK_SLOT(1 TO DOCK_MAX_SLOTS) AS DOCK_SLOT_OBJ
 DIM SHARED DOCK_TAB(1 TO DOCK_MAX_SLOTS, 1 TO DOCK_MAX_TABS) AS INTEGER ' panel ids
 
 DIM SHARED DOCK_READY  AS INTEGER ' the tree has been built (DOCK_build_default)
+DIM SHARED DOCK_ADOPT_SAVE AS INTEGER ' DOCK_adopt_new_panels placed a panel in your own arrangement: DOCK_layout saves it
 DIM SHARED DOCK_PARSE_NOTE AS STRING ' what the last DOCK_parse_col% skipped (unknown / repeated panel names), "" = nothing
 DIM SHARED DOCK_CUSTOM AS INTEGER ' a [DOCK] arrangement is in effect (else the default tree is rebuilt from the dock keys every layout)
 ' DOCK_layout results: the canvas edges and the menu bar's span

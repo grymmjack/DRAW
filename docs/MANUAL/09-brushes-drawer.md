@@ -39,7 +39,7 @@ Full-Screen Preview - and the rest is grouped in flyouts:
 AnimPaint and the soundtrack stay on the top level. Every item is also in the
 command palette (`?`), so you can type its name instead. The **Sprite**, **Animate**
 and **Scene** workspaces ([Chapter 22](22-workspaces-capture.md#workflow-buttons)) set DRAW up for each kind of animation work
-with one click on the workflow buttons at the top of the toolbox.
+with one click on the workflow buttons above the toolbox.
 
 ### AnimBrush - a brush with a picture per frame
 

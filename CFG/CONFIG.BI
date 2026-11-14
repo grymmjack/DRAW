@@ -519,6 +519,7 @@ TYPE DRAW_CONFIG
     EDIT_BAR_SCALE                  AS INTEGER        ' Edit bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
     ADV_BAR_SCALE                   AS INTEGER        ' Advanced bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
     CHARMAP_PANEL_SCALE             AS INTEGER        ' Character map scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    WORKFLOW_PANEL_SCALE            AS INTEGER        ' Workflow buttons scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
     SWATCHES_X                      AS INTEGER        ' Last Swatches panel X (-1 = auto-position)
     SWATCHES_Y                      AS INTEGER        ' Last Swatches panel Y (-1 = auto-position)
     SWATCHES_W                      AS INTEGER        ' Floating size, native px (0 = default)

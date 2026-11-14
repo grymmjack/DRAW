@@ -42,7 +42,7 @@ only remembers *which* workspace you were in, so it reopens there.
 | **`[WS: name]` badge** | At the right end of the status bar; click it to open the switcher |
 | `DRAW --workspace annotate shot.png` | Start in a workspace **for this run only** (not remembered) |
 | `DRAW --workspaces` | List the workspaces (the remembered one is starred) and exit |
-| **Workflow buttons** | The labelled buttons at the top of the toolbox (below) |
+| **Workflow buttons** | The labelled buttons above the toolbox (below) |
 
 **There is always a way back.** Whatever a workspace hides:
 - `Ctrl+Shift+W` and the command palette still work.
@@ -56,20 +56,27 @@ that session. To make them part of the workspace, save the layout (below).
 
 ![Workflow buttons](images/ch22-workflow-buttons.png)
 
-The strip at the top of the toolbox has one button per workspace - by default
-**SPRITE**, **ANIMATE**, **SCENE** and **ANNOTATE**. Click one to switch to that
-workspace; it lights while you are in it. Click the lit one again to go back to
-Default.
+The workflow buttons are a panel of their own, docked above the toolbox at its
+width. It has one button per workspace - by default **SPRITE**, **ANIMATE**,
+**SCENE** and **ANNOTATE**. Click one to switch to that workspace; it lights
+while you are in it. Click the lit one again to go back to Default.
 
-Right-click a button to change the strip:
+Like any panel you can drag it by its handle to another column or edge, float
+it, or give it its own **Scale**. The buttons fill the width they get: as many
+labelled columns as fit, and in a column one button wide each button shows
+only its workspace's first letter. It hides with the toolbox (Tab).
+
+Right-click a button to change the buttons:
 - pick the workspace it opens (every workspace is listed, yours too);
 - **Move Left / Move Right**;
-- **Add a Button** (after this one; it takes the first workspace not already on the strip);
+- **Add a Button** (after this one; it takes the first workspace not already on a button);
 - **Remove This Button**;
-- **Hide Workflow Buttons**. **View → Workflow Buttons** brings the strip back.
+- **Hide Workflow Buttons**. **View → Workflow Buttons** brings them back;
+- **Float** / **Dock Back** and **Scale**, as on the panel's own menu
+  (right-click between the buttons).
 
 The command palette has **Workflow Button 1** to **8** (type `workflow button 2`).
-The strip is the same in every workspace: it is saved
+The buttons are the same in every workspace: they are saved
 in `DRAW.cfg` as `WORKFLOW_BUTTONS=sprite,animate,scene,annotate` (and
 `WORKFLOW_BAR=1` or `0`). A button's label is the workspace's `SHORT=` name, or
 its name when it has none.

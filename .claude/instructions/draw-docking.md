@@ -18,7 +18,7 @@ is always on top; the status bar and color strip are always at the bottom.
 
 ## Model
 
-- **Panel** (`DP_*`, 13): TOOLBOX, ORGANIZER, DRAWER, LAYERS, EDITBAR, ADVBAR, CHARMAP (docked panels) and PREVIEW, MIXER, ADVCP, CS3D, PEN, BROWSER (native floating windows). `DPANEL(id)`: name, title, `hmode` (`DP_H_FIXED` own height / `DP_H_FLEX` shares), `tall` (makes its column full height), `bordered`, `floats` (has its own window), `slot` (0 = not docked), float rect, dock-back memory (`hside/hcol/hslot/halone`), and this frame's rect (`rVis, rx..rh`).
+- **Panel** (`DP_*`, 16): TOOLBOX, ORGANIZER, DRAWER, LAYERS, EDITBAR, ADVBAR, CHARMAP, WORKFLOW (dock panels, ids 1-8) and PREVIEW, MIXER, ADVCP, CS3D, PEN, BROWSER, ANIM, SWATCH (native floating windows, ids 9-16: `id < DP_PREVIEW` = a dock panel, and loops over the windows run `DP_PREVIEW TO DP_COUNT`). A panel added later is missing from older saved trees: `DOCK_adopt_new_panels` (in `DOCK_layout`) places it - see the workflow buttons in `draw-workspaces.md`. `DPANEL(id)`: name, title, `hmode` (`DP_H_FIXED` own height / `DP_H_FLEX` shares), `tall` (makes its column full height), `bordered`, `floats` (has its own window), `slot` (0 = not docked), float rect, dock-back memory (`hside/hcol/hslot/halone`), and this frame's rect (`rVis, rx..rh`).
 - **Column** `DOCK_COL`: `side`, `ord` (1 = outermost), `wpx` (0 = the panels' own width).
 - **Slot** `DOCK_SLOT`: `col`, `ord` (1 = top), `share`, `collapsed`, `ntabs`, `act`. `autoc` = collapsed by the layout this frame (not saved).
 - **Default tree:** while `DOCK_CUSTOM = FALSE`, `DOCK_build_default` rebuilds the tree **every layout** from the old side keys (`TOOLBOX_DOCK_EDGE`, `LAYERS_PANEL_DOCK_EDGE`, edit/adv bar and charmap `dockSide`). Any user arrangement sets `DOCK_CUSTOM` (`DOCK_change_begin`) — otherwise a live drag is undone the next frame.
@@ -181,7 +181,7 @@ pen=640,120,220,300
 
 ## Panel surfaces: a docked panel at its own Scale (GUI/PANEL-SURFACE, 2026-11-14)
 
-The dock panels (toolbox family, layers, edit / advanced bars, charmap) draw
+The dock panels (toolbox family, layers, edit / advanced bars, charmap, workflow buttons) draw
 into the viewport, so one panel px = displayScale screen px. Rick wanted "real
 1x like the floating panels": `CFG.<PANEL>_SCALE` (`EDIT_BAR_SCALE`,
 `ADV_BAR_SCALE`, `TOOLBOX_PANEL_SCALE`, ... 0 = Auto) through the FPANEL scale
@@ -224,7 +224,7 @@ family (`FPANEL_has_scale%` / `_scale_setting%` / `_auto_scale%` /
   coords and pass them down (`TOOLBAR_handle_*`, `ORGANIZER_handle_*`,
   `TOOLTIP_get_hovered_btn/org_idx%`) or at the drawer's leaves
   (`DRAWER_slot_at%`, `_palette_cell_at%`, `_select_palette_color`), the
-  workflow strip through `WF_track` in POINTER.BM. Dumps `ORGW i x y w h`,
+  workflow buttons (their own panel since P12) in `WF_is_over_area%` / `WF_click%`. Dumps `ORGW i x y w h`,
   `DRWB x y w h`, `DRWAT slot` (viewport px). BTN's id is the **button** id,
   VIEW's the **tool** id (marquee button 7 = tool 5). Test:
   `panel-scale-toolbox.sh`.

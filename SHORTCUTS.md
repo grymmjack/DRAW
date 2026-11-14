@@ -1060,17 +1060,20 @@ Hold a **non-modifier** key, then click/press/drag. Easy to miss:
 
 A workspace's `[KEYS]` can remap any of these; menus and the command palette show the active workspace's keys.
 
-### Workflow buttons (top of the toolbox)
+### Workflow buttons (a panel of their own)
 
-A strip of labelled buttons above the tools, one per workspace. Default:
-**SPRITE · ANIMATE · SCENE · ANNOTATE**.
+A panel of labelled buttons, one per workspace - by default docked above the
+toolbox, at its width. Default: **SPRITE · ANIMATE · SCENE · ANNOTATE**. It
+docks, floats and scales like any panel; one button wide, each button shows
+only its workspace's first letter.
 
 | Input | Action |
 |-------|--------|
 | `L-Click` a button | Switch to that workspace (the button lights) |
 | `L-Click` the lit button | Back to Default |
-| `R-Click` a button | Pick its workspace · Add a Button · Move Left / Right · Remove This Button · Hide Workflow Buttons |
-| View → Workflow Buttons | Show / hide the strip |
+| `R-Click` a button | Pick its workspace · Add a Button · Move Left / Right · Remove This Button · Hide Workflow Buttons · Float / Dock Back · Scale |
+| `R-Click` between the buttons (or its handle) | The panel's menu: move to an edge, float, collapse, Scale |
+| View → Workflow Buttons | Show / hide the panel |
 | Command palette: Workflow Button 1–8 | Press button N (actions 2661–2668; 2660 = show / hide) |
 
 The list is global (`WORKFLOW_BUTTONS` in DRAW.cfg, `WORKFLOW_BAR` shows it); a button's label

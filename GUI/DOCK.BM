@@ -53,6 +53,7 @@ FUNCTION DOCK_panel_shown% (id AS INTEGER)
         CASE DP_EDITBAR: DOCK_panel_shown% = (SCRN.showEditBar% <> 0)
         CASE DP_ADVBAR: DOCK_panel_shown% = (SCRN.showAdvBar% <> 0)
         CASE DP_CHARMAP: DOCK_panel_shown% = (SCRN.showCharMap% <> 0)
+        CASE DP_WORKFLOW: DOCK_panel_shown% = (SCRN.showToolbar% <> 0 _ANDALSO WF_on% <> 0) ' (hides with the toolbox, as it did inside it)
         CASE DP_PREVIEW: DOCK_panel_shown% = (PREVIEW.visible% <> 0 _ANDALSO PREVIEW.autoHidden% = 0)
         CASE DP_MIXER: DOCK_panel_shown% = (COLORMIXER.visible% <> 0 _ANDALSO COLORMIXER.autoHidden% = 0 _ANDALSO COLORMIXER.initialized% <> 0)
         CASE DP_ADVCP: DOCK_panel_shown% = (ADVCP.visible% <> 0 _ANDALSO ADVCP.autoHidden% = 0 _ANDALSO ADVCP.initialized% <> 0)
@@ -95,6 +96,9 @@ FUNCTION DOCK_panel_w_units% (id AS INTEGER)
         CASE DP_EDITBAR: DOCK_panel_w_units% = EDITBAR_width%
         CASE DP_ADVBAR: DOCK_panel_w_units% = ADVBAR_width%
         CASE DP_CHARMAP: DOCK_panel_w_units% = CHARMAP_panel_width%
+        CASE DP_WORKFLOW ' one button column (first letters); the toolbox's width in its column
+            DOCK_panel_w_units% = WF_min_w%
+            IF DOCK_with_toolbox%(DP_WORKFLOW) THEN DOCK_panel_w_units% = _MAX(PSURF_u_of%(DP_WORKFLOW, DP_TOOLBOX, TOOLBOX_PANEL_W), WF_min_w%)
         CASE DP_PREVIEW
             ' its floating width (CFG.PREVIEW_W, native px) - never the slot's:
             ' docked it stretches to the column, so its live width would hold
@@ -217,6 +221,7 @@ FUNCTION DOCK_panel_max_w% (id AS INTEGER)
     SELECT CASE id
         CASE DP_ORGANIZER: DOCK_panel_max_w% = PSURF_v%(id, ORGANIZER_max_w%)
         CASE DP_DRAWER: DOCK_panel_max_w% = PSURF_v%(id, DRAWER_max_w%)
+        CASE DP_WORKFLOW: DOCK_panel_max_w% = PSURF_v%(id, WF_max_w%) ' every button in one row
         CASE DP_PREVIEW, DP_BROWSER: DOCK_panel_max_w% = 600
         CASE DP_SWATCH: DOCK_panel_max_w% = 1200 ' a wide band of swatches is fine
         CASE DP_MIXER, DP_ADVCP, DP_CS3D, DP_PEN, DP_ANIM: DOCK_panel_max_w% = FPANEL_nat_w%(id) * 2 ' they stretch (FPANEL_fit)
@@ -231,8 +236,8 @@ END FUNCTION
 ' =============================================================================
 
 ''
-' Each side, outermost first: layers, the toolbox column (toolbox / organizer /
-' drawer), advanced bar, edit bar, character map. Which side each one is on
+' Each side, outermost first: layers, the toolbox column (workflow buttons /
+' toolbox / organizer / drawer), advanced bar, edit bar, character map. Which side each one is on
 ' comes from the existing keys, read live, so every old way of switching sides
 ' (Ctrl+Shift+click a dock edge, workspace *_DOCK keys) keeps working.
 SUB DOCK_build_default ()
@@ -246,12 +251,44 @@ SUB DOCK_build_default ()
     IF CHARMAP.dockSide% = CHARMAP_DOCK_LEFT THEN cmSide = DOCK_LEFT ELSE cmSide = DOCK_RIGHT
     FOR side = DOCK_LEFT TO DOCK_RIGHT
         IF lpSide = side THEN DOCK_add_stack side, _TRIM$(STR$(DP_LAYERS))
-        IF tbSide = side THEN DOCK_add_stack side, _TRIM$(STR$(DP_TOOLBOX)) + "," + _TRIM$(STR$(DP_ORGANIZER)) + "," + _TRIM$(STR$(DP_DRAWER))
+        IF tbSide = side THEN DOCK_add_stack side, _TRIM$(STR$(DP_WORKFLOW)) + "," + _TRIM$(STR$(DP_TOOLBOX)) + "," + _TRIM$(STR$(DP_ORGANIZER)) + "," + _TRIM$(STR$(DP_DRAWER))
         IF abSide = side THEN DOCK_add_stack side, _TRIM$(STR$(DP_ADVBAR))
         IF ebSide = side THEN DOCK_add_stack side, _TRIM$(STR$(DP_EDITBAR))
         IF cmSide = side THEN DOCK_add_stack side, _TRIM$(STR$(DP_CHARMAP))
     NEXT side
     DOCK_READY = TRUE
+END SUB
+
+
+''
+' An arrangement saved before a panel existed (DRAW.cfg [DOCK], a workspace's
+' [DOCK]) has no place for it, and a dock panel with none is never drawn. The
+' workflow buttons (2026-11-14: out of the toolbox into a panel of their own)
+' go where they were - above the toolbox: a slot over it in its column, over
+' its window when it floats, else a column of their own on the left.
+' A tree saved since always has them (docked or floating), so this runs once.
+SUB DOCK_adopt_new_panels ()
+    DIM s AS INTEGER, c AS INTEGER, h AS INTEGER, col AS INTEGER, ord AS INTEGER
+    IF DPANEL(DP_WORKFLOW).slot <> 0 _ORELSE DPANEL(DP_WORKFLOW).fl THEN EXIT SUB
+    s = DPANEL(DP_TOOLBOX).slot
+    IF s > 0 THEN
+        ' (copies: by reference, the toolbox's ord would shift down with it)
+        col = DOCK_SLOT(s).col: ord = DOCK_SLOT(s).ord
+        IF DOCK_SLOT(s).used THEN c = DOCK_move_to_slot%(DP_WORKFLOW, col, ord)
+    END IF
+    IF c = 0 _ANDALSO DPANEL(DP_TOOLBOX).fl THEN
+        DPANEL(DP_WORKFLOW).fl = TRUE
+        DPANEL(DP_WORKFLOW).fx = DPANEL(DP_TOOLBOX).fx: DPANEL(DP_WORKFLOW).fw = DPANEL(DP_TOOLBOX).fw
+        ' its window as DOCK_place_floats sizes it: title, rows, frame
+        h = DOCK_float_title_h%(DP_WORKFLOW) + DOCK_fixed_h%(DP_WORKFLOW, DPANEL(DP_WORKFLOW).fw - 2) + 3
+        DPANEL(DP_WORKFLOW).fy = DPANEL(DP_TOOLBOX).fy - h: DPANEL(DP_WORKFLOW).fh = h
+        c = -1
+    END IF
+    IF c = 0 THEN c = DOCK_move_to_new_col%(DP_WORKFLOW, DOCK_LEFT, DOCK_MAX_COLS + 1)
+    ' your own arrangement (DRAW.cfg) is saved with it at once, so the file
+    ' says what is on screen; a workspace's [DOCK] is left as it is (applying
+    ' a workspace never writes its file) and adopts it again each time
+    IF WS_ACTIVE = 0 _ANDALSO CFG.STOCK_DEFAULT_LAYOUT% = 0 THEN DOCK_ADOPT_SAVE = TRUE
 END SUB
 
 
@@ -313,7 +350,9 @@ END FUNCTION
 ' Old code just set panel id's dock key to side. The default tree follows the
 ' keys by itself; an arranged one moves the panel - its whole column when the
 ' column holds nothing else (the toolbox's counts its organizer and drawer),
-' else just the panel, into a new innermost column. Saved like any move.
+' column holds nothing else (the toolbox's counts its workflow buttons,
+' organizer and drawer), else just the panel, into a new innermost column.
+' Saved like any move.
 SUB DOCK_side_request (id AS INTEGER, side AS INTEGER)
     DIM c AS INTEGER, s AS INTEGER, t AS INTEGER, p AS INTEGER, own AS INTEGER, cur AS INTEGER
     IF WS_stock_default% THEN
@@ -335,7 +374,7 @@ SUB DOCK_side_request (id AS INTEGER, side AS INTEGER)
             FOR t = 1 TO DOCK_SLOT(s).ntabs
                 p = DOCK_TAB(s, t)
                 IF p <> id THEN
-                    IF id <> DP_TOOLBOX _ORELSE (p <> DP_ORGANIZER _ANDALSO p <> DP_DRAWER) THEN own = FALSE
+                    IF id <> DP_TOOLBOX _ORELSE (p <> DP_ORGANIZER _ANDALSO p <> DP_DRAWER _ANDALSO p <> DP_WORKFLOW) THEN own = FALSE
                 END IF
             NEXT t
         END IF
@@ -388,9 +427,11 @@ FUNCTION DOCK_fixed_h_units% (id AS INTEGER, w AS INTEGER)
             tbRows = TOOLBAR_rows_for%(TOOLBAR_cols_fit%(w, DOCK_tb_follows%))
             ' button rows + the bottom border row (the top border row sits just
             ' above - inside the rect too when something is above it, DOCK_tb_inset%)
-            DOCK_fixed_h_units% = tbRows * TB_BTN_H * scl + (tbRows - 1) * TB_BTN_PADDING * scl + 1 + DOCK_tb_inset% + WF_height%(w)
+            DOCK_fixed_h_units% = tbRows * TB_BTN_H * scl + (tbRows - 1) * TB_BTN_PADDING * scl + 1 + DOCK_tb_inset%
         CASE DP_ORGANIZER
             DOCK_fixed_h_units% = ORGANIZER_height_for%(w)
+        CASE DP_WORKFLOW
+            DOCK_fixed_h_units% = WF_height%(w)
         CASE DP_MIXER, DP_ADVCP, DP_CS3D, DP_PEN, DP_ANIM
             DOCK_fixed_h_units% = FPANEL_nat_h%(id) ' natural: spare column height is added in DOCK_stack_column
     END SELECT
@@ -569,13 +610,14 @@ SUB DOCK_apply_rect (id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h 
             PSURF_set_rect id, x, y, w, h
             SCRN.toolboxX% = x
             TB_RECT_X = x
-            ' the workflow buttons (GUI/WORKFLOW) first, the tool buttons below them
             TB_RECT_Y = y + DOCK_tb_inset%
-            TB_RECT_Y = TB_RECT_Y + WF_place%(x, TB_RECT_Y, PSURF(id).uw)
             TB_RECT_W = PSURF(id).uw
             ' the buttons reflow into the width they are given: a floating
             ' toolbox follows its window, a docked one fills a wider slot
             TOOLBAR_fit_width PSURF(id).uw, DOCK_tb_follows%
+        CASE DP_WORKFLOW
+            PSURF_set_rect id, x, y, w, h
+            WF_place x, y, PSURF(id).uw, PSURF(id).uh
         CASE DP_ORGANIZER
             PSURF_set_rect id, x, y, w, h
             ORG_RECT_X = x: ORG_RECT_W = PSURF(id).uw
@@ -737,6 +779,7 @@ END SUB
 SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
     DIM c AS INTEGER, so AS INTEGER, s AS INTEGER, id AS INTEGER, t AS INTEGER, i AS INTEGER
     IF DOCK_CUSTOM = 0 _ORELSE DOCK_READY = 0 THEN DOCK_build_default
+    IF DOCK_CUSTOM THEN DOCK_adopt_new_panels
     FOR i = 1 TO DP_COUNT: DPANEL(i).rVis = FALSE: NEXT i
     DOCK_native_reset_docked
     DOCK_native_init_docked
@@ -794,6 +837,7 @@ SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
     DOCK_place_columns FALSE, barY1, charTop, dockY2
     DOCK_place_band barY1, dockY2
     DOCK_place_floats barY1, dockY2
+    IF DOCK_ADOPT_SAVE THEN DOCK_ADOPT_SAVE = FALSE: CONFIG_save ' (DOCK_adopt_new_panels)
     IF LEN(DOCK_DUMP_PATH) THEN DOCK_dump_write barY1, dockY2
 END SUB
 
@@ -920,6 +964,7 @@ SUB DOCK_float_clamp (id AS INTEGER, barY1 AS INTEGER, dockY2 AS INTEGER)
             scl = ORGANIZER_scale%: IF scl < 1 THEN scl = 1
             minW = PSURF_v%(id, ORG_COL_W * scl + 2) + 2 ' one widget stack
         CASE DP_DRAWER: minW = PSURF_v%(id, DRAWER_min_w%) + 2
+        CASE DP_WORKFLOW: minW = PSURF_v%(id, WF_min_w%) + 2 ' one button column
         CASE DP_LAYERS: minW = PSURF_v%(id, LAYERS_min_width%) + 2 ' not the width it had docked
         CASE ELSE: minW = DOCK_panel_w%(id) + 2
     END SELECT
@@ -1210,7 +1255,7 @@ FUNCTION DOCK_handle_at% (mx AS INTEGER, my AS INTEGER)
     rg = REGION_hit_test%(mx, my)
     SELECT CASE rg
         CASE REGION_GLOBAL, REGION_CANVAS, REGION_TOOLBAR, REGION_ORGANIZER, REGION_DRAWER, _
-             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP
+             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP, REGION_WORKFLOW
         CASE ELSE
             ' over a native window: only its own handle (when it is docked)
             only = DOCK_native_for_region%(rg)
@@ -1452,7 +1497,7 @@ END SUB
 
 SUB DOCK_menu_do (act AS INTEGER)
     DIM id AS INTEGER, c AS INTEGER
-    IF DOCK_UI.menuWf THEN WF_menu_do DOCK_UI.menuWf, act: EXIT SUB
+    IF DOCK_UI.menuWf _ANDALSO act >= WF_MV_ADD THEN WF_menu_do DOCK_UI.menuWf, act: EXIT SUB ' (its Float / Scale rows: the panel's, below)
     id = DOCK_UI.menuPanel
     SELECT CASE act
         CASE DOCK_ACT_LEFT, DOCK_ACT_RIGHT
@@ -2732,6 +2777,7 @@ FUNCTION DOCK_float_content_h% (id AS INTEGER)
     SELECT CASE id
         CASE DP_EDITBAR: h = PSURF_v%(id, EDIT_BAR.contentH% + THEME.EDIT_BAR_ICON_PADDING% + 2)
         CASE DP_ADVBAR: h = PSURF_v%(id, ADV_BAR.contentH% + THEME.EDIT_BAR_ICON_PADDING% + 2)
+        CASE DP_WORKFLOW: DOCK_float_content_h% = DOCK_fixed_h%(id, DPANEL(id).rw): EXIT FUNCTION ' its rows, no more
         CASE ELSE: h = _MIN(260, _MAX(60, DPANEL(id).rh))
     END SELECT
     IF h < 60 THEN h = 60
@@ -2747,7 +2793,7 @@ FUNCTION DOCK_float_edge_at% (mx AS INTEGER, my AS INTEGER, id AS INTEGER)
     IF DOCK_ui_busy% THEN EXIT FUNCTION
     SELECT CASE REGION_hit_test%(mx, my) ' inert under menus, popups and native windows
         CASE REGION_GLOBAL, REGION_CANVAS, REGION_TOOLBAR, REGION_ORGANIZER, REGION_DRAWER, _
-             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP
+             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP, REGION_WORKFLOW
         CASE ELSE: EXIT FUNCTION
     END SELECT
     DIM o(1 TO WZ_COUNT) AS INTEGER, k AS INTEGER
@@ -2866,6 +2912,7 @@ SUB DOCK_render_panel_content (id AS INTEGER)
     SELECT CASE id
         CASE DP_TOOLBOX: IF SCRN.showToolbar% THEN TOOLBAR_render 0, 0, TB_LIVE_COUNT - 1
         CASE DP_ORGANIZER: IF SCRN.showToolbar% THEN ORGANIZER_render
+        CASE DP_WORKFLOW: IF SCRN.showToolbar% THEN WF_render
         CASE DP_DRAWER: IF SCRN.showToolbar% THEN DRAWER_render
         CASE DP_EDITBAR: IF SCRN.showEditBar% THEN EDITBAR_render
         CASE DP_ADVBAR: IF SCRN.showAdvBar% THEN ADVBAR_render
@@ -3011,6 +3058,7 @@ FUNCTION DOCK_panel_region% (id AS INTEGER)
     SELECT CASE id
         CASE DP_TOOLBOX: DOCK_panel_region% = REGION_TOOLBAR
         CASE DP_ORGANIZER: DOCK_panel_region% = REGION_ORGANIZER
+        CASE DP_WORKFLOW: DOCK_panel_region% = REGION_WORKFLOW
         CASE DP_DRAWER: DOCK_panel_region% = REGION_DRAWER
         CASE DP_LAYERS: DOCK_panel_region% = REGION_LAYER_PANEL
         CASE DP_EDITBAR: DOCK_panel_region% = REGION_EDIT_BAR

@@ -12,8 +12,8 @@
 #   - Auto: back to the Auto size, 0 saved
 #
 # Dump: WIN <name> x y w h slot, P <name> (... handle hx hy hw hh),
-# DMENU open panel _ x y w, DMENUR _ value y h checked. Panel ids: preview 8,
-# browser 13 (the P line order).
+# DMENU open panel _ x y w, DMENUR _ value y h checked. Panel ids: preview 9,
+# browser 14 (GUI/DOCK.BI DP_PREVIEW / DP_BROWSER).
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt PREVIEW_VISIBLE=1 BROWSER_VISIBLE=1 TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE
 # =============================================================================
 info "=== Panels: Scale for the Preview and the Browser ==="
@@ -73,7 +73,7 @@ ps_panel() { # NAME PANEL_ID KEY
     fi
 }
 
-ps_panel preview 8 PREVIEW_SCALE
-ps_panel browser 13 BROWSER_SCALE
+ps_panel preview 9 PREVIEW_SCALE
+ps_panel browser 14 BROWSER_SCALE
 assert_no_crash
 info "=== Panels: Scale for the Preview and the Browser: done ==="

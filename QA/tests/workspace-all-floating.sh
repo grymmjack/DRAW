@@ -19,7 +19,7 @@
 # into CURRENT; Save Current Layout As "panel floats"; Default (the stock tree);
 # then PANEL FLOATS again - and once more from a restart-like reload (Default ->
 # Current -> PANEL FLOATS). Dump: WSA <active id>, TREE, P / WIN lines.
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt WORKSPACES_DIR=QA/.ws-all-floating STOCK_DEFAULT_LAYOUT=1 WORKSPACE_SAVE_PROMPT=0 TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE CHARMAP_VISIBLE=1 SWATCHES_VISIBLE=1 SWATCHES_X=180 SWATCHES_Y=330 SWATCHES_W=0 SWATCHES_H=0 SWATCHES_SCALE=0 SWATCHES_SET=QA/fixtures/swatches-ramps.gpl
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt WORKSPACES_DIR=QA/.ws-all-floating STOCK_DEFAULT_LAYOUT=1 WORKSPACE_SAVE_PROMPT=0 WORKFLOW_BAR=1 TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE CHARMAP_VISIBLE=1 SWATCHES_VISIBLE=1 SWATCHES_X=180 SWATCHES_Y=330 SWATCHES_W=0 SWATCHES_H=0 SWATCHES_SCALE=0 SWATCHES_SET=QA/fixtures/swatches-ramps.gpl
 # =============================================================================
 source "$DRAW_ROOT/QA/dock-lib.sh"
 WSD="$DRAW_ROOT/QA/.ws-all-floating"
@@ -59,6 +59,8 @@ dk_move editbar float 250 300; dk_settle
 dk_move advbar float 760 300; dk_settle
 if dk_p organizer && (( P_SLOT > 0 )); then dk_move organizer float 480 330; dk_settle; fi
 if dk_p drawer && (( P_SLOT > 0 )); then dk_move drawer float 560 330; dk_settle; fi
+# the workflow buttons: a panel of their own (on here - a hidden panel stays docked)
+if dk_p workflow && (( P_SLOT > 0 )); then dk_move workflow float 400 420; dk_settle; fi
 # the Swatches window: somewhere else and taller, before the save
 swmove 90 -100; swtaller 40; dk_park; dk_settle; sww
 SAVED_SW="$WX $WY $WW $WH"; info "Swatches at save: $SAVED_SW"

@@ -72,22 +72,43 @@ Full guide: `.claude/instructions/draw-docking.md`.
   against `WF_PARSED`; no dirty flag - CONFIG.BM is included before WORKFLOW). Up to `WF_MAX` = 8.
 - **Labels:** `WS_INFO.short` from `[WORKSPACE] SHORT=` (reset in `WS_list_add`, Default and
   Current), else the title, upper-cased; an id with no workspace shows `?ID` and a click says so.
-- **Geometry:** `DOCK_apply_rect` for the toolbox does `TB_RECT_Y = y + DOCK_tb_inset%` then
-  `+ WF_place%(x, TB_RECT_Y, w)`, so the strip sits on top and every `TB_SLOT_Y` hit test is
-  unchanged. `DOCK_fixed_h%` and `TOOLBAR_reflow` add `WF_height%(w)` (2 buttons per row when
-  `(w-3)\2 >= 24`, button = font height + 4). The toolbar region / `TOOLBAR_is_over_area` reach up
-  to `WF_Y`; `TOOLBAR_handle_click%` / `_right_click` try `WF_click%` / `WF_right_click%` first;
-  `WF_track` (POINTER.BM) keeps the hover.
+- **A dock panel of its own (2026-11-14, P12):** `DP_WORKFLOW` = 8, the last dock panel (the
+  native windows moved up one: `DP_PREVIEW` = 9 ... `DP_SWATCH` = 16, `WZ_TBED` = 17,
+  `PSURF_N` = 8), `REGION_WORKFLOW` = 34, `DP_H_FIXED`, bordered, tall like the organizer.
+  Default tree: first in the toolbox's stack (`workflow | toolbox | organizer | drawer`); it
+  shares the toolbox's top frame row (the toolbox rect starts on the panel's last row).
+  Shown = `SCRN.showToolbar% AND WF_on%` (hides with the toolbox, as the strip did).
+  `DOCK_apply_rect` → `WF_place x, y, uw, uh` (its units, GUI/PANEL-SURFACE); width units =
+  `WF_min_w%` (one square letter button + frame) or the toolbox's width in its column;
+  `WF_max_w%` = every button in one row (`WF_LBL_MAX` 48). `WF_cols%(w)`: labelled columns of
+  at least `WF_LBL_W` 24 units, rows balanced; **one column = first letters** (`WF_shown_label$`).
+  `WF_height%(w)` = rows x (button + 1) + 1. `TOOLBAR_reflow` counts its height / min width
+  while it is in the toolbox's column (`DOCK_with_toolbox%`). Scale: `WORKFLOW_PANEL_SCALE`
+  (Auto = the display scale), Settings > Panels > Panel Scale.
+- **Input:** `WF_is_over_area%(rawX, rawY)` (DOCK_live / WZ_blocked / PSURF footprint) gates
+  everything; MOUSE.BM calls `WF_click%` / `WF_right_click%` in the toolbar/organizer/drawer
+  chain and **EXIT SUBs** after them (a workspace switch relayouts - no later panel may see
+  that press); `WF_track` (POINTER.BM) keeps the hover in viewport px.
+- **Old arrangements:** a custom tree saved before the panel existed has no place for it, and a
+  dock panel that is neither docked nor floating is never drawn. `DOCK_adopt_new_panels`
+  (from `DOCK_layout`, custom trees only) puts it in a slot above the toolbox, over the
+  toolbox's window when that floats, else a column of its own on the left; your own
+  arrangement is then saved at once (`DOCK_ADOPT_SAVE` → `CONFIG_save` at the end of the
+  layout), a workspace's `[DOCK]` is not (it adopts again on each apply).
 - **Click:** `WF_press n` = `WS_action WS_ACT_SLOT0 + k`, or `WS_ACT_LEAVE` when the button is the
   active non-default workspace (lit-again = back to Default, PERSONAS Q1).
-- **Right-click menu** reuses the dock handle menu: `WF_MENU_NEXT = n` then `DOCK_menu_open
-  DP_TOOLBOX`; `DOCK_UI.menuWf` routes `DOCK_menu_build` / `DOCK_menu_do` to `WF_menu_build` /
-  `WF_menu_do`. Values: 4000 + WS_LIST index (set), 3901 add (first unused named workspace, not
-  Default / Current), 3902 remove, 3903 hide, 3904 / 3905 move. Every change → `WF_save_list`
-  (`CONFIG_save`).
-- **Dump:** `WF on n x y w h active` + `WFB i x y w h lit id label` in the dock dump (`WF_dump$`).
+- **Right-click menu** reuses the dock handle menu: `WF_MENU_NEXT = n` (the button; 0 between
+  the buttons = the panel's plain handle menu) then `DOCK_menu_open DP_WORKFLOW`;
+  `DOCK_UI.menuWf` routes `DOCK_menu_build` / `DOCK_menu_do` to `WF_menu_build` / `WF_menu_do`
+  for values >= 3901 - the button menu's Float / Dock Back / Scale rows (`DOCK_ACT_*`) fall
+  through to the dock's own handler. Values: 4000 + WS_LIST index (set), 3901 add (first unused
+  named workspace, not Default / Current), 3902 remove, 3903 hide, 3904 / 3905 move. Every
+  change → `WF_save_list` (`CONFIG_save`).
+- **Dump (viewport px):** `WF on n x y w h active cols laidOut` + `WFB i x y w h lit id label
+  shown` in the dock dump (`WF_dump$`); the panel's `P workflow` / `SLOT` lines as any panel.
 - **QA:** the harness pins `WORKFLOW_BAR=0` (qa-harness `_qa_cfg_overrides`) so existing toolbox
-  coordinates hold; `workflow-buttons.sh` turns it on. Tests of built-in workspaces must pin
+  coordinates hold; `workflow-buttons.sh` and `workflow-panel.sh` (dock / float / one column /
+  Scale / old-tree adoption) turn it on. Tests of built-in workspaces must pin
   `WORKSPACES_DIR` to an empty folder (`/tmp/draw-qa-ws-none`): the harness does not isolate
   XDG_DATA_HOME, and a user workspace with a built-in's id replaces it (memory
   `qa-user-workspaces-override-builtins`).
