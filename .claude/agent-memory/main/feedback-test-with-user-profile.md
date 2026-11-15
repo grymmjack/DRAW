@@ -12,7 +12,7 @@ metadata:
 **How to apply:** for any bug he reports (and before saying "can't reproduce"), also run the relevant tests in user-profile mode (qa-harness DRAW adapter, added 2026-11-06):
 
 ```bash
-cd QA && QA_USER_PROFILE=1 QA_USER_SCREEN=1152x712@3 QA_XVFB_RES=3840x2160 ./draw-qa.sh tests/<file>.sh
+cd QA && QA_USER_PROFILE=1 QA_USER_SCREEN=1152x712@3 QA_XVFB_RES=3840x2400 ./draw-qa.sh tests/<file>.sh
 ```
 
 - `QA_USER_PROFILE=1`: the cfg is a copy of `~/.config/DRAW/DRAW.cfg` (only UI_SCALE=0 / scale / screen / sound / FPS pinned) and every launch gets FRESH scratch copies of `~/.config/DRAW` and `~/.local/share/DRAW` as XDG_CONFIG_HOME / XDG_DATA_HOME - his workspaces / bindings / drawer sets are used, his real files are never written. Check: `stat` his `current.workspace` / `DRAW.cfg` mtimes before and after.
