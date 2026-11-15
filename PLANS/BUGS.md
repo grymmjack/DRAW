@@ -75,25 +75,25 @@
 
 ## CROP TOOL
 
-- [ ] I dislike how it selects the entire canvas automatically. It should instead let the user drag a rect to crop.
+- [x] I dislike how it selects the entire canvas automatically. It should instead let the user drag a rect to crop.
   - This is a strange behavior and one that I would like to fix to not work like this.
   - REPRODUCE: Click Crop tool, observe it selects the entire artwork.
 
-- [ ] IMAGE -> Crop can act like it is now, selecting the whole image, but it needs to zoom out automatically to make sure the image boundaries/edges are visible (otherwise the selection won't be obvious)
+- [x] IMAGE -> Crop can act like it is now, selecting the whole image, but it needs to zoom out automatically to make sure the image boundaries/edges are visible (otherwise the selection won't be obvious)
 
-- [ ] Add feature: Double click on crop tool to trim image to boundaries of visible layers
+- [x] Add feature: Double click on crop tool to trim image to boundaries of visible layers
   - This is a feature that would be a nice fast workflow and would make sense to make instant.
   - Add to tooltip: DCLICK to trim image to artwork boundaries
 
-- [ ] Clicking away from selection during crop creates a 1x1 crop rect. I dislike this and would prefer it to clear the rectangle. 
+- [x] Clicking away from selection during crop creates a 1x1 crop rect. I dislike this and would prefer it to clear the rectangle. 
 
-- [ ] When I have a crop rectangle present and use the keyboard to nudge it, the highlighted part and shadowed parts do not update until I move the mouse.
+- [x] When I have a crop rectangle present and use the keyboard to nudge it, the highlighted part and shadowed parts do not update until I move the mouse.
   - REPRODUCE: Create a crop selection. Use arrows to move it. Observe that the highlighted and shadowed parts do not redraw.
 
 
 ## RECTANGULAR MARQUEE TOOL 
 
-- [ ] Clicking away from selection while selection is present creates a 1x1 selection. I dislike this and would prefer it to clear the selection. 
+- [x] Clicking away from selection while selection is present creates a 1x1 selection. I dislike this and would prefer it to clear the selection. 
   - REPRODUCE: Click rect marquee tool, select something. Click in the apron without dragging. Observe 1x1 selection created.
 
 

@@ -475,7 +475,7 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 - **Last-effect shortcuts:** `Ctrl+F` re-apply last effect · `Ctrl+Alt+F` recall last effect (re-open its dialog) · `Ctrl+Shift+F` blend/fade last effect (blend modes + isolate-to-new-layer).
 - **CRT effect:** `Ctrl+Alt+O` toggle · View → CRT Effect Settings…
 - **Anti-Aliasing** (experimental, off by default): Edit → Anti-Aliasing toggle (status shows **AA**); Edit Bar Edge-Mode button (L-Click toggle, R-Click switch Pixel-Perfect ⟷ AA). Config `ANTIALIAS`.
-- **Crop tool:** `Click+Drag` region · handles resize (drag outward past an edge to *grow* the canvas) · `Arrows` nudge · `Ctrl+Arrows` resize · `Enter` apply · `Esc` cancel.
+- **Crop tool:** starts with no box: `Click+Drag` region · `Click` away clears the box · handles resize (drag outward past an edge to *grow* the canvas) · `Arrows` nudge · `Ctrl+Arrows` resize · `Enter` apply · `Esc` cancel · `Double-click` the Crop button trims the canvas to the artwork (visible layers) · **Image > Crop** boxes the whole image, zooming out first so its edges show · every crop undoes with `Ctrl+Z`.
 
 ---
 

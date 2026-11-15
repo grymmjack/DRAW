@@ -931,7 +931,8 @@ DO
     END IF
     IF CROP.STATE = CROP_STATE_ACTIVE THEN
         FRAME_IDLE% = FALSE
-        IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Crop overlay only changes on mouse movement
+        IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Crop overlay changes on mouse movement
+        IF CROP_box_moved% THEN SCENE_CHANGED% = TRUE             ' ... and when the arrow keys nudge the box
     END IF
     IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE  ' Overlay only — scene cache + SkipToPointer handles rendering; no scene rebuild needed
     IF SELECTION_has_active% AND MARQUEE.SHOW_OVERLAY% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change. Skip when overlay hidden via Ctrl+H.
