@@ -117,3 +117,33 @@ Inside the `ZORDER_FLOATING` band, every floating window has its own z:
 - **QA:** the dump has `WZ <cap> <name...>` front to back.
   Tests: `gui-float-zorder.sh`, and `dock-float-drawer-fit.sh` (a floating drawer
   is capped to `DRAWER_max_w%` / `DRAWER_content_h%` — no blank area).
+
+## The popup registry (GUI/POPUP-MENU, 2026-11-15)
+
+Every menu / popup that opens over the screen has ONE id, `POPUP_K_*` in
+`GUI/POPUP-MENU.BI` (the id order is the z order), and ONE `CASE` in each of
+`POPUP_k_open%`, `POPUP_k_stage%`, `POPUP_k_render`, `POPUP_k_name$`. Nothing
+else may list popups by hand - ask the registry:
+
+| Question | Function | Used by |
+|---|---|---|
+| a press is the menu's | `POPUP_any_open%` | `WZ_mouse_frame` raise, `DOCK_ui_busy%` (dock edges inert), `POINTER_build` (plain arrow), `PICKER_LOUPE_should_suppress%`, the reblit, the QA dump |
+| take a full render path | `POPUP_blocks_partial%` | the 3 cursor-only paths of `SCREEN_render` (status-only `so_can_partial`, dirty-rect skip, `can_partial_present`) - they copy cached pixels around the pointer and leave black boxes on a popup |
+| hold tooltips off | `POPUP_tips_blocked%` | `TOOLTIP_render` (all popups but the subtool flyout, which is held open with B1 and shows its buttons' tooltips) |
+| draw them | `POPUP_render_top` / `POPUP_render_gui` | both full render paths; `RENDER_gui_elements` + the GUI-only path |
+
+Stages: `POPUP_STAGE_GUI` (into `SCRN.GUI&` after the menu bar: palette menu,
+subtool flyout; the menu bar draws its dropdowns itself), `POPUP_STAGE_TOP` (on
+`SCRN.CANVAS&` after the GUI re-composite, scroll bars and status hints), and
+`POPUP_STAGE_OWN` (drawn by its panel on its own window: Swatches). After the
+windows are drawn, `POPUP_reblit_to_screen0` copies every open popup back over
+them (context popups note their boxes as `POPUP_MENU_render` draws them).
+
+**Adding a popup:** the CONST (bump `POPUP_K_COUNT`) + its four CASEs. Its Esc
+close still goes in the popup block of `KEYBOARD_input_handler` (or its own
+mouse handler, like `PSM_mouse%`).
+
+Why: the lists drifted - the color strip's size menu was in 2 of 9 (covered by
+the strip, black boxes, tooltips through it), the lightbox menu was drawn
+before the GUI re-composite, and the dock edges / pointer / loupe lists each
+missed several. QA: `popup-registry.sh` (dump `POPK <names> [partial] [tips]`).

@@ -53,7 +53,7 @@ am_fly() { # PARENT_ROW_OFFSET FLY_ROW_OFFSET LABEL [SHOT] - open ANIM, hover a 
     read -r _ _ fx fy _ _ <<< "$(grep -m1 '^POPUP flyout-gen ' "$AM_DUMP" 2>/dev/null)"
     [[ -z "$fx" ]] && { fail "$3: the flyout did not open"; key Escape; return 1; }
     hover $(( fx + 30 )) $(( fy + $2 )); wait_for 0.3 "row"
-    [[ -n "$4" ]] && screenshot "$4"
+    [[ -n "${4:-}" ]] && screenshot "$4"
     click $(( fx + 30 )) $(( fy + $2 ))
     wait_for 0.5 "$3"
 }

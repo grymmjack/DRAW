@@ -30,7 +30,7 @@ Composited back-to-front onto `SCRN.CANVAS&`, then GPU-scaled to window via `_PU
 17. **Preview window** (`PREVIEW_render`) — before the second GUI composite so menus and overlays stay above it
 18. GUI recomposite + scrollbars + contextual status bars
 19. Picker loupe overlay (`PICKER_LOUPE_render`) when the picker is active
-20. **Final overlay popups** (blend-mode popup, drawer context menu, command palette)
+20. **Final overlay popups** — `POPUP_render_top`: every open top-stage popup of the popup registry, in z order (lightbox menu, layer blend / context menus, drawer menu, color strip size menu, dock handle menu, command palette) + the dock's hover grip. Never list a popup here by hand: see *The popup registry* in `draw-zorder.md`
 21. Cursor overlay → **`SCRN.CURSOR&`** (its own layer, not baked into the scene)
 22. Scale `SCRN.CANVAS&` to window (integer scaling, nearest neighbor)
 23. Floating windows (Preview/Mixer/Browser) blit to screen 0 back to front by `GUI/WINZ`

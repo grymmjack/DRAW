@@ -310,7 +310,7 @@ END SUB
 ' (POPUP_MENU_render) from the boxes noted this frame.
 SUB POPUP_reblit_to_screen0 ()
     DIM ds AS INTEGER, i AS INTEGER, oldDest AS LONG, anyOpen AS INTEGER
-    anyOpen = (POPUP_NOTE_N > 0) _ORELSE MENUBAR_is_open% _ORELSE (CMD_PALETTE.visible <> 0) _ORELSE (PALETTE_MENU_VISIBLE% <> 0) _ORELSE (SUBTOOL_FLYOUT.ACTIVE <> 0)
+    anyOpen = (POPUP_NOTE_N > 0) _ORELSE POPUP_any_open%
     POPUP_SHOWN_N = 0
     IF anyOpen = 0 THEN EXIT SUB
     ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
@@ -351,11 +351,129 @@ SUB POPUP_put (kind AS STRING, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS IN
 END SUB
 
 
+' =============================================================================
+' The popup registry (GUI/POPUP-MENU.BI): one CASE per popup in each of the
+' four POPUP_k_* routines below; the rest is built from them.
+' =============================================================================
+
 ''
-' Is any menu / popup open now (the ones POPUP_reblit_to_screen0 redraws)?
-FUNCTION POPUP_any_open% ()
-    IF MENUBAR_is_open% _ORELSE CMD_PALETTE.visible _ORELSE PALETTE_MENU_VISIBLE% _ORELSE SUBTOOL_FLYOUT.ACTIVE THEN POPUP_any_open% = TRUE: EXIT FUNCTION
-    IF LAYER_PANEL.blendPopupOpen% _ORELSE LAYER_PANEL.ctxMenuOpen% _ORELSE DRAWER.contextMenuOpen% _ORELSE DOCK_UI.menuOpen THEN POPUP_any_open% = TRUE: EXIT FUNCTION
-    IF SWP_menu_busy% THEN POPUP_any_open% = TRUE ' a Swatches menu (a press on it raises no window under it)
-    IF PSM.isOpen THEN POPUP_any_open% = TRUE ' the colour strip's size menu
+' Is popup k open?
+FUNCTION POPUP_k_open% (k AS INTEGER)
+    DIM r AS INTEGER
+    SELECT CASE k
+        CASE POPUP_K_MENUBAR: r = MENUBAR_is_open%
+        CASE POPUP_K_PALETTE_MENU: r = PALETTE_MENU_VISIBLE%
+        CASE POPUP_K_SUBTOOL: r = SUBTOOL_FLYOUT.ACTIVE
+        CASE POPUP_K_LB_MENU: r = ANIM_LB.menuOpen ' (ANIM_LB_menu_render closes it when the lightbox is gone)
+        CASE POPUP_K_LAYER_BLEND: r = LAYER_PANEL.blendPopupOpen%
+        CASE POPUP_K_LAYER_CTX: r = LAYER_PANEL.ctxMenuOpen%
+        CASE POPUP_K_DRAWER_CTX: r = DRAWER.contextMenuOpen%
+        CASE POPUP_K_STRIP_SIZE: r = PSM.isOpen
+        CASE POPUP_K_DOCK_MENU: r = DOCK_UI.menuOpen
+        CASE POPUP_K_CMD_PALETTE: r = CMD_PALETTE.visible
+        CASE POPUP_K_SWATCHES: r = SWP_menu_busy% ' (or the rest of a press that closed one)
+    END SELECT
+    POPUP_k_open% = (r <> 0)
 END FUNCTION
+
+''
+' Where popup k is drawn: POPUP_STAGE_GUI / _TOP / _OWN.
+FUNCTION POPUP_k_stage% (k AS INTEGER)
+    SELECT CASE k
+        CASE POPUP_K_MENUBAR, POPUP_K_PALETTE_MENU, POPUP_K_SUBTOOL: POPUP_k_stage% = POPUP_STAGE_GUI
+        CASE POPUP_K_SWATCHES: POPUP_k_stage% = POPUP_STAGE_OWN
+        CASE ELSE: POPUP_k_stage% = POPUP_STAGE_TOP
+    END SELECT
+END FUNCTION
+
+''
+' Draw open popup k (its stage's destination is current). The menu bar draws
+' its dropdowns with the bar, Swatches on its panel: nothing here for those.
+SUB POPUP_k_render (k AS INTEGER)
+    SELECT CASE k
+        CASE POPUP_K_PALETTE_MENU: PALETTE_MENU_render
+        CASE POPUP_K_SUBTOOL: SUBTOOL_FLYOUT_render
+        CASE POPUP_K_LB_MENU: ANIM_LB_menu_render
+        CASE POPUP_K_LAYER_BLEND: LAYER_PANEL_blend_popup_render
+        CASE POPUP_K_LAYER_CTX: LAYER_PANEL_ctx_menu_render
+        CASE POPUP_K_DRAWER_CTX: DRAWER_context_menu_render
+        CASE POPUP_K_STRIP_SIZE: PSM_render
+        CASE POPUP_K_DOCK_MENU: ' (DOCK_overlay_render: POPUP_render_top calls it every frame)
+        CASE POPUP_K_CMD_PALETTE: CMD_render SCRN.CANVAS&
+    END SELECT
+END SUB
+
+''
+' Popup k's name in the QA dump (POPK line).
+FUNCTION POPUP_k_name$ (k AS INTEGER)
+    SELECT CASE k
+        CASE POPUP_K_MENUBAR: POPUP_k_name$ = "menubar"
+        CASE POPUP_K_PALETTE_MENU: POPUP_k_name$ = "palettemenu"
+        CASE POPUP_K_SUBTOOL: POPUP_k_name$ = "subtool"
+        CASE POPUP_K_LB_MENU: POPUP_k_name$ = "lbmenu"
+        CASE POPUP_K_LAYER_BLEND: POPUP_k_name$ = "layerblend"
+        CASE POPUP_K_LAYER_CTX: POPUP_k_name$ = "layerctx"
+        CASE POPUP_K_DRAWER_CTX: POPUP_k_name$ = "drawerctx"
+        CASE POPUP_K_STRIP_SIZE: POPUP_k_name$ = "stripsize"
+        CASE POPUP_K_DOCK_MENU: POPUP_k_name$ = "dockmenu"
+        CASE POPUP_K_CMD_PALETTE: POPUP_k_name$ = "cmdpalette"
+        CASE POPUP_K_SWATCHES: POPUP_k_name$ = "swatches"
+        CASE ELSE: POPUP_k_name$ = "?"
+    END SELECT
+END FUNCTION
+
+''
+' Is any menu / popup open now? (a press is the menu's, not the window /
+' dock edge / canvas under it)
+FUNCTION POPUP_any_open% ()
+    DIM k AS INTEGER
+    FOR k = 1 TO POPUP_K_COUNT
+        IF POPUP_k_open%(k) THEN POPUP_any_open% = TRUE: EXIT FUNCTION
+    NEXT k
+END FUNCTION
+
+''
+' Must SCREEN_render take a full path this frame? Its cursor-only paths
+' restore cached pixels around the pointer and present only that, which
+' leaves stale boxes on a popup drawn over the screen. (A Swatches menu is
+' on the panel's own window, which every path redraws.)
+FUNCTION POPUP_blocks_partial% ()
+    DIM k AS INTEGER
+    FOR k = 1 TO POPUP_K_COUNT
+        IF POPUP_k_stage%(k) <> POPUP_STAGE_OWN _ANDALSO POPUP_k_open%(k) THEN POPUP_blocks_partial% = TRUE: EXIT FUNCTION
+    NEXT k
+END FUNCTION
+
+''
+' Hold tooltips off? Every open popup does, but the subtool flyout: it stays
+' open only while B1 is held, and its buttons show their tooltips.
+FUNCTION POPUP_tips_blocked% ()
+    DIM k AS INTEGER
+    FOR k = 1 TO POPUP_K_COUNT
+        IF k <> POPUP_K_SUBTOOL _ANDALSO POPUP_k_open%(k) THEN POPUP_tips_blocked% = TRUE: EXIT FUNCTION
+    NEXT k
+END FUNCTION
+
+''
+' SCREEN_render, last thing before the tooltips: every open top-stage popup,
+' in z order, over the GUI, scroll bars and status hints. Also the dock's
+' hover grip (DOCK_overlay_render draws it and the handle menu).
+SUB POPUP_render_top ()
+    DIM k AS INTEGER
+    FOR k = 1 TO POPUP_K_COUNT
+        IF k = POPUP_K_DOCK_MENU THEN
+            DOCK_overlay_render
+        ELSEIF POPUP_k_stage%(k) = POPUP_STAGE_TOP _ANDALSO POPUP_k_open%(k) THEN
+            POPUP_k_render k
+        END IF
+    NEXT k
+END SUB
+
+''
+' RENDER_gui_elements, after the menu bar: the popups drawn into SCRN.GUI&.
+SUB POPUP_render_gui ()
+    DIM k AS INTEGER
+    FOR k = 1 TO POPUP_K_COUNT
+        IF POPUP_k_stage%(k) = POPUP_STAGE_GUI _ANDALSO POPUP_k_open%(k) THEN POPUP_k_render k
+    NEXT k
+END SUB

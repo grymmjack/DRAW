@@ -113,3 +113,38 @@ DIM SHARED POPUP_SHOWN_H(0 TO POPUP_SHOWN_MAX - 1) AS INTEGER
 ' @param hoverRow INTEGER Row index to highlight (-1 for none)
 ' @param fontHandle LONG Font handle to use for text rendering (0 for current font)
 '
+
+' ---------------------------------------------------------------------------
+' The popup registry: every menu / popup DRAW opens over the screen, one id
+' each. A popup is listed ONCE - a CONST here and a CASE in POPUP_k_open%,
+' POPUP_k_stage%, POPUP_k_render and POPUP_k_name$ (GUI/POPUP-MENU.BM) - and
+' everything that has to know about popups asks the registry:
+'   POPUP_any_open%       a press is the menu's (WINZ raise, dock edges,
+'                         pointer shape, picker loupe, QA dump)
+'   POPUP_blocks_partial% the cursor-only redraw paths of SCREEN_render copy
+'                         cached pixels over it (black boxes): off while open
+'   POPUP_tips_blocked%   TOOLTIP_render holds off
+'   POPUP_render_top      the popups over the GUI, scroll bars and status hints
+'                         (both full-render paths of SCREEN_render)
+'   POPUP_render_gui      the ones drawn into SCRN.GUI& after the menu bar
+' POPUP_reblit_to_screen0 then copies every open one back over the windows.
+' (2026-11-15: the hand-kept lists drifted - the color strip's size menu was
+' in 2 of 9, so the strip covered it, the fast paths left black boxes on it
+' and tooltips showed through.)
+' The ids are the z order: a later one draws over an earlier one.
+' ---------------------------------------------------------------------------
+CONST POPUP_K_MENUBAR = 1      ' menu bar dropdown + flyouts + overflow (MENUBAR_render draws them with the bar)
+CONST POPUP_K_PALETTE_MENU = 2 ' the palette menu (over the menu bar)
+CONST POPUP_K_SUBTOOL = 3      ' the subtool flyout (held open with B1: tooltips show over it)
+CONST POPUP_K_LB_MENU = 4      ' the lightbox's loop / X-sheet sound menu (TOOLS/ANIM-LB)
+CONST POPUP_K_LAYER_BLEND = 5  ' the layer blend mode popup
+CONST POPUP_K_LAYER_CTX = 6    ' the layer panel's context menus
+CONST POPUP_K_DRAWER_CTX = 7   ' the Drawer's context menu
+CONST POPUP_K_STRIP_SIZE = 8   ' the color strip's size menu (GUI/PALETTE-STRIP PSM_)
+CONST POPUP_K_DOCK_MENU = 9    ' a dock handle / workflow button menu
+CONST POPUP_K_CMD_PALETTE = 10 ' the command palette
+CONST POPUP_K_SWATCHES = 11    ' a Swatches panel menu (on the panel's own image)
+CONST POPUP_K_COUNT = 11
+CONST POPUP_STAGE_GUI = 1 ' drawn into SCRN.GUI& (composited with the chrome)
+CONST POPUP_STAGE_TOP = 2 ' drawn on SCRN.CANVAS& after the GUI, scroll bars, status hints
+CONST POPUP_STAGE_OWN = 3 ' drawn by its panel on the panel's own window
