@@ -69,6 +69,16 @@ Speed changes and unpausing **rebase** the origin so the current step is kept (`
 palette/range signature) changed — same discipline as the text cursor blink. The strip chips
 cycle too (`PALETTE_STRIP_render` draws `PAL(PCYC_display_index%(i))`).
 
+## Drawing with a cycling color
+
+A pixel drawn in a color that is in a range IS cycled (it belongs to that index). In
+`SAMPLES/COLOR CYCLING/christmas.draw` white is index 66, the first color of the 40-color star
+twinkle range, so a white drawing shows sky most of the time (field kit A1, 2026-11-15). A canvas
+press with a painting tool while cycling runs and the FG in a range flashes "FG cycles: ..." once
+per FG color (`PCYC_fg_hint`, called from `MOUSE_handle_tool_phase`). Dump lines `PCYC` (running,
+ranges, FG index / range / RGB, then `lo-hi:RRGGBB,...`) and `FLASH` (the status flash);
+test `anim-cycling-frames.sh` (Animate workspace: frame 2 shows + cycles, stepping and playing).
+
 ## Undo + Color Ops bookkeeping
 
 - `PALETTE_snapshot$` appends `"CYC1" + PCYC_serialize$`; `PALETTE_restore` parses it **only

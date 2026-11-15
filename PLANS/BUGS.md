@@ -236,3 +236,4 @@
 - [ ] Color cycling should work across every frame and include the animation frames too.
   - It does not right now.
   - REPRODUCE: Open christmas.draw, press SHIFT+TAB to enable cycling, press NUMPAD + to add a frame, on second frame draw something. Make hold for both frame 1 and frame 2 long, press enter to play. Observe drawing not present while cycling enabled in animation.
+  - 2026-11-15 (Claude): cycling DOES run on every frame (QA anim-cycling-frames: a non-cycling color drawn on frame 2 shows stepping and playing; frame 2 cycles). The vanishing drawing: christmas.draw's default FG is white = palette index 66, the FIRST color of the stars' twinkle range 66-105 (white + 39 sky tones), so what is drawn with it cycles like the stars and shows sky most of the time. Added: a status notice when you start drawing with an FG inside a cycle range while cycling runs. Your call in the field kit whether that is enough.
