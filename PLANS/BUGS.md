@@ -99,7 +99,7 @@
 
 ## ALL MARQUEE TOOLS
 
-- [ ] When creating a selection I would like to be able to Hold SPACE like I am able to do for the shape tools to reposition the selection like photoshop.
+- [x] When creating a selection I would like to be able to Hold SPACE like I am able to do for the shape tools to reposition the selection like photoshop.
 
 
 ## MAGIC WAND

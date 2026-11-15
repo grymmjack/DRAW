@@ -261,7 +261,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | — | Freehand / Polygon / Ellipse select (toolbar or command palette) |
 
 ### Marquee mouse
-`L-Drag` create · `Shift+Drag` add (union) · `Alt+Drag` subtract · drag corner/edge handle resize · drag inside move.
+`L-Drag` create · `Shift+Drag` add (union) · `Alt+Drag` subtract · drag corner/edge handle resize · drag inside move · `Click` away (no drag) deselects · hold `Space` while making any selection (rectangle, ellipse, freehand, polygon) to slide it without resizing; let go to carry on.
 
 ### Magic wand mouse
 `L-Click` select contiguous · `Shift+Click` add · `Alt+Click` subtract · `Hold E + Click` flood-erase to transparent · `Hold F + Click` flood-fill FG · `Hold W + Click` select from merged canvas.
@@ -1029,7 +1029,7 @@ Hold a **non-modifier** key, then click/press/drag. Easy to miss:
 | `G` | Arrow | Resize grid width/height independently |
 | `L` | 0–9 | Smart-Shape 3D light intensity preset |
 | `R` | Click | Picker samples the reference image |
-| `Space` | Drag | Pan (any tool); or reposition a Smart Shape while dragging |
+| `Space` | Drag | Pan (any tool); or reposition a shape / Smart Shape / selection while making it |
 
 ---
 
