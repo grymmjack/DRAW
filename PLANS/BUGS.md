@@ -34,16 +34,16 @@
 
 ## MOVE TOOL
 
-- [ ] When holding ALT to make clones of something, a canvas sized rectangular selection is made.
+- [x] When holding ALT to make clones of something, a canvas sized rectangular selection is made.
   - This should not happen. No selection should be made.
   - Also hitting ESCAPE moves the rectangle back to the original art area, with some of the apron selected. Why?
   - REPRODUCE: New file. Pick a custom brush from bin, draw something. Then press move tool button in toolbox, then hold ALT and drag on top of it. Notice it creates the selection
 
-- [ ] Holding SHIFT while using arrows no longer nudges by 10px it scrolls the canvas.
+- [x] Holding SHIFT while using arrows no longer nudges by 10px it scrolls the canvas.
   - I don't understand why this happened, but I don't want it to work this way by default. 
   - REPRODUCE: With move tool selected, hold SHIFT and press any arrow. It moves the canvas, not the art.
 
-- [ ] Using ALT while using the arrows creates a floating copy of what was cloned, after if using move tool on same layer.
+- [x] Using ALT while using the arrows creates a floating copy of what was cloned, after if using move tool on same layer.
   - This should not happen. ALT arrow clones should just stamp as they are, and not make a floating copy.
   - REPRODUCE: Use custom brush, stamp it. Use move tool, hold ALT, press down arrow left arrow 3 times to make a diagonally thick version of it. Now on move tool, drag on the layer - it has a separate strangely floated copy.
 

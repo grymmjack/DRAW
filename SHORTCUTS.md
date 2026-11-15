@@ -177,7 +177,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Hold Z + 1…9` | Zoom preset 100 / 200 / 300 / 400 / 500 / 600 / 700 / 800 / 1600% |
 | `Hold Z + 0` | Zoom 3200% |
 | `Shift+Wheel` | Vertical pan |
-| `Shift+Arrows` (no selection) | Pan viewport |
+| `Shift+Arrows` (no selection, not the Move tool) | Pan viewport |
 | `M-Click + Drag` | Pan canvas |
 | `Space + L-Drag` | Pan canvas |
 | `Dbl M-Click` | Reset zoom & pan |
