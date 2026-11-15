@@ -109,3 +109,4 @@
 - [QA reads the user workspaces folder](qa-user-workspaces-override-builtins.md) — a user animate.workspace replaced the built-in in tests; pin WORKSPACES_DIR in QA-OPTIONS [Linux] (2026-11-12)
 - **[Workspace remembers the WHOLE layout](workspace-remember-whole-layout.md) — every panel presence/dock/size/scale/setting via one full-state compare + save; new panels/settings must join WS_panel_keys$ etc. (2026-11-14)**
 - [Panel surfaces cover canvas overlays](panel-surface-covers-canvas-overlays.md) — a docked panel at a set Scale is blitted after the canvas: re-blit overlays (hover grip) in DOCK_reblit_to_screen0 (2026-11-14)
+- **[QB64 hex CONST sign-extends](qb64-hex-literal-sign-extend.md) — unsuffixed `&H...8000` is INTEGER -32768 → FFFFFFFFFFFF8000 as a 64-bit flag; suffix `&&` (CTX_FILL_ACTIVE broke W over the canvas, 2026-11-15)**

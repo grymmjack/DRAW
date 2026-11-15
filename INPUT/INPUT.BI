@@ -162,7 +162,7 @@ CONST CTX_DRAWING_IN_PROGRESS  = &H0000000000000800
 CONST CTX_CUSTOM_BRUSH_ACTIVE  = &H0000000000001000 ' bit 12 — a custom brush is loaded; Home/End/PgUp/PgDn/`/` transform the brush, not the layer
 CONST CTX_SELECT_TOOL_ACTIVE  = &H0000000000002000 ' bit 13 — a selection tool in hand: the Brush key is held for a pick up, a tap switches on release (AB_hold_pickup)
 CONST CTX_PICKER_ACTIVE      = &H0000000000004000 ' bit 14 — the Picker in hand: R is held to sample the reference, not the Rectangle key
-CONST CTX_FILL_ACTIVE        = &H0000000000008000 ' bit 15 — the Fill tool in hand: W is held for an all-layers fill, a tap switches to the wand on release (FILL_hold_w)
+CONST CTX_FILL_ACTIVE        = &H0000000000008000&& ' bit 15 (&&: unsuffixed, &H8000 is the INTEGER -32768 and sign-extends over bits 15-63) — the Fill tool in hand: W is held for an all-layers fill, a tap switches to the wand on release (FILL_hold_w)
 ' bits 16-19 reserved
 
 ' Held-key chord initiators (set by INPUT_update_context from raw key state)

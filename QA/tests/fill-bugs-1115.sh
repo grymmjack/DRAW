@@ -89,6 +89,13 @@ dk_park; dk_settle; tool
 white_at 200 100 && pass "hold G + click filled (all-layers fill)" || fail "hold G + click did not fill"
 (( V_TOOL == 2 )) && pass "the Fill tool stays after G held + click" || fail "the tool changed to $V_TOOL after G + click"
 
+# -- W from another tool still picks the wand on its press (CTX_FILL_ACTIVE must
+#    not forbid W everywhere: an unsuffixed &H8000 constant sign-extended over every
+#    context bit from 15 up, over the canvas included) --
+key b; wait_for 0.3 "brush"; key w; wait_for 0.4 "W from the brush"; dk_settle; tool
+(( V_TOOL == 5 )) && pass "W from the Brush picks the Magic Wand" || fail "W from the Brush left tool $V_TOOL (want 5)"
+key f; wait_for 0.3 "back to fill"
+
 # -- W tapped alone: the Magic Wand --
 key w; wait_for 0.5 "tap W"; dk_settle; tool
 (( V_TOOL == 5 )) && pass "a W tap with the Fill tool picks the Magic Wand (tool $V_TOOL)" || fail "a W tap left tool $V_TOOL (want the wand, 5)"
