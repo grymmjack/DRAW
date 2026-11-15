@@ -144,7 +144,7 @@
 
 ## ERASER
 
-- [ ] HOLD SHIFT is not erasing on all layers
+- [x] HOLD SHIFT is not erasing on all layers
 
 
 ## DOT TOOL
