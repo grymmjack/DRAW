@@ -191,13 +191,10 @@ SUB ZOOM_adjust_offset (oldZoom!, newZoom!, screenX%, screenY%)
 END SUB
 
 ''
-' Zoom to fit a screen region (drag-to-zoom)
-' Takes screen coordinates of the drag rectangle
+' The canvas view: the window less the side docks, the menu bar, the bottom
+' bars and the Browser's band - the area a fit or a region zoom centres in.
 '
-SUB ZOOM_fit_canvas ()
-    ' Calculate viewport area accounting for UI panels
-    DIM vpLeft AS INTEGER, vpRight AS INTEGER
-    DIM vpTop  AS INTEGER, vpBottom AS INTEGER
+SUB ZOOM_viewport_rect (vpLeft AS INTEGER, vpTop AS INTEGER, vpRight AS INTEGER, vpBottom AS INTEGER)
     vpLeft%   = SCRN.uiLeftEdge%
     vpRight%  = SCRN.uiRightEdge%
     vpTop%    = MENU_BAR_HEIGHT
@@ -209,44 +206,62 @@ SUB ZOOM_fit_canvas ()
     IF DOCK_BAND_W > 0 THEN
         IF DOCK_BAND_SIDE = DOCK_BAND_TOP THEN vpTop% = DOCK_BAND_Y + DOCK_BAND_HH ELSE vpBottom% = DOCK_BAND_Y - 1
     END IF
-    DIM vpW    AS INTEGER, vpH AS INTEGER
-    vpW% = vpRight% - vpLeft% + 1
-    vpH% = vpBottom% - vpTop% + 1
-    IF vpW% < 32 THEN vpW% = 32
-    IF vpH% < 32 THEN vpH% = 32
+    IF vpRight% - vpLeft% + 1 < 32 THEN vpRight% = vpLeft% + 31
+    IF vpBottom% - vpTop% + 1 < 32 THEN vpBottom% = vpTop% + 31
+END SUB
+
+''
+' Snap a fitting zoom down to the nearest valid level (1x and up: whole
+' steps; under 1x: 50%, 25%, then the small levels), capped at zoomMax.
+'
+FUNCTION ZOOM_snap_fit! (z AS SINGLE)
+    DIM r AS SINGLE
+    IF z < 0.25 THEN
+        r = ZOOM_small_fit!(z) ' big canvas: the largest small level that fits
+    ELSEIF z < 0.5 THEN
+        r = 0.25
+    ELSEIF z < 1.0 THEN
+        r = 0.5
+    ELSE
+        r = INT(z)
+        IF r < 1.0 THEN r = 1.0
+    END IF
+    IF r > SCRN.zoomMax! THEN r = SCRN.zoomMax!
+    ZOOM_snap_fit! = r
+END FUNCTION
+
+''
+' Pan so canvas point (cvX, cvY) sits at the centre of the canvas view. The
+' canvas is drawn at (w - zw) \ 2 + offset + panelShift; panelShift already
+' centres it between the side docks, so the offset must not add that again
+' (BUGS.md 2026-11-15: a fit in DEFAULT 2 sat off-centre, no left margin).
+'
+SUB ZOOM_center_on (cvX AS SINGLE, cvY AS SINGLE)
+    DIM vpL AS INTEGER, vpT AS INTEGER, vpR AS INTEGER, vpB AS INTEGER
+    ZOOM_viewport_rect vpL%, vpT%, vpR%, vpB%
+    DIM zw AS LONG, zh AS LONG
+    zw& = SCRN.canvasW& * SCRN.zoom!
+    zh& = SCRN.canvasH& * SCRN.zoom!
+    SCRN.offsetX% = (vpL% + vpR% + 1) \ 2 - (SCRN.w& - zw&) \ 2 - SCRN.panelShiftX% - CLNG(cvX! * SCRN.zoom!)
+    SCRN.offsetY% = (vpT% + vpB% + 1) \ 2 - (SCRN.h& - zh&) \ 2 - SCRN.panelShiftY% - CLNG(cvY! * SCRN.zoom!)
+END SUB
+
+''
+' Zoom to fit the whole canvas in the view, centred (Hand tool double-click,
+' View > Fit).
+'
+SUB ZOOM_fit_canvas ()
+    DIM vpLeft AS INTEGER, vpRight AS INTEGER
+    DIM vpTop  AS INTEGER, vpBottom AS INTEGER
+    ZOOM_viewport_rect vpLeft%, vpTop%, vpRight%, vpBottom%
 
     ' Calculate zoom level that fits entire canvas within the viewport
     DIM fitZoomW AS SINGLE, fitZoomH AS SINGLE
-    fitZoomW! = vpW% / SCRN.canvasW&
-    fitZoomH! = vpH% / SCRN.canvasH&
+    fitZoomW! = (vpRight% - vpLeft% + 1) / SCRN.canvasW&
+    fitZoomH! = (vpBottom% - vpTop% + 1) / SCRN.canvasH&
+    IF fitZoomW! < fitZoomH! THEN SCRN.zoom! = ZOOM_snap_fit!(fitZoomW!) ELSE SCRN.zoom! = ZOOM_snap_fit!(fitZoomH!)
 
-    DIM newZoom AS SINGLE
-    IF fitZoomW! < fitZoomH! THEN newZoom! = fitZoomW! ELSE newZoom! = fitZoomH!
-
-    ' Snap to nearest valid zoom level
-    IF newZoom! < 0.25 THEN
-        newZoom! = ZOOM_small_fit!(newZoom!) ' big canvas: the largest small level that fits
-    ELSEIF newZoom! < 0.5 THEN
-        newZoom! = 0.25
-    ELSEIF newZoom! < 1.0 THEN
-        newZoom! = 0.5
-    ELSE
-        newZoom! = INT(newZoom!)
-        IF newZoom! < 1.0 THEN newZoom! = 1.0
-    END IF
-    IF newZoom! > SCRN.zoomMax! THEN newZoom! = SCRN.zoomMax!
-
-    SCRN.zoom! = newZoom!
-
-    ' Center canvas in the viewport area (offset from screen center)
-    DIM vpCenterX     AS INTEGER, vpCenterY AS INTEGER
-    DIM screenCenterX AS INTEGER, screenCenterY AS INTEGER
-    vpCenterX%        = (vpLeft% + vpRight%) \ 2
-    vpCenterY%        = (vpTop% + vpBottom%) \ 2
-    screenCenterX%    = SCRN.w& \ 2
-    screenCenterY%    = SCRN.h& \ 2
-    SCRN.offsetX%     = vpCenterX% - screenCenterX%
-    SCRN.offsetY%     = vpCenterY% - screenCenterY% - SCRN.panelShiftY% ' the band's shift is added at draw time
+    ZOOM_center_on SCRN.canvasW& / 2, SCRN.canvasH& / 2
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -271,78 +286,27 @@ SUB ZOOM_to_region (x1%, y1%, x2%, y2%)
     ' Need a minimum drag size (at least 8px)
     IF regionW% < 8 OR regionH% < 8 THEN EXIT SUB
 
-    ' Find the center of the drag region in canvas coords
+    ' The drag region's centre in canvas coords, through the same mapping the
+    ' canvas is drawn with (panelShift included - without it the zoom landed
+    ' off to one side, BUGS.md 2026-11-15)
     DIM oldZoom AS SINGLE
     oldZoom! = SCRN.zoom!
-
-    DIM old_zw AS LONG, old_zh AS LONG
-    old_zw& = SCRN.canvasW& * oldZoom!
-    old_zh& = SCRN.canvasH& * oldZoom!
     DIM old_cx AS LONG, old_cy AS LONG
-    old_cx& = (SCRN.w& - old_zw&) \ 2
-    old_cy& = (SCRN.h& - old_zh&) \ 2
-
-    ' Center of drag region in canvas coords
-    DIM centerScreenX AS INTEGER, centerScreenY AS INTEGER
-    centerScreenX% = (rx1% + rx2%) \ 2
-    centerScreenY% = (ry1% + ry2%) \ 2
-
+    old_cx& = (SCRN.w& - CLNG(SCRN.canvasW& * oldZoom!)) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+    old_cy& = (SCRN.h& - CLNG(SCRN.canvasH& * oldZoom!)) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%
     DIM canvasCX AS SINGLE, canvasCY AS SINGLE
-    canvasCX! = (centerScreenX% - old_cx& - SCRN.offsetX%) / oldZoom!
-    canvasCY! = (centerScreenY% - old_cy& - SCRN.offsetY%) / oldZoom!
+    canvasCX! = ((rx1% + rx2%) / 2 - old_cx&) / oldZoom!
+    canvasCY! = ((ry1% + ry2%) / 2 - old_cy&) / oldZoom!
 
-    ' Calculate zoom to fit the drag region
-    ' The area of canvas visible in drag rect at current zoom
-    DIM canvasRegionW AS SINGLE, canvasRegionH AS SINGLE
-    canvasRegionW! = regionW% / oldZoom!
-    canvasRegionH! = regionH% / oldZoom!
-
-    ' Available screen space (minus toolbar area - approximate)
-    DIM availW AS INTEGER, availH AS INTEGER
-    availW% = SCRN.w&
-    availH% = SCRN.h&
-
-    ' Zoom needed to fit the canvas region into the screen
+    ' Zoom that fits the region's canvas area into the canvas view
+    DIM vpL AS INTEGER, vpT AS INTEGER, vpR AS INTEGER, vpB AS INTEGER
+    ZOOM_viewport_rect vpL%, vpT%, vpR%, vpB%
     DIM zoomW AS SINGLE, zoomH AS SINGLE
-    zoomW! = availW% / canvasRegionW!
-    zoomH! = availH% / canvasRegionH!
+    zoomW! = (vpR% - vpL% + 1) / (regionW% / oldZoom!)
+    zoomH! = (vpB% - vpT% + 1) / (regionH% / oldZoom!)
+    IF zoomW! < zoomH! THEN SCRN.zoom! = ZOOM_snap_fit!(zoomW!) ELSE SCRN.zoom! = ZOOM_snap_fit!(zoomH!)
 
-    ' Use the smaller zoom to fit both dimensions
-    DIM newZoom AS SINGLE
-    newZoom! = zoomW!
-    IF zoomH! < newZoom! THEN newZoom! = zoomH!
-
-    ' Snap to nearest valid zoom level
-    IF newZoom! < 0.25 THEN
-        newZoom! = ZOOM_small_fit!(newZoom!)
-    ELSEIF newZoom! < 0.5 THEN
-        newZoom! = 0.25
-    ELSEIF newZoom! < 1.0 THEN
-        newZoom! = 0.5
-    ELSE
-        newZoom! = INT(newZoom!)
-        IF newZoom! < 1.0 THEN newZoom! = 1.0
-    END IF
-    IF newZoom! > SCRN.zoomMax! THEN newZoom! = SCRN.zoomMax!
-
-    SCRN.zoom! = newZoom!
-
-    ' Center the canvas on the drag region center
-    DIM new_zw AS LONG, new_zh AS LONG
-    new_zw& = SCRN.canvasW& * SCRN.zoom!
-    new_zh& = SCRN.canvasH& * SCRN.zoom!
-    DIM new_cx AS LONG, new_cy AS LONG
-    new_cx& = (SCRN.w& - new_zw&) \ 2
-    new_cy& = (SCRN.h& - new_zh&) \ 2
-
-    ' Center of screen
-    DIM scrCX AS LONG, scrCY AS LONG
-    scrCX& = SCRN.w& \ 2
-    scrCY& = SCRN.h& \ 2
-
-    SCRN.offsetX% = scrCX& - new_cx& - (canvasCX! * SCRN.zoom!)
-    SCRN.offsetY% = scrCY& - new_cy& - (canvasCY! * SCRN.zoom!)
-
+    ZOOM_center_on canvasCX!, canvasCY!
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 

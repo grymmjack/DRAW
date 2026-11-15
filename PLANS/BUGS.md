@@ -58,14 +58,14 @@
 
 ## HAND TOOL
 
-- [ ] Double clicking hand-tool to fit canvas is not centering properly. The right side is centered properly the left shows no padding like the right. 
+- [x] Double clicking hand-tool to fit canvas is not centering properly. The right side is centered properly the left shows no padding like the right. 
   - It should be centered. Both above, below, left and right should have equal padding/distance of the apron
   - REPRODUCE: Using DEFAULT 2 workspace, Double click the hand tool. Observe GUI elements above left side of canvas and no padding to reveal apron.
 
 
 ## ZOOM TOOL
 
-- [ ] Drag rectangular zoom is not positioning the canvas in the center of what was zoomed
+- [x] Drag rectangular zoom is not positioning the canvas in the center of what was zoomed
   - It should position the zoomed content in the center of the window, scroll the canvas to show that in the center
   - It is currently offset to the right side a bit. It is still in view, but not centered, more right justified.
   - REPRODUCE: Use Zoom tool and drag a rectangle around art. Observe not centered.
