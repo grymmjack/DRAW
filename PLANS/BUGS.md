@@ -124,22 +124,22 @@
 - [ ] Operations for H | V | Scale | Rotate, when the art crosses into the apron, destroy the art. 
   - REPRODUCE: Perform the operation on a piece of art near the apron. It destroys the part that overlaps the apron. We fixed this before, Why is it back?
 
-- [ ] Hovering over a button used to show it as an option to select with a sound, it doesn't any more.
+- [x] Hovering over a button used to show it as an option to select with a sound, it doesn't any more.
   - If the option is not DISABLED out right (in which case it should be dimmed out) it should be obvious to the user that it's state isn't enabled but CAN be.
 
 
 ## ADVANCED BAR
 
-- [ ] REF ON button is always lit, it should only light if it's on, and dim when off.
+- [x] REF ON button is always lit, it should only light if it's on, and dim when off.
   - REPRODUCE: Load a reference, turn it off by clicking REF ON in bar, observe still bright
 
-- [ ] REF ADJUST button - should allow CTRL+ALT+SHIFT+WHEEL to adjust reference opacity
+- [x] REF ADJUST button - should allow CTRL+ALT+SHIFT+WHEEL to adjust reference opacity
   - Same for IMAGE -> REPOSITION REFERENCE
 
-- [ ] Hovering over a button used to show it as an option to select with a sound, it doesn't any more.
+- [x] Hovering over a button used to show it as an option to select with a sound, it doesn't any more.
   - If the option is not DISABLED out right (in which case it should be dimmed out) it should be obvious to the user that it's state isn't enabled but CAN be.
 
-- [ ] Angle snap button cannot be turned off - it's always on
+- [x] Angle snap button cannot be turned off - it's always on
 
 
 ## ERASER
@@ -194,13 +194,13 @@
 
 ## COLOR MIXER PANEL
 
-- [ ] The MORE disclosure is showing some of the stuff under it
+- [x] The MORE disclosure is showing some of the stuff under it
   - It shouldn't show anything under it. Add some vertical padding above/below it.
 
 
 ## ADVANCED COLOR MIXER PANEL
 
-- [ ] The variations ... text is too close to the bottom when collpased.
+- [x] The variations ... text is too close to the bottom when collpased.
   - It shouldn't be so tight to the bottom edge of the panel. Add some vertical padding above/below it.
 
 

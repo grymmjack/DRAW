@@ -28,6 +28,11 @@ click $(( VX + 20 )) $(( VY + VH / 2 )); dk_park; dk_settle; acpv; win
 [[ "$VOPEN" == 0 ]] && pass "a click folds VARIATIONS" || fail "after a click open=$VOPEN"
 (( W_H < H0 - 20 )) && pass "the panel got shorter ($H0 -> $W_H)" || fail "the panel height $H0 -> $W_H"
 screenshot "advcp-variations-folded"
+# folded, the row keeps a margin under its text (BUGS.md 2026-11-15: "too close to
+# the bottom"): the 3 px above the panel's frame (the slot's last px) are plain
+snap_region $(( VX + 2 )) $(( VY + VH - 4 )) $(( VW - 4 )) 3 "advcp-variations-under"
+NUC=$(magick "$SNAP_RESULT" -unique-colors -format '%w' info: 2>/dev/null)
+[[ "$NUC" == 1 ]] && pass "folded: a margin under VARIATIONS" || fail "folded: $NUC colors in the last 3 px of the VARIATIONS row"
 
 # the Quantize slider stays and still works
 acpq

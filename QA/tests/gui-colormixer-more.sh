@@ -24,6 +24,11 @@ click $(( MX + 20 )) $(( MY + MH / 2 )); dk_park; dk_settle; cmxm
 [[ "$MOPEN" == 0 ]] && pass "a click folds MORE" || fail "after a click open=$MOPEN"
 (( MPH < H0 - 20 )) && pass "the panel got shorter ($H0 -> $MPH)" || fail "the panel height $H0 -> $MPH"
 screenshot "colormixer-more-folded"
+# folded, nothing of the rows below shows under MORE (BUGS.md 2026-11-15: the top
+# of the first slider peeked out under the row): the strip under it is one color
+snap_region $(( MX + 2 )) $(( MY + MH )) $(( MW - 4 )) 2 "colormixer-more-under"
+NUC=$(magick "$SNAP_RESULT" -unique-colors -format '%w' info: 2>/dev/null)
+[[ "$NUC" == 1 ]] && pass "folded: plain background under MORE" || fail "folded: $NUC colors under the MORE row (a slider shows?)"
 
 # folded: the hue bar's top (red) + the field's top-right corner still pick
 cmix
