@@ -118,7 +118,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 
 | Keys | Action |
 |------|--------|
-| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo (`Ctrl+Shift+Z` also redoes) |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo (`Ctrl+Shift+Z` also redoes); hold to keep stepping through the history |
 | `Ctrl+C` | Copy selection |
 | `Ctrl+Shift+C` | Copy merged (all visible layers) |
 | `Ctrl+X` | Cut selection (copy + clear with BG) |
@@ -237,7 +237,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `→` / `←` | +/− column divider | +/− spoke | +/− radial spoke |
 | `↓` / `↑` | +/− row divider | +/− concentric ring | — |
 
-*(Rect up to 32/axis; Ellipse up to 16 spokes/rings; Line up to 16 spokes. Counts reset each drag.)*
+*(Rect up to 32/axis; Ellipse up to 16 spokes/rings; Line up to 16 spokes. Counts reset each drag. Hold an arrow to repeat it - every shape's arrow modifiers, Smart Shapes too.)*
 
 ### Angle snapping
 `Ctrl+Shift` (hold while dragging/clicking) snaps to angle increments **and** bypasses grid snap. Increment set by `ANGLE_SNAP_DEGREES` in `DRAW.cfg` (default 45° → 8 directions; also 30/15/90°). Applies to Line, Polygon, Polygon-Filled, and Brush/Dot `Shift`+R-Click connecting lines.

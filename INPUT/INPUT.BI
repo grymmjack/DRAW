@@ -350,6 +350,11 @@ DIM SHARED DETECTED_EVENT_COUNT AS INTEGER
 
 ' Edge-detection state for keys (indexed by binding index)
 DIM SHARED KEY_DOWN_LAST(1 TO INPUT_MAX_BINDS)       AS INTEGER
+' Held-key repeat (INPUT_action_repeats%): when the binding's key went down, and its last repeat
+DIM SHARED KEY_DOWN_T0(1 TO INPUT_MAX_BINDS)         AS DOUBLE
+DIM SHARED KEY_REPEAT_T(1 TO INPUT_MAX_BINDS)        AS DOUBLE
+CONST INPUT_REPEAT_DELAY = 0.45 ' seconds held before a repeating action fires again
+CONST INPUT_REPEAT_EVERY = 0.12 ' then once per this many seconds while held
 
 ' Highest mouse button DRAW samples + can bind. 1=L 2=R 3=M 4=back 5=forward
 ' 6-8=extra. _MOUSEBUTTON(n) on an absent button returns 0, so oversampling is safe.

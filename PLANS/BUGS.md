@@ -15,9 +15,9 @@
 - [x] Symmetry tool - add tooltip text: CTRL+LCLICK to set symmetry center point.
   - These controls should be dynamic mention per bindings / customize controls)
 
-- [ ] UNDO when holding undo/redo, it should go back in history step by step with a delay between steps
+- [x] UNDO when holding undo/redo, it should go back in history step by step with a delay between steps
 
-- [ ] For all SHAPE smart shape operations on rect, circle, ellipse, smart shapes, etc. 
+- [x] For all SHAPE smart shape operations on rect, circle, ellipse, smart shapes, etc. 
     - HOLD the key to modify should repeat the same modification after a delay 
     - For example, creating a rect while still drawing and pressing up or right arrow should add the divisions
     - For polygon number of sides, etc.
