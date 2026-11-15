@@ -381,6 +381,8 @@ A swatch *is* its pixels: changing a swatch recolors every pixel of that color.
 ### Fill Adjustment mode (F8 with custom brush/paint mode)
 `Drag` reposition tile origin · `Wheel` scale uniform · corner handle scale XY · arm handles scale X/Y · rotation handle rotate · `Enter`/L-Click-outside apply · `Esc`/R-Click cancel.
 
+The fill's own **dither** (the gradient editor's per-pixel modes; the gradient itself is not changed): `D` tap → next dither (OFF → Ordered 2×2 / 4×4 / 8×8 / 16×16 → Random → Blue Noise → Clustered Dot → Halftone → Spiral → Interleaved Gradient → OFF) · `D`+`Wheel` → amount ±5% (`Shift` ±1%) · `D`+`Drag` → move the dither pattern · `D`+`Shift`+`1`–`9` → save a fill preset (dither, amount, offset, rotation, scale, origin) · `D`+`1`–`9` → recall it. A gradient fill dithers between its colors; a pattern / brush fill is thinned (amount = how much of it stays). Remembered in DRAW.cfg (`FILL_DITHER`, `FILL_PRESETS`) for the next fill and the next run. While a fill is adjusted, `D` is not the Dot tool and the digits under `D` are not opacity.
+
 ### Smart Guides
 View → Smart Guides (visibility) · Edit → Snap Smart Guides (snap).
 

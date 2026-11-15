@@ -184,12 +184,12 @@
 
 ## FILL ADJUST 
 
-- [ ] ADD press D to cycle through dither modes (same ones as in gradient editor but operate on the fill only)
-- [ ] ADD hold D + MWHEEL to increase/decrease dither amount
-- [ ] ADD hold D + drag to reposition dither pattern
-- [ ] ADD hold D and SHIFT and press 1-9 to save a fill preset
-- [ ] ADD hold D and press 1-9 to recall fill preset
-- [ ] This should remember it's settings, even if not saved to preset
+- [x] ADD press D to cycle through dither modes (same ones as in gradient editor but operate on the fill only)
+- [x] ADD hold D + MWHEEL to increase/decrease dither amount
+- [x] ADD hold D + drag to reposition dither pattern
+- [x] ADD hold D and SHIFT and press 1-9 to save a fill preset
+- [x] ADD hold D and press 1-9 to recall fill preset
+- [x] This should remember it's settings, even if not saved to preset
 
 
 ## COLOR MIXER PANEL

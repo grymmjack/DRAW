@@ -318,6 +318,8 @@ TYPE DRAW_CONFIG
     GRID_SIZE_Y                     AS INTEGER        ' Grid cell height in pixels (0 = use theme)
     GRID_OFFSET_X                   AS INTEGER        ' Grid X origin offset in canvas pixels (can be negative)
     GRID_OFFSET_Y                   AS INTEGER        ' Grid Y origin offset in canvas pixels (can be negative)
+    FILL_DITHER                     AS STRING         ' Fill Adjust's dither: "mode,amount%,offsetX,offsetY" (mode -1 = off)
+    FILL_PRESETS                    AS STRING         ' Fill Adjust presets 1-9 (D+Shift+1-9 / D+1-9), "|" between them
     ' Pixel grid settings
     PIXELGRID_COLOR_FG              AS _UNSIGNED LONG ' Pixel grid line color (hex RGB, 0 = use theme)
     PIXELGRID_OPACITY               AS INTEGER        ' Pixel grid line opacity 0-255 (0 = use theme)
