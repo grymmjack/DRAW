@@ -121,7 +121,7 @@
 
 ## EDIT BAR
 
-- [ ] Operations for H | V | Scale | Rotate, when the art crosses into the apron, destroy the art. 
+- [x] Operations for H | V | Scale | Rotate, when the art crosses into the apron, destroy the art. 
   - REPRODUCE: Perform the operation on a piece of art near the apron. It destroys the part that overlaps the apron. We fixed this before, Why is it back?
 
 - [x] Hovering over a button used to show it as an option to select with a sound, it doesn't any more.
