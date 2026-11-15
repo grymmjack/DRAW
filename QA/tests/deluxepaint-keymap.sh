@@ -21,12 +21,12 @@
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt DEVELOPER_MODE=TRUE TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE
 # =============================================================================
 source "$DRAW_ROOT/QA/dock-lib.sh"
+source "$DRAW_ROOT/QA/keymap-lib.sh"
 LOG="$DRAW_ROOT/inputs.log"
 info "=== Deluxe Paint keymap ==="
 dk_begin
+km_seeded || { assert_no_crash; return 0 2>/dev/null || exit 0; }
 [[ -f "$LOG" ]] || { fail "no inputs.log (DEVELOPER_MODE=TRUE did not take)"; assert_no_crash; return 0 2>/dev/null || exit 0; }
-[[ -n "$QA_CONFIG_DIR" && -f "$QA_CONFIG_DIR/DRAW.bindings" ]] && pass "the test's own config, keymap seeded ($(grep -cvE '^\s*(#|$)' "$QA_CONFIG_DIR/DRAW.bindings") rows)" \
-    || fail "no seeded DRAW.bindings (QA_CONFIG_DIR '$QA_CONFIG_DIR')"
 grep -q '^\[KEYMAP\]' "$LOG" && info "keys taken from DRAW: $(grep -c '^\[KEYMAP\]' "$LOG")"
 
 kmap() { read -r _ KM_FG KM_BG KM_CB KM_BS KM_SEL KM_LOOP KM_N <<< "$(grep -m1 '^KMAP ' "$DK_DUMP")"; }

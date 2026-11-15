@@ -18,10 +18,23 @@ km_want() {
     if [[ "$KM_FIRED " == *" $id "* && -z "$bad" ]]; then pass "$k -> $desc ($id)"
     else fail "$k: want $id ($desc), fired [$KM_FIRED ]${bad:+, not wanted:$bad}"; fi
 }
-# km_begin: the preset was seeded and the log is there
+# km_begin: the preset was seeded and the log is there; 1 = stop the test.
+# Seeding needs the adapter's per-test config folder, which only Linux has (macOS
+# and Windows read their own folders): there the test SKIPS instead of pressing
+# every key against the machine's own keymap (59 failures on the Mac, 2026-11-15).
 km_begin() {
+    km_seeded || return 1
     [[ -f "$KM_LOG" ]] || { fail "no inputs.log (DEVELOPER_MODE=TRUE did not take)"; return 1; }
-    [[ -n "${QA_CONFIG_DIR:-}" && -f "$QA_CONFIG_DIR/DRAW.bindings" ]] \
-        && pass "the test's own config, keymap seeded ($(grep -cvE '^\s*(#|$)' "$QA_CONFIG_DIR/DRAW.bindings") rows)" \
-        || fail "no seeded DRAW.bindings (QA_CONFIG_DIR '${QA_CONFIG_DIR:-}')"
+}
+# km_seeded: pass / skip / fail on the seeded DRAW.bindings; 1 = stop the test
+km_seeded() {
+    if [[ -z "${QA_CONFIG_DIR:-}" ]]; then
+        skip "no per-test config folder on $(uname -s) - a keymap can't be seeded, so nothing here is tested"
+        return 1
+    fi
+    if [[ -f "$QA_CONFIG_DIR/DRAW.bindings" ]]; then
+        pass "the test's own config, keymap seeded ($(grep -cvE '^\s*(#|$)' "$QA_CONFIG_DIR/DRAW.bindings") rows)"
+    else
+        fail "no seeded DRAW.bindings in $QA_CONFIG_DIR (QA-BINDINGS line?)"; return 1
+    fi
 }
