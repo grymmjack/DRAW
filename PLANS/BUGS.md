@@ -115,7 +115,7 @@
 
 ## COLOR PIPETTE PICKER
 
-- [ ] HOLD R selects the rectangle tool, it doesn't select from reference at all.
+- [x] HOLD R selects the rectangle tool, it doesn't select from reference at all.
   - REPRODUCE: Select color pipette, hold r, automatically selects rectangle tool
 
 
