@@ -892,6 +892,13 @@ DO
         FRAME_IDLE% = FALSE
         IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Rubber band preview only changes on mouse movement
     END IF
+    ' Bezier: the rubber band to the pointer and the handle arms are scene
+    ' overlays (SCREEN_render's shape preview) - with no rule here a mouse move
+    ' was a cursor-only frame and they never followed it (BUGS.md 2026-11-15)
+    IF CURRENT_TOOL% = TOOL_BEZIER _ANDALSO BEZIER.STATE <> BEZIER_STATE_IDLE THEN
+        FRAME_IDLE% = FALSE
+        IF mouseMoved% THEN SCENE_CHANGED% = TRUE
+    END IF
     IF CURRENT_TOOL% = TOOL_MARQUEE AND (MARQUEE.POLY_DRAWING OR MARQUEE.FREE_DRAWING OR MARQUEE.ELLIP_DRAGGING) THEN
         FRAME_IDLE% = FALSE
         IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Marquee preview only changes on mouse movement

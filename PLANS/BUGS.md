@@ -166,7 +166,7 @@
 
 ## BEZIER CURVE TOOL
 
-- [ ] Can't see handle or rubber band, and ` doesn't toggle it. 
+- [x] Can't see handle or rubber band, and ` doesn't toggle it. 
   - I can see it if I press ` but as soon as I move the mouse it vanishes
   - REPRODUCE: Draw a curve, note the lack of rubber band visibilty and the handles toggling with ` not working
 
