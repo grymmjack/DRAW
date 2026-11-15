@@ -44,3 +44,26 @@ DIM SHARED PALETTE_STRIP_ALL_FIT%  ' TRUE when every color is on screen: no scro
 DIM SHARED PALETTE_STRIP_FONT&
 
 ' Declarations
+
+' The strip's size menu (Rick 2026-11-14): right-click a blank part of the
+' strip - MAX ROWS / MAX COLUMNS / CHIP HEIGHT / CHIP WIDTH, each a submenu of
+' values (PSM_*, GUI/PALETTE-STRIP.BM). The values are DRAW.cfg's
+' PALETTE_MAX_ROWS / _MAX_CHIPS_PER_ROW / _CHIP_HEIGHT / _CHIP_WIDTH (Settings
+' has them too), kept per workspace like every panel setting.
+TYPE PSM_OBJ
+    isOpen  AS INTEGER
+    rx      AS INTEGER ' the root box (viewport px)
+    ry      AS INTEGER
+    rw      AS INTEGER
+    rHover  AS INTEGER ' root row under the pointer (-1)
+    subRow  AS INTEGER ' the root row whose submenu shows (-1)
+    sbX     AS INTEGER ' the submenu's box
+    sbY     AS INTEGER
+    sbW     AS INTEGER
+    sbN     AS INTEGER
+    sbHover AS INTEGER
+END TYPE
+DIM SHARED PSM AS PSM_OBJ
+CONST PSM_ITEM_H = 12
+CONST PSM_ROOT_N = 4
+PSM.subRow = -1: PSM.rHover = -1: PSM.sbHover = -1

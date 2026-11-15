@@ -328,7 +328,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `Shift+Tab` | Color cycling on/off (Palette → Cycle Colors; `[CYC]` in the status bar) |
 
 ### Palette strip mouse
-`L-Click swatch` set FG · `R-Click swatch` set BG (the FG/BG frames only mark a swatch that *is* the current color) · `Wheel` scroll · `Shift+Wheel` fast scroll (32) · `Click ◄/►` scroll · `Click palette name` switch-palette dropdown · letter keys (in picker) jump to palette.
+`L-Click swatch` set FG · `R-Click swatch` set BG (the FG/BG frames only mark a swatch that *is* the current color) · `R-Click blank strip area` (no color: the empty chip places, the gap left of the chips) → size menu: Max Rows (1–8) / Max Columns (16–256) / Chip Height / Chip Width (4–32), each a submenu - hover a row, click a value; applies at once, kept per workspace (`Esc` / a click elsewhere closes) · `Wheel` scroll · `Shift+Wheel` fast scroll (32) · `Click ◄/►` scroll · `Click palette name` switch-palette dropdown · letter keys (in picker) jump to palette.
 
 ### Status-bar swatches
 `Click FG swatch` / `Click BG swatch` → open color picker.

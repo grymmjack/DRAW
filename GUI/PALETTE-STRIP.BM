@@ -422,6 +422,7 @@ SUB PALETTE_STRIP_handle_click (x AS INTEGER, y AS INTEGER)
     DIM AS INTEGER max_swatches, visible_colors, available_width
     DIM AS INTEGER pal_name_x, swatches_per_row
     DIM AS INTEGER sh, row_height
+    DIM onChip AS INTEGER
     
     sw%         = CFG.PALETTE_CHIP_WIDTH%
     sh%         = CFG.PALETTE_CHIP_HEIGHT%
@@ -521,6 +522,7 @@ SUB PALETTE_STRIP_handle_click (x AS INTEGER, y AS INTEGER)
         pal_idx% = (PALETTE_STRIP_SCROLL_OFFSET% + clicked_idx%) MOD pal_count%
         
         IF pal_idx% >= 0 AND pal_idx% < pal_count% AND clicked_idx% < visible_colors% THEN
+            onChip% = TRUE
             ' Left click = set foreground, Right click = set background
             ' Use explicit check to prevent both from triggering
             IF MOUSE.B1% AND NOT MOUSE.B2% THEN
@@ -544,6 +546,8 @@ SUB PALETTE_STRIP_handle_click (x AS INTEGER, y AS INTEGER)
             END IF
         END IF
     END IF
+    ' a right-click on no color (the empty chip places, the gaps): the size menu
+    IF onChip% = 0 _ANDALSO MOUSE.B2% <> 0 _ANDALSO MOUSE.B1% = 0 THEN PSM_open x%, y%
 END SUB
 
 
@@ -1255,3 +1259,186 @@ FUNCTION PALETTE_MENU_in_bounds% (x AS INTEGER, y AS INTEGER)
     PALETTE_MENU_in_bounds% = (x% >= PALETTE_MENU_X% AND x% < PALETTE_MENU_X% + PALETTE_MENU_W% AND _
                                y% >= PALETTE_MENU_Y% AND y% < PALETTE_MENU_Y% + PALETTE_MENU_H%)
 END FUNCTION
+
+
+' =============================================================================
+' The strip's size menu (PSM): right-click a blank part of the strip.
+'   Max Rows = 4        >   1 .. 8
+'   Max Columns = 128   >   16, 32, 48, 64, 128, 256
+'   Chip Height = 6     >   4 .. 32
+'   Chip Width = 6      >   4 .. 32
+' Hovering a row opens its submenu; a pick applies at once (and is saved: in
+' a workspace, into it - GUI/WORKSPACE-APPLY).
+' =============================================================================
+
+FUNCTION PSM_n$ (v AS INTEGER)
+    PSM_n$ = _TRIM$(STR$(v))
+END FUNCTION
+
+
+SUB PSM_build_root ()
+    POPUP_MENU_clear_items
+    POPUP_MENU_set_item 0, "Max Rows = " + PSM_n$(CFG.PALETTE_MAX_ROWS%), ">", 1, 0
+    POPUP_MENU_set_item 1, "Max Columns = " + PSM_n$(CFG.PALETTE_MAX_CHIPS_PER_ROW%), ">", 2, 0
+    POPUP_MENU_set_item 2, "Chip Height = " + PSM_n$(CFG.PALETTE_CHIP_HEIGHT%), ">", 3, 0
+    POPUP_MENU_set_item 3, "Chip Width = " + PSM_n$(CFG.PALETTE_CHIP_WIDTH%), ">", 4, 0
+END SUB
+
+
+' Fill the popup list with root row r's values; returns how many.
+' Values: 1000 + rows, 2000 + columns, 3000 + chip height, 4000 + chip width.
+FUNCTION PSM_build_sub% (r AS INTEGER)
+    DIM k AS INTEGER, n AS INTEGER, v AS INTEGER, cur AS INTEGER, vBase AS INTEGER
+    POPUP_MENU_clear_items
+    SELECT CASE r
+        CASE 0
+            FOR k = 1 TO 8
+                POPUP_MENU_set_item n, PSM_n$(k), "", 1000 + k, _IIF(CFG.PALETTE_MAX_ROWS% = k, POPUP_MENU_FLAG_CHECKED, 0): n = n + 1
+            NEXT k
+        CASE 1
+            FOR k = 1 TO 6
+                v = VAL(MID$("016032048064128256", k * 3 - 2, 3))
+                POPUP_MENU_set_item n, PSM_n$(v), "", 2000 + v, _IIF(CFG.PALETTE_MAX_CHIPS_PER_ROW% = v, POPUP_MENU_FLAG_CHECKED, 0): n = n + 1
+            NEXT k
+        CASE 2, 3
+            IF r = 2 THEN cur = CFG.PALETTE_CHIP_HEIGHT%: vBase = 3000 ELSE cur = CFG.PALETTE_CHIP_WIDTH%: vBase = 4000
+            FOR k = 4 TO 32
+                POPUP_MENU_set_item n, PSM_n$(k), "", vBase + k, _IIF(cur = k, POPUP_MENU_FLAG_CHECKED, 0): n = n + 1
+            NEXT k
+    END SELECT
+    PSM_build_sub% = n
+END FUNCTION
+
+
+FUNCTION PSM_font& ()
+    IF MENU_BAR.fontHandle& > 0 THEN PSM_font& = MENU_BAR.fontHandle&
+END FUNCTION
+
+
+SUB PSM_open (x AS INTEGER, y AS INTEGER)
+    DIM px AS INTEGER, py AS INTEGER, ph AS INTEGER
+    IF PALETTE_MENU_VISIBLE% THEN PALETTE_MENU_hide
+    PSM_build_root
+    PSM.rw = POPUP_MENU_measure_width%(PSM_ROOT_N, PSM_font&)
+    POPUP_MENU_place x, y, PSM.rw, PSM_ROOT_N, PSM_ITEM_H, px, py, ph
+    PSM.rx = px: PSM.ry = py
+    PSM.rHover = -1: PSM.subRow = -1: PSM.sbHover = -1: PSM.sbN = 0
+    PSM.isOpen = TRUE
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+SUB PSM_close ()
+    PSM.isOpen = FALSE
+    PSM.subRow = -1: PSM.rHover = -1: PSM.sbHover = -1
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    INVALIDATE_scene
+END SUB
+
+
+' Open root row r's submenu beside it (right of the root, or left when there
+' is no room), its top level with the row, pulled up to stay on screen.
+SUB PSM_open_sub (r AS INTEGER)
+    DIM h AS INTEGER
+    PSM.subRow = r
+    PSM.sbN = PSM_build_sub%(r)
+    PSM.sbW = POPUP_MENU_measure_width%(PSM.sbN, PSM_font&)
+    h = POPUP_MENU_total_height%(PSM.sbN, PSM_ITEM_H)
+    PSM.sbX = PSM.rx + PSM.rw - 1
+    IF PSM.sbX + PSM.sbW + 1 > SCRN.w& THEN PSM.sbX = PSM.rx - PSM.sbW + 1
+    IF PSM.sbX < 1 THEN PSM.sbX = 1
+    PSM.sbY = PSM.ry + r * PSM_ITEM_H
+    IF PSM.sbY + h + 1 > SCRN.h& THEN PSM.sbY = SCRN.h& - h - 1
+    IF PSM.sbY < 1 THEN PSM.sbY = 1
+    PSM.sbHover = -1
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+FUNCTION PSM_in_box% (bx AS INTEGER, by AS INTEGER, bw AS INTEGER, n AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    PSM_in_box% = (mx >= bx _ANDALSO mx < bx + bw _ANDALSO my >= by _ANDALSO my < by + POPUP_MENU_total_height%(n, PSM_ITEM_H))
+END FUNCTION
+
+
+''
+' MOUSE_process_frame, first: while the menu is open it has the pointer.
+' Hover a root row = its submenu; a press in the submenu picks; a press on
+' the root keeps it open; a press anywhere else (or Esc) closes it.
+' Returns TRUE (the frame is the menu's).
+FUNCTION PSM_mouse% ()
+    DIM mx AS INTEGER, my AS INTEGER, hv AS INTEGER, v AS INTEGER, pressed AS INTEGER
+    IF PSM.isOpen = 0 THEN EXIT FUNCTION
+    PSM_mouse% = TRUE
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF _KEYDOWN(27) THEN PSM_close: EXIT FUNCTION
+    mx = MOUSE.RAW_X%: my = MOUSE.RAW_Y%
+    pressed = (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0) _ORELSE (MOUSE.B2% <> 0 _ANDALSO MOUSE.OLD_B2% = 0)
+
+    ' the submenu first (it may overlap the root)
+    IF PSM.subRow >= 0 THEN
+        v = PSM_build_sub%(PSM.subRow)
+        IF PSM_in_box%(PSM.sbX, PSM.sbY, PSM.sbW, PSM.sbN, mx, my) THEN
+            hv = POPUP_MENU_hover_row%(PSM.sbX, PSM.sbY, PSM.sbW, PSM.sbN, PSM_ITEM_H, mx, my)
+            IF hv <> PSM.sbHover THEN PSM.sbHover = hv: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+            IF pressed THEN
+                v = POPUP_MENU_hit_value%(PSM.sbX, PSM.sbY, PSM.sbW, PSM.sbN, PSM_ITEM_H, mx, my)
+                IF v >= 1000 THEN PSM_close: PSM_pick v
+            END IF
+            EXIT FUNCTION
+        END IF
+        IF PSM.sbHover <> -1 THEN PSM.sbHover = -1: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    END IF
+
+    PSM_build_root
+    IF PSM_in_box%(PSM.rx, PSM.ry, PSM.rw, PSM_ROOT_N, mx, my) THEN
+        hv = POPUP_MENU_hover_row%(PSM.rx, PSM.ry, PSM.rw, PSM_ROOT_N, PSM_ITEM_H, mx, my)
+        IF hv <> PSM.rHover THEN PSM.rHover = hv: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        IF hv >= 0 _ANDALSO hv <> PSM.subRow THEN PSM_open_sub hv
+        EXIT FUNCTION
+    END IF
+    IF PSM.rHover <> -1 THEN PSM.rHover = -1: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    IF pressed THEN PSM_close
+END FUNCTION
+
+
+SUB PSM_pick (v AS INTEGER)
+    DIM msg AS STRING
+    SELECT CASE v
+        CASE 1001 TO 1008
+            CFG.PALETTE_MAX_ROWS% = v - 1000: msg = "Color strip: at most " + PSM_n$(v - 1000) + " rows"
+        CASE 2001 TO 2999
+            CFG.PALETTE_MAX_CHIPS_PER_ROW% = v - 2000: msg = "Color strip: at most " + PSM_n$(v - 2000) + " colors a row"
+        CASE 3004 TO 3032
+            CFG.PALETTE_CHIP_HEIGHT% = v - 3000: msg = "Color strip: chips " + PSM_n$(v - 3000) + " px tall"
+        CASE 4004 TO 4032
+            CFG.PALETTE_CHIP_WIDTH% = v - 4000: msg = "Color strip: chips " + PSM_n$(v - 4000) + " px wide"
+        CASE ELSE
+            EXIT SUB
+    END SELECT
+    ' the strip's height feeds the whole layout (canvas, docks, the status bar)
+    PALETTE_STRIP_Y% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+    SCREEN_compute_layout
+    CONFIG_save
+    STATUS_flash msg
+    GUI_NEEDS_REDRAW% = TRUE
+    STATUS_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    INVALIDATE_scene
+END SUB
+
+
+''
+' SCREEN_render, after SkipToPointer: the root and its submenu over everything.
+SUB PSM_render ()
+    DIM oldDest AS LONG, n AS INTEGER
+    IF PSM.isOpen = 0 THEN EXIT SUB
+    oldDest = _DEST
+    PSM_build_root
+    POPUP_MENU_render SCRN.CANVAS&, PSM.rx, PSM.ry, PSM.rw, PSM_ROOT_N, PSM_ITEM_H, _IIF(PSM.rHover >= 0, PSM.rHover, PSM.subRow), PSM_font&
+    IF PSM.subRow >= 0 THEN
+        n = PSM_build_sub%(PSM.subRow)
+        POPUP_MENU_render SCRN.CANVAS&, PSM.sbX, PSM.sbY, PSM.sbW, n, PSM_ITEM_H, PSM.sbHover, PSM_font&
+    END IF
+    _DEST oldDest
+END SUB

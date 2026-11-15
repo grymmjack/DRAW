@@ -17,6 +17,7 @@ The palette strip across the bottom of the screen is the fastest way to choose c
 | Set BG to transparent | `Shift+Delete` |
 | Scroll the palette strip | Mouse wheel over strip |
 | Fast-scroll 32 colors at a time | `Shift` + Mouse wheel |
+| Strip size: max rows, max columns, chip height, chip width | Right-click a blank part of the strip (no color) |
 | Temporary FG eyedropper (any tool) | `Alt`+Left-click on canvas |
 | Temporary BG eyedropper (any tool) | `Alt`+Right-click on canvas |
 
