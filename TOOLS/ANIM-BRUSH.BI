@@ -26,6 +26,7 @@ CONST AB_ACT_ORD_REV       = 2572
 CONST AB_ACT_ORD_PING      = 2573
 CONST AB_ACT_ORD_ONCE      = 2574
 CONST AB_ACT_LOAD          = 2575 ' ANIM > AnimBrush > Load... (an animated GIF / APNG, a sheet with frames, a strip)
+CONST AB_ACT_SELECTOR      = 2598 ' Brush Selector (Deluxe Paint b): the next box dragged becomes the brush
 
 ' Brush routines that change the picture itself: AB_each% runs them on every cel
 CONST AB_OP_ROT_CW  = 1
@@ -87,3 +88,6 @@ DIM SHARED AB_QL_CEL AS INTEGER ' the cel the Preview's Quick Look shows (0 = no
 DIM SHARED AB_LD(1 TO AB_MAX_CELS) AS LONG
 CONST AB_LOAD_MAX_PIXELS = 16777216 ' frames x width x height read at most (64 MB)
 DIM SHARED AB_HOLD_STATE AS INTEGER ' QA: the last hold of the Brush key with a selection tool - 1 held, 2 picked up, 3 tapped (AB_hold_pickup)
+DIM SHARED AB_SELECTOR_ON AS INTEGER ' Brush Selector armed: the next selection made is picked up (AB_selector_tick)
+DIM SHARED AB_SELECTOR_SIG AS STRING ' the selection there was when it was armed
+DIM SHARED AB_SELECTOR_PRESSED AS INTEGER ' the mouse went down since

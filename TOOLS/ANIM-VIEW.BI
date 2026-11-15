@@ -44,6 +44,9 @@ CONST ANIM_ACT_PREV  = 2502
 CONST ANIM_ACT_NEXT  = 2503
 CONST ANIM_ACT_LAST  = 2504
 CONST ANIM_ACT_PLAY  = 2506 ' play / stop (Num Enter, Alt+/)
+CONST ANIM_ACT_PLAY_LOOP = 2595 ' play with the loop mode set: looped / once / ping-pong (Deluxe Paint keymap 4 5 6)
+CONST ANIM_ACT_PLAY_ONCE = 2596
+CONST ANIM_ACT_PLAY_PING = 2597
 CONST ANIM_ACT_PREVIEW_FRAME = 2507 ' ANIM > Preview Shows Frame
 ' A numpad key taken as a frame key also arrives as a plain code (INKEY$ "4",
 ' _KEYHIT 52): those twins are dropped (ANIM_numpad_code%).

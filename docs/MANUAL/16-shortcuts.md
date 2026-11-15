@@ -169,6 +169,8 @@ There are also dedicated **Pan Up / Down / Left / Right** actions you can bind t
 **Presets & export**
 
 - **Load preset** applies a full keymap in one click: *Aseprite, Photoshop, GIMP, Krita, Illustrator, Procreate, MS Paint, Pro Motion, DeluxePaint*.
+- **DeluxePaint** gives the keys their DPaint V jobs: `u` undo / `Shift+U` redo, `d` brush, `s` dotted, `v` line, `e`/`c` ellipse, `r` rectangle (capitals = filled), `b` brush selector (drag a box: it becomes the brush), `,` pick colour, `[` `]` / `{` `}` step the FG / BG colour, `.` one-pixel brush, `x`/`y` flip, `z` rotate, `h`/`H` halve / double the brush, `Tab` colour cycling, `F9` / `F10` menu bar / toolbox, and `1` `2` `4` `5` `6` `7` `8` for frames and playback. The header of `ASSETS/PRESETS/deluxepaint.bindings` lists the DPaint keys DRAW has no tool for.
+- **How a preset takes a key:** a key the preset gives an action is taken from whatever DRAW action had it (that one is left unbound - with DeluxePaint, `Ctrl+Z` no longer undoes and `i` no longer picks). Keys the preset doesn't mention keep their DRAW meaning. Menus, tooltips and the command palette show the keys in force.
 - **Export as…** writes your live keymap (including overrides) to **Markdown, HTML, or PDF**.
 - Bindings persist across sessions in `DRAW.bindings`; the CLI flag `--load-preset <name>` applies one at launch.
 

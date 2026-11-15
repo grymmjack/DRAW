@@ -170,6 +170,7 @@ CONST CTX_Z_HELD      = &H0000000000400000
 CONST CTX_E_HELD      = &H0000000000800000
 CONST CTX_F_HELD      = &H0000000001000000
 CONST CTX_W_HELD      = &H0000000002000000
+CONST BINDINGS_CHORD_CTX = CTX_G_HELD OR CTX_M_HELD OR CTX_Z_HELD OR CTX_E_HELD OR CTX_F_HELD OR CTX_W_HELD ' the chord initiators held (CFG/BINDINGS keymap rows)
 CONST CTX_SPACE_HELD  = &H0000000004000000
 CONST CTX_ALT_HELD    = &H0000000008000000
 CONST CTX_SS_DRAGGING = &H0000000010000000          ' SS 3D dice or SS polygon currently dragging — digit keys reserved
@@ -265,6 +266,8 @@ TYPE INPUT_BIND
     defForbidMods  AS INTEGER              ' compiled-in default forbidMods
     defButton      AS INTEGER              ' compiled-in default mouse button (snapshot at registration; for mouse-bind reset)
     defWheelDir    AS INTEGER              ' compiled-in default wheel direction (snapshot; for wheel/tilt-bind reset)
+    defForbidCtx   AS _UNSIGNED _INTEGER64 ' compiled-in forbidCtx (a rebind onto a chord-initiator letter edits forbidCtx; reset restores it)
+    cloned         AS INTEGER              ' TRUE = added by a keymap row (an action's extra key, or a key for an action with none); reset drops it
     label          AS STRING * 48          ' for cheatsheet / audit / inputs.log
 END TYPE
 
@@ -331,6 +334,7 @@ END TYPE
 ' SHARED STATE
 '==============================================================================
 CONST INPUT_MAX_BINDS  = 1024
+CONST BIND_KEY_NONE = -1 ' a keyboard bind with this keycode is unbound: never polled, never matches (keycode 0 = any key)
 CONST INPUT_MAX_EVENTS = 64           ' per-frame event queue cap
 
 DIM SHARED INPUT_BINDS(1 TO INPUT_MAX_BINDS)         AS INPUT_BIND

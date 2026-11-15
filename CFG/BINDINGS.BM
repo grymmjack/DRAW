@@ -67,7 +67,9 @@ END SUB
 FUNCTION BINDINGS_parse_row% (row AS STRING, actionId AS INTEGER, keycode AS LONG, requireMods AS INTEGER, forbidMods AS INTEGER, device AS INTEGER, button AS INTEGER, wheelDir AS INTEGER, eventType AS INTEGER, defWheelDir AS INTEGER)
     DIM parts(1 TO 9) AS STRING, n AS INTEGER, s AS STRING, i AS INTEGER, c AS STRING
     n% = 0            : s$ = ""
-    DIM src AS STRING : src$ = _TRIM$(row$) + " "
+    DIM src AS STRING : src$ = row$
+    IF INSTR(src$, "#") > 1 THEN src$ = LEFT$(src$, INSTR(src$, "#") - 1) ' an inline comment
+    src$ = _TRIM$(src$) + " "
     FOR i% = 1 TO LEN(src$)
         c$ = MID$(src$, i%, 1)
         IF c$ = " " OR c$ = CHR$(9) THEN
@@ -110,19 +112,29 @@ FUNCTION BINDINGS_parse_row% (row AS STRING, actionId AS INTEGER, keycode AS LON
             BINDINGS_parse_row% = (button% <> 0)
         END IF
     ELSE
-        BINDINGS_parse_row% = (keycode& <> 0)
+        ' 0 = unbound: what Customize Controls wrote for a key it took from an
+        ' action before BIND_KEY_NONE (0 in a bind means ANY key, so never keep it)
+        IF keycode& = 0 THEN keycode& = BIND_KEY_NONE
+        BINDINGS_parse_row% = TRUE
     END IF
 END FUNCTION
 
 ''
-' Apply loaded overrides on top of the registered defaults: for each override,
-' re-point the FIRST dispatched keyboard binding of that action to the new
-' trigger, then rebuild the letter skip-list so KEYBOARD_tools defers to the
-' new keycode (and stops deferring the old one).
+' Apply the overrides on top of the registered defaults. Rebuilt from the
+' defaults every call (BINDINGS_restore_live_defaults first), so it can run any
+' number of times - every edit in Customize Controls re-applies the whole table.
+'
+' Keyboard rows: an action's Nth row re-points its Nth dispatched keyboard bind;
+' a row past the binds it has (a second key, or a key for an action with none)
+' ADDS a bind (cloned = TRUE, dropped again by a reset). A row may carry
+' BIND_KEY_NONE: the action is unbound. Then every default bind left on a key a
+' row took is unbound too (the keymap's key wins), so a preset only lists the
+' keys it wants - e.g. U = Undo frees Ctrl+Z, and takes U from nothing.
 '
 SUB BINDINGS_apply ()
+    BINDINGS_restore_live_defaults
     IF BINDING_OVERRIDE_COUNT = 0 THEN EXIT SUB
-    DIM o AS INTEGER, i AS INTEGER
+    DIM o AS INTEGER, i AS INTEGER, j AS INTEGER, o2 AS INTEGER
     FOR o% = 1 TO BINDING_OVERRIDE_COUNT
         IF BINDING_OVERRIDES(o%).active THEN
             IF BINDING_OVERRIDES(o%).device = DEVICE_MOUSE THEN
@@ -153,20 +165,22 @@ SUB BINDINGS_apply ()
                     END IF
                 NEXT i%
             ELSE
-                ' Pass 1: prefer a DISPATCHED keyboard bind — updating it changes the
-                ' live key behavior (the dispatcher reads INPUT_BINDS) AND the CONTROLS
-                ' "current key" column, which both read the registry.
-                DIM kbMatched AS INTEGER : kbMatched = FALSE
+                ' Which of this action's keyboard rows is this one (0 = its first)?
+                DIM nth AS INTEGER : nth% = 0
+                FOR o2% = 1 TO o% - 1
+                    IF BINDING_OVERRIDES(o2%).active _ANDALSO BINDING_OVERRIDES(o2%).device <> DEVICE_MOUSE _
+                       _ANDALSO BINDING_OVERRIDES(o2%).actionId = BINDING_OVERRIDES(o%).actionId THEN nth% = nth% + 1
+                NEXT o2%
+                ' Pass 1: the action's (nth+1)th DISPATCHED keyboard bind — updating it
+                ' changes the live key behavior (the dispatcher reads INPUT_BINDS) AND the
+                ' CONTROLS "current key" column, which both read the registry.
+                DIM tgt AS INTEGER, k AS INTEGER : tgt% = 0 : k% = 0
                 FOR i% = 1 TO INPUT_BIND_COUNT
                     IF INPUT_BINDS(i%).actionId = BINDING_OVERRIDES(o%).actionId _
                        AND INPUT_BINDS(i%).device = DEVICE_KEYBOARD _
                        AND INPUT_BINDS(i%).dispatched THEN
-                        INPUT_BINDS(i%).keycode        = BINDING_OVERRIDES(o%).keycode
-                        INPUT_BINDS(i%).requireMods    = BINDING_OVERRIDES(o%).requireMods
-                        INPUT_BINDS(i%).forbidMods     = BINDING_OVERRIDES(o%).forbidMods
-                        INPUT_BINDS(i%).userOverridden = TRUE
-                        kbMatched                      = TRUE
-                        EXIT FOR ' first match only
+                        IF k% = nth% THEN tgt% = i% : EXIT FOR
+                        k% = k% + 1
                     END IF
                 NEXT i%
                 ' Pass 2: no dispatched bind for this action (still owned by a legacy
@@ -176,24 +190,170 @@ SUB BINDINGS_apply ()
                 ' change behavior until this action is migrated to the dispatcher — the
                 ' skip-list (BINDINGS_rebuild_skiplist) only flags dispatched binds, so a
                 ' non-dispatched keycode here is display-only and cannot fire.
-                IF NOT kbMatched THEN
+                IF tgt% = 0 _ANDALSO k% = 0 _ANDALSO nth% = 0 THEN
                     FOR i% = 1 TO INPUT_BIND_COUNT
                         IF INPUT_BINDS(i%).actionId = BINDING_OVERRIDES(o%).actionId _
                            AND INPUT_BINDS(i%).device      = DEVICE_KEYBOARD THEN
-                            INPUT_BINDS(i%).keycode        = BINDING_OVERRIDES(o%).keycode
-                            INPUT_BINDS(i%).requireMods    = BINDING_OVERRIDES(o%).requireMods
-                            INPUT_BINDS(i%).forbidMods     = BINDING_OVERRIDES(o%).forbidMods
-                            INPUT_BINDS(i%).userOverridden = TRUE
+                            tgt% = i%
                             EXIT FOR ' first match only
                         END IF
                     NEXT i%
                 END IF
+                ' Pass 3: a key the action has no bind for - add one
+                IF tgt% = 0 _ANDALSO BINDING_OVERRIDES(o%).keycode > 0 THEN tgt% = BINDINGS_add_bind%(BINDING_OVERRIDES(o%).actionId)
+                IF tgt% > 0 THEN
+                    INPUT_BINDS(tgt%).keycode        = BINDING_OVERRIDES(o%).keycode
+                    INPUT_BINDS(tgt%).requireMods    = BINDING_OVERRIDES(o%).requireMods
+                    INPUT_BINDS(tgt%).forbidMods     = BINDINGS_forbid_mods%(BINDING_OVERRIDES(o%).keycode, BINDING_OVERRIDES(o%).requireMods, BINDING_OVERRIDES(o%).forbidMods)
+                    INPUT_BINDS(tgt%).forbidCtx      = BINDINGS_chord_forbid~&&(INPUT_BINDS(tgt%).defForbidCtx, BINDING_OVERRIDES(o%).keycode, BINDING_OVERRIDES(o%).requireMods)
+                    INPUT_BINDS(tgt%).userOverridden = TRUE
+                END IF
             END IF
         END IF
     NEXT o%
+    ' The keymap's keys win: a default bind still on a key a row took is unbound
+    FOR i% = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i%).userOverridden _ANDALSO INPUT_BINDS(i%).dispatched _
+           _ANDALSO INPUT_BINDS(i%).device = DEVICE_KEYBOARD _ANDALSO INPUT_BINDS(i%).keycode > 0 THEN
+            FOR j% = 1 TO INPUT_BIND_COUNT
+                IF j% <> i% _ANDALSO INPUT_BINDS(j%).userOverridden = FALSE _ANDALSO INPUT_BINDS(j%).dispatched _
+                   _ANDALSO INPUT_BINDS(j%).device = DEVICE_KEYBOARD _ANDALSO INPUT_BINDS(j%).keycode > 0 _
+                   _ANDALSO INPUT_BINDS(j%).actionId <> INPUT_BINDS(i%).actionId THEN
+                    IF INPUT_BINDS_could_collide%(i%, j%) THEN
+                        IF DEV_MODE% THEN INPUTS_log "[KEYMAP] " + RTRIM$(INPUT_BINDS(i%).label) + " takes the key of " + RTRIM$(INPUT_BINDS(j%).label) + " (action " + _TRIM$(STR$(INPUT_BINDS(j%).actionId)) + " unbound)"
+                        INPUT_BINDS(j%).keycode = BIND_KEY_NONE : INPUT_BINDS(j%).requireMods = 0
+                    END IF
+                END IF
+            NEXT j%
+        END IF
+    NEXT i%
     BINDINGS_rebuild_skiplist
     INPUT_interesting_keys_build ' a rebound key must be watched by the dispatcher
 END SUB
+
+''
+' A bind for an action that has none for this key (BINDINGS_apply pass 3): a copy
+' of the action's first keyboard bind (its contexts), else a plain global one.
+' Returns its index (0 = the table is full).
+'
+FUNCTION BINDINGS_add_bind% (actionId AS INTEGER)
+    DIM i AS INTEGER, src AS INTEGER, n AS INTEGER, lbl AS STRING
+    FOR i% = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i%).actionId = actionId% _ANDALSO INPUT_BINDS(i%).device = DEVICE_KEYBOARD _
+           _ANDALSO INPUT_BINDS(i%).cloned = FALSE THEN src% = i% : EXIT FOR
+    NEXT i%
+    IF src% > 0 THEN
+        lbl$ = RTRIM$(INPUT_BINDS(src%).label)
+        n% = INPUT_register%(EVT_KEY_PRESS, INPUT_BINDS(src%).region, 0, 0, 0, 0, 0, INPUT_BINDS(src%).requireCtx, INPUT_BINDS(src%).defForbidCtx, actionId%, TRUE, lbl$)
+    ELSE
+        lbl$ = "action " + _TRIM$(STR$(actionId%))
+        FOR i% = 1 TO CMD_COUNT
+            IF CMD_LIST(i%).action_id = actionId% THEN lbl$ = RTRIM$(CMD_LIST(i%).name) : EXIT FOR
+        NEXT i%
+        ' blocked while typing (and, a plain key, while a chord key is held: BINDINGS_chord_forbid)
+        n% = INPUT_register%(EVT_KEY_PRESS, REGION_GLOBAL, 0, 0, 0, 0, 0, 0, CTX_TEXT_ACTIVE, actionId%, TRUE, lbl$)
+    END IF
+    IF n% > 0 THEN INPUT_BINDS(n%).cloned = TRUE
+    BINDINGS_add_bind% = n%
+END FUNCTION
+
+''
+' forbidMods for a keymap row: as written, except a row that forbids nothing gets
+' "every modifier it does not require" - so `u` is not also Ctrl+U. Shift stays
+' allowed on a printable character that is not a letter: `>` `{` `!` are typed
+' with Shift, and the character itself already tells them apart.
+'
+FUNCTION BINDINGS_forbid_mods% (keycode AS LONG, requireMods AS INTEGER, forbidMods AS INTEGER)
+    IF forbidMods% <> 0 THEN BINDINGS_forbid_mods% = forbidMods% : EXIT FUNCTION
+    DIM f AS INTEGER : f% = (MOD_CTRL OR MOD_ALT OR MOD_SHIFT) AND NOT requireMods%
+    IF keycode& >= 33 _ANDALSO keycode& <= 126 THEN
+        IF (keycode& < 65 _ORELSE keycode& > 90) _ANDALSO (keycode& < 97 _ORELSE keycode& > 122) THEN f% = f% AND NOT MOD_SHIFT
+    END IF
+    BINDINGS_forbid_mods% = f%
+END FUNCTION
+
+''
+' forbidCtx for a bind moved to `keycode`. A key with no Ctrl / Alt holds off
+' while a chord key is held (G / M / Z / E / F / W: Z+1 is zoom 100%, so 1 must
+' not also fire), but never for its OWN letter: holding that letter down is how
+' it is pressed, so it would never fire. DRAW's own chord-letter tools are
+' registered the same way (chordHeldNoM ...). A digit also holds off while a
+' smart shape drag takes the digits (sides / dice).
+'
+FUNCTION BINDINGS_chord_forbid~&& (defForbid AS _UNSIGNED _INTEGER64, keycode AS LONG, requireMods AS INTEGER)
+    DIM f AS _UNSIGNED _INTEGER64, kc AS LONG
+    f = defForbid
+    IF (requireMods% AND (MOD_CTRL OR MOD_ALT)) <> 0 THEN BINDINGS_chord_forbid~&& = f : EXIT FUNCTION
+    f = f OR BINDINGS_CHORD_CTX
+    kc& = keycode&
+    IF kc& >= 65 _ANDALSO kc& <= 90 THEN kc& = kc& + 32
+    SELECT CASE kc&
+        CASE 103 : f = f AND NOT CTX_G_HELD
+        CASE 109 : f = f AND NOT CTX_M_HELD
+        CASE 122 : f = f AND NOT CTX_Z_HELD
+        CASE 101 : f = f AND NOT CTX_E_HELD
+        CASE 102 : f = f AND NOT CTX_F_HELD
+        CASE 119 : f = f AND NOT CTX_W_HELD
+        CASE 48 TO 57 : f = f OR CTX_SS_DRAGGING
+    END SELECT
+    BINDINGS_chord_forbid~&& = f
+END FUNCTION
+
+''
+' The live key of an action's first dispatched keyboard bind (BIND_KEY_NONE when
+' a keymap unbound it or it has none). Legacy hold handlers that read a physical
+' key (E = hold for the eraser) follow it, so they stop when a keymap gives the
+' key to something else.
+'
+FUNCTION BINDINGS_action_key& (actionId AS INTEGER)
+    DIM i AS INTEGER
+    BINDINGS_action_key& = BIND_KEY_NONE
+    FOR i% = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i%).actionId = actionId% _ANDALSO INPUT_BINDS(i%).device = DEVICE_KEYBOARD _
+           _ANDALSO INPUT_BINDS(i%).dispatched THEN
+            BINDINGS_action_key& = INPUT_BINDS(i%).keycode
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+END FUNCTION
+
+''
+' TRUE when a keymap row put a dispatched bind on this key (no Ctrl / Alt). The
+' hard-wired legacy keys (> < rotate, / brush scale, F9 recolor) stand down for it.
+'
+FUNCTION BINDINGS_key_taken% (keycode AS LONG)
+    DIM i AS INTEGER
+    FOR i% = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i%).userOverridden _ANDALSO INPUT_BINDS(i%).dispatched _
+           _ANDALSO INPUT_BINDS(i%).device = DEVICE_KEYBOARD _ANDALSO INPUT_BINDS(i%).keycode = keycode& _
+           _ANDALSO (INPUT_BINDS(i%).requireMods AND (MOD_CTRL OR MOD_ALT)) = 0 THEN
+            BINDINGS_key_taken% = TRUE
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+END FUNCTION
+
+''
+' The shortcut a menu row / the command palette shows for an action: its fixed
+' text, unless a keymap moved one of the action's keys - then the key it has now
+' ("" when the keymap left it none). So Edit > Undo says U, not Ctrl+Z, under
+' the Deluxe Paint keymap.
+'
+FUNCTION BINDINGS_hotkey$ (actionId AS INTEGER, shown AS STRING)
+    BINDINGS_hotkey$ = shown$
+    IF BINDING_OVERRIDE_COUNT = 0 _ORELSE actionId% = 0 THEN EXIT FUNCTION
+    DIM i AS INTEGER, moved AS INTEGER, live AS STRING
+    FOR i% = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i%).actionId = actionId% _ANDALSO INPUT_BINDS(i%).device = DEVICE_KEYBOARD THEN
+            IF INPUT_BINDS(i%).cloned _ORELSE INPUT_BINDS(i%).keycode <> INPUT_BINDS(i%).defKeycode _
+               _ORELSE INPUT_BINDS(i%).requireMods <> INPUT_BINDS(i%).defRequireMods THEN moved% = TRUE
+            IF LEN(live$) = 0 _ANDALSO INPUT_BINDS(i%).keycode > 0 _ANDALSO INPUT_BINDS(i%).dispatched THEN
+                live$ = SHORTCUTS_modstr$(INPUT_BINDS(i%).requireMods) + SHORTCUTS_keyname$(INPUT_BINDS(i%).keycode)
+            END IF
+        END IF
+    NEXT i%
+    IF moved% THEN BINDINGS_hotkey$ = live$
+END FUNCTION
 
 ''
 ' Rebuild INPUT_LETTER_DISPATCHED from the current (possibly overridden)
@@ -377,13 +537,23 @@ END SUB
 ' Does NOT touch the override table or DRAW.bindings — callers handle those.
 '
 SUB BINDINGS_restore_live_defaults ()
-    DIM i AS INTEGER
+    DIM i AS INTEGER, n AS INTEGER
+    ' drop the binds keymap rows added (kept in order: registration order is priority)
+    n% = 0
+    FOR i% = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i%).cloned = FALSE THEN
+            n% = n% + 1
+            IF n% <> i% THEN INPUT_BINDS(n%) = INPUT_BINDS(i%) : KEY_DOWN_LAST(n%) = KEY_DOWN_LAST(i%)
+        END IF
+    NEXT i%
+    INPUT_BIND_COUNT = n%
     FOR i% = 1 TO INPUT_BIND_COUNT
         INPUT_BINDS(i%).keycode        = INPUT_BINDS(i%).defKeycode
         INPUT_BINDS(i%).requireMods    = INPUT_BINDS(i%).defRequireMods
         INPUT_BINDS(i%).forbidMods     = INPUT_BINDS(i%).defForbidMods
         INPUT_BINDS(i%).button         = INPUT_BINDS(i%).defButton
         INPUT_BINDS(i%).wheelDir       = INPUT_BINDS(i%).defWheelDir
+        INPUT_BINDS(i%).forbidCtx      = INPUT_BINDS(i%).defForbidCtx
         INPUT_BINDS(i%).userOverridden = FALSE
     NEXT i%
     BINDINGS_rebuild_skiplist

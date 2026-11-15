@@ -70,6 +70,7 @@
 - [Zero-warnings build (always green)](feedback-zero-warnings-build.md) — DRAW compile must be ZERO warnings AND infos/notes; any warning = defect. Rick pref
 - [DRY / reuse libs / be consistent](feedback-dry-reuse-libs.md) — reuse existing widgets/helpers (TI_/DIALOG_CTX/CP_/FD_/MB_) over hand-rolling; grep first. Rick pref
 - [customizable-shortcuts branch status](proj-customizable-shortcuts-status.md) — rebind Phases 0-3 + 4.1/4.2 done (2026-09-04); remaining Phase 4 polish / 5 presets / 2B.2 mouse
+- [keymap presets take keys](keymap-presets-take-keys.md) — BINDINGS_apply rebuild; a preset key unbinds DRAW's (BIND_KEY_NONE, 0 = ANY key); chord-forbid; QA-BINDINGS config isolation
 - [qb64pe -z is NOT a faster error-gate](qb64pe-z-fast-gate.md) — `-x` aborts on error as fast as `-z`; `-z` only skips g++ on a clean compile; MCP fragment `-z` unreliable
 - [DRAW build speed — skip -O for dev](draw-build-speed.md) — `-f:OptimizeCppProgram=false` ~13min→~7min for dev; ship keeps -O; qbx.o rebuilt every build (open)
 - [Driving DRAW's GUI headless via xdotool+Xvfb](driving-draw-gui-headless-xdotool.md) — DRAW polls mouse per-frame: use `mousedown;sleep .2;mouseup`; menus click-hold; launch detached
