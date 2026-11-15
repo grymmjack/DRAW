@@ -200,7 +200,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `C` / `Shift+C` | Ellipse / Filled | Outline / filled |
 | `P` / `Shift+P` | Polygon / Filled | Outline / filled |
 | `Q` | Bezier | Cubic curves (drop anchors, drag handles) |
-| `F` | Fill | Flood fill (`Shift` samples merged canvas) |
+| `F` | Fill | Flood fill (`Shift` samples merged canvas; hold `W` / `G` / `F` + click fills on all layers) |
 | `K` | Spray | Spray paint |
 | `E` / `Hold E` | Eraser / temp Eraser | Tap = permanent; hold = while held. With Dot or Spray, Hold E keeps the tool and erases its way (one dot per click, the spray pattern) |
 | `I` | Picker | Eyedropper with loupe |
@@ -1023,6 +1023,7 @@ Hold a **non-modifier** key, then click/press/drag. Easy to miss:
 |------|----------|--------|
 | `F` | L/R-Click | Global fill (contiguous) with FG / BG across all visible layers |
 | `Shift+F` | L/R-Click | Replace-all global fill (FG / BG) |
+| `W` or `G` (Fill tool) | L/R-Click | The same global fill (`Shift` = replace-all); a `W` tap with the Fill tool still picks the Magic Wand, on release |
 | `E` | Click | Flood-erase contiguous pixels to transparent |
 | `E` | (as a tool) | Hold to erase, release to restore previous tool |
 | `W` | Click | Magic-wand from merged canvas |

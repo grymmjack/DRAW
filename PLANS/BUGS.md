@@ -159,9 +159,9 @@
 
 ## FLOOD FILL TOOL
 
-- [ ] HOLDING SHIFT and LCLICK to fill canvas area is filling a previous mask vs. what was placed with custom brush or clone initially.
-- [ ] HOLDING SHIFT is not merging on all visible colors across layers
-- [ ] HOLD G or W should fill on all layers like magic wand when holding F (complement to that feature)
+- [x] HOLDING SHIFT and LCLICK to fill canvas area is filling a previous mask vs. what was placed with custom brush or clone initially.
+- [x] HOLDING SHIFT is not merging on all visible colors across layers
+- [x] HOLD G or W should fill on all layers like magic wand when holding F (complement to that feature)
 
 
 ## BEZIER CURVE TOOL

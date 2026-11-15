@@ -19,6 +19,7 @@ TYPE FILL_TOOL
 END TYPE
 
 DIM SHARED FILL AS FILL_TOOL
+DIM SHARED FILL_W_USED AS INTEGER ' a fill was made while W / G / F was held (FILL_hold_w: then W's release is no tap)
 
 
 FILL_init

@@ -370,13 +370,6 @@ SUB FILL_flood_merged (x AS INTEGER, y AS INTEGER)
     DIM targetImg        AS LONG
     DIM mergedImg        AS LONG
     DIM has_selection    AS INTEGER
-    DIM zi               AS INTEGER, li AS INTEGER
-    DIM tmpImg           AS LONG
-    DIM mvMem            AS _MEM
-    DIM mvOff            AS _OFFSET
-    DIM mvPix            AS _UNSIGNED LONG
-    DIM mvAlpha          AS _UNSIGNED _BYTE
-    DIM mvNewAlpha       AS INTEGER
     DIM use_drawer_paint AS INTEGER
 
     targetImg& = LAYER_current_image&
@@ -390,38 +383,24 @@ SUB FILL_flood_merged (x AS INTEGER, y AS INTEGER)
     bL = 0: bT = 0: bR = w% - 1: bB = h% - 1
     ANIM_CV_fill_box x%, y%, bL, bT, bR, bB
 
-    ' Build merged composite of all visible layers bottom-to-top
-    mergedImg& = _NEWIMAGE(w%, h%, 32)
-    _DEST mergedImg&
-    CLS , _RGBA32(0, 0, 0, 0)
-    _BLEND mergedImg&
-
-    FOR zi% = 1 TO LAYER_COUNT%
-        FOR li% = 1 TO MAX_LAYERS
-            IF LAYERS(li%).imgHandle& < -1 AND LAYERS(li%).visible% AND LAYERS(li%).zIndex% = zi% THEN
-                IF LAYERS(li%).opacity% >= 255 THEN
-                    ' Full opacity: direct composite
-                    _PUTIMAGE , LAYERS(li%).imgHandle&
-                ELSE
-                    ' Partial opacity: copy + scale alpha per pixel
-                    tmpImg& = _COPYIMAGE(LAYERS(li%).imgHandle&, 32)
-                    mvMem   = _MEMIMAGE(tmpImg&)
-                    FOR mvOff = mvMem.OFFSET TO mvMem.OFFSET + mvMem.SIZE - 4 STEP 4
-                        _MEMGET mvMem, mvOff, mvPix~&
-                        mvAlpha~%% = _ALPHA32(mvPix~&)
-                        IF mvAlpha~%% > 0 THEN
-                            mvNewAlpha% = (mvAlpha~%% * LAYERS(li%).opacity%) \ 255
-                            _MEMPUT mvMem, mvOff + 3, mvNewAlpha% AS _UNSIGNED _BYTE
-                        END IF
-                    NEXT mvOff
-                    _MEMFREE mvMem
-                    _PUTIMAGE , tmpImg&
-                    IF tmpImg& < -1 THEN SAFE_FREEIMAGE tmpImg&
-                END IF
-                EXIT FOR
-            END IF
-        NEXT li%
-    NEXT zi%
+    ' The merged image: every visible layer as the canvas shows it (LAYERS_flatten&:
+    ' groups, opacity, blend modes, and layers promoted into the apron cut back to
+    ' the canvas). Compositing here with a stretching _PUTIMAGE , img sized a
+    ' promoted layer's bigger buffer down onto the canvas, so the fill followed a
+    ' shrunken, shifted copy of the art (a "previous mask"), and it ignored groups
+    ' and blend modes.
+    mergedImg& = LAYERS_flatten&
+    IF mergedImg& >= -1 THEN EXIT SUB
+    IF _WIDTH(mergedImg&) <> w% _ORELSE _HEIGHT(mergedImg&) <> h% THEN
+        ' the target is promoted (fills demote it first, so not expected): line the
+        ' merged canvas up with its apron offset
+        DIM fmPad AS LONG
+        fmPad& = _NEWIMAGE(w%, h%, 32)
+        _DEST fmPad&: CLS , _RGBA32(0, 0, 0, 0): _DEST old_dest&
+        _PUTIMAGE (LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%), mergedImg&, fmPad&
+        SAFE_FREEIMAGE mergedImg&
+        mergedImg& = fmPad&
+    END IF
 
     ' Check if there's an active selection for clipping
     has_selection% = SELECTION_has_active%
@@ -927,4 +906,28 @@ SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
     COMPOSITE_RESULT_VALID% = FALSE
     CANVAS_DIRTY%           = TRUE
     INVALIDATE_scene
+END SUB
+
+
+''
+' Every frame (KEYBOARD_input_handler): W with the Fill tool in hand. Its press
+' does not pick the Magic Wand (CTX_FILL_ACTIVE keeps the dispatcher off it):
+'   - held while clicking: an all-layers fill (MOUSE_tool_fill, as hold F);
+'   - tapped (released with no fill made): the Magic Wand, as before.
+'
+SUB FILL_hold_w ()
+    STATIC held AS INTEGER, armed AS INTEGER
+    DIM down AS INTEGER
+    down = _KEYDOWN(119) _ORELSE _KEYDOWN(87)
+    IF MODIFIERS.ctrl% _ORELSE MODIFIERS.alt% THEN down = FALSE
+    IF (INPUT_CONTEXT AND CTX_TEXT_ACTIVE) <> 0 _ORELSE CMD_PALETTE.visible _ORELSE TBED_typing% THEN down = FALSE
+    IF down THEN
+        IF held = FALSE THEN ' the press: armed only with the Fill tool in hand
+            held = TRUE: armed = (CURRENT_TOOL% = TOOL_FILL): FILL_W_USED = FALSE
+        END IF
+    ELSEIF held THEN ' the release
+        held = FALSE
+        IF armed _ANDALSO FILL_W_USED = FALSE _ANDALSO CURRENT_TOOL% = TOOL_FILL THEN CMD_execute_action 117 ' a tap: the Magic Wand
+        armed = FALSE
+    END IF
 END SUB

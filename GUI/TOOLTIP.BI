@@ -97,7 +97,9 @@ TOOLTIP_LINE2$(13) = "DRAG draw. L-CLICK FG color. R-CLICK BG color. HOLD E eras
 TOOLTIP_LINE1$(14) = "k - SPRAY - Paint with randomly distributed points at brush size."
 TOOLTIP_LINE2$(14) = "DRAG draw. L-CLICK FG color. R-CLICK BG color. HOLD E erase. CTRL+WHEEL spray size."
 TOOLTIP_LINE1$(15) = "f - FILL - Color in contiguous areas of canvas with borders or same colors."
-TOOLTIP_LINE2$(15) = "L-CLICK fill FG color. R-CLICK fill BG color. SHIFT+CLICK canvas area."
+TOOLTIP_LINE2$(15) = "L-CLICK fill FG color. R-CLICK fill BG color." + CHR$(10) + _
+                     "SHIFT+CLICK fill using all visible layers as the borders." + CHR$(10) + _
+                     "HOLD w, g or f + CLICK fill on all layers. SHIFT too: replace that color everywhere."
 
 ' Row 4: LINE, POLYLINE, POLYFILL, SAVE
 TOOLTIP_LINE1$(16) = "l - LINE - Create straight lines at any angle."
