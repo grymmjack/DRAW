@@ -18,9 +18,17 @@
 # =============================================================================
 info "=== Clip layers: lane modulators + transform lanes ==="
 source "$DRAW_ROOT/QA/clip-lib.sh"
-ln_read() {
-    cl_read
-    read -r _ LN_Y10 LN_Y11 LN_Y12 LN_LX0 LN_LW0 LN_LX1 LN_LW1 LN_KX0 LN_KW0 LN_KX1 LN_KW1 LN_KX2 LN_KW2 LN_MX LN_MW LN_PICK _ <<< "$(cl_line ANIMPLN)"
+ln_read() { # (waits for the lane rows: on a slow host - titan - they were not in the
+            #  dump yet right after Clear All Lanes, and the empty x killed the script)
+    local try
+    for try in 1 2 3 4 5; do
+        cl_read
+        read -r _ LN_Y10 LN_Y11 LN_Y12 LN_LX0 LN_LW0 LN_LX1 LN_LW1 LN_KX0 LN_KW0 LN_KX1 LN_KW1 LN_KX2 LN_KW2 LN_MX LN_MW LN_PICK _ <<< "$(cl_line ANIMPLN)"
+        [[ -n "$LN_MW" ]] && return 0
+        wait_for 0.5 "the lane rows"
+    done
+    fail "no lane rows (ANIMPLN) in the dump: [$(cl_line ANIMPLN)]"
+    LN_Y10=0 LN_Y11=0 LN_Y12=0 LN_LX0=0 LN_LW0=0 LN_LX1=0 LN_LW1=0 LN_KX0=0 LN_KW0=0 LN_KX1=0 LN_KW1=0 LN_KX2=0 LN_KW2=0 LN_MX=0 LN_MW=0 LN_PICK=-1
 }
 ln_keys() { grep "^CLIPL $C_SLOT $1 " "$CL_DUMPF" | cut -d' ' -f4-; }
 ln_vals() { grep "^CLIPLV $C_SLOT $1 " "$CL_DUMPF" | cut -d' ' -f4-; }
