@@ -16,7 +16,7 @@
 ' Hidden elements get ManuallyHidden = TRUE, so the draw-over auto-hide
 ' restore (MOUSE_handle_ui_autohide_restore) never brings them back. F11 is
 ' the escape hatch: while a workspace hides something, F11 reveals what it
-' hid and a second F11 hides it again (WS_f11%).
+' hid and a second Shift+F11 hides it again (WS_f11%). Plain F11 hides / restores everything (UIALL_toggle).
 '
 ' [START] (tool, FG, zoom) runs once after the next render, when the layout
 ' reflects the new chrome (WS_tick); it is a starting state, not undone on
@@ -89,6 +89,13 @@ DIM SHARED WS_ACTIVE_ID    AS STRING  ' its id ("annotate"); "default" when none
 DIM SHARED WS_CURRENT_DIRTY AS INTEGER ' the CURRENT workspace was saved to this session (the exit prompt offers a name)
 DIM SHARED WS_ACTIVE_TITLE AS STRING  ' its display name ("Annotate")
 DIM SHARED WS_REVEALED     AS INTEGER ' TRUE after F11 showed what the workspace hid
+' F11 (action 403, UIALL_toggle): hide every panel, then put back exactly what
+' was showing. Never touches CFG (so a CONFIG_save while hidden saves the real
+' state) and never a workspace's file.
+DIM SHARED UIALL_HIDDEN  AS INTEGER ' TRUE while F11 has the UI hidden
+DIM SHARED UIALL_VIS(1 TO WS_EL_COUNT) AS INTEGER ' what each element was before F11
+DIM SHARED UIALL_MH(1 TO WS_EL_COUNT)  AS INTEGER ' and its ManuallyHidden flag
+DIM SHARED UIALL_TBED    AS INTEGER ' the Customize Toolbars window was open
 DIM SHARED WS_START_PENDING AS INTEGER ' [START] waits for the next render (WS_tick)
 DIM SHARED WS_GUARD_BYPASS AS INTEGER ' CONFIG_save writes raw (snapshot capture)
 DIM SHARED WS_GUARD_ON     AS INTEGER ' inside a guarded CONFIG_save
@@ -163,6 +170,7 @@ CONST WS_ACT_RELOAD    = 2403 ' Rescan workspace files (menu + palette rebuilt)
 CONST WS_ACT_LEAVE     = 2404 ' Back to Default
 CONST WS_ACT_SAVE_AS   = 2405 ' Save Current Layout As... (new workspace from what is on screen)
 CONST WS_ACT_UPDATE    = 2406 ' Update the active workspace from the current layout
+CONST WS_ACT_REVEAL    = 2407 ' Shift+F11: show what the workspace hid / hide it again (WS_f11%)
 CONST WS_ACT_SLOT0     = 2409 ' + n = switch to WS_LIST(n), n = 1..WS_MAX (2410-2441)
 CONST WS_CMD_PREFIX$   = "Workspace: "
 

@@ -46,7 +46,7 @@ only remembers *which* workspace you were in, so it reopens there.
 
 **There is always a way back.** Whatever a workspace hides:
 - `Ctrl+Shift+W` and the command palette still work.
-- **`F11`** shows everything the workspace hid, and a second `F11` hides it again. Outside a workspace, `F11` toggles all UI as before.
+- **`Shift+F11`** shows everything the workspace hid, and a second `Shift+F11` hides it again. **`F11`** hides all UI here as everywhere, and a second `F11` brings back exactly the workspace's layout.
 - Hidden commands keep their keys. Hiding means "not shown", not "disabled".
 
 Things you toggle while in a workspace (opening the Color Mixer, say) last for
@@ -500,7 +500,7 @@ you were. Bind it to a key:
 
 | Problem | Fix |
 | --- | --- |
-| A workspace hid the menu bar and I'm stuck | `Ctrl+Shift+W` → Default, or `F11` to show everything |
+| A workspace hid the menu bar and I'm stuck | `Ctrl+Shift+W` → Default, or `Shift+F11` to show everything it hid |
 | My panels came back wrong after leaving a workspace | Leaving restores the state from when you *entered*; toggles made inside it are dropped by design |
 | Capture says "no screen capture tool found" | Install the tool for your desktop (see the table above) or set a Custom Command |
 | The capture includes DRAW's window | Raise the Capture Delay (the window may need longer to fade on your desktop) |

@@ -129,7 +129,7 @@ stacking, tabbing and floating panels](22-workspaces-capture.md#moving-stacking-
 
 ### UI master toggles
 
-- `F11` — toggle **all** UI (canvas-only mode).
+- `F11` — toggle **all** UI (canvas-only mode); a second `F11` puts back exactly what was showing, in a workspace too.
 - `Ctrl+F11` — keep only the menu bar.
 - `F10` — toggle the status bar.
 

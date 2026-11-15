@@ -151,7 +151,8 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+Shift+M` | Toggle Advanced Color Picker panel |
 | — | Toggle 3D Color Space panel (View menu / command palette) |
 | `F10` | Toggle status bar |
-| `F11` | Toggle ALL UI (also hides/shows the Advanced Color Picker and 3D Color Space panels). Inside a workspace that hides things: show what it hid / hide it again |
+| `F11` | Toggle ALL UI: hides every panel and window (menu bar, toolbox, layers, bars, status / color strip, Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Animation, Swatches, Browser, Customize Toolbars); F11 again puts back exactly what was showing. Works the same inside a workspace |
+| `Shift+F11` | Inside a workspace that hides things: show what it hid / hide it again |
 | `Ctrl+Shift+W` | Workspace switcher (command palette filtered to `Workspace:`) |
 | `L-Drag` a docked panel's inner edge | Resize it: toolbox columns (1–8), edit/advanced bar columns (1–4), layers width (60–400 px). Saved to the active workspace, or `DRAW.cfg` in Default. **View → Workspace → Save Current Layout As…** saves the whole arrangement as a workspace |
 | `Alt+Enter` | Toggle fullscreen (also **View → Fullscreen** / command palette; live, no restart, persists across launches) |
@@ -1037,7 +1038,7 @@ Hold a **non-modifier** key, then click/press/drag. Easy to miss:
 | Keys | Action |
 |------|--------|
 | `Ctrl+Shift+W` | Workspace switcher (type `ann` + `Enter`) |
-| `F11` (in a workspace) | Show what the workspace hid / hide it again |
+| `Shift+F11` (in a workspace) | Show what the workspace hid / hide it again (`F11` hides / restores all UI, as everywhere) |
 | `Ctrl+Shift+P` | Capture Screen |
 | Region picker: `Drag` / `Enter` / dbl-click / `Space` / `Esc` / `Arrows` | Box / use it / use it / whole screen / cancel / nudge (`Shift` = 10) |
 

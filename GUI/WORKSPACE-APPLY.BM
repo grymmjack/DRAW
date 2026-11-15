@@ -314,6 +314,7 @@ END SUB
 SUB WS_restore ()
     DIM el AS INTEGER, dk AS INTEGER, i AS INTEGER, ok AS INTEGER
     IF WS_ACTIVE = 0 THEN EXIT SUB
+    IF UIALL_HIDDEN THEN UIALL_show ' F11's hidden UI is not the user's layout
     WS_panels_poll TRUE ' a panel change made in the workspace goes into it before the user's own state comes back
     FOR el = 1 TO WS_EL_COUNT
         IF WS_EL_TOUCHED(el) THEN
@@ -378,6 +379,7 @@ FUNCTION WS_apply% (idOrTitle AS STRING)
         _LOGWARN "WORKSPACE: no workspace named '" + idOrTitle + "'"
         EXIT FUNCTION
     END IF
+    IF UIALL_HIDDEN THEN UIALL_show ' (a workspace snapshots what is showing: not F11's hidden UI)
 
     wantId = WS_LIST(idx).id
     WS_restore
@@ -766,6 +768,8 @@ SUB WS_action (act AS INTEGER)
             WSC_save_layout_as ' GUI/WORKSPACE-CONFIG
         CASE WS_ACT_UPDATE
             WSC_update_from_layout
+        CASE WS_ACT_REVEAL
+            IF WS_f11% = 0 THEN STATUS_flash "Shift+F11: this workspace hides nothing (F11 hides all UI)"
         CASE WS_ACT_SLOT0 + 1 TO WS_ACT_SLOT0 + WS_MAX
             n = act - WS_ACT_SLOT0
             IF n <= WS_COUNT THEN ok = WS_apply%(WS_LIST(n).id)
@@ -1646,4 +1650,135 @@ SUB WSC_capture_panels ()
     LOOP
     CLOSE #fh
     KILL tmpPath
+END SUB
+
+
+' =============================================================================
+' F11 - Toggle All UI (action 403)
+' =============================================================================
+
+''
+' The elements F11 hides. The organizer, drawer and workflow buttons go with
+' the toolbox, and the colour strip with the status bar, so their own state is
+' left alone.
+FUNCTION UIALL_el_on% (el AS INTEGER)
+    SELECT CASE el
+        CASE WS_EL_ORGANIZER, WS_EL_DRAWER, WS_EL_PALETTE_STRIP
+        CASE ELSE: UIALL_el_on% = TRUE
+    END SELECT
+END FUNCTION
+
+
+''
+' Show / hide one element by its live fields only. Not the panels' toggles:
+' they write CFG.*_VISIBLE, so a CONFIG_save while hidden would keep it hidden.
+SUB UIALL_set (el AS INTEGER, wantVis AS INTEGER)
+    DIM v AS INTEGER
+    v = (wantVis <> 0)
+    SELECT CASE el
+        CASE WS_EL_PREVIEW
+            PREVIEW.visible% = v: SCRN.showPreviewWindow% = v
+            IF v _ANDALSO PREVIEW.positioned% = 0 THEN PREVIEW_auto_position
+        CASE WS_EL_COLOR_MIXER
+            SCRN.showColorMixer% = v: COLORMIXER.visible% = v
+        CASE WS_EL_COLOR_SPACE_3D
+            CS3D.visible% = v
+            IF v _ANDALSO CS3D.positioned% = 0 THEN CS3D_auto_position
+        CASE WS_EL_ADV_COLOR_PICKER
+            ADVCP.visible% = v
+            IF v _ANDALSO ADVCP.positioned% = 0 THEN ADVCP_auto_position
+        CASE WS_EL_PEN_PANEL
+            PENP.visible% = v
+            IF v _ANDALSO PENP.positioned% = 0 THEN PENP_auto_position
+        CASE WS_EL_ANIM_PANEL
+            ANIMP.visible = v
+            IF v _ANDALSO ANIMP.positioned = 0 THEN ANIMP_auto_position
+        CASE WS_EL_SWATCHES
+            IF v = 0 THEN SWP_menu_close
+            SWP.visible = v
+            IF v THEN
+                SWP_ensure_initialized
+                IF SWP.positioned = 0 THEN SWP_auto_position
+            END IF
+        CASE WS_EL_BROWSER
+            SCRN.showBrowser% = v: BROWSER.visible% = v
+            IF v _ANDALSO BROWSER.positioned% = 0 THEN BROWSER_auto_position
+        CASE ELSE
+            WS_el_set el, v ' the docked chrome: plain fields there too
+            EXIT SUB
+    END SELECT
+    WS_el_set_mh el, _NEGATE v
+END SUB
+
+
+''
+' F11. Hidden by F11 -> put back exactly what was showing. Otherwise, with
+' something showing -> remember it all and hide it; with nothing showing (all
+' hidden by hand) -> show the basic chrome, as F11 always did.
+SUB UIALL_toggle ()
+    DIM el AS INTEGER, anyVis AS INTEGER
+    IF UIALL_HIDDEN THEN
+        UIALL_show
+        EXIT SUB
+    END IF
+    FOR el = 1 TO WS_EL_COUNT
+        IF UIALL_el_on%(el) THEN IF WS_el_get%(el) THEN anyVis = TRUE
+    NEXT el
+    IF anyVis _ORELSE TEXT_BAR.visible% _ORELSE TBED.visible THEN
+        UIALL_hide
+    ELSE
+        FOR el = 1 TO WS_EL_COUNT
+            SELECT CASE el
+                CASE WS_EL_MENUBAR, WS_EL_TOOLBOX, WS_EL_LAYER_PANEL, WS_EL_STATUS_BAR: UIALL_set el, TRUE
+            END SELECT
+        NEXT el
+        SCREEN_compute_layout
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+SUB UIALL_hide ()
+    DIM el AS INTEGER
+    IF UIALL_HIDDEN THEN EXIT SUB
+    FOR el = 1 TO WS_EL_COUNT
+        UIALL_VIS(el) = WS_el_get%(el)
+        UIALL_MH(el) = WS_el_get_mh%(el)
+    NEXT el
+    MENUBAR_close_all
+    IF PSM.isOpen THEN PSM_close
+    DOCK_UI.menuOpen = FALSE ' (the dock handle menu)
+    FOR el = 1 TO WS_EL_COUNT
+        IF UIALL_el_on%(el) THEN UIALL_set el, FALSE
+    NEXT el
+    SCRN.textBarHiddenByToggleAll% = TRUE ' (the text bar comes and goes with the text tool: held off while hidden)
+    TEXT_BAR.visible% = FALSE
+    UIALL_TBED = (TBED.visible <> 0)
+    IF UIALL_TBED THEN TBED_close
+    UIALL_HIDDEN = TRUE
+    SCREEN_compute_layout
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Put back what F11 hid: each element as it was (shown, or hidden with its
+' ManuallyHidden flag). Something shown by hand meanwhile stays shown.
+SUB UIALL_show ()
+    DIM el AS INTEGER
+    IF UIALL_HIDDEN = 0 THEN EXIT SUB
+    UIALL_HIDDEN = FALSE
+    FOR el = 1 TO WS_EL_COUNT
+        IF UIALL_el_on%(el) THEN
+            IF UIALL_VIS(el) THEN
+                UIALL_set el, TRUE
+            ELSEIF WS_el_get%(el) = 0 THEN
+                WS_el_set_mh el, UIALL_MH(el)
+            END IF
+        END IF
+    NEXT el
+    SCRN.textBarHiddenByToggleAll% = FALSE
+    IF UIALL_TBED THEN UIALL_TBED = FALSE: TBED_open TBED.tab
+    SCREEN_compute_layout
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
 END SUB
