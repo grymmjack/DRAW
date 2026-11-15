@@ -23,10 +23,16 @@
 # DMENUR row value y h checked | PSURF id on k ... | WSA <workspace>.
 # Menu values: 1 Move to Left Edge, 5 Float, 6 Dock Back, 20 Scale Auto,
 # 21 Scale 1x (GUI/DOCK.BI DOCK_ACT_*); 3901+ the buttons' own (GUI/WORKFLOW.BI).
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt WORKFLOW_BAR=1 WORKSPACES_DIR=/tmp/draw-qa-ws-none TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt WORKFLOW_BAR=1 WORKSPACES_DIR=/tmp/draw-qa-ws-wf TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE
 # =============================================================================
 source "$DRAW_ROOT/QA/dock-lib.sh"
 info "=== Workflow buttons: their own panel ==="
+# The workspaces the buttons switch to: the classic built-ins (QA/fixtures/workspaces-classic),
+# not the shipped ones - those carry their own [PANELS] WORKFLOW_BUTTONS / [DOCK], which would
+# replace the bar this test is checking. A scratch copy: a workspace saves changes made in it.
+mkdir -p /tmp/draw-qa-ws-wf; rm -f /tmp/draw-qa-ws-wf/*.workspace
+cp "$DRAW_ROOT"/QA/fixtures/workspaces-classic/*.workspace /tmp/draw-qa-ws-wf/
+key question; wait_for 1.0 "palette"; type_text "reload workspaces"; wait_for 1.2 "filtered"; key Return; wait_for 1.5 "reloaded"
 
 DP_WORKFLOW=8
 wf() { read -r _ WF_ON WF_N WF_X WF_Y WF_W WF_H WF_ACT WF_COLS WF_LAID <<< "$(grep -m1 '^WF ' "$DK_DUMP")"; }

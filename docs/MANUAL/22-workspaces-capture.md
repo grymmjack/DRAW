@@ -28,9 +28,16 @@ only remembers *which* workspace you were in, so it reopens there.
 | **Default** | The stock panel layout. No overlay. Always there; can't be deleted. Moving or resizing panels in it starts a workspace of your own (see below). |
 | **Simple** | Everyday drawing: a 2-column toolbox of 10 tools, File / Edit / View / Help menus, no advanced bar or power panels. |
 | **Animate** | Frame-by-frame animation: the lightbox (strip, transport bar, the frames before and after side by side) with onion skin and the frame grid, and the Animation panel; the character map, 3D color space and browser are put away. On a picture without frames, `Num +` makes frames and the lightbox opens on them. |
-| **Sprite** | One sprite or a short loop: the Preview (showing the current frame), the Animation panel and the Drawer; the frame grid on, no lightbox or onion skin; the Brush; no EFFECTS / AUDIO menus. |
+| **Sprite** | One sprite or a short loop: the Preview (showing the current frame), the Animation panel, the Drawer and Swatches; the frame grid on, no lightbox or onion skin; the Brush; no EFFECTS / AUDIO menus. |
 | **Scene** | A scene of clips and layers: Big Frame + X-sheet (the lightbox as one large pane, the X-sheet under it), the Animation panel, the Drawer and the layers; onion skin off; the Move tool; every menu. |
 | **Annotate** | Screenshot markup: a 1-column annotation toolbox docked left, a trimmed edit bar, the palette strip, single-key annotation tools, Rect in red, zoomed to fit. Capture Screen lands here. |
+| **Photoshop** | Toolbox, organizer and Drawer on the left with the edit bar; Preview, Swatches and Layers stacked on the right; an 8-row color strip. |
+| **DPaint** | The other way round: toolbox, organizer and Swatches on the right; the workflow buttons, Preview and Layers on the left, the Drawer in a narrow column; an 8-row color strip. |
+| **Kitchen Sink** | Nearly every panel at once: Color Mixer, Advanced Color Picker, Pen Pressure, Animation, Swatches and Preview docked, the Browser in a band along the bottom. |
+| **Max Art** | The Kitchen Sink arrangement with only the drawing panels showing (toolbox, organizer, Drawer, Layers, both bars), for the most canvas; an 8-row color strip. |
+| **Panel Floats** | Every panel floating: no docks at all. |
+| **GJ** | Toolbox and edit bar on the left, everything else docked on the right in tabbed stacks: color panels (Mixer, Advanced Picker, 3D Color Space), Pen / Animation, Swatches, Drawer, Preview, Layers. |
+| **Default 2** | The classic layout from the dock keys with a 4-column toolbox; a starting point to make your own. |
 
 ### Switching
 
@@ -215,7 +222,8 @@ you use the mouse, a key or the command palette:
   the X-sheet, the 3D view, the Browser's thumbnails), its columns or view,
   and the choices in its menus. That includes the color strip's size menu,
   the Swatches panel's set and options, the Pen Pressure settings, the
-  workflow buttons and the lightbox.
+  workflow buttons and the lightbox. Each workspace has its own workflow
+  buttons, so the bar can change when you switch.
 
 Your own settings (Default) don't change. When you switch back to the workspace,
 or restart DRAW in it, the layout comes back exactly as you left it.

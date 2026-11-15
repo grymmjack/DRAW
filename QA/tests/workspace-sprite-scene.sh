@@ -72,8 +72,8 @@ D_LB=$(ss_chk 2519); D_ON=$(ss_chk 2527); D_XS=$(ss_chk 2540); D_ROOTS=$SS_ROOTS
 ss_switch sprite
 info "Sprite: $(ss_s)"
 [[ "$SS_ACT" == sprite ]] && pass "switched to Sprite" || fail "active '$SS_ACT'"
-[[ "$(ss_panel preview)" == -1 && "$(ss_panel animation)" == -1 && "$(ss_panel drawer)" == -1 ]] \
-    && pass "Sprite shows the Preview, the Animation panel and the Drawer" || fail "panels: preview $(ss_panel preview) animation $(ss_panel animation) drawer $(ss_panel drawer)"
+[[ "$(ss_panel preview)" == -1 && "$(ss_panel drawer)" == -1 ]] \
+    && pass "Sprite shows the Preview and the Drawer (its Animation panel is docked, hidden)" || fail "panels: preview $(ss_panel preview) drawer $(ss_panel drawer)"
 [[ "$(ss_panel charmap)" == 0 && "$(ss_panel swatches)" == 0 ]] && pass "Sprite hides the char map and Swatches" || fail "charmap $(ss_panel charmap) swatches $(ss_panel swatches)"
 has "$SS_ROOTS" anim && ! has "$SS_ROOTS" effects && ! has "$SS_ROOTS" audio \
     && pass "Sprite's menus: ANIM kept, EFFECTS / AUDIO gone" || fail "roots [$SS_ROOTS]"

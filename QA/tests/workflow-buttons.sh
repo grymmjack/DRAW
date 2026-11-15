@@ -15,9 +15,15 @@
 # 3902 remove, 3903 hide, 3904 / 3905 move left / right, 4000 + k workspace k
 # (WS_LIST: Default, Current, then by name).
 #
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt WORKFLOW_BAR=1 WORKSPACES_DIR=/tmp/draw-qa-ws-none
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt WORKFLOW_BAR=1 WORKSPACES_DIR=/tmp/draw-qa-ws-wf
 # =============================================================================
 info "=== Workflow buttons ==="
+# The workspaces the buttons switch to: the classic built-ins (QA/fixtures/workspaces-classic),
+# not the shipped ones - those carry their own [PANELS] WORKFLOW_BUTTONS / [DOCK], which would
+# replace the bar this test is checking. A scratch copy: a workspace saves changes made in it.
+mkdir -p /tmp/draw-qa-ws-wf; rm -f /tmp/draw-qa-ws-wf/*.workspace
+cp "$DRAW_ROOT"/QA/fixtures/workspaces-classic/*.workspace /tmp/draw-qa-ws-wf/
+key question; wait_for 1.0 "palette"; type_text "reload workspaces"; wait_for 1.2 "filtered"; key Return; wait_for 1.5 "reloaded"
 
 WF_DUMP="$DRAW_ROOT/QA/.dock-dump.txt"
 wf_settle() { { hover 300 250; wait_for 0.2 "render"; hover 305 252; wait_for 0.3 "render"; } >&2; }
