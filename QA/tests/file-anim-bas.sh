@@ -81,13 +81,13 @@ if [[ -s "$AB_T/ping.bas" ]]; then
             ab_steps ping "1 2 3 4 3 2" && pass "and each step's PNG is exactly its cell (transparency kept)" || fail "ping --frames PNGs do not match the cells"
 
             # -- live, only on the harness's own X server --
-            if [[ -n "${QA_IN_XVFB:-}" ]] && command -v xwd >/dev/null && command -v xdotool >/dev/null && [[ -x /usr/bin/convert ]]; then
+            if [[ -n "${QA_IN_XVFB:-}" ]] && command -v xwd >/dev/null && [[ -x /usr/bin/convert ]]; then
                 ( cd "$AB_T" && exec ./ping.run </dev/null >/dev/null 2>&1 ) & AB_P=$!
                 sleep 2
-                AB_W=$(xdotool search --pid "$AB_P" 2>/dev/null | tail -1)
+                AB_W=$(driver_window_find "$AB_P" "")   # the player's window (any title)
                 for i in 1 2 3 4 5 6 7 8; do xwd -id "${AB_W:-0}" -silent > "$AB_T/s$i.xwd" 2>/dev/null; sleep 0.13; done
                 AB_N=$(for i in 1 2 3 4 5 6 7 8; do /usr/bin/convert "xwd:$AB_T/s$i.xwd" -scale 1x1! -format '%[pixel:p{0,0}]\n' info: 2>/dev/null; done | sort -u | wc -l)
-                [[ -n "$AB_W" ]] && xdotool key --window "$AB_W" Escape 2>/dev/null
+                [[ -n "$AB_W" ]] && driver_window_key "$AB_W" Escape 2>/dev/null
                 for i in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$AB_P" 2>/dev/null || break; sleep 0.2; done
                 if kill -0 "$AB_P" 2>/dev/null; then
                     kill "$AB_P" 2>/dev/null; fail "the player did not quit on Esc"
@@ -97,7 +97,7 @@ if [[ -s "$AB_T/ping.bas" ]]; then
                 fi
                 [[ "$AB_N" -ge 2 ]] && pass "live: it animates ($AB_N different screens in 1 s)" || fail "live: the screen did not change ($AB_N distinct)"
             else
-                info "not under Xvfb (or no xwd / xdotool): the live run is skipped"
+                info "not under Xvfb (or no xwd): the live run is skipped"
             fi
         else
             fail "ping.bas does not compile: $(tail -3 "$AB_T/ping-qb.log" | tr '\n' ' ')"

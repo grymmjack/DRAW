@@ -161,11 +161,11 @@ if [[ -x "$ST_QB" && -s "$ST_T/bas/walk.bas" ]]; then
             && pass "it compiles; started from another folder it opens walk-sound.wav (1 s) and times frames 1-6 at 0 100 200 300 400 500 ms, as DRAW does" \
             || fail "the player's sound.txt: '$ST_TXT'"
         # live, on the harness's own X server: plays (with the sound) and quits on Esc
-        if [[ -n "${QA_IN_XVFB:-}" ]] && command -v xdotool >/dev/null; then
+        if [[ -n "${QA_IN_XVFB:-}" ]]; then
             ( cd "$ST_T/bas" && exec ./walk.run </dev/null >/dev/null 2>&1 ) & ST_P=$!
             sleep 2.5
-            ST_W=$(xdotool search --pid "$ST_P" 2>/dev/null | tail -1)
-            [[ -n "$ST_W" ]] && { xdotool key --window "$ST_W" space; sleep 0.3; xdotool key --window "$ST_W" Right; sleep 0.3; xdotool key --window "$ST_W" space; sleep 0.5; xdotool key --window "$ST_W" Escape; } 2>/dev/null
+            ST_W=$(driver_window_find "$ST_P" "")   # the player's window (any title)
+            [[ -n "$ST_W" ]] && { driver_window_key "$ST_W" space; sleep 0.3; driver_window_key "$ST_W" Right; sleep 0.3; driver_window_key "$ST_W" space; sleep 0.5; driver_window_key "$ST_W" Escape; } 2>/dev/null
             for i in $(seq 1 15); do kill -0 "$ST_P" 2>/dev/null || break; sleep 0.2; done
             if kill -0 "$ST_P" 2>/dev/null; then
                 kill "$ST_P" 2>/dev/null; fail "the player with a soundtrack did not quit on Esc"

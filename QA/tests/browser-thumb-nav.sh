@@ -36,7 +36,7 @@ thumb() {
     local ax ay
     hover "$2" "$3"; wait_for 0.3 "pointer there"
     read -r ax ay <<< "$(adapter_to_screen "$2" "$3")"
-    xdotool mousemove $(( ax + 1 )) "$ay" click "$1"
+    raw_seq move $(( ax + 1 )) "$ay" down "$1" up "$1"
     wait_for 0.8 "button $1"; dk_settle
 }
 

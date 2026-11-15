@@ -22,7 +22,8 @@ cp_line() { grep -m1 '^CMDPAL ' "$DK_DUMP"; }
 
 park_mouse; key question; wait_for 1.0 "Command palette"; dk_settle
 Q="layer same on every frame"
-xdotool type --clearmodifiers --delay 80 -- "$Q"; wait_for 1.2 "typed"; dk_settle
+for (( qi = 0; qi < ${#Q}; qi++ )); do type_text "${Q:qi:1}"; done   # one key at a time: a fast burst drops keys
+wait_for 1.2 "typed"; dk_settle
 read -r _ CP_LEN CP_N CP_HOV CP_NAME <<< "$(cp_line)"
 [[ "$CP_LEN" == "${#Q}" ]] && pass "searchLen $CP_LEN = the query" || fail "searchLen '$CP_LEN', typed ${#Q} [$(cp_line)]"
 [[ "$CP_HOV" == 0 && "$CP_NAME" == "Layer Same on Every Frame"* ]] && pass "highlighted: $CP_NAME" || fail "highlight [$(cp_line)]"

@@ -52,10 +52,10 @@ else
     hover "$MX" "$MY"; wait_for 0.3 "over the pane"
     hover $(( MX + 1 )) "$MY"; wait_for 0.2 "render"; hover "$MX" "$MY"; wait_for 0.4 "render"
     lc_snaps plain
-    xdotool keydown shift; wait_for 0.3 "Shift down"
+    raw_key down shift; wait_for 0.3 "Shift down"
     hover $(( MX + 1 )) "$MY"; wait_for 0.2 "render"; hover "$MX" "$MY"; wait_for 0.5 "render"
     lc_snaps shift
-    xdotool keyup shift; wait_for 0.3 "Shift up"
+    raw_key up shift; wait_for 0.3 "Shift up"
 
     assert_regions_same "$LC_DIR/bands-plain.png" "$LC_DIR/bands-shift.png" "Shift over a pane: no crosshair on the strip / transport bar" 0
     assert_regions_differ "$LC_DIR/pane-plain.png" "$LC_DIR/pane-shift.png" "Shift over a pane: the crosshair shows in it"

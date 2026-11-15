@@ -33,14 +33,14 @@ nk_cur() { nk_field ANIM 3; }
 nk_opacity() { nk_field PAINT 1; }
 numlock_on() { xset -display "$DISPLAY" q 2>/dev/null | grep -q "Num Lock: *on"; }
 set_numlock() { # on | off
-    if [[ "$1" == on ]]; then numlock_on || xdotool key Num_Lock; else numlock_on && xdotool key Num_Lock; fi
+    if [[ "$1" == on ]]; then numlock_on || raw_seq key Num_Lock; else numlock_on && raw_seq key Num_Lock; fi
     sleep 0.3
 }
 nk_press() { # KEYSYM hold|tap
     park_mouse
     if [[ "$1" == *+* ]]; then key "$1"      # a chord: the harness holds the modifier first
-    elif [[ "$2" == hold ]]; then xdotool keydown "$1"; sleep 0.15; xdotool keyup "$1"
-    else xdotool key "$1"; fi                # xdotool's instant tap, quicker than a frame
+    elif [[ "$2" == hold ]]; then raw_key down "$1"; sleep 0.15; raw_key up "$1"
+    else raw_seq key "$1"; fi                # the driver's instant tap, quicker than a frame
     wait_for 0.3 "$1 ($2)"
 }
 nk_expect() { # KEYSYM HOW WANT_FRAME LABEL
