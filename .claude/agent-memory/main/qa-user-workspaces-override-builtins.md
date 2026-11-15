@@ -19,3 +19,10 @@ then on - DRAW was fine; run directly with a scratch HOME it showed the lightbox
 workflow-buttons, workspace-sprite-scene. When a workspace test fails only on this machine,
 `ls ~/.local/share/DRAW/WORKSPACES/` first (read-only - never edit Rick's files).
 Related: [[qa-harness-toolkit]].
+
+**Update 2026-11-14:** the harness now does this itself - `adapter_pre_launch` (qa-harness
+`adapters/draw/manifest.sh`) gives every normal-mode test an empty
+`$RESULTS_DIR/draw-qa-workspaces` as `WORKSPACES_DIR` unless the test pins one (profile mode
+uses its copied data dir). Needed because a workspace now saves every layout change into its
+file ([[workspace-remember-whole-layout]]): a plain run switching into a user workspace would
+have written the real file.

@@ -108,6 +108,7 @@ WS_ACTIVE_TITLE = "Default"
 ' ManuallyHidden, and the persisted CFG *_VISIBLE field where one exists).
 DIM SHARED WS_EL_TOUCHED(1 TO WS_EL_COUNT) AS INTEGER
 DIM SHARED WS_EL_WANT(1 TO WS_EL_COUNT)    AS INTEGER
+DIM SHARED WS_EL_NAMED(1 TO WS_EL_COUNT)     AS INTEGER ' the file names it: apply sets it (else it starts as it is)
 DIM SHARED WS_EL_SNAP_VIS(1 TO WS_EL_COUNT) AS INTEGER
 DIM SHARED WS_EL_SNAP_MH(1 TO WS_EL_COUNT)  AS INTEGER
 DIM SHARED WS_EL_SNAP_CFG(1 TO WS_EL_COUNT) AS INTEGER
@@ -115,6 +116,7 @@ DIM SHARED WS_EL_HOLD_CFG(1 TO WS_EL_COUNT) AS INTEGER ' guard scratch
 
 DIM SHARED WS_DK_TOUCHED(1 TO WS_DK_COUNT) AS INTEGER
 DIM SHARED WS_DK_WANT(1 TO WS_DK_COUNT)    AS STRING
+DIM SHARED WS_DK_NAMED(1 TO WS_DK_COUNT)     AS INTEGER ' the file names its side
 DIM SHARED WS_DK_SNAP(1 TO WS_DK_COUNT)    AS STRING
 DIM SHARED WS_DK_HOLD(1 TO WS_DK_COUNT)    AS STRING ' guard scratch
 
@@ -143,6 +145,7 @@ DIM SHARED WS_POLL_WANT   AS INTEGER ' something may have changed: look (CONFIG_
 DIM SHARED WS_POLL_BASE   AS INTEGER ' the next look only records what is live (just applied)
 DIM SHARED WS_POLL_FRAME  AS LONG    ' frames since the last look
 DIM SHARED WS_POLL_SAVES  AS LONG    ' QA: how many saves the looks made
+DIM SHARED WS_STATE_SEEN  AS STRING  ' the whole layout as the last look saw it (WS_layout_state$)
 
 DIM SHARED WS_TB_TOUCHED AS INTEGER ' [TOOLBOX] rewrote the toolbar layout / icons
 DIM SHARED WS_LW_TOUCHED AS INTEGER ' [CHROME] LAYER_PANEL_WIDTH set the layers panel width

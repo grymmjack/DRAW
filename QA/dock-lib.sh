@@ -276,6 +276,15 @@ dk_check() {
 
 # start every dock test from a fresh dump
 # (DRAW rewrites the dump at its first layout, so it is fresh by now)
+# dk_ws_state FILE - the whole live layout (what Save Current Layout stores:
+# SECTION.KEY=value lines, then WSA=<active>) into FILE (GUI/WORKSPACE-APPLY WS_layout_state$)
+dk_ws_state() {
+    local n=0
+    rm -f "$DK_DUMP.ws"; touch "$DK_DUMP.wsreq"
+    while [[ ! -f "$DK_DUMP.ws" && $n -lt 40 ]]; do sleep 0.2; n=$((n + 1)); done
+    if [[ -f "$DK_DUMP.ws" ]]; then tr -d '\r' < "$DK_DUMP.ws" | sort > "$1"; else fail "no layout state ($DK_DUMP.ws)"; : > "$1"; fi
+}
+
 dk_begin() {
     wait_for 1.0 "settle"
     key Escape

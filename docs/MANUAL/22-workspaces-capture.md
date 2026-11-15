@@ -201,13 +201,24 @@ session, DRAW offers to keep it under a name:
 You can switch to any workspace and come back to yours later. "Current" and
 "Default" are reserved names.
 
-**A workspace remembers its panels.** Inside a workspace, whatever you change
-on a panel - its Scale, a zoom (Ctrl+wheel over the Drawer bins, the Preview,
-the X-sheet, the 3D view, the Browser's thumbnails), its columns or view, a
-choice in its menu, the color strip's size, where a floating window sits and
-how big it is - is saved into that workspace straight away. Your own settings
-(Default) don't change, and switching back to the workspace brings its panels
-back exactly as you left them.
+**A workspace remembers its whole layout.** Inside a workspace, everything you
+change about the panels is saved into that workspace straight away, whether
+you use the mouse, a key or the command palette:
+- which panels show (F11 and Shift+F11 hide and show for the moment only,
+  and aren't saved)
+- where each panel is docked: the side, the column, the order, the tabs,
+  the sizes, the floating panels
+- the toolbox and bar columns, and the Layers panel's width
+- where each floating window sits and how big it is, also for windows that
+  aren't showing
+- each panel's Scale and zoom (Ctrl+wheel over the Drawer bins, the Preview,
+  the X-sheet, the 3D view, the Browser's thumbnails), its columns or view,
+  and the choices in its menus. That includes the color strip's size menu,
+  the Swatches panel's set and options, the Pen Pressure settings, the
+  workflow buttons and the lightbox.
+
+Your own settings (Default) don't change. When you switch back to the workspace,
+or restart DRAW in it, the layout comes back exactly as you left it.
 
 **Save what's on screen** from **View → Workspace ▸**:
 
