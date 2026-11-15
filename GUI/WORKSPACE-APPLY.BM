@@ -314,6 +314,7 @@ END SUB
 SUB WS_restore ()
     DIM el AS INTEGER, dk AS INTEGER, i AS INTEGER, ok AS INTEGER
     IF WS_ACTIVE = 0 THEN EXIT SUB
+    WS_panels_poll TRUE ' a panel change made in the workspace goes into it before the user's own state comes back
     FOR el = 1 TO WS_EL_COUNT
         IF WS_EL_TOUCHED(el) THEN
             WS_el_set el, WS_EL_SNAP_VIS(el)
@@ -338,8 +339,10 @@ SUB WS_restore ()
     WS_LW_TOUCHED = FALSE
     IF WS_DOCK_TOUCHED THEN DOCK_load_snapshot WS_DOCK_USER_SNAP
     WS_DOCK_TOUCHED = FALSE
-    IF WS_WIN_TOUCHED THEN DOCK_native_from_cfg ' the user's own window places (restored above)
+    IF WS_PANELS_ON THEN WS_panels_push ' the user's own scales, zooms and panel settings (restored above)
+    IF WS_WIN_TOUCHED _ORELSE WS_PANELS_ON THEN DOCK_native_from_cfg ' the user's own window places (restored above)
     WS_WIN_TOUCHED = FALSE
+    WS_PANELS_ON = FALSE
     IF WS_BARS_TOUCHED THEN WS_bars_reset
     WS_BARS_TOUCHED = FALSE
     IF WS_KEY_N > 0 THEN WS_keys_reset
@@ -367,7 +370,7 @@ END SUB
 ' workspace can't be found.
 FUNCTION WS_apply% (idOrTitle AS STRING)
     DIM idx AS INTEGER, i AS INTEGER, el AS INTEGER, dk AS INTEGER, ok AS INTEGER
-    DIM k AS STRING, v AS STRING, want AS INTEGER, matched AS INTEGER
+    DIM k AS STRING, v AS STRING, want AS INTEGER, matched AS INTEGER, wantId AS STRING
 
     idx = WS_find%(idOrTitle)
     IF idx = 0 THEN
@@ -376,7 +379,10 @@ FUNCTION WS_apply% (idOrTitle AS STRING)
         EXIT FUNCTION
     END IF
 
+    wantId = WS_LIST(idx).id
     WS_restore
+    idx = WS_find%(wantId) ' (leaving may have saved a panel change: the list was scanned again)
+    IF idx = 0 THEN EXIT FUNCTION
 
     IF WS_is_default%(WS_LIST(idx).id) THEN
         IF WS_NO_REMEMBER = 0 THEN CFG.WORKSPACE$ = WS_DEFAULT_ID$
@@ -423,6 +429,7 @@ FUNCTION WS_apply% (idOrTitle AS STRING)
         WS_OPT_VAL(WS_OPT_N) = WS_RES_VAL(i)
         WS_OPT_ORIG(WS_OPT_N) = ""
         WS_OPT_HAD(WS_OPT_N) = FALSE
+        WS_OPT_KIND(WS_OPT_N) = WS_OK_OPTION
     LOOP
     ' [WINDOWS] - the floating windows' places (Save Current Layout): DRAW.cfg
     ' keys like [OPTIONS], so the guard keeps them out of the user's file and
@@ -438,9 +445,18 @@ FUNCTION WS_apply% (idOrTitle AS STRING)
         WS_OPT_VAL(WS_OPT_N) = WS_RES_VAL(i)
         WS_OPT_ORIG(WS_OPT_N) = ""
         WS_OPT_HAD(WS_OPT_N) = FALSE
+        WS_OPT_KIND(WS_OPT_N) = WS_OK_WINDOW
         WS_WIN_TOUCHED = TRUE
     LOOP
+    ' [PANELS] and every other panel / window key (WS_panels_add): the
+    ' workspace's own value, or the live one - all kept out of DRAW.cfg, put
+    ' back on leaving, and a change made here is saved into the workspace
+    WS_panels_pull
+    WS_panels_add
     WS_capture_option_origs
+    FOR i = 1 TO WS_OPT_N
+        IF WS_OPT_KIND(i) >= WS_OK_PANEL _ANDALSO LEN(WS_OPT_VAL(i)) = 0 THEN WS_OPT_VAL(i) = WS_OPT_ORIG(i)
+    NEXT i
 
     ' Keys the overlay does not handle yet are reported once, not silently dropped
     i = 0
@@ -483,13 +499,17 @@ FUNCTION WS_apply% (idOrTitle AS STRING)
     WS_relabel_hotkeys
     FOR i = 1 TO WS_OPT_N
         IF WS_OPT_HAD(i) THEN
-            ok = CONFIG_apply_key%(WS_OPT_KEY(i), WS_OPT_VAL(i))
-            IF ok = 0 THEN _LOGWARN "WORKSPACE: [OPTIONS] " + WS_OPT_KEY(i) + " not accepted"
-        ELSE
+            IF WS_OPT_KIND(i) < WS_OK_PANEL _ORELSE WS_OPT_VAL(i) <> WS_OPT_ORIG(i) THEN
+                ok = CONFIG_apply_key%(WS_OPT_KEY(i), WS_OPT_VAL(i))
+                IF ok = 0 THEN _LOGWARN "WORKSPACE: [OPTIONS] " + WS_OPT_KEY(i) + " not accepted"
+            END IF
+        ELSEIF WS_OPT_KIND(i) < WS_OK_PANEL THEN
             _LOGWARN "WORKSPACE: [OPTIONS] unknown key " + WS_OPT_KEY(i) + " - ignored"
         END IF
     NEXT i
-    IF WS_WIN_TOUCHED THEN DOCK_native_from_cfg ' the floating windows to their saved places
+    WS_panels_push ' the panels take their scales, zooms and settings
+    DOCK_native_from_cfg ' the floating windows to their saved places
+    WS_POLL_BASE = TRUE: WS_POLL_WANT = TRUE ' the first look records what is live now
     WS_START_PENDING = TRUE
 
     IF WS_NO_REMEMBER = 0 THEN CFG.WORKSPACE$ = WS_ACTIVE_ID
@@ -508,6 +528,7 @@ SUB WS_cfg_guard_begin ()
     DIM el AS INTEGER, dk AS INTEGER, i AS INTEGER, ok AS INTEGER
     IF WS_ACTIVE = 0 _ORELSE WS_GUARD_BYPASS _ORELSE WS_GUARD_ON THEN EXIT SUB
     WS_GUARD_ON = TRUE
+    WS_POLL_WANT = TRUE ' (a panel setting may have just changed: WS_panels_poll looks)
     WS_CFG_LIVE = CFG ' everything live, so _end puts back what is live now (an option toggled since included)
     FOR el = 1 TO WS_EL_COUNT
         IF WS_EL_TOUCHED(el) _ANDALSO WS_el_has_cfg%(el) THEN
@@ -640,6 +661,7 @@ END SUB
 ' Per frame (after render): run a pending [START] once the command-line file
 ' (if any) has loaded, so the zoom fits the real document.
 SUB WS_tick ()
+    WS_panels_tick
     IF WS_START_PENDING = 0 THEN EXIT SUB
     IF LEN(CMDLINE_PENDING_FILE$) THEN EXIT SUB
     WS_apply_start
@@ -1268,4 +1290,360 @@ SUB WS_apply_dock ()
         DOCK_READY = FALSE
         WS_DOCK_TOUCHED = TRUE
     END IF
+END SUB
+
+
+' =============================================================================
+' Panel state in a workspace (2026-11-14): scales, zooms, sizes, places and
+' each panel's own settings. While a workspace is active every key below is
+' in the overlay (WS_OPT_* with WS_OK_PANEL / WS_OK_WINLIVE): DRAW.cfg keeps
+' the user's own values (the guard), leaving puts them back, and a change made
+' in the workspace is saved into it ([PANELS] / [WINDOWS]) by WS_panels_poll.
+' Save Current Layout writes them all (WSC_capture_layout), so a saved
+' workspace comes back exactly as it was.
+' =============================================================================
+
+''
+' Every panel's own DRAW.cfg keys a workspace keeps: scales, zooms, columns,
+' views and the settings in each panel's menu. Not here: visibility ([CHROME]),
+' dock sides / columns / the layers width ([CHROME] / [TOOLBOX] / bars), the
+' floating windows' places (WS_window_keys$) and folders / paths of files.
+FUNCTION WS_panel_keys$ ()
+    DIM s AS STRING
+    s = "TOOLBOX_PANEL_SCALE,ORGANIZER_PANEL_SCALE,DRAWER_PANEL_SCALE,DRAWER_BIN_COLS,DRAWER_MINI_PALETTE"
+    s = s + ",LAYER_PANEL_SCALE,LAYER_PANEL_BAR,LAYER_THUMBNAILS,LAYER_THUMBNAIL_FIT,LAYER_THUMBNAIL_MIN_CROP"
+    s = s + ",EDIT_BAR_SCALE,ADV_BAR_SCALE,CHARMAP_PANEL_SCALE,CHARMAP_ZOOM_LEVEL,CHARMAP_CELLS_PER_ROW"
+    s = s + ",WORKFLOW_PANEL_SCALE,WORKFLOW_BAR,LAYOUT_LOCKED"
+    s = s + ",PALETTE_MAX_ROWS,PALETTE_MAX_CHIPS_PER_ROW,PALETTE_CHIP_HEIGHT,PALETTE_CHIP_WIDTH"
+    s = s + ",PREVIEW_SCALE,PREVIEW_ZOOM,PREVIEW_FOLLOW,PREVIEW_MODE,PREVIEW_COLOR_PICK,PREVIEW_BIN_QUICK_LOOK,PREVIEW_SHOWS_FRAME,PREVIEW_FLOAT_IMAGE_PATH"
+    s = s + ",COLOR_MIXER_SCALE,COLOR_MIXER_MORE"
+    s = s + ",ADV_COLOR_PICKER_SCALE,ADV_COLOR_PICKER_BG_COLOR,ADV_COLOR_PICKER_BG_CUSTOM,ADV_COLOR_PICKER_HISTORY,ADV_COLOR_PICKER_HUE_NEIGHBORS"
+    s = s + ",ADV_COLOR_PICKER_QUANTIZE,ADV_COLOR_PICKER_QUANTIZE_BAR,ADV_COLOR_PICKER_SHADE_CURVE,ADV_COLOR_PICKER_SHADE_LABELS"
+    s = s + ",ADV_COLOR_PICKER_SHADE_PATCHES,ADV_COLOR_PICKER_SHADE_PRESET,ADV_COLOR_PICKER_SHADE_SPREAD_H,ADV_COLOR_PICKER_SHADE_SPREAD_S"
+    s = s + ",ADV_COLOR_PICKER_SHADE_SPREAD_V,ADV_COLOR_PICKER_VARIATIONS,ADV_COLOR_PICKER_WARMCOOL"
+    s = s + ",COLOR_SPACE_3D_SCALE,COLOR_SPACE_3D_SPACE,COLOR_SPACE_3D_VIEW,COLOR_SPACE_3D_SLICE,COLOR_SPACE_3D_SLICE_ON"
+    s = s + ",COLOR_SPACE_3D_YAW,COLOR_SPACE_3D_PITCH,COLOR_SPACE_3D_ZOOM,PEN_PANEL_SCALE,ANIM_PANEL_SCALE"
+    s = s + ",SWATCHES_SCALE,SWATCHES_SET,SWATCHES_COLS,SWATCHES_VIEW,SWATCHES_CELL,SWATCHES_GAP,SWATCHES_BORDER"
+    s = s + ",SWATCHES_SQUARE,SWATCHES_STRETCH,SWATCHES_BLACK_SPACERS,SWATCHES_RECENT"
+    s = s + ",BROWSER_SCALE,BROWSER_DEFAULT_VIEW_MODE,BROWSER_DEFAULT_ZOOM_LEVEL,BROWSER_DEFAULT_SORT_TYPE,BROWSER_DEFAULT_SORT_ORDER,BROWSER_DEFAULT_PREVIEW_OPEN"
+    s = s + ",XSHEET,XSHEET_SIZE,XSHEET_ROWS,XSHEET_ZOOM,XSHEET_NAME_WIDTH"
+    s = s + ",LIGHTBOX_STRIP_SIZE,LIGHTBOX_STRIP_CELL,LIGHTBOX_STRIP_FLOW,LIGHTBOX_STRIP_MIN_CELL,LIGHTBOX_PANES"
+    WS_panel_keys$ = s
+END FUNCTION
+
+
+''
+' The floating native windows' places and sizes ([WINDOWS], DOCK_native_cfg_lines$).
+FUNCTION WS_window_keys$ ()
+    DIM s AS STRING
+    s = "PREVIEW_X,PREVIEW_Y,PREVIEW_W,PREVIEW_H,COLOR_MIXER_X,COLOR_MIXER_Y,ADV_COLOR_PICKER_X,ADV_COLOR_PICKER_Y"
+    s = s + ",COLOR_SPACE_3D_X,COLOR_SPACE_3D_Y,PEN_PANEL_X,PEN_PANEL_Y,ANIM_PANEL_X,ANIM_PANEL_Y"
+    s = s + ",SWATCHES_X,SWATCHES_Y,SWATCHES_W,SWATCHES_H,BROWSER_POS_X,BROWSER_POS_Y,BROWSER_WIDTH,BROWSER_HEIGHT"
+    WS_window_keys$ = s
+END FUNCTION
+
+
+FUNCTION WS_opt_find% (k AS STRING)
+    DIM i AS INTEGER
+    FOR i = 1 TO WS_OPT_N
+        IF WS_OPT_KEY(i) = k THEN WS_opt_find% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' WS_apply%: put every panel / window key the workspace's [OPTIONS] /
+' [WINDOWS] did not name into the overlay - its [PANELS] value, or "" (the
+' live value, filled in once the originals are read).
+SUB WS_panels_add ()
+    DIM lst AS STRING, n AS INTEGER, k AS STRING, pass AS INTEGER, j AS INTEGER
+    FOR pass = 1 TO 2
+        IF pass = 1 THEN lst = WS_panel_keys$ ELSE lst = WS_window_keys$
+        FOR n = 1 TO WS_list_count%(lst)
+            k = WS_list_item$(lst, n)
+            IF WS_opt_find%(k) = 0 _ANDALSO WS_OPT_N < WS_MAX_OPTS THEN
+                WS_OPT_N = WS_OPT_N + 1
+                j = WS_OPT_N
+                WS_OPT_KEY(j) = k
+                IF pass = 1 THEN
+                    WS_OPT_VAL(j) = WS_get$("PANELS." + k, "")
+                    WS_OPT_KIND(j) = WS_OK_PANEL
+                ELSE
+                    WS_OPT_VAL(j) = ""
+                    WS_OPT_KIND(j) = WS_OK_WINLIVE
+                END IF
+                WS_OPT_ORIG(j) = ""
+                WS_OPT_HAD(j) = FALSE
+                WS_OPT_SEEN(j) = ""
+            END IF
+        NEXT n
+    NEXT pass
+    WS_PANELS_ON = TRUE
+END SUB
+
+
+''
+' Panel state that lives in the panels, not in CFG, until DRAW exits
+' (MAIN_shutdown copies it): copy it into CFG now.
+SUB WS_panels_pull ()
+    DIM z AS INTEGER
+    IF PREVIEW.zoom! > 0 THEN CFG.PREVIEW_ZOOM! = PREVIEW.zoom!
+    CFG.PREVIEW_FOLLOW% = PREVIEW.followPointer%
+    IF BROWSER.initialized% THEN
+        CFG.BROWSER_DEFAULT_VIEW_MODE% = FD_CFG.viewMode
+        z = FD_CFG.thumbSize \ 32
+        IF z < 1 THEN z = 1
+        IF z > 8 THEN z = 8
+        CFG.BROWSER_DEFAULT_ZOOM_LEVEL% = z
+        CFG.BROWSER_DEFAULT_SORT_TYPE% = FD_CFG.sortField
+        IF FD_CFG.sortAscending THEN CFG.BROWSER_DEFAULT_SORT_ORDER% = 0 ELSE CFG.BROWSER_DEFAULT_SORT_ORDER% = 1
+        IF FD_CFG.showPreview THEN CFG.BROWSER_DEFAULT_PREVIEW_OPEN% = TRUE ELSE CFG.BROWSER_DEFAULT_PREVIEW_OPEN% = FALSE
+    ELSEIF BROWSER.settingsLoaded% THEN
+        CFG.BROWSER_DEFAULT_VIEW_MODE% = BROWSER.viewMode%
+        CFG.BROWSER_DEFAULT_ZOOM_LEVEL% = BROWSER.zoomLevel%
+        CFG.BROWSER_DEFAULT_SORT_TYPE% = BROWSER.sortType%
+        CFG.BROWSER_DEFAULT_SORT_ORDER% = BROWSER.sortOrder%
+        CFG.BROWSER_DEFAULT_PREVIEW_OPEN% = BROWSER.previewOpen%
+    END IF
+END SUB
+
+
+''
+' After a workspace's (or the user's own) panel values went into CFG: the
+' panels take them now - their scales, zooms and settings - and relayout.
+SUB WS_panels_push ()
+    DIM pvMode AS INTEGER, pvFollow AS INTEGER, pvZoom AS SINGLE, pvPath AS STRING, img AS LONG
+    DIM oldThumb AS INTEGER, ti AS INTEGER
+
+    SCALE_resolve_widgets SCRN.displayScale% ' the Preview's / Browser's own scales
+
+    ' Preview: mode (and its reference image), follow, zoom, quick look, picking
+    pvMode = CFG.PREVIEW_MODE%: pvFollow = CFG.PREVIEW_FOLLOW%: pvZoom = CFG.PREVIEW_ZOOM!: pvPath = CFG.PREVIEW_FLOAT_IMAGE_PATH$
+    IF pvMode = PREVIEW_MODE_FLOAT THEN
+        IF LEN(pvPath) _ANDALSO pvPath <> PREVIEW.floatImagePath$ _ANDALSO _FILEEXISTS(pvPath) THEN
+            img = _LOADIMAGE(pvPath, 32)
+            IF img < -1 THEN
+                IF PREVIEW.floatImage& < -1 THEN _FREEIMAGE PREVIEW.floatImage&
+                PREVIEW.floatImage& = img
+                PREVIEW.floatImageW% = _WIDTH(img): PREVIEW.floatImageH% = _HEIGHT(img)
+                PREVIEW.floatImagePath$ = pvPath
+                PREVIEW.floatImageDepth% = 32
+            END IF
+        END IF
+        IF PREVIEW.mode% <> PREVIEW_MODE_FLOAT THEN PREVIEW_set_floating_mode
+    ELSE
+        IF PREVIEW.mode% <> PREVIEW_MODE_FOLLOW THEN PREVIEW_set_follow_mode
+    END IF
+    CFG.PREVIEW_MODE% = pvMode: CFG.PREVIEW_FOLLOW% = pvFollow: CFG.PREVIEW_ZOOM! = pvZoom: CFG.PREVIEW_FLOAT_IMAGE_PATH$ = pvPath
+    PREVIEW.followPointer% = pvFollow
+    IF pvZoom > 0 THEN PREVIEW.zoom! = pvZoom
+    PREVIEW.colorPickEnabled% = CFG.PREVIEW_COLOR_PICK%
+    PREVIEW.binQuickLookEnabled% = CFG.PREVIEW_BIN_QUICK_LOOK%
+
+    ' Color Mixer (MORE), Advanced Color Picker (shade line-set; the rest is read each render)
+    IF COLORMIXER.initialized% THEN COLORMIXER_relayout
+    IF ADVCP.initialized% THEN ADVCP_apply_shade_config
+
+    ' 3D Color Space: space, view, slice, rotation, zoom
+    IF CS3D.initialized% THEN
+        IF C3D_STATE.spaceId <> CFG.COLOR_SPACE_3D_SPACE% THEN C3D_set_space CFG.COLOR_SPACE_3D_SPACE%
+        IF C3D_STATE.viewMode <> CFG.COLOR_SPACE_3D_VIEW% THEN C3D_set_view CFG.COLOR_SPACE_3D_VIEW%
+        C3D_set_slice CFG.COLOR_SPACE_3D_SLICE_ON%, CFG.COLOR_SPACE_3D_SLICE% / 100!
+        C3D_set_rotation CFG.COLOR_SPACE_3D_YAW%, CFG.COLOR_SPACE_3D_PITCH%, CFG.COLOR_SPACE_3D_ZOOM% / 100!
+    END IF
+
+    ' Swatches: the set shown, its gap (the rest is read as it lays out)
+    IF SWP.initialized THEN
+        IF SWP.setKey <> CFG.SWATCHES_SET THEN SWP_load_set CFG.SWATCHES_SET
+        SWP.gap = CFG.SWATCHES_GAP%
+        SWP_relayout
+        SWP_compute_display_size
+    END IF
+
+    ' Character map: cells per row
+    IF CFG.CHARMAP_CELLS_PER_ROW% >= CHARMAP_MIN_CELLS_PER_ROW _ANDALSO CFG.CHARMAP_CELLS_PER_ROW% <= CHARMAP_MAX_CELLS_PER_ROW THEN CHARMAP.cellsPerRow% = CFG.CHARMAP_CELLS_PER_ROW%
+
+    ' Browser: view, thumbnail zoom, sort, preview pane
+    oldThumb = FD_CFG.thumbSize
+    BROWSER_apply_defaults
+    IF BROWSER.initialized% _ANDALSO FD_CFG.thumbSize <> oldThumb THEN
+        FD_THUMB_invalidate_all
+        FOR ti = 0 TO FD_STATE.entryCount - 1
+            IF FD_entries(ti).thumbState = FD_THUMB_LOADED _ORELSE FD_entries(ti).thumbState = FD_THUMB_LOADING THEN
+                FD_entries(ti).thumbHandle = -1
+                FD_entries(ti).thumbState = FD_THUMB_PENDING
+            END IF
+        NEXT ti
+        FD_FS_recalc_scroll
+        IF FD_STATE.scrollOffset > FD_STATE.maxScroll THEN FD_STATE.scrollOffset = FD_STATE.maxScroll
+    END IF
+
+    ' everything else (scales, bin zoom, X-sheet, lightbox strip, colour strip,
+    ' layer thumbnails, the workflow panel) is read from CFG as it lays out
+    SCREEN_compute_layout
+    FPANEL_clamp_all
+    IF BROWSER.initialized% _ANDALSO BROWSER.docked% = 0 THEN
+        BROWSER_compute_display_size
+        BROWSER_clamp_size
+        BROWSER_clamp_to_work_area
+        BROWSER_sync_fd_from_display
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE
+    STATUS_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    INVALIDATE_scene
+END SUB
+
+
+''
+' Every frame (WS_tick): a click / drag that ended, or a CONFIG_save, may
+' have changed a panel - look a few frames later, with no button held.
+SUB WS_panels_tick ()
+    STATIC oldB AS INTEGER, oldSW AS INTEGER
+    DIM b AS INTEGER
+    IF WS_ACTIVE = 0 _ORELSE WS_PANELS_ON = 0 THEN EXIT SUB
+    b = ABS(MOUSE.B1 <> 0) + 2 * ABS(MOUSE.B2 <> 0) + 4 * ABS(MOUSE.B3 <> 0)
+    IF b = 0 _ANDALSO oldB <> 0 THEN WS_POLL_WANT = TRUE
+    IF MOUSE.SW <> 0 _ORELSE oldSW <> 0 THEN WS_POLL_WANT = TRUE ' a wheel turn (a zoom)
+    oldB = b: oldSW = MOUSE.SW
+    IF WS_POLL_FRAME < 32000 THEN WS_POLL_FRAME = WS_POLL_FRAME + 1
+    IF WS_POLL_WANT = 0 _ORELSE b <> 0 THEN EXIT SUB
+    IF WS_POLL_FRAME < 6 THEN EXIT SUB
+    WS_panels_poll FALSE
+END SUB
+
+
+''
+' Compare the live panel / window values with the ones last seen; a change
+' is saved into the active workspace ([PANELS] / [WINDOWS]; a built-in gets
+' a user copy, as a dragged dock edge does). force: look even if nothing asked.
+' The first look after an apply only records (WS_POLL_BASE).
+SUB WS_panels_poll (force AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER, nc AS INTEGER, wl AS STRING, ln AS STRING, p AS INTEGER, k AS STRING, j AS INTEGER
+    DIM ck(1 TO WS_MAX_OPTS) AS STRING, cv(1 TO WS_MAX_OPTS) AS STRING, nowV(1 TO WS_MAX_OPTS) AS STRING
+    IF WS_ACTIVE = 0 _ORELSE WS_PANELS_ON = 0 _ORELSE WS_GUARD_ON THEN EXIT SUB
+    IF force = 0 _ANDALSO WS_POLL_WANT = 0 THEN EXIT SUB
+    WS_POLL_WANT = FALSE
+    WS_POLL_FRAME = 0
+
+    ' what is live: the panel keys as CONFIG_save writes them, the windows as Save Current Layout does
+    WS_panels_pull
+    WS_cfg_lines_read nowV()
+    FOR i = 1 TO WS_OPT_N
+        IF WS_OPT_KIND(i) = WS_OK_WINDOW _ORELSE WS_OPT_KIND(i) = WS_OK_WINLIVE THEN nowV(i) = WS_OPT_SEEN(i)
+    NEXT i
+    wl = DOCK_native_cfg_lines$ ' (the shown, floating ones; a hidden window keeps what it had)
+    n = DOCK_fields%(wl, CHR$(10))
+    FOR j = 1 TO n
+        ln = DOCK_field$(wl, CHR$(10), j)
+        p = INSTR(ln, "=")
+        IF p > 1 THEN
+            i = WS_opt_find%(UCASE$(LEFT$(ln, p - 1)))
+            IF i THEN IF WS_OPT_KIND(i) = WS_OK_WINDOW _ORELSE WS_OPT_KIND(i) = WS_OK_WINLIVE THEN nowV(i) = MID$(ln, p + 1)
+        END IF
+    NEXT j
+
+    IF WS_POLL_BASE THEN
+        FOR i = 1 TO WS_OPT_N
+            IF WS_OPT_KIND(i) >= WS_OK_WINDOW THEN WS_OPT_SEEN(i) = nowV(i)
+        NEXT i
+        WS_POLL_BASE = FALSE
+        EXIT SUB
+    END IF
+
+    FOR i = 1 TO WS_OPT_N
+        IF WS_OPT_KIND(i) >= WS_OK_WINDOW _ANDALSO nowV(i) <> WS_OPT_SEEN(i) _ANDALSO LEN(nowV(i)) THEN
+            nc = nc + 1
+            IF WS_OPT_KIND(i) = WS_OK_PANEL THEN ck(nc) = "PANELS." + WS_OPT_KEY(i) ELSE ck(nc) = "WINDOWS." + WS_OPT_KEY(i)
+            cv(nc) = nowV(i)
+            WS_OPT_SEEN(i) = nowV(i)
+            WS_OPT_VAL(i) = nowV(i)
+            IF WS_OPT_KIND(i) = WS_OK_WINLIVE THEN WS_OPT_KIND(i) = WS_OK_WINDOW
+        END IF
+    NEXT i
+    IF nc = 0 THEN EXIT SUB
+    WS_panels_save ck(), cv(), nc
+END SUB
+
+
+''
+' The live values of every panel-key entry (WS_OK_PANEL), as CONFIG_save
+' writes them: a scratch save, read back (as WS_capture_option_origs does).
+SUB WS_cfg_lines_read (nowV() AS STRING)
+    DIM realPath AS STRING, tmpPath AS STRING, fh AS INTEGER, ln AS STRING, eq AS INTEGER, k AS STRING, i AS INTEGER
+    realPath = CONFIG_FILE_PATH$
+    tmpPath = PATHS_cache$("workspace-cfg-panels.tmp")
+    CONFIG_FILE_PATH$ = tmpPath
+    WS_GUARD_BYPASS = TRUE
+    CONFIG_save
+    WS_GUARD_BYPASS = FALSE
+    CONFIG_FILE_PATH$ = realPath
+    IF _FILEEXISTS(tmpPath) = 0 THEN EXIT SUB
+    fh = FREEFILE
+    OPEN tmpPath FOR INPUT AS #fh
+    DO WHILE NOT EOF(fh)
+        LINE INPUT #fh, ln
+        eq = INSTR(ln, "=")
+        IF eq < 2 THEN _CONTINUE
+        k = UCASE$(_TRIM$(LEFT$(ln, eq - 1)))
+        i = WS_opt_find%(k)
+        IF i THEN IF WS_OPT_KIND(i) = WS_OK_PANEL THEN nowV(i) = _TRIM$(MID$(ln, eq + 1))
+    LOOP
+    CLOSE #fh
+    KILL tmpPath
+END SUB
+
+
+''
+' Write changed panel / window keys into the active workspace's file. The
+' configurator's editor store is kept as it was (the save borrows it).
+SUB WS_panels_save (ck() AS STRING, cv() AS STRING, nc AS INTEGER)
+    DIM idx AS INTEGER, ok AS INTEGER, i AS INTEGER, sN AS INTEGER, sId AS STRING, sSel AS INTEGER, sDirty AS INTEGER, sRe AS INTEGER
+    DIM sK(1 TO WSC_MAX_KV) AS STRING, sV(1 TO WSC_MAX_KV) AS STRING
+    idx = WS_find%(WS_ACTIVE_ID)
+    IF idx = 0 _ORELSE WS_is_default%(WS_ACTIVE_ID) THEN EXIT SUB
+    sN = WSC_N: sId = WSC_ID: sSel = WSC.sel: sDirty = WSC.dirty: sRe = WSC.reapply
+    FOR i = 1 TO sN: sK(i) = WSC_K(i): sV(i) = WSC_V(i): NEXT i
+    WSC_load idx
+    FOR i = 1 TO nc
+        WSC_set ck(i), cv(i)
+    NEXT i
+    ok = WSC_save%
+    ok = WS_resolve%(WS_ACTIVE_ID)
+    WSC_N = sN: WSC_ID = sId: WSC.sel = sSel: WSC.dirty = sDirty: WSC.reapply = sRe
+    FOR i = 1 TO sN: WSC_K(i) = sK(i): WSC_V(i) = sV(i): NEXT i
+    WS_POLL_SAVES = WS_POLL_SAVES + 1
+    _LOGINFO "WORKSPACE: " + _TRIM$(STR$(nc)) + " panel setting(s) saved into '" + WS_ACTIVE_ID + "' (" + ck(1) + "=" + cv(1) + ")"
+END SUB
+
+
+''
+' Save Current Layout: every panel key as it is live, as [PANELS].
+SUB WSC_capture_panels ()
+    DIM nowV(1 TO WS_MAX_OPTS) AS STRING, i AS INTEGER, lst AS STRING, n AS INTEGER, k AS STRING
+    DIM realPath AS STRING, tmpPath AS STRING, fh AS INTEGER, ln AS STRING, eq AS INTEGER
+    FOR i = WSC_N TO 1 STEP -1
+        IF LEFT$(WSC_K(i), 7) = "PANELS." THEN WSC_set WSC_K(i), ""
+    NEXT i
+    WS_panels_pull
+    lst = "," + WS_panel_keys$ + ","
+    realPath = CONFIG_FILE_PATH$
+    tmpPath = PATHS_cache$("workspace-cfg-capture.tmp")
+    CONFIG_FILE_PATH$ = tmpPath
+    WS_GUARD_BYPASS = TRUE
+    CONFIG_save
+    WS_GUARD_BYPASS = FALSE
+    CONFIG_FILE_PATH$ = realPath
+    IF _FILEEXISTS(tmpPath) = 0 THEN EXIT SUB
+    fh = FREEFILE
+    OPEN tmpPath FOR INPUT AS #fh
+    DO WHILE NOT EOF(fh)
+        LINE INPUT #fh, ln
+        eq = INSTR(ln, "=")
+        IF eq < 2 THEN _CONTINUE
+        k = UCASE$(_TRIM$(LEFT$(ln, eq - 1)))
+        IF INSTR(lst, "," + k + ",") THEN WSC_set "PANELS." + k, _TRIM$(MID$(ln, eq + 1))
+    LOOP
+    CLOSE #fh
+    KILL tmpPath
 END SUB

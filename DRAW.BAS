@@ -1197,6 +1197,8 @@ END SUB
 SUB MAIN_shutdown ()
     DIM i AS INTEGER
 
+    WS_panels_poll TRUE ' in a workspace: a panel change not saved yet goes into it (GUI/WORKSPACE-APPLY)
+
     ' Always persist preview state on exit
     CFG.PREVIEW_X%       = PREVIEW.x%
     CFG.PREVIEW_Y%       = PREVIEW.y%

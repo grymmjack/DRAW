@@ -55,7 +55,7 @@ CONST WS_DK_ADVANCED_BAR = 4
 CONST WS_DK_CHARMAP      = 5
 CONST WS_DK_COUNT        = 5
 
-CONST WS_MAX_OPTS = 64 ' [OPTIONS] keys per workspace
+CONST WS_MAX_OPTS = 256 ' [OPTIONS] + [WINDOWS] + every panel / window key (WS_panel_keys$, WS_window_keys$)
 
 DIM SHARED WS_EL_NAME(1 TO WS_EL_COUNT) AS STRING
 DIM SHARED WS_DK_NAME(1 TO WS_DK_COUNT) AS STRING
@@ -117,6 +117,25 @@ DIM SHARED WS_OPT_KEY(1 TO WS_MAX_OPTS)  AS STRING
 DIM SHARED WS_OPT_VAL(1 TO WS_MAX_OPTS)  AS STRING
 DIM SHARED WS_OPT_ORIG(1 TO WS_MAX_OPTS) AS STRING
 DIM SHARED WS_OPT_HAD(1 TO WS_MAX_OPTS)  AS INTEGER ' the user's config had the key
+' what kind of entry: an [OPTIONS] key, a [WINDOWS] key, a panel key ([PANELS]
+' or followed - WS_panel_keys$), a floating window's place followed (WS_window_keys$)
+CONST WS_OK_OPTION = 0
+CONST WS_OK_WINDOW = 1
+CONST WS_OK_PANEL  = 2
+CONST WS_OK_WINLIVE = 3
+DIM SHARED WS_OPT_KIND(1 TO WS_MAX_OPTS) AS INTEGER
+DIM SHARED WS_OPT_SEEN(1 TO WS_MAX_OPTS) AS STRING ' panel / window keys: the value last seen (WS_panels_poll)
+' Panel state in a workspace (2026-11-14, Rick: "workspaces need to remember
+' their scales for the panels, the zooms of the panel states ... the size,
+' height, width" / "when someone saves a workspace it should be 100%
+' recallable, even the panel configurations themselves"): while a workspace
+' is active every panel key is in the overlay - DRAW.cfg keeps the user's own
+' values, and a change made in the workspace is saved into it (WS_panels_poll).
+DIM SHARED WS_PANELS_ON   AS INTEGER ' the panel / window keys are in the overlay
+DIM SHARED WS_POLL_WANT   AS INTEGER ' something may have changed: look (CONFIG_save, a click / wheel ended)
+DIM SHARED WS_POLL_BASE   AS INTEGER ' the next look only records what is live (just applied)
+DIM SHARED WS_POLL_FRAME  AS LONG    ' frames since the last look
+DIM SHARED WS_POLL_SAVES  AS LONG    ' QA: how many saves the looks made
 
 DIM SHARED WS_TB_TOUCHED AS INTEGER ' [TOOLBOX] rewrote the toolbar layout / icons
 DIM SHARED WS_LW_TOUCHED AS INTEGER ' [CHROME] LAYER_PANEL_WIDTH set the layers panel width

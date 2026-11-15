@@ -201,11 +201,19 @@ session, DRAW offers to keep it under a name:
 You can switch to any workspace and come back to yours later. "Current" and
 "Default" are reserved names.
 
+**A workspace remembers its panels.** Inside a workspace, whatever you change
+on a panel - its Scale, a zoom (Ctrl+wheel over the Drawer bins, the Preview,
+the X-sheet, the 3D view, the Browser's thumbnails), its columns or view, a
+choice in its menu, the color strip's size, where a floating window sits and
+how big it is - is saved into that workspace straight away. Your own settings
+(Default) don't change, and switching back to the workspace brings its panels
+back exactly as you left them.
+
 **Save what's on screen** from **View → Workspace ▸**:
 
 | Item | Does |
 | --- | --- |
-| **Save Current Layout As…** | Asks for a name and saves a new workspace exactly as you see it: which panels show, dock sides, columns and widths, the floating panels, and where each floating window (Preview, Color Mixer, pickers, Pen, Animation, Swatches, Browser) sits and how big it is. When you're in a workspace, its toolbox buttons, menus and keys come along. DRAW switches to it. |
+| **Save Current Layout As…** | Asks for a name and saves a new workspace exactly as you see it: which panels show, dock sides, columns and widths, the floating panels, and where each floating window (Preview, Color Mixer, pickers, Pen, Animation, Swatches, Browser) sits and how big it is, and every panel's own setup: its Scale, its zoom (Drawer bins, Preview, X-sheet, 3D view, Browser thumbnails), its columns and view, the color strip's rows and chip size, and the choices in each panel's menu. When you're in a workspace, its toolbox buttons, menus and keys come along. DRAW switches to it. |
 | **Update Workspace From Layout** | Saves the current layout into the active workspace (a user copy for a built-in) |
 
 The configurator's **Toolbox** and **Bars** tabs also have a **Customize
@@ -375,6 +383,11 @@ SWATCHES_X=270            ; leaving the workspace puts yours back
 SWATCHES_Y=230
 COLOR_MIXER_X=420
 COLOR_MIXER_Y=75
+
+[PANELS]                  ; each panel's own setup (DRAW.cfg keys): scales,
+EDIT_BAR_SCALE=1          ; zooms, columns, views, menu choices; written by
+DRAWER_BIN_COLS=4         ; Save Current Layout and by any change you make
+PALETTE_MAX_ROWS=1        ; in the workspace; leaving puts yours back
 ```
 
 You rarely type `[DOCK]` yourself: arrange the panels by hand and use **Update
