@@ -149,12 +149,12 @@
 
 ## DOT TOOL
 
-- [ ] HOLD E to erase is allowing more than 1 dot at a time
+- [x] HOLD E to erase is allowing more than 1 dot at a time
 
 
 ## SPRAY TOOL
 
-- [ ] HOLD E to erase is not erasing with spray pattern, just brush size single brush
+- [x] HOLD E to erase is not erasing with spray pattern, just brush size single brush
 
 
 ## FLOOD FILL TOOL
