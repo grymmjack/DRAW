@@ -362,6 +362,7 @@ A swatch *is* its pixels: changing a swatch recolors every pixel of that color.
 | `Hold G + R` | Reset grid offset (0,0) |
 | `Hold G + Shift+R` | Reset grid size to theme default |
 | `Hold G + Ctrl+R` | Reset offset + size |
+| `R-Click` the organizer's grid button | **Visual grid adjust** (Deluxe Paint style): the grid shows, `L-Drag` one cell on the canvas → its size is the grid's width / height, its corner the grid's origin (live while dragging; the release keeps it). `Esc` puts the grid back |
 | `Ctrl+Shift` (hold) | Temporarily bypass grid snap |
 | `Ctrl+Alt+Shift+Wheel` | Grid, pixel grid **and** transparency checks opacity together (up = stronger, down = fainter; the checks fade toward one flat tone). This session only |
 | `Ctrl+Alt+Shift+M-Click` | Those three back to their configured opacity |

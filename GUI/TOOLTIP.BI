@@ -166,6 +166,7 @@ TOOLTIP_ORG_LINE3$(7) = "" ' built at render time from the bindings - see TOOLTI
 ' 8 = ORG_GRID_VIS
 TOOLTIP_ORG_LINE1$(8) = "' - GRID - Toggle show/hide of grid. WHEEL over icon to change GRID TYPE."
 TOOLTIP_ORG_LINE2$(8) = ". / , to change GRID size. SHIFT+' show/hide PIXEL GRID. CTRL+SHIFT+/ make GRID brush size."
+TOOLTIP_ORG_LINE3$(8) = "R-CLICK to visually adjust: drag one cell on the canvas to set the GRID width / height (and origin). ESC cancels."
 ' 9 = ORG_GRID_SNAP
 TOOLTIP_ORG_LINE1$(9) = "; - SNAP TO GRID - Toggle grid snapping. WHEEL over icon = change SNAP TYPE."
 TOOLTIP_ORG_LINE2$(9) = "/ to change SNAP TYPE - CENTER, or CORNER."

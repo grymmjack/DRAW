@@ -28,8 +28,8 @@
 
 ## ORGANIZER GRID BUTTON
 
-- [ ] RCLICK on button to adjust grid with drag (like deluxe paint - super impose a grid, then let user drag to adjust width/height)
-- [ ] Add to status: RCLICK to visually adjust
+- [x] RCLICK on button to adjust grid with drag (like deluxe paint - super impose a grid, then let user drag to adjust width/height)
+- [x] Add to status: RCLICK to visually adjust
 
 
 ## MOVE TOOL
