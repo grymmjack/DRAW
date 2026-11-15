@@ -82,6 +82,7 @@
 - [F5 debug build cost](draw-debug-build-cost.md) — F5 = qb64pe-vscode DEBUGGER (flatten+$DEBUG, one monolithic C++ TU, ~9min single-core), NOT tasks.json; MaxCompilerProcesses/OptimizeCppProgram do NOT help it; use fast tasks build for non-debug iteration
 - [Game font extraction](game-font-extraction.md) — DOOM/Heretic/Hexen/Blood CBF fonts: WAD lumps, Blood shareware QFN-in-RFF, mapping quirks
 - [Parallelize farm work](feedback-parallelize-farm-work.md) — start independent host work at once (parallel jobs); don't queue it behind another host's run
+- [Farm QA environment gaps](farm-qa-environment-gaps.md) — 2026-11-15 full-suite failures were mostly env: xdotool pid search ORs (stale window on relaunch, fixed --all), titan IM6 (magick shim), thinkpad no magick/python, keymap seeding Linux-only (skip), farm builds now run build-info.sh, farm-check qa hang fixed
 - [Farm: no GUI popups, trap crashes](farm-no-gui-popups-trap-crashes.md) — never pop windows on mac/thinkpad; trap SIGSEGV in-process (sigtrap.h) so no macOS/WER crash dialog; QA runs may take over mac/thinkpad/titan screens (Rick 2026-10-09) - say so before a full suite
 - [Menu fires on press](menu-fires-on-press.md) — modals opened from the menu must swallow the held button (FD wrappers, DIALOG inputArmed)
 - [Document filename invariants](document-filename-invariants.md) — set CURRENT_DRW/CURRENT_FILENAME only via SAVE_set_document_file; sidecar setting, Flatten & Save, Export Again

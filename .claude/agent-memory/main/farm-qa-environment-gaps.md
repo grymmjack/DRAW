@@ -1,0 +1,45 @@
+---
+name: farm-qa-environment-gaps
+description: Why full QA suites failed by the hundred on the farm (2026-11-15) - stale-window relaunch bug, missing ImageMagick 7 / Python, Linux-only keymap seeding, bare-version farm builds, a hanging farm-check - and what fixed each
+metadata:
+  type: project
+---
+
+First full 530-file suite on all four machines at once (DRAW 96a6248a, QB64-PE
+dd66c0c58 everywhere, 2026-11-15). Most failures were the test environment, not DRAW:
+
+- **[Linux] Mid-test relaunch bound the dying window** (~30 tests: every `clip-*`
+  restore step, file-save-as-draw, drawer-slots, animbrush-load, file-export-qb64-fill,
+  dock-browser-band...). `xdotool search --pid P --name T` ORs its conditions, so the
+  pid never filtered; the new launch bound the old instance's still-closing window,
+  it vanished, the geometry check read 0x0 and "the test script DIED". Not
+  `_NET_WM_PID` (GLFW QB64-PE sets it). Fixed in qa-harness 14e6da7: `--all`, title
+  fallback only for windows without a pid. known-failures.txt entries blaming
+  "relaunch 0x0 geometry" are this.
+- **[Linux/titan] ImageMagick 6 only** (`convert`, no `magick`): 112 fixture-building
+  tests got no fixture ("lightbox: 0 frames"). Fixed by a `magick` shim in qa-harness
+  core/assert.sh (0dfe71f). Titan has python3.
+- **[Windows/thinkpad] no ImageMagick and no Python** in Git Bash: every fixture test
+  fails. Needs a machine-wide install (the QA task runs as the desktop user) - the
+  user's call, not done unattended.
+- **[macOS + Windows] keymap tests can't seed DRAW.bindings**: the adapter's per-test
+  config folder is Linux-only (XDG_CONFIG_HOME), so `QA_CONFIG_DIR` is empty and the
+  tests pressed every key against the machine's own keymap (59 failures in
+  deluxepaint-keymap on the Mac). `km_seeded` in QA/keymap-lib.sh now SKIPS there.
+- **[macOS] floating windows 2x under DISPLAY_SCALE 1** (QB64-PE #789) - most of the
+  Mac's dock-native-* failures; already in known-failures.txt.
+- **Farm builds showed the bare version**: farm-check compiled with plain qb64pe and
+  never ran DEV/build-info.sh (anim-new-animation failed). Now it does on all three
+  recipes ([Windows] via `"C:\Program Files\Git\bin\bash.exe"` - the first `bash` on
+  cmd's PATH is WSL's). And QB64-PE's object reuse missed a `build_info_gen.h` that
+  appeared after the last compile (its dependency list only names headers that
+  existed then): build-info.sh now touches native/build_info.h on a new value.
+- **`farm-check.sh qa titan` never returned**: `a && b && nohup ... & echo` backgrounds
+  the whole `&&`-list, which kept ssh's output open until the suite ended. Now only
+  the nohup is backgrounded (`{ nohup ... & } && echo started`).
+- **[Windows] compiler self-host over SSH via PowerShell 5.1 stopped after `make`**:
+  native-command output + `*>` redirection; run the self-host step through `cmd /c`
+  from a .ps1 instead (see [[farm-build-recipes-per-host]]).
+
+The farm gets qa-harness by rsync without `.git`, so `git log` on a host is stale
+but its files are current - don't read the host's harness version from git.
