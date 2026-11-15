@@ -18,7 +18,11 @@ dd66c0c58 everywhere, 2026-11-15). Most failures were the test environment, not 
   "relaunch 0x0 geometry" are this.
 - **[Linux/titan] ImageMagick 6 only** (`convert`, no `magick`): 112 fixture-building
   tests got no fixture ("lightbox: 0 frames"). Fixed by a `magick` shim in qa-harness
-  core/assert.sh (0dfe71f). Titan has python3.
+  core/assert.sh. First as an exported bash function (0dfe71f) - not enough: tests also
+  run `magick` from python (`os.system` -> /bin/sh, which never sees bash functions),
+  so file-anim-sheet-import / file-anim-ase-import still had no fixtures ("compare-im6.q16:"
+  = IM6 couldn't open the missing file). Now a real `magick` script in
+  `$TMPDIR/qa-harness-im6-$UID` first on PATH (8679b09). Titan has python3.
 - **[Windows/thinkpad] no ImageMagick and no Python** in Git Bash: every fixture test
   failed. Installed machine-wide 2026-11-15 (Rick: "go ahead on thinkpad get parity"):
   ImageMagick 7.1.2-34 Q16-HDRI x64 + Python 3.13.17, both on the system PATH, plus a
@@ -42,6 +46,10 @@ dd66c0c58 everywhere, 2026-11-15). Most failures were the test environment, not 
   cmd's PATH is WSL's). And QB64-PE's object reuse missed a `build_info_gen.h` that
   appeared after the last compile (its dependency list only names headers that
   existed then): build-info.sh now touches native/build_info.h on a new value.
+  Verified on titan: `DRAW 2.7.0 (bc7bcb08 animation)`.
+- **[Linux/titan] slow host (~4x local)**: fixed sleeps after an action can read the
+  dump before DRAW redraws. clip-lanes-mod died on empty lane geometry (now retries);
+  swatches-color-edit typed before the color dialog opened (titan only).
 - **`farm-check.sh qa titan` never returned**: `a && b && nohup ... & echo` backgrounds
   the whole `&&`-list, which kept ssh's output open until the suite ended. Now only
   the nohup is backgrounded (`{ nohup ... & } && echo started`).
