@@ -173,7 +173,7 @@
 
 ## EXPORT SELECTION TO DISK TOOL
 
-- [ ] If I click the tool and there is no selection, it should allow me to create one, then export.
+- [x] If I click the tool and there is no selection, it should allow me to create one, then export.
 
 
 ## BROWSER BUTTON ON TOOL BOX

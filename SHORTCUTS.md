@@ -92,7 +92,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+S` | Save (silent if previously saved; dialog if new). A `.png` saves back into itself with the layers inside; a GIF/BMP/JPG… writes a `.draw` beside it, or overwrites itself flattened when Settings → General → *Save .draw Beside Images* is off |
 | `Ctrl+Shift+S` | Save As (always prompts) |
 | `Ctrl+Alt+Shift+S` | Flatten & Save — write the merged image back to the document's own file, in its own format, no `.draw` (asks for a name only when there is no image file to write) |
-| `Ctrl+Alt+S` | Export selection as cropped image |
+| `Ctrl+Alt+S` | Export selection as cropped image (nothing selected: the marquee is picked, and the next selection made is exported; `Esc` cancels) |
 | `Ctrl+Shift+Q` | QB64 Code Export — re-export to last project path (no dialog) |
 | `Ctrl+Shift+E` | Export Again — repeat the last File → Export As (same format + file, no dialog) |
 | `Ctrl+Shift+P` | Capture Screen — grab the screen, pick a region, annotate it (also `DRAW --capture`) |
