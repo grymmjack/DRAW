@@ -8,7 +8,7 @@
 
 ## GUI
 
-- [ ] Zoom Loupe is showing up even when not holding ALT when hovering over tool box buttons
+- [x] Zoom Loupe is showing up even when not holding ALT when hovering over tool box buttons
   - It is also showing wrong z-index underneath bars, underneath all other chrome in GUI except layer panel and color strip.
   - REPRODUCE: hover over a toolbox button, notice the zoom loupe preview image near by.
 
