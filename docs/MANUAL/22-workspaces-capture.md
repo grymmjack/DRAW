@@ -163,7 +163,7 @@ of another one. Turn it off to move floating panels freely.
 A floating toolbox or drawer stops growing once its buttons or bins all show,
 so no empty space is left beside or under them.
 
-**Lock Layout** (View → Lock Layout, `Ctrl+Shift+L`) freezes the whole
+**Lock Workspace** (View → Lock Workspace, `Ctrl+Shift+L`) freezes the whole
 arrangement, so a shaky pen can't drag, dock or resize a panel by accident.
 Clicks, tabs and buttons still work.
 

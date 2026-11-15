@@ -24,6 +24,7 @@ SUB MENUBAR_init ()
     MENU_ITEM_COUNT%       = 0
     MENU_ROOT_COUNT%       = 0
     MENU_ROOT_ORIG_N%      = 0
+    MENU_BAR.layoutItemIdx% = -1 ' (no View > Layout row any more: never a cascading position)
 
     ' Load Tiny5 font with no blending for pixelated look
     IF MENU_BAR.fontHandle& > 0 THEN _FREEFONT MENU_BAR.fontHandle&
@@ -76,10 +77,11 @@ SUB MENUBAR_register_item (label AS STRING, hotkey AS STRING, parentIdx AS INTEG
         MENU_ROOT_LASTDIV(regParent%) = (isDivider% <> 0)
     END IF
 
-    IF MENU_ITEM_COUNT% >= MENU_MAX_ITEMS THEN
-        ' Never silent again: a dropped item is a missing menu entry (Help first).
-        _LOGERROR "MENUBAR: MENU_MAX_ITEMS (" + _TRIM$(STR$(MENU_MAX_ITEMS)) + ") exceeded - dropped '" + label$ + "'. Raise MENU_MAX_ITEMS in GUI/MENUBAR.BI."
-        EXIT SUB
+    IF MENU_ITEM_COUNT% > UBOUND(MENU_ITEMS) THEN
+        ' The table grows instead of dropping items: a fixed cap overflowed three
+        ' times, and an overflow is a silently missing menu entry (Help first).
+        REDIM _PRESERVE MENU_ITEMS(UBOUND(MENU_ITEMS) + MENU_GROW_ITEMS) AS MENU_ITEM_OBJ
+        _LOGINFO "MENUBAR: menu table grown to " + _TRIM$(STR$(UBOUND(MENU_ITEMS) + 1)) + " items"
     END IF
 
     DIM idx AS INTEGER
@@ -237,6 +239,27 @@ END SUB
 
 
 ''
+' A dropdown never ends on a divider: when the rows after it are filtered out by
+' a workspace (or never registered) the divider would sit over nothing. Trailing
+' dividers are orphaned (parentIdx -99), so no dropdown walk counts them.
+'
+SUB MENUBAR_trim_trailing_dividers ()
+    DIM r AS INTEGER, i AS INTEGER, lastI AS INTEGER
+    FOR r% = 0 TO MENU_ROOT_COUNT% - 1
+        DO
+            lastI% = -1
+            FOR i% = 0 TO MENU_ITEM_COUNT% - 1
+                IF MENU_ITEMS(i%).parentIdx% = r% AND MENU_ITEMS(i%).subParent% < 0 THEN lastI% = i%
+            NEXT i%
+            IF lastI% < 0 THEN EXIT DO
+            IF MENU_ITEMS(lastI%).isDivider% = 0 THEN EXIT DO
+            MENU_ITEMS(lastI%).parentIdx% = -99
+        LOOP
+    NEXT r%
+END SUB
+
+
+''
 ' Register all menu items per MENUBAR.md spec
 '
 SUB MENUBAR_register_all ()
@@ -386,9 +409,10 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "SWATCHES", "", 2, SWP_ACT_TOGGLE, TRUE, FALSE
     MENUBAR_register_item "BROWSER", "", 2, 2022, TRUE, FALSE
     MENUBAR_register_item "---", "", 2, 0, FALSE, TRUE
-    MENUBAR_register_item "LAYOUT", CHR$(16), 2, 442, FALSE, FALSE
+    ' (View > Layout - the dock-side flyout, action 442 - was removed 2026-11-15:
+    '  docking / floating moves panels now. Its flyout code is unreachable.)
     MENUBAR_register_item "CUSTOMIZE TOOLBARS...", "", 2, 2460, TRUE, FALSE
-    MENUBAR_register_item "LOCK LAYOUT", "Ctrl+Shift+L", 2, 2470, TRUE, FALSE
+    MENUBAR_register_item "LOCK WORKSPACE", "Ctrl+Shift+L", 2, 2470, TRUE, FALSE
     MENUBAR_register_item "SNAP PANEL EDGES", "", 2, 2471, TRUE, FALSE
     MENUBAR_register_item "HIDE/SHOW ALL", "F11", 2, 403, FALSE, FALSE
     MENUBAR_register_item "WORKFLOW BUTTONS", "", 2, WF_ACT_TOGGLE, TRUE, FALSE
@@ -496,16 +520,16 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "ERASER", "E", 4, 118, FALSE, FALSE
     MENUBAR_register_item "---", "", 4, 0, FALSE, TRUE
     MENUBAR_register_item "COMMAND HELP...", "?", 4, 1703, FALSE, FALSE
-    MENUBAR_register_item "---", "", 4, 0, FALSE, TRUE
-    MENUBAR_register_item "CODE...", "", 4, 1704, FALSE, FALSE
+    ' (Tools > Code... was removed from the menu 2026-11-15; action 1704 stays for the palette)
     MENUBAR_register_item "---", "", 4, 0, FALSE, TRUE
     DIM catAnn AS INTEGER
-    catAnn% = MENUBAR_register_submenu_parent%("ANNOTATE", 4)
-    MENUBAR_register_submenu_child "ARROW", "", 4, ANN_ACT_ARROW, catAnn%
-    MENUBAR_register_submenu_child "HIGHLIGHTER", "", 4, ANN_ACT_HIGHLIGHT, catAnn%
-    MENUBAR_register_submenu_child "REDACT", "", 4, ANN_ACT_REDACT, catAnn%
-    MENUBAR_register_submenu_child "NUMBERED CALLOUT", "", 4, ANN_ACT_CALLOUT, catAnn%
-    MENUBAR_register_submenu_child "RESTART CALLOUT NUMBERS", "", 4, ANN_ACT_CALLOUT_RESET, catAnn%
+    catAnn% = MENUBAR_register_submenu_parent%("ANNOTATE (WIP)", 4)
+    MENUBAR_register_submenu_child "ARROW (WIP)", "", 4, ANN_ACT_ARROW, catAnn%
+    MENUBAR_register_submenu_child "HIGHLIGHTER (WIP)", "", 4, ANN_ACT_HIGHLIGHT, catAnn%
+    MENUBAR_register_submenu_child "REDACT (WIP)", "", 4, ANN_ACT_REDACT, catAnn%
+    MENUBAR_register_submenu_child "NUMBERED CALLOUT (WIP)", "", 4, ANN_ACT_CALLOUT, catAnn%
+    MENUBAR_register_submenu_child "RESTART CALLOUT NUMBERS (WIP)", "", 4, ANN_ACT_CALLOUT_RESET, catAnn%
+    MENUBAR_register_submenu_divider 4, catAnn%
     MENUBAR_register_submenu_child "QUICK SAVE PNG", "", 4, ANN_ACT_QUICKSAVE, catAnn%
     MENUBAR_register_submenu_child "DONE (SAVE, COPY, GO BACK)", "", 4, ANN_ACT_DONE, catAnn%
 
@@ -959,12 +983,14 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "---", "", audioRoot%, 0, FALSE, TRUE
     MENUBAR_register_item "NOT PLAYING",      "", audioRoot%, 426, FALSE, FALSE
 
+    MENUBAR_trim_trailing_dividers
+
     IF aiOn% THEN
         _LOGINFO "MENUBAR: " + _TRIM$(STR$(MENU_ROOT_COUNT%)) + " roots (AI menu registered at " + _TRIM$(STR$(aiRoot%)) + ")"
     ELSE
         _LOGINFO "MENUBAR: " + _TRIM$(STR$(MENU_ROOT_COUNT%)) + " roots (AI disabled — no AI menu)"
     END IF
-    _LOGINFO "MENUBAR: " + _TRIM$(STR$(MENU_ITEM_COUNT%)) + " of " + _TRIM$(STR$(MENU_MAX_ITEMS)) + " menu items used"
+    _LOGINFO "MENUBAR: " + _TRIM$(STR$(MENU_ITEM_COUNT%)) + " of " + _TRIM$(STR$(UBOUND(MENU_ITEMS) + 1)) + " menu item slots used"
 END SUB
 
 

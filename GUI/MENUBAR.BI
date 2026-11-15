@@ -23,8 +23,12 @@ OPTION _EXPLICITARRAY
 ' this (and logs a _LOGERROR), so an overflow shows up as menu entries that just
 ' aren't there — the LAST menu (Help) loses items first. Raised 300 -> 400 for the
 ' Help > crash-log items, then 400 -> 600 when the color cycling items (File +
-' Palette flyouts) truncated Help to "ABOUT DRAW" only.
-CONST MENU_MAX_ITEMS = 600
+' Palette flyouts) truncated Help to "ABOUT DRAW" only; then it overflowed again
+' (2026-11-15: Help lost SHOW TOOLTIPS + crash logs, AUDIO lost everything, leaving
+' a dangling divider under EXAMPLES). Now it is only the INITIAL size:
+' MENUBAR_register_item grows MENU_ITEMS by MENU_GROW_ITEMS whenever it fills.
+CONST MENU_MAX_ITEMS = 800
+CONST MENU_GROW_ITEMS = 200
 CONST MENU_MAX_ROOT  = 16      ' Max root-level menu entries. Must exceed the actual root
                                ' count: FILE..EFFECTS (10) + AI (optional) + HELP + AUDIO
                                ' = 13 with AI on. At 12 the register bounds-check dropped
@@ -151,7 +155,7 @@ TYPE MENU_BAR_OBJ
 END TYPE
 
 DIM SHARED MENU_BAR        AS MENU_BAR_OBJ
-DIM SHARED MENU_ITEMS(MENU_MAX_ITEMS) AS MENU_ITEM_OBJ
+REDIM SHARED MENU_ITEMS(MENU_MAX_ITEMS) AS MENU_ITEM_OBJ ' grows (REDIM _PRESERVE) as items register
 DIM SHARED MENU_ITEM_COUNT AS INTEGER
 ' ANIM > AnimBrush / Move Brush flyout parents (MENU_ITEMS index; < 0 = not
 ' registered): greyed until the picture has 2+ frames (MENUBAR_update_states)

@@ -91,7 +91,8 @@ ctrl_click $(( P_X + P_W - 24 )) $(( P_Y + G_HDR + G_ROW + G_ROW / 2 )); settle_
 [[ "$(multi)" != "$M0" && "$S_ON" == 0 ]] && pass "Ctrl+click a name: the multi-select ($M0 -> $(multi)), no selection" || fail "Ctrl+click name: multi $M0 -> $(multi), LPSEL '$(grep '^LPSEL ' "$DK_DUMP")'"
 ctrl_shift_click $(( P_X + P_W - 24 )) $(( P_Y + G_HDR + G_ROW / 2 )); settle_click "ctrl+shift+click a name"
 dk_p layers
-[[ "$P_X" != "$PX0" ]] && pass "Ctrl+Shift+click a name: the dock side swaps as before" || fail "Ctrl+Shift+click name: the panel stayed at $P_X"
+# the Ctrl+Shift+click dock-side swap was removed with View > Layout (BUGS.md 2026-11-15)
+[[ "$P_X" == "$PX0" ]] && pass "Ctrl+Shift+click a name: the panel stays put (no side swap any more)" || fail "Ctrl+Shift+click name: the panel moved $PX0 -> $P_X"
 screenshot "layer-thumb-select"
 assert_no_crash
 rm -rf "$TS_DIR"

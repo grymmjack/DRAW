@@ -160,7 +160,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+Shift+Up` | Hide/show menu bar (alt binding) |
 | `Ctrl+Shift+Down` | Hide/show status bar + color strip |
 | `Ctrl+Shift+Left` | Hide/show left-side UI (edit bar, layers) |
-| `Ctrl+Shift+L` | Lock / unlock the layout (View → Lock Layout): panels and floating windows can't be dragged, re-docked or resized — for drawing with a shaky tablet pen |
+| `Ctrl+Shift+L` | Lock / unlock the workspace (View → Lock Workspace): panels and floating windows can't be dragged, re-docked or resized — for drawing with a shaky tablet pen |
 | `Ctrl+Shift+Right` | Hide/show right-side UI (toolbar, organizer, drawer) |
 | `#` | Toggle canvas border |
 | `Shift` (hold) | Show crosshair while held |
@@ -482,7 +482,7 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 ## Panels · Docking
 
 ### Docking
-`Ctrl+Shift+Click` a panel → toggle dock side (left ↔ right; on a layer thumbnail it adds to the selection instead). Panels: Toolbox, Layer Panel, Edit Bar, Advanced Bar, Character Map (View → Layout menu).
+Panels move by dragging their title / handle into the dock tree (left, right, stacks, tabs, floating). The old `Ctrl+Shift+Click` side swap and View → Layout menu were removed in favor of docking.
 
 **Arranging panels** — the *handle* is a panel's title strip, the layers header, or the thin grip that appears when you hover the top edge of the toolbox, organizer, drawer or a bar.
 
@@ -1152,7 +1152,7 @@ These are behaviors rather than user shortcuts, kept out of the tables above:
 | `Alt+Home` | First frame (Alt+Home) | central |
 | `Alt+End` | Last frame (Alt+End) | central |
 | `Alt+/` | Play / stop (Alt+/) | central |
-| `Ctrl+Shift+L` | Lock Layout | central |
+| `Ctrl+Shift+L` | Lock Workspace | central |
 | `Ctrl+Alt+K` | Cancel AI generation | central |
 | `Ctrl+,` | Settings dialog | legacy |
 | `F12` | F12 dev debug dump | central |

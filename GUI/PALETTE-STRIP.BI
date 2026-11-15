@@ -65,5 +65,7 @@ TYPE PSM_OBJ
 END TYPE
 DIM SHARED PSM AS PSM_OBJ
 CONST PSM_ITEM_H = 12
-CONST PSM_ROOT_N = 4
+CONST PSM_ROOT_N = 16 ' 4 size rows (flyouts) + divider, "COLOR CYCLING:", divider + 9 cycling actions
+CONST PSM_SIZE_ROWS = 4 ' rows 0..3 open a value flyout; the rest run an action
+CONST PSM_ACT_BASE = 10000 ' root value of a cycling row = PSM_ACT_BASE + action id
 PSM.subRow = -1: PSM.rHover = -1: PSM.sbHover = -1
