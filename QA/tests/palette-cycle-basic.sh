@@ -73,9 +73,15 @@ with_mods shift key Tab
 wait_for 0.25 "Cycling"
 snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "cyc-on-a"
 ON_A="$SNAP_RESULT"
-wait_for 0.15 "a few steps later"
-snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "cyc-on-b"
-ON_B="$SNAP_RESULT"
+# up to 4 tries: one snap takes ~1.5 s on a busy Xvfb, so two snaps can fall a
+# whole number of loops of the 0.4 s range apart and catch the same colors
+# (this check failed every run that way, 2026-11-07..15; see palette-cycle-gestures)
+for i in 1 2 3 4; do
+    wait_for 0.15 "a few steps later"
+    snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "cyc-on-b$i"
+    ON_B="$SNAP_RESULT"
+    [[ "$(magick compare -metric AE "$ON_A" "$ON_B" null: 2>&1 | cut -d' ' -f1)" == 0 ]] || break
+done
 screenshot "cyc-on"
 assert_regions_differ "$ON_A" "$ON_B" "Cycling must animate the canvas"
 
