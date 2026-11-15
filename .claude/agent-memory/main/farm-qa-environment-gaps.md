@@ -20,8 +20,16 @@ dd66c0c58 everywhere, 2026-11-15). Most failures were the test environment, not 
   tests got no fixture ("lightbox: 0 frames"). Fixed by a `magick` shim in qa-harness
   core/assert.sh (0dfe71f). Titan has python3.
 - **[Windows/thinkpad] no ImageMagick and no Python** in Git Bash: every fixture test
-  fails. Needs a machine-wide install (the QA task runs as the desktop user) - the
-  user's call, not done unattended.
+  failed. Installed machine-wide 2026-11-15 (Rick: "go ahead on thinkpad get parity"):
+  ImageMagick 7.1.2-34 Q16-HDRI x64 + Python 3.13.17, both on the system PATH, plus a
+  copied `C:\Program Files\Python313\python3.exe` (tests call `python3`; otherwise the
+  Store stub in WindowsApps answers). **[Windows] winget fails over ssh** (0x8a15000f
+  "Data required by the source is missing" even after `source reset`: its index is an
+  MSIX package a network logon can't open) - take the installer URL + SHA256 from the
+  winget-pkgs manifest on GitHub, `curl.exe` it, `certutil -hashfile` it, run it silently
+  (Inno: `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /MERGETASKS="modifypath"`;
+  python.org: `/quiet InstallAllUsers=1 PrependPath=1`). Installers kept in
+  `C:\qa-runner\installers`.
 - **[macOS + Windows] keymap tests can't seed DRAW.bindings**: the adapter's per-test
   config folder is Linux-only (XDG_CONFIG_HOME), so `QA_CONFIG_DIR` is empty and the
   tests pressed every key against the machine's own keymap (59 failures in
