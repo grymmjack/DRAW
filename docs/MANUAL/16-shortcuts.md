@@ -160,7 +160,7 @@ Rows you've changed from the factory default show a marker and a "= changed from
 | Vertical wheel | Zoom in/out (cursor-centered) | Rebindable; can be set to canvas pan or brush size |
 | Wheel **tilt** (left/right) | Brush size − / + | Tilt right = bigger; rebind to **Pan Left/Right** for horizontal scroll |
 | `Ctrl` + wheel | Brush size | |
-| Thumb buttons (Back / Forward) | Undo / Redo | |
+| Thumb buttons (Back / Forward) | Undo / Redo | Over the **Browser** (and in the Open / Save dialogs) they go back / forward through the folders you visited instead |
 | Right-click (Zoom tool) | Zoom **out** | Left-click zooms in |
 | Pan drag button | Middle / Space+drag | Rebindable |
 

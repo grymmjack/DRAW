@@ -357,6 +357,7 @@ CONST MOUSE_MAX_BTN = 8
 ' MOUSE.B1/B2/B3; 4+ are sampled straight from _MOUSEBUTTON in MOUSE_update_state.
 ' The central dispatcher reads this so extra buttons can drive bound actions.
 DIM SHARED MOUSE_BTN(1 TO MOUSE_MAX_BTN)             AS INTEGER
+DIM SHARED MOUSE_XB_LATCH(1 TO MOUSE_MAX_BTN)        AS INTEGER ' an extra button (4+) seen down during the frame's _MOUSEINPUT drain (INPUT/MOUSE)
 DIM SHARED MOUSE_BTN_AVAIL AS INTEGER ' buttons the device reports (_LASTBUTTON, clamped); for the rebind UI
 
 ' Horizontal wheel TILT support. Read via _MOUSEWHEEL(axis) INSIDE DRAW's normal
