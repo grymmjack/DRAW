@@ -18,5 +18,13 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
 fi
 info=${info//\\/}; info=${info//\"/}
 new="#define DRAW_BUILD_INFO \"$info\""
-[[ -f "$out" && "$(cat "$out")" == "$new" ]] || printf '%s\n' "$new" > "$out"
+# A new value also touches build_info.h: QB64-PE rebuilds its object from the
+# compiler's dependency list, which only names headers that EXISTED at the last
+# compile - so a build_info_gen.h that appears (or changes, when nothing else
+# did) after one went unnoticed and the binary kept the old text (titan's farm
+# build, 2026-11-15: bare "2.7.0" after build-info.sh had written the sha).
+if [[ ! -f "$out" || "$(cat "$out")" != "$new" ]]; then
+    printf '%s\n' "$new" > "$out"
+    touch native/build_info.h
+fi
 echo "build info: ${info:-(release)}"

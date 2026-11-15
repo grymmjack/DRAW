@@ -71,6 +71,7 @@ cd "${dir}-fstest" || exit 1
 git fetch -q origin && git checkout -q --detach "$ref" || { echo BUILD-FAIL checkout; exit 1; }
 git submodule foreach --recursive -q 'git reset -q --hard; git clean -qfdx' >/dev/null 2>&1
 git submodule update -q --init --recursive --force
+GITHUB_HEAD_REF="${ref#origin/}" bash DEV/build-info.sh >/dev/null 2>&1   # "X.Y.Z (sha branch)", as make / CI build it
 "$comp" -w -x -o DRAW.run DRAW.BAS > .farm-build.log 2>&1
 if grep -q '^Output:' .farm-build.log; then echo "BUILD-OK \$(git rev-parse --short HEAD) \$(git -C includes/QB64_GJ_LIB rev-parse --short HEAD)"; else echo BUILD-FAIL; tail -5 .farm-build.log; fi
 EOF
@@ -83,12 +84,13 @@ cd "${dir}-fstest" || exit 1
 $g fetch -q origin && $g checkout -q --detach "$ref" || { echo BUILD-FAIL checkout; exit 1; }
 $g submodule foreach --recursive -q "git reset -q --hard; git clean -qfdx" >/dev/null 2>&1
 $g submodule update -q --init --recursive --force
+GITHUB_HEAD_REF="${ref#origin/}" bash DEV/build-info.sh >/dev/null 2>&1   # (no WSL git: writes "", the bare version)
 "$comp" -w -x DRAW.BAS -o DRAW.exe > .farm-build.log 2>&1
 if grep -q '^Output:' .farm-build.log; then echo "BUILD-OK \$($g rev-parse --short HEAD | tr -d '\r') \$($g -C includes/QB64_GJ_LIB rev-parse --short HEAD | tr -d '\r')"; else echo BUILD-FAIL; tail -5 .farm-build.log; fi
 EOF
       ;;
       win) # one cmd.exe line
-        printf '%s' "cd /d ${dir}-fstest && git fetch -q origin && git checkout -q --detach $ref && git submodule foreach --recursive -q \"git reset -q --hard && git clean -qfdx\" >NUL 2>&1 & git submodule update -q --init --recursive --force && ${comp} -w -x DRAW.BAS -o DRAW.exe > .farm-build.log 2>&1 & findstr /b /c:\"Output:\" .farm-build.log >NUL && (for /f %s in ('git rev-parse --short HEAD') do @echo BUILD-OK %s) || (echo BUILD-FAIL & powershell -NoProfile -Command \"Get-Content .farm-build.log -Tail 5\")"
+        printf '%s' "cd /d ${dir}-fstest && git fetch -q origin && git checkout -q --detach $ref && git submodule foreach --recursive -q \"git reset -q --hard && git clean -qfdx\" >NUL 2>&1 & git submodule update -q --init --recursive --force && (set GITHUB_HEAD_REF=${ref#origin/}& \"C:\\Program Files\\Git\\bin\\bash.exe\" DEV/build-info.sh >NUL 2>&1 & ver >NUL) && ${comp} -w -x DRAW.BAS -o DRAW.exe > .farm-build.log 2>&1 & findstr /b /c:\"Output:\" .farm-build.log >NUL && (for /f %s in ('git rev-parse --short HEAD') do @echo BUILD-OK %s) || (echo BUILD-FAIL & powershell -NoProfile -Command \"Get-Content .farm-build.log -Tail 5\")"
       ;;
     esac
 }
@@ -142,11 +144,12 @@ cd QA && rm -rf .farm-results && mkdir -p .farm-results && $(qa_tests "$re") && 
 /c/qa-runner/qa-harness/drivers/windows/qa-run env QA_HARNESS=/c/qa-runner/qa-harness QA_RESULTS_DIR=$rdir ./draw-qa.sh --onscreen --rerun-passed \$T && echo started
 REMOTE
         ;;
-      *)
+      *) # (only the nohup is backgrounded: "a && b & echo" backgrounds the whole &&-list,
+         # which kept ssh's output open - farm-check sat there until the suite ended)
         rsync -a --exclude results/ --exclude .git/ "$HOME/git/qa-harness/" "$host:git/qa-harness/" || return 1
         "${SSH[@]}" "$host" "set -u; cd ${dir}-fstest/QA && rm -rf .farm-results && mkdir -p .farm-results && \
             $(qa_tests "$re") && \
-            nohup env QA_HARNESS=\$HOME/git/qa-harness QA_RESULTS_DIR=$rdir QA_XVFB_RES=3840x2160 setsid ./draw-qa.sh --rerun-passed \$T > .farm-results/runner.out 2>&1 < /dev/null & echo started" \
+            { nohup env QA_HARNESS=\$HOME/git/qa-harness QA_RESULTS_DIR=$rdir QA_XVFB_RES=3840x2160 setsid ./draw-qa.sh --rerun-passed \$T > .farm-results/runner.out 2>&1 < /dev/null & } && echo started" \
             2>&1 | grep -v 'already awake\|magic packet\|waiting for .* to boot'
         ;;
     esac
