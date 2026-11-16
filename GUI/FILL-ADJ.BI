@@ -90,14 +90,15 @@ DIM SHARED FILL_ADJ_POLY_Y(999) AS INTEGER
 DIM SHARED FILL_ADJ_ICON_HANDLE AS LONG ' Loaded PNG widget handle (0 = not loaded, -1 = no file)
 
 ' The fill's own dither (BUGS.md 2026-11-15), set while a fill is adjusted:
-'   D tap = cycle the mode (the gradient editor's per-pixel ones), D+wheel =
+'   D tap = cycle the mode (the per-pixel ones, then the error diffusions
+'   Floyd-Steinberg ... Shiau-Fan: FILL_ADJ_render_paint_mode), D+wheel =
 '   amount, D+drag = move the pattern, D+Shift+1-9 = save a preset, D+1-9 =
 '   recall it. A gradient fill takes it in place of the gradient's own dither
 '   (the gradient is not changed); a pattern / brush fill is thinned by it
 '   (amount = how much of the fill stays). Kept in DRAW.cfg (FILL_DITHER,
 '   FILL_PRESETS), so it is the same on the next fill and the next run.
 TYPE FILL_DITHER_OBJ
-    mode   AS INTEGER ' GJ_IMGADJ_DITHER_* (per-pixel), or DITHER_NONE = off (a gradient keeps its own)
+    mode   AS INTEGER ' GJ_IMGADJ_DITHER_* (per-pixel or error diffusion), or DITHER_NONE = off (a gradient keeps its own)
     amount AS SINGLE  ' 0..1
     ox     AS INTEGER ' the pattern's offset, canvas px
     oy     AS INTEGER

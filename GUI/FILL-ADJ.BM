@@ -856,7 +856,32 @@ SUB FILL_ADJ_render_paint_mode ()
 
     ' Set gradient context using tile dimensions offset from shape min
     ' the fill's dither in place of the gradient's own (DRAWER_resolve_gradient_color)
-    FILL_DITHER.ovr = (FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT _ANDALSO FILL_DITHER.mode <> DITHER_NONE)
+    FILL_DITHER.ovr = (FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT _ANDALSO DITHER_is_perpixel%(FILL_DITHER.mode))
+
+    ' Error diffusion (D: Floyd-Steinberg ... Shiau-Fan) on a gradient: each
+    ' pixel takes one of the two stops around it and the miss is carried on to
+    ' the pixels after it in reading order - only stop colors, mixed in the
+    ' right amounts. The amount is as for the per-pixel dithers: how wide the
+    ' dithered band is around the middle of each stop-to-stop span (100% = all
+    ' of it, 0% = a hard edge); outside the band a pixel is its stop, solid.
+    DIM edOn AS INTEGER, edSlot AS INTEGER, edN AS INTEGER, edW AS INTEGER, edNt AS INTEGER
+    DIM edR AS INTEGER, edI AS INTEGER, edK AS INTEGER, edJ AS INTEGER, gx AS INTEGER, gy AS INTEGER
+    DIM edP(1 TO GRADIENT_MAX_STOPS) AS SINGLE, edC(1 TO GRADIENT_MAX_STOPS) AS _UNSIGNED LONG
+    DIM edDx(0 TO 11) AS INTEGER, edDy(0 TO 11) AS INTEGER, edWt(0 TO 11) AS SINGLE
+    DIM edT AS SINGLE, edV AS SINGLE, edE AS SINGLE, edS AS SINGLE, edAmt AS SINGLE
+    edAmt = FILL_DITHER.amount
+    edSlot = DRAWER.gradientSelected%
+    edOn = FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT _ANDALSO FILL_DITHER_is_ed%(FILL_DITHER.mode)
+    edOn = edOn _ANDALSO DRAWER.paintMode% = 2 _ANDALSO _ALPHA32(fill_color~&) > 0 _ANDALSO edSlot >= 1 _ANDALSO edSlot <= DRAWER_SLOT_COUNT
+    IF edOn THEN
+        FILL_ADJ_ed_stops edSlot, edP(), edC(), edN
+        IF edN < 1 THEN edOn = FALSE
+    END IF
+    IF edOn THEN
+        GJ_IMGADJ_EDKernel FILL_DITHER.mode - GJ_IMGADJ_DITHER_FLOYD_STEINBERG, edDx(), edDy(), edWt(), edNt
+        edW = maxX% - minX% + 1
+        REDIM edEr(0 TO 3, 0 TO edW + 5) AS SINGLE
+    END IF
     IF FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT THEN
         GRAD_CTX_set minX% + INT(FILL_ADJ.ORIGIN_X!), minY% + INT(FILL_ADJ.ORIGIN_Y!), minX% + INT(FILL_ADJ.ORIGIN_X!) + bw% - 1, minY% + INT(FILL_ADJ.ORIGIN_Y!) + bh% - 1
     END IF
@@ -969,15 +994,53 @@ SUB FILL_ADJ_render_paint_mode ()
                     gradRelX! = px% - gradCX!
                     gradRelY! = py% - gradCY!
                     FILL_ADJ_rotate_coords gradRelX!, gradRelY!, -FILL_ADJ.ROTATION!, gradRotX!, gradRotY!
-                    resolved_color~& = DRAWER_resolve_paint_color~&(INT(gradCX! + gradRotX! + 0.5), INT(gradCY! + gradRotY! + 0.5), fill_color~&)
+                    gx = INT(gradCX! + gradRotX! + 0.5): gy = INT(gradCY! + gradRotY! + 0.5)
                 ELSE
-                    resolved_color~& = DRAWER_resolve_paint_color~&(px%, py%, fill_color~&)
+                    gx = px%: gy = py%
+                END IF
+                IF edOn THEN
+                    edT = DRAWER_grad_t!(edSlot, gx, gy, GRAD_CTX)
+                    edR = py% AND 3: edI = px% - minX% + 3
+                    ' the span around t: stops edK and edK + 1; edS = 0..1 across its band
+                    IF edN = 1 _ORELSE edT <= edP(1) THEN
+                        edK = 1: edS = 0
+                    ELSEIF edT >= edP(edN) THEN
+                        edK = edN: edS = 0
+                    ELSE
+                        edK = 1
+                        DO WHILE edK < edN - 1 _ANDALSO edT > edP(edK + 1)
+                            edK = edK + 1
+                        LOOP
+                        IF edP(edK + 1) > edP(edK) THEN edS = (edT - edP(edK)) / (edP(edK + 1) - edP(edK)) ELSE edS = 0
+                        IF edAmt <= 0.001 THEN
+                            edS = _IIF(edS < 0.5, 0!, 1!)
+                        ELSE
+                            edS = (edS - (0.5 - edAmt / 2)) / edAmt
+                        END IF
+                        IF edS >= 1 THEN
+                            edK = edK + 1: edS = 0
+                        ELSEIF edS > 0 THEN ' in the band: diffuse
+                            edV = edS + edEr(edR, edI)
+                            IF edV >= 0.5 THEN edE = edV - 1: edK = edK + 1 ELSE edE = edV
+                            IF edE <> 0 THEN
+                                FOR edJ = 0 TO edNt - 1
+                                    edEr((py% + edDy(edJ)) AND 3, edI + edDx(edJ)) = edEr((py% + edDy(edJ)) AND 3, edI + edDx(edJ)) + edE * edWt(edJ)
+                                NEXT edJ
+                            END IF
+                        END IF
+                    END IF
+                    resolved_color~& = PAINT_apply_opacity~&(GRAD_with_stop_alpha~&(edC(edK), GRAD_DEF_eval_opacity%(edSlot, edT)))
+                ELSE
+                    resolved_color~& = DRAWER_resolve_paint_color~&(gx, gy, fill_color~&)
                 END IF
             END IF
 
             IF _ALPHA32(resolved_color~&) = 0 THEN _CONTINUE
             PSET (px%, py%), resolved_color~&
         NEXT px%
+        IF edOn THEN ' this row is done: its ring slot becomes the row 4 below
+            FOR edI = 0 TO edW + 5: edEr(py% AND 3, edI) = 0: NEXT edI
+        END IF
     NEXT py%
 
     _BLEND LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&
@@ -1361,7 +1424,7 @@ SUB FILL_DITHER_load ()
     s = CFG.FILL_DITHER$
     IF LEN(s) = 0 THEN s = "-1,50,0,0"
     m = VAL(FILL_DITHER_field$(s, 1, ","))
-    IF NOT DITHER_is_perpixel%(m) THEN m = DITHER_NONE
+    IF NOT FILL_DITHER_valid%(m) THEN m = DITHER_NONE
     FILL_DITHER.mode = m
     FILL_DITHER.amount = VAL(FILL_DITHER_field$(s, 2, ",")) / 100!
     IF FILL_DITHER.amount < 0 THEN FILL_DITHER.amount = 0
@@ -1402,15 +1465,19 @@ END FUNCTION
 
 
 ''
-' D tapped: the next dither mode (off -> the 10 per-pixel ones -> off).
+' D tapped: the next dither mode (off -> the 10 per-pixel ones -> the 12 error
+' diffusions, Floyd-Steinberg ... Shiau-Fan -> off).
 '
 SUB FILL_DITHER_cycle ()
-    DIM ui AS INTEGER
-    IF FILL_DITHER.mode = DITHER_NONE THEN
+    DIM ui AS INTEGER, m AS INTEGER
+    m = FILL_DITHER.mode
+    IF m = DITHER_NONE THEN
         FILL_DITHER.mode = DITHER_PERPIXEL_MAP(0)
+    ELSEIF FILL_DITHER_is_ed%(m) THEN
+        IF m >= GJ_IMGADJ_DITHER_SHIAU_FAN THEN FILL_DITHER.mode = DITHER_NONE ELSE FILL_DITHER.mode = m + 1
     ELSE
-        ui = DITHER_imgadj_to_perpixel%(FILL_DITHER.mode)
-        IF ui = DITHER_NONE _ORELSE ui >= DITHER_COUNT_PERPIXEL - 1 THEN FILL_DITHER.mode = DITHER_NONE ELSE FILL_DITHER.mode = DITHER_PERPIXEL_MAP(ui + 1)
+        ui = DITHER_imgadj_to_perpixel%(m)
+        IF ui = DITHER_NONE _ORELSE ui >= DITHER_COUNT_PERPIXEL - 1 THEN FILL_DITHER.mode = GJ_IMGADJ_DITHER_FLOYD_STEINBERG ELSE FILL_DITHER.mode = DITHER_PERPIXEL_MAP(ui + 1)
     END IF
     FILL_DITHER_store
     FILL_ADJ_update
@@ -1462,7 +1529,7 @@ SUB FILL_DITHER_recall_preset (n AS INTEGER)
     s = FILL_PRESET(n)
     IF LEN(s) = 0 THEN STATUS_flash "FILL PRESET " + _TRIM$(STR$(n)) + " is empty (D+SHIFT+" + _TRIM$(STR$(n)) + " saves it)": EXIT SUB
     m = VAL(FILL_DITHER_field$(s, 1, ","))
-    IF NOT DITHER_is_perpixel%(m) THEN m = DITHER_NONE
+    IF NOT FILL_DITHER_valid%(m) THEN m = DITHER_NONE
     FILL_DITHER.mode = m
     FILL_DITHER.amount = VAL(FILL_DITHER_field$(s, 2, ",")) / 100!
     FILL_DITHER.ox = VAL(FILL_DITHER_field$(s, 3, ","))
@@ -1535,8 +1602,58 @@ END FUNCTION
 
 
 ''
+' An error-diffusion mode (Floyd-Steinberg ... Shiau-Fan: GJ_IMGADJ_DITHER_
+' 4..15, kernel = mode - 4 in GJ_IMGADJ_EDKernel).
+'
+FUNCTION FILL_DITHER_is_ed% (m AS INTEGER)
+    FILL_DITHER_is_ed% = (m >= GJ_IMGADJ_DITHER_FLOYD_STEINBERG _ANDALSO m <= GJ_IMGADJ_DITHER_SHIAU_FAN)
+END FUNCTION
+
+
+''
+' A mode the fill's dither can be: per-pixel or error diffusion.
+'
+FUNCTION FILL_DITHER_valid% (m AS INTEGER)
+    FILL_DITHER_valid% = (DITHER_is_perpixel%(m) _ORELSE FILL_DITHER_is_ed%(m))
+END FUNCTION
+
+
+''
+' The stops an error-diffused gradient fill picks from: the slot's color stops,
+' or for a gradient image without stops 5 colors read along it (as
+' DRAWER_fill_dither_color does). n = 0: nothing to pick from.
+'
+SUB FILL_ADJ_ed_stops (slotIdx AS INTEGER, sp() AS SINGLE, sc() AS _UNSIGNED LONG, n AS INTEGER)
+    DIM i AS INTEGER, ax AS INTEGER, ay AS INTEGER, img AS LONG, oldSrc AS LONG
+    n = GRAD_DEFS(slotIdx).colorCount%
+    IF n > GRADIENT_MAX_STOPS THEN n = GRADIENT_MAX_STOPS
+    IF n >= 1 THEN
+        FOR i = 1 TO n
+            sp(i) = GRAD_COLOR_STOPS(slotIdx, i).position
+            sc(i) = GRAD_COLOR_STOPS(slotIdx, i).clr
+        NEXT i
+        EXIT SUB
+    END IF
+    n = 0
+    img = DRAWER_GRADIENT_SLOTS(slotIdx)
+    IF img >= -1 THEN EXIT SUB
+    IF _WIDTH(img) < 1 THEN EXIT SUB
+    oldSrc = _SOURCE
+    _SOURCE img
+    FOR i = 1 TO 5
+        sp(i) = (i - 1) / 4
+        GRAD_IMG_ramp_xy slotIdx, sp(i), ax, ay
+        sc(i) = POINT(ax, ay)
+    NEXT i
+    _SOURCE oldSrc
+    n = 5
+END SUB
+
+
+''
 ' A pattern / brush fill thinned by the fill's dither: where the threshold is
-' at or over the amount, the pixel goes back to what was under the fill.
+' at or over the amount, the pixel goes back to what was under the fill. An
+' error diffusion keeps amount of the changed pixels, spread out evenly.
 '
 SUB FILL_ADJ_dither_coverage ()
     IF FILL_DITHER.mode = DITHER_NONE THEN EXIT SUB
@@ -1557,6 +1674,36 @@ SUB FILL_ADJ_dither_coverage ()
     DIM mL AS _MEM, mR AS _MEM, o AS _OFFSET
     DIM cL AS _UNSIGNED LONG, cR AS _UNSIGNED LONG
     mL = _MEMIMAGE(lay): mR = _MEMIMAGE(red)
+    IF FILL_DITHER_is_ed%(FILL_DITHER.mode) THEN
+        ' error diffusion: of the pixels the fill changed, keep amount of them,
+        ' the misses carried on so the kept ones spread out evenly
+        DIM tdx(0 TO 11) AS INTEGER, tdy(0 TO 11) AS INTEGER, tw(0 TO 11) AS SINGLE, nt AS INTEGER
+        DIM AS INTEGER r, i, t, q
+        DIM AS SINGLE v, e
+        GJ_IMGADJ_EDKernel FILL_DITHER.mode - GJ_IMGADJ_DITHER_FLOYD_STEINBERG, tdx(), tdy(), tw(), nt
+        REDIM er(0 TO 3, 0 TO x1 - x0 + 6) AS SINGLE
+        FOR y = y0 TO y1
+            r = y AND 3
+            FOR x = x0 TO x1
+                o = (y * w + x) * 4
+                cL = _MEMGET(mL, mL.OFFSET + o, _UNSIGNED LONG)
+                cR = _MEMGET(mR, mR.OFFSET + o, _UNSIGNED LONG)
+                IF cL <> cR THEN
+                    i = x - x0 + 3
+                    v = FILL_DITHER.amount + er(r, i)
+                    IF v >= 0.5 THEN q = 1 ELSE q = 0
+                    IF q = 0 THEN _MEMPUT mL, mL.OFFSET + o, cR
+                    e = v - q
+                    FOR t = 0 TO nt - 1
+                        er((y + tdy(t)) AND 3, i + tdx(t)) = er((y + tdy(t)) AND 3, i + tdx(t)) + e * tw(t)
+                    NEXT t
+                END IF
+            NEXT x
+            FOR i = 0 TO x1 - x0 + 6: er(r, i) = 0: NEXT i
+        NEXT y
+        _MEMFREE mL: _MEMFREE mR
+        EXIT SUB
+    END IF
     FOR y = y0 TO y1
         FOR x = x0 TO x1
             IF DITHER_get_threshold!(FILL_DITHER.mode, x - FILL_DITHER.ox, y - FILL_DITHER.oy) >= FILL_DITHER.amount THEN
