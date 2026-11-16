@@ -202,7 +202,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `Q` | Bezier | Cubic curves (drop anchors, drag handles) |
 | `F` | Fill | Flood fill (`Shift` samples merged canvas; hold `W` / `G` / `F` + click fills on all layers) |
 | `K` | Spray | Spray paint |
-| `E` / `Hold E` | Eraser / temp Eraser | Tap = permanent; hold = while held. With Dot or Spray, Hold E keeps the tool and erases its way (one dot per click, the spray pattern) |
+| `E` / `Hold E` | Eraser / temp Eraser | Tap = permanent; hold = while held. With Dot or Spray, Hold E keeps the tool and erases its way (one dot per click, the spray pattern). `Shift`+drag with the Eraser erases every visible, unlocked layer the stroke crosses |
 | `I` | Picker | Eyedropper with loupe |
 | `M` | Marquee | Rectangular selection |
 | `W` | Magic Wand | Contiguous same-color select |

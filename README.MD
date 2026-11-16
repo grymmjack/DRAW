@@ -5,9 +5,35 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.7.1
+Current release: v2.8.0
 
 ![DRAW GUI from v2.5.0](./GUI.png)
+
+## New in 2.8.0
+
+Animation arrives: draw frame-by-frame on the canvas, with a lightbox, an X-sheet, onion skin, animated brushes, clip layers and a soundtrack. Plus an editable Swatches panel, keymap presets, real error-diffusion dithers and a large round of fixes.
+
+- **Animation.** The canvas is the sprite sheet: frame N is its Nth cell, and every tool works on it as usual. **File → New Animation...** (`32x32 8 @12`) or the templates in `ANIMATION/` start one; any picture can gain frames (`Num +`), or be sliced from a grid or sprite sheet.
+  - **Frame keys** on the numpad (`Num 1/4/5/9`, `Num Enter` plays) or `Alt+Home / , / . / End / /` without one. The dockable **Animation panel** holds the frame size, FPS, holds, loop mode and frame operations, each one undo step.
+  - **Lightbox** (`Num 0`): 3 / 5 / 7 panes around the current frame - draw in any of them - with a frame strip to select, reorder, copy and paste frames (between DRAW windows too), a transport bar and onion skin.
+  - **X-sheet**: every layer's cells over time - edit, link cells, hold, name tags, frame notes, zoom the timeline, per-row eye / lock / opacity.
+  - **AnimBrush**: pick up a brush from every frame (or load an animated GIF / APNG / strip); it steps through its cels as you paint. Kept in Drawer bins and `.draw` files.
+  - **Move Brush**: drag a path, and the brush is stamped once per frame along it with easing - in 2D or 3D with typed values. **AnimPaint** paints across frames.
+  - **Clip layers**: an animated brush that keeps playing on its own layer, with **keyframe lanes** and modulators for position, scale, rotation, opacity, tint, pivot, volume and pan, shared clip sources and sounds on clips.
+  - **Soundtrack**: a SOUND row on the X-sheet - drop sound files on it, up to 4 tracks, move / cut / copy / split clips, waveforms.
+  - **Import**: animated GIF, APNG, Aseprite (layers, tags, linked cels), PNG sequences, sprite sheets. **Export**: animated GIF (adaptive colors past 256), APNG, PNG sequence, sprite sheet + frame data, and a self-contained QB64 `.bas` player. A batch CLI does the same.
+  - **Examples**: `SAMPLES/ANIMSCENES/` (nine scenes with sound) and `SAMPLES/ANIMPROJECTS/` (four clip-and-lane projects).
+- **Workspaces.** New **Animate**, **Sprite** and **Scene** workspaces, and workflow buttons in a dock panel of their own. A workspace keeps every panel's state - scale, zoom, size, floating place - and recalls it exactly. `F11` hides every panel and puts back exactly what showed.
+- **Swatches panel**: your swatch sets as a dockable grid. Select, drag, copy, lock, rename, sort, insert ramps (FG → BG, OKLCh), undo; list view, recent colors, Find FG. Loads and saves `.aco .ase .gpl .act .pal .hex .txt .png`, and trades colors with the palette strip, the image and Lospec.
+- **Keymap presets** for Photoshop, GIMP, Krita, Aseprite, Illustrator, MS Paint, Pro Motion, Procreate and Deluxe Paint, each following that app's own defaults.
+- **Layers**: thumbnails (Off / Tiny / Small / Medium, content or canvas), a layer bar (blend, show / hide all, lock others, opacity), selections from thumbnails (`Ctrl+click`).
+- **Drawer**: 96 bins per mode (files stay readable by older DRAWs), bins fill the width, `Ctrl+Wheel` zooms them; the mini palette is optional.
+- **Panels** set their own Scale (right-click the title bar), in real screen pixels, and follow a display scale change without a restart.
+- **Dithering.** Floyd-Steinberg, Jarvis-Judice-Ninke, Stucki, Burkes, Sierra, Sierra Lite, Atkinson, False Floyd-Steinberg, Fan, Stevenson-Arce, Two-Row Sierra and Shiau-Fan are real now in **Posterize** and **Palette → Remap to Palette...** (some silently ran Floyd-Steinberg, Remap ignored them all). The 16x16 ordered dither is a true Bayer matrix.
+- **Fill Adjust** (F8): `D` dithers the fill - every ordered and error-diffusion dither, `D`+wheel amount, `D`+drag offset, presets `D`+`1`-`9`, remembered. A gradient's fade to transparent dithers too. `Enter` / `Esc` always end it; the hints sit around the box; `Ctrl` snaps rotation.
+- **Tools**: Crop - drag the box, double-click trims to the art. Marquee - hold `Space` to slide any selection shape. Move - `Alt` clones leave no float, `Shift+arrows` nudge 10 px. Eraser - `Shift` erases every layer the stroke crosses. Picker - `R` samples the reference. Fill - `Shift+click` uses the canvas as shown; hold `W` or `G` to fill all layers. Hold `E` with Dot or Spray erases their way. Held `Ctrl+Z` / `Ctrl+Y` and shape arrows repeat.
+- **Fixes**: a transparent FG shows the erase in every tool while drawing; gradient images read along the way they run (the Gradient Editor no longer makes 8 stops of one color); a fill on a lower layer no longer vanishes under a selected layer above; Export Selection with nothing selected; "Memory has been freed" when adding sounds; saving before opening a recent file writes a real `.draw`; GIF export over 256 colors.
+- **Interim builds** show "(sha branch)" after the version in the title bar, About box and `--version`.
 
 ## New in 2.7.1
 
