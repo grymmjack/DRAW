@@ -1042,18 +1042,17 @@ FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor 
         IF DRAWER_GRADIENT_CUSTOM(slotIdx%) AND DRAWER_GRADIENT_SLOTS(slotIdx%) < -1 THEN
             DIM ciSrc    AS LONG
             DIM ciW      AS INTEGER
-            DIM ciSX     AS INTEGER
+            DIM ciSX     AS INTEGER, ciSY AS INTEGER
             DIM ciOldSrc AS LONG
             DIM ciColor  AS _UNSIGNED LONG
             ciSrc& = DRAWER_GRADIENT_SLOTS(slotIdx%)
             ciW%   = _WIDTH(ciSrc&)
             IF ciW% > 0 THEN
-                ciSX% = INT(t! * (ciW% - 1) + .5)
-                IF ciSX% < 0 THEN ciSX% = 0
-                IF ciSX% >= ciW% THEN ciSX% = ciW% - 1
+                ' along the way the image runs (its top row was one color for a vertical image)
+                GRAD_IMG_ramp_xy slotIdx%, t!, ciSX%, ciSY%
                 ciOldSrc& = _SOURCE
                 _SOURCE ciSrc&
-                ciColor~& = POINT(ciSX%, 0)
+                ciColor~& = POINT(ciSX%, ciSY%)
                 _SOURCE ciOldSrc&
                 DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_with_stop_alpha~&(ciColor~&, gradAlpha%))
                 EXIT FUNCTION
@@ -1145,7 +1144,7 @@ END FUNCTION
 ' @return _UNSIGNED LONG the stop color (alpha as the stop has it)
 '
 FUNCTION DRAWER_fill_dither_color~& (slotIdx AS INTEGER, t AS SINGLE, dx AS INTEGER, dy AS INTEGER)
-    DIM AS INTEGER n, i, iw, sx, useImg
+    DIM AS INTEGER n, i, iw, useImg, ax, ay, bx, by
     DIM AS SINGLE p0, p1, segT, lo, amt, s, tt
     DIM AS _UNSIGNED LONG cA, cB
     DIM AS LONG img, oldSrc
@@ -1178,10 +1177,11 @@ FUNCTION DRAWER_fill_dither_color~& (slotIdx AS INTEGER, t AS SINGLE, dx AS INTE
     END IF
     IF p1 > p0 THEN segT = (tt - p0) / (p1 - p0) ELSE segT = 0
     IF useImg THEN
+        GRAD_IMG_ramp_xy slotIdx, p0, ax, ay
+        GRAD_IMG_ramp_xy slotIdx, p1, bx, by
         oldSrc = _SOURCE
         _SOURCE img
-        sx = INT(p0 * (iw - 1) + 0.5): cA = POINT(sx, 0)
-        sx = INT(p1 * (iw - 1) + 0.5): cB = POINT(sx, 0)
+        cA = POINT(ax, ay): cB = POINT(bx, by)
         _SOURCE oldSrc
     ELSE
         cA = GRAD_COLOR_STOPS(slotIdx, i).clr: cB = GRAD_COLOR_STOPS(slotIdx, i + 1).clr
@@ -1480,6 +1480,7 @@ SUB DRAWER_run_deferred_action ()
             CASE DRAWER_MODE_GRADIENT
                 IF DRAWER_GRADIENT_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%) < -1 THEN SAFE_FREEIMAGE DRAWER_GRADIENT_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%)
                 DRAWER_GRADIENT_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%)   = loadedImg&
+                DRAWER_GRADIENT_RAMP_IMG(DRAWER_DEFERRED_IMPORT_SLOT%) = 0 ' look again which way it runs
                 DRAWER_GRADIENT_HAS(DRAWER_DEFERRED_IMPORT_SLOT%)     = TRUE
                 DRAWER_GRADIENT_CUSTOM(DRAWER_DEFERRED_IMPORT_SLOT%)  = TRUE
                 GRAD_DEFS(DRAWER_DEFERRED_IMPORT_SLOT%).colorCount%   = 0
@@ -1573,6 +1574,7 @@ SUB DRAWER_import_file_to_slot (filename AS STRING, slotIndex AS INTEGER, mode A
         CASE DRAWER_MODE_GRADIENT
             IF DRAWER_GRADIENT_SLOTS(localSlot%) < -1 THEN SAFE_FREEIMAGE DRAWER_GRADIENT_SLOTS(localSlot%)
             DRAWER_GRADIENT_SLOTS(localSlot%)   = loadedImg&
+            DRAWER_GRADIENT_RAMP_IMG(localSlot%) = 0 ' look again which way it runs
             DRAWER_GRADIENT_HAS(localSlot%)     = TRUE
             DRAWER_GRADIENT_CUSTOM(localSlot%)  = TRUE
             GRAD_DEFS(localSlot%).colorCount%   = 0
@@ -4398,6 +4400,7 @@ SUB DRAWER_load_state_binary (fh AS INTEGER)
     FOR i% = 1 TO DRAWER_FILE_SLOTS
         loadedImg&                 = DRAWER_load_slot_image&(fh%)
         DRAWER_GRADIENT_SLOTS(i%)  = loadedImg&
+        DRAWER_GRADIENT_RAMP_IMG(i%) = 0 ' look again which way it runs
         DRAWER_GRADIENT_HAS(i%)    = (loadedImg& < -1)
         DRAWER_GRADIENT_CUSTOM(i%) = (loadedImg& < -1)
     NEXT i%
@@ -4987,31 +4990,46 @@ SUB GRADIENT_editor_dialog ()
     SCREEN_render
     DIALOG_init ctx, GED_W, gedH%
 
+    ' ---- Snapshot for cancel (before the stops are made up for an image or an
+    ' empty slot, so Cancel leaves it as it was) ----
+    DIM savedDef AS GRADIENT_DEF
+    DIM savedStops(1 TO GRADIENT_MAX_STOPS) AS GRADIENT_COLOR_STOP
+    DIM savedStopTypes(1 TO GRADIENT_MAX_STOPS) AS INTEGER
+    savedDef = GRAD_DEFS(slotIdx%)
+    DIM gedSi    AS INTEGER
+    FOR gedSi% = 1 TO GRADIENT_MAX_STOPS
+        savedStops(gedSi%)     = GRAD_COLOR_STOPS(slotIdx%, gedSi%)
+        savedStopTypes(gedSi%) = GRAD_STOP_TYPES(slotIdx%, gedSi%)
+    NEXT gedSi%
+
     ' ---- Initialize empty slots with black-to-white default ----
     ' If slot has a custom image but no GRAD_DEFS (imported PNG), extract stops
     IF GRAD_DEFS(slotIdx%).colorCount% < 2 THEN
         IF DRAWER_GRADIENT_SLOTS(slotIdx%) < -1 THEN
-            ' Extract color stops from existing gradient image
+            ' Extract color stops from the gradient image, read along the way it
+            ' runs: across the middle row a top-to-bottom image gave 8 stops of one color
             DIM gedExtImg    AS LONG    : gedExtImg& = DRAWER_GRADIENT_SLOTS(slotIdx%)
             DIM gedExtW      AS INTEGER : gedExtW% = _WIDTH(gedExtImg&)
             DIM gedExtH      AS INTEGER : gedExtH% = _HEIGHT(gedExtImg&)
+            DIM gedExtFam    AS INTEGER : gedExtFam% = GRAD_IMG_family%(slotIdx%)
+            DIM gedExtRun    AS INTEGER ' pixels along the run
+            SELECT CASE gedExtFam%
+                CASE GRADIENT_FAMILY_HORIZONTAL : gedExtRun% = gedExtW%
+                CASE GRADIENT_FAMILY_VERTICAL   : gedExtRun% = gedExtH%
+                CASE ELSE                       : gedExtRun% = _MAX(gedExtW%, gedExtH%)
+            END SELECT
+            ' Sample up to 8 evenly-spaced stops along it
+            DIM gedExtCount  AS INTEGER
+            IF gedExtRun% <= 8 THEN gedExtCount% = gedExtRun% ELSE gedExtCount% = 8
+            IF gedExtCount% < 2 THEN gedExtCount% = 2
+            DIM gedExtI      AS INTEGER
+            DIM gedExtSX     AS INTEGER, gedExtSY AS INTEGER
             DIM gedExtOldSrc AS LONG    : gedExtOldSrc& = _SOURCE
             _SOURCE gedExtImg&
-            ' Sample up to 8 evenly-spaced stops along horizontal center line
-            DIM gedExtCount  AS INTEGER
-            IF gedExtW% <= 8 THEN gedExtCount% = gedExtW% ELSE gedExtCount% = 8
-            IF gedExtCount% < 2 THEN gedExtCount% = 2
-            DIM gedExtMidY   AS INTEGER : gedExtMidY% = gedExtH% \ 2
-            DIM gedExtI      AS INTEGER
             FOR gedExtI% = 1 TO gedExtCount%
-                DIM gedExtSX AS INTEGER
-                IF gedExtCount% > 1 THEN
-                    gedExtSX% = INT((gedExtI% - 1) * (gedExtW% - 1) / (gedExtCount% - 1))
-                ELSE
-                    gedExtSX% = 0
-                END IF
+                GRAD_IMG_path gedExtFam%, (gedExtI% - 1) / (gedExtCount% - 1), gedExtW%, gedExtH%, gedExtSX%, gedExtSY%
                 GRAD_COLOR_STOPS(slotIdx%, gedExtI%).position = (gedExtI% - 1) / (gedExtCount% - 1)
-                GRAD_COLOR_STOPS(slotIdx%, gedExtI%).clr      = POINT(gedExtSX%, gedExtMidY%)
+                GRAD_COLOR_STOPS(slotIdx%, gedExtI%).clr      = POINT(gedExtSX%, gedExtSY%)
                 GRAD_STOP_TYPES(slotIdx%, gedExtI%)           = GRAD_STOP_USER
             NEXT gedExtI%
             _SOURCE gedExtOldSrc&
@@ -5031,17 +5049,6 @@ SUB GRADIENT_editor_dialog ()
             GRAD_COLOR_STOPS(slotIdx%, 2).clr      = _RGB32(255, 255, 255)
         END IF
     END IF
-
-    ' ---- Snapshot for cancel ----
-    DIM savedDef AS GRADIENT_DEF
-    DIM savedStops(1 TO GRADIENT_MAX_STOPS) AS GRADIENT_COLOR_STOP
-    DIM savedStopTypes(1 TO GRADIENT_MAX_STOPS) AS INTEGER
-    savedDef = GRAD_DEFS(slotIdx%)
-    DIM gedSi    AS INTEGER
-    FOR gedSi% = 1 TO GRADIENT_MAX_STOPS
-        savedStops(gedSi%)     = GRAD_COLOR_STOPS(slotIdx%, gedSi%)
-        savedStopTypes(gedSi%) = GRAD_STOP_TYPES(slotIdx%, gedSi%)
-    NEXT gedSi%
 
     DIM selStop     AS INTEGER
     DIM dragStop    AS INTEGER
@@ -5699,6 +5706,7 @@ SUB DRAWER_slot_store (mode AS INTEGER, i AS INTEGER, img AS LONG)
             DRAWER_analyze_1bit i
         CASE DRAWER_MODE_GRADIENT
             DRAWER_GRADIENT_SLOTS(i) = h: DRAWER_GRADIENT_HAS(i) = TRUE: DRAWER_GRADIENT_CUSTOM(i) = TRUE
+            DRAWER_GRADIENT_RAMP_IMG(i) = 0 ' look again which way it runs
         CASE ELSE
             _FREEIMAGE h
     END SELECT
