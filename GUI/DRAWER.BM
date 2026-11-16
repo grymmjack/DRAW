@@ -1028,6 +1028,15 @@ FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor 
     DIM gradAlpha AS INTEGER
     gradAlpha% = GRAD_DEF_eval_opacity%(slotIdx%, t!)
 
+    ' The fill's own dither (FILL_DITHER, GUI/FILL-ADJ: D while a fill is adjusted)
+    ' is a pixel-art dither on any gradient, its own dither or not, stops or an
+    ' image strip: every pixel is a stop color, and the amount is how wide the
+    ' dithered band between two stops is (100% = the whole span, 0% = a hard edge)
+    IF FILL_DITHER.ovr THEN
+        DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_with_stop_alpha~&(DRAWER_fill_dither_color~&(slotIdx%, t!, x% - FILL_DITHER.ox, y% - FILL_DITHER.oy), gradAlpha%))
+        EXIT FUNCTION
+    END IF
+
     ' Custom gradients without color stops: sample from the slot image using t
     IF GRAD_DEFS(slotIdx%).colorCount% < 1 THEN
         IF DRAWER_GRADIENT_CUSTOM(slotIdx%) AND DRAWER_GRADIENT_SLOTS(slotIdx%) < -1 THEN
@@ -1054,12 +1063,10 @@ FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor 
         EXIT FUNCTION
     END IF
 
-    ' Apply dithering if enabled for this gradient slot - or the fill's own while
-    ' a fill is adjusted (FILL_DITHER, GUI/FILL-ADJ: D cycles it; the slot is not changed)
+    ' Apply dithering if enabled for this gradient slot
     DIM fdMode AS INTEGER, fdStr AS SINGLE, fdX AS INTEGER, fdY AS INTEGER
     fdMode = GRAD_DEFS(slotIdx%).ditherMode%: fdStr = GRAD_DEFS(slotIdx%).ditherStrength!
     fdX = x%: fdY = y%
-    IF FILL_DITHER.ovr THEN fdMode = FILL_DITHER.mode: fdStr = FILL_DITHER.amount: fdX = x% - FILL_DITHER.ox: fdY = y% - FILL_DITHER.oy
     IF fdMode <> DITHER_NONE AND GRAD_DEFS(slotIdx%).colorCount% >= 2 THEN
         DIM gdCount     AS INTEGER
         DIM gdI         AS INTEGER
@@ -1122,6 +1129,79 @@ FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor 
         DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_with_stop_alpha~&(GRAD_COLOR_STOPS(slotIdx%, gdCount%).clr, gradAlpha%))
     ELSE
         DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_with_stop_alpha~&(GRAD_DEF_eval_color~&(slotIdx%, t!), gradAlpha%))
+    END IF
+END FUNCTION
+
+''
+' The fill's own dither on a gradient (Fill Adjust, D: FILL_DITHER): the color at
+' t as a pixel-art dither between the two stops around it - only stop colors,
+' no smooth blend. FILL_DITHER.amount is how wide the dithered band is around
+' the middle of each stop-to-stop span: 1 = all of it, 0 = a hard edge. A
+' gradient without color stops (an image strip) is read as 5 stops along it.
+' @param slotIdx INTEGER gradient slot
+' @param t       SINGLE  0..1 along the gradient
+' @param dx      INTEGER pixel x for the threshold (offset applied)
+' @param dy      INTEGER pixel y for the threshold (offset applied)
+' @return _UNSIGNED LONG the stop color (alpha as the stop has it)
+'
+FUNCTION DRAWER_fill_dither_color~& (slotIdx AS INTEGER, t AS SINGLE, dx AS INTEGER, dy AS INTEGER)
+    DIM AS INTEGER n, i, iw, sx, useImg
+    DIM AS SINGLE p0, p1, segT, lo, amt, s, tt
+    DIM AS _UNSIGNED LONG cA, cB
+    DIM AS LONG img, oldSrc
+    tt = t
+    IF tt < 0 THEN tt = 0
+    IF tt > 1 THEN tt = 1
+    n = GRAD_DEFS(slotIdx).colorCount%
+    useImg = FALSE
+    IF n < 1 THEN
+        img = DRAWER_GRADIENT_SLOTS(slotIdx)
+        IF img >= -1 THEN DRAWER_fill_dither_color~& = PAINT_COLOR~&: EXIT FUNCTION
+        iw = _WIDTH(img)
+        IF iw < 1 THEN DRAWER_fill_dither_color~& = PAINT_COLOR~&: EXIT FUNCTION
+        useImg = TRUE: n = 5
+    END IF
+    IF n = 1 THEN DRAWER_fill_dither_color~& = GRAD_COLOR_STOPS(slotIdx, 1).clr: EXIT FUNCTION
+    ' the span around t: stops i and i + 1
+    i = 1
+    IF useImg THEN
+        i = INT(tt * (n - 1)) + 1
+        IF i > n - 1 THEN i = n - 1
+        p0 = (i - 1) / (n - 1): p1 = i / (n - 1)
+    ELSE
+        IF tt <= GRAD_COLOR_STOPS(slotIdx, 1).position THEN DRAWER_fill_dither_color~& = GRAD_COLOR_STOPS(slotIdx, 1).clr: EXIT FUNCTION
+        IF tt >= GRAD_COLOR_STOPS(slotIdx, n).position THEN DRAWER_fill_dither_color~& = GRAD_COLOR_STOPS(slotIdx, n).clr: EXIT FUNCTION
+        DO WHILE i < n - 1 _ANDALSO tt > GRAD_COLOR_STOPS(slotIdx, i + 1).position
+            i = i + 1
+        LOOP
+        p0 = GRAD_COLOR_STOPS(slotIdx, i).position: p1 = GRAD_COLOR_STOPS(slotIdx, i + 1).position
+    END IF
+    IF p1 > p0 THEN segT = (tt - p0) / (p1 - p0) ELSE segT = 0
+    IF useImg THEN
+        oldSrc = _SOURCE
+        _SOURCE img
+        sx = INT(p0 * (iw - 1) + 0.5): cA = POINT(sx, 0)
+        sx = INT(p1 * (iw - 1) + 0.5): cB = POINT(sx, 0)
+        _SOURCE oldSrc
+    ELSE
+        cA = GRAD_COLOR_STOPS(slotIdx, i).clr: cB = GRAD_COLOR_STOPS(slotIdx, i + 1).clr
+    END IF
+    ' squeeze the dithered band to the amount, around the middle of the span
+    amt = FILL_DITHER.amount
+    IF amt <= 0.001 THEN
+        s = _IIF(segT < 0.5, 0!, 1!)
+    ELSE
+        lo = 0.5 - amt / 2
+        s = (segT - lo) / amt
+    END IF
+    IF s <= 0 THEN
+        DRAWER_fill_dither_color~& = cA
+    ELSEIF s >= 1 THEN
+        DRAWER_fill_dither_color~& = cB
+    ELSEIF s < DITHER_get_threshold!(FILL_DITHER.mode, dx, dy) THEN
+        DRAWER_fill_dither_color~& = cA
+    ELSE
+        DRAWER_fill_dither_color~& = cB
     END IF
 END FUNCTION
 

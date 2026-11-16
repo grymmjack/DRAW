@@ -110,7 +110,7 @@ DRAW's flood fill is unusual in two ways:
 1. It supports **custom brushes as a tiled fill** — if you have a brush captured (Chapter 9), the fill is rendered as a seamless tiling of that brush rather than a flat color.
 2. It also honours the **paint mode** — set Pattern or Gradient mode (Chapter 9) and your fill becomes a dithered gradient or tiled pattern instead of a solid color.
 
-Press `F8` to enable **Fill Adjustment overlay**. Now when you fill using pattern mode or gradient mode, or with custom brushes in color mode (loaded from the bins), drag the canvas to reposition the tile origin, mouse-wheel for uniform scale, drag the L-handle for independent X/Y scaling, and drag the rotation handle (small arc) to rotate the tile. `Enter` applies, `Esc` cancels.
+Press `F8` to enable **Fill Adjustment overlay**. Now when you fill using pattern mode or gradient mode, or with custom brushes in color mode (loaded from the bins), drag the canvas to reposition the tile origin, mouse-wheel for uniform scale, drag the L-handle for independent X/Y scaling, and drag the rotation handle (small arc) to rotate the tile (hold `Ctrl` for 15° steps). `Enter` applies, `Esc` cancels. Tap `D` to dither the fill (any gradient: a pixel dither between its stop colors; a pattern or brush fill is thinned), `D`+wheel sets the amount (for a gradient, how wide the dithered band between two stops is), `D`+drag moves the pattern, `D`+`Shift`+`1`–`9` saves a preset and `D`+`1`–`9` recalls it.
 
 <div class="page-break"></div>
 

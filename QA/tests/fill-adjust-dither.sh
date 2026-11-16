@@ -11,10 +11,14 @@
 #     opacity keys while D is held.
 #  4. Enter keeps the fill; the next fill starts with the dither as it was.
 #  5. A pattern fill is thinned by the dither (part of the fill shows through).
+#  6. (Rick, 2026-11-15) the gradient has no dither of its own and still
+#     dithers: a true pixel dither (stop colors only), and D + wheel visibly
+#     changes it (the amount = how wide the dithered band is); hold Ctrl while
+#     dragging the rotation arc = 15-degree steps.
 # It used to: D picked the Dot tool and committed nothing of the kind.
 #
 # Dump: FILLADJ active mode amount% offX offY tileW tileH rot opacity dHeld |
-#       VIEW zoom offX offY tool | CVORG x y
+#       VIEW zoom offX offY tool | CVORG x y | GRADSEL slot stops ownDither str% custom
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE
 # =============================================================================
 source "$DRAW_ROOT/QA/dock-lib.sh"
@@ -53,8 +57,12 @@ fa; tool
 (( F_ACT == 1 )) && pass "the fill is still being adjusted" || fail "Fill Adjust ended on D"
 fillshot "dithered"
 NC=$(magick "$SNAP_RESULT" -format '%k' info: 2>/dev/null)
-if ! cmp -s "$SMOOTH" "$SNAP_RESULT" && (( NC > 4 )); then pass "the dither changed the fill ($NC colors)"; else fail "the dithered fill: $NC colors / same as smooth (a flat fill: the dither's blend dropped the gradient's alpha)"; fi
+# a flat fill (1 color) = the gradient's alpha was dropped; a dither shows the stop color + the checkerboard
+if ! cmp -s "$SMOOTH" "$SNAP_RESULT" && (( NC >= 3 )); then pass "the dither changed the fill ($NC colors)"; else fail "the dithered fill: $NC colors / same as smooth (a flat fill: the gradient's alpha was dropped)"; fi
 screenshot "fill-dither-2x2"
+read -r _ G_SLOT G_N G_DM _ <<< "$(grep -m1 '^GRADSEL ' "$DK_DUMP")"
+(( G_DM == -1 )) && pass "the gradient (slot $G_SLOT, $G_N stops) has no dither of its own" || info "gradient slot $G_SLOT has its own dither $G_DM"
+(( NC <= 4 )) && pass "the fill's dither is a pixel dither: $NC colors (stop colors + the checkerboard)" || fail "the fill's dither left $NC colors - a smooth blend, not a dither"
 key d; wait_for 0.4 "D again"; fa
 (( F_MODE == 1 )) && pass "D again: the next dither (ORDERED 4x4)" || fail "second D: mode $F_MODE (want 1)"
 
@@ -69,6 +77,16 @@ mouse_up; sleep 0.2
 raw_key up d; sleep 0.4
 fa
 (( A1 == A0 + 10 )) && pass "D + wheel up: amount $A0% -> $A1%" || fail "D + wheel: amount $A0% -> $A1% (want +10)"
+fillshot "amount-$A1"; AMT_A="$SNAP_RESULT"
+raw_key down d; sleep 0.25
+for w in 1 2 3 4 5 6; do scroll_down "$(sx 120)" "$(sy 80)"; sleep 0.12; done
+sleep 0.3; raw_key up d; sleep 0.4; fa
+fillshot "amount-$F_AMT"
+! cmp -s "$AMT_A" "$SNAP_RESULT" && pass "D + wheel down changed the gradient's dither on screen ($A1% -> $F_AMT%)" || fail "the amount $A1% -> $F_AMT% left the gradient fill the same"
+raw_key down d; sleep 0.25
+for w in 1 2 3 4 5 6; do scroll_up "$(sx 120)" "$(sy 80)"; sleep 0.12; done
+sleep 0.3; raw_key up d; sleep 0.4; fa
+(( F_AMT == A1 )) || fail "the amount did not come back to $A1% ($F_AMT%)"
 (( F_OX == 5 && F_OY == 2 )) && pass "D + drag moved the pattern (5,2)" || fail "D + drag: offset $F_OX,$F_OY (want 5,2)"
 (( F_MODE == 1 )) && pass "D let go after the wheel / drag did not cycle (mode $F_MODE)" || fail "D up after a chord cycled the mode to $F_MODE"
 screenshot "fill-dither-amount-offset"
@@ -86,6 +104,22 @@ info "preset: saved mode 1 $A1% at 5,2; moved to mode $MAWAY; recalled mode $F_M
 (( MAWAY != 1 )) || fail "the mode did not move away before the recall"
 (( F_MODE == 1 && F_AMT == A1 && F_OX == 5 && F_OY == 2 )) && pass "D + Shift+3 saved and D + 3 recalled the preset" || fail "recall: mode $F_MODE $F_AMT% at $F_OX,$F_OY (want 1 $A1% at 5,2)"
 (( F_OP == OP0 )) && pass "the digits under D left the opacity alone ($F_OP)" || fail "opacity $OP0 -> $F_OP: a digit under D set it"
+
+# -- 6. Ctrl + rotation arc = 15-degree steps --
+# the L handle sits at the shape's corner (canvas 50,40); its arc: radius 28, upper right
+HX=$(sx 50); HY=$(sy 40)
+mouse_down $(( HX + 20 )) $(( HY - 20 )); sleep 0.1
+hover $(( HX + 25 )) $(( HY - 10 )); sleep 0.1; hover $(( HX + 28 )) $(( HY + 5 )); sleep 0.3
+mouse_up; sleep 0.3; fa; R0=$F_ROT
+info "rotation drag (no Ctrl): $R0 degrees"
+(( R0 % 15 != 0 )) && pass "a free rotation drag is not snapped ($R0)" || info "free rotation landed on a multiple of 15 ($R0)"
+mouse_down $(( HX + 20 )) $(( HY - 20 )); sleep 0.1
+raw_key down ctrl; sleep 0.15
+hover $(( HX + 25 )) $(( HY - 10 )); sleep 0.1; hover $(( HX + 28 )) $(( HY + 5 )); sleep 0.3
+mouse_up; sleep 0.2; raw_key up ctrl; sleep 0.3; fa
+info "rotation drag with Ctrl: $R0 -> $F_ROT degrees"
+(( F_ROT % 15 == 0 && F_ROT != R0 )) && pass "Ctrl + rotation drag snaps to 15 degrees ($F_ROT)" || fail "Ctrl + rotation: $F_ROT (want a multiple of 15, not $R0)"
+screenshot "fill-rotate-snap"
 
 # -- 4. commit, the next fill remembers --
 key Return; wait_for 0.5 "commit"; fa

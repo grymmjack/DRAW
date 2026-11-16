@@ -28,6 +28,7 @@ CONST FILL_ADJ_DRAG_SCALE_X = 3   ' Dragging horizontal arm = scale X only
 CONST FILL_ADJ_DRAG_SCALE_Y = 4   ' Dragging vertical arm = scale Y only
 CONST FILL_ADJ_DRAG_ROTATE  = 5   ' Dragging rotation handle = rotate tile
 CONST FILL_ADJ_DRAG_DITHER  = 6   ' D held + drag = move the dither pattern
+CONST FILL_ADJ_ROT_SNAP     = 15  ' Ctrl + rotate drag: degrees a step
 
 TYPE FILL_ADJ_OBJ
     ENABLED        AS INTEGER ' Toggle: F8 latches this on/off
