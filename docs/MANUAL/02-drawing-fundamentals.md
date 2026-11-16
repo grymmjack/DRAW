@@ -137,6 +137,8 @@ The **Eraser** (`E`, ![eraser](../../ASSETS/THEMES/DEFAULT/IMAGES/TOOLBOX/eraser
 
 The eraser uses your current brush size, shape, and even custom-brush stamp. The status bar shows `FG:TRN` to remind you transparent painting is active.
 
+**Any tool erases with a transparent color.** Click the status bar's **X** chip (left-click = FG, right-click = BG), and the brush, dot, spray, line, rectangle, ellipse, polygon, bezier, smart shapes, fill, text and custom brush all erase instead of painting, in gradient and pattern paint modes too. While you drag, the shape shows the transparency checkerboard where it will erase, and a custom brush's cursor shows its footprint as the checkerboard.
+
 > 💡 **Tip:** Combine the eraser with a layer's **Opacity Lock** (Chapter 4) to clean up overpaint while preserving the layer's silhouette.
 
 ---

@@ -323,7 +323,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | Keys | Action |
 |------|--------|
 | `X` | Swap FG/BG (including transparency state) |
-| `Shift+Delete` | Set BG to transparent |
+| `Shift+Delete` | Set BG to transparent (then `X` = FG transparent; or click the status bar's X chip). A transparent color erases in every tool, and the live preview shows the checkerboard where it will erase |
 | `Ctrl+Alt+R` | Load a random palette |
 | `F1` / `F2` / `F3` | Drawer Brush / Gradient / Pattern mode |
 | `Shift+Tab` | Color cycling on/off (Palette → Cycle Colors; `[CYC]` in the status bar) |
