@@ -15,7 +15,7 @@ Open the settings dialog with `Ctrl+,` (comma) or `Edit → Settings`. The dialo
 | **General** | Display scale, fullscreen toggle, FPS limit, UI scaling, tooltips and the **Help Card** (on/off, which edge of the canvas area it docks to, hover delay). **Tooltip Delay** and **Help Card Delay** work the same way: 0–5000 ms (0 = instant). The **−**/**+** buttons and the mouse wheel step by 50 ms, and you can click the number to type an exact value, **Enable AI Features**. |
 | **Grid** | Default grid size, geometry, alignment, snap state, crosshair appearance. |
 | **Palette** | Default palette, recent-palettes list size, Lospec UI visibility. |
-| **Panels** | Default visibility for Toolbox, Layers, Edit Bar, Advanced Bar, Preview, Character Map, Drawer, Color Mixer. |
+| **Panels** | Default visibility for Toolbox, Layers, Edit Bar, Advanced Bar, Preview, Character Map, Drawer, Color Mixer; Layers panel options, including **Thumbnails** (Off / Tiny / Small / Medium), **Thumbnail Shows** (Content / Canvas), **Min Crop (px)** and **Layer Bar** (Off / Top / Bottom); the animation **Lightbox Strip**: **Strip Layout** (Tray / Row), **Min Cell (px)** and **Cell Size (px)**, and **X-Sheet Rows** (Text / Tiny / Small / Medium: the layer rows and the SOUND rows, whose waveform grows with them). |
 | **Audio** | SFX and music enable/disable, master volume, mute. |
 | **Fonts** | Default font and size, paths to scan for TTF/OTF. |
 | **Appearance** | Various color scheme configurations. |
@@ -89,6 +89,7 @@ Anything you can theme — UI palette, transform-overlay frame, smart-guide colo
 
 - **Display Scale** — 1× through 8×. Suits HiDPI monitors.
 - **Toolbar Scale** — 1× through 4×. Independent of display scale, so you can have small toolbar icons on a HiDPI display.
+- **Panel Scale** — the Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Swatches, Preview and Browser panels, and the docked Toolbox, Organizer, Drawer, Layers, Edit Bar, Advanced Bar, Character Map and Workflow Buttons, each have their own size: **Auto** (the default) follows the UI Scale, or fix one at 1× through 8× — that many screen pixels for each of the panel's pixels, so 1× is as small and sharp as your screen draws. Right-click the panel's title bar (a docked panel's handle) → **Scale**, or Settings → Panels → Panel Scale.
 
 <div class="page-break"></div>
 
@@ -115,14 +116,20 @@ Beyond left and right, panels can be **stacked** in one column, **tabbed**,
 **collapsed** to their title, **floated** in their own window and docked back.
 Drag a panel by its handle (its title strip, the layers header, or the thin
 grip that appears on a panel's top edge), and right-click a handle for Move to
-Left/Right Edge, Collapse, Float and Reset Arrangement. The floating windows
-(Preview, Color Mixer, the color pickers, Pen Pressure, Browser) dock by
-dragging their title bar onto a dock target. See **[Chapter 22 — Moving,
+Left/Right Edge, Collapse, Float, Reset Arrangement and — on the Animation, Color
+Mixer, color picker, 3D Color Space, Pen Pressure and Swatches panels — **Scale** (Auto or 1×–4×). The floating windows
+(Preview, Color Mixer, the color pickers, Pen Pressure, Swatches, Browser) dock by
+dragging their title bar onto a dock target. Docked, the Animation, Color
+Mixer, color picker, 3D Color Space, Pen Pressure and Swatches panels fill their slot:
+their rows and sliders stretch to the column's width, and in a column with
+room to spare their big area — the color field, the wheel and its shade rows,
+the 3D view, the response graph — grows taller. Floating, they go back to
+their own size. See **[Chapter 22 — Moving,
 stacking, tabbing and floating panels](22-workspaces-capture.md#moving-stacking-tabbing-and-floating-panels)**.
 
 ### UI master toggles
 
-- `F11` — toggle **all** UI (canvas-only mode).
+- `F11` — toggle **all** UI (canvas-only mode); a second `F11` puts back exactly what was showing, in a workspace too.
 - `Ctrl+F11` — keep only the menu bar.
 - `F10` — toggle the status bar.
 

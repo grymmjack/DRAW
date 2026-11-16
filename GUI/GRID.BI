@@ -58,5 +58,29 @@ TYPE DRAW_PIXEL_GRID
 END TYPE
 
 DIM SHARED GRID       AS DRAW_GRID
+' Ctrl+Alt+Shift+wheel over the canvas: one shift (alpha units, -255..255)
+' on the grid's, the pixel grid's and the checkerboard's opacity together;
+' Ctrl+Alt+Shift+middle-click puts it back to 0 (each its configured value).
+' This session only - never saved (GRID_fade_* in GRID.BM).
+DIM SHARED OVERLAY_FADE AS INTEGER
+CONST OVERLAY_FADE_STEP = 16
 DIM SHARED PIXEL_GRID AS DRAW_PIXEL_GRID
+
+' Visual grid adjust (R-click the organizer's grid button, Deluxe Paint style):
+' the grid is shown and one drag on the canvas is one cell - its size becomes
+' the grid's width / height, its corner the grid's origin. Esc puts it back.
+' (GRID_adjust_* in GRID.BM; the mouse comes from MOUSE_handle_tool_phase)
+TYPE GRID_ADJ_OBJ
+    active   AS INTEGER ' the mode is on
+    dragging AS INTEGER ' the cell drag is under way
+    sx       AS INTEGER ' drag start, canvas px
+    sy       AS INTEGER
+    oW       AS INTEGER ' the grid as it was (Esc)
+    oH       AS INTEGER
+    oX       AS INTEGER
+    oY       AS INTEGER
+    oShow    AS INTEGER
+END TYPE
+DIM SHARED GRID_ADJ AS GRID_ADJ_OBJ
+CONST GRID_ADJ_MIN = 2 ' smallest cell a drag sets (a click is not a 1x1 grid)
 

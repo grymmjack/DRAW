@@ -28,6 +28,7 @@ SUB MOVE_init ()
     MOVE.HANDLE          = 0
     MOVE.CLONING         = FALSE
     MOVE.IS_PASTE        = FALSE
+    MOVE.WHOLE_LAYER     = FALSE
     MOVE.CLONE_STAMPED   = FALSE
     MOVE.CONSTRAIN       = FALSE
     MOVE.CAPTURED_LAYER  = 0
@@ -162,10 +163,28 @@ SUB MOVE_capture_selection ()
         NEXT sibI%
     END IF
 
+    ' A clip layer with pixel layers selected too: lift the topmost of those as the
+    ' primary, so the clip moves as a selected sibling (as a clip - the linked loop in
+    ' MOVE_apply_transform); MOVE_reset makes the clip current again (GROUP_ORIGIN)
+    IF MOVE.GROUP_ORIGIN = 0 _ANDALSO LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_CLIP THEN
+        DIM clipPrim AS INTEGER
+        clipPrim% = CLIP_others_selected%
+        IF clipPrim% > 0 THEN
+            MOVE.GROUP_ORIGIN = CURRENT_LAYER%
+            IF NOT MULTI_SELECT_LAYERS(CURRENT_LAYER%) THEN
+                MULTI_SELECT_LAYERS(CURRENT_LAYER%) = TRUE
+                MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
+            END IF
+            CURRENT_LAYER% = clipPrim%
+        END IF
+    END IF
+
     ' Symbol child: use offset-based dragging with pixel snapshot
     ' (preserves per-pixel transforms like rotation from Transform tool)
+    ' (A clip layer moves the same way: the drag shows its pixels moving, the
+    ' commit moves the clip and rebuilds it - TOOLS/CLIP.)
     MOVE.SYMBOL_CHILD = FALSE
-    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD _ORELSE LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_CLIP THEN
         MOVE.SYMBOL_CHILD   = TRUE
         MOVE.CAPTURED_LAYER = CURRENT_LAYER%
         MOVE.SYMBOL_ORIG_OX = LAYERS(CURRENT_LAYER%).symbolOffsetX%
@@ -212,6 +231,7 @@ SUB MOVE_capture_selection ()
     ' If no marquee is active, capture the entire layer
     DIM captureWholeLayer AS INTEGER
     captureWholeLayer% = NOT MARQUEE.ACTIVE OR NOT MARQUEE.INITIALIZED
+    MOVE.WHOLE_LAYER   = captureWholeLayer%
     
     ' Free old image if exists
     SAFE_FREEIMAGE MOVE.SELECTION_IMAGE
@@ -668,6 +688,26 @@ SUB MOVE_apply_transform ()
     END IF
     IF targetLayer% < 1 OR targetLayer% > MAX_LAYERS OR LAYERS(targetLayer%).imgHandle& >= -1 THEN EXIT SUB
 
+    ' --- Clip layer: the move goes to the clip (every frame); it is rebuilt (TOOLS/CLIP) ---
+    IF LAYERS(targetLayer%).layerType% = LAYER_TYPE_CLIP THEN
+        IF MOVE.TRANSFORM_TYPE = 0 THEN
+            CLIP_move_by targetLayer%, MOVE.CURRENT_X - MOVE.ORIGINAL_X, MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
+        ELSE
+            STATUS_flash "A clip layer moves; it does not scale here (ANIM > Clip Layer > Bake Clip to Pixels first)"
+        END IF
+        LAYERS(targetLayer%).symbolScaleX! = 1.0: LAYERS(targetLayer%).symbolScaleY! = 1.0
+        LAYERS(targetLayer%).symbolOffsetX% = MOVE.SYMBOL_ORIG_OX: LAYERS(targetLayer%).symbolOffsetY% = MOVE.SYMBOL_ORIG_OY
+        CLIP_rebuild targetLayer%
+        SAFE_FREEIMAGE MOVE.SELECTION_IMAGE
+        MOVE.SELECTION_IMAGE = 0
+        MOVE.SYMBOL_CHILD    = FALSE
+        MOVE.ACTIVE          = FALSE
+        MOVE.TRANSFORMING    = FALSE
+        BLEND_invalidate_cache
+        INVALIDATE_scene
+        EXIT SUB
+    END IF
+
     ' --- Symbol child: commit offset and scale changes ---
     IF LAYERS(targetLayer%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
         DIM symOldOX     AS INTEGER, symOldOY AS INTEGER
@@ -842,9 +882,14 @@ SUB MOVE_apply_transform ()
     ' _BLEND here so both move and paste composite correctly.
     _BLEND targetImg&
 
-    ' Draw the transformed selection
+    ' Draw the transformed selection (the lightbox, clip to frame on: kept inside
+    ' the current frame - what lands outside it is put back, TOOLS/ANIM-CANVAS)
     IF MOVE.SELECTION_IMAGE < -1 THEN
+        DIM mvKeep AS LONG
+        mvKeep& = ANIM_CV_keep_begin&(targetImg&)
         _PUTIMAGE (MOVE.CURRENT_X + tgtAW%, MOVE.CURRENT_Y + tgtAH%)-(MOVE.CURRENT_X + tgtAW% + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + tgtAH% + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, targetImg&
+        ANIM_CV_keep_end targetImg&, mvKeep&, tgtAW%, tgtAH%
+        _DEST targetImg&
     END IF
 
     _DEST SCRN.CANVAS&
@@ -909,7 +954,9 @@ SUB MOVE_apply_transform ()
                 DIM mmIdx AS INTEGER
                 mmIdx% = MOVE_MULTI_LAYERS(mmI%)
                 IF mmIdx% >= 1 AND mmIdx% <= MAX_LAYERS THEN
-                    IF LAYERS(mmIdx%).imgHandle& < -1 THEN
+                    IF LAYERS(mmIdx%).layerType% = LAYER_TYPE_CLIP THEN
+                        CLIP_move_by mmIdx%, mmDx%, mmDy% ' a selected clip layer moves as a clip, whole (TOOLS/CLIP)
+                    ELSEIF LAYERS(mmIdx%).imgHandle& < -1 THEN
                         DIM mmBefore AS LONG
                         mmBefore& = 0
                         IF LAYERS(mmIdx%).historyId& > 0 THEN
@@ -1184,7 +1231,10 @@ SUB MOVE_stamp ()
     ' marquee must stay selected at the new (CURRENT) bounds, not vanish on
     ' release. (Previously this set USER_CREATED=FALSE to hide the ants, which
     ' made SELECTION_has_active% false — i.e. an effective deselect.)
-    MARQUEE.USER_CREATED = TRUE
+    ' A whole-layer lift (no selection) keeps its auto marquee: promoting it
+    ' made a canvas-sized selection out of an Alt+drag clone, which Esc then
+    ' slid back to the lift's origin, apron and all (BUGS.md 2026-11-15).
+    IF MOVE.WHOLE_LAYER = 0 THEN MARQUEE.USER_CREATED = TRUE
 
     ' Keep move tool active for more stamps - don't reset MOVE.TRANSFORMING
 END SUB
@@ -1322,7 +1372,7 @@ SUB MOVE_render_status (dest AS LONG)
         status_text$ = "[CLONE] DRAG+Release: Stamp copy | Keep ALT held for more stamps | Release ALT: Done"
     ELSE
         ' Normal move mode
-        status_text$ = "DRAG: Move | ARROWS: Nudge | H/V: Flip | Hold ALT+DRAG: Stamp copies | ENTER: Apply | ESC: Cancel"
+        status_text$ = "DRAG: Move | ARROWS: Nudge | SHIFT+ARROWS: Nudge 10 | Hold ALT+DRAG / ALT+ARROWS: Stamp copies | ESC: Cancel"
     END IF
     
     ' Use shared STATUS_FONT (loaded once at init, not per-frame)
@@ -1563,6 +1613,20 @@ SUB MOVE_nudge (dx AS INTEGER, dy AS INTEGER)
     ' the nudge only becomes visible when Ctrl is released (modifier change
     ' triggers SCENE_CHANGED).
     INVALIDATE_scene
+END SUB
+
+''
+' Lets go of the float WITHOUT applying it again - for a float whose every
+' position is already committed (Alt+arrow clone nudges stamp as they go). The
+' next arrow or drag lifts the layer afresh, stamps included; before this the
+' stale float (the layer as first lifted) stayed live and a later drag moved
+' it as a separate floating copy (BUGS.md 2026-11-15).
+'
+SUB MOVE_drop_float ()
+    IF NOT MOVE.ACTIVE _ORELSE MOVE.SYMBOL_CHILD THEN EXIT SUB
+    SAFE_FREEIMAGE MOVE.SELECTION_IMAGE
+    MOVE.SELECTION_IMAGE = 0 ' MOVE_reset applies only a live float
+    MOVE_reset
 END SUB
 
 ''

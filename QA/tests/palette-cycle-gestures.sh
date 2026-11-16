@@ -51,11 +51,21 @@ snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "cyc-art"
 ART="$SNAP_RESULT"
 assert_regions_differ "$EMPTY" "$ART" "Setup: the canvas must be filled with chip 2"
 
-# helper: two canvas snaps a beat apart -> sets A_SNAP / B_SNAP
+# helper: canvas snaps a beat apart -> sets A_SNAP / B_SNAP. B is the first of
+# up to 4 later snaps that differs from A (else the last one). One snap takes
+# ~1.5 s on a busy Xvfb (2026-11-15), so snaps fall nearly whole loops of a
+# 0.4 s range apart and two in a row often catch the same colors - the resume
+# and undo checks failed that way every run while the canvas was visibly
+# cycling. A still canvas matches every snap, so a paused range still reads as
+# still.
 two_snaps() {
+    local i
     snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "$1-a"; A_SNAP="$SNAP_RESULT"
-    wait_for 0.15 "$1: a few steps later"
-    snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "$1-b"; B_SNAP="$SNAP_RESULT"
+    for i in 1 2 3 4; do
+        wait_for 0.15 "$1: a few steps later"
+        snap_region $(( ART_X + 10 )) $(( ART_Y + 10 )) 100 60 "$1-b$i"; B_SNAP="$SNAP_RESULT"
+        [[ "$(magick compare -metric AE "$A_SNAP" "$B_SNAP" null: 2>&1 | cut -d' ' -f1)" == 0 ]] || break
+    done
 }
 
 info "Color Ops on; Ctrl+drag chips 2..5"

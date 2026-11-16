@@ -1,0 +1,1985 @@
+''
+' DRAW - TOOLS/ANIM-XS.BM
+' =============================================================================
+' X-sheet (see ANIM-XS.BI).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' The lightbox is showing with the X-sheet in its top band.
+FUNCTION ANIM_XS_on% ()
+    IF CFG.XSHEET% = 0 THEN EXIT FUNCTION
+    ANIM_XS_on% = ANIM_LB_showing%
+END FUNCTION
+
+''
+' ANIM > X-Sheet, Num 8, the X-SHEET chip (action 2540). From sheet view it
+' opens the lightbox with the X-sheet; off, the strip comes back.
+SUB ANIM_XS_toggle ()
+    IF CFG.XSHEET% = 0 _ORELSE CFG.LIGHTBOX% = 0 THEN
+        IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash ANIM_NO_FRAMES$: EXIT SUB
+        IF CFG.LIGHTBOX% = 0 THEN
+            ANIM_LB_toggle
+            IF CFG.LIGHTBOX% = 0 THEN EXIT SUB ' refused (busy): it said why
+        END IF
+        CFG.XSHEET% = TRUE
+        STATUS_flash "X-sheet (Num 8 back to the strip)"
+    ELSE
+        CFG.XSHEET% = FALSE
+        STATUS_flash "Lightbox strip"
+    END IF
+    CONFIG_save
+    ANIM_LB_changed
+END SUB
+
+''
+' The rows, top to bottom as the layers panel shows them: every layer by
+' zIndex, highest first, leaving out the layers of collapsed groups.
+SUB ANIM_XS_rows_build ()
+    DIM z AS INTEGER, i AS INTEGER, n AS INTEGER, p AS INTEGER, d AS INTEGER
+    FOR z = LAYER_COUNT% TO 1 STEP -1
+        FOR i = 1 TO MAX_LAYERS
+            IF LAYERS(i).imgHandle& <> 0 _ANDALSO LAYERS(i).zIndex% = z THEN
+                IF LAYER_PANEL_row_hidden%(i) = 0 _ANDALSO n < 3 * MAX_LAYERS THEN
+                    n = n + 1: ANIM_XS_ROW(n) = i: ANIM_XS_RKIND(n) = 0
+                    d = 0: p = LAYERS(i).parentGroupIdx%
+                    DO WHILE p > 0 _ANDALSO p <= MAX_LAYERS _ANDALSO d < 8
+                        d = d + 1: p = LAYERS(p).parentGroupIdx%
+                    LOOP
+                    ANIM_XS_DEPTH(n) = d
+                    p = CLIP_inst_of%(i) ' a clip layer with sounds: its SOUND row under it; with keys: its LANES row
+                    IF p _ANDALSO n < 3 * MAX_LAYERS THEN
+                        IF CLIP_cues_of%(CLIP_INST(p).src) > 0 THEN n = n + 1: ANIM_XS_ROW(n) = -i: ANIM_XS_DEPTH(n) = d + 1: ANIM_XS_RKIND(n) = XS_ROW_SOUND
+                    END IF
+                    IF p _ANDALSO n < 3 * MAX_LAYERS THEN
+                        IF CLIP_has_keys%(p) THEN n = n + 1: ANIM_XS_ROW(n) = -i: ANIM_XS_DEPTH(n) = d + 1: ANIM_XS_RKIND(n) = XS_ROW_LANES
+                    END IF
+                END IF
+                EXIT FOR
+            END IF
+        NEXT i
+    NEXT z
+    ANIM_XS.nRows = n
+END SUB
+
+''
+' A row's label: the name, a group's with "/", then [R] / [=].
+FUNCTION ANIM_XS_label$ (slot AS INTEGER)
+    IF slot < 0 THEN ANIM_XS_label$ = "SOUND": EXIT FUNCTION ' a clip layer's SOUND row
+    ANIM_XS_label$ = _TRIM$(LAYERS(slot).name) + ANIM_XS_label_tail$(slot)
+END FUNCTION
+
+FUNCTION ANIM_XS_label_tail$ (slot AS INTEGER)
+    DIM t AS STRING
+    IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN t = t + "/"
+    IF ANIM_LF_is_ref%(slot) THEN t = t + " R"
+    IF ANIM_LF_is_same%(slot) THEN t = t + " ="
+    ANIM_XS_label_tail$ = t
+END FUNCTION
+
+''
+' Row r's label cut to w px with "~" (the "/ R =" marks kept), in the FPANEL
+' font; the whole name shows in a tooltip (ANIM_XS_tip%).
+FUNCTION ANIM_XS_label_fit$ (r AS INTEGER, w AS INTEGER)
+    DIM slot AS INTEGER, nm AS STRING, tl AS STRING, n AS INTEGER
+    slot = ANIM_XS_ROW(r)
+    IF slot < 0 THEN
+        nm = _IIF(ANIM_XS_RKIND(r) = XS_ROW_LANES, "LANES", "SOUND")
+        ANIM_XS_label_fit$ = _IIF(FPANEL_text_w%(nm) <= w, nm, ""): EXIT FUNCTION
+    END IF
+    nm = _TRIM$(LAYERS(slot).name): tl = ANIM_XS_label_tail$(slot)
+    IF FPANEL_text_w%(nm + tl) <= w THEN ANIM_XS_label_fit$ = nm + tl: EXIT FUNCTION
+    n = LEN(nm)
+    DO WHILE n > 0 _ANDALSO FPANEL_text_w%(LEFT$(nm, n) + "~" + tl) > w
+        n = n - 1
+    LOOP
+    ANIM_XS_label_fit$ = LEFT$(nm, n) + "~" + tl
+END FUNCTION
+
+''
+' Row r's label's x and the px it may take (to the opacity box, else the
+' column's edge).
+SUB ANIM_XS_label_room (r AS INTEGER, x AS INTEGER, w AS INTEGER)
+    DIM ox AS INTEGER
+    x = ANIM_XS.x1 + XS_ICONS_W + 4 * ANIM_XS_DEPTH(r)
+    ox = ANIM_XS_op_x%
+    IF ox > 0 THEN w = ox - 3 - x ELSE w = ANIM_XS.gx - 3 - x
+    IF w < 0 THEN w = 0
+END SUB
+
+''
+' The band's height for avail px under it (the bar and the panes take the
+' rest): the header, every layer row and the holds row, at most half.
+FUNCTION ANIM_XS_tag_rows% ()
+    ANIM_XS_tag_rows% = 1 ' always shown: somewhere to double-click / right-click to tag (field kit R-13)
+END FUNCTION
+
+FUNCTION ANIM_XS_note_rows% ()
+    IF ANIM_NT_count% > 0 THEN ANIM_XS_note_rows% = 1
+END FUNCTION
+
+''
+' The rows under HOLD: TAGS (4.4) when there are tags, NOTES (4.5) when a
+' frame has a note.
+FUNCTION ANIM_XS_extra% ()
+    ANIM_XS_extra% = ANIM_XS_tag_rows% + ANIM_XS_note_rows% + ANIM_XS_sound_rows%
+END FUNCTION
+
+''
+' A SOUND row's height: the layer rows' (Rick 2026-11-10: "see that [the
+' waveform] in relation to the layer row heights ... text can be what it is
+' now") - TEXT rows: a text row, as before.
+FUNCTION ANIM_XS_snd_h% ()
+    ANIM_XS_snd_h% = _MAX(ANIM_XS.rowH, ANIM_XS.layH)
+END FUNCTION
+
+''
+' The height of the band's rows other than the layer rows: the header, the
+' holds, tags and notes rows (a text row each) and the SOUND rows.
+FUNCTION ANIM_XS_fixed_h% ()
+    ANIM_XS_fixed_h% = (2 + ANIM_XS_tag_rows% + ANIM_XS_note_rows%) * ANIM_XS.rowH + ANIM_XS_sound_rows% * ANIM_XS_snd_h%
+END FUNCTION
+
+''
+' SOUND (L.1) under them: a row per track (F6) - always at least one (an
+' empty one is silence, to drop or paste sound on).
+FUNCTION ANIM_XS_sound_rows% ()
+    ANIM_XS_sound_rows% = ANIM_SC_rows%
+END FUNCTION
+
+''
+' The SOUND track of band row k (0 = not a SOUND row).
+FUNCTION ANIM_XS_sound_trk% (k AS INTEGER)
+    DIM k0 AS INTEGER
+    k0 = ANIM_XS_sound_k%
+    IF k0 < 0 _ORELSE k < k0 THEN EXIT FUNCTION
+    IF k - k0 < ANIM_XS_sound_rows% THEN ANIM_XS_sound_trk% = k - k0 + 1
+END FUNCTION
+
+''
+' The SOUND track under viewport (mx, my) on the grid (0 none).
+FUNCTION ANIM_XS_sound_at% (mx AS INTEGER, my AS INTEGER)
+    IF ANIM_XS_hit%(mx, my) = 0 THEN EXIT FUNCTION
+    ANIM_XS_sound_at% = ANIM_XS_sound_trk%(ANIM_XS_band_row%(my))
+END FUNCTION
+
+''
+' The SOUND rows' time line: ticks (1 / fps s, tickW px each) are even
+' along the grid, so timeline ms <-> viewport x is a straight line.
+FUNCTION ANIM_XS_t0% ()
+    DIM i AS INTEGER, t AS LONG
+    FOR i = 1 TO ANIM_XS.firstF - 1: t = t + ANIM_hold%(i): NEXT i
+    ANIM_XS_t0% = _MIN(t, 32000)
+END FUNCTION
+
+FUNCTION ANIM_XS_ms_x% (ms AS DOUBLE)
+    DIM x AS DOUBLE
+    IF ANIM.fps < 1 THEN EXIT FUNCTION
+    x = ANIM_XS.gx + (ms * ANIM.fps / 1000# - ANIM_XS_t0%) * ANIM_XS.tick
+    IF x > 32000 THEN x = 32000
+    IF x < -32000 THEN x = -32000
+    ANIM_XS_ms_x% = INT(x)
+END FUNCTION
+
+FUNCTION ANIM_XS_x_ms# (x AS INTEGER)
+    IF ANIM.fps < 1 _ORELSE ANIM_XS.tick <= 0 THEN EXIT FUNCTION
+    ANIM_XS_x_ms# = ((x - ANIM_XS.gx) / ANIM_XS.tick + ANIM_XS_t0%) * 1000# / ANIM.fps
+END FUNCTION
+
+''
+' The grid's right end (the last frame's end, or the band's edge).
+FUNCTION ANIM_XS_grid_end% ()
+    ANIM_XS_grid_end% = _MIN(ANIM_XS.x2, ANIM_XS_frame_x%(ANIM_XS.lastF) + ANIM_XS_span_w%(ANIM_XS.lastF) - 1)
+END FUNCTION
+
+''
+' Clip i's block on its row, xa..xb (cut to the grid); FALSE out of view.
+FUNCTION ANIM_XS_clip_span% (idx AS INTEGER, xa AS INTEGER, xb AS INTEGER)
+    DIM i AS INTEGER, e AS LONG, ge AS INTEGER
+    i = idx
+    IF i < 1 _ORELSE i > ANIM_SC_N THEN EXIT FUNCTION
+    ge = ANIM_XS_grid_end%
+    xa = ANIM_XS_ms_x%(ANIM_SC_AT(i))
+    e = ANIM_SC_end&(i)
+    IF e >= ANIM_SC_FOREVER THEN xb = ge ELSE xb = ANIM_XS_ms_x%(e) - 1
+    IF xb < xa THEN xb = xa ' (a clip shorter than a pixel)
+    IF xa > ge _ORELSE xb < ANIM_XS.gx THEN EXIT FUNCTION
+    IF xa < ANIM_XS.gx THEN xa = ANIM_XS.gx
+    IF xb > ge THEN xb = ge
+    ANIM_XS_clip_span% = TRUE
+END FUNCTION
+
+''
+' The clip on track trk under viewport x (the last drawn = on top; 0 none).
+FUNCTION ANIM_XS_clip_at% (mx AS INTEGER, trk AS INTEGER)
+    DIM i AS INTEGER, xa AS INTEGER, xb AS INTEGER
+    FOR i = ANIM_SC_N TO 1 STEP -1
+        IF ANIM_SC_TRK(i) = trk THEN
+            IF ANIM_XS_clip_span%(i, xa, xb) THEN
+                IF mx >= xa _ANDALSO mx <= xb THEN ANIM_XS_clip_at% = i: EXIT FUNCTION
+            END IF
+        END IF
+    NEXT i
+END FUNCTION
+
+''
+' A press on a SOUND row (left or right): its track gets the keys, the clip
+' under the pointer is picked (none: no clip), and the menu's Add Sound Here
+' is the start of the frame under it. The track (0 = not a SOUND row).
+FUNCTION ANIM_XS_sound_press% (mx AS INTEGER, my AS INTEGER)
+    DIM trk AS INTEGER, f AS INTEGER
+    trk = ANIM_XS_sound_at%(mx, my)
+    IF trk = 0 THEN EXIT FUNCTION
+    f = ANIM_XS_frame_at%(mx)
+    ANIM_SC_TRACK = trk: ANIM_SC_SEL = ANIM_XS_clip_at%(mx, trk): ANIM_SC_FOCUS = TRUE: ANIM_SC_KEEP = TRUE
+    IF f > 0 THEN ANIM_SC_MENU_T = CLNG(ANIM_SND_frame_ms#(f)) ELSE ANIM_SC_MENU_T = CLNG(ANIM_SND_frame_ms#(ANIM.current))
+    ANIM_LB_changed
+    ANIM_XS_sound_press% = trk
+END FUNCTION
+
+FUNCTION ANIM_XS_sound_k% ()
+    ANIM_XS_sound_k% = _IIF(ANIM_XS_sound_rows% <> 0, ANIM_XS.rowsShown + 2 + ANIM_XS_tag_rows% + ANIM_XS_note_rows%, -1)
+END FUNCTION
+
+''
+' The band row (as ANIM_XS_row_y%) of the TAGS / NOTES row, -1 when not shown.
+FUNCTION ANIM_XS_tags_k% ()
+    ANIM_XS_tags_k% = _IIF(ANIM_XS_tag_rows% <> 0, ANIM_XS.rowsShown + 2, -1)
+END FUNCTION
+
+FUNCTION ANIM_XS_notes_k% ()
+    ANIM_XS_notes_k% = _IIF(ANIM_XS_note_rows% <> 0, ANIM_XS.rowsShown + 2 + ANIM_XS_tag_rows%, -1)
+END FUNCTION
+
+FUNCTION ANIM_XS_band_h% (avail AS INTEGER)
+    DIM rh AS INTEGER, need AS INTEGER, mx AS INTEGER
+    FPANEL_ensure
+    ANIM_XS_rows_build
+    rh = FPANEL.rowH% + 6 ' room for a thumbnail
+    ANIM_XS.rowH = rh
+    ANIM_XS.layH = ANIM_XS_lay_h%
+    need = ANIM_XS_fixed_h% + ANIM_XS.nRows * ANIM_XS.layH + 2
+    mx = avail \ 2
+    IF need > mx THEN need = mx
+    IF need < ANIM_XS_min_h% THEN need = ANIM_XS_min_h%
+    ANIM_XS_band_h% = need
+END FUNCTION
+
+''
+' The band's least height: the header, one layer row, the holds row and the
+' rows under it.
+FUNCTION ANIM_XS_min_h% ()
+    ANIM_XS_min_h% = ANIM_XS_fixed_h% + ANIM_XS.layH + 2
+END FUNCTION
+
+''
+' A layer row's height (Rick 2026-11-10: "zoom the x-sheet ... vertical ... to
+' snap to sizes of lanes for the thumbnail sizes like panel has"): XSHEET_ROWS
+' TEXT (the text rows' height) / TINY / SMALL / MEDIUM (a 16 / 32 / 48 px
+' thumbnail + 4, as the Layers panel's rows).
+FUNCTION ANIM_XS_lay_h% ()
+    DIM h AS INTEGER
+    h = ANIM_XS.rowH
+    SELECT CASE CFG.XSHEET_ROWS%
+        CASE 1: h = _MAX(h, 20)
+        CASE 2: h = _MAX(h, 36)
+        CASE 3: h = _MAX(h, 52)
+    END SELECT
+    ANIM_XS_lay_h% = h
+END FUNCTION
+
+''
+' Ticks from the first frame shown to frame f's start (negative before it).
+FUNCTION ANIM_XS_tick_off& (f AS INTEGER)
+    DIM i AS INTEGER, t AS LONG
+    IF f >= ANIM_XS.firstF THEN
+        FOR i = ANIM_XS.firstF TO f - 1: t = t + ANIM_hold%(i): NEXT i
+    ELSE
+        FOR i = f TO ANIM_XS.firstF - 1: t = t - ANIM_hold%(i): NEXT i
+    END IF
+    ANIM_XS_tick_off& = t
+END FUNCTION
+
+FUNCTION ANIM_XS_tick_px% (t AS DOUBLE)
+    DIM x AS DOUBLE
+    x = INT(t * ANIM_XS.tick + 0.0001)
+    IF x > 32000 THEN x = 32000
+    IF x < -32000 THEN x = -32000
+    ANIM_XS_tick_px% = x
+END FUNCTION
+
+''
+' Frame f's span in px (its hold's ticks; a pixel or so at the smallest zoom).
+FUNCTION ANIM_XS_span_w% (f AS INTEGER)
+    DIM t AS LONG
+    t = ANIM_XS_tick_off&(f)
+    ANIM_XS_span_w% = ANIM_XS_tick_px%(t + ANIM_hold%(f)) - ANIM_XS_tick_px%(t)
+END FUNCTION
+
+''
+' Viewport x where frame f's span starts (holds counted from the first shown).
+FUNCTION ANIM_XS_frame_x% (f AS INTEGER)
+    DIM x AS LONG
+    x = ANIM_XS.gx + CLNG(ANIM_XS_tick_px%(ANIM_XS_tick_off&(f)))
+    IF x > 32000 THEN x = 32000
+    IF x < -32000 THEN x = -32000
+    ANIM_XS_frame_x% = x
+END FUNCTION
+
+''
+' Lay the band out in (x1, y1)-(x2, y2) (ANIM_LB_layout, after ANIM_XS_band_h%):
+' the name column, the tick width, the frames and rows in view.
+SUB ANIM_XS_layout (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    DIM fw AS INTEGER, fh AS INTEGER, th AS INTEGER, tw AS INTEGER, r AS INTEGER, w AS INTEGER, nw AS INTEGER
+    DIM ticks AS LONG, i AS INTEGER, avail AS LONG
+    ANIM_XS.x1 = x1: ANIM_XS.y1 = y1: ANIM_XS.x2 = x2: ANIM_XS.y2 = y2
+    fw = _MAX(1, ANIM.frameW): fh = _MAX(1, ANIM.frameH)
+
+    ' names: the widest label (and HOLD), at most a quarter of the band
+    nw = FPANEL_text_w%("HOLD (DRAG)")
+    FOR r = 1 TO ANIM_XS.nRows
+        w = FPANEL_text_w%(ANIM_XS_label$(ANIM_XS_ROW(r))) + 4 * ANIM_XS_DEPTH(r)
+        IF w > nw THEN nw = w
+    NEXT r
+    nw = nw + 8 + XS_ICONS_W + ANIM_XS_op_w% + 4 ' the eye / lock before, the opacity after (F5)
+    IF nw > (x2 - x1 + 1) \ 4 THEN nw = (x2 - x1 + 1) \ 4
+    IF CFG.XSHEET_NAME_W% > 0 THEN nw = CFG.XSHEET_NAME_W% ' dragged to a width (its edge; a double-click: back to this)
+    nw = _MAX(nw, ANIM_XS_name_w_min%): nw = _MIN(nw, _MAX(ANIM_XS_name_w_min%, (x2 - x1 + 1) - 48))
+    ANIM_XS.nameW = nw
+    ANIM_XS.gx = x1 + nw
+
+    ' a tick: room for a thumbnail of the frame's shape, a layer row's height
+    ' (the default). Zoomed out (XSHEET_ZOOM, the header's slider / Ctrl+wheel)
+    ' it is smaller - down to every frame across the grid, a fraction of a px.
+    th = ANIM_XS.layH - 2
+    tw = (CLNG(th) * fw + fh \ 2) \ fh
+    IF tw > 3 * ANIM_XS.layH THEN tw = 3 * ANIM_XS.layH
+    IF tw < 4 THEN tw = 4
+    ANIM_XS.tickAuto = tw + 3
+    ticks = 0
+    FOR i = 1 TO ANIM.count: ticks = ticks + ANIM_hold%(i): NEXT i
+    ANIM_XS.tickMin = ANIM_XS.tickAuto
+    IF ticks > 0 THEN ANIM_XS.tickMin = _MAX(0.02, _MIN(ANIM_XS.tickAuto, (x2 - ANIM_XS.gx + 1) / ticks))
+    ANIM_XS.tick = ANIM_XS.tickAuto
+    IF CFG.XSHEET_ZOOM! > 0 THEN ANIM_XS.tick = _MAX(ANIM_XS.tickMin, _MIN(ANIM_XS.tickAuto, CFG.XSHEET_ZOOM!))
+    ANIM_XS.tickW = _MAX(1, CINT(ANIM_XS.tick))
+
+    ' frames: keep the current one in view when it moves, fill to the right edge
+    avail = x2 - ANIM_XS.gx + 1
+    IF ANIM_XS.firstF < 1 THEN ANIM_XS.firstF = 1
+    IF ANIM_XS.firstF > ANIM.count THEN ANIM_XS.firstF = ANIM.count
+    IF ANIM.current <> ANIM_XS.lastCur THEN
+        IF ANIM.current < ANIM_XS.firstF THEN ANIM_XS.firstF = ANIM.current
+        DO WHILE ANIM_XS.firstF < ANIM.current _ANDALSO ANIM_XS_frame_x%(ANIM.current) + ANIM_XS_span_w%(ANIM.current) - 1 > x2
+            ANIM_XS.firstF = ANIM_XS.firstF + 1
+        LOOP
+        ANIM_XS.lastCur = ANIM.current
+    END IF
+    DO WHILE ANIM_XS.firstF > 1 ' no empty room at the right while frames are left of the view
+        ticks = 0
+        FOR i = ANIM_XS.firstF - 1 TO ANIM.count
+            ticks = ticks + ANIM_hold%(i)
+            IF ticks * ANIM_XS.tick > avail THEN EXIT FOR
+        NEXT i
+        IF ticks * ANIM_XS.tick > avail THEN EXIT DO
+        ANIM_XS.firstF = ANIM_XS.firstF - 1
+    LOOP
+    ANIM_XS.lastF = ANIM_XS.firstF
+    DO WHILE ANIM_XS.lastF < ANIM.count _ANDALSO ANIM_XS_frame_x%(ANIM_XS.lastF + 1) <= x2
+        ANIM_XS.lastF = ANIM_XS.lastF + 1
+    LOOP
+
+    ' rows: as many as fit between the header and the holds row; the current layer in view
+    ANIM_XS.rowsShown = (y2 - y1 + 1 - 2 - ANIM_XS_fixed_h%) \ _MAX(1, ANIM_XS.layH)
+    IF ANIM_XS.rowsShown < 1 THEN ANIM_XS.rowsShown = 1
+    IF ANIM_XS.rowsShown > ANIM_XS.nRows THEN ANIM_XS.rowsShown = ANIM_XS.nRows
+    IF CURRENT_LAYER% <> ANIM_XS.lastLayer THEN
+        FOR r = 1 TO ANIM_XS.nRows
+            IF ANIM_XS_ROW(r) = CURRENT_LAYER% THEN
+                IF r < ANIM_XS.firstRow THEN ANIM_XS.firstRow = r
+                IF r > ANIM_XS.firstRow + ANIM_XS.rowsShown - 1 THEN ANIM_XS.firstRow = r - ANIM_XS.rowsShown + 1
+                EXIT FOR
+            END IF
+        NEXT r
+        ANIM_XS.lastLayer = CURRENT_LAYER%
+    END IF
+    IF ANIM_XS.firstRow > ANIM_XS.nRows - ANIM_XS.rowsShown + 1 THEN ANIM_XS.firstRow = ANIM_XS.nRows - ANIM_XS.rowsShown + 1
+    IF ANIM_XS.firstRow < 1 THEN ANIM_XS.firstRow = 1
+END SUB
+
+''
+' Viewport y of row k of the band: 0 = the header, 1..rowsShown the layer
+' rows shown, rowsShown + 1 the holds row, rowsShown + 2 the tags row (4.4,
+' when there are tags).
+FUNCTION ANIM_XS_row_y% (k AS INTEGER)
+    IF k <= 0 THEN
+        ANIM_XS_row_y% = ANIM_XS.y1 + 1 + k * ANIM_XS.rowH
+    ELSEIF k <= ANIM_XS.rowsShown THEN ' the layer rows (layH each)
+        ANIM_XS_row_y% = ANIM_XS.y1 + 1 + ANIM_XS.rowH + (k - 1) * ANIM_XS.layH
+    ELSE ' the holds / tags / notes rows (rowH each), then the SOUND rows (ANIM_XS_snd_h%)
+        DIM sk AS INTEGER, nTxt AS INTEGER, nSnd AS INTEGER
+        sk = ANIM_XS_sound_k%: nTxt = k - ANIM_XS.rowsShown - 1
+        IF sk >= 0 _ANDALSO k > sk THEN nTxt = sk - ANIM_XS.rowsShown - 1: nSnd = k - sk
+        ANIM_XS_row_y% = ANIM_XS.y1 + 1 + ANIM_XS.rowH + ANIM_XS.rowsShown * ANIM_XS.layH + nTxt * ANIM_XS.rowH + nSnd * ANIM_XS_snd_h%
+    END IF
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Which cells hold a drawing
+' ---------------------------------------------------------------------------
+
+''
+' Layer slot's cell for frame f has any pixel that is not fully transparent
+' (cached; the cache drops when the history, the layout or the layers change,
+' and the current layer's current cell is looked at again every render).
+FUNCTION ANIM_XS_filled% (slot AS INTEGER, f AS INTEGER)
+    DIM c AS STRING
+    IF slot < 1 _ORELSE slot > MAX_LAYERS _ORELSE f < 1 _ORELSE f > ANIM.count THEN EXIT FUNCTION
+    IF LEN(ANIM_XS_FILL(slot)) < ANIM.count THEN ANIM_XS_FILL(slot) = ANIM_XS_FILL(slot) + SPACE$(ANIM.count - LEN(ANIM_XS_FILL(slot)))
+    c = MID$(ANIM_XS_FILL(slot), f, 1)
+    IF c = " " THEN
+        DIM bx AS LONG, by AS LONG, bw AS LONG, bh AS LONG
+        c = _IIF(ANIM_XS_scan%(slot, f, bx, by, bw, bh), "1", "0")
+        MID$(ANIM_XS_FILL(slot), f, 1) = c
+        IF LEN(ANIM_XS_BOXES(slot)) < ANIM.count * 16 THEN ANIM_XS_BOXES(slot) = ANIM_XS_BOXES(slot) + STRING$(ANIM.count * 16 - LEN(ANIM_XS_BOXES(slot)), 0)
+        MID$(ANIM_XS_BOXES(slot), (f - 1) * 16 + 1, 16) = MKL$(bx) + MKL$(by) + MKL$(bw) + MKL$(bh)
+    END IF
+    ANIM_XS_filled% = (c = "1")
+END FUNCTION
+
+''
+' The box round layer slot's drawing in frame f (buffer coords: the apron is
+' in it), after ANIM_XS_filled% said it is drawn. FALSE when not known.
+FUNCTION ANIM_XS_box% (slot AS INTEGER, f AS INTEGER, bx AS LONG, by AS LONG, bw AS LONG, bh AS LONG)
+    DIM b AS STRING
+    IF slot < 1 _ORELSE slot > MAX_LAYERS _ORELSE f < 1 THEN EXIT FUNCTION
+    IF LEN(ANIM_XS_BOXES(slot)) < f * 16 THEN EXIT FUNCTION
+    b = MID$(ANIM_XS_BOXES(slot), (f - 1) * 16 + 1, 16)
+    bx = CVL(MID$(b, 1, 4)): by = CVL(MID$(b, 5, 4)): bw = CVL(MID$(b, 9, 4)): bh = CVL(MID$(b, 13, 4))
+    ANIM_XS_box% = (bw > 0 _ANDALSO bh > 0)
+END FUNCTION
+
+''
+' Drop the fill cache when the history, the frames or the layers changed
+' (once a render / dump, before ANIM_XS_filled%).
+SUB ANIM_XS_cache_check ()
+    DIM s AS STRING, i AS INTEGER
+    s = _TRIM$(STR$(HISTORY.current)) + "," + _TRIM$(STR$(HISTORY.count)) + "," + _TRIM$(STR$(UNDO_SEQ)) + "," + ANIM_serialize$
+    s = s + "," + _TRIM$(STR$(SCRN.canvasW&)) + "," + _TRIM$(STR$(SCRN.canvasH&)) + "," + _TRIM$(STR$(LAYER_COUNT%))
+    IF s = ANIM_XS.sig THEN EXIT SUB
+    FOR i = 1 TO MAX_LAYERS: ANIM_XS_FILL(i) = "": ANIM_XS_BOXES(i) = "": NEXT i
+    ANIM_XS.sig = s
+END SUB
+
+''
+' Forget the current layer's current cell (it may be being painted).
+SUB ANIM_XS_forget_current ()
+    IF CURRENT_LAYER% < 1 _ORELSE CURRENT_LAYER% > MAX_LAYERS THEN EXIT SUB
+    IF ANIM.current >= 1 _ANDALSO ANIM.current <= LEN(ANIM_XS_FILL(CURRENT_LAYER%)) THEN MID$(ANIM_XS_FILL(CURRENT_LAYER%), ANIM.current, 1) = " "
+END SUB
+
+''
+' Look at the layer's pixels in frame f's cell (a promoted layer's buffer is
+' offset by its apron, gotcha 14): TRUE when any is not fully transparent, and
+' the box round them in bx..bh (buffer coords).
+FUNCTION ANIM_XS_scan% (slot AS INTEGER, f AS INTEGER, bx AS LONG, by AS LONG, bw AS LONG, bh AS LONG)
+    DIM img AS LONG, cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, x0 AS LONG, y0 AS LONG, x1 AS LONG, y1 AS LONG
+    bx = 0: by = 0: bw = 0: bh = 0
+    IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN EXIT FUNCTION
+    img = LAYERS(slot).imgHandle&
+    IF img >= -1 THEN EXIT FUNCTION
+    IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 THEN EXIT FUNCTION
+    cx = cx + LAYERS(slot).apronW%: cy = cy + LAYERS(slot).apronH%
+    x0 = _MAX(0, cx): y0 = _MAX(0, cy): x1 = _MIN(_WIDTH(img) - 1, cx + cw - 1): y1 = _MIN(_HEIGHT(img) - 1, cy + ch - 1)
+    IF x1 < x0 _ORELSE y1 < y0 THEN EXIT FUNCTION
+    bx = x0: by = y0: bw = x1 - x0 + 1: bh = y1 - y0 + 1
+    LAYER_content_box img, bx, by, bw, bh
+    ANIM_XS_scan% = (bw > 0)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Drawing
+' ---------------------------------------------------------------------------
+
+''
+' ANIM_LB_render, in place of the strip: the grid in the band.
+SUB ANIM_XS_render (dest AS LONG)
+    DIM oldFont AS LONG, k AS INTEGER, r AS INTEGER, f AS INTEGER, slot AS INTEGER
+    DIM x AS INTEGER, w AS INTEGER, x2 AS INTEGER, y AS INTEGER, rh AS INTEGER, ty AS INTEGER
+    DIM t AS STRING, tw AS INTEGER, lastEnd AS INTEGER, fg AS _UNSIGNED LONG, tint AS _UNSIGNED LONG
+    DIM yTop AS INTEGER, yBot AS INTEGER, hy AS INTEGER, i AS INTEGER, lh AS INTEGER
+
+    ANIM_XS.shown = FALSE
+    IF dest >= -1 THEN EXIT SUB
+    ANIM_XS_cache_check
+    ANIM_XS_forget_current
+    rh = ANIM_XS.rowH
+    x2 = ANIM_XS.x2
+    yTop = ANIM_XS_row_y%(0)
+    hy = ANIM_XS_row_y%(ANIM_XS.rowsShown + 1) ' the holds row
+    yBot = ANIM_XS_row_y%(ANIM_XS.rowsShown + 2 + ANIM_XS_extra%) - 1 ' the last row's bottom
+    lh = ANIM_XS.layH
+    oldFont = FPANEL_begin&
+
+    LINE (ANIM_XS.x1, ANIM_XS.y1)-(x2, ANIM_XS.y2), THEME.CP_bg~&, BF
+    LINE (ANIM_XS.x1, yTop)-(ANIM_XS.gx - 1, yBot), THEME.CP_slider_bg~&, BF
+
+    ' the current frame's span down every row; selected frames lighter
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f): w = ANIM_XS_span_w%(f)
+        tint = 0
+        IF f = ANIM.current THEN
+            tint = (THEME.ANIM_FRAME_current~& AND &H00FFFFFF~&) OR &H48000000~&
+        ELSEIF ANIM_SEL_count% > 1 _ANDALSO ANIM_SEL(f) THEN
+            tint = (THEME.ANIM_FRAME_current~& AND &H00FFFFFF~&) OR &H24000000~&
+        END IF
+        IF tint <> 0 THEN LINE (x, yTop)-(_MIN(x + w - 1, x2), yBot), tint, BF
+    NEXT f
+
+    ' the current layer's row
+    FOR k = 1 TO ANIM_XS.rowsShown
+        IF ANIM_XS_ROW(ANIM_XS.firstRow + k - 1) = CURRENT_LAYER% THEN
+            y = ANIM_XS_row_y%(k)
+            LINE (ANIM_XS.x1, y)-(ANIM_XS.gx - 2, y + lh - 1), THEME.CP_button_bg~&, BF
+            LINE (ANIM_XS.gx, y)-(x2, y + lh - 1), (THEME.CP_text_bright~& AND &H00FFFFFF~&) OR &H14000000~&, BF
+        END IF
+    NEXT k
+
+    ' header: frame numbers at each frame's start (those that fit), tick marks
+    ty = yTop + (rh - FPANEL.fontH%) \ 2
+    lastEnd = -32000
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f)
+        t = _TRIM$(STR$(f)): tw = FPANEL_text_w%(t)
+        IF x + 2 > lastEnd + 2 _ANDALSO x + 2 + tw <= x2 THEN
+            FPANEL_text x + 2, ty, t, _IIF(f = ANIM.current, THEME.CP_text_bright~&, THEME.CP_text~&)
+            lastEnd = x + 2 + tw
+        END IF
+        IF ANIM_XS.tick >= 4 THEN
+            FOR i = 1 TO ANIM_hold%(f) - 1 ' the ticks a hold spans
+                IF x + INT(i * ANIM_XS.tick) <= x2 THEN LINE (x + INT(i * ANIM_XS.tick), yTop + rh - 3)-STEP(0, 2), THEME.CP_border~&
+            NEXT i
+        END IF
+    NEXT f
+    FPANEL_text ANIM_XS.x1 + 4, ty, "LAYER", THEME.CP_text~&
+    ANIM_XS_render_zoom yTop
+
+    ' layer rows: name, then the drawing in each frame's cell + its hold line
+    FOR k = 1 TO ANIM_XS.rowsShown
+        r = ANIM_XS.firstRow + k - 1
+        IF r > ANIM_XS.nRows THEN EXIT FOR
+        slot = ANIM_XS_ROW(r)
+        y = ANIM_XS_row_y%(k)
+        IF slot < 0 THEN ' a clip layer's SOUND row (read-only): where its sounds start
+            DIM sx AS INTEGER, sw AS INTEGER
+            ANIM_XS_label_room r, sx, sw
+            FPANEL_text sx, y + (lh - FPANEL.fontH%) \ 2, ANIM_XS_label_fit$(r, sw), THEME.CP_text_dim~&
+            IF ANIM_XS_RKIND(r) = XS_ROW_LANES THEN ANIM_XS_cl_lanes_row -slot, y ELSE ANIM_XS_cl_snd_row -slot, y
+            LINE (ANIM_XS.x1, y + lh - 1)-(x2, y + lh - 1), (THEME.CP_border~& AND &H00FFFFFF~&) OR &H60000000~&
+            _CONTINUE
+        END IF
+        IF slot = CURRENT_LAYER% THEN
+            fg = THEME.CP_text_bright~&
+        ELSEIF LAYERS(slot).visible% = 0 THEN
+            fg = (THEME.CP_text~& AND &H00FFFFFF~&) OR &H80000000~&
+        ELSE
+            fg = THEME.CP_text~&
+        END IF
+        DIM lx AS INTEGER, lw AS INTEGER
+        ANIM_XS_label_room r, lx, lw
+        FPANEL_text lx, y + (lh - FPANEL.fontH%) \ 2, ANIM_XS_label_fit$(r, lw), fg
+        ANIM_XS_layer_controls slot, y
+        IF CLIP_inst_of%(slot) THEN
+            ANIM_XS_cl_row slot, y ' a clip layer: its bar, In to Out, the cel in each frame
+        ELSEIF LAYERS(slot).layerType% <> LAYER_TYPE_GROUP THEN
+            FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+                IF ANIM_XS_filled%(slot, f) THEN ANIM_XS_cell dest, slot, f, y
+                IF ANIM_LK_N > 0 THEN ' a linked cell (4.3): hatched over its first tick
+                    IF ANIM_LK_is_link%(LAYERS(slot).historyId&, f) THEN
+                        x = ANIM_XS_frame_x%(f)
+                        w = _MIN(ANIM_XS_span_w%(f), INT(ANIM_XS.tickAuto))
+                        IF w >= 4 _ANDALSO x + w - 2 <= x2 THEN ANIM_LK_hatch x + 1, y + 1, x + w - 2, y + lh - 2, THEME.ANIM_FRAME_current~&, 4
+                    END IF
+                END IF
+            NEXT f
+        END IF
+        LINE (ANIM_XS.x1, y + lh - 1)-(x2, y + lh - 1), (THEME.CP_border~& AND &H00FFFFFF~&) OR &H60000000~&
+    NEXT k
+
+    ' holds row
+    LINE (ANIM_XS.x1, hy)-(x2, hy), THEME.CP_border~&
+    ty = hy + (rh - FPANEL.fontH%) \ 2
+    FPANEL_text ANIM_XS.x1 + 4, ty, "HOLD", THEME.CP_text~&
+    ' how it works (field kit R-13): drag a frame's hold to stretch it
+    IF ANIM_XS.x1 + 4 + FPANEL_text_w%("HOLD (DRAG)") < ANIM_XS.gx - 2 THEN FPANEL_text ANIM_XS.x1 + 4 + FPANEL_text_w%("HOLD "), ty, "(DRAG)", THEME.CP_text_dim~&
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f): w = ANIM_XS_span_w%(f)
+        t = _TRIM$(STR$(ANIM_hold%(f))): tw = FPANEL_text_w%(t)
+        IF tw + 2 <= w _ANDALSO x + (w - tw) \ 2 + tw <= x2 THEN
+            FPANEL_text x + (w - tw) \ 2, ty, t, _IIF(f = ANIM.current, THEME.CP_text_bright~&, THEME.CP_text~&)
+        END IF
+    NEXT f
+
+    ' tags row (4.4): each tag a bar along its frames, its name in it; the
+    ' selected one bright
+    IF ANIM_XS_tag_rows% THEN ANIM_XS_render_tags ANIM_XS_row_y%(ANIM_XS_tags_k%)
+    ' notes row (4.5): each note from its frame on, until the next note
+    IF ANIM_XS_note_rows% THEN ANIM_XS_render_notes ANIM_XS_row_y%(ANIM_XS_notes_k%)
+    ' sound rows (L.1, F6): a row per track, each clip's waveform along the frames
+    FOR k = 1 TO ANIM_XS_sound_rows%
+        ANIM_XS_render_sound ANIM_XS_row_y%(ANIM_XS_sound_k% + k - 1), k
+    NEXT k
+
+    ' frame boundaries, the header's line, the name column's edge
+    ' (solid down to the holds row; faint over the TAGS / NOTES / SOUND rows so
+    ' their bars and waveforms show through - Rick 2026-11-10)
+    DIM yHold AS INTEGER, faint AS _UNSIGNED LONG
+    yHold = hy + rh - 1
+    faint = (THEME.CP_border~& AND &H00FFFFFF~&) OR &H38000000~&
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f)
+        IF x <= x2 _ANDALSO (ANIM_XS_span_w%(f) >= 3 _ORELSE f = ANIM_XS.firstF) THEN ' (packed tight: no lines)
+            LINE (x, yTop)-(x, yHold), THEME.CP_border~&
+            IF yBot > yHold THEN LINE (x, yHold + 1)-(x, yBot), faint
+        END IF
+    NEXT f
+    x = ANIM_XS_frame_x%(ANIM_XS.lastF) + ANIM_XS_span_w%(ANIM_XS.lastF)
+    IF ANIM_XS.lastF = ANIM.count _ANDALSO x <= x2 THEN
+        LINE (x, yTop)-(x, yHold), THEME.CP_border~&
+        IF yBot > yHold THEN LINE (x, yHold + 1)-(x, yBot), faint
+    END IF
+    LINE (ANIM_XS.x1, yTop + rh - 1)-(x2, yTop + rh - 1), THEME.CP_border~&
+    LINE (ANIM_XS.gx - 1, yTop)-(ANIM_XS.gx - 1, yBot), THEME.CP_border~&
+    ' more rows than fit: a mark at the names' edge where they continue
+    IF ANIM_XS.firstRow > 1 THEN LINE (ANIM_XS.gx - 4, yTop + rh)-STEP(2, 1), THEME.CP_text_bright~&, BF
+    IF ANIM_XS.firstRow + ANIM_XS.rowsShown - 1 < ANIM_XS.nRows THEN LINE (ANIM_XS.gx - 4, hy - 2)-STEP(2, 1), THEME.CP_text_bright~&, BF
+
+    ' a drag (4.2): where it lands
+    IF ANIM_XS.dOn THEN
+        IF ANIM_XS.dMode = XS_DRAG_CELL _ANDALSO ANIM_XS.dTo > 0 _ANDALSO ANIM_XS.dToSlot > 0 THEN
+            FOR k = 1 TO ANIM_XS.rowsShown
+                IF ANIM_XS_row_slot%(k) = ANIM_XS.dToSlot THEN
+                    x = ANIM_XS_frame_x%(ANIM_XS.dTo): w = _MAX(3, ANIM_XS_span_w%(ANIM_XS.dTo)): y = ANIM_XS_row_y%(k)
+                    LINE (x, y)-(_MIN(x + w - 1, x2), y + lh - 1), THEME.ANIM_FRAME_current~&, B
+                    LINE (x + 1, y + 1)-(_MIN(x + w - 2, x2), y + lh - 2), THEME.ANIM_FRAME_current~&, B
+                    IF ANIM_LB_shift% THEN
+                        ANIM_LK_hatch x + 2, y + 2, _MIN(x + w - 3, x2), y + lh - 3, THEME.ANIM_FRAME_current~&, 4 ' Shift: a link
+                    ELSEIF ANIM_LB_ctrl% THEN
+                        FPANEL_text _MIN(x + w, x2) - FPANEL_text_w%("+") - 2, y + (lh - FPANEL.fontH%) \ 2, "+", THEME.CP_text_bright~&
+                    END IF
+                END IF
+            NEXT k
+        ELSEIF ANIM_XS.dMode = XS_DRAG_FRAMES _ANDALSO ANIM_XS.dTo > 0 THEN
+            IF ANIM_XS.dTo <= ANIM_XS.lastF THEN x = ANIM_XS_frame_x%(ANIM_XS.dTo) ELSE x = ANIM_XS_frame_x%(ANIM_XS.lastF) + ANIM_XS_span_w%(ANIM_XS.lastF)
+            IF x <= x2 THEN LINE (x - 1, yTop)-(x + 1, yBot), THEME.ANIM_FRAME_current~&, BF
+        END IF
+    END IF
+
+    _FONT oldFont
+    ANIM_XS.shown = TRUE
+END SUB
+
+''
+' The tags row at viewport y (ANIM_XS_render).
+SUB ANIM_XS_render_tags (y AS INTEGER)
+    DIM k AS INTEGER, xa AS INTEGER, xb AS INTEGER, sel AS INTEGER, c AS _UNSIGNED LONG, t AS STRING, rh AS INTEGER, ty AS INTEGER
+    rh = ANIM_XS.rowH
+    LINE (ANIM_XS.x1, y)-(ANIM_XS.x2, y), THEME.CP_border~&
+    ty = y + (rh - FPANEL.fontH%) \ 2
+    FPANEL_text ANIM_XS.x1 + 4, ty, "TAGS", THEME.CP_text~&
+    ANIM_XS_render_tag_btns y
+    IF ANIM_TG_N = 0 THEN ' none yet: how to make one (R-13: the row is always there)
+        t = "double-click or right-click to tag frames"
+        DO WHILE LEN(t) > 0 _ANDALSO ANIM_XS.gx + 4 + FPANEL_text_w%(t) > ANIM_XS.x2: t = LEFT$(t, LEN(t) - 1): LOOP
+        IF LEN(t) > 0 THEN FPANEL_text ANIM_XS.gx + 4, ty, t, (THEME.CP_text~& AND &H00FFFFFF~&) OR &H80000000~&
+        EXIT SUB
+    END IF
+    sel = ANIM_TG_selected%
+    FOR k = 1 TO ANIM_TG_N
+        IF ANIM_XS_tag_span%(k, xa, xb) THEN
+            c = (THEME.ANIM_FRAME_current~& AND &H00FFFFFF~&) OR _IIF(k = sel, &HC0000000~&, &H50000000~&)
+            LINE (xa + 1, y + 3)-(xb - 1, y + rh - 3), c, BF
+            LINE (xa + 1, y + 3)-(xb - 1, y + rh - 3), THEME.ANIM_FRAME_current~&, B
+            t = ANIM_TG_NAME(k)
+            DO WHILE LEN(t) > 0 _ANDALSO FPANEL_text_w%(t) > xb - xa - 6: t = LEFT$(t, LEN(t) - 1): LOOP
+            IF LEN(t) > 0 THEN FPANEL_text xa + 4, ty, t, _IIF(k = sel, THEME.CP_text_bright~&, THEME.CP_text~&)
+        END IF
+    NEXT k
+END SUB
+
+''
+' The TAGS row's < / > buttons at the name column's right (Rick 2026-11-10:
+' "buttons on that row > and < for next and prev tag - to jump to them"):
+' x of the "<" one (0 = no room / no tags); ">" is XS_TAG_BTN_W + 2 after it.
+FUNCTION ANIM_XS_tag_btn_x% ()
+    DIM bx AS INTEGER
+    IF ANIM_TG_N = 0 THEN EXIT FUNCTION
+    bx = ANIM_XS.gx - 4 - 2 * XS_TAG_BTN_W - 2
+    IF bx < ANIM_XS.x1 + 4 + FPANEL_text_w%("TAGS") + 4 THEN EXIT FUNCTION
+    ANIM_XS_tag_btn_x% = bx
+END FUNCTION
+
+SUB ANIM_XS_render_tag_btns (y AS INTEGER)
+    DIM bx AS INTEGER, k AS INTEGER, x AS INTEGER, t AS STRING
+    bx = ANIM_XS_tag_btn_x%
+    IF bx = 0 THEN EXIT SUB
+    FOR k = 0 TO 1
+        x = bx + k * (XS_TAG_BTN_W + 2)
+        LINE (x, y + 2)-(x + XS_TAG_BTN_W - 1, y + ANIM_XS.rowH - 3), THEME.CP_button_bg~&, BF
+        LINE (x, y + 2)-(x + XS_TAG_BTN_W - 1, y + ANIM_XS.rowH - 3), THEME.CP_slider_border~&, B
+        t = _IIF(k = 0, "<", ">")
+        FPANEL_text x + (XS_TAG_BTN_W - FPANEL_text_w%(t) + 1) \ 2, y + (ANIM_XS.rowH - FPANEL.fontH%) \ 2, t, THEME.CP_text_bright~&
+    NEXT k
+END SUB
+
+''
+' The tag before (dir -1) / after (1) the current frame, by where they
+' start: selected (its frames) and its first frame current, scrolled into
+' view. Nothing that way: a note on the status bar.
+SUB ANIM_XS_tag_step (dir AS INTEGER)
+    DIM k AS INTEGER, best AS INTEGER, p AS INTEGER
+    p = ANIM.current
+    FOR k = 1 TO ANIM_TG_N
+        IF dir < 0 THEN
+            IF ANIM_TG_A(k) < p THEN IF best = 0 _ORELSE ANIM_TG_A(k) > ANIM_TG_A(best) THEN best = k
+        ELSE
+            IF ANIM_TG_A(k) > p THEN IF best = 0 _ORELSE ANIM_TG_A(k) < ANIM_TG_A(best) THEN best = k
+        END IF
+    NEXT k
+    IF best = 0 THEN STATUS_flash _IIF(dir < 0, "No tag before frame", "No tag after frame") + STR$(p): EXIT SUB
+    ANIM_XS_tag_go best
+END SUB
+
+SUB ANIM_XS_tag_go (k AS INTEGER)
+    IF k < 1 _ORELSE k > ANIM_TG_N THEN EXIT SUB
+    ANIM_TG_select k
+    STATUS_flash "Tag: " + ANIM_TG_NAME(k) + " (frames" + STR$(ANIM_TG_A(k)) + " -" + STR$(ANIM_TG_B(k)) + ")"
+    ANIM_LB_changed
+END SUB
+
+''
+' The header's zoom slider (Rick 2026-11-10: "a line or something with a drag
+' handle to allow zooming"): a line in the name cell after LAYER, the handle
+' at the zoom - right = the default (a thumbnail a tick), left = every frame
+' across. Shown only when the frames do not all fit at the default.
+SUB ANIM_XS_render_zoom (yTop AS INTEGER)
+    DIM x1 AS INTEGER, x2 AS INTEGER, my AS INTEGER, hx AS INTEGER, c AS _UNSIGNED LONG
+    ANIM_XS.zx1 = 0: ANIM_XS.zx2 = 0
+    IF ANIM_XS.tickMin >= ANIM_XS.tickAuto - 0.001 THEN EXIT SUB
+    x1 = ANIM_XS.x1 + 4 + FPANEL_text_w%("LAYER") + 8: x2 = ANIM_XS.gx - 8
+    IF x2 - x1 < 20 THEN EXIT SUB
+    ANIM_XS.zx1 = x1: ANIM_XS.zx2 = x2
+    my = yTop + ANIM_XS.rowH \ 2
+    LINE (x1, my)-(x2, my), THEME.CP_slider_border~&
+    LINE (x1, my - 2)-(x1, my + 2), THEME.CP_slider_border~&
+    LINE (x2, my - 2)-(x2, my + 2), THEME.CP_slider_border~&
+    hx = ANIM_XS_zoom_x%
+    c = _IIF(ANIM_XS.zDrag, THEME.ANIM_FRAME_current~&, THEME.CP_text_bright~&)
+    LINE (hx - 2, yTop + 3)-(hx + 2, yTop + ANIM_XS.rowH - 4), c, BF
+END SUB
+
+''
+' The handle's x for the zoom (a log scale: tickMin at zx1, tickAuto at zx2).
+FUNCTION ANIM_XS_zoom_x% ()
+    DIM fr AS SINGLE
+    fr = 1
+    IF ANIM_XS.tickAuto > ANIM_XS.tickMin THEN fr = LOG(ANIM_XS.tick / ANIM_XS.tickMin) / LOG(ANIM_XS.tickAuto / ANIM_XS.tickMin)
+    fr = _MAX(0, _MIN(1, fr))
+    ANIM_XS_zoom_x% = ANIM_XS.zx1 + CINT(fr * (ANIM_XS.zx2 - ANIM_XS.zx1))
+END FUNCTION
+
+''
+' The zoom for a tick of t px, keeping frame f at viewport x mx (f 0: the
+' first frame shown stays). At the default it is stored as 0 (follows the
+' row size); not saved here.
+SUB ANIM_XS_zoom_set (t AS SINGLE, f AS INTEGER, mx AS INTEGER)
+    DIM v AS SINGLE, g AS INTEGER
+    v = _MAX(ANIM_XS.tickMin, _MIN(ANIM_XS.tickAuto, t))
+    IF v >= ANIM_XS.tickAuto - 0.001 THEN CFG.XSHEET_ZOOM! = 0 ELSE CFG.XSHEET_ZOOM! = v
+    ANIM_XS.tick = v
+    IF f > 0 _ANDALSO ANIM.count > 0 THEN ' keep f under the pointer: the first frame such that f starts at or left of mx
+        g = f
+        DO WHILE g > 1 _ANDALSO ANIM_XS.gx + INT((ANIM_XS_ticks_between&(g - 1, f)) * v) <= mx
+            g = g - 1
+        LOOP
+        ANIM_XS.firstF = g
+        ANIM_XS.lastCur = ANIM.current ' (not scrolled back to the current frame)
+    END IF
+    ANIM_LB_layout
+    ANIM_LB_changed
+END SUB
+
+''
+' Ticks from frame a's start to frame b's start (a <= b).
+FUNCTION ANIM_XS_ticks_between& (a AS INTEGER, b AS INTEGER)
+    DIM i AS INTEGER, t AS LONG
+    FOR i = a TO b - 1: t = t + ANIM_hold%(i): NEXT i
+    ANIM_XS_ticks_between& = t
+END FUNCTION
+
+''
+' A press on the zoom slider: the handle jumps there and drags; a
+' double-click: the default size. TRUE = it was on it.
+FUNCTION ANIM_XS_zoom_press% (mx AS INTEGER, my AS INTEGER)
+    DIM t AS DOUBLE
+    IF ANIM_XS.zx1 = 0 _ORELSE ANIM_XS_band_row%(my) <> 0 THEN EXIT FUNCTION
+    IF mx < ANIM_XS.zx1 - 4 _ORELSE mx > ANIM_XS.zx2 + 4 THEN EXIT FUNCTION
+    ANIM_XS_zoom_press% = TRUE
+    t = TIMER(.001)
+    IF t - ANIM_XS.zLastT >= 0 _ANDALSO t - ANIM_XS.zLastT < 0.4 THEN
+        ANIM_XS.zLastT = 0
+        ANIM_XS_zoom_set ANIM_XS.tickAuto, 0, 0
+        CONFIG_save
+        STATUS_flash "X-sheet: the default size (a thumbnail a tick)"
+        EXIT FUNCTION
+    END IF
+    ANIM_XS.zLastT = t
+    ANIM_XS.zDrag = TRUE
+    ANIM_XS_zoom_hold
+END FUNCTION
+
+''
+' Each mouse frame the slider's handle is held; the release saves it.
+SUB ANIM_XS_zoom_hold ()
+    DIM fr AS SINGLE, w AS INTEGER
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF MOUSE.B1% = 0 THEN ANIM_XS.zDrag = FALSE: CONFIG_save: ANIM_LB_changed: EXIT SUB
+    w = ANIM_XS.zx2 - ANIM_XS.zx1
+    IF w < 1 _ORELSE ANIM_XS.tickAuto <= ANIM_XS.tickMin THEN EXIT SUB
+    fr = _MAX(0, _MIN(1, (MOUSE.RAW_X% - ANIM_XS.zx1) / w))
+    ANIM_XS_zoom_set ANIM_XS.tickMin * (ANIM_XS.tickAuto / ANIM_XS.tickMin) ^ fr, 0, 0
+END SUB
+
+''
+' Ctrl+wheel over the grid: zoom in (up) / out about the frame under the
+' pointer, a quarter a step (saved).
+SUB ANIM_XS_zoom_wheel (mx AS INTEGER, delta AS INTEGER)
+    DIM f AS INTEGER
+    IF delta = 0 THEN EXIT SUB
+    f = ANIM_XS_frame_at%(mx)
+    IF ANIM_XS.tickMin >= ANIM_XS.tickAuto - 0.001 THEN STATUS_flash "X-sheet: every frame already fits": EXIT SUB
+    ANIM_XS_zoom_set ANIM_XS.tick * _IIF(delta < 0, 1.25, 0.8), f, mx
+    CONFIG_save
+END SUB
+
+''
+' The header row's right-click menu (ANIM_LB.menuKind 4): the zoom and the
+' layer rows' size (values 200-213, ANIM_XS_view_pick).
+SUB ANIM_XS_view_menu_build ()
+    DIM i AS INTEGER
+    POPUP_MENU_clear_items
+    POPUP_MENU_set_item 0, "Zoom to Fit All Frames", "", 200, _IIF(ANIM_XS.tickMin < ANIM_XS.tickAuto - 0.001, 0, POPUP_MENU_FLAG_DISABLED)
+    POPUP_MENU_set_item 1, "Default Size (a Thumbnail a Tick)", "Dbl-Click Slider", 201, _IIF(CFG.XSHEET_ZOOM! = 0, POPUP_MENU_FLAG_CHECKED, 0)
+    POPUP_MENU_set_item 2, "Zoom In", "Ctrl+Wheel Up", 202, 0
+    POPUP_MENU_set_item 3, "Zoom Out", "Ctrl+Wheel Down", 203, 0
+    POPUP_MENU_set_item 4, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    FOR i = 0 TO 3
+        POPUP_MENU_set_item 5 + i, "Layer Rows: " + MID$("Text  Tiny  Small Medium", i * 6 + 1, 6), _IIF(i = 0, "Ctrl+Shift+Wheel", ""), 210 + i, _IIF(CFG.XSHEET_ROWS% = i, POPUP_MENU_FLAG_CHECKED, 0)
+    NEXT i
+    ANIM_LB.menuN = 9
+END SUB
+
+SUB ANIM_XS_view_pick (v AS INTEGER)
+    SELECT CASE v
+        CASE 200: ANIM_XS.firstF = 1: ANIM_XS_zoom_set ANIM_XS.tickMin, 0, 0
+        CASE 201: ANIM_XS_zoom_set ANIM_XS.tickAuto, 0, 0
+        CASE 202: ANIM_XS_zoom_set ANIM_XS.tick * 1.25, ANIM.current, ANIM_XS_frame_x%(ANIM.current)
+        CASE 203: ANIM_XS_zoom_set ANIM_XS.tick * 0.8, ANIM.current, ANIM_XS_frame_x%(ANIM.current)
+        CASE 210 TO 213: ANIM_XS_rows_set v - 210
+        CASE ELSE: EXIT SUB
+    END SELECT
+    CONFIG_save
+END SUB
+
+''
+' The layer rows' size: 0 text, 1 tiny, 2 small, 3 medium (XSHEET_ROWS).
+SUB ANIM_XS_rows_set (n AS INTEGER)
+    CFG.XSHEET_ROWS% = _MAX(0, _MIN(3, n))
+    STATUS_flash "X-sheet layer rows: " + _TRIM$(MID$("Text  Tiny  Small Medium", CFG.XSHEET_ROWS% * 6 + 1, 6))
+    ANIM_LB_layout
+    ANIM_LB_changed
+END SUB
+
+''
+' The notes row at viewport y (ANIM_XS_render).
+SUB ANIM_XS_render_notes (y AS INTEGER)
+    DIM f AS INTEGER, g AS INTEGER, x AS INTEGER, xe AS INTEGER, t AS STRING, ty AS INTEGER
+    LINE (ANIM_XS.x1, y)-(ANIM_XS.x2, y), THEME.CP_border~&
+    ty = y + (ANIM_XS.rowH - FPANEL.fontH%) \ 2
+    FPANEL_text ANIM_XS.x1 + 4, ty, "NOTES", THEME.CP_text~&
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        IF LEN(ANIM_NOTE(f)) > 0 THEN
+            x = ANIM_XS_frame_x%(f)
+            xe = ANIM_XS.x2
+            FOR g = f + 1 TO ANIM_XS.lastF
+                IF LEN(ANIM_NOTE(g)) > 0 THEN xe = ANIM_XS_frame_x%(g) - 1: EXIT FOR
+            NEXT g
+            LINE (x + 1, y + 2)-STEP(1, ANIM_XS.rowH - 5), THEME.ANIM_FRAME_current~&, BF ' where it starts
+            t = ANIM_NOTE(f)
+            DO WHILE LEN(t) > 0 _ANDALSO x + 4 + FPANEL_text_w%(t) > xe: t = LEFT$(t, LEN(t) - 1): LOOP
+            IF LEN(t) > 0 THEN FPANEL_text x + 4, ty, t, _IIF(f = ANIM.current, THEME.CP_text_bright~&, THEME.CP_text~&)
+        END IF
+    NEXT f
+END SUB
+
+''
+' SOUND track trk's row at y (F6): each clip a block along its frames with
+' its file name and (rows taller than text) its waveform - per pixel the
+' loudest moment of that slice, as a line up and down from the middle (none:
+' MIDI, a tracker, not found). The picked clip is outlined; the label is bright while the
+' rows have the keys.
+SUB ANIM_XS_render_sound (y AS INTEGER, trk AS INTEGER)
+    DIM i AS INTEGER, xa AS INTEGER, xb AS INTEGER, px AS INTEGER, ty AS INTEGER, midY AS INTEGER, hh AS INTEGER
+    DIM pk AS INTEGER, a AS INTEGER, k AS INTEGER, cx1 AS INTEGER, cx2 AS INTEGER, rh AS INTEGER, wave AS INTEGER
+    DIM c AS _UNSIGNED LONG, cb AS _UNSIGNED LONG, t AS STRING, lbl AS STRING, sel AS INTEGER, ta AS DOUBLE, tb AS DOUBLE
+    rh = ANIM_XS_snd_h% ' (the layer rows' height: a taller waveform)
+    LINE (ANIM_XS.x1, y)-(ANIM_XS.x2, y), THEME.CP_border~&
+    ty = y + (ANIM_XS.rowH - FPANEL.fontH%) \ 2 ' the label and names on its first text line
+    lbl = "SOUND": IF ANIM_XS_sound_rows% > 1 THEN lbl = "SOUND" + STR$(trk)
+    FPANEL_text ANIM_XS.x1 + 4, ty, lbl, _IIF(ANIM_SC_FOCUS <> 0 _ANDALSO trk = ANIM_SC_cur_trk%, THEME.CP_text_bright~&, THEME.CP_text~&)
+    IF ANIM.fps < 1 THEN EXIT SUB
+    ' Each clip shows its file name and its waveform (Rick 2026-11-10: "text can
+    ' be what it is now (i love that) but also i'd love to see the soundwave"):
+    ' rows taller than text (SMALL / MEDIUM) - the name on the first text line,
+    ' the waveform under it; text-high rows (TEXT / TINY) - the waveform the
+    ' row's height, softer, the name over it.
+    DIM nameTop AS INTEGER, wy1 AS INTEGER, wy2 AS INTEGER
+    nameTop = (rh - ANIM_XS.rowH >= 10)
+    IF nameTop THEN wy1 = y + ANIM_XS.rowH - 1 ELSE wy1 = y + 3
+    wy2 = y + rh - 3
+    midY = (wy1 + wy2) \ 2: hh = _MAX(1, (wy2 - wy1) \ 2)
+    IF ANIM_SC_on_trk%(trk) = 0 THEN ' an empty track: how to put sound on it
+        t = "drop a sound file here, or right-click"
+        DO WHILE LEN(t) > 0 _ANDALSO ANIM_XS.gx + 4 + FPANEL_text_w%(t) > ANIM_XS_grid_end%: t = LEFT$(t, LEN(t) - 1): LOOP
+        IF LEN(t) > 0 THEN FPANEL_text ANIM_XS.gx + 4, ty, t, THEME.CP_text_dim~&
+        EXIT SUB
+    END IF
+    cx1 = ANIM_XS_frame_x%(ANIM.current): cx2 = cx1 + ANIM_XS_span_w%(ANIM.current) - 1
+    FOR i = 1 TO ANIM_SC_N
+        IF ANIM_SC_TRK(i) = trk _ANDALSO ANIM_XS_clip_span%(i, xa, xb) THEN
+            sel = (i = ANIM_SC_SEL)
+            cb = (THEME.ANIM_FRAME_current~& AND &H00FFFFFF~&) OR _IIF(sel, &H50000000~&, &H28000000~&)
+            LINE (xa, y + 2)-(xb, y + rh - 2), cb, BF
+            k = ANIM_SS_find%(ANIM_SC_PATH(i))
+            wave = FALSE
+            IF k > 0 THEN wave = (ANIM_SS_PKN(k) > 0)
+            IF wave THEN
+                FOR px = xa TO xb
+                    ta = ANIM_XS_x_ms#(px): tb = ANIM_XS_x_ms#(px + 1)
+                    pk = ANIM_SC_peak%(i, ta, tb)
+                    IF pk >= 0 THEN
+                        a = (pk * hh + 127) \ 255
+                        c = _IIF(sel _ORELSE (px >= cx1 _ANDALSO px <= cx2), THEME.CP_text_bright~&, THEME.CP_text~&)
+                        IF _NEGATE nameTop THEN c = (c AND &H00FFFFFF~&) OR &H90000000~& ' under the name: softer
+                        LINE (px, midY - a)-(px, midY + a), c
+                    END IF
+                NEXT px
+            END IF
+            t = ANIM_SND_name$(ANIM_SC_PATH(i), FALSE) ' its name (with or without the waveform)
+            IF k = 0 THEN t = t + " (not found)" ELSE IF ANIM_SS_H(k) < 1 THEN t = t + " (not found)"
+            DO WHILE LEN(t) > 0 _ANDALSO xa + 4 + FPANEL_text_w%(t) > xb: t = LEFT$(t, LEN(t) - 1): LOOP
+            IF LEN(t) > 0 THEN FPANEL_text xa + 4, ty, t, _IIF(sel, THEME.CP_text_bright~&, THEME.CP_text~&)
+            ' its start, and the picked clip's outline
+            LINE (xa, y + 2)-(xa, y + rh - 2), THEME.ANIM_FRAME_current~&
+            IF sel THEN
+                LINE (xa, y + 1)-(xb, y + rh - 1), THEME.ANIM_FRAME_drawing~&, B
+                LINE (xa + 1, y + 2)-(xb - 1, y + rh - 2), THEME.ANIM_FRAME_drawing~&, B
+            END IF
+        END IF
+    NEXT i
+END SUB
+
+''
+' Tag k's bar on the grid, xa..xb (clipped to the view); FALSE when it is out
+' of view.
+FUNCTION ANIM_XS_tag_span% (k AS INTEGER, xa AS INTEGER, xb AS INTEGER)
+    DIM a AS INTEGER, b AS INTEGER
+    a = ANIM_TG_A(k): b = ANIM_TG_B(k)
+    IF b < ANIM_XS.firstF _ORELSE a > ANIM_XS.lastF THEN EXIT FUNCTION
+    xa = ANIM_XS_frame_x%(_MAX(a, ANIM_XS.firstF))
+    xb = ANIM_XS_frame_x%(b) + ANIM_XS_span_w%(b) - 1
+    IF xa < ANIM_XS.gx THEN xa = ANIM_XS.gx
+    IF xb > ANIM_XS.x2 THEN xb = ANIM_XS.x2
+    ANIM_XS_tag_span% = (xb > xa)
+END FUNCTION
+
+''
+' The tooltip for viewport (mx, my) on the band (F7): a tag's name and span,
+' or a frame note's text - whole, as the rows cut them to fit. Returns an id
+' (> 0: 1000 + tag, 2000 + frame; it changes when the pointer moves to
+' another one) or 0 when there is none there.
+FUNCTION ANIM_XS_tip% (mx AS INTEGER, my AS INTEGER, l1 AS STRING, l2 AS STRING)
+    DIM k AS INTEGER, row AS INTEGER, xa AS INTEGER, xb AS INTEGER, f AS INTEGER, g AS INTEGER, x AS INTEGER, xe AS INTEGER
+    l1 = "": l2 = ""
+    IF ANIM_XS_hit%(mx, my) = 0 _ORELSE ANIM_LB.menuOpen <> 0 THEN EXIT FUNCTION ' (none over the band's menu)
+    row = ANIM_XS_band_row%(my)
+    IF row < 0 THEN EXIT FUNCTION
+    IF row >= 1 _ANDALSO row <= ANIM_XS.rowsShown _ANDALSO mx < ANIM_XS.gx - 2 THEN ' a layer's name cut short: the whole of it
+        k = ANIM_XS.firstRow + row - 1
+        IF k >= 1 _ANDALSO k <= ANIM_XS.nRows THEN
+            DIM lx AS INTEGER, lw AS INTEGER
+            ANIM_XS_label_room k, lx, lw
+            IF ANIM_XS_ROW(k) > 0 _ANDALSO mx >= lx _ANDALSO mx < lx + lw _ANDALSO ANIM_XS_label_fit$(k, lw) <> ANIM_XS_label$(ANIM_XS_ROW(k)) THEN
+                l1 = _TRIM$(LAYERS(ANIM_XS_ROW(k)).name)
+                l2 = _IIF(LAYERS(ANIM_XS_ROW(k)).layerType% = LAYER_TYPE_GROUP, "Group", "Layer") + " - drag the column's edge to widen it"
+                ANIM_XS_tip% = 4000 + ANIM_XS_ROW(k)
+            END IF
+        END IF
+        EXIT FUNCTION
+    END IF
+    IF row = ANIM_XS_tags_k% THEN
+        FOR k = ANIM_TG_N TO 1 STEP -1 ' the last drawn is on top
+            IF ANIM_XS_tag_span%(k, xa, xb) THEN
+                IF mx >= xa _ANDALSO mx <= xb THEN
+                    l1 = ANIM_TG_NAME(k)
+                    IF ANIM_TG_A(k) = ANIM_TG_B(k) THEN l2 = "Tag, frame" + STR$(ANIM_TG_A(k)) ELSE l2 = "Tag, frames" + STR$(ANIM_TG_A(k)) + " -" + STR$(ANIM_TG_B(k))
+                    ANIM_XS_tip% = 1000 + k
+                    EXIT FUNCTION
+                END IF
+            END IF
+        NEXT k
+    ELSEIF ANIM_XS_sound_trk%(row) > 0 THEN ' a sound clip (F6): its file, where it plays from and how long
+        k = ANIM_XS_clip_at%(mx, ANIM_XS_sound_trk%(row))
+        IF k > 0 THEN
+            l1 = ANIM_SND_name$(ANIM_SC_PATH(k), FALSE)
+            l2 = "Sound, track" + STR$(ANIM_SC_TRK(k)) + ": from " + ANIM_SC_secs$(ANIM_SC_AT(k))
+            IF ANIM_SC_end&(k) < ANIM_SC_FOREVER THEN l2 = l2 + ", " + ANIM_SC_secs$(ANIM_SC_end&(k) - ANIM_SC_AT(k)) + " long"
+            IF ANIM_SC_IN(k) > 0 THEN l2 = l2 + " (" + ANIM_SC_secs$(ANIM_SC_IN(k)) + " into the file)"
+            ANIM_XS_tip% = 3000 + k
+            EXIT FUNCTION
+        END IF
+    ELSEIF row = ANIM_XS_notes_k% THEN
+        FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+            IF LEN(ANIM_NOTE(f)) > 0 THEN
+                x = ANIM_XS_frame_x%(f): xe = ANIM_XS.x2
+                FOR g = f + 1 TO ANIM_XS.lastF
+                    IF LEN(ANIM_NOTE(g)) > 0 THEN xe = ANIM_XS_frame_x%(g) - 1: EXIT FOR
+                NEXT g
+                IF mx >= x _ANDALSO mx <= xe THEN
+                    l1 = ANIM_NOTE(f)
+                    l2 = "Note, frame" + STR$(f)
+                    ANIM_XS_tip% = 2000 + f
+                    EXIT FUNCTION
+                END IF
+            END IF
+        NEXT f
+    END IF
+END FUNCTION
+
+''
+' One cell: layer slot's drawing in frame f as a thumbnail at the start of
+' the frame's span (over the transparency checks), a hold line along the rest.
+' ---------------------------------------------------------------------------
+' Layer controls in the name column (F5, field kit T-22: "an eye icon in front
+' of the layer and lock status and opacity, simple controls like that"): the
+' layers panel's own icons and routines (LAYERS_toggle_visibility /
+' _toggle_group_visibility / _toggle_opacity_lock / _set_opacity - none is an
+' undo step there either).
+' ---------------------------------------------------------------------------
+
+''
+' The name column's narrowest: the eye / lock, a few letters, the opacity box.
+FUNCTION ANIM_XS_name_w_min% ()
+    ANIM_XS_name_w_min% = XS_ICONS_W + ANIM_XS_op_w% + 28
+END FUNCTION
+
+FUNCTION ANIM_XS_op_w% ()
+    ANIM_XS_op_w% = FPANEL_text_w%("100") + 4
+END FUNCTION
+
+''
+' The opacity box's x (viewport), 0 when the name column has no room for it.
+FUNCTION ANIM_XS_op_x% ()
+    DIM x AS INTEGER
+    x = ANIM_XS.gx - 3 - ANIM_XS_op_w%
+    IF x >= ANIM_XS.x1 + XS_ICONS_W + 16 THEN ANIM_XS_op_x% = x
+END FUNCTION
+
+FUNCTION ANIM_XS_op_pct% (slot AS INTEGER)
+    ANIM_XS_op_pct% = CINT(LAYERS(slot).opacity% * 100 / 255)
+END FUNCTION
+
+SUB ANIM_XS_op_set (slot AS INTEGER, pct AS INTEGER)
+    DIM v AS INTEGER
+    v = CINT(_MAX(0, _MIN(100, pct)) * 255 / 100)
+    IF v <> LAYERS(slot).opacity% THEN LAYERS_set_opacity slot, v
+    ANIM_LB_changed
+END SUB
+
+''
+' Which control of layer row slot is under viewport x: 1 eye, 2 lock (not on
+' a group), 3 opacity, 0 the name.
+FUNCTION ANIM_XS_ctl_at% (mx AS INTEGER, slot AS INTEGER)
+    DIM ox AS INTEGER
+    IF mx >= ANIM_XS.x1 + XS_EYE_X _ANDALSO mx < ANIM_XS.x1 + XS_LOCK_X THEN ANIM_XS_ctl_at% = 1: EXIT FUNCTION
+    IF mx >= ANIM_XS.x1 + XS_LOCK_X _ANDALSO mx < ANIM_XS.x1 + XS_ICONS_W - 2 THEN
+        IF LAYERS(slot).layerType% <> LAYER_TYPE_GROUP THEN ANIM_XS_ctl_at% = 2
+        EXIT FUNCTION
+    END IF
+    ox = ANIM_XS_op_x%
+    IF ox > 0 _ANDALSO mx >= ox _ANDALSO mx < ox + ANIM_XS_op_w% THEN ANIM_XS_ctl_at% = 3
+END FUNCTION
+
+''
+' Row y's eye, lock and opacity box (ANIM_XS_render, on the current _DEST).
+SUB ANIM_XS_layer_controls (slot AS INTEGER, y AS INTEGER)
+    DIM ic AS LONG, rh AS INTEGER, x AS INTEGER, ox AS INTEGER, t AS STRING, isGrp AS INTEGER
+    rh = ANIM_XS.layH
+    isGrp = (LAYERS(slot).layerType% = LAYER_TYPE_GROUP)
+    x = ANIM_XS.x1 + XS_EYE_X
+    ic = _IIF(LAYERS(slot).visible%, LAYER_PANEL.iconVisOn&, LAYER_PANEL.iconVisOff&)
+    IF ic < -1 THEN
+        _PUTIMAGE (x, y + (rh - _HEIGHT(ic)) \ 2), ic
+    ELSE
+        FPANEL_text x, y + (rh - FPANEL.fontH%) \ 2, _IIF(LAYERS(slot).visible%, "O", "-"), THEME.CP_text~&
+    END IF
+    IF isGrp = 0 THEN
+        x = ANIM_XS.x1 + XS_LOCK_X
+        ic = _IIF(LAYERS(slot).opacityLock%, LAYER_PANEL.iconLockOn&, LAYER_PANEL.iconLockOff&)
+        IF ic < -1 THEN
+            _PUTIMAGE (x, y + (rh - _HEIGHT(ic)) \ 2), ic
+        ELSEIF LAYERS(slot).opacityLock% THEN
+            FPANEL_text x, y + (rh - FPANEL.fontH%) \ 2, "L", THEME.CP_text_bright~&
+        END IF
+    END IF
+    ox = ANIM_XS_op_x%
+    IF ox > 0 THEN
+        DIM oy AS INTEGER: oy = y + (rh - ANIM_XS.rowH) \ 2 ' the box a text row tall, in the middle
+        LINE (ox, oy + 2)-(ox + ANIM_XS_op_w% - 1, oy + ANIM_XS.rowH - 3), THEME.CP_bg~&, BF
+        LINE (ox, oy + 2)-(ox + ANIM_XS_op_w% - 1, oy + ANIM_XS.rowH - 3), THEME.CP_slider_border~&, B
+        t = _TRIM$(STR$(ANIM_XS_op_pct%(slot)))
+        FPANEL_text ox + ANIM_XS_op_w% - 2 - FPANEL_text_w%(t), y + (rh - FPANEL.fontH%) \ 2, t, _IIF(ANIM_XS.oSlot = slot, THEME.CP_text_bright~&, THEME.CP_text~&)
+    END IF
+END SUB
+
+''
+' A left press on a layer's eye / lock / opacity box (ANIM_XS_press%): TRUE = handled.
+FUNCTION ANIM_XS_ctl_press% (mx AS INTEGER, my AS INTEGER, slot AS INTEGER)
+    SELECT CASE ANIM_XS_ctl_at%(mx, slot)
+        CASE 1
+            IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN LAYERS_toggle_group_visibility slot ELSE LAYERS_toggle_visibility slot
+            BLEND_invalidate_visibility slot
+        CASE 2
+            LAYERS_toggle_opacity_lock slot
+        CASE 3
+            ANIM_XS.oSlot = slot: ANIM_XS.oY0 = my: ANIM_XS.oV0 = ANIM_XS_op_pct%(slot): ANIM_XS.oMoved = FALSE
+        CASE ELSE
+            EXIT FUNCTION
+    END SELECT
+    ANIM_XS_ctl_press% = TRUE
+    ANIM_LB_changed
+END FUNCTION
+
+''
+' The opacity box held (ANIM_LB_mouse): up / down 1 % a px; a release without
+' moving types it.
+SUB ANIM_XS_op_hold ()
+    DIM slot AS INTEGER, dy AS INTEGER, t AS STRING
+    slot = ANIM_XS.oSlot
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF slot < 1 _ORELSE slot > MAX_LAYERS THEN ANIM_XS.oSlot = 0: EXIT SUB
+    IF LAYERS(slot).imgHandle& = 0 THEN ANIM_XS.oSlot = 0: EXIT SUB
+    IF MOUSE.B1% THEN
+        dy = ANIM_XS.oY0 - MOUSE.RAW_Y%
+        IF ABS(dy) >= 3 THEN ANIM_XS.oMoved = TRUE
+        IF ANIM_XS.oMoved THEN ANIM_XS_op_set slot, ANIM_XS.oV0 + dy
+        EXIT SUB
+    END IF
+    ANIM_XS.oSlot = 0
+    ANIM_LB_changed
+    IF ANIM_XS.oMoved THEN EXIT SUB
+    POINTER_hide_for_dialog
+    t = DRAW_input_box_ex$("Layer opacity", _TRIM$(LAYERS(slot).name) + " opacity (0 - 100 %):", _TRIM$(STR$(ANIM_XS_op_pct%(slot))), "0 - 100", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    t = _TRIM$(t)
+    IF t = "" THEN EXIT SUB
+    IF INSTR("0123456789", LEFT$(t, 1)) = 0 THEN STATUS_flash "Opacity: not a number": EXIT SUB
+    ANIM_XS_op_set slot, VAL(t)
+END SUB
+
+''
+' The layer slot of the row under viewport point (mx, my) in the band (0 none).
+FUNCTION ANIM_XS_slot_at% (mx AS INTEGER, my AS INTEGER)
+    IF ANIM_XS_hit%(mx, my) = 0 THEN EXIT FUNCTION
+    ANIM_XS_slot_at% = ANIM_XS_row_slot%(ANIM_XS_band_row%(my))
+END FUNCTION
+
+SUB ANIM_XS_cell (dest AS LONG, slot AS INTEGER, f AS INTEGER, y AS INTEGER)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, s AS SINGLE
+    DIM x AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    DIM ex AS INTEGER, my AS INTEGER, ax AS LONG, ay AS LONG, sw AS INTEGER
+    DIM kx AS LONG, ky AS LONG, kw AS LONG, kh AS LONG, fx AS LONG, fy AS LONG
+    IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 THEN EXIT SUB
+    x = ANIM_XS_frame_x%(f)
+    ax = cx + LAYERS(slot).apronW%: ay = cy + LAYERS(slot).apronH% ' the cell in the buffer
+    ' what it shows: like the Layers panel thumbnails, the drawing's box (at
+    ' least LAYER_THUMB_MIN_CROP px each way) or, with CANVAS, the whole cell
+    kx = ax: ky = ay: kw = cw: kh = ch
+    IF CFG.LAYER_THUMB_FIT% = 0 THEN
+        IF ANIM_XS_box%(slot, f, kx, ky, kw, kh) THEN
+            fx = ax: fy = ay
+            LAYER_PANEL_thumb_span kx, kw, fx, cw
+            LAYER_PANEL_thumb_span ky, kh, fy, ch
+        ELSE
+            kx = ax: ky = ay: kw = cw: kh = ch
+        END IF
+    END IF
+    sw = ANIM_XS_span_w%(f)
+    bw = _MIN(sw, INT(ANIM_XS.tickAuto)) - 3: bh = ANIM_XS.layH - 2
+    IF bw < 4 THEN ' zoomed far out: no room for a picture - a bar says it is drawn
+        IF x + 1 <= ANIM_XS.x2 THEN LINE (x + 1, y + ANIM_XS.layH \ 2 - 2)-(_MIN(x + _MAX(1, sw - 2), ANIM_XS.x2), y + ANIM_XS.layH \ 2 + 1), THEME.CP_text~&, BF
+        EXIT SUB
+    END IF
+    s = _MIN(bw / kw, bh / kh)
+    dw = _MAX(1, INT(kw * s)): dh = _MAX(1, INT(kh * s))
+    dx = x + 2 + (bw - dw) \ 2: dy = y + (ANIM_XS.layH - 1 - dh) \ 2
+    IF dx + dw - 1 > ANIM_XS.x2 THEN EXIT SUB ' cut at the band's edge
+    TRANSPARENCY_ensure_blueprint
+    IF TRANSPARENCY.blueprint& < -1 THEN _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), TRANSPARENCY.blueprint&, dest, (kx - LAYERS(slot).apronW%, ky - LAYERS(slot).apronH%)-(kx - LAYERS(slot).apronW% + kw - 1, ky - LAYERS(slot).apronH% + kh - 1)
+    _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), LAYERS(slot).imgHandle&, dest, (kx, ky)-(kx + kw - 1, ky + kh - 1)
+    IF ANIM_hold%(f) > 1 THEN
+        ex = _MIN(x + sw - 3, ANIM_XS.x2)
+        my = y + (ANIM_XS.layH - 1) \ 2
+        IF ex > dx + dw + 1 THEN
+            LINE (dx + dw + 1, my)-(ex, my), THEME.CP_text~&
+            LINE (ex, my - 2)-(ex, my + 2), THEME.CP_text~&
+        END IF
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' Mouse
+' ---------------------------------------------------------------------------
+
+''
+' Viewport point (mx, my) is on the band.
+FUNCTION ANIM_XS_hit% (mx AS INTEGER, my AS INTEGER)
+    IF ANIM_XS_on% = 0 _ORELSE ANIM_XS.shown = 0 THEN EXIT FUNCTION
+    ANIM_XS_hit% = (mx >= ANIM_XS.x1 _ANDALSO mx <= ANIM_XS.x2 _ANDALSO my >= ANIM_XS.y1 _ANDALSO my <= ANIM_XS.y2)
+END FUNCTION
+
+''
+' The band's row at viewport y: 0 header, 1..rowsShown a layer row shown,
+' rowsShown + 1 the holds row, then the tags / notes rows (ANIM_XS_tags_k% /
+' ANIM_XS_notes_k%), -1 none.
+FUNCTION ANIM_XS_band_row% (my AS INTEGER)
+    DIM k AS INTEGER
+    ANIM_XS_band_row% = -1
+    IF my < ANIM_XS_row_y%(0) THEN EXIT FUNCTION
+    IF my < ANIM_XS_row_y%(1) THEN ANIM_XS_band_row% = 0: EXIT FUNCTION
+    IF my < ANIM_XS_row_y%(ANIM_XS.rowsShown + 1) THEN ANIM_XS_band_row% = 1 + (my - ANIM_XS_row_y%(1)) \ _MAX(1, ANIM_XS.layH): EXIT FUNCTION
+    DIM sk AS INTEGER
+    sk = ANIM_XS_sound_k%
+    IF sk >= 0 _ANDALSO my >= ANIM_XS_row_y%(sk) THEN ' the SOUND rows (taller with the layer rows)
+        k = sk + (my - ANIM_XS_row_y%(sk)) \ _MAX(1, ANIM_XS_snd_h%)
+    ELSE
+        k = ANIM_XS.rowsShown + 1 + (my - ANIM_XS_row_y%(ANIM_XS.rowsShown + 1)) \ ANIM_XS.rowH
+    END IF
+    IF k <= ANIM_XS.rowsShown + 1 + ANIM_XS_extra% THEN ANIM_XS_band_row% = k
+END FUNCTION
+
+''
+' The frame whose span is under viewport x (0 none).
+FUNCTION ANIM_XS_frame_at% (mx AS INTEGER)
+    DIM f AS INTEGER, x AS INTEGER
+    IF mx < ANIM_XS.gx _ORELSE mx > ANIM_XS.x2 THEN EXIT FUNCTION
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f)
+        IF mx >= x _ANDALSO mx < x + ANIM_XS_span_w%(f) THEN ANIM_XS_frame_at% = f: EXIT FUNCTION
+    NEXT f
+END FUNCTION
+
+''
+' The layer slot of band row k (1..rowsShown), or 0.
+FUNCTION ANIM_XS_row_slot% (k AS INTEGER)
+    IF k < 1 _ORELSE k > ANIM_XS.rowsShown THEN EXIT FUNCTION
+    IF ANIM_XS.firstRow + k - 1 > ANIM_XS.nRows THEN EXIT FUNCTION
+    ANIM_XS_row_slot% = ABS(ANIM_XS_ROW(ANIM_XS.firstRow + k - 1)) ' (a SOUND row: its clip layer)
+END FUNCTION
+
+''
+' ANIM_LB_mouse: a left press on the band. A cell = its frame current (strip
+' rules: Ctrl / Shift select) and its layer current; a name = the layer; the
+' header / holds row = the frame. A plain press may start a drag (4.2): the
+' holds row stretches the hold, a cell moves its drawing, a frame number
+' moves the selected frames. TRUE = it was on the band.
+FUNCTION ANIM_XS_press% (mx AS INTEGER, my AS INTEGER)
+    DIM k AS INTEGER, f AS INTEGER, slot AS INTEGER, c AS INTEGER, s AS INTEGER
+    IF ANIM_XS_hit%(mx, my) = 0 THEN EXIT FUNCTION
+    ANIM_XS_press% = TRUE
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    k = ANIM_XS_band_row%(my)
+    IF k < 0 THEN EXIT FUNCTION
+    slot = ANIM_XS_row_slot%(k)
+    f = ANIM_XS_frame_at%(mx)
+    c = ANIM_LB_ctrl%: s = ANIM_LB_shift%
+    ANIM_XS.dMode = XS_DRAG_NONE: ANIM_XS.dOn = FALSE: ANIM_XS.dCollapse = FALSE
+    ANIM_XS.dPressX = mx: ANIM_XS.dPressY = my: ANIM_XS.dFrame = f: ANIM_XS.dSlot = 0: ANIM_XS.dTo = 0: ANIM_XS.dToSlot = 0
+    IF k >= 1 _ANDALSO k <= ANIM_XS.rowsShown _ANDALSO slot > 0 THEN ' a clip layer's SOUND row: read-only - its layer, the frame
+        IF ANIM_XS_ROW(ANIM_XS.firstRow + k - 1) < 0 THEN
+            IF slot <> CURRENT_LAYER% THEN LAYERS_select slot
+            IF f > 0 THEN ANIM_SEL_click f, c, s
+            IF ANIM_XS_RKIND(ANIM_XS.firstRow + k - 1) = XS_ROW_LANES _ANDALSO f > 0 _ANDALSO c = 0 _ANDALSO s = 0 _ANDALSO CLIP_inst_of%(slot) > 0 THEN ' a key: drag it in time (a baked clip has none)
+                IF CLIP_key_mark%(CLIP_inst_of%(slot), f - CLIP_INST(CLIP_inst_of%(slot)).inF) THEN ANIM_XS.dMode = XS_DRAG_LKEY: ANIM_XS.dSlot = slot: ANIM_XS.dTo = f
+            END IF
+            ANIM_LB_changed
+            EXIT FUNCTION
+        END IF
+    END IF
+    IF slot > 0 _ANDALSO mx < ANIM_XS.gx THEN IF ANIM_XS_ctl_press%(mx, my, slot) THEN EXIT FUNCTION ' eye / lock / opacity (F5)
+    IF k = 0 _ANDALSO mx < ANIM_XS.gx THEN ' the header's name cell: the zoom slider
+        IF ANIM_XS_zoom_press%(mx, my) THEN ANIM_LB_changed
+        EXIT FUNCTION
+    END IF
+    IF k = ANIM_XS_tags_k% _ANDALSO mx < ANIM_XS.gx THEN ' the TAGS row's < / > buttons
+        DIM tbx AS INTEGER
+        tbx = ANIM_XS_tag_btn_x%
+        IF tbx > 0 _ANDALSO mx >= tbx _ANDALSO mx < tbx + XS_TAG_BTN_W THEN ANIM_XS_tag_step -1
+        IF tbx > 0 _ANDALSO mx >= tbx + XS_TAG_BTN_W + 2 _ANDALSO mx < tbx + 2 * XS_TAG_BTN_W + 2 THEN ANIM_XS_tag_step 1
+        ANIM_LB_changed
+        EXIT FUNCTION
+    END IF
+    IF k = ANIM_XS_notes_k% THEN ' the notes row (4.5): the frame (its note on the status bar); a double-click edits the note
+        STATIC lastNoteT AS DOUBLE, lastNoteF AS INTEGER, lastNoteTick AS LONG
+        DIM dt AS DOUBLE
+        dt = TIMER - lastNoteT
+        IF f > 0 THEN
+            IF f = lastNoteF _ANDALSO c = 0 _ANDALSO s = 0 _ANDALSO dt >= 0 _ANDALSO (dt < 0.45 _ORELSE (ANIM_LOOP_TICK - lastNoteTick <= 2 _ANDALSO dt < 2)) THEN
+                lastNoteF = 0
+                ANIM_NT_action ANIM_ACT_FRAME_NOTE, f
+            ELSE
+                ANIM_SEL_click f, c, s
+                IF LEN(ANIM_NOTE(f)) > 0 THEN STATUS_flash "Frame" + STR$(f) + ": " + ANIM_NOTE(f)
+                lastNoteF = f: lastNoteT = TIMER: lastNoteTick = ANIM_LOOP_TICK
+            END IF
+        END IF
+        ANIM_LB_changed
+        EXIT FUNCTION
+    END IF
+    IF ANIM_XS_sound_trk%(k) > 0 THEN ' a SOUND row (L.1, F6): its track gets the keys, the clip is picked, the frame (stopped, it plays that frame's slice); a plain press on a clip may drag it
+        DIM sTrk AS INTEGER
+        sTrk = ANIM_XS_sound_press%(mx, my)
+        IF f > 0 THEN ANIM_SEL_click f, c, s
+        IF ANIM_SC_SEL > 0 _ANDALSO c = 0 _ANDALSO s = 0 THEN
+            ANIM_XS.dMode = XS_DRAG_SOUND
+            ANIM_SC_DRAG_AT = ANIM_SC_AT(ANIM_SC_SEL): ANIM_SC_DRAG_TRK = ANIM_SC_TRK(ANIM_SC_SEL)
+        END IF
+        ANIM_LB_changed
+        EXIT FUNCTION
+    END IF
+    ANIM_SC_FOCUS = FALSE ' a press on the band off the SOUND rows takes the keys back
+    IF k = ANIM_XS_tags_k% THEN ' the tags row (4.4): a tag selects its frames; a double-click renames it (or tags the frame) - R-13
+        STATIC lastTagT AS DOUBLE, lastTagF AS INTEGER, lastTagTick AS LONG
+        DIM tdt AS DOUBLE
+        tdt = TIMER - lastTagT
+        IF f > 0 THEN
+            IF f = lastTagF _ANDALSO c = 0 _ANDALSO s = 0 _ANDALSO tdt >= 0 _ANDALSO (tdt < 0.45 _ORELSE (ANIM_LOOP_TICK - lastTagTick <= 2 _ANDALSO tdt < 2)) THEN
+                lastTagF = 0
+                IF ANIM_TG_at%(f) > 0 THEN ANIM_TG_select ANIM_TG_at%(f) ELSE ANIM_SEL_click f, 0, 0
+                ANIM_TG_action ANIM_ACT_TAG_FRAMES
+            ELSE
+                IF ANIM_TG_at%(f) > 0 THEN ANIM_TG_select ANIM_TG_at%(f) ELSE ANIM_SEL_click f, c, s
+                lastTagF = f: lastTagT = TIMER: lastTagTick = ANIM_LOOP_TICK
+            END IF
+        END IF
+        ANIM_LB_changed
+        EXIT FUNCTION
+    END IF
+    IF slot > 0 _ANDALSO (mx < ANIM_XS.gx _ORELSE f > 0) THEN
+        IF slot <> CURRENT_LAYER% THEN
+            IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN LAYERS_select_group slot ELSE LAYERS_select slot
+        END IF
+    END IF
+    IF f > 0 THEN
+        IF k = 0 _ANDALSO c = 0 _ANDALSO s = 0 _ANDALSO ANIM_SEL_count% > 1 _ANDALSO ANIM_SEL(f) <> 0 THEN
+            ANIM_XS.dCollapse = TRUE ' maybe the start of moving the selection: just it on a plain release
+            ANIM.current = f
+        ELSE
+            ANIM_SEL_click f, c, s
+        END IF
+        IF c = 0 _ANDALSO s = 0 THEN
+            IF k = 0 THEN
+                ANIM_XS.dMode = XS_DRAG_FRAMES
+            ELSEIF k = ANIM_XS.rowsShown + 1 THEN
+                ANIM_XS.dMode = XS_DRAG_HOLD: ANIM_XS.dHold0 = ANIM_hold%(f)
+            ELSEIF slot > 0 _ANDALSO CLIP_inst_of%(slot) > 0 THEN
+                ANIM_XS_cl_press slot, mx ' a clip layer's bar: an end or the whole bar
+            ELSEIF slot > 0 THEN
+                IF ANIM_OPS_moves%(slot) _ANDALSO ANIM_XS_filled%(slot, f) THEN ANIM_XS.dMode = XS_DRAG_CELL: ANIM_XS.dSlot = slot ' an empty cell has nothing to move
+            END IF
+        END IF
+    END IF
+    ANIM_LB_changed
+END FUNCTION
+
+''
+' A right press on the TAGS / NOTES row (R-13): the tag under it is selected
+' (else its frame, unless already selected), for the menu that opens on the
+' release. TRUE = it was on one of those rows.
+FUNCTION ANIM_XS_tag_rpress% (mx AS INTEGER, my AS INTEGER)
+    DIM k AS INTEGER, f AS INTEGER
+    IF ANIM_XS_hit%(mx, my) = 0 THEN EXIT FUNCTION
+    k = ANIM_XS_band_row%(my)
+    IF k < 0 _ORELSE (k <> ANIM_XS_tags_k% _ANDALSO k <> ANIM_XS_notes_k%) THEN EXIT FUNCTION
+    f = ANIM_XS_frame_at%(mx)
+    IF f > 0 THEN
+        IF k = ANIM_XS_tags_k% _ANDALSO ANIM_TG_at%(f) > 0 THEN
+            ANIM_TG_select ANIM_TG_at%(f)
+        ELSEIF ANIM_SEL_is%(f) = 0 THEN
+            ANIM_SEL_click f, 0, 0
+        END IF
+        ANIM_LB_changed
+    END IF
+    ANIM_XS_tag_rpress% = TRUE
+END FUNCTION
+
+''
+' The TAGS / NOTES rows' menu (ANIM_LB.menuKind 2; values are action ids).
+SUB ANIM_XS_tag_menu_build ()
+    DIM sel AS INTEGER, j AS INTEGER, noted AS INTEGER, n AS INTEGER, k AS INTEGER, best AS INTEGER, lastA AS INTEGER, lastK AS INTEGER, t AS STRING
+    POPUP_MENU_clear_items
+    sel = ANIM_TG_selected%
+    ' the tags first, in frame order (Rick 2026-11-10: "show the tags under the
+    ' menu options at the top? to jump right to a tag"): values 30000 + tag
+    lastA = -1: lastK = 0
+    DO WHILE n < 24
+        best = 0
+        FOR k = 1 TO ANIM_TG_N
+            IF ANIM_TG_A(k) > lastA _ORELSE (ANIM_TG_A(k) = lastA _ANDALSO k > lastK) THEN
+                IF best = 0 THEN
+                    best = k
+                ELSEIF ANIM_TG_A(k) < ANIM_TG_A(best) THEN
+                    best = k
+                END IF
+            END IF
+        NEXT k
+        IF best = 0 THEN EXIT DO
+        t = ANIM_TG_NAME(best): IF LEN(t) > 36 THEN t = LEFT$(t, 35) + "~"
+        POPUP_MENU_set_item n, t, _TRIM$(STR$(ANIM_TG_A(best))) + "-" + _TRIM$(STR$(ANIM_TG_B(best))), 30000 + best, _IIF(best = sel, POPUP_MENU_FLAG_CHECKED, 0)
+        n = n + 1: lastA = ANIM_TG_A(best): lastK = best
+    LOOP
+    IF n > 0 THEN POPUP_MENU_set_item n, "", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    POPUP_MENU_set_item n, _IIF(sel > 0, "Rename Tag...", "Tag Frames..."), "", ANIM_ACT_TAG_FRAMES, 0
+    POPUP_MENU_set_item n + 1, "Delete Tag", "", ANIM_ACT_DELETE_TAG, _IIF(sel > 0 _ORELSE ANIM_TG_at%(ANIM.current) > 0, 0, POPUP_MENU_FLAG_DISABLED)
+    POPUP_MENU_set_item n + 2, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    POPUP_MENU_set_item n + 3, "Frame Note...", "", ANIM_ACT_FRAME_NOTE, 0
+    FOR j = 1 TO ANIM.count
+        IF (ANIM_SEL_is%(j) _ORELSE j = ANIM.current) _ANDALSO LEN(ANIM_NOTE(j)) > 0 THEN noted = TRUE: EXIT FOR
+    NEXT j
+    POPUP_MENU_set_item n + 4, "Clear Frame Note", "", ANIM_ACT_CLEAR_NOTE, _IIF(noted, 0, POPUP_MENU_FLAG_DISABLED)
+    ANIM_LB.menuN = n + 5
+END SUB
+
+''
+' Where dropped frames land for viewport x: before the frame whose span's
+' left half it is over (count + 1 past the last).
+FUNCTION ANIM_XS_drop_slot% (mx AS INTEGER)
+    DIM f AS INTEGER, x AS INTEGER, s AS INTEGER
+    s = ANIM_XS.lastF + 1
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        x = ANIM_XS_frame_x%(f)
+        IF mx < x + ANIM_XS_span_w%(f) \ 2 THEN s = f: EXIT FOR
+    NEXT f
+    ANIM_XS_drop_slot% = _MAX(1, _MIN(s, ANIM.count + 1))
+END FUNCTION
+
+''
+' ANIM_LB_mouse while a grid press is held, and its release.
+SUB ANIM_XS_hold ()
+    DIM mx AS INTEGER, my AS INTEGER, h AS INTEGER, t AS DOUBLE, f AS INTEGER
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    mx = MOUSE.RAW_X%: my = MOUSE.RAW_Y%
+    f = ANIM_XS.dFrame
+    IF MOUSE.B1% THEN
+        IF ANIM_XS.dOn = 0 _ANDALSO ANIM_XS.dMode <> XS_DRAG_NONE THEN
+            IF ABS(mx - ANIM_XS.dPressX) >= 4 _ORELSE ((ANIM_XS.dMode = XS_DRAG_CELL _ORELSE ANIM_XS.dMode = XS_DRAG_SOUND) _ANDALSO ABS(my - ANIM_XS.dPressY) >= 4) THEN
+                ANIM_XS.dOn = TRUE: ANIM_XS.dCollapse = FALSE
+                IF ANIM_XS.dMode = XS_DRAG_HOLD THEN ANIM_XS_BEFORE = ANIM_OPS_snapshot$(FALSE)
+                IF ANIM_XS.dMode = XS_DRAG_SOUND THEN ANIM_SC_BEFORE = ANIM_OPS_snapshot$(FALSE): ANIM_SC_DRAG = TRUE
+            END IF
+        END IF
+        IF ANIM_XS.dOn = 0 THEN EXIT SUB
+        IF ANIM_XS.dMode <> XS_DRAG_HOLD THEN ' past the grid's ends it scrolls, a frame every quarter second
+            t = TIMER(.001)
+            IF t >= ANIM_XS.dScrollT _ORELSE t < ANIM_XS.dScrollT - 1 THEN
+                IF mx < ANIM_XS.gx _ANDALSO ANIM_XS.firstF > 1 THEN ANIM_XS.firstF = ANIM_XS.firstF - 1: ANIM_XS.dScrollT = t + .25: ANIM_LB_changed
+                IF mx >= ANIM_XS.x2 - 2 _ANDALSO ANIM_XS.lastF < ANIM.count THEN ANIM_XS.firstF = ANIM_XS.firstF + 1: ANIM_XS.dScrollT = t + .25: ANIM_LB_changed
+            END IF
+        END IF
+        SELECT CASE ANIM_XS.dMode
+            CASE XS_DRAG_HOLD ' a tick of hold per tick dragged
+                h = ANIM_XS.dHold0 + CINT((mx - ANIM_XS.dPressX) / _MAX(0.02, ANIM_XS.tick))
+                h = _MAX(1, _MIN(ANIM_HOLD_MAX, h))
+                IF h <> ANIM_hold%(f) THEN ANIM_set_hold f, h: STATUS_flash "Frame" + STR$(f) + ": hold" + STR$(h): ANIM_LB_changed
+            CASE XS_DRAG_CELL
+                h = ANIM_XS_frame_at%(mx)
+                IF h <> ANIM_XS.dTo _ORELSE ANIM_XS_row_slot%(ANIM_XS_band_row%(my)) <> ANIM_XS.dToSlot THEN
+                    ANIM_XS.dTo = h: ANIM_XS.dToSlot = ANIM_XS_row_slot%(ANIM_XS_band_row%(my))
+                    ANIM_LB_changed
+                END IF
+            CASE XS_DRAG_FRAMES
+                h = ANIM_XS_drop_slot%(mx)
+                IF h <> ANIM_XS.dTo THEN ANIM_XS.dTo = h: ANIM_LB_changed
+            CASE XS_DRAG_SOUND ' the clip: by the ms dragged, snapped to a frame start (Shift: free); another SOUND row = that track
+                ANIM_XS_sound_drag mx, my
+            CASE XS_DRAG_CLIP
+                ANIM_XS_cl_drag mx
+            CASE XS_DRAG_LKEY ' the keys' new frame (shown on the row; moved on the release)
+                h = ANIM_XS_frame_at%(mx)
+                IF h > 0 _ANDALSO h <> ANIM_XS.dTo THEN ANIM_XS.dTo = h: ANIM_LB_changed
+        END SELECT
+        EXIT SUB
+    END IF
+    ' released
+    IF ANIM_XS.dOn THEN
+        SELECT CASE ANIM_XS.dMode
+            CASE XS_DRAG_HOLD
+                IF ANIM_hold%(f) <> ANIM_XS.dHold0 THEN
+                    ANIM_OPS_record ANIM_XS_BEFORE, ANIM_OPS_snapshot$(FALSE), "Frame Hold", 0
+                    STATUS_flash "Frame" + STR$(f) + ": hold" + STR$(ANIM_hold%(f))
+                END IF
+            CASE XS_DRAG_CELL: ANIM_XS_drop
+            CASE XS_DRAG_LKEY
+                h = CLIP_inst_of%(ANIM_XS.dSlot)
+                IF h _ANDALSO ANIM_XS.dTo > 0 _ANDALSO ANIM_XS.dTo <> f THEN
+                    CLIP_keys_shift ANIM_XS.dSlot, f - CLIP_INST(h).inF, ANIM_XS.dTo - CLIP_INST(h).inF
+                    ANIM.current = _MAX(ANIM_XS.dTo, CLIP_INST(h).inF): ANIM_SEL_click ANIM.current, FALSE, FALSE
+                    STATUS_flash "Keys moved from frame" + STR$(f) + " to frame" + STR$(ANIM.current)
+                END IF
+            CASE XS_DRAG_FRAMES
+                ANIM_MOVE_TO = ANIM_XS.dTo
+                ANIM_OPS_run ANIM_OP_MOVE_SEL ' nothing when dropped where they are
+            CASE XS_DRAG_SOUND
+                ANIM_SC_DRAG = FALSE
+                h = ANIM_SC_SEL
+                IF h > 0 _ANDALSO h <= ANIM_SC_N THEN
+                    IF ANIM_SC_AT(h) <> ANIM_SC_DRAG_AT _ORELSE ANIM_SC_TRK(h) <> ANIM_SC_DRAG_TRK THEN
+                        ANIM_OPS_record ANIM_SC_BEFORE, ANIM_OPS_snapshot$(FALSE), "Move Sound", 0
+                    END IF
+                END IF
+                ANIM_SC_BEFORE = ""
+        END SELECT
+    ELSEIF ANIM_XS.dCollapse THEN
+        ANIM_SEL_click f, FALSE, FALSE
+    END IF
+    ANIM_XS_BEFORE = "": ANIM_SC_DRAG = FALSE
+    ANIM_XS.dMode = XS_DRAG_NONE: ANIM_XS.dOn = FALSE: ANIM_XS.dCollapse = FALSE: ANIM_XS.dTo = 0: ANIM_XS.dToSlot = 0
+    ANIM_LB_changed
+END SUB
+
+' ---------------------------------------------------------------------------
+' A clip layer's row (TOOLS/CLIP, phase 2 K5): a bar from In to the last frame
+' it shows (Out, or the last frame), each frame's cel number in it. Drag an end
+' to set In / Out, the middle to slide both - one undo step a drag (CLIP_KEY).
+' ---------------------------------------------------------------------------
+
+''
+' The clip's frames a..b and the bar's viewport x (cut to the grid; FALSE =
+' not in view). inA / inB: that end is in view.
+FUNCTION ANIM_XS_cl_span% (slot AS INTEGER, a AS INTEGER, b AS INTEGER, xa AS INTEGER, xb AS INTEGER, inA AS INTEGER, inB AS INTEGER)
+    DIM k AS INTEGER
+    k = CLIP_inst_of%(slot)
+    IF k = 0 THEN EXIT FUNCTION
+    a = CLIP_INST(k).inF: b = CLIP_INST(k).outF
+    IF b <= 0 _ORELSE b > ANIM.count THEN b = ANIM.count
+    IF a < 1 THEN a = 1
+    IF b < ANIM_XS.firstF _ORELSE a > ANIM_XS.lastF _ORELSE b < a THEN EXIT FUNCTION
+    inA = (a >= ANIM_XS.firstF): inB = (b <= ANIM_XS.lastF)
+    xa = ANIM_XS_frame_x%(_MAX(a, ANIM_XS.firstF))
+    xb = ANIM_XS_frame_x%(b) + ANIM_XS_span_w%(b) - 1
+    IF xa < ANIM_XS.gx THEN xa = ANIM_XS.gx: inA = FALSE
+    IF xb > ANIM_XS.x2 THEN xb = ANIM_XS.x2: inB = FALSE
+    ANIM_XS_cl_span% = (xb > xa)
+END FUNCTION
+
+SUB ANIM_XS_cl_row (slot AS INTEGER, y AS INTEGER)
+    DIM k AS INTEGER, a AS INTEGER, b AS INTEGER, xa AS INTEGER, xb AS INTEGER, inA AS INTEGER, inB AS INTEGER
+    DIM f AS INTEGER, x AS INTEGER, w AS INTEGER, c AS INTEGER, t AS STRING, tw AS INTEGER, lh AS INTEGER
+    DIM fill AS _UNSIGNED LONG, edge AS _UNSIGNED LONG, fg AS _UNSIGNED LONG, cur AS INTEGER
+    IF ANIM_XS_cl_span%(slot, a, b, xa, xb, inA, inB) = 0 THEN EXIT SUB
+    k = CLIP_inst_of%(slot): lh = ANIM_XS.layH: cur = (slot = CURRENT_LAYER%)
+    edge = THEME.ANIM_FRAME_current~&
+    fill = (edge AND &H00FFFFFF~&) OR _IIF(cur, &H90000000~&, &H48000000~&)
+    fg = _IIF(cur, THEME.CP_text_bright~&, THEME.CP_text~&)
+    LINE (xa + 1, y + 2)-(xb - 1, y + lh - 3), fill, BF
+    LINE (xa + 1, y + 2)-(xb - 1, y + lh - 3), edge, B
+    ' the ends: grips (drag them)
+    IF inA THEN LINE (xa + 1, y + 2)-(xa + 3, y + lh - 3), edge, BF
+    IF inB THEN LINE (xb - 3, y + 2)-(xb - 1, y + lh - 3), edge, BF
+    FOR f = _MAX(a, ANIM_XS.firstF) TO _MIN(b, ANIM_XS.lastF)
+        x = ANIM_XS_frame_x%(f): w = ANIM_XS_span_w%(f)
+        c = CLIP_cel_at%(k, f)
+        IF c > 0 THEN t = _TRIM$(STR$(c)) ELSE t = "-"
+        tw = FPANEL_text_w%(t)
+        IF tw + 8 <= w _ANDALSO x + (w + tw) \ 2 <= ANIM_XS.x2 THEN FPANEL_text x + (w - tw) \ 2, y + (lh - FPANEL.fontH%) \ 2, t, fg
+    NEXT f
+END SUB
+
+''
+' A clip layer's SOUND row (TOOLS/CLIP K9; read-only): a mark where each of its
+' sounds starts (the generated soundtrack clips), the file's name after it
+' while there is room; MUTED when the layer is hidden. Edit the sounds in the
+' Animation panel's clip rows.
+SUB ANIM_XS_cl_snd_row (slot AS INTEGER, y AS INTEGER)
+    DIM gi AS INTEGER, gj AS INTEGER, x AS INTEGER, nx AS INTEGER, lh AS INTEGER, t AS STRING, tw AS INTEGER
+    DIM edge AS _UNSIGNED LONG, fg AS _UNSIGNED LONG, x2 AS INTEGER, first AS INTEGER, t1 AS STRING, nSame AS INTEGER
+    lh = ANIM_XS.layH: x2 = ANIM_XS.x2
+    edge = THEME.ANIM_FRAME_current~&: fg = THEME.CP_text_dim~&
+    IF CLIP_layer_heard%(slot) = 0 THEN
+        FPANEL_text ANIM_XS.gx + 4, y + (lh - FPANEL.fontH%) \ 2, "MUTED (THE LAYER IS HIDDEN)", fg
+        EXIT SUB
+    END IF
+    FOR gi = 1 TO ANIM_SC_GN
+        IF ANIM_SC_GSLOT(gi) = slot THEN
+            x = ANIM_XS_ms_x%(ANIM_SC_AT(ANIM_SC_MAX + gi))
+            IF x >= ANIM_XS.gx _ANDALSO x + 1 <= x2 THEN
+
+                LINE (x, y + 2)-(x + 1, y + lh - 3), edge, BF
+                LINE (x + 2, y + 2)-(_MIN(x + 5, x2), y + 4), edge, BF ' a little flag
+                ' the names: the first mark at an x shows every sound starting there
+                ' ("A+B"), up to the next mark further on
+                first = TRUE
+                FOR gj = 1 TO gi - 1
+                    IF ANIM_SC_GSLOT(gj) = slot THEN
+                        IF ANIM_XS_ms_x%(ANIM_SC_AT(ANIM_SC_MAX + gj)) = x THEN first = FALSE: EXIT FOR
+                    END IF
+                NEXT gj
+                IF first THEN
+                    nx = x2: t = "": t1 = "": nSame = 0
+                    FOR gj = gi TO ANIM_SC_GN
+                        IF ANIM_SC_GSLOT(gj) = slot THEN
+                            IF ANIM_XS_ms_x%(ANIM_SC_AT(ANIM_SC_MAX + gj)) = x THEN
+                                nSame = nSame + 1
+                                IF t1 = "" THEN t1 = UCASE$(CLIP_cue_name$(ANIM_SC_PATH(ANIM_SC_MAX + gj)))
+                                t = t + _IIF(t = "", "", "+") + UCASE$(CLIP_cue_name$(ANIM_SC_PATH(ANIM_SC_MAX + gj)))
+                            ELSEIF ANIM_XS_ms_x%(ANIM_SC_AT(ANIM_SC_MAX + gj)) > x THEN
+                                nx = ANIM_XS_ms_x%(ANIM_SC_AT(ANIM_SC_MAX + gj)): EXIT FOR
+                            END IF
+                        END IF
+                    NEXT gj
+                    ' all the names, else the first + how many more, else the first
+                    IF x + 7 + FPANEL_text_w%(t) >= nx - 2 _ANDALSO nSame > 1 THEN t = t1 + "+" + _TRIM$(STR$(nSame - 1))
+                    IF x + 7 + FPANEL_text_w%(t) >= nx - 2 THEN t = t1
+                    tw = FPANEL_text_w%(t)
+                    IF x + 7 + tw < nx - 2 THEN FPANEL_text x + 7, y + (lh - FPANEL.fontH%) \ 2, t, fg
+                END IF
+            END IF
+        END IF
+    NEXT gi
+END SUB
+
+''
+' A clip layer's LANES row (TOOLS/CLIP L7): a diamond on each frame with a key
+' in any lane, filled where the picked lane (the panel's LANE row) has one.
+' Drag a diamond along the row to move that frame's keys (XS_DRAG_LKEY): the
+' frame it leaves is dimmed, the frame it goes to outlined until the release.
+SUB ANIM_XS_cl_lanes_row (slot AS INTEGER, y AS INTEGER)
+    DIM k AS INTEGER, f AS INTEGER, x AS INTEGER, w AS INTEGER, lh AS INTEGER, m AS INTEGER, rr AS INTEGER
+    DIM cx AS INTEGER, cy AS INTEGER, dy AS INTEGER, hw AS INTEGER, dragging AS INTEGER
+    DIM edge AS _UNSIGNED LONG, dim1 AS _UNSIGNED LONG
+    k = CLIP_inst_of%(slot): IF k = 0 THEN EXIT SUB
+    lh = ANIM_XS.layH
+    edge = THEME.ANIM_FRAME_current~&: dim1 = (edge AND &H00FFFFFF~&) OR &H60000000~&
+    dragging = (ANIM_XS.dMode = XS_DRAG_LKEY _ANDALSO ANIM_XS.dOn <> 0 _ANDALSO ANIM_XS.dSlot = slot)
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        m = CLIP_key_mark%(k, f - CLIP_INST(k).inF)
+        IF dragging _ANDALSO f = ANIM_XS.dFrame THEN m = -m ' (leaving: dimmed)
+        IF dragging _ANDALSO f = ANIM_XS.dTo _ANDALSO f <> ANIM_XS.dFrame THEN m = 3 ' (arriving: outlined)
+        IF m THEN
+            x = ANIM_XS_frame_x%(f): w = ANIM_XS_span_w%(f)
+            rr = _MAX(1, _MIN(4, _MIN((lh - 4) \ 2, (w - 2) \ 2)))
+            cx = x + w \ 2: cy = y + lh \ 2
+            IF cx + rr <= ANIM_XS.x2 THEN
+                FOR dy = -rr TO rr
+                    hw = rr - ABS(dy)
+                    SELECT CASE m
+                        CASE 2: LINE (cx - hw, cy + dy)-(cx + hw, cy + dy), edge
+                        CASE 1, 3: PSET (cx - hw, cy + dy), edge: PSET (cx + hw, cy + dy), edge
+                        CASE ELSE: PSET (cx - hw, cy + dy), dim1: PSET (cx + hw, cy + dy), dim1
+                    END SELECT
+                NEXT dy
+            END IF
+        END IF
+    NEXT f
+END SUB
+
+''
+' A plain press on a clip layer's row (it is the current layer now): on an end
+' (3 px) = drag it, inside the bar = slide it.
+SUB ANIM_XS_cl_press (slot AS INTEGER, mx AS INTEGER)
+    DIM k AS INTEGER, a AS INTEGER, b AS INTEGER, xa AS INTEGER, xb AS INTEGER, inA AS INTEGER, inB AS INTEGER, e AS INTEGER
+    IF ANIM_XS_cl_span%(slot, a, b, xa, xb, inA, inB) = 0 THEN EXIT SUB
+    k = CLIP_inst_of%(slot)
+    IF inA _ANDALSO ABS(mx - xa) <= 3 _ANDALSO (inB = 0 _ORELSE ABS(mx - xa) <= ABS(mx - xb)) THEN
+        e = 1
+    ELSEIF inB _ANDALSO ABS(mx - xb) <= 3 THEN
+        e = 2
+    ELSEIF mx > xa _ANDALSO mx < xb THEN
+        e = 3
+    END IF
+    IF e = 0 THEN EXIT SUB
+    ANIM_XS.dMode = XS_DRAG_CLIP: ANIM_XS.dSlot = slot: ANIM_XS.cEnd = e
+    ANIM_XS.cIn0 = CLIP_INST(k).inF: ANIM_XS.cOut0 = CLIP_INST(k).outF
+    CLIP_XS_KEY = CLIP_XS_KEY - 1
+END SUB
+
+''
+' XS_DRAG_CLIP: the end / the bar follows the frame under the pointer.
+SUB ANIM_XS_cl_drag (mx AS INTEGER)
+    DIM fm AS INTEGER, d AS INTEGER, v AS INTEGER, out0 AS INTEGER, last0 AS INTEGER
+    IF CURRENT_LAYER% <> ANIM_XS.dSlot _ORELSE CLIP_current% = 0 THEN EXIT SUB
+    fm = ANIM_XS_frame_at%(mx)
+    IF fm = 0 THEN fm = _IIF(mx < ANIM_XS.gx, ANIM_XS.firstF, ANIM_XS.lastF)
+    out0 = ANIM_XS.cOut0
+    last0 = out0: IF last0 <= 0 THEN last0 = ANIM.count
+    SELECT CASE ANIM_XS.cEnd
+        CASE 1 ' In: not past the last frame it shows
+            v = _MAX(1, _MIN(fm, last0))
+            IF v <> CLIP_get&(1) THEN CLIP_set_keyed 1, v, CLIP_XS_KEY
+        CASE 2 ' Out: not before In; the last frame = to the end
+            v = _MAX(ANIM_XS.cIn0, fm)
+            IF v >= ANIM.count THEN v = 0
+            IF v <> CLIP_get&(2) THEN CLIP_set_keyed 2, v, CLIP_XS_KEY
+        CASE 3 ' the bar: In and Out move together, inside the frames
+            d = fm - ANIM_XS.dFrame
+            IF ANIM_XS.cIn0 + d < 1 THEN d = 1 - ANIM_XS.cIn0
+            IF out0 > 0 THEN
+                IF out0 + d > ANIM.count THEN d = ANIM.count - out0
+            ELSE
+                IF ANIM_XS.cIn0 + d > ANIM.count THEN d = ANIM.count - ANIM_XS.cIn0
+            END IF
+            IF ANIM_XS.cIn0 + d <> CLIP_get&(1) THEN
+                IF d > 0 _ANDALSO out0 > 0 THEN CLIP_set_keyed 2, out0 + d, CLIP_XS_KEY
+                CLIP_set_keyed 1, ANIM_XS.cIn0 + d, CLIP_XS_KEY
+                IF d <= 0 _ANDALSO out0 > 0 THEN CLIP_set_keyed 2, out0 + d, CLIP_XS_KEY
+            END IF
+    END SELECT
+    v = CLIP_get&(2)
+    STATUS_flash "Clip: In" + STR$(CLIP_get&(1)) + ", Out " + _IIF(v = 0, "to the end", _TRIM$(STR$(v)))
+    ANIM_LB_changed
+END SUB
+
+''
+' Dragging the picked clip (XS_DRAG_SOUND): it starts where it started plus
+' the time dragged, at the nearest frame start (Shift: anywhere), on the
+' SOUND row under the pointer.
+SUB ANIM_XS_sound_drag (mx AS INTEGER, my AS INTEGER)
+    DIM i AS INTEGER, nat AS DOUBLE, na AS LONG, nt AS INTEGER, f AS INTEGER
+    i = ANIM_SC_SEL
+    IF i < 1 _ORELSE i > ANIM_SC_N _ORELSE ANIM.fps < 1 _ORELSE ANIM_XS.tick <= 0 THEN EXIT SUB
+    nat = ANIM_SC_DRAG_AT + (mx - ANIM_XS.dPressX) / ANIM_XS.tick * 1000# / ANIM.fps
+    IF ANIM_LB_shift% THEN na = CLNG(nat) ELSE na = ANIM_SC_snap&(nat, f)
+    IF na < 0 THEN na = 0
+    nt = ANIM_XS_sound_trk%(ANIM_XS_band_row%(my))
+    IF nt = 0 THEN nt = ANIM_SC_TRK(i)
+    IF na = ANIM_SC_AT(i) _ANDALSO nt = ANIM_SC_TRK(i) THEN EXIT SUB
+    ANIM_SC_AT(i) = na: ANIM_SC_TRK(i) = nt: ANIM_SC_TRACK = nt
+    IF f > 0 _ANDALSO ANIM_LB_shift% = 0 THEN
+        STATUS_flash "Sound: " + ANIM_SND_name$(ANIM_SC_PATH(i), FALSE) + " from frame" + STR$(f) + " (" + ANIM_SC_secs$(na) + "), track" + STR$(nt)
+    ELSE
+        STATUS_flash "Sound: " + ANIM_SND_name$(ANIM_SC_PATH(i), FALSE) + " from " + ANIM_SC_secs$(na) + ", track" + STR$(nt)
+    END IF
+    ANIM_LB_changed
+END SUB
+
+''
+' A cell drag let go: layer dSlot's drawing in frame dFrame moves (Ctrl:
+' copies) to layer dToSlot's cell in frame dTo, replacing what was there.
+' One undo step; the cell it landed in becomes current.
+SUB ANIM_XS_drop ()
+    DIM src AS INTEGER, dst AS INTEGER, f AS INTEGER, g AS INTEGER, cp AS INTEGER, why AS STRING
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, gx AS LONG, gy AS LONG, gw AS LONG, gh AS LONG
+    DIM tmp AS LONG, img AS LONG, oldDest AS LONG, before AS STRING
+    src = ANIM_XS.dSlot: f = ANIM_XS.dFrame: dst = ANIM_XS.dToSlot: g = ANIM_XS.dTo
+    cp = ANIM_LB_ctrl%
+    IF g < 1 _ORELSE dst < 1 _ORELSE src < 1 _ORELSE f < 1 THEN EXIT SUB ' dropped off the grid
+    IF dst = src _ANDALSO g = f THEN EXIT SUB
+    IF ANIM_LB_shift% THEN ANIM_XS_drop_link src, f, dst, g: EXIT SUB ' Shift: a link (4.3)
+    IF ANIM_OPS_moves%(dst) = 0 _ORELSE ANIM_OPS_moves%(src) = 0 THEN STATUS_flash "Drawings move between pixel layers only": EXIT SUB
+    IF ANIM_LF_is_same%(src) _ORELSE ANIM_LF_is_same%(dst) THEN STATUS_flash "That layer is the same on every frame": EXIT SUB
+    why = ANIM_OPS_busy$
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 _ORELSE ANIM_cell_rect%(g, gx, gy, gw, gh) = 0 THEN EXIT SUB
+    ANIM_play_stop
+    before = ANIM_OPS_snapshot$(TRUE)
+    ' the cell landed on leaves its links (only it is replaced), and so does a moved one
+    ANIM_LK_remove LAYERS(dst).historyId&, g
+    IF cp = 0 THEN ANIM_LK_remove LAYERS(src).historyId&, f
+    ANIM_LK_tidy
+    tmp = _NEWIMAGE(cw, ch, 32)
+    IF tmp >= -1 THEN EXIT SUB
+    _DONTBLEND tmp
+    _PUTIMAGE (0, 0), LAYERS(src).imgHandle&, tmp, (cx + LAYERS(src).apronW%, cy + LAYERS(src).apronH%)-(cx + LAYERS(src).apronW% + cw - 1, cy + LAYERS(src).apronH% + ch - 1)
+    oldDest = _DEST
+    IF cp = 0 THEN ' the cell it left is cleared
+        img = LAYERS(src).imgHandle&
+        _DEST img: _DONTBLEND img
+        LINE (cx + LAYERS(src).apronW%, cy + LAYERS(src).apronH%)-STEP(cw - 1, ch - 1), _RGBA32(0, 0, 0, 0), BF
+        _BLEND img
+    END IF
+    img = LAYERS(dst).imgHandle&
+    _DEST img: _DONTBLEND img
+    LINE (gx + LAYERS(dst).apronW%, gy + LAYERS(dst).apronH%)-STEP(gw - 1, gh - 1), _RGBA32(0, 0, 0, 0), BF
+    _PUTIMAGE (gx + LAYERS(dst).apronW%, gy + LAYERS(dst).apronH%), tmp, img
+    _BLEND img
+    _DEST oldDest
+    _FREEIMAGE tmp
+    ANIM_XS_touched src: ANIM_XS_touched dst
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(TRUE), _IIF(cp, "Copy Drawing", "Move Drawing"), 0
+    ANIM_SEL_click g, FALSE, FALSE
+    IF dst <> CURRENT_LAYER% THEN LAYERS_select dst
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    STATUS_flash _IIF(cp, "Copied", "Moved") + " the drawing to frame" + STR$(g) + _IIF(dst <> src, " on " + _TRIM$(LAYERS(dst).name), "")
+END SUB
+
+''
+' A cell drag let go with Shift: the cell landed on (same layer) links to the
+' dragged one's drawing (4.3). One undo step.
+SUB ANIM_XS_drop_link (src AS INTEGER, f AS INTEGER, dst AS INTEGER, g AS INTEGER)
+    DIM why AS STRING, before AS STRING, sl AS INTEGER
+    IF dst <> src THEN STATUS_flash "Links stay on one layer - drop it in the same row": EXIT SUB
+    sl = CURRENT_LAYER%: CURRENT_LAYER% = src ' ANIM_LK_refusal$ asks about the current layer
+    why = ANIM_LK_refusal$
+    CURRENT_LAYER% = sl
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    ANIM_play_stop
+    before = ANIM_OPS_snapshot$(TRUE)
+    ANIM_LK_join src, f, g
+    ANIM_LK_tidy
+    ANIM_XS_touched src
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(TRUE), "Link Drawing", 0
+    ANIM_SEL_click g, FALSE, FALSE
+    IF src <> CURRENT_LAYER% THEN LAYERS_select src
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    STATUS_flash "Frame" + STR$(g) + " linked to frame" + STR$(f) + "'s drawing"
+END SUB
+
+''
+' A layer's pixels changed outside the tools: its caches go.
+SUB ANIM_XS_touched (L AS INTEGER)
+    LAYERS(L).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(L).apronCacheImg&: LAYERS(L).apronCacheImg& = 0
+    LAYERS(L).apronCacheValid% = FALSE
+    SYMBOL_mark_parent_dirty L
+END SUB
+
+''
+' The wheel over the band: the frames (a quarter of those shown a notch);
+' Shift, or over the names, the layer rows when they overflow. TRUE = taken.
+FUNCTION ANIM_XS_wheel% (mx AS INTEGER, my AS INTEGER, delta AS INTEGER)
+    DIM n AS INTEGER, top AS INTEGER
+    IF ANIM_XS_hit%(mx, my) = 0 THEN EXIT FUNCTION
+    IF REGION_hit_test%(mx, my) <> REGION_CANVAS THEN EXIT FUNCTION
+    ANIM_XS_wheel% = TRUE
+    IF ANIM_LB_ctrl% THEN ' Ctrl+wheel: zoom the time line; Ctrl+Shift+wheel: the layer rows' size
+        IF ANIM_LB_shift% THEN
+            ANIM_XS_rows_set CFG.XSHEET_ROWS% - SGN(delta): CONFIG_save
+        ELSE
+            ANIM_XS_zoom_wheel mx, delta
+        END IF
+        EXIT FUNCTION
+    END IF
+    n = ANIM_XS_slot_at%(mx, my)
+    IF n > 0 _ANDALSO mx < ANIM_XS.gx THEN ' over a layer's opacity box: +/- 5 % (Shift 1 %), up = more (F5)
+        IF ANIM_XS_ctl_at%(mx, n) = 3 THEN ANIM_XS_op_set n, ANIM_XS_op_pct%(n) - SGN(delta) * _IIF(ANIM_LB_shift%, 1, 5): EXIT FUNCTION
+    END IF
+    IF (ANIM_LB_shift% _ORELSE mx < ANIM_XS.gx) _ANDALSO ANIM_XS.nRows > ANIM_XS.rowsShown THEN
+        top = ANIM_XS.nRows - ANIM_XS.rowsShown + 1
+        ANIM_XS.firstRow = _MAX(1, _MIN(top, ANIM_XS.firstRow + SGN(delta)))
+    ELSE
+        n = _MAX(1, (ANIM_XS.lastF - ANIM_XS.firstF + 1) \ 4)
+        ANIM_XS.firstF = _MAX(1, _MIN(ANIM.count, ANIM_XS.firstF + SGN(delta) * n))
+    END IF
+    ANIM_LB_changed
+END FUNCTION
+
+''
+' QA dump lines:
+' ANIMXS on shown x1 y1 x2 y2 nameW rowH tickW gx firstF lastF nRows firstRow rowsShown currentLayer
+'        layH tick*100 tickAuto*100 tickMin*100 zoomX1 zoomX2 tagBtnX
+' ANIMXSD mode on frame slot to toSlot (a drag on the grid, 4.2)
+' ANIMXSF then per frame shown: f x w (its span)
+' ANIMXSR r slot y fill (per row; y -1 = scrolled out; fill = per frame 1 drawn / 0 empty, "-" a group)
+' ANIMXSL eyeX lockX opX opW + per row: slot visible lock opacity% (F5)
+FUNCTION ANIM_XS_dump$ ()
+    DIM d AS STRING, f AS INTEGER, r AS INTEGER, slot AS INTEGER, y AS INTEGER, fl AS STRING, isOn AS INTEGER
+    DIM xa AS INTEGER, xb AS INTEGER
+    isOn = (ANIM_XS_on% <> 0 _ANDALSO ANIM_XS.shown <> 0)
+    d = "ANIMXS" + DOCK_n$(CFG.XSHEET% <> 0) + DOCK_n$(isOn) + DOCK_n$(ANIM_XS.x1) + DOCK_n$(ANIM_XS.y1) + DOCK_n$(ANIM_XS.x2) + DOCK_n$(ANIM_XS.y2)
+    d = d + DOCK_n$(ANIM_XS.nameW) + DOCK_n$(ANIM_XS.rowH) + DOCK_n$(ANIM_XS.tickW) + DOCK_n$(ANIM_XS.gx) + DOCK_n$(ANIM_XS.firstF) + DOCK_n$(ANIM_XS.lastF)
+    d = d + DOCK_n$(ANIM_XS.nRows) + DOCK_n$(ANIM_XS.firstRow) + DOCK_n$(ANIM_XS.rowsShown) + DOCK_n$(CURRENT_LAYER%)
+    d = d + DOCK_n$(ANIM_XS.layH) + DOCK_n$(CINT(ANIM_XS.tick * 100)) + DOCK_n$(CINT(ANIM_XS.tickAuto * 100)) + DOCK_n$(CINT(ANIM_XS.tickMin * 100)) + DOCK_n$(ANIM_XS.zx1) + DOCK_n$(ANIM_XS.zx2) + DOCK_n$(ANIM_XS_tag_btn_x%) + CHR$(10)
+    d = d + "ANIMXSD" + DOCK_n$(ANIM_XS.dMode) + DOCK_n$(ANIM_XS.dOn <> 0) + DOCK_n$(ANIM_XS.dFrame) + DOCK_n$(ANIM_XS.dSlot) + DOCK_n$(ANIM_XS.dTo) + DOCK_n$(ANIM_XS.dToSlot) + CHR$(10)
+    IF isOn = 0 THEN ANIM_XS_dump$ = d: EXIT FUNCTION
+    ANIM_XS_cache_check
+    d = d + "ANIMXSF"
+    FOR f = ANIM_XS.firstF TO ANIM_XS.lastF
+        d = d + DOCK_n$(f) + DOCK_n$(ANIM_XS_frame_x%(f)) + DOCK_n$(ANIM_XS_span_w%(f))
+    NEXT f
+    d = d + CHR$(10)
+    IF ANIM_XS_tag_rows% THEN ' the tags row's y, then per tag in view: k xa xb
+        d = d + "ANIMXST" + DOCK_n$(ANIM_XS_row_y%(ANIM_XS_tags_k%))
+        FOR f = 1 TO ANIM_TG_N
+            IF ANIM_XS_tag_span%(f, xa, xb) THEN d = d + DOCK_n$(f) + DOCK_n$(xa) + DOCK_n$(xb)
+        NEXT f
+        d = d + CHR$(10)
+    END IF
+    IF ANIM_XS_note_rows% THEN d = d + "ANIMXSN" + DOCK_n$(ANIM_XS_row_y%(ANIM_XS_notes_k%)) + CHR$(10) ' the notes row's y
+    IF ANIM_XS_sound_rows% THEN ' the sound rows' y (track 1 first); ANIMXSC per clip in view: clip xa xb
+        d = d + "ANIMXSS"
+        FOR f = 1 TO ANIM_XS_sound_rows%: d = d + DOCK_n$(ANIM_XS_row_y%(ANIM_XS_sound_k% + f - 1)): NEXT f
+        d = d + CHR$(10) + "ANIMXSC"
+        FOR f = 1 TO ANIM_SC_N
+            IF ANIM_XS_clip_span%(f, xa, xb) THEN d = d + DOCK_n$(f) + DOCK_n$(xa) + DOCK_n$(xb)
+        NEXT f
+        d = d + CHR$(10)
+    END IF
+    ' ANIMXSCL slot y xa xb in out: each clip layer's bar in view (TOOLS/CLIP, K5; y = its row)
+    FOR r = ANIM_XS.firstRow TO _MIN(ANIM_XS.nRows, ANIM_XS.firstRow + ANIM_XS.rowsShown - 1)
+        slot = ANIM_XS_ROW(r)
+        DIM cla AS INTEGER, clb AS INTEGER, cia AS INTEGER, cib AS INTEGER, gi AS INTEGER
+        IF slot < 0 _ANDALSO ANIM_XS_RKIND(r) = XS_ROW_LANES THEN ' ANIMXSK slot y f:mark ...: a clip layer's LANES row (L7; mark 2 = the picked lane)
+            d = d + "ANIMXSK" + DOCK_n$(-slot) + DOCK_n$(ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1))
+            gi = CLIP_inst_of%(-slot) ' 0 once the clip is baked, until the rows are rebuilt
+            FOR f = 1 TO _IIF(gi > 0, _MIN(ANIM.count, 200), 0)
+                IF CLIP_key_mark%(gi, f - CLIP_INST(gi).inF) THEN d = d + " " + _TRIM$(STR$(f)) + ":" + _TRIM$(STR$(CLIP_key_mark%(gi, f - CLIP_INST(gi).inF)))
+            NEXT f
+            d = d + CHR$(10)
+        ELSEIF slot < 0 THEN ' ANIMXSQ slot y heard ms...: a clip layer's SOUND row (K9), where its sounds start
+            d = d + "ANIMXSQ" + DOCK_n$(-slot) + DOCK_n$(ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1)) + DOCK_n$(CLIP_layer_heard%(-slot) <> 0)
+            FOR gi = 1 TO ANIM_SC_GN
+                IF ANIM_SC_GSLOT(gi) = -slot THEN d = d + DOCK_n$(ANIM_SC_AT(ANIM_SC_MAX + gi))
+            NEXT gi
+            d = d + CHR$(10)
+        ELSEIF ANIM_XS_cl_span%(slot, cla, clb, xa, xb, cia, cib) THEN
+            d = d + "ANIMXSCL" + DOCK_n$(slot) + DOCK_n$(ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1)) + DOCK_n$(xa) + DOCK_n$(xb) + DOCK_n$(cla) + DOCK_n$(clb) + CHR$(10)
+        END IF
+    NEXT r
+    ' ANIMXSL eyeX lockX opX opW, then per row (<= 64): slot visible opacityLock opacity% (F5)
+    d = d + "ANIMXSL" + DOCK_n$(ANIM_XS.x1 + XS_EYE_X) + DOCK_n$(ANIM_XS.x1 + XS_LOCK_X) + DOCK_n$(ANIM_XS_op_x%) + DOCK_n$(ANIM_XS_op_w%)
+    FOR r = 1 TO _MIN(ANIM_XS.nRows, 64)
+        slot = ANIM_XS_ROW(r)
+        IF slot < 0 THEN _CONTINUE ' (a SOUND row: ANIMXSQ)
+        d = d + DOCK_n$(slot) + DOCK_n$(LAYERS(slot).visible% <> 0) + DOCK_n$(LAYERS(slot).opacityLock% <> 0) + DOCK_n$(ANIM_XS_op_pct%(slot))
+    NEXT r
+    d = d + CHR$(10)
+    FOR r = 1 TO _MIN(ANIM_XS.nRows, 64)
+        slot = ANIM_XS_ROW(r)
+        IF slot < 0 THEN _CONTINUE ' (a SOUND row: ANIMXSQ)
+        y = -1
+        IF r >= ANIM_XS.firstRow _ANDALSO r < ANIM_XS.firstRow + ANIM_XS.rowsShown THEN y = ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1)
+        IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN
+            fl = "-"
+        ELSE
+            fl = ""
+            FOR f = 1 TO _MIN(ANIM.count, 200): fl = fl + _IIF(ANIM_XS_filled%(slot, f), "1", "0"): NEXT f
+        END IF
+        d = d + "ANIMXSR" + DOCK_n$(r) + DOCK_n$(slot) + DOCK_n$(y) + " " + fl + CHR$(10)
+    NEXT r
+    ANIM_XS_dump$ = d
+END FUNCTION

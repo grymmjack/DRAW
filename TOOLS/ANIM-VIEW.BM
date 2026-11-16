@@ -1,0 +1,546 @@
+''
+' DRAW - TOOLS/ANIM-VIEW.BM
+' =============================================================================
+' Animation views (see ANIM-VIEW.BI).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' The frame grid over the canvas in sheet view: every cell's border (spare
+' cells past the last frame dotted), frame numbers when a cell is big enough
+' on screen, and a 2 px outline round the current frame.
+' @param dest LONG   the viewport image (SCRN.CANVAS&)
+' @param dx/dy LONG  viewport px of canvas pixel (0,0) at the current zoom
+'
+SUB ANIM_VIEW_render_grid (dest AS LONG, dx AS LONG, dy AS LONG)
+    DIM oldDest AS LONG, oldFont AS LONG, oldFg AS _UNSIGNED LONG, oldBg AS _UNSIGNED LONG
+    DIM n AS INTEGER, cells AS INTEGER, z AS SINGLE, r AS INTEGER
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, vw AS LONG, vh AS LONG
+    DIM lbl AS STRING, tw AS INTEGER, th AS INTEGER, labels AS INTEGER
+
+    ANIM_VIEW.drawn = FALSE
+    IF ANIM.active = FALSE _ORELSE CFG.FRAME_GRID% = 0 THEN EXIT SUB
+    IF dest >= -1 THEN EXIT SUB
+    cells = ANIM_cells%
+    IF cells < 1 THEN EXIT SUB
+    z = SCRN.zoom!
+    IF z <= 0 THEN EXIT SUB
+
+    oldDest = _DEST
+    _DEST dest
+    _BLEND dest
+    vw = _WIDTH(dest): vh = _HEIGHT(dest)
+
+    ' cell borders
+    FOR n = 1 TO cells
+        r = ANIM_cell_rect%(n, x, y, w, h)
+        x1 = dx + INT(x * z): y1 = dy + INT(y * z)
+        x2 = dx + INT((x + w) * z) - 1: y2 = dy + INT((y + h) * z) - 1
+        IF x2 < x1 THEN x2 = x1
+        IF y2 < y1 THEN y2 = y1
+        IF x2 >= 0 _ANDALSO y2 >= 0 _ANDALSO x1 < vw _ANDALSO y1 < vh THEN
+            IF n <= ANIM.count THEN
+                LINE (x1, y1)-(x2, y2), THEME.ANIM_FRAME_border~&, B
+            ELSE
+                LINE (x1, y1)-(x2, y2), THEME.ANIM_FRAME_spare~&, B , &HCCCC
+            END IF
+        END IF
+    NEXT n
+
+    ' the current layer's linked cells (4.3): hatched - painting one paints its source
+    IF ANIM_LK_N > 0 _ANDALSO CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN
+        FOR n = 1 TO ANIM.count
+            IF ANIM_LK_is_link%(LAYERS(CURRENT_LAYER%).historyId&, n) THEN
+                r = ANIM_cell_rect%(n, x, y, w, h)
+                x1 = dx + INT(x * z): y1 = dy + INT(y * z)
+                x2 = dx + INT((x + w) * z) - 1: y2 = dy + INT((y + h) * z) - 1
+                IF x2 >= 0 _ANDALSO y2 >= 0 _ANDALSO x1 < vw _ANDALSO y1 < vh THEN
+                    ANIM_LK_hatch _MAX(x1, 0), _MAX(y1, 0), _MIN(x2, vw - 1), _MIN(y2, vh - 1), (THEME.ANIM_FRAME_current~& AND &H00FFFFFF~&) OR &H70000000~&, 6
+                END IF
+            END IF
+        NEXT n
+    END IF
+
+    ' frame numbers, top-left inside each frame, when the cell has room
+    labels = (ANIM.frameW * z >= 14 _ANDALSO ANIM.frameH * z >= 11)
+    IF labels THEN
+        ANIM_VIEW_font_ensure
+        oldFont = _FONT(dest): oldFg = _DEFAULTCOLOR(dest): oldBg = _BACKGROUNDCOLOR(dest)
+        IF ANIM_VIEW.font > 0 THEN _FONT ANIM_VIEW.font, dest ELSE _FONT 8, dest
+        th = _UFONTHEIGHT
+        IF th < 1 THEN th = 8
+        COLOR THEME.ANIM_FRAME_label_fg~&, _RGBA32(0, 0, 0, 0)
+        FOR n = 1 TO ANIM.count
+            r = ANIM_cell_rect%(n, x, y, w, h)
+            x1 = dx + INT(x * z): y1 = dy + INT(y * z)
+            IF x1 + 1 < vw _ANDALSO y1 + 1 < vh _ANDALSO x1 + INT(w * z) > 0 _ANDALSO y1 + INT(h * z) > 0 THEN
+                lbl = _TRIM$(STR$(n))
+                tw = _PRINTWIDTH(lbl)
+                IF tw + 3 <= INT(w * z) THEN
+                    LINE (x1 + 1, y1 + 1)-(x1 + tw + 2, y1 + th), THEME.ANIM_FRAME_label_bg~&, BF
+                    _UPRINTSTRING (x1 + 2, y1 + 1), lbl
+                END IF
+            END IF
+        NEXT n
+        _FONT oldFont, dest
+        COLOR oldFg, oldBg
+    END IF
+
+    ' the current frame on top
+    IF ANIM_cell_rect%(ANIM.current, x, y, w, h) THEN
+        x1 = dx + INT(x * z): y1 = dy + INT(y * z)
+        x2 = dx + INT((x + w) * z) - 1: y2 = dy + INT((y + h) * z) - 1
+        IF x2 < x1 THEN x2 = x1
+        IF y2 < y1 THEN y2 = y1
+        LINE (x1 - 1, y1 - 1)-(x2 + 1, y2 + 1), THEME.ANIM_FRAME_current~&, B
+        LINE (x1, y1)-(x2, y2), THEME.ANIM_FRAME_current~&, B
+    END IF
+
+    ANIM_VIEW.drawn = TRUE
+    ANIM_VIEW.dx = dx: ANIM_VIEW.dy = dy
+    _DEST oldDest
+END SUB
+
+''
+' The frame number font (Tiny5), loaded on first use; 0 = the built-in 8x8.
+SUB ANIM_VIEW_font_ensure ()
+    IF ANIM_VIEW.fontTried THEN EXIT SUB
+    ANIM_VIEW.fontTried = TRUE
+    IF _FILEEXISTS("./ASSETS/FONTS/Tiny5-Regular.ttf") THEN ANIM_VIEW.font = _LOADFONT("./ASSETS/FONTS/Tiny5-Regular.ttf", 8, "DONTBLEND")
+    IF ANIM_VIEW.font < 0 THEN ANIM_VIEW.font = 0
+END SUB
+
+''
+' View > Frame Grid (action 2500).
+SUB ANIM_VIEW_toggle_grid ()
+    CFG.FRAME_GRID% = (CFG.FRAME_GRID% = 0)
+    CONFIG_save
+    IF ANIM.active THEN
+        IF CFG.FRAME_GRID% THEN STATUS_flash "Frame grid shown" ELSE STATUS_flash "Frame grid hidden"
+    ELSE
+        IF CFG.FRAME_GRID% THEN STATUS_flash "Frame grid on (this picture has no frames)" ELSE STATUS_flash "Frame grid off"
+    END IF
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' QA dump line (DOCK_dump): ANIM active count current frameW frameH gutter
+' margin cols rows fps loop gridDrawn dx dy canvasW canvasH playing previewFrame
+FUNCTION ANIM_VIEW_dump$ ()
+    DIM d AS STRING
+    d = "ANIM" + DOCK_n$(ANIM.active <> 0) + DOCK_n$(ANIM.count) + DOCK_n$(ANIM.current) + DOCK_n$(ANIM.frameW) + DOCK_n$(ANIM.frameH)
+    d = d + DOCK_n$(ANIM.gutter) + DOCK_n$(ANIM.margin) + DOCK_n$(ANIM_cols%) + DOCK_n$(ANIM_rows%) + DOCK_n$(ANIM.fps) + DOCK_n$(ANIM.loopMode)
+    d = d + DOCK_n$(ANIM_VIEW.drawn <> 0) + DOCK_n$(ANIM_VIEW.dx) + DOCK_n$(ANIM_VIEW.dy) + DOCK_n$(SCRN.canvasW&) + DOCK_n$(SCRN.canvasH&) + DOCK_n$(ANIM_PLAY.playing <> 0) + DOCK_n$(ANIM_VIEW_preview_frame% <> 0) + CHR$(10)
+    d = d + "ANIMPV" + DOCK_n$(CINT(ANIM_VIEW.pvZ * 100)) + DOCK_n$(CINT(ANIM_VIEW.pvRX)) + DOCK_n$(CINT(ANIM_VIEW.pvRY)) + CHR$(10) ' the Preview frame view's zoom% (0 = fit)
+    d = d + ANIM_VIEW_menu_dump$
+    ANIM_VIEW_dump$ = d
+END FUNCTION
+
+''
+' QA dump line: ANIMMENU then id:checked:enabled for the ANIM menu's frame
+' views (Lightbox, Panes, X-Sheet, Onion Skin), as the menu last drew them;
+' then ANIMMENUX with every ANIM-range item.
+FUNCTION ANIM_VIEW_menu_dump$ ()
+    DIM d AS STRING, k AS INTEGER, i AS INTEGER, id AS INTEGER
+    d = "ANIMMENU"
+    FOR k = 1 TO 4
+        id = VAL(MID$("2519252025402527", k * 4 - 3, 4))
+        FOR i = 0 TO MENU_ITEM_COUNT% - 1
+            IF MENU_ITEMS(i).actionId% = id THEN
+                d = d + " " + _TRIM$(STR$(id)) + ":" + _TRIM$(STR$(MENU_ITEMS(i).checked% <> 0)) + ":" + _TRIM$(STR$(MENU_ITEMS(i).enabled% <> 0))
+                EXIT FOR
+            END IF
+        NEXT i
+    NEXT k
+    ' ANIMMENUX: every ANIM-range item (2500-2599) the menus hold, id:checked:enabled
+    d = d + CHR$(10) + "ANIMMENUX"
+    FOR i = 0 TO MENU_ITEM_COUNT% - 1
+        id = MENU_ITEMS(i).actionId%
+        IF id >= 2500 _ANDALSO id <= 2599 THEN d = d + " " + _TRIM$(STR$(id)) + ":" + _TRIM$(STR$(MENU_ITEMS(i).checked% <> 0)) + ":" + _TRIM$(STR$(MENU_ITEMS(i).enabled% <> 0))
+    NEXT i
+    ANIM_VIEW_menu_dump$ = d + CHR$(10)
+END FUNCTION
+
+
+''
+' The frame action numpad key b stands for (0 = none: it stays a plain key).
+FUNCTION ANIM_numpad_action% (b AS INTEGER)
+    SELECT CASE b
+        CASE 1: ANIM_numpad_action% = ANIM_ACT_FIRST
+        CASE 4: ANIM_numpad_action% = ANIM_ACT_PREV
+        CASE 5: ANIM_numpad_action% = ANIM_ACT_NEXT
+        CASE 9: ANIM_numpad_action% = ANIM_ACT_LAST
+        CASE 12: ANIM_numpad_action% = ANIM_ACT_APPEND ' Num + (Shift: blank - ANIM_OPS_action)
+        CASE 16: ANIM_numpad_action% = ANIM_ACT_PLAY ' Num Enter
+        CASE 10: ANIM_numpad_action% = ANIM_ACT_LIGHTBOX ' Num 0
+        CASE 14: ANIM_numpad_action% = ANIM_ACT_LB_PANES ' Num *
+        CASE 15: ANIM_numpad_action% = ANIM_ACT_ONION ' Num /
+        CASE 11: ANIM_numpad_action% = ANIM_ACT_FULLSCREEN ' Num . (TOOLS/ANIM-FS)
+        CASE 8: ANIM_numpad_action% = ANIM_ACT_XSHEET ' Num 8 (TOOLS/ANIM-XS)
+    END SELECT
+END FUNCTION
+
+''
+' Numpad frame keys only on a sheet with frames (Num + on a plain picture
+' too: it becomes frame 1), with no Ctrl / Alt, and not while typing,
+' dragging a shape / stroke or in a menu, palette or dialog.
+FUNCTION ANIM_keys_ready% ()
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN EXIT FUNCTION
+    ANIM_keys_ready% = ANIM_keys_free%
+END FUNCTION
+
+FUNCTION ANIM_key_ok% (b AS INTEGER)
+    IF b = 12 THEN ANIM_key_ok% = ANIM_keys_free% ELSE ANIM_key_ok% = ANIM_keys_ready%
+END FUNCTION
+
+FUNCTION ANIM_keys_free% ()
+    IF MODIFIERS.ctrl% _ORELSE MODIFIERS.alt% THEN EXIT FUNCTION
+    IF CMD_PALETTE.visible% _ORELSE TBED_typing% _ORELSE KEYBOARD_SUPPRESS_FRAMES% > 0 THEN EXIT FUNCTION
+    IF INPUT_CONTEXT AND (CTX_TEXT_ACTIVE OR CTX_COMMAND_PALETTE_OPEN OR CTX_DRAWING_IN_PROGRESS OR CTX_SS_DRAGGING) THEN EXIT FUNCTION
+    IF CURRENT_TOOL% = TOOL_TEXT _ANDALSO TEXT.ACTIVE THEN EXIT FUNCTION
+    IF COLORMIXER_hex_focused% _ORELSE ANIM_LB_editing% THEN EXIT FUNCTION
+    IF MOUSE.B1% _ORELSE MOUSE.B2% _ORELSE MOUSE.B3% THEN EXIT FUNCTION
+    IF MENU_BAR.openMenu% >= 0 THEN EXIT FUNCTION
+    ANIM_keys_free% = TRUE
+END FUNCTION
+
+''
+' DRAW.BAS, after NUMPAD_poll: a new numpad press of a frame key runs its
+' action; its plain-code twins (INKEY$ / _KEYHIT) are dropped.
+SUB ANIM_numpad_tick ()
+    DIM b AS INTEGER, t AS DOUBLE
+    t = TIMER(.001)
+    FOR b = 1 TO NP_N
+        IF NP_T(b) >= 0 _ANDALSO ANIM_numpad_action%(b) <> 0 THEN
+            IF t < NP_T(b) _ORELSE t - NP_T(b) > .25 THEN
+                NP_T(b) = -1 ' stale
+            ELSEIF ANIM_key_ok%(b) THEN
+                ANIM_numpad_fire b, 3
+            END IF
+        END IF
+    NEXT b
+END SUB
+
+''
+' Run numpad key b's frame action; twins (1 = _KEYHIT, 2 = INKEY$) still to drop.
+SUB ANIM_numpad_fire (b AS INTEGER, twins AS INTEGER)
+    NP_T(b) = -1
+    ANIM_SW_B = b: ANIM_SW_MASK = twins: ANIM_SW_T = TIMER(.001)
+    CMD_execute_action ANIM_numpad_action%(b)
+END SUB
+
+''
+' A plain key code from _KEYHIT (src 1, DRAW.BAS) or INKEY$ (src 2,
+' KEYBOARD_input_handler): TRUE = it is a numpad frame key's, drop it - the
+' twin of a press already run, or a press this frame's poll had not seen yet
+' (run here).
+FUNCTION ANIM_numpad_code% (k AS LONG, src AS INTEGER)
+    DIM b AS INTEGER, t AS DOUBLE
+    IF k <= 0 THEN EXIT FUNCTION
+    b = NUMPAD_of%(k)
+    IF b = 0 _ORELSE b > NP_N THEN EXIT FUNCTION
+    IF ANIM_numpad_action%(b) = 0 THEN EXIT FUNCTION
+    t = TIMER(.001)
+    IF ANIM_SW_B = b _ANDALSO (ANIM_SW_MASK AND src) <> 0 _ANDALSO t >= ANIM_SW_T _ANDALSO t - ANIM_SW_T < .3 THEN
+        ANIM_SW_MASK = ANIM_SW_MASK AND (3 - src)
+        ANIM_numpad_code% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF ANIM_key_ok%(b) = 0 THEN EXIT FUNCTION
+    IF NUMPAD_sent%(k) <> b THEN EXIT FUNCTION
+    ANIM_numpad_fire b, 3 - src
+    ANIM_numpad_code% = TRUE
+END FUNCTION
+
+''
+' INKEY$ twin of ANIM_numpad_code%: "4", or CHR$(0) + scan code.
+FUNCTION ANIM_numpad_inkey% (keypress AS STRING)
+    DIM k AS LONG
+    IF LEN(keypress) = 1 THEN
+        k = ASC(keypress)
+    ELSEIF LEN(keypress) = 2 _ANDALSO ASC(keypress) = 0 THEN
+        k = ASC(keypress, 2) * 256
+    ELSE
+        EXIT FUNCTION
+    END IF
+    ANIM_numpad_inkey% = ANIM_numpad_code%(k, 2)
+END FUNCTION
+
+''
+' INPUT_detect_events: while a numpad frame key is held, the plain code it
+' shares (_KEYDOWN(52) for numpad 4, 19200 with Num Lock off) is not down
+' for the bindings - main-row 4 sets opacity, numpad 4 does not.
+FUNCTION ANIM_numpad_masks% (kc AS LONG)
+    DIM b AS INTEGER
+    b = NUMPAD_of%(kc)
+    IF b = 0 THEN EXIT FUNCTION
+    IF ANIM_numpad_action%(b) = 0 THEN EXIT FUNCTION
+    IF NUMPAD_held%(b) = 0 THEN EXIT FUNCTION
+    IF ANIM_keys_ready% = 0 THEN EXIT FUNCTION
+    ANIM_numpad_masks% = TRUE
+END FUNCTION
+
+''
+' Actions 2501-2504: first / previous / next / last frame (previous / next
+' wrap round the ends).
+SUB ANIM_VIEW_goto (act AS INTEGER)
+    DIM r AS INTEGER
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash ANIM_NO_FRAMES$: EXIT SUB
+    SELECT CASE act
+        CASE ANIM_ACT_FIRST: r = ANIM_go%(1)
+        CASE ANIM_ACT_PREV: r = ANIM_step%(-1)
+        CASE ANIM_ACT_NEXT: r = ANIM_step%(1)
+        CASE ANIM_ACT_LAST: r = ANIM_go%(ANIM.count)
+    END SELECT
+    STATUS_flash "Frame" + STR$(ANIM.current) + " of" + STR$(ANIM.count)
+    IF r THEN SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' _KEYDOWN for the legacy arrow / Home / End / PgUp handlers (INPUT/KEYBOARD):
+' FALSE while that code is a held numpad frame key (Num Lock off, numpad 4 =
+' Left), so it does not also nudge a selection or flip a brush.
+FUNCTION ANIM_keydown% (kc AS LONG)
+    IF _KEYDOWN(kc) = 0 THEN EXIT FUNCTION
+    IF ANIM_numpad_masks%(kc) THEN EXIT FUNCTION
+    ANIM_keydown% = TRUE
+END FUNCTION
+
+
+''
+' Action 2506: play / stop (Num Enter, Alt+/, ANIM > Play, the panel).
+SUB ANIM_VIEW_play_toggle ()
+    IF ANIM_PLAY.playing THEN
+        ANIM_play_stop
+        STATUS_flash "Stopped at frame" + STR$(ANIM.current) + " of" + STR$(ANIM.count)
+    ELSEIF ANIM.active = FALSE _ORELSE ANIM.count < 2 THEN
+        STATUS_flash "Nothing to play: add a frame (Num +) first"
+    ELSE
+        DIM a AS INTEGER, b AS INTEGER, part AS INTEGER
+        ANIM_SEL_span a, b ' two or more frames selected in the strip: play those (R-20)
+        part = (a > 0)
+        IF ANIM_play_start%(a, b, TIMER(.001)) THEN
+            IF part THEN
+                STATUS_flash "Playing frames" + STR$(a) + " -" + STR$(b) + " - Num Enter or Alt+/ stops"
+            ELSE
+                STATUS_flash "Playing - Num Enter or Alt+/ stops"
+            END IF
+        END IF
+    END IF
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Actions 2595-2597: set the loop mode (looped / once / ping-pong) and play;
+' while playing, any of them stops (Deluxe Paint 4 5 6).
+SUB ANIM_VIEW_play_mode (act AS INTEGER)
+    IF ANIM_PLAY.playing THEN ANIM_VIEW_play_toggle: EXIT SUB
+    DIM m AS INTEGER
+    SELECT CASE act
+        CASE ANIM_ACT_PLAY_ONCE: m = ANIM_LOOP_ONCE
+        CASE ANIM_ACT_PLAY_PING: m = ANIM_LOOP_PING
+        CASE ELSE: m = ANIM_LOOP_FWD
+    END SELECT
+    IF ANIM.active _ANDALSO ANIM.loopMode <> m THEN ANIM.loopMode = m: INVALIDATE_canvas
+    ANIM_VIEW_play_toggle
+END SUB
+
+''
+' DRAW.BAS, every frame: TRUE when playback stepped to another frame.
+FUNCTION ANIM_play_tick% ()
+    IF ANIM_PLAY.playing = FALSE THEN EXIT FUNCTION
+    ANIM_play_tick% = ANIM_play_advance%(TIMER(.001))
+END FUNCTION
+
+''
+' Does the Preview window show the current frame (fitted) instead of the
+' canvas? With frames on, unless ANIM > Preview Shows Frame is off.
+FUNCTION ANIM_VIEW_preview_frame% ()
+    ANIM_VIEW_preview_frame% = (CFG.PREVIEW_SHOWS_FRAME% <> 0 _ANDALSO ANIM.active <> 0 _ANDALSO ANIM.count >= 1)
+END FUNCTION
+
+SUB ANIM_VIEW_preview_frame_toggle ()
+    CFG.PREVIEW_SHOWS_FRAME% = (CFG.PREVIEW_SHOWS_FRAME% = 0)
+    CONFIG_save
+    IF CFG.PREVIEW_SHOWS_FRAME% THEN STATUS_flash "Preview shows the current frame" ELSE STATUS_flash "Preview shows the canvas"
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Preview window: the current frame's cell of src (the canvas composite)
+' fitted into (x1, y1)-(x2, y2) of dest - whole-number zoom when it fits,
+' centred.
+SUB ANIM_VIEW_preview_blit (src AS LONG, dest AS LONG, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, aw AS LONG, ah AS LONG, s AS SINGLE, dw AS LONG, dh AS LONG
+    DIM dx AS LONG, dy AS LONG, sc AS LONG
+    IF ANIM_cell_rect%(ANIM.current, cx, cy, cw, ch) = 0 THEN EXIT SUB
+    aw = x2 - x1 + 1: ah = y2 - y1 + 1
+    IF aw < 1 _ORELSE ah < 1 THEN EXIT SUB
+    ANIM_VIEW.pvX1 = x1: ANIM_VIEW.pvY1 = y1: ANIM_VIEW.pvX2 = x2: ANIM_VIEW.pvY2 = y2
+    s = ANIM_VIEW_preview_fit!(aw, ah, dx, dy, dw, dh)
+    IF s <= 0 THEN EXIT SUB
+    IF dx >= 0 _ANDALSO dy >= 0 _ANDALSO dx + dw <= aw _ANDALSO dy + dh <= ah THEN
+        _PUTIMAGE (x1 + dx, y1 + dy)-(x1 + dx + dw - 1, y1 + dy + dh - 1), src, dest, (cx, cy)-(cx + cw - 1, cy + ch - 1)
+    ELSE ' zoomed past the box: built in a box-sized scratch so it stops at the box's edge
+        sc = ANIM_box_begin&(aw, ah)
+        IF sc < -1 THEN
+            _DONTBLEND sc ' exact pixels into the scratch, blended once onto the Preview
+            ANIM_put_view sc, src, cx, cy, cw, ch, dx, dy, dw, dh
+            _BLEND sc
+            ANIM_box_end dest, x1, y1, TRUE
+        END IF
+    END IF
+END SUB
+
+''
+' The Preview frame view's picture in a content box aw x ah: (dx, dy) its
+' top-left relative to the box, dw x dh its size; returns the zoom. Fit =
+' a whole-number zoom when it fits, centred.
+FUNCTION ANIM_VIEW_preview_fit! (aw AS LONG, ah AS LONG, dx AS LONG, dy AS LONG, dw AS LONG, dh AS LONG)
+    DIM fw AS LONG, fh AS LONG, s AS SINGLE
+    fw = _MAX(1, ANIM.frameW): fh = _MAX(1, ANIM.frameH)
+    IF ANIM.frameW <> ANIM_VIEW.pvFW _ORELSE ANIM.frameH <> ANIM_VIEW.pvFH THEN ANIM_VIEW.pvZ = 0
+    s = _MIN(aw / fw, ah / fh)
+    IF s >= 1 THEN s = INT(s)
+    IF ANIM_VIEW.pvZ > s THEN
+        s = ANIM_VIEW.pvZ
+        dw = fw * s: dh = fh * s
+        dx = CLNG(ANIM_VIEW.pvRX): dy = CLNG(ANIM_VIEW.pvRY)
+    ELSE
+        dw = _MAX(1, INT(fw * s)): dh = _MAX(1, INT(fh * s))
+        dx = (aw - dw) \ 2: dy = (ah - dh) \ 2
+    END IF
+    ANIM_VIEW_preview_fit! = s
+END FUNCTION
+
+''
+' The wheel over the Preview while it shows the frame: zoom in / out by
+' whole steps about the pointer (mx, my, viewport px of the Preview image);
+' back to the fit when it would go below it. TRUE = handled.
+FUNCTION ANIM_VIEW_preview_zoom% (delta AS INTEGER, mxIn AS INTEGER, myIn AS INTEGER)
+    DIM aw AS LONG, ah AS LONG, dx AS LONG, dy AS LONG, dw AS LONG, dh AS LONG
+    DIM z AS SINGLE, nz AS SINGLE, fz AS SINGLE, px AS SINGLE, py AS SINGLE, fw AS LONG, fh AS LONG
+    DIM rx AS SINGLE, ry AS SINGLE, mx AS LONG, my AS LONG
+    aw = ANIM_VIEW.pvX2 - ANIM_VIEW.pvX1 + 1: ah = ANIM_VIEW.pvY2 - ANIM_VIEW.pvY1 + 1
+    IF aw < 2 _ORELSE ah < 2 THEN EXIT FUNCTION
+    ANIM_VIEW_preview_zoom% = TRUE
+    fw = _MAX(1, ANIM.frameW): fh = _MAX(1, ANIM.frameH)
+    z = ANIM_VIEW_preview_fit!(aw, ah, dx, dy, dw, dh)
+    fz = _MIN(aw / fw, ah / fh): IF fz >= 1 THEN fz = INT(fz)
+    IF delta < 0 THEN nz = ANIM_zoom_step!(z, 1) ELSE nz = ANIM_zoom_step!(z, -1)
+    IF nz * _MAX(fw, fh) > 16000 THEN EXIT FUNCTION
+    IF nz <= fz + .0001 THEN
+        ANIM_VIEW.pvZ = 0
+    ELSE
+        mx = mxIn - ANIM_VIEW.pvX1: my = myIn - ANIM_VIEW.pvY1 ' copies: the arguments are BYREF
+        IF mx < 0 _ORELSE my < 0 _ORELSE mx >= aw _ORELSE my >= ah THEN mx = aw \ 2: my = ah \ 2
+        px = (mx - dx) / z: py = (my - dy) / z ' the frame point under the pointer stays there
+        rx = mx - px * nz: ry = my - py * nz
+        ANIM_clamp_pan rx, aw, fw * nz
+        ANIM_clamp_pan ry, ah, fh * nz
+        ANIM_VIEW.pvZ = nz: ANIM_VIEW.pvRX = rx: ANIM_VIEW.pvRY = ry
+        ANIM_VIEW.pvFW = ANIM.frameW: ANIM_VIEW.pvFH = ANIM.frameH
+    END IF
+    STATUS_flash "Preview frame:" + STR$(CINT(_IIF(ANIM_VIEW.pvZ > 0, ANIM_VIEW.pvZ, fz) * 100)) + "%" + _IIF(ANIM_VIEW.pvZ > 0, "", " (fit)")
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+''
+' The next zoom level up (dir 1) or down (-1) from z: whole numbers from
+' 100%, halves below (as the canvas wheel: 25%, 50%, 100%, 200% ...).
+FUNCTION ANIM_zoom_step! (z AS SINGLE, dir AS INTEGER)
+    DIM r AS SINGLE
+    IF dir > 0 THEN
+        IF z < 1 THEN r = 1 ELSE r = INT(z + .0001) + 1
+        IF z < .5 THEN r = .5
+        IF z < .25 THEN r = .25
+    ELSE
+        IF z > 1 + .0001 THEN r = _CEIL(z - .0001) - 1 ELSE r = z / 2
+    END IF
+    ANIM_zoom_step! = r
+END FUNCTION
+
+''
+' Keep a zoomed picture over its box: one dw px long in a box w px long stays
+' inside it when it fits (where the zoom put it: the pointer's pixel stays
+' under the pointer), else it may not leave a gap at either end.
+SUB ANIM_clamp_pan (r AS SINGLE, w AS LONG, dw AS LONG)
+    IF dw <= w THEN
+        IF r < 0 THEN r = 0
+        IF r > w - dw THEN r = w - dw
+    ELSE
+        IF r > 0 THEN r = 0
+        IF r < w - dw THEN r = w - dw
+    END IF
+END SUB
+
+''
+' A box-sized scratch image, cleared to transparent, to build a zoomed
+' picture in so it stops at the box's edge (ANIM_put_view into it, then
+' ANIM_box_end). 0 when it can't be made.
+FUNCTION ANIM_box_begin& (w AS LONG, h AS LONG)
+    DIM oldDest AS LONG
+    IF w < 1 _ORELSE h < 1 THEN EXIT FUNCTION
+    IF ANIM_VIEW.boxImg < -1 THEN
+        IF _WIDTH(ANIM_VIEW.boxImg) <> w _ORELSE _HEIGHT(ANIM_VIEW.boxImg) <> h THEN _FREEIMAGE ANIM_VIEW.boxImg: ANIM_VIEW.boxImg = 0
+    END IF
+    IF ANIM_VIEW.boxImg >= -1 THEN ANIM_VIEW.boxImg = _NEWIMAGE(w, h, 32)
+    IF ANIM_VIEW.boxImg >= -1 THEN ANIM_VIEW.boxImg = 0: EXIT FUNCTION
+    oldDest = _DEST
+    _DEST ANIM_VIEW.boxImg
+    _DONTBLEND ANIM_VIEW.boxImg
+    CLS , _RGBA32(0, 0, 0, 0)
+    _BLEND ANIM_VIEW.boxImg
+    _DEST oldDest
+    ANIM_box_begin& = ANIM_VIEW.boxImg
+END FUNCTION
+
+''
+' The scratch of ANIM_box_begin& onto dest at (x, y); blend = over what is
+' there (else copied as is).
+SUB ANIM_box_end (dest AS LONG, x AS LONG, y AS LONG, blend AS INTEGER)
+    IF ANIM_VIEW.boxImg >= -1 _ORELSE dest >= -1 THEN EXIT SUB
+    IF blend THEN _BLEND dest ELSE _DONTBLEND dest
+    _PUTIMAGE (x, y), ANIM_VIEW.boxImg, dest
+    _BLEND dest
+END SUB
+
+''
+' Cell (ix, iy, iw, ih) of img drawn as the picture (dx, dy, dw, dh) on dst,
+' which may be far bigger than dst: only the source pixels that land on dst
+' are put (a frame zoomed 32x costs what dst shows, not the whole picture).
+SUB ANIM_put_view (dst AS LONG, img AS LONG, ix AS LONG, iy AS LONG, iw AS LONG, ih AS LONG, dx AS LONG, dy AS LONG, dw AS LONG, dh AS LONG)
+    DIM zx AS SINGLE, zy AS SINGLE, vx1 AS LONG, vy1 AS LONG, vx2 AS LONG, vy2 AS LONG
+    DIM sx1 AS LONG, sy1 AS LONG, sx2 AS LONG, sy2 AS LONG
+    IF dst >= -1 _ORELSE img >= -1 _ORELSE iw < 1 _ORELSE ih < 1 _ORELSE dw < 1 _ORELSE dh < 1 THEN EXIT SUB
+    zx = dw / iw: zy = dh / ih
+    vx1 = _MAX(0, dx): vy1 = _MAX(0, dy)
+    vx2 = _MIN(_WIDTH(dst) - 1, dx + dw - 1): vy2 = _MIN(_HEIGHT(dst) - 1, dy + dh - 1)
+    IF vx1 > vx2 _ORELSE vy1 > vy2 THEN EXIT SUB
+    sx1 = INT((vx1 - dx) / zx): sx2 = INT((vx2 - dx) / zx)
+    sy1 = INT((vy1 - dy) / zy): sy2 = INT((vy2 - dy) / zy)
+    IF sx2 > iw - 1 THEN sx2 = iw - 1
+    IF sy2 > ih - 1 THEN sy2 = ih - 1
+    IF sx1 < 0 THEN sx1 = 0
+    IF sy1 < 0 THEN sy1 = 0
+    _PUTIMAGE (dx + INT(sx1 * zx + .0001), dy + INT(sy1 * zy + .0001))-(dx + INT((sx2 + 1) * zx + .0001) - 1, dy + INT((sy2 + 1) * zy + .0001) - 1), img, dst, (ix + sx1, iy + sy1)-(ix + sx2, iy + sy2)
+END SUB
+
+
+
+''
+' 45-degree lines every gap px across the box (x1, y1)-(x2, y2) on _DEST: a
+' linked cell's hatching (4.3).
+SUB ANIM_LK_hatch (x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, c AS _UNSIGNED LONG, gap AS INTEGER)
+    DIM s AS LONG, w AS LONG, h AS LONG, ta AS LONG, tb AS LONG
+    w = x2 - x1: h = y2 - y1
+    IF w < 0 _ORELSE h < 0 _ORELSE gap < 2 THEN EXIT SUB
+    FOR s = (x1 + y1) MOD gap TO w + h STEP gap ' the same diagonals whatever the box
+        ta = _MAX(0, s - w): tb = _MIN(s, h)
+        IF tb >= ta THEN LINE (x1 + s - ta, y1 + ta)-(x1 + s - tb, y1 + tb), c
+    NEXT s
+END SUB

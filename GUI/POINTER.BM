@@ -175,6 +175,11 @@ SUB POINTER_render ()
         END SELECT
     END IF
 
+    ' the lightbox: the brush footprint / crosshair through the pane's view (TOOLS/ANIM-LB)
+    IF ANIM_LB_showing% THEN
+        IF ANIM_LB_overlay_begin% THEN POINTER_draw: ANIM_LB_overlay_end ELSE POINTER_draw
+        EXIT SUB
+    END IF
     POINTER_draw
 END SUB
 
@@ -363,7 +368,10 @@ SUB POINTER_build ()
         EXIT SUB
     END IF
 
-    IF DRAWER.contextMenuOpen% OR LAYER_PANEL.blendPopupOpen% OR LAYER_PANEL.ctxMenuOpen% OR CMD_PALETTE.visible OR DOCK_UI.menuOpen THEN
+    ' A menu / popup is open (the registry, GUI/POPUP-MENU): the plain arrow -
+    ' the dock's edges / dividers and the windows' resize edges under it must
+    ' not show their resize cursors through it
+    IF POPUP_any_open% THEN
         POINTER.CURSOR_ID% = CURSOR_NULL
         EXIT SUB
     END IF
@@ -374,12 +382,26 @@ SUB POINTER_build ()
         CASE 2: POINTER.CURSOR_FLIP% = 0: POINTER.CURSOR_ID% = CURSOR_RESIZE_VERT: EXIT SUB
         CASE 3: POINTER.CURSOR_ID% = CURSOR_RESIZE_CORNER: POINTER.CURSOR_FLIP% = 3: EXIT SUB
     END SELECT
+    ' Over (or dragging) the floating Swatches panel's sides / bottom / corners
+    IF SWP.resizing _ORELSE WZ_blocked%(DP_SWATCH, mx%, my%) = 0 THEN
+        SELECT CASE SWP_resize_edge%(mx%, my%)
+            CASE 3, 7: POINTER.CURSOR_FLIP% = 0: POINTER.CURSOR_ID% = CURSOR_RESIZE_HORIZ: EXIT SUB
+            CASE 5: POINTER.CURSOR_FLIP% = 0: POINTER.CURSOR_ID% = CURSOR_RESIZE_VERT: EXIT SUB
+            CASE 4: POINTER.CURSOR_ID% = CURSOR_RESIZE_CORNER: POINTER.CURSOR_FLIP% = 3: EXIT SUB
+            CASE 6: POINTER.CURSOR_ID% = CURSOR_RESIZE_CORNER: POINTER.CURSOR_FLIP% = 2: EXIT SUB
+        END SELECT
+    END IF
     ' Over (or dragging) a slot divider: vertical resize cursor
     IF DOCK_wants_vcursor%(mx%, my%) THEN
         POINTER.CURSOR_FLIP% = 0
         POINTER.CURSOR_ID% = CURSOR_RESIZE_VERT
         EXIT SUB
     END IF
+    ' Over (or dragging) a lightbox band edge / the X-sheet's name column edge
+    SELECT CASE ANIM_LB_sizer_at%(mx%, my%)
+        CASE 1: POINTER.CURSOR_FLIP% = 0: POINTER.CURSOR_ID% = CURSOR_RESIZE_VERT: EXIT SUB
+        CASE 2: POINTER.CURSOR_FLIP% = 0: POINTER.CURSOR_ID% = CURSOR_RESIZE_HORIZ: EXIT SUB
+    END SELECT
     ' Over (or dragging) a side-dock edge: horizontal resize cursor
     IF DOCK_wants_cursor%(mx%, my%) THEN
         POINTER.CURSOR_FLIP% = 0
@@ -417,6 +439,16 @@ SUB POINTER_build ()
             EXIT SUB
         END IF
     END IF
+    IF ANIMP.visible _ANDALSO ANIMP.autoHidden = 0 THEN
+        IF ANIMP.dragging _ORELSE ANIMP.pressCtl <> ANIMP_CTL_NONE _ORELSE ANIMP_hit_window%(mx%, my%) THEN
+            POINTER.CURSOR_ID% = CURSOR_NULL
+            EXIT SUB
+        END IF
+    END IF
+    IF SWP_owns_mouse%(mx%, my%) THEN
+        POINTER.CURSOR_ID% = CURSOR_NULL
+        EXIT SUB
+    END IF
     IF TBED.visible _ANDALSO TBED.autoHidden = 0 THEN
         IF TBED.dragging _ORELSE TBED_hit_window%(mx%, my%) THEN
             POINTER.CURSOR_ID% = CURSOR_NULL
@@ -430,8 +462,21 @@ SUB POINTER_build ()
         END IF
     END IF
 
+    ' The lightbox (TOOLS/ANIM-LB): chrome, except a pane's picture (the tool draws there)
+    IF ANIM_LB_hit%(mx%, my%) _ANDALSO ANIM_LB_pane_at%(mx%, my%) < 0 THEN
+        POINTER.CURSOR_ID% = CURSOR_NULL
+        EXIT SUB
+    END IF
+
     ' --- UI area checks: use null (arrow) cursor ---
     
+    ' the workflow button under the pointer (GUI/WORKFLOW: 0 off the panel)
+    WF_track mx%, my%
+    IF WF_is_over_area%(mx%, my%) THEN
+        POINTER.CURSOR_ID% = CURSOR_NULL
+        EXIT SUB
+    END IF
+
     ' Check if mouse is over toolbar area
     IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(mx%, my%) THEN
         POINTER.CURSOR_ID% = CURSOR_NULL
@@ -480,7 +525,7 @@ SUB POINTER_build ()
     END IF
     
     ' Check if mouse is over layer panel
-    IF LAYER_PANEL.visible% AND mx% >= LAYER_PANEL.panelX1% AND mx% <= LAYER_PANEL.panelX2% THEN
+    IF LAYER_PANEL.visible% AND mx% >= LAYER_PANEL.panelX1% AND mx% <= LAYER_PANEL_view_x2% THEN
         POINTER.CURSOR_ID% = CURSOR_NULL
         EXIT SUB
     END IF
@@ -525,14 +570,6 @@ SUB POINTER_build ()
         IF MENU_BAR.transformOpen% AND MENU_BAR.transformW% > 0 AND MENU_BAR.transformH% > 0 THEN
             IF mx% >= MENU_BAR.transformX% AND mx% < MENU_BAR.transformX% + MENU_BAR.transformW% _
                 AND my% >= MENU_BAR.transformY% AND my% < MENU_BAR.transformY% + MENU_BAR.transformH% THEN
-                POINTER.CURSOR_ID% = CURSOR_NULL
-                EXIT SUB
-            END IF
-        END IF
-        ' Check if layout submenu is open and mouse is over it
-        IF MENU_BAR.layoutOpen% AND MENU_BAR.layoutW% > 0 AND MENU_BAR.layoutH% > 0 THEN
-            IF mx% >= MENU_BAR.layoutX% AND mx% < MENU_BAR.layoutX% + MENU_BAR.layoutW% _
-                AND my% >= MENU_BAR.layoutY% AND my% < MENU_BAR.layoutY% + MENU_BAR.layoutH% THEN
                 POINTER.CURSOR_ID% = CURSOR_NULL
                 EXIT SUB
             END IF
@@ -596,12 +633,7 @@ SUB POINTER_build ()
     ' Set resize cursors on edges; OS arrow elsewhere.
     IF BROWSER.visible% AND NOT BROWSER.autoHidden% AND BROWSER_hit_window%(mx%, my%) THEN
         DIM browserEdge AS INTEGER
-        DIM bNativeX    AS INTEGER, bNativeY AS INTEGER
-        IF BROWSER.renderScale! > 0 THEN
-            bNativeX% = INT(CSNG(mx% - BROWSER.dispX%) / BROWSER.renderScale! + 0.5)
-            bNativeY% = INT(CSNG(my% - BROWSER.dispY%) / BROWSER.renderScale! + 0.5)
-        END IF
-        browserEdge%         = FD_INPUT_hit_resize_edge%(bNativeX%, bNativeY%)
+        browserEdge%         = BROWSER_resize_edge%(mx%, my%)
         IF CFG.LAYOUT_LOCKED% _ORELSE BROWSER.docked% THEN browserEdge% = FD_RESIZE_NONE ' no resize there
         POINTER.CURSOR_FLIP% = 0
         SELECT CASE browserEdge%
@@ -1042,12 +1074,11 @@ SUB POINTER_draw_brush_preview (mx AS INTEGER, my AS INTEGER, is_painting AS INT
     if BRUSH_SIZE.PREVIEW THEN
         IF BRUSH_SIZE.SHAPE = 0 THEN
             radius% = pixel_size% \ 2
-            IF isTransparent% THEN
-                CIRCLE (mx%, my%), radius% + 1, THEME.TOOL_PREVIEW_transparent_outline~&
-                CIRCLE (mx%, my%), radius%, THEME.TOOL_PREVIEW_transparent_fg~&
-            ELSE
-                CIRCLE (mx%, my%), radius% + 1, _RGBA32(32, 32, 32, 84)
-                CIRCLE (mx%, my%), radius%, _RGBA32(255, 255, 255, 84)
+            ' A transparent color erases: the same faint ring, no fill - the erase
+            ' itself shows on the canvas (no solid white / black ring, BUGS X1)
+            CIRCLE (mx%, my%), radius% + 1, _RGBA32(32, 32, 32, 84)
+            CIRCLE (mx%, my%), radius%, _RGBA32(255, 255, 255, 84)
+            IF NOT isTransparent% THEN
 
                 ' Only fill the circle when actively painting — outline is
                 ' sufficient for hover and avoids expensive scanline fill
@@ -1071,12 +1102,9 @@ SUB POINTER_draw_brush_preview (mx AS INTEGER, my AS INTEGER, is_painting AS INT
             END IF
         ELSE
             half% = pixel_size% \ 2
-            IF isTransparent% THEN
-                LINE (mx% - half% - 1, my% - half% - 1)-(mx% + half% + 1, my% + half% + 1), THEME.TOOL_PREVIEW_transparent_outline~&, B
-                LINE (mx% - half%, my% - half%)-(mx% + half%, my% + half%), THEME.TOOL_PREVIEW_transparent_fg~&, B
-            ELSE
-                LINE (mx% - half% - 1, my% - half% - 1)-(mx% + half% + 1, my% + half% + 1), _RGBA32(32, 32, 32, 84), B
-                LINE (mx% - half%, my% - half%)-(mx% + half%, my% + half%), _RGBA32(255, 255, 255, 84), B
+            LINE (mx% - half% - 1, my% - half% - 1)-(mx% + half% + 1, my% + half% + 1), _RGBA32(32, 32, 32, 84), B
+            LINE (mx% - half%, my% - half%)-(mx% + half%, my% + half%), _RGBA32(255, 255, 255, 84), B
+            IF NOT isTransparent% THEN
 
                 IF is_painting% THEN
                     r% = _RED32(PAINT_COLOR~&)

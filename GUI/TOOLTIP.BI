@@ -12,7 +12,7 @@ CONST TOOLTIP_SRC_NONE           = 0
 CONST TOOLTIP_SRC_TOOLBAR        = 1
 CONST TOOLTIP_SRC_ORGANIZER      = 2
 CONST TOOLTIP_SRC_MINI_PAL       = 3
-CONST TOOLTIP_SRC_DOCK_SWAP      = 4
+' (4 was TOOLTIP_SRC_DOCK_SWAP - the Ctrl+Shift+click dock-side tip, removed 2026-11-15)
 CONST TOOLTIP_SRC_EDITBAR        = 5
 CONST TOOLTIP_SRC_ADVBAR         = 6
 CONST TOOLTIP_SRC_BINS           = 7
@@ -21,6 +21,7 @@ CONST TOOLTIP_SRC_LAYER_OPACITY  = 9
 CONST TOOLTIP_SRC_SUBTOOL_FLYOUT = 10
 CONST TOOLTIP_SRC_LAYER_NO_PAINT = 11 ' Pencil-with-slash badge on a group header row
 CONST TOOLTIP_SRC_ACP_HISTORY    = 12 ' Advanced Color Picker — history strip
+CONST TOOLTIP_SRC_ANIM_XS        = 13 ' X-sheet tag / frame note: its whole text (TOOLS/ANIM-XS, F7)
 
 ' Readability cap on tooltip line length, in CHARACTERS (converted to pixels through
 ' the current font, so it scales correctly whether the tooltip uses the fixed 8px
@@ -59,9 +60,9 @@ TOOLTIP_LINE2$(0) = "DRAG move. ALT clones. SHIFT constrains. ARROWS nudge. SHIF
 TOOLTIP_LINE1$(1) = "SPACE - PAN - Pan the canvas in the window to adjust what is in view."
 TOOLTIP_LINE2$(1) = "DRAG pan. D-CLICK center / fit."
 TOOLTIP_LINE1$(2) = "z - ZOOM - Magnify part of the canvas for more precise drawing."
-TOOLTIP_LINE2$(2) = "DRAG zoom area. M-WHEEL zoom in/out."
+TOOLTIP_LINE2$(2) = "DRAG zoom area. M-WHEEL zoom in/out. D-CLICK zoom to 100%."
 TOOLTIP_LINE1$(3) = "CROP - Select a part of the canvas and trim everything outside away."
-TOOLTIP_LINE2$(3) = "DRAG select. SHIFT constrain."
+TOOLTIP_LINE2$(3) = "DRAG crop area. SHIFT constrain. ARROWS nudge. ENTER crop. D-CLICK trim image to artwork boundaries."
 
 ' Row 1: MARQ RECT, MARQ FREEHAND, MARQ POLY, MARQ ELLIPSE
 TOOLTIP_LINE1$(4) = "m - RECTANGLE MARQUEE - Create rectangular selections."
@@ -75,7 +76,12 @@ TOOLTIP_LINE2$(7) = "DRAG to select. SHIFT add. ALT subtract."
 
 ' Row 2: MARQ WAND, PICKER, TEXT, ERASER
 TOOLTIP_LINE1$(8)  = "w - WAND MARQUEE - Create a selection by same colors."
-TOOLTIP_LINE2$(8)  = "CLICK to select on layer. SHIFT+CLICK to select on full image. SHIFT add. ALT subtract."
+TOOLTIP_LINE2$(8)  = "L-CLICK select color contiguous." + CHR$(10) + _
+                     "HOLD w + L-CLICK select color discontiguous." + CHR$(10) + _
+                     "HOLD SHIFT+w + L-CLICK select color on image." + CHR$(10) + _
+                     "HOLD f + L-CLICK replace color with FG color." + CHR$(10) + _
+                     "HOLD e + L-CLICK erase color." + CHR$(10) + _
+                     "SHIFT add. ALT subtract."
 TOOLTIP_LINE1$(9)  = "i - COLOR PICKER - Use the color syringe to pickup a color off the canvas."
 TOOLTIP_LINE2$(9)  = "L-CLICK to pick FG color. R-CLICK pick BG color. HOLD R sample reference."
 TOOLTIP_LINE1$(10) = "t / SHIFT+t / CTRL+t - TEXT - Create text / small text / custom font text."
@@ -91,7 +97,9 @@ TOOLTIP_LINE2$(13) = "DRAG draw. L-CLICK FG color. R-CLICK BG color. HOLD E eras
 TOOLTIP_LINE1$(14) = "k - SPRAY - Paint with randomly distributed points at brush size."
 TOOLTIP_LINE2$(14) = "DRAG draw. L-CLICK FG color. R-CLICK BG color. HOLD E erase. CTRL+WHEEL spray size."
 TOOLTIP_LINE1$(15) = "f - FILL - Color in contiguous areas of canvas with borders or same colors."
-TOOLTIP_LINE2$(15) = "L-CLICK fill FG color. R-CLICK fill BG color. SHIFT+CLICK canvas area."
+TOOLTIP_LINE2$(15) = "L-CLICK fill FG color. R-CLICK fill BG color." + CHR$(10) + _
+                     "SHIFT+CLICK fill using all visible layers as the borders." + CHR$(10) + _
+                     "HOLD w, g or f + CLICK fill on all layers. SHIFT too: replace that color everywhere."
 
 ' Row 4: LINE, POLYLINE, POLYFILL, SAVE
 TOOLTIP_LINE1$(16) = "l - LINE - Create straight lines at any angle."
@@ -111,7 +119,7 @@ TOOLTIP_LINE2$(21) = "DRAW rectangle. L-CLICK FG color. R-CLICK BG color. CTRL+S
 TOOLTIP_LINE1$(22) = "SHIFT+r - FILLED RECTANGLE - Create filled rectangle shapes on the canvas."
 TOOLTIP_LINE2$(22) = "DRAW filled rectangle. L-CLICK FG color. R-CLICK BG color. CTRL+SHIFT snap."
 TOOLTIP_LINE1$(23) = "CTRL+ALT+s - EXPORT SELECTION."
-TOOLTIP_LINE2$(23) = "Saves the selected area to disk."
+TOOLTIP_LINE2$(23) = "Saves the selected area to disk. Nothing selected: select it, then it saves."
 
 ' Row 6: SMART SHAPES, ELLIPSE, ELLIPSE FILLED, OPEN
 TOOLTIP_LINE1$(24) = "s - SMART SHAPES - L-Click and hold to select a shape from flyout menu."
@@ -121,7 +129,7 @@ TOOLTIP_LINE2$(25) = "DRAW ellipse. L-CLICK FG color. R-CLICK BG color. CTRL+SHI
 TOOLTIP_LINE1$(26) = "SHIFT+c - FILLED ELLIPSE/CIRCLE - Create filled ellipses and filled circles on the canvas."
 TOOLTIP_LINE2$(26) = "DRAW filled ellipse. L-CLICK FG color. R-CLICK BG color. CTRL+SHIFT snap."
 TOOLTIP_LINE1$(27) = "Open Browser - Browse and open images from disk."
-TOOLTIP_LINE2$(27) = "Drag and drop images onto layers, bins, and canvas."
+TOOLTIP_LINE2$(27) = "L-CLICK browse. R-CLICK OPEN a new file. M-CLICK open EXAMPLES." + CHR$(10) + "Drag and drop images onto layers, bins, and canvas."
 
 ' Organizer widget tooltip text arrays — indexed by ORG_* constants (0..10)
 DIM SHARED TOOLTIP_ORG_LINE1$(0 TO 10)
@@ -154,9 +162,11 @@ TOOLTIP_ORG_LINE2$(6) = "All fills will use gradients. R-CLICK on gradients for 
 ' 7 = ORG_SYMMETRY_MODE
 TOOLTIP_ORG_LINE1$(7) = "SYMMETRY MODE - L-CLICK toggle. WHEEL over icon change SYMMETRY TYPE."
 TOOLTIP_ORG_LINE2$(7) = "DRAW mirrored or kaleidoscopic patterns at once."
+TOOLTIP_ORG_LINE3$(7) = "" ' built at render time from the bindings - see TOOLTIP_render
 ' 8 = ORG_GRID_VIS
 TOOLTIP_ORG_LINE1$(8) = "' - GRID - Toggle show/hide of grid. WHEEL over icon to change GRID TYPE."
 TOOLTIP_ORG_LINE2$(8) = ". / , to change GRID size. SHIFT+' show/hide PIXEL GRID. CTRL+SHIFT+/ make GRID brush size."
+TOOLTIP_ORG_LINE3$(8) = "R-CLICK to visually adjust: drag one cell on the canvas to set the GRID width / height (and origin). ESC cancels."
 ' 9 = ORG_GRID_SNAP
 TOOLTIP_ORG_LINE1$(9) = "; - SNAP TO GRID - Toggle grid snapping. WHEEL over icon = change SNAP TYPE."
 TOOLTIP_ORG_LINE2$(9) = "/ to change SNAP TYPE - CENTER, or CORNER."
@@ -170,11 +180,6 @@ DIM SHARED TOOLTIP_MINI_PAL_LINE2$
 TOOLTIP_MINI_PAL_LINE1$ = "MINI PALETTE - L-CLICK choose FG color. R-CLICK choose BG color."
 TOOLTIP_MINI_PAL_LINE2$ = "You can use any image for this palette, see the documentation."
 
-' Dock swap tooltip text (for blank panel areas)
-DIM SHARED TOOLTIP_DOCK_LINE1$
-DIM SHARED TOOLTIP_DOCK_LINE2$
-TOOLTIP_DOCK_LINE1$ = "CTRL+SHIFT+L-CLICK LAYOUT DOCK EDGE"
-TOOLTIP_DOCK_LINE2$ = "Click once while holding SHIFT and CTRL to swap this panel to dock on other side of window."
 
 DIM SHARED TOOLTIP_BINS_LINE1$
 DIM SHARED TOOLTIP_BINS_LINE2$
@@ -206,7 +211,7 @@ TOOLTIP_EB_LINE2$(5) = "L-CLICK copy merged (all visible layers) to clipboard."
 TOOLTIP_EB_LINE1$(6) = "CTRL+v - Paste"
 TOOLTIP_EB_LINE2$(6) = "L-CLICK paste clipboard contents at cursor."
 ' Slot 7: Paste in Place
-TOOLTIP_EB_LINE1$(7) = "CTRL+SHIFT+v - Paste in Place"
+TOOLTIP_EB_LINE1$(7) = "CTRL+ALT+v - Paste in Place"
 TOOLTIP_EB_LINE2$(7) = "L-CLICK paste clipboard contents at original position."
 ' Slot 8: divider
 ' Slot 9: Cut to New Layer

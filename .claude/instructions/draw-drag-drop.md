@@ -17,6 +17,18 @@ ever reports a stale cursor position at drop time, target routing would be wrong
 OS. Shift state comes from `MODIFIERS.shift%`.
 
 ## Routing (`DROP_handle_dropped_file` → `DROP_handle_image`)
+0. A sound file (`ANIM_SND_is_sound%`) → `ANIM_SND_drop_file` (the animation's X-sheet SOUND rows; see
+   draw-animation.md) - before every other route, the menu bar included.
+0b. `REGION_DRAWER` (after the menu-bar route, before `.drawlayer` / `.draw`): a file with
+   frames - an animated GIF / APNG, a PNG or `.draw` with frames (drAn), a row / column of
+   squares - becomes an AnimBrush in the hovered bin (if empty, else the first free one) via
+   `AB_drop_on_bin%` (TOOLS/ANIM-BRUSH). FALSE (no frames) → the routes below as before, so a
+   plain picture still makes a one-picture brush and a `.draw` without frames still opens.
+0c. `REGION_CANVAS` (after the Drawer route): an animated GIF / APNG (2+ frames) while the
+   document has 2+ frames → `CLIP_drop_file%` (TOOLS/CLIP): it becomes the AnimBrush and is
+   placed as a clip layer, cel 1 in the frame under the pointer, centred on it. FALSE (not a
+   GIF / APNG, one frame, no frames in the document) → the routes below: a `.draw` still opens,
+   a plain PNG still stamps. Test `QA/tests/clip-drop.sh`.
 1. `.drawlayer` → `LAYERXFER_deserialize%` (new layer). `.draw` → `DRW_load` (document).
    Both bypass targeting **except** a menu-bar drop of an openable file.
 2. `REGION_MENUBAR` (not `.drawlayer`) → `INSTANCE_launch_new_with_file` opens it in a new
@@ -43,5 +55,7 @@ mapped to the (possibly apron-promoted) layer buffer via `LAYERS_canvas_to_buf_x
 - The non-dialog `.dset` writer is `DRAWER_save_set_to_file` (extracted from
   `DRAWER_export_set_dialog`). Never clear a brush page without saving a dirty set first.
 - Sound cues: `SND_DRAG_DROP` on canvas/brush drops, `SND_NEW_LAYER` on a new-layer place.
+- QA stand-in drop: with `DOCK_DUMP` set (tests only), `DROP_qa_poll` reads a path from
+  `<DOCK_DUMP>.drop` and queues it through `DROP_queue_dropped_file` at the pointer, like an OS drop.
 - QA: OS drops can't be synthesized headlessly — `QA/tests/drag-drop-targets.sh` is a smoke
   + source-route regression guard; real behavior is a manual per-OS fleet check.

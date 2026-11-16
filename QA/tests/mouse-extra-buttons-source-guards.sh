@@ -35,8 +35,10 @@ assert_grep "DISPATCH" "INPUT/INPUT.BM" 'FOR btn = 1 TO MOUSE_MAX_BTN'      "dis
 assert_grep "DISPATCH" "INPUT/INPUT.BM" 'bDown% = MOUSE_BTN\(btn\)'         "dispatcher reads sampled MOUSE_BTN()"
 
 # Default binds: back (btn 4) -> Undo (301), forward (btn 5) -> Redo (302), dispatched.
-assert_grep "BINDS" "INPUT/INPUT.BM" 'REGION_GLOBAL, 4, 0, 0, 0, CTX_TEXT_ACTIVE, 301, TRUE' "mouse button 4 (back) -> Undo, dispatched"
-assert_grep "BINDS" "INPUT/INPUT.BM" 'REGION_GLOBAL, 5, 0, 0, 0, CTX_TEXT_ACTIVE, 302, TRUE' "mouse button 5 (forward) -> Redo, dispatched"
+# Not while typing, and not over the Browser, where they walk its folder history
+# (2026-11-14, browser-thumb-nav.sh).
+assert_grep "BINDS" "INPUT/INPUT.BM" 'REGION_GLOBAL, 4, 0, 0, 0, CTX_TEXT_ACTIVE OR CTX_OVER_IMAGE_BROWSER, 301, TRUE' "mouse button 4 (back) -> Undo, dispatched (not over the Browser)"
+assert_grep "BINDS" "INPUT/INPUT.BM" 'REGION_GLOBAL, 5, 0, 0, 0, CTX_TEXT_ACTIVE OR CTX_OVER_IMAGE_BROWSER, 302, TRUE' "mouse button 5 (forward) -> Redo, dispatched (not over the Browser)"
 
 guard_footer "an extra-mouse-button guard was removed"
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then [ "$fails" -eq 0 ] && exit 0 || exit 1; fi

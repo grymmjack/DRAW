@@ -1,0 +1,1250 @@
+$INCLUDEONCE
+' =============================================================================
+' ANIM-BRUSH.BM — AnimBrush (see ANIM-BRUSH.BI): pick up, cels, stash, dump.
+' =============================================================================
+
+''
+' Drop every cel (CUSTOM_BRUSH_reset calls this: a reset brush is one picture).
+SUB AB_clear ()
+    DIM k AS INTEGER
+    FOR k = 1 TO AB.n
+        SAFE_FREEIMAGE AB_CEL(k): AB_CEL(k) = 0: AB_FROM(k) = 0
+    NEXT k
+    AB.n = 0: AB.cur = 0: AB.w = 0: AB.h = 0: AB.merged = FALSE: AB.srcF = 0
+    AB.anchor = 1: AB.clickPos = 0: AB.stamped = FALSE: AB.nm = "": AB.binSlot = 0
+END SUB
+
+''
+' A name field as text: up to its first NUL, no trailing spaces.
+FUNCTION AB_clean$ (s AS STRING)
+    DIM z AS LONG
+    z = INSTR(s, CHR$(0))
+    IF z THEN AB_clean$ = RTRIM$(LEFT$(s, z - 1)) ELSE AB_clean$ = RTRIM$(s)
+END FUNCTION
+
+''
+' Spaces as _ (a name in a space-separated QA dump line).
+FUNCTION AB_us$ (t AS STRING)
+    DIM r AS STRING, i AS LONG
+    r = t
+    FOR i = 1 TO LEN(r)
+        IF ASC(r, i) = 32 THEN MID$(r, i, 1) = "_"
+    NEXT i
+    AB_us$ = r
+END FUNCTION
+
+''
+' The AnimBrush's name ("" = none): the tag it was picked up from, its file, its bin.
+FUNCTION AB_name$ ()
+    IF AB.n > 0 THEN AB_name$ = AB_clean$(AB.nm)
+END FUNCTION
+
+''
+' Is the custom brush an AnimBrush (more than one picture)?
+FUNCTION AB_active% ()
+    AB_active% = (AB.n > 0 _ANDALSO CUSTOM_BRUSH.ACTIVE% <> 0)
+END FUNCTION
+
+''
+' Show cel k: CUSTOM_BRUSH.IMAGE becomes a copy of it (the brush routines own
+' and may replace IMAGE; the cel stays the source).
+SUB AB_show (k AS INTEGER)
+    IF k < 1 _ORELSE k > AB.n THEN EXIT SUB
+    IF AB_CEL(k) >= -1 THEN EXIT SUB
+    IF k = AB.cur _ANDALSO CUSTOM_BRUSH.IMAGE& < -1 THEN EXIT SUB
+    AB.cur = k
+    SAFE_FREEIMAGE CUSTOM_BRUSH.IMAGE&: CUSTOM_BRUSH.IMAGE& = _COPYIMAGE(AB_CEL(k), 32)
+    SAFE_FREEIMAGE CUSTOM_BRUSH.PREVIEW_CACHE&: CUSTOM_BRUSH.PREVIEW_CACHE& = 0
+    CUSTOM_BRUSH.PREVIEW_CACHE_OPACITY% = -1
+    ' (WIDTH / HEIGHT are the brush's size on the canvas - scaled - so they stay)
+END SUB
+
+''
+' A custom-brush routine that changes the picture (rotate, 2x, outline) asks
+' this first: with an AnimBrush it runs the routine on every cel, each from
+' the same brush state, and the brush shows its cel again. TRUE = done (the
+' caller exits). Flip / scale / recolor are drawn at stamp time: every cel
+' gets them anyway.
+FUNCTION AB_each% (op AS INTEGER)
+    DIM k AS INTEGER, keep AS INTEGER, w AS INTEGER, h AS INTEGER, ow AS INTEGER, oh AS INTEGER
+    DIM fh AS INTEGER, fv AS INTEGER
+    IF AB_active% = 0 _ORELSE AB.inEach THEN EXIT FUNCTION
+    AB.inEach = TRUE
+    keep = AB.cur
+    w = CUSTOM_BRUSH.WIDTH%: h = CUSTOM_BRUSH.HEIGHT%
+    ow = CUSTOM_BRUSH.ORIG_WIDTH%: oh = CUSTOM_BRUSH.ORIG_HEIGHT%
+    fh = CUSTOM_BRUSH.FLIP_H%: fv = CUSTOM_BRUSH.FLIP_V%
+    SAFE_FREEIMAGE CUSTOM_BRUSH.IMAGE&: CUSTOM_BRUSH.IMAGE& = 0
+    FOR k = 1 TO AB.n
+        CUSTOM_BRUSH.IMAGE& = AB_CEL(k): AB_CEL(k) = 0 ' the routine owns it now (and frees it)
+        CUSTOM_BRUSH.WIDTH% = w: CUSTOM_BRUSH.HEIGHT% = h
+        CUSTOM_BRUSH.ORIG_WIDTH% = ow: CUSTOM_BRUSH.ORIG_HEIGHT% = oh
+        CUSTOM_BRUSH.FLIP_H% = fh: CUSTOM_BRUSH.FLIP_V% = fv
+        SELECT CASE op
+            CASE AB_OP_ROT_CW: CUSTOM_BRUSH_rotate_cw
+            CASE AB_OP_ROT_CCW: CUSTOM_BRUSH_rotate_ccw
+            CASE AB_OP_2X_H: CUSTOM_BRUSH_scale_2x_horizontal
+            CASE AB_OP_2X_V: CUSTOM_BRUSH_scale_2x_vertical
+            CASE AB_OP_OUTLINE: CUSTOM_BRUSH_apply_outline
+        END SELECT
+        AB_CEL(k) = CUSTOM_BRUSH.IMAGE&: CUSTOM_BRUSH.IMAGE& = 0
+    NEXT k
+    AB.w = CUSTOM_BRUSH.ORIG_WIDTH%: AB.h = CUSTOM_BRUSH.ORIG_HEIGHT%
+    AB.cur = 0
+    AB_show _MAX(1, keep)
+    AB.inEach = FALSE
+    AB_each% = TRUE
+END FUNCTION
+
+''
+' The step mode in effect: a picture without frames steps per click.
+FUNCTION AB_mode% ()
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN AB_mode% = AB_STEP_CLICK ELSE AB_mode% = AB_STEP
+END FUNCTION
+
+''
+' The cel for step s (0 = the first) in the brush's order. s may be negative
+' (frames before the anchor).
+FUNCTION AB_seq% (s AS LONG)
+    DIM n AS LONG, p AS LONG, m AS LONG
+    n = AB.n
+    IF n < 1 THEN EXIT FUNCTION
+    SELECT CASE AB_ORDER
+        CASE AB_ORD_REV
+            m = ((s MOD n) + n) MOD n: AB_seq% = n - m
+        CASE AB_ORD_PING
+            IF n < 2 THEN AB_seq% = 1: EXIT FUNCTION
+            p = 2 * n - 2: m = ((s MOD p) + p) MOD p
+            IF m < n THEN AB_seq% = m + 1 ELSE AB_seq% = 2 * n - 1 - m
+        CASE AB_ORD_ONCE
+            AB_seq% = _MAX(1, _MIN(n, s + 1))
+        CASE ELSE
+            m = ((s MOD n) + n) MOD n: AB_seq% = m + 1
+    END SELECT
+END FUNCTION
+
+''
+' The cel frame f gets (follows the frame / every frame at once).
+FUNCTION AB_cel_for_frame% (f AS INTEGER)
+    AB_cel_for_frame% = AB_seq%(CLNG(f) - AB.anchor)
+END FUNCTION
+
+''
+' The frame a stamp at canvas (cx, cy) - the brush's middle - lands in: the
+' frame under it, else the current frame.
+FUNCTION AB_frame_of% (cx AS LONG, cy AS LONG)
+    DIM f AS INTEGER
+    f = ANIM_frame_at%(cx, cy)
+    IF f < 1 THEN f = ANIM.current
+    AB_frame_of% = f
+END FUNCTION
+
+''
+' The cel the next stamp at canvas (cx, cy) uses.
+FUNCTION AB_next_cel% (cx AS LONG, cy AS LONG)
+    IF CLIP_PLACING = 1 THEN AB_next_cel% = 1: EXIT FUNCTION ' Place as Clip: the clip starts on cel 1 (TOOLS/CLIP)
+    IF AB_mode% = AB_STEP_CLICK THEN
+        AB_next_cel% = AB_seq%(CLNG(AB.clickPos))
+    ELSE
+        AB_next_cel% = AB_cel_for_frame%(AB_frame_of%(cx, cy))
+    END IF
+END FUNCTION
+
+''
+' CUSTOM_BRUSH_stamp (x, y = the stamp's top left, canvas px): pick the cel
+' for this stamp. TRUE = it was stamped here already (every frame at once).
+FUNCTION AB_stamp% (x AS INTEGER, y AS INTEGER)
+    DIM cx AS LONG, cy AS LONG
+    IF AB_active% = 0 THEN EXIT FUNCTION
+    AB.stamped = TRUE
+    cx = x + CUSTOM_BRUSH.WIDTH% \ 2: cy = y + CUSTOM_BRUSH.HEIGHT% \ 2
+    AB.lastX = x: AB.lastY = y: AB.lastF = AB_frame_of%(cx, cy)
+    SELECT CASE AB_mode%
+        CASE AB_STEP_ALL
+            AB_stamp_all x, y
+            AB_stamp% = TRUE
+        CASE ELSE
+            AB_show AB_next_cel%(cx, cy)
+    END SELECT
+END FUNCTION
+
+''
+' Every frame at once: the stamp at (x, y) in the frame it lands in goes to
+' the same spot in every frame's cell, each with its own cel, each clipped
+' to its cell. Part of the press's brush stroke, so one undo step.
+SUB AB_stamp_all (x AS INTEGER, y AS INTEGER)
+    DIM fs AS INTEGER, f AS INTEGER, sx AS LONG, sy AS LONG, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG
+    DIM tx AS LONG, ty AS LONG, img AS LONG, tmp AS LONG, aw AS INTEGER, ah AS INTEGER, keep AS INTEGER
+    DIM bw AS LONG, bh AS LONG, oldD AS LONG
+    fs = AB_frame_of%(x + CUSTOM_BRUSH.WIDTH% \ 2, y + CUSTOM_BRUSH.HEIGHT% \ 2)
+    IF ANIM_cell_rect%(fs, sx, sy, fw, fh) = 0 THEN EXIT SUB
+    img = LAYER_current_image&
+    IF img >= -1 THEN EXIT SUB
+    SELECTION_layer_apron img, aw, ah
+    ANIM_LB_clip_end ' the lightbox's one-frame stroke clip would put the other cells back
+    keep = AB.cur
+    bw = CUSTOM_BRUSH.WIDTH%: bh = CUSTOM_BRUSH.HEIGHT%
+    oldD = _DEST
+    FOR f = 1 TO ANIM.count
+        IF ANIM_cell_rect%(f, fx, fy, fw, fh) THEN
+            tx = x + fx - sx: ty = y + fy - sy
+            IF tx + bw > fx _ANDALSO ty + bh > fy _ANDALSO tx < fx + fw _ANDALSO ty < fy + fh THEN
+                tmp = _NEWIMAGE(fw, fh, 32)
+                _DONTBLEND tmp
+                _PUTIMAGE (0, 0), img, tmp, (fx + aw, fy + ah)-(fx + aw + fw - 1, fy + ah + fh - 1)
+                _BLEND tmp
+                AB_show AB_cel_for_frame%(f)
+                CUSTOM_BRUSH_render tx - fx, ty - fy, tmp
+                _DONTBLEND img
+                _PUTIMAGE (fx + aw, fy + ah), tmp, img
+                _BLEND img
+                _FREEIMAGE tmp
+                COMP_mark_dirty _MAX(fx, tx), _MAX(fy, ty), _MIN(fx + fw, tx + bw) - 1, _MIN(fy + fh, ty + bh) - 1
+            END IF
+        END IF
+    NEXT f
+    _DEST oldD
+    AB_show keep
+    IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    INVALIDATE_canvas
+END SUB
+
+''
+' Main loop (after the mouse, in the lightbox pane's view): the click step
+' moves on when a press that stamped is let go; between presses the brush
+' shows the cel the next stamp under the pointer uses.
+SUB AB_tick ()
+    DIM want AS INTEGER
+    IF AB_active% = 0 THEN AB.stamped = FALSE: EXIT SUB
+    IF MOUSE.B1% _ORELSE MOUSE.B2% THEN EXIT SUB
+    IF AB.stamped THEN
+        AB.stamped = FALSE
+        IF AB_mode% = AB_STEP_CLICK THEN AB.clickPos = AB.clickPos + 1
+    END IF
+    want = AB_next_cel%(CLNG(MOUSE.X%), CLNG(MOUSE.Y%))
+    IF want <> AB.cur _ANDALSO want > 0 THEN
+        AB_show want
+        SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    END IF
+END SUB
+
+''
+' Actions 2565-2574: cel keys, step mode, order.
+SUB AB_action (act AS INTEGER)
+    DIM msg AS STRING
+    SELECT CASE act
+        CASE AB_ACT_STEP_FOLLOW: AB_STEP = AB_STEP_FOLLOW: msg = "AnimBrush: the cel follows the frame"
+        CASE AB_ACT_STEP_CLICK: AB_STEP = AB_STEP_CLICK: msg = "AnimBrush: next cel each click"
+        CASE AB_ACT_STEP_ALL: AB_STEP = AB_STEP_ALL: msg = "AnimBrush: every frame at once"
+        CASE AB_ACT_ORD_FWD: AB_ORDER = AB_ORD_FWD: msg = "AnimBrush order: forward"
+        CASE AB_ACT_ORD_REV: AB_ORDER = AB_ORD_REV: msg = "AnimBrush order: reverse"
+        CASE AB_ACT_ORD_PING: AB_ORDER = AB_ORD_PING: msg = "AnimBrush order: ping-pong"
+        CASE AB_ACT_ORD_ONCE: AB_ORDER = AB_ORD_ONCE: msg = "AnimBrush order: once"
+        CASE AB_ACT_PREV_CEL, AB_ACT_NEXT_CEL, AB_ACT_FIRST_CEL
+            IF AB_active% = 0 THEN STATUS_flash "No AnimBrush: ANIM > AnimBrush > Pick Up": EXIT SUB
+            IF AB_mode% = AB_STEP_CLICK THEN
+                SELECT CASE act
+                    CASE AB_ACT_PREV_CEL: AB.clickPos = AB.clickPos - 1
+                    CASE AB_ACT_NEXT_CEL: AB.clickPos = AB.clickPos + 1
+                    CASE ELSE: AB.clickPos = 0
+                END SELECT
+            ELSE ' the frames' cels shift: the current frame shows the previous / next cel
+                SELECT CASE act
+                    CASE AB_ACT_PREV_CEL: AB.anchor = AB.anchor + 1
+                    CASE AB_ACT_NEXT_CEL: AB.anchor = AB.anchor - 1
+                    CASE ELSE: AB.anchor = ANIM.current
+                END SELECT
+            END IF
+            AB_show AB_next_cel%(CLNG(MOUSE.X%), CLNG(MOUSE.Y%))
+            msg = "AnimBrush cel" + STR$(AB.cur) + " of" + STR$(AB.n)
+    END SELECT
+    IF AB_active% THEN AB_show AB_next_cel%(CLNG(MOUSE.X%), CLNG(MOUSE.Y%))
+    STATUS_flash msg
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Menu checkmarks (MENUBAR_update_states).
+FUNCTION AB_menu_checked% (act AS INTEGER)
+    SELECT CASE act
+        CASE AB_ACT_STEP_FOLLOW TO AB_ACT_STEP_ALL: AB_menu_checked% = (AB_STEP = act - AB_ACT_STEP_FOLLOW)
+        CASE AB_ACT_ORD_FWD TO AB_ACT_ORD_ONCE: AB_menu_checked% = (AB_ORDER = act - AB_ACT_ORD_FWD)
+    END SELECT
+END FUNCTION
+
+''
+' A new / opened document: "follows the frame" starts from frame 1 again.
+SUB AB_new_document ()
+    AB.anchor = 1: AB.clickPos = 0: AB.stamped = FALSE
+    MVB_cancel ' a Move Brush path belongs to the old document (TOOLS/ANIM-MVBRUSH)
+    CLIP_new_document ' and so do the clips (TOOLS/CLIP; every document path calls this SUB)
+END SUB
+
+''
+' The frames to pick up from, in order, into AB_FROM (returns how many): the
+' frames selected in the strip / X-sheet when two or more are (a clicked tag
+' selects its span; a plain strip click selects just the frame it makes
+' current), else every frame (Rick, 2026-11-12 - was `fromF` to the last).
+FUNCTION AB_pick_frames% ()
+    DIM i AS INTEGER, n AS INTEGER
+    IF ANIM_SEL_count% > 1 THEN
+        FOR i = 1 TO ANIM.count
+            IF ANIM_SEL(i) <> 0 _ANDALSO n < AB_MAX_CELS THEN n = n + 1: AB_FROM(n) = i
+        NEXT i
+    ELSE
+        FOR i = 1 TO ANIM.count
+            IF n < AB_MAX_CELS THEN n = n + 1: AB_FROM(n) = i
+        NEXT i
+    END IF
+    AB_pick_frames% = n
+END FUNCTION
+
+''
+' ANIM > AnimBrush > Pick Up (merged = every visible layer): the marquee's
+' area from each frame - the same spot in every frame's cell, measured from
+' the frame the selection is in. The selection's shape (ellipse, wand ...)
+' and the BG-color-is-transparent rule are as Ctrl+B. Cel 1 is shown.
+SUB AB_pick_up (merged AS INTEGER)
+    DIM bx AS LONG, by AS LONG, bw AS LONG, bh AS LONG
+    DIM sf AS INTEGER, sx AS LONG, sy AS LONG, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG
+    DIM n AS INTEGER, k AS INTEGER, src AS LONG, aw AS INTEGER, ah AS INTEGER, sw AS LONG, sh AS LONG
+    DIM px AS LONG, py AS LONG, qx AS LONG, qy AS LONG, c AS _UNSIGNED LONG, img AS LONG
+    DIM bgR AS INTEGER, bgG AS INTEGER, bgB AS INTEGER, oldD AS LONG, oldS AS LONG
+    DIM inside AS STRING, t AS STRING
+
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "AnimBrush: set up frames first (ANIM > Frame Grid)": EXIT SUB
+    IF MARQUEE.ACTIVE% = 0 _ORELSE MARQUEE.BOX.w <= 0 _ORELSE MARQUEE.BOX.h <= 0 THEN STATUS_flash "AnimBrush: select an area in a frame first": EXIT SUB
+    bx = MARQUEE.BOX.x: by = MARQUEE.BOX.y: bw = MARQUEE.BOX.w: bh = MARQUEE.BOX.h
+
+    ' the frame the selection is in (its middle), else the current one
+    sf = ANIM_frame_at%(bx + bw \ 2, by + bh \ 2)
+    IF sf < 1 THEN sf = ANIM.current
+    IF ANIM_cell_rect%(sf, sx, sy, fw, fh) = 0 THEN STATUS_flash "AnimBrush: the selection is not in a frame": EXIT SUB
+
+    ' the selection's shape, read once (the marquee goes after the pick up)
+    inside = STRING$(bw * bh, 0)
+    FOR py = 0 TO bh - 1
+        FOR px = 0 TO bw - 1
+            IF SELECTION_is_point_inside%(bx + px, by + py) THEN MID$(inside, py * bw + px + 1, 1) = CHR$(1)
+        NEXT px
+    NEXT py
+
+    IF merged THEN
+        src = LAYERS_flatten&: aw = 0: ah = 0
+    ELSE
+        src = LAYER_current_image&
+        SELECTION_layer_apron src, aw, ah
+    END IF
+    IF src >= -1 THEN STATUS_flash "AnimBrush: nothing to pick up": EXIT SUB
+    sw = _WIDTH(src): sh = _HEIGHT(src)
+
+    CUSTOM_BRUSH_reset ' (drops any cels: AB_clear)
+    n = AB_pick_frames%
+    bgR = _RED32(PAINT_BG_COLOR~&): bgG = _GREEN32(PAINT_BG_COLOR~&): bgB = _BLUE32(PAINT_BG_COLOR~&)
+    oldD = _DEST: oldS = _SOURCE
+    _SOURCE src
+    FOR k = 1 TO n
+        img = _NEWIMAGE(bw, bh, 32)
+        _DEST img: _DONTBLEND img: CLS , _RGBA32(0, 0, 0, 0) ' (copied as is: a half-clear pixel keeps its alpha)
+        IF ANIM_cell_rect%(AB_FROM(k), fx, fy, fw, fh) THEN
+            FOR py = 0 TO bh - 1
+                FOR px = 0 TO bw - 1
+                    IF ASC(inside, py * bw + px + 1) THEN
+                        qx = bx + px + (fx - sx) + aw: qy = by + py + (fy - sy) + ah
+                        IF qx >= 0 _ANDALSO qy >= 0 _ANDALSO qx < sw _ANDALSO qy < sh THEN
+                            c = POINT(qx, qy)
+                            IF _ALPHA32(c) = 0 THEN
+                            ELSEIF _RED32(c) = bgR _ANDALSO _GREEN32(c) = bgG _ANDALSO _BLUE32(c) = bgB THEN
+                            ELSE
+                                PSET (px, py), c
+                            END IF
+                        END IF
+                    END IF
+                NEXT px
+            NEXT py
+        END IF
+        _BLEND img
+        AB_CEL(k) = img
+    NEXT k
+    _SOURCE oldS: _DEST oldD
+    IF merged THEN SAFE_FREEIMAGE src
+
+    AB.n = n: AB.w = bw: AB.h = bh: AB.merged = (merged <> 0): AB.srcF = sf
+    ' stamped back into this sheet each frame gets its own cel: every frame picked up = cel k
+    ' is frame k (anchor 1); picked from selected frames, frame sf gets cel 1
+    IF ANIM_SEL_count% > 1 THEN AB.anchor = sf ELSE AB.anchor = 1
+    AB.clickPos = 0: AB.stamped = FALSE
+    IF ANIM_SEL_count% > 1 THEN ' picked up from a tag's frames (the selection IS a tag): the brush takes its name
+        k = ANIM_TG_selected%
+        IF k > 0 THEN AB.nm = ANIM_TG_NAME(k)
+    END IF
+    CUSTOM_BRUSH.ACTIVE% = TRUE
+    CUSTOM_BRUSH.WIDTH% = bw: CUSTOM_BRUSH.HEIGHT% = bh
+    CUSTOM_BRUSH.ORIG_WIDTH% = bw: CUSTOM_BRUSH.ORIG_HEIGHT% = bh
+    CUSTOM_BRUSH.HAS_TRANSPARENCY% = TRUE
+    CUSTOM_BRUSH.BG_COLOR~& = PAINT_BG_COLOR~&
+    CUSTOM_BRUSH.FLIP_H% = FALSE: CUSTOM_BRUSH.FLIP_V% = FALSE
+    CUSTOM_BRUSH.SCALE! = 1.0
+    AB_show 1
+    MARQUEE_reset
+    t = "AnimBrush": IF LEN(AB_name$) THEN t = t + " '" + AB_name$ + "'"
+    t = t + ": " + _TRIM$(STR$(n)) + " cels picked up"
+    IF merged THEN t = t + " (merged)"
+    STATUS_flash t
+END SUB
+
+''
+' Status bar badge: "ANIMBRUSH cur/n" ("" when the brush is one picture).
+FUNCTION AB_status$ ()
+    IF AB_active% = 0 THEN EXIT FUNCTION
+    DIM t AS STRING
+    SELECT CASE AB_mode%
+        CASE AB_STEP_CLICK: t = " CLICK"
+        CASE AB_STEP_ALL: t = " ALL FRAMES"
+        CASE ELSE: t = " FOLLOWS FRAME"
+    END SELECT
+    SELECT CASE AB_ORDER
+        CASE AB_ORD_REV: t = t + " REV"
+        CASE AB_ORD_PING: t = t + " PING-PONG"
+        CASE AB_ORD_ONCE: t = t + " ONCE"
+    END SELECT
+    IF LEN(AB_name$) THEN AB_status$ = "ANIMBRUSH " + UCASE$(AB_name$) + " " + _TRIM$(STR$(AB.cur)) + "/" + _TRIM$(STR$(AB.n)) + t ELSE AB_status$ = "ANIMBRUSH " + _TRIM$(STR$(AB.cur)) + "/" + _TRIM$(STR$(AB.n)) + t
+END FUNCTION
+
+''
+' The brush stash (CUSTOM_BRUSH_stash): the cels go with it. Call BEFORE the
+' brush is reset.
+SUB AB_stash ()
+    DIM k AS INTEGER
+    AB_clear_stash
+    AB_SV = AB
+    FOR k = 1 TO AB.n
+        AB_SV_CEL(k) = AB_CEL(k): AB_SV_FROM(k) = AB_FROM(k): AB_CEL(k) = 0: AB_FROM(k) = 0
+    NEXT k
+    AB.n = 0: AB.cur = 0
+END SUB
+
+''
+' CUSTOM_BRUSH_unstash: the cels come back (after the brush fields did).
+SUB AB_unstash ()
+    DIM k AS INTEGER
+    AB_clear
+    AB = AB_SV
+    FOR k = 1 TO AB_SV.n
+        AB_CEL(k) = AB_SV_CEL(k): AB_FROM(k) = AB_SV_FROM(k): AB_SV_CEL(k) = 0: AB_SV_FROM(k) = 0
+    NEXT k
+    AB_SV.n = 0
+    IF AB.n > 0 THEN AB_show _MAX(1, _MIN(AB.cur, AB.n))
+END SUB
+
+SUB AB_clear_stash ()
+    DIM k AS INTEGER
+    FOR k = 1 TO AB_SV.n
+        SAFE_FREEIMAGE AB_SV_CEL(k): AB_SV_CEL(k) = 0
+    NEXT k
+    AB_SV.n = 0
+END SUB
+
+''
+' CRC32 (hex) of an image's pixels, "0" when every pixel is clear.
+FUNCTION AB_crc$ (img AS LONG)
+    DIM m AS _MEM, s AS STRING
+    IF img >= -1 THEN AB_crc$ = "-": EXIT FUNCTION
+    m = _MEMIMAGE(img)
+    s = SPACE$(m.SIZE)
+    _MEMGET m, m.OFFSET, s
+    _MEMFREE m
+    IF s = STRING$(LEN(s), 0) THEN AB_crc$ = "0" ELSE AB_crc$ = LCASE$(HEX$(_CRC32(s)))
+END FUNCTION
+
+''
+' QA dump (DOCK_dump):
+'   ABR n cur w h merged srcFrame brushActive brushW brushH brushCrc
+'   ABRS step order anchor clickPos modeInEffect
+'   ABRC frame:crc ... (one per cel, up to 64)
+FUNCTION AB_dump$ ()
+    DIM d AS STRING, k AS INTEGER
+    d = "ABR" + DOCK_n$(AB.n) + DOCK_n$(AB.cur) + DOCK_n$(AB.w) + DOCK_n$(AB.h) + DOCK_n$(AB.merged <> 0) + DOCK_n$(AB.srcF)
+    d = d + DOCK_n$(CUSTOM_BRUSH.ACTIVE% <> 0) + DOCK_n$(CUSTOM_BRUSH.WIDTH%) + DOCK_n$(CUSTOM_BRUSH.HEIGHT%) + " " + AB_crc$(CUSTOM_BRUSH.IMAGE&) + CHR$(10)
+    d = d + "ABRN " + AB_name$ + CHR$(10) ' the AnimBrush's name (empty = none)
+    d = d + "ABRH" + DOCK_n$(AB_HOLD_STATE) + CHR$(10) ' the last Brush-key hold with a selection tool: 1 held, 2 picked up, 3 tapped
+    d = d + "ABRS" + DOCK_n$(AB_STEP) + DOCK_n$(AB_ORDER) + DOCK_n$(AB.anchor) + DOCK_n$(AB.clickPos) + DOCK_n$(AB_mode%) + CHR$(10)
+    d = d + "ABRC"
+    FOR k = 1 TO _MIN(AB.n, 64)
+        d = d + " " + _TRIM$(STR$(AB_FROM(k))) + ":" + AB_crc$(AB_CEL(k))
+    NEXT k
+    d = d + CHR$(10) + "ABRP"
+    FOR k = 1 TO _MIN(ANIM.count, 64)
+        d = d + " " + _TRIM$(STR$(k)) + ":" + AB_cel_at$(k)
+    NEXT k
+    AB_dump$ = d + CHR$(10)
+END FUNCTION
+
+''
+' QA: which cel is on the current layer in frame f at the last stamp's spot
+' (moved to frame f's cell): "-" nothing there, "0" not a cel, else its number.
+FUNCTION AB_cel_at$ (f AS INTEGER)
+    DIM sx AS LONG, sy AS LONG, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, img AS LONG, tmp AS LONG
+    DIM aw AS INTEGER, ah AS INTEGER, s AS STRING, c AS STRING, k AS INTEGER, m AS _MEM, w AS LONG, h AS LONG
+    AB_cel_at$ = "-"
+    IF AB.lastF < 1 _ORELSE AB.n < 1 THEN EXIT FUNCTION
+    IF ANIM_cell_rect%(AB.lastF, sx, sy, fw, fh) = 0 _ORELSE ANIM_cell_rect%(f, fx, fy, fw, fh) = 0 THEN EXIT FUNCTION
+    img = LAYER_current_image&
+    IF img >= -1 THEN EXIT FUNCTION
+    SELECTION_layer_apron img, aw, ah
+    w = AB.w: h = AB.h
+    tmp = _NEWIMAGE(w, h, 32)
+    _DONTBLEND tmp
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, ox AS LONG, oy AS LONG
+    ox = AB.lastX + fx - sx + aw: oy = AB.lastY + fy - sy + ah ' the spot in the buffer; only its part on the buffer is read
+    x1 = _MAX(0, ox): y1 = _MAX(0, oy): x2 = _MIN(_WIDTH(img) - 1, ox + w - 1): y2 = _MIN(_HEIGHT(img) - 1, oy + h - 1)
+    IF x2 >= x1 _ANDALSO y2 >= y1 THEN _PUTIMAGE (x1 - ox, y1 - oy), img, tmp, (x1, y1)-(x2, y2)
+    m = _MEMIMAGE(tmp): s = SPACE$(m.SIZE): _MEMGET m, m.OFFSET, s: _MEMFREE m
+    _FREEIMAGE tmp
+    IF s = STRING$(LEN(s), 0) THEN EXIT FUNCTION
+    AB_cel_at$ = "0"
+    FOR k = 1 TO AB.n
+        IF AB_CEL(k) < -1 THEN
+            m = _MEMIMAGE(AB_CEL(k)): c = SPACE$(m.SIZE): _MEMGET m, m.OFFSET, c: _MEMFREE m
+            IF c = s THEN AB_cel_at$ = _TRIM$(STR$(k)): EXIT FUNCTION
+        END IF
+    NEXT k
+END FUNCTION
+
+
+' =============================================================================
+' An AnimBrush in a Drawer brush slot (A4)
+' =============================================================================
+
+''
+' Forget slot i's cels (its picture stays).
+SUB AB_slot_drop (i AS INTEGER)
+    IF i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN EXIT SUB
+    IF DRAWER_BRUSH_SLOTS(i).CELS < -1 THEN _FREEIMAGE DRAWER_BRUSH_SLOTS(i).CELS
+    DRAWER_BRUSH_SLOTS(i).CELS = 0: DRAWER_BRUSH_SLOTS(i).N = 0
+    DRAWER_BRUSH_SLOTS(i).CW = 0: DRAWER_BRUSH_SLOTS(i).CH = 0: DRAWER_BRUSH_SLOTS(i).NM = ""
+END SUB
+
+''
+' Does slot i hold an AnimBrush?
+FUNCTION AB_slot_has% (i AS INTEGER)
+    IF i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN EXIT FUNCTION
+    AB_slot_has% = (DRAWER_BRUSH_SLOTS(i).N > 0 _ANDALSO DRAWER_BRUSH_SLOTS(i).CELS < -1 _ANDALSO DRAWER_BRUSH_SLOTS(i).IMG < -1)
+END FUNCTION
+
+''
+' Shift+click on a bin with an AnimBrush: the slot keeps every cel (its
+' picture is cel 1). TRUE = stored. Too wide for the file format (the strip
+' is one INTEGER wide) = FALSE, and the slot takes the one picture.
+FUNCTION AB_slot_store% (i AS INTEGER)
+    DIM k AS INTEGER, strip AS LONG
+    AB_slot_drop i
+    IF AB_active% = 0 _ORELSE i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN EXIT FUNCTION
+    IF AB.w < 1 _ORELSE AB.h < 1 THEN EXIT FUNCTION
+    IF CLNG(AB.w) * AB.n > 32767 THEN
+        _LOGWARN "AnimBrush: " + _TRIM$(STR$(AB.n)) + " cels of" + STR$(AB.w) + " px are too wide for a bin - stored as one picture"
+        EXIT FUNCTION
+    END IF
+    strip = _NEWIMAGE(CLNG(AB.w) * AB.n, AB.h, 32)
+    _DONTBLEND strip
+    FOR k = 1 TO AB.n
+        IF AB_CEL(k) < -1 THEN _PUTIMAGE ((k - 1) * CLNG(AB.w), 0), AB_CEL(k), strip
+    NEXT k
+    _BLEND strip
+    SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(i).IMG
+    DRAWER_BRUSH_SLOTS(i).IMG = _COPYIMAGE(AB_CEL(1), 32)
+    DRAWER_BRUSH_SLOTS(i).W = AB.w: DRAWER_BRUSH_SLOTS(i).H = AB.h
+    DRAWER_BRUSH_SLOTS(i).CELS = strip: DRAWER_BRUSH_SLOTS(i).N = AB.n
+    DRAWER_BRUSH_SLOTS(i).CW = AB.w: DRAWER_BRUSH_SLOTS(i).CH = AB.h
+    DRAWER_BRUSH_SLOTS(i).NM = AB_name$
+    AB_slot_store% = TRUE
+END FUNCTION
+
+''
+' A copy of slot i's cel k (the caller frees it); 0 = none.
+FUNCTION AB_slot_cel_img& (i AS INTEGER, k AS INTEGER)
+    DIM img AS LONG, cw AS LONG, ch AS LONG
+    IF AB_slot_has%(i) = 0 _ORELSE k < 1 _ORELSE k > DRAWER_BRUSH_SLOTS(i).N THEN EXIT FUNCTION
+    cw = DRAWER_BRUSH_SLOTS(i).CW: ch = DRAWER_BRUSH_SLOTS(i).CH
+    img = _NEWIMAGE(cw, ch, 32)
+    _DONTBLEND img
+    _PUTIMAGE (0, 0), DRAWER_BRUSH_SLOTS(i).CELS, img, ((k - 1) * cw, 0)-(k * cw - 1, ch - 1)
+    _BLEND img
+    AB_slot_cel_img& = img
+END FUNCTION
+
+''
+' Picking slot i (DRAWER_load_brush_slot_to_custom, after it set the brush up
+' from the slot's picture): the AnimBrush comes back, every cel. Cel 1 goes
+' on frame 1 (cel follows the frame).
+SUB AB_slot_load (i AS INTEGER)
+    DIM k AS INTEGER, n AS INTEGER
+    IF AB_slot_has%(i) = 0 _ORELSE CUSTOM_BRUSH.ACTIVE% = 0 THEN EXIT SUB
+    AB_clear
+    n = _MIN(DRAWER_BRUSH_SLOTS(i).N, AB_MAX_CELS)
+    FOR k = 1 TO n
+        AB_CEL(k) = AB_slot_cel_img&(i, k)
+        AB_FROM(k) = k
+    NEXT k
+    AB.n = n: AB.w = DRAWER_BRUSH_SLOTS(i).CW: AB.h = DRAWER_BRUSH_SLOTS(i).CH
+    AB.merged = FALSE: AB.srcF = 1: AB.anchor = 1: AB.clickPos = 0
+    AB.cur = 0: AB.nm = AB_clean$(DRAWER_BRUSH_SLOTS(i).NM): AB.binSlot = i
+    AB_show 1
+END SUB
+
+''
+' The cel a bin shows while hovered: the cels play at the animation's FPS
+' (12 without frames).
+FUNCTION AB_slot_cel_now% (i AS INTEGER)
+    DIM fps AS LONG, n AS LONG
+    IF AB_slot_has%(i) = 0 THEN EXIT FUNCTION
+    n = DRAWER_BRUSH_SLOTS(i).N
+    fps = 12
+    IF ANIM.active _ANDALSO ANIM.fps > 0 THEN fps = ANIM.fps
+    AB_slot_cel_now% = 1 + (INT(TIMER(.001) * fps) MOD n)
+END FUNCTION
+
+''
+' Draw slot i's cel k into (x1, y1)-(x2, y2) of dest (the bin).
+SUB AB_slot_put (i AS INTEGER, k AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, dest AS LONG)
+    DIM cw AS LONG, ch AS LONG
+    IF AB_slot_has%(i) = 0 _ORELSE k < 1 _ORELSE k > DRAWER_BRUSH_SLOTS(i).N THEN EXIT SUB
+    cw = DRAWER_BRUSH_SLOTS(i).CW: ch = DRAWER_BRUSH_SLOTS(i).CH
+    _PUTIMAGE (x1, y1)-(x2, y2), DRAWER_BRUSH_SLOTS(i).CELS, dest, ((k - 1) * cw, 0)-(k * cw - 1, ch - 1)
+END SUB
+
+''
+' The bin's film-strip badge, bottom right at (x2, y2): sprocket holes along
+' the top and bottom edges and the cel count in 3x5 digits (on the current _DEST).
+SUB AB_slot_badge (i AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    DIM t AS STRING, d AS INTEGER, bw AS INTEGER, bx AS INTEGER, by AS INTEGER
+    DIM gx AS INTEGER, gy AS INTEGER, g AS STRING, x AS INTEGER, bg AS _UNSIGNED LONG, fg AS _UNSIGNED LONG
+    IF AB_slot_has%(i) = 0 THEN EXIT SUB
+    t = _TRIM$(STR$(_MIN(DRAWER_BRUSH_SLOTS(i).N, 999)))
+    bw = LEN(t) * 4 + 3 ' 1 px pad, 3 px digits + 1 gap, 1 px pad
+    bx = x2 - bw + 1: by = y2 - 8: IF bx < x1 THEN bx = x1
+    IF by < y1 THEN by = y1
+    bg = THEME.DRAWER_BIN_1BIT_SIGIL_BG~&: fg = THEME.DRAWER_BIN_1BIT_SIGIL_FG~&
+    LINE (bx, by)-(bx + bw - 1, by + 8), bg, BF
+    FOR x = bx + 1 TO bx + bw - 2 STEP 2 ' the sprocket holes
+        PSET (x, by), fg: PSET (x, by + 8), fg
+    NEXT x
+    FOR d = 1 TO LEN(t)
+        g = AB_digit$(ASC(t, d) - 48)
+        FOR gy = 0 TO 4
+            FOR gx = 0 TO 2
+                IF MID$(g, gy * 3 + gx + 1, 1) = "1" THEN PSET (bx + 2 + (d - 1) * 4 + gx, by + 2 + gy), fg
+            NEXT gx
+        NEXT gy
+    NEXT d
+END SUB
+
+FUNCTION AB_digit$ (n AS INTEGER)
+    SELECT CASE n
+        CASE 0: AB_digit$ = "111101101101111"
+        CASE 1: AB_digit$ = "010110010010111"
+        CASE 2: AB_digit$ = "111001111100111"
+        CASE 3: AB_digit$ = "111001111001111"
+        CASE 4: AB_digit$ = "101101111001001"
+        CASE 5: AB_digit$ = "111100111001111"
+        CASE 6: AB_digit$ = "111100111101111"
+        CASE 7: AB_digit$ = "111001001001001"
+        CASE 8: AB_digit$ = "111101111101111"
+        CASE ELSE: AB_digit$ = "111101111001111"
+    END SELECT
+END FUNCTION
+
+''
+' Main loop: a hovered AnimBrush bin plays - redraw when its cel changes.
+FUNCTION AB_bin_needs_redraw% ()
+    STATIC lastSlot AS INTEGER, lastK AS INTEGER
+    DIM s AS INTEGER, k AS INTEGER
+    IF DRAWER.visible% _ANDALSO DRAWER.mode% = DRAWER_MODE_BRUSH THEN
+        s = DRAWER_slot_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+        IF s > 0 THEN k = AB_slot_cel_now%(s)
+    END IF
+    IF k = 0 THEN s = 0
+    IF s <> lastSlot _ORELSE k <> lastK THEN
+        AB_bin_needs_redraw% = (k > 0 _ORELSE lastK > 0)
+        lastSlot = s: lastK = k
+    END IF
+END FUNCTION
+
+''
+' Slot i's cels as bytes: the strip's pixels (BGRA, row by row).
+FUNCTION AB_slot_bytes$ (i AS INTEGER)
+    DIM m AS _MEM, s AS STRING
+    IF AB_slot_has%(i) = 0 THEN EXIT FUNCTION
+    m = _MEMIMAGE(DRAWER_BRUSH_SLOTS(i).CELS)
+    s = SPACE$(m.SIZE): _MEMGET m, m.OFFSET, s
+    _MEMFREE m
+    AB_slot_bytes$ = s
+END FUNCTION
+
+''
+' Give slot i (holding its picture already) the cels in bytes - n cels of
+' cw x ch side by side. Anything that does not add up is dropped.
+SUB AB_slot_set_bytes (i AS INTEGER, n AS INTEGER, cw AS INTEGER, ch AS INTEGER, b AS STRING)
+    DIM strip AS LONG, m AS _MEM
+    AB_slot_drop i
+    IF i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN EXIT SUB
+    IF DRAWER_BRUSH_SLOTS(i).IMG >= -1 _ORELSE n < 1 _ORELSE cw < 1 _ORELSE ch < 1 THEN EXIT SUB
+    IF CLNG(cw) * n > 32767 _ORELSE LEN(b) <> CLNG(cw) * n * ch * 4 THEN EXIT SUB
+    strip = _NEWIMAGE(CLNG(cw) * n, ch, 32)
+    m = _MEMIMAGE(strip)
+    _MEMPUT m, m.OFFSET, b
+    _MEMFREE m
+    DRAWER_BRUSH_SLOTS(i).CELS = strip: DRAWER_BRUSH_SLOTS(i).N = n
+    DRAWER_BRUSH_SLOTS(i).CW = cw: DRAWER_BRUSH_SLOTS(i).CH = ch
+END SUB
+
+''
+' The AnimBrush slots, for a .dset (after its slots) or the drAb chunk:
+' count, then per slot: slot, n, cw, ch, the strip's bytes.
+FUNCTION AB_slots_blob$ ()
+    DIM i AS INTEGER, c AS INTEGER, s AS STRING
+    FOR i = 1 TO DRAWER_SLOT_COUNT
+        IF AB_slot_has%(i) THEN
+            c = c + 1
+            s = s + MKI$(i) + MKI$(DRAWER_BRUSH_SLOTS(i).N) + MKI$(DRAWER_BRUSH_SLOTS(i).CW) + MKI$(DRAWER_BRUSH_SLOTS(i).CH) + AB_slot_bytes$(i)
+        END IF
+    NEXT i
+    IF c = 0 THEN EXIT FUNCTION
+    AB_slots_blob$ = MKI$(c) + s + AB_names_blob$
+END FUNCTION
+
+''
+' The bins' AnimBrush names, after the slot records (2026-11-12): AB_NAMES_MAGIC$,
+' count, then per name: slot, length, the name. An older DRAW stops reading after
+' the records, so it never sees them; "" when no bin has a name.
+FUNCTION AB_names_blob$ ()
+    DIM i AS INTEGER, c AS INTEGER, s AS STRING, t AS STRING
+    FOR i = 1 TO DRAWER_SLOT_COUNT
+        IF AB_slot_has%(i) THEN
+            t = AB_clean$(DRAWER_BRUSH_SLOTS(i).NM)
+            IF LEN(t) THEN c = c + 1: s = s + MKI$(i) + MKI$(LEN(t)) + t
+        END IF
+    NEXT i
+    IF c THEN AB_names_blob$ = AB_NAMES_MAGIC$ + MKI$(c) + s
+END FUNCTION
+
+''
+' Read AB_names_blob$ from b at p, when it is there (moves p past it).
+SUB AB_names_from_blob (b AS STRING, p AS LONG)
+    DIM c AS INTEGER, j AS INTEGER, i AS INTEGER, ln AS INTEGER
+    IF p + 5 > LEN(b) THEN EXIT SUB
+    IF MID$(b, p, 4) <> AB_NAMES_MAGIC$ THEN EXIT SUB
+    c = CVI(MID$(b, p + 4, 2)): p = p + 6
+    FOR j = 1 TO c
+        IF p + 3 > LEN(b) THEN EXIT FOR
+        i = CVI(MID$(b, p, 2)): ln = CVI(MID$(b, p + 2, 2)): p = p + 4
+        IF ln < 0 _ORELSE p + ln - 1 > LEN(b) THEN EXIT FOR
+        IF AB_slot_has%(i) THEN DRAWER_BRUSH_SLOTS(i).NM = LEFT$(MID$(b, p, ln), ANIM_TG_NAME_MAX)
+        p = p + ln
+    NEXT j
+END SUB
+
+''
+' Read AB_slots_blob$ from b starting at p (moves p past it).
+SUB AB_slots_from_blob (b AS STRING, p AS LONG)
+    DIM c AS INTEGER, j AS INTEGER, i AS INTEGER, n AS INTEGER, cw AS INTEGER, ch AS INTEGER, sz AS LONG
+    IF p + 1 > LEN(b) THEN EXIT SUB
+    c = CVI(MID$(b, p, 2)): p = p + 2
+    FOR j = 1 TO c
+        IF p + 7 > LEN(b) THEN EXIT FOR
+        i = CVI(MID$(b, p, 2)): n = CVI(MID$(b, p + 2, 2)): cw = CVI(MID$(b, p + 4, 2)): ch = CVI(MID$(b, p + 6, 2)): p = p + 8
+        IF n < 1 _ORELSE cw < 1 _ORELSE ch < 1 THEN EXIT FOR
+        sz = CLNG(cw) * n * ch * 4
+        IF p + sz - 1 > LEN(b) THEN EXIT FOR
+        AB_slot_set_bytes i, n, cw, ch, MID$(b, p, sz)
+        p = p + sz
+    NEXT j
+    AB_names_from_blob b, p
+END SUB
+
+''
+' .dset (brush mode): the AnimBrush slots after the slots and the DSX1 block.
+SUB AB_slots_write_dset (fh AS INTEGER)
+    DIM b AS STRING, mg AS STRING * 4
+    b = AB_slots_blob$
+    IF LEN(b) = 0 THEN EXIT SUB
+    mg = AB_DSET_MAGIC$
+    PUT #fh, , mg
+    PUT #fh, , b
+END SUB
+
+''
+' .dset: read the AnimBrush block (its magic already read).
+SUB AB_slots_read_dset (fh AS INTEGER)
+    DIM b AS STRING, p AS LONG
+    IF SEEK(fh) > LOF(fh) THEN EXIT SUB
+    b = SPACE$(LOF(fh) - SEEK(fh) + 1)
+    GET #fh, , b
+    p = 1
+    AB_slots_from_blob b, p
+END SUB
+
+''
+' The .draw's "drAb" chunk data: version, then AB_slots_blob$ ("" = none).
+FUNCTION AB_drab$ ()
+    DIM b AS STRING
+    b = AB_slots_blob$
+    IF LEN(b) THEN AB_drab$ = MKI$(AB_DRAB_VERSION) + b
+END FUNCTION
+
+''
+' Read a .draw's drAb chunk (after the drawer's slots are in). The custom
+' brush, picked from its slot when saved, comes back as the AnimBrush.
+SUB AB_read_drab (raw AS STRING)
+    DIM p AS LONG
+    IF LEN(raw) < 4 THEN EXIT SUB
+    IF CVI(LEFT$(raw, 2)) < 1 _ORELSE CVI(LEFT$(raw, 2)) > AB_DRAB_VERSION THEN
+        _LOGWARN "AnimBrush: drAb chunk version" + STR$(CVI(LEFT$(raw, 2))) + " is newer than this DRAW - the bins keep one picture"
+        EXIT SUB
+    END IF
+    p = 3
+    AB_slots_from_blob raw, p
+    IF CUSTOM_BRUSH_is_active% _ANDALSO AB_slot_has%(DRAWER.brushSelected%) THEN DRAWER_load_brush_slot_to_custom DRAWER.brushSelected%
+END SUB
+
+''
+' QA dump: ABBIN slot:n:cw:ch:stripCrc ... ; ABQL hoverSlot hoverCel qlSlot qlCel qlCrc
+FUNCTION AB_bin_dump$ ()
+    DIM d AS STRING, i AS INTEGER, s AS INTEGER, k AS INTEGER
+    d = "ABBIN"
+    FOR i = 1 TO DRAWER_SLOT_COUNT
+        IF AB_slot_has%(i) THEN
+            d = d + " " + _TRIM$(STR$(i)) + ":" + _TRIM$(STR$(DRAWER_BRUSH_SLOTS(i).N)) + ":" + _TRIM$(STR$(DRAWER_BRUSH_SLOTS(i).CW)) + ":" + _TRIM$(STR$(DRAWER_BRUSH_SLOTS(i).CH)) + ":" + AB_crc$(DRAWER_BRUSH_SLOTS(i).CELS)
+        END IF
+    NEXT i
+    IF DRAWER.visible% _ANDALSO DRAWER.mode% = DRAWER_MODE_BRUSH THEN
+        s = DRAWER_slot_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+        IF s > 0 THEN k = AB_slot_cel_now%(s)
+    END IF
+    d = d + CHR$(10) + "ABBN" ' the bins' AnimBrush names, slot:name (spaces as _)
+    FOR i = 1 TO DRAWER_SLOT_COUNT
+        IF AB_slot_has%(i) _ANDALSO LEN(AB_clean$(DRAWER_BRUSH_SLOTS(i).NM)) > 0 THEN d = d + " " + _TRIM$(STR$(i)) + ":" + AB_us$(AB_clean$(DRAWER_BRUSH_SLOTS(i).NM))
+    NEXT i
+    d = d + CHR$(10) + "ABQL" + DOCK_n$(s) + DOCK_n$(k)
+    IF PREVIEW.binQuickLookActive% _ANDALSO AB_QL_CEL > 0 THEN
+        d = d + DOCK_n$(PREVIEW.binQuickLookSlot%) + DOCK_n$(AB_QL_CEL) + " " + AB_crc$(PREVIEW.binQuickLookImg&)
+    ELSE
+        d = d + " 0 0 -"
+    END IF
+    AB_bin_dump$ = d + CHR$(10)
+END FUNCTION
+
+
+' =============================================================================
+' Loading an AnimBrush from a file (A5): ANIM > AnimBrush > Load..., or a drop
+' on a Drawer bin. An animated GIF or APNG gives its frames; a PNG / .draw
+' with frames (the drAn chunk) gives its cells; a plain picture that is a row
+' (or column) of squares gives those. The cels are cropped to what is drawn
+' in any of them, keeping their places.
+' =============================================================================
+
+''
+' Free AB_LD.
+SUB AB_ld_free ()
+    DIM k AS INTEGER
+    FOR k = 1 TO AB_MAX_CELS
+        IF AB_LD(k) < -1 THEN _FREEIMAGE AB_LD(k)
+        AB_LD(k) = 0
+    NEXT k
+END SUB
+
+FUNCTION AB_be32&& (s AS STRING, p AS LONG)
+    IF p + 3 > LEN(s) THEN EXIT FUNCTION
+    AB_be32&& = ASC(s, p) * 16777216&& + ASC(s, p + 1) * 65536&& + ASC(s, p + 2) * 256&& + ASC(s, p + 3)
+END FUNCTION
+
+FUNCTION AB_mkbe32$ (v AS _INTEGER64)
+    AB_mkbe32$ = CHR$((v \ 16777216) AND 255) + CHR$((v \ 65536) AND 255) + CHR$((v \ 256) AND 255) + CHR$(v AND 255)
+END FUNCTION
+
+''
+' A PNG chunk: length, type, data, CRC.
+FUNCTION AB_png_chunk_mk$ (typ AS STRING, dat AS STRING)
+    DIM c AS _UNSIGNED LONG
+    c = _CRC32(typ + dat)
+    AB_png_chunk_mk$ = AB_mkbe32$(LEN(dat)) + typ + dat + AB_mkbe32$(c)
+END FUNCTION
+
+''
+' The data of PNG s's first chunk of type typ ("" = none).
+FUNCTION AB_png_chunk$ (s AS STRING, typ AS STRING)
+    DIM p AS LONG, ln AS _INTEGER64
+    IF LEFT$(s, 8) <> CHR$(137) + "PNG" + CHR$(13) + CHR$(10) + CHR$(26) + CHR$(10) THEN EXIT FUNCTION
+    p = 9
+    DO WHILE p + 7 <= LEN(s)
+        ln = AB_be32&&(s, p)
+        IF MID$(s, p + 4, 4) = typ THEN AB_png_chunk$ = MID$(s, p + 8, ln): EXIT FUNCTION
+        IF MID$(s, p + 4, 4) = "IEND" THEN EXIT DO
+        p = p + 12 + ln
+    LOOP
+END FUNCTION
+
+''
+' An animated GIF's frames into AB_LD. Returns how many (0 = not a GIF).
+FUNCTION AB_gif_frames% (s AS STRING)
+    DIM n AS INTEGER, w AS LONG, h AS LONG, pk AS INTEGER, p AS LONG, gct AS STRING, loopSeen AS INTEGER
+    DIM delays(1 TO AB_MAX_CELS) AS LONG
+    n = ANIM_GIF_count%(s)
+    IF n < 1 _ORELSE LEN(s) < 13 THEN EXIT FUNCTION
+    w = ASC(s, 7) + ASC(s, 8) * 256&: h = ASC(s, 9) + ASC(s, 10) * 256&
+    IF w < 1 _ORELSE h < 1 THEN EXIT FUNCTION
+    n = _MIN(n, AB_MAX_CELS)
+    IF CLNG(n) * w * h > AB_LOAD_MAX_PIXELS THEN n = _MAX(1, AB_LOAD_MAX_PIXELS \ (w * h))
+    pk = ASC(s, 11): p = 14
+    IF pk AND &H80 THEN gct = MID$(s, p, 3 * 2 ^ ((pk AND 7) + 1)): p = p + LEN(gct)
+    AB_gif_frames% = ANIM_GIF_frames%(s, p, w, h, n, gct, TRUE, delays(), loopSeen)
+END FUNCTION
+
+''
+' An APNG's frames into AB_LD: each frame's PNG data rebuilt as a PNG of its
+' own, put on the canvas (blend op source / over), the canvas after it = one
+' frame, then its dispose op (none / clear its area / back as before).
+' Returns how many (0 = not an APNG).
+FUNCTION AB_apng_frames% (s AS STRING)
+    DIM p AS LONG, ln AS _INTEGER64, typ AS STRING, dat AS STRING, ihdr AS STRING, extra AS STRING
+    DIM w AS LONG, h AS LONG, k AS INTEGER, have AS INTEGER, fd AS STRING, canvas AS LONG, done AS INTEGER
+    DIM fw AS LONG, fh AS LONG, fx AS LONG, fy AS LONG, dop AS INTEGER, bop AS INTEGER
+    IF LEN(AB_png_chunk$(s, "acTL")) = 0 THEN EXIT FUNCTION
+    p = 9
+    DO WHILE p + 7 <= LEN(s) _ANDALSO done = FALSE
+        ln = AB_be32&&(s, p): typ = MID$(s, p + 4, 4): dat = MID$(s, p + 8, ln): p = p + 12 + ln
+        SELECT CASE typ
+            CASE "IHDR"
+                ihdr = dat: w = AB_be32&&(dat, 1): h = AB_be32&&(dat, 5)
+                IF w < 1 _ORELSE h < 1 _ORELSE w > 16384 _ORELSE h > 16384 THEN EXIT FUNCTION
+                canvas = _NEWIMAGE(w, h, 32)
+            CASE "PLTE", "tRNS"
+                extra = extra + AB_png_chunk_mk$(typ, dat)
+            CASE "fcTL", "IEND"
+                IF have _ANDALSO canvas < -1 THEN
+                    AB_apng_put canvas, ihdr, extra, fd, fw, fh, fx, fy, dop, bop, k
+                    IF k >= AB_MAX_CELS _ORELSE CLNG(k + 1) * w * h > AB_LOAD_MAX_PIXELS THEN done = TRUE
+                END IF
+                IF typ = "IEND" THEN done = TRUE
+                IF typ = "fcTL" _ANDALSO LEN(dat) >= 26 THEN
+                    have = TRUE: fd = ""
+                    fw = AB_be32&&(dat, 5): fh = AB_be32&&(dat, 9): fx = AB_be32&&(dat, 13): fy = AB_be32&&(dat, 17)
+                    dop = ASC(dat, 25): bop = ASC(dat, 26)
+                    IF k = 0 _ANDALSO dop = 2 THEN dop = 1 ' the first frame: "previous" is the cleared canvas
+                END IF
+            CASE "IDAT"
+                IF have THEN fd = fd + dat ' the default image is frame 1 only after an fcTL
+            CASE "fdAT"
+                IF have _ANDALSO LEN(dat) > 4 THEN fd = fd + MID$(dat, 5)
+        END SELECT
+    LOOP
+    IF canvas < -1 THEN _FREEIMAGE canvas
+    AB_apng_frames% = k
+END FUNCTION
+
+SUB AB_apng_put (canvas AS LONG, ihdr AS STRING, extra AS STRING, fd AS STRING, fw AS LONG, fh AS LONG, fx AS LONG, fy AS LONG, dop AS INTEGER, bop AS INTEGER, k AS INTEGER)
+    DIM png AS STRING, img AS LONG, prevImg AS LONG, od AS LONG
+    IF LEN(fd) = 0 _ORELSE fw < 1 _ORELSE fh < 1 _ORELSE LEN(ihdr) < 13 THEN EXIT SUB
+    png = CHR$(137) + "PNG" + CHR$(13) + CHR$(10) + CHR$(26) + CHR$(10)
+    png = png + AB_png_chunk_mk$("IHDR", AB_mkbe32$(fw) + AB_mkbe32$(fh) + MID$(ihdr, 9)) + extra
+    png = png + AB_png_chunk_mk$("IDAT", fd) + AB_png_chunk_mk$("IEND", "")
+    img = _LOADIMAGE(png, 32, "memory")
+    IF img >= -1 THEN EXIT SUB
+    IF dop = 2 THEN prevImg = _COPYIMAGE(canvas, 32)
+    IF bop = 0 THEN _DONTBLEND canvas ELSE _BLEND canvas
+    _PUTIMAGE (fx, fy), img, canvas
+    _BLEND canvas
+    _FREEIMAGE img
+    k = k + 1
+    AB_LD(k) = _COPYIMAGE(canvas, 32)
+    SELECT CASE dop
+        CASE 1
+            od = _DEST: _DEST canvas: _DONTBLEND canvas
+            LINE (fx, fy)-(fx + fw - 1, fy + fh - 1), _RGBA32(0, 0, 0, 0), BF
+            _BLEND canvas: _DEST od
+        CASE 2
+            IF prevImg < -1 THEN _DONTBLEND canvas: _PUTIMAGE (0, 0), prevImg, canvas: _BLEND canvas: _FREEIMAGE prevImg
+    END SELECT
+END SUB
+
+''
+' A picture's frames into AB_LD: a PNG / .draw with frames (drAn) gives its
+' cells; else a row of squares (width a multiple of the height) or a column
+' of them. Returns how many (0 = neither).
+FUNCTION AB_sheet_frames% (filename AS STRING, s AS STRING)
+    DIM img AS LONG, sw AS LONG, sh AS LONG, an AS STRING, k AS INTEGER, n AS INTEGER
+    DIM fw AS INTEGER, fh AS INTEGER, gutter AS INTEGER, margin AS INTEGER, cols AS INTEGER, x AS LONG, y AS LONG
+    img = _LOADIMAGE(filename, 32)
+    IF img >= -1 THEN EXIT FUNCTION
+    sw = _WIDTH(img): sh = _HEIGHT(img)
+    an = AB_png_chunk$(s, "drAn")
+    IF LEN(an) >= 12 _ANDALSO CVI(LEFT$(an, 2)) >= 1 THEN
+        fw = CVI(MID$(an, 3, 2)): fh = CVI(MID$(an, 5, 2)): gutter = CVI(MID$(an, 7, 2)): margin = CVI(MID$(an, 9, 2)): n = CVI(MID$(an, 11, 2))
+        cols = ANIM_fit%(sw, fw, gutter, margin)
+    ELSEIF sw > sh _ANDALSO sw MOD sh = 0 THEN
+        fw = sh: fh = sh: n = sw \ sh: cols = n
+    ELSEIF sh > sw _ANDALSO sh MOD sw = 0 THEN
+        fw = sw: fh = sw: n = sh \ sw: cols = 1
+    END IF
+    IF fw < 1 _ORELSE fh < 1 _ORELSE cols < 1 _ORELSE n < 1 THEN _FREEIMAGE img: EXIT FUNCTION
+    n = _MIN(n, AB_MAX_CELS)
+    IF CLNG(n) * fw * fh > AB_LOAD_MAX_PIXELS THEN n = _MAX(1, AB_LOAD_MAX_PIXELS \ (CLNG(fw) * fh))
+    FOR k = 1 TO n
+        ANIM_rect_at k, cols, fw, fh, gutter, margin, x, y
+        IF x + fw > sw _ORELSE y + fh > sh THEN EXIT FOR
+        AB_LD(k) = _NEWIMAGE(fw, fh, 32)
+        _DONTBLEND AB_LD(k)
+        _PUTIMAGE (0, 0), img, AB_LD(k), (x, y)-(x + fw - 1, y + fh - 1)
+        _BLEND AB_LD(k)
+        AB_sheet_frames% = k
+    NEXT k
+    _FREEIMAGE img
+END FUNCTION
+
+''
+' File filename's frames into AB_LD (all one size). Returns how many.
+FUNCTION AB_frames_from_file% (filename AS STRING)
+    DIM s AS STRING, ff AS INTEGER
+    AB_ld_free
+    IF _FILEEXISTS(filename) = 0 THEN EXIT FUNCTION
+    ff = FREEFILE
+    OPEN filename FOR BINARY AS #ff
+    IF LOF(ff) > 268435456 THEN CLOSE #ff: EXIT FUNCTION
+    s = SPACE$(LOF(ff))
+    GET #ff, 1, s
+    CLOSE #ff
+    IF LEFT$(s, 4) = "GIF8" THEN
+        AB_frames_from_file% = AB_gif_frames%(s)
+    ELSEIF LEN(AB_png_chunk$(s, "acTL")) THEN
+        AB_frames_from_file% = AB_apng_frames%(s)
+    ELSE
+        AB_frames_from_file% = AB_sheet_frames%(filename, s)
+    END IF
+END FUNCTION
+
+''
+' AB_LD(1..n) become the AnimBrush: each cropped to the box around what is
+' drawn in any of them. FALSE (and AB_LD freed) when nothing is drawn.
+FUNCTION AB_install_loaded% (n AS INTEGER)
+    DIM k AS INTEGER, m AS _MEM, row AS STRING, zero AS STRING, w AS LONG, h AS LONG, y AS LONG, x AS LONG
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, bw AS LONG, bh AS LONG
+    IF n < 1 _ORELSE AB_LD(1) >= -1 THEN AB_ld_free: EXIT FUNCTION
+    w = _WIDTH(AB_LD(1)): h = _HEIGHT(AB_LD(1))
+    x1 = w: y1 = h: x2 = -1: y2 = -1
+    row = SPACE$(w * 4): zero = STRING$(w * 4, 0)
+    FOR k = 1 TO n
+        IF AB_LD(k) < -1 THEN
+            m = _MEMIMAGE(AB_LD(k))
+            FOR y = 0 TO h - 1
+                _MEMGET m, m.OFFSET + y * w * 4, row
+                IF row <> zero THEN
+                    FOR x = 0 TO w - 1
+                        IF ASC(row, x * 4 + 4) THEN
+                            IF x < x1 THEN x1 = x
+                            IF x > x2 THEN x2 = x
+                            IF y < y1 THEN y1 = y
+                            IF y > y2 THEN y2 = y
+                        END IF
+                    NEXT x
+                END IF
+            NEXT y
+            _MEMFREE m
+        END IF
+    NEXT k
+    IF x2 < x1 _ORELSE y2 < y1 THEN AB_ld_free: EXIT FUNCTION
+    bw = x2 - x1 + 1: bh = y2 - y1 + 1
+    CUSTOM_BRUSH_reset
+    FOR k = 1 TO n
+        AB_CEL(k) = _NEWIMAGE(bw, bh, 32)
+        _DONTBLEND AB_CEL(k)
+        IF AB_LD(k) < -1 THEN _PUTIMAGE (0, 0), AB_LD(k), AB_CEL(k), (x1, y1)-(x2, y2)
+        _BLEND AB_CEL(k)
+        AB_FROM(k) = k
+    NEXT k
+    AB_ld_free
+    AB.n = n: AB.w = bw: AB.h = bh
+    AB.merged = FALSE: AB.srcF = 1: AB.anchor = 1: AB.clickPos = 0: AB.cur = 0
+    CUSTOM_BRUSH.IMAGE& = _COPYIMAGE(AB_CEL(1), 32)
+    CUSTOM_BRUSH.WIDTH% = bw: CUSTOM_BRUSH.HEIGHT% = bh
+    CUSTOM_BRUSH.ORIG_WIDTH% = bw: CUSTOM_BRUSH.ORIG_HEIGHT% = bh
+    CUSTOM_BRUSH.SCALE! = 1.0
+    CUSTOM_BRUSH.ACTIVE% = TRUE
+    AB.cur = 1
+    AB_install_loaded% = TRUE
+END FUNCTION
+
+''
+' Load file filename as the AnimBrush. FALSE (a status line) when it has no
+' frames to make one from.
+FUNCTION AB_load_file% (filename AS STRING)
+    DIM n AS INTEGER, nm AS STRING, dot AS LONG
+    nm = MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1)
+    n = AB_frames_from_file%(filename)
+    IF n < 2 THEN
+        AB_ld_free
+        STATUS_flash "AnimBrush: " + nm + " has no frames - an animated GIF / APNG, a picture with frames, or a row of squares"
+        EXIT FUNCTION
+    END IF
+    IF AB_install_loaded%(n) = FALSE THEN STATUS_flash "AnimBrush: " + nm + " - nothing drawn in its frames": EXIT FUNCTION
+    dot = _INSTRREV(nm, ".") ' named after the file, without its extension
+    IF dot > 1 THEN AB.nm = LEFT$(nm, dot - 1) ELSE AB.nm = nm
+    STATUS_flash "AnimBrush: " + nm + " - " + _TRIM$(STR$(AB.n)) + " cels of" + STR$(AB.w) + "x" + _TRIM$(STR$(AB.h))
+    _LOGINFO "AB_load_file: " + filename + " ->" + STR$(AB.n) + " cels"
+    AB_load_file% = TRUE
+END FUNCTION
+
+''
+' ANIM > AnimBrush > Load...
+SUB AB_load_dialog ()
+    DIM filename AS STRING, default_path AS STRING
+    IF CFG.LAST_DIR_OPEN$ <> "" THEN
+        default_path = CFG.LAST_DIR_OPEN$ + "/"
+    ELSEIF LAST_DIRECTORY$ <> "" THEN
+        default_path = LAST_DIRECTORY$ + "/"
+    END IF
+    POINTER_hide_for_dialog
+    filename = DRAW_open_file$("Load AnimBrush (an animated GIF / APNG, a picture with frames, a strip)", default_path, "Animations|*.gif|*.png|*.apng|*.draw|All Files|*.*", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+    IF filename = "" THEN EXIT SUB
+    CFG.LAST_DIR_OPEN$ = CONFIG_extract_dir$(filename)
+    LAST_DIRECTORY$ = CFG.LAST_DIR_OPEN$
+    CONFIG_save
+    IF AB_load_file%(filename) THEN SOUND_play SND_CLIPBOARD: CMD_execute_action 101 ' to the Brush tool
+END SUB
+
+''
+' A file dropped on the Drawer: when it has frames it becomes the AnimBrush and
+' goes in the bin under the pointer (when empty, else the first free one).
+' FALSE = no frames (the drop goes on as a picture).
+FUNCTION AB_drop_on_bin% (filename AS STRING, rawX AS INTEGER, rawY AS INTEGER)
+    DIM n AS INTEGER, slot AS INTEGER, r AS INTEGER
+    n = AB_frames_from_file%(filename)
+    IF n < 2 THEN AB_ld_free: EXIT FUNCTION
+    IF AB_install_loaded%(n) = FALSE THEN EXIT FUNCTION
+    slot = DRAWER_slot_at%(rawX, rawY)
+    IF slot >= 1 THEN
+        IF DRAWER_BRUSH_SLOTS(slot).IMG < -1 THEN slot = DRAWER_first_free_slot%
+    ELSE
+        slot = DRAWER_first_free_slot%
+    END IF
+    IF slot >= 1 THEN
+        r = AB_slot_store%(slot)
+        IF r = FALSE THEN ' too wide for a bin: one picture
+            SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(slot).IMG
+            DRAWER_BRUSH_SLOTS(slot).IMG = _COPYIMAGE(AB_CEL(1), 32)
+            DRAWER_BRUSH_SLOTS(slot).W = AB.w: DRAWER_BRUSH_SLOTS(slot).H = AB.h
+        END IF
+        DRAWER.brushSelected% = slot
+        DRAWER.brushSetDirty% = TRUE
+    END IF
+    STATUS_flash "AnimBrush: " + _TRIM$(STR$(AB.n)) + " cels" + _IIF(slot >= 1, " in bin" + STR$(slot), "")
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    AB_drop_on_bin% = TRUE
+END FUNCTION
+
+
+' =============================================================================
+' Hold the Brush key + make a selection = pick it up (Rick's planning handoff,
+' 2026-11-12, PLANS/ANIMATION.md round 3). With a selection tool in hand the
+' Brush key (B, or whatever the Brush tool is rebound to) does not switch tools
+' on its press (CTX_SELECT_TOOL_ACTIVE keeps the dispatcher off it):
+'   - held while a selection is made (drag, wand click, polygon closed): the
+'     selection is picked up - an AnimBrush when the picture has 2+ frames (as
+'     ANIM > AnimBrush > Pick Up: the selected / tagged frames, else all), else a
+'     still brush (as Ctrl+B) - and the tool becomes the Brush;
+'   - tapped (released with no selection made): the Brush tool, as before.
+' =============================================================================
+
+''
+' A selection tool in hand: the marquees (rectangle, ellipse, lasso, polygon) and the wand.
+FUNCTION AB_sel_tool% ()
+    SELECT CASE CURRENT_TOOL%
+        CASE TOOL_MARQUEE, TOOL_SELECT_RECT, TOOL_SELECT_POLY, TOOL_SELECT_ELLIPSE, TOOL_SELECT_FREE, TOOL_SELECT_WAND
+            AB_sel_tool% = TRUE
+    END SELECT
+END FUNCTION
+
+''
+' The key that picks the Brush tool (its binding, so a rebind moves the hold too); B by default.
+FUNCTION AB_brush_key& ()
+    DIM i AS INTEGER
+    AB_brush_key& = 98
+    FOR i = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i).actionId = 101 _ANDALSO INPUT_BINDS(i).eventType = EVT_KEY_PRESS _ANDALSO INPUT_BINDS(i).requireMods = 0 THEN
+            IF INPUT_BINDS(i).keycode > 0 THEN AB_brush_key& = INPUT_BINDS(i).keycode
+            EXIT FUNCTION
+        END IF
+    NEXT i
+END FUNCTION
+
+''
+' The selection as it stands ("" = none finished): changes when a new one is made.
+FUNCTION AB_sel_sig$ ()
+    IF MARQUEE.ACTIVE% = 0 _ORELSE MARQUEE.DRAGGING <> 0 THEN EXIT FUNCTION
+    IF MARQUEE.BOX.w <= 0 _ORELSE MARQUEE.BOX.h <= 0 THEN EXIT FUNCTION
+    AB_sel_sig$ = STR$(MARQUEE.BOX.x) + STR$(MARQUEE.BOX.y) + STR$(MARQUEE.BOX.w) + STR$(MARQUEE.BOX.h)
+END FUNCTION
+
+''
+' Action 2598, Brush Selector (Deluxe Paint b): the selection tool, and the next
+' box dragged with it becomes the custom brush - the Brush tool takes it.
+SUB AB_selector_start ()
+    CMD_execute_action 112 ' the Marquee
+    AB_SELECTOR_ON = TRUE: AB_SELECTOR_SIG = AB_sel_sig$: AB_SELECTOR_PRESSED = FALSE
+    STATUS_flash "Brush Selector: drag a box round what becomes the brush"
+END SUB
+
+''
+' Every frame (KEYBOARD_input_handler): the armed Brush Selector watches for the
+' selection to be made; another tool picked ends it.
+SUB AB_selector_tick ()
+    IF AB_SELECTOR_ON = 0 THEN EXIT SUB
+    IF AB_sel_tool% = 0 THEN AB_SELECTOR_ON = FALSE: EXIT SUB
+    IF MOUSE.B1% THEN AB_SELECTOR_PRESSED = TRUE: EXIT SUB
+    IF AB_SELECTOR_PRESSED = 0 THEN EXIT SUB
+    DIM sig AS STRING: sig = AB_sel_sig$
+    IF LEN(sig) = 0 _ORELSE sig = AB_SELECTOR_SIG THEN EXIT SUB ' (still dragging, or only a click)
+    AB_SELECTOR_ON = FALSE: AB_SELECTOR_PRESSED = FALSE
+    CUSTOM_BRUSH_capture_from_marquee
+    IF CUSTOM_BRUSH_is_active% THEN SOUND_play SND_CLIPBOARD: CMD_execute_action 101
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Every frame (KEYBOARD_input_handler): the Brush key held with a selection tool.
+SUB AB_hold_pickup ()
+    STATIC held AS INTEGER, armed AS INTEGER, used AS INTEGER, pressed AS INTEGER, sig0 AS STRING
+    DIM k AS LONG, down AS INTEGER, sig AS STRING
+    k = AB_brush_key&
+    down = _KEYDOWN(k)
+    IF k >= 97 _ANDALSO k <= 122 THEN down = down _ORELSE _KEYDOWN(k - 32)
+    IF MODIFIERS.ctrl% _ORELSE MODIFIERS.alt% THEN down = FALSE
+    IF (INPUT_CONTEXT AND CTX_TEXT_ACTIVE) <> 0 _ORELSE CMD_PALETTE.visible _ORELSE TBED_typing% THEN down = FALSE
+    IF down THEN
+        IF held = FALSE THEN ' the press: armed only with a selection tool in hand
+            held = TRUE: used = FALSE: armed = AB_sel_tool%: pressed = FALSE: sig0 = AB_sel_sig$
+            IF armed THEN AB_HOLD_STATE = 1
+        ELSEIF armed _ANDALSO used = FALSE THEN
+            IF MOUSE.B1% THEN
+                pressed = TRUE
+            ELSEIF pressed THEN
+                sig = AB_sel_sig$
+                IF LEN(sig) > 0 _ANDALSO sig <> sig0 THEN ' a new selection was made while held
+                    used = TRUE: AB_HOLD_STATE = 2
+                    IF ANIM.active _ANDALSO ANIM.count >= 2 THEN
+                        CMD_execute_action AB_ACT_PICKUP ' (to the Brush tool)
+                    ELSE
+                        CUSTOM_BRUSH_capture_from_marquee
+                        IF CUSTOM_BRUSH_is_active% THEN SOUND_play SND_CLIPBOARD: CMD_execute_action 101
+                    END IF
+                    GUI_NEEDS_REDRAW% = TRUE
+                END IF
+            END IF
+        END IF
+    ELSEIF held THEN ' the release
+        held = FALSE
+        IF armed _ANDALSO used = FALSE THEN CMD_execute_action 101: AB_HOLD_STATE = 3 ' a tap: the Brush tool
+        armed = FALSE
+    END IF
+END SUB

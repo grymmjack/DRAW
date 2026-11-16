@@ -143,8 +143,34 @@ SUB COLORMIXER_ensure_initialized ()
     ' Scale geometry to match font size (proportional to default 8×16 font)
     CP_THEME_scale_geometry
 
-    ' Recalculate layout
+    ' Recalculate layout (+ hue bar, hex input, buffer) - docked, to its slot
+    COLORMIXER_relayout
+
+    ' Restore saved position or mark for auto-position
+    IF CFG.COLOR_MIXER_X% > -1 AND CFG.COLOR_MIXER_Y% > -1 THEN
+        COLORMIXER.dispX%      = CFG.COLOR_MIXER_X%
+        COLORMIXER.dispY%      = CFG.COLOR_MIXER_Y%
+        COLORMIXER.positioned% = TRUE
+    END IF
+
+    COLORMIXER.lastSyncColor~& = initColor~&
+    COLORMIXER.initialized%    = TRUE
+END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_relayout — Lay the picker out at its natural size or, docked, the
+' size its slot gives it (COLORMIXER.fitW / fitH): the SV field, sliders, hex
+' input and chip rows stretch across; spare height grows the SV field. Then
+' the hue bar, the hex input and the buffer follow the new geometry.
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_relayout ()
+    CP_STATE.fitW = COLORMIXER.fitW%: CP_STATE.fitH = COLORMIXER.fitH%
+    ' MORE (Rick 2026-11-14): a disclosure row under OLD / NEW; closed, the panel
+    ' ends there - the field, the hue bar and the two swatches stay
+    CP_STATE.discloseH = COLORMIXER_more_h%
+    CP_STATE.collapsed = _IIF(CFG.COLOR_MIXER_MORE% <> 0, FALSE, TRUE)
     CP_layout_calculate
+    COLORMIXER.natW% = CP_STATE.natW: COLORMIXER.natH% = CP_STATE.natH
 
     ' Rebuild hue bar image at correct scaled dimensions
     IF CP_STATE.hueBarImage < -1 THEN SAFE_FREEIMAGE CP_STATE.hueBarImage
@@ -172,17 +198,26 @@ SUB COLORMIXER_ensure_initialized ()
 
     ' Compute display scale to fit work area
     COLORMIXER_compute_display_size
-
-    ' Restore saved position or mark for auto-position
-    IF CFG.COLOR_MIXER_X% > -1 AND CFG.COLOR_MIXER_Y% > -1 THEN
-        COLORMIXER.dispX%      = CFG.COLOR_MIXER_X%
-        COLORMIXER.dispY%      = CFG.COLOR_MIXER_Y%
-        COLORMIXER.positioned% = TRUE
-    END IF
-
-    COLORMIXER.lastSyncColor~& = initColor~&
-    COLORMIXER.initialized%    = TRUE
 END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_fit — Docked: lay out to nw x nh native px (0 = natural).
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_fit (nw AS INTEGER, nh AS INTEGER)
+    IF nw = COLORMIXER.fitW% _ANDALSO nh = COLORMIXER.fitH% THEN EXIT SUB
+    COLORMIXER.fitW% = nw: COLORMIXER.fitH% = nh
+    IF COLORMIXER.initialized% = 0 THEN EXIT SUB ' COLORMIXER_ensure_initialized lays it out
+    COLORMIXER_relayout
+END SUB
+
+' The SV field's natural height, and the tallest it gets nw native px wide (1.5x its width)
+FUNCTION COLORMIXER_field_nat_h% ()
+    COLORMIXER_field_nat_h% = CP_THEME.svSize%
+END FUNCTION
+
+FUNCTION COLORMIXER_field_max_h% (nw AS INTEGER)
+    COLORMIXER_field_max_h% = _MAX(CP_THEME.svSize%, (_MAX(nw, COLORMIXER.natW%) - CP_THEME.padding% * 2 - CP_THEME.hueGap% - CP_THEME.hueBarW%) * 3 \ 2)
+END FUNCTION
 
 ' ---------------------------------------------------------------------------
 ' COLORMIXER_cleanup — Free all CP resources. Sets initialized = FALSE.
@@ -212,6 +247,7 @@ SUB COLORMIXER_toggle ()
         COLORMIXER.visible%            = TRUE
         SCRN.showColorMixer%           = TRUE
         SCRN.colorMixerManuallyHidden% = FALSE
+        COLORMIXER.autoHidden%         = FALSE ' shown means shown (a stroke's auto-hide)
 
         COLORMIXER_ensure_initialized
         IF NOT COLORMIXER.positioned% THEN
@@ -274,13 +310,13 @@ SUB COLORMIXER_compute_display_size ()
     ' NOTE: No initialized% guard here — this is called from ensure_initialized
     ' BEFORE initialized% is set to TRUE, but AFTER CP_layout_calculate has run.
     '
-    ' Match the modal dialog's physical size (CP_RENDER_blit uses toolbarScale).
-    ' The mixer renders to screen 0 at toolbarScale, but dispW/H are in viewport
-    ' (canvas) space for hit testing and clamping.
-    ' Physical size = dialogW × toolbarScale
+    ' The mixer renders to screen 0 at FPANEL_scale% (by default the UI Scale, so
+    ' the same pixel size as the menus - OUTPUT/SCALE.BM), but dispW/H are in
+    ' viewport (canvas) space for hit testing and clamping.
+    ' Physical size = dialogW × ts
     ' Viewport footprint = physical / displayScale = dialogW × ts / ds
     DIM ts AS INTEGER, ds AS INTEGER
-    ts% = USCALE.mixer%      : IF ts% < 1 THEN ts% = 1
+    ts% = FPANEL_scale%(DP_MIXER)      : IF ts% < 1 THEN ts% = 1
     ds% = SCRN.displayScale% : IF ds% < 1 THEN ds% = 1
 
     COLORMIXER.renderScale! = CSNG(ts%) / CSNG(ds%)
@@ -383,11 +419,28 @@ SUB COLORMIXER_render ()
         END IF
     END IF
 
+    ' The MORE row's hover: redraw when it changes
+    DIM moH AS INTEGER
+    IF COLORMIXER_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) _ANDALSO COLORMIXER.renderScale! > 0 THEN
+        moH = COLORMIXER_over_more%(INT((MOUSE.RAW_X% - COLORMIXER.dispX%) / COLORMIXER.renderScale!), INT((MOUSE.RAW_Y% - COLORMIXER.dispY%) / COLORMIXER.renderScale!))
+    END IF
+    IF moH <> COLORMIXER.moreHover% THEN COLORMIXER.moreHover% = moH: CP_STATE.dirty = -1
+
     ' Render CP dialog to offscreen buffer if dirty
     IF CP_STATE.dirty THEN
         DIM oldDest AS LONG: oldDest& = _DEST
         CP_RENDER_all ' Sets _DEST to CP_STATE.imgHandle
         CP_STATE.dirty = 0
+        DIM moDest AS LONG: moDest& = _DEST: _DEST CP_STATE.imgHandle
+        ' Collapsed, the dialog ends a little past the MORE row - over the top
+        ' of the first slider: clear from the row down (keep the frame), so
+        ' nothing below MORE shows (BUGS.md 2026-11-15)
+        IF CP_STATE.collapsed THEN
+            LINE (1, CP_STATE.discloseY)-(CP_STATE.dialogW - 2, CP_STATE.dialogH - 2), CP_THEME.bg~&, BF
+        END IF
+        ' the row sits inside its slot with COLORMIXER_MORE_PAD above and below
+        FPANEL_disclosure CP_THEME.fontHandle&, CP_THEME.padding%, CP_STATE.discloseY + COLORMIXER_MORE_PAD, CP_STATE.dialogW - 2 * CP_THEME.padding%, CP_STATE.discloseH - 2 * COLORMIXER_MORE_PAD, "MORE", CFG.COLOR_MIXER_MORE% <> 0, COLORMIXER.moreHover%
+        _DEST moDest&
 
         _DEST oldDest&
     END IF
@@ -400,7 +453,7 @@ SUB COLORMIXER_render ()
     ' physical pixel position on screen 0.)
     IF CP_STATE.imgHandle < -1 THEN
         DIM ts       AS INTEGER, ds AS INTEGER
-        ts% = USCALE.mixer%      : IF ts% < 1 THEN ts% = 1
+        ts% = FPANEL_scale%(DP_MIXER)      : IF ts% < 1 THEN ts% = 1
         ds% = SCRN.displayScale% : IF ds% < 1 THEN ds% = 1
         DIM sx       AS LONG, sy AS LONG, sw AS LONG, sh AS LONG
         sx& = CLNG(COLORMIXER.dispX%) * ds%
@@ -493,6 +546,13 @@ SUB COLORMIXER_mouse_input (wheelDelta AS INTEGER)
             COLORMIXER.dragStartDY% = COLORMIXER.dispY%
             EXIT SUB
         END IF
+    END IF
+
+    ' The MORE row: open / close the rows under OLD / NEW
+    IF justPressed% AND overPanel% _ANDALSO CP_STATE.dragging = CP_DRAG_NONE _ANDALSO COLORMIXER_over_more%(nativeX%, nativeY%) THEN
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        COLORMIXER_set_more _IIF(CFG.COLOR_MIXER_MORE% <> 0, FALSE, TRUE)
+        EXIT SUB
     END IF
 
     ' ── Feed remaining interactions to CP ──
@@ -727,6 +787,30 @@ END FUNCTION
 ' QA (DOCK_DUMP): CMIX <sv x y w h> <hue x y w h> <hex x y w h> <hex focused>
 ' <FG> <BG> <strip FG end> <strip BG end> [hex text] — viewport px, colors RRGGBB.
 ' ---------------------------------------------------------------------------
+' The MORE row's height (native px): a line of the panel font
+FUNCTION COLORMIXER_more_h% ()
+    COLORMIXER_more_h% = _MAX(9, CP_STATE.fontH + 4) + 2 * COLORMIXER_MORE_PAD
+END FUNCTION
+
+' Over the MORE row (native panel coords)?
+FUNCTION COLORMIXER_over_more% (nx AS INTEGER, ny AS INTEGER)
+    IF CP_STATE.discloseH < 1 THEN EXIT FUNCTION
+    COLORMIXER_over_more% = (nx >= 0 _ANDALSO nx < CP_STATE.dialogW _ANDALSO ny >= CP_STATE.discloseY _ANDALSO ny < CP_STATE.discloseY + CP_STATE.discloseH)
+END FUNCTION
+
+' Open (TRUE) / close the MORE rows: the panel grows / shrinks, the dock relays out
+SUB COLORMIXER_set_more (onOff AS INTEGER)
+    CFG.COLOR_MIXER_MORE% = _IIF(onOff <> 0, TRUE, FALSE)
+    IF CFG.COLOR_MIXER_MORE% = 0 _ANDALSO COLORMIXER_hex_focused% THEN COLORMIXER_hex_blur ' (its box goes)
+    IF COLORMIXER.initialized% THEN COLORMIXER_relayout
+    SCREEN_compute_layout
+    COLORMIXER_clamp_to_work_area
+    CONFIG_save
+    CP_STATE.dirty = -1
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+    INVALIDATE_scene
+END SUB
+
 FUNCTION COLORMIXER_dump$ ()
     DIM rs AS SINGLE, ox AS INTEGER, oy AS INTEGER, d AS STRING
     IF COLORMIXER.initialized% = 0 _ORELSE COLORMIXER.visible% = 0 _ORELSE COLORMIXER.autoHidden% THEN EXIT FUNCTION
@@ -741,5 +825,8 @@ FUNCTION COLORMIXER_dump$ ()
     d = d + " " + RIGHT$("00000" + HEX$(_RGB32(CP_STATE.blenderFGR, CP_STATE.blenderFGG, CP_STATE.blenderFGB) AND &HFFFFFF~&), 6)
     d = d + " " + RIGHT$("00000" + HEX$(CP_STATE.bgColorRef AND &HFFFFFF~&), 6)
     IF CP_STATE.tiHexId > 0 THEN d = d + " [" + TI_get_text$(CP_STATE.tiHexId) + "]"
+    ' CMXM x y w h open panelH: the MORE row (viewport px), 1 = open, then the panel's height
+    d = d + CHR$(10) + "CMXM" + DOCK_n$(ox + INT(CP_THEME.padding% * rs)) + DOCK_n$(oy + INT(CP_STATE.discloseY * rs)) + DOCK_n$(INT((CP_STATE.dialogW - 2 * CP_THEME.padding%) * rs))
+    d = d + DOCK_n$(INT(CP_STATE.discloseH * rs)) + DOCK_n$(_IIF(CFG.COLOR_MIXER_MORE% <> 0, 1, 0)) + DOCK_n$(COLORMIXER.dispH%)
     COLORMIXER_dump$ = d + CHR$(10)
 END FUNCTION

@@ -1,0 +1,1099 @@
+''
+' DRAW - TOOLS/ANIM-IMPORT.BM
+' =============================================================================
+' Bring frames in (see ANIM-IMPORT.BI).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' ---------------------------------------------------------------------------
+' 5.1 Animated GIF
+' ---------------------------------------------------------------------------
+
+''
+' The images in GIF data s (walks the blocks; 0 when it is not a GIF).
+FUNCTION ANIM_GIF_count% (s AS STRING)
+    DIM p AS LONG, pk AS INTEGER, n AS INTEGER, d AS STRING
+    IF LEN(s) < 14 _ORELSE LEFT$(s, 4) <> "GIF8" THEN EXIT FUNCTION
+    pk = ASC(s, 11): p = 14
+    IF pk AND &H80 THEN p = p + 3 * 2 ^ ((pk AND 7) + 1)
+    DO WHILE p <= LEN(s)
+        SELECT CASE ASC(s, p)
+            CASE &H21
+                p = p + 2: d = GIF_read_subblocks$(s, p)
+            CASE &H2C
+                IF p + 9 > LEN(s) THEN EXIT DO
+                pk = ASC(s, p + 9): p = p + 10
+                IF pk AND &H80 THEN p = p + 3 * 2 ^ ((pk AND 7) + 1)
+                p = p + 1: d = GIF_read_subblocks$(s, p)
+                n = n + 1
+                IF n >= ANIM_MAX_FRAMES THEN EXIT DO
+            CASE ELSE
+                EXIT DO ' the trailer, or something unknown
+        END SELECT
+    LOOP
+    ANIM_GIF_count% = n
+END FUNCTION
+
+''
+' Rows of an interlaced image back in order.
+FUNCTION ANIM_GIF_deinterlace$ (px AS STRING, w AS LONG, h AS LONG)
+    DIM r AS STRING, pass AS INTEGER, y AS LONG, y0 AS LONG, dy AS LONG, k AS LONG
+    r = STRING$(w * h, 0)
+    FOR pass = 1 TO 4
+        SELECT CASE pass
+            CASE 1: y0 = 0: dy = 8
+            CASE 2: y0 = 4: dy = 8
+            CASE 3: y0 = 2: dy = 4
+            CASE ELSE: y0 = 1: dy = 2
+        END SELECT
+        FOR y = y0 TO h - 1 STEP dy
+            MID$(r, y * w + 1, w) = MID$(px, k * w + 1, w)
+            k = k + 1
+        NEXT y
+    NEXT pass
+    ANIM_GIF_deinterlace$ = r
+END FUNCTION
+
+''
+' FPS and holds for delays d(1..n) (centiseconds): FPS = 100 / their common
+' divisor (at most 50), each hold its delay at that FPS (1..ANIM_HOLD_MAX); a
+' slower FPS when a hold would pass ANIM_HOLD_MAX.
+FUNCTION ANIM_GIF_fps% (d() AS LONG, n AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 1 TO n
+        IF d(i) < 2 THEN d(i) = 10
+    NEXT i
+    ANIM_GIF_fps% = ANIM_IMP_fps%(d(), n, 100)
+END FUNCTION
+
+''
+' The FPS for frame times d(1..n) in 1/perSec seconds (one under 1 counts as
+' a tenth of a second): perSec / their common divisor, at most 50, lowered
+' while a hold would pass ANIM_HOLD_MAX. A hold is (d * fps + perSec \ 2) \ perSec.
+FUNCTION ANIM_IMP_fps% (d() AS LONG, n AS INTEGER, perSec AS LONG)
+    DIM g AS LONG, i AS INTEGER, fps AS LONG, mx AS LONG
+    FOR i = 1 TO n
+        IF d(i) < 1 THEN d(i) = perSec \ 10
+        IF g = 0 THEN g = d(i) ELSE g = GIF_gcd&(g, d(i))
+        IF d(i) > mx THEN mx = d(i)
+    NEXT i
+    IF g < 1 THEN g = perSec \ 10
+    fps = (perSec + g \ 2) \ g
+    IF fps > 50 THEN fps = 50
+    IF fps < 1 THEN fps = 1
+    DO WHILE fps > 1 _ANDALSO (mx * fps + perSec \ 2) \ perSec > ANIM_HOLD_MAX
+        fps = fps - 1
+    LOOP
+    ANIM_IMP_fps% = fps
+END FUNCTION
+
+''
+' The sheet for n frames of w x h: cols x rows, a grid about as wide as tall
+' inside the largest sheet. FALSE (and a log line) when n < 2 or it is too big.
+FUNCTION ANIM_IMP_grid% (n AS LONG, w AS LONG, h AS LONG, cols AS LONG, rows AS LONG, what AS STRING)
+    cols = 0: rows = 0
+    IF n < 2 _ORELSE w < 1 _ORELSE h < 1 THEN EXIT FUNCTION
+    cols = INT(SQR(n - 1)) + 1
+    IF cols * w > ANIM_SHEET_MAX THEN cols = ANIM_SHEET_MAX \ w
+    IF cols < 1 THEN EXIT FUNCTION
+    rows = (n + cols - 1) \ cols
+    IF n > ANIM_MAX_FRAMES _ORELSE rows * h > ANIM_SHEET_MAX _ORELSE cols * w * rows * h > ANIM_IMP_MAX_PIXELS THEN
+        _LOGWARN "ANIM import: " + what + ": " + _TRIM$(STR$(n)) + " frames of " + _TRIM$(STR$(w)) + "x" + _TRIM$(STR$(h)) + " - too big for a sheet, opening the first frame"
+        cols = 0: rows = 0
+        EXIT FUNCTION
+    END IF
+    ANIM_IMP_grid% = TRUE
+END FUNCTION
+
+''
+' Decode GIF data s from block position p (after the global colour table) for
+' a w x h logical screen of n images: each image composited over what was
+' there (transparent index, disposal 2 / 3), the screen after it = one frame.
+' toBrush FALSE: frame k into cell k of the current layer (the layout set);
+' TRUE: frame k into AB_LD(k), a w x h image (TOOLS/ANIM-BRUSH; at most
+' AB_MAX_CELS). delays(k) = its delay (centiseconds); loopSeen = a loop
+' extension was met. Returns the frames decoded.
+FUNCTION ANIM_GIF_frames% (s AS STRING, p AS LONG, w AS LONG, h AS LONG, n AS INTEGER, gct AS STRING, toBrush AS INTEGER, delays() AS LONG, loopSeen AS INTEGER)
+    DIM k AS INTEGER, pk AS INTEGER, lbl AS INTEGER, id AS STRING, dat AS STRING, delay AS LONG, disposal AS INTEGER, transIdx AS INTEGER
+    DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, lct AS STRING, pal AS STRING, minCode AS INTEGER
+    DIM idx AS STRING, scr AS STRING, prev AS STRING, x AS LONG, y AS LONG, c AS INTEGER
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, m AS _MEM, imgW AS LONG, row AS LONG
+    DIM rgb(0 TO 255) AS _UNSIGNED LONG
+    ' decode: the logical screen (RGBA, transparent to start) after each image
+    scr = STRING$(w * h * 4, 0)
+    IF toBrush = FALSE THEN
+        m = _MEMIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&)
+        imgW = _WIDTH(LAYERS(CURRENT_LAYER%).imgHandle&)
+    END IF
+    transIdx = -1: disposal = 0: delay = 0: k = 0
+    DO WHILE p <= LEN(s) _ANDALSO k < n
+        SELECT CASE ASC(s, p)
+            CASE &H21
+                lbl = ASC(s, p + 1): p = p + 2
+                IF lbl = &HFF THEN
+                    id = MID$(s, p + 1, ASC(s, p)): p = p + 1 + ASC(s, p)
+                    dat = GIF_read_subblocks$(s, p)
+                    IF LEFT$(id, 8) = "NETSCAPE" _ORELSE LEFT$(id, 8) = "ANIMEXTS" THEN loopSeen = TRUE
+                ELSE
+                    dat = GIF_read_subblocks$(s, p)
+                    IF lbl = &HF9 _ANDALSO LEN(dat) >= 4 THEN ' graphic control: for the next image
+                        disposal = (ASC(dat, 1) \ 4) AND 7
+                        delay = ASC(dat, 2) + ASC(dat, 3) * 256&
+                        IF ASC(dat, 1) AND 1 THEN transIdx = ASC(dat, 4) ELSE transIdx = -1
+                    END IF
+                END IF
+            CASE &H2C
+                fx = ASC(s, p + 1) + ASC(s, p + 2) * 256&: fy = ASC(s, p + 3) + ASC(s, p + 4) * 256&
+                fw = ASC(s, p + 5) + ASC(s, p + 6) * 256&: fh = ASC(s, p + 7) + ASC(s, p + 8) * 256&
+                pk = ASC(s, p + 9): p = p + 10
+                lct = ""
+                IF pk AND &H80 THEN lct = MID$(s, p, 3 * 2 ^ ((pk AND 7) + 1)): p = p + LEN(lct)
+                minCode = ASC(s, p): p = p + 1
+                dat = GIF_read_subblocks$(s, p)
+                IF minCode < 1 _ORELSE minCode > 11 THEN minCode = 8
+                idx = GIF_lzw_decode$(dat, minCode, fw * fh)
+                IF pk AND &H40 THEN idx = ANIM_GIF_deinterlace$(idx, fw, fh)
+                IF LEN(lct) > 0 THEN pal = lct ELSE pal = gct
+                FOR c = 0 TO 255
+                    IF c * 3 + 3 <= LEN(pal) THEN rgb(c) = _RGB32(ASC(pal, c * 3 + 1), ASC(pal, c * 3 + 2), ASC(pal, c * 3 + 3)) ELSE rgb(c) = _RGB32(0, 0, 0)
+                NEXT c
+                IF disposal = 3 THEN prev = scr
+                ' the image over the screen (its transparent index leaves what is there)
+                cx = _MAX(0, fx): cy = _MAX(0, fy): cw = _MIN(fx + fw, w) - cx: ch = _MIN(fy + fh, h) - cy
+                FOR y = 0 TO ch - 1
+                    FOR x = 0 TO cw - 1
+                        c = ASC(idx, (cy - fy + y) * fw + (cx - fx + x) + 1)
+                        IF c <> transIdx THEN MID$(scr, ((cy + y) * w + cx + x) * 4 + 1, 4) = MKL$(rgb(c))
+                    NEXT x
+                NEXT y
+                k = k + 1
+                delays(k) = delay
+                ' frame k = the screen now: into its cell, or an AnimBrush cel (AB_LD)
+                IF toBrush THEN
+                    AB_LD(k) = _NEWIMAGE(w, h, 32)
+                    m = _MEMIMAGE(AB_LD(k)): _MEMPUT m, m.OFFSET, scr: _MEMFREE m
+                    IF k >= AB_MAX_CELS THEN EXIT DO
+                ELSEIF ANIM_cell_rect%(k, x, y, fw, fh) THEN
+                    FOR row = 0 TO h - 1
+                        _MEMPUT m, m.OFFSET + ((y + row) * imgW + x) * 4, MID$(scr, row * w * 4 + 1, w * 4)
+                    NEXT row
+                END IF
+                ' then the disposal before the next image
+                IF disposal = 2 _ANDALSO cw > 0 THEN
+                    FOR y = 0 TO ch - 1: MID$(scr, ((cy + y) * w + cx) * 4 + 1, cw * 4) = STRING$(cw * 4, 0): NEXT y
+                ELSEIF disposal = 3 _ANDALSO LEN(prev) = LEN(scr) THEN
+                    scr = prev
+                END IF
+                transIdx = -1: disposal = 0: delay = 0
+            CASE ELSE
+                EXIT DO
+        END SELECT
+    LOOP
+    IF toBrush = FALSE THEN _MEMFREE m
+    ANIM_GIF_frames% = k
+END FUNCTION
+
+''
+' Open GIF file filename as a sheet with frames when it has two or more
+' images. FALSE (nothing changed) for a single image, a GIF with colour
+' cycling ranges, or a sheet too big - the caller opens it as a picture.
+FUNCTION ANIM_GIF_import% (filename AS STRING)
+    DIM s AS STRING, ff AS INTEGER, n AS INTEGER, w AS LONG, h AS LONG, pk AS INTEGER, p AS LONG
+    DIM gct AS STRING, gctN AS INTEGER, firstLct AS STRING, firstLctN AS INTEGER
+    DIM cols AS LONG, rows AS LONG, sw AS LONG, sh AS LONG, k AS INTEGER, r AS INTEGER, loopSeen AS INTEGER
+    DIM lbl AS INTEGER, id AS STRING, dat AS STRING, delay AS LONG, disposal AS INTEGER, transIdx AS INTEGER
+    DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, lct AS STRING, pal AS STRING, minCode AS INTEGER
+    DIM idx AS STRING, scr AS STRING, prev AS STRING, x AS LONG, y AS LONG, c AS INTEGER, i AS LONG
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, m AS _MEM, imgW AS LONG, row AS LONG
+    DIM rgb(0 TO 255) AS _UNSIGNED LONG, delays(1 TO ANIM_MAX_FRAMES) AS LONG, fps AS INTEGER, hh AS INTEGER
+
+    ANIM_IMP_INFO = ""
+    ff = FREEFILE
+    OPEN filename FOR BINARY AS #ff
+    s = SPACE$(LOF(ff))
+    GET #ff, 1, s
+    CLOSE #ff
+    n = ANIM_GIF_count%(s)
+    IF n < 2 THEN EXIT FUNCTION
+    w = ASC(s, 7) + ASC(s, 8) * 256&: h = ASC(s, 9) + ASC(s, 10) * 256&
+    IF w < 1 _ORELSE h < 1 THEN EXIT FUNCTION
+    IF ANIM_IMP_grid%(n, w, h, cols, rows, filename) = FALSE THEN EXIT FUNCTION
+    sw = cols * w: sh = rows * h
+
+    pk = ASC(s, 11): p = 14
+    IF pk AND &H80 THEN
+        gctN = 2 ^ ((pk AND 7) + 1): gct = MID$(s, p, 3 * gctN): p = p + 3 * gctN
+    END IF
+    ' the palette: the global table, else the first local one
+    IF gctN = 0 THEN
+        i = p
+        DO WHILE i <= LEN(s)
+            IF ASC(s, i) = &H21 THEN
+                i = i + 2: dat = GIF_read_subblocks$(s, i)
+            ELSEIF ASC(s, i) = &H2C _ANDALSO i + 9 <= LEN(s) THEN
+                IF ASC(s, i + 9) AND &H80 THEN firstLctN = 2 ^ ((ASC(s, i + 9) AND 7) + 1): firstLct = MID$(s, i + 10, 3 * firstLctN)
+                EXIT DO
+            ELSE
+                EXIT DO
+            END IF
+        LOOP
+    END IF
+    IF gctN > 0 THEN
+        CYCX_adopt_begin sw, sh, gct, gctN, "(GIF)"
+    ELSEIF firstLctN > 0 THEN
+        CYCX_adopt_begin sw, sh, firstLct, firstLctN, "(GIF)"
+    ELSE
+        DRW_create_canvas_at_size sw, sh
+    END IF
+    r = ANIM_set_layout%(w, h, 0, 0)
+    IF r = FALSE _ORELSE LAYERS(CURRENT_LAYER%).imgHandle& >= -1 THEN EXIT FUNCTION
+    ANIM.count = n: ANIM.wanted = n: ANIM.current = 1
+
+    k = ANIM_GIF_frames%(s, p, w, h, n, gct, FALSE, delays(), loopSeen)
+    IF k < n THEN ANIM.count = _MAX(1, k): ANIM.wanted = ANIM.count ' a cut-off file: the frames it had
+
+    fps = ANIM_GIF_fps%(delays(), ANIM.count)
+    ANIM_set_fps fps
+    FOR k = 1 TO ANIM.count
+        hh = (delays(k) * fps + 50) \ 100
+        ANIM_set_hold k, hh
+    NEXT k
+    ANIM.loopMode = _IIF(loopSeen, ANIM_LOOP_FWD, ANIM_LOOP_ONCE)
+
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    IF PAL_FG_IDX% >= PAL_COLOR_COUNT% THEN PAL_FG_IDX% = 0
+    PAINT_COLOR~& = PAL(PAL_FG_IDX%).value~&
+    PAINT_BG_COLOR~& = PAL(PAL_BG_IDX%).value~&
+    IF gctN > 0 _ORELSE firstLctN > 0 THEN PALETTE_OPS_mark_document_palette
+    BLEND_invalidate_cache
+    CANVAS_DIRTY% = FALSE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    COMPOSITE_RESULT_VALID% = FALSE
+    ANIM_IMP_INFO = _TRIM$(STR$(ANIM.count)) + " frames at" + STR$(ANIM.fps) + " fps" + _IIF(ANIM.loopMode = ANIM_LOOP_ONCE, ", plays once", "")
+    _LOGINFO "ANIM_GIF_import: " + filename + " " + _TRIM$(STR$(w)) + "x" + _TRIM$(STR$(h)) + ", " + ANIM_IMP_INFO
+    STATUS_flash MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1) + ": " + ANIM_IMP_INFO
+    ANIM_GIF_import% = TRUE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' 5.2 Aseprite (FILE_ASE_load lays the cels out; this reads the rest)
+' ---------------------------------------------------------------------------
+
+''
+' After FILE_ASE_load put each frame's cels in their cells and set the layout:
+' the frame durations become the FPS and holds, the tags tags, the linked
+' cels linked cells. layerOf = MKI$ per Aseprite layer (0-based): the DRAW
+' layer it became (0 = none, e.g. a group or tilemap).
+SUB ANIM_ASE_apply (filename AS STRING, layerOf AS STRING)
+    DIM s AS STRING, ff AS INTEGER, n AS LONG, f AS LONG, p AS LONG, fb AS LONG, nch AS LONG, c AS LONG
+    DIM q AS LONG, csz AS LONG, ct AS LONG, d AS LONG, nt AS LONG, t AS LONG, k AS LONG, nl AS LONG
+    DIM ta AS LONG, tb AS LONG, tagDir AS INTEGER, nm AS STRING, li AS LONG, lf AS LONG, di AS INTEGER
+    DIM id AS LONG, g AS INTEGER, fps AS INTEGER, hh AS INTEGER, nTags AS INTEGER, nLinks AS INTEGER
+    DIM durs(1 TO ANIM_MAX_FRAMES) AS LONG
+
+    ANIM_IMP_INFO = ""
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 2 THEN EXIT SUB
+    ff = FREEFILE
+    OPEN filename FOR BINARY AS #ff
+    s = SPACE$(LOF(ff))
+    GET #ff, 1, s
+    CLOSE #ff
+    IF LEN(s) < 128 THEN EXIT SUB
+    n = CVI(MID$(s, 7, 2)) AND &HFFFF&
+    IF n > ANIM.count THEN n = ANIM.count
+    ANIM.loopMode = ANIM_LOOP_FWD
+    p = 129
+    FOR f = 1 TO n
+        IF p + 15 > LEN(s) THEN EXIT FOR
+        fb = CVL(MID$(s, p, 4))
+        IF fb < 16 _ORELSE (CVI(MID$(s, p + 4, 2)) AND &HFFFF&) <> &HF1FA& THEN EXIT FOR
+        durs(f) = CVI(MID$(s, p + 8, 2)) AND &HFFFF&
+        nch = CVL(MID$(s, p + 12, 4))
+        IF nch = 0 THEN nch = CVI(MID$(s, p + 6, 2)) AND &HFFFF&
+        q = p + 16
+        FOR c = 1 TO nch
+            IF q + 5 > LEN(s) _ORELSE q + 5 >= p + fb THEN EXIT FOR
+            csz = CVL(MID$(s, q, 4)): ct = CVI(MID$(s, q + 4, 2)) AND &HFFFF&
+            IF csz < 6 _ORELSE q + csz > p + fb THEN EXIT FOR
+            d = q + 6
+            SELECT CASE ct
+                CASE &H2018& ' tags: from / to are 0-based frames
+                    nt = CVI(MID$(s, d, 2)) AND &HFFFF&
+                    t = d + 10
+                    FOR k = 1 TO nt
+                        IF t + 18 > q + csz THEN EXIT FOR
+                        ta = (CVI(MID$(s, t, 2)) AND &HFFFF&) + 1: tb = (CVI(MID$(s, t + 2, 2)) AND &HFFFF&) + 1
+                        tagDir = ASC(s, t + 4)
+                        nl = CVI(MID$(s, t + 17, 2)) AND &HFFFF&
+                        nm = MID$(s, t + 19, nl)
+                        t = t + 19 + nl
+                        IF ta >= 1 _ANDALSO tb <= ANIM.count _ANDALSO ta <= tb THEN
+                            IF ANIM_TG_put%(nm, ta, tb) THEN nTags = nTags + 1
+                            IF ta = 1 _ANDALSO tb = ANIM.count THEN
+                                IF tagDir = 1 THEN ANIM.loopMode = ANIM_LOOP_REV
+                                IF tagDir = 2 _ORELSE tagDir = 3 THEN ANIM.loopMode = ANIM_LOOP_PING
+                            END IF
+                        END IF
+                    NEXT k
+                CASE &H2005& ' a linked cel (type 1): this frame shows frame lf's cel of layer li
+                    IF csz >= 6 + 18 _ANDALSO (CVI(MID$(s, d + 7, 2)) AND &HFFFF&) = 1 THEN
+                        li = CVI(MID$(s, d, 2)) AND &HFFFF&
+                        lf = (CVI(MID$(s, d + 16, 2)) AND &HFFFF&) + 1
+                        di = 0
+                        IF li * 2 + 2 <= LEN(layerOf) THEN di = CVI(MID$(layerOf, li * 2 + 1, 2))
+                        IF di >= 1 _ANDALSO di <= MAX_LAYERS _ANDALSO lf >= 1 _ANDALSO lf <= ANIM.count _ANDALSO lf <> f THEN
+                            id = LAYERS(di).historyId&
+                            g = ANIM_LK_group%(id, lf)
+                            IF g = 0 THEN g = ANIM_LK_new_group%(id): ANIM_LK_put id, lf, g
+                            IF g > 0 THEN ANIM_LK_put id, f, g: nLinks = nLinks + 1
+                        END IF
+                    END IF
+            END SELECT
+            q = q + csz
+        NEXT c
+        p = p + fb
+    NEXT f
+
+    fps = ANIM_IMP_fps%(durs(), ANIM.count, 1000)
+    ANIM_set_fps fps
+    FOR f = 1 TO ANIM.count
+        hh = (durs(f) * fps + 500) \ 1000
+        ANIM_set_hold CINT(f), hh
+    NEXT f
+    ANIM_IMP_INFO = _TRIM$(STR$(ANIM.count)) + " frames at" + STR$(ANIM.fps) + " fps"
+    IF nTags > 0 THEN ANIM_IMP_INFO = ANIM_IMP_INFO + "," + STR$(nTags) + _IIF(nTags = 1, " tag", " tags")
+    IF nLinks > 0 THEN ANIM_IMP_INFO = ANIM_IMP_INFO + "," + STR$(nLinks) + _IIF(nLinks = 1, " linked cel", " linked cels")
+    _LOGINFO "ANIM_ASE_apply: " + filename + ": " + ANIM_IMP_INFO
+END SUB
+
+' ---------------------------------------------------------------------------
+' 5.3 Sprite sheets: Detect Frames, and a sheet's frame data (.json) on open
+' ---------------------------------------------------------------------------
+
+''
+' ANIM > Detect Frames: find the frame grid of the sheet from its gaps (the
+' flattened document; empty = transparent, or the top-left pixel's colour on
+' an opaque sheet) and slice it (the pixels stay). Each blob counts as its
+' whole extent so a sprite with a gap is one; the frames run to the last cell
+' with something in it. One undo step.
+SUB ANIM_DT_action ()
+    DIM flat AS LONG, w AS LONG, h AS LONG, m AS _MEM, px AS STRING, bg AS _UNSIGNED LONG, x AS LONG, y AS LONG
+    DIM c AS _UNSIGNED LONG, opaqueBg AS INTEGER, mx AS STRING, my AS STRING, fw AS INTEGER, fh AS INTEGER
+    DIM gutter AS INTEGER, margin AS INTEGER, before AS STRING, r AS INTEGER, cols AS LONG, n AS LONG, k AS LONG
+    DIM i AS LONG, sp AS LONG, q AS LONG, qx AS LONG, qy AS LONG, x0 AS LONG, y0 AS LONG, x1 AS LONG, y1 AS LONG
+    DIM dx AS INTEGER, dy AS INTEGER, nx AS LONG, ny AS LONG, msg AS STRING, useBlobs AS INTEGER
+
+    IF TRANSFORM.ACTIVE THEN STATUS_flash "Detect Frames: finish the transform first": EXIT SUB
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN STATUS_flash "Detect Frames: nothing to look at": EXIT SUB
+    w = _WIDTH(flat): h = _HEIGHT(flat)
+    m = _MEMIMAGE(flat)
+    px = SPACE$(w * h * 4)
+    _MEMGET m, m.OFFSET, px
+    _MEMFREE m
+    SAFE_FREEIMAGE flat
+    bg = CVL(LEFT$(px, 4))
+    opaqueBg = (_ALPHA32(bg) > 0)
+    ' what is drawn: one byte per pixel (1 = drawn)
+    DIM drawn(0 TO w * h - 1) AS _UNSIGNED _BYTE
+    FOR i = 0 TO w * h - 1
+        c = CVL(MID$(px, i * 4 + 1, 4))
+        IF opaqueBg THEN
+            IF c <> bg THEN drawn(i) = 1
+        ELSEIF _ALPHA32(c) > 0 THEN
+            drawn(i) = 1
+        END IF
+    NEXT i
+    px = ""
+    mx = STRING$(w, "."): my = STRING$(h, ".")
+    useBlobs = (w * h <= 4194304)
+    IF useBlobs THEN
+        ' each 8-connected blob marks its whole extent
+        DIM stk(0 TO w * h) AS LONG
+        FOR i = 0 TO w * h - 1
+            IF drawn(i) = 1 THEN
+                drawn(i) = 2: sp = 0: stk(0) = i
+                x0 = i MOD w: x1 = x0: y0 = i \ w: y1 = y0
+                DO WHILE sp >= 0
+                    q = stk(sp): sp = sp - 1
+                    qx = q MOD w: qy = q \ w
+                    IF qx < x0 THEN x0 = qx
+                    IF qx > x1 THEN x1 = qx
+                    IF qy < y0 THEN y0 = qy
+                    IF qy > y1 THEN y1 = qy
+                    FOR dy = -1 TO 1
+                        FOR dx = -1 TO 1
+                            nx = qx + dx: ny = qy + dy
+                            IF nx >= 0 _ANDALSO nx < w _ANDALSO ny >= 0 _ANDALSO ny < h THEN
+                                IF drawn(ny * w + nx) = 1 THEN drawn(ny * w + nx) = 2: sp = sp + 1: stk(sp) = ny * w + nx
+                            END IF
+                        NEXT dx
+                    NEXT dy
+                LOOP
+                MID$(mx, x0 + 1, x1 - x0 + 1) = STRING$(x1 - x0 + 1, "#")
+                MID$(my, y0 + 1, y1 - y0 + 1) = STRING$(y1 - y0 + 1, "#")
+            END IF
+        NEXT i
+        ERASE stk
+    ELSE
+        FOR y = 0 TO h - 1
+            FOR x = 0 TO w - 1
+                IF drawn(y * w + x) THEN MID$(mx, x + 1, 1) = "#": MID$(my, y + 1, 1) = "#"
+            NEXT x
+        NEXT y
+    END IF
+    IF ANIM_DT_solve%(mx, my, fw, fh, gutter, margin) = FALSE THEN
+        STATUS_flash "Detect Frames: no frame grid found (the sprites touch, or there is only one) - set the frame size in the ANIM panel"
+        EXIT SUB
+    END IF
+    ' the frames: up to the last cell with something in it
+    cols = ANIM_fit%(w, fw, gutter, margin)
+    FOR i = 0 TO w * h - 1
+        IF drawn(i) THEN
+            x = i MOD w: y = i \ w
+            k = ((y - margin) \ (CLNG(fh) + gutter)) * cols + (x - margin) \ (CLNG(fw) + gutter) + 1
+            IF k > n THEN n = k
+        END IF
+    NEXT i
+    ERASE drawn
+    before = ANIM_OPS_snapshot$(FALSE)
+    r = ANIM_set_layout%(fw, fh, gutter, margin)
+    IF r = FALSE THEN STATUS_flash "Detect Frames: that grid does not fit the canvas": EXIT SUB
+    n = _MIN(n, ANIM_cells%): IF n < 1 THEN n = 1
+    ANIM.wanted = n: ANIM.count = n: ANIM.current = 1
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Detect Frames", 0
+    msg = "Detect Frames:" + STR$(n) + " frames of" + STR$(fw) + "x" + _TRIM$(STR$(fh))
+    IF gutter > 0 THEN msg = msg + ", gutter" + STR$(gutter)
+    IF margin > 0 THEN msg = msg + ", margin" + STR$(margin)
+    STATUS_flash msg
+    _LOGINFO "ANIM_DT_action: " + msg
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' ANIM > Create Frames from Grid (F8, Rick: "i can just guess the grid and
+' hold down g and arrows to get it right"): the frame size = the pixel grid's
+' cell (GRID.gridWidth x gridHeight), no gutter or margin; the frames run up to
+' the last cell with something drawn in it (every cell when nothing is). One
+' undo step. Works on a plain picture too.
+SUB ANIM_GRID_frames_action ()
+    DIM fw AS INTEGER, fh AS INTEGER, flat AS LONG, w AS LONG, h AS LONG, m AS _MEM, px AS STRING
+    DIM i AS LONG, x AS LONG, y AS LONG, cols AS LONG, k AS LONG, n AS LONG, c AS _UNSIGNED LONG
+    DIM bg AS _UNSIGNED LONG, opaqueBg AS INTEGER, before AS STRING, why AS STRING
+    IF TRANSFORM.ACTIVE THEN STATUS_flash "Create Frames from Grid: finish the transform first": EXIT SUB
+    why = ANIM_OPS_busy$
+    IF why <> "" THEN STATUS_flash "Create Frames from Grid: " + why: EXIT SUB
+    fw = GRID.gridWidth: fh = GRID.gridHeight
+    IF fw < 1 _ORELSE fh < 1 THEN STATUS_flash "Create Frames from Grid: no grid size": EXIT SUB
+    IF fw > SCRN.canvasW& _ORELSE fh > SCRN.canvasH& THEN
+        STATUS_flash "Create Frames from Grid: the grid cell" + STR$(fw) + "x" + _TRIM$(STR$(fh)) + " is bigger than the canvas"
+        EXIT SUB
+    END IF
+    ANIM_play_stop
+    before = ANIM_OPS_snapshot$(FALSE)
+    IF ANIM_set_layout%(fw, fh, 0, 0) = FALSE THEN STATUS_flash "Create Frames from Grid: that grid does not fit the canvas": EXIT SUB
+    ' the frames: up to the last cell with something in it
+    flat = LAYERS_flatten&
+    IF flat < -1 THEN
+        w = _WIDTH(flat): h = _HEIGHT(flat)
+        m = _MEMIMAGE(flat)
+        px = SPACE$(w * h * 4)
+        _MEMGET m, m.OFFSET, px
+        _MEMFREE m
+        SAFE_FREEIMAGE flat
+        bg = CVL(LEFT$(px, 4))
+        opaqueBg = (_ALPHA32(bg) > 0)
+        cols = ANIM_fit%(w, fw, 0, 0)
+        FOR i = 0 TO w * h - 1
+            c = CVL(MID$(px, i * 4 + 1, 4))
+            IF (opaqueBg _ANDALSO c <> bg) _ORELSE (opaqueBg = 0 _ANDALSO _ALPHA32(c) > 0) THEN
+                x = i MOD w: y = i \ w
+                IF x < cols * fw THEN
+                    k = (y \ fh) * cols + x \ fw + 1
+                    IF k > n THEN n = k
+                END IF
+            END IF
+        NEXT i
+        px = ""
+    END IF
+    IF n < 1 THEN n = ANIM_cells%
+    n = _MIN(n, ANIM_cells%): IF n < 1 THEN n = 1
+    ANIM.wanted = n: ANIM.count = n: ANIM.current = 1
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Create Frames from Grid", 0
+    STATUS_flash "Create Frames from Grid:" + STR$(n) + " frames of" + STR$(fw) + "x" + _TRIM$(STR$(fh))
+    _LOGINFO "ANIM_GRID_frames_action:" + STR$(n) + " frames of" + STR$(fw) + "x" + _TRIM$(STR$(fh))
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+' -- a little JSON: just enough to walk a sprite sheet's frame data --
+
+FUNCTION ANIM_JS_ws& (s AS STRING, p AS LONG)
+    DIM q AS LONG
+    q = p
+    DO WHILE q <= LEN(s)
+        SELECT CASE ASC(s, q)
+            CASE 32, 9, 10, 13: q = q + 1
+            CASE ELSE: EXIT DO
+        END SELECT
+    LOOP
+    ANIM_JS_ws& = q
+END FUNCTION
+
+''
+' Where the JSON value starting at p ends (the position after it).
+FUNCTION ANIM_JS_end& (s AS STRING, p AS LONG)
+    DIM q AS LONG, c AS INTEGER, depth AS LONG
+    q = p
+    IF q > LEN(s) THEN ANIM_JS_end& = q: EXIT FUNCTION
+    c = ASC(s, q)
+    IF c = 34 THEN
+        q = q + 1
+        DO WHILE q <= LEN(s)
+            c = ASC(s, q)
+            IF c = 92 THEN
+                q = q + 2
+            ELSEIF c = 34 THEN
+                ANIM_JS_end& = q + 1: EXIT FUNCTION
+            ELSE
+                q = q + 1
+            END IF
+        LOOP
+    ELSEIF c = 123 _ORELSE c = 91 THEN
+        DO WHILE q <= LEN(s)
+            c = ASC(s, q)
+            IF c = 34 THEN
+                q = ANIM_JS_end&(s, q)
+            ELSE
+                IF c = 123 _ORELSE c = 91 THEN depth = depth + 1
+                IF c = 125 _ORELSE c = 93 THEN
+                    depth = depth - 1
+                    IF depth = 0 THEN ANIM_JS_end& = q + 1: EXIT FUNCTION
+                END IF
+                q = q + 1
+            END IF
+        LOOP
+    ELSE
+        DO WHILE q <= LEN(s)
+            c = ASC(s, q)
+            IF c = 44 _ORELSE c = 125 _ORELSE c = 93 _ORELSE c = 32 _ORELSE c = 9 _ORELSE c = 10 _ORELSE c = 13 THEN EXIT DO
+            q = q + 1
+        LOOP
+    END IF
+    ANIM_JS_end& = q
+END FUNCTION
+
+''
+' The next member of the array / object whose inside p walks (start just after
+' the [ or {): k = its key ("" in an array), v = its value's text. FALSE at
+' the end.
+FUNCTION ANIM_JS_next% (s AS STRING, p AS LONG, k AS STRING, v AS STRING)
+    DIM e AS LONG, q AS LONG
+    k = "": v = ""
+    p = ANIM_JS_ws&(s, p)
+    IF p <= LEN(s) _ANDALSO ASC(s, p) = 44 THEN p = ANIM_JS_ws&(s, p + 1)
+    IF p > LEN(s) THEN EXIT FUNCTION
+    IF ASC(s, p) = 125 _ORELSE ASC(s, p) = 93 THEN EXIT FUNCTION
+    IF ASC(s, p) = 34 THEN
+        e = ANIM_JS_end&(s, p): q = ANIM_JS_ws&(s, e)
+        IF q <= LEN(s) _ANDALSO ASC(s, q) = 58 THEN k = ANIM_JS_str$(MID$(s, p, e - p)): p = ANIM_JS_ws&(s, q + 1)
+    END IF
+    e = ANIM_JS_end&(s, p)
+    IF e <= p THEN EXIT FUNCTION
+    v = MID$(s, p, e - p): p = e
+    ANIM_JS_next% = TRUE
+END FUNCTION
+
+''
+' The text of key want's value in JSON object text obj ("" when it has none).
+FUNCTION ANIM_JS_get$ (obj AS STRING, want AS STRING)
+    DIM p AS LONG, k AS STRING, v AS STRING
+    p = ANIM_JS_ws&(obj, 1)
+    IF p > LEN(obj) _ORELSE ASC(obj, p) <> 123 THEN EXIT FUNCTION
+    p = p + 1
+    DO WHILE ANIM_JS_next%(obj, p, k, v)
+        IF k = want THEN ANIM_JS_get$ = v: EXIT FUNCTION
+    LOOP
+END FUNCTION
+
+''
+' A JSON string's text (escapes undone; \u past 255 = "?"), else v as it is.
+FUNCTION ANIM_JS_str$ (v AS STRING)
+    DIM t AS STRING, i AS LONG, c AS STRING, u AS LONG
+    IF LEFT$(v, 1) <> CHR$(34) THEN ANIM_JS_str$ = v: EXIT FUNCTION
+    i = 2
+    DO WHILE i < LEN(v)
+        c = MID$(v, i, 1)
+        IF c = "\" _ANDALSO i + 1 < LEN(v) THEN
+            i = i + 1: c = MID$(v, i, 1)
+            SELECT CASE c
+                CASE "n": c = CHR$(10)
+                CASE "t": c = CHR$(9)
+                CASE "r": c = CHR$(13)
+                CASE "b", "f": c = ""
+                CASE "u"
+                    u = VAL("&H" + MID$(v, i + 1, 4)): i = i + 4
+                    IF u >= 0 _ANDALSO u < 256 THEN c = CHR$(u) ELSE c = "?"
+            END SELECT
+        END IF
+        t = t + c: i = i + 1
+    LOOP
+    ANIM_JS_str$ = t
+END FUNCTION
+
+FUNCTION ANIM_JS_num& (obj AS STRING, want AS STRING, dflt AS LONG)
+    DIM v AS STRING
+    v = ANIM_JS_get$(obj, want)
+    IF v = "" _ORELSE v = "null" THEN ANIM_JS_num& = dflt ELSE ANIM_JS_num& = VAL(ANIM_JS_str$(v))
+END FUNCTION
+
+''
+' Opening a PNG (no frames of its own) with its sheet's frame data beside it
+' - name.json from Aseprite's Export Sprite Sheet, TexturePacker, DRAW's own
+' sheet export (array or hash frames) - brings the frames back: durations ->
+' FPS + holds, frameTags -> tags, the loop. A regular grid is sliced where it
+' is; packed, trimmed, rotated or uneven frames are laid out again on a grid
+' of their source size. The JSON must name this image (meta.image), or none,
+' and every frame must lie inside it.
+FUNCTION ANIM_SHEET_import% (filename AS STRING)
+    DIM js AS STRING, s AS STRING, ff AS INTEGER, p AS LONG, top AS STRING, frames AS STRING, meta AS STRING
+    DIM nm AS STRING, k AS STRING, v AS STRING, fr AS STRING, n AS LONG, i AS LONG, w AS LONG, h AS LONG
+    DIM regular AS INTEGER, g AS LONG, mg AS LONG, r AS INTEGER, cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG
+    DIM cols AS LONG, rows AS LONG, copy AS LONG, oldDest AS LONG, oldSrc AS LONG, xx AS LONG, yy AS LONG
+    DIM tags AS STRING, ta AS LONG, tb AS LONG, dirName AS STRING, fps AS INTEGER, hh AS INTEGER, haveDur AS INTEGER
+    DIM loopName AS STRING, nTags AS INTEGER, repacked AS INTEGER, lay AS INTEGER, dot AS LONG
+
+    ANIM_IMP_INFO = ""
+    IF ANIM.active THEN EXIT FUNCTION
+    dot = _INSTRREV(filename, ".")
+    IF dot <= _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) THEN EXIT FUNCTION
+    js = LEFT$(filename, dot - 1) + ".json"
+    IF _FILEEXISTS(js) = 0 THEN EXIT FUNCTION
+    ff = FREEFILE
+    OPEN js FOR BINARY AS #ff
+    IF LOF(ff) > 16777216 THEN CLOSE #ff: EXIT FUNCTION
+    s = SPACE$(LOF(ff))
+    GET #ff, 1, s
+    CLOSE #ff
+    p = INSTR(s, "{")
+    IF p = 0 THEN EXIT FUNCTION
+    top = MID$(s, p, ANIM_JS_end&(s, p) - p)
+    frames = ANIM_JS_get$(top, "frames")
+    IF LEN(frames) < 2 _ORELSE (LEFT$(frames, 1) <> "[" _ANDALSO LEFT$(frames, 1) <> "{") THEN EXIT FUNCTION
+    meta = ANIM_JS_get$(top, "meta")
+    nm = ANIM_JS_str$(ANIM_JS_get$(meta, "image"))
+    IF nm <> "" THEN
+        nm = MID$(nm, _MAX(_INSTRREV(nm, "/"), _INSTRREV(nm, "\")) + 1)
+        IF LCASE$(nm) <> LCASE$(MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1)) THEN
+            _LOGINFO "ANIM_SHEET_import: " + js + " is for " + nm + ", not this image"
+            EXIT FUNCTION
+        END IF
+    END IF
+    lay = 1
+    IF LAYERS(lay).imgHandle& >= -1 THEN EXIT FUNCTION
+    w = SCRN.canvasW&: h = SCRN.canvasH&
+
+    DIM fx(1 TO ANIM_MAX_FRAMES) AS LONG, fy(1 TO ANIM_MAX_FRAMES) AS LONG, fwd(1 TO ANIM_MAX_FRAMES) AS LONG
+    DIM fht(1 TO ANIM_MAX_FRAMES) AS LONG, frot(1 TO ANIM_MAX_FRAMES) AS INTEGER, fox(1 TO ANIM_MAX_FRAMES) AS LONG
+    DIM foy(1 TO ANIM_MAX_FRAMES) AS LONG, fsw(1 TO ANIM_MAX_FRAMES) AS LONG, fsh(1 TO ANIM_MAX_FRAMES) AS LONG
+    DIM durs(1 TO ANIM_MAX_FRAMES) AS LONG
+    p = 2: haveDur = TRUE
+    DO WHILE ANIM_JS_next%(frames, p, k, v)
+        IF LEFT$(v, 1) = "{" THEN
+            IF n >= ANIM_MAX_FRAMES THEN EXIT DO
+            n = n + 1
+            fr = ANIM_JS_get$(v, "frame")
+            fx(n) = ANIM_JS_num&(fr, "x", -1): fy(n) = ANIM_JS_num&(fr, "y", -1)
+            fwd(n) = ANIM_JS_num&(fr, "w", 0): fht(n) = ANIM_JS_num&(fr, "h", 0)
+            frot(n) = (ANIM_JS_get$(v, "rotated") = "true")
+            fr = ANIM_JS_get$(v, "spriteSourceSize")
+            fox(n) = ANIM_JS_num&(fr, "x", 0): foy(n) = ANIM_JS_num&(fr, "y", 0)
+            fr = ANIM_JS_get$(v, "sourceSize")
+            fsw(n) = ANIM_JS_num&(fr, "w", fwd(n)): fsh(n) = ANIM_JS_num&(fr, "h", fht(n))
+            durs(n) = ANIM_JS_num&(v, "duration", -1)
+            IF durs(n) < 0 THEN haveDur = FALSE
+            ' inside the image (a rotated frame lies on its side), inside its source
+            IF fwd(n) < 1 _ORELSE fht(n) < 1 _ORELSE fx(n) < 0 _ORELSE fy(n) < 0 THEN EXIT FUNCTION
+            IF frot(n) THEN
+                IF fx(n) + fht(n) > w _ORELSE fy(n) + fwd(n) > h THEN EXIT FUNCTION
+            ELSE
+                IF fx(n) + fwd(n) > w _ORELSE fy(n) + fht(n) > h THEN EXIT FUNCTION
+            END IF
+            IF fox(n) < 0 _ORELSE foy(n) < 0 THEN fox(n) = 0: foy(n) = 0
+            IF fsw(n) < fox(n) + fwd(n) THEN fsw(n) = fox(n) + fwd(n)
+            IF fsh(n) < foy(n) + fht(n) THEN fsh(n) = foy(n) + fht(n)
+        END IF
+    LOOP
+    IF n < 2 THEN EXIT FUNCTION
+
+    ' a regular grid: every frame its whole source, one size, where the layout puts it
+    regular = TRUE
+    FOR i = 1 TO n
+        IF frot(i) _ORELSE fox(i) <> 0 _ORELSE foy(i) <> 0 _ORELSE fwd(i) <> fsw(i) _ORELSE fht(i) <> fsh(i) _ORELSE fwd(i) <> fwd(1) _ORELSE fht(i) <> fht(1) THEN regular = FALSE: EXIT FOR
+    NEXT i
+    IF regular THEN
+        mg = fx(1): g = -1
+        IF fy(1) <> mg THEN regular = FALSE
+        FOR i = 2 TO n
+            IF fy(i) = fy(1) THEN
+                IF g < 0 THEN g = fx(i) - fx(1) - fwd(1)
+            ELSE
+                IF g < 0 THEN g = fy(i) - fy(1) - fht(1)
+                EXIT FOR
+            END IF
+        NEXT i
+        IF g < 0 _ORELSE g > 32767 _ORELSE mg > 32767 _ORELSE fwd(1) > 32767 _ORELSE fht(1) > 32767 THEN regular = FALSE
+    END IF
+    IF regular THEN
+        r = ANIM_set_layout%(CINT(fwd(1)), CINT(fht(1)), CINT(g), CINT(mg))
+        IF r = FALSE _ORELSE n > ANIM_cells% THEN regular = FALSE
+        IF regular THEN
+            ANIM.count = n: ANIM.wanted = n
+            FOR i = 1 TO n
+                IF ANIM_cell_rect%(CINT(i), cx, cy, cw, ch) = FALSE _ORELSE cx <> fx(i) _ORELSE cy <> fy(i) THEN regular = FALSE: EXIT FOR
+            NEXT i
+        END IF
+        IF regular = FALSE THEN ANIM_reset
+    END IF
+    IF regular = FALSE THEN
+        ' lay the frames out again: cells of the largest source size
+        cw = 0: ch = 0
+        FOR i = 1 TO n
+            cw = _MAX(cw, fsw(i)): ch = _MAX(ch, fsh(i))
+        NEXT i
+        IF cw > 32767 _ORELSE ch > 32767 THEN EXIT FUNCTION
+        IF ANIM_IMP_grid%(n, cw, ch, cols, rows, js) = FALSE THEN EXIT FUNCTION
+        copy = _COPYIMAGE(LAYERS(lay).imgHandle&, 32)
+        IF copy >= -1 THEN EXIT FUNCTION
+        ANIM_OPS_resize_keep_view cols * cw, rows * ch
+        r = ANIM_set_layout%(CINT(cw), CINT(ch), 0, 0)
+        ANIM.count = n: ANIM.wanted = n
+        oldDest = _DEST: oldSrc = _SOURCE
+        _DEST LAYERS(lay).imgHandle&
+        _DONTBLEND LAYERS(lay).imgHandle&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _SOURCE copy
+        FOR i = 1 TO n
+            IF ANIM_cell_rect%(CINT(i), cx, cy, xx, yy) THEN
+                IF frot(i) THEN ' stored turned a quarter clockwise: sprite (x, y) is at (h - 1 - y, x)
+                    FOR yy = 0 TO fht(i) - 1
+                        FOR xx = 0 TO fwd(i) - 1
+                            PSET (cx + fox(i) + xx, cy + foy(i) + yy), POINT(fx(i) + fht(i) - 1 - yy, fy(i) + xx)
+                        NEXT xx
+                    NEXT yy
+                ELSE
+                    _PUTIMAGE (cx + fox(i), cy + foy(i)), copy, LAYERS(lay).imgHandle&, (fx(i), fy(i))-(fx(i) + fwd(i) - 1, fy(i) + fht(i) - 1)
+                END IF
+            END IF
+        NEXT i
+        _BLEND LAYERS(lay).imgHandle&
+        _SOURCE oldSrc: _DEST oldDest
+        SAFE_FREEIMAGE copy
+        repacked = TRUE
+    END IF
+    ANIM.current = 1
+
+    ' timing, tags, loop
+    IF haveDur THEN
+        fps = ANIM_IMP_fps%(durs(), CINT(n), 1000)
+        ANIM_set_fps fps
+        FOR i = 1 TO n
+            hh = (durs(i) * fps + 500) \ 1000
+            ANIM_set_hold CINT(i), hh
+        NEXT i
+    ELSEIF ANIM_JS_num&(meta, "fps", 0) > 0 THEN
+        ANIM_set_fps CINT(_MIN(ANIM_JS_num&(meta, "fps", 0), 32767))
+    END IF
+    ANIM.loopMode = ANIM_LOOP_FWD
+    tags = ANIM_JS_get$(meta, "frameTags")
+    IF LEFT$(tags, 1) = "[" THEN
+        p = 2
+        DO WHILE ANIM_JS_next%(tags, p, k, v)
+            ta = ANIM_JS_num&(v, "from", -1) + 1: tb = ANIM_JS_num&(v, "to", -1) + 1
+            IF ta >= 1 _ANDALSO tb <= n _ANDALSO ta <= tb THEN
+                IF ANIM_TG_put%(ANIM_JS_str$(ANIM_JS_get$(v, "name")), CINT(ta), CINT(tb)) THEN nTags = nTags + 1
+                IF ta = 1 _ANDALSO tb = n THEN
+                    dirName = LCASE$(ANIM_JS_str$(ANIM_JS_get$(v, "direction")))
+                    IF dirName = "reverse" THEN ANIM.loopMode = ANIM_LOOP_REV
+                    IF LEFT$(dirName, 8) = "pingpong" THEN ANIM.loopMode = ANIM_LOOP_PING
+                    IF ANIM_JS_str$(ANIM_JS_get$(v, "repeat")) = "1" THEN ANIM.loopMode = ANIM_LOOP_ONCE
+                END IF
+            END IF
+        LOOP
+    END IF
+    ' DRAW's own export: "all" stands for no tags, and meta.loop says how it plays
+    IF nTags = 1 _ANDALSO ANIM_TG_N = 1 _ANDALSO ANIM_TG_NAME(1) = "all" _ANDALSO ANIM_TG_A(1) = 1 _ANDALSO ANIM_TG_B(1) = n _ANDALSO ANIM_JS_str$(ANIM_JS_get$(meta, "app")) = "DRAW" THEN
+        ANIM_TG_remove 1: nTags = 0
+    END IF
+    loopName = LCASE$(ANIM_JS_str$(ANIM_JS_get$(meta, "loop")))
+    SELECT CASE loopName
+        CASE "once": ANIM.loopMode = ANIM_LOOP_ONCE
+        CASE "forward": ANIM.loopMode = ANIM_LOOP_FWD
+        CASE "reverse": ANIM.loopMode = ANIM_LOOP_REV
+        CASE "pingpong": ANIM.loopMode = ANIM_LOOP_PING
+    END SELECT
+
+    LAYERS(lay).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    COMPOSITE_RESULT_VALID% = FALSE
+    ANIM_IMP_INFO = _TRIM$(STR$(n)) + " frames at" + STR$(ANIM.fps) + " fps"
+    IF nTags > 0 THEN ANIM_IMP_INFO = ANIM_IMP_INFO + "," + STR$(nTags) + _IIF(nTags = 1, " tag", " tags")
+    IF repacked THEN ANIM_IMP_INFO = ANIM_IMP_INFO + ", laid out on a grid"
+    ANIM_IMP_INFO = ANIM_IMP_INFO + " (from " + MID$(js, _MAX(_INSTRREV(js, "/"), _INSTRREV(js, "\")) + 1) + ")"
+    _LOGINFO "ANIM_SHEET_import: " + filename + ": " + ANIM_IMP_INFO
+    STATUS_flash MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1) + ": " + ANIM_IMP_INFO
+    ANIM_SHEET_import% = TRUE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' 5.4 PNG sequence
+' ---------------------------------------------------------------------------
+
+''
+' The files of the numbered sequence filename belongs to, in number order:
+' names(1..n) (full paths). The number is the last run of digits in the name
+' before its extension; the others differ only in that number (any width).
+' Returns n (0 = no number in the name).
+FUNCTION ANIM_SEQ_files% (filename AS STRING, names() AS STRING)
+    DIM dirP AS STRING, baseNm AS STRING, dot AS LONG, a AS LONG, b AS LONG, pre AS STRING, suf AS STRING
+    DIM e AS STRING, n AS INTEGER, i AS INTEGER, j AS INTEGER, numTxt AS STRING, ok AS INTEGER, sl AS LONG
+    DIM nums(1 TO ANIM_MAX_FRAMES) AS DOUBLE, t AS DOUBLE, ts AS STRING
+    sl = _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\"))
+    dirP = LEFT$(filename, sl): baseNm = MID$(filename, sl + 1)
+    dot = _INSTRREV(baseNm, ".")
+    IF dot = 0 THEN dot = LEN(baseNm) + 1
+    b = dot - 1
+    DO WHILE b >= 1 _ANDALSO (ASC(baseNm, b) < 48 _ORELSE ASC(baseNm, b) > 57)
+        b = b - 1
+    LOOP
+    IF b < 1 THEN EXIT FUNCTION
+    a = b
+    DO WHILE a > 1 _ANDALSO ASC(baseNm, a - 1) >= 48 _ANDALSO ASC(baseNm, a - 1) <= 57
+        a = a - 1
+    LOOP
+    pre = LCASE$(LEFT$(baseNm, a - 1)): suf = LCASE$(MID$(baseNm, b + 1))
+    e = _FILES$(_IIF(dirP = "", "./", dirP))
+    DO WHILE e <> ""
+        IF RIGHT$(e, 1) <> "/" _ANDALSO RIGHT$(e, 1) <> "\" _ANDALSO LEN(e) > LEN(pre) + LEN(suf) THEN
+            IF LCASE$(LEFT$(e, LEN(pre))) = pre _ANDALSO LCASE$(RIGHT$(e, LEN(suf))) = suf THEN
+                numTxt = MID$(e, LEN(pre) + 1, LEN(e) - LEN(pre) - LEN(suf))
+                ok = (LEN(numTxt) >= 1 _ANDALSO LEN(numTxt) <= 12)
+                FOR i = 1 TO LEN(numTxt)
+                    IF ASC(numTxt, i) < 48 _ORELSE ASC(numTxt, i) > 57 THEN ok = FALSE: EXIT FOR
+                NEXT i
+                IF ok _ANDALSO n < ANIM_MAX_FRAMES THEN n = n + 1: names(n) = e: nums(n) = VAL(numTxt)
+            END IF
+        END IF
+        e = _FILES$
+    LOOP
+    ' number order (insertion sort; a tie keeps the shorter name first)
+    FOR i = 2 TO n
+        t = nums(i): ts = names(i): j = i - 1
+        DO WHILE j >= 1
+            IF nums(j) < t _ORELSE (nums(j) = t _ANDALSO LEN(names(j)) <= LEN(ts)) THEN EXIT DO
+            nums(j + 1) = nums(j): names(j + 1) = names(j): j = j - 1
+        LOOP
+        nums(j + 1) = t: names(j + 1) = ts
+    NEXT i
+    FOR i = 1 TO n: names(i) = dirP + names(i): NEXT i
+    ANIM_SEQ_files% = n
+END FUNCTION
+
+''
+' The pixels of a 32-bit image as a string (w, h set).
+FUNCTION ANIM_SEQ_pixels$ (img AS LONG, w AS LONG, h AS LONG)
+    DIM m AS _MEM, t AS STRING
+    w = _WIDTH(img): h = _HEIGHT(img)
+    m = _MEMIMAGE(img)
+    t = SPACE$(w * h * 4)
+    _MEMGET m, m.OFFSET, t
+    _MEMFREE m
+    ANIM_SEQ_pixels$ = t
+END FUNCTION
+
+''
+' Open the PNG sequence filename belongs to as a new untitled document: one
+' frame per file (the largest file's size; smaller ones at the cell's top
+' left), a file the same as the one before it = one more tick of that frame.
+' FALSE (nothing changed) when it is not part of a sequence of 2 or more.
+FUNCTION ANIM_SEQ_import% (filename AS STRING)
+    DIM n AS INTEGER, i AS INTEGER, img AS LONG, w AS LONG, h AS LONG, fw AS LONG, fh AS LONG, nf AS INTEGER
+    DIM cols AS LONG, rows AS LONG, r AS INTEGER, cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, k AS INTEGER
+    DIM px AS STRING, prev AS STRING, pw AS LONG, ph AS LONG, bad AS INTEGER, lay AS INTEGER
+    DIM names(1 TO ANIM_MAX_FRAMES) AS STRING, keep(1 TO ANIM_MAX_FRAMES) AS INTEGER, ticks(1 TO ANIM_MAX_FRAMES) AS INTEGER
+
+    ANIM_IMP_INFO = ""
+    IF _FILEEXISTS(filename) = 0 THEN EXIT FUNCTION
+    n = ANIM_SEQ_files%(filename, names())
+    IF n < 2 THEN EXIT FUNCTION
+    ' pass 1: sizes, and which files repeat the one before
+    FOR i = 1 TO n
+        img = _LOADIMAGE(names(i), 32)
+        IF img >= -1 THEN bad = bad + 1: _CONTINUE
+        px = ANIM_SEQ_pixels$(img, w, h)
+        SAFE_FREEIMAGE img
+        fw = _MAX(fw, w): fh = _MAX(fh, h)
+        IF nf > 0 _ANDALSO w = pw _ANDALSO h = ph _ANDALSO px = prev THEN
+            IF ticks(nf) < ANIM_HOLD_MAX THEN ticks(nf) = ticks(nf) + 1: _CONTINUE
+        END IF
+        nf = nf + 1: keep(i) = nf: ticks(nf) = 1
+        prev = px: pw = w: ph = h
+    NEXT i
+    prev = "": px = ""
+    IF nf < 1 _ORELSE (nf = 1 _ANDALSO ticks(1) < 2) THEN EXIT FUNCTION
+    IF nf = 1 THEN
+        cols = 1: rows = 1 ' every file the same picture: one frame, held
+    ELSEIF ANIM_IMP_grid%(nf, fw, fh, cols, rows, filename) = FALSE THEN
+        EXIT FUNCTION
+    END IF
+    IF fw > 32767 _ORELSE fh > 32767 THEN EXIT FUNCTION
+
+    DRW_create_canvas_at_size CINT(cols * fw), CINT(rows * fh)
+    lay = CURRENT_LAYER%
+    IF lay < 1 _ORELSE lay > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(lay).imgHandle& >= -1 THEN EXIT FUNCTION
+    r = ANIM_set_layout%(CINT(fw), CINT(fh), 0, 0)
+    IF r = FALSE THEN EXIT FUNCTION
+    ANIM.count = nf: ANIM.wanted = nf: ANIM.current = 1
+    ' pass 2: each kept file into its cell, as it is
+    _DONTBLEND LAYERS(lay).imgHandle&
+    FOR i = 1 TO n
+        k = keep(i)
+        IF k > 0 THEN
+            img = _LOADIMAGE(names(i), 32)
+            IF img < -1 THEN
+                IF ANIM_cell_rect%(k, cx, cy, cw, ch) THEN _PUTIMAGE (cx, cy), img, LAYERS(lay).imgHandle&
+                SAFE_FREEIMAGE img
+            END IF
+        END IF
+    NEXT i
+    _BLEND LAYERS(lay).imgHandle&
+    FOR k = 1 TO nf: ANIM_set_hold k, ticks(k): NEXT k
+    ANIM.loopMode = ANIM_LOOP_FWD
+
+    LAYERS(lay).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    CANVAS_DIRTY% = FALSE
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    COMPOSITE_RESULT_VALID% = FALSE
+    ANIM_IMP_INFO = _TRIM$(STR$(nf)) + " frames from" + STR$(n - bad) + " files (" + MID$(names(1), _MAX(_INSTRREV(names(1), "/"), _INSTRREV(names(1), "\")) + 1) _
+        + " .. " + MID$(names(n), _MAX(_INSTRREV(names(n), "/"), _INSTRREV(names(n), "\")) + 1) + ")"
+    IF bad > 0 THEN ANIM_IMP_INFO = ANIM_IMP_INFO + "," + STR$(bad) + " unreadable"
+    _LOGINFO "ANIM_SEQ_import: " + ANIM_IMP_INFO
+    STATUS_flash "PNG sequence: " + ANIM_IMP_INFO
+    ANIM_SEQ_import% = TRUE
+END FUNCTION
+
+''
+' ANIM > Import PNG Sequence...: pick any file of the sequence.
+SUB ANIM_SEQ_action ()
+    DIM filename AS STRING, default_path AS STRING
+    IF CFG.LAST_DIR_OPEN$ <> "" THEN
+        default_path = CFG.LAST_DIR_OPEN$ + "/"
+    ELSEIF LAST_DIRECTORY$ <> "" THEN
+        default_path = LAST_DIRECTORY$ + "/"
+    END IF
+    POINTER_hide_for_dialog
+    filename = DRAW_open_file$("Import PNG Sequence (pick any of its files)", default_path, "PNG|*.png|All Files|*.*", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+    IF filename = "" THEN EXIT SUB
+    CFG.LAST_DIR_OPEN$ = CONFIG_extract_dir$(filename)
+    LAST_DIRECTORY$ = CFG.LAST_DIR_OPEN$
+    CONFIG_save
+    IF ANIM_SEQ_import%(filename) THEN
+        SOUND_play SND_NEW_FILE
+    ELSE
+        STATUS_flash "Import PNG Sequence: no numbered files beside " + MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1) + " (name_0001.png, name_0002.png ...)"
+    END IF
+END SUB
+
+''
+' File > New Animation (Rick 2026-11-09, field kit T-3: "let it pick the frame
+' size"): asks for the frame size and how many frames - "32x32 8", with an
+' optional "@12" for the FPS - and makes a new document whose canvas is a sheet
+' of that many blank frames, as close to square as it fits. Like File > New:
+' the unsaved-changes question first, a fresh history after.
+SUB ANIM_NEW_action ()
+    STATIC lastAsk AS STRING
+    DIM ask AS STRING, a AS STRING, xPos AS INTEGER, p AS INTEGER, k AS INTEGER
+    DIM fw AS LONG, fh AS LONG, n AS LONG, fps AS LONG, cols AS LONG, rows AS LONG, ans AS LONG
+    DIM nums(1 TO 4) AS LONG
+    IF CANVAS_DIRTY% THEN
+        POINTER_hide_for_dialog
+        ans = DRAW_message_box%("New Animation", "You have unsaved changes. Continue without saving?", MB_BTN_YES_NO, MB_ICON_WARNING)
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+        IF ans <> MB_RESULT_1 THEN EXIT SUB
+    END IF
+    IF lastAsk = "" THEN
+        IF ANIM.active _ANDALSO ANIM.count > 0 THEN
+            lastAsk = _TRIM$(STR$(ANIM.frameW)) + "x" + _TRIM$(STR$(ANIM.frameH)) + " " + _TRIM$(STR$(ANIM.count))
+        ELSE
+            lastAsk = "32x32 8"
+        END IF
+    END IF
+    POINTER_hide_for_dialog
+    ask = DRAW_input_box_ex$("New Animation", "Frame size (WxH) and number of frames:", lastAsk, "e.g. 32x32 8 - add @12 for 12 FPS", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    IF LEN(_TRIM$(ask)) = 0 THEN EXIT SUB
+    ' the numbers in order: W, H, frames; after an "@" the FPS
+    a = UCASE$(ask)
+    fps = ANIM_FPS_DEFAULT
+    p = INSTR(a, "@")
+    IF p > 0 THEN
+        nums(4) = ANIM_NEW_num&(MID$(a, p + 1), 1)
+        a = LEFT$(a, p - 1)
+    END IF
+    FOR k = 1 TO 3: nums(k) = ANIM_NEW_num&(a, k): NEXT k
+    fw = nums(1): fh = nums(2): n = nums(3)
+    IF nums(4) > 0 THEN fps = nums(4)
+    IF n < 1 THEN n = 1
+    xPos = INSTR(a, "X")
+    IF fw < 1 _ORELSE fh < 1 _ORELSE xPos = 0 THEN STATUS_flash "New Animation: type the frame size as WxH, e.g. 32x32 8": EXIT SUB
+    IF fw > 4096 _ORELSE fh > 4096 THEN STATUS_flash "New Animation: a frame can be 4096 x 4096 at most": EXIT SUB
+    IF n > ANIM_MAX_FRAMES THEN n = ANIM_MAX_FRAMES
+    ' as square as it fits: columns = the square root, rounded up, no wider than 4096
+    cols = INT(SQR(n) + .999999)
+    IF cols < 1 THEN cols = 1
+    IF cols * fw > 4096 THEN cols = 4096 \ fw
+    rows = (n + cols - 1) \ cols
+    IF rows * fh > 4096 THEN
+        STATUS_flash "New Animation: at" + STR$(fw) + "x" + _TRIM$(STR$(fh)) + " a sheet holds" + STR$(cols * (4096 \ fh)) + " frames at most"
+        EXIT SUB
+    END IF
+    lastAsk = _TRIM$(STR$(fw)) + "x" + _TRIM$(STR$(fh)) + " " + _TRIM$(STR$(n)) + _IIF(nums(4) > 0, " @" + _TRIM$(STR$(fps)), "")
+    SOUND_play SND_NEW_FILE
+    DRW_create_canvas_at_size cols * fw, rows * fh
+    ANIM.wanted = n
+    IF ANIM_set_layout%(fw, fh, 0, 0) = FALSE THEN STATUS_flash "New Animation: that does not fit": EXIT SUB
+    ANIM.count = _MIN(n, ANIM_cells%): ANIM.current = 1
+    ANIM_set_fps fps
+    CANVAS_DIRTY% = FALSE
+    BLEND_invalidate_cache
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
+    STATUS_flash "New Animation:" + STR$(ANIM.count) + " frames of" + STR$(fw) + "x" + _TRIM$(STR$(fh)) + " at" + STR$(ANIM.fps) + " FPS"
+    _LOGINFO "ANIM_NEW_action:" + STR$(ANIM.count) + " frames of" + STR$(fw) + "x" + _TRIM$(STR$(fh)) + ", sheet" + STR$(cols) + "x" + _TRIM$(STR$(rows))
+END SUB
+
+''
+' The k-th run of digits in t (0 when there is none; capped at 100000).
+FUNCTION ANIM_NEW_num& (t AS STRING, k AS INTEGER)
+    DIM i AS LONG, c AS STRING, runN AS INTEGER, inNum AS INTEGER, v AS LONG
+    FOR i = 1 TO LEN(t)
+        c = MID$(t, i, 1)
+        IF c >= "0" _ANDALSO c <= "9" THEN
+            IF inNum = FALSE THEN inNum = TRUE: runN = runN + 1: v = 0
+            IF runN = k _ANDALSO v < 100000 THEN v = v * 10 + VAL(c)
+        ELSE
+            inNum = FALSE
+            IF runN = k THEN EXIT FOR
+        END IF
+    NEXT i
+    IF runN >= k THEN ANIM_NEW_num& = v
+END FUNCTION

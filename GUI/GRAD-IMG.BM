@@ -1,0 +1,140 @@
+$INCLUDEONCE
+' =============================================================================
+' GUI/GRAD-IMG.BM - which way a gradient IMAGE runs (an imported slot with no
+' color stops), so its colors are read along it: the fill, the fill dither and
+' the Gradient Editor's stops. Needs GUI/DRAWER.BI (the slot images and the
+' per-slot cache). Unit test: QA/unit/gradimg-unit.bas.
+' =============================================================================
+
+''
+' Where along a gradient family's ramp a point (u, v) of the 0..1 square sits -
+' the same mapping the fills use (DRAWER_resolve_gradient_color).
+' @param fam INTEGER GRADIENT_FAMILY_*
+' @param u   SINGLE  0..1 across
+' @param v   SINGLE  0..1 down
+' @return SINGLE t, 0..1
+'
+FUNCTION GRAD_family_t! (fam AS INTEGER, u AS SINGLE, v AS SINGLE)
+    DIM t AS SINGLE
+    SELECT CASE fam
+        CASE GRADIENT_FAMILY_HORIZONTAL:  t = u
+        CASE GRADIENT_FAMILY_VERTICAL:    t = v
+        CASE GRADIENT_FAMILY_DIAGONAL:    t = (u + v) / 2
+        CASE GRADIENT_FAMILY_ANTI_DIAG:   t = (u + (1! - v)) / 2
+        CASE GRADIENT_FAMILY_RADIAL:      t = SQR((u - .5) * (u - .5) + (v - .5) * (v - .5)) / .7071068
+        CASE GRADIENT_FAMILY_REFLECTED_H: t = ABS((u - .5) * 2)
+        CASE GRADIENT_FAMILY_REFLECTED_V: t = ABS((v - .5) * 2)
+        CASE ELSE:                        t = ABS(u - .5) + ABS(v - .5)
+    END SELECT
+    IF t < 0 THEN t = 0
+    IF t > 1 THEN t = 1
+    GRAD_family_t! = t
+END FUNCTION
+
+''
+' The pixel of a w x h gradient image that holds ramp position t for a family:
+' the path from t = 0 to t = 1 (a horizontal image along its middle row, a
+' vertical one down its middle column, a radial one from the centre to a corner).
+' @param fam INTEGER GRADIENT_FAMILY_*
+' @param t   SINGLE  0..1 along the ramp
+' @param w   INTEGER image width
+' @param h   INTEGER image height
+' @param px  INTEGER (out) pixel x
+' @param py  INTEGER (out) pixel y
+'
+SUB GRAD_IMG_path (fam AS INTEGER, t AS SINGLE, w AS INTEGER, h AS INTEGER, px AS INTEGER, py AS INTEGER)
+    DIM AS SINGLE u, v, tt
+    tt = t
+    IF tt < 0 THEN tt = 0
+    IF tt > 1 THEN tt = 1
+    SELECT CASE fam
+        CASE GRADIENT_FAMILY_HORIZONTAL:  u = tt: v = .5
+        CASE GRADIENT_FAMILY_VERTICAL:    u = .5: v = tt
+        CASE GRADIENT_FAMILY_DIAGONAL:    u = tt: v = tt
+        CASE GRADIENT_FAMILY_ANTI_DIAG:   u = tt: v = 1! - tt
+        CASE GRADIENT_FAMILY_REFLECTED_H: u = .5 + tt / 2: v = .5
+        CASE GRADIENT_FAMILY_REFLECTED_V: u = .5: v = .5 + tt / 2
+        CASE ELSE:                        u = .5 + tt / 2: v = .5 + tt / 2 ' radial, diamond: to the corner
+    END SELECT
+    px = INT(u * (w - 1) + .5): py = INT(v * (h - 1) + .5)
+    IF px < 0 THEN px = 0
+    IF px > w - 1 THEN px = w - 1
+    IF py < 0 THEN py = 0
+    IF py > h - 1 THEN py = h - 1
+END SUB
+
+''
+' Which way a gradient image runs: the family whose ramp, read along its path,
+' best rebuilds the image (checked on a 16 x 16 grid). A one-row strip is
+' horizontal. The straight families come first and a later one must be clearly
+' better, so a symmetric strip stays horizontal.
+' @param img LONG the image
+' @return INTEGER GRADIENT_FAMILY_*
+'
+FUNCTION GRAD_IMG_detect% (img AS LONG)
+    DIM AS INTEGER w, h, fam, best, i, gx, gy, px, py
+    DIM AS SINGLE u, v
+    DIM AS DOUBLE miss, bestMiss
+    DIM AS _UNSIGNED LONG a, c
+    DIM AS LONG oldSrc
+    DIM ramp(0 TO 63) AS _UNSIGNED LONG
+    GRAD_IMG_detect% = GRADIENT_FAMILY_HORIZONTAL
+    IF img >= -1 THEN EXIT FUNCTION
+    w = _WIDTH(img): h = _HEIGHT(img)
+    IF h <= 1 _ORELSE w < 1 THEN EXIT FUNCTION
+    IF w = 1 THEN GRAD_IMG_detect% = GRADIENT_FAMILY_VERTICAL: EXIT FUNCTION
+    oldSrc = _SOURCE
+    _SOURCE img
+    best = GRADIENT_FAMILY_HORIZONTAL: bestMiss = -1
+    FOR fam = GRADIENT_FAMILY_HORIZONTAL TO GRADIENT_FAMILY_DIAMOND
+        FOR i = 0 TO 63
+            GRAD_IMG_path fam, i / 63!, w, h, px, py
+            ramp(i) = POINT(px, py)
+        NEXT i
+        miss = 0
+        FOR gy = 0 TO 15
+            FOR gx = 0 TO 15
+                u = gx / 15!: v = gy / 15!
+                c = ramp(INT(GRAD_family_t!(fam, u, v) * 63 + .5))
+                a = POINT(INT(u * (w - 1) + .5), INT(v * (h - 1) + .5))
+                miss = miss + ABS(_RED32(a) - _RED32(c)) + ABS(_GREEN32(a) - _GREEN32(c)) + ABS(_BLUE32(a) - _BLUE32(c)) + ABS(_ALPHA32(a) - _ALPHA32(c))
+            NEXT gx
+        NEXT gy
+        IF bestMiss < 0 _ORELSE miss * 1.05 < bestMiss THEN best = fam: bestMiss = miss
+    NEXT fam
+    _SOURCE oldSrc
+    GRAD_IMG_detect% = best
+END FUNCTION
+
+''
+' Which way a slot's gradient image runs (GRAD_IMG_detect%), cached per image.
+' @param slotIdx INTEGER gradient slot
+' @return INTEGER GRADIENT_FAMILY_*
+'
+FUNCTION GRAD_IMG_family% (slotIdx AS INTEGER)
+    DIM img AS LONG
+    img = DRAWER_GRADIENT_SLOTS(slotIdx)
+    IF img >= -1 THEN GRAD_IMG_family% = GRADIENT_FAMILY_HORIZONTAL: EXIT FUNCTION
+    IF DRAWER_GRADIENT_RAMP_IMG(slotIdx) <> img _ORELSE DRAWER_GRADIENT_RAMP_FAM(slotIdx) < 1 THEN
+        DRAWER_GRADIENT_RAMP_FAM(slotIdx) = GRAD_IMG_detect%(img)
+        DRAWER_GRADIENT_RAMP_IMG(slotIdx) = img
+    END IF
+    GRAD_IMG_family% = DRAWER_GRADIENT_RAMP_FAM(slotIdx)
+END FUNCTION
+
+''
+' The pixel of a slot's gradient image that holds ramp position t, read along
+' the way the image runs - so a top-to-bottom image gives its colors top to
+' bottom, not one row's single color.
+' @param slotIdx INTEGER gradient slot (its image must be valid)
+' @param t       SINGLE  0..1 along the ramp
+' @param px      INTEGER (out) pixel x
+' @param py      INTEGER (out) pixel y
+'
+SUB GRAD_IMG_ramp_xy (slotIdx AS INTEGER, t AS SINGLE, px AS INTEGER, py AS INTEGER)
+    DIM img AS LONG
+    img = DRAWER_GRADIENT_SLOTS(slotIdx)
+    px = 0: py = 0
+    IF img >= -1 THEN EXIT SUB
+    GRAD_IMG_path GRAD_IMG_family%(slotIdx), t, _WIDTH(img), _HEIGHT(img), px, py
+END SUB

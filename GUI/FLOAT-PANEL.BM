@@ -60,6 +60,238 @@ SUB FPANEL_ensure ()
 END SUB
 
 ' ---------------------------------------------------------------------------
+' FPANEL_rescale_all — The floating panels' viewport sizes (dispW / dispH /
+' renderScale) for the current display and panel scales. Each worked them out
+' once, when it opened, so after a display scale change in Settings the dock
+' kept the old width while the panel drew at the new one (Rick 2026-11-10: the
+' Animation panel, docked with the layers, ran off the window's edge until
+' DRAW restarted). Called from SCREEN_compute_layout; arithmetic only.
+' ---------------------------------------------------------------------------
+SUB FPANEL_rescale_all ()
+    IF ANIMP.initialized THEN ANIMP_compute_display_size
+    IF PENP.initialized% THEN PENP_compute_display_size
+    IF CS3D.initialized% THEN CS3D_compute_display_size
+    IF COLORMIXER.initialized% THEN COLORMIXER_compute_display_size
+    IF ADVCP.initialized% THEN ADVCP_compute_display_size
+    IF SWP.initialized THEN SWP_compute_display_size
+END SUB
+
+' ---------------------------------------------------------------------------
+' Per-panel scale (Rick 2026-11-10: "a per panel option for scale like right
+' click on the panel bar and choose it"). Each of the five panels above has a
+' CFG.*_SCALE: 0 = USCALE.mixer (the UI Scale), 1-8 = that many screen pixels
+' a panel pixel. Chosen from the title bar's right-click menu (DOCK_menu_build
+' > Scale) or Settings > Panels > Panel Scale.
+' ---------------------------------------------------------------------------
+FUNCTION FPANEL_has_scale% (dp AS INTEGER)
+    SELECT CASE dp
+        CASE DP_ANIM, DP_PEN, DP_CS3D, DP_MIXER, DP_ADVCP, DP_SWATCH: FPANEL_has_scale% = TRUE
+        CASE DP_PREVIEW, DP_BROWSER: FPANEL_has_scale% = TRUE ' their own USCALE (OUTPUT/SCALE)
+        CASE DP_TOOLBOX, DP_ORGANIZER, DP_DRAWER, DP_LAYERS, DP_EDITBAR, DP_ADVBAR, DP_CHARMAP, DP_WORKFLOW: FPANEL_has_scale% = TRUE ' docked panels: their own surface (GUI/PANEL-SURFACE)
+    END SELECT
+END FUNCTION
+
+' The panel's own setting (0 = follow the UI Scale)
+FUNCTION FPANEL_scale_setting% (dp AS INTEGER)
+    DIM v AS INTEGER
+    SELECT CASE dp
+        CASE DP_ANIM: v = CFG.ANIM_PANEL_SCALE%
+        CASE DP_PEN: v = CFG.PEN_PANEL_SCALE%
+        CASE DP_CS3D: v = CFG.COLOR_SPACE_3D_SCALE%
+        CASE DP_MIXER: v = CFG.COLOR_MIXER_SCALE%
+        CASE DP_ADVCP: v = CFG.ADV_COLOR_PICKER_SCALE%
+        CASE DP_SWATCH: v = CFG.SWATCHES_SCALE%
+        CASE DP_PREVIEW: v = CFG.PREVIEW_SCALE%
+        CASE DP_BROWSER: v = CFG.BROWSER_SCALE%
+        CASE DP_TOOLBOX: v = CFG.TOOLBOX_PANEL_SCALE%
+        CASE DP_ORGANIZER: v = CFG.ORGANIZER_PANEL_SCALE%
+        CASE DP_DRAWER: v = CFG.DRAWER_PANEL_SCALE%
+        CASE DP_LAYERS: v = CFG.LAYER_PANEL_SCALE%
+        CASE DP_EDITBAR: v = CFG.EDIT_BAR_SCALE%
+        CASE DP_ADVBAR: v = CFG.ADV_BAR_SCALE%
+        CASE DP_CHARMAP: v = CFG.CHARMAP_PANEL_SCALE%
+        CASE DP_WORKFLOW: v = CFG.WORKFLOW_PANEL_SCALE%
+    END SELECT
+    IF v < 0 _ORELSE v > 8 THEN v = 0
+    FPANEL_scale_setting% = v
+END FUNCTION
+
+' The scale it draws at: screen pixels per panel pixel (>= 1)
+FUNCTION FPANEL_scale% (dp AS INTEGER)
+    DIM v AS INTEGER
+    v = FPANEL_scale_setting%(dp)
+    IF v = 0 THEN v = FPANEL_auto_scale%(dp)
+    IF v < 1 THEN v = 1
+    FPANEL_scale% = v
+END FUNCTION
+
+' What "Auto" gives panel dp: the UI Scale (USCALE.mixer); the Preview and the
+' Browser have their own ratios of it
+FUNCTION FPANEL_auto_scale% (dp AS INTEGER)
+    DIM v AS INTEGER
+    SELECT CASE dp
+        CASE DP_PREVIEW: v = USCALE.previewAuto%
+        CASE DP_BROWSER: v = USCALE.browserAuto%
+        ' the docked panels draw into the viewport: a panel px is the display
+        ' scale (x its own widget scale, for the toolbox family)
+        CASE DP_TOOLBOX: v = SCRN.displayScale% * _MAX(1, USCALE.toolbar%)
+        CASE DP_ORGANIZER: v = SCRN.displayScale% * _MAX(1, USCALE.organizer%)
+        CASE DP_DRAWER: v = SCRN.displayScale% * _MAX(1, USCALE.drawer%)
+        CASE DP_LAYERS, DP_EDITBAR, DP_ADVBAR, DP_CHARMAP, DP_WORKFLOW: v = SCRN.displayScale%
+        CASE ELSE: v = USCALE.mixer%
+    END SELECT
+    IF v < 1 THEN v = 1
+    FPANEL_auto_scale% = v
+END FUNCTION
+
+' Keep the floating ones (not docked) inside the work area after a size change
+SUB FPANEL_clamp_all ()
+    ANIMP_clamp_to_work_area
+    PENP_clamp_to_work_area
+    CS3D_clamp_to_work_area
+    COLORMIXER_clamp_to_work_area
+    ADVCP_clamp_to_work_area
+    SWP_clamp_to_work_area
+END SUB
+
+' Set it (0 = the UI Scale), resize and relayout, save
+SUB FPANEL_set_scale (dp AS INTEGER, v AS INTEGER)
+    IF FPANEL_has_scale%(dp) = 0 THEN EXIT SUB
+    IF v < 0 _ORELSE v > 8 THEN v = 0
+    SELECT CASE dp
+        CASE DP_ANIM: CFG.ANIM_PANEL_SCALE% = v
+        CASE DP_PEN: CFG.PEN_PANEL_SCALE% = v
+        CASE DP_CS3D: CFG.COLOR_SPACE_3D_SCALE% = v
+        CASE DP_MIXER: CFG.COLOR_MIXER_SCALE% = v
+        CASE DP_ADVCP: CFG.ADV_COLOR_PICKER_SCALE% = v
+        CASE DP_SWATCH: CFG.SWATCHES_SCALE% = v
+        CASE DP_PREVIEW: CFG.PREVIEW_SCALE% = v
+        CASE DP_BROWSER: CFG.BROWSER_SCALE% = v
+        CASE DP_TOOLBOX: CFG.TOOLBOX_PANEL_SCALE% = v
+        CASE DP_ORGANIZER: CFG.ORGANIZER_PANEL_SCALE% = v
+        CASE DP_DRAWER: CFG.DRAWER_PANEL_SCALE% = v
+        CASE DP_LAYERS: CFG.LAYER_PANEL_SCALE% = v
+        CASE DP_EDITBAR: CFG.EDIT_BAR_SCALE% = v
+        CASE DP_ADVBAR: CFG.ADV_BAR_SCALE% = v
+        CASE DP_CHARMAP: CFG.CHARMAP_PANEL_SCALE% = v
+        CASE DP_WORKFLOW: CFG.WORKFLOW_PANEL_SCALE% = v
+    END SELECT
+    IF dp = DP_PREVIEW _ORELSE dp = DP_BROWSER THEN SCALE_resolve_widgets SCRN.displayScale% ' USCALE.preview / .browser
+    SCREEN_compute_layout ' FPANEL_rescale_all + the dock
+    FPANEL_clamp_all
+    IF dp = DP_PREVIEW _ANDALSO DPANEL(DP_PREVIEW).slot = 0 THEN PREVIEW_clamp_to_work_area
+    IF dp = DP_BROWSER _ANDALSO BROWSER.initialized% _ANDALSO BROWSER.docked% = 0 THEN
+        BROWSER_compute_display_size ' its native size at the new scale
+        BROWSER_clamp_size
+        BROWSER_clamp_to_work_area
+        BROWSER_sync_fd_from_display
+    END IF
+    CONFIG_save
+    IF v = 0 THEN
+        STATUS_flash DPANEL(dp).title + " scale: the UI Scale (" + _TRIM$(STR$(FPANEL_scale%(dp))) + "x)"
+    ELSE
+        STATUS_flash DPANEL(dp).title + " scale: " + _TRIM$(STR$(v)) + "x"
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    INVALIDATE_scene
+END SUB
+
+' ---------------------------------------------------------------------------
+' Docked fill (Rick 2026-11-10, PLANS/FLEXPANELS.svg: "can the panels be
+' responsive? like width/height grow when docked to not be a giant gap").
+' Docked, each of the five panels lays itself out to its slot: rows, sliders
+' and chip rows stretch across the slot's width, and when the column has
+' height to spare (no flex panel like the layers in it) its big area - the
+' color field, the wheel, the 3D view, the response graph - takes it, up to
+' FPANEL_grow_max%. Floating, it is its natural size. The dock still sizes
+' columns from the natural size (FPANEL_nat_w%), never the fitted one, or a
+' docked panel would hold its column at its widest.
+' ---------------------------------------------------------------------------
+
+' Viewport px -> native px of panel dp (rounded down: never past the slot)
+FUNCTION FPANEL_native_of% (dp AS INTEGER, px AS INTEGER)
+    DIM ds AS INTEGER
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    FPANEL_native_of% = INT(CLNG(px) * ds / FPANEL_scale%(dp))
+END FUNCTION
+
+' Native px -> viewport px of panel dp (the panels' dispW / dispH rounding)
+FUNCTION FPANEL_disp_of% (dp AS INTEGER, n AS INTEGER)
+    DIM ds AS INTEGER
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    FPANEL_disp_of% = INT(CSNG(n) * FPANEL_scale%(dp) / ds + 0.5)
+END FUNCTION
+
+' Its natural (floating) size in viewport px - what the dock sizes columns by
+FUNCTION FPANEL_nat_w% (dp AS INTEGER)
+    DIM n AS INTEGER
+    SELECT CASE dp
+        CASE DP_ANIM: n = ANIMP.natW
+        CASE DP_PEN: n = PENP.natW%
+        CASE DP_CS3D: n = CS3D.natW%
+        CASE DP_MIXER: n = COLORMIXER.natW%
+        CASE DP_ADVCP: n = ADVCP.natW%
+        CASE DP_SWATCH: n = SWP_nat_w%
+    END SELECT
+    FPANEL_nat_w% = FPANEL_disp_of%(dp, n)
+END FUNCTION
+
+FUNCTION FPANEL_nat_h% (dp AS INTEGER)
+    DIM n AS INTEGER
+    SELECT CASE dp
+        CASE DP_ANIM: n = ANIMP.natH
+        CASE DP_PEN: n = PENP.natH%
+        CASE DP_CS3D: n = CS3D.natH%
+        CASE DP_MIXER: n = COLORMIXER.natH%
+        CASE DP_ADVCP: n = ADVCP.natH%
+        CASE DP_SWATCH: n = SWP_nat_h%
+    END SELECT
+    FPANEL_nat_h% = FPANEL_disp_of%(dp, n)
+END FUNCTION
+
+' Extra height (viewport px) panel dp can use below its natural height in a
+' column w px wide: its big area grows - the color field and the 3D view up
+' to 1.5x as tall as wide, the response graph to square, the wheel to the
+' panel's width and then its shade rows. The Animation panel has nothing to
+' grow (0).
+FUNCTION FPANEL_grow_max% (dp AS INTEGER, w AS INTEGER)
+    DIM nw AS INTEGER, g AS INTEGER
+    nw = _MAX(FPANEL_native_of%(dp, w), 0)
+    SELECT CASE dp
+        CASE DP_PEN: g = PENP_graph_max_h%(nw) - PENP_GRAPH_H
+        CASE DP_CS3D: g = CS3D_view_max_h%(nw) - CS3D_view_nat_h%
+        CASE DP_MIXER: g = COLORMIXER_field_max_h%(nw) - COLORMIXER_field_nat_h%
+        CASE DP_ADVCP: g = ADVCP_grow_max%(nw)
+    END SELECT
+    IF g < 0 THEN g = 0
+    FPANEL_grow_max% = FPANEL_disp_of%(dp, g)
+END FUNCTION
+
+' Lay panel dp out to a slot w x h viewport px (0, 0 = its natural size).
+' Each panel's *_fit only relayouts when its size changes.
+SUB FPANEL_fit (dp AS INTEGER, w AS INTEGER, h AS INTEGER)
+    DIM nw AS INTEGER, nh AS INTEGER, oldDest AS LONG, oldSrc AS LONG, oldFont AS LONG
+    IF w > 0 THEN nw = FPANEL_native_of%(dp, w)
+    IF h > 0 THEN nh = FPANEL_native_of%(dp, h)
+    oldDest = _DEST: oldSrc = _SOURCE: oldFont = _FONT
+    SELECT CASE dp
+        CASE DP_ANIM: ANIMP_fit nw, nh
+        CASE DP_PEN: PENP_fit nw, nh
+        CASE DP_CS3D: CS3D_fit nw, nh
+        CASE DP_MIXER: COLORMIXER_fit nw, nh
+        CASE DP_ADVCP: ADVCP_fit nw, nh
+        CASE DP_SWATCH: SWP_fit nw, nh
+    END SELECT
+    _DEST oldDest: _SOURCE oldSrc: _FONT oldFont
+END SUB
+
+' The size its layout uses on one axis: the fitted size, never below natural
+FUNCTION FPANEL_fit_size% (natS AS INTEGER, fitS AS INTEGER)
+    FPANEL_fit_size% = _MAX(natS, fitS)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
 ' FPANEL_panel_w% — Native width shared by the color / pen panels (Color
 ' Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure) so they line up
 ' when stacked. It is the Color Mixer's width, which the Color Picker library
@@ -69,7 +301,7 @@ END SUB
 FUNCTION FPANEL_panel_w% ()
     IF FPANEL.panelW% < 1 THEN
         COLORMIXER_ensure_initialized
-        FPANEL.panelW% = CP_STATE.dialogW
+        FPANEL.panelW% = COLORMIXER.natW% ' natural, not a docked mixer's fitted width
         IF FPANEL.panelW% < 160 THEN FPANEL.panelW% = 160 ' C3D widget minimum
     END IF
     FPANEL_panel_w% = FPANEL.panelW%
@@ -91,6 +323,31 @@ END FUNCTION
 SUB FPANEL_text (x AS INTEGER, y AS INTEGER, txt AS STRING, clr AS _UNSIGNED LONG)
     COLOR clr~&, _RGBA32(0, 0, 0, 0)
     _UPRINTSTRING (x%, y%), txt$
+END SUB
+
+' ---------------------------------------------------------------------------
+' FPANEL_disclosure — A row that opens / closes the rows under it (Rick
+' 2026-11-14: the Advanced Color Picker's VARIATIONS, the Color Mixer's MORE):
+' an arrow (right = closed, down = open) and the label, "label ..." when
+' closed. In font fnt& (0 = the 8px built-in), at x, y in a w x h row.
+' ---------------------------------------------------------------------------
+SUB FPANEL_disclosure (fnt AS LONG, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, label AS STRING, isOpen AS INTEGER, hover AS INTEGER)
+    DIM oldF AS LONG, c AS _UNSIGNED LONG, cy AS INTEGER, i AS INTEGER, txt AS STRING, tx AS INTEGER
+    oldF = _FONT
+    IF fnt > 0 THEN _FONT fnt ELSE _FONT 8
+    c = _IIF(hover <> 0, THEME.CP_text~&, THEME.CP_text_dim~&)
+    cy = y + h \ 2
+    IF isOpen THEN ' down: 7 wide, 4 tall
+        FOR i = 0 TO 3: LINE (x + i, cy - 2 + i)-(x + 6 - i, cy - 2 + i), c: NEXT i
+    ELSE ' right: 4 wide, 7 tall
+        FOR i = 0 TO 3: LINE (x + 1 + i, cy - 3 + i)-(x + 1 + i, cy + 3 - i), c: NEXT i
+    END IF
+    txt = label: IF isOpen = 0 THEN txt = txt + " ..."
+    tx = x + 10
+    COLOR c, _RGBA32(0, 0, 0, 0)
+    _UPRINTSTRING (tx, y + (h - _UFONTHEIGHT) \ 2), txt
+    IF isOpen _ANDALSO w > _UPRINTWIDTH(txt) + 16 THEN LINE (tx + _UPRINTWIDTH(txt) + 4, cy)-(x + w - 1, cy), THEME.CP_border~& ' a rule to the edge
+    _FONT oldF
 END SUB
 
 ' ---------------------------------------------------------------------------
@@ -250,6 +507,8 @@ FUNCTION FPANEL_float_region% (i AS INTEGER)
         CASE 5: FPANEL_float_region% = REGION_IMAGE_BROWSER
         CASE 6: FPANEL_float_region% = REGION_PREVIEW
         CASE 7: FPANEL_float_region% = REGION_TOOLBAR_EDITOR
+        CASE 8: FPANEL_float_region% = REGION_ANIM_PANEL
+        CASE 9: FPANEL_float_region% = REGION_SWATCHES
         CASE ELSE: FPANEL_float_region% = -1
     END SELECT
 END FUNCTION
@@ -398,6 +657,8 @@ SUB FPANEL_get_pos (region AS INTEGER, x AS INTEGER, y AS INTEGER)
         CASE REGION_IMAGE_BROWSER:     x% = BROWSER.dispX%    : y% = BROWSER.dispY%
         CASE REGION_PREVIEW:           x% = PREVIEW.x%        : y% = PREVIEW.y%
         CASE REGION_TOOLBAR_EDITOR:    x% = TBED.dispX        : y% = TBED.dispY
+        CASE REGION_ANIM_PANEL:        x% = ANIMP.dispX       : y% = ANIMP.dispY
+        CASE REGION_SWATCHES:          x% = SWP.dispX         : y% = SWP.dispY
     END SELECT
 END SUB
 
@@ -424,6 +685,12 @@ SUB FPANEL_set_pos (region AS INTEGER, x AS INTEGER, y AS INTEGER)
             CFG.PREVIEW_X% = x% : CFG.PREVIEW_Y% = y%
         CASE REGION_TOOLBAR_EDITOR
             TBED.dispX = x% : TBED.dispY = y%
+        CASE REGION_ANIM_PANEL
+            ANIMP.dispX = x% : ANIMP.dispY = y%
+            CFG.ANIM_PANEL_X% = x% : CFG.ANIM_PANEL_Y% = y%
+        CASE REGION_SWATCHES
+            SWP.dispX = x% : SWP.dispY = y%
+            CFG.SWATCHES_X% = x% : CFG.SWATCHES_Y% = y%
     END SELECT
 END SUB
 
@@ -502,6 +769,8 @@ FUNCTION FPANEL_window_hit% (region AS INTEGER, x AS INTEGER, y AS INTEGER)
         CASE REGION_IMAGE_BROWSER: r = BROWSER_active_hit%(x, y)
         CASE REGION_PREVIEW: r = (PREVIEW.visible% <> 0 _ANDALSO PREVIEW.autoHidden% = 0) _ANDALSO PREVIEW_hit_window%(x, y)
         CASE REGION_TOOLBAR_EDITOR: r = TBED_active_hit%(x, y)
+        CASE REGION_ANIM_PANEL: r = ANIMP_active_hit%(x, y)
+        CASE REGION_SWATCHES: r = SWP_active_hit%(x, y)
     END SELECT
     FPANEL_window_hit% = (r <> 0)
 END FUNCTION
@@ -532,6 +801,8 @@ FUNCTION FPANEL_window_autohide% (region AS INTEGER, hideIt AS INTEGER)
         CASE REGION_IMAGE_BROWSER: was = BROWSER.autoHidden%: BROWSER.autoHidden% = v
         CASE REGION_PREVIEW: was = PREVIEW.autoHidden%: PREVIEW.autoHidden% = v
         CASE REGION_TOOLBAR_EDITOR: was = TBED.autoHidden: TBED.autoHidden = v
+        CASE REGION_ANIM_PANEL: was = ANIMP.autoHidden: ANIMP.autoHidden = v
+        CASE REGION_SWATCHES: was = SWP.autoHidden: SWP.autoHidden = v
     END SELECT
     FPANEL_window_autohide% = ((was <> 0) <> v)
 END FUNCTION

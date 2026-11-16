@@ -17,6 +17,7 @@ The palette strip across the bottom of the screen is the fastest way to choose c
 | Set BG to transparent | `Shift+Delete` |
 | Scroll the palette strip | Mouse wheel over strip |
 | Fast-scroll 32 colors at a time | `Shift` + Mouse wheel |
+| Strip size: max rows, max columns, chip height, chip width | Right-click a blank part of the strip (no color) |
 | Temporary FG eyedropper (any tool) | `Alt`+Left-click on canvas |
 | Temporary BG eyedropper (any tool) | `Alt`+Right-click on canvas |
 
@@ -127,6 +128,115 @@ Palette workflows DRAW supports natively:
 <div align="center">
   <img src="images/ch03-palette-picker.png" alt="Chapter 3 - Palette Picker" style="max-width: 2.0in; width: 20%; height: auto;" />
 </div>
+
+<div class="page-break"></div>
+
+## Swatches Panel — Your Swatch Sets, Laid Out Your Way
+
+> 🎯 **Goal:** Keep your own swatch sets — ramps, gaps and all — one click away, beside the palette strip.
+
+**View → Swatches** opens a panel with a grid of color swatches. It does not replace the palette strip: the strip stays the document's palette, and the Swatches panel shows any swatch set you like next to it.
+
+- **Left-click** a swatch → it becomes the **FG** color. **Right-click** → **BG**.
+- The FG swatch gets a double frame and the BG swatch a single one, so you can see where you are in the set.
+- Hover a swatch to see its hex value and name on the panel's bottom line.
+- **Wheel** scrolls the grid; drag the thin scroll bar on the right for big sets.
+
+**Choosing a set.** Click the set's name at the top of the panel. The list shows:
+
+- **Document Palette** — the palette the strip shows, 16 to a row.
+- **My Swatches** — sets you loaded (see below).
+- **Swatches** — the sets that ship with DRAW.
+- **Palettes** — the 56 built-in palettes, and your own saved ones under **My Palettes**.
+
+**Loading your own swatches.** Gear → **Load Swatches…** (or ☰ → **Load…**) opens Photoshop **`.aco`** swatch files, Adobe **`.ase`** swatch exchange files (Illustrator, InDesign, Photoshop), GIMP / Aseprite / Inkscape / Krita **`.gpl`** palettes, Photoshop **`.act`** color tables, JASC / RIFF **`.pal`**, Lospec **`.hex`**, Paint.NET **`.txt`** and **`.png`** images. DRAW never changes your original: it saves a `.gpl` copy in **My Swatches** (Gear → **Open My Swatches Folder** shows where) and uses that.
+
+- An **`.ase`** file's groups each start a new row, and the first swatch of a group carries the group's name. CMYK, Lab and gray swatches come in as their RGB colors.
+- A **`.png`** gives one swatch per distinct color, in reading order (left to right, top to bottom); transparent pixels are skipped. The number of colors on its first row sets the columns, so a palette strip or a grid of color cells comes back laid out the same way. An image with more than 1024 colors is refused.
+
+**Saving a set in another format.** ☰ → **Save As…** writes the set as `.gpl` (the default, and the only one that keeps empty cells, row breaks and locks), `.aco`, `.ase`, `.act`, `.pal`, `.hex`, `.txt`, or a **`.png`** of the grid as you see it (one cell per swatch, row breaks start a new row, empty cells are transparent). Type a name without an extension and you get a `.gpl`. The panel keeps showing the set you were on.
+
+**Laid out the way you made it.** A `.gpl` remembers its column count. A Photoshop `.aco` does not, so DRAW works it out from the ramps. Many Photoshop swatch sets pad their rows with black to line the ramps up; with **Black filler = empty cells** on (the default), that padding becomes empty cells and only the first black stays as a color.
+
+**The gear** (the cog at the top right) changes the layout:
+
+| Option | What it does |
+| --- | --- |
+| **View** | **GRID** = swatches side by side · **LIST** = one row per swatch: the color, its hex and its name. A row break shows as a divider. Everything else works the same; in a list a drag drops above or below a row |
+| **Columns** | **SET** = the set's own column count · **FIT** = as many as fit · or a fixed 8 / 12 / 16 / 24 / 32 |
+| **Cell** | swatch size, 6 – 24 px |
+| **Gap** | space between swatches, 0 – 3 px |
+| **Stretch to width** | swatches grow (or shrink) to fill the panel's width |
+| **Square cells** | keep swatches square when stretching |
+| **Cell borders** | a thin border around every swatch |
+| **Recent colors row** | a row above the swatches with the FG colors you used last, newest at the left (each once). **Click** one = FG, **right-click** = BG. DRAW remembers them between sessions |
+
+### Swatches and the palette strip
+
+The **palette strip** is the document's own palette; a swatch set is a separate collection you keep across documents. To move colors between them:
+
+- **Drag** selected swatches **onto the strip**: they are inserted after the chip under the pointer (drop past the last chip to add them at the end). The panel's bottom line reads **ADD n TO THE STRIP** while you are over it. The swatches stay in the set.
+- ☰ → **Selected to Strip: Replace / Add** does the same from the menu.
+- ☰ → **New Set from Strip** goes the other way.
+
+Each change to the strip is one undo step: **`Ctrl+Z`** with the pointer over the canvas takes it back.
+
+### Selecting swatches
+
+The edits below act on the **selected** swatches. A selected swatch gets a thin frame inside it, in a color that stands out against it.
+
+| Do this | To |
+| --- | --- |
+| **Click** a swatch | select it alone (it also becomes the FG) |
+| **`Shift`+click** | select the range from the last clicked swatch (row breaks are skipped) |
+| **`Ctrl`+click** | add it to the selection, or take it out |
+| **Drag a box** from an empty place in the grid | select every swatch it touches; drag below or above the grid and it scrolls |
+| **`Ctrl`+drag** (or `Shift`) a box | add to the selection |
+| **Click an empty place** | select nothing |
+| **`Ctrl+A`** with the pointer on the panel | select every swatch (over the canvas, `Ctrl+A` still selects the canvas) |
+| **`Esc`** with the pointer on the panel | select nothing |
+
+Right-click still sets the BG and leaves the selection alone. Switching to another set clears the selection. With more than one swatch selected, the panel's bottom line counts them.
+
+### Editing swatches — your copy, saved as you go
+
+DRAW never changes a swatch set it did not make. The first time you edit a shipped set, one of the palettes, the Document Palette set or a file you pointed DRAW at, it saves a copy of it in **My Swatches** under the set's name (`Name (1)` if that name is taken) and edits the copy from then on. The status bar says so. After that, every edit is saved straight away, so there is no Save step.
+
+**The edit menu.** Click the **☰** button (left of the gear), or **`Shift`+right-click** in the grid to open it at the pointer. Shift+right-clicking a swatch that isn't selected selects it alone first; on a selected swatch, or an empty place, the selection stays. The menu's top line counts the selected swatches.
+
+| Menu item | Key (pointer on the panel) | What it does |
+| --- | --- | --- |
+| **Add FG Color** | **`Ins`** | adds the FG color after the last selected swatch (nothing selected: at the end) and selects it |
+| **Delete** | **`Del`** | deletes the selected swatches; locked swatches stay |
+| **Lock / Unlock** | **`L`** | locks the selected swatches (a small corner mark); if they are all locked already, unlocks them |
+| **Duplicate** | | copies the selected swatches right after the last one; the copies become the selection |
+| **Edit Color…** | double-click the swatch | opens the color dialog for it |
+| **Rename…** | | names the swatch (the name shows when you hover it, and is saved in the `.gpl`) |
+| **Insert Empty Cell** | | an empty cell before the first selected swatch (nothing selected: at the end) |
+| **Insert Row Break** | | the swatches from the first selected one start a new row |
+| **Remove Duplicates** | | keeps the first of each color; a locked swatch is never removed |
+| **Ramp First > Last** | | the colors between the first and last selected swatch blend from one to the other (in the *Gradient Blend* space, like the palette strip's Shift+click ramp); empty cells are skipped, locked swatches keep their color |
+| **Insert Ramp FG > BG** | | inserts **Steps** swatches from the FG to the BG after the selection (nothing selected: at the end) |
+| **Insert OKLCh Ramp from FG** | | inserts an even dark-to-light ramp of the FG, using the *Generate OKLCh Ramp* settings (Settings → Panels → Color Blending + Ramps) |
+| **Steps** chips | | how many swatches an inserted ramp has (the same setting as Palette → Generate OKLCh Ramp) |
+| **Sort** chips: Hue · Light · Sat · Luma · Rev | | sort the selection (two or more selected), else the whole set, by hue, OKLab lightness, chroma or luminance — or reverse it. Only colors move: empty cells, row breaks and locked swatches stay put |
+| **Selected to Strip: Replace** | | the selected swatches become the palette strip, in order (nothing selected: **All to Strip** — the whole set). The FG and BG keep their colors |
+| **Selected to Strip: Add** | | adds them to the end of the strip; colors the strip already has are skipped, and it holds 256 at most |
+| **Load…** / **Save As…** | | open a swatch file as a new set · save this set in another format (see above) |
+| **New Set from Strip** | | a new set in My Swatches with the strip's colors |
+| **New Set from Image** / **from Selection** | | a new set with every color the image uses (all visible layers, as you see them), in reading order — only the selection's colors when there is a selection. More than 1024 colors is refused: select a smaller area |
+| **Lospec…** | | opens the Lospec browser (Palette → Load from Lospec); each palette you download also becomes a set |
+| **Find FG Color** | **`F`** | selects the swatch that is the FG color and scrolls to it — or, when the set doesn't have it, the nearest one (by how close they look, OKLab). The FG stays as it is |
+| **Select All / Select None** | **`Ctrl+A`** / **`Ctrl+D`** or **`Esc`** | |
+| **Undo / Redo** | **`Ctrl+Z`** / **`Ctrl+Y`** | the last swatch edit |
+
+**Changing a swatch's color.** Double-click a swatch for the color dialog. Or keep one swatch selected and use the **Color Mixer**, **Advanced Color Picker** or **3D Color Space**: the swatch follows them live, and each drag is one undo step. The panel's bottom line reads `COLOR PANELS EDIT #RRGGBB` while that is on. Only those panels change it — picking a color from the palette strip, the canvas or another swatch just sets the FG. Turn it off with gear → **Color panels edit the selected**.
+
+**Drag to rearrange.** Drag a selected swatch and every selected swatch goes with it; scattered ones land side by side. A bright bar shows where they will land: the left half of a swatch drops them before it, the right half after it, and past the end of a row drops them at the end of that row. Hold **`Ctrl`** when you let go to **copy** them instead (the copies become the selection). Drag below or above the grid and it scrolls. Let go off the panel, or right where they already are, and nothing changes. A plain click on a selected swatch still selects it alone — it just happens when you let go, so a drag can start first.
+
+A locked swatch stays where it is: it survives Delete and Remove Duplicates, and a drag moves the swatches around it (a locked one in the selection stays put). Each set keeps its own undo steps while DRAW is running. With the pointer anywhere else these keys keep their usual jobs — `L` is still the Line tool, `F` the Fill tool, `Del`, `Ins`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+A` and `Ctrl+D` still work on the canvas.
+
+**Docking.** Like the Preview and the color pickers, the Swatches panel floats in its own window (drag the corner grip to resize it) or docks: drag its title bar onto a dock target. Docked, it takes the slot's size and scrolls. Right-click its title bar → **Scale** to give it its own size.
 
 <div class="page-break"></div>
 

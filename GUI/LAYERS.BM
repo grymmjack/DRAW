@@ -849,6 +849,9 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
         END IF
     END IF
 
+    ' A clip layer's copy is a second clip of the same cels (TOOLS/CLIP)
+    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_CLIP THEN CLIP_duplicate layerIndex%, newIndex%
+
     IF NOT HISTORY_IN_PROGRESS% THEN
         HISTORY_record_layer_add LAYERS(newIndex%).historyId&, newIndex%, LAYERS(newIndex%).zIndex%, "Layer Duplicate:" + _TRIM$(STR$(LAYERS(layerIndex%).historyId&))
     END IF
@@ -1764,6 +1767,7 @@ SUB LAYERS_set_opacity (layerIndex AS INTEGER, opacity AS INTEGER)
     LAYERS(layerIndex%).opacity% = clampedOpacity%
     BLEND_COMPOSITE_DIRTY%       = TRUE
     COMPOSITE_BELOW_VALID%       = FALSE
+    COMPOSITE_RESULT_VALID%      = FALSE
     SCENE_DIRTY%                 = TRUE
     GUI_NEEDS_REDRAW%            = TRUE
 
@@ -1821,6 +1825,10 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     NEXT i%
     
     IF targetIndex% = 0 THEN EXIT SUB
+    IF LAYERS(targetIndex%).layerType% = LAYER_TYPE_CLIP THEN ' its pixels are rebuilt from its clip (TOOLS/CLIP)
+        STATUS_flash "Merge Down: the layer below is a clip layer - ANIM > Clip Layer > Bake Clip to Pixels first"
+        EXIT SUB
+    END IF
 
     ' (A) Guarantee a TEXT source is rasterized into imgHandle& BEFORE the history
     '     snapshot (BUG-80). Text layers only get their pixels into imgHandle& during a
@@ -2124,6 +2132,26 @@ END FUNCTION
 
 
 ''
+' TRUE when no group above layerIdx is hidden (its own eye is not checked).
+' A hidden group hides everything in it, at any depth.
+' @param layerIdx INTEGER - The layer
+' @return INTEGER - TRUE when every ancestor group is visible
+'
+FUNCTION LAYERS_groups_shown% (layerIdx AS INTEGER)
+    DIM walk AS INTEGER, guard AS INTEGER
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT FUNCTION
+    walk% = LAYERS(layerIdx%).parentGroupIdx%
+    DO WHILE walk% > 0 AND walk% <= MAX_LAYERS
+        IF LAYERS(walk%).imgHandle& <> 0 _ANDALSO LAYERS(walk%).visible% = 0 THEN EXIT FUNCTION
+        walk% = LAYERS(walk%).parentGroupIdx%
+        guard% = guard% + 1
+        IF guard% > MAX_LAYERS THEN EXIT DO ' corrupt parent chain
+    LOOP
+    LAYERS_groups_shown% = TRUE
+END FUNCTION
+
+
+''
 ' Flatten all visible layers and return a new image handle
 ' Caller is responsible for freeing the returned image
 ' @return LONG - New image handle containing the flattened result
@@ -2208,6 +2236,7 @@ FUNCTION LAYERS_flatten& ()
                 END IF
 
                 IF LAYERS(i%).visible% = 0 THEN EXIT FOR   ' invisible leaf
+                IF ANIM_LF_is_ref%(i%) THEN EXIT FOR       ' a reference layer: shown, never exported (TOOLS/ANIM-OPS, 2.8)
 
                 ' Children of a hidden ANCESTOR group must be skipped too. The
                 ' screen renderer walks the parent chain, this did not — so a
@@ -2237,7 +2266,7 @@ FUNCTION LAYERS_flatten& ()
                 IF parentGrp% > 0 AND parentGrp% <= MAX_LAYERS THEN
                     IF LAYERS(parentGrp%).imgHandle& <> 0 THEN
                         IF LAYERS(parentGrp%).layerType% = LAYER_TYPE_GROUP THEN
-                            IF NOT LAYERS(parentGrp%).passThrough% THEN
+                            IF LAYERS_group_isolated%(parentGrp%) THEN
                                 IF LAYERS(parentGrp%).visible% THEN isIso% = TRUE
                             END IF
                         END IF
@@ -2387,10 +2416,142 @@ END FUNCTION
 
 
 ''
+' Layer panel thumbnails (CFG.LAYER_THUMBNAILS: 0 off, 1 tiny, 2 small, 3
+' medium): their size in px, and the row height that holds them.
+FUNCTION LAYER_THUMB_PX% ()
+    SELECT CASE CFG.LAYER_THUMBNAILS%
+        CASE 1: LAYER_THUMB_PX% = 16
+        CASE 2: LAYER_THUMB_PX% = 32
+        CASE 3: LAYER_THUMB_PX% = 48
+    END SELECT
+END FUNCTION
+
+FUNCTION LAYER_ROW_H% ()
+    LAYER_ROW_H% = _MAX(LAYER_ROW_HEIGHT_MIN, LAYER_THUMB_PX% + 4)
+END FUNCTION
+
+''
+' The box round layer L's non-transparent pixels inside the buffer rect (sx,
+' sy, sw, sh), returned in those same variables (sw = 0: none). Cached in
+' LAYER_THUMB_BOXES (see LAYERS.BI) for the Layers panel's current-frame
+' thumbnail; LAYER_content_box does the scan.
+SUB LAYER_PANEL_thumb_box (L AS INTEGER, sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG)
+    DIM img AS LONG
+    img = LAYERS(L).imgHandle&
+    IF LAYER_THUMB_BOXES(L).gen = LAYER_THUMB_GEN _ANDALSO LAYER_THUMB_BOXES(L).img = img _ANDALSO LAYER_THUMB_BOXES(L).hid = LAYERS(L).historyId& _ANDALSO _
+       LAYER_THUMB_BOXES(L).sx = sx _ANDALSO LAYER_THUMB_BOXES(L).sy = sy _ANDALSO LAYER_THUMB_BOXES(L).sw = sw _ANDALSO LAYER_THUMB_BOXES(L).sh = sh THEN
+        sx = LAYER_THUMB_BOXES(L).bx: sy = LAYER_THUMB_BOXES(L).by: sw = LAYER_THUMB_BOXES(L).bw: sh = LAYER_THUMB_BOXES(L).bh
+        EXIT SUB
+    END IF
+    LAYER_THUMB_BOXES(L).gen = LAYER_THUMB_GEN: LAYER_THUMB_BOXES(L).img = img: LAYER_THUMB_BOXES(L).hid = LAYERS(L).historyId&
+    LAYER_THUMB_BOXES(L).sx = sx: LAYER_THUMB_BOXES(L).sy = sy: LAYER_THUMB_BOXES(L).sw = sw: LAYER_THUMB_BOXES(L).sh = sh
+    LAYER_content_box img, sx, sy, sw, sh
+    LAYER_THUMB_BOXES(L).bx = sx: LAYER_THUMB_BOXES(L).by = sy: LAYER_THUMB_BOXES(L).bw = sw: LAYER_THUMB_BOXES(L).bh = sh
+END SUB
+
+''
+' The box round image img's non-transparent pixels inside its rect (sx, sy,
+' sw, sh), returned in those same variables (sw = 0: none). A transparent
+' pixel is nearly always all zero bytes, so a row is first compared whole with
+' a zero row; only rows that differ are looked at a pixel at a time, from each
+' end inwards. The rect must lie inside the image.
+SUB LAYER_content_box (img AS LONG, sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG)
+    DIM iw AS LONG, y AS LONG, i AS LONG, j AS LONG, a AS LONG
+    DIM minX AS LONG, maxX AS LONG, minY AS LONG, maxY AS LONG, row AS STRING, zero AS STRING, m AS _MEM
+    IF img >= -1 _ORELSE sw < 1 _ORELSE sh < 1 THEN sw = 0: sh = 0: EXIT SUB
+    iw = _WIDTH(img)
+    IF sx < 0 _ORELSE sy < 0 _ORELSE sx + sw > iw _ORELSE sy + sh > _HEIGHT(img) THEN sw = 0: sh = 0: EXIT SUB
+    minX = sw: maxX = -1: minY = -1: maxY = -1
+    row = SPACE$(sw * 4): zero = STRING$(sw * 4, 0)
+    m = _MEMIMAGE(img)
+    FOR y = 0 TO sh - 1
+        _MEMGET m, m.OFFSET + ((sy + y) * iw + sx) * 4, row
+        IF row <> zero THEN
+            i = 0 ' the first opaque pixel from the left (alpha is the 4th byte, BGRA)
+            DO WHILE i < sw
+                IF ASC(row, i * 4 + 4) THEN EXIT DO
+                i = i + 1
+            LOOP
+            IF i < sw THEN
+                IF minY < 0 THEN minY = y
+                maxY = y
+                IF i < minX THEN minX = i
+                j = sw - 1 ' the last, down to what is already known
+                a = _MAX(i, maxX + 1)
+                DO WHILE j >= a
+                    IF ASC(row, j * 4 + 4) THEN EXIT DO
+                    j = j - 1
+                LOOP
+                IF j >= a THEN maxX = j
+                IF i > maxX THEN maxX = i
+            END IF
+        END IF
+    NEXT y
+    _MEMFREE m
+    IF minY < 0 THEN
+        sw = 0: sh = 0
+    ELSE
+        sx = sx + minX: sy = sy + minY: sw = maxX - minX + 1: sh = maxY - minY + 1
+    END IF
+END SUB
+
+''
+' One axis of a thumbnail's content box (start a, length n) grown to at least
+' CFG.LAYER_THUMB_MIN_CROP px round its middle, inside the region (r0, rn):
+' the zoom on a small mark is capped (Rick 2026-11-09: "cap the zoom say
+' 16px ... make it configurable").
+SUB LAYER_PANEL_thumb_span (a AS LONG, n AS LONG, r0 AS LONG, rn AS LONG)
+    DIM m AS LONG
+    m = _MIN(_MAX(1, CFG.LAYER_THUMB_MIN_CROP%), rn)
+    IF n >= m THEN EXIT SUB
+    a = a + n \ 2 - m \ 2
+    a = _MAX(r0, _MIN(a, r0 + rn - m))
+    n = m
+END SUB
+
+''
+' A layer's thumbnail in a sz x sz box at (x, y) on the current _DEST: its
+' content (the box round its non-transparent pixels on the canvas, in an
+' animation in the current frame), fitted, on a checkerboard.
+SUB LAYER_PANEL_thumb (L AS INTEGER, x AS INTEGER, y AS INTEGER, sz AS INTEGER)
+    DIM sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG, dw AS INTEGER, dh AS INTEGER, ox AS INTEGER, oy AS INTEGER
+    DIM i AS INTEGER, j AS INTEGER, c AS INTEGER
+    IF sz < 4 THEN EXIT SUB
+    c = _MAX(2, sz \ 4)
+    FOR j = 0 TO sz - 1 STEP c ' the checkerboard
+        FOR i = 0 TO sz - 1 STEP c
+            LINE (x + i, y + j)-(x + _MIN(i + c, sz) - 1, y + _MIN(j + c, sz) - 1), _IIF(((i \ c) + (j \ c)) MOD 2, _RGB32(150, 150, 150), _RGB32(105, 105, 105)), BF
+        NEXT i
+    NEXT j
+    LINE (x - 1, y - 1)-(x + sz, y + sz), THEME.LAYER_PANEL_opacity_bar_bg~&, B
+    IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(L).imgHandle& >= -1 _ORELSE LAYERS(L).layerType% = LAYER_TYPE_GROUP THEN EXIT SUB
+    sx = 0: sy = 0: sw = SCRN.canvasW&: sh = SCRN.canvasH&
+    IF ANIM.active _ANDALSO ANIM.count > 0 THEN ' an animation: the current frame
+        IF ANIM_cell_rect%(ANIM.current, sx, sy, sw, sh) = 0 THEN sx = 0: sy = 0: sw = SCRN.canvasW&: sh = SCRN.canvasH&
+    END IF
+    sx = sx + LAYERS(L).apronW%: sy = sy + LAYERS(L).apronH% ' a promoted buffer is bigger than the canvas
+    IF sw < 1 _ORELSE sh < 1 _ORELSE sx + sw > _WIDTH(LAYERS(L).imgHandle&) _ORELSE sy + sh > _HEIGHT(LAYERS(L).imgHandle&) THEN EXIT SUB
+    DIM rx AS LONG, ry AS LONG, rw AS LONG, rh AS LONG
+    rx = sx: ry = sy: rw = sw: rh = sh
+    IF CFG.LAYER_THUMB_FIT% = 0 THEN ' crop to the layer's content
+        LAYER_PANEL_thumb_box L, sx, sy, sw, sh
+        IF sw < 1 THEN EXIT SUB ' nothing on it: the checkerboard
+        LAYER_PANEL_thumb_span sx, sw, rx, rw ' at least LAYER_THUMB_MIN_CROP px each way:
+        LAYER_PANEL_thumb_span sy, sh, ry, rh ' a dot stays small
+    END IF
+    IF sw >= sh THEN dw = sz: dh = _MAX(1, (sz * sh) \ sw) ELSE dh = sz: dw = _MAX(1, (sz * sw) \ sh)
+    ox = x + (sz - dw) \ 2: oy = y + (sz - dh) \ 2
+    _PUTIMAGE (ox, oy)-(ox + dw - 1, oy + dh - 1), LAYERS(L).imgHandle&, , (sx, sy)-(sx + sw - 1, sy + sh - 1)
+END SUB
+
+''
 ' Render the layer panel
 ' @param canvasHeight INTEGER Total viewport height used to compute panel bounds
 '
 SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
+    DIM lrOff AS INTEGER, lrThumb AS INTEGER ' rows taller than 20 px (thumbnails): the 20 px line centred in them
+    lrThumb = LAYER_THUMB_PX%: lrOff = (LAYER_ROW_H% - LAYER_ROW_HEIGHT_MIN) \ 2
     DIM panelX             AS INTEGER, panelY AS INTEGER
     DIM panelW             AS INTEGER, panelH AS INTEGER
     DIM rowY               AS INTEGER
@@ -2425,9 +2586,10 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     ' Define areas: header, list area (variable), button area (heights from THEME)
     DIM HEADER_HEIGHT      AS INTEGER : HEADER_HEIGHT = THEME.LAYER_PANEL_header_height%
     DIM BUTTON_AREA_HEIGHT AS INTEGER : BUTTON_AREA_HEIGHT = THEME.LAYER_PANEL_btn_bar_height%
-    listTop%    = panelY% + HEADER_HEIGHT
-    listBottom% = panelY% + panelH% - BUTTON_AREA_HEIGHT
+    listTop%    = panelY% + LAYER_LIST_top_off% ' (the header, and the layer bar when it is at the top)
+    listBottom% = panelY% + panelH% - LAYER_LIST_bot_off% ' (the button bar, and the layer bar when it is at the bottom)
     listHeight% = listBottom% - listTop%
+    DIM btnBarTop AS INTEGER: btnBarTop% = panelY% + panelH% - BUTTON_AREA_HEIGHT
     
     ' Calculate total content height (excluding collapsed group children)
     DIM visibleRowCount AS INTEGER
@@ -2444,7 +2606,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
             END IF
         NEXT vrIdx%
     NEXT vri%
-    totalContentHeight% = visibleRowCount% * LAYER_ROW_HEIGHT
+    totalContentHeight% = visibleRowCount% * LAYER_ROW_H%
     
     ' Calculate max scroll offset
     maxScroll% = totalContentHeight% - listHeight%
@@ -2455,7 +2617,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     IF LAYER_PANEL.scrollOffset% < 0 THEN LAYER_PANEL.scrollOffset% = 0
     
     oldDest& = _DEST
-    _DEST SCRN.GUI&
+    ' (into the current destination: its own surface at its own Scale, GUI/PANEL-SURFACE)
     
     ' Draw panel background
     bgColor~& = THEME.LAYER_PANEL_bg~&
@@ -2535,12 +2697,12 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
             drawY% = rowY% - LAYER_PANEL.scrollOffset%
             
             ' Only draw if row is visible in list area
-            IF drawY% + LAYER_ROW_HEIGHT > listTop% AND drawY% < listBottom% THEN
+            IF drawY% + LAYER_ROW_H% > listTop% AND drawY% < listBottom% THEN
                 ' Clip to list area
                 DIM clipTop AS INTEGER, clipBottom AS INTEGER
                 clipTop% = drawY%
                 IF clipTop% < listTop% THEN clipTop% = listTop%
-                clipBottom% = drawY% + LAYER_ROW_HEIGHT - 1
+                clipBottom% = drawY% + LAYER_ROW_H% - 1
                 IF clipBottom% >= listBottom% THEN clipBottom% = listBottom% - 1
                 
                 ' Group headers get their own background color
@@ -2576,7 +2738,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                 END IF
                 
                 ' Only draw text if fully visible
-                IF drawY% >= listTop% AND drawY% + LAYER_ROW_HEIGHT < = listBottom% THEN
+                IF drawY% >= listTop% AND drawY% + LAYER_ROW_H% < = listBottom% THEN
                     ' Row content X offset (includes indent for children)
                     DIM rowX AS INTEGER
                     rowX% = panelX% + 3 + rowIndent%
@@ -2586,7 +2748,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         ' Collapse triangle: right-pointing when collapsed, down when expanded
                         DIM triX AS INTEGER, triY AS INTEGER
                         triX% = rowX%
-                        triY% = drawY% + (LAYER_ROW_HEIGHT \ 2)
+                        triY% = drawY% + (LAYER_ROW_H% \ 2)
                         COLOR THEME.LAYER_PANEL_group_collapse_fg~&, _RGBA32(0, 0, 0, 0)
                         IF LAYERS(layerIdx%).collapsed% THEN
                             ' Right-pointing triangle (collapsed)
@@ -2611,7 +2773,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                             DIM gviW AS INTEGER, gviH AS INTEGER
                             gviW% = _WIDTH(gVisIcon&)
                             gviH% = _HEIGHT(gVisIcon&)
-                            _PUTIMAGE (rowX% + 10, drawY% + (LAYER_ROW_HEIGHT - gviH%) \ 2)-(rowX% + 10 + gviW% - 1, drawY% + (LAYER_ROW_HEIGHT - gviH%) \ 2 + gviH% - 1), gVisIcon&, SCRN.GUI&
+                            _PUTIMAGE (rowX% + 10, drawY% + (LAYER_ROW_H% - gviH%) \ 2)-(rowX% + 10 + gviW% - 1, drawY% + (LAYER_ROW_H% - gviH%) \ 2 + gviH% - 1), gVisIcon&, oldDest&
                         END IF
 
                         ' "Not paintable" badge — a pencil with a slash through it.
@@ -2636,8 +2798,8 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                             npW% = _WIDTH(LAYER_PANEL.iconNoPaint&)
                             npH% = _HEIGHT(LAYER_PANEL.iconNoPaint&)
                             npX% = panelX% + panelW% - 19 - npW%
-                            npY% = drawY% + 11
-                            _PUTIMAGE (npX%, npY%)-(npX% + npW% - 1, npY% + npH% - 1), LAYER_PANEL.iconNoPaint&, SCRN.GUI&
+                            npY% = drawY% + lrOff + 11
+                            _PUTIMAGE (npX%, npY%)-(npX% + npW% - 1, npY% + npH% - 1), LAYER_PANEL.iconNoPaint&, oldDest&
                         END IF
 
                         ' Group blend mode abbreviation — right-aligned at y+4
@@ -2693,14 +2855,14 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         END IF
                         IF grpNameTruncated% THEN grpName$ = grpName$ + "..."
                         COLOR THEME.LAYER_PANEL_group_header_fg~&, _RGBA32(0, 0, 0, 0)
-                        _UPRINTSTRING (rowX% + 22, drawY% + 4), grpName$
+                        _UPRINTSTRING (rowX% + 22, drawY% + lrOff + 4), grpName$
 
                         ' Inline child count after the trimmed group name
                         IF LEN(grpCountStr$) > 0 THEN
                             DIM grpCountX AS INTEGER
                             grpCountX% = rowX% + 22 + _PRINTWIDTH(grpName$)
                             COLOR THEME.LAYER_PANEL_header_fg_dim~&, _RGBA32(0, 0, 0, 0)
-                            _UPRINTSTRING (grpCountX%, drawY% + 4), grpCountStr$
+                            _UPRINTSTRING (grpCountX%, drawY% + lrOff + 4), grpCountStr$
                         END IF
 
                         ' Right-aligned blend abbreviation
@@ -2708,7 +2870,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                             DIM grpBlendX AS INTEGER
                             grpBlendX% = panelX% + panelW% - 17 - _PRINTWIDTH(grpBlendShort$)
                             COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
-                            _UPRINTSTRING (grpBlendX%, drawY% + 4), grpBlendShort$
+                            _UPRINTSTRING (grpBlendX%, drawY% + lrOff + 4), grpBlendShort$
                         END IF
                     ELSE
                         ' === NORMAL / TEXT LAYER ROW ===
@@ -2728,11 +2890,11 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         DIM viW AS INTEGER, viH AS INTEGER
                         viW% = _WIDTH(visIcon&)
                         viH% = _HEIGHT(visIcon&)
-                        _PUTIMAGE (rowX%, drawY% + (LAYER_ROW_HEIGHT - viH%) \ 2)-(rowX% + viW% - 1, drawY% + (LAYER_ROW_HEIGHT - viH%) \ 2 + viH% - 1), visIcon&, SCRN.GUI&
+                        _PUTIMAGE (rowX%, drawY% + (LAYER_ROW_H% - viH%) \ 2)-(rowX% + viW% - 1, drawY% + (LAYER_ROW_H% - viH%) \ 2 + viH% - 1), visIcon&, oldDest&
                     ELSE
                         ' Fallback to text
                         COLOR fgColor~&, _RGBA32(0, 0, 0, 0)
-                        _UPRINTSTRING (rowX% + 1, drawY% + 4), visibleIcon$
+                        _UPRINTSTRING (rowX% + 1, drawY% + lrOff + 4), visibleIcon$
                     END IF
                     
                     ' Opacity lock icon - PNG with text fallback
@@ -2747,13 +2909,13 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         DIM lkW AS INTEGER, lkH AS INTEGER
                         lkW% = _WIDTH(lkIcon&)
                         lkH% = _HEIGHT(lkIcon&)
-                        _PUTIMAGE (rowX% + 11, drawY% + (LAYER_ROW_HEIGHT - lkH%) \ 2)-(rowX% + 11 + lkW% - 1, drawY% + (LAYER_ROW_HEIGHT - lkH%) \ 2 + lkH% - 1), lkIcon&, SCRN.GUI&
+                        _PUTIMAGE (rowX% + 11, drawY% + (LAYER_ROW_H% - lkH%) \ 2)-(rowX% + 11 + lkW% - 1, drawY% + (LAYER_ROW_H% - lkH%) \ 2 + lkH% - 1), lkIcon&, oldDest&
                     ELSE
                         ' Fallback to text (only show when locked)
                         IF LAYERS(layerIdx%).opacityLock% THEN
                             lockIcon$ = "L"
                             COLOR _RGB32(255, 180, 0), _RGBA32(0, 0, 0, 0)
-                            _UPRINTSTRING (rowX% + 11, drawY% + 4), lockIcon$
+                            _UPRINTSTRING (rowX% + 11, drawY% + lrOff + 4), lockIcon$
                         END IF
                     END IF
                     
@@ -2763,6 +2925,11 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     layerName$ = _TRIM$(LAYERS(layerIdx%).name)
                     IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_TEXT THEN
                         layerName$ = "[T] " + layerName$
+                    END IF
+                    IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_CLIP THEN layerName$ = "[C] " + layerName$ ' a clip layer (TOOLS/CLIP)
+                    IF ANIM_LF_N > 0 THEN ' 2.8: a layer the same on every frame / a reference layer
+                        IF ANIM_LF_is_same%(layerIdx%) THEN layerName$ = "[=] " + layerName$
+                        IF ANIM_LF_is_ref%(layerIdx%) THEN layerName$ = "[R] " + layerName$
                     END IF
 
                     ' Char-count cap (display-only). Anything beyond gets ellipsis-trimmed.
@@ -2806,6 +2973,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     ' availW% = full row width minus left icons (24px) minus opacity bar (14px)
                     ' When a blend abbreviation is present, also subtract its width + 2px gap.
                     availW% = panelW% - rowIndent% - 24 - 14
+                    IF lrThumb > 0 THEN availW% = availW% - lrThumb - 3 ' the thumbnail before the name
                     IF showBlendInd% THEN availW% = availW% - _PRINTWIDTH(blendShort$) - 2
                     IF showAiTag% THEN availW% = availW% - _PRINTWIDTH(aiTag$) - 2
 
@@ -2826,7 +2994,8 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     ELSEIF LAYERS(layerIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
                         COLOR THEME.LAYER_PANEL_symbol_child_fg~&, _RGBA32(0, 0, 0, 0)
                     END IF
-                    _UPRINTSTRING (rowX% + 21, drawY% + 4), layerName$
+                    IF lrThumb > 0 THEN LAYER_PANEL_thumb layerIdx%, rowX% + 21, drawY% + (LAYER_ROW_H% - lrThumb) \ 2, lrThumb
+                    _UPRINTSTRING (rowX% + 21 + _IIF(lrThumb > 0, lrThumb + 3, 0), drawY% + lrOff + 4), layerName$
 
                     ' Blend mode indicator — right-aligned on the name row (y+4), just left
                     ' of the opacity bar.  Badge occupies y+12 alone so no overlap is possible.
@@ -2834,7 +3003,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         ' Right edge of blend text must sit 2px left of the opacity bar.
                         blendIndX% = panelX% + panelW% - 17 - _PRINTWIDTH(blendShort$)
                         COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
-                        _UPRINTSTRING (blendIndX%, drawY% + 4), blendShort$
+                        _UPRINTSTRING (blendIndX%, drawY% + lrOff + 4), blendShort$
                     END IF
 
                     ' [AI] tag — sits just left of the blend indicator so the two
@@ -2844,7 +3013,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         aiTagX% = panelX% + panelW% - 17 - _PRINTWIDTH(aiTag$)
                         IF showBlendInd% THEN aiTagX% = aiTagX% - _PRINTWIDTH(blendShort$) - 2
                         COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
-                        _UPRINTSTRING (aiTagX%, drawY% + 4), aiTag$
+                        _UPRINTSTRING (aiTagX%, drawY% + lrOff + 4), aiTag$
                     END IF
                     END IF ' isGroupHeader% ELSE
 
@@ -2854,10 +3023,10 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     exportBadge$ = FILE_QB64_export_badge$(layerIdx%)
                     IF LEN(exportBadge$) > 0 THEN
                         DIM badgeY AS INTEGER
-                        badgeY% = drawY% + 12
-                        IF badgeY% + 8 <= drawY% + LAYER_ROW_HEIGHT THEN
+                        badgeY% = drawY% + lrOff + 12
+                        IF badgeY% + 8 <= drawY% + LAYER_ROW_H% THEN
                             COLOR FILE_QB64_badge_color~&(layerIdx%), _RGBA32(0, 0, 0, 0)
-                            _UPRINTSTRING (rowX% + 21, badgeY%), exportBadge$
+                            _UPRINTSTRING (rowX% + 21 + _IIF(lrThumb > 0 _ANDALSO LAYERS(layerIdx%).layerType% <> LAYER_TYPE_GROUP, lrThumb + 3, 0), badgeY%), exportBadge$
                         END IF
                     END IF
 
@@ -2867,16 +3036,16 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     IF panelW% >= 80 THEN
                         opacityFill% = INT((LAYERS(layerIdx%).opacity% / 255.0) * 14)
                         ' Track background: 3px wide x 15px tall at panelW%-15 to panelW%-13
-                        LINE (panelX% + panelW% - 15, drawY% + 2)-(panelX% + panelW% - 13, drawY% + 16), THEME.LAYER_PANEL_opacity_bar_bg~&, BF
+                        LINE (panelX% + panelW% - 15, drawY% + lrOff + 2)-(panelX% + panelW% - 13, drawY% + lrOff + 16), THEME.LAYER_PANEL_opacity_bar_bg~&, BF
                         ' Fill from bottom up
                         IF opacityFill% > 0 THEN
-                            LINE (panelX% + panelW% - 15, drawY% + 16 - opacityFill%)-(panelX% + panelW% - 13, drawY% + 16), THEME.LAYER_PANEL_opacity_bar_fg~&, BF
+                            LINE (panelX% + panelW% - 15, drawY% + lrOff + 16 - opacityFill%)-(panelX% + panelW% - 13, drawY% + lrOff + 16), THEME.LAYER_PANEL_opacity_bar_fg~&, BF
                         END IF
                     END IF
                 END IF
             END IF
             
-            rowY% = rowY% + LAYER_ROW_HEIGHT
+            rowY% = rowY% + LAYER_ROW_H%
         END IF
     NEXT z%
     
@@ -2914,7 +3083,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
         ELSE
             dropRowFromTop% = dropVisRow% + 1
         END IF
-        dropY% = listTop% + (dropRowFromTop% * LAYER_ROW_HEIGHT) - LAYER_PANEL.scrollOffset%
+        dropY% = listTop% + (dropRowFromTop% * LAYER_ROW_H%) - LAYER_PANEL.scrollOffset%
         
         ' Draw indicator line if visible
         IF dropY% >= listTop% - 2 AND dropY% < = listBottom% + 2 THEN
@@ -2935,8 +3104,8 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
         DIM dragLayerName AS STRING
         DIM dragLayerZ    AS INTEGER
         
-        previewY% = LAYER_PANEL.dragPreviewY% - (LAYER_ROW_HEIGHT \ 2)
-        previewH% = LAYER_ROW_HEIGHT
+        previewY% = LAYER_PANEL.dragPreviewY% - (LAYER_ROW_H% \ 2)
+        previewH% = LAYER_ROW_H%
         
         ' Clamp preview to panel bounds
         IF previewY% < listTop% THEN previewY% = listTop%
@@ -2946,6 +3115,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
         IF LAYERS(LAYER_PANEL.dragLayerIdx%).layerType% = LAYER_TYPE_TEXT THEN
             dragLayerName$ = "[T] " + dragLayerName$
         END IF
+        IF LAYERS(LAYER_PANEL.dragLayerIdx%).layerType% = LAYER_TYPE_CLIP THEN dragLayerName$ = "[C] " + dragLayerName$
         dragLayerZ% = LAYERS(LAYER_PANEL.dragLayerIdx%).zIndex%
         
         ' Draw semi-transparent preview row
@@ -2992,10 +3162,11 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     END IF
     
     ' Draw separator line above button area
-    LINE (panelX%, listBottom%)-(panelX% + panelW% - 1, listBottom%), THEME.LAYER_PANEL_sep~&
+    LAYER_BAR_render ' the layer bar (blend / eye / lock / opacity), under the header or over the buttons
+    LINE (panelX%, btnBarTop%)-(panelX% + panelW% - 1, btnBarTop%), THEME.LAYER_PANEL_sep~&
 
     ' Draw button bar background
-    LINE (panelX%, listBottom% + 1)-(panelX% + panelW% - 1, panelY% + panelH% - 1), THEME.LAYER_PANEL_btn_bar_bg~&, BF
+    LINE (panelX%, btnBarTop% + 1)-(panelX% + panelW% - 1, panelY% + panelH% - 1), THEME.LAYER_PANEL_btn_bar_bg~&, BF
     
     ' Draw button bar at bottom (5 buttons: ^ v # x +)
     DIM btnY       AS INTEGER
@@ -3006,7 +3177,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     DIM btnIcon    AS LONG
     DIM biW        AS INTEGER, biH AS INTEGER
     
-    btnY% = listBottom% + 1
+    btnY% = btnBarTop% + 1
     DIM btnSlotH AS INTEGER: btnSlotH% = BUTTON_AREA_HEIGHT - 1 ' bar height minus 1px separator
     btnSpacing% = 2
     btnW%       = (panelW% - 8 - (5 * btnSpacing%)) \ 6         ' 6 buttons with spacing
@@ -3018,7 +3189,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     btnIcon& = LAYER_PANEL.iconBtnUp&
     IF btnIcon& < -1 THEN
         biW% = _WIDTH(btnIcon&): biH% = _HEIGHT(btnIcon&)
-        _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, SCRN.GUI&
+        _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, oldDest&
     ELSE
         IF btnEnabled% THEN
             LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + btnSlotH% - 1), _RGB32(60, 70, 80), BF
@@ -3034,7 +3205,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     btnIcon& = LAYER_PANEL.iconBtnDown&
     IF btnIcon& < -1 THEN
         biW% = _WIDTH(btnIcon&): biH% = _HEIGHT(btnIcon&)
-        _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, SCRN.GUI&
+        _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, oldDest&
     ELSE
         IF btnEnabled% THEN
             LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + btnSlotH% - 1), _RGB32(60, 70, 80), BF
@@ -3050,7 +3221,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     btnIcon& = LAYER_PANEL.iconBtnMerge&
     IF btnIcon& < -1 THEN
         biW% = _WIDTH(btnIcon&): biH% = _HEIGHT(btnIcon&)
-        _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, SCRN.GUI&
+        _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, oldDest&
     ELSE
         IF btnEnabled% THEN
             LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + btnSlotH% - 1), _RGB32(70, 70, 60), BF
@@ -3065,7 +3236,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     btnIcon&    = LAYER_PANEL.iconBtnDelete&
     IF btnIcon& < -1 THEN
         biW% = _WIDTH(btnIcon&): biH% = _HEIGHT(btnIcon&)
-        _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, SCRN.GUI&
+        _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, oldDest&
     ELSE
         IF btnEnabled% THEN
             LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + btnSlotH% - 1), _RGB32(80, 50, 50), BF
@@ -3083,7 +3254,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     btnIcon& = LAYER_PANEL.iconBtnAdd&
     IF btnIcon& < -1 THEN
         biW% = _WIDTH(btnIcon&): biH% = _HEIGHT(btnIcon&)
-        _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, SCRN.GUI&
+        _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, oldDest&
     ELSE
         LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + btnSlotH% - 1), _RGB32(50, 70, 50), BF
     END IF
@@ -3097,7 +3268,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     btnIcon& = LAYER_PANEL.iconBtnGroup&
     IF btnIcon& < -1 THEN
         biW% = _WIDTH(btnIcon&): biH% = _HEIGHT(btnIcon&)
-        _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, SCRN.GUI&
+        _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, oldDest&
     ELSE
         LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + btnSlotH% - 1), _RGB32(50, 60, 80), BF
     END IF
@@ -3128,6 +3299,7 @@ FUNCTION LAYER_PANEL_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
         EXIT FUNCTION
     END IF
     
+    IF PSURF_on%(DP_LAYERS) THEN LAYER_PANEL_in_bounds% = PSURF_in%(DP_LAYERS, rawX%, rawY%): EXIT FUNCTION ' its footprint (GUI/PANEL-SURFACE)
     panelH% = LAYER_PANEL_bot% ' absolute bottom (exclusive) of the panel's rect
     
     LAYER_PANEL_in_bounds% = (rawX% >= LAYER_PANEL.panelX1% AND rawX% <= LAYER_PANEL.panelX2% AND rawY% >= LAYER_PANEL_top% AND rawY% < panelH%)
@@ -3144,15 +3316,17 @@ END FUNCTION
 ' @param rawY INTEGER Raw screen Y coordinate
 ' @return INTEGER - Layer slot (1..MAX_LAYERS), or 0 if not over a row
 '
-FUNCTION LAYER_PANEL_get_row_slot% (rawX AS INTEGER, rawY AS INTEGER)
+FUNCTION LAYER_PANEL_get_row_slot% (inX AS INTEGER, inY AS INTEGER)
+    DIM rawX AS INTEGER, rawY AS INTEGER ' (in its units at its own Scale: GUI/PANEL-SURFACE)
     LAYER_PANEL_get_row_slot% = 0
     IF NOT LAYER_PANEL.visible% THEN EXIT FUNCTION
-    IF NOT LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN EXIT FUNCTION
+    IF NOT LAYER_PANEL_in_bounds%(inX, inY) THEN EXIT FUNCTION
+    rawX = PSURF_mx%(DP_LAYERS, inX): rawY = PSURF_my%(DP_LAYERS, inY)
 
     DIM bottomBarsHeight AS INTEGER
     DIM panelH           AS INTEGER : panelH% = LAYER_PANEL_bot% ' absolute bottom (exclusive)
-    DIM listTop          AS INTEGER : listTop% = LAYER_PANEL_top% + THEME.LAYER_PANEL_header_height%
-    DIM listBot          AS INTEGER : listBot% = panelH% - THEME.LAYER_PANEL_btn_bar_height%
+    DIM listTop          AS INTEGER : listTop% = LAYER_PANEL_top% + LAYER_LIST_top_off%
+    DIM listBot          AS INTEGER : listBot% = panelH% - LAYER_LIST_bot_off%
     IF rawY% < listTop% OR rawY% >= listBot% THEN EXIT FUNCTION
 
     DIM clickY  AS INTEGER : clickY% = rawY% + LAYER_PANEL.scrollOffset%
@@ -3188,11 +3362,11 @@ FUNCTION LAYER_PANEL_get_row_slot% (rawX AS INTEGER, rawY AS INTEGER)
         LOOP
         IF ancCollapsed% THEN _CONTINUE
 
-        IF clickY% >= rowY% AND clickY% < rowY% + LAYER_ROW_HEIGHT THEN
+        IF clickY% >= rowY% AND clickY% < rowY% + LAYER_ROW_H% THEN
             LAYER_PANEL_get_row_slot% = layerIdx%
             EXIT FUNCTION
         END IF
-        rowY% = rowY% + LAYER_ROW_HEIGHT
+        rowY% = rowY% + LAYER_ROW_H%
     NEXT z%
 END FUNCTION
 
@@ -3205,7 +3379,9 @@ END FUNCTION
 ' @param button INTEGER Mouse button that was clicked (1=left, 2=right, 3=middle)
 ' @return INTEGER - TRUE if the click was handled by the panel
 '
-FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS INTEGER)
+FUNCTION LAYER_PANEL_handle_click% (inX AS INTEGER, inY AS INTEGER, button AS INTEGER)
+    DIM rawX AS INTEGER, rawY AS INTEGER ' (in its units at its own Scale: GUI/PANEL-SURFACE)
+    rawX = PSURF_mx%(DP_LAYERS, inX): rawY = PSURF_my%(DP_LAYERS, inY)
     DIM panelW           AS INTEGER, panelH AS INTEGER
     DIM rowY             AS INTEGER
     DIM i                AS INTEGER, z AS INTEGER
@@ -3241,10 +3417,17 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
     END IF
     
     ' Check for scrollbar click (8px wide strip at right edge of panel)
-    DIM sbListTop2 AS INTEGER : sbListTop2% = LAYER_PANEL_top% + THEME.LAYER_PANEL_header_height%
-    DIM sbListBot2 AS INTEGER : sbListBot2% = panelH% - THEME.LAYER_PANEL_btn_bar_height%
+    ' The layer bar (blend / eye / lock / opacity)
+    IF LAYER_BAR_part%(rawX%, rawY%) THEN
+        LAYER_BAR_click rawX%, rawY%, button%
+        LAYER_PANEL_handle_click% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    DIM sbListTop2 AS INTEGER : sbListTop2% = LAYER_PANEL_top% + LAYER_LIST_top_off%
+    DIM sbListBot2 AS INTEGER : sbListBot2% = panelH% - LAYER_LIST_bot_off%
     DIM sbListH2   AS INTEGER : sbListH2% = sbListBot2% - sbListTop2%
-    DIM sbTotalH2  AS INTEGER : sbTotalH2% = LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT
+    DIM sbTotalH2  AS INTEGER : sbTotalH2% = LAYER_PANEL_visible_row_count% * LAYER_ROW_H%
     IF sbTotalH2% > sbListH2% THEN
         DIM sbSX2 AS INTEGER: sbSX2% = panelW% - 10
         IF localRawX% >= sbSX2% AND localRawX% < = sbSX2% + 7 AND rawY% >= sbListTop2% AND rawY% < sbListBot2% THEN
@@ -3445,7 +3628,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
             LOOP
             IF clickAncCollapsed% THEN _CONTINUE
 
-            IF clickY% >= rowY% AND clickY% < rowY% + LAYER_ROW_HEIGHT THEN
+            IF clickY% >= rowY% AND clickY% < rowY% + LAYER_ROW_H% THEN
                 ' Clicked on this layer row
                 DIM localX        AS INTEGER
                 localX% = rawX% - LAYER_PANEL.panelX1%
@@ -3467,6 +3650,12 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                     DIM shiftHeld AS INTEGER
                     ctrlHeld%  = (_KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&))
                     shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
+                    ' Ctrl+click a thumbnail: a selection from the layer; Ctrl+Shift+click: add it / take it out
+                    IF ctrlHeld% _ANDALSO LAYER_PANEL_thumb_at%(inX, inY) = layerIdx% THEN
+                        LAYER_PANEL_thumb_select layerIdx%, shiftHeld% <> 0
+                        LAYER_PANEL_handle_click% = TRUE
+                        EXIT FUNCTION
+                    END IF
                     IF ctrlHeld% OR shiftHeld% THEN
                         IF ctrlHeld% AND LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
                             ' Ctrl+Click on group header: add group + all descendants to multi-select
@@ -3625,8 +3814,9 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                         ' Start vertical opacity drag (top=opaque, bottom=transparent)
                         SOUND_play SND_SLIDER
                         LAYER_PANEL.opacityDrag%      = TRUE
+                        LAYER_PANEL.opacityDragBar%   = FALSE
                         LAYER_PANEL.opacityDragLayer% = layerIdx%
-                        LAYER_PANEL.opacityDragRowY%  = rowY% - LAYER_PANEL.scrollOffset%
+                        LAYER_PANEL.opacityDragRowY%  = rowY% - LAYER_PANEL.scrollOffset% + (LAYER_ROW_H% - LAYER_ROW_HEIGHT_MIN) \ 2 ' the bar is centred in a tall row
                         DIM initBarY   AS INTEGER
                         initBarY% = rawY% - LAYER_PANEL.opacityDragRowY% - 2
                         IF initBarY% < 0 THEN initBarY% = 0
@@ -3667,7 +3857,9 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                         ' Switch current layer without clearing multi-select
                         CURRENT_LAYER% = layerIdx%
                     END IF
-                    LAYER_PANEL_ctx_menu_show layerIdx%, rawX%, rawY%
+                    ' On the layer's thumbnail: the thumbnail menu (its size, what it shows)
+                    LAYER_PANEL.ctxMenuThumb% = (LAYER_PANEL_thumb_at%(inX, inY) = layerIdx%)
+                    LAYER_PANEL_ctx_menu_show layerIdx%, inX, inY ' (the menu opens in the viewport, at the pointer)
                     GUI_NEEDS_REDRAW% = TRUE
                     FRAME_IDLE%       = FALSE
                 END IF
@@ -3676,7 +3868,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                 EXIT FUNCTION
             END IF
             
-            rowY% = rowY% + LAYER_ROW_HEIGHT
+            rowY% = rowY% + LAYER_ROW_H%
         END IF
     NEXT z%
     
@@ -3690,14 +3882,16 @@ END FUNCTION
 ' Recomputes scrollOffset from current mouse Y position.
 ' @param rawY INTEGER Raw screen Y coordinate of the mouse during drag
 '
-SUB LAYER_PANEL_handle_scroll_drag (rawY AS INTEGER)
+SUB LAYER_PANEL_handle_scroll_drag (inY AS INTEGER)
+    DIM rawY AS INTEGER ' (in its units at its own Scale: GUI/PANEL-SURFACE)
+    rawY = PSURF_my%(DP_LAYERS, inY)
     IF NOT LAYER_PANEL.scrollDragging% THEN EXIT SUB
     ' Compute the same geometry as LAYER_PANEL_render
     DIM sbPanelH  AS INTEGER : sbPanelH% = LAYER_PANEL_bot% ' absolute bottom (exclusive)
-    DIM sbListTop AS INTEGER : sbListTop% = LAYER_PANEL_top% + THEME.LAYER_PANEL_header_height%
-    DIM sbListBot AS INTEGER : sbListBot% = sbPanelH% - THEME.LAYER_PANEL_btn_bar_height%
+    DIM sbListTop AS INTEGER : sbListTop% = LAYER_PANEL_top% + LAYER_LIST_top_off%
+    DIM sbListBot AS INTEGER : sbListBot% = sbPanelH% - LAYER_LIST_bot_off%
     DIM sbListH   AS INTEGER : sbListH% = sbListBot% - sbListTop%
-    DIM sbTotalH  AS INTEGER : sbTotalH% = LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT
+    DIM sbTotalH  AS INTEGER : sbTotalH% = LAYER_PANEL_visible_row_count% * LAYER_ROW_H%
     DIM sbMaxScr  AS INTEGER : sbMaxScr% = sbTotalH% - sbListH%
     IF sbMaxScr% < 0 THEN sbMaxScr% = 0
 
@@ -3736,13 +3930,19 @@ END SUB
 ' @param rawX INTEGER Raw screen X coordinate (unused, vertical drag only)
 ' @param rawY INTEGER Raw screen Y coordinate used to compute new opacity
 '
-SUB LAYER_PANEL_handle_opacity_drag (rawX AS INTEGER, rawY AS INTEGER)
+SUB LAYER_PANEL_handle_opacity_drag (inX AS INTEGER, inY AS INTEGER)
+    DIM rawX AS INTEGER, rawY AS INTEGER ' (in its units at its own Scale: GUI/PANEL-SURFACE)
+    rawX = PSURF_mx%(DP_LAYERS, inX): rawY = PSURF_my%(DP_LAYERS, inY)
     rawX% = rawX% ' only vertical axis used for this drag
     IF NOT LAYER_PANEL.opacityDrag% THEN EXIT SUB
     DIM layerIdx AS INTEGER
     layerIdx% = LAYER_PANEL.opacityDragLayer%
     IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
+    IF LAYER_PANEL.opacityDragBar% THEN ' the layer bar's slider: left = transparent, right = opaque
+        LAYERS_set_opacity layerIdx%, LAYER_BAR_x_to_opacity%(rawX%)
+        EXIT SUB
+    END IF
     ' Vertical bar: top = fully opaque (255), bottom = transparent (0)
     DIM barY     AS INTEGER
     barY% = rawY% - LAYER_PANEL.opacityDragRowY% - 2
@@ -3759,17 +3959,23 @@ END SUB
 ' @param rawY INTEGER Raw screen Y coordinate of the mouse
 ' @param delta INTEGER Mouse wheel delta (negative=up, positive=down)
 '
-SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER)
+SUB LAYER_PANEL_handle_wheel (inX AS INTEGER, inY AS INTEGER, delta AS INTEGER)
+    DIM rawX AS INTEGER, rawY AS INTEGER ' (in its units at its own Scale: GUI/PANEL-SURFACE)
+    rawX = PSURF_mx%(DP_LAYERS, inX): rawY = PSURF_my%(DP_LAYERS, inY)
     DIM panelW             AS INTEGER, panelH AS INTEGER
     DIM bottomBarsHeight   AS INTEGER
     DIM listTop            AS INTEGER, listBottom AS INTEGER
     DIM opacityBarX        AS INTEGER, opacityBarW AS INTEGER
     DIM rowY               AS INTEGER, i AS INTEGER, z AS INTEGER
     DIM layerIdx           AS INTEGER
-    DIM HEADER_HEIGHT      AS INTEGER : HEADER_HEIGHT = THEME.LAYER_PANEL_header_height%
-    DIM BUTTON_AREA_HEIGHT AS INTEGER : BUTTON_AREA_HEIGHT = THEME.LAYER_PANEL_btn_bar_height%
+    DIM HEADER_HEIGHT      AS INTEGER : HEADER_HEIGHT = LAYER_LIST_top_off% ' (the list's extent: with the layer bar)
+    DIM BUTTON_AREA_HEIGHT AS INTEGER : BUTTON_AREA_HEIGHT = LAYER_LIST_bot_off%
     
     IF NOT LAYER_PANEL.visible% THEN EXIT SUB
+    IF LAYER_BAR_part%(rawX, rawY) THEN ' the layer bar: blend mode / opacity
+        LAYER_BAR_wheel rawX, rawY, delta
+        EXIT SUB
+    END IF
     
     panelW%     = LAYER_PANEL_w%
     panelH%     = LAYER_PANEL_bot% ' absolute bottom (exclusive) of the panel's rect
@@ -3804,7 +4010,7 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
                 
                 ' Check if mouse Y is within this row's vertical opacity bar (drawY%+2 to drawY%+16)
                 IF rawY% >= drawY% + 2 AND rawY% < = drawY% + 16 THEN
-                    IF drawY% >= listTop% AND drawY% + LAYER_ROW_HEIGHT < = listBottom% THEN
+                    IF drawY% >= listTop% AND drawY% + LAYER_ROW_H% < = listBottom% THEN
                         ' Adjust opacity - wheel up (negative delta) = more opaque
                         DIM newOpacity AS INTEGER
                         newOpacity% = LAYERS(layerIdx%).opacity% - (delta% * 15) ' 15 per tick
@@ -3816,14 +4022,14 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
                     END IF
                 END IF
                 
-                rowY% = rowY% + LAYER_ROW_HEIGHT
+                rowY% = rowY% + LAYER_ROW_H%
             END IF
         NEXT z%
     END IF
     
     ' Not over opacity bar - scroll the layer list
     ' Reverse direction: wheel up (negative) = scroll up (see higher layers)
-    LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% + (delta% * LAYER_ROW_HEIGHT)
+    LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% + (delta% * LAYER_ROW_H%)
     
     ' Clamp scroll offset
     IF LAYER_PANEL.scrollOffset% < 0 THEN LAYER_PANEL.scrollOffset% = 0
@@ -3831,7 +4037,7 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
     DIM maxScroll  AS INTEGER
     DIM listHeight AS INTEGER
     listHeight% = listBottom% - listTop%
-    maxScroll%  = (LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT) - listHeight%
+    maxScroll%  = (LAYER_PANEL_visible_row_count% * LAYER_ROW_H%) - listHeight%
     IF maxScroll% < 0 THEN maxScroll% = 0
     IF LAYER_PANEL.scrollOffset% > maxScroll% THEN LAYER_PANEL.scrollOffset% = maxScroll%
     
@@ -3846,12 +4052,12 @@ END SUB
 SUB LAYER_PANEL_scroll_to_layer (layerIdx AS INTEGER)
     IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
     IF NOT LAYER_PANEL.visible% THEN EXIT SUB
-    DIM lpListTop    AS INTEGER : lpListTop% = LAYER_PANEL_top% + THEME.LAYER_PANEL_header_height%
-    DIM lpListBottom AS INTEGER : lpListBottom% = LAYER_PANEL_bot% - THEME.LAYER_PANEL_btn_bar_height%
+    DIM lpListTop    AS INTEGER : lpListTop% = LAYER_PANEL_top% + LAYER_LIST_top_off%
+    DIM lpListBottom AS INTEGER : lpListBottom% = LAYER_PANEL_bot% - LAYER_LIST_bot_off%
     DIM lpListH      AS INTEGER : lpListH% = lpListBottom% - lpListTop%
     IF lpListH% < = 0 THEN EXIT SUB
     DIM lpMaxScroll  AS INTEGER
-    lpMaxScroll% = (LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT) - lpListH%
+    lpMaxScroll% = (LAYER_PANEL_visible_row_count% * LAYER_ROW_H%) - lpListH%
     IF lpMaxScroll% < 0 THEN lpMaxScroll% = 0
     ' Row position: the showing rows above it (highest zIndex = top row;
     ' rows inside collapsed groups take no space)
@@ -3861,11 +4067,11 @@ SUB LAYER_PANEL_scroll_to_layer (layerIdx AS INTEGER)
             IF LAYER_PANEL_row_hidden%(lpI%) = 0 THEN lpAbove% = lpAbove% + 1
         END IF
     NEXT lpI%
-    lpRowY% = lpAbove% * LAYER_ROW_HEIGHT
+    lpRowY% = lpAbove% * LAYER_ROW_H%
     IF lpRowY% < LAYER_PANEL.scrollOffset% THEN
         LAYER_PANEL.scrollOffset% = lpRowY%
-    ELSEIF lpRowY% + LAYER_ROW_HEIGHT > LAYER_PANEL.scrollOffset% + lpListH% THEN
-        LAYER_PANEL.scrollOffset% = lpRowY% + LAYER_ROW_HEIGHT - lpListH%
+    ELSEIF lpRowY% + LAYER_ROW_H% > LAYER_PANEL.scrollOffset% + lpListH% THEN
+        LAYER_PANEL.scrollOffset% = lpRowY% + LAYER_ROW_H% - lpListH%
     END IF
     IF LAYER_PANEL.scrollOffset% < 0 THEN LAYER_PANEL.scrollOffset% = 0
     IF LAYER_PANEL.scrollOffset% > lpMaxScroll% THEN LAYER_PANEL.scrollOffset% = lpMaxScroll%
@@ -3885,15 +4091,17 @@ END FUNCTION
 ' @param rawX INTEGER Raw screen X coordinate of the mouse
 ' @param rawY INTEGER Raw screen Y coordinate of the mouse
 '
-SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
+SUB LAYER_PANEL_handle_vis_swipe (inX AS INTEGER, inY AS INTEGER)
+    DIM rawX AS INTEGER, rawY AS INTEGER ' (in its units at its own Scale: GUI/PANEL-SURFACE)
+    rawX = PSURF_mx%(DP_LAYERS, inX): rawY = PSURF_my%(DP_LAYERS, inY)
     DIM panelW             AS INTEGER, panelH AS INTEGER
     DIM bottomBarsHeight   AS INTEGER
     DIM listTop            AS INTEGER, listBottom AS INTEGER
     DIM rowY               AS INTEGER
     DIM i                  AS INTEGER, z AS INTEGER
     DIM layerIdx           AS INTEGER
-    DIM HEADER_HEIGHT      AS INTEGER : HEADER_HEIGHT = THEME.LAYER_PANEL_header_height%
-    DIM BUTTON_AREA_HEIGHT AS INTEGER : BUTTON_AREA_HEIGHT = THEME.LAYER_PANEL_btn_bar_height%
+    DIM HEADER_HEIGHT      AS INTEGER : HEADER_HEIGHT = LAYER_LIST_top_off% ' (the list's extent: with the layer bar)
+    DIM BUTTON_AREA_HEIGHT AS INTEGER : BUTTON_AREA_HEIGHT = LAYER_LIST_bot_off%
 
     IF NOT LAYER_PANEL.visSwiping% THEN EXIT SUB
     IF NOT LAYER_PANEL.visible% THEN
@@ -3936,7 +4144,7 @@ SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
             DIM drawY AS INTEGER
             drawY% = rowY% - LAYER_PANEL.scrollOffset%
 
-            IF clickY% >= drawY% AND clickY% < drawY% + LAYER_ROW_HEIGHT THEN
+            IF clickY% >= drawY% AND clickY% < drawY% + LAYER_ROW_H% THEN
                 ' Mouse is over this layer row: on its eye? (the same zones as
                 ' a click in LAYER_PANEL_handle_click: group eye 13-23, else < 14)
                 swipeRel% = swipeLocalX% - LAYERS_nesting_depth%(layerIdx%) * swipeIndentPx%
@@ -3961,7 +4169,7 @@ SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
                 EXIT SUB
             END IF
 
-            rowY% = rowY% + LAYER_ROW_HEIGHT
+            rowY% = rowY% + LAYER_ROW_H%
         END IF
     NEXT z%
 END SUB
@@ -4056,14 +4264,16 @@ END SUB
 ' @param rawX INTEGER Raw screen X coordinate of the mouse
 ' @param rawY INTEGER Raw screen Y coordinate of the mouse
 '
-SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
+SUB LAYER_PANEL_handle_drag (inX AS INTEGER, inY AS INTEGER)
+    DIM rawX AS INTEGER, rawY AS INTEGER ' (in its units at its own Scale: GUI/PANEL-SURFACE)
+    rawX = PSURF_mx%(DP_LAYERS, inX): rawY = PSURF_my%(DP_LAYERS, inY)
     DIM panelW             AS INTEGER, panelH AS INTEGER
     DIM bottomBarsHeight   AS INTEGER
     DIM listTop            AS INTEGER, listBottom AS INTEGER, listHeight AS INTEGER
     DIM targetZIndex       AS INTEGER
     DIM maxScroll          AS INTEGER
-    DIM HEADER_HEIGHT      AS INTEGER : HEADER_HEIGHT = THEME.LAYER_PANEL_header_height%
-    DIM BUTTON_AREA_HEIGHT AS INTEGER : BUTTON_AREA_HEIGHT = THEME.LAYER_PANEL_btn_bar_height%
+    DIM HEADER_HEIGHT      AS INTEGER : HEADER_HEIGHT = LAYER_LIST_top_off% ' (the list's extent: with the layer bar)
+    DIM BUTTON_AREA_HEIGHT AS INTEGER : BUTTON_AREA_HEIGHT = LAYER_LIST_bot_off%
     CONST AUTO_SCROLL_ZONE  = 30   ' Pixels from edge to trigger auto-scroll
     CONST AUTO_SCROLL_DELAY = 0.15 ' Seconds before auto-scroll starts
     CONST DRAG_THRESHOLD    = 5    ' Pixels of movement required to start drag
@@ -4102,14 +4312,14 @@ SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
     ' --- Auto-scroll logic ---
     DIM dragVisCount AS INTEGER
     dragVisCount% = LAYER_PANEL_visible_row_count%
-    maxScroll%    = (dragVisCount% * LAYER_ROW_HEIGHT) - listHeight%
+    maxScroll%    = (dragVisCount% * LAYER_ROW_H%) - listHeight%
     IF maxScroll% < 0 THEN maxScroll% = 0
     
     IF rawY% < listTop% + AUTO_SCROLL_ZONE AND rawY% >= LAYER_PANEL_top% THEN
         ' Near top edge - scroll up
         IF TIMER - LAYER_PANEL.autoScrollTimer! > AUTO_SCROLL_DELAY THEN
             IF LAYER_PANEL.scrollOffset% > 0 THEN
-                LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% - LAYER_ROW_HEIGHT
+                LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% - LAYER_ROW_H%
                 IF LAYER_PANEL.scrollOffset% < 0 THEN LAYER_PANEL.scrollOffset% = 0
                 LAYER_PANEL.autoScrollTimer! = TIMER - (AUTO_SCROLL_DELAY * 0.7) ' Faster repeat
             END IF
@@ -4118,7 +4328,7 @@ SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
         ' Near bottom edge - scroll down
         IF TIMER - LAYER_PANEL.autoScrollTimer! > AUTO_SCROLL_DELAY THEN
             IF LAYER_PANEL.scrollOffset% < maxScroll% THEN
-                LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% + LAYER_ROW_HEIGHT
+                LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% + LAYER_ROW_H%
                 IF LAYER_PANEL.scrollOffset% > maxScroll% THEN LAYER_PANEL.scrollOffset% = maxScroll%
                 LAYER_PANEL.autoScrollTimer! = TIMER - (AUTO_SCROLL_DELAY * 0.7)
             END IF
@@ -4141,7 +4351,7 @@ SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
     ' Gap 1 = between layer at zIndex=LAYER_COUNT and zIndex=LAYER_COUNT-1
     ' Gap N = below bottommost layer (insert at zIndex = 1, becomes bottom)
     DIM closestGap AS INTEGER
-    closestGap% = INT((contentY% + (LAYER_ROW_HEIGHT \ 2)) / LAYER_ROW_HEIGHT)
+    closestGap% = INT((contentY% + (LAYER_ROW_H% \ 2)) / LAYER_ROW_H%)
     
     ' Clamp gap to valid range (0 to visible row count)
     IF closestGap% < 0 THEN closestGap% = 0
@@ -4754,10 +4964,445 @@ SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
         ' No non-transparent pixels found - clean up
         SAFE_FREEIMAGE MARQUEE.SELECTION_MASK : MARQUEE.SELECTION_MASK = 0
     END IF
+    ANIM_CV_clip_selection ' the lightbox: only the current frame's pixels
     
     GUI_NEEDS_REDRAW% = TRUE
     _DEST old_dest&
     _SOURCE old_source&
+END SUB
+
+
+' ===========================================================================
+' THE LAYER BAR (CFG.LAYER_PANEL_BAR: 0 off, 1 under the header, 2 over the
+' button bar): [blend mode v] [eye] [lock] [opacity ======]
+'   blend    the current layer's blend mode: click = the blend popup, wheel = next / previous
+'   eye      hide the visible layers; again: show those layers again
+'   lock     opacity-lock every layer but the current one; again (all locked): unlock all
+'   opacity  the current layer's: click / drag / wheel, or 1-0 while the pointer is on it
+' Right-click it: BAR AT TOP / BAR AT BOTTOM / HIDE BAR. All in panel units
+' (GUI/PANEL-SURFACE), from LAYER_PANEL.panelX1 like the rows.
+' ===========================================================================
+
+''
+' The space above / below the layer list: the header (+ the bar at the top),
+' the button bar (+ the bar at the bottom).
+FUNCTION LAYER_LIST_top_off% ()
+    LAYER_LIST_top_off% = THEME.LAYER_PANEL_header_height% + _IIF(CFG.LAYER_PANEL_BAR% = 1, LAYER_BAR_H, 0)
+END FUNCTION
+
+FUNCTION LAYER_LIST_bot_off% ()
+    LAYER_LIST_bot_off% = THEME.LAYER_PANEL_btn_bar_height% + _IIF(CFG.LAYER_PANEL_BAR% = 2, LAYER_BAR_H, 0)
+END FUNCTION
+
+
+''
+' The bar's parts: its top (by), the blend dropdown (bx, bw), the eye (ex) and
+' lock (lx) cells (11 wide), the opacity slider (sx, sw).
+SUB LAYER_BAR_layout (by AS INTEGER, bx AS INTEGER, bw AS INTEGER, ex AS INTEGER, lx AS INTEGER, sx AS INTEGER, sw AS INTEGER)
+    DIM x0 AS INTEGER, pw AS INTEGER, rest AS INTEGER
+    x0 = LAYER_PANEL.panelX1%: pw = LAYER_PANEL_w%
+    IF CFG.LAYER_PANEL_BAR% = 2 THEN
+        by = LAYER_PANEL_bot% - THEME.LAYER_PANEL_btn_bar_height% - LAYER_BAR_H
+    ELSE
+        by = LAYER_PANEL_top% + THEME.LAYER_PANEL_header_height%
+    END IF
+    rest = pw - 4 - 22 - 6
+    bw = rest * 45 \ 100
+    IF bw > 64 THEN bw = 64
+    IF bw < 22 THEN bw = 22
+    bx = x0 + 2
+    ex = bx + bw + 2
+    lx = ex + 11
+    sx = lx + 11 + 3
+    sw = x0 + pw - 4 - sx
+    IF sw < 8 THEN sw = 8
+END SUB
+
+
+''
+' The part of the bar under (rawX, rawY) - panel units: 0 not on the bar,
+' 1 blend, 2 eye, 3 lock, 4 opacity slider, 5 the bar between them.
+FUNCTION LAYER_BAR_part% (rawX AS INTEGER, rawY AS INTEGER)
+    DIM by AS INTEGER, bx AS INTEGER, bw AS INTEGER, ex AS INTEGER, lx AS INTEGER, sx AS INTEGER, sw AS INTEGER
+    LAYER_BAR_part% = 0
+    IF CFG.LAYER_PANEL_BAR% = 0 _ORELSE LAYER_PANEL.visible% = 0 THEN EXIT FUNCTION
+    LAYER_BAR_layout by, bx, bw, ex, lx, sx, sw
+    IF rawY < by _ORELSE rawY >= by + LAYER_BAR_H THEN EXIT FUNCTION
+    IF rawX < LAYER_PANEL.panelX1% _ORELSE rawX >= LAYER_PANEL.panelX1% + LAYER_PANEL_w% THEN EXIT FUNCTION
+    IF rawX >= bx _ANDALSO rawX < bx + bw THEN
+        LAYER_BAR_part% = 1
+    ELSEIF rawX >= ex _ANDALSO rawX < ex + 11 THEN
+        LAYER_BAR_part% = 2
+    ELSEIF rawX >= lx _ANDALSO rawX < lx + 11 THEN
+        LAYER_BAR_part% = 3
+    ELSEIF rawX >= sx - 2 _ANDALSO rawX <= sx + sw + 1 THEN
+        LAYER_BAR_part% = 4
+    ELSE
+        LAYER_BAR_part% = 5
+    END IF
+END FUNCTION
+
+
+''
+' Is the pointer on the bar's opacity slider (its digits 1-0 set the layer's
+' opacity then, not the paint opacity)?
+FUNCTION LAYER_BAR_hot% ()
+    LAYER_BAR_hot% = FALSE
+    IF CFG.LAYER_PANEL_BAR% = 0 _ORELSE LAYER_PANEL.visible% = 0 THEN EXIT FUNCTION
+    IF LAYER_PANEL_in_bounds%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = 0 THEN EXIT FUNCTION
+    LAYER_BAR_hot% = (LAYER_BAR_part%(PSURF_mx%(DP_LAYERS, MOUSE.RAW_X%), PSURF_my%(DP_LAYERS, MOUSE.RAW_Y%)) = 4)
+END FUNCTION
+
+
+FUNCTION LAYER_BAR_x_to_opacity% (rawX AS INTEGER)
+    DIM by AS INTEGER, bx AS INTEGER, bw AS INTEGER, ex AS INTEGER, lx AS INTEGER, sx AS INTEGER, sw AS INTEGER, v AS LONG
+    LAYER_BAR_layout by, bx, bw, ex, lx, sx, sw
+    v = CLNG(rawX - sx) * 255 \ _MAX(1, sw - 1)
+    IF v < 0 THEN v = 0
+    IF v > 255 THEN v = 255
+    LAYER_BAR_x_to_opacity% = v
+END FUNCTION
+
+
+' Any layer showing (the eye open)?
+FUNCTION LAYER_BAR_any_visible% ()
+    DIM i AS INTEGER
+    LAYER_BAR_any_visible% = FALSE
+    FOR i = 1 TO MAX_LAYERS
+        IF LAYERS(i).imgHandle& <> 0 _ANDALSO LAYERS(i).visible% THEN LAYER_BAR_any_visible% = TRUE: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+' Every layer but the current one opacity-locked (the lock closed)? (groups
+' have no pixels to lock: left out)
+FUNCTION LAYER_BAR_others_locked% ()
+    DIM i AS INTEGER, n AS INTEGER
+    LAYER_BAR_others_locked% = FALSE
+    FOR i = 1 TO MAX_LAYERS
+        IF LAYERS(i).imgHandle& <> 0 _ANDALSO i <> CURRENT_LAYER% _ANDALSO LAYERS(i).layerType% <> LAYER_TYPE_GROUP THEN
+            IF LAYERS(i).opacityLock% = 0 THEN EXIT FUNCTION
+            n = n + 1
+        END IF
+    NEXT i
+    LAYER_BAR_others_locked% = (n > 0)
+END FUNCTION
+
+
+''
+' The eye: the visible layers hidden (remembered in LAYER_BAR_HIDDEN); with
+' none visible, those layers shown again (all of them when it remembers none).
+SUB LAYER_BAR_eye ()
+    DIM i AS INTEGER, anyHid AS INTEGER
+    IF LAYER_BAR_any_visible% THEN
+        LAYER_BAR_HIDDEN = STRING$(MAX_LAYERS, 0)
+        FOR i = 1 TO MAX_LAYERS
+            IF LAYERS(i).imgHandle& <> 0 _ANDALSO LAYERS(i).visible% THEN
+                MID$(LAYER_BAR_HIDDEN, i, 1) = CHR$(1)
+                LAYERS(i).visible% = FALSE
+            END IF
+        NEXT i
+    ELSE
+        IF LEN(LAYER_BAR_HIDDEN) = MAX_LAYERS THEN anyHid = (INSTR(LAYER_BAR_HIDDEN, CHR$(1)) > 0)
+        FOR i = 1 TO MAX_LAYERS
+            IF LAYERS(i).imgHandle& <> 0 THEN
+                IF anyHid = 0 _ORELSE ASC(LAYER_BAR_HIDDEN, i) = 1 THEN LAYERS(i).visible% = TRUE
+            END IF
+        NEXT i
+        LAYER_BAR_HIDDEN = ""
+    END IF
+    LAYER_PANEL.soloLayer% = 0
+    BLEND_invalidate_visibility 0
+    ' (no history, like a row's eye - so a redo tail would re-run against other visibility: BUG-19)
+    IF HISTORY_IN_PROGRESS% = 0 _ANDALSO HISTORY_can_redo% THEN HISTORY_discard_redo_tail
+    SOUND_play SND_LAYER_OP
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' The lock: every layer but the current one opacity-locked; all of them
+' locked already: every layer unlocked.
+SUB LAYER_BAR_lock ()
+    DIM i AS INTEGER, lockThem AS INTEGER
+    lockThem = (LAYER_BAR_others_locked% = 0)
+    FOR i = 1 TO MAX_LAYERS
+        IF LAYERS(i).imgHandle& <> 0 _ANDALSO LAYERS(i).layerType% <> LAYER_TYPE_GROUP THEN
+            IF lockThem THEN
+                IF i <> CURRENT_LAYER% THEN LAYERS(i).opacityLock% = TRUE
+            ELSE
+                LAYERS(i).opacityLock% = FALSE
+            END IF
+        END IF
+    NEXT i
+    SOUND_play SND_LAYER_OP
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' A click on the bar (panel units): blend popup, eye, lock, or the opacity
+' slider (a drag through LAYER_PANEL_handle_opacity_drag); right-click: its menu.
+SUB LAYER_BAR_click (rawX AS INTEGER, rawY AS INTEGER, button AS INTEGER)
+    DIM part AS INTEGER, L AS INTEGER
+    DIM by AS INTEGER, bx AS INTEGER, bw AS INTEGER, ex AS INTEGER, lx AS INTEGER, sx AS INTEGER, sw AS INTEGER
+    DIM vx AS INTEGER, vy AS INTEGER, vw AS INTEGER, vh AS INTEGER
+    part = LAYER_BAR_part%(rawX, rawY)
+    L = CURRENT_LAYER%
+    IF button = 2 THEN
+        IF L >= 1 _ANDALSO L <= MAX_LAYERS THEN
+            IF LAYER_PANEL.blendPopupOpen% THEN LAYER_PANEL_blend_popup_close
+            LAYER_PANEL.ctxMenuBar% = TRUE
+            LAYER_PANEL_ctx_menu_show L, MOUSE.RAW_X%, MOUSE.RAW_Y% ' (in the viewport, at the pointer)
+        END IF
+        EXIT SUB
+    END IF
+    IF button <> 1 THEN EXIT SUB
+    SELECT CASE part
+        CASE 1 ' the blend popup, under the dropdown (viewport px)
+            IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT SUB
+            IF LAYERS(L).imgHandle& = 0 THEN EXIT SUB
+            LAYER_BAR_layout by, bx, bw, ex, lx, sx, sw
+            vx = bx: vy = by: vw = bw: vh = LAYER_BAR_H
+            PSURF_rect_to_view DP_LAYERS, vx, vy, vw, vh
+            IF LAYER_PANEL.blendPopupOpen% THEN
+                LAYER_PANEL_blend_popup_close
+            ELSE
+                SOUND_play SND_MENU_OPEN
+                LAYER_PANEL_blend_popup_show L, vx, vy + vh
+            END IF
+        CASE 2: LAYER_BAR_eye
+        CASE 3: LAYER_BAR_lock
+        CASE 4
+            IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT SUB
+            IF LAYERS(L).imgHandle& = 0 THEN EXIT SUB
+            SOUND_play SND_SLIDER
+            LAYER_PANEL.opacityDrag%      = TRUE
+            LAYER_PANEL.opacityDragBar%   = TRUE
+            LAYER_PANEL.opacityDragLayer% = L
+            LAYERS_set_opacity L, LAYER_BAR_x_to_opacity%(rawX)
+    END SELECT
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' The wheel on the bar: on the blend dropdown the next / previous mode, on the
+' slider the opacity (a tick = 15 of 255, up = more opaque, as on the rows).
+SUB LAYER_BAR_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER)
+    DIM L AS INTEGER, m AS INTEGER
+    L = CURRENT_LAYER%
+    IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(L).imgHandle& = 0 THEN EXIT SUB
+    SELECT CASE LAYER_BAR_part%(rawX, rawY)
+        CASE 1
+            m = LAYERS(L).blendMode% + SGN(delta)
+            IF m < 0 THEN m = BLEND_MODE_COUNT - 1
+            IF m > BLEND_MODE_COUNT - 1 THEN m = 0
+            LAYERS(L).blendMode% = m
+            LAYERS(L).passThrough% = FALSE
+            BLEND_invalidate_visibility L
+            SOUND_play SND_SLIDER
+        CASE 4
+            LAYERS_set_opacity L, LAYERS(L).opacity% - delta * 15
+            SOUND_play SND_SLIDER
+    END SELECT
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' A layer bar menu row (LAYER_BAR_POPUP_BASE + n): n 0 hide it, 1 at the top,
+' 2 at the bottom. Saved (LAYER_PANEL_BAR).
+SUB LAYER_BAR_pick (popupValue AS INTEGER)
+    DIM n AS INTEGER
+    n = popupValue - LAYER_BAR_POPUP_BASE
+    LAYER_PANEL_ctx_menu_close
+    IF n < 0 _ORELSE n > 2 THEN EXIT SUB
+    CFG.LAYER_PANEL_BAR% = n
+    SOUND_play SND_MENU_SELECT
+    CONFIG_save
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Draw the bar into the current destination (LAYER_PANEL_render, panel units).
+SUB LAYER_BAR_render ()
+    DIM by AS INTEGER, bx AS INTEGER, bw AS INTEGER, ex AS INTEGER, lx AS INTEGER, sx AS INTEGER, sw AS INTEGER
+    DIM x0 AS INTEGER, pw AS INTEGER, L AS INTEGER, ok AS INTEGER, ic AS LONG, i AS INTEGER
+    DIM t AS STRING, ty AS INTEGER, fw AS INTEGER, op AS INTEGER, fg AS _UNSIGNED LONG
+    IF CFG.LAYER_PANEL_BAR% = 0 THEN EXIT SUB
+    LAYER_BAR_layout by, bx, bw, ex, lx, sx, sw
+    x0 = LAYER_PANEL.panelX1%: pw = LAYER_PANEL_w%
+    LINE (x0, by)-(x0 + pw - 1, by + LAYER_BAR_H - 1), THEME.LAYER_PANEL_btn_bar_bg~&, BF
+    IF CFG.LAYER_PANEL_BAR% = 1 THEN
+        LINE (x0, by + LAYER_BAR_H - 1)-(x0 + pw - 1, by + LAYER_BAR_H - 1), THEME.LAYER_PANEL_sep~&
+    ELSE
+        LINE (x0, by)-(x0 + pw - 1, by), THEME.LAYER_PANEL_sep~&
+    END IF
+    L = CURRENT_LAYER%
+    IF L >= 1 _ANDALSO L <= MAX_LAYERS THEN ok = (LAYERS(L).imgHandle& <> 0)
+    ty = by + (LAYER_BAR_H - _FONTHEIGHT) \ 2
+    fg = THEME.LAYER_PANEL_row_fg~&
+
+    ' blend dropdown
+    LINE (bx, by + 1)-(bx + bw - 1, by + LAYER_BAR_H - 3), THEME.LAYER_PANEL_bg~&, BF
+    LINE (bx, by + 1)-(bx + bw - 1, by + LAYER_BAR_H - 3), THEME.LAYER_PANEL_sep~&, B
+    t = "-"
+    IF ok THEN
+        IF LAYERS(L).layerType% = LAYER_TYPE_GROUP _ANDALSO LAYERS(L).passThrough% THEN t = "PASS THROUGH" ELSE t = BLEND_mode_name$(LAYERS(L).blendMode%)
+        IF _PRINTWIDTH(t) > bw - 10 THEN
+            IF LAYERS(L).layerType% = LAYER_TYPE_GROUP _ANDALSO LAYERS(L).passThrough% THEN t = "PT" ELSE t = BLEND_mode_short$(LAYERS(L).blendMode%)
+        END IF
+    END IF
+    COLOR fg, _RGBA32(0, 0, 0, 0)
+    _UPRINTSTRING (bx + 2, ty - 1), t
+    FOR i = 0 TO 2 ' the arrow
+        LINE (bx + bw - 8 + i, by + 5 + i)-(bx + bw - 4 - i, by + 5 + i), fg
+    NEXT i
+
+    ' eye, lock (the rows' icons, closed / open by the state of all of them)
+    IF LAYER_BAR_any_visible% THEN ic = LAYER_PANEL.iconVisOn& ELSE ic = LAYER_PANEL.iconVisOff&
+    IF ic < -1 THEN
+        _PUTIMAGE (ex + (11 - _WIDTH(ic)) \ 2, by + (LAYER_BAR_H - _HEIGHT(ic)) \ 2), ic
+    ELSE
+        _UPRINTSTRING (ex + 2, ty), _IIF(LAYER_BAR_any_visible%, "O", "-")
+    END IF
+    IF LAYER_BAR_others_locked% THEN ic = LAYER_PANEL.iconLockOn& ELSE ic = LAYER_PANEL.iconLockOff&
+    IF ic < -1 THEN
+        _PUTIMAGE (lx + (11 - _WIDTH(ic)) \ 2, by + (LAYER_BAR_H - _HEIGHT(ic)) \ 2), ic
+    ELSE
+        _UPRINTSTRING (lx + 2, ty), _IIF(LAYER_BAR_others_locked%, "L", "-")
+    END IF
+
+    ' opacity slider
+    LINE (sx, by + 3)-(sx + sw - 1, by + LAYER_BAR_H - 5), THEME.LAYER_PANEL_scrollbar_track~&, BF
+    IF ok THEN
+        op = LAYERS(L).opacity%
+        fw = CLNG(sw) * op \ 255
+        IF fw > 0 THEN LINE (sx, by + 3)-(sx + fw - 1, by + LAYER_BAR_H - 5), THEME.LAYER_PANEL_row_master_accent~&, BF ' (the current layer's accent)
+        t = _TRIM$(STR$(CINT(op * 100 / 255))) + "%"
+        IF _PRINTWIDTH(t) <= sw - 2 THEN
+            COLOR fg, _RGBA32(0, 0, 0, 0)
+            _UPRINTSTRING (sx + (sw - _PRINTWIDTH(t)) \ 2, ty - 1), t
+        END IF
+    END IF
+END SUB
+
+
+''
+' The layer whose thumbnail is under the pointer (0: none, or thumbnails off):
+' an image layer's thumbnail (at rowX + 21 in LAYER_PANEL_render, centred in
+' its row), with a px of slack round it.
+'
+FUNCTION LAYER_PANEL_thumb_at% (inX AS INTEGER, inY AS INTEGER)
+    DIM L AS INTEGER, t AS INTEGER, rawX AS INTEGER, rawY AS INTEGER
+    DIM cy AS INTEGER, dy AS INTEGER, lx AS INTEGER, ind AS INTEGER
+    LAYER_PANEL_thumb_at% = 0
+    t = LAYER_THUMB_PX%
+    IF t <= 0 THEN EXIT FUNCTION
+    L = LAYER_PANEL_get_row_slot%(inX, inY)
+    IF L <= 0 THEN EXIT FUNCTION
+    IF LAYERS(L).layerType% = LAYER_TYPE_GROUP THEN EXIT FUNCTION
+    rawX = PSURF_mx%(DP_LAYERS, inX): rawY = PSURF_my%(DP_LAYERS, inY) ' (its units at its own Scale)
+    cy = rawY + LAYER_PANEL.scrollOffset% - (LAYER_PANEL_top% + LAYER_LIST_top_off%)
+    dy = (cy MOD LAYER_ROW_H%) - (LAYER_ROW_H% - t) \ 2 ' (the rows are all one height, from the list's top)
+    IF CFG.LAYER_GROUP_INDENT% > 0 THEN ind = CFG.LAYER_GROUP_INDENT% ELSE ind = THEME.LAYER_PANEL_group_indent%
+    lx = rawX - LAYER_PANEL.panelX1% - LAYERS_nesting_depth%(L) * ind
+    IF lx >= 23 _ANDALSO lx <= 24 + t _ANDALSO dy >= -1 _ANDALSO dy <= t THEN LAYER_PANEL_thumb_at% = L
+END FUNCTION
+
+
+''
+' A canvas-sized mask (white where layer L has a pixel, alpha > 0; canvas
+' coords, its apron left out) - like LAYER_select_non_transparent's, for
+' SELECTION_merge_mask (which frees it). 0 when it can't be made.
+'
+FUNCTION LAYER_alpha_mask& (L AS INTEGER)
+    DIM img AS LONG, mask AS LONG, w AS LONG, h AS LONG, aW AS LONG, aH AS LONG
+    DIM ms AS _MEM, md AS _MEM, x AS LONG, y AS LONG, sRow AS _OFFSET, dRow AS _OFFSET
+    DIM white AS _UNSIGNED LONG
+    LAYER_alpha_mask& = 0
+    IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT FUNCTION
+    img = LAYERS(L).imgHandle&
+    IF img >= -1 THEN EXIT FUNCTION
+    w = SCRN.canvasW&: h = SCRN.canvasH&
+    aW = LAYERS(L).apronW%: aH = LAYERS(L).apronH%
+    IF _WIDTH(img) < w + aW _ORELSE _HEIGHT(img) < h + aH THEN EXIT FUNCTION
+    mask = _NEWIMAGE(w, h, 32)
+    IF mask >= -1 THEN EXIT FUNCTION
+    white = _RGB32(255, 255, 255)
+    ms = _MEMIMAGE(img): md = _MEMIMAGE(mask)
+    IF _MEMEXISTS(ms) _ANDALSO _MEMEXISTS(md) THEN
+        _MEMFILL md, md.OFFSET, md.SIZE, 0 AS _UNSIGNED LONG
+        FOR y = 0 TO h - 1
+            sRow = ms.OFFSET + ((y + aH) * _WIDTH(img) + aW) * 4
+            dRow = md.OFFSET + y * w * 4
+            FOR x = 0 TO w - 1
+                IF _MEMGET(ms, sRow + x * 4 + 3, _UNSIGNED _BYTE) > 0 THEN _MEMPUT md, dRow + x * 4, white
+            NEXT x
+        NEXT y
+    END IF
+    IF _MEMEXISTS(ms) THEN _MEMFREE ms
+    IF _MEMEXISTS(md) THEN _MEMFREE md
+    LAYER_alpha_mask& = mask
+END FUNCTION
+
+
+''
+' Is LAYER_SEL_FROM still about the selection on the canvas (the one it was
+' made for)?
+FUNCTION LAYER_SEL_holds% ()
+    LAYER_SEL_holds% = SELECTION_has_active% _ANDALSO LEN(LAYER_SEL_FROM) = MAX_LAYERS _ANDALSO _
+        LAYER_SEL_MASK = MARQUEE.SELECTION_MASK _ANDALSO LAYER_SEL_BOX = LAYER_SEL_box_sig$
+END FUNCTION
+
+FUNCTION LAYER_SEL_box_sig$ ()
+    LAYER_SEL_box_sig$ = MKL$(MARQUEE.BOX.x) + MKL$(MARQUEE.BOX.y) + MKL$(MARQUEE.BOX.w) + MKL$(MARQUEE.BOX.h)
+END FUNCTION
+
+
+''
+' A layer's thumbnail Ctrl+clicked (addOrRemove FALSE): the selection becomes
+' its pixels (Selection from Layer). Ctrl+Shift+clicked (TRUE): its pixels are
+' added to the selection - or, when it is already in (from an earlier click
+' on this selection), taken out again, the other layers' pixels kept.
+'
+SUB LAYER_PANEL_thumb_select (layerIdx AS INTEGER, addOrRemove AS INTEGER)
+    DIM L AS INTEGER, j AS INTEGER, m AS LONG
+    L = layerIdx ' (a copy: the param is by reference)
+    IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(L).imgHandle& = 0 THEN EXIT SUB
+    IF addOrRemove = 0 _ORELSE SELECTION_has_active% = 0 THEN
+        LAYER_select_non_transparent L
+        LAYER_SEL_FROM = STRING$(MAX_LAYERS, 0)
+        MID$(LAYER_SEL_FROM, L, 1) = CHR$(1)
+    ELSE
+        IF LAYER_SEL_holds% = 0 THEN LAYER_SEL_FROM = STRING$(MAX_LAYERS, 0) ' (a selection made some other way: none of it from layers)
+        IF ASC(LAYER_SEL_FROM, L) THEN ' in: take its pixels out, then put back the other layers' (where they overlap it)
+            MID$(LAYER_SEL_FROM, L, 1) = CHR$(0)
+            m = LAYER_alpha_mask&(L)
+            IF m < -1 THEN SELECTION_merge_mask m, SEL_MODE_SUBTRACT
+            FOR j = 1 TO MAX_LAYERS
+                IF ASC(LAYER_SEL_FROM, j) _ANDALSO LAYERS(j).imgHandle& <> 0 THEN
+                    m = LAYER_alpha_mask&(j)
+                    IF m < -1 THEN SELECTION_merge_mask m, SEL_MODE_ADD
+                END IF
+            NEXT j
+        ELSE
+            m = LAYER_alpha_mask&(L)
+            IF m < -1 THEN SELECTION_merge_mask m, SEL_MODE_ADD
+            MID$(LAYER_SEL_FROM, L, 1) = CHR$(1)
+        END IF
+        ANIM_CV_clip_selection ' the lightbox: only the current frame's pixels
+    END IF
+    LAYER_SEL_MASK = MARQUEE.SELECTION_MASK
+    LAYER_SEL_BOX = LAYER_SEL_box_sig$
+    SOUND_play SND_SELECTION
+    GUI_NEEDS_REDRAW% = TRUE
+    SCENE_DIRTY%      = TRUE
+    FRAME_IDLE%       = FALSE
 END SUB
 
 
@@ -4913,7 +5558,7 @@ FUNCTION BLEND_needs_composite% ()
                     blcNeedsComposite% = TRUE
                 END IF
                 ' Isolated groups require composite path
-                IF LAYERS(i%).layerType% = LAYER_TYPE_GROUP AND NOT LAYERS(i%).passThrough% THEN
+                IF LAYERS_group_isolated%(i%) THEN
                     BLEND_HAS_ISOLATED_GROUPS% = TRUE
                     blcNeedsComposite%         = TRUE
                 END IF
@@ -4951,6 +5596,17 @@ END SUB
 
 
 ''
+' A group composited in its own buffer (then faded by its opacity / blended):
+' a normal group, or a pass-through one whose opacity is below 100% (field kit
+' R-5: a pass-through group's opacity did nothing - new groups are pass-through).
+' A nested pass-through group inside a faded one still composites flat.
+FUNCTION LAYERS_group_isolated% (g AS INTEGER)
+    IF g < 1 _ORELSE g > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(g).layerType% <> LAYER_TYPE_GROUP THEN EXIT FUNCTION
+    IF LAYERS(g).passThrough% = 0 _ORELSE LAYERS(g).opacity% < 255 THEN LAYERS_group_isolated% = TRUE
+END FUNCTION
+
+''
 ' Lighter invalidation for visibility-only changes (no z-order/structure change).
 ' Skips RENDER_ORDER rebuild since zIndex order is unchanged.
 ' Only invalidates COMPOSITE_BELOW_CACHE when the changed layer renders below
@@ -4962,6 +5618,12 @@ SUB BLEND_invalidate_visibility (changedLayer AS INTEGER)
     BLEND_COMPOSITE_DIRTY%  = TRUE
     SCENE_DIRTY%            = TRUE
     COMPOSITE_RESULT_VALID% = FALSE
+    ' A group's header sits above its children, so "above the current layer"
+    ' does not keep the below-cache valid: its children may be in it (field
+    ' kit R-5: a group hidden from the Layers panel still showed in the lightbox)
+    IF changedLayer% >= 1 _ANDALSO changedLayer% <= MAX_LAYERS THEN
+        IF LAYERS(changedLayer%).layerType% = LAYER_TYPE_GROUP THEN COMPOSITE_BELOW_VALID% = FALSE
+    END IF
     IF COMPOSITE_BELOW_VALID% THEN
         IF changedLayer% < 1 OR changedLayer% > MAX_LAYERS OR CURRENT_LAYER% < 1 OR CURRENT_LAYER% > MAX_LAYERS THEN
             COMPOSITE_BELOW_VALID% = FALSE
@@ -6405,6 +7067,25 @@ SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
     IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& = 0 THEN EXIT SUB
 
+    IF LAYER_PANEL.ctxMenuBar% THEN ' right-click on the layer bar: where it is
+        POPUP_MENU_set_item itemCount%, "BAR AT TOP", "", LAYER_BAR_POPUP_BASE + 1, _IIF(CFG.LAYER_PANEL_BAR% = 1, POPUP_MENU_FLAG_CHECKED, 0): itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "BAR AT BOTTOM", "", LAYER_BAR_POPUP_BASE + 2, _IIF(CFG.LAYER_PANEL_BAR% = 2, POPUP_MENU_FLAG_CHECKED, 0): itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER: itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "HIDE BAR", "", LAYER_BAR_POPUP_BASE, 0: itemCount% = itemCount% + 1
+        EXIT SUB
+    END IF
+    IF LAYER_PANEL.ctxMenuThumb% THEN ' right-click on a thumbnail: its size and what it shows
+        POPUP_MENU_set_item itemCount%, "TINY", "16 PX", LAYER_THUMB_POPUP_BASE + 1, _IIF(CFG.LAYER_THUMBNAILS% = 1, POPUP_MENU_FLAG_CHECKED, 0): itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "SMALL", "32 PX", LAYER_THUMB_POPUP_BASE + 2, _IIF(CFG.LAYER_THUMBNAILS% = 2, POPUP_MENU_FLAG_CHECKED, 0): itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "MEDIUM", "48 PX", LAYER_THUMB_POPUP_BASE + 3, _IIF(CFG.LAYER_THUMBNAILS% = 3, POPUP_MENU_FLAG_CHECKED, 0): itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER: itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "SHOW CONTENT", "", LAYER_THUMB_POPUP_BASE + 10, _IIF(CFG.LAYER_THUMB_FIT% = 0, POPUP_MENU_FLAG_CHECKED, 0): itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "SHOW CANVAS", "", LAYER_THUMB_POPUP_BASE + 11, _IIF(CFG.LAYER_THUMB_FIT% = 1, POPUP_MENU_FLAG_CHECKED, 0): itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER: itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "HIDE THUMBNAILS", "", LAYER_THUMB_POPUP_BASE, 0: itemCount% = itemCount% + 1
+        EXIT SUB
+    END IF
+
     isGroup%     = (LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP)
     isTextLayer% = (LAYERS(layerIdx%).layerType% = LAYER_TYPE_TEXT)
     inGroup%     = (LAYERS(layerIdx%).parentGroupIdx% > 0)
@@ -6462,6 +7143,11 @@ SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
     IF NOT isTextLayer% THEN flags% = POPUP_MENU_FLAG_DISABLED
     POPUP_MENU_set_item itemCount%, "RASTERIZE TEXT", "", 713, flags%
     itemCount% = itemCount% + 1
+    ' Bake Clip to Pixels — only on a clip layer (TOOLS/CLIP)
+    IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_CLIP THEN
+        POPUP_MENU_set_item itemCount%, "BAKE CLIP TO PIXELS", "", CLIP_ACT_BAKE, 0
+        itemCount% = itemCount% + 1
+    END IF
 
     ' --- AI layer operations (omitted entirely when AI features are off) ---
     IF CFG.AI_ENABLED% <> 0 AND LAYERS(layerIdx%).layerType% = LAYER_TYPE_AI THEN
@@ -6568,6 +7254,23 @@ SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
         POPUP_MENU_set_item itemCount%, "SELECT PARENT", "", 736, 0
         itemCount% = itemCount% + 1
     END IF
+
+    ' Thumbnails off: a way back (on, right-click a thumbnail for its menu)
+    IF CFG.LAYER_THUMBNAILS% = 0 THEN
+        POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+        itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, "SHOW THUMBNAILS", "", LAYER_THUMB_POPUP_BASE + 2, 0
+        itemCount% = itemCount% + 1
+    END IF
+    ' The layer bar hidden: a way back (shown, right-click it to move or hide it)
+    IF CFG.LAYER_PANEL_BAR% = 0 THEN
+        IF CFG.LAYER_THUMBNAILS% <> 0 THEN
+            POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+            itemCount% = itemCount% + 1
+        END IF
+        POPUP_MENU_set_item itemCount%, "SHOW LAYER BAR", "", LAYER_BAR_POPUP_BASE + 1, 0
+        itemCount% = itemCount% + 1
+    END IF
 END SUB
 
 
@@ -6611,6 +7314,8 @@ SUB LAYER_PANEL_ctx_menu_close ()
     LAYER_PANEL.ctxMenuOpen%  = FALSE
     LAYER_PANEL.ctxMenuLayer% = 0
     LAYER_PANEL.ctxMenuHover% = -1
+    LAYER_PANEL.ctxMenuThumb% = FALSE
+    LAYER_PANEL.ctxMenuBar%   = FALSE
     GUI_NEEDS_REDRAW%         = TRUE
     FRAME_IDLE%               = FALSE
 END SUB
@@ -6639,7 +7344,9 @@ SUB LAYER_PANEL_ctx_menu_render ()
     ELSE
         currentMode% = BLEND_NORMAL
     END IF
-    IF ctxIsGroup% THEN
+    IF LAYER_PANEL.ctxMenuThumb% _ORELSE LAYER_PANEL.ctxMenuBar% THEN
+        checkedRow% = -1 ' (the thumbnail and layer bar menus check their own rows)
+    ELSEIF ctxIsGroup% THEN
         ' Groups: PT(0), div(1), Normal(2), div(3), modes(4+)
         IF LAYERS(ctxLayer%).passThrough% THEN
             checkedRow% = 0                ' Pass Through row
@@ -6655,7 +7362,7 @@ SUB LAYER_PANEL_ctx_menu_render ()
             checkedRow% = currentMode% + 1 ' +1 for divider row after Normal
         END IF
     END IF
-    POPUP_MENU_FLAGS(checkedRow%) = POPUP_MENU_FLAGS(checkedRow%) OR POPUP_MENU_FLAG_CHECKED
+    IF checkedRow% >= 0 THEN POPUP_MENU_FLAGS(checkedRow%) = POPUP_MENU_FLAGS(checkedRow%) OR POPUP_MENU_FLAG_CHECKED
 
     IF MENU_BAR.fontHandle& > 0 THEN
         popupFont& = MENU_BAR.fontHandle&
@@ -6714,6 +7421,29 @@ END SUB
 ' Execute a layer context menu action.
 ' @param actionValue INTEGER Action ID to execute
 '
+''
+' A thumbnail menu row (LAYER_THUMB_POPUP_BASE + n): n 0..3 the thumbnail size
+' (off / tiny / small / medium), 10..11 what it shows (content / canvas).
+' Saved like Settings > Panels > Thumbnails.
+'
+SUB LAYER_PANEL_thumb_pick (popupValue AS INTEGER)
+    DIM n AS INTEGER
+    n = popupValue - LAYER_THUMB_POPUP_BASE
+    LAYER_PANEL_ctx_menu_close
+    SELECT CASE n
+        CASE 0 TO 3: CFG.LAYER_THUMBNAILS% = n
+        CASE 10, 11: CFG.LAYER_THUMB_FIT% = n - 10
+        CASE ELSE: EXIT SUB
+    END SELECT
+    LAYER_THUMB_GEN = LAYER_THUMB_GEN + 1
+    SOUND_play SND_MENU_SELECT
+    CONFIG_save
+    GUI_NEEDS_REDRAW% = TRUE
+    SCENE_DIRTY%      = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+
 SUB LAYER_PANEL_ctx_menu_activate (actionValue AS INTEGER)
     LAYER_PANEL_ctx_menu_close
     IF actionValue% > 0 THEN
@@ -6970,7 +7700,7 @@ END SUB
 ' button bar (Rick: dragged shorter, a divider squeezed the panel until its
 ' buttons and its own divider went under the status bar).
 FUNCTION LAYERS_min_height% ()
-    LAYERS_min_height% = THEME.LAYER_PANEL_header_height% + LAYER_ROW_HEIGHT + THEME.LAYER_PANEL_btn_bar_height%
+    LAYERS_min_height% = LAYER_LIST_top_off% + LAYER_ROW_H% + LAYER_LIST_bot_off% ' (with the layer bar)
 END FUNCTION
 
 
@@ -6998,6 +7728,18 @@ FUNCTION LAYER_PANEL_bot% ()
     ELSE
         LAYER_PANEL_bot% = SCRN.h& - SCREEN_bottom_bars_h%
     END IF
+END FUNCTION
+
+
+''
+' Its right edge and bottom (exclusive) in the VIEWPORT: its footprint at its
+' own Scale (panelX2 / LAYER_PANEL_bot% are then in its units).
+FUNCTION LAYER_PANEL_view_x2% ()
+    IF PSURF_on%(DP_LAYERS) THEN LAYER_PANEL_view_x2% = PSURF(DP_LAYERS).vx + PSURF(DP_LAYERS).vw - 1 ELSE LAYER_PANEL_view_x2% = LAYER_PANEL.panelX2%
+END FUNCTION
+
+FUNCTION LAYER_PANEL_view_bot% ()
+    IF PSURF_on%(DP_LAYERS) THEN LAYER_PANEL_view_bot% = PSURF(DP_LAYERS).vy + PSURF(DP_LAYERS).vh ELSE LAYER_PANEL_view_bot% = LAYER_PANEL_bot%
 END FUNCTION
 
 

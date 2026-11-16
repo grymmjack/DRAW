@@ -1,0 +1,1366 @@
+''
+' DRAW - TOOLS/ANIM.BM
+' =============================================================================
+' Animation frame math (see ANIM.BI). Touches only ANIM, ANIM_HOLDS and the
+' canvas size (SCRN.canvasW& / canvasH&), so QA/unit/anim-unit.bas can test
+' it headless.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' No frames: a plain picture. Every document path calls this (new, open,
+' new from clipboard / AI, Aseprite, PSD, plain PNG) - CLAUDE.md gotcha 15.
+SUB ANIM_reset ()
+    DIM i AS INTEGER
+    ANIM.active = FALSE
+    ANIM.frameW = 0: ANIM.frameH = 0
+    ANIM.gutter = 0: ANIM.margin = 0
+    ANIM.count = 0: ANIM.current = 0: ANIM.wanted = 0
+    ANIM.fps = ANIM_FPS_DEFAULT
+    ANIM.loopMode = ANIM_LOOP_FWD
+    ANIM_SIZE_MODE = ANIM_SIZE_ASK
+    ANIM_PLAY.playing = FALSE
+    FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_HOLDS(i) = 0: ANIM_SEL(i) = FALSE: NEXT i
+    ANIM_SEL_ANCHOR = 0: ANIM_MOVE_TO = 0: ANIM_COUNT_TO = 0
+    ANIM_LF_N = 0
+    ANIM_LK_N = 0
+    ANIM_TG_N = 0: ANIM_EXP_A = 0: ANIM_EXP_B = 0
+    FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_NOTE(i) = "": NEXT i
+    ANIM_SC_clear
+    IF ANIM_SB_KEEP = FALSE THEN ' (ANIM_deserialize% keeps the SAME layers' pictures: undo / redo is the same document)
+        FOR i = 1 TO ANIM_SB_N: ANIM_SB_PX(i) = "": NEXT i
+        ANIM_SB_N = 0
+        ANIM_SAME_CHECK = FALSE
+        ANIM_SC_XTRA = 0 ' (undo / redo keeps the empty SOUND rows)
+    END IF
+END SUB
+
+''
+' The frames one pass of the animation shows, by the loop mode, into
+' ANIM_ORDER(1..n); returns n. Forward 1..count, reverse count..1, ping-pong
+' 1..count..2 (written out: the loop goes back to 1), once 1..count. Only
+' ANIM_EXP_A..ANIM_EXP_B when that is set (a tag).
+' (Exports; playback steps live in ANIM_play_next%.)
+FUNCTION ANIM_play_order% ()
+    DIM n AS INTEGER, i AS INTEGER, a AS INTEGER, b AS INTEGER
+    b = ANIM.count
+    IF ANIM.active = FALSE _ORELSE b < 1 THEN EXIT FUNCTION
+    a = 1
+    IF ANIM_EXP_A >= 1 _ANDALSO ANIM_EXP_B >= ANIM_EXP_A _ANDALSO ANIM_EXP_B <= b THEN a = ANIM_EXP_A: b = ANIM_EXP_B ' a tag / the selected span
+    SELECT CASE ANIM.loopMode
+        CASE ANIM_LOOP_REV
+            FOR i = b TO a STEP -1: n = n + 1: ANIM_ORDER(n) = i: NEXT i
+        CASE ANIM_LOOP_PING
+            FOR i = a TO b: n = n + 1: ANIM_ORDER(n) = i: NEXT i
+            FOR i = b - 1 TO a + 1 STEP -1: n = n + 1: ANIM_ORDER(n) = i: NEXT i
+        CASE ELSE
+            FOR i = a TO b: n = n + 1: ANIM_ORDER(n) = i: NEXT i
+    END SELECT
+    ANIM_play_order% = n
+END FUNCTION
+
+''
+' Layer flags (ANIM_LF_*) of the layer with this historyId.
+FUNCTION ANIM_LF_get% (id AS LONG)
+    DIM i AS INTEGER
+    FOR i = 1 TO ANIM_LF_N
+        IF ANIM_LF_ID(i) = id THEN ANIM_LF_get% = ANIM_LF_FL(i): EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' Set the layer flags of historyId id (0 drops its entry).
+SUB ANIM_LF_set (id AS LONG, fl AS INTEGER)
+    DIM i AS INTEGER, k AS INTEGER
+    FOR i = 1 TO ANIM_LF_N
+        IF ANIM_LF_ID(i) = id THEN k = i: EXIT FOR
+    NEXT i
+    IF fl = 0 THEN
+        IF k = 0 THEN EXIT SUB
+        FOR i = k TO ANIM_LF_N - 1: ANIM_LF_ID(i) = ANIM_LF_ID(i + 1): ANIM_LF_FL(i) = ANIM_LF_FL(i + 1): NEXT i
+        ANIM_LF_N = ANIM_LF_N - 1
+        EXIT SUB
+    END IF
+    IF k = 0 THEN
+        IF ANIM_LF_N >= ANIM_LF_MAX THEN EXIT SUB
+        ANIM_LF_N = ANIM_LF_N + 1: k = ANIM_LF_N: ANIM_LF_ID(k) = id
+    END IF
+    ANIM_LF_FL(k) = fl
+END SUB
+
+
+''
+' Cells across / down the canvas for the current layout (0 when frames are off
+' or not even one cell fits).
+FUNCTION ANIM_cols% ()
+    IF ANIM.active = FALSE _ORELSE ANIM.frameW < 1 THEN EXIT FUNCTION
+    ANIM_cols% = ANIM_fit%(SCRN.canvasW&, ANIM.frameW, ANIM.gutter, ANIM.margin)
+END FUNCTION
+
+FUNCTION ANIM_rows% ()
+    IF ANIM.active = FALSE _ORELSE ANIM.frameH < 1 THEN EXIT FUNCTION
+    ANIM_rows% = ANIM_fit%(SCRN.canvasH&, ANIM.frameH, ANIM.gutter, ANIM.margin)
+END FUNCTION
+
+''
+' How many cells of size `cell` fit along `span` with `gutter` between them and
+' `margin` at both ends.
+FUNCTION ANIM_fit% (span AS LONG, cell AS INTEGER, gutter AS INTEGER, margin AS INTEGER)
+    DIM room AS LONG
+    IF cell < 1 THEN EXIT FUNCTION
+    room = span - 2 * margin + gutter
+    IF room < cell + gutter THEN EXIT FUNCTION
+    ANIM_fit% = room \ (cell + gutter)
+END FUNCTION
+
+FUNCTION ANIM_cells% ()
+    DIM n AS LONG
+    n = CLNG(ANIM_cols%) * ANIM_rows%
+    IF n > ANIM_MAX_FRAMES THEN n = ANIM_MAX_FRAMES
+    ANIM_cells% = n
+END FUNCTION
+
+
+''
+' Frame n's cell on the canvas. FALSE (x/y/w/h untouched) when n has no cell.
+FUNCTION ANIM_cell_rect% (n AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG)
+    IF n < 1 _ORELSE n > ANIM_cells% THEN EXIT FUNCTION
+    ANIM_rect_at n, ANIM_cols%, ANIM.frameW, ANIM.frameH, ANIM.gutter, ANIM.margin, x, y
+    w = ANIM.frameW: h = ANIM.frameH
+    ANIM_cell_rect% = TRUE
+END FUNCTION
+
+''
+' Top left of cell n in a layout of cols columns (any layout, not just the
+' current one: resizing frames reads the old cells).
+SUB ANIM_rect_at (n AS INTEGER, cols AS INTEGER, fw AS INTEGER, fh AS INTEGER, gutter AS INTEGER, margin AS INTEGER, x AS LONG, y AS LONG)
+    IF cols < 1 THEN x = margin: y = margin: EXIT SUB
+    x = margin + ((n - 1) MOD cols) * (CLNG(fw) + gutter)
+    y = margin + ((n - 1) \ cols) * (CLNG(fh) + gutter)
+END SUB
+
+''
+' Length of `cells` cells of size `cell` with `gutter` between and `margin`
+' at both ends.
+FUNCTION ANIM_span& (cells AS LONG, cell AS LONG, gutter AS LONG, margin AS LONG)
+    IF cells < 1 THEN ANIM_span& = 2 * margin: EXIT FUNCTION
+    ANIM_span& = 2 * margin + cells * cell + (cells - 1) * gutter
+END FUNCTION
+
+''
+' The frame whose cell holds canvas pixel (cx, cy); 0 for the margin, a
+' gutter, past the cells or past the last frame.
+FUNCTION ANIM_frame_at% (cx AS LONG, cy AS LONG)
+    DIM cols AS INTEGER, rows AS INTEGER, c AS LONG, r AS LONG, n AS LONG
+    cols = ANIM_cols%: rows = ANIM_rows%
+    IF cols < 1 _ORELSE rows < 1 THEN EXIT FUNCTION
+    IF cx < ANIM.margin _ORELSE cy < ANIM.margin THEN EXIT FUNCTION
+    c = (cx - ANIM.margin) \ (ANIM.frameW + ANIM.gutter)
+    r = (cy - ANIM.margin) \ (ANIM.frameH + ANIM.gutter)
+    IF c >= cols _ORELSE r >= rows THEN EXIT FUNCTION
+    IF (cx - ANIM.margin) MOD (ANIM.frameW + ANIM.gutter) >= ANIM.frameW THEN EXIT FUNCTION ' a gutter
+    IF (cy - ANIM.margin) MOD (ANIM.frameH + ANIM.gutter) >= ANIM.frameH THEN EXIT FUNCTION
+    n = r * cols + c + 1
+    IF n > ANIM.count THEN EXIT FUNCTION
+    ANIM_frame_at% = n
+END FUNCTION
+
+
+''
+' Set the frame layout over the current canvas. Re-slices: pixels stay put, the
+' grid moves (resizing frames on a drawn sheet asks first - the caller's job).
+' count is the wanted count while it fits, else the cells there are (the
+' frames past them come back when a later layout fits them: stepping the
+' frame size through a smaller layout loses nothing); a layout with no room
+' for a cell turns frames off. Returns ANIM.active.
+FUNCTION ANIM_set_layout% (fw AS INTEGER, fh AS INTEGER, gutter AS INTEGER, margin AS INTEGER)
+    DIM wasOn AS INTEGER, cells AS INTEGER
+    wasOn = ANIM.active
+    IF gutter < 0 THEN gutter = 0
+    IF margin < 0 THEN margin = 0
+    ANIM.frameW = fw: ANIM.frameH = fh: ANIM.gutter = gutter: ANIM.margin = margin
+    ANIM.active = (fw > 0 _ANDALSO fh > 0)
+    cells = ANIM_cells%
+    IF cells < 1 THEN
+        ANIM.active = FALSE: ANIM.count = 0: ANIM.current = 0
+    ELSE
+        IF wasOn = FALSE _ORELSE ANIM.wanted < 1 THEN ANIM.wanted = cells
+        ANIM.count = _MIN(ANIM.wanted, cells)
+        ANIM_clamp_current
+    END IF
+    ANIM_set_layout% = ANIM.active
+END FUNCTION
+
+''
+' Keep the current frame inside 1..count.
+SUB ANIM_clamp_current ()
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN ANIM.current = 0: EXIT SUB
+    IF ANIM.current < 1 THEN ANIM.current = 1
+    IF ANIM.current > ANIM.count THEN ANIM.current = ANIM.count
+END SUB
+
+
+''
+' Ticks (at ANIM.fps) frame n stays up: its hold, at least 1.
+FUNCTION ANIM_hold% (n AS INTEGER)
+    DIM h AS INTEGER
+    IF n < 1 _ORELSE n > ANIM_MAX_FRAMES THEN ANIM_hold% = 1: EXIT FUNCTION
+    h = ANIM_HOLDS(n)
+    IF h < 1 THEN h = 1
+    IF h > ANIM_HOLD_MAX THEN h = ANIM_HOLD_MAX
+    ANIM_hold% = h
+END FUNCTION
+
+SUB ANIM_set_hold (n AS INTEGER, h AS INTEGER)
+    IF n < 1 _ORELSE n > ANIM_MAX_FRAMES THEN EXIT SUB
+    IF h < 1 THEN h = 1
+    IF h > ANIM_HOLD_MAX THEN h = ANIM_HOLD_MAX
+    ANIM_HOLDS(n) = h
+END SUB
+
+SUB ANIM_set_fps (fps AS INTEGER)
+    IF fps < 1 THEN fps = 1
+    IF fps > ANIM_FPS_MAX THEN fps = ANIM_FPS_MAX
+    ANIM.fps = fps
+END SUB
+
+
+''
+' Go to frame n (clamped). TRUE when the current frame changed.
+FUNCTION ANIM_go% (n AS INTEGER)
+    DIM was AS INTEGER
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN EXIT FUNCTION
+    was = ANIM.current
+    ANIM.current = n
+    ANIM_clamp_current
+    ANIM_go% = (ANIM.current <> was)
+END FUNCTION
+
+''
+' Step d frames from the current one, wrapping round the ends (the frame
+' keys: next / previous). TRUE when the current frame changed.
+FUNCTION ANIM_step% (d AS INTEGER)
+    DIM n AS LONG
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN EXIT FUNCTION
+    n = ((CLNG(ANIM.current) - 1 + d) MOD ANIM.count + ANIM.count) MOD ANIM.count + 1
+    ANIM_step% = ANIM_go%(n)
+END FUNCTION
+
+
+''
+' The animation data saved beside the pixels, in its own PNG chunk ("drAn",
+' DRW_embed_chunk_in_png) so a DRAW without animation opens the sheet as a
+' plain picture. "" when the document has no frames. Little-endian INTEGERs:
+'   version, frameW, frameH, gutter, margin, count, current, fps, loopMode,
+'   nHolds, then nHolds holds (frames 1..nHolds; the rest hold 1).
+' Newer versions append fields; a reader takes the ones it knows.
+FUNCTION ANIM_serialize$ ()
+    DIM s AS STRING, n AS INTEGER, i AS INTEGER, nn AS INTEGER, more AS INTEGER
+    IF ANIM.active = FALSE _ANDALSO ANIM_LF_N = 0 THEN EXIT FUNCTION
+    FOR i = ANIM.count TO 1 STEP -1 ' holds past the last real one are all 1
+        IF ANIM_hold%(i) > 1 THEN n = i: EXIT FOR
+    NEXT i
+    IF ANIM.active THEN nn = ANIM_NT_count%
+    DIM snd AS INTEGER
+    snd = ANIM.active _ANDALSO ANIM_SC_N > 0
+    s = MKI$(ANIM_CHUNK_VERSION) + MKI$(ANIM.frameW) + MKI$(ANIM.frameH) + MKI$(ANIM.gutter) + MKI$(ANIM.margin)
+    s = s + MKI$(ANIM.count) + MKI$(ANIM.current) + MKI$(ANIM.fps) + MKI$(ANIM.loopMode) + MKI$(n)
+    FOR i = 1 TO n: s = s + MKI$(ANIM_hold%(i)): NEXT i
+    ' each later block needs the ones before it (a reader walks them in order)
+    more = ANIM.active _ANDALSO (ANIM_LK_N > 0 _ORELSE ANIM_TG_N > 0 _ORELSE nn > 0 _ORELSE snd)
+    IF ANIM_LF_N > 0 _ORELSE more THEN ' v2: layer flags (a picture without frames can have reference layers)
+        s = s + MKI$(ANIM_LF_N)
+        FOR i = 1 TO ANIM_LF_N: s = s + MKL$(ANIM_LF_ID(i)) + MKI$(ANIM_LF_FL(i)): NEXT i
+    END IF
+    IF more THEN ' v3: linked cells (older DRAW reads v2's part and drops them)
+        MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_LINKS)
+        s = s + MKI$(ANIM_LK_N)
+        FOR i = 1 TO ANIM_LK_N: s = s + MKL$(ANIM_LK_ID(i)) + MKI$(ANIM_LK_F(i)) + MKI$(ANIM_LK_G(i)): NEXT i
+    END IF
+    IF more _ANDALSO (ANIM_TG_N > 0 _ORELSE nn > 0 _ORELSE snd) THEN ' v4: tags - from, to, the name's length, the name
+        MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_TAGS)
+        s = s + MKI$(ANIM_TG_N)
+        FOR i = 1 TO ANIM_TG_N: s = s + MKI$(ANIM_TG_A(i)) + MKI$(ANIM_TG_B(i)) + MKI$(LEN(ANIM_TG_NAME(i))) + ANIM_TG_NAME(i): NEXT i
+    END IF
+    IF nn > 0 _ORELSE snd THEN ' v5: frame notes - frame, the text's length, the text
+        MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_NOTES)
+        s = s + MKI$(nn)
+        FOR i = 1 TO ANIM.count
+            IF LEN(ANIM_NOTE(i)) > 0 THEN s = s + MKI$(i) + MKI$(LEN(ANIM_NOTE(i))) + ANIM_NOTE(i)
+        NEXT i
+    END IF
+    IF snd THEN ' v6: the soundtrack - the path's length, the path, the offset (ms) - clip 1 (an older DRAW plays just it)
+        MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_SOUND)
+        s = s + MKI$(LEN(ANIM_SC_PATH(1))) + ANIM_SC_PATH(1) + MKL$(ANIM_SC_IN(1) - ANIM_SC_AT(1))
+        IF ANIM_SC_N > 1 _ORELSE ANIM_SC_TRK(1) <> 1 _ORELSE ANIM_SC_AT(1) <> 0 _ORELSE ANIM_SC_LEN(1) <> 0 THEN
+            ' v7: every clip - track, at, in, len (ms), the path's length, the path
+            MID$(s, 1, 2) = MKI$(ANIM_CHUNK_VERSION_SNDCLIPS)
+            s = s + MKI$(ANIM_SC_N)
+            FOR i = 1 TO ANIM_SC_N
+                s = s + MKI$(ANIM_SC_TRK(i)) + MKL$(ANIM_SC_AT(i)) + MKL$(ANIM_SC_IN(i)) + MKL$(ANIM_SC_LEN(i))
+                s = s + MKI$(LEN(ANIM_SC_PATH(i))) + ANIM_SC_PATH(i)
+            NEXT i
+        END IF
+    END IF
+    ANIM_serialize$ = s
+END FUNCTION
+
+''
+' Load ANIM_serialize$ data over the current canvas (its size must already be
+' set). Bad or unfitting data leaves the document without frames. Returns
+' ANIM.active.
+FUNCTION ANIM_deserialize% (blob AS STRING)
+    DIM v AS INTEGER, n AS INTEGER, i AS INTEGER, cnt AS INTEGER, cur AS INTEGER, r AS INTEGER, sm AS INTEGER
+    sm = ANIM_SIZE_MODE: ANIM_SB_KEEP = TRUE: ANIM_reset: ANIM_SB_KEEP = FALSE: ANIM_SIZE_MODE = sm ' undo / redo restore this; the answer is the document's
+    IF LEN(blob) < 20 THEN EXIT FUNCTION
+    v = CVI(MID$(blob, 1, 2))
+    IF v < 1 THEN EXIT FUNCTION
+    DIM fp AS LONG, nf AS INTEGER
+    IF v >= 2 THEN ' layer flags after the holds - read whether or not the frames fit
+        n = CVI(MID$(blob, 19, 2)): IF n < 0 THEN n = 0
+        fp = 21 + 2 * CLNG(n)
+        IF fp + 1 <= LEN(blob) THEN
+            nf = CVI(MID$(blob, fp, 2)): fp = fp + 2
+            FOR i = 1 TO nf
+                IF fp + 5 > LEN(blob) _ORELSE i > ANIM_LF_MAX THEN EXIT FOR
+                ANIM_LF_set CVL(MID$(blob, fp, 4)), CVI(MID$(blob, fp + 4, 2))
+                fp = fp + 6
+            NEXT i
+        END IF
+    END IF
+    r = ANIM_set_layout%(CVI(MID$(blob, 3, 2)), CVI(MID$(blob, 5, 2)), CVI(MID$(blob, 7, 2)), CVI(MID$(blob, 9, 2)))
+    IF r = FALSE THEN EXIT FUNCTION
+    cnt = CVI(MID$(blob, 11, 2)): cur = CVI(MID$(blob, 13, 2))
+    IF cnt >= 1 _ANDALSO cnt <= ANIM_cells% THEN ANIM.count = cnt: ANIM.wanted = cnt
+    ANIM.current = cur: ANIM_clamp_current
+    ANIM_set_fps CVI(MID$(blob, 15, 2))
+    i = CVI(MID$(blob, 17, 2))
+    IF i >= ANIM_LOOP_FWD _ANDALSO i <= ANIM_LOOP_ONCE THEN ANIM.loopMode = i
+    n = CVI(MID$(blob, 19, 2))
+    IF n > ANIM_MAX_FRAMES THEN n = ANIM_MAX_FRAMES
+    FOR i = 1 TO n
+        IF 20 + 2 * i > LEN(blob) THEN EXIT FOR ' truncated: keep what is there
+        ANIM_set_hold i, CVI(MID$(blob, 19 + 2 * i, 2))
+    NEXT i
+    IF v >= 3 _ANDALSO fp > 0 _ANDALSO fp + 1 <= LEN(blob) THEN ' v3: linked cells after the layer flags
+        nf = CVI(MID$(blob, fp, 2)): fp = fp + 2
+        FOR i = 1 TO nf
+            IF fp + 7 > LEN(blob) _ORELSE i > ANIM_LK_MAX THEN EXIT FOR
+            IF CVI(MID$(blob, fp + 4, 2)) >= 1 _ANDALSO CVI(MID$(blob, fp + 4, 2)) <= ANIM.count THEN
+                ANIM_LK_N = ANIM_LK_N + 1
+                ANIM_LK_ID(ANIM_LK_N) = CVL(MID$(blob, fp, 4)): ANIM_LK_F(ANIM_LK_N) = CVI(MID$(blob, fp + 4, 2)): ANIM_LK_G(ANIM_LK_N) = CVI(MID$(blob, fp + 6, 2))
+            END IF
+            fp = fp + 8
+        NEXT i
+        ANIM_LK_tidy
+    END IF
+    IF v >= 4 _ANDALSO fp > 0 _ANDALSO fp + 1 <= LEN(blob) THEN ' v4: tags after the links
+        DIM ta AS INTEGER, tb AS INTEGER, tl AS INTEGER
+        nf = CVI(MID$(blob, fp, 2)): fp = fp + 2
+        FOR i = 1 TO nf
+            IF fp + 5 > LEN(blob) THEN EXIT FOR
+            ta = CVI(MID$(blob, fp, 2)): tb = CVI(MID$(blob, fp + 2, 2)): tl = CVI(MID$(blob, fp + 4, 2)): fp = fp + 6
+            IF tl < 0 _ORELSE fp + tl - 1 > LEN(blob) THEN EXIT FOR
+            ANIM_TG_set MID$(blob, fp, tl), ta, tb
+            fp = fp + tl
+        NEXT i
+    END IF
+    IF v >= 5 _ANDALSO fp > 0 _ANDALSO fp + 1 <= LEN(blob) THEN ' v5: frame notes after the tags
+        nf = CVI(MID$(blob, fp, 2)): fp = fp + 2
+        FOR i = 1 TO nf
+            IF fp + 3 > LEN(blob) THEN EXIT FOR
+            ta = CVI(MID$(blob, fp, 2)): tl = CVI(MID$(blob, fp + 2, 2)): fp = fp + 4
+            IF tl < 0 _ORELSE fp + tl - 1 > LEN(blob) THEN EXIT FOR
+            IF ta >= 1 _ANDALSO ta <= ANIM.count THEN ANIM_NT_set ta, MID$(blob, fp, tl)
+            fp = fp + tl
+        NEXT i
+    END IF
+    IF v >= 6 _ANDALSO fp > 0 _ANDALSO fp + 1 <= LEN(blob) THEN ' v6: the soundtrack after the notes
+        tl = CVI(MID$(blob, fp, 2)): fp = fp + 2
+        IF tl > 0 _ANDALSO fp + tl + 3 <= LEN(blob) THEN
+            DIM so AS LONG
+            so = CVL(MID$(blob, fp + tl, 4)) ' frame 1 starts so ms into the file
+            r = ANIM_SC_add%(MID$(blob, fp, tl), 1, _IIF(so < 0, -so, 0), _IIF(so > 0, so, 0), 0)
+        END IF
+        IF tl >= 0 THEN fp = fp + tl + 4
+    END IF
+    IF v >= 7 _ANDALSO fp > 0 _ANDALSO fp + 1 <= LEN(blob) THEN ' v7: every clip (it replaces v6's one)
+        DIM ct AS INTEGER, ca AS LONG, ci AS LONG, cl AS LONG
+        nf = CVI(MID$(blob, fp, 2)): fp = fp + 2
+        IF nf > 0 THEN ANIM_SC_clear
+        FOR i = 1 TO nf
+            IF fp + 15 > LEN(blob) THEN EXIT FOR
+            ct = CVI(MID$(blob, fp, 2)): ca = CVL(MID$(blob, fp + 2, 4)): ci = CVL(MID$(blob, fp + 6, 4)): cl = CVL(MID$(blob, fp + 10, 4))
+            tl = CVI(MID$(blob, fp + 14, 2)): fp = fp + 16
+            IF tl < 0 _ORELSE fp + tl - 1 > LEN(blob) THEN EXIT FOR
+            r = ANIM_SC_add%(MID$(blob, fp, tl), ct, ca, ci, cl)
+            fp = fp + tl
+        NEXT i
+    END IF
+    ANIM_deserialize% = ANIM.active
+END FUNCTION
+
+''
+' Plan frame operation op (ANIM_OP_*) on the current frames: fills ANIM_SRC(1
+' TO newCount) - new frame n shows old frame ANIM_SRC(n), 0 = blank - and the
+' new count and current frame. Touches nothing else. 0 when the op can't run;
+' else TRUE (ANIM_op_refusal$ says why not).
+FUNCTION ANIM_plan% (op AS INTEGER, newCount AS INTEGER, newCur AS INTEGER)
+    DIM n AS INTEGER, c AS INTEGER, i AS INTEGER, k AS INTEGER, moved AS INTEGER
+    n = ANIM.count: c = ANIM.current
+    IF ANIM.active = FALSE _ORELSE n < 1 THEN EXIT FUNCTION ' a plain picture: ANIM-OPS makes it frame 1 first
+    IF ANIM_op_refusal$(op) <> "" THEN EXIT FUNCTION
+    FOR i = 1 TO n: ANIM_SRC(i) = i: NEXT i
+    newCount = n: newCur = c
+    SELECT CASE op
+        CASE ANIM_OP_APPEND, ANIM_OP_APPEND_BLANK
+            newCount = n + 1: newCur = n + 1
+            IF op = ANIM_OP_APPEND THEN ANIM_SRC(n + 1) = n ELSE ANIM_SRC(n + 1) = 0
+        CASE ANIM_OP_INSERT_BEFORE, ANIM_OP_INSERT_AFTER, ANIM_OP_DUPLICATE
+            newCur = c + 1: IF op = ANIM_OP_INSERT_BEFORE THEN newCur = c
+            newCount = n + 1
+            FOR i = newCount TO newCur + 1 STEP -1: ANIM_SRC(i) = i - 1: NEXT i
+            IF op = ANIM_OP_DUPLICATE THEN ANIM_SRC(newCur) = c ELSE ANIM_SRC(newCur) = 0
+        CASE ANIM_OP_DELETE
+            newCount = n - 1
+            FOR i = c TO newCount: ANIM_SRC(i) = i + 1: NEXT i
+            IF newCur > newCount THEN newCur = newCount
+        CASE ANIM_OP_EARLIER
+            ANIM_SRC(c - 1) = c: ANIM_SRC(c) = c - 1: newCur = c - 1
+        CASE ANIM_OP_LATER
+            ANIM_SRC(c + 1) = c: ANIM_SRC(c) = c + 1: newCur = c + 1
+        CASE ANIM_OP_REVERSE
+            FOR i = 1 TO n: ANIM_SRC(i) = n + 1 - i: NEXT i
+            newCur = n + 1 - c
+        CASE ANIM_OP_MOVE_SEL
+            ' the unselected frames before the drop point, the selected ones, the rest
+            k = 0
+            FOR i = 1 TO _MIN(ANIM_MOVE_TO - 1, n)
+                IF ANIM_SEL_is%(i) = 0 THEN k = k + 1: ANIM_SRC(k) = i
+            NEXT i
+            FOR i = 1 TO n
+                IF ANIM_SEL_is%(i) THEN k = k + 1: ANIM_SRC(k) = i
+            NEXT i
+            FOR i = _MAX(ANIM_MOVE_TO, 1) TO n
+                IF ANIM_SEL_is%(i) = 0 THEN k = k + 1: ANIM_SRC(k) = i
+            NEXT i
+            FOR i = 1 TO n
+                IF ANIM_SRC(i) <> i THEN moved = TRUE
+                IF ANIM_SRC(i) = c THEN newCur = i
+            NEXT i
+            IF moved = 0 THEN EXIT FUNCTION ' dropped where they already are
+        CASE ANIM_OP_DELETE_SEL
+            k = 0
+            FOR i = 1 TO n
+                IF ANIM_SEL_is%(i) = 0 THEN k = k + 1: ANIM_SRC(k) = i
+            NEXT i
+            newCount = k
+            ' current: the first frame left after the cut ones (else the one before them)
+            newCur = 0
+            FOR i = 1 TO k
+                IF ANIM_SRC(i) > c _ANDALSO newCur = 0 THEN newCur = i
+            NEXT i
+            IF newCur = 0 THEN newCur = k
+        CASE ANIM_OP_INSERT_N
+            newCount = n + ANIM_COUNT_TO: newCur = c + 1
+            FOR i = 1 TO newCount
+                IF i <= c THEN
+                    ANIM_SRC(i) = i
+                ELSEIF i <= c + ANIM_COUNT_TO THEN
+                    ANIM_SRC(i) = 0
+                ELSE
+                    ANIM_SRC(i) = i - ANIM_COUNT_TO
+                END IF
+            NEXT i
+        CASE ANIM_OP_SET_COUNT
+            IF ANIM_COUNT_TO = n THEN EXIT FUNCTION ' no change
+            newCount = ANIM_COUNT_TO
+            FOR i = n + 1 TO newCount: ANIM_SRC(i) = 0: NEXT i
+            IF newCur > newCount THEN newCur = newCount
+    END SELECT
+    ANIM_plan% = TRUE
+END FUNCTION
+
+''
+' Why frame operation op can't run on the current frames ("" = it can).
+FUNCTION ANIM_op_refusal$ (op AS INTEGER)
+    DIM n AS INTEGER, c AS INTEGER, r AS STRING
+    n = ANIM.count: c = ANIM.current
+    IF ANIM.active = FALSE _ORELSE n < 1 THEN
+        ' add on a plain picture: it becomes frame 1, frame 2 goes beside it (R-08)
+        SELECT CASE op
+            CASE ANIM_OP_APPEND, ANIM_OP_APPEND_BLANK
+                IF 2 * SCRN.canvasW& > ANIM_SHEET_MAX THEN r = "The picture is too wide for a frame beside it"
+            CASE ELSE
+                r = "This picture has no frames - add one (Num +) or set a frame size"
+        END SELECT
+    ELSE
+        SELECT CASE op
+            CASE ANIM_OP_APPEND, ANIM_OP_APPEND_BLANK, ANIM_OP_INSERT_BEFORE, ANIM_OP_INSERT_AFTER, ANIM_OP_DUPLICATE
+                IF n >= ANIM_MAX_FRAMES THEN r = "No room for more frames (" + _TRIM$(STR$(ANIM_MAX_FRAMES)) + " at most)"
+                IF r = "" _ANDALSO ANIM_sheet_h&(n + 1) > ANIM_SHEET_MAX THEN r = "The sheet can't grow taller"
+            CASE ANIM_OP_DELETE
+                IF n < 2 THEN r = "The only frame can't be deleted"
+            CASE ANIM_OP_EARLIER
+                IF c < 2 THEN r = "This is the first frame"
+            CASE ANIM_OP_LATER
+                IF c >= n THEN r = "This is the last frame"
+            CASE ANIM_OP_REVERSE
+                IF n < 2 THEN r = "One frame: nothing to reverse"
+            CASE ANIM_OP_DELETE_SEL
+                IF ANIM_SEL_count% >= n _ORELSE n < 2 THEN r = "Keep at least one frame"
+            CASE ANIM_OP_INSERT_N
+                IF ANIM_COUNT_TO < 1 THEN r = "Nothing to insert"
+                IF n + ANIM_COUNT_TO > ANIM_MAX_FRAMES THEN r = "No room for more frames (" + _TRIM$(STR$(ANIM_MAX_FRAMES)) + " at most)"
+                IF r = "" _ANDALSO ANIM_sheet_h&(n + ANIM_COUNT_TO) > ANIM_SHEET_MAX THEN r = "The sheet can't grow taller"
+            CASE ANIM_OP_SET_COUNT
+                IF ANIM_COUNT_TO < 1 THEN r = "At least one frame"
+                IF ANIM_COUNT_TO > ANIM_MAX_FRAMES THEN r = "No room for more frames (" + _TRIM$(STR$(ANIM_MAX_FRAMES)) + " at most)"
+                IF r = "" _ANDALSO ANIM_COUNT_TO > n _ANDALSO ANIM_sheet_h&(ANIM_COUNT_TO) > ANIM_SHEET_MAX THEN r = "The sheet can't grow that tall"
+            CASE ANIM_OP_MOVE_SEL
+                IF n < 2 THEN r = "One frame: nowhere to move it"
+                IF ANIM_MOVE_TO < 1 _ORELSE ANIM_MOVE_TO > n + 1 THEN r = "Drop the frames between two frames"
+            CASE ELSE
+                r = "Unknown frame operation"
+        END SELECT
+    END IF
+    ANIM_op_refusal$ = r
+END FUNCTION
+
+''
+' Canvas height that holds `frames` frames in the current columns: the
+' current height, or taller by whole rows (adding past the last cell grows
+' the sheet - R-03).
+FUNCTION ANIM_sheet_h& (frames AS INTEGER)
+    DIM cols AS LONG, rows AS LONG, h AS LONG
+    cols = ANIM_cols%
+    IF cols < 1 THEN ANIM_sheet_h& = SCRN.canvasH&: EXIT FUNCTION
+    rows = (frames + cols - 1) \ cols
+    h = ANIM_span&(rows, ANIM.frameH, ANIM.gutter, ANIM.margin)
+    IF h < SCRN.canvasH& THEN h = SCRN.canvasH&
+    ANIM_sheet_h& = h
+END FUNCTION
+
+''
+' After ANIM_plan% (and the sheet grown to ANIM_sheet_h&(newCount)): the holds
+' follow their frames, a blank frame holds 1, and the count / current move.
+SUB ANIM_apply_plan (newCount AS INTEGER, newCur AS INTEGER)
+    DIM i AS INTEGER, old(1 TO ANIM_MAX_FRAMES) AS INTEGER, top AS INTEGER
+    top = _MAX(ANIM.count, newCount)
+    FOR i = 1 TO top: old(i) = ANIM_HOLDS(i): NEXT i
+    FOR i = 1 TO top
+        ANIM_HOLDS(i) = 0
+        IF i <= newCount _ANDALSO ANIM_SRC(i) > 0 THEN ANIM_HOLDS(i) = old(ANIM_SRC(i))
+    NEXT i
+    ANIM_LK_remap top, newCount ' links go with their frames (4.3)
+    ANIM_TG_remap newCount ' and tags (4.4)
+    ANIM_NT_remap top, newCount ' and notes (4.5)
+    ' the selection goes with its frames (a new frame is not selected)
+    FOR i = 1 TO top: old(i) = ANIM_SEL(i): NEXT i
+    FOR i = 1 TO top
+        ANIM_SEL(i) = FALSE
+        IF i <= newCount _ANDALSO ANIM_SRC(i) > 0 THEN ANIM_SEL(i) = old(ANIM_SRC(i))
+    NEXT i
+    ANIM.wanted = newCount
+    ANIM.count = _MIN(newCount, ANIM_cells%)
+    ANIM.current = newCur
+    ANIM_clamp_current
+END SUB
+
+
+''
+' Start playing frames fromF..toF (0, 0 = all) at time t (TIMER). FALSE when
+' there is nothing to play (no frames, or one).
+FUNCTION ANIM_play_start% (fromF AS INTEGER, toF AS INTEGER, t AS DOUBLE)
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 2 THEN EXIT FUNCTION
+    IF fromF < 1 _ORELSE toF < 1 _ORELSE fromF >= toF THEN fromF = 1: toF = ANIM.count
+    IF toF > ANIM.count THEN toF = ANIM.count
+    ANIM_PLAY.fromF = fromF: ANIM_PLAY.toF = toF
+    ANIM_PLAY.dir = _IIF(ANIM.loopMode = ANIM_LOOP_REV, -1, 1)
+    IF ANIM.current < fromF _ORELSE ANIM.current > toF THEN ANIM.current = fromF
+    IF ANIM.loopMode = ANIM_LOOP_ONCE _ANDALSO ANIM.current = toF THEN ANIM.current = fromF ' play once again from the top
+    ANIM_PLAY.nextT = t + ANIM_hold%(ANIM.current) / ANIM.fps
+    ANIM_PLAY.playing = TRUE
+    ANIM_play_start% = TRUE
+END FUNCTION
+
+SUB ANIM_play_stop ()
+    ANIM_PLAY.playing = FALSE
+END SUB
+
+''
+' The frame after the current one in this loop mode (the range and ping-pong
+' direction in ANIM_PLAY); 0 = stop (play once reached the end).
+FUNCTION ANIM_play_next% ()
+    DIM c AS INTEGER, a AS INTEGER, b AS INTEGER
+    c = ANIM.current: a = ANIM_PLAY.fromF: b = _MIN(ANIM_PLAY.toF, ANIM.count)
+    IF b <= a THEN EXIT FUNCTION
+    SELECT CASE ANIM.loopMode
+        CASE ANIM_LOOP_REV
+            IF c <= a THEN ANIM_play_next% = b ELSE ANIM_play_next% = c - 1
+        CASE ANIM_LOOP_PING
+            IF ANIM_PLAY.dir >= 0 THEN
+                IF c >= b THEN ANIM_PLAY.dir = -1: ANIM_play_next% = c - 1 ELSE ANIM_play_next% = c + 1
+            ELSE
+                IF c <= a THEN ANIM_PLAY.dir = 1: ANIM_play_next% = c + 1 ELSE ANIM_play_next% = c - 1
+            END IF
+        CASE ANIM_LOOP_ONCE
+            IF c < b THEN ANIM_play_next% = c + 1
+        CASE ELSE
+            IF c >= b THEN ANIM_play_next% = a ELSE ANIM_play_next% = c + 1
+    END SELECT
+END FUNCTION
+
+''
+' Advance playback to time t: TRUE when the current frame changed. Catches up
+' at most a few frames a call (a slow frame skips, it does not race), and
+' stops at the end of play once.
+FUNCTION ANIM_play_advance% (t AS DOUBLE)
+    DIM n AS INTEGER, steps AS INTEGER
+    IF ANIM_PLAY.playing = FALSE THEN EXIT FUNCTION
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 2 THEN ANIM_PLAY.playing = FALSE: EXIT FUNCTION
+    IF ANIM_PLAY.nextT - t > 60 THEN ANIM_PLAY.nextT = t ' TIMER wrapped at midnight
+    DO WHILE t >= ANIM_PLAY.nextT _ANDALSO steps < 4
+        n = ANIM_play_next%
+        IF n = 0 THEN ANIM_PLAY.playing = FALSE: EXIT DO
+        ANIM.current = n: steps = steps + 1
+        ANIM_PLAY.nextT = ANIM_PLAY.nextT + ANIM_hold%(n) / ANIM.fps
+    LOOP
+    IF ANIM_PLAY.playing _ANDALSO ANIM_PLAY.nextT < t THEN ANIM_PLAY.nextT = t + ANIM_hold%(ANIM.current) / ANIM.fps ' fell behind: no burst
+    ANIM_play_advance% = (steps > 0)
+END FUNCTION
+
+
+' ---------------------------------------------------------------------------
+' The strip selection (2.3)
+' ---------------------------------------------------------------------------
+
+''
+' Is frame f in the selection? With nothing selected the current frame is.
+FUNCTION ANIM_SEL_is% (f AS INTEGER)
+    IF f < 1 _ORELSE f > ANIM.count THEN EXIT FUNCTION
+    IF ANIM_SEL_count% = 0 THEN ANIM_SEL_is% = (f = ANIM.current): EXIT FUNCTION
+    ANIM_SEL_is% = (ANIM_SEL(f) <> 0)
+END FUNCTION
+
+''
+' Frames selected (0 = only the current frame counts).
+FUNCTION ANIM_SEL_count% ()
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO ANIM.count: IF ANIM_SEL(i) THEN n = n + 1
+    NEXT i
+    ANIM_SEL_count% = n
+END FUNCTION
+
+SUB ANIM_SEL_clear ()
+    DIM i AS INTEGER
+    FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_SEL(i) = FALSE: NEXT i
+    ANIM_SEL_ANCHOR = ANIM.current
+END SUB
+
+''
+' A click on frame f in the strip, as in the layers panel: plain = f is
+' current and the only one selected; Ctrl = f in / out of the selection
+' (current when it goes in); Shift = the frames from the anchor to f, f
+' current. Ctrl+Shift adds the range to the selection.
+SUB ANIM_SEL_click (f AS INTEGER, ctrl AS INTEGER, shift AS INTEGER)
+    DIM i AS INTEGER, a AS INTEGER, k AS INTEGER
+    IF f < 1 _ORELSE f > ANIM.count THEN EXIT SUB
+    IF shift THEN
+        a = ANIM_SEL_ANCHOR
+        IF a < 1 _ORELSE a > ANIM.count THEN a = ANIM.current
+        IF ctrl = 0 THEN
+            FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_SEL(i) = FALSE: NEXT i
+        END IF
+        FOR i = _MIN(a, f) TO _MAX(a, f): ANIM_SEL(i) = TRUE: NEXT i
+        ANIM_SEL_ANCHOR = a
+        ANIM.current = f
+    ELSEIF ctrl THEN
+        IF ANIM_SEL_count% = 0 THEN ANIM_SEL(ANIM.current) = TRUE ' the current frame was the selection
+        ANIM_SEL(f) = (ANIM_SEL(f) = 0)
+        IF ANIM_SEL(f) THEN
+            ANIM.current = f
+        ELSEIF f = ANIM.current THEN
+            ' it left: the nearest selected frame becomes current
+            FOR k = 1 TO ANIM.count
+                IF f - k >= 1 THEN IF ANIM_SEL(f - k) THEN ANIM.current = f - k: EXIT FOR
+                IF f + k <= ANIM.count THEN IF ANIM_SEL(f + k) THEN ANIM.current = f + k: EXIT FOR
+            NEXT k
+        END IF
+        ANIM_SEL_ANCHOR = f
+    ELSE
+        FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_SEL(i) = FALSE: NEXT i
+        ANIM_SEL(f) = TRUE
+        ANIM_SEL_ANCHOR = f
+        ANIM.current = f
+    END IF
+END SUB
+
+''
+' The frames playback plays: first..last of the selection when it holds two
+' or more frames, else all of them (0, 0).
+SUB ANIM_SEL_span (a AS INTEGER, b AS INTEGER)
+    DIM i AS INTEGER
+    a = 0: b = 0
+    IF ANIM_SEL_count% < 2 THEN EXIT SUB
+    FOR i = 1 TO ANIM.count
+        IF ANIM_SEL(i) THEN
+            IF a = 0 THEN a = i
+            b = i
+        END IF
+    NEXT i
+END SUB
+
+
+' ---------------------------------------------------------------------------
+' Linked cells (4.3): the table. Pixels and the sync live in ANIM-OPS.
+' ---------------------------------------------------------------------------
+
+''
+' The link group of layer historyId id's cell in frame f (0 = not linked).
+FUNCTION ANIM_LK_group% (id AS LONG, f AS INTEGER)
+    DIM k AS INTEGER
+    FOR k = 1 TO ANIM_LK_N
+        IF ANIM_LK_F(k) = f _ANDALSO ANIM_LK_ID(k) = id THEN ANIM_LK_group% = ANIM_LK_G(k): EXIT FUNCTION
+    NEXT k
+END FUNCTION
+
+''
+' The lowest frame of layer id's link group g (its source), 0 if none.
+FUNCTION ANIM_LK_source% (id AS LONG, g AS INTEGER)
+    DIM k AS INTEGER, s AS INTEGER
+    FOR k = 1 TO ANIM_LK_N
+        IF ANIM_LK_ID(k) = id _ANDALSO ANIM_LK_G(k) = g THEN
+            IF s = 0 _ORELSE ANIM_LK_F(k) < s THEN s = ANIM_LK_F(k)
+        END IF
+    NEXT k
+    ANIM_LK_source% = s
+END FUNCTION
+
+''
+' Layer id's cell in frame f shows another frame's drawing (linked, not the source).
+FUNCTION ANIM_LK_is_link% (id AS LONG, f AS INTEGER)
+    DIM g AS INTEGER
+    g = ANIM_LK_group%(id, f)
+    IF g = 0 THEN EXIT FUNCTION
+    ANIM_LK_is_link% = (ANIM_LK_source%(id, g) <> f)
+END FUNCTION
+
+''
+' Take layer id's cell in frame f out of its link group.
+SUB ANIM_LK_remove (id AS LONG, f AS INTEGER)
+    DIM k AS INTEGER
+    FOR k = 1 TO ANIM_LK_N
+        IF ANIM_LK_F(k) = f _ANDALSO ANIM_LK_ID(k) = id THEN
+            ANIM_LK_ID(k) = ANIM_LK_ID(ANIM_LK_N): ANIM_LK_F(k) = ANIM_LK_F(ANIM_LK_N): ANIM_LK_G(k) = ANIM_LK_G(ANIM_LK_N)
+            ANIM_LK_N = ANIM_LK_N - 1
+            EXIT SUB
+        END IF
+    NEXT k
+END SUB
+
+''
+' Put layer id's cell in frame f in link group g (out of any other).
+SUB ANIM_LK_put (id AS LONG, f AS INTEGER, g AS INTEGER)
+    ANIM_LK_remove id, f
+    IF ANIM_LK_N >= ANIM_LK_MAX THEN EXIT SUB
+    ANIM_LK_N = ANIM_LK_N + 1
+    ANIM_LK_ID(ANIM_LK_N) = id: ANIM_LK_F(ANIM_LK_N) = f: ANIM_LK_G(ANIM_LK_N) = g
+END SUB
+
+''
+' A group number not used on layer id.
+FUNCTION ANIM_LK_new_group% (id AS LONG)
+    DIM g AS INTEGER, k AS INTEGER, used AS INTEGER
+    FOR g = 1 TO ANIM_LK_MAX
+        used = FALSE
+        FOR k = 1 TO ANIM_LK_N
+            IF ANIM_LK_ID(k) = id _ANDALSO ANIM_LK_G(k) = g THEN used = TRUE: EXIT FOR
+        NEXT k
+        IF used = FALSE THEN ANIM_LK_new_group% = g: EXIT FUNCTION
+    NEXT g
+END FUNCTION
+
+''
+' Drop groups left with one cell and entries past the last frame.
+SUB ANIM_LK_tidy ()
+    DIM k AS INTEGER, j AS INTEGER, n AS INTEGER
+    k = 1
+    DO WHILE k <= ANIM_LK_N
+        n = 0
+        IF ANIM_LK_F(k) >= 1 _ANDALSO ANIM_LK_F(k) <= ANIM.count THEN
+            FOR j = 1 TO ANIM_LK_N
+                IF ANIM_LK_ID(j) = ANIM_LK_ID(k) _ANDALSO ANIM_LK_G(j) = ANIM_LK_G(k) _ANDALSO ANIM_LK_F(j) >= 1 _ANDALSO ANIM_LK_F(j) <= ANIM.count THEN n = n + 1
+            NEXT j
+        END IF
+        IF n < 2 THEN
+            ANIM_LK_ID(k) = ANIM_LK_ID(ANIM_LK_N): ANIM_LK_F(k) = ANIM_LK_F(ANIM_LK_N): ANIM_LK_G(k) = ANIM_LK_G(ANIM_LK_N)
+            ANIM_LK_N = ANIM_LK_N - 1
+        ELSE
+            k = k + 1
+        END IF
+    LOOP
+END SUB
+
+''
+' ANIM_apply_plan: each link moves to the new frame showing its old one (the
+' first, when a frame was duplicated - the copy is not linked); links of
+' deleted frames go.
+SUB ANIM_LK_remap (top AS INTEGER, newCount AS INTEGER)
+    DIM k AS INTEGER, n AS INTEGER, nf AS INTEGER
+    IF ANIM_LK_N = 0 THEN EXIT SUB
+    FOR k = 1 TO ANIM_LK_N
+        nf = 0
+        FOR n = 1 TO newCount
+            IF ANIM_SRC(n) = ANIM_LK_F(k) THEN nf = n: EXIT FOR
+        NEXT n
+        ANIM_LK_F(k) = nf ' 0: its frame was deleted
+    NEXT k
+    n = ANIM.count: ANIM.count = newCount ' ANIM_LK_tidy keeps frames 1..count
+    ANIM_LK_tidy
+    ANIM.count = n
+END SUB
+
+
+' ---------------------------------------------------------------------------
+' Tags (4.4): named frame ranges. The actions live in ANIM-OPS.
+' ---------------------------------------------------------------------------
+
+''
+' The tag named nm (any case), or 0.
+FUNCTION ANIM_TG_find% (nm AS STRING)
+    DIM k AS INTEGER, u AS STRING
+    u = UCASE$(_TRIM$(nm))
+    FOR k = 1 TO ANIM_TG_N
+        IF UCASE$(ANIM_TG_NAME(k)) = u THEN ANIM_TG_find% = k: EXIT FUNCTION
+    NEXT k
+END FUNCTION
+
+''
+' Tag frames a..b nm (trimmed, at most ANIM_TG_NAME_MAX characters): a tag of
+' that name moves there, else a new one. Returns its index (0 = refused: no
+' name, frames outside 1..count, or ANIM_TG_MAX tags already).
+FUNCTION ANIM_TG_put% (nm AS STRING, a AS INTEGER, b AS INTEGER)
+    DIM k AS INTEGER, t AS STRING, lo AS INTEGER, hi AS INTEGER
+    t = LEFT$(_TRIM$(nm), ANIM_TG_NAME_MAX)
+    lo = _MIN(a, b): hi = _MAX(a, b)
+    IF t = "" _ORELSE lo < 1 _ORELSE hi > ANIM.count THEN EXIT FUNCTION
+    k = ANIM_TG_find%(t)
+    IF k = 0 THEN
+        IF ANIM_TG_N >= ANIM_TG_MAX THEN EXIT FUNCTION
+        ANIM_TG_N = ANIM_TG_N + 1: k = ANIM_TG_N
+    END IF
+    ANIM_TG_NAME(k) = t: ANIM_TG_A(k) = lo: ANIM_TG_B(k) = hi
+    ANIM_TG_put% = k
+END FUNCTION
+
+SUB ANIM_TG_set (nm AS STRING, a AS INTEGER, b AS INTEGER)
+    DIM k AS INTEGER
+    k = ANIM_TG_put%(nm, a, b)
+END SUB
+
+SUB ANIM_TG_remove (k AS INTEGER)
+    DIM j AS INTEGER
+    IF k < 1 _ORELSE k > ANIM_TG_N THEN EXIT SUB
+    FOR j = k TO ANIM_TG_N - 1
+        ANIM_TG_NAME(j) = ANIM_TG_NAME(j + 1): ANIM_TG_A(j) = ANIM_TG_A(j + 1): ANIM_TG_B(j) = ANIM_TG_B(j + 1)
+    NEXT j
+    ANIM_TG_NAME(ANIM_TG_N) = ""
+    ANIM_TG_N = ANIM_TG_N - 1
+END SUB
+
+''
+' The shortest tag holding frame f (the first of equal ones), or 0.
+FUNCTION ANIM_TG_at% (f AS INTEGER)
+    DIM k AS INTEGER, best AS INTEGER
+    FOR k = 1 TO ANIM_TG_N
+        IF f >= ANIM_TG_A(k) _ANDALSO f <= ANIM_TG_B(k) THEN
+            IF best = 0 THEN
+                best = k
+            ELSEIF ANIM_TG_B(k) - ANIM_TG_A(k) < ANIM_TG_B(best) - ANIM_TG_A(best) THEN
+                best = k
+            END IF
+        END IF
+    NEXT k
+    ANIM_TG_at% = best
+END FUNCTION
+
+''
+' The tag whose frames are exactly the selection (nothing selected: the
+' current frame), or 0.
+FUNCTION ANIM_TG_selected% ()
+    DIM k AS INTEGER, a AS INTEGER, b AS INTEGER, n AS INTEGER
+    IF ANIM_TG_N = 0 THEN EXIT FUNCTION
+    n = ANIM_SEL_count%
+    IF n = 0 THEN
+        a = ANIM.current: b = a
+    ELSEIF n = 1 THEN
+        FOR k = 1 TO ANIM.count
+            IF ANIM_SEL(k) THEN a = k: b = k: EXIT FOR
+        NEXT k
+    ELSE
+        ANIM_SEL_span a, b
+        IF b - a + 1 <> n THEN EXIT FUNCTION ' not one run of frames
+    END IF
+    FOR k = 1 TO ANIM_TG_N
+        IF ANIM_TG_A(k) = a _ANDALSO ANIM_TG_B(k) = b THEN ANIM_TG_selected% = k: EXIT FUNCTION
+    NEXT k
+END FUNCTION
+
+''
+' Select tag k's frames (the first current).
+SUB ANIM_TG_select (k AS INTEGER)
+    DIM i AS INTEGER
+    IF k < 1 _ORELSE k > ANIM_TG_N THEN EXIT SUB
+    FOR i = 1 TO ANIM_MAX_FRAMES: ANIM_SEL(i) = FALSE: NEXT i
+    FOR i = ANIM_TG_A(k) TO _MIN(ANIM_TG_B(k), ANIM.count): ANIM_SEL(i) = TRUE: NEXT i
+    ANIM_SEL_ANCHOR = ANIM_TG_A(k)
+    ANIM.current = ANIM_TG_A(k)
+    ANIM_clamp_current
+END SUB
+
+''
+' ANIM_apply_plan: each tag spans the new frames that show its old ones
+' (frames put in between join it); a tag left with none goes.
+SUB ANIM_TG_remap (newCount AS INTEGER)
+    DIM k AS INTEGER, n AS INTEGER, a AS INTEGER, b AS INTEGER
+    k = 1
+    DO WHILE k <= ANIM_TG_N
+        a = 0: b = 0
+        FOR n = 1 TO newCount
+            IF ANIM_SRC(n) >= ANIM_TG_A(k) _ANDALSO ANIM_SRC(n) <= ANIM_TG_B(k) THEN
+                IF a = 0 THEN a = n
+                b = n
+            END IF
+        NEXT n
+        IF a = 0 THEN
+            ANIM_TG_remove k
+        ELSE
+            ANIM_TG_A(k) = a: ANIM_TG_B(k) = b: k = k + 1
+        END IF
+    LOOP
+END SUB
+
+
+' ---------------------------------------------------------------------------
+' Frame notes (4.5). The actions live in ANIM-OPS.
+' ---------------------------------------------------------------------------
+
+''
+' Frames with a note.
+FUNCTION ANIM_NT_count% ()
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO ANIM.count
+        IF LEN(ANIM_NOTE(i)) > 0 THEN n = n + 1
+    NEXT i
+    ANIM_NT_count% = n
+END FUNCTION
+
+''
+' Frame f's note = t (trimmed, control characters dropped, at most
+' ANIM_NOTE_MAX; "" clears it).
+SUB ANIM_NT_set (f AS INTEGER, t AS STRING)
+    DIM u AS STRING, i AS INTEGER
+    IF f < 1 _ORELSE f > ANIM_MAX_FRAMES THEN EXIT SUB
+    FOR i = 1 TO LEN(t)
+        IF ASC(t, i) >= 32 THEN u = u + MID$(t, i, 1)
+    NEXT i
+    ANIM_NOTE(f) = LEFT$(_TRIM$(u), ANIM_NOTE_MAX)
+END SUB
+
+''
+' ANIM_apply_plan: each note goes to the first new frame showing its old one
+' (a duplicate has none); notes of deleted frames go.
+SUB ANIM_NT_remap (top AS INTEGER, newCount AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER, old(1 TO ANIM_MAX_FRAMES) AS STRING, done(1 TO ANIM_MAX_FRAMES) AS INTEGER, anyNote AS INTEGER
+    FOR i = 1 TO top
+        old(i) = ANIM_NOTE(i): ANIM_NOTE(i) = ""
+        IF LEN(old(i)) > 0 THEN anyNote = TRUE
+    NEXT i
+    IF anyNote = FALSE THEN EXIT SUB
+    FOR n = 1 TO newCount
+        i = ANIM_SRC(n)
+        IF i >= 1 _ANDALSO i <= top THEN
+            IF done(i) = 0 THEN ANIM_NOTE(n) = old(i): done(i) = TRUE
+        END IF
+    NEXT n
+END SUB
+
+' ---------------------------------------------------------------------------
+' 5.3 Detect Frames: a sheet's grid from where it has content
+' ---------------------------------------------------------------------------
+
+''
+' The cells along one axis (span LEN(mask)) for cell size c, gutter g and
+' margin m are what ANIM_fit% lays out, and every run of drawn positions
+' ("#" in mask) is inside one of them. Returns how many cells (0 = no).
+FUNCTION ANIM_DT_axis% (mask AS STRING, c AS INTEGER, g AS INTEGER, m AS INTEGER)
+    DIM n AS INTEGER, p AS LONG, e AS LONG, qa AS LONG, qb AS LONG, pitch AS LONG
+    n = ANIM_fit%(LEN(mask), c, g, m)
+    IF n < 1 THEN EXIT FUNCTION
+    pitch = CLNG(c) + g
+    p = INSTR(mask, "#")
+    DO WHILE p > 0
+        ' each run of "#" inside one cell: its ends in the same cell, neither in a gutter
+        e = INSTR(p, mask, ".") - 1: IF e < 0 THEN e = LEN(mask)
+        qa = p - 1 - m: qb = e - 1 - m
+        IF qa < 0 THEN EXIT FUNCTION
+        IF qa \ pitch <> qb \ pitch _ORELSE qb MOD pitch >= c _ORELSE qb \ pitch >= n THEN EXIT FUNCTION
+        p = INSTR(e + 1, mask, "#")
+    LOOP
+    ANIM_DT_axis% = n
+END FUNCTION
+
+''
+' The frame grid of a sheet: mx / my = one character per column / row, "#"
+' where something is drawn (DRAW fills each blob's whole extent, so a sprite
+' with a gap stays one), "." empty. Cells fill each axis exactly (2 margins,
+' cells, gutters); every drawn column and row falls inside a cell; both axes
+' share the gutter and margin (an axis of one cell takes any gutter). Picks
+' the most cells, then the smallest margin + gutter. FALSE when nothing gives
+' two frames or more.
+FUNCTION ANIM_DT_solve% (mx AS STRING, my AS STRING, fw AS INTEGER, fh AS INTEGER, gutter AS INTEGER, margin AS INTEGER)
+    CONST DT_GM_MAX = 16
+    DIM m AS INTEGER, g AS INTEGER, nx AS LONG, ny AS LONG, cx AS LONG, cy AS LONG, ax AS INTEGER, ay AS INTEGER
+    DIM best AS LONG, bestS AS INTEGER, lx AS LONG, ly AS LONG, rx AS LONG, ry AS LONG
+    lx = LEN(mx): ly = LEN(my)
+    IF lx < 1 _ORELSE ly < 1 _ORELSE INSTR(mx, "#") = 0 THEN EXIT FUNCTION
+    ' runs that tile evenly - equal sizes, equal small gaps, equal ends - are the cells
+    DIM tcx AS LONG, tgx AS LONG, tmx AS LONG, tcy AS LONG, tgy AS LONG, tmy AS LONG
+    IF ANIM_DT_tight%(mx, tcx, tgx, tmx) _ANDALSO ANIM_DT_tight%(my, tcy, tgy, tmy) THEN
+        IF tmx = tmy _ANDALSO (tgx = tgy _ORELSE tgx < 0 _ORELSE tgy < 0) _ANDALSO (tgx >= 0 _ORELSE tgy >= 0) THEN
+            fw = tcx: fh = tcy: gutter = _MAX(tgx, tgy): margin = tmx
+            ANIM_DT_solve% = TRUE
+            EXIT FUNCTION
+        END IF
+    END IF
+    rx = _MIN(ANIM_DT_runs&(mx), 512): ry = _MIN(ANIM_DT_runs&(my), 512) ' (noise: no grid past 512 frames a row)
+    FOR m = 0 TO DT_GM_MAX
+        FOR g = 0 TO DT_GM_MAX
+            ' x: rx runs at most, so at most rx cells
+            FOR nx = _MIN(rx, lx) TO 1 STEP -1
+                IF nx = 1 THEN cx = lx - 2 * m ELSE cx = lx - 2 * m - (nx - 1) * g
+                IF cx >= nx _ANDALSO cx MOD nx = 0 THEN
+                    cx = cx \ nx
+                    IF cx <= 32767 THEN ax = ANIM_DT_axis%(mx, CINT(cx), _IIF(nx = 1, 0, g), m) ELSE ax = 0
+                    IF ax = nx THEN
+                        FOR ny = _MIN(ry, ly) TO 1 STEP -1
+                            IF nx * ny < 2 THEN EXIT FOR
+                            IF nx * ny < best _ORELSE (nx * ny = best _ANDALSO m + g >= bestS) THEN EXIT FOR
+                            IF ny = 1 THEN cy = ly - 2 * m ELSE cy = ly - 2 * m - (ny - 1) * g
+                            IF cy >= ny _ANDALSO cy MOD ny = 0 THEN
+                                cy = cy \ ny
+                                IF cy <= 32767 THEN ay = ANIM_DT_axis%(my, CINT(cy), _IIF(ny = 1, 0, g), m) ELSE ay = 0
+                                IF ay = ny THEN ' (an axis of one cell takes the other's gutter)
+                                    best = nx * ny: bestS = m + g
+                                    fw = cx: fh = cy: gutter = g: margin = m
+                                    ANIM_DT_solve% = TRUE
+                                    EXIT FOR
+                                END IF
+                            END IF
+                        NEXT ny
+                    END IF
+                END IF
+            NEXT nx
+        NEXT g
+    NEXT m
+END FUNCTION
+
+''
+' mask's runs of "#" are cells c long with gutters g between and margins m at
+' both ends, gutters and margins small next to the cells (4 g <= c, 4 m <= c,
+' so a sprite's own padding is not taken for a gutter). One run: g = -1 (any).
+FUNCTION ANIM_DT_tight% (mask AS STRING, c AS LONG, g AS LONG, m AS LONG)
+    DIM p AS LONG, a AS LONG, b AS LONG, n AS LONG, lastB AS LONG
+    c = 0: g = -1: m = 0
+    p = INSTR(mask, "#")
+    IF p = 0 THEN EXIT FUNCTION
+    m = p - 1
+    DO WHILE p > 0
+        a = p
+        b = INSTR(a, mask, ".") - 1: IF b < 0 THEN b = LEN(mask)
+        n = n + 1
+        IF n = 1 THEN
+            c = b - a + 1
+        ELSE
+            IF b - a + 1 <> c THEN EXIT FUNCTION
+            IF n = 2 THEN g = a - lastB - 1 ELSE IF a - lastB - 1 <> g THEN EXIT FUNCTION
+        END IF
+        lastB = b
+        p = INSTR(b + 1, mask, "#")
+    LOOP
+    IF LEN(mask) - lastB <> m THEN EXIT FUNCTION
+    IF 4 * m > c _ORELSE 4 * g > c THEN EXIT FUNCTION
+    ANIM_DT_tight% = TRUE
+END FUNCTION
+
+''
+' How many runs of "#" mask has.
+FUNCTION ANIM_DT_runs& (mask AS STRING)
+    DIM p AS LONG, n AS LONG, inRun AS INTEGER
+    FOR p = 1 TO LEN(mask)
+        IF ASC(mask, p) = 35 THEN
+            IF inRun = FALSE THEN n = n + 1: inRun = TRUE
+        ELSE
+            inRun = FALSE
+        END IF
+    NEXT p
+    ANIM_DT_runs& = n
+END FUNCTION
+
+''
+' The soundtrack's clips (F6, see ANIM.BI). No clips.
+SUB ANIM_SC_clear ()
+    DIM i AS INTEGER
+    FOR i = 1 TO ANIM_SC_MAX: ANIM_SC_PATH(i) = "": NEXT i
+    ANIM_SC_N = 0
+END SUB
+
+''
+' Add a clip: file path on track trk (1..ANIM_SC_TRACKS), at atMs on the
+' timeline, from inMs into the file, lenMs of it (0 = to the end). Its index,
+' or 0 when it can't be added (no path, the list is full).
+FUNCTION ANIM_SC_add% (path AS STRING, trk AS INTEGER, atMs AS LONG, inMs AS LONG, lenMs AS LONG)
+    IF LEN(path) = 0 _ORELSE ANIM_SC_N >= ANIM_SC_MAX THEN EXIT FUNCTION
+    ANIM_SC_N = ANIM_SC_N + 1
+    ANIM_SC_PATH(ANIM_SC_N) = path
+    ANIM_SC_TRK(ANIM_SC_N) = _MAX(1, _MIN(ANIM_SC_TRACKS, trk))
+    ANIM_SC_AT(ANIM_SC_N) = _MAX(0, atMs)
+    ANIM_SC_IN(ANIM_SC_N) = _MAX(0, inMs)
+    ANIM_SC_LEN(ANIM_SC_N) = _MAX(0, lenMs)
+    ANIM_SC_FMS(ANIM_SC_N) = 0
+    ANIM_SC_add% = ANIM_SC_N
+END FUNCTION
+
+''
+' Remove clip i (the later ones move down one).
+SUB ANIM_SC_remove (idx AS INTEGER)
+    DIM i AS INTEGER, k AS INTEGER
+    k = idx ' by reference (gotcha 13)
+    IF k < 1 _ORELSE k > ANIM_SC_N THEN EXIT SUB
+    FOR i = k TO ANIM_SC_N - 1
+        ANIM_SC_PATH(i) = ANIM_SC_PATH(i + 1): ANIM_SC_TRK(i) = ANIM_SC_TRK(i + 1)
+        ANIM_SC_AT(i) = ANIM_SC_AT(i + 1): ANIM_SC_IN(i) = ANIM_SC_IN(i + 1): ANIM_SC_LEN(i) = ANIM_SC_LEN(i + 1)
+        ANIM_SC_FMS(i) = ANIM_SC_FMS(i + 1)
+    NEXT i
+    ANIM_SC_PATH(ANIM_SC_N) = ""
+    ANIM_SC_N = ANIM_SC_N - 1
+END SUB
+
+''
+' The highest track any clip is on (0 = no clips): the X-sheet's SOUND rows.
+FUNCTION ANIM_SC_track_n% ()
+    DIM i AS INTEGER, t AS INTEGER
+    FOR i = 1 TO ANIM_SC_N
+        IF ANIM_SC_TRK(i) > t THEN t = ANIM_SC_TRK(i)
+    NEXT i
+    ANIM_SC_track_n% = t
+END FUNCTION
+
+''
+' The SOUND rows the X-sheet shows: at least one, every track a clip is on,
+' and the empty ones asked for (ANIM_SC_XTRA).
+FUNCTION ANIM_SC_rows% ()
+    ANIM_SC_rows% = _MIN(ANIM_SC_TRACKS, _MAX(1, _MAX(ANIM_SC_track_n%, ANIM_SC_XTRA)))
+END FUNCTION
+
+''
+' The clips on track trk.
+FUNCTION ANIM_SC_on_trk% (trk AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO ANIM_SC_N
+        IF ANIM_SC_TRK(i) = trk THEN n = n + 1
+    NEXT i
+    ANIM_SC_on_trk% = n
+END FUNCTION
+
+''
+' A new track: the first one with no clips (0 = all ANIM_SC_TRACKS have some).
+FUNCTION ANIM_SC_free_trk% ()
+    DIM t AS INTEGER
+    FOR t = 1 TO ANIM_SC_TRACKS
+        IF ANIM_SC_on_trk%(t) = 0 THEN ANIM_SC_free_trk% = t: EXIT FUNCTION
+    NEXT t
+END FUNCTION
+
+''
+' Remove track trk: its clips go, the tracks under it move up one, and the
+' rows shown are one fewer. The clips removed.
+FUNCTION ANIM_SC_drop_trk% (trk AS INTEGER)
+    DIM i AS INTEGER, t AS INTEGER, n AS INTEGER, r0 AS INTEGER
+    t = trk ' by reference (gotcha 13)
+    IF t < 1 _ORELSE t > ANIM_SC_TRACKS THEN EXIT FUNCTION
+    r0 = ANIM_SC_rows%
+    i = 1
+    DO WHILE i <= ANIM_SC_N
+        IF ANIM_SC_TRK(i) = t THEN
+            ANIM_SC_remove i: n = n + 1
+        ELSE
+            IF ANIM_SC_TRK(i) > t THEN ANIM_SC_TRK(i) = ANIM_SC_TRK(i) - 1
+            i = i + 1
+        END IF
+    LOOP
+    ANIM_SC_XTRA = _MAX(0, r0 - 1)
+    ANIM_SC_drop_trk% = n
+END FUNCTION
+
+''
+' The clips that play: the soundtrack's and the generated ones (ANIM.BI).
+FUNCTION ANIM_SC_all% ()
+    ANIM_SC_all% = ANIM_SC_N + ANIM_SC_GN
+END FUNCTION
+
+''
+' The index of playing clip ii (1..ANIM_SC_all%).
+FUNCTION ANIM_SC_ix% (ii AS INTEGER)
+    IF ii <= ANIM_SC_N THEN ANIM_SC_ix% = ii ELSE ANIM_SC_ix% = ANIM_SC_MAX + ii - ANIM_SC_N
+END FUNCTION
+
+''
+' The timeline ms where clip i ends (ANIM_SC_FOREVER: it plays to a file end
+' not known yet). Generated clips (ANIM_SC_MAX + 1 ..) too.
+FUNCTION ANIM_SC_end& (idx AS INTEGER)
+    DIM i AS INTEGER
+    i = idx
+    IF i < 1 _ORELSE (i > ANIM_SC_N _ANDALSO (i <= ANIM_SC_MAX _ORELSE i > ANIM_SC_MAX + ANIM_SC_GN)) THEN EXIT FUNCTION
+    IF ANIM_SC_LEN(i) > 0 THEN
+        ANIM_SC_end& = ANIM_SC_AT(i) + ANIM_SC_LEN(i)
+    ELSEIF ANIM_SC_FMS(i) > 0 THEN
+        ANIM_SC_end& = ANIM_SC_AT(i) + _MAX(0, ANIM_SC_FMS(i) - ANIM_SC_IN(i))
+    ELSE
+        ANIM_SC_end& = ANIM_SC_FOREVER
+    END IF
+END FUNCTION
+
+''
+' Split clip i at timeline ms t: it ends at t, a new clip (returned; 0 = t
+' is not inside it, or the list is full) plays on from there.
+FUNCTION ANIM_SC_split% (idx AS INTEGER, atT AS LONG)
+    DIM i AS INTEGER, t AS LONG, s0 AS LONG, e AS LONG, k AS INTEGER
+    i = idx: t = atT
+    IF i < 1 _ORELSE i > ANIM_SC_N THEN EXIT FUNCTION
+    s0 = ANIM_SC_AT(i): e = ANIM_SC_end&(i)
+    IF t <= s0 _ORELSE t >= e THEN EXIT FUNCTION
+    k = ANIM_SC_add%(ANIM_SC_PATH(i), ANIM_SC_TRK(i), t, ANIM_SC_IN(i) + (t - s0), _IIF(ANIM_SC_LEN(i) > 0, e - t, 0))
+    IF k = 0 THEN EXIT FUNCTION
+    ANIM_SC_FMS(k) = ANIM_SC_FMS(i)
+    ANIM_SC_LEN(i) = t - s0
+    ANIM_SC_split% = k
+END FUNCTION
+
+''
+' Take timeline ms a..b (b not included) off track trk: the clips there are
+' cut short, split or removed. Later sound stays where it is. TRUE when any
+' clip changed.
+FUNCTION ANIM_SC_cut% (trk AS INTEGER, fromT AS LONG, toT AS LONG)
+    DIM i AS INTEGER, k AS INTEGER, a AS LONG, b AS LONG, t AS INTEGER, s0 AS LONG, e AS LONG
+    t = trk: a = fromT: b = toT
+    IF b <= a THEN EXIT FUNCTION
+    i = 1
+    DO WHILE i <= ANIM_SC_N
+        IF ANIM_SC_TRK(i) = t THEN
+            s0 = ANIM_SC_AT(i): e = ANIM_SC_end&(i)
+            IF e > a _ANDALSO s0 < b THEN
+                ANIM_SC_cut% = TRUE
+                IF s0 < a _ANDALSO e > b THEN ' the span is inside it: two pieces
+                    k = ANIM_SC_split%(i, b) ' (the piece from b is after the span: the loop leaves it)
+                    ANIM_SC_LEN(i) = a - s0
+                ELSEIF s0 < a THEN
+                    ANIM_SC_LEN(i) = a - s0
+                ELSEIF e > b THEN
+                    ANIM_SC_IN(i) = ANIM_SC_IN(i) + (b - s0)
+                    IF ANIM_SC_LEN(i) > 0 THEN ANIM_SC_LEN(i) = e - b
+                    ANIM_SC_AT(i) = b
+                ELSE
+                    ANIM_SC_remove i
+                    i = i - 1
+                END IF
+            END IF
+        END IF
+        i = i + 1
+    LOOP
+END FUNCTION
+
+''
+' Copy timeline ms a..b of track trk to the sound clipboard. The pieces
+' copied (0 = no sound there).
+FUNCTION ANIM_SC_copy% (trk AS INTEGER, fromT AS LONG, toT AS LONG)
+    DIM i AS INTEGER, a AS LONG, b AS LONG, t AS INTEGER, s0 AS LONG, e AS LONG, s2 AS LONG, e2 AS LONG, n AS INTEGER
+    t = trk: a = fromT: b = toT
+    IF b <= a THEN EXIT FUNCTION
+    FOR i = 1 TO ANIM_SC_N
+        IF ANIM_SC_TRK(i) = t THEN
+            s0 = ANIM_SC_AT(i): e = ANIM_SC_end&(i)
+            IF e > a _ANDALSO s0 < b THEN
+                s2 = _MAX(s0, a): e2 = _MIN(e, b)
+                n = n + 1
+                ANIM_SCB_PATH(n) = ANIM_SC_PATH(i): ANIM_SCB_AT(n) = s2 - a: ANIM_SCB_IN(n) = ANIM_SC_IN(i) + (s2 - s0)
+                ANIM_SCB_LEN(n) = e2 - s2: ANIM_SCB_FMS(n) = ANIM_SC_FMS(i)
+                IF e = ANIM_SC_FOREVER _ANDALSO e2 = e THEN ANIM_SCB_LEN(n) = 0
+            END IF
+        END IF
+    NEXT i
+    IF n = 0 THEN EXIT FUNCTION
+    ANIM_SCB_N = n: ANIM_SCB_SPAN = b - a
+    ANIM_SC_copy% = n
+END FUNCTION
+
+''
+' Copy all of clip i to the sound clipboard.
+SUB ANIM_SC_copy_clip (idx AS INTEGER)
+    DIM i AS INTEGER
+    i = idx
+    IF i < 1 _ORELSE i > ANIM_SC_N THEN EXIT SUB
+    ANIM_SCB_N = 1
+    ANIM_SCB_PATH(1) = ANIM_SC_PATH(i): ANIM_SCB_AT(1) = 0: ANIM_SCB_IN(1) = ANIM_SC_IN(i)
+    ANIM_SCB_LEN(1) = ANIM_SC_LEN(i): ANIM_SCB_FMS(1) = ANIM_SC_FMS(i)
+    ANIM_SCB_SPAN = _IIF(ANIM_SC_end&(i) = ANIM_SC_FOREVER, ANIM_SC_FOREVER, ANIM_SC_end&(i) - ANIM_SC_AT(i))
+END SUB
+
+''
+' Paste the sound clipboard on track trk at timeline ms p, over what is
+' there. The first clip pasted (0 = nothing pasted).
+FUNCTION ANIM_SC_paste% (trk AS INTEGER, atT AS LONG)
+    DIM i AS INTEGER, k AS INTEGER, first AS INTEGER, t AS INTEGER, p AS LONG, r AS INTEGER
+    t = trk: p = atT
+    IF ANIM_SCB_N < 1 THEN EXIT FUNCTION
+    IF ANIM_SCB_SPAN < ANIM_SC_FOREVER THEN r = ANIM_SC_cut%(t, p, p + ANIM_SCB_SPAN)
+    FOR i = 1 TO ANIM_SCB_N
+        k = ANIM_SC_add%(ANIM_SCB_PATH(i), t, p + ANIM_SCB_AT(i), ANIM_SCB_IN(i), ANIM_SCB_LEN(i))
+        IF k > 0 THEN
+            ANIM_SC_FMS(k) = ANIM_SCB_FMS(i)
+            IF first = 0 THEN first = k
+        END IF
+    NEXT i
+    ANIM_SC_paste% = first
+END FUNCTION
+
+''
+' Unit test / QA text of the clips: "track:at+in~len name" per clip, by
+' track then time (len 0 = to the end), space separated.
+FUNCTION ANIM_SC_text$ ()
+    DIM i AS INTEGER, j AS INTEGER, s AS STRING, nm AS STRING, done AS STRING, best AS INTEGER
+    done = STRING$(ANIM_SC_N, "0")
+    FOR j = 1 TO ANIM_SC_N
+        best = 0
+        FOR i = 1 TO ANIM_SC_N
+            IF MID$(done, i, 1) = "0" THEN
+                IF best = 0 THEN
+                    best = i
+                ELSEIF ANIM_SC_TRK(i) < ANIM_SC_TRK(best) _ORELSE (ANIM_SC_TRK(i) = ANIM_SC_TRK(best) _ANDALSO ANIM_SC_AT(i) < ANIM_SC_AT(best)) THEN
+                    best = i
+                END IF
+            END IF
+        NEXT i
+        MID$(done, best, 1) = "1"
+        nm = MID$(ANIM_SC_PATH(best), _MAX(_INSTRREV(ANIM_SC_PATH(best), "/"), _INSTRREV(ANIM_SC_PATH(best), "\")) + 1)
+        FOR i = 1 TO LEN(nm)
+            IF ASC(nm, i) = 32 THEN MID$(nm, i, 1) = "_"
+        NEXT i
+        IF j > 1 THEN s = s + " "
+        s = s + _TRIM$(STR$(ANIM_SC_TRK(best))) + ":" + _TRIM$(STR$(ANIM_SC_AT(best))) + "+" + _TRIM$(STR$(ANIM_SC_IN(best))) + "~" + _TRIM$(STR$(ANIM_SC_LEN(best))) + " " + nm
+    NEXT j
+    ANIM_SC_text$ = s
+END FUNCTION

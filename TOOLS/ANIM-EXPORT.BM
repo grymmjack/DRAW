@@ -1,0 +1,1247 @@
+''
+' DRAW - TOOLS/ANIM-EXPORT.BM
+' =============================================================================
+' Animation exports. See ANIM-EXPORT.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' The document has frames (for callers where a local `anim` hides ANIM).
+FUNCTION ANIM_has_frames% ()
+    ANIM_has_frames% = ANIM.active _ANDALSO ANIM.count > 0
+END FUNCTION
+
+''
+' ANIM > Export Animated GIF... / Export Scale / PNG Sequence... / Sprite Sheet... / APNG... / BAS Player... / BAS + Sheet... (2532-2538).
+SUB ANIM_EXPORT_action (act AS INTEGER)
+    DIM tg AS INTEGER
+    ' exactly a tag of two or more frames selected (4.4): just its frames
+    ' (the sprite sheet always has them all, its JSON / .bi list the tags)
+    tg = ANIM_TG_selected%
+    ANIM_EXP_A = 0: ANIM_EXP_B = 0: ANIM_EXPORT_TAG = 0
+    IF tg > 0 _ANDALSO act <> ANIM_ACT_EXPORT_SHEET _ANDALSO act <> ANIM_ACT_EXPORT_SCALE THEN
+        IF ANIM_TG_B(tg) > ANIM_TG_A(tg) THEN ANIM_EXP_A = ANIM_TG_A(tg): ANIM_EXP_B = ANIM_TG_B(tg): ANIM_EXPORT_TAG = tg
+    END IF
+    ANIM_EXPORT_run act
+    ANIM_EXP_A = 0: ANIM_EXP_B = 0: ANIM_EXPORT_TAG = 0
+END SUB
+
+''
+' " - tag NAME" when the export is just a tag's frames.
+FUNCTION ANIM_EXPORT_note$ ()
+    IF ANIM_EXPORT_TAG < 1 _ORELSE ANIM_EXPORT_TAG > ANIM_TG_N THEN EXIT FUNCTION
+    ANIM_EXPORT_note$ = " - tag " + ANIM_TG_NAME(ANIM_EXPORT_TAG)
+END FUNCTION
+
+SUB ANIM_EXPORT_run (act AS INTEGER)
+    DIM f AS STRING, ok AS INTEGER
+    SELECT CASE act
+        CASE ANIM_ACT_EXPORT_GIF
+            IF ANIM.active = FALSE THEN STATUS_flash "Animated GIF exports frames - set a frame size first": EXIT SUB
+            f = CYCX_save_dialog$("Export Animated GIF", "GIF (*.gif)|*.gif", ".gif")
+            IF f = "" THEN EXIT SUB
+            ok = ANIM_GIF_export%(f)
+            CYCX_report ok, "animated GIF (" + ANIM_EXPORT_INFO + ANIM_EXPORT_note$ + ")", f
+        CASE ANIM_ACT_EXPORT_PNGS
+            IF ANIM.active = FALSE THEN STATUS_flash "A PNG sequence exports frames - set a frame size first": EXIT SUB
+            f = CYCX_save_dialog$("Export PNG Sequence (name_0001.png ...)", "PNG (*.png)|*.png", ".png")
+            IF f = "" THEN EXIT SUB
+            ok = ANIM_PNGSEQ_export%(f)
+            CYCX_report ok, "PNG sequence (" + ANIM_EXPORT_INFO + ANIM_EXPORT_note$ + ")", f
+        CASE ANIM_ACT_EXPORT_APNG
+            IF ANIM.active = FALSE THEN STATUS_flash "An animated PNG exports frames - set a frame size first": EXIT SUB
+            f = CYCX_save_dialog$("Export Animated PNG (APNG)", "APNG (*.png;*.apng)|*.png;*.apng", ".png")
+            IF f = "" THEN EXIT SUB
+            ok = ANIM_APNG_export%(f)
+            CYCX_report ok, "animated PNG (" + ANIM_EXPORT_INFO + ANIM_EXPORT_note$ + ")", f
+        CASE ANIM_ACT_EXPORT_BAS
+            IF ANIM.active = FALSE THEN STATUS_flash "The BAS player exports frames - set a frame size first": EXIT SUB
+            f = CYCX_save_dialog$("Export BAS Animation Player", "QB64 (*.bas)|*.bas", ".bas")
+            IF f = "" THEN EXIT SUB
+            ok = ANIM_BAS_export%(f)
+            CYCX_report ok, "BAS player (" + ANIM_EXPORT_INFO + ANIM_EXPORT_note$ + ")", f
+        CASE ANIM_ACT_EXPORT_BAS_SHEET
+            IF ANIM.active = FALSE THEN STATUS_flash "The BAS player exports frames - set a frame size first": EXIT SUB
+            f = CYCX_save_dialog$("Export BAS Animation Player + Sprite Sheet PNG", "QB64 (*.bas)|*.bas", ".bas")
+            IF f = "" THEN EXIT SUB
+            ok = ANIM_BAS_sheet_export%(f)
+            CYCX_report ok, "BAS player + sheet (" + ANIM_EXPORT_INFO + ANIM_EXPORT_note$ + ")", f
+        CASE ANIM_ACT_EXPORT_SHEET
+            IF ANIM.active = FALSE THEN STATUS_flash "A sprite sheet exports frames - set a frame size first": EXIT SUB
+            f = CYCX_save_dialog$("Export Sprite Sheet (name.png + name.json + name.bi)", "PNG (*.png)|*.png", ".png")
+            IF f = "" THEN EXIT SUB
+            ok = ANIM_SHEET_export%(f)
+            CYCX_report ok, "sprite sheet (" + ANIM_EXPORT_INFO + ANIM_EXPORT_note$ + ")", f
+        CASE ANIM_ACT_EXPORT_SCALE
+            SELECT CASE CFG.ANIM_EXPORT_SCALE%
+                CASE 1: CFG.ANIM_EXPORT_SCALE% = 2
+                CASE 2: CFG.ANIM_EXPORT_SCALE% = 4
+                CASE ELSE: CFG.ANIM_EXPORT_SCALE% = 1
+            END SELECT
+            CONFIG_save
+            STATUS_flash "Animation exports at" + STR$(CFG.ANIM_EXPORT_SCALE%) + "x"
+    END SELECT
+END SUB
+
+' ---------------------------------------------------------------------------
+' The exact colour table
+' ---------------------------------------------------------------------------
+
+SUB ANIM_GH_clear ()
+    DIM i AS INTEGER
+    FOR i = 1 TO ANIM_GH_N: ANIM_GH_HEAD(ANIM_GH_RGB(i) AND &HFFFF~&) = 0: NEXT i
+    ANIM_GH_N = 0
+END SUB
+
+''
+' 0-based index of rgb in the table; add = TRUE adds it (-1 when full).
+FUNCTION ANIM_GH_index% (rgb AS _UNSIGNED LONG, add AS INTEGER)
+    DIM e AS INTEGER, h AS LONG
+    h = rgb AND &HFFFF~&
+    e = ANIM_GH_HEAD(h)
+    DO WHILE e > 0
+        IF ANIM_GH_RGB(e) = rgb THEN ANIM_GH_index% = e - 1: EXIT FUNCTION
+        e = ANIM_GH_NEXT(e)
+    LOOP
+    ANIM_GH_index% = -1
+    IF add = FALSE _ORELSE ANIM_GH_N >= 256 THEN EXIT FUNCTION
+    ANIM_GH_N = ANIM_GH_N + 1
+    ANIM_GH_RGB(ANIM_GH_N) = rgb: ANIM_GH_NEXT(ANIM_GH_N) = ANIM_GH_HEAD(h): ANIM_GH_HEAD(h) = ANIM_GH_N
+    ANIM_GH_index% = ANIM_GH_N - 1
+END FUNCTION
+
+''
+' An adaptive colour table for frames with more colours than a GIF holds:
+' median cut over a 15-bit (5:5:5) histogram of every frame's opaque pixels.
+' Puts up to k colours in ANIM_GH_RGB(1..) (ANIM_GH_N = the count; the hash is
+' not used) and, for each 15-bit bucket the frames use, its table index (0-based)
+' in map(); other buckets stay -1 (ANIM_MC_nearest% fills them on demand).
+' Returns the count. Fades, tints and soft edges keep their own shades instead of
+' snapping to the document palette.
+FUNCTION ANIM_MC_palette% (flat AS LONG, k AS INTEGER, map() AS INTEGER)
+    DIM hist(0 TO 32767) AS LONG, sR(0 TO 32767) AS DOUBLE, sG(0 TO 32767) AS DOUBLE, sB(0 TO 32767) AS DOUBLE
+    DIM m AS _MEM, p AS _OFFSET, v AS _UNSIGNED LONG, b AS LONG, sw AS LONG
+    DIM f AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG, i AS LONG, j AS LONG
+    sw = _WIDTH(flat)
+    m = _MEMIMAGE(flat)
+    FOR f = 1 TO ANIM.count
+        IF ANIM_cell_rect%(f, x, y, w, h) THEN
+            FOR j = 0 TO h - 1
+                p = m.OFFSET + ((y + j) * sw + x) * 4
+                FOR i = 0 TO w - 1
+                    v = _MEMGET(m, p, _UNSIGNED LONG)
+                    IF v >= &H80000000~& THEN
+                        b = ANIM_MC_bucket&(v)
+                        hist(b) = hist(b) + 1
+                        sR(b) = sR(b) + _RED32(v): sG(b) = sG(b) + _GREEN32(v): sB(b) = sB(b) + _BLUE32(v)
+                    END IF
+                    p = p + 4
+                NEXT i
+            NEXT j
+        END IF
+    NEXT f
+    _MEMFREE m
+
+    ' the buckets in use, then boxes of them: box n is arr(bLo(n) .. bHi(n))
+    DIM arr(1 TO 32768) AS LONG, tmp(1 TO 32768) AS LONG, nb AS LONG
+    FOR b = 0 TO 32767
+        map(b) = -1
+        IF hist(b) THEN nb = nb + 1: arr(nb) = b
+    NEXT b
+    IF nb = 0 THEN ANIM_GH_N = 0: ANIM_MC_palette% = 0: EXIT FUNCTION
+    IF k > 256 THEN k = 256
+    DIM bLo(1 TO 256) AS LONG, bHi(1 TO 256) AS LONG, bAx(1 TO 256) AS INTEGER, bScore(1 TO 256) AS DOUBLE
+    DIM nBox AS INTEGER, best AS INTEGER, c AS INTEGER, cnt(0 TO 31) AS LONG, st(0 TO 31) AS LONG
+    DIM tot AS DOUBLE, acc AS DOUBLE, s AS LONG
+    nBox = 1: bLo(1) = 1: bHi(1) = nb
+    ANIM_MC_box_stats arr(), hist(), bLo(1), bHi(1), bAx(1), bScore(1)
+    DO WHILE nBox < k
+        best = 0
+        FOR i = 1 TO nBox
+            IF bScore(i) > 0 THEN
+                IF best = 0 THEN best = i ELSE IF bScore(i) > bScore(best) THEN best = i
+            END IF
+        NEXT i
+        IF best = 0 THEN EXIT DO ' every box is one bucket
+        ' sort the box's buckets on its longest axis (counting sort: 32 values)
+        FOR c = 0 TO 31: cnt(c) = 0: NEXT c
+        FOR i = bLo(best) TO bHi(best): c = ANIM_MC_chan%(arr(i), bAx(best)): cnt(c) = cnt(c) + 1: NEXT i
+        st(0) = bLo(best)
+        FOR c = 1 TO 31: st(c) = st(c - 1) + cnt(c - 1): NEXT c
+        FOR i = bLo(best) TO bHi(best)
+            c = ANIM_MC_chan%(arr(i), bAx(best)): tmp(st(c)) = arr(i): st(c) = st(c) + 1
+        NEXT i
+        tot = 0
+        FOR i = bLo(best) TO bHi(best): arr(i) = tmp(i): tot = tot + hist(arr(i)): NEXT i
+        ' split where half the pixels are behind (never empty on either side)
+        acc = 0: s = bLo(best)
+        FOR i = bLo(best) TO bHi(best) - 1
+            acc = acc + hist(arr(i)): s = i
+            IF acc * 2 >= tot THEN EXIT FOR
+        NEXT i
+        nBox = nBox + 1
+        bLo(nBox) = s + 1: bHi(nBox) = bHi(best): bHi(best) = s
+        ANIM_MC_box_stats arr(), hist(), bLo(best), bHi(best), bAx(best), bScore(best)
+        ANIM_MC_box_stats arr(), hist(), bLo(nBox), bHi(nBox), bAx(nBox), bScore(nBox)
+    LOOP
+
+    ' each box's colour: the mean of its pixels
+    DIM r AS DOUBLE, g AS DOUBLE, bl AS DOUBLE
+    FOR i = 1 TO nBox
+        r = 0: g = 0: bl = 0: tot = 0
+        FOR j = bLo(i) TO bHi(i)
+            b = arr(j): r = r + sR(b): g = g + sG(b): bl = bl + sB(b): tot = tot + hist(b)
+            map(b) = i - 1
+        NEXT j
+        ANIM_GH_RGB(i) = _RGB32(INT(r / tot + 0.5), INT(g / tot + 0.5), INT(bl / tot + 0.5)) AND &HFFFFFF~&
+    NEXT i
+    ANIM_GH_N = nBox
+    ANIM_MC_palette% = nBox
+END FUNCTION
+
+''
+' The 15-bit bucket of an RGB32 colour (5 bits each of red, green, blue).
+FUNCTION ANIM_MC_bucket& (v AS _UNSIGNED LONG)
+    ANIM_MC_bucket& = ((v \ &H80000) AND 31) * 1024 + ((v \ &H800) AND 31) * 32 + ((v \ 8) AND 31)
+END FUNCTION
+
+''
+' Channel ax (0 red, 1 green, 2 blue) of a 15-bit bucket, 0..31.
+FUNCTION ANIM_MC_chan% (b AS LONG, ax AS INTEGER)
+    SELECT CASE ax
+        CASE 0: ANIM_MC_chan% = (b \ 1024) AND 31
+        CASE 1: ANIM_MC_chan% = (b \ 32) AND 31
+        CASE ELSE: ANIM_MC_chan% = b AND 31
+    END SELECT
+END FUNCTION
+
+''
+' A box's longest axis and its split priority (pixels x that side; 0 = one bucket,
+' nothing to split).
+SUB ANIM_MC_box_stats (arr() AS LONG, hist() AS LONG, lo AS LONG, hi AS LONG, ax AS INTEGER, score AS DOUBLE)
+    DIM mn(0 TO 2) AS INTEGER, mx(0 TO 2) AS INTEGER, i AS LONG, c AS INTEGER, v AS INTEGER, pop AS DOUBLE, side AS INTEGER
+    FOR c = 0 TO 2: mn(c) = 31: mx(c) = 0: NEXT c
+    FOR i = lo TO hi
+        pop = pop + hist(arr(i))
+        FOR c = 0 TO 2
+            v = ANIM_MC_chan%(arr(i), c)
+            IF v < mn(c) THEN mn(c) = v
+            IF v > mx(c) THEN mx(c) = v
+        NEXT c
+    NEXT i
+    ax = 0: side = mx(0) - mn(0)
+    FOR c = 1 TO 2
+        IF mx(c) - mn(c) > side THEN side = mx(c) - mn(c): ax = c
+    NEXT c
+    IF hi <= lo _ORELSE side = 0 THEN score = 0 ELSE score = pop * side
+END SUB
+
+''
+' The table entry nearest a bucket no frame pixel used (a pixel outside the frame
+' cells), remembered in map().
+FUNCTION ANIM_MC_nearest% (b AS LONG, map() AS INTEGER)
+    DIM e AS INTEGER, best AS INTEGER, d AS LONG, bd AS LONG, r AS LONG, g AS LONG, bl AS LONG
+    IF map(b) >= 0 THEN ANIM_MC_nearest% = map(b): EXIT FUNCTION
+    r = ANIM_MC_chan%(b, 0) * 8 + 4: g = ANIM_MC_chan%(b, 1) * 8 + 4: bl = ANIM_MC_chan%(b, 2) * 8 + 4
+    bd = &H7FFFFFFF
+    FOR e = 1 TO ANIM_GH_N
+        d = (r - _RED32(ANIM_GH_RGB(e))) ^ 2 + (g - _GREEN32(ANIM_GH_RGB(e))) ^ 2 + (bl - _BLUE32(ANIM_GH_RGB(e))) ^ 2
+        IF d < bd THEN bd = d: best = e - 1
+    NEXT e
+    map(b) = best
+    ANIM_MC_nearest% = best
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' 3.1 Animated GIF
+' ---------------------------------------------------------------------------
+
+''
+' Frame f's cell out of the indexed sheet idx (sheet width sw), every pixel
+' scaled sc x sc.
+FUNCTION ANIM_GIF_cell$ (idx AS STRING, sw AS LONG, f AS INTEGER, sc AS INTEGER)
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, j AS LONG, i AS LONG, k AS INTEGER
+    DIM row AS STRING, big AS STRING, cellOut AS STRING, p AS LONG
+    IF ANIM_cell_rect%(f, x, y, w, h) = 0 THEN EXIT FUNCTION
+    cellOut = SPACE$(w * h * sc * sc): p = 1
+    FOR j = 0 TO h - 1
+        row = MID$(idx, (y + j) * sw + x + 1, w)
+        IF sc = 1 THEN
+            big = row
+        ELSE
+            big = SPACE$(w * sc)
+            FOR i = 0 TO w - 1: MID$(big, i * sc + 1, sc) = STRING$(sc, ASC(row, i + 1)): NEXT i
+        END IF
+        FOR k = 1 TO sc: MID$(cellOut, p, LEN(big)) = big: p = p + LEN(big): NEXT k
+    NEXT j
+    ANIM_GIF_cell$ = cellOut
+END FUNCTION
+
+''
+' Write the frames as an animated GIF at path. TRUE on success, else
+' CYCX_LAST_ERROR$ says why; ANIM_EXPORT_INFO sums it up.
+FUNCTION ANIM_GIF_export% (path AS STRING)
+    DIM flat AS LONG, sc AS INTEGER, n AS INTEGER, k AS INTEGER, f AS INTEGER, i AS LONG, e AS INTEGER
+    DIM fw AS LONG, fh AS LONG, ow AS LONG, oh AS LONG, sw AS LONG, sh AS LONG
+    DIM m AS _MEM, v AS _UNSIGNED LONG, hasT AS INTEGER, exact AS INTEGER, transIdx AS INTEGER, nCol AS INTEGER, bits AS INTEGER
+    DIM idx AS STRING, g AS STRING, gct AS STRING, ff AS INTEGER, minCode AS INTEGER, disposal AS INTEGER, dummy(0 TO 255) AS INTEGER
+
+    ANIM_GIF_export% = FALSE
+    CYCX_LAST_ERROR$ = "": ANIM_EXPORT_INFO = ""
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN CYCX_LAST_ERROR$ = "the document has no frames": EXIT FUNCTION
+    sc = CFG.ANIM_EXPORT_SCALE%: IF sc <> 2 _ANDALSO sc <> 4 THEN sc = 1
+    fw = ANIM.frameW: fh = ANIM.frameH: ow = fw * sc: oh = fh * sc
+    IF ow > 65535 _ORELSE oh > 65535 THEN CYCX_LAST_ERROR$ = "frames too large for GIF at" + STR$(sc) + "x": EXIT FUNCTION
+    PCYC_validate
+    n = ANIM_play_order%
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document": EXIT FUNCTION
+    sw = _WIDTH(flat): sh = _HEIGHT(flat)
+
+    ' -- colours: exact when the frames use 256 or fewer, else adaptive (or the palette when cycling) --
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, j AS LONG, p AS _OFFSET
+    ANIM_GH_clear
+    exact = TRUE
+    m = _MEMIMAGE(flat)
+    FOR f = 1 TO ANIM.count
+        IF ANIM_cell_rect%(f, x, y, w, h) THEN
+            FOR j = 0 TO h - 1
+                p = m.OFFSET + ((y + j) * sw + x) * 4
+                FOR i = 0 TO w - 1
+                    v = _MEMGET(m, p, _UNSIGNED LONG)
+                    IF v < &H80000000~& THEN
+                        hasT = TRUE
+                    ELSEIF exact THEN
+                        IF ANIM_GH_index%(v AND &HFFFFFF~&, TRUE) < 0 THEN exact = FALSE
+                    END IF
+                    p = p + 4
+                NEXT i
+            NEXT j
+        END IF
+    NEXT f
+    IF exact _ANDALSO hasT _ANDALSO ANIM_GH_N >= 256 THEN exact = FALSE ' no room for the transparent entry
+    ' more colours than a GIF holds: an adaptive table of the frames' own colours (median cut),
+    ' unless colour cycling runs - its table entries have to be the palette's chips
+    DIM adaptive AS INTEGER, mcMap(0 TO 32767) AS INTEGER, spt0(1 TO PCYC_MAX) AS DOUBLE, anyCyc0 AS INTEGER, cyc0 AS LONG
+    IF exact = FALSE THEN
+        cyc0 = GIF_cycle_ticks&(spt0(), anyCyc0, ANIM_GIF_MAX_TICKS)
+        adaptive = (anyCyc0 = FALSE)
+    END IF
+    IF adaptive THEN
+        nCol = ANIM_MC_palette%(flat, _IIF(hasT, 255, 256), mcMap())
+        transIdx = -1: IF hasT THEN transIdx = nCol: nCol = nCol + 1
+        idx = STRING$(sw * sh, 0)
+        FOR i = 0 TO sw * sh - 1
+            v = _MEMGET(m, m.OFFSET + i * 4, _UNSIGNED LONG)
+            IF v < &H80000000~& THEN
+                IF transIdx >= 0 THEN ASC(idx, i + 1) = transIdx
+            ELSE
+                ASC(idx, i + 1) = ANIM_MC_nearest%(ANIM_MC_bucket&(v), mcMap())
+            END IF
+        NEXT i
+    ELSEIF exact THEN
+        nCol = ANIM_GH_N
+        transIdx = -1: IF hasT THEN transIdx = nCol: nCol = nCol + 1
+        idx = STRING$(sw * sh, 0)
+        FOR i = 0 TO sw * sh - 1
+            v = _MEMGET(m, m.OFFSET + i * 4, _UNSIGNED LONG)
+            IF v < &H80000000~& THEN
+                IF transIdx >= 0 THEN ASC(idx, i + 1) = transIdx
+            ELSE
+                e = ANIM_GH_index%(v AND &HFFFFFF~&, FALSE)
+                IF e >= 0 THEN ASC(idx, i + 1) = e
+            END IF
+        NEXT i
+    ELSE
+        transIdx = -1
+        IF hasT THEN transIdx = IDX_transparent_slot%
+        idx = IDX_index_image$(flat, transIdx)
+        nCol = PAL_COLOR_COUNT%: IF transIdx >= 0 THEN nCol = nCol + 1
+    END IF
+    _MEMFREE m
+    SAFE_FREEIMAGE flat
+    bits = GIF_color_bits%(nCol)
+    minCode = bits: IF minCode < 2 THEN minCode = 2
+    IF exact _ORELSE adaptive THEN
+        gct = STRING$((2 ^ bits) * 3, 0)
+        FOR e = 1 TO ANIM_GH_N
+            ASC(gct, (e - 1) * 3 + 1) = _RED32(ANIM_GH_RGB(e)): ASC(gct, (e - 1) * 3 + 2) = _GREEN32(ANIM_GH_RGB(e)): ASC(gct, (e - 1) * 3 + 3) = _BLUE32(ANIM_GH_RGB(e))
+        NEXT e
+    ELSE
+        gct = GIF_color_table$(bits, dummy(), FALSE)
+    END IF
+
+    ' -- colour cycling: which palette chip each table entry is (-1 none) --
+    DIM spt(1 TO PCYC_MAX) AS DOUBLE, anyCyc AS INTEGER, cycTicks AS LONG, chipOf(0 TO 255) AS INTEGER, c AS INTEGER
+    cycTicks = GIF_cycle_ticks&(spt(), anyCyc, ANIM_GIF_MAX_TICKS)
+    FOR e = 0 TO 255: chipOf(e) = -1: NEXT e
+    IF anyCyc THEN
+        FOR e = 0 TO nCol - 1
+            IF e <> transIdx THEN
+                IF exact THEN
+                    FOR c = 0 TO PAL_COLOR_COUNT% - 1
+                        IF PCYC_range_at%(c) > 0 _ANDALSO (PAL(c).value~& AND &HFFFFFF~&) = ANIM_GH_RGB(e + 1) THEN chipOf(e) = c: EXIT FOR
+                    NEXT c
+                ELSEIF e < PAL_COLOR_COUNT% THEN
+                    IF PCYC_range_at%(e) > 0 THEN chipOf(e) = e
+                END IF
+            END IF
+        NEXT e
+    END IF
+
+    ' -- timing: frame k of the order starts at T(k) frame ticks (holds) --
+    DIM tk(1 TO 2 * ANIM_MAX_FRAMES + 1) AS DOUBLE, startCs(1 TO 2 * ANIM_MAX_FRAMES + 1) AS LONG, fast AS INTEGER
+    tk(1) = 0
+    FOR k = 1 TO n: tk(k + 1) = tk(k) + ANIM_hold%(ANIM_ORDER(k)): NEXT k
+
+    ' -- the GIF --
+    DIM lz(1 TO ANIM_MAX_FRAMES) AS STRING, frames AS LONG, capped AS INTEGER, loopCs AS LONG
+    disposal = _IIF(transIdx >= 0, 2, 1) ' transparent pixels: clear to the background between frames
+    g = "GIF89a" + GIF_le16$(ow) + GIF_le16$(oh) + CHR$(&H80 OR &H70 OR (bits - 1)) + CHR$(_IIF(transIdx >= 0, transIdx, 0)) + CHR$(0) + gct
+    IF ANIM.loopMode <> ANIM_LOOP_ONCE THEN g = g + CHR$(&H21) + CHR$(&HFF) + CHR$(11) + "NETSCAPE2.0" + CHR$(3) + CHR$(1) + GIF_le16$(0) + CHR$(0)
+
+    IF anyCyc = FALSE THEN
+        ' one GIF frame per frame shown, delays from the holds (cumulative rounding: no drift)
+        FOR k = 1 TO n + 1: startCs(k) = INT(100# * tk(k) / ANIM.fps + 0.5): NEXT k
+        FOR k = 1 TO n
+            f = ANIM_ORDER(k)
+            IF lz(f) = "" THEN lz(f) = CHR$(minCode) + GIF_subblocks$(GIF_lzw$(ANIM_GIF_cell$(idx, sw, f, sc), minCode))
+            i = startCs(k + 1) - startCs(k)
+            IF i < 2 THEN i = 2: fast = TRUE ' viewers slow anything under 2/100 s down
+            g = g + GIF_gce$(i, transIdx, disposal) + CHR$(&H2C) + GIF_le16$(0) + GIF_le16$(0) + GIF_le16$(ow) + GIF_le16$(oh) + CHR$(0) + lz(f)
+            frames = frames + 1
+        NEXT k
+        loopCs = startCs(n + 1)
+    ELSE
+        ' a 2-cs tick timeline: a GIF frame each time the frame or the cycle's colours change
+        DIM animTicks AS LONG, total AS LONG, t AS LONG, tt AS LONG, kk AS INTEGER, lastF AS INTEGER, lastMap AS STRING, curMap AS STRING
+        DIM dispOf(0 TO 255) AS INTEGER, pend AS STRING, pendT AS LONG, have AS INTEGER, lct AS STRING, col AS _UNSIGNED LONG
+        FOR k = 1 TO n + 1: startCs(k) = 2 * INT(50# * tk(k) / ANIM.fps + 0.5): NEXT k
+        animTicks = startCs(n + 1) \ 2: IF animTicks < 1 THEN animTicks = 1
+        IF ANIM.loopMode = ANIM_LOOP_ONCE THEN
+            total = animTicks
+        ELSE
+            total = (animTicks \ GIF_gcd&(animTicks, cycTicks)) * cycTicks
+            IF total > ANIM_GIF_MAX_TICKS _ORELSE total < animTicks THEN total = ANIM_GIF_MAX_TICKS: capped = TRUE
+        END IF
+        lastF = -1: kk = 1
+        FOR t = 0 TO total - 1
+            tt = t MOD animTicks
+            IF tt = 0 THEN kk = 1
+            DO WHILE kk < n _ANDALSO startCs(kk + 1) \ 2 <= tt: kk = kk + 1: LOOP
+            f = ANIM_ORDER(kk)
+            GIF_display_map t, spt(), dispOf()
+            curMap = SPACE$(256)
+            FOR e = 0 TO 255: ASC(curMap, e + 1) = dispOf(e): NEXT e
+            IF f <> lastF _ORELSE curMap <> lastMap THEN
+                IF lz(f) = "" THEN lz(f) = CHR$(minCode) + GIF_subblocks$(GIF_lzw$(ANIM_GIF_cell$(idx, sw, f, sc), minCode))
+                lct = MID$(gct, 1, (2 ^ bits) * 3)
+                FOR e = 0 TO nCol - 1
+                    IF chipOf(e) >= 0 THEN
+                        col = PAL(dispOf(chipOf(e))).value~&
+                        ASC(lct, e * 3 + 1) = _RED32(col): ASC(lct, e * 3 + 2) = _GREEN32(col): ASC(lct, e * 3 + 3) = _BLUE32(col)
+                    END IF
+                NEXT e
+                IF have THEN g = g + GIF_gce$((t - pendT) * 2, transIdx, disposal) + pend: frames = frames + 1
+                pend = CHR$(&H2C) + GIF_le16$(0) + GIF_le16$(0) + GIF_le16$(ow) + GIF_le16$(oh) + CHR$(&H80 OR (bits - 1)) + lct + lz(f)
+                pendT = t: have = TRUE
+                lastF = f: lastMap = curMap
+                IF frames >= ANIM_GIF_MAX_FRAMES - 1 THEN capped = TRUE: total = t + 1: EXIT FOR
+            END IF
+        NEXT t
+        g = g + GIF_gce$(_MAX(2, (total - pendT) * 2), transIdx, disposal) + pend
+        frames = frames + 1
+        loopCs = total * 2
+    END IF
+    g = g + CHR$(&H3B)
+
+    IF _FILEEXISTS(path) THEN KILL path
+    ff = FREEFILE
+    OPEN path FOR BINARY AS #ff
+    PUT #ff, , g
+    CLOSE #ff
+    IF _FILEEXISTS(path) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + path: EXIT FUNCTION
+    ANIM_EXPORT_INFO = _TRIM$(STR$(frames)) + " frames, " + _TRIM$(STR$(loopCs / 100)) + " s" + _IIF(ANIM.loopMode = ANIM_LOOP_ONCE, " once", " loop") + ", " + _TRIM$(STR$(nCol)) + " colours"
+    IF sc > 1 THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + ", " + _TRIM$(STR$(sc)) + "x"
+    IF adaptive THEN
+        ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (over 256 colours: the frames' own 256 nearest)"
+    ELSEIF exact = FALSE THEN
+        ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (over 256 colours and colour cycling: the palette's nearest)"
+    END IF
+    IF fast THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (faster than 50 fps: shown at 50)"
+    IF capped THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (cut at" + STR$(ANIM_GIF_MAX_TICKS \ 50) + " s: the colour cycle and the frames line up later than that)"
+    _LOGINFO "ANIM_GIF_export: " + path + " - " + ANIM_EXPORT_INFO
+    ANIM_GIF_export% = TRUE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' 3.2 PNG sequence, sprite sheet + frame data
+' ---------------------------------------------------------------------------
+
+''
+' The export scale, 1 / 2 / 4.
+FUNCTION ANIM_export_scale% ()
+    DIM sc AS INTEGER
+    sc = CFG.ANIM_EXPORT_SCALE%: IF sc <> 2 _ANDALSO sc <> 4 THEN sc = 1
+    ANIM_export_scale% = sc
+END FUNCTION
+
+''
+' path without its extension ("a/b.png" -> "a/b").
+FUNCTION ANIM_path_base$ (path AS STRING)
+    DIM d AS LONG, s AS LONG
+    d = _INSTRREV(path, "."): s = _MAX(_INSTRREV(path, "/"), _INSTRREV(path, "\"))
+    IF d > s + 1 THEN ANIM_path_base$ = LEFT$(path, d - 1) ELSE ANIM_path_base$ = path
+END FUNCTION
+
+''
+' TRUE when path is the open document's own file (an export must not write
+' over it - a PNG document keeps its layers in that file).
+FUNCTION ANIM_is_document% (path AS STRING)
+    DIM a AS STRING, d AS STRING, k AS INTEGER
+    IF _FILEEXISTS(path) = 0 THEN EXIT FUNCTION
+    a = _FULLPATH$(path)
+    FOR k = 1 TO 2
+        d = _IIF(k = 1, CURRENT_DRW_FILENAME$, CURRENT_FILENAME$)
+        IF d <> "" _ANDALSO _FILEEXISTS(d) THEN
+            IF _FULLPATH$(d) = a THEN ANIM_is_document% = TRUE: EXIT FUNCTION
+        END IF
+    NEXT k
+END FUNCTION
+
+''
+' A new 32-bit image: the w x h block of src at (x, y), every pixel sc x sc.
+FUNCTION ANIM_block_image& (src AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG, sc AS INTEGER)
+    DIM img AS LONG, ms AS _MEM, md AS _MEM, sw AS LONG, j AS LONG, i AS LONG, k AS INTEGER
+    DIM row AS STRING, big AS STRING, px AS STRING
+    img = _NEWIMAGE(w * sc, h * sc, 32)
+    ms = _MEMIMAGE(src): md = _MEMIMAGE(img): sw = _WIDTH(src)
+    row = SPACE$(w * 4)
+    FOR j = 0 TO h - 1
+        _MEMGET ms, ms.OFFSET + ((y + j) * sw + x) * 4, row
+        IF sc = 1 THEN
+            big = row
+        ELSE
+            big = SPACE$(w * sc * 4)
+            FOR i = 0 TO w - 1
+                px = MID$(row, i * 4 + 1, 4)
+                FOR k = 0 TO sc - 1: MID$(big, (i * sc + k) * 4 + 1, 4) = px: NEXT k
+            NEXT i
+        END IF
+        FOR k = 0 TO sc - 1: _MEMPUT md, md.OFFSET + (j * sc + k) * w * sc * 4, big: NEXT k
+    NEXT j
+    _MEMFREE ms: _MEMFREE md
+    ANIM_block_image& = img
+END FUNCTION
+
+''
+' Save img as a PNG at path (replacing it); TRUE when it is there.
+FUNCTION ANIM_save_png% (img AS LONG, path AS STRING)
+    IF _FILEEXISTS(path) THEN KILL path
+    _SAVEIMAGE path, img
+    ANIM_save_png% = _FILEEXISTS(path)
+END FUNCTION
+
+''
+' Frame n's time on screen in milliseconds (its hold at the FPS).
+FUNCTION ANIM_frame_ms& (n AS INTEGER)
+    ANIM_frame_ms& = INT(1000# * ANIM_hold%(n) / ANIM.fps + 0.5)
+END FUNCTION
+
+''
+' name_0001.png ... for path name.png: what plays, one PNG per tick at the FPS
+' (a frame held 3 is 3 files; ping-pong written out). Numbered files left
+' straight after the new last one by a longer earlier export are removed.
+FUNCTION ANIM_PNGSEQ_export% (path AS STRING)
+    DIM baseP AS STRING, flat AS LONG, sc AS INTEGER, n AS INTEGER, k AS INTEGER, f AS INTEGER, hh AS INTEGER
+    DIM total AS LONG, t AS LONG, digits AS INTEGER, nm AS STRING, img AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG
+    DIM imgs(1 TO ANIM_MAX_FRAMES) AS LONG, stale AS LONG, ok AS INTEGER
+    ANIM_PNGSEQ_export% = FALSE
+    CYCX_LAST_ERROR$ = "": ANIM_EXPORT_INFO = ""
+    IF ANIM_has_frames% = FALSE THEN CYCX_LAST_ERROR$ = "the document has no frames": EXIT FUNCTION
+    sc = ANIM_export_scale%
+    baseP = ANIM_path_base$(path)
+    n = ANIM_play_order%
+    FOR k = 1 TO n: total = total + ANIM_hold%(ANIM_ORDER(k)): NEXT k
+    IF total > ANIM_PNGSEQ_MAX THEN CYCX_LAST_ERROR$ = _TRIM$(STR$(total)) + " files - more than" + STR$(ANIM_PNGSEQ_MAX): EXIT FUNCTION
+    digits = _MAX(4, LEN(_TRIM$(STR$(total))))
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document": EXIT FUNCTION
+    FOR k = 1 TO n
+        f = ANIM_ORDER(k)
+        FOR hh = 1 TO ANIM_hold%(f)
+            t = t + 1
+            nm = baseP + "_" + RIGHT$(STRING$(digits, "0") + _TRIM$(STR$(t)), digits) + ".png"
+            IF ANIM_is_document%(nm) THEN CYCX_LAST_ERROR$ = MID$(nm, _INSTRREV(nm, "/") + 1) + " is the open document": EXIT FOR
+            IF imgs(f) = 0 _ANDALSO ANIM_cell_rect%(f, x, y, w, h) THEN imgs(f) = ANIM_block_image&(flat, x, y, w, h, sc)
+            ok = FALSE
+            IF imgs(f) < -1 THEN ok = ANIM_save_png%(imgs(f), nm)
+            IF ok = FALSE THEN CYCX_LAST_ERROR$ = "could not write " + nm: EXIT FOR
+        NEXT hh
+        IF CYCX_LAST_ERROR$ <> "" THEN EXIT FOR
+    NEXT k
+    SAFE_FREEIMAGE flat
+    FOR f = 1 TO ANIM_MAX_FRAMES: IF imgs(f) < -1 THEN SAFE_FREEIMAGE imgs(f)
+    NEXT f
+    IF CYCX_LAST_ERROR$ <> "" THEN EXIT FUNCTION
+    DO
+        nm = baseP + "_" + RIGHT$(STRING$(digits, "0") + _TRIM$(STR$(t + stale + 1)), digits) + ".png"
+        IF _FILEEXISTS(nm) = 0 _ORELSE ANIM_is_document%(nm) THEN EXIT DO
+        KILL nm: stale = stale + 1
+    LOOP
+    ANIM_EXPORT_INFO = _TRIM$(STR$(total)) + " PNGs at" + STR$(ANIM.fps) + " fps (" + MID$(baseP, _MAX(_INSTRREV(baseP, "/"), _INSTRREV(baseP, "\")) + 1) + "_" + STRING$(digits - 1, "0") + "1.png ...)"
+    IF sc > 1 THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + ", " + _TRIM$(STR$(sc)) + "x"
+    _LOGINFO "ANIM_PNGSEQ_export: " + path + " - " + ANIM_EXPORT_INFO + _IIF(stale > 0, " -" + STR$(stale) + " stale files removed", "")
+    ANIM_PNGSEQ_export% = TRUE
+END FUNCTION
+
+''
+' A QB64 name from a file name: upper case, A-Z 0-9 _ only, not a digit first.
+FUNCTION ANIM_bas_name$ (fileName AS STRING)
+    DIM s AS STRING, r AS STRING, i AS INTEGER, c AS INTEGER
+    s = UCASE$(MID$(fileName, _MAX(_INSTRREV(fileName, "/"), _INSTRREV(fileName, "\")) + 1))
+    FOR i = 1 TO LEN(s)
+        c = ASC(s, i)
+        IF (c >= 65 _ANDALSO c <= 90) _ORELSE (c >= 48 _ANDALSO c <= 57) THEN r = r + CHR$(c) ELSE r = r + "_"
+    NEXT i
+    IF r = "" THEN r = "SHEET"
+    IF ASC(r, 1) >= 48 _ANDALSO ASC(r, 1) <= 57 THEN r = "S" + r
+    ANIM_bas_name$ = r
+END FUNCTION
+
+''
+' Write text to path (replacing it); TRUE when it is there.
+FUNCTION ANIM_write_text% (path AS STRING, txt AS STRING)
+    DIM ff AS INTEGER
+    IF _FILEEXISTS(path) THEN KILL path
+    ff = FREEFILE
+    OPEN path FOR BINARY AS #ff
+    PUT #ff, , txt
+    CLOSE #ff
+    ANIM_write_text% = _FILEEXISTS(path)
+END FUNCTION
+
+''
+' One Aseprite frameTags entry.
+FUNCTION ANIM_SHEET_tag$ (nm AS STRING, a AS INTEGER, b AS INTEGER, dirName AS STRING)
+    DIM q AS STRING, t AS STRING, i AS INTEGER
+    q = CHR$(34)
+    FOR i = 1 TO LEN(nm) ' JSON: no quotes / backslashes / control characters in the name
+        IF ASC(nm, i) = 34 _ORELSE ASC(nm, i) = 92 _ORELSE ASC(nm, i) < 32 THEN t = t + "_" ELSE t = t + MID$(nm, i, 1)
+    NEXT i
+    ANIM_SHEET_tag$ = "{ " + q + "name" + q + ": " + q + t + q + ", " + q + "from" + q + ": " + _TRIM$(STR$(a)) + ", " + q + "to" + q + ": " + _TRIM$(STR$(b)) _
+        + ", " + q + "direction" + q + ": " + q + dirName + q + _IIF(ANIM.loopMode = ANIM_LOOP_ONCE, ", " + q + "repeat" + q + ": " + q + "1" + q, "") + " }"
+END FUNCTION
+
+''
+' The sprite sheet for path name.png (or name.json / name.bi): name.png = the
+' whole sheet as exported (layers flattened, scaled), name.json = the frame
+' rects in Aseprite's "array" layout, name.bi = the same as QB64 CONSTs + DATA.
+FUNCTION ANIM_SHEET_export% (path AS STRING)
+    DIM baseP AS STRING, png AS STRING, flat AS LONG, img AS LONG, sc AS INTEGER, f AS INTEGER, nmOnly AS STRING
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, j AS STRING, b AS STRING, q AS STRING, nl AS STRING, pre AS STRING
+    DIM dirName AS STRING, r AS STRING, sheetW AS LONG, sheetH AS LONG
+    ANIM_SHEET_export% = FALSE
+    CYCX_LAST_ERROR$ = "": ANIM_EXPORT_INFO = ""
+    IF ANIM_has_frames% = FALSE THEN CYCX_LAST_ERROR$ = "the document has no frames": EXIT FUNCTION
+    sc = ANIM_export_scale%
+    baseP = ANIM_path_base$(path): png = baseP + ".png"
+    nmOnly = MID$(baseP, _MAX(_INSTRREV(baseP, "/"), _INSTRREV(baseP, "\")) + 1)
+    IF ANIM_is_document%(png) THEN CYCX_LAST_ERROR$ = nmOnly + ".png is the open document - pick another name": EXIT FUNCTION
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document": EXIT FUNCTION
+    img = ANIM_block_image&(flat, 0, 0, _WIDTH(flat), _HEIGHT(flat), sc)
+    sheetW = _WIDTH(img): sheetH = _HEIGHT(img)
+    SAFE_FREEIMAGE flat
+    IF ANIM_save_png%(img, png) = 0 THEN SAFE_FREEIMAGE img: CYCX_LAST_ERROR$ = "could not write " + png: EXIT FUNCTION
+    SAFE_FREEIMAGE img
+
+    SELECT CASE ANIM.loopMode
+        CASE ANIM_LOOP_REV: dirName = "reverse"
+        CASE ANIM_LOOP_PING: dirName = "pingpong"
+        CASE ELSE: dirName = "forward"
+    END SELECT
+    q = CHR$(34): nl = CHR$(10)
+
+    ' -- JSON (Aseprite "array": frames[], meta) --
+    j = "{ " + q + "frames" + q + ": [" + nl
+    FOR f = 1 TO ANIM.count
+        IF ANIM_cell_rect%(f, x, y, w, h) THEN
+            r = q + "x" + q + ":" + _TRIM$(STR$(x * sc)) + "," + q + "y" + q + ":" + _TRIM$(STR$(y * sc)) + "," + q + "w" + q + ":" + _TRIM$(STR$(w * sc)) + "," + q + "h" + q + ":" + _TRIM$(STR$(h * sc))
+            j = j + "  { " + q + "filename" + q + ": " + q + nmOnly + " " + _TRIM$(STR$(f - 1)) + ".png" + q + ", " + q + "frame" + q + ": {" + r + "}, " _
+                + q + "rotated" + q + ": false, " + q + "trimmed" + q + ": false, " _
+                + q + "spriteSourceSize" + q + ": {" + q + "x" + q + ":0," + q + "y" + q + ":0," + q + "w" + q + ":" + _TRIM$(STR$(w * sc)) + "," + q + "h" + q + ":" + _TRIM$(STR$(h * sc)) + "}, " _
+                + q + "sourceSize" + q + ": {" + q + "w" + q + ":" + _TRIM$(STR$(w * sc)) + "," + q + "h" + q + ":" + _TRIM$(STR$(h * sc)) + "}, " _
+                + q + "duration" + q + ": " + _TRIM$(STR$(ANIM_frame_ms&(f))) + " }" + _IIF(f < ANIM.count, ",", "") + nl
+        END IF
+    NEXT f
+    j = j + " ]," + nl + " " + q + "meta" + q + ": {" + nl
+    j = j + "  " + q + "app" + q + ": " + q + "DRAW" + q + ", " + q + "version" + q + ": " + q + APP_VERSION$ + q + "," + nl
+    j = j + "  " + q + "image" + q + ": " + q + nmOnly + ".png" + q + ", " + q + "format" + q + ": " + q + "RGBA8888" + q + "," + nl
+    j = j + "  " + q + "size" + q + ": {" + q + "w" + q + ":" + _TRIM$(STR$(sheetW)) + "," + q + "h" + q + ":" + _TRIM$(STR$(sheetH)) + "}," + nl
+    j = j + "  " + q + "scale" + q + ": " + q + _TRIM$(STR$(sc)) + q + ", " + q + "fps" + q + ": " + _TRIM$(STR$(ANIM.fps)) + ", " + q + "loop" + q + ": " + q + _IIF(ANIM.loopMode = ANIM_LOOP_ONCE, "once", dirName) + q + "," + nl
+    ' the tags (4.4; frames from 0 as Aseprite counts them), else one "all"
+    r = ""
+    IF ANIM_TG_N = 0 THEN
+        r = ANIM_SHEET_tag$("all", 0, ANIM.count - 1, dirName)
+    ELSE
+        FOR f = 1 TO ANIM_TG_N
+            r = r + _IIF(f > 1, "," + nl + "    ", "") + ANIM_SHEET_tag$(ANIM_TG_NAME(f), ANIM_TG_A(f) - 1, ANIM_TG_B(f) - 1, dirName)
+        NEXT f
+    END IF
+    j = j + "  " + q + "frameTags" + q + ": [ " + r + " ]" + nl
+    j = j + " }" + nl + "}" + nl
+    IF ANIM_write_text%(baseP + ".json", j) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + baseP + ".json": EXIT FUNCTION
+
+    ' -- QB64 include: CONSTs + DATA x, y, w, h, ms per frame --
+    pre = ANIM_bas_name$(nmOnly)
+    b = "'' " + nmOnly + ".bi - the frames of " + nmOnly + ".png (DRAW " + APP_VERSION$ + " sprite sheet export)" + nl
+    b = b + "'" + nl + "' _LOADIMAGE " + q + nmOnly + ".png" + q + ", then RESTORE " + pre + "_FRAME_DATA and READ x, y, w, h, ms" + nl
+    b = b + "' per frame (" + pre + "_FRAMES of them); ms = the frame's time on screen. " + pre + "_LOOP:" + nl
+    b = b + "' 0 forward, 1 reverse, 2 ping-pong, 3 play once." + nl + "'" + nl
+    b = b + "CONST " + pre + "_FRAMES =" + STR$(ANIM.count) + nl
+    b = b + "CONST " + pre + "_FRAME_W =" + STR$(ANIM.frameW * sc) + nl
+    b = b + "CONST " + pre + "_FRAME_H =" + STR$(ANIM.frameH * sc) + nl
+    b = b + "CONST " + pre + "_FPS =" + STR$(ANIM.fps) + nl
+    b = b + "CONST " + pre + "_LOOP =" + STR$(ANIM.loopMode) + nl
+    IF ANIM_TG_N > 0 THEN b = b + "' tags: the frames (from 1) of each named range" + nl
+    FOR f = 1 TO ANIM_TG_N
+        r = pre + "_TAG_" + ANIM_bas_name$(ANIM_TG_NAME(f))
+        b = b + "CONST " + r + "_FROM =" + STR$(ANIM_TG_A(f)) + nl + "CONST " + r + "_TO =" + STR$(ANIM_TG_B(f)) + nl
+    NEXT f
+    b = b + pre + "_FRAME_DATA:" + nl
+    FOR f = 1 TO ANIM.count
+        IF ANIM_cell_rect%(f, x, y, w, h) THEN
+            b = b + "DATA " + _TRIM$(STR$(x * sc)) + "," + _TRIM$(STR$(y * sc)) + "," + _TRIM$(STR$(w * sc)) + "," + _TRIM$(STR$(h * sc)) + "," + _TRIM$(STR$(ANIM_frame_ms&(f))) + nl
+        END IF
+    NEXT f
+    IF ANIM_write_text%(baseP + ".bi", b) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + baseP + ".bi": EXIT FUNCTION
+
+    ANIM_EXPORT_INFO = nmOnly + ".png + .json + .bi," + STR$(ANIM.count) + " frames"
+    IF sc > 1 THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + ", " + _TRIM$(STR$(sc)) + "x"
+    _LOGINFO "ANIM_SHEET_export: " + baseP + " - " + ANIM_EXPORT_INFO
+    ANIM_SHEET_export% = TRUE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' 3.3 APNG
+' ---------------------------------------------------------------------------
+
+''
+' 2-byte big-endian.
+FUNCTION ANIM_be16$ (v AS LONG)
+    ANIM_be16$ = CHR$(_SHR(v, 8) AND 255) + CHR$(v AND 255)
+END FUNCTION
+
+''
+' The zlib stream of a 32-bit image as PNG RGBA rows (filter 0 each row).
+FUNCTION ANIM_png_zdata$ (img AS LONG)
+    DIM m AS _MEM, w AS LONG, h AS LONG, j AS LONG, i AS LONG, raw AS STRING, row AS STRING, p AS LONG, b AS INTEGER
+    w = _WIDTH(img): h = _HEIGHT(img)
+    m = _MEMIMAGE(img)
+    raw = SPACE$((w * 4 + 1) * h): row = SPACE$(w * 4): p = 1
+    FOR j = 0 TO h - 1
+        _MEMGET m, m.OFFSET + j * w * 4, row
+        FOR i = 0 TO w - 1 ' BGRA in memory -> RGBA
+            b = ASC(row, i * 4 + 1): ASC(row, i * 4 + 1) = ASC(row, i * 4 + 3): ASC(row, i * 4 + 3) = b
+        NEXT i
+        ASC(raw, p) = 0: MID$(raw, p + 1, w * 4) = row: p = p + w * 4 + 1
+    NEXT j
+    _MEMFREE m
+    ANIM_png_zdata$ = _DEFLATE$(raw, 9)
+END FUNCTION
+
+''
+' Write the frames as an animated PNG at path: one APNG frame per frame shown,
+' in loop order (ping-pong written out), each up for hold / fps s exactly
+' (delay_num / delay_den); loops forever, or plays once. RGBA, so every colour
+' and every alpha level keeps. Scaled by ANIM_EXPORT_SCALE. Colour cycling is
+' not included (the GIF export runs it). TRUE on success, else CYCX_LAST_ERROR$.
+FUNCTION ANIM_APNG_export% (path AS STRING)
+    DIM flat AS LONG, img AS LONG, sc AS INTEGER, n AS INTEGER, k AS INTEGER, f AS INTEGER, sq AS LONG
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, ow AS LONG, oh AS LONG, g AS STRING, ff AS INTEGER
+    DIM z(1 TO ANIM_MAX_FRAMES) AS STRING, fc AS STRING, totalT AS LONG
+    ANIM_APNG_export% = FALSE
+    CYCX_LAST_ERROR$ = "": ANIM_EXPORT_INFO = ""
+    IF ANIM_has_frames% = FALSE THEN CYCX_LAST_ERROR$ = "the document has no frames": EXIT FUNCTION
+    IF ANIM_is_document%(path) THEN CYCX_LAST_ERROR$ = MID$(path, _MAX(_INSTRREV(path, "/"), _INSTRREV(path, "\")) + 1) + " is the open document - pick another name": EXIT FUNCTION
+    sc = ANIM_export_scale%
+    ow = ANIM.frameW * sc: oh = ANIM.frameH * sc
+    n = ANIM_play_order%
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document": EXIT FUNCTION
+    FOR k = 1 TO n
+        f = ANIM_ORDER(k)
+        IF z(f) = "" _ANDALSO ANIM_cell_rect%(f, x, y, w, h) THEN
+            img = ANIM_block_image&(flat, x, y, w, h, sc)
+            z(f) = ANIM_png_zdata$(img)
+            SAFE_FREEIMAGE img
+        END IF
+    NEXT k
+    SAFE_FREEIMAGE flat
+
+    g = CHR$(137) + "PNG" + CHR$(13) + CHR$(10) + CHR$(26) + CHR$(10)
+    g = g + PNG_make_chunk$("IHDR", PNG_uint32_be$(ow) + PNG_uint32_be$(oh) + CHR$(8) + CHR$(6) + CHR$(0) + CHR$(0) + CHR$(0))
+    g = g + PNG_make_chunk$("acTL", PNG_uint32_be$(n) + PNG_uint32_be$(_IIF(ANIM.loopMode = ANIM_LOOP_ONCE, 1, 0)))
+    FOR k = 1 TO n
+        f = ANIM_ORDER(k)
+        ' frame control: the whole frame, delay hold / fps, keep (dispose none) + replace (blend source)
+        fc = PNG_uint32_be$(sq) + PNG_uint32_be$(ow) + PNG_uint32_be$(oh) + PNG_uint32_be$(0) + PNG_uint32_be$(0) _
+           + ANIM_be16$(ANIM_hold%(f)) + ANIM_be16$(ANIM.fps) + CHR$(0) + CHR$(0)
+        g = g + PNG_make_chunk$("fcTL", fc): sq = sq + 1
+        IF k = 1 THEN
+            g = g + PNG_make_chunk$("IDAT", z(f))
+        ELSE
+            g = g + PNG_make_chunk$("fdAT", PNG_uint32_be$(sq) + z(f)): sq = sq + 1
+        END IF
+        totalT = totalT + ANIM_hold%(f)
+    NEXT k
+    g = g + PNG_make_chunk$("IEND", "")
+
+    IF _FILEEXISTS(path) THEN KILL path
+    ff = FREEFILE
+    OPEN path FOR BINARY AS #ff
+    PUT #ff, , g
+    CLOSE #ff
+    IF _FILEEXISTS(path) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + path: EXIT FUNCTION
+    ANIM_EXPORT_INFO = _TRIM$(STR$(n)) + " frames, " + _TRIM$(STR$(INT(100# * totalT / ANIM.fps + 0.5) / 100)) + " s" + _IIF(ANIM.loopMode = ANIM_LOOP_ONCE, " once", " loop")
+    IF sc > 1 THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + ", " + _TRIM$(STR$(sc)) + "x"
+    DIM spt(1 TO PCYC_MAX) AS DOUBLE, anyCyc AS INTEGER, cycT AS LONG
+    PCYC_validate
+    cycT = GIF_cycle_ticks&(spt(), anyCyc, ANIM_GIF_MAX_TICKS)
+    IF anyCyc THEN ANIM_EXPORT_INFO = ANIM_EXPORT_INFO + " (colour cycling not included: the GIF export runs it)"
+    _LOGINFO "ANIM_APNG_export: " + path + " - " + ANIM_EXPORT_INFO
+    ANIM_APNG_export% = TRUE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' 3.4 BAS: a self-contained DATA player
+' ---------------------------------------------------------------------------
+
+''
+' The data blob of the BAS players: "DANM" v1, then frame size, count, fps,
+' loop mode, the play order, the holds, the palette and cycle ranges (as the
+' cycle player's DCYC), then per frame its RGBA cell (BGRA as in memory) and,
+' with ranges, its cycling overlay (1 byte a pixel, 0 = not cycling).
+' pixels = FALSE leaves the cells out (3.5: they come from the sheet PNG).
+FUNCTION ANIM_BAS_blob$ (pixels AS INTEGER, nCyc AS LONG)
+    DIM b AS STRING, k AS INTEGER, f AS INTEGER, n AS INTEGER, r AS INTEGER, ix AS INTEGER, kk AS INTEGER
+    DIM flat AS LONG, img AS LONG, m AS _MEM, cellPx AS STRING, ov AS STRING, i AS LONG, v AS _UNSIGNED LONG
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, ovlOf(0 TO 255) AS INTEGER, rOvl(1 TO PCYC_MAX) AS INTEGER
+    PCYC_validate
+    kk = 1
+    FOR r = 1 TO PCYC.COUNT%
+        rOvl(r) = kk
+        FOR ix = PCYC_R(r).lo TO PCYC_R(r).hi: ovlOf(ix) = kk: kk = kk + 1: NEXT ix
+    NEXT r
+    IF kk > 256 THEN CYCX_LAST_ERROR$ = "cycle ranges cover all 256 colours (need one free index)": EXIT FUNCTION
+    n = ANIM_play_order%
+    b = "DANM" + MKI$(1) + MKI$(ANIM.frameW) + MKI$(ANIM.frameH) + MKI$(ANIM.count) + MKI$(ANIM.fps) + MKI$(ANIM.loopMode) + MKI$(n)
+    FOR k = 1 TO n: b = b + MKI$(ANIM_ORDER(k)): NEXT k
+    FOR f = 1 TO ANIM.count: b = b + MKI$(ANIM_hold%(f)): NEXT f
+    b = b + MKI$(PAL_COLOR_COUNT%)
+    FOR ix = 0 TO PAL_COLOR_COUNT% - 1: b = b + MKL$(PAL(ix).value~& OR &HFF000000~&): NEXT ix
+    b = b + MKI$(PCYC.COUNT%)
+    FOR r = 1 TO PCYC.COUNT%
+        b = b + MKI$(PCYC_R(r).lo) + MKI$(PCYC_R(r).hi) + MKI$(rOvl(r))
+        b = b + MKL$(PCYC_R(r).rate) + MKI$(PCYC_R(r).cmode) + MKI$(PCYC_R(r).active) + MKL$(PCYC_R(r).heldStep)
+    NEXT r
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document": EXIT FUNCTION
+    IF PCYC.COUNT% > 0 THEN IDX_prepare
+    FOR f = 1 TO ANIM.count
+        IF ANIM_cell_rect%(f, x, y, w, h) THEN
+            img = ANIM_block_image&(flat, x, y, w, h, 1)
+            m = _MEMIMAGE(img): cellPx = SPACE$(m.SIZE): _MEMGET m, m.OFFSET, cellPx: _MEMFREE m
+            SAFE_FREEIMAGE img
+            IF pixels THEN b = b + cellPx
+            IF PCYC.COUNT% > 0 THEN
+                ov = STRING$(w * h, 0)
+                FOR i = 0 TO w * h - 1
+                    v = CVL(MID$(cellPx, i * 4 + 1, 4))
+                    IF v >= &H80000000~& THEN
+                        ix = IDX_exact%(v AND &HFFFFFF~&)
+                        IF ix >= 0 _ANDALSO ovlOf(ix) > 0 THEN ASC(ov, i + 1) = ovlOf(ix): nCyc = nCyc + 1
+                    END IF
+                NEXT i
+                b = b + ov
+            END IF
+        END IF
+    NEXT f
+    SAFE_FREEIMAGE flat
+    ANIM_BAS_blob$ = b
+END FUNCTION
+
+''
+' The player program around a blob (CYCX_L lines; a backtick is a quote).
+' sheetPng = "" reads the cells from the blob, else cuts them out of that PNG
+' (beside the .bas) at the frame rects. sndFile (L.1, "" = none) is the
+' soundtrack beside the .bas, played in step with the frames.
+SUB ANIM_BAS_player (nm AS STRING, b64 AS STRING, sheetPng AS STRING, sndFile AS STRING)
+    DIM i AS LONG, r AS INTEGER, lm AS STRING, c AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG
+    SELECT CASE ANIM.loopMode
+        CASE ANIM_LOOP_REV: lm = "reverse"
+        CASE ANIM_LOOP_PING: lm = "ping-pong"
+        CASE ANIM_LOOP_ONCE: lm = "play once"
+        CASE ELSE: lm = "forward"
+    END SELECT
+    CYCX_L "' " + nm + " - animation player"
+    CYCX_L "' Exported by DRAW " + APP_VERSION$ + " (https://github.com/grymmjack/DRAW) on " + DATE$
+    CYCX_L "' " + _TRIM$(STR$(ANIM.count)) + " frames of " + _TRIM$(STR$(ANIM.frameW)) + "x" + _TRIM$(STR$(ANIM.frameH)) + " at" + STR$(ANIM.fps) + " fps, " + lm + _IIF(PCYC.COUNT% > 0, ", " + _TRIM$(STR$(PCYC.COUNT%)) + " colour cycle range(s)", "")
+    IF sheetPng <> "" THEN CYCX_L "' The frames are cut out of " + sheetPng + " (keep it beside this program)."
+    IF sndFile <> "" THEN CYCX_L "' The soundtrack is " + sndFile + " (keep it beside this program; without it, no sound)."
+    CYCX_L "' Keys: SPACE pause / play, LEFT / RIGHT step a frame, + / - speed, R restart, ESC quit"
+    CYCX_L "' Run with --frames DIR to write one loop as DIR/frame_0001.png ... + DIR/frames.txt"
+    CYCX_L "' (step, frame, ms on screen) and exit."
+    CYCX_L "'"
+    CYCX_L "' How it works: each frame is a 32-bit image; with colour cycling an 8-bit"
+    CYCX_L "' overlay holds that frame's cycling pixels (index 0 clear) and its palette"
+    CYCX_L "' entries are rotated with _PALETTECOLOR. A frame is up for hold / fps s."
+    CYCX_L "' Compile: qb64pe -x " + nm
+    CYCX_L ""
+    CYCX_L "$SCREENHIDE"
+    CYCX_L "OPTION _EXPLICIT"
+    CYCX_L "OPTION _EXPLICITARRAY"
+    CYCX_L "CONST CRNG_UNIT = 16384"
+    CYCX_L ""
+    CYCX_L "DIM blob AS STRING, b64 AS STRING, chunk AS STRING"
+    CYCX_L "RESTORE anim_data"
+    CYCX_L "DO"
+    CYCX_L "    READ chunk"
+    CYCX_L "    IF chunk = `*` THEN EXIT DO"
+    CYCX_L "    b64 = b64 + chunk"
+    CYCX_L "LOOP"
+    CYCX_L "blob = _INFLATE$(_BASE64DECODE$(b64))"
+    CYCX_L "IF LEFT$(blob, 4) <> `DANM` THEN _SCREENSHOW: PRINT `Bad animation data`: END"
+    CYCX_L ""
+    CYCX_L "DIM SHARED fw AS INTEGER, fh AS INTEGER, nFr AS INTEGER, fps AS INTEGER, loopMode AS INTEGER, nOrd AS INTEGER"
+    CYCX_L "DIM SHARED nCol AS INTEGER, nRng AS INTEGER"
+    CYCX_L "DIM p AS LONG, i AS LONG, j AS INTEGER, rate AS LONG, m AS _MEM, px AS STRING"
+    CYCX_L "p = 7 ' after magic + version"
+    CYCX_L "fw = CVI(MID$(blob, p, 2)): fh = CVI(MID$(blob, p + 2, 2)): nFr = CVI(MID$(blob, p + 4, 2))"
+    CYCX_L "fps = CVI(MID$(blob, p + 6, 2)): loopMode = CVI(MID$(blob, p + 8, 2)): nOrd = CVI(MID$(blob, p + 10, 2)): p = p + 12"
+    CYCX_L "DIM SHARED ord(1 TO nOrd) AS INTEGER, hold(1 TO nFr) AS INTEGER ' loop mode 0 forward, 1 reverse, 2 ping-pong, 3 once"
+    CYCX_L "FOR i = 1 TO nOrd: ord(i) = CVI(MID$(blob, p, 2)): p = p + 2: NEXT"
+    CYCX_L "FOR i = 1 TO nFr: hold(i) = CVI(MID$(blob, p, 2)): p = p + 2: NEXT"
+    CYCX_L "nCol = CVI(MID$(blob, p, 2)): p = p + 2"
+    CYCX_L "DIM SHARED pal(0 TO 255) AS _UNSIGNED LONG"
+    CYCX_L "FOR i = 0 TO nCol - 1: pal(i) = _CV(_UNSIGNED LONG, MID$(blob, p, 4)): p = p + 4: NEXT"
+    CYCX_L "nRng = CVI(MID$(blob, p, 2)): p = p + 2"
+    CYCX_L "DIM SHARED rLo(1 TO 16) AS INTEGER, rHi(1 TO 16) AS INTEGER, rOvl(1 TO 16) AS INTEGER, rShift(1 TO 16) AS INTEGER"
+    CYCX_L "DIM SHARED rSps(1 TO 16) AS SINGLE, rMode(1 TO 16) AS INTEGER, rOn(1 TO 16) AS INTEGER, rPhase0(1 TO 16) AS DOUBLE"
+    CYCX_L "FOR i = 1 TO nRng"
+    CYCX_L "    rLo(i) = CVI(MID$(blob, p, 2)): rHi(i) = CVI(MID$(blob, p + 2, 2)): rOvl(i) = CVI(MID$(blob, p + 4, 2))"
+    CYCX_L "    rate = CVL(MID$(blob, p + 6, 4)): rSps(i) = rate * 60 / CRNG_UNIT ' steps per second"
+    CYCX_L "    rMode(i) = CVI(MID$(blob, p + 10, 2)): rOn(i) = CVI(MID$(blob, p + 12, 2)): rPhase0(i) = CVL(MID$(blob, p + 14, 4))"
+    CYCX_L "    p = p + 18"
+    CYCX_L "NEXT"
+    CYCX_L ""
+    CYCX_L "' --- the frames: a 32-bit image each, and a cycling overlay with ranges ---"
+    CYCX_L "DIM SHARED art(1 TO nFr) AS LONG, ovl(1 TO nFr) AS LONG, frame AS LONG"
+    IF sheetPng <> "" THEN
+        CYCX_L "DIM sheet AS LONG, rx AS LONG, ry AS LONG"
+        CYCX_L "sheet = _LOADIMAGE(`" + sheetPng + "`, 32)"
+        CYCX_L "IF sheet >= -1 THEN ' not in the current folder: beside the program"
+        CYCX_L "    px = COMMAND$(0): rx = _INSTRREV(px, `/`): ry = _INSTRREV(px, CHR$(92)): IF ry > rx THEN rx = ry"
+        CYCX_L "    IF rx > 0 THEN sheet = _LOADIMAGE(LEFT$(px, rx) + `" + sheetPng + "`, 32)"
+        CYCX_L "END IF"
+        CYCX_L "IF sheet >= -1 THEN _SCREENSHOW: PRINT `Cannot load " + sheetPng + " - keep it beside this program`: END"
+        CYCX_L "RESTORE frame_rects"
+    END IF
+    CYCX_L "FOR i = 1 TO nFr"
+    CYCX_L "    art(i) = _NEWIMAGE(fw, fh, 32)"
+    IF sheetPng <> "" THEN
+        CYCX_L "    READ rx, ry"
+        CYCX_L "    _DONTBLEND art(i): _PUTIMAGE (0, 0), sheet, art(i), (rx, ry)-(rx + fw - 1, ry + fh - 1): _BLEND art(i)"
+    ELSE
+        CYCX_L "    px = MID$(blob, p, fw * fh * 4): p = p + fw * fh * 4"
+        CYCX_L "    m = _MEMIMAGE(art(i)): _MEMPUT m, m.OFFSET, px: _MEMFREE m"
+    END IF
+    CYCX_L "    IF nRng > 0 THEN"
+    CYCX_L "        ovl(i) = _NEWIMAGE(fw, fh, 256)"
+    CYCX_L "        px = MID$(blob, p, fw * fh): p = p + fw * fh"
+    CYCX_L "        m = _MEMIMAGE(ovl(i)): _MEMPUT m, m.OFFSET, px: _MEMFREE m"
+    CYCX_L "        _CLEARCOLOR 0, ovl(i)"
+    CYCX_L "    END IF"
+    CYCX_L "NEXT"
+    IF sheetPng <> "" THEN CYCX_L "_FREEIMAGE sheet"
+    CYCX_L "frame = _NEWIMAGE(fw, fh, 32)"
+    CYCX_L ""
+    IF sndFile <> "" THEN
+        CYCX_L "' --- the soundtrack: frame f starts at the earlier frames' time (holds / fps) ---"
+        CYCX_L "DIM SHARED snd AS LONG, sndLen AS DOUBLE, sndStop AS DOUBLE, sndF AS INTEGER"
+        CYCX_L "CONST SND_OFS = " + _TRIM$(STR$(ANIM_BAS_SND_OFS)) + " ' s into the sound where frame 1 starts"
+        CYCX_L "DIM sp AS STRING, sx AS LONG"
+        CYCX_L "snd = _SNDOPEN(`" + sndFile + "`)"
+        CYCX_L "IF snd < 1 THEN ' not in the current folder: beside the program"
+        CYCX_L "    sp = COMMAND$(0): sx = _INSTRREV(sp, `/`): IF _INSTRREV(sp, CHR$(92)) > sx THEN sx = _INSTRREV(sp, CHR$(92))"
+        CYCX_L "    IF sx > 0 THEN snd = _SNDOPEN(LEFT$(sp, sx) + `" + sndFile + "`)"
+        CYCX_L "END IF"
+        CYCX_L "IF snd > 0 THEN sndLen = _SNDLEN(snd)"
+        CYCX_L ""
+    END IF
+    CYCX_L "' --- --frames DIR: one loop to PNGs, then exit ---"
+    CYCX_L "DIM k AS INTEGER, ticks AS LONG, ff AS INTEGER, outDir AS STRING"
+    CYCX_L "IF LCASE$(COMMAND$(1)) = `--frames` THEN"
+    CYCX_L "    outDir = COMMAND$(2): IF outDir = `` THEN outDir = `.`"
+    CYCX_L "    ff = FREEFILE: OPEN outDir + `/frames.txt` FOR OUTPUT AS #ff"
+    CYCX_L "    FOR k = 1 TO nOrd"
+    CYCX_L "        j = shifts_at(ticks / fps)"
+    CYCX_L "        compose ord(k)"
+    CYCX_L "        _SAVEIMAGE outDir + `/frame_` + RIGHT$(`000` + LTRIM$(STR$(k)), 4) + `.png`, frame"
+    CYCX_L "        PRINT #ff, LTRIM$(STR$(k)); ` `; LTRIM$(STR$(ord(k))); ` `; LTRIM$(STR$(INT(1000 * hold(ord(k)) / fps + 0.5)))"
+    CYCX_L "        ticks = ticks + hold(ord(k))"
+    CYCX_L "    NEXT"
+    CYCX_L "    CLOSE #ff"
+    IF sndFile <> "" THEN
+        CYCX_L "    OPEN outDir + `/sound.txt` FOR OUTPUT AS #ff ' the soundtrack, then per step: step, frame, its time (ms)"
+        CYCX_L "    PRINT #ff, `" + sndFile + "`; ` `; LTRIM$(STR$(snd > 0)); ` `; LTRIM$(STR$(INT(sndLen * 1000 + 0.5)))"
+        CYCX_L "    FOR k = 1 TO nOrd: PRINT #ff, LTRIM$(STR$(k)); ` `; LTRIM$(STR$(ord(k))); ` `; LTRIM$(STR$(INT(snd_time(ord(k)) * 1000 + 0.5))): NEXT"
+        CYCX_L "    CLOSE #ff"
+    END IF
+    CYCX_L "    SYSTEM"
+    CYCX_L "END IF"
+    CYCX_L ""
+    CYCX_L "' --- window: the largest whole-number zoom that fits the desktop ---"
+    CYCX_L "DIM zoom AS INTEGER: zoom = 1"
+    CYCX_L "DO WHILE fw * (zoom + 1) <= _DESKTOPWIDTH * 0.9 AND fh * (zoom + 1) <= _DESKTOPHEIGHT * 0.85"
+    CYCX_L "    zoom = zoom + 1"
+    CYCX_L "LOOP"
+    CYCX_L "SCREEN _NEWIMAGE(fw * zoom, fh * zoom, 32)"
+    CYCX_L "_SCREENSHOW"
+    CYCX_L "_TITLE `" + nm + " (SPACE pause, LEFT/RIGHT step, +/- speed, ESC quit)`"
+    CYCX_L ""
+    CYCX_L "' --- main loop: each frame up for its hold, the cycles on their own clock ---"
+    CYCX_L "DIM lastT AS DOUBLE, nowT AS DOUBLE, dt AS DOUBLE, speed AS SINGLE, acc AS DOUBLE, tCyc AS DOUBLE"
+    CYCX_L "DIM paused AS INTEGER, ended AS INTEGER, changed AS INTEGER, kh AS LONG"
+    CYCX_L "speed = 1: k = 1: lastT = TIMER(.001): changed = -1"
+    CYCX_L "DO"
+    CYCX_L "    nowT = TIMER(.001): dt = nowT - lastT: lastT = nowT"
+    CYCX_L "    IF dt < 0 OR dt > 1 THEN dt = 0 ' midnight wrap / stall"
+    CYCX_L "    IF paused = 0 THEN"
+    CYCX_L "        tCyc = tCyc + dt * speed"
+    CYCX_L "        IF ended = 0 THEN acc = acc + dt * speed * fps"
+    CYCX_L "        DO WHILE ended = 0 AND acc >= hold(ord(k))"
+    CYCX_L "            acc = acc - hold(ord(k)): changed = -1"
+    CYCX_L "            IF k < nOrd THEN"
+    CYCX_L "                k = k + 1"
+    CYCX_L "            ELSEIF loopMode = 3 THEN"
+    CYCX_L "                ended = -1: acc = 0 ' play once: stay on the last frame"
+    CYCX_L "            ELSE"
+    CYCX_L "                k = 1"
+    CYCX_L "            END IF"
+    CYCX_L "        LOOP"
+    CYCX_L "    END IF"
+    CYCX_L "    IF shifts_at(tCyc) THEN changed = -1"
+    IF sndFile <> "" THEN CYCX_L "    snd_follow ord(k), paused = 0 AND ended = 0 AND ABS(speed - 1) < .01, paused <> 0 ' only at 1x"
+    CYCX_L "    IF changed THEN"
+    CYCX_L "        compose ord(k)"
+    CYCX_L "        CLS , _RGB32(0, 0, 0)"
+    CYCX_L "        _PUTIMAGE , frame, 0"
+    CYCX_L "        _DISPLAY"
+    CYCX_L "        changed = 0"
+    CYCX_L "    END IF"
+    CYCX_L "    kh = _KEYHIT"
+    CYCX_L "    SELECT CASE kh"
+    CYCX_L "        CASE 27: SYSTEM"
+    CYCX_L "        CASE 32: paused = NOT paused"
+    CYCX_L "        CASE 19200: k = k - 1: IF k < 1 THEN k = nOrd ' LEFT"
+    CYCX_L "        CASE 19712: k = k + 1: IF k > nOrd THEN k = 1 ' RIGHT"
+    CYCX_L "        CASE 43, 61: IF speed < 8 THEN speed = speed * 1.25"
+    CYCX_L "        CASE 45, 95: IF speed > 0.1 THEN speed = speed / 1.25"
+    CYCX_L "        CASE 82, 114: k = 1: acc = 0: tCyc = 0: ended = 0"
+    CYCX_L "    END SELECT"
+    CYCX_L "    IF kh = 19200 OR kh = 19712 OR kh = 82 OR kh = 114 THEN acc = 0: ended = 0: changed = -1"
+    IF sndFile <> "" THEN CYCX_L "    IF kh = 32 OR kh = 43 OR kh = 61 OR kh = 45 OR kh = 95 OR kh = 82 OR kh = 114 THEN sndF = 0 ' pause / speed / restart: the sound follows again"
+    CYCX_L "    _LIMIT 120"
+    CYCX_L "LOOP"
+    CYCX_L ""
+    IF sheetPng <> "" THEN
+        CYCX_L "' --- where each frame is in " + sheetPng + " (x, y) ---"
+        CYCX_L "frame_rects:"
+        FOR c = 1 TO ANIM.count
+            IF ANIM_cell_rect%(c, x, y, w, h) THEN CYCX_L "DATA " + _TRIM$(STR$(x)) + "," + _TRIM$(STR$(y))
+        NEXT c
+    END IF
+    CYCX_L "' --- frames, timing, palette, cycle ranges: deflate + base64 ---"
+    CYCX_L "anim_data:"
+    FOR i = 1 TO LEN(b64) STEP 100
+        CYCX_L "DATA `" + MID$(b64, i, 100) + "`"
+    NEXT i
+    CYCX_L "DATA *"
+    CYCX_L ""
+    CYCX_L "' The cycle ranges' shifts at t s; TRUE when one changed (palette entries set)."
+    CYCX_L "FUNCTION shifts_at% (t AS DOUBLE)"
+    CYCX_L "    DIM i AS INTEGER, n AS INTEGER, s AS INTEGER, k AS LONG"
+    CYCX_L "    FOR i = 1 TO nRng"
+    CYCX_L "        n = rHi(i) - rLo(i) + 1"
+    CYCX_L "        IF rOn(i) <> 0 THEN k = INT(rPhase0(i) + t * rSps(i)) ELSE k = INT(rPhase0(i))"
+    CYCX_L "        SELECT CASE rMode(i)"
+    CYCX_L "            CASE 1 ' reverse"
+    CYCX_L "                s = (n - (k MOD n)) MOD n"
+    CYCX_L "            CASE 2 ' ping-pong: 0, 1 .. n-1 .. 1, 0"
+    CYCX_L "                IF n > 1 THEN s = k MOD (2 * (n - 1)) ELSE s = 0"
+    CYCX_L "                IF s > n - 1 THEN s = 2 * (n - 1) - s"
+    CYCX_L "            CASE ELSE ' forward"
+    CYCX_L "                s = k MOD n"
+    CYCX_L "        END SELECT"
+    CYCX_L "        IF s <> rShift(i) OR t = 0 THEN rShift(i) = s: shifts_at% = -1"
+    CYCX_L "    NEXT"
+    CYCX_L "END FUNCTION"
+    CYCX_L ""
+    CYCX_L "' Frame f into the image `frame`: its pixels, then its cycling pixels."
+    CYCX_L "SUB compose (f AS INTEGER)"
+    CYCX_L "    DIM i AS INTEGER, j AS INTEGER, n AS INTEGER, d AS LONG"
+    CYCX_L "    d = _DEST: _DEST frame"
+    CYCX_L "    _DONTBLEND frame: CLS , _RGBA32(0, 0, 0, 0): _PUTIMAGE , art(f), frame: _BLEND frame"
+    CYCX_L "    _DEST d"
+    CYCX_L "    IF nRng = 0 THEN EXIT SUB"
+    CYCX_L "    FOR i = 1 TO nRng"
+    CYCX_L "        n = rHi(i) - rLo(i) + 1"
+    CYCX_L "        FOR j = 0 TO n - 1 ' overlay colour j shows palette colour (j - shift) of the range"
+    CYCX_L "            _PALETTECOLOR rOvl(i) + j, pal(rLo(i) + ((j - rShift(i)) MOD n + n) MOD n), ovl(f)"
+    CYCX_L "        NEXT"
+    CYCX_L "    NEXT"
+    CYCX_L "    _PUTIMAGE , ovl(f), frame"
+    CYCX_L "END SUB"
+    IF sndFile = "" THEN EXIT SUB
+    CYCX_L ""
+    CYCX_L "' Seconds into the soundtrack where frame f starts."
+    CYCX_L "FUNCTION snd_time# (f AS INTEGER)"
+    CYCX_L "    DIM i AS INTEGER, t AS DOUBLE"
+    CYCX_L "    FOR i = 1 TO f - 1: t = t + hold(i) / fps: NEXT"
+    CYCX_L "    snd_time# = t + SND_OFS"
+    CYCX_L "END FUNCTION"
+    CYCX_L ""
+    CYCX_L "' Play the soundtrack from t s, until stopAt (TIMER; 0 = to the end)."
+    CYCX_L "SUB snd_at (t AS DOUBLE, stopAt AS DOUBLE)"
+    CYCX_L "    IF snd < 1 THEN EXIT SUB"
+    CYCX_L "    _SNDSTOP snd: sndStop = 0"
+    CYCX_L "    IF t < 0 OR t >= sndLen THEN EXIT SUB"
+    CYCX_L "    _SNDSETPOS snd, t: _SNDPLAY snd: sndStop = stopAt"
+    CYCX_L "END SUB"
+    CYCX_L ""
+    CYCX_L "' Keep the soundtrack with frame f: playing, the next frame carries on"
+    CYCX_L "' unless it has drifted, any other frame starts it at that frame's time;"
+    CYCX_L "' paused, a new frame plays just its own slice; else it is quiet."
+    CYCX_L "SUB snd_follow (f AS INTEGER, playing AS INTEGER, scrub AS INTEGER)"
+    CYCX_L "    IF snd < 1 THEN EXIT SUB"
+    CYCX_L "    IF sndStop > 0 AND TIMER(.001) >= sndStop THEN _SNDSTOP snd: sndStop = 0"
+    CYCX_L "    IF f = sndF THEN"
+    CYCX_L "        IF playing = 0 AND sndStop = 0 AND _SNDPLAYING(snd) THEN _SNDSTOP snd"
+    CYCX_L "        EXIT SUB"
+    CYCX_L "    END IF"
+    CYCX_L "    IF playing THEN"
+    CYCX_L "        IF f = sndF + 1 AND sndF > 0 AND _SNDPLAYING(snd) AND sndStop = 0 THEN"
+    CYCX_L "            IF ABS(_SNDGETPOS(snd) - snd_time(f)) > 0.1 + 1 / fps THEN snd_at snd_time(f), 0"
+    CYCX_L "        ELSE"
+    CYCX_L "            snd_at snd_time(f), 0"
+    CYCX_L "        END IF"
+    CYCX_L "    ELSEIF scrub AND sndF > 0 THEN"
+    CYCX_L "        snd_at snd_time(f), TIMER(.001) + _MAX(hold(f) / fps, 0.06)"
+    CYCX_L "    ELSE"
+    CYCX_L "        _SNDSTOP snd: sndStop = 0"
+    CYCX_L "    END IF"
+    CYCX_L "    sndF = f"
+    CYCX_L "END SUB"
+END SUB
+
+''
+' L.1: the soundtrack for a BAS player at basPath, beside it as
+' NAME-sound.EXT (NAME = the .bas name; never a file of the user's own
+' name): one clip that plays to its file's end is that file, copied (MIDI /
+' trackers too); clips (F6) are the mix DRAW plays, written as a WAV. Its
+' file name, or "" when there is none / it isn't found / it can't be written
+' (the player then has no sound); ANIM_BAS_SND_NOTE says which.
+FUNCTION ANIM_BAS_sound$ (basPath AS STRING)
+    DIM src AS STRING, dst AS STRING, ext AS STRING, d AS LONG, sl AS LONG
+    ANIM_BAS_SND_NOTE = "": ANIM_BAS_SND_OFS = 0
+    CLIP_cues_gen_sync ' the clip layers' sounds
+    IF ANIM_SC_all% = 0 THEN EXIT FUNCTION
+    IF ANIM_SC_N <> 1 _ORELSE ANIM_SC_GN > 0 _ORELSE ANIM_SC_LEN(1) <> 0 THEN ' clips: the mix
+        ANIM_SND_sync
+        IF ANIM_SND_H < 1 _ORELSE ANIM_SND_MIXED = 0 THEN ANIM_BAS_SND_NOTE = ", soundtrack could not be mixed - left out": EXIT FUNCTION
+        dst = ANIM_path_base$(basPath) + "-sound.wav"
+        IF ANIM_SND_write_wav%(ANIM_SND_H, dst) = 0 THEN ANIM_BAS_SND_NOTE = ", soundtrack could not be written - left out": EXIT FUNCTION
+        ANIM_BAS_sound$ = ANIM_bas_file_name$(dst)
+        ANIM_BAS_SND_NOTE = ", soundtrack " + ANIM_bas_file_name$(dst) + " (the mix)"
+        IF ANIM_SND_SKIPPED > 0 THEN ANIM_BAS_SND_NOTE = ANIM_BAS_SND_NOTE + " without" + STR$(ANIM_SND_SKIPPED) + " clip(s) it can't mix"
+        EXIT FUNCTION
+    END IF
+    src = ANIM_SND_resolve$(ANIM_SC_PATH(1))
+    IF src = "" THEN ANIM_BAS_SND_NOTE = ", soundtrack not found - left out": EXIT FUNCTION
+    ANIM_BAS_SND_OFS = (ANIM_SC_IN(1) - ANIM_SC_AT(1)) / 1000#
+    d = _INSTRREV(src, "."): sl = _MAX(_INSTRREV(src, "/"), _INSTRREV(src, "\"))
+    IF d > sl + 1 THEN ext = LCASE$(MID$(src, d))
+    dst = ANIM_path_base$(basPath) + "-sound" + ext
+    IF _FILEEXISTS(dst) THEN
+        IF _FULLPATH$(dst) <> _FULLPATH$(src) THEN KILL dst ' PATHS_copy_file writes over, it does not truncate
+    END IF
+    IF _FILEEXISTS(dst) = 0 THEN PATHS_copy_file src, dst
+    IF _FILEEXISTS(dst) = 0 THEN ANIM_BAS_SND_NOTE = ", soundtrack could not be copied - left out": EXIT FUNCTION
+    ANIM_BAS_sound$ = ANIM_bas_file_name$(dst)
+    ANIM_BAS_SND_NOTE = ", soundtrack " + ANIM_bas_file_name$(dst)
+END FUNCTION
+
+''
+' Write the self-contained animation player (.bas, every frame in DATA) at
+' path. TRUE on success, else CYCX_LAST_ERROR$.
+FUNCTION ANIM_BAS_export% (path AS STRING)
+    DIM blob AS STRING, nm AS STRING, nCyc AS LONG
+    ANIM_BAS_export% = FALSE
+    CYCX_LAST_ERROR$ = "": ANIM_EXPORT_INFO = ""
+    IF ANIM_has_frames% = FALSE THEN CYCX_LAST_ERROR$ = "the document has no frames": EXIT FUNCTION
+    blob = ANIM_BAS_blob$(TRUE, nCyc)
+    IF blob = "" THEN EXIT FUNCTION
+    nm = ANIM_bas_file_name$(path)
+    CYCX_BAS_LINES$ = ""
+    ANIM_BAS_player nm, _BASE64ENCODE$(_DEFLATE$(blob, 9)), "", ANIM_BAS_sound$(path)
+    IF ANIM_write_text%(path, CYCX_BAS_LINES$) = 0 THEN CYCX_BAS_LINES$ = "": CYCX_LAST_ERROR$ = "could not write " + path: EXIT FUNCTION
+    CYCX_BAS_LINES$ = ""
+    ANIM_EXPORT_INFO = _TRIM$(STR$(ANIM.count)) + " frames in DATA" + _IIF(PCYC.COUNT% > 0, ", " + _TRIM$(STR$(PCYC.COUNT%)) + " cycle range(s)", "") + ANIM_BAS_SND_NOTE
+    _LOGINFO "ANIM_BAS_export: " + path + " - " + ANIM_EXPORT_INFO + " (" + _TRIM$(STR$(nCyc)) + " cycling pixels)"
+    ANIM_BAS_export% = TRUE
+END FUNCTION
+
+''
+' The file name of path for a generated comment / title: no folder, quotes
+' and backticks made apostrophes.
+FUNCTION ANIM_bas_file_name$ (path AS STRING)
+    DIM nm AS STRING
+    nm = MID$(path, _MAX(_INSTRREV(path, "/"), _INSTRREV(path, "\")) + 1)
+    DO WHILE INSTR(nm, CHR$(34)): MID$(nm, INSTR(nm, CHR$(34)), 1) = "'": LOOP
+    DO WHILE INSTR(nm, "`"): MID$(nm, INSTR(nm, "`"), 1) = "'": LOOP
+    ANIM_bas_file_name$ = nm
+END FUNCTION
+
+''
+' 3.5: the player as a .bas + the sprite sheet PNG it cuts the frames out of
+' (name.png beside name.bas, or name-sheet.png when name.png is the open
+' document). The PNG is the flattened sheet at 1x; the frame rects and the
+' timing / cycling stay in the .bas.
+FUNCTION ANIM_BAS_sheet_export% (path AS STRING)
+    DIM blob AS STRING, nm AS STRING, nCyc AS LONG, png AS STRING, pngName AS STRING, flat AS LONG
+    ANIM_BAS_sheet_export% = FALSE
+    CYCX_LAST_ERROR$ = "": ANIM_EXPORT_INFO = ""
+    IF ANIM_has_frames% = FALSE THEN CYCX_LAST_ERROR$ = "the document has no frames": EXIT FUNCTION
+    png = ANIM_path_base$(path) + ".png"
+    IF ANIM_is_document%(png) THEN png = ANIM_path_base$(path) + "-sheet.png"
+    IF ANIM_is_document%(png) THEN CYCX_LAST_ERROR$ = "the sheet PNG would be the open document - pick another name": EXIT FUNCTION
+    pngName = ANIM_bas_file_name$(png)
+    blob = ANIM_BAS_blob$(FALSE, nCyc)
+    IF blob = "" THEN EXIT FUNCTION
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN CYCX_LAST_ERROR$ = "could not flatten the document": EXIT FUNCTION
+    IF ANIM_save_png%(flat, png) = 0 THEN SAFE_FREEIMAGE flat: CYCX_LAST_ERROR$ = "could not write " + png: EXIT FUNCTION
+    SAFE_FREEIMAGE flat
+    nm = ANIM_bas_file_name$(path)
+    CYCX_BAS_LINES$ = ""
+    ANIM_BAS_player nm, _BASE64ENCODE$(_DEFLATE$(blob, 9)), pngName, ANIM_BAS_sound$(path)
+    IF ANIM_write_text%(path, CYCX_BAS_LINES$) = 0 THEN CYCX_BAS_LINES$ = "": CYCX_LAST_ERROR$ = "could not write " + path: EXIT FUNCTION
+    CYCX_BAS_LINES$ = ""
+    ANIM_EXPORT_INFO = nm + " + " + pngName + ", " + _TRIM$(STR$(ANIM.count)) + " frames" + _IIF(PCYC.COUNT% > 0, ", " + _TRIM$(STR$(PCYC.COUNT%)) + " cycle range(s)", "") + ANIM_BAS_SND_NOTE
+    _LOGINFO "ANIM_BAS_sheet_export: " + path + " - " + ANIM_EXPORT_INFO
+    ANIM_BAS_sheet_export% = TRUE
+END FUNCTION

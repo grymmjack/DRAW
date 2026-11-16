@@ -33,7 +33,7 @@ By Rick Christy ([grymmjack](https://github.com/grymmjack)) · [github.com/grymm
 2. **[Ch. 02  🖌️ Core Drawing Fundamentals](MANUAL/02-drawing-fundamentals.md)**  
     Brush, dot, lines, shapes, polygons, fills, spray and eraser.
 3. **[Ch. 03  🎨 Color & Palette Mastery](MANUAL/03-color-palette.md)**  
-    FG/BG, color picker, mixer, 56 built-in palettes, palette ops, color cycling.
+    FG/BG, color picker, mixer, 56 built-in palettes, the Swatches panel, palette ops, color cycling.
 4. **[Ch. 04  📚 Layer System Deep Dive](MANUAL/04-layers.md)**  
     64 layers, opacity, 19 blend modes, groups, symbols.
 5. **[Ch. 05  ✂️ Selection & Clipboard](MANUAL/05-selection-clipboard.md)**  

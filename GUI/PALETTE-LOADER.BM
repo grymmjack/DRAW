@@ -1089,82 +1089,8 @@ SUB PALETTE_LOADER_remap_to_palette_ex (ditherMode AS INTEGER, ditherStrength AS
             IF LAYERS(li2%).historyId& > 0 THEN
                 remapBefore& = _COPYIMAGE(LAYERS(li2%).imgHandle&, 32)
             END IF
-            remapLayerChanged% = FALSE ' BUG-31: only record if this layer actually changed
-
-            DIM lMem      AS _MEM
-            lMem = _MEMIMAGE(LAYERS(li2%).imgHandle)
-            DIM lpx       AS LONG, lpy AS LONG
-            DIM lpixOfs   AS _OFFSET
-            DIM lpixColor AS _UNSIGNED LONG
-            DIM bestIdx   AS INTEGER, bestDist AS LONG, dist2 AS LONG
-            DIM dr2       AS LONG, dg2 AS LONG, db2 AS LONG
-            DIM pr2       AS INTEGER, pg2 AS INTEGER, pb2 AS INTEGER
-            DIM ci6       AS INTEGER
-            DIM secondIdx AS INTEGER, secondDist AS LONG
-
-            FOR lpy& = 0 TO cH2& - 1
-                FOR lpx& = 0 TO cW2& - 1
-                    lpixOfs = lMem.OFFSET + (lpy& * cW2& + lpx&) * 4
-                    _MEMGET lMem, lpixOfs, lpixColor~&
-                    ' Skip fully transparent
-                    IF _ALPHA32(lpixColor~&) = 0 THEN _CONTINUE
-
-                    DIM srcR AS INTEGER, srcG AS INTEGER, srcB AS INTEGER
-                    srcR% = _RED32(lpixColor~&)
-                    srcG% = _GREEN32(lpixColor~&)
-                    srcB% = _BLUE32(lpixColor~&)
-
-                    bestIdx%    = 0
-                    bestDist&   = 2147483647
-                    secondIdx%  = 0
-                    secondDist& = 2147483647
-                    FOR ci6% = 0 TO PAL_COLOR_COUNT% - 1
-                        pr2%   = _RED32(PAL(ci6%).value~&)
-                        pg2%   = _GREEN32(PAL(ci6%).value~&)
-                        pb2%   = _BLUE32(PAL(ci6%).value~&)
-                        dr2&   = srcR% - pr2%
-                        dg2&   = srcG% - pg2%
-                        db2&   = srcB% - pb2%
-                        dist2& = dr2& * dr2& + dg2& * dg2& + db2& * db2&
-                        IF dist2& < bestDist& THEN
-                            secondDist& = bestDist&
-                            secondIdx%  = bestIdx%
-                            bestDist&   = dist2&
-                            bestIdx%    = ci6%
-                        ELSEIF dist2& < secondDist& THEN
-                            secondDist& = dist2&
-                            secondIdx%  = ci6%
-                        END IF
-                    NEXT ci6%
-
-                    DIM mappedColor AS _UNSIGNED LONG
-                    DIM useIdx      AS INTEGER
-                    useIdx% = bestIdx%
-
-                    IF ditherMode% <> DITHER_NONE AND bestDist& > 0 AND secondDist& < 2147483647 THEN
-                        ' Compute interpolation factor between best and second-best
-                        DIM totalDist AS SINGLE
-                        totalDist! = SQR(bestDist&) + SQR(secondDist&)
-                        IF totalDist! > 0 THEN
-                            DIM segT   AS SINGLE
-                            segT! = SQR(bestDist&) / totalDist!
-                            DIM thr    AS SINGLE
-                            thr! = DITHER_get_threshold!(ditherMode%, lpx&, lpy&)
-                            ' Scale threshold toward 0.5 as strength decreases
-                            DIM adjThr AS SINGLE
-                            adjThr! = 0.5 + (thr! - 0.5) * ditherStrength!
-                            IF segT! >= adjThr! THEN
-                                useIdx% = secondIdx%
-                            END IF
-                        END IF
-                    END IF
-
-                    mappedColor~& = _RGBA32(_RED32(PAL(useIdx%).value~&), _GREEN32(PAL(useIdx%).value~&), _BLUE32(PAL(useIdx%).value~&), _ALPHA32(lpixColor~&))
-                    IF mappedColor~& <> lpixColor~& THEN remapLayerChanged% = TRUE
-                    _MEMPUT lMem, lpixOfs, mappedColor~&
-                NEXT lpx&
-            NEXT lpy&
-            _MEMFREE lMem
+            ' BUG-31: only record if this layer actually changed (TRUE from the remap)
+            remapLayerChanged% = PALETTE_LOADER_remap_image%(LAYERS(li2%).imgHandle&, ditherMode%, ditherStrength!)
 
             ' BUG-31: only record an undo (and mark dirty) when the remap ACTUALLY changed
             ' this layer's pixels. Activating palette ops auto-remaps to the current palette;
@@ -1194,6 +1120,99 @@ SUB PALETTE_LOADER_remap_to_palette_ex (ditherMode AS INTEGER, ditherStrength AS
 END SUB
 
 ''
+' Remap an image in place to the current palette: every pixel not fully
+' transparent becomes its nearest palette color (alpha kept). With a dither:
+'  - per-pixel (ordered / noise): between the nearest two colors by the
+'    pattern's threshold, pulled toward 0.5 as the strength drops
+'  - error diffusion (Floyd-Steinberg ... Shiau-Fan, GJ_IMGADJ_DITHER_ 4..15):
+'    each pixel's miss (per channel) carried on to the pixels after it by the
+'    algorithm's kernel (GJ_IMGADJ_EDKernel), times the strength
+' Used by Remap to Palette and its preview, so both look the same.
+' @param img LONG image handle (changed in place)
+' @param ditherMode INTEGER GJ_IMGADJ_DITHER_* or DITHER_NONE
+' @param ditherStrength SINGLE 0..1
+' @return INTEGER TRUE if any pixel changed
+'
+FUNCTION PALETTE_LOADER_remap_image% (img AS LONG, ditherMode AS INTEGER, ditherStrength AS SINGLE)
+    IF img >= -1 _ORELSE PAL_COLOR_COUNT% = 0 THEN EXIT FUNCTION
+    DIM AS LONG w, h, x, y
+    DIM AS INTEGER i, n, best, second, useIdx, isED, nt, t, r, changed
+    DIM AS LONG d, bestD, secondD, dr, dg, db
+    DIM AS SINGLE sr, sg, sb, segT, totalD, thr, er, eg, eb
+    DIM AS _UNSIGNED LONG px, outC
+    DIM m AS _MEM, o AS _OFFSET
+    w = _WIDTH(img): h = _HEIGHT(img)
+    n = PAL_COLOR_COUNT%
+    DIM pr(0 TO n - 1) AS INTEGER, pg(0 TO n - 1) AS INTEGER, pb(0 TO n - 1) AS INTEGER
+    FOR i = 0 TO n - 1
+        pr(i) = _RED32(PAL(i).value~&): pg(i) = _GREEN32(PAL(i).value~&): pb(i) = _BLUE32(PAL(i).value~&)
+    NEXT i
+    DIM tdx(0 TO 11) AS INTEGER, tdy(0 TO 11) AS INTEGER, tw(0 TO 11) AS SINGLE
+    isED = (ditherMode >= GJ_IMGADJ_DITHER_FLOYD_STEINBERG _ANDALSO ditherMode <= GJ_IMGADJ_DITHER_SHIAU_FAN)
+    IF isED THEN
+        GJ_IMGADJ_EDKernel ditherMode - GJ_IMGADJ_DITHER_FLOYD_STEINBERG, tdx(), tdy(), tw(), nt
+        REDIM e(0 TO 2, 0 TO 3, 0 TO w + 5) AS SINGLE ' per channel, a ring of 4 rows, 3 px padding
+    END IF
+
+    m = _MEMIMAGE(img)
+    FOR y = 0 TO h - 1
+        r = y AND 3
+        FOR x = 0 TO w - 1
+            o = m.OFFSET + (y * w + x) * 4
+            _MEMGET m, o, px
+            IF _ALPHA32(px) = 0 THEN _CONTINUE
+            sr = _RED32(px): sg = _GREEN32(px): sb = _BLUE32(px)
+            IF isED THEN
+                sr = sr + e(0, r, x + 3): sg = sg + e(1, r, x + 3): sb = sb + e(2, r, x + 3)
+                IF sr < 0 THEN sr = 0
+                IF sr > 255 THEN sr = 255
+                IF sg < 0 THEN sg = 0
+                IF sg > 255 THEN sg = 255
+                IF sb < 0 THEN sb = 0
+                IF sb > 255 THEN sb = 255
+            END IF
+            best = 0: bestD = 2147483647: second = 0: secondD = 2147483647
+            FOR i = 0 TO n - 1
+                dr = sr - pr(i): dg = sg - pg(i): db = sb - pb(i)
+                d = dr * dr + dg * dg + db * db
+                IF d < bestD THEN
+                    secondD = bestD: second = best: bestD = d: best = i
+                ELSEIF d < secondD THEN
+                    secondD = d: second = i
+                END IF
+            NEXT i
+            useIdx = best
+            IF isED THEN
+                er = (sr - pr(best)) * ditherStrength: eg = (sg - pg(best)) * ditherStrength: eb = (sb - pb(best)) * ditherStrength
+                IF er <> 0 _ORELSE eg <> 0 _ORELSE eb <> 0 THEN
+                    FOR t = 0 TO nt - 1
+                        e(0, (y + tdy(t)) AND 3, x + 3 + tdx(t)) = e(0, (y + tdy(t)) AND 3, x + 3 + tdx(t)) + er * tw(t)
+                        e(1, (y + tdy(t)) AND 3, x + 3 + tdx(t)) = e(1, (y + tdy(t)) AND 3, x + 3 + tdx(t)) + eg * tw(t)
+                        e(2, (y + tdy(t)) AND 3, x + 3 + tdx(t)) = e(2, (y + tdy(t)) AND 3, x + 3 + tdx(t)) + eb * tw(t)
+                    NEXT t
+                END IF
+            ELSEIF ditherMode <> DITHER_NONE _ANDALSO bestD > 0 _ANDALSO secondD < 2147483647 THEN
+                totalD = SQR(bestD) + SQR(secondD)
+                IF totalD > 0 THEN
+                    segT = SQR(bestD) / totalD
+                    thr = DITHER_get_threshold!(ditherMode, x, y)
+                    IF segT >= 0.5 + (thr - 0.5) * ditherStrength THEN useIdx = second ' strength 0: never
+                END IF
+            END IF
+            outC = _RGBA32(pr(useIdx), pg(useIdx), pb(useIdx), _ALPHA32(px))
+            IF outC <> px THEN changed = TRUE: _MEMPUT m, o, outC
+        NEXT x
+        IF isED THEN
+            FOR x = 0 TO w + 5
+                e(0, r, x) = 0: e(1, r, x) = 0: e(2, r, x) = 0
+            NEXT x
+        END IF
+    NEXT y
+    _MEMFREE m
+    PALETTE_LOADER_remap_image% = changed
+END FUNCTION
+
+''
 ' Create a remapped copy of an image for preview purposes.
 ' Each pixel is mapped to the nearest palette color with optional dithering.
 ' Caller must free the returned image handle when done.
@@ -1207,80 +1226,9 @@ FUNCTION PALETTE_LOADER_remap_preview& (srcImg AS LONG, ditherMode AS INTEGER, d
     IF srcImg& >= -1 THEN PALETTE_LOADER_remap_preview& = 0        : EXIT FUNCTION
     IF PAL_COLOR_COUNT% = 0 THEN PALETTE_LOADER_remap_preview& = 0 : EXIT FUNCTION
 
-    DIM rpW      AS INTEGER, rpH AS INTEGER
-    rpW% = _WIDTH(srcImg&)
-    rpH% = _HEIGHT(srcImg&)
-    DIM rpResult AS LONG
+    DIM rpResult AS LONG, rpChanged AS INTEGER
     rpResult& = _COPYIMAGE(srcImg&, 32)
-
-    DIM rpMem     AS _MEM
-    rpMem = _MEMIMAGE(rpResult&)
-    DIM rpX       AS INTEGER, rpY AS INTEGER
-    DIM rpOfs     AS _OFFSET
-    DIM rpPx      AS _UNSIGNED LONG
-    DIM rpBestIdx AS INTEGER, rpBestDist AS LONG
-    DIM rpSecIdx  AS INTEGER, rpSecDist AS LONG
-    DIM rpDist    AS LONG
-    DIM rpDr      AS LONG, rpDg AS LONG, rpDb AS LONG
-    DIM rpSr      AS INTEGER, rpSg AS INTEGER, rpSb AS INTEGER
-    DIM rpPr      AS INTEGER, rpPg AS INTEGER, rpPb AS INTEGER
-    DIM rpCi      AS INTEGER
-
-    FOR rpY% = 0 TO rpH% - 1
-        FOR rpX% = 0 TO rpW% - 1
-            rpOfs = rpMem.OFFSET + (rpY% * rpW% + rpX%) * 4
-            _MEMGET rpMem, rpOfs, rpPx~&
-            IF _ALPHA32(rpPx~&) = 0 THEN _CONTINUE
-
-            rpSr% = _RED32(rpPx~&)
-            rpSg% = _GREEN32(rpPx~&)
-            rpSb% = _BLUE32(rpPx~&)
-
-            rpBestIdx% = 0 : rpBestDist& = 2147483647
-            rpSecIdx%  = 0 : rpSecDist& = 2147483647
-            FOR rpCi% = 0 TO PAL_COLOR_COUNT% - 1
-                rpPr%   = _RED32(PAL(rpCi%).value~&)
-                rpPg%   = _GREEN32(PAL(rpCi%).value~&)
-                rpPb%   = _BLUE32(PAL(rpCi%).value~&)
-                rpDr&   = rpSr% - rpPr%
-                rpDg&   = rpSg% - rpPg%
-                rpDb&   = rpSb% - rpPb%
-                rpDist& = rpDr& * rpDr& + rpDg& * rpDg& + rpDb& * rpDb&
-                IF rpDist& < rpBestDist& THEN
-                    rpSecDist&  = rpBestDist&
-                    rpSecIdx%   = rpBestIdx%
-                    rpBestDist& = rpDist&
-                    rpBestIdx%  = rpCi%
-                ELSEIF rpDist& < rpSecDist& THEN
-                    rpSecDist& = rpDist&
-                    rpSecIdx%  = rpCi%
-                END IF
-            NEXT rpCi%
-
-            DIM rpUseIdx AS INTEGER
-            rpUseIdx% = rpBestIdx%
-            IF ditherMode% <> DITHER_NONE AND rpBestDist& > 0 AND rpSecDist& < 2147483647 THEN
-                DIM rpTotDist AS SINGLE
-                rpTotDist! = SQR(rpBestDist&) + SQR(rpSecDist&)
-                IF rpTotDist! > 0 THEN
-                    DIM rpSegT   AS SINGLE, rpThr AS SINGLE
-                    rpSegT! = SQR(rpBestDist&) / rpTotDist!
-                    rpThr!  = DITHER_get_threshold!(ditherMode%, rpX%, rpY%)
-                    ' Scale threshold toward 0.5 as strength decreases
-                    DIM rpAdjThr AS SINGLE
-                    rpAdjThr! = 0.5 + (rpThr! - 0.5) * ditherStrength!
-                    IF rpSegT! >= rpAdjThr! THEN
-                        rpUseIdx% = rpSecIdx%
-                    END IF
-                END IF
-            END IF
-
-            DIM rpMapped AS _UNSIGNED LONG
-            rpMapped~& = _RGBA32(_RED32(PAL(rpUseIdx%).value~&), _GREEN32(PAL(rpUseIdx%).value~&), _BLUE32(PAL(rpUseIdx%).value~&), _ALPHA32(rpPx~&))
-            _MEMPUT rpMem, rpOfs, rpMapped~&
-        NEXT rpX%
-    NEXT rpY%
-    _MEMFREE rpMem
+    rpChanged% = PALETTE_LOADER_remap_image%(rpResult&, ditherMode%, ditherStrength!)
 
     PALETTE_LOADER_remap_preview& = rpResult&
 END FUNCTION

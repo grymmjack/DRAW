@@ -17,6 +17,9 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
 ' Native (pre-upscale) geometry of the panel.
+CONST ADVCP_DISCLOSE_PAD = 3 ' px above and below the VARIATIONS row (BUGS.md 2026-11-15: too tight to the bottom)
+CONST ADVCP_DISCLOSE_H = 11 + 2 * ADVCP_DISCLOSE_PAD ' the VARIATIONS slot under the quantize slider (native px)
+CONST ADVCP_PATCH_GROW = 3 ' docked with height to spare, shade patches grow up to this many times
 CONST ADVCP_WHEEL_NATIVE = 190 ' Placeholder footprint until ACP_init (real width = FPANEL_panel_w%)
 
 TYPE ADV_COLOR_PICKER_OBJ
@@ -40,6 +43,10 @@ TYPE ADV_COLOR_PICKER_OBJ
     panelImg  AS LONG
     panelW    AS INTEGER                ' native width
     panelH    AS INTEGER                ' native height
+    fitW AS INTEGER ' docked: native size its slot gives it (0 = natural) - FPANEL_fit
+    fitH AS INTEGER
+    natW AS INTEGER ' its natural (floating) native size, from its layout
+    natH AS INTEGER
     titleFont AS LONG                   ' themed title-bar font (same as Color Mixer); 0 = built-in
 
     ' Title-bar drag

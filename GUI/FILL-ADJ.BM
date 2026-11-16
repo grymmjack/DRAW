@@ -213,6 +213,8 @@ SUB FILL_ADJ_detect_paint_mode ()
     END IF
     IF FILL_ADJ.TILE_W! < 1 THEN FILL_ADJ.TILE_W! = 1
     IF FILL_ADJ.TILE_H! < 1 THEN FILL_ADJ.TILE_H! = 1
+    FILL_DITHER_load ' the fill's dither, as last set (DRAW.cfg FILL_DITHER)
+    FILL_DITHER.baseW = FILL_ADJ.TILE_W!: FILL_DITHER.baseH = FILL_ADJ.TILE_H!
 END SUB
 
 
@@ -293,6 +295,7 @@ SUB FILL_ADJ_update ()
             ' Pattern/gradient rendering with adjustable tiling/bounds
             FILL_ADJ_render_paint_mode
     END SELECT
+    FILL_ADJ_dither_coverage ' the fill's dither thins a pattern / brush fill
 
     ' Draw the shape's parameterization (rect divisions / ellipse slices+rings) ON TOP of
     ' the fill, at the fixed shape geometry — so a fill-adjusted gradient/pattern shape keeps
@@ -417,6 +420,7 @@ END SUB
 '
 SUB FILL_ADJ_handle_wheel (delta AS INTEGER)
     IF NOT FILL_ADJ.ACTIVE% THEN EXIT SUB
+    IF FILL_DITHER.dDown THEN FILL_DITHER_wheel delta: EXIT SUB ' D+wheel: the dither amount
 
     DIM scale_factor AS SINGLE
     IF delta% > 0 THEN
@@ -548,6 +552,12 @@ SUB FILL_ADJ_handle_mouse_press (cx AS INTEGER, cy AS INTEGER, rawX AS INTEGER, 
     FILL_ADJ.START_TILE_W!   = FILL_ADJ.TILE_W!
     FILL_ADJ.START_TILE_H!   = FILL_ADJ.TILE_H!
     FILL_ADJ.START_ROTATION! = FILL_ADJ.ROTATION!
+    IF FILL_DITHER.dDown THEN ' D+drag: move the dither pattern
+        FILL_ADJ.DRAG_MODE% = FILL_ADJ_DRAG_DITHER
+        FILL_DITHER.sox = FILL_DITHER.ox: FILL_DITHER.soy = FILL_DITHER.oy
+        FILL_DITHER.dUsed = TRUE
+        IF FILL_DITHER.mode = DITHER_NONE THEN FILL_DITHER.mode = DITHER_PERPIXEL_MAP(0)
+    END IF
 
     ' For rotation drag, compute the starting mouse angle relative to the L-handle origin
     IF FILL_ADJ.DRAG_MODE% = FILL_ADJ_DRAG_ROTATE THEN
@@ -604,6 +614,12 @@ SUB FILL_ADJ_handle_mouse_drag (cx AS INTEGER, cy AS INTEGER, rawX AS INTEGER, r
     DIM scale AS SINGLE
 
     SELECT CASE FILL_ADJ.DRAG_MODE%
+        CASE FILL_ADJ_DRAG_DITHER
+            ' D+drag: the dither pattern's offset, canvas px
+            FILL_DITHER.ox = FILL_DITHER.sox + cx% - FILL_ADJ.DRAG_START_CX%
+            FILL_DITHER.oy = FILL_DITHER.soy + cy% - FILL_ADJ.DRAG_START_CY%
+            FILL_DITHER_store
+
         CASE FILL_ADJ_DRAG_PAN
             ' Pan origin in canvas coords
             dx%                = cx% - FILL_ADJ.DRAG_START_CX%
@@ -682,6 +698,8 @@ SUB FILL_ADJ_handle_mouse_drag (cx AS INTEGER, cy AS INTEGER, rawX AS INTEGER, r
             curAngle!          = _ATAN2(drdy!, drdx!)
             angleDiff!         = (curAngle! - FILL_ADJ.START_ANGLE!) * 180.0 / 3.14159265!
             FILL_ADJ.ROTATION! = FILL_ADJ.START_ROTATION! + angleDiff!
+            ' Ctrl held: snapped angles, FILL_ADJ_ROT_SNAP degrees a step (BUGS.md 2026-11-15)
+            IF MODIFIERS.ctrl% THEN FILL_ADJ.ROTATION! = FIX(FILL_ADJ.ROTATION! / FILL_ADJ_ROT_SNAP + 0.5 * SGN(FILL_ADJ.ROTATION!)) * FILL_ADJ_ROT_SNAP
             ' Normalize to -180..180
             DO WHILE FILL_ADJ.ROTATION! > 180  : FILL_ADJ.ROTATION! = FILL_ADJ.ROTATION! - 360 : LOOP
             DO WHILE FILL_ADJ.ROTATION! < -180 : FILL_ADJ.ROTATION! = FILL_ADJ.ROTATION! + 360 : LOOP
@@ -837,6 +855,35 @@ SUB FILL_ADJ_render_paint_mode ()
     IF bh% < 1 THEN bh% = 1
 
     ' Set gradient context using tile dimensions offset from shape min
+    ' the fill's dither in place of the gradient's own (DRAWER_resolve_gradient_color)
+    FILL_DITHER.ovr = (FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT _ANDALSO DITHER_is_perpixel%(FILL_DITHER.mode))
+
+    ' Error diffusion (D: Floyd-Steinberg ... Shiau-Fan) on a gradient: each
+    ' pixel takes one of the two stops around it and the miss is carried on to
+    ' the pixels after it in reading order - only stop colors, mixed in the
+    ' right amounts. The amount is as for the per-pixel dithers: how wide the
+    ' dithered band is around the middle of each stop-to-stop span (100% = all
+    ' of it, 0% = a hard edge); outside the band a pixel is its stop, solid.
+    DIM edOn AS INTEGER, edSlot AS INTEGER, edN AS INTEGER, edW AS INTEGER, edNt AS INTEGER
+    DIM edR AS INTEGER, edI AS INTEGER, edK AS INTEGER, edJ AS INTEGER, gx AS INTEGER, gy AS INTEGER
+    DIM edP(1 TO GRADIENT_MAX_STOPS) AS SINGLE, edC(1 TO GRADIENT_MAX_STOPS) AS _UNSIGNED LONG
+    DIM edDx(0 TO 11) AS INTEGER, edDy(0 TO 11) AS INTEGER, edWt(0 TO 11) AS SINGLE
+    DIM edT AS SINGLE, edV AS SINGLE, edE AS SINGLE, edS AS SINGLE, edAmt AS SINGLE
+    DIM edA AS INTEGER, edAS AS SINGLE
+    edAmt = FILL_DITHER.amount
+    edSlot = DRAWER.gradientSelected%
+    edOn = FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT _ANDALSO FILL_DITHER_is_ed%(FILL_DITHER.mode)
+    edOn = edOn _ANDALSO DRAWER.paintMode% = 2 _ANDALSO _ALPHA32(fill_color~&) > 0 _ANDALSO edSlot >= 1 _ANDALSO edSlot <= DRAWER_SLOT_COUNT
+    IF edOn THEN
+        FILL_ADJ_ed_stops edSlot, edP(), edC(), edN
+        IF edN < 1 THEN edOn = FALSE
+    END IF
+    IF edOn THEN
+        GJ_IMGADJ_EDKernel FILL_DITHER.mode - GJ_IMGADJ_DITHER_FLOYD_STEINBERG, edDx(), edDy(), edWt(), edNt
+        edW = maxX% - minX% + 1
+        REDIM edEr(0 TO 3, 0 TO edW + 5) AS SINGLE
+        REDIM edEa(0 TO 3, 0 TO edW + 5) AS SINGLE ' the opacity stops' own error
+    END IF
     IF FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT THEN
         GRAD_CTX_set minX% + INT(FILL_ADJ.ORIGIN_X!), minY% + INT(FILL_ADJ.ORIGIN_Y!), minX% + INT(FILL_ADJ.ORIGIN_X!) + bw% - 1, minY% + INT(FILL_ADJ.ORIGIN_Y!) + bh% - 1
     END IF
@@ -864,6 +911,7 @@ SUB FILL_ADJ_render_paint_mode ()
         ELSE
             _SOURCE old_source&: _DEST old_dest&
             IF FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT THEN GRAD_CTX_clear
+            FILL_DITHER.ovr = FALSE
             EXIT SUB
         END IF
     END IF
@@ -948,15 +996,67 @@ SUB FILL_ADJ_render_paint_mode ()
                     gradRelX! = px% - gradCX!
                     gradRelY! = py% - gradCY!
                     FILL_ADJ_rotate_coords gradRelX!, gradRelY!, -FILL_ADJ.ROTATION!, gradRotX!, gradRotY!
-                    resolved_color~& = DRAWER_resolve_paint_color~&(INT(gradCX! + gradRotX! + 0.5), INT(gradCY! + gradRotY! + 0.5), fill_color~&)
+                    gx = INT(gradCX! + gradRotX! + 0.5): gy = INT(gradCY! + gradRotY! + 0.5)
                 ELSE
-                    resolved_color~& = DRAWER_resolve_paint_color~&(px%, py%, fill_color~&)
+                    gx = px%: gy = py%
+                END IF
+                IF edOn THEN
+                    edT = DRAWER_grad_t!(edSlot, gx, gy, GRAD_CTX)
+                    edR = py% AND 3: edI = px% - minX% + 3
+                    ' the span around t: stops edK and edK + 1; edS = 0..1 across its band
+                    IF edN = 1 _ORELSE edT <= edP(1) THEN
+                        edK = 1: edS = 0
+                    ELSEIF edT >= edP(edN) THEN
+                        edK = edN: edS = 0
+                    ELSE
+                        edK = 1
+                        DO WHILE edK < edN - 1 _ANDALSO edT > edP(edK + 1)
+                            edK = edK + 1
+                        LOOP
+                        IF edP(edK + 1) > edP(edK) THEN edS = (edT - edP(edK)) / (edP(edK + 1) - edP(edK)) ELSE edS = 0
+                        IF edAmt <= 0.001 THEN
+                            edS = _IIF(edS < 0.5, 0!, 1!)
+                        ELSE
+                            edS = (edS - (0.5 - edAmt / 2)) / edAmt
+                        END IF
+                        IF edS >= 1 THEN
+                            edK = edK + 1: edS = 0
+                        ELSEIF edS > 0 THEN ' in the band: diffuse
+                            edV = edS + edEr(edR, edI)
+                            IF edV >= 0.5 THEN edE = edV - 1: edK = edK + 1 ELSE edE = edV
+                            IF edE <> 0 THEN
+                                FOR edJ = 0 TO edNt - 1
+                                    edEr((py% + edDy(edJ)) AND 3, edI + edDx(edJ)) = edEr((py% + edDy(edJ)) AND 3, edI + edDx(edJ)) + edE * edWt(edJ)
+                                NEXT edJ
+                            END IF
+                        END IF
+                    END IF
+                    ' the opacity stops diffuse too: a fade is pixels there or not
+                    edAS = GRAD_DEF_coverage!(edSlot, edT, edAmt)
+                    edA = 0
+                    IF edAS >= 1 THEN
+                        edA = 255
+                    ELSEIF edAS > 0 THEN
+                        edV = edAS + edEa(edR, edI)
+                        IF edV >= 0.5 THEN edE = edV - 1: edA = 255 ELSE edE = edV
+                        IF edE <> 0 THEN
+                            FOR edJ = 0 TO edNt - 1
+                                edEa((py% + edDy(edJ)) AND 3, edI + edDx(edJ)) = edEa((py% + edDy(edJ)) AND 3, edI + edDx(edJ)) + edE * edWt(edJ)
+                            NEXT edJ
+                        END IF
+                    END IF
+                    resolved_color~& = PAINT_apply_opacity~&(GRAD_with_stop_alpha~&(edC(edK), edA))
+                ELSE
+                    resolved_color~& = DRAWER_resolve_paint_color~&(gx, gy, fill_color~&)
                 END IF
             END IF
 
             IF _ALPHA32(resolved_color~&) = 0 THEN _CONTINUE
             PSET (px%, py%), resolved_color~&
         NEXT px%
+        IF edOn THEN ' this row is done: its ring slot becomes the row 4 below
+            FOR edI = 0 TO edW + 5: edEr(py% AND 3, edI) = 0: edEa(py% AND 3, edI) = 0: NEXT edI
+        END IF
     NEXT py%
 
     _BLEND LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&
@@ -964,6 +1064,7 @@ SUB FILL_ADJ_render_paint_mode ()
     _DEST old_dest&
 
     IF FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT THEN GRAD_CTX_clear
+    FILL_DITHER.ovr = FALSE
 END SUB
 
 
@@ -1190,7 +1291,6 @@ SUB FILL_ADJ_render_overlay ()
     NEXT di%
 
     ' ---- Info text ----
-    DIM info    AS STRING
     DIM modeStr AS STRING
     SELECT CASE FILL_ADJ.DRAG_MODE%
         CASE FILL_ADJ_DRAG_UNIFORM : modeStr$ = " [Uniform]"
@@ -1203,26 +1303,96 @@ SUB FILL_ADJ_render_overlay ()
     IF FILL_ADJ.ROTATION! <> 0 THEN
         DIM rotDeg AS INTEGER
         rotDeg% = INT(FILL_ADJ.ROTATION! + 0.5)
-        rotStr$ = "  Rot: " + LTRIM$(STR$(rotDeg%)) + CHR$(248)
+        rotStr$ = "  Rot: " + LTRIM$(STR$(rotDeg%)) + " deg" ' (CHR$(248), the degree sign, is not in every UI font)
     ELSE
         rotStr$ = ""
     END IF
-    info$ = "Tile: " + LTRIM$(STR$(INT(FILL_ADJ.TILE_W! + 0.5))) + "x" + LTRIM$(STR$(INT(FILL_ADJ.TILE_H! + 0.5))) + rotStr$ + modeStr$ + "  Wheel=Scale  Arc=Rotate  Drag=Pan  Enter/Esc"
+    IF FILL_ADJ.DRAG_MODE% = FILL_ADJ_DRAG_DITHER THEN modeStr$ = " [Dither " + LTRIM$(STR$(FILL_DITHER.ox)) + "," + LTRIM$(STR$(FILL_DITHER.oy)) + "]"
+    DIM ditStr AS STRING
+    ditStr$ = "  Dither: " + FILL_DITHER_name$
+    ' The hints sit around the box - the state above, the keys left / right,
+    ' Enter / Esc below - not one line above it that ran off the screen. Each
+    ' side goes inside the box when there is no room outside it.
+    DIM hTop AS STRING, hBot AS STRING, hL AS STRING, hR AS STRING
+    IF FILL_DITHER.dDown THEN
+        hTop$ = "Dither: " + FILL_DITHER_name$ + modeStr$
+        hL$ = "1-9=Preset|Shift+1-9=Save"
+        hR$ = "Tap D=Mode|Wheel=Amount|Drag=Move"
+    ELSE
+        hTop$ = "Tile: " + LTRIM$(STR$(INT(FILL_ADJ.TILE_W! + 0.5))) + "x" + LTRIM$(STR$(INT(FILL_ADJ.TILE_H! + 0.5))) + rotStr$ + ditStr$ + modeStr$
+        hL$ = "Wheel=Scale|Drag=Pan"
+        hR$ = "Arc=Rotate|+Ctrl=Snap|D=Dither"
+    END IF
+    hBot$ = "Enter=Keep  Esc=Cancel"
+    ' kept in the canvas view (not under the docks / bars)
+    DIM vL AS INTEGER, vT AS INTEGER, vR AS INTEGER, vB AS INTEGER, midX AS INTEGER, midY AS INTEGER
+    ZOOM_viewport_rect vL%, vT%, vR%, vB%
+    DIM fh AS INTEGER ' a line: the font's own height (it is not always 8px)
+    fh% = _MAX(8, _UFONTHEIGHT)
+    midX% = (sx1% + sx2%) \ 2: midY% = (sy1% + sy2%) \ 2
     DIM textX AS INTEGER, textY AS INTEGER
-    DIM textW AS INTEGER
-    textW% = _PRINTWIDTH(info$)
-    textX% = shapeCX% * SCRN.zoom! + scrDX% - textW% \ 2
-    textY% = sy1% - 14
-    IF textY% < 2 THEN textY% = sy2% + 4
-
-    ' Background for readability
-    LINE (textX% - 2, textY% - 1)-(textX% + textW% + 1, textY% + 10), THEME.FILL_ADJ_INFO_BG_COLOR~&, BF
-    COLOR THEME.FILL_ADJ_INFO_FG_COLOR~&
-    _UPRINTSTRING (textX%, textY%), info$
+    ' above (inside the top when it is off the screen)
+    textY% = sy1% - fh% - 6
+    IF textY% < vT% + 2 THEN textY% = sy1% + 4
+    FILL_ADJ_hint hTop$, midX% - _PRINTWIDTH(hTop$) \ 2, textY%, vL%, vT%, vR%, vB%
+    ' below
+    textY% = sy2% + 4
+    IF textY% + fh% + 4 > vB% THEN textY% = sy2% - fh% - 6
+    FILL_ADJ_hint hBot$, midX% - _PRINTWIDTH(hBot$) \ 2, textY%, vL%, vT%, vR%, vB%
+    ' left and right: one key per line, by the middle of the side
+    DIM hn AS INTEGER, hk AS INTEGER, hw AS INTEGER, hLine AS STRING, i AS INTEGER
+    FOR hk% = 0 TO 1
+        DIM hs AS STRING
+        IF hk% = 0 THEN hs$ = hL$ ELSE hs$ = hR$
+        hn% = 1: hw% = 0
+        FOR i% = 1 TO LEN(hs$)
+            IF MID$(hs$, i%, 1) = "|" THEN hn% = hn% + 1
+        NEXT i%
+        FOR i% = 1 TO hn%
+            hw% = _MAX(hw%, _PRINTWIDTH(FILL_DITHER_field$(hs$, i%, "|")))
+        NEXT i%
+        IF hk% = 0 THEN
+            textX% = sx1% - 6 - hw%
+            IF textX% < vL% + 2 THEN textX% = sx1% + 6
+        ELSE
+            textX% = sx2% + 6
+            IF textX% + hw% > vR% - 2 THEN textX% = sx2% - 6 - hw%
+        END IF
+        textY% = midY% - hn% * (fh% + 3) \ 2
+        FOR i% = 1 TO hn%
+            hLine$ = FILL_DITHER_field$(hs$, i%, "|")
+            IF hk% = 0 THEN
+                FILL_ADJ_hint hLine$, textX% + hw% - _PRINTWIDTH(hLine$), textY% + (i% - 1) * (fh% + 3), vL%, vT%, vR%, vB%
+            ELSE
+                FILL_ADJ_hint hLine$, textX%, textY% + (i% - 1) * (fh% + 3), vL%, vT%, vR%, vB%
+            END IF
+        NEXT i%
+    NEXT hk%
 
     _DEST old_dest&
 END SUB
 
+
+''
+' One Fill Adjust hint: the text on its background, kept on the screen.
+' @param t STRING the text
+' @param x INTEGER left, y INTEGER top (screen px, moved onto the screen)
+' @param vL INTEGER, vT INTEGER, vR INTEGER, vB INTEGER the canvas view (ZOOM_viewport_rect)
+'
+SUB FILL_ADJ_hint (t AS STRING, x AS INTEGER, y AS INTEGER, vL AS INTEGER, vT AS INTEGER, vR AS INTEGER, vB AS INTEGER)
+    DIM AS INTEGER tx, ty, tw, th
+    IF LEN(t) = 0 THEN EXIT SUB
+    th = _MAX(8, _UFONTHEIGHT)
+    tw = _PRINTWIDTH(t)
+    tx = x: ty = y
+    IF tx + tw > vR - 3 THEN tx = vR - 3 - tw
+    IF tx < vL + 2 THEN tx = vL + 2
+    IF ty + th > vB - 2 THEN ty = vB - 2 - th
+    IF ty < vT + 2 THEN ty = vT + 2
+    LINE (tx - 2, ty - 1)-(tx + tw + 1, ty + th), THEME.FILL_ADJ_INFO_BG_COLOR~&, BF
+    COLOR THEME.FILL_ADJ_INFO_FG_COLOR~&
+    _UPRINTSTRING (tx, ty), t
+END SUB
 
 ''
 ' Rotate a 2D point by angleDeg degrees around the origin (0,0).
@@ -1240,4 +1410,357 @@ SUB FILL_ADJ_rotate_coords (inX AS SINGLE, inY AS SINGLE, angleDeg AS SINGLE, ou
     sinA! = SIN(rad!)
     outX! = cosA! * inX! + sinA! * inY!
     outY! = -sinA! * inX! + cosA! * inY!
+END SUB
+
+
+''
+' The n-th comma field of s$ (1-based), "" past the end.
+'
+FUNCTION FILL_DITHER_field$ (s AS STRING, n AS INTEGER, sep AS STRING)
+    DIM AS LONG p0, p1
+    DIM i AS INTEGER
+    p0 = 1
+    FOR i = 1 TO n - 1
+        p1 = INSTR(p0, s, sep)
+        IF p1 = 0 THEN FILL_DITHER_field$ = "": EXIT FUNCTION
+        p0 = p1 + 1
+    NEXT i
+    p1 = INSTR(p0, s, sep)
+    IF p1 = 0 THEN FILL_DITHER_field$ = MID$(s, p0) ELSE FILL_DITHER_field$ = MID$(s, p0, p1 - p0)
+END FUNCTION
+
+
+''
+' Fill Adjust dither: read it and the presets from the cfg (once).
+'
+SUB FILL_DITHER_load ()
+    IF FILL_DITHER.loaded THEN EXIT SUB
+    FILL_DITHER.loaded = TRUE
+    DIM s AS STRING, m AS INTEGER, i AS INTEGER
+    s = CFG.FILL_DITHER$
+    IF LEN(s) = 0 THEN s = "-1,50,0,0"
+    m = VAL(FILL_DITHER_field$(s, 1, ","))
+    IF NOT FILL_DITHER_valid%(m) THEN m = DITHER_NONE
+    FILL_DITHER.mode = m
+    FILL_DITHER.amount = VAL(FILL_DITHER_field$(s, 2, ",")) / 100!
+    IF FILL_DITHER.amount < 0 THEN FILL_DITHER.amount = 0
+    IF FILL_DITHER.amount > 1 THEN FILL_DITHER.amount = 1
+    FILL_DITHER.ox = VAL(FILL_DITHER_field$(s, 3, ","))
+    FILL_DITHER.oy = VAL(FILL_DITHER_field$(s, 4, ","))
+    FOR i = 1 TO 9
+        FILL_PRESET(i) = FILL_DITHER_field$(CFG.FILL_PRESETS$, i, "|")
+    NEXT i
+END SUB
+
+
+''
+' Fill Adjust dither: into the cfg (saved with it - remembered next run).
+'
+SUB FILL_DITHER_store ()
+    DIM i AS INTEGER, p AS STRING
+    CFG.FILL_DITHER$ = _TRIM$(STR$(FILL_DITHER.mode)) + "," + _TRIM$(STR$(INT(FILL_DITHER.amount * 100! + 0.5))) + "," + _TRIM$(STR$(FILL_DITHER.ox)) + "," + _TRIM$(STR$(FILL_DITHER.oy))
+    FOR i = 1 TO 9
+        IF i > 1 THEN p = p + "|"
+        p = p + FILL_PRESET(i)
+    NEXT i
+    IF LEN(p) = 8 THEN p = "" ' nothing saved
+    CFG.FILL_PRESETS$ = p
+END SUB
+
+
+''
+' The dither's name for the info text / status.
+'
+FUNCTION FILL_DITHER_name$ ()
+    IF FILL_DITHER.mode = DITHER_NONE THEN
+        FILL_DITHER_name$ = "OFF"
+    ELSE
+        FILL_DITHER_name$ = DITHER_algorithm_name$(FILL_DITHER.mode) + " " + _TRIM$(STR$(INT(FILL_DITHER.amount * 100! + 0.5))) + "%"
+    END IF
+END FUNCTION
+
+
+''
+' D tapped: the next dither mode (off -> the 10 per-pixel ones -> the 12 error
+' diffusions, Floyd-Steinberg ... Shiau-Fan -> off).
+'
+SUB FILL_DITHER_cycle ()
+    DIM ui AS INTEGER, m AS INTEGER
+    m = FILL_DITHER.mode
+    IF m = DITHER_NONE THEN
+        FILL_DITHER.mode = DITHER_PERPIXEL_MAP(0)
+    ELSEIF FILL_DITHER_is_ed%(m) THEN
+        IF m >= GJ_IMGADJ_DITHER_SHIAU_FAN THEN FILL_DITHER.mode = DITHER_NONE ELSE FILL_DITHER.mode = m + 1
+    ELSE
+        ui = DITHER_imgadj_to_perpixel%(m)
+        IF ui = DITHER_NONE _ORELSE ui >= DITHER_COUNT_PERPIXEL - 1 THEN FILL_DITHER.mode = GJ_IMGADJ_DITHER_FLOYD_STEINBERG ELSE FILL_DITHER.mode = DITHER_PERPIXEL_MAP(ui + 1)
+    END IF
+    FILL_DITHER_store
+    FILL_ADJ_update
+    STATUS_flash "FILL DITHER: " + FILL_DITHER_name$
+    SOUND_play SND_ORGANIZER
+END SUB
+
+
+''
+' D+wheel: the dither amount, 5% a notch (1% with Shift); wheel up = more.
+' Off picks the first mode, so the change shows.
+'
+SUB FILL_DITHER_wheel (delta AS INTEGER)
+    DIM stp AS SINGLE
+    stp = 0.05: IF MODIFIERS.shift% THEN stp = 0.01
+    IF FILL_DITHER.mode = DITHER_NONE THEN FILL_DITHER.mode = DITHER_PERPIXEL_MAP(0)
+    FILL_DITHER.amount = FILL_DITHER.amount - SGN(delta) * stp
+    IF FILL_DITHER.amount < 0 THEN FILL_DITHER.amount = 0
+    IF FILL_DITHER.amount > 1 THEN FILL_DITHER.amount = 1
+    FILL_DITHER.amount = INT(FILL_DITHER.amount * 100! + 0.5) / 100!
+    FILL_DITHER.dUsed = TRUE
+    FILL_DITHER_store
+    FILL_ADJ_update
+    SOUND_play SND_ORGANIZER
+END SUB
+
+
+''
+' D+Shift+n: save the fill's dither, rotation, scale and offset as preset n.
+'
+SUB FILL_DITHER_save_preset (n AS INTEGER)
+    DIM sx AS SINGLE, sy AS SINGLE
+    sx = 1: sy = 1
+    IF FILL_DITHER.baseW > 0 THEN sx = FILL_ADJ.TILE_W! / FILL_DITHER.baseW
+    IF FILL_DITHER.baseH > 0 THEN sy = FILL_ADJ.TILE_H! / FILL_DITHER.baseH
+    FILL_PRESET(n) = _TRIM$(STR$(FILL_DITHER.mode)) + "," + _TRIM$(STR$(INT(FILL_DITHER.amount * 100! + 0.5))) + "," + _TRIM$(STR$(FILL_DITHER.ox)) + "," + _TRIM$(STR$(FILL_DITHER.oy)) + "," + _TRIM$(STR$(INT(FILL_ADJ.ROTATION! + 0.5))) + "," + _TRIM$(STR$(INT(sx * 100! + 0.5))) + "," + _TRIM$(STR$(INT(sy * 100! + 0.5))) + "," + _TRIM$(STR$(INT(FILL_ADJ.ORIGIN_X!))) + "," + _TRIM$(STR$(INT(FILL_ADJ.ORIGIN_Y!)))
+    FILL_DITHER_store
+    STATUS_flash "FILL PRESET " + _TRIM$(STR$(n)) + " saved: " + FILL_DITHER_name$
+    SOUND_play SND_DRAG_DROP
+    _LOGINFO "FILL_ADJ: preset" + STR$(n) + " = " + FILL_PRESET(n)
+END SUB
+
+
+''
+' D+n: recall preset n onto the fill being adjusted.
+'
+SUB FILL_DITHER_recall_preset (n AS INTEGER)
+    DIM s AS STRING, m AS INTEGER
+    s = FILL_PRESET(n)
+    IF LEN(s) = 0 THEN STATUS_flash "FILL PRESET " + _TRIM$(STR$(n)) + " is empty (D+SHIFT+" + _TRIM$(STR$(n)) + " saves it)": EXIT SUB
+    m = VAL(FILL_DITHER_field$(s, 1, ","))
+    IF NOT FILL_DITHER_valid%(m) THEN m = DITHER_NONE
+    FILL_DITHER.mode = m
+    FILL_DITHER.amount = VAL(FILL_DITHER_field$(s, 2, ",")) / 100!
+    FILL_DITHER.ox = VAL(FILL_DITHER_field$(s, 3, ","))
+    FILL_DITHER.oy = VAL(FILL_DITHER_field$(s, 4, ","))
+    FILL_ADJ.ROTATION! = VAL(FILL_DITHER_field$(s, 5, ","))
+    IF FILL_DITHER.baseW > 0 _ANDALSO VAL(FILL_DITHER_field$(s, 6, ",")) > 0 THEN FILL_ADJ.TILE_W! = FILL_DITHER.baseW * VAL(FILL_DITHER_field$(s, 6, ",")) / 100!
+    IF FILL_DITHER.baseH > 0 _ANDALSO VAL(FILL_DITHER_field$(s, 7, ",")) > 0 THEN FILL_ADJ.TILE_H! = FILL_DITHER.baseH * VAL(FILL_DITHER_field$(s, 7, ",")) / 100!
+    IF FILL_ADJ.TILE_W! < 1 THEN FILL_ADJ.TILE_W! = 1
+    IF FILL_ADJ.TILE_H! < 1 THEN FILL_ADJ.TILE_H! = 1
+    FILL_ADJ.ORIGIN_X! = VAL(FILL_DITHER_field$(s, 8, ","))
+    FILL_ADJ.ORIGIN_Y! = VAL(FILL_DITHER_field$(s, 9, ","))
+    FILL_DITHER_store
+    FILL_ADJ_update
+    STATUS_flash "FILL PRESET " + _TRIM$(STR$(n)) + ": " + FILL_DITHER_name$
+    SOUND_play SND_ORGANIZER
+END SUB
+
+
+''
+' The D key while a fill is adjusted (KEYBOARD_input_handler, every frame).
+' Held: digits are presets (Shift = save) and the wheel / a drag work the
+' dither (FILL_ADJ_handle_wheel / _mouse_press); tapped alone it cycles the
+' mode on release. TRUE while D is held: the other keys are not looked at.
+'
+FUNCTION FILL_ADJ_keys% ()
+    STATIC digitWas(1 TO 9) AS INTEGER
+    STATIC AS INTEGER enterWas, escWas
+    DIM AS INTEGER dNow, i, dk, enterNow, escNow
+    FILL_ADJ_keys% = FALSE
+    ' Enter keeps the fill, Esc drops it - whatever else is (or looks) held: a
+    ' modifier or D the window never saw let go of took every key, so the fill
+    ' could not be left (Rick, 2026-11-15). Taken here, before the INKEY$ keys.
+    enterNow = (_KEYDOWN(13) <> 0) _ORELSE (_KEYDOWN(100013) <> 0)
+    escNow = (_KEYDOWN(27) <> 0)
+    IF FILL_ADJ.ACTIVE% <> 0 _ANDALSO NOT FILL_ADJ.DRAGGING% _ANDALSO ((enterNow _ANDALSO NOT enterWas) _ORELSE (escNow _ANDALSO NOT escWas)) THEN
+        IF enterNow _ANDALSO NOT enterWas THEN FILL_ADJ_commit ELSE FILL_ADJ_cancel
+        FILL_DITHER.dDown = FALSE: FILL_DITHER.dUsed = FALSE
+        enterWas = enterNow: escWas = escNow
+        DO WHILE LEN(INKEY$): LOOP
+        KEYHIT_CHAR$ = "" ' this key is spent (DRAW.BAS's _KEYHIT fallback)
+        GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        FILL_ADJ_keys% = TRUE
+        EXIT FUNCTION
+    END IF
+    enterWas = enterNow: escWas = escNow
+    dNow = FALSE
+    IF FILL_ADJ.ACTIVE% <> 0 _ANDALSO (_KEYDOWN(100) <> 0 _ORELSE _KEYDOWN(68) <> 0) _ANDALSO MODIFIERS.ctrl% = 0 _ANDALSO MODIFIERS.alt% = 0 THEN dNow = TRUE
+    IF dNow _ANDALSO NOT FILL_DITHER.dDown THEN
+        FILL_DITHER.dDown = TRUE: FILL_DITHER.dUsed = FALSE
+        FOR i = 1 TO 9: digitWas(i) = TRUE: NEXT i ' a digit already down is not a press
+    ELSEIF NOT dNow _ANDALSO FILL_DITHER.dDown THEN
+        FILL_DITHER.dDown = FALSE
+        IF FILL_ADJ.ACTIVE% <> 0 _ANDALSO NOT FILL_DITHER.dUsed _ANDALSO NOT FILL_ADJ.DRAGGING% THEN FILL_DITHER_cycle
+        FILL_DITHER.dUsed = FALSE
+    END IF
+    IF NOT dNow THEN EXIT FUNCTION
+    FOR i = 1 TO 9
+        ' the digit, or its shifted character (US layout) while Shift is held
+        dk = (_KEYDOWN(48 + i) <> 0) _ORELSE (_KEYDOWN(ASC(MID$("!@#$%^&*(", i, 1))) <> 0)
+        IF dk _ANDALSO NOT digitWas(i) THEN
+            FILL_DITHER.dUsed = TRUE
+            IF MODIFIERS.shift% THEN FILL_DITHER_save_preset i ELSE FILL_DITHER_recall_preset i
+        END IF
+        digitWas(i) = dk
+    NEXT i
+    DO WHILE LEN(INKEY$): LOOP ' the D and the digits are this chord's
+    FRAME_IDLE% = FALSE
+    FILL_ADJ_keys% = TRUE
+END FUNCTION
+
+
+''
+' An error-diffusion mode (Floyd-Steinberg ... Shiau-Fan: GJ_IMGADJ_DITHER_
+' 4..15, kernel = mode - 4 in GJ_IMGADJ_EDKernel).
+'
+FUNCTION FILL_DITHER_is_ed% (m AS INTEGER)
+    FILL_DITHER_is_ed% = (m >= GJ_IMGADJ_DITHER_FLOYD_STEINBERG _ANDALSO m <= GJ_IMGADJ_DITHER_SHIAU_FAN)
+END FUNCTION
+
+
+''
+' A mode the fill's dither can be: per-pixel or error diffusion.
+'
+FUNCTION FILL_DITHER_valid% (m AS INTEGER)
+    FILL_DITHER_valid% = (DITHER_is_perpixel%(m) _ORELSE FILL_DITHER_is_ed%(m))
+END FUNCTION
+
+
+''
+' The stops an error-diffused gradient fill picks from: the slot's color stops,
+' or for a gradient image without stops 5 colors read along it (as
+' DRAWER_fill_dither_color does). n = 0: nothing to pick from.
+'
+SUB FILL_ADJ_ed_stops (slotIdx AS INTEGER, sp() AS SINGLE, sc() AS _UNSIGNED LONG, n AS INTEGER)
+    DIM i AS INTEGER, ax AS INTEGER, ay AS INTEGER, img AS LONG, oldSrc AS LONG
+    n = GRAD_DEFS(slotIdx).colorCount%
+    IF n > GRADIENT_MAX_STOPS THEN n = GRADIENT_MAX_STOPS
+    IF n >= 1 THEN
+        FOR i = 1 TO n
+            sp(i) = GRAD_COLOR_STOPS(slotIdx, i).position
+            sc(i) = GRAD_COLOR_STOPS(slotIdx, i).clr
+        NEXT i
+        EXIT SUB
+    END IF
+    n = 0
+    img = DRAWER_GRADIENT_SLOTS(slotIdx)
+    IF img >= -1 THEN EXIT SUB
+    IF _WIDTH(img) < 1 THEN EXIT SUB
+    oldSrc = _SOURCE
+    _SOURCE img
+    FOR i = 1 TO 5
+        sp(i) = (i - 1) / 4
+        GRAD_IMG_ramp_xy slotIdx, sp(i), ax, ay
+        sc(i) = POINT(ax, ay)
+    NEXT i
+    _SOURCE oldSrc
+    n = 5
+END SUB
+
+
+''
+' A pattern / brush fill thinned by the fill's dither: where the threshold is
+' at or over the amount, the pixel goes back to what was under the fill. An
+' error diffusion keeps amount of the changed pixels, spread out evenly.
+'
+SUB FILL_ADJ_dither_coverage ()
+    IF FILL_DITHER.mode = DITHER_NONE THEN EXIT SUB
+    IF FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT THEN EXIT SUB
+    DIM AS LONG lay, red, w, h, x, y, x0, y0, x1, y1
+    lay = LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&: red = FILL_ADJ.REDRAW_IMG&
+    IF lay >= -1 _ORELSE red >= -1 THEN EXIT SUB
+    w = _WIDTH(lay): h = _HEIGHT(lay)
+    IF w <> _WIDTH(red) _ORELSE h <> _HEIGHT(red) THEN EXIT SUB
+    DIM AS INTEGER bx0, by0, bx1, by1
+    FILL_ADJ_shape_bounds bx0, by0, bx1, by1
+    x0 = bx0: y0 = by0: x1 = bx1: y1 = by1
+    IF x0 < 0 THEN x0 = 0
+    IF y0 < 0 THEN y0 = 0
+    IF x1 > w - 1 THEN x1 = w - 1
+    IF y1 > h - 1 THEN y1 = h - 1
+    IF x1 < x0 _ORELSE y1 < y0 THEN EXIT SUB
+    DIM mL AS _MEM, mR AS _MEM, o AS _OFFSET
+    DIM cL AS _UNSIGNED LONG, cR AS _UNSIGNED LONG
+    mL = _MEMIMAGE(lay): mR = _MEMIMAGE(red)
+    IF FILL_DITHER_is_ed%(FILL_DITHER.mode) THEN
+        ' error diffusion: of the pixels the fill changed, keep amount of them,
+        ' the misses carried on so the kept ones spread out evenly
+        DIM tdx(0 TO 11) AS INTEGER, tdy(0 TO 11) AS INTEGER, tw(0 TO 11) AS SINGLE, nt AS INTEGER
+        DIM AS INTEGER r, i, t, q
+        DIM AS SINGLE v, e
+        GJ_IMGADJ_EDKernel FILL_DITHER.mode - GJ_IMGADJ_DITHER_FLOYD_STEINBERG, tdx(), tdy(), tw(), nt
+        REDIM er(0 TO 3, 0 TO x1 - x0 + 6) AS SINGLE
+        FOR y = y0 TO y1
+            r = y AND 3
+            FOR x = x0 TO x1
+                o = (y * w + x) * 4
+                cL = _MEMGET(mL, mL.OFFSET + o, _UNSIGNED LONG)
+                cR = _MEMGET(mR, mR.OFFSET + o, _UNSIGNED LONG)
+                IF cL <> cR THEN
+                    i = x - x0 + 3
+                    v = FILL_DITHER.amount + er(r, i)
+                    IF v >= 0.5 THEN q = 1 ELSE q = 0
+                    IF q = 0 THEN _MEMPUT mL, mL.OFFSET + o, cR
+                    e = v - q
+                    FOR t = 0 TO nt - 1
+                        er((y + tdy(t)) AND 3, i + tdx(t)) = er((y + tdy(t)) AND 3, i + tdx(t)) + e * tw(t)
+                    NEXT t
+                END IF
+            NEXT x
+            FOR i = 0 TO x1 - x0 + 6: er(r, i) = 0: NEXT i
+        NEXT y
+        _MEMFREE mL: _MEMFREE mR
+        EXIT SUB
+    END IF
+    FOR y = y0 TO y1
+        FOR x = x0 TO x1
+            IF DITHER_get_threshold!(FILL_DITHER.mode, x - FILL_DITHER.ox, y - FILL_DITHER.oy) >= FILL_DITHER.amount THEN
+                o = (y * w + x) * 4
+                cL = _MEMGET(mL, mL.OFFSET + o, _UNSIGNED LONG)
+                cR = _MEMGET(mR, mR.OFFSET + o, _UNSIGNED LONG)
+                IF cL <> cR THEN _MEMPUT mL, mL.OFFSET + o, cR
+            END IF
+        NEXT x
+    NEXT y
+    _MEMFREE mL: _MEMFREE mR
+END SUB
+
+
+''
+' The current shape's bounding box, canvas px.
+'
+SUB FILL_ADJ_shape_bounds (minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER)
+    DIM pi AS INTEGER
+    SELECT CASE FILL_ADJ.SHAPE_TYPE%
+        CASE FILL_ADJ_SHAPE_RECT
+            minX = FILL_ADJ.RECT_X1%: maxX = FILL_ADJ.RECT_X2%
+            minY = FILL_ADJ.RECT_Y1%: maxY = FILL_ADJ.RECT_Y2%
+            IF minX > maxX THEN SWAP minX, maxX
+            IF minY > maxY THEN SWAP minY, maxY
+        CASE FILL_ADJ_SHAPE_ELLIPSE
+            minX = FILL_ADJ.ELL_CX% - INT(FILL_ADJ.ELL_RX! + 0.5): maxX = FILL_ADJ.ELL_CX% + INT(FILL_ADJ.ELL_RX! + 0.5)
+            minY = FILL_ADJ.ELL_CY% - INT(FILL_ADJ.ELL_RY! + 0.5): maxY = FILL_ADJ.ELL_CY% + INT(FILL_ADJ.ELL_RY! + 0.5)
+        CASE FILL_ADJ_SHAPE_POLYGON
+            minX = FILL_ADJ_POLY_X%(0): maxX = minX
+            minY = FILL_ADJ_POLY_Y%(0): maxY = minY
+            FOR pi = 1 TO FILL_ADJ.POLY_COUNT% - 1
+                IF FILL_ADJ_POLY_X%(pi) < minX THEN minX = FILL_ADJ_POLY_X%(pi)
+                IF FILL_ADJ_POLY_X%(pi) > maxX THEN maxX = FILL_ADJ_POLY_X%(pi)
+                IF FILL_ADJ_POLY_Y%(pi) < minY THEN minY = FILL_ADJ_POLY_Y%(pi)
+                IF FILL_ADJ_POLY_Y%(pi) > maxY THEN maxY = FILL_ADJ_POLY_Y%(pi)
+            NEXT pi
+        CASE FILL_ADJ_SHAPE_FLOOD
+            minX = FILL_ADJ.FLOOD_X1%: maxX = FILL_ADJ.FLOOD_X2%
+            minY = FILL_ADJ.FLOOD_Y1%: maxY = FILL_ADJ.FLOOD_Y2%
+        CASE ELSE
+            minX = 0: minY = 0: maxX = SCRN.canvasW& - 1: maxY = SCRN.canvasH& - 1
+    END SELECT
 END SUB

@@ -10,8 +10,9 @@ $INCLUDEONCE
 ' Maximum layer name length (hard compile-time max)
 CONST LAYER_NAME_HARD_MAX = 64
 
-' Layer row height in panel (pixels)
-CONST LAYER_ROW_HEIGHT = 20
+' Layer row height in panel (pixels) without thumbnails; LAYER_ROW_H% is the
+' height in use (taller with small / medium thumbnails, CFG.LAYER_THUMBNAILS)
+CONST LAYER_ROW_HEIGHT_MIN = 20
 
 ' Layer panel button sizes
 CONST LAYER_BTN_SIZE = 12
@@ -19,6 +20,9 @@ CONST LAYER_BTN_SIZE = 12
 ' Layer blend mode constants
 CONST BLEND_PASS_THROUGH             = -1  ' Group-only: children composite AS if no group exists
 CONST BLEND_PASS_THROUGH_POPUP_VALUE = 100 ' Popup menu sentinel (avoids -1 collision with POPUP_MENU_hit_value%)
+CONST LAYER_BAR_POPUP_BASE = 220 ' Layer bar menu values: +0..+2 LAYER_PANEL_BAR (off / top / bottom)
+CONST LAYER_BAR_H = 14 ' The layer bar's height (panel px)
+CONST LAYER_THUMB_POPUP_BASE = 200 ' Thumbnail menu values: +0..+3 LAYER_THUMBNAILS (off / tiny / small / medium), +10..+11 LAYER_THUMB_FIT (content / canvas)
 CONST BLEND_NORMAL                   = 0
 CONST BLEND_MULTIPLY                 = 1
 CONST BLEND_SCREEN                   = 2
@@ -47,6 +51,7 @@ CONST LAYER_TYPE_GROUP         = 2         ' Group container (no pixel data, org
 CONST LAYER_TYPE_SYMBOL_PARENT = 3         ' Symbol parent : editable source layer for linked instances
 CONST LAYER_TYPE_SYMBOL_CHILD  = 4         ' Symbol child  : non-editable linked instance of a parent
 CONST LAYER_TYPE_AI            = 5         ' AI-generated layer (prompt/seed embedded, regenerable)
+CONST LAYER_TYPE_CLIP          = 6         ' Clip layer: an AnimBrush played across the frames, rebuilt from its settings (TOOLS/CLIP)
 
 ' Export mode constants (QB64PE Code Export classification)
 CONST EXPORT_MODE_VECTOR = 0               ' All ops are vector-exportable (SUB)
@@ -113,6 +118,7 @@ TYPE LAYER_PANEL_OBJ
     dragStartX       AS INTEGER             ' X position when drag started (for threshold)
     opacityDrag      AS INTEGER             ' TRUE if dragging opacity slider
     opacityDragLayer AS INTEGER             ' Layer index being opacity-adjusted
+    opacityDragBar   AS INTEGER             ' TRUE: the drag is on the layer bar's (horizontal) opacity slider, not a row's
     ' Layer drag-and-drop reordering state
     dragPending      AS INTEGER             ' TRUE when mouse down but not yet moved threshold
     isDragging       AS INTEGER             ' TRUE while actively dragging layer for reorder
@@ -158,6 +164,8 @@ TYPE LAYER_PANEL_OBJ
     ctxMenuW         AS INTEGER             ' Popup width in pixels
     ctxMenuHover     AS INTEGER             ' Currently hovered row (-1 = none)
     ctxMenuItems     AS INTEGER             ' Number of items in current menu
+    ctxMenuBar       AS INTEGER             ' TRUE: the menu is the layer bar's (right-click on it: top / bottom / hide)
+    ctxMenuThumb     AS INTEGER             ' TRUE: the menu is the thumbnail menu (right-click on a layer's thumbnail: its size / what it shows)
     ' Opacity drag anchor
     opacityDragRowY  AS INTEGER             ' Rendered Y (drawY%) of row top when vertical opacity drag started
     ' Stored panel bounds (set each render, used for hit-testing next frame)
@@ -191,6 +199,39 @@ CONST LAYER_CTX_ITEM_H = 12
 ' Layer render order — pre-sorted array avoids O(n×64) lookup per frame
 ' RENDER_ORDER%(i) = layer index for z-level i, rebuilt when layer order changes
 DIM SHARED RENDER_ORDER(1 TO MAX_LAYERS) AS INTEGER
+
+' Layers panel thumbnails: each layer's picture is cropped to its content (the
+' box round its non-transparent pixels). The box is cached per layer and kept
+' while LAYER_THUMB_GEN, the layer and the region scanned are the same;
+' history commits, undo / redo and a history clear bump LAYER_THUMB_GEN.
+TYPE LAYER_THUMB_BOX
+    gen AS LONG
+    img AS LONG
+    hid AS LONG
+    sx  AS LONG
+    sy  AS LONG
+    sw  AS LONG
+    sh  AS LONG
+    bx  AS LONG
+    by  AS LONG
+    bw  AS LONG ' 0 = no content
+    bh  AS LONG
+END TYPE
+DIM SHARED LAYER_THUMB_GEN AS LONG
+
+' Selections from layer thumbnails (Ctrl+click one: the selection is its
+' pixels; Ctrl+Shift+click: add a layer's pixels, or take them out again if it
+' is already in). LAYER_SEL_FROM: CHR$(1) at each layer in it. It holds for
+' the selection it was made for - the mask handle and box below; any other
+' change to the selection forgets it.
+DIM SHARED LAYER_SEL_FROM AS STRING
+
+' The layer bar's eye: the layers it hid (CHR$(1) each), shown again by its
+' next click.
+DIM SHARED LAYER_BAR_HIDDEN AS STRING
+DIM SHARED LAYER_SEL_MASK AS LONG
+DIM SHARED LAYER_SEL_BOX AS STRING
+DIM SHARED LAYER_THUMB_BOXES(1 TO MAX_LAYERS) AS LAYER_THUMB_BOX
 DIM SHARED RENDER_ORDER_COUNT AS INTEGER
 DIM SHARED RENDER_ORDER_DIRTY AS INTEGER                           ' TRUE = must rebuild
 RENDER_ORDER_DIRTY% = TRUE                                         ' Start dirty

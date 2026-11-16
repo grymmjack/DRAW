@@ -19,7 +19,7 @@ Everything below is retained as the development history / reference.
 ---
 
 Feature branch **`customizable-shortcuts`** (off v2.0.3 main). Plan:
-`PLANS/CUSTOMIZABLE-SHORTCUTS.md`. Loop record: `.claude/TASKS.md` +
+`PLANS/CUSTOMIZABLE-SHORTCUTS.md`. Loop record: `.claude/TASKS-SHORTCUTS.md` (was TASKS.md, renamed 2026-11-08) +
 `.claude/TASKS-phase4plus.md`. Builds fully green (zero warnings/infos, incl. Windows after
 the PATHS.BM homeDir$ fix). Registry-driven rebinding on the central `INPUT/INPUT.BM` dispatch
 table + `CFG/BINDINGS.BM` override engine. **All work pushed to origin/customizable-shortcuts.**

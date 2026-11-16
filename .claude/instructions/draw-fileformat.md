@@ -16,6 +16,113 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 [N bytes] DEFLATE-compressed binary project data
 ```
 
+### drAn Chunk (animation frame layout)
+
+A sheet with frames (`TOOLS/ANIM`, see `draw-animation.md`) adds a second ancillary chunk,
+`drAn`, right after `drAw` (`DRW_save`). It is **not** inside the drAw payload, so a DRAW
+without animation reads drAw and opens the file as a plain picture (round 2 R-10), and the
+.draw version did not change. `DRW_load_from_png` reads it from a .draw **or a plain PNG**
+(a PNG sprite sheet can carry frames too) after the canvas size is known, via
+`ANIM_deserialize%`; data that does not fit the canvas opens the picture without frames.
+Not deflated - it is small. Little-endian INTEGERs (`ANIM_serialize$`):
+
+```
+version (ANIM_CHUNK_VERSION = 2), frameW, frameH, gutter, margin,
+count, current, fps, loopMode (0 FWD 1 REV 2 PING 3 ONCE),
+nHolds, then nHolds holds (frames 1..nHolds; the rest hold 1)
+v2, only when a layer has flags: nFlags, then per entry
+    historyId (LONG), flags (1 = reference layer, 2 = same on every frame)
+v3 (ANIM_CHUNK_VERSION_LINKS), only when there are linked cells (4.3): the version field
+    is 3, the flags block is always there (nFlags may be 0), then nLinks, per entry
+    historyId (LONG), frame, group (cells of one layer with the same group show one drawing;
+    the lowest frame is the source)
+v4 (ANIM_CHUNK_VERSION_TAGS), only when there are tags (4.4): the version field is 4, the
+    flags and links blocks are always there (counts may be 0), then nTags, per tag
+    from (2), to (2), nameLen (2), name (nameLen bytes, at most 32)
+v5 (ANIM_CHUNK_VERSION_NOTES), only when a frame has a note (4.5): the version field is 5,
+    every block before is there (counts may be 0), then nNotes, per note
+    frame (2), textLen (2), text (at most 80)
+v6 (ANIM_CHUNK_VERSION_SOUND), only when there is a soundtrack (L.1): the version field is 6,
+    every block before is there (counts may be 0), then pathLen (2), path (as picked; on
+    open, a path that is gone is looked for by its file name beside the document),
+    offset ms (4, where frame 1 starts in the sound)
+```
+
+Newer versions append fields; a reader takes the ones it knows (version >= 1; the flags are
+read even when the frames don't fit; a v2 reader drops v3's links and opens the cells as they
+are, unlinked; a v3 reader drops v4's tags, a v4 reader v5's notes, a v5 reader v6's soundtrack). No frames and no layer flags = no chunk; a picture with
+a reference layer but no frames writes the chunk with frameW 0 / count 0. Every document path calls `ANIM_reset` first (gotcha 15). The re-slice / resize
+answer and playback are session state, not saved. Test: `QA/tests/file-anim-chunk.sh`
+(`QA/fixtures/png-chunk.py put|get` writes / reads chunks for fixtures).
+
+### drAx Chunk (drawer slots past the classic 30)
+
+2.8 raised `DRAWER_SLOT_COUNT` from 30 to 96 per mode **without a .draw version bump**: the
+drAw payload still holds exactly `DRAWER_FILE_SLOTS` (30) slots in every place it did (drawer
+state, gradient defs, stop types), and slots 31 .. last used ride in their own ancillary chunk
+`drAx`, written by `DRW_embed_chunk_in_png` only when a slot past 30 holds something. An older
+DRAW skips the chunk and opens the file with its 30 slots. Payload: `MKL$(raw size)` +
+`_DEFLATE$(raw)`, raw = `DRAWER_write_ext_draw`:
+
+```
+version (DRAWER_EXT_VERSION = 1), lastSlot,
+then per slot 31 .. lastSlot: brush image, pattern image, gradient image
+    (DRAWER_save_slot_image: hasImage -1/0, w, h, w*h _UNSIGNED LONG),
+    gradient record (DRAWER_put_grad_record = the .dset v2 per-slot record)
+```
+
+`DRW_load_from_png` reads it after `DRW_load_binary` (which emptied every slot) through
+`DRAWER_read_ext_draw`; a custom brush saved on a slot past 30 is set up there
+(`DRAWER_PENDING_CUSTOM`). A slot index past this build's `DRAWER_SLOT_COUNT` is read and dropped.
+
+**.dset** gets the same treatment: the classic 30 slot images (+ 30 gradient records in v2),
+then - only when a slot past 30 is used - `DSX1` (`DRAWER_EXT_MAGIC$`), lastSlot(2), per slot
+its image (+ its gradient record for a gradient set). An older DRAW stops reading after the
+30. Both readers (set cycling / defaults and the import dialog) go through
+`DRAWER_read_dset_slots`; the writer truncates first so a shorter set never keeps an old tail.
+Test: `QA/tests/drawer-slots.sh`, fixtures `QA/fixtures/make-drawer-fixtures.py`.
+
+### drAb Chunk / DSA1 block (AnimBrush bins, A4)
+
+A Drawer brush slot can hold an AnimBrush (`DRAW_BRUSH.CELS` = the cels side by side, `N`,
+`CW`, `CH`; `IMG` stays cel 1, so every older path - and an older DRAW - sees a one-picture
+brush). The cels ride outside every existing layout: a `.draw` gets an ancillary `drAb` chunk
+(`MKL$(raw size)` + `_DEFLATE$(raw)`, raw = `AB_drab$`: version(2) = `AB_DRAB_VERSION`, count(2),
+per slot: slot(2), n(2), cw(2), ch(2), the strip's BGRA bytes), read after drAx by
+`AB_read_drab` (which re-picks the custom brush from its slot so the AnimBrush comes back).
+A brush `.dset` gets `DSA1` (`AB_DSET_MAGIC$`) + the same count / slot records after the
+slots and any `DSX1` block (`AB_slots_write_dset` / `AB_slots_read_dset`, from
+`DRAWER_read_dset_slots`). Strips wider than 32767 px are not stored (the bin keeps one
+picture). Test: `QA/tests/animbrush-bin.sh` (fixtures made in the test).
+Names (2026-11-12): after the last slot record, in both DSA1 and drAb, an optional
+`ABN1` (`AB_NAMES_MAGIC$`) + count(2) + per name slot(2), length(2), the name (<= 32). Older
+DRAWs stop reading after the records, so no version bump; `AB_names_from_blob` reads it
+(`animbrush-hold-pickup.sh`).
+
+### drCl Chunk (clip layers, 2026-11-12)
+
+A clip layer (`LAYER_TYPE_CLIP` = 6, `TOOLS/CLIP`) is written into drAw as a plain IMAGE layer
+with the pixels it shows, so an older DRAW opens it baked. Its clip rides in an ancillary
+`drCl` chunk after drAb: `MKL$(raw size)` + `_DEFLATE$(raw)`, raw = `CLIP_chunk$`: version(2)
+= `CLIP_CHUNK_VERSION`, source count(2), per source: index(2), n(2), cw(2), ch(2),
+binSlot(2), name length(2), the name, the strip's BGRA bytes (n*cw x ch); then instance
+count(2), per instance whose layer exists: the layer's historyId(4) + the 20-byte
+`CLIP_inst_blob$` (src, in, out, start cel, every, mode, flipX, flipY, px, py, 2 bytes each).
+**Version 2** (phase 2 K7, 2026-11-12) appends the sound cues: count(2), per cue of a written
+source: source index(2), kind(2) (0 on cel, 1 when the clip starts, 2 each time it starts
+over), cel(2) (kind 0; else 0), path length(2), the path as picked (found later the way
+soundtrack files are: that path, else the same name beside the document). A version-1 reader
+stops after the instances, so an older DRAW keeps the clips and drops the sounds.
+**Version 3** (phase 3 keyframe lanes, 2026-11-12) appends the lanes: instance count(2), per
+written instance: layer historyId(4), blob length(4), then `CLIP_lanes_blob$`: tint colour(4),
+lane count(2), per lane with keys or a modulator: lane(2) (1 X .. 11 PAN), keys length(2) +
+the keys (8 bytes each: frame from In(2), value SINGLE(4), ease(2) 0 linear 1 in 2 out
+3 in-out 4 hold), modulator length(2) + the modulator (20 bytes: kind(2) 1 LFO 2 noise,
+shape(2), amount / period / phase SINGLE(4 each), seed(4); 0 bytes = none). A version-2 reader
+stops before them: the clips play without their moves (drAw still holds the moved pixels).
+Only sources an instance uses are written; nothing is written without a clip layer. `CLIP_read_chunk` (after `AB_read_drab` in `DRW_load_binary`)
+sets those layers back to CLIP and rebuilds them. Tests: `QA/tests/clip-layers.sh`, `clip-cues.sh`.
+
 ### Binary Project Data
 
 | Section         | Fields | Version |
@@ -29,7 +136,7 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 | Brush Shape     | shape(2) | v5+ |
 | Grid State      | mode(2), cellFill(2), snap(2), alignMode(2) | v6+ |
 | Unified History | stable layer ids + history records/payloads for replay/export | v7+ |
-| Drawer State    | visible(2), mode(2), miniPaletteOffset(2), selected slots(2 each), customBrushActive(2), 30 brush slots, 30 pattern slots, 30 gradient slots | v10+ |
+| Drawer State    | visible(2), mode(2), miniPaletteOffset(2), selected slots(2 each), customBrushActive(2), 30 brush slots, 30 pattern slots, 30 gradient slots (`DRAWER_FILE_SLOTS`; slots past 30 are in the `drAx` chunk) | v10+ |
 | Pattern Tile Mode | enabled(2) | v11+ |
 | Gradient Definitions | per-slot gradient defs, color stops, opacity stops | v12+ |
 | Gradient Stop Types | per-slot stop type arrays for gradient editors/export | v13+ |

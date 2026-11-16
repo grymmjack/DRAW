@@ -55,13 +55,14 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 13. [Transform · Move](#transform--move)
 14. [Image · Adjustments · Effects · CRT · AA](#image--adjustments--effects--crt--aa)
 15. [Panels · Docking](#panels--docking) · [Workspaces · Capture · Annotate](#workspaces--capture--annotate)
-16. [Audio · Music](#audio--music)
-17. [Drag & Drop · Image Import](#drag--drop--image-import)
-18. [Menu Bar · Command Palette](#menu-bar--command-palette)
-19. [Mouse Reference](#mouse-reference)
-20. [Hold-Key Chords](#hold-key-chords)
-21. [Command Line](#command-line)
-22. [Appendix: internal behaviors](#appendix-internal-behaviors)
+16. [Animation](#animation)
+17. [Audio · Music](#audio--music)
+18. [Drag & Drop · Image Import](#drag--drop--image-import)
+19. [Menu Bar · Command Palette](#menu-bar--command-palette)
+20. [Mouse Reference](#mouse-reference)
+21. [Hold-Key Chords](#hold-key-chords)
+22. [Command Line](#command-line)
+23. [Appendix: internal behaviors](#appendix-internal-behaviors)
 
 ---
 
@@ -91,7 +92,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+S` | Save (silent if previously saved; dialog if new). A `.png` saves back into itself with the layers inside; a GIF/BMP/JPG… writes a `.draw` beside it, or overwrites itself flattened when Settings → General → *Save .draw Beside Images* is off |
 | `Ctrl+Shift+S` | Save As (always prompts) |
 | `Ctrl+Alt+Shift+S` | Flatten & Save — write the merged image back to the document's own file, in its own format, no `.draw` (asks for a name only when there is no image file to write) |
-| `Ctrl+Alt+S` | Export selection as cropped image |
+| `Ctrl+Alt+S` | Export selection as cropped image (nothing selected: the marquee is picked, and the next selection made is exported; `Esc` cancels) |
 | `Ctrl+Shift+Q` | QB64 Code Export — re-export to last project path (no dialog) |
 | `Ctrl+Shift+E` | Export Again — repeat the last File → Export As (same format + file, no dialog) |
 | `Ctrl+Shift+P` | Capture Screen — grab the screen, pick a region, annotate it (also `DRAW --capture`) |
@@ -117,12 +118,13 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 
 | Keys | Action |
 |------|--------|
-| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo (`Ctrl+Shift+Z` also redoes) |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo (`Ctrl+Shift+Z` also redoes); hold to keep stepping through the history |
 | `Ctrl+C` | Copy selection |
 | `Ctrl+Shift+C` | Copy merged (all visible layers) |
 | `Ctrl+X` | Cut selection (copy + clear with BG) |
 | `Ctrl+V` | Paste centered on the canvas (floats as a Move selection) |
 | `Ctrl+Shift+V` | Paste from OS clipboard |
+| `Ctrl+Alt+V` | Paste in Place (where it was copied from; in the lightbox, the same spot in the current frame) |
 | `Ctrl+E` | Clear/erase selection (BG color, or transparent for wand selections) |
 | `Ctrl+Alt+C` | Copy to new layer |
 | `Ctrl+Alt+X` | Cut to new layer |
@@ -149,7 +151,8 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+Shift+M` | Toggle Advanced Color Picker panel |
 | — | Toggle 3D Color Space panel (View menu / command palette) |
 | `F10` | Toggle status bar |
-| `F11` | Toggle ALL UI (also hides/shows the Advanced Color Picker and 3D Color Space panels). Inside a workspace that hides things: show what it hid / hide it again |
+| `F11` | Toggle ALL UI: hides every panel and window (menu bar, toolbox, layers, bars, status / color strip, Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Animation, Swatches, Browser, Customize Toolbars); F11 again puts back exactly what was showing. Works the same inside a workspace |
+| `Shift+F11` | Inside a workspace that hides things: show what it hid / hide it again |
 | `Ctrl+Shift+W` | Workspace switcher (command palette filtered to `Workspace:`) |
 | `L-Drag` a docked panel's inner edge | Resize it: toolbox columns (1–8), edit/advanced bar columns (1–4), layers width (60–400 px). Saved to the active workspace, or `DRAW.cfg` in Default. **View → Workspace → Save Current Layout As…** saves the whole arrangement as a workspace |
 | `Alt+Enter` | Toggle fullscreen (also **View → Fullscreen** / command palette; live, no restart, persists across launches) |
@@ -157,7 +160,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+Shift+Up` | Hide/show menu bar (alt binding) |
 | `Ctrl+Shift+Down` | Hide/show status bar + color strip |
 | `Ctrl+Shift+Left` | Hide/show left-side UI (edit bar, layers) |
-| `Ctrl+Shift+L` | Lock / unlock the layout (View → Lock Layout): panels and floating windows can't be dragged, re-docked or resized — for drawing with a shaky tablet pen |
+| `Ctrl+Shift+L` | Lock / unlock the workspace (View → Lock Workspace): panels and floating windows can't be dragged, re-docked or resized — for drawing with a shaky tablet pen |
 | `Ctrl+Shift+Right` | Hide/show right-side UI (toolbar, organizer, drawer) |
 | `#` | Toggle canvas border |
 | `Shift` (hold) | Show crosshair while held |
@@ -174,13 +177,13 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Hold Z + 1…9` | Zoom preset 100 / 200 / 300 / 400 / 500 / 600 / 700 / 800 / 1600% |
 | `Hold Z + 0` | Zoom 3200% |
 | `Shift+Wheel` | Vertical pan |
-| `Shift+Arrows` (no selection) | Pan viewport |
+| `Shift+Arrows` (no selection, not the Move tool) | Pan viewport |
 | `M-Click + Drag` | Pan canvas |
 | `Space + L-Drag` | Pan canvas |
 | `Dbl M-Click` | Reset zoom & pan |
 
 **Zoom snap levels:** 25, 50, 100, 200, 300, 400, 500, 600, 700, 800%.
-**Display Scale (window size):** Settings (`Ctrl+,`) → Display → UI Scale (`0`=auto, `1`–`8`).
+**Display Scale (window size):** Settings (`Ctrl+,`) → Display → UI Scale (`0`=auto, `1`–`8`), or the command palette (`?`): Display Scale Up / Down / Reset.
 
 ---
 
@@ -197,9 +200,9 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `C` / `Shift+C` | Ellipse / Filled | Outline / filled |
 | `P` / `Shift+P` | Polygon / Filled | Outline / filled |
 | `Q` | Bezier | Cubic curves (drop anchors, drag handles) |
-| `F` | Fill | Flood fill (`Shift` samples merged canvas) |
+| `F` | Fill | Flood fill (`Shift` samples merged canvas; hold `W` / `G` / `F` + click fills on all layers) |
 | `K` | Spray | Spray paint |
-| `E` / `Hold E` | Eraser / temp Eraser | Tap = permanent; hold = while held |
+| `E` / `Hold E` | Eraser / temp Eraser | Tap = permanent; hold = while held. With Dot or Spray, Hold E keeps the tool and erases its way (one dot per click, the spray pattern) |
 | `I` | Picker | Eyedropper with loupe |
 | `M` | Marquee | Rectangular selection |
 | `W` | Magic Wand | Contiguous same-color select |
@@ -234,7 +237,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `→` / `←` | +/− column divider | +/− spoke | +/− radial spoke |
 | `↓` / `↑` | +/− row divider | +/− concentric ring | — |
 
-*(Rect up to 32/axis; Ellipse up to 16 spokes/rings; Line up to 16 spokes. Counts reset each drag.)*
+*(Rect up to 32/axis; Ellipse up to 16 spokes/rings; Line up to 16 spokes. Counts reset each drag. Hold an arrow to repeat it - every shape's arrow modifiers, Smart Shapes too.)*
 
 ### Angle snapping
 `Ctrl+Shift` (hold while dragging/clicking) snaps to angle increments **and** bypasses grid snap. Increment set by `ANGLE_SNAP_DEGREES` in `DRAW.cfg` (default 45° → 8 directions; also 30/15/90°). Applies to Line, Polygon, Polygon-Filled, and Brush/Dot `Shift`+R-Click connecting lines.
@@ -258,7 +261,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | — | Freehand / Polygon / Ellipse select (toolbar or command palette) |
 
 ### Marquee mouse
-`L-Drag` create · `Shift+Drag` add (union) · `Alt+Drag` subtract · drag corner/edge handle resize · drag inside move.
+`L-Drag` create · `Shift+Drag` add (union) · `Alt+Drag` subtract · drag corner/edge handle resize · drag inside move · `Click` away (no drag) deselects · hold `Space` while making any selection (rectangle, ellipse, freehand, polygon) to slide it without resizing; let go to carry on.
 
 ### Magic wand mouse
 `L-Click` select contiguous · `Shift+Click` add · `Alt+Click` subtract · `Hold E + Click` flood-erase to transparent · `Hold F + Click` flood-fill FG · `Hold W + Click` select from merged canvas.
@@ -304,7 +307,9 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `Ctrl+Alt+Shift+V` | Paste Layer as new layer |
 
 ### Layer panel mouse
-`L-Click` select · `Ctrl/Shift+L-Click` add/remove from multi-selection · `R-Click` select+rename · `Shift+R-Click` cycle blend mode · `Alt+L-Click eye` solo · `Click eye` toggle visibility · `Drag across eyes` swipe show/hide · `Click lock` opacity lock · `Click/Drag opacity bar` adjust · `Drag row` reorder · `Wheel` scroll list · `Wheel on opacity bar` adjust · `Esc` cancel drag · `Click triangle` collapse/expand group.
+`L-Click` select · `Ctrl/Shift+L-Click` add/remove from multi-selection · `R-Click` the layer menu · `Ctrl+L-Click thumbnail` selection from that layer · `Ctrl+Shift+L-Click thumbnail` add its pixels to the selection (already in: take them out) · `R-Click thumbnail` thumbnail size (Tiny / Small / Medium / Hide) and what it shows (Content / Canvas) · `Shift+R-Click` cycle blend mode · `Alt+L-Click eye` solo · `Click eye` toggle visibility · `Drag across eyes` swipe show/hide · `Click lock` opacity lock · `Click/Drag opacity bar` adjust · `Drag row` reorder · `Wheel` scroll list · `Wheel on opacity bar` adjust · `Esc` cancel drag · `Click triangle` collapse/expand group.
+
+**Layer bar** (under the title; right-click it: top / bottom / hide): `Click blend` the blend list · `Wheel on blend` next / previous mode · `Click eye` hide the visible layers / show them again · `Click lock` lock all but the current layer / unlock all · `Click/Drag/Wheel opacity` the current layer's opacity · `1`…`0` with the pointer on the opacity slider: the layer's opacity 10–100 % (elsewhere: the paint opacity).
 
 > 19 blend modes (Shift+R-Click a row to cycle). Groups have their own opacity/blend
 > (Pass-Through default) and can nest. Symbol layers link a parent to children (Layer
@@ -318,13 +323,13 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | Keys | Action |
 |------|--------|
 | `X` | Swap FG/BG (including transparency state) |
-| `Shift+Delete` | Set BG to transparent |
+| `Shift+Delete` | Set BG to transparent (then `X` = FG transparent; or click the status bar's X chip). A transparent color erases in every tool, and the live preview shows the checkerboard where it will erase |
 | `Ctrl+Alt+R` | Load a random palette |
 | `F1` / `F2` / `F3` | Drawer Brush / Gradient / Pattern mode |
 | `Shift+Tab` | Color cycling on/off (Palette → Cycle Colors; `[CYC]` in the status bar) |
 
 ### Palette strip mouse
-`L-Click swatch` set FG · `R-Click swatch` set BG (the FG/BG frames only mark a swatch that *is* the current color) · `Wheel` scroll · `Shift+Wheel` fast scroll (32) · `Click ◄/►` scroll · `Click palette name` switch-palette dropdown · letter keys (in picker) jump to palette.
+`L-Click swatch` set FG · `R-Click swatch` set BG (the FG/BG frames only mark a swatch that *is* the current color) · `R-Click blank strip area` (no color: the empty chip places, the gap left of the chips) → size menu: Max Rows (1–8) / Max Columns (16–256) / Chip Height / Chip Width (4–32), each a submenu - hover a row, click a value; applies at once, kept per workspace (`Esc` / a click elsewhere closes) · `Wheel` scroll · `Shift+Wheel` fast scroll (32) · `Click ◄/►` scroll · `Click palette name` switch-palette dropdown · letter keys (in picker) jump to palette.
 
 ### Status-bar swatches
 `Click FG swatch` / `Click BG swatch` → open color picker.
@@ -357,7 +362,10 @@ A swatch *is* its pixels: changing a swatch recolors every pixel of that color.
 | `Hold G + R` | Reset grid offset (0,0) |
 | `Hold G + Shift+R` | Reset grid size to theme default |
 | `Hold G + Ctrl+R` | Reset offset + size |
+| `R-Click` the organizer's grid button | **Visual grid adjust** (Deluxe Paint style): the grid shows, `L-Drag` one cell on the canvas → its size is the grid's width / height, its corner the grid's origin (live while dragging; the release keeps it). `Esc` puts the grid back |
 | `Ctrl+Shift` (hold) | Temporarily bypass grid snap |
+| `Ctrl+Alt+Shift+Wheel` | Grid, pixel grid **and** transparency checks opacity together (up = stronger, down = fainter; the checks fade toward one flat tone). This session only |
+| `Ctrl+Alt+Shift+M-Click` | Those three back to their configured opacity |
 
 *Cell Fill (View → Grid Cell Fill): Fill tool fills grid cells per geometry.*
 
@@ -371,7 +379,9 @@ A swatch *is* its pixels: changing a swatch recolors every pixel of that color.
 *Status: `SYM:0/1/2/3`. Works with all drawing tools.*
 
 ### Fill Adjustment mode (F8 with custom brush/paint mode)
-`Drag` reposition tile origin · `Wheel` scale uniform · corner handle scale XY · arm handles scale X/Y · rotation handle rotate · `Enter`/L-Click-outside apply · `Esc`/R-Click cancel.
+`Drag` reposition tile origin · `Wheel` scale uniform · corner handle scale XY · arm handles scale X/Y · rotation handle rotate (hold `Ctrl` = 15° steps) · `Enter`/L-Click-outside apply · `Esc`/R-Click cancel.
+
+The fill's own **dither** (the gradient itself is not changed): `D` tap → next dither (OFF → Ordered 2×2 / 4×4 / 8×8 / 16×16 → Random → Blue Noise → Clustered Dot → Halftone → Spiral → Interleaved Gradient → Floyd–Steinberg → Jarvis-Judice-Ninke → Stucki → Burkes → Sierra → Sierra Lite → Atkinson → False Floyd–Steinberg → Fan → Stevenson-Arce → Two-Row Sierra → Shiau-Fan → OFF) · `D`+`Wheel` → amount ±5% (`Shift` ±1%) · `D`+`Drag` → move the dither pattern · `D`+`Shift`+`1`–`9` → save a fill preset (dither, amount, offset, rotation, scale, origin) · `D`+`1`–`9` → recall it. Any gradient takes it, whether or not its slot has a dither of its own: a pixel dither between its stop colors (a gradient without stops is read as 5 stops along its strip) - and its opacity stops dither too: a fade to transparent is pixels there or not, never see-through ones, and the amount is how wide the dithered band between two stops is (100% = the whole span, 0% = a hard edge). The error diffusions (Floyd–Steinberg onward) pick between the same two stops but carry each pixel's miss on to the pixels after it instead of using a fixed pattern (the amount means the same; `D`+`Drag` does nothing for them). A pattern / brush fill is thinned instead (amount = how much of it stays; an error diffusion spreads the kept pixels evenly). Remembered in DRAW.cfg (`FILL_DITHER`, `FILL_PRESETS`) for the next fill and the next run. While a fill is adjusted, `D` is not the Dot tool and the digits under `D` are not opacity.
 
 ### Smart Guides
 View → Smart Guides (visibility) · Edit → Snap Smart Guides (snap).
@@ -468,14 +478,14 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 - **Last-effect shortcuts:** `Ctrl+F` re-apply last effect · `Ctrl+Alt+F` recall last effect (re-open its dialog) · `Ctrl+Shift+F` blend/fade last effect (blend modes + isolate-to-new-layer).
 - **CRT effect:** `Ctrl+Alt+O` toggle · View → CRT Effect Settings…
 - **Anti-Aliasing** (experimental, off by default): Edit → Anti-Aliasing toggle (status shows **AA**); Edit Bar Edge-Mode button (L-Click toggle, R-Click switch Pixel-Perfect ⟷ AA). Config `ANTIALIAS`.
-- **Crop tool:** `Click+Drag` region · handles resize (drag outward past an edge to *grow* the canvas) · `Arrows` nudge · `Ctrl+Arrows` resize · `Enter` apply · `Esc` cancel.
+- **Crop tool:** starts with no box: `Click+Drag` region · `Click` away clears the box · handles resize (drag outward past an edge to *grow* the canvas) · `Arrows` nudge · `Ctrl+Arrows` resize · `Enter` apply · `Esc` cancel · `Double-click` the Crop button trims the canvas to the artwork (visible layers) · **Image > Crop** boxes the whole image, zooming out first so its edges show · every crop undoes with `Ctrl+Z`.
 
 ---
 
 ## Panels · Docking
 
 ### Docking
-`Ctrl+Shift+Click` a panel → toggle dock side (left ↔ right). Panels: Toolbox, Layer Panel, Edit Bar, Advanced Bar, Character Map (View → Layout menu).
+Panels move by dragging their title / handle into the dock tree (left, right, stacks, tabs, floating). The old `Ctrl+Shift+Click` side swap and View → Layout menu were removed in favor of docking.
 
 **Arranging panels** — the *handle* is a panel's title strip, the layers header, or the thin grip that appears when you hover the top edge of the toolbox, organizer, drawer or a bar.
 
@@ -488,8 +498,8 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 | `L-Drag` the Browser's title to the top / bottom of the canvas | Dock it in a band along the top / bottom (drag the band's edge to resize it) |
 | `L-Click` the chevron / `Dbl-Click` a title strip | Collapse the slot to its title / expand it |
 | `L-Click` a collapsed title | Open it (on the tab you clicked) |
-| `R-Click` a handle | Move to Left / Right Edge · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement · Customize Buttons… (toolbox / bars) |
-| `L-Drag` a floating window's title bar onto a dock target | Dock it (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Browser) |
+| `R-Click` a handle | Move to Left / Right Edge · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement · Customize Buttons… (toolbox / bars) · Scale: Auto / 1x–4x (Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Swatches: the panel's own size; Auto = the UI Scale; also Settings → Panels → Panel Scale) |
+| `L-Drag` a floating window's title bar onto a dock target | Dock it (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Swatches, Browser) |
 | `Dbl-Click` a floating panel's title | Dock it back where it was |
 | `L-Drag` a floating panel's right / bottom edge or corner | Resize it (a floating bar adds icon columns as it widens). Floating bars have a slim grip strip instead of a title |
 | `R-Click` (while dragging) | Cancel the move |
@@ -518,10 +528,397 @@ Edits the toolbox, edit bar and advanced bar: any tool or command, in any order,
 Follow / Floating-Image modes (View → Preview Window). `Alt+Click` pick FG (CP enabled) · `Alt+R-Click` pick BG · `Wheel` zoom preview · drag title move · drag handle resize.
 
 ### Drawer panel
-`F1/F2/F3` Brush/Gradient/Pattern mode · `L-Click slot` select · `Shift+L-Click` store current · `R-Click` context menu · `M-Click` cycle mode · `Shift+M-Click` clear slot · `Shift+R-Click` import into slot · `L/R-Click mini palette` set FG/BG · `Wheel` over the bins switches `.dset` sets · `Shift+Wheel` over the bins scrolls them when a narrow drawer can't show every row.
+`F1/F2/F3` Brush/Gradient/Pattern mode · `L-Click slot` select · `Shift+L-Click` store current · `R-Click` context menu · `M-Click` cycle mode · `Shift+M-Click` clear slot · `Shift+R-Click` import into slot · `L/R-Click mini palette` set FG/BG (when it's on: Settings → Panels → Drawer) · `Wheel` over the bins switches `.dset` sets · `Shift+Wheel` over the bins scrolls them when a narrow drawer can't show every row · `Ctrl+Wheel` over the bins zooms them (up = fewer, bigger bins; down = more, smaller; R-Click → Bin Size: Auto resets).
 
 ### Color Mixer / Advanced Color Picker / Image Browser
-View → Color Mixer (RGB/HSV sliders, hex). **View → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. **View → 3D Color Space**: the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB — `L-Click`/drag the solid → set FG · `R-Drag`/`M-Drag` (or `L-Drag` off the solid) spin · `Wheel` zoom · SOLID/CLOUD · SLICE + slider cut at a lightness. **Palette → Generate OKLCh Ramp from FG** makes an even dark→light palette (Settings → Panels → Color Blending + Ramps). **Brush → Mix Colors (Pigment)** makes the brush pick up and smear the colors it crosses, mixing like wet paint (blue through yellow = green; Smudge / Smudge Length / Smudge Radius in Settings); **Palette → Generate Pigment Mix FG > BG** makes a paint-mixed FG→BG palette. View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Dbl-Click title` maximize. **Floating windows** (Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Image Browser, Preview, Customize Toolbars): drag a title bar to move. `Click` any floating window or floating panel to bring it to the front. With View → Snap Panel Edges on (default), edges snap to other floating windows and to the surrounding chrome and windows don't overlap; hold one still against a snap ~1.5 s to drop it on top. Off, they move freely.
+View → Color Mixer (RGB/HSV sliders, hex). **View → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. **View → 3D Color Space**: the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB — `L-Click`/drag the solid → set FG · `R-Drag`/`M-Drag` (or `L-Drag` off the solid) spin · `Wheel` zoom · SOLID/CLOUD · SLICE + slider cut at a lightness. **Palette → Generate OKLCh Ramp from FG** makes an even dark→light palette (Settings → Panels → Color Blending + Ramps). **Brush → Mix Colors (Pigment)** makes the brush pick up and smear the colors it crosses, mixing like wet paint (blue through yellow = green; Smudge / Smudge Length / Smudge Radius in Settings); **Palette → Generate Pigment Mix FG > BG** makes a paint-mixed FG→BG palette. View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Back` / `Forward` mouse buttons (pointer on it) back / forward through the folders visited · `Dbl-Click title` maximize. Its preview pane shows `.draw` files and plays animations (an animated GIF / APNG, a PNG or `.draw` with frames — at their own delays, fps and holds): `Click` the play / pause box · `Click` / `Drag` the seek track to jump / scrub (the Open dialog's preview too). **Floating windows** (Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Swatches, Image Browser, Preview, Customize Toolbars): drag a title bar to move. `Click` any floating window or floating panel to bring it to the front. With View → Snap Panel Edges on (default), edges snap to other floating windows and to the surrounding chrome and windows don't overlap; hold one still against a snap ~1.5 s to drop it on top. Off, they move freely.
+
+### Swatches panel (View → Swatches)
+A grid of swatches from a swatch set, beside the palette strip (which stays the document palette). `L-Click` a swatch → select it + FG · `Shift+L-Click` → select the range · `Ctrl+L-Click` → toggle it in the selection · `L-Drag` a selected swatch → move the selection there (a bar marks the drop; locked swatches stay) · `Ctrl+L-Drag` → copy it there · `L-Drag` selected swatches onto the palette strip → insert them after the chip under the pointer (past the last chip = at the end; colors the strip has are skipped; `Ctrl+Z` over the canvas undoes) · `Dbl L-Click` a swatch → edit its color (dialog) · one swatch selected: the Color Mixer / Advanced Color Picker / 3D Color Space change it live (gear → Color Panels Edit the Selected) · `L-Drag` from an empty place → box select (`Ctrl+L-Drag` adds; dragging past the grid scrolls) · `Ctrl+A` / `Ctrl+D` or `Esc` with the pointer on the panel → select all / none · `Ins` → add the FG after the selection · `Shift+Ins` → overwrite the selected swatches with the FG in place (nothing moves; an empty cell becomes a color; locked swatches stay) — edit menu ☐ Ins Overwrites swaps the two · `Del` → delete the selected swatches (locked stay) · `L` → lock / unlock the selected (over the canvas `L` stays the Line tool) · `F` → Find FG: select the FG's swatch, else the nearest (OKLab), and scroll to it (over the canvas `F` stays the Fill tool) · `Ctrl+Z` / `Ctrl+Y` → undo / redo swatch edits (the first edit of a set that isn't yours saves a copy in My Swatches; every edit saves) · `R-Click` → BG · `Wheel` scroll · drag the scroll bar · `L-Drag` the corner grip (floating) → resize. `Click` ☰ or `Shift+R-Click` the grid → the edit menu (Steps, Sort Hue / Light / Sat / Luma / Rev, Add FG Color, Overwrite with FG, Ins Overwrites, Delete, Lock / Unlock, Duplicate, Edit Color…, Rename…, Find FG Color, Insert Empty Cell, Insert Row Break, Remove Duplicates, Ramp First > Last, Insert Ramp FG > BG, Insert OKLCh Ramp from FG, Selected (All) to Strip: Replace / Add, Load…, Save As…, New Set from Strip, New Set from Image (Selection), Lospec…, Select All / None, Undo / Redo; Shift+R-Click on an unselected swatch selects it alone) · `Click` the set name → the set list (Document Palette, My Swatches, the shipped swatch sets, every palette) · recent colors row (gear): `L-Click` → FG, `R-Click` → BG · `Click` the gear → View (GRID / LIST: swatch + hex + name rows), Columns (SET / FIT / 8–32), Cell, Gap, Stretch to width, Square cells, Cell borders, Recent colors row, Clear Recent Colors, Black filler = empty cells, Load Swatches…, Open My Swatches Folder · `Esc` closes either list. Load Swatches… reads `.aco` `.ase` `.gpl` `.act` `.pal` `.hex` `.txt` `.png` and saves a `.gpl` copy in My Swatches (the original is never written); Save As… writes `.gpl` `.aco` `.ase` `.act` `.pal` `.hex` `.txt` `.png`. Actions: 2600 toggle · 2601 Load Swatches… · 2602 Open My Swatches Folder · 2603 Save Swatches As… · 2604 Swatches to Palette Strip (Replace) · 2605 Add Swatches to Palette Strip · 2606 New Swatch Set from Palette Strip · 2607 New Swatch Set from Image / Selection · 2608 Swatches from Lospec… · 2609 Clear Recent Colors (Swatches).
+
+---
+
+## Animation
+
+A sheet with frames (a `.draw` or PNG carrying the frame layout, or a picture you add a
+frame to) is a **sprite sheet**: frame N is the Nth cell in reading order and every
+tool works on the sheet as usual. The numpad keys need a numpad; with Num Lock on or
+off they are frame keys, not digits, only while the sheet has frames (on a plain
+picture only `Num +` is). The `Alt` keys are for keyboards without a numpad.
+
+**File → New Animation...** starts one from scratch: type the frame size and how many frames -
+`32x32 8`, add `@12` for 12 FPS - and you get a new document whose canvas is a sheet of that
+many blank frames, as square as it fits. On a plain picture the ANIM menu greys out everything
+that needs frames; only the ways in stay: Animation Panel, Add Frame, Add Blank Frame, Detect
+Frames, Create Frames from Grid, Import PNG Sequence. The frame settings (Frame Grid, Preview
+Shows Frame, Onion Skin Tint, Clip Strokes...) show unchecked there and come back once there are frames.
+
+| Key | Action |
+|-----|--------|
+| `Num 1` / `Alt+Home` | First frame |
+| `Num 4` / `Alt+,` | Previous frame (wraps to the last) |
+| `Num 5` / `Alt+.` | Next frame (wraps to the first) |
+| `Num 9` / `Alt+End` | Last frame |
+| `Num Enter` / `Alt+/` | Play / stop (FPS, holds, loop mode); drawing is blocked while playing |
+| `Num +` | Add a frame: a copy of the last one (on a plain picture: the picture becomes frame 1, frame 2 goes beside it) |
+| `Shift+Num +` | Add a blank frame |
+| `Num 0` | Lightbox on / off (below) |
+| `Num *` | Lightbox panes: 3 → 5 → 7 |
+| `Num 8` | X-sheet on / off: the lightbox's top band shows frames × layers (opens the lightbox from sheet view) |
+| `Num /` | Onion skin on / off (in the lightbox) |
+| `Num .` | Full-screen Preview: the frames playing over the whole window. Inside: `Space` / `Num Enter` play · pause, `←` / `→` step, `Home` / `End` first / last, click / drag the seek bar to scrub, `Wheel` zoom, double `M-Click` 100%, `M-Drag` pan, `Esc` / `Num .` close on the frame shown |
+| `Ctrl+Z` / `Ctrl+Y` | Every frame operation, frame size / gutter / margin and FPS / hold change is one undo step |
+
+Main-row digits keep setting opacity; `Alt+Home` / `Alt+End` no longer flip.
+
+**ANIM menu** (since the personas work it fits on one screen: the everyday items on top, the
+rest in flyouts):
+
+- **Top level:** Animation Panel · First / Previous / Next / Last Frame · Play · AnimPaint ·
+  Soundtrack... (a WAV / OGG / MP3 / FLAC / MIDI that plays with the frames; see Soundtrack
+  below) · Remove Soundtrack · Full-Screen Preview.
+- **Frames ›** Add Frame · Add Blank Frame · Insert Frame Before / After · Duplicate Frame ·
+  Delete Frame | Move Frame Earlier / Later · Reverse Frames | Copy Frames · Cut Frames ·
+  Paste Frames as New · Paste Frames Over · Replace FG Color with BG in Frames.
+- **Set Up ›** Frame Grid · Detect Frames (a sprite sheet without frames: finds the frame grid
+  from the gaps between the sprites - frame size, gutter, margin - and slices it there) ·
+  Create Frames from Grid · Import PNG Sequence... (pick any file of name_0001.png,
+  name_0002.png ...: they all come in as frames, a repeated file as a held frame) |
+  Reference Layer (the current layer: shown, left out of every export; `[R]` in the layers
+  panel) · Layer Same on Every Frame (the current layer's drawing on every frame - draw in any
+  frame and it lands on all of them; `[=]`) · Link Cells (the current layer: with frames
+  selected, their cells all show the first selected frame's drawing; with one frame, it links
+  to the frame before. Paint any linked cell and the others change with it; linked cells are
+  hatched in sheet view and the X-sheet) · Unlink Cells (the selected frames' cells keep their
+  pixels and stop following) | Tag Frames... (name the selected frames; see Tags below) ·
+  Delete Tag · Frame Note... (the current frame's note; see Frame notes below) · Clear Frame
+  Note.
+- **View ›** Lightbox · Lightbox Panes 1 / 3 / 5 / 7 · X-Sheet · Big Frame + X-Sheet | Onion
+  Skin · Onion Skin Red / Blue Tint · Preview Shows Frame | Clip Strokes to the Frame in the
+  Lightbox · Clip Strokes to the Frame in Sheet View.
+- **AnimBrush ›**, **Move Brush ›** - see AnimBrush and Move Brush below.
+- **Clip Layer ›**, **Clip Lanes ›**, **Clip Sounds ›** - see Clip layers below (greyed with
+  one frame).
+- **Export ›** Animated GIF... (frames in loop order, holds, transparency, colour cycling) ·
+  Animated PNG (APNG)... (exact delays, every alpha level) · PNG Sequence... (one PNG per tick
+  at the FPS) · Sprite Sheet + Frame Data... (the sheet PNG + Aseprite-style JSON + a QB64 .bi
+  of the frame rects) | BAS Player (DATA)... (a QB64 program that plays the frames, colour
+  cycling along) · BAS Player + Sheet PNG... (the same, the frames cut out of a PNG beside
+  it) | Export Scale 1× / 2× / 4×.
+
+A marquee or wand selection inside the current frame moves with it to the next frame (same
+place in the cell). (Also View → Frame Grid
+and View → Animation Panel; every item is in the command palette.)
+
+### Animation panel (View / ANIM → Animation Panel)
+| Control | Action |
+|---------|--------|
+| `\|<` `<` `PLAY` `>` `>\|` | First / previous / play-stop / next / last frame |
+| `ADD` `DUP` `INS` `DEL` | Add (a copy of the last; `Shift+click` = blank), duplicate, insert a blank after, delete the current frame |
+| `-` / `+` on a row | Step frame W / H, gutter, margin, FPS, the current frame's hold. `Shift+click` = 10 at a time; hold the button to repeat (one undo step) |
+| A row's number | Wheel = +/- 1 (`Shift` = 10) · drag up / down = step it · click = type it · middle click = back to its default (gutter / margin 0, FPS 15, hold 1, onion 1 / 1 / 40 %). Works on the onion BEFORE / AFTER / OPACITY rows too |
+| `RE-SLICE` / `RESIZE` | What a frame size change does to a drawn sheet: the grid moves over the pixels, or the frames resize and each drawing stays in its frame (the canvas refits). Asked on the first change, then remembered for the document |
+| `FWD` `REV` `PING` `ONCE` | Loop mode: forward, backward, ping-pong, play once |
+| SCALE `1X` `2X` `4X` | The export scale (the lit one is current; same as ANIM → Export → Export Scale) |
+| EXPORT `GIF` `APNG` `BAS` | Export an animated GIF / animated PNG / BAS player (ANIM → Export ...) |
+
+The panel docks and floats like the other windows (drag its title bar; F11 hides it).
+
+### Lightbox (ANIM → View → Lightbox, `Num 0`)
+The **Animate** workspace (`Ctrl+Shift+W`, `anim`) opens it with onion skin, the frame grid and the Animation panel; leaving it puts your own view back.
+
+The work area shows the frames instead of the sheet: a **strip** of frames along the top
+(the current one outlined; it scrolls to keep it in view), the **transport bar**, and 1 / 3 / 5 / 7
+**panes** (`Num *`) with the current frame in the middle and the frames before / after it
+round it. **One pane** is the big frame: the current frame alone fills the area, zoomed and
+panned like any pane (`Ctrl+wheel`, the Zoom tool) - for a large picture, or compositing in one
+spot the way Deluxe Paint animates. **ANIM → View → Big Frame + X-Sheet** switches straight to one pane
+with the X-sheet above it (again = back to 3 panes). You can draw in any pane: the one your stroke goes into (under the pointer) has a
+thick magenta ring with a dashed edge (theme `ANIM_FRAME_DRAWING`). The frame keys, Play and frame operations work as in sheet view. A floating window
+parked on the work area's left or right edge over the strip (a Color Mixer, say) moves the
+lightbox over beside it.
+
+| Transport bar | Action |
+|---------------|--------|
+| `\|<` `<` `PLAY` `>` `>\|` | First / previous / play-stop / next / last frame |
+| `FWD` / `REV` / `PING` / `ONCE` | Click for a menu of the loop modes |
+| time | Where the current frame comes up / the whole animation |
+| `- FPS +` | Click `-` / `+` to step the FPS (`Shift+click` = 10), or wheel over it; each change undoes on its own |
+| seek bar | Click or drag along it to scrub frames |
+| `n/total` | Click and type: `5` goes to frame 5, `5/20` makes 20 frames and goes to 5, `/20` only sets the total. `Enter` applies, `Esc` cancels. A smaller total that would drop drawn frames asks first (`Enter` = drop, `Esc` = keep); always undoable |
+| `+` | Add a frame (a copy of the last; `Shift+click` = blank) |
+
+**Draw in any pane** with any tool: it paints that frame. A stroke stays inside its frame
+(ANIM → View → Clip Strokes to the Frame in the Lightbox, on by default; turn it off to run over the
+edge). ANIM → View → Clip Strokes to the Frame in Sheet View does the same on the sheet (off by
+default). Zooming and panning stay with the sheet view.
+
+| Strip | Action |
+|-------|--------|
+| Click a frame | Make it current (and the only one selected) |
+| `Ctrl+click` | Add / remove a frame from the selection |
+| `Shift+click` | Select the frames from the last one clicked to this one (`Ctrl+Shift` adds them) |
+| Drag | Move the selected frames (or the frame dragged) to where you drop them - one undo step |
+| Wheel | Scroll the strip (a tray: a row at a time); a frame change brings the current frame back into view |
+| `Ctrl+Wheel` | Bigger / smaller cells (Settings → Panels → Lightbox Strip → Cell Size) |
+| `R-Click` | The strip's menu: **Tray** (across, then down) or **Row** (across only), Fit Cells, Bigger / Smaller Cells |
+| Drag the strip's bottom edge | Make the strip taller or shorter (the panes get the rest); the frames grow with it |
+| Double-click the strip's bottom edge | Fit the cells again, and grow the strip until every frame shows (a row: every frame across) |
+
+The strip is a **tray** by default, like an ice cube tray: it lays the frames across, then down
+in rows, with the biggest cells that still show every frame. Cells shrink no smaller than
+**Min Cell** (32 px; Settings → Panels → Lightbox Strip); past that, the strip scrolls a row at
+a time. **Row** puts the frames in one row as tall as the strip, as before. While dragging frames
+in a tray, move above or below the strip to scroll it a row.
+
+With two or more frames selected, Play (`Num Enter`) plays just those (first to last).
+
+**X-sheet** (`Num 8`, ANIM → View → X-Sheet, or the transport bar's `X-SHEET`): the strip becomes a
+grid of frames across and layers down, top layer first as in the Layers panel. Each column is
+one tick at the FPS, so a frame held 3 spans three columns; the header numbers the frames and
+the bottom row gives each one's hold. A cell shows that layer's drawing in that frame, with a
+line along the rest of its hold; a blank cell has nothing drawn. The current frame's column is
+tinted, the current layer's row highlighted; hidden layers are dim, `R` marks a reference
+layer, `=` a layer the same on every frame. Cells show what's drawn in them zoomed in, as the
+Layers panel thumbnails do (Settings → Panels → Thumbnail Shows / Min Crop). A name too long
+for its column ends in `~`; hover it for the whole name.
+
+| X-sheet | Action |
+|---------|--------|
+| Click a cell | That frame and that layer become current (`Ctrl` / `Shift` select frames as in the strip) |
+| Click a frame number or a hold | That frame (`Ctrl` / `Shift` as in the strip) |
+| Click a layer name | That layer |
+| Wheel | Scroll the frames; `Shift+Wheel` (or the wheel over the names) scrolls the layers when they don't all fit |
+| Drag along the hold row | Change that frame's hold, one tick per column dragged (at least 1) |
+| Drag a cell | Move its drawing to the cell you drop it on - another frame, another layer, or both; the drawing there is replaced. Hold `Ctrl` as you let go to copy it instead |
+| Drag a frame number | Move the selected frames (or that one) to where you drop them, as in the strip |
+| `Shift` + drag a cell (same row) | Link the cell you drop it on to the dragged cell's drawing (hatched; painting either changes both) |
+| Drag the name column's right edge | Widen / narrow the layer names (double-click it: automatic) |
+| Drag the X-sheet's bottom edge | More X-sheet, less panes or the other way (double-click it: automatic) |
+| Drag the slider in the header's `LAYER` cell | Zoom the time line: left = every frame fits across, right = the default (a thumbnail per tick). Double-click it for the default. Shown only when the frames don't all fit |
+| `Ctrl+Wheel` over the grid | Zoom the time line in / out around the frame under the pointer |
+| `Ctrl+Shift+Wheel` | Layer rows' size: Text → Tiny → Small → Medium (thumbnails as in the Layers panel) |
+| `R-Click` the header (frame numbers) | Zoom to Fit All Frames, Default Size, Zoom In / Out, Layer Rows: Text / Tiny / Small / Medium |
+| `<` / `>` on the TAGS row | Go to the previous / next tag (selects its frames) |
+| `R-Click` the TAGS row | Every tag listed at the top (with its frames): pick one to go to it; then Tag / Rename / Delete Tag and the frame notes |
+
+Each drag is one undo step. Dragging past the left or right edge scrolls the grid.
+
+The X-sheet is drawn to time: a frame is as wide as its hold, so a long animation with long holds
+(60 frames held 24 ticks each) shows only a few frames at the default size. Zoom out with the
+header's slider or `Ctrl+Wheel` to see them all; zoomed far out, a drawn cell shows as a bar
+instead of a thumbnail. Settings → Panels → Lightbox Strip / X-Sheet → X-Sheet Rows sets the
+size of the layer rows and the SOUND rows. In Text and Tiny rows a sound clip's name sits over its
+waveform. In Small and Medium rows the name is on the first line, with a taller waveform under it.
+
+**Opening an animated GIF** gives you its frames on a sheet: each frame as a browser shows it, the delays as the FPS and holds, looping as the GIF does. With Save .draw Beside Images off, Ctrl+S writes it back as an animated GIF.
+
+**Opening a sprite sheet PNG with its frame data beside it** (`name.json` from Aseprite's Export Sprite Sheet, TexturePacker or DRAW's own Export Sprite Sheet) gives you its frames: a regular grid is sliced where it is, a packed atlas (trimmed or rotated sprites) is laid out again on a grid; durations become the FPS and holds, tags become tags. Without a .json, ANIM → Set Up → Detect Frames finds the grid.
+
+**Opening an Aseprite file with two or more frames** does the same: every layer keeps its own cels, one per frame cell; the frame durations become the FPS and holds, Aseprite's tags become tags, and linked cels become linked cells. A tag over all the frames sets the loop (reverse or ping-pong).
+
+**Tags** name a run of frames - "walk", "jump". Select the frames (strip or X-sheet), then
+ANIM → Set Up → Tag Frames... and type a name (a name you already used moves that tag). Once a document
+has tags, the X-sheet shows a TAGS row under HOLD: click a tag to select its frames, then Play
+plays just that tag, and Export Animated GIF / APNG / PNG Sequence / BAS Player write just its
+frames. The sprite sheet export keeps every frame and lists the tags in its JSON and .bi. With a
+tag selected, Tag Frames... renames it; ANIM → Set Up → Delete Tag removes it. Tags move with their
+frames when you add, delete or move frames, and are saved with the document.
+
+**Frame notes** are a line of text per frame - "foot down", "ka-" - like the action column of a
+paper X-sheet. ANIM → Set Up → Frame Note... writes the current frame's note; once any frame has one, the
+X-sheet shows a NOTES row (each note runs from its frame to the next note). Click a note to go to
+its frame (the full note shows on the status bar); double-click anywhere on the row to write or
+change that frame's note. ANIM → Set Up → Clear Frame Note removes the selected frames' notes. Notes move
+with their frames and are saved with the document.
+
+**Soundtrack**: ANIM → Soundtrack... picks a sound (WAV, OGG, MP3, FLAC, MIDI ...) that plays with
+the frames. Each frame starts at its place in the sound (the frames before it, their holds, at
+the FPS), so playing from any frame plays the sound from there, and the loop back to frame 1
+starts it again. Stepping frames while stopped plays just that frame's bit of the sound (a
+scrub), as do the full-screen preview's steps. The X-sheet shows a SOUND row with the waveform
+under the frames it plays over (24-bit WAVs too: DRAW reads those itself); click it to go to a frame and hear it. The soundtrack is saved
+with the document (by its path; a sound moved along with the document is found beside it), and
+Export BAS Player copies it beside the program as NAME-sound.EXT and plays it in step. ANIM →
+Remove Soundtrack takes it off (one undo step). The volume is `ANIM_SOUND_VOLUME` in DRAW.cfg
+(0-100).
+
+**Sound clips and tracks**: the soundtrack can be several sounds on up to 4 tracks (SOUND 1-4
+rows on the X-sheet), mixed as they play. ANIM → Soundtrack... with sound already there adds the
+picked files on a new track from the current frame; pick several files at once and they go one
+after another. On a SOUND row: click a clip to pick it (outlined; the rows now have the keys) and
+drag it to move it - it snaps to frame starts (Shift = anywhere), and dragging it onto another
+SOUND row puts it on that track. **Ctrl+C / Ctrl+X / Delete** copy / cut / delete the picked
+clip, or, with several frames selected (Shift+click), just that span of the track's sound - the
+sound after it stays where it is. **Ctrl+V** pastes at the current frame, over what is there.
+**Esc** or a click elsewhere gives the keys back. Right-click a SOUND row for Add Sound Here... ·
+Add Sound on a New Track... · Copy / Cut / Paste Here / Delete · Split Here · Remove Soundtrack.
+Every change is one undo step. Hover a clip for its file and times. Export BAS Player writes the
+mix beside the program as NAME-sound.wav (a single sound that plays from frame 1 to its end is
+still copied as it is).
+
+**Dropping sound files, empty tracks**: every animation's X-sheet has a SOUND row; an empty one
+says "drop a sound file here, or right-click" and is silence (nothing is played, saved or
+exported). Drop a sound file (wav, ogg, mp3, flac, mid, mod, xm, it, s3m) from your file manager
+onto a SOUND row and it goes on that track from the frame under the pointer; dropped anywhere
+else it goes on a new track from the current frame. Right-click a SOUND row → **Add Empty Track**
+for another silent row to drop or paste onto (up to 4), **Remove Track** to take one away with its
+clips (the tracks under it move up). Each drop / removal is one undo step.
+
+**COPY / PASTE / CUT** (the transport bar, or the ANIM menu): COPY puts the selected frames
+(or the current one) on the clipboard; PASTE inserts them as new frames after the selection;
+`Shift`+PASTE pastes over the frames from the first selected one (adding frames past the end);
+CUT copies then deletes them. Each is one undo step, the pasted frames end up selected, and
+another DRAW window can paste them too. Elsewhere in the lightbox a click only works the
+transport bar.
+
+**Onion skin** (`Num /`, ANIM → View → Onion Skin, on by default): the current pane shows the frames
+before it (red) and after it (blue) faintly over its picture, so you can draw the in-between.
+Only what differs from the current frame shows - a solid background stays clear. Set how many
+frames each side (BEFORE / AFTER, 0-5) and how strong (OPACITY) in the Animation panel; ANIM →
+Onion Skin Red / Blue Tint shows them in their own colours instead. Hidden while playing.
+
+**Apply to the selected frames** (in the lightbox): with frames selected in the strip (or just
+the current one), Flip (`Home` / `End`), Rotate (`>` / `<`, square frames), the IMAGE / EFFECTS
+adjustments and Remap to Palette change only those frames, each frame flipped / turned in its own
+cell. The Move tool dragged in a pane moves the drawing of every selected frame. ANIM → Frames → Replace
+FG Color with BG in Frames swaps a colour in them (sheet view too). Each is one undo step.
+
+**The current frame is the canvas** (in the lightbox): Layer → Align / Distribute line the
+drawing up with its frame's edges (each selected frame on its own); with several layers selected
+they line up with each other inside the frame. Smart guides snap to the frame's edges and centre
+and to the other layers' drawing in that frame - also while the Move tool drags in a pane. The
+Transform tool takes only the current frame's drawing and keeps the result inside that frame. Select
+All (`Ctrl+A`) selects the current frame, and Invert Selection stays inside it. Copy / Cut / Copy
+Merged with nothing selected take only the current frame; Paste centres on it (and stays inside
+it). Symmetry mirrors about the centre of the frame you draw in. A dropped or imported image is
+sized against the frame and placed in it; what spills past the frame's edges is cut off. Scale
+2x / -50% (`PgUp` / `PgDn`) and 2x H / 2x V (`Ctrl+Home` / `Ctrl+End`) with nothing selected scale
+each selected frame about its own centre (cut off at its edges). Fill, global fill and the Magic Wand stop
+at the edges of the frame you click in. Select From Current Layer / Selected Layers take only the
+current frame's pixels; a marquee stops at the edges of the frame the drag began in; a moved
+selection or paste is cut off at the frame's edges when it lands (with clip to frame on). New
+Text Layer starts at the frame's centre, and text wraps at the frame's right edge. Centred
+effects (Twirl, Pinch / Bulge, Kaleidoscope, Lens Flare, Backlight, Ripples, Grid, Lightning,
+the typed blurs) work on each selected frame as its own picture, centred on it; their preview
+shows the current frame. A fill with a drawer gradient, and drawer image paint, span the frame
+painted in. Edit → Paste in Place puts what was copied in one frame at the same spot in the
+current frame. The Pixel Analyzer looks at the current frame; AI New Layer defaults to the
+frame's size and place; a new reference image fits the frame. Crop Canvas is refused (it would cut
+every frame) - change the frame size with RESIZE in the Animation panel.
+
+### AnimBrush (ANIM → AnimBrush)
+
+An AnimBrush is a custom brush with one picture (a **cel**) per frame - pick up a walk cycle
+and paint with it.
+
+| Trigger | Action |
+|---------|--------|
+| ANIM → AnimBrush → **Pick Up** | Select an area inside a frame first. Takes that same spot from each frame's cell on the **current layer** (gutters and margins skipped) and makes the cels; the tool becomes the Brush. Frames: the ones selected in the strip / X-sheet (a clicked tag selects its span - the brush is then named after the tag), else every frame |
+| Hold `B` + make a selection (any selection tool) | Picks it up as you finish the selection: an AnimBrush when the picture has 2+ frames (as Pick Up), else a plain brush (as `Ctrl+B`); the tool becomes the Brush. A tap of `B` with a selection tool still switches to the Brush (on release). The key follows the Brush tool's binding |
+| ANIM → AnimBrush → **Pick Up Merged** | The same from every visible layer |
+| ANIM → AnimBrush → **Load…** | An AnimBrush from an animated GIF / APNG, a PNG or .draw with frames, or a strip (a row / column of squares); cels cropped to what is drawn. Dropping such a file on a Drawer bin puts it in that bin |
+| `Ctrl+B` (with an AnimBrush) | Drops it, cels and all. `Ctrl+B` over a selection is always a plain one-picture brush |
+| `Alt+]` / `Alt+[` | Next / previous cel |
+| `Alt+\` | Back to cel 1 (following the frame: the current frame gets cel 1) |
+| ANIM → AnimBrush → **Step: Cel Follows Frame** (default) | A stamp on frame f uses that frame's cel: stamp the same spot on each frame and it plays. The frame you picked up from gets cel 1 |
+| ANIM → AnimBrush → **Step: Next Cel Each Click** | Each press uses the next cel (Deluxe Paint). A picture without frames always steps this way |
+| ANIM → AnimBrush → **Step: Every Frame at Once** | One press stamps every frame with its own cel, each cut at its cell's edge - one undo step |
+| ANIM → AnimBrush → **Order: Forward / Reverse / Ping-Pong / Once** | How the cels run (Once holds the last cel) |
+| `>` / `<`, `Ctrl+Home` / `Ctrl+End`, `Shift+O` (with an AnimBrush) | Rotate 90° / Scale 2x / Outline change **every** cel; Flip (`Home` / `End`), Scale (`PgUp` / `PgDn`) and Recolor (`F9`) apply to whichever cel a stamp uses |
+| `E` Eraser (with an AnimBrush) | Erases each frame's own cel shape; with Every Frame at Once, the whole animation in one press |
+| `Shift`+click a Drawer bin (with an AnimBrush) | Stores every cel; the bin shows a film-strip badge with the cel count and plays while hovered (the Preview's Quick Look too). Click the bin: the AnimBrush comes back. Saved in .dset and .draw |
+
+Which frames: the frames selected in the strip (two or more, Ctrl+click), else from the frame
+the selection is in to the last. The selection's shape (ellipse, lasso, magic wand) is kept in
+every cel, and the BG color is clear, as with `Ctrl+B`. Between presses the brush under the
+pointer is the cel the next stamp uses; the status bar reads e.g. `ANIMBRUSH 3/8 FOLLOWS FRAME`
+(that cel / how many, the step mode, the order when it is not forward). Pattern / Gradient Mode put the AnimBrush away with
+the custom brush and Color Mode brings it back with its cels.
+
+### Move Brush (ANIM → Move Brush)
+
+Stamps the brush once per frame along a path you drag - a ball that rolls across the frames, a
+bird that flies through them. Works with a plain brush or an AnimBrush.
+
+| Shortcut / Menu | Action |
+| --- | --- |
+| ANIM → Move Brush → **Start** | Turns the mode on (needs frames and a brush; Start again cancels). The status bar reads `MOVE BRUSH` |
+| Drag on the canvas (in the mode) | Sets the path, from the press to the release, in the frame you drag in (a lightbox pane works too). A ghost of every stamp shows along it, with a dot for each frame. Drag again to redo it. No tool draws while the mode is on |
+| `Enter` / ANIM → Move Brush → **Apply** | Stamps the brush once in each frame of the range, each in its own cell at the same spot relative to the cell: the first frame at the start of the path, the last at its end. One undo step |
+| `Esc` / ANIM → Move Brush → **Cancel** | Leaves the mode; nothing is stamped |
+| ANIM → Move Brush → **Ease: None / In / Out / In-Out** | How the stamps are spaced: evenly, slow then fast, fast then slow, slow at both ends |
+| ANIM → Move Brush → **Next Cel Every Frame / 2 / 3 / 4** | An AnimBrush moves on one cel each frame, or every 2, 3 or 4 frames (in its order) |
+| ANIM → Move Brush → **Apply as Clip** | Instead of stamping: a clip layer that plays the brush over the move's frames, the move in its keyframe lanes (straight path = two keys with the ease, drawn = a key per frame; size / opacity / tint / turn Z too). One undo step |
+
+Which frames: the frames selected in the strip (two or more, Ctrl+click), else from the frame
+the path is in for FRAMES frames (through the last by default). Every command is in the command
+palette too ("Move Brush: ...").
+
+**The move's settings** (DPaint's Move requester). While the mode is on, the Animation panel
+(it opens if it is shut, and shuts again after) shows the move instead of the frame rows. Each
+number is a box: drag it up / down, wheel over it (`Shift` = 10 steps), click it to type a
+number, middle-click it for its default.
+
+| Row | What it does over the move (from the first frame to the last, with the ease) |
+| --- | --- |
+| **PATH** LINE / DRAWN / LIVE | A straight drag; the shape you drag (the stamps spaced along it); a live stroke (AnimPaint, below) |
+| **FRAMES** from / count | The first frame and how many (`*` = through the last). The strip's selection sets them |
+| **MOVE XYZ** | X / Y: where the straight path ends, from its start (typing one with no path puts the path in the middle of the frame, so a move needs no drag). Z: away (+) or toward you (-) with perspective - it shrinks and heads for the middle of the frame |
+| **TURN XYZ** | Degrees: X and Y tilt the brush in 3D (foreshortened; the back shows mirrored), Z spins it flat. 360 = once round |
+| **SIZE %** start / end | Grows or shrinks it (100 = as it is) |
+| **OPACITY** start / end | Fades it in or out |
+| **TINT %** start / end | Toward the FG colour (100 = all FG) |
+| **CEL EVERY** | An AnimBrush's next cel every N frames |
+| NONE / IN / OUT / BOTH | The ease, for all of the above |
+| PLAY / RESET / STAMP / ESC | Play the ghost one step at a time / no Z, turn, size, opacity or tint / `Enter` / `Esc` |
+
+### AnimPaint (ANIM → AnimPaint)
+
+Paint across the frames in real time: press, drag, let go, and each frame gets the brush where
+the pointer was at that frame's time (the animation's FPS and each frame's hold), starting at the
+frame you press in. It is Move Brush with the LIVE path, so the size / turn / opacity / tint
+settings apply too. The stroke is stamped when you let go (one undo step) and AnimPaint stays on
+for the next one; `Esc` (or the menu item again) stops it.
+
+### Clip layers (ANIM → Clip Layer / Clip Lanes / Clip Sounds)
+
+A clip layer keeps the AnimBrush and plays it across the frames, so its timing and place can
+change at any time (stamps are just pixels). Every change is one undo step.
+
+| Keys / item | Action |
+|-------------|--------|
+| ANIM → Clip Layer → **Place AnimBrush as Clip**, then `L-Click` a frame | A new layer above the current one (`[C]` in the layer panel): cel 1 in the frame you click, where you click, to the last frame. Opens the Animation panel on the clip rows |
+| `Esc` / `R-Click` before the click | Cancel placing |
+| ANIM → Clip Layer → **Mode: Loop / Ping-Pong / Once / Hold / Reverse** | Round and round / back and forth / once, then nothing / once, then stays on the last cel / backwards |
+| ANIM → Clip Layer → **Flip X / Flip Y**, `Image → Flip Horizontal / Vertical` | Mirror every cel |
+| ANIM → Clip Layer → **Bake Clip to Pixels** (or the layer's right-click menu, or BAKE) | A normal layer with the pixels it shows; `Ctrl+Z` brings the clip back |
+| `V` + `L-Drag` in a lightbox pane | Move the clip (every frame) |
+| `Arrows` with the Move tool (lightbox) | Nudge the clip 1 px |
+| ANIM → Clip Layer → **Make Clip from Selected Frames** | The selection (in the selected frames, or all) becomes a clip; the pixels are cut, so the frames look the same |
+| Drop an animated GIF / APNG on the canvas | A clip from the frame under the pointer |
+| ANIM → Clip Layer → **Update Clip from Bin / from AnimBrush** | New cels from the Drawer bin it came from / the current AnimBrush (every clip on the same source) |
+| ANIM → Clip Layer → **Edit Clip Cels** | A layer "Cels of …" with cel k on frame k; paint, then **Apply Cel Edits** (every clip on the source, one undo step) or **Discard Cel Edits** |
+| ANIM → Clip Layer → **Clip Sources...** / **Remove Unused Clip Sources** | List every source and its layers / clear the unused ones |
+| ANIM → Clip Sounds → **Sound on This Cel... / When the Clip Starts... / Each Time the Clip Starts Over...** | Add a sound to the clip's source; **Remove the Clip's Sounds** clears them |
+| `L-Drag` an end / the middle of a clip's X-sheet bar | Change IN / OUT, or slide the clip |
+| `L-Drag` a diamond on a clip's X-sheet **LANES** row | Move every lane's key on that frame to another frame (one undo step) |
+| Move tool (`V`) drag / arrow keys on a clip with X / Y keys | Key X / Y on the current frame (without X / Y keys: move the whole clip) |
+| ANIM → Clip Lanes → **Clear This Lane / Clear All Lanes / Copy Lanes / Paste Lanes / Tint Toward the Foreground Colour** | Lane housekeeping; the tint colour is what the TINT lane goes toward |
+
+Animation panel, while a clip layer is current (in place of the frame rows; the
+`|< < PLAY > >|` row stays): **LOOP PING ONCE HOLD REV** chips; **IN / OUT** (OUT `END` = to the
+last frame), **CEL / EVERY** (the first cel, a new cel every N frames), **X / Y** (in the cell)
+boxes - drag, wheel, click to type, `M-Click` = default; **FLIP X / FLIP Y / BAKE**. Painting,
+Cut, Paste, Clear, Scale, Rotate, Transform, Effects and Merge Down onto a clip layer are refused
+(status bar). Frame ops leave it in place and move its IN / OUT with the frames. Below them:
+**SOURCE** `<` `>` (previous / next source) **RENAME LAYERS** (select the layers on it);
+**SOUND** `CEL START LOOP` (add a sound) and the sound list `<` `>` `X` (step / remove).
+Bake asks whether to keep the clip's sounds (`Enter` Yes / `Esc` No). Then the keyframe lanes:
+**LANE** `<` `>` (X, Y, SCALE X / Y, ROTATE, OPACITY, TINT, PIVOT X / Y, VOLUME, PAN) and its
+value box - changing it keys the current frame; **KEYS** `KEY` `DEL` and the ease chip
+(LINEAR IN OUT IN-OUT HOLD); **MOD** chip (OFF SINE TRI SQUARE SAW NOISE) with AMOUNT,
+PERIOD, PHASE / SEED. Actions 2620-2658; Move Brush → Apply as Clip 2594.
 
 ---
 
@@ -587,8 +984,8 @@ the **MOUSE** category. These rows can be reassigned with **SET…** → press t
 | Paint with foreground color | `Left Button` | swap with BG to paint FG on the right |
 | Paint with background color | `Right Button` | |
 | Pan the canvas (drag) | `Middle Button` | whole pan drag follows the rebind |
-| Undo (mouse back button) | `Button 4 (Back)` | any button → any action |
-| Redo (mouse forward button) | `Button 5 (Fwd)` | |
+| Undo (mouse back button) | `Button 4 (Back)` | any button → any action. Over the Browser (and in Open / Save dialogs): back through the folders visited |
+| Redo (mouse forward button) | `Button 5 (Fwd)` | over the Browser / file dialogs: forward |
 | Canvas: Wheel tilt right - brush size increase | `Wheel Tilt Right` | horizontal wheel tilt (see below) |
 | Canvas: Wheel tilt left - brush size decrease | `Wheel Tilt Left` | |
 
@@ -629,13 +1026,14 @@ Hold a **non-modifier** key, then click/press/drag. Easy to miss:
 |------|----------|--------|
 | `F` | L/R-Click | Global fill (contiguous) with FG / BG across all visible layers |
 | `Shift+F` | L/R-Click | Replace-all global fill (FG / BG) |
+| `W` or `G` (Fill tool) | L/R-Click | The same global fill (`Shift` = replace-all); a `W` tap with the Fill tool still picks the Magic Wand, on release |
 | `E` | Click | Flood-erase contiguous pixels to transparent |
 | `E` | (as a tool) | Hold to erase, release to restore previous tool |
 | `W` | Click | Magic-wand from merged canvas |
 | `G` | Arrow | Resize grid width/height independently |
 | `L` | 0–9 | Smart-Shape 3D light intensity preset |
 | `R` | Click | Picker samples the reference image |
-| `Space` | Drag | Pan (any tool); or reposition a Smart Shape while dragging |
+| `Space` | Drag | Pan (any tool); or reposition a shape / Smart Shape / selection while making it |
 
 ---
 
@@ -644,7 +1042,7 @@ Hold a **non-modifier** key, then click/press/drag. Easy to miss:
 | Keys | Action |
 |------|--------|
 | `Ctrl+Shift+W` | Workspace switcher (type `ann` + `Enter`) |
-| `F11` (in a workspace) | Show what the workspace hid / hide it again |
+| `Shift+F11` (in a workspace) | Show what the workspace hid / hide it again (`F11` hides / restores all UI, as everywhere) |
 | `Ctrl+Shift+P` | Capture Screen |
 | Region picker: `Drag` / `Enter` / dbl-click / `Space` / `Esc` / `Arrows` | Box / use it / use it / whole screen / cancel / nudge (`Shift` = 10) |
 
@@ -666,6 +1064,27 @@ Hold a **non-modifier** key, then click/press/drag. Easy to miss:
 | `Ctrl+Enter` | Done — save, copy, back to the previous document + workspace (a cold `DRAW --capture` launch closes DRAW instead) |
 
 A workspace's `[KEYS]` can remap any of these; menus and the command palette show the active workspace's keys.
+
+### Workflow buttons (a panel of their own)
+
+A panel of labelled buttons, one per workspace - by default docked above the
+toolbox, at its width. Default: **SPRITE · ANIMATE · SCENE · ANNOTATE**. It
+docks, floats and scales like any panel; one button wide, each button shows
+only its workspace's first letter.
+
+| Input | Action |
+|-------|--------|
+| `L-Click` a button | Switch to that workspace (the button lights) |
+| `L-Click` the lit button | Back to Default |
+| `R-Click` a button | Pick its workspace · Add a Button · Move Left / Right · Remove This Button · Hide Workflow Buttons · Float / Dock Back · Scale |
+| `R-Click` between the buttons (or its handle) | The panel's menu: move to an edge, float, collapse, Scale |
+| View → Workflow Buttons | Show / hide the panel |
+| Command palette: Workflow Button 1–8 | Press button N (actions 2661–2668; 2660 = show / hide) |
+
+The list is global (`WORKFLOW_BUTTONS` in DRAW.cfg, `WORKFLOW_BAR` shows it); a button's label
+is the workspace's `SHORT=` name. **Sprite** = one sprite: Preview + Animation panel + Drawer,
+frame grid, Preview Shows Frame, Brush, no EFFECTS / AUDIO menus. **Scene** = a scene: Big
+Frame + X-sheet, Animation panel + Drawer, Move tool, every menu.
 
 ---
 
@@ -724,7 +1143,7 @@ These are behaviors rather than user shortcuts, kept out of the tables above:
 > not this file. The curated sections above stay hand-authored (the "augment" model).
 
 <!-- BINDINGS:START -->
-<!-- GENERATED by `DRAW --dump-shortcuts` from the input registry (248 bindings).
+<!-- GENERATED by `DRAW --dump-shortcuts` from the input registry (254 bindings).
      Do not hand-edit between the BINDINGS markers in SHORTCUTS.md; edit the registry (INPUTS_register_all) instead. -->
 
 ### Global / Application
@@ -732,6 +1151,12 @@ These are behaviors rather than user shortcuts, kept out of the tables above:
 | Trigger | Action | Dispatch |
 |---------|--------|----------|
 | `Ctrl+F11` | Toggle menubar | central |
+| `Alt+,` | Previous frame (Alt+,) | central |
+| `Alt+.` | Next frame (Alt+.) | central |
+| `Alt+Home` | First frame (Alt+Home) | central |
+| `Alt+End` | Last frame (Alt+End) | central |
+| `Alt+/` | Play / stop (Alt+/) | central |
+| `Ctrl+Shift+L` | Lock Workspace | central |
 | `Ctrl+Alt+K` | Cancel AI generation | central |
 | `Ctrl+,` | Settings dialog | legacy |
 | `F12` | F12 dev debug dump | central |
@@ -780,6 +1205,7 @@ These are behaviors rather than user shortcuts, kept out of the tables above:
 | `Ctrl+Alt+X` | Cut to New Layer | central |
 | `Ctrl+V` | Paste | central |
 | `Ctrl+Shift+V` | Paste from OS Clipboard | central |
+| `Ctrl+Alt+V` | Paste in Place | central |
 | `Ctrl+E` | Clear Selection | central |
 | `Ctrl+Z` | Undo | central |
 | `Ctrl+Y` | Redo | central |

@@ -65,6 +65,7 @@ END SUB
 SUB DRAWER_free_samples ()
     DIM i AS INTEGER
     FOR i% = 1 TO DRAWER_SLOT_COUNT
+        AB_slot_drop i%
         SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(i%).IMG
         DRAWER_BRUSH_SLOTS(i%).IMG = 0
         DRAWER_BRUSH_SLOTS(i%).W   = 0
@@ -798,6 +799,28 @@ FUNCTION GRAD_DEF_eval_opacity% (slotIndex AS INTEGER, t AS SINGLE)
 END FUNCTION
 
 ''
+' The opacity stops for a dithered fill (Fill Adjust D): no see-through pixels -
+' a pixel is there (the stop color, its own alpha) or not, and the opacity at t
+' is how many of them are there. The result is 0..1 across the dithered band,
+' squeezed to amt around 50% as the colors are (DRAWER_fill_dither_color):
+' <= 0 = not there, >= 1 = there, between = dither it.
+' @param slotIndex INTEGER gradient slot
+' @param t   SINGLE  0..1 along the gradient
+' @param amt SINGLE  the band width, 0..1
+'
+FUNCTION GRAD_DEF_coverage! (slotIndex AS INTEGER, t AS SINGLE, amt AS SINGLE)
+    DIM c AS SINGLE
+    c = GRAD_DEF_eval_opacity%(slotIndex, t) / 255!
+    IF c >= 1 THEN GRAD_DEF_coverage! = 1: EXIT FUNCTION
+    IF c <= 0 THEN GRAD_DEF_coverage! = 0: EXIT FUNCTION
+    IF amt <= 0.001 THEN
+        GRAD_DEF_coverage! = _IIF(c < 0.5, 0!, 1!)
+    ELSE
+        GRAD_DEF_coverage! = (c - (0.5 - amt / 2)) / amt
+    END IF
+END FUNCTION
+
+''
 ' Rebuild a gradient slot's cached preview image from its definition.
 ' Renders a 128x128 image applying color stops, opacity stops, and dithering.
 ' Replaces any existing preview image for the slot.
@@ -865,7 +888,7 @@ SUB GRAD_DEF_rebuild_preview (slotIndex AS INTEGER)
                                 rpFR% = _RED32(rpSmooth~&) + INT((_RED32(rpDither~&) - _RED32(rpSmooth~&)) * rpStr! + .5)
                                 rpFG% = _GREEN32(rpSmooth~&) + INT((_GREEN32(rpDither~&) - _GREEN32(rpSmooth~&)) * rpStr! + .5)
                                 rpFB% = _BLUE32(rpSmooth~&) + INT((_BLUE32(rpDither~&) - _BLUE32(rpSmooth~&)) * rpStr! + .5)
-                                c~&   = _RGB32(rpFR%, rpFG%, rpFB%)
+                                c~&   = _RGBA32(rpFR%, rpFG%, rpFB%, _ALPHA32(rpSmooth~&) + INT((_ALPHA32(rpDither~&) - _ALPHA32(rpSmooth~&)) * rpStr! + .5)) ' (the alpha too: an FG > transparent gradient went opaque)
                             END IF
                             EXIT FOR
                         END IF
@@ -945,45 +968,12 @@ SUB GRAD_CTX_expand (x AS INTEGER, y AS INTEGER)
 END SUB
 
 ''
-' Resolve a gradient color at canvas position (x,y) using operation-bounded
-' context. Maps the position to the slot's spatial family, then evaluates
-' color stops with optional dithering and opacity.
-' @param x INTEGER Canvas X coordinate of the pixel being painted
-' @param y INTEGER Canvas Y coordinate of the pixel being painted
-' @param baseColor _UNSIGNED LONG Fallback color used when gradient is not active
-' @param ctx GRADIENT_CONTEXT Gradient context providing the operation bounding rectangle
-' @return _UNSIGNED LONG - resolved RGBA color with opacity applied
+' How far along the gradient in slot slotIdx the pixel (x, y) is, 0..1, for an
+' operation bounded by ctx (its family: horizontal, radial, diamond...).
 '
-FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor AS _UNSIGNED LONG, ctx AS GRADIENT_CONTEXT)
-    ' Context-aware gradient resolver: maps (x,y) to gradient color using operation bounds
-    DIM slotIdx AS INTEGER
-    DIM t       AS SINGLE
-    DIM boundsW AS INTEGER
-    DIM boundsH AS INTEGER
-    DIM localX  AS INTEGER
-    DIM localY  AS INTEGER
-    DIM family  AS INTEGER
-    DIM u       AS SINGLE
-    DIM v       AS SINGLE
-    DIM dx      AS SINGLE
-    DIM dy      AS SINGLE
-
-    IF _ALPHA32(baseColor~&) = 0 THEN
-        DRAWER_resolve_gradient_color~& = baseColor~&
-        EXIT FUNCTION
-    END IF
-
-    IF DRAWER.paintMode% <> 2 THEN
-        DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(baseColor~&)
-        EXIT FUNCTION
-    END IF
-
-    slotIdx% = DRAWER.gradientSelected%
-    IF slotIdx% < 1 OR slotIdx% > DRAWER_SLOT_COUNT THEN
-        DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(baseColor~&)
-        EXIT FUNCTION
-    END IF
-
+FUNCTION DRAWER_grad_t! (slotIdx AS INTEGER, x AS INTEGER, y AS INTEGER, ctx AS GRADIENT_CONTEXT)
+    DIM boundsW AS INTEGER, boundsH AS INTEGER, localX AS INTEGER, localY AS INTEGER
+    DIM family AS INTEGER, u AS SINGLE, v AS SINGLE, dx AS SINGLE, dy AS SINGLE, t AS SINGLE
     ' Compute local coordinates relative to context bounds
     boundsW% = ctx.boundsX2% - ctx.boundsX1%
     boundsH% = ctx.boundsY2% - ctx.boundsY1%
@@ -1022,28 +1012,82 @@ FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor 
 
     IF t! < 0 THEN t! = 0
     IF t! > 1 THEN t! = 1
+    DRAWER_grad_t! = t!
+END FUNCTION
+
+''
+' Resolve a gradient color at canvas position (x,y) using operation-bounded
+' context. Maps the position to the slot's spatial family, then evaluates
+' color stops with optional dithering and opacity.
+' @param x INTEGER Canvas X coordinate of the pixel being painted
+' @param y INTEGER Canvas Y coordinate of the pixel being painted
+' @param baseColor _UNSIGNED LONG Fallback color used when gradient is not active
+' @param ctx GRADIENT_CONTEXT Gradient context providing the operation bounding rectangle
+' @return _UNSIGNED LONG - resolved RGBA color with opacity applied
+'
+FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor AS _UNSIGNED LONG, ctx AS GRADIENT_CONTEXT)
+    ' Context-aware gradient resolver: maps (x,y) to gradient color using operation bounds
+    DIM slotIdx AS INTEGER
+    DIM t       AS SINGLE
+
+    IF _ALPHA32(baseColor~&) = 0 THEN
+        DRAWER_resolve_gradient_color~& = baseColor~&
+        EXIT FUNCTION
+    END IF
+
+    IF DRAWER.paintMode% <> 2 THEN
+        DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(baseColor~&)
+        EXIT FUNCTION
+    END IF
+
+    slotIdx% = DRAWER.gradientSelected%
+    IF slotIdx% < 1 OR slotIdx% > DRAWER_SLOT_COUNT THEN
+        DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(baseColor~&)
+        EXIT FUNCTION
+    END IF
+
+    t! = DRAWER_grad_t!(slotIdx%, x%, y%, ctx)
 
     ' Evaluate opacity stops at this t value
     DIM gradAlpha AS INTEGER
     gradAlpha% = GRAD_DEF_eval_opacity%(slotIdx%, t!)
+
+    ' The fill's own dither (FILL_DITHER, GUI/FILL-ADJ: D while a fill is adjusted)
+    ' is a pixel-art dither on any gradient, its own dither or not, stops or an
+    ' image strip: every pixel is a stop color, and the amount is how wide the
+    ' dithered band between two stops is (100% = the whole span, 0% = a hard edge)
+    IF FILL_DITHER.ovr THEN
+        ' the opacity stops dither too: a fade to transparent is pixels there or
+        ' not (GRAD_DEF_coverage!); the pattern read transposed so the
+        ' alpha's dither does not line up with the colors'
+        DIM fdS AS SINGLE
+        fdS = GRAD_DEF_coverage!(slotIdx%, t!, FILL_DITHER.amount)
+        gradAlpha% = 0
+        IF fdS >= 1 THEN
+            gradAlpha% = 255
+        ELSEIF fdS > 0 THEN
+            IF fdS >= DITHER_get_threshold!(FILL_DITHER.mode, y% - FILL_DITHER.oy, x% - FILL_DITHER.ox) THEN gradAlpha% = 255
+        END IF
+        DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_with_stop_alpha~&(DRAWER_fill_dither_color~&(slotIdx%, t!, x% - FILL_DITHER.ox, y% - FILL_DITHER.oy), gradAlpha%))
+        EXIT FUNCTION
+    END IF
 
     ' Custom gradients without color stops: sample from the slot image using t
     IF GRAD_DEFS(slotIdx%).colorCount% < 1 THEN
         IF DRAWER_GRADIENT_CUSTOM(slotIdx%) AND DRAWER_GRADIENT_SLOTS(slotIdx%) < -1 THEN
             DIM ciSrc    AS LONG
             DIM ciW      AS INTEGER
-            DIM ciSX     AS INTEGER
+            DIM ciSX     AS INTEGER, ciSY AS INTEGER
             DIM ciOldSrc AS LONG
             DIM ciColor  AS _UNSIGNED LONG
             ciSrc& = DRAWER_GRADIENT_SLOTS(slotIdx%)
             ciW%   = _WIDTH(ciSrc&)
             IF ciW% > 0 THEN
-                ciSX% = INT(t! * (ciW% - 1) + .5)
-                IF ciSX% < 0 THEN ciSX% = 0
-                IF ciSX% >= ciW% THEN ciSX% = ciW% - 1
+                ' along the way the image runs (its top row was one color for a vertical image)
+                GRAD_IMG_ramp_xy slotIdx%, t!, ciSX%, ciSY%
                 ciOldSrc& = _SOURCE
                 _SOURCE ciSrc&
-                ciColor~& = POINT(ciSX%, 0)
+                ciColor~& = POINT(ciSX%, ciSY%)
                 _SOURCE ciOldSrc&
                 DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_with_stop_alpha~&(ciColor~&, gradAlpha%))
                 EXIT FUNCTION
@@ -1054,7 +1098,10 @@ FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor 
     END IF
 
     ' Apply dithering if enabled for this gradient slot
-    IF GRAD_DEFS(slotIdx%).ditherMode% <> DITHER_NONE AND GRAD_DEFS(slotIdx%).colorCount% >= 2 THEN
+    DIM fdMode AS INTEGER, fdStr AS SINGLE, fdX AS INTEGER, fdY AS INTEGER
+    fdMode = GRAD_DEFS(slotIdx%).ditherMode%: fdStr = GRAD_DEFS(slotIdx%).ditherStrength!
+    fdX = x%: fdY = y%
+    IF fdMode <> DITHER_NONE AND GRAD_DEFS(slotIdx%).colorCount% >= 2 THEN
         DIM gdCount     AS INTEGER
         DIM gdI         AS INTEGER
         DIM gdSegT      AS SINGLE
@@ -1065,7 +1112,7 @@ FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor 
         DIM gdColorB    AS _UNSIGNED LONG
 
         gdCount%    = GRAD_DEFS(slotIdx%).colorCount%
-        gdStrength! = GRAD_DEFS(slotIdx%).ditherStrength!
+        gdStrength! = fdStr
 
         ' Before first stop
         IF t! <= GRAD_COLOR_STOPS(slotIdx%, 1).position THEN
@@ -1090,7 +1137,7 @@ FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor 
                 END IF
                 gdColorA~&   = GRAD_COLOR_STOPS(slotIdx%, gdI%).clr
                 gdColorB~&   = GRAD_COLOR_STOPS(slotIdx%, gdI% + 1).clr
-                gdThreshold! = DITHER_get_threshold!(GRAD_DEFS(slotIdx%).ditherMode%, x%, y%)
+                gdThreshold! = DITHER_get_threshold!(fdMode, fdX, fdY)
                 ' Blend smooth lerp with binary dither by strength
                 DIM gdSmooth AS _UNSIGNED LONG
                 DIM gdDither AS _UNSIGNED LONG
@@ -1105,7 +1152,8 @@ FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor 
                     gdFR%                           = _RED32(gdSmooth~&) + INT((_RED32(gdDither~&) - _RED32(gdSmooth~&)) * gdStrength! + .5)
                     gdFG%                           = _GREEN32(gdSmooth~&) + INT((_GREEN32(gdDither~&) - _GREEN32(gdSmooth~&)) * gdStrength! + .5)
                     gdFB%                           = _BLUE32(gdSmooth~&) + INT((_BLUE32(gdDither~&) - _BLUE32(gdSmooth~&)) * gdStrength! + .5)
-                    DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_with_stop_alpha~&(_RGB32(gdFR%, gdFG%, gdFB%), gradAlpha%))
+                    ' the alpha blends too: an FG > transparent gradient came out opaque (BUGS.md 2026-11-15)
+                    DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_with_stop_alpha~&(_RGBA32(gdFR%, gdFG%, gdFB%, _ALPHA32(gdSmooth~&) + INT((_ALPHA32(gdDither~&) - _ALPHA32(gdSmooth~&)) * gdStrength! + .5)), gradAlpha%))
                 END IF
                 EXIT FUNCTION
             END IF
@@ -1115,6 +1163,80 @@ FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor 
         DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_with_stop_alpha~&(GRAD_COLOR_STOPS(slotIdx%, gdCount%).clr, gradAlpha%))
     ELSE
         DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_with_stop_alpha~&(GRAD_DEF_eval_color~&(slotIdx%, t!), gradAlpha%))
+    END IF
+END FUNCTION
+
+''
+' The fill's own dither on a gradient (Fill Adjust, D: FILL_DITHER): the color at
+' t as a pixel-art dither between the two stops around it - only stop colors,
+' no smooth blend. FILL_DITHER.amount is how wide the dithered band is around
+' the middle of each stop-to-stop span: 1 = all of it, 0 = a hard edge. A
+' gradient without color stops (an image strip) is read as 5 stops along it.
+' @param slotIdx INTEGER gradient slot
+' @param t       SINGLE  0..1 along the gradient
+' @param dx      INTEGER pixel x for the threshold (offset applied)
+' @param dy      INTEGER pixel y for the threshold (offset applied)
+' @return _UNSIGNED LONG the stop color (alpha as the stop has it)
+'
+FUNCTION DRAWER_fill_dither_color~& (slotIdx AS INTEGER, t AS SINGLE, dx AS INTEGER, dy AS INTEGER)
+    DIM AS INTEGER n, i, iw, useImg, ax, ay, bx, by
+    DIM AS SINGLE p0, p1, segT, lo, amt, s, tt
+    DIM AS _UNSIGNED LONG cA, cB
+    DIM AS LONG img, oldSrc
+    tt = t
+    IF tt < 0 THEN tt = 0
+    IF tt > 1 THEN tt = 1
+    n = GRAD_DEFS(slotIdx).colorCount%
+    useImg = FALSE
+    IF n < 1 THEN
+        img = DRAWER_GRADIENT_SLOTS(slotIdx)
+        IF img >= -1 THEN DRAWER_fill_dither_color~& = PAINT_COLOR~&: EXIT FUNCTION
+        iw = _WIDTH(img)
+        IF iw < 1 THEN DRAWER_fill_dither_color~& = PAINT_COLOR~&: EXIT FUNCTION
+        useImg = TRUE: n = 5
+    END IF
+    IF n = 1 THEN DRAWER_fill_dither_color~& = GRAD_COLOR_STOPS(slotIdx, 1).clr: EXIT FUNCTION
+    ' the span around t: stops i and i + 1
+    i = 1
+    IF useImg THEN
+        i = INT(tt * (n - 1)) + 1
+        IF i > n - 1 THEN i = n - 1
+        p0 = (i - 1) / (n - 1): p1 = i / (n - 1)
+    ELSE
+        IF tt <= GRAD_COLOR_STOPS(slotIdx, 1).position THEN DRAWER_fill_dither_color~& = GRAD_COLOR_STOPS(slotIdx, 1).clr: EXIT FUNCTION
+        IF tt >= GRAD_COLOR_STOPS(slotIdx, n).position THEN DRAWER_fill_dither_color~& = GRAD_COLOR_STOPS(slotIdx, n).clr: EXIT FUNCTION
+        DO WHILE i < n - 1 _ANDALSO tt > GRAD_COLOR_STOPS(slotIdx, i + 1).position
+            i = i + 1
+        LOOP
+        p0 = GRAD_COLOR_STOPS(slotIdx, i).position: p1 = GRAD_COLOR_STOPS(slotIdx, i + 1).position
+    END IF
+    IF p1 > p0 THEN segT = (tt - p0) / (p1 - p0) ELSE segT = 0
+    IF useImg THEN
+        GRAD_IMG_ramp_xy slotIdx, p0, ax, ay
+        GRAD_IMG_ramp_xy slotIdx, p1, bx, by
+        oldSrc = _SOURCE
+        _SOURCE img
+        cA = POINT(ax, ay): cB = POINT(bx, by)
+        _SOURCE oldSrc
+    ELSE
+        cA = GRAD_COLOR_STOPS(slotIdx, i).clr: cB = GRAD_COLOR_STOPS(slotIdx, i + 1).clr
+    END IF
+    ' squeeze the dithered band to the amount, around the middle of the span
+    amt = FILL_DITHER.amount
+    IF amt <= 0.001 THEN
+        s = _IIF(segT < 0.5, 0!, 1!)
+    ELSE
+        lo = 0.5 - amt / 2
+        s = (segT - lo) / amt
+    END IF
+    IF s <= 0 THEN
+        DRAWER_fill_dither_color~& = cA
+    ELSEIF s >= 1 THEN
+        DRAWER_fill_dither_color~& = cB
+    ELSEIF s < DITHER_get_threshold!(FILL_DITHER.mode, dx, dy) THEN
+        DRAWER_fill_dither_color~& = cA
+    ELSE
+        DRAWER_fill_dither_color~& = cB
     END IF
 END FUNCTION
 
@@ -1377,6 +1499,7 @@ SUB DRAWER_run_deferred_action ()
     IF loadedImg& < -1 THEN
         SELECT CASE DRAWER_DEFERRED_IMPORT_MODE%
             CASE DRAWER_MODE_BRUSH
+                AB_slot_drop DRAWER_DEFERRED_IMPORT_SLOT%
                 SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%).IMG
                 DRAWER_BRUSH_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%).IMG = loadedImg&
                 DRAWER_BRUSH_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%).W   = _WIDTH(loadedImg&)
@@ -1392,6 +1515,7 @@ SUB DRAWER_run_deferred_action ()
             CASE DRAWER_MODE_GRADIENT
                 IF DRAWER_GRADIENT_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%) < -1 THEN SAFE_FREEIMAGE DRAWER_GRADIENT_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%)
                 DRAWER_GRADIENT_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%)   = loadedImg&
+                DRAWER_GRADIENT_RAMP_IMG(DRAWER_DEFERRED_IMPORT_SLOT%) = 0 ' look again which way it runs
                 DRAWER_GRADIENT_HAS(DRAWER_DEFERRED_IMPORT_SLOT%)     = TRUE
                 DRAWER_GRADIENT_CUSTOM(DRAWER_DEFERRED_IMPORT_SLOT%)  = TRUE
                 GRAD_DEFS(DRAWER_DEFERRED_IMPORT_SLOT%).colorCount%   = 0
@@ -1469,6 +1593,7 @@ SUB DRAWER_import_file_to_slot (filename AS STRING, slotIndex AS INTEGER, mode A
 
     SELECT CASE mode%
         CASE DRAWER_MODE_BRUSH
+            AB_slot_drop localSlot%
             SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(localSlot%).IMG
             DRAWER_BRUSH_SLOTS(localSlot%).IMG = loadedImg&
             DRAWER_BRUSH_SLOTS(localSlot%).W   = _WIDTH(loadedImg&)
@@ -1484,6 +1609,7 @@ SUB DRAWER_import_file_to_slot (filename AS STRING, slotIndex AS INTEGER, mode A
         CASE DRAWER_MODE_GRADIENT
             IF DRAWER_GRADIENT_SLOTS(localSlot%) < -1 THEN SAFE_FREEIMAGE DRAWER_GRADIENT_SLOTS(localSlot%)
             DRAWER_GRADIENT_SLOTS(localSlot%)   = loadedImg&
+            DRAWER_GRADIENT_RAMP_IMG(localSlot%) = 0 ' look again which way it runs
             DRAWER_GRADIENT_HAS(localSlot%)     = TRUE
             DRAWER_GRADIENT_CUSTOM(localSlot%)  = TRUE
             GRAD_DEFS(localSlot%).colorCount%   = 0
@@ -1518,14 +1644,25 @@ END FUNCTION
 '
 FUNCTION DRAWER_has_paint_mode% ()
     DRAWER_has_paint_mode% = FALSE
+    ' A transparent drawing color erases, whatever the paint mode (BUGS 2026-11-15 X1)
+    IF _ALPHA32(DRAW_COLOR~&) = 0 THEN EXIT FUNCTION
+    DRAWER_has_paint_mode% = DRAWER_paint_mode_selected%
+END FUNCTION
+
+''
+' A gradient or pattern paint mode is picked and its slot has an image -
+' regardless of the drawing color (DRAWER_has_paint_mode% is FALSE while erasing).
+'
+FUNCTION DRAWER_paint_mode_selected% ()
+    DRAWER_paint_mode_selected% = FALSE
 
     IF DRAWER.paintMode% = 3 THEN
         IF DRAWER.patternSelected% >= 1 AND DRAWER.patternSelected% <= DRAWER_SLOT_COUNT THEN
-            DRAWER_has_paint_mode% = (DRAWER_PATTERN_SLOTS(DRAWER.patternSelected%) < -1)
+            DRAWER_paint_mode_selected% = (DRAWER_PATTERN_SLOTS(DRAWER.patternSelected%) < -1)
         END IF
     ELSEIF DRAWER.paintMode% = 2 THEN
         IF DRAWER.gradientSelected% >= 1 AND DRAWER.gradientSelected% <= DRAWER_SLOT_COUNT THEN
-            DRAWER_has_paint_mode% = (DRAWER_GRADIENT_SLOTS(DRAWER.gradientSelected%) < -1)
+            DRAWER_paint_mode_selected% = (DRAWER_GRADIENT_SLOTS(DRAWER.gradientSelected%) < -1)
         END IF
     END IF
 END FUNCTION
@@ -1596,24 +1733,31 @@ FUNCTION DRAWER_resolve_paint_color~& (x AS INTEGER, y AS INTEGER, baseColor AS 
         EXIT FUNCTION
     END IF
 
+    ' The span the image covers: the canvas, in the lightbox the frame painted in
+    ' (stretched over it, or tiled from its corner).
+    DIM spL AS INTEGER, spT AS INTEGER, spR AS INTEGER, spB AS INTEGER
+    spL% = 0: spT% = 0: spR% = SCRN.canvasW& - 1: spB% = SCRN.canvasH& - 1
+    ANIM_CV_fill_box x%, y%, spL%, spT%, spR%, spB%
     clampedX% = x%
     clampedY% = y%
-    IF clampedX% < 0 THEN clampedX% = 0
-    IF clampedY% < 0 THEN clampedY% = 0
-    IF clampedX% >= SCRN.canvasW& THEN clampedX% = SCRN.canvasW& - 1
-    IF clampedY% >= SCRN.canvasH& THEN clampedY% = SCRN.canvasH& - 1
+    IF clampedX% < spL% THEN clampedX% = spL%
+    IF clampedY% < spT% THEN clampedY% = spT%
+    IF clampedX% > spR% THEN clampedX% = spR%
+    IF clampedY% > spB% THEN clampedY% = spB%
+    clampedX% = clampedX% - spL%
+    clampedY% = clampedY% - spT%
 
     IF DRAWER.paintMode% = 3 THEN
         srcX% = clampedX% MOD imgW%
         srcY% = clampedY% MOD imgH%
     ELSE
-        IF SCRN.canvasW& > 1 THEN
-            srcX% = INT((clampedX% / (SCRN.canvasW& - 1)) * (imgW% - 1))
+        IF spR% > spL% THEN
+            srcX% = INT((clampedX% / (spR% - spL%)) * (imgW% - 1))
         ELSE
             srcX% = 0
         END IF
-        IF SCRN.canvasH& > 1 THEN
-            srcY% = INT((clampedY% / (SCRN.canvasH& - 1)) * (imgH% - 1))
+        IF spB% > spT% THEN
+            srcY% = INT((clampedY% / (spB% - spT%)) * (imgH% - 1))
         ELSE
             srcY% = 0
         END IF
@@ -1735,7 +1879,7 @@ SUB DRAWER_layout (contentX AS INTEGER, contentY AS INTEGER, binW AS INTEGER, bi
     DIM srcH              AS INTEGER
     DIM railX             AS INTEGER
 
-    uiScale% = USCALE.drawer%
+    uiScale% = DRAWER_scale%
     IF uiScale% < 1 THEN uiScale% = 1
     IF uiScale% > 4 THEN uiScale% = 4
 
@@ -1770,7 +1914,11 @@ SUB DRAWER_layout (contentX AS INTEGER, contentY AS INTEGER, binW AS INTEGER, bi
     DRAWER.panelX2% = DRAWER.panelX1% + panelW% - 1
     DRAWER.panelY1% = DRW_RECT_Y
     DRAWER.panelY2% = availableBottom%
-    REGION_set_bounds REGION_DRAWER, DRAWER.panelX1%, DRAWER.panelY1%, DRAWER.panelX2% - DRAWER.panelX1% + 1, DRAWER.panelY2% - DRAWER.panelY1% + 1, ZORDER_PANEL
+    IF PSURF_on%(DP_DRAWER) THEN ' (in its units: its hit region is its footprint, GUI/PANEL-SURFACE)
+        REGION_set_bounds REGION_DRAWER, PSURF(DP_DRAWER).vx, PSURF(DP_DRAWER).vy, PSURF(DP_DRAWER).vw, PSURF(DP_DRAWER).vh, ZORDER_PANEL
+    ELSE
+        REGION_set_bounds REGION_DRAWER, DRAWER.panelX1%, DRAWER.panelY1%, DRAWER.panelX2% - DRAWER.panelX1% + 1, DRAWER.panelY2% - DRAWER.panelY1% + 1, ZORDER_PANEL
+    END IF
 
     binGapX% = THEME.DRAWER_BIN_GAP_X% * uiScale%
     binGapY% = THEME.DRAWER_BIN_GAP_Y% * uiScale%
@@ -1794,8 +1942,20 @@ SUB DRAWER_layout (contentX AS INTEGER, contentY AS INTEGER, binW AS INTEGER, bi
     ' The classic 3 columns up to the default toolbox width; more in a wider one
     DIM maxCols AS INTEGER
     maxCols% = DRAWER_GRID_COLS
-    IF panelW% > TOOLBAR_cols_w%(TB_COLS) THEN maxCols% = DRAWER_MAX_COLS
-    IF cols% >= 1 THEN
+    IF panelW% > DRAWER_wide_w% THEN maxCols% = DRAWER_MAX_COLS
+    IF CFG.DRAWER_MINI_PALETTE% = 0 THEN
+        ' No mini palette (the default): the bins take its space - every
+        ' column that fits, up to DRAWER_MAX_COLS
+        DRAWER_STACKED = FALSE
+        cols% = (contentW% + binGapX%) \ (binW% + binGapX%)
+        IF cols% < 1 THEN
+            cols% = 1
+            binW% = contentW%
+            IF binW% < 4 * uiScale% THEN binW% = 4 * uiScale%
+            binH% = binW%
+        END IF
+        IF cols% > DRAWER_MAX_COLS THEN cols% = DRAWER_MAX_COLS
+    ELSEIF cols% >= 1 THEN
         DRAWER_STACKED = FALSE
         IF cols% > maxCols% THEN cols% = maxCols%
     ELSE
@@ -1809,6 +1969,15 @@ SUB DRAWER_layout (contentX AS INTEGER, contentY AS INTEGER, binW AS INTEGER, bi
         END IF
         IF cols% > maxCols% THEN cols% = maxCols%
     END IF
+    ' Ctrl+wheel zoom: a set number of bins per row. Either way the bins are
+    ' sized to fill the width exactly - square, no strip left at the right
+    ' (Rick: "so they fit elegantly under the organizer with no wasted space").
+    DIM areaW AS INTEGER, used AS INTEGER
+    IF CFG.DRAWER_MINI_PALETTE% <> 0 _ANDALSO DRAWER_STACKED = FALSE THEN areaW% = leftAreaW% ELSE areaW% = contentW%
+    binW% = DRAWER_fill_bin%(areaW%, cols%, binGapX%, uiScale%)
+    binH% = binW%
+    used% = cols% * binW% + (cols% - 1) * binGapX%
+    IF used% < areaW% THEN contentX% = contentX% + (areaW% - used%) \ 2 ' the odd pixels, split
     totalRows% = (DRAWER_SLOT_COUNT + cols% - 1) \ cols%
     IF DRAWER_STACKED THEN
         ' the palette under the bins gets its own height (its image at the
@@ -1835,6 +2004,11 @@ SUB DRAWER_layout (contentX AS INTEGER, contentY AS INTEGER, binW AS INTEGER, bi
 
     miniGapX%    = 0
     miniGapY%    = 0
+    IF CFG.DRAWER_MINI_PALETTE% = 0 THEN
+        miniX% = -32000: miniY% = -32000: miniCellW% = 0: miniCellH% = 0 ' nothing to hit or draw
+        pageBtnY% = 0: scrollX% = 0: scrollY% = 0: scrollH% = 0
+        EXIT SUB
+    END IF
     IF DRAWER_STACKED THEN
         palTop% = contentY% + DRAWER_VIS_ROWS * (binH% + binGapY%) - binGapY% + separatorGap%
         railX%  = contentX%
@@ -1877,7 +2051,7 @@ END SUB
 ' goes no wider (DOCK_panel_max_w%).
 FUNCTION DRAWER_max_w% ()
     DIM s AS INTEGER, padX AS INTEGER, binW AS INTEGER, gx AS INTEGER, sep AS INTEGER, need AS INTEGER
-    s = USCALE.drawer%
+    s = DRAWER_scale%
     IF s < 1 THEN s = 1
     IF s > 4 THEN s = 4
     padX = THEME.DRAWER_PANEL_PAD_X% * s: IF padX < 1 THEN padX = 1
@@ -1885,6 +2059,7 @@ FUNCTION DRAWER_max_w% ()
     gx = THEME.DRAWER_BIN_GAP_X% * s: IF gx < 1 THEN gx = 1
     sep = THEME.DRAWER_PANEL_GAP_Y% * s: IF sep < s THEN sep = s
     need = DRAWER_MAX_COLS * (binW + gx) - gx + padX * 2 + sep
+    IF CFG.DRAWER_MINI_PALETTE% = 0 THEN DRAWER_max_w% = need - sep + 1: EXIT FUNCTION ' no rail
     DRAWER_max_w% = (need * 100 + 65) \ 66 + 1
 END FUNCTION
 
@@ -1898,7 +2073,7 @@ FUNCTION DRAWER_content_h% (pw AS INTEGER)
     DIM s AS INTEGER, padX AS INTEGER, padY AS INTEGER, binW AS INTEGER, binH AS INTEGER, gx AS INTEGER, gy AS INTEGER
     DIM sep AS INTEGER, railW AS INTEGER, contentW AS INTEGER, cols AS INTEGER, maxCols AS INTEGER, rows AS INTEGER
     DIM binsH AS INTEGER, palH AS INTEGER, stacked AS INTEGER
-    s = USCALE.drawer%: IF s < 1 THEN s = 1
+    s = DRAWER_scale%: IF s < 1 THEN s = 1
     IF s > 4 THEN s = 4
     padX = THEME.DRAWER_PANEL_PAD_X% * s: IF padX < 1 THEN padX = 1
     padY = THEME.DRAWER_PANEL_PAD_Y% * s: IF padY < 1 THEN padY = 1
@@ -1909,7 +2084,16 @@ FUNCTION DRAWER_content_h% (pw AS INTEGER)
     sep = THEME.DRAWER_PANEL_GAP_Y% * s: IF sep < s THEN sep = s
     railW = (pw * 34) \ 100: IF railW < _MAX(8 * s, 12) THEN railW = _MAX(8 * s, 12)
     contentW = pw - padX * 2
-    maxCols = DRAWER_GRID_COLS: IF pw > TOOLBAR_cols_w%(TB_COLS) THEN maxCols = DRAWER_MAX_COLS
+    maxCols = DRAWER_GRID_COLS: IF pw > DRAWER_wide_w% THEN maxCols = DRAWER_MAX_COLS
+    IF CFG.DRAWER_MINI_PALETTE% = 0 THEN ' no mini palette: just the bins, across the whole width
+        cols = (contentW + gx) \ (binW + gx)
+        IF cols < 1 THEN cols = 1: binH = _MAX(contentW, 4 * s)
+        IF cols > DRAWER_MAX_COLS THEN cols = DRAWER_MAX_COLS
+        binH = DRAWER_fill_bin%(contentW, cols, gx, s)
+        rows = (DRAWER_SLOT_COUNT + cols - 1) \ cols
+        DRAWER_content_h% = rows * (binH + gy) - gy + padY * 2
+        EXIT FUNCTION
+    END IF
     cols = (contentW - sep - railW + gx) \ (binW + gx)
     IF cols < 1 THEN
         stacked = TRUE
@@ -1918,6 +2102,7 @@ FUNCTION DRAWER_content_h% (pw AS INTEGER)
         railW = contentW
     END IF
     IF cols > maxCols THEN cols = maxCols
+    IF stacked THEN binH = DRAWER_fill_bin%(contentW, cols, gx, s) ELSE binH = DRAWER_fill_bin%(contentW - sep - railW, cols, gx, s)
     rows = (DRAWER_SLOT_COUNT + cols - 1) \ cols
     binsH = rows * (binH + gy) - gy
     palH = 8 * s
@@ -1929,10 +2114,39 @@ END FUNCTION
 
 
 ''
+' DRAWER_layout's bin size for an area areaW wide: the zoom's columns (or the
+' auto ones, cols, BYREF) - each bin as wide as fills the width. Returns it.
+FUNCTION DRAWER_fill_bin% (areaW AS INTEGER, cols AS INTEGER, gx AS INTEGER, s AS INTEGER)
+    DIM b AS INTEGER
+    IF CFG.DRAWER_BIN_COLS% > 0 THEN cols = CFG.DRAWER_BIN_COLS%
+    IF cols > DRAWER_ZOOM_MAX_COLS THEN cols = DRAWER_ZOOM_MAX_COLS
+    IF cols < 1 THEN cols = 1
+    DO
+        b = (areaW - (cols - 1) * gx) \ cols
+        IF b >= 6 * s _ORELSE cols = 1 THEN EXIT DO
+        cols = cols - 1
+    LOOP
+    IF b < 4 THEN b = 4
+    DRAWER_fill_bin% = b
+END FUNCTION
+
+
+''
+' Past this width (its units) the drawer uses up to DRAWER_MAX_COLS bin
+' columns: the default toolbox's width at the toolbar scale - or at 1 when the
+' drawer has its own Scale (a unit is then one icon px: GUI/PANEL-SURFACE).
+FUNCTION DRAWER_wide_w% ()
+    DIM s AS INTEGER
+    s = PSURF_unit_scale%(DP_DRAWER, CFG.TOOLBAR_SCALE%)
+    DRAWER_wide_w% = TB_COLS * TB_BTN_W * s + (TB_COLS - 1) * TB_BTN_PADDING * s + 2
+END FUNCTION
+
+
+''
 ' Narrowest toolbox panel the drawer can live in: padding + one bin.
 FUNCTION DRAWER_min_w% ()
     DIM s AS INTEGER, padX AS INTEGER, binW AS INTEGER
-    s = USCALE.drawer%
+    s = DRAWER_scale%
     IF s < 1 THEN s = 1
     IF s > 4 THEN s = 4
     padX = THEME.DRAWER_PANEL_PAD_X% * s
@@ -1949,7 +2163,9 @@ END FUNCTION
 ' @param mouseY INTEGER Raw screen Y coordinate
 ' @return INTEGER - slot index (1..DRAWER_SLOT_COUNT) or 0 if not over a slot
 '
-FUNCTION DRAWER_slot_at% (mouseX AS INTEGER, mouseY AS INTEGER)
+FUNCTION DRAWER_slot_at% (inX AS INTEGER, inY AS INTEGER)
+    DIM mouseX AS INTEGER, mouseY AS INTEGER ' (in its units at its own Scale: GUI/PANEL-SURFACE)
+    mouseX = PSURF_mx%(DP_DRAWER, inX): mouseY = PSURF_my%(DP_DRAWER, inY)
     DIM contentX  AS INTEGER, contentY AS INTEGER
     DIM binW      AS INTEGER, binH AS INTEGER, binGapX AS INTEGER, binGapY AS INTEGER
     DIM miniX     AS INTEGER, miniY AS INTEGER, miniCellW AS INTEGER, miniCellH AS INTEGER
@@ -1963,6 +2179,7 @@ FUNCTION DRAWER_slot_at% (mouseX AS INTEGER, mouseY AS INTEGER)
     DRAWER_slot_at% = 0
     IF DOCK_live%(DP_DRAWER) = 0 THEN EXIT FUNCTION ' not on screen: its rect is last frame's (and DRAWER_layout would re-register it)
     IF NOT DRAWER.visible% THEN EXIT FUNCTION
+    IF SWP_menu_covers%(inX, inY) THEN EXIT FUNCTION ' a Swatches menu is drawn over the bins here
 
     DRAWER_layout contentX%, contentY%, binW%, binH%, binGapX%, binGapY%, miniX%, miniY%, miniCellW%, miniCellH%, miniGapX%, miniGapY%, pageBtnY%, scrollX%, scrollY%, scrollH%
 
@@ -1989,12 +2206,15 @@ END FUNCTION
 ' @param mouseY INTEGER Raw screen Y coordinate
 ' @return INTEGER - 1 if over the palette, 0 otherwise
 '
-FUNCTION DRAWER_palette_cell_at% (mouseX AS INTEGER, mouseY AS INTEGER)
+FUNCTION DRAWER_palette_cell_at% (inX AS INTEGER, inY AS INTEGER)
+    DIM mouseX AS INTEGER, mouseY AS INTEGER ' (in its units at its own Scale: GUI/PANEL-SURFACE)
+    mouseX = PSURF_mx%(DP_DRAWER, inX): mouseY = PSURF_my%(DP_DRAWER, inY)
     DIM contentX AS INTEGER, contentY AS INTEGER
     DIM binW     AS INTEGER, binH AS INTEGER, binGapX AS INTEGER, binGapY AS INTEGER
     DIM miniX    AS INTEGER, miniY AS INTEGER, miniCellW AS INTEGER, miniCellH AS INTEGER
     DIM miniGapX AS INTEGER, miniGapY AS INTEGER, pageBtnY AS INTEGER, scrollX AS INTEGER, scrollY AS INTEGER, scrollH AS INTEGER
     DRAWER_palette_cell_at% = 0
+    IF CFG.DRAWER_MINI_PALETTE% = 0 THEN EXIT FUNCTION ' turned off: the bins have its space
     IF NOT DRAWER.visible% THEN EXIT FUNCTION
     IF DOCK_live%(DP_DRAWER) = 0 THEN EXIT FUNCTION ' not on screen: its rect is last frame's
 
@@ -2073,6 +2293,8 @@ END SUB
 ' selection highlights, hover effects, and drag overlay.
 '
 SUB DRAWER_render ()
+    DIM drHovX AS INTEGER, drHovY AS INTEGER ' the pointer in its units (GUI/PANEL-SURFACE)
+    drHovX = PSURF_mx%(DP_DRAWER, MOUSE.RAW_X%): drHovY = PSURF_my%(DP_DRAWER, MOUSE.RAW_Y%)
     DIM contentX     AS INTEGER, contentY AS INTEGER
     DIM binW         AS INTEGER, binH AS INTEGER, binGapX AS INTEGER, binGapY AS INTEGER
     DIM miniX        AS INTEGER, miniY AS INTEGER, miniCellW AS INTEGER, miniCellH AS INTEGER
@@ -2125,7 +2347,7 @@ SUB DRAWER_render ()
     DIM sigilOY      AS INTEGER
     IF NOT DRAWER.visible% OR DRAWER.mode% = DRAWER_MODE_NONE THEN EXIT SUB
 
-    uiScale% = USCALE.drawer%
+    uiScale% = DRAWER_scale%
     IF uiScale% < 1 THEN uiScale% = 1
     IF uiScale% > 4 THEN uiScale% = 4
     padX% = THEME.DRAWER_PANEL_PAD_X% * uiScale%
@@ -2151,7 +2373,9 @@ SUB DRAWER_render ()
     railBg~&  = THEME.BINS_BG_COLOR~&
 
     LINE (DRAWER.panelX1%, DRAWER.panelY1%)-(DRAWER.panelX2%, DRAWER.panelY2%), panelBg~&, BF
-    IF DRAWER_STACKED THEN
+    IF CFG.DRAWER_MINI_PALETTE% = 0 THEN
+        ' no rail
+    ELSEIF DRAWER_STACKED THEN
         LINE (contentX%, miniY% - separatorGap%)-(DRAWER.panelX2% - padX%, DRAWER.panelY2% - uiScale%), railBg~&, BF
     ELSE
         LINE (miniX% - separatorGap%, contentY% - uiScale%)-(DRAWER.panelX2% - padX%, DRAWER.panelY2% - uiScale%), railBg~&, BF
@@ -2179,6 +2403,7 @@ SUB DRAWER_render ()
     END IF
 
     STATIC drawerLastHoverSlot AS INTEGER
+    DIM abBinCel               AS INTEGER
     DIM drawerHoverHit         AS INTEGER
     drawerHoverHit% = FALSE
     cellIndex%      = DRAWER_ROW0 * slotCols%
@@ -2230,7 +2455,7 @@ SUB DRAWER_render ()
                     CASE ELSE
                         borderColor~& = THEME.DRAWER_BIN_SELECTED_BORDER_GRADIENT~&
                 END SELECT
-            ELSEIF MOUSE.RAW_X% >= slotX% AND MOUSE.RAW_X% <= slotX% + binW% - 1 AND MOUSE.RAW_Y% >= slotY% AND MOUSE.RAW_Y% <= slotY% + binH% - 1 THEN
+            ELSEIF drHovX% >= slotX% AND drHovX% <= slotX% + binW% - 1 AND drHovY% >= slotY% AND drHovY% <= slotY% + binH% - 1 THEN
                 bgColor~&     = THEME.DRAWER_BIN_HOVER_BG~&
                 borderColor~& = THEME.DRAWER_BIN_HOVER_BORDER~&
                 IF slotIndex% <> drawerLastHoverSlot% THEN
@@ -2318,7 +2543,7 @@ SUB DRAWER_render ()
                                         srcY1% = destY1% - tileY%
                                         srcX2% = srcX1% + (destX2% - destX1%)
                                         srcY2% = srcY1% + (destY2% - destY1%)
-                                        _PUTIMAGE (destX1%, destY1%)-(destX2%, destY2%), tileImg&, SCRN.GUI&, (srcX1%, srcY1%)-(srcX2%, srcY2%)
+                                        _PUTIMAGE (destX1%, destY1%)-(destX2%, destY2%), tileImg&, _DEST, (srcX1%, srcY1%)-(srcX2%, srcY2%)
                                     END IF
                                 NEXT tileX%
                             NEXT tileY%
@@ -2370,9 +2595,17 @@ SUB DRAWER_render ()
                         drawX% = slotInnerX1%
                         drawY% = slotInnerY1% + uiScale%
                         IF drawY% + drawH% - 1 > slotInnerY2% THEN drawY% = slotInnerY1%
-                        _PUTIMAGE (drawX%, drawY%)-(drawX% + drawW% - 1, drawY% + drawH% - 1), slotImg&, SCRN.GUI&
+                        IF AB_slot_has%(slotIndex%) THEN
+                            ' an AnimBrush: hovered, it plays; a film-strip badge with the cel count
+                            abBinCel% = 1
+                            IF drHovX% >= slotX% AND drHovX% <= slotX% + binW% - 1 AND drHovY% >= slotY% AND drHovY% <= slotY% + binH% - 1 THEN abBinCel% = AB_slot_cel_now%(slotIndex%)
+                            AB_slot_put slotIndex%, abBinCel%, drawX%, drawY%, drawX% + drawW% - 1, drawY% + drawH% - 1, _DEST
+                            AB_slot_badge slotIndex%, slotInnerX1%, slotInnerY1%, slotInnerX2%, slotInnerY2%
+                        ELSE
+                            _PUTIMAGE (drawX%, drawY%)-(drawX% + drawW% - 1, drawY% + drawH% - 1), slotImg&, _DEST
+                        END IF
                     CASE ELSE
-                        _PUTIMAGE (slotInnerX1%, slotInnerY1%)-(slotInnerX2%, slotInnerY2%), slotImg&, SCRN.GUI&
+                        _PUTIMAGE (slotInnerX1%, slotInnerY1%)-(slotInnerX2%, slotInnerY2%), slotImg&, _DEST
                 END SELECT
             ELSEIF DRAWER.mode% = DRAWER_MODE_GRADIENT THEN
                 LINE (slotInnerX1%, slotInnerY1%)-(slotInnerX2%, slotInnerY2%), railBg~&, BF
@@ -2383,7 +2616,7 @@ SUB DRAWER_render ()
 
             ' Draw border on top of content (selected / hover / normal)
             LINE (slotX%, slotY%)-(slotX% + binW% - 1, slotY% + binH% - 1), borderColor~&, B
-            IF MOUSE.RAW_X% >= slotX% AND MOUSE.RAW_X% <= slotX% + binW% - 1 AND MOUSE.RAW_Y% >= slotY% AND MOUSE.RAW_Y% <= slotY% + binH% - 1 THEN
+            IF drHovX% >= slotX% AND drHovX% <= slotX% + binW% - 1 AND drHovY% >= slotY% AND drHovY% <= slotY% + binH% - 1 THEN
                 drawerHoverHit% = TRUE
             END IF
         NEXT col%
@@ -2433,9 +2666,10 @@ SUB DRAWER_render ()
         IF dragRow% >= 0 _ANDALSO dragRow% < slotRows% THEN LINE (dragSlotX%, dragSlotY%)-(dragSlotX% + binW% - 1, dragSlotY% + binH% - 1), THEME.DRAWER_BIN_DRAG_SOURCE_FILL~&, BF
     END IF
 
+    IF CFG.DRAWER_MINI_PALETTE% = 0 THEN EXIT SUB ' no mini palette (Settings > Panels > Drawer)
     LINE (miniX%, miniY%)-(miniX% + miniCellW% - 1, miniY% + miniCellH% - 1), THEME.DRAWER_BIN_EMPTY_BG~&, BF
     IF DRAWER_PALETTE_IMG& < -1 THEN
-        _PUTIMAGE (miniX%, miniY%)-(miniX% + miniCellW% - 1, miniY% + miniCellH% - 1), DRAWER_PALETTE_IMG&, SCRN.GUI&
+        _PUTIMAGE (miniX%, miniY%)-(miniX% + miniCellW% - 1, miniY% + miniCellH% - 1), DRAWER_PALETTE_IMG&, _DEST
     END IF
 
     IF DRAWER_PALETTE_IMG& < -1 THEN
@@ -2480,6 +2714,7 @@ FUNCTION DRAWER_is_over_area% (mouseX AS INTEGER, mouseY AS INTEGER)
     DRAWER_is_over_area% = FALSE
     IF NOT DRAWER.visible% THEN EXIT FUNCTION
     DRAWER_layout contentX%, contentY%, binW%, binH%, binGapX%, binGapY%, miniX%, miniY%, miniCellW%, miniCellH%, miniGapX%, miniGapY%, pageBtnY%, scrollX%, scrollY%, scrollH%
+    IF PSURF_on%(DP_DRAWER) THEN DRAWER_is_over_area% = PSURF_in%(DP_DRAWER, mouseX%, mouseY%): EXIT FUNCTION ' its footprint (GUI/PANEL-SURFACE)
     IF mouseX% >= DRAWER.panelX1% AND mouseX% <= DRAWER.panelX2% AND mouseY% >= DRAWER.panelY1% AND mouseY% <= DRAWER.panelY2% THEN
         DRAWER_is_over_area% = TRUE
     END IF
@@ -2522,6 +2757,7 @@ SUB DRAWER_load_brush_slot_to_custom (slotIndex AS INTEGER)
     CUSTOM_BRUSH.ORIG_HEIGHT% = CUSTOM_BRUSH.HEIGHT%
     CUSTOM_BRUSH.SCALE!       = 1.0
     CUSTOM_BRUSH.ACTIVE%      = TRUE
+    AB_slot_load slotIndex% ' an AnimBrush bin: its cels come back (TOOLS/ANIM-BRUSH)
 END SUB
 
 ''
@@ -2545,7 +2781,11 @@ SUB DRAWER_store_to_slot (slotIndex AS INTEGER)
             ELSEIF CLIPBOARD.VALID% AND CLIPBOARD.IMAGE& < -1 THEN
                 srcImg& = CLIPBOARD.IMAGE&
             END IF
+            IF srcImg& = CUSTOM_BRUSH.IMAGE& _ANDALSO AB_active% THEN
+                IF AB_slot_store%(slotIndex%) THEN srcImg& = 0: DRAWER.brushSelected% = slotIndex% ' an AnimBrush: every cel (TOOLS/ANIM-BRUSH)
+            END IF
             IF srcImg& < -1 THEN
+                AB_slot_drop slotIndex%
                 SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(slotIndex%).IMG
                 DRAWER_BRUSH_SLOTS(slotIndex%).IMG = _COPYIMAGE(srcImg&, 32)
                 DRAWER_BRUSH_SLOTS(slotIndex%).W   = _WIDTH(DRAWER_BRUSH_SLOTS(slotIndex%).IMG)
@@ -2659,6 +2899,7 @@ SUB DRAWER_clear_slot (slotIndex AS INTEGER)
 
     SELECT CASE DRAWER.mode%
         CASE DRAWER_MODE_BRUSH
+            AB_slot_drop slotIndex%
             SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(slotIndex%).IMG
             DRAWER_BRUSH_SLOTS(slotIndex%).IMG = 0
             DRAWER_BRUSH_SLOTS(slotIndex%).W   = 0
@@ -3023,7 +3264,9 @@ END SUB
 ' @param mouseY INTEGER Raw screen Y coordinate within the palette area
 ' @param setBackground INTEGER TRUE to set background color, FALSE for foreground
 '
-SUB DRAWER_select_palette_color (mouseX AS INTEGER, mouseY AS INTEGER, setBackground AS INTEGER)
+SUB DRAWER_select_palette_color (inX AS INTEGER, inY AS INTEGER, setBackground AS INTEGER)
+    DIM mouseX AS INTEGER, mouseY AS INTEGER ' (in its units at its own Scale: GUI/PANEL-SURFACE)
+    mouseX = PSURF_mx%(DP_DRAWER, inX): mouseY = PSURF_my%(DP_DRAWER, inY)
     DIM contentX    AS INTEGER, contentY AS INTEGER
     DIM binW        AS INTEGER, binH AS INTEGER, binGapX AS INTEGER, binGapY AS INTEGER
     DIM miniX       AS INTEGER, miniY AS INTEGER, miniCellW AS INTEGER, miniCellH AS INTEGER
@@ -3256,6 +3499,25 @@ SUB DRAWER_handle_wheel (mouseX AS INTEGER, mouseY AS INTEGER, wheelDelta AS INT
     IF wheelDelta% = 0 THEN EXIT SUB
     IF DRAWER.contextMenuOpen% THEN EXIT SUB
 
+    ' Ctrl+wheel zooms the bins: wheel up = bigger (fewer per row)
+    IF MODIFIERS.ctrl% THEN
+        DIM zc AS INTEGER
+        zc% = CFG.DRAWER_BIN_COLS%
+        IF zc% < 1 THEN zc% = DRAWER_COLS
+        IF wheelDelta% < 0 THEN zc% = zc% - 1 ELSE zc% = zc% + 1
+        IF zc% < 1 THEN zc% = 1
+        IF zc% > DRAWER_ZOOM_MAX_COLS THEN zc% = DRAWER_ZOOM_MAX_COLS
+        IF zc% <> CFG.DRAWER_BIN_COLS% THEN
+            CFG.DRAWER_BIN_COLS% = zc%
+            CONFIG_save
+            STATUS_flash "Drawer: " + _TRIM$(STR$(zc%)) + " bins per row (right-click > Bin Size: Auto to reset)"
+        END IF
+        GUI_NEEDS_REDRAW% = TRUE
+        SCENE_DIRTY%      = TRUE
+        FRAME_IDLE%       = FALSE
+        EXIT SUB
+    END IF
+
     ' Shift+wheel scrolls the bins when a narrow drawer can't show every row
     IF MODIFIERS.shift% THEN
         IF wheelDelta% > 0 THEN DRAWER_ROW0 = DRAWER_ROW0 + 1 ELSE DRAWER_ROW0 = DRAWER_ROW0 - 1
@@ -3416,6 +3678,10 @@ SUB DRAWER_context_menu_activate (actionValue AS INTEGER)
             GRADIENT_editor_dialog
         CASE DRAWER_CONTEXT_LOAD_IMAGES
             DRAWER_load_images_into_slots savedSlot%
+        CASE DRAWER_CONTEXT_BIN_AUTO
+            CFG.DRAWER_BIN_COLS% = 0
+            CONFIG_save
+            GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
     END SELECT
 END SUB
 
@@ -3509,6 +3775,14 @@ SUB DRAWER_context_menu_build (itemCount AS INTEGER)
     itemCount% = itemCount% + 1
 
     POPUP_MENU_set_item itemCount%, "EXPLORE FOLDER", "", DRAWER_CONTEXT_EXPLORE_FOLDER, 0
+    itemCount% = itemCount% + 1
+
+    ' bin size: Ctrl+wheel zooms; this puts it back to the theme's size
+    IF CFG.DRAWER_BIN_COLS% > 0 THEN
+        POPUP_MENU_set_item itemCount%, "BIN SIZE: AUTO", "CTRL+WHEEL", DRAWER_CONTEXT_BIN_AUTO, 0
+    ELSE
+        POPUP_MENU_set_item itemCount%, "BIN SIZE: AUTO", "CTRL+WHEEL", -1, POPUP_MENU_FLAG_DISABLED
+    END IF
     itemCount% = itemCount% + 1
 END SUB
 
@@ -3661,8 +3935,6 @@ FUNCTION DRAWER_load_dset_file% (filename AS STRING, targetMode AS INTEGER)
     DIM version      AS INTEGER
     DIM fileMode     AS INTEGER
     DIM selectedSlot AS INTEGER
-    DIM i            AS INTEGER
-    DIM loadedImg    AS LONG
     DIM resolvedPath AS STRING
 
     DRAWER_load_dset_file% = FALSE
@@ -3696,91 +3968,19 @@ FUNCTION DRAWER_load_dset_file% (filename AS STRING, targetMode AS INTEGER)
     END IF
 
     ' Use file mode if targetMode is 0, otherwise override
+    DIM srcMode AS INTEGER
+    srcMode% = fileMode%
     IF targetMode% > 0 THEN fileMode% = targetMode%
+    DRAWER_read_dset_slots fh%, version%, fileMode%, srcMode%
 
     SELECT CASE fileMode%
         CASE DRAWER_MODE_BRUSH
-            FOR i% = 1 TO DRAWER_SLOT_COUNT
-                SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(i%).IMG
-                loadedImg&                 = DRAWER_load_slot_image&(fh%)
-                DRAWER_BRUSH_SLOTS(i%).IMG = loadedImg&
-                IF loadedImg& < -1 THEN
-                    DRAWER_BRUSH_SLOTS(i%).W = _WIDTH(loadedImg&)
-                    DRAWER_BRUSH_SLOTS(i%).H = _HEIGHT(loadedImg&)
-                ELSE
-                    DRAWER_BRUSH_SLOTS(i%).W = 0
-                    DRAWER_BRUSH_SLOTS(i%).H = 0
-                END IF
-            NEXT i%
             DRAWER.brushSelected% = selectedSlot%
             IF DRAWER.brushSelected% < 1 OR DRAWER.brushSelected% > DRAWER_SLOT_COUNT THEN DRAWER.brushSelected% = 1
         CASE DRAWER_MODE_PATTERN
-            FOR i% = 1 TO DRAWER_SLOT_COUNT
-                IF DRAWER_PATTERN_SLOTS(i%) < -1 THEN SAFE_FREEIMAGE DRAWER_PATTERN_SLOTS(i%)
-                loadedImg&               = DRAWER_load_slot_image&(fh%)
-                DRAWER_PATTERN_SLOTS(i%) = loadedImg&
-                DRAWER_PATTERN_HAS(i%)   = (loadedImg& < -1)
-            NEXT i%
-            DRAWER_analyze_all_1bit
             DRAWER.patternSelected% = selectedSlot%
             IF DRAWER.patternSelected% < 1 OR DRAWER.patternSelected% > DRAWER_SLOT_COUNT THEN DRAWER.patternSelected% = 1
         CASE DRAWER_MODE_GRADIENT
-            FOR i% = 1 TO DRAWER_SLOT_COUNT
-                IF DRAWER_GRADIENT_SLOTS(i%) < -1 THEN SAFE_FREEIMAGE DRAWER_GRADIENT_SLOTS(i%)
-                loadedImg&                 = DRAWER_load_slot_image&(fh%)
-                DRAWER_GRADIENT_SLOTS(i%)  = loadedImg&
-                DRAWER_GRADIENT_HAS(i%)    = (loadedImg& < -1)
-                DRAWER_GRADIENT_CUSTOM(i%) = (loadedImg& < -1)
-                IF DRAWER_GRADIENT_CUSTOM(i%) THEN
-                    GRAD_DEFS(i%).colorCount%   = 0
-                    GRAD_DEFS(i%).opacityCount% = 0
-                END IF
-            NEXT i%
-            ' Version 2: read per-slot grad_defs, color/opacity stops, and stop types
-            IF version% >= 2 THEN
-                DIM gs       AS INTEGER
-                DIM tmpInt   AS INTEGER
-                DIM tmpSng   AS SINGLE
-                DIM tmpStr32 AS STRING * 32
-                DIM tmpUL    AS _UNSIGNED LONG
-                FOR i% = 1 TO DRAWER_SLOT_COUNT
-                    GET #fh%, , tmpInt% : GRAD_DEFS(i%).family% = tmpInt%
-                    GET #fh%, , tmpInt% : GRAD_DEFS(i%).colorCount% = tmpInt%
-                    GET #fh%, , tmpInt% : GRAD_DEFS(i%).opacityCount% = tmpInt%
-                    ' Untrusted: these bound loops that index GRAD_COLOR_STOPS /
-                    ' GRAD_STOP_TYPES, both DIM'd to GRADIENT_MAX_STOPS. The stop
-                    ' records themselves are always a fixed GRADIENT_MAX_STOPS on
-                    ' disk, so clamping here cannot desync the stream.
-                    IF GRAD_DEFS(i%).colorCount% < 0 THEN GRAD_DEFS(i%).colorCount% = 0
-                    IF GRAD_DEFS(i%).colorCount% > GRADIENT_MAX_STOPS THEN GRAD_DEFS(i%).colorCount% = GRADIENT_MAX_STOPS
-                    IF GRAD_DEFS(i%).opacityCount% < 0 THEN GRAD_DEFS(i%).opacityCount% = 0
-                    IF GRAD_DEFS(i%).opacityCount% > GRADIENT_MAX_STOPS THEN GRAD_DEFS(i%).opacityCount% = GRADIENT_MAX_STOPS
-                    GET #fh%, , tmpInt%  : GRAD_DEFS(i%).usesFG% = tmpInt%
-                    GET #fh%, , tmpInt%  : GRAD_DEFS(i%).usesBG% = tmpInt%
-                    GET #fh%, , tmpStr32 : GRAD_DEFS(i%).gName = tmpStr32
-                    GET #fh%, , tmpInt%  : GRAD_DEFS(i%).ditherMode% = tmpInt%
-                    GET #fh%, , tmpSng!  : GRAD_DEFS(i%).ditherStrength! = tmpSng!
-                    FOR gs% = 1 TO GRADIENT_MAX_STOPS
-                        GET #fh%, , tmpSng! : GRAD_COLOR_STOPS(i%, gs%).position = tmpSng!
-                        GET #fh%, , tmpUL~& : GRAD_COLOR_STOPS(i%, gs%).clr = tmpUL~&
-                    NEXT gs%
-                    FOR gs% = 1 TO GRADIENT_MAX_STOPS
-                        GET #fh%, , tmpSng! : GRAD_OPACITY_STOPS(i%, gs%).position = tmpSng!
-                        GET #fh%, , tmpInt% : GRAD_OPACITY_STOPS(i%, gs%).opacity% = tmpInt%
-                    NEXT gs%
-                    FOR gs% = 1 TO GRADIENT_MAX_STOPS
-                        GET #fh%, , tmpInt%: GRAD_STOP_TYPES(i%, gs%) = tmpInt%
-                    NEXT gs%
-                    IF GRAD_DEFS(i%).colorCount% >= 1 THEN DRAWER_GRADIENT_CUSTOM(i%) = FALSE
-                    GRAD_DEFS(i%).previewDirty% = TRUE
-                NEXT i%
-                ' Rebuild previews from loaded definitions
-                FOR i% = 1 TO DRAWER_SLOT_COUNT
-                    IF GRAD_DEFS(i%).colorCount% >= 1 THEN
-                        GRAD_DEF_rebuild_preview i%
-                    END IF
-                NEXT i%
-            END IF
             DRAWER.gradientSelected% = selectedSlot%
             IF DRAWER.gradientSelected% < 1 OR DRAWER.gradientSelected% > DRAWER_SLOT_COUNT THEN DRAWER.gradientSelected% = 1
     END SELECT
@@ -4019,6 +4219,7 @@ END SUB
 ' @param target LONG Destination image handle to draw onto
 '
 SUB DRAWER_wheel_tooltip_render (target AS LONG)
+    DRAWER_WTT_W = 0
     IF NOT DRAWER.wheelTooltipActive% THEN EXIT SUB
 
     DIM elapsed AS DOUBLE
@@ -4100,11 +4301,23 @@ SUB DRAWER_wheel_tooltip_render (target AS LONG)
 
     DIM drawerCenterX AS INTEGER
     drawerCenterX% = (DRAWER.panelX1% + DRAWER.panelX2%) \ 2
+    IF PSURF_on%(DP_DRAWER) THEN ' (the drawer is in its units: the tooltip goes on the canvas, GUI/PANEL-SURFACE)
+        drawerCenterX% = PSURF(DP_DRAWER).vx + PSURF(DP_DRAWER).vw \ 2
+        lastBinBottomY% = PSURF(DP_DRAWER).vy + INT(CLNG(lastBinBottomY% - PSURF(DP_DRAWER).vy) * PSURF_k%(DP_DRAWER) / PSURF_ds%)
+    END IF
     ttX%           = drawerCenterX% - ttW% \ 2
     ttY%           = lastBinBottomY% + 2
+    ' inside the drawer: under it is another panel (the Preview, docked), which
+    ' is painted after this and covered it (Rick)
+    IF PSURF_on%(DP_DRAWER) THEN
+        IF ttY% + ttH% > PSURF(DP_DRAWER).vy + PSURF(DP_DRAWER).vh - 1 THEN ttY% = PSURF(DP_DRAWER).vy + PSURF(DP_DRAWER).vh - ttH% - 2
+    ELSEIF ttY% + ttH% > DRAWER.panelY2% THEN
+        ttY% = DRAWER.panelY2% - ttH% - 1
+    END IF
     IF ttX% < 2 THEN ttX% = 2
     IF ttX% + ttW% > scrW% - 2 THEN ttX% = scrW% - ttW% - 2
     IF ttY% + ttH% > scrH% - 2 THEN ttY% = lastBinBottomY% - ttH% - 2
+    DRAWER_WTT_X = ttX%: DRAWER_WTT_Y = ttY%: DRAWER_WTT_W = ttW%: DRAWER_WTT_H = ttH%
 
     ' Resolve colors with same fallbacks as TOOLTIP_render
     DIM bgColor AS _UNSIGNED LONG, borderColor AS _UNSIGNED LONG
@@ -4159,13 +4372,14 @@ SUB DRAWER_save_state_binary (fh AS INTEGER)
     customBrushActive% = CUSTOM_BRUSH_is_active%
     PUT #fh%, , customBrushActive%
 
-    FOR i% = 1 TO DRAWER_SLOT_COUNT
+    ' the classic 30 (slots past them: the drAx chunk, DRAWER_write_ext_draw)
+    FOR i% = 1 TO DRAWER_FILE_SLOTS
         DRAWER_save_slot_image fh%, DRAWER_BRUSH_SLOTS(i%).IMG
     NEXT i%
-    FOR i% = 1 TO DRAWER_SLOT_COUNT
+    FOR i% = 1 TO DRAWER_FILE_SLOTS
         DRAWER_save_slot_image fh%, DRAWER_PATTERN_SLOTS(i%)
     NEXT i%
-    FOR i% = 1 TO DRAWER_SLOT_COUNT
+    FOR i% = 1 TO DRAWER_FILE_SLOTS
         DRAWER_save_slot_image fh%, DRAWER_GRADIENT_SLOTS(i%)
     NEXT i%
 END SUB
@@ -4198,7 +4412,7 @@ SUB DRAWER_load_state_binary (fh AS INTEGER)
     IF DRAWER.gradientSelected% < 1 OR DRAWER.gradientSelected% > DRAWER_SLOT_COUNT THEN DRAWER.gradientSelected% = 1
     IF DRAWER.miniPaletteOffset% < 0 THEN DRAWER.miniPaletteOffset% = 0
 
-    FOR i% = 1 TO DRAWER_SLOT_COUNT
+    FOR i% = 1 TO DRAWER_FILE_SLOTS
         loadedImg&                 = DRAWER_load_slot_image&(fh%)
         DRAWER_BRUSH_SLOTS(i%).IMG = loadedImg&
         IF loadedImg& < -1 THEN
@@ -4210,7 +4424,7 @@ SUB DRAWER_load_state_binary (fh AS INTEGER)
         END IF
     NEXT i%
 
-    FOR i% = 1 TO DRAWER_SLOT_COUNT
+    FOR i% = 1 TO DRAWER_FILE_SLOTS
         loadedImg&               = DRAWER_load_slot_image&(fh%)
         DRAWER_PATTERN_SLOTS(i%) = loadedImg&
         DRAWER_PATTERN_HAS(i%)   = (loadedImg& < -1)
@@ -4218,9 +4432,10 @@ SUB DRAWER_load_state_binary (fh AS INTEGER)
 
     DRAWER_analyze_all_1bit
 
-    FOR i% = 1 TO DRAWER_SLOT_COUNT
+    FOR i% = 1 TO DRAWER_FILE_SLOTS
         loadedImg&                 = DRAWER_load_slot_image&(fh%)
         DRAWER_GRADIENT_SLOTS(i%)  = loadedImg&
+        DRAWER_GRADIENT_RAMP_IMG(i%) = 0 ' look again which way it runs
         DRAWER_GRADIENT_HAS(i%)    = (loadedImg& < -1)
         DRAWER_GRADIENT_CUSTOM(i%) = (loadedImg& < -1)
     NEXT i%
@@ -4241,6 +4456,7 @@ SUB DRAWER_load_state_binary (fh AS INTEGER)
     DRAWER.visible%           = TRUE
     WS_on_drawer_loaded ' a workspace hiding the drawer keeps it hidden
 
+    DRAWER_PENDING_CUSTOM = (customBrushActive% <> 0 _ANDALSO DRAWER.brushSelected% > DRAWER_FILE_SLOTS)
     IF customBrushActive% AND DRAWER_BRUSH_SLOTS(DRAWER.brushSelected%).IMG < -1 THEN
         DRAWER_load_brush_slot_to_custom DRAWER.brushSelected%
     ELSEIF CUSTOM_BRUSH_is_active% THEN
@@ -4261,7 +4477,7 @@ SUB DRAWER_save_grad_defs (fh AS INTEGER)
     DIM tmpSng   AS SINGLE
     DIM tmpStr32 AS STRING * 32
     DIM tmpUL    AS _UNSIGNED LONG
-    FOR i% = 1 TO DRAWER_SLOT_COUNT
+    FOR i% = 1 TO DRAWER_FILE_SLOTS
         tmpInt%  = GRAD_DEFS(i%).family%         : PUT #fh%, , tmpInt%
         tmpInt%  = GRAD_DEFS(i%).colorCount%     : PUT #fh%, , tmpInt%
         tmpInt%  = GRAD_DEFS(i%).opacityCount%   : PUT #fh%, , tmpInt%
@@ -4294,7 +4510,7 @@ SUB DRAWER_load_grad_defs (fh AS INTEGER)
     DIM tmpSng   AS SINGLE
     DIM tmpStr32 AS STRING * 32
     DIM tmpUL    AS _UNSIGNED LONG
-    FOR i% = 1 TO DRAWER_SLOT_COUNT
+    FOR i% = 1 TO DRAWER_FILE_SLOTS
         GET #fh%, , tmpInt% : GRAD_DEFS(i%).family% = tmpInt%
         GET #fh%, , tmpInt% : GRAD_DEFS(i%).colorCount% = tmpInt%
         GET #fh%, , tmpInt% : GRAD_DEFS(i%).opacityCount% = tmpInt%
@@ -4322,7 +4538,7 @@ SUB DRAWER_load_grad_defs (fh AS INTEGER)
         GRAD_DEFS(i%).previewDirty% = TRUE
     NEXT i%
     ' Rebuild previews for any slots that have definitions
-    FOR i% = 1 TO DRAWER_SLOT_COUNT
+    FOR i% = 1 TO DRAWER_FILE_SLOTS
         IF GRAD_DEFS(i%).colorCount% >= 1 THEN
             DRAWER_GRADIENT_CUSTOM(i%) = FALSE
             GRAD_DEF_rebuild_preview i%
@@ -4358,6 +4574,7 @@ SUB DRAWER_clear_active_set ()
     SELECT CASE DRAWER.mode%
         CASE DRAWER_MODE_BRUSH
             FOR i% = 1 TO DRAWER_SLOT_COUNT
+                AB_slot_drop i%
                 SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(i%).IMG
                 DRAWER_BRUSH_SLOTS(i%).IMG = 0
                 DRAWER_BRUSH_SLOTS(i%).W   = 0
@@ -4482,6 +4699,8 @@ SUB DRAWER_save_set_to_file (savePath$)
     IF DRAWER.mode% < DRAWER_MODE_BRUSH OR DRAWER.mode% > DRAWER_MODE_GRADIENT THEN EXIT SUB
 
     fh% = FREEFILE
+    OPEN savePath$ FOR OUTPUT AS #fh%: CLOSE #fh% ' truncate: a shorter set must not keep an old one's tail
+    fh% = FREEFILE
     OPEN savePath$ FOR BINARY AS #fh%
     magic$ = "DST1"
     IF DRAWER.mode% = DRAWER_MODE_GRADIENT THEN version% = 2 ELSE version% = 1
@@ -4498,46 +4717,29 @@ SUB DRAWER_save_set_to_file (savePath$)
     END SELECT
     PUT #fh%, , selectedSlot%
 
-    FOR i% = 1 TO DRAWER_SLOT_COUNT
-        SELECT CASE DRAWER.mode%
-            CASE DRAWER_MODE_BRUSH
-                DRAWER_save_slot_image fh%, DRAWER_BRUSH_SLOTS(i%).IMG
-            CASE DRAWER_MODE_PATTERN
-                DRAWER_save_slot_image fh%, DRAWER_PATTERN_SLOTS(i%)
-            CASE ELSE
-                DRAWER_save_slot_image fh%, DRAWER_GRADIENT_SLOTS(i%)
-        END SELECT
+    ' the classic 30 slots (every DRAW reads these)...
+    FOR i% = 1 TO DRAWER_FILE_SLOTS
+        DRAWER_save_slot_image fh%, DRAWER_slot_img&(DRAWER.mode%, i%)
     NEXT i%
-
-    ' Version 2: write per-slot grad_defs, color/opacity stops, and stop types
+    ' Version 2: per-slot grad_defs, color/opacity stops, and stop types
     IF version% = 2 THEN
-        DIM gs        AS INTEGER
-        DIM tmpInt2   AS INTEGER
-        DIM tmpSng2   AS SINGLE
-        DIM tmpStr32b AS STRING * 32
-        DIM tmpUL2    AS _UNSIGNED LONG
-        FOR i% = 1 TO DRAWER_SLOT_COUNT
-            tmpInt2%  = GRAD_DEFS(i%).family%         : PUT #fh%, , tmpInt2%
-            tmpInt2%  = GRAD_DEFS(i%).colorCount%     : PUT #fh%, , tmpInt2%
-            tmpInt2%  = GRAD_DEFS(i%).opacityCount%   : PUT #fh%, , tmpInt2%
-            tmpInt2%  = GRAD_DEFS(i%).usesFG%         : PUT #fh%, , tmpInt2%
-            tmpInt2%  = GRAD_DEFS(i%).usesBG%         : PUT #fh%, , tmpInt2%
-            tmpStr32b = GRAD_DEFS(i%).gName           : PUT #fh%, , tmpStr32b
-            tmpInt2%  = GRAD_DEFS(i%).ditherMode%     : PUT #fh%, , tmpInt2%
-            tmpSng2!  = GRAD_DEFS(i%).ditherStrength! : PUT #fh%, , tmpSng2!
-            FOR gs% = 1 TO GRADIENT_MAX_STOPS
-                tmpSng2! = GRAD_COLOR_STOPS(i%, gs%).position : PUT #fh%, , tmpSng2!
-                tmpUL2~& = GRAD_COLOR_STOPS(i%, gs%).clr      : PUT #fh%, , tmpUL2~&
-            NEXT gs%
-            FOR gs% = 1 TO GRADIENT_MAX_STOPS
-                tmpSng2! = GRAD_OPACITY_STOPS(i%, gs%).position : PUT #fh%, , tmpSng2!
-                tmpInt2% = GRAD_OPACITY_STOPS(i%, gs%).opacity% : PUT #fh%, , tmpInt2%
-            NEXT gs%
-            FOR gs% = 1 TO GRADIENT_MAX_STOPS
-                tmpInt2% = GRAD_STOP_TYPES(i%, gs%): PUT #fh%, , tmpInt2%
-            NEXT gs%
+        FOR i% = 1 TO DRAWER_FILE_SLOTS
+            DRAWER_put_grad_record fh%, i%
         NEXT i%
     END IF
+    ' ...then the rest, after them, where older builds stop reading
+    DIM lastSlot AS INTEGER, extMagic AS STRING * 4
+    lastSlot% = DRAWER_last_used_slot%(DRAWER.mode%)
+    IF lastSlot% > DRAWER_FILE_SLOTS THEN
+        extMagic$ = DRAWER_EXT_MAGIC$
+        PUT #fh%, , extMagic$
+        PUT #fh%, , lastSlot%
+        FOR i% = DRAWER_FILE_SLOTS + 1 TO lastSlot%
+            DRAWER_save_slot_image fh%, DRAWER_slot_img&(DRAWER.mode%, i%)
+            IF version% = 2 THEN DRAWER_put_grad_record fh%, i%
+        NEXT i%
+    END IF
+    IF DRAWER.mode% = DRAWER_MODE_BRUSH THEN AB_slots_write_dset fh% ' AnimBrush bins: their cels (TOOLS/ANIM-BRUSH)
     CLOSE #fh%
 
     DRAWER_clear_set_dirty DRAWER.mode%
@@ -4557,8 +4759,6 @@ SUB DRAWER_import_set_dialog ()
     DIM version      AS INTEGER
     DIM fileMode     AS INTEGER
     DIM selectedSlot AS INTEGER
-    DIM i            AS INTEGER
-    DIM loadedImg    AS LONG
 
     IF CFG.LAST_DIR_IMPORT$ <> "" THEN
         defaultPath$ = CFG.LAST_DIR_IMPORT$ + "/"
@@ -4604,91 +4804,17 @@ SUB DRAWER_import_set_dialog ()
     END IF
 
     DRAWER_ensure_samples
+    DRAWER_read_dset_slots fh%, version%, fileMode%, fileMode%
 
     SELECT CASE fileMode%
         CASE DRAWER_MODE_BRUSH
-            FOR i% = 1 TO DRAWER_SLOT_COUNT
-                SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(i%).IMG
-                loadedImg&                 = DRAWER_load_slot_image&(fh%)
-                DRAWER_BRUSH_SLOTS(i%).IMG = loadedImg&
-                IF loadedImg& < -1 THEN
-                    DRAWER_BRUSH_SLOTS(i%).W = _WIDTH(loadedImg&)
-                    DRAWER_BRUSH_SLOTS(i%).H = _HEIGHT(loadedImg&)
-                ELSE
-                    DRAWER_BRUSH_SLOTS(i%).W = 0
-                    DRAWER_BRUSH_SLOTS(i%).H = 0
-                END IF
-            NEXT i%
             DRAWER.brushSelected% = selectedSlot%
             IF DRAWER.brushSelected% < 1 OR DRAWER.brushSelected% > DRAWER_SLOT_COUNT THEN DRAWER.brushSelected% = 1
             IF DRAWER_BRUSH_SLOTS(DRAWER.brushSelected%).IMG < -1 THEN DRAWER_load_brush_slot_to_custom DRAWER.brushSelected%
         CASE DRAWER_MODE_PATTERN
-            FOR i% = 1 TO DRAWER_SLOT_COUNT
-                IF DRAWER_PATTERN_SLOTS(i%) < -1 THEN SAFE_FREEIMAGE DRAWER_PATTERN_SLOTS(i%)
-                loadedImg&               = DRAWER_load_slot_image&(fh%)
-                DRAWER_PATTERN_SLOTS(i%) = loadedImg&
-                DRAWER_PATTERN_HAS(i%)   = (loadedImg& < -1)
-            NEXT i%
-            DRAWER_analyze_all_1bit
             DRAWER.patternSelected% = selectedSlot%
             IF DRAWER.patternSelected% < 1 OR DRAWER.patternSelected% > DRAWER_SLOT_COUNT THEN DRAWER.patternSelected% = 1
         CASE ELSE
-            FOR i% = 1 TO DRAWER_SLOT_COUNT
-                IF DRAWER_GRADIENT_SLOTS(i%) < -1 THEN SAFE_FREEIMAGE DRAWER_GRADIENT_SLOTS(i%)
-                loadedImg&                 = DRAWER_load_slot_image&(fh%)
-                DRAWER_GRADIENT_SLOTS(i%)  = loadedImg&
-                DRAWER_GRADIENT_HAS(i%)    = (loadedImg& < -1)
-                DRAWER_GRADIENT_CUSTOM(i%) = (loadedImg& < -1)
-                IF DRAWER_GRADIENT_CUSTOM(i%) THEN
-                    GRAD_DEFS(i%).colorCount%   = 0
-                    GRAD_DEFS(i%).opacityCount% = 0
-                END IF
-            NEXT i%
-            ' Version 2: read per-slot grad_defs, color/opacity stops, and stop types
-            IF version% >= 2 THEN
-                DIM gs       AS INTEGER
-                DIM tmpInt   AS INTEGER
-                DIM tmpSng   AS SINGLE
-                DIM tmpStr32 AS STRING * 32
-                DIM tmpUL    AS _UNSIGNED LONG
-                FOR i% = 1 TO DRAWER_SLOT_COUNT
-                    GET #fh%, , tmpInt% : GRAD_DEFS(i%).family% = tmpInt%
-                    GET #fh%, , tmpInt% : GRAD_DEFS(i%).colorCount% = tmpInt%
-                    GET #fh%, , tmpInt% : GRAD_DEFS(i%).opacityCount% = tmpInt%
-                    ' Untrusted: these bound loops that index GRAD_COLOR_STOPS /
-                    ' GRAD_STOP_TYPES, both DIM'd to GRADIENT_MAX_STOPS. The stop
-                    ' records themselves are always a fixed GRADIENT_MAX_STOPS on
-                    ' disk, so clamping here cannot desync the stream.
-                    IF GRAD_DEFS(i%).colorCount% < 0 THEN GRAD_DEFS(i%).colorCount% = 0
-                    IF GRAD_DEFS(i%).colorCount% > GRADIENT_MAX_STOPS THEN GRAD_DEFS(i%).colorCount% = GRADIENT_MAX_STOPS
-                    IF GRAD_DEFS(i%).opacityCount% < 0 THEN GRAD_DEFS(i%).opacityCount% = 0
-                    IF GRAD_DEFS(i%).opacityCount% > GRADIENT_MAX_STOPS THEN GRAD_DEFS(i%).opacityCount% = GRADIENT_MAX_STOPS
-                    GET #fh%, , tmpInt%  : GRAD_DEFS(i%).usesFG% = tmpInt%
-                    GET #fh%, , tmpInt%  : GRAD_DEFS(i%).usesBG% = tmpInt%
-                    GET #fh%, , tmpStr32 : GRAD_DEFS(i%).gName = tmpStr32
-                    GET #fh%, , tmpInt%  : GRAD_DEFS(i%).ditherMode% = tmpInt%
-                    GET #fh%, , tmpSng!  : GRAD_DEFS(i%).ditherStrength! = tmpSng!
-                    FOR gs% = 1 TO GRADIENT_MAX_STOPS
-                        GET #fh%, , tmpSng! : GRAD_COLOR_STOPS(i%, gs%).position = tmpSng!
-                        GET #fh%, , tmpUL~& : GRAD_COLOR_STOPS(i%, gs%).clr = tmpUL~&
-                    NEXT gs%
-                    FOR gs% = 1 TO GRADIENT_MAX_STOPS
-                        GET #fh%, , tmpSng! : GRAD_OPACITY_STOPS(i%, gs%).position = tmpSng!
-                        GET #fh%, , tmpInt% : GRAD_OPACITY_STOPS(i%, gs%).opacity% = tmpInt%
-                    NEXT gs%
-                    FOR gs% = 1 TO GRADIENT_MAX_STOPS
-                        GET #fh%, , tmpInt%: GRAD_STOP_TYPES(i%, gs%) = tmpInt%
-                    NEXT gs%
-                    IF GRAD_DEFS(i%).colorCount% >= 1 THEN DRAWER_GRADIENT_CUSTOM(i%) = FALSE
-                    GRAD_DEFS(i%).previewDirty% = TRUE
-                NEXT i%
-                ' Rebuild previews from loaded definitions
-                FOR i% = 1 TO DRAWER_SLOT_COUNT
-                    IF GRAD_DEFS(i%).colorCount% >= 1 THEN
-                        GRAD_DEF_rebuild_preview i%
-                    END IF
-                NEXT i%
-            END IF
             DRAWER.gradientSelected% = selectedSlot%
             IF DRAWER.gradientSelected% < 1 OR DRAWER.gradientSelected% > DRAWER_SLOT_COUNT THEN DRAWER.gradientSelected% = 1
     END SELECT
@@ -4778,6 +4904,7 @@ SUB DRAWER_load_images_into_slots (startSlot AS INTEGER)
         ' Store into the current slot
         SELECT CASE DRAWER.mode%
             CASE DRAWER_MODE_BRUSH
+                AB_slot_drop slotIdx%
                 SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(slotIdx%).IMG
                 DRAWER_BRUSH_SLOTS(slotIdx%).IMG = loadedImg&
                 DRAWER_BRUSH_SLOTS(slotIdx%).W   = _WIDTH(loadedImg&)
@@ -4898,31 +5025,46 @@ SUB GRADIENT_editor_dialog ()
     SCREEN_render
     DIALOG_init ctx, GED_W, gedH%
 
+    ' ---- Snapshot for cancel (before the stops are made up for an image or an
+    ' empty slot, so Cancel leaves it as it was) ----
+    DIM savedDef AS GRADIENT_DEF
+    DIM savedStops(1 TO GRADIENT_MAX_STOPS) AS GRADIENT_COLOR_STOP
+    DIM savedStopTypes(1 TO GRADIENT_MAX_STOPS) AS INTEGER
+    savedDef = GRAD_DEFS(slotIdx%)
+    DIM gedSi    AS INTEGER
+    FOR gedSi% = 1 TO GRADIENT_MAX_STOPS
+        savedStops(gedSi%)     = GRAD_COLOR_STOPS(slotIdx%, gedSi%)
+        savedStopTypes(gedSi%) = GRAD_STOP_TYPES(slotIdx%, gedSi%)
+    NEXT gedSi%
+
     ' ---- Initialize empty slots with black-to-white default ----
     ' If slot has a custom image but no GRAD_DEFS (imported PNG), extract stops
     IF GRAD_DEFS(slotIdx%).colorCount% < 2 THEN
         IF DRAWER_GRADIENT_SLOTS(slotIdx%) < -1 THEN
-            ' Extract color stops from existing gradient image
+            ' Extract color stops from the gradient image, read along the way it
+            ' runs: across the middle row a top-to-bottom image gave 8 stops of one color
             DIM gedExtImg    AS LONG    : gedExtImg& = DRAWER_GRADIENT_SLOTS(slotIdx%)
             DIM gedExtW      AS INTEGER : gedExtW% = _WIDTH(gedExtImg&)
             DIM gedExtH      AS INTEGER : gedExtH% = _HEIGHT(gedExtImg&)
+            DIM gedExtFam    AS INTEGER : gedExtFam% = GRAD_IMG_family%(slotIdx%)
+            DIM gedExtRun    AS INTEGER ' pixels along the run
+            SELECT CASE gedExtFam%
+                CASE GRADIENT_FAMILY_HORIZONTAL : gedExtRun% = gedExtW%
+                CASE GRADIENT_FAMILY_VERTICAL   : gedExtRun% = gedExtH%
+                CASE ELSE                       : gedExtRun% = _MAX(gedExtW%, gedExtH%)
+            END SELECT
+            ' Sample up to 8 evenly-spaced stops along it
+            DIM gedExtCount  AS INTEGER
+            IF gedExtRun% <= 8 THEN gedExtCount% = gedExtRun% ELSE gedExtCount% = 8
+            IF gedExtCount% < 2 THEN gedExtCount% = 2
+            DIM gedExtI      AS INTEGER
+            DIM gedExtSX     AS INTEGER, gedExtSY AS INTEGER
             DIM gedExtOldSrc AS LONG    : gedExtOldSrc& = _SOURCE
             _SOURCE gedExtImg&
-            ' Sample up to 8 evenly-spaced stops along horizontal center line
-            DIM gedExtCount  AS INTEGER
-            IF gedExtW% <= 8 THEN gedExtCount% = gedExtW% ELSE gedExtCount% = 8
-            IF gedExtCount% < 2 THEN gedExtCount% = 2
-            DIM gedExtMidY   AS INTEGER : gedExtMidY% = gedExtH% \ 2
-            DIM gedExtI      AS INTEGER
             FOR gedExtI% = 1 TO gedExtCount%
-                DIM gedExtSX AS INTEGER
-                IF gedExtCount% > 1 THEN
-                    gedExtSX% = INT((gedExtI% - 1) * (gedExtW% - 1) / (gedExtCount% - 1))
-                ELSE
-                    gedExtSX% = 0
-                END IF
+                GRAD_IMG_path gedExtFam%, (gedExtI% - 1) / (gedExtCount% - 1), gedExtW%, gedExtH%, gedExtSX%, gedExtSY%
                 GRAD_COLOR_STOPS(slotIdx%, gedExtI%).position = (gedExtI% - 1) / (gedExtCount% - 1)
-                GRAD_COLOR_STOPS(slotIdx%, gedExtI%).clr      = POINT(gedExtSX%, gedExtMidY%)
+                GRAD_COLOR_STOPS(slotIdx%, gedExtI%).clr      = POINT(gedExtSX%, gedExtSY%)
                 GRAD_STOP_TYPES(slotIdx%, gedExtI%)           = GRAD_STOP_USER
             NEXT gedExtI%
             _SOURCE gedExtOldSrc&
@@ -4942,17 +5084,6 @@ SUB GRADIENT_editor_dialog ()
             GRAD_COLOR_STOPS(slotIdx%, 2).clr      = _RGB32(255, 255, 255)
         END IF
     END IF
-
-    ' ---- Snapshot for cancel ----
-    DIM savedDef AS GRADIENT_DEF
-    DIM savedStops(1 TO GRADIENT_MAX_STOPS) AS GRADIENT_COLOR_STOP
-    DIM savedStopTypes(1 TO GRADIENT_MAX_STOPS) AS INTEGER
-    savedDef = GRAD_DEFS(slotIdx%)
-    DIM gedSi    AS INTEGER
-    FOR gedSi% = 1 TO GRADIENT_MAX_STOPS
-        savedStops(gedSi%)     = GRAD_COLOR_STOPS(slotIdx%, gedSi%)
-        savedStopTypes(gedSi%) = GRAD_STOP_TYPES(slotIdx%, gedSi%)
-    NEXT gedSi%
 
     DIM selStop     AS INTEGER
     DIM dragStop    AS INTEGER
@@ -5271,7 +5402,7 @@ SUB GRADIENT_editor_dialog ()
                         gedFR% = _RED32(gedSmooth~&) + INT((_RED32(gedDither~&) - _RED32(gedSmooth~&)) * gedDstr! + .5)
                         gedFG% = _GREEN32(gedSmooth~&) + INT((_GREEN32(gedDither~&) - _GREEN32(gedSmooth~&)) * gedDstr! + .5)
                         gedFB% = _BLUE32(gedSmooth~&) + INT((_BLUE32(gedDither~&) - _BLUE32(gedSmooth~&)) * gedDstr! + .5)
-                        PSET (GED_BAR_X + gedGx%, gedBarY% + gedDy%), _RGB32(gedFR%, gedFG%, gedFB%)
+                        PSET (GED_BAR_X + gedGx%, gedBarY% + gedDy%), _RGBA32(gedFR%, gedFG%, gedFB%, _ALPHA32(gedSmooth~&) + INT((_ALPHA32(gedDither~&) - _ALPHA32(gedSmooth~&)) * gedDstr! + .5))
                     END IF
                 NEXT gedGx%
             NEXT gedDy%
@@ -5534,4 +5665,270 @@ SUB DRAWER_analyze_all_1bit ()
             DRAWER_PATTERN_1BIT_HAS_BG(i%) = FALSE
         END IF
     NEXT i%
+END SUB
+
+' =============================================================================
+' Slots past the classic 30 (2.8: DRAWER_SLOT_COUNT bins per mode)
+' -----------------------------------------------------------------------------
+' Both file formats keep their first DRAWER_FILE_SLOTS slots exactly where
+' every DRAW reads them. The rest are written after them in a form an older
+' build never reaches: a .dset gets a block after its last classic record
+' (DRAWER_EXT_MAGIC$, the last slot, the slots), a .draw a PNG chunk "drAx"
+' (DRAWER_write_ext_draw). An older DRAW opens either with its 30 slots.
+' =============================================================================
+
+''
+' A slot's image in drawer mode (0 = none).
+FUNCTION DRAWER_slot_img& (mode AS INTEGER, i AS INTEGER)
+    IF i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN EXIT FUNCTION
+    SELECT CASE mode
+        CASE DRAWER_MODE_BRUSH: DRAWER_slot_img& = DRAWER_BRUSH_SLOTS(i).IMG
+        CASE DRAWER_MODE_PATTERN: DRAWER_slot_img& = DRAWER_PATTERN_SLOTS(i)
+        CASE DRAWER_MODE_GRADIENT: DRAWER_slot_img& = DRAWER_GRADIENT_SLOTS(i)
+    END SELECT
+END FUNCTION
+
+''
+' The highest slot holding something in mode (0 = any mode); 0 = all empty.
+FUNCTION DRAWER_last_used_slot% (mode AS INTEGER)
+    DIM i AS INTEGER, m AS INTEGER
+    FOR i = DRAWER_SLOT_COUNT TO 1 STEP -1
+        FOR m = DRAWER_MODE_BRUSH TO DRAWER_MODE_GRADIENT
+            IF mode = 0 _ORELSE mode = m THEN
+                IF DRAWER_slot_img&(m, i) < -1 THEN DRAWER_last_used_slot% = i: EXIT FUNCTION
+            END IF
+        NEXT m
+    NEXT i
+END FUNCTION
+
+''
+' Empty slot i of mode.
+SUB DRAWER_slot_clear (mode AS INTEGER, i AS INTEGER)
+    IF i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN EXIT SUB
+    SELECT CASE mode
+        CASE DRAWER_MODE_BRUSH
+            AB_slot_drop i
+            SAFE_FREEIMAGE DRAWER_BRUSH_SLOTS(i).IMG
+            DRAWER_BRUSH_SLOTS(i).IMG = 0: DRAWER_BRUSH_SLOTS(i).W = 0: DRAWER_BRUSH_SLOTS(i).H = 0
+        CASE DRAWER_MODE_PATTERN
+            IF DRAWER_PATTERN_SLOTS(i) < -1 THEN SAFE_FREEIMAGE DRAWER_PATTERN_SLOTS(i)
+            DRAWER_PATTERN_SLOTS(i) = 0: DRAWER_PATTERN_HAS(i) = FALSE
+            DRAWER_PATTERN_1BIT(i) = FALSE: DRAWER_PATTERN_1BIT_FG(i) = 0: DRAWER_PATTERN_1BIT_HAS_BG(i) = FALSE
+        CASE DRAWER_MODE_GRADIENT
+            IF DRAWER_GRADIENT_SLOTS(i) < -1 THEN SAFE_FREEIMAGE DRAWER_GRADIENT_SLOTS(i)
+            DRAWER_GRADIENT_SLOTS(i) = 0: DRAWER_GRADIENT_HAS(i) = FALSE: DRAWER_GRADIENT_CUSTOM(i) = FALSE
+            GRAD_DEFS(i).colorCount = 0: GRAD_DEFS(i).opacityCount = 0
+    END SELECT
+END SUB
+
+''
+' Put a loaded image (0 = none) into slot i of mode, freeing what was there.
+' A slot past DRAWER_SLOT_COUNT (a file from a DRAW with more) is dropped.
+SUB DRAWER_slot_store (mode AS INTEGER, i AS INTEGER, img AS LONG)
+    DIM h AS LONG
+    h = img
+    IF i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN
+        IF h < -1 THEN _FREEIMAGE h
+        EXIT SUB
+    END IF
+    DRAWER_slot_clear mode, i
+    IF h >= -1 THEN EXIT SUB
+    SELECT CASE mode
+        CASE DRAWER_MODE_BRUSH
+            DRAWER_BRUSH_SLOTS(i).IMG = h: DRAWER_BRUSH_SLOTS(i).W = _WIDTH(h): DRAWER_BRUSH_SLOTS(i).H = _HEIGHT(h)
+        CASE DRAWER_MODE_PATTERN
+            DRAWER_PATTERN_SLOTS(i) = h: DRAWER_PATTERN_HAS(i) = TRUE
+            DRAWER_analyze_1bit i
+        CASE DRAWER_MODE_GRADIENT
+            DRAWER_GRADIENT_SLOTS(i) = h: DRAWER_GRADIENT_HAS(i) = TRUE: DRAWER_GRADIENT_CUSTOM(i) = TRUE
+            DRAWER_GRADIENT_RAMP_IMG(i) = 0 ' look again which way it runs
+        CASE ELSE
+            _FREEIMAGE h
+    END SELECT
+END SUB
+
+''
+' One gradient slot's definition: the .dset v2 record (def, color stops,
+' opacity stops, stop types).
+SUB DRAWER_put_grad_record (fh AS INTEGER, i AS INTEGER)
+    DIM tmpInt AS INTEGER, tmpSng AS SINGLE, tmpStr32 AS STRING * 32, tmpUL AS _UNSIGNED LONG, j AS INTEGER
+    tmpInt = GRAD_DEFS(i).family: PUT #fh, , tmpInt
+    tmpInt = GRAD_DEFS(i).colorCount: PUT #fh, , tmpInt
+    tmpInt = GRAD_DEFS(i).opacityCount: PUT #fh, , tmpInt
+    tmpInt = GRAD_DEFS(i).usesFG: PUT #fh, , tmpInt
+    tmpInt = GRAD_DEFS(i).usesBG: PUT #fh, , tmpInt
+    tmpStr32 = GRAD_DEFS(i).gName: PUT #fh, , tmpStr32
+    tmpInt = GRAD_DEFS(i).ditherMode: PUT #fh, , tmpInt
+    tmpSng = GRAD_DEFS(i).ditherStrength: PUT #fh, , tmpSng
+    FOR j = 1 TO GRADIENT_MAX_STOPS
+        tmpSng = GRAD_COLOR_STOPS(i, j).position: PUT #fh, , tmpSng
+        tmpUL = GRAD_COLOR_STOPS(i, j).clr: PUT #fh, , tmpUL
+    NEXT j
+    FOR j = 1 TO GRADIENT_MAX_STOPS
+        tmpSng = GRAD_OPACITY_STOPS(i, j).position: PUT #fh, , tmpSng
+        tmpInt = GRAD_OPACITY_STOPS(i, j).opacity: PUT #fh, , tmpInt
+    NEXT j
+    FOR j = 1 TO GRADIENT_MAX_STOPS
+        tmpInt = GRAD_STOP_TYPES(i, j): PUT #fh, , tmpInt
+    NEXT j
+END SUB
+
+''
+' Read one DRAWER_put_grad_record. keep = FALSE (or a slot past
+' DRAWER_SLOT_COUNT) reads it past without storing it.
+SUB DRAWER_get_grad_record (fh AS INTEGER, i AS INTEGER, keep AS INTEGER)
+    DIM d AS GRADIENT_DEF, j AS INTEGER, tmpInt AS INTEGER, tmpSng AS SINGLE, tmpUL AS _UNSIGNED LONG
+    DIM cPos(1 TO GRADIENT_MAX_STOPS) AS SINGLE, cClr(1 TO GRADIENT_MAX_STOPS) AS _UNSIGNED LONG
+    DIM oPos(1 TO GRADIENT_MAX_STOPS) AS SINGLE, oOp(1 TO GRADIENT_MAX_STOPS) AS INTEGER
+    DIM sTy(1 TO GRADIENT_MAX_STOPS) AS INTEGER, nm32 AS STRING * 32
+    GET #fh, , tmpInt: d.family = tmpInt
+    GET #fh, , tmpInt: d.colorCount = tmpInt
+    GET #fh, , tmpInt: d.opacityCount = tmpInt
+    GET #fh, , tmpInt: d.usesFG = tmpInt
+    GET #fh, , tmpInt: d.usesBG = tmpInt
+    GET #fh, , nm32: d.gName = nm32
+    GET #fh, , tmpInt: d.ditherMode = tmpInt
+    GET #fh, , tmpSng: d.ditherStrength = tmpSng
+    FOR j = 1 TO GRADIENT_MAX_STOPS
+        GET #fh, , tmpSng: cPos(j) = tmpSng
+        GET #fh, , tmpUL: cClr(j) = tmpUL
+    NEXT j
+    FOR j = 1 TO GRADIENT_MAX_STOPS
+        GET #fh, , tmpSng: oPos(j) = tmpSng
+        GET #fh, , tmpInt: oOp(j) = tmpInt
+    NEXT j
+    FOR j = 1 TO GRADIENT_MAX_STOPS
+        GET #fh, , tmpInt: sTy(j) = tmpInt
+    NEXT j
+    IF keep = 0 _ORELSE i < 1 _ORELSE i > DRAWER_SLOT_COUNT THEN EXIT SUB
+    ' untrusted: the counts bound loops over the GRADIENT_MAX_STOPS arrays
+    IF d.colorCount < 0 THEN d.colorCount = 0
+    IF d.colorCount > GRADIENT_MAX_STOPS THEN d.colorCount = GRADIENT_MAX_STOPS
+    IF d.opacityCount < 0 THEN d.opacityCount = 0
+    IF d.opacityCount > GRADIENT_MAX_STOPS THEN d.opacityCount = GRADIENT_MAX_STOPS
+    d.previewDirty = TRUE
+    GRAD_DEFS(i) = d
+    FOR j = 1 TO GRADIENT_MAX_STOPS
+        GRAD_COLOR_STOPS(i, j).position = cPos(j): GRAD_COLOR_STOPS(i, j).clr = cClr(j)
+        GRAD_OPACITY_STOPS(i, j).position = oPos(j): GRAD_OPACITY_STOPS(i, j).opacity = oOp(j)
+        GRAD_STOP_TYPES(i, j) = sTy(j)
+    NEXT j
+    IF d.colorCount >= 1 THEN DRAWER_GRADIENT_CUSTOM(i) = FALSE
+END SUB
+
+''
+' After loading gradient slots a .. b: rebuild the previews of the ones with a
+' definition (the stored image is replaced by one drawn from it).
+SUB DRAWER_rebuild_grad_previews (a AS INTEGER, b AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = a TO _MIN(b, DRAWER_SLOT_COUNT)
+        IF GRAD_DEFS(i).colorCount >= 1 THEN DRAWER_GRADIENT_CUSTOM(i) = FALSE: GRAD_DEF_rebuild_preview i
+    NEXT i
+END SUB
+
+''
+' The slots of a .dset after its header (both readers: Load Drawer Set and
+' the set cycling / default sets). A loaded set replaces the mode's whole
+' drawer: slots it does not have end up empty. fileMode = the mode the slots
+' go to; srcMode = the mode the file was saved from (its gradient records are
+' there only when that is the gradient mode, version 2).
+SUB DRAWER_read_dset_slots (fh AS INTEGER, version AS INTEGER, fileMode AS INTEGER, srcMode AS INTEGER)
+    DIM i AS INTEGER, lastSlot AS INTEGER, mg AS STRING * 4, hasDefs AS INTEGER, keepDefs AS INTEGER
+    hasDefs = (srcMode = DRAWER_MODE_GRADIENT _ANDALSO version >= 2)
+    keepDefs = (fileMode = DRAWER_MODE_GRADIENT)
+    FOR i = 1 TO DRAWER_SLOT_COUNT
+        DRAWER_slot_clear fileMode, i
+    NEXT i
+    FOR i = 1 TO DRAWER_FILE_SLOTS
+        DRAWER_slot_store fileMode, i, DRAWER_load_slot_image&(fh)
+    NEXT i
+    lastSlot = DRAWER_FILE_SLOTS
+    IF hasDefs THEN
+        FOR i = 1 TO DRAWER_FILE_SLOTS
+            DRAWER_get_grad_record fh, i, keepDefs
+        NEXT i
+    END IF
+    ' the slots past the classic 30 (2.8+)
+    IF SEEK(fh) + 5 <= LOF(fh) THEN
+        GET #fh, , mg
+        IF mg = DRAWER_EXT_MAGIC$ THEN
+            GET #fh, , lastSlot
+            IF lastSlot < DRAWER_FILE_SLOTS THEN lastSlot = DRAWER_FILE_SLOTS
+            FOR i = DRAWER_FILE_SLOTS + 1 TO lastSlot
+                DRAWER_slot_store fileMode, i, DRAWER_load_slot_image&(fh)
+                IF hasDefs THEN DRAWER_get_grad_record fh, i, keepDefs
+                IF EOF(fh) THEN EXIT FOR
+            NEXT i
+            mg = ""
+            IF SEEK(fh) + 5 <= LOF(fh) THEN GET #fh, , mg
+        END IF
+        ' AnimBrush bins' cels (an older DRAW stops before this)
+        IF mg = AB_DSET_MAGIC$ _ANDALSO fileMode = DRAWER_MODE_BRUSH _ANDALSO srcMode = DRAWER_MODE_BRUSH THEN AB_slots_read_dset fh
+    END IF
+    IF hasDefs _ANDALSO keepDefs THEN DRAWER_rebuild_grad_previews 1, lastSlot
+END SUB
+
+''
+' The .draw's slots past the classic 30, for the drAx PNG chunk:
+' version(2), lastSlot(2), then per slot 31 .. lastSlot its brush, pattern and
+' gradient images (DRAWER_save_slot_image) and gradient record.
+SUB DRAWER_write_ext_draw (fh AS INTEGER, lastSlot AS INTEGER)
+    DIM v AS INTEGER, n AS INTEGER, i AS INTEGER
+    v = DRAWER_EXT_VERSION: n = lastSlot
+    PUT #fh, , v
+    PUT #fh, , n
+    FOR i = DRAWER_FILE_SLOTS + 1 TO n
+        DRAWER_save_slot_image fh, DRAWER_BRUSH_SLOTS(i).IMG
+        DRAWER_save_slot_image fh, DRAWER_PATTERN_SLOTS(i)
+        DRAWER_save_slot_image fh, DRAWER_GRADIENT_SLOTS(i)
+        DRAWER_put_grad_record fh, i
+    NEXT i
+END SUB
+
+''
+' Read DRAWER_write_ext_draw (after DRW_load_binary has read the classic 30).
+SUB DRAWER_read_ext_draw (fh AS INTEGER)
+    DIM v AS INTEGER, n AS INTEGER, i AS INTEGER
+    GET #fh, , v
+    IF v < 1 _ORELSE v > DRAWER_EXT_VERSION THEN
+        _LOGWARN "DRAWER: drAx chunk version" + STR$(v) + " is newer than this DRAW - slots past" + STR$(DRAWER_FILE_SLOTS) + " left empty"
+        EXIT SUB
+    END IF
+    GET #fh, , n
+    FOR i = DRAWER_FILE_SLOTS + 1 TO n
+        DRAWER_slot_store DRAWER_MODE_BRUSH, i, DRAWER_load_slot_image&(fh)
+        DRAWER_slot_store DRAWER_MODE_PATTERN, i, DRAWER_load_slot_image&(fh)
+        DRAWER_slot_store DRAWER_MODE_GRADIENT, i, DRAWER_load_slot_image&(fh)
+        DRAWER_get_grad_record fh, i, TRUE
+        IF EOF(fh) THEN EXIT FOR
+    NEXT i
+    DRAWER_rebuild_grad_previews DRAWER_FILE_SLOTS + 1, n
+    _LOGINFO "DRAWER: drAx - slots" + STR$(DRAWER_FILE_SLOTS + 1) + " to" + STR$(n)
+    DRAWER_restore_pending_custom
+END SUB
+
+''
+' A .draw saved with the custom brush on a slot past 30: set it up now its
+' slot is loaded (DRAWER_load_state_binary could not yet).
+SUB DRAWER_restore_pending_custom ()
+    IF DRAWER_PENDING_CUSTOM = 0 THEN EXIT SUB
+    DRAWER_PENDING_CUSTOM = FALSE
+    IF DRAWER.brushSelected% >= 1 _ANDALSO DRAWER.brushSelected% <= DRAWER_SLOT_COUNT THEN
+        IF DRAWER_BRUSH_SLOTS(DRAWER.brushSelected%).IMG < -1 THEN DRAWER_load_brush_slot_to_custom DRAWER.brushSelected%
+    END IF
+END SUB
+
+
+''
+' The wheel tooltip (the .dset name) over the native windows: copy its rect
+' from the canvas to screen 0 after SCREEN_render_windows, as
+' TOOLTIP_reblit_to_screen0 does for the hover tooltips.
+SUB DRAWER_wheel_tooltip_reblit ()
+    IF DRAWER_WTT_W <= 0 _ORELSE DRAWER.wheelTooltipActive% = 0 THEN EXIT SUB
+    DIM ds AS INTEGER, od AS LONG
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    od = _DEST
+    _DEST 0
+    _PUTIMAGE (CLNG(DRAWER_WTT_X) * ds, CLNG(DRAWER_WTT_Y) * ds)-((CLNG(DRAWER_WTT_X) + DRAWER_WTT_W) * ds - 1, (CLNG(DRAWER_WTT_Y) + DRAWER_WTT_H) * ds - 1), SCRN.CANVAS&, 0, (DRAWER_WTT_X, DRAWER_WTT_Y)-(DRAWER_WTT_X + DRAWER_WTT_W - 1, DRAWER_WTT_Y + DRAWER_WTT_H - 1)
+    _DEST od
 END SUB

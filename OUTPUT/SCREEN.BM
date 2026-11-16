@@ -1021,7 +1021,8 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
         ' Check if we need per-pixel blending (any non-Normal blend mode)
         ' Also force composite when preview window is visible (needs native-res buffer)
         ' Palette cycling remaps the finished composite (PCYC_present&), so it needs one.
-        useComposite% = BLEND_needs_composite% OR PREVIEW.visible% OR PCYC_running%
+        ' The lightbox (TOOLS/ANIM-LB) cuts its frames from the composite too.
+        useComposite% = BLEND_needs_composite% OR PREVIEW.visible% OR PCYC_running% OR ANIM_LB_showing%
 
         ' Rebuild render order lookup table if dirty
         IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
@@ -1053,7 +1054,9 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
             FOR trivI% = 1 TO RENDER_ORDER_COUNT%
                 trivLayer% = RENDER_ORDER%(trivI%)
                 IF trivLayer% > 0 THEN
-                    IF LAYERS(trivLayer%).visible% AND LAYERS(trivLayer%).layerType% <> LAYER_TYPE_GROUP THEN
+                    ' a layer in a hidden group is not visible (the lightbox and the
+                    ' Preview read this path: field kit T-22)
+                    IF (LAYERS(trivLayer%).visible% AND LAYERS(trivLayer%).layerType% <> LAYER_TYPE_GROUP) _ANDALSO LAYERS_groups_shown%(trivLayer%) THEN
                         ' Bail if this visible layer disqualifies the trivial path
                         IF LAYERS(trivLayer%).opacity% <> 255 _
                            OR LAYERS(trivLayer%).blendMode% <> BLEND_NORMAL _
@@ -1274,7 +1277,7 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                         IF parentGrp% <= MAX_LAYERS THEN
                             IF LAYERS(parentGrp%).imgHandle& <> 0 THEN
                                 IF LAYERS(parentGrp%).layerType% = LAYER_TYPE_GROUP THEN
-                                    IF NOT LAYERS(parentGrp%).passThrough% THEN
+                                    IF LAYERS_group_isolated%(parentGrp%) THEN
                                         IF LAYERS(parentGrp%).visible% THEN
                                             isIsolatedGroupChild% = TRUE
                                         END IF
@@ -1663,11 +1666,7 @@ SUB RENDER_grids (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                 ELSE
                     ssColor~& = GRID.fgColor~&
                 END IF
-                IF CFG.GRID_OPACITY% > 0 THEN
-                    ssOpacity% = CFG.GRID_OPACITY%
-                ELSE
-                    ssOpacity% = THEME.GRID_opacity%
-                END IF
+                ssOpacity% = GRID_opacity_now% ' config / theme + the overlay fade
                 ssColor~& = _RGBA32(_RED32(ssColor~&), _GREEN32(ssColor~&), _BLUE32(ssColor~&), ssOpacity%)
 
                 ' Screen-space cache: rebuild only when zoom / dimensions / step /
@@ -1781,11 +1780,7 @@ SUB RENDER_grids (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
             pgColor~& = _RGB32(_RED32(THEME.PIXEL_GRID_color_fg~&), _GREEN32(THEME.PIXEL_GRID_color_fg~&), _BLUE32(THEME.PIXEL_GRID_color_fg~&))
         END IF
         ' Resolve pixel grid opacity: config overrides theme (CFG 0 = use theme)
-        IF CFG.PIXELGRID_OPACITY% > 0 THEN
-            pgOpacity% = CFG.PIXELGRID_OPACITY%
-        ELSE
-            pgOpacity% = THEME.PIXEL_GRID_opacity%
-        END IF
+        pgOpacity% = PIXEL_GRID_opacity_now% ' (+ the Ctrl+Alt+Shift+wheel overlay fade)
 
         ' Defensive: skip the cache when the entire pixel grid wouldn't fit
         ' in the viewport (e.g. zoom 32x on 1920x1080 = 8.5GB allocation).
@@ -1885,6 +1880,19 @@ SUB RENDER_grids (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
             NEXT pgy%
         END IF
     END IF
+    ' Visual grid adjust (R-click the organizer's grid button): the cell being
+    ' dragged, outlined white over black so it shows on any art (GUI/GRID.BM)
+    IF GRID_ADJ.dragging THEN
+        _DEST SCRN.CANVAS&
+        DIM AS LONG gaX0, gaY0, gaX1, gaY1
+        gaX0 = GRID_ADJ.sx: IF MOUSE.UNSNAPPED_X% < gaX0 THEN gaX0 = MOUSE.UNSNAPPED_X%
+        gaY0 = GRID_ADJ.sy: IF MOUSE.UNSNAPPED_Y% < gaY0 THEN gaY0 = MOUSE.UNSNAPPED_Y%
+        gaX1 = dx& + (gaX0 + GRID.gridWidth%) * SCRN.zoom! - 1: gaY1 = dy& + (gaY0 + GRID.gridHeight%) * SCRN.zoom! - 1
+        gaX0 = dx& + gaX0 * SCRN.zoom!: gaY0 = dy& + gaY0 * SCRN.zoom!
+        LINE (gaX0 - 1, gaY0 - 1)-(gaX1 + 1, gaY1 + 1), _RGB32(0, 0, 0), B
+        LINE (gaX0, gaY0)-(gaX1, gaY1), _RGB32(255, 255, 255), B
+        LINE (gaX0 + 1, gaY0 + 1)-(gaX1 - 1, gaY1 - 1), _RGB32(0, 0, 0), B
+    END IF
 END SUB
 
 
@@ -1898,6 +1906,7 @@ END SUB
 ' @param zh LONG Zoomed canvas height
 '
 SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
+    IF ANIM_LB_skip_overlay% THEN EXIT SUB ' the lightbox: drawn only through a pane's view (TOOLS/ANIM-LB)
     ' NOTE: Selection marching ants rendering moved AFTER scene cache save
     ' (SkipToPointer section) so animated ants don't force full scene re-render.
     ' Draw MARQUEE dragging preview (only when using marquee tool)
@@ -1943,11 +1952,17 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
             LINE (zx1% - 1, zy1% - 1)-(zx2% + 1, zy2% + 1), THEME.ZOOM_BOX_outer_border~&, B
         END IF
     END IF
-    ' Determine preview color - use white with black outline effect for transparent
-    ' Use DRAW_COLOR~& so right-click previews background color
+    ' Determine preview color. Use DRAW_COLOR~& so right-click previews background color.
+    ' A transparent color erases: the preview is drawn in a marker color that
+    ' TRANSPARENCY_paint_marked turns into the checkerboard below, so it looks
+    ' like the erase it will make - not a white / black outline (BUGS 2026-11-15 X1).
     DIM preview_color AS _UNSIGNED LONG
-    IF _ALPHA32(DRAW_COLOR~&) = 0 THEN
-        preview_color~& = THEME.TOOL_PREVIEW_transparent_fg~&
+    DIM eraseView     AS INTEGER
+    DIM eraseMark     AS _UNSIGNED LONG
+    eraseMark~& = _RGB32(254, 1, 254)
+    eraseView%  = (_ALPHA32(DRAW_COLOR~&) = 0)
+    IF eraseView% THEN
+        preview_color~& = eraseMark~&
     ELSE
         preview_color~& = DRAW_COLOR~&
     END IF
@@ -1972,6 +1987,7 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
         IF CURRENT_TOOL% = TOOL_SS_BEVEL_RECT AND SS_BEVEL.DRAGGING THEN need_shape_preview% = TRUE
         IF CURRENT_TOOL% = TOOL_SS_ARROW AND SS_ARROW.DRAGGING THEN need_shape_preview% = TRUE
         IF CURRENT_TOOL% = TOOL_SS_3D_TEXT AND SS_TEXT.DRAGGING THEN need_shape_preview% = TRUE
+        IF MVB_previewing% THEN need_shape_preview% = TRUE ' ANIM > Move Brush's path (TOOLS/ANIM-MVBRUSH)
     END IF
 
     IF need_shape_preview% THEN
@@ -1990,14 +2006,14 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                 lnBrSz% = BRUSH_SIZE_pixels%
                 IF lnBrSz% > 1 AND NOT CUSTOM_BRUSH_is_active% THEN
                     ' Thick brush preview
-                    IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+                    IF _ALPHA32(PAINT_COLOR~&) = 0 _ANDALSO NOT eraseView% THEN
                         PREVIEW_draw_brushed_line LINE_TOOL.START_X - 1, LINE_TOOL.START_Y, LINE_TOOL.END_X - 1, LINE_TOOL.END_Y, THEME.TOOL_PREVIEW_transparent_outline~&
                         PREVIEW_draw_brushed_line LINE_TOOL.START_X + 1, LINE_TOOL.START_Y, LINE_TOOL.END_X + 1, LINE_TOOL.END_Y, THEME.TOOL_PREVIEW_transparent_outline~&
                     END IF
                     PREVIEW_draw_brushed_line LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, preview_color~&
                 ELSE
                     ' 1px thin preview (brush size 1 or custom brush)
-                    IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+                    IF _ALPHA32(PAINT_COLOR~&) = 0 _ANDALSO NOT eraseView% THEN
                         LINE (LINE_TOOL.START_X - 1, LINE_TOOL.START_Y)-(LINE_TOOL.END_X - 1, LINE_TOOL.END_Y), THEME.TOOL_PREVIEW_transparent_outline~&
                         LINE (LINE_TOOL.START_X + 1, LINE_TOOL.START_Y)-(LINE_TOOL.END_X + 1, LINE_TOOL.END_Y), THEME.TOOL_PREVIEW_transparent_outline~&
                         LINE (LINE_TOOL.START_X, LINE_TOOL.START_Y - 1)-(LINE_TOOL.END_X, LINE_TOOL.END_Y - 1), THEME.TOOL_PREVIEW_transparent_outline~&
@@ -2056,14 +2072,14 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                 plBrSz% = BRUSH_SIZE_pixels%
                 IF plBrSz% > 1 AND NOT CUSTOM_BRUSH_is_active% AND NOT POLY_LINE.FILLED THEN
                     ' Thick brush preview
-                    IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+                    IF _ALPHA32(PAINT_COLOR~&) = 0 _ANDALSO NOT eraseView% THEN
                         PREVIEW_draw_brushed_line POLY_LINE.LAST_X - 1, POLY_LINE.LAST_Y, polyPrevX% - 1, polyPrevY%, THEME.TOOL_PREVIEW_transparent_outline~&
                         PREVIEW_draw_brushed_line POLY_LINE.LAST_X + 1, POLY_LINE.LAST_Y, polyPrevX% + 1, polyPrevY%, THEME.TOOL_PREVIEW_transparent_outline~&
                     END IF
                     PREVIEW_draw_brushed_line POLY_LINE.LAST_X, POLY_LINE.LAST_Y, polyPrevX%, polyPrevY%, preview_color~&
                 ELSE
                     ' 1px thin preview
-                    IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+                    IF _ALPHA32(PAINT_COLOR~&) = 0 _ANDALSO NOT eraseView% THEN
                         LINE (POLY_LINE.LAST_X - 1, POLY_LINE.LAST_Y)-(polyPrevX% - 1, polyPrevY%), THEME.TOOL_PREVIEW_transparent_outline~&
                         LINE (POLY_LINE.LAST_X + 1, POLY_LINE.LAST_Y)-(polyPrevX% + 1, polyPrevY%), THEME.TOOL_PREVIEW_transparent_outline~&
                         LINE (POLY_LINE.LAST_X, POLY_LINE.LAST_Y - 1)-(polyPrevX%, polyPrevY% - 1), THEME.TOOL_PREVIEW_transparent_outline~&
@@ -2091,12 +2107,12 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                     IF BEZIER.STATE = BEZIER_STATE_PLACED THEN
                         DIM bLastIdx AS INTEGER
                         bLastIdx% = BEZIER.POINT_COUNT - 1
-                        IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+                        IF _ALPHA32(PAINT_COLOR~&) = 0 _ANDALSO NOT eraseView% THEN
                             LINE (BEZIER_PTS(bLastIdx%).AX, BEZIER_PTS(bLastIdx%).AY)-(bezPrevX%, bezPrevY%), THEME.TOOL_PREVIEW_transparent_outline~&
                         END IF
                         LINE (BEZIER_PTS(bLastIdx%).AX, BEZIER_PTS(bLastIdx%).AY)-(bezPrevX%, bezPrevY%), preview_color~&
                         IF BEZIER.POINT_COUNT >= 2 THEN
-                            CIRCLE (BEZIER_PTS(0).AX, BEZIER_PTS(0).AY), 4, THEME.TOOL_PREVIEW_transparent_outline~&
+                            IF NOT eraseView% THEN CIRCLE (BEZIER_PTS(0).AX, BEZIER_PTS(0).AY), 4, THEME.TOOL_PREVIEW_transparent_outline~&
                             CIRCLE (BEZIER_PTS(0).AX, BEZIER_PTS(0).AY), 3, preview_color~&
                         END IF
                     END IF
@@ -2155,7 +2171,7 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                             bezmt! = 1! - bezt!
                             bezpx% = INT(bezmt! ^ 3 * BEZIER_PTS(bFromIdx%).AX + 3 * bezmt! ^ 2 * bezt! * BEZIER_PTS(bFromIdx%).C2X + 3 * bezmt! * bezt! ^ 2 * BEZIER_PTS(bpIdx%).C1X + bezt! ^ 3 * BEZIER_PTS(bpIdx%).AX)
                             bezpy% = INT(bezmt! ^ 3 * BEZIER_PTS(bFromIdx%).AY + 3 * bezmt! ^ 2 * bezt! * BEZIER_PTS(bFromIdx%).C2Y + 3 * bezmt! * bezt! ^ 2 * BEZIER_PTS(bpIdx%).C1Y + bezt! ^ 3 * BEZIER_PTS(bpIdx%).AY)
-                            IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+                            IF _ALPHA32(PAINT_COLOR~&) = 0 _ANDALSO NOT eraseView% THEN
                                 LINE (bPrevPX%, bPrevPY%)-(bezpx%, bezpy%), THEME.TOOL_PREVIEW_transparent_outline~&
                             END IF
                             LINE (bPrevPX%, bPrevPY%)-(bezpx%, bezpy%), preview_color~&
@@ -2230,7 +2246,7 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                     END IF
                 ELSE
                     ' 1px rect preview (or filled rect)
-                    IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+                    IF _ALPHA32(PAINT_COLOR~&) = 0 _ANDALSO NOT eraseView% THEN
                         IF RECT_TOOL.FILLED THEN
                             LINE (RECT_TOOL.START_X - 1, RECT_TOOL.START_Y - 1)-(RECT_TOOL.END_X + 1, RECT_TOOL.END_Y + 1), THEME.TOOL_PREVIEW_transparent_outline~&, B
                         ELSE
@@ -2322,7 +2338,7 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                         END IF
                     ELSE
                         ' 1px (or filled) ellipse preview — same pixel-exact rasterizer as the commit
-                        IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+                        IF _ALPHA32(PAINT_COLOR~&) = 0 _ANDALSO NOT eraseView% THEN
                             ELLIPSE_plot_outline pcx%, pcy%, prx! + 1, pry! + 1, THEME.TOOL_PREVIEW_transparent_outline~&, ELLIPSE_PLOT_PSET
                         END IF
                         ELLIPSE_preview_one pcx%, pcy%, prx!, pry!, preview_color~&
@@ -2388,8 +2404,12 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
             IF CURRENT_TOOL% = TOOL_SS_3D_TEXT AND SS_TEXT.DRAGGING THEN
                 SS_TEXT_render_preview preview_color~&
             END IF
+            IF MVB_previewing% THEN MVB_preview shpImg&: _DEST shpImg&
 
             GRAD_CTX_clear
+
+            ' Transparent color: the marked pixels show the checkerboard (the erase)
+            IF eraseView% THEN TRANSPARENCY_paint_marked shpImg&, eraseMark~&
 
             ' Scale canvas-resolution overlay to screen with zoom
             DIM prev_blend AS LONG
@@ -2519,7 +2539,19 @@ SUB RENDER_crosshair_and_command_palette ()
     END IF
 
     IF shiftHeld% AND NOT ctrlHeld% AND CURRENT_TOOL% <> TOOL_TEXT AND NOT overUI% THEN
-        CROSSHAIR_render
+        IF ANIM_LB_showing% THEN
+            ' the lightbox: only over the pane the pointer draws in, through its
+            ' view (the sheet view's mapping put it off the pointer: field kit T-23)
+            IF ANIM_LB_pane_at%(cmx%, cmy%) >= 0 _ANDALSO ANIM_LB_pane_at%(cmx%, cmy%) = ANIM_LB.vPane _ANDALSO REGION_hit_test%(cmx%, cmy%) = REGION_CANVAS THEN
+                IF ANIM_LB_overlay_begin% THEN
+                    _DEST SCRN.CANVAS&
+                    CROSSHAIR_render
+                    ANIM_LB_overlay_end
+                END IF
+            END IF
+        ELSE
+            CROSSHAIR_render
+        END IF
     END IF
 
     ' Command palette is rendered AFTER the selection overlay (SkipToPointer section)
@@ -2549,6 +2581,9 @@ SUB SCREEN_compute_layout ()
     scale% = CFG.TOOLBAR_SCALE%
     IF scale% < 1 THEN scale% = 1
     IF scale% > 4 THEN scale% = 4
+    ' the floating panels' sizes follow a display / panel scale changed at run
+    ' time (Settings) - the dock below reads them
+    FPANEL_rescale_all
     ' Toolbox column: its own button columns (wrapping to fit the height); the
     ' organizer and drawer reflow into the same width (TOOLBAR_reflow)
     TOOLBAR_reflow
@@ -2630,26 +2665,31 @@ END SUB
 '
 SUB RENDER_gui_elements ()
     SCREEN_compute_layout
+    STATIC thumbFrame AS INTEGER ' Layers panel thumbnails show the current frame: redraw when it changes
+    IF CFG.LAYER_THUMBNAILS% > 0 _ANDALSO ANIM.active _ANDALSO ANIM.current <> thumbFrame THEN GUI_NEEDS_REDRAW% = TRUE
+    thumbFrame = _IIF(ANIM.active, ANIM.current, 0)
     IF GUI_NEEDS_REDRAW% THEN
         _DEST SCRN.GUI&
         CLS , _RGBA32(0, 0, 0, 0)
 
         IF SCRN.showToolbar% THEN
-            IF DOCK_in_list%(DP_TOOLBOX) THEN TOOLBAR_render 0, 0, TB_LIVE_COUNT - 1
-            IF DOCK_in_list%(DP_ORGANIZER) THEN ORGANIZER_render ' its rect comes from the dock layout
-            IF DOCK_in_list%(DP_DRAWER) THEN DRAWER_render
+            ' (each into its own surface at its own Scale: GUI/PANEL-SURFACE)
+            IF DOCK_in_list%(DP_WORKFLOW) THEN PSURF_render DP_WORKFLOW ' the workflow buttons (GUI/WORKFLOW)
+            IF DOCK_in_list%(DP_TOOLBOX) THEN PSURF_render DP_TOOLBOX
+            IF DOCK_in_list%(DP_ORGANIZER) THEN PSURF_render DP_ORGANIZER ' its rect comes from the dock layout
+            IF DOCK_in_list%(DP_DRAWER) THEN PSURF_render DP_DRAWER
         END IF
         DOCK_fill_columns ' uncovered parts of every dock column
         DOCK_render_titles ' title / tab strips of titled slots
         IF SCRN.showEditBar% THEN
-            IF DOCK_in_list%(DP_EDITBAR) THEN EDITBAR_render
+            IF DOCK_in_list%(DP_EDITBAR) THEN PSURF_render DP_EDITBAR ' (its own surface at a Scale: GUI/PANEL-SURFACE)
         END IF
         IF SCRN.showAdvBar% THEN
-            IF DOCK_in_list%(DP_ADVBAR) THEN ADVBAR_render
+            IF DOCK_in_list%(DP_ADVBAR) THEN PSURF_render DP_ADVBAR
         END IF
 
         IF SCRN.showCharMap% THEN
-            IF DOCK_in_list%(DP_CHARMAP) THEN CHARMAP_fill_stub: CHARMAP_render
+            IF DOCK_in_list%(DP_CHARMAP) THEN CHARMAP_fill_stub: PSURF_render DP_CHARMAP ' (its own surface at a Scale: GUI/PANEL-SURFACE)
         END IF
 
         IF SCRN.showStatus% THEN
@@ -2658,7 +2698,7 @@ SUB RENDER_gui_elements ()
         END IF
 
         IF LAYER_PANEL.visible% THEN
-            IF DOCK_in_list%(DP_LAYERS) THEN LAYER_PANEL_render SCRN.h&
+            IF DOCK_in_list%(DP_LAYERS) THEN PSURF_render DP_LAYERS ' (its own surface at a Scale: GUI/PANEL-SURFACE)
         END IF
         DOCK_render_seams ' the one border line on every dock column's inner edge
         DOCK_render_float_stack ' the floating panels, back to front (GUI/WINZ)
@@ -2675,12 +2715,9 @@ SUB RENDER_gui_elements ()
             MENUBAR_render
         END IF
 
-        ' Palette menu renders AFTER menubar so it overlays the bar
-        IF PALETTE_MENU_VISIBLE% THEN PALETTE_MENU_render
-
-        ' Subtool flyout renders ABSOLUTE LAST so it overlays all chrome
-        ' (toolbar, organizer, drawer, edit bar, advanced bar, etc.)
-        IF SUBTOOL_FLYOUT.ACTIVE THEN SUBTOOL_FLYOUT_render
+        ' The palette menu over the bar, then the subtool flyout over all the
+        ' chrome (the popup registry, GUI/POPUP-MENU)
+        POPUP_render_gui
     END IF
 
     _DEST SCRN.CANVAS&
@@ -2707,6 +2744,7 @@ SUB SCREEN_render_windows ()
     ' docked windows first, then the floating ones over them (Rick: the docked
     ' Browser band covered the Customize Toolbars buttons) - the same order
     ' the clicks resolve in (ZORDER_DOCKED_WINDOW < ZORDER_FLOATING)
+    PSURF_blit_docked ' docked panels drawn at their own Scale (GUI/PANEL-SURFACE)
     IF PREVIEW.docked% THEN
         IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% _ANDALSO DOCK_native_off%(DP_PREVIEW) = 0 THEN PREVIEW_render
     END IF
@@ -2714,6 +2752,8 @@ SUB SCREEN_render_windows ()
     IF ADVCP.docked% _ANDALSO DOCK_native_off%(DP_ADVCP) = 0 THEN ADVCP_render
     IF CS3D.docked% _ANDALSO DOCK_native_off%(DP_CS3D) = 0 THEN CS3D_render
     IF PENP.docked% _ANDALSO DOCK_native_off%(DP_PEN) = 0 THEN PENP_render
+    IF ANIMP.docked _ANDALSO DOCK_native_off%(DP_ANIM) = 0 THEN ANIMP_render
+    IF SWP.docked _ANDALSO DOCK_native_off%(DP_SWATCH) = 0 THEN SWP_render
     IF BROWSER.docked% _ANDALSO DOCK_native_off%(DP_BROWSER) = 0 THEN BROWSER_render
     DOCK_render_native_seams ' their columns' seams over them (GUI/DOCK)
 
@@ -2734,6 +2774,8 @@ SUB SCREEN_render_windows ()
             CASE DP_ADVCP: IF ADVCP.docked% = 0 THEN ADVCP_render: done(w) = TRUE: drawn = TRUE
             CASE DP_CS3D: IF CS3D.docked% = 0 THEN CS3D_render: done(w) = TRUE: drawn = TRUE
             CASE DP_PEN: IF PENP.docked% = 0 THEN PENP_render: done(w) = TRUE: drawn = TRUE
+            CASE DP_ANIM: IF ANIMP.docked = 0 THEN ANIMP_render: done(w) = TRUE: drawn = TRUE
+            CASE DP_SWATCH: IF SWP.docked = 0 THEN SWP_render: done(w) = TRUE: drawn = TRUE
             CASE DP_BROWSER: IF BROWSER.docked% = 0 THEN BROWSER_render: done(w) = TRUE: drawn = TRUE
             CASE WZ_TBED: TBED_render: done(w) = TRUE: drawn = TRUE
             CASE ELSE
@@ -2742,8 +2784,12 @@ SUB SCREEN_render_windows ()
                         IF done(k) _ANDALSO WZ_overlap%(w, k) THEN WZ_reblit_panel w: EXIT FOR
                     NEXT k
                 END IF
+                IF w <= PSURF_N _ANDALSO WZ_floating%(w) THEN PSURF_blit w ' at its own Scale: over its frame
         END SELECT
     NEXT i
+    ' an open Swatches menu (set list / gear) over everything: it reaches past
+    ' its panel, over the dock seams and any window beside it
+    IF SWP.visible _ANDALSO SWP.autoHidden = 0 _ANDALSO SWP.menu <> SWP_MENU_NONE THEN SWP_render_menu
 END SUB
 
 
@@ -2846,6 +2892,14 @@ SUB SCREEN_render ()
     SCREEN_RENDER_SEQ& = SCREEN_RENDER_SEQ& + 1
     DIM so_used_fallback AS INTEGER ' TRUE when STATUS-ONLY fallback routes to SkipToPointer
 
+    ' COMPOSITE_BELOW_CACHE holds the layers under COMPOSITE_BELOW_LAYER and is
+    ' only kept fresh while that layer is current (painting goes to the current
+    ' layer, above the cache). With another layer current, a stroke can land on
+    ' a layer inside it - so drop it. Rick 2026-11-10: a fill on the background,
+    ' then a click on the text layer above, and the fill vanished from the
+    ' screen (the cache from before the fill came back; the layer was fine).
+    IF COMPOSITE_BELOW_VALID% _ANDALSO COMPOSITE_BELOW_LAYER% <> CURRENT_LAYER% THEN COMPOSITE_BELOW_VALID% = FALSE
+
     ' --- Input region housekeeping: clear all region bounds at start of render.
     ' Each panel re-sets its bounds when it draws. Hidden panels stay inactive.
     ' One frame of stale hit-test on panel hide is acceptable (see
@@ -2866,6 +2920,7 @@ SUB SCREEN_render ()
     ' GUI overlay onto the cached scene. Avoids expensive layer compositing,
     ' grid rendering, and transparency checkerboard.
     ' ========================================================================
+    IF LEN(DOCK_DUMP_PATH) _ANDALSO (SCENE_DIRTY% _ORELSE CANVAS_DIRTY%) THEN QA_SCENE_GEN = QA_SCENE_GEN + 1 ' QA dump: pixels may have changed
     IF NOT SCENE_DIRTY% AND GUI_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
         PERF_start PERF_GUI_ONLY_PATH
         SCREEN_compute_layout
@@ -2873,21 +2928,23 @@ SUB SCREEN_render ()
         _DEST SCRN.GUI&
         CLS , _RGBA32(0, 0, 0, 0)
         IF SCRN.showToolbar% THEN
-            IF DOCK_in_list%(DP_TOOLBOX) THEN TOOLBAR_render 0, 0, TB_LIVE_COUNT - 1
-            IF DOCK_in_list%(DP_ORGANIZER) THEN ORGANIZER_render ' its rect comes from the dock layout
-            IF DOCK_in_list%(DP_DRAWER) THEN DRAWER_render
+            ' (each into its own surface at its own Scale: GUI/PANEL-SURFACE)
+            IF DOCK_in_list%(DP_WORKFLOW) THEN PSURF_render DP_WORKFLOW ' the workflow buttons (GUI/WORKFLOW)
+            IF DOCK_in_list%(DP_TOOLBOX) THEN PSURF_render DP_TOOLBOX
+            IF DOCK_in_list%(DP_ORGANIZER) THEN PSURF_render DP_ORGANIZER ' its rect comes from the dock layout
+            IF DOCK_in_list%(DP_DRAWER) THEN PSURF_render DP_DRAWER
         END IF
         DOCK_fill_columns ' uncovered parts of every dock column
         DOCK_render_titles ' title / tab strips of titled slots
         IF SCRN.showEditBar% THEN
-            IF DOCK_in_list%(DP_EDITBAR) THEN EDITBAR_render
+            IF DOCK_in_list%(DP_EDITBAR) THEN PSURF_render DP_EDITBAR ' (its own surface at a Scale: GUI/PANEL-SURFACE)
         END IF
         IF SCRN.showAdvBar% THEN
-            IF DOCK_in_list%(DP_ADVBAR) THEN ADVBAR_render
+            IF DOCK_in_list%(DP_ADVBAR) THEN PSURF_render DP_ADVBAR
         END IF
 
         IF SCRN.showCharMap% THEN
-            IF DOCK_in_list%(DP_CHARMAP) THEN CHARMAP_fill_stub: CHARMAP_render
+            IF DOCK_in_list%(DP_CHARMAP) THEN CHARMAP_fill_stub: PSURF_render DP_CHARMAP ' (its own surface at a Scale: GUI/PANEL-SURFACE)
         END IF
 
         IF SCRN.showStatus% THEN
@@ -2896,7 +2953,7 @@ SUB SCREEN_render ()
         END IF
 
         IF LAYER_PANEL.visible% THEN
-            IF DOCK_in_list%(DP_LAYERS) THEN LAYER_PANEL_render SCRN.h&
+            IF DOCK_in_list%(DP_LAYERS) THEN PSURF_render DP_LAYERS ' (its own surface at a Scale: GUI/PANEL-SURFACE)
         END IF
         DOCK_render_seams ' the one border line on every dock column's inner edge
         DOCK_render_float_stack ' the floating panels, back to front (GUI/WINZ)
@@ -2913,11 +2970,9 @@ SUB SCREEN_render ()
             MENUBAR_render
         END IF
 
-        ' Palette menu renders AFTER menubar so it overlays the bar
-        IF PALETTE_MENU_VISIBLE% THEN PALETTE_MENU_render
-
-        ' Subtool flyout renders ABSOLUTE LAST so it overlays all chrome
-        IF SUBTOOL_FLYOUT.ACTIVE THEN SUBTOOL_FLYOUT_render
+        ' The palette menu over the bar, then the subtool flyout over all the
+        ' chrome (the popup registry, GUI/POPUP-MENU)
+        POPUP_render_gui
 
         ' Restore cached scene, overlay updated GUI, update cache
         _DEST SCRN.CANVAS&
@@ -2951,7 +3006,7 @@ SUB SCREEN_render ()
     ' Never touches the palette strip swatch loop or does any full-frame copy.
     ' Falls back to SkipToPointer only when partial present is unsafe.
     ' ========================================================================
-    IF NOT SCENE_DIRTY% AND NOT GUI_NEEDS_REDRAW% AND STATUS_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
+    IF NOT SCENE_DIRTY% AND NOT GUI_NEEDS_REDRAW% AND STATUS_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 AND ANIM_LB_showing% = 0 THEN
         PERF_start PERF_GUI_ONLY_PATH
         ' SCREEN_compute_layout is intentionally skipped here.
         ' STATUS-ONLY fires only when NOT GUI_NEEDS_REDRAW%, meaning the GUI
@@ -2968,13 +3023,12 @@ SUB SCREEN_render ()
         IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN so_can_partial% = FALSE
         IF MOVE.ACTIVE THEN so_can_partial% = FALSE  ' Marquee Ctrl+arrow lift also needs full repaint
         IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% THEN so_can_partial% = FALSE
-        IF LAYER_PANEL.blendPopupOpen% OR DRAWER.contextMenuOpen% OR CMD_PALETTE.visible THEN so_can_partial% = FALSE
+        IF POPUP_blocks_partial% THEN so_can_partial% = FALSE ' any open menu / popup (the registry, GUI/POPUP-MENU)
         IF TOOLTIP.ACTIVE% THEN so_can_partial% = FALSE  ' Tooltip needs full SkipToPointer path
-        IF MENUBAR_is_open% THEN so_can_partial% = FALSE             ' Menu dropdowns need full GUI composite over preview
         IF PREVIEW.floatTooltipActive% THEN so_can_partial% = FALSE   ' Float tooltip extends beyond preview bounds
         IF CURRENT_TOOL% = TOOL_TEXT AND NOT TEXT.ACTIVE THEN so_can_partial% = FALSE  ' Text hover outline needs SkipToPointer path
         IF GRAYSCALE_PREVIEW_ACTIVE% THEN so_can_partial% = FALSE ' BUG-32: grayscale is a present-time pass; partial present would leave a color patch tracking the cursor
-        IF DOCK_UI.mvActive _ORELSE DOCK_UI.menuOpen THEN so_can_partial% = FALSE ' DOCK_reblit_to_screen0 draws on the window
+        IF DOCK_UI.mvActive THEN so_can_partial% = FALSE ' DOCK_reblit_to_screen0 draws on the window
 
         ' Update only the pure status bar row in SCRN.GUI& (NOT palette strip).
         DIM so_statusTop AS INTEGER
@@ -3097,6 +3151,7 @@ SUB SCREEN_render ()
             PREVIEW_render_tooltip
             HCARD_reblit_to_screen0
             TOOLTIP_reblit_to_screen0
+            DRAWER_wheel_tooltip_reblit
             DOCK_reblit_to_screen0 ' drop target / label / handle menu above the native windows
             POPUP_reblit_to_screen0 ' open menus / popups above the windows (they no longer hide for them)
 
@@ -3140,7 +3195,8 @@ SUB SCREEN_render ()
     IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 AND NOT SCRN.patternTileMode% THEN
         ' Skip dirty-rect optimization when popup overlays are open — they need
         ' full-frame consistency to avoid flicker and z-order artifacts with scrollbars.
-        IF LAYER_PANEL.blendPopupOpen% OR DRAWER.contextMenuOpen% OR CMD_PALETTE.visible THEN
+        ' The lightbox too: its overlays sit in a pane, not where the sheet would be.
+        IF ANIM_LB_showing% _ORELSE POPUP_blocks_partial% THEN
             _DEST SCRN.CANVAS&
             _DONTBLEND SCRN.CANVAS&
             _PUTIMAGE , SCENE_CACHE&, SCRN.CANVAS&
@@ -3217,11 +3273,10 @@ SUB SCREEN_render ()
         IF MOVE.ACTIVE THEN can_partial_present% = FALSE  ' Marquee Ctrl+arrow lift also needs full repaint
         IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% THEN can_partial_present% = FALSE
         IF TOOLTIP.ACTIVE% THEN can_partial_present% = FALSE  ' Tooltip needs full SkipToPointer path
-        IF MENUBAR_is_open% THEN can_partial_present% = FALSE             ' Menu dropdowns need full GUI composite over preview
         IF PREVIEW.floatTooltipActive% THEN can_partial_present% = FALSE   ' Float tooltip extends beyond preview bounds
         IF CURRENT_TOOL% = TOOL_TEXT AND NOT TEXT.ACTIVE THEN can_partial_present% = FALSE  ' Text hover outline needs SkipToPointer path
         IF GRAYSCALE_PREVIEW_ACTIVE% THEN can_partial_present% = FALSE ' BUG-32: force full present so grayscale re-applies
-        IF DOCK_UI.mvActive _ORELSE DOCK_UI.menuOpen THEN can_partial_present% = FALSE ' DOCK_reblit_to_screen0 draws on the window
+        IF DOCK_UI.mvActive THEN can_partial_present% = FALSE ' DOCK_reblit_to_screen0 draws on the window (popups: the skip above)
 
         ' Area check: if dirty rect > half the canvas, or overlays are broader than the
         ' pointer region, fall back to full copy
@@ -3287,20 +3342,8 @@ SUB SCREEN_render ()
                 PICKER_LOUPE_render SCRN.CANVAS&
             END IF
 
-            ' --- Final overlay popups (must stay above GUI, scrollbars, and status overlays) ---
-            IF LAYER_PANEL.blendPopupOpen% THEN
-                LAYER_PANEL_blend_popup_render
-            END IF
-            IF LAYER_PANEL.ctxMenuOpen% THEN
-                LAYER_PANEL_ctx_menu_render
-            END IF
-            IF DRAWER.contextMenuOpen% THEN
-                DRAWER_context_menu_render
-            END IF
-            DOCK_overlay_render ' hover grip + handle menu (GUI/DOCK)
-            IF CMD_PALETTE.visible THEN
-                CMD_render SCRN.CANVAS&
-            END IF
+            ' --- Final overlay: the dock's hover grip (an open popup never gets here) ---
+            POPUP_render_top
 
             ' --- Redraw cursor on top of GUI ---
             HCARD_render SCRN.CANVAS&
@@ -3343,6 +3386,7 @@ SUB SCREEN_render ()
             PREVIEW_render_tooltip
             HCARD_reblit_to_screen0
             TOOLTIP_reblit_to_screen0
+            DRAWER_wheel_tooltip_reblit
             DOCK_reblit_to_screen0 ' drop target / label / handle menu above the native windows
             POPUP_reblit_to_screen0 ' open menus / popups above the windows (they no longer hide for them)
 
@@ -3401,7 +3445,17 @@ SUB SCREEN_render ()
         dy& = (SCRN.h& - zh&) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%
     END IF
 
-    IF SCRN.patternTileMode% THEN
+    IF ANIM_LB_showing% THEN
+        ' ====== LIGHTBOX (TOOLS/ANIM-LB): strip, transport bar, panes ======
+        ' Composite the sheet (forced on in RENDER_layers; the blit lands off
+        ' screen), then cut every frame the lightbox shows from it.
+        PERF_start PERF_FULL_LAYERS
+        RENDER_layers -zw& - 16, -zh& - 16, zw&, zh&
+        PERF_stop PERF_FULL_LAYERS
+        ANIM_VIEW.drawn = FALSE
+        ANIM_LB_render SCRN.CANVAS&, CANVAS_CONTENT_SRC&
+        ANIM_LB_grids ' VIEW > GRID / pixel grid / character grid in every pane (field kit R-32)
+    ELSEIF SCRN.patternTileMode% THEN
         ' ====== PATTERN TILE MODE: Render 3x3 grid of tiles ======
         DIM tRow AS INTEGER, tCol AS INTEGER
         DIM tdx  AS LONG, tdy AS LONG
@@ -3475,6 +3529,9 @@ SUB SCREEN_render ()
         END IF
         PERF_stop PERF_FULL_SYMMETRY
 
+        ' Animation frame grid - center tile only (TOOLS/ANIM-VIEW)
+        ANIM_VIEW_render_grid SCRN.CANVAS&, dx&, dy&
+
         ' Draw tile boundaries and center border (controlled by # toggle)
         IF SCRN.showCanvasBorder% THEN
             _DEST SCRN.CANVAS&
@@ -3545,6 +3602,9 @@ SUB SCREEN_render ()
         END IF
         PERF_stop PERF_FULL_SYMMETRY
 
+        ' Animation frame grid: cell borders, numbers, current frame (TOOLS/ANIM-VIEW)
+        ANIM_VIEW_render_grid SCRN.CANVAS&, dx&, dy&
+
         ' Draw border around canvas (after painting layer)
         ' Hide border when all UI panels are hidden (F11 full canvas mode)
         IF SCRN.showCanvasBorder% AND (SCRN.showToolbar% OR SCRN.showStatus% OR LAYER_PANEL.visible% OR MENU_BAR.visible%) THEN
@@ -3558,6 +3618,21 @@ SUB SCREEN_render ()
         END IF
     END IF
     
+    ' Lightbox (TOOLS/ANIM-LB, 2.2): the overlays below draw through the view
+    ' of the pane the pointer is in, clipped to its picture; with no pane to
+    ' draw them in they are skipped.
+    DIM lbOv AS INTEGER
+    lbOv = FALSE
+    IF ANIM_LB_showing% THEN
+        lbOv = ANIM_LB_overlay_begin%
+        IF lbOv THEN
+            zw& = SCRN.canvasW& * SCRN.zoom!: zh& = SCRN.canvasH& * SCRN.zoom!
+            dx& = (SCRN.w& - zw&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+            dy& = (SCRN.h& - zh&) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%
+        END IF
+    END IF
+    IF ANIM_LB_showing% = 0 OR lbOv THEN
+
     ' ==== IMAGE IMPORT PREVIEW ====
     ' Draw import preview if in import mode (on top of painting, below GUI)
     IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN
@@ -3596,6 +3671,8 @@ SUB SCREEN_render ()
     PERF_start PERF_FULL_TOOL_PREVIEW
     RENDER_tool_previews dx&, dy&, zw&, zh&
     PERF_stop PERF_FULL_TOOL_PREVIEW
+    END IF ' the lightbox overlays
+    IF lbOv THEN ANIM_LB_overlay_end
     
     ' ==== GUI LAYER (AFTER TOOL PREVIEWS) ====
     PERF_start PERF_FULL_GUI_OVERLAY
@@ -3630,11 +3707,28 @@ SUB SCREEN_render ()
     SkipToPointer:
     ' ==== SELECTION OVERLAY (after scene cache, animates without full re-render) ====
     PERF_start PERF_SELECTION_OVERLAY
-    RENDER_selection_overlay
+    lbOv = FALSE
+    IF ANIM_LB_showing% THEN
+        ' the lightbox: the selection through every pane (each clips to its own
+        ' picture, so it shows where its frame is), not just the one under the
+        ' pointer (field kit R-27: it vanished when the pointer left its pane)
+        DIM selK AS INTEGER, selPane AS INTEGER
+        selPane = ANIM_LB.vPane
+        IF MARQUEE.SHOW_OVERLAY% _ANDALSO SELECTION_has_active% THEN
+            FOR selK = 0 TO ANIM_LB.panes - 1
+                ANIM_LB.vPane = selK
+                IF ANIM_LB_overlay_begin% THEN RENDER_selection_overlay: ANIM_LB_overlay_end
+            NEXT selK
+        END IF
+        ANIM_LB.vPane = selPane
+        lbOv = ANIM_LB_overlay_begin% ' the rest below: in the pointer's pane (TOOLS/ANIM-LB)
+    ELSE
+        RENDER_selection_overlay
+    END IF
     PERF_stop PERF_SELECTION_OVERLAY
 
     ' ==== SMART GUIDES (show alignment lines when moving layers) ====
-    IF SMART_GUIDES.ENABLED% AND MOVE.TRANSFORMING AND (SMART_GUIDES.hCount% > 0 OR SMART_GUIDES.vCount% > 0) THEN
+    IF (ANIM_LB_showing% = 0 OR lbOv) AND SMART_GUIDES.ENABLED% AND (MOVE.TRANSFORMING OR ANIM_LB.mvOn) AND (SMART_GUIDES.hCount% > 0 OR SMART_GUIDES.vCount% > 0) THEN
         DIM sgZW AS LONG, sgZH AS LONG
         DIM sgDX AS INTEGER, sgDY AS INTEGER
         sgZW& = SCRN.canvasW& * SCRN.zoom!
@@ -3648,9 +3742,20 @@ SUB SCREEN_render ()
         END IF
         SMART_GUIDES_render SCRN.CANVAS&, sgDX%, sgDY%, SCRN.zoom!
     END IF
+    ' the lightbox: symmetry guides about the current frame's centre, in its pane (TOOLS/ANIM-CANVAS)
+    IF lbOv AND SYMMETRY.MODE% > 0 THEN
+        DIM symZW AS LONG, symZH AS LONG, symDX AS LONG, symDY AS LONG
+        symZW& = SCRN.canvasW& * SCRN.zoom!
+        symZH& = SCRN.canvasH& * SCRN.zoom!
+        symDX& = (SCRN.w& - symZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+        symDY& = (SCRN.h& - symZH&) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%
+        ANIM_CV_sym_guides symDX&, symDY&, symZW&, symZH&
+    END IF
+    IF lbOv THEN ANIM_LB_overlay_end
+    ' (the lightbox's loop / sound menu: with the other popups, POPUP_render_top)
 
     ' ==== TEXT LAYER HOVER OUTLINE (after scene cache, moves with mouse) ====
-    IF CURRENT_TOOL% = TOOL_TEXT AND NOT TEXT.ACTIVE THEN
+    IF CURRENT_TOOL% = TOOL_TEXT _ANDALSO TEXT.ACTIVE = 0 _ANDALSO ANIM_LB_showing% = 0 THEN
         ' Compute canvas-to-screen offset locally (dx%/dy% from the main
         ' render path are not set when we arrive via GOTO SkipToPointer).
         DIM hovZW AS LONG, hovZH AS LONG
@@ -3768,19 +3873,9 @@ SUB SCREEN_render ()
     END IF
 
     ' ==== FINAL OVERLAY POPUPS (must stay above GUI, scrollbars, and status overlays) ====
-    IF LAYER_PANEL.blendPopupOpen% THEN
-        LAYER_PANEL_blend_popup_render
-    END IF
-    IF LAYER_PANEL.ctxMenuOpen% THEN
-        LAYER_PANEL_ctx_menu_render
-    END IF
-    IF DRAWER.contextMenuOpen% THEN
-        DRAWER_context_menu_render
-    END IF
-    DOCK_overlay_render ' hover grip + handle menu (GUI/DOCK)
-    IF CMD_PALETTE.visible THEN
-        CMD_render SCRN.CANVAS&
-    END IF
+    ' Every open menu / popup drawn on the canvas, in z order (the popup
+    ' registry, GUI/POPUP-MENU) + the dock's hover grip.
+    POPUP_render_top
     
     ' Redraw cursor on top of GUI (cursor must be visible above all UI elements)
 
@@ -3859,6 +3954,7 @@ SUB SCREEN_render ()
     PREVIEW_render_tooltip
     HCARD_reblit_to_screen0
     TOOLTIP_reblit_to_screen0
+    DRAWER_wheel_tooltip_reblit
     DOCK_reblit_to_screen0 ' drop target / label / handle menu above the native windows
     POPUP_reblit_to_screen0 ' open menus / popups above the windows (they no longer hide for them)
 

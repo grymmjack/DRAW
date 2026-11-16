@@ -8,7 +8,8 @@
 ' library does in CP_THEME_scale_geometry (CP-API.BM); colors are THEME.CP_*.
 '
 ' Callers draw into their own native-resolution panel image, then blit it at
-' the integer toolbar scale (USCALE.mixer) like COLORMIXER_render.
+' the integer panel scale (USCALE.mixer - by default the UI Scale) like
+' COLORMIXER_render.
 '
 ' Placement: every floating window (Color Mixer, Advanced Color Picker, 3D
 ' Color Space, Pen Pressure, Image Browser, Preview, Customize Toolbars) runs its drag through
@@ -26,7 +27,7 @@ CONST FPANEL_SNAP         = 6 ' snap distance (viewport px)
 CONST FPANEL_SNAP_HOLD    = 1.5 ' s held past a snap before the drag goes free (may overlap)
 ' a drag that held past a snap: free for the rest of that drag (FPANEL_place)
 DIM SHARED FPANEL_HOLD_T0 AS DOUBLE, FPANEL_HOLD_FREE AS INTEGER, FPANEL_LAST_T AS DOUBLE
-CONST FPANEL_FLOAT_COUNT  = 7 ' floating windows taking part in placement (FPANEL_float_region%)
+CONST FPANEL_FLOAT_COUNT  = 9 ' floating windows taking part in placement (FPANEL_float_region%)
 
 TYPE FLOAT_PANEL_STYLE_OBJ
     ready     AS INTEGER ' TRUE once FPANEL_ensure has loaded the font

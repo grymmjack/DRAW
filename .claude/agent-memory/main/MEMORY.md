@@ -1,6 +1,8 @@
+- [QA build must be in the repo](qa-draw-bin-in-repo.md) — a test build in the scratchpad dies at startup (no ASSETS), QA says window 0x0
 - **[NEVER an error dialog - PERMANENT](feedback-no-error-dialogs.md) — every program traps its errors (ON ERROR); untrappable runtime alerts are prevented by guarding first; never cause them (don't kill a display a run still uses) (2026-10-11)**
 - **[Test scope - HARD RULE](feedback-test-scope.md) — run ONLY tests that might touch the change; FULL suite only overnight while Rick sleeps; >5 files = count + ETA and ASK (told 4x, last 2026-11-06)**
-- **[Test with Rick's own profile](feedback-test-with-user-profile.md) — also run bug tests with HIS cfg/workspace/scale: `QA_USER_PROFILE=1 QA_USER_SCREEN=1152x648@3 QA_XVFB_RES=3840x2160` before saying "can't reproduce" (2026-11-06)**
+- [zsh: test list is ONE arg](feedback-zsh-test-list-splitting.md) — unquoted `$FILES` in zsh made draw-qa.sh run all 425 tests; use a bash array, check the ETA count; zsh has no `mapfile` (empty list = full suite) (2026-11-09, 2026-11-11, 2026-11-12: wrap in `bash -c`)
+- **[Test with Rick's own profile](feedback-test-with-user-profile.md) — also run bug tests with HIS cfg/workspace/scale: `QA_USER_PROFILE=1 QA_USER_SCREEN=1152x712@3 QA_XVFB_RES=3840x2400` (literal, not via `env $P` in zsh) before saying "can't reproduce" (2026-11-06)**
 - [User background & collaboration style](user_background_and_collaboration.md) — career BASIC programmer, learning-mode, wants visibility not autonomy
 - [DRAW compile convention](feedback_draw_compile_convention.md) — build qb64pe in FOREGROUND, 600000ms timeout, never background
 - [DRAW observability logs](reference_draw_activity_log.md) — `.claude/activity.log` (every Bash/Agent) + `~/.claude/make.log` (compile output)
@@ -68,6 +70,7 @@
 - [Zero-warnings build (always green)](feedback-zero-warnings-build.md) — DRAW compile must be ZERO warnings AND infos/notes; any warning = defect. Rick pref
 - [DRY / reuse libs / be consistent](feedback-dry-reuse-libs.md) — reuse existing widgets/helpers (TI_/DIALOG_CTX/CP_/FD_/MB_) over hand-rolling; grep first. Rick pref
 - [customizable-shortcuts branch status](proj-customizable-shortcuts-status.md) — rebind Phases 0-3 + 4.1/4.2 done (2026-09-04); remaining Phase 4 polish / 5 presets / 2B.2 mouse
+- [keymap presets take keys](keymap-presets-take-keys.md) — BINDINGS_apply rebuild; a preset key unbinds DRAW's (BIND_KEY_NONE, 0 = ANY key); chord-forbid; QA-BINDINGS config isolation
 - [qb64pe -z is NOT a faster error-gate](qb64pe-z-fast-gate.md) — `-x` aborts on error as fast as `-z`; `-z` only skips g++ on a clean compile; MCP fragment `-z` unreliable
 - [DRAW build speed — skip -O for dev](draw-build-speed.md) — `-f:OptimizeCppProgram=false` ~13min→~7min for dev; ship keeps -O; qbx.o rebuilt every build (open)
 - [Driving DRAW's GUI headless via xdotool+Xvfb](driving-draw-gui-headless-xdotool.md) — DRAW polls mouse per-frame: use `mousedown;sleep .2;mouseup`; menus click-hold; launch detached
@@ -79,9 +82,31 @@
 - [F5 debug build cost](draw-debug-build-cost.md) — F5 = qb64pe-vscode DEBUGGER (flatten+$DEBUG, one monolithic C++ TU, ~9min single-core), NOT tasks.json; MaxCompilerProcesses/OptimizeCppProgram do NOT help it; use fast tasks build for non-debug iteration
 - [Game font extraction](game-font-extraction.md) — DOOM/Heretic/Hexen/Blood CBF fonts: WAD lumps, Blood shareware QFN-in-RFF, mapping quirks
 - [Parallelize farm work](feedback-parallelize-farm-work.md) — start independent host work at once (parallel jobs); don't queue it behind another host's run
+- [Farm QA environment gaps](farm-qa-environment-gaps.md) — 2026-11-15 full-suite failures were mostly env: xdotool pid search ORs (stale window on relaunch, fixed --all), titan IM6 (magick shim), thinkpad no magick/python, keymap seeding Linux-only (skip), farm builds now run build-info.sh, farm-check qa hang fixed
 - [Farm: no GUI popups, trap crashes](farm-no-gui-popups-trap-crashes.md) — never pop windows on mac/thinkpad; trap SIGSEGV in-process (sigtrap.h) so no macOS/WER crash dialog; QA runs may take over mac/thinkpad/titan screens (Rick 2026-10-09) - say so before a full suite
 - [Menu fires on press](menu-fires-on-press.md) — modals opened from the menu must swallow the held button (FD wrappers, DIALOG inputArmed)
 - [Document filename invariants](document-filename-invariants.md) — set CURRENT_DRW/CURRENT_FILENAME only via SAVE_set_document_file; sidecar setting, Flatten & Save, Export Again
 - [Test like the user](feedback-test-like-the-user.md) — reproduce the user's steps (overflow/junk/docked), not the happy path; small-region asserts need tolerance ~3, default 1500 passes anything
-- [QA user-profile placement race](qa-user-profile-placement-race.md) — [Linux] 3x user-profile run aborts at 384,216 / 3456x1944: startup race, rerun
+- [QA user-profile window cap](qa-user-profile-placement-race.md) — [Linux] 1152x712@3 user-profile run aborts "3456x1944" on 3840x2160: DRAW caps the startup window at 90% of the desktop; use QA_XVFB_RES=3840x2400
+- [_KEYHIT drained after render](keyhit-drained-after-render.md) — DRAW.BAS k& = _KEYHIT almost never sees keys (post-render drain); hook INKEY$ / _KEYDOWN edges instead; raw xdotool alt+key too fast, use harness key
 - [Animation project](project-animation.md) — branch animation, PLANS/ANIMATION.md; canvas = sprite sheet; requirements via field kit artifact
+- [Clipboard picture OR text](qb64pe-clipboard-image-or-text.md) — [Linux] _CLIPBOARD$ after _CLIPBOARDIMAGE drops the image (Copy Layer 715 affected); palette+tRNS PNG misread off the clipboard
+- [_SNDOPEN async vs _MEMSOUND](qb64pe-sndopen-async-memsound.md) — QB64-PE decodes in the background by default; _MEMSOUND right after = zeros on some runs; use _SNDOPEN(f, "noasync")
+- [_MEMSOUND gives nothing for 24-bit audio](qb64pe-memsound-24bit.md) — [Linux] SIZE 0 though it plays; DRAW reads 24-bit WAVs itself (ANIM_SND_wav_load&)
+- [QA pins TOOLBAR_SCALE - hides the scale ratios](qa-toolbar-scale-pin-hides-ratios.md) — real users run the 0.5 SCALE_RATIO_*; add TOOLBAR_SCALE=0 to QA-OPTIONS for scale repros
+- [Keep old tester builds](feedback-keep-old-tester-builds.md) — never delete testers-* pre-releases or offer to; testers may still be reporting on them
+- [QB64-PE _MEM errors are critical](qb64pe-mem-errors-critical.md) — 300-315 skip ON ERROR; _MEMSOUND lock race on _SNDCLOSE; QB64PE_NOPROMPT=y
+- [Never run qb64pe bare](feedback-qb64pe-never-bare.md) — no -x/-z opens the IDE on Rick's desktop; read version.bas for the version
+- [Reply where the comment was](feedback-reply-where-comment-was.md) — check PR vs issue with gh before replying to pasted upstream feedback
+- [QA shares the real data dir](qa-data-dir-not-isolated.md) — [Linux] XDG_DATA_HOME is only isolated under QA_USER_PROFILE=1; scans must never create folders
+- [Palette typing loses keys on the slow profile](qa-palette-typing-loses-keys.md) — [Linux] long xdotool queries drop a key under QA_USER_PROFILE; short queries + read back + retry
+- [Driving DRAW reliably from scripts](qa-driving-draw-reliably.md) — [Linux] quick clicks, the palette's "?" and Alt+] get lost on slow frames; hold clicks, check POPUP cmdpalette before typing, verify stamps by ANIMC
+- [Xvfb: Alt+press lost](qa-xvfb-alt-press-lost.md) — [Linux] under Xvfb a mouse press made while Alt is held never reaches DRAW; press first, Alt mid-drag, hold through release
+- [Animated example scenes pipeline](animscenes-pipeline.md) — DEV/animscenes: Python art/audio, DRAW drives Move Brush + clips under QA; one source per placed clip, dump lags a step
+- [Build with split objects](build-split-objects.md) — hand-run qb64pe needs -f:SplitObjectfiles=true (33 s vs ~5 min)
+- [QA screenshots cleared per run](qa-screenshots-cleared-per-run.md) — copy shots before the next run; md-to-pdf hang needs a timeout
+- [New palette commands steal queries](palette-new-commands-steal-queries.md) — subsequence match, first registered wins: register new commands at the end of CMD_init ; mind CMD_MAX_COMMANDS (1024) (2026-11-12)
+- [QA reads the user workspaces folder](qa-user-workspaces-override-builtins.md) — a user animate.workspace replaced the built-in in tests; pin WORKSPACES_DIR in QA-OPTIONS [Linux] (2026-11-12)
+- **[Workspace remembers the WHOLE layout](workspace-remember-whole-layout.md) — every panel presence/dock/size/scale/setting via one full-state compare + save; new panels/settings must join WS_panel_keys$ etc. (2026-11-14)**
+- [Panel surfaces cover canvas overlays](panel-surface-covers-canvas-overlays.md) — a docked panel at a set Scale is blitted after the canvas: re-blit overlays (hover grip) in DOCK_reblit_to_screen0 (2026-11-14)
+- **[QB64 hex CONST sign-extends](qb64-hex-literal-sign-extend.md) — unsuffixed `&H...8000` is INTEGER -32768 → FFFFFFFFFFFF8000 as a 64-bit flag; suffix `&&` (CTX_FILL_ACTIVE broke W over the canvas, 2026-11-15)**

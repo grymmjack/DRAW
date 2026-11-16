@@ -118,7 +118,10 @@ CONST REGION_ADV_COLOR_PICKER     = 28              ' Advanced Color Picker floa
 CONST REGION_COLOR_SPACE_3D       = 29              ' 3D Color Space floating panel
 CONST REGION_PEN_PANEL            = 30              ' Pen Pressure floating panel
 CONST REGION_TOOLBAR_EDITOR       = 31              ' Customize Toolbars floating window
-' --- 32-63 reserved ---
+CONST REGION_ANIM_PANEL           = 32              ' Animation floating panel (GUI/ANIM-PANEL)
+CONST REGION_SWATCHES             = 33              ' Swatches floating panel (GUI/SWATCHES)
+CONST REGION_WORKFLOW             = 34              ' Workflow buttons dock panel (GUI/WORKFLOW)
+' --- 35-63 reserved ---
 
 CONST REGION_TABLE_SIZE = 64                        ' max regions; bumps require type fitness check
 
@@ -157,7 +160,12 @@ CONST CTX_COMMAND_PALETTE_OPEN = &H0000000000000200
 CONST CTX_TRANSFORM_ACTIVE     = &H0000000000000400
 CONST CTX_DRAWING_IN_PROGRESS  = &H0000000000000800
 CONST CTX_CUSTOM_BRUSH_ACTIVE  = &H0000000000001000 ' bit 12 — a custom brush is loaded; Home/End/PgUp/PgDn/`/` transform the brush, not the layer
-' bits 12-19 reserved
+CONST CTX_SELECT_TOOL_ACTIVE  = &H0000000000002000 ' bit 13 — a selection tool in hand: the Brush key is held for a pick up, a tap switches on release (AB_hold_pickup)
+CONST CTX_PICKER_ACTIVE      = &H0000000000004000 ' bit 14 — the Picker in hand: R is held to sample the reference, not the Rectangle key
+CONST CTX_FILL_ACTIVE        = &H0000000000008000&& ' bit 15 (&&: unsuffixed, &H8000 is the INTEGER -32768 and sign-extends over bits 15-63) — the Fill tool in hand: W is held for an all-layers fill, a tap switches to the wand on release (FILL_hold_w)
+CONST CTX_FILL_ADJ_ACTIVE     = &H0000000000010000&& ' bit 16 — a fill being adjusted (F8): D is its dither key, not the Dot tool
+CONST CTX_FILL_ADJ_D_HELD     = &H0000000000020000&& ' bit 17 — ...with D held: the digits are its presets, not the opacity
+' bits 18-19 reserved
 
 ' Held-key chord initiators (set by INPUT_update_context from raw key state)
 CONST CTX_G_HELD      = &H0000000000100000          ' bit 20
@@ -166,6 +174,7 @@ CONST CTX_Z_HELD      = &H0000000000400000
 CONST CTX_E_HELD      = &H0000000000800000
 CONST CTX_F_HELD      = &H0000000001000000
 CONST CTX_W_HELD      = &H0000000002000000
+CONST BINDINGS_CHORD_CTX = CTX_G_HELD OR CTX_M_HELD OR CTX_Z_HELD OR CTX_E_HELD OR CTX_F_HELD OR CTX_W_HELD ' the chord initiators held (CFG/BINDINGS keymap rows)
 CONST CTX_SPACE_HELD  = &H0000000004000000
 CONST CTX_ALT_HELD    = &H0000000008000000
 CONST CTX_SS_DRAGGING = &H0000000010000000          ' SS 3D dice or SS polygon currently dragging — digit keys reserved
@@ -261,6 +270,8 @@ TYPE INPUT_BIND
     defForbidMods  AS INTEGER              ' compiled-in default forbidMods
     defButton      AS INTEGER              ' compiled-in default mouse button (snapshot at registration; for mouse-bind reset)
     defWheelDir    AS INTEGER              ' compiled-in default wheel direction (snapshot; for wheel/tilt-bind reset)
+    defForbidCtx   AS _UNSIGNED _INTEGER64 ' compiled-in forbidCtx (a rebind onto a chord-initiator letter edits forbidCtx; reset restores it)
+    cloned         AS INTEGER              ' TRUE = added by a keymap row (an action's extra key, or a key for an action with none); reset drops it
     label          AS STRING * 48          ' for cheatsheet / audit / inputs.log
 END TYPE
 
@@ -327,6 +338,7 @@ END TYPE
 ' SHARED STATE
 '==============================================================================
 CONST INPUT_MAX_BINDS  = 1024
+CONST BIND_KEY_NONE = -1 ' a keyboard bind with this keycode is unbound: never polled, never matches (keycode 0 = any key)
 CONST INPUT_MAX_EVENTS = 64           ' per-frame event queue cap
 
 DIM SHARED INPUT_BINDS(1 TO INPUT_MAX_BINDS)         AS INPUT_BIND
@@ -340,6 +352,11 @@ DIM SHARED DETECTED_EVENT_COUNT AS INTEGER
 
 ' Edge-detection state for keys (indexed by binding index)
 DIM SHARED KEY_DOWN_LAST(1 TO INPUT_MAX_BINDS)       AS INTEGER
+' Held-key repeat (INPUT_action_repeats%): when the binding's key went down, and its last repeat
+DIM SHARED KEY_DOWN_T0(1 TO INPUT_MAX_BINDS)         AS DOUBLE
+DIM SHARED KEY_REPEAT_T(1 TO INPUT_MAX_BINDS)        AS DOUBLE
+CONST INPUT_REPEAT_DELAY = 0.45 ' seconds held before a repeating action fires again
+CONST INPUT_REPEAT_EVERY = 0.12 ' then once per this many seconds while held
 
 ' Highest mouse button DRAW samples + can bind. 1=L 2=R 3=M 4=back 5=forward
 ' 6-8=extra. _MOUSEBUTTON(n) on an absent button returns 0, so oversampling is safe.
@@ -349,6 +366,7 @@ CONST MOUSE_MAX_BTN = 8
 ' MOUSE.B1/B2/B3; 4+ are sampled straight from _MOUSEBUTTON in MOUSE_update_state.
 ' The central dispatcher reads this so extra buttons can drive bound actions.
 DIM SHARED MOUSE_BTN(1 TO MOUSE_MAX_BTN)             AS INTEGER
+DIM SHARED MOUSE_XB_LATCH(1 TO MOUSE_MAX_BTN)        AS INTEGER ' an extra button (4+) seen down during the frame's _MOUSEINPUT drain (INPUT/MOUSE)
 DIM SHARED MOUSE_BTN_AVAIL AS INTEGER ' buttons the device reports (_LASTBUTTON, clamped); for the rebind UI
 
 ' Horizontal wheel TILT support. Read via _MOUSEWHEEL(axis) INSIDE DRAW's normal

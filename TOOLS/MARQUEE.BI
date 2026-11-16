@@ -126,6 +126,11 @@ CONST SEL_MODE_ADD      = 1 ' Shift : add to existing selection
 CONST SEL_MODE_SUBTRACT = 2 ' Alt        : subtract from existing selection
 
 DIM SHARED MARQUEE AS MARQUEE_OBJ
+' Export Selection with nothing selected: the marquee is picked and the next
+' selection made is exported (SAVE_selection / SAVE_selection_tick, TOOLS/SAVE.BM)
+DIM SHARED EXPORT_SEL_ARMED   AS INTEGER
+DIM SHARED EXPORT_SEL_SIG     AS STRING  ' the selection there was when it was armed
+DIM SHARED EXPORT_SEL_PRESSED AS INTEGER ' the mouse went down on the canvas since
 
 ' Shared point arrays for freehand and polygon selection paths
 CONST SEL_MAX_POINTS = 4000

@@ -29,13 +29,16 @@ CONST DP_LAYERS    = 4
 CONST DP_EDITBAR   = 5
 CONST DP_ADVBAR    = 6
 CONST DP_CHARMAP   = 7
-CONST DP_PREVIEW   = 8
-CONST DP_MIXER     = 9
-CONST DP_ADVCP     = 10
-CONST DP_CS3D      = 11
-CONST DP_PEN       = 12
-CONST DP_BROWSER   = 13
-CONST DP_COUNT     = 13
+CONST DP_WORKFLOW  = 8  ' the workflow buttons (GUI/WORKFLOW) - the last dock panel
+CONST DP_PREVIEW   = 9  ' the first native window: id < DP_PREVIEW = a dock panel
+CONST DP_MIXER     = 10
+CONST DP_ADVCP     = 11
+CONST DP_CS3D      = 12
+CONST DP_PEN       = 13
+CONST DP_BROWSER   = 14
+CONST DP_ANIM      = 15
+CONST DP_SWATCH    = 16
+CONST DP_COUNT     = 16
 
 ' how a panel's height is decided inside its column
 CONST DP_H_FIXED = 1 ' its own content height (toolbar rows, organizer)
@@ -114,6 +117,7 @@ DIM SHARED DOCK_SLOT(1 TO DOCK_MAX_SLOTS) AS DOCK_SLOT_OBJ
 DIM SHARED DOCK_TAB(1 TO DOCK_MAX_SLOTS, 1 TO DOCK_MAX_TABS) AS INTEGER ' panel ids
 
 DIM SHARED DOCK_READY  AS INTEGER ' the tree has been built (DOCK_build_default)
+DIM SHARED DOCK_ADOPT_SAVE AS INTEGER ' DOCK_adopt_new_panels placed a panel in your own arrangement: DOCK_layout saves it
 DIM SHARED DOCK_PARSE_NOTE AS STRING ' what the last DOCK_parse_col% skipped (unknown / repeated panel names), "" = nothing
 DIM SHARED DOCK_CUSTOM AS INTEGER ' a [DOCK] arrangement is in effect (else the default tree is rebuilt from the dock keys every layout)
 ' DOCK_layout results: the canvas edges and the menu bar's span
@@ -138,11 +142,13 @@ CONST DOCK_ACT_FLOAT = 5
 CONST DOCK_ACT_BAND_TOP = 7    ' the Browser only: dock along the top / bottom
 CONST DOCK_ACT_BAND_BOTTOM = 8
 CONST DOCK_ACT_CUSTOMIZE = 9   ' toolbox / bars: open Customize Toolbars on that panel
+CONST DOCK_ACT_SCALE = 20      ' floating-panel family: 20 = follow the UI Scale, 21-28 = 1x-8x (FPANEL_set_scale)
 
 TYPE DOCK_UI_OBJ
     hoverSlot AS INTEGER ' slot whose handle the pointer is over (0 = none)
     menuOpen  AS INTEGER
     menuPanel AS INTEGER ' panel the menu acts on
+    menuWf    AS INTEGER ' > 0: workflow button n's menu instead (GUI/WORKFLOW)
     menuX     AS INTEGER
     menuY     AS INTEGER
     menuW     AS INTEGER
@@ -213,6 +219,11 @@ DIM SHARED DOCK_RZ AS DOCK_RZ_OBJ
 ' they change, with a sequence number - the QA dock tests read it to find where
 ' to grab and drop (QA/dock-lib.sh).
 DIM SHARED DOCK_DUMP_PATH AS STRING
+' The scene was rebuilt (SCREEN_render saw SCENE_DIRTY / CANVAS_DIRTY): the QA dump's
+' per-frame pixel lines (ANIMC, MVBB / MVBA / MVBK) are recomputed only when this or
+' the rest of their signature changes (DOCK_anim_pixels$) - a 64-frame sheet with big
+' brushes made every frame crawl under QA (2026-11-12).
+DIM SHARED QA_SCENE_GEN AS LONG
 DIM SHARED DOCK_DUMP_LAST AS STRING
 DIM SHARED DOCK_DUMP_SEQ AS LONG
 

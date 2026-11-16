@@ -1,0 +1,1613 @@
+''
+' DRAW - TOOLS/ANIM-OPS.BM
+' =============================================================================
+' Frame operations: plan (TOOLS/ANIM), grow the sheet, move the cells on every
+' pixel layer, one undo step. See ANIM-OPS.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Run frame action action_id (ANIM_ACT_APPEND .. ANIM_ACT_REVERSE). Shift on
+' Add makes it a blank frame (R-14: Shift++ = blank).
+SUB ANIM_OPS_action (action_id AS INTEGER)
+    DIM op AS INTEGER
+    op = action_id - ANIM_ACT_OP0
+    ' (_KEYDOWN too: a numpad press runs before this frame's MODIFIERS_update)
+    IF op = ANIM_OP_APPEND _ANDALSO (MODIFIERS.shift% _ORELSE _KEYDOWN(100304) _ORELSE _KEYDOWN(100303)) THEN op = ANIM_OP_APPEND_BLANK
+    ANIM_OPS_run op
+END SUB
+
+''
+' Does a pixel layer's cell content move with its frame? (Text is redrawn
+' from its words, a linked symbol copy from its parent and a clip layer from
+' its clip: they stay put.)
+FUNCTION ANIM_OPS_moves% (i AS INTEGER)
+    IF LAYERS(i).imgHandle& >= -1 THEN EXIT FUNCTION
+    SELECT CASE LAYERS(i).layerType%
+        CASE LAYER_TYPE_GROUP, LAYER_TYPE_TEXT, LAYER_TYPE_SYMBOL_CHILD, LAYER_TYPE_CLIP ' a clip is rebuilt from its In / Out (TOOLS/CLIP)
+        CASE ELSE: ANIM_OPS_moves% = TRUE
+    END SELECT
+END FUNCTION
+
+''
+' Why a frame operation can't run right now, beyond the frames themselves
+' (ANIM_op_refusal$): a floating selection, transform, import or text edit
+' holds pixels the move would leave behind.
+FUNCTION ANIM_OPS_busy$ ()
+    IF TRANSFORM.ACTIVE _ORELSE MOVE.SELECTION_IMAGE < -1 _ORELSE IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN
+        ANIM_OPS_busy$ = "Finish the move / transform first": EXIT FUNCTION
+    END IF
+    IF CURRENT_TOOL% = TOOL_TEXT _ANDALSO TEXT.ACTIVE THEN ANIM_OPS_busy$ = "Finish the text first": EXIT FUNCTION
+    IF INPUT_CONTEXT AND CTX_DRAWING_IN_PROGRESS THEN ANIM_OPS_busy$ = "Finish the stroke first"
+END FUNCTION
+
+''
+' Run frame operation op (ANIM_OP_*).
+SUB ANIM_OPS_run (op AS INTEGER)
+    DIM why AS STRING, newCount AS INTEGER, newCur AS INTEGER, oldCount AS INTEGER
+    DIM before AS STRING, after AS STRING, newH AS LONG
+
+    why = ANIM_op_refusal$(op)
+    IF why = "" THEN why = ANIM_OPS_busy$
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    ANIM_play_stop
+
+    before = ANIM_OPS_snapshot$(TRUE)
+    IF ANIM.active = FALSE THEN ANIM_OPS_first_frame ' a plain picture: frame 1, room for frame 2 beside it
+    IF ANIM_plan%(op, newCount, newCur) = 0 THEN EXIT SUB
+    oldCount = ANIM.count
+
+    ' adding past the last cell grows the sheet by a row (not its own undo step)
+    newH = ANIM_sheet_h&(newCount)
+    IF newH > SCRN.canvasH& THEN ANIM_OPS_resize_keep_view SCRN.canvasW&, newH
+
+    ANIM_OPS_move_cells oldCount, newCount
+    ANIM_apply_plan newCount, newCur
+    CLIP_remap_all oldCount, newCount ' clips: In / Out follow their frames (TOOLS/CLIP)
+    ANIM_SAME_stamp_all ' a layer the same on every frame stays as it was
+
+    after = ANIM_OPS_snapshot$(TRUE)
+    IF ANIM_OPS_STEP_NAME <> "" THEN ANIM_OPS_record before, after, ANIM_OPS_STEP_NAME, 0 ELSE ANIM_OPS_record before, after, ANIM_OPS_label$(op), 0
+
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    STATUS_flash _IIF(ANIM_OPS_STEP_NAME <> "", ANIM_OPS_STEP_NAME, ANIM_OPS_label$(op)) + ": frame" + STR$(ANIM.current) + " of" + STR$(ANIM.count)
+END SUB
+
+FUNCTION ANIM_OPS_label$ (op AS INTEGER)
+    SELECT CASE op
+        CASE ANIM_OP_APPEND: ANIM_OPS_label$ = "Add Frame"
+        CASE ANIM_OP_APPEND_BLANK: ANIM_OPS_label$ = "Add Blank Frame"
+        CASE ANIM_OP_INSERT_BEFORE: ANIM_OPS_label$ = "Insert Frame Before"
+        CASE ANIM_OP_INSERT_AFTER: ANIM_OPS_label$ = "Insert Frame After"
+        CASE ANIM_OP_DUPLICATE: ANIM_OPS_label$ = "Duplicate Frame"
+        CASE ANIM_OP_DELETE: ANIM_OPS_label$ = "Delete Frame"
+        CASE ANIM_OP_EARLIER: ANIM_OPS_label$ = "Move Frame Earlier"
+        CASE ANIM_OP_LATER: ANIM_OPS_label$ = "Move Frame Later"
+        CASE ANIM_OP_REVERSE: ANIM_OPS_label$ = "Reverse Frames"
+        CASE ANIM_OP_MOVE_SEL: ANIM_OPS_label$ = _IIF(ANIM_SEL_count% > 1, "Move Frames", "Move Frame")
+        CASE ANIM_OP_SET_COUNT: ANIM_OPS_label$ = "Frame Count"
+        CASE ANIM_OP_DELETE_SEL: ANIM_OPS_label$ = _IIF(ANIM_SEL_count% > 1, "Delete Frames", "Delete Frame")
+        CASE ANIM_OP_INSERT_N: ANIM_OPS_label$ = "Insert Frames"
+    END SELECT
+END FUNCTION
+
+''
+' New cell n gets old cell ANIM_SRC(n) (blank for 0) on every pixel layer;
+' cells past the new count that held frames are cleared. Margins, gutters and
+' the spare space past the cells are left alone.
+SUB ANIM_OPS_move_cells (oldCount AS INTEGER, newCount AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER, top AS INTEGER, img AS LONG, copy AS LONG, oldDest AS LONG
+    DIM ax AS LONG, ay AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG
+    DIM sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG
+
+    top = _MAX(oldCount, newCount)
+    oldDest = _DEST
+    FOR i = 1 TO MAX_LAYERS
+        IF ANIM_OPS_moves%(i) THEN
+            img = LAYERS(i).imgHandle&
+            copy = _COPYIMAGE(img, 32)
+            ax = LAYERS(i).apronW%: ay = LAYERS(i).apronH% ' canvas -> buffer (gotcha 14)
+            _DEST img
+            _DONTBLEND img
+            FOR n = 1 TO top
+                IF ANIM_cell_rect%(n, x, y, w, h) THEN
+                    LINE (x + ax, y + ay)-(x + ax + w - 1, y + ay + h - 1), _RGBA32(0, 0, 0, 0), BF
+                    IF n <= newCount _ANDALSO ANIM_SRC(n) > 0 THEN
+                        IF ANIM_cell_rect%(ANIM_SRC(n), sx, sy, sw, sh) THEN
+                            _PUTIMAGE (x + ax, y + ay), copy, img, (sx + ax, sy + ay)-(sx + ax + sw - 1, sy + ay + sh - 1)
+                        END IF
+                    END IF
+                END IF
+            NEXT n
+            _BLEND img
+            SAFE_FREEIMAGE copy
+            LAYERS(i).contentDirty% = TRUE
+            SAFE_FREEIMAGE LAYERS(i).apronCacheImg&: LAYERS(i).apronCacheImg& = 0
+            LAYERS(i).apronCacheValid% = FALSE
+            SYMBOL_mark_parent_dirty i
+        END IF
+    NEXT i
+    _DEST oldDest
+END SUB
+
+''
+' CANVAS_resize, keeping the zoom and scroll (it fits the new canvas to the
+' window - a frame op growing the sheet should not jump the view) and without
+' a "Resize Canvas" undo step of its own (the frame op's record holds it).
+SUB ANIM_OPS_resize_keep_view (w AS LONG, h AS LONG)
+    DIM z AS SINGLE, ox AS INTEGER, oy AS INTEGER, was AS INTEGER
+    z = SCRN.zoom!: ox = SCRN.offsetX%: oy = SCRN.offsetY%
+    was = HISTORY_IN_PROGRESS%: HISTORY_IN_PROGRESS% = TRUE
+    CANVAS_resize CINT(w), CINT(h)
+    HISTORY_IN_PROGRESS% = was
+    SCRN.zoom! = z: SCRN.offsetX% = ox: SCRN.offsetY% = oy
+END SUB
+
+''
+' A plain picture becomes frame 1 (frame size = the canvas) and the canvas
+' doubles in width for frame 2 beside it (R-08).
+SUB ANIM_OPS_first_frame ()
+    DIM r AS INTEGER, w AS LONG
+    w = SCRN.canvasW&
+    r = ANIM_set_layout%(CINT(w), CINT(SCRN.canvasH&), 0, 0)
+    ANIM.wanted = 1: ANIM.count = 1: ANIM.current = 1
+    ANIM_OPS_resize_keep_view 2 * w, SCRN.canvasH&
+END SUB
+
+''
+' One undo step for a frame change. pressKey <> 0: a held panel stepper - while the
+' top undo step is this key's, it takes the new "after" instead of adding
+' another step (holding + is one step, not forty).
+SUB ANIM_OPS_record (before AS STRING, after AS STRING, label AS STRING, pressKey AS LONG)
+    DIM top AS INTEGER, p AS STRING
+    top = HISTORY.current%
+    IF pressKey <> 0 _ANDALSO pressKey = ANIM_OPS_LAST_KEY _ANDALSO top > 0 _ANDALSO top = ANIM_OPS_LAST_REC _ANDALSO top = HISTORY.count% THEN
+        IF HISTORY_RECORDS(top).kind% = HISTORY_KIND_ANIM_FRAMES _ANDALSO LEN(HISTORY_PAYLOADS(top)) >= 4 THEN
+            p = HISTORY_PAYLOADS(top)
+            HISTORY_PAYLOADS(top) = LEFT$(p, 4 + CVL(LEFT$(p, 4))) + after
+            HISTORY_RECORDS(top).payloadLength& = LEN(HISTORY_PAYLOADS(top))
+            EXIT SUB
+        END IF
+    END IF
+    HISTORY_record_anim_frames before, after, label
+    HISTORY_saved_this_frame% = TRUE
+    ANIM_OPS_LAST_KEY = pressKey: ANIM_OPS_LAST_REC = HISTORY.current%
+END SUB
+
+
+''
+' The whole sheet, deflated: canvas size, the wanted frame count, the frame
+' data (ANIM_serialize$), then (withPixels) every layer that has pixels (slot,
+' buffer size, raw RGBA - apron buffers as they are). Without pixels: a
+' re-slice or timing change, which moves no pixel.
+FUNCTION ANIM_OPS_snapshot$ (withPixels AS INTEGER)
+    DIM s AS STRING, a AS STRING, px AS STRING, i AS INTEGER, lc AS INTEGER
+    DIM m AS _MEM, w AS LONG, h AS LONG
+    a = ANIM_serialize$
+    FOR i = 1 TO MAX_LAYERS
+        IF withPixels _ANDALSO LAYERS(i).imgHandle& < -1 _ANDALSO LAYERS(i).layerType% <> LAYER_TYPE_GROUP THEN lc = lc + 1
+    NEXT i
+    s = MKL$(SCRN.canvasW&) + MKL$(SCRN.canvasH&) + MKI$(ANIM.wanted) + MKL$(LEN(a)) + a + MKI$(lc)
+    FOR i = 1 TO MAX_LAYERS
+        IF withPixels _ANDALSO LAYERS(i).imgHandle& < -1 _ANDALSO LAYERS(i).layerType% <> LAYER_TYPE_GROUP THEN
+            w = _WIDTH(LAYERS(i).imgHandle&): h = _HEIGHT(LAYERS(i).imgHandle&)
+            px = SPACE$(w * h * 4)
+            m = _MEMIMAGE(LAYERS(i).imgHandle&)
+            _MEMGET m, m.OFFSET, px
+            _MEMFREE m
+            s = s + MKI$(i) + MKL$(w) + MKL$(h) + px
+        END IF
+    NEXT i
+    s = s + CLIP_snapshot$ ' the clips' In / Out ("CLP1"; older snapshots end here)
+    ANIM_OPS_snapshot$ = _DEFLATE$(s)
+END FUNCTION
+
+''
+' Put back an ANIM_OPS_snapshot$ (undo / redo of a frame operation; runs with
+' HISTORY_IN_PROGRESS% set, so the canvas resize records nothing).
+SUB ANIM_OPS_restore (snap AS STRING)
+    DIM s AS STRING, p AS LONG, cw AS LONG, ch AS LONG, wanted AS INTEGER, alen AS LONG, a AS STRING
+    DIM lc AS INTEGER, k AS INTEGER, slot AS INTEGER, w AS LONG, h AS LONG, bytes AS LONG
+    DIM m AS _MEM, r AS INTEGER
+
+    IF LEN(snap) = 0 THEN EXIT SUB
+    ANIM_play_stop
+    s = _INFLATE$(snap)
+    IF LEN(s) < 16 THEN EXIT SUB
+    cw = CVL(MID$(s, 1, 4)): ch = CVL(MID$(s, 5, 4)): wanted = CVI(MID$(s, 9, 2))
+    alen = CVL(MID$(s, 11, 4)): a = MID$(s, 15, alen): p = 15 + alen
+    lc = CVI(MID$(s, p, 2)): p = p + 2
+
+    IF cw <> SCRN.canvasW& _ORELSE ch <> SCRN.canvasH& THEN ANIM_OPS_resize_keep_view cw, ch
+
+    FOR k = 1 TO lc
+        IF p + 10 > LEN(s) + 1 THEN EXIT FOR
+        slot = CVI(MID$(s, p, 2)): w = CVL(MID$(s, p + 2, 4)): h = CVL(MID$(s, p + 6, 4)): p = p + 10
+        bytes = w * h * 4
+        IF slot >= 1 _ANDALSO slot <= MAX_LAYERS _ANDALSO bytes > 0 THEN
+            IF LAYERS(slot).imgHandle& < -1 _ANDALSO LAYERS(slot).layerType% <> LAYER_TYPE_GROUP THEN
+                IF _WIDTH(LAYERS(slot).imgHandle&) <> w _ORELSE _HEIGHT(LAYERS(slot).imgHandle&) <> h THEN
+                    ANIM_OPS_realloc slot, w, h
+                END IF
+                m = _MEMIMAGE(LAYERS(slot).imgHandle&)
+                _MEMPUT m, m.OFFSET, MID$(s, p, bytes)
+                _MEMFREE m
+                LAYERS(slot).contentDirty% = TRUE
+                SAFE_FREEIMAGE LAYERS(slot).apronCacheImg&: LAYERS(slot).apronCacheImg& = 0
+                LAYERS(slot).apronCacheValid% = FALSE
+                SYMBOL_mark_parent_dirty slot
+            END IF
+        END IF
+        p = p + bytes
+    NEXT k
+
+    IF p + 3 <= LEN(s) THEN CLIP_snapshot_apply s, p ' the clips' In / Out (TOOLS/CLIP)
+    r = ANIM_deserialize%(a) ' "" (a plain picture) turns frames off
+    IF r _ANDALSO wanted > 0 THEN
+        ANIM.wanted = wanted
+        ANIM.count = _MIN(wanted, ANIM_cells%)
+        ANIM_clamp_current
+    END IF
+    ANIM_SEL_clear ' the selection was a view of the frames that are gone
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+END SUB
+
+''
+' Give layer slot a w x h buffer (the snapshot's: an apron buffer, or the
+' compact one after the canvas changed) - as HISTORY_apply_layer_snapshot.
+SUB ANIM_OPS_realloc (slot AS INTEGER, w AS LONG, h AS LONG)
+    SAFE_FREEIMAGE LAYERS(slot).imgHandle&
+    LAYERS(slot).imgHandle& = _NEWIMAGE(w, h, 32)
+    LAYERS(slot).imgWidth% = w
+    LAYERS(slot).imgHeight% = h
+    IF w > SCRN.canvasW& THEN LAYERS(slot).apronW% = (w - SCRN.canvasW&) \ 2 ELSE LAYERS(slot).apronW% = 0
+    IF h > SCRN.canvasH& THEN LAYERS(slot).apronH% = (h - SCRN.canvasH&) \ 2 ELSE LAYERS(slot).apronH% = 0
+    SAFE_FREEIMAGE LAYERS(slot).opacityCacheImg&: LAYERS(slot).opacityCacheImg& = 0
+    LAYERS(slot).opacityCacheVal% = 0
+END SUB
+
+''
+' QA dump line (DOCK_dump): ANIMC then per frame (up to 64) "0" for an empty
+' cell, else the CRC32 (hex) of its pixels on every moving layer - the test
+' reads where the drawings went.
+FUNCTION ANIM_OPS_dump$ ()
+    DIM d AS STRING, n AS INTEGER, i AS INTEGER, row AS LONG, cell AS STRING, line1 AS STRING
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, m AS _MEM, bw AS LONG, at AS _OFFSET, nL AS INTEGER, p AS LONG
+    IF ANIM.active = FALSE THEN EXIT FUNCTION
+    d = "ANIMC"
+    FOR i = 1 TO MAX_LAYERS
+        IF ANIM_OPS_moves%(i) THEN nL = nL + 1
+    NEXT i
+    FOR n = 1 TO _MIN(ANIM.count, 64)
+        cell = ""
+        IF ANIM_cell_rect%(n, x, y, w, h) _ANDALSO nL > 0 THEN
+            ' one buffer filled in place (appending row by row was quadratic: seconds per
+            ' dump on a 64-frame sheet)
+            line1 = SPACE$(w * 4): cell = SPACE$(nL * h * w * 4): p = 1
+            FOR i = 1 TO MAX_LAYERS
+                IF ANIM_OPS_moves%(i) THEN
+                    m = _MEMIMAGE(LAYERS(i).imgHandle&)
+                    bw = _WIDTH(LAYERS(i).imgHandle&) * 4
+                    FOR row = 0 TO h - 1
+                        at = m.OFFSET + (y + LAYERS(i).apronH% + row) * bw + (x + LAYERS(i).apronW%) * 4
+                        _MEMGET m, at, line1
+                        MID$(cell, p, w * 4) = line1: p = p + w * 4
+                    NEXT row
+                    _MEMFREE m
+                END IF
+            NEXT i
+        END IF
+        IF cell = STRING$(LEN(cell), 0) THEN d = d + " 0" ELSE d = d + " " + LCASE$(HEX$(_CRC32(cell)))
+    NEXT n
+    ANIM_OPS_dump$ = d + CHR$(10)
+END FUNCTION
+
+
+''
+' Is anything drawn on the sheet's pixel layers? (Changing the frame layout
+' of a drawn sheet asks re-slice or resize - R-07.) Counts a transparent pixel
+' with colour left in it as drawn: asking once too often is harmless.
+FUNCTION ANIM_OPS_sheet_drawn% ()
+    DIM i AS INTEGER, m AS _MEM, row AS STRING, zero AS STRING, y AS LONG, bw AS LONG
+    FOR i = 1 TO MAX_LAYERS
+        IF ANIM_OPS_moves%(i) THEN
+            bw = _WIDTH(LAYERS(i).imgHandle&) * 4
+            row = SPACE$(bw): zero = STRING$(bw, 0)
+            m = _MEMIMAGE(LAYERS(i).imgHandle&)
+            FOR y = 0 TO _HEIGHT(LAYERS(i).imgHandle&) - 1
+                _MEMGET m, m.OFFSET + y * bw, row
+                IF row <> zero THEN _MEMFREE m: ANIM_OPS_sheet_drawn% = TRUE: EXIT FUNCTION
+            NEXT y
+            _MEMFREE m
+        END IF
+    NEXT i
+END FUNCTION
+
+''
+' Change the frame layout (panel W / H / gutter / margin) - pressKey: the panel's
+' press (ANIM_OPS_record). Re-slice: the grid moves over the pixels. Resize:
+' every cell's drawing moves to its frame's new cell (cropped or padded at its
+' top left) and the canvas refits the same columns x rows. One undo step.
+SUB ANIM_OPS_relayout (fw AS INTEGER, fh AS INTEGER, gutter AS INTEGER, margin AS INTEGER, resize AS INTEGER, pressKey AS LONG)
+    DIM before AS STRING, after AS STRING, r AS INTEGER, label AS STRING
+    IF fw = ANIM.frameW _ANDALSO fh = ANIM.frameH _ANDALSO gutter = ANIM.gutter _ANDALSO margin = ANIM.margin _ANDALSO ANIM.active THEN EXIT SUB
+    ANIM_play_stop
+    IF resize _ANDALSO ANIM.active THEN
+        IF ANIM_OPS_busy$ <> "" THEN STATUS_flash ANIM_OPS_busy$: EXIT SUB
+        before = ANIM_OPS_snapshot$(TRUE)
+        IF ANIM_OPS_resize_frames%(fw, fh, gutter, margin) = 0 THEN EXIT SUB
+        ANIM_SAME_stamp_all
+        after = ANIM_OPS_snapshot$(TRUE)
+        label = "Resize Frames"
+    ELSE
+        DIM rsPx AS INTEGER
+        rsPx = ANIM_SAME_any% ' the grid moves: a layer the same on every frame is stamped into the new cells
+        before = ANIM_OPS_snapshot$(rsPx)
+        r = ANIM_set_layout%(fw, fh, gutter, margin)
+        IF rsPx THEN ANIM_SAME_stamp_all
+        after = ANIM_OPS_snapshot$(rsPx)
+        label = "Frame Layout"
+    END IF
+    ANIM_OPS_record before, after, label, pressKey
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+END SUB
+
+''
+' Timing (panel FPS / HOLD): one undo step, a held stepper merged (pressKey).
+SUB ANIM_OPS_timing (fps AS INTEGER, holdFrame AS INTEGER, hold AS INTEGER, pressKey AS LONG)
+    DIM before AS STRING
+    before = ANIM_OPS_snapshot$(FALSE)
+    IF fps > 0 THEN ANIM_set_fps fps
+    IF holdFrame > 0 THEN ANIM_set_hold holdFrame, hold
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Frame Timing", pressKey
+    INVALIDATE_canvas
+END SUB
+
+''
+' Resize frames: refit the canvas to the current columns x rows at the new
+' size and move every cell's drawing into its new cell. FALSE = too big.
+FUNCTION ANIM_OPS_resize_frames% (fw AS INTEGER, fh AS INTEGER, gutter AS INTEGER, margin AS INTEGER)
+    DIM cols AS INTEGER, rows AS INTEGER, cells AS LONG, w1 AS LONG, h1 AS LONG, i AS INTEGER, n AS LONG
+    DIM fw0 AS INTEGER, fh0 AS INTEGER, g0 AS INTEGER, m0 AS INTEGER, r AS INTEGER, oldDest AS LONG
+    DIM sx AS LONG, sy AS LONG, dx AS LONG, dy AS LONG, cw AS LONG, ch AS LONG
+    DIM copies(1 TO MAX_LAYERS) AS LONG
+
+    cols = ANIM_cols%: rows = ANIM_rows%
+    IF cols < 1 _ORELSE rows < 1 _ORELSE fw < 1 _ORELSE fh < 1 THEN EXIT FUNCTION
+    w1 = ANIM_span&(cols, fw, gutter, margin): h1 = ANIM_span&(rows, fh, gutter, margin)
+    IF w1 > ANIM_SHEET_MAX _ORELSE h1 > ANIM_SHEET_MAX THEN STATUS_flash "The sheet can't grow that big": EXIT FUNCTION
+    fw0 = ANIM.frameW: fh0 = ANIM.frameH: g0 = ANIM.gutter: m0 = ANIM.margin
+    cells = CLNG(cols) * rows: IF cells > ANIM_MAX_FRAMES THEN cells = ANIM_MAX_FRAMES
+
+    LAYERS_demote_all ' compact buffers: canvas coords = buffer coords (CANVAS_resize does it too)
+    FOR i = 1 TO MAX_LAYERS
+        IF ANIM_OPS_moves%(i) THEN copies(i) = _COPYIMAGE(LAYERS(i).imgHandle&, 32)
+    NEXT i
+    ANIM_OPS_resize_keep_view w1, h1
+    r = ANIM_set_layout%(fw, fh, gutter, margin) ' the same columns x rows: the count stays
+    cw = _MIN(fw0, fw): ch = _MIN(fh0, fh)
+    oldDest = _DEST
+    FOR i = 1 TO MAX_LAYERS
+        IF copies(i) < -1 THEN
+            IF ANIM_OPS_moves%(i) THEN
+                _DEST LAYERS(i).imgHandle&
+                _DONTBLEND LAYERS(i).imgHandle&
+                CLS , _RGBA32(0, 0, 0, 0)
+                FOR n = 1 TO cells
+                    ANIM_rect_at CINT(n), cols, fw0, fh0, g0, m0, sx, sy
+                    ANIM_rect_at CINT(n), cols, fw, fh, gutter, margin, dx, dy
+                    _PUTIMAGE (dx, dy), copies(i), LAYERS(i).imgHandle&, (sx, sy)-(sx + cw - 1, sy + ch - 1)
+                NEXT n
+                _BLEND LAYERS(i).imgHandle&
+                LAYERS(i).contentDirty% = TRUE
+                SYMBOL_mark_parent_dirty i
+            END IF
+            SAFE_FREEIMAGE copies(i)
+        END IF
+    NEXT i
+    _DEST oldDest
+    ANIM_OPS_resize_frames% = TRUE
+END FUNCTION
+
+''
+' Frames a..b (clamped) that have anything drawn in their cell on a moving
+' layer - the lightbox asks before a smaller total drops them (R-16).
+FUNCTION ANIM_OPS_drawn_in% (a AS INTEGER, b AS INTEGER)
+    DIM n AS INTEGER, i AS INTEGER, row AS LONG, line1 AS STRING, zero AS STRING, cnt AS INTEGER
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, m AS _MEM, bw AS LONG, hit AS INTEGER
+    FOR n = _MAX(1, a) TO _MIN(b, ANIM.count)
+        hit = FALSE
+        IF ANIM_cell_rect%(n, x, y, w, h) THEN
+            line1 = SPACE$(w * 4): zero = STRING$(w * 4, 0)
+            FOR i = 1 TO MAX_LAYERS
+                IF hit = 0 _ANDALSO ANIM_OPS_moves%(i) THEN
+                    m = _MEMIMAGE(LAYERS(i).imgHandle&)
+                    bw = _WIDTH(LAYERS(i).imgHandle&) * 4
+                    FOR row = 0 TO h - 1
+                        _MEMGET m, m.OFFSET + (y + LAYERS(i).apronH% + row) * bw + (x + LAYERS(i).apronW%) * 4, line1
+                        IF line1 <> zero THEN hit = TRUE: EXIT FOR
+                    NEXT row
+                    _MEMFREE m
+                END IF
+            NEXT i
+        END IF
+        IF hit THEN cnt = cnt + 1
+    NEXT n
+    ANIM_OPS_drawn_in% = cnt
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Copy / cut / paste frames (2.5)
+' ---------------------------------------------------------------------------
+
+''
+' Actions 2523 - 2526 (ANIM menu, command palette, the lightbox's COPY /
+' PASTE / CUT - Shift+PASTE = over).
+SUB ANIM_OPS_clip_action (act AS INTEGER)
+    SELECT CASE act
+        CASE ANIM_ACT_COPY_FRAMES: ANIM_OPS_copy_frames FALSE
+        CASE ANIM_ACT_CUT_FRAMES: ANIM_OPS_copy_frames TRUE
+        CASE ANIM_ACT_PASTE_FRAMES: ANIM_OPS_paste_frames FALSE
+        CASE ANIM_ACT_PASTE_FRAMES_OVER: ANIM_OPS_paste_frames TRUE
+    END SELECT
+END SUB
+
+''
+' The pixel layers frames carry, in slot order (ANIM_OPS_moves%).
+FUNCTION ANIM_OPS_layer_count% ()
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO MAX_LAYERS: IF ANIM_OPS_moves%(i) THEN n = n + 1
+    NEXT i
+    ANIM_OPS_layer_count% = n
+END FUNCTION
+
+''
+' Copy the selected frames (the current one when none is) to the clipboard;
+' cut: then delete them (one undo step).
+SUB ANIM_OPS_copy_frames (cut AS INTEGER)
+    DIM n AS INTEGER, L AS INTEGER, f AS INTEGER, k AS INTEGER, i AS INTEGER, row AS INTEGER
+    DIM img AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG, holds AS STRING, why AS STRING
+    STATIC clipId AS LONG
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "No frames to copy": EXIT SUB
+    IF ANIM_OPS_busy$ <> "" THEN STATUS_flash ANIM_OPS_busy$: EXIT SUB
+    IF cut THEN
+        why = ANIM_op_refusal$(ANIM_OP_DELETE_SEL)
+        IF why <> "" THEN STATUS_flash why + " - nothing cut": EXIT SUB
+    END IF
+    FOR f = 1 TO ANIM.count: IF ANIM_SEL_is%(f) THEN n = n + 1
+    NEXT f
+    L = ANIM_OPS_layer_count%
+    IF n < 1 _ORELSE L < 1 THEN STATUS_flash "No frames to copy": EXIT SUB
+    img = _NEWIMAGE(n * ANIM.frameW, L * ANIM.frameH, 32)
+    IF img >= -1 THEN STATUS_flash "Not enough memory to copy the frames": EXIT SUB
+    _DONTBLEND img
+    k = 0
+    FOR f = 1 TO ANIM.count
+        IF ANIM_SEL_is%(f) THEN
+            IF ANIM_cell_rect%(f, x, y, w, h) THEN
+                row = 0
+                FOR i = 1 TO MAX_LAYERS
+                    IF ANIM_OPS_moves%(i) THEN
+                        _PUTIMAGE (k * ANIM.frameW, row * ANIM.frameH), LAYERS(i).imgHandle&, img, (x + LAYERS(i).apronW%, y + LAYERS(i).apronH%)-(x + LAYERS(i).apronW% + w - 1, y + LAYERS(i).apronH% + h - 1)
+                        row = row + 1
+                    END IF
+                NEXT i
+            END IF
+            holds = holds + _IIF(holds = "", "", ",") + _TRIM$(STR$(ANIM_hold%(f)))
+            k = k + 1
+        END IF
+    NEXT f
+    _BLEND img
+    clipId = clipId + 1
+    IF ANIM_CLIP_IMG < -1 THEN _FREEIMAGE ANIM_CLIP_IMG
+    ANIM_CLIP_IMG = img
+    ANIM_CLIP_META = ANIM_CLIP_MAGIC$ + "|" + _TRIM$(STR$(ANIM.frameW)) + "|" + _TRIM$(STR$(ANIM.frameH)) + "|" + _TRIM$(STR$(n)) + "|" + _TRIM$(STR$(L)) + "|" + _TRIM$(STR$(INST.id)) + "." + _TRIM$(STR$(clipId)) + "." + _TRIM$(STR$(CLNG(TIMER * 100))) + "|" + holds
+    ' the OS clipboard, for another DRAW window: the picture alone, its text line
+    ' in a header strip on top ([Linux] setting _CLIPBOARD$ as well drops the image)
+    DIM packed AS LONG
+    packed = ANIM_OPS_clip_pack&(img, ANIM_CLIP_META)
+    IF packed < -1 THEN _CLIPBOARDIMAGE = packed: _FREEIMAGE packed
+    IF cut THEN
+        ANIM_OPS_STEP_NAME = _IIF(n > 1, "Cut Frames", "Cut Frame")
+        ANIM_OPS_run ANIM_OP_DELETE_SEL
+        ANIM_OPS_STEP_NAME = ""
+    ELSE
+        STATUS_flash "Copied" + STR$(n) + " frame" + _IIF(n > 1, "s", "") + " (" + _TRIM$(STR$(ANIM.frameW)) + "x" + _TRIM$(STR$(ANIM.frameH)) + ")"
+    END IF
+    SOUND_play SND_LAYER_OP
+END SUB
+
+''
+' The frames picture with the text line on top for the OS clipboard: header
+' rows of opaque pixels, 3 bytes each (R G B) - pixel 0 = "DF1", pixel 1 =
+' length hi, lo, header rows - then the text. At least 4 pixels wide.
+FUNCTION ANIM_OPS_clip_pack& (img AS LONG, meta AS STRING)
+    DIM w AS LONG, hr AS LONG, packImg AS LONG, b AS STRING, i AS LONG, oldDest AS LONG
+    w = _MAX(_WIDTH(img), 4)
+    b = "DF1" + CHR$(LEN(meta) \ 256) + CHR$(LEN(meta) AND 255) + CHR$(0) + meta
+    hr = (LEN(b) + 3 * w - 1) \ (3 * w)
+    MID$(b, 6, 1) = CHR$(hr)
+    b = b + STRING$(hr * w * 3 - LEN(b), 0)
+    packImg = _NEWIMAGE(w, hr + _HEIGHT(img), 32)
+    IF packImg >= -1 THEN EXIT FUNCTION
+    oldDest = _DEST
+    _DEST packImg
+    FOR i = 0 TO hr * w - 1
+        PSET (i MOD w, i \ w), _RGBA32(ASC(b, i * 3 + 1), ASC(b, i * 3 + 2), ASC(b, i * 3 + 3), 255)
+    NEXT i
+    _DEST oldDest
+    _DONTBLEND packImg
+    _PUTIMAGE (0, hr), img, packImg
+    _BLEND packImg
+    ANIM_OPS_clip_pack& = packImg
+END FUNCTION
+
+''
+' The text line a clip_pack picture carries ("" = not frames); hr = its header rows.
+FUNCTION ANIM_OPS_clip_meta$ (img AS LONG, hr AS LONG)
+    DIM w AS LONG, i AS LONG, c AS _UNSIGNED LONG, b AS STRING, n AS LONG, oldSrc AS LONG
+    hr = 0
+    w = _WIDTH(img)
+    IF w < 4 _ORELSE _HEIGHT(img) < 2 THEN EXIT FUNCTION
+    oldSrc = _SOURCE
+    _SOURCE img
+    FOR i = 0 TO 1
+        c = POINT(i, 0)
+        b = b + CHR$(_RED32(c)) + CHR$(_GREEN32(c)) + CHR$(_BLUE32(c))
+    NEXT i
+    IF LEFT$(b, 3) = "DF1" THEN
+        n = ASC(b, 4) * 256 + ASC(b, 5): hr = ASC(b, 6)
+        IF hr < 1 _ORELSE hr >= _HEIGHT(img) _ORELSE 6 + n > hr * w * 3 THEN
+            hr = 0
+        ELSE
+            FOR i = 2 TO (6 + n + 2) \ 3 - 1
+                c = POINT(i MOD w, i \ w)
+                b = b + CHR$(_RED32(c)) + CHR$(_GREEN32(c)) + CHR$(_BLUE32(c))
+            NEXT i
+            b = MID$(b, 7, n)
+            IF LEFT$(b, LEN(ANIM_CLIP_MAGIC$) + 1) = ANIM_CLIP_MAGIC$ + "|" THEN ANIM_OPS_clip_meta$ = b ELSE hr = 0
+        END IF
+    END IF
+    _SOURCE oldSrc
+END FUNCTION
+
+''
+' Field n (0-based) of a "|" line.
+FUNCTION ANIM_OPS_field$ (t AS STRING, n AS INTEGER)
+    DIM i AS INTEGER, p AS LONG, q AS LONG
+    p = 1
+    FOR i = 1 TO n
+        p = INSTR(p, t, "|"): IF p = 0 THEN EXIT FUNCTION
+        p = p + 1
+    NEXT i
+    q = INSTR(p, t, "|"): IF q = 0 THEN q = LEN(t) + 1
+    ANIM_OPS_field$ = MID$(t, p, q - p)
+END FUNCTION
+
+''
+' Paste the clipboard's frames: as new frames after the current one, or over
+' the frames from the first selected one (more than there are: added at the
+' end). Frame row r goes to the r-th pixel layer here; rows past the last
+' layer go onto it. A different frame size: pasted at each cell's top left,
+' cropped. One undo step; the pasted frames end up selected.
+SUB ANIM_OPS_paste_frames (over AS INTEGER)
+    DIM meta AS STRING, img AS LONG, own AS INTEGER, fw AS INTEGER, fh AS INTEGER, n AS INTEGER, L AS INTEGER
+    DIM before AS STRING, after AS STRING, why AS STRING, start AS INTEGER, k AS INTEGER, f AS INTEGER
+    DIM newCount AS INTEGER, newCur AS INTEGER, oldCount AS INTEGER, newH AS LONG, hs AS STRING
+    DIM i AS INTEGER, row AS INTEGER, lastSlot AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG
+    DIM cw AS LONG, ch AS LONG, oldDest AS LONG, extra AS INTEGER
+    DIM r2 AS INTEGER, hv AS INTEGER, cp AS LONG, hdr AS LONG
+
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "Paste frames into a sheet with frames (set a frame size first)": EXIT SUB
+    IF ANIM_OPS_busy$ <> "" THEN STATUS_flash ANIM_OPS_busy$: EXIT SUB
+    ' the OS clipboard's picture: frames when it carries the header (any DRAW window)
+    img = _CLIPBOARDIMAGE
+    IF img < -1 THEN meta = ANIM_OPS_clip_meta$(img, hdr)
+    IF meta <> "" _ANDALSO meta = ANIM_CLIP_META _ANDALSO ANIM_CLIP_IMG < -1 THEN
+        _FREEIMAGE img: img = _COPYIMAGE(ANIM_CLIP_IMG, 32): hdr = 0 ' this window's own copy: the exact pixels
+    ELSEIF meta = "" THEN
+        own = (img >= -1 _ANDALSO _CLIPBOARD$ = "" _ANDALSO ANIM_CLIP_IMG < -1) ' an empty OS clipboard: this window's last copy
+        IF img < -1 THEN _FREEIMAGE img
+        img = 0
+        IF own = 0 THEN STATUS_flash "The clipboard holds no frames - Copy Frames first": EXIT SUB
+        meta = ANIM_CLIP_META: img = _COPYIMAGE(ANIM_CLIP_IMG, 32): hdr = 0
+    END IF
+    IF img >= -1 THEN STATUS_flash "Not enough memory to paste the frames": EXIT SUB
+    fw = VAL(ANIM_OPS_field$(meta, 1)): fh = VAL(ANIM_OPS_field$(meta, 2))
+    n = VAL(ANIM_OPS_field$(meta, 3)): L = VAL(ANIM_OPS_field$(meta, 4))
+    IF fw < 1 _ORELSE fh < 1 _ORELSE n < 1 _ORELSE L < 1 _ORELSE n > ANIM_MAX_FRAMES _ORELSE L > MAX_LAYERS THEN _FREEIMAGE img: STATUS_flash "The clipboard's frames can't be read": EXIT SUB
+    IF _WIDTH(img) < n * fw _ORELSE _HEIGHT(img) <> hdr + L * fh THEN _FREEIMAGE img: STATUS_flash "The clipboard's frames don't match their picture": EXIT SUB
+
+    ' where they go
+    start = 0
+    FOR f = 1 TO ANIM.count
+        IF start = 0 _ANDALSO ANIM_SEL_is%(f) THEN start = f
+    NEXT f
+    IF start = 0 THEN start = ANIM.current
+    IF over THEN
+        extra = _MAX(0, start + n - 1 - ANIM.count)
+    ELSE
+        ANIM_COUNT_TO = n
+        FOR f = ANIM.count TO 1 STEP -1 ' after the selection (its last frame)
+            IF ANIM_SEL_is%(f) THEN ANIM.current = f: EXIT FOR
+        NEXT f
+        why = ANIM_op_refusal$(ANIM_OP_INSERT_N)
+        IF why <> "" THEN _FREEIMAGE img: STATUS_flash why: EXIT SUB
+    END IF
+    IF over _ANDALSO extra > 0 THEN
+        ANIM_COUNT_TO = ANIM.count + extra
+        why = ANIM_op_refusal$(ANIM_OP_SET_COUNT)
+        IF why <> "" THEN _FREEIMAGE img: STATUS_flash why: EXIT SUB
+    END IF
+    ANIM_play_stop
+
+    before = ANIM_OPS_snapshot$(TRUE)
+    oldCount = ANIM.count
+    IF over = 0 _ORELSE extra > 0 THEN
+        IF over THEN
+            IF ANIM_plan%(ANIM_OP_SET_COUNT, newCount, newCur) = 0 THEN _FREEIMAGE img: EXIT SUB
+        ELSE
+            IF ANIM_plan%(ANIM_OP_INSERT_N, newCount, newCur) = 0 THEN _FREEIMAGE img: EXIT SUB
+            start = newCur
+        END IF
+        newH = ANIM_sheet_h&(newCount)
+        IF newH > SCRN.canvasH& THEN ANIM_OPS_resize_keep_view SCRN.canvasW&, newH
+        ANIM_OPS_move_cells oldCount, newCount
+        ANIM_apply_plan newCount, newCur
+        CLIP_remap_all oldCount, newCount ' clips: In / Out follow their frames (TOOLS/CLIP)
+    END IF
+
+    ' the pixels: frame k, row r -> cell (start + k), r-th pixel layer
+    FOR i = 1 TO MAX_LAYERS: IF ANIM_OPS_moves%(i) THEN lastSlot = i
+    NEXT i
+    oldDest = _DEST
+    FOR k = 0 TO n - 1
+        f = start + k
+        IF ANIM_cell_rect%(f, x, y, w, h) THEN
+            cw = _MIN(w, fw): ch = _MIN(h, fh)
+            row = 0
+            FOR i = 1 TO MAX_LAYERS
+                IF ANIM_OPS_moves%(i) THEN
+                    _DEST LAYERS(i).imgHandle&
+                    _DONTBLEND LAYERS(i).imgHandle&
+                    LINE (x + LAYERS(i).apronW%, y + LAYERS(i).apronH%)-STEP(w - 1, h - 1), _RGBA32(0, 0, 0, 0), BF
+                    IF row < L THEN
+                        _PUTIMAGE (x + LAYERS(i).apronW%, y + LAYERS(i).apronH%), img, LAYERS(i).imgHandle&, (k * fw, hdr + row * fh)-(k * fw + cw - 1, hdr + row * fh + ch - 1)
+                    END IF
+                    _BLEND LAYERS(i).imgHandle&
+                    IF i = lastSlot THEN ' rows past the last layer here go onto it
+                        FOR r2 = row + 1 TO L - 1
+                            _PUTIMAGE (x + LAYERS(i).apronW%, y + LAYERS(i).apronH%), img, LAYERS(i).imgHandle&, (k * fw, hdr + r2 * fh)-(k * fw + cw - 1, hdr + r2 * fh + ch - 1)
+                        NEXT r2
+                    END IF
+                    LAYERS(i).contentDirty% = TRUE
+                    SAFE_FREEIMAGE LAYERS(i).apronCacheImg&: LAYERS(i).apronCacheImg& = 0
+                    LAYERS(i).apronCacheValid% = FALSE
+                    SYMBOL_mark_parent_dirty i
+                    row = row + 1
+                END IF
+            NEXT i
+        END IF
+    NEXT k
+    _DEST oldDest
+    ' holds, from the comma list in field 6
+    hs = ANIM_OPS_field$(meta, 6)
+    FOR k = 0 TO n - 1
+        cp = INSTR(hs, ",")
+        IF cp THEN hv = VAL(LEFT$(hs, cp - 1)): hs = MID$(hs, cp + 1) ELSE hv = VAL(hs): hs = ""
+        IF start + k <= ANIM.count THEN ANIM_set_hold start + k, _MAX(1, hv)
+    NEXT k
+    _FREEIMAGE img
+
+    ' the pasted frames are the selection, the first current
+    ANIM_SEL_clear
+    FOR k = 0 TO n - 1
+        IF start + k <= ANIM.count THEN ANIM_SEL(start + k) = TRUE
+    NEXT k
+    ANIM.current = start: ANIM_SEL_ANCHOR = start
+    ANIM_SAME_stamp_all ' pasting leaves a layer the same on every frame as it was
+
+    after = ANIM_OPS_snapshot$(TRUE)
+    ANIM_OPS_record before, after, _IIF(over, "Paste Frames Over", "Paste Frames"), 0
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    STATUS_flash _IIF(over, "Pasted over", "Pasted") + STR$(n) + " frame" + _IIF(n > 1, "s", "") + " at frame" + STR$(start) + _IIF(fw <> ANIM.frameW _ORELSE fh <> ANIM.frameH, " (another frame size: top left, cropped)", "")
+    SOUND_play SND_NEW_LAYER
+END SUB
+
+' ---------------------------------------------------------------------------
+' Apply to the selected frames (2.7)
+' ---------------------------------------------------------------------------
+
+''
+' Does command act run masked to the selected frames? Only in the lightbox,
+' and not with a marquee selection (the command's own clip then).
+FUNCTION ANIM_FM_wants% (act AS INTEGER)
+    IF ANIM_FM_ON _ORELSE ANIM.active = FALSE _ORELSE ANIM_LB_showing% = 0 THEN EXIT FUNCTION
+    IF MARQUEE.ACTIVE _ANDALSO MARQUEE.USER_CREATED THEN EXIT FUNCTION
+    SELECT CASE act
+        CASE 2001 TO 2011, 2101 TO 2289, 2350 TO 2352, 1516: ANIM_FM_wants% = TRUE
+        CASE 306, 308, 313, 314: ANIM_FM_wants% = TRUE ' Delete / Edit > Clear, Fill with FG / BG (B4)
+    END SELECT
+END FUNCTION
+
+''
+' Copy every pixel layer before the command.
+SUB ANIM_FM_begin ()
+    DIM i AS INTEGER
+    FOR i = 1 TO MAX_LAYERS
+        ANIM_FM_IMG(i) = 0
+        IF ANIM_OPS_moves%(i) THEN ANIM_FM_IMG(i) = _COPYIMAGE(LAYERS(i).imgHandle&, 32)
+    NEXT i
+    ANIM_FM_ON = TRUE
+END SUB
+
+''
+' Layer i: everything outside the selected frames back from the copy.
+SUB ANIM_FM_mask (i AS INTEGER)
+    DIM img AS LONG, keep AS LONG, f AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG, ax AS LONG, ay AS LONG
+    IF ANIM_FM_ON = 0 _ORELSE i < 1 _ORELSE i > MAX_LAYERS THEN EXIT SUB
+    img = LAYERS(i).imgHandle&
+    IF ANIM_FM_IMG(i) >= -1 _ORELSE img >= -1 THEN EXIT SUB
+    IF _WIDTH(img) <> _WIDTH(ANIM_FM_IMG(i)) _ORELSE _HEIGHT(img) <> _HEIGHT(ANIM_FM_IMG(i)) THEN EXIT SUB ' the buffer changed shape
+    IF HISTORY_image_differs%(ANIM_FM_IMG(i), img) = 0 THEN EXIT SUB
+    keep = _COPYIMAGE(img, 32)
+    IF keep >= -1 THEN EXIT SUB
+    ax = LAYERS(i).apronW%: ay = LAYERS(i).apronH%
+    _DONTBLEND img
+    _PUTIMAGE (0, 0), ANIM_FM_IMG(i), img
+    FOR f = 1 TO ANIM.count
+        IF ANIM_SEL_is%(f) _ANDALSO ANIM_cell_rect%(f, x, y, w, h) THEN
+            _PUTIMAGE (x + ax, y + ay), keep, img, (x + ax, y + ay)-(x + ax + w - 1, y + ay + h - 1)
+        END IF
+    NEXT f
+    _BLEND img
+    _FREEIMAGE keep
+    LAYERS(i).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(i).apronCacheImg&: LAYERS(i).apronCacheImg& = 0
+    LAYERS(i).apronCacheValid% = FALSE
+END SUB
+
+''
+' HISTORY_store_after_image: the undo step holds the masked result.
+SUB ANIM_FM_finish (layerSlot AS INTEGER)
+    IF ANIM_FM_ON THEN ANIM_FM_mask layerSlot
+END SUB
+
+SUB ANIM_FM_end ()
+    DIM i AS INTEGER, n AS INTEGER, f AS INTEGER
+    FOR i = 1 TO MAX_LAYERS
+        IF ANIM_FM_IMG(i) < -1 THEN
+            ANIM_FM_mask i
+            _FREEIMAGE ANIM_FM_IMG(i)
+        END IF
+        ANIM_FM_IMG(i) = 0
+    NEXT i
+    ANIM_FM_ON = FALSE
+    FOR f = 1 TO ANIM.count: IF ANIM_SEL_is%(f) THEN n = n + 1
+    NEXT f
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    IF n > 1 THEN STATUS_flash "Applied to the" + STR$(n) + " selected frames"
+END SUB
+
+''
+' Flip / rotate (315 316 319 320 on the current or selected layers; Image >
+' Flip Canvas 1803 1804 on every layer) per frame cell in the lightbox. TRUE =
+' done (or refused): the command does not run as usual.
+FUNCTION ANIM_OPS_frames_geom% (act AS INTEGER)
+    DIM targets(1 TO MAX_LAYERS) AS INTEGER, nt AS INTEGER, k AS INTEGER, i AS INTEGER, f AS INTEGER, nf AS INTEGER
+    DIM before AS STRING, after AS STRING, label AS STRING, why AS STRING
+    SELECT CASE act
+        CASE 315, 316, 319, 320, 1803, 1804
+        CASE ELSE: EXIT FUNCTION
+    END SELECT
+    IF ANIM.active = FALSE _ORELSE ANIM_LB_showing% = 0 THEN EXIT FUNCTION
+    IF MARQUEE.ACTIVE _ANDALSO MARQUEE.USER_CREATED THEN EXIT FUNCTION ' flips the selection, as ever
+    IF act = 315 _ORELSE act = 316 THEN
+        IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN
+            IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN EXIT FUNCTION ' its own flip
+        END IF
+    END IF
+    ANIM_OPS_frames_geom% = TRUE
+    why = ANIM_OPS_busy$
+    IF why <> "" THEN STATUS_flash why: EXIT FUNCTION
+    IF (act = 319 _ORELSE act = 320) _ANDALSO ANIM.frameW <> ANIM.frameH THEN STATUS_flash "Rotating frames needs square frames (these are" + STR$(ANIM.frameW) + " x" + STR$(ANIM.frameH) + ")": EXIT FUNCTION
+    IF act = 1803 _ORELSE act = 1804 THEN
+        FOR i = 1 TO MAX_LAYERS: IF ANIM_OPS_moves%(i) THEN nt = nt + 1: targets(nt) = i
+        NEXT i
+    ELSE
+        IMAGE_ADJ_collect_targets targets(), nt
+        k = 0
+        FOR i = 1 TO nt: IF ANIM_OPS_moves%(targets(i)) THEN k = k + 1: targets(k) = targets(i)
+        NEXT i
+        nt = k
+    END IF
+    IF nt = 0 THEN STATUS_flash "No pixel layer to change": EXIT FUNCTION
+    ANIM_play_stop
+    before = ANIM_OPS_snapshot$(TRUE)
+    FOR f = 1 TO ANIM.count
+        IF ANIM_SEL_is%(f) THEN
+            nf = nf + 1
+            FOR i = 1 TO nt: ANIM_OPS_cell_geom targets(i), f, act: NEXT i
+        END IF
+    NEXT f
+    after = ANIM_OPS_snapshot$(TRUE)
+    SELECT CASE act
+        CASE 315, 1803: label = "Flip Frames Horizontal"
+        CASE 316, 1804: label = "Flip Frames Vertical"
+        CASE 319: label = "Rotate Frames 90 CW"
+        CASE 320: label = "Rotate Frames 90 CCW"
+    END SELECT
+    IF nf = 1 THEN label = LEFT$(label, INSTR(label, "Frames") - 1) + "Frame" + MID$(label, INSTR(label, "Frames") + 6)
+    IF before <> after THEN ANIM_OPS_record before, after, label, 0
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    STATUS_flash label + ":" + STR$(nf) + " frame" + _IIF(nf > 1, "s", "")
+END FUNCTION
+
+''
+' Flip / rotate frame f's cell on layer slot L in place.
+SUB ANIM_OPS_cell_geom (L AS INTEGER, f AS INTEGER, act AS INTEGER)
+    DIM img AS LONG, tmp AS LONG, rot AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG, bx AS LONG, by AS LONG
+    DIM ms AS _MEM, md AS _MEM, i AS LONG, j AS LONG, c AS _UNSIGNED LONG
+    img = LAYERS(L).imgHandle&
+    IF img >= -1 _ORELSE ANIM_cell_rect%(f, x, y, w, h) = 0 THEN EXIT SUB
+    bx = x + LAYERS(L).apronW%: by = y + LAYERS(L).apronH%
+    tmp = _NEWIMAGE(w, h, 32)
+    IF tmp >= -1 THEN EXIT SUB
+    _DONTBLEND tmp
+    _PUTIMAGE (0, 0), img, tmp, (bx, by)-(bx + w - 1, by + h - 1)
+    _DONTBLEND img
+    SELECT CASE act
+        CASE 315, 1803: _PUTIMAGE (bx + w - 1, by)-(bx, by + h - 1), tmp, img
+        CASE 316, 1804: _PUTIMAGE (bx, by + h - 1)-(bx + w - 1, by), tmp, img
+        CASE 319, 320 ' square cells: (i, j) -> CW (w-1-j, i), CCW (j, w-1-i)
+            rot = _NEWIMAGE(w, h, 32)
+            IF rot < -1 THEN
+                ms = _MEMIMAGE(tmp): md = _MEMIMAGE(rot)
+                FOR j = 0 TO h - 1
+                    FOR i = 0 TO w - 1
+                        c = _MEMGET(ms, ms.OFFSET + (j * w + i) * 4, _UNSIGNED LONG)
+                        IF act = 319 THEN
+                            _MEMPUT md, md.OFFSET + (i * w + (w - 1 - j)) * 4, c
+                        ELSE
+                            _MEMPUT md, md.OFFSET + ((w - 1 - i) * w + j) * 4, c
+                        END IF
+                    NEXT i
+                NEXT j
+                _MEMFREE ms: _MEMFREE md
+                _DONTBLEND rot
+                _PUTIMAGE (bx, by), rot, img
+                _FREEIMAGE rot
+            END IF
+    END SELECT
+    _BLEND img
+    _FREEIMAGE tmp
+    LAYERS(L).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(L).apronCacheImg&: LAYERS(L).apronCacheImg& = 0
+    LAYERS(L).apronCacheValid% = FALSE
+    SYMBOL_mark_parent_dirty L
+END SUB
+
+''
+' ANIM > Replace FG Color with BG in Frames (2529): every pixel of the FG
+' colour in the selected frames (the current one when none is; sheet view or
+' lightbox) on the current / selected layers becomes the BG colour. One undo step.
+SUB ANIM_OPS_swap_fg_bg ()
+    DIM targets(1 TO MAX_LAYERS) AS INTEGER, nt AS INTEGER, t AS INTEGER, L AS INTEGER, f AS INTEGER, nf AS INTEGER
+    DIM before AS STRING, after AS STRING, why AS STRING, fg AS _UNSIGNED LONG, bg AS _UNSIGNED LONG
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, bx AS LONG, by AS LONG, i AS LONG, j AS LONG, bw AS LONG
+    DIM m AS _MEM, p AS _OFFSET, cnt AS LONG
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "Replace FG with BG works on frames - set a frame size first": EXIT SUB
+    why = ANIM_OPS_busy$
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    fg = _IIF(PAL_FG_IS_TRANSPARENT, 0, PAINT_COLOR~&)
+    bg = _IIF(PAL_BG_IS_TRANSPARENT, 0, PAINT_BG_COLOR~&)
+    IF fg = bg THEN STATUS_flash "FG and BG are the same colour": EXIT SUB
+    IMAGE_ADJ_collect_targets targets(), nt
+    ANIM_play_stop
+    before = ANIM_OPS_snapshot$(TRUE)
+    FOR t = 1 TO nt
+        L = targets(t)
+        IF ANIM_OPS_moves%(L) THEN
+            m = _MEMIMAGE(LAYERS(L).imgHandle&)
+            bw = _WIDTH(LAYERS(L).imgHandle&)
+            FOR f = 1 TO ANIM.count
+                IF ANIM_SEL_is%(f) _ANDALSO ANIM_cell_rect%(f, x, y, w, h) THEN
+                    bx = x + LAYERS(L).apronW%: by = y + LAYERS(L).apronH%
+                    FOR j = 0 TO h - 1
+                        p = m.OFFSET + ((by + j) * bw + bx) * 4
+                        FOR i = 0 TO w - 1
+                            IF _MEMGET(m, p, _UNSIGNED LONG) = fg THEN _MEMPUT m, p, bg: cnt = cnt + 1
+                            p = p + 4
+                        NEXT i
+                    NEXT j
+                END IF
+            NEXT f
+            _MEMFREE m
+            LAYERS(L).contentDirty% = TRUE
+            SAFE_FREEIMAGE LAYERS(L).apronCacheImg&: LAYERS(L).apronCacheImg& = 0
+            LAYERS(L).apronCacheValid% = FALSE
+            SYMBOL_mark_parent_dirty L
+        END IF
+    NEXT t
+    FOR f = 1 TO ANIM.count: IF ANIM_SEL_is%(f) THEN nf = nf + 1
+    NEXT f
+    IF cnt = 0 THEN STATUS_flash "No pixels of the FG colour in the" + _IIF(nf > 1, STR$(nf) + " selected frames", " current frame"): EXIT SUB
+    after = ANIM_OPS_snapshot$(TRUE)
+    ANIM_OPS_record before, after, "Replace FG with BG in Frames", 0
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    STATUS_flash "Replaced" + STR$(cnt) + " pixels in" + STR$(nf) + " frame" + _IIF(nf > 1, "s", "")
+END SUB
+
+' ---------------------------------------------------------------------------
+' Layer flags (2.8): reference layers, layers the same on every frame
+' ---------------------------------------------------------------------------
+
+''
+' The ANIM_LF_* flags of layer slot i (0 for an empty slot).
+FUNCTION ANIM_LF_of% (i AS INTEGER)
+    IF i < 1 _ORELSE i > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(i).imgHandle& = 0 _ORELSE ANIM_LF_N = 0 THEN EXIT FUNCTION
+    ANIM_LF_of% = ANIM_LF_get%(LAYERS(i).historyId&)
+END FUNCTION
+
+''
+' Layer slot i is a reference layer: shown, left out of export.
+FUNCTION ANIM_LF_is_ref% (i AS INTEGER)
+    ANIM_LF_is_ref% = (ANIM_LF_of%(i) AND ANIM_LF_REF) <> 0
+END FUNCTION
+
+''
+' Layer slot i is the same on every frame.
+FUNCTION ANIM_LF_is_same% (i AS INTEGER)
+    ANIM_LF_is_same% = (ANIM_LF_of%(i) AND ANIM_LF_SAME) <> 0
+END FUNCTION
+
+''
+' The layer slot with this historyId, or 0.
+FUNCTION ANIM_LF_slot% (id AS LONG)
+    DIM i AS INTEGER
+    FOR i = 1 TO MAX_LAYERS
+        IF LAYERS(i).imgHandle& <> 0 _ANDALSO LAYERS(i).historyId& = id THEN ANIM_LF_slot% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' After a file load: drop flags of layers the file does not have (a later
+' layer could be given that historyId).
+SUB ANIM_LF_prune ()
+    DIM k AS INTEGER
+    k = 1
+    DO WHILE k <= ANIM_LF_N
+        IF ANIM_LF_slot%(ANIM_LF_ID(k)) = 0 THEN ANIM_LF_set ANIM_LF_ID(k), 0 ELSE k = k + 1
+    LOOP
+END SUB
+
+''
+' Any layer the same on every frame (frame ops then stamp it back).
+FUNCTION ANIM_SAME_any% ()
+    DIM k AS INTEGER
+    IF ANIM.active = FALSE THEN EXIT FUNCTION
+    FOR k = 1 TO ANIM_LF_N
+        IF ANIM_LF_FL(k) AND ANIM_LF_SAME THEN
+            IF ANIM_LF_slot%(ANIM_LF_ID(k)) THEN ANIM_SAME_any% = TRUE: EXIT FUNCTION
+        END IF
+    NEXT k
+END FUNCTION
+
+''
+' Frame f's cell of layer slot i as raw RGBA rows ("" when f has no cell).
+FUNCTION ANIM_SAME_cell_get$ (i AS INTEGER, f AS INTEGER)
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, m AS _MEM, bw AS LONG, row AS LONG, px AS STRING, ln AS STRING
+    IF ANIM_cell_rect%(f, x, y, w, h) = 0 THEN EXIT FUNCTION
+    px = SPACE$(w * h * 4): ln = SPACE$(w * 4)
+    m = _MEMIMAGE(LAYERS(i).imgHandle&)
+    bw = _WIDTH(LAYERS(i).imgHandle&) * 4
+    FOR row = 0 TO h - 1
+        _MEMGET m, m.OFFSET + (y + LAYERS(i).apronH% + row) * bw + (x + LAYERS(i).apronW%) * 4, ln
+        MID$(px, row * w * 4 + 1, w * 4) = ln
+    NEXT row
+    _MEMFREE m
+    ANIM_SAME_cell_get$ = px
+END FUNCTION
+
+''
+' Write raw RGBA rows px (frameW x frameH) into frame f's cell of layer slot i.
+SUB ANIM_SAME_cell_put (i AS INTEGER, f AS INTEGER, px AS STRING)
+    DIM x AS LONG, y AS LONG, w AS LONG, h AS LONG, m AS _MEM, bw AS LONG, row AS LONG
+    IF ANIM_cell_rect%(f, x, y, w, h) = 0 THEN EXIT SUB
+    IF LEN(px) <> w * h * 4 THEN EXIT SUB
+    m = _MEMIMAGE(LAYERS(i).imgHandle&)
+    bw = _WIDTH(LAYERS(i).imgHandle&) * 4
+    FOR row = 0 TO h - 1
+        _MEMPUT m, m.OFFSET + (y + LAYERS(i).apronH% + row) * bw + (x + LAYERS(i).apronW%) * 4, MID$(px, row * w * 4 + 1, w * 4)
+    NEXT row
+    _MEMFREE m
+END SUB
+
+''
+' The ANIM_SB_* entry for historyId id (make = TRUE: add one), or 0.
+FUNCTION ANIM_SB_find% (id AS LONG, make AS INTEGER)
+    DIM k AS INTEGER
+    FOR k = 1 TO ANIM_SB_N
+        IF ANIM_SB_ID(k) = id THEN ANIM_SB_find% = k: EXIT FUNCTION
+    NEXT k
+    IF make = FALSE _ORELSE ANIM_SB_N >= ANIM_LF_MAX THEN EXIT FUNCTION
+    ANIM_SB_N = ANIM_SB_N + 1
+    ANIM_SB_ID(ANIM_SB_N) = id: ANIM_SB_PX(ANIM_SB_N) = "": ANIM_SB_W(ANIM_SB_N) = 0: ANIM_SB_H(ANIM_SB_N) = 0
+    ANIM_SB_find% = ANIM_SB_N
+END FUNCTION
+
+''
+' Write picture px into every cell of layer slot i (spare cells too), marking
+' the layer changed.
+SUB ANIM_SAME_put_all (i AS INTEGER, px AS STRING)
+    DIM f AS INTEGER
+    FOR f = 1 TO ANIM_cells%: ANIM_SAME_cell_put i, f, px: NEXT f
+    LAYERS(i).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(i).apronCacheImg&: LAYERS(i).apronCacheImg& = 0
+    LAYERS(i).apronCacheValid% = FALSE
+END SUB
+
+''
+' Make every cell of SAME layer slot i hold its picture again (from the
+' current frame when it has none yet, or the frame size changed). Returns
+' TRUE when a cell changed.
+FUNCTION ANIM_SAME_stamp% (i AS INTEGER)
+    DIM k AS INTEGER, f AS INTEGER, px AS STRING
+    k = ANIM_SB_find%(LAYERS(i).historyId&, TRUE)
+    IF k = 0 THEN EXIT FUNCTION
+    IF ANIM_SB_W(k) <> ANIM.frameW _ORELSE ANIM_SB_H(k) <> ANIM.frameH _ORELSE LEN(ANIM_SB_PX(k)) <> ANIM.frameW * ANIM.frameH * 4 THEN
+        ANIM_SB_PX(k) = ANIM_SAME_cell_get$(i, ANIM.current)
+        ANIM_SB_W(k) = ANIM.frameW: ANIM_SB_H(k) = ANIM.frameH
+    END IF
+    px = ANIM_SB_PX(k)
+    FOR f = 1 TO ANIM_cells%
+        IF ANIM_SAME_cell_get$(i, f) <> px THEN ANIM_SAME_put_all i, px: ANIM_SAME_stamp% = TRUE: EXIT FUNCTION
+    NEXT f
+END FUNCTION
+
+''
+' Frame ops (cell moves, paste, resize frames): put every SAME layer back as
+' it was, before the op's undo snapshot - a frame op never changes one.
+SUB ANIM_SAME_stamp_all ()
+    DIM k AS INTEGER, i AS INTEGER, r AS INTEGER
+    IF ANIM.active = FALSE THEN EXIT SUB
+    FOR k = 1 TO ANIM_LF_N
+        IF ANIM_LF_FL(k) AND ANIM_LF_SAME THEN
+            i = ANIM_LF_slot%(ANIM_LF_ID(k))
+            IF i _ANDALSO ANIM_OPS_moves%(i) THEN r = ANIM_SAME_stamp%(i)
+        END IF
+    NEXT k
+END SUB
+
+''
+' Once a frame, before the render: after an undo step was added, undone or
+' redone (ANIM_SAME_CHECK), whatever changed in any cell of a SAME layer - each
+' pixel that differs from its picture - goes into the picture and every cell.
+' So a stroke in one frame lands on all of them, and its undo / redo too (the
+' cell the undo puts back differs, and spreads). Waits while a button is held
+' or a selection floats. TRUE when pixels changed.
+FUNCTION ANIM_SAME_tick% ()
+    DIM k AS INTEGER, i AS INTEGER, s AS INTEGER, f AS INTEGER, changed AS INTEGER
+    DIM pic AS STRING, nu AS STRING, cell AS STRING, rw AS LONG, r AS LONG, j AS LONG, p AS LONG, diff AS INTEGER
+    IF (ANIM_LF_N = 0 _ANDALSO ANIM_LK_N = 0) _ORELSE ANIM.active = FALSE THEN ANIM_SAME_CHECK = FALSE: EXIT FUNCTION
+    IF MOUSE.B1% _ORELSE MOUSE.B2% _ORELSE MOVE.ACTIVE _ORELSE TRANSFORM.ACTIVE THEN EXIT FUNCTION
+    IF ANIM_LK_N > 0 THEN changed = ANIM_LK_tick% ' linked cells (4.3)
+    FOR k = 1 TO ANIM_LF_N
+        IF ANIM_LF_FL(k) AND ANIM_LF_SAME THEN
+            i = ANIM_LF_slot%(ANIM_LF_ID(k))
+            IF i _ANDALSO ANIM_OPS_moves%(i) THEN
+                s = ANIM_SB_find%(LAYERS(i).historyId&, FALSE)
+                IF s = 0 _ORELSE ANIM_SB_W(s) <> ANIM.frameW _ORELSE ANIM_SB_H(s) <> ANIM.frameH THEN
+                    IF ANIM_SAME_stamp%(i) THEN changed = TRUE ' its picture: the current frame's
+                ELSEIF ANIM_SAME_CHECK THEN
+                    pic = ANIM_SB_PX(s): nu = pic: rw = ANIM.frameW * 4: diff = FALSE
+                    FOR f = 1 TO ANIM_cells%
+                        cell = ANIM_SAME_cell_get$(i, f)
+                        IF LEN(cell) = LEN(pic) _ANDALSO cell <> pic THEN
+                            diff = TRUE
+                            FOR r = 0 TO ANIM.frameH - 1
+                                p = r * rw + 1
+                                IF MID$(cell, p, rw) <> MID$(pic, p, rw) THEN
+                                    FOR j = p TO p + rw - 4 STEP 4
+                                        IF MID$(cell, j, 4) <> MID$(pic, j, 4) THEN MID$(nu, j, 4) = MID$(cell, j, 4)
+                                    NEXT j
+                                END IF
+                            NEXT r
+                        END IF
+                    NEXT f
+                    IF diff THEN
+                        ANIM_SB_PX(s) = nu
+                        ANIM_SAME_put_all i, nu
+                        changed = TRUE
+                    END IF
+                END IF
+            END IF
+        END IF
+    NEXT k
+    ANIM_SAME_CHECK = FALSE
+    IF changed THEN BLEND_invalidate_cache: INVALIDATE_canvas
+    ANIM_SAME_tick% = changed
+END FUNCTION
+
+''
+' ANIM > Reference Layer / Same on Every Frame: toggle flag bit on the current
+' layer. One undo step (the flags ride in the frame-op snapshot). Turning SAME
+' on copies the current frame's cell of the layer to every cell.
+SUB ANIM_LF_toggle (bit AS INTEGER)
+    DIM i AS INTEGER, fl AS INTEGER, before AS STRING, after AS STRING, why AS STRING, label AS STRING, px AS INTEGER, r AS INTEGER, k AS INTEGER
+    i = CURRENT_LAYER%
+    IF i < 1 _ORELSE i > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(i).imgHandle& = 0 THEN EXIT SUB
+    IF LAYERS(i).layerType% = LAYER_TYPE_GROUP THEN STATUS_flash "Pick a layer, not a group": EXIT SUB
+    fl = ANIM_LF_of%(i)
+    IF bit = ANIM_LF_SAME _ANDALSO (fl AND ANIM_LF_SAME) = 0 THEN
+        IF ANIM.active = FALSE THEN STATUS_flash "Same on Every Frame needs frames - set a frame size first": EXIT SUB
+        IF ANIM_OPS_moves%(i) = 0 THEN STATUS_flash "Same on Every Frame works on a pixel layer": EXIT SUB
+        why = ANIM_OPS_busy$
+        IF why <> "" THEN STATUS_flash why: EXIT SUB
+        px = TRUE
+    END IF
+    ANIM_play_stop
+    before = ANIM_OPS_snapshot$(px)
+    ANIM_LF_set LAYERS(i).historyId&, fl XOR bit
+    IF px THEN
+        k = ANIM_SB_find%(LAYERS(i).historyId&, TRUE)
+        IF k THEN ANIM_SB_W(k) = 0 ' its picture: the current frame's cell
+        r = ANIM_SAME_stamp%(i)
+    END IF
+    after = ANIM_OPS_snapshot$(px)
+    IF bit = ANIM_LF_REF THEN label = "Reference Layer" ELSE label = "Same on Every Frame"
+    label = label + _IIF((fl AND bit) = 0, " On", " Off")
+    ANIM_OPS_record before, after, label, 0
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    GUI_NEEDS_REDRAW% = TRUE
+    IF bit = ANIM_LF_REF THEN
+        STATUS_flash _IIF((fl AND bit) = 0, "Reference layer: shown, left out of export", "Not a reference layer: exported again")
+    ELSE
+        STATUS_flash _IIF((fl AND bit) = 0, "Same on every frame: frame" + STR$(ANIM.current) + "'s drawing is on all of them", "No longer the same on every frame")
+    END IF
+END SUB
+
+''
+' QA dump line: ANIMLF curRef curSame nFlags flatCrc - flatCrc the CRC32 of
+' LAYERS_flatten& (what an export writes; "-" past 512x512).
+FUNCTION ANIM_LF_dump$ ()
+    DIM d AS STRING, img AS LONG, m AS _MEM, px AS STRING
+    IF ANIM.active = FALSE _ANDALSO ANIM_LF_N = 0 THEN EXIT FUNCTION
+    d = "ANIMLF" + DOCK_n$(ANIM_LF_is_ref%(CURRENT_LAYER%)) + DOCK_n$(ANIM_LF_is_same%(CURRENT_LAYER%)) + DOCK_n$(ANIM_LF_N)
+    IF SCRN.canvasW& * SCRN.canvasH& <= 262144 THEN
+        img = LAYERS_flatten&
+        IF img < -1 THEN
+            m = _MEMIMAGE(img): px = SPACE$(m.SIZE): _MEMGET m, m.OFFSET, px: _MEMFREE m
+            _FREEIMAGE img
+            d = d + " " + LCASE$(HEX$(_CRC32(px)))
+        END IF
+    ELSE
+        d = d + " -"
+    END IF
+    d = d + CHR$(10)
+    ' ANIMSEL active boxX boxY boxW boxH wand minX minY maxX maxY (canvas px; 2.9)
+    d = d + "ANIMSEL" + DOCK_n$(SELECTION_has_active%) + DOCK_n$(MARQUEE.BOX.x) + DOCK_n$(MARQUEE.BOX.y) + DOCK_n$(MARQUEE.BOX.w) + DOCK_n$(MARQUEE.BOX.h)
+    d = d + DOCK_n$(MARQUEE.WAND_HAS_SELECTION <> 0 _ANDALSO MARQUEE.SELECTION_MASK < -1) + DOCK_n$(MARQUEE.WAND_MIN_X) + DOCK_n$(MARQUEE.WAND_MIN_Y) + DOCK_n$(MARQUEE.WAND_MAX_X) + DOCK_n$(MARQUEE.WAND_MAX_Y)
+    ANIM_LF_dump$ = d + CHR$(10)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' A selection stays put in its cell across frame changes (2.9)
+' ---------------------------------------------------------------------------
+
+''
+' Once a frame (main loop): when the current frame changed - a frame key, the
+' strip, playback, a frame op, its undo - and the selection lies inside the
+' frame it was on, move it by the same amount to the new current frame: the
+' same place in the cell. A selection over several cells (Select All, sheet
+' view work) stays where it is, and so does one being drawn or floating. Not an
+' undo step (the selection's own undo steps swap with whatever is live).
+SUB ANIM_SELBOX_watch ()
+    DIM oldF AS INTEGER, ox AS LONG, oy AS LONG, nx AS LONG, ny AS LONG, w AS LONG, h AS LONG
+    DIM bx1 AS LONG, by1 AS LONG, bx2 AS LONG, by2 AS LONG, wand AS INTEGER
+    IF ANIM.active = FALSE THEN ANIM_SELBOX_LAST = 0: EXIT SUB
+    IF ANIM.current = ANIM_SELBOX_LAST THEN EXIT SUB
+    oldF = ANIM_SELBOX_LAST: ANIM_SELBOX_LAST = ANIM.current
+    IF oldF < 1 THEN EXIT SUB
+    IF SELECTION_has_active% = 0 THEN EXIT SUB
+    IF MOVE.ACTIVE _ORELSE TRANSFORM.ACTIVE _ORELSE MARQUEE.DRAGGING _ORELSE MARQUEE.MOVING _ORELSE MARQUEE.RESIZING THEN EXIT SUB
+    IF MARQUEE.FREE_DRAWING _ORELSE MARQUEE.POLY_DRAWING _ORELSE MARQUEE.ELLIP_DRAGGING THEN EXIT SUB
+    IF ANIM_cell_rect%(oldF, ox, oy, w, h) = 0 _ORELSE ANIM_cell_rect%(ANIM.current, nx, ny, w, h) = 0 THEN EXIT SUB
+    wand = MARQUEE.WAND_HAS_SELECTION <> 0 _ANDALSO MARQUEE.SELECTION_MASK < -1
+    IF wand THEN
+        bx1 = MARQUEE.WAND_MIN_X: by1 = MARQUEE.WAND_MIN_Y: bx2 = MARQUEE.WAND_MAX_X: by2 = MARQUEE.WAND_MAX_Y
+    ELSE
+        bx1 = MARQUEE.BOX.x: by1 = MARQUEE.BOX.y: bx2 = MARQUEE.BOX.x + MARQUEE.BOX.w - 1: by2 = MARQUEE.BOX.y + MARQUEE.BOX.h - 1
+    END IF
+    IF bx1 < ox _ORELSE by1 < oy _ORELSE bx2 > ox + w - 1 _ORELSE by2 > oy + h - 1 THEN EXIT SUB ' not inside the frame it was on
+    ANIM_SELBOX_shift nx - ox, ny - oy, wand
+END SUB
+
+''
+' Move the selection by dx, dy canvas px (its box, and its mask when it has one -
+' as MOVE_apply_transform does for a moved float).
+SUB ANIM_SELBOX_shift (dx AS LONG, dy AS LONG, wand AS INTEGER)
+    DIM tmp AS LONG, oldDest AS LONG
+    IF dx = 0 _ANDALSO dy = 0 THEN EXIT SUB
+    MARQUEE.BOX.x = MARQUEE.BOX.x + dx: MARQUEE.BOX.y = MARQUEE.BOX.y + dy
+    IF wand THEN
+        tmp = _NEWIMAGE(_WIDTH(MARQUEE.SELECTION_MASK), _HEIGHT(MARQUEE.SELECTION_MASK), 32)
+        IF tmp < -1 THEN
+            oldDest = _DEST
+            _DEST tmp: _DONTBLEND tmp: CLS , _RGBA32(0, 0, 0, 0)
+            _PUTIMAGE (dx, dy), MARQUEE.SELECTION_MASK, tmp
+            _DEST MARQUEE.SELECTION_MASK: _DONTBLEND MARQUEE.SELECTION_MASK: CLS , _RGBA32(0, 0, 0, 0)
+            _PUTIMAGE , tmp, MARQUEE.SELECTION_MASK
+            _BLEND MARQUEE.SELECTION_MASK
+            _DEST oldDest
+            _FREEIMAGE tmp
+        END IF
+        MARQUEE.WAND_MIN_X = MARQUEE.WAND_MIN_X + dx: MARQUEE.WAND_MIN_Y = MARQUEE.WAND_MIN_Y + dy
+        MARQUEE.WAND_MAX_X = MARQUEE.WAND_MAX_X + dx: MARQUEE.WAND_MAX_Y = MARQUEE.WAND_MAX_Y + dy
+        MARQUEE.WAND_EDGE_DIRTY = TRUE
+    END IF
+    INVALIDATE_canvas
+END SUB
+
+
+' ---------------------------------------------------------------------------
+' Linked cells (4.3): keeping them the same, Link / Unlink
+' ---------------------------------------------------------------------------
+
+''
+' Rebuild each link group's picture from its source cell when the links or
+' the frame layout changed (no cell is written).
+SUB ANIM_LK_pictures_check ()
+    DIM s AS STRING, k AS INTEGER, j AS INTEGER, i AS INTEGER, found AS INTEGER
+    s = MKI$(ANIM.frameW) + MKI$(ANIM.frameH) + MKI$(ANIM.gutter) + MKI$(ANIM.margin) + MKI$(ANIM.count)
+    FOR k = 1 TO ANIM_LK_N: s = s + MKL$(ANIM_LK_ID(k)) + MKI$(ANIM_LK_F(k)) + MKI$(ANIM_LK_G(k)): NEXT k
+    IF s = ANIM_LK_SIG THEN EXIT SUB
+    FOR j = 1 TO ANIM_LKP_N: ANIM_LKP_PX(j) = "": NEXT j
+    ANIM_LKP_N = 0
+    FOR k = 1 TO ANIM_LK_N
+        found = FALSE
+        FOR j = 1 TO ANIM_LKP_N
+            IF ANIM_LKP_ID(j) = ANIM_LK_ID(k) _ANDALSO ANIM_LKP_G(j) = ANIM_LK_G(k) THEN found = TRUE: EXIT FOR
+        NEXT j
+        IF found = FALSE _ANDALSO ANIM_LKP_N < ANIM_LK_MAX THEN
+            ANIM_LKP_N = ANIM_LKP_N + 1
+            ANIM_LKP_ID(ANIM_LKP_N) = ANIM_LK_ID(k): ANIM_LKP_G(ANIM_LKP_N) = ANIM_LK_G(k)
+            i = ANIM_LF_slot%(ANIM_LK_ID(k))
+            IF i _ANDALSO ANIM_OPS_moves%(i) THEN ANIM_LKP_PX(ANIM_LKP_N) = ANIM_SAME_cell_get$(i, ANIM_LK_source%(ANIM_LK_ID(k), ANIM_LK_G(k)))
+        END IF
+    NEXT k
+    ANIM_LK_SIG = s
+END SUB
+
+''
+' Pixels of cell that differ from pic go into nu (both frameW x frameH RGBA).
+' TRUE when any did.
+FUNCTION ANIM_px_merge% (cell AS STRING, pic AS STRING, nu AS STRING)
+    DIM rw AS LONG, r AS LONG, p AS LONG, j AS LONG
+    IF LEN(cell) <> LEN(pic) _ORELSE cell = pic THEN EXIT FUNCTION
+    rw = ANIM.frameW * 4
+    FOR r = 0 TO ANIM.frameH - 1
+        p = r * rw + 1
+        IF MID$(cell, p, rw) <> MID$(pic, p, rw) THEN
+            FOR j = p TO p + rw - 4 STEP 4
+                IF MID$(cell, j, 4) <> MID$(pic, j, 4) THEN MID$(nu, j, 4) = MID$(cell, j, 4)
+            NEXT j
+        END IF
+    NEXT r
+    ANIM_px_merge% = TRUE
+END FUNCTION
+
+''
+' ANIM_SAME_tick%: after an undo step was added, undone or redone, whatever
+' changed in any cell of a link group goes into its picture and every cell of
+' the group - painting a linked cell paints its source and the other links,
+' and the undo / redo of it too. TRUE when pixels changed.
+FUNCTION ANIM_LK_tick% ()
+    DIM j AS INTEGER, k AS INTEGER, i AS INTEGER, diff AS INTEGER, changed AS INTEGER
+    DIM pic AS STRING, nu AS STRING
+    ANIM_LK_pictures_check
+    IF ANIM_SAME_CHECK = FALSE THEN EXIT FUNCTION
+    FOR j = 1 TO ANIM_LKP_N
+        i = ANIM_LF_slot%(ANIM_LKP_ID(j))
+        IF i _ANDALSO ANIM_OPS_moves%(i) _ANDALSO LEN(ANIM_LKP_PX(j)) = ANIM.frameW * ANIM.frameH * 4 THEN
+            IF ANIM_LF_is_same%(i) = 0 THEN
+                pic = ANIM_LKP_PX(j): nu = pic: diff = FALSE
+                FOR k = 1 TO ANIM_LK_N
+                    IF ANIM_LK_ID(k) = ANIM_LKP_ID(j) _ANDALSO ANIM_LK_G(k) = ANIM_LKP_G(j) THEN
+                        IF ANIM_px_merge%(ANIM_SAME_cell_get$(i, ANIM_LK_F(k)), pic, nu) THEN diff = TRUE
+                    END IF
+                NEXT k
+                IF diff THEN
+                    ANIM_LKP_PX(j) = nu
+                    FOR k = 1 TO ANIM_LK_N
+                        IF ANIM_LK_ID(k) = ANIM_LKP_ID(j) _ANDALSO ANIM_LK_G(k) = ANIM_LKP_G(j) THEN ANIM_SAME_cell_put i, ANIM_LK_F(k), nu
+                    NEXT k
+                    ANIM_LK_touched i
+                    changed = TRUE
+                END IF
+            END IF
+        END IF
+    NEXT j
+    ANIM_LK_tick% = changed
+END FUNCTION
+
+''
+' A layer's pixels were written outside the tools: its caches go.
+SUB ANIM_LK_touched (i AS INTEGER)
+    LAYERS(i).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(i).apronCacheImg&: LAYERS(i).apronCacheImg& = 0
+    LAYERS(i).apronCacheValid% = FALSE
+    SYMBOL_mark_parent_dirty i
+END SUB
+
+''
+' Why the current layer's cells can't be linked / unlinked now ("" = they can).
+FUNCTION ANIM_LK_refusal$ ()
+    DIM i AS INTEGER, r AS STRING
+    i = CURRENT_LAYER%
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN
+        r = "Linking needs frames - set a frame size first"
+    ELSEIF i < 1 _ORELSE i > MAX_LAYERS THEN
+        r = "Pick a layer"
+    ELSEIF LAYERS(i).imgHandle& = 0 THEN
+        r = "Pick a layer"
+    ELSEIF ANIM_OPS_moves%(i) = 0 THEN
+        r = "Links work on a pixel layer"
+    ELSEIF ANIM_LF_is_same%(i) THEN
+        r = "This layer is the same on every frame already"
+    ELSE
+        r = ANIM_OPS_busy$
+    END IF
+    ANIM_LK_refusal$ = r
+END FUNCTION
+
+''
+' Link layer slot i's cell in frame f to the drawing in frame src (same
+' layer): f's pixels become src's. (No undo step of its own.)
+SUB ANIM_LK_join (i AS INTEGER, src AS INTEGER, f AS INTEGER)
+    DIM id AS LONG, g AS INTEGER
+    IF f = src THEN EXIT SUB
+    id = LAYERS(i).historyId&
+    g = ANIM_LK_group%(id, src)
+    IF g = 0 THEN g = ANIM_LK_new_group%(id): ANIM_LK_put id, src, g
+    IF g = 0 THEN EXIT SUB
+    ANIM_LK_put id, f, g
+    ANIM_SAME_cell_put i, f, ANIM_SAME_cell_get$(i, src)
+END SUB
+
+''
+' ANIM > Link Cells (2541) / Unlink Cells (2542) on the current layer. Link:
+' the selected frames' cells all show the first selected one's drawing; with
+' one frame, it links to the frame before. Unlink: the selected frames' (or
+' the current frame's) cells keep their pixels and leave their links. One
+' undo step each.
+SUB ANIM_LK_action (act AS INTEGER)
+    DIM why AS STRING, i AS INTEGER, f AS INTEGER, src AS INTEGER, n AS INTEGER, before AS STRING, id AS LONG
+    why = ANIM_LK_refusal$
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    i = CURRENT_LAYER%: id = LAYERS(i).historyId&
+    ANIM_play_stop
+    IF act = ANIM_ACT_LINK_CELLS THEN
+        IF ANIM_SEL_count% < 2 THEN
+            IF ANIM.current < 2 THEN STATUS_flash "Frame 1 has no frame before it - select the frames to link": EXIT SUB
+            src = ANIM.current - 1
+        ELSE
+            FOR f = 1 TO ANIM.count
+                IF ANIM_SEL(f) THEN src = f: EXIT FOR
+            NEXT f
+        END IF
+        before = ANIM_OPS_snapshot$(TRUE)
+        FOR f = 1 TO ANIM.count
+            IF f <> src _ANDALSO ((ANIM_SEL_count% < 2 _ANDALSO f = ANIM.current) _ORELSE (ANIM_SEL_count% >= 2 _ANDALSO ANIM_SEL(f) <> 0)) THEN
+                ANIM_LK_join i, src, f: n = n + 1
+            END IF
+        NEXT f
+        ANIM_LK_tidy
+        ANIM_LK_touched i
+        ANIM_OPS_record before, ANIM_OPS_snapshot$(TRUE), "Link Cells", 0
+        STATUS_flash _TRIM$(STR$(n)) + _IIF(n = 1, " cell", " cells") + " linked to frame" + STR$(src) + "'s drawing on " + _TRIM$(LAYERS(i).name)
+    ELSE
+        before = ANIM_OPS_snapshot$(FALSE)
+        FOR f = 1 TO ANIM.count
+            IF ANIM_SEL_is%(f) _ANDALSO ANIM_LK_group%(id, f) <> 0 THEN ANIM_LK_remove id, f: n = n + 1
+        NEXT f
+        IF n = 0 THEN STATUS_flash "Not linked": EXIT SUB
+        ANIM_LK_tidy
+        ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Unlink Cells", 0
+        STATUS_flash _TRIM$(STR$(n)) + _IIF(n = 1, " cell", " cells") + " unlinked"
+    END IF
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Links of layers this document no longer has.
+SUB ANIM_LK_prune ()
+    DIM k AS INTEGER
+    k = 1
+    DO WHILE k <= ANIM_LK_N
+        IF ANIM_LF_slot%(ANIM_LK_ID(k)) = 0 THEN
+            ANIM_LK_ID(k) = ANIM_LK_ID(ANIM_LK_N): ANIM_LK_F(k) = ANIM_LK_F(ANIM_LK_N): ANIM_LK_G(k) = ANIM_LK_G(ANIM_LK_N)
+            ANIM_LK_N = ANIM_LK_N - 1
+        ELSE
+            k = k + 1
+        END IF
+    LOOP
+    ANIM_LK_tidy
+END SUB
+
+''
+' QA dump line: ANIMLK entries map - map = the current layer's cells per
+' frame: "." not linked, a letter per link group (upper case its source).
+FUNCTION ANIM_LK_dump$ ()
+    DIM m AS STRING, f AS INTEGER, g AS INTEGER, id AS LONG, k AS INTEGER, gs AS STRING, c AS STRING
+    IF ANIM.active = FALSE THEN EXIT FUNCTION
+    IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN id = LAYERS(CURRENT_LAYER%).historyId&
+    FOR f = 1 TO _MIN(ANIM.count, 200)
+        g = 0
+        IF id <> 0 THEN g = ANIM_LK_group%(id, f)
+        IF g = 0 THEN
+            m = m + "."
+        ELSE
+            k = INSTR(gs, MKI$(g))
+            DO WHILE k > 0 _ANDALSO (k MOD 2) = 0: k = INSTR(k + 1, gs, MKI$(g)): LOOP ' whole entries only
+            IF k = 0 THEN gs = gs + MKI$(g): k = LEN(gs) - 1
+            c = CHR$(96 + ((k + 1) \ 2 - 1) MOD 26 + 1)
+            IF ANIM_LK_source%(id, g) = f THEN c = UCASE$(c)
+            m = m + c
+        END IF
+    NEXT f
+    IF m = "" THEN m = "-"
+    ANIM_LK_dump$ = "ANIMLK" + DOCK_n$(ANIM_LK_N) + " " + m + CHR$(10)
+END FUNCTION
+
+
+' ---------------------------------------------------------------------------
+' Tags (4.4): ANIM > Tag Frames... / Delete Tag. One undo step each.
+' ---------------------------------------------------------------------------
+
+''
+' Tag Frames: the selection's span (nothing selected: the current frame)
+' gets a name. With exactly a tag selected the box starts with its name (a new
+' one renames it); a name another tag has moves that tag here.
+SUB ANIM_TG_action (act AS INTEGER)
+    DIM a AS INTEGER, b AS INTEGER, k AS INTEGER, j AS INTEGER, nm AS STRING, defName AS STRING, before AS STRING
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "Tags name frames - set a frame size first": EXIT SUB
+    ANIM_play_stop
+    k = ANIM_TG_selected%
+    IF act = ANIM_ACT_DELETE_TAG THEN
+        IF k = 0 THEN k = ANIM_TG_at%(ANIM.current)
+        IF k = 0 THEN STATUS_flash "No tag here - select a tag's frames (click it on the X-sheet's TAGS row)": EXIT SUB
+        nm = ANIM_TG_NAME(k)
+        before = ANIM_OPS_snapshot$(FALSE)
+        ANIM_TG_remove k
+        ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Delete Tag", 0
+        STATUS_flash "Tag " + CHR$(34) + nm + CHR$(34) + " deleted"
+        GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+    IF ANIM_SEL_count% >= 2 THEN
+        ANIM_SEL_span a, b
+    ELSE
+        a = ANIM.current: b = a
+        IF ANIM_SEL_count% = 1 THEN
+            FOR j = 1 TO ANIM.count
+                IF ANIM_SEL(j) THEN a = j: b = j: EXIT FOR
+            NEXT j
+        END IF
+    END IF
+    IF k > 0 THEN
+        defName = ANIM_TG_NAME(k)
+    ELSE
+        j = ANIM_TG_N + 1
+        DO WHILE ANIM_TG_find%("tag" + _TRIM$(STR$(j))) > 0: j = j + 1: LOOP
+        defName = "tag" + _TRIM$(STR$(j))
+    END IF
+    IF k = 0 _ANDALSO ANIM_TG_N >= ANIM_TG_MAX THEN STATUS_flash "Already" + STR$(ANIM_TG_MAX) + " tags - delete one first": EXIT SUB
+    POINTER_hide_for_dialog
+    nm = DRAW_input_box_ex$("Tag Frames", "Name frames" + STR$(a) + _IIF(b > a, " -" + STR$(b), "") + ":", defName, "Tag name", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    nm = LEFT$(_TRIM$(nm), ANIM_TG_NAME_MAX)
+    IF nm = "" THEN ' OK with the name cleared: the tag goes (field kit R-13); Cancel changes nothing
+        IF k > 0 _ANDALSO MB_STATE.result = MB_RESULT_1 THEN ANIM_TG_action ANIM_ACT_DELETE_TAG
+        EXIT SUB
+    END IF
+    before = ANIM_OPS_snapshot$(FALSE)
+    IF k > 0 THEN ' renaming / keeping the selected tag: another tag of the new name goes
+        j = ANIM_TG_find%(nm)
+        IF j > 0 _ANDALSO j <> k THEN ANIM_TG_remove j: IF j < k THEN k = k - 1
+        ANIM_TG_NAME(k) = nm
+    ELSE
+        k = ANIM_TG_put%(nm, a, b)
+        IF k = 0 THEN STATUS_flash "Could not tag those frames": EXIT SUB
+    END IF
+    IF ANIM_OPS_snapshot$(FALSE) = before THEN EXIT SUB ' nothing changed
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Tag Frames", 0
+    STATUS_flash "Tag " + CHR$(34) + nm + CHR$(34) + ": frames" + STR$(ANIM_TG_A(k)) + _IIF(ANIM_TG_B(k) > ANIM_TG_A(k), " -" + STR$(ANIM_TG_B(k)), "")
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' QA dump: ANIMTG n selected (the tag matching the selection, 0 none), then
+' per tag its name (spaces as _), from, to.
+FUNCTION ANIM_TG_dump$ ()
+    DIM d AS STRING, k AS INTEGER, t AS STRING, i AS INTEGER
+    d = "ANIMTG" + DOCK_n$(ANIM_TG_N) + DOCK_n$(ANIM_TG_selected%)
+    FOR k = 1 TO ANIM_TG_N
+        t = ANIM_TG_NAME(k)
+        FOR i = 1 TO LEN(t)
+            IF ASC(t, i) <= 32 THEN ASC(t, i) = 95
+        NEXT i
+        d = d + " " + t + DOCK_n$(ANIM_TG_A(k)) + DOCK_n$(ANIM_TG_B(k))
+    NEXT k
+    ANIM_TG_dump$ = d + " _" + CHR$(10)
+END FUNCTION
+
+
+' ---------------------------------------------------------------------------
+' Frame notes (4.5): ANIM > Frame Note... / Clear Frame Note. One undo step each.
+' ---------------------------------------------------------------------------
+
+''
+' Frame Note... on frame f (0 = the current frame): a box with its note.
+' Clear Frame Note: the selected frames' notes (nothing selected: the current
+' frame's).
+SUB ANIM_NT_action (act AS INTEGER, frame AS INTEGER)
+    DIM f AS INTEGER, t AS STRING, before AS STRING, n AS INTEGER, i AS INTEGER
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash "Frame notes need frames - set a frame size first": EXIT SUB
+    ANIM_play_stop
+    IF act = ANIM_ACT_CLEAR_NOTE THEN
+        before = ANIM_OPS_snapshot$(FALSE)
+        FOR i = 1 TO ANIM.count
+            IF ANIM_SEL_is%(i) _ANDALSO LEN(ANIM_NOTE(i)) > 0 THEN ANIM_NOTE(i) = "": n = n + 1
+        NEXT i
+        IF n = 0 THEN STATUS_flash "No note to clear": EXIT SUB
+        ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Clear Frame Note", 0
+        STATUS_flash _TRIM$(STR$(n)) + _IIF(n = 1, " note", " notes") + " cleared"
+        GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+    f = frame: IF f < 1 _ORELSE f > ANIM.count THEN f = ANIM.current
+    POINTER_hide_for_dialog
+    t = DRAW_input_box_ex$("Frame Note", "Note for frame" + STR$(f) + " (Clear Frame Note removes it):", ANIM_NOTE(f), "What happens here", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    IF _TRIM$(t) = "" THEN EXIT SUB ' cancelled (or left empty)
+    before = ANIM_OPS_snapshot$(FALSE)
+    ANIM_NT_set f, t
+    IF ANIM_OPS_snapshot$(FALSE) = before THEN EXIT SUB
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(FALSE), "Frame Note", 0
+    STATUS_flash "Frame" + STR$(f) + ": " + ANIM_NOTE(f)
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' QA dump: ANIMNT n, then per frame with a note: frame, the note (spaces as _).
+FUNCTION ANIM_NT_dump$ ()
+    DIM d AS STRING, f AS INTEGER, t AS STRING, i AS INTEGER
+    d = "ANIMNT" + DOCK_n$(ANIM_NT_count%)
+    FOR f = 1 TO ANIM.count
+        IF LEN(ANIM_NOTE(f)) > 0 THEN
+            t = ANIM_NOTE(f)
+            FOR i = 1 TO LEN(t)
+                IF ASC(t, i) = 32 THEN ASC(t, i) = 95
+            NEXT i
+            d = d + DOCK_n$(f) + " " + t
+        END IF
+    NEXT f
+    ANIM_NT_dump$ = d + " _" + CHR$(10)
+END FUNCTION

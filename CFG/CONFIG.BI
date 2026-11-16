@@ -222,6 +222,8 @@ TYPE DRAW_CONFIG
     WORKSPACE                       AS STRING         ' Last workspace id (CFG/WORKSPACE); DRAW reopens in it. "default" = no overlay
     STOCK_DEFAULT_LAYOUT            AS INTEGER        ' TRUE = Default keeps the stock panel layout: moving / docking / resizing panels there goes into the CURRENT workspace
     WORKSPACE_SAVE_PROMPT           AS INTEGER        ' TRUE = on exit in a modified CURRENT workspace, offer to save it under a name
+    WORKFLOW_BAR                    AS INTEGER        ' TRUE = the workflow buttons strip at the top of the toolbox (GUI/WORKFLOW)
+    WORKFLOW_BUTTONS                AS STRING         ' its buttons: workspace ids, comma list (max 8; "" / NONE = no strip)
     FULLSCREEN                      AS INTEGER        ' TRUE = fullscreen, FALSE = windowed
     SPLASH_ENABLED                  AS INTEGER        ' TRUE = show splash screen on startup (default TRUE)
     UI_SCALE                        AS INTEGER        ' MASTER scale (0 = auto, 1-8). Drives DISPLAY_SCALE + TOOLBAR_SCALE; dialog/browser scales derive from it.
@@ -300,6 +302,10 @@ TYPE DRAW_CONFIG
     LAYER_PANEL_WIDTH               AS INTEGER        ' Width of layer panel in pixels (min 100)
     LAYER_NAME_MAX_LEN              AS INTEGER        ' Max layer name length (1-64, default 20)
     LAYER_GROUP_INDENT              AS INTEGER        ' Per-level indent for nested groups in px (0 = use theme, 4-32)
+    LAYER_THUMBNAILS                AS INTEGER        ' Layer panel thumbnails: 0 off, 1 tiny (16 px), 2 small (32 px), 3 medium (48 px)
+    LAYER_THUMB_FIT                 AS INTEGER        ' What a thumbnail shows: 0 the layer's content (zoomed), 1 the whole canvas / frame
+    LAYER_THUMB_MIN_CROP            AS INTEGER        ' Content thumbnails: the crop is at least this many canvas px each way (caps the zoom; 1 = no cap)
+    LAYER_PANEL_BAR                 AS INTEGER        ' The layer bar (blend / show-hide all / lock all / opacity): 0 off, 1 at the top of the Layers panel, 2 at the bottom
     GROUP_DRAW_NOTIFY               AS INTEGER        ' TRUE = alert when a drawing tool is used on a group header layer
     GROUP_DRAW_AUTO_LAYER           AS INTEGER        ' TRUE = auto-create a layer inside the group and draw on that instead
     LAYERS_PANEL_DOCK_EDGE          AS STRING         ' "LEFT" or "RIGHT" (default : "LEFT")
@@ -312,6 +318,8 @@ TYPE DRAW_CONFIG
     GRID_SIZE_Y                     AS INTEGER        ' Grid cell height in pixels (0 = use theme)
     GRID_OFFSET_X                   AS INTEGER        ' Grid X origin offset in canvas pixels (can be negative)
     GRID_OFFSET_Y                   AS INTEGER        ' Grid Y origin offset in canvas pixels (can be negative)
+    FILL_DITHER                     AS STRING         ' Fill Adjust's dither: "mode,amount%,offsetX,offsetY" (mode -1 = off)
+    FILL_PRESETS                    AS STRING         ' Fill Adjust presets 1-9 (D+Shift+1-9 / D+1-9), "|" between them
     ' Pixel grid settings
     PIXELGRID_COLOR_FG              AS _UNSIGNED LONG ' Pixel grid line color (hex RGB, 0 = use theme)
     PIXELGRID_OPACITY               AS INTEGER        ' Pixel grid line opacity 0-255 (0 = use theme)
@@ -351,6 +359,28 @@ TYPE DRAW_CONFIG
     GRID_MODE                       AS INTEGER        ' Grid geometry mode (0 = square,1 = diagonal,2 = iso,3 = hex)
     GRID_CELL_FILL                  AS INTEGER        ' Grid cell fill mode (0 = off, 1 = on)
     GRID_ON_TOP                     AS INTEGER        ' Grid renders on top of art (1 = on top, 0 = behind art)
+    PREVIEW_SHOWS_FRAME             AS INTEGER        ' Animation: the Preview window shows the current frame on a sheet with frames (ANIM > Preview Shows Frame)
+    FRAME_GRID                      AS INTEGER        ' Animation: show the frame grid (cell borders, numbers, current frame) on a sheet with frames (View > Frame Grid)
+    LIGHTBOX                        AS INTEGER        ' Animation: lightbox view (strip, transport bar, 3/5/7 panes) on a sheet with frames (ANIM > Lightbox, Num 0)
+    XSHEET                          AS INTEGER        ' Animation: the lightbox's top band is the X-sheet (frames x layers), not the strip (ANIM > X-Sheet, Num 8)
+    LIGHTBOX_PANES                  AS INTEGER        ' Animation: lightbox editor panes 1 / 3 / 5 / 7 (ANIM > Lightbox Panes, Num *; 1 = ANIM > Big Frame + X-Sheet)
+    LB_STRIP_PCT                    AS SINGLE         ' Animation: the lightbox's frame strip, % of the height the transport bar leaves (0 = auto); drag its edge
+    LB_STRIP_FLOW                   AS INTEGER        ' Animation: the strip's cells: 0 a tray (across, then down), 1 one row (across only)
+    LB_STRIP_MIN_CELL               AS INTEGER        ' Animation: the tray shrinks its cells to fit every frame, down to this height (px)
+    LB_STRIP_CELL                   AS INTEGER        ' Animation: the strip's cell height, px (0 = fitted to the band); Ctrl+wheel over the strip
+    XSHEET_BAND_PCT                 AS SINGLE         ' Animation: the X-sheet band, % of the height the transport bar leaves (0 = auto); drag its edge
+    XSHEET_ROWS                     AS INTEGER        ' Animation: the X-sheet's layer and SOUND rows: 0 text height, 1 / 2 / 3 a tiny / small / medium thumbnail (Ctrl+Shift+wheel)
+    XSHEET_ZOOM                     AS SINGLE         ' Animation: the X-sheet's time line, px per tick (0 = the default, a thumbnail a tick); its header slider / Ctrl+wheel
+    XSHEET_NAME_W                   AS INTEGER        ' Animation: the X-sheet's layer-name column, px (0 = auto); drag its edge
+    CLIP_FRAME_LIGHTBOX             AS INTEGER        ' Animation: a stroke in a lightbox pane stays inside its frame (ANIM > Clip Strokes to the Frame in the Lightbox)
+    CLIP_FRAME_SHEET                AS INTEGER        ' Animation: a stroke in sheet view stays inside the frame it starts in (ANIM > Clip Strokes to the Frame in Sheet View)
+    ONION_SKIN                      AS INTEGER        ' Animation: the lightbox's current pane shows the frames before / after it (ANIM > Onion Skin, Num /)
+    ANIM_SOUND_VOLUME               AS INTEGER        ' Animation: the soundtrack's volume 0-100 (ANIM > Soundtrack...)
+    ONION_BEFORE                    AS INTEGER        ' Animation: onion skin frames before the current one (0-5)
+    ONION_AFTER                     AS INTEGER        ' Animation: onion skin frames after the current one (0-5)
+    ONION_OPACITY                   AS INTEGER        ' Animation: onion skin opacity % of the nearest frame (5-100; farther frames fade)
+    ONION_TINT                      AS INTEGER        ' Animation: onion skin tint - frames before red, after blue (ANIM > Onion Skin Red / Blue Tint)
+    ANIM_EXPORT_SCALE               AS INTEGER        ' Animation: exports scale every pixel 1x / 2x / 4x, nearest (ANIM > Export Scale)
     ' Transparency checkerboard settings
     TRANSPARENCY_CHECK_COLOR1       AS _UNSIGNED LONG ' Light checkerboard color
     TRANSPARENCY_CHECK_COLOR2       AS _UNSIGNED LONG ' Dark checkerboard color
@@ -417,9 +447,11 @@ TYPE DRAW_CONFIG
     PREVIEW_FLOAT_LAST_DIR          AS STRING         ' Last directory used for Load Image dialog
     ' Color Mixer settings
     COLOR_MIXER_VISIBLE             AS INTEGER        ' TRUE = color mixer panel open at startup
+    COLOR_MIXER_SCALE               AS INTEGER        ' Color Mixer scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     COLOR_MIXER_X                   AS INTEGER        ' Last panel X (-1 = auto-position)
     COLOR_MIXER_Y                   AS INTEGER        ' Last panel Y (-1 = auto-position)
     ADV_COLOR_PICKER_VISIBLE        AS INTEGER        ' TRUE = advanced color picker panel open at startup
+    ADV_COLOR_PICKER_SCALE          AS INTEGER        ' Advanced Color Picker scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     ADV_COLOR_PICKER_X              AS INTEGER        ' Last panel X (-1 = auto-position)
     ADV_COLOR_PICKER_Y              AS INTEGER        ' Last panel Y (-1 = auto-position)
     ADV_COLOR_PICKER_SHADE_PATCHES  AS INTEGER        ' Shade selector: patches per row (3-15)
@@ -433,11 +465,14 @@ TYPE DRAW_CONFIG
     ADV_COLOR_PICKER_SHADE_PRESET   AS INTEGER        ' Shade line-set: 0=Basic, 1=+Warm/Cool, 2=Full
     ADV_COLOR_PICKER_WARMCOOL       AS INTEGER        ' Warm/cool hue shift for those lines, degrees (0-60)
     ADV_COLOR_PICKER_HISTORY        AS INTEGER        ' TRUE = show the recent-colors history strip
+    ADV_COLOR_PICKER_VARIATIONS     AS INTEGER        ' TRUE = the VARIATIONS rows (shades + history) are open; FALSE = just the wheel + quantize
+    COLOR_MIXER_MORE                AS INTEGER        ' TRUE = the Color Mixer's MORE rows (sliders, hex, snap, history, FG<>BG) are open; FALSE = the field, hue bar, OLD / NEW
     ADV_COLOR_PICKER_SHADE_LABELS   AS INTEGER        ' TRUE = show a name label above each shade row
     ADV_COLOR_PICKER_SHADE_CURVE    AS INTEGER        ' 0 = linear spread; 1 = exponential (ends more severe)
     ADV_COLOR_PICKER_HUE_NEIGHBORS  AS INTEGER        ' Hue-neighbors ± range (deg); draggable on the ring
     ' 3D Color Space picker (GUI/COLOR-SPACE-3D, QB64_GJ_LIB COLOR-3D widget)
     COLOR_SPACE_3D_VISIBLE          AS INTEGER        ' TRUE = 3D color space panel open at startup
+    COLOR_SPACE_3D_SCALE            AS INTEGER        ' 3D Color Space panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     COLOR_SPACE_3D_X                AS INTEGER        ' Last panel X (-1 = auto-position)
     COLOR_SPACE_3D_Y                AS INTEGER        ' Last panel Y (-1 = auto-position)
     COLOR_SPACE_3D_SPACE            AS INTEGER        ' 0=OKLab, 1=CIELAB, 2=XYZ, 3=RGB
@@ -468,8 +503,42 @@ TYPE DRAW_CONFIG
     PEN_MIN_OPACITY                 AS INTEGER        ' Opacity at the lightest touch, percent (0-100)
     PEN_TIP_THRESHOLD               AS INTEGER        ' Pen draws only once pressure reaches this percent (0-50); ignores grazes that register as clicks
     PEN_PANEL_VISIBLE               AS INTEGER        ' TRUE = Pen Pressure panel open at startup
+    PEN_PANEL_SCALE                 AS INTEGER        ' Pen Pressure panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     PEN_PANEL_X                     AS INTEGER        ' Last panel X (-1 = auto-position)
     PEN_PANEL_Y                     AS INTEGER        ' Last panel Y (-1 = auto-position)
+    ANIM_PANEL_VISIBLE              AS INTEGER        ' TRUE = Animation panel open at startup
+    ANIM_PANEL_SCALE                AS INTEGER        ' Animation panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
+    ANIM_PANEL_X                    AS INTEGER        ' Last Animation panel X (-1 = auto-position)
+    ANIM_PANEL_Y                    AS INTEGER        ' Last Animation panel Y (-1 = auto-position)
+    SWATCHES_VISIBLE                AS INTEGER        ' TRUE = Swatches panel open at startup
+    SWATCHES_SCALE                  AS INTEGER        ' Swatches panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
+    PREVIEW_SCALE                   AS INTEGER        ' Preview window scale: 0 = auto (the UI Scale ratio), 1-8 = fixed
+    BROWSER_SCALE                   AS INTEGER        ' Browser scale: 0 = auto (the UI Scale ratio), 1-8 = fixed
+    TOOLBOX_PANEL_SCALE             AS INTEGER        ' Toolbox scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    ORGANIZER_PANEL_SCALE           AS INTEGER        ' Organizer scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    DRAWER_PANEL_SCALE              AS INTEGER        ' Drawer scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    LAYER_PANEL_SCALE               AS INTEGER        ' Layers panel scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    EDIT_BAR_SCALE                  AS INTEGER        ' Edit bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    ADV_BAR_SCALE                   AS INTEGER        ' Advanced bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    CHARMAP_PANEL_SCALE             AS INTEGER        ' Character map scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    WORKFLOW_PANEL_SCALE            AS INTEGER        ' Workflow buttons scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    SWATCHES_X                      AS INTEGER        ' Last Swatches panel X (-1 = auto-position)
+    SWATCHES_Y                      AS INTEGER        ' Last Swatches panel Y (-1 = auto-position)
+    SWATCHES_W                      AS INTEGER        ' Floating size, native px (0 = default)
+    SWATCHES_H                      AS INTEGER
+    SWATCHES_SET                    AS STRING         ' The set shown: a file path ("" = the document palette)
+    SWATCHES_COLS                   AS INTEGER        ' 0 = the set's own layout, -1 = as many as fit, N = N columns
+    SWATCHES_CELL                   AS INTEGER        ' Cell size, native px (3-64)
+    SWATCHES_GAP                    AS INTEGER        ' Gap between cells, native px (0-4)
+    SWATCHES_STRETCH                AS INTEGER        ' Cells stretch to fill the panel's width
+    SWATCHES_SQUARE                 AS INTEGER        ' Cells as tall as wide (else CELL tall)
+    SWATCHES_BORDER                 AS INTEGER        ' A 1px border round each cell
+    SWATCHES_BLACK_SPACERS          AS INTEGER        ' Importing a Photoshop .aco: black filler becomes empty cells (the first black stays)
+    SWATCHES_LIVE_EDIT              AS INTEGER        ' One swatch selected: the Color Mixer / Advanced Color Picker / 3D Color Space change it live
+    SWATCHES_VIEW                   AS INTEGER        ' 0 = a grid of swatches, 1 = a list (swatch + hex + name rows)
+    SWATCHES_RECENT                 AS INTEGER        ' A row of the FG colors used last, above the swatches
+    SWATCHES_OVERWRITE              AS INTEGER        ' Ins overwrites the selected swatches with the FG (Shift+Ins adds); FALSE: the other way round
+    SWATCHES_RECENT_COLORS          AS STRING         ' Those colors, newest first (RRGGBB, comma separated)
     ' Browser panel settings
     BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
     BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)
@@ -497,6 +566,8 @@ TYPE DRAW_CONFIG
     EDIT_BAR_COLUMNS                AS INTEGER        ' Edit bar icon columns (1-4, default 1)
     ADV_BAR_COLUMNS                 AS INTEGER        ' Advanced bar icon columns (1-4, default 1)
     ' Default drawer set files (path to .dset, empty = use built-in samples)
+    DRAWER_BIN_COLS                 AS INTEGER        ' bins per row (Ctrl+wheel over the bins; 0 = as many as the theme's bin size fits)
+    DRAWER_MINI_PALETTE             AS INTEGER        ' TRUE = the Drawer shows its mini palette beside / under the bins (off = the bins take its space)
     DEFAULT_DSET_BRUSHES_FILE       AS STRING         ' Default brush drawer set (.dset)
     DEFAULT_DSET_PATTERNS_FILE      AS STRING         ' Default pattern drawer set (.dset)
     DEFAULT_DSET_GRADIENTS_FILE     AS STRING         ' Default gradient drawer set (.dset)
@@ -591,6 +662,7 @@ TYPE DRAW_CONFIG
 END TYPE
 
 DIM SHARED CFG AS DRAW_CONFIG
+DIM SHARED CFG_CLI_LIVE AS DRAW_CONFIG ' CONFIG_save with --option overrides: the live values, put back after the write
 DIM SHARED CONFIG_NEEDS_INITIAL_SAVE% ' Deferred save flag: set when config file doesn't exist yet
 
 

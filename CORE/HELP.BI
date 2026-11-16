@@ -43,7 +43,7 @@ IF HELP_showHelp% OR HELP_showVer% THEN
     _CONSOLE ON
     _DEST _CONSOLE
     IF HELP_showVer% THEN
-        PRINT "DRAW " + APP_VERSION$
+        PRINT "DRAW " + APP_version_full$
     ELSE
         CLI_print_help ' CORE/CLI.BM: colored page (+ ASSETS/DRAW.ans logo when present)
     END IF

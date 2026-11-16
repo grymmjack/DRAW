@@ -101,6 +101,7 @@ END SUB
 ' Also resets the BAS WIP export state via FILE_BAS_wip_reset.
 '
 SUB HISTORY_clear ()
+    LAYER_THUMB_GEN = LAYER_THUMB_GEN + 1 ' the Layers panel thumbnails rescan their content
     DIM i AS INTEGER
     FOR i% = 1 TO HISTORY_MAX_RECORDS
         SAFE_FREEIMAGE HISTORY_RECORDS(i%).img&       : HISTORY_RECORDS(i%).img& = 0
@@ -391,6 +392,7 @@ SUB HISTORY_commit_record (recordIndex AS INTEGER)
     HISTORY.current%     = recordIndex%
     HISTORY.recording%   = FALSE
     HISTORY_LAST_RECORD% = recordIndex%
+    ANIM_SAME_CHECK      = TRUE ' a layer the same on every frame takes the change to every frame (TOOLS/ANIM-OPS)
     FILE_BAS_wip_append_record recordIndex%
     ' Recompute QB64 export mode for the affected layer
     DIM hcLayerId AS LONG
@@ -404,6 +406,8 @@ SUB HISTORY_commit_record (recordIndex AS INTEGER)
             END IF
         NEXT hcLi%
     END IF
+    LAYER_THUMB_GEN = LAYER_THUMB_GEN + 1 ' the Layers panel thumbnails rescan their content
+    IF CFG.LAYER_THUMBNAILS% > 0 THEN GUI_NEEDS_REDRAW% = TRUE ' the Layers panel thumbnails show the change
 END SUB
 
 ''
@@ -461,6 +465,8 @@ SUB HISTORY_store_after_image (recordIndex AS INTEGER, layerSlot AS INTEGER)
     IF layerSlot% < 1 OR layerSlot% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerSlot%).imgHandle& >= -1 THEN EXIT SUB
 
+    ANIM_LB_clip_finish layerSlot% ' a stroke clipped to its frame: store the clipped result (TOOLS/ANIM-LB)
+    ANIM_FM_finish layerSlot% ' an effect in the lightbox: only the selected frames keep it (TOOLS/ANIM-OPS)
     SAFE_FREEIMAGE HISTORY_RECORDS(recordIndex%).img2&
     HISTORY_RECORDS(recordIndex%).img2& = _COPYIMAGE(LAYERS(layerSlot%).imgHandle&, 32)
 END SUB
@@ -569,6 +575,36 @@ SUB HISTORY_record_palette (beforeSnap AS STRING, afterSnap AS STRING, label AS 
     idx% = HISTORY_begin_record%(HISTORY_KIND_PALETTE, HISTORY_EXPORT_NONE, label$)
     IF idx% = 0 THEN EXIT SUB
     HISTORY_PAYLOADS(idx%)               = MKL$(LEN(beforeSnap$)) + beforeSnap$ + afterSnap$
+    HISTORY_RECORDS(idx%).payloadLength& = LEN(HISTORY_PAYLOADS(idx%))
+    HISTORY_commit_record idx%
+END SUB
+
+''
+' Records a frame operation (TOOLS/ANIM-OPS): two ANIM_OPS_snapshot$ blobs
+' (the whole sheet before and after). Saved with the document like the palette
+' record (payloadLength set).
+SUB HISTORY_record_anim_frames (beforeSnap AS STRING, afterSnap AS STRING, label AS STRING)
+    IF HISTORY_IN_PROGRESS% THEN EXIT SUB
+    DIM idx AS INTEGER
+    idx% = HISTORY_begin_record%(HISTORY_KIND_ANIM_FRAMES, HISTORY_EXPORT_RASTER, label$)
+    IF idx% = 0 THEN EXIT SUB
+    HISTORY_PAYLOADS(idx%)               = MKL$(LEN(beforeSnap$)) + beforeSnap$ + afterSnap$
+    HISTORY_RECORDS(idx%).payloadLength& = LEN(HISTORY_PAYLOADS(idx%))
+    HISTORY_commit_record idx%
+END SUB
+
+''
+' Records a clip layer change (TOOLS/CLIP): two CLIP_state$ blobs (the layer
+' type + the clip's settings) before and after. The pixels are rebuilt from
+' them, so none are stored.
+SUB HISTORY_record_clip (layerId AS LONG, slot AS INTEGER, beforeSt AS STRING, afterSt AS STRING, label AS STRING)
+    IF HISTORY_IN_PROGRESS% THEN EXIT SUB
+    DIM idx AS INTEGER
+    idx% = HISTORY_begin_record%(HISTORY_KIND_CLIP, HISTORY_EXPORT_RASTER, label$)
+    IF idx% = 0 THEN EXIT SUB
+    HISTORY_RECORDS(idx%).primaryLayerId& = layerId&
+    HISTORY_RECORDS(idx%).slotIndex%      = slot%
+    HISTORY_PAYLOADS(idx%)               = MKL$(LEN(beforeSt$)) + beforeSt$ + afterSt$
     HISTORY_RECORDS(idx%).payloadLength& = LEN(HISTORY_PAYLOADS(idx%))
     HISTORY_commit_record idx%
 END SUB
@@ -2314,6 +2350,8 @@ END SUB
 ' Invalidates caches and rebuilds BAS WIP export state after completion.
 '
 SUB HISTORY_undo ()
+    LAYER_THUMB_GEN = LAYER_THUMB_GEN + 1 ' the Layers panel thumbnails rescan their content
+    ANIM_SAME_CHECK = TRUE ' (TOOLS/ANIM-OPS ANIM_SAME_tick%)
     PALETTE_OPS_edit_commit ' a live Color Ops chip edit is one undo step: close it first
     DIM idx           AS INTEGER
     DIM layerIndex    AS INTEGER
@@ -2594,6 +2632,16 @@ SUB HISTORY_undo ()
                         crUndoPos& = crUndoPos& + crUndoPixBytes&
                     NEXT crUndoI%
                 END IF
+            CASE HISTORY_KIND_ANIM_FRAMES
+                ' Undo: the sheet before the frame operation (first framed half).
+                IF LEN(HISTORY_PAYLOADS(idx%)) >= 4 THEN
+                    ANIM_OPS_restore MID$(HISTORY_PAYLOADS(idx%), 5, CVL(MID$(HISTORY_PAYLOADS(idx%), 1, 4)))
+                END IF
+            CASE HISTORY_KIND_CLIP
+                ' Undo: the clip layer's type + settings before (first framed half).
+                IF LEN(HISTORY_PAYLOADS(idx%)) >= 4 THEN
+                    CLIP_history_apply HISTORY_RECORDS(idx%).primaryLayerId&, MID$(HISTORY_PAYLOADS(idx%), 5, CVL(MID$(HISTORY_PAYLOADS(idx%), 1, 4)))
+                END IF
             CASE HISTORY_KIND_PALETTE
                 ' Undo: restore the BEFORE palette (first framed half of the payload).
                 IF LEN(HISTORY_PAYLOADS(idx%)) >= 4 THEN
@@ -2641,6 +2689,8 @@ END SUB
 ' Invalidates caches and rebuilds BAS WIP export state after completion.
 '
 SUB HISTORY_redo ()
+    LAYER_THUMB_GEN = LAYER_THUMB_GEN + 1 ' the Layers panel thumbnails rescan their content
+    ANIM_SAME_CHECK = TRUE ' (TOOLS/ANIM-OPS ANIM_SAME_tick%)
     PALETTE_OPS_edit_commit ' a live Color Ops chip edit is one undo step: close it first
     DIM idx           AS INTEGER
     DIM layerIndex    AS INTEGER
@@ -2762,10 +2812,23 @@ SUB HISTORY_redo ()
                 DIM crRedoNewW      AS INTEGER, crRedoNewH AS INTEGER
                 crRedoNewW% = HISTORY_RECORDS(idx%).x2%
                 crRedoNewH% = HISTORY_RECORDS(idx%).y2%
-                IF HISTORY_RECORDS(idx%).flags& AND 1 THEN
+                IF HISTORY_RECORDS(idx%).flags& AND 2 THEN
+                    ' a crop: cut the same region again (w/h hold the box's offset)
+                    CROP_cut_canvas HISTORY_RECORDS(idx%).w%, HISTORY_RECORDS(idx%).h%, crRedoNewW%, crRedoNewH%
+                ELSEIF HISTORY_RECORDS(idx%).flags& AND 1 THEN
                     CANVAS_resize_with_content crRedoNewW%, crRedoNewH%
                 ELSE
                     CANVAS_resize crRedoNewW%, crRedoNewH%
+                END IF
+            CASE HISTORY_KIND_ANIM_FRAMES
+                ' Redo: the sheet after the frame operation (second framed half).
+                IF LEN(HISTORY_PAYLOADS(idx%)) >= 4 THEN
+                    ANIM_OPS_restore MID$(HISTORY_PAYLOADS(idx%), 5 + CVL(MID$(HISTORY_PAYLOADS(idx%), 1, 4)))
+                END IF
+            CASE HISTORY_KIND_CLIP
+                ' Redo: the clip layer's type + settings after (second framed half).
+                IF LEN(HISTORY_PAYLOADS(idx%)) >= 4 THEN
+                    CLIP_history_apply HISTORY_RECORDS(idx%).primaryLayerId&, MID$(HISTORY_PAYLOADS(idx%), 5 + CVL(MID$(HISTORY_PAYLOADS(idx%), 1, 4)))
                 END IF
             CASE HISTORY_KIND_PALETTE
                 ' Redo: restore the AFTER palette (second framed half of the payload).

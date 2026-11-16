@@ -1,0 +1,2129 @@
+$INCLUDEONCE
+' =============================================================================
+' CLIP.BM - clip layers (TOOLS/CLIP.BI, PLANS/CLIP-LAYERS.md).
+' =============================================================================
+
+''
+' A new document (every document path calls AB_new_document, which calls
+' this): no clips, no sources.
+SUB CLIP_new_document ()
+    DIM i AS INTEGER
+    FOR i = 1 TO CLIP_SRC_N
+        IF CLIP_SRC(i).strip < -1 THEN _FREEIMAGE CLIP_SRC(i).strip
+        CLIP_SRC(i).strip = 0: CLIP_SRC(i).n = 0: CLIP_SRC(i).gone = 0
+    NEXT i
+    FOR i = 1 TO CLIP_INST_N: CLIP_INST(i).layerId = 0: NEXT i
+    CLIP_SRC_N = 0: CLIP_INST_N = 0: CLIP_SIG = "": CLIP_PLACING = 0
+    FOR i = 1 TO CLIP_CUE_N: CLIP_CUE_PATH(i) = "": NEXT i
+    CLIP_CUE_N = 0: CLIP_CUE_GSIG = CHR$(255) ' (the generated clips go at the next tick)
+    CLIP_ED_N = 0
+    FOR i = 1 TO CLIP_INST_N: CLIP_lanes_clear i: NEXT i
+END SUB
+
+''
+' The instance of the clip layer in slot (0 = it is not a clip layer).
+FUNCTION CLIP_inst_of% (slot AS INTEGER)
+    DIM i AS INTEGER, id AS LONG
+    IF slot < 1 _ORELSE slot > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(slot).imgHandle& >= -1 _ORELSE LAYERS(slot).layerType% <> LAYER_TYPE_CLIP THEN EXIT FUNCTION
+    id = LAYERS(slot).historyId&
+    FOR i = 1 TO CLIP_INST_N
+        IF CLIP_INST(i).layerId = id THEN CLIP_inst_of% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+FUNCTION CLIP_inst_by_id% (id AS LONG)
+    DIM i AS INTEGER
+    IF id = 0 THEN EXIT FUNCTION
+    FOR i = 1 TO CLIP_INST_N
+        IF CLIP_INST(i).layerId = id THEN CLIP_inst_by_id% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+FUNCTION CLIP_is_clip% (slot AS INTEGER)
+    IF slot < 1 _ORELSE slot > MAX_LAYERS THEN EXIT FUNCTION
+    CLIP_is_clip% = (LAYERS(slot).layerType% = LAYER_TYPE_CLIP)
+END FUNCTION
+
+''
+' The current layer's clip instance (0 = the current layer is not a clip).
+FUNCTION CLIP_current% ()
+    CLIP_current% = CLIP_inst_of%(CURRENT_LAYER%)
+END FUNCTION
+
+''
+' A new source holding strip (n cels of cw x ch, taken over: freed on 0 = no room).
+FUNCTION CLIP_src_new% (strip AS LONG, n AS INTEGER, cw AS INTEGER, ch AS INTEGER, nm AS STRING, bs AS INTEGER)
+    DIM i AS INTEGER
+    IF strip >= -1 THEN EXIT FUNCTION
+    FOR i = 1 TO CLIP_SRC_MAX
+        IF CLIP_SRC(i).strip = 0 THEN EXIT FOR
+    NEXT i
+    IF i > CLIP_SRC_MAX THEN _FREEIMAGE strip: EXIT FUNCTION
+    CLIP_SRC(i).strip = strip: CLIP_SRC(i).n = n: CLIP_SRC(i).cw = cw: CLIP_SRC(i).ch = ch
+    CLIP_SRC(i).nm = nm: CLIP_SRC(i).binSlot = bs: CLIP_SRC(i).gone = 0
+    IF AB_clean$(CLIP_SRC(i).nm) = "" THEN CLIP_SRC(i).nm = "AnimBrush"
+    IF i > CLIP_SRC_N THEN CLIP_SRC_N = i
+    CLIP_src_new% = i
+END FUNCTION
+
+''
+' A new source from the AnimBrush's cels (0 = no room / no AnimBrush).
+FUNCTION CLIP_src_from_ab% ()
+    DIM k AS INTEGER, oldD AS LONG, img AS LONG
+    IF AB_active% = 0 THEN EXIT FUNCTION
+    img = _NEWIMAGE(AB.n * CLNG(AB.w), AB.h, 32)
+    IF img >= -1 THEN EXIT FUNCTION
+    oldD = _DEST: _DEST img: CLS , _RGBA32(0, 0, 0, 0): _DEST oldD
+    _DONTBLEND img
+    FOR k = 1 TO AB.n
+        IF AB_CEL(k) < -1 THEN _PUTIMAGE ((k - 1) * AB.w, 0), AB_CEL(k), img
+    NEXT k
+    _BLEND img
+    CLIP_src_from_ab% = CLIP_src_new%(img, AB.n, AB.w, AB.h, AB_name$, AB.binSlot)
+END FUNCTION
+
+''
+' A new source from Drawer bin i's AnimBrush (0 = none there / no room).
+FUNCTION CLIP_src_from_bin% (i AS INTEGER)
+    DIM img AS LONG
+    IF AB_slot_has%(i) = 0 THEN EXIT FUNCTION
+    img = _COPYIMAGE(DRAWER_BRUSH_SLOTS(i).CELS, 32)
+    CLIP_src_from_bin% = CLIP_src_new%(img, DRAWER_BRUSH_SLOTS(i).N, DRAWER_BRUSH_SLOTS(i).CW, DRAWER_BRUSH_SLOTS(i).CH, AB_clean$(DRAWER_BRUSH_SLOTS(i).NM), i)
+END FUNCTION
+
+''
+' A free instance slot for layer id (an old one for the same id is reused).
+FUNCTION CLIP_inst_new% (id AS LONG)
+    DIM i AS INTEGER
+    i = CLIP_inst_by_id%(id)
+    IF i = 0 THEN
+        FOR i = 1 TO CLIP_INST_MAX
+            IF CLIP_INST(i).layerId = 0 THEN EXIT FOR
+        NEXT i
+        IF i > CLIP_INST_MAX THEN EXIT FUNCTION
+    END IF
+    CLIP_INST(i).layerId = id
+    CLIP_INST(i).src = 0: CLIP_INST(i).inF = 1: CLIP_INST(i).outF = 0: CLIP_INST(i).startCel = 1
+    CLIP_INST(i).every = 1: CLIP_INST(i).mode = CLIP_MODE_LOOP: CLIP_INST(i).flipX = 0: CLIP_INST(i).flipY = 0
+    CLIP_INST(i).px = 0: CLIP_INST(i).py = 0: CLIP_INST(i).dirty = TRUE
+    CLIP_lanes_clear i
+    IF i > CLIP_INST_N THEN CLIP_INST_N = i
+    CLIP_inst_new% = i
+END FUNCTION
+
+''
+' The cel instance k shows in frame f (0 = none).
+FUNCTION CLIP_cel_at% (k AS INTEGER, f AS INTEGER)
+    DIM s AS INTEGER
+    IF k < 1 _ORELSE k > CLIP_INST_N THEN EXIT FUNCTION
+    s = CLIP_INST(k).src
+    IF s < 1 _ORELSE s > CLIP_SRC_N THEN EXIT FUNCTION
+    CLIP_cel_at% = CLIP_cel_for%(f, CLIP_SRC(s).n, CLIP_INST(k).every, CLIP_INST(k).startCel, CLIP_INST(k).inF, CLIP_INST(k).outF, CLIP_INST(k).mode)
+END FUNCTION
+
+''
+' Redraw clip layer slot from its clip: each frame's cell gets its cel at the
+' clip's spot, clipped to the cell; everything else is clear.
+SUB CLIP_rebuild (slot AS INTEGER)
+    DIM k AS INTEGER, s AS INTEGER, img AS LONG, oldD AS LONG, f AS INTEGER, c AS INTEGER
+    DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, aw AS INTEGER, ah AS INTEGER
+    DIM tmp AS LONG, tw AS LONG, th AS LONG, sx AS LONG, cw AS LONG, ch AS LONG
+    DIM dx1 AS LONG, dy1 AS LONG, dx2 AS LONG, dy2 AS LONG, lanes AS INTEGER
+    k = CLIP_inst_of%(slot)
+    IF k = 0 THEN EXIT SUB
+    lanes = CLIP_has_lanes%(k) ' keyed / modulated: each cel through XF_draw
+    CLIP_INST(k).dirty = FALSE
+    img = LAYERS(slot).imgHandle&
+    aw = LAYERS(slot).apronW%: ah = LAYERS(slot).apronH%
+    oldD = _DEST
+    _DEST img: CLS , _RGBA32(0, 0, 0, 0)
+    s = CLIP_INST(k).src
+    IF s >= 1 _ANDALSO s <= CLIP_SRC_N _ANDALSO ANIM.active THEN
+        IF CLIP_SRC(s).strip < -1 THEN
+            cw = CLIP_SRC(s).cw: ch = CLIP_SRC(s).ch
+            FOR f = 1 TO ANIM.count
+                c = CLIP_cel_at%(k, f)
+                IF c > 0 _ANDALSO ANIM_cell_rect%(f, fx, fy, fw, fh) THEN
+                    IF tmp = 0 _ORELSE tw <> fw _ORELSE th <> fh THEN
+                        IF tmp < -1 THEN _FREEIMAGE tmp
+                        tmp = _NEWIMAGE(fw, fh, 32): tw = fw: th = fh
+                        _DONTBLEND tmp
+                    END IF
+                    _DEST tmp: CLS , _RGBA32(0, 0, 0, 0)
+                    sx = (c - 1) * cw
+                    IF lanes THEN
+                        CLIP_draw_cel_xf k, f, s, c, tmp
+                    ELSE
+                        dx1 = CLIP_INST(k).px: dx2 = dx1 + cw - 1
+                        dy1 = CLIP_INST(k).py: dy2 = dy1 + ch - 1
+                        IF CLIP_INST(k).flipX THEN SWAP dx1, dx2
+                        IF CLIP_INST(k).flipY THEN SWAP dy1, dy2
+                        _PUTIMAGE (dx1, dy1)-(dx2, dy2), CLIP_SRC(s).strip, tmp, (sx, 0)-(sx + cw - 1, ch - 1)
+                    END IF
+                    _DONTBLEND img
+                    _PUTIMAGE (fx + aw, fy + ah), tmp, img
+                    _BLEND img
+                END IF
+            NEXT f
+        END IF
+    END IF
+    IF tmp < -1 THEN _FREEIMAGE tmp
+    _DEST oldD
+    LAYERS(slot).contentDirty% = TRUE
+    COMP_mark_dirty 0, 0, SCRN.canvasW& - 1, SCRN.canvasH& - 1
+END SUB
+
+''
+' Cel c of source s into cell image tmp (cleared) for frame f, through
+' instance k's lanes: X / Y (whole pixels) added to its place, scale and
+' rotate about the pivot, opacity, tint; flips first.
+SUB CLIP_draw_cel_xf (k AS INTEGER, f AS INTEGER, s AS INTEGER, c AS INTEGER, tmp AS LONG)
+    DIM cel AS LONG, cw AS LONG, ch AS LONG, sx AS LONG, x1 AS LONG, x2 AS LONG, y1 AS LONG, y2 AS LONG
+    DIM ccx AS SINGLE, ccy AS SINGLE, pvx AS SINGLE, pvy AS SINGLE, scx AS SINGLE, scy AS SINGLE
+    DIM az AS SINGLE, op AS SINGLE, tn AS SINGLE, z0 AS SINGLE
+    cw = CLIP_SRC(s).cw: ch = CLIP_SRC(s).ch
+    cel = _NEWIMAGE(cw, ch, 32)
+    IF cel >= -1 THEN EXIT SUB
+    _DONTBLEND cel
+    sx = (c - 1) * cw
+    x1 = 0: x2 = cw - 1: y1 = 0: y2 = ch - 1
+    IF CLIP_INST(k).flipX THEN SWAP x1, x2
+    IF CLIP_INST(k).flipY THEN SWAP y1, y2
+    _PUTIMAGE (x1, y1)-(x2, y2), CLIP_SRC(s).strip, cel, (sx, 0)-(sx + cw - 1, ch - 1)
+    _BLEND cel
+    pvx = CLIP_lane_value!(k, CLIP_LANE_PVX, f): pvy = CLIP_lane_value!(k, CLIP_LANE_PVY, f)
+    ccx = CLIP_INST(k).px + INT(CLIP_lane_value!(k, CLIP_LANE_X, f) + .5) + pvx ' (whole pixels, half up: as the Move Brush rounds)
+    ccy = CLIP_INST(k).py + INT(CLIP_lane_value!(k, CLIP_LANE_Y, f) + .5) + pvy
+    scx = CLIP_lane_value!(k, CLIP_LANE_SX, f) / 100: scy = CLIP_lane_value!(k, CLIP_LANE_SY, f) / 100
+    az = CLIP_lane_value!(k, CLIP_LANE_ROT, f) * _PI / 180
+    op = CLIP_lane_value!(k, CLIP_LANE_OP, f) / 100: tn = CLIP_lane_value!(k, CLIP_LANE_TINT, f) / 100
+    XF_draw cel, tmp, ccx, ccy, pvx, pvy, scx, scy, az, z0, z0, z0, op, tn, CLIP_INST(k).tint, FALSE
+    _FREEIMAGE cel
+END SUB
+
+SUB CLIP_mark_all_dirty ()
+    DIM i AS INTEGER
+    FOR i = 1 TO CLIP_INST_N: CLIP_INST(i).dirty = TRUE: NEXT i
+END SUB
+
+''
+' Rebuild every clip layer now (after a frame op, before its snapshot).
+SUB CLIP_rebuild_all ()
+    DIM i AS INTEGER
+    IF CLIP_INST_N = 0 THEN EXIT SUB
+    FOR i = 1 TO MAX_LAYERS
+        IF CLIP_inst_of%(i) THEN CLIP_rebuild i
+    NEXT i
+    CLIP_SIG = CLIP_layout_sig$
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+END SUB
+
+FUNCTION CLIP_layout_sig$ ()
+    CLIP_layout_sig$ = MKI$(ANIM.active) + MKI$(ANIM.frameW) + MKI$(ANIM.frameH) + MKI$(ANIM.gutter) + MKI$(ANIM.margin) + MKI$(ANIM.count) + MKL$(SCRN.canvasW&) + MKL$(SCRN.canvasH&)
+END FUNCTION
+
+''
+' Main loop: rebuild the clip layers whose clip or frame layout changed.
+' TRUE = something was redrawn.
+FUNCTION CLIP_tick% ()
+    DIM i AS INTEGER, k AS INTEGER, sig AS STRING, did AS INTEGER
+    IF CLIP_INST_N = 0 THEN EXIT FUNCTION
+    sig = CLIP_layout_sig$
+    IF sig <> CLIP_SIG THEN CLIP_SIG = sig: CLIP_mark_all_dirty
+    FOR i = 1 TO MAX_LAYERS
+        k = CLIP_inst_of%(i)
+        IF k THEN
+            IF CLIP_INST(k).dirty THEN CLIP_rebuild i: did = TRUE
+        END IF
+    NEXT i
+    IF did THEN BLEND_invalidate_cache: INVALIDATE_canvas
+    CLIP_tick% = did
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Place AnimBrush as Clip (2620): the next click in a frame places it there.
+' ---------------------------------------------------------------------------
+
+FUNCTION CLIP_place_refusal$ ()
+    IF ANIM.active = FALSE THEN CLIP_place_refusal$ = "Clip layers need frames: ANIM > Add Frame (Num +) first": EXIT FUNCTION
+    IF AB_active% = 0 THEN CLIP_place_refusal$ = "No AnimBrush: ANIM > AnimBrush > Pick Up (or hold B and select) first": EXIT FUNCTION
+    CLIP_place_refusal$ = ANIM_OPS_busy$
+END FUNCTION
+
+SUB CLIP_place_start ()
+    DIM why AS STRING
+    why = CLIP_place_refusal$
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    MVB_cancel
+    IF CURRENT_TOOL% <> TOOL_BRUSH THEN CMD_execute_action 101 ' the brush shows the cel under the pointer
+    CLIP_PLACING = 1
+    STATUS_flash "Place as Clip: click in a frame to place '" + _IIF(AB_name$ <> "", AB_name$, "AnimBrush") + "' (Esc cancels)"
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+SUB CLIP_place_cancel ()
+    IF CLIP_PLACING = 0 THEN EXIT SUB
+    CLIP_PLACING = 0
+    STATUS_flash "Place as Clip cancelled"
+END SUB
+
+''
+' MOUSE_input_handler while placing: a press in a frame places the clip; the
+' press and its release do nothing else.
+SUB CLIP_place_mouse ()
+    DIM f AS INTEGER
+    IF CLIP_PLACING = 2 THEN
+        IF MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 THEN CLIP_PLACING = 0
+        EXIT SUB
+    END IF
+    IF MOUSE.B2% _ANDALSO MOUSE.OLD_B2% = 0 THEN CLIP_PLACING = 2: STATUS_flash "Place as Clip cancelled": EXIT SUB
+    IF MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0 THEN
+        f = AB_frame_of%(CLNG(MOUSE.X%), CLNG(MOUSE.Y%))
+        IF f < 1 THEN STATUS_flash "Place as Clip: click inside a frame": EXIT SUB
+        CLIP_place_at f, MOUSE.X% - AB.w \ 2, MOUSE.Y% - AB.h \ 2
+        CLIP_PLACING = 2
+    END IF
+END SUB
+
+''
+' A new clip layer above the current one: the AnimBrush's cels, cel 1 in
+' frame f with its top left at canvas (x, y), running to the last frame.
+SUB CLIP_place_at (f AS INTEGER, x AS LONG, y AS LONG)
+    DIM ok AS INTEGER
+    ok = CLIP_place_core%(f, x, y, 0, -1)
+END SUB
+
+''
+' CLIP_place_at with Out (0 = to the end) and a mode (-1 = from the AnimBrush's
+' order). TRUE = placed.
+FUNCTION CLIP_place_core% (f AS INTEGER, x AS LONG, y AS LONG, outF AS INTEGER, mode AS INTEGER)
+    DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, s AS INTEGER, k AS INTEGER, slot AS INTEGER, nm AS STRING
+    IF ANIM_cell_rect%(f, fx, fy, fw, fh) = 0 THEN EXIT FUNCTION
+    IF CLIP_PLACE_SRC THEN s = CLIP_PLACE_SRC ELSE s = CLIP_src_from_ab% ' (Move Brush > Apply as Clip: a plain brush's own source)
+    IF s = 0 THEN STATUS_flash "Place as Clip: no room for another clip source": EXIT FUNCTION
+    slot = LAYERS_new%
+    IF slot = 0 THEN STATUS_flash "Place as Clip: no room for another layer": EXIT FUNCTION
+    k = CLIP_inst_new%(LAYERS(slot).historyId&)
+    IF k = 0 THEN STATUS_flash "Place as Clip: too many clips": EXIT FUNCTION
+    nm = AB_clean$(CLIP_SRC(s).nm): IF nm = "" THEN nm = "AnimBrush": CLIP_SRC(s).nm = nm ' an unnamed AnimBrush: the panel and the dump show a name
+    LAYERS(slot).layerType% = LAYER_TYPE_CLIP
+    LAYERS(slot).name = nm + " (clip)"
+    CLIP_INST(k).src = s: CLIP_INST(k).inF = f: CLIP_INST(k).outF = outF: CLIP_INST(k).startCel = 1
+    CLIP_INST(k).px = x - fx: CLIP_INST(k).py = y - fy
+    SELECT CASE AB_ORDER
+        CASE AB_ORD_REV: CLIP_INST(k).mode = CLIP_MODE_REV
+        CASE AB_ORD_PING: CLIP_INST(k).mode = CLIP_MODE_PING
+        CASE AB_ORD_ONCE: CLIP_INST(k).mode = CLIP_MODE_ONCE
+        CASE ELSE: CLIP_INST(k).mode = CLIP_MODE_LOOP
+    END SELECT
+    IF mode >= 0 THEN CLIP_INST(k).mode = mode
+    IF CLIP_PLACE_MVB THEN MVB_clip_lanes k ' Move Brush > Apply as Clip: the move as lanes (in the layer-add snapshot)
+    CLIP_rebuild slot
+    IF ANIMP.visible = 0 THEN ANIMP_toggle ' its settings are the Animation panel's clip rows
+    IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_refresh_layer_add_snapshot LAYERS(slot).historyId&
+    HISTORY_saved_this_frame% = TRUE
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    SOUND_play SND_NEW_LAYER
+    STATUS_flash "Clip '" + nm + "':" + STR$(CLIP_SRC(s).n) + " cels from frame" + STR$(f) + " (ANIM panel: In / Out / Every / mode)"
+    CLIP_place_core% = TRUE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Settings, bake and undo (HISTORY_KIND_CLIP: the layer type + the instance,
+' before and after)
+' ---------------------------------------------------------------------------
+
+' ---------------------------------------------------------------------------
+' Keyframe lanes (phase 3): per instance, see CLIP.BI
+' ---------------------------------------------------------------------------
+
+SUB CLIP_lanes_clear (k AS INTEGER)
+    DIM L AS INTEGER
+    IF k < 1 _ORELSE k > CLIP_INST_MAX THEN EXIT SUB
+    FOR L = 1 TO CLIP_LANES: CLIP_LN_KEYS(k, L) = "": CLIP_LN_MOD(k, L) = "": NEXT L
+    CLIP_INST(k).tint = &HFFFFFFFF~&
+END SUB
+
+FUNCTION CLIP_lane_name$ (L AS INTEGER)
+    IF L < 1 _ORELSE L > CLIP_LANES THEN EXIT FUNCTION
+    CLIP_lane_name$ = _TRIM$(MID$("X       Y       SCALE X SCALE Y ROTATE  OPACITY TINT    PIVOT X PIVOT Y VOLUME  PAN     ", (L - 1) * 8 + 1, 8))
+END FUNCTION
+
+''
+' A lane's value with no keys: SCALE / OPACITY / VOLUME 100, the pivot the
+' cel's middle, the rest 0.
+FUNCTION CLIP_lane_default! (k AS INTEGER, L AS INTEGER)
+    DIM s AS INTEGER
+    SELECT CASE L
+        CASE CLIP_LANE_SX, CLIP_LANE_SY, CLIP_LANE_OP, CLIP_LANE_VOL: CLIP_lane_default! = 100
+        CASE CLIP_LANE_PVX, CLIP_LANE_PVY
+            s = CLIP_INST(k).src
+            IF s >= 1 _ANDALSO s <= CLIP_SRC_N THEN
+                IF L = CLIP_LANE_PVX THEN CLIP_lane_default! = CLIP_SRC(s).cw / 2 ELSE CLIP_lane_default! = CLIP_SRC(s).ch / 2
+            END IF
+    END SELECT
+END FUNCTION
+
+FUNCTION CLIP_mod_pack$ (kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG)
+    IF kind = 0 THEN EXIT FUNCTION
+    CLIP_mod_pack$ = MKI$(kind) + MKI$(shape) + MKS$(amount) + MKS$(period) + MKS$(phase) + MKL$(seed)
+END FUNCTION
+
+''
+' Unpack a modulator into the caller's locals (kind 0 = none).
+SUB CLIP_mod_unpack (m AS STRING, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG)
+    kind = 0: shape = 0: amount = 0: period = 12: phase = 0: seed = 1
+    IF LEN(m) < 20 THEN EXIT SUB
+    kind = CVI(MID$(m, 1, 2)): shape = CVI(MID$(m, 3, 2)): amount = CVS(MID$(m, 5, 4))
+    period = CVS(MID$(m, 9, 4)): phase = CVS(MID$(m, 13, 4)): seed = CVL(MID$(m, 17, 4))
+END SUB
+
+''
+' Lane L of instance k at frame f: the keyed value (or the default) plus the
+' modulator.
+FUNCTION CLIP_lane_value! (k AS INTEGER, L AS INTEGER, f AS INTEGER)
+    DIM rel AS INTEGER, v AS SINGLE, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    IF k < 1 _ORELSE k > CLIP_INST_MAX _ORELSE L < 1 _ORELSE L > CLIP_LANES THEN EXIT FUNCTION
+    rel = f - CLIP_INST(k).inF
+    v = CLIP_lane_keyed!(CLIP_LN_KEYS(k, L), rel, CLIP_lane_default!(k, L))
+    IF LEN(CLIP_LN_MOD(k, L)) THEN
+        CLIP_mod_unpack CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed
+        v = v + CLIP_mod!(kind, shape, amount, period, phase, seed, rel)
+    END IF
+    CLIP_lane_value! = v
+END FUNCTION
+
+''
+' TRUE when any picture lane (X .. PIVOT Y) has keys or a modulator.
+FUNCTION CLIP_has_lanes% (k AS INTEGER)
+    DIM L AS INTEGER
+    IF k < 1 _ORELSE k > CLIP_INST_MAX THEN EXIT FUNCTION
+    FOR L = CLIP_LANE_X TO CLIP_LANE_PVY
+        IF LEN(CLIP_LN_KEYS(k, L)) _ORELSE LEN(CLIP_LN_MOD(k, L)) THEN CLIP_has_lanes% = TRUE: EXIT FUNCTION
+    NEXT L
+END FUNCTION
+
+''
+' Has instance k a key in any lane (the X-sheet's LANES row)?
+FUNCTION CLIP_has_keys% (k AS INTEGER)
+    DIM L AS INTEGER
+    IF k < 1 _ORELSE k > CLIP_INST_MAX THEN EXIT FUNCTION
+    FOR L = 1 TO CLIP_LANES
+        IF LEN(CLIP_LN_KEYS(k, L)) THEN CLIP_has_keys% = TRUE: EXIT FUNCTION
+    NEXT L
+END FUNCTION
+
+''
+' The index of lane L's key at rel (frames from In), else 0.
+FUNCTION CLIP_lk_index% (k AS INTEGER, L AS INTEGER, rel AS INTEGER)
+    DIM i AS INTEGER, ks AS STRING
+    ks = CLIP_LN_KEYS(k, L)
+    FOR i = 1 TO CLIP_lks_n%(ks)
+        IF CLIP_lk_f%(ks, i) = rel THEN CLIP_lk_index% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' A key at rel: 0 none, 1 in some lane, 2 in the picked lane (CLIP_LANE_PICK).
+FUNCTION CLIP_key_mark% (k AS INTEGER, rel AS INTEGER)
+    DIM L AS INTEGER, m AS INTEGER
+    IF k < 1 _ORELSE k > CLIP_INST_MAX THEN EXIT FUNCTION
+    FOR L = 1 TO CLIP_LANES
+        IF CLIP_lk_index%(k, L, rel) THEN
+            IF L = CLIP_LANE_PICK THEN CLIP_key_mark% = 2: EXIT FUNCTION
+            m = 1
+        END IF
+    NEXT L
+    CLIP_key_mark% = m
+END FUNCTION
+
+''
+' Move every lane's key at fromRel to toRel (replacing a key there), one undo
+' step (the X-sheet's LANES row drag).
+SUB CLIP_keys_shift (slot AS INTEGER, fromRel AS INTEGER, toRel AS INTEGER)
+    DIM k AS INTEGER, L AS INTEGER, i AS INTEGER, ks AS STRING, v AS SINGLE, e AS INTEGER, before AS STRING, dst AS INTEGER
+    k = CLIP_inst_of%(slot): dst = _MAX(0, toRel)
+    IF k = 0 _ORELSE fromRel = dst THEN EXIT SUB
+    before = CLIP_state$(slot)
+    FOR L = 1 TO CLIP_LANES
+        i = CLIP_lk_index%(k, L, fromRel)
+        IF i THEN
+            ks = CLIP_LN_KEYS(k, L)
+            v = CLIP_lk_v!(ks, i): e = CLIP_lk_e%(ks, i)
+            ks = CLIP_lks_del$(CLIP_lks_del$(ks, fromRel), dst)
+            CLIP_LN_KEYS(k, L) = CLIP_lks_put$(ks, dst, v, e)
+        END IF
+    NEXT L
+    CLIP_rebuild slot
+    IF NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_clip LAYERS(slot).historyId&, slot, before, CLIP_state$(slot), "Clip Move Keys"
+        HISTORY_saved_this_frame% = TRUE
+    END IF
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+END SUB
+
+''
+' Instance k's lanes: tint colour, count, then per lane with keys or a
+' modulator: lane, keys (length first), modulator (length first).
+FUNCTION CLIP_lanes_blob$ (k AS INTEGER)
+    DIM L AS INTEGER, n AS INTEGER, s AS STRING
+    IF k < 1 _ORELSE k > CLIP_INST_MAX THEN EXIT FUNCTION
+    FOR L = 1 TO CLIP_LANES
+        IF LEN(CLIP_LN_KEYS(k, L)) _ORELSE LEN(CLIP_LN_MOD(k, L)) THEN
+            n = n + 1
+            s = s + MKI$(L) + MKI$(LEN(CLIP_LN_KEYS(k, L))) + CLIP_LN_KEYS(k, L) + MKI$(LEN(CLIP_LN_MOD(k, L))) + CLIP_LN_MOD(k, L)
+        END IF
+    NEXT L
+    CLIP_lanes_blob$ = MKL$(CLIP_INST(k).tint) + MKI$(n) + s
+END FUNCTION
+
+SUB CLIP_lanes_from_blob (k AS INTEGER, b AS STRING)
+    DIM n AS INTEGER, j AS INTEGER, p AS LONG, L AS INTEGER, kl AS INTEGER, ml AS INTEGER
+    IF k < 1 _ORELSE k > CLIP_INST_MAX THEN EXIT SUB
+    CLIP_lanes_clear k
+    IF LEN(b) < 6 THEN EXIT SUB
+    CLIP_INST(k).tint = CVL(LEFT$(b, 4))
+    n = CVI(MID$(b, 5, 2)): p = 7
+    FOR j = 1 TO n
+        IF p + 3 > LEN(b) THEN EXIT FOR
+        L = CVI(MID$(b, p, 2)): kl = CVI(MID$(b, p + 2, 2))
+        IF kl < 0 _ORELSE p + 5 + kl > LEN(b) THEN EXIT FOR
+        ml = CVI(MID$(b, p + 4 + kl, 2))
+        IF ml < 0 _ORELSE p + 5 + kl + ml > LEN(b) THEN EXIT FOR
+        IF L >= 1 _ANDALSO L <= CLIP_LANES THEN
+            CLIP_LN_KEYS(k, L) = MID$(b, p + 4, kl - (kl MOD 8))
+            CLIP_LN_MOD(k, L) = MID$(b, p + 6 + kl, ml)
+        END IF
+        p = p + 6 + kl + ml
+    NEXT j
+    CLIP_INST(k).dirty = TRUE
+END SUB
+
+FUNCTION CLIP_inst_blob$ (k AS INTEGER)
+    DIM s AS STRING
+    s = MKI$(CLIP_INST(k).src) + MKI$(CLIP_INST(k).inF) + MKI$(CLIP_INST(k).outF) + MKI$(CLIP_INST(k).startCel)
+    s = s + MKI$(CLIP_INST(k).every) + MKI$(CLIP_INST(k).mode) + MKI$(CLIP_INST(k).flipX) + MKI$(CLIP_INST(k).flipY)
+    CLIP_inst_blob$ = s + MKI$(CLIP_INST(k).px) + MKI$(CLIP_INST(k).py)
+END FUNCTION
+
+SUB CLIP_inst_from_blob (k AS INTEGER, b AS STRING)
+    IF LEN(b) < 20 THEN EXIT SUB
+    CLIP_INST(k).src = CVI(MID$(b, 1, 2)): CLIP_INST(k).inF = CVI(MID$(b, 3, 2)): CLIP_INST(k).outF = CVI(MID$(b, 5, 2))
+    CLIP_INST(k).startCel = CVI(MID$(b, 7, 2)): CLIP_INST(k).every = CVI(MID$(b, 9, 2)): CLIP_INST(k).mode = CVI(MID$(b, 11, 2))
+    CLIP_INST(k).flipX = CVI(MID$(b, 13, 2)): CLIP_INST(k).flipY = CVI(MID$(b, 15, 2))
+    CLIP_INST(k).px = CVI(MID$(b, 17, 2)): CLIP_INST(k).py = CVI(MID$(b, 19, 2))
+    CLIP_INST(k).dirty = TRUE
+END SUB
+
+''
+' The undo state of clip layer slot: its type + its instance.
+FUNCTION CLIP_state$ (slot AS INTEGER)
+    DIM k AS INTEGER
+    k = CLIP_inst_by_id%(LAYERS(slot).historyId&)
+    IF k = 0 THEN EXIT FUNCTION
+    DIM cb AS STRING
+    cb = CLIP_cues_blob$(CLIP_INST(k).src)
+    ' type, instance, its source's cues (length first), its lanes
+    CLIP_state$ = MKI$(LAYERS(slot).layerType%) + CLIP_inst_blob$(k) + MKL$(LEN(cb)) + cb + CLIP_lanes_blob$(k)
+END FUNCTION
+
+''
+' Undo / redo: put back a CLIP_state$ on the layer with historyId id.
+SUB CLIP_history_apply (id AS LONG, st AS STRING)
+    DIM slot AS INTEGER, k AS INTEGER
+    IF LEN(st) < 22 THEN EXIT SUB
+    slot = HISTORY_find_layer_slot_by_id%(id)
+    IF slot = 0 THEN EXIT SUB
+    k = CLIP_inst_new_keep%(id)
+    IF k = 0 THEN EXIT SUB
+    LAYERS(slot).layerType% = CVI(LEFT$(st, 2))
+    CLIP_inst_from_blob k, MID$(st, 3)
+    IF LEN(st) >= 26 THEN
+        DIM cl AS LONG
+        cl = CVL(MID$(st, 23, 4))
+        CLIP_cues_from_blob CLIP_INST(k).src, MID$(st, 27, cl) ' its source's sound cues
+        CLIP_lanes_from_blob k, MID$(st, 27 + cl) ' its lanes
+    END IF
+    IF LAYERS(slot).layerType% = LAYER_TYPE_CLIP THEN CLIP_rebuild slot
+    LAYERS(slot).contentDirty% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' The instance for id, made if it is not there (keeps one that is).
+FUNCTION CLIP_inst_new_keep% (id AS LONG)
+    DIM k AS INTEGER
+    k = CLIP_inst_by_id%(id)
+    IF k = 0 THEN k = CLIP_inst_new%(id)
+    CLIP_inst_new_keep% = k
+END FUNCTION
+
+''
+' Record a change to the current clip: call with the state before it.
+SUB CLIP_record (before AS STRING, label AS STRING)
+    DIM after AS STRING
+    IF CURRENT_LAYER% < 1 _ORELSE CURRENT_LAYER% > MAX_LAYERS THEN EXIT SUB
+    DIM top AS INTEGER, p AS STRING
+    after = CLIP_state$(CURRENT_LAYER%)
+    IF after = before _ORELSE before = "" THEN EXIT SUB
+    ' a held panel drag (CLIP_KEY): while the top undo step is this press's, it
+    ' takes the new "after" (dragging IN up ten frames is one step)
+    top = HISTORY.current%
+    IF CLIP_KEY <> 0 _ANDALSO CLIP_KEY = CLIP_LAST_KEY _ANDALSO top > 0 _ANDALSO top = CLIP_LAST_REC _ANDALSO top = HISTORY.count% THEN
+        IF HISTORY_RECORDS(top).kind% = HISTORY_KIND_CLIP _ANDALSO HISTORY_RECORDS(top).primaryLayerId& = LAYERS(CURRENT_LAYER%).historyId& _ANDALSO LEN(HISTORY_PAYLOADS(top)) >= 4 THEN
+            p = HISTORY_PAYLOADS(top)
+            HISTORY_PAYLOADS(top) = LEFT$(p, 4 + CVL(LEFT$(p, 4))) + after
+            HISTORY_RECORDS(top).payloadLength& = LEN(HISTORY_PAYLOADS(top))
+            EXIT SUB
+        END IF
+    END IF
+    HISTORY_record_clip LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, before, after, label
+    HISTORY_saved_this_frame% = TRUE
+    CLIP_LAST_KEY = CLIP_KEY: CLIP_LAST_REC = HISTORY.current%
+END SUB
+
+''
+' CLIP_set from an Animation panel press (pressKey: a held drag is one undo step).
+SUB CLIP_set_keyed (which AS INTEGER, v AS LONG, pressKey AS LONG)
+    CLIP_KEY = pressKey
+    CLIP_set which, v
+    CLIP_KEY = 0
+END SUB
+
+''
+' Set one setting of the current clip (the Animation panel's clip rows, the
+' menu): field 1 In, 2 Out, 3 start cel, 4 every, 5 mode, 6 flip X, 7 flip Y,
+' 8 x, 9 y. One undo step each.
+SUB CLIP_set (which AS INTEGER, v AS LONG)
+    DIM k AS INTEGER, before AS STRING, n AS INTEGER, lbl AS STRING
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    before = CLIP_state$(CURRENT_LAYER%)
+    n = 1: IF CLIP_INST(k).src >= 1 _ANDALSO CLIP_INST(k).src <= CLIP_SRC_N THEN n = CLIP_SRC(CLIP_INST(k).src).n
+    SELECT CASE which
+        CASE 1: CLIP_INST(k).inF = _MAX(1, _MIN(v, ANIM.count)): lbl = "Clip In"
+            IF CLIP_INST(k).outF > 0 _ANDALSO CLIP_INST(k).outF < CLIP_INST(k).inF THEN CLIP_INST(k).outF = CLIP_INST(k).inF
+        CASE 2: lbl = "Clip Out"
+            IF v <= 0 THEN CLIP_INST(k).outF = 0 ELSE CLIP_INST(k).outF = _MAX(CLIP_INST(k).inF, _MIN(v, ANIM.count))
+        CASE 3: CLIP_INST(k).startCel = _MAX(1, _MIN(v, n)): lbl = "Clip Start Cel"
+        CASE 4: CLIP_INST(k).every = _MAX(1, _MIN(v, 99)): lbl = "Clip Every"
+        CASE 5: IF v >= CLIP_MODE_LOOP _ANDALSO v <= CLIP_MODE_REV THEN CLIP_INST(k).mode = v
+            lbl = "Clip Mode"
+        CASE 6: CLIP_INST(k).flipX = _IIF(v, TRUE, FALSE): lbl = "Clip Flip X"
+        CASE 7: CLIP_INST(k).flipY = _IIF(v, TRUE, FALSE): lbl = "Clip Flip Y"
+        CASE 8: CLIP_INST(k).px = _MAX(-9999, _MIN(v, 9999)): lbl = "Clip Move"
+        CASE 9: CLIP_INST(k).py = _MAX(-9999, _MIN(v, 9999)): lbl = "Clip Move"
+        CASE 20 TO 31: lbl = CLIP_lane_set$(k, which, v)
+        CASE 10: lbl = "Clip Source" ' another of the document's sources (the SOURCE row's < / >)
+            IF v >= 1 _ANDALSO v <= CLIP_SRC_N THEN
+                IF CLIP_SRC(v).strip < -1 THEN
+                    CLIP_INST(k).src = v
+                    IF CLIP_INST(k).startCel > CLIP_SRC(v).n THEN CLIP_INST(k).startCel = 1
+                END IF
+            END IF
+    END SELECT
+    CLIP_rebuild CURRENT_LAYER%
+    CLIP_record before, lbl
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+FUNCTION CLIP_get& (which AS INTEGER)
+    DIM k AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN EXIT FUNCTION
+    SELECT CASE which
+        CASE 1: CLIP_get& = CLIP_INST(k).inF
+        CASE 2: CLIP_get& = CLIP_INST(k).outF
+        CASE 3: CLIP_get& = CLIP_INST(k).startCel
+        CASE 4: CLIP_get& = CLIP_INST(k).every
+        CASE 5: CLIP_get& = CLIP_INST(k).mode
+        CASE 6: CLIP_get& = CLIP_INST(k).flipX
+        CASE 7: CLIP_get& = CLIP_INST(k).flipY
+        CASE 8: CLIP_get& = CLIP_INST(k).px
+        CASE 9: CLIP_get& = CLIP_INST(k).py
+        CASE 10: CLIP_get& = CLIP_INST(k).src
+        CASE 20 TO 25: CLIP_get& = CLIP_lane_get&(k, which)
+    END SELECT
+END FUNCTION
+
+''
+' The panel's lane fields of instance k (on the picked lane, at the current
+' frame): 20 the keyed value, 21 / 22 / 23 the modulator's amount / period /
+' phase (noise: seed), 24 the modulator (0 off, 1-4 LFO sine / triangle /
+' square / saw, 5 noise), 25 the ease of the key at / before this frame (-1 none).
+FUNCTION CLIP_lane_get& (k AS INTEGER, which AS INTEGER)
+    DIM L AS INTEGER, rel AS INTEGER, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, i AS INTEGER
+    L = CLIP_LANE_PICK: rel = ANIM.current - CLIP_INST(k).inF
+    CLIP_mod_unpack CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed
+    SELECT CASE which
+        CASE 20: CLIP_lane_get& = CINT(CLIP_lane_keyed!(CLIP_LN_KEYS(k, L), rel, CLIP_lane_default!(k, L)))
+        CASE 21: CLIP_lane_get& = CINT(amount)
+        CASE 22: CLIP_lane_get& = CINT(period)
+        CASE 23: IF kind = 2 THEN CLIP_lane_get& = seed ELSE CLIP_lane_get& = CINT(phase)
+        CASE 24: IF kind = 1 THEN CLIP_lane_get& = 1 + shape ELSE IF kind = 2 THEN CLIP_lane_get& = 5
+        CASE 25
+            i = CLIP_lk_at_or_before%(CLIP_LN_KEYS(k, L), rel)
+            IF i THEN CLIP_lane_get& = CLIP_lk_e%(CLIP_LN_KEYS(k, L), i) ELSE CLIP_lane_get& = -1
+    END SELECT
+END FUNCTION
+
+FUNCTION CLIP_lane_clamp! (L AS INTEGER, v AS SINGLE)
+    DIM lo AS SINGLE, hi AS SINGLE
+    lo = -9999: hi = 9999
+    SELECT CASE L
+        CASE CLIP_LANE_SX, CLIP_LANE_SY: lo = 0: hi = 1000
+        CASE CLIP_LANE_ROT: lo = -3600: hi = 3600
+        CASE CLIP_LANE_OP, CLIP_LANE_TINT: lo = 0: hi = 100
+        CASE CLIP_LANE_VOL: lo = 0: hi = 200
+        CASE CLIP_LANE_PAN: lo = -100: hi = 100
+    END SELECT
+    CLIP_lane_clamp! = _MAX(lo, _MIN(hi, v))
+END FUNCTION
+
+''
+' A new modulator's amount on lane L (a visible wobble).
+FUNCTION CLIP_mod_default_amount! (L AS INTEGER)
+    SELECT CASE L
+        CASE CLIP_LANE_X, CLIP_LANE_Y, CLIP_LANE_PVX, CLIP_LANE_PVY: CLIP_mod_default_amount! = 2
+        CASE CLIP_LANE_SX, CLIP_LANE_SY: CLIP_mod_default_amount! = 10
+        CASE CLIP_LANE_ROT: CLIP_mod_default_amount! = 15
+        CASE CLIP_LANE_OP, CLIP_LANE_VOL: CLIP_mod_default_amount! = 30
+        CASE ELSE: CLIP_mod_default_amount! = 50
+    END SELECT
+END FUNCTION
+
+''
+' CLIP_set's lane fields (20-31) on instance k; returns the undo label.
+FUNCTION CLIP_lane_set$ (k AS INTEGER, which AS INTEGER, v AS LONG)
+    DIM L AS INTEGER, rel AS INTEGER, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    DIM ks AS STRING, i AS INTEGER, nm AS STRING
+    L = CLIP_LANE_PICK: rel = ANIM.current - CLIP_INST(k).inF: nm = CLIP_lane_name$(L)
+    CLIP_mod_unpack CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed
+    ks = CLIP_LN_KEYS(k, L)
+    SELECT CASE which
+        CASE 20 ' auto-key: the value on this frame
+            CLIP_LN_KEYS(k, L) = CLIP_lks_put$(ks, rel, CLIP_lane_clamp!(L, v), CLIP_EASE_LINEAR)
+            CLIP_lane_set$ = "Clip Key " + nm
+        CASE 21 TO 23
+            IF kind = 0 THEN kind = 1: shape = 0: amount = CLIP_mod_default_amount!(L) ' a box set while OFF turns on a sine
+            SELECT CASE which
+                CASE 21: amount = _MAX(-9999, _MIN(9999, v))
+                CASE 22: period = _MAX(1, _MIN(999, v))
+                CASE 23: IF kind = 2 THEN seed = v ELSE phase = _MAX(-999, _MIN(999, v))
+            END SELECT
+            CLIP_LN_MOD(k, L) = CLIP_mod_pack$(kind, shape, amount, period, phase, seed)
+            CLIP_lane_set$ = "Clip Modulator " + nm
+        CASE 24
+            IF kind = 0 THEN amount = CLIP_mod_default_amount!(L)
+            SELECT CASE v
+                CASE 1 TO 4: kind = 1: shape = v - 1
+                CASE 5: kind = 2
+                CASE ELSE: kind = 0
+            END SELECT
+            CLIP_LN_MOD(k, L) = CLIP_mod_pack$(kind, shape, amount, period, phase, seed)
+            CLIP_lane_set$ = "Clip Modulator " + nm
+        CASE 25
+            i = CLIP_lk_at_or_before%(ks, rel)
+            IF i THEN CLIP_LN_KEYS(k, L) = CLIP_lks_put$(LEFT$(ks, (i - 1) * 8) + MID$(ks, i * 8 + 1), CLIP_lk_f%(ks, i), CLIP_lk_v!(ks, i), _MAX(0, _MIN(4, v)))
+            CLIP_lane_set$ = "Clip Key Ease"
+        CASE 26: CLIP_LN_KEYS(k, L) = CLIP_lks_put$(ks, rel, CLIP_lane_keyed!(ks, rel, CLIP_lane_default!(k, L)), CLIP_EASE_LINEAR): CLIP_lane_set$ = "Clip Key " + nm
+        CASE 27: CLIP_LN_KEYS(k, L) = CLIP_lks_del$(ks, rel): CLIP_lane_set$ = "Clip Delete Key"
+        CASE 28: CLIP_LN_KEYS(k, L) = "": CLIP_LN_MOD(k, L) = "": CLIP_lane_set$ = "Clip Clear Lane"
+        CASE 29
+            DIM keepTint AS _UNSIGNED LONG
+            keepTint = CLIP_INST(k).tint: CLIP_lanes_clear k: CLIP_INST(k).tint = keepTint
+            CLIP_lane_set$ = "Clip Clear Lanes"
+        CASE 30: IF LEN(CLIP_LANES_CLIPBOARD) THEN CLIP_lanes_from_blob k, CLIP_LANES_CLIPBOARD
+            CLIP_lane_set$ = "Clip Paste Lanes"
+        CASE 31: CLIP_INST(k).tint = v: CLIP_lane_set$ = "Clip Tint Colour"
+    END SELECT
+END FUNCTION
+
+''
+' Bake Clip to Pixels: the clip layer becomes a plain layer with the pixels it
+' shows (one undo step; undo brings the clip back).
+SUB CLIP_bake ()
+    DIM before AS STRING, slot AS INTEGER, k AS INTEGER, n AS INTEGER, keep AS INTEGER, grp AS INTEGER
+    DIM trk AS INTEGER, i AS INTEGER, added AS INTEGER, sb AS STRING, msg AS STRING
+    slot = CURRENT_LAYER%
+    k = CLIP_inst_of%(slot)
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    ' its sounds (K10): keep them as soundtrack clips?
+    DIM sp(1 TO ANIM_GC_MAX) AS STRING, sat(1 TO ANIM_GC_MAX) AS LONG
+    n = CLIP_cue_events%(slot, sp(), sat())
+    IF n > 0 THEN
+        trk = CLIP_free_track%
+        POINTER_hide_for_dialog
+        keep = DRAW_confirm%("Bake Clip", "This clip plays" + STR$(n) + " sound" + _IIF(n = 1, "", "s") + "." + CHR$(10) + CHR$(10) + _
+            "Keep " + _IIF(n = 1, "it", "them") + " as ordinary soundtrack clips on track" + STR$(trk) + "?" + CHR$(10) + _
+            "(No: the baked layer is silent.)")
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+    END IF
+    IF keep _ANDALSO NOT HISTORY_IN_PROGRESS% _ANDALSO NOT HISTORY_GROUP_ACTIVE% THEN HISTORY_begin_group: grp = TRUE
+    CLIP_rebuild slot ' the pixels it shows now
+    before = CLIP_state$(slot)
+    LAYERS(slot).layerType% = LAYER_TYPE_IMAGE
+    CLIP_record before, "Bake Clip"
+    IF keep THEN
+        sb = ANIM_OPS_snapshot$(FALSE)
+        FOR i = 1 TO n
+            IF ANIM_SC_add%(sp(i), trk, sat(i), 0, 0) = 0 THEN EXIT FOR
+            added = added + 1
+        NEXT i
+        IF added > 0 THEN ANIM_OPS_record sb, ANIM_OPS_snapshot$(FALSE), "Bake Clip Sounds", 0: ANIM_SC_changed
+        IF grp THEN HISTORY_end_group
+        HISTORY_saved_this_frame% = TRUE
+    END IF
+    LAYERS(slot).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    GUI_NEEDS_REDRAW% = TRUE
+    msg = "Clip baked to pixels: " + AB_clean$(LAYERS(slot).name)
+    IF keep THEN
+        msg = msg + ";" + STR$(added) + " sound" + _IIF(added = 1, "", "s") + " on soundtrack track" + STR$(trk)
+        IF added < n THEN msg = msg + " (" + _TRIM$(STR$(n - added)) + " left out: at most" + STR$(ANIM_SC_MAX) + " soundtrack clips)"
+    END IF
+    STATUS_flash msg
+END SUB
+
+''
+' Clip layer slot's sounds, heard or not: each sound's file and the ms its
+' frame starts (the way CLIP_cues_gen makes them). How many (at most ANIM_GC_MAX).
+FUNCTION CLIP_cue_events% (slot AS INTEGER, sp() AS STRING, sat() AS LONG)
+    DIM k AS INTEGER, s AS INTEGER, f AS INTEGER, q AS INTEGER, lastF AS INTEGER, n AS INTEGER, acc AS DOUBLE
+    k = CLIP_inst_of%(slot)
+    IF k = 0 _ORELSE ANIM.active = 0 _ORELSE ANIM.count < 1 _ORELSE ANIM.fps < 1 THEN EXIT FUNCTION
+    s = CLIP_INST(k).src
+    IF s < 1 _ORELSE s > CLIP_SRC_N THEN EXIT FUNCTION
+    IF CLIP_cues_of%(s) = 0 THEN EXIT FUNCTION
+    DIM t(1 TO ANIM.count) AS LONG
+    FOR f = 1 TO ANIM.count
+        t(f) = INT(acc + 0.5): acc = acc + 1000# * ANIM_hold%(f) / ANIM.fps
+    NEXT f
+    lastF = CLIP_INST(k).outF: IF lastF < 1 _ORELSE lastF > ANIM.count THEN lastF = ANIM.count
+    FOR f = _MAX(1, CLIP_INST(k).inF) TO lastF
+        FOR q = 1 TO CLIP_CUE_N
+            IF CLIP_CUE_SRC(q) = s THEN
+                IF CLIP_cue_fires%(CLIP_CUE_KIND(q), CLIP_CUE_CELN(q), f, CLIP_SRC(s).n, CLIP_INST(k).every, CLIP_INST(k).startCel, CLIP_INST(k).inF, CLIP_INST(k).outF, CLIP_INST(k).mode) THEN
+                    IF n >= UBOUND(sp) THEN CLIP_cue_events% = n: EXIT FUNCTION
+                    n = n + 1: sp(n) = CLIP_CUE_PATH(q): sat(n) = t(f)
+                END IF
+            END IF
+        NEXT q
+    NEXT f
+    CLIP_cue_events% = n
+END FUNCTION
+
+''
+' A soundtrack track with no clips on it (else the last track: clips on one track mix).
+FUNCTION CLIP_free_track% ()
+    DIM t AS INTEGER, i AS INTEGER, used AS INTEGER
+    FOR t = 1 TO ANIM_SC_TRACKS
+        used = FALSE
+        FOR i = 1 TO ANIM_SC_N
+            IF ANIM_SC_TRK(i) = t THEN used = TRUE: EXIT FOR
+        NEXT i
+        IF used = FALSE THEN CLIP_free_track% = t: EXIT FUNCTION
+    NEXT t
+    CLIP_free_track% = ANIM_SC_TRACKS
+END FUNCTION
+
+''
+' An animated GIF / APNG dropped on the canvas (INPUT/DROP) while there are
+' frames: it becomes the AnimBrush and is placed as a clip, cel 1 in the frame
+' under the pointer, centred on it. FALSE = not such a file (the drop goes on
+' as a picture). A .draw still opens and a plain PNG still stamps.
+FUNCTION CLIP_drop_file% (filename AS STRING)
+    DIM ff AS INTEGER, s AS STRING, n AS INTEGER, nm AS STRING, dot AS LONG, f AS INTEGER, why AS STRING
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 2 _ORELSE _FILEEXISTS(filename) = 0 THEN EXIT FUNCTION
+    ff = FREEFILE
+    OPEN filename FOR BINARY AS #ff
+    IF LOF(ff) > 268435456 THEN CLOSE #ff: EXIT FUNCTION
+    s = SPACE$(LOF(ff)): GET #ff, 1, s
+    CLOSE #ff
+    IF LEFT$(s, 4) <> "GIF8" _ANDALSO LEN(AB_png_chunk$(s, "acTL")) = 0 THEN EXIT FUNCTION
+    s = ""
+    n = AB_frames_from_file%(filename)
+    IF n < 2 THEN AB_ld_free: EXIT FUNCTION ' one frame: a picture
+    CLIP_drop_file% = TRUE
+    why = ANIM_OPS_busy$: IF why <> "" THEN AB_ld_free: STATUS_flash why: EXIT FUNCTION
+    IF AB_install_loaded%(n) = FALSE THEN STATUS_flash "Place as Clip: nothing drawn in its frames": EXIT FUNCTION
+    nm = MID$(filename, _MAX(_INSTRREV(filename, "/"), _INSTRREV(filename, "\")) + 1)
+    dot = _INSTRREV(nm, ".")
+    IF dot > 1 THEN AB.nm = LEFT$(nm, dot - 1) ELSE AB.nm = nm
+    MVB_cancel
+    f = AB_frame_of%(CLNG(MOUSE.X%), CLNG(MOUSE.Y%))
+    CLIP_place_at f, MOUSE.X% - AB.w \ 2, MOUSE.Y% - AB.h \ 2
+END FUNCTION
+
+''
+' Make Clip from Selected Frames: the marquee's area of the selected frames (all
+' of them, none selected) is picked up as an AnimBrush, cut from the current
+' layer and placed as a clip that shows it where it was - In = the first of
+' those frames, Out = the last; the frames look the same. One undo step.
+SUB CLIP_make ()
+    DIM slot AS INTEGER, img AS LONG, before AS LONG, bx AS LONG, by AS LONG, bw AS LONG, bh AS LONG
+    DIM sf AS INTEGER, sx AS LONG, sy AS LONG, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG
+    DIM aw AS INTEGER, ah AS INTEGER, k AS INTEGER, n AS INTEGER, f1 AS INTEGER, outF AS INTEGER
+    DIM m AS _MEM, mc AS _MEM, px AS LONG, py AS LONG, qx AS LONG, qy AS LONG, c AS _UNSIGNED LONG
+    DIM iw AS LONG, ih AS LONG, grp AS INTEGER, why AS STRING
+    IF ANIM.active = FALSE THEN STATUS_flash "Clip layers need frames: ANIM > Add Frame (Num +) first": EXIT SUB
+    why = ANIM_OPS_busy$: IF why <> "" THEN STATUS_flash why: EXIT SUB
+    IF MARQUEE.ACTIVE% = 0 _ORELSE MARQUEE.BOX.w <= 0 _ORELSE MARQUEE.BOX.h <= 0 THEN STATUS_flash "Make Clip: select an area in a frame first": EXIT SUB
+    slot = CURRENT_LAYER%
+    IF slot < 1 _ORELSE slot > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(slot).layerType% <> LAYER_TYPE_IMAGE THEN STATUS_flash "Make Clip: select an area on a pixel layer": EXIT SUB
+    bx = MARQUEE.BOX.x: by = MARQUEE.BOX.y: bw = MARQUEE.BOX.w: bh = MARQUEE.BOX.h
+    sf = ANIM_frame_at%(bx + bw \ 2, by + bh \ 2)
+    IF sf < 1 THEN sf = ANIM.current
+    IF ANIM_cell_rect%(sf, sx, sy, fw, fh) = 0 THEN STATUS_flash "Make Clip: the selection is not in a frame": EXIT SUB
+    AB_pick_up FALSE ' (says why when it cannot)
+    IF AB_active% = 0 _ORELSE AB.w <> bw _ORELSE AB.h <> bh THEN EXIT SUB
+    n = AB.n: f1 = AB_FROM(1)
+    ' cut what went into the cels: each cel's drawn pixels, from its frame
+    img = LAYERS(slot).imgHandle&
+    IF img >= -1 THEN EXIT SUB
+    aw = LAYERS(slot).apronW%: ah = LAYERS(slot).apronH%
+    iw = _WIDTH(img): ih = _HEIGHT(img)
+    before = _COPYIMAGE(img, 32)
+    m = _MEMIMAGE(img)
+    FOR k = 1 TO n
+        IF AB_CEL(k) < -1 _ANDALSO ANIM_cell_rect%(AB_FROM(k), fx, fy, fw, fh) THEN
+            mc = _MEMIMAGE(AB_CEL(k))
+            FOR py = 0 TO bh - 1
+                FOR px = 0 TO bw - 1
+                    _MEMGET mc, mc.OFFSET + (py * bw + px) * 4, c
+                    IF _ALPHA32(c) THEN
+                        qx = bx + px + (fx - sx) + aw: qy = by + py + (fy - sy) + ah
+                        IF qx >= 0 _ANDALSO qy >= 0 _ANDALSO qx < iw _ANDALSO qy < ih THEN _MEMPUT m, m.OFFSET + (qy * iw + qx) * 4, 0 AS _UNSIGNED LONG
+                    END IF
+                NEXT px
+            NEXT py
+            _MEMFREE mc
+        END IF
+    NEXT k
+    _MEMFREE m
+    LAYERS(slot).contentDirty% = TRUE
+    IF NOT HISTORY_IN_PROGRESS% _ANDALSO NOT HISTORY_GROUP_ACTIVE% THEN HISTORY_begin_group: grp = TRUE
+    HISTORY_record_transform LAYERS(slot).historyId&, slot, 0, before, "Make Clip"
+    ' Out: the last picked frame (the cels in a row from In look as before)
+    outF = f1 + n - 1
+    IF outF >= ANIM.count THEN outF = 0
+    IF ANIM_cell_rect%(f1, fx, fy, fw, fh) THEN
+        IF CLIP_place_core%(f1, bx + (fx - sx), by + (fy - sy), outF, CLIP_MODE_LOOP) THEN
+            STATUS_flash "Made a clip of" + STR$(n) + " frames (" + _TRIM$(STR$(f1)) + "-" + _TRIM$(STR$(f1 + n - 1)) + ") - the frames look the same; ANIM panel: In / Out / Every / mode"
+        END IF
+    END IF
+    IF grp THEN HISTORY_end_group
+    HISTORY_saved_this_frame% = TRUE
+END SUB
+
+' ---------------------------------------------------------------------------
+' Clip sources (phase 2 K6): the document's table of cels. The Animation
+' panel's SOURCE row steps the current clip through them (< / >), renames its
+' source and selects the layers using it; Clip Sources... lists them all;
+' Remove Unused Clip Sources takes the unused ones off the list (they stay in
+' memory for undo, and a save never writes them).
+' ---------------------------------------------------------------------------
+
+''
+' How many clip layers use source s.
+FUNCTION CLIP_src_users% (s AS INTEGER)
+    DIM i AS INTEGER, k AS INTEGER, n AS INTEGER
+    FOR i = 1 TO MAX_LAYERS
+        k = CLIP_inst_of%(i)
+        IF k THEN IF CLIP_INST(k).src = s THEN n = n + 1
+    NEXT i
+    CLIP_src_users% = n
+END FUNCTION
+
+''
+' Is source s on the list (it has cels; removed only while no layer uses it)?
+FUNCTION CLIP_src_listed% (s AS INTEGER)
+    IF s < 1 _ORELSE s > CLIP_SRC_N THEN EXIT FUNCTION
+    IF CLIP_SRC(s).strip >= -1 THEN EXIT FUNCTION
+    IF CLIP_SRC(s).gone _ANDALSO CLIP_src_users%(s) = 0 THEN EXIT FUNCTION
+    CLIP_src_listed% = TRUE
+END FUNCTION
+
+''
+' Source s in a line: "name - n cels w x h - m layers".
+FUNCTION CLIP_src_desc$ (s AS INTEGER)
+    DIM u AS INTEGER, t AS STRING
+    u = CLIP_src_users%(s)
+    t = AB_clean$(CLIP_SRC(s).nm) + " -" + STR$(CLIP_SRC(s).n) + " cels" + STR$(CLIP_SRC(s).cw) + "x" + _TRIM$(STR$(CLIP_SRC(s).ch)) + " - "
+    IF u = 0 THEN t = t + "not used" ELSE t = t + "used by" + STR$(u) + _IIF(u = 1, " layer", " layers")
+    CLIP_src_desc$ = t
+END FUNCTION
+
+''
+' The current clip: the previous (dir -1) / next (1) source on the list. One undo step.
+SUB CLIP_src_step (dir AS INTEGER)
+    DIM k AS INTEGER, s AS INTEGER, i AS INTEGER, n AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src: i = s
+    FOR n = 1 TO CLIP_SRC_N
+        i = i + SGN(dir)
+        IF i > CLIP_SRC_N THEN i = 1
+        IF i < 1 THEN i = CLIP_SRC_N
+        IF CLIP_src_listed%(i) THEN EXIT FOR
+    NEXT n
+    IF i = s _ORELSE CLIP_src_listed%(i) = 0 THEN STATUS_flash "This document has one clip source": EXIT SUB
+    CLIP_set 10, i
+    STATUS_flash "Clip source " + _TRIM$(STR$(i)) + ": " + CLIP_src_desc$(i)
+END SUB
+
+''
+' Rename the current clip's source (every clip on it shows the new name; not an undo step).
+SUB CLIP_src_rename ()
+    DIM k AS INTEGER, s AS INTEGER, t AS STRING
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    IF s < 1 _ORELSE s > CLIP_SRC_N THEN EXIT SUB
+    POINTER_hide_for_dialog
+    t = DRAW_input_box_ex$("Clip Source", "A name for this clip source (" + _TRIM$(STR$(CLIP_SRC(s).n)) + " cels):", AB_clean$(CLIP_SRC(s).nm), "A name", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    t = _TRIM$(t)
+    IF t = "" THEN EXIT SUB ' cancelled
+    CLIP_SRC(s).nm = LEFT$(t, 32)
+    STATUS_flash "Clip source renamed: " + CLIP_src_desc$(s)
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Select every layer using the current clip's source (the layers panel's multi-select).
+SUB CLIP_src_select_layers ()
+    DIM k AS INTEGER, s AS INTEGER, i AS INTEGER, kk AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    MULTI_SELECT_clear
+    FOR i = 1 TO MAX_LAYERS
+        kk = CLIP_inst_of%(i)
+        IF kk _ANDALSO i <> CURRENT_LAYER% THEN
+            IF CLIP_INST(kk).src = s _ANDALSO MULTI_SELECT_LAYERS(i) = 0 THEN MULTI_SELECT_toggle i
+        END IF
+    NEXT i
+    STATUS_flash "Selected the" + STR$(MULTI_SELECT_COUNT%) + " layer(s) using clip source '" + AB_clean$(CLIP_SRC(s).nm) + "'"
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' ANIM > Clip Layer > Clip Sources...: every source on the list and the layers using it.
+SUB CLIP_sources_show ()
+    DIM s AS INTEGER, i AS INTEGER, k AS INTEGER, t AS STRING, ln AS STRING, n AS INTEGER, un AS INTEGER
+    FOR s = 1 TO CLIP_SRC_N
+        IF CLIP_src_listed%(s) THEN
+            n = n + 1
+            t = t + _TRIM$(STR$(s)) + ". " + CLIP_src_desc$(s) + CHR$(10)
+            ln = ""
+            FOR i = 1 TO MAX_LAYERS
+                k = CLIP_inst_of%(i)
+                IF k THEN IF CLIP_INST(k).src = s THEN ln = ln + _IIF(ln = "", "", ", ") + AB_clean$(LAYERS(i).name)
+            NEXT i
+            IF ln <> "" THEN t = t + "   " + ln + CHR$(10) ELSE un = un + 1
+        END IF
+    NEXT s
+    IF n = 0 THEN t = "This document has no clip sources." + CHR$(10) + "ANIM > Clip Layer > Place AnimBrush as Clip makes one." ELSE t = _TRIM$(STR$(n)) + " clip source" + _IIF(n = 1, "", "s") + ":" + CHR$(10) + CHR$(10) + t
+    IF un > 0 THEN t = t + CHR$(10) + "ANIM > Clip Layer > Remove Unused Clip Sources takes the unused ones off this list."
+    t = t + CHR$(10) + "On a clip layer, the Animation panel's SOURCE row picks / renames its source."
+    POINTER_hide_for_dialog
+    DRAW_alert "Clip Sources", t
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+END SUB
+
+''
+' ANIM > Clip Layer > Remove Unused Clip Sources: the sources no layer uses go
+' off the list (kept for undo; a save never writes them).
+SUB CLIP_sources_purge ()
+    DIM s AS INTEGER, n AS INTEGER
+    FOR s = 1 TO CLIP_SRC_N
+        IF CLIP_SRC(s).strip < -1 _ANDALSO CLIP_SRC(s).gone = 0 THEN
+            IF CLIP_src_users%(s) = 0 THEN CLIP_SRC(s).gone = TRUE: n = n + 1
+        END IF
+    NEXT s
+    IF n = 0 THEN STATUS_flash "No unused clip sources" ELSE STATUS_flash "Removed" + STR$(n) + " unused clip source" + _IIF(n = 1, "", "s") + " from the list"
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+' ---------------------------------------------------------------------------
+' Sound cues (phase 2 K7): the table, its undo blob, the commands.
+' ---------------------------------------------------------------------------
+
+''
+' Source s's cues as a blob: MKI n, per cue MKI kind, MKI cel, MKI path
+' length, the path.
+FUNCTION CLIP_cues_blob$ (s AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER, t AS STRING
+    FOR i = 1 TO CLIP_CUE_N
+        IF CLIP_CUE_SRC(i) = s THEN
+            n = n + 1
+            t = t + MKI$(CLIP_CUE_KIND(i)) + MKI$(CLIP_CUE_CELN(i)) + MKI$(LEN(CLIP_CUE_PATH(i))) + CLIP_CUE_PATH(i)
+        END IF
+    NEXT i
+    CLIP_cues_blob$ = MKI$(n) + t
+END FUNCTION
+
+''
+' Source s's cues become the ones in blob b (CLIP_cues_blob$).
+SUB CLIP_cues_from_blob (s AS INTEGER, b AS STRING)
+    DIM n AS INTEGER, j AS INTEGER, p AS LONG, kind AS INTEGER, cel AS INTEGER, pl AS INTEGER
+    CLIP_cues_drop s
+    IF LEN(b) < 2 THEN EXIT SUB
+    n = CVI(LEFT$(b, 2)): p = 3
+    FOR j = 1 TO n
+        IF p + 5 > LEN(b) THEN EXIT FOR
+        kind = CVI(MID$(b, p, 2)): cel = CVI(MID$(b, p + 2, 2)): pl = CVI(MID$(b, p + 4, 2))
+        IF pl < 0 _ORELSE p + 5 + pl > LEN(b) THEN EXIT FOR
+        IF CLIP_cue_put%(s, kind, cel, MID$(b, p + 6, pl)) = 0 THEN EXIT FOR
+        p = p + 6 + pl
+    NEXT j
+END SUB
+
+''
+' Every cue of source s goes.
+SUB CLIP_cues_drop (s AS INTEGER)
+    DIM i AS INTEGER, j AS INTEGER
+    FOR i = 1 TO CLIP_CUE_N
+        IF CLIP_CUE_SRC(i) <> s THEN
+            j = j + 1
+            IF j <> i THEN
+                CLIP_CUE_SRC(j) = CLIP_CUE_SRC(i): CLIP_CUE_KIND(j) = CLIP_CUE_KIND(i)
+                CLIP_CUE_CELN(j) = CLIP_CUE_CELN(i): CLIP_CUE_PATH(j) = CLIP_CUE_PATH(i)
+            END IF
+        END IF
+    NEXT i
+    FOR i = j + 1 TO CLIP_CUE_N: CLIP_CUE_PATH(i) = "": CLIP_CUE_SRC(i) = 0: NEXT i
+    CLIP_CUE_N = j
+END SUB
+
+''
+' A cue at the end of the table (0 = full).
+FUNCTION CLIP_cue_put% (s AS INTEGER, kind AS INTEGER, cel AS INTEGER, path AS STRING)
+    IF CLIP_CUE_N >= CLIP_CUE_MAX _ORELSE kind < CLIP_CUEK_CEL _ORELSE kind > CLIP_CUEK_LOOP THEN EXIT FUNCTION
+    CLIP_CUE_N = CLIP_CUE_N + 1
+    CLIP_CUE_SRC(CLIP_CUE_N) = s: CLIP_CUE_KIND(CLIP_CUE_N) = kind
+    CLIP_CUE_CELN(CLIP_CUE_N) = _IIF(kind = CLIP_CUEK_CEL, cel, 0): CLIP_CUE_PATH(CLIP_CUE_N) = path
+    CLIP_cue_put% = CLIP_CUE_N
+END FUNCTION
+
+''
+' How many cues source s has.
+FUNCTION CLIP_cues_of% (s AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO CLIP_CUE_N
+        IF CLIP_CUE_SRC(i) = s THEN n = n + 1
+    NEXT i
+    CLIP_cues_of% = n
+END FUNCTION
+
+''
+' A sound file's name, for messages and the dump.
+FUNCTION CLIP_cue_name$ (p AS STRING)
+    CLIP_cue_name$ = MID$(p, _MAX(_INSTRREV(p, "/"), _INSTRREV(p, "\")) + 1)
+END FUNCTION
+
+''
+' Add a sound cue to the current clip's source (kind CLIP_CUEK_*): pick a
+' file; CEL plays on the cel the current frame shows. One undo step.
+SUB CLIP_cue_add (kind AS INTEGER)
+    DIM k AS INTEGER, s AS INTEGER, c AS INTEGER, f AS STRING, h AS LONG, i AS INTEGER, before AS STRING
+    DIM lbl AS STRING, default_path AS STRING, n AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    IF s < 1 _ORELSE s > CLIP_SRC_N THEN EXIT SUB
+    IF kind = CLIP_CUEK_CEL THEN
+        c = CLIP_cel_at%(k, ANIM.current)
+        IF c = 0 THEN STATUS_flash "Frame" + STR$(ANIM.current) + " shows none of this clip's cels - go to a frame where it shows the cel": EXIT SUB
+        lbl = "Sound on Cel" + STR$(c)
+    ELSEIF kind = CLIP_CUEK_ONCE THEN
+        lbl = "Sound When the Clip Starts"
+    ELSE
+        lbl = "Sound Each Time the Clip Starts Over"
+    END IF
+    IF CLIP_CUE_N >= CLIP_CUE_MAX THEN STATUS_flash "At most" + STR$(CLIP_CUE_MAX) + " clip sound cues": EXIT SUB
+    IF CFG.LAST_DIR_OPEN$ <> "" THEN default_path = CFG.LAST_DIR_OPEN$ + "/" ELSE IF LAST_DIRECTORY$ <> "" THEN default_path = LAST_DIRECTORY$ + "/"
+    POINTER_hide_for_dialog
+    n = DRAW_open_files%(lbl, default_path, "Sound|*.wav|*.ogg|*.mp3|*.flac|*.mid|*.midi|*.mod|*.xm|*.it|*.s3m|All Files|*.*", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+    IF n < 1 THEN EXIT SUB
+    f = RTRIM$(FD_multiResults(0))
+    IF _FILEEXISTS(f) THEN h = _SNDOPEN(f)
+    IF h < 1 THEN STATUS_flash "Sound: can't play " + CLIP_cue_name$(f): EXIT SUB
+    _SNDCLOSE h
+    FOR i = 1 TO CLIP_CUE_N
+        IF CLIP_CUE_SRC(i) = s _ANDALSO CLIP_CUE_KIND(i) = kind _ANDALSO CLIP_CUE_CELN(i) = _IIF(kind = CLIP_CUEK_CEL, c, 0) _ANDALSO CLIP_CUE_PATH(i) = f THEN
+            STATUS_flash "The clip already has that sound there": EXIT SUB
+        END IF
+    NEXT i
+    before = CLIP_state$(CURRENT_LAYER%)
+    IF CLIP_cue_put%(s, kind, c, f) = 0 THEN EXIT SUB
+    CLIP_CUE_PICK = CLIP_cues_of%(s) ' the panel's list shows the new one
+    CLIP_record before, lbl
+    SELECT CASE kind
+        CASE CLIP_CUEK_CEL: lbl = " plays whenever cel" + STR$(c) + " shows"
+        CASE CLIP_CUEK_ONCE: lbl = " plays when the clip starts"
+        CASE ELSE: lbl = " plays each time the clip starts over"
+    END SELECT
+    STATUS_flash "Clip sound: " + CLIP_cue_name$(f) + lbl
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' The table index of source s's j-th cue (0 = none).
+FUNCTION CLIP_cue_nth% (s AS INTEGER, j AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO CLIP_CUE_N
+        IF CLIP_CUE_SRC(i) = s THEN
+            n = n + 1
+            IF n = j THEN CLIP_cue_nth% = i: EXIT FUNCTION
+        END IF
+    NEXT i
+END FUNCTION
+
+''
+' Cue i in words: "STEP.WAV ON CEL 3" / "AT START" / "EVERY LOOP".
+FUNCTION CLIP_cue_desc$ (i AS INTEGER)
+    DIM t AS STRING
+    IF i < 1 _ORELSE i > CLIP_CUE_N THEN EXIT FUNCTION
+    t = UCASE$(CLIP_cue_name$(CLIP_CUE_PATH(i)))
+    SELECT CASE CLIP_CUE_KIND(i)
+        CASE CLIP_CUEK_CEL: t = t + " ON CEL" + STR$(CLIP_CUE_CELN(i))
+        CASE CLIP_CUEK_ONCE: t = t + " AT START"
+        CASE ELSE: t = t + " EVERY LOOP"
+    END SELECT
+    CLIP_cue_desc$ = t
+END FUNCTION
+
+''
+' The current clip's picked sound (CLIP_CUE_PICK, kept in 1..its count; 0 = it has none).
+FUNCTION CLIP_cue_picked% ()
+    DIM k AS INTEGER, n AS INTEGER
+    k = CLIP_current%: IF k = 0 THEN EXIT FUNCTION
+    n = CLIP_cues_of%(CLIP_INST(k).src)
+    IF n = 0 THEN EXIT FUNCTION
+    IF CLIP_CUE_PICK < 1 THEN CLIP_CUE_PICK = 1
+    IF CLIP_CUE_PICK > n THEN CLIP_CUE_PICK = n
+    CLIP_cue_picked% = CLIP_CUE_PICK
+END FUNCTION
+
+''
+' The panel's sound list: the previous (-1) / next (1) sound of the current clip.
+SUB CLIP_cue_step (dir AS INTEGER)
+    DIM k AS INTEGER, n AS INTEGER, j AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    n = CLIP_cues_of%(CLIP_INST(k).src)
+    IF n = 0 THEN STATUS_flash "This clip has no sounds - SOUND: CEL / START / LOOP adds one": EXIT SUB
+    j = CLIP_cue_picked% + SGN(dir)
+    IF j < 1 THEN j = n
+    IF j > n THEN j = 1
+    CLIP_CUE_PICK = j
+    STATUS_flash "Clip sound" + STR$(j) + " of" + STR$(n) + ": " + CLIP_cue_desc$(CLIP_cue_nth%(CLIP_INST(k).src, j))
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' The panel's sound list: remove the picked sound. One undo step.
+SUB CLIP_cue_del ()
+    DIM k AS INTEGER, s AS INTEGER, i AS INTEGER, j AS INTEGER, before AS STRING, t AS STRING
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    j = CLIP_cue_picked%
+    IF j = 0 THEN STATUS_flash "This clip has no sounds": EXIT SUB
+    i = CLIP_cue_nth%(s, j)
+    IF i = 0 THEN EXIT SUB
+    t = CLIP_cue_desc$(i)
+    before = CLIP_state$(CURRENT_LAYER%)
+    FOR j = i TO CLIP_CUE_N - 1
+        CLIP_CUE_SRC(j) = CLIP_CUE_SRC(j + 1): CLIP_CUE_KIND(j) = CLIP_CUE_KIND(j + 1)
+        CLIP_CUE_CELN(j) = CLIP_CUE_CELN(j + 1): CLIP_CUE_PATH(j) = CLIP_CUE_PATH(j + 1)
+    NEXT j
+    CLIP_CUE_PATH(CLIP_CUE_N) = "": CLIP_CUE_SRC(CLIP_CUE_N) = 0: CLIP_CUE_N = CLIP_CUE_N - 1
+    CLIP_record before, "Remove Clip Sound"
+    STATUS_flash "Removed the clip sound " + t
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Every sound cue of the current clip's source goes. One undo step.
+SUB CLIP_cue_clear ()
+    DIM k AS INTEGER, s AS INTEGER, before AS STRING, n AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    n = CLIP_cues_of%(s)
+    IF n = 0 THEN STATUS_flash "This clip has no sounds": EXIT SUB
+    before = CLIP_state$(CURRENT_LAYER%)
+    CLIP_cues_drop s
+    CLIP_record before, "Remove Clip Sounds"
+    STATUS_flash "Removed the clip's" + STR$(n) + " sound" + _IIF(n = 1, "", "s")
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Is clip layer slot heard: shown, and no group it is in hidden?
+FUNCTION CLIP_layer_heard% (slot AS INTEGER)
+    DIM p AS INTEGER, n AS INTEGER
+    IF LAYERS(slot).visible% = 0 THEN EXIT FUNCTION
+    p = LAYERS(slot).parentGroupIdx%
+    DO WHILE p >= 1 _ANDALSO p <= MAX_LAYERS _ANDALSO n < MAX_LAYERS
+        IF LAYERS(p).visible% = 0 THEN EXIT FUNCTION
+        p = LAYERS(p).parentGroupIdx%: n = n + 1
+    LOOP
+    CLIP_layer_heard% = TRUE
+END FUNCTION
+
+''
+' What the clip layers' sounds hang on ("" = no clip layer with sounds).
+FUNCTION CLIP_cues_sig$ ()
+    DIM i AS INTEGER, k AS INTEGER, s AS STRING, f AS INTEGER
+    IF CLIP_CUE_N = 0 _ORELSE ANIM.active = 0 THEN EXIT FUNCTION
+    FOR i = 1 TO MAX_LAYERS
+        k = CLIP_inst_of%(i)
+        IF k THEN
+            IF CLIP_cues_of%(CLIP_INST(k).src) > 0 THEN
+                s = s + MKI$(i) + MKI$(CLIP_layer_heard%(i)) + CLIP_inst_blob$(k) + MKI$(CLIP_SRC(CLIP_INST(k).src).n) + CLIP_cues_blob$(CLIP_INST(k).src)
+                s = s + MKI$(LEN(CLIP_LN_KEYS(k, CLIP_LANE_VOL))) + CLIP_LN_KEYS(k, CLIP_LANE_VOL) + MKI$(LEN(CLIP_LN_MOD(k, CLIP_LANE_VOL))) + CLIP_LN_MOD(k, CLIP_LANE_VOL)
+                s = s + MKI$(LEN(CLIP_LN_KEYS(k, CLIP_LANE_PAN))) + CLIP_LN_KEYS(k, CLIP_LANE_PAN) + MKI$(LEN(CLIP_LN_MOD(k, CLIP_LANE_PAN))) + CLIP_LN_MOD(k, CLIP_LANE_PAN)
+            END IF
+        END IF
+    NEXT i
+    IF s = "" THEN EXIT FUNCTION
+    s = s + MKI$(ANIM.count) + MKI$(ANIM.fps)
+    FOR f = 1 TO ANIM.count: s = s + MKI$(ANIM_hold%(f)): NEXT f
+    CLIP_cues_sig$ = s
+END FUNCTION
+
+''
+' Make the clip layers' sounds again when what they hang on changed.
+SUB CLIP_cues_gen_sync ()
+    DIM sig AS STRING
+    sig = CLIP_cues_sig$
+    IF sig = CLIP_CUE_GSIG THEN EXIT SUB
+    CLIP_CUE_GSIG = sig
+    CLIP_cues_gen
+END SUB
+
+''
+' The clip layers' sounds as generated soundtrack clips: each cue at the
+' start of each frame it fires in (CLIP_cue_fires%), for every heard clip
+' layer on its source.
+SUB CLIP_cues_gen ()
+    DIM i AS INTEGER, k AS INTEGER, s AS INTEGER, f AS INTEGER, q AS INTEGER, lastF AS INTEGER, j AS INTEGER
+    DIM acc AS DOUBLE, full AS INTEGER
+    FOR i = 1 TO ANIM_SC_GN: ANIM_SC_PATH(ANIM_SC_MAX + i) = "": NEXT i
+    ANIM_SC_GN = 0
+    IF CLIP_CUE_N = 0 _ORELSE ANIM.active = 0 _ORELSE ANIM.count < 1 _ORELSE ANIM.fps < 1 THEN EXIT SUB
+    DIM t(1 TO ANIM.count) AS LONG ' each frame's start, ms
+    FOR f = 1 TO ANIM.count
+        t(f) = INT(acc + 0.5): acc = acc + 1000# * ANIM_hold%(f) / ANIM.fps
+    NEXT f
+    FOR i = 1 TO MAX_LAYERS
+        k = CLIP_inst_of%(i)
+        IF k THEN
+            s = CLIP_INST(k).src
+            IF s >= 1 _ANDALSO s <= CLIP_SRC_N _ANDALSO CLIP_layer_heard%(i) THEN
+                lastF = CLIP_INST(k).outF: IF lastF < 1 _ORELSE lastF > ANIM.count THEN lastF = ANIM.count
+                FOR f = _MAX(1, CLIP_INST(k).inF) TO lastF
+                    FOR q = 1 TO CLIP_CUE_N
+                        IF CLIP_CUE_SRC(q) = s THEN
+                            IF CLIP_cue_fires%(CLIP_CUE_KIND(q), CLIP_CUE_CELN(q), f, CLIP_SRC(s).n, CLIP_INST(k).every, CLIP_INST(k).startCel, CLIP_INST(k).inF, CLIP_INST(k).outF, CLIP_INST(k).mode) THEN
+                                IF ANIM_SC_GN >= ANIM_GC_MAX THEN full = TRUE: EXIT FOR
+                                ANIM_SC_GN = ANIM_SC_GN + 1: j = ANIM_SC_MAX + ANIM_SC_GN
+                                ANIM_SC_PATH(j) = CLIP_CUE_PATH(q): ANIM_SC_TRK(j) = 0: ANIM_SC_AT(j) = t(f)
+                                ANIM_SC_IN(j) = 0: ANIM_SC_LEN(j) = 0: ANIM_SC_FMS(j) = 0
+                                ANIM_SC_GSLOT(ANIM_SC_GN) = i
+                                ANIM_SC_GVOL(ANIM_SC_GN) = _MAX(0, _MIN(2, CLIP_lane_value!(k, CLIP_LANE_VOL, f) / 100))
+                                ANIM_SC_GPAN(ANIM_SC_GN) = _MAX(-1, _MIN(1, CLIP_lane_value!(k, CLIP_LANE_PAN, f) / 100))
+                            END IF
+                        END IF
+                    NEXT q
+                    IF full THEN EXIT FOR
+                NEXT f
+            END IF
+        END IF
+        IF full THEN EXIT FOR
+    NEXT i
+    IF full _ANDALSO CLIP_CUE_GFULL = 0 THEN STATUS_flash "Clip sounds: only the first" + STR$(ANIM_GC_MAX) + " play"
+    CLIP_CUE_GFULL = full
+END SUB
+
+''
+' Update Clip from Bin (fromBin) / from AnimBrush: the clip's cels become the
+' Drawer bin's they came from / the current AnimBrush's. A new source, so undo
+' points the clips back at the old one; every clip layer on the old source takes
+' it (one undo step). In / Out, the mode and the place stay.
+SUB CLIP_update (fromBin AS INTEGER)
+    DIM k AS INTEGER, s AS INTEGER, newSrc AS INTEGER, bs AS INTEGER, i AS INTEGER, kk AS INTEGER
+    DIM n AS INTEGER, before AS STRING, lbl AS STRING, grp AS INTEGER
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "The current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    IF fromBin THEN
+        IF s >= 1 _ANDALSO s <= CLIP_SRC_N THEN bs = CLIP_SRC(s).binSlot
+        IF bs = 0 THEN STATUS_flash "This clip's cels did not come from a Drawer bin - pick an AnimBrush and use Update Clip from AnimBrush": EXIT SUB
+        IF AB_slot_has%(bs) = 0 THEN STATUS_flash "Drawer bin" + STR$(bs) + " no longer holds an AnimBrush": EXIT SUB
+        newSrc = CLIP_src_from_bin%(bs): lbl = "Update Clip from Bin"
+    ELSE
+        IF AB_active% = 0 THEN STATUS_flash "Pick an AnimBrush first: its cels replace the clip's": EXIT SUB
+        newSrc = CLIP_src_from_ab%: lbl = "Update Clip from AnimBrush"
+    END IF
+    IF newSrc = 0 THEN STATUS_flash "No room for more clip sources (" + _TRIM$(STR$(CLIP_SRC_MAX)) + ")": EXIT SUB
+    IF s >= 1 _ANDALSO s <= CLIP_SRC_N THEN CLIP_cues_from_blob newSrc, CLIP_cues_blob$(s) ' new cels, the same sounds
+    IF NOT HISTORY_IN_PROGRESS% _ANDALSO NOT HISTORY_GROUP_ACTIVE% THEN HISTORY_begin_group: grp = TRUE
+    FOR i = 1 TO MAX_LAYERS
+        kk = CLIP_inst_of%(i)
+        IF kk _ANDALSO (kk = k _ORELSE (s > 0 _ANDALSO CLIP_INST(kk).src = s)) THEN
+            before = CLIP_state$(i)
+            CLIP_INST(kk).src = newSrc
+            IF CLIP_INST(kk).startCel > CLIP_SRC(newSrc).n THEN CLIP_INST(kk).startCel = 1
+            CLIP_rebuild i
+            HISTORY_record_clip LAYERS(i).historyId&, i, before, CLIP_state$(i), lbl
+            n = n + 1
+        END IF
+    NEXT i
+    IF grp THEN HISTORY_end_group
+    HISTORY_saved_this_frame% = TRUE
+    BLEND_invalidate_cache: INVALIDATE_canvas: GUI_NEEDS_REDRAW% = TRUE
+    lbl = "Clip updated: " + _TRIM$(STR$(CLIP_SRC(newSrc).n)) + " cels"
+    IF fromBin THEN lbl = lbl + " from Drawer bin" + STR$(bs) ELSE lbl = lbl + " from the AnimBrush"
+    IF n > 1 THEN lbl = lbl + " (" + _TRIM$(STR$(n)) + " clip layers)"
+    STATUS_flash lbl
+END SUB
+
+' ---------------------------------------------------------------------------
+' Edit Clip Cels (phase 2 K10a)
+' ---------------------------------------------------------------------------
+
+''
+' Where the cels sit in each frame's cell: the clip's place, kept inside the cell.
+SUB CLIP_edit_pos (s AS INTEGER, px AS INTEGER, py AS INTEGER)
+    px = _MAX(0, _MIN(px, ANIM.frameW - CLIP_SRC(s).cw))
+    py = _MAX(0, _MIN(py, ANIM.frameH - CLIP_SRC(s).ch))
+END SUB
+
+''
+' "" = the source's cels fit the frames; else why not.
+FUNCTION CLIP_edit_fits$ (s AS INTEGER)
+    IF s < 1 _ORELSE s > CLIP_SRC_N THEN CLIP_edit_fits$ = "the clip has no cels": EXIT FUNCTION
+    IF CLIP_SRC(s).strip >= -1 THEN CLIP_edit_fits$ = "the clip has no cels": EXIT FUNCTION
+    IF ANIM.active = 0 THEN CLIP_edit_fits$ = "no frames": EXIT FUNCTION
+    IF CLIP_SRC(s).n > ANIM.count THEN CLIP_edit_fits$ = "its" + STR$(CLIP_SRC(s).n) + " cels need" + STR$(CLIP_SRC(s).n) + " frames (there are" + STR$(ANIM.count) + ")": EXIT FUNCTION
+    IF CLIP_SRC(s).cw > ANIM.frameW _ORELSE CLIP_SRC(s).ch > ANIM.frameH THEN CLIP_edit_fits$ = "its cels are bigger than a frame": EXIT FUNCTION
+END FUNCTION
+
+''
+' The open cel edit: the current layer's, else the newest whose layer is
+' there (0 = none).
+FUNCTION CLIP_edit_find% ()
+    DIM e AS INTEGER, id AS LONG
+    IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN id = LAYERS(CURRENT_LAYER%).historyId&
+    FOR e = CLIP_ED_N TO 1 STEP -1
+        IF CLIP_ED_ID(e) = id _ANDALSO id <> 0 THEN CLIP_edit_find% = e: EXIT FUNCTION
+    NEXT e
+    FOR e = CLIP_ED_N TO 1 STEP -1
+        IF HISTORY_find_layer_slot_by_id%(CLIP_ED_ID(e)) THEN CLIP_edit_find% = e: EXIT FUNCTION
+    NEXT e
+END FUNCTION
+
+SUB CLIP_edit_open ()
+    DIM k AS INTEGER, s AS INTEGER, slot AS INTEGER, c AS INTEGER, i AS INTEGER, kk AS INTEGER, e AS INTEGER
+    DIM px AS INTEGER, py AS INTEGER, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, img AS LONG
+    DIM why AS STRING, hid AS STRING, nm AS STRING
+    k = CLIP_current%
+    IF k = 0 THEN STATUS_flash "Edit Clip Cels: the current layer is not a clip layer": EXIT SUB
+    s = CLIP_INST(k).src
+    why = CLIP_edit_fits$(s)
+    IF why <> "" THEN STATUS_flash "Edit Clip Cels: " + why: EXIT SUB
+    px = CLIP_INST(k).px: py = CLIP_INST(k).py: CLIP_edit_pos s, px, py
+    nm = AB_clean$(CLIP_SRC(s).nm)
+    slot = LAYERS_new%
+    IF slot = 0 THEN STATUS_flash "Edit Clip Cels: no room for another layer": EXIT SUB
+    LAYERS(slot).name = "Cels of " + nm
+    img = LAYERS(slot).imgHandle&
+    _DONTBLEND img
+    FOR c = 1 TO CLIP_SRC(s).n
+        IF ANIM_cell_rect%(c, fx, fy, fw, fh) THEN
+            _PUTIMAGE (fx + px + LAYERS(slot).apronW%, fy + py + LAYERS(slot).apronH%), CLIP_SRC(s).strip, img, ((c - 1) * CLIP_SRC(s).cw, 0)-STEP(CLIP_SRC(s).cw - 1, CLIP_SRC(s).ch - 1)
+        END IF
+    NEXT c
+    _BLEND img
+    LAYERS(slot).contentDirty% = TRUE
+    IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_refresh_layer_add_snapshot LAYERS(slot).historyId&
+    FOR i = 1 TO MAX_LAYERS ' the clips on this source would draw over the cels: hidden while editing
+        kk = CLIP_inst_of%(i)
+        IF kk _ANDALSO i <> slot THEN
+            IF CLIP_INST(kk).src = s _ANDALSO LAYERS(i).visible% THEN LAYERS(i).visible% = FALSE: hid = hid + MKL$(LAYERS(i).historyId&)
+        END IF
+    NEXT i
+    IF CLIP_ED_N >= CLIP_ED_MAX THEN ' the oldest goes
+        FOR e = 1 TO CLIP_ED_MAX - 1
+            CLIP_ED_ID(e) = CLIP_ED_ID(e + 1): CLIP_ED_SRC(e) = CLIP_ED_SRC(e + 1)
+            CLIP_ED_PX(e) = CLIP_ED_PX(e + 1): CLIP_ED_PY(e) = CLIP_ED_PY(e + 1): CLIP_ED_HID(e) = CLIP_ED_HID(e + 1)
+        NEXT e
+        CLIP_ED_N = CLIP_ED_MAX - 1
+    END IF
+    CLIP_ED_N = CLIP_ED_N + 1: e = CLIP_ED_N
+    CLIP_ED_ID(e) = LAYERS(slot).historyId&: CLIP_ED_SRC(e) = s
+    CLIP_ED_PX(e) = px: CLIP_ED_PY(e) = py: CLIP_ED_HID(e) = hid
+    HISTORY_saved_this_frame% = TRUE
+    BLEND_invalidate_cache: INVALIDATE_canvas: GUI_NEEDS_REDRAW% = TRUE
+    STATUS_flash "Cels of '" + nm + "': cel 1-" + _TRIM$(STR$(CLIP_SRC(s).n)) + " on frame 1-" + _TRIM$(STR$(CLIP_SRC(s).n)) + " - paint, then ANIM > Clip Layer > Apply Cel Edits (or Discard)"
+END SUB
+
+''
+' Show the clip layers the edit hid (the ones still there).
+SUB CLIP_edit_unhide (e AS INTEGER)
+    DIM j AS INTEGER, i AS INTEGER
+    FOR j = 1 TO LEN(CLIP_ED_HID(e)) - 3 STEP 4
+        i = HISTORY_find_layer_slot_by_id%(CVL(MID$(CLIP_ED_HID(e), j, 4)))
+        IF i THEN LAYERS(i).visible% = TRUE
+    NEXT j
+    CLIP_ED_HID(e) = ""
+END SUB
+
+SUB CLIP_edit_close (keepEdits AS INTEGER)
+    DIM e AS INTEGER, slot AS INTEGER, s AS INTEGER, c AS INTEGER, i AS INTEGER, kk AS INTEGER, n AS INTEGER
+    DIM px AS INTEGER, py AS INTEGER, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, strip AS LONG, oldD AS LONG
+    DIM newSrc AS INTEGER, grp AS INTEGER, before AS STRING, why AS STRING, nm AS STRING, lbl AS STRING
+    e = CLIP_edit_find%
+    IF e = 0 THEN STATUS_flash "No clip cels being edited - ANIM > Clip Layer > Edit Clip Cels first": EXIT SUB
+    slot = HISTORY_find_layer_slot_by_id%(CLIP_ED_ID(e))
+    s = CLIP_ED_SRC(e)
+    IF keepEdits = 0 THEN
+        CLIP_edit_unhide e
+        LAYERS_delete slot
+        HISTORY_saved_this_frame% = TRUE
+        BLEND_invalidate_cache: INVALIDATE_canvas: GUI_NEEDS_REDRAW% = TRUE
+        STATUS_flash "Cel edits discarded"
+        EXIT SUB
+    END IF
+    why = CLIP_edit_fits$(s)
+    IF why <> "" THEN STATUS_flash "Apply Cel Edits: " + why: EXIT SUB
+    px = CLIP_ED_PX(e): py = CLIP_ED_PY(e): CLIP_edit_pos s, px, py
+    strip = _NEWIMAGE(CLIP_SRC(s).n * CLNG(CLIP_SRC(s).cw), CLIP_SRC(s).ch, 32)
+    IF strip >= -1 THEN STATUS_flash "Apply Cel Edits: out of memory": EXIT SUB
+    oldD = _DEST: _DEST strip: CLS , _RGBA32(0, 0, 0, 0): _DEST oldD
+    _DONTBLEND strip
+    FOR c = 1 TO CLIP_SRC(s).n
+        IF ANIM_cell_rect%(c, fx, fy, fw, fh) THEN
+            fx = fx + px + LAYERS(slot).apronW%: fy = fy + py + LAYERS(slot).apronH%
+            _PUTIMAGE ((c - 1) * CLIP_SRC(s).cw, 0), LAYERS(slot).imgHandle&, strip, (fx, fy)-STEP(CLIP_SRC(s).cw - 1, CLIP_SRC(s).ch - 1)
+        END IF
+    NEXT c
+    _BLEND strip
+    nm = AB_clean$(CLIP_SRC(s).nm)
+    newSrc = CLIP_src_new%(strip, CLIP_SRC(s).n, CLIP_SRC(s).cw, CLIP_SRC(s).ch, nm, CLIP_SRC(s).binSlot)
+    IF newSrc = 0 THEN STATUS_flash "Apply Cel Edits: no room for more clip sources (" + _TRIM$(STR$(CLIP_SRC_MAX)) + ")": EXIT SUB
+    CLIP_cues_from_blob newSrc, CLIP_cues_blob$(s) ' the same sounds
+    CLIP_edit_unhide e
+    IF NOT HISTORY_IN_PROGRESS% _ANDALSO NOT HISTORY_GROUP_ACTIVE% THEN HISTORY_begin_group: grp = TRUE
+    FOR i = 1 TO MAX_LAYERS
+        kk = CLIP_inst_of%(i)
+        IF kk THEN
+            IF CLIP_INST(kk).src = s THEN
+                before = CLIP_state$(i)
+                CLIP_INST(kk).src = newSrc
+                CLIP_rebuild i
+                HISTORY_record_clip LAYERS(i).historyId&, i, before, CLIP_state$(i), "Apply Cel Edits"
+                n = n + 1
+            END IF
+        END IF
+    NEXT i
+    LAYERS_delete slot
+    IF grp THEN HISTORY_end_group
+    HISTORY_saved_this_frame% = TRUE
+    BLEND_invalidate_cache: INVALIDATE_canvas: GUI_NEEDS_REDRAW% = TRUE
+    lbl = "Cel edits applied to '" + nm + "'"
+    IF n = 1 THEN lbl = lbl + " (1 clip layer)" ELSE lbl = lbl + " (" + _TRIM$(STR$(n)) + " clip layers)"
+    STATUS_flash lbl
+END SUB
+
+''
+' Actions 2620-2658.
+SUB CLIP_action (act AS INTEGER)
+    SELECT CASE act
+        CASE CLIP_ACT_PLACE: CLIP_place_start
+        CASE CLIP_ACT_BAKE: CLIP_bake
+        CASE CLIP_ACT_UPD_BIN: CLIP_update TRUE
+        CASE CLIP_ACT_UPD_AB: CLIP_update FALSE
+        CASE CLIP_ACT_MAKE: CLIP_make
+        CASE CLIP_ACT_SOURCES: CLIP_sources_show
+        CASE CLIP_ACT_SRC_PREV: CLIP_src_step -1
+        CASE CLIP_ACT_SRC_NEXT: CLIP_src_step 1
+        CASE CLIP_ACT_SRC_RENAME: CLIP_src_rename
+        CASE CLIP_ACT_SRC_LAYERS: CLIP_src_select_layers
+        CASE CLIP_ACT_PURGE: CLIP_sources_purge
+        CASE CLIP_ACT_CUE_CEL: CLIP_cue_add CLIP_CUEK_CEL
+        CASE CLIP_ACT_CUE_ONCE: CLIP_cue_add CLIP_CUEK_ONCE
+        CASE CLIP_ACT_CUE_LOOP: CLIP_cue_add CLIP_CUEK_LOOP
+        CASE CLIP_ACT_CUE_CLEAR: CLIP_cue_clear
+        CASE CLIP_ACT_CUE_PREV: CLIP_cue_step -1
+        CASE CLIP_ACT_CUE_NEXT: CLIP_cue_step 1
+        CASE CLIP_ACT_CUE_DEL: CLIP_cue_del
+        CASE CLIP_ACT_EDIT: CLIP_edit_open
+        CASE CLIP_ACT_LANE_PREV, CLIP_ACT_LANE_NEXT
+            CLIP_LANE_PICK = CLIP_LANE_PICK + _IIF(act = CLIP_ACT_LANE_NEXT, 1, -1)
+            IF CLIP_LANE_PICK < 1 THEN CLIP_LANE_PICK = CLIP_LANES
+            IF CLIP_LANE_PICK > CLIP_LANES THEN CLIP_LANE_PICK = 1
+            GUI_NEEDS_REDRAW% = TRUE
+            STATUS_flash "Lane: " + CLIP_lane_name$(CLIP_LANE_PICK)
+        CASE CLIP_ACT_KEY: CLIP_set 26, 0
+        CASE CLIP_ACT_KEY_DEL: CLIP_set 27, 0
+        CASE CLIP_ACT_KEY_EASE
+            IF CLIP_get&(25) < 0 THEN STATUS_flash "No key on or before this frame" ELSE CLIP_set 25, (CLIP_get&(25) + 1) MOD 5
+        CASE CLIP_ACT_MOD: CLIP_set 24, (CLIP_get&(24) + 1) MOD 6
+        CASE CLIP_ACT_LANE_CLR: CLIP_set 28, 0
+        CASE CLIP_ACT_LANES_CLR: CLIP_set 29, 0
+        CASE CLIP_ACT_LANES_CPY
+            IF CLIP_current% = 0 THEN STATUS_flash "The current layer is not a clip layer" ELSE CLIP_LANES_CLIPBOARD = CLIP_lanes_blob$(CLIP_current%): STATUS_flash "Lanes copied"
+        CASE CLIP_ACT_LANES_PST
+            IF LEN(CLIP_LANES_CLIPBOARD) = 0 THEN STATUS_flash "Copy a clip's lanes first" ELSE CLIP_set 30, 0
+        CASE CLIP_ACT_TINT_FG: CLIP_set 31, PAINT_COLOR~&
+        CASE CLIP_ACT_EDIT_OK: CLIP_edit_close TRUE
+        CASE CLIP_ACT_EDIT_NO: CLIP_edit_close FALSE
+        CASE CLIP_ACT_MODE0 TO CLIP_ACT_MODE0 + 4: CLIP_set 5, act - CLIP_ACT_MODE0
+        CASE CLIP_ACT_FLIP_X: CLIP_set 6, NOT CLIP_get&(6)
+        CASE CLIP_ACT_FLIP_Y: CLIP_set 7, NOT CLIP_get&(7)
+    END SELECT
+END SUB
+
+FUNCTION CLIP_mode_name$ (m AS INTEGER)
+    CLIP_mode_name$ = _TRIM$(MID$("LOOP PING ONCE HOLD REV  ", m * 5 + 1, 5))
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Frame operations: clip layers stay put; their In / Out follow the frames
+' ---------------------------------------------------------------------------
+
+''
+' After ANIM_apply_plan (ANIM_SRC = the old frame of each new frame).
+SUB CLIP_remap_all (oldCount AS INTEGER, newCount AS INTEGER)
+    DIM i AS INTEGER, r AS INTEGER, a AS INTEGER, b AS INTEGER
+    DIM src(1 TO ANIM_MAX_FRAMES) AS INTEGER
+    IF CLIP_INST_N = 0 THEN EXIT SUB
+    FOR i = 1 TO newCount: src(i) = ANIM_SRC(i): NEXT i
+    FOR i = 1 TO CLIP_INST_N
+        IF CLIP_INST(i).layerId <> 0 THEN
+            a = CLIP_INST(i).inF: b = CLIP_INST(i).outF
+            r = CLIP_remap%(src(), newCount, oldCount, a, b)
+            IF r = 0 THEN ' none of its frames are left: keep it where it was, inside the frames
+                a = _MIN(a, newCount): IF b > 0 THEN b = _MAX(a, _MIN(b, newCount))
+            END IF
+            CLIP_INST(i).inF = _MAX(1, a): CLIP_INST(i).outF = b
+            CLIP_INST(i).dirty = TRUE
+        END IF
+    NEXT i
+    CLIP_rebuild_all
+END SUB
+
+''
+' The clips for a frame-op snapshot (ANIM_OPS_snapshot$): "CLP1", count, then
+' per instance its layer id and blob.
+FUNCTION CLIP_snapshot$ ()
+    DIM i AS INTEGER, n AS INTEGER, s AS STRING
+    FOR i = 1 TO CLIP_INST_N
+        IF CLIP_INST(i).layerId <> 0 THEN n = n + 1: s = s + MKL$(CLIP_INST(i).layerId) + CLIP_inst_blob$(i)
+    NEXT i
+    IF n = 0 THEN EXIT FUNCTION
+    CLIP_snapshot$ = "CLP1" + MKI$(n) + s
+END FUNCTION
+
+''
+' Put back CLIP_snapshot$ data starting at position p of s.
+SUB CLIP_snapshot_apply (s AS STRING, p AS LONG)
+    DIM n AS INTEGER, i AS INTEGER, k AS INTEGER, q AS LONG
+    IF MID$(s, p, 4) <> "CLP1" THEN EXIT SUB
+    n = CVI(MID$(s, p + 4, 2)): q = p + 6
+    FOR i = 1 TO n
+        IF q + 23 > LEN(s) THEN EXIT FOR
+        k = CLIP_inst_new_keep%(CVL(MID$(s, q, 4)))
+        IF k THEN CLIP_inst_from_blob k, MID$(s, q + 4, 20)
+        q = q + 24
+    NEXT i
+    CLIP_mark_all_dirty
+END SUB
+
+' ---------------------------------------------------------------------------
+' The drCl chunk: version, the sources (the ones a clip layer uses), the
+' instances (the ones whose layer is there).
+'   MKI version, MKI nSrc, per source: MKI index, n, cw, ch, binSlot, name
+'   length, name, the strip's BGRA; MKI nInst, per instance: MKL layer id,
+'   the 20-byte instance blob. Version 2: MKI nCue, per cue MKI source index,
+'   kind, cel, path length, the path (the written sources' cues).
+' ---------------------------------------------------------------------------
+
+FUNCTION CLIP_chunk$ ()
+    DIM i AS INTEGER, k AS INTEGER, s AS STRING, used(1 TO CLIP_SRC_MAX) AS INTEGER
+    DIM nSrc AS INTEGER, nInst AS INTEGER, si AS STRING, ii AS STRING, m AS _MEM, px AS STRING, nm AS STRING
+    FOR i = 1 TO MAX_LAYERS
+        k = CLIP_inst_of%(i)
+        IF k THEN
+            nInst = nInst + 1: ii = ii + MKL$(CLIP_INST(k).layerId) + CLIP_inst_blob$(k)
+            IF CLIP_INST(k).src >= 1 _ANDALSO CLIP_INST(k).src <= CLIP_SRC_N THEN used(CLIP_INST(k).src) = TRUE
+        END IF
+    NEXT i
+    IF nInst = 0 THEN EXIT FUNCTION
+    FOR i = 1 TO CLIP_SRC_N
+        IF used(i) _ANDALSO CLIP_SRC(i).strip < -1 THEN
+            nSrc = nSrc + 1
+            nm = AB_clean$(CLIP_SRC(i).nm)
+            m = _MEMIMAGE(CLIP_SRC(i).strip): px = SPACE$(m.SIZE): _MEMGET m, m.OFFSET, px: _MEMFREE m
+            si = si + MKI$(i) + MKI$(CLIP_SRC(i).n) + MKI$(CLIP_SRC(i).cw) + MKI$(CLIP_SRC(i).ch) + MKI$(CLIP_SRC(i).binSlot)
+            si = si + MKI$(LEN(nm)) + nm + px
+        END IF
+    NEXT i
+    s = MKI$(CLIP_CHUNK_VERSION) + MKI$(nSrc) + si + MKI$(nInst) + ii
+    nSrc = 0: si = ""
+    FOR i = 1 TO CLIP_CUE_N
+        k = CLIP_CUE_SRC(i)
+        IF k >= 1 _ANDALSO k <= CLIP_SRC_N THEN
+            IF used(k) _ANDALSO CLIP_SRC(k).strip < -1 THEN
+                nSrc = nSrc + 1
+                si = si + MKI$(k) + MKI$(CLIP_CUE_KIND(i)) + MKI$(CLIP_CUE_CELN(i)) + MKI$(LEN(CLIP_CUE_PATH(i))) + CLIP_CUE_PATH(i)
+            END IF
+        END IF
+    NEXT i
+    s = s + MKI$(nSrc) + si
+    nInst = 0: ii = "" ' version 3: each written instance's lanes
+    FOR i = 1 TO MAX_LAYERS
+        k = CLIP_inst_of%(i)
+        IF k THEN
+            si = CLIP_lanes_blob$(k)
+            nInst = nInst + 1: ii = ii + MKL$(CLIP_INST(k).layerId) + MKL$(LEN(si)) + si
+        END IF
+    NEXT i
+    s = s + MKI$(nInst) + ii
+    CLIP_chunk$ = MKL$(LEN(s)) + _DEFLATE$(s, 9)
+END FUNCTION
+
+''
+' Read a drCl chunk (after the layers are loaded): the layers it names become
+' clip layers again and are rebuilt.
+SUB CLIP_read_chunk (blob AS STRING)
+    DIM s AS STRING, p AS LONG, nSrc AS INTEGER, nInst AS INTEGER, i AS INTEGER, idx AS INTEGER
+    DIM n AS INTEGER, cw AS INTEGER, ch AS INTEGER, bs AS INTEGER, nl AS INTEGER, nm AS STRING, bytes AS LONG
+    DIM img AS LONG, m AS _MEM, id AS LONG, k AS INTEGER, slot AS INTEGER
+    IF LEN(blob) < 8 THEN EXIT SUB
+    s = _INFLATE$(MID$(blob, 5), CVL(LEFT$(blob, 4)))
+    IF LEN(s) < 6 THEN EXIT SUB
+    IF CVI(MID$(s, 1, 2)) < 1 THEN EXIT SUB
+    nSrc = CVI(MID$(s, 3, 2)): p = 5
+    FOR i = 1 TO nSrc
+        IF p + 11 > LEN(s) THEN EXIT SUB
+        idx = CVI(MID$(s, p, 2)): n = CVI(MID$(s, p + 2, 2)): cw = CVI(MID$(s, p + 4, 2)): ch = CVI(MID$(s, p + 6, 2))
+        bs = CVI(MID$(s, p + 8, 2)): nl = CVI(MID$(s, p + 10, 2)): p = p + 12
+        nm = MID$(s, p, nl): p = p + nl
+        bytes = CLNG(n) * cw * ch * 4
+        IF idx < 1 _ORELSE idx > CLIP_SRC_MAX _ORELSE n < 1 _ORELSE cw < 1 _ORELSE ch < 1 _ORELSE p + bytes - 1 > LEN(s) THEN EXIT SUB
+        img = _NEWIMAGE(CLNG(n) * cw, ch, 32)
+        IF img < -1 THEN
+            m = _MEMIMAGE(img): _MEMPUT m, m.OFFSET, MID$(s, p, bytes): _MEMFREE m
+            IF CLIP_SRC(idx).strip < -1 THEN _FREEIMAGE CLIP_SRC(idx).strip
+            CLIP_SRC(idx).strip = img: CLIP_SRC(idx).n = n: CLIP_SRC(idx).cw = cw: CLIP_SRC(idx).ch = ch
+            CLIP_SRC(idx).binSlot = bs: CLIP_SRC(idx).nm = nm: CLIP_SRC(idx).gone = 0
+            IF idx > CLIP_SRC_N THEN CLIP_SRC_N = idx
+        END IF
+        p = p + bytes
+    NEXT i
+    IF p + 1 > LEN(s) THEN EXIT SUB
+    nInst = CVI(MID$(s, p, 2)): p = p + 2
+    FOR i = 1 TO nInst
+        IF p + 23 > LEN(s) THEN EXIT FOR
+        id = CVL(MID$(s, p, 4))
+        slot = HISTORY_find_layer_slot_by_id%(id)
+        IF slot THEN
+            k = CLIP_inst_new%(id)
+            IF k THEN
+                CLIP_inst_from_blob k, MID$(s, p + 4, 20)
+                LAYERS(slot).layerType% = LAYER_TYPE_CLIP
+            END IF
+        END IF
+        p = p + 24
+    NEXT i
+    IF CVI(MID$(s, 1, 2)) >= 2 _ANDALSO p + 1 <= LEN(s) THEN ' the sound cues
+        DIM nCue AS INTEGER, kind AS INTEGER, cel AS INTEGER, pl AS INTEGER
+        nCue = CVI(MID$(s, p, 2)): p = p + 2
+        FOR i = 1 TO nCue
+            IF p + 7 > LEN(s) THEN EXIT FOR
+            idx = CVI(MID$(s, p, 2)): kind = CVI(MID$(s, p + 2, 2)): cel = CVI(MID$(s, p + 4, 2)): pl = CVI(MID$(s, p + 6, 2))
+            IF pl < 0 _ORELSE p + 7 + pl > LEN(s) THEN EXIT FOR
+            IF idx >= 1 _ANDALSO idx <= CLIP_SRC_N THEN
+                IF CLIP_cue_put%(idx, kind, cel, MID$(s, p + 8, pl)) = 0 THEN EXIT FOR
+            END IF
+            p = p + 8 + pl
+        NEXT i
+    END IF
+    IF CVI(MID$(s, 1, 2)) >= 3 _ANDALSO p + 1 <= LEN(s) THEN ' the lanes
+        DIM nl3 AS INTEGER, bl AS LONG
+        nl3 = CVI(MID$(s, p, 2)): p = p + 2
+        FOR i = 1 TO nl3
+            IF p + 7 > LEN(s) THEN EXIT FOR
+            id = CVL(MID$(s, p, 4)): bl = CVL(MID$(s, p + 4, 4))
+            IF bl < 0 _ORELSE p + 7 + bl > LEN(s) THEN EXIT FOR
+            k = CLIP_inst_by_id%(id)
+            IF k THEN CLIP_lanes_from_blob k, MID$(s, p + 8, bl)
+            p = p + 8 + bl
+        NEXT i
+    END IF
+    CLIP_SIG = "" ' rebuild at the first tick, once the frames are read (drAn comes after)
+END SUB
+
+' ---------------------------------------------------------------------------
+' Painting on a clip layer is refused (Q4)
+' ---------------------------------------------------------------------------
+
+''
+' TRUE (and a message) when the current layer is a clip layer and `what`
+' would change its pixels.
+FUNCTION CLIP_refuse% (what AS STRING)
+    IF CLIP_is_clip%(CURRENT_LAYER%) = 0 THEN EXIT FUNCTION
+    STATUS_flash what + ": '" + AB_clean$(LAYERS(CURRENT_LAYER%).name) + "' is a clip layer - ANIM > Clip Layer > Bake Clip to Pixels to paint on it"
+    CLIP_refuse% = TRUE
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' QA dump lines (DOCK_DUMP):
+'   CLIP slot src in out start every mode flipX flipY px py   (one per clip layer)
+'   CLIPC slot cels         the cel each frame shows ("." none, cel 10+ as letters)
+'   CLIPS src n cw ch bin name  (each source on the list; bin = the Drawer bin it came from, 0 = none)
+'   CLIPSU src:users ...  (the clip layers using each listed source)
+'   CLIPQP pick  (the Animation panel's picked sound of the current clip)
+'   CLIPQ src kind cel name  (each sound cue: kind 0 on cel, 1 when the clip starts, 2 each time it starts over)
+'   CLIPE slot src px py  (the open Edit Clip Cels layer; CLIPE 0 = none)
+'   CLIPEX  its pixels per frame, as CLIPX
+'   CLIPV slot:shown ...  (each clip layer's eye)
+'   CLIPL / CLIPLM / CLIPLV  the lanes (CLIP_dump_lanes$)
+'   CLIPP placing
+' ---------------------------------------------------------------------------
+FUNCTION CLIP_dump$ ()
+    DIM i AS INTEGER, k AS INTEGER, f AS INTEGER, c AS INTEGER, s AS STRING, cs AS STRING, lf AS STRING
+    lf = CHR$(10)
+    s = "CLIPP" + STR$(CLIP_PLACING) + STR$(CLIP_current%) + lf
+    FOR i = 1 TO MAX_LAYERS
+        k = CLIP_inst_of%(i)
+        IF k THEN
+            s = s + "CLIP" + STR$(i) + STR$(CLIP_INST(k).src) + STR$(CLIP_INST(k).inF) + STR$(CLIP_INST(k).outF) + STR$(CLIP_INST(k).startCel)
+            s = s + STR$(CLIP_INST(k).every) + " " + CLIP_mode_name$(CLIP_INST(k).mode) + STR$(CLIP_INST(k).flipX) + STR$(CLIP_INST(k).flipY)
+            s = s + STR$(CLIP_INST(k).px) + STR$(CLIP_INST(k).py) + lf
+            cs = ""
+            FOR f = 1 TO ANIM.count
+                c = CLIP_cel_at%(k, f)
+                IF c = 0 THEN
+                    cs = cs + "."
+                ELSEIF c < 10 THEN
+                    cs = cs + CHR$(48 + c)
+                ELSE
+                    cs = cs + CHR$(55 + _MIN(c, 35)) ' 10 = A
+                END IF
+            NEXT f
+            s = s + "CLIPC" + STR$(i) + " " + cs + lf
+            s = s + "CLIPX" + STR$(i) + CLIP_dump_px$(i) + lf
+            s = s + "CLIPXA" + STR$(i) + CLIP_dump_alpha$(i) + lf
+        END IF
+    NEXT i
+    FOR i = 1 TO CLIP_SRC_N
+        IF CLIP_src_listed%(i) THEN s = s + "CLIPS" + STR$(i) + STR$(CLIP_SRC(i).n) + STR$(CLIP_SRC(i).cw) + STR$(CLIP_SRC(i).ch) + STR$(CLIP_SRC(i).binSlot) + " " + AB_us$(AB_clean$(CLIP_SRC(i).nm)) + lf
+    NEXT i
+    cs = "CLIPSU" ' each listed source's users: src:layers
+    FOR i = 1 TO CLIP_SRC_N
+        IF CLIP_src_listed%(i) THEN cs = cs + " " + _TRIM$(STR$(i)) + ":" + _TRIM$(STR$(CLIP_src_users%(i)))
+    NEXT i
+    s = s + cs + lf
+    FOR i = 1 TO CLIP_CUE_N ' each sound cue: source kind cel file name
+        s = s + "CLIPQ" + STR$(CLIP_CUE_SRC(i)) + STR$(CLIP_CUE_KIND(i)) + STR$(CLIP_CUE_CELN(i)) + " " + CLIP_cue_name$(CLIP_CUE_PATH(i)) + lf
+    NEXT i
+    cs = "CLIPV" ' each clip layer: slot:shown
+    FOR i = 1 TO MAX_LAYERS
+        IF CLIP_inst_of%(i) THEN cs = cs + " " + _TRIM$(STR$(i)) + ":" + _TRIM$(STR$(ABS(LAYERS(i).visible% <> 0)))
+    NEXT i
+    s = s + cs + lf
+    FOR i = 1 TO MAX_LAYERS ' each keyed / modulated lane
+        k = CLIP_inst_of%(i)
+        IF k THEN s = s + CLIP_dump_lanes$(i, k)
+    NEXT i
+    s = s + "CLIPQP" + STR$(CLIP_cue_picked%) + lf ' the panel's picked sound (0 = none)
+    k = CLIP_edit_find% ' the open cel edit: its layer slot, source, place (0 = none)
+    IF k THEN
+        s = s + "CLIPE" + STR$(HISTORY_find_layer_slot_by_id%(CLIP_ED_ID(k))) + STR$(CLIP_ED_SRC(k)) + STR$(CLIP_ED_PX(k)) + STR$(CLIP_ED_PY(k)) + lf
+        s = s + "CLIPEX" + CLIP_dump_px$(HISTORY_find_layer_slot_by_id%(CLIP_ED_ID(k))) + lf
+    ELSE
+        s = s + "CLIPE 0" + lf
+    END IF
+    CLIP_dump$ = s
+END FUNCTION
+
+''
+' CLIPX: per frame of clip layer slot, " f:x:y:w:h:TL:TR" - the bounds of its
+' pixels in the frame's cell and the colours (hex RGB) at their top left / top
+' right, or " f:-" (nothing). Cells up to 64 x 64, the first 64 frames.
+FUNCTION CLIP_dump_px$ (slot AS INTEGER)
+    DIM f AS INTEGER, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, x AS LONG, y AS LONG
+    DIM x0 AS LONG, y0 AS LONG, x1 AS LONG, y1 AS LONG, img AS LONG, oldS AS LONG, s AS STRING, c AS _UNSIGNED LONG
+    img = LAYERS(slot).imgHandle&
+    IF img >= -1 THEN EXIT FUNCTION
+    oldS = _SOURCE
+    _SOURCE img
+    FOR f = 1 TO _MIN(ANIM.count, 64)
+        IF ANIM_cell_rect%(f, fx, fy, fw, fh) _ANDALSO fw <= 64 _ANDALSO fh <= 64 THEN
+            x0 = fw: y0 = fh: x1 = -1: y1 = -1
+            FOR y = 0 TO fh - 1
+                FOR x = 0 TO fw - 1
+                    c = POINT(fx + x + LAYERS(slot).apronW%, fy + y + LAYERS(slot).apronH%)
+                    IF _ALPHA32(c) THEN
+                        IF x < x0 THEN x0 = x
+                        IF x > x1 THEN x1 = x
+                        IF y < y0 THEN y0 = y
+                        IF y > y1 THEN y1 = y
+                    END IF
+                NEXT x
+            NEXT y
+            IF x1 < 0 THEN
+                s = s + STR$(f) + ":-"
+            ELSE
+                s = s + STR$(f) + ":" + _TRIM$(STR$(x0)) + ":" + _TRIM$(STR$(y0)) + ":" + _TRIM$(STR$(x1 - x0 + 1)) + ":" + _TRIM$(STR$(y1 - y0 + 1))
+                s = s + ":" + CLIP_hex6$(POINT(fx + x0 + LAYERS(slot).apronW%, fy + y0 + LAYERS(slot).apronH%))
+                s = s + ":" + CLIP_hex6$(POINT(fx + x1 + LAYERS(slot).apronW%, fy + y0 + LAYERS(slot).apronH%))
+            END IF
+        END IF
+    NEXT f
+    _SOURCE oldS
+    CLIP_dump_px$ = s
+END FUNCTION
+
+''
+' CLIPXA slot f:a ...  (the highest alpha in each frame's cell; "-" = empty)
+FUNCTION CLIP_dump_alpha$ (slot AS INTEGER)
+    DIM f AS INTEGER, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, x AS LONG, y AS LONG
+    DIM img AS LONG, oldS AS LONG, s AS STRING, a AS LONG, m AS LONG
+    img = LAYERS(slot).imgHandle&
+    IF img >= -1 THEN EXIT FUNCTION
+    oldS = _SOURCE
+    _SOURCE img
+    FOR f = 1 TO _MIN(ANIM.count, 64)
+        IF ANIM_cell_rect%(f, fx, fy, fw, fh) _ANDALSO fw <= 64 _ANDALSO fh <= 64 THEN
+            m = 0
+            FOR y = 0 TO fh - 1
+                FOR x = 0 TO fw - 1
+                    a = _ALPHA32(POINT(fx + x + LAYERS(slot).apronW%, fy + y + LAYERS(slot).apronH%))
+                    IF a > m THEN m = a
+                NEXT x
+            NEXT y
+            s = s + " " + _TRIM$(STR$(f)) + ":" + _IIF(m > 0, _TRIM$(STR$(m)), "-")
+        END IF
+    NEXT f
+    _SOURCE oldS
+    CLIP_dump_alpha$ = s
+END FUNCTION
+
+''
+' CLIPL slot lane n f:v:e ...  (keys; v to 2 decimals)
+' CLIPLM slot lane kind shape amount period phase seed
+' CLIPLV slot lane v1 v2 ...  (the value per frame, rounded half up, first 64 frames)
+FUNCTION CLIP_dump_lanes$ (slot AS INTEGER, k AS INTEGER)
+    DIM L AS INTEGER, i AS INTEGER, f AS INTEGER, s AS STRING, lf AS STRING, ks AS STRING
+    DIM kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    lf = CHR$(10)
+    FOR L = 1 TO CLIP_LANES
+        ks = CLIP_LN_KEYS(k, L)
+        IF LEN(ks) _ORELSE LEN(CLIP_LN_MOD(k, L)) THEN
+            s = s + "CLIPL" + STR$(slot) + STR$(L) + STR$(CLIP_lks_n%(ks))
+            FOR i = 1 TO CLIP_lks_n%(ks)
+                s = s + " " + _TRIM$(STR$(CLIP_lk_f%(ks, i))) + ":" + CLIP_num$(CLIP_lk_v!(ks, i)) + ":" + _TRIM$(STR$(CLIP_lk_e%(ks, i)))
+            NEXT i
+            s = s + lf
+            IF LEN(CLIP_LN_MOD(k, L)) THEN
+                CLIP_mod_unpack CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed
+                s = s + "CLIPLM" + STR$(slot) + STR$(L) + STR$(kind) + STR$(shape) + " " + CLIP_num$(amount) + " " + CLIP_num$(period) + " " + CLIP_num$(phase) + " " + _TRIM$(STR$(seed)) + lf
+            END IF
+            s = s + "CLIPLV" + STR$(slot) + STR$(L)
+            FOR f = 1 TO _MIN(ANIM.count, 64)
+                s = s + " " + _TRIM$(STR$(INT(CLIP_lane_value!(k, L, f) + .5)))
+            NEXT f
+            s = s + lf
+        END IF
+    NEXT L
+    CLIP_dump_lanes$ = s
+END FUNCTION
+
+FUNCTION CLIP_num$ (v AS SINGLE) ' up to 2 decimals, no trailing zeros
+    DIM s AS STRING
+    s = _TRIM$(STR$(CLNG(v * 100) / 100))
+    IF LEFT$(s, 1) = "." THEN s = "0" + s
+    IF LEFT$(s, 2) = "-." THEN s = "-0" + MID$(s, 2)
+    CLIP_num$ = s
+END FUNCTION
+
+FUNCTION CLIP_hex6$ (c AS _UNSIGNED LONG)
+    CLIP_hex6$ = LCASE$(RIGHT$("000000" + HEX$(c AND &HFFFFFF~&), 6))
+END FUNCTION
+
+''
+' CMD_execute_action, first: on a clip layer, Flip Horizontal / Vertical
+' flip the clip, and commands that would change its pixels are refused (the
+' pixels are rebuilt from the clip). TRUE = handled here.
+FUNCTION CLIP_cmd_filter% (act AS INTEGER)
+    DIM what AS STRING
+    IF CLIP_is_clip%(CURRENT_LAYER%) = 0 THEN EXIT FUNCTION
+    SELECT CASE act
+        CASE 315: CLIP_set 6, NOT CLIP_get&(6): CLIP_cmd_filter% = TRUE: EXIT FUNCTION
+        CASE 316: CLIP_set 7, NOT CLIP_get&(7): CLIP_cmd_filter% = TRUE: EXIT FUNCTION
+        CASE 304, 323: what = "Cut"
+        CASE 305, 312, 330: what = "Paste"
+        CASE 308, 309: what = "Clear"
+        CASE 317, 318, 331, 333: what = "Scale"
+        CASE 319, 320: what = "Rotate"
+        CASE 324: what = "Stroke Selection"
+        CASE 325 TO 329: what = "Transform"
+        CASE 2001 TO 2281
+            ' other layers selected too: the effect runs on them, never on a clip
+            ' layer (IMAGE_ADJ_collect_targets skips clips)
+            IF CLIP_others_selected% THEN EXIT FUNCTION
+            what = "Effects"
+        CASE ELSE: EXIT FUNCTION
+    END SELECT
+    CLIP_cmd_filter% = CLIP_refuse%(what)
+END FUNCTION
+
+''
+' Layers other than clip layers (and groups) in the layer multi-selection?
+FUNCTION CLIP_others_selected% ()
+    ' the topmost selected pixel layer (not a clip / group / symbol instance), 0 = none
+    DIM i AS INTEGER, best AS INTEGER, t AS INTEGER
+    IF MULTI_SELECT_has_any% = 0 THEN EXIT FUNCTION
+    FOR i = 1 TO MAX_LAYERS
+        IF MULTI_SELECT_LAYERS(i) THEN
+            t = LAYERS(i).layerType%
+            IF LAYERS(i).imgHandle& < -1 _ANDALSO t <> LAYER_TYPE_CLIP _ANDALSO t <> LAYER_TYPE_GROUP _ANDALSO t <> LAYER_TYPE_SYMBOL_CHILD THEN
+                IF best = 0 THEN
+                    best = i
+                ELSEIF LAYERS(i).zIndex% > LAYERS(best).zIndex% THEN
+                    best = i
+                END IF
+            END IF
+        END IF
+    NEXT i
+    CLIP_others_selected% = best
+END FUNCTION
+
+''
+' Duplicate Layer of a clip layer (GUI/LAYERS.BM): the copy is a second clip
+' of the same cels with the same settings (a plain layer if there is no room).
+SUB CLIP_duplicate (fromSlot AS INTEGER, toSlot AS INTEGER)
+    DIM a AS INTEGER, b AS INTEGER
+    a = CLIP_inst_by_id%(LAYERS(fromSlot).historyId&)
+    IF a = 0 THEN LAYERS(toSlot).layerType% = LAYER_TYPE_IMAGE: EXIT SUB
+    b = CLIP_inst_new%(LAYERS(toSlot).historyId&)
+    IF b = 0 THEN LAYERS(toSlot).layerType% = LAYER_TYPE_IMAGE: EXIT SUB
+    CLIP_inst_from_blob b, CLIP_inst_blob$(a)
+    CLIP_lanes_from_blob b, CLIP_lanes_blob$(a)
+    LAYERS(toSlot).layerType% = LAYER_TYPE_CLIP
+END SUB
+
+FUNCTION CLIP_menu_checked% (act AS INTEGER)
+    IF CLIP_current% = 0 THEN EXIT FUNCTION
+    SELECT CASE act
+        CASE CLIP_ACT_MODE0 TO CLIP_ACT_MODE0 + 4: CLIP_menu_checked% = (CLIP_get&(5) = act - CLIP_ACT_MODE0)
+        CASE CLIP_ACT_FLIP_X: CLIP_menu_checked% = (CLIP_get&(6) <> 0)
+        CASE CLIP_ACT_FLIP_Y: CLIP_menu_checked% = (CLIP_get&(7) <> 0)
+    END SELECT
+END FUNCTION
+
+''
+' The Move tool's commit on clip layer slot (TOOLS/MOVE): the clip moves by
+' (dx, dy) in every frame; one undo step.
+''
+' The Move tool in a lightbox pane drags the clip (TOOLS/ANIM-LB): begin, follow
+' the pointer (dx, dy canvas px from the press), end = one undo step.
+SUB CLIP_drag_begin (slot AS INTEGER)
+    DIM k AS INTEGER
+    k = CLIP_inst_of%(slot)
+    IF k = 0 THEN EXIT SUB
+    CLIP_DRAG_SLOT = slot: CLIP_DRAG_BEFORE = CLIP_state$(slot)
+    CLIP_DRAG_X0 = CLIP_INST(k).px: CLIP_DRAG_Y0 = CLIP_INST(k).py
+    CLIP_DRAG_KX = CLIP_LN_KEYS(k, CLIP_LANE_X): CLIP_DRAG_KY = CLIP_LN_KEYS(k, CLIP_LANE_Y)
+    CLIP_DRAG_REL = ANIM.current - CLIP_INST(k).inF
+    IF LEN(CLIP_DRAG_KX) = 0 _ANDALSO LEN(CLIP_DRAG_KY) = 0 THEN CLIP_DRAG_REL = -1 ' no X / Y keys: the whole clip moves
+END SUB
+
+SUB CLIP_drag_to (dx AS INTEGER, dy AS INTEGER)
+    DIM k AS INTEGER
+    IF CLIP_DRAG_SLOT = 0 THEN EXIT SUB
+    k = CLIP_inst_of%(CLIP_DRAG_SLOT)
+    IF k = 0 THEN CLIP_DRAG_SLOT = 0: EXIT SUB
+    IF CLIP_DRAG_REL >= 0 THEN ' X / Y keys: key this frame (as CLIP_move_by)
+        CLIP_LN_KEYS(k, CLIP_LANE_X) = CLIP_DRAG_KX: CLIP_LN_KEYS(k, CLIP_LANE_Y) = CLIP_DRAG_KY
+        IF dx THEN CLIP_LN_KEYS(k, CLIP_LANE_X) = CLIP_lks_put$(CLIP_DRAG_KX, CLIP_DRAG_REL, CLIP_lane_clamp!(CLIP_LANE_X, CLIP_lane_keyed!(CLIP_DRAG_KX, CLIP_DRAG_REL, 0) + dx), CLIP_EASE_LINEAR)
+        IF dy THEN CLIP_LN_KEYS(k, CLIP_LANE_Y) = CLIP_lks_put$(CLIP_DRAG_KY, CLIP_DRAG_REL, CLIP_lane_clamp!(CLIP_LANE_Y, CLIP_lane_keyed!(CLIP_DRAG_KY, CLIP_DRAG_REL, 0) + dy), CLIP_EASE_LINEAR)
+    ELSE
+        CLIP_INST(k).px = _MAX(-9999, _MIN(CLIP_DRAG_X0 + dx, 9999))
+        CLIP_INST(k).py = _MAX(-9999, _MIN(CLIP_DRAG_Y0 + dy, 9999))
+    END IF
+    CLIP_rebuild CLIP_DRAG_SLOT
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+END SUB
+
+SUB CLIP_drag_end ()
+    DIM slot AS INTEGER, k AS INTEGER, after AS STRING
+    IF CLIP_DRAG_SLOT = 0 THEN EXIT SUB
+    slot = CLIP_DRAG_SLOT: CLIP_DRAG_SLOT = 0
+    k = CLIP_inst_of%(slot)
+    IF k _ANDALSO NOT HISTORY_IN_PROGRESS% THEN
+        after = CLIP_state$(slot)
+        IF after <> CLIP_DRAG_BEFORE _ANDALSO CLIP_DRAG_BEFORE <> "" THEN
+            HISTORY_record_clip LAYERS(slot).historyId&, slot, CLIP_DRAG_BEFORE, after, _IIF(CLIP_DRAG_REL >= 0, "Clip Key X / Y", "Clip Move")
+            HISTORY_saved_this_frame% = TRUE
+            IF CLIP_DRAG_REL >= 0 THEN
+                STATUS_flash "Keyed X / Y on frame" + STR$(ANIM.current) + " (the clip has X / Y keys)"
+            ELSE
+                STATUS_flash "Moved the clip by" + STR$(CLIP_INST(k).px - CLIP_DRAG_X0) + "," + STR$(CLIP_INST(k).py - CLIP_DRAG_Y0) + " (every frame)"
+            END IF
+        END IF
+    END IF
+    CLIP_DRAG_BEFORE = ""
+END SUB
+
+SUB CLIP_move_by (slot AS INTEGER, dx AS LONG, dy AS LONG)
+    DIM k AS INTEGER, before AS STRING
+    k = CLIP_inst_of%(slot)
+    IF k = 0 _ORELSE (dx = 0 _ANDALSO dy = 0) THEN EXIT SUB
+    DIM rel AS INTEGER, ks AS STRING, nm AS STRING
+    before = CLIP_state$(slot): nm = "Clip Move"
+    rel = ANIM.current - CLIP_INST(k).inF
+    IF (LEN(CLIP_LN_KEYS(k, CLIP_LANE_X)) _ORELSE LEN(CLIP_LN_KEYS(k, CLIP_LANE_Y))) _ANDALSO rel >= 0 THEN
+        ' X / Y keys: the move keys this frame (auto-key); the other frames keep their keys
+        IF dx THEN
+            ks = CLIP_LN_KEYS(k, CLIP_LANE_X)
+            CLIP_LN_KEYS(k, CLIP_LANE_X) = CLIP_lks_put$(ks, rel, CLIP_lane_clamp!(CLIP_LANE_X, CLIP_lane_keyed!(ks, rel, 0) + dx), CLIP_EASE_LINEAR)
+        END IF
+        IF dy THEN
+            ks = CLIP_LN_KEYS(k, CLIP_LANE_Y)
+            CLIP_LN_KEYS(k, CLIP_LANE_Y) = CLIP_lks_put$(ks, rel, CLIP_lane_clamp!(CLIP_LANE_Y, CLIP_lane_keyed!(ks, rel, 0) + dy), CLIP_EASE_LINEAR)
+        END IF
+        nm = "Clip Key X / Y"
+    ELSE
+        CLIP_INST(k).px = _MAX(-9999, _MIN(CLIP_INST(k).px + dx, 9999))
+        CLIP_INST(k).py = _MAX(-9999, _MIN(CLIP_INST(k).py + dy, 9999))
+    END IF
+    CLIP_rebuild slot
+    IF NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_clip LAYERS(slot).historyId&, slot, before, CLIP_state$(slot), nm
+        HISTORY_saved_this_frame% = TRUE
+    END IF
+END SUB

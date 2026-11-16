@@ -43,9 +43,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/source-guard.sh"
 
 echo "=== Paste/Move/Wand source guards (v2.0.3 A/B/C/D/E) ==="
 
-# A — paste position no longer depends on the mouse; it is forced to canvas centre.
-assert_grep  "BUG-A" "TOOLS/SELECTION.BM" 'mouseX% = SCRN\.canvasW& \\ 2' "paste X forced to canvas centre"
-assert_grep  "BUG-A" "TOOLS/SELECTION.BM" 'mouseY% = SCRN\.canvasH& \\ 2' "paste Y forced to canvas centre"
+# A — paste position no longer depends on the mouse; it is forced to canvas centre
+# (the centre of ANIM_CV_rect: the canvas, or the current frame in the lightbox).
+assert_grep  "BUG-A" "TOOLS/SELECTION.BM" 'pvOK% = ANIM_CV_rect%\(pvX&, pvY&, pvW&, pvH&\)' "paste centres on the canvas rect (the current frame in the lightbox)"
+assert_grep  "BUG-A" "TOOLS/SELECTION.BM" 'mouseX% = pvX& \+ pvW& \\ 2' "paste X forced to canvas centre"
+assert_grep  "BUG-A" "TOOLS/SELECTION.BM" 'mouseY% = pvY& \+ pvH& \\ 2' "paste Y forced to canvas centre"
 
 # B — pasted float stays floating: the release handler has an IS_PASTE branch that
 # syncs the base instead of baking (MOVE_apply_transform).

@@ -29,7 +29,7 @@
 $INCLUDEONCE
 
 CONST WS_MAX       = 32  ' workspaces listed (built-in + user)
-CONST WS_MAX_KV    = 256 ' resolved SECTION.KEY=VALUE pairs for one workspace
+CONST WS_MAX_KV    = 512 ' resolved SECTION.KEY=VALUE pairs for one workspace
 CONST WS_MAX_DEPTH = 8   ' BASED_ON chain limit (a cycle stops here)
 CONST WS_DEFAULT_ID$ = "default"
 CONST WS_CURRENT_ID$ = "current" ' always listed under Default: where changes made in Default go (no file until the first one)
@@ -39,6 +39,7 @@ TYPE WS_INFO
     id       AS STRING  ' lowercase file stem ("annotate")
     title    AS STRING  ' [WORKSPACE] NAME (falls back to the id)
     desc     AS STRING  ' [WORKSPACE] DESCRIPTION
+    short    AS STRING  ' [WORKSPACE] SHORT: its workflow button label ("" = the title)
     basedOn  AS STRING  ' [WORKSPACE] BASED_ON id ("" = none)
     fpath    AS STRING  ' the file that wins ("" = virtual default)
     builtin  AS INTEGER ' a built-in with this id exists (Reset is possible)

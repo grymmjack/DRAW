@@ -36,6 +36,7 @@ END SUB
 ' Frees the image handle and resets all state
 '
 SUB CUSTOM_BRUSH_reset ()
+    AB_clear ' an AnimBrush's cels go too (TOOLS/ANIM-BRUSH)
     ' Free the image if it exists
     SAFE_FREEIMAGE CUSTOM_BRUSH.IMAGE&         : CUSTOM_BRUSH.IMAGE& = 0
     SAFE_FREEIMAGE CUSTOM_BRUSH.PREVIEW_CACHE& : CUSTOM_BRUSH.PREVIEW_CACHE& = 0
@@ -105,6 +106,7 @@ SUB CUSTOM_BRUSH_stash ()
     ELSE
         CUSTOM_BRUSH_SAVED.IMAGE& = 0
     END IF
+    AB_stash ' an AnimBrush's cels go with it
 
     ' Deactivate the brush
     CUSTOM_BRUSH_reset
@@ -139,6 +141,7 @@ SUB CUSTOM_BRUSH_unstash ()
     CUSTOM_BRUSH.IMAGE&       = CUSTOM_BRUSH_SAVED.IMAGE&
     CUSTOM_BRUSH_SAVED.IMAGE& = 0
     CUSTOM_BRUSH_SAVED.VALID% = FALSE
+    AB_unstash ' an AnimBrush's cels come back (shows its cel)
 END SUB
 
 
@@ -147,6 +150,7 @@ END SUB
 ' Called when the user explicitly clears the active brush (Ctrl+B).
 '
 SUB CUSTOM_BRUSH_clear_stash ()
+    AB_clear_stash
     SAFE_FREEIMAGE CUSTOM_BRUSH_SAVED.IMAGE&
     CUSTOM_BRUSH_SAVED.IMAGE& = 0
     CUSTOM_BRUSH_SAVED.VALID% = FALSE
@@ -397,6 +401,10 @@ END SUB
 '
 SUB CUSTOM_BRUSH_stamp (x AS INTEGER, y AS INTEGER)
     IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    ' AnimBrush: this stamp's cel; every frame at once stamps here and is done (TOOLS/ANIM-BRUSH)
+    IF AB_active% THEN
+        IF AB_stamp%(x%, y%) THEN EXIT SUB
+    END IF
     
     ' Stamp at the master position
     CUSTOM_BRUSH_render x%, y%, LAYER_current_image&
@@ -455,6 +463,7 @@ END SUB
 SUB CUSTOM_BRUSH_rotate_cw ()
     IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
     IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
+    IF AB_each%(AB_OP_ROT_CW) THEN EXIT SUB ' an AnimBrush: every cel (TOOLS/ANIM-BRUSH)
     
     DIM old_w       AS INTEGER, old_h AS INTEGER
     DIM new_img     AS LONG
@@ -520,6 +529,7 @@ END SUB
 SUB CUSTOM_BRUSH_rotate_ccw ()
     IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
     IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
+    IF AB_each%(AB_OP_ROT_CCW) THEN EXIT SUB ' an AnimBrush: every cel (TOOLS/ANIM-BRUSH)
     
     DIM old_w       AS INTEGER, old_h AS INTEGER
     DIM new_img     AS LONG
@@ -583,6 +593,7 @@ END SUB
 SUB CUSTOM_BRUSH_scale_2x_horizontal ()
     IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
     IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
+    IF AB_each%(AB_OP_2X_H) THEN EXIT SUB ' an AnimBrush: every cel (TOOLS/ANIM-BRUSH)
 
     DIM old_w   AS INTEGER, old_h AS INTEGER
     DIM new_img AS LONG
@@ -613,6 +624,7 @@ END SUB
 SUB CUSTOM_BRUSH_scale_2x_vertical ()
     IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
     IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
+    IF AB_each%(AB_OP_2X_V) THEN EXIT SUB ' an AnimBrush: every cel (TOOLS/ANIM-BRUSH)
 
     DIM old_w   AS INTEGER, old_h AS INTEGER
     DIM new_img AS LONG
@@ -679,6 +691,39 @@ SUB CUSTOM_BRUSH_render_scaled (x AS INTEGER, y AS INTEGER, dest AS LONG, zoom A
     ELSE
         src_y1% = 0
         src_y2% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1
+    END IF
+
+    ' A transparent FG erases: show the brush's footprint as the checkerboard,
+    ' on the canvas pixels the stamp will clear (BUGS 2026-11-15 X1)
+    IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+        DIM evImg AS LONG, evX AS INTEGER, evY AS INTEGER
+        DIM evZW  AS LONG, evZH AS LONG, evDX AS LONG, evDY AS LONG
+        evX% = MOUSE.X% - CUSTOM_BRUSH.WIDTH% \ 2
+        evY% = MOUSE.Y% - CUSTOM_BRUSH.HEIGHT% \ 2
+        evImg& = _NEWIMAGE(CUSTOM_BRUSH.WIDTH%, CUSTOM_BRUSH.HEIGHT%, 32)
+        IF evImg& < -1 THEN
+            _DEST evImg&
+            _DONTBLEND evImg&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _PUTIMAGE (0, 0)-(CUSTOM_BRUSH.WIDTH% - 1, CUSTOM_BRUSH.HEIGHT% - 1), CUSTOM_BRUSH.IMAGE&, evImg&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+            TRANSPARENCY_paint_footprint evImg&, evX%, evY%
+            _BLEND evImg&
+            evZW& = SCRN.canvasW& * SCRN.zoom!
+            evZH& = SCRN.canvasH& * SCRN.zoom!
+            IF SCRN.patternTileMode% THEN
+                evDX& = (SCRN.w& - evZW& * 3) \ 2 + SCRN.offsetX% + SCRN.panelShiftX% + evZW&
+                evDY& = (SCRN.h& - evZH& * 3) \ 2 + SCRN.offsetY% + SCRN.panelShiftY% + evZH&
+            ELSE
+                evDX& = (SCRN.w& - evZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+                evDY& = (SCRN.h& - evZH&) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%
+            END IF
+            _DEST dest&
+            _PUTIMAGE (evDX& + evX% * zoom!, evDY& + evY% * zoom!)-(evDX& + (evX% + CUSTOM_BRUSH.WIDTH%) * zoom! - 1, evDY& + (evY% + CUSTOM_BRUSH.HEIGHT%) * zoom! - 1), evImg&, dest&
+            SAFE_FREEIMAGE evImg&
+        END IF
+        _SOURCE old_source&
+        _DEST old_dest&
+        EXIT SUB
     END IF
     
     ' If recolor mode or opacity < 100%, use cached preview image.
@@ -815,6 +860,7 @@ END SUB
 SUB CUSTOM_BRUSH_apply_outline ()
     IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
     IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
+    IF AB_each%(AB_OP_OUTLINE) THEN EXIT SUB ' an AnimBrush: every cel (TOOLS/ANIM-BRUSH)
     
     DIM old_dest AS LONG, old_source AS LONG
     old_dest&   = _DEST

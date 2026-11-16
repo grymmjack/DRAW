@@ -160,7 +160,7 @@ Rows you've changed from the factory default show a marker and a "= changed from
 | Vertical wheel | Zoom in/out (cursor-centered) | Rebindable; can be set to canvas pan or brush size |
 | Wheel **tilt** (left/right) | Brush size − / + | Tilt right = bigger; rebind to **Pan Left/Right** for horizontal scroll |
 | `Ctrl` + wheel | Brush size | |
-| Thumb buttons (Back / Forward) | Undo / Redo | |
+| Thumb buttons (Back / Forward) | Undo / Redo | Over the **Browser** (and in the Open / Save dialogs) they go back / forward through the folders you visited instead |
 | Right-click (Zoom tool) | Zoom **out** | Left-click zooms in |
 | Pan drag button | Middle / Space+drag | Rebindable |
 
@@ -169,6 +169,15 @@ There are also dedicated **Pan Up / Down / Left / Right** actions you can bind t
 **Presets & export**
 
 - **Load preset** applies a full keymap in one click: *Aseprite, Photoshop, GIMP, Krita, Illustrator, Procreate, MS Paint, Pro Motion, DeluxePaint*.
+- **DeluxePaint** gives the keys their DPaint V jobs: `u` undo / `Shift+U` redo, `d` brush, `s` dotted, `v` line, `e`/`c` ellipse, `r` rectangle (capitals = filled), `b` brush selector (drag a box: it becomes the brush), `,` pick colour, `[` `]` / `{` `}` step the FG / BG colour, `.` one-pixel brush, `x`/`y` flip, `z` rotate, `h`/`H` halve / double the brush, `Tab` colour cycling, `F9` / `F10` menu bar / toolbox, and `1` `2` `4` `5` `6` `7` `8` for frames and playback. The header of `ASSETS/PRESETS/deluxepaint.bindings` lists the DPaint keys DRAW has no tool for.
+- **The other presets** follow each app's own default shortcuts:
+  - **Photoshop**: `G` fill, `L` lasso, `P` pen (bezier), `U` / `Shift+U` rectangle / ellipse, `C` crop, `D` default colours, `Ctrl+J` layer via copy, `Ctrl+E` merge down, `Ctrl+T` free transform, `Ctrl+[` / `Ctrl+]` move the layer, `Alt+Backspace` / `Ctrl+Backspace` fill with FG / BG, `F7` layers, `Ctrl+K` settings.
+  - **GIMP**: `R` / `E` / `F` / `U` rectangle / ellipse / free / fuzzy select, `M` move, `O` picker, `P` / `N` brush, `Shift+B` fill, `Shift+E` eraser, `Ctrl+,` / `Ctrl+.` fill with FG / BG, `1` 100%, `+` / `-` zoom.
+  - **Krita**: `P` colour sampler, `T` move, `Ctrl+T` transform, `C` crop, `Ctrl+R` / `J` rectangle / ellipse select, `Insert` new layer, `Ctrl+J` duplicate layer, `Shift+Backspace` / `Backspace` fill with FG / BG, `Tab` canvas only.
+  - **Aseprite**: `G` fill, `U` rectangle, `Q` lasso, `Shift+H` / `Shift+V` flip, `Alt+N` new frame, `,` / `.` / `Home` / `End` frames, `Tab` the Animation panel, `F3` onion skin, `[` `]` (and `9` `0`) step the colour, `=` / `-` brush size.
+  - **Illustrator**, **MS Paint**, **Pro Motion NG** and **Procreate** map what each has a pixel match for (Procreate's keyboard set is small; Pro Motion's DPaint-style tools, frames and AnimBrush keys are all there).
+  - Each file's header (`ASSETS/PRESETS/<name>.bindings`) lists the keys that already match DRAW, the app's keys DRAW has no tool for, and the DRAW keys the preset takes. Where the app leaves a DRAW key unused, the preset keeps it (Photoshop keeps `R` rectangle, `Q` bezier).
+- **How a preset takes a key:** a key the preset gives an action is taken from whatever DRAW action had it (that one is left unbound - with DeluxePaint, `Ctrl+Z` no longer undoes and `i` no longer picks). Keys the preset doesn't mention keep their DRAW meaning. Menus, tooltips and the command palette show the keys in force.
 - **Export as…** writes your live keymap (including overrides) to **Markdown, HTML, or PDF**.
 - Bindings persist across sessions in `DRAW.bindings`; the CLI flag `--load-preset <name>` applies one at launch.
 

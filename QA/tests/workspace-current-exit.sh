@@ -55,7 +55,11 @@ if [[ "$TB_WS" == "my-panels" ]] && dk_floating editbar; then pass "DRAW starts 
 assert_no_crash
 
 # --- cleanup: a plain instance for the next test -------------------------------------------
+_qpid=$DRAW_PID
 draw_quit
+# (draw_quit doesn't wait: the next launch can find the closing window, 0x0)
+for _w in $(seq 1 50); do kill -0 "$_qpid" 2>/dev/null || break; sleep 0.1; done
+sleep 0.4
 tb_reset_ws
 draw_launch 15
 wait_for 0.8 "Default instance restored"

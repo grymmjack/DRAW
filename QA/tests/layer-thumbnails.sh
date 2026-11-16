@@ -1,0 +1,99 @@
+#!/bin/bash
+# =============================================================================
+# layer-thumbnails.sh — QA test: thumbnails in the Layers panel (Rick
+# 2026-11-09, field kit R-13: "layer thumbnails with sizes in the layer pane
+# ... if we could have the thumbnails have tiny, small, and med sizes?").
+#
+# LAYER_THUMBNAILS = OFF / TINY (16 px) / SMALL (32 px) / MEDIUM (48 px), set
+# in Settings > Panels. A row holds the thumbnail (SMALL: 36 px rows) before
+# the name: the layer's content - the box round its non-transparent pixels -
+# fitted on a checkerboard (Rick 2026-11-09: "can we make it so it's based on
+# the bounding box of the layer data that is not transparent?"). Builds before
+# 3f1dc02b ignored the option; 3f1dc02b showed the whole canvas, so a small
+# mark was a speck.
+#
+# The zoom is capped (Rick: "cap the zoom say 16px ... make it configurable"):
+# LAYER_THUMBNAIL_MIN_CROP (default 16) - the box is at least 16 x 16 canvas
+# px, so the 8x8 square is half the thumbnail's width (25% red); in 64078522 it
+# filled it (100%). MIN_CROP=1 fills it again. LAYER_THUMBNAIL_FIT=CANVAS ("give
+# them the choice of full layer bounds") shows the whole canvas: a speck.
+#
+# Fixture: a 128x128 transparent canvas with an 8x8 red square near its top
+# right corner. Row 0 = the top layer.
+# QA-OPTIONS: WORKSPACE=default LAYER_THUMBNAILS=SMALL
+# =============================================================================
+info "=== Layers panel thumbnails (SMALL) ==="
+
+LT_DIR="/tmp/draw-qa-layerthumbs-$$"
+mkdir -p "$LT_DIR"
+magick -size 128x128 xc:none -fill '#e02020' -draw 'rectangle 100,10 107,17' "PNG32:$LT_DIR/red.png"
+
+LT_ROW=36           # SMALL: 32 px thumbnail + 4
+LT_TOP=$(( LP_Y + 16 ))
+lt_red() { # PNG -> the % of its pixels that are red
+    magick "$1" -fuzz 12% -fill white -opaque '#e02020' -fill black +opaque white -colorspace gray -format '%[fx:round(mean*100)]' info: 2>/dev/null
+}
+lt_row() { # ROW LABEL -> $SNAP_RESULT: the thumbnail box of that row
+    { hover 300 250; wait_for 0.2 "render"; hover 305 252; wait_for 0.3 "render"; } >&2
+    snap_region $(( LP_X + 3 + 21 )) $(( LT_TOP + $1 * LT_ROW + 2 )) 32 32 "$2"
+}
+
+draw_quit
+draw_settle
+DRAW_EXTRA_ARGS="$LT_DIR/red.png"
+draw_launch 15
+wait_for 1.5 "red.png loaded"
+assert_no_crash
+
+lt_row 0 "thumb-row0"
+N=$(lt_red "$SNAP_RESULT")
+(( ${N:-0} >= 20 && ${N:-0} <= 30 )) && pass "row 0: the red square in a 16 x 16 px crop ($N% red)" || fail "row 0 thumbnail: ${N:-?}% red, wanted 20-30% (the square in a 16 px crop)"
+
+park_mouse; key ctrl+shift+n; wait_for 0.8 "a new empty layer on top"
+lt_row 0 "thumb-new-row0"
+N0=$(lt_red "$SNAP_RESULT")
+lt_row 1 "thumb-new-row1"
+N1=$(lt_red "$SNAP_RESULT")
+(( ${N0:-999} < 5 && ${N1:-0} >= 20 && ${N1:-0} <= 30 )) \
+    && pass "a new empty layer: row 0 shows no red ($N0%), the red layer moved one 36 px row down ($N1%)" \
+    || fail "after a new layer: row 0 ${N0:-?}% red (want < 5%), row 1 ${N1:-?}% (want 20-30%)"
+
+# -- an edit refreshes it: a dot at the canvas centre (64, 64) on the red
+#    layer grows its box to (64..107, 10..64), so the red share drops --
+click $(( LP_X + 80 )) $(( LT_TOP + LT_ROW + LT_ROW / 2 )); wait_for 0.5 "select the red layer (row 1)"
+park_mouse; key b; wait_for 0.3 "Brush"
+click "$CANVAS_CX" "$CANVAS_CY"; wait_for 0.6 "a dot"
+lt_row 1 "thumb-after-dot"
+N2=$(lt_red "$SNAP_RESULT")
+(( ${N2:-100} < 15 )) && pass "after a dot far from the square the thumbnail takes in both: ${N2}% red (was $N1%)" \
+    || fail "after the dot: ${N2:-?}% red, wanted < 15% (the thumbnail kept its old box?)"
+
+screenshot "layer-thumbnails"
+
+# -- LAYER_THUMBNAIL_MIN_CROP=1: no cap, the square fills the thumbnail --
+draw_quit
+draw_settle
+DRAW_EXTRA_ARGS="--option LAYER_THUMBNAIL_MIN_CROP=1 $LT_DIR/red.png"
+draw_launch 15
+wait_for 1.5 "red.png loaded"
+lt_row 0 "thumb-mincrop1"
+N3=$(lt_red "$SNAP_RESULT")
+(( ${N3:-0} >= 70 )) && pass "MIN_CROP=1: the square fills the thumbnail ($N3% red)" || fail "MIN_CROP=1: ${N3:-?}% red, wanted >= 70%"
+
+# -- LAYER_THUMBNAIL_FIT=CANVAS: the whole 128 px canvas, the square a speck --
+draw_quit
+draw_settle
+DRAW_EXTRA_ARGS="--option LAYER_THUMBNAIL_FIT=CANVAS $LT_DIR/red.png"
+draw_launch 15
+wait_for 1.5 "red.png loaded"
+lt_row 0 "thumb-fit-canvas"
+N4=$(lt_red "$SNAP_RESULT")
+(( ${N4:-100} < 3 )) && pass "FIT=CANVAS: the whole canvas, the square a speck ($N4% red)" || fail "FIT=CANVAS: ${N4:-?}% red, wanted < 3%"
+assert_no_crash
+rm -rf "$LT_DIR"
+
+draw_quit
+draw_settle
+DRAW_EXTRA_ARGS=""
+draw_launch 15
+assert_window_exists

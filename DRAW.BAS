@@ -219,7 +219,7 @@ $IF MAC THEN
                    LCASE$(macArgVal$) = "--version" OR LCASE$(macArgVal$) = "-v" THEN
                 macArgIdx% = macArgIdx% + 1 ' Defensive: HELP.BI should have exited already
             ELSEIF LCASE$(macArgVal$) = "--option" OR LCASE$(macArgVal$) = "--instance" OR LCASE$(macArgVal$) = "--palette" OR _
-                   LCASE$(macArgVal$) = "--export" OR LCASE$(macArgVal$) = "--export-anim" OR LCASE$(macArgVal$) = "--cycle" OR _
+                   LCASE$(macArgVal$) = "--export" OR LCASE$(macArgVal$) = "--export-anim" OR LCASE$(macArgVal$) = "--cycle" OR LCASE$(macArgVal$) = "--tag" OR _
                    LCASE$(macArgVal$) = "--export-qb64" THEN
                 macArgIdx% = macArgIdx% + 2 ' BUG-53: 2-token flag (flag + value) — skip both
             ELSEIF LEFT$(macArgVal$, 1) = "-" THEN
@@ -257,7 +257,7 @@ $ELSE
         ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" OR LCASE$(argVal$) = "--palette" OR LCASE$(argVal$) = "--workspace" THEN
             argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
         ELSEIF LCASE$(argVal$) = "--export-qb64" OR LCASE$(argVal$) = "--export" OR _
-               LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" THEN
+               LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" OR LCASE$(argVal$) = "--tag" THEN
             argIdx% = argIdx% + 2 ' 2-token flag (flag + output path) — skip both so the path is not mistaken for the input file
         ELSEIF LEFT$(argVal$, 1) = "-" THEN
             argIdx% = argIdx% + 1 ' BUG-53: any other unrecognized flag (--developer/--dev/...) — skip it, don't treat it as the file
@@ -339,6 +339,8 @@ COLORMIXER_init                       ' Initialise non-modal color mixer panel
 ADVCP_init                            ' Initialise advanced color picker panel (hue ring + SV triangle)
 CS3D_init                             ' Initialise 3D color space panel (OKLab / CIELAB / XYZ / RGB gamut)
 PENP_init                             ' Initialise Pen Pressure panel (View > Pen Pressure)
+ANIMP_init                            ' Initialise Animation panel (View / ANIM > Animation Panel)
+SWP_init                              ' Initialise Swatches panel (View > Swatches)
 TBED_init                             ' Customize Toolbars window (View > Customize Toolbars)
 BROWSER_init                          ' Initialise floating browser panel scaffold
 SMART_SHAPES_init                     ' Register Smart Shapes flyout sub-tools
@@ -543,7 +545,10 @@ DO
     ' Interactive placement is reserved for File -> Import Image only.
     IF CMDLINE_FIRST_FRAME% AND CMDLINE_PENDING_FILE$ <> "" THEN
         CMDLINE_FIRST_FRAME% = FALSE
-        IF FILE_ASE_is_aseprite_file%(CMDLINE_PENDING_FILE$) THEN
+        IF ANIM_SEQ_CLI _ANDALSO ANIM_SEQ_import%(CMDLINE_PENDING_FILE$) THEN
+            ' --sequence: name_0001.png and its numbered siblings as frames (Animation 5.4), untitled
+            SOUND_play SND_NEW_FILE
+        ELSEIF FILE_ASE_is_aseprite_file%(CMDLINE_PENDING_FILE$) THEN
             FILE_ASE_load CMDLINE_PENDING_FILE$
             SOUND_play SND_NEW_FILE
             RECENT_add_file CMDLINE_PENDING_FILE$
@@ -605,6 +610,7 @@ DO
         ' Only file #1 is consumed (multi-file drops discard the rest).
         DROP_queue_dropped_file dropFile$
     END IF
+    DROP_qa_poll ' QA: a stand-in OS drop (only with DOCK_DUMP set)
 
     ' OS-initiated window resize (maximize, free drag, etc.).
     '
@@ -680,7 +686,13 @@ DO
     osExitTrap% = _EXIT
     IF osExitTrap% THEN CMD_execute_action 212
 
+    NUMPAD_poll ' numpad presses (INPUT/NUMPAD)
+    ANIM_numpad_tick ' numpad 1 / 4 / 5 / 9 on a sheet with frames (TOOLS/ANIM-VIEW)
     k&               = _KEYHIT
+    ' a numpad frame key's own code (52 for numpad 4) is not main-row 4's opacity
+    IF k& > 0 THEN
+        IF ANIM_numpad_code%(k&, 1) THEN k& = 0
+    END IF
     LAST_KEYHIT_RAW& = k&
     
     ' Build INKEY$-compatible fallback from _KEYHIT for handlers that need it
@@ -744,8 +756,12 @@ DO
     MOUSE_focus_guard
 
     PERF_start PERF_MOUSE_INPUT
+    ANIM_LB_view_push ' lightbox: the handler sees the view of the pane under the pointer (2.2)
     MOUSE_input_handler
+    AB_tick ' AnimBrush: the click step moves on at a release; the brush shows the next cel (TOOLS/ANIM-BRUSH)
+    ANIM_LB_view_pop
     PALETTE_OPS_tick
+    SWP_tick ' a selected swatch follows the color panels (live edit)
     PALETTE_STRIP_watch_colors ' FG/BG changed elsewhere -> refresh the chip frames
     PERF_stop PERF_MOUSE_INPUT
     PERF_start PERF_KEYBOARD_INPUT
@@ -763,6 +779,12 @@ DO
     PERF_start PERF_STICK_INPUT
     STICK_input_handler
     PERF_stop PERF_STICK_INPUT
+
+    ' A selection in the current frame's cell follows it to the new current frame (2.9);
+    ' layers the same on every frame take a change in one cell to all of them (2.8)
+    ANIM_SELBOX_watch
+    ANIM_LOOP_TICK = ANIM_LOOP_TICK + 1 ' main-loop passes (the X-sheet's double-click on slow frames)
+    IF ANIM_SAME_tick% THEN GUI_NEEDS_REDRAW% = TRUE
     
     ' Update tooltip state (must run before idle detection so hover keeps loop alive)
     TOOLTIP_update
@@ -846,6 +868,10 @@ DO
     IF SCENE_DIRTY% THEN FRAME_IDLE% = FALSE
     IF STATUS_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE
     IF PENP_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' Pen Pressure panel live meter
+    IF ANIMP_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' Animation panel: a held stepper repeats
+    IF AB_bin_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' a hovered AnimBrush bin plays (TOOLS/ANIM-BRUSH)
+    IF BROWSER_pv_needs_redraw% THEN FRAME_IDLE% = FALSE ' the Browser's preview plays an animation (GUI/BROWSER)
+    IF MVB_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' Move Brush PLAY / an AnimPaint stroke counting (TOOLS/ANIM-MVBRUSH)
     IF CRASH.NOTIFY_UNTIL# > 0 THEN FRAME_IDLE% = FALSE   ' Crash banner up — keep painting so it shows and can self-dismiss
     IF modifiersChanged% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Modifier overlays affect cached scene and must repaint on press/release
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE                             ' Panning active — only dirty scene when mouse moves
@@ -865,6 +891,13 @@ DO
     IF (CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED) AND POLY_LINE.HAS_LAST THEN
         FRAME_IDLE% = FALSE
         IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Rubber band preview only changes on mouse movement
+    END IF
+    ' Bezier: the rubber band to the pointer and the handle arms are scene
+    ' overlays (SCREEN_render's shape preview) - with no rule here a mouse move
+    ' was a cursor-only frame and they never followed it (BUGS.md 2026-11-15)
+    IF CURRENT_TOOL% = TOOL_BEZIER _ANDALSO BEZIER.STATE <> BEZIER_STATE_IDLE THEN
+        FRAME_IDLE% = FALSE
+        IF mouseMoved% THEN SCENE_CHANGED% = TRUE
     END IF
     IF CURRENT_TOOL% = TOOL_MARQUEE AND (MARQUEE.POLY_DRAWING OR MARQUEE.FREE_DRAWING OR MARQUEE.ELLIP_DRAGGING) THEN
         FRAME_IDLE% = FALSE
@@ -898,7 +931,8 @@ DO
     END IF
     IF CROP.STATE = CROP_STATE_ACTIVE THEN
         FRAME_IDLE% = FALSE
-        IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Crop overlay only changes on mouse movement
+        IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Crop overlay changes on mouse movement
+        IF CROP_box_moved% THEN SCENE_CHANGED% = TRUE             ' ... and when the arrow keys nudge the box
     END IF
     IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE  ' Overlay only — scene cache + SkipToPointer handles rendering; no scene rebuild needed
     IF SELECTION_has_active% AND MARQUEE.SHOW_OVERLAY% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change. Skip when overlay hidden via Ctrl+H.
@@ -923,6 +957,12 @@ DO
         FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE: GUI_NEEDS_REDRAW% = TRUE
         IF NOT pcycOther% THEN PCYC.STEP_ONLY% = TRUE
     END IF
+    ' Animation playback (TOOLS/ANIM-VIEW): live while it plays, the scene rebuilt
+    ' only when it steps to another frame.
+    IF ANIM_play_tick% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE: GUI_NEEDS_REDRAW% = TRUE
+    ANIM_SND_tick ' the soundtrack follows the frames (L.1, TOOLS/ANIM-SOUND)
+    IF CLIP_tick% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE: GUI_NEEDS_REDRAW% = TRUE ' clip layers rebuilt (TOOLS/CLIP)
+    IF ANIM_PLAY.playing THEN FRAME_IDLE% = FALSE
     STATUS_flash_tick
     IF PCYC_running% THEN FRAME_IDLE% = FALSE
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
@@ -1164,6 +1204,8 @@ END SUB
 ' 
 SUB MAIN_shutdown ()
     DIM i AS INTEGER
+
+    WS_panels_poll TRUE ' in a workspace: a panel change not saved yet goes into it (GUI/WORKSPACE-APPLY)
 
     ' Always persist preview state on exit
     CFG.PREVIEW_X%       = PREVIEW.x%

@@ -76,10 +76,11 @@ SUB MENUBAR_register_item (label AS STRING, hotkey AS STRING, parentIdx AS INTEG
         MENU_ROOT_LASTDIV(regParent%) = (isDivider% <> 0)
     END IF
 
-    IF MENU_ITEM_COUNT% >= MENU_MAX_ITEMS THEN
-        ' Never silent again: a dropped item is a missing menu entry (Help first).
-        _LOGERROR "MENUBAR: MENU_MAX_ITEMS (" + _TRIM$(STR$(MENU_MAX_ITEMS)) + ") exceeded - dropped '" + label$ + "'. Raise MENU_MAX_ITEMS in GUI/MENUBAR.BI."
-        EXIT SUB
+    IF MENU_ITEM_COUNT% > UBOUND(MENU_ITEMS) THEN
+        ' The table grows instead of dropping items: a fixed cap overflowed three
+        ' times, and an overflow is a silently missing menu entry (Help first).
+        REDIM _PRESERVE MENU_ITEMS(UBOUND(MENU_ITEMS) + MENU_GROW_ITEMS) AS MENU_ITEM_OBJ
+        _LOGINFO "MENUBAR: menu table grown to " + _TRIM$(STR$(UBOUND(MENU_ITEMS) + 1)) + " items"
     END IF
 
     DIM idx AS INTEGER
@@ -161,6 +162,15 @@ END SUB
 ' @param parentIdx    INTEGER Root menu the category lives under
 ' @param subParentIdx INTEGER MENU_ITEMS index of the category-parent row
 '
+''
+' The item just registered gets a checkbox - if it is act (a workspace's
+' HIDE_ITEMS can skip a row, and then the last item is another one).
+SUB MENUBAR_last_checkbox (act AS INTEGER)
+    IF MENU_ITEM_COUNT% < 1 THEN EXIT SUB
+    IF MENU_ITEMS(MENU_ITEM_COUNT% - 1).actionId% = act THEN MENU_ITEMS(MENU_ITEM_COUNT% - 1).hasCheckbox% = TRUE
+END SUB
+
+
 SUB MENUBAR_register_submenu_divider (parentIdx AS INTEGER, subParentIdx AS INTEGER)
     DIM idx AS INTEGER, lastDiv AS INTEGER, rp AS INTEGER
     IF subParentIdx% < 0 THEN EXIT SUB
@@ -228,19 +238,41 @@ END SUB
 
 
 ''
+' A dropdown never ends on a divider: when the rows after it are filtered out by
+' a workspace (or never registered) the divider would sit over nothing. Trailing
+' dividers are orphaned (parentIdx -99), so no dropdown walk counts them.
+'
+SUB MENUBAR_trim_trailing_dividers ()
+    DIM r AS INTEGER, i AS INTEGER, lastI AS INTEGER
+    FOR r% = 0 TO MENU_ROOT_COUNT% - 1
+        DO
+            lastI% = -1
+            FOR i% = 0 TO MENU_ITEM_COUNT% - 1
+                IF MENU_ITEMS(i%).parentIdx% = r% AND MENU_ITEMS(i%).subParent% < 0 THEN lastI% = i%
+            NEXT i%
+            IF lastI% < 0 THEN EXIT DO
+            IF MENU_ITEMS(lastI%).isDivider% = 0 THEN EXIT DO
+            MENU_ITEMS(lastI%).parentIdx% = -99
+        LOOP
+    NEXT r%
+END SUB
+
+
+''
 ' Register all menu items per MENUBAR.md spec
 '
 SUB MENUBAR_register_all ()
+    MENU_IDX_ANIMBRUSH = -1: MENU_IDX_MOVEBRUSH = -1 ' (set again where they register)
     ' ========== ROOT ITEMS (parentIdx = -1) ==========
     ' Root indices: 0=FILE, 1=EDIT, 2=VIEW, 3=SELECT, 4=TOOLS,
-    '               5=BRUSH, 6=LAYER, 7=PALETTE, 8=IMAGE, 9=EFFECTS, [AI], HELP, AUDIO
+    '               5=BRUSH, 6=LAYER, 7=PALETTE, 8=IMAGE, 9=EFFECTS, [AI], ANIM, HELP, AUDIO
     '
     ' parentIdx is positional, so the roots after an optional menu cannot use
     ' hardcoded numbers — the AI menu is only registered when the user has
     ' enabled AI features, which would otherwise shift HELP and AUDIO and
     ' silently attach their items to the wrong parent. Capture those indices
     ' as they are assigned instead.
-    DIM aiRoot AS INTEGER, helpRoot AS INTEGER, audioRoot AS INTEGER
+    DIM aiRoot AS INTEGER, helpRoot AS INTEGER, audioRoot AS INTEGER, animRoot AS INTEGER
     DIM aiOn   AS INTEGER
     aiOn% = (CFG.AI_ENABLED% <> 0)
     MENUBAR_register_item "FILE", "", -1, 0, FALSE, FALSE
@@ -259,6 +291,8 @@ SUB MENUBAR_register_all ()
         aiRoot% = MENU_ROOT_ORIG_N%
         MENUBAR_register_item "AI", "", -1, 0, FALSE, FALSE
     END IF
+    animRoot% = MENU_ROOT_ORIG_N%
+    MENUBAR_register_item "ANIM", "", -1, 0, FALSE, FALSE
     helpRoot% = MENU_ROOT_ORIG_N%
     MENUBAR_register_item "HELP",   "", -1, 0, FALSE, FALSE
     audioRoot% = MENU_ROOT_ORIG_N%
@@ -267,6 +301,7 @@ SUB MENUBAR_register_all ()
 
     ' ========== FILE MENU (parentIdx = 0) ==========
     MENUBAR_register_item "NEW", "Ctrl+N", 0, 209, FALSE, FALSE
+    MENUBAR_register_item "NEW ANIMATION...", "", 0, ANIM_ACT_NEW, FALSE, FALSE
     MENUBAR_register_item "NEW WINDOW", "Ctrl+Alt+N", 0, 718, FALSE, FALSE
     MENUBAR_register_item "NEW FROM TEMPLATE...", "", 0, 210, FALSE, FALSE
     MENUBAR_register_item "NEW FROM CLIPBOARD", "", 0, 2058, FALSE, FALSE
@@ -319,7 +354,7 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "COPY MERGED", "Ctrl+Shift+C", 1, 322, FALSE, FALSE
     MENUBAR_register_item "PASTE", "Ctrl+V", 1, 305, FALSE, FALSE
     MENUBAR_register_item "PASTE FROM OS", "Ctrl+Shift+V", 1, 330, FALSE, FALSE
-    MENUBAR_register_item "PASTE IN PLACE", "", 1, 312, FALSE, FALSE
+    MENUBAR_register_item "PASTE IN PLACE", "Ctrl+Alt+V", 1, 312, FALSE, FALSE
     MENUBAR_register_item "---", "", 1, 0, FALSE, TRUE
     MENUBAR_register_item "CUT TO NEW LAYER", "Ctrl+Alt+X", 1, 323, FALSE, FALSE
     MENUBAR_register_item "COPY TO NEW LAYER", "Ctrl+Alt+C", 1, 321, FALSE, FALSE
@@ -369,14 +404,17 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "ADVANCED COLOR PICKER", "Ctrl+Shift+M", 2, 2023, TRUE, FALSE
     MENUBAR_register_item "3D COLOR SPACE", "", 2, 2024, TRUE, FALSE
     MENUBAR_register_item "PEN PRESSURE", "", 2, 2028, TRUE, FALSE
+    MENUBAR_register_item "ANIMATION PANEL", "", 2, ANIMP_ACT_TOGGLE, TRUE, FALSE
+    MENUBAR_register_item "SWATCHES", "", 2, SWP_ACT_TOGGLE, TRUE, FALSE
     MENUBAR_register_item "BROWSER", "", 2, 2022, TRUE, FALSE
-    MENUBAR_register_item "CHAR GRID", "", 2, 2053, TRUE, FALSE
     MENUBAR_register_item "---", "", 2, 0, FALSE, TRUE
-    MENUBAR_register_item "LAYOUT", CHR$(16), 2, 442, FALSE, FALSE
+    ' (View > Layout - the dock-side flyout, action 442 - was removed 2026-11-15:
+    '  docking / floating moves panels now. Its flyout code is unreachable.)
     MENUBAR_register_item "CUSTOMIZE TOOLBARS...", "", 2, 2460, TRUE, FALSE
-    MENUBAR_register_item "LOCK LAYOUT", "Ctrl+Shift+L", 2, 2470, TRUE, FALSE
+    MENUBAR_register_item "LOCK WORKSPACE", "Ctrl+Shift+L", 2, 2470, TRUE, FALSE
     MENUBAR_register_item "SNAP PANEL EDGES", "", 2, 2471, TRUE, FALSE
     MENUBAR_register_item "HIDE/SHOW ALL", "F11", 2, 403, FALSE, FALSE
+    MENUBAR_register_item "WORKFLOW BUTTONS", "", 2, WF_ACT_TOGGLE, TRUE, FALSE
     ' Workspaces (CFG/WORKSPACE + GUI/WORKSPACE-APPLY): one checked row per workspace file
     DIM catWs AS INTEGER, wsI AS INTEGER, wsRow AS INTEGER
     IF WS_SCANNED = 0 THEN WS_scan
@@ -401,6 +439,8 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "GRID", "'", 2, 901, TRUE, FALSE
     MENUBAR_register_item "MAKE GRID BRUSH SIZE", "Ctrl+Shift+/", 2, 907, FALSE, FALSE
     MENUBAR_register_item "PIXEL GRID", "Shift+'", 2, 902, TRUE, FALSE
+    MENUBAR_register_item "FRAME GRID", "", 2, 2500, TRUE, FALSE
+    MENUBAR_register_item "CHAR GRID", "", 2, 2053, TRUE, FALSE
     MENUBAR_register_item "INCREASE GRID SIZE", ".", 2, 904, FALSE, FALSE
     MENUBAR_register_item "DECREASE GRID SIZE", ",", 2, 905, FALSE, FALSE
     MENUBAR_register_item "SMART GUIDES", "", 2, 910, TRUE, FALSE
@@ -479,16 +519,16 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "ERASER", "E", 4, 118, FALSE, FALSE
     MENUBAR_register_item "---", "", 4, 0, FALSE, TRUE
     MENUBAR_register_item "COMMAND HELP...", "?", 4, 1703, FALSE, FALSE
-    MENUBAR_register_item "---", "", 4, 0, FALSE, TRUE
-    MENUBAR_register_item "CODE...", "", 4, 1704, FALSE, FALSE
+    ' (Tools > Code... was removed from the menu 2026-11-15; action 1704 stays for the palette)
     MENUBAR_register_item "---", "", 4, 0, FALSE, TRUE
     DIM catAnn AS INTEGER
-    catAnn% = MENUBAR_register_submenu_parent%("ANNOTATE", 4)
-    MENUBAR_register_submenu_child "ARROW", "", 4, ANN_ACT_ARROW, catAnn%
-    MENUBAR_register_submenu_child "HIGHLIGHTER", "", 4, ANN_ACT_HIGHLIGHT, catAnn%
-    MENUBAR_register_submenu_child "REDACT", "", 4, ANN_ACT_REDACT, catAnn%
-    MENUBAR_register_submenu_child "NUMBERED CALLOUT", "", 4, ANN_ACT_CALLOUT, catAnn%
-    MENUBAR_register_submenu_child "RESTART CALLOUT NUMBERS", "", 4, ANN_ACT_CALLOUT_RESET, catAnn%
+    catAnn% = MENUBAR_register_submenu_parent%("ANNOTATE (WIP)", 4)
+    MENUBAR_register_submenu_child "ARROW (WIP)", "", 4, ANN_ACT_ARROW, catAnn%
+    MENUBAR_register_submenu_child "HIGHLIGHTER (WIP)", "", 4, ANN_ACT_HIGHLIGHT, catAnn%
+    MENUBAR_register_submenu_child "REDACT (WIP)", "", 4, ANN_ACT_REDACT, catAnn%
+    MENUBAR_register_submenu_child "NUMBERED CALLOUT (WIP)", "", 4, ANN_ACT_CALLOUT, catAnn%
+    MENUBAR_register_submenu_child "RESTART CALLOUT NUMBERS (WIP)", "", 4, ANN_ACT_CALLOUT_RESET, catAnn%
+    MENUBAR_register_submenu_divider 4, catAnn%
     MENUBAR_register_submenu_child "QUICK SAVE PNG", "", 4, ANN_ACT_QUICKSAVE, catAnn%
     MENUBAR_register_submenu_child "DONE (SAVE, COPY, GO BACK)", "", 4, ANN_ACT_DONE, catAnn%
 
@@ -741,6 +781,168 @@ SUB MENUBAR_register_all ()
         MENUBAR_register_item "PROMPT EDITOR...", "", aiRoot%, 1828, FALSE, FALSE
     END IF
 
+    ' ========== ANIM MENU (TOOLS/ANIM-VIEW; action ids 2500-2599) ==========
+    MENUBAR_register_item "ANIMATION PANEL", "", animRoot%, ANIMP_ACT_TOGGLE, TRUE, FALSE
+    MENUBAR_register_item "---", "", animRoot%, 0, FALSE, TRUE
+    MENUBAR_register_item "FIRST FRAME", "Num 1", animRoot%, ANIM_ACT_FIRST, FALSE, FALSE
+    MENUBAR_register_item "PREVIOUS FRAME", "Num 4", animRoot%, ANIM_ACT_PREV, FALSE, FALSE
+    MENUBAR_register_item "NEXT FRAME", "Num 5", animRoot%, ANIM_ACT_NEXT, FALSE, FALSE
+    MENUBAR_register_item "LAST FRAME", "Num 9", animRoot%, ANIM_ACT_LAST, FALSE, FALSE
+    MENUBAR_register_item "PLAY", "Num Enter", animRoot%, ANIM_ACT_PLAY, TRUE, FALSE
+    MENUBAR_register_item "---", "", animRoot%, 0, FALSE, TRUE
+    ' frame operations, set-up and the view toggles live in flyouts (PLANS/PERSONAS.md:
+    ' the menu was ~50 rows); every command keeps its action id, palette name and key
+    DIM frMenu AS INTEGER, suMenu AS INTEGER, vwMenu AS INTEGER
+    frMenu% = MENUBAR_register_submenu_parent%("FRAMES", animRoot%)
+    MENUBAR_register_submenu_child "ADD FRAME", "Num +", animRoot%, ANIM_ACT_APPEND, frMenu%
+    MENUBAR_register_submenu_child "ADD BLANK FRAME", "Shift+Num +", animRoot%, ANIM_ACT_APPEND_BLANK, frMenu%
+    MENUBAR_register_submenu_child "INSERT FRAME BEFORE", "", animRoot%, ANIM_ACT_INSERT_BEFORE, frMenu%
+    MENUBAR_register_submenu_child "INSERT FRAME AFTER", "", animRoot%, ANIM_ACT_INSERT_AFTER, frMenu%
+    MENUBAR_register_submenu_child "DUPLICATE FRAME", "", animRoot%, ANIM_ACT_DUPLICATE, frMenu%
+    MENUBAR_register_submenu_child "DELETE FRAME", "", animRoot%, ANIM_ACT_DELETE, frMenu%
+    MENUBAR_register_submenu_divider animRoot%, frMenu%
+    MENUBAR_register_submenu_child "MOVE FRAME EARLIER", "", animRoot%, ANIM_ACT_MOVE_EARLIER, frMenu%
+    MENUBAR_register_submenu_child "MOVE FRAME LATER", "", animRoot%, ANIM_ACT_MOVE_LATER, frMenu%
+    MENUBAR_register_submenu_child "REVERSE FRAMES", "", animRoot%, ANIM_ACT_REVERSE, frMenu%
+    MENUBAR_register_submenu_divider animRoot%, frMenu%
+    MENUBAR_register_submenu_child "COPY FRAMES", "", animRoot%, ANIM_ACT_COPY_FRAMES, frMenu%
+    MENUBAR_register_submenu_child "CUT FRAMES", "", animRoot%, ANIM_ACT_CUT_FRAMES, frMenu%
+    MENUBAR_register_submenu_child "PASTE FRAMES AS NEW", "", animRoot%, ANIM_ACT_PASTE_FRAMES, frMenu%
+    MENUBAR_register_submenu_child "PASTE FRAMES OVER", "", animRoot%, ANIM_ACT_PASTE_FRAMES_OVER, frMenu%
+    MENUBAR_register_submenu_child "REPLACE FG COLOR WITH BG IN FRAMES", "", animRoot%, ANIM_ACT_SWAP_FG_BG, frMenu%
+    suMenu% = MENUBAR_register_submenu_parent%("SET UP", animRoot%)
+    MENUBAR_register_submenu_child "FRAME GRID", "", animRoot%, ANIM_ACT_GRID, suMenu%
+    MENUBAR_last_checkbox ANIM_ACT_GRID
+    MENUBAR_register_submenu_child "DETECT FRAMES", "", animRoot%, ANIM_ACT_DETECT_FRAMES, suMenu%
+    MENUBAR_register_submenu_child "CREATE FRAMES FROM GRID", "", animRoot%, ANIM_ACT_FRAMES_FROM_GRID, suMenu%
+    MENUBAR_register_submenu_child "IMPORT PNG SEQUENCE...", "", animRoot%, ANIM_ACT_IMPORT_SEQ, suMenu%
+    MENUBAR_register_submenu_divider animRoot%, suMenu%
+    MENUBAR_register_submenu_child "REFERENCE LAYER", "", animRoot%, ANIM_ACT_REF_LAYER, suMenu%
+    MENUBAR_last_checkbox ANIM_ACT_REF_LAYER
+    MENUBAR_register_submenu_child "LAYER SAME ON EVERY FRAME", "", animRoot%, ANIM_ACT_SAME_LAYER, suMenu%
+    MENUBAR_last_checkbox ANIM_ACT_SAME_LAYER
+    MENUBAR_register_submenu_child "LINK CELLS", "", animRoot%, ANIM_ACT_LINK_CELLS, suMenu%
+    MENUBAR_register_submenu_child "UNLINK CELLS", "", animRoot%, ANIM_ACT_UNLINK_CELLS, suMenu%
+    MENUBAR_register_submenu_divider animRoot%, suMenu%
+    MENUBAR_register_submenu_child "TAG FRAMES...", "", animRoot%, ANIM_ACT_TAG_FRAMES, suMenu%
+    MENUBAR_register_submenu_child "DELETE TAG", "", animRoot%, ANIM_ACT_DELETE_TAG, suMenu%
+    MENUBAR_register_submenu_child "FRAME NOTE...", "", animRoot%, ANIM_ACT_FRAME_NOTE, suMenu%
+    MENUBAR_register_submenu_child "CLEAR FRAME NOTE", "", animRoot%, ANIM_ACT_CLEAR_NOTE, suMenu%
+    vwMenu% = MENUBAR_register_submenu_parent%("VIEW", animRoot%)
+    MENUBAR_register_submenu_child "LIGHTBOX", "Num 0", animRoot%, ANIM_ACT_LIGHTBOX, vwMenu%
+    MENUBAR_last_checkbox ANIM_ACT_LIGHTBOX
+    MENUBAR_register_submenu_child "LIGHTBOX PANES 1 / 3 / 5 / 7", "Num *", animRoot%, ANIM_ACT_LB_PANES, vwMenu%
+    MENUBAR_register_submenu_child "X-SHEET", "Num 8", animRoot%, ANIM_ACT_XSHEET, vwMenu%
+    MENUBAR_last_checkbox ANIM_ACT_XSHEET
+    MENUBAR_register_submenu_child "BIG FRAME + X-SHEET", "", animRoot%, ANIM_ACT_BIG_FRAME, vwMenu%
+    MENUBAR_last_checkbox ANIM_ACT_BIG_FRAME
+    MENUBAR_register_submenu_divider animRoot%, vwMenu%
+    MENUBAR_register_submenu_child "ONION SKIN", "Num /", animRoot%, ANIM_ACT_ONION, vwMenu%
+    MENUBAR_last_checkbox ANIM_ACT_ONION
+    MENUBAR_register_submenu_child "ONION SKIN RED / BLUE TINT", "", animRoot%, ANIM_ACT_ONION_TINT, vwMenu%
+    MENUBAR_last_checkbox ANIM_ACT_ONION_TINT
+    MENUBAR_register_submenu_child "PREVIEW SHOWS FRAME", "", animRoot%, ANIM_ACT_PREVIEW_FRAME, vwMenu%
+    MENUBAR_last_checkbox ANIM_ACT_PREVIEW_FRAME
+    MENUBAR_register_submenu_divider animRoot%, vwMenu%
+    MENUBAR_register_submenu_child "CLIP STROKES TO THE FRAME IN THE LIGHTBOX", "", animRoot%, ANIM_ACT_CLIP_LB, vwMenu%
+    MENUBAR_last_checkbox ANIM_ACT_CLIP_LB
+    MENUBAR_register_submenu_child "CLIP STROKES TO THE FRAME IN SHEET VIEW", "", animRoot%, ANIM_ACT_CLIP_SHEET, vwMenu%
+    MENUBAR_last_checkbox ANIM_ACT_CLIP_SHEET
+    MENUBAR_register_item "---", "", animRoot%, 0, FALSE, TRUE
+    DIM abMenu AS INTEGER
+    abMenu% = MENUBAR_register_submenu_parent%("ANIMBRUSH", animRoot%)
+    MENU_IDX_ANIMBRUSH = abMenu%
+    MENUBAR_register_submenu_child "PICK UP", "", animRoot%, AB_ACT_PICKUP, abMenu%
+    MENUBAR_register_submenu_child "PICK UP MERGED", "", animRoot%, AB_ACT_PICKUP_MERGED, abMenu%
+    MENUBAR_register_submenu_child "LOAD...", "", animRoot%, AB_ACT_LOAD, abMenu%
+    MENUBAR_register_submenu_divider animRoot%, abMenu%
+    MENUBAR_register_submenu_child "PREVIOUS CEL", "Alt+[", animRoot%, AB_ACT_PREV_CEL, abMenu%
+    MENUBAR_register_submenu_child "NEXT CEL", "Alt+]", animRoot%, AB_ACT_NEXT_CEL, abMenu%
+    MENUBAR_register_submenu_child "FIRST CEL", "Alt+\", animRoot%, AB_ACT_FIRST_CEL, abMenu%
+    MENUBAR_register_submenu_divider animRoot%, abMenu%
+    DIM abK AS INTEGER, abLbl AS STRING
+    FOR abK = AB_ACT_STEP_FOLLOW TO AB_ACT_ORD_ONCE
+        IF abK = AB_ACT_ORD_FWD THEN MENUBAR_register_submenu_divider animRoot%, abMenu%
+        abLbl = MID$("STEP: CEL FOLLOWS FRAME  STEP: NEXT CEL EACH CLICKSTEP: EVERY FRAME AT ONCEORDER: FORWARD           ORDER: REVERSE           ORDER: PING-PONG         ORDER: ONCE              ", (abK - AB_ACT_STEP_FOLLOW) * 25 + 1, 25)
+        MENUBAR_register_submenu_child RTRIM$(abLbl), "", animRoot%, abK, abMenu%
+        IF MENU_ITEM_COUNT% > 0 _ANDALSO MENU_ITEMS(MENU_ITEM_COUNT% - 1).actionId% = abK THEN MENU_ITEMS(MENU_ITEM_COUNT% - 1).hasCheckbox% = TRUE
+    NEXT abK
+    DIM mvbMenu AS INTEGER
+    mvbMenu% = MENUBAR_register_submenu_parent%("MOVE BRUSH", animRoot%)
+    MENU_IDX_MOVEBRUSH = mvbMenu%
+    FOR abK = MVB_ACT_START TO MVB_ACT_CANCEL
+        IF abK = MVB_ACT_EASE0 _ORELSE abK = MVB_ACT_EVERY1 _ORELSE abK = MVB_ACT_APPLY THEN MENUBAR_register_submenu_divider animRoot%, mvbMenu%
+        abLbl = MID$("START               EASE: NONE          EASE: IN            EASE: OUT           EASE: IN-OUT        NEXT CEL EVERY FRAMENEXT CEL EVERY 2    NEXT CEL EVERY 3    NEXT CEL EVERY 4    APPLY               CANCEL              ", (abK - MVB_ACT_START) * 20 + 1, 20)
+        MENUBAR_register_submenu_child RTRIM$(abLbl), RTRIM$(MID$("          Enter     Esc       ", _MAX(0, abK - MVB_ACT_EVERY4) * 10 + 1, 10)), animRoot%, abK, mvbMenu%
+        IF abK <= MVB_ACT_EVERY4 _ANDALSO MENU_ITEM_COUNT% > 0 _ANDALSO MENU_ITEMS(MENU_ITEM_COUNT% - 1).actionId% = abK THEN MENU_ITEMS(MENU_ITEM_COUNT% - 1).hasCheckbox% = TRUE
+    NEXT abK
+    ' paths, the preview and reset (2026-11-11; the settings are in the Animation panel)
+    FOR abK = MVB_ACT_PATH0 TO MVB_ACT_RESET
+        IF abK = MVB_ACT_ANIMPAINT THEN _CONTINUE ' a top-level ANIM item (below)
+        IF abK = MVB_ACT_PATH0 _ORELSE abK = MVB_ACT_PLAY THEN MENUBAR_register_submenu_divider animRoot%, mvbMenu%
+        abLbl = MID$("PATH: STRAIGHT LINE   PATH: DRAWN           PATH: LIVE (ANIMPAINT)                      PREVIEW: PLAY         RESET THE MOVE        ", (abK - MVB_ACT_PATH0) * 22 + 1, 22)
+        MENUBAR_register_submenu_child RTRIM$(abLbl), "", animRoot%, abK, mvbMenu%
+        IF abK <> MVB_ACT_RESET _ANDALSO MENU_ITEM_COUNT% > 0 _ANDALSO MENU_ITEMS(MENU_ITEM_COUNT% - 1).actionId% = abK THEN MENU_ITEMS(MENU_ITEM_COUNT% - 1).hasCheckbox% = TRUE
+    NEXT abK
+    MENUBAR_register_submenu_child "APPLY AS CLIP", "", animRoot%, MVB_ACT_CLIP, mvbMenu% ' (TOOLS/CLIP L9: the move as a clip layer's lanes)
+    ' ANIM > Clip Layer: an AnimBrush played across the frames (TOOLS/CLIP)
+    DIM clipMenu AS INTEGER
+    clipMenu% = MENUBAR_register_submenu_parent%("CLIP LAYER", animRoot%)
+    MENU_IDX_CLIP = clipMenu%
+    MENUBAR_register_submenu_child "PLACE ANIMBRUSH AS CLIP", "", animRoot%, CLIP_ACT_PLACE, clipMenu%
+    MENUBAR_register_submenu_child "MAKE CLIP FROM SELECTED FRAMES", "", animRoot%, CLIP_ACT_MAKE, clipMenu%
+    MENUBAR_register_submenu_child "BAKE CLIP TO PIXELS", "", animRoot%, CLIP_ACT_BAKE, clipMenu%
+    MENUBAR_register_submenu_child "UPDATE CLIP FROM BIN", "", animRoot%, CLIP_ACT_UPD_BIN, clipMenu%
+    MENUBAR_register_submenu_child "UPDATE CLIP FROM ANIMBRUSH", "", animRoot%, CLIP_ACT_UPD_AB, clipMenu%
+    MENUBAR_register_submenu_child "EDIT CLIP CELS", "", animRoot%, CLIP_ACT_EDIT, clipMenu%
+    MENUBAR_register_submenu_child "APPLY CEL EDITS", "", animRoot%, CLIP_ACT_EDIT_OK, clipMenu%
+    MENUBAR_register_submenu_child "DISCARD CEL EDITS", "", animRoot%, CLIP_ACT_EDIT_NO, clipMenu%
+    MENUBAR_register_submenu_divider animRoot%, clipMenu%
+    MENUBAR_register_submenu_child "CLIP SOURCES...", "", animRoot%, CLIP_ACT_SOURCES, clipMenu%
+    MENUBAR_register_submenu_child "REMOVE UNUSED CLIP SOURCES", "", animRoot%, CLIP_ACT_PURGE, clipMenu%
+    MENUBAR_register_submenu_divider animRoot%, clipMenu%
+    FOR abK = CLIP_ACT_MODE0 TO CLIP_ACT_FLIP_Y
+        IF abK = CLIP_ACT_FLIP_X THEN MENUBAR_register_submenu_divider animRoot%, clipMenu%
+        abLbl = MID$("MODE: LOOP     MODE: PING-PONGMODE: ONCE     MODE: HOLD     MODE: REVERSE  FLIP X         FLIP Y         ", (abK - CLIP_ACT_MODE0) * 15 + 1, 15)
+        MENUBAR_register_submenu_child RTRIM$(abLbl), "", animRoot%, abK, clipMenu%
+        IF MENU_ITEM_COUNT% > 0 _ANDALSO MENU_ITEMS(MENU_ITEM_COUNT% - 1).actionId% = abK THEN MENU_ITEMS(MENU_ITEM_COUNT% - 1).hasCheckbox% = TRUE
+    NEXT abK
+    ' a clip's keyframe lanes and its sounds (TOOLS/CLIP phases 2-3)
+    DIM lnMenu AS INTEGER, sdMenu AS INTEGER
+    lnMenu% = MENUBAR_register_submenu_parent%("CLIP LANES", animRoot%)
+    MENU_IDX_CLIPLANES = lnMenu%
+    MENUBAR_register_submenu_child "KEY ON THIS FRAME", "", animRoot%, CLIP_ACT_KEY, lnMenu%
+    MENUBAR_register_submenu_child "DELETE KEY ON THIS FRAME", "", animRoot%, CLIP_ACT_KEY_DEL, lnMenu%
+    MENUBAR_register_submenu_divider animRoot%, lnMenu%
+    MENUBAR_register_submenu_child "CLEAR THIS LANE", "", animRoot%, CLIP_ACT_LANE_CLR, lnMenu%
+    MENUBAR_register_submenu_child "CLEAR ALL LANES", "", animRoot%, CLIP_ACT_LANES_CLR, lnMenu%
+    MENUBAR_register_submenu_child "COPY LANES", "", animRoot%, CLIP_ACT_LANES_CPY, lnMenu%
+    MENUBAR_register_submenu_child "PASTE LANES", "", animRoot%, CLIP_ACT_LANES_PST, lnMenu%
+    MENUBAR_register_submenu_divider animRoot%, lnMenu%
+    MENUBAR_register_submenu_child "TINT TOWARD THE FOREGROUND COLOUR", "", animRoot%, CLIP_ACT_TINT_FG, lnMenu%
+    sdMenu% = MENUBAR_register_submenu_parent%("CLIP SOUNDS", animRoot%)
+    MENU_IDX_CLIPSOUNDS = sdMenu%
+    MENUBAR_register_submenu_child "SOUND ON THIS CEL...", "", animRoot%, CLIP_ACT_CUE_CEL, sdMenu%
+    MENUBAR_register_submenu_child "SOUND WHEN THE CLIP STARTS...", "", animRoot%, CLIP_ACT_CUE_ONCE, sdMenu%
+    MENUBAR_register_submenu_child "SOUND EACH TIME THE CLIP STARTS OVER...", "", animRoot%, CLIP_ACT_CUE_LOOP, sdMenu%
+    MENUBAR_register_submenu_child "REMOVE THE CLIP'S SOUNDS", "", animRoot%, CLIP_ACT_CUE_CLEAR, sdMenu%
+    MENUBAR_register_item "ANIMPAINT (PAINT ACROSS THE FRAMES)", "", animRoot%, MVB_ACT_ANIMPAINT, TRUE, FALSE
+    MENUBAR_register_item "SOUNDTRACK...", "", animRoot%, ANIM_ACT_SOUNDTRACK, FALSE, FALSE
+    MENUBAR_register_item "REMOVE SOUNDTRACK", "", animRoot%, ANIM_ACT_SOUND_REMOVE, FALSE, FALSE
+    MENUBAR_register_item "---", "", animRoot%, 0, FALSE, TRUE
+    MENUBAR_register_item "FULL-SCREEN PREVIEW", "Num .", animRoot%, ANIM_ACT_FULLSCREEN, FALSE, FALSE
+    DIM exMenu AS INTEGER
+    exMenu% = MENUBAR_register_submenu_parent%("EXPORT", animRoot%)
+    MENUBAR_register_submenu_child "ANIMATED GIF...", "", animRoot%, ANIM_ACT_EXPORT_GIF, exMenu%
+    MENUBAR_register_submenu_child "ANIMATED PNG (APNG)...", "", animRoot%, ANIM_ACT_EXPORT_APNG, exMenu%
+    MENUBAR_register_submenu_child "PNG SEQUENCE...", "", animRoot%, ANIM_ACT_EXPORT_PNGS, exMenu%
+    MENUBAR_register_submenu_child "SPRITE SHEET + FRAME DATA...", "", animRoot%, ANIM_ACT_EXPORT_SHEET, exMenu%
+    MENUBAR_register_submenu_divider animRoot%, exMenu%
+    MENUBAR_register_submenu_child "BAS PLAYER (DATA)...", "", animRoot%, ANIM_ACT_EXPORT_BAS, exMenu%
+    MENUBAR_register_submenu_child "BAS PLAYER + SHEET PNG...", "", animRoot%, ANIM_ACT_EXPORT_BAS_SHEET, exMenu%
+    MENUBAR_register_submenu_divider animRoot%, exMenu%
+    MENUBAR_register_submenu_child "EXPORT SCALE: 1X (1X / 2X / 4X)", "", animRoot%, ANIM_ACT_EXPORT_SCALE, exMenu% ' label: the scale now (MENUBAR_update_states)
+
     ' ========== HELP MENU ==========
     MENUBAR_register_item "ABOUT DRAW", "", helpRoot%, 1601, FALSE, FALSE
     MENUBAR_register_item "---", "", helpRoot%, 0, FALSE, TRUE
@@ -780,12 +982,14 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "---", "", audioRoot%, 0, FALSE, TRUE
     MENUBAR_register_item "NOT PLAYING",      "", audioRoot%, 426, FALSE, FALSE
 
+    MENUBAR_trim_trailing_dividers
+
     IF aiOn% THEN
         _LOGINFO "MENUBAR: " + _TRIM$(STR$(MENU_ROOT_COUNT%)) + " roots (AI menu registered at " + _TRIM$(STR$(aiRoot%)) + ")"
     ELSE
         _LOGINFO "MENUBAR: " + _TRIM$(STR$(MENU_ROOT_COUNT%)) + " roots (AI disabled — no AI menu)"
     END IF
-    _LOGINFO "MENUBAR: " + _TRIM$(STR$(MENU_ITEM_COUNT%)) + " of " + _TRIM$(STR$(MENU_MAX_ITEMS)) + " menu items used"
+    _LOGINFO "MENUBAR: " + _TRIM$(STR$(MENU_ITEM_COUNT%)) + " of " + _TRIM$(STR$(UBOUND(MENU_ITEMS) + 1)) + " menu item slots used"
 END SUB
 
 
@@ -956,6 +1160,10 @@ SUB MENUBAR_update_checkboxes ()
                     MENU_ITEMS(i%).checked% = CS3D.visible%
                 CASE 2028 ' Pen Pressure panel
                     MENU_ITEMS(i%).checked% = PENP.visible%
+                CASE ANIMP_ACT_TOGGLE ' Animation panel
+                    MENU_ITEMS(i%).checked% = (ANIMP.visible <> 0)
+                CASE SWP_ACT_TOGGLE ' Swatches panel
+                    MENU_ITEMS(i%).checked% = (SWP.visible <> 0)
                 CASE 2460 ' Customize Toolbars
                     MENU_ITEMS(i%).checked% = TBED.visible
                 CASE 2470 ' Lock Layout
@@ -964,6 +1172,8 @@ SUB MENUBAR_update_checkboxes ()
                     MENU_ITEMS(i%).checked% = CFG.SNAP_PANEL_EDGES%
                 CASE 2060 ' Palette > Cycle Colors
                     MENU_ITEMS(i%).checked% = PCYC.ENABLED%
+                CASE WF_ACT_TOGGLE ' View > Workflow Buttons
+                    MENU_ITEMS(i%).checked% = (CFG.WORKFLOW_BAR% <> 0)
                 CASE WS_ACT_SLOT0 + 1 TO WS_ACT_SLOT0 + WS_MAX ' View > Workspace > <name>
                     MENU_ITEMS(i%).checked% = WS_slot_is_active%(MENU_ITEMS(i%).actionId%)
                 CASE 2022 ' Browser
@@ -986,6 +1196,30 @@ SUB MENUBAR_update_checkboxes ()
                     MENU_ITEMS(i%).checked% = FILL_ADJ.ENABLED%
                 CASE 902  ' Pixel Grid
                     MENU_ITEMS(i%).checked% = PIXEL_GRID.SHOW%
+                CASE 2500 ' Frame Grid (animation)
+                    MENU_ITEMS(i%).checked% = (CFG.FRAME_GRID% <> 0 _ANDALSO ANIM.active <> 0)
+                CASE 2506 ' Play (animation): checked while playing
+                    MENU_ITEMS(i%).checked% = ANIM_PLAY.playing
+                CASE 2507 ' Preview Shows Frame (animation)
+                    MENU_ITEMS(i%).checked% = (CFG.PREVIEW_SHOWS_FRAME% <> 0 _ANDALSO ANIM.active <> 0)
+                CASE 2519 ' Lightbox (animation): a view of the frames, so not checked without them
+                    MENU_ITEMS(i%).checked% = (CFG.LIGHTBOX% <> 0 _ANDALSO ANIM.active <> 0)
+                CASE 2540 ' X-Sheet (animation)
+                    MENU_ITEMS(i%).checked% = (CFG.XSHEET% <> 0 _ANDALSO ANIM.active <> 0)
+                CASE 2593 ' Big Frame + X-Sheet (animation)
+                    MENU_ITEMS(i%).checked% = (ANIM_LB_big_on% <> 0)
+                CASE 2521 ' Clip Strokes to the Frame in the Lightbox
+                    MENU_ITEMS(i%).checked% = (CFG.CLIP_FRAME_LIGHTBOX% <> 0 _ANDALSO ANIM.active <> 0)
+                CASE 2522 ' Clip Strokes to the Frame in Sheet View
+                    MENU_ITEMS(i%).checked% = (CFG.CLIP_FRAME_SHEET% <> 0 _ANDALSO ANIM.active <> 0)
+                CASE 2527 ' Onion Skin (lightbox)
+                    MENU_ITEMS(i%).checked% = (CFG.ONION_SKIN% <> 0 _ANDALSO ANIM.active <> 0)
+                CASE 2528 ' Onion Skin Red / Blue Tint
+                    MENU_ITEMS(i%).checked% = (CFG.ONION_TINT% <> 0 _ANDALSO ANIM.active <> 0)
+                CASE 2530 ' Reference Layer (the current layer)
+                    MENU_ITEMS(i%).checked% = (ANIM_LF_is_ref%(CURRENT_LAYER%) <> 0 _ANDALSO ANIM.active <> 0)
+                CASE 2531 ' Layer Same on Every Frame (the current layer)
+                    MENU_ITEMS(i%).checked% = (ANIM_LF_is_same%(CURRENT_LAYER%) <> 0 _ANDALSO ANIM.active <> 0)
                 CASE 910  ' Smart Guides
                     MENU_ITEMS(i%).checked% = SMART_GUIDES.ENABLED%
                 CASE 453  ' Fullscreen (kept in sync with live _FULLSCREEN() in DRAW.BAS)
@@ -1041,13 +1275,65 @@ SUB MENUBAR_update_checkboxes ()
                     MENU_ITEMS(i%).checked% = NOT CFG.TOOLTIPS_DISABLED%
                 CASE 1610 ' Capture Crash Logs
                     MENU_ITEMS(i%).checked% = CFG.CRASH_LOGS_ENABLED%
+                CASE AB_ACT_STEP_FOLLOW TO AB_ACT_ORD_ONCE ' ANIM > AnimBrush > Step / Order (TOOLS/ANIM-BRUSH)
+                    MENU_ITEMS(i%).checked% = AB_menu_checked%(MENU_ITEMS(i%).actionId%)
+                CASE MVB_ACT_START TO MVB_ACT_EVERY4, MVB_ACT_PATH0 TO MVB_ACT_PLAY ' ANIM > Move Brush, AnimPaint (TOOLS/ANIM-MVBRUSH)
+                    MENU_ITEMS(i%).checked% = MVB_menu_checked%(MENU_ITEMS(i%).actionId%)
+                CASE CLIP_ACT_MODE0 TO CLIP_ACT_FLIP_Y ' ANIM > Clip Layer > mode / flip (TOOLS/CLIP)
+                    MENU_ITEMS(i%).checked% = CLIP_menu_checked%(MENU_ITEMS(i%).actionId%)
             END SELECT
         END IF
 
         ' Update enabled states for context-sensitive items
         ' Edit operations are always enabled — they operate on the active
         ' selection if one exists, or on the entire current layer otherwise.
+        ' ANIM > AnimBrush / Move Brush: their flyouts only with 2+ frames (Rick,
+        ' 2026-11-11); a greyed parent does not open its flyout (hover or click)
+        IF i% = MENU_IDX_ANIMBRUSH _ORELSE i% = MENU_IDX_MOVEBRUSH _ORELSE i% = MENU_IDX_CLIP _ORELSE i% = MENU_IDX_CLIPLANES _ORELSE i% = MENU_IDX_CLIPSOUNDS THEN
+            MENU_ITEMS(i%).enabled% = (ANIM.active <> 0 _ANDALSO ANIM.count > 1)
+        END IF
         SELECT CASE MENU_ITEMS(i%).actionId%
+            CASE ANIM_ACT_FIRST TO ANIM_ACT_LAST                      ' ANIM > first ... last frame
+                MENU_ITEMS(i%).enabled% = (ANIM.active <> 0)
+            CASE MVB_ACT_START                                        ' ANIM > Move Brush > Start: frames and a brush
+                MENU_ITEMS(i%).enabled% = (ANIM.active <> 0 _ANDALSO (CUSTOM_BRUSH.ACTIVE% <> 0 _ORELSE MVB.active <> 0))
+            CASE MVB_ACT_ANIMPAINT                                    ' ANIM > AnimPaint: 2+ frames and a brush
+                MENU_ITEMS(i%).enabled% = (ANIM.active <> 0 _ANDALSO ANIM.count > 1 _ANDALSO (CUSTOM_BRUSH.ACTIVE% <> 0 _ORELSE MVB.active <> 0))
+            CASE MVB_ACT_APPLY, MVB_ACT_CANCEL, MVB_ACT_PLAY, MVB_ACT_RESET, MVB_ACT_CLIP ' ANIM > Move Brush > Apply / Cancel / Play / Reset / Apply as Clip: while it is on
+                MENU_ITEMS(i%).enabled% = (MVB.active <> 0)
+            CASE CLIP_ACT_PLACE                                       ' ANIM > Clip Layer > Place: frames and an AnimBrush
+                MENU_ITEMS(i%).enabled% = (ANIM.active <> 0 _ANDALSO AB_active% <> 0)
+            CASE CLIP_ACT_BAKE TO CLIP_ACT_FLIP_Y, CLIP_ACT_UPD_BIN, CLIP_ACT_SRC_PREV TO CLIP_ACT_SRC_LAYERS, CLIP_ACT_CUE_CEL TO CLIP_ACT_CUE_DEL, CLIP_ACT_EDIT, CLIP_ACT_LANE_PREV TO CLIP_ACT_LANES_CPY, CLIP_ACT_TINT_FG ' ANIM > Clip Layer > Bake / mode / flip / Update from Bin / sources / sounds: on a clip layer
+                MENU_ITEMS(i%).enabled% = (CLIP_current% <> 0)
+            CASE CLIP_ACT_LANES_PST                                   ' ANIM > Clip Layer > Paste Lanes: a clip layer, lanes copied
+                MENU_ITEMS(i%).enabled% = (CLIP_current% <> 0 _ANDALSO LEN(CLIP_LANES_CLIPBOARD) > 0)
+            CASE CLIP_ACT_EDIT_OK, CLIP_ACT_EDIT_NO                   ' ANIM > Clip Layer > Apply / Discard Cel Edits: one is open
+                MENU_ITEMS(i%).enabled% = (CLIP_edit_find% <> 0)
+            CASE CLIP_ACT_MAKE                                        ' ANIM > Clip Layer > Make Clip: frames and a selection
+                MENU_ITEMS(i%).enabled% = (ANIM.active <> 0 _ANDALSO MARQUEE.ACTIVE% <> 0)
+            CASE CLIP_ACT_UPD_AB                                      ' ANIM > Clip Layer > Update from AnimBrush: a clip layer and an AnimBrush
+                MENU_ITEMS(i%).enabled% = (CLIP_current% <> 0 _ANDALSO AB_active% <> 0)
+            CASE AB_ACT_PREV_CEL TO AB_ACT_FIRST_CEL                  ' ANIM > AnimBrush > cel keys: with an AnimBrush
+                MENU_ITEMS(i%).enabled% = (AB_active% <> 0)
+            CASE ANIM_ACT_PLAY                                        ' ANIM > Play
+                MENU_ITEMS(i%).enabled% = (ANIM.active <> 0 _ANDALSO ANIM.count > 1)
+            CASE ANIM_ACT_EXPORT_SCALE                                ' ANIM > Export Scale: shows the scale (F4, field kit T-17)
+                MENU_ITEMS(i%).label$ = "EXPORT SCALE:" + STR$(_MAX(1, CFG.ANIM_EXPORT_SCALE%)) + "X (1X / 2X / 4X)"
+                MENU_ITEMS(i%).enabled% = (ANIM.active <> 0)
+            CASE ANIM_ACT_COPY_FRAMES TO ANIM_ACT_PASTE_FRAMES_OVER, ANIM_ACT_SWAP_FG_BG, ANIM_ACT_GRID, ANIM_ACT_PREVIEW_FRAME, _
+                 ANIM_ACT_ONION_TINT, ANIM_ACT_CLIP_LB, ANIM_ACT_CLIP_SHEET, ANIM_ACT_REF_LAYER, ANIM_ACT_SAME_LAYER, _
+                 ANIM_ACT_LINK_CELLS TO ANIM_ACT_CLEAR_NOTE, ANIM_ACT_SOUNDTRACK, ANIM_ACT_SOUND_REMOVE, ANIM_ACT_FULLSCREEN, _
+                 ANIM_ACT_EXPORT_GIF TO ANIM_ACT_EXPORT_BAS_SHEET
+                ' Frame commands and frame settings: greyed (settings shown unchecked) on a plain
+                ' picture (Rick, field kit T-3). Only the ways in stay: Animation Panel, Add Frame,
+                ' Add Blank Frame, Detect Frames, Create Frames from Grid, Import PNG Sequence.
+                MENU_ITEMS(i%).enabled% = (ANIM.active <> 0)
+            CASE ANIM_ACT_LIGHTBOX, ANIM_ACT_LB_PANES, ANIM_ACT_XSHEET, ANIM_ACT_BIG_FRAME, ANIM_ACT_ONION
+                ' Views of the frames: greyed (and shown unchecked) on a plain picture.
+                ' Their settings are kept and apply once the picture has frames.
+                MENU_ITEMS(i%).enabled% = (ANIM.active <> 0)
+            CASE ANIM_ACT_APPEND TO ANIM_ACT_REVERSE                  ' ANIM > frame operations
+                MENU_ITEMS(i%).enabled% = (ANIM_op_refusal$(MENU_ITEMS(i%).actionId% - ANIM_ACT_OP0) = "")
             CASE 301                                                  ' Undo
                 MENU_ITEMS(i%).enabled% = HISTORY_can_undo%
             CASE 302                                                  ' Redo
@@ -1294,7 +1580,7 @@ SUB MENUBAR_render_submenu (rootIdx AS INTEGER)
             ELSE
                 totalH% = totalH% + MENU_ITEM_HEIGHT
                 lbl$ = RTRIM$(MENU_ITEMS(i%).label)
-                hk$  = RTRIM$(MENU_ITEMS(i%).hotkey)
+                hk$  = BINDINGS_hotkey$(MENU_ITEMS(i%).actionId%, RTRIM$(MENU_ITEMS(i%).hotkey))
                 DIM lw AS INTEGER, hw AS INTEGER
                 lw% = _PRINTWIDTH(lbl$)
                 hw% = _PRINTWIDTH(hk$)
@@ -1433,7 +1719,7 @@ SUB MENUBAR_render_submenu (rootIdx AS INTEGER)
         END IF
 
         lbl$ = RTRIM$(MENU_ITEMS(i%).label)
-        hk$  = RTRIM$(MENU_ITEMS(i%).hotkey)
+        hk$  = BINDINGS_hotkey$(MENU_ITEMS(i%).actionId%, RTRIM$(MENU_ITEMS(i%).hotkey))
 
         IF MENU_ITEMS(i%).hasCheckbox% THEN
             IF MENU_ITEMS(i%).checked% THEN
@@ -1503,15 +1789,6 @@ SUB MENUBAR_render_submenu (rootIdx AS INTEGER)
             END IF
         END IF
 
-        ' Track LAYOUT item position for submenu
-        IF MENU_ITEMS(i%).actionId% = 442 THEN
-            MENU_BAR.layoutItemIdx% = childIdx%
-            MENU_BAR.layoutY%       = itemY%
-            IF childIdx% = MENU_BAR.hoverSub% AND MENU_ITEMS(i%).enabled% AND NOT MENU_BAR.kbActive% THEN
-                MENU_BAR.layoutOpen% = TRUE
-            END IF
-        END IF
-
         ' Track PREVIEW WINDOW item position for submenu
         IF MENU_ITEMS(i%).actionId% = 2012 THEN
             MENU_BAR.pvwItemIdx% = childIdx%
@@ -1558,11 +1835,6 @@ SUB MENUBAR_render_submenu (rootIdx AS INTEGER)
     ' Render transform submenu if open
     IF MENU_BAR.transformOpen% THEN
         MENUBAR_render_transform_submenu
-    END IF
-
-    ' Render layout submenu if open
-    IF MENU_BAR.layoutOpen% THEN
-        MENUBAR_render_layout_submenu
     END IF
 
     ' Render preview window submenu if open
@@ -1683,12 +1955,6 @@ SUB MENUBAR_handle_click (rawX AS INTEGER, rawY AS INTEGER)
         EXIT SUB
     END IF
 
-    ' Check if click is on the layout submenu
-    IF MENU_BAR.layoutOpen% AND MENUBAR_layout_in_bounds%(rawX%, rawY%) THEN
-        MENUBAR_handle_layout_click rawX%, rawY%
-        EXIT SUB
-    END IF
-
     ' Check if click is on the preview window recent sub-submenu
     IF MENU_BAR.pvwRecentOpen% AND MENUBAR_pvw_recent_in_bounds%(rawX%, rawY%) THEN
         MENUBAR_handle_pvw_recent_click rawX%, rawY%
@@ -1787,14 +2053,6 @@ SUB MENUBAR_handle_click (rawX AS INTEGER, rawY AS INTEGER)
                                 GUI_NEEDS_REDRAW% = TRUE
                                 EXIT SUB
                             END IF
-                            IF MENU_ITEMS(itemIdx%).actionId% = 442 THEN
-                                MENU_BAR.layoutOpen% = NOT MENU_BAR.layoutOpen%
-                                IF NOT MENU_BAR.layoutOpen% THEN
-                                    MENU_BAR.layoutHover% = -1
-                                END IF
-                                GUI_NEEDS_REDRAW% = TRUE
-                                EXIT SUB
-                            END IF
                             IF MENU_ITEMS(itemIdx%).actionId% = 2012 THEN
                                 MENU_BAR.pvwOpen% = NOT MENU_BAR.pvwOpen%
                                 IF NOT MENU_BAR.pvwOpen% THEN
@@ -1849,7 +2107,6 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
     DIM oldHoverRoot     AS INTEGER, oldHoverSub AS INTEGER
     DIM oldOpenMenu      AS INTEGER
     DIM oldRecentOpen    AS INTEGER, oldRandomOpen AS INTEGER, oldTransformOpen AS INTEGER
-    DIM oldLayoutOpen    AS INTEGER
     DIM oldPvwOpen       AS INTEGER
     DIM oldPvwRecentOpen AS INTEGER
     DIM oldExportOpen    AS INTEGER
@@ -1873,7 +2130,6 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
     oldRecentOpen%    = MENU_BAR.recentOpen%
     oldRandomOpen%    = MENU_BAR.randomOpen%
     oldTransformOpen% = MENU_BAR.transformOpen%
-    oldLayoutOpen%    = MENU_BAR.layoutOpen%
     oldPvwOpen%       = MENU_BAR.pvwOpen%
     oldPvwRecentOpen% = MENU_BAR.pvwRecentOpen%
     oldExportOpen%    = MENU_BAR.exportOpen%
@@ -1888,8 +2144,6 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
     oldRandomHover% = MENU_BAR.randomHover%
     DIM oldTransformHover AS INTEGER
     oldTransformHover% = MENU_BAR.transformHover%
-    DIM oldLayoutHover    AS INTEGER
-    oldLayoutHover% = MENU_BAR.layoutHover%
     DIM oldPvwHover       AS INTEGER
     oldPvwHover% = MENU_BAR.pvwHover%
     DIM oldPvwRecentHover AS INTEGER
@@ -1958,7 +2212,6 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
                     MENU_BAR.recentOpen%    = FALSE : MENU_BAR.recentHover% = -1
                     MENU_BAR.randomOpen%    = FALSE : MENU_BAR.randomHover% = -1
                     MENU_BAR.transformOpen% = FALSE : MENU_BAR.transformHover% = -1
-                    MENU_BAR.layoutOpen%    = FALSE : MENU_BAR.layoutHover% = -1
                     MENU_BAR.pvwOpen%       = FALSE : MENU_BAR.pvwHover% = -1
                     MENU_BAR.pvwRecentOpen% = FALSE : MENU_BAR.pvwRecentHover% = -1
                     MENU_BAR.exportOpen%    = FALSE : MENU_BAR.exportHover% = -1
@@ -2028,25 +2281,6 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
         MENU_BAR.hoverSub%  = MENU_BAR.transformItemIdx%
         MENU_BAR.hoverRoot% = MENU_BAR.openMenu%
         IF MENU_BAR.transformHover% <> oldTransformHover% THEN
-            SOUND_play SND_MENU_HOVER
-            GUI_NEEDS_REDRAW% = TRUE
-        END IF
-    ELSEIF MENU_BAR.openMenu% >= 0 AND MENUBAR_layout_in_bounds%(rawX%, rawY%) THEN
-        ' Mouse is on the layout submenu - track hover there
-        DIM lyItemY             AS INTEGER
-        lyItemY%              = MENU_BAR.layoutY% + 2
-        MENU_BAR.layoutHover% = -1
-        DIM lyIdx               AS INTEGER
-        FOR lyIdx% = 0 TO 9   ' 10 items (5 panels x LEFT/RIGHT)
-            IF rawY% >= lyItemY% AND rawY% < lyItemY% + MENU_ITEM_HEIGHT THEN
-                MENU_BAR.layoutHover% = lyIdx%
-                EXIT FOR
-            END IF
-            lyItemY% = lyItemY% + MENU_ITEM_HEIGHT
-        NEXT lyIdx%
-        MENU_BAR.hoverSub%  = MENU_BAR.layoutItemIdx%
-        MENU_BAR.hoverRoot% = MENU_BAR.openMenu%
-        IF MENU_BAR.layoutHover% <> oldLayoutHover% THEN
             SOUND_play SND_MENU_HOVER
             GUI_NEEDS_REDRAW% = TRUE
         END IF
@@ -2202,11 +2436,6 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
                 MENU_BAR.transformOpen%  = FALSE
                 MENU_BAR.transformHover% = -1
             END IF
-            ' Close layout submenu if hover moved away from LAYOUT item
-            IF MENU_BAR.layoutOpen% AND MENU_BAR.hoverSub% <> MENU_BAR.layoutItemIdx% THEN
-                MENU_BAR.layoutOpen%  = FALSE
-                MENU_BAR.layoutHover% = -1
-            END IF
             ' Close preview window submenu if hover moved away from PREVIEW WINDOW item
             IF MENU_BAR.pvwOpen% AND MENU_BAR.hoverSub% <> MENU_BAR.pvwItemIdx% THEN
                 MENU_BAR.pvwOpen%        = FALSE
@@ -2248,11 +2477,6 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
         IF MENU_BAR.transformOpen% THEN
             MENU_BAR.transformOpen%  = FALSE
             MENU_BAR.transformHover% = -1
-        END IF
-        ' Close layout submenu when mouse leaves all areas
-        IF MENU_BAR.layoutOpen% THEN
-            MENU_BAR.layoutOpen%  = FALSE
-            MENU_BAR.layoutHover% = -1
         END IF
         ' Close preview window submenu when mouse leaves all areas
         IF MENU_BAR.pvwOpen% THEN
@@ -2312,7 +2536,6 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
         OR MENU_BAR.recentOpen% <> oldRecentOpen% _
         OR MENU_BAR.randomOpen% <> oldRandomOpen% _
         OR MENU_BAR.transformOpen% <> oldTransformOpen% _
-        OR MENU_BAR.layoutOpen% <> oldLayoutOpen% _
         OR MENU_BAR.pvwOpen% <> oldPvwOpen% _
         OR MENU_BAR.pvwRecentOpen% <> oldPvwRecentOpen% _
         OR MENU_BAR.exportOpen% <> oldExportOpen% _
@@ -2338,8 +2561,6 @@ SUB MENUBAR_close_all ()
     MENU_BAR.randomHover%    = -1
     MENU_BAR.transformOpen%  = FALSE
     MENU_BAR.transformHover% = -1
-    MENU_BAR.layoutOpen%     = FALSE
-    MENU_BAR.layoutHover%    = -1
     MENU_BAR.pvwOpen%        = FALSE
     MENU_BAR.pvwHover%       = -1
     MENU_BAR.pvwRecentOpen%  = FALSE
@@ -2684,7 +2905,7 @@ FUNCTION MENUBAR_handle_key% (k AS LONG)
                             END IF
                             IF rmb2% = MB_RESULT_1 THEN
                                 IF LEN(CURRENT_DRW_FILENAME$) > 0 THEN
-                                    DRW_save_binary CURRENT_DRW_FILENAME$
+                                    DRW_save CURRENT_DRW_FILENAME$ ' as Ctrl+S: a PNG with its chunks (the bare binary lost frames)
                                 ELSE
                                     DRW_save_dialog
                                 END IF
@@ -3322,7 +3543,7 @@ SUB MENUBAR_handle_recent_click (rawX AS INTEGER, rawY AS INTEGER)
                 IF mb2% = MB_RESULT_NONE OR mb2% = MB_RESULT_3 THEN EXIT SUB ' Cancel
                 IF mb2% = MB_RESULT_1 THEN          ' Yes - save first
                     IF LEN(CURRENT_DRW_FILENAME$) > 0 THEN
-                        DRW_save_binary CURRENT_DRW_FILENAME$
+                        DRW_save CURRENT_DRW_FILENAME$ ' as Ctrl+S: a PNG with its chunks (the bare binary lost frames)
                     ELSE
                         DRW_save_dialog
                     END IF
@@ -3703,7 +3924,7 @@ SUB MENUBAR_render_generic_submenu ()
             _UPRINTSTRING (MENU_BAR.genX% + 4, gnItemY% + 2), CHR$(251)
         END IF
         _UPRINTSTRING (MENU_BAR.genX% + MENU_SUB_PAD_LEFT, gnItemY% + 2), RTRIM$(MENU_ITEMS(gnIdx(gi%)).label)
-        gnHk$ = RTRIM$(MENU_ITEMS(gnIdx(gi%)).hotkey)
+        gnHk$ = BINDINGS_hotkey$(MENU_ITEMS(gnIdx(gi%)).actionId%, RTRIM$(MENU_ITEMS(gnIdx(gi%)).hotkey))
         IF LEN(gnHk$) > 0 THEN
             gnHkX% = MENU_BAR.genX% + MENU_BAR.genW% - _PRINTWIDTH(gnHk$) - MENU_SUB_PAD_RIGHT
             _UPRINTSTRING (gnHkX%, gnItemY% + 2), gnHk$
@@ -3885,181 +4106,6 @@ END FUNCTION
 
 
 ''
-' Render the Layout cascading submenu
-'
-SUB MENUBAR_render_layout_submenu ()
-    DIM lyBg     AS _UNSIGNED LONG
-    DIM lyFg     AS _UNSIGNED LONG
-    DIM lyBrd    AS _UNSIGNED LONG
-    DIM lySBg    AS _UNSIGNED LONG
-    DIM lySFg    AS _UNSIGNED LONG
-    DIM lyDis    AS _UNSIGNED LONG
-    DIM lyItemY  AS INTEGER
-    DIM lyTotalH AS INTEGER
-    DIM lyMaxW   AS INTEGER, lyFw AS INTEGER
-    DIM lyI      AS INTEGER
-
-    CONST LAYOUT_ITEM_COUNT = 10
-
-    DIM lyLabels(0 TO LAYOUT_ITEM_COUNT - 1) AS STRING
-    lyLabels(0) = CHR$(251) + " TOOLBOX LEFT"
-    lyLabels(1) = CHR$(251) + " TOOLBOX RIGHT"
-    lyLabels(2) = CHR$(251) + " LAYER PANEL LEFT"
-    lyLabels(3) = CHR$(251) + " LAYER PANEL RIGHT"
-    lyLabels(4) = CHR$(251) + " EDIT BAR LEFT"
-    lyLabels(5) = CHR$(251) + " EDIT BAR RIGHT"
-    lyLabels(6) = CHR$(251) + " CHARACTER MAP LEFT"
-    lyLabels(7) = CHR$(251) + " CHARACTER MAP RIGHT"
-    lyLabels(8) = CHR$(251) + " ADVANCED BAR LEFT"
-    lyLabels(9) = CHR$(251) + " ADVANCED BAR RIGHT"
-
-    ' Determine which items are currently active (checked + grayed)
-    DIM lyChecked(0 TO LAYOUT_ITEM_COUNT - 1) AS INTEGER
-    ' the side each one is on now (the dock tree), not its key: an arranged
-    ' tree places panels the keys don't describe
-    lyChecked(0) = (DOCK_side_now%(DP_TOOLBOX) = DOCK_LEFT)
-    lyChecked(1) = (DOCK_side_now%(DP_TOOLBOX) = DOCK_RIGHT)
-    lyChecked(2) = (DOCK_side_now%(DP_LAYERS) = DOCK_LEFT)
-    lyChecked(3) = (DOCK_side_now%(DP_LAYERS) = DOCK_RIGHT)
-    lyChecked(4) = (DOCK_side_now%(DP_EDITBAR) = DOCK_LEFT)
-    lyChecked(5) = (DOCK_side_now%(DP_EDITBAR) = DOCK_RIGHT)
-    lyChecked(6) = (DOCK_side_now%(DP_CHARMAP) = DOCK_LEFT)
-    lyChecked(7) = (DOCK_side_now%(DP_CHARMAP) = DOCK_RIGHT)
-    lyChecked(8) = (DOCK_side_now%(DP_ADVBAR) = DOCK_LEFT)
-    lyChecked(9) = (DOCK_side_now%(DP_ADVBAR) = DOCK_RIGHT)
-
-    ' Update labels: show checkmark for active, space for inactive
-    FOR lyI% = 0 TO LAYOUT_ITEM_COUNT - 1
-        IF lyChecked(lyI%) THEN
-            lyLabels(lyI%) = CHR$(251) + MID$(lyLabels(lyI%), 2)
-        ELSE
-            lyLabels(lyI%) = " " + MID$(lyLabels(lyI%), 2)
-        END IF
-    NEXT lyI%
-
-    lyBg~&  = THEME.MENU_SUB_bg~&
-    lyFg~&  = THEME.MENU_SUB_fg~&
-    lyBrd~& = THEME.MENU_SUB_border~&
-    lySBg~& = THEME.MENU_SUB_sel_bg~&
-    lySFg~& = THEME.MENU_SUB_sel_fg~&
-    ' Disabled/grayed color — midpoint between bg and fg
-    lyDis~& = _RGB32((_RED32(lyFg~&) + _RED32(lyBg~&)) \ 2, (_GREEN32(lyFg~&) + _GREEN32(lyBg~&)) \ 2, (_BLUE32(lyFg~&) + _BLUE32(lyBg~&)) \ 2)
-
-    ' Measure width — include shortcut hint text
-    DIM lyHint$
-    lyHint$ = "Ctrl+Shift+L-Click"
-    lyMaxW% = 0
-    FOR lyI% = 0 TO LAYOUT_ITEM_COUNT - 1
-        lyFw% = _PRINTWIDTH(lyLabels(lyI%)) + _PRINTWIDTH("  " + lyHint$)
-        IF lyFw% > lyMaxW% THEN lyMaxW% = lyFw%
-    NEXT lyI%
-    MENU_BAR.layoutW% = MENU_SUB_PAD_LEFT + lyMaxW% + MENU_SUB_PAD_RIGHT
-    IF MENU_BAR.layoutW% < 160 THEN MENU_BAR.layoutW% = 160
-
-    lyTotalH%         = 4 + (LAYOUT_ITEM_COUNT * MENU_ITEM_HEIGHT)
-    MENU_BAR.layoutH% = lyTotalH%
-
-    ' Position to the right of the main submenu, aligned with LAYOUT item Y
-    MENU_BAR.layoutX% = MENU_BAR.subX% + MENU_BAR.subW%
-    IF MENU_BAR.layoutY% = 0 THEN MENU_BAR.layoutY% = MENU_BAR.subY%
-
-    ' Clamp right edge to screen
-    IF MENU_BAR.layoutX% + MENU_BAR.layoutW% > SCRN.w& THEN
-        MENU_BAR.layoutX% = MENU_BAR.subX% - MENU_BAR.layoutW%
-        IF MENU_BAR.layoutX% < 0 THEN MENU_BAR.layoutX% = 0
-    END IF
-
-    ' Clamp bottom to screen
-    IF MENU_BAR.layoutY% + MENU_BAR.layoutH% > SCRN.h& THEN
-        MENU_BAR.layoutY% = SCRN.h& - MENU_BAR.layoutH%
-        IF MENU_BAR.layoutY% < 0 THEN MENU_BAR.layoutY% = 0
-    END IF
-
-    ' Draw border and background
-    LINE (MENU_BAR.layoutX% - 1, MENU_BAR.layoutY% - 1)-(MENU_BAR.layoutX% + MENU_BAR.layoutW%, MENU_BAR.layoutY% + MENU_BAR.layoutH%), lyBrd~&, BF
-    LINE (MENU_BAR.layoutX%, MENU_BAR.layoutY%)-(MENU_BAR.layoutX% + MENU_BAR.layoutW% - 1, MENU_BAR.layoutY% + MENU_BAR.layoutH% - 1), lyBg~&, BF
-
-    ' Draw the 6 layout items
-    lyItemY% = MENU_BAR.layoutY% + 2
-    FOR lyI% = 0 TO LAYOUT_ITEM_COUNT - 1
-        DIM lyItemFg AS _UNSIGNED LONG
-        IF lyChecked(lyI%) THEN
-            ' Currently active — show as grayed (disabled)
-            lyItemFg~& = lyDis~&
-            IF lyI% = MENU_BAR.layoutHover% THEN
-                LINE (MENU_BAR.layoutX% + 1, lyItemY%)-(MENU_BAR.layoutX% + MENU_BAR.layoutW% - 2, lyItemY% + MENU_ITEM_HEIGHT - 1), lySBg~&, BF
-            END IF
-            COLOR lyItemFg~&, _RGBA32(0, 0, 0, 0)
-        ELSE
-            IF lyI% = MENU_BAR.layoutHover% THEN
-                LINE (MENU_BAR.layoutX% + 1, lyItemY%)-(MENU_BAR.layoutX% + MENU_BAR.layoutW% - 2, lyItemY% + MENU_ITEM_HEIGHT - 1), lySBg~&, BF
-                COLOR lySFg~&, _RGBA32(0, 0, 0, 0)
-            ELSE
-                COLOR lyFg~&, _RGBA32(0, 0, 0, 0)
-            END IF
-        END IF
-        _UPRINTSTRING (MENU_BAR.layoutX% + MENU_SUB_PAD_LEFT, lyItemY% + 2), lyLabels(lyI%)
-        ' Draw shortcut hint right-aligned
-        DIM lyHintW  AS INTEGER
-        lyHintW% = _PRINTWIDTH(lyHint$)
-        COLOR lyDis~&, _RGBA32(0, 0, 0, 0)
-        _UPRINTSTRING (MENU_BAR.layoutX% + MENU_BAR.layoutW% - MENU_SUB_PAD_RIGHT - lyHintW%, lyItemY% + 2), lyHint$
-        lyItemY% = lyItemY% + MENU_ITEM_HEIGHT
-    NEXT lyI%
-END SUB
-
-
-''
-' Handle a click inside the layout submenu
-' @param rawX INTEGER Raw screen X coordinate of the click
-' @param rawY INTEGER Raw screen Y coordinate of the click
-'
-SUB MENUBAR_handle_layout_click (rawX AS INTEGER, rawY AS INTEGER)
-    IF NOT MENU_BAR.layoutOpen% THEN EXIT SUB
-    IF NOT MENUBAR_layout_in_bounds%(rawX%, rawY%) THEN EXIT SUB
-
-    DIM lClickY AS INTEGER
-    lClickY% = MENU_BAR.layoutY% + 2
-    DIM lIdx    AS INTEGER
-    FOR lIdx% = 0 TO 9
-        IF rawY% >= lClickY% AND rawY% < lClickY% + MENU_ITEM_HEIGHT THEN
-            MENUBAR_close_all
-            SELECT CASE lIdx%
-                CASE 0 : CMD_execute_action 443
-                CASE 1 : CMD_execute_action 444
-                CASE 2 : CMD_execute_action 445
-                CASE 3 : CMD_execute_action 446
-                CASE 4 : CMD_execute_action 447
-                CASE 5 : CMD_execute_action 448
-                CASE 6 : CMD_execute_action 2051
-                CASE 7 : CMD_execute_action 2052
-                CASE 8 : CMD_execute_action 450
-                CASE 9 : CMD_execute_action 451
-            END SELECT
-            EXIT SUB
-        END IF
-        lClickY% = lClickY% + MENU_ITEM_HEIGHT
-    NEXT lIdx%
-END SUB
-
-
-''
-' Check if a point is within the layout submenu bounds
-' @param rawX INTEGER Raw screen X coordinate to test
-' @param rawY INTEGER Raw screen Y coordinate to test
-' @return INTEGER - TRUE if the point is inside the layout submenu
-'
-FUNCTION MENUBAR_layout_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
-    IF NOT MENU_BAR.layoutOpen% THEN
-        MENUBAR_layout_in_bounds% = FALSE
-        EXIT FUNCTION
-    END IF
-    MENUBAR_layout_in_bounds% = (rawX% >= MENU_BAR.layoutX% AND rawX% < MENU_BAR.layoutX% + MENU_BAR.layoutW% _
-        AND rawY% >= MENU_BAR.layoutY% AND rawY% < MENU_BAR.layoutY% + MENU_BAR.layoutH%)
-END FUNCTION
-
-
-''
 ' Check if a submenu child item (by child index) is enabled
 ' Used to gate hover sounds and highlight for disabled items
 ' @param childPosition INTEGER Zero-based child index within the currently open submenu
@@ -4102,11 +4148,6 @@ FUNCTION MENUBAR_is_cascading_item% (childPosition AS INTEGER)
     END IF
     ' TRANSFORM flyout parent -> EDIT>Transform (331, menu 1) or SELECT>Transform Selection (334, menu 3)
     IF childPosition% = MENU_BAR.transformItemIdx% AND (MENU_BAR.openMenu% = MENU_ROOT_REMAP(1) OR MENU_BAR.openMenu% = MENU_ROOT_REMAP(3)) THEN
-        MENUBAR_is_cascading_item% = TRUE
-        EXIT FUNCTION
-    END IF
-    ' LAYOUT (action 442) -> VIEW (parent 2)
-    IF childPosition% = MENU_BAR.layoutItemIdx% AND MENU_BAR.openMenu% = MENU_ROOT_REMAP(2) THEN
         MENUBAR_is_cascading_item% = TRUE
         EXIT FUNCTION
     END IF

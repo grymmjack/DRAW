@@ -12,12 +12,13 @@ metadata:
 **How to apply:** for any bug he reports (and before saying "can't reproduce"), also run the relevant tests in user-profile mode (qa-harness DRAW adapter, added 2026-11-06):
 
 ```bash
-cd QA && QA_USER_PROFILE=1 QA_USER_SCREEN=1152x648@3 QA_XVFB_RES=3840x2160 ./draw-qa.sh tests/<file>.sh
+cd QA && QA_USER_PROFILE=1 QA_USER_SCREEN=1152x712@3 QA_XVFB_RES=3840x2400 ./draw-qa.sh tests/<file>.sh
 ```
 
 - `QA_USER_PROFILE=1`: the cfg is a copy of `~/.config/DRAW/DRAW.cfg` (only UI_SCALE=0 / scale / screen / sound / FPS pinned) and every launch gets FRESH scratch copies of `~/.config/DRAW` and `~/.local/share/DRAW` as XDG_CONFIG_HOME / XDG_DATA_HOME - his workspaces / bindings / drawer sets are used, his real files are never written. Check: `stat` his `current.workspace` / `DRAW.cfg` mtimes before and after.
-- `QA_USER_SCREEN`: [Linux] his desktop is 3840x2160 at `UI_SCALE=3` -> DRAW's viewport 1152x648 @3x (90% of desktop / 3). Re-derive if his UI_SCALE or monitor changes (`DISPLAY=:1 xdpyinfo | grep dimensions`, `grep UI_SCALE ~/.config/DRAW/DRAW.cfg`).
+- `QA_USER_SCREEN`: [Linux] his desktop is 3840x2160 at `UI_SCALE=3` -> DRAW's viewport 1152x712 @3x (was 1152x648 until 2026-11-14 - the harness refuses a run whose geometry doesn't match). Re-derive if his UI_SCALE or monitor changes (`DISPLAY=:1 xdpyinfo | grep dimensions`, `grep UI_SCALE ~/.config/DRAW/DRAW.cfg`).
 - A test meant for his layout must NOT set `WORKSPACE=default` in QA-OPTIONS (that replaces his workspace). `QA/tests/user-dock-handle-menus.sh` is the pattern: it works from whatever layout the dump shows.
-- Plain QA runs (no profile) also read his real `~/.local/share/DRAW` (no XDG override) - a test that changes the dock in a non-Default workspace could write there; prefer profile mode or WORKSPACE=default.
+- Plain QA runs (no profile) read his real `~/.local/share/DRAW` (no XDG override). Since 2026-11-14 the harness gives each normal-mode test its own empty `WORKSPACES_DIR` unless it pins one (a workspace saves every layout change into its file now), but other data dirs (swatches, drawer sets) are still the real ones - prefer profile mode or sandboxes.
+- [Linux, zsh] **Pass the profile vars literally on the command line.** `P="QA_USER_PROFILE=1 ..."; env $P ./draw-qa.sh` does NOT split in zsh: QA_USER_PROFILE becomes "1 QA_USER_SCREEN=..." and the run silently goes in plain mode (factory cfg, starts in Default) - 2026-11-14 that looked like "DRAW sometimes starts in Default". Check the run log says "User profile: DRAW.cfg + copies of ..." and the geometry line says 1152x712 @ 3x.
 
 Related: [[feedback-test-scope]], [[qa-harness-toolkit]].

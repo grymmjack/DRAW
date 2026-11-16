@@ -60,6 +60,7 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
     ' lost the tilt behind mouse-movement events. Accumulate across the whole drain,
     ' then SGN to a plain -1/0/+1 trigger (Rick's choice, not magnitude-aware).
     DIM tilt_accum AS INTEGER : tilt_accum% = 0
+    DIM xbLatch AS INTEGER
     MOUSE_TILT%       = 0
     MOUSE_FRAME_EVTS% = 0 ' events consumed by this frame's drain (see INPUT.BI)
 
@@ -98,12 +99,18 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
             IF _MOUSEBUTTON(1) THEN mac_b1% = TRUE
             IF _MOUSEBUTTON(2) THEN mac_b2% = TRUE
             IF _MOUSEBUTTON(3) THEN mac_b3% = TRUE
+            FOR xbLatch% = 4 TO MOUSE_BTN_AVAIL%: IF _MOUSEBUTTON(xbLatch%) THEN MOUSE_XB_LATCH(xbLatch%) = TRUE
+            NEXT
         LOOP
     $ELSE
         DO WHILE _MOUSEINPUT
             MOUSE_FRAME_EVTS% = MOUSE_FRAME_EVTS% + 1
             wheel_delta% = wheel_delta% + _MOUSEWHEEL
             IF MOUSE_TILT_AXIS% > 0 THEN tilt_accum% = tilt_accum% + _MOUSEWHEEL(MOUSE_TILT_AXIS%)
+            ' a thumb button clicked within one frame (down and up before the drain
+            ' ends) would read up after it: catch the press (MOUSE_BTN below)
+            FOR xbLatch% = 4 TO MOUSE_BTN_AVAIL%: IF _MOUSEBUTTON(xbLatch%) THEN MOUSE_XB_LATCH(xbLatch%) = TRUE
+            NEXT
         LOOP
     $END IF
     MOUSE_TILT% = SGN(tilt_accum%)
@@ -111,6 +118,7 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
 
     ' Get window coordinates and scale down by display scale to viewport coords.
     DIM evRawX AS INTEGER, evRawY AS INTEGER
+    MOUSE.WIN_X% = _MOUSEX: MOUSE.WIN_Y% = _MOUSEY ' (window px: GUI/PANEL-SURFACE maps a 1x panel with them)
     evRawX% = _MOUSEX \ SCRN.displayScale%
     evRawY% = _MOUSEY \ SCRN.displayScale%
     $IF MAC THEN
@@ -165,6 +173,9 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
     ' Store raw screen coordinates for GUI hover detection
     MOUSE.RAW_X% = rawX%
     MOUSE.RAW_Y% = rawY%
+
+    ' Lightbox: map through the view of the pane under the pointer (or the one a stroke started in)
+    ANIM_LB_view_pick rawX%, rawY%
 
     ' Calculate zoomed canvas position on screen (using canvas dimensions, centered in viewport)
     DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
@@ -299,7 +310,12 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
     END IF
     MOUSE_BTN(1) = MOUSE.B1% : MOUSE_BTN(2) = MOUSE.B2% : MOUSE_BTN(3) = MOUSE.B3%
     DIM extraBtn AS INTEGER
-    FOR extraBtn% = 4 TO MOUSE_BTN_AVAIL% : MOUSE_BTN(extraBtn%) = _MOUSEBUTTON(extraBtn%) : NEXT
+    FOR extraBtn% = 4 TO MOUSE_BTN_AVAIL%
+        ' down now, or pressed at any point in this frame's drain (a quick click is
+        ' then down for this frame and up the next, so its edges still fire)
+        MOUSE_BTN(extraBtn%) = _MOUSEBUTTON(extraBtn%) _ORELSE MOUSE_XB_LATCH(extraBtn%)
+        MOUSE_XB_LATCH(extraBtn%) = FALSE
+    NEXT
 
     ' Detect button press starting on the apron (outside canvas screen bounds).
     ' In pattern tile mode the entire viewport wraps to canvas, so no apron exists.
@@ -535,9 +551,15 @@ FUNCTION MOUSE_handle_refimg_reposition% ()
     DIM b1 AS INTEGER
     b1% = _MOUSEBUTTON(1)
     
-    ' Mouse wheel: resize reference image
+    ' Mouse wheel: resize reference image; Ctrl+Alt+Shift+wheel: its opacity
+    ' (Advanced bar REF ADJUST / Image > Reposition Reference - BUGS.md 2026-11-15)
     IF wheel_delta% <> 0 THEN
-        REFIMG_reposition_wheel wheel_delta%
+        IF MODIFIERS.ctrlShiftAlt% THEN
+            REFIMG_adjust_opacity -SGN(wheel_delta%) * REFIMG_OPACITY_STEP% ' wheel up: more opaque
+            SCENE_DIRTY% = TRUE
+        ELSE
+            REFIMG_reposition_wheel wheel_delta%
+        END IF
     END IF
     
     ' Mouse button press/release/drag
@@ -614,12 +636,17 @@ FUNCTION MOUSE_handle_image_import% ()
     DIM imp_zw   AS LONG, imp_zh AS LONG, imp_dx AS INTEGER, imp_dy AS INTEGER
 
     ' Get window coordinates and scale down by display scale to viewport coords
+    MOUSE.WIN_X% = _MOUSEX: MOUSE.WIN_Y% = _MOUSEY
     imp_rawX% = _MOUSEX \ SCRN.displayScale%
     imp_rawY% = _MOUSEY \ SCRN.displayScale%
 
     ' Store raw screen coordinates
     MOUSE.RAW_X% = imp_rawX%
     MOUSE.RAW_Y% = imp_rawY%
+
+    ' The lightbox: the current frame's pane view (field kit R-25: the hidden
+    ' sheet view's zoom / offsets put every press, drag and handle off)
+    ANIM_LB_view_pick imp_rawX%, imp_rawY%
 
     ' Calculate zoomed canvas position on screen (canvas dimensions, centered in viewport)
     imp_zw& = SCRN.canvasW& * SCRN.zoom!
@@ -786,7 +813,7 @@ FUNCTION MOUSE_handle_menubar_click% (rawX AS INTEGER, rawY AS INTEGER)
     IF NOT (SCRN.showMenubar% AND MENU_BAR.visible%) THEN EXIT FUNCTION
     IF NOT (MOUSE.B1% AND NOT MOUSE.OLD_B1%) THEN EXIT FUNCTION
 
-    IF MENUBAR_in_bounds%(rawX%, rawY%) OR MENUBAR_submenu_in_bounds%(rawX%, rawY%) OR MENUBAR_recent_in_bounds%(rawX%, rawY%) OR MENUBAR_random_in_bounds%(rawX%, rawY%) OR MENUBAR_transform_in_bounds%(rawX%, rawY%) OR MENUBAR_layout_in_bounds%(rawX%, rawY%) OR MENUBAR_overflow_in_bounds%(rawX%, rawY%) OR MENUBAR_pvw_in_bounds%(rawX%, rawY%) OR MENUBAR_pvw_recent_in_bounds%(rawX%, rawY%) OR MENUBAR_export_in_bounds%(rawX%, rawY%) OR MENUBAR_generic_in_bounds%(rawX%, rawY%) THEN
+    IF MENUBAR_in_bounds%(rawX%, rawY%) OR MENUBAR_submenu_in_bounds%(rawX%, rawY%) OR MENUBAR_recent_in_bounds%(rawX%, rawY%) OR MENUBAR_random_in_bounds%(rawX%, rawY%) OR MENUBAR_transform_in_bounds%(rawX%, rawY%) OR MENUBAR_overflow_in_bounds%(rawX%, rawY%) OR MENUBAR_pvw_in_bounds%(rawX%, rawY%) OR MENUBAR_pvw_recent_in_bounds%(rawX%, rawY%) OR MENUBAR_export_in_bounds%(rawX%, rawY%) OR MENUBAR_generic_in_bounds%(rawX%, rawY%) THEN
         MENUBAR_handle_click rawX%, rawY%
         MOUSE.UI_CHROME_CLICKED%    = TRUE
         MOUSE.OLD_B1%               = MOUSE.B1%
@@ -837,6 +864,7 @@ SUB MOUSE_autocommit_move_if_click_on_gui (rawX AS INTEGER, rawY AS INTEGER)
     IF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
+    IF WF_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showEditBar% AND EDITBAR_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showAdvBar% AND ADVBAR_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showCharMap% AND CHARMAP_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
@@ -954,6 +982,10 @@ SUB MOUSE_handle_layer_panel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
                     GUI_NEEDS_REDRAW% = TRUE
                 END IF
                 LAYER_PANEL_ctx_menu_close
+            ELSEIF ctxHit% >= LAYER_BAR_POPUP_BASE _ANDALSO ctxHit% <= LAYER_BAR_POPUP_BASE + 2 THEN
+                LAYER_BAR_pick ctxHit% ' the layer bar's menu / Show Layer Bar
+            ELSEIF ctxHit% >= LAYER_THUMB_POPUP_BASE _ANDALSO ctxHit% < LAYER_THUMB_POPUP_BASE + 20 THEN
+                LAYER_PANEL_thumb_pick ctxHit% ' the thumbnail menu / Show Thumbnails
             ELSEIF ctxHit% >= 700 THEN
                 ' Command action — dispatch
                 LAYER_PANEL_ctx_menu_activate ctxHit%
@@ -961,25 +993,6 @@ SUB MOUSE_handle_layer_panel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
                 ' Divider or disabled — close
                 LAYER_PANEL_ctx_menu_close
             END IF
-            MOUSE.UI_CHROME_CLICKED% = TRUE
-            EXIT SUB
-        END IF
-    END IF
-
-    ' CTRL+SHIFT+Click on layer panel = toggle dock edge (LEFT <-> RIGHT)
-    IF NOT SCRN.panning% AND LAYER_PANEL.visible% AND MODIFIERS.ctrl% AND MODIFIERS.shift% AND MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
-        IF LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN
-            IF DOCK_side_now%(DP_LAYERS) = DOCK_LEFT THEN
-                CFG.LAYERS_PANEL_DOCK_EDGE = "RIGHT"
-            ELSE
-                CFG.LAYERS_PANEL_DOCK_EDGE = "LEFT"
-            END IF
-            DOCK_side_request DP_LAYERS, DOCK_key_side%(DP_LAYERS) ' an arranged tree moves it too
-            SOUND_play SND_DRAG_DROP
-            CONFIG_save
-            GUI_NEEDS_REDRAW%        = TRUE
-            SCENE_DIRTY%             = TRUE
-            FRAME_IDLE%              = FALSE
             MOUSE.UI_CHROME_CLICKED% = TRUE
             EXIT SUB
         END IF
@@ -1117,80 +1130,8 @@ SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
         IF PALETTE_OPS_handle_held%(rawX%, rawY%) THEN MOUSE.UI_CHROME_CLICKED% = TRUE
     END IF
 
-    ' CTRL+SHIFT+Click on panel dead area = toggle dock edge (LEFT <-> RIGHT)
-    IF NOT SCRN.panning% AND MODIFIERS.ctrl% AND MODIFIERS.shift% AND MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
-        ' Toolbox stack (toolbar + organizer + drawer)
-        IF SCRN.showToolbar% AND (TOOLBAR_is_over_area%(rawX%, rawY%) OR ORGANIZER_is_over_area%(rawX%, rawY%) OR DRAWER_is_over_area%(rawX%, rawY%)) THEN
-            IF DOCK_side_now%(DP_TOOLBOX) = DOCK_LEFT THEN
-                CFG.TOOLBOX_DOCK_EDGE = "RIGHT"
-            ELSE
-                CFG.TOOLBOX_DOCK_EDGE = "LEFT"
-            END IF
-            DOCK_side_request DP_TOOLBOX, DOCK_key_side%(DP_TOOLBOX) ' an arranged tree moves it too
-            SOUND_play SND_DRAG_DROP
-            CONFIG_save
-            GUI_NEEDS_REDRAW%        = TRUE
-            SCENE_DIRTY%             = TRUE
-            FRAME_IDLE%              = FALSE
-            MOUSE.UI_CHROME_CLICKED% = TRUE
-            EXIT SUB
-        END IF
-        ' Character map
-        IF SCRN.showCharMap% AND CHARMAP_is_over_area%(rawX%, rawY%) THEN
-            IF DOCK_side_now%(DP_CHARMAP) = DOCK_LEFT THEN
-                CHARMAP.dockSide%            = CHARMAP_DOCK_RIGHT
-                CFG.CHARMAP_PANEL_DOCK_EDGE$ = "RIGHT"
-            ELSE
-                CHARMAP.dockSide%            = CHARMAP_DOCK_LEFT
-                CFG.CHARMAP_PANEL_DOCK_EDGE$ = "LEFT"
-            END IF
-            DOCK_side_request DP_CHARMAP, DOCK_key_side%(DP_CHARMAP) ' an arranged tree moves it too
-            SOUND_play SND_DRAG_DROP
-            CONFIG_save
-            GUI_NEEDS_REDRAW%        = TRUE
-            SCENE_DIRTY%             = TRUE
-            FRAME_IDLE%              = FALSE
-            MOUSE.UI_CHROME_CLICKED% = TRUE
-            EXIT SUB
-        END IF
-        ' Edit bar
-        IF SCRN.showEditBar% AND EDITBAR_is_over_area%(rawX%, rawY%) THEN
-            IF DOCK_side_now%(DP_EDITBAR) = DOCK_LEFT THEN
-                EDIT_BAR.dockSide%          = EDITBAR_DOCK_RIGHT
-                CFG.EDIT_BAR_DOCK_POSITION$ = "RIGHT"
-            ELSE
-                EDIT_BAR.dockSide%          = EDITBAR_DOCK_LEFT
-                CFG.EDIT_BAR_DOCK_POSITION$ = "LEFT"
-            END IF
-            DOCK_side_request DP_EDITBAR, DOCK_key_side%(DP_EDITBAR) ' an arranged tree moves it too
-            SOUND_play SND_DRAG_DROP
-            CONFIG_save
-            GUI_NEEDS_REDRAW%        = TRUE
-            SCENE_DIRTY%             = TRUE
-            FRAME_IDLE%              = FALSE
-            MOUSE.UI_CHROME_CLICKED% = TRUE
-            EXIT SUB
-        END IF
-        ' Advanced bar
-        IF SCRN.showAdvBar% AND ADVBAR_is_over_area%(rawX%, rawY%) THEN
-            IF DOCK_side_now%(DP_ADVBAR) = DOCK_LEFT THEN
-                ADV_BAR.dockSide%          = ADVBAR_DOCK_RIGHT
-                CFG.ADV_BAR_DOCK_POSITION$ = "RIGHT"
-            ELSE
-                ADV_BAR.dockSide%          = ADVBAR_DOCK_LEFT
-                CFG.ADV_BAR_DOCK_POSITION$ = "LEFT"
-            END IF
-            DOCK_side_request DP_ADVBAR, DOCK_key_side%(DP_ADVBAR) ' an arranged tree moves it too
-            SOUND_play SND_DRAG_DROP
-            CONFIG_save
-            GUI_NEEDS_REDRAW%        = TRUE
-            SCENE_DIRTY%             = TRUE
-            FRAME_IDLE%              = FALSE
-            MOUSE.UI_CHROME_CLICKED% = TRUE
-            EXIT SUB
-        END IF
-    END IF
-
+    ' (Ctrl+Shift+click on a panel's dead area used to swap its dock side - removed
+    '  2026-11-15 with View > Layout: the dock tree moves panels by drag now.)
     ' Check for toolbar clicks (only when not panning)
     IF NOT SCRN.panning% AND MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
         ' Palette menu is a modal overlay — give it absolute priority so clicks
@@ -1217,6 +1158,9 @@ SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
             END IF
             MOUSE.UI_CHROME_CLICKED% = TRUE                                ' Block canvas actions over organizer area
         END IF
+        ' the workflow buttons (GUI/WORKFLOW): a button switches workspace - the
+        ' panels relayout, so no later check may see this press
+        IF WF_click%(rawX%, rawY%) THEN MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB
         IF SCRN.showToolbar% AND DRAWER_is_over_area%(rawX%, rawY%) THEN
             IF DRAWER_handle_click%(rawX%, rawY%) THEN
                 SOUND_play SND_ORGANIZER
@@ -1309,6 +1253,8 @@ SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
             END IF
             MOUSE.UI_CHROME_CLICKED% = TRUE                                ' Block canvas actions over organizer area
         END IF
+        ' the workflow buttons: a button's menu, or the panel's handle menu
+        IF WF_right_click%(rawX%, rawY%) THEN MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB
         IF SCRN.showToolbar% AND DRAWER_is_over_area%(rawX%, rawY%) THEN
             IF DRAWER_handle_right_click%(rawX%, rawY%) THEN
                 SOUND_play SND_ORGANIZER
@@ -1365,6 +1311,7 @@ SUB MOUSE_handle_b3_dblclick_reset_zoom ()
     IF FPANEL_window_at%(mx%, my%) THEN EXIT SUB ' any native window
     IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(mx%, my%) THEN EXIT SUB
     IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(mx%, my%) THEN EXIT SUB
+    IF WF_is_over_area%(mx%, my%) THEN EXIT SUB
     IF SCRN.showToolbar% AND DRAWER_is_over_area%(mx%, my%) THEN EXIT SUB
     IF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(mx%, my%) THEN EXIT SUB
     IF SCRN.showStatus% AND my% >= (SCRN.h& - THEME.STATUS_height%) THEN EXIT SUB
@@ -1377,6 +1324,12 @@ SUB MOUSE_handle_b3_dblclick_reset_zoom ()
     ' can't leak through a panel that isn't in the hand-maintained list above.
     IF REGION_hit_test%(mx%, my%) > REGION_CANVAS THEN EXIT SUB
 
+    ' Ctrl+Alt+Shift+middle-click: the overlay opacities back as configured
+    IF MOUSE.B3% _ANDALSO MOUSE.OLD_B3% = 0 _ANDALSO MODIFIERS.ctrlShiftAlt% THEN
+        GRID_fade_reset
+        MOUSE.B3_CLICK_TIME# = 0 ' not half of a double-click
+        EXIT SUB
+    END IF
     IF MOUSE.B3% AND NOT MOUSE.OLD_B3% THEN
         DIM clickTime AS DOUBLE
         clickTime# = TIMER
@@ -1413,8 +1366,8 @@ SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
     activelyDrawing% = ((MOUSE.B1% AND MOUSE.OLD_B1%) OR (MOUSE.B2% AND MOUSE.OLD_B2%)) OR shapeToolDrawing%
 
     IF CURRENT_TOOL% <> TOOL_NULL AND CURRENT_TOOL% <> TOOL_TEXT AND activelyDrawing% AND NOT SCRN.panning% AND NOT MOUSE.UI_CHROME_CLICKED% THEN
-        ' Treat the organizer and drawer stack as part of the toolbar auto-hide region.
-        IF SCRN.showToolbar% AND (TOOLBAR_is_over_button%(rawX%, rawY%) OR ORGANIZER_is_over_area%(rawX%, rawY%) OR DRAWER_is_over_area%(rawX%, rawY%)) THEN
+        ' Treat the organizer, drawer and workflow buttons as part of the toolbar auto-hide region.
+        IF SCRN.showToolbar% AND (TOOLBAR_is_over_button%(rawX%, rawY%) OR ORGANIZER_is_over_area%(rawX%, rawY%) OR DRAWER_is_over_area%(rawX%, rawY%) OR WF_is_over_area%(rawX%, rawY%)) THEN
             SCRN.showToolbar%           = FALSE
             SCRN.toolbarManuallyHidden% = FALSE ' This is auto-hide, not manual
             GUI_NEEDS_REDRAW%           = TRUE
@@ -1444,7 +1397,7 @@ SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
         END IF
         ' Check if mouse is over layer panel while drawing
         IF LAYER_PANEL.visible% THEN
-            IF rawX% >= LAYER_PANEL.panelX1% AND rawX% <= LAYER_PANEL.panelX2% _ANDALSO rawY% >= LAYER_PANEL_top% _ANDALSO rawY% < LAYER_PANEL_bot% THEN ' its slot, not the whole column
+            IF rawX% >= LAYER_PANEL.panelX1% AND rawX% <= LAYER_PANEL_view_x2% _ANDALSO rawY% >= LAYER_PANEL_top% _ANDALSO rawY% < LAYER_PANEL_view_bot% THEN ' its slot, not the whole column
                 LAYER_PANEL.visible%           = FALSE
                 SCRN.layerPanelManuallyHidden% = FALSE ' This is auto-hide, not manual
                 GUI_NEEDS_REDRAW%              = TRUE
@@ -1539,6 +1492,14 @@ SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
             PENP.autoHidden% = FALSE
             uiRestored%      = TRUE
         END IF
+        IF ANIMP.autoHidden THEN
+            ANIMP.autoHidden = FALSE
+            uiRestored%      = TRUE
+        END IF
+        IF SWP.autoHidden THEN
+            SWP.autoHidden = FALSE
+            uiRestored%    = TRUE
+        END IF
         IF TBED.autoHidden THEN
             TBED.autoHidden = FALSE
             uiRestored%     = TRUE
@@ -1590,10 +1551,12 @@ SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
     ' is rebindable (MB_PAN, default 3 = middle); MOUSE_button_down% maps it to state.
     DIM allowB3Pan AS INTEGER
     allowB3Pan% = MOUSE_button_down%(MOUSE_intent_button%(MB_PAN, 3), FALSE)
+    IF MODIFIERS.ctrlShiftAlt% _ANDALSO SCRN.panning% = 0 THEN allowB3Pan% = FALSE ' Ctrl+Alt+Shift+middle-click resets the overlay fade
     IF allowB3Pan% AND NOT SCRN.panning% THEN
         ' Only block on pan START (not while already panning)
         IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN allowB3Pan% = FALSE
         IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN allowB3Pan% = FALSE
+        IF WF_is_over_area%(rawX%, rawY%) THEN allowB3Pan% = FALSE
         IF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN allowB3Pan% = FALSE
         IF SCRN.showStatus% AND rawY% >= (SCRN.h& - THEME.STATUS_height%) THEN allowB3Pan% = FALSE
         IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN allowB3Pan% = FALSE
@@ -1618,6 +1581,7 @@ SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
         ' Only block on pan START (not while already panning)
         IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
+        IF WF_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         IF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         IF SCRN.showStatus% AND rawY% >= (SCRN.h& - THEME.STATUS_height%) THEN allowCanvasPan% = FALSE
         IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
@@ -1686,8 +1650,11 @@ SUB MOUSE_tool_fill ()
             IF DRAWER_has_paint_mode% THEN fill_history_flags& = fill_history_flags& OR HISTORY_FLAG_PAINT_MODE
         END IF
         STROKE_begin
-        ' Set gradient context to full canvas for flood fill
-        GRAD_CTX_set 0, 0, SCRN.canvasW& - 1, SCRN.canvasH& - 1
+        ' Set gradient context to full canvas for flood fill (the lightbox: the frame clicked in)
+        DIM gcL AS INTEGER, gcT AS INTEGER, gcR AS INTEGER, gcB AS INTEGER
+        gcL% = 0: gcT% = 0: gcR% = SCRN.canvasW& - 1: gcB% = SCRN.canvasH& - 1
+        ANIM_CV_fill_box MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, gcL%, gcT%, gcR%, gcB%
+        GRAD_CTX_set gcL%, gcT%, gcR%, gcB%
         ' Grid cell fill mode: when enabled and a grid is visible, fill that cell
         IF GRID.CELL_FILL% AND (GRID.SHOW% OR CHARMAP.charGridShow%) THEN
             fill_history_label$ = "Fill Cell"
@@ -1710,10 +1677,13 @@ SUB MOUSE_tool_fill ()
                 NEXT gfc_i%
             END IF
         ELSE
-            ' Global fill: f+click = contiguous on all layers,
-            '             Shift+f+click = replace all matching on all layers
+            ' Global fill: F / G / W held + click = contiguous on all layers,
+            '             Shift + F / G / W + click = replace all matching on all layers
+            ' (G and W: the complement of the Magic Wand's hold F; W tapped alone
+            ' still picks the wand, on release - FILL_hold_w)
             DIM fKeyHeld AS INTEGER
-            fKeyHeld% = (_KEYDOWN(70) OR _KEYDOWN(102))
+            fKeyHeld% = (_KEYDOWN(70) OR _KEYDOWN(102) OR _KEYDOWN(71) OR _KEYDOWN(103) OR _KEYDOWN(87) OR _KEYDOWN(119))
+            IF fKeyHeld% THEN FILL_W_USED = TRUE
             IF fKeyHeld% THEN
                 IF MODIFIERS.shift% THEN
                     fill_history_label$ = "Fill Global All"
@@ -2072,8 +2042,13 @@ SUB MOUSE_tool_marquee ()
                     GUI_NEEDS_REDRAW% = TRUE
                     EXIT SUB
                 END IF
-                ' Hold W + click: select all matching color from merged canvas (all visible layers)
+                ' Hold W + click: select that color everywhere on the layer (non-contiguous);
+                ' Shift+W + click: everywhere on the image (all visible layers merged).
+                ' With W held, Shift picks the scope - it is not "add" here.
                 IF _KEYDOWN(119) THEN
+                    DIM wandOnImage AS INTEGER
+                    wandOnImage% = (MODIFIERS.shift% <> 0)
+                    IF wandOnImage% _ANDALSO selMode% = SEL_MODE_ADD THEN selMode% = SEL_MODE_REPLACE
                     IF selMode% = SEL_MODE_REPLACE AND SELECTION_has_active% AND NOT SELECTION_is_point_inside%(MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%) THEN
                         HISTORY_selection_stage
                         MARQUEE_clear
@@ -2082,7 +2057,7 @@ SUB MOUSE_tool_marquee ()
                         INVALIDATE_scene
                     END IF
                     HISTORY_selection_stage
-                    MAGIC_WAND_select_all_color_merged MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, selMode%
+                    MAGIC_WAND_select_all_color MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, selMode%, wandOnImage%
                     HISTORY_selection_commit
                     SOUND_play SND_DRAG_DROP
                     GUI_NEEDS_REDRAW% = TRUE
@@ -2122,10 +2097,16 @@ SUB MOUSE_tool_marquee ()
                 MARQUEE.SELECTION_MODE = selMode%
                 FREEHAND_SEL_start MOUSE.X%, MOUSE.Y%
             ELSEIF MOUSE.B1% THEN
-                ' Dragging - add points (honors grid snap)
+                ' Dragging - add points (honors grid snap). SPACE held slides the
+                ' path drawn so far with the cursor instead (no points added).
                 IF MARQUEE.FREE_DRAWING THEN
                     SOUND_loop SND_SELECTION
-                    FREEHAND_SEL_update MOUSE.X%, MOUSE.Y%
+                    DIM mfdx AS INTEGER, mfdy AS INTEGER
+                    IF SHAPE_space_drag_delta(mfdx, mfdy) THEN
+                        MARQUEE_translate_shape mfdx%, mfdy%
+                    ELSE
+                        FREEHAND_SEL_update MOUSE.X%, MOUSE.Y%
+                    END IF
                 END IF
             END IF
 
@@ -2185,6 +2166,9 @@ SUB MOUSE_tool_marquee ()
                 ' Dragging - update end point (honors grid snap)
                 IF MARQUEE.ELLIP_DRAGGING THEN
                     SOUND_loop SND_SELECTION
+                    ' SPACE held: slide the ellipse with the cursor (anchor moves too)
+                    DIM medx AS INTEGER, medy AS INTEGER
+                    IF SHAPE_space_drag_delta(medx, medy) THEN MARQUEE_translate_shape medx%, medy%
                     ELLIPSE_SEL_update MOUSE.X%, MOUSE.Y%
                 END IF
             END IF
@@ -2276,6 +2260,14 @@ SUB MOUSE_tool_move ()
             DIM move_handle    AS INTEGER
             DIM marquee_handle AS INTEGER
             marquee_handle% = MARQUEE_get_handle_at%(MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%)
+            ' a clip layer moves but never scales (TOOLS/CLIP): a grab on a handle moves it
+            IF marquee_handle% > 0 _ANDALSO MOVE.SYMBOL_CHILD _ANDALSO MOVE.CAPTURED_LAYER >= 1 _ANDALSO MOVE.CAPTURED_LAYER <= MAX_LAYERS THEN
+                IF LAYERS(MOVE.CAPTURED_LAYER).layerType% = LAYER_TYPE_CLIP THEN
+                    marquee_handle% = 0
+                    MOVE_start_transform 0, MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
+                    EXIT SUB
+                END IF
+            END IF
             IF marquee_handle% > 0 THEN
                 ' Remap MARQUEE handle to MOVE handle numbering:
                 ' MARQUEE: 1=TL, 2=T, 3=TR, 4=L, 5=R, 6=BL, 7=B, 8=BR
@@ -4248,8 +4240,10 @@ SUB WHEEL_zoom_at_cursor (zoomIn AS INTEGER)
 
         DIM anchorX    AS INTEGER, anchorY AS INTEGER
         DIM canvasLeft AS INTEGER, canvasTop AS INTEGER
-        canvasLeft% = old_center_x% + SCRN.offsetX%
-        canvasTop%  = old_center_y% + SCRN.offsetY%
+        ' The canvas is drawn panelShift px over (the mouse mapping adds it): leaving
+        ' it out made the pixel under the pointer drift by it on every zoom step.
+        canvasLeft% = old_center_x% + SCRN.offsetX% + SCRN.panelShiftX%
+        canvasTop%  = old_center_y% + SCRN.offsetY% + SCRN.panelShiftY%
         IF mouseScreenX% >= canvasLeft% AND mouseScreenX% < canvasLeft% + old_zw& AND _
            mouseScreenY% >= canvasTop%  AND mouseScreenY% < canvasTop%  + old_zh& THEN
             anchorX% = mouseScreenX%
@@ -4260,8 +4254,8 @@ SUB WHEEL_zoom_at_cursor (zoomIn AS INTEGER)
         END IF
 
         DIM canvasX AS SINGLE, canvasY AS SINGLE
-        canvasX! = (anchorX% - old_center_x% - SCRN.offsetX%) / oldZoom!
-        canvasY! = (anchorY% - old_center_y% - SCRN.offsetY%) / oldZoom!
+        canvasX! = (anchorX% - canvasLeft%) / oldZoom!
+        canvasY! = (anchorY% - canvasTop%) / oldZoom!
 
         DIM new_zw       AS LONG, new_zh AS LONG
         new_zw& = SCRN.canvasW& * SCRN.zoom!
@@ -4270,8 +4264,8 @@ SUB WHEEL_zoom_at_cursor (zoomIn AS INTEGER)
         new_center_x% = (SCRN.w& - new_zw&) \ 2
         new_center_y% = (SCRN.h& - new_zh&) \ 2
 
-        SCRN.offsetX% = anchorX% - new_center_x% - (canvasX! * SCRN.zoom!)
-        SCRN.offsetY% = anchorY% - new_center_y% - (canvasY! * SCRN.zoom!)
+        SCRN.offsetX% = anchorX% - new_center_x% - SCRN.panelShiftX% - (canvasX! * SCRN.zoom!)
+        SCRN.offsetY% = anchorY% - new_center_y% - SCRN.panelShiftY% - (canvasY! * SCRN.zoom!)
     END IF
 END SUB
 
@@ -4373,6 +4367,11 @@ SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
         ' Check if over status bar area (don't zoom when over status bar) - use RAW screen coords
         ELSEIF SCRN.showStatus% AND rawY% >= SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% THEN
             MOUSE.SW% = 0    ' Consume — ignored
+        ' CTRL+ALT+SHIFT: the grid, pixel grid and checkerboard opacity together
+        ' (session only; Ctrl+Alt+Shift+middle-click resets - GRID_fade_*)
+        ELSEIF MODIFIERS.ctrlShiftAlt% THEN
+            IF MOUSE.SW% <> 0 THEN GRID_fade_step -SGN(MOUSE.SW%) ' wheel up (SW < 0): stronger
+            MOUSE.SW% = 0    ' Consume
         ' Check if CTRL+SHIFT is held for reference image / canvas border opacity adjustment
         ELSEIF MODIFIERS.ctrl% AND MODIFIERS.shift% THEN
             ' Adjust canvas border opacity
@@ -4551,6 +4550,18 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
                             "regular layer."
                         POINTER_show_after_dialog
                         MOUSE_cleanup_after_dialog FALSE
+                    END IF
+                    MOUSE.UI_CHROME_CLICKED% = TRUE
+                    EXIT SUB
+            END SELECT
+        END IF
+
+        ' --- Guard: painting on a clip layer is refused (TOOLS/CLIP; it is rebuilt from its clip) ---
+        IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_CLIP THEN
+            SELECT CASE CURRENT_TOOL%
+                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON, TOOL_SS_PIE_DONUT, TOOL_SS_ROUNDED_RECT, TOOL_SS_TAB, TOOL_SS_PILL, TOOL_SS_PACMAN, TOOL_SS_3D_CUBE, TOOL_SS_BEVEL_RECT, TOOL_SS_ARROW
+                    IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
+                        IF CLIP_refuse%("Paint") THEN GUI_NEEDS_REDRAW% = TRUE
                     END IF
                     MOUSE.UI_CHROME_CLICKED% = TRUE
                     EXIT SUB
@@ -4777,6 +4788,13 @@ SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
                 END SELECT
             END IF
         END IF
+    END IF
+
+    ' Polygon selection (placed click by click, no button held between): SPACE
+    ' held slides the vertices placed so far with the cursor
+    IF CURRENT_TOOL% = TOOL_MARQUEE _ANDALSO MARQUEE.POLY_DRAWING <> 0 THEN
+        DIM mpdx AS INTEGER, mpdy AS INTEGER
+        IF SHAPE_space_drag_delta(mpdx, mpdy) THEN MARQUEE_translate_shape mpdx%, mpdy%
     END IF
 
     ' Stop any looping draw sound
@@ -5112,7 +5130,8 @@ FUNCTION SHAPE_drag_in_progress% ()
         OR SS_CUBE.DRAGGING _
         OR SS_BEVEL.DRAGGING _
         OR SS_ARROW.DRAGGING _
-        OR SS_TEXT.DRAGGING)
+        OR SS_TEXT.DRAGGING _
+        OR (CURRENT_TOOL% = TOOL_MARQUEE _ANDALSO (MARQUEE.ELLIP_DRAGGING <> 0 _ORELSE MARQUEE.FREE_DRAWING <> 0 _ORELSE MARQUEE.POLY_DRAWING <> 0)))
 END FUNCTION
 
 
@@ -5228,6 +5247,15 @@ END FUNCTION
 ' @return INTEGER - TRUE if UI chrome was clicked and tool actions should be skipped
 '
 FUNCTION MOUSE_should_skip_tool_actions% ()
+    ' Drawing is blocked while an animation plays (round 1 Q-22): a press is
+    ' swallowed like a chrome click (consumed until release - gotcha 5).
+    IF ANIM_PLAY.playing _ANDALSO ((MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0) _ORELSE (MOUSE.B2% _ANDALSO MOUSE.OLD_B2% = 0)) THEN
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        STATUS_flash "Playing - Num Enter or Alt+/ stops it to draw"
+    END IF
+    ' The lightbox (TOOLS/ANIM-LB): its transport bar takes a press; nothing
+    ' in it reaches the tools yet.
+    ANIM_LB_mouse
     ' Block tools when button press started on the apron (outside canvas bounds).
     ' Same lifecycle as UI_CHROME_CLICKED: consume transitions, reset on release.
     IF MOUSE.STARTED_ON_APRON% THEN
@@ -5306,6 +5334,9 @@ SUB MOUSE_handle_tool_phase (rawX AS INTEGER, rawY AS INTEGER)
         END IF
     END IF
 
+    ' Cycling on and the FG in a cycle range: say what drawing with it will do (GUI/PALETTE-CYCLE)
+    IF MOUSE.B1% _ANDALSO NOT MOUSE.OLD_B1% _ANDALSO NOT SCRN.panning% THEN PCYC_fg_hint
+
     ' ==== GRID OFFSET PICK MODE ====
     ' G+O was pressed: next left-click on canvas sets grid origin to that canvas pixel.
     IF GRID_OFFSET_PICK_MODE% AND NOT SCRN.panning% THEN
@@ -5319,6 +5350,25 @@ SUB MOUSE_handle_tool_phase (rawX AS INTEGER, rawY AS INTEGER)
             INVALIDATE_scene
             GUI_NEEDS_REDRAW% = TRUE
         END IF
+        EXIT SUB
+    END IF
+
+    ' ==== VISUAL GRID ADJUST (R-click the organizer's grid button) ====
+    ' A drag on the canvas is one grid cell; no tool acts (GRID_adjust_*, GUI/GRID.BM)
+    IF GRID_ADJ.active _ANDALSO NOT SCRN.panning% THEN
+        GRID_adjust_mouse
+        EXIT SUB
+    END IF
+
+    ' ANIM > Move Brush: a canvas drag sets the path; no tool acts (TOOLS/ANIM-MVBRUSH)
+    IF MVB.active _ANDALSO NOT SCRN.panning% THEN
+        MVB_mouse
+        EXIT SUB
+    END IF
+
+    ' ANIM > Clip Layer > Place AnimBrush as Clip: the click places it; no tool acts (TOOLS/CLIP)
+    IF CLIP_PLACING _ANDALSO NOT SCRN.panning% THEN
+        CLIP_place_mouse
         EXIT SUB
     END IF
 
@@ -5651,6 +5701,37 @@ SUB MOUSE_handle_gui_panels (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS IN
         END IF
     END IF
 
+    ' Animation panel (floats above the docked panels; GUI/ANIM-PANEL)
+    IF ANIMP.visible _ANDALSO ANIMP.autoHidden = 0 _ANDALSO BROWSER_owns_mouse%(rawX%, rawY%) = 0 _ANDALSO WZ_blocked%(DP_ANIM, rawX%, rawY%) = 0 THEN
+        IF ANIMP.dragging _ORELSE ANIMP.pressCtl <> ANIMP_CTL_NONE _ORELSE ANIMP.vRow <> 0 _ORELSE ANIMP_hit_window%(rawX%, rawY%) THEN
+            ANIMP_mouse_input
+        END IF
+        IF wheel_delta% <> 0 THEN IF ANIMP_wheel%(wheel_delta%) THEN wheel_delta% = 0 ' a number box (F1)
+        IF ANIMP_hit_window%(rawX%, rawY%) THEN
+            IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) OR (MOUSE.B3% AND NOT MOUSE.OLD_B3%) THEN
+                MOUSE.UI_CHROME_CLICKED% = TRUE
+            END IF
+        END IF
+    END IF
+
+    ' Swatches panel (floats above the docked panels; GUI/SWATCHES)
+    IF SWP.swallow _ORELSE (SWP.visible _ANDALSO SWP.autoHidden = 0 _ANDALSO BROWSER_owns_mouse%(rawX%, rawY%) = 0 _ANDALSO (SWP.menu <> SWP_MENU_NONE _ORELSE WZ_blocked%(DP_SWATCH, rawX%, rawY%) = 0)) THEN
+        ' A press while one of its menus is open belongs to the menu, even when
+        ' the press closes it (an item, a chip, a click outside): it must not
+        ' reach the toolbox / Drawer / layers under it, on this frame or until
+        ' the buttons are up (Rick 2026-11-11: SORT > HUE clicked the T tool).
+        DIM swpMenuWas AS INTEGER, swpPress AS INTEGER
+        swpMenuWas = (SWP.menu <> SWP_MENU_NONE)
+        swpPress = (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) OR (MOUSE.B3% AND NOT MOUSE.OLD_B3%)
+        IF SWP_owns_mouse%(rawX%, rawY%) THEN SWP_mouse_input
+        IF wheel_delta% <> 0 THEN IF SWP_wheel%(wheel_delta%) THEN wheel_delta% = 0
+        IF SWP_hit_window%(rawX%, rawY%) _ORELSE swpMenuWas _ORELSE SWP.menu <> SWP_MENU_NONE THEN
+            IF swpPress THEN MOUSE.UI_CHROME_CLICKED% = TRUE
+        END IF
+        IF swpMenuWas _ANDALSO swpPress THEN SWP.swallow = TRUE
+        IF SWP.swallow THEN MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB ' nothing under the menu sees this click
+    END IF
+
     ' Customize Toolbars window (floats above the docked panels)
     IF TBED.visible _ANDALSO TBED.autoHidden = 0 _ANDALSO BROWSER_owns_mouse%(rawX%, rawY%) = 0 _ANDALSO WZ_blocked%(WZ_TBED, rawX%, rawY%) = 0 THEN
         IF TBED.dragging _ORELSE TBED.itemDrag _ORELSE TBED_hit_window%(rawX%, rawY%) THEN
@@ -5705,6 +5786,13 @@ SUB MOUSE_handle_gui_panels (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS IN
 
     ' Layer panel
     MOUSE_handle_layer_panel rawX%, rawY%, wheel_delta%
+
+    ' The lightbox strip scrolls with the wheel (TOOLS/ANIM-LB)
+    IF wheel_delta% <> 0 THEN
+        IF ANIM_LB_strip_wheel%(rawX%, rawY%, wheel_delta%) THEN wheel_delta% = 0
+        IF wheel_delta% <> 0 THEN IF ANIM_LB_pane_wheel%(rawX%, rawY%, wheel_delta%) THEN wheel_delta% = 0
+        IF wheel_delta% <> 0 THEN IF ANIM_LB_bar_wheel%(rawX%, rawY%, wheel_delta%) THEN wheel_delta% = 0
+    END IF
 
     ' Edit bar / advanced bar mousewheel scroll
     IF wheel_delta% <> 0 THEN
@@ -5806,6 +5894,32 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
     ' exactly as the loupe picker does (see MOUSE_handle_alt_picker). Without this,
     ' Alt+click in the floating-image preview is hijacked here and the preview's own
     ' picker never runs — i.e. picking appears broken in float mode.
+    ' A lightbox band / X-sheet name column edge being dragged (TOOLS/ANIM-LB):
+    ' it follows the pointer anywhere, over the toolbox or a panel too
+    IF ANIM_LB.szMode THEN
+        ANIM_LB_size_hold
+        MOUSE_process_frame% = FALSE
+        EXIT FUNCTION
+    END IF
+    IF ANIM_XS.zDrag THEN ' the X-sheet's zoom slider, the same way
+        ANIM_XS_zoom_hold
+        MOUSE_process_frame% = FALSE
+        EXIT FUNCTION
+    END IF
+    ' The colour strip's size menu (GUI/PALETTE-STRIP): open, it has the pointer
+    IF PSM.isOpen THEN
+        IF PSM_mouse% THEN
+            MOUSE_process_frame% = FALSE
+            EXIT FUNCTION
+        END IF
+    END IF
+    ' A Swatches menu has the pointer (open, or a press on one still held): the
+    ' dock, the Alt chrome eyedropper, the menu / text bars, symmetry Ctrl+click
+    ' and the scroll bars under it leave the click alone - the panel takes it in
+    ' MOUSE_handle_gui_panels (Rick 2026-11-11: SORT > HUE clicked the T tool)
+    DIM swpMenuBusy AS INTEGER
+    swpMenuBusy = SWP_menu_busy%
+    IF swpMenuBusy = 0 THEN
     ' Side-dock edges: grab / drag / drop resizes a docked panel (GUI/DOCK-RESIZE).
     ' Before gui_early and the panels so the press isn't also a panel click;
     ' DOCK_edge_at% stays inert under menus, popups and floating windows.
@@ -5844,16 +5958,17 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
         MOUSE_process_frame% = FALSE
         EXIT FUNCTION
     END IF
+    END IF ' swpMenuBusy = 0
 
     ' CTRL+click sets symmetry center
-    MOUSE_handle_symmetry_ctrl_click
+    IF swpMenuBusy = 0 THEN MOUSE_handle_symmetry_ctrl_click
 
     ' Set drawing color based on active mouse button
     ' Left button (B1) uses foreground, Right button (B2) uses background
     MOUSE_update_draw_color
 
     ' Scrollbar interaction (before other GUI panels so scrollbar clicks are consumed)
-    IF SCROLLBAR_handle_mouse%(rawX%, rawY%, MOUSE.B1%, MOUSE.OLD_B1%) THEN
+    IF swpMenuBusy = 0 _ANDALSO SCROLLBAR_handle_mouse%(rawX%, rawY%, MOUSE.B1%, MOUSE.OLD_B1%) THEN
         MOUSE.UI_CHROME_CLICKED% = TRUE
         MOUSE_process_frame%     = FALSE
         EXIT FUNCTION
@@ -5861,17 +5976,17 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
 
     MOUSE_handle_gui_panels rawX%, rawY%, wheel_delta%
 
-    MOUSE_handle_alt_picker rawX%, rawY%
+    IF swpMenuBusy = 0 THEN MOUSE_handle_alt_picker rawX%, rawY%
 
     ' Spacebar temporary pan tool switch
     MOUSE_handle_space_pan
 
     ' Double middle-click reset + UI auto-hide/restore
-    MOUSE_handle_b3_dblclick_reset_zoom
+    IF swpMenuBusy = 0 THEN MOUSE_handle_b3_dblclick_reset_zoom
     MOUSE_handle_ui_autohide_restore rawX%, rawY%
 
-    ' Pan mode (spacebar + LMB OR MMB OR PAN tool + LMB)
-    MOUSE_handle_panning rawX%, rawY%
+    ' Pan mode (spacebar + LMB OR MMB OR PAN tool + LMB) - not from a press on a Swatches menu
+    IF swpMenuBusy = 0 _ORELSE SCRN.panning% THEN MOUSE_handle_panning rawX%, rawY%
 
     ' Smart-shapes / sub-tool flyout intercepts all input while open
     IF SUBTOOL_FLYOUT.ACTIVE THEN

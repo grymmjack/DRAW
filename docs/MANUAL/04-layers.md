@@ -44,6 +44,30 @@ Each layer row has three persistent controls:
 > 2. Toggle the lock icon on that layer.
 > 3. Take a giant brush and slosh new color over the whole canvas. Notice it only paints inside the silhouette.
 
+### The layer bar
+
+A bar under the panel's title holds the controls for the **current layer**, and two for **all layers**:
+
+- **Blend mode** (the dropdown) — click for the list of blend modes, or use the mouse wheel on it to step through them.
+- **Eye** — hide every visible layer. Click it again to show those same layers again; a layer you had hidden before stays hidden.
+- **Lock** — Opacity Lock on every layer but the current one, so nothing else can be painted by accident. Click it again to unlock all layers.
+- **Opacity** (the slider) — click or drag along it, use the mouse wheel on it, or point at it and press `1` … `9`, `0` for 10 % … 100 % (anywhere else those keys set the paint opacity).
+
+**Right-click the bar** to put it **at the bottom** (over the buttons), back **at the top**, or **hide** it. With the bar hidden, the layer's right-click menu ends with **Show Layer Bar**. It is also in **Settings → Panels → Layer Bar**, and `LAYER_PANEL_BAR=TOP|BOTTOM|OFF` in `DRAW.cfg`. The Command Palette has **Layer Opacity −10 % / +10 %**, **Show / Hide All Layers** and **Lock All Layers but the Current One / Unlock All**, to put on keys of your own.
+
+### Layer thumbnails
+
+**Settings → Panels → Thumbnails** puts a small picture of each layer before its name: **Off**, **Tiny** (16 px), **Small** (32 px) or **Medium** (48 px). The rows grow to fit. In an animation a thumbnail shows the current frame. Two more settings sit under it:
+
+- **Thumbnail Shows** — **Content** (the default) zooms in on what's on the layer: the box round its non-transparent pixels, so a small logo on a big canvas is still easy to see. An empty layer shows just the checkerboard. **Canvas** shows the whole canvas, the same framing for every layer.
+- **Min Crop (px)** — for Content, the smallest area a thumbnail shows, in canvas pixels each way (default 16). It caps the zoom, so a single dot stays a dot instead of filling the thumbnail. Set it to 1 for no limit.
+
+**Right-click a thumbnail** for the same choices in place: **Tiny**, **Small** or **Medium** (the current size is checked), **Show Content** or **Show Canvas**, and **Hide Thumbnails**. With thumbnails off, the layer's right-click menu ends with **Show Thumbnails** (Small). A pick is saved like the setting.
+
+**Selections from thumbnails.** `Ctrl`+click a layer's thumbnail and the selection becomes that layer's pixels, without changing the current layer (the same as **Selection from Layer**). `Ctrl+Shift`+click another layer's thumbnail to add its pixels. `Ctrl+Shift`+click a layer that is already in to take its pixels out again: where another layer in the selection has pixels too, those stay selected. `Ctrl+Shift`+click a thumbnail on a selection made some other way (a marquee, Select All) to add to it.
+
+In `DRAW.cfg`: `LAYER_THUMBNAILS=OFF|TINY|SMALL|MEDIUM`, `LAYER_THUMBNAIL_FIT=CONTENT|CANVAS`, `LAYER_THUMBNAIL_MIN_CROP=16`.
+
 <div class="page-break"></div>
 
 ## Blend Modes — All 19 Explained

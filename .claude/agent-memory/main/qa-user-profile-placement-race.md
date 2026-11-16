@@ -1,18 +1,25 @@
 ---
 name: qa-user-profile-placement-race
-description: [Linux] user-profile QA runs (1152x712@3 on 3840x2160 Xvfb) sometimes abort on the geometry check - window at 384,216, 3456x1944; a startup race, rerun
+description: [Linux] user-profile QA (1152x712@3) aborts "window = 3456x1944" on a 3840x2160 Xvfb - DRAW caps its startup window at 90% of the desktop; use QA_XVFB_RES=3840x2400
 metadata:
   type: project
 ---
 
-[Linux] With `QA_USER_PROFILE=1 QA_USER_SCREEN=1152x712@3 QA_XVFB_RES=3840x2160`, a test can
-abort before its first check: "window geometry does not match ... window = 3456x1944,
-expected = 3456x2136", window position 384,216. DRAW's `_SCREENMOVE _MIDDLE` centred the
-window at an earlier size (1024x576 @3) before the final resize landed, so the bottom ran
-off the 2160-row screen and got cut. A good run places at 192,24. Seen 2026-11-07 on
-dock-seams-left, on both the old and the new build (3 bad of 5), so it is not from a
-change under test - rerun until it places. Not fixed (SCREEN.BM / DRAW.BAS startup order).
+[Linux] With `QA_USER_PROFILE=1 QA_USER_SCREEN=1152x712@3`, a 3840x2160 Xvfb makes DRAW start
+with a 1152x648 viewport (window 3456x1944), and the harness refuses to run: "window geometry
+does not match ... expected = 3456x2136". This is not a race. `SCREEN_init` (OUTPUT/SCREEN.BM,
+"shrinking viewport height from 712 to 648") keeps the startup window within 90% of the desktop,
+and 712 x 3 = 2136 is more than 90% of 2160 (1944). The DRAW log says so.
 
-**Why:** cost a few reruns and a false "my change moved the window" lead.
-**How to apply:** on that abort, rerun; only investigate if it happens on every run.
+Use **`QA_XVFB_RES=3840x2400`** for user-profile runs. 90% of 2400 is 2160, so the window fits,
+and the viewport and scale are still the user's (Geometry model OK: 3456x2136). Verified
+2026-11-07: smoke 2/2 and anim-frame-grid 14/14.
+
+An earlier version of this note blamed a startup centring race and said to rerun. Earlier on
+2026-11-07 some 2160-tall runs did place at 3456x2136, and from about 16:00 every run aborted,
+on old builds too. What changed was not found. The cap explains the abort either way.
+
+**Why:** cost several reruns and two wrong leads (my change, then a race).
+**How to apply:** run user-profile QA with QA_XVFB_RES=3840x2400. If it still aborts, read the
+DRAW log for "shrinking viewport" before suspecting anything else.
 Related: [[feedback-test-like-the-user]].

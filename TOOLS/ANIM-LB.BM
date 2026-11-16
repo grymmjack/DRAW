@@ -1,0 +1,2128 @@
+''
+' DRAW - TOOLS/ANIM-LB.BM
+' =============================================================================
+' Lightbox view (see ANIM-LB.BI).
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' The lightbox is on and the document has frames to show.
+FUNCTION ANIM_LB_showing% ()
+    IF CFG.LIGHTBOX% = 0 THEN EXIT FUNCTION
+    IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN EXIT FUNCTION
+    ANIM_LB_showing% = TRUE
+END FUNCTION
+
+''
+' ANIM > Lightbox, Num 0 (action 2519).
+SUB ANIM_LB_toggle ()
+    DIM why AS STRING
+    IF CFG.LIGHTBOX% = 0 THEN
+        IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash ANIM_NO_FRAMES$: EXIT SUB
+        why = ANIM_OPS_busy$
+        IF why = "" _ANDALSO CROP.STATE = CROP_STATE_ACTIVE THEN why = "Finish the crop first"
+        IF why <> "" THEN STATUS_flash why: EXIT SUB
+    END IF
+    CFG.LIGHTBOX% = (CFG.LIGHTBOX% = 0)
+    CONFIG_save
+    IF CFG.LIGHTBOX% THEN
+        STATUS_flash "Lightbox:" + STR$(ANIM_LB_panes_wanted%) + " panes (Num 0 back to the sheet)"
+    ELSE
+        STATUS_flash "Sheet view"
+    END IF
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Panes asked for: 1 (the big frame), 3, 5 or 7.
+FUNCTION ANIM_LB_panes_wanted% ()
+    SELECT CASE CFG.LIGHTBOX_PANES%
+        CASE 1, 5, 7: ANIM_LB_panes_wanted% = CFG.LIGHTBOX_PANES%
+        CASE ELSE: ANIM_LB_panes_wanted% = 3
+    END SELECT
+END FUNCTION
+
+''
+' ANIM > Lightbox Panes, Num * (action 2520): 1 -> 3 -> 5 -> 7 -> 1.
+SUB ANIM_LB_panes_cycle ()
+    DIM p AS INTEGER
+    p = ANIM_LB_panes_wanted% + 2
+    IF p > LB_PANES_MAX THEN p = 1
+    CFG.LIGHTBOX_PANES% = p
+    CONFIG_save
+    IF p = 1 THEN STATUS_flash "Lightbox: 1 pane - the current frame big" ELSE STATUS_flash "Lightbox:" + STR$(p) + " panes"
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' The big frame view is showing: the lightbox with one pane and the X-sheet.
+FUNCTION ANIM_LB_big_on% ()
+    ANIM_LB_big_on% = (ANIM_LB_showing% <> 0 _ANDALSO CFG.XSHEET% <> 0 _ANDALSO ANIM_LB_panes_wanted% = 1)
+END FUNCTION
+
+''
+' ANIM > Big Frame + X-Sheet (action 2593, Rick 2026-11-12: "see the XSHEET
+' without the lightbox ... a single cell that spans the entire bottom area ...
+' like DP where it's possible to see a big image, and have things happening in
+' one spot"): the lightbox with ONE pane - the current frame filling the area
+' under the X-sheet, zoomed and panned like any pane (Ctrl+wheel, Zoom tool,
+' Space+drag) - and the X-sheet in the top band. Again: back to 3 panes (the
+' X-sheet stays).
+SUB ANIM_LB_big_toggle ()
+    IF ANIM_LB_big_on% THEN
+        CFG.LIGHTBOX_PANES% = 3
+        CONFIG_save
+        STATUS_flash "Lightbox: 3 panes"
+    ELSE
+        IF ANIM.active = FALSE _ORELSE ANIM.count < 1 THEN STATUS_flash ANIM_NO_FRAMES$: EXIT SUB
+        IF CFG.LIGHTBOX% = 0 THEN
+            ANIM_LB_toggle
+            IF CFG.LIGHTBOX% = 0 THEN EXIT SUB ' refused (busy): it said why
+        END IF
+        CFG.LIGHTBOX_PANES% = 1
+        CFG.XSHEET% = TRUE
+        CONFIG_save
+        STATUS_flash "Big frame + X-sheet: the current frame fills the area (Ctrl+wheel zooms) - again for 3 panes, Num 0 for the sheet"
+    END IF
+    ANIM_LB_changed
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' The canvas work area (viewport px): between the side docks, under the
+' menu / text bar, over the status bar and palette, beside the Browser band.
+SUB ANIM_LB_area (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    x1 = SCRN.uiLeftEdge%: x2 = SCRN.uiRightEdge%
+    y1 = 0
+    IF SCRN.showMenubar% _ANDALSO MENU_BAR.visible% THEN y1 = MENU_BAR_HEIGHT
+    IF TEXT_BAR.visible% THEN y1 = TEXT_BAR.barY% + TEXT_BAR.barH%
+    y2 = SCRN.h& - 1 - SCREEN_bottom_bars_h%
+    IF DOCK_BAND_SIDE <> 0 _ANDALSO DOCK_BAND_W > 0 _ANDALSO DOCK_panel_shown%(DP_BROWSER) THEN
+        IF DOCK_BAND_SIDE = DOCK_BAND_TOP THEN
+            IF DOCK_BAND_Y + DOCK_BAND_HH > y1 THEN y1 = DOCK_BAND_Y + DOCK_BAND_HH
+        ELSE
+            IF DOCK_BAND_Y - 1 < y2 THEN y2 = DOCK_BAND_Y - 1
+        END IF
+    END IF
+    ANIM_LB.hx1 = x1: ANIM_LB.hx2 = x2
+    ANIM_LB_clear_floats x1, y1, x2, y2
+END SUB
+
+''
+' A floating window parked on the left or right edge of the work area over
+' the strip / transport bar (Rick's Color Mixer sits top-left) would hide the
+' first frames and |< < PLAY: the lightbox lays out beside it, as beside a
+' dock. Windows elsewhere (the Preview in a corner low down) float over the
+' panes as they float over the sheet. Never narrower than half the area.
+SUB ANIM_LB_clear_floats (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    DIM id AS INTEGER, wx AS INTEGER, wy AS INTEGER, ww AS INTEGER, wh AS INTEGER
+    DIM topY AS INTEGER, minW AS INTEGER, nx1 AS INTEGER, nx2 AS INTEGER, edge AS INTEGER
+    FPANEL_ensure
+    topY = y1 + (y2 - y1 + 1) \ 4 + ANIM_LB_bar_h% ' the strip and the bar (ANIM_LB_layout)
+    minW = (x2 - x1 + 1) \ 2
+    edge = 12
+    nx1 = x1: nx2 = x2
+    FOR id = 1 TO DP_COUNT
+        IF ANIM_LB_float_rect%(id, wx, wy, ww, wh) THEN
+            IF wy <= topY _ANDALSO wy + wh > y1 _ANDALSO wx < x2 _ANDALSO wx + ww > x1 THEN
+                IF wx <= x1 + edge _ANDALSO wx + ww > nx1 THEN
+                    nx1 = wx + ww
+                ELSEIF wx + ww - 1 >= x2 - edge _ANDALSO wx - 1 < nx2 THEN
+                    nx2 = wx - 1
+                END IF
+            END IF
+        END IF
+    NEXT id
+    IF nx2 - nx1 + 1 >= minW THEN x1 = nx1: x2 = nx2
+END SUB
+
+''
+' Panel / window id's rect when it floats (not docked) and is shown.
+FUNCTION ANIM_LB_float_rect% (id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    IF id < DP_PREVIEW THEN
+        IF WZ_floating%(id) = 0 THEN EXIT FUNCTION
+        x = DPANEL(id).fx: y = DPANEL(id).fy: w = DPANEL(id).fw: h = DPANEL(id).fh
+    ELSE
+        IF DPANEL(id).slot > 0 THEN EXIT FUNCTION
+        IF DOCK_native_rect%(id, x, y, w, h) = 0 THEN EXIT FUNCTION
+    END IF
+    ANIM_LB_float_rect% = (w > 0 _ANDALSO h > 0)
+END FUNCTION
+
+''
+' Text width in the bar font (FPANEL) plus room either side.
+FUNCTION ANIM_LB_chip_w% (t AS STRING)
+    ANIM_LB_chip_w% = FPANEL_text_w%(t) + 2 * FPANEL.fontW% + 4 ' padded (F3)
+END FUNCTION
+
+''
+' F3 (field kit T-11): the transport bar's number boxes (time, FPS, count) in
+' the theme UI font at twice its size - Tiny5 16 - and the bar's row height.
+SUB ANIM_LB_big_ensure ()
+    DIM f AS STRING, sz AS INTEGER, fh AS LONG, oldDest AS LONG, probe AS LONG
+    IF ANIM_LB.bigReady THEN EXIT SUB
+    FPANEL_ensure
+    ANIM_LB.bigReady = TRUE: ANIM_LB.bigFont = 0
+    f = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
+    sz = THEME.GLOBAL_FONT_SIZE%: IF sz < 1 THEN sz = 8
+    IF _FILEEXISTS(f) THEN
+        fh = _LOADFONT(f, 2 * sz, "DONTBLEND")
+        IF fh > 0 THEN ANIM_LB.bigFont = fh ELSE _LOGWARN "ANIM_LB: _LOADFONT failed for " + f
+    END IF
+    ANIM_LB.bigH = FPANEL.fontH%
+    IF ANIM_LB.bigFont > 0 THEN
+        oldDest = _DEST: probe = _NEWIMAGE(8, 8, 32): _DEST probe
+        _FONT ANIM_LB.bigFont: ANIM_LB.bigH = _FONTHEIGHT
+        _DEST oldDest: _FREEIMAGE probe
+        IF ANIM_LB.bigH < 1 THEN ANIM_LB.bigH = FPANEL.fontH%
+    END IF
+    ANIM_LB.rowH = _MAX(FPANEL.rowH%, ANIM_LB.bigH + 6)
+END SUB
+
+FUNCTION ANIM_LB_bar_h% ()
+    ANIM_LB_big_ensure
+    ANIM_LB_bar_h% = ANIM_LB.rowH + 2 * LB_BAR_PAD
+END FUNCTION
+
+FUNCTION ANIM_LB_big_w% (t AS STRING)
+    STATIC probe AS LONG
+    DIM oldDest AS LONG
+    ANIM_LB_big_ensure
+    IF probe >= -1 THEN probe = _NEWIMAGE(8, 8, 32)
+    oldDest = _DEST: _DEST probe
+    IF ANIM_LB.bigFont > 0 THEN _FONT ANIM_LB.bigFont ELSE IF FPANEL.font& > 0 THEN _FONT FPANEL.font& ELSE _FONT 8
+    ANIM_LB_big_w% = _UPRINTWIDTH(t)
+    _DEST oldDest
+END FUNCTION
+
+''
+' Text in the big font on the current _DEST (its font put back).
+SUB ANIM_LB_big_text (x AS INTEGER, y AS INTEGER, t AS STRING, c AS _UNSIGNED LONG)
+    DIM oldFont AS LONG
+    ANIM_LB_big_ensure
+    oldFont = _FONT
+    IF ANIM_LB.bigFont > 0 THEN _FONT ANIM_LB.bigFont
+    COLOR c, _RGBA32(0, 0, 0, 0)
+    _UPRINTSTRING (x, y), t
+    _FONT oldFont
+END SUB
+
+''
+' The seek bar (F3): a track h px tall, the done part filled, an
+' LB_SEEK_THUMB px handle standing 2 px proud of it.
+SUB ANIM_LB_seek_draw (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, frac AS SINGLE, enabled AS INTEGER)
+    DIM f AS SINGLE, fillW AS INTEGER, tx AS INTEGER, tw AS INTEGER
+    f = frac: IF f < 0 THEN f = 0
+    IF f > 1 THEN f = 1
+    LINE (x, y)-(x + w - 1, y + h - 1), THEME.CP_slider_bg~&, BF
+    LINE (x, y)-(x + w - 1, y + h - 1), THEME.CP_slider_border~&, B
+    tw = _MIN(LB_SEEK_THUMB, w - 2)
+    fillW = INT(f * (w - 4 - tw)) + 1 ' the handle's border stays inside the track
+    IF fillW > 0 THEN LINE (x + 1, y + 1)-(x + fillW + tw \ 2, y + h - 2), _IIF(enabled, THEME.CP_button_bg~&, THEME.CP_text_dim~&), BF
+    tx = x + 1 + fillW
+    LINE (tx, y - 2)-(tx + tw - 1, y + h + 1), _IIF(enabled, THEME.CP_text_bright~&, THEME.CP_text_dim~&), BF
+    LINE (tx - 1, y - 3)-(tx + tw, y + h + 2), THEME.CP_slider_border~&, B ' round it: the handle keeps all tw px
+END SUB
+
+''
+' Place everything for this frame's render: the three bands, the strip's
+' cells (scrolled to keep the current frame in view), the panes, and the
+' transport bar's controls (low-priority ones dropped when it is narrow).
+SUB ANIM_LB_layout ()
+    DIM aw AS INTEGER, ah AS INTEGER, pad AS INTEGER, fw AS INTEGER, fh AS INTEGER
+    DIM n AS INTEGER, p AS INTEGER, k AS INTEGER, x AS INTEGER, used AS INTEGER, avail AS INTEGER
+    DIM u AS INTEGER, cap AS INTEGER, lastTop AS INTEGER
+
+    FPANEL_ensure
+    ANIM_LB_area ANIM_LB.x1, ANIM_LB.y1, ANIM_LB.x2, ANIM_LB.y2
+    aw = ANIM_LB.x2 - ANIM_LB.x1 + 1: ah = ANIM_LB.y2 - ANIM_LB.y1 + 1
+    pad = 3: ANIM_LB.pad = pad
+    fw = ANIM.frameW: fh = ANIM.frameH
+    IF fw < 1 THEN fw = 1
+    IF fh < 1 THEN fh = 1
+
+    ' bands: strip ~1/4 of what the bar leaves, the editor the rest
+    ANIM_LB.barH = ANIM_LB_bar_h%
+    ANIM_LB.stripH = (ah - ANIM_LB.barH) \ 4
+    IF ANIM_LB.stripH < 20 THEN ANIM_LB.stripH = 20
+    IF CFG.LB_STRIP_PCT! > 0 THEN ANIM_LB.stripH = CINT((ah - ANIM_LB.barH) * CFG.LB_STRIP_PCT! / 100) ' dragged to a size
+    IF CFG.XSHEET% THEN
+        ANIM_LB.stripH = ANIM_XS_band_h%(ah - ANIM_LB.barH) ' the X-sheet in the band (4.1)
+        IF CFG.XSHEET_BAND_PCT! > 0 THEN ANIM_LB.stripH = _MAX(CINT((ah - ANIM_LB.barH) * CFG.XSHEET_BAND_PCT! / 100), ANIM_XS_min_h%)
+    END IF
+    ANIM_LB.stripH = _MAX(20, _MIN(ANIM_LB.stripH, ah - ANIM_LB.barH - 40)) ' the panes keep 40 px
+    ANIM_LB.stripY = ANIM_LB.y1
+    ANIM_LB.barY = ANIM_LB.stripY + ANIM_LB.stripH
+    ANIM_LB.edY = ANIM_LB.barY + ANIM_LB.barH
+    ANIM_LB.edH = ANIM_LB.y2 - ANIM_LB.edY + 1
+    ANIM_LB.labelH = FPANEL.fontH% + 4
+    IF CFG.XSHEET% THEN ANIM_XS_layout ANIM_LB.x1, ANIM_LB.stripY, ANIM_LB.x2, ANIM_LB.stripY + ANIM_LB.stripH - 1
+
+    ' strip cells (a tray or a row, ANIM_LB_strip_cells); it scrolls a row of
+    ' the tray at a time (a frame at a time in a row), stripFirst on a row's start
+    ANIM_LB_strip_cells aw, fw, fh
+    cap = ANIM_LB.stripCap: u = ANIM_LB_strip_unit%
+    IF ANIM_LB.stripFirst < 1 THEN ANIM_LB.stripFirst = 1
+    IF ANIM.current <> ANIM_LB.lastCur THEN ' the current frame moved: bring it into view (the wheel may scroll it out)
+        k = 1 + ((_MAX(1, ANIM.current) - 1) \ u) * u ' the start of its row
+        IF ANIM.current < ANIM_LB.stripFirst THEN ANIM_LB.stripFirst = k
+        IF ANIM.current > ANIM_LB.stripFirst + cap - 1 THEN ANIM_LB.stripFirst = k - (cap - u)
+        ANIM_LB.lastCur = ANIM.current
+    END IF
+    lastTop = 1 + ((_MAX(1, ANIM.count) - 1) \ u) * u - (cap - u) ' the last frame's row at the bottom
+    IF ANIM_LB.stripFirst > lastTop THEN ANIM_LB.stripFirst = lastTop
+    IF ANIM_LB.stripFirst < 1 THEN ANIM_LB.stripFirst = 1
+    ANIM_LB.stripFirst = 1 + ((ANIM_LB.stripFirst - 1) \ u) * u
+    n = _MIN(cap, ANIM.count - ANIM_LB.stripFirst + 1)
+    IF n < 1 THEN n = 1
+    ANIM_LB.stripN = n
+
+    ' editor panes: as many as asked for while each keeps 16 px
+    p = ANIM_LB_panes_wanted%
+    DO WHILE p > 1 _ANDALSO (aw - pad * (p + 1)) \ p < 16
+        p = p - 2
+    LOOP
+    ANIM_LB.panes = p
+    ANIM_LB.paneW = (aw - pad * (p + 1)) \ p
+    ANIM_LB.paneH = ANIM_LB.edH - 2 * pad - ANIM_LB.labelH
+    IF ANIM_LB.paneH < 4 THEN ANIM_LB.paneH = 4
+
+    ' transport bar: natural widths, then drop TIME, FPS, COPY/PASTE/CUT,
+    ' LOOP, COUNT until the seek bar keeps 24 px
+    ANIM_LB_CW(LB_CTL_FIRST) = ANIM_LB_chip_w%("|<")
+    ANIM_LB_CW(LB_CTL_PREV) = ANIM_LB_chip_w%("<")
+    ANIM_LB_CW(LB_CTL_PLAY) = ANIM_LB_chip_w%("STOP")
+    ANIM_LB_CW(LB_CTL_NEXT) = ANIM_LB_CW(LB_CTL_PREV)
+    ANIM_LB_CW(LB_CTL_LAST) = ANIM_LB_CW(LB_CTL_FIRST)
+    ANIM_LB_CW(LB_CTL_LOOP) = ANIM_LB_chip_w%("PING")
+    ANIM_LB_CW(LB_CTL_TIME) = ANIM_LB_big_w%("0:00.0 / 0:00.0") + 8
+    ANIM_LB_CW(LB_CTL_FPS) = ANIM_LB_big_w%("- 120 FPS +") + 8
+    ANIM_LB_CW(LB_CTL_SEEK) = 0
+    ANIM_LB_CW(LB_CTL_COUNT) = ANIM_LB_big_w%(STRING$(_MAX(2 * LEN(_TRIM$(STR$(ANIM.count))) + 1, LEN(_TRIM$(ANIM_LB_EDIT)) + 1), "8")) + 10
+    ANIM_LB_CW(LB_CTL_COPY) = ANIM_LB_chip_w%("COPY")
+    ANIM_LB_CW(LB_CTL_PASTE) = ANIM_LB_chip_w%("PASTE")
+    ANIM_LB_CW(LB_CTL_CUT) = ANIM_LB_chip_w%("CUT")
+    ANIM_LB_CW(LB_CTL_ADD) = ANIM_LB_chip_w%("+")
+    ANIM_LB_CW(LB_CTL_XS) = ANIM_LB_chip_w%("X-SHEET")
+    avail = aw - 2 * pad
+    FOR k = 0 TO 4
+        used = 0
+        FOR n = 1 TO LB_CTLS
+            IF ANIM_LB_CW(n) > 0 THEN used = used + ANIM_LB_CW(n) + 2
+        NEXT n
+        IF avail - used >= 24 THEN EXIT FOR
+        SELECT CASE k
+            CASE 0: ANIM_LB_CW(LB_CTL_TIME) = 0
+            CASE 1: ANIM_LB_CW(LB_CTL_FPS) = 0
+            CASE 2: ANIM_LB_CW(LB_CTL_COPY) = 0: ANIM_LB_CW(LB_CTL_PASTE) = 0: ANIM_LB_CW(LB_CTL_CUT) = 0
+            CASE 3: ANIM_LB_CW(LB_CTL_LOOP) = 0
+            CASE 4: ANIM_LB_CW(LB_CTL_COUNT) = 0
+        END SELECT
+    NEXT k
+    used = 0
+    FOR n = 1 TO LB_CTLS
+        IF ANIM_LB_CW(n) > 0 THEN used = used + ANIM_LB_CW(n) + 2
+    NEXT n
+    ANIM_LB_CW(LB_CTL_SEEK) = _MAX(8, avail - used - 2)
+    x = ANIM_LB.x1 + pad
+    FOR n = 1 TO LB_CTLS
+        ANIM_LB_CX(n) = x
+        IF ANIM_LB_CW(n) > 0 THEN x = x + ANIM_LB_CW(n) + 2
+    NEXT n
+END SUB
+
+''
+' The strip's cells (Rick 2026-11-09: "think like an ice cube tray for a
+' freezer.. it can accommodate up to a minimum x/y size of the cube size, as a
+' cell and it can stack across, and down, if the user prefers, or across
+' only"). A tray (LIGHTBOX_STRIP_FLOW=TRAY) lays the cells across, then down:
+' the biggest cell (the frame's shape) that holds every frame, down to
+' LIGHTBOX_STRIP_MIN_CELL px tall - past that it scrolls by rows. A row (ROW)
+' is one line of cells as tall as the band. LIGHTBOX_STRIP_CELL (Ctrl+wheel
+' over the strip) sets the cell height instead; the band then holds as many
+' rows of them as fit. Sets cellW / cellH, stripCols / stripRows / stripCap.
+SUB ANIM_LB_strip_cells (aw AS INTEGER, fw AS INTEGER, fh AS INTEGER)
+    DIM maxCh AS INTEGER, lo AS INTEGER, ch AS INTEGER, cw AS INTEGER
+    DIM cols AS INTEGER, rows AS INTEGER, n AS LONG
+    n = _MAX(1, ANIM.count)
+    maxCh = _MAX(4, ANIM_LB.stripH - 2 * ANIM_LB.pad)
+    IF CFG.LB_STRIP_CELL% > 0 THEN
+        ch = _MAX(4, _MIN(CFG.LB_STRIP_CELL%, maxCh))
+        ANIM_LB_strip_fit ch, aw, fw, fh, cw, cols, rows
+    ELSEIF CFG.LB_STRIP_FLOW% = 1 THEN
+        ch = maxCh
+        ANIM_LB_strip_fit ch, aw, fw, fh, cw, cols, rows
+    ELSE
+        lo = _MAX(4, _MIN(CFG.LB_STRIP_MIN_CELL%, maxCh))
+        ch = maxCh
+        DO
+            ANIM_LB_strip_fit ch, aw, fw, fh, cw, cols, rows
+            IF CLNG(cols) * rows >= n _ORELSE ch <= lo THEN EXIT DO
+            ch = ch - 1
+        LOOP
+    END IF
+    IF CFG.LB_STRIP_FLOW% = 1 THEN rows = 1
+    ANIM_LB.cellW = cw: ANIM_LB.cellH = ch
+    ANIM_LB.stripCols = cols: ANIM_LB.stripRows = rows
+    ANIM_LB.stripCap = _MIN(30000, CLNG(cols) * rows)
+END SUB
+
+''
+' A cell ch px tall (in / out: the widest cell is a third of the strip, the
+' height then follows the frame's shape): its width, and how many fit across
+' and down the band.
+SUB ANIM_LB_strip_fit (ch AS INTEGER, aw AS INTEGER, fw AS INTEGER, fh AS INTEGER, cw AS INTEGER, cols AS INTEGER, rows AS INTEGER)
+    DIM pad AS INTEGER
+    pad = ANIM_LB.pad
+    cw = (CLNG(ch) * fw + fh \ 2) \ fh
+    IF cw > aw \ 3 THEN cw = aw \ 3: ch = _MAX(4, (CLNG(cw) * fh + fw \ 2) \ fw)
+    IF cw < 4 THEN cw = 4
+    cols = _MAX(1, (aw - pad) \ (cw + pad))
+    rows = _MAX(1, (ANIM_LB.stripH - pad) \ (ch + pad))
+END SUB
+
+''
+' Frames per scroll step: a tray row (a row strip: 1).
+FUNCTION ANIM_LB_strip_unit% ()
+    IF CFG.LB_STRIP_FLOW% = 1 THEN ANIM_LB_strip_unit% = 1 ELSE ANIM_LB_strip_unit% = _MAX(1, ANIM_LB.stripCols)
+END FUNCTION
+
+''
+' Strip cell k (0-based, across then down) rect.
+SUB ANIM_LB_strip_rect (k AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    DIM c AS INTEGER
+    c = _MAX(1, ANIM_LB.stripCols)
+    x = ANIM_LB.x1 + ANIM_LB.pad + (k MOD c) * (ANIM_LB.cellW + ANIM_LB.pad)
+    y = ANIM_LB.stripY + ANIM_LB.pad + (k \ c) * (ANIM_LB.cellH + ANIM_LB.pad)
+    w = ANIM_LB.cellW: h = ANIM_LB.cellH
+END SUB
+
+''
+' Editor pane k (0-based, left to right) picture rect, and the frame it shows
+' (outside 1..count = an empty pane).
+FUNCTION ANIM_LB_pane_rect% (k AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    x = ANIM_LB.x1 + ANIM_LB.pad + k * (ANIM_LB.paneW + ANIM_LB.pad)
+    y = ANIM_LB.edY + ANIM_LB.pad
+    w = ANIM_LB.paneW: h = ANIM_LB.paneH
+    ANIM_LB_pane_rect% = ANIM.current + k - ANIM_LB.panes \ 2
+END FUNCTION
+
+''
+' Frame f fitted into box (x, y, w, h): a whole-number zoom when it fits,
+' centred. Returns the picture rect in dx..dh and the zoom.
+FUNCTION ANIM_LB_fit! (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
+    DIM s AS SINGLE, fw AS INTEGER, fh AS INTEGER
+    fw = _MAX(1, ANIM.frameW): fh = _MAX(1, ANIM.frameH)
+    s = _MIN(w / fw, h / fh)
+    IF s >= 1 THEN s = INT(s)
+    dw = _MAX(1, INT(fw * s)): dh = _MAX(1, INT(fh * s))
+    dx = x + (w - dw) \ 2: dy = y + (h - dh) \ 2
+    ANIM_LB_fit! = s
+END FUNCTION
+
+''
+' An editor pane's picture: fitted as ANIM_LB_fit!, or at the lightbox zoom
+' (ANIM_LB.vz) when that is bigger - then it may be larger than the pane and
+' is cut off at the pane's edge (ANIM_LB_vis).
+FUNCTION ANIM_LB_pane_fit! (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
+    DIM z AS SINGLE, rx AS SINGLE, ry AS SINGLE
+    IF ANIM.frameW <> ANIM_LB.vFW _ORELSE ANIM.frameH <> ANIM_LB.vFH THEN ANIM_LB.vz = 0
+    z = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    IF ANIM_LB.vz > z THEN
+        z = ANIM_LB.vz
+        dw = _MAX(1, ANIM.frameW) * z: dh = _MAX(1, ANIM.frameH) * z
+        rx = ANIM_LB.vrx: ry = ANIM_LB.vry
+        ANIM_clamp_pan rx, w, dw ' the pane may have been resized since
+        ANIM_clamp_pan ry, h, dh
+        dx = x + CINT(rx): dy = y + CINT(ry)
+    END IF
+    ANIM_LB_pane_fit! = z
+END FUNCTION
+
+''
+' The part of picture (dx, dy, dw, dh) inside pane box (x, y, w, h).
+SUB ANIM_LB_vis (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER, vx AS INTEGER, vy AS INTEGER, vw AS INTEGER, vh AS INTEGER)
+    DIM ax AS LONG, ay AS LONG, ax2 AS LONG, ay2 AS LONG ' copies: callers pass the picture as the result too (BYREF)
+    ax = _MAX(x, dx): ay = _MAX(y, dy)
+    ax2 = _MIN(x + w, CLNG(dx) + dw): ay2 = _MIN(y + h, CLNG(dy) + dh)
+    vx = ax: vy = ay: vw = _MAX(0, ax2 - ax): vh = _MAX(0, ay2 - ay)
+END SUB
+
+''
+' The mouse handler changed the pane view it was given (a wheel zoom, the
+' Zoom tool, a pan): make it the lightbox zoom / pan. Below the fit = fitted.
+SUB ANIM_LB_view_absorb ()
+    DIM f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, zw AS LONG, zh AS LONG
+    DIM z AS SINGLE, fz AS SINGLE, rx AS SINGLE, ry AS SINGLE, fw AS LONG, fh AS LONG
+    IF ANIM_LB.pickOn = 0 THEN EXIT SUB
+    ANIM_LB.pickOn = FALSE
+    IF SCRN.zoom! = ANIM_LB.pickZ _ANDALSO SCRN.offsetX% = ANIM_LB.pickOX _ANDALSO SCRN.offsetY% = ANIM_LB.pickOY THEN EXIT SUB
+    f = ANIM_LB_pane_rect%(ANIM_LB.pickK, x, y, w, h)
+    IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 THEN EXIT SUB
+    fw = _MAX(1, ANIM.frameW): fh = _MAX(1, ANIM.frameH)
+    z = SCRN.zoom!
+    IF z * _MAX(fw, fh) > 16000 THEN z = INT(16000 / _MAX(fw, fh))
+    fz = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    IF z <= fz + .0001 THEN
+        ANIM_LB.vz = 0
+    ELSE
+        ' where the view puts the cell's corner (the inverse of ANIM_LB_pane_view%)
+        zw = SCRN.canvasW& * z: zh = SCRN.canvasH& * z
+        rx = (SCRN.w& - zw) \ 2 + SCRN.offsetX% + SCRN.panelShiftX% + CLNG(cx * z) - x
+        ry = (SCRN.h& - zh) \ 2 + SCRN.offsetY% + SCRN.panelShiftY% + CLNG(cy * z) - y
+        ANIM_clamp_pan rx, w, fw * z
+        ANIM_clamp_pan ry, h, fh * z
+        ANIM_LB.vz = z: ANIM_LB.vrx = rx: ANIM_LB.vry = ry
+        ANIM_LB.vFW = ANIM.frameW: ANIM_LB.vFH = ANIM.frameH
+    END IF
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' The wheel over the editor panes (field kit, Rick 2026-11-08): plain = step
+' through the frames (down = later, stops at the ends); Ctrl = zoom the panes
+' about the pointer (the mouse handler's pane view is in SCRN; the zoom is read
+' back by ANIM_LB_view_absorb). Shift is left to pan. TRUE = used.
+FUNCTION ANIM_LB_pane_wheel% (mx AS INTEGER, my AS INTEGER, delta AS INTEGER)
+    DIM r AS INTEGER, f AS INTEGER
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 _ORELSE delta = 0 THEN EXIT FUNCTION
+    IF mx < ANIM_LB.x1 _ORELSE mx > ANIM_LB.x2 _ORELSE my < ANIM_LB.edY _ORELSE my > ANIM_LB.edY + ANIM_LB.edH - 1 THEN EXIT FUNCTION
+    IF REGION_hit_test%(mx, my) <> REGION_CANVAS THEN EXIT FUNCTION
+    IF MODIFIERS.shift% _ORELSE MODIFIERS.alt% THEN EXIT FUNCTION
+    ANIM_LB_pane_wheel% = TRUE
+    IF MODIFIERS.ctrl% THEN
+        IF ANIM_LB.pushed THEN WHEEL_zoom_at_cursor (delta < 0)
+        EXIT FUNCTION
+    END IF
+    IF ANIM_PLAY.playing THEN EXIT FUNCTION
+    f = ANIM.current + SGN(delta)
+    IF f < 1 _ORELSE f > ANIM.count THEN EXIT FUNCTION
+    r = ANIM_go%(f)
+    STATUS_flash "Frame" + STR$(ANIM.current) + " of" + STR$(ANIM.count)
+    IF r THEN SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+''
+' View > Zoom In / Zoom Out / Reset Zoom (406 / 407 / 405) while the lightbox
+' shows: they zoom the panes (about the middle pane's centre). TRUE = done.
+FUNCTION ANIM_LB_zoom_cmd% (act AS INTEGER)
+    DIM k AS INTEGER, z AS SINGLE, ox AS INTEGER, oy AS INTEGER
+    DIM rz AS SINGLE, rox AS INTEGER, roy AS INTEGER
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, f AS INTEGER
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 _ORELSE ANIM_LB.pushed THEN EXIT FUNCTION
+    ANIM_LB_zoom_cmd% = TRUE
+    IF act = 405 THEN
+        ANIM_LB.vz = 0
+        SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        EXIT FUNCTION
+    END IF
+    k = ANIM_LB.panes \ 2
+    IF ANIM_LB_pane_view%(k, z, ox, oy) = 0 THEN EXIT FUNCTION
+    rz = SCRN.zoom!: rox = SCRN.offsetX%: roy = SCRN.offsetY%
+    SCRN.zoom! = z: SCRN.offsetX% = ox: SCRN.offsetY% = oy
+    ANIM_LB.pickOn = TRUE: ANIM_LB.pickZ = z: ANIM_LB.pickOX = ox: ANIM_LB.pickOY = oy: ANIM_LB.pickK = k
+    f = ANIM_LB_pane_rect%(k, x, y, w, h)
+    IF act = 406 THEN ZOOM_in_at x + w \ 2, y + h \ 2 ELSE ZOOM_out_at x + w \ 2, y + h \ 2
+    ANIM_LB_view_absorb
+    SCRN.zoom! = rz: SCRN.offsetX% = rox: SCRN.offsetY% = roy
+END FUNCTION
+
+''
+' A zoomed pane (bigger than its box): the checks, the picture and, for the
+' current frame, the onion skin, built in a pane-sized scratch so they stop
+' at the pane's edge.
+SUB ANIM_LB_draw_zoomed (dest AS LONG, src AS LONG, f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, chh AS LONG, sc AS LONG
+    IF ANIM_cell_rect%(f, cx, cy, cw, chh) = 0 THEN EXIT SUB
+    sc = ANIM_box_begin&(w, h)
+    IF sc >= -1 THEN EXIT SUB
+    TRANSPARENCY_ensure_blueprint
+    IF TRANSPARENCY.blueprint& < -1 THEN ANIM_put_view sc, TRANSPARENCY.blueprint&, cx, cy, cw, chh, dx - x, dy - y, dw, dh
+    IF src < -1 THEN ANIM_put_view sc, src, cx, cy, cw, chh, dx - x, dy - y, dw, dh
+    IF f = ANIM.current THEN ANIM_LB_onion sc, src, f, dx - x, dy - y, dw, dh
+    ANIM_box_end dest, x, y, TRUE
+END SUB
+
+''
+' Frame f of composite src into box (x, y, w, h) of dest: the transparency
+' checks (the canvas's own, scaled with the art, as in sheet view) and the
+' picture. Returns the picture rect.
+SUB ANIM_LB_draw_frame (dest AS LONG, src AS LONG, f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, chh AS LONG, s AS SINGLE
+    s = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    IF ANIM_cell_rect%(f, cx, cy, cw, chh) = 0 THEN EXIT SUB
+    TRANSPARENCY_ensure_blueprint
+    IF TRANSPARENCY.blueprint& < -1 THEN
+        _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), TRANSPARENCY.blueprint&, dest, (cx, cy)-(cx + cw - 1, cy + chh - 1)
+    END IF
+    IF src < -1 THEN
+        _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), src, dest, (cx, cy)-(cx + cw - 1, cy + chh - 1)
+    END IF
+END SUB
+
+''
+' "m:ss.t" for ticks at the sheet's FPS.
+FUNCTION ANIM_LB_time$ (ticks AS LONG)
+    DIM tenths AS LONG, fps AS INTEGER, s AS STRING
+    fps = ANIM.fps: IF fps < 1 THEN fps = 1
+    tenths = (ticks * 10 + fps \ 2) \ fps
+    s = _TRIM$(STR$((tenths \ 10) MOD 60))
+    IF LEN(s) < 2 THEN s = "0" + s
+    ANIM_LB_time$ = _TRIM$(STR$(tenths \ 600)) + ":" + s + "." + _TRIM$(STR$(tenths MOD 10))
+END FUNCTION
+
+''
+' Ticks before frame f (the time it comes up), holds counted.
+FUNCTION ANIM_LB_ticks_before& (f AS INTEGER)
+    DIM i AS INTEGER, t AS LONG
+    FOR i = 1 TO f - 1: t = t + ANIM_hold%(i): NEXT i
+    ANIM_LB_ticks_before& = t
+END FUNCTION
+
+''
+' SCREEN_render, in place of the canvas (before the scene cache): the strip,
+' the transport bar and the panes, cut from composite src (canvas size).
+SUB ANIM_LB_render (dest AS LONG, src AS LONG)
+    DIM oldDest AS LONG, oldFont AS LONG, k AS INTEGER, f AS INTEGER
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER
+    DIM t AS STRING, by AS INTEGER, rh AS INTEGER, ty AS INTEGER, en AS INTEGER, fg AS _UNSIGNED LONG
+    DIM tw AS INTEGER, th AS INTEGER, frac AS SINGLE
+
+    ANIM_LB.shown = FALSE
+    IF dest >= -1 THEN EXIT SUB
+    ANIM_LB_layout
+
+    oldDest = _DEST
+    _DEST dest
+    _BLEND dest
+
+    ' strip band (or the X-sheet, 4.1)
+    IF CFG.XSHEET% THEN ANIM_XS_render dest: GOTO LbBar
+    LINE (ANIM_LB.x1, ANIM_LB.stripY)-(ANIM_LB.x2, ANIM_LB.stripY + ANIM_LB.stripH - 1), THEME.CP_bg~&, BF
+    FOR k = 0 TO ANIM_LB.stripN - 1
+        f = ANIM_LB.stripFirst + k
+        ANIM_LB_strip_rect k, x, y, w, h
+        ANIM_LB_draw_frame dest, src, f, x, y, w, h, dx, dy, dw, dh
+        IF ANIM_SEL_count% > 1 _ANDALSO ANIM_SEL(f) THEN ' in the selection: tinted
+            LINE (dx, dy)-(dx + dw - 1, dy + dh - 1), (THEME.ANIM_FRAME_current~& AND &H00FFFFFF~&) OR &H50000000~&, BF
+        END IF
+        IF f = ANIM.current THEN
+            LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_current~&, B
+            LINE (dx - 2, dy - 2)-(dx + dw + 1, dy + dh + 1), THEME.ANIM_FRAME_current~&, B
+        ELSEIF ANIM_SEL_count% > 1 _ANDALSO ANIM_SEL(f) THEN
+            LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_current~&, B
+        ELSE
+            LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_border~&, B
+        END IF
+    NEXT k
+    ' dragging frames: where they will land
+    IF ANIM_LB.sDrag _ANDALSO ANIM_LB.sDrop >= ANIM_LB.stripFirst _ANDALSO ANIM_LB.sDrop <= ANIM_LB.stripFirst + ANIM_LB.stripN THEN
+        k = ANIM_LB.sDrop - ANIM_LB.stripFirst
+        IF ANIM_LB.sDropEnd _ANDALSO k > 0 THEN ' after the last cell of a tray row
+            ANIM_LB_strip_rect k - 1, x, y, w, h: x = x + w + ANIM_LB.pad
+        ELSE
+            ANIM_LB_strip_rect k, x, y, w, h
+        END IF
+        LINE (x - ANIM_LB.pad \ 2 - 2, y)-(x - ANIM_LB.pad \ 2, y + h - 1), THEME.ANIM_FRAME_current~&, BF
+    END IF
+
+    ' strip frame numbers (the frame grid's font)
+    ANIM_VIEW_font_ensure
+    oldFont = _FONT(dest)
+    IF ANIM_VIEW.font > 0 THEN _FONT ANIM_VIEW.font, dest ELSE _FONT 8, dest
+    th = _UFONTHEIGHT: IF th < 1 THEN th = 8
+    FOR k = 0 TO ANIM_LB.stripN - 1
+        f = ANIM_LB.stripFirst + k
+        ANIM_LB_strip_rect k, x, y, w, h
+        frac = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh) ' the picture's corner
+        t = _TRIM$(STR$(f)): tw = _PRINTWIDTH(t)
+        IF tw + 3 <= dw _ANDALSO th + 1 <= dh THEN
+            LINE (dx, dy)-(dx + tw + 1, dy + th - 1), THEME.ANIM_FRAME_label_bg~&, BF
+            COLOR THEME.ANIM_FRAME_label_fg~&, _RGBA32(0, 0, 0, 0)
+            _UPRINTSTRING (dx + 1, dy), t
+            IF ANIM_hold%(f) > 1 THEN ' a held frame: its hold top right (field kit R-13)
+                t = "x" + _TRIM$(STR$(ANIM_hold%(f))): w = _PRINTWIDTH(t)
+                IF tw + w + 6 <= dw THEN
+                    LINE (dx + dw - w - 2, dy)-(dx + dw - 1, dy + th - 1), THEME.ANIM_FRAME_label_bg~&, BF
+                    _UPRINTSTRING (dx + dw - w - 1, dy), t
+                END IF
+            END IF
+        END IF
+    NEXT k
+    _FONT oldFont, dest
+
+    LbBar:
+    ' transport bar
+    oldFont = FPANEL_begin&
+    by = ANIM_LB.barY: rh = ANIM_LB.rowH
+    LINE (ANIM_LB.x1, by)-(ANIM_LB.x2, by + ANIM_LB.barH - 1), THEME.CP_bg~&, BF
+    LINE (ANIM_LB.x1, by)-(ANIM_LB.x2, by), THEME.CP_border~&
+    LINE (ANIM_LB.x1, by + ANIM_LB.barH - 1)-(ANIM_LB.x2, by + ANIM_LB.barH - 1), THEME.CP_border~&
+    by = by + LB_BAR_PAD: ty = by + (rh - ANIM_LB.bigH) \ 2 ' the number boxes' text (big font)
+    FOR k = 1 TO LB_CTLS
+        x = ANIM_LB_CX(k): w = ANIM_LB_CW(k)
+        IF w > 0 THEN
+            SELECT CASE k
+                CASE LB_CTL_FIRST: ANIMP_chip_at x, by, w, rh, "|<", FALSE, TRUE
+                CASE LB_CTL_PREV: ANIMP_chip_at x, by, w, rh, "<", FALSE, TRUE
+                CASE LB_CTL_PLAY: ANIMP_chip_at x, by, w, rh, _IIF(ANIM_PLAY.playing, "STOP", "PLAY"), ANIM_PLAY.playing <> 0, ANIM.count > 1
+                CASE LB_CTL_NEXT: ANIMP_chip_at x, by, w, rh, ">", FALSE, TRUE
+                CASE LB_CTL_LAST: ANIMP_chip_at x, by, w, rh, ">|", FALSE, TRUE
+                CASE LB_CTL_LOOP: ANIMP_chip_at x, by, w, rh, _TRIM$(MID$("FWD REV PINGONCE", ANIM.loopMode * 4 + 1, 4)), TRUE, TRUE
+                CASE LB_CTL_TIME
+                    t = ANIM_LB_time$(ANIM_LB_ticks_before&(ANIM.current)) + " / " + ANIM_LB_time$(ANIM_LB_ticks_before&(ANIM.count + 1))
+                    ANIM_LB_big_text x + 4, ty, t, THEME.CP_text~&
+                CASE LB_CTL_FPS ' a spinner: - / + at its ends (Shift: 10), the wheel
+                    ANIM_LB_big_text x + 4, ty, "-", THEME.CP_text_bright~&
+                    ANIM_LB_big_text x + w - 4 - ANIM_LB_big_w%("+"), ty, "+", THEME.CP_text_bright~&
+                    t = _TRIM$(STR$(_MAX(1, ANIM.fps))) + " FPS"
+                    ANIM_LB_big_text x + (w - ANIM_LB_big_w%(t)) \ 2, ty, t, THEME.CP_text~&
+                CASE LB_CTL_SEEK ' taller, an 8 px handle (F3)
+                    IF ANIM.count > 1 THEN frac = (ANIM.current - 1) / (ANIM.count - 1) ELSE frac = 0
+                    ANIM_LB_seek_draw x, by + 3, w, rh - 6, frac, ANIM.count > 1
+                CASE LB_CTL_COUNT ' click to type current / total
+                    t = _TRIM$(STR$(ANIM.current)) + "/" + _TRIM$(STR$(ANIM.count))
+                    IF ANIM_LB.editing THEN t = _TRIM$(ANIM_LB_EDIT)
+                    IF ANIM_LB.confirmTo > 0 THEN t = "DEL?"
+                    LINE (x, by)-(x + w - 1, by + rh - 1), THEME.CP_slider_bg~&, BF
+                    LINE (x, by)-(x + w - 1, by + rh - 1), _IIF(ANIM_LB.editing, THEME.ANIM_FRAME_current~&, THEME.CP_slider_border~&), B
+                    IF ANIM_LB.editing _ANDALSO ANIM_LB.editFresh _ANDALSO ANIM_LB.confirmTo = 0 THEN ' all of it selected: a key replaces it
+                        LINE (x + (w - ANIM_LB_big_w%(t)) \ 2 - 1, ty - 1)-(x + (w + ANIM_LB_big_w%(t)) \ 2, ty + ANIM_LB.bigH), THEME.CP_button_bg~&, BF
+                    END IF
+                    ANIM_LB_big_text x + (w - ANIM_LB_big_w%(t)) \ 2, ty, t, THEME.CP_text_bright~&
+                    IF ANIM_LB.editing _ANDALSO ANIM_LB.editFresh = 0 THEN
+                        LINE (x + (w + ANIM_LB_big_w%(t)) \ 2 + 1, ty)-STEP(0, ANIM_LB.bigH - 1), THEME.CP_text_bright~&
+                    END IF
+                CASE LB_CTL_COPY: ANIMP_chip_at x, by, w, rh, "COPY", FALSE, TRUE
+                CASE LB_CTL_PASTE: ANIMP_chip_at x, by, w, rh, "PASTE", FALSE, TRUE
+                CASE LB_CTL_CUT: ANIMP_chip_at x, by, w, rh, "CUT", FALSE, TRUE
+                CASE LB_CTL_ADD: ANIMP_chip_at x, by, w, rh, "+", FALSE, ANIM_op_refusal$(ANIM_OP_APPEND) = ""
+                CASE LB_CTL_XS: ANIMP_chip_at x, by, w, rh, "X-SHEET", CFG.XSHEET% <> 0, TRUE
+            END SELECT
+        END IF
+    NEXT k
+
+    ' editor panes, the current frame in the middle
+    FOR k = 0 TO ANIM_LB.panes - 1
+        f = ANIM_LB_pane_rect%(k, x, y, w, h)
+        en = (f >= 1 _ANDALSO f <= ANIM.count)
+        IF en THEN
+            frac = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
+            IF dx < x _ORELSE dy < y _ORELSE dx + dw > x + w _ORELSE dy + dh > y + h THEN ' zoomed past the pane
+                ANIM_LB_draw_zoomed dest, src, f, x, y, w, h, dx, dy, dw, dh
+                ANIM_LB_vis x, y, w, h, dx, dy, dw, dh, dx, dy, dw, dh ' outline / label go round what shows
+            ELSE
+                ANIM_LB_draw_frame dest, src, f, x, y, w, h, dx, dy, dw, dh
+                IF f = ANIM.current THEN ANIM_LB_onion dest, src, f, dx, dy, dw, dh ' 2.6: the frames before / after it
+            END IF
+            IF f = ANIM.current THEN
+                LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_current~&, B
+                LINE (dx - 2, dy - 2)-(dx + dw + 1, dy + dh + 1), THEME.ANIM_FRAME_current~&, B
+                fg = THEME.CP_text_bright~&
+            ELSE
+                LINE (dx - 1, dy - 1)-(dx + dw, dy + dh), THEME.ANIM_FRAME_border~&, B
+                fg = THEME.CP_text~&
+            END IF
+            IF k = ANIM_LB.drawPane THEN ' F2: the pane a stroke goes into
+                ANIM_LB_draw_pane_ring dx, dy, dw, dh, f = ANIM.current, x, y, w, h
+                fg = THEME.ANIM_FRAME_drawing~&: IF (fg AND &HFF000000~&) = 0 THEN fg = _RGB32(255, 70, 200)
+            END IF
+            t = "FRAME" + STR$(f)
+            IF f = ANIM.current THEN t = t + " OF" + STR$(ANIM.count)
+            IF ANIM_hold%(f) > 1 THEN ' a held frame: how long (field kit R-13)
+                IF FPANEL_text_w%(t + "  HOLD" + STR$(ANIM_hold%(f))) <= w THEN t = t + "  HOLD" + STR$(ANIM_hold%(f)) ELSE t = t + " x" + _TRIM$(STR$(ANIM_hold%(f)))
+            END IF
+            tw = FPANEL_text_w%(t)
+            IF tw <= w THEN FPANEL_text x + (w - tw) \ 2, dy + dh + 3, t, fg ' under the picture
+        ELSE
+            LINE (x, y)-(x + w - 1, y + h - 1), THEME.ANIM_FRAME_spare~&, B , &HCCCC
+        END IF
+    NEXT k
+
+    _FONT oldFont
+    _DEST oldDest
+    ANIM_LB.shown = TRUE
+END SUB
+
+''
+' Transport bar control at viewport point (mx, my), or LB_CTL_NONE.
+FUNCTION ANIM_LB_ctl_at% (mx AS INTEGER, my AS INTEGER)
+    DIM k AS INTEGER
+    IF my < ANIM_LB.barY + LB_BAR_PAD _ORELSE my >= ANIM_LB.barY + LB_BAR_PAD + ANIM_LB.rowH THEN EXIT FUNCTION
+    FOR k = 1 TO LB_CTLS
+        IF ANIM_LB_CW(k) > 0 _ANDALSO mx >= ANIM_LB_CX(k) _ANDALSO mx < ANIM_LB_CX(k) + ANIM_LB_CW(k) THEN ANIM_LB_ctl_at% = k: EXIT FUNCTION
+    NEXT k
+END FUNCTION
+
+''
+' Viewport point (mx, my) is in the lightbox.
+FUNCTION ANIM_LB_hit% (mx AS INTEGER, my AS INTEGER)
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 THEN EXIT FUNCTION
+    ANIM_LB_hit% = (mx >= ANIM_LB.hx1 _ANDALSO mx <= ANIM_LB.hx2 _ANDALSO my >= ANIM_LB.y1 _ANDALSO my <= ANIM_LB.y2)
+END FUNCTION
+
+''
+' MOUSE_should_skip_tool_actions%: a press in the lightbox never reaches the
+' tools (drawing in a pane: 2.2). A left press on a transport control runs it.
+SUB ANIM_LB_mouse ()
+    DIM pressed1 AS INTEGER, pressed2 AS INTEGER, k AS INTEGER, f AS INTEGER
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    IF ANIM_LB_showing% = 0 THEN
+        IF ANIM_LB.mvOn THEN ANIM_LB_move_end
+        ANIM_LB.sPress = 0: ANIM_LB.seekHeld = FALSE: ANIM_LB.menuOpen = FALSE
+        IF ANIM_LB.editing THEN ANIM_LB_edit_end
+        ANIM_XS.dMode = XS_DRAG_NONE: ANIM_XS.dOn = FALSE: ANIM_XS.oSlot = 0: ANIM_XS.rSlot = 0: ANIM_XS.rSound = 0: ANIM_XS.rTag = 0: ANIM_SC_DRAG = FALSE
+        ANIM_LB_sheet_press: EXIT SUB
+    END IF
+    IF ANIM_XS.dMode <> XS_DRAG_NONE THEN ANIM_XS_hold: EXIT SUB ' an X-sheet drag until its release (4.2)
+    IF ANIM_XS.oSlot THEN ANIM_XS_op_hold: EXIT SUB ' an X-sheet layer's opacity box (F5)
+    IF ANIM_XS.zDrag THEN ANIM_XS_zoom_hold: EXIT SUB ' the X-sheet's zoom slider
+    IF ANIM_XS.rSlot _ANDALSO MOUSE.B2% = 0 THEN ' a right-click on an X-sheet layer row: the layers panel's menu, on the release (F5)
+        k = ANIM_XS.rSlot: ANIM_XS.rSlot = 0
+        IF ANIM_XS_slot_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = k _ANDALSO LAYERS(k).imgHandle& <> 0 THEN LAYER_PANEL_ctx_menu_show k, MOUSE.RAW_X%, MOUSE.RAW_Y%
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        EXIT SUB
+    END IF
+    IF ANIM_XS.rSound _ANDALSO MOUSE.B2% = 0 THEN ' a right-click on a SOUND row: its menu, on the release (F6)
+        k = ANIM_XS.rSound: ANIM_XS.rSound = 0
+        IF ANIM_XS_sound_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = k THEN ANIM_LB.menuKind = 1: ANIM_LB_menu_at MOUSE.RAW_X%, MOUSE.RAW_Y%
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        EXIT SUB
+    END IF
+    IF ANIM_XS.rTag _ANDALSO MOUSE.B2% = 0 THEN ' a right-click on the TAGS / NOTES row: their menu, on the release (R-13)
+        ANIM_XS.rTag = 0
+        IF ANIM_XS_hit%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN ANIM_LB.menuKind = 2: ANIM_LB_menu_at MOUSE.RAW_X%, MOUSE.RAW_Y%
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        EXIT SUB
+    END IF
+    IF ANIM_LB.szMode THEN ANIM_LB_size_hold: EXIT SUB ' dragging an edge until the release
+    IF ANIM_LB.sPress THEN ANIM_LB_strip_hold: EXIT SUB ' a strip press until its release
+    IF ANIM_LB.mvOn THEN ANIM_LB_move_hold: EXIT SUB ' moving the selected frames' drawings
+    IF ANIM_LB.seekHeld THEN ANIM_LB_seek_hold: EXIT SUB
+    IF ANIM_LB.menuOpen THEN IF ANIM_LB_menu_mouse% THEN EXIT SUB
+    pressed1 = (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0)
+    pressed2 = (MOUSE.B2% <> 0 _ANDALSO MOUSE.OLD_B2% = 0)
+    IF pressed1 = 0 _ANDALSO pressed2 = 0 THEN EXIT SUB
+    ' a press anywhere but the count box ends typing in it
+    IF ANIM_LB.editing _ANDALSO ANIM_LB_ctl_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) <> LB_CTL_COUNT THEN ANIM_LB_edit_end
+    IF ANIM_LB_hit%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = 0 THEN EXIT SUB
+    IF REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%) <> REGION_CANVAS THEN EXIT SUB
+    ' a press on the band's bottom edge / the X-sheet's name column edge: resize it
+    IF pressed1 _ANDALSO ANIM_LB_size_press%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB
+    ' a press on a pane's picture goes to the tool, in that pane's view (2.2)
+    k = ANIM_LB_pane_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    IF k >= 0 _ANDALSO MOUSE.UI_CHROME_CLICKED% = 0 _ANDALSO ANIM_PLAY.playing = 0 THEN
+        IF pressed1 _ANDALSO ANIM_LB_move_begin%(k) THEN MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB ' the tool sees none of it (gotcha 5)
+        ANIM_LB.strokePane = k
+        IF CFG.CLIP_FRAME_LIGHTBOX% THEN
+            ANIM_LB_clip_begin ANIM.current + k - ANIM_LB.panes \ 2
+        ELSEIF ANIM_LB_freehand% THEN
+            ' clip off: the stroke stays in the panes, running on into the next one (B9)
+            f = ANIM_LB_pane_rect%(k, x, y, w, h)
+            ANIM_LB_clip_begin f
+            ANIM_LB.follow = ANIM_LB.clipOn
+        END IF
+        EXIT SUB
+    END IF
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF pressed2 _ANDALSO pressed1 = 0 THEN ANIM_XS.rSlot = ANIM_XS_slot_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) ' its menu opens on the release (F5)
+    IF pressed2 _ANDALSO pressed1 = 0 THEN ANIM_XS.rSound = ANIM_XS_sound_press%(MOUSE.RAW_X%, MOUSE.RAW_Y%) ' picks the clip; the SOUND menu on the release (F6)
+    IF pressed2 _ANDALSO pressed1 = 0 THEN ANIM_XS.rTag = ANIM_XS_tag_rpress%(MOUSE.RAW_X%, MOUSE.RAW_Y%) ' picks the tag / frame; the menu on the release (R-13)
+    IF pressed2 _ANDALSO pressed1 = 0 _ANDALSO ANIM_XS_hit%(MOUSE.RAW_X%, MOUSE.RAW_Y%) <> 0 THEN
+        IF ANIM_XS_band_row%(MOUSE.RAW_Y%) = 0 THEN ANIM_LB.menuKind = 4: ANIM_LB_menu_at MOUSE.RAW_X%, MOUSE.RAW_Y%: EXIT SUB ' the header: zoom / row sizes
+    END IF
+    IF pressed1 THEN IF ANIM_XS_press%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN EXIT SUB ' the X-sheet (4.1)
+    f = ANIM_LB_strip_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    IF pressed1 _ANDALSO f > 0 THEN ANIM_LB_strip_press f: EXIT SUB
+    IF pressed2 _ANDALSO pressed1 = 0 _ANDALSO CFG.XSHEET% = 0 _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.stripY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.stripY + ANIM_LB.stripH THEN
+        ANIM_LB.menuKind = 3: ANIM_LB_menu_at MOUSE.RAW_X%, MOUSE.RAW_Y% ' the strip's cells
+        EXIT SUB
+    END IF
+    IF pressed1 THEN ANIM_LB_click ANIM_LB_ctl_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+END SUB
+
+' ---------------------------------------------------------------------------
+' Sizing the bands (Rick 2026-11-09: "resize the x-sheet pane on the left that
+' holds the layers ... same vertically ... more lightbox, more sequence, more
+' x-sheet"): the band's bottom edge (the strip or the X-sheet over the
+' transport bar) drags up / down, the X-sheet's name column edge left / right.
+' Sizes go in DRAW.cfg (LIGHTBOX_STRIP_SIZE / XSHEET_SIZE as % of the height
+' the bar leaves, XSHEET_NAME_WIDTH in px; 0 = automatic).
+' ---------------------------------------------------------------------------
+
+''
+' The edge under viewport point (mx, my): 1 the band's bottom, 2 the X-sheet's
+' name column, 0 none. While dragging, the one dragged.
+FUNCTION ANIM_LB_sizer_at% (mx AS INTEGER, my AS INTEGER)
+    IF ANIM_LB.szMode THEN ANIM_LB_sizer_at% = ANIM_LB.szMode: EXIT FUNCTION
+    IF ANIM_LB.shown = 0 _ORELSE ANIM_LB_showing% = 0 _ORELSE ANIM_LB.menuOpen <> 0 THEN EXIT FUNCTION
+    IF REGION_hit_test%(mx, my) <> REGION_CANVAS THEN EXIT FUNCTION ' (not through a floating window)
+    IF mx < ANIM_LB.x1 _ORELSE mx > ANIM_LB.x2 THEN EXIT FUNCTION
+    IF my >= ANIM_LB.barY - 3 _ANDALSO my <= ANIM_LB.barY + 1 THEN ANIM_LB_sizer_at% = 1: EXIT FUNCTION
+    IF CFG.XSHEET% _ANDALSO ANIM_XS.shown THEN
+        IF my >= ANIM_XS_row_y%(0) _ANDALSO my < ANIM_LB.barY - 3 _ANDALSO ABS(mx - (ANIM_XS.gx - 1)) <= 2 THEN ANIM_LB_sizer_at% = 2
+    END IF
+END FUNCTION
+
+''
+' A press: start dragging the edge under it; a double-click on it: the
+' strip's edge fits every frame across, the X-sheet's go back to automatic.
+FUNCTION ANIM_LB_size_press% (mx AS INTEGER, my AS INTEGER)
+    DIM m AS INTEGER, t AS DOUBLE
+    m = ANIM_LB_sizer_at%(mx, my)
+    IF m = 0 THEN EXIT FUNCTION
+    ANIM_LB_size_press% = TRUE
+    t = TIMER(.001)
+    IF m = ANIM_LB.szLastMode _ANDALSO t - ANIM_LB.szLastT >= 0 _ANDALSO t - ANIM_LB.szLastT < 0.4 THEN
+        ANIM_LB.szLastMode = 0
+        IF m = 2 THEN
+            CFG.XSHEET_NAME_W% = 0
+        ELSEIF CFG.XSHEET% THEN
+            CFG.XSHEET_BAND_PCT! = 0
+        ELSE
+            ANIM_LB_strip_fit_all
+        END IF
+        CONFIG_save
+        ANIM_LB_changed
+        EXIT FUNCTION
+    END IF
+    ANIM_LB.szLastMode = m: ANIM_LB.szLastT = t
+    ANIM_LB.szMode = m
+    IF m = 1 THEN ANIM_LB.szP0 = my: ANIM_LB.szV0 = ANIM_LB.stripH ELSE ANIM_LB.szP0 = mx: ANIM_LB.szV0 = ANIM_XS.nameW
+END FUNCTION
+
+''
+' Each mouse frame of an edge drag; the release keeps the size in DRAW.cfg.
+SUB ANIM_LB_size_hold ()
+    DIM room AS INTEGER, v AS INTEGER
+    IF MOUSE.B1% = 0 THEN ANIM_LB.szMode = 0: CONFIG_save: ANIM_LB_changed: EXIT SUB
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF ANIM_LB.szMode = 1 THEN
+        room = (ANIM_LB.y2 - ANIM_LB.y1 + 1) - ANIM_LB.barH
+        IF room < 1 THEN EXIT SUB
+        v = _MAX(20, _MIN(ANIM_LB.szV0 + (MOUSE.RAW_Y% - ANIM_LB.szP0), room - 40))
+        IF CFG.XSHEET% THEN CFG.XSHEET_BAND_PCT! = v * 100! / room ELSE CFG.LB_STRIP_PCT! = v * 100! / room
+    ELSE
+        CFG.XSHEET_NAME_W% = _MAX(ANIM_XS_name_w_min%, ANIM_LB.szV0 + (MOUSE.RAW_X% - ANIM_LB.szP0))
+    END IF
+    ANIM_LB_changed
+END SUB
+
+''
+' A double-click on the strip's edge: the cells fitted again, and a band that
+' shows every frame - a row: the height that fits them all across its width
+' (the cells keep the frame's shape); a tray: grown (never shrunk) until they
+' all fit at its smallest cells. At most half of the room.
+SUB ANIM_LB_strip_fit_all ()
+    DIM room AS INTEGER, aw AS INTEGER, cw AS LONG, ch AS LONG, n AS INTEGER, pad AS INTEGER
+    DIM cols AS LONG, rows AS LONG, need AS LONG
+    room = (ANIM_LB.y2 - ANIM_LB.y1 + 1) - ANIM_LB.barH
+    aw = ANIM_LB.x2 - ANIM_LB.x1 + 1: pad = ANIM_LB.pad
+    n = _MAX(1, ANIM.count)
+    CFG.LB_STRIP_CELL% = 0
+    IF room < 1 _ORELSE aw < 1 THEN EXIT SUB
+    IF CFG.LB_STRIP_FLOW% = 0 THEN
+        ch = _MAX(4, CFG.LB_STRIP_MIN_CELL%)
+        cw = (ch * _MAX(1, ANIM.frameW) + _MAX(1, ANIM.frameH) \ 2) \ _MAX(1, ANIM.frameH)
+        IF cw > aw \ 3 THEN cw = aw \ 3: ch = _MAX(4, (cw * _MAX(1, ANIM.frameH)) \ _MAX(1, ANIM.frameW))
+        IF cw < 4 THEN cw = 4
+        cols = _MAX(1, (aw - pad) \ (cw + pad))
+        rows = (n + cols - 1) \ cols
+        need = rows * (ch + pad) + pad
+        IF need > ANIM_LB.stripH THEN CFG.LB_STRIP_PCT! = _MAX(20, _MIN(need, room \ 2)) * 100! / room
+        EXIT SUB
+    END IF
+    cw = (aw - pad) \ n - pad
+    IF cw < 4 THEN cw = 4
+    IF cw > aw \ 3 THEN cw = aw \ 3 ' the layout's widest cell
+    ch = (cw * _MAX(1, ANIM.frameH)) \ _MAX(1, ANIM.frameW)
+    CFG.LB_STRIP_PCT! = _MAX(20, _MIN(ch + 2 * pad, room \ 2)) * 100! / room
+END SUB
+
+''
+' The frame whose strip cell is under viewport point (mx, my), or 0.
+FUNCTION ANIM_LB_strip_at% (mx AS INTEGER, my AS INTEGER)
+    DIM k AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    IF ANIM_LB.shown = 0 _ORELSE CFG.XSHEET% <> 0 THEN EXIT FUNCTION ' the X-sheet has the band
+    IF my < ANIM_LB.stripY _ORELSE my >= ANIM_LB.stripY + ANIM_LB.stripH THEN EXIT FUNCTION
+    FOR k = 0 TO ANIM_LB.stripN - 1
+        ANIM_LB_strip_rect k, x, y, w, h
+        IF mx >= x - ANIM_LB.pad \ 2 _ANDALSO mx < x + w + (ANIM_LB.pad + 1) \ 2 _ANDALSO my >= y - ANIM_LB.pad \ 2 _ANDALSO my < y + h + (ANIM_LB.pad + 1) \ 2 THEN
+            IF ANIM_LB.stripFirst + k <= ANIM.count THEN ANIM_LB_strip_at% = ANIM_LB.stripFirst + k
+            EXIT FUNCTION
+        END IF
+    NEXT k
+END FUNCTION
+
+''
+' The drop slot for a drag at viewport (mx, my): the tray row under my, then
+' before the frame whose cell's left half mx is over in it (count + 1 past
+' the last). atEnd = past the row's last cell (the mark goes after it).
+FUNCTION ANIM_LB_strip_slot% (mx AS INTEGER, my AS INTEGER, atEnd AS INTEGER)
+    DIM k AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, s AS INTEGER
+    DIM c AS INTEGER, r AS INTEGER, used AS INTEGER, k2 AS INTEGER
+    c = _MAX(1, ANIM_LB.stripCols)
+    used = _MAX(1, (ANIM_LB.stripN + c - 1) \ c)
+    r = (my - ANIM_LB.stripY - ANIM_LB.pad \ 2) \ _MAX(1, ANIM_LB.cellH + ANIM_LB.pad)
+    IF my < ANIM_LB.stripY THEN r = 0
+    r = _MAX(0, _MIN(r, used - 1))
+    k2 = _MIN(r * c + c, ANIM_LB.stripN)
+    s = ANIM_LB.stripFirst + k2: atEnd = TRUE
+    FOR k = r * c TO k2 - 1
+        ANIM_LB_strip_rect k, x, y, w, h
+        IF mx < x + w \ 2 THEN s = ANIM_LB.stripFirst + k: atEnd = FALSE: EXIT FOR
+    NEXT k
+    IF s > ANIM.count + 1 THEN s = ANIM.count + 1
+    IF s < 1 THEN s = 1: atEnd = FALSE
+    ANIM_LB_strip_slot% = s
+END FUNCTION
+
+FUNCTION ANIM_LB_ctrl% ()
+    ANIM_LB_ctrl% = (MODIFIERS.ctrl% <> 0 _ORELSE _KEYDOWN(100306) <> 0 _ORELSE _KEYDOWN(100305) <> 0)
+END FUNCTION
+
+FUNCTION ANIM_LB_shift% ()
+    ANIM_LB_shift% = (MODIFIERS.shift% <> 0 _ORELSE _KEYDOWN(100304) <> 0 _ORELSE _KEYDOWN(100303) <> 0)
+END FUNCTION
+
+''
+' A left press on frame f in the strip (R-12: the layers panel's rules).
+SUB ANIM_LB_strip_press (f AS INTEGER)
+    DIM c AS INTEGER, s AS INTEGER
+    c = ANIM_LB_ctrl%: s = ANIM_LB_shift%
+    ANIM_LB.sPress = f: ANIM_LB.sPressX = MOUSE.RAW_X%: ANIM_LB.sPressY = MOUSE.RAW_Y%: ANIM_LB.sDrag = FALSE: ANIM_LB.sDrop = 0
+    ANIM_LB.sCollapse = FALSE
+    IF c = 0 _ANDALSO s = 0 _ANDALSO ANIM_SEL_count% > 1 _ANDALSO ANIM_SEL(f) <> 0 THEN
+        ' a press on the selection: it may be the start of a drag - collapse on release
+        ANIM_LB.sCollapse = TRUE
+        ANIM.current = f
+    ELSE
+        ANIM_SEL_click f, c, s
+    END IF
+    ANIM_LB_changed
+END SUB
+
+''
+' Every frame a strip press is held, and its release: a drag shows where the
+' selected frames will land and drops them there (one undo step).
+SUB ANIM_LB_strip_hold ()
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF MOUSE.B1% THEN
+        IF ANIM_LB.sDrag = 0 _ANDALSO (ABS(MOUSE.RAW_X% - ANIM_LB.sPressX) >= 4 _ORELSE ABS(MOUSE.RAW_Y% - ANIM_LB.sPressY) >= 4) _ANDALSO ANIM_LB_ctrl% = 0 _ANDALSO ANIM_LB_shift% = 0 THEN
+            ANIM_LB.sDrag = TRUE: ANIM_LB.sCollapse = FALSE
+        END IF
+        IF ANIM_LB.sDrag THEN
+            ' past the strip's ends (a row: left / right; a tray: above / below)
+            ' it scrolls, a frame / a row every quarter second
+            DIM sx2 AS INTEGER, t AS DOUBLE, back AS INTEGER, fwd AS INTEGER, u AS INTEGER, s AS INTEGER, e AS INTEGER
+            u = ANIM_LB_strip_unit%
+            IF CFG.LB_STRIP_FLOW% = 1 THEN
+                sx2 = ANIM_LB.x1 + ANIM_LB.pad + ANIM_LB.stripN * (ANIM_LB.cellW + ANIM_LB.pad)
+                back = (MOUSE.RAW_X% < ANIM_LB.x1 + ANIM_LB.pad): fwd = (MOUSE.RAW_X% >= sx2)
+            ELSE
+                back = (MOUSE.RAW_Y% < ANIM_LB.stripY + ANIM_LB.pad): fwd = (MOUSE.RAW_Y% >= ANIM_LB.stripY + ANIM_LB.stripH - ANIM_LB.pad)
+            END IF
+            t = TIMER(.001)
+            IF t >= ANIM_LB.sScrollT _ORELSE t < ANIM_LB.sScrollT - 1 THEN
+                IF back _ANDALSO ANIM_LB.stripFirst > 1 THEN ANIM_LB.stripFirst = _MAX(1, ANIM_LB.stripFirst - u): ANIM_LB.sScrollT = t + .25: ANIM_LB_layout
+                IF fwd _ANDALSO ANIM_LB.stripFirst + ANIM_LB.stripCap <= ANIM.count THEN ANIM_LB.stripFirst = ANIM_LB.stripFirst + u: ANIM_LB.sScrollT = t + .25: ANIM_LB_layout
+            END IF
+            s = ANIM_LB_strip_slot%(MOUSE.RAW_X%, MOUSE.RAW_Y%, e)
+            IF s <> ANIM_LB.sDrop _ORELSE e <> ANIM_LB.sDropEnd THEN ANIM_LB.sDrop = s: ANIM_LB.sDropEnd = e: ANIM_LB_changed
+        END IF
+        EXIT SUB
+    END IF
+    ' released
+    IF ANIM_LB.sDrag THEN
+        ANIM_MOVE_TO = ANIM_LB.sDrop
+        ANIM_LB.sDrag = FALSE
+        ANIM_OPS_run ANIM_OP_MOVE_SEL ' nothing when dropped where they are
+    ELSEIF ANIM_LB.sCollapse THEN
+        ANIM_SEL_click ANIM_LB.sPress, FALSE, FALSE
+    END IF
+    ANIM_LB.sPress = 0: ANIM_LB.sCollapse = FALSE: ANIM_LB.sDrop = 0: ANIM_LB.sDropEnd = FALSE
+    ANIM_LB_changed
+END SUB
+
+''
+' The wheel over the strip scrolls it (R-10) - a tray by rows; Ctrl+wheel
+' sizes its cells (LIGHTBOX_STRIP_CELL). TRUE = it took the wheel.
+FUNCTION ANIM_LB_strip_wheel% (mx AS INTEGER, my AS INTEGER, delta AS INTEGER)
+    DIM top AS INTEGER, u AS INTEGER
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 THEN EXIT FUNCTION
+    IF CFG.XSHEET% THEN ANIM_LB_strip_wheel% = ANIM_XS_wheel%(mx, my, delta): EXIT FUNCTION
+    IF my < ANIM_LB.stripY _ORELSE my >= ANIM_LB.stripY + ANIM_LB.stripH THEN EXIT FUNCTION
+    IF mx < ANIM_LB.x1 _ORELSE mx > ANIM_LB.x2 THEN EXIT FUNCTION
+    IF REGION_hit_test%(mx, my) <> REGION_CANVAS THEN EXIT FUNCTION
+    IF ANIM_LB_ctrl% THEN ' bigger (wheel up) / smaller cells
+        ANIM_LB_strip_zoom -SGN(delta)
+        ANIM_LB_strip_wheel% = TRUE
+        EXIT FUNCTION
+    END IF
+    u = ANIM_LB_strip_unit%
+    top = _MAX(1, 1 + ((_MAX(1, ANIM.count) - 1) \ u) * u - (ANIM_LB.stripCap - u))
+    IF u > 1 THEN ' a tray: a row a tick
+        ANIM_LB.stripFirst = _MAX(1, _MIN(top, ANIM_LB.stripFirst + SGN(delta) * u))
+    ELSE
+        ANIM_LB.stripFirst = _MAX(1, _MIN(top, ANIM_LB.stripFirst + SGN(delta) * _MAX(1, ANIM_LB.stripN \ 4)))
+    END IF
+    ANIM_LB_changed
+    ANIM_LB_strip_wheel% = TRUE
+END FUNCTION
+
+SUB ANIM_LB_changed ()
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' The transport bar (2.4)
+' ---------------------------------------------------------------------------
+
+''
+' FPS (the spinner, the wheel over it): one undo step, as the panel's.
+SUB ANIM_LB_fps_set (fps AS INTEGER)
+    DIM v AS INTEGER
+    v = _MAX(1, _MIN(ANIM_FPS_MAX, fps))
+    IF v = ANIM.fps THEN EXIT SUB
+    ANIM_OPS_timing v, 0, 0, 0
+    STATUS_flash _TRIM$(STR$(ANIM.fps)) + " FPS"
+    ANIM_LB_changed
+END SUB
+
+''
+' The wheel over the FPS spinner: TRUE = it took the wheel.
+FUNCTION ANIM_LB_bar_wheel% (mx AS INTEGER, my AS INTEGER, delta AS INTEGER)
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 THEN EXIT FUNCTION
+    IF ANIM_LB_ctl_at%(mx, my) <> LB_CTL_FPS THEN EXIT FUNCTION
+    IF REGION_hit_test%(mx, my) <> REGION_CANVAS THEN EXIT FUNCTION
+    ANIM_LB_fps_set ANIM.fps - SGN(delta) ' wheel up = faster
+    ANIM_LB_bar_wheel% = TRUE
+END FUNCTION
+
+''
+' Scrubbing the seek bar: the frame under the pointer is current until the release.
+SUB ANIM_LB_seek_hold ()
+    DIM x AS INTEGER, w AS INTEGER, f AS INTEGER
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    IF MOUSE.B1% = 0 THEN ANIM_LB.seekHeld = FALSE: EXIT SUB
+    x = ANIM_LB_CX(LB_CTL_SEEK): w = ANIM_LB_CW(LB_CTL_SEEK)
+    IF w < 2 _ORELSE ANIM.count < 1 THEN EXIT SUB
+    f = 1 + INT((MOUSE.RAW_X% - x) * ANIM.count / w)
+    f = _MAX(1, _MIN(ANIM.count, f))
+    IF f <> ANIM.current THEN ANIM.current = f: ANIM_LB_changed
+END SUB
+
+''
+' The loop mode menu, under the LOOP chip.
+SUB ANIM_LB_menu_build ()
+    DIM i AS INTEGER
+    IF ANIM_LB.menuKind = 1 THEN ANIM_SC_menu_build: EXIT SUB ' the SOUND rows' (F6)
+    IF ANIM_LB.menuKind = 2 THEN ANIM_XS_tag_menu_build: EXIT SUB ' the TAGS / NOTES rows' (R-13)
+    IF ANIM_LB.menuKind = 3 THEN ANIM_LB_strip_menu_build: EXIT SUB ' the strip's cells
+    IF ANIM_LB.menuKind = 4 THEN ANIM_XS_view_menu_build: EXIT SUB ' the X-sheet header's zoom / row sizes
+    POPUP_MENU_clear_items
+    FOR i = 0 TO 3
+        POPUP_MENU_set_item i, _TRIM$(MID$("Forward   Backward  Ping-pong Play once ", i * 10 + 1, 10)), "", i, _IIF(i = ANIM.loopMode, POPUP_MENU_FLAG_CHECKED, 0)
+    NEXT i
+    ANIM_LB.menuN = 4
+END SUB
+
+''
+' The strip's right-click menu: a tray / a row, cells fitted or bigger /
+' smaller (values 100-104, ANIM_LB_strip_menu_pick).
+SUB ANIM_LB_strip_menu_build ()
+    POPUP_MENU_clear_items
+    POPUP_MENU_set_item 0, "Tray: Across, then Down", "", 100, _IIF(CFG.LB_STRIP_FLOW% = 0, POPUP_MENU_FLAG_CHECKED, 0)
+    POPUP_MENU_set_item 1, "Row: Across Only", "", 101, _IIF(CFG.LB_STRIP_FLOW% = 1, POPUP_MENU_FLAG_CHECKED, 0)
+    POPUP_MENU_set_item 2, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    POPUP_MENU_set_item 3, "Fit Cells to the Strip", "Dbl-Click Edge", 102, _IIF(CFG.LB_STRIP_CELL% = 0, POPUP_MENU_FLAG_CHECKED, 0)
+    POPUP_MENU_set_item 4, "Bigger Cells", "Ctrl+Wheel Up", 103, 0
+    POPUP_MENU_set_item 5, "Smaller Cells", "Ctrl+Wheel Down", 104, 0
+    ANIM_LB.menuN = 6
+END SUB
+
+SUB ANIM_LB_strip_menu_pick (v AS INTEGER)
+    SELECT CASE v
+        CASE 100, 101
+            CFG.LB_STRIP_FLOW% = v - 100
+            STATUS_flash _IIF(v = 100, "Strip: a tray - across, then down", "Strip: one row - across only")
+        CASE 102: CFG.LB_STRIP_CELL% = 0: STATUS_flash "Strip: cells fitted to the strip"
+        CASE 103: ANIM_LB_strip_zoom 1: EXIT SUB
+        CASE 104: ANIM_LB_strip_zoom -1: EXIT SUB
+        CASE ELSE: EXIT SUB
+    END SELECT
+    CONFIG_save
+    ANIM_LB_changed
+END SUB
+
+''
+' Bigger (dir 1) / smaller (-1) strip cells: an eighth of a cell a step, 8 px
+' up to the band's height (LIGHTBOX_STRIP_CELL, saved).
+SUB ANIM_LB_strip_zoom (dir AS INTEGER)
+    DIM v AS INTEGER, maxCh AS INTEGER
+    IF dir = 0 THEN EXIT SUB
+    maxCh = _MAX(8, ANIM_LB.stripH - 2 * ANIM_LB.pad)
+    v = ANIM_LB.cellH + SGN(dir) * _MAX(2, ANIM_LB.cellH \ 8)
+    CFG.LB_STRIP_CELL% = _MAX(8, _MIN(v, maxCh))
+    CONFIG_save
+    ANIM_LB_layout
+    STATUS_flash "Strip cells:" + STR$(ANIM_LB.cellW) + " x" + STR$(ANIM_LB.cellH) + " px (Ctrl+wheel; double-click the strip's edge to fit)"
+    ANIM_LB_changed
+END SUB
+
+SUB ANIM_LB_menu_open ()
+    ANIM_LB.menuKind = 0
+    ANIM_LB_menu_at ANIM_LB_CX(LB_CTL_LOOP), ANIM_LB.barY + ANIM_LB.barH
+END SUB
+
+''
+' Open the menu (menuKind's) at viewport (x, y).
+SUB ANIM_LB_menu_at (x AS INTEGER, y AS INTEGER)
+    DIM font AS LONG, px AS INTEGER, py AS INTEGER, ph AS INTEGER
+    ANIM_LB_menu_build
+    IF MENU_BAR.fontHandle& > 0 THEN font = MENU_BAR.fontHandle&
+    ANIM_LB.menuW = POPUP_MENU_measure_width%(ANIM_LB.menuN, font)
+    POPUP_MENU_place x, y, ANIM_LB.menuW, ANIM_LB.menuN, LB_MENU_ITEM_H, px, py, ph
+    ANIM_LB.menuX = px: ANIM_LB.menuY = py
+    ANIM_LB.menuHover = -1
+    ANIM_LB.menuOpen = TRUE
+    ANIM_LB_changed
+END SUB
+
+''
+' While the menu is open: hover, and a press picks (or, outside it, closes it).
+' TRUE = the mouse was the menu's this frame.
+FUNCTION ANIM_LB_menu_mouse% ()
+    DIM hv AS INTEGER, v AS INTEGER, pressed AS INTEGER
+    ANIM_LB_menu_build
+    hv = POPUP_MENU_hover_row%(ANIM_LB.menuX, ANIM_LB.menuY, ANIM_LB.menuW, ANIM_LB.menuN, LB_MENU_ITEM_H, MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    IF hv <> ANIM_LB.menuHover THEN ANIM_LB.menuHover = hv: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    pressed = (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0) _ORELSE (MOUSE.B2% <> 0 _ANDALSO MOUSE.OLD_B2% = 0)
+    IF pressed = 0 THEN EXIT FUNCTION
+    v = POPUP_MENU_hit_value%(ANIM_LB.menuX, ANIM_LB.menuY, ANIM_LB.menuW, ANIM_LB.menuN, LB_MENU_ITEM_H, MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    ANIM_LB.menuOpen = FALSE
+    ANIM_LB_changed
+    IF ANIM_LB.menuKind = 1 THEN ' the SOUND rows' menu: v is an action (F6)
+        IF v > 0 THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            ANIM_SC_KEEP = TRUE: ANIM_SC_FROM_MENU = TRUE ' the press picked from the menu: the rows keep the keys; Here = the frame clicked
+            CMD_execute_action v
+            ANIM_SC_FROM_MENU = FALSE: ANIM_SC_FOCUS = TRUE: ANIM_SC_KEEP = TRUE
+            ANIM_LB_menu_mouse% = TRUE
+        ELSEIF MOUSE.RAW_X% >= ANIM_LB.menuX _ANDALSO MOUSE.RAW_X% < ANIM_LB.menuX + ANIM_LB.menuW _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.menuY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.menuY + POPUP_MENU_total_height%(ANIM_LB.menuN, LB_MENU_ITEM_H) THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_SC_KEEP = TRUE ' a divider / greyed item: just closes it
+            ANIM_LB_menu_mouse% = TRUE
+        END IF
+        EXIT FUNCTION
+    END IF
+    IF ANIM_LB.menuKind = 2 THEN ' the TAGS / NOTES rows' menu: v is an action (R-13), or 30000 + a tag to go to
+        IF v >= 30000 THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE
+            ANIM_XS_tag_go v - 30000
+        ELSEIF v > 0 THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE
+            CMD_execute_action v
+        ELSEIF MOUSE.RAW_X% >= ANIM_LB.menuX _ANDALSO MOUSE.RAW_X% < ANIM_LB.menuX + ANIM_LB.menuW _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.menuY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.menuY + POPUP_MENU_total_height%(ANIM_LB.menuN, LB_MENU_ITEM_H) THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE ' a divider / greyed item: just closes it
+        END IF
+        EXIT FUNCTION
+    END IF
+    IF ANIM_LB.menuKind = 4 THEN ' the X-sheet header's menu
+        IF v >= 200 THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE
+            ANIM_XS_view_pick v
+        ELSEIF MOUSE.RAW_X% >= ANIM_LB.menuX _ANDALSO MOUSE.RAW_X% < ANIM_LB.menuX + ANIM_LB.menuW _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.menuY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.menuY + POPUP_MENU_total_height%(ANIM_LB.menuN, LB_MENU_ITEM_H) THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE ' a divider / greyed item: just closes it
+        END IF
+        EXIT FUNCTION
+    END IF
+    IF ANIM_LB.menuKind = 3 THEN ' the strip's menu
+        IF v >= 100 THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE
+            ANIM_LB_strip_menu_pick v
+        ELSEIF MOUSE.RAW_X% >= ANIM_LB.menuX _ANDALSO MOUSE.RAW_X% < ANIM_LB.menuX + ANIM_LB.menuW _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.menuY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.menuY + POPUP_MENU_total_height%(ANIM_LB.menuN, LB_MENU_ITEM_H) THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE ' the divider: just closes it
+        END IF
+        EXIT FUNCTION
+    END IF
+    IF v >= 0 _ANDALSO v <= 3 THEN
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        ANIM.loopMode = v
+        INVALIDATE_canvas ' as the panel's loop chips (saved in the drAn chunk)
+        STATUS_flash "Loop: " + _TRIM$(MID$("FORWARD  BACKWARD PING-PONGONCE     ", ANIM.loopMode * 9 + 1, 9))
+        ANIM_LB_menu_mouse% = TRUE
+    ELSEIF ANIM_LB_ctl_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = LB_CTL_LOOP THEN
+        MOUSE.UI_CHROME_CLICKED% = TRUE ' a second click on LOOP just closes it
+        ANIM_LB_menu_mouse% = TRUE
+    END IF
+END FUNCTION
+
+''
+' SCREEN_render, after SkipToPointer: the menu over everything (every frame).
+SUB ANIM_LB_menu_render ()
+    DIM font AS LONG, oldDest AS LONG
+    IF ANIM_LB.menuOpen = 0 THEN EXIT SUB
+    IF ANIM_LB_showing% = 0 THEN ANIM_LB.menuOpen = FALSE: EXIT SUB
+    ANIM_LB_menu_build
+    IF MENU_BAR.fontHandle& > 0 THEN font = MENU_BAR.fontHandle&
+    oldDest = _DEST
+    POPUP_MENU_render SCRN.CANVAS&, ANIM_LB.menuX, ANIM_LB.menuY, ANIM_LB.menuW, ANIM_LB.menuN, LB_MENU_ITEM_H, ANIM_LB.menuHover, font
+    _DEST oldDest
+END SUB
+
+''
+' Typing current / total in the count box: digits and "/", Backspace, Enter
+' applies, Esc cancels. "5" = go to frame 5, "5/20" = 20 frames and go to 5,
+' "/20" = just the total. A smaller total that drops drawn frames asks first
+' (Enter = drop them, Esc = keep them; R-16) - undoable either way.
+SUB ANIM_LB_edit_begin ()
+    ANIM_LB.editing = TRUE: ANIM_LB.editFresh = TRUE: ANIM_LB.confirmTo = 0
+    ANIM_LB_EDIT = _TRIM$(STR$(ANIM.current)) + "/" + _TRIM$(STR$(ANIM.count))
+    ANIM_LB_changed
+END SUB
+
+SUB ANIM_LB_edit_end ()
+    ANIM_LB.editing = FALSE: ANIM_LB.confirmTo = 0: ANIM_LB_EDIT = ""
+    ANIM_LB_changed
+END SUB
+
+FUNCTION ANIM_LB_editing% ()
+    ANIM_LB_editing% = (ANIM_LB.editing <> 0 _ANDALSO ANIM_LB_showing% <> 0)
+END FUNCTION
+
+''
+' KEYBOARD_input_handler: while the count box is being typed in it takes
+' every key (TRUE), as the Color Mixer's hex box does.
+FUNCTION ANIM_LB_keys% ()
+    DIM kc AS STRING, k AS INTEGER, t AS STRING
+    IF ANIM_LB.editing = 0 THEN EXIT FUNCTION
+    IF ANIM_LB_showing% = 0 THEN ANIM_LB_edit_end: EXIT FUNCTION
+    ANIM_LB_keys% = TRUE
+    kc = INKEY$
+    IF kc = "" THEN kc = KEYHIT_CHAR$
+    DO WHILE LEN(kc) > 0 _ANDALSO ANIM_LB.editing
+        IF LEN(kc) = 1 THEN
+            k = ASC(kc)
+            t = _TRIM$(ANIM_LB_EDIT)
+            IF ANIM_LB.confirmTo > 0 THEN
+                IF k = 13 THEN ANIM_LB_edit_apply ANIM_LB.confirmTo, ANIM_LB.confirmCur, TRUE
+                IF k = 27 THEN STATUS_flash "Kept the frames": ANIM_LB_edit_end
+            ELSEIF k = 13 THEN
+                ANIM_LB_edit_commit t
+            ELSEIF k = 27 THEN
+                ANIM_LB_edit_end
+            ELSEIF k = 8 THEN
+                IF ANIM_LB.editFresh THEN t = "" ELSE IF LEN(t) > 0 THEN t = LEFT$(t, LEN(t) - 1)
+                ANIM_LB_EDIT = t: ANIM_LB.editFresh = FALSE
+            ELSEIF (k >= 48 _ANDALSO k <= 57) _ORELSE k = 47 THEN
+                IF ANIM_LB.editFresh THEN t = ""
+                IF LEN(t) < 11 THEN t = t + CHR$(k)
+                ANIM_LB_EDIT = t: ANIM_LB.editFresh = FALSE
+            END IF
+            ANIM_LB_changed
+        END IF
+        kc = INKEY$
+    LOOP
+END FUNCTION
+
+''
+' Enter in the count box.
+SUB ANIM_LB_edit_commit (t AS STRING)
+    DIM a AS INTEGER, b AS INTEGER, s AS INTEGER, drawn AS INTEGER
+    s = INSTR(t, "/")
+    IF s THEN
+        a = VAL(LEFT$(t, s - 1)): b = VAL(MID$(t, s + 1))
+    ELSE
+        a = VAL(t): b = 0
+    END IF
+    IF b > 0 _ANDALSO b < ANIM.count THEN
+        drawn = ANIM_OPS_drawn_in%(b + 1, ANIM.count)
+        IF drawn > 0 THEN
+            ANIM_LB.confirmTo = b: ANIM_LB.confirmCur = a
+            STATUS_flash "Drop" + STR$(drawn) + " drawn frame" + _IIF(drawn > 1, "s", "") + " past frame" + STR$(b) + "? Enter = drop, Esc = keep (undoable)"
+            ANIM_LB_changed
+            EXIT SUB
+        END IF
+    END IF
+    ANIM_LB_edit_apply b, a, FALSE
+END SUB
+
+''
+' Set the total to b (0 = keep it) and go to frame a (0 = stay).
+SUB ANIM_LB_edit_apply (bIn AS INTEGER, aIn AS INTEGER, confirmed AS INTEGER)
+    DIM why AS STRING, a AS INTEGER, b AS INTEGER
+    a = aIn: b = bIn ' copies: the caller may pass ANIM_LB.confirmTo, which edit_end clears (gotcha 13)
+    ANIM_LB_edit_end
+    IF b > 0 _ANDALSO b <> ANIM.count THEN
+        ANIM_COUNT_TO = b
+        why = ANIM_op_refusal$(ANIM_OP_SET_COUNT)
+        IF why <> "" THEN STATUS_flash why: EXIT SUB
+        ANIM_OPS_run ANIM_OP_SET_COUNT
+    END IF
+    IF a > 0 THEN
+        ANIM.current = _MAX(1, _MIN(ANIM.count, a))
+        IF b = 0 THEN STATUS_flash "Frame" + STR$(ANIM.current) + " of" + STR$(ANIM.count)
+    END IF
+    ANIM_LB_changed
+END SUB
+
+''
+' Run transport control c.
+SUB ANIM_LB_click (c AS INTEGER)
+    SELECT CASE c
+        CASE LB_CTL_FIRST: CMD_execute_action ANIM_ACT_FIRST
+        CASE LB_CTL_PREV: CMD_execute_action ANIM_ACT_PREV
+        CASE LB_CTL_PLAY: CMD_execute_action ANIM_ACT_PLAY
+        CASE LB_CTL_NEXT: CMD_execute_action ANIM_ACT_NEXT
+        CASE LB_CTL_LAST: CMD_execute_action ANIM_ACT_LAST
+        CASE LB_CTL_LOOP: ANIM_LB_menu_open
+        CASE LB_CTL_SEEK
+            ANIM_LB.seekHeld = TRUE
+            ANIM_LB_seek_hold
+        CASE LB_CTL_FPS
+            DIM step1 AS INTEGER
+            step1 = _IIF(ANIM_LB_shift%, 10, 1)
+            IF MOUSE.RAW_X% < ANIM_LB_CX(c) + ANIM_LB_CW(c) \ 3 THEN
+                ANIM_LB_fps_set ANIM.fps - step1
+            ELSEIF MOUSE.RAW_X% >= ANIM_LB_CX(c) + ANIM_LB_CW(c) - ANIM_LB_CW(c) \ 3 THEN
+                ANIM_LB_fps_set ANIM.fps + step1
+            END IF
+        CASE LB_CTL_COUNT
+            IF ANIM_LB.editing = 0 THEN ANIM_LB_edit_begin
+        CASE LB_CTL_COPY: CMD_execute_action ANIM_ACT_COPY_FRAMES
+        CASE LB_CTL_CUT: CMD_execute_action ANIM_ACT_CUT_FRAMES
+        CASE LB_CTL_PASTE ' Shift: over the selected frames
+            CMD_execute_action _IIF(ANIM_LB_shift%, ANIM_ACT_PASTE_FRAMES_OVER, ANIM_ACT_PASTE_FRAMES)
+        CASE LB_CTL_ADD: CMD_execute_action ANIM_ACT_APPEND
+        CASE LB_CTL_XS: CMD_execute_action ANIM_ACT_XSHEET
+        CASE ELSE: EXIT SUB
+    END SELECT
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' QA dump lines:
+' ANIMLB shown x1 y1 x2 y2 stripY stripH barY barH edY edH stripFirst stripN cellW cellH panes paneW paneH pad drawPane
+'        stripCols stripRows flow (0 tray, 1 row) cellSetting (0 fitted)
+' ANIMLBC x w (for each control 1..14, w = 0 hidden)
+FUNCTION ANIM_LB_dump$ ()
+    DIM d AS STRING, k AS INTEGER
+    d = "ANIMLB" + DOCK_n$(ANIM_LB.shown <> 0 _ANDALSO ANIM_LB_showing% <> 0) + DOCK_n$(ANIM_LB.x1) + DOCK_n$(ANIM_LB.y1) + DOCK_n$(ANIM_LB.x2) + DOCK_n$(ANIM_LB.y2)
+    d = d + DOCK_n$(ANIM_LB.stripY) + DOCK_n$(ANIM_LB.stripH) + DOCK_n$(ANIM_LB.barY) + DOCK_n$(ANIM_LB.barH) + DOCK_n$(ANIM_LB.edY) + DOCK_n$(ANIM_LB.edH)
+    d = d + DOCK_n$(ANIM_LB.stripFirst) + DOCK_n$(ANIM_LB.stripN) + DOCK_n$(ANIM_LB.cellW) + DOCK_n$(ANIM_LB.cellH)
+    d = d + DOCK_n$(ANIM_LB.panes) + DOCK_n$(ANIM_LB.paneW) + DOCK_n$(ANIM_LB.paneH) + DOCK_n$(ANIM_LB.pad) + DOCK_n$(ANIM_LB.drawPane)
+    d = d + DOCK_n$(ANIM_LB.stripCols) + DOCK_n$(ANIM_LB.stripRows) + DOCK_n$(CFG.LB_STRIP_FLOW%) + DOCK_n$(CFG.LB_STRIP_CELL%) + CHR$(10)
+    d = d + "ANIMLBC"
+    FOR k = 1 TO LB_CTLS: d = d + DOCK_n$(ANIM_LB_CX(k)) + DOCK_n$(ANIM_LB_CW(k)): NEXT k
+    d = d + CHR$(10)
+    ' ANIMLBP clipLightbox clipSheet, then per pane: frame dx dy dw dh (the picture, viewport px)
+    DIM f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER, s AS SINGLE
+    d = d + "ANIMLBP" + DOCK_n$(CFG.CLIP_FRAME_LIGHTBOX% <> 0) + DOCK_n$(CFG.CLIP_FRAME_SHEET% <> 0)
+    FOR k = 0 TO ANIM_LB.panes - 1
+        f = ANIM_LB_pane_rect%(k, x, y, w, h)
+        s = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
+        d = d + DOCK_n$(f) + DOCK_n$(dx) + DOCK_n$(dy) + DOCK_n$(dw) + DOCK_n$(dh)
+    NEXT k
+    d = d + CHR$(10)
+    ' ANIMLBZ zoom% (0 = fitted) rx ry: the panes' zoom and the picture's corner from the pane's
+    d = d + "ANIMLBZ" + DOCK_n$(CINT(ANIM_LB.vz * 100)) + DOCK_n$(CINT(ANIM_LB.vrx)) + DOCK_n$(CINT(ANIM_LB.vry)) + CHR$(10)
+    ' ANIMLBS dragging dropSlot anchor nSelected, then the selected frames (<= 64)
+    DIM n AS INTEGER
+    ' ANIMLBE editing confirmTo menuOpen menuHover seekHeld menuX menuY menuW text ("-" = empty)
+    DIM et AS STRING
+    et = _TRIM$(ANIM_LB_EDIT): IF et = "" THEN et = "-"
+    d = d + "ANIMLBE" + DOCK_n$(ANIM_LB.editing <> 0) + DOCK_n$(ANIM_LB.confirmTo) + DOCK_n$(ANIM_LB.menuOpen <> 0) + DOCK_n$(ANIM_LB.menuHover) + DOCK_n$(ANIM_LB.seekHeld <> 0) + DOCK_n$(ANIM_LB.menuX) + DOCK_n$(ANIM_LB.menuY) + DOCK_n$(ANIM_LB.menuW) + " " + et + CHR$(10)
+    d = d + "ANIMLBS" + DOCK_n$(ANIM_LB.sDrag <> 0) + DOCK_n$(ANIM_LB.sDrop) + DOCK_n$(ANIM_SEL_ANCHOR) + DOCK_n$(ANIM_SEL_count%)
+    FOR k = 1 TO ANIM.count
+        IF ANIM_SEL(k) _ANDALSO n < 64 THEN d = d + DOCK_n$(k): n = n + 1
+    NEXT k
+    d = d + CHR$(10)
+    ' ANIMLBO on before after opacity tint prevPx nextPx (pixels the current pane's onion skin showed)
+    d = d + "ANIMLBO" + DOCK_n$(CFG.ONION_SKIN% <> 0) + DOCK_n$(CFG.ONION_BEFORE%) + DOCK_n$(CFG.ONION_AFTER%) + DOCK_n$(CFG.ONION_OPACITY%) + DOCK_n$(CFG.ONION_TINT% <> 0)
+    d = d + DOCK_n$(_IIF(ANIM_LB_showing%, ANIM_LB.onionPrev, 0)) + DOCK_n$(_IIF(ANIM_LB_showing%, ANIM_LB.onionNext, 0))
+    ANIM_LB_dump$ = d + CHR$(10) + ANIM_CV_dump$ ' (TOOLS/ANIM-CANVAS)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Drawing in the panes (2.2)
+' ---------------------------------------------------------------------------
+
+''
+' The pane whose picture is under viewport point (mx, my) and shows a frame,
+' or -1.
+FUNCTION ANIM_LB_pane_at% (mx AS INTEGER, my AS INTEGER)
+    DIM k AS INTEGER, f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER, s AS SINGLE
+    ANIM_LB_pane_at% = -1
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 THEN EXIT FUNCTION
+    FOR k = 0 TO ANIM_LB.panes - 1
+        f = ANIM_LB_pane_rect%(k, x, y, w, h)
+        IF f >= 1 _ANDALSO f <= ANIM.count THEN
+            s = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
+            ANIM_LB_vis x, y, w, h, dx, dy, dw, dh, dx, dy, dw, dh
+            IF mx >= dx _ANDALSO mx < dx + dw _ANDALSO my >= dy _ANDALSO my < dy + dh THEN ANIM_LB_pane_at% = k: EXIT FUNCTION
+        END IF
+    NEXT k
+END FUNCTION
+
+''
+' The view (zoom, offsetX, offsetY as SCRN uses them) that puts pane k's
+' frame cell on the pane's picture. FALSE when the pane shows no frame.
+FUNCTION ANIM_LB_pane_view% (k AS INTEGER, z AS SINGLE, ox AS INTEGER, oy AS INTEGER)
+    DIM f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, zw AS LONG, zh AS LONG
+    IF k < 0 _ORELSE k >= ANIM_LB.panes THEN EXIT FUNCTION
+    f = ANIM_LB_pane_rect%(k, x, y, w, h)
+    IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 THEN EXIT FUNCTION
+    z = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
+    IF z <= 0 THEN EXIT FUNCTION
+    ' the mouse mapping: dx = (SCRN.w - zw) \ 2 + offsetX + panelShiftX
+    zw = SCRN.canvasW& * z: zh = SCRN.canvasH& * z
+    ox = dx - CLNG(cx * z) - (SCRN.w& - zw) \ 2 - SCRN.panelShiftX%
+    oy = dy - CLNG(cy * z) - (SCRN.h& - zh) \ 2 - SCRN.panelShiftY%
+    ANIM_LB_pane_view% = TRUE
+END FUNCTION
+
+''
+' DRAW.BAS, before MOUSE_input_handler: save the real view (the lightbox
+' replaces it while the handler runs; pans / zooms made in it are dropped).
+SUB ANIM_LB_view_push ()
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_LB.shown = 0 _ORELSE ANIM_LB.pushed THEN EXIT SUB
+    ANIM_LB.realZoom = SCRN.zoom!: ANIM_LB.realOX = SCRN.offsetX%: ANIM_LB.realOY = SCRN.offsetY%
+    ANIM_LB.realTile = SCRN.patternTileMode%
+    ANIM_LB.pushed = TRUE
+    SCRN.patternTileMode% = FALSE ' a pane shows one cell, never tiles
+END SUB
+
+''
+' MOUSE_input_handler, as it maps the pointer to the canvas: the view of the
+' pane a stroke started in, else the pane under the pointer, else the middle
+' (current) pane.
+SUB ANIM_LB_view_pick (rawX AS INTEGER, rawY AS INTEGER)
+    DIM k AS INTEGER, z AS SINGLE, ox AS INTEGER, oy AS INTEGER
+    IF ANIM_LB.pushed = 0 _ORELSE ANIM_LB.overlay THEN EXIT SUB
+    ANIM_LB_view_absorb ' a zoom / pan made since the last pick
+    k = ANIM_LB.strokePane
+    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN k = ANIM_LB.panes \ 2 ' an import is placed in the current frame (R-25): a drag into a neighbour pane must not jump a cell
+    IF k < 0 THEN k = ANIM_LB_pane_at%(rawX, rawY)
+    IF k < 0 THEN k = ANIM_LB.panes \ 2
+    IF ANIM_LB_pane_view%(k, z, ox, oy) = 0 THEN EXIT SUB
+    SCRN.zoom! = z: SCRN.offsetX% = ox: SCRN.offsetY% = oy
+    ANIM_LB.vPane = k
+    ANIM_LB.pickOn = TRUE: ANIM_LB.pickZ = z: ANIM_LB.pickOX = ox: ANIM_LB.pickOY = oy: ANIM_LB.pickK = k
+END SUB
+
+''
+' DRAW.BAS, after MOUSE_input_handler: the real view back; strokes clipped
+' to their frame (the part outside the cell put back); a finished stroke
+' ends its clip.
+SUB ANIM_LB_view_pop ()
+    IF ANIM_LB.pushed THEN
+        ANIM_LB_view_absorb
+        SCRN.zoom! = ANIM_LB.realZoom: SCRN.offsetX% = ANIM_LB.realOX: SCRN.offsetY% = ANIM_LB.realOY
+        SCRN.patternTileMode% = ANIM_LB.realTile
+        ANIM_LB.pushed = FALSE
+    END IF
+    IF ANIM_LB.clipOn THEN ANIM_LB_clip_apply FALSE
+    IF ANIM_LB.follow THEN ANIM_LB_follow_step
+    IF MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 THEN
+        ANIM_LB.strokePane = -1: ANIM_LB.follow = FALSE
+        IF ANIM_LB.clipOn THEN ANIM_LB_clip_end
+    END IF
+    IF ANIM_LB_showing% = 0 THEN ANIM_LB.vPane = -1
+    ANIM_LB_draw_pane_track
+END SUB
+
+''
+' F2 (field kit T-7: "It's not clear to me which frame is being drawn on"):
+' every pane takes strokes, so the one a stroke goes into - the stroke's pane,
+' else the pane under the pointer on the canvas - gets its own colour and a
+' thick, dashed ring. The scene is redrawn only when that pane changes.
+SUB ANIM_LB_draw_pane_track ()
+    DIM k AS INTEGER
+    k = -1
+    IF ANIM_LB_showing% _ANDALSO ANIM_PLAY.playing = 0 THEN
+        k = ANIM_LB.strokePane
+        IF k < 0 THEN
+            IF REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = REGION_CANVAS THEN k = ANIM_LB_pane_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+        END IF
+    END IF
+    IF k <> ANIM_LB.drawPane THEN
+        ANIM_LB.drawPane = k
+        SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    END IF
+END SUB
+
+''
+' The drawing pane's ring round its picture (dx, dy, dw, dh), outside the
+' outline already there (cur = it is the current frame: a 2 px blue one), kept
+' in its pane (px, py, pw, ph): a zoomed picture fills the pane, and the ring
+' would run onto the strip / bar.
+SUB ANIM_LB_draw_pane_ring (dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER, cur AS INTEGER, px AS INTEGER, py AS INTEGER, pw AS INTEGER, ph AS INTEGER)
+    DIM b AS INTEGER, c AS _UNSIGNED LONG, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER
+    c = THEME.ANIM_FRAME_drawing~&
+    IF (c AND &HFF000000~&) = 0 THEN c = _RGB32(255, 70, 200) ' a theme without the key
+    b = _IIF(cur, 2, 1)
+    x1 = _MAX(dx - b - 3, px): y1 = _MAX(dy - b - 3, py) ' the outer box, in the pane
+    x2 = _MIN(dx + dw + b + 2, px + pw - 1): y2 = _MIN(dy + dh + b + 2, py + ph - 1)
+    IF x2 - x1 < 6 _ORELSE y2 - y1 < 6 THEN EXIT SUB
+    LINE (x1 + 2, y1 + 2)-(x2 - 2, y2 - 2), c, B
+    LINE (x1 + 1, y1 + 1)-(x2 - 1, y2 - 1), c, B
+    LINE (x1, y1)-(x2, y2), _RGB32(0, 0, 0), B
+    LINE (x1, y1)-(x2, y2), c, B , &HF0F0
+END SUB
+
+''
+' The tools whose strokes run on into the next pane with clip off (B9): the
+' freehand ones. Shapes keep their start pane's view.
+FUNCTION ANIM_LB_freehand% ()
+    SELECT CASE CURRENT_TOOL%
+        CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_ERASER: ANIM_LB_freehand% = TRUE
+    END SELECT
+END FUNCTION
+
+''
+' After a mouse frame of a following stroke (B9): when the pointer is over
+' another pane, the stroke goes on in that pane's frame. The last point moves
+' to the same screen spot seen through the new pane's view (so the next
+' segment starts at the pane's edge, not across the sheet), and the clip moves
+' to the new frame (its copy holds the stroke so far).
+SUB ANIM_LB_follow_step ()
+    DIM kN AS INTEGER, f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM z AS SINGLE, zN AS SINGLE, oxK AS INTEGER, oyK AS INTEGER, oxN AS INTEGER, oyN AS INTEGER
+    DIM tx AS INTEGER, ty AS INTEGER
+    IF ANIM_LB.strokePane < 0 _ORELSE ANIM_LB.clipOn = 0 THEN EXIT SUB
+    IF MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 THEN EXIT SUB
+    kN = ANIM_LB_pane_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    IF kN < 0 _ORELSE kN = ANIM_LB.strokePane THEN EXIT SUB
+    f = ANIM_LB_pane_rect%(kN, x, y, w, h)
+    IF f < 1 _ORELSE f > ANIM.count THEN EXIT SUB
+    IF ANIM_LB_pane_view%(ANIM_LB.strokePane, z, oxK, oyK) = 0 THEN EXIT SUB
+    IF ANIM_LB_pane_view%(kN, zN, oxN, oyN) = 0 THEN EXIT SUB
+    ' canvas x = (raw - dx) / z, dx = ... + ox: the same spot is (oxK - oxN) / z further on
+    tx = CINT((oxK - oxN) / z): ty = CINT((oyK - oyN) / z)
+    MOUSE.X% = MOUSE.X% + tx: MOUSE.Y% = MOUSE.Y% + ty
+    MOUSE.OLD_X% = MOUSE.OLD_X% + tx: MOUSE.OLD_Y% = MOUSE.OLD_Y% + ty
+    MOUSE.UNSNAPPED_X% = MOUSE.UNSNAPPED_X% + tx: MOUSE.UNSNAPPED_Y% = MOUSE.UNSNAPPED_Y% + ty
+    MOUSE.CON_X% = MOUSE.CON_X% + tx: MOUSE.CON_Y% = MOUSE.CON_Y% + ty
+    IF DOT.HAS_LAST THEN DOT.LAST_X = DOT.LAST_X + tx: DOT.LAST_Y = DOT.LAST_Y + ty
+    IF BMIX.hasLast THEN BMIX.lastX = BMIX.lastX + tx: BMIX.lastY = BMIX.lastY + ty
+    ANIM_LB.strokePane = kN: ANIM_LB.vPane = kN
+    ANIM_LB_clip_end
+    ANIM_LB_clip_begin f
+    IF ANIM_LB.clipOn = 0 THEN ANIM_LB.follow = FALSE
+END SUB
+
+''
+' Start clipping the current layer's strokes to frame f.
+SUB ANIM_LB_clip_begin (f AS INTEGER)
+    DIM L AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG
+    IF ANIM_LB.clipOn THEN ANIM_LB_clip_end
+    SELECT CASE CURRENT_TOOL%
+        CASE TOOL_MARQUEE, TOOL_PICKER, TOOL_ZOOM, TOOL_PAN, TOOL_TEXT: EXIT SUB ' they paint nothing
+        CASE TOOL_MOVE: EXIT SUB ' moves lift / place pixels on their own schedule (moving frames: 2.7)
+    END SELECT
+    IF TRANSFORM.ACTIVE THEN EXIT SUB
+    L = CURRENT_LAYER%
+    IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(L).imgHandle& >= -1 THEN EXIT SUB
+    IF LAYERS(L).layerType% = LAYER_TYPE_TEXT _ORELSE LAYERS(L).layerType% = LAYER_TYPE_GROUP THEN EXIT SUB
+    IF ANIM_cell_rect%(f, x, y, w, h) = 0 THEN EXIT SUB
+    ANIM_LB.clipImg = _COPYIMAGE(LAYERS(L).imgHandle&, 32)
+    IF ANIM_LB.clipImg >= -1 THEN ANIM_LB.clipImg = 0: EXIT SUB
+    ANIM_LB.clipLayer = L
+    ANIM_LB.clipX = x: ANIM_LB.clipY = y: ANIM_LB.clipW = w: ANIM_LB.clipH = h
+    ANIM_LB.clipOn = TRUE
+END SUB
+
+SUB ANIM_LB_clip_end ()
+    IF ANIM_LB.clipImg < -1 THEN _FREEIMAGE ANIM_LB.clipImg
+    ANIM_LB.clipImg = 0
+    ANIM_LB.clipOn = FALSE
+END SUB
+
+''
+' Put back everything of the clipped layer outside the cell, from the copy
+' taken at the press: all of it (full), or only inside this frame's dirty
+' rect (COMP_DIRTY_*) when one is set.
+SUB ANIM_LB_clip_apply (full AS INTEGER)
+    DIM L AS INTEGER, img AS LONG, bw AS LONG, bh AS LONG, ax AS LONG, ay AS LONG
+    DIM cx1 AS LONG, cy1 AS LONG, cx2 AS LONG, cy2 AS LONG
+    DIM rx1 AS LONG, ry1 AS LONG, rx2 AS LONG, ry2 AS LONG, oldDest AS LONG
+    IF ANIM_LB.clipOn = 0 THEN EXIT SUB
+    L = ANIM_LB.clipLayer
+    img = LAYERS(L).imgHandle&
+    IF img >= -1 _ORELSE ANIM_LB.clipImg >= -1 THEN ANIM_LB_clip_end: EXIT SUB
+    bw = _WIDTH(img): bh = _HEIGHT(img)
+    IF bw <> _WIDTH(ANIM_LB.clipImg) _ORELSE bh <> _HEIGHT(ANIM_LB.clipImg) THEN ANIM_LB_clip_end: EXIT SUB ' the buffer changed shape
+    ax = LAYERS(L).apronW%: ay = LAYERS(L).apronH% ' canvas (cx, cy) = buffer (cx + apron, cy + apron) - gotcha 14
+    cx1 = ANIM_LB.clipX + ax: cy1 = ANIM_LB.clipY + ay
+    cx2 = cx1 + ANIM_LB.clipW - 1: cy2 = cy1 + ANIM_LB.clipH - 1
+    rx1 = 0: ry1 = 0: rx2 = bw - 1: ry2 = bh - 1
+    IF full = 0 _ANDALSO COMP_DIRTY_VALID% THEN
+        rx1 = _MAX(0, COMP_DIRTY_X1% + ax - 2): ry1 = _MAX(0, COMP_DIRTY_Y1% + ay - 2)
+        rx2 = _MIN(bw - 1, COMP_DIRTY_X2% + ax + 2): ry2 = _MIN(bh - 1, COMP_DIRTY_Y2% + ay + 2)
+        IF rx2 < rx1 _ORELSE ry2 < ry1 THEN EXIT SUB
+    END IF
+    oldDest = _DEST
+    _DONTBLEND img
+    ANIM_LB_clip_put img, rx1, ry1, rx2, _MIN(ry2, cy1 - 1)            ' above the cell
+    ANIM_LB_clip_put img, rx1, _MAX(ry1, cy2 + 1), rx2, ry2            ' below
+    ANIM_LB_clip_put img, rx1, _MAX(ry1, cy1), _MIN(rx2, cx1 - 1), _MIN(ry2, cy2) ' left
+    ANIM_LB_clip_put img, _MAX(rx1, cx2 + 1), _MAX(ry1, cy1), rx2, _MIN(ry2, cy2) ' right
+    _BLEND img
+    _DEST oldDest
+    LAYERS(L).contentDirty% = TRUE
+END SUB
+
+SUB ANIM_LB_clip_put (img AS LONG, x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG)
+    IF x2 < x1 _ORELSE y2 < y1 THEN EXIT SUB
+    _PUTIMAGE (x1, y1)-(x2, y2), ANIM_LB.clipImg, img, (x1, y1)-(x2, y2)
+END SUB
+
+''
+' HISTORY_store_after_image: the undo step stores the clipped result.
+SUB ANIM_LB_clip_finish (layerSlot AS INTEGER)
+    IF ANIM_LB.clipOn _ANDALSO layerSlot = ANIM_LB.clipLayer THEN ANIM_LB_clip_apply TRUE
+END SUB
+
+''
+' A press on the canvas in sheet view: clip it to the frame under it when
+' ANIM > Clip Strokes to the Frame in Sheet View is on.
+SUB ANIM_LB_sheet_press ()
+    DIM f AS INTEGER
+    IF CFG.CLIP_FRAME_SHEET% = 0 _ORELSE ANIM.active = FALSE _ORELSE ANIM_LB_showing% THEN EXIT SUB
+    IF MOUSE.UI_CHROME_CLICKED% THEN EXIT SUB
+    IF (MOUSE.B1% = 0 _ORELSE MOUSE.OLD_B1% <> 0) _ANDALSO (MOUSE.B2% = 0 _ORELSE MOUSE.OLD_B2% <> 0) THEN EXIT SUB
+    IF REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%) <> REGION_CANVAS THEN EXIT SUB
+    f = ANIM_frame_at%(MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%)
+    IF f >= 1 _ANDALSO f <= ANIM.count THEN ANIM_LB_clip_begin f
+END SUB
+
+''
+' Draw an overlay (tool previews, marching ants, the brush footprint)
+' through pane vPane's view, onto a scratch image: TRUE = go ahead and call
+' ANIM_LB_overlay_end after. FALSE outside the lightbox (draw as usual) and
+' when there is no pane to draw it in (skip it).
+FUNCTION ANIM_LB_overlay_begin% ()
+    DIM z AS SINGLE, ox AS INTEGER, oy AS INTEGER, oldDest AS LONG
+    DIM f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER
+    IF ANIM_LB.overlay _ORELSE ANIM_LB.pushed THEN EXIT FUNCTION
+    IF ANIM_LB_pane_view%(ANIM_LB.vPane, z, ox, oy) = 0 THEN EXIT FUNCTION
+    IF ANIM_LB.scratch < -1 THEN
+        IF _WIDTH(ANIM_LB.scratch) <> SCRN.w& _ORELSE _HEIGHT(ANIM_LB.scratch) <> SCRN.h& THEN _FREEIMAGE ANIM_LB.scratch: ANIM_LB.scratch = 0
+    END IF
+    IF ANIM_LB.scratch >= -1 THEN ANIM_LB.scratch = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    f = ANIM_LB_pane_rect%(ANIM_LB.vPane, x, y, w, h)
+    z = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
+    ANIM_LB_vis x, y, w, h, dx, dy, dw, dh, dx, dy, dw, dh
+    IF dw < 1 _ORELSE dh < 1 THEN EXIT FUNCTION
+    oldDest = _DEST
+    _DEST ANIM_LB.scratch
+    _DONTBLEND ANIM_LB.scratch
+    LINE (dx, dy)-(dx + dw - 1, dy + dh - 1), _RGBA32(0, 0, 0, 0), BF
+    _BLEND ANIM_LB.scratch
+    _DEST oldDest
+    ANIM_LB.realZoom = SCRN.zoom!: ANIM_LB.realOX = SCRN.offsetX%: ANIM_LB.realOY = SCRN.offsetY%
+    ANIM_LB.realTile = SCRN.patternTileMode%
+    IF ANIM_LB_pane_view%(ANIM_LB.vPane, z, ox, oy) THEN SCRN.zoom! = z: SCRN.offsetX% = ox: SCRN.offsetY% = oy
+    SCRN.patternTileMode% = FALSE
+    ANIM_LB.realCanvas = SCRN.CANVAS&
+    SCRN.CANVAS& = ANIM_LB.scratch
+    ANIM_LB.overlay = TRUE
+    ANIM_LB_overlay_begin% = TRUE
+END FUNCTION
+
+''
+' The grids (VIEW > GRID, the pixel grid, the character grid) over every pane
+' that shows a frame, in that pane's view: lined up with the sheet, as snapping
+' is (field kit R-32: "I cannot see the grid"). Always on top of the picture.
+SUB ANIM_LB_grids ()
+    DIM k AS INTEGER, keep AS INTEGER, zw AS LONG, zh AS LONG, dx AS LONG, dy AS LONG
+    IF GRID.SHOW% = 0 _ANDALSO PIXEL_GRID.SHOW% = 0 _ANDALSO CHARMAP.charGridShow% = 0 THEN EXIT SUB
+    keep = ANIM_LB.vPane
+    FOR k = 0 TO ANIM_LB.panes - 1
+        ANIM_LB.vPane = k
+        IF ANIM_LB_overlay_begin% THEN
+            zw = SCRN.canvasW& * SCRN.zoom!: zh = SCRN.canvasH& * SCRN.zoom!
+            dx = (SCRN.w& - zw) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+            dy = (SCRN.h& - zh) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%
+            RENDER_grids dx, dy, zw, zh
+            ANIM_LB_overlay_end
+        END IF
+    NEXT k
+    ANIM_LB.vPane = keep
+END SUB
+
+''
+' The overlay's pane part onto the real viewport; the real view back.
+SUB ANIM_LB_overlay_end ()
+    DIM f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER, z AS SINGLE
+    IF ANIM_LB.overlay = 0 THEN EXIT SUB
+    SCRN.CANVAS& = ANIM_LB.realCanvas
+    SCRN.zoom! = ANIM_LB.realZoom: SCRN.offsetX% = ANIM_LB.realOX: SCRN.offsetY% = ANIM_LB.realOY
+    SCRN.patternTileMode% = ANIM_LB.realTile
+    ANIM_LB.overlay = FALSE
+    f = ANIM_LB_pane_rect%(ANIM_LB.vPane, x, y, w, h)
+    z = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
+    ANIM_LB_vis x, y, w, h, dx, dy, dw, dh, dx, dy, dw, dh
+    IF dw < 1 _ORELSE dh < 1 THEN _DEST SCRN.CANVAS&: EXIT SUB
+    _BLEND SCRN.CANVAS&
+    _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), ANIM_LB.scratch, SCRN.CANVAS&, (dx, dy)-(dx + dw - 1, dy + dh - 1)
+    _DEST SCRN.CANVAS&
+END SUB
+
+''
+' The sheet-view overlay routines skip themselves in the lightbox unless an
+' overlay is drawing them into a pane.
+FUNCTION ANIM_LB_skip_overlay% ()
+    ANIM_LB_skip_overlay% = (ANIM_LB_showing% <> 0 _ANDALSO ANIM_LB.overlay = 0)
+END FUNCTION
+
+''
+' ANIM > Clip Strokes to the Frame in the Lightbox / in Sheet View (2521 / 2522).
+SUB ANIM_LB_clip_toggle (act AS INTEGER)
+    IF act = ANIM_ACT_CLIP_LB THEN
+        CFG.CLIP_FRAME_LIGHTBOX% = (CFG.CLIP_FRAME_LIGHTBOX% = 0)
+        IF CFG.CLIP_FRAME_LIGHTBOX% THEN STATUS_flash "Lightbox: strokes stay in their frame" ELSE STATUS_flash "Lightbox: strokes run over the frame's edge"
+    ELSE
+        CFG.CLIP_FRAME_SHEET% = (CFG.CLIP_FRAME_SHEET% = 0)
+        IF CFG.CLIP_FRAME_SHEET% THEN STATUS_flash "Sheet view: strokes stay in the frame they start in" ELSE STATUS_flash "Sheet view: strokes run over the frame's edge"
+    END IF
+    CONFIG_save
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' Onion skin (2.6)
+' ---------------------------------------------------------------------------
+
+''
+' ANIM > Onion Skin (2527, Num /) and Onion Skin Red / Blue Tint (2528).
+SUB ANIM_LB_onion_toggle (act AS INTEGER)
+    IF act = ANIM_ACT_ONION_TINT THEN
+        CFG.ONION_TINT% = (CFG.ONION_TINT% = 0)
+        STATUS_flash _IIF(CFG.ONION_TINT%, "Onion skin: frames before red, after blue", "Onion skin: frames in their own colors")
+    ELSE
+        CFG.ONION_SKIN% = (CFG.ONION_SKIN% = 0)
+        IF CFG.ONION_SKIN% THEN
+            STATUS_flash "Onion skin on:" + STR$(CFG.ONION_BEFORE%) + " before," + STR$(CFG.ONION_AFTER%) + " after" + _IIF(ANIM_LB_showing%, "", " (shows in the lightbox, Num 0)")
+        ELSE
+            STATUS_flash "Onion skin off"
+        END IF
+    END IF
+    CONFIG_save
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' A cell's background: the colour that covers most of its edge (at least 40%
+' of it). Corners alone missed a sky over a strip of ground (field kit R-3:
+' 2 corners each, so no background, and no ghosts on a solid frame at all).
+FUNCTION ANIM_LB_cell_bg% (m AS _MEM, sw AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG, bg AS _UNSIGNED LONG)
+    CONST CELL_BG_KINDS = 24
+    DIM col(1 TO CELL_BG_KINDS) AS _UNSIGNED LONG, num(1 TO CELL_BG_KINDS) AS LONG, kinds AS INTEGER
+    DIM stp AS LONG, t AS LONG, per AS LONG, px AS LONG, py AS LONG, c AS _UNSIGNED LONG
+    DIM k AS INTEGER, best AS INTEGER, total AS LONG
+    IF w < 1 _ORELSE h < 1 THEN EXIT FUNCTION
+    per = 2 * (w + h) ' walk the edge clockwise; at most ~256 samples
+    stp = per \ 256: IF stp < 1 THEN stp = 1
+    FOR t = 0 TO per - 1 STEP stp
+        IF t < w THEN
+            px = t: py = 0
+        ELSEIF t < w + h THEN
+            px = w - 1: py = t - w
+        ELSEIF t < 2 * w + h THEN
+            px = w - 1 - (t - w - h): py = h - 1
+        ELSE
+            px = 0: py = h - 1 - (t - 2 * w - h)
+        END IF
+        c = _MEMGET(m, m.OFFSET + ((y + py) * sw + x + px) * 4, _UNSIGNED LONG)
+        total = total + 1
+        FOR k = 1 TO kinds
+            IF col(k) = c THEN num(k) = num(k) + 1: EXIT FOR
+        NEXT k
+        IF k > kinds _ANDALSO kinds < CELL_BG_KINDS THEN kinds = kinds + 1: col(kinds) = c: num(kinds) = 1
+    NEXT t
+    FOR k = 1 TO kinds
+        IF best = 0 THEN
+            best = k
+        ELSEIF num(k) > num(best) THEN
+            best = k
+        END IF
+    NEXT k
+    IF best = 0 THEN EXIT FUNCTION
+    IF num(best) * 5 < total * 2 THEN EXIT FUNCTION
+    bg = col(best): ANIM_LB_cell_bg% = TRUE
+END FUNCTION
+
+''
+' Over the current pane's picture (dx, dy, dw, dh) of frame f: the frames
+' before / after it, farthest first, each fading with distance; tinted red /
+' blue (CFG.ONION_TINT%). Decided per LAYER, not from the flattened picture
+' (field report 2026-11-11: no ghosts at all over a painted background - every
+' pixel of frame f was "drawing", so nothing could go behind it):
+'   - a layer whose pixel is the same in both frames (a background, a layer
+'     Same on Every Frame) neither makes a ghost nor hides one;
+'   - from the top down, the first layer that differs at a pixel decides: if
+'     frame f has something there, that is the current drawing and the ghost
+'     goes behind it (field kit T-13: drawn over it, the current frame looked
+'     faded); else the neighbour's pixel on that layer is the ghost.
+'   - frame f's flat background colour (composite src, ANIM_LB_cell_bg%) still
+'     counts as empty, so one layer holding both a flat background and the
+'     drawing keeps its ghosts; the neighbour's own background never ghosts.
+SUB ANIM_LB_onion (dest AS LONG, src AS LONG, f AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, gx AS LONG, gy AS LONG, gw AS LONG, gh AS LONG
+    DIM side AS INTEGER, n AS INTEGER, d AS INTEGER, g AS INTEGER, i AS LONG, j AS LONG, sw AS LONG, sh AS LONG
+    DIM ms AS _MEM, mo AS _MEM, nb AS _UNSIGNED LONG, cur AS _UNSIGNED LONG, bg AS _UNSIGNED LONG, hasBg AS INTEGER
+    DIM curBg AS _UNSIGNED LONG, hasCurBg AS INTEGER
+    DIM a AS SINGLE, na AS LONG, tr AS LONG, tg AS LONG, tb AS LONG, r AS LONG, gg AS LONG, b AS LONG, cnt AS LONG
+    DIM po AS _OFFSET, rowC AS _OFFSET
+    DIM nL AS INTEGER, k AS INTEGER, L AS INTEGER, ghost AS _UNSIGNED LONG, lp AS _UNSIGNED LONG, lc AS _UNSIGNED LONG
+    DIM lm(1 TO MAX_LAYERS) AS _MEM, lw(1 TO MAX_LAYERS) AS LONG, lax(1 TO MAX_LAYERS) AS LONG, lay(1 TO MAX_LAYERS) AS LONG
+
+    ANIM_LB.onionPrev = 0: ANIM_LB.onionNext = 0
+    IF CFG.ONION_SKIN% = 0 _ORELSE ANIM_PLAY.playing _ORELSE src >= -1 _ORELSE dest >= -1 THEN EXIT SUB
+    IF CFG.ONION_BEFORE% < 1 _ANDALSO CFG.ONION_AFTER% < 1 THEN EXIT SUB
+    IF ANIM_cell_rect%(f, cx, cy, cw, ch) = 0 THEN EXIT SUB
+    sw = _WIDTH(src): sh = _HEIGHT(src)
+    IF cx < 0 _ORELSE cy < 0 _ORELSE cx + cw > sw _ORELSE cy + ch > sh THEN EXIT SUB
+    IF ANIM_LB.onionImg < -1 THEN
+        IF _WIDTH(ANIM_LB.onionImg) <> cw _ORELSE _HEIGHT(ANIM_LB.onionImg) <> ch THEN _FREEIMAGE ANIM_LB.onionImg: ANIM_LB.onionImg = 0
+    END IF
+    IF ANIM_LB.onionImg >= -1 THEN ANIM_LB.onionImg = _NEWIMAGE(cw, ch, 32)
+    IF ANIM_LB.onionImg >= -1 THEN EXIT SUB
+
+    ' the drawing layers, top first, that hold the whole sheet (apron included)
+    IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
+    FOR k = RENDER_ORDER_COUNT% TO 1 STEP -1
+        L = RENDER_ORDER%(k)
+        IF L >= 1 _ANDALSO L <= MAX_LAYERS THEN
+            IF LAYERS(L).visible% _ANDALSO ANIM_OPS_moves%(L) THEN
+                IF LAYERS_groups_shown%(L) THEN
+                    IF _WIDTH(LAYERS(L).imgHandle&) >= sw + LAYERS(L).apronW% _ANDALSO _HEIGHT(LAYERS(L).imgHandle&) >= sh + LAYERS(L).apronH% THEN
+                        nL = nL + 1
+                        lm(nL) = _MEMIMAGE(LAYERS(L).imgHandle&)
+                        lw(nL) = _WIDTH(LAYERS(L).imgHandle&): lax(nL) = LAYERS(L).apronW%: lay(nL) = LAYERS(L).apronH%
+                    END IF
+                END IF
+            END IF
+        END IF
+    NEXT k
+    IF nL = 0 THEN EXIT SUB
+
+    ms = _MEMIMAGE(src): mo = _MEMIMAGE(ANIM_LB.onionImg)
+    hasCurBg = ANIM_LB_cell_bg%(ms, sw, cx, cy, cw, ch, curBg)
+    _BLEND dest
+    FOR side = -1 TO 1 STEP 2
+        n = _IIF(side < 0, CFG.ONION_BEFORE%, CFG.ONION_AFTER%)
+        IF side < 0 THEN tr = 255: tg = 48: tb = 48 ELSE tr = 48: tg = 112: tb = 255
+        FOR d = n TO 1 STEP -1 ' farthest first: the nearest ends up on top
+            g = f + side * d
+            IF g >= 1 _ANDALSO g <= ANIM.count THEN
+                IF ANIM_cell_rect%(g, gx, gy, gw, gh) _ANDALSO gw = cw _ANDALSO gh = ch _ANDALSO gx + gw <= sw _ANDALSO gy + gh <= sh THEN
+                    a = (CFG.ONION_OPACITY% / 100) * (n - d + 1) / n
+                    hasBg = ANIM_LB_cell_bg%(ms, sw, gx, gy, gw, gh, bg)
+                    cnt = 0
+                    po = mo.OFFSET
+                    FOR j = 0 TO ch - 1
+                        rowC = ms.OFFSET + ((cy + j) * sw + cx) * 4
+                        FOR i = 0 TO cw - 1
+                            cur = _MEMGET(ms, rowC + i * 4, _UNSIGNED LONG)
+                            ' the first layer, from the top, that differs here decides
+                            ghost = 0
+                            FOR k = 1 TO nL
+                                lp = _MEMGET(lm(k), lm(k).OFFSET + ((gy + j + lay(k)) * lw(k) + gx + i + lax(k)) * 4, _UNSIGNED LONG)
+                                lc = _MEMGET(lm(k), lm(k).OFFSET + ((cy + j + lay(k)) * lw(k) + cx + i + lax(k)) * 4, _UNSIGNED LONG)
+                                IF lp <> lc THEN
+                                    IF _SHR(lc, 24) = 0 _ORELSE (hasCurBg _ANDALSO cur = curBg) THEN ghost = lp
+                                    EXIT FOR
+                                END IF
+                            NEXT k
+                            nb = ghost: na = _SHR(nb, 24)
+                            IF na > 0 _ANDALSO (hasBg = 0 _ORELSE nb <> bg) THEN
+                                r = _SHR(nb, 16) AND 255: gg = _SHR(nb, 8) AND 255: b = nb AND 255
+                                IF CFG.ONION_TINT% THEN r = (r + tr * 3) \ 4: gg = (gg + tg * 3) \ 4: b = (b + tb * 3) \ 4
+                                _MEMPUT mo, po, _RGBA32(r, gg, b, CINT(na * a)) AS _UNSIGNED LONG
+                                cnt = cnt + 1
+                            ELSE
+                                _MEMPUT mo, po, 0 AS _UNSIGNED LONG
+                            END IF
+                            po = po + 4
+                        NEXT i
+                    NEXT j
+                    IF cnt > 0 THEN ANIM_put_view dest, ANIM_LB.onionImg, 0, 0, cw, ch, dx, dy, dw, dh
+                    IF side < 0 THEN ANIM_LB.onionPrev = ANIM_LB.onionPrev + cnt ELSE ANIM_LB.onionNext = ANIM_LB.onionNext + cnt
+                END IF
+            END IF
+        NEXT d
+    NEXT side
+    _MEMFREE ms: _MEMFREE mo
+    FOR k = 1 TO nL: _MEMFREE lm(k): NEXT k
+END SUB
+
+' ---------------------------------------------------------------------------
+' The Move tool in a pane (2.7): the drawings of the selected frames move
+' together inside their cells (the current layer; what leaves a cell is cut
+' off). A marquee selection keeps the Move tool's own behaviour.
+' ---------------------------------------------------------------------------
+
+FUNCTION ANIM_LB_move_begin% (k AS INTEGER)
+    DIM L AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER
+    IF CURRENT_TOOL% <> TOOL_MOVE _ORELSE TRANSFORM.ACTIVE THEN EXIT FUNCTION
+    IF MARQUEE.ACTIVE _ANDALSO MARQUEE.USER_CREATED THEN EXIT FUNCTION
+    L = CURRENT_LAYER%
+    IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT FUNCTION
+    IF CLIP_is_clip%(L) THEN ' a clip layer: the drag moves the clip in every frame (TOOLS/CLIP)
+        IF MOVE.ACTIVE THEN MOVE_reset ' V's lift of it: the drag here moves it instead
+        IF ANIM_LB_pane_rect%(k, x, y, w, h) < 1 THEN EXIT FUNCTION
+        ANIM_LB.mvScale = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+        IF ANIM_LB.mvScale <= 0 THEN EXIT FUNCTION
+        CLIP_drag_begin L
+        ANIM_LB.mvImg = 0: ANIM_LB.mvLayer = L
+        ANIM_LB.mvPX = MOUSE.RAW_X%: ANIM_LB.mvPY = MOUSE.RAW_Y%
+        ANIM_LB.mvDX = 0: ANIM_LB.mvDY = 0
+        ANIM_LB.mvOn = TRUE
+        ANIM_LB_move_begin% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF ANIM_OPS_moves%(L) = 0 THEN EXIT FUNCTION
+    ' V lifts the whole layer at once (MOVE_capture_selection): an untouched
+    ' lift of it is dropped (MOVE_reset records nothing for it) - frames move here
+    IF MOVE.ACTIVE _ANDALSO MOVE.IS_PASTE = 0 _ANDALSO MOVE.GROUP_ORIGIN = 0 _ANDALSO MOVE.CLONING = 0 _ANDALSO MOVE.CLONE_STAMPED = 0 _ANDALSO MOVE.CONTENT_FLIPPED = 0 THEN
+        IF MOVE.CURRENT_X = MOVE.ORIGINAL_X _ANDALSO MOVE.CURRENT_Y = MOVE.ORIGINAL_Y _ANDALSO MOVE.CURRENT_W = MOVE.ORIGINAL_W _ANDALSO MOVE.CURRENT_H = MOVE.ORIGINAL_H THEN MOVE_reset
+    END IF
+    IF ANIM_OPS_busy$ <> "" THEN STATUS_flash ANIM_OPS_busy$: ANIM_LB_move_begin% = TRUE: EXIT FUNCTION
+    IF ANIM_LB_pane_rect%(k, x, y, w, h) < 1 THEN EXIT FUNCTION
+    ANIM_LB.mvScale = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    IF ANIM_LB.mvScale <= 0 THEN EXIT FUNCTION
+    ANIM_LB.mvImg = _COPYIMAGE(LAYERS(L).imgHandle&, 32)
+    IF ANIM_LB.mvImg >= -1 THEN ANIM_LB.mvImg = 0: EXIT FUNCTION
+    ANIM_LB_MV_BEFORE = ANIM_OPS_snapshot$(TRUE)
+    ANIM_LB.mvLayer = L
+    ANIM_LB.mvPX = MOUSE.RAW_X%: ANIM_LB.mvPY = MOUSE.RAW_Y%
+    ANIM_LB.mvDX = 0: ANIM_LB.mvDY = 0
+    ANIM_LB.mvOn = TRUE
+    ANIM_CV_move_begin L ' smart guides (TOOLS/ANIM-CANVAS)
+    ANIM_LB_move_begin% = TRUE
+END FUNCTION
+
+SUB ANIM_LB_move_hold ()
+    DIM ox AS INTEGER, oy AS INTEGER, after AS STRING, n AS INTEGER, f AS INTEGER
+    ox = INT((MOUSE.RAW_X% - ANIM_LB.mvPX) / ANIM_LB.mvScale + .5)
+    oy = INT((MOUSE.RAW_Y% - ANIM_LB.mvPY) / ANIM_LB.mvScale + .5)
+    IF SMART_GUIDES.ENABLED% THEN ANIM_CV_move_guides ox, oy: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+    IF ox <> ANIM_LB.mvDX _ORELSE oy <> ANIM_LB.mvDY THEN
+        ANIM_LB.mvDX = ox: ANIM_LB.mvDY = oy
+        IF CLIP_DRAG_SLOT THEN CLIP_drag_to ox, oy ELSE ANIM_LB_move_apply
+    END IF
+    IF MOUSE.B1% THEN EXIT SUB
+    IF CLIP_DRAG_SLOT THEN ANIM_LB_move_end: EXIT SUB ' the clip's one undo step (CLIP_drag_end)
+    ' released: one undo step
+    IF ANIM_LB.mvDX <> 0 _ORELSE ANIM_LB.mvDY <> 0 THEN
+        after = ANIM_OPS_snapshot$(TRUE)
+        FOR f = 1 TO ANIM.count: IF ANIM_SEL_is%(f) THEN n = n + 1
+        NEXT f
+        ANIM_OPS_record ANIM_LB_MV_BEFORE, after, _IIF(n > 1, "Move Frame Drawings", "Move Frame Drawing"), 0
+        STATUS_flash "Moved the drawing" + _IIF(n > 1, "s of" + STR$(n) + " frames", "") + " by" + STR$(ANIM_LB.mvDX) + "," + STR$(ANIM_LB.mvDY)
+    END IF
+    ANIM_LB_move_end
+END SUB
+
+''
+' The layer = its press copy with each selected frame's cell shifted by (mvDX, mvDY).
+SUB ANIM_LB_move_apply ()
+    DIM L AS INTEGER, img AS LONG, f AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG, bx AS LONG, by AS LONG
+    DIM sx1 AS LONG, sy1 AS LONG, sx2 AS LONG, sy2 AS LONG, oldDest AS LONG
+    L = ANIM_LB.mvLayer
+    img = LAYERS(L).imgHandle&
+    IF img >= -1 _ORELSE ANIM_LB.mvImg >= -1 THEN EXIT SUB
+    IF _WIDTH(img) <> _WIDTH(ANIM_LB.mvImg) _ORELSE _HEIGHT(img) <> _HEIGHT(ANIM_LB.mvImg) THEN EXIT SUB
+    oldDest = _DEST
+    _DEST img
+    _DONTBLEND img
+    FOR f = 1 TO ANIM.count
+        IF ANIM_SEL_is%(f) _ANDALSO ANIM_cell_rect%(f, x, y, w, h) THEN
+            bx = x + LAYERS(L).apronW%: by = y + LAYERS(L).apronH%
+            LINE (bx, by)-(bx + w - 1, by + h - 1), _RGBA32(0, 0, 0, 0), BF
+            ' the part of the cell that lands inside it
+            sx1 = _MAX(0, -ANIM_LB.mvDX): sy1 = _MAX(0, -ANIM_LB.mvDY)
+            sx2 = _MIN(w - 1, w - 1 - ANIM_LB.mvDX): sy2 = _MIN(h - 1, h - 1 - ANIM_LB.mvDY)
+            IF sx2 >= sx1 _ANDALSO sy2 >= sy1 THEN
+                _PUTIMAGE (bx + sx1 + ANIM_LB.mvDX, by + sy1 + ANIM_LB.mvDY), ANIM_LB.mvImg, img, (bx + sx1, by + sy1)-(bx + sx2, by + sy2)
+            END IF
+        END IF
+    NEXT f
+    _BLEND img
+    _DEST oldDest
+    LAYERS(L).contentDirty% = TRUE
+    SAFE_FREEIMAGE LAYERS(L).apronCacheImg&: LAYERS(L).apronCacheImg& = 0
+    LAYERS(L).apronCacheValid% = FALSE
+    SYMBOL_mark_parent_dirty L
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' The arrow keys in the lightbox (B4): Ctrl+arrow, or an arrow with the Move
+' tool, nudges the selected frames' drawings as the pane Move tool drags them,
+' not the whole layer. Not with Alt (clone), a marquee selection, a floating
+' selection that has moved, or a transform: those keep the keys' own behaviour.
+FUNCTION ANIM_LB_nudge_wants% (ctrl AS INTEGER, alt AS INTEGER)
+    IF ANIM_LB_showing% = 0 _ORELSE ANIM_PLAY.playing _ORELSE ANIM_LB.mvOn THEN EXIT FUNCTION
+    IF alt _ORELSE TRANSFORM.ACTIVE THEN EXIT FUNCTION
+    IF ctrl = 0 _ANDALSO CURRENT_TOOL% <> TOOL_MOVE THEN EXIT FUNCTION
+    IF MARQUEE.ACTIVE _ANDALSO MARQUEE.USER_CREATED THEN EXIT FUNCTION
+    IF CURRENT_LAYER% < 1 _ORELSE CURRENT_LAYER% > MAX_LAYERS THEN EXIT FUNCTION
+    IF ANIM_OPS_moves%(CURRENT_LAYER%) = 0 _ANDALSO CLIP_is_clip%(CURRENT_LAYER%) = 0 THEN EXIT FUNCTION
+    IF MOVE.ACTIVE THEN
+        ' an untouched lift of the whole layer (V, or an arrow before this) is dropped
+        IF MOVE.IS_PASTE _ORELSE MOVE.GROUP_ORIGIN _ORELSE MOVE.CLONING _ORELSE MOVE.CLONE_STAMPED _ORELSE MOVE.CONTENT_FLIPPED THEN EXIT FUNCTION
+        IF MOVE.CURRENT_X <> MOVE.ORIGINAL_X _ORELSE MOVE.CURRENT_Y <> MOVE.ORIGINAL_Y _ORELSE MOVE.CURRENT_W <> MOVE.ORIGINAL_W _ORELSE MOVE.CURRENT_H <> MOVE.ORIGINAL_H THEN EXIT FUNCTION
+        MOVE_reset
+    END IF
+    ANIM_LB_nudge_wants% = TRUE
+END FUNCTION
+
+''
+' Shift the current layer's drawing in each selected frame by (ddx, ddy) canvas
+' pixels inside its cell: one undo step.
+SUB ANIM_LB_nudge (ddx AS INTEGER, ddy AS INTEGER)
+    DIM L AS INTEGER, after AS STRING, n AS INTEGER, f AS INTEGER, why AS STRING
+    why = ANIM_OPS_busy$
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    L = CURRENT_LAYER%
+    IF CLIP_is_clip%(L) THEN CLIP_move_by L, ddx, ddy: BLEND_invalidate_cache: INVALIDATE_canvas: EXIT SUB ' the clip moves, every frame
+    IF LAYERS(L).imgHandle& >= -1 THEN EXIT SUB
+    ANIM_LB.mvImg = _COPYIMAGE(LAYERS(L).imgHandle&, 32)
+    IF ANIM_LB.mvImg >= -1 THEN ANIM_LB.mvImg = 0: EXIT SUB
+    ANIM_LB_MV_BEFORE = ANIM_OPS_snapshot$(TRUE)
+    ANIM_LB.mvLayer = L
+    ANIM_LB.mvDX = ddx: ANIM_LB.mvDY = ddy
+    ANIM_LB_move_apply
+    after = ANIM_OPS_snapshot$(TRUE)
+    FOR f = 1 TO ANIM.count: IF ANIM_SEL_is%(f) THEN n = n + 1
+    NEXT f
+    ANIM_OPS_record ANIM_LB_MV_BEFORE, after, _IIF(n > 1, "Nudge Frame Drawings", "Nudge Frame Drawing"), 0
+    STATUS_flash "Nudged the drawing" + _IIF(n > 1, "s of" + STR$(n) + " frames", "") + " by" + STR$(ddx) + "," + STR$(ddy)
+    ANIM_LB_move_end
+END SUB
+
+SUB ANIM_LB_move_end ()
+    CLIP_drag_end
+    IF ANIM_LB.mvOn _ANDALSO (SMART_GUIDES.hCount% > 0 _ORELSE SMART_GUIDES.vCount% > 0) THEN SMART_GUIDES_clear: SCENE_DIRTY% = TRUE
+    ANIM_CV_MV_W = 0
+    IF ANIM_LB.mvImg < -1 THEN _FREEIMAGE ANIM_LB.mvImg
+    ANIM_LB.mvImg = 0: ANIM_LB.mvOn = FALSE
+    ANIM_LB_MV_BEFORE = ""
+END SUB

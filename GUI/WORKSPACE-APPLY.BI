@@ -16,7 +16,7 @@
 ' Hidden elements get ManuallyHidden = TRUE, so the draw-over auto-hide
 ' restore (MOUSE_handle_ui_autohide_restore) never brings them back. F11 is
 ' the escape hatch: while a workspace hides something, F11 reveals what it
-' hid and a second F11 hides it again (WS_f11%).
+' hid and a second Shift+F11 hides it again (WS_f11%). Plain F11 hides / restores everything (UIALL_toggle).
 '
 ' [START] (tool, FG, zoom) runs once after the next render, when the layout
 ' reflects the new chrome (WS_tick); it is a starting state, not undone on
@@ -43,7 +43,9 @@ CONST WS_EL_BROWSER          = 13
 CONST WS_EL_ORGANIZER        = 14
 CONST WS_EL_DRAWER           = 15
 CONST WS_EL_PALETTE_STRIP    = 16
-CONST WS_EL_COUNT            = 16
+CONST WS_EL_ANIM_PANEL       = 17
+CONST WS_EL_SWATCHES         = 18
+CONST WS_EL_COUNT            = 18
 
 ' Dock edges ([CHROME] <NAME>_DOCK=LEFT|RIGHT)
 CONST WS_DK_TOOLBOX      = 1
@@ -53,7 +55,7 @@ CONST WS_DK_ADVANCED_BAR = 4
 CONST WS_DK_CHARMAP      = 5
 CONST WS_DK_COUNT        = 5
 
-CONST WS_MAX_OPTS = 64 ' [OPTIONS] keys per workspace
+CONST WS_MAX_OPTS = 256 ' [OPTIONS] + [WINDOWS] + every panel / window key (WS_panel_keys$, WS_window_keys$)
 
 DIM SHARED WS_EL_NAME(1 TO WS_EL_COUNT) AS STRING
 DIM SHARED WS_DK_NAME(1 TO WS_DK_COUNT) AS STRING
@@ -73,6 +75,8 @@ WS_EL_NAME(WS_EL_BROWSER) = "BROWSER"
 WS_EL_NAME(WS_EL_ORGANIZER) = "ORGANIZER"
 WS_EL_NAME(WS_EL_DRAWER) = "DRAWER"
 WS_EL_NAME(WS_EL_PALETTE_STRIP) = "PALETTE_STRIP"
+WS_EL_NAME(WS_EL_ANIM_PANEL) = "ANIM_PANEL"
+WS_EL_NAME(WS_EL_SWATCHES) = "SWATCHES"
 WS_DK_NAME(WS_DK_TOOLBOX) = "TOOLBOX_DOCK"
 WS_DK_NAME(WS_DK_LAYER_PANEL) = "LAYER_PANEL_DOCK"
 WS_DK_NAME(WS_DK_EDIT_BAR) = "EDIT_BAR_DOCK"
@@ -85,9 +89,17 @@ DIM SHARED WS_ACTIVE_ID    AS STRING  ' its id ("annotate"); "default" when none
 DIM SHARED WS_CURRENT_DIRTY AS INTEGER ' the CURRENT workspace was saved to this session (the exit prompt offers a name)
 DIM SHARED WS_ACTIVE_TITLE AS STRING  ' its display name ("Annotate")
 DIM SHARED WS_REVEALED     AS INTEGER ' TRUE after F11 showed what the workspace hid
+' F11 (action 403, UIALL_toggle): hide every panel, then put back exactly what
+' was showing. Never touches CFG (so a CONFIG_save while hidden saves the real
+' state) and never a workspace's file.
+DIM SHARED UIALL_HIDDEN  AS INTEGER ' TRUE while F11 has the UI hidden
+DIM SHARED UIALL_VIS(1 TO WS_EL_COUNT) AS INTEGER ' what each element was before F11
+DIM SHARED UIALL_MH(1 TO WS_EL_COUNT)  AS INTEGER ' and its ManuallyHidden flag
+DIM SHARED UIALL_TBED    AS INTEGER ' the Customize Toolbars window was open
 DIM SHARED WS_START_PENDING AS INTEGER ' [START] waits for the next render (WS_tick)
 DIM SHARED WS_GUARD_BYPASS AS INTEGER ' CONFIG_save writes raw (snapshot capture)
 DIM SHARED WS_GUARD_ON     AS INTEGER ' inside a guarded CONFIG_save
+DIM SHARED WS_CFG_LIVE     AS DRAW_CONFIG ' the live config while a guarded CONFIG_save writes the user's values
 WS_ACTIVE_ID = "default"
 WS_ACTIVE_TITLE = "Default"
 
@@ -96,6 +108,7 @@ WS_ACTIVE_TITLE = "Default"
 ' ManuallyHidden, and the persisted CFG *_VISIBLE field where one exists).
 DIM SHARED WS_EL_TOUCHED(1 TO WS_EL_COUNT) AS INTEGER
 DIM SHARED WS_EL_WANT(1 TO WS_EL_COUNT)    AS INTEGER
+DIM SHARED WS_EL_NAMED(1 TO WS_EL_COUNT)     AS INTEGER ' the file names it: apply sets it (else it starts as it is)
 DIM SHARED WS_EL_SNAP_VIS(1 TO WS_EL_COUNT) AS INTEGER
 DIM SHARED WS_EL_SNAP_MH(1 TO WS_EL_COUNT)  AS INTEGER
 DIM SHARED WS_EL_SNAP_CFG(1 TO WS_EL_COUNT) AS INTEGER
@@ -103,6 +116,7 @@ DIM SHARED WS_EL_HOLD_CFG(1 TO WS_EL_COUNT) AS INTEGER ' guard scratch
 
 DIM SHARED WS_DK_TOUCHED(1 TO WS_DK_COUNT) AS INTEGER
 DIM SHARED WS_DK_WANT(1 TO WS_DK_COUNT)    AS STRING
+DIM SHARED WS_DK_NAMED(1 TO WS_DK_COUNT)     AS INTEGER ' the file names its side
 DIM SHARED WS_DK_SNAP(1 TO WS_DK_COUNT)    AS STRING
 DIM SHARED WS_DK_HOLD(1 TO WS_DK_COUNT)    AS STRING ' guard scratch
 
@@ -112,9 +126,30 @@ DIM SHARED WS_OPT_KEY(1 TO WS_MAX_OPTS)  AS STRING
 DIM SHARED WS_OPT_VAL(1 TO WS_MAX_OPTS)  AS STRING
 DIM SHARED WS_OPT_ORIG(1 TO WS_MAX_OPTS) AS STRING
 DIM SHARED WS_OPT_HAD(1 TO WS_MAX_OPTS)  AS INTEGER ' the user's config had the key
+' what kind of entry: an [OPTIONS] key, a [WINDOWS] key, a panel key ([PANELS]
+' or followed - WS_panel_keys$), a floating window's place followed (WS_window_keys$)
+CONST WS_OK_OPTION = 0
+CONST WS_OK_WINDOW = 1
+CONST WS_OK_PANEL  = 2
+CONST WS_OK_WINLIVE = 3
+DIM SHARED WS_OPT_KIND(1 TO WS_MAX_OPTS) AS INTEGER
+DIM SHARED WS_OPT_SEEN(1 TO WS_MAX_OPTS) AS STRING ' panel / window keys: the value last seen (WS_panels_poll)
+' Panel state in a workspace (2026-11-14, Rick: "workspaces need to remember
+' their scales for the panels, the zooms of the panel states ... the size,
+' height, width" / "when someone saves a workspace it should be 100%
+' recallable, even the panel configurations themselves"): while a workspace
+' is active every panel key is in the overlay - DRAW.cfg keeps the user's own
+' values, and a change made in the workspace is saved into it (WS_panels_poll).
+DIM SHARED WS_PANELS_ON   AS INTEGER ' the panel / window keys are in the overlay
+DIM SHARED WS_POLL_WANT   AS INTEGER ' something may have changed: look (CONFIG_save, a click / wheel ended)
+DIM SHARED WS_POLL_BASE   AS INTEGER ' the next look only records what is live (just applied)
+DIM SHARED WS_POLL_FRAME  AS LONG    ' frames since the last look
+DIM SHARED WS_POLL_SAVES  AS LONG    ' QA: how many saves the looks made
+DIM SHARED WS_STATE_SEEN  AS STRING  ' the whole layout as the last look saw it (WS_layout_state$)
 
 DIM SHARED WS_TB_TOUCHED AS INTEGER ' [TOOLBOX] rewrote the toolbar layout / icons
 DIM SHARED WS_LW_TOUCHED AS INTEGER ' [CHROME] LAYER_PANEL_WIDTH set the layers panel width
+DIM SHARED WS_WIN_TOUCHED AS INTEGER ' [WINDOWS] placed the floating windows (they go back on leaving)
 DIM SHARED WS_DOCK_TOUCHED AS INTEGER ' the workspace replaced the dock arrangement ([DOCK], or classic sides over a custom tree)
 DIM SHARED WS_DOCK_USER_SNAP AS STRING ' the user's arrangement from before (DOCK_snapshot$), put back by WS_restore
 ' [KEYS]: single-key overlay, checked by INPUT_dispatch_frame BEFORE the
@@ -138,6 +173,7 @@ CONST WS_ACT_RELOAD    = 2403 ' Rescan workspace files (menu + palette rebuilt)
 CONST WS_ACT_LEAVE     = 2404 ' Back to Default
 CONST WS_ACT_SAVE_AS   = 2405 ' Save Current Layout As... (new workspace from what is on screen)
 CONST WS_ACT_UPDATE    = 2406 ' Update the active workspace from the current layout
+CONST WS_ACT_REVEAL    = 2407 ' Shift+F11: show what the workspace hid / hide it again (WS_f11%)
 CONST WS_ACT_SLOT0     = 2409 ' + n = switch to WS_LIST(n), n = 1..WS_MAX (2410-2441)
 CONST WS_CMD_PREFIX$   = "Workspace: "
 

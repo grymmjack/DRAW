@@ -27,6 +27,8 @@ CONST FILL_ADJ_DRAG_UNIFORM = 2   ' Dragging corner handle = uniform scale
 CONST FILL_ADJ_DRAG_SCALE_X = 3   ' Dragging horizontal arm = scale X only
 CONST FILL_ADJ_DRAG_SCALE_Y = 4   ' Dragging vertical arm = scale Y only
 CONST FILL_ADJ_DRAG_ROTATE  = 5   ' Dragging rotation handle = rotate tile
+CONST FILL_ADJ_DRAG_DITHER  = 6   ' D held + drag = move the dither pattern
+CONST FILL_ADJ_ROT_SNAP     = 15  ' Ctrl + rotate drag: degrees a step
 
 TYPE FILL_ADJ_OBJ
     ENABLED        AS INTEGER ' Toggle: F8 latches this on/off
@@ -86,4 +88,29 @@ DIM SHARED FILL_ADJ             AS FILL_ADJ_OBJ
 DIM SHARED FILL_ADJ_POLY_X(999) AS INTEGER
 DIM SHARED FILL_ADJ_POLY_Y(999) AS INTEGER
 DIM SHARED FILL_ADJ_ICON_HANDLE AS LONG ' Loaded PNG widget handle (0 = not loaded, -1 = no file)
+
+' The fill's own dither (BUGS.md 2026-11-15), set while a fill is adjusted:
+'   D tap = cycle the mode (the per-pixel ones, then the error diffusions
+'   Floyd-Steinberg ... Shiau-Fan: FILL_ADJ_render_paint_mode), D+wheel =
+'   amount, D+drag = move the pattern, D+Shift+1-9 = save a preset, D+1-9 =
+'   recall it. A gradient fill takes it in place of the gradient's own dither
+'   (the gradient is not changed); a pattern / brush fill is thinned by it
+'   (amount = how much of the fill stays). Kept in DRAW.cfg (FILL_DITHER,
+'   FILL_PRESETS), so it is the same on the next fill and the next run.
+TYPE FILL_DITHER_OBJ
+    mode   AS INTEGER ' GJ_IMGADJ_DITHER_* (per-pixel or error diffusion), or DITHER_NONE = off (a gradient keeps its own)
+    amount AS SINGLE  ' 0..1
+    ox     AS INTEGER ' the pattern's offset, canvas px
+    oy     AS INTEGER
+    sox    AS INTEGER ' the offset when the D+drag began
+    soy    AS INTEGER
+    baseW  AS SINGLE  ' the fill's tile when it began (a preset keeps its scale, not a size)
+    baseH  AS SINGLE
+    dDown  AS INTEGER ' D held while a fill is adjusted (FILL_ADJ_keys%)
+    dUsed  AS INTEGER ' ...with the wheel / a drag / a digit: no cycle when D goes up
+    ovr    AS INTEGER ' the gradient resolver takes this dither (FILL_ADJ_render_paint_mode)
+    loaded AS INTEGER ' read from the cfg (FILL_DITHER_load)
+END TYPE
+DIM SHARED FILL_DITHER AS FILL_DITHER_OBJ
+DIM SHARED FILL_PRESET(1 TO 9) AS STRING ' "mode,amount%,ox,oy,rotation,scaleX%,scaleY%,originX,originY" or ""
 

@@ -27,7 +27,17 @@ only remembers *which* workspace you were in, so it reopens there.
 | --- | --- |
 | **Default** | The stock panel layout. No overlay. Always there; can't be deleted. Moving or resizing panels in it starts a workspace of your own (see below). |
 | **Simple** | Everyday drawing: a 2-column toolbox of 10 tools, File / Edit / View / Help menus, no advanced bar or power panels. |
+| **Animate** | Frame-by-frame animation: the lightbox (strip, transport bar, the frames before and after side by side) with onion skin and the frame grid, and the Animation panel; the character map, 3D color space and browser are put away. On a picture without frames, `Num +` makes frames and the lightbox opens on them. |
+| **Sprite** | One sprite or a short loop: the Preview (showing the current frame), the Animation panel, the Drawer and Swatches; the frame grid on, no lightbox or onion skin; the Brush; no EFFECTS / AUDIO menus. |
+| **Scene** | A scene of clips and layers: Big Frame + X-sheet (the lightbox as one large pane, the X-sheet under it), the Animation panel, the Drawer and the layers; onion skin off; the Move tool; every menu. |
 | **Annotate** | Screenshot markup: a 1-column annotation toolbox docked left, a trimmed edit bar, the palette strip, single-key annotation tools, Rect in red, zoomed to fit. Capture Screen lands here. |
+| **Photoshop** | Toolbox, organizer and Drawer on the left with the edit bar; Preview, Swatches and Layers stacked on the right; an 8-row color strip. |
+| **DPaint** | The other way round: toolbox, organizer and Swatches on the right; the workflow buttons, Preview and Layers on the left, the Drawer in a narrow column; an 8-row color strip. |
+| **Kitchen Sink** | Nearly every panel at once: Color Mixer, Advanced Color Picker, Pen Pressure, Animation, Swatches and Preview docked, the Browser in a band along the bottom. |
+| **Max Art** | The Kitchen Sink arrangement with only the drawing panels showing (toolbox, organizer, Drawer, Layers, both bars), for the most canvas; an 8-row color strip. |
+| **Panel Floats** | Every panel floating: no docks at all. |
+| **GJ** | Toolbox and edit bar on the left, everything else docked on the right in tabbed stacks: color panels (Mixer, Advanced Picker, 3D Color Space), Pen / Animation, Swatches, Drawer, Preview, Layers. |
+| **Default 2** | The classic layout from the dock keys with a 4-column toolbox; a starting point to make your own. |
 
 ### Switching
 
@@ -39,14 +49,44 @@ only remembers *which* workspace you were in, so it reopens there.
 | **`[WS: name]` badge** | At the right end of the status bar; click it to open the switcher |
 | `DRAW --workspace annotate shot.png` | Start in a workspace **for this run only** (not remembered) |
 | `DRAW --workspaces` | List the workspaces (the remembered one is starred) and exit |
+| **Workflow buttons** | The labelled buttons above the toolbox (below) |
 
 **There is always a way back.** Whatever a workspace hides:
 - `Ctrl+Shift+W` and the command palette still work.
-- **`F11`** shows everything the workspace hid, and a second `F11` hides it again. Outside a workspace, `F11` toggles all UI as before.
+- **`Shift+F11`** shows everything the workspace hid, and a second `Shift+F11` hides it again. **`F11`** hides all UI here as everywhere, and a second `F11` brings back exactly the workspace's layout.
 - Hidden commands keep their keys. Hiding means "not shown", not "disabled".
 
 Things you toggle while in a workspace (opening the Color Mixer, say) last for
 that session. To make them part of the workspace, save the layout (below).
+
+### Workflow buttons
+
+![Workflow buttons](images/ch22-workflow-buttons.png)
+
+The workflow buttons are a panel of their own, docked above the toolbox at its
+width. It has one button per workspace - by default **SPRITE**, **ANIMATE**,
+**SCENE** and **ANNOTATE**. Click one to switch to that workspace; it lights
+while you are in it. Click the lit one again to go back to Default.
+
+Like any panel you can drag it by its handle to another column or edge, float
+it, or give it its own **Scale**. The buttons fill the width they get: as many
+labelled columns as fit, and in a column one button wide each button shows
+only its workspace's first letter. It hides with the toolbox (Tab).
+
+Right-click a button to change the buttons:
+- pick the workspace it opens (every workspace is listed, yours too);
+- **Move Left / Move Right**;
+- **Add a Button** (after this one; it takes the first workspace not already on a button);
+- **Remove This Button**;
+- **Hide Workflow Buttons**. **View → Workflow Buttons** brings them back;
+- **Float** / **Dock Back** and **Scale**, as on the panel's own menu
+  (right-click between the buttons).
+
+The command palette has **Workflow Button 1** to **8** (type `workflow button 2`).
+The buttons are the same in every workspace: they are saved
+in `DRAW.cfg` as `WORKFLOW_BUTTONS=sprite,animate,scene,annotate` (and
+`WORKFLOW_BAR=1` or `0`). A button's label is the workspace's `SHORT=` name, or
+its name when it has none.
 
 ### Arranging and saving a layout
 
@@ -100,7 +140,7 @@ Pressure and Browser windows.
 | **Click a collapsed title** | Opens it again (click one of its tabs to open on that tab) |
 | **Double-click a floating panel's title** | Docks it back where it was |
 | **Drag a floating panel's right or bottom edge, or its corner** | Resizes it; a bar adds icon columns as it gets wider |
-| **Right-click a handle** | Move to Left Edge / Move to Right Edge, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement |
+| **Right-click a handle** | Move to Left Edge / Move to Right Edge, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement, and Scale (Auto or 1×–4×) on the Animation, Color Mixer, color picker, 3D Color Space, Pen Pressure and Swatches panels |
 
 **The Browser can also dock along the top or bottom** of the canvas area (the one
 exception to left/right docking): drag its title bar to the top or bottom of
@@ -123,7 +163,7 @@ of another one. Turn it off to move floating panels freely.
 A floating toolbox or drawer stops growing once its buttons or bins all show,
 so no empty space is left beside or under them.
 
-**Lock Layout** (View → Lock Layout, `Ctrl+Shift+L`) freezes the whole
+**Lock Workspace** (View → Lock Workspace, `Ctrl+Shift+L`) freezes the whole
 arrangement, so a shaky pen can't drag, dock or resize a panel by accident.
 Clicks, tabs and buttons still work.
 
@@ -168,11 +208,31 @@ session, DRAW offers to keep it under a name:
 You can switch to any workspace and come back to yours later. "Current" and
 "Default" are reserved names.
 
+**A workspace remembers its whole layout.** Inside a workspace, everything you
+change about the panels is saved into that workspace straight away, whether
+you use the mouse, a key or the command palette:
+- which panels show (F11 and Shift+F11 hide and show for the moment only,
+  and aren't saved)
+- where each panel is docked: the side, the column, the order, the tabs,
+  the sizes, the floating panels
+- the toolbox and bar columns, and the Layers panel's width
+- where each floating window sits and how big it is, also for windows that
+  aren't showing
+- each panel's Scale and zoom (Ctrl+wheel over the Drawer bins, the Preview,
+  the X-sheet, the 3D view, the Browser's thumbnails), its columns or view,
+  and the choices in its menus. That includes the color strip's size menu,
+  the Swatches panel's set and options, the Pen Pressure settings, the
+  workflow buttons and the lightbox. Each workspace has its own workflow
+  buttons, so the bar can change when you switch.
+
+Your own settings (Default) don't change. When you switch back to the workspace,
+or restart DRAW in it, the layout comes back exactly as you left it.
+
 **Save what's on screen** from **View → Workspace ▸**:
 
 | Item | Does |
 | --- | --- |
-| **Save Current Layout As…** | Asks for a name and saves a new workspace exactly as you see it: which panels show, dock sides, columns and widths. When you're in a workspace, its toolbox buttons, menus and keys come along. DRAW switches to it. |
+| **Save Current Layout As…** | Asks for a name and saves a new workspace exactly as you see it: which panels show, dock sides, columns and widths, the floating panels, and where each floating window (Preview, Color Mixer, pickers, Pen, Animation, Swatches, Browser) sits and how big it is, and every panel's own setup: its Scale, its zoom (Drawer bins, Preview, X-sheet, 3D view, Browser thumbnails), its columns and view, the color strip's rows and chip size, and the choices in each panel's menu. When you're in a workspace, its toolbox buttons, menus and keys come along. DRAW switches to it. |
 | **Update Workspace From Layout** | Saves the current layout into the active workspace (a user copy for a built-in) |
 
 The configurator's **Toolbox** and **Bars** tabs also have a **Customize
@@ -281,6 +341,7 @@ Workspaces are plain `.workspace` text files, INI style:
 [WORKSPACE]
 NAME=Annotate
 DESCRIPTION=Mark up screenshots
+SHORT=ANNOTATE           ; the workflow button's label (optional)
 BASED_ON=default          ; inherit another workspace, override only what you list
 
 [CHROME]                  ; SHOW | HIDE | KEEP
@@ -335,6 +396,17 @@ RIGHT.1=WIDTH:180; layers@2 | *preview+colormixer | !browser
 
 [FLOAT]                   ; floating panels: x,y,w,h in window pixels
 pen=640,120,220,300
+
+[WINDOWS]                 ; where the floating windows sit (DRAW.cfg keys);
+SWATCHES_X=270            ; leaving the workspace puts yours back
+SWATCHES_Y=230
+COLOR_MIXER_X=420
+COLOR_MIXER_Y=75
+
+[PANELS]                  ; each panel's own setup (DRAW.cfg keys): scales,
+EDIT_BAR_SCALE=1          ; zooms, columns, views, menu choices; written by
+DRAWER_BIN_COLS=4         ; Save Current Layout and by any change you make
+PALETTE_MAX_ROWS=1        ; in the workspace; leaving puts yours back
 ```
 
 You rarely type `[DOCK]` yourself: arrange the panels by hand and use **Update
@@ -447,7 +519,7 @@ you were. Bind it to a key:
 
 | Problem | Fix |
 | --- | --- |
-| A workspace hid the menu bar and I'm stuck | `Ctrl+Shift+W` → Default, or `F11` to show everything |
+| A workspace hid the menu bar and I'm stuck | `Ctrl+Shift+W` → Default, or `Shift+F11` to show everything it hid |
 | My panels came back wrong after leaving a workspace | Leaving restores the state from when you *entered*; toggles made inside it are dropped by design |
 | Capture says "no screen capture tool found" | Install the tool for your desktop (see the table above) or set a Custom Command |
 | The capture includes DRAW's window | Raise the Capture Delay (the window may need longer to fade on your desktop) |

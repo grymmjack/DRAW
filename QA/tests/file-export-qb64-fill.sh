@@ -25,7 +25,7 @@ QF_WORK="$(mktemp -d)"
 QB64PE_BIN="${QB64PE:-$HOME/git/qb64pe/qb64pe}"
 
 qf_cleanup() {
-    [[ -n "$QF_KEEP" ]] && { info "QF_KEEP: left $QF_BAS and $QF_WORK"; return; }
+    [[ -n "${QF_KEEP:-}" ]] && { info "QF_KEEP: left $QF_BAS and $QF_WORK"; return; }
     rm -rf "$QF_WORK" "$QF_DIR/${QF_NAME}_ASSETS"
     rm -f "$QF_BAS" "$QF_BMP"
 }

@@ -144,6 +144,7 @@ SUB PREVIEW_toggle ()
         PREVIEW.visible%            = TRUE
         SCRN.showPreviewWindow%     = TRUE
         SCRN.previewManuallyHidden% = FALSE
+        PREVIEW.autoHidden%         = FALSE ' shown means shown (a stroke's auto-hide)
         IF PREVIEW.minimized% THEN PREVIEW.minimized% = FALSE
         IF NOT PREVIEW.positioned% THEN
             PREVIEW_auto_position
@@ -446,11 +447,18 @@ SUB PREVIEW_render ()
                     bqlImg& = DRAWER_GRADIENT_SLOTS(bqlSlot%)
             END SELECT
             IF bqlImg& < -1 THEN
-                ' Slot has content — activate quick look
-                IF bqlSlot% <> PREVIEW.binQuickLookSlot% OR DRAWER.mode% <> PREVIEW.binQuickLookMode% THEN
+                ' Slot has content — activate quick look (an AnimBrush bin plays: its cel now)
+                DIM bqlCel AS INTEGER : bqlCel% = 0
+                IF DRAWER.mode% = DRAWER_MODE_BRUSH THEN bqlCel% = AB_slot_cel_now%(bqlSlot%)
+                IF bqlSlot% <> PREVIEW.binQuickLookSlot% OR DRAWER.mode% <> PREVIEW.binQuickLookMode% OR bqlCel% <> AB_QL_CEL THEN
                     ' Different slot — free old temp image and create new one
                     IF PREVIEW.binQuickLookImg& < -1 THEN SAFE_FREEIMAGE PREVIEW.binQuickLookImg&
-                    PREVIEW.binQuickLookImg&  = _COPYIMAGE(bqlImg&, 32)
+                    IF bqlCel% > 0 THEN
+                        PREVIEW.binQuickLookImg& = AB_slot_cel_img&(bqlSlot%, bqlCel%)
+                    ELSE
+                        PREVIEW.binQuickLookImg& = _COPYIMAGE(bqlImg&, 32)
+                    END IF
+                    AB_QL_CEL                 = bqlCel%
                     PREVIEW.binQuickLookSlot% = bqlSlot%
                     PREVIEW.binQuickLookMode% = DRAWER.mode%
                 END IF
@@ -642,14 +650,16 @@ SUB PREVIEW_render ()
                     NEXT bqlR%
                 END IF
             ELSEIF PREVIEW.binQuickLookMode% = DRAWER_MODE_BRUSH THEN
-                ' Brush: scale down to fit, but never scale up (show at native size if smaller)
+                ' Brush: fit the pane. A small one grows by whole steps, so pixel
+                ' art stays crisp (a 7x5 brush shows at 7x5 x N, not 7x5); a big one
+                ' shrinks to fit.
                 DIM bqlBW    AS SINGLE : bqlBW! = pvSrcW&
                 DIM bqlBH    AS SINGLE : bqlBH! = pvSrcH&
                 DIM bqlScale AS SINGLE
                 DIM bqlFitW  AS SINGLE : bqlFitW! = contentW% / bqlBW!
                 DIM bqlFitH  AS SINGLE : bqlFitH! = contentH% / bqlBH!
                 IF bqlFitW! < bqlFitH! THEN bqlScale! = bqlFitW! ELSE bqlScale! = bqlFitH!
-                IF bqlScale! > 1.0 THEN bqlScale! = 1.0
+                IF bqlScale! >= 1.0 THEN bqlScale! = INT(bqlScale!)
                 DIM bqlDW    AS INTEGER : bqlDW% = INT(bqlBW! * bqlScale!)
                 DIM bqlDH    AS INTEGER : bqlDH% = INT(bqlBH! * bqlScale!)
                 IF bqlDW% < 1 THEN bqlDW% = 1
@@ -657,10 +667,14 @@ SUB PREVIEW_render ()
                 DIM bqlBX    AS INTEGER : bqlBX% = cx1% + (contentW% - bqlDW%) \ 2
                 DIM bqlBY    AS INTEGER : bqlBY% = cy1% + (contentH% - bqlDH%) \ 2
                 _PUTIMAGE (bqlBX%, bqlBY%)-(bqlBX% + bqlDW% - 1, bqlBY% + bqlDH% - 1), pvSrcImg&, PREVIEW.imgHandle&, (0, 0)-(pvSrcW& - 1, pvSrcH& - 1)
+                PREVIEW.binQuickLookDrawW% = bqlDW%: PREVIEW.binQuickLookDrawH% = bqlDH%
             ELSE
                 ' Gradient or other: stretch to fit (existing behavior)
                 _PUTIMAGE (cx1%, cy1%)-(cx2%, cy2%), pvSrcImg&, PREVIEW.imgHandle&, (srcX1!, srcY1!)-(srcX2!, srcY2!)
             END IF
+        ELSEIF PREVIEW.mode% <> PREVIEW_MODE_FLOAT _ANDALSO ANIM_VIEW_preview_frame% THEN
+            ' ====== ANIMATION: the current frame, fitted (plays with playback) ======
+            ANIM_VIEW_preview_blit pvSrcImg&, PREVIEW.imgHandle&, cx1%, cy1%, cx2%, cy2%
         ELSEIF SCRN.patternTileMode% AND PREVIEW.mode% <> PREVIEW_MODE_FLOAT THEN
             ' ====== TILED (SEAMLESS PATTERN) PREVIEW ======
             ' The canvas is in seamless-tile mode, so mirror it here — simply, like
@@ -727,7 +741,7 @@ SUB PREVIEW_render ()
         END IF
 
         ' --- Center tracking crosshair in follow mode ---
-        IF PREVIEW.followPointer% AND PREVIEW.mode% = PREVIEW_MODE_FOLLOW AND NOT PREVIEW.binQuickLookActive% THEN
+        IF PREVIEW.followPointer% AND PREVIEW.mode% = PREVIEW_MODE_FOLLOW AND NOT PREVIEW.binQuickLookActive% _ANDALSO ANIM_VIEW_preview_frame% = 0 THEN
             DIM cdx  AS INTEGER        : cdx% = cx1% + contentW% \ 2
             DIM cdy  AS INTEGER        : cdy% = cy1% + contentH% \ 2
             DIM dotC AS _UNSIGNED LONG : dotC~& = THEME.PREVIEW_center_dot_color~&
@@ -1364,6 +1378,16 @@ SUB PREVIEW_mouse_scroll (delta AS INTEGER)
     IF NOT PREVIEW.visible%    THEN EXIT SUB
     IF PREVIEW.minimized%      THEN EXIT SUB
     IF NOT PREVIEW_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN EXIT SUB
+
+    ' Showing the current animation frame: that view has its own zoom
+    IF PREVIEW.mode% <> PREVIEW_MODE_FLOAT _ANDALSO ANIM_VIEW_preview_frame% THEN
+        PREVIEW_compute_display
+        DIM afRS AS SINGLE : afRS! = PREVIEW.renderScale!
+        IF afRS! <= 0 THEN afRS! = 1
+        DIM afX AS INTEGER : afX% = INT((MOUSE.RAW_X% - PREVIEW.x%) / afRS!)
+        DIM afY AS INTEGER : afY% = INT((MOUSE.RAW_Y% - PREVIEW.y%) / afRS!)
+        IF ANIM_VIEW_preview_zoom%(delta%, afX%, afY%) THEN SCENE_DIRTY% = TRUE: EXIT SUB
+    END IF
 
     DIM oldZoom AS SINGLE : oldZoom! = PREVIEW.zoom!
     IF delta% < 0 THEN

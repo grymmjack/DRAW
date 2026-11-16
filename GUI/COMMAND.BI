@@ -12,8 +12,8 @@ OPTION _EXPLICITARRAY
 '$DYNAMIC
 
 ' Maximum number of commands and search results
-CONST CMD_MAX_COMMANDS = 512 ' generous headroom: CMD_init registers 260+ commands; the
-                             ' old 256 cap silently dropped the last few (CMD_register EXIT SUB guard)
+CONST CMD_MAX_COMMANDS = 1024 ' headroom: CMD_init registers 530+ commands (2026-11-12). Past the cap
+                              ' CMD_register drops the rest (logged) - 256, then 512, both did that
 CONST CMD_MAX_VISIBLE = 15
 CONST CMD_MAX_SEARCH  = 64
 

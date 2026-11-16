@@ -12,15 +12,17 @@
 
 | Format | Shortcut / menu |
 | --- | --- |
-| Image (PNG / BMP / JPG / GIF) | `Ctrl+O` |
+| Image (PNG / BMP / JPG / GIF) | `Ctrl+O` (a sprite sheet PNG with its `.json` frame data beside it - Aseprite, TexturePacker, DRAW - opens with its frames; otherwise ANIM → Set Up → Detect Frames slices it at its gaps) |
 | Project (`.draw`) | `Alt+O` |
-| Aseprite (`.ase` / `.aseprite`) | File → Open Aseprite |
+| Aseprite (`.ase` / `.aseprite`) | File → Open Aseprite (two or more frames open as animation frames on a sheet, with their durations, tags and linked cels) |
 | Photoshop (`.psd`) | File → Open Photoshop |
 | DeluxePaint (`.lbm` / `.iff`, ILBM or PBM) with cycle ranges | `Ctrl+O`, or File → Color Cycling → Open DeluxePaint / GrafX2 File |
 | GrafX2 GIF with cycle ranges | `Ctrl+O` (the ranges come along automatically) |
 | Import Image (oversized, interactive placement) | File → Import Image |
 | Drag-and-drop file onto window | Windows |
 | Command-line argument | `DRAW path/to/file.draw` |
+
+**The Browser's preview** (View → Browser, and the File → Open dialog) shows the picture of the file you select — `.draw` projects too. An animated GIF or APNG, or a PNG / `.draw` with frames, plays there at its own speed (GIF and APNG delays; a sheet's FPS and holds), with a play / pause box and a seek track under it: click the box to pause or play, click the track to jump to a frame, drag along it to scrub.
 
 ### Save options
 
@@ -42,7 +44,7 @@ Whatever way you open a file — File → Open, Recent Files, the command line (
 | --- | --- |
 | `art.draw` | `art.draw` |
 | `art.png` | `art.png`, with your layers hidden inside (it is still a normal PNG everywhere else) |
-| `art.gif` / `.bmp` / `.jpg` / `.tga` / `.qoi` / `.ico` / `.hdr` | **Save .draw Beside Images** on (default): `art.draw` next to it, `art.gif` untouched.<br>Off: `art.gif` itself, flattened, in its own format. |
+| `art.gif` / `.bmp` / `.jpg` / `.tga` / `.qoi` / `.ico` / `.hdr` | **Save .draw Beside Images** on (default): `art.draw` next to it, `art.gif` untouched.<br>Off: `art.gif` itself, flattened, in its own format (an animated GIF opened as frames is written back as an animated GIF). |
 | `art.psd` / `.aseprite` / `.lbm` / `.ans` | **on:** `art.draw` next to it. **Off:** asks where to save (DRAW cannot write these formats). |
 
 The setting is in **Settings → General → Saving**, or `SAVE_DRAW_SIDECAR=TRUE/FALSE` in `DRAW.cfg` (`--option SAVE_DRAW_SIDECAR=FALSE` for one run).
@@ -52,6 +54,8 @@ The setting is in **Settings → General → Saving**, or `SAVE_DRAW_SIDECAR=TRU
 The **Recent Files** list holds up to 10 entries with quick-jump shortcuts `Alt+1` … `Alt+0`.
 
 `File → New from Template…` reads from `ASSETS/TEMPLATES/` and gives you a starter canvas with appropriate dimensions, palette, and grid for common targets (NES sprite, Game Boy tile, Lospec sheet, etc.).
+
+`ASSETS/TEMPLATES/ANIMATION/` holds animation starters - 16x16, 32x32, 64x64 and 128x128 with 8 blank frames, 320x200 with 4 - that open with their frames already set up, so the ANIM menu, the lightbox (`Num 0`) and the frame keys work straight away. On any other picture, `ANIM → Frames → Add Frame` (`Num +`) makes frames 1 and 2; until then the frame commands are greyed out.
 
 <div class="page-break"></div>
 
@@ -151,6 +155,20 @@ DRAW old.lbm  --export old.draw          # DeluxePaint -> DRAW, ranges included
 ```
 
 `--cycle LO-HI[:STEPS_PER_SECOND[:fwd|rev|ping]]` adds a range and can be repeated. DRAW exits after the work is done, with status 0 on success. `DEV/tools/make-cycle-examples.sh` builds the scenes in `SAMPLES/COLOR CYCLING/` this way.
+
+A sheet with frames exports its animation the same way. `--export` and `--export-anim` can be repeated, so one run writes every format:
+
+```bash
+DRAW walk.draw --export-anim walk.gif --export-anim walk.apng --export-anim walk.json
+DRAW walk.draw --export-anim walk.png          # PNG sequence walk_0001.png ... (one per tick at the FPS)
+DRAW walk.draw --export-anim walk.bas          # QB64 player, the frames in DATA
+DRAW walk.draw --export-anim walk.sheet.bas    # the player + walk.sheet.png it cuts the frames from
+DRAW walk.draw --export walk.png --option ANIM_EXPORT_SCALE=2 --export-anim walk.gif
+DRAW walk.draw --tag jump --export-anim jump.gif   # just the frames tagged "jump"
+DRAW --sequence frames/run_0001.png --export-anim run.gif   # a numbered PNG sequence as frames
+```
+
+`.gif` and `.bas` mean the frames only with `--export-anim` (with `--export` they are the color cycling formats); `.apng`, `.json` and `.sheet.bas` work with either flag, and `--export walk.png` writes the picture flattened. Each export prints one line - `wrote PATH (summary)` or `FAILED PATH: why` - and the exit status is 1 when any of them failed. `--tag NAME` limits the animated exports to that tag's frames (the sprite sheet still has every frame and lists the tags); a name the document doesn't have fails the run before anything is written. `--sequence` opens the file named with all its numbered siblings (`run_0001.png`, `run_0002.png` ... or `run1.png` ... `run10.png`) as frames, in number order; a file the same as the one before it becomes a held frame (ANIM → Set Up → Import PNG Sequence... does the same from the menu). A document with a soundtrack (ANIM → Soundtrack...) exports its BAS players with the sound copied beside them as `walk-sound.ogg` (named after the `.bas`), and the program plays it in step with the frames; keep the two together. The batch runs in DRAW's own window for a moment, so on a server run it under Xvfb.
 
 <div class="page-break"></div>
 

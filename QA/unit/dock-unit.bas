@@ -102,6 +102,17 @@ CHECK DPANEL(DP_PEN).fl _ANDALSO DPANEL(DP_PEN).fw = 30, "float restored"
 DOCK_load_snapshot "CUSTOM=0" + CHR$(10)
 CHECK DOCK_CUSTOM = FALSE _ANDALSO DOCK_col_at%(DOCK_LEFT, 1) = 0, "CUSTOM=0 = default tree"
 CHECK DPANEL(DP_PEN).fl = FALSE, "floats cleared"
+' every docked panel floating: no column at all is still a custom arrangement
+' (it used to read as "no tree" and dock them all again - 2026-11-14)
+DOCK_load_snapshot "CUSTOM=1" + CHR$(10) + "FLOAT.toolbox=10,20,98,180" + CHR$(10) + "FLOAT.layers=300,20,122,260" + CHR$(10)
+CHECK DOCK_CUSTOM, "all floating (no column) stays custom"
+CHECK DOCK_col_at%(DOCK_LEFT, 1) = 0 _ANDALSO DOCK_col_at%(DOCK_RIGHT, 1) = 0, "all floating: no column"
+CHECK DPANEL(DP_TOOLBOX).fl _ANDALSO DPANEL(DP_TOOLBOX).slot = 0 _ANDALSO DPANEL(DP_TOOLBOX).fx = 10, "all floating: the toolbox floats where it was"
+snap = DOCK_snapshot$
+CHECK INSTR(snap, "CUSTOM=1") = 1 _ANDALSO INSTR(snap, "LEFT.") = 0 _ANDALSO INSTR(snap, "FLOAT.layers=300,20,122,260") > 0, "all floating round trip, got [" + snap + "]"
+' a native window's float line alone is not an arrangement
+DOCK_load_snapshot "CUSTOM=1" + CHR$(10) + "FLOAT.pen=10,20,30,40" + CHR$(10)
+CHECK DOCK_CUSTOM = FALSE, "only a native window floating = the default tree"
 snap = DOCK_snap_set$("CUSTOM=1" + CHR$(10) + "LEFT.1=toolbox" + CHR$(10), "LEFT.1", "layers")
 CHECK DOCK_snap_get$(snap, "left.1") = "layers", "snap_set replaces, get is case-insensitive"
 snap = DOCK_snap_set$(snap, "RIGHT.1", "editbar")

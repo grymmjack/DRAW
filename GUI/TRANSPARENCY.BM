@@ -63,23 +63,22 @@ END SUB
 
 
 ''
-' Render the transparency checkerboard to a target location.
-' Two-level cache (blueprint + display-rect blit cache); see file header.
-' @param targetImg LONG Destination image handle to draw the checkerboard onto
-' @param x INTEGER Left edge X coordinate on the target surface
-' @param y INTEGER Top edge Y coordinate on the target surface
-' @param w INTEGER Width of the area to fill with checkerboard
-' @param h INTEGER Height of the area to fill with checkerboard
+' Level 1 of TRANSPARENCY_render: the canvas-resolution checkerboard
+' (rebuilt when the canvas size, check size or colours change). The lightbox
+' (TOOLS/ANIM-LB) cuts each frame's checks from it.
 '
-SUB TRANSPARENCY_render (targetImg AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG)
+SUB TRANSPARENCY_ensure_blueprint ()
     DIM oldDest  AS LONG
     DIM cx       AS INTEGER, cy AS INTEGER
     DIM checkX   AS INTEGER, checkY AS INTEGER
     DIM useColor AS _UNSIGNED LONG
     DIM effSizeX AS INTEGER, effSizeY AS INTEGER
     DIM bpW      AS INTEGER, bpH AS INTEGER
+    DIM effC1    AS _UNSIGNED LONG, effC2 AS _UNSIGNED LONG
 
-    IF w <= 0 OR h <= 0 THEN EXIT SUB
+    ' The colors, faded toward their average by the overlay fade
+    ' (Ctrl+Alt+Shift+wheel: 255 = as configured, 0 = one flat tone)
+    TRANSPARENCY_fade_colors effC1~&, effC2~&
 
     ' Resolve check sizes: config overrides theme (CFG 0 = use theme default)
     IF CFG.TRANSPARENCY_CHECK_SIZE_X% > 0 THEN
@@ -96,16 +95,16 @@ SUB TRANSPARENCY_render (targetImg AS LONG, x AS LONG, y AS LONG, w AS LONG, h A
     ' === LEVEL 1: Build canvas-resolution blueprint (rare rebuild) ===
     bpW% = SCRN.canvasW&
     bpH% = SCRN.canvasH&
-    IF bpW% < 1 THEN bpW% = w&
-    IF bpH% < 1 THEN bpH% = h&
+    IF bpW% < 1 THEN bpW% = 1
+    IF bpH% < 1 THEN bpH% = 1
 
     IF TRANSPARENCY.blueprint& = 0 OR _
        TRANSPARENCY.blueprintW% <> bpW% OR _
        TRANSPARENCY.blueprintH% <> bpH% OR _
        TRANSPARENCY.checkSizeX% <> effSizeX% OR _
        TRANSPARENCY.checkSizeY% <> effSizeY% OR _
-       TRANSPARENCY.color1~& <> CFG.TRANSPARENCY_CHECK_COLOR1~& OR _
-       TRANSPARENCY.color2~& <> CFG.TRANSPARENCY_CHECK_COLOR2~& THEN
+       TRANSPARENCY.color1~& <> effC1~& OR _
+       TRANSPARENCY.color2~& <> effC2~& THEN
 
         IF TRANSPARENCY.blueprint& < -1 THEN SAFE_FREEIMAGE TRANSPARENCY.blueprint&
         TRANSPARENCY.blueprint&  = _NEWIMAGE(bpW%, bpH%, 32)
@@ -113,8 +112,8 @@ SUB TRANSPARENCY_render (targetImg AS LONG, x AS LONG, y AS LONG, w AS LONG, h A
         TRANSPARENCY.blueprintH% = bpH%
         TRANSPARENCY.checkSizeX% = effSizeX%
         TRANSPARENCY.checkSizeY% = effSizeY%
-        TRANSPARENCY.color1~&    = CFG.TRANSPARENCY_CHECK_COLOR1~&
-        TRANSPARENCY.color2~&    = CFG.TRANSPARENCY_CHECK_COLOR2~&
+        TRANSPARENCY.color1~&    = effC1~&
+        TRANSPARENCY.color2~&    = effC2~&
 
         ' Draw the checkerboard pattern at canvas resolution (one-time cost)
         oldDest& = _DEST
@@ -150,6 +149,29 @@ SUB TRANSPARENCY_render (targetImg AS LONG, x AS LONG, y AS LONG, w AS LONG, h A
         TRANSPARENCY.imgHeight% = 0
         TRANSPARENCY.lastZoom!  = 0
     END IF
+END SUB
+
+
+''
+' Render the transparency checkerboard to a target location.
+' Two-level cache (blueprint + display-rect blit cache); see file header.
+' @param targetImg LONG Destination image handle to draw the checkerboard onto
+' @param x INTEGER Left edge X coordinate on the target surface
+' @param y INTEGER Top edge Y coordinate on the target surface
+' @param w INTEGER Width of the area to fill with checkerboard
+' @param h INTEGER Height of the area to fill with checkerboard
+'
+SUB TRANSPARENCY_render (targetImg AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG)
+    DIM oldDest  AS LONG
+    DIM cx       AS INTEGER, cy AS INTEGER
+    DIM checkX   AS INTEGER, checkY AS INTEGER
+    DIM useColor AS _UNSIGNED LONG
+    DIM effSizeX AS INTEGER, effSizeY AS INTEGER
+    DIM bpW      AS INTEGER, bpH AS INTEGER
+
+    IF w <= 0 OR h <= 0 THEN EXIT SUB
+
+    TRANSPARENCY_ensure_blueprint
 
     ' === LEVEL 2: Build display-rect blit cache from blueprint (per zoom) ===
     ' Only when the display rect fits in the viewport.  At deep zoom-in,
@@ -205,4 +227,114 @@ SUB TRANSPARENCY_render (targetImg AS LONG, x AS LONG, y AS LONG, w AS LONG, h A
         _BLEND targetImg&
         _DEST oldDest&
     END IF
+END SUB
+
+
+''
+' The two check colors as drawn now: the configured ones, each moved toward
+' their average by the overlay fade (TRANSPARENCY_opacity_now%: 255 = as
+' configured, 0 = both the average - no checks).
+SUB TRANSPARENCY_fade_colors (c1 AS _UNSIGNED LONG, c2 AS _UNSIGNED LONG)
+    DIM a AS _UNSIGNED LONG, b AS _UNSIGNED LONG, op AS LONG, k AS INTEGER
+    DIM ca(1 TO 4) AS LONG, cb(1 TO 4) AS LONG, m AS LONG, ra(1 TO 4) AS LONG, rb(1 TO 4) AS LONG
+    a = CFG.TRANSPARENCY_CHECK_COLOR1~&: b = CFG.TRANSPARENCY_CHECK_COLOR2~&
+    op = TRANSPARENCY_opacity_now%
+    IF op >= 255 THEN c1 = a: c2 = b: EXIT SUB
+    ca(1) = _RED32(a): ca(2) = _GREEN32(a): ca(3) = _BLUE32(a): ca(4) = _ALPHA32(a)
+    cb(1) = _RED32(b): cb(2) = _GREEN32(b): cb(3) = _BLUE32(b): cb(4) = _ALPHA32(b)
+    FOR k = 1 TO 4
+        m = (ca(k) + cb(k)) \ 2
+        ra(k) = m + ((ca(k) - m) * op) \ 255
+        rb(k) = m + ((cb(k) - m) * op) \ 255
+    NEXT k
+    c1 = _RGBA32(ra(1), ra(2), ra(3), ra(4))
+    c2 = _RGBA32(rb(1), rb(2), rb(3), rb(4))
+END SUB
+
+
+''
+' Show where a transparent color will erase: every pixel of img (a canvas-sized
+' overlay at canvas resolution) whose RGB is mark becomes the transparency
+' checkerboard pixel at that spot. A live shape preview with a transparent FG
+' then looks like the erase it will make, instead of a white / black outline
+' (BUGS 2026-11-15 X1). Pixels with alpha 0 are left alone.
+'
+' @param img LONG - the overlay, the canvas's size
+' @param mark _UNSIGNED LONG - the marker color the preview was drawn in
+'
+SUB TRANSPARENCY_paint_marked (img AS LONG, mark AS _UNSIGNED LONG)
+    DIM mi      AS _MEM, mb AS _MEM
+    DIM o       AS _OFFSET, ob AS _OFFSET, oEnd AS _OFFSET
+    DIM px      AS _UNSIGNED LONG, bp AS _UNSIGNED LONG
+    DIM rgbMark AS _UNSIGNED LONG
+
+    IF img& >= -1 THEN EXIT SUB
+    TRANSPARENCY_ensure_blueprint
+    IF TRANSPARENCY.blueprint& >= -1 THEN EXIT SUB
+    IF _WIDTH(img&) <> _WIDTH(TRANSPARENCY.blueprint&) _ORELSE _HEIGHT(img&) <> _HEIGHT(TRANSPARENCY.blueprint&) THEN EXIT SUB
+
+    rgbMark~& = mark~& AND &HFFFFFF~&
+    mi = _MEMIMAGE(img&)
+    mb = _MEMIMAGE(TRANSPARENCY.blueprint&)
+    o    = mi.OFFSET
+    ob   = mb.OFFSET
+    oEnd = mi.OFFSET + mi.SIZE
+    DO WHILE o < oEnd
+        px~& = _MEMGET(mi, o, _UNSIGNED LONG)
+        IF px~& > &HFFFFFF~& THEN
+            IF (px~& AND &HFFFFFF~&) = rgbMark~& THEN
+                bp~& = _MEMGET(mb, ob, _UNSIGNED LONG)
+                _MEMPUT mi, o, bp~&
+            END IF
+        END IF
+        o  = o + 4
+        ob = ob + 4
+    LOOP
+    _MEMFREE mi
+    _MEMFREE mb
+END SUB
+
+
+''
+' Turn a footprint into what erasing it shows: every pixel of img with alpha > 0
+' becomes the checkerboard pixel of canvas pixel (ox + x, oy + y); pixels off
+' the canvas become clear (nothing there to erase). Used by the custom brush's
+' cursor with a transparent FG (BUGS 2026-11-15 X1).
+'
+' @param img LONG - the footprint, at canvas resolution
+' @param ox INTEGER - canvas x of img's left edge
+' @param oy INTEGER - canvas y of img's top edge
+'
+SUB TRANSPARENCY_paint_footprint (img AS LONG, ox AS INTEGER, oy AS INTEGER)
+    DIM mi  AS _MEM, mb AS _MEM
+    DIM fx  AS LONG, fy AS LONG, cxx AS LONG, cyy AS LONG
+    DIM fw  AS LONG, fh AS LONG, bw AS LONG, bh AS LONG
+    DIM o   AS _OFFSET
+    DIM px  AS _UNSIGNED LONG, bp AS _UNSIGNED LONG
+
+    IF img& >= -1 THEN EXIT SUB
+    TRANSPARENCY_ensure_blueprint
+    IF TRANSPARENCY.blueprint& >= -1 THEN EXIT SUB
+    fw& = _WIDTH(img&): fh& = _HEIGHT(img&)
+    bw& = _WIDTH(TRANSPARENCY.blueprint&): bh& = _HEIGHT(TRANSPARENCY.blueprint&)
+    mi = _MEMIMAGE(img&)
+    mb = _MEMIMAGE(TRANSPARENCY.blueprint&)
+    FOR fy& = 0 TO fh& - 1
+        cyy& = oy% + fy&
+        FOR fx& = 0 TO fw& - 1
+            o = mi.OFFSET + (fy& * fw& + fx&) * 4
+            px~& = _MEMGET(mi, o, _UNSIGNED LONG)
+            IF px~& > &HFFFFFF~& THEN
+                cxx& = ox% + fx&
+                IF cxx& >= 0 _ANDALSO cxx& < bw& _ANDALSO cyy& >= 0 _ANDALSO cyy& < bh& THEN
+                    bp~& = _MEMGET(mb, mb.OFFSET + (cyy& * bw& + cxx&) * 4, _UNSIGNED LONG)
+                ELSE
+                    bp~& = 0
+                END IF
+                _MEMPUT mi, o, bp~&
+            END IF
+        NEXT fx&
+    NEXT fy&
+    _MEMFREE mi
+    _MEMFREE mb
 END SUB

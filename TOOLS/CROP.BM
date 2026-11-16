@@ -449,10 +449,17 @@ END SUB
 
 ''
 ' Begin crop mode: save previous tool, switch to MARQUEE tool.
-' User draws their own crop region using the marquee (click-drag).
+' The Crop tool button starts with no box: the user drags the crop rectangle.
+' Image > Crop (wholeImage) starts with the box on the whole image, to drag
+' inward or outward, and zooms out first when any edge of the image is out of
+' view - a box whose edges you can't see is no box (BUGS.md 2026-11-15).
+' @param wholeImage INTEGER TRUE = box on the whole canvas
 '
-SUB CROP_begin ()
+SUB CROP_begin (wholeImage AS INTEGER)
     IF CROP.STATE = CROP_STATE_ACTIVE THEN EXIT SUB
+    ' The lightbox: a crop would cut the whole sheet to one region - every frame
+    ' with it. Frames change size with the ANIM panel's RESIZE.
+    IF ANIM_LB_showing% THEN STATUS_flash "Crop: not in the lightbox (it cuts the whole sheet) - change the frame size with ANIM > Resize, or turn the lightbox off": EXIT SUB
 
     CROP.PREV_TOOL = CURRENT_TOOL%
     CROP.STATE     = CROP_STATE_ACTIVE
@@ -462,20 +469,103 @@ SUB CROP_begin ()
     MARQUEE.VARIANT = TOOL_SELECT_RECT ' Crop always uses rectangular marquee
     MARQUEE_reset                      ' Clear any existing selection
 
-    ' Pre-initialize marquee to the full canvas.
-    ' User drags handles INWARD to crop, or OUTWARD past canvas edge to grow.
-    MARQUEE.BOX.x        = 0
-    MARQUEE.BOX.y        = 0
-    MARQUEE.BOX.w        = SCRN.canvasW&
-    MARQUEE.BOX.h        = SCRN.canvasH&
-    MARQUEE.BOX.state    = MARQUEE_STATE_SELECTED
-    MARQUEE.ACTIVE%      = TRUE
-    MARQUEE.INITIALIZED% = TRUE
-    MARQUEE.USER_CREATED = TRUE
+    IF wholeImage% THEN
+        ' Pre-initialize marquee to the full canvas.
+        ' User drags handles INWARD to crop, or OUTWARD past canvas edge to grow.
+        MARQUEE.BOX.x        = 0
+        MARQUEE.BOX.y        = 0
+        MARQUEE.BOX.w        = SCRN.canvasW&
+        MARQUEE.BOX.h        = SCRN.canvasH&
+        MARQUEE.BOX.state    = MARQUEE_STATE_SELECTED
+        MARQUEE.ACTIVE%      = TRUE
+        MARQUEE.INITIALIZED% = TRUE
+        MARQUEE.USER_CREATED = TRUE
+        IF NOT CROP_canvas_in_view% THEN ZOOM_fit_canvas
+    END IF
+    DIM boxSeen AS INTEGER: boxSeen% = CROP_box_moved% ' the overlay's box as it starts
 
     INVALIDATE_scene
 
-    _LOGINFO "CROP_begin: Crop mode started (using MARQUEE, full-canvas init)"
+    _LOGINFO "CROP_begin: Crop mode started (using MARQUEE, whole image " + STR$(wholeImage%) + ")"
+END SUB
+
+
+''
+' Is the whole canvas on screen, inside the canvas view?
+'
+FUNCTION CROP_canvas_in_view% ()
+    DIM vpL AS INTEGER, vpT AS INTEGER, vpR AS INTEGER, vpB AS INTEGER
+    ZOOM_viewport_rect vpL%, vpT%, vpR%, vpB%
+    DIM zw AS LONG, zh AS LONG, cx AS LONG, cy AS LONG
+    zw& = SCRN.canvasW& * SCRN.zoom!
+    zh& = SCRN.canvasH& * SCRN.zoom!
+    cx& = (SCRN.w& - zw&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+    cy& = (SCRN.h& - zh&) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%
+    CROP_canvas_in_view% = (cx& >= vpL% _ANDALSO cy& >= vpT% _ANDALSO cx& + zw& - 1 <= vpR% _ANDALSO cy& + zh& - 1 <= vpB%)
+END FUNCTION
+
+
+''
+' Has the crop box moved or resized since the last call? The crop overlay (the
+' shade outside the box) is part of the cached scene: the main loop rebuilds
+' it on a mouse move, but an arrow-key nudge moves the box without one - the
+' shade stayed put until the mouse moved (BUGS.md 2026-11-15).
+'
+FUNCTION CROP_box_moved% ()
+    STATIC lx AS INTEGER, ly AS INTEGER, lw AS INTEGER, lh AS INTEGER, la AS INTEGER
+    DIM a AS INTEGER: a = (MARQUEE.ACTIVE% <> 0)
+    IF MARQUEE.BOX.x <> lx _ORELSE MARQUEE.BOX.y <> ly _ORELSE MARQUEE.BOX.w <> lw _ORELSE MARQUEE.BOX.h <> lh _ORELSE a <> la THEN
+        lx = MARQUEE.BOX.x: ly = MARQUEE.BOX.y: lw = MARQUEE.BOX.w: lh = MARQUEE.BOX.h: la = a
+        CROP_box_moved% = TRUE
+    END IF
+END FUNCTION
+
+
+''
+' Trim the canvas to the artwork: the bounds of every visible layer's pixels
+' (Crop tool double-click). Within the canvas only - it never grows it.
+'
+SUB CROP_trim_to_content ()
+    DIM i AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    DIM x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, found AS INTEGER
+    x1% = SCRN.canvasW&: y1% = SCRN.canvasH&: x2% = -1: y2% = -1
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& < -1 _ANDALSO LAYERS(i%).visible% _ANDALSO LAYERS(i%).layerType% <> LAYER_TYPE_GROUP THEN
+            LAYER_get_content_bounds i%, bx%, by%, bw%, bh%
+            IF bw% > 0 _ANDALSO bh% > 0 THEN
+                ' buffer -> canvas coords (gotcha #14), clamped to the canvas
+                bx% = bx% - LAYERS(i%).apronW%: by% = by% - LAYERS(i%).apronH%
+                IF bx% < 0 THEN bw% = bw% + bx%: bx% = 0
+                IF by% < 0 THEN bh% = bh% + by%: by% = 0
+                IF bx% + bw% > SCRN.canvasW& THEN bw% = SCRN.canvasW& - bx%
+                IF by% + bh% > SCRN.canvasH& THEN bh% = SCRN.canvasH& - by%
+                IF bw% > 0 _ANDALSO bh% > 0 THEN
+                    found% = TRUE
+                    IF bx% < x1% THEN x1% = bx%
+                    IF by% < y1% THEN y1% = by%
+                    IF bx% + bw% - 1 > x2% THEN x2% = bx% + bw% - 1
+                    IF by% + bh% - 1 > y2% THEN y2% = by% + bh% - 1
+                END IF
+            END IF
+        END IF
+    NEXT i%
+    IF NOT found% THEN
+        CROP_cancel
+        STATUS_flash "Trim: no artwork on the visible layers"
+        EXIT SUB
+    END IF
+    IF x1% = 0 _ANDALSO y1% = 0 _ANDALSO x2% = SCRN.canvasW& - 1 _ANDALSO y2% = SCRN.canvasH& - 1 THEN
+        CROP_cancel
+        STATUS_flash "Trim: the artwork already fills the canvas"
+        EXIT SUB
+    END IF
+    IF CROP.STATE <> CROP_STATE_ACTIVE THEN CROP_begin TRUE
+    IF CROP.STATE <> CROP_STATE_ACTIVE THEN EXIT SUB ' refused (the lightbox)
+    MARQUEE.BOX.x = x1%: MARQUEE.BOX.y = y1%
+    MARQUEE.BOX.w = x2% - x1% + 1: MARQUEE.BOX.h = y2% - y1% + 1
+    MARQUEE.ACTIVE% = TRUE: MARQUEE.INITIALIZED% = TRUE: MARQUEE.USER_CREATED = TRUE
+    CROP_apply
+    STATUS_flash "Trimmed to the artwork: " + _TRIM$(STR$(x2% - x1% + 1)) + "x" + _TRIM$(STR$(y2% - y1% + 1))
 END SUB
 
 
@@ -506,28 +596,15 @@ END SUB
 ' Reads crop region from MARQUEE.BOX before resetting marquee.
 '
 SUB CROP_apply ()
-    DIM AS INTEGER bx, by, bw, bh, i
-    DIM oldDest     AS LONG
-    DIM oldImg      AS LONG
-    DIM newImg      AS LONG
-    DIM oldGridXPos AS INTEGER, oldGridYPos AS INTEGER
-    DIM cropModX    AS INTEGER, cropModY AS INTEGER
-    ' Unified src/dst rect vars (handle both crop and grow with one formula)
-    DIM srcX1       AS INTEGER, srcY1 AS INTEGER, srcX2 AS INTEGER, srcY2 AS INTEGER
-    DIM dstX1       AS INTEGER, dstY1 AS INTEGER, dstX2 AS INTEGER, dstY2 AS INTEGER
-    DIM isGrow      AS INTEGER
-
-    IF CROP.STATE <> CROP_STATE_ACTIVE THEN EXIT SUB
+    DIM AS INTEGER bx, by, bw, bh
+    DIM isGrow AS INTEGER
+    IF CROP.STATE <> CROP_STATE_ACTIVE THEN EXIT SUB ' CROP_begin refused (the lightbox)
 
     ' Read crop region from MARQUEE.BOX (before we reset it)
     bx% = MARQUEE.BOX.x
     by% = MARQUEE.BOX.y
     bw% = MARQUEE.BOX.w
     bh% = MARQUEE.BOX.h
-
-    ' Preserve and remap grid phase so cropped content keeps identical grid alignment
-    oldGridXPos% = GRID.xPos%
-    oldGridYPos% = GRID.yPos%
 
     ' If no marquee selection was made, just cancel
     IF NOT MARQUEE.ACTIVE% THEN
@@ -550,10 +627,60 @@ SUB CROP_apply ()
     ' Detect grow: any side of the crop box extends beyond the current canvas
     isGrow% = (bx% < 0) OR (by% < 0) OR (bx% + bw% > SCRN.canvasW&) OR (by% + bh% > SCRN.canvasH&)
 
-    ' Compute unified src/dst copy rects — works for both crop (positive bx/by)
+    ' Record undo for every crop, shrink or grow (the old canvas and every
+    ' layer's pixels, as Image -> Resize Canvas). The box's offset goes in the
+    ' record's w/h with flags bit 2, so redo cuts the same region again
+    ' (CROP_cut_canvas) rather than a top-left canvas resize.
+    HISTORY_record_canvas_resize SCRN.canvasW&, SCRN.canvasH&, bw%, bh%, FALSE
+    IF HISTORY_LAST_RECORD% > 0 THEN
+        HISTORY_RECORDS(HISTORY_LAST_RECORD%).flags& = 2
+        HISTORY_RECORDS(HISTORY_LAST_RECORD%).w%     = bx%
+        HISTORY_RECORDS(HISTORY_LAST_RECORD%).h%     = by%
+    END IF
+
+    CROP_cut_canvas bx%, by%, bw%, bh%
+
+    ' End crop mode
+    CROP.STATE = CROP_STATE_IDLE
+
+    ' Crop is done — switch to null tool (no active tool)
+    CURRENT_TOOL% = TOOL_NULL
+
+    IF isGrow% THEN
+        _LOGINFO "CROP_apply: Grew canvas to " + STR$(bw%) + "x" + STR$(bh%) + " (box offset " + STR$(bx%) + "," + STR$(by%) + ")"
+    ELSE
+        _LOGINFO "CROP_apply: Cropped to " + STR$(bw%) + "x" + STR$(bh%) + " from (" + STR$(bx%) + "," + STR$(by%) + ")"
+    END IF
+END SUB
+
+
+''
+' Cuts the canvas to the region (bx, by, bw, bh) of the current canvas - every
+' layer, the painting buffer, the grid (phase kept) and the view. The region may
+' run past the canvas (a grow: the new area is transparent). No history: the
+' caller records it (CROP_apply) or is replaying it (redo of a crop).
+'
+' @param bx INTEGER Region left in canvas pixels (negative = grow left)
+' @param by INTEGER Region top
+' @param bw INTEGER Region width = the new canvas width
+' @param bh INTEGER Region height = the new canvas height
+'
+SUB CROP_cut_canvas (bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
+    DIM i           AS INTEGER
+    DIM oldDest     AS LONG
+    DIM oldImg      AS LONG
+    DIM newImg      AS LONG
+    DIM oldGridXPos AS INTEGER, oldGridYPos AS INTEGER
+    DIM cropModX    AS INTEGER, cropModY AS INTEGER
+    DIM srcX1       AS INTEGER, srcY1 AS INTEGER, srcX2 AS INTEGER, srcY2 AS INTEGER
+    DIM dstX1       AS INTEGER, dstY1 AS INTEGER, dstX2 AS INTEGER, dstY2 AS INTEGER
+    IF bw% < 1 _ORELSE bh% < 1 THEN EXIT SUB
+
+    oldGridXPos% = GRID.xPos%
+    oldGridYPos% = GRID.yPos%
+
+    ' Unified src/dst copy rects — works for both crop (positive bx/by)
     ' and grow (negative bx/by or extent > canvasW/H).
-    '   srcX1/Y1: first valid pixel in old image to copy (clamped to [0, canvasW-1])
-    '   dstX1/Y1: where it lands in the new image (= 0 if bx>=0, or -bx if bx<0)
     srcX1% = 0             : IF bx% > 0 THEN srcX1% = bx%
     srcY1% = 0             : IF by% > 0 THEN srcY1% = by%
     srcX2% = bx% + bw% - 1 : IF srcX2% > SCRN.canvasW& - 1 THEN srcX2% = SCRN.canvasW& - 1
@@ -562,11 +689,6 @@ SUB CROP_apply ()
     dstY1% = 0             : IF -by% > 0 THEN dstY1% = -by%
     dstX2% = dstX1% + (srcX2% - srcX1%)
     dstY2% = dstY1% + (srcY2% - srcY1%)
-
-    ' Record undo for grow operations (same mechanism as Image -> Resize Canvas)
-    IF isGrow% THEN
-        HISTORY_record_canvas_resize SCRN.canvasW&, SCRN.canvasH&, bw%, bh%, FALSE
-    END IF
 
     ' Cancel active tools and clear the marquee
     MARQUEE_reset
@@ -679,12 +801,6 @@ SUB CROP_apply ()
     ' Redraw grid
     GRID_draw
 
-    ' End crop mode
-    CROP.STATE = CROP_STATE_IDLE
-
-    ' Crop is done — switch to null tool (no active tool)
-    CURRENT_TOOL% = TOOL_NULL
-
     ' Mark dirty
     CANVAS_DIRTY% = TRUE
     BLEND_invalidate_cache
@@ -692,12 +808,6 @@ SUB CROP_apply ()
     RENDER_ORDER_DIRTY% = TRUE
     GUI_NEEDS_REDRAW%   = TRUE
     FRAME_IDLE%         = FALSE
-
-    IF isGrow% THEN
-        _LOGINFO "CROP_apply: Grew canvas to " + STR$(bw%) + "x" + STR$(bh%) + " (box offset " + STR$(bx%) + "," + STR$(by%) + ")"
-    ELSE
-        _LOGINFO "CROP_apply: Cropped to " + STR$(bw%) + "x" + STR$(bh%) + " from (" + STR$(bx%) + "," + STR$(by%) + ")"
-    END IF
 END SUB
 
 

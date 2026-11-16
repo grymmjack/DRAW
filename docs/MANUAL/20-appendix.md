@@ -92,7 +92,7 @@ The complete, always-up-to-date list of keyboard **and mouse** shortcuts lives i
 | Select All / Deselect | `Ctrl+A` / `Ctrl+D` |
 | Invert | `Ctrl+Shift+I` |
 | Copy / Cut / Paste | `Ctrl+C` / `X` / `V` |
-| Paste in Place | *Edit menu* |
+| Paste in Place | `Ctrl+Alt+V` |
 | Copy Merged | `Ctrl+Shift+C` |
 | Copy / Cut to New Layer | `Ctrl+Alt+C` / `X` |
 
@@ -126,6 +126,35 @@ The complete, always-up-to-date list of keyboard **and mouse** shortcuts lives i
 | Cycle geometry | `Ctrl+'` |
 | Cycle symmetry | `F7` |
 
+### Swatches panel (View → Swatches; keys with the pointer over the panel)
+
+| Action | Shortcut |
+| --- | --- |
+| Swatch → FG / BG | L-click / R-click |
+| Select a range / toggle one / box select | `Shift`+click / `Ctrl`+click / drag from an empty place |
+| Select all / none | `Ctrl+A` / `Ctrl+D` or `Esc` |
+| Move / copy the selection | Drag a selected swatch / `Ctrl`+drag |
+| Edit the color | Double-click a swatch |
+| Add the FG / delete / lock | `Ins` / `Del` / `L` |
+| Find the FG's swatch | `F` |
+| Undo / redo swatch edits | `Ctrl+Z` / `Ctrl+Y` |
+| The edit menu | ☰ or `Shift`+R-click |
+
+See [Ch. 3 — Color & Palette](03-color-palette.md).
+
+### Animation brushes
+
+| Action | Shortcut |
+| --- | --- |
+| AnimBrush: pick up / load | *ANIM → AnimBrush → Pick Up / Load…* |
+| Previous / next cel | `Alt+[` / `Alt+]` |
+| Current frame gets cel 1 | `Alt+\` |
+| Drop the AnimBrush | `Ctrl+B` |
+| Store in a Drawer bin (every cel) | `Shift`+click the bin |
+| Move Brush: start / apply / cancel | *ANIM → Move Brush → Start*, drag the path, `Enter` / `Esc` |
+
+See [Ch. 9 — Custom Brushes & Drawer Panel](09-brushes-drawer.md).
+
 ### AI (only when AI features are enabled)
 
 | Action | Shortcut |
@@ -139,9 +168,9 @@ See [Ch. 21 — AI Image Generation](21-ai-generation.md).
 | Action | Shortcut |
 | --- | --- |
 | Workspace switcher | `Ctrl+Shift+W` |
-| Show what a workspace hid / hide it again | `F11` (inside a workspace) |
+| Show what a workspace hid / hide it again | `Shift+F11` (inside a workspace) |
 | Move a panel (new column / stack / tab / float) | Drag its handle (title strip, layers header, top-edge grip) |
-| Panel menu: Move to Left/Right, Collapse, Float / Dock Back, Reset Arrangement | Right-click a handle |
+| Panel menu: Move to Left/Right, Collapse, Float / Dock Back, Scale (floating-panel family), Reset Arrangement | Right-click a handle |
 | Collapse / expand a slot | Click its chevron, or double-click its title; click a collapsed title to open it |
 | Dock a floating window | Drag its title bar onto a dock target |
 | Capture Screen | `Ctrl+Shift+P` (or `DRAW --capture`) |

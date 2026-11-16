@@ -351,18 +351,44 @@ END SUB
 
 
 ''
+' Every frame (KEYBOARD_input_handler) while Export Selection waits for a
+' selection (armed by SAVE_selection with none): once one is made, export it.
+' Another tool picked, or Esc, ends the wait.
+'
+SUB SAVE_selection_tick ()
+    IF EXPORT_SEL_ARMED = 0 THEN EXIT SUB
+    IF AB_sel_tool% = 0 THEN EXPORT_SEL_ARMED = FALSE: EXIT SUB
+    IF _KEYDOWN(27) THEN
+        EXPORT_SEL_ARMED = FALSE
+        STATUS_flash "Export Selection cancelled"
+        EXIT SUB
+    END IF
+    IF MOUSE.B1% THEN EXPORT_SEL_PRESSED = TRUE: EXIT SUB
+    IF EXPORT_SEL_PRESSED = 0 THEN EXIT SUB
+    DIM sig AS STRING: sig = AB_sel_sig$
+    IF LEN(sig) = 0 _ORELSE sig = EXPORT_SEL_SIG THEN EXIT SUB ' (still dragging, or only a click)
+    EXPORT_SEL_ARMED = FALSE: EXPORT_SEL_PRESSED = FALSE
+    MOUSE.DEFERRED_ACTION% = 4 ' the export dialog, after this input frame (as action 205)
+END SUB
+
+
+''
 ' Save the selected marquee region as a cropped image
 ' This is CTRL-ALT-S behavior
 '
 SUB SAVE_selection ()
     ' Check if we have an active marquee selection
+    ' Nothing selected: pick the rectangle marquee and wait for one to be made -
+    ' SAVE_selection_tick comes back here once it is (it used to just say no)
     IF NOT MARQUEE.ACTIVE OR NOT MARQUEE.INITIALIZED THEN
-        POINTER_hide_for_dialog
-        DRAW_alert "Export Selection", "No selection to export. Use the Marquee tool to select an area first."
-        POINTER_show_after_dialog
-        MOUSE_cleanup_after_dialog TRUE ' Clear buffers and center mouse
+        CMD_execute_action 112 ' the Marquee (rectangle)
+        EXPORT_SEL_ARMED   = TRUE
+        EXPORT_SEL_SIG     = AB_sel_sig$
+        EXPORT_SEL_PRESSED = FALSE
+        STATUS_flash "Export Selection: select what to export (drag a box, or use any selection tool) - Esc cancels"
         EXIT SUB
     END IF
+    EXPORT_SEL_ARMED = FALSE
 
     DIM filename      AS STRING
     DIM default_path  AS STRING
@@ -555,7 +581,8 @@ END FUNCTION
 
 ''
 ' Write the flattened image (all visible layers merged) to a file, in the format
-' its extension names. Plain image only: no drAw chunk, no .draw beside it.
+' its extension names. Plain image only: no drAw chunk, no .draw beside it. A
+' .gif of a document with frames is written as an animated GIF.
 '
 ' @param filePath STRING full path to write
 ' @return TRUE when the file was written
@@ -566,6 +593,19 @@ FUNCTION SAVE_flat_write% (filePath AS STRING)
     SAVE_flat_write% = FALSE
     f$ = filePath$
     IF NOT SAVE_target_writable%(f$) THEN EXIT FUNCTION
+    IF LCASE$(SAVE_extension$(f$)) = "gif" _ANDALSO ANIM_has_frames% THEN
+        ' a sheet with frames (an animated GIF opened, Animation 5.1): back to
+        ' an animated GIF at 1x, not the whole sheet as one still picture
+        DIM keepScale AS INTEGER, okGif AS INTEGER
+        keepScale% = CFG.ANIM_EXPORT_SCALE%: CFG.ANIM_EXPORT_SCALE% = 1
+        okGif% = ANIM_GIF_export%(f$)
+        CFG.ANIM_EXPORT_SCALE% = keepScale%
+        IF okGif% = 0 THEN STATUS_flash "Could not save " + RECENT_extract_filename$(f$) + ": " + CYCX_LAST_ERROR$: EXIT FUNCTION
+        IF NOT SAVE_verify_written%(f$) THEN EXIT FUNCTION
+        STATUS_flash "Saved " + RECENT_extract_filename$(f$) + " (animated GIF, " + ANIM_EXPORT_INFO + ")"
+        SAVE_flat_write% = TRUE
+        EXIT FUNCTION
+    END IF
     flatImg& = LAYERS_flatten&
     _LOGINFO "SAVE_flat_write: " + f$
     _SAVEIMAGE f$, flatImg&

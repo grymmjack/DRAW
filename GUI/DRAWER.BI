@@ -10,10 +10,19 @@ CONST DRAWER_MODE_NONE     = 0
 CONST DRAWER_MODE_BRUSH    = 1
 CONST DRAWER_MODE_PATTERN  = 2
 CONST DRAWER_MODE_GRADIENT = 3
-CONST DRAWER_SLOT_COUNT    = 30
+CONST DRAWER_SLOT_COUNT    = 96 ' bins per mode (30 before 2.8)
+' The files keep the classic 30 slots where every DRAW reads them; the rest
+' ride in an extension older builds skip (a .dset: a block after the 30
+' slots, DRAWER_EXT_MAGIC$; a .draw: its own PNG chunk, "drAx").
+CONST DRAWER_FILE_SLOTS    = 30
+CONST DRAWER_EXT_MAGIC$    = "DSX1"
+CONST DRAWER_EXT_VERSION   = 1 ' the drAx chunk's layout
+DIM SHARED DRAWER_PENDING_CUSTOM AS INTEGER ' a .draw's custom brush is in a slot past 30: set it up once drAx is read
 CONST DRAWER_GRID_COLS     = 3 ' the classic layout; DRAWER_layout reflows to the panel width
 CONST DRAWER_GRID_ROWS     = 10
 CONST DRAWER_MAX_COLS      = 6
+CONST DRAWER_ZOOM_MAX_COLS = 12 ' Ctrl+wheel: bins per row, 1 .. this
+CONST DRAWER_CONTEXT_BIN_AUTO = 7 ' context menu: Bin Size: Auto
 ' Live bin grid (DRAWER_layout): columns, rows on screen, first row shown
 ' (Shift+wheel scrolls when the rows don't fit), and whether the mini palette
 ' sits UNDER the bins (panel too narrow for the side rail).
@@ -48,9 +57,14 @@ CONST GRAD_STOP_BG   = 2 ' References current background (PAINT_BG_COLOR~&)
 
 ' A drawer brush slot: image handle plus its dimensions
 TYPE DRAW_BRUSH
-    IMG AS LONG
-    W   AS INTEGER
-    H   AS INTEGER
+    IMG  AS LONG
+    W    AS INTEGER
+    H    AS INTEGER
+    CELS AS LONG    ' an AnimBrush's cels side by side (N x CW wide, CH high); IMG is cel 1 (TOOLS/ANIM-BRUSH)
+    N    AS INTEGER ' cels (0 = a one-picture brush)
+    CW   AS INTEGER
+    CH   AS INTEGER
+    NM   AS STRING * 32 ' an AnimBrush's name (its tag / file), saved after the slot records (TOOLS/ANIM-BRUSH)
 END TYPE
 
 ' A single color stop in a gradient definition
@@ -135,6 +149,8 @@ DIM SHARED DRAWER_GRADIENT_SET_PATH AS STRING
 
 ' Wheel tooltip text (stripped filename, no path/extension)
 DIM SHARED DRAWER_WHEEL_TOOLTIP_TEXT AS STRING
+DIM SHARED DRAWER_WTT_X AS INTEGER, DRAWER_WTT_Y AS INTEGER ' where it was drawn this frame (canvas px;
+DIM SHARED DRAWER_WTT_W AS INTEGER, DRAWER_WTT_H AS INTEGER '  W 0 = none): re-blitted over the windows
 
 DIM SHARED DRAWER                      AS DRAWER_STATE
 
@@ -154,6 +170,10 @@ DIM SHARED DRAWER_PATTERN_1BIT_HAS_BG(1 TO DRAWER_SLOT_COUNT) AS INTEGER    ' TR
 DIM SHARED DRAWER_GRADIENT_SLOTS(1 TO DRAWER_SLOT_COUNT) AS LONG
 DIM SHARED DRAWER_GRADIENT_HAS(1 TO DRAWER_SLOT_COUNT) AS INTEGER
 DIM SHARED DRAWER_GRADIENT_CUSTOM(1 TO DRAWER_SLOT_COUNT) AS INTEGER
+' Which way a gradient IMAGE runs (GRAD_IMG_family%), cached for the image handle
+' it was found for - a new image in the slot is looked at again
+DIM SHARED DRAWER_GRADIENT_RAMP_IMG(1 TO DRAWER_SLOT_COUNT) AS LONG
+DIM SHARED DRAWER_GRADIENT_RAMP_FAM(1 TO DRAWER_SLOT_COUNT) AS INTEGER
 DIM SHARED DRAWER_DEFERRED_IMPORT_SLOT AS INTEGER
 DIM SHARED DRAWER_DEFERRED_IMPORT_MODE AS INTEGER
 
