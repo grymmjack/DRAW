@@ -45,8 +45,8 @@ mid() { # name tool-key x2 y2
     key $2; sleep 0.3
     mouse_down "$(sx 40)" "$(sy 50)"; sleep 0.1; hover "$(sx 120)" "$(sy 90)"; sleep 0.1; hover "$(sx $3)" "$(sy $4)"; sleep 0.5
     snap_region "$(sx 20)" "$(sy 20)" $RW $RH "mid-$1"
-    screenshot "tfg-mid-$1"
     local nb nc; nb=$(nblack "$SNAP_RESULT"); nc=$(nchk "$SNAP_RESULT")
+    screenshot "tfg-mid-$1"   # after the counts: screenshot replaces SNAP_RESULT
     (( nb == 0 )) && pass "$1 while dragging: no black" || fail "$1 while dragging: $nb black pixels"
     (( nc > 0 )) && pass "$1 while dragging: the checkerboard shows the erase ($nc px)" || fail "$1 while dragging: no checkerboard"
     mouse_up; sleep 0.5; dk_park; sleep 0.3
