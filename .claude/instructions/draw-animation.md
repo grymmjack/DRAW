@@ -75,6 +75,7 @@ dropdown (row k centre = y + 9 + 12(k-1), dividers 5 px) - `anim-menu.sh` `am_fl
 | 2538 | Export BAS Player + Sheet PNG... (`ANIM_BAS_sheet_export%`) |
 | 2539 | Full-Screen Preview (`ANIM_FS_show`, `TOOLS/ANIM-FS`, Num .) |
 | 2541 / 2542 | Link Cells / Unlink Cells (`ANIM_LK_action`, `TOOLS/ANIM-OPS`, the current layer, the selected frames) |
+| 2610 / 2611 | Hold for N Frames... / Release Hold (`ANIM_LH_action`, `TOOLS/ANIM-OPS`: per-layer holds as linked cells in a row) |
 | 2543 / 2544 | Tag Frames... / Delete Tag (`ANIM_TG_action`, `TOOLS/ANIM-OPS`, 4.4) |
 | 2545 / 2546 | Frame Note... / Clear Frame Note (`ANIM_NT_action`, `TOOLS/ANIM-OPS`, 4.5) |
 | 2547 | Detect Frames (`ANIM_DT_action`, `TOOLS/ANIM-IMPORT`, 5.3: the sheet's grid from its gaps) |
@@ -745,7 +746,23 @@ via `ANIM_XS_lay_h%`, 20 / 36 / 52 px); the header / HOLD / TAGS / NOTES rows st
 the SOUND rows (last) are `ANIM_XS_snd_h%` = layH (taller waveform; `ANIM_XS_fixed_h%` = all
 the non-layer rows' height), so `ANIM_XS_row_y%` / `ANIM_XS_band_row%` are piecewise and `ANIM_XS_min_h%` is the
 band's least height (ANIM_LB_layout uses it). Ctrl+Shift+wheel / `ANIM_XS_rows_set`. R-click
-the header: `menuKind` 4 (`ANIM_XS_view_menu_build`, values 200-213). TAGS row: `<` / `>`
+the header: `menuKind` 4 (`ANIM_XS_view_menu_build`, values 200-213, 220-222 lane thumbnails; dumped as ANIMXLM).
+Lane thumbnails (`CFG.XSHEET_LANE_THUMBS%` 0 off / 1 keyframes / 2 every frame, `XSHEET_LANE_THUMBS`
+OFF / KEYFRAMES / EVERY, default KEYFRAMES): a layer the lanes move (`ANIM_XS_lt_chain%` = its own
+entry + the enclosing groups') draws its cells from `LL_src&` (the display copy, whole cell - no
+content crop) and, inside a held run, `ANIM_XS_lt_layer_cell` over the hold line at each frame
+`ANIM_XS_lt_at%` picks (a key at rel f-1 on any lane of the chain / a value changed from f-1). A
+group: `ANIM_XS_lt_group_row` composites its descendants' `LL_src&` cells (bottom to top, visible,
+no opacity / blend) per picked frame. Dump `ANIMXSLT slot y f,f,...` (rows `ANIM_XS_lt_on%`).
+Test: `anim-lane-thumbs.sh`.
+Layer names (Rick 2026-11-16, multi-select): `Ctrl` / `Shift`+click in `ANIM_XS_press%` -> `MULTI_SELECT_toggle`
+/ `MULTI_SELECT_add_group` (GUI/LAYERS.BM, shared with the panel's Ctrl+click on a group); the rest of
+the selection is shaded `THEME.LAYER_PANEL_row_multi_sel_bg`. A plain press on a name arms
+`XS_DRAG_LNAME` (3 px vertical starts it): `ANIM_XS_lname_target%` = the panel's gap rule (the gap above a
+layer row = that row's zIndex; under the last = the next layer's, else 1; -1 = no move; rows scroll at the
+band's ends), `dToSlot` = the gap's y (bar drawn). The drop feeds `LAYER_PANEL_handle_drop` (isDragging /
+dragLayerIdx / dropTargetZIndex) so into / out of groups, group blocks and the undo record are the panel's.
+Test: `anim-xsheet-multisel.sh`. TAGS row: `<` / `>`
 (`ANIM_XS_tag_btn_x%`, `ANIM_XS_tag_step`, `ANIM_XS_tag_go` = `ANIM_TG_select` + flash); its
 menu lists the tags first in frame order (values 30000 + tag, at most 24). ANIMXS dump appends
 `layH tick*100 tickAuto*100 tickMin*100 zx1 zx2 tagBtnX`. Test: `anim-xsheet-zoom.sh`. X-sheet
@@ -788,6 +805,31 @@ moved cell), so only it changes. **Hatching:** `ANIM_LK_hatch` (45-degree lines,
 over the current layer's links in `ANIM_VIEW_render_grid` (sheet view, with the frame grid)
 and over a link's first tick in the X-sheet. QA dump `ANIMLK entries map` (current layer: "."
 / a letter per group, upper case = source). QA: `anim-links.sh`.
+
+### Per-layer holds (branch `xsheet-holds-lanes`, 2026-11-16)
+
+A layer's drawing held for N frames = N **linked cells in a row** (one group): no new table,
+so save / undo / frame ops / sync all come from the links. `ANIM_LH_run i, f, s, e` (ANIM-OPS)
+= the run frame f is in (f's group's cells adjacent to it; no link: s = e = f).
+`ANIM_LH_set%(i, f, toF)` ends f's run at toF: longer = `ANIM_LK_join` each cell after it
+(their pixels replaced), shorter = `ANIM_LK_remove` + the cell blanked (Rick's call: let-go
+cells go blank, not keep the drawing); then `ANIM_LK_tidy` + `ANIM_LK_touched`. No undo of
+its own - callers wrap `ANIM_OPS_snapshot$(TRUE)` / `ANIM_OPS_record` ("Layer Hold").
+**X-sheet:** `ANIM_XS_grip%(slot, f, mx)` = the last `XS_HOLD_GRIP` (5) px of a run's (or a
+lone cell's) right end, on a pixel layer the links work on (not clip / group / SAME) - a plain
+press there starts `XS_DRAG_LHOLD` (dFrame = run start, dHold0 = its end, dTo = the new end;
+before the `XS_DRAG_CELL` test, so a cell's right edge stretches instead of moving it).
+Release = `ANIM_LK_refusal$` then `ANIM_LH_set%`. The preview boxes the new run and dims the
+cells it lets go. **Render:** the layer row loop draws a run once, from its first frame (or
+`firstF` when it starts off screen): a faint fill over the run, `ANIM_XS_cell .., runEnd`
+(thumbnail + `ANIM_XS_hold_line`: line, a tick per frame held over, an end bar), and the link
+hatch only on a run's first cell when it links to a drawing elsewhere. **Cell menu**
+(`ANIM_LB.menuKind` 5, `ANIM_XS_cell_menu_build`): a right press on a pixel layer's cell sets
+`ANIM_XS.rCell`; the release opens it (else the layer menu, as before) - Hold for N Frames...
+(2610) / Release Hold (2611) via `ANIM_LH_FRAME` (the frame clicked), Link / Unlink, Layer
+Menu... (29000 = `LAYER_PANEL_ctx_menu_show`). `ANIM_LH_action` (2610 asks N with
+`DRAW_input_box_ex$`, capped at the last frame; 2611 = N 1). QA dump `ANIMLH s-e ... _` (the
+current layer's runs of 2+). QA: `anim-layer-holds.sh`.
 
 ## Tags (4.4, Q-20)
 
@@ -1387,6 +1429,121 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   for both SOUND and LANES). LANES row: a diamond per frame with a key (`CLIP_key_mark%`: 2 =
   the picked lane, filled); a drag (`XS_DRAG_LKEY`) moves every lane's key on that frame,
   `CLIP_keys_shift`, one undo step. Dump `ANIMXSK slot y f:mark ...`.
+- **Lane rows (branch `xsheet-holds-lanes`, `TOOLS/ANIM-XLANE`, PLANS/XSHEET-HOLDS-LANES.md
+  phase 2).** A clip layer's name gets a disclosure arrow (`XS_LANE_ARROW_W` px, taken in
+  `ANIM_XS_label_room` before the name; a press there = `ANIM_XL_toggle`, a view setting kept
+  in `ANIM_XL_OPEN` as MKL$(historyId), no undo, not saved). Open: `ANIM_XS_rows_build` gives
+  an `XS_ROW_LANE` row per lane in use (`ANIM_XL_used%`: keys or a modulator; lane in
+  `ANIM_XS_RLANE`) and an `XS_ROW_LANEADD` row **instead of** the LANES summary row.
+  `ANIM_XL_row` plots: a faint dotted guide at the default, the keyed value per pixel column
+  (`ANIM_XL_keyed_at!` = `CLIP_lane_keyed!` at a fractional frame, each frame's value at its
+  span's middle - so the eases curve and HOLD steps), the modulated value per frame faint,
+  diamonds at the keys (filled = the picked lane's key on the current frame), and the value
+  now right-aligned in the name column. Range `ANIM_XL_range`: OPACITY / TINT 0..100, PAN
+  -100..100, else keys + default (+ the modulator's swing) with a minimum span and a 12%
+  margin; frozen during a drag (`ANIM_XL.lo / hi`). **Mouse:** `ANIM_XS_press%`'s sub-row branch
+  hands lane / + LANE rows to `ANIM_XL_press` (pick the lane = `CLIP_LANE_PICK`; a key = start
+  `XS_DRAG_LANEKEY`; a double-click = `ANIM_XL_add_key` / `ANIM_XL_type_value`, with the
+  `ANIM_LOOP_TICK` fallback). `ANIM_XL_drag`: frame along, value = v0 + dy x range / plot
+  height, Shift one axis, never onto another key, `CLIP_rebuild` live; `ANIM_XL_drop` = one
+  `HISTORY_record_clip` step from `ANIM_XL_BEFORE` (`ANIM_XL_commit`). Right press
+  `ANIM_XL_rpress%` (checked before `ANIM_XS.rSlot` on the release) opens `ANIM_LB.menuKind`
+  6 (lane: values 31000-31031) / 7 (+ LANE: 31100 + lane) - **POPUP_MENU_VALUES is INTEGER**,
+  keep menu values under 32768. Dumps `ANIMXSLO slot open arrowX y`, `ANIMXSLN slot lane y lo
+  hi mod rel:value:ease ...`, `ANIMXSLA slot y`, `ANIMXLM x y w (value y)...`. QA:
+  `clip-lane-rows.sh`.
+- **Layer lanes on pixel layers and groups (phase 3, `TOOLS/LAYER-LANES`, `LL_`).** A table
+  by layer historyId (`LL_ID`, `LL_KEYS(e, L)` / `LL_MOD(e, L)` in the clip encoding, rel =
+  **frame - 1**, `LL_TINT`; lanes 1..`LL_LANES` = 12: X..PIVOT Y, 10 / 11 unused - no VOLUME /
+  PAN - and 12 `CLIP_LANE_BLEND`). Defaults
+  `LL_default!` (SCALE / OPACITY 100, PIVOT = the frame's middle). **Display copy:**
+  `LL_build slot, onlyF` writes `LL_IMG(slot)` (same size as the layer's buffer, apron
+  included): the layer's pixels, then each frame cell (`ANIM_cell_rect%`) through
+  `LL_chain%` - the layer's own entry, then each enclosing group's, inner to outer - via
+  `LL_xf` (a plain integer move = `_PUTIMAGE` offset; else `XF_draw`, the clip maths),
+  clipped to the cell; identity frames are copied. `LL_tick%` (DRAW.BAS, after `CLIP_tick%`)
+  rebuilds a display whose `LL_sig$` changed (`LL_GEN` - bumped by `LL_changed` on every lane
+  edit / undo / load -, the image handle + apron, `CLIP_layout_sig$`, `HISTORY.current /
+  count / nextSequence`, the parent chain) and, while a button is down on the current layer,
+  just `ANIM.current`'s cell (a stroke shows as it goes; `contentDirty%` is no use - only the
+  apron / opacity paths clear it). A rebuild invalidates `apronCacheValid%` /
+  `opacityCacheVal%` (-1) and marks COMP dirty. **Swap-in points:** `RENDER_layers`'
+  `layerRenderSource& = LL_src&(slot)` (not during a Move preview) and the trivial path's
+  `CANVAS_CONTENT_SRC&`; `LAYERS_flatten&` takes `LL_flat_src&` (rebuilt first when stale) -
+  so every export, ANIM-FS, the .draw's PNG picture, Fill's merged sample and AnimBrush
+  pickup from the composite all see the lanes. A group gets no display (it has no pixels);
+  its lanes reach each child through the chain. Clip layers are excluded (`LL_can%`): their
+  lanes are the clip's. **X-sheet:** `ANIM-XLANE` works per slot through accessors
+  (`ANIM_XL_keys$ / set_keys / mod$ / set_mod / in% / out% / dflt! / value! / state$ /
+  nlanes% / word$ / apply`) - a clip goes to `CLIP_LN_*` (from In, `HISTORY_record_clip`),
+  anything else to `LL_*` (from frame 1, `LL_record` = `HISTORY_KIND_LAYER_LANES` 23,
+  `LL_state$` before / after, "" = no lanes). The arrow shows on every lane-capable row (dim
+  with no lanes). Extra lane menu items: Tint Color = FG Color (31032), Modulator Amount... /
+  Period... (31040 / 31041). Hover tips (`ANIM_XS_tip%`): the arrow 4600 + slot, a hold grip
+  5000 + f, a lane key 6000 + L x 1000 + f. **Saved** in `drLL` (draw-fileformat.md).
+  **Reset** `LL_new_document` from `AB_new_document` (every document path; also clears
+  `ANIM_XL_OPEN`); `LL_prune` on load. Painting a laned layer paints its own (unmoved) pixels.
+  Dumps `LLN entry historyId slot lane=rel:value:ease,...[~]` and `LLD slot f:x0,y0,x1,y1 ...`
+  (what each cell of the display shows). QA: `layer-lanes.sh`, `group-lanes-export.sh`,
+  `holds-and-lanes.sh`. Field guide: `docs/XSHEET-HOLDS-AND-LANES.md`.
+- **Effect lanes (`CLIP_LANE_BLUR` 13 / `PIXELATE` 14 / `INVERT` 15 / `NOISE` 16, layer lanes
+  only; `CLIP_LANE_LAST` = 16 bounds every lane id incl. a sub-lane's parent).** Baked by
+  `LL_build`: per cell, per chain entry, `LL_xf` (only when `LL_still%` is false) then `LL_fx`
+  (in place: `gj_lfx_pixelate` - block average with the alpha averaged too, `IMAGE_ADJ_blur_premul_rgba&`
+  - spreads alpha, `gj_lfx_noise` - mono hash grain, seed `LL_noise_seed&` = frame (or the key's
+  frame when it has `CLIP_KF_FROZEN` 128) + historyId, `gj_lfx_invert` - a mix; kernels in
+  `native/lanefx.h`, unit `QA/unit/lanefx-unit.bas`). `LL_identity%` = `LL_still%` and
+  `LL_fx_none%` (values from `LL_fx_vals`, clamped). Pixel layers and groups (`ANIM_XL_lane_ok%`),
+  not clips. + LANE lists them after a divider; `ANIMPL_shows%` hides them on the LANES page until
+  used. NOISE key menu `XL_V_KFROZEN` 31053. Lane-thumbnail Every Frame counts a grain change.
+  Tooltip ids now `6000 + idx*500 + f MOD 500` (idx 1-16, FREQ 17-32, AMP 33-48). QA:
+  `anim-effect-lanes.sh`.
+- **BLEND lane (`CLIP_LANE_BLEND` = 12, layer lanes only).** Pixel layers only
+  (`ANIM_XL_lane_ok%`: not a clip, not a group); values are `BLEND_*` ids, keys always HOLD
+  (`ANIM_XL_blend_tidy` at every `ANIM_XL_commit`: integer, clamped, HOLD, no modulator). Not
+  baked by `LL_build` (it is not a transform): the compositor asks `LL_blend_lane%(slot)` and
+  then `LL_blend_composite target, img, src, slot, x1, y1, x2, y2` - the whole rect with the
+  layer's own mode, then each frame cell whose `LL_blend_at%` differs is restored from a copy of
+  the target and blended again (`LL_blend_put`: Normal = `_PUTIMAGE` of the opacity image, else
+  `LAYER_blend_composite_region`; img 0 = the kernel does Normal too, applying the opacity).
+  Hooked in `SCREEN.BM`'s region and full composite paths and `LAYERS_flatten&`;
+  `BLEND_needs_composite%` counts a BLEND lane as a non-Normal layer (cache dropped by
+  `LL_changed`). UI: the + LANE menu (31112), the BLEND row's key menu = the modes (`XL_V_BLEND`
+  31200 + mode, checked = this frame's), short names on the row (`ANIM_XL_vtext$`), a typed name
+  (`ANIM_XL_blend_parse%`). The Animation panel's LANES page lists only the lanes a layer can
+  have (`ANIMPL_shows%` / `ANIMPL_n%` / `ANIMPL_lane%(row)`). The `.bas` exporter writes the
+  layer's own mode only. QA: `anim-blend-lane.sh`.
+- **Modulator on the curve + per key + envelope (round 2).** The lane row's line is the
+  effective value - `ANIM_XL_keyed_at!` + `CLIP_mod_lane!` at fractional frames (`CLIP_mod_at!`
+  = `CLIP_mod!` with a SINGLE rel; whole frames identical) - over the bare key curve in
+  `cFaint`; `ANIM_XL_mod_icon` (the wave itself, 8x4) right of each key the modulator starts
+  from; `ANIM_XL_curve_dot` at envelope phase ends. **Per-key flags** ride in the key's ease
+  field above the low 4 bits (`CLIP_lk_e%` masks; `CLIP_lk_fl%` / `CLIP_lk_raw%`; write eases
+  with `CLIP_lks_ease$`, flags with `CLIP_lks_flags$`; `CLIP_lks_put$` on an existing key keeps
+  the raw field; copy / move keep raw). `CLIP_KF_MODOFF` 16, `ONESHOT` 32, `RETRIG` 64 - for
+  the span to the next key. **Envelope** = bytes 21-28 of the modulator pack
+  (`CLIP_mod_env` / `CLIP_mod_with_env$`; wave edits go through `CLIP_mod_repack$` so they keep
+  it). The maths is `CLIP_mod_span!` + `CLIP_env!` in CLIP-MATH (unit tested in
+  `QA/unit/clip-unit.bas`): before the first key only a plain modulator runs (legacy); one-shot
+  = one period from the key (wave from the key), release ends at the next key / the one-shot's
+  end, the envelope restarts at each key it runs from. `LL_value!` / `CLIP_lane_value!` call
+  `CLIP_mod_lane!`. Menu values 31042 (envelope dialog, `ANIM_XL_adsr_parse%`), 31050-31052
+  (key flags). Dumps: `LLN` prints the raw ease field; `LLV slot lane a,d,s,r|- v,v,...` (a
+  modulated layer lane's value per frame).
+- **Modulator sub-lanes (round 2).** FREQUENCY (the period, frames per cycle, 1..999) and
+  AMPLITUDE (the amount) keyed over time, stored INSIDE the modulator pack from byte 29
+  (`CLIP_mod_sub$(m, which)` / `CLIP_mod_with_sub$`; `CLIP_mod_repack$` keeps the tail), so they
+  ride every path a modulator does (save, undo, copy). Virtual lane ids `L + CLIP_SUB_FREQ` (100)
+  / `L + CLIP_SUB_AMP` (200) through the `ANIM_XL_*` accessors (keys$ / set_keys / dflt! /
+  value! / lane_ok% / colour); `ANIM_XL_sub_of%`, `ANIM_XL_pick` (a sub-lane picks its parent -
+  `CLIP_LANE_PICK` is 1..`CLIP_LANES` only, so every pick reader clamps). Maths:
+  `CLIP_mod_span2!` - the phase integrates the period (`CLIP_cycles#` sums whole frames with
+  `CLIP_per_at!`, fast path with no keys) so a changing period never jumps; amount =
+  `CLIP_lane_keyed_at!(akeys, rel, amount)`. `CLIP_mod_lane!` takes span2 when the pack is
+  longer than 28. X-sheet rows at depth d+2 after their lane; menu 31043 / 31044 (a key at the
+  right-clicked frame at the modulator's own period / amount); a sub-lane row's menu is only
+  Remove Lane. Tooltip ids re-encoded (`12*(L\100)+(L MOD 100)`) to stay in an INTEGER.
+  `CLIP_keys_shift` (dragging a clip's key column) moves the sub-lane keys on that frame too.
 - **Sound (L8).** `CLIP_cues_gen` gives each generated clip `ANIM_SC_GVOL` / `ANIM_SC_GPAN` (the
   lanes at the frame it starts); `ANIM_SND_mix` applies them (balance pan); the VOLUME / PAN
   lanes are in `CLIP_cues_sig$` and the sync signature. The BAS export uses the mix. Dump
@@ -1400,6 +1557,77 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
 - Tests: `clip-lanes.sh`, `clip-lanes-mod.sh`, `clip-lanes-canvas.sh`, `clip-lanes-xsheet.sh`,
   `clip-lanes-sound.sh`, `clip-lanes-mvb.sh`.
 
+### Arm / record, transform widget, LANES page (branch `xsheet-holds-lanes`, 2026-11-16)
+
+Field guide Parts 3-4 (`docs/XSHEET-HOLDS-AND-LANES.md`); checklist `.claude/TASKS-ARM-1116.md`.
+
+- **Arm state** (`TOOLS/ANIM-XLANE`): `ANIM_XL_ARM_IDS` holds historyIds (session only, not
+  saved; cleared in `LL_new_document`). `ANIM_XL_armed% / _keyed% / _arm_toggle /
+  _disarm_all`, `ANIM_XL_dot_state%` (1 ring, 2 purple keyed, 3 red armed), `ANIM_XL_dot`
+  (anti-aliased). Actions **2670** arm (checkbox), **2671** disarm all, **2672** Animation
+  Settings... (`SETTINGS_open_at SETTINGS_TAB_ANIMATION`). Dots: X-sheet row after the lock
+  (`XS_ICONS_W` 34, `XS_REC_X`), Layers panel left of the opacity bar (animations only).
+- **Record API**: `ANIM_XL_rec_slot%(slot)` (armed + current frame in In..Out, else 0) ·
+  `ANIM_XL_rec_begin slot` (snapshot `ANIM_XL_state$`; exits only if `REC_ON = slot` - an
+  empty before-state is a real state, the first key needs its undo) · `ANIM_XL_rec_set slot,
+  L, v` (key at the current frame with the ease of the key before; sets the live mask; no
+  undo) · `ANIM_XL_rec_end label` (one `ANIM_XL_commit`) · `ANIM_XL_rec_value` (all three).
+  `ANIM_XL_rec_tick` (DRAW.BAS, before `LL_tick%`) ends a mouse-held recording on release and
+  clears expired live dots (`ANIM_LB_changed`, 1.5 s) and runs `ANIM_XW_tick`.
+- **Tools that record**: Move drag / nudge (`ANIM_XL_move_*`), Transform commit (Scale /
+  Rotate quad -> X / Y / SCALE / ROTATE, overlay cancelled), Flip H / V (actions 315 / 316
+  branch before `CURRENT_LAYER% > 0`: a negated SCALE key, not with a selection / multi-select),
+  opacity (`ANIM_XL_user_opacity slot, v`: armed -> OPACITY key v x 100 / 255, else
+  `LAYERS_set_opacity`; controls read `ANIM_XL_shown_opacity%`). Pixels never change.
+- **Live feedback**: `ANIM_XL_LIVE_SLOT / _MASK / _T`; `ANIM_XL_live%(slot, L)`; X-sheet lane
+  rows draw a purple dot (`ANIM_XL_LIVE_DRAWN` counts them for the dump `XLREC ... d:N`).
+- **Curves / glyphs / colours**: `ANIM_XL_yf!` + `ANIM_XL_aa_curve x0, ys(), n, c` (one band per
+  column, `CFG.ANIM_LANE_THICKNESS` px (1-4, default 2), with coverage alpha); `ANIM_XL_key_glyph cx, cy, r, ease, mode, cEdge,
+  cFill` (diamond / `[>` / `<]` / circle / square; mode 1 solid, 0 outline);
+  `ANIM_XL_frame_ease%` for the clip LANES summary row. Lane colours `ANIM_XL_lane_colour~&(L)`
+  from `CFG.ANIM_LANE_COLORS` (RRGGBB list, parsed once into `ANIM_XL_LCLR`, re-read when the
+  string changes or `ANIM_XL_lane_colours_reset`; past the list's end = `ANIM_LANE_COLORS_DEFAULT`
+  in CFG/CONFIG.BI, `0` = THEME.CP_text) - `ANIM_XL_colours_get~& / _put$` work on any list
+  (Settings edits its shadow copy). Unpicked lanes ~65 % alpha.
+- **Lanes are keyed by `historyId`** (`LL_ID`), so two layers sharing one share lanes. Ids come only
+  from `LAYERS_alloc_history_id&`, which calls `LAYERS_history_ids_sync` (next id past every live
+  layer's and every `LL_ID`); loaders end with `LAYERS_history_ids_repair` (dedupes - a group gives
+  its id up to a drawing - then syncs). Shipped bug 2026-11-16: the Aseprite / PSD importers set
+  the next id to LAYER_COUNT + 1 after handing ids out, a .draw built from one saved that, and a new
+  group took the ball's id (SAMPLES/XSHEET/bounce.draw). QA: `group-lane-ids.sh`.
+- **X-sheet contrast**: every X-sheet line / guide / faint mark goes through `ANIM_XS_ink~&(c, alpha)`
+  (TOOLS/ANIM-XS): `CFG.XSHEET_CONTRAST` -80..100 (saved), up = alpha toward 255 and greys (RGB
+  spread < 40) lerped toward THEME.CP_text_bright, down = alpha scaled down, 0 = the exact old
+  colours. `Ctrl+Alt+Shift+wheel` in `ANIM_XS_wheel%` (before the Ctrl zoom branch; a fallback in
+  MOUSE_handle_wheel), middle-click reset in ANIM_LB's mouse + MOUSE.BM's overlay-fade reset. Draw
+  new X-sheet greys through `ANIM_XS_ink~&`, not `(c AND &H00FFFFFF~&) OR &HNN000000~&` - but not
+  masks / veils (the CP_bg cell veil stays raw). QA: `xsheet-contrast.sh`.
+- **Transform widget** (`TOOLS/ANIM-XWIDGET`, `ANIM_XW_`): drawn by `ANIM_LB` on the current
+  pane (`ANIM_XW_render dx, dy, dw, pane rect`; `ANIM_XW.shown`), mouse first in `ANIM_LB_mouse`
+  (`ANIM_XW_mouse%`). Box = clip cel / pixel layer's drawing bbox (cached by `bbKey`) / group
+  cell, mapped like the lanes (q = round(X) + pv + R·S·(p − pv)). Handles `XW_H_*` 1-10, bar
+  parts `XW_R_*` (OPACITY slider + value, TINT chip, TINT slider + value). Drag = one undo via
+  the record API; tint follow = `linkSlot / linkFG / linkBefore`, one undo per release.
+  `ANIM_XW.alpha` (-1 = resolve to `ANIM_XW_alpha_dflt%` = `CFG.ANIM_WIDGET_OPACITY` %);
+  `ANIM_XW_over% / _fade` from MOUSE.BM's Ctrl+Alt+Shift wheel / middle-click. Dumps `XWG shown
+  slot drag hover alpha + handles x y`, `XWB link + parts x y w h`, `XFQ` (transform quad).
+- **LANES page** (`GUI/ANIM-PANEL-LANES`, `ANIMPL_`): `ANIMPL_PAGE` (session) toggled by the
+  status-row chip (`ANIMPL_chip_on%`: an animation of 2+ frames and `ANIM_XL_can%`).
+  `ANIMPL_on%` takes the panel body before the clip page; hooks in `ANIMP_render` (status,
+  chip, body, info), `ANIMP_mouse_input` (`ANIMPL_mouse%` right after the title drag - it
+  owns its held value box and swallows clicks over the page), `ANIMP_wheel%`. Rows
+  `ANIMPL_row_y%(r)` (0 nav, 1..n lanes, n+1 EASE, n+2 MOD). Key toggle / ease / mod reuse the
+  lane menu (`ANIM_XL.mSlot / mL / mRel` + `ANIM_XL_menu_pick XL_V_*`). Dump `ANIMPLP on
+  chipX chipY chipW chipH navY keyX valX valW chipW easeY modY modChipX amtX perX L:y:value:ease`
+  (ease -1 = no key here) - **not** `ANIMPLN`, which is the clip page's.
+- **Settings > Animation** (`SETTINGS_TAB_ANIMATION` = 9, `SETTINGS_render_animation`):
+  `XSHEET_FIT_ALL`, `ANIM_WIDGET_OPACITY` (10..100), `ANIM_LANE_COLORS`; Apply resets the widget
+  alpha when the default changed and the colour cache. QA line `SETANIM fitAll opacity colours`
+  in `<dump>.settings` while the tab is open.
+- **QA**: `rec-dots`, `rec-tools`, `rec-live`, `lanes-smooth`, `key-glyphs`, `xform-widget`,
+  `xform-widget-bar`, `anim-panel-lanes`, `anim-settings-tab`, `lanes-flip`,
+  `anim-xsheet-zoom-fits`, `anim-lightbox-checks`.
+
 ## Gotchas met here
 
 - Reserved words as names: `on`, `off`, `key` (gotcha 20).
@@ -1411,3 +1639,24 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   ONCE chip). Reach far frames with `Num 1` / `Num 5` / `Num 9`.
 - A harness script error (`set -u`) still reports PASS. Count the checks after a change to
   a test's dump parsing (e.g. a new field caught by the last `read` variable).
+
+### Key selection + keys clipboard (TOOLS/ANIM-XLANE, 2026-11-16)
+
+- `ANIM_XL_SEL_ON / _F1 / _F2 / _ROWS`: one rect - absolute frames F1..F2 on the lane rows in `_ROWS`
+  (6-byte entries `MKL$(historyId) + MKI$(lane)`, display order), so opening / closing lanes keeps it.
+  Drawn by `ANIM_XL_sel_row_shade` (under each row's curve) + `ANIM_XL_sel_outline`; keys inside filled.
+  Reset in `LL_new_document` (every document path).
+- Drags: `XS_DRAG_LSEL` (9; a press on EMPTY lane space - a key press is still the single-key drag) and
+  `XS_DRAG_LSMOVE` (10; a press inside the rect: `ANIM_XL_keys_moved$` per row from the snapshot, clamped,
+  Alt read live = copy). Under Xvfb a press made with Alt already held never reaches DRAW - tests press,
+  then hold Alt during the drag. Alt+press inside the rect is exempt from the chrome screen eyedropper.
+- Multi-layer edits: `ANIM_XL_edit_reset` / `ANIM_XL_edit_touch slot` (each layer's `ANIM_XL_state$`
+  once) then `ANIM_XL_sel_commit label` = `HISTORY_begin_group` + `ANIM_XL_commit` per changed layer.
+- Clipboard `ANIM_XL_CB_*` (rows: lane, source historyId, keys from the rect's first frame;
+  `ANIM_XL_keys_span$` bakes a key at each end). Keys go through `ANIM_XL_key%` in
+  `INPUT_dispatch_frame` before the bindings (only with a rect, or Ctrl+V while `ANIM_XL_CB_LAST` -
+  CASE 303 / 304 pixel copy / cut clear it). Actions 2673-2676 (`ANIM_ACT_KEYS_*`).
+- Pointer: `ANIM_XL_wants_cross%` 1 = `CURSOR_MARQUEE_RECT`, 2 = `CURSOR_MOVE` (it returns 1, not TRUE:
+  POINTER_build matches `CASE 1`).
+- QA dump: `XLSEL on f1 f2 keys slot:lane...`, `XLCB rows frames newest lane=f:v,...`. Tests
+  `lane-key-select.sh`, `lane-key-clipboard.sh`.

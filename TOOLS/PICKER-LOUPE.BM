@@ -31,6 +31,62 @@ END SUB
 
 
 ''
+' After the native windows are drawn (SCREEN_render_windows): while Alt is held
+' (or an Alt eyedrop drag is on) copy the shown frame to SNAP, then draw the
+' chrome loupe over chrome - docked panels and windows included - on screen 0.
+'
+SUB PICKER_LOUPE_screen_pass ()
+    DIM oldDest AS LONG, sw AS LONG, sh AS LONG, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER
+    PICKER_LOUPE.LX2% = -1 ' (none drawn - the dump's LOUPE line)
+    IF (MODIFIERS.alt% = 0 _ORELSE MODIFIERS.ctrl% <> 0) _ANDALSO PICKER_LOUPE.DRAG_BTN% = 0 THEN PICKER_LOUPE.SNAP_OK% = FALSE: EXIT SUB
+    sw = SCRN.w&: sh = SCRN.h&
+    IF sw < 1 _ORELSE sh < 1 THEN EXIT SUB
+    IF PICKER_LOUPE.SNAP& < -1 _ANDALSO (_WIDTH(PICKER_LOUPE.SNAP&) <> sw _ORELSE _HEIGHT(PICKER_LOUPE.SNAP&) <> sh) THEN SAFE_FREEIMAGE PICKER_LOUPE.SNAP&: PICKER_LOUPE.SNAP& = 0
+    IF PICKER_LOUPE.SNAP& >= -1 THEN PICKER_LOUPE.SNAP& = _NEWIMAGE(sw, sh, 32)
+    IF PICKER_LOUPE.OVL& < -1 _ANDALSO (_WIDTH(PICKER_LOUPE.OVL&) <> sw _ORELSE _HEIGHT(PICKER_LOUPE.OVL&) <> sh) THEN SAFE_FREEIMAGE PICKER_LOUPE.OVL&: PICKER_LOUPE.OVL& = 0
+    IF PICKER_LOUPE.OVL& >= -1 THEN PICKER_LOUPE.OVL& = _NEWIMAGE(sw, sh, 32)
+    _DONTBLEND PICKER_LOUPE.SNAP&
+    _PUTIMAGE (0, 0)-(sw - 1, sh - 1), 0, PICKER_LOUPE.SNAP&, (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1)
+    _BLEND PICKER_LOUPE.SNAP&
+    PICKER_LOUPE.SNAP_OK% = TRUE
+    ' the loupe: over chrome, where the Alt eyedropper picks
+    IF POPUP_any_open% _ORELSE PICKER_LOUPE_alt_blocked%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN EXIT SUB
+    oldDest& = _DEST
+    _DEST PICKER_LOUPE.OVL&: CLS , _RGBA32(0, 0, 0, 0)
+    PICKER_LOUPE.WIN_PASS% = TRUE
+    PICKER_LOUPE_render PICKER_LOUPE.OVL&
+    PICKER_LOUPE.WIN_PASS% = FALSE
+    _DEST oldDest&
+    x1 = PICKER_LOUPE.LX1%: y1 = PICKER_LOUPE.LY1%: x2 = PICKER_LOUPE.LX2%: y2 = PICKER_LOUPE.LY2%
+    IF x2 < x1 _ORELSE y2 < y1 THEN EXIT SUB
+    DIM sx AS SINGLE, sy AS SINGLE
+    sx = _WIDTH(0) / sw: sy = _HEIGHT(0) / sh
+    _PUTIMAGE (INT(x1 * sx), INT(y1 * sy))-(INT((x2 + 1) * sx) - 1, INT((y2 + 1) * sy) - 1), PICKER_LOUPE.OVL&, 0, (x1, y1)-(x2, y2)
+END SUB
+
+''
+' QA dump: LOUPE snapOk x1 y1 x2 y2 RRGGBB - the chrome loupe drawn by the
+' last screen pass (x2 -1 = none) and the colour it samples
+'
+FUNCTION PICKER_LOUPE_dump$ ()
+    PICKER_LOUPE_dump$ = "LOUPE " + DOCK_n0$(ABS(PICKER_LOUPE.SNAP_OK% <> 0)) + DOCK_n$(PICKER_LOUPE.LX1%) + DOCK_n$(PICKER_LOUPE.LY1%) + DOCK_n$(PICKER_LOUPE.LX2%) + DOCK_n$(PICKER_LOUPE.LY2%) + " " + RIGHT$("00000" + HEX$(PICKER_LOUPE.SAMPLE_COLOR~& AND &HFFFFFF~&), 6) + CHR$(10)
+END FUNCTION
+
+''
+' Where the Alt eyedropper leaves Alt alone: the canvas (the layer loupe owns
+' it), the preview window (its own picker) and an X-sheet key selection
+' (Alt+drag copies the keys)
+'
+FUNCTION PICKER_LOUPE_alt_blocked% (x AS INTEGER, y AS INTEGER)
+    IF REGION_hit_test%(x, y) <= REGION_CANVAS THEN PICKER_LOUPE_alt_blocked% = TRUE: EXIT FUNCTION
+    IF ANIM_XL_wants_cross%(x, y) = 2 THEN PICKER_LOUPE_alt_blocked% = TRUE: EXIT FUNCTION
+    IF PREVIEW.visible% _ANDALSO PREVIEW.autoHidden% = 0 THEN
+        IF PREVIEW_hit_window%(x, y) THEN PICKER_LOUPE_alt_blocked% = TRUE
+    END IF
+END FUNCTION
+
+
+''
 ' Activate picker loupe rendering.
 '
 SUB PICKER_LOUPE_activate ()
@@ -348,7 +404,7 @@ SUB PICKER_LOUPE_render (dest AS LONG)
     DIM rectStrokeColor    AS _UNSIGNED LONG
     DIM pickupColor        AS _UNSIGNED LONG
 
-    IF NOT PICKER_LOUPE.ACTIVE% THEN EXIT SUB
+    IF NOT PICKER_LOUPE.ACTIVE% _ANDALSO PICKER_LOUPE.WIN_PASS% = 0 THEN EXIT SUB
     IF dest& >= -1 THEN EXIT SUB
 
     ' Over GUI chrome the loupe magnifies the composited frame (SCENE_CACHE&, which
@@ -363,7 +419,11 @@ SUB PICKER_LOUPE_render (dest AS LONG)
     ' selected, hovering toolbox buttons popped the loupe up (BUGS.md 2026-11-15).
     DIM loupeChrome AS INTEGER
     loupeChrome% = (REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%) > REGION_CANVAS)
-    IF loupeChrome% _ANDALSO MODIFIERS.alt% = 0 THEN EXIT SUB
+    IF loupeChrome% _ANDALSO MODIFIERS.alt% = 0 _ANDALSO PICKER_LOUPE.DRAG_BTN% = 0 THEN EXIT SUB
+    ' over chrome the loupe is drawn by the screen pass only (after the windows,
+    ' from SNAP); the screen pass draws nothing over the canvas
+    IF loupeChrome% <> 0 _ANDALSO PICKER_LOUPE.WIN_PASS% = 0 THEN EXIT SUB
+    IF loupeChrome% = 0 _ANDALSO PICKER_LOUPE.WIN_PASS% THEN EXIT SUB
 
     zw& = SCRN.canvasW& * SCRN.zoom!
     zh& = SCRN.canvasH& * SCRN.zoom!
@@ -417,12 +477,15 @@ SUB PICKER_LOUPE_render (dest AS LONG)
         DIM lcW       AS INTEGER, lcH AS INTEGER
         lcOldDest& = _DEST
         lcOldSrc&  = _SOURCE
-        IF SCENE_CACHE& < -1 THEN
-            lcW% = _WIDTH(SCENE_CACHE&)
-            lcH% = _HEIGHT(SCENE_CACHE&)
+        DIM lcSrc AS LONG
+        lcSrc& = SCENE_CACHE&
+        IF PICKER_LOUPE.SNAP_OK% _ANDALSO PICKER_LOUPE.SNAP& < -1 THEN lcSrc& = PICKER_LOUPE.SNAP&
+        IF lcSrc& < -1 THEN
+            lcW% = _WIDTH(lcSrc&)
+            lcH% = _HEIGHT(lcSrc&)
             _DEST PICKER_LOUPE.BUFFER&
             _DONTBLEND PICKER_LOUPE.BUFFER&
-            _SOURCE SCENE_CACHE&
+            _SOURCE lcSrc&
             FOR lcby% = 0 TO sampleH% - 1
                 FOR lcbx% = 0 TO sampleW% - 1
                     lcsx% = regionX% + lcbx%
@@ -511,6 +574,9 @@ SUB PICKER_LOUPE_render (dest AS LONG)
     IF rectY% + minRelY% < 0 THEN rectY% = -minRelY%
     IF rectX% + maxRelX% > _WIDTH(dest&) - 1 THEN rectX% = (_WIDTH(dest&) - 1) - maxRelX%
     IF rectY% + maxRelY% > _HEIGHT(dest&) - 1 THEN rectY% = (_HEIGHT(dest&) - 1) - maxRelY%
+
+    PICKER_LOUPE.LX1% = _MAX(0, rectX% + minRelX% - 2): PICKER_LOUPE.LY1% = _MAX(0, rectY% + minRelY% - 2)
+    PICKER_LOUPE.LX2% = _MIN(_WIDTH(dest&) - 1, rectX% + maxRelX% + 2): PICKER_LOUPE.LY2% = _MIN(_HEIGHT(dest&) - 1, rectY% + maxRelY% + 2)
 
     oldDest& = _DEST
     _DEST dest&

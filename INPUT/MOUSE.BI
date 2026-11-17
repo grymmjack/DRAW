@@ -19,6 +19,8 @@ TYPE MOUSE_OBJ
     WIN_Y             AS INTEGER
     UNSNAPPED_X       AS INTEGER ' Canvas X before grid snap (for fill, picker, etc.)
     UNSNAPPED_Y       AS INTEGER ' Canvas Y before grid snap (for fill, picker, etc.)
+    FX                AS DOUBLE  ' Canvas X with the sub-pixel part (Pen Control smoothing)
+    FY                AS DOUBLE
     CON_X             AS INTEGER
     CON_Y             AS INTEGER
     B1                AS INTEGER
@@ -39,5 +41,6 @@ TYPE MOUSE_OBJ
 END TYPE
 
 DIM SHARED MOUSE AS MOUSE_OBJ
+DIM SHARED MOUSE_B1_ORIGIN AS INTEGER ' where this left press began: 0 = up, 1 = the canvas, 2 = elsewhere (MOUSE_note_b1_origin)
 
 MOUSE_init

@@ -24,7 +24,15 @@ DRAW ships with **620 color bitmap fonts** in the DPaint-style `.bmp` spriteshee
 
 ### The Text Property Bar
 
-When the text tool is active, a property bar appears with the font dropdown, size, and the standard formatting toggles (bold, italic, underline, strikethrough). This bar is fixed in position under the menu bar and not movable or undockable.
+When the text tool is active (or a text layer is being edited), a property bar appears with the font dropdown, size, and the standard formatting toggles (bold, italic, underline, strikethrough). With any other tool it is hidden, and the space it took goes back to the canvas.
+
+The bar is a dock panel like the others. By default it is a row of its own along the top, under the menu bar. Drag the small grip on its top edge to move it:
+
+- **To the left or right edge** — it joins that column and its controls wrap into as many lines as the column's width needs (the bar is exactly as tall as its lines).
+- **To the bottom edge** — a row along the bottom; the font, size and style lists then open **upward**, toward the canvas.
+- **Onto the canvas** — it floats as a window as tall as its lines.
+
+Right-click the grip for the same choices from a menu, and for **Scale** (Auto or 1×–8×) to draw the bar bigger than the rest of the screen; Settings → Panels → **Text Bar** sets the same thing (`TEXT_BAR_SCALE` in DRAW.cfg, 0 = Auto). Where it sits is saved with the dock arrangement and in workspaces.
 
 <div align="center">
   <img src="images/ch07-text-bar.png" alt="Chapter 7 - Text Property Bar" style="max-width: 3.0in; width: 50%; height: auto;" />

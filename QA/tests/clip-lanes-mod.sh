@@ -71,10 +71,18 @@ if (( CL_OK )); then
     SAVED="$(ln_all)|$C_PIX"
     wake_draw
     key ctrl+s; wait_for 2.0 "saved"
+    # an idle DRAW (15 FPS) takes one key a frame and reads Ctrl live, so a fast Ctrl+Q chord
+    # arrives as a plain Q (the Bezier tool): DRAW never quits, draw_quit kills it, and the
+    # Animation panel's open state is not saved for the reload. Wake it first.
+    wake_draw
     draw_quit; draw_settle
     draw_launch 15; wait_for 1.5 "Reloaded"
     assert_no_crash
     click 60 "$(cl_row_y 1)"; wait_for 0.5 "the clip layer"
+    # the panel's open state lives in the cfg, saved only when DRAW quits cleanly - and an
+    # idle DRAW can miss the harness's Ctrl+Q (see above), so it may come back closed
+    cl_read
+    [[ "$(cl_line ANIMP | cut -d' ' -f2)" == -1 ]] || { info "the Animation panel came back closed - opening it"; cl_cmd "toggle animation panel"; }
     ln_read
     [[ "$(ln_all)|$C_PIX" == "$SAVED" ]] && pass "Ctrl+S + reload: the same noise, the same pixels" || fail "reload: [$(ln_all)|$C_PIX] saved [$SAVED]"
 

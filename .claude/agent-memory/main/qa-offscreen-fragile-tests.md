@@ -28,6 +28,16 @@ flake, not a bug.** Don't chase "green in one full run" — it's not achievable 
   unreliable for Ctrl combos on Linux/SDL2 (gotcha #6). Ctrl+S needs `wake_draw`
   first; Ctrl+Shift+/ (keycode 63 `?`) won't dispatch offscreen AT ALL (every
   xdotool spelling dropped) → invoke the action via the command palette instead.
+  [Linux, 2026-11-16] The mechanism, pinned: DRAW.BAS takes ONE `_KEYHIT` a frame and
+  MODIFIERS_update reads Ctrl from `_KEYDOWN` (live). Idle = 15 FPS, so a fast xdotool
+  chord is fully released before its Q / S is read: `--developer` inputs.log showed
+  Ctrl+Q firing "Bezier tool" (122). **The harness's `draw_quit` (Ctrl+Q, 0.5 s, kill)
+  hits this**: DRAW is killed, never saves its cfg, and panel state (e.g.
+  `ANIM_PANEL_VISIBLE`) is lost across a relaunch. Present in 2.8.0 HEAD too (3/3 when
+  idle). Tests that relaunch and rely on cfg state: `wake_draw` before `draw_quit`, and
+  re-assert the state after the reload (clip-lanes-mod.sh does both). Real fixes, not
+  done: track Ctrl from the `_KEYHIT` stream in DRAW, or a slow chord + longer wait in
+  qa-harness `draw_quit`.
 - **Paste onto a new layer**: Ctrl+V must land while the new layer is active —
   clicking the panel FIRST makes an in-place paste place nothing. Commit a paste
   float by switching tools (`key b` → apply-transform), not Enter (Enter re-centers).

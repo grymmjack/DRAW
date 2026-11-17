@@ -268,6 +268,15 @@ Other ways to key:
 - The **X-sheet** shows a **LANES** row under a clip with keys: a diamond on each frame with
   a key, filled where the lane picked in the panel has one. Drag a diamond along the row to
   move that frame's keys to another frame.
+- The **arrow** before a clip's name on the X-sheet opens its **lane rows**: one per lane in
+  use, plotting the value along the frames with its eases, then **+ LANE**. Drag a key along
+  the row to retime it, up / down to change it; double-click to add a key or type a value;
+  right-click for the ease, the modulator and Remove Lane. A key can turn the modulator off,
+  make it one cycle (one-shot) or restart it until the next key, and **Modulator Envelope…**
+  (attack, decay, sustain, release) shapes it from each key; the line shows the real wave.
+  **Add Frequency Lane** / **Add Amplitude Lane** add a **~FREQ** / **~AMP** row under the lane
+  to key the modulator's period and amount over time (a shiver that speeds up, a wobble that
+  dies away).
 - **ANIM → Move Brush → Apply as Clip** makes the Move Brush's move a clip layer instead of
   stamping it: the brush (an AnimBrush's cels, or a plain brush) plays over the move's
   frames, with the move in its lanes - a straight path as two keys with the move's ease, a
@@ -281,6 +290,79 @@ VOLUME and PAN set each of the clip's sounds to the lane's value on the frame it
 (a sound keeps its level while it plays). Every lane is one `Ctrl+Z` per change, is saved
 in the `.draw` file, and is in the pixels that onion skin, playback, Bake and every export
 use.
+
+### Holds and lanes on any layer
+
+Two more things on the X-sheet work on **any** layer, not just clips:
+
+- **Per-layer holds** - drag a cell's right end along its row and that layer's drawing shows
+  for as many frames as you cover (the other layers keep animating); drag it back and the
+  frames let go are blank. Right-click a cell (or ANIM → **Hold for N Frames…** /
+  **Release Hold**) to type it.
+- **Keyframe lanes on pixel layers and groups** - the same lane rows as a clip's (X, Y,
+  SCALE X / Y, ROTATE, OPACITY, TINT, PIVOT X / Y), from the arrow before the layer's name.
+  A pixel layer also has **BLEND**: its blend mode per frame - right-click the row on a frame
+  and pick a mode; it holds until the next key.
+  **Effect lanes** - **BLUR** (radius), **PIXELATE** (block size), **INVERT** (0-100 %) and
+  **NOISE** (a grain, new every frame, or held from a key: **From This Key: Frozen Grain**) -
+  are under **+ LANE** too, on pixel layers and groups. They change how the layer looks on each
+  frame (after it is moved) in the canvas, playback and every export.
+  A group's lanes move every layer in it. The pixels never change: the canvas, the
+  lightbox, playback and every export show each frame through its lanes, clipped to the
+  frame.
+
+- **Select keys with a box** - drag on empty lane space (a crosshair) to box frames across
+  any lane rows, even several layers'. Drag inside the box to move those keys in time (hold
+  `Alt` to copy them); `Ctrl+C` / `Ctrl+X` / `Delete` copy, cut or delete them, and `Ctrl+V`
+  pastes them at the current frame - into the current layer's lanes of the same kind when
+  they came from one layer, so another layer can take the same motion. A copy adds a key at
+  each edge of the box, so the pasted stretch has the same curve you saw. `Esc` clears the
+  box. (Also ANIM → Copy / Cut / Paste / Delete Keys.)
+- **Layers on the X-sheet** - `Ctrl` / `Shift`+click layer names to select several (the
+  same selection as the Layers panel), then `Ctrl+Shift+G` to group them or `Ctrl+Shift+U` to
+  ungroup; drag a name up or down to move the layer, into or out of a group, in one undo step.
+- **Lane thumbnails** - a layer the lanes move shows, on its main X-sheet row, a thumbnail
+  at each frame a lane has a key, drawn through the lanes (what the canvas shows on that
+  frame), with the hold line running on between them. A group shows its layers together at
+  its own keys. Right-click the X-sheet's header → **Lane Thumbnails: Off / Keyframes /
+  Every Frame** (Every Frame: each frame the lanes change the layer), or Settings →
+  Animation.
+- **Keys show their ease** by shape: a diamond is LINEAR, `[>` EASE IN, `<]` EASE OUT, a
+  circle EASE IN-OUT, a square HOLD. Each lane has its own colour (Settings → Animation),
+  and the curves are drawn smooth.
+
+#### Recording: arm a layer and use your tools
+
+Click the **record dot** on a layer's X-sheet row (or left of its opacity bar in the Layers
+panel - shown on animations only), or right-click the layer → **ARM FOR RECORDING**. Red =
+armed; purple = not armed but keyed. On an armed layer, on the current frame:
+
+- the **Move tool** (drag or arrow nudges) keys **X / Y**;
+- **Transform → Scale / Rotate**, committed, keys **X / Y / SCALE / ROTATE**;
+- **Flip Horizontal / Vertical** (`Home` / `End`) keys a negative **SCALE X / Y**;
+- the **opacity** bar, slider, wheel or `1`-`0` keys **OPACITY**.
+
+The pixels never change, each gesture is one undo step, and the lane being changed shows a
+purple dot while its curve moves with you.
+
+In the **lightbox**, the current frame's pane shows the armed layer's **transform widget**: a
+box round its drawing with corner / edge handles (scale; `Shift` uniform), a knob (rotate;
+`Shift` 15°; `Ctrl` the angle snap from Settings - Snap Degrees, or the pixel-art angles) and a pivot crosshair, plus a bar with an **OPACITY** slider, a **TINT** chip
+(`Shift+click` = the FG colour; click = follow the FG colour through the Color Mixer) and a
+**TINT** slider. A tip shows old → new while you drag. `Ctrl+Alt+Shift+wheel` over it fades
+the widget; `Ctrl+Alt+Shift+middle-click` restores it.
+
+#### The LANES page of the Animation panel
+
+The **LANES** chip on the Animation panel's status row (on an animation, for any layer that
+can have lanes) swaps the frame rows for every lane of the current layer: its name (click to
+pick), a key button (add / remove the key on this frame; it shows the key's ease shape) and
+its value on this frame - click to type, drag up / down or wheel to change it, middle-click
+for its default. `<KEY` / `KEY>` jump between keyed frames, and **EASE** / **MOD** set the
+picked lane's ease and modulator. With it you can hide the X-sheet and still key everything.
+
+The full how-to, with every gesture and some recipes, is the field guide
+`docs/XSHEET-HOLDS-AND-LANES.md`.
 
 ### The AnimBrush pack and example scenes
 
@@ -452,7 +534,7 @@ set its columns in a workspace):
 - **Not every row fits:** **`Shift`+wheel** over the bins scrolls them. The plain wheel still switches `.dset` sets.
 - **The bins fill the width:** they grow to span the drawer, so no strip is left at the right.
 - **See a bin big:** hover it and the Preview panel shows it enlarged (Bin Quick Look, see Chapter 11).
-- **Zoom:** **`Ctrl`+wheel** over the bins zooms them: wheel up gives fewer, bigger bins per row (down to 1), wheel down gives more, smaller ones (up to 12). DRAW remembers the zoom (`DRAWER_BIN_COLS` in DRAW.cfg). To go back to the automatic size, right-click a bin and choose **Bin Size: Auto**.
+- **Zoom:** **`Ctrl`+wheel** over the bins zooms them: wheel up gives fewer, bigger bins per row (down to 1), wheel down gives more, smaller ones (up to 12). DRAW remembers the zoom (`DRAWER_BIN_COLS` in DRAW.cfg). To go back to the automatic size, right-click a bin and choose **Bin Size: Auto**. Docked in a row along the top or bottom, the bins run across the row instead, so there `Ctrl`+wheel sets how many rows of bins fit the row's height: wheel down gives 2, 3… rows of smaller bins (up to 6), wheel up goes back to one row as tall as the row (`DRAWER_ROW_BIN_ROWS`). For bigger bins than that, drag the row's edge to make it taller.
 
 ### 1-bit patterns
 

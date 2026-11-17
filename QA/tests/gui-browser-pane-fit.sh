@@ -17,7 +17,7 @@ dk_begin
 LISTMIN=100; SPL=4
 
 bp_win() { read -r _ _ WX WY WW WH _ <<< "$(grep '^WIN browser ' "$DK_DUMP")"; }
-bp_bl()  { read -r _ NAVW LX LW PX PW PON DW NAVMIN PVMIN BTNX BTNY <<< "$(grep '^BROWSERL' "$DK_DUMP")"; }
+bp_bl()  { read -r _ NAVW LX LW PX PW PON DW NAVMIN PVMIN BTNX BTNY NAVTINY _ <<< "$(grep '^BROWSERL' "$DK_DUMP")"; }
 # FD px -> viewport px (the Browser draws DW FD px across WW viewport px)
 bp_vx() { echo $(( WX + $1 * WW / DW )); }
 bp_vy() { echo $(( WY + $1 * WW / DW )); }
@@ -27,7 +27,7 @@ bp_fits() { # $1 = label, $2 = 1 if the preview must be showing
     bp_state
     info "$1: window ${WW}x$WH, panes places $NAVW | list $LX+$LW | preview $PX+$PW on=$PON (dialog $DW, mins $NAVMIN/$PVMIN)"
     local bad=""
-    (( NAVW >= NAVMIN )) || bad+=" places $NAVW < its minimum $NAVMIN;"
+    (( NAVW >= ${NAVTINY:-NAVMIN} )) || bad+=" places $NAVW < its floor ${NAVTINY:-$NAVMIN};" # (dragged it goes below NAVMIN, to an icon and a letter)
     (( LW >= LISTMIN ))  || bad+=" list $LW < $LISTMIN;"
     (( LX == NAVW + SPL )) || bad+=" list starts at $LX, not flush after the places ($(( NAVW + SPL )));"
     if (( PON != 0 && PW > 0 )); then
@@ -57,8 +57,8 @@ screenshot "browser-pane-wide"
 MY=$(( WY + WH / 2 ))
 drag "$(bp_vx $(( NAVW + 2 )))" "$MY" $(( WX + 4 )) "$MY"
 wait_for 0.5 "places splitter dragged left"
-bp_fits "places at its minimum" 1
-(( NAVW == NAVMIN )) && pass "the places pane stops at its minimum ($NAVMIN)" || fail "the places pane went to $NAVW (minimum $NAVMIN)"
+bp_fits "places at its floor" 1
+(( NAVW == NAVTINY )) && pass "the places pane drags down to an icon and a letter ($NAVTINY, below its minimum $NAVMIN)" || fail "the places pane went to $NAVW (want $NAVTINY: an icon and a letter)"
 
 # 3) the preview splitter as far left as it goes (a wide preview)
 drag "$(bp_vx $(( PX - 2 )))" "$MY" $(( WX + 8 )) "$MY"

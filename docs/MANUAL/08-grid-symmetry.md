@@ -108,7 +108,7 @@ Hold `Ctrl+Shift` while drawing a Line, Polygon, Brush stroke, or Dot connecting
 - **Degree mode** — 15° / 30° / 45° / 90°.
 - **Pixel-art mode** — integer-ratio angles like 1:1, 2:1, 1:2, 3:1, etc., which produce visually clean stairsteps without the half-pixel artefacts of 30° / 60° lines.
 
-Choose the mode in `DRAW.cfg`.
+Choose the mode in `DRAW.cfg`. The same setup snaps rotations with `Ctrl`: Transform's rotate and the animation transform widget's knob.
 
 ### Crosshair Assistant
 

@@ -1,0 +1,2007 @@
+$INCLUDEONCE
+' =============================================================================
+' TOOLS/ANIM-XLANE.BM - the X-sheet's lane rows (see ANIM-XLANE.BI). The rows
+' themselves are ANIM_XS_ROW = -slot, ANIM_XS_RKIND = XS_ROW_LANE (lane in
+' ANIM_XS_RLANE) / XS_ROW_LANEADD, built by ANIM_XS_rows_build while the
+' layer's lanes are open (ANIM_XL_is_open%).
+' =============================================================================
+
+' ---------------------------------------------------------------------------
+' Open / closed, which lanes
+' ---------------------------------------------------------------------------
+
+''
+' Layer slot can show lanes: a clip layer (the clip's lanes, TOOLS/CLIP) or a
+' pixel layer / group (its own, TOOLS/LAYER-LANES) - phase 3.
+FUNCTION ANIM_XL_can% (slot AS INTEGER)
+    IF slot < 1 _ORELSE slot > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(slot).imgHandle& = 0 THEN EXIT FUNCTION
+    ANIM_XL_can% = (CLIP_inst_of%(slot) > 0 _ORELSE LL_can%(slot) <> 0)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' The lanes of a slot, whoever keeps them: a clip instance (CLIP_LN_*, frames
+' from its In) or the layer lanes table (LL_*, frames from 1)
+' ---------------------------------------------------------------------------
+
+FUNCTION ANIM_XL_nlanes% (slot AS INTEGER)
+    IF CLIP_inst_of%(slot) THEN ANIM_XL_nlanes% = CLIP_LANES ELSE ANIM_XL_nlanes% = LL_LANES
+END FUNCTION
+
+''
+' Pick lane L (the Animation panel's LANE row, the bright row): a sub-lane
+' picks the lane it belongs to.
+SUB ANIM_XL_pick (L AS INTEGER)
+    DIM p AS INTEGER, wh AS INTEGER
+    p = ANIM_XL_sub_of%(L, wh)
+    IF p THEN CLIP_LANE_PICK = p ELSE CLIP_LANE_PICK = L
+END SUB
+
+''
+' A modulator sub-lane id's parent lane (CLIP_SUB_FREQ / CLIP_SUB_AMP + L), 0
+' for a lane of its own; which = 1 FREQUENCY, 2 AMPLITUDE.
+FUNCTION ANIM_XL_sub_of% (L AS INTEGER, which AS INTEGER)
+    which = 0
+    IF L > CLIP_SUB_AMP _ANDALSO L <= CLIP_SUB_AMP + CLIP_LANE_LAST THEN which = 2: ANIM_XL_sub_of% = L - CLIP_SUB_AMP: EXIT FUNCTION
+    IF L > CLIP_SUB_FREQ _ANDALSO L <= CLIP_SUB_FREQ + CLIP_LANE_LAST THEN which = 1: ANIM_XL_sub_of% = L - CLIP_SUB_FREQ
+END FUNCTION
+
+FUNCTION ANIM_XL_keys$ (slot AS INTEGER, L AS INTEGER)
+    DIM k AS INTEGER, e AS INTEGER, pl AS INTEGER, wh AS INTEGER
+    pl = ANIM_XL_sub_of%(L, wh)
+    IF pl THEN ANIM_XL_keys$ = CLIP_mod_sub$(ANIM_XL_mod$(slot, pl), wh): EXIT FUNCTION ' (a modulator sub-lane: in its pack)
+    IF L < 1 _ORELSE L > ANIM_XL_nlanes%(slot) THEN EXIT FUNCTION
+    k = CLIP_inst_of%(slot)
+    IF k THEN ANIM_XL_keys$ = CLIP_LN_KEYS(k, L): EXIT FUNCTION
+    e = LL_of%(slot)
+    IF e THEN ANIM_XL_keys$ = LL_KEYS(e, L)
+END FUNCTION
+
+SUB ANIM_XL_set_keys (slot AS INTEGER, L AS INTEGER, ks AS STRING)
+    DIM k AS INTEGER, e AS INTEGER, pl AS INTEGER, wh AS INTEGER, m AS STRING
+    pl = ANIM_XL_sub_of%(L, wh)
+    IF pl THEN
+        m = ANIM_XL_mod$(slot, pl)
+        IF LEN(m) THEN ANIM_XL_set_mod slot, pl, CLIP_mod_with_sub$(m, wh, ks)
+        EXIT SUB
+    END IF
+    IF L < 1 _ORELSE L > ANIM_XL_nlanes%(slot) THEN EXIT SUB
+    k = CLIP_inst_of%(slot)
+    IF k THEN CLIP_LN_KEYS(k, L) = ks: EXIT SUB
+    IF LL_can%(slot) = 0 THEN EXIT SUB
+    e = LL_find%(LAYERS(slot).historyId&, TRUE)
+    IF e THEN LL_KEYS(e, L) = ks
+END SUB
+
+FUNCTION ANIM_XL_mod$ (slot AS INTEGER, L AS INTEGER)
+    DIM k AS INTEGER, e AS INTEGER
+    IF L < 1 _ORELSE L > ANIM_XL_nlanes%(slot) THEN EXIT FUNCTION
+    k = CLIP_inst_of%(slot)
+    IF k THEN ANIM_XL_mod$ = CLIP_LN_MOD(k, L): EXIT FUNCTION
+    e = LL_of%(slot)
+    IF e THEN ANIM_XL_mod$ = LL_MOD(e, L)
+END FUNCTION
+
+SUB ANIM_XL_set_mod (slot AS INTEGER, L AS INTEGER, m AS STRING)
+    DIM k AS INTEGER, e AS INTEGER
+    IF L < 1 _ORELSE L > ANIM_XL_nlanes%(slot) THEN EXIT SUB
+    k = CLIP_inst_of%(slot)
+    IF k THEN CLIP_LN_MOD(k, L) = m: EXIT SUB
+    IF LL_can%(slot) = 0 THEN EXIT SUB
+    e = LL_find%(LAYERS(slot).historyId&, TRUE)
+    IF e THEN LL_MOD(e, L) = m
+END SUB
+
+''
+' The frame a key's rel counts from (a clip's In; frame 1 on a layer) and the
+' last frame its lanes play to.
+FUNCTION ANIM_XL_in% (slot AS INTEGER)
+    DIM k AS INTEGER
+    k = CLIP_inst_of%(slot)
+    IF k THEN ANIM_XL_in% = CLIP_INST(k).inF ELSE ANIM_XL_in% = 1
+END FUNCTION
+
+FUNCTION ANIM_XL_out% (slot AS INTEGER)
+    DIM k AS INTEGER
+    k = CLIP_inst_of%(slot)
+    ANIM_XL_out% = ANIM.count
+    IF k THEN IF CLIP_INST(k).outF > 0 THEN ANIM_XL_out% = CLIP_INST(k).outF
+END FUNCTION
+
+FUNCTION ANIM_XL_dflt! (slot AS INTEGER, L AS INTEGER)
+    DIM k AS INTEGER, pl AS INTEGER, wh AS INTEGER
+    DIM kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    pl = ANIM_XL_sub_of%(L, wh)
+    IF pl THEN ' a sub-lane: the modulator's own period / amount
+        CLIP_mod_unpack ANIM_XL_mod$(slot, pl), kind, shape, amount, period, phase, seed
+        IF wh = 1 THEN ANIM_XL_dflt! = period ELSE ANIM_XL_dflt! = amount
+        EXIT FUNCTION
+    END IF
+    k = CLIP_inst_of%(slot)
+    IF k THEN ANIM_XL_dflt! = CLIP_lane_default!(k, L) ELSE ANIM_XL_dflt! = LL_default!(L)
+    IF k = 0 _ANDALSO L = CLIP_LANE_BLEND _ANDALSO slot >= 1 _ANDALSO slot <= MAX_LAYERS THEN ANIM_XL_dflt! = LAYERS(slot).blendMode% ' (the layer's own mode)
+END FUNCTION
+
+FUNCTION ANIM_XL_value! (slot AS INTEGER, L AS INTEGER, f AS INTEGER)
+    DIM k AS INTEGER, pl AS INTEGER, wh AS INTEGER, r AS SINGLE
+    pl = ANIM_XL_sub_of%(L, wh)
+    IF pl THEN r = f - ANIM_XL_in%(slot): ANIM_XL_value! = CLIP_lane_keyed_at!(ANIM_XL_keys$(slot, L), r, ANIM_XL_dflt!(slot, L)): EXIT FUNCTION
+    k = CLIP_inst_of%(slot)
+    IF k THEN ANIM_XL_value! = CLIP_lane_value!(k, L, f) ELSE ANIM_XL_value! = LL_value!(LL_of%(slot), L, f)
+    IF k = 0 _ANDALSO L = CLIP_LANE_BLEND THEN ANIM_XL_value! = LL_blend_at%(slot, f)
+END FUNCTION
+
+FUNCTION ANIM_XL_state$ (slot AS INTEGER)
+    IF CLIP_inst_of%(slot) THEN ANIM_XL_state$ = CLIP_state$(slot) ELSE ANIM_XL_state$ = LL_state$(slot)
+END FUNCTION
+
+FUNCTION ANIM_XL_word$ (slot AS INTEGER) ' (undo labels)
+    IF CLIP_inst_of%(slot) THEN ANIM_XL_word$ = "Clip" ELSE ANIM_XL_word$ = "Lane"
+END FUNCTION
+
+''
+' Show a lane change now: rebuild the clip / the layer's display.
+SUB ANIM_XL_apply (slot AS INTEGER)
+    IF CLIP_inst_of%(slot) THEN
+        CLIP_rebuild slot
+        BLEND_invalidate_cache
+        INVALIDATE_canvas
+    ELSE
+        LL_changed
+        IF LL_tick% THEN SCENE_DIRTY% = TRUE
+    END IF
+END SUB
+
+FUNCTION ANIM_XL_is_open% (slot AS INTEGER)
+    DIM p AS LONG
+    IF slot < 1 _ORELSE slot > MAX_LAYERS _ORELSE LEN(ANIM_XL_OPEN) = 0 THEN EXIT FUNCTION
+    p = ANIM_XL_open_at&(LAYERS(slot).historyId&)
+    ANIM_XL_is_open% = (p > 0)
+END FUNCTION
+
+' (the entry's place in ANIM_XL_OPEN, whole entries only; 0 none)
+FUNCTION ANIM_XL_open_at& (id AS LONG)
+    DIM p AS LONG
+    p = INSTR(ANIM_XL_OPEN, MKL$(id))
+    DO WHILE p > 0 _ANDALSO (p - 1) MOD 4 <> 0
+        p = INSTR(p + 1, ANIM_XL_OPEN, MKL$(id))
+    LOOP
+    ANIM_XL_open_at& = p
+END FUNCTION
+
+''
+' Open / close layer slot's lanes (a view setting: no undo step).
+SUB ANIM_XL_toggle (slot AS INTEGER)
+    DIM p AS LONG
+    IF ANIM_XL_can%(slot) = 0 THEN EXIT SUB
+    p = ANIM_XL_open_at&(LAYERS(slot).historyId&)
+    IF p > 0 THEN
+        ANIM_XL_OPEN = LEFT$(ANIM_XL_OPEN, p - 1) + MID$(ANIM_XL_OPEN, p + 4)
+    ELSE
+        ANIM_XL_OPEN = ANIM_XL_OPEN + MKL$(LAYERS(slot).historyId&)
+    END IF
+    ANIM_LB_changed
+END SUB
+
+''
+' Lane L of layer slot is in use: keys or a modulator.
+FUNCTION ANIM_XL_used% (slot AS INTEGER, L AS INTEGER)
+    ANIM_XL_used% = (LEN(ANIM_XL_keys$(slot, L)) > 0 _ORELSE LEN(ANIM_XL_mod$(slot, L)) > 0)
+END FUNCTION
+
+''
+' Lane L makes sense on layer slot: VOLUME / PAN only on a clip whose source has sounds.
+FUNCTION ANIM_XL_lane_ok% (slot AS INTEGER, L AS INTEGER)
+    DIM k AS INTEGER, pl AS INTEGER, wh AS INTEGER
+    pl = ANIM_XL_sub_of%(L, wh)
+    IF pl THEN ANIM_XL_lane_ok% = (ANIM_XL_lane_ok%(slot, pl) <> 0 _ANDALSO LEN(ANIM_XL_mod$(slot, pl)) > 0): EXIT FUNCTION ' a sub-lane: its lane has a modulator
+    IF L < 1 _ORELSE L > ANIM_XL_nlanes%(slot) THEN EXIT FUNCTION
+    IF L = CLIP_LANE_VOL _ORELSE L = CLIP_LANE_PAN THEN
+        k = CLIP_inst_of%(slot)
+        IF k THEN ANIM_XL_lane_ok% = (CLIP_cues_of%(CLIP_INST(k).src) > 0)
+    ELSEIF L = CLIP_LANE_BLEND THEN ' a pixel layer's (a group composites its own way)
+        ANIM_XL_lane_ok% = (CLIP_inst_of%(slot) = 0 _ANDALSO LAYERS(slot).layerType% <> LAYER_TYPE_GROUP)
+    ELSEIF L >= CLIP_LANE_BLUR _ANDALSO L <= CLIP_LANE_NOISE THEN ' the effects: a pixel layer's or a group's (baked by LL_build), not a clip's
+        ANIM_XL_lane_ok% = (CLIP_inst_of%(slot) = 0)
+    ELSE
+        ANIM_XL_lane_ok% = TRUE
+    END IF
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Values
+' ---------------------------------------------------------------------------
+
+''
+' The keyed value at fractional frame rel (from In): CLIP_lane_keyed! between
+' the frames, so the plot shows each ease's curve.
+FUNCTION ANIM_XL_keyed_at! (keys AS STRING, rel AS SINGLE, dflt AS SINGLE)
+    DIM n AS INTEGER, i AS INTEGER, f0 AS INTEGER, f1 AS INTEGER, v0 AS SINGLE, v1 AS SINGLE
+    n = CLIP_lks_n%(keys)
+    IF n = 0 THEN ANIM_XL_keyed_at! = dflt: EXIT FUNCTION
+    IF rel <= CLIP_lk_f%(keys, 1) THEN ANIM_XL_keyed_at! = CLIP_lk_v!(keys, 1): EXIT FUNCTION
+    IF rel >= CLIP_lk_f%(keys, n) THEN ANIM_XL_keyed_at! = CLIP_lk_v!(keys, n): EXIT FUNCTION
+    FOR i = 1 TO n - 1
+        f1 = CLIP_lk_f%(keys, i + 1)
+        IF rel < f1 THEN EXIT FOR
+    NEXT i
+    f0 = CLIP_lk_f%(keys, i): v0 = CLIP_lk_v!(keys, i): v1 = CLIP_lk_v!(keys, i + 1)
+    IF f1 <= f0 THEN ANIM_XL_keyed_at! = v1: EXIT FUNCTION
+    ANIM_XL_keyed_at! = v0 + (v1 - v0) * CLIP_ease!(CLIP_lk_e%(keys, i), (rel - f0) / (f1 - f0))
+END FUNCTION
+
+''
+' The value range lane L of layer slot is plotted over: the lane's own range
+' for OPACITY / TINT / PAN, else its keys and default (and the modulator's
+' swing) with a margin, never narrower than a useful span.
+SUB ANIM_XL_range (slot AS INTEGER, L AS INTEGER, lo AS SINGLE, hi AS SINGLE)
+    DIM ks AS STRING, i AS INTEGER, v AS SINGLE, a AS SINGLE, b AS SINGLE, span AS SINGLE, mid AS SINGLE, m AS STRING
+    DIM kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    SELECT CASE L
+        CASE CLIP_LANE_OP, CLIP_LANE_TINT, CLIP_LANE_INVERT, CLIP_LANE_NOISE: lo = 0: hi = 100: EXIT SUB
+        CASE CLIP_LANE_PAN: lo = -100: hi = 100: EXIT SUB
+        CASE CLIP_LANE_BLEND: lo = -1: hi = BLEND_MODE_COUNT: EXIT SUB
+    END SELECT
+    a = ANIM_XL_dflt!(slot, L): b = a
+    ks = ANIM_XL_keys$(slot, L)
+    FOR i = 1 TO CLIP_lks_n%(ks)
+        v = CLIP_lk_v!(ks, i)
+        IF v < a THEN a = v
+        IF v > b THEN b = v
+    NEXT i
+    m = ANIM_XL_mod$(slot, L)
+    IF LEN(m) THEN
+        CLIP_mod_unpack m, kind, shape, amount, period, phase, seed
+        v = ABS(amount)
+        ks = CLIP_mod_sub$(m, 2) ' (an AMPLITUDE sub-lane: its biggest swing)
+        FOR i = 1 TO CLIP_lks_n%(ks)
+            IF ABS(CLIP_lk_v!(ks, i)) > v THEN v = ABS(CLIP_lk_v!(ks, i))
+        NEXT i
+        a = a - v: b = b + v
+    END IF
+    SELECT CASE L
+        CASE CLIP_LANE_SX, CLIP_LANE_SY: span = 50
+        CASE CLIP_LANE_ROT: span = 90
+        CASE CLIP_LANE_VOL: span = 100
+        CASE CLIP_LANE_BLUR, CLIP_LANE_PIXELATE: span = 8
+        CASE ELSE: span = 4 ' (px: a small move still fills the row)
+    END SELECT
+    IF b - a < span THEN mid = (a + b) / 2: a = mid - span / 2: b = mid + span / 2
+    span = (b - a) * 0.12
+    lo = a - span: hi = b + span
+    IF L = CLIP_LANE_VOL _ORELSE L = CLIP_LANE_BLUR THEN IF lo < 0 THEN hi = hi - lo: lo = 0
+    IF L = CLIP_LANE_PIXELATE THEN IF lo < 1 THEN hi = hi + 1 - lo: lo = 1
+    IF (L = CLIP_LANE_SX _ORELSE L = CLIP_LANE_SY) _ANDALSO a >= 0 THEN IF lo < 0 THEN hi = hi - lo: lo = 0 ' (a flipped scale's keys go below 0)
+END SUB
+
+''
+' ANIM_XL_y% unrounded (pixel-centre space: row r's centre is r) - the
+' anti-aliased curves (ANIM_XL_aa_curve).
+FUNCTION ANIM_XL_yf! (v AS SINGLE, lo AS SINGLE, hi AS SINGLE, y AS INTEGER)
+    DIM t AS SINGLE, top AS INTEGER, ph AS INTEGER
+    top = y + 2: ph = _MAX(1, ANIM_XS.layH - 5)
+    IF hi > lo THEN t = (v - lo) / (hi - lo) ELSE t = 0.5
+    IF t < 0 THEN t = 0
+    IF t > 1 THEN t = 1
+    ANIM_XL_yf! = top + ph - t * ph
+END FUNCTION
+
+''
+' A smooth (anti-aliased) curve, one y per pixel column: ys(i) is column x0 + i
+' (pixel-centre space; below -30000 = no curve there). Each column is drawn
+' once - a band CFG.ANIM_LANE_THICKNESS px thick (Settings > Animation) from
+' halfway to the column before to halfway to the one after, each pixel's alpha
+' its share of the band - so joints never double up.
+SUB ANIM_XL_aa_curve (x0 AS INTEGER, ys() AS SINGLE, n AS INTEGER, c AS _UNSIGNED LONG)
+    DIM i AS INTEGER, lo AS SINGLE, hi AS SINGLE, m AS SINGLE, r AS INTEGER, cov AS SINGLE, ca AS SINGLE, rgb AS _UNSIGNED LONG, hw AS SINGLE
+    ca = _ALPHA32(c) / 255: rgb = c AND &H00FFFFFF~&
+    hw = _MAX(1, _MIN(4, CFG.ANIM_LANE_THICKNESS%)) / 2 ' (half the line's thickness)
+    FOR i = 0 TO n - 1
+        IF ys(i) > -30000 THEN
+            lo = ys(i): hi = ys(i)
+            IF i > 0 THEN
+                IF ys(i - 1) > -30000 THEN m = (ys(i - 1) + ys(i)) / 2: lo = _MIN(lo, m): hi = _MAX(hi, m)
+            END IF
+            IF i < n - 1 THEN
+                IF ys(i + 1) > -30000 THEN m = (ys(i) + ys(i + 1)) / 2: lo = _MIN(lo, m): hi = _MAX(hi, m)
+            END IF
+            FOR r = INT(lo - hw) TO INT(hi + hw) + 1 ' the band [lo - hw, hi + hw] over row r's [r - .5, r + .5]
+                cov = _MIN(r + .5, hi + hw) - _MAX(r - .5, lo - hw)
+                IF cov > 1 THEN cov = 1
+                IF cov > .02 THEN PSET (x0 + i, r), rgb OR _SHL(CLNG(cov * ca * 255), 24)
+            NEXT r
+        END IF
+    NEXT i
+END SUB
+
+''
+' The y of value v on a lane row at y (lo at the bottom, hi at the top; kept in the row).
+FUNCTION ANIM_XL_y% (v AS SINGLE, lo AS SINGLE, hi AS SINGLE, y AS INTEGER)
+    DIM t AS SINGLE, top AS INTEGER, ph AS INTEGER
+    top = y + 2: ph = _MAX(1, ANIM_XS.layH - 5)
+    IF hi > lo THEN t = (v - lo) / (hi - lo) ELSE t = 0.5
+    IF t < 0 THEN t = 0
+    IF t > 1 THEN t = 1
+    ANIM_XL_y% = top + ph - CINT(t * ph)
+END FUNCTION
+
+FUNCTION ANIM_XL_num$ (v AS SINGLE)
+    IF v = INT(v) THEN ANIM_XL_num$ = _TRIM$(STR$(CLNG(v))) ELSE ANIM_XL_num$ = _TRIM$(STR$(CINT(v * 10) / 10))
+END FUNCTION
+
+FUNCTION ANIM_XL_ease_name$ (e AS INTEGER)
+    ANIM_XL_ease_name$ = _TRIM$(MID$("LINEAR   EASE IN  EASE OUT IN-OUT   HOLD     ", e * 9 + 1, 9))
+END FUNCTION
+
+''
+' Lane L's value v as the X-sheet / menus show it: a number, or on the BLEND
+' lane the mode's short name.
+FUNCTION ANIM_XL_vtext$ (L AS INTEGER, v AS SINGLE)
+    IF L = CLIP_LANE_BLEND THEN ANIM_XL_vtext$ = BLEND_mode_short$(CLIP_lane_clamp!(L, v)) ELSE ANIM_XL_vtext$ = ANIM_XL_num$(v)
+END FUNCTION
+
+''
+' The BLEND lane (Rick's list 2026-11-16: "Blend mode lane"): a stepped lane -
+' every key a hold, a whole BLEND_* value, no modulator. Every edit passes
+' through here (ANIM_XL_commit), whatever made it (a drag, a paste, a typed
+' value, the key menu).
+SUB ANIM_XL_blend_tidy (slot AS INTEGER)
+    DIM ks AS STRING, i AS INTEGER, L AS INTEGER
+    L = CLIP_LANE_BLEND
+    IF CLIP_inst_of%(slot) _ORELSE LL_can%(slot) = 0 THEN EXIT SUB
+    ks = ANIM_XL_keys$(slot, L)
+    IF LEN(ANIM_XL_mod$(slot, L)) THEN ANIM_XL_set_mod slot, L, ""
+    IF LEN(ks) = 0 THEN EXIT SUB
+    FOR i = 1 TO CLIP_lks_n%(ks)
+        MID$(ks, (i - 1) * 8 + 3, 4) = MKS$(CLIP_lane_clamp!(L, CLIP_lk_v!(ks, i)))
+        ks = CLIP_lks_ease$(ks, i, CLIP_EASE_HOLD)
+    NEXT i
+    ANIM_XL_set_keys slot, L, ks
+END SUB
+
+''
+' A typed BLEND value: a mode's name or short name (any case), or its number; -1 = not one.
+FUNCTION ANIM_XL_blend_parse% (t AS STRING)
+    DIM m AS INTEGER, u AS STRING
+    u = UCASE$(_TRIM$(t))
+    IF LEN(u) = 0 THEN ANIM_XL_blend_parse% = -1: EXIT FUNCTION
+    IF INSTR("0123456789", LEFT$(u, 1)) THEN ANIM_XL_blend_parse% = CLIP_lane_clamp!(CLIP_LANE_BLEND, VAL(u)): EXIT FUNCTION
+    FOR m = 0 TO BLEND_MODE_COUNT - 1
+        IF u = UCASE$(_TRIM$(BLEND_mode_name$(m))) _ORELSE u = UCASE$(_TRIM$(BLEND_mode_short$(m))) THEN ANIM_XL_blend_parse% = m: EXIT FUNCTION
+    NEXT m
+    FOR m = 0 TO BLEND_MODE_COUNT - 1 ' a start of a name will do ("mult")
+        IF LEFT$(UCASE$(_TRIM$(BLEND_mode_name$(m))), LEN(u)) = u THEN ANIM_XL_blend_parse% = m: EXIT FUNCTION
+    NEXT m
+    ANIM_XL_blend_parse% = -1
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Drawing
+' ---------------------------------------------------------------------------
+
+''
+' The disclosure arrow before a layer's name at row y (right = closed, down =
+' open), x = its left; dim while the layer has no lanes.
+SUB ANIM_XL_arrow (slot AS INTEGER, x AS INTEGER, y AS INTEGER)
+    DIM c AS _UNSIGNED LONG, cy AS INTEGER, i AS INTEGER, L AS INTEGER, used AS INTEGER
+    FOR L = 1 TO ANIM_XL_nlanes%(slot)
+        IF ANIM_XL_used%(slot, L) THEN used = TRUE: EXIT FOR
+    NEXT L
+    c = _IIF(slot = CURRENT_LAYER%, THEME.CP_text_bright~&, THEME.CP_text_dim~&)
+    IF used = 0 _ANDALSO ANIM_XL_is_open%(slot) = 0 THEN c = ANIM_XS_ink~&(c, &H60)
+    cy = y + ANIM_XS.layH \ 2
+    IF ANIM_XL_is_open%(slot) THEN ' down: 7 wide, 4 tall
+        FOR i = 0 TO 3: LINE (x + i, cy - 2 + i)-(x + 6 - i, cy - 2 + i), c: NEXT i
+    ELSE ' right: 4 wide, 7 tall
+        FOR i = 0 TO 3: LINE (x + 1 + i, cy - 3 + i)-(x + 1 + i, cy + 3 - i), c: NEXT i
+    END IF
+END SUB
+
+''
+' Lane L's colour in an RRGGBB comma list (CFG.ANIM_LANE_COLORS): 0 = the
+' theme's ("0" or an empty entry); past the list's end, the default list's.
+FUNCTION ANIM_XL_colours_get~& (lst AS STRING, L AS INTEGER)
+    DIM i AS INTEGER, p AS INTEGER, q AS INTEGER, t AS STRING
+    IF L < 1 _ORELSE L > 11 THEN EXIT FUNCTION
+    p = 1
+    FOR i = 1 TO L - 1
+        q = INSTR(p, lst, ",")
+        IF q = 0 _ORELSE LEN(_TRIM$(lst)) = 0 THEN
+            IF lst <> ANIM_LANE_COLORS_DEFAULT THEN ANIM_XL_colours_get~& = ANIM_XL_colours_get~&(ANIM_LANE_COLORS_DEFAULT, L)
+            EXIT FUNCTION
+        END IF
+        p = q + 1
+    NEXT i
+    IF LEN(_TRIM$(lst)) = 0 _ANDALSO lst <> ANIM_LANE_COLORS_DEFAULT THEN ANIM_XL_colours_get~& = ANIM_XL_colours_get~&(ANIM_LANE_COLORS_DEFAULT, L): EXIT FUNCTION
+    q = INSTR(p, lst, ","): IF q = 0 THEN q = LEN(lst) + 1
+    t = _TRIM$(MID$(lst, p, q - p))
+    IF LEN(t) = 0 THEN EXIT FUNCTION
+    IF VAL("&H" + t) = 0 THEN EXIT FUNCTION
+    ANIM_XL_colours_get~& = &HFF000000~& OR (VAL("&H" + t + "&") AND &HFFFFFF)
+END FUNCTION
+
+''
+' The list with lane L's colour = c (0 = the theme's), padded to the 11 lanes.
+FUNCTION ANIM_XL_colours_put$ (lst AS STRING, L AS INTEGER, c AS _UNSIGNED LONG)
+    DIM i AS INTEGER, r AS STRING, v AS _UNSIGNED LONG
+    FOR i = 1 TO 11
+        IF i = L THEN v = c ELSE v = ANIM_XL_colours_get~&(lst, i)
+        IF i > 1 THEN r = r + ","
+        IF v = 0 THEN r = r + "0" ELSE r = r + RIGHT$("000000" + HEX$(v AND &HFFFFFF~&), 6)
+    NEXT i
+    ANIM_XL_colours_put$ = r
+END FUNCTION
+
+SUB ANIM_XL_lane_colours_reset ()
+    ANIM_XL_LCLR_OK = FALSE
+END SUB
+
+''
+' Lane L's colour (Settings > Animation; the theme's text colour when unset).
+FUNCTION ANIM_XL_lane_colour~& (L AS INTEGER)
+    DIM i AS INTEGER, wh AS INTEGER
+    IF ANIM_XL_sub_of%(L, wh) THEN ANIM_XL_lane_colour~& = ANIM_XL_lane_colour~&(ANIM_XL_sub_of%(L, wh)): EXIT FUNCTION ' (a sub-lane: its lane's)
+    IF ANIM_XL_LCLR_OK = 0 _ORELSE ANIM_XL_LCLR_SRC <> CFG.ANIM_LANE_COLORS THEN
+        FOR i = 1 TO 11: ANIM_XL_LCLR(i) = ANIM_XL_colours_get~&(CFG.ANIM_LANE_COLORS, i): NEXT i
+        ANIM_XL_LCLR_SRC = CFG.ANIM_LANE_COLORS: ANIM_XL_LCLR_OK = TRUE
+    END IF
+    IF L < 1 _ORELSE L > 11 THEN ANIM_XL_lane_colour~& = THEME.CP_text~&: EXIT FUNCTION
+    IF ANIM_XL_LCLR(L) = 0 THEN ANIM_XL_lane_colour~& = THEME.CP_text~& ELSE ANIM_XL_lane_colour~& = ANIM_XL_LCLR(L)
+END FUNCTION
+
+''
+' Lane L's row of layer slot at y: the value along its frames (each frame's
+' value at its middle, the eases between), the modulated value faint over it,
+' the keys as diamonds; the value at the current frame at the name column's
+' right end.
+SUB ANIM_XL_row (slot AS INTEGER, L AS INTEGER, y AS INTEGER)
+    DIM a AS INTEGER, b AS INTEGER, f AS INTEGER, x AS INTEGER, w AS INTEGER, px AS INTEGER, x2 AS INTEGER
+    DIM lo AS SINGLE, hi AS SINGLE, v AS SINGLE, rel AS SINGLE, dflt AS SINGLE, ks AS STRING
+    DIM py AS INTEGER, lx AS INTEGER, ly AS INTEGER, have AS INTEGER, i AS INTEGER, cx AS INTEGER, cy AS INTEGER, rr AS INTEGER, dy AS INTEGER, hw AS INTEGER
+    DIM cLine AS _UNSIGNED LONG, cFaint AS _UNSIGNED LONG, cKey AS _UNSIGNED LONG, picked AS INTEGER, t AS STRING
+    DIM nc AS INTEGER, ys(0) AS SINGLE, m AS STRING, pass AS INTEGER, k1 AS INTEGER
+    DIM kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    IF ANIM_XL_can%(slot) = 0 THEN EXIT SUB
+    x2 = ANIM_XS.x2
+    a = ANIM_XL_in%(slot): b = ANIM_XL_out%(slot)
+    ks = ANIM_XL_keys$(slot, L): dflt = ANIM_XL_dflt!(slot, L)
+    IF ANIM_XS.dMode = XS_DRAG_LANEKEY _ANDALSO ANIM_XS.dOn <> 0 _ANDALSO ANIM_XL.slot = slot _ANDALSO ANIM_XL.L = L THEN
+        lo = ANIM_XL.lo: hi = ANIM_XL.hi ' (held still while a key is dragged)
+    ELSE
+        ANIM_XL_range slot, L, lo, hi
+    END IF
+    picked = (slot = CURRENT_LAYER% _ANDALSO L = CLIP_LANE_PICK)
+    cLine = ANIM_XL_lane_colour~&(L) ' (Settings > Animation; the picked lane full strength)
+    IF picked = 0 THEN cLine = ANIM_XS_ink~&(cLine, &HA8)
+    cFaint = ANIM_XS_ink~&(cLine, &H70)
+    cKey = THEME.CP_text_bright~&
+    ' the value now, right in the name column
+    t = ANIM_XL_vtext$(L, ANIM_XL_value!(slot, L, ANIM.current))
+    IF ANIM_XS_op_x% > 0 THEN FPANEL_text ANIM_XS.gx - 4 - FPANEL_text_w%(t), y + (ANIM_XS.layH - FPANEL.fontH%) \ 2, t, _IIF(picked, THEME.CP_text_bright~&, THEME.CP_text_dim~&)
+    ' the default value: a faint guide
+    py = ANIM_XL_y%(dflt, lo, hi, y)
+    IF ANIM_XS.gx < x2 THEN
+        FOR px = ANIM_XS.gx + 1 TO x2 STEP 3: PSET (px, py), ANIM_XS_ink~&(THEME.CP_border~&, &H90): NEXT px
+    END IF
+    ' the curve, pixel column by column over the frames - smooth (Rick
+    ' 2026-11-16: "not as pixelated"). With a modulator the line is what the
+    ' layer really does - the keys plus the modulator's own wave, sampled
+    ' between the frames too (CLIP_mod_at!) - over the bare key curve, faint
+    ' (Rick: "Modulator's influence drawn on the lane curve itself (the real
+    ' shape)"); a whole frame's middle is exactly the value that frame gets.
+    nc = x2 - ANIM_XS.gx
+    m = ANIM_XL_mod$(slot, L)
+    IF LEN(m) THEN CLIP_mod_unpack m, kind, shape, amount, period, phase, seed
+    IF nc > 0 THEN
+        REDIM ys(0 TO nc - 1) AS SINGLE
+        FOR pass = 0 TO _IIF(LEN(m) > 0, 1, 0)
+            FOR i = 0 TO nc - 1: ys(i) = -32000: NEXT i
+            FOR f = _MAX(a, ANIM_XS.firstF) TO _MIN(b, ANIM_XS.lastF)
+                x = ANIM_XS_frame_x%(f): w = _MAX(1, ANIM_XS_span_w%(f))
+                FOR px = x TO x + w - 1
+                    IF px > x2 THEN EXIT FOR
+                    IF px > ANIM_XS.gx THEN
+                        rel = (f - a) + (px - x + 0.5 - w / 2) / w
+                        v = ANIM_XL_keyed_at!(ks, rel, dflt)
+                        IF pass = 1 THEN v = v + CLIP_mod_lane!(ks, m, rel)
+                        ys(px - ANIM_XS.gx - 1) = ANIM_XL_yf!(v, lo, hi, y)
+                    END IF
+                NEXT px
+            NEXT f
+            ' the bare keys faint under a modulated line, else the line itself
+            ANIM_XL_aa_curve ANIM_XS.gx + 1, ys(), nc, _IIF(pass = 0 _ANDALSO LEN(m) > 0, cFaint, cLine)
+        NEXT pass
+    END IF
+    IF L = CLIP_LANE_BLEND THEN ' the mode's name at the start of each span where it holds (where it fits)
+        DIM bm AS INTEGER, lastM AS INTEGER, tx AS INTEGER, txEnd AS INTEGER
+        lastM = -99: txEnd = -32000
+        FOR f = _MAX(a, ANIM_XS.firstF) TO _MIN(b, ANIM_XS.lastF)
+            bm = CLIP_lane_clamp!(L, ANIM_XL_value!(slot, L, f))
+            IF bm <> lastM _ORELSE f = ANIM_XS.firstF THEN
+                t = BLEND_mode_short$(bm)
+                tx = ANIM_XS_frame_x%(f) + 3
+                IF tx > txEnd + 2 _ANDALSO tx + FPANEL_text_w%(t) <= x2 THEN
+                    FPANEL_text tx, y + 1, t, _IIF(picked, THEME.CP_text_bright~&, THEME.CP_text~&)
+                    txEnd = tx + FPANEL_text_w%(t)
+                END IF
+                lastM = bm
+            END IF
+        NEXT f
+    END IF
+    ' the keys
+    FOR i = 1 TO CLIP_lks_n%(ks)
+        f = a + CLIP_lk_f%(ks, i)
+        IF f >= ANIM_XS.firstF _ANDALSO f <= ANIM_XS.lastF THEN
+            x = ANIM_XS_frame_x%(f): w = ANIM_XS_span_w%(f)
+            cx = x + w \ 2: cy = ANIM_XL_y%(CLIP_lk_v!(ks, i), lo, hi, y)
+            rr = _MAX(1, _MIN(_MIN(4, (ANIM_XS.layH - 5) \ 2), (w - 2) \ 2)) ' (4 where the row allows: the ease shapes read)
+            IF cx + rr <= x2 THEN ' its glyph says its ease (diamond linear, [> in, <] out, circle in-out, square hold)
+                IF f = ANIM.current _ANDALSO picked THEN
+                    ANIM_XL_key_glyph cx, cy, rr, CLIP_lk_e%(ks, i), 1, cKey, 0
+                ELSEIF ANIM_XL_sel_covers%(slot, L, f) THEN ' selected (the rect): filled in the selection's colour
+                    ANIM_XL_key_glyph cx, cy, rr, CLIP_lk_e%(ks, i), 1, THEME.ANIM_FRAME_current~&, 0
+                ELSE
+                    ANIM_XL_key_glyph cx, cy, rr, CLIP_lk_e%(ks, i), 0, cLine, THEME.CP_bg~&
+                END IF
+            END IF
+        END IF
+    NEXT i
+    ' the modulator's icon - its wave in little - just right of each key it
+    ' starts from (the first key, one after a key with it off, and every
+    ' one-shot / restart key), at the row's top so the curve stays clear; and
+    ' an envelope's phases as faint dots on the line (attack top, decay end,
+    ' release start) - Rick 2026-11-16: "drawn on the curve, with subtle dots
+    ' at each phase"
+    IF LEN(m) THEN
+        DIM ea AS INTEGER, ed AS INTEGER, es AS INTEGER, er AS INTEGER, fl AS INTEGER, pfl AS INTEGER, kn AS INTEGER, j AS INTEGER, tr AS SINGLE, envOn AS INTEGER
+        CLIP_mod_env m, ea, ed, es, er
+        envOn = (ea > 0 _ORELSE ed > 0 _ORELSE es <> 100 _ORELSE er > 0)
+        kn = CLIP_lks_n%(ks)
+        IF kn = 0 _ANDALSO a >= ANIM_XS.firstF _ANDALSO a <= ANIM_XS.lastF THEN
+            x = ANIM_XS_frame_x%(a) + ANIM_XS_span_w%(a) \ 2 + 2
+            IF x + 8 <= x2 THEN ANIM_XL_mod_icon x, y + 1, kind, shape, seed, cLine
+        END IF
+        pfl = CLIP_KF_MODOFF
+        FOR i = 1 TO kn
+            fl = CLIP_lk_fl%(ks, i): k1 = a + CLIP_lk_f%(ks, i)
+            IF (fl AND CLIP_KF_MODOFF) = 0 THEN
+                IF (pfl AND CLIP_KF_MODOFF) <> 0 _ORELSE (fl AND (CLIP_KF_ONESHOT OR CLIP_KF_RETRIG)) <> 0 THEN
+                    IF k1 >= ANIM_XS.firstF _ANDALSO k1 <= ANIM_XS.lastF THEN
+                        x = ANIM_XS_frame_x%(k1) + ANIM_XS_span_w%(k1) \ 2 + _MAX(1, _MIN(4, (ANIM_XS.layH - 5) \ 2)) + 2
+                        IF x + 8 <= x2 THEN ANIM_XL_mod_icon x, y + 1, kind, shape, seed, _IIF(fl AND CLIP_KF_ONESHOT, cFaint, cLine)
+                    END IF
+                END IF
+                IF envOn THEN ' the phase dots of this key's span
+                    FOR j = 1 TO 3
+                        tr = -1
+                        SELECT CASE j
+                            CASE 1: IF ea > 0 THEN tr = ea
+                            CASE 2: IF ed > 0 THEN tr = ea + ed
+                            CASE 3
+                                IF er > 0 THEN
+                                    IF i < kn THEN tr = CLIP_lk_f%(ks, i + 1) - CLIP_lk_f%(ks, i) - er
+                                    IF fl AND CLIP_KF_ONESHOT THEN tr = _MIN(_IIF(tr < 0, 1E6, tr), _MAX(1, period) - er)
+                                END IF
+                        END SELECT
+                        IF tr > 0 THEN
+                            IF i = kn _ORELSE tr < CLIP_lk_f%(ks, i + 1) - CLIP_lk_f%(ks, i) THEN ANIM_XL_curve_dot slot, L, a, CLIP_lk_f%(ks, i) + tr, ks, m, dflt, lo, hi, y, cLine
+                        END IF
+                    NEXT j
+                END IF
+            END IF
+            pfl = fl
+        NEXT i
+    END IF
+END SUB
+
+''
+' A faint dot on lane L's line at fractional frame rel (from In: a = In) - an
+' envelope phase. The line is the keys plus the modulator there.
+SUB ANIM_XL_curve_dot (slot AS INTEGER, L AS INTEGER, a AS INTEGER, rel AS SINGLE, ks AS STRING, m AS STRING, dflt AS SINGLE, lo AS SINGLE, hi AS SINGLE, y AS INTEGER, c AS _UNSIGNED LONG)
+    DIM f AS INTEGER, fr AS SINGLE, px AS INTEGER, py AS INTEGER, w AS INTEGER
+    f = a + INT(rel + .5): fr = rel - (f - a)
+    IF f < ANIM_XS.firstF _ORELSE f > ANIM_XS.lastF THEN EXIT SUB
+    w = _MAX(1, ANIM_XS_span_w%(f))
+    px = ANIM_XS_frame_x%(f) + w \ 2 + CINT(fr * w)
+    IF px <= ANIM_XS.gx + 1 _ORELSE px >= ANIM_XS.x2 THEN EXIT SUB
+    py = CINT(ANIM_XL_yf!(ANIM_XL_keyed_at!(ks, rel, dflt) + CLIP_mod_lane!(ks, m, rel), lo, hi, y))
+    LINE (px - 1, py - 1)-(px + 1, py + 1), ANIM_XS_ink~&(c, &H60), BF
+    PSET (px, py), THEME.CP_text_bright~&
+END SUB
+
+''
+' "a d s r" (spaces / commas) -> attack, decay, sustain %, release; FALSE
+' unless four numbers.
+FUNCTION ANIM_XL_adsr_parse% (t AS STRING, a AS INTEGER, d AS INTEGER, s AS INTEGER, r AS INTEGER)
+    DIM u AS STRING, n AS INTEGER, i AS INTEGER, c AS STRING, w AS STRING, v(1 TO 4) AS INTEGER
+    u = _TRIM$(t) + " "
+    FOR i = 1 TO LEN(u)
+        c = MID$(u, i, 1)
+        IF c = " " _ORELSE c = "," _ORELSE c = CHR$(9) THEN
+            IF LEN(w) THEN
+                n = n + 1
+                IF n > 4 THEN EXIT FUNCTION
+                v(n) = _MAX(0, _MIN(999, VAL(w))): w = ""
+            END IF
+        ELSEIF INSTR("0123456789.", c) THEN
+            w = w + c
+        ELSE
+            EXIT FUNCTION
+        END IF
+    NEXT i
+    IF n <> 4 THEN EXIT FUNCTION
+    a = v(1): d = v(2): s = _MIN(100, v(3)): r = v(4)
+    ANIM_XL_adsr_parse% = TRUE
+END FUNCTION
+
+''
+' A modulator's icon at (x, y): one cycle of its wave, 8 x 4 px (CLIP_mod_at!
+' itself drawn small: sine, triangle, square, saw, or noise's jitter).
+SUB ANIM_XL_mod_icon (x AS INTEGER, y AS INTEGER, kind AS INTEGER, shape AS INTEGER, seed AS LONG, c AS _UNSIGNED LONG)
+    DIM i AS INTEGER, yy AS INTEGER, ly AS INTEGER, w AS SINGLE, per AS SINGLE, r AS SINGLE, one AS SINGLE, ph AS SINGLE
+    one = 1: ph = 0
+    IF kind = 2 THEN per = 2 ELSE per = 8
+    FOR i = 0 TO 7
+        r = i
+        w = CLIP_mod_at!(kind, shape, one, per, ph, seed, r)
+        yy = y + 2 - CINT(w * 1.5)
+        IF i > 0 THEN LINE (x + i - 1, ly)-(x + i, yy), c ELSE PSET (x, yy), c
+        ly = yy
+    NEXT i
+END SUB
+
+' ---------------------------------------------------------------------------
+' Mouse
+' ---------------------------------------------------------------------------
+
+''
+' The X-sheet row (ANIM_XS_ROW index) at viewport y, 0 when it is not a shown row.
+FUNCTION ANIM_XL_row_at% (my AS INTEGER)
+    DIM k AS INTEGER
+    k = ANIM_XS_band_row%(my)
+    IF k < 1 _ORELSE k > ANIM_XS.rowsShown THEN EXIT FUNCTION
+    IF ANIM_XS.firstRow + k - 1 > ANIM_XS.nRows THEN EXIT FUNCTION
+    ANIM_XL_row_at% = ANIM_XS.firstRow + k - 1
+END FUNCTION
+
+''
+' A left press on a lane / + LANE row r (its layer and frame already picked
+' by ANIM_XS_press%): + LANE opens its menu; a lane row picks the lane (the
+' Animation panel's LANE row follows), a key starts a drag, a double-click
+' adds a key (or types the one there).
+SUB ANIM_XL_press (r AS INTEGER, mx AS INTEGER, my AS INTEGER, f AS INTEGER, c AS INTEGER, s AS INTEGER)
+    DIM slot AS INTEGER, L AS INTEGER, rel AS INTEGER, i AS INTEGER, dbl AS INTEGER, dt AS DOUBLE, ks AS STRING
+    slot = -ANIM_XS_ROW(r)
+    IF ANIM_XL_can%(slot) = 0 THEN EXIT SUB
+    IF ANIM_XS_RKIND(r) = XS_ROW_LANEADD THEN
+        ANIM_XL.mSlot = slot
+        ANIM_LB.menuKind = XL_MENU_ADD: ANIM_LB_menu_at mx, my
+        EXIT SUB
+    END IF
+    L = ANIM_XS_RLANE(r)
+    ANIM_XL_pick L
+    GUI_NEEDS_REDRAW% = TRUE
+    IF f < 1 _ORELSE c <> 0 _ORELSE s <> 0 THEN EXIT SUB
+    rel = f - ANIM_XL_in%(slot)
+    dt = TIMER - ANIM_XL.lastT
+    dbl = (r = ANIM_XL.lastRow _ANDALSO f = ANIM_XL.lastF _ANDALSO dt >= 0 _ANDALSO (dt < 0.45 _ORELSE (ANIM_LOOP_TICK - ANIM_XL.lastTick <= 2 _ANDALSO dt < 2)))
+    ANIM_XL.lastRow = r: ANIM_XL.lastF = f: ANIM_XL.lastT = TIMER: ANIM_XL.lastTick = ANIM_LOOP_TICK
+    ks = ANIM_XL_keys$(slot, L)
+    i = ANIM_XL_index_in%(ks, rel)
+    IF dbl THEN
+        ANIM_XL.lastRow = 0
+        IF i THEN ANIM_XL_type_value slot, L, rel ELSE ANIM_XL_add_key slot, L, rel
+        EXIT SUB
+    END IF
+    IF ANIM_XL_sel_covers%(slot, L, f) THEN ' inside the key selection: drag its keys along (Alt: a copy)
+        ANIM_XL_sel_move_begin
+        EXIT SUB
+    END IF
+    IF i = 0 _ORELSE rel < 0 THEN ANIM_XL_sel_begin r, f: EXIT SUB ' empty lane space: a rect selection (a click clears it)
+    ANIM_XS.dMode = XS_DRAG_LANEKEY: ANIM_XS.dSlot = slot
+    ANIM_XL.slot = slot: ANIM_XL.k = CLIP_inst_of%(slot): ANIM_XL.L = L
+    ANIM_XL.rel0 = rel: ANIM_XL.rel = rel
+    ANIM_XL.v0 = CLIP_lk_v!(ks, i): ANIM_XL.v = ANIM_XL.v0
+    ANIM_XL.e = CLIP_lk_raw%(ks, i) ' (ease + modulator flags: the key moves whole)
+    ANIM_XL.moved = FALSE
+    ANIM_XL_range slot, L, ANIM_XL.lo, ANIM_XL.hi
+    ANIM_XL_KEYS0 = ks
+    ANIM_XL_BEFORE = ANIM_XL_state$(slot)
+END SUB
+
+''
+' XS_DRAG_LANEKEY: the key follows the pointer - along the row its frame,
+' up / down its value (the row's range per row height). Shift: just the way
+' moved most. The layer is redrawn as it goes, so the canvas shows it.
+SUB ANIM_XL_drag (mx AS INTEGER, my AS INTEGER)
+    DIM L AS INTEGER, nf AS INTEGER, nr AS INTEGER, nv AS SINGLE, ph AS INTEGER, dx AS INTEGER, dy AS INTEGER, slot AS INTEGER
+    slot = ANIM_XL.slot: L = ANIM_XL.L
+    IF ANIM_XL_can%(slot) = 0 _ORELSE CLIP_inst_of%(slot) <> ANIM_XL.k THEN EXIT SUB
+    nf = ANIM_XS_frame_near%(mx) ' (past the frames: the last)
+    IF nf > 0 THEN nr = _MAX(0, nf - ANIM_XL_in%(slot)) ELSE nr = ANIM_XL.rel
+    ph = _MAX(1, ANIM_XS.layH - 5)
+    dx = mx - ANIM_XS.dPressX: dy = ANIM_XS.dPressY - my
+    nv = ANIM_XL.v0 + dy * (ANIM_XL.hi - ANIM_XL.lo) / ph
+    IF L = CLIP_LANE_SX _ORELSE L = CLIP_LANE_SY _ORELSE L = CLIP_LANE_ROT _ORELSE L = CLIP_LANE_OP _ORELSE L = CLIP_LANE_TINT _ORELSE L = CLIP_LANE_VOL _ORELSE L = CLIP_LANE_PAN _ORELSE L >= CLIP_LANE_BLEND _ORELSE L <= CLIP_LANE_Y THEN nv = CINT(nv)
+    IF ANIM_LB_shift% THEN
+        IF ABS(dx) >= ABS(dy) THEN nv = ANIM_XL.v0 ELSE nr = ANIM_XL.rel0
+    END IF
+    nv = CLIP_lane_clamp!(L, nv)
+    IF nr <> ANIM_XL.rel0 THEN ' never onto another key of the lane
+        IF ANIM_XL_index_in%(ANIM_XL_KEYS0, nr) THEN nr = ANIM_XL.rel
+    END IF
+    IF nr = ANIM_XL.rel _ANDALSO nv = ANIM_XL.v THEN EXIT SUB
+    ANIM_XL.rel = nr: ANIM_XL.v = nv
+    ANIM_XL_set_keys slot, L, CLIP_lks_put$(CLIP_lks_del$(ANIM_XL_KEYS0, ANIM_XL.rel0), nr, nv, ANIM_XL.e)
+    ANIM_XL.moved = (nr <> ANIM_XL.rel0 _ORELSE nv <> ANIM_XL.v0)
+    ANIM_XL_apply slot
+    STATUS_flash CLIP_lane_name$(L) + ": frame" + STR$(ANIM_XL_in%(slot) + nr) + " = " + ANIM_XL_num$(nv)
+    ANIM_LB_changed
+END SUB
+
+FUNCTION ANIM_XL_index_in% (keys AS STRING, rel AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 1 TO CLIP_lks_n%(keys)
+        IF CLIP_lk_f%(keys, i) = rel THEN ANIM_XL_index_in% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' The key drag's release: one undo step when it changed anything; its frame current.
+SUB ANIM_XL_drop ()
+    DIM slot AS INTEGER
+    slot = ANIM_XL.slot
+    IF ANIM_XL.moved _ANDALSO ANIM_XL_can%(slot) _ANDALSO CLIP_inst_of%(slot) = ANIM_XL.k THEN
+        ANIM_XL_commit slot, ANIM_XL_BEFORE, ANIM_XL_word$(slot) + " Key " + CLIP_lane_name$(ANIM_XL.L)
+        IF ANIM_XL_in%(slot) + ANIM_XL.rel <= ANIM.count THEN ANIM_SEL_click ANIM_XL_in%(slot) + ANIM_XL.rel, FALSE, FALSE
+    END IF
+    ANIM_XL_BEFORE = "": ANIM_XL_KEYS0 = "": ANIM_XL.moved = FALSE
+END SUB
+
+''
+' A lane edit on layer slot is done: show it, one undo step.
+SUB ANIM_XL_commit (slot AS INTEGER, before AS STRING, label AS STRING)
+    IF CLIP_inst_of%(slot) THEN
+        CLIP_rebuild slot
+        IF HISTORY_IN_PROGRESS% = 0 THEN
+            HISTORY_record_clip LAYERS(slot).historyId&, slot, before, CLIP_state$(slot), label
+            HISTORY_saved_this_frame% = TRUE
+        END IF
+        BLEND_invalidate_cache
+        INVALIDATE_canvas
+    ELSE
+        ANIM_XL_blend_tidy slot
+        LL_prune_one slot
+        LL_record slot, before, label
+        LL_changed
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    ANIM_LB_changed
+END SUB
+
+''
+' A key on lane L at rel at the value the lane has there now (the ease of the
+' key before it, so the curve keeps its shape), one undo step.
+SUB ANIM_XL_add_key (slot AS INTEGER, L AS INTEGER, rel AS INTEGER)
+    DIM ks AS STRING, v AS SINGLE, e AS INTEGER, i AS INTEGER, before AS STRING
+    IF ANIM_XL_can%(slot) = 0 _ORELSE rel < 0 THEN EXIT SUB
+    ks = ANIM_XL_keys$(slot, L)
+    v = CLIP_lane_keyed!(ks, rel, ANIM_XL_dflt!(slot, L))
+    e = CLIP_EASE_LINEAR
+    i = CLIP_lk_at_or_before%(ks, rel)
+    IF i THEN e = CLIP_lk_e%(ks, i)
+    before = ANIM_XL_state$(slot)
+    ANIM_XL_set_keys slot, L, CLIP_lks_put$(ks, rel, CLIP_lane_clamp!(L, v), e)
+    ANIM_XL_commit slot, before, ANIM_XL_word$(slot) + " Key " + CLIP_lane_name$(L)
+    STATUS_flash CLIP_lane_name$(L) + ": a key on frame" + STR$(ANIM_XL_in%(slot) + rel) + " (drag it: along = when, up / down = the value)"
+END SUB
+
+''
+' Type lane L's key value at rel (a key there is made when there is none).
+SUB ANIM_XL_type_value (slot AS INTEGER, L AS INTEGER, rel AS INTEGER)
+    DIM ks AS STRING, v AS SINGLE, t AS STRING, before AS STRING, e AS INTEGER, i AS INTEGER
+    IF ANIM_XL_can%(slot) = 0 _ORELSE rel < 0 THEN EXIT SUB
+    ks = ANIM_XL_keys$(slot, L)
+    v = CLIP_lane_keyed!(ks, rel, ANIM_XL_dflt!(slot, L))
+    POINTER_hide_for_dialog
+    t = DRAW_input_box_ex$("Lane Value", CLIP_lane_name$(L) + " at frame" + STR$(ANIM_XL_in%(slot) + rel) + _IIF(L = CLIP_LANE_BLEND, " (a blend mode's name or number):", ":"), _IIF(L = CLIP_LANE_BLEND, BLEND_mode_name$(CLIP_lane_clamp!(L, v)), ANIM_XL_num$(v)), "Value", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    IF _TRIM$(t) = "" THEN EXIT SUB
+    IF L = CLIP_LANE_BLEND THEN
+        IF ANIM_XL_blend_parse%(t) < 0 THEN STATUS_flash "BLEND: no blend mode called " + CHR$(34) + _TRIM$(t) + CHR$(34): EXIT SUB
+        t = _TRIM$(STR$(ANIM_XL_blend_parse%(t)))
+    END IF
+    e = CLIP_EASE_LINEAR
+    i = CLIP_lk_at_or_before%(ks, rel)
+    IF i THEN e = CLIP_lk_e%(ks, i)
+    before = ANIM_XL_state$(slot)
+    ANIM_XL_set_keys slot, L, CLIP_lks_put$(ks, rel, CLIP_lane_clamp!(L, VAL(t)), e)
+    ANIM_XL_commit slot, before, ANIM_XL_word$(slot) + " Key " + CLIP_lane_name$(L)
+END SUB
+
+' ---------------------------------------------------------------------------
+' Key selection: one rect over frames x lane rows (ANIM_XL_SEL_*). Drag on
+' empty lane space draws it (XS_DRAG_LSEL), it can cross layers; a click on
+' empty lane space or Esc clears it.
+' ---------------------------------------------------------------------------
+
+SUB ANIM_XL_sel_clear ()
+    IF ANIM_XL_SEL_ON = 0 _ANDALSO LEN(ANIM_XL_SEL_ROWS) = 0 THEN EXIT SUB
+    ANIM_XL_SEL_ON = FALSE: ANIM_XL_SEL_ROWS = "": ANIM_XL_SEL_F1 = 0: ANIM_XL_SEL_F2 = 0
+    ANIM_LB_changed
+END SUB
+
+''
+' Lane L of layer slot is one of the selected rows.
+FUNCTION ANIM_XL_sel_has% (slot AS INTEGER, L AS INTEGER)
+    DIM p AS LONG, want AS STRING
+    IF ANIM_XL_SEL_ON = 0 _ORELSE slot < 1 _ORELSE slot > MAX_LAYERS THEN EXIT FUNCTION
+    want = MKL$(LAYERS(slot).historyId&) + MKI$(L)
+    FOR p = 1 TO LEN(ANIM_XL_SEL_ROWS) STEP 6
+        IF MID$(ANIM_XL_SEL_ROWS, p, 6) = want THEN ANIM_XL_sel_has% = TRUE: EXIT FUNCTION
+    NEXT p
+END FUNCTION
+
+''
+' Frame f of lane L of layer slot is inside the selection.
+FUNCTION ANIM_XL_sel_covers% (slot AS INTEGER, L AS INTEGER, f AS INTEGER)
+    IF f < ANIM_XL_SEL_F1 _ORELSE f > ANIM_XL_SEL_F2 THEN EXIT FUNCTION
+    ANIM_XL_sel_covers% = ANIM_XL_sel_has%(slot, L)
+END FUNCTION
+
+''
+' The layer slot with history id id (0 none).
+FUNCTION ANIM_XL_slot_of% (id AS LONG)
+    ANIM_XL_slot_of% = HISTORY_find_layer_slot_by_id%(id)
+END FUNCTION
+
+''
+' Keys inside the selection.
+FUNCTION ANIM_XL_sel_count& ()
+    DIM p AS LONG, slot AS INTEGER, L AS INTEGER, ks AS STRING, i AS INTEGER, f AS INTEGER, n AS LONG
+    IF ANIM_XL_SEL_ON = 0 THEN EXIT FUNCTION
+    FOR p = 1 TO LEN(ANIM_XL_SEL_ROWS) STEP 6
+        slot = ANIM_XL_slot_of%(CVL(MID$(ANIM_XL_SEL_ROWS, p, 4))): L = CVI(MID$(ANIM_XL_SEL_ROWS, p + 4, 2))
+        IF ANIM_XL_can%(slot) THEN
+            ks = ANIM_XL_keys$(slot, L)
+            FOR i = 1 TO CLIP_lks_n%(ks)
+                f = ANIM_XL_in%(slot) + CLIP_lk_f%(ks, i)
+                IF f >= ANIM_XL_SEL_F1 _ANDALSO f <= ANIM_XL_SEL_F2 THEN n = n + 1
+            NEXT i
+        END IF
+    NEXT p
+    ANIM_XL_sel_count& = n
+END FUNCTION
+
+''
+' A plain press on empty lane space (row r, frame f): a rect drag starts; let
+' go without moving and it is a click (the selection clears).
+SUB ANIM_XL_sel_begin (r AS INTEGER, f AS INTEGER)
+    IF f < 1 THEN EXIT SUB
+    ANIM_XS.dMode = XS_DRAG_LSEL
+    ANIM_XL_SEL_R0 = r: ANIM_XL_SEL_FA = f
+END SUB
+
+''
+' XS_DRAG_LSEL: the rect from the press to the pointer - its frames, and every
+' lane row between (other rows in between are skipped).
+SUB ANIM_XL_sel_drag (mx AS INTEGER, my AS INTEGER)
+    DIM r1 AS INTEGER, f1 AS INTEGER, ra AS INTEGER, rb AS INTEGER, r AS INTEGER, rows AS STRING, slot AS INTEGER
+    r1 = ANIM_XL_row_at%(my)
+    IF r1 = 0 THEN ' off the rows: the first / last row shown
+        IF my < ANIM_XS_row_y%(1) THEN r1 = ANIM_XS.firstRow ELSE r1 = _MIN(ANIM_XS.nRows, ANIM_XS.firstRow + ANIM_XS.rowsShown - 1)
+    END IF
+    f1 = ANIM_XS_frame_near%(mx)
+    IF f1 < 1 THEN EXIT SUB
+    ra = _MIN(ANIM_XL_SEL_R0, r1): rb = _MAX(ANIM_XL_SEL_R0, r1)
+    FOR r = ra TO rb
+        IF r >= 1 _ANDALSO r <= ANIM_XS.nRows THEN
+            IF ANIM_XS_ROW(r) < 0 _ANDALSO ANIM_XS_RKIND(r) = XS_ROW_LANE THEN
+                slot = -ANIM_XS_ROW(r)
+                rows = rows + MKL$(LAYERS(slot).historyId&) + MKI$(ANIM_XS_RLANE(r))
+            END IF
+        END IF
+    NEXT r
+    IF rows = ANIM_XL_SEL_ROWS _ANDALSO ANIM_XL_SEL_ON _ANDALSO ANIM_XL_SEL_F1 = _MIN(ANIM_XL_SEL_FA, f1) _ANDALSO ANIM_XL_SEL_F2 = _MAX(ANIM_XL_SEL_FA, f1) THEN EXIT SUB
+    ANIM_XL_SEL_ROWS = rows: ANIM_XL_SEL_ON = (LEN(rows) > 0)
+    ANIM_XL_SEL_F1 = _MIN(ANIM_XL_SEL_FA, f1): ANIM_XL_SEL_F2 = _MAX(ANIM_XL_SEL_FA, f1)
+    ANIM_LB_changed
+END SUB
+
+''
+' The rect drag let go: what it holds.
+SUB ANIM_XL_sel_drop ()
+    DIM n AS LONG
+    IF ANIM_XL_SEL_ON = 0 THEN EXIT SUB
+    n = ANIM_XL_sel_count&
+    STATUS_flash _TRIM$(STR$(n)) + " key" + _IIF(n = 1, "", "s") + " selected: frames" + STR$(ANIM_XL_SEL_F1) + " -" + STR$(ANIM_XL_SEL_F2) + ", " + _TRIM$(STR$(LEN(ANIM_XL_SEL_ROWS) \ 6)) + " lane" + _IIF(LEN(ANIM_XL_SEL_ROWS) \ 6 = 1, "", "s") + " (Esc clears)"
+END SUB
+
+''
+' The selected rows' keys now, and each layer's lanes (the undo step's
+' "before"). FALSE when nothing selected is left.
+FUNCTION ANIM_XL_sel_snapshot% ()
+    DIM p AS LONG, slot AS INTEGER, L AS INTEGER
+    ANIM_XL_edit_reset
+    IF ANIM_XL_SEL_ON = 0 THEN EXIT FUNCTION
+    FOR p = 1 TO LEN(ANIM_XL_SEL_ROWS) STEP 6
+        slot = ANIM_XL_slot_of%(CVL(MID$(ANIM_XL_SEL_ROWS, p, 4))): L = CVI(MID$(ANIM_XL_SEL_ROWS, p + 4, 2))
+        IF ANIM_XL_can%(slot) _ANDALSO ANIM_XL_SMN < 3 * MAX_LAYERS THEN
+            ANIM_XL_SMN = ANIM_XL_SMN + 1
+            ANIM_XL_SMS(ANIM_XL_SMN) = slot: ANIM_XL_SML(ANIM_XL_SMN) = L: ANIM_XL_SMK(ANIM_XL_SMN) = ANIM_XL_keys$(slot, L)
+            ANIM_XL_edit_touch slot
+        END IF
+    NEXT p
+    ANIM_XL_sel_snapshot% = (ANIM_XL_SMN > 0)
+END FUNCTION
+
+''
+' An edit over several layers' lanes: none touched yet / layer slot's lanes
+' as they were before it (once; ANIM_XL_sel_commit makes the undo step).
+SUB ANIM_XL_edit_reset ()
+    DIM i AS INTEGER
+    ANIM_XL_SMN = 0
+    FOR i = 1 TO MAX_LAYERS: ANIM_XL_SMBON(i) = FALSE: ANIM_XL_SMB(i) = "": NEXT i
+END SUB
+
+SUB ANIM_XL_edit_touch (slot AS INTEGER)
+    IF slot < 1 _ORELSE slot > MAX_LAYERS THEN EXIT SUB
+    IF ANIM_XL_SMBON(slot) = 0 THEN ANIM_XL_SMBON(slot) = TRUE: ANIM_XL_SMB(slot) = ANIM_XL_state$(slot)
+END SUB
+
+''
+' Each layer in the snapshot whose lanes changed: shown, and one undo step for all.
+SUB ANIM_XL_sel_commit (label AS STRING)
+    DIM i AS INTEGER, grp AS INTEGER
+    IF HISTORY_IN_PROGRESS% = 0 _ANDALSO HISTORY_GROUP_ACTIVE% = 0 THEN HISTORY_begin_group: grp = TRUE
+    FOR i = 1 TO MAX_LAYERS
+        IF ANIM_XL_SMBON(i) THEN
+            IF ANIM_XL_can%(i) THEN IF ANIM_XL_state$(i) <> ANIM_XL_SMB(i) THEN ANIM_XL_commit i, ANIM_XL_SMB(i), label
+        END IF
+    NEXT i
+    IF grp THEN HISTORY_end_group
+    FOR i = 1 TO MAX_LAYERS: ANIM_XL_SMBON(i) = FALSE: ANIM_XL_SMB(i) = "": NEXT i
+    ANIM_XL_SMN = 0
+END SUB
+
+''
+' Put every snapshot row's keys back (a cancelled move).
+SUB ANIM_XL_sel_restore ()
+    DIM i AS INTEGER
+    FOR i = 1 TO ANIM_XL_SMN
+        IF ANIM_XL_can%(ANIM_XL_SMS(i)) THEN ANIM_XL_set_keys ANIM_XL_SMS(i), ANIM_XL_SML(i), ANIM_XL_SMK(i): ANIM_XL_apply ANIM_XL_SMS(i)
+    NEXT i
+END SUB
+
+''
+' keys0 (a lane of layer slot) with its keys on frames f1..f2 moved d frames
+' (kept where they were too when copy); they replace keys they land on.
+FUNCTION ANIM_XL_keys_moved$ (slot AS INTEGER, keys0 AS STRING, f1 AS INTEGER, f2 AS INTEGER, d AS INTEGER, copy AS INTEGER)
+    DIM i AS INTEGER, inF AS INTEGER, f AS INTEGER, rest AS STRING, ks AS STRING, rel AS INTEGER
+    inF = ANIM_XL_in%(slot)
+    rest = keys0
+    IF copy = 0 THEN
+        FOR i = CLIP_lks_n%(keys0) TO 1 STEP -1
+            f = inF + CLIP_lk_f%(keys0, i)
+            IF f >= f1 _ANDALSO f <= f2 THEN rest = LEFT$(rest, (i - 1) * 8) + MID$(rest, i * 8 + 1)
+        NEXT i
+    END IF
+    ks = rest
+    FOR i = 1 TO CLIP_lks_n%(keys0)
+        f = inF + CLIP_lk_f%(keys0, i)
+        IF f >= f1 _ANDALSO f <= f2 THEN
+            rel = CLIP_lk_f%(keys0, i) + d
+            IF rel >= 0 THEN ks = CLIP_lks_del$(ks, rel): ks = CLIP_lks_put$(ks, rel, CLIP_lk_v!(keys0, i), CLIP_lk_raw%(keys0, i))
+        END IF
+    NEXT i
+    ANIM_XL_keys_moved$ = ks
+END FUNCTION
+
+''
+' A press inside the selection: its keys follow the pointer along (XS_DRAG_LSMOVE).
+SUB ANIM_XL_sel_move_begin ()
+    DIM i AS INTEGER, k AS INTEGER, f AS INTEGER, inF AS INTEGER, ks AS STRING, lo AS INTEGER, hi AS INTEGER, gotKeys AS INTEGER
+    IF ANIM_XL_sel_snapshot% = 0 THEN EXIT SUB
+    ANIM_XL_SMF1 = ANIM_XL_SEL_F1: ANIM_XL_SMF2 = ANIM_XL_SEL_F2: ANIM_XL_SMD = 0: ANIM_XL_SMCOPY = FALSE
+    ' how far: no key before its layer's first frame (a clip's In) or past the last frame
+    lo = -ANIM.count: hi = ANIM.count
+    FOR i = 1 TO ANIM_XL_SMN
+        ks = ANIM_XL_SMK(i): inF = ANIM_XL_in%(ANIM_XL_SMS(i))
+        FOR k = 1 TO CLIP_lks_n%(ks)
+            f = inF + CLIP_lk_f%(ks, k)
+            IF f >= ANIM_XL_SMF1 _ANDALSO f <= ANIM_XL_SMF2 THEN
+                gotKeys = TRUE
+                lo = _MAX(lo, inF - f)
+                hi = _MIN(hi, ANIM_XL_out%(ANIM_XL_SMS(i)) - f)
+            END IF
+        NEXT k
+    NEXT i
+    IF gotKeys = 0 THEN lo = 1 - ANIM_XL_SMF1: hi = ANIM.count - ANIM_XL_SMF2 ' (no keys: just the rect moves)
+    ANIM_XL_SMLO = _MIN(0, lo): ANIM_XL_SMHI = _MAX(0, hi)
+    ANIM_XS.dMode = XS_DRAG_LSMOVE
+END SUB
+
+''
+' XS_DRAG_LSMOVE: frames moved = the frames between the press and the pointer.
+SUB ANIM_XL_sel_move_drag (mx AS INTEGER)
+    DIM f AS INTEGER, d AS INTEGER, cp AS INTEGER, i AS INTEGER
+    f = ANIM_XS_frame_near%(mx)
+    IF f < 1 _ORELSE ANIM_XS.dFrame < 1 THEN EXIT SUB
+    d = _MAX(ANIM_XL_SMLO, _MIN(ANIM_XL_SMHI, f - ANIM_XS.dFrame))
+    cp = (MODIFIERS.alt% <> 0 _ORELSE _KEYDOWN(100308) <> 0 _ORELSE _KEYDOWN(100307) <> 0)
+    IF d = ANIM_XL_SMD _ANDALSO cp = ANIM_XL_SMCOPY THEN EXIT SUB
+    ANIM_XL_SMD = d: ANIM_XL_SMCOPY = cp
+    FOR i = 1 TO ANIM_XL_SMN
+        IF ANIM_XL_can%(ANIM_XL_SMS(i)) THEN
+            ANIM_XL_set_keys ANIM_XL_SMS(i), ANIM_XL_SML(i), ANIM_XL_keys_moved$(ANIM_XL_SMS(i), ANIM_XL_SMK(i), ANIM_XL_SMF1, ANIM_XL_SMF2, d, cp)
+            ANIM_XL_apply ANIM_XL_SMS(i)
+        END IF
+    NEXT i
+    ANIM_XL_SEL_F1 = ANIM_XL_SMF1 + d: ANIM_XL_SEL_F2 = ANIM_XL_SMF2 + d
+    STATUS_flash _IIF(cp, "Copy", "Move") + " keys" + _IIF(d >= 0, " +", " ") + _TRIM$(STR$(d)) + " frame" + _IIF(ABS(d) = 1, "", "s") + _IIF(cp, "", " (Alt: copy)")
+    ANIM_LB_changed
+END SUB
+
+''
+' The move let go: one undo step (nothing when it went nowhere).
+SUB ANIM_XL_sel_move_drop ()
+    IF ANIM_XL_SMN = 0 THEN EXIT SUB
+    IF ANIM_XL_SMD = 0 THEN
+        ANIM_XL_sel_restore
+        ANIM_XL_SEL_F1 = ANIM_XL_SMF1: ANIM_XL_SEL_F2 = ANIM_XL_SMF2
+        ANIM_XL_SMN = 0
+        EXIT SUB
+    END IF
+    ANIM_XL_sel_commit _IIF(ANIM_XL_SMCOPY, "Copy Keys", "Move Keys")
+    STATUS_flash _IIF(ANIM_XL_SMCOPY, "Copied", "Moved") + " the selected keys to frames" + STR$(ANIM_XL_SEL_F1) + " -" + STR$(ANIM_XL_SEL_F2)
+END SUB
+
+' ---------------------------------------------------------------------------
+' The keys' clipboard: copy / cut / paste / delete on the selection
+' ---------------------------------------------------------------------------
+
+''
+' keys (a lane of layer slot) on frames f1..f2, frames from f1 - with a key
+' baked at each end of the span the lane has there (its value then), so the
+' pasted curve is the one seen ("copy what you see"). "" when the lane has no
+' keys or the span is outside the layer's frames.
+FUNCTION ANIM_XL_keys_span$ (slot AS INTEGER, keys AS STRING, f1 AS INTEGER, f2 AS INTEGER)
+    DIM inF AS INTEGER, e1 AS INTEGER, e2 AS INTEGER, i AS INTEGER, f AS INTEGER, r AS STRING, e AS INTEGER, dflt AS SINGLE, k AS INTEGER
+    IF CLIP_lks_n%(keys) = 0 THEN EXIT FUNCTION
+    inF = ANIM_XL_in%(slot)
+    e1 = _MAX(f1, inF): e2 = _MIN(f2, ANIM_XL_out%(slot))
+    IF e1 > e2 THEN EXIT FUNCTION
+    dflt = 0
+    FOR i = 1 TO CLIP_lks_n%(keys)
+        f = inF + CLIP_lk_f%(keys, i)
+        IF f >= e1 _ANDALSO f <= e2 THEN r = r + CLIP_lk$(f - f1, CLIP_lk_v!(keys, i), CLIP_lk_raw%(keys, i))
+    NEXT i
+    IF ANIM_XL_index_in%(keys, e1 - inF) = 0 THEN ' the first end: the value there, the ease the curve has from it
+        k = CLIP_lk_at_or_before%(keys, e1 - inF)
+        e = CLIP_EASE_LINEAR: IF k THEN e = CLIP_lk_e%(keys, k)
+        r = CLIP_lks_put$(r, e1 - f1, CLIP_lane_keyed!(keys, e1 - inF, dflt), e)
+    END IF
+    IF e2 > e1 _ANDALSO ANIM_XL_index_in%(keys, e2 - inF) = 0 THEN
+        r = CLIP_lks_put$(r, e2 - f1, CLIP_lane_keyed!(keys, e2 - inF, dflt), CLIP_EASE_LINEAR)
+    END IF
+    ANIM_XL_keys_span$ = r
+END FUNCTION
+
+''
+' Ctrl+C on the key selection: its lanes' keys to the keys' clipboard.
+SUB ANIM_XL_keys_copy ()
+    DIM i AS INTEGER, n AS LONG, ks AS STRING
+    IF ANIM_XL_sel_snapshot% = 0 THEN STATUS_flash "No keys selected (drag a box over the X-sheet's lane rows)": EXIT SUB
+    ANIM_XL_CB_N = 0: ANIM_XL_CB_W = ANIM_XL_SEL_F2 - ANIM_XL_SEL_F1 + 1
+    FOR i = 1 TO ANIM_XL_SMN
+        ks = ANIM_XL_keys_span$(ANIM_XL_SMS(i), ANIM_XL_SMK(i), ANIM_XL_SEL_F1, ANIM_XL_SEL_F2)
+        IF LEN(ks) THEN
+            ANIM_XL_CB_N = ANIM_XL_CB_N + 1
+            ANIM_XL_CB_L(ANIM_XL_CB_N) = ANIM_XL_SML(i): ANIM_XL_CB_ID(ANIM_XL_CB_N) = LAYERS(ANIM_XL_SMS(i)).historyId&
+            ANIM_XL_CB_K(ANIM_XL_CB_N) = ks: n = n + CLIP_lks_n%(ks)
+        END IF
+    NEXT i
+    ANIM_XL_edit_reset
+    ANIM_XL_CB_LAST = TRUE
+    IF ANIM_XL_CB_N = 0 THEN STATUS_flash "Nothing to copy: no keys on those lanes": EXIT SUB
+    STATUS_flash "Copied" + STR$(ANIM_XL_CB_N) + " lane" + _IIF(ANIM_XL_CB_N = 1, "", "s") + "," + STR$(ANIM_XL_CB_W) + " frame" + _IIF(ANIM_XL_CB_W = 1, "", "s") + " (" + _TRIM$(STR$(n)) + " keys) - Ctrl+V pastes at the current frame"
+END SUB
+
+''
+' The selection's keys gone (Delete; Ctrl+X after the copy): one undo step.
+SUB ANIM_XL_keys_delete (label AS STRING)
+    DIM i AS INTEGER, slot AS INTEGER, k AS INTEGER, ks AS STRING, f AS INTEGER, inF AS INTEGER, n AS LONG
+    IF ANIM_XL_sel_snapshot% = 0 THEN EXIT SUB
+    FOR i = 1 TO ANIM_XL_SMN
+        slot = ANIM_XL_SMS(i): ks = ANIM_XL_SMK(i): inF = ANIM_XL_in%(slot)
+        FOR k = CLIP_lks_n%(ks) TO 1 STEP -1
+            f = inF + CLIP_lk_f%(ks, k)
+            IF f >= ANIM_XL_SEL_F1 _ANDALSO f <= ANIM_XL_SEL_F2 THEN ks = LEFT$(ks, (k - 1) * 8) + MID$(ks, k * 8 + 1): n = n + 1
+        NEXT k
+        ANIM_XL_set_keys slot, ANIM_XL_SML(i), ks
+    NEXT i
+    IF n = 0 THEN ANIM_XL_edit_reset: STATUS_flash "No keys in the selection": EXIT SUB
+    ANIM_XL_sel_commit label
+    STATUS_flash label + ":" + STR$(n) + " key" + _IIF(n = 1, "", "s")
+END SUB
+
+SUB ANIM_XL_keys_cut ()
+    IF ANIM_XL_SEL_ON = 0 THEN STATUS_flash "No keys selected": EXIT SUB
+    ANIM_XL_keys_copy
+    IF ANIM_XL_CB_N > 0 THEN ANIM_XL_keys_delete "Cut Keys"
+END SUB
+
+''
+' Ctrl+V: the clipboard's keys from the current frame on, replacing the keys
+' there. Copied from one layer: into the current layer's lanes of the same
+' kind (X to X), so they can go to another layer; from several: each lane
+' back into its own layer. The pasted span is selected. One undo step.
+SUB ANIM_XL_keys_paste ()
+    DIM i AS INTEGER, k AS INTEGER, slot AS INTEGER, L AS INTEGER, p0 AS INTEGER, inF AS INTEGER, outF AS INTEGER
+    DIM ks AS STRING, f AS INTEGER, rel AS INTEGER, oneSrc AS INTEGER, rows AS STRING, n AS LONG, cb AS STRING, skipped AS INTEGER
+    IF ANIM_XL_CB_N = 0 THEN STATUS_flash "No keys copied": EXIT SUB
+    IF ANIM.active = 0 THEN EXIT SUB
+    p0 = ANIM.current
+    oneSrc = TRUE
+    FOR i = 2 TO ANIM_XL_CB_N
+        IF ANIM_XL_CB_ID(i) <> ANIM_XL_CB_ID(1) THEN oneSrc = FALSE
+    NEXT i
+    ANIM_XL_edit_reset
+    FOR i = 1 TO ANIM_XL_CB_N
+        IF oneSrc THEN slot = CURRENT_LAYER% ELSE slot = ANIM_XL_slot_of%(ANIM_XL_CB_ID(i))
+        L = ANIM_XL_CB_L(i)
+        IF ANIM_XL_can%(slot) = 0 _ORELSE ANIM_XL_lane_ok%(slot, L) = 0 THEN skipped = skipped + 1: _CONTINUE
+        ANIM_XL_edit_touch slot
+        inF = ANIM_XL_in%(slot): outF = ANIM_XL_out%(slot)
+        ks = ANIM_XL_keys$(slot, L)
+        FOR k = CLIP_lks_n%(ks) TO 1 STEP -1 ' the span's own keys make way
+            f = inF + CLIP_lk_f%(ks, k)
+            IF f >= p0 _ANDALSO f <= p0 + ANIM_XL_CB_W - 1 THEN ks = LEFT$(ks, (k - 1) * 8) + MID$(ks, k * 8 + 1)
+        NEXT k
+        cb = ANIM_XL_CB_K(i)
+        FOR k = 1 TO CLIP_lks_n%(cb)
+            f = p0 + CLIP_lk_f%(cb, k): rel = f - inF
+            IF rel >= 0 _ANDALSO f <= outF THEN ks = CLIP_lks_put$(ks, rel, CLIP_lane_clamp!(L, CLIP_lk_v!(cb, k)), CLIP_lk_raw%(cb, k)): n = n + 1
+        NEXT k
+        ANIM_XL_set_keys slot, L, ks
+        IF ANIM_XL_is_open%(slot) = 0 THEN ANIM_XL_OPEN = ANIM_XL_OPEN + MKL$(LAYERS(slot).historyId&) ' (shown: its lanes open)
+        IF INSTR(rows, MKL$(LAYERS(slot).historyId&) + MKI$(L)) = 0 THEN rows = rows + MKL$(LAYERS(slot).historyId&) + MKI$(L)
+    NEXT i
+    IF n = 0 THEN
+        ANIM_XL_edit_reset
+        STATUS_flash _IIF(skipped > 0, "Those lanes don't go on this layer", "Nothing pasted: past the layer's frames")
+        EXIT SUB
+    END IF
+    ANIM_XL_sel_commit "Paste Keys"
+    ANIM_XL_SEL_ROWS = rows: ANIM_XL_SEL_ON = TRUE
+    ANIM_XL_SEL_F1 = p0: ANIM_XL_SEL_F2 = _MIN(ANIM.count, p0 + ANIM_XL_CB_W - 1)
+    STATUS_flash "Pasted" + STR$(n) + " key" + _IIF(n = 1, "", "s") + " at frame" + STR$(p0) + _IIF(oneSrc, " (" + _TRIM$(LAYERS(CURRENT_LAYER%).name) + ")", "") + _IIF(skipped > 0, " -" + STR$(skipped) + " lane(s) don't go on this layer", "")
+    ANIM_LB_changed
+END SUB
+
+''
+' INPUT_dispatch_frame, before the bindings: while the X-sheet has a key
+' selection Ctrl+C / X and Delete act on its keys; Ctrl+V pastes keys while
+' they are the newest thing copied. TRUE = taken.
+FUNCTION ANIM_XL_key% (keycode AS LONG, mods AS INTEGER)
+    DIM m AS INTEGER, act AS INTEGER
+    IF ANIM.active = 0 _ORELSE ANIM_XS_on% = 0 THEN EXIT FUNCTION
+    IF ANIM_XL_SEL_ON = 0 _ANDALSO (ANIM_XL_CB_LAST = 0 _ORELSE ANIM_XL_CB_N = 0) THEN EXIT FUNCTION
+    m = mods AND (MOD_CTRL OR MOD_SHIFT OR MOD_ALT)
+    IF m = MOD_CTRL THEN
+        SELECT CASE keycode
+            CASE 99, 67: IF ANIM_XL_SEL_ON THEN act = ANIM_ACT_KEYS_COPY
+            CASE 120, 88: IF ANIM_XL_SEL_ON THEN act = ANIM_ACT_KEYS_CUT
+            CASE 118, 86: IF ANIM_XL_CB_LAST _ANDALSO ANIM_XL_CB_N > 0 THEN act = ANIM_ACT_KEYS_PASTE
+        END SELECT
+    ELSEIF m = 0 _ANDALSO (keycode = 21248 _ORELSE keycode = 8) THEN
+        IF ANIM_XL_SEL_ON THEN act = ANIM_ACT_KEYS_DELETE
+    END IF
+    IF act = 0 THEN EXIT FUNCTION
+    IF DEV_MODE% THEN INPUTS_log "[FIRE] lane keys -> action=" + _TRIM$(STR$(act))
+    CMD_execute_action act
+    ANIM_XL_key% = TRUE
+END FUNCTION
+
+''
+' The pointer over the lane rows: 1 the crosshair (empty lane space - no key
+' under it - or drawing the rect), 2 the move cursor (inside the selection,
+' or moving it), 0 neither.
+FUNCTION ANIM_XL_wants_cross% (mx AS INTEGER, my AS INTEGER)
+    DIM r AS INTEGER, slot AS INTEGER, f AS INTEGER, rel AS INTEGER
+    IF ANIM_XS.dMode = XS_DRAG_LSEL THEN ANIM_XL_wants_cross% = 1: EXIT FUNCTION
+    IF ANIM_XS.dMode = XS_DRAG_LSMOVE THEN ANIM_XL_wants_cross% = 2: EXIT FUNCTION
+    IF ANIM_XS.dMode <> XS_DRAG_NONE THEN EXIT FUNCTION
+    IF ANIM_XS_hit%(mx, my) = 0 _ORELSE mx <= ANIM_XS.gx _ORELSE mx > ANIM_XS.x2 THEN EXIT FUNCTION
+    r = ANIM_XL_row_at%(my)
+    IF r = 0 THEN EXIT FUNCTION
+    IF ANIM_XS_ROW(r) >= 0 _ORELSE ANIM_XS_RKIND(r) <> XS_ROW_LANE THEN EXIT FUNCTION
+    slot = -ANIM_XS_ROW(r)
+    f = ANIM_XS_frame_at%(mx)
+    IF f < 1 _ORELSE ANIM_XL_can%(slot) = 0 THEN EXIT FUNCTION
+    IF ANIM_XL_sel_covers%(slot, ANIM_XS_RLANE(r), f) THEN ANIM_XL_wants_cross% = 2: EXIT FUNCTION ' inside the selection: move it
+    rel = f - ANIM_XL_in%(slot)
+    IF rel >= 0 THEN IF ANIM_XL_index_in%(ANIM_XL_keys$(slot, ANIM_XS_RLANE(r)), rel) THEN EXIT FUNCTION ' a key: its own drag
+    ANIM_XL_wants_cross% = 1
+END FUNCTION
+
+''
+' The selection on lane row r (y its top): its frames shaded, an outline
+' round the whole rect (drawn once, by the first selected row shown, over
+' every selected row shown).
+SUB ANIM_XL_sel_row_shade (slot AS INTEGER, L AS INTEGER, y AS INTEGER)
+    DIM xa AS INTEGER, xb AS INTEGER, fa AS INTEGER, fb AS INTEGER
+    IF ANIM_XL_sel_has%(slot, L) = 0 THEN EXIT SUB
+    fa = _MAX(ANIM_XL_SEL_F1, ANIM_XS.firstF): fb = _MIN(ANIM_XL_SEL_F2, ANIM_XS.lastF)
+    IF fa > fb THEN EXIT SUB
+    xa = _MAX(ANIM_XS.gx + 1, ANIM_XS_frame_x%(fa)): xb = _MIN(ANIM_XS.x2, ANIM_XS_frame_x%(fb) + ANIM_XS_span_w%(fb) - 1)
+    IF xb < xa THEN EXIT SUB
+    LINE (xa, y)-(xb, y + ANIM_XS.layH - 2), ANIM_XS_ink~&(THEME.ANIM_FRAME_current~&, &H38), BF
+END SUB
+
+''
+' After the rows: the rect's outline, from the first selected row shown to the last.
+SUB ANIM_XL_sel_outline ()
+    DIM k AS INTEGER, r AS INTEGER, y AS INTEGER, ya AS INTEGER, yb AS INTEGER, xa AS INTEGER, xb AS INTEGER, fa AS INTEGER, fb AS INTEGER
+    IF ANIM_XL_SEL_ON = 0 THEN EXIT SUB
+    fa = _MAX(ANIM_XL_SEL_F1, ANIM_XS.firstF): fb = _MIN(ANIM_XL_SEL_F2, ANIM_XS.lastF)
+    IF fa > fb THEN EXIT SUB
+    ya = -1
+    FOR k = 1 TO ANIM_XS.rowsShown
+        r = ANIM_XS.firstRow + k - 1
+        IF r > ANIM_XS.nRows THEN EXIT FOR
+        IF ANIM_XS_ROW(r) < 0 _ANDALSO ANIM_XS_RKIND(r) = XS_ROW_LANE THEN
+            IF ANIM_XL_sel_has%(-ANIM_XS_ROW(r), ANIM_XS_RLANE(r)) THEN
+                y = ANIM_XS_row_y%(k)
+                IF ya < 0 THEN ya = y
+                yb = y + ANIM_XS.layH - 2
+            END IF
+        END IF
+    NEXT k
+    IF ya < 0 THEN EXIT SUB
+    xa = _MAX(ANIM_XS.gx + 1, ANIM_XS_frame_x%(fa)): xb = _MIN(ANIM_XS.x2, ANIM_XS_frame_x%(fb) + ANIM_XS_span_w%(fb) - 1)
+    IF xb <= xa THEN EXIT SUB
+    LINE (xa, ya)-(xb, yb), ANIM_XS_ink~&(THEME.ANIM_FRAME_current~&, &HE0), B
+END SUB
+
+''
+' A right press on a lane / + LANE row: that row (its menu opens on the
+' release), else 0.
+FUNCTION ANIM_XL_rpress% (mx AS INTEGER, my AS INTEGER)
+    DIM r AS INTEGER
+    IF ANIM_XS_hit%(mx, my) = 0 THEN EXIT FUNCTION
+    r = ANIM_XL_row_at%(my)
+    IF r = 0 THEN EXIT FUNCTION
+    IF ANIM_XS_ROW(r) >= 0 THEN EXIT FUNCTION
+    IF ANIM_XS_RKIND(r) <> XS_ROW_LANE _ANDALSO ANIM_XS_RKIND(r) <> XS_ROW_LANEADD THEN EXIT FUNCTION
+    ANIM_XL.rF = ANIM_XS_frame_at%(mx)
+    ANIM_XL_rpress% = r
+END FUNCTION
+
+''
+' The right button let go after ANIM_XL_rpress%: the row's menu, if still on it.
+SUB ANIM_XL_rrelease (r AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    DIM slot AS INTEGER, f AS INTEGER
+    IF ANIM_XL_row_at%(my) <> r _ORELSE ANIM_XS_hit%(mx, my) = 0 THEN EXIT SUB
+    slot = -ANIM_XS_ROW(r)
+    IF ANIM_XL_can%(slot) = 0 THEN EXIT SUB
+    IF slot <> CURRENT_LAYER% THEN LAYERS_select slot
+    ANIM_XL.mSlot = slot
+    IF ANIM_XS_RKIND(r) = XS_ROW_LANE THEN
+        ANIM_XL.mL = ANIM_XS_RLANE(r): ANIM_XL_pick ANIM_XL.mL
+        f = ANIM_XL.rF: IF f < 1 THEN f = ANIM.current
+        IF f <> ANIM.current THEN ANIM_SEL_click f, FALSE, FALSE
+        ANIM_XL.mRel = f - ANIM_XL_in%(slot)
+        ANIM_LB.menuKind = XL_MENU_LANE
+    ELSE
+        ANIM_LB.menuKind = XL_MENU_ADD
+    END IF
+    ANIM_LB_menu_at mx, my
+END SUB
+
+' ---------------------------------------------------------------------------
+' Menus (ANIM_LB.menuKind XL_MENU_LANE / XL_MENU_ADD)
+' ---------------------------------------------------------------------------
+
+SUB ANIM_XL_menu_build ()
+    DIM slot AS INTEGER, L AS INTEGER, n AS INTEGER, i AS INTEGER, e AS INTEGER, mk AS INTEGER, ks AS STRING
+    DIM ea AS INTEGER, ed AS INTEGER, es AS INTEGER, er AS INTEGER, fl AS INTEGER, ki AS INTEGER
+    DIM kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    POPUP_MENU_clear_items
+    slot = ANIM_XL.mSlot
+    IF ANIM_XL_can%(slot) = 0 THEN POPUP_MENU_set_item 0, "No Lanes Here", "", -1, POPUP_MENU_FLAG_DISABLED: ANIM_LB.menuN = 1: EXIT SUB
+    IF ANIM_LB.menuKind = XL_MENU_ADD THEN
+        FOR L = 1 TO ANIM_XL_nlanes%(slot)
+            IF ANIM_XL_used%(slot, L) = 0 _ANDALSO ANIM_XL_lane_ok%(slot, L) THEN
+                IF L >= CLIP_LANE_BLUR _ANDALSO e = 0 _ANDALSO n > 0 THEN POPUP_MENU_set_item n, "", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1 ' (the effects below)
+                IF L >= CLIP_LANE_BLUR THEN e = 1
+                POPUP_MENU_set_item n, CLIP_lane_name$(L), "", XL_V_ADD + L, 0: n = n + 1
+            END IF
+        NEXT L
+        IF n = 0 THEN POPUP_MENU_set_item 0, "Every Lane Is Shown", "", -1, POPUP_MENU_FLAG_DISABLED: n = 1
+        ANIM_LB.menuN = n
+        EXIT SUB
+    END IF
+    L = ANIM_XL.mL
+    ks = ANIM_XL_keys$(slot, L)
+    i = ANIM_XL_index_in%(ks, ANIM_XL.mRel): ki = i ' (the key right-clicked; i is a loop counter below)
+    IF L = CLIP_LANE_BLEND THEN ' the modes (checked: the one on this frame) - picking one keys it here
+        e = CLIP_lane_clamp!(L, CLIP_lane_keyed!(ks, _MAX(0, ANIM_XL.mRel), ANIM_XL_dflt!(slot, L)))
+        FOR mk = 0 TO BLEND_MODE_COUNT - 1
+            POPUP_MENU_set_item n, BLEND_mode_name$(mk), "", XL_V_BLEND + mk, _IIF(mk = e, POPUP_MENU_FLAG_CHECKED, 0) OR _IIF(ANIM_XL.mRel >= 0, 0, POPUP_MENU_FLAG_DISABLED)
+            n = n + 1
+        NEXT mk
+        POPUP_MENU_set_item n, "", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+        IF i THEN POPUP_MENU_set_item n, "Delete Key", "", XL_V_DELETE, 0: n = n + 1
+        POPUP_MENU_set_item n, "Remove Lane", "", XL_V_REMOVE, 0: n = n + 1
+        ANIM_LB.menuN = n
+        EXIT SUB
+    END IF
+    IF i THEN
+        e = CLIP_lk_e%(ks, i)
+        POPUP_MENU_set_item n, "Value...", "Dbl-Click", XL_V_VALUE, 0: n = n + 1
+        POPUP_MENU_set_item n, "", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+        FOR mk = 0 TO 4
+            POPUP_MENU_set_item n, _IIF(mk = CLIP_EASE_HOLD, "Hold (a Step)", _IIF(mk = CLIP_EASE_LINEAR, "Linear", _IIF(mk = CLIP_EASE_IN, "Ease In", _IIF(mk = CLIP_EASE_OUT, "Ease Out", "Ease In-Out")))), "", XL_V_EASE + mk, _IIF(mk = e, POPUP_MENU_FLAG_CHECKED, 0)
+            n = n + 1
+        NEXT mk
+        POPUP_MENU_set_item n, "", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+        POPUP_MENU_set_item n, "Delete Key", "", XL_V_DELETE, 0: n = n + 1
+    ELSE
+        POPUP_MENU_set_item n, "Add Key Here", "Dbl-Click", XL_V_ADDKEY, _IIF(ANIM_XL.mRel >= 0, 0, POPUP_MENU_FLAG_DISABLED): n = n + 1
+        POPUP_MENU_set_item n, "Key Here at Value...", "", XL_V_VALUE, _IIF(ANIM_XL.mRel >= 0, 0, POPUP_MENU_FLAG_DISABLED): n = n + 1
+    END IF
+    IF L = CLIP_LANE_NOISE _ANDALSO i > 0 THEN ' the grain from this key: a new one every frame, or this key's held
+        POPUP_MENU_set_item n, "From This Key: Frozen Grain", "", XL_V_KFROZEN, _IIF(CLIP_lk_fl%(ks, i) AND CLIP_KF_FROZEN, POPUP_MENU_FLAG_CHECKED, 0): n = n + 1
+    END IF
+    POPUP_MENU_set_item n, "", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    IF ANIM_XL_sub_of%(L, mk) THEN ' a modulator's sub-lane: no modulator of its own
+        POPUP_MENU_set_item n, "Remove Lane", "", XL_V_REMOVE, 0: n = n + 1
+        ANIM_LB.menuN = n
+        EXIT SUB
+    END IF
+    CLIP_mod_unpack ANIM_XL_mod$(slot, L), kind, shape, amount, period, phase, seed
+    mk = 0: IF kind = 1 THEN mk = 1 + shape ELSE IF kind = 2 THEN mk = 5
+    FOR i = 0 TO 5
+        POPUP_MENU_set_item n, _TRIM$(MID$("No Modulator  LFO Sine      LFO Triangle  LFO Square    LFO Saw       Noise         ", i * 14 + 1, 14)), "", XL_V_MOD + i, _IIF(i = mk, POPUP_MENU_FLAG_CHECKED, 0)
+        n = n + 1
+    NEXT i
+    IF kind THEN
+        POPUP_MENU_set_item n, "Modulator Amount (" + ANIM_XL_num$(amount) + ")...", "", XL_V_MODAMT, 0: n = n + 1
+        POPUP_MENU_set_item n, "Modulator Period (" + ANIM_XL_num$(period) + " Frames)...", "", XL_V_MODPER, 0: n = n + 1
+        IF ANIM_XL_used%(slot, L + CLIP_SUB_FREQ) = 0 THEN POPUP_MENU_set_item n, "Add Frequency Lane (Period over Time)", "", XL_V_SUBFREQ, 0: n = n + 1
+        IF ANIM_XL_used%(slot, L + CLIP_SUB_AMP) = 0 THEN POPUP_MENU_set_item n, "Add Amplitude Lane (Amount over Time)", "", XL_V_SUBAMP, 0: n = n + 1
+        CLIP_mod_env ANIM_XL_mod$(slot, L), ea, ed, es, er
+        POPUP_MENU_set_item n, "Modulator Envelope (" + _IIF(ea = 0 _ANDALSO ed = 0 _ANDALSO es = 100 _ANDALSO er = 0, "None", "ADSR" + STR$(ea) + STR$(ed) + STR$(es) + STR$(er)) + ")...", "", XL_V_MODENV, 0: n = n + 1
+        IF ki THEN ' what the modulator does from this key to the next
+            fl = CLIP_lk_fl%(ks, ki)
+            POPUP_MENU_set_item n, "From This Key: Modulator On", "", XL_V_KMOD, _IIF((fl AND CLIP_KF_MODOFF) = 0, POPUP_MENU_FLAG_CHECKED, 0): n = n + 1
+            POPUP_MENU_set_item n, "From This Key: One Cycle (One-Shot)", "", XL_V_KONESHOT, _IIF(fl AND CLIP_KF_ONESHOT, POPUP_MENU_FLAG_CHECKED, 0) OR _IIF(fl AND CLIP_KF_MODOFF, POPUP_MENU_FLAG_DISABLED, 0): n = n + 1
+            POPUP_MENU_set_item n, "From This Key: Restart the Wave", "", XL_V_KRETRIG, _IIF((fl AND (CLIP_KF_RETRIG OR CLIP_KF_ONESHOT)) <> 0, POPUP_MENU_FLAG_CHECKED, 0) OR _IIF((fl AND (CLIP_KF_MODOFF OR CLIP_KF_ONESHOT)) <> 0, POPUP_MENU_FLAG_DISABLED, 0): n = n + 1
+        END IF
+    END IF
+    POPUP_MENU_set_item n, "", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    IF L = CLIP_LANE_TINT THEN POPUP_MENU_set_item n, "Tint Color = FG Color", "", XL_V_TINTFG, 0: n = n + 1
+    IF CLIP_inst_of%(slot) THEN POPUP_MENU_set_item n, "Edit in Animation Panel", "", XL_V_PICK, 0: n = n + 1
+    POPUP_MENU_set_item n, "Remove Lane", "", XL_V_REMOVE, 0: n = n + 1
+    ANIM_LB.menuN = n
+END SUB
+
+''
+' A pick from the lane / + LANE menus.
+SUB ANIM_XL_menu_pick (v AS INTEGER)
+    DIM slot AS INTEGER, k AS INTEGER, L AS INTEGER, rel AS INTEGER, ks AS STRING, i AS INTEGER, before AS STRING, nm AS STRING, w AS STRING
+    DIM kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, e AS INTEGER
+    DIM mt AS STRING
+    slot = ANIM_XL.mSlot
+    IF ANIM_XL_can%(slot) = 0 THEN EXIT SUB
+    k = CLIP_inst_of%(slot): w = ANIM_XL_word$(slot)
+    IF v > XL_V_ADD _ANDALSO v <= XL_V_ADD + ANIM_XL_nlanes%(slot) THEN ' + LANE: a key at the current frame at the lane's value now
+        L = v - XL_V_ADD
+        rel = _MAX(0, ANIM.current - ANIM_XL_in%(slot))
+        before = ANIM_XL_state$(slot)
+        ANIM_XL_set_keys slot, L, CLIP_lks_put$(ANIM_XL_keys$(slot, L), rel, ANIM_XL_value!(slot, L, ANIM_XL_in%(slot) + rel), CLIP_EASE_LINEAR)
+        IF L = CLIP_LANE_TINT _ANDALSO k = 0 THEN ' a layer's tint starts as the FG colour
+            e = LL_of%(slot)
+            IF e THEN IF LL_TINT(e) = &HFFFFFFFF~& THEN LL_TINT(e) = PAINT_COLOR~&
+        END IF
+        ANIM_XL_pick L
+        IF ANIM_XL_is_open%(slot) = 0 THEN ANIM_XL_toggle slot
+        ANIM_XL_commit slot, before, w + " " + CLIP_lane_name$(L)
+        STATUS_flash CLIP_lane_name$(L) + ": a key on frame" + STR$(ANIM_XL_in%(slot) + rel) + " - double-click its row for more, drag a key to change it"
+        EXIT SUB
+    END IF
+    L = ANIM_XL.mL: rel = ANIM_XL.mRel: nm = CLIP_lane_name$(L)
+    IF (L < 1 _ORELSE L > ANIM_XL_nlanes%(slot)) _ANDALSO ANIM_XL_sub_of%(L, e) = 0 THEN EXIT SUB ' (a modulator's sub-lane is fine)
+    ks = ANIM_XL_keys$(slot, L)
+    SELECT CASE v
+        CASE XL_V_VALUE: ANIM_XL_type_value slot, L, rel
+        CASE XL_V_ADDKEY: ANIM_XL_add_key slot, L, rel
+        CASE XL_V_BLEND TO XL_V_BLEND + BLEND_MODE_COUNT - 1 ' the BLEND lane: this mode from this frame
+            IF rel < 0 THEN EXIT SUB
+            before = ANIM_XL_state$(slot)
+            ANIM_XL_set_keys slot, L, CLIP_lks_put$(ks, rel, v - XL_V_BLEND, CLIP_EASE_HOLD)
+            ANIM_XL_commit slot, before, w + " Key " + nm
+            STATUS_flash nm + ": " + BLEND_mode_name$(v - XL_V_BLEND) + " from frame" + STR$(ANIM_XL_in%(slot) + rel)
+        CASE XL_V_EASE TO XL_V_EASE + 4
+            i = ANIM_XL_index_in%(ks, rel)
+            IF i = 0 THEN EXIT SUB
+            before = ANIM_XL_state$(slot)
+            ks = CLIP_lks_ease$(ks, i, v - XL_V_EASE)
+            ANIM_XL_set_keys slot, L, ks
+            ANIM_XL_commit slot, before, w + " Ease " + nm
+            STATUS_flash nm + ": " + ANIM_XL_ease_name$(v - XL_V_EASE) + " from frame" + STR$(ANIM_XL_in%(slot) + rel)
+        CASE XL_V_DELETE
+            before = ANIM_XL_state$(slot)
+            ANIM_XL_set_keys slot, L, CLIP_lks_del$(ks, rel)
+            ANIM_XL_commit slot, before, w + " Delete Key " + nm
+        CASE XL_V_MOD TO XL_V_MOD + 5
+            CLIP_mod_unpack ANIM_XL_mod$(slot, L), kind, shape, amount, period, phase, seed
+            IF kind = 0 THEN amount = CLIP_mod_default_amount!(L)
+            before = ANIM_XL_state$(slot)
+            SELECT CASE v - XL_V_MOD
+                CASE 0: ANIM_XL_set_mod slot, L, ""
+                CASE 1 TO 4: ANIM_XL_set_mod slot, L, CLIP_mod_repack$(ANIM_XL_mod$(slot, L), 1, v - XL_V_MOD - 1, amount, period, phase, seed)
+                CASE 5: ANIM_XL_set_mod slot, L, CLIP_mod_repack$(ANIM_XL_mod$(slot, L), 2, 0, amount, period, phase, seed)
+            END SELECT
+            ANIM_XL_commit slot, before, w + " Modulator " + nm
+        CASE XL_V_MODAMT, XL_V_MODPER
+            CLIP_mod_unpack ANIM_XL_mod$(slot, L), kind, shape, amount, period, phase, seed
+            IF kind = 0 THEN EXIT SUB
+            POINTER_hide_for_dialog
+            IF v = XL_V_MODAMT THEN
+                mt = DRAW_input_box_ex$("Modulator Amount", nm + ": how far the wobble swings (" + _IIF(L = CLIP_LANE_ROT, "degrees", _IIF(L = CLIP_LANE_SX _ORELSE L = CLIP_LANE_SY _ORELSE L = CLIP_LANE_OP _ORELSE L = CLIP_LANE_TINT, "percent", "pixels")) + "):", ANIM_XL_num$(amount), "Amount", TRUE)
+            ELSE
+                mt = DRAW_input_box_ex$("Modulator Period", nm + ": frames per wobble (noise: frames per change):", ANIM_XL_num$(period), "Frames", TRUE)
+            END IF
+            POINTER_show_after_dialog
+            MOUSE_cleanup_after_dialog FALSE
+            IF _TRIM$(mt) = "" THEN EXIT SUB
+            before = ANIM_XL_state$(slot)
+            IF v = XL_V_MODAMT THEN amount = _MAX(-9999, _MIN(9999, VAL(mt))) ELSE period = _MAX(1, _MIN(999, VAL(mt)))
+            ANIM_XL_set_mod slot, L, CLIP_mod_repack$(ANIM_XL_mod$(slot, L), kind, shape, amount, period, phase, seed)
+            ANIM_XL_commit slot, before, w + " Modulator " + nm
+        CASE XL_V_SUBFREQ, XL_V_SUBAMP ' + a sub-lane: a key on this frame at the modulator's own period / amount
+            IF LEN(ANIM_XL_mod$(slot, L)) = 0 THEN EXIT SUB
+            e = L + _IIF(v = XL_V_SUBFREQ, CLIP_SUB_FREQ, CLIP_SUB_AMP)
+            before = ANIM_XL_state$(slot)
+            ANIM_XL_set_keys slot, e, CLIP_lks_put$("", _MAX(0, rel), ANIM_XL_dflt!(slot, e), CLIP_EASE_LINEAR)
+            ANIM_XL_commit slot, before, w + " " + CLIP_lane_name$(e)
+            STATUS_flash CLIP_lane_name$(e) + ": " + _IIF(v = XL_V_SUBFREQ, "the modulator's period (frames per cycle)", "its amount") + " over time - key it like any lane"
+        CASE XL_V_KFROZEN ' the NOISE lane: this key's grain held to the next key, or a new one every frame
+            i = ANIM_XL_index_in%(ks, rel)
+            IF i = 0 THEN EXIT SUB
+            before = ANIM_XL_state$(slot)
+            e = CLIP_lk_fl%(ks, i) XOR CLIP_KF_FROZEN
+            ANIM_XL_set_keys slot, L, CLIP_lks_flags$(ks, i, e)
+            ANIM_XL_commit slot, before, w + " Key Grain " + nm
+            STATUS_flash nm + " from frame" + STR$(ANIM_XL_in%(slot) + rel) + ": " + _IIF(e AND CLIP_KF_FROZEN, "one grain, held", "a new grain every frame") + " - to the next key"
+        CASE XL_V_KMOD, XL_V_KONESHOT, XL_V_KRETRIG ' this key's span (CLIP_KF_*)
+            i = ANIM_XL_index_in%(ks, rel)
+            IF i = 0 THEN EXIT SUB
+            before = ANIM_XL_state$(slot)
+            e = CLIP_lk_fl%(ks, i)
+            SELECT CASE v
+                CASE XL_V_KMOD: e = e XOR CLIP_KF_MODOFF
+                CASE XL_V_KONESHOT: e = e XOR CLIP_KF_ONESHOT
+                CASE XL_V_KRETRIG: e = e XOR CLIP_KF_RETRIG
+            END SELECT
+            ANIM_XL_set_keys slot, L, CLIP_lks_flags$(ks, i, e)
+            ANIM_XL_commit slot, before, w + " Key Modulator " + nm
+            STATUS_flash nm + " from frame" + STR$(ANIM_XL_in%(slot) + rel) + ": " + _IIF(e AND CLIP_KF_MODOFF, "no modulator", _IIF(e AND CLIP_KF_ONESHOT, "the modulator once (one cycle)", "the modulator repeating" + _IIF(e AND CLIP_KF_RETRIG, ", restarted here", ""))) + " - to the next key"
+        CASE XL_V_MODENV
+            DIM ea AS INTEGER, ed AS INTEGER, es AS INTEGER, er AS INTEGER
+            IF LEN(ANIM_XL_mod$(slot, L)) = 0 THEN EXIT SUB
+            CLIP_mod_env ANIM_XL_mod$(slot, L), ea, ed, es, er
+            POINTER_hide_for_dialog
+            mt = DRAW_input_box_ex$("Modulator Envelope", nm + ": attack, decay (frames), sustain (%), release (frames) - from each key; 0 0 100 0 = none:", _TRIM$(STR$(ea)) + STR$(ed) + STR$(es) + STR$(er), "A D S R", TRUE)
+            POINTER_show_after_dialog
+            MOUSE_cleanup_after_dialog FALSE
+            IF _TRIM$(mt) = "" THEN EXIT SUB
+            IF ANIM_XL_adsr_parse%(mt, ea, ed, es, er) = 0 THEN STATUS_flash "Envelope: four numbers - attack decay sustain% release (e.g. 4 2 60 3)": EXIT SUB
+            before = ANIM_XL_state$(slot)
+            ANIM_XL_set_mod slot, L, CLIP_mod_with_env$(ANIM_XL_mod$(slot, L), ea, ed, es, er)
+            ANIM_XL_commit slot, before, w + " Modulator Envelope " + nm
+        CASE XL_V_TINTFG
+            before = ANIM_XL_state$(slot)
+            IF k THEN
+                CLIP_INST(k).tint = PAINT_COLOR~&
+            ELSE
+                e = LL_find%(LAYERS(slot).historyId&, TRUE)
+                IF e THEN LL_TINT(e) = PAINT_COLOR~&
+            END IF
+            ANIM_XL_commit slot, before, w + " Tint Color"
+        CASE XL_V_REMOVE
+            before = ANIM_XL_state$(slot)
+            ANIM_XL_set_keys slot, L, "": ANIM_XL_set_mod slot, L, ""
+            ANIM_XL_commit slot, before, w + " Remove Lane " + nm
+            STATUS_flash nm + " lane removed"
+        CASE XL_V_PICK
+            ANIM_XL_pick L ' (the Animation panel's LANE row edits this lane)
+            STATUS_flash nm + " is the Animation panel's LANE now"
+            GUI_NEEDS_REDRAW% = TRUE
+    END SELECT
+END SUB
+
+' ---------------------------------------------------------------------------
+' QA dump: ANIMXSLO slot open arrowX y (each layer row with lanes possible);
+' ANIMXSLN slot lane y lo hi mod rel:value:ease ... (each lane row shown);
+' ANIMXSLA slot y (each + LANE row shown); ANIMXLM the open lane / + LANE
+' menu (x y w, then value y per item); then the layer lanes table (LL_dump$).
+' ---------------------------------------------------------------------------
+FUNCTION ANIM_XL_dump$ ()
+    DIM d AS STRING, r AS INTEGER, slot AS INTEGER, y AS INTEGER, L AS INTEGER, i AS INTEGER, ks AS STRING
+    DIM lo AS SINGLE, hi AS SINGLE, lx AS INTEGER, lw AS INTEGER
+    FOR r = ANIM_XS.firstRow TO _MIN(ANIM_XS.nRows, ANIM_XS.firstRow + ANIM_XS.rowsShown - 1)
+        y = ANIM_XS_row_y%(r - ANIM_XS.firstRow + 1)
+        slot = ANIM_XS_ROW(r)
+        IF slot > 0 THEN
+            IF ANIM_XL_can%(slot) THEN
+                ANIM_XS_label_room r, lx, lw
+                d = d + "ANIMXSLO" + DOCK_n$(slot) + DOCK_n$(ANIM_XL_is_open%(slot) <> 0) + DOCK_n$(lx - XS_LANE_ARROW_W) + DOCK_n$(y) + CHR$(10)
+            END IF
+        ELSEIF ANIM_XS_RKIND(r) = XS_ROW_LANE THEN
+            L = ANIM_XS_RLANE(r)
+            IF ANIM_XL_can%(-slot) THEN
+                ANIM_XL_range -slot, L, lo, hi
+                ks = ANIM_XL_keys$(-slot, L)
+                d = d + "ANIMXSLN" + DOCK_n$(-slot) + DOCK_n$(L) + DOCK_n$(y) + DOCK_n$(CINT(lo)) + DOCK_n$(CINT(hi)) + DOCK_n$(LEN(ANIM_XL_mod$(-slot, L)) > 0)
+                FOR i = 1 TO CLIP_lks_n%(ks)
+                    d = d + " " + _TRIM$(STR$(CLIP_lk_f%(ks, i))) + ":" + ANIM_XL_num$(CLIP_lk_v!(ks, i)) + ":" + _TRIM$(STR$(CLIP_lk_e%(ks, i)))
+                NEXT i
+                d = d + CHR$(10)
+            END IF
+        ELSEIF ANIM_XS_RKIND(r) = XS_ROW_LANEADD THEN
+            d = d + "ANIMXSLA" + DOCK_n$(-slot) + DOCK_n$(y) + CHR$(10)
+        END IF
+    NEXT r
+    IF ANIM_LB.menuOpen _ANDALSO (ANIM_LB.menuKind = XL_MENU_LANE _ORELSE ANIM_LB.menuKind = XL_MENU_ADD _ORELSE ANIM_LB.menuKind = 5 _ORELSE ANIM_LB.menuKind = 4) THEN ' ANIMXLM x y w, then per item that can be picked: value y (its top; LB_MENU_ITEM_H tall) - the lane menus, the cell menu (5) and the header's (4)
+        SELECT CASE ANIM_LB.menuKind
+            CASE 5: ANIM_XS_cell_menu_build
+            CASE 4: ANIM_XS_view_menu_build
+            CASE ELSE: ANIM_XL_menu_build
+        END SELECT
+        d = d + "ANIMXLM" + DOCK_n$(ANIM_LB.menuX) + DOCK_n$(ANIM_LB.menuY) + DOCK_n$(ANIM_LB.menuW)
+        y = ANIM_LB.menuY + 2
+        FOR i = 0 TO ANIM_LB.menuN - 1
+            IF POPUP_MENU_FLAGS(i) AND POPUP_MENU_FLAG_DIVIDER THEN
+                y = y + MENU_DIVIDER_HEIGHT
+            ELSE
+                IF (POPUP_MENU_FLAGS(i) AND POPUP_MENU_FLAG_DISABLED) = 0 THEN d = d + DOCK_n$(POPUP_MENU_VALUES(i)) + DOCK_n$(y)
+                y = y + LB_MENU_ITEM_H
+            END IF
+        NEXT i
+        d = d + CHR$(10)
+    END IF
+    ' the keys' clipboard: XLCB <rows> <frames> <newest copy 0/1> <lane:keys ...>
+    d = d + "XLCB" + DOCK_n$(ANIM_XL_CB_N) + DOCK_n$(ANIM_XL_CB_W) + DOCK_n$(-(ANIM_XL_CB_LAST <> 0))
+    FOR i = 1 TO ANIM_XL_CB_N
+        d = d + " " + _TRIM$(STR$(ANIM_XL_CB_L(i))) + "="
+        FOR y = 1 TO CLIP_lks_n%(ANIM_XL_CB_K(i))
+            d = d + _IIF(y > 1, ",", "") + _TRIM$(STR$(CLIP_lk_f%(ANIM_XL_CB_K(i), y))) + ":" + ANIM_XL_num$(CLIP_lk_v!(ANIM_XL_CB_K(i), y))
+        NEXT y
+    NEXT i
+    d = d + CHR$(10)
+    ' the key selection: XLSEL <on> <frame 1> <frame 2> <keys in it> <lanes: slot:lane ...>
+    d = d + "XLSEL" + DOCK_n$(-(ANIM_XL_SEL_ON <> 0)) + DOCK_n$(ANIM_XL_SEL_F1) + DOCK_n$(ANIM_XL_SEL_F2) + DOCK_n$(ANIM_XL_sel_count&)
+    FOR i = 1 TO LEN(ANIM_XL_SEL_ROWS) STEP 6
+        d = d + " " + _TRIM$(STR$(ANIM_XL_slot_of%(CVL(MID$(ANIM_XL_SEL_ROWS, i, 4))))) + ":" + _TRIM$(STR$(CVI(MID$(ANIM_XL_SEL_ROWS, i + 4, 2))))
+    NEXT i
+    d = d + CHR$(10)
+    ANIM_XL_dump$ = d
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Recording: armed layers (Rick 2026-11-16 - "in DAW it's arming an automation
+' lane"). The Move tool, Transform, Flip, the layer's opacity and the
+' lightbox's transform widget key an armed layer's lanes at the current frame
+' instead of changing its pixels: one undo step per gesture.
+' ---------------------------------------------------------------------------
+
+''
+' The id list helpers (MKL$ entries, whole entries only).
+FUNCTION ANIM_XL_id_at& (lst AS STRING, id AS LONG)
+    DIM p AS LONG
+    p = INSTR(lst, MKL$(id))
+    DO WHILE p > 0 _ANDALSO (p - 1) MOD 4 <> 0
+        p = INSTR(p + 1, lst, MKL$(id))
+    LOOP
+    ANIM_XL_id_at& = p
+END FUNCTION
+
+''
+' Layer slot is armed for recording.
+FUNCTION ANIM_XL_armed% (slot AS INTEGER)
+    IF slot < 1 _ORELSE slot > MAX_LAYERS _ORELSE LEN(ANIM_XL_ARM_IDS) = 0 THEN EXIT FUNCTION
+    IF ANIM_XL_can%(slot) = 0 THEN EXIT FUNCTION
+    ANIM_XL_armed% = (ANIM_XL_id_at&(ANIM_XL_ARM_IDS, LAYERS(slot).historyId&) > 0)
+END FUNCTION
+
+''
+' Layer slot has keys or a modulator on any lane (its dot purple when not armed).
+FUNCTION ANIM_XL_keyed% (slot AS INTEGER)
+    DIM L AS INTEGER
+    IF ANIM_XL_can%(slot) = 0 THEN EXIT FUNCTION
+    FOR L = 1 TO ANIM_XL_nlanes%(slot)
+        IF ANIM_XL_used%(slot, L) THEN ANIM_XL_keyed% = TRUE: EXIT FUNCTION
+    NEXT L
+END FUNCTION
+
+''
+' Arm / disarm layer slot (a view setting: no undo step).
+SUB ANIM_XL_arm (slot AS INTEGER, onOff AS INTEGER)
+    DIM p AS LONG
+    IF ANIM_XL_can%(slot) = 0 THEN EXIT SUB
+    p = ANIM_XL_id_at&(ANIM_XL_ARM_IDS, LAYERS(slot).historyId&)
+    IF onOff _ANDALSO p = 0 THEN ANIM_XL_ARM_IDS = ANIM_XL_ARM_IDS + MKL$(LAYERS(slot).historyId&)
+    IF onOff = 0 _ANDALSO p > 0 THEN ANIM_XL_ARM_IDS = LEFT$(ANIM_XL_ARM_IDS, p - 1) + MID$(ANIM_XL_ARM_IDS, p + 4)
+    ANIM_LB_changed
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
+END SUB
+
+SUB ANIM_XL_arm_toggle (slot AS INTEGER)
+    DIM nm AS STRING
+    IF ANIM_XL_can%(slot) = 0 THEN STATUS_flash "Recording: this layer can't have keyframe lanes": EXIT SUB
+    IF ANIM.active = 0 _ORELSE ANIM.count < 2 THEN STATUS_flash "Recording needs an animation (more than one frame)": EXIT SUB
+    nm = _TRIM$(LAYERS(slot).name)
+    IF ANIM_XL_armed%(slot) THEN
+        ANIM_XL_arm slot, FALSE
+        STATUS_flash "Recording off: " + nm
+    ELSE
+        ANIM_XL_arm slot, TRUE
+        STATUS_flash "Recording: " + nm + " - moving, scaling, rotating, flipping, its opacity key frame" + STR$(ANIM.current)
+    END IF
+END SUB
+
+SUB ANIM_XL_disarm_all ()
+    IF LEN(ANIM_XL_ARM_IDS) = 0 THEN STATUS_flash "No layer is armed for recording": EXIT SUB
+    ANIM_XL_ARM_IDS = ""
+    ANIM_LB_changed
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
+    STATUS_flash "Recording off on every layer"
+END SUB
+
+''
+' The layer the tools record on now: slot when it is armed, in an animation,
+' on a frame its lanes cover (a clip: In .. Out); 0 = edit its pixels as usual.
+FUNCTION ANIM_XL_rec_slot% (slot AS INTEGER)
+    IF ANIM.active = 0 _ORELSE ANIM.count < 2 THEN EXIT FUNCTION
+    IF ANIM_XL_armed%(slot) = 0 THEN EXIT FUNCTION
+    IF ANIM.current < ANIM_XL_in%(slot) _ORELSE ANIM.current > ANIM_XL_out%(slot) THEN EXIT FUNCTION
+    ANIM_XL_rec_slot% = slot
+END FUNCTION
+
+''
+' A recording gesture starts on slot (the lanes as they are: the undo step).
+SUB ANIM_XL_rec_begin (slot AS INTEGER)
+    IF ANIM_XL_REC_ON = slot THEN EXIT SUB ' already recording it (a layer with no lanes yet has an empty state)
+    IF ANIM_XL_REC_ON THEN ANIM_XL_rec_end "Record"
+    ANIM_XL_REC_ON = slot
+    ANIM_XL_REC_BEFORE = ANIM_XL_state$(slot)
+END SUB
+
+''
+' Lane L of slot = v at the current frame: a key there (the ease of the key
+' before it, so the curve keeps its shape), shown now; no undo step yet.
+SUB ANIM_XL_rec_set (slot AS INTEGER, L AS INTEGER, v AS SINGLE)
+    DIM ks AS STRING, rel AS INTEGER, i AS INTEGER, e AS INTEGER
+    IF ANIM_XL_can%(slot) = 0 _ORELSE L < 1 _ORELSE L > ANIM_XL_nlanes%(slot) THEN EXIT SUB
+    rel = ANIM.current - ANIM_XL_in%(slot)
+    IF rel < 0 THEN EXIT SUB
+    ks = ANIM_XL_keys$(slot, L)
+    e = CLIP_EASE_LINEAR
+    i = CLIP_lk_at_or_before%(ks, rel)
+    IF i THEN e = CLIP_lk_e%(ks, i)
+    ANIM_XL_set_keys slot, L, CLIP_lks_put$(ks, rel, CLIP_lane_clamp!(L, v), e)
+    IF ANIM_XL_LIVE_SLOT <> slot THEN ANIM_XL_LIVE_MASK = 0
+    ANIM_XL_LIVE_SLOT = slot: ANIM_XL_LIVE_MASK = ANIM_XL_LIVE_MASK OR _SHL(1, L): ANIM_XL_LIVE_T = TIMER(.001)
+    ANIM_XL_apply slot
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    ANIM_LB_changed
+END SUB
+
+''
+' The gesture is done: one undo step when it changed the lanes.
+SUB ANIM_XL_rec_end (label AS STRING)
+    DIM slot AS INTEGER
+    slot = ANIM_XL_REC_ON
+    ANIM_XL_REC_ON = 0
+    IF slot < 1 THEN ANIM_XL_REC_BEFORE = "": EXIT SUB
+    IF ANIM_XL_can%(slot) _ANDALSO ANIM_XL_state$(slot) <> ANIM_XL_REC_BEFORE THEN
+        ANIM_XL_commit slot, ANIM_XL_REC_BEFORE, "Record " + label
+    END IF
+    ANIM_XL_REC_BEFORE = ""
+END SUB
+
+''
+' One value in one step (a flip, a typed opacity...).
+SUB ANIM_XL_rec_value (slot AS INTEGER, L AS INTEGER, v AS SINGLE, label AS STRING)
+    ANIM_XL_rec_begin slot
+    ANIM_XL_rec_set slot, L, v
+    ANIM_XL_rec_end label
+    STATUS_flash "Recorded " + CLIP_lane_name$(L) + " = " + ANIM_XL_num$(CLIP_lane_clamp!(L, v)) + " on frame" + STR$(ANIM.current)
+END SUB
+
+''
+' Lane L of slot at the current frame (what a recording starts from).
+FUNCTION ANIM_XL_now! (slot AS INTEGER, L AS INTEGER)
+    ANIM_XL_now! = ANIM_XL_value!(slot, L, ANIM.current)
+END FUNCTION
+
+''
+' The lanes recorded in the last ~1.5 s on slot (bit L): their rows' purple dots.
+FUNCTION ANIM_XL_live% (slot AS INTEGER, L AS INTEGER)
+    DIM t AS DOUBLE
+    IF slot <> ANIM_XL_LIVE_SLOT _ORELSE ANIM_XL_LIVE_SLOT = 0 THEN EXIT FUNCTION
+    IF (ANIM_XL_LIVE_MASK AND _SHL(1, L)) = 0 THEN EXIT FUNCTION
+    t = TIMER(.001) - ANIM_XL_LIVE_T
+    IF t < 0 THEN t = t + 86400
+    IF ANIM_XL_REC_ON = slot _ORELSE t < 1.5 THEN ANIM_XL_live% = TRUE
+END FUNCTION
+
+''
+' Layer slot's record dot: 0 none (no lanes possible), 1 a faint ring (click
+' to arm), 2 purple (keyed, not armed), 3 red (armed).
+FUNCTION ANIM_XL_dot_state% (slot AS INTEGER)
+    IF ANIM_XL_can%(slot) = 0 THEN EXIT FUNCTION
+    IF ANIM_XL_armed%(slot) THEN ANIM_XL_dot_state% = 3: EXIT FUNCTION
+    IF ANIM_XL_keyed%(slot) THEN ANIM_XL_dot_state% = 2: EXIT FUNCTION
+    ANIM_XL_dot_state% = 1
+END FUNCTION
+
+FUNCTION ANIM_XL_dot_colour~& (st AS INTEGER)
+    SELECT CASE st
+        CASE 3: ANIM_XL_dot_colour~& = _RGB32(232, 52, 52)
+        CASE 2: ANIM_XL_dot_colour~& = _RGB32(168, 92, 236)
+        CASE ELSE: ANIM_XL_dot_colour~& = (THEME.CP_text~& AND &H00FFFFFF~&) OR &H90000000~&
+    END SELECT
+END FUNCTION
+
+''
+' A record dot of state st (ANIM_XL_dot_state%) centred on (cx, cy) on _DEST,
+' radius r: a smooth disc (each edge pixel's coverage as alpha), a ring for 1.
+SUB ANIM_XL_dot (cx AS SINGLE, cy AS SINGLE, r AS SINGLE, st AS INTEGER)
+    DIM x AS INTEGER, y AS INTEGER, d AS SINGLE, a AS SINGLE, c AS _UNSIGNED LONG, ca AS SINGLE
+    IF st < 1 THEN EXIT SUB
+    c = ANIM_XL_dot_colour~&(st): ca = _ALPHA32(c) / 255
+    FOR y = INT(cy - r - 1) TO INT(cy + r + 1)
+        FOR x = INT(cx - r - 1) TO INT(cx + r + 1)
+            d = SQR((x + .5 - cx) ^ 2 + (y + .5 - cy) ^ 2)
+            IF st = 1 THEN
+                a = 1 - ABS(d - (r - .6)) / .9 ' a ring about 1.2 px wide
+            ELSE
+                a = r + .5 - d
+            END IF
+            IF a > 1 THEN a = 1
+            IF a > 0 THEN PSET (x, y), (c AND &H00FFFFFF~&) OR _SHL(CLNG(a * ca * 255), 24)
+        NEXT x
+    NEXT y
+END SUB
+
+' ---------------------------------------------------------------------------
+' The Move tool on an armed layer: the drag keys X / Y on this frame (the
+' layer's pixels stay as drawn); one undo step on the release.
+' ---------------------------------------------------------------------------
+
+''
+' The Move tool would record on the current layer now (no marquee of the user's).
+FUNCTION ANIM_XL_move_wants% ()
+    IF CURRENT_TOOL% <> TOOL_MOVE _ORELSE TRANSFORM.ACTIVE THEN EXIT FUNCTION
+    IF MARQUEE.ACTIVE _ANDALSO MARQUEE.USER_CREATED THEN EXIT FUNCTION
+    IF ANIM_XL_rec_slot%(CURRENT_LAYER%) = 0 THEN EXIT FUNCTION
+    IF MOVE.ACTIVE THEN ' an untouched lift of the whole layer is dropped (nothing to commit)
+        IF MOVE.IS_PASTE _ORELSE MOVE.CLONING _ORELSE MOVE.CLONE_STAMPED _ORELSE MOVE.CONTENT_FLIPPED THEN EXIT FUNCTION
+        IF MOVE.CURRENT_X <> MOVE.ORIGINAL_X _ORELSE MOVE.CURRENT_Y <> MOVE.ORIGINAL_Y _ORELSE MOVE.CURRENT_W <> MOVE.ORIGINAL_W _ORELSE MOVE.CURRENT_H <> MOVE.ORIGINAL_H THEN EXIT FUNCTION
+        MOVE_reset
+    END IF
+    ANIM_XL_move_wants% = TRUE
+END FUNCTION
+
+''
+' Start a recording drag on slot at viewport (px, py), sc viewport px a canvas px.
+SUB ANIM_XL_move_begin (slot AS INTEGER, px AS INTEGER, py AS INTEGER, sc AS SINGLE)
+    ANIM_XL.mvOn = TRUE: ANIM_XL.mvSlot = slot
+    ANIM_XL.mvPX = px: ANIM_XL.mvPY = py: ANIM_XL.mvSc = _MAX(0.01, sc)
+    ANIM_XL.mvBX = ANIM_XL_now!(slot, CLIP_LANE_X): ANIM_XL.mvBY = ANIM_XL_now!(slot, CLIP_LANE_Y)
+    ANIM_XL.mvDX = 0: ANIM_XL.mvDY = 0
+    ANIM_XL_rec_begin slot
+    STATUS_flash "Recording X / Y on frame" + STR$(ANIM.current) + " (" + _TRIM$(LAYERS(slot).name) + ")"
+END SUB
+
+SUB ANIM_XL_move_hold (px AS INTEGER, py AS INTEGER)
+    DIM dx AS INTEGER, dy AS INTEGER
+    IF ANIM_XL.mvOn = 0 THEN EXIT SUB
+    dx = INT((px - ANIM_XL.mvPX) / ANIM_XL.mvSc + .5): dy = INT((py - ANIM_XL.mvPY) / ANIM_XL.mvSc + .5)
+    IF ANIM_LB_shift% THEN IF ABS(dx) >= ABS(dy) THEN dy = 0 ELSE dx = 0 ' Shift: along one axis
+    IF dx = ANIM_XL.mvDX _ANDALSO dy = ANIM_XL.mvDY THEN EXIT SUB
+    IF dx <> ANIM_XL.mvDX THEN ANIM_XL_rec_set ANIM_XL.mvSlot, CLIP_LANE_X, ANIM_XL.mvBX + dx
+    IF dy <> ANIM_XL.mvDY THEN ANIM_XL_rec_set ANIM_XL.mvSlot, CLIP_LANE_Y, ANIM_XL.mvBY + dy
+    ANIM_XL.mvDX = dx: ANIM_XL.mvDY = dy
+    STATUS_flash "X " + ANIM_XL_num$(ANIM_XL.mvBX) + " -> " + ANIM_XL_num$(ANIM_XL.mvBX + dx) + "   Y " + ANIM_XL_num$(ANIM_XL.mvBY) + " -> " + ANIM_XL_num$(ANIM_XL.mvBY + dy) + "   (frame" + STR$(ANIM.current) + ")"
+END SUB
+
+SUB ANIM_XL_move_end ()
+    IF ANIM_XL.mvOn = 0 THEN EXIT SUB
+    ANIM_XL.mvOn = FALSE
+    ANIM_XL_rec_end "Move"
+END SUB
+
+''
+' An arrow on an armed layer (Move tool, or Ctrl+arrow): X / Y + (dx, dy) on this frame.
+SUB ANIM_XL_nudge (dx AS INTEGER, dy AS INTEGER)
+    DIM slot AS INTEGER
+    slot = CURRENT_LAYER%
+    IF ANIM_XL_rec_slot%(slot) = 0 THEN EXIT SUB
+    ANIM_XL_rec_begin slot
+    IF dx THEN ANIM_XL_rec_set slot, CLIP_LANE_X, ANIM_XL_now!(slot, CLIP_LANE_X) + dx
+    IF dy THEN ANIM_XL_rec_set slot, CLIP_LANE_Y, ANIM_XL_now!(slot, CLIP_LANE_Y) + dy
+    ANIM_XL_rec_end "Nudge"
+    STATUS_flash "Recorded X" + STR$(CINT(ANIM_XL_now!(slot, CLIP_LANE_X))) + ", Y" + STR$(CINT(ANIM_XL_now!(slot, CLIP_LANE_Y))) + " on frame" + STR$(ANIM.current)
+END SUB
+
+''
+' The Transform tool's commit on an armed layer (pixel layer; SCALE or ROTATE):
+' its quad as keys on this frame - X / Y, SCALE X / Y (below 0 = flipped),
+' ROTATE - about the layer's pivot, so the frame shows what the overlay showed;
+' the pixels stay as drawn. TRUE = recorded (the caller cancels the overlay).
+FUNCTION ANIM_XL_transform_record% ()
+    DIM slot AS INTEGER, cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG
+    DIM ux AS SINGLE, uy AS SINGLE, vx AS SINGLE, vy AS SINGLE, w1 AS SINGLE, h1 AS SINGLE
+    DIM sx AS SINGLE, sy AS SINGLE, th AS SINGLE, a11 AS SINGLE, a12 AS SINGLE, a21 AS SINGLE, a22 AS SINGLE
+    DIM c0x AS SINGLE, c0y AS SINGLE, c1x AS SINGLE, c1y AS SINGLE, pvx AS SINGLE, pvy AS SINGLE, i AS INTEGER
+    slot = CURRENT_LAYER%
+    IF ANIM_XL_rec_slot%(slot) = 0 _ORELSE CLIP_inst_of%(slot) <> 0 THEN EXIT FUNCTION
+    IF TRANSFORM.MODE <> TRANSFORM_MODE_SCALE _ANDALSO TRANSFORM.MODE <> TRANSFORM_MODE_ROTATE THEN
+        STATUS_flash "Recording: only Scale and Rotate become keys - this transform changes the pixels"
+        EXIT FUNCTION
+    END IF
+    IF ANIM_cell_rect%(ANIM.current, cx, cy, cw, ch) = 0 THEN EXIT FUNCTION
+    w1 = _MAX(1, TRANSFORM.SRC_W - 1): h1 = _MAX(1, TRANSFORM.SRC_H - 1)
+    ux = (TRANSFORM_HX(1) - TRANSFORM_HX(0)) / w1: uy = (TRANSFORM_HY(1) - TRANSFORM_HY(0)) / w1
+    vx = (TRANSFORM_HX(3) - TRANSFORM_HX(0)) / h1: vy = (TRANSFORM_HY(3) - TRANSFORM_HY(0)) / h1
+    IF TRANSFORM.MODE = TRANSFORM_MODE_SCALE THEN
+        sx = ux: sy = vy: th = 0
+    ELSE
+        sx = 1: sy = 1: th = _ATAN2(uy, ux)
+    END IF
+    a11 = COS(th) * sx: a12 = -SIN(th) * sy: a21 = SIN(th) * sx: a22 = COS(th) * sy
+    ' the source's middle and where it went (pixel-edge space, the frame cell's)
+    c0x = TRANSFORM.SRC_X + TRANSFORM.SRC_W / 2 - cx: c0y = TRANSFORM.SRC_Y + TRANSFORM.SRC_H / 2 - cy
+    FOR i = 0 TO 3: c1x = c1x + TRANSFORM_HX(i): c1y = c1y + TRANSFORM_HY(i): NEXT i
+    c1x = c1x / 4 + .5 - cx: c1y = c1y / 4 + .5 - cy
+    pvx = ANIM_XL_now!(slot, CLIP_LANE_PVX): pvy = ANIM_XL_now!(slot, CLIP_LANE_PVY)
+    ANIM_XL_rec_begin slot
+    ANIM_XL_rec_set slot, CLIP_LANE_X, c1x - pvx - (a11 * (c0x - pvx) + a12 * (c0y - pvy))
+    ANIM_XL_rec_set slot, CLIP_LANE_Y, c1y - pvy - (a21 * (c0x - pvx) + a22 * (c0y - pvy))
+    IF TRANSFORM.MODE = TRANSFORM_MODE_SCALE THEN
+        ANIM_XL_rec_set slot, CLIP_LANE_SX, sx * 100: ANIM_XL_rec_set slot, CLIP_LANE_SY, sy * 100
+        IF ABS(ANIM_XL_now!(slot, CLIP_LANE_ROT)) > .01 THEN ANIM_XL_rec_set slot, CLIP_LANE_ROT, 0
+    ELSE
+        ANIM_XL_rec_set slot, CLIP_LANE_ROT, th * 180 / _PI
+        IF ABS(ANIM_XL_now!(slot, CLIP_LANE_SX) - 100) > .01 THEN ANIM_XL_rec_set slot, CLIP_LANE_SX, 100
+        IF ABS(ANIM_XL_now!(slot, CLIP_LANE_SY) - 100) > .01 THEN ANIM_XL_rec_set slot, CLIP_LANE_SY, 100
+    END IF
+    ANIM_XL_rec_end _IIF(TRANSFORM.MODE = TRANSFORM_MODE_SCALE, "Scale", "Rotate")
+    STATUS_flash "Recorded " + _IIF(TRANSFORM.MODE = TRANSFORM_MODE_SCALE, "SCALE" + STR$(CINT(sx * 100)) + "," + STR$(CINT(sy * 100)), "ROTATE" + STR$(CINT(th * 180 / _PI))) + " on frame" + STR$(ANIM.current) + " - the pixels stay as drawn"
+    ANIM_XL_transform_record% = TRUE
+END FUNCTION
+
+''
+' A user's opacity change on layer slot (0..255): on an armed layer an OPACITY
+' key at the current frame (percent of full, the layer's own opacity stays);
+' otherwise the layer's opacity. A drag is one undo step (ANIM_XL_rec_tick).
+SUB ANIM_XL_user_opacity (slot AS INTEGER, v AS INTEGER)
+    DIM s AS INTEGER
+    s = slot
+    IF ANIM_XL_rec_slot%(s) = 0 THEN LAYERS_set_opacity s, v: EXIT SUB
+    ANIM_XL_rec_begin s
+    ANIM_XL_REC_LABEL = "Opacity"
+    ANIM_XL_rec_set s, CLIP_LANE_OP, _MAX(0, _MIN(255, v)) * 100 / 255
+    STATUS_flash "Recording OPACITY" + STR$(CINT(ANIM_XL_now!(s, CLIP_LANE_OP))) + "% on frame" + STR$(ANIM.current)
+END SUB
+
+''
+' What a layer's opacity control shows (0..255): an armed layer's OPACITY lane
+' at the current frame, else its own opacity.
+FUNCTION ANIM_XL_shown_opacity% (slot AS INTEGER)
+    IF ANIM_XL_rec_slot%(slot) THEN
+        ANIM_XL_shown_opacity% = CINT(ANIM_XL_now!(slot, CLIP_LANE_OP) * 255 / 100)
+    ELSE
+        ANIM_XL_shown_opacity% = LAYERS(slot).opacity%
+    END IF
+END FUNCTION
+
+''
+' Per frame: a mouse-held recording (an opacity drag, a wheel tick) ends - one
+' undo step - once the button is up and no move gesture owns it.
+SUB ANIM_XL_rec_tick
+    DIM t AS DOUBLE
+    ANIM_XW_tick ' the widget's TINT chip following the FG colour (TOOLS/ANIM-XWIDGET)
+    IF ANIM_XL_REC_ON <> 0 _ANDALSO ANIM_XL.mvOn = 0 _ANDALSO MOUSE.B1% = 0 THEN
+        ANIM_XL_rec_end ANIM_XL_REC_LABEL
+        ANIM_XL_REC_LABEL = ""
+    END IF
+    ' the lane rows' purple "being recorded" dots go out 1.5 s after the last change
+    IF ANIM_XL_LIVE_SLOT <> 0 _ANDALSO ANIM_XL_REC_ON <> ANIM_XL_LIVE_SLOT THEN
+        t = TIMER(.001) - ANIM_XL_LIVE_T
+        IF t < 0 THEN t = t + 86400
+        IF t >= 1.5 THEN
+            ANIM_XL_LIVE_SLOT = 0: ANIM_XL_LIVE_MASK = 0
+            ANIM_LB_changed ' (the X-sheet is in the scene cache)
+        END IF
+    END IF
+END SUB
+
+''
+' A key's glyph by its ease (Rick 2026-11-16): diamond = linear, [> = ease in
+' (flat left, pointed right), <] = ease out, circle = in-out, square = hold.
+' Centred on (cx, cy), radius rr (1..8). mode 1 = solid in cEdge; otherwise an
+' outline in cEdge, its inside cFill (alpha 0 = left as it is).
+SUB ANIM_XL_key_glyph (cx AS INTEGER, cy AS INTEGER, rr AS INTEGER, e AS INTEGER, mode AS INTEGER, cEdge AS _UNSIGNED LONG, cFill AS _UNSIGNED LONG)
+    DIM hl(-9 TO 9) AS INTEGER, hr(-9 TO 9) AS INTEGER, vis(-9 TO 9) AS INTEGER
+    DIM r AS INTEGER, dy AS INTEGER, x AS INTEGER, sq AS INTEGER, edge AS INTEGER
+    r = _MAX(1, _MIN(8, rr))
+    sq = _MAX(1, r - 1) ' a square / circle as big to the eye as the diamond
+    FOR dy = -r TO r
+        vis(dy) = TRUE
+        SELECT CASE e
+            CASE CLIP_EASE_HOLD
+                IF ABS(dy) > sq THEN vis(dy) = FALSE
+                hl(dy) = sq: hr(dy) = sq
+            CASE CLIP_EASE_INOUT
+                IF ABS(dy) > r THEN vis(dy) = FALSE
+                hl(dy) = INT(SQR(_MAX(0, (r + .5) ^ 2 - dy * dy)))
+                IF hl(dy) > r THEN hl(dy) = r
+                hr(dy) = hl(dy)
+            CASE CLIP_EASE_IN ' [>
+                hl(dy) = sq: hr(dy) = r - ABS(dy)
+                IF ABS(dy) > sq THEN vis(dy) = FALSE
+            CASE CLIP_EASE_OUT ' <]
+                hl(dy) = r - ABS(dy): hr(dy) = sq
+                IF ABS(dy) > sq THEN vis(dy) = FALSE
+            CASE ELSE ' linear: diamond
+                hl(dy) = r - ABS(dy): hr(dy) = hl(dy)
+        END SELECT
+    NEXT dy
+    FOR dy = -r TO r
+        IF vis(dy) THEN
+            FOR x = -hl(dy) TO hr(dy)
+                IF mode = 1 THEN
+                    PSET (cx + x, cy + dy), cEdge
+                ELSE
+                    edge = (x = -hl(dy) _ORELSE x = hr(dy))
+                    IF edge = 0 THEN edge = ANIM_XL_glyph_out%(x, dy - 1, r, hl(), hr(), vis()) _ORELSE ANIM_XL_glyph_out%(x, dy + 1, r, hl(), hr(), vis())
+                    IF edge THEN
+                        PSET (cx + x, cy + dy), cEdge
+                    ELSEIF _ALPHA32(cFill) THEN
+                        PSET (cx + x, cy + dy), cFill
+                    END IF
+                END IF
+            NEXT x
+        END IF
+    NEXT dy
+END SUB
+
+FUNCTION ANIM_XL_glyph_out% (x AS INTEGER, dy AS INTEGER, r AS INTEGER, hl() AS INTEGER, hr() AS INTEGER, vis() AS INTEGER)
+    IF dy < -r _ORELSE dy > r THEN ANIM_XL_glyph_out% = TRUE: EXIT FUNCTION
+    IF vis(dy) = 0 THEN ANIM_XL_glyph_out% = TRUE: EXIT FUNCTION
+    IF x < -hl(dy) _ORELSE x > hr(dy) THEN ANIM_XL_glyph_out% = TRUE
+END FUNCTION
+
+''
+' The ease every key of slot's lanes at rel shares (the LANES row's glyph);
+' linear when they differ or none is there.
+FUNCTION ANIM_XL_frame_ease% (slot AS INTEGER, rel AS INTEGER)
+    DIM L AS INTEGER, ks AS STRING, i AS INTEGER, e AS INTEGER, got AS INTEGER
+    e = CLIP_EASE_LINEAR
+    FOR L = 1 TO ANIM_XL_nlanes%(slot)
+        ks = ANIM_XL_keys$(slot, L)
+        i = ANIM_XL_index_in%(ks, rel)
+        IF i THEN
+            IF got _ANDALSO CLIP_lk_e%(ks, i) <> e THEN ANIM_XL_frame_ease% = CLIP_EASE_LINEAR: EXIT FUNCTION
+            e = CLIP_lk_e%(ks, i): got = TRUE
+        END IF
+    NEXT L
+    ANIM_XL_frame_ease% = e
+END FUNCTION

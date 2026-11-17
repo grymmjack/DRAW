@@ -277,6 +277,7 @@ SUB ADVCP_render ()
     ' Quantize-to-steps (0 = off): setter rebuilds the ring + re-snaps only when
     ' the value actually changes, so calling it every frame is cheap.
     ACP_set_quantize CFG.ADV_COLOR_PICKER_QUANTIZE%
+    ACP_set_ring_pct CFG.ADV_COLOR_PICKER_RING% ' (cheap unless it changed)
 
     ' Selector background: custom color (theme-matched work) or the panel theme bg.
     IF CFG.ADV_COLOR_PICKER_BG_CUSTOM% THEN
@@ -312,8 +313,8 @@ SUB ADVCP_render ()
         DIM qTxt AS STRING, qy AS INTEGER
         IF ACP_STATE.quantizeSteps% < 2 THEN qTxt = "OFF" ELSE qTxt = _TRIM$(STR$(ACP_STATE.quantizeSteps%))
         qy = ADVCP_title_h% + ACP_quant_row_y% + (ACP_QUANT_ROW_H - _UFONTHEIGHT) \ 2
-        _UPRINTSTRING (ACP_SHADE_GAP + 1, qy), "QUANTIZE"
-        _UPRINTSTRING (ADVCP.panelW% - ACP_SHADE_GAP - 1 - _UPRINTWIDTH(qTxt), qy), qTxt
+        IF ACP_STATE.quantInsetL% > 2 THEN _UPRINTSTRING (ACP_SHADE_GAP + 1, qy), "QUANTIZE" ' (a small wheel: the track + the value only)
+        _UPRINTSTRING (ACP_quant_w% - ACP_SHADE_GAP - 1 - _UPRINTWIDTH(qTxt), qy), qTxt
         _FONT qOldF&
     END IF
     DIM gx AS INTEGER, gy AS INTEGER, gw AS INTEGER, gh AS INTEGER, gCol AS _UNSIGNED LONG
@@ -329,7 +330,13 @@ SUB ADVCP_render ()
     IF ADVCP.renderScale! > 0 _ANDALSO ADVCP_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
         dOver = ADVCP_over_disclose%(INT((MOUSE.RAW_X% - ADVCP.dispX%) / ADVCP.renderScale!), INT((MOUSE.RAW_Y% - ADVCP.dispY%) / ADVCP.renderScale!))
     END IF
-    FPANEL_disclosure ADVCP.labelFont&, ACP_SHADE_GAP + 1, ADVCP_title_h% + ACP_disclose_row_y% + ADVCP_DISCLOSE_PAD, ADVCP.panelW% - 2 * ACP_SHADE_GAP - 2, ADVCP_DISCLOSE_H - 2 * ADVCP_DISCLOSE_PAD, "VARIATIONS", CFG.ADV_COLOR_PICKER_VARIATIONS% <> 0, dOver
+    DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER
+    ADVCP_disclose_rect dx, dy, dw, dh
+    IF ACP_STATE.sideX% > 0 THEN ' sideways: a little triangle in the gutter (Rick 2026-11-16: "instead of a big more gap")
+        ADVCP_draw_triangle dx, dy, CFG.ADV_COLOR_PICKER_VARIATIONS% <> 0, _IIF(dOver <> 0, THEME.CP_text~&, THEME.CP_text_dim~&)
+    ELSE
+        FPANEL_disclosure ADVCP.labelFont&, dx, dy, dw, dh, "VARIATIONS", CFG.ADV_COLOR_PICKER_VARIATIONS% <> 0, dOver
+    END IF
 
     ' Per-shade-row labels (Tiny5) above each row.
     IF CFG.ADV_COLOR_PICKER_SHADE_LABELS% _ANDALSO ACP_STATE.collapsed% = 0 THEN
@@ -338,7 +345,11 @@ SUB ADVCP_render ()
         COLOR THEME.CP_text_dim~&, _RGBA32(0, 0, 0, 0)
         DIM sli    AS INTEGER
         FOR sli% = 0 TO ACP_shade_line_count% - 1
-            _UPRINTSTRING (ACP_SHADE_GAP + 1, ADVCP_title_h% + ACP_shade_row_label_y%(sli%)), ADVCP_lineName(sli%)
+            IF ACP_inline_labels% THEN ' sideways: left of the patches, centred on them
+                _UPRINTSTRING (ACP_blk_x%(ACP_BLK_SHADE0 + sli%) + ACP_SHADE_GAP + 1, ADVCP_title_h% + ACP_shade_row_label_y%(sli%) + (ACP_patch_h% - _UFONTHEIGHT) \ 2), ADVCP_lineName(sli%)
+            ELSE
+                _UPRINTSTRING (ACP_blk_x%(ACP_BLK_SHADE0 + sli%) + ACP_SHADE_GAP + 1, ADVCP_title_h% + ACP_shade_row_label_y%(sli%)), ADVCP_lineName(sli%)
+            END IF
         NEXT sli%
         _FONT slOldF&
     END IF
@@ -349,7 +360,7 @@ SUB ADVCP_render ()
         DIM oldF AS LONG    : oldF& = _FONT
         IF ADVCP.labelFont& > 0 THEN _FONT ADVCP.labelFont& ELSE _FONT 8
         COLOR THEME.CP_text_dim~&, _RGBA32(0, 0, 0, 0)
-        _UPRINTSTRING (ACP_SHADE_GAP + 1, lblY%), "COLOR HISTORY"
+        _UPRINTSTRING (ACP_blk_x%(ACP_BLK_HIST) + ACP_SHADE_GAP + 1, lblY%), "COLOR HISTORY"
         _FONT oldF&
     END IF
 
@@ -531,14 +542,25 @@ SUB ADVCP_apply_shade_config ()
     ' closed, the shade rows and the history go and the panel ends at the row
     ACP_STATE.discloseH%   = ADVCP_DISCLOSE_H
     ACP_STATE.collapsed%   = _IIF(CFG.ADV_COLOR_PICKER_VARIATIONS% <> 0, FALSE, TRUE)
-    IF ACP_STATE.quantBar% _ANDALSO ACP_STATE.quantInsetL% = 0 _ANDALSO ADVCP.panelImg& < -1 THEN ' room for "QUANTIZE" and "OFF" / "32"
+    ACP_STATE.sideGutter% = ADVCP_ROW_GUTTER ' (sideways: the gear + the VARIATIONS triangle beside the wheel)
+    IF ACP_STATE.quantBar% _ANDALSO ADVCP.qInL% = 0 _ANDALSO ADVCP.panelImg& < -1 THEN ' room for "QUANTIZE" and "OFF" / "32"
         DIM qiF AS LONG, qiD AS LONG : qiF& = _FONT: qiD& = _DEST: _DEST ADVCP.panelImg&
         IF ADVCP.labelFont& > 0 THEN _FONT ADVCP.labelFont& ELSE _FONT 8
-        ACP_STATE.quantInsetL% = _UPRINTWIDTH("QUANTIZE") + 6
-        ACP_STATE.quantInsetR% = _MAX(_UPRINTWIDTH("OFF"), _UPRINTWIDTH("32")) + 6
+        ADVCP.qInL% = _UPRINTWIDTH("QUANTIZE") + 6
+        ADVCP.qInR% = _MAX(_UPRINTWIDTH("OFF"), _UPRINTWIDTH("32")) + 6
+        ADVCP_quant_insets
         _FONT qiF&: _DEST qiD&
     END IF
     ACP_STATE.shadeLabels% = CFG.ADV_COLOR_PICKER_SHADE_LABELS%                  ' affects widget height
+    IF ACP_STATE.sideLabelW% = 0 _ANDALSO ADVCP.panelImg& < -1 THEN ' sideways the labels sit left of the patches: room for the longest
+        DIM slF AS LONG, slD AS LONG, sln AS INTEGER, slw AS INTEGER: slF& = _FONT: slD& = _DEST: _DEST ADVCP.panelImg&
+        IF ADVCP.labelFont& > 0 THEN _FONT ADVCP.labelFont& ELSE _FONT 8
+        FOR sln = 0 TO 7
+            slw = _MAX(slw, _UPRINTWIDTH(ADVCP_lineName(sln)))
+        NEXT sln
+        IF slw > 0 THEN ACP_STATE.sideLabelW% = slw + 4
+        _FONT slF&: _DEST slD&
+    END IF
     IF CFG.ADV_COLOR_PICKER_SHADE_CURVE% THEN ACP_STATE.shadeCurveExp! = 2.5 ELSE ACP_STATE.shadeCurveExp! = 1.0
 
     ' Per-line display names (only the first lc are shown).
@@ -576,8 +598,9 @@ SUB ADVCP_apply_shade_config ()
 
     ' Resize the panel buffer + display footprint if the widget height changed.
     DIM oldH AS INTEGER : oldH% = ADVCP.panelH%
+    DIM oldW AS INTEGER : oldW% = ADVCP.panelW%
     ADVCP_layout
-    IF ADVCP.panelH% <> oldH% THEN
+    IF ADVCP.panelH% <> oldH% _ORELSE ADVCP.panelW% <> oldW% THEN
         IF ADVCP.panelImg& < -1 THEN _FREEIMAGE ADVCP.panelImg&
         ADVCP.panelImg& = _NEWIMAGE(ADVCP.panelW%, ADVCP.panelH%, 32)
         ADVCP_compute_display_size
@@ -594,23 +617,112 @@ END SUB
 ' ---------------------------------------------------------------------------
 SUB ADVCP_layout ()
     DIM nat AS INTEGER, w AS INTEGER, wh AS INTEGER, spare AS INTEGER, ph AS INTEGER, lc AS INTEGER, oldPh AS INTEGER
+    DIM oldSide AS INTEGER
     nat% = ADVCP_wheel_nat%
     oldPh% = ACP_STATE.patchH%: ACP_STATE.patchH% = 0 ' the natural rows (ACP_resize compares against oldPh)
+    oldSide% = ACP_STATE.sideX%: ACP_STATE.sideX% = 0 ' (stacked, as it floats)
     ADVCP.natW% = nat%
     ADVCP.natH% = ADVCP_title_h% + nat% + ACP_full_h% - ACP_STATE.wheel% ' wheel + quantize + VARIATIONS + its rows
-    ACP_STATE.patchH% = oldPh%
+    ACP_STATE.patchH% = oldPh%: ACP_STATE.sideX% = oldSide%
+    ' In a top / bottom dock row (Rick 2026-11-16: "size downward ... to fit
+    ' in bars vertically", "controls flush right"): the wheel takes the row's
+    ' height, the quantize slider, VARIATIONS and its rows beside it
+    IF ADVCP.fitH% > 0 _ANDALSO ADVCP.docked% <> 0 _ANDALSO DOCK_in_row%(DP_ADVCP) <> 0 THEN
+        DIM rwh AS INTEGER, rph AS INTEGER, rcw AS INTEGER, rfull AS INTEGER, rcols AS INTEGER
+        rwh = ADVCP_row_wheel%(ADVCP.fitH%): rph = ADVCP_row_patch_h%(rwh): rcw = nat%
+        rfull = ACP_side_w%(rwh, nat%, rph)
+        IF ADVCP.fitW% > 0 _ANDALSO ADVCP.fitW% < rfull THEN ' a full row gave it less: narrower columns
+            rcols = (rfull - rwh - ACP_SHADE_GAP) \ nat%
+            IF rcols > 0 THEN rcw = _MAX(ADVCP_ROW_COL_MIN, (ADVCP.fitW% - rwh - ACP_SHADE_GAP) \ rcols)
+        END IF
+        ACP_resize_side rwh, rcw, rph
+        ADVCP.panelW% = ACP_STATE.w%
+        ADVCP.panelH% = ADVCP_title_h% + ACP_STATE.h%
+        ADVCP_quant_insets
+        EXIT SUB
+    END IF
     w% = FPANEL_fit_size%(nat%, ADVCP.fitW%)
     spare% = _MAX(0, ADVCP.fitH% - ADVCP.natH%)
     wh% = _MIN(nat% + spare%, _MAX(nat%, w%))
     spare% = spare% - (wh% - nat%)
+    ' docked in a column shorter than it (the dock shrinks it down to
+    ' ADVCP_col_shrink% less): the wheel gives up the height, not the rows
+    ' under it - it ran off the window's bottom (dock-native-advcolorpicker)
+    IF ADVCP.docked% <> 0 _ANDALSO ADVCP.fitH% > 0 _ANDALSO ADVCP.fitH% < ADVCP.natH% THEN wh% = _MAX(ADVCP_COL_WHEEL_MIN, nat% - (ADVCP.natH% - ADVCP.fitH%))
     lc% = ACP_shade_line_count%
     IF spare% > 0 _ANDALSO lc% > 0 THEN ph% = _MIN(ACP_SHADE_PATCH_H + spare% \ lc%, ACP_SHADE_PATCH_H * ADVCP_PATCH_GROW)
     ACP_resize w%, wh%, ph%
     ADVCP.panelW% = ACP_STATE.w%
     ADVCP.panelH% = ADVCP_title_h% + ACP_STATE.h%
+    ADVCP_quant_insets
 END SUB
 
+' In a dock row nh native px tall: the wheel (the height under the title bar)
+' and the panel's width (native px)
+FUNCTION ADVCP_row_wheel% (nh AS INTEGER)
+    DIM q AS INTEGER: IF ACP_STATE.quantBar% THEN q = ACP_QUANT_ROW_H + 1 ' (quantize stays under the wheel: Rick 2026-11-16)
+    ADVCP_row_wheel% = _MAX(ADVCP_ROW_WHEEL_MIN, nh - ADVCP_title_h% - q)
+END FUNCTION
+
+' The quantize track's insets for the label / value: sideways under a small
+' wheel there is room for the track and the value only
+SUB ADVCP_quant_insets ()
+    IF ACP_STATE.sideX% > 0 _ANDALSO ACP_quant_w% < ADVCP.qInL% + ADVCP.qInR% + 50 THEN
+        ACP_STATE.quantInsetL% = 1: ACP_STATE.quantInsetR% = ADVCP.qInR%
+    ELSE
+        ACP_STATE.quantInsetL% = ADVCP.qInL%: ACP_STATE.quantInsetR% = ADVCP.qInR%
+    END IF
+END SUB
+
+' Ctrl+wheel over the picker: the ring thinner (up: a bigger triangle) or thicker (Rick 2026-11-16)
+SUB ADVCP_ring_wheel (d AS INTEGER)
+    DIM p AS INTEGER
+    p = CFG.ADV_COLOR_PICKER_RING%: IF p <= 0 THEN p = 100
+    p = _MAX(30, _MIN(100, p + SGN(d) * 10))
+    IF p = CFG.ADV_COLOR_PICKER_RING% THEN EXIT SUB
+    CFG.ADV_COLOR_PICKER_RING% = p
+    CONFIG_save
+    STATUS_flash "Color wheel ring: " + _TRIM$(STR$(p)) + "% (Ctrl+wheel: thinner = a bigger triangle)"
+    SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+' A disclosure triangle 9 px: pointing right (closed) or down (open)
+SUB ADVCP_draw_triangle (x AS INTEGER, y AS INTEGER, isOpen AS INTEGER, c AS _UNSIGNED LONG)
+    DIM i AS INTEGER
+    FOR i = 0 TO 4
+        IF isOpen THEN LINE (x + i, y + 2 + i)-(x + 8 - i, y + 2 + i), c ELSE LINE (x + 2 + i, y + i)-(x + 2 + i, y + 8 - i), c
+    NEXT i
+END SUB
+
+FUNCTION ADVCP_row_w% (nh AS INTEGER)
+    ADVCP_row_w% = ACP_side_w%(ADVCP_row_wheel%(nh), ADVCP_wheel_nat%, ADVCP_row_patch_h%(ADVCP_row_wheel%(nh)))
+END FUNCTION
+
+' Its least width there: VARIATIONS closed (the dock narrows it to this
+' before it drops it from a full row)
+FUNCTION ADVCP_row_min_w% (nh AS INTEGER)
+    DIM oc AS INTEGER, wh AS INTEGER
+    oc = ACP_STATE.collapsed%: ACP_STATE.collapsed% = -1
+    wh = ADVCP_row_wheel%(nh)
+    ADVCP_row_min_w% = ACP_side_w%(wh, ADVCP_wheel_nat%, ADVCP_row_patch_h%(wh))
+    ACP_STATE.collapsed% = oc
+END FUNCTION
+
+' Sideways, the shade patches as tall as lets all the shade rows share one
+' column beside the wheel (5 .. the natural height): the panel stays narrow
+' enough for a row when VARIATIONS opens
+FUNCTION ADVCP_row_patch_h% (wheel AS INTEGER)
+    DIM lc AS INTEGER: lc = _MAX(1, ACP_shade_line_count%)
+    ADVCP_row_patch_h% = _MAX(5, _MIN(ACP_SHADE_PATCH_H, wheel \ lc - ACP_SHADE_GAP))
+END FUNCTION
+
 ' The natural wheel (the shared panel width)
+' How much less than its natural height it can be docked in a column (native
+' px): the wheel down to ADVCP_COL_WHEEL_MIN
+FUNCTION ADVCP_col_shrink% ()
+    ADVCP_col_shrink% = _MAX(0, ADVCP_wheel_nat% - ADVCP_COL_WHEEL_MIN)
+END FUNCTION
+
 FUNCTION ADVCP_wheel_nat% ()
     ADVCP_wheel_nat% = _MAX(120, FPANEL_panel_w%)
 END FUNCTION
@@ -625,8 +737,9 @@ END FUNCTION
 ' ADVCP_fit — Docked: lay out to nw x nh native px (0 = natural).
 ' ---------------------------------------------------------------------------
 SUB ADVCP_fit (nw AS INTEGER, nh AS INTEGER)
-    IF nw = ADVCP.fitW% _ANDALSO nh = ADVCP.fitH% THEN EXIT SUB
-    ADVCP.fitW% = nw : ADVCP.fitH% = nh
+    DIM inRow AS INTEGER: inRow = (ADVCP.docked% <> 0 _ANDALSO DOCK_in_row%(DP_ADVCP) <> 0)
+    IF nw = ADVCP.fitW% _ANDALSO nh = ADVCP.fitH% _ANDALSO inRow = ADVCP.fitRow% THEN EXIT SUB
+    ADVCP.fitW% = nw : ADVCP.fitH% = nh : ADVCP.fitRow% = inRow
     IF ADVCP.initialized% = 0 THEN EXIT SUB ' ADVCP_ensure_initialized lays it out
     DIM oldW AS INTEGER, oldH AS INTEGER
     oldW% = ADVCP.panelW% : oldH% = ADVCP.panelH%
@@ -768,8 +881,30 @@ END SUB
 ' ---------------------------------------------------------------------------
 SUB ADVCP_gear_rect (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
     w = 11: h = 11
-    x = ADVCP.panelW% - w - 3
+    ' always beside the wheel (Rick 2026-11-16): sideways at the top of the
+    ' gutter right of it, else the wheel square's top right corner
+    IF ACP_STATE.sideX% > 0 THEN
+        x = ACP_STATE.wheel% + ACP_SHADE_GAP + (ADVCP_ROW_GUTTER - w) \ 2
+        y = ADVCP_title_h% + 2
+        EXIT SUB
+    END IF
+    x = _MIN(ADVCP.panelW% - w - 3, INT(ACP_STATE.cx! + ACP_STATE.wheel% / 2) - w - 3)
     y = ADVCP_title_h% + 3
+END SUB
+
+' The VARIATIONS row (native panel px): under the quantize slider, or beside
+' the wheel in a dock row (left of the gear there)
+SUB ADVCP_disclose_rect (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    IF ACP_STATE.sideX% > 0 THEN ' sideways: the triangle in the gutter, under the gear
+        w = 9: h = 9
+        x = ACP_STATE.wheel% + ACP_SHADE_GAP + (ADVCP_ROW_GUTTER - w) \ 2
+        y = ADVCP_title_h% + 14
+        EXIT SUB
+    END IF
+    x = ACP_SHADE_GAP + 1
+    y = ADVCP_title_h% + ACP_disclose_row_y% + ADVCP_DISCLOSE_PAD
+    w = ACP_STATE.w% - 2 * ACP_SHADE_GAP - 2
+    h = ADVCP_DISCLOSE_H - 2 * ADVCP_DISCLOSE_PAD
 END SUB
 
 FUNCTION ADVCP_over_gear% (nx AS INTEGER, ny AS INTEGER)
@@ -801,6 +936,12 @@ END SUB
 ' Over the VARIATIONS row (native panel coords)?
 FUNCTION ADVCP_over_disclose% (nx AS INTEGER, ny AS INTEGER)
     DIM y AS INTEGER
+    DIM x AS INTEGER, w AS INTEGER, h AS INTEGER
+    IF ACP_STATE.sideX% > 0 THEN
+        ADVCP_disclose_rect x, y, w, h
+        ADVCP_over_disclose% = (nx >= x - 2 _ANDALSO nx < x + w + 2 _ANDALSO ny >= y - 2 _ANDALSO ny < y + h + 2)
+        EXIT FUNCTION
+    END IF
     y = ADVCP_title_h% + ACP_disclose_row_y%
     ADVCP_over_disclose% = (nx >= 0 _ANDALSO nx < ADVCP.panelW% _ANDALSO ny >= y _ANDALSO ny < y + ADVCP_DISCLOSE_H)
 END FUNCTION
@@ -834,7 +975,22 @@ FUNCTION ADVCP_dump$ ()
     ADVCP_gear_rect gx, gy, gw, gh
     d = d + DOCK_n$(ADVCP.dispX% + INT(gx * rs)) + DOCK_n$(ADVCP.dispY% + INT(gy * rs)) + DOCK_n$(INT(gw * rs)) + DOCK_n$(INT(gh * rs))
     ' ACPV x y w h open: the VARIATIONS row (viewport px), 1 = open
-    d = d + CHR$(10) + "ACPV" + DOCK_n$(ADVCP.dispX% + INT((ACP_SHADE_GAP + 1) * rs)) + DOCK_n$(ADVCP.dispY% + INT((th + ACP_disclose_row_y%) * rs))
-    d = d + DOCK_n$(INT((ADVCP.panelW% - 2 * ACP_SHADE_GAP - 2) * rs)) + DOCK_n$(INT(ADVCP_DISCLOSE_H * rs)) + DOCK_n$(_IIF(CFG.ADV_COLOR_PICKER_VARIATIONS% <> 0, 1, 0))
+    DIM vx AS INTEGER, vy AS INTEGER, vw AS INTEGER, vh AS INTEGER
+    ADVCP_disclose_rect vx, vy, vw, vh
+    IF ACP_STATE.sideX% = 0 THEN vy = th + ACP_disclose_row_y%: vh = ADVCP_DISCLOSE_H
+    d = d + CHR$(10) + "ACPV" + DOCK_n$(ADVCP.dispX% + INT(vx * rs)) + DOCK_n$(ADVCP.dispY% + INT(vy * rs))
+    d = d + DOCK_n$(INT(vw * rs)) + DOCK_n$(INT(vh * rs)) + DOCK_n$(_IIF(CFG.ADV_COLOR_PICKER_VARIATIONS% <> 0, 1, 0))
+    ' ACPW x y w h side: the wheel square (viewport px), 1 = laid sideways (a dock row)
+    d = d + CHR$(10) + "ACPW" + DOCK_n$(ADVCP.dispX%) + DOCK_n$(ADVCP.dispY% + INT(th * rs)) + DOCK_n$(INT(ACP_STATE.wheel% * rs)) + DOCK_n$(INT(ACP_STATE.wheel% * rs)) + DOCK_n$(_IIF(ACP_STATE.sideX% > 0, 1, 0))
+    ' ACPR x y w h: each shade row open (its label + patches, viewport px)
+    IF CFG.ADV_COLOR_PICKER_VARIATIONS% <> 0 THEN
+        DIM r AS INTEGER, rx1 AS INTEGER, ry1 AS INTEGER, rx2 AS INTEGER, ry2 AS INTEGER, lx AS INTEGER, ly AS INTEGER
+        FOR r = 0 TO ACP_shade_line_count% - 1
+            ACP_shade_patch_rect r, ACP_shade_patch_count% - 1, rx1, ry1, rx2, ry2
+            lx = ACP_blk_x%(ACP_BLK_SHADE0 + r): ly = _MIN(ry1, ACP_shade_row_label_y%(r))
+            d = d + CHR$(10) + "ACPR" + DOCK_n$(ADVCP.dispX% + INT(lx * rs)) + DOCK_n$(ADVCP.dispY% + INT((th + ly) * rs))
+            d = d + DOCK_n$(INT((rx2 - lx + 1) * rs)) + DOCK_n$(INT((ry2 - ly + 1) * rs))
+        NEXT r
+    END IF
     ADVCP_dump$ = d + CHR$(10)
 END FUNCTION

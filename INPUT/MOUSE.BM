@@ -202,6 +202,7 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         ch&      = SCRN.canvasH&
         MOUSE.X% = ((tileX% MOD cw&) + cw&) MOD cw&
         MOUSE.Y% = ((tileY% MOD ch&) + ch&) MOD ch&
+        MOUSE.FX = MOUSE.X% + 0.5#: MOUSE.FY = MOUSE.Y% + 0.5#
         ' Detect tile boundary crossing: if wrapped coords jumped by more than
         ' half the canvas from the previous position, snap OLD to prevent tools
         ' from interpolating a line across the entire canvas.
@@ -215,6 +216,9 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
     ELSE
         MOUSE.X% = INT((rawX% - dx%) / SCRN.zoom!)
         MOUSE.Y% = INT((rawY% - dy%) / SCRN.zoom!)
+        ' the pixel's centre at zoom 1; the sub-pixel position zoomed in
+        MOUSE.FX = (rawX% - dx% + 0.5#) / SCRN.zoom!
+        MOUSE.FY = (rawY% - dy% + 0.5#) / SCRN.zoom!
     END IF
 
     ' Store unsnapped coordinates (for fill, picker, and other pixel-exact tools)
@@ -1326,7 +1330,13 @@ SUB MOUSE_handle_b3_dblclick_reset_zoom ()
 
     ' Ctrl+Alt+Shift+middle-click: the overlay opacities back as configured
     IF MOUSE.B3% _ANDALSO MOUSE.OLD_B3% = 0 _ANDALSO MODIFIERS.ctrlShiftAlt% THEN
-        GRID_fade_reset
+        IF ANIM_XW_over%(mx%, my%) THEN
+            ANIM_XW.alpha = ANIM_XW_alpha_dflt%: ANIM_LB_changed
+        ELSEIF CFG.XSHEET% <> 0 _ANDALSO ANIM_XS_hit%(mx%, my%) <> 0 THEN
+            IF CFG.XSHEET_CONTRAST% <> 0 THEN ANIM_XS_contrast_reset ' (the X-sheet's own press may have reset it already)
+        ELSE
+            GRID_fade_reset
+        END IF
         MOUSE.B3_CLICK_TIME# = 0 ' not half of a double-click
         EXIT SUB
     END IF
@@ -1377,7 +1387,7 @@ SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
         IF SCRN.showStatus% THEN
             DIM autoHideStripTop AS INTEGER
             autoHideStripTop% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
-            IF rawY% >= autoHideStripTop% THEN
+            IF rawY% >= autoHideStripTop% _ORELSE PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN ' (or the strip on another edge)
                 SCRN.showStatus%           = FALSE
                 SCRN.statusManuallyHidden% = FALSE     ' This is auto-hide, not manual
                 GUI_NEEDS_REDRAW%          = TRUE
@@ -1547,6 +1557,7 @@ SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
     DIM panToolActive AS INTEGER
     panToolActive% = (CURRENT_TOOL% = TOOL_PAN AND MOUSE.B1% AND NOT TRANSFORM.ACTIVE)
 
+
     ' Block pan-button initiation when mouse is over any GUI element. The pan button
     ' is rebindable (MB_PAN, default 3 = middle); MOUSE_button_down% maps it to state.
     DIM allowB3Pan AS INTEGER
@@ -1579,6 +1590,7 @@ SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
 
     IF allowCanvasPan% AND NOT SCRN.panning% THEN
         ' Only block on pan START (not while already panning)
+        IF MOUSE_B1_ORIGIN% = 2 THEN allowCanvasPan% = FALSE ' (the press began off the canvas: a drag from a panel - MOUSE_note_b1_origin)
         IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         IF WF_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
@@ -2230,6 +2242,11 @@ END SUB
 ' Tool handler: Move.
 '
 SUB MOUSE_tool_move ()
+    ' An armed layer (TOOLS/ANIM-XLANE): the drag keys X / Y on this frame, the pixels stay
+    IF ANIM_XL.mvOn THEN ANIM_XL_move_hold MOUSE.RAW_X%, MOUSE.RAW_Y%: EXIT SUB
+    IF NOT MOUSE.OLD_B1% _ANDALSO MODIFIERS.shiftOnly% = 0 THEN
+        IF ANIM_XL_move_wants% THEN ANIM_XL_move_begin CURRENT_LAYER%, MOUSE.RAW_X%, MOUSE.RAW_Y%, SCRN.zoom!: EXIT SUB
+    END IF
     ' SHIFT+click: find topmost non-transparent layer, select it, scroll panel to
     ' reveal it, then fall through so the move starts on that layer.
     IF MODIFIERS.shiftOnly% AND NOT MOUSE.OLD_B1% THEN
@@ -2902,6 +2919,8 @@ SUB MOUSE_tool_brush ()
         MOUSE.OLD_Y% = MOUSE.Y%
         ' Initialize gradient context at stroke start for running bounds
         GRAD_CTX_set MOUSE.X%, MOUSE.Y%, MOUSE.X%, MOUSE.Y%
+        ' Pen Control: smoothing / pressure processing / speed scaling start here
+        PENC_stroke_begin BRUSH_HISTORY_SMART%
     END IF
     ' Draw while LEFT or RIGHT button is held
     ' Right-click with SHIFT is for connecting lines, handled separately in MOUSE_handle_right_click
@@ -2917,9 +2936,53 @@ SUB MOUSE_tool_brush ()
         IF CURRENT_TOOL% = TOOL_ERASER AND MODIFIERS.shift% AND MOUSE.B1% THEN
             ERASER_smart_on
         ELSE
-            PAINT_on
+            ' Pen Control: the speed gain, and with smoothing on the stroke
+            ' draws to the smoothed point, not the pointer
+            DIM bsX AS INTEGER, bsY AS INTEGER
+            PENC_stroke_step bsX, bsY
+            IF PENC_stab_stroke% THEN
+                MOUSE_brush_paint_to bsX, bsY
+            ELSE
+                PAINT_on
+            END IF
         END IF
     END IF
+END SUB
+
+''
+' Pen Control smoothing: one segment of a brush stroke from the point it last
+' drew to (TABLET.stabDX / DY) to sx, sy. PAINT_on draws MOUSE.OLD -> MOUSE.X,
+' so those are swapped in for the call and the pointer put back after.
+SUB MOUSE_brush_paint_to (sx AS INTEGER, sy AS INTEGER)
+    DIM rx AS INTEGER, ry AS INTEGER, tx AS INTEGER, ty AS INTEGER
+    tx = sx: ty = sy ' (copies: by-reference params)
+    rx = MOUSE.X%: ry = MOUSE.Y%
+    MOUSE.OLD_X% = TABLET.stabDX: MOUSE.OLD_Y% = TABLET.stabDY
+    MOUSE.X% = tx: MOUSE.Y% = ty
+    GRAD_CTX_expand tx, ty
+    PAINT_on
+    TABLET.stabDX = tx: TABLET.stabDY = ty
+    MOUSE.X% = rx: MOUSE.Y% = ry
+END SUB
+
+''
+' Pen Control Catch Up on lift (Moving Average / EMA): the stroke is finished
+' to where the pointer let go, along the filter's own path - one segment per
+' virtual frame, holding the last pressure.
+SUB MOUSE_brush_catch_up ()
+    DIM i AS INTEGER, sx AS INTEGER, sy AS INTEGER
+    IF PENC_stab_stroke% = 0 THEN EXIT SUB
+    TABLET.catching = TRUE
+    FOR i = 1 TO STAB_CATCH_MAX
+        IF STAB_catch_step% = 0 THEN EXIT FOR
+        sx = INT(STAB.x): sy = INT(STAB.y)
+        IF sx <> TABLET.stabDX _ORELSE sy <> TABLET.stabDY THEN MOUSE_brush_paint_to sx, sy
+    NEXT i
+    ' the last pixel: the pointer's own
+    IF MOUSE.X% <> TABLET.stabDX _ORELSE MOUSE.Y% <> TABLET.stabDY THEN
+        IF STAB.catchUp _ANDALSO (STAB.mode = STAB_MA _ORELSE STAB.mode = STAB_EMA) THEN MOUSE_brush_paint_to MOUSE.X%, MOUSE.Y%
+    END IF
+    TABLET.catching = FALSE
 END SUB
 
 
@@ -3137,6 +3200,7 @@ END SUB
 ' Mouse release handler: Move.
 '
 SUB MOUSE_release_move ()
+    IF ANIM_XL.mvOn THEN ANIM_XL_move_end: HISTORY_saved_this_frame% = TRUE: EXIT SUB ' a recording drag (TOOLS/ANIM-XLANE): its one undo step
     ' Mouse released after dragging
     IF MOVE.ACTIVE AND MOVE.TRANSFORMING THEN
         DIM moveReleaseAlt AS INTEGER
@@ -3721,6 +3785,10 @@ SUB MOUSE_release_brush ()
     brush_recorded% = FALSE
     brush_label$    = "Brush"
     IF CURRENT_TOOL% = TOOL_ERASER THEN brush_label$ = "Eraser"
+    ' Pen Control: finish a smoothed stroke to the pointer (Catch Up), then
+    ' forget it (before the pixel-perfect replay, which draws what it collected)
+    MOUSE_brush_catch_up
+    PENC_stroke_end
     IF BRUSH_SIZE.PIXEL_PERFECT AND PP_STROKE_COUNT% > 0 THEN
         BMIX_begin_replay ' mix brush: redraw each pixel in its own stroke color
         TABLET.dabOp = 0  ' pressure opacity: the redraw keeps each pixel's own opacity
@@ -4370,7 +4438,15 @@ SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
         ' CTRL+ALT+SHIFT: the grid, pixel grid and checkerboard opacity together
         ' (session only; Ctrl+Alt+Shift+middle-click resets - GRID_fade_*)
         ELSEIF MODIFIERS.ctrlShiftAlt% THEN
-            IF MOUSE.SW% <> 0 THEN GRID_fade_step -SGN(MOUSE.SW%) ' wheel up (SW < 0): stronger
+            IF MOUSE.SW% <> 0 THEN ' wheel up (SW < 0): stronger - over the transform widget: the widget (TOOLS/ANIM-XWIDGET)
+                IF ANIM_XW_over%(rawX%, rawY%) THEN
+                    ANIM_XW_fade -SGN(MOUSE.SW%)
+                ELSEIF CFG.XSHEET% <> 0 _ANDALSO ANIM_XS_hit%(rawX%, rawY%) <> 0 THEN ' (normally taken earlier, by ANIM_XS_wheel%)
+                    ANIM_XS_contrast_step -SGN(MOUSE.SW%)
+                ELSE
+                    GRID_fade_step -SGN(MOUSE.SW%)
+                END IF
+            END IF
             MOUSE.SW% = 0    ' Consume
         ' Check if CTRL+SHIFT is held for reference image / canvas border opacity adjustment
         ELSEIF MODIFIERS.ctrl% AND MODIFIERS.shift% THEN
@@ -4947,12 +5023,17 @@ END SUB
 ' viewport pixels and SCENE_CACHE& is viewport-sized, so the read is 1:1.
 '
 SUB MOUSE_eyedrop_screen (rawX AS INTEGER, rawY AS INTEGER, whichBtn AS INTEGER)
-    IF SCENE_CACHE& >= -1 THEN EXIT SUB   ' 0 / -1 are invalid image handles
-    IF rawX% < 0 OR rawY% < 0 OR rawX% >= _WIDTH(SCENE_CACHE&) OR rawY% >= _HEIGHT(SCENE_CACHE&) THEN EXIT SUB
+    ' the frame as shown (PICKER_LOUPE.SNAP, while Alt is held): the docked
+    ' panels and native windows are not in SCENE_CACHE
+    DIM src AS LONG
+    src& = SCENE_CACHE&
+    IF PICKER_LOUPE.SNAP_OK% _ANDALSO PICKER_LOUPE.SNAP& < -1 THEN src& = PICKER_LOUPE.SNAP&
+    IF src& >= -1 THEN EXIT SUB   ' 0 / -1 are invalid image handles
+    IF rawX% < 0 OR rawY% < 0 OR rawX% >= _WIDTH(src&) OR rawY% >= _HEIGHT(src&) THEN EXIT SUB
 
     DIM oldSrc  AS LONG
     oldSrc& = _SOURCE
-    _SOURCE SCENE_CACHE&
+    _SOURCE src&
     DIM sampled AS _UNSIGNED LONG
     sampled~& = POINT(rawX%, rawY%)
     _SOURCE oldSrc&
@@ -4960,6 +5041,19 @@ SUB MOUSE_eyedrop_screen (rawX AS INTEGER, rawY AS INTEGER, whichBtn AS INTEGER)
     ' Chrome pixels are opaque; force full alpha so an eyedropped colour is never a
     ' surprise-transparent foreground.
     sampled~& = _RGBA32(_RED32(sampled~&), _GREEN32(sampled~&), _BLUE32(sampled~&), 255)
+
+    ' a drag (Alt eyedrop held): only when the colour changes, and quietly
+    IF PICKER_LOUPE.DRAG_BTN% <> 0 _ANDALSO NOT (MOUSE.B1% AND NOT MOUSE.OLD_B1%) _ANDALSO NOT (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
+        IF whichBtn% = 2 THEN
+            IF PAINT_BG_COLOR~& = sampled~& THEN EXIT SUB
+            PAINT_BG_COLOR~& = sampled~&
+        ELSE
+            IF PAINT_COLOR~& = sampled~& _ANDALSO PAL_FG_IS_TRANSPARENT% = 0 THEN EXIT SUB
+            PAINT_COLOR~& = sampled~&: PAL_FG_IS_TRANSPARENT% = FALSE
+        END IF
+        GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
 
     IF whichBtn% = 2 THEN
         PAINT_BG_COLOR~& = sampled~&
@@ -5755,6 +5849,8 @@ SUB MOUSE_handle_gui_panels (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS IN
             IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) OR (MOUSE.B3% AND NOT MOUSE.OLD_B3%) THEN
                 MOUSE.UI_CHROME_CLICKED% = TRUE
             END IF
+            ' Ctrl+wheel: the ring thinner / thicker (a bigger / smaller triangle)
+            IF wheel_delta% <> 0 _ANDALSO MODIFIERS.ctrl% THEN ADVCP_ring_wheel wheel_delta%: wheel_delta% = 0
         END IF
     END IF
 
@@ -5852,8 +5948,25 @@ END SUB
 ' @param wheel_delta INTEGER Mouse wheel scroll delta for this frame (output from drain)
 ' @return INTEGER - TRUE if post-processing should run, FALSE on early-exit frame
 '
+''
+' Where this left press began: 1 = the canvas, 2 = anywhere else (MOUSE_B1_ORIGIN%).
+' A left-button pan (the Hand tool, Space+LMB) starts only from a press on the
+' canvas - a file dragged out of the Browser across the canvas to the layer panel
+' panned it (Rick 2026-11-16): the pointer was over the canvas, the press was not.
+' Noted on the press frame before anything can EXIT MOUSE_process_frame% (a panel
+' that takes the press skips MOUSE_handle_panning until the pointer is elsewhere).
+SUB MOUSE_note_b1_origin (rawX AS INTEGER, rawY AS INTEGER)
+    IF MOUSE.B1% = 0 THEN
+        MOUSE_B1_ORIGIN% = 0
+    ELSEIF MOUSE_B1_ORIGIN% = 0 THEN
+        MOUSE_B1_ORIGIN% = 2
+        IF REGION_hit_test%(rawX%, rawY%) <= REGION_CANVAS _ANDALSO FPANEL_window_at%(rawX%, rawY%) = 0 _ANDALSO BROWSER.fileDragStarted% = 0 _ANDALSO BROWSER.fileDragActive% = 0 _ANDALSO BROWSER_owns_mouse%(rawX%, rawY%) = 0 THEN MOUSE_B1_ORIGIN% = 1
+    END IF
+END SUB
+
 FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
     MOUSE_drain_update_state rawX%, rawY%, wheel_delta%
+    MOUSE_note_b1_origin rawX%, rawY%
 
     ' Suppress button input after native dialogs to prevent phantom clicks
     ' SDL can produce spurious button events when the window regains focus
@@ -5933,20 +6046,34 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
     IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND NOT BROWSER_owns_mouse%(rawX%, rawY%) _ANDALSO WZ_blocked%(DP_PREVIEW, rawX%, rawY%) = 0 THEN
         edOverPreview% = PREVIEW_hit_window%(rawX%, rawY%)
     END IF
+    ' An Alt eyedrop press still held: drag-pick wherever the pointer goes
+    ' (Rick 2026-11-16: "hold alt to zoom in and drag"), until the button lifts
+    IF PICKER_LOUPE.DRAG_BTN% <> 0 THEN
+        IF (PICKER_LOUPE.DRAG_BTN% = 1 _ANDALSO MOUSE.B1% <> 0) _ORELSE (PICKER_LOUPE.DRAG_BTN% = 2 _ANDALSO MOUSE.B2% <> 0) THEN
+            MOUSE_eyedrop_screen rawX%, rawY%, PICKER_LOUPE.DRAG_BTN%
+        ELSE
+            PICKER_LOUPE.DRAG_BTN% = 0
+        END IF
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        MOUSE_process_frame%     = FALSE
+        EXIT FUNCTION
+    END IF
     IF MODIFIERS.alt% AND NOT MODIFIERS.ctrl% AND NOT SCRN.panning% AND NOT edOverPreview% THEN
         ' Over CHROME only (a registered panel, region id >= 2). The canvas floor
         ' is REGION_CANVAS (id 1) at ZORDER_CANVAS, so hit-test returns 1 over the
         ' drawing area and >= 2 over any chrome — use > REGION_CANVAS, NOT
         ' <> REGION_CANVAS, or this would also fire over the canvas and hijack the
         ' normal Alt loupe picker.
-        IF REGION_hit_test%(rawX%, rawY%) > REGION_CANVAS THEN
+        IF REGION_hit_test%(rawX%, rawY%) > REGION_CANVAS _ANDALSO ANIM_XL_wants_cross%(rawX%, rawY%) <> 2 THEN ' (inside the X-sheet's key selection Alt+drag copies the keys - TOOLS/ANIM-XLANE)
             IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
                 MOUSE_eyedrop_screen rawX%, rawY%, 1
+                PICKER_LOUPE.DRAG_BTN% = 1
                 MOUSE.UI_CHROME_CLICKED% = TRUE
                 MOUSE_process_frame%     = FALSE
                 EXIT FUNCTION
             ELSEIF MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
                 MOUSE_eyedrop_screen rawX%, rawY%, 2
+                PICKER_LOUPE.DRAG_BTN% = 2
                 MOUSE.UI_CHROME_CLICKED% = TRUE
                 MOUSE_process_frame%     = FALSE
                 EXIT FUNCTION

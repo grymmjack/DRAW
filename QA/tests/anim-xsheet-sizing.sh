@@ -79,7 +79,9 @@ else
     xz_read; NW1=$XNW
     (( NW1 < NW0 - 20 )) && pass "dragging the name column's edge left narrows it ($NW0 -> $NW1 px)" \
         || fail "name column after a drag left: $NW0 -> ${NW1:-?} px"
-    xz_tip $(( XX1 + 30 )) $(( ROW1_Y + XRH / 2 ))
+    # the name starts after the layer's lanes arrow (ANIMXSLO slot open arrowX y; 10 px wide)
+    XAX=$(grep "^ANIMXSLO " "$XZ_DUMP" 2>/dev/null | awk -v s="$XCUR" '$2 == s { print $4; exit }')
+    xz_tip $(( ${XAX:-$(( XX1 + 20 ))} + 10 + 8 )) $(( ROW1_Y + XRH / 2 ))
     [[ "$TIP_ACT" == -1 && "$TIP_SRC" == 13 && "$TIP_IDX" == $(( 4000 + XCUR )) ]] && pass "the cut name shows whole in a tooltip" \
         || fail "cut name tooltip: TIP '$TIP_ACT $TIP_SRC $TIP_IDX' (wanted -1 13 $(( 4000 + XCUR )))"
     xz_read

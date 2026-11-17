@@ -1,9 +1,9 @@
 #!/bin/bash
 # =============================================================================
 # dock-browser-band.sh — QA test: the Browser docks along the top or bottom of
-# the canvas area (its band - the one exception to left/right-only docking).
+# the canvas area (its old band, now a top / bottom dock row like any panel's).
 #   bottom   drag its title to the bottom: band 2, the canvas shifts up
-#   resize   drag the band's top edge up: taller, saved (DOCK_BAND=BOTTOM,h)
+#   resize   drag the row's top edge up: taller, saved (DOCK_BOTTOM_n=HEIGHT:h;browser)
 #   top      drag its title (the band's handle) to the top: band 1
 #   column   into a left column: no band any more
 #   back     from the column to the bottom band again
@@ -20,12 +20,15 @@ dk_move_expect browser band-bottom; dk_check "browser along the bottom"
 screenshot "dock-band-bottom"
 
 # taller by its top edge
-dk_band; H0=$B_H; EX=$(( B_X + B_W / 2 )); EY=$B_Y
+# (a bottom row's edge zone is the 3px just above it, on the canvas side)
+dk_band; H0=$B_H; EX=$(( B_X + B_W / 2 )); EY=$(( B_Y - 2 ))
 dk_drag "$EX" "$EY" "$EX" $(( EY - 60 )) 5; dk_park; dk_settle
 dk_band
 if (( B_H >= H0 + 40 )); then pass "band taller by its edge ($H0 -> $B_H)"; else fail "band edge drag: $H0 -> $B_H"; fi
-SB=$(grep -m1 '^DOCK_BAND=' "$QA_CFG" | tr -d '\r')
-if [[ "$SB" == "DOCK_BAND=BOTTOM,$B_H" ]]; then pass "band height saved ($SB)"; else fail "band not saved as BOTTOM,$B_H ($SB)"; fi
+# the band is a bottom row now: DOCK_BOTTOM_n=HEIGHT:h;browser (no DOCK_BAND= any more)
+SB=$(grep -m1 '^DOCK_BOTTOM_[0-9]*=.*browser' "$QA_CFG" | tr -d '\r')
+if [[ "$SB" == *"=HEIGHT:$B_H;"* ]]; then pass "row height saved ($SB)"; else fail "row not saved with HEIGHT:$B_H ($SB)"; fi
+grep -q '^DOCK_BAND=' "$QA_CFG" && fail "DOCK_BAND= still saved" || pass "no DOCK_BAND= key"
 dk_check "band resized"
 
 dk_move_expect browser band-top;    dk_check "browser along the top"

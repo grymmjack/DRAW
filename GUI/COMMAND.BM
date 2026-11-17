@@ -183,7 +183,13 @@ SUB CMD_init ()
     CMD_register "Toggle Advanced Color Picker", "Ctrl+Shift+M", CMD_CAT_VIEW, 2023
     CMD_register "Advanced Color Picker Settings", "", CMD_CAT_VIEW, 2029
     CMD_register "Toggle 3D Color Space", "", CMD_CAT_VIEW, 2024
-    CMD_register "Toggle Pen Pressure Panel", "", CMD_CAT_VIEW, 2028
+    CMD_register "Toggle Pen Control Panel", "", CMD_CAT_VIEW, 2028
+    CMD_register "Pen Control: Toggle Smoothing", "", CMD_CAT_BRUSH, PENP_ACT_STAB
+    CMD_register "Pen Control: Next Smoothing Mode", "", CMD_CAT_BRUSH, PENP_ACT_STAB_MODE
+    CMD_register "Pen Control: More Smoothing", "", CMD_CAT_BRUSH, PENP_ACT_STAB_UP
+    CMD_register "Pen Control: Less Smoothing", "", CMD_CAT_BRUSH, PENP_ACT_STAB_DOWN
+    CMD_register "Pen Control: Toggle Pressure Smoothing", "", CMD_CAT_BRUSH, PENP_ACT_PROC
+    CMD_register "Pen Control: Toggle Speed Scaling", "", CMD_CAT_BRUSH, PENP_ACT_SPEED
     CMD_register "Toggle Animation Panel", "", CMD_CAT_VIEW, ANIMP_ACT_TOGGLE
     CMD_register "Toggle Swatches Panel", "", CMD_CAT_VIEW, SWP_ACT_TOGGLE
     CMD_register "Load Swatches...", "", CMD_CAT_VIEW, SWP_ACT_LOAD
@@ -358,6 +364,7 @@ SUB CMD_init ()
     CMD_register "Desaturate",             "", CMD_CAT_IMAGE, 2008
     CMD_register "Posterize...",           "", CMD_CAT_IMAGE, 2009
     CMD_register "Pixelate...",            "", CMD_CAT_IMAGE, 2010
+    CMD_register "Pixel Art Analyzer", "", CMD_CAT_IMAGE, 1609 ' (Help menu; here so it can be found)
     CMD_register "Remove Background...",   "", CMD_CAT_IMAGE, 2011
 
     ' ========== EFFECTS ==========
@@ -479,6 +486,15 @@ SUB CMD_init ()
     CMD_register "Delete Tag (animation)", "", CMD_CAT_EDIT, ANIM_ACT_DELETE_TAG
     CMD_register "Frame Note... (animation: the current frame's note)", "", CMD_CAT_EDIT, ANIM_ACT_FRAME_NOTE
     CMD_register "Clear Frame Note (animation)", "", CMD_CAT_EDIT, ANIM_ACT_CLEAR_NOTE
+    CMD_register "Hold for N Frames... (animation)", "", CMD_CAT_EDIT, ANIM_ACT_HOLD_CELL
+    CMD_register "Release Hold (animation)", "", CMD_CAT_EDIT, ANIM_ACT_RELEASE_HOLD
+    CMD_register "Arm Layer for Recording (moves / scales / flips key its lanes)", "", CMD_CAT_EDIT, ANIM_ACT_ARM
+    CMD_register "Disarm All Layers (recording off)", "", CMD_CAT_EDIT, ANIM_ACT_DISARM_ALL
+    CMD_register "Copy Keys (the X-sheet's key selection)", "Ctrl+C", CMD_CAT_EDIT, ANIM_ACT_KEYS_COPY
+    CMD_register "Cut Keys (the X-sheet's key selection)", "Ctrl+X", CMD_CAT_EDIT, ANIM_ACT_KEYS_CUT
+    CMD_register "Paste Keys (at the current frame)", "Ctrl+V", CMD_CAT_EDIT, ANIM_ACT_KEYS_PASTE
+    CMD_register "Delete Keys (the X-sheet's key selection)", "Delete", CMD_CAT_EDIT, ANIM_ACT_KEYS_DELETE
+    CMD_register "Animation Settings... (lane colours, widget opacity, X-sheet zoom)", "", CMD_CAT_EDIT, ANIM_ACT_SETTINGS
     CMD_register "Detect Frames (animation: slice a sprite sheet at its gaps)", "", CMD_CAT_EDIT, ANIM_ACT_DETECT_FRAMES
     CMD_register "Create Frames from Grid (animation: the frame is the pixel grid's cell)", "", CMD_CAT_EDIT, ANIM_ACT_FRAMES_FROM_GRID
     CMD_register "New Animation... (a new sheet of blank frames: frame size, count, FPS)", "", CMD_CAT_FILE, ANIM_ACT_NEW
@@ -1097,7 +1113,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
     ' a palette (select chip -> edit it in a panel -> undo a bad edit).
     IF PALETTE_OPS.ACTIVE% THEN
         SELECT CASE action_id%
-            CASE 301, 302, 434, 2021, 2023, 2024, 2028, 2060 TO 2069, 2600 ' + color cycling, swatches
+            CASE 301, 302, 434, 2021, 2023, 2024, 2028, 2030 TO 2035, 2060 TO 2069, 2600 ' + pen control, color cycling, swatches
             CASE ELSE: PALETTE_OPS_deactivate
         END SELECT
     END IF
@@ -1241,8 +1257,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
             END IF
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE%       = FALSE
-        CASE 303 : SOUND_play SND_CLIPBOARD : CLIPBOARD_copy                             ' Copy
-        CASE 304 : SOUND_play SND_CLIPBOARD : CLIPBOARD_cut                              ' Cut
+        CASE 303 : SOUND_play SND_CLIPBOARD : CLIPBOARD_copy : ANIM_XL_CB_LAST = FALSE   ' Copy (pixels now the newest: Ctrl+V pastes them, not lane keys)
+        CASE 304 : SOUND_play SND_CLIPBOARD : CLIPBOARD_cut : ANIM_XL_CB_LAST = FALSE    ' Cut
         CASE 305 : SOUND_play SND_CLIPBOARD : CLIPBOARD_paste MOUSE.X%, MOUSE.Y%         ' Paste
         CASE 330 : SOUND_play SND_CLIPBOARD : CLIPBOARD_paste_from_os MOUSE.X%, MOUSE.Y% ' Paste from OS Clipboard
         CASE 322 : SOUND_play SND_CLIPBOARD : CLIPBOARD_copy_merged                      ' Copy Merged
@@ -1438,11 +1454,13 @@ SUB CMD_execute_action (action_id AS INTEGER)
             CONFIG_save
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE%       = FALSE
-        CASE 2028     ' Toggle Pen Pressure panel
+        CASE 2028     ' Toggle Pen Control panel
             PENP_toggle
             CONFIG_save
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE%       = FALSE
+        CASE PENP_ACT_STAB TO PENP_ACT_SPEED ' Pen Control stroke filters
+            PENP_command action_id%
         CASE 2505     ' Toggle Animation panel (ANIMP_ACT_TOGGLE, GUI/ANIM-PANEL)
             ANIMP_toggle
             CONFIG_save
@@ -1606,6 +1624,18 @@ SUB CMD_execute_action (action_id AS INTEGER)
             ANIM_LF_toggle ANIM_LF_SAME
         CASE 2541, 2542 ' ANIM > Link Cells / Unlink Cells (TOOLS/ANIM-OPS, 4.3)
             ANIM_LK_action action_id%
+        CASE ANIM_ACT_KEYS_COPY: ANIM_XL_keys_copy ' ANIM > Copy Keys (the X-sheet's key selection, TOOLS/ANIM-XLANE)
+        CASE ANIM_ACT_KEYS_CUT: ANIM_XL_keys_cut
+        CASE ANIM_ACT_KEYS_PASTE: ANIM_XL_keys_paste ' (at the current frame)
+        CASE ANIM_ACT_KEYS_DELETE: ANIM_XL_keys_delete "Delete Keys"
+        CASE ANIM_ACT_ARM ' ANIM > Arm Layer for Recording (TOOLS/ANIM-XLANE: the current layer's red dot)
+            ANIM_XL_arm_toggle CURRENT_LAYER%
+        CASE ANIM_ACT_DISARM_ALL ' ANIM > Disarm All Layers
+            ANIM_XL_disarm_all
+        CASE ANIM_ACT_SETTINGS ' ANIM > Animation Settings... (Edit > Settings, its Animation tab)
+            SETTINGS_open_at SETTINGS_TAB_ANIMATION, ""
+        CASE 2610, 2611 ' ANIM > Hold for N Frames... / Release Hold (TOOLS/ANIM-OPS: per-layer holds)
+            ANIM_LH_action action_id%, ANIM_LH_FRAME: ANIM_LH_FRAME = 0
         CASE 2543, 2544 ' ANIM > Tag Frames... / Delete Tag (TOOLS/ANIM-OPS, 4.4)
             ANIM_TG_action action_id%
         CASE 2545, 2546 ' ANIM > Frame Note... / Clear Frame Note (TOOLS/ANIM-OPS, 4.5)
@@ -2095,7 +2125,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
         ' ========== COLOR / OPACITY ==========
         CASE 501 TO 510 ' 1-0: the paint opacity 10-100% - or, the pointer on the layer bar's opacity slider, the current layer's
             IF LAYER_BAR_hot% THEN
-                LAYERS_set_opacity CURRENT_LAYER%, ((action_id% - 500) * 255) \ 10
+                ANIM_XL_user_opacity CURRENT_LAYER%, ((action_id% - 500) * 255) \ 10
                 SOUND_play SND_SLIDER
             ELSE
                 PAINT_OPACITY% = (action_id% - 500) * 10
@@ -2558,13 +2588,13 @@ SUB CMD_execute_action (action_id AS INTEGER)
             IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN
                 IF LAYERS(CURRENT_LAYER%).imgHandle& <> 0 THEN
                     DIM lop740 AS INTEGER
-                    lop740 = CINT(LAYERS(CURRENT_LAYER%).opacity% * 100 / 255) \ 10 * 10 ' to a 10% step
+                    lop740 = CINT(ANIM_XL_shown_opacity%(CURRENT_LAYER%) * 100 / 255) \ 10 * 10 ' to a 10% step
                     IF action_id% = 740 THEN
-                        IF lop740 * 255 \ 100 >= LAYERS(CURRENT_LAYER%).opacity% THEN lop740 = lop740 - 10
+                        IF lop740 * 255 \ 100 >= ANIM_XL_shown_opacity%(CURRENT_LAYER%) THEN lop740 = lop740 - 10
                     ELSE
                         lop740 = lop740 + 10
                     END IF
-                    LAYERS_set_opacity CURRENT_LAYER%, _MAX(0, _MIN(100, lop740)) * 255 \ 100
+                    ANIM_XL_user_opacity CURRENT_LAYER%, _MAX(0, _MIN(100, lop740)) * 255 \ 100
                     SOUND_play SND_SLIDER
                 END IF
             END IF
@@ -3230,6 +3260,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 MOVE.CONTENT_FLIPPED = TRUE ' content changed but bbox didn't — force commit
                 MOVE_update_preview_buffer
                 INVALIDATE_scene
+            ELSEIF ANIM_XL_rec_slot%(CURRENT_LAYER%) <> 0 _ANDALSO SELECTION_has_active% = 0 _ANDALSO MULTI_SELECT_has_any% = 0 THEN
+                ' an armed layer (TOOLS/ANIM-XLANE): SCALE X negated on this frame, the pixels stay
+                ANIM_XL_rec_value CURRENT_LAYER%, CLIP_LANE_SX, -ANIM_XL_now!(CURRENT_LAYER%, CLIP_LANE_SX), "Flip Horizontal"
             ELSEIF CURRENT_LAYER% > 0 THEN
                 DIM flipH_src                AS LONG, flipH_w AS LONG, flipH_h AS LONG
                 DIM flipH_history_before     AS LONG
@@ -3336,6 +3369,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 MOVE.CONTENT_FLIPPED = TRUE ' content changed but bbox didn't — force commit
                 MOVE_update_preview_buffer
                 INVALIDATE_scene
+            ELSEIF ANIM_XL_rec_slot%(CURRENT_LAYER%) <> 0 _ANDALSO SELECTION_has_active% = 0 _ANDALSO MULTI_SELECT_has_any% = 0 THEN
+                ' an armed layer (TOOLS/ANIM-XLANE): SCALE Y negated on this frame, the pixels stay
+                ANIM_XL_rec_value CURRENT_LAYER%, CLIP_LANE_SY, -ANIM_XL_now!(CURRENT_LAYER%, CLIP_LANE_SY), "Flip Vertical"
             ELSEIF CURRENT_LAYER% > 0 THEN
                 DIM flipV_src                AS LONG, flipV_w AS LONG, flipV_h AS LONG
                 DIM flipV_history_before     AS LONG

@@ -8,8 +8,11 @@
 #   SEQ  n                                   (bumped on every change)
 #   TREE LEFT.1: layers ; RIGHT.1: toolbox | organizer | drawer ; ...
 #   SCR  w h canvasLX canvasRX dockTop dockBottom
-#   BAND side x y w h shiftY                (the Browser's top/bottom band; side 0 none, 1 top, 2 bottom)
-#   COL  id side ord x y w h vis hidden      (side 1 = left, 2 = right; hidden = by the small-window rule)
+#   BAND side x y w h shiftY                (the Browser's row - its old band; side 0 none, 1 top, 2 bottom)
+#   ROWS full y1 y2 toph both                (top / bottom rows: full width?, first y under the top rows,
+#                                             last y above the bottom ones, their heights)
+#   COL  id side ord x y w h vis hidden      (side 1 = left, 2 = right, 3 = a top row, 4 = a bottom row;
+#                                             hidden = by the small-window rule)
 #   SLOT id col ord x y w h vis collapsed act autocollapsed panel,panel
 #   P    name shown live x y w h slot floating fx fy fw fh hx hy hw hh tabx tabw
 #   WIN  name x y w h slot                 (a native window where it is drawn)
@@ -25,7 +28,8 @@
 #       tab OTHER                    a tab in OTHER's slot
 #       bottom OTHER                 the empty rest of OTHER's column (stack at the end)
 #       float [X Y]                  float it (default: the canvas center)
-#       band-top | band-bottom       the Browser only: its band along the top / bottom
+#       band-top | band-bottom       a new innermost row along the top / bottom (any panel)
+#       left OTHER | right OTHER     beside OTHER in its row (a slot before / after it)
 #   dk_check LABEL                 invariants after a step (see below)
 #   dk_expect_tree REGEX LABEL     the TREE line matches REGEX
 # =============================================================================
@@ -37,6 +41,7 @@ dk_seq()  { if [[ -f "$DK_DUMP" ]]; then awk 'NR==1 {print $2}' "$DK_DUMP"; else
 dk_tree() { sed -n 's/^TREE //p' "$DK_DUMP" 2>/dev/null; }
 dk_scr()  { read -r _ SCR_W SCR_H CAN_LX CAN_RX DOCK_TOP DOCK_BOT <<< "$(grep '^SCR ' "$DK_DUMP")"; }
 dk_band() { read -r _ B_SIDE B_X B_Y B_W B_H B_SHIFT <<< "$(grep '^BAND ' "$DK_DUMP")"; }
+dk_rows() { read -r _ R_FULL R_Y1 R_Y2 R_TOPH R_BOTH <<< "$(grep '^ROWS ' "$DK_DUMP")"; R_Y1=${R_Y1:-0}; R_Y2=${R_Y2:-0}; }
 
 # wait until the layout stops changing (DRAW idles at 15 fps)
 dk_settle() {
@@ -63,15 +68,66 @@ dk_side_of()  { dk_p "$1" || return 1; if (( P_SLOT == 0 )); then return 1; fi; 
 # where to press to move NAME: its tab, else its handle (title strip / layers
 # header / 3px grip / a window's title bar) -> GX GY
 dk_grab_point() {
-    dk_p "$1" || return 1
+    local name=$1 f x
+    dk_p "$name" || return 1
     if (( P_TW > 0 )); then
         GX=$(( P_TX + P_TW / 2 )); GY=$(( P_HY + 5 ))
     elif (( P_HW > 0 && P_HH > 0 )); then
         if (( P_HW > 40 )); then GX=$(( P_HX + P_HW / 3 )); else GX=$(( P_HX + P_HW / 2 )); fi
         if (( P_HH <= 4 )); then GY=$(( P_HY + 1 )); else GY=$(( P_HY + P_HH / 2 )); fi
+        # a handle partly under a floating window (a docked panel's under any; a
+        # floating panel's under another - fuzz 19 step 13: the edit bar floated
+        # over the floating layers' grab point): press where nothing covers it
+        # (DRAW rightly ignores a press through a window)
+        local own=$name fo=0 # (its own window never covers it - a docked native has a WIN line too)
+        (( P_FL != 0 )) && fo=1 # (a floating panel draws over every docked window)
+        if dk_covered "$GX" "$GY" 0 "$own" "$fo"; then
+            for f in 1 2 4 5 6 7 8 9; do
+                x=$(( P_HX + P_HW * f / 10 ))
+                if ! dk_covered "$x" "$GY" 0 "$own" "$fo"; then GX=$x; break; fi
+            done
+            # all of it under other windows (fuzz 19 step 13: the floating layers
+            # under the Browser + Color Mixer): nothing a user could grab either
+            dk_covered "$GX" "$GY" 0 "$own" "$fo" && return 1
+        fi
     else
         return 1
     fi
+}
+
+# the floating panels' and native windows' rects (x y w h per line)
+# (SKIPNAME: leave out that panel's own window - a native one has a WIN line too;
+# FLOATONLY 1: leave out docked windows too - a floating panel draws over them)
+# (with FLOATONLY, only the windows in front of SKIPNAME's: the WZ line lists the
+# floating ones front to back - two floated to the same spot cover each other's
+# title bars, the front one is the one a press reaches)
+dk_float_rects() {
+    local front=""
+    if [[ "${2:-0}" == 1 && -n "${1:-}" ]]; then front=$(dk_wz_front "$1"); fi
+    { awk -v n="${1:-}" -v fr="$front" 'BEGIN {k = split(fr, a, " "); for (i = 1; i <= k; i++) f[a[i]] = 1}
+           $1=="P" && $2!=n && $3!=0 && $10!=0 && (fr == "" || ($2 in f)) {print $11, $12, $13, $14}' "$DK_DUMP"
+      awk -v n="${1:-}" -v fo="${2:-0}" -v fr="$front" 'BEGIN {k = split(fr, a, " "); for (i = 1; i <= k; i++) f[a[i]] = 1}
+           $1=="WIN" && $2!=n && (fo==0 || $7==0) && (fr == "" || ($2 in f)) {print $3, $4, $5, $6}' "$DK_DUMP"; } 2>/dev/null
+}
+# the floating windows in front of NAME (panel names; "-" = none in front, "" =
+# NAME is not in the WZ line, so z is unknown)
+dk_wz_front() {
+    awk -v n="$1" '$1=="WZ" {
+        m["mixer"] = "colormixer"; m["advcp"] = "advcolorpicker"; m["cs3d"] = "colorspace3d"; m["anim"] = "animation"
+        out = "-"
+        for (i = 3; i <= NF; i++) { nm = ($i in m) ? m[$i] : $i; if (nm == n) { print out; exit }; out = out " " nm }
+        exit }' "$DK_DUMP" 2>/dev/null
+}
+# (x, y) under a floating panel / window (within M px, default 0; SKIP = a
+# panel's name whose own window does not count; FLOATONLY 1 = only floating
+# windows count, for a floating panel's handle)
+dk_covered() {
+    local x=$1 y=$2 m=${3:-0} skip=${4:-} fo=${5:-0} fx fy fw fh
+    while read -r fx fy fw fh; do
+        [[ -z "$fx" ]] && continue
+        if (( x >= fx - m && x < fx + fw + m && y >= fy - m && y < fy + fh + m )); then return 0; fi
+    done < <(dk_float_rects "$skip" "$fo")
+    return 1
 }
 
 # a drop point for TARGET -> TX TY (1 = no such point)
@@ -81,17 +137,37 @@ dk_point() {
     case "$kind" in
         edge-left)  TX=2; TY=$(( (DOCK_TOP + DOCK_BOT) / 2 )) ;;
         edge-right) TX=$(( SCR_W - 3 )); TY=$(( (DOCK_TOP + DOCK_BOT) / 2 )) ;;
-        band-top)    TX=$(( (CAN_LX + CAN_RX) / 2 )); TY=$(( DOCK_TOP + 4 )) ;;
-        band-bottom) TX=$(( (CAN_LX + CAN_RX) / 2 )); TY=$(( DOCK_BOT - 4 )) ;;
+        band-top)    dk_rows; TX=$(( (CAN_LX + CAN_RX) / 2 )); TY=$(( R_Y1 + 4 )) ;;
+        band-bottom) dk_rows; TX=$(( (CAN_LX + CAN_RX) / 2 )); TY=$(( R_Y2 - 4 )) ;;
         float)
             if [[ -n "${2:-}" ]]; then TX=$2; TY=${3:-$2}; else TX=$(( (CAN_LX + CAN_RX) / 2 )); TY=$(( (DOCK_TOP + DOCK_BOT) / 2 )); fi ;;
-        newcol|above|below|tab|bottom)
+        newcol|above|below|tab|bottom|left|right)
             dk_p "$other" || return 1
             if (( P_SLOT == 0 )); then return 1; fi
             dk_slot "$P_SLOT"; dk_col "$S_COL"
             # not on screen (a hidden column, a collapsed / inactive slot): its rect is stale
             if (( S_VIS == 0 || C_VIS == 0 || ${C_HID:-0} != 0 )); then return 1; fi
+            # a row (side 3 top / 4 bottom): its slots lie side by side
+            if (( C_SIDE >= 3 )); then
+                case "$kind" in
+                    left)   TX=$(( S_X + S_W / 6 )); TY=$(( S_Y + S_H / 2 )) ;;
+                    right)  TX=$(( S_X + S_W - 1 - S_W / 6 )); TY=$(( S_Y + S_H / 2 )) ;;
+                    above)  TX=$(( S_X + S_W / 2 )); TY=$(( C_Y + 2 )) ;;
+                    below)  TX=$(( S_X + S_W / 2 )); TY=$(( C_Y + C_H - 3 )) ;;
+                    tab)    TX=$(( S_X + S_W / 2 )); TY=$(( S_Y + S_H / 2 )) ;;
+                    bottom|newcol)
+                        last=$C_X
+                        while read -r line; do
+                            read -r _ _ _ _ sy _ sh _ <<< "$line"
+                            if (( sy + sh > last )); then last=$(( sy + sh )); fi
+                        done < <(awk -v cc="$S_COL" '$1=="SLOT" && $3==cc && $9==-1' "$DK_DUMP")
+                        if (( C_X + C_W - last < 6 )); then return 1; fi
+                        TX=$(( (last + C_X + C_W) / 2 )); TY=$(( C_Y + C_H / 2 )) ;;
+                esac
+                return 0
+            fi
             case "$kind" in
+                left|right) return 1 ;;
                 newcol)
                     if (( C_SIDE == 1 )); then TX=$(( C_X + C_W - 3 )); else TX=$(( C_X + 2 )); fi
                     TY=$(( C_Y + C_H / 2 )) ;;
@@ -112,7 +188,39 @@ dk_point() {
     esac
 }
 
-dk_park() { dk_scr; hover $(( (CAN_LX + CAN_RX) / 2 )) $(( DOCK_BOT - 20 )); }
+# dk_rmenu NAME - right-click NAME's handle: its dock menu (M_OPEN M_PANEL M_X M_Y M_W M_N)
+dk_rmenu() {
+    dk_settle
+    if ! dk_grab_point "$1"; then fail "dk_rmenu: $1 has no handle"; return 1; fi
+    right_click "$GX" "$GY"; wait_for 0.6 "dock menu"; dk_settle
+    read -r _ M_OPEN M_PANEL _ M_X M_Y M_W M_N <<< "$(grep -m1 '^DMENU ' "$DK_DUMP")"
+}
+dk_menu_has() { awk -v v="$1" '$1=="DMENUR" && $3==v {f=1} END {exit !f}' "$DK_DUMP"; }
+# dk_pick VALUE LABEL - click the open dock menu's row with VALUE (DOCK_ACT_*)
+dk_pick() {
+    local row ry rh
+    row=$(awk -v v="$1" '$1=="DMENUR" && $3==v {print $4, $5; exit}' "$DK_DUMP")
+    if [[ -z "$row" ]]; then fail "$2: no dock menu row $1"; key Escape; return 1; fi
+    read -r ry rh <<< "$row"
+    click $(( M_X + 20 )) $(( ry + rh / 2 )); wait_for 0.9 "$2"; dk_park; dk_settle
+}
+
+# park the pointer on the bare canvas: the canvas center, 20px above the work
+# area's bottom (inside any top / bottom rows), else the first other spot no
+# floating panel or native window covers (a parked pointer over a floating bar
+# raises a tooltip that covers a row's seam)
+dk_park() {
+    local y1 y2 x y
+    dk_scr; dk_rows
+    y1=$DOCK_TOP; y2=$DOCK_BOT
+    if (( R_Y2 > R_Y1 )); then y1=$R_Y1; y2=$R_Y2; fi
+    for y in $(( y2 - 20 )) $(( y2 - 60 )) $(( (y1 + y2) / 2 )) $(( y1 + 20 )); do
+        for x in $(( (CAN_LX + CAN_RX) / 2 )) $(( CAN_LX + 20 )) $(( CAN_RX - 20 )) $(( (3 * CAN_LX + CAN_RX) / 4 )) $(( (CAN_LX + 3 * CAN_RX) / 4 )); do
+            if ! dk_covered "$x" "$y" 4; then hover "$x" "$y"; return 0; fi
+        done
+    done
+    hover $(( (CAN_LX + CAN_RX) / 2 )) $(( y2 - 20 ))
+}
 
 # slow drag (DRAW idles at 15 fps): press, travel, settle on the target, release
 dk_drag() {
@@ -130,7 +238,10 @@ dk_drag() {
 dk_move() {
     local name=$1; shift
     dk_settle
-    if ! dk_grab_point "$name"; then fail "dk_move: $name has no handle to grab"; return 1; fi
+    if ! dk_grab_point "$name"; then
+        fail "dk_move: $name has no handle to grab [$(grep -m1 "^P $name " "$DK_DUMP")] [covers: $(dk_float_rects "$name" | tr '\n' ';')]"
+        return 1
+    fi
     if ! dk_point "$@"; then fail "dk_move: no drop point for '$*'"; return 1; fi
     info "move $name: ($GX,$GY) -> $* ($TX,$TY)"
     dk_drag "$GX" "$GY" "$TX" "$TY"
@@ -180,7 +291,7 @@ dk_expect_stacked() {
 dk_check() {
     local label=$1 t names n dup bad="" line nm slot fl live x y w h
     t=$(dk_tree)
-    names=$(sed -E 's/(LEFT|RIGHT)\.[0-9]+://g; s/[|+;]/ /g' <<< "$t")
+    names=$(sed -E 's/(LEFT|RIGHT|TOP|BOTTOM)\.[0-9]+://g; s/[|+;]/ /g' <<< "$t")
     dup=$(tr ' ' '\n' <<< "$names" | grep -v '^$' | sort | uniq -d | tr '\n' ' ')
     if [[ -n "$dup" ]]; then bad+=" twice in the tree: $dup;"; fi
     while read -r line; do
@@ -208,12 +319,16 @@ dk_check() {
     done
     # 5: native windows where they are drawn never cover a docked panel other
     #    than their own slot (Rick: the layer text went under a docked Preview)
+    #    (except a window taller than the room between the top / bottom rows:
+    #    LAY_clamp lets an axis it is too big for go, so it can only lie over a row)
     local wl wn wx wy ww wh ws r
+    dk_rows
     while read -r wl; do
         read -r _ wn wx wy ww wh ws <<< "$wl"
         for r in "${rects[@]}"; do
             local b=($r) ox oy
             [[ "${b[0]}" == "$wn" ]] && continue
+            if (( ws == 0 && R_Y2 > R_Y1 && wh > R_Y2 - R_Y1 + 1 && (b[2] + b[4] <= R_Y1 || b[2] > R_Y2) )); then continue; fi
             ox=$(( (wx + ww < b[1] + b[3] ? wx + ww : b[1] + b[3]) - (wx > b[1] ? wx : b[1]) ))
             oy=$(( (wy + wh < b[2] + b[4] ? wy + wh : b[2] + b[4]) - (wy > b[2] ? wy : b[2]) ))
             if (( ox > 1 && oy > 1 )); then bad+=" window $wn covers ${b[0]} (${ox}x$oy);"; fi
@@ -250,8 +365,10 @@ dk_check() {
     # 3 + 4: the saved arrangement
     if grep -q '^DOCK_CUSTOM=1' "$QA_CFG" 2>/dev/null || grep -q '^DOCK_CUSTOM=-1' "$QA_CFG" 2>/dev/null; then
         local saved
-        saved=$(grep -E '^DOCK_(LEFT|RIGHT)_[0-9]+=' "$QA_CFG" | tr -d '\r' | sort -t_ -k2,2 -k3,3n | \
-            sed -E 's/^DOCK_(LEFT|RIGHT)_([0-9]+)=/\1.\2: /; s/(AUTO|WIDTH:[0-9]+); //; s/@[0-9]+//g; s/[*!]//g' | paste -sd';' | sed 's/;/ ; /g')
+        # (sides in the tree's order: LEFT, RIGHT, TOP, BOTTOM)
+        saved=$(grep -E '^DOCK_(LEFT|RIGHT|TOP|BOTTOM)_[0-9]+=' "$QA_CFG" | tr -d '\r' | \
+            awk -F_ '{ r = ($2 == "LEFT") ? 1 : ($2 == "RIGHT") ? 2 : ($2 == "TOP") ? 3 : 4; split($3, n, "="); print r, n[1], $0 }' | sort -k1,1n -k2,2n | cut -d' ' -f3- | \
+            sed -E 's/^DOCK_(LEFT|RIGHT|TOP|BOTTOM)_([0-9]+)=/\1.\2: /; s/(AUTO|WIDTH:[0-9]+|HEIGHT:[0-9]+); //; s/@[0-9]+//g; s/[*!]//g' | paste -sd';' | sed 's/;/ ; /g')
         local live_t; live_t=$(sed -E 's/ +/ /g' <<< "$t")
         saved=$(sed -E 's/ +/ /g' <<< "$saved")
         if [[ "$saved" != "$live_t" ]]; then bad+=" saved [$saved] != on screen [$live_t];"; fi
@@ -261,12 +378,8 @@ dk_check() {
             if [[ "$DK_NATIVE" == *" $nm "* ]]; then continue; fi
             if ! grep -qi "^DOCK_FLOAT_${nm}=" "$QA_CFG"; then bad+=" floating $nm not saved;"; fi
         done < <(grep '^P ' "$DK_DUMP")
-        # the Browser's band
-        dk_band
-        local sb; sb=$(grep -m1 '^DOCK_BAND=' "$QA_CFG" | tr -d '\r' | cut -d= -f2 | cut -d, -f1)
-        if (( B_SIDE == 1 )) && [[ "$sb" != TOP ]]; then bad+=" band top not saved ($sb);"; fi
-        if (( B_SIDE == 2 )) && [[ "$sb" != BOTTOM ]]; then bad+=" band bottom not saved ($sb);"; fi
-        if (( B_SIDE == 0 )) && [[ -n "$sb" ]]; then bad+=" a band saved ($sb) but none on screen;"; fi
+        # the old band key is never written again (it loads as a row)
+        if grep -q '^DOCK_BAND=' "$QA_CFG"; then bad+=" DOCK_BAND= still saved;"; fi
     fi
     if [[ -z "$bad" ]]; then pass "$label: invariants hold [$t]"; else fail "$label:$bad"; fi
     # 7: one border line on every column's inner edge (dk_seams)
@@ -306,14 +419,52 @@ dk_move_expect() {
         edge-left)  dk_expect_side "$name" 1 ;;
         edge-right) dk_expect_side "$name" 2 ;;
         newcol)     side=$(dk_side_of "$other"); dk_expect_side "$name" "${side:-0}" ;;
-        above)      dk_expect_stacked "$name" "$other" ;;
-        below)      dk_expect_stacked "$other" "$name" ;;
+        above)      if [[ "$(dk_side_of "$other")" -ge 3 ]] 2>/dev/null; then dk_expect_row_order "$name" "$other" above; else dk_expect_stacked "$name" "$other"; fi ;;
+        below)      if [[ "$(dk_side_of "$other")" -ge 3 ]] 2>/dev/null; then dk_expect_row_order "$name" "$other" below; else dk_expect_stacked "$other" "$name"; fi ;;
         tab)        dk_expect_tabs "$other" "$name" ;;
         bottom)     dk_expect_last "$name" "$other" ;;
         float)      dk_expect_floating "$name" ;;
-        band-top)    dk_expect_band 1 ;;
-        band-bottom) dk_expect_band 2 ;;
+        band-top)    dk_expect_row "$name" 3 ;;
+        band-bottom) dk_expect_row "$name" 4 ;;
+        left)        dk_expect_beside "$name" "$other" ;;
+        right)       dk_expect_beside "$other" "$name" ;;
     esac
+}
+
+# NAME docked in a row on SIDE (3 top, 4 bottom) and laid out; the canvas
+# shift is (top rows - bottom rows) / 2
+dk_expect_row() {
+    local s want; s=$(dk_side_of "$1"); dk_band; dk_rows
+    want=$(( (R_TOPH - R_BOTH) / 2 ))
+    if [[ "$s" == "$2" ]] && dk_visible "$1" && (( B_SHIFT == want )); then
+        pass "$1 in a row along the $( (( $2 == 3 )) && echo top || echo bottom ) (canvas shift $B_SHIFT)"
+    else
+        fail "$1 not in a row on side $2 (side '${s:-none}', shift $B_SHIFT, want $want) [$(dk_tree)]"
+    fi
+}
+
+# NAME's row directly above / below OTHER's row (a drop on a row's edge)
+dk_expect_row_order() {
+    local a=0 b=0 ya yb
+    if dk_p "$1"; then a=$P_SLOT; fi
+    if dk_p "$2"; then b=$P_SLOT; fi
+    if (( a == 0 || b == 0 )); then fail "$1 / $2 not both docked [$(dk_tree)]"; return 0; fi
+    dk_slot "$a"; dk_col "$S_COL"; ya=$C_Y; local ca=$S_COL sa=$C_SIDE
+    dk_slot "$b"; dk_col "$S_COL"; yb=$C_Y
+    if (( sa < 3 || ca == S_COL )); then fail "$1 not in a row of its own beside $2's row [$(dk_tree)]"; return 0; fi
+    if [[ "$3" == above ]] && (( ya < yb )); then pass "$1's row above $2's"; return 0; fi
+    if [[ "$3" == below ]] && (( ya > yb )); then pass "$1's row below $2's"; return 0; fi
+    fail "$1's row (y $ya) not $3 $2's (y $yb) [$(dk_tree)]"
+}
+
+# A directly left of B in one row
+dk_expect_beside() {
+    local a=0 b=0 ca cb oa ob
+    if dk_p "$1"; then a=$P_SLOT; fi
+    if dk_p "$2"; then b=$P_SLOT; fi
+    if (( a == 0 || b == 0 )); then fail "$1 / $2 not both docked [$(dk_tree)]"; return 0; fi
+    dk_slot "$a"; ca=$S_COL; oa=$S_ORD; dk_slot "$b"; cb=$S_COL; ob=$S_ORD
+    if (( ca == cb && ob == oa + 1 )); then pass "$1 beside $2 (left of it)"; else fail "$1 not directly left of $2 [$(dk_tree)]"; fi
 }
 
 # NAME is the last slot of OTHER's column
@@ -343,28 +494,37 @@ dk_fuzz() {
             other=${panels[RANDOM % ${#panels[@]}]}
             tries=$((tries + 1))
             [[ "$other" == "$src" && "$kind" != edge-* && "$kind" != float ]] && { (( tries < 50 )) && continue; kind=edge-left; }
-            # the Browser can also take its band
-            if [[ "$src" == browser ]] && (( RANDOM % 4 == 0 )); then
+            # any panel can take a row along the top / bottom (DK_FUZZ_ROWS=0: not)
+            if [[ "${DK_FUZZ_ROWS:-1}" != 0 ]] && (( RANDOM % 6 == 0 )); then
                 if (( RANDOM % 2 )); then kind=band-top; else kind=band-bottom; fi
             fi
             case "$kind" in edge-*|float|band-*) other="" ;; esac
             # targets that need OTHER docked, and a source that can be grabbed
             if [[ -n "$other" ]] && ! dk_visible "$other"; then (( tries < 50 )) && continue; kind=edge-right; other=""; fi
             if [[ "$kind" == bottom ]] && ! dk_point bottom "$other"; then (( tries < 50 )) && continue; kind=edge-left; other=""; fi
-            dk_grab_point "$src" && break
+            dk_visible "$src" && dk_grab_point "$src" && break
             (( tries < 50 )) || break
         done
+        # no docked panel to grab (fuzz 19 step 13: every panel floating, the
+        # one picked wholly under the Browser + Color Mixer): a floating one
+        # that can be grabbed, else skip - no move a user could make either
+        if ! { dk_visible "$src" && dk_grab_point "$src"; } && ! { dk_floating "$src" && dk_grab_point "$src"; }; then
+            local p2 alt=""
+            for p2 in "${panels[@]}"; do dk_floating "$p2" && dk_grab_point "$p2" && { alt=$p2; break; }; done
+            if [[ -z "$alt" ]]; then info "fuzz $seed step $i: no panel to grab - skipped"; continue; fi
+            src=$alt; [[ "$other" == "$src" ]] && { kind=edge-left; other=""; }
+        fi
         info "fuzz $seed step $i: $src $kind $other"
         dk_move_expect "$src" "$kind" $other
         dk_check "fuzz $seed step $i ($src $kind $other)"
     done
 }
 
-# the Browser in its band on SIDE (1 top, 2 bottom): laid out, not in the tree,
-# not floating, and the canvas shifted away from it
+# the Browser in a row on SIDE (1 top, 2 bottom - its old band): laid out, not
+# floating, and the canvas shifted away from it
 dk_expect_band() {
     dk_band; dk_p browser
-    if (( B_SIDE == $1 && B_H > 0 && P_SLOT == 0 && P_FL == 0 )) && { (( $1 == 1 && B_SHIFT > 0 )) || (( $1 == 2 && B_SHIFT < 0 )); }; then
+    if (( B_SIDE == $1 && B_H > 0 && P_SLOT > 0 && P_FL == 0 )) && { (( $1 == 1 && B_SHIFT > 0 )) || (( $1 == 2 && B_SHIFT < 0 )); }; then
         pass "browser in its band (side $1, y $B_Y, h $B_H, canvas shift $B_SHIFT)"
     else
         fail "browser not in band $1 (band side=$B_SIDE h=$B_H shift=$B_SHIFT; slot=$P_SLOT floating=$P_FL)"
@@ -428,21 +588,28 @@ dk_seams() {
             return 0
         }
         function line(c, beyond) { return lum(c) >= lum(beyond) + 16 && lum(c) >= seamlum - 8 }
+        # the rows (top / bottom docks): is (x, y) the T where the seam of row b meets a column seam, or inside a row?
+        function rowT(x, y,   b) { for (b = 1; b <= nb; b++) if (y == byb[b] && x >= bx[b] && x < bx[b] + bw[b]) return 1; return 0 }
+        # a side column seam starting just across a row seam (full-width rows): a T
+        function colT(x, y,   i, xi) { for (i = 1; i <= nc; i++) { xi = (cs[i] == 1) ? cx[i] + cw[i] - 1 : cx[i]; if (x == xi && y >= cy[i] && y < cy[i] + ch[i]) return 1 }; return 0 }
+        function inrow(x, y,   b) { for (b = 1; b <= nb; b++) if (y >= by[b] && y < by[b] + bh[b] && x >= bx[b] && x < bx[b] + bw[b]) return 1; return 0 }
         FNR == NR {
             if ($1 == "SCR") { clx = $4; crx = $5 }
             if ($1 == "SEAM") { seam[1] = $2; seam[2] = $3 }
-            if ($1 == "COL" && $9 != 0 && $10 == 0 && $7 > 0 && $8 > 0) { nc++; cid[nc] = $2; cs[nc] = $3; cx[nc] = $5; cy[nc] = $6; cw[nc] = $7; ch[nc] = $8 }
+            if ($1 == "COL" && $3 <= 2 && $9 != 0 && $10 == 0 && $7 > 0 && $8 > 0) { nc++; cid[nc] = $2; cs[nc] = $3; cx[nc] = $5; cy[nc] = $6; cw[nc] = $7; ch[nc] = $8 }
+            if ($1 == "COL" && $3 >= 3 && $9 != 0 && $10 == 0 && $7 > 0 && $8 > 0) { nb++; bid[nb] = $2; bs[nb] = $3 - 2; bx[nb] = $5; by[nb] = $6; bw[nb] = $7; bh[nb] = $8 }
             if ($1 == "P" && $10 != 0) { nr++; rx[nr] = $11; ry[nr] = $12; rw[nr] = $13; rh[nr] = $14 }
-            if ($1 == "WIN" && $7 == 0 && !(bs && $2 == "browser")) { nr++; rx[nr] = $3; ry[nr] = $4; rw[nr] = $5; rh[nr] = $6 }
+            if ($1 == "WIN" && $7 == 0) { nr++; rx[nr] = $3; ry[nr] = $4; rw[nr] = $5; rh[nr] = $6 }
             if ($1 == "POPUP") { nr++; rx[nr] = $3; ry[nr] = $4; rw[nr] = $5; rh[nr] = $6 }
+            # the line between side-by-side slots in a row meets its seam: a T, not a double
+            if ($1 == "SLOT" && $9 != 0) { sep[$3 "," ($5 - 1)] = 1; sep[$3 "," ($5 + $7)] = 1 }
             if ($1 == "MENU") { nr++; rx[nr] = $2; ry[nr] = $3; rw[nr] = $4; rh[nr] = $5 }
-            if ($1 == "BAND" && $2 != 0 && $5 > 0 && $6 > 0) { bs = $2; bx = $3; by = $4; bw = $5; bh = $6 }
             next
         }
         FNR == 1 { if (seam[1] == "" && SC != "") split(SC, seam, " ")
                    for (i = 1; i <= nc; i++) { d = (cs[i] == 1) ? 1 : -1; xi = (cs[i] == 1) ? cx[i] + cw[i] - 1 : cx[i]
                        for (k = -3; k <= 3; k++) want[xi + k * d] = 1 }
-                   if (bs) { byb = (bs == 1) ? by + bh - 1 : by; for (k = -3; k <= 3; k++) wantrow[byb + k] = 1 } }
+                   for (b = 1; b <= nb; b++) { byb[b] = (bs[b] == 1) ? by[b] + bh[b] - 1 : by[b]; for (k = -3; k <= 3; k++) wantrow[byb[b] + k] = 1 } }
         /^[0-9]/ { split($1, p, /[,:]/); x = p[1] + 0; y = p[2] + 0; if (!(x in want) && !(y in wantrow)) next
                    c = $3; sub(/^#/, "", c); px[x "," y] = substr(c, 1, 6) }
         END {
@@ -458,13 +625,13 @@ dk_seams() {
                     why = ""; fl = 0
                     # (the band seam row meets this seam: a T, not a double;
                     # rows past H were not captured)
-                    if (y < cy[i] + ch[i] && y < H && !covered(y, xi - 3, xi + 3) && !(bs && y == byb && xn >= bx && xn < bx + bw)) {
+                    if (y < cy[i] + ch[i] && y < H && !covered(y, xi - 3, xi + 3) && !rowT(xn, y)) {
                         a = px[xin "," y]; b = px[xi "," y]; n = px[xn "," y]
                         if (b != S) why = "no seam (" b ")"
                         else if (a == S) why = "seam doubled inside (" a ")"
                         else if (xn >= 0 && xn < W && n == S) why = "seam doubled across (" n ")"
                         else if (line(a, px[(xin - d) "," y])) { why = "a frame line beside the seam inside (" a ")"; fl = 1 }
-                        else if ((incol || (bs && y >= by && y < by + bh && xn >= bx && xn < bx + bw)) && line(n, px[(xn + d) "," y])) { why = "a frame line beside the seam across (" n ")"; fl = 1 }
+                        else if ((incol || inrow(xn, y)) && line(n, px[(xn + d) "," y])) { why = "a frame line beside the seam across (" n ")"; fl = 1 }
                     }
                     # a frame line runs down the edge: count it from 8 rows on
                     # (a marker or an icon touching the edge is a few rows)
@@ -476,18 +643,18 @@ dk_seams() {
                 if (bad) out = out sprintf(" col %s (side %d x %d): %d rows bad, first %s;", cid[i], s, xi, bad, first)
                 cnt++
             }
-            # the Browser band: one seam row on its canvas side
-            if (bs) {
-                S = seam[1]; seamlum = lum(S); d = (bs == 1) ? 1 : -1
-                yb = (bs == 1) ? by + bh - 1 : by; yn = yb + d; yin = yb - d
+            # each top / bottom row: one seam row on its canvas side
+            for (r = 1; r <= nb; r++) {
+                S = seam[1]; seamlum = lum(S); d = (bs[r] == 1) ? 1 : -1
+                yb = byb[r]; yn = yb + d; yin = yb - d
                 bad = 0; first = ""; run = 0
-                for (x = bx + 2; x <= bx + bw - 2; x++) {
+                for (x = bx[r] + 2; x <= bx[r] + bw[r] - 2; x++) {
                     why = ""; fl = 0
-                    if (x < bx + bw - 2 && !covered2(x, yb - 3, yb + 3)) {
+                    if (x < bx[r] + bw[r] - 2 && !covered2(x, yb - 3, yb + 3) && !((bid[r] "," x) in sep)) {
                         a = px[x "," yin]; b = px[x "," yb]; n = px[x "," yn]
                         if (b != S) why = "no seam (" b ")"
                         else if (a == S) why = "seam doubled inside (" a ")"
-                        else if (n == S) why = "seam doubled across (" n ")"
+                        else if (n == S && !inrow(x, yn) && !colT(x, yn)) why = "seam doubled across (" n ")"
                         else if (line(a, px[x "," (yin - d)])) { why = "a frame line beside the seam inside (" a ")"; fl = 1 }
                     }
                     if (fl) { if (run == 0) { runx = x; runwhy = why }; run++; continue }
@@ -495,12 +662,14 @@ dk_seams() {
                     run = 0
                     if (why != "") { bad++; if (first == "") first = "x " x ": " why }
                 }
-                if (bad) out = out sprintf(" band (side %d y %d): %d px bad, first %s;", bs, yb, bad, first)
+                if (bad) out = out sprintf(" row %s (side %d y %d): %d px bad, first %s;", bid[r], bs[r] + 2, yb, bad, first)
                 cnt++
             }
             printf "%d|%s", cnt, out
         }' "$DK_DUMP" "$txt")
     rm -f "$txt"
-    if [[ -z "${res#*|}" ]]; then pass "$label: seams ok (${res%%|*} edges)"
+    # an empty result is the awk failing (a quote in its text, say), never a pass
+    if [[ -z "$res" ]]; then fail "$label: seam check printed nothing (awk error?)"
+    elif [[ -z "${res#*|}" ]]; then pass "$label: seams ok (${res%%|*} edges)"
     else cp -f "$DK_DUMP" "${png%.png}.dump" 2>/dev/null; fail "$label: seams:${res#*|} [snap $(basename "$png") + .dump]"; fi
 }

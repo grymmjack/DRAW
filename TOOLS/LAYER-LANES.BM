@@ -1,0 +1,676 @@
+$INCLUDEONCE
+' =============================================================================
+' TOOLS/LAYER-LANES.BM - keyframe lanes on pixel layers and groups (see
+' LAYER-LANES.BI). The lanes live in a table by layer historyId in the clip
+' encoding (TOOLS/CLIP-MATH: 8-byte keys, rel = frame - 1); the layer is shown
+' through LL_IMG(slot), a copy of its pixels with each frame cell drawn through
+' that frame's lanes (its own, then each enclosing group's), clipped to the
+' cell. The renderer (OUTPUT/SCREEN.BM RENDER_layers) and LAYERS_flatten&
+' (every export) read LL_src& / LL_flat_src& instead of the layer's pixels.
+' =============================================================================
+
+' ---------------------------------------------------------------------------
+' The table
+' ---------------------------------------------------------------------------
+
+''
+' A new / opened document: no lanes (AB_new_document, every document path).
+SUB LL_new_document ()
+    DIM i AS INTEGER, L AS INTEGER
+    FOR i = 1 TO LL_N
+        LL_ID(i) = 0: LL_TINT(i) = &HFFFFFFFF~&
+        FOR L = 1 TO LL_LANES: LL_KEYS(i, L) = "": LL_MOD(i, L) = "": NEXT L
+    NEXT i
+    LL_N = 0
+    LL_free_all
+    LL_GEN = LL_GEN + 1
+    ANIM_XL_OPEN = "" ' (the X-sheet's open lanes belong to the old document)
+    ANIM_XW.drag = 0: ANIM_XW.hover = 0: ANIM_XW.tip = "": ANIM_XW.bbKey = "" ' (TOOLS/ANIM-XWIDGET)
+    ANIM_XL_ARM_IDS = "": ANIM_XL_REC_ON = 0: ANIM_XL_REC_BEFORE = "": ANIM_XL_LIVE_SLOT = 0 ' (and its armed layers)
+    ANIM_XL_SEL_ON = 0: ANIM_XL_SEL_ROWS = "": ANIM_XL_SEL_F1 = 0: ANIM_XL_SEL_F2 = 0 ' (and its key selection)
+END SUB
+
+SUB LL_free_all ()
+    DIM i AS INTEGER
+    FOR i = 1 TO MAX_LAYERS
+        IF LL_IMG(i) < -1 THEN _FREEIMAGE LL_IMG(i)
+        LL_IMG(i) = 0: LL_DSIG(i) = ""
+    NEXT i
+END SUB
+
+''
+' The entry of layer id (0 none; make = add one when there is room).
+FUNCTION LL_find% (id AS LONG, make AS INTEGER)
+    DIM i AS INTEGER, L AS INTEGER
+    IF id = 0 THEN EXIT FUNCTION
+    FOR i = 1 TO LL_N
+        IF LL_ID(i) = id THEN LL_find% = i: EXIT FUNCTION
+    NEXT i
+    IF make = 0 THEN EXIT FUNCTION
+    FOR i = 1 TO LL_N ' an emptied entry first
+        IF LL_ID(i) = 0 THEN EXIT FOR
+    NEXT i
+    IF i > LL_N THEN
+        IF LL_N >= LL_MAX THEN EXIT FUNCTION
+        LL_N = LL_N + 1: i = LL_N
+    END IF
+    LL_ID(i) = id: LL_TINT(i) = &HFFFFFFFF~&
+    FOR L = 1 TO LL_LANES: LL_KEYS(i, L) = "": LL_MOD(i, L) = "": NEXT L
+    LL_find% = i
+END FUNCTION
+
+''
+' Can layer slot have lanes of its own: a pixel / text / image layer or a
+' group (a clip layer has the clip's lanes, TOOLS/CLIP).
+FUNCTION LL_can% (slot AS INTEGER)
+    IF slot < 1 _ORELSE slot > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(slot).imgHandle& = 0 _ORELSE LAYERS(slot).layerType% = LAYER_TYPE_CLIP THEN EXIT FUNCTION
+    LL_can% = TRUE
+END FUNCTION
+
+''
+' Layer slot's entry (0 none, or not a layer that has lanes).
+FUNCTION LL_of% (slot AS INTEGER)
+    IF LL_N = 0 _ORELSE LL_can%(slot) = 0 THEN EXIT FUNCTION
+    LL_of% = LL_find%(LAYERS(slot).historyId&, FALSE)
+END FUNCTION
+
+''
+' Entry e has a lane in use (keys or a modulator).
+FUNCTION LL_has% (e AS INTEGER)
+    DIM L AS INTEGER
+    IF e < 1 _ORELSE e > LL_N THEN EXIT FUNCTION
+    IF LL_ID(e) = 0 THEN EXIT FUNCTION
+    FOR L = 1 TO LL_LANES
+        IF LEN(LL_KEYS(e, L)) _ORELSE LEN(LL_MOD(e, L)) THEN LL_has% = TRUE: EXIT FUNCTION
+    NEXT L
+END FUNCTION
+
+FUNCTION LL_used% (e AS INTEGER, L AS INTEGER)
+    IF e < 1 _ORELSE e > LL_N _ORELSE L < 1 _ORELSE L > LL_LANES THEN EXIT FUNCTION
+    LL_used% = (LEN(LL_KEYS(e, L)) > 0 _ORELSE LEN(LL_MOD(e, L)) > 0)
+END FUNCTION
+
+''
+' A lane's value with no keys: SCALE / OPACITY 100, the pivot the frame's
+' middle, the rest 0.
+FUNCTION LL_default! (L AS INTEGER)
+    SELECT CASE L
+        CASE CLIP_LANE_SX, CLIP_LANE_SY, CLIP_LANE_OP: LL_default! = 100
+        CASE CLIP_LANE_PIXELATE: LL_default! = 1
+        CASE CLIP_LANE_PVX: LL_default! = ANIM.frameW / 2
+        CASE CLIP_LANE_PVY: LL_default! = ANIM.frameH / 2
+    END SELECT
+END FUNCTION
+
+''
+' Lane L of entry e at frame f: the keyed value (or the default) plus the modulator.
+FUNCTION LL_value! (e AS INTEGER, L AS INTEGER, f AS INTEGER)
+    DIM v AS SINGLE, r AS SINGLE
+    IF L < 1 _ORELSE L > LL_LANES THEN EXIT FUNCTION
+    IF e < 1 _ORELSE e > LL_N THEN LL_value! = LL_default!(L): EXIT FUNCTION
+    v = CLIP_lane_keyed!(LL_KEYS(e, L), f - 1, LL_default!(L))
+    IF LEN(LL_MOD(e, L)) THEN r = f - 1: v = v + CLIP_mod_lane!(LL_KEYS(e, L), LL_MOD(e, L), r)
+    LL_value! = v
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Blobs: undo states and the drLL chunk
+' ---------------------------------------------------------------------------
+
+''
+' Entry e's lanes: tint, count, then per lane in use: lane, keys, modulator
+' (each length first) - CLIP_lanes_blob$'s layout.
+FUNCTION LL_blob$ (e AS INTEGER)
+    DIM L AS INTEGER, n AS INTEGER, s AS STRING
+    IF e < 1 _ORELSE e > LL_N THEN EXIT FUNCTION
+    FOR L = 1 TO LL_LANES
+        IF LEN(LL_KEYS(e, L)) _ORELSE LEN(LL_MOD(e, L)) THEN
+            n = n + 1
+            s = s + MKI$(L) + MKI$(LEN(LL_KEYS(e, L))) + LL_KEYS(e, L) + MKI$(LEN(LL_MOD(e, L))) + LL_MOD(e, L)
+        END IF
+    NEXT L
+    LL_blob$ = MKL$(LL_TINT(e)) + MKI$(n) + s
+END FUNCTION
+
+SUB LL_from_blob (e AS INTEGER, b AS STRING)
+    DIM n AS INTEGER, j AS INTEGER, p AS LONG, L AS INTEGER, kl AS INTEGER, ml AS INTEGER
+    IF e < 1 _ORELSE e > LL_N THEN EXIT SUB
+    FOR L = 1 TO LL_LANES: LL_KEYS(e, L) = "": LL_MOD(e, L) = "": NEXT L
+    LL_TINT(e) = &HFFFFFFFF~&
+    IF LEN(b) < 6 THEN EXIT SUB
+    LL_TINT(e) = CVL(LEFT$(b, 4))
+    n = CVI(MID$(b, 5, 2)): p = 7
+    FOR j = 1 TO n
+        IF p + 3 > LEN(b) THEN EXIT FOR
+        L = CVI(MID$(b, p, 2)): kl = CVI(MID$(b, p + 2, 2))
+        IF kl < 0 _ORELSE p + 5 + kl > LEN(b) THEN EXIT FOR
+        ml = CVI(MID$(b, p + 4 + kl, 2))
+        IF ml < 0 _ORELSE p + 5 + kl + ml > LEN(b) THEN EXIT FOR
+        IF L >= 1 _ANDALSO L <= LL_LANES THEN
+            LL_KEYS(e, L) = MID$(b, p + 4, kl - (kl MOD 8))
+            IF ml >= 20 THEN LL_MOD(e, L) = MID$(b, p + 6 + kl, ml)
+        END IF
+        p = p + 6 + kl + ml
+    NEXT j
+END SUB
+
+''
+' The undo state of layer slot's lanes ("" = none).
+FUNCTION LL_state$ (slot AS INTEGER)
+    DIM e AS INTEGER
+    e = LL_of%(slot)
+    IF LL_has%(e) THEN LL_state$ = LL_blob$(e)
+END FUNCTION
+
+''
+' Undo / redo: put back an LL_state$ on the layer with historyId id.
+SUB LL_history_apply (id AS LONG, st AS STRING)
+    DIM e AS INTEGER
+    IF LEN(st) = 0 THEN
+        e = LL_find%(id, FALSE)
+        IF e THEN LL_from_blob e, "": LL_ID(e) = 0
+    ELSE
+        e = LL_find%(id, TRUE)
+        IF e THEN LL_from_blob e, st
+    END IF
+    LL_changed
+END SUB
+
+''
+' One undo step for a lane edit on layer slot (its lanes before -> now).
+SUB LL_record (slot AS INTEGER, before AS STRING, label AS STRING)
+    IF HISTORY_IN_PROGRESS% THEN EXIT SUB
+    HISTORY_record_layer_lanes LAYERS(slot).historyId&, slot, before, LL_state$(slot), label
+    HISTORY_saved_this_frame% = TRUE
+END SUB
+
+''
+' A lane changed: every display is rebuilt at the next LL_tick%.
+SUB LL_changed ()
+    LL_GEN = LL_GEN + 1
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Drop the entries of layers that are gone and the empty ones.
+SUB LL_prune ()
+    DIM i AS INTEGER, s AS INTEGER, live AS INTEGER
+    FOR i = 1 TO LL_N
+        IF LL_ID(i) <> 0 THEN
+            live = FALSE
+            FOR s = 1 TO MAX_LAYERS
+                IF LAYERS(s).imgHandle& <> 0 _ANDALSO LAYERS(s).historyId& = LL_ID(i) THEN live = LL_can%(s): EXIT FOR
+            NEXT s
+            IF live = 0 _ORELSE LL_has%(i) = 0 THEN LL_from_blob i, "": LL_ID(i) = 0
+        END IF
+    NEXT i
+    DO WHILE LL_N > 0
+        IF LL_ID(LL_N) <> 0 THEN EXIT DO
+        LL_N = LL_N - 1
+    LOOP
+END SUB
+
+''
+' Layer slot's entry let go when it has no lane left (after an edit).
+SUB LL_prune_one (slot AS INTEGER)
+    DIM e AS INTEGER
+    e = LL_of%(slot)
+    IF e = 0 THEN EXIT SUB
+    IF LL_has%(e) = 0 THEN LL_from_blob e, "": LL_ID(e) = 0
+END SUB
+
+''
+' The drLL chunk: version, count, then per entry historyId + its blob (length
+' first), deflated after the raw length. "" = no lanes (no chunk).
+FUNCTION LL_chunk$ ()
+    DIM i AS INTEGER, n AS INTEGER, s AS STRING, b AS STRING, raw AS STRING
+    FOR i = 1 TO LL_N
+        IF LL_has%(i) THEN
+            b = LL_blob$(i)
+            s = s + MKL$(LL_ID(i)) + MKL$(LEN(b)) + b: n = n + 1
+        END IF
+    NEXT i
+    IF n = 0 THEN EXIT FUNCTION
+    raw = MKI$(LL_CHUNK_VERSION) + MKI$(n) + s
+    LL_chunk$ = MKL$(LEN(raw)) + _DEFLATE$(raw)
+END FUNCTION
+
+SUB LL_read_chunk (c AS STRING)
+    DIM raw AS STRING, n AS INTEGER, j AS INTEGER, p AS LONG, id AS LONG, bl AS LONG, e AS INTEGER
+    IF LEN(c) < 5 THEN EXIT SUB
+    raw = _INFLATE$(MID$(c, 5), CVL(LEFT$(c, 4)))
+    IF LEN(raw) < 4 THEN EXIT SUB
+    IF CVI(LEFT$(raw, 2)) < 1 THEN EXIT SUB ' (a later version keeps this layout and adds after it)
+    n = CVI(MID$(raw, 3, 2)): p = 5
+    FOR j = 1 TO n
+        IF p + 7 > LEN(raw) THEN EXIT FOR
+        id = CVL(MID$(raw, p, 4)): bl = CVL(MID$(raw, p + 4, 4))
+        IF bl < 0 _ORELSE p + 7 + bl > LEN(raw) THEN EXIT FOR
+        e = LL_find%(id, TRUE)
+        IF e THEN LL_from_blob e, MID$(raw, p + 8, bl)
+        p = p + 8 + bl
+    NEXT j
+    LL_prune
+    LL_changed
+END SUB
+
+' ---------------------------------------------------------------------------
+' The display copies
+' ---------------------------------------------------------------------------
+
+''
+' Fill lc() with the entries whose lanes apply to layer slot's pixels -
+' its own, then each enclosing group's, inner to outer; returns how many.
+FUNCTION LL_chain% (slot AS INTEGER, lc() AS INTEGER)
+    DIM n AS INTEGER, e AS INTEGER, p AS INTEGER, d AS INTEGER
+    IF LL_N = 0 _ORELSE ANIM.active = 0 THEN EXIT FUNCTION
+    IF slot < 1 _ORELSE slot > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(slot).imgHandle& >= -1 _ORELSE LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN EXIT FUNCTION
+    e = LL_of%(slot)
+    IF LL_has%(e) THEN n = n + 1: lc(n) = e
+    p = LAYERS(slot).parentGroupIdx%
+    DO WHILE p > 0 _ANDALSO p <= MAX_LAYERS _ANDALSO d < 8
+        e = LL_of%(p)
+        IF LL_has%(e) _ANDALSO n < 9 THEN n = n + 1: lc(n) = e
+        p = LAYERS(p).parentGroupIdx%: d = d + 1
+    LOOP
+    LL_chain% = n
+END FUNCTION
+
+''
+' Does any lane apply to layer slot's pixels?
+FUNCTION LL_affects% (slot AS INTEGER)
+    DIM lc(1 TO 9) AS INTEGER
+    LL_affects% = (LL_chain%(slot, lc()) > 0)
+END FUNCTION
+
+''
+' What layer slot's display depends on (rebuilt when it changes).
+FUNCTION LL_sig$ (slot AS INTEGER)
+    DIM s AS STRING, p AS INTEGER, d AS INTEGER
+    s = MKL$(LL_GEN) + MKL$(LAYERS(slot).imgHandle&) + MKI$(LAYERS(slot).apronW%) + MKI$(LAYERS(slot).apronH%)
+    s = s + CLIP_layout_sig$ + MKI$(HISTORY.current%) + MKI$(HISTORY.count%) + MKL$(HISTORY.nextSequence)
+    p = LAYERS(slot).parentGroupIdx%
+    DO WHILE p > 0 _ANDALSO p <= MAX_LAYERS _ANDALSO d < 8
+        s = s + MKL$(LAYERS(p).historyId&)
+        p = LAYERS(p).parentGroupIdx%: d = d + 1
+    LOOP
+    LL_sig$ = s
+END FUNCTION
+
+''
+' Is entry e at frame f the identity (nothing to do: no move, no effect)?
+FUNCTION LL_identity% (e AS INTEGER, f AS INTEGER)
+    IF LL_still%(e, f) = 0 _ORELSE LL_fx_none%(e, f) = 0 THEN EXIT FUNCTION
+    LL_identity% = TRUE
+END FUNCTION
+
+''
+' No move at all (X / Y / scale / turn / fade / tint) at frame f?
+FUNCTION LL_still% (e AS INTEGER, f AS INTEGER)
+    IF CINT(LL_value!(e, CLIP_LANE_X, f)) <> 0 _ORELSE CINT(LL_value!(e, CLIP_LANE_Y, f)) <> 0 THEN EXIT FUNCTION
+    IF LL_plain%(e, f) = 0 THEN EXIT FUNCTION
+    LL_still% = TRUE
+END FUNCTION
+
+''
+' Entry e's effect lanes at frame f, each clamped to its range: pixelate block
+' (1 none), blur radius, noise, invert (0 none).
+SUB LL_fx_vals (e AS INTEGER, f AS INTEGER, px AS INTEGER, bl AS INTEGER, nz AS INTEGER, iv AS INTEGER)
+    px = 1: bl = 0: nz = 0: iv = 0
+    IF e < 1 _ORELSE e > LL_N THEN EXIT SUB
+    IF LEN(LL_KEYS(e, CLIP_LANE_PIXELATE)) _ORELSE LEN(LL_MOD(e, CLIP_LANE_PIXELATE)) THEN px = CLIP_lane_clamp!(CLIP_LANE_PIXELATE, LL_value!(e, CLIP_LANE_PIXELATE, f))
+    IF LEN(LL_KEYS(e, CLIP_LANE_BLUR)) _ORELSE LEN(LL_MOD(e, CLIP_LANE_BLUR)) THEN bl = CLIP_lane_clamp!(CLIP_LANE_BLUR, LL_value!(e, CLIP_LANE_BLUR, f))
+    IF LEN(LL_KEYS(e, CLIP_LANE_NOISE)) _ORELSE LEN(LL_MOD(e, CLIP_LANE_NOISE)) THEN nz = CINT(CLIP_lane_clamp!(CLIP_LANE_NOISE, LL_value!(e, CLIP_LANE_NOISE, f)))
+    IF LEN(LL_KEYS(e, CLIP_LANE_INVERT)) _ORELSE LEN(LL_MOD(e, CLIP_LANE_INVERT)) THEN iv = CINT(CLIP_lane_clamp!(CLIP_LANE_INVERT, LL_value!(e, CLIP_LANE_INVERT, f)))
+END SUB
+
+''
+' No effect lane changes entry e's pixels at frame f?
+FUNCTION LL_fx_none% (e AS INTEGER, f AS INTEGER)
+    DIM px AS INTEGER, bl AS INTEGER, nz AS INTEGER, iv AS INTEGER
+    LL_fx_vals e, f, px, bl, nz, iv
+    LL_fx_none% = (px <= 1 _ANDALSO bl <= 0 _ANDALSO nz <= 0 _ANDALSO iv <= 0)
+END FUNCTION
+
+''
+' The NOISE lane's grain at frame f: a new one every frame, or - from a key
+' marked CLIP_KF_FROZEN - the key's own, held until the next key. Each layer
+' has its own grain (its historyId in the seed).
+FUNCTION LL_noise_seed& (e AS INTEGER, f AS INTEGER)
+    DIM ks AS STRING, i AS INTEGER, t AS LONG
+    t = f
+    ks = LL_KEYS(e, CLIP_LANE_NOISE)
+    i = CLIP_lk_at_or_before%(ks, f - 1)
+    IF i THEN IF CLIP_lk_fl%(ks, i) AND CLIP_KF_FROZEN THEN t = CLIP_lk_f%(ks, i) + 1
+    LL_noise_seed& = (t * 7919& + (LL_ID(e) AND &HFFFF&) * 31&) AND &H7FFFFFFF&
+END FUNCTION
+
+''
+' Entry e's effect lanes at frame f on img (one frame cell), in place:
+' pixelate, then blur (it spreads the alpha: soft edges), noise, invert.
+SUB LL_fx (e AS INTEGER, f AS INTEGER, img AS LONG)
+    DECLARE LIBRARY "../native/lanefx"
+        SUB gj_lfx_pixelate (BYVAL buf AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL bs AS LONG)
+        SUB gj_lfx_invert (BYVAL buf AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL pct AS LONG)
+        SUB gj_lfx_noise (BYVAL buf AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL amount AS LONG, BYVAL seed AS LONG)
+    END DECLARE
+    DIM px AS INTEGER, bl AS INTEGER, nz AS INTEGER, iv AS INTEGER, m AS _MEM, t AS LONG, w AS LONG, h AS LONG
+    IF img >= -1 THEN EXIT SUB
+    LL_fx_vals e, f, px, bl, nz, iv
+    IF px <= 1 _ANDALSO bl <= 0 _ANDALSO nz <= 0 _ANDALSO iv <= 0 THEN EXIT SUB
+    w = _WIDTH(img): h = _HEIGHT(img)
+    IF px > 1 THEN m = _MEMIMAGE(img): gj_lfx_pixelate m.OFFSET, w, h, px: _MEMFREE m
+    IF bl > 0 THEN
+        t = IMAGE_ADJ_blur_premul_rgba&(img, bl)
+        IF t < -1 THEN
+            _DONTBLEND img: _PUTIMAGE (0, 0), t, img: _BLEND img
+            _FREEIMAGE t
+        END IF
+    END IF
+    IF nz > 0 THEN m = _MEMIMAGE(img): gj_lfx_noise m.OFFSET, w, h, nz, LL_noise_seed&(e, f): _MEMFREE m
+    IF iv > 0 THEN m = _MEMIMAGE(img): gj_lfx_invert m.OFFSET, w, h, iv: _MEMFREE m
+END SUB
+
+''
+' Only a move (no scale / turn / fade / tint) at frame f?
+FUNCTION LL_plain% (e AS INTEGER, f AS INTEGER)
+    IF ABS(LL_value!(e, CLIP_LANE_SX, f) - 100) > .01 _ORELSE ABS(LL_value!(e, CLIP_LANE_SY, f) - 100) > .01 THEN EXIT FUNCTION
+    IF ABS(LL_value!(e, CLIP_LANE_ROT, f)) > .01 _ORELSE LL_value!(e, CLIP_LANE_OP, f) < 99.99 _ORELSE LL_value!(e, CLIP_LANE_TINT, f) > .01 THEN EXIT FUNCTION
+    LL_plain% = TRUE
+END FUNCTION
+
+''
+' src (a frame cell, cleared around its picture) through entry e's lanes at
+' frame f into dest (cleared here): X / Y whole pixels, scale and turn about
+' the pivot, opacity, tint - CLIP_draw_cel_xf's maths (XF_draw).
+SUB LL_xf (e AS INTEGER, f AS INTEGER, src AS LONG, dest AS LONG)
+    DIM ox AS LONG, oy AS LONG, pvx AS SINGLE, pvy AS SINGLE, z0 AS SINGLE, oldD AS LONG
+    oldD = _DEST
+    _DEST dest: CLS , _RGBA32(0, 0, 0, 0): _DEST oldD
+    ox = INT(LL_value!(e, CLIP_LANE_X, f) + .5): oy = INT(LL_value!(e, CLIP_LANE_Y, f) + .5)
+    IF LL_plain%(e, f) THEN
+        _DONTBLEND dest
+        _PUTIMAGE (ox, oy), src, dest
+        _BLEND dest
+        EXIT SUB
+    END IF
+    pvx = LL_value!(e, CLIP_LANE_PVX, f): pvy = LL_value!(e, CLIP_LANE_PVY, f)
+    XF_draw src, dest, ox + pvx, oy + pvy, pvx, pvy, LL_value!(e, CLIP_LANE_SX, f) / 100, LL_value!(e, CLIP_LANE_SY, f) / 100, LL_value!(e, CLIP_LANE_ROT, f) * _PI / 180, z0, z0, z0, LL_value!(e, CLIP_LANE_OP, f) / 100, LL_value!(e, CLIP_LANE_TINT, f) / 100, LL_TINT(e), FALSE
+END SUB
+
+''
+' (Re)build layer slot's display: every frame cell (onlyF = 0; the gutters
+' and margins copied as they are) or just cell onlyF.
+SUB LL_build (slot AS INTEGER, onlyF AS INTEGER)
+    DIM lc(1 TO 9) AS INTEGER, n AS INTEGER, img AS LONG, dst AS LONG, w AS LONG, h AS LONG
+    DIM f AS INTEGER, f1 AS INTEGER, f2 AS INTEGER, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, aw AS INTEGER, ah AS INTEGER
+    DIM ta AS LONG, tb AS LONG, j AS INTEGER, moved AS INTEGER, oldD AS LONG
+    n = LL_chain%(slot, lc())
+    img = LAYERS(slot).imgHandle&
+    IF n = 0 _ORELSE img >= -1 THEN EXIT SUB
+    w = _WIDTH(img): h = _HEIGHT(img)
+    dst = LL_IMG(slot)
+    IF dst < -1 THEN
+        IF _WIDTH(dst) <> w _ORELSE _HEIGHT(dst) <> h THEN _FREEIMAGE dst: dst = 0
+    END IF
+    IF dst >= -1 THEN dst = _NEWIMAGE(w, h, 32): LL_IMG(slot) = dst: onlyF = 0
+    IF dst >= -1 THEN LL_IMG(slot) = 0: EXIT SUB
+    aw = LAYERS(slot).apronW%: ah = LAYERS(slot).apronH%
+    oldD = _DEST
+    IF onlyF = 0 THEN
+        _DONTBLEND dst: _PUTIMAGE (0, 0), img, dst: _BLEND dst
+        f1 = 1: f2 = ANIM.count
+    ELSE
+        f1 = onlyF: f2 = onlyF
+    END IF
+    fw = ANIM.frameW: fh = ANIM.frameH
+    IF fw > 0 _ANDALSO fh > 0 THEN
+        ta = _NEWIMAGE(fw, fh, 32): tb = _NEWIMAGE(fw, fh, 32)
+        IF ta < -1 _ANDALSO tb < -1 THEN
+            FOR f = f1 TO f2
+                IF ANIM_cell_rect%(f, fx, fy, fw, fh) THEN
+                    moved = FALSE
+                    FOR j = 1 TO n
+                        IF LL_identity%(lc(j), f) = 0 THEN moved = TRUE: EXIT FOR
+                    NEXT j
+                    _DEST ta: CLS , _RGBA32(0, 0, 0, 0): _DEST oldD
+                    _DONTBLEND ta
+                    _PUTIMAGE (0, 0), img, ta, (fx + aw, fy + ah)-(fx + aw + fw - 1, fy + ah + fh - 1)
+                    _BLEND ta
+                    IF moved THEN ' each entry (the layer's, then its groups'): its move, then its effects
+                        FOR j = 1 TO n
+                            IF LL_still%(lc(j), f) = 0 THEN LL_xf lc(j), f, ta, tb: SWAP ta, tb
+                            LL_fx lc(j), f, ta
+                        NEXT j
+                    END IF
+                    _DONTBLEND dst
+                    _PUTIMAGE (fx + aw, fy + ah), ta, dst
+                    _BLEND dst
+                    IF onlyF THEN COMP_mark_dirty fx, fy, fx + fw - 1, fy + fh - 1
+                END IF
+            NEXT f
+        END IF
+        IF ta < -1 THEN _FREEIMAGE ta
+        IF tb < -1 THEN _FREEIMAGE tb
+    END IF
+    _DEST oldD
+    ' the renderer's per-layer caches were cut from the old picture
+    LAYERS(slot).apronCacheValid% = FALSE
+    LAYERS(slot).opacityCacheVal% = -1
+    IF onlyF = 0 THEN COMP_mark_dirty 0, 0, SCRN.canvasW& - 1, SCRN.canvasH& - 1
+END SUB
+
+''
+' Main loop (DRAW.BAS, after CLIP_tick%): rebuild the displays whose lanes,
+' pixels (an undo step), layout or groups changed; while a stroke is painted
+' on a laned layer just its current cell, so the stroke shows as it goes.
+' TRUE = something was redrawn.
+FUNCTION LL_tick% ()
+    DIM i AS INTEGER, did AS INTEGER, full AS INTEGER, sig AS STRING
+    IF LL_N = 0 THEN
+        FOR i = 1 TO MAX_LAYERS
+            IF LL_IMG(i) < -1 THEN LL_free_all: LL_tick% = TRUE: BLEND_invalidate_cache: EXIT FUNCTION
+        NEXT i
+        EXIT FUNCTION
+    END IF
+    FOR i = 1 TO MAX_LAYERS
+        IF LAYERS(i).imgHandle& < -1 _ANDALSO LL_affects%(i) THEN
+            sig = LL_sig$(i)
+            IF sig <> LL_DSIG(i) _ORELSE LL_IMG(i) >= -1 THEN
+                LL_build i, 0: LL_DSIG(i) = sig: did = TRUE: full = TRUE
+            ELSEIF i = CURRENT_LAYER% _ANDALSO (MOUSE.B1% _ORELSE MOUSE.B2%) _ANDALSO ANIM.current >= 1 THEN
+                LL_build i, ANIM.current: did = TRUE
+            END IF
+        ELSEIF LL_IMG(i) < -1 THEN
+            _FREEIMAGE LL_IMG(i): LL_IMG(i) = 0: LL_DSIG(i) = "": did = TRUE: full = TRUE
+            IF i <= MAX_LAYERS THEN LAYERS(i).apronCacheValid% = FALSE: LAYERS(i).opacityCacheVal% = -1
+        END IF
+    NEXT i
+    IF full THEN BLEND_invalidate_cache: INVALIDATE_canvas
+    IF did THEN SCENE_DIRTY% = TRUE
+    LL_tick% = did
+END FUNCTION
+
+''
+' ---------------------------------------------------------------------------
+' The BLEND lane (CLIP_LANE_BLEND): a blend mode per frame. It can't be baked
+' into the display copy like the other lanes - the compositor blends each
+' frame cell with that frame's mode (LL_blend_composite: OUTPUT/SCREEN.BM and
+' the flatten every export uses, LAYERS_flatten&).
+' ---------------------------------------------------------------------------
+
+''
+' Does layer slot's own BLEND lane have keys (a pixel layer's; not a group's)?
+FUNCTION LL_blend_lane% (slot AS INTEGER)
+    DIM e AS INTEGER
+    IF LL_N = 0 _ORELSE ANIM.active = 0 _ORELSE slot < 1 _ORELSE slot > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN EXIT FUNCTION
+    e = LL_of%(slot)
+    IF e THEN LL_blend_lane% = (LEN(LL_KEYS(e, CLIP_LANE_BLEND)) > 0)
+END FUNCTION
+
+''
+' Layer slot's blend mode at frame f: its BLEND lane's, else its own.
+FUNCTION LL_blend_at% (slot AS INTEGER, f AS INTEGER)
+    DIM e AS INTEGER, m AS INTEGER
+    IF slot < 1 _ORELSE slot > MAX_LAYERS THEN EXIT FUNCTION
+    m = LAYERS(slot).blendMode%
+    e = LL_of%(slot)
+    IF e > 0 _ANDALSO LL_N > 0 _ANDALSO ANIM.active <> 0 _ANDALSO LAYERS(slot).layerType% <> LAYER_TYPE_GROUP THEN
+        IF LEN(LL_KEYS(e, CLIP_LANE_BLEND)) THEN m = CLIP_lane_clamp!(CLIP_LANE_BLEND, CLIP_lane_keyed!(LL_KEYS(e, CLIP_LANE_BLEND), f - 1, m))
+    END IF
+    LL_blend_at% = m
+END FUNCTION
+
+''
+' Composite layer slot onto target over canvas rect (x1, y1)-(x2, y2) with a
+' BLEND lane: first all of it with the layer's own mode (the gutters and
+' margins keep that), then each frame cell whose mode differs is put back as
+' it was and blended again with its frame's mode. img = the layer with its
+' opacity applied (what a Normal blit puts), src = without (the blend
+' kernels apply the opacity themselves; img = 0: the kernel does Normal too).
+' Canvas-sized images.
+SUB LL_blend_composite (target AS LONG, img AS LONG, src AS LONG, slot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    DIM own AS INTEGER, m AS INTEGER, f AS INTEGER, op AS INTEGER, oldD AS LONG, keep AS LONG, pic AS LONG
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG, a1 AS INTEGER, b1 AS INTEGER, a2 AS INTEGER, b2 AS INTEGER
+    IF target >= -1 _ORELSE src >= -1 _ORELSE x2 < x1 _ORELSE y2 < y1 THEN EXIT SUB
+    pic = img: IF pic >= -1 THEN pic = src ' (a copy: the params are by reference)
+    own = LAYERS(slot).blendMode%: op = LAYERS(slot).opacity%
+    oldD = _DEST
+    keep = _NEWIMAGE(_WIDTH(target), _HEIGHT(target), 32) ' what was under it, for the cells blended again
+    IF keep < -1 THEN _DONTBLEND keep: _PUTIMAGE (x1, y1)-(x2, y2), target, keep, (x1, y1)-(x2, y2): _BLEND keep
+    LL_blend_put target, pic, src, own, op, x1, y1, x2, y2
+    IF keep < -1 THEN
+        FOR f = 1 TO ANIM.count
+            m = LL_blend_at%(slot, f)
+            IF m <> own _ANDALSO ANIM_cell_rect%(f, cx, cy, cw, ch) THEN
+                a1 = _MAX(x1, cx): b1 = _MAX(y1, cy): a2 = _MIN(x2, cx + cw - 1): b2 = _MIN(y2, cy + ch - 1)
+                IF a2 >= a1 _ANDALSO b2 >= b1 THEN
+                    _DONTBLEND target: _PUTIMAGE (a1, b1)-(a2, b2), keep, target, (a1, b1)-(a2, b2): _BLEND target
+                    LL_blend_put target, pic, src, m, op, a1, b1, a2, b2
+                END IF
+            END IF
+        NEXT f
+        _FREEIMAGE keep
+    END IF
+    _DEST oldD
+END SUB
+
+''
+' One rect of a layer composited with mode m (a Normal blit of img, else the
+' blend kernel on src - Normal too when there is no img: the kernel applies the opacity).
+SUB LL_blend_put (target AS LONG, img AS LONG, src AS LONG, m AS INTEGER, op AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    IF m = BLEND_NORMAL _ANDALSO img <> src THEN
+        _PUTIMAGE (x1, y1)-(x2, y2), img, target, (x1, y1)-(x2, y2)
+    ELSE
+        LAYER_blend_composite_region target, src, m, op, x1, y1, x2, y2
+    END IF
+END SUB
+
+''
+' The picture the renderer shows for layer slot (OUTPUT/SCREEN.BM).
+FUNCTION LL_src& (slot AS INTEGER)
+    LL_src& = LAYERS(slot).imgHandle&
+    IF LL_N = 0 THEN EXIT FUNCTION
+    IF LL_IMG(slot) < -1 _ANDALSO LL_DSIG(slot) <> "" THEN LL_src& = LL_IMG(slot)
+END FUNCTION
+
+''
+' The picture an export flattens for layer slot (GUI/LAYERS.BM LAYERS_flatten&):
+' the display, rebuilt first when it is stale - an export never sees an old one.
+FUNCTION LL_flat_src& (slot AS INTEGER)
+    DIM sig AS STRING
+    LL_flat_src& = LAYERS(slot).imgHandle&
+    IF LL_N = 0 THEN EXIT FUNCTION
+    IF LL_affects%(slot) = 0 THEN EXIT FUNCTION
+    sig = LL_sig$(slot)
+    IF sig <> LL_DSIG(slot) _ORELSE LL_IMG(slot) >= -1 THEN LL_build slot, 0: LL_DSIG(slot) = sig
+    IF LL_IMG(slot) < -1 THEN LL_flat_src& = LL_IMG(slot)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' QA dump: LLN entry historyId lane:keys(rel:value:ease,...) ... per entry in use
+' ---------------------------------------------------------------------------
+FUNCTION LL_dump$ ()
+    DIM d AS STRING, i AS INTEGER, L AS INTEGER, j AS INTEGER, ks AS STRING, s AS INTEGER
+    FOR i = 1 TO LL_N
+        IF LL_has%(i) THEN
+            d = d + "LLN" + DOCK_n$(i) + DOCK_n$(LL_ID(i))
+            FOR s = 1 TO MAX_LAYERS ' its slot, and whether a display is built
+                IF LAYERS(s).imgHandle& <> 0 _ANDALSO LAYERS(s).historyId& = LL_ID(i) THEN EXIT FOR
+            NEXT s
+            IF s > MAX_LAYERS THEN s = 0
+            d = d + DOCK_n$(s)
+            FOR L = 1 TO LL_LANES
+                IF LL_used%(i, L) THEN
+                    ks = LL_KEYS(i, L)
+                    d = d + " " + _TRIM$(STR$(L)) + "="
+                    FOR j = 1 TO CLIP_lks_n%(ks)
+                        d = d + _IIF(j > 1, ",", "") + _TRIM$(STR$(CLIP_lk_f%(ks, j))) + ":" + ANIM_XL_num$(CLIP_lk_v!(ks, j)) + ":" + _TRIM$(STR$(CLIP_lk_raw%(ks, j)))
+                    NEXT j
+                    IF LEN(LL_MOD(i, L)) THEN d = d + "~"
+                END IF
+            NEXT L
+            d = d + CHR$(10)
+            ' LLV slot lane env v,v,... - a modulated lane's value on each frame (up to 48; env = a,d,s,r or -)
+            FOR L = 1 TO LL_LANES
+                IF LEN(LL_MOD(i, L)) _ANDALSO ANIM.active <> 0 THEN
+                    DIM ea AS INTEGER, ed AS INTEGER, es AS INTEGER, er AS INTEGER
+                    CLIP_mod_env LL_MOD(i, L), ea, ed, es, er
+                    d = d + "LLV" + DOCK_n$(s) + DOCK_n$(L) + " " + _IIF(LEN(LL_MOD(i, L)) >= 28, _TRIM$(STR$(ea)) + "," + _TRIM$(STR$(ed)) + "," + _TRIM$(STR$(es)) + "," + _TRIM$(STR$(er)), "-") + " "
+                    FOR j = 1 TO _MIN(48, ANIM.count)
+                        d = d + _IIF(j > 1, ",", "") + ANIM_XL_num$(LL_value!(i, L, j))
+                    NEXT j
+                    d = d + CHR$(10)
+                END IF
+            NEXT L
+        END IF
+    NEXT i
+    FOR s = 1 TO MAX_LAYERS ' LLD slot, then per frame (up to 24) f:x0,y0,x1,y1 - what its cell shows, in cell pixels (f:- empty)
+        IF LL_IMG(s) < -1 THEN d = d + "LLD" + DOCK_n$(s) + LL_bbox_dump$(s) + CHR$(10)
+    NEXT s
+    ' XLREC recording liveSlot liveMask, then slot:dot per layer that can have lanes (1 ring, 2 purple keyed, 3 red armed)
+    d = d + "XLREC" + DOCK_n$(ANIM_XL_REC_ON) + DOCK_n$(ANIM_XL_LIVE_SLOT) + DOCK_n$(ANIM_XL_LIVE_MASK)
+    FOR s = 1 TO MAX_LAYERS
+        IF ANIM_XL_can%(s) THEN d = d + " " + _TRIM$(STR$(s)) + ":" + _TRIM$(STR$(ANIM_XL_dot_state%(s)))
+    NEXT s
+    d = d + " d:" + _TRIM$(STR$(ANIM_XL_LIVE_DRAWN)) ' live lane dots drawn by the last X-sheet render
+    d = d + CHR$(10)
+    LL_dump$ = d
+END FUNCTION
+
+FUNCTION LL_bbox_dump$ (slot AS INTEGER)
+    DIM d AS STRING, f AS INTEGER, fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, img AS LONG, m AS _MEM, bw AS LONG
+    DIM x AS LONG, y AS LONG, x0 AS LONG, y0 AS LONG, x1 AS LONG, y1 AS LONG, px AS _UNSIGNED LONG, aw AS INTEGER, ah AS INTEGER
+    img = LL_src&(slot)
+    IF img >= -1 THEN EXIT FUNCTION
+    aw = LAYERS(slot).apronW%: ah = LAYERS(slot).apronH%
+    m = _MEMIMAGE(img): bw = _WIDTH(img) * 4
+    FOR f = 1 TO _MIN(ANIM.count, 24)
+        IF ANIM_cell_rect%(f, fx, fy, fw, fh) THEN
+            x0 = fw: y0 = fh: x1 = -1: y1 = -1
+            FOR y = 0 TO fh - 1
+                FOR x = 0 TO fw - 1
+                    _MEMGET m, m.OFFSET + (fy + ah + y) * bw + (fx + aw + x) * 4, px
+                    IF _ALPHA32(px) > 0 THEN
+                        IF x < x0 THEN x0 = x
+                        IF x > x1 THEN x1 = x
+                        IF y < y0 THEN y0 = y
+                        IF y > y1 THEN y1 = y
+                    END IF
+                NEXT x
+            NEXT y
+            IF x1 < 0 THEN
+                d = d + " " + _TRIM$(STR$(f)) + ":-"
+            ELSE
+                d = d + " " + _TRIM$(STR$(f)) + ":" + _TRIM$(STR$(x0)) + "," + _TRIM$(STR$(y0)) + "," + _TRIM$(STR$(x1)) + "," + _TRIM$(STR$(y1))
+            END IF
+        END IF
+    NEXT f
+    _MEMFREE m
+    LL_bbox_dump$ = d
+END FUNCTION

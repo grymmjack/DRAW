@@ -40,7 +40,9 @@ The Organizer widget on the left contains **four brush size presets** (1, 3, 5, 
 
 DRAW reads **pen pressure** from a drawing tablet: Wacom, Huion, XP-Pen and Surface Pen are all supported, plus a Force Touch trackpad on a Mac. Pressure can change the Brush and Eraser **size** and **opacity**, and how much paint the mix brush lays down. It changes smoothly within a single stroke. A mouse is never affected.
 
-**View → Pen Pressure** opens a small panel with everything in one place:
+**View → Pen Control** opens a small panel with everything in one place, on three tabs: **PRESSURE** (below), **SMOOTHING** and **SPEED** (see *Stroke Smoothing* further down). The panel remembers the tab you left it on.
+
+On the **PRESSURE** tab:
 - **Live meter:** shows how hard you're pressing.
 - **Size, Opacity, Mix Paint:** each has a checkbox and a **LIGHT** slider, which is the value at the lightest touch. Full pressure always gives 100%.
 - **Curve slider:** shapes the response; 1.00 is linear.
@@ -53,7 +55,7 @@ Opacity by pressure shows live as you draw. Going over the same spot again never
   - **Windows:** leave **Windows Ink** turned on in the driver's pen settings.
   - **macOS:** keep the driver's tablet app running in the menu bar.
   - **Linux:** most tablets work without any setup, and the maker's driver works too.
-- **Settings → General → Pen Tablet:**
+- **Settings → Pen Control → Pen Tablet:**
   - **Pen Pressure** turns the feature on or off.
   - **Pressure Sets Brush Size** controls whether pressure changes the size. It applies to brushes bigger than 1px; a 1px pencil stays 1px.
   - **Lightest Touch Size %** is the size at the lightest touch (default 20% of the brush).
@@ -62,6 +64,35 @@ Opacity by pressure shows live as you draw. Going over the same spot again never
   - **Pressure Sets Opacity** and **Lightest Touch Opacity %** (default 10%): a light touch paints faintly. Off by default.
   - **Pressure Sets Mix Paint** and **Lightest Touch Paint %**: with the mix brush, a light touch smears and full pressure lays paint.
 - **Export.** Pressure-varied strokes export to BAS/QB64 as pixels.
+
+### Stroke Smoothing
+
+Shaky hands, a jittery tablet or a fast flick can make lines wobble. Pen Control can steady the **Brush** and **Eraser** while you draw, in the spirit of Lazy Nezumi. Position smoothing works with a **mouse as well as a pen**.
+
+**SMOOTHING tab — Smooth Position.** Turn it on, pick a mode and set the **Amount**:
+
+| Mode | How it feels | Good for |
+|------|--------------|----------|
+| **String** (Pulled String) | The line hangs on a string *Amount* screen pixels long. It only moves when the pointer pulls it. | Slow, detailed work with sharp corners |
+| **Average** (Moving Average) | The line follows the average of where the pointer has been. | Curved lines, soft corners |
+| **EMA** (Exponential Moving Average) | Every movement pulls the line part of the way. | Massive smoothing, long curves |
+| **Inertia** | The line has a little weight and glides after the pointer. | Fast, flowy lines |
+
+- **Catch Up** (Average and EMA): when you stop moving or lift, the line keeps going until it reaches the pointer, so a stroke ends where you let go. Turn it off and the stroke stops where the smoothed line was.
+- **Guide Line** and **Guide Cursor:** while you draw, a line from the drawing point to the pointer and a ring at the drawing point show how far the line is trailing. Their color is set in Settings.
+- Shapes, fills and the Shift smart erase are not smoothed.
+
+**SMOOTHING tab — Smooth Pressure** (pen only). It tames line dynamics:
+- **Fixed:** constant pressure, set by *Amount* (%).
+- **Hold:** takes the pressure of the first few samples of a stroke, then holds it.
+- **Average / EMA:** smooths out flicker in the pressure.
+
+**SPEED tab — Speed Scaling** (pen only). It scales pressure by how fast the pen moves. That gives calligraphy-like strokes, thicker or fainter when you move fast:
+- **Slow** is the gain at rest and **Fast** the gain at the **Speed** (screen pixels a second) and above, with an S-curve between. A gain of 1.00 is the pressure as the pen gives it.
+- **Smooth** evens out the measured speed.
+- The graph plots speed against gain. After each stroke it marks that stroke's **average** speed (dashed) and **top** speed (red). While you draw, a dot shows the live speed. **NOW / AVG / TOP** give the same figures as numbers. Draw a few strokes at your natural pace, then set *Speed* around your top speed.
+
+All of these are also on the **Pen Control** tab of Settings (`Ctrl+,`), under Position Smoothing, Pressure Processing and Speed Scaling. The command palette has **Pen Control: Toggle Smoothing**, **Next Smoothing Mode**, **More / Less Smoothing** (±5), **Toggle Pressure Smoothing** and **Toggle Speed Scaling**, so you can bind them to keys.
 
 ## Lines, Rectangles & Ellipses
 

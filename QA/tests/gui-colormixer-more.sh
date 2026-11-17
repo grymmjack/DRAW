@@ -12,7 +12,7 @@
 source "$DRAW_ROOT/QA/dock-lib.sh"
 info "=== Color Mixer: MORE disclosure ==="
 dk_begin
-cmxm() { read -r _ MX MY MW MH MOPEN MPH <<< "$(grep '^CMXM ' "$DK_DUMP")"; }
+cmxm() { read -r _ MX MY MW MH MOPEN MPH _ << "$(grep '^CMXM ' "$DK_DUMP")"; }
 cmix() { read -r _ SVX SVY SVW SVH HX HY HW HH _ _ _ _ _ FG _ <<< "$(grep '^CMIX' "$DK_DUMP")"; }
 cmxm
 if [[ -z "$MW" ]]; then fail "no CMXM line in the dump"; assert_no_crash; exit 0; fi

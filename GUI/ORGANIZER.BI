@@ -48,6 +48,25 @@ CONST ORG_COLS    = 4  ' Number of columns (and widget stacks) in the full layou
 CONST ORG_STACKS  = 4
 DIM SHARED ORG_STACK_X(0 TO ORG_STACKS - 1) AS INTEGER ' top-left of each stack (screen px)
 DIM SHARED ORG_STACK_Y(0 TO ORG_STACKS - 1) AS INTEGER
+' Each stack's last widget (Symmetry / Grid Visibility / Grid Snap / Color Mode),
+' top-left: under its stack, or - in a top / bottom dock row too short for whole
+' stacks - in a 2-row grid right of the stack tops (ORGANIZER_layout_in%).
+DIM SHARED ORG_ROW2_X(0 TO ORG_STACKS - 1) AS INTEGER
+DIM SHARED ORG_ROW2_Y(0 TO ORG_STACKS - 1) AS INTEGER
+' Every widget's rect this layout (organizer px; -10000 = not shown), filled by
+' ORGANIZER_layout_in% for the stacked, split and flat layouts alike.
+DIM SHARED ORG_WX(0 TO ORG_WIDGET_COUNT - 1) AS INTEGER
+DIM SHARED ORG_WY(0 TO ORG_WIDGET_COUNT - 1) AS INTEGER
+DIM SHARED ORG_WW(0 TO ORG_WIDGET_COUNT - 1) AS INTEGER
+DIM SHARED ORG_WH(0 TO ORG_WIDGET_COUNT - 1) AS INTEGER
+' The FLAT layout (a row only one button high): every widget on one line,
+' Opacity and Brush Size lying sideways (Rick 2026-11-16: "flip the opacity and
+' the brush size | to ---"). Set by the last ORGANIZER_layout_in%.
+DIM SHARED ORG_FLAT AS INTEGER
+' Brush Size's images turned sideways (ORGANIZER_rot_img&): source -> copy
+DIM SHARED ORG_ROT_SRC(1 TO 8) AS LONG
+DIM SHARED ORG_ROT_DST(1 TO 8) AS LONG
+CONST ORG_TOP_H   = 22 ' the tallest stack top (Pattern 11, Gradient 11 from row 1: 10 + 1)
 ' The organizer panel's rect, set by the layout (TOOLBOX_layout_rects): its own
 ' panel, no longer placed under the toolbar by the toolbar's geometry.
 DIM SHARED ORG_RECT_X AS INTEGER ' left

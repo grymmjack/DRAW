@@ -389,7 +389,7 @@ SUB SWP_layout ()
     SWP.gridH = _MAX(4, SWP.statY - 2 - SWP.gridY)
     availW = _MAX(4, SWP.panelW - 6)
     SWP.gap = CFG.SWATCHES_GAP%
-    IF SWP.gap < 0 _ORELSE SWP.gap > 4 THEN SWP.gap = 1
+    IF SWP.gap < 0 _ORELSE SWP.gap > 16 THEN SWP.gap = 1 ' (0..16: the "..." chip types one in, SWP_custom_ask)
     SWP.sbar = FALSE
     FOR pass = 1 TO 2
         SWP.gridW = availW
@@ -676,19 +676,21 @@ SUB SWP_render ()
             END IF
         END IF
     NEXT i
-    ' FG / BG frames: FG a solid double frame, BG a dotted one
+    ' FG / BG frames: FG a solid double frame, BG a dotted one. They sit 1 px
+    ' outside the cell, in the grid's 1 px margin (gTop - 1 / gBot + 1): a
+    ' one-row band in a dock row lost their top line (Rick 2026-11-16)
     IF bgIdx > 0 _ANDALSO bgIdx <> fgIdx THEN
-        IF SWP_cell_rect%(bgIdx, x, y) THEN SWP_clip_box x - 1, y - 1, SWP.cellW + 2, SWP.cellH + 2, gTop, gBot, THEME.CP_text~&
+        IF SWP_cell_rect%(bgIdx, x, y) THEN SWP_clip_box x - 1, y - 1, SWP.cellW + 2, SWP.cellH + 2, gTop - 1, gBot + 1, THEME.CP_text~&
     END IF
     IF fgIdx > 0 THEN
         IF SWP_cell_rect%(fgIdx, x, y) THEN
-            SWP_clip_box x - 1, y - 1, SWP.cellW + 2, SWP.cellH + 2, gTop, gBot, THEME.CP_text_bright~&
+            SWP_clip_box x - 1, y - 1, SWP.cellW + 2, SWP.cellH + 2, gTop - 1, gBot + 1, THEME.CP_text_bright~&
             IF SWP.cellW >= 5 THEN SWP_clip_box x, y, SWP.cellW, SWP.cellH, gTop, gBot, _RGB32(0, 0, 0)
         END IF
     END IF
     IF SWP.hoverIdx > 0 _ANDALSO SWP.hoverIdx <> fgIdx _ANDALSO SWP.dragMoving = 0 THEN
         IF SWS(SWP.hoverIdx).kind = SWS_KIND_COLOR THEN
-            IF SWP_cell_rect%(SWP.hoverIdx, x, y) THEN SWP_clip_box x - 1, y - 1, SWP.cellW + 2, SWP.cellH + 2, gTop, gBot, THEME.CP_text~&
+            IF SWP_cell_rect%(SWP.hoverIdx, x, y) THEN SWP_clip_box x - 1, y - 1, SWP.cellW + 2, SWP.cellH + 2, gTop - 1, gBot + 1, THEME.CP_text~&
         END IF
     END IF
 
@@ -886,9 +888,9 @@ END FUNCTION
 ' The chip choices of the gear's chip rows, and which one is in use.
 FUNCTION SWP_chip_values$ (id AS INTEGER)
     SELECT CASE id
-        CASE 10: SWP_chip_values$ = "0|-1|8|12|16|24|32"
-        CASE 11: SWP_chip_values$ = "6|8|10|12|16|20|24"
-        CASE 12: SWP_chip_values$ = "0|1|2|3"
+        CASE 10: SWP_chip_values$ = "0|-1|8|12|16|24|32|" + SWP_CUSTOM_V ' (the last: "..." - a value typed in, SWP_custom_ask)
+        CASE 11: SWP_chip_values$ = "6|8|10|12|16|20|24|" + SWP_CUSTOM_V
+        CASE 12: SWP_chip_values$ = "0|1|2|3|" + SWP_CUSTOM_V
         CASE 30: SWP_chip_values$ = "4|5|6|8|10|12|16"
         CASE 31: SWP_chip_values$ = "1|2|3|4|0"
         CASE 32: SWP_chip_values$ = "0|1"
@@ -909,6 +911,52 @@ FUNCTION SWP_chip_now% (id AS INTEGER)
     FOR k = 1 TO SWP_field_count%(vals)
         IF VAL(SWP_field$(vals, k)) = v THEN SWP_chip_now% = k: EXIT FUNCTION
     NEXT k
+    ' none of the presets: the "..." chip (a typed value) when the row has one
+    k = SWP_field_count%(vals)
+    IF SWP_field$(vals, k) = SWP_CUSTOM_V THEN SWP_chip_now% = k
+END FUNCTION
+
+''
+' A chips row's labels: the presets, then "..." - or "N..." while a typed
+' value N (not one of the presets) is in use (Rick 2026-11-16: "custom with
+' button [...] - when clicked can set a custom value for columns, cells, and gaps").
+FUNCTION SWP_chip_labels$ (id AS INTEGER, presets AS STRING)
+    DIM v AS INTEGER
+    SELECT CASE id
+        CASE 10: v = CFG.SWATCHES_COLS%
+        CASE 11: v = CFG.SWATCHES_CELL%
+        CASE 12: v = CFG.SWATCHES_GAP%
+    END SELECT
+    IF SWP_chip_now%(id) = SWP_field_count%(SWP_chip_values$(id)) THEN
+        SWP_chip_labels$ = presets + "|" + _TRIM$(STR$(v)) + "..."
+    ELSE
+        SWP_chip_labels$ = presets + "|..."
+    END IF
+END FUNCTION
+
+''
+' The "..." chip of COLUMNS (10) / CELL (11) / GAP (12): type a value.
+' TRUE = it changed.
+FUNCTION SWP_custom_ask% (id AS INTEGER)
+    DIM t AS STRING, v AS INTEGER, lo AS INTEGER, hi AS INTEGER, cur AS INTEGER, what AS STRING
+    SELECT CASE id
+        CASE 10: lo = 1: hi = 256: cur = CFG.SWATCHES_COLS%: what = "Columns": IF cur < 1 THEN cur = SWP.cols
+        CASE 11: lo = 3: hi = 64: cur = CFG.SWATCHES_CELL%: what = "Cell size (px)"
+        CASE 12: lo = 0: hi = 16: cur = CFG.SWATCHES_GAP%: what = "Gap (px)"
+        CASE ELSE: EXIT FUNCTION
+    END SELECT
+    POINTER_hide_for_dialog
+    t = DRAW_input_box_ex$("Swatches: " + what, what + " for the Swatches grid (" + _TRIM$(STR$(lo)) + " to" + STR$(hi) + "):", _TRIM$(STR$(cur)), what, TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    IF _TRIM$(t) = "" THEN EXIT FUNCTION ' cancelled
+    v = _MAX(lo, _MIN(hi, VAL(t)))
+    SELECT CASE id
+        CASE 10: CFG.SWATCHES_COLS% = v
+        CASE 11: CFG.SWATCHES_CELL% = v
+        CASE 12: CFG.SWATCHES_GAP% = v
+    END SELECT
+    SWP_custom_ask% = TRUE
 END FUNCTION
 
 
@@ -938,9 +986,9 @@ SUB SWP_build_gear ()
     SWP_menu_clear
     SWP_menu_add SWP_MI_HEAD, "LAYOUT", 0, 0, ""
     SWP_menu_add SWP_MI_CHIPS, "VIEW", 32, SWP_chip_now%(32), "GRID|LIST"
-    SWP_menu_add SWP_MI_CHIPS, "COLUMNS", 10, SWP_chip_now%(10), "SET|FIT|8|12|16|24|32"
-    SWP_menu_add SWP_MI_CHIPS, "CELL", 11, SWP_chip_now%(11), "6|8|10|12|16|20|24"
-    SWP_menu_add SWP_MI_CHIPS, "GAP", 12, SWP_chip_now%(12), "0|1|2|3"
+    SWP_menu_add SWP_MI_CHIPS, "COLUMNS", 10, SWP_chip_now%(10), SWP_chip_labels$(10, "SET|FIT|8|12|16|24|32")
+    SWP_menu_add SWP_MI_CHIPS, "CELL", 11, SWP_chip_now%(11), SWP_chip_labels$(11, "6|8|10|12|16|20|24")
+    SWP_menu_add SWP_MI_CHIPS, "GAP", 12, SWP_chip_now%(12), SWP_chip_labels$(12, "0|1|2|3")
     SWP_menu_add SWP_MI_CHECK, "STRETCH TO WIDTH", 13, CFG.SWATCHES_STRETCH%, ""
     SWP_menu_add SWP_MI_CHECK, "SQUARE CELLS", 14, CFG.SWATCHES_SQUARE%, ""
     SWP_menu_add SWP_MI_CHECK, "CELL BORDERS", 15, CFG.SWATCHES_BORDER%, ""
@@ -1213,6 +1261,12 @@ FUNCTION SWP_menu_act% (r AS INTEGER, k AS INTEGER)
             IF id = 31 THEN ' SORT: an action, the menu closes
                 SWP_menu_close
                 SWP_sort VAL(SWP_field$(SWP_chip_values$(31), k))
+                EXIT FUNCTION
+            END IF
+            IF SWP_field$(SWP_chip_values$(id), k) = SWP_CUSTOM_V THEN ' "...": type a value (the menu closes for the box)
+                SWP_menu_close
+                IF SWP_custom_ask%(id) THEN SWP_option_changed
+                SWP_menu_act% = FALSE
                 EXIT FUNCTION
             END IF
             SELECT CASE id
@@ -2890,19 +2944,11 @@ END SUB
 
 
 ''
-' "SWATPG startX y chipW rowH perRow rows scroll": the palette strip's chips
-' (the math of PALETTE_OPS_calc_strip_index%), for QA.
+' "SWATPG startX y chipW rowH perRow rows scroll visible vert": the palette
+' strip's chips (its PSG - PALETTE_STRIP_geom), for QA. A side strip (vert 1):
+' perRow = chips per column, rows = columns, and they run top to bottom.
 FUNCTION SWP_strip_geo$ ()
-    DIM sw AS INTEGER, rowH AS INTEGER, availW AS INTEGER, per AS INTEGER, rows AS INTEGER, n AS INTEGER
-    sw = CFG.PALETTE_CHIP_WIDTH%: rowH = CFG.PALETTE_CHIP_HEIGHT% + 1
-    availW = SCRN.w& - (PALETTE_STRIP_ARROW_WIDTH * 2) - PALETTE_STRIP_name_w% - 12
-    per = availW \ (sw + 1)
-    IF per > CFG.PALETTE_MAX_CHIPS_PER_ROW% THEN per = CFG.PALETTE_MAX_CHIPS_PER_ROW%
-    n = PALETTE_LOADER_get_color_count%
-    IF per >= 1 _ANDALSO n > 0 THEN rows = ((n - 1) \ per) + 1
-    IF rows < CFG.PALETTE_MIN_ROWS% THEN rows = CFG.PALETTE_MIN_ROWS%
-    IF rows > CFG.PALETTE_MAX_ROWS% THEN rows = CFG.PALETTE_MAX_ROWS%
-    SWP_strip_geo$ = "SWATPG" + DOCK_n$(2 + PALETTE_STRIP_ARROW_WIDTH + 2) + DOCK_n$(PALETTE_STRIP_Y% + 2) + DOCK_n$(sw + 1) + DOCK_n$(rowH) + DOCK_n$(per) + DOCK_n$(rows) + DOCK_n$(PALETTE_STRIP_SCROLL_OFFSET%) + DOCK_n$(-(PALETTE_STRIP_VISIBLE% <> 0))
+    SWP_strip_geo$ = "SWATPG" + DOCK_n$(PSG.cx0) + DOCK_n$(PSG.cy0) + DOCK_n$(PSG.sw + 1) + DOCK_n$(PSG.sh + 1) + DOCK_n$(PSG.perLine) + DOCK_n$(PSG.lines) + DOCK_n$(PALETTE_STRIP_SCROLL_OFFSET%) + DOCK_n$(-(PALETTE_STRIP_VISIBLE% <> 0)) + DOCK_n$(-(PSG.vert <> 0))
 END FUNCTION
 
 

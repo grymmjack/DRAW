@@ -28,7 +28,7 @@ CONST DOCK_ADVBAR  = 4
 ' docked window on its own): its own width in px, edge DOCK_COLW + column - 1
 ' -> the column's WIDTH: in the dock tree (DOCK_COL().wpx, a minimum)
 CONST DOCK_COLW    = 5
-CONST DOCK_COUNT   = 16 ' DOCK_COLW - 1 + DOCK_MAX_COLS (GUI/DOCK.BI)
+CONST DOCK_COUNT   = 20 ' DOCK_COLW - 1 + DOCK_MAX_COLS (GUI/DOCK.BI)
 CONST DOCK_GRAB    = 2 ' px either side of the boundary that grab it
 
 TYPE DOCK_EDGE_OBJ

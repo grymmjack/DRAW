@@ -97,8 +97,15 @@ SUB ANIM_LB_area (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
     x1 = SCRN.uiLeftEdge%: x2 = SCRN.uiRightEdge%
     y1 = 0
     IF SCRN.showMenubar% _ANDALSO MENU_BAR.visible% THEN y1 = MENU_BAR_HEIGHT
-    IF TEXT_BAR.visible% THEN y1 = TEXT_BAR.barY% + TEXT_BAR.barH%
+    y1 = _MAX(y1, TEXT_BAR_top_edge%)
     y2 = SCRN.h& - 1 - SCREEN_bottom_bars_h%
+    ' under the colour strip docked at the top (Rick 2026-11-17: it hid the X-sheet's
+    ' zoom and frame headers), as FPANEL_band_trim keeps windows off it
+    IF PALETTE_STRIP_top_h% > 0 _ANDALSO PSG.y + PSG.h > y1 THEN y1 = PSG.y + PSG.h
+    ' under the top dock rows / over the bottom ones (Rick 2026-11-16: the
+    ' strip / X-sheet sat under the top rows)
+    IF DOCK_ROWS_TOPH > 0 _ANDALSO DOCK_ROWS_Y1 > y1 THEN y1 = DOCK_ROWS_Y1
+    IF DOCK_ROWS_BOTH > 0 _ANDALSO DOCK_ROWS_Y2 < y2 THEN y2 = DOCK_ROWS_Y2
     IF DOCK_BAND_SIDE <> 0 _ANDALSO DOCK_BAND_W > 0 _ANDALSO DOCK_panel_shown%(DP_BROWSER) THEN
         IF DOCK_BAND_SIDE = DOCK_BAND_TOP THEN
             IF DOCK_BAND_Y + DOCK_BAND_HH > y1 THEN y1 = DOCK_BAND_Y + DOCK_BAND_HH
@@ -424,13 +431,13 @@ END FUNCTION
 
 ''
 ' An editor pane's picture: fitted as ANIM_LB_fit!, or at the lightbox zoom
-' (ANIM_LB.vz) when that is bigger - then it may be larger than the pane and
-' is cut off at the pane's edge (ANIM_LB_vis).
+' (ANIM_LB.vz, 0 = fitted) - bigger: cut off at the pane's edge (ANIM_LB_vis);
+' smaller: a margin round it, panned inside the pane.
 FUNCTION ANIM_LB_pane_fit! (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
     DIM z AS SINGLE, rx AS SINGLE, ry AS SINGLE
     IF ANIM.frameW <> ANIM_LB.vFW _ORELSE ANIM.frameH <> ANIM_LB.vFH THEN ANIM_LB.vz = 0
     z = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
-    IF ANIM_LB.vz > z THEN
+    IF ANIM_LB.vz > 0 _ANDALSO ABS(ANIM_LB.vz - z) > .0001 THEN ' zoomed in past the fit, or out below it (a margin round the frame - room for the transform widget's handles)
         z = ANIM_LB.vz
         dw = _MAX(1, ANIM.frameW) * z: dh = _MAX(1, ANIM.frameH) * z
         rx = ANIM_LB.vrx: ry = ANIM_LB.vry
@@ -452,7 +459,7 @@ END SUB
 
 ''
 ' The mouse handler changed the pane view it was given (a wheel zoom, the
-' Zoom tool, a pan): make it the lightbox zoom / pan. Below the fit = fitted.
+' Zoom tool, a pan): make it the lightbox zoom / pan. The fit = 0 (fitted).
 SUB ANIM_LB_view_absorb ()
     DIM f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
     DIM dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER
@@ -467,7 +474,10 @@ SUB ANIM_LB_view_absorb ()
     z = SCRN.zoom!
     IF z * _MAX(fw, fh) > 16000 THEN z = INT(16000 / _MAX(fw, fh))
     fz = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
-    IF z <= fz + .0001 THEN
+    ' below the fit too, to an eighth of it (Rick 2026-11-16: "i cannot zoom out when it is big
+    ' frame + x-sheet, only in ... to get the handles to be manageable")
+    IF z < fz / 8 THEN z = fz / 8
+    IF ABS(z - fz) <= .0001 THEN
         ANIM_LB.vz = 0
     ELSE
         ' where the view puts the cell's corner (the inverse of ANIM_LB_pane_view%)
@@ -541,7 +551,9 @@ SUB ANIM_LB_draw_zoomed (dest AS LONG, src AS LONG, f AS INTEGER, x AS INTEGER, 
     sc = ANIM_box_begin&(w, h)
     IF sc >= -1 THEN EXIT SUB
     TRANSPARENCY_ensure_blueprint
-    IF TRANSPARENCY.blueprint& < -1 THEN ANIM_put_view sc, TRANSPARENCY.blueprint&, cx, cy, cw, chh, dx - x, dy - y, dw, dh
+    ' (the checks from the blueprint's corner, not the cell's place on the sheet: the same checks
+    '  under every frame, or they slide about as playback walks the cells)
+    IF TRANSPARENCY.blueprint& < -1 THEN ANIM_put_view sc, TRANSPARENCY.blueprint&, 0, 0, cw, chh, dx - x, dy - y, dw, dh
     IF src < -1 THEN ANIM_put_view sc, src, cx, cy, cw, chh, dx - x, dy - y, dw, dh
     IF f = ANIM.current THEN ANIM_LB_onion sc, src, f, dx - x, dy - y, dw, dh
     ANIM_box_end dest, x, y, TRUE
@@ -549,15 +561,16 @@ END SUB
 
 ''
 ' Frame f of composite src into box (x, y, w, h) of dest: the transparency
-' checks (the canvas's own, scaled with the art, as in sheet view) and the
-' picture. Returns the picture rect.
+' checks (the canvas's, scaled with the art, from its corner) and the
+' picture, at picture rect (dx, dy, dw, dh).
 SUB ANIM_LB_draw_frame (dest AS LONG, src AS LONG, f AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, dh AS INTEGER)
-    DIM cx AS LONG, cy AS LONG, cw AS LONG, chh AS LONG, s AS SINGLE
-    s = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+    ' frame f's picture at (dx, dy, dw, dh) - the caller's fit / zoom (it used to re-fit here, which
+    ' undid a zoom-out below the fit: Rick 2026-11-16 "only zooming out the grid not the art")
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, chh AS LONG
     IF ANIM_cell_rect%(f, cx, cy, cw, chh) = 0 THEN EXIT SUB
     TRANSPARENCY_ensure_blueprint
     IF TRANSPARENCY.blueprint& < -1 THEN
-        _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), TRANSPARENCY.blueprint&, dest, (cx, cy)-(cx + cw - 1, cy + chh - 1)
+        _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), TRANSPARENCY.blueprint&, dest, (0, 0)-(cw - 1, chh - 1) ' (the same checks under every frame - see ANIM_LB_draw_zoomed)
     END IF
     IF src < -1 THEN
         _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), src, dest, (cx, cy)-(cx + cw - 1, cy + chh - 1)
@@ -607,6 +620,7 @@ SUB ANIM_LB_render (dest AS LONG, src AS LONG)
     FOR k = 0 TO ANIM_LB.stripN - 1
         f = ANIM_LB.stripFirst + k
         ANIM_LB_strip_rect k, x, y, w, h
+        frac = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh) ' (a strip cell is always fitted)
         ANIM_LB_draw_frame dest, src, f, x, y, w, h, dx, dy, dw, dh
         IF ANIM_SEL_count% > 1 _ANDALSO ANIM_SEL(f) THEN ' in the selection: tinted
             LINE (dx, dy)-(dx + dw - 1, dy + dh - 1), (THEME.ANIM_FRAME_current~& AND &H00FFFFFF~&) OR &H50000000~&, BF
@@ -708,11 +722,14 @@ SUB ANIM_LB_render (dest AS LONG, src AS LONG)
     NEXT k
 
     ' editor panes, the current frame in the middle
+    DIM xwX AS INTEGER, xwY AS INTEGER, xwW AS INTEGER
+    ANIM_XW.shown = FALSE
     FOR k = 0 TO ANIM_LB.panes - 1
         f = ANIM_LB_pane_rect%(k, x, y, w, h)
         en = (f >= 1 _ANDALSO f <= ANIM.count)
         IF en THEN
             frac = ANIM_LB_pane_fit!(x, y, w, h, dx, dy, dw, dh)
+            xwX = dx: xwY = dy: xwW = dw ' (the whole picture: the widget's place - TOOLS/ANIM-XWIDGET)
             IF dx < x _ORELSE dy < y _ORELSE dx + dw > x + w _ORELSE dy + dh > y + h THEN ' zoomed past the pane
                 ANIM_LB_draw_zoomed dest, src, f, x, y, w, h, dx, dy, dw, dh
                 ANIM_LB_vis x, y, w, h, dx, dy, dw, dh, dx, dy, dw, dh ' outline / label go round what shows
@@ -739,6 +756,7 @@ SUB ANIM_LB_render (dest AS LONG, src AS LONG)
             END IF
             tw = FPANEL_text_w%(t)
             IF tw <= w THEN FPANEL_text x + (w - tw) \ 2, dy + dh + 3, t, fg ' under the picture
+            IF f = ANIM.current THEN ANIM_XW_render xwX, xwY, xwW, x, y, w, h ' an armed layer's transform widget
         ELSE
             LINE (x, y)-(x + w - 1, y + h - 1), THEME.ANIM_FRAME_spare~&, B , &HCCCC
         END IF
@@ -782,9 +800,25 @@ SUB ANIM_LB_mouse ()
     IF ANIM_XS.dMode <> XS_DRAG_NONE THEN ANIM_XS_hold: EXIT SUB ' an X-sheet drag until its release (4.2)
     IF ANIM_XS.oSlot THEN ANIM_XS_op_hold: EXIT SUB ' an X-sheet layer's opacity box (F5)
     IF ANIM_XS.zDrag THEN ANIM_XS_zoom_hold: EXIT SUB ' the X-sheet's zoom slider
+    IF ANIM_XL.rRow _ANDALSO MOUSE.B2% = 0 THEN ' a right-click on a lane / + LANE row: its menu, on the release (TOOLS/ANIM-XLANE)
+        k = ANIM_XL.rRow: ANIM_XL.rRow = 0: ANIM_XS.rSlot = 0: ANIM_XS.rCell = 0
+        ANIM_XL_rrelease k, MOUSE.RAW_X%, MOUSE.RAW_Y%
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        EXIT SUB
+    END IF
     IF ANIM_XS.rSlot _ANDALSO MOUSE.B2% = 0 THEN ' a right-click on an X-sheet layer row: the layers panel's menu, on the release (F5)
         k = ANIM_XS.rSlot: ANIM_XS.rSlot = 0
-        IF ANIM_XS_slot_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = k _ANDALSO LAYERS(k).imgHandle& <> 0 THEN LAYER_PANEL_ctx_menu_show k, MOUSE.RAW_X%, MOUSE.RAW_Y%
+        f = ANIM_XS.rCell: ANIM_XS.rCell = 0
+        IF ANIM_XS_slot_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = k _ANDALSO LAYERS(k).imgHandle& <> 0 THEN
+            IF f > 0 _ANDALSO ANIM_XS_frame_at%(MOUSE.RAW_X%) = f THEN ' a pixel layer's cell: its menu - hold, links, the layer's menu
+                IF k <> CURRENT_LAYER% THEN LAYERS_select k
+                IF ANIM_SEL_is%(f) = 0 THEN ANIM_SEL_click f, 0, 0
+                ANIM_XS.mCell = f: ANIM_XS.mSlot = k
+                ANIM_LB.menuKind = 5: ANIM_LB_menu_at MOUSE.RAW_X%, MOUSE.RAW_Y%
+            ELSE
+                LAYER_PANEL_ctx_menu_show k, MOUSE.RAW_X%, MOUSE.RAW_Y%
+            END IF
+        END IF
         MOUSE.UI_CHROME_CLICKED% = TRUE
         EXIT SUB
     END IF
@@ -805,6 +839,10 @@ SUB ANIM_LB_mouse ()
     IF ANIM_LB.mvOn THEN ANIM_LB_move_hold: EXIT SUB ' moving the selected frames' drawings
     IF ANIM_LB.seekHeld THEN ANIM_LB_seek_hold: EXIT SUB
     IF ANIM_LB.menuOpen THEN IF ANIM_LB_menu_mouse% THEN EXIT SUB
+    IF ANIM_XW_mouse% THEN EXIT SUB ' an armed layer's transform widget: its hover, a handle's press / drag
+    IF MOUSE.B3% <> 0 _ANDALSO MOUSE.OLD_B3% = 0 _ANDALSO MODIFIERS.ctrlShiftAlt% _ANDALSO CFG.XSHEET% <> 0 THEN ' Ctrl+Alt+Shift+middle-click on the X-sheet: its contrast back to 0
+        IF ANIM_XS_hit%(MOUSE.RAW_X%, MOUSE.RAW_Y%) <> 0 THEN ANIM_XS_contrast_reset: MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB
+    END IF
     pressed1 = (MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0)
     pressed2 = (MOUSE.B2% <> 0 _ANDALSO MOUSE.OLD_B2% = 0)
     IF pressed1 = 0 _ANDALSO pressed2 = 0 THEN EXIT SUB
@@ -831,6 +869,8 @@ SUB ANIM_LB_mouse ()
     END IF
     MOUSE.UI_CHROME_CLICKED% = TRUE
     IF pressed2 _ANDALSO pressed1 = 0 THEN ANIM_XS.rSlot = ANIM_XS_slot_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%) ' its menu opens on the release (F5)
+    IF pressed2 _ANDALSO pressed1 = 0 THEN ANIM_XL.rRow = ANIM_XL_rpress%(MOUSE.RAW_X%, MOUSE.RAW_Y%) ' a lane / + LANE row: its menu on the release
+    IF pressed2 _ANDALSO pressed1 = 0 THEN ANIM_XS.rCell = ANIM_XS_cell_rpress%(MOUSE.RAW_X%, MOUSE.RAW_Y%) ' on a pixel layer's cell: the cell menu instead (per-layer holds)
     IF pressed2 _ANDALSO pressed1 = 0 THEN ANIM_XS.rSound = ANIM_XS_sound_press%(MOUSE.RAW_X%, MOUSE.RAW_Y%) ' picks the clip; the SOUND menu on the release (F6)
     IF pressed2 _ANDALSO pressed1 = 0 THEN ANIM_XS.rTag = ANIM_XS_tag_rpress%(MOUSE.RAW_X%, MOUSE.RAW_Y%) ' picks the tag / frame; the menu on the release (R-13)
     IF pressed2 _ANDALSO pressed1 = 0 _ANDALSO ANIM_XS_hit%(MOUSE.RAW_X%, MOUSE.RAW_Y%) <> 0 THEN
@@ -1125,6 +1165,8 @@ SUB ANIM_LB_menu_build ()
     IF ANIM_LB.menuKind = 2 THEN ANIM_XS_tag_menu_build: EXIT SUB ' the TAGS / NOTES rows' (R-13)
     IF ANIM_LB.menuKind = 3 THEN ANIM_LB_strip_menu_build: EXIT SUB ' the strip's cells
     IF ANIM_LB.menuKind = 4 THEN ANIM_XS_view_menu_build: EXIT SUB ' the X-sheet header's zoom / row sizes
+    IF ANIM_LB.menuKind = XL_MENU_LANE _ORELSE ANIM_LB.menuKind = XL_MENU_ADD THEN ANIM_XL_menu_build: EXIT SUB ' an X-sheet lane / + LANE row
+    IF ANIM_LB.menuKind = 5 THEN ANIM_XS_cell_menu_build: EXIT SUB ' an X-sheet pixel layer's cell: holds, links
     POPUP_MENU_clear_items
     FOR i = 0 TO 3
         POPUP_MENU_set_item i, _TRIM$(MID$("Forward   Backward  Ping-pong Play once ", i * 10 + 1, 10)), "", i, _IIF(i = ANIM.loopMode, POPUP_MENU_FLAG_CHECKED, 0)
@@ -1226,6 +1268,28 @@ FUNCTION ANIM_LB_menu_mouse% ()
             ANIM_XS_tag_go v - 30000
         ELSEIF v > 0 THEN
             MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE
+            CMD_execute_action v
+        ELSEIF MOUSE.RAW_X% >= ANIM_LB.menuX _ANDALSO MOUSE.RAW_X% < ANIM_LB.menuX + ANIM_LB.menuW _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.menuY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.menuY + POPUP_MENU_total_height%(ANIM_LB.menuN, LB_MENU_ITEM_H) THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE ' a divider / greyed item: just closes it
+        END IF
+        EXIT FUNCTION
+    END IF
+    IF ANIM_LB.menuKind = XL_MENU_LANE _ORELSE ANIM_LB.menuKind = XL_MENU_ADD THEN ' an X-sheet lane / + LANE row's menu (TOOLS/ANIM-XLANE)
+        IF v >= XL_V_VALUE THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE
+            ANIM_XL_menu_pick v
+        ELSEIF MOUSE.RAW_X% >= ANIM_LB.menuX _ANDALSO MOUSE.RAW_X% < ANIM_LB.menuX + ANIM_LB.menuW _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.menuY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.menuY + POPUP_MENU_total_height%(ANIM_LB.menuN, LB_MENU_ITEM_H) THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE ' a divider / greyed item: just closes it
+        END IF
+        EXIT FUNCTION
+    END IF
+    IF ANIM_LB.menuKind = 5 THEN ' an X-sheet cell's menu: v is an action, or 29000 the layer's own menu
+        IF v = 29000 THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE
+            IF ANIM_XS.mSlot >= 1 _ANDALSO ANIM_XS.mSlot <= MAX_LAYERS THEN IF LAYERS(ANIM_XS.mSlot).imgHandle& <> 0 THEN LAYER_PANEL_ctx_menu_show ANIM_XS.mSlot, MOUSE.RAW_X%, MOUSE.RAW_Y%
+        ELSEIF v > 0 THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE
+            IF v = ANIM_ACT_HOLD_CELL _ORELSE v = ANIM_ACT_RELEASE_HOLD THEN ANIM_LH_FRAME = ANIM_XS.mCell
             CMD_execute_action v
         ELSEIF MOUSE.RAW_X% >= ANIM_LB.menuX _ANDALSO MOUSE.RAW_X% < ANIM_LB.menuX + ANIM_LB.menuW _ANDALSO MOUSE.RAW_Y% >= ANIM_LB.menuY _ANDALSO MOUSE.RAW_Y% < ANIM_LB.menuY + POPUP_MENU_total_height%(ANIM_LB.menuN, LB_MENU_ITEM_H) THEN
             MOUSE.UI_CHROME_CLICKED% = TRUE: ANIM_LB_menu_mouse% = TRUE ' a divider / greyed item: just closes it
@@ -1982,6 +2046,16 @@ FUNCTION ANIM_LB_move_begin% (k AS INTEGER)
     IF MARQUEE.ACTIVE _ANDALSO MARQUEE.USER_CREATED THEN EXIT FUNCTION
     L = CURRENT_LAYER%
     IF L < 1 _ORELSE L > MAX_LAYERS THEN EXIT FUNCTION
+    IF ANIM_XL_move_wants% THEN ' an armed layer: the drag keys X / Y on this frame (TOOLS/ANIM-XLANE)
+        IF ANIM_LB_pane_rect%(k, x, y, w, h) < 1 THEN EXIT FUNCTION
+        ANIM_LB.mvScale = ANIM_LB_fit!(x, y, w, h, dx, dy, dw, dh)
+        IF ANIM_LB.mvScale <= 0 THEN EXIT FUNCTION
+        ANIM_XL_move_begin L, MOUSE.RAW_X%, MOUSE.RAW_Y%, ANIM_LB.mvScale
+        ANIM_LB.mvImg = 0: ANIM_LB.mvLayer = L
+        ANIM_LB.mvOn = TRUE
+        ANIM_LB_move_begin% = TRUE
+        EXIT FUNCTION
+    END IF
     IF CLIP_is_clip%(L) THEN ' a clip layer: the drag moves the clip in every frame (TOOLS/CLIP)
         IF MOVE.ACTIVE THEN MOVE_reset ' V's lift of it: the drag here moves it instead
         IF ANIM_LB_pane_rect%(k, x, y, w, h) < 1 THEN EXIT FUNCTION
@@ -2018,6 +2092,11 @@ END FUNCTION
 
 SUB ANIM_LB_move_hold ()
     DIM ox AS INTEGER, oy AS INTEGER, after AS STRING, n AS INTEGER, f AS INTEGER
+    IF ANIM_XL.mvOn THEN ' recording an armed layer's X / Y (TOOLS/ANIM-XLANE)
+        ANIM_XL_move_hold MOUSE.RAW_X%, MOUSE.RAW_Y%
+        IF MOUSE.B1% = 0 THEN ANIM_XL_move_end: ANIM_LB_move_end
+        EXIT SUB
+    END IF
     ox = INT((MOUSE.RAW_X% - ANIM_LB.mvPX) / ANIM_LB.mvScale + .5)
     oy = INT((MOUSE.RAW_Y% - ANIM_LB.mvPY) / ANIM_LB.mvScale + .5)
     IF SMART_GUIDES.ENABLED% THEN ANIM_CV_move_guides ox, oy: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE

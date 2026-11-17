@@ -21,6 +21,7 @@ DIM SHARED DRAWER_PENDING_CUSTOM AS INTEGER ' a .draw's custom brush is in a slo
 CONST DRAWER_GRID_COLS     = 3 ' the classic layout; DRAWER_layout reflows to the panel width
 CONST DRAWER_GRID_ROWS     = 10
 CONST DRAWER_MAX_COLS      = 6
+CONST DRAWER_ZOOM_MAX_ROWS = 6 ' Ctrl+wheel in a dock row: bin rows in its height, 1 .. this
 CONST DRAWER_ZOOM_MAX_COLS = 12 ' Ctrl+wheel: bins per row, 1 .. this
 CONST DRAWER_CONTEXT_BIN_AUTO = 7 ' context menu: Bin Size: Auto
 ' Live bin grid (DRAWER_layout): columns, rows on screen, first row shown

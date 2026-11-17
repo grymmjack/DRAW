@@ -119,7 +119,34 @@ CONST CLIP_LANES = 11
 CONST CLIP_LANE_X = 1, CLIP_LANE_Y = 2, CLIP_LANE_SX = 3, CLIP_LANE_SY = 4, CLIP_LANE_ROT = 5
 CONST CLIP_LANE_OP = 6, CLIP_LANE_TINT = 7, CLIP_LANE_PVX = 8, CLIP_LANE_PVY = 9
 CONST CLIP_LANE_VOL = 10, CLIP_LANE_PAN = 11
+CONST CLIP_LANE_BLEND = 12 ' a pixel layer's blend mode per frame (a BLEND_* value, stepped: every key a hold; TOOLS/LAYER-LANES - not on a clip or a group)
+' Effect lanes (Rick 2026-11-16 "Blur lane / Pixelate lane / Invert lane / Noise lane"): baked
+' into a layer's display copy per frame cell after its move (LL_build: pixelate, blur, noise,
+' invert), added on demand (+ LANE). On pixel layers and groups (a group's apply to each of its
+' layers), not on a clip.
+CONST CLIP_LANE_BLUR = 13     ' blur radius, px (0..32)
+CONST CLIP_LANE_PIXELATE = 14 ' block size, px (1..64; 1 = none)
+CONST CLIP_LANE_INVERT = 15   ' 0..100 % toward the inverted colours
+CONST CLIP_LANE_NOISE = 16    ' 0..100 grain; a new grain every frame, or held from a key (CLIP_KF_FROZEN)
+CONST CLIP_LANE_LAST = 16     ' the highest lane id (a sub-lane's parent is 1..CLIP_LANE_LAST)
 CONST CLIP_EASE_LINEAR = 0, CLIP_EASE_IN = 1, CLIP_EASE_OUT = 2, CLIP_EASE_INOUT = 3, CLIP_EASE_HOLD = 4
+' A key's modulator flags, over its ease in the same 2 bytes (CLIP_lk_e% = the
+' low 4 bits, CLIP_lk_fl% the rest): what the lane's modulator does over the
+' span from this key to the next. 0 = on, repeating, on the lane's own clock
+' (every key before these existed). Rick 2026-11-16: "Modulator one-shot toggle
+' per keyframe (off = the modulator repeats)".
+CONST CLIP_KF_MODOFF = 16  ' no modulator over this span
+CONST CLIP_KF_ONESHOT = 32 ' one cycle from the key, then flat
+CONST CLIP_KF_RETRIG = 64  ' the wave restarts at the key (one-shot always does)
+CONST CLIP_KF_FROZEN = 128 ' the NOISE lane: the grain holds still from this key (else a new grain every frame)
+CONST CLIP_KF_MASK = 240
+' A modulator's sub-lanes (Rick 2026-11-16: "Modulator frequency lane",
+' "Modulator amplitude lane"): virtual lane ids under lane L - L + 100 its
+' FREQUENCY (frames per cycle over time), L + 200 its AMPLITUDE (the amount over
+' time). Their keys live in the modulator's pack (bytes 29+, CLIP_mod_sub$), so
+' undo, files and copies carry them with it; no modulator, no sub-lanes.
+CONST CLIP_SUB_FREQ = 100
+CONST CLIP_SUB_AMP = 200
 DIM SHARED CLIP_LN_KEYS(1 TO CLIP_INST_MAX, 1 TO CLIP_LANES) AS STRING
 DIM SHARED CLIP_LN_MOD(1 TO CLIP_INST_MAX, 1 TO CLIP_LANES) AS STRING
 DIM SHARED CLIP_LANE_PICK AS INTEGER ' the lane the Animation panel shows (1..CLIP_LANES)

@@ -6,6 +6,7 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
+CONST LAYER_REC_DOT_W = 10 ' the record dot before the opacity bar (an animation's layers; LAYER_PANEL_rec_dot%)
 
 ' Maximum layer name length (hard compile-time max)
 CONST LAYER_NAME_HARD_MAX = 64

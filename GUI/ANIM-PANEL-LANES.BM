@@ -1,0 +1,373 @@
+$INCLUDEONCE
+' =============================================================================
+' ANIM-PANEL-LANES.BM — the Animation panel's LANES page (see the BI).
+' Native panel px throughout (ANIMP draws into ANIMP.panelImg); the lanes are
+' TOOLS/ANIM-XLANE's (pixel / group layer lanes or a clip's).
+' =============================================================================
+
+''
+' Is the LANES page showing (picked, and the current layer can have lanes)?
+FUNCTION ANIMPL_on% ()
+    IF ANIMPL_PAGE = 0 _ORELSE MVB.active _ORELSE ANIM.active = 0 THEN EXIT FUNCTION
+    IF ANIM_XL_can%(CURRENT_LAYER%) = 0 THEN EXIT FUNCTION
+    ANIMPL_on% = TRUE
+END FUNCTION
+
+''
+' Can the LANES chip show (the current layer can have lanes)?
+FUNCTION ANIMPL_chip_on% ()
+    IF MVB.active _ORELSE ANIM.active = 0 _ORELSE ANIM.count < 2 THEN EXIT FUNCTION
+    ANIMPL_chip_on% = (ANIM_XL_can%(CURRENT_LAYER%) <> 0)
+END FUNCTION
+
+''
+' Does the page list lane L of layer slot? A clip: all its lanes; a layer:
+' the ones it can have (no VOLUME / PAN; BLEND on a pixel layer only).
+FUNCTION ANIMPL_shows% (slot AS INTEGER, L AS INTEGER)
+    IF L < 1 _ORELSE L > ANIM_XL_nlanes%(slot) THEN EXIT FUNCTION
+    IF CLIP_inst_of%(slot) THEN ANIMPL_shows% = TRUE: EXIT FUNCTION
+    ' the effect lanes only once added (the X-sheet's + LANE), so the basic ones stay in view
+    IF L >= CLIP_LANE_BLUR _ANDALSO L <= CLIP_LANE_LAST THEN IF ANIM_XL_used%(slot, L) = 0 THEN EXIT FUNCTION
+    ANIMPL_shows% = ANIM_XL_lane_ok%(slot, L)
+END FUNCTION
+
+' How many lane rows the page has.
+FUNCTION ANIMPL_n% ()
+    DIM L AS INTEGER, n AS INTEGER
+    FOR L = 1 TO ANIM_XL_nlanes%(CURRENT_LAYER%)
+        IF ANIMPL_shows%(CURRENT_LAYER%, L) THEN n = n + 1
+    NEXT L
+    ANIMPL_n% = n
+END FUNCTION
+
+' The lane on lane row r (1..ANIMPL_n%), 0 none.
+FUNCTION ANIMPL_lane% (r AS INTEGER)
+    DIM L AS INTEGER, n AS INTEGER
+    FOR L = 1 TO ANIM_XL_nlanes%(CURRENT_LAYER%)
+        IF ANIMPL_shows%(CURRENT_LAYER%, L) THEN
+            n = n + 1
+            IF n = r THEN ANIMPL_lane% = L: EXIT FUNCTION
+        END IF
+    NEXT L
+END FUNCTION
+
+' The status row's LANES chip.
+SUB ANIMPL_chip_rect (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    w = FPANEL_text_w%("LANES") + 8: h = FPANEL.fontH + 2
+    x = ANIMP.panelW - FPANEL.pad - w: y = ANIMP.yStatus - 1
+END SUB
+
+' Row r's top: 0 the nav row, 1..n the lanes, n + 1 EASE, n + 2 MOD.
+FUNCTION ANIMPL_row_y% (r AS INTEGER)
+    DIM n AS INTEGER, st AS INTEGER
+    n = ANIMPL_n%
+    st = FPANEL.rowH + FPANEL.gap
+    IF r = 0 THEN ANIMPL_row_y% = ANIMP.yNav: EXIT FUNCTION
+    IF r <= n THEN ANIMPL_row_y% = ANIMP.yNav + st + FPANEL.section - FPANEL.gap + (r - 1) * st: EXIT FUNCTION
+    ANIMPL_row_y% = ANIMP.yNav + st + FPANEL.section - FPANEL.gap + n * st + FPANEL.section - FPANEL.gap + (r - n - 1) * st
+END FUNCTION
+
+' A lane row's parts: the key button (kx) and the value box (vx, vw).
+SUB ANIMPL_cols (kx AS INTEGER, vx AS INTEGER, vw AS INTEGER)
+    vw = FPANEL_text_w%("-999.9") + 6
+    vx = ANIMP.panelW - FPANEL.pad - vw
+    kx = vx - 3 - ANIMP.chipW
+END SUB
+
+' The MOD row's parts: the chip, then AMOUNT and PERIOD boxes.
+SUB ANIMPL_mod_cols (cx AS INTEGER, cw AS INTEGER, ax AS INTEGER, px AS INTEGER, bw AS INTEGER)
+    bw = FPANEL_text_w%("-999.9") + 6
+    px = ANIMP.panelW - FPANEL.pad - bw
+    ax = px - 3 - bw
+    cx = FPANEL.pad + FPANEL_text_w%("PERIOD") + 4: cw = ax - 4 - cx
+END SUB
+
+' Lane L's keyed value at the current frame (no modulator).
+FUNCTION ANIMPL_keyed! (L AS INTEGER)
+    ANIMPL_keyed! = CLIP_lane_keyed!(ANIM_XL_keys$(CURRENT_LAYER%, L), ANIMPL_rel%, ANIM_XL_dflt!(CURRENT_LAYER%, L))
+END FUNCTION
+
+FUNCTION ANIMPL_rel% ()
+    ANIMPL_rel% = ANIM.current - ANIM_XL_in%(CURRENT_LAYER%)
+END FUNCTION
+
+' The picked lane, kept to the lanes this layer has.
+FUNCTION ANIMPL_pick% ()
+    DIM n AS INTEGER
+    n = ANIM_XL_nlanes%(CURRENT_LAYER%)
+    IF CLIP_LANE_PICK < 1 _ORELSE CLIP_LANE_PICK > n THEN CLIP_LANE_PICK = 1
+    IF ANIMPL_shows%(CURRENT_LAYER%, CLIP_LANE_PICK) = 0 THEN CLIP_LANE_PICK = 1
+    ANIMPL_pick% = CLIP_LANE_PICK
+END FUNCTION
+
+''
+' The page (ANIMP_render, instead of the frame rows).
+SUB ANIMPL_render ()
+    DIM slot AS INTEGER, n AS INTEGER, L AS INTEGER, y AS INTEGER, rh AS INTEGER, f AS INTEGER, pad AS INTEGER
+    DIM kx AS INTEGER, vx AS INTEGER, vw AS INTEGER, ks AS STRING, i AS INTEGER, rel AS INTEGER, t AS STRING, k AS INTEGER
+    DIM cx AS INTEGER, cw AS INTEGER, ax AS INTEGER, px AS INTEGER, bw AS INTEGER, pk AS INTEGER, e AS INTEGER, ty AS INTEGER
+    DIM fg AS _UNSIGNED LONG, hov AS INTEGER, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, r AS INTEGER
+    slot = CURRENT_LAYER%: n = ANIMPL_n%
+    rh = FPANEL.rowH: f = FPANEL.fontH: pad = FPANEL.pad
+    rel = ANIMPL_rel%: pk = ANIMPL_pick%
+    hov = ANIMPL_hit%(ANIMP_mouse_nx%, ANIMP_mouse_ny%)
+    ' <KEY < > KEY>
+    FOR k = 0 TO 3
+        ANIMP_chip_x k, 4, cx, cw
+        ANIMP_chip cx, ANIMPL_row_y%(0), cw, _TRIM$(MID$("<KEY<   >   KEY>", k * 4 + 1, 4)), FALSE, hov = ANIMPL_C_NAV + k, TRUE
+    NEXT k
+    ANIMPL_cols kx, vx, vw
+    FOR r = 1 TO n
+        L = ANIMPL_lane%(r)
+        y = ANIMPL_row_y%(r): ty = y + (rh - f) \ 2
+        ks = ANIM_XL_keys$(slot, L)
+        i = ANIM_XL_index_in%(ks, rel)
+        IF L = pk THEN LINE (0, y)-(ANIMP.panelW - 1, y + rh - 1), THEME.CP_button_bg~&, BF
+        fg = _IIF(L = pk, THEME.CP_text_bright~&, _IIF(LEN(ks) > 0 _ORELSE LEN(ANIM_XL_mod$(slot, L)) > 0, THEME.CP_text~&, THEME.CP_text_dim~&))
+        t = CLIP_lane_name$(L) + _IIF(LEN(ANIM_XL_mod$(slot, L)), " ~", "")
+        LINE (pad, y + 2)-(pad + 1, y + rh - 3), ANIM_XL_lane_colour~&(L), BF ' its colour (Settings > Animation)
+        FPANEL_text pad + 5, ty, t, fg
+        IF ANIM_XL_live%(slot, L) THEN ANIM_XL_dot kx - 5, y + rh / 2, 2, 2 ' being recorded
+        ' the key button: the ease's glyph when this frame has a key
+        ANIMP_chip kx, y, ANIMP.chipW, "", FALSE, hov = ANIMPL_C_KEY + L, rel >= 0
+        IF i THEN
+            ANIM_XL_key_glyph kx + ANIMP.chipW \ 2, y + rh \ 2, _MAX(2, (rh - 5) \ 2), CLIP_lk_e%(ks, i), 1, THEME.ANIM_FRAME_current~&, 0
+        ELSE
+            ANIM_XL_key_glyph kx + ANIMP.chipW \ 2, y + rh \ 2, _MAX(2, (rh - 5) \ 2), CLIP_EASE_LINEAR, 0, THEME.CP_text_dim~&, 0
+        END IF
+        ' the value at this frame
+        LINE (vx, y)-(vx + vw - 1, y + rh - 1), THEME.CP_slider_bg~&, BF
+        LINE (vx, y)-(vx + vw - 1, y + rh - 1), _IIF(ANIMPL_VL = L _ORELSE hov = ANIMPL_C_VAL + L, THEME.ANIM_FRAME_current~&, THEME.CP_slider_border~&), B
+        t = ANIM_XL_vtext$(L, ANIM_XL_value!(slot, L, ANIM.current))
+        FPANEL_text vx + vw - 2 - FPANEL_text_w%(t), ty, t, fg
+    NEXT r
+    ' EASE: the picked lane's key on this frame
+    y = ANIMPL_row_y%(n + 1): ty = y + (rh - f) \ 2
+    ks = ANIM_XL_keys$(slot, pk): i = ANIM_XL_index_in%(ks, rel)
+    FPANEL_text pad, ty, "EASE", THEME.CP_text~&
+    ANIMPL_mod_cols cx, cw, ax, px, bw
+    IF i THEN e = CLIP_lk_e%(ks, i): t = ANIM_XL_ease_name$(e) ELSE t = "NO KEY HERE"
+    ANIMP_chip cx, y, ANIMP.panelW - pad - cx, UCASE$(t), FALSE, hov = ANIMPL_C_EASE, i <> 0
+    ' MOD: its modulator
+    y = ANIMPL_row_y%(n + 2): ty = y + (rh - f) \ 2
+    FPANEL_text pad, ty, "MOD", THEME.CP_text~&
+    CLIP_mod_unpack ANIM_XL_mod$(slot, pk), kind, shape, amount, period, phase, seed
+    IF kind = 2 THEN k = 5 ELSE IF kind = 1 THEN k = 1 + shape ELSE k = 0
+    ANIMP_chip cx, y, cw, _TRIM$(MID$("OFF  SINE TRI  SQUARSAW  NOISE", k * 5 + 1, 5)), kind > 0, hov = ANIMPL_C_MOD, TRUE
+    FOR k = 0 TO 1
+        i = _IIF(k = 0, ax, px)
+        LINE (i, y)-(i + bw - 1, y + rh - 1), THEME.CP_slider_bg~&, BF
+        LINE (i, y)-(i + bw - 1, y + rh - 1), _IIF(hov = ANIMPL_C_AMT + k _ANDALSO kind > 0, THEME.ANIM_FRAME_current~&, THEME.CP_slider_border~&), B
+        IF kind THEN
+            t = ANIM_XL_num$(_IIF(k = 0, amount, period))
+            FPANEL_text i + bw - 2 - FPANEL_text_w%(t), ty, t, THEME.CP_text~&
+        END IF
+    NEXT k
+END SUB
+
+' The pointer in native panel px (for the hover).
+FUNCTION ANIMP_mouse_nx% ()
+    IF ANIMP.renderScale > 0 THEN ANIMP_mouse_nx% = INT((MOUSE.RAW_X% - ANIMP.dispX) / ANIMP.renderScale) ELSE ANIMP_mouse_nx% = -1
+END FUNCTION
+FUNCTION ANIMP_mouse_ny% ()
+    IF ANIMP.renderScale > 0 THEN ANIMP_mouse_ny% = INT((MOUSE.RAW_Y% - ANIMP.dispY) / ANIMP.renderScale) ELSE ANIMP_mouse_ny% = -1
+END FUNCTION
+
+''
+' The control at native (nx, ny): ANIMPL_C_*, 0 none (the page chip too).
+FUNCTION ANIMPL_hit% (nx AS INTEGER, ny AS INTEGER)
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, n AS INTEGER, L AS INTEGER, k AS INTEGER
+    DIM kx AS INTEGER, vx AS INTEGER, vw AS INTEGER, cx AS INTEGER, cw AS INTEGER, ax AS INTEGER, px AS INTEGER, bw AS INTEGER, rh AS INTEGER
+    IF ANIMPL_chip_on% THEN
+        ANIMPL_chip_rect x, y, w, h
+        IF nx >= x _ANDALSO nx < x + w _ANDALSO ny >= y _ANDALSO ny < y + h THEN ANIMPL_hit% = ANIMPL_C_PAGE: EXIT FUNCTION
+    END IF
+    IF ANIMPL_on% = 0 THEN EXIT FUNCTION
+    rh = FPANEL.rowH
+    n = ANIMPL_n%
+    y = ANIMPL_row_y%(0)
+    IF ny >= y _ANDALSO ny < y + rh THEN
+        FOR k = 0 TO 3
+            ANIMP_chip_x k, 4, cx, cw
+            IF nx >= cx _ANDALSO nx < cx + cw THEN ANIMPL_hit% = ANIMPL_C_NAV + k: EXIT FUNCTION
+        NEXT k
+        EXIT FUNCTION
+    END IF
+    ANIMPL_cols kx, vx, vw
+    FOR k = 1 TO n
+        y = ANIMPL_row_y%(k)
+        IF ny >= y _ANDALSO ny < y + rh THEN
+            L = ANIMPL_lane%(k)
+            IF nx >= vx _ANDALSO nx < vx + vw THEN ANIMPL_hit% = ANIMPL_C_VAL + L: EXIT FUNCTION
+            IF nx >= kx _ANDALSO nx < kx + ANIMP.chipW THEN ANIMPL_hit% = ANIMPL_C_KEY + L: EXIT FUNCTION
+            IF nx >= 0 _ANDALSO nx < kx THEN ANIMPL_hit% = ANIMPL_C_NAME + L
+            EXIT FUNCTION
+        END IF
+    NEXT k
+    ANIMPL_mod_cols cx, cw, ax, px, bw
+    y = ANIMPL_row_y%(n + 1)
+    IF ny >= y _ANDALSO ny < y + rh _ANDALSO nx >= cx _ANDALSO nx < ANIMP.panelW - FPANEL.pad THEN ANIMPL_hit% = ANIMPL_C_EASE: EXIT FUNCTION
+    y = ANIMPL_row_y%(n + 2)
+    IF ny >= y _ANDALSO ny < y + rh THEN
+        IF nx >= cx _ANDALSO nx < cx + cw THEN ANIMPL_hit% = ANIMPL_C_MOD
+        IF nx >= ax _ANDALSO nx < ax + bw THEN ANIMPL_hit% = ANIMPL_C_AMT
+        IF nx >= px _ANDALSO nx < px + bw THEN ANIMPL_hit% = ANIMPL_C_PER
+    END IF
+END FUNCTION
+
+''
+' Lane L's value at the current frame = v (a key there, the ease of the key
+' before it); no undo step - the caller commits.
+SUB ANIMPL_put (L AS INTEGER, v AS SINGLE)
+    ANIM_XL_rec_set CURRENT_LAYER%, L, v
+END SUB
+
+' The lane menu's pick (TOOLS/ANIM-XLANE) for lane L at the current frame.
+SUB ANIMPL_menu (L AS INTEGER, v AS INTEGER)
+    ANIM_XL.mSlot = CURRENT_LAYER%: ANIM_XL.mL = L: ANIM_XL.mRel = ANIMPL_rel%
+    ANIM_XL_menu_pick v
+END SUB
+
+''
+' The frame before / after the current one with a key on any lane (dir -1 / 1).
+SUB ANIMPL_key_jump (dir AS INTEGER)
+    DIM slot AS INTEGER, L AS INTEGER, ks AS STRING, i AS INTEGER, f AS INTEGER, best AS INTEGER, r AS INTEGER
+    slot = CURRENT_LAYER%
+    best = 0
+    FOR L = 1 TO ANIM_XL_nlanes%(slot)
+        ks = ANIM_XL_keys$(slot, L)
+        FOR i = 1 TO CLIP_lks_n%(ks)
+            f = ANIM_XL_in%(slot) + CLIP_lk_f%(ks, i)
+            IF dir < 0 _ANDALSO f < ANIM.current _ANDALSO f >= 1 THEN IF best = 0 _ORELSE f > best THEN best = f
+            IF dir > 0 _ANDALSO f > ANIM.current _ANDALSO f <= ANIM.count THEN IF best = 0 _ORELSE f < best THEN best = f
+        NEXT i
+    NEXT L
+    IF best = 0 THEN STATUS_flash "No key " + _IIF(dir < 0, "before", "after") + " frame" + STR$(ANIM.current): EXIT SUB
+    r = ANIM_go%(best)
+    STATUS_flash "Frame" + STR$(ANIM.current) + " (a key)"
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' ANIMP_mouse_input, before its own controls: a held value box until the
+' release, a press on the page's controls or the LANES chip, a middle-click
+' on a value (its default). TRUE = the page's.
+FUNCTION ANIMPL_mouse% (nx AS INTEGER, ny AS INTEGER, pressed AS INTEGER)
+    DIM c AS INTEGER, L AS INTEGER, slot AS INTEGER, dy AS INTEGER, want AS INTEGER, v AS SINGLE, ks AS STRING, i AS INTEGER, e AS INTEGER
+    DIM kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    slot = CURRENT_LAYER%
+    IF ANIMPL_VL THEN ' a value box held: drag up / down steps it, a click types it
+        L = ANIMPL_VL
+        IF MOUSE.B1% THEN
+            dy = ANIMPL_VY0 - MOUSE.RAW_Y%
+            IF ABS(dy) >= ANIMP_DRAG_PX THEN ANIMPL_VMOVED = TRUE
+            IF ANIMPL_VMOVED _ANDALSO ANIM_XL_can%(slot) <> 0 THEN
+                want = FIX(dy / ANIMP_DRAG_PX)
+                IF want <> ANIMPL_VAPPLIED THEN
+                    ANIMPL_VAPPLIED = want
+                    ANIMPL_put L, ANIMPL_VBASE + want * _IIF(MODIFIERS.shift%, 10, 1)
+                END IF
+            END IF
+        ELSE
+            ANIMPL_VL = 0
+            IF ANIM_XL_can%(slot) THEN
+                IF ANIMPL_VMOVED THEN
+                    IF ANIM_XL_state$(slot) <> ANIMPL_VBEFORE THEN ANIM_XL_commit slot, ANIMPL_VBEFORE, ANIM_XL_word$(slot) + " Key " + CLIP_lane_name$(L)
+                ELSE
+                    ANIM_XL_type_value slot, L, ANIMPL_rel%
+                END IF
+            END IF
+        END IF
+        SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        ANIMPL_mouse% = TRUE
+        EXIT FUNCTION
+    END IF
+    ' a middle click on a value: the lane's default, keyed here
+    IF MOUSE.B3% _ANDALSO MOUSE.OLD_B3% = 0 _ANDALSO ANIMPL_on% <> 0 THEN
+        IF nx < 0 _ORELSE nx >= ANIMP.panelW _ORELSE ny < ANIMP.yNav _ORELSE ny >= ANIMP.panelH THEN EXIT FUNCTION
+        ANIMPL_mouse% = TRUE ' (not the frame rows' boxes underneath)
+        c = ANIMPL_hit%(nx, ny)
+        IF c > ANIMPL_C_VAL _ANDALSO c <= ANIMPL_C_VAL + ANIM_XL_nlanes%(slot) _ANDALSO ANIMPL_rel% >= 0 THEN
+            L = c - ANIMPL_C_VAL
+            ANIM_XL_rec_value slot, L, ANIM_XL_dflt!(slot, L), CLIP_lane_name$(L) + " Default"
+        END IF
+        EXIT FUNCTION
+    END IF
+    IF pressed = 0 _ORELSE nx < 0 _ORELSE nx >= ANIMP.panelW _ORELSE ny < 0 _ORELSE ny >= ANIMP.panelH THEN EXIT FUNCTION
+    c = ANIMPL_hit%(nx, ny)
+    IF c = 0 THEN ANIMPL_mouse% = (ANIMPL_on% <> 0 _ANDALSO ny >= ANIMP.yNav): EXIT FUNCTION ' the page covers the frame rows
+    ANIMPL_mouse% = TRUE
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    SELECT CASE c
+        CASE ANIMPL_C_PAGE
+            ANIMPL_PAGE = _IIF(ANIMPL_PAGE, FALSE, TRUE)
+            STATUS_flash _IIF(ANIMPL_PAGE, "Animation panel: the layer's lanes (click LANES again for the frame controls)", "Animation panel: the frame controls")
+        CASE ANIMPL_C_NAV: ANIMPL_key_jump -1
+        CASE ANIMPL_C_NAV + 1: CMD_execute_action ANIM_ACT_PREV
+        CASE ANIMPL_C_NAV + 2: CMD_execute_action ANIM_ACT_NEXT
+        CASE ANIMPL_C_NAV + 3: ANIMPL_key_jump 1
+        CASE ANIMPL_C_NAME + 1 TO ANIMPL_C_NAME + 99
+            CLIP_LANE_PICK = c - ANIMPL_C_NAME
+        CASE ANIMPL_C_KEY + 1 TO ANIMPL_C_KEY + 99 ' add / remove the key on this frame
+            L = c - ANIMPL_C_KEY: CLIP_LANE_PICK = L
+            IF ANIMPL_rel% < 0 THEN STATUS_flash "Before the clip's IN frame: no keys here": EXIT FUNCTION
+            IF ANIM_XL_index_in%(ANIM_XL_keys$(slot, L), ANIMPL_rel%) THEN ANIMPL_menu L, XL_V_DELETE ELSE ANIMPL_menu L, XL_V_ADDKEY
+        CASE ANIMPL_C_VAL + 1 TO ANIMPL_C_VAL + 99 ' held: drag steps it / a click types it
+            L = c - ANIMPL_C_VAL: CLIP_LANE_PICK = L
+            IF ANIMPL_rel% < 0 THEN STATUS_flash "Before the clip's IN frame: no keys here": EXIT FUNCTION
+            ANIMPL_VL = L: ANIMPL_VY0 = MOUSE.RAW_Y%: ANIMPL_VAPPLIED = 0: ANIMPL_VMOVED = FALSE
+            ANIMPL_VBASE = ANIMPL_keyed!(L)
+            ANIMPL_VBEFORE = ANIM_XL_state$(slot)
+        CASE ANIMPL_C_EASE ' the next ease (Shift: the one before)
+            L = ANIMPL_pick%: ks = ANIM_XL_keys$(slot, L): i = ANIM_XL_index_in%(ks, ANIMPL_rel%)
+            IF i = 0 THEN EXIT FUNCTION
+            e = (CLIP_lk_e%(ks, i) + _IIF(MODIFIERS.shift%, 4, 1)) MOD 5
+            ANIMPL_menu L, XL_V_EASE + e
+        CASE ANIMPL_C_MOD ' the next modulator (Shift: the one before)
+            L = ANIMPL_pick%
+            CLIP_mod_unpack ANIM_XL_mod$(slot, L), kind, shape, amount, period, phase, seed
+            IF kind = 2 THEN i = 5 ELSE IF kind = 1 THEN i = 1 + shape ELSE i = 0
+            ANIMPL_menu L, XL_V_MOD + (i + _IIF(MODIFIERS.shift%, 5, 1)) MOD 6
+        CASE ANIMPL_C_AMT: ANIMPL_menu ANIMPL_pick%, XL_V_MODAMT
+        CASE ANIMPL_C_PER: ANIMPL_menu ANIMPL_pick%, XL_V_MODPER
+    END SELECT
+END FUNCTION
+
+''
+' The wheel over a lane's value: +/- 1 (Shift 10), wheel up = more; one undo
+' step a tick. TRUE = the page's.
+FUNCTION ANIMPL_wheel% (nx AS INTEGER, ny AS INTEGER, delta AS INTEGER)
+    DIM c AS INTEGER, L AS INTEGER, slot AS INTEGER
+    IF ANIMPL_on% = 0 THEN EXIT FUNCTION
+    c = ANIMPL_hit%(nx, ny)
+    slot = CURRENT_LAYER%
+    IF c <= ANIMPL_C_VAL _ORELSE c > ANIMPL_C_VAL + ANIM_XL_nlanes%(slot) THEN EXIT FUNCTION
+    ANIMPL_wheel% = TRUE
+    IF ANIMPL_rel% < 0 THEN EXIT FUNCTION
+    L = c - ANIMPL_C_VAL
+    ANIM_XL_rec_value slot, L, ANIMPL_keyed!(L) - SGN(delta) * _IIF(MODIFIERS.shift%, 10, 1), CLIP_lane_name$(L)
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+''
+' QA dump: ANIMPLP on chipX chipY chipW chipH navY keyX valX valW chipW easeY modY
+' modChipX amtX perX, then per lane L y value keyEase (-1 = no key on this frame).
+FUNCTION ANIMPL_dump$ ()
+    DIM d AS STRING, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, kx AS INTEGER, vx AS INTEGER, vw AS INTEGER
+    DIM cx AS INTEGER, cw AS INTEGER, ax AS INTEGER, px AS INTEGER, bw AS INTEGER, n AS INTEGER, L AS INTEGER, ks AS STRING, i AS INTEGER, r AS INTEGER
+    IF ANIMP.initialized = 0 THEN EXIT FUNCTION
+    ANIMPL_chip_rect x, y, w, h
+    IF ANIMPL_chip_on% = 0 THEN x = 0
+    d = "ANIMPLP" + DOCK_n$(ANIMPL_on%) + DOCK_n$(x) + DOCK_n$(y) + DOCK_n$(w) + DOCK_n$(h)
+    IF ANIMPL_on% THEN
+        n = ANIMPL_n%
+        ANIMPL_cols kx, vx, vw: ANIMPL_mod_cols cx, cw, ax, px, bw
+        d = d + DOCK_n$(ANIMPL_row_y%(0)) + DOCK_n$(kx) + DOCK_n$(vx) + DOCK_n$(vw) + DOCK_n$(ANIMP.chipW) + DOCK_n$(ANIMPL_row_y%(n + 1)) + DOCK_n$(ANIMPL_row_y%(n + 2)) + DOCK_n$(cx) + DOCK_n$(ax) + DOCK_n$(px)
+        FOR r = 1 TO n
+            L = ANIMPL_lane%(r)
+            ks = ANIM_XL_keys$(CURRENT_LAYER%, L): i = ANIM_XL_index_in%(ks, ANIMPL_rel%)
+            d = d + " " + _TRIM$(STR$(L)) + ":" + _TRIM$(STR$(ANIMPL_row_y%(r))) + ":" + ANIM_XL_num$(ANIM_XL_value!(CURRENT_LAYER%, L, ANIM.current)) + ":" + _TRIM$(STR$(_IIF(i, CLIP_lk_e%(ks, i), -1)))
+        NEXT r
+    END IF
+    ANIMPL_dump$ = d + CHR$(10)
+END FUNCTION

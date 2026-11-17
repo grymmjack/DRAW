@@ -14,65 +14,251 @@ $INCLUDEONCE
 
 
 ''
-' Left edge of the palette-name dropdown area on the strip. It lines up with
-' the layer panel's left edge when that panel is docked on the right, so the
-' name gets the panel's full width (and reads as part of that column);
-' otherwise a fixed 100px area at the right edge.
+' The x range a horizontal strip spans: the whole window at the bottom (the
+' full-height columns end above it); under the menu bar at the top, between
+' the full-height columns like the menu bar itself.
+SUB PALETTE_STRIP_hspan (x1 AS INTEGER, x2 AS INTEGER)
+    x1 = 0: x2 = SCRN.w& - 1
+    IF PALETTE_STRIP_edge% = PSTRIP_TOP _ANDALSO DOCK_MENU_RX > DOCK_MENU_LX THEN x1 = DOCK_MENU_LX: x2 = DOCK_MENU_RX
+END SUB
+
+''
+' Where the strip docks (CFG.PALETTE_STRIP_EDGE, PSTRIP_*).
+FUNCTION PALETTE_STRIP_edge% ()
+    DIM e AS INTEGER
+    e = CFG.PALETTE_STRIP_EDGE%
+    IF e < PSTRIP_BOTTOM _ORELSE e > PSTRIP_RIGHT THEN e = PSTRIP_BOTTOM
+    PALETTE_STRIP_edge% = e
+END FUNCTION
+
+''
+' Is the strip on screen (it shows with the status bar, unless a workspace hid it)?
+FUNCTION PALETTE_STRIP_on% ()
+    PALETTE_STRIP_on% = (PALETTE_STRIP_HIDDEN = 0 _ANDALSO PALETTE_STRIP_VISIBLE% <> 0 _ANDALSO SCRN.showStatus% <> 0)
+END FUNCTION
+
+''
+' Left edge of the palette-name dropdown area on a horizontal strip. It lines
+' up with the layer panel's left edge when that panel is docked on the right,
+' so the name gets the panel's full width (and reads as part of that column);
+' otherwise a fixed 100px area at the strip's right end.
 '
 FUNCTION PALETTE_STRIP_name_x% ()
-    DIM nx AS INTEGER : nx% = SCRN.w& - 100
-    IF LAYER_PANEL.visible% _ANDALSO LAYER_PANEL.panelX1% > SCRN.w& \ 2 _ANDALSO LAYER_PANEL.panelX1% < nx% THEN
+    DIM x1 AS INTEGER, x2 AS INTEGER, nx AS INTEGER
+    PALETTE_STRIP_hspan x1, x2
+    nx% = x2 + 1 - 100
+    IF LAYER_PANEL.visible% _ANDALSO LAYER_PANEL.panelX1% > (x1 + x2) \ 2 _ANDALSO LAYER_PANEL.panelX1% < nx% THEN
         nx% = LAYER_PANEL.panelX1%
     END IF
     PALETTE_STRIP_name_x% = nx%
 END FUNCTION
 
 ''
-' Width of the palette-name dropdown area (strip right edge minus its left).
+' Width of the palette-name dropdown area (strip right end minus its left).
 '
 FUNCTION PALETTE_STRIP_name_w% ()
-    PALETTE_STRIP_name_w% = SCRN.w& - PALETTE_STRIP_name_x%
+    DIM x1 AS INTEGER, x2 AS INTEGER
+    PALETTE_STRIP_hspan x1, x2
+    PALETTE_STRIP_name_w% = x2 + 1 - PALETTE_STRIP_name_x%
 END FUNCTION
 
 ''
-' Calculate the dynamic height of the palette strip based on palette size
+' The chips that fit avail px of a line (cell = one chip + its 1px gap), the
+' palette's colour count over them, and how many lines (rows - or a side
+' strip's columns): the config's MAX_CHIPS_PER_ROW / MIN_ROWS / MAX_ROWS,
+' turned sideways for a side strip.
+SUB PALETTE_STRIP_fit (avail AS INTEGER, cell AS INTEGER, perLine AS INTEGER, lines AS INTEGER)
+    DIM n AS INTEGER
+    n = PALETTE_LOADER_get_color_count%
+    IF n < 1 THEN n = 1
+    IF cell < 1 THEN cell = 1
+    perLine = avail \ cell
+    IF perLine > CFG.PALETTE_MAX_CHIPS_PER_ROW% THEN perLine = CFG.PALETTE_MAX_CHIPS_PER_ROW%
+    IF perLine < 1 THEN perLine = 1
+    lines = ((n - 1) \ perLine) + 1
+    IF lines < CFG.PALETTE_MIN_ROWS% THEN lines = CFG.PALETTE_MIN_ROWS%
+    IF lines > CFG.PALETTE_MAX_ROWS% THEN lines = CFG.PALETTE_MAX_ROWS%
+    IF lines < 1 THEN lines = 1
+END SUB
+
+''
+' A horizontal strip's height (top or bottom), whatever edge it is on now.
+FUNCTION PALETTE_STRIP_band_h% ()
+    DIM x1 AS INTEGER, x2 AS INTEGER, pl AS INTEGER, ln AS INTEGER
+    PALETTE_STRIP_hspan x1, x2
+    PALETTE_STRIP_fit (x2 - x1 + 1) - (PALETTE_STRIP_ARROW_WIDTH * 2) - PALETTE_STRIP_name_w% - 12, CFG.PALETTE_CHIP_WIDTH% + 1, pl, ln
+    PALETTE_STRIP_band_h% = ln * (CFG.PALETTE_CHIP_HEIGHT% + 1) + 3
+END FUNCTION
+
+''
+' The height the strip takes at the BOTTOM (above the status bar) - 0 when it
+' is docked elsewhere. Every layout caller reserves this much under the canvas.
 ' @return INTEGER - Height in pixels
 '
 FUNCTION PALETTE_STRIP_get_height% ()
-    DIM pal_count  AS INTEGER
-    DIM num_rows   AS INTEGER
-    DIM row_height AS INTEGER
     IF PALETTE_STRIP_HIDDEN THEN EXIT FUNCTION ' every layout caller then reserves nothing
-    
-    pal_count% = PALETTE_LOADER_get_color_count%
-    IF pal_count% < 1 THEN pal_count% = 1
-    
-    ' Calculate row height based on chip height + gap
-    row_height% = CFG.PALETTE_CHIP_HEIGHT% + 1
-    
-    ' Estimate swatches per row using screen width (mirrors render logic)
-    DIM sw AS INTEGER, available_width AS INTEGER, swatches_per_row AS INTEGER
-    sw%               = CFG.PALETTE_CHIP_WIDTH%
-    available_width%  = SCRN.w& - (PALETTE_STRIP_ARROW_WIDTH * 2) - PALETTE_STRIP_name_w% - 12
-    swatches_per_row% = available_width% \ (sw% + 1)
-    IF swatches_per_row% < 1 THEN swatches_per_row% = 1
-    IF swatches_per_row% > CFG.PALETTE_MAX_CHIPS_PER_ROW% THEN
-        swatches_per_row% = CFG.PALETTE_MAX_CHIPS_PER_ROW%
-    END IF
-    
-    ' A new row is needed only when count exceeds what fits in the current rows
-    num_rows% = ((pal_count% - 1) \ swatches_per_row%) + 1
-    
-    ' Apply min and max rows limits
-    IF num_rows% < CFG.PALETTE_MIN_ROWS% THEN
-        num_rows% = CFG.PALETTE_MIN_ROWS%
-    END IF
-    IF num_rows% > CFG.PALETTE_MAX_ROWS% THEN
-        num_rows% = CFG.PALETTE_MAX_ROWS%
-    END IF
-    
-    PALETTE_STRIP_get_height% = (num_rows% * row_height%) + 3
+    IF PALETTE_STRIP_edge% <> PSTRIP_BOTTOM THEN EXIT FUNCTION
+    PALETTE_STRIP_get_height% = PALETTE_STRIP_band_h%
 END FUNCTION
+
+''
+' The height the strip takes under the menu bar (docked at the TOP), else 0.
+FUNCTION PALETTE_STRIP_top_h% ()
+    IF PALETTE_STRIP_on% = 0 _ORELSE PALETTE_STRIP_edge% <> PSTRIP_TOP THEN EXIT FUNCTION
+    PALETTE_STRIP_top_h% = PALETTE_STRIP_band_h%
+END FUNCTION
+
+''
+' A side strip's top / bottom: under the menu bar (or from the window's top when
+' a full-height column keeps the menu bar off that edge), down to the status bar.
+SUB PALETTE_STRIP_vspan (edge AS INTEGER, y1 AS INTEGER, y2 AS INTEGER)
+    y1 = 0
+    IF SCRN.showMenubar% _ANDALSO MENU_BAR.visible% THEN
+        IF edge = PSTRIP_LEFT _ANDALSO DOCK_MENU_LX <= 0 THEN y1 = MENU_BAR_HEIGHT
+        IF edge = PSTRIP_RIGHT _ANDALSO DOCK_MENU_RX >= SCRN.w& - 1 THEN y1 = MENU_BAR_HEIGHT
+    END IF
+    y2 = SCRN.h& - 1
+    IF SCRN.showStatus% THEN y2 = SCRN.h& - THEME.STATUS_height% - 1
+END SUB
+
+''
+' A side strip's width: its columns of chips (the rows setting, sideways) at
+' the chip width - never narrower than its scroll buttons. 0 on any other edge
+' (or off): the docks lay out inside it (DOCK_WX1 / DOCK_WX2).
+FUNCTION PALETTE_STRIP_side_w% ()
+    DIM e AS INTEGER, y1 AS INTEGER, y2 AS INTEGER, pl AS INTEGER, ln AS INTEGER, w AS INTEGER
+    IF PALETTE_STRIP_on% = 0 THEN EXIT FUNCTION
+    e = PALETTE_STRIP_edge%
+    IF e <> PSTRIP_LEFT _ANDALSO e <> PSTRIP_RIGHT THEN EXIT FUNCTION
+    PALETTE_STRIP_vspan e, y1, y2
+    PALETTE_STRIP_fit (y2 - y1 + 1) - PSTRIP_NAME_H - PSTRIP_ARROW_H * 2 - 6, CFG.PALETTE_CHIP_HEIGHT% + 1, pl, ln
+    w = ln * (CFG.PALETTE_CHIP_WIDTH% + 1) + 3
+    IF w < 20 THEN w = 20
+    PALETTE_STRIP_side_w% = w
+END FUNCTION
+FUNCTION PALETTE_STRIP_left_w% ()
+    IF PALETTE_STRIP_edge% = PSTRIP_LEFT THEN PALETTE_STRIP_left_w% = PALETTE_STRIP_side_w%
+END FUNCTION
+FUNCTION PALETTE_STRIP_right_w% ()
+    IF PALETTE_STRIP_edge% = PSTRIP_RIGHT THEN PALETTE_STRIP_right_w% = PALETTE_STRIP_side_w%
+END FUNCTION
+
+''
+' Lay the strip out for this frame (SCREEN_compute_layout, after the docks):
+' PSG - its rect, its chip grid, scroll buttons and dropdown. Everything that
+' draws or hit-tests the strip reads PSG, so they can never disagree.
+SUB PALETTE_STRIP_geom ()
+    DIM e AS INTEGER, x1 AS INTEGER, x2 AS INTEGER, y1 AS INTEGER, y2 AS INTEGER, n AS INTEGER
+    DIM pl AS INTEGER, ln AS INTEGER, avail AS INTEGER
+    PSG.shown = PALETTE_STRIP_on%
+    e = PALETTE_STRIP_edge%
+    PSG.edge = e
+    PSG.vert = (e = PSTRIP_LEFT _ORELSE e = PSTRIP_RIGHT)
+    PSG.sw = CFG.PALETTE_CHIP_WIDTH%: PSG.sh = CFG.PALETTE_CHIP_HEIGHT%
+    n = PALETTE_LOADER_get_color_count%
+    IF n < 1 THEN n = 1
+    IF PSG.vert THEN
+        PALETTE_STRIP_vspan e, y1, y2
+        PSG.w = PALETTE_STRIP_side_w%
+        IF PSG.w < 1 THEN PSG.w = 20
+        IF e = PSTRIP_LEFT THEN PSG.x = 0 ELSE PSG.x = SCRN.w& - PSG.w
+        PSG.y = y1: PSG.h = y2 - y1 + 1
+        ' the dropdown on top, then the up button, the chips, the down button
+        PSG.nx = PSG.x + 1: PSG.ny = PSG.y + 1: PSG.nw = PSG.w - 2: PSG.nh = PSTRIP_NAME_H
+        PSG.a1x = PSG.x + 1: PSG.a1y = PSG.ny + PSG.nh + 1: PSG.a1w = PSG.w - 2: PSG.a1h = PSTRIP_ARROW_H
+        PSG.cx0 = PSG.x + 2: PSG.cy0 = PSG.a1y + PSG.a1h + 1
+        avail = (PSG.y + PSG.h) - PSG.cy0 - PSTRIP_ARROW_H - 2
+        PALETTE_STRIP_fit avail, PSG.sh + 1, pl, ln
+        ln = (PSG.w - 3) \ (PSG.sw + 1) ' the columns the width holds (side_w% made it)
+        IF ln < 1 THEN ln = 1
+        PSG.perLine = pl: PSG.lines = ln
+        PSG.a2x = PSG.a1x: PSG.a2y = PSG.cy0 + pl * (PSG.sh + 1) + 1: PSG.a2w = PSG.a1w: PSG.a2h = PSTRIP_ARROW_H
+    ELSE
+        PALETTE_STRIP_hspan x1, x2
+        PSG.x = x1: PSG.w = x2 - x1 + 1
+        PSG.h = PALETTE_STRIP_band_h%
+        IF e = PSTRIP_TOP THEN
+            PSG.y = 0
+            IF SCRN.showMenubar% _ANDALSO MENU_BAR.visible% THEN PSG.y = MENU_BAR_HEIGHT
+        ELSE
+            PSG.y = SCRN.h& - THEME.STATUS_height% - PSG.h
+        END IF
+        PALETTE_STRIP_fit PSG.w - (PALETTE_STRIP_ARROW_WIDTH * 2) - PALETTE_STRIP_name_w% - 12, PSG.sw + 1, pl, ln
+        PSG.perLine = pl: PSG.lines = ln
+        PSG.a1x = PSG.x + 2: PSG.a1y = PSG.y + 1: PSG.a1w = PALETTE_STRIP_ARROW_WIDTH: PSG.a1h = PSG.h - 1
+        PSG.cx0 = PSG.a1x + PALETTE_STRIP_ARROW_WIDTH + 2: PSG.cy0 = PSG.y + 2
+        PSG.a2x = PSG.cx0 + pl * (PSG.sw + 1) + 2: PSG.a2y = PSG.a1y: PSG.a2w = PALETTE_STRIP_ARROW_WIDTH: PSG.a2h = PSG.a1h
+        PSG.nx = PALETTE_STRIP_name_x%: PSG.ny = PSG.y: PSG.nw = (PSG.x + PSG.w - 4) - PSG.nx: PSG.nh = PSG.h
+    END IF
+    PSG.shownN = PSG.perLine * PSG.lines
+    IF PSG.shownN > n THEN PSG.shownN = n
+    ' Every color fits: no scrolling, so no arrows (the chips keep their place)
+    ' and no rotated view left over from an earlier scroll.
+    PSG.allFit = (PSG.perLine * PSG.lines >= n)
+    PALETTE_STRIP_ALL_FIT% = PSG.allFit
+    IF PSG.allFit THEN PALETTE_STRIP_SCROLL_OFFSET% = 0
+    PALETTE_STRIP_Y% = PSG.y
+END SUB
+
+''
+' The top-left of the strip's i-th shown chip (0-based, before the scroll).
+SUB PALETTE_STRIP_chip_xy (i AS INTEGER, x AS INTEGER, y AS INTEGER)
+    IF PSG.vert THEN
+        x = PSG.cx0 + (i \ PSG.perLine) * (PSG.sw + 1)
+        y = PSG.cy0 + (i MOD PSG.perLine) * (PSG.sh + 1)
+    ELSE
+        x = PSG.cx0 + (i MOD PSG.perLine) * (PSG.sw + 1)
+        y = PSG.cy0 + (i \ PSG.perLine) * (PSG.sh + 1)
+    END IF
+END SUB
+
+''
+' The shown chip (0-based, before the scroll) at (x, y), or -1. Across the
+' lines a point in the strip's margin counts for the nearest line.
+FUNCTION PALETTE_STRIP_chip_at% (x AS INTEGER, y AS INTEGER)
+    DIM a AS INTEGER, b AS INTEGER, i AS INTEGER
+    PALETTE_STRIP_chip_at% = -1
+    IF PSG.shown = 0 _ORELSE PSG.perLine < 1 THEN EXIT FUNCTION
+    IF PALETTE_STRIP_in_bounds%(x, y) = 0 THEN EXIT FUNCTION
+    IF PSG.vert THEN
+        IF y < PSG.cy0 _ORELSE y >= PSG.cy0 + PSG.perLine * (PSG.sh + 1) THEN EXIT FUNCTION
+        a = (x - PSG.cx0) \ (PSG.sw + 1) ' column
+        IF x < PSG.cx0 THEN a = 0
+        IF a >= PSG.lines THEN EXIT FUNCTION
+        b = (y - PSG.cy0) \ (PSG.sh + 1)
+        i = a * PSG.perLine + b
+    ELSE
+        IF x < PSG.cx0 _ORELSE x >= PSG.cx0 + PSG.perLine * (PSG.sw + 1) THEN EXIT FUNCTION
+        a = (y - PSG.cy0) \ (PSG.sh + 1) ' row
+        IF y < PSG.cy0 THEN a = 0
+        IF a >= PSG.lines THEN a = PSG.lines - 1
+        b = (x - PSG.cx0) \ (PSG.sw + 1)
+        i = a * PSG.perLine + b
+    END IF
+    IF i >= 0 _ANDALSO i < PSG.shownN THEN PALETTE_STRIP_chip_at% = i
+END FUNCTION
+
+''
+' The palette index under (x, y) on the strip, or -1 (the scroll applied).
+FUNCTION PALETTE_STRIP_index_at% (x AS INTEGER, y AS INTEGER)
+    DIM i AS INTEGER, n AS INTEGER
+    PALETTE_STRIP_index_at% = -1
+    n = PALETTE_LOADER_get_color_count%
+    IF n < 1 THEN EXIT FUNCTION
+    i = PALETTE_STRIP_chip_at%(x, y)
+    IF i < 0 THEN EXIT FUNCTION
+    PALETTE_STRIP_index_at% = (PALETTE_STRIP_SCROLL_OFFSET% + i) MOD n
+END FUNCTION
+
+''
+' Over the strip's scroll-back (1) / scroll-on (2) button, else 0. None while
+' every colour fits.
+FUNCTION PALETTE_STRIP_arrow_at% (x AS INTEGER, y AS INTEGER)
+    IF PSG.shown = 0 _ORELSE PSG.allFit THEN EXIT FUNCTION
+    IF x >= PSG.a1x _ANDALSO x < PSG.a1x + PSG.a1w _ANDALSO y >= PSG.a1y _ANDALSO y < PSG.a1y + PSG.a1h THEN PALETTE_STRIP_arrow_at% = 1: EXIT FUNCTION
+    IF x >= PSG.a2x _ANDALSO x < PSG.a2x + PSG.a2w _ANDALSO y >= PSG.a2y _ANDALSO y < PSG.a2y + PSG.a2h THEN PALETTE_STRIP_arrow_at% = 2
+END FUNCTION
+
 
 ''
 ' Initialize palette strip
@@ -107,18 +293,14 @@ END SUB
 SUB PALETTE_STRIP_render ()
     IF PALETTE_STRIP_HIDDEN THEN EXIT SUB
     IF NOT PALETTE_STRIP_VISIBLE% THEN EXIT SUB
+    IF PSG.w < 1 _ORELSE PSG.h < 1 THEN PALETTE_STRIP_geom ' (before the first layout)
     
-    DIM AS INTEGER x, y, i, sw, max_swatches, visible_colors
-    DIM AS INTEGER arrow_left_x, arrow_right_x, swatches_start_x, swatches_end_x
-    DIM AS INTEGER pal_name_x, pal_count
+    DIM AS INTEGER x, i, sw, sh, pal_count
     DIM AS _UNSIGNED LONG bg_color, fg_color, arrow_color, hover_color
     DIM pal_name AS STRING
     DIM old_font AS LONG
     
-    ' Recalculate Y position in case screen size or palette changed
-    PALETTE_STRIP_Y% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
-    ' Register palette strip hitbox (full screen width)
-    REGION_set_bounds REGION_PALETTE_STRIP, 0, PALETTE_STRIP_Y%, SCRN.w&, PALETTE_STRIP_get_height%, ZORDER_PANEL
+    REGION_set_bounds REGION_PALETTE_STRIP, PSG.x, PSG.y, PSG.w, PSG.h, ZORDER_PANEL
     
     ' Use fixed gray colors for UI (not affected by palette changes)
     bg_color~&    = THEME.PALETTE_STRIP_bg~&
@@ -126,105 +308,55 @@ SUB PALETTE_STRIP_render ()
     arrow_color~& = THEME.PALETTE_STRIP_arrow_fg~&
     hover_color~& = THEME.PALETTE_STRIP_hover_fg~&
     
-    ' Calculate layout using config values
-    sw% = CFG.PALETTE_CHIP_WIDTH%
-    DIM sh AS INTEGER
-    sh% = CFG.PALETTE_CHIP_HEIGHT%
-    
+    sw% = PSG.sw: sh% = PSG.sh
     pal_count% = PALETTE_LOADER_get_color_count%
     IF pal_count% < 1 THEN pal_count% = 1  ' Minimum 1 to avoid division issues
-    
-    ' Calculate rows based on actual palette size and threshold
-    DIM num_rows AS INTEGER
-    num_rows% = ((pal_count% - 1) \ CFG.PALETTE_CHIPS_ROW_THRESHOLD%) + 1
-    
-    ' Apply min and max rows limits
-    IF num_rows% < CFG.PALETTE_MIN_ROWS% THEN
-        num_rows% = CFG.PALETTE_MIN_ROWS%
-    END IF
-    IF num_rows% > CFG.PALETTE_MAX_ROWS% THEN
-        num_rows% = CFG.PALETTE_MAX_ROWS%
-    END IF
-    
-    ' Calculate strip height dynamically (must match PALETTE_STRIP_get_height%)
-    DIM strip_height AS INTEGER
-    DIM row_height   AS INTEGER
-    row_height%   = sh% + 1
-    strip_height% = (num_rows% * row_height%) + 3
-    
-    ' Calculate how many swatches can fit (per row)
-    ' Layout: [<] [swatches N rows] [>] ... [name v] (name flush right)
-    DIM available_width  AS INTEGER
-    DIM name_width       AS INTEGER
-    DIM swatches_per_row AS INTEGER
-    pal_name$   = PALETTE_LOADER_get_name$
-    name_width% = PALETTE_STRIP_name_w%                                        ' Name area: layer panel's left edge -> right edge
-    
-    ' Swatches fill space from left arrow to where name dropdown starts
-    available_width%  = SCRN.w& - (PALETTE_STRIP_ARROW_WIDTH * 2) - name_width% - 12
-    swatches_per_row% = available_width% \ (sw% + 1)
-    
-    ' Apply max chips per row limit from config
-    IF swatches_per_row% > CFG.PALETTE_MAX_CHIPS_PER_ROW% THEN
-        swatches_per_row% = CFG.PALETTE_MAX_CHIPS_PER_ROW%
-    END IF
-    
-    ' Recalculate rows now that actual swatches_per_row is known
-    num_rows% = ((pal_count% - 1) \ swatches_per_row%) + 1
-    IF num_rows% < CFG.PALETTE_MIN_ROWS% THEN num_rows% = CFG.PALETTE_MIN_ROWS%
-    IF num_rows% > CFG.PALETTE_MAX_ROWS% THEN num_rows% = CFG.PALETTE_MAX_ROWS%
-    strip_height%    = (num_rows% * row_height%) + 3
-    PALETTE_STRIP_Y% = SCRN.h& - THEME.STATUS_height% - strip_height%
-    
-    max_swatches% = swatches_per_row% * num_rows%                              ' Total across all rows
-    IF max_swatches% > pal_count% THEN max_swatches% = pal_count%
-    visible_colors% = max_swatches%
-
-    ' Every color fits: no scrolling, so no arrows (the chips keep their place)
-    ' and no rotated view left over from an earlier scroll.
-    PALETTE_STRIP_ALL_FIT% = (swatches_per_row% * num_rows% >= pal_count%)
-    IF PALETTE_STRIP_ALL_FIT% THEN PALETTE_STRIP_SCROLL_OFFSET% = 0
-    
-    ' X positions - name dropdown is flush right, arrows/swatches from left
-    arrow_left_x%     = 2
-    swatches_start_x% = arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH + 2
-    swatches_end_x%   = swatches_start_x% + (swatches_per_row% * (sw% + 1))
-    arrow_right_x%    = swatches_end_x% + 2
-    ' Name dropdown anchored to right edge
-    pal_name_x% = SCRN.w& - name_width%
-    
-    y% = PALETTE_STRIP_Y%
+    pal_name$ = PALETTE_LOADER_get_name$
     
     ' Use raw mouse coordinates for hover detection (GUI uses screen coords, not canvas coords)
-    ' These are stored by MOUSE_input_handler from the event loop
     DIM rawMX        AS INTEGER, rawMY AS INTEGER
     DIM mouseInStrip AS INTEGER
     rawMX% = MOUSE.RAW_X%
     rawMY% = MOUSE.RAW_Y%
     ' Only show hover effects if mouse is actually within the palette strip area
-    mouseInStrip% = (rawMY% >= y% AND rawMY% < y% + strip_height%)
+    mouseInStrip% = PALETTE_STRIP_in_bounds%(rawMX%, rawMY%)
     
     _DEST SCRN.GUI&
     old_font& = _FONT
     _FONT PALETTE_STRIP_FONT&
     
-    ' Draw background
-    LINE (0, y%)-(SCRN.w& - 1, y% + strip_height% - 1), bg_color~&, BF
+    ' Background, and the one separator line on its canvas side
+    LINE (PSG.x, PSG.y)-(PSG.x + PSG.w - 1, PSG.y + PSG.h - 1), bg_color~&, BF
+    SELECT CASE PSG.edge
+        CASE PSTRIP_TOP:   LINE (PSG.x, PSG.y + PSG.h - 1)-(PSG.x + PSG.w - 1, PSG.y + PSG.h - 1), THEME.PALETTE_STRIP_separator~&
+        CASE PSTRIP_LEFT:  LINE (PSG.x + PSG.w - 1, PSG.y)-(PSG.x + PSG.w - 1, PSG.y + PSG.h - 1), THEME.PALETTE_STRIP_separator~&
+        CASE PSTRIP_RIGHT: LINE (PSG.x, PSG.y)-(PSG.x, PSG.y + PSG.h - 1), THEME.PALETTE_STRIP_separator~&
+        CASE ELSE:         LINE (PSG.x, PSG.y)-(PSG.x + PSG.w - 1, PSG.y), THEME.PALETTE_STRIP_separator~&
+    END SELECT
     
-    ' Draw top border line
-    LINE (0, y%)-(SCRN.w& - 1, y%), THEME.PALETTE_STRIP_separator~&
-    
+    ' The scroll buttons [<] [>] (a side strip: up / down)
+    DIM ab AS INTEGER, ax AS INTEGER, ay AS INTEGER, aw AS INTEGER, ah AS INTEGER, glyph AS STRING
     IF NOT PALETTE_STRIP_ALL_FIT% THEN
-        ' Draw left arrow button [<] - scrolls colors left
-        DIM arrow_hover AS INTEGER
-        arrow_hover% = mouseInStrip% AND (rawMX% >= arrow_left_x% AND rawMX% < arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH)
-        IF arrow_hover% THEN
-            LINE (arrow_left_x%, y% + 1)-(arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH - 1, y% + strip_height% - 1), THEME.PALETTE_STRIP_button_hover_bg~&, BF
-            COLOR hover_color~&, THEME.PALETTE_STRIP_button_hover_bg~&
-        ELSE
-            COLOR arrow_color~&, bg_color~&
-        END IF
-        _UPRINTSTRING (arrow_left_x% + 4, y% + (strip_height% \ 2) - 3), CHR$(17)  ' Left arrow centered
+        FOR ab = 1 TO 2
+            IF ab = 1 THEN
+                ax = PSG.a1x: ay = PSG.a1y: aw = PSG.a1w: ah = PSG.a1h
+                IF PSG.vert THEN glyph = CHR$(30) ELSE glyph = CHR$(17)
+            ELSE
+                ax = PSG.a2x: ay = PSG.a2y: aw = PSG.a2w: ah = PSG.a2h
+                IF PSG.vert THEN glyph = CHR$(31) ELSE glyph = CHR$(16)
+            END IF
+            IF mouseInStrip% _ANDALSO PALETTE_STRIP_arrow_at%(rawMX%, rawMY%) = ab THEN
+                LINE (ax, ay)-(ax + aw - 1, ay + ah - 1), THEME.PALETTE_STRIP_button_hover_bg~&, BF
+                COLOR hover_color~&, THEME.PALETTE_STRIP_button_hover_bg~&
+            ELSE
+                COLOR arrow_color~&, bg_color~&
+            END IF
+            IF PSG.vert THEN
+                _UPRINTSTRING (ax + (aw - _UPRINTWIDTH(glyph)) \ 2, ay + (ah \ 2) - 3), glyph
+            ELSE
+                _UPRINTSTRING (ax + 4, PSG.y + (PSG.h \ 2) - 3), glyph ' (arrow x + 4: as before)
+            END IF
+        NEXT ab
     END IF
 
     ' Which chips get the FG / BG frame: only one whose color IS the current
@@ -248,17 +380,18 @@ SUB PALETTE_STRIP_render ()
     ' Draw color swatches (dynamic rows based on palette size)
     PCYC_refresh_blocked ' chips that cannot cycle (duplicate color) get a checker band
     
-    DIM row      AS INTEGER
-    DIM col      AS INTEGER
+    ' Suppress hover when palette menu is open and mouse is over the menu
+    DIM stripHoverOK AS INTEGER, hoverChip AS INTEGER
+    stripHoverOK% = TRUE
+    IF PALETTE_MENU_VISIBLE% AND PALETTE_MENU_in_bounds%(rawMX%, rawMY%) THEN stripHoverOK% = FALSE
+    hoverChip% = -1
+    IF stripHoverOK% _ANDALSO mouseInStrip% THEN hoverChip% = PALETTE_STRIP_chip_at%(rawMX%, rawMY%)
+
     DIM swatch_y AS INTEGER
-    FOR i% = 0 TO visible_colors% - 1
+    FOR i% = 0 TO PSG.shownN - 1
         DIM pal_idx AS INTEGER
         pal_idx% = (PALETTE_STRIP_SCROLL_OFFSET% + i%) MOD pal_count%
-        
-        row%      = i% \ swatches_per_row%
-        col%      = i% MOD swatches_per_row%
-        x%        = swatches_start_x% + (col% * (sw% + 1))
-        swatch_y% = y% + 2 + (row% * row_height%)
+        PALETTE_STRIP_chip_xy i%, x%, swatch_y%
         
         ' Draw swatch (while palette cycling runs, a chip in a range shows the
         ' color currently rotated into it - identity otherwise)
@@ -279,12 +412,7 @@ SUB PALETTE_STRIP_render ()
         END IF
         
         ' Hover highlight (use raw screen coords, only if mouse is in strip)
-        ' Suppress hover when palette menu is open and mouse is over the menu
-        DIM stripHoverOK AS INTEGER
-        stripHoverOK% = TRUE
-        IF PALETTE_MENU_VISIBLE% AND PALETTE_MENU_in_bounds%(rawMX%, rawMY%) THEN stripHoverOK% = FALSE
-        IF stripHoverOK% AND mouseInStrip% AND rawMX% >= x% AND rawMX% < x% + sw% AND _
-           rawMY% >= swatch_y% AND rawMY% < swatch_y% + sh% THEN
+        IF i% = hoverChip% THEN
             PALETTE_STRIP_HOVER_IDX% = pal_idx%
             LINE (x%, swatch_y%)-(x% + sw% - 1, swatch_y% + sh% - 1), THEME.PALETTE_STRIP_sel_border_outer~&, B
         END IF
@@ -311,32 +439,26 @@ SUB PALETTE_STRIP_render ()
             LINE (x% + 2, swatch_y% + sh% - 3)-(x% + sw% - 3, swatch_y% + 2), _RGB32(255, 40, 40)
         END IF
 
-        ' Palette Ops: draw drag destination indicator
+        ' Palette Ops: draw drag destination indicator (before the chip: left of
+        ' it, or above it in a side strip)
         IF PALETTE_OPS.ACTIVE% AND PALETTE_OPS.DRAG_ACTIVE% AND pal_idx% = PALETTE_OPS.DRAG_DST_IDX% THEN
-            LINE (x% - 1, swatch_y%)-(x% - 1, swatch_y% + sh% - 1), _RGB32(255, 255, 0)
+            IF PSG.vert THEN
+                LINE (x%, swatch_y% - 1)-(x% + sw% - 1, swatch_y% - 1), _RGB32(255, 255, 0)
+            ELSE
+                LINE (x% - 1, swatch_y%)-(x% - 1, swatch_y% + sh% - 1), _RGB32(255, 255, 0)
+            END IF
         END IF
     NEXT i%
     
-    IF NOT PALETTE_STRIP_ALL_FIT% THEN
-        ' Draw right arrow button [>] - scrolls colors right
-        arrow_hover% = mouseInStrip% AND (rawMX% >= arrow_right_x% AND rawMX% < arrow_right_x% + PALETTE_STRIP_ARROW_WIDTH)
-        IF arrow_hover% THEN
-            LINE (arrow_right_x%, y% + 1)-(arrow_right_x% + PALETTE_STRIP_ARROW_WIDTH - 1, y% + strip_height% - 1), THEME.PALETTE_STRIP_button_hover_bg~&, BF
-            COLOR hover_color~&, THEME.PALETTE_STRIP_button_hover_bg~&
-        ELSE
-            COLOR arrow_color~&, bg_color~&
-        END IF
-        _UPRINTSTRING (arrow_right_x% + 4, y% + (strip_height% \ 2) - 3), CHR$(16) ' Right arrow centered
-    END IF
-    
     ' Draw palette name with dropdown indicator - clickable to open menu
     DIM name_hover AS INTEGER
-    DIM name_end_x AS INTEGER
-    name_end_x% = SCRN.w& - 4
-    name_hover% = mouseInStrip% AND (rawMX% >= pal_name_x% AND rawMX% < name_end_x%)
-    
+    name_hover% = mouseInStrip% _ANDALSO PALETTE_STRIP_dropdown_in_bounds%(rawMX%, rawMY%)
     IF name_hover% THEN
-        LINE (pal_name_x% - 2, y% + 1)-(name_end_x%, y% + strip_height% - 1), THEME.PALETTE_STRIP_button_hover_bg~&, BF
+        IF PSG.vert THEN
+            LINE (PSG.nx, PSG.ny)-(PSG.nx + PSG.nw - 1, PSG.ny + PSG.nh - 1), THEME.PALETTE_STRIP_button_hover_bg~&, BF
+        ELSE
+            LINE (PSG.nx - 2, PSG.y + 1)-(PSG.nx + PSG.nw, PSG.y + PSG.h - 1), THEME.PALETTE_STRIP_button_hover_bg~&, BF
+        END IF
         COLOR hover_color~&, THEME.PALETTE_STRIP_button_hover_bg~&
     ELSE
         COLOR fg_color~&, bg_color~&
@@ -345,21 +467,27 @@ SUB PALETTE_STRIP_render ()
     DIM info_str       AS STRING
     DIM display_name   AS STRING
     ' Fit the name to the area by measured width (strip font), leaving room
-    ' for the " v" dropdown indicator; trim with "..." only when it overflows.
+    ' for the " v" dropdown indicator; trim with "..." only when it overflows
+    ' (a narrow side strip may only have room for the arrow).
     DIM nameRoom AS INTEGER
-    nameRoom% = name_end_x% - pal_name_x% - _UPRINTWIDTH(" " + CHR$(31)) - 2
+    nameRoom% = PSG.nw - _UPRINTWIDTH(" " + CHR$(31)) - 2
     display_name$ = pal_name$
     IF _UPRINTWIDTH(display_name$) > nameRoom% THEN
         DO WHILE LEN(display_name$) > 1 _ANDALSO _UPRINTWIDTH(display_name$ + "...") > nameRoom%
             display_name$ = LEFT$(display_name$, LEN(display_name$) - 1)
         LOOP
         display_name$ = RTRIM$(display_name$) + "..."
+        IF _UPRINTWIDTH(display_name$) > nameRoom% THEN display_name$ = ""
     END IF
-    info_str$ = display_name$ + " " + CHR$(31)                                 ' Name + Down arrow
-    _UPRINTSTRING (pal_name_x%, y% + (strip_height% \ 2) - 3), info_str$
+    IF LEN(display_name$) THEN info_str$ = display_name$ + " " + CHR$(31) ELSE info_str$ = CHR$(31)
+    IF PSG.vert THEN
+        _UPRINTSTRING (PSG.nx + 1, PSG.ny + (PSG.nh \ 2) - 3), info_str$
+    ELSE
+        _UPRINTSTRING (PSG.nx, PSG.y + (PSG.h \ 2) - 3), info_str$
+    END IF
     
-    ' Store menu position for dropdown (extends left from right edge; the chip
-    ' column widens the menu when CFG.PALETTE_MENU_SHOW_CHIPS is on)
+    ' Store menu position for dropdown (the chip column widens the menu when
+    ' CFG.PALETTE_MENU_SHOW_CHIPS is on)
     DIM strip_chip_w AS INTEGER
     strip_chip_w% = PALETTE_MENU_chip_w%
     IF strip_chip_w% > 0 THEN
@@ -369,8 +497,12 @@ SUB PALETTE_STRIP_render ()
         PALETTE_MENU_W% = PALETTE_MENU_MIN_WIDTH
     END IF
     ' Left-aligned with the name area (the layer panel's edge); pulled left
-    ' only if it would run off the right edge.
-    PALETTE_MENU_X% = pal_name_x%
+    ' only if it would run off the right edge. A side strip's opens beside it.
+    SELECT CASE PSG.edge
+        CASE PSTRIP_LEFT: PALETTE_MENU_X% = PSG.x + PSG.w
+        CASE PSTRIP_RIGHT: PALETTE_MENU_X% = PSG.x - PALETTE_MENU_W%
+        CASE ELSE: PALETTE_MENU_X% = PSG.nx
+    END SELECT
     IF PALETTE_MENU_X% + PALETTE_MENU_W% > SCRN.w& - 4 THEN PALETTE_MENU_X% = SCRN.w& - PALETTE_MENU_W% - 4
     IF PALETTE_MENU_X% < 2 THEN PALETTE_MENU_X% = 2
     
@@ -402,96 +534,36 @@ SUB PALETTE_STRIP_handle_click (x AS INTEGER, y AS INTEGER)
         ELSE
             ' Clicked outside menu - close it
             PALETTE_MENU_hide
-            ' Check if click was on the palette name trigger area (to prevent re-opening)
-            ' Calculate name_width and pal_name_x same as render
-            DIM trigger_name_width AS INTEGER
-            DIM trigger_pal_name_x AS INTEGER
-            trigger_name_width% = PALETTE_STRIP_name_w%
-            trigger_pal_name_x% = SCRN.w& - trigger_name_width%
             ' If click was on the trigger area that opened the menu, just exit (don't reopen)
-            IF PALETTE_STRIP_in_bounds%(x%, y%) AND x% >= trigger_pal_name_x% AND x% < SCRN.w& - 4 THEN
-                EXIT SUB
-            END IF
+            IF PALETTE_STRIP_dropdown_in_bounds%(x%, y%) THEN EXIT SUB
         END IF
     END IF
     
     IF NOT PALETTE_STRIP_VISIBLE% THEN EXIT SUB
     IF NOT PALETTE_STRIP_in_bounds%(x%, y%) THEN EXIT SUB
     
-    DIM AS INTEGER sw, pal_count, arrow_left_x, arrow_right_x, swatches_start_x, swatches_end_x
-    DIM AS INTEGER max_swatches, visible_colors, available_width
-    DIM AS INTEGER pal_name_x, swatches_per_row
-    DIM AS INTEGER sh, row_height
-    DIM onChip AS INTEGER
-    
-    sw%         = CFG.PALETTE_CHIP_WIDTH%
-    sh%         = CFG.PALETTE_CHIP_HEIGHT%
-    row_height% = sh% + 1
-    
+    DIM pal_count AS INTEGER, onChip AS INTEGER
     pal_count% = PALETTE_LOADER_get_color_count%
     IF pal_count% < 1 THEN pal_count% = 1
     
-    ' Calculate rows based on actual palette size and threshold (same as render)
-    DIM num_rows AS INTEGER
-    num_rows% = ((pal_count% - 1) \ CFG.PALETTE_CHIPS_ROW_THRESHOLD%) + 1
+    ' The scroll buttons (no arrows when every color fits); a right-click on one
+    ' opens the strip's menu (Rick 2026-11-16), like the empty chip places
+    IF PALETTE_STRIP_arrow_at%(x%, y%) > 0 _ANDALSO MOUSE.B2% <> 0 _ANDALSO MOUSE.B1% = 0 THEN PSM_open x%, y%: EXIT SUB
+    SELECT CASE PALETTE_STRIP_arrow_at%(x%, y%)
+        CASE 1
+            PALETTE_STRIP_SCROLL_OFFSET% = PALETTE_STRIP_SCROLL_OFFSET% - 1
+            IF PALETTE_STRIP_SCROLL_OFFSET% < 0 THEN PALETTE_STRIP_SCROLL_OFFSET% = pal_count% - 1
+            GUI_NEEDS_REDRAW% = TRUE
+            EXIT SUB
+        CASE 2
+            PALETTE_STRIP_SCROLL_OFFSET% = PALETTE_STRIP_SCROLL_OFFSET% + 1
+            IF PALETTE_STRIP_SCROLL_OFFSET% >= pal_count% THEN PALETTE_STRIP_SCROLL_OFFSET% = 0
+            GUI_NEEDS_REDRAW% = TRUE
+            EXIT SUB
+    END SELECT
     
-    ' Apply min and max rows limits
-    IF num_rows% < CFG.PALETTE_MIN_ROWS% THEN
-        num_rows% = CFG.PALETTE_MIN_ROWS%
-    END IF
-    IF num_rows% > CFG.PALETTE_MAX_ROWS% THEN
-        num_rows% = CFG.PALETTE_MAX_ROWS%
-    END IF
-    
-    ' Calculate layout - MUST MATCH RENDER EXACTLY
-    DIM name_width AS INTEGER
-    name_width% = PALETTE_STRIP_name_w% ' Name area (SAME AS RENDER)
-    
-    ' Name dropdown anchored to right edge (SAME AS RENDER)
-    pal_name_x% = SCRN.w& - name_width%
-    
-    ' Swatches fill space from left arrow to where name dropdown starts (SAME AS RENDER)
-    available_width%  = SCRN.w& - (PALETTE_STRIP_ARROW_WIDTH * 2) - name_width% - 12
-    swatches_per_row% = available_width% \ (sw% + 1)
-    
-    ' Apply max chips per row limit from config (SAME AS RENDER)
-    IF swatches_per_row% > CFG.PALETTE_MAX_CHIPS_PER_ROW% THEN
-        swatches_per_row% = CFG.PALETTE_MAX_CHIPS_PER_ROW%
-    END IF
-    
-    ' Recalculate rows based on actual swatches per row (SAME AS RENDER)
-    num_rows% = ((pal_count% - 1) \ swatches_per_row%) + 1
-    IF num_rows% < CFG.PALETTE_MIN_ROWS% THEN num_rows% = CFG.PALETTE_MIN_ROWS%
-    IF num_rows% > CFG.PALETTE_MAX_ROWS% THEN num_rows% = CFG.PALETTE_MAX_ROWS%
-    
-    max_swatches% = swatches_per_row% * num_rows%
-    IF max_swatches% > pal_count% THEN max_swatches% = pal_count%
-    visible_colors% = max_swatches%
-    
-    ' X positions (SAME AS RENDER)
-    arrow_left_x%     = 2
-    swatches_start_x% = arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH + 2
-    swatches_end_x%   = swatches_start_x% + (swatches_per_row% * (sw% + 1))
-    arrow_right_x%    = swatches_end_x% + 2
-    
-    ' Check left arrow - scroll colors left (no arrows when every color fits)
-    IF NOT PALETTE_STRIP_ALL_FIT% AND x% >= arrow_left_x% AND x% < arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH THEN
-        PALETTE_STRIP_SCROLL_OFFSET% = PALETTE_STRIP_SCROLL_OFFSET% - 1
-        IF PALETTE_STRIP_SCROLL_OFFSET% < 0 THEN PALETTE_STRIP_SCROLL_OFFSET% = pal_count% - 1
-        GUI_NEEDS_REDRAW% = TRUE
-        EXIT SUB
-    END IF
-    
-    ' Check right arrow - scroll colors right (between swatches and name dropdown)
-    IF NOT PALETTE_STRIP_ALL_FIT% AND x% >= arrow_right_x% AND x% < arrow_right_x% + PALETTE_STRIP_ARROW_WIDTH THEN
-        PALETTE_STRIP_SCROLL_OFFSET% = PALETTE_STRIP_SCROLL_OFFSET% + 1
-        IF PALETTE_STRIP_SCROLL_OFFSET% >= pal_count% THEN PALETTE_STRIP_SCROLL_OFFSET% = 0
-        GUI_NEEDS_REDRAW% = TRUE
-        EXIT SUB
-    END IF
-    
-    ' Check palette name area - open dropdown menu (right-anchored area)
-    IF x% >= pal_name_x% AND x% < SCRN.w& - 4 THEN
+    ' Check palette name area - open dropdown menu
+    IF PALETTE_STRIP_dropdown_in_bounds%(x%, y%) THEN
         IF PALETTE_MENU_VISIBLE% THEN
             PALETTE_MENU_hide
         ELSE
@@ -501,27 +573,11 @@ SUB PALETTE_STRIP_handle_click (x AS INTEGER, y AS INTEGER)
         EXIT SUB
     END IF
     
-    ' Check color swatches (dynamic rows)
-    DIM swatch_area_width AS INTEGER
-    swatch_area_width% = swatches_per_row% * (sw% + 1)
-    IF x% >= swatches_start_x% AND x% < swatches_start_x% + swatch_area_width% THEN
-        DIM click_row   AS INTEGER
-        DIM click_col   AS INTEGER
-        DIM clicked_idx AS INTEGER
-        DIM rel_y       AS INTEGER
-        
-        rel_y%     = y% - PALETTE_STRIP_Y% - 2 ' Y relative to swatch area
-        click_row% = rel_y% \ row_height%
-        IF click_row% < 0 THEN click_row% = 0
-        IF click_row% >= num_rows% THEN click_row% = num_rows% - 1
-        
-        click_col%   = (x% - swatches_start_x%) \ (sw% + 1)
-        clicked_idx% = (click_row% * swatches_per_row%) + click_col%
-        
-        DIM pal_idx AS INTEGER
-        pal_idx% = (PALETTE_STRIP_SCROLL_OFFSET% + clicked_idx%) MOD pal_count%
-        
-        IF pal_idx% >= 0 AND pal_idx% < pal_count% AND clicked_idx% < visible_colors% THEN
+    ' Check color swatches
+    DIM pal_idx AS INTEGER
+    pal_idx% = PALETTE_STRIP_index_at%(x%, y%)
+    IF pal_idx% >= 0 THEN
+        IF pal_idx% < pal_count% THEN
             onChip% = TRUE
             ' Left click = set foreground, Right click = set background
             ' Use explicit check to prevent both from triggering
@@ -681,8 +737,8 @@ END SUB
 '
 FUNCTION PALETTE_STRIP_in_bounds% (x AS INTEGER, y AS INTEGER)
     IF PALETTE_STRIP_HIDDEN THEN EXIT FUNCTION
-    x%                       = x% ' x not needed — strip spans full screen width
-    PALETTE_STRIP_in_bounds% = (y% >= PALETTE_STRIP_Y% AND y% < PALETTE_STRIP_Y% + PALETTE_STRIP_get_height%)
+    IF PSG.w < 1 _ORELSE PSG.h < 1 THEN EXIT FUNCTION ' (not laid out yet)
+    PALETTE_STRIP_in_bounds% = (x% >= PSG.x _ANDALSO x% < PSG.x + PSG.w _ANDALSO y% >= PSG.y _ANDALSO y% < PSG.y + PSG.h)
 END FUNCTION
 
 
@@ -694,15 +750,8 @@ END FUNCTION
 '
 FUNCTION PALETTE_STRIP_dropdown_in_bounds% (x AS INTEGER, y AS INTEGER)
     IF PALETTE_STRIP_HIDDEN THEN EXIT FUNCTION
-    DIM name_width AS INTEGER
-    DIM pal_name_x AS INTEGER
-    
-    name_width% = PALETTE_STRIP_name_w% ' Name area (SAME AS RENDER)
-    pal_name_x% = SCRN.w& - name_width%
-    
-    ' Check if in the dropdown button area (name area on right side of strip)
-    PALETTE_STRIP_dropdown_in_bounds% = (y% >= PALETTE_STRIP_Y% AND y% < PALETTE_STRIP_Y% + PALETTE_STRIP_get_height% _
-                                         AND x% >= pal_name_x% AND x% < SCRN.w& - 4)
+    IF PALETTE_STRIP_in_bounds%(x%, y%) = 0 THEN EXIT FUNCTION
+    PALETTE_STRIP_dropdown_in_bounds% = (x% >= PSG.nx _ANDALSO x% < PSG.nx + PSG.nw _ANDALSO y% >= PSG.ny _ANDALSO y% < PSG.ny + PSG.nh)
 END FUNCTION
 
 
@@ -730,20 +779,34 @@ SUB PALETTE_MENU_show ()
     menu_item_h% = THEME.PALETTE_MENU_item_height%
     IF menu_item_h% < 1 THEN menu_item_h% = 12
     
-    ' Calculate available height (from below menubar to palette strip)
-    DIM top_margin AS INTEGER
+    ' Calculate available height: from below the menubar down to a bottom
+    ' strip (opening upward), or from a top strip's bottom / a side strip's
+    ' dropdown down to the status bar (opening downward)
+    DIM top_margin AS INTEGER, bot_limit AS INTEGER, opensDown AS INTEGER
     IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
         top_margin% = MENU_BAR_HEIGHT + 2
     ELSE
         top_margin% = 4
     END IF
-    available_height% = PALETTE_STRIP_Y% - top_margin%
+    bot_limit% = SCRN.h& - 4
+    IF SCRN.showStatus% THEN bot_limit% = SCRN.h& - THEME.STATUS_height% - 2
+    opensDown% = (PSG.edge <> PSTRIP_BOTTOM)
+    SELECT CASE PSG.edge
+        CASE PSTRIP_TOP: top_margin% = PSG.y + PSG.h
+        CASE PSTRIP_LEFT, PSTRIP_RIGHT: top_margin% = PSG.ny
+    END SELECT
+    IF opensDown% THEN available_height% = bot_limit% - top_margin% ELSE available_height% = PALETTE_STRIP_Y% - top_margin%
     max_visible%      = available_height% \ menu_item_h%
     IF max_visible% > PALETTE_LOADER_COUNT% THEN max_visible% = PALETTE_LOADER_COUNT%
     IF max_visible% < 5 THEN max_visible% = 5  ' Minimum 5 items
     
     PALETTE_MENU_H% = max_visible% * menu_item_h% + 4
-    PALETTE_MENU_Y% = PALETTE_STRIP_Y% - PALETTE_MENU_H%
+    IF opensDown% THEN
+        PALETTE_MENU_Y% = top_margin%
+        IF PALETTE_MENU_Y% + PALETTE_MENU_H% > bot_limit% THEN PALETTE_MENU_Y% = bot_limit% - PALETTE_MENU_H%
+    ELSE
+        PALETTE_MENU_Y% = PALETTE_STRIP_Y% - PALETTE_MENU_H%
+    END IF
     
     ' Ensure menu stays on screen (below menubar if visible)
     IF PALETTE_MENU_Y% < top_margin% THEN PALETTE_MENU_Y% = top_margin%
@@ -1320,14 +1383,20 @@ SUB PSM_build_root ()
     POPUP_MENU_set_item 1, "MAX COLUMNS = " + PSM_n$(CFG.PALETTE_MAX_CHIPS_PER_ROW%), ">", 2, 0
     POPUP_MENU_set_item 2, "CHIP HEIGHT = " + PSM_n$(CFG.PALETTE_CHIP_HEIGHT%), ">", 3, 0
     POPUP_MENU_set_item 3, "CHIP WIDTH = " + PSM_n$(CFG.PALETTE_CHIP_WIDTH%), ">", 4, 0
-    POPUP_MENU_set_item 4, "", "", 0, POPUP_MENU_FLAG_DIVIDER
-    POPUP_MENU_set_item 5, "COLOR CYCLING:", "", 0, POPUP_MENU_FLAG_DISABLED
-    POPUP_MENU_set_item 6, "", "", 0, POPUP_MENU_FLAG_DIVIDER
+    POPUP_MENU_set_item 4, "EDGE = " + PSM_edge_name$(PALETTE_STRIP_edge%), ">", 5, 0
+    POPUP_MENU_set_item 5, "", "", 0, POPUP_MENU_FLAG_DIVIDER
+    POPUP_MENU_set_item 6, "COLOR CYCLING:", "", 0, POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item 7, "", "", 0, POPUP_MENU_FLAG_DIVIDER
     ' the same rows as Palette > Color Cycling (GUI/MENUBAR.BM), same order
     FOR i = 0 TO 8
-        POPUP_MENU_set_item 7 + i, PSM_cycle_label$(i), "", PSM_ACT_BASE + 2061 + i, 0
+        POPUP_MENU_set_item 8 + i, PSM_cycle_label$(i), "", PSM_ACT_BASE + 2061 + i, 0
     NEXT i
 END SUB
+
+
+FUNCTION PSM_edge_name$ (e AS INTEGER)
+    PSM_edge_name$ = _TRIM$(MID$("BOTTOMTOP   LEFT  RIGHT ", e * 6 + 1, 6))
+END FUNCTION
 
 
 FUNCTION PSM_cycle_label$ (i AS INTEGER)
@@ -1346,7 +1415,8 @@ END FUNCTION
 
 
 ' Fill the popup list with root row r's values; returns how many.
-' Values: 1000 + rows, 2000 + columns, 3000 + chip height, 4000 + chip width.
+' Values: 1000 + rows, 2000 + columns, 3000 + chip height, 4000 + chip width,
+' 5000 + edge (PSTRIP_*).
 FUNCTION PSM_build_sub% (r AS INTEGER)
     DIM k AS INTEGER, n AS INTEGER, v AS INTEGER, cur AS INTEGER, vBase AS INTEGER
     POPUP_MENU_clear_items
@@ -1364,6 +1434,10 @@ FUNCTION PSM_build_sub% (r AS INTEGER)
             IF r = 2 THEN cur = CFG.PALETTE_CHIP_HEIGHT%: vBase = 3000 ELSE cur = CFG.PALETTE_CHIP_WIDTH%: vBase = 4000
             FOR k = 4 TO 32
                 POPUP_MENU_set_item n, PSM_n$(k), "", vBase + k, _IIF(cur = k, POPUP_MENU_FLAG_CHECKED, 0): n = n + 1
+            NEXT k
+        CASE 4 ' where the strip docks
+            FOR k = PSTRIP_BOTTOM TO PSTRIP_RIGHT
+                POPUP_MENU_set_item n, PSM_edge_name$(k), "", 5000 + k, _IIF(PALETTE_STRIP_edge% = k, POPUP_MENU_FLAG_CHECKED, 0): n = n + 1
             NEXT k
     END SELECT
     PSM_build_sub% = n
@@ -1478,6 +1552,9 @@ SUB PSM_pick (v AS INTEGER)
             CFG.PALETTE_CHIP_HEIGHT% = v - 3000: msg = "Color strip: chips " + PSM_n$(v - 3000) + " px tall"
         CASE 4004 TO 4032
             CFG.PALETTE_CHIP_WIDTH% = v - 4000: msg = "Color strip: chips " + PSM_n$(v - 4000) + " px wide"
+        CASE 5000 TO 5003
+            CFG.PALETTE_STRIP_EDGE% = v - 5000: msg = "Color strip: docked " + LCASE$(_IIF(v = 5000, "at the bottom", _IIF(v = 5001, "at the top", _IIF(v = 5002, "on the left", "on the right"))))
+            IF PALETTE_MENU_VISIBLE% THEN PALETTE_MENU_hide
         CASE ELSE
             EXIT SUB
     END SELECT

@@ -129,6 +129,7 @@ SUB BROWSER_apply_split_defaults ()
 
     FD_STATE.placesW = targetPlaces%
     IF FD_CFG.showPreview THEN
+        FD_STATE.pvSideW = 0 ' (not the width kept while stacked)
         FD_STATE.previewW = targetPreview%
     END IF
 END SUB
@@ -159,6 +160,16 @@ SUB BROWSER_sync_fd_from_display ()
 
     IF FD_STATE.dialogW < BROWSER_narrowest_w% THEN FD_STATE.dialogW = BROWSER_narrowest_w%
     IF FD_STATE.dialogH < BROWSER_MIN_H THEN FD_STATE.dialogH = BROWSER_MIN_H
+
+    ' docked in a side column: the preview under the folders, bottom left (Rick
+    ' 2026-11-16); elsewhere beside the list as before (FD_LAYOUT_calculate)
+    DIM stack AS INTEGER, side AS INTEGER
+    IF BROWSER.docked% THEN side% = DOCK_panel_side%(DP_BROWSER)
+    stack% = (side% = DOCK_LEFT _ORELSE side% = DOCK_RIGHT)
+    IF stack% <> (FD_STATE.pvStack <> 0) THEN
+        FD_STATE.pvStack = stack%
+        IF FD_STATE.dialogW = oldW% _ANDALSO FD_STATE.dialogH = oldH% THEN FD_LAYOUT_calculate: FD_FS_recalc_scroll: FD_STATE.dirty = TRUE
+    END IF
 
     IF FD_STATE.dialogW <> oldW% OR FD_STATE.dialogH <> oldH% THEN
         IF FD_STATE.imgHandle& < -1 THEN SAFE_FREEIMAGE FD_STATE.imgHandle&
@@ -667,12 +678,70 @@ END FUNCTION
 ' drag, resize, or an in-flight file drag/drop that must continue even after the
 ' cursor leaves the panel) OR the cursor is inside it. Lower floating windows
 ' check NOT BROWSER_owns_mouse% before claiming the event.
+''
+' Is the Browser's path field or search box taking the typing? (Rick
+' 2026-11-16: "cant click to edit in browser path" / "can't click to search
+' either" - the panel never routed keys to FILE_DIALOG; FD_INPUT_keyboard ran
+' only in the old modal loop.)
+FUNCTION BROWSER_text_focused% ()
+    IF NOT BROWSER.visible% OR BROWSER.autoHidden% THEN EXIT FUNCTION
+    IF FD_STATE.pathInputActive _ANDALSO FD_STATE.tiPathId >= 1 _ANDALSO TI_focusedId = FD_STATE.tiPathId THEN BROWSER_text_focused% = TRUE: EXIT FUNCTION
+    IF FD_STATE.searchFocus THEN BROWSER_text_focused% = TRUE
+END FUNCTION
+
+''
+' KEYBOARD_input_handler: every key goes to the focused path field / search
+' box (TRUE = focused, the caller stops). Keys arrive through INKEY$, as in
+' COLORMIXER_keys% (a two-byte code is scan * 256).
+FUNCTION BROWSER_keys% ()
+    DIM k AS LONG, kc AS STRING, ate AS INTEGER
+    IF BROWSER_text_focused% = 0 THEN EXIT FUNCTION
+    BROWSER_keys% = TRUE
+    kc = INKEY$
+    IF kc = "" THEN kc = KEYHIT_CHAR$
+    DO WHILE LEN(kc) > 0 _ANDALSO BROWSER_text_focused%
+        IF LEN(kc) = 2 THEN k& = ASC(kc, 2) * 256& ELSE k& = ASC(kc)
+        IF FD_STATE.searchFocus THEN
+            ate = FD_INPUT_search_key%(k&)
+        ELSE
+            FD_INPUT_keyboard k& ' (the path's TI: Enter goes there, Esc cancels)
+        END IF
+        GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
+        kc = INKEY$
+    LOOP
+    ' the caret blinks while it has focus, the pointer anywhere
+    IF TIMER(.001) - FD_STATE.cursorTimer > FD_CURSOR_BLINK_MS THEN
+        FD_STATE.cursorBlink = NOT FD_STATE.cursorBlink
+        FD_STATE.cursorTimer = TIMER(.001)
+        FD_STATE.dirty = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    END IF
+    TI_tick
+END FUNCTION
+
+
 FUNCTION BROWSER_owns_mouse% (rawX AS INTEGER, rawY AS INTEGER)
     IF NOT BROWSER.visible% OR BROWSER.autoHidden% THEN EXIT FUNCTION
     IF BROWSER.dragging% OR BROWSER.resizing% OR BROWSER.fileDragStarted% OR BROWSER.fileDragActive% THEN BROWSER_owns_mouse% = TRUE: EXIT FUNCTION
+    IF FD_STATE.dragging _ANDALSO MOUSE.B1% THEN BROWSER_owns_mouse% = TRUE: EXIT FUNCTION ' a FILE_DIALOG drag (scrollbar, splitter) held off the panel
     ' under the pointer, and not behind another window there (GUI/WINZ)
     IF BROWSER_hit_window%(rawX%, rawY%) _ANDALSO WZ_blocked%(DP_BROWSER, rawX%, rawY%) = 0 THEN BROWSER_owns_mouse% = TRUE
 END FUNCTION
+
+''
+' BROWSER_tick - once a frame from the main loop: the thumbnail view loads its next
+' thumbnail (FD_THUMB_tick, one a frame) wherever the pointer is. It ran from
+' BROWSER_mouse_input, which runs only while the Browser has the pointer, so a list
+' stopped filling in when the pointer left it (Rick 2026-11-16: "the thumbnails
+' refresh/don't show consistently").
+SUB BROWSER_tick
+    IF BROWSER.visible% = 0 _ORELSE BROWSER.autoHidden% THEN EXIT SUB
+    IF BROWSER.initialized% = 0 _ORELSE FD_CFG.viewMode <> FD_VIEW_THUMBNAILS THEN EXIT SUB
+    DIM wasDirty AS INTEGER
+    wasDirty = FD_STATE.dirty
+    FD_STATE.dirty = 0
+    FD_THUMB_tick
+    IF FD_STATE.dirty THEN FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE ELSE FD_STATE.dirty = wasDirty
+END SUB
 
 SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
     IF NOT BROWSER.visible% OR BROWSER.autoHidden% THEN EXIT SUB
@@ -910,7 +979,6 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
     IF closePress% = 0 THEN FD_INPUT_mouse
     TI_tick
     FD_TOOLTIP_update
-    IF FD_CFG.viewMode = FD_VIEW_THUMBNAILS THEN FD_THUMB_tick
 
     ' Propagate FD dirty to DRAW render loop (wheel scroll, hover, etc.)
     IF FD_STATE.dirty THEN
@@ -1485,10 +1553,12 @@ SUB BROWSER_render ()
 
     ' docked: draw at the slot's corner exactly - the native round trip
     ' (x / scale, then * scale) can move an odd x/y by 1px at scale 2
-    DIM brDockX AS INTEGER, brDockY AS INTEGER
-    brDockX% = BROWSER.dispX%: brDockY% = BROWSER.dispY%
+    DIM brDockX AS INTEGER, brDockY AS INTEGER, brDockW AS INTEGER, brDockH AS INTEGER
+    brDockX% = BROWSER.dispX%: brDockY% = BROWSER.dispY%: brDockW% = BROWSER.dispW%: brDockH% = BROWSER.dispH%
     BROWSER_compute_display_size
-    IF BROWSER.docked% THEN BROWSER.dispX% = brDockX%: BROWSER.dispY% = brDockY%
+    ' (docked, the slot is its size too: the dialog floored at its narrowest
+    ' would make it wider than the slot again - the blit below cuts it there)
+    IF BROWSER.docked% THEN BROWSER.dispX% = brDockX%: BROWSER.dispY% = brDockY%: BROWSER.dispW% = brDockW%: BROWSER.dispH% = brDockH%
 
     DIM ds AS INTEGER, ts AS INTEGER
     DIM sx AS LONG
@@ -1512,8 +1582,18 @@ SUB BROWSER_render ()
     sy& = CLNG(BROWSER.dispY%) * ds%
     sw& = CLNG(FD_STATE.dialogW) * ts%
     sh& = CLNG(FD_STATE.dialogH) * ts%
-    IF FD_STATE.imgHandle& < -1 THEN
-        _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), FD_STATE.imgHandle&, 0
+    ' docked in a slot narrower / shorter than the dialog's floor (BROWSER_
+    ' narrowest_w% - a bottom row squeezed between wide side docks, Rick's
+    ' KITCHEN SINK workspace: 194 px for 282): cut at the slot, never painted
+    ' over the column beside it
+    DIM srcW AS LONG, srcH AS LONG
+    srcW& = FD_STATE.dialogW: srcH& = FD_STATE.dialogH
+    IF BROWSER.docked% THEN
+        IF sw& > CLNG(BROWSER.dispW%) * ds% THEN srcW& = (CLNG(BROWSER.dispW%) * ds%) \ ts%: sw& = srcW& * ts%
+        IF sh& > CLNG(BROWSER.dispH%) * ds% THEN srcH& = (CLNG(BROWSER.dispH%) * ds%) \ ts%: sh& = srcH& * ts%
+    END IF
+    IF FD_STATE.imgHandle& < -1 _ANDALSO srcW& > 0 _ANDALSO srcH& > 0 THEN
+        _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), FD_STATE.imgHandle&, 0, (0, 0)-(srcW& - 1, srcH& - 1)
     END IF
 END SUB
 

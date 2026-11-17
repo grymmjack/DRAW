@@ -36,8 +36,26 @@ TYPE COLOR_MIXER_OBJ
     dragStartDX   AS INTEGER        ' dispX at drag start
     dragStartDY   AS INTEGER        ' dispY at drag start
     moreHover     AS INTEGER        ' the pointer is on the MORE row (redraw when it changes)
+    ' In a top / bottom dock row it lies sideways (COLORMIXER_side_flow): the
+    ' title bar + SV field at the left, as tall as the row; the picker's rows
+    ' under it (OLD / NEW, MORE, sliders, hex, ...) copied as strips into
+    ' columns to the right. The picker itself still lays out stacked.
+    side     AS INTEGER ' TRUE: laid sideways
+    fitRow   AS INTEGER ' (FPANEL_fit saw it in a row)
+    sideW    AS INTEGER ' the sideways panel (native px)
+    sideH    AS INTEGER
+    sideMainH AS INTEGER ' the left block's height: title bar + SV field (the stacked rows above OLD / NEW)
+    sideN    AS INTEGER ' strips in use
+    sideGrab AS INTEGER ' the strip a press began in (a drag keeps its mapping); 0 = the left block
+    sideImg  AS LONG    ' the composed sideways panel
 END TYPE
 
 DIM SHARED COLORMIXER AS COLOR_MIXER_OBJ
+CONST COLORMIXER_SIDE_MAX = 10 ' strips (stacked y ranges) placed beside the SV field
+CONST COLORMIXER_ROW_FIELD_MIN = 20 ' the SV field's least height in a row (native px)
+DIM SHARED CMX_SY0(1 TO COLORMIXER_SIDE_MAX) AS INTEGER ' strip i: stacked rows sy0 .. sy1 - 1,
+DIM SHARED CMX_SY1(1 TO COLORMIXER_SIDE_MAX) AS INTEGER '   shown at (dx, dy) in the sideways panel
+DIM SHARED CMX_DX(1 TO COLORMIXER_SIDE_MAX) AS INTEGER
+DIM SHARED CMX_DY(1 TO COLORMIXER_SIDE_MAX) AS INTEGER
 CONST COLORMIXER_MORE_PAD = 3 ' px above and below the MORE disclosure row
 

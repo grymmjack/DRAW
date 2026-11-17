@@ -70,6 +70,13 @@ FUNCTION PEN_stroke_pressure! ()
     ELSE
         p! = PEN_MIN_VALID
     END IF
+    ' Pen Control: pressure processing, then the speed gain, then the curve
+    IF PPROC_on% THEN p! = PPROC_step!(p!, TIMER(.001))
+    IF TABLET.speedOn THEN
+        p! = p! * PSPD.gain
+        IF p! > 1 THEN p! = 1
+        IF p! < PEN_MIN_VALID THEN p! = PEN_MIN_VALID
+    END IF
     PEN_stroke_pressure! = PD_curve!(p!, CFG.PEN_PRESSURE_CURVE% / 100!)
 END FUNCTION
 
@@ -78,6 +85,19 @@ END FUNCTION
 ' so each dab can interpolate between them.
 '
 SUB PEN_segment_begin ()
+    ' Catch Up after a lift: the pen is off the tablet (no pressure, maybe out
+    ' of range), so the stroke's tail keeps the pressure it last had
+    IF TABLET.catching THEN
+        TABLET.usingPen = TABLET.penSeen
+        TABLET.skipSeg  = FALSE
+        IF TABLET.usingPen THEN
+            IF TABLET.segP0 < 0 THEN TABLET.segP0 = TABLET.segP1
+            TABLET.segP0 = TABLET.segP1: TABLET.dabP = TABLET.segP1
+        ELSE
+            TABLET.segP0 = 1: TABLET.segP1 = 1: TABLET.dabP = 1
+        END IF
+        EXIT SUB
+    END IF
     TABLET.usingPen = PEN_active%
     TABLET.skipSeg  = FALSE
     IF NOT TABLET.usingPen THEN
@@ -287,4 +307,86 @@ SUB PEN_op_write (bx AS LONG, by AS LONG, col AS _UNSIGNED LONG, coverage AS SIN
                                  INT(oa! * 255 + 0.5))
     END IF
     _BLEND
+END SUB
+
+
+' ============================================================================
+' Pen Control: the stroke filters (INPUT/STABILIZER) - smoothing for Brush /
+' Eraser strokes (pen or mouse), pressure processing and speed scaling (pen)
+' ============================================================================
+
+''
+' The settings into STAB / PPROC / PSPD (each stroke, so a change in the panel
+' or Settings applies to the next one)
+SUB PENC_sync ()
+    STAB.mode = STAB_OFF
+    IF CFG.PEN_STAB% THEN STAB.mode = _MAX(STAB_PULLED, _MIN(STAB_MODE_COUNT, CFG.PEN_STAB_MODE%))
+    STAB.amount = _MAX(0, _MIN(100, CFG.PEN_STAB_AMOUNT%))
+    STAB.catchUp = (CFG.PEN_STAB_CATCHUP% <> 0)
+    PPROC.mode = PPROC_OFF
+    IF CFG.PEN_PROC% THEN PPROC.mode = _MAX(PPROC_FIXED, _MIN(PPROC_MODE_COUNT, CFG.PEN_PROC_MODE%))
+    PPROC.amount = _MAX(0, _MIN(100, CFG.PEN_PROC_AMOUNT%))
+    PSPD.slowGain = _MAX(10, _MIN(100, CFG.PEN_SPEED_SLOW%)) / 100!
+    PSPD.fastGain = _MAX(100, _MIN(500, CFG.PEN_SPEED_FAST%)) / 100!
+    PSPD.fastSpeed = _MAX(50, _MIN(3000, CFG.PEN_SPEED_FAST_AT%))
+    PSPD.smooth = _MAX(0, _MIN(100, CFG.PEN_SPEED_SMOOTH%)) / 100!
+END SUB
+
+''
+' Brush / Eraser press: start the filters. smart% = a Shift smart erase (not
+' smoothed: it erases what is under the pointer).
+SUB PENC_stroke_begin (smart AS INTEGER)
+    DIM t AS DOUBLE
+    PENC_sync
+    t = TIMER(.001)
+    TABLET.catching = FALSE
+    TABLET.stabOn = (STAB_on% <> 0 _ANDALSO smart = 0)
+    IF TABLET.stabOn THEN STAB_begin PENC_fx#, PENC_fy#, t ELSE STAB_end
+    TABLET.stabDX = MOUSE.X%: TABLET.stabDY = MOUSE.Y%
+    PPROC_begin
+    TABLET.speedOn = (CFG.PEN_SPEED% <> 0 _ANDALSO PSPD_on%)
+    PSPD_begin CDBL(MOUSE.RAW_X%), CDBL(MOUSE.RAW_Y%), t
+END SUB
+
+' The pointer for smoothing: the sub-pixel canvas position, or the snapped
+' pixel's centre when grid snap moved the point
+FUNCTION PENC_fx# ()
+    IF INT(MOUSE.FX) <> MOUSE.X% THEN PENC_fx# = MOUSE.X% + 0.5# ELSE PENC_fx# = MOUSE.FX
+END FUNCTION
+FUNCTION PENC_fy# ()
+    IF INT(MOUSE.FY) <> MOUSE.Y% THEN PENC_fy# = MOUSE.Y% + 0.5# ELSE PENC_fy# = MOUSE.FY
+END FUNCTION
+
+''
+' A held frame: the speed gain, and the smoothed point to draw to (sx, sy;
+' the pointer itself when smoothing is off)
+SUB PENC_stroke_step (sx AS INTEGER, sy AS INTEGER)
+    DIM t AS DOUBLE, z AS SINGLE, g AS SINGLE
+    t = TIMER(.001)
+    g = PSPD_step!(CDBL(MOUSE.RAW_X%), CDBL(MOUSE.RAW_Y%), t)
+    sx = MOUSE.X%: sy = MOUSE.Y%
+    IF TABLET.stabOn = 0 THEN EXIT SUB
+    z = SCRN.zoom!: IF z <= 0 THEN z = 1
+    DIM ox AS DOUBLE, oy AS DOUBLE
+    ox = STAB.x: oy = STAB.y
+    STAB_step PENC_fx#, PENC_fy#, t, STAB.amount / z ' Pulled String: Amount screen px
+    sx = INT(STAB.x): sy = INT(STAB.y)
+    ' the point moves while the pointer rests (Catch Up, Inertia): keep the
+    ' frames coming so it draws and the guides follow
+    IF STAB.x <> ox _ORELSE STAB.y <> oy _ORELSE STAB.rawX <> STAB.x _ORELSE STAB.rawY <> STAB.y THEN FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
+END SUB
+
+' TRUE while a stroke's points are smoothed
+FUNCTION PENC_stab_stroke% ()
+    PENC_stab_stroke% = (TABLET.stabOn <> 0 _ANDALSO STAB.active <> 0)
+END FUNCTION
+
+''
+' Lift (or a document reset): forget the stroke. The release path runs the
+' Catch Up tail first (MOUSE_brush_catch_up).
+SUB PENC_stroke_end ()
+    TABLET.catching = FALSE
+    TABLET.stabOn = FALSE
+    STAB_end
+    PSPD_end
 END SUB

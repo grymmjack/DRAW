@@ -32,11 +32,12 @@ SUB DOCK_init_panels ()
     DOCK_panel_def DP_ADVBAR, "advbar", "Advanced Bar", DP_H_FLEX, FALSE, FALSE, FALSE
     DOCK_panel_def DP_CHARMAP, "charmap", "Character Map", DP_H_FLEX, FALSE, FALSE, FALSE
     DOCK_panel_def DP_WORKFLOW, "workflow", "Workflow Buttons", DP_H_FIXED, TRUE, TRUE, FALSE ' (GUI/WORKFLOW)
+    DOCK_panel_def DP_TEXTBAR, "textbar", "Text Bar", DP_H_FIXED, FALSE, FALSE, FALSE ' (GUI/TEXT-BAR: its lines for the width it gets; shown with the text tool)
     DOCK_panel_def DP_PREVIEW, "preview", "Preview", DP_H_FLEX, FALSE, FALSE, TRUE
     DOCK_panel_def DP_MIXER, "colormixer", "Color Mixer", DP_H_FIXED, FALSE, FALSE, TRUE ' fixed size: its own height
     DOCK_panel_def DP_ADVCP, "advcolorpicker", "Advanced Color Picker", DP_H_FIXED, FALSE, FALSE, TRUE ' fixed size: its own height
     DOCK_panel_def DP_CS3D, "colorspace3d", "3D Color Space", DP_H_FIXED, FALSE, FALSE, TRUE ' fixed size: its own height
-    DOCK_panel_def DP_PEN, "pen", "Pen Pressure", DP_H_FIXED, FALSE, FALSE, TRUE ' fixed size: its own height
+    DOCK_panel_def DP_PEN, "pen", "Pen Control", DP_H_FIXED, FALSE, FALSE, TRUE ' fixed size: its own height
     DOCK_panel_def DP_BROWSER, "browser", "Browser", DP_H_FLEX, FALSE, FALSE, TRUE
     DOCK_panel_def DP_ANIM, "animation", "Animation", DP_H_FIXED, FALSE, FALSE, TRUE ' fixed size: its own height
     DOCK_panel_def DP_SWATCH, "swatches", "Swatches", DP_H_FLEX, FALSE, FALSE, TRUE ' takes the height it gets and scrolls (like the Preview)
@@ -139,11 +140,11 @@ END SUB
 ' full [DOCK] writer; this is the debugging view).
 FUNCTION DOCK_describe$ ()
     DIM side AS INTEGER, o AS INTEGER, c AS INTEGER, s AS INTEGER, so AS INTEGER, t AS INTEGER, r AS STRING, ln AS STRING
-    FOR side = DOCK_LEFT TO DOCK_RIGHT
+    FOR side = DOCK_LEFT TO DOCK_BOTTOM
         FOR o = 1 TO DOCK_MAX_COLS
             c = DOCK_col_at%(side, o)
             IF c = 0 THEN EXIT FOR
-            IF side = DOCK_LEFT THEN ln = "LEFT." ELSE ln = "RIGHT."
+            ln = DOCK_side_name$(side) + "."
             ln = ln + _TRIM$(STR$(o)) + ":"
             FOR so = 1 TO DOCK_MAX_SLOTS
                 s = DOCK_slot_at%(c, so)
@@ -196,7 +197,8 @@ END FUNCTION
 '   width   AUTO (the panels' own width) or WIDTH:px
 '   |       between slots, top to bottom
 '   +       between the tabs of a slot;  * = the active tab
-'   @n      the slot's height share among the flexible slots (default 1)
+'   @n      the slot's height share among the flexible slots (default 1); in a
+'           TOP / BOTTOM row: its width in px (set by dragging its right edge)
 '   !       before a slot: collapsed to its title
 '
 '   [FLOAT]
@@ -231,7 +233,37 @@ END FUNCTION
 
 
 FUNCTION DOCK_side_name$ (side AS INTEGER)
-    IF side = DOCK_RIGHT THEN DOCK_side_name$ = "RIGHT" ELSE DOCK_side_name$ = "LEFT"
+    SELECT CASE side
+        CASE DOCK_RIGHT: DOCK_side_name$ = "RIGHT"
+        CASE DOCK_TOP: DOCK_side_name$ = "TOP"
+        CASE DOCK_BOTTOM: DOCK_side_name$ = "BOTTOM"
+        CASE ELSE: DOCK_side_name$ = "LEFT"
+    END SELECT
+END FUNCTION
+
+
+''
+' A TOP / BOTTOM side: its "columns" are rows (DOCK_place_rows).
+FUNCTION DOCK_side_is_row% (side AS INTEGER)
+    DOCK_side_is_row% = (side = DOCK_TOP _ORELSE side = DOCK_BOTTOM)
+END FUNCTION
+
+
+''
+' Column c is a row (on the TOP / BOTTOM side).
+FUNCTION DOCK_is_row% (c AS INTEGER)
+    IF c < 1 _ORELSE c > DOCK_MAX_COLS THEN EXIT FUNCTION
+    IF DOCK_COL(c).used = 0 THEN EXIT FUNCTION
+    DOCK_is_row% = DOCK_side_is_row%(DOCK_COL(c).side)
+END FUNCTION
+
+
+''
+' Panel id is docked in a row.
+FUNCTION DOCK_in_row% (id AS INTEGER)
+    IF id < 1 _ORELSE id > DP_COUNT THEN EXIT FUNCTION
+    IF DPANEL(id).slot <= 0 THEN EXIT FUNCTION
+    DOCK_in_row% = DOCK_is_row%(DOCK_SLOT(DPANEL(id).slot).col)
 END FUNCTION
 
 
@@ -239,7 +271,7 @@ END FUNCTION
 ' The [DOCK] value for column c ("WIDTH:150; layers@3 | !*a+b").
 FUNCTION DOCK_col_spec$ (c AS INTEGER)
     DIM r AS STRING, o AS INTEGER, s AS INTEGER, t AS INTEGER, sl AS STRING
-    IF DOCK_COL(c).wpx > 0 THEN r = "WIDTH:" + _TRIM$(STR$(DOCK_COL(c).wpx)) ELSE r = "AUTO"
+    IF DOCK_COL(c).wpx > 0 THEN r = _IIF(DOCK_side_is_row%(DOCK_COL(c).side), "HEIGHT:", "WIDTH:") + _TRIM$(STR$(DOCK_COL(c).wpx)) ELSE r = "AUTO"
     r = r + ";"
     FOR o = 1 TO DOCK_MAX_SLOTS
         s = DOCK_slot_at%(c, o)
@@ -280,6 +312,7 @@ FUNCTION DOCK_parse_col% (side AS INTEGER, spec AS STRING)
     c = DOCK_add_col%(side)
     IF c = 0 THEN EXIT FUNCTION
     IF LEFT$(widthPart, 6) = "WIDTH:" THEN DOCK_COL(c).wpx = VAL(MID$(widthPart, 7))
+    IF LEFT$(widthPart, 7) = "HEIGHT:" THEN DOCK_COL(c).wpx = VAL(MID$(widthPart, 8)) ' (a row's)
     IF DOCK_COL(c).wpx < 0 THEN DOCK_COL(c).wpx = 0
     nSlots = DOCK_fields%(slotsPart, "|")
     FOR i = 1 TO nSlots
@@ -362,7 +395,7 @@ FUNCTION DOCK_snapshot$ ()
     DIM r AS STRING, side AS INTEGER, o AS INTEGER, c AS INTEGER, i AS INTEGER
     IF DOCK_CUSTOM THEN r = "CUSTOM=1" ELSE r = "CUSTOM=0"
     r = r + CHR$(10)
-    FOR side = DOCK_LEFT TO DOCK_RIGHT
+    FOR side = DOCK_LEFT TO DOCK_BOTTOM
         FOR o = 1 TO DOCK_MAX_COLS
             c = DOCK_col_at%(side, o)
             IF c = 0 THEN EXIT FOR
@@ -372,8 +405,7 @@ FUNCTION DOCK_snapshot$ ()
     FOR i = 1 TO DP_COUNT
         IF DPANEL(i).fl THEN r = r + "FLOAT." + DPANEL(i).nm + "=" + DOCK_float_spec$(i) + CHR$(10)
     NEXT i
-    IF DOCK_BAND_SIDE = DOCK_BAND_TOP THEN r = r + "BAND=TOP," + _TRIM$(STR$(DOCK_BAND_H)) + CHR$(10)
-    IF DOCK_BAND_SIDE = DOCK_BAND_BOTTOM THEN r = r + "BAND=BOTTOM," + _TRIM$(STR$(DOCK_BAND_H)) + CHR$(10)
+    IF DOCK_ROWS_FULL THEN r = r + "ROWSPAN=FULL" + CHR$(10) ' (between the side docks: no line)
     DOCK_snapshot$ = r
 END FUNCTION
 
@@ -425,7 +457,7 @@ SUB DOCK_load_snapshot (snap AS STRING)
     DOCK_clear
     FOR i = 1 TO DP_COUNT: DPANEL(i).fl = FALSE: NEXT i
     DOCK_PARSE_NOTE = ""
-    FOR side = DOCK_LEFT TO DOCK_RIGHT
+    FOR side = DOCK_LEFT TO DOCK_BOTTOM
         FOR o = 1 TO DOCK_MAX_COLS
             v = DOCK_snap_get$(snap, DOCK_side_name$(side) + "." + _TRIM$(STR$(o)))
             IF LEN(v) = 0 THEN EXIT FOR
@@ -444,21 +476,28 @@ SUB DOCK_load_snapshot (snap AS STRING)
             END IF
         END IF
     NEXT i
-    ' the Browser's band: BAND=TOP|BOTTOM,<height>
+    ' the Browser's band (before the rows: BAND=TOP|BOTTOM,<height>) is a row of
+    ' its own now, the innermost on its side, as tall as the band was
     v = UCASE$(DOCK_snap_get$(snap, "BAND"))
     DOCK_BAND_SIDE = 0
-    IF LEFT$(v, 3) = "TOP" THEN DOCK_BAND_SIDE = DOCK_BAND_TOP
-    IF LEFT$(v, 6) = "BOTTOM" THEN DOCK_BAND_SIDE = DOCK_BAND_BOTTOM
-    IF DOCK_BAND_SIDE THEN
-        DOCK_BAND_H = VAL(MID$(v, INSTR(v, ",") + 1))
-        IF DOCK_BAND_H < DOCK_BAND_MIN_H THEN DOCK_BAND_H = 220
-        IF DPANEL(DP_BROWSER).slot THEN DOCK_detach_panel DP_BROWSER
+    side = 0
+    IF LEFT$(v, 3) = "TOP" THEN side = DOCK_TOP
+    IF LEFT$(v, 6) = "BOTTOM" THEN side = DOCK_BOTTOM
+    IF side _ANDALSO DPANEL(DP_BROWSER).slot = 0 THEN
+        c = DOCK_add_col%(side)
+        IF c THEN
+            DOCK_COL(c).wpx = VAL(MID$(v, INSTR(v, ",") + 1))
+            IF DOCK_COL(c).wpx < DOCK_BAND_MIN_H THEN DOCK_COL(c).wpx = 220
+            DOCK_slot_add_tab DOCK_add_slot%(c), DP_BROWSER
+            DPANEL(DP_BROWSER).fl = FALSE
+        END IF
     END IF
+    DOCK_ROWS_FULL = (UCASE$(DOCK_snap_get$(snap, "ROWSPAN")) = "FULL")
     ' a custom arrangement needs a column - or a docked panel floating: every
     ' panel floated leaves no column at all, and reading that as "no tree" built
     ' the default one and docked them all again (Rick, 2026-11-14: a workspace
     ' saved with everything floating came back docked all over the place)
-    DOCK_CUSTOM = (DOCK_snap_get$(snap, "CUSTOM") <> "0") _ANDALSO (DOCK_col_at%(DOCK_LEFT, 1) <> 0 _ORELSE DOCK_col_at%(DOCK_RIGHT, 1) <> 0 _ORELSE anyFloat <> 0)
+    DOCK_CUSTOM = (DOCK_snap_get$(snap, "CUSTOM") <> "0") _ANDALSO (DOCK_col_at%(DOCK_LEFT, 1) <> 0 _ORELSE DOCK_col_at%(DOCK_RIGHT, 1) <> 0 _ORELSE DOCK_col_at%(DOCK_TOP, 1) <> 0 _ORELSE DOCK_col_at%(DOCK_BOTTOM, 1) <> 0 _ORELSE anyFloat <> 0)
     DOCK_READY = DOCK_CUSTOM
 END SUB
 
@@ -472,7 +511,7 @@ END SUB
 SUB DOCK_compact ()
     DIM side AS INTEGER, o AS INTEGER, c AS INTEGER, n AS INTEGER, i AS INTEGER, best AS INTEGER, bestOrd AS INTEGER, s AS INTEGER
     DIM done(1 TO DOCK_MAX_SLOTS) AS INTEGER, doneC(1 TO DOCK_MAX_COLS) AS INTEGER
-    FOR side = DOCK_LEFT TO DOCK_RIGHT
+    FOR side = DOCK_LEFT TO DOCK_BOTTOM
         n = 0
         DO
             best = 0: bestOrd = 32767
@@ -573,7 +612,8 @@ END FUNCTION
 ''
 ' Move panel id to a new column at ord on side.
 ''
-' The edge panel id is docked on (DOCK_LEFT / DOCK_RIGHT), 0 = not docked.
+' The edge panel id is docked on (DOCK_LEFT / DOCK_RIGHT, a row's DOCK_TOP /
+' DOCK_BOTTOM), 0 = not docked.
 FUNCTION DOCK_panel_side% (id AS INTEGER)
     IF id < 1 _ORELSE id > DP_COUNT THEN EXIT FUNCTION
     IF DPANEL(id).slot = 0 THEN EXIT FUNCTION
@@ -586,6 +626,8 @@ END FUNCTION
 SUB DOCK_move_col_side (c AS INTEGER, side AS INTEGER)
     IF c < 1 _ORELSE c > DOCK_MAX_COLS THEN EXIT SUB
     IF DOCK_COL(c).used = 0 _ORELSE DOCK_COL(c).side = side THEN EXIT SUB
+    ' a row's height is not a column's width (or the other way)
+    IF DOCK_side_is_row%(DOCK_COL(c).side) <> DOCK_side_is_row%(side) THEN DOCK_COL(c).wpx = 0
     DOCK_COL(c).side = side
     DOCK_COL(c).ord = 32000 ' after every column on that side; compact renumbers
     DOCK_compact

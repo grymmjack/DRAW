@@ -44,6 +44,12 @@ TYPE PEN_OBJ
     opBakImg  AS LONG    ' layer snapshot at stroke start (buffer coords incl. apron)
     opW       AS LONG
     opH       AS LONG
+    ' Pen Control smoothing (INPUT/STABILIZER) for the stroke being drawn
+    stabOn    AS INTEGER ' this stroke's points go through STAB_
+    stabDX    AS INTEGER ' the point the stroke last drew to (canvas px)
+    stabDY    AS INTEGER
+    catching  AS INTEGER ' Catch Up on lift: hold the last pressure, skip the tip threshold
+    speedOn   AS INTEGER ' this stroke's pressure gets the speed gain
 END TYPE
 
 DIM SHARED TABLET AS PEN_OBJ

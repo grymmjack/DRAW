@@ -84,13 +84,15 @@ because **`PEN` is a QB64 keyword**; using it fails with "Name already in use".
   raster.
 - **Config:** `CFG.PEN_PRESSURE`, `PEN_PRESSURE_SIZE`, `PEN_MIN_SIZE`,
   `PEN_PRESSURE_OPACITY`, `PEN_MIN_OPACITY`, `PEN_PRESSURE_MIX`, `PEN_MIX_MIN`,
-  `PEN_PRESSURE_CURVE`, plus `PEN_PANEL_VISIBLE/X/Y`. UI: the Pen Pressure panel
-  and Settings → General → Pen Tablet.
+  `PEN_PRESSURE_CURVE`, plus `PEN_PANEL_VISIBLE/X/Y`. UI: the Pen Control panel
+  and Settings → Pen Control (tab 10, `SETTINGS_TAB_PEN`, `SETTINGS_render_pen`) → Pen Tablet.
 
-## Pen Pressure panel: `GUI/PEN-PANEL.BI/BM` (`PENP`), action 2028
+## Pen Control panel: `GUI/PEN-PANEL.BI/BM` (`PENP`), action 2028
 
-View → Pen Pressure (also in the command palette). It is a floating panel built
-on the same frame model as `CS3D`, with these hooks:
+Was "Pen Pressure" until 2026-11-17, when it took on the stroke filters. View →
+Pen Control (also in the command palette). The cfg keys, dock id `pen` and
+action 2028 kept their names. It is a floating panel built on the same frame
+model as `CS3D`, with these hooks:
 - `REGION_PEN_PANEL = 30`;
 - the three render sites in `SCREEN.BM`;
 - `MOUSE_handle_gui_panels`;
@@ -99,15 +101,136 @@ on the same frame model as `CS3D`, with these hooks:
 - pan, wheel and double-click exclusions;
 - the `POINTER` arrow over it.
 
-Contents:
-- a live pressure meter: the bar is raw pressure, the tick is after the curve;
-- a checkbox and a "LIGHT" (lightest-touch) slider each for size, opacity and
-  mix paint;
-- a logarithmic curve slider (25–400, which snaps to 1.00);
-- a response graph with the live point.
+**Tabs** (`CFG.PEN_PANEL_TAB`: 0 PRESSURE, 1 SMOOTHING, 2 SPEED). The tab strip
+(`PENP_CTL_TABS`) sits in what was the status row. The backend status moved to
+the title bar, or to the bottom of the response graph when the title bar is too
+narrow. Every control has a tab in `PENP_ctlTab()` (-1 = every tab), and
+`PENP_hit%` skips the other tabs' controls. The SMOOTHING and SPEED rows are
+laid out in `PENP_layout_tabs` inside the PRESSURE tab's height, so switching
+tabs never resizes the panel or its dock slot.
+- **PRESSURE:**
+  - a live pressure meter: the bar is raw pressure, the tick is after the curve;
+  - a checkbox and a "LIGHT" (lightest-touch) slider each for size, opacity
+    and mix paint;
+  - a logarithmic curve slider (25–400, which snaps to 1.00), and TIP;
+  - a response graph with the live point.
+- **SMOOTHING:**
+  - SMOOTH POSITION, a mode chip row (`PENP_draw_segs`), AMOUNT, CATCH UP,
+    GUIDE LINE and GUIDE CURSOR;
+  - SMOOTH PRESSURE, a mode chip row and AMOUNT;
+  - a word-wrapped hint for the current mode (`PENP_wrap`).
+- **SPEED:**
+  - SPEED SCALING, then SLOW / FAST (gain ×100), SPEED (px/s) and SMOOTH;
+  - a NOW / AVG / TOP readout;
+  - the speed→gain graph (`PENP_render_speed`). It calls `PENC_sync` to plot
+    CFG's gains, and marks the last stroke's avg (dashed) and top (red)
+    speeds and the live point.
 
-`PENP_needs_redraw%` keeps frames non-idle while the meter moves. Values save on
-slider release and checkbox click.
+**Docked in a top / bottom row** (`PENP.inRow`), every tab uses the five group
+columns:
+- column 0 is the tab strip, then a checkbox, then the meter's slot;
+- the hint and the graph go in the graph column.
+
+Mode chips use the full labels when they all fit, else the short ones, else
+first letters. Disabled chips get a `CP_bg` wash at alpha 150.
+
+`PENP_needs_redraw%` keeps frames non-idle while the meter moves. On the SPEED
+tab it does the same while the speed or the last top speed changes. Values
+save on slider release and on checkbox / chip / tab click.
+
+QA dumps (DOCK_DUMP):
+- `PENPL inRow panelW panelH gx0 gx1 yGraph graphH`;
+- `PENPC ctl x0 x1 y tx0 tx1`, for all 24 ctls;
+- `PENPT tab tabH hint(x0 y0 x1 y1) graph(x0 y0 x1 y1) readout(x y x1) subX pad`.
+
+The tests are `pen-control-panel.sh`, `dock-row-pen.sh` and
+`dock-native-pen.sh`.
+
+Command palette actions 2030-2035 (`PENP_ACT_*`, handled by `PENP_command`):
+- Toggle Smoothing;
+- Next Smoothing Mode (it also turns smoothing on);
+- More / Less Smoothing (±5);
+- Toggle Pressure Smoothing;
+- Toggle Speed Scaling.
+
+They save the cfg and `STATUS_flash` the new state.
+
+## Stroke filters: `INPUT/STABILIZER.BI/BM` (Lazy Nezumi-style, 2026-11-17)
+
+This is pure math with no DRAW globals: `QA/unit/stab-unit.bas` runs it
+headless (39 checks). It is time-based (`TIMER(.001)`), so it behaves the same
+at any frame rate.
+
+**`STAB_` position smoothing.** The input is float canvas coords. `MOUSE.FX/FY`
+is the sub-pixel position; when grid snap moved `MOUSE.X`, the snapped pixel
+centre is used instead (`PENC_fx#/fy#`).
+- **Pulled String:** the string is Amount screen px long, so it is
+  Amount / zoom canvas px. The point moves only when the string goes taut.
+- **Moving Average:** the window is 0.006 s × Amount, measured from the newest
+  sample, so the line stays put at rest when Catch Up is off. The ring buffer
+  holds 128 samples.
+- **EMA:** tau = (Amount/100)² s, with k = 1 − e^(−dt/tau).
+- **Inertia:** a damped spring, 14·(1−a)^1.6 + 0.9 Hz with damping 0.55, run in
+  1 ms substeps (stable on a 0.25 s frame).
+- **Catch Up (MA / EMA only):**
+  - while resting, samples are pushed every frame;
+  - on lift, `STAB_catch_step%` steps 16 ms at a time (at most 400 steps), and
+    `MOUSE_brush_catch_up` paints each new integer point and then the pointer
+    pixel.
+
+**`PPROC_` pressure processing.** Applied in `PEN_stroke_pressure!` after the
+lift filter and before the curve.
+- **Fixed:** Amount %.
+- **Sample & Hold:** the mean of the first 1 + Amount\5 samples, then held.
+- **MA:** the window is 0.004 × Amount s.
+- **EMA:** the same tau as above.
+
+**`PSPD_` speed scaling.**
+- The gain is a smoothstep from slowGain to fastGain over 0..fastSpeed, in
+  viewport px/s.
+- The speed is an EMA with tau = 0.5 × smooth s.
+- The gain multiplies pressure, which is then clamped to [PEN_MIN_VALID, 1].
+- `PSPD_end` keeps the stroke's avg and top speed for the panel.
+
+**Glue in `INPUT/PEN.BM`** (`PENC_*`):
+- `PENC_sync` copies CFG into STAB / PPROC / PSPD.
+- `PENC_stroke_begin` runs on a Brush / Eraser press. A Shift smart erase is
+  never smoothed.
+- `PENC_stroke_step` runs each held frame. It gives the smoothed int point and
+  keeps frames live while the point lags.
+- `PENC_stroke_end` runs on release, and also in all three document reset
+  paths in `DRW.BM`.
+
+In `MOUSE_tool_brush`, a smoothed stroke calls `MOUSE_brush_paint_to sx, sy`.
+That sets `MOUSE.OLD_X/Y` from `TABLET.stabDX/DY` and `MOUSE.X/Y` to the point,
+runs `PAINT_on`, then restores them, so every brush path (custom, mix, pressure
+dabs, symmetry) works unchanged. During catch-up, `PEN_segment_begin` holds the
+last pressure and skips the tip threshold.
+
+**Guides.** These are drawn in `SCREEN_render` after `SkipToPointer:` (the
+`pcg*` vars):
+- a line from the point to `MOUSE.RAW_X/Y`, plus a ring;
+- the color is `CFG.PEN_STAB_GUIDE_COLOR`;
+- they are drawn only while `PENC_stab_stroke%`.
+
+**Config:**
+- `PEN_STAB`, `PEN_STAB_MODE` (1-4), `PEN_STAB_AMOUNT`, `PEN_STAB_CATCHUP`,
+  `PEN_STAB_GUIDE_LINE`, `PEN_STAB_GUIDE_CURSOR`, `PEN_STAB_GUIDE_COLOR`;
+- `PEN_PROC`, `PEN_PROC_MODE` (1-4), `PEN_PROC_AMOUNT`;
+- `PEN_SPEED`, `PEN_SPEED_SLOW` / `PEN_SPEED_FAST` (gain ×100),
+  `PEN_SPEED_FAST_AT`, `PEN_SPEED_SMOOTH`;
+- `PEN_PANEL_TAB`.
+
+All of them are workspace keys (`WS_panel_keys$`, which raised `WS_MAX_OPTS`
+to 384), and all are on Settings → Pen Control (tab 10, `SETTINGS_render_pen` in GUI/SETTINGS-TABS.BM; moved out of General 2026-11-17): sections Pen Tablet, Position Smoothing, Pressure Processing, Speed Scaling. `SETTINGS_jump_mark "Pen Control"` sits at the top of the tab, so `SETTINGS_open_at SETTINGS_TAB_PEN, "Pen Control"` (or `"Position Smoothing"`) opens it there.
+
+**Tests:**
+- `pen-smoothing.sh`: Xvfb's pointer drives smoothing, since it works for the
+  mouse;
+- `pen-control-panel.sh`;
+- stab-unit.
+
+Pressure processing and speed scaling need a real pen to judge by feel.
 
 ## Brush outline only over the canvas
 `POINTER_draw` skips the brush, spray and custom-brush footprint unless

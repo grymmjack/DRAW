@@ -171,6 +171,38 @@ DOCK_move_col_side DOCK_col_at%(DOCK_LEFT, 2), DOCK_RIGHT
 CHECK DOCK_describe$ = "LEFT.1: editbar" + CHR$(10) + "RIGHT.1: layers" + CHR$(10) + "RIGHT.2: toolbox" + CHR$(10), "toolbox column to the right edge, innermost, got [" + DOCK_describe$ + "]"
 CHECK DOCK_panel_side%(DP_TOOLBOX) = DOCK_RIGHT, "toolbox now right"
 
+' --- rows: the TOP / BOTTOM docks (2026-11-16) ------------------------------
+DOCK_clear
+c = DOCK_parse_col%(DOCK_TOP, "HEIGHT:40; toolbox | *editbar+advbar")
+CHECK c > 0 _ANDALSO DOCK_COL(c).wpx = 40 _ANDALSO DOCK_is_row%(c), "a top row parsed, HEIGHT:40"
+CHECK DOCK_col_spec$(c) = "HEIGHT:40; toolbox | *editbar+advbar", "a row writes HEIGHT:, got [" + DOCK_col_spec$(c) + "]"
+c = DOCK_parse_col%(DOCK_BOTTOM, "AUTO; swatches")
+CHECK DOCK_in_row%(DP_SWATCH) _ANDALSO DOCK_panel_side%(DP_SWATCH) = DOCK_BOTTOM, "a bottom row"
+CHECK DOCK_describe$ = "TOP.1: toolbox | editbar+advbar" + CHR$(10) + "BOTTOM.1: swatches" + CHR$(10), "rows described, got [" + DOCK_describe$ + "]"
+DOCK_CUSTOM = TRUE: DOCK_ROWS_FULL = TRUE
+snap = DOCK_snapshot$
+CHECK INSTR(snap, "TOP.1=HEIGHT:40; toolbox | *editbar+advbar") > 0 _ANDALSO INSTR(snap, "BOTTOM.1=AUTO; swatches") > 0 _ANDALSO INSTR(snap, "ROWSPAN=FULL") > 0, "rows in the snapshot, got [" + snap + "]"
+DOCK_ROWS_FULL = FALSE
+DOCK_load_snapshot snap
+CHECK DOCK_ROWS_FULL _ANDALSO DOCK_CUSTOM _ANDALSO DOCK_snapshot$ = snap, "rows round trip, got [" + DOCK_snapshot$ + "]"
+' only rows (no column) is still an arrangement
+DOCK_load_snapshot "CUSTOM=1" + CHR$(10) + "BOTTOM.1=AUTO; toolbox" + CHR$(10)
+CHECK DOCK_CUSTOM _ANDALSO DOCK_ROWS_FULL = FALSE _ANDALSO DOCK_panel_side%(DP_TOOLBOX) = DOCK_BOTTOM, "rows only = custom; no ROWSPAN = between"
+' the Browser's old band loads as the innermost row on its side
+DOCK_load_snapshot "CUSTOM=1" + CHR$(10) + "LEFT.1=AUTO; toolbox" + CHR$(10) + "TOP.1=AUTO; editbar" + CHR$(10) + "BAND=TOP,180" + CHR$(10)
+c = DOCK_col_at%(DOCK_TOP, 2)
+CHECK c > 0 _ANDALSO DOCK_COL(c).wpx = 180 _ANDALSO DOCK_panel_side%(DP_BROWSER) = DOCK_TOP _ANDALSO DOCK_SLOT(DPANEL(DP_BROWSER).slot).col = c, "BAND=TOP,180 -> TOP.2 HEIGHT:180"
+snap = DOCK_snapshot$
+CHECK INSTR(snap, "BAND=") = 0 _ANDALSO INSTR(snap, "TOP.2=HEIGHT:180; browser") > 0, "the band is saved as a row, got [" + snap + "]"
+DOCK_load_snapshot "CUSTOM=1" + CHR$(10) + "RIGHT.1=AUTO; layers" + CHR$(10) + "BAND=BOTTOM,20" + CHR$(10)
+c = DOCK_col_at%(DOCK_BOTTOM, 1)
+CHECK c > 0 _ANDALSO DOCK_COL(c).wpx = 220, "a too-short band gets 220"
+' moving a row to a side column drops its height (not a width)
+DOCK_move_col_side c, DOCK_LEFT
+CHECK DOCK_COL(c).side = DOCK_LEFT _ANDALSO DOCK_COL(c).wpx = 0 _ANDALSO DOCK_is_row%(c) = 0, "row -> column: wpx reset"
+c = DOCK_move_to_new_col%(DP_LAYERS, DOCK_TOP, 99)
+CHECK DOCK_in_row%(DP_LAYERS) _ANDALSO DOCK_col_at%(DOCK_RIGHT, 1) = 0, "a panel moved into a new top row, its column gone"
+
 PRINT "dock-unit:"; PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1
 SYSTEM 0

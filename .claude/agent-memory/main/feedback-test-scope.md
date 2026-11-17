@@ -1,9 +1,11 @@
 ---
 name: feedback-test-scope
-description: HARD RULE - run only the tests that MIGHT touch the change; the FULL suite only overnight while Rick sleeps. 4th reminder 2026-11-06
+description: HARD RULE - run only the tests that MIGHT touch the change, at night too (2026-11-17: no full suite, not even overnight unless he asks). 5th reminder
 metadata:
   type: feedback
 ---
+
+**5th reminder, Rick 2026-11-17 (morning after an overnight run):** "do not run the full test suite. run only the tests that will test something that has materially changed". I had spent ~7 h of the night on two full dock/file/workspace suites (168 + 230 tests) to "verify" checklist items; the targeted tests had already passed. **This now applies overnight too** - "full suite only at night" below is superseded: never start a full / broad suite unless Rick asks for one by name. Pick tests by what the diff touches (the subsystem's own tests + the new ones), not by a prefix glob.
 
 **HARD RULE (4th reminder, 2026-11-06): run the tests that MIGHT touch the change. NOT the full suite. The full suite runs only at night while Rick is sleeping.**
 

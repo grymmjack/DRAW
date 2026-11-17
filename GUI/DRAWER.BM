@@ -836,8 +836,10 @@ SUB GRAD_DEF_rebuild_preview (slotIndex AS INTEGER)
     DIM w       AS INTEGER
     DIM h       AS INTEGER
     DIM c       AS _UNSIGNED LONG
+    DIM oldSrc  AS LONG
 
     IF slotIndex% < 1 OR slotIndex% > DRAWER_SLOT_COUNT THEN EXIT SUB
+    oldSrc& = _SOURCE
 
     w% = 128
     h% = 128
@@ -848,6 +850,46 @@ SUB GRAD_DEF_rebuild_preview (slotIndex AS INTEGER)
     oldDest& = _DEST
     _DEST img&
     CLS , _RGBA32(0, 0, 0, 0)
+
+    ' Not dithered: the colour depends on t alone, so each distinct t is worked
+    ' out once (a hash on t's exact value - a linear gradient has 128 of them, a
+    ' radial a few thousand; at most w * h, so the 32768-entry table never
+    ' fills) and its pixel written straight into the image. This runs on
+    ' every FG / BG change for every slot that uses them: per pixel it took
+    ' ~86 ms a frame while dragging in the Color Mixer (Rick 2026-11-17: "it is
+    ' kind of slow to interact with the color mixers"). The table holds what PSET
+    ' leaves on the cleared image (PSET blends a see-through colour onto it), so
+    ' the result is the same as before.
+    IF GRAD_DEFS(slotIndex%).ditherMode% = DITHER_NONE _ORELSE GRAD_DEFS(slotIndex%).colorCount% < 2 THEN
+        DIM lut(0 TO 32767) AS _UNSIGNED LONG, lutT(0 TO 32767) AS SINGLE, lutHas(0 TO 32767) AS _BYTE, q AS LONG
+        DIM px1 AS LONG, m AS _MEM, rowOff AS _OFFSET
+        px1& = _NEWIMAGE(1, 1, 32)
+        m = _MEMIMAGE(img&)
+        FOR y% = 0 TO h% - 1
+            rowOff = m.OFFSET + CLNG(y%) * w% * 4
+            FOR x% = 0 TO w% - 1
+                t! = DRAWER_gradient_eval_t!(slotIndex%, x%, y%, w%, h%)
+                q& = INT(t! * 32767)
+                DO
+                    IF lutHas(q&) = 0 THEN
+                        c~& = GRAD_with_stop_alpha~&(GRAD_DEF_eval_color~&(slotIndex%, t!), GRAD_DEF_eval_opacity%(slotIndex%, t!))
+                        _DEST px1&: CLS , _RGBA32(0, 0, 0, 0): PSET (0, 0), c~&
+                        _SOURCE px1&: lut(q&) = POINT(0, 0)
+                        _DEST img&
+                        lutT(q&) = t!: lutHas(q&) = -1
+                        EXIT DO
+                    END IF
+                    IF lutT(q&) = t! THEN EXIT DO
+                    q& = (q& + 1) AND 32767
+                LOOP
+                _MEMPUT m, rowOff + x% * 4, lut(q&)
+            NEXT x%
+        NEXT y%
+        _MEMFREE m
+        _FREEIMAGE px1&
+        _SOURCE oldSrc&
+        GOTO gradPreviewDone
+    END IF
 
     FOR y% = 0 TO h% - 1
         FOR x% = 0 TO w% - 1
@@ -904,6 +946,7 @@ SUB GRAD_DEF_rebuild_preview (slotIndex AS INTEGER)
             PSET (x%, y%), c~&
         NEXT x%
     NEXT y%
+    gradPreviewDone:
 
     _DEST oldDest&
 
@@ -1975,6 +2018,19 @@ SUB DRAWER_layout (contentX AS INTEGER, contentY AS INTEGER, binW AS INTEGER, bi
     DIM areaW AS INTEGER, used AS INTEGER
     IF CFG.DRAWER_MINI_PALETTE% <> 0 _ANDALSO DRAWER_STACKED = FALSE THEN areaW% = leftAreaW% ELSE areaW% = contentW%
     binW% = DRAWER_fill_bin%(areaW%, cols%, binGapX%, uiScale%)
+    IF DOCK_in_row%(DP_DRAWER) _ANDALSO DRAWER_STACKED = FALSE THEN
+        ' a top / bottom row: the bins fit its height and run across it in
+        ' more columns - the width would make them taller than the row.
+        ' Ctrl+wheel there sets the bin rows in that height (DRAWER_ROW_BIN_ROWS:
+        ' 1 = as tall as the row), so the bins zoom in a row too
+        DIM rbr AS INTEGER
+        rbr = CFG.DRAWER_ROW_BIN_ROWS%: IF rbr < 1 THEN rbr = 1
+        binW% = (innerH% - (rbr - 1) * binGapY%) \ rbr
+        IF binW% < 4 * uiScale% THEN binW% = 4 * uiScale%
+        cols% = (areaW% + binGapX%) \ (binW% + binGapX%)
+        IF cols% < 1 THEN cols% = 1
+        IF cols% > DRAWER_SLOT_COUNT THEN cols% = DRAWER_SLOT_COUNT
+    END IF
     binH% = binW%
     used% = cols% * binW% + (cols% - 1) * binGapX%
     IF used% < areaW% THEN contentX% = contentX% + (areaW% - used%) \ 2 ' the odd pixels, split
@@ -3500,6 +3556,26 @@ SUB DRAWER_handle_wheel (mouseX AS INTEGER, mouseY AS INTEGER, wheelDelta AS INT
     IF DRAWER.contextMenuOpen% THEN EXIT SUB
 
     ' Ctrl+wheel zooms the bins: wheel up = bigger (fewer per row)
+    IF MODIFIERS.ctrl% _ANDALSO DOCK_in_row%(DP_DRAWER) _ANDALSO DRAWER_STACKED = FALSE THEN
+        ' a top / bottom dock row: bins per row fill its width whatever the
+        ' count - zoom the bin rows in its height instead (wheel up = bigger)
+        DIM zr AS INTEGER
+        zr% = CFG.DRAWER_ROW_BIN_ROWS%: IF zr% < 1 THEN zr% = 1
+        IF wheelDelta% < 0 THEN zr% = zr% - 1 ELSE zr% = zr% + 1
+        IF zr% < 1 THEN zr% = 1
+        IF zr% > DRAWER_ZOOM_MAX_ROWS THEN zr% = DRAWER_ZOOM_MAX_ROWS
+        IF zr% <> _MAX(1, CFG.DRAWER_ROW_BIN_ROWS%) THEN
+            CFG.DRAWER_ROW_BIN_ROWS% = zr%
+            CONFIG_save
+            STATUS_flash "Drawer: " + _TRIM$(STR$(zr%)) + _IIF(zr% = 1, " row", " rows") + " of bins (drag the row's edge for bigger bins)"
+        ELSE
+            IF zr% = 1 THEN STATUS_flash "Drawer: bins as tall as the row - drag the row's edge for bigger bins"
+        END IF
+        GUI_NEEDS_REDRAW% = TRUE
+        SCENE_DIRTY%      = TRUE
+        FRAME_IDLE%       = FALSE
+        EXIT SUB
+    END IF
     IF MODIFIERS.ctrl% THEN
         DIM zc AS INTEGER
         zc% = CFG.DRAWER_BIN_COLS%
@@ -3680,6 +3756,7 @@ SUB DRAWER_context_menu_activate (actionValue AS INTEGER)
             DRAWER_load_images_into_slots savedSlot%
         CASE DRAWER_CONTEXT_BIN_AUTO
             CFG.DRAWER_BIN_COLS% = 0
+            IF DOCK_in_row%(DP_DRAWER) THEN CFG.DRAWER_ROW_BIN_ROWS% = 0
             CONFIG_save
             GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
     END SELECT

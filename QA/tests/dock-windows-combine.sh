@@ -6,8 +6,9 @@
 # fourth at the column's bottom, the Preview above the layers, a window as a tab
 # of the layers, a docked panel as a tab of a window; then tabs pulled out to
 # float, a docked window hidden and shown again (it comes back in its slot),
-# and every window floated again. dk_check after every step.
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt COLOR_MIXER_VISIBLE=1 ADV_COLOR_PICKER_VISIBLE=1 COLOR_SPACE_3D_VISIBLE=1 PEN_PANEL_VISIBLE=1
+# and every window floated again. dk_check after every step. (The four start
+# side by side: stacked at one spot their title bars cover each other.)
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt COLOR_MIXER_VISIBLE=1 ADV_COLOR_PICKER_VISIBLE=1 COLOR_SPACE_3D_VISIBLE=1 PEN_PANEL_VISIBLE=1 COLOR_MIXER_X=140 COLOR_MIXER_Y=12 ADV_COLOR_PICKER_X=340 ADV_COLOR_PICKER_Y=12 COLOR_SPACE_3D_X=540 COLOR_SPACE_3D_Y=12 PEN_PANEL_X=700 PEN_PANEL_Y=40
 # =============================================================================
 source "$DRAW_ROOT/QA/dock-lib.sh"
 info "=== Dock: floating windows combined Test ==="

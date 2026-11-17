@@ -41,6 +41,10 @@ END TYPE
 DIM SHARED BL(1 TO BL_PANELS, 0 TO BL_MAX - 1) AS BL_ENTRY_OBJ
 DIM SHARED BL_N(1 TO BL_PANELS) AS INTEGER
 DIM SHARED BL_READY(1 TO BL_PANELS) AS INTEGER ' the list has been built (else BL_ensure builds the default)
+' A bar docked in a top / bottom row (GUI/DOCK rows) flows sideways: BL_HROWS
+' icon rows, filled top to bottom, then the next column; a divider ends the
+' column. 0 = the usual flow (left to right, then down). DOCK_apply_rect sets it.
+DIM SHARED BL_HROWS(1 TO BL_PANELS) AS INTEGER
 
 ' Text tiles: a command without an icon shows up to 3 letters of its name
 ' (Tiny5) in an outline the color of the bar icons. Cached per action.
