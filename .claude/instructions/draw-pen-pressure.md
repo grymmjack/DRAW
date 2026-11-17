@@ -87,6 +87,21 @@ because **`PEN` is a QB64 keyword**; using it fails with "Name already in use".
   `PEN_PRESSURE_CURVE`, plus `PEN_PANEL_VISIBLE/X/Y`. UI: the Pen Control panel
   and Settings → Pen Control (tab 10, `SETTINGS_TAB_PEN`, `SETTINGS_render_pen`) → Pen Tablet.
 
+## Pen Control presets: `GUI/PEN-PRESETS.BI/BM` (`PENPR_`), 2026-11-17
+
+Right-click the panel below its title → the presets menu, shown in the dock's handle menu
+(`PENPR_MENU_NEXT` before `DOCK_menu_open`; `DOCK_UI.menuPen` routes build / do to
+`PENPR_menu_build` / `PENPR_menu_do`; `DOCK_UI.menuJust` keeps the opening press from
+picking a row). Rows: presets A-Z (value 100 + i, ticked = `PENPR_CUR`), Save Preset… (1),
+Rename / Delete Preset '<current>'… (2 / 3, disabled with none current), Open Presets
+Folder (4, `PATHS_open_in_file_manager%`). A preset = `PATHS_data$("PEN-PRESETS")/<name>.pen`:
+two `;` comment lines + `CONFIG_pen_lines$` (CFG/CONFIG.BM - DRAW.cfg's pen block is
+printed from the same function via `CONFIG_print_lines`, so a new pen key lands in both).
+Never `PEN_PANEL_*`. Current = the preset whose file equals `CONFIG_pen_lines$` now
+(`PENPR_scan` on open; `PENPR_LAST` wins a tie), so no cfg key tracks it. Apply =
+`CONFIG_apply_key%` per line, `PENC_sync`, `CONFIG_save`. Names go through `PENPR_clean$`.
+While any dock menu is open `PENP_mouse_input` ignores the mouse. Test `pen-presets`.
+
 ## Pen Control panel: `GUI/PEN-PANEL.BI/BM` (`PENP`), action 2028
 
 Was "Pen Pressure" until 2026-11-17, when it took on the stroke filters. View →

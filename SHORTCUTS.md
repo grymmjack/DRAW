@@ -507,7 +507,9 @@ Panels move by dragging their title / handle into the dock tree (left, right, st
 | `R-Click` the color strip's scroll buttons | The strip's menu (as on its empty places) |
 | `L-Click` the chevron / `Dbl-Click` a title strip | Collapse the slot to its title / expand it |
 | `L-Click` a collapsed title | Open it (on the tab you clicked) |
-| `R-Click` a handle | Move to Left / Right Edge · Dock Along the Top / Bottom · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement · Customize Buttons… (toolbox / bars) · Scale: Auto / 1x–6x, every panel alike (Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches: the panel's own size; Auto = the UI Scale; also Settings → Panels → Panel Scale) |
+| `R-Click` a handle | Move to Left / Right Edge · Dock Along the Top / Bottom · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement · Close · Customize Buttons… (toolbox / bars) · Scale: Auto / 1x–6x, every panel alike (Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches: the panel's own size; Auto = the UI Scale; also Settings → Panels → Panel Scale) |
+| `L-Click` a panel's [x] | Close it (floating panels: right end of the title / grip; tabbed / collapsed slots: end of the title strip, closes the showing tab; red on hover). The handle menu's **Close** does the same for every panel but the text bar. View → Organizer / Drawer bring those two back |
+| `R-Click` the Pen Control panel (below its title) | Pen Control Presets: your presets (ticked = current), Save Preset… · Rename Preset… · Delete Preset… · Open Presets Folder |
 | `L-Drag` a floating window's title bar onto a dock target | Dock it (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches, Browser) |
 | `Dbl-Click` a floating panel's title | Dock it back where it was |
 | `L-Drag` a floating panel's right / bottom edge or corner | Resize it (a floating bar adds icon columns as it widens). Floating bars have a slim grip strip instead of a title |

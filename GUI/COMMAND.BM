@@ -204,6 +204,8 @@ SUB CMD_init ()
     CMD_register "Customize Toolbars...", "", CMD_CAT_VIEW, 2460
     CMD_register "Lock Workspace", "Ctrl+Shift+L", CMD_CAT_VIEW, 2470
     CMD_register "Snap Panel Edges", "", CMD_CAT_VIEW, 2471
+    CMD_register "Toggle Organizer", "", CMD_CAT_VIEW, 2472
+    CMD_register "Toggle Drawer", "", CMD_CAT_VIEW, 2473
     CMD_register "Toggle Browser", "", CMD_CAT_VIEW, 2022
     CMD_register "Toggle Edit Bar", "F5", CMD_CAT_VIEW, 435
     CMD_register "Toggle Advanced Bar", "Shift+F5", CMD_CAT_VIEW, 449
@@ -769,16 +771,16 @@ SUB CMD_render (dest AS LONG)
     ' Draw header
     DIM header_text AS STRING
     IF CMD_PALETTE.mode = 0 THEN
-        header_text$ = "Command Palette"
+        header_text$ = "COMMAND PALETTE"
     ELSE
-        header_text$ = "Hotkey Quick Reference"
+        header_text$ = "HOTKEY QUICK REFERENCE"
     END IF
     COLOR THEME.CMD_PALETTE_header_fg~&, _RGBA32(0, 0, 0, 0)
     _UPRINTSTRING (CMD_PALETTE_X + 10, CMD_PALETTE_Y + 6), header_text$
     
     ' Draw close hint
     DIM hint_text AS STRING
-    hint_text$ = "ESC close"
+    hint_text$ = "ESC CLOSE"
     COLOR THEME.CMD_PALETTE_hint_fg~&, _RGBA32(0, 0, 0, 0)
     _UPRINTSTRING (CMD_PALETTE_X + CMD_PALETTE_W - _PRINTWIDTH(hint_text$, dest&) - 10, CMD_PALETTE_Y + 6), hint_text$
     
@@ -795,7 +797,7 @@ SUB CMD_render (dest AS LONG)
             _UPRINTSTRING (CMD_PALETTE_X + 10, search_y% + 3), LEFT$(CMD_PALETTE.search, CMD_PALETTE.search_len)
         ELSE
             COLOR THEME.CMD_PALETTE_search_placeholder_fg~&, _RGBA32(0, 0, 0, 0)
-            _UPRINTSTRING (CMD_PALETTE_X + 10, search_y% + 3), "Type to search..."
+            _UPRINTSTRING (CMD_PALETTE_X + 10, search_y% + 3), "TYPE TO SEARCH..."
         END IF
         
         ' Draw cursor
@@ -833,25 +835,25 @@ SUB CMD_render (dest AS LONG)
         
         ' Draw category in dim color
         COLOR THEME.CMD_PALETTE_category_fg~&, _RGBA32(0, 0, 0, 0)
-        _UPRINTSTRING (cat_col%, item_y% + 2), LEFT$(cat_name$, 8)
+        _UPRINTSTRING (cat_col%, item_y% + 2), UCASE$(LEFT$(cat_name$, 8))
         
         ' Draw command name
         name_str$ = RTRIM$(CMD_LIST(idx%).name)
         COLOR THEME.CMD_PALETTE_name_fg~&, _RGBA32(0, 0, 0, 0)
-        _UPRINTSTRING (name_col%, item_y% + 2), name_str$
+        _UPRINTSTRING (name_col%, item_y% + 2), UCASE$(name_str$) ' UI caps at draw only - CMD_LIST names stay as registered
         
         ' Draw hotkey on right side (right-aligned)
         hotkey_str$ = BINDINGS_hotkey$(CMD_LIST(idx%).action_id, RTRIM$(CMD_LIST(idx%).hotkey))
         IF LEN(hotkey_str$) > 0 THEN
             COLOR THEME.CMD_PALETTE_hotkey_fg~&, _RGBA32(0, 0, 0, 0)
-            _UPRINTSTRING (hotkey_col% - _PRINTWIDTH(hotkey_str$, dest&), item_y% + 2), hotkey_str$
+            _UPRINTSTRING (hotkey_col% - _PRINTWIDTH(UCASE$(hotkey_str$), dest&), item_y% + 2), UCASE$(hotkey_str$)
         END IF
     NEXT i%
     
     ' Draw scroll indicator if needed
     IF CMD_PALETTE.result_count > CMD_MAX_VISIBLE THEN
         DIM scroll_info AS STRING
-        scroll_info$ = _TRIM$(STR$(CMD_PALETTE.scroll + 1)) + "-" + _TRIM$(STR$(CMD_PALETTE.scroll + display_count%)) + " of " + _TRIM$(STR$(CMD_PALETTE.result_count))
+        scroll_info$ = _TRIM$(STR$(CMD_PALETTE.scroll + 1)) + "-" + _TRIM$(STR$(CMD_PALETTE.scroll + display_count%)) + " OF " + _TRIM$(STR$(CMD_PALETTE.result_count))
         COLOR THEME.CMD_PALETTE_scroll_fg~&, _RGBA32(0, 0, 0, 0)
         _UPRINTSTRING (CMD_PALETTE_X + 10, CMD_PALETTE_Y + CMD_PALETTE_H - row_height%), scroll_info$
     END IF
@@ -1515,6 +1517,13 @@ SUB CMD_execute_action (action_id AS INTEGER)
             CFG.SNAP_PANEL_EDGES% = (CFG.SNAP_PANEL_EDGES% = 0)
             CONFIG_save
             IF CFG.SNAP_PANEL_EDGES% THEN STATUS_flash "Floating windows snap to edges" ELSE STATUS_flash "Floating windows move freely (no snap, may overlap)"
+        CASE 2472, 2473 ' View > Organizer / Drawer (show / hide; their dock [x] / Close hides them - GUI/DOCK DOCK_panel_close)
+            IF action_id% = 2472 THEN WS_el_set WS_EL_ORGANIZER, (ORGANIZER.visible% = 0) ELSE WS_el_set WS_EL_DRAWER, (DRAWER.visible% = 0)
+            ' (both ride on the toolbox's Tab toggle: showing one shows the toolbox too)
+            IF (ORGANIZER.visible% _ANDALSO action_id% = 2472) _ORELSE (DRAWER.visible% _ANDALSO action_id% = 2473) THEN
+                IF SCRN.showToolbar% = 0 THEN SCRN.showToolbar% = TRUE: SCRN.toolbarManuallyHidden% = FALSE
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
         CASE TBED_ACTION ' 2460: Customize Toolbars window (GUI/TOOLBAR-EDITOR.BM)
             TBED_toggle
         CASE 2450 TO 2459 ' File > Capture Screen (GUI/CAPTURE.BM)
@@ -6052,10 +6061,19 @@ SUB CMD_update_search ()
     ' command that actually spells TDF. Anything with a lower-case letter in it
     ' stays case-insensitive, because command names are Title Case and a
     ' case-sensitive "browse" would never match "Browse".
-    DIM caseSensitive AS INTEGER
+    ' The palette SHOWS every name in caps (Rick 2026-11-17), so someone typing
+    ' what they see ("PEN") gets a case-sensitive query that the Title Case
+    ' names never match: an all-caps query that finds nothing is tried again
+    ' ignoring case.
+    DIM caseSensitive AS INTEGER, pass AS INTEGER
     caseSensitive% = CMD_query_is_all_caps%(search_str$)
     IF NOT caseSensitive% THEN search_str$ = UCASE$(search_str$)
 
+    FOR pass% = 1 TO 2
+    IF pass% = 2 THEN
+        IF caseSensitive% = 0 _ORELSE CMD_PALETTE.result_count > 0 THEN EXIT FOR
+        caseSensitive% = FALSE ' (the query is already all caps)
+    END IF
     FOR i% = 0 TO CMD_COUNT - 1
         ' If no search, show all
         IF CMD_PALETTE.search_len = 0 THEN
@@ -6079,6 +6097,7 @@ SUB CMD_update_search ()
             END IF
         END IF
     NEXT i%
+    NEXT pass%
 
     ' Reset hover and scroll
     CMD_PALETTE.hover  = 0

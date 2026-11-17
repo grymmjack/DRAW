@@ -151,13 +151,17 @@ CONST DOCK_ACT_FLOAT = 5
 CONST DOCK_ACT_BAND_TOP = 7    ' the Browser only: dock along the top / bottom
 CONST DOCK_ACT_BAND_BOTTOM = 8
 CONST DOCK_ACT_CUSTOMIZE = 9   ' toolbox / bars: open Customize Toolbars on that panel
+CONST DOCK_ACT_CLOSE = 10      ' every panel but the text bar: hide it (its View toggle; DOCK_panel_close)
 CONST DOCK_ACT_SCALE = 20      ' floating-panel family: 20 = follow the UI Scale, 21-28 = 1x-8x (FPANEL_set_scale)
 
 TYPE DOCK_UI_OBJ
     hoverSlot AS INTEGER ' slot whose handle the pointer is over (0 = none)
+    closeHover AS INTEGER ' panel whose [x] close box the pointer is over (0 = none; DOCK_close_at%)
     menuOpen  AS INTEGER
     menuPanel AS INTEGER ' panel the menu acts on
     menuWf    AS INTEGER ' > 0: workflow button n's menu instead (GUI/WORKFLOW)
+    menuPen   AS INTEGER ' TRUE: the Pen Control presets menu instead (GUI/PEN-PRESETS)
+    menuJust  AS INTEGER ' opened this frame: the press that opened it is not a pick
     menuX     AS INTEGER
     menuY     AS INTEGER
     menuW     AS INTEGER

@@ -53,6 +53,10 @@ $INCLUDEONCE
 '$INCLUDE:'./includes/QB64_GJ_LIB/FILE_DIALOG/FD-ICONS.BI'
 '$INCLUDE:'./includes/QB64_GJ_LIB/FILE_DIALOG/FD-PLATFORM.BI'
 '$INCLUDE:'./includes/QB64_GJ_LIB/FILE_DIALOG/FD-THUMB.BI'
+' DRAW's own UI text is all caps (memory feedback-ui-text-uppercase): the
+' library dialogs (message / input box, color picker, file dialog) draw their
+' words through GJ_UI_TEXT$ / GJ_UI_MSG$, opt-in by this flag (_GJ_LIB_COMMON.BI).
+GJ_UI_UPPER = TRUE
 
 ' CONFIG ----------------------------------------------------------------------
 '$INCLUDE:'./CFG/CONFIG.BI'
@@ -110,6 +114,7 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/FLOAT-PANEL.BI'
 '$INCLUDE:'./GUI/COLOR-SPACE-3D.BI'
 '$INCLUDE:'./GUI/PEN-PANEL.BI'
+'$INCLUDE:'./GUI/PEN-PRESETS.BI'
 '$INCLUDE:'./GUI/ANIM-PANEL.BI'
 '$INCLUDE:'./GUI/ANIM-PANEL-LANES.BI'
 '$INCLUDE:'./GUI/SWATCHES.BI'

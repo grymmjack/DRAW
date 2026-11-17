@@ -145,7 +145,8 @@ Pressure and Browser windows.
 | **Click a collapsed title** | Opens it again (click one of its tabs to open on that tab) |
 | **Double-click a floating panel's title** | Docks it back where it was |
 | **Drag a floating panel's right or bottom edge, or its corner** | Resizes it; a bar adds icon columns as it gets wider |
-| **Right-click a handle** | Move to Left Edge / Move to Right Edge, Dock Along the Top / Bottom, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement, and Scale (Auto or 1×–8×) on the Animation, Color Mixer, color picker, 3D Color Space, Pen Control, Swatches and Text Bar panels |
+| **Right-click a handle** | Move to Left Edge / Move to Right Edge, Dock Along the Top / Bottom, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement, and Scale (Auto or 1×–8×) on the Animation, Color Mixer, color picker, 3D Color Space, Pen Control, Swatches and Text Bar panels; **Close** on every panel but the Text Bar |
+| **Click a panel's [x]** | Closes it: a floating panel has one at the right end of its title bar or grip, a tabbed or collapsed slot at the end of its title strip (it closes the tab showing). It turns red under the pointer, like the Color Mixer's. The View menu brings any panel back (View → Organizer and View → Drawer are there for that too) |
 
 **Top and bottom docks.** Any panel can also dock in a **row** along the top
 of the canvas area (under the menu bar) or along the bottom (above the color

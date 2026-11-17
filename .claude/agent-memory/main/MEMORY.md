@@ -117,3 +117,4 @@
 - [Dock row share overcommit](dock-row-share-overcommit.md) — [Linux] row @px widths can exceed the row; normalize before editing one (edge drag jumped)
 - [QA: DP ids shift, floating z-order](qa-dp-ids-and-float-zorder.md) — never hardcode DP_ ids in tests (DP_PREVIEW 10 now); dk_grab_point uses the WZ front-to-back line
 - [macOS numpad digits = main-row digits](qb64pe-macos-numpad-digits.md) — [macOS] QB64-PE gives KP_0..9 no own codes (KP_0 = 48), so DRAW numpad frame keys can't work there; KP_+ etc. do; qa-io mac/win had no KP_ keys until 2026-11-17
+- [UI text is UPPERCASE](feedback-ui-text-uppercase.md) — every panel/menu/settings/dialog string in caps; user data keeps case; UCASE$ at draw + measure sites (Rick 2026-11-17)

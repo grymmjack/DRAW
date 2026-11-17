@@ -1944,6 +1944,7 @@ END FUNCTION
 ' Render pass (with the panels): title strips of titled slots.
 SUB DOCK_render_titles ()
     DIM s AS INTEGER, id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, t AS INTEGER, tx AS INTEGER, tw AS INTEGER, lbl AS STRING
+    DIM bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
     DIM oldDest AS LONG, oldFont AS LONG
     oldDest& = _DEST
     oldFont& = _FONT
@@ -1955,16 +1956,15 @@ SUB DOCK_render_titles ()
                 x = DOCK_SLOT(s).x: y = DOCK_SLOT(s).y: w = DOCK_SLOT(s).w
                 LINE (x, y)-(x + w - 1, y + DOCK_TITLE_H - 1), THEME.LAYER_PANEL_header_bg~&, BF
                 LINE (x, y + DOCK_TITLE_H - 1)-(x + w - 1, y + DOCK_TITLE_H - 1), THEME.LAYER_PANEL_border~&
-                ' chevron: open / collapsed
-                COLOR THEME.LAYER_PANEL_header_fg~&, _RGBA32(0, 0, 0, 0)
-                IF DOCK_SLOT(s).collapsed THEN lbl = ">" ELSE lbl = "v"
+                ' twirl: a drawn arrow (right = collapsed, down = open), like
+                ' FPANEL_disclosure - not a "v" / ">" glyph (Rick 2026-11-17)
+                DOCK_twirl x + 2, y + (DOCK_TITLE_H - 1) \ 2, DOCK_SLOT(s).collapsed, THEME.LAYER_PANEL_header_fg~&
                 _PRINTMODE _KEEPBACKGROUND
-                _UPRINTSTRING (x + 2, y + 1), lbl
                 FOR t = 1 TO DOCK_SLOT(s).ntabs
                     id = DOCK_TAB(s, t)
                     IF DOCK_tab_rect%(s, t, tx, tw) THEN
                         ' (a narrow column: the label is cut to its share of the strip)
-                        lbl = DOCK_fit_text$(DPANEL(id).title, tw)
+                        lbl = DOCK_fit_text$(UCASE$(DPANEL(id).title), tw) ' (titles: UPPERCASE - Rick 2026-11-17)
                         IF DOCK_SLOT(s).ntabs > 1 _ANDALSO t = DOCK_SLOT(s).act THEN
                             LINE (tx - 1, y)-(_MIN(tx + tw, x + w - 1), y + DOCK_TITLE_H - 2), THEME.LAYER_PANEL_bg~&, BF
                         END IF
@@ -1972,6 +1972,11 @@ SUB DOCK_render_titles ()
                         IF LEN(lbl) THEN _UPRINTSTRING (tx, y + 1), lbl
                     END IF
                 NEXT t
+                ' the [x] close box at the right end: closes the showing tab's panel
+                IF DOCK_slot_close_rect%(s, bx, by, bw, bh) THEN
+                    LINE (bx, by)-(bx + bw - 1, by + bh - 1), THEME.LAYER_PANEL_header_bg~&, BF
+                    DOCK_close_cross bx, by, bw, bh, THEME.CP_close_hover_bg~& ' (a small red x)
+                END IF
             END IF
         END IF
     NEXT s
@@ -2001,6 +2006,17 @@ SUB DOCK_overlay_render ()
             END IF
         END IF
     END IF
+    ' the [x] under the pointer: red, like the Color Mixer's / Browser's
+    IF DOCK_UI.closeHover _ANDALSO DOCK_UI.menuOpen = 0 _ANDALSO DOCK_UI.mvActive = 0 THEN
+        IF DOCK_close_rect_of%(DOCK_UI.closeHover, hx, hy, hw, hh) THEN
+            IF hh <= DOCK_FLOAT_GRIP_H THEN ' (a grip strip: inside its frame lines)
+                LINE (hx, hy + 1)-(hx + hw - 2, hy + hh - 1), THEME.CP_close_hover_bg~&, BF
+            ELSE
+                LINE (hx, hy)-(hx + hw - 1, hy + hh - 1), THEME.CP_close_hover_bg~&, BF
+            END IF
+            DOCK_close_cross hx, hy, hw, hh, THEME.CP_close_fg~&
+        END IF
+    END IF
     DOCK_move_render
     IF DOCK_UI.menuOpen THEN
         DOCK_menu_build DOCK_UI.menuPanel
@@ -2016,6 +2032,7 @@ END SUB
 SUB DOCK_menu_build (id AS INTEGER)
     DIM n AS INTEGER, side AS INTEGER, s AS INTEGER, fl AS INTEGER
     IF DOCK_UI.menuWf THEN WF_menu_build DOCK_UI.menuWf: EXIT SUB ' a workflow button's menu
+    IF DOCK_UI.menuPen THEN PENPR_menu_build: EXIT SUB ' the Pen Control presets menu
     POPUP_MENU_clear_items
     s = DPANEL(id).slot
     IF s > 0 THEN side = DOCK_COL(DOCK_SLOT(s).col).side
@@ -2027,6 +2044,7 @@ SUB DOCK_menu_build (id AS INTEGER)
         POPUP_MENU_set_item n, "Dock Along the Top", "", DOCK_ACT_BAND_TOP, 0: n = n + 1
         POPUP_MENU_set_item n, "Dock Along the Bottom", "", DOCK_ACT_BAND_BOTTOM, 0: n = n + 1
         DOCK_menu_add_scale id, n
+        DOCK_menu_add_close id, n
         DOCK_UI.menuN = n
         EXIT SUB
     END IF
@@ -2051,7 +2069,17 @@ SUB DOCK_menu_build (id AS INTEGER)
     DOCK_menu_add_scale id, n
     POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
     POPUP_MENU_set_item n, "Reset Arrangement", "", DOCK_ACT_RESET, 0: n = n + 1
+    DOCK_menu_add_close id, n
     DOCK_UI.menuN = n
+END SUB
+
+
+''
+' The handle menu's last row: Close (hides the panel, as its [x] does).
+SUB DOCK_menu_add_close (id AS INTEGER, n AS INTEGER)
+    IF DOCK_panel_closable%(id) = 0 THEN EXIT SUB
+    POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    POPUP_MENU_set_item n, "Close", "", DOCK_ACT_CLOSE, 0: n = n + 1
 END SUB
 
 
@@ -2081,6 +2109,7 @@ END SUB
 SUB DOCK_menu_open (id AS INTEGER, mx AS INTEGER, my AS INTEGER)
     DIM font AS LONG, ph AS INTEGER, px AS INTEGER, py AS INTEGER
     DOCK_UI.menuWf = WF_MENU_NEXT: WF_MENU_NEXT = 0 ' (GUI/WORKFLOW sets it for a button's menu)
+    DOCK_UI.menuPen = PENPR_MENU_NEXT: PENPR_MENU_NEXT = 0 ' (GUI/PEN-PRESETS sets it)
     DOCK_menu_build id
     IF MENU_BAR.fontHandle& > 0 THEN font = MENU_BAR.fontHandle&
     DOCK_UI.menuW = POPUP_MENU_measure_width%(DOCK_UI.menuN, font)
@@ -2089,6 +2118,7 @@ SUB DOCK_menu_open (id AS INTEGER, mx AS INTEGER, my AS INTEGER)
     DOCK_UI.menuPanel = id
     DOCK_UI.menuHover = -1
     DOCK_UI.menuOpen = TRUE
+    DOCK_UI.menuJust = (DOCK_UI.menuPen <> 0) ' (opened from a panel's own input, before DOCK_handle_chrome)
     DOCK_redraw
 END SUB
 
@@ -2144,6 +2174,7 @@ END SUB
 
 SUB DOCK_menu_do (act AS INTEGER)
     DIM id AS INTEGER, c AS INTEGER
+    IF DOCK_UI.menuPen THEN DOCK_UI.menuPen = FALSE: PENPR_menu_do act: EXIT SUB ' the Pen Control presets menu
     IF DOCK_UI.menuWf _ANDALSO act >= WF_MV_ADD THEN WF_menu_do DOCK_UI.menuWf, act: EXIT SUB ' (its Float / Scale rows: the panel's, below)
     id = DOCK_UI.menuPanel
     SELECT CASE act
@@ -2165,6 +2196,8 @@ SUB DOCK_menu_do (act AS INTEGER)
             IF DPANEL(id).floats THEN DOCK_native_undock id, DOCK_LX + 40, 60 ELSE DOCK_float_panel id, DOCK_LX + 40, 60
         CASE DOCK_ACT_DOCKBACK
             DOCK_dock_back id
+        CASE DOCK_ACT_CLOSE
+            DOCK_panel_close id
         CASE DOCK_ACT_SCALE TO DOCK_ACT_SCALE + 8
             FPANEL_set_scale id, act - DOCK_ACT_SCALE
         CASE DOCK_ACT_CUSTOMIZE
@@ -2197,6 +2230,9 @@ END SUB
 FUNCTION DOCK_handle_chrome% (mx AS INTEGER, my AS INTEGER)
     DIM hit AS INTEGER, s AS INTEGER, hv AS INTEGER
     IF DOCK_UI.menuOpen THEN
+        ' (a panel opened it earlier this frame - the Pen Control presets: that
+        '  right-click is not a pick, wherever the menu landed under the pointer)
+        IF DOCK_UI.menuJust THEN DOCK_UI.menuJust = FALSE: MOUSE.UI_CHROME_CLICKED% = TRUE: DOCK_handle_chrome% = TRUE: EXIT FUNCTION
         hv = POPUP_MENU_hover_row%(DOCK_UI.menuX, DOCK_UI.menuY, DOCK_UI.menuW, DOCK_UI.menuN, DOCK_MENU_ITEM_H, mx, my)
         IF hv <> DOCK_UI.menuHover THEN DOCK_UI.menuHover = hv: FRAME_IDLE% = FALSE
         IF (MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0) _ORELSE (MOUSE.B2% _ANDALSO MOUSE.OLD_B2% = 0) THEN
@@ -2216,6 +2252,18 @@ FUNCTION DOCK_handle_chrome% (mx AS INTEGER, my AS INTEGER)
     IF MOUSE.B1% = 0 _ANDALSO MOUSE.B2% = 0 THEN
         s = DOCK_handle_at%(mx, my)
         IF s <> DOCK_UI.hoverSlot THEN DOCK_UI.hoverSlot = s: FRAME_IDLE% = FALSE
+        s = DOCK_close_at%(mx, my)
+        IF s <> DOCK_UI.closeHover THEN DOCK_UI.closeHover = s: FRAME_IDLE% = FALSE
+    END IF
+    ' click an [x] close box: hide that panel (before a handle press can start a move)
+    IF MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0 THEN
+        s = DOCK_close_at%(mx, my)
+        IF s THEN
+            DOCK_panel_close s
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            DOCK_handle_chrome% = TRUE
+            EXIT FUNCTION
+        END IF
     END IF
     ' right-click a handle: the dock menu for its panel
     IF MOUSE.B2% _ANDALSO MOUSE.OLD_B2% = 0 THEN
@@ -2811,21 +2859,23 @@ END SUB
 ' FALSE when the slot shows no tabs.
 FUNCTION DOCK_tab_rect% (s AS INTEGER, t AS INTEGER, tx AS INTEGER, tw AS INTEGER)
     DIM k AS INTEGER, x0 AS INTEGER, avail AS INTEGER, total AS INTEGER, x AS INTEGER, wdt AS INTEGER, each AS INTEGER
+    DIM bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
     DIM oldDest AS LONG, oldFont AS LONG
     IF DOCK_slot_titled%(s) = 0 _ORELSE t < 1 _ORELSE t > DOCK_SLOT(s).ntabs THEN EXIT FUNCTION
     oldDest& = _DEST: oldFont& = _FONT
     _DEST SCRN.GUI&
     IF LAYER_PANEL.fontHandle& > 0 THEN _FONT LAYER_PANEL.fontHandle& ELSE IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
-    x0 = DOCK_SLOT(s).x + 10
+    x0 = DOCK_SLOT(s).x + 12 ' (past the twirl arrow + a gap)
     avail = DOCK_SLOT(s).x + DOCK_SLOT(s).w - 2 - x0
+    IF DOCK_slot_close_rect%(s, bx, by, bw, bh) THEN avail = avail - bw ' (the [x] at the right end)
     IF avail < DOCK_SLOT(s).ntabs THEN avail = DOCK_SLOT(s).ntabs
     FOR k = 1 TO DOCK_SLOT(s).ntabs
-        total = total + _UPRINTWIDTH(DPANEL(DOCK_TAB(s, k)).title) + 8
+        total = total + _UPRINTWIDTH(UCASE$(DPANEL(DOCK_TAB(s, k)).title)) + 8
     NEXT k
     IF total - 4 <= avail THEN
         x = x0
         FOR k = 1 TO t
-            wdt = _UPRINTWIDTH(DPANEL(DOCK_TAB(s, k)).title)
+            wdt = _UPRINTWIDTH(UCASE$(DPANEL(DOCK_TAB(s, k)).title))
             IF k = t THEN tx = x: tw = wdt + 4
             x = x + wdt + 8
         NEXT k
@@ -3583,6 +3633,158 @@ END SUB
 
 
 ' =============================================================================
+' [x] close boxes (Rick 2026-11-17: "not every panel that can be repositioned /
+' floated / resized has a [x] to close it ... add [x] red just like the color
+' mixer has and the browser"). The native windows draw their own (FPANEL_title_bar);
+' these are for the dock-hosted panels: a floating one's frame strip (title or
+' grip) and a titled docked strip (tabbed / collapsed: closes the showing tab).
+' Chromeless docked panels (a 3px hover grip) have no room: their handle menu's
+' Close row does it, as it does for every panel. Closing = the panel's own View
+' toggle, so it comes back from the View menu.
+' =============================================================================
+
+''
+' Can panel id be closed? Not the text bar: it shows with the text tool.
+FUNCTION DOCK_panel_closable% (id AS INTEGER)
+    DOCK_panel_closable% = (id >= 1 _ANDALSO id <= DP_COUNT _ANDALSO id <> DP_TEXTBAR)
+END FUNCTION
+
+
+''
+' The View action that shows / hides panel id (0 = none).
+FUNCTION DOCK_panel_toggle_action% (id AS INTEGER)
+    SELECT CASE id
+        CASE DP_TOOLBOX: DOCK_panel_toggle_action% = 401
+        CASE DP_ORGANIZER: DOCK_panel_toggle_action% = 2472
+        CASE DP_DRAWER: DOCK_panel_toggle_action% = 2473
+        CASE DP_LAYERS: DOCK_panel_toggle_action% = 404
+        CASE DP_EDITBAR: DOCK_panel_toggle_action% = 435
+        CASE DP_ADVBAR: DOCK_panel_toggle_action% = 449
+        CASE DP_CHARMAP: DOCK_panel_toggle_action% = 2050
+        CASE DP_WORKFLOW: DOCK_panel_toggle_action% = WF_ACT_TOGGLE
+        CASE DP_PREVIEW: DOCK_panel_toggle_action% = 434
+        CASE DP_MIXER: DOCK_panel_toggle_action% = 2021
+        CASE DP_ADVCP: DOCK_panel_toggle_action% = 2023
+        CASE DP_CS3D: DOCK_panel_toggle_action% = 2024
+        CASE DP_PEN: DOCK_panel_toggle_action% = 2028
+        CASE DP_ANIM: DOCK_panel_toggle_action% = ANIMP_ACT_TOGGLE
+        CASE DP_SWATCH: DOCK_panel_toggle_action% = SWP_ACT_TOGGLE
+        CASE DP_BROWSER: DOCK_panel_toggle_action% = 2022
+    END SELECT
+END FUNCTION
+
+
+''
+' Hide panel id (its [x] or the handle menu's Close): its View toggle, when showing.
+SUB DOCK_panel_close (id AS INTEGER)
+    DIM a AS INTEGER
+    IF DOCK_panel_closable%(id) = 0 _ORELSE DOCK_panel_shown%(id) = 0 THEN EXIT SUB
+    a = DOCK_panel_toggle_action%(id)
+    IF a = 0 THEN EXIT SUB
+    DOCK_UI.closeHover = 0: DOCK_UI.hoverSlot = 0
+    CMD_execute_action a
+    STATUS_flash DPANEL(id).title + " closed (View menu brings it back)"
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' The [x] of floating dock panel id: the right end of its frame's title bar or
+' grip strip (viewport px). FALSE = none (native window, docked, too narrow).
+FUNCTION DOCK_float_close_rect% (id AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
+    IF DOCK_panel_closable%(id) = 0 _ORELSE id >= DP_PREVIEW THEN EXIT FUNCTION
+    IF DOCK_floating%(id) = 0 THEN EXIT FUNCTION
+    bw = DOCK_TITLE_H: bh = DOCK_float_title_h%(id)
+    IF DPANEL(id).fw < bw + 20 THEN bw = 8 ' (a one-column bar, 22 px: a slimmer box, the grip dots beside it)
+    IF DPANEL(id).fw < bw + 10 THEN EXIT FUNCTION
+    bx = DPANEL(id).fx + DPANEL(id).fw - bw: by = DPANEL(id).fy
+    DOCK_float_close_rect% = TRUE
+END FUNCTION
+
+
+''
+' The [x] of titled docked slot s: the right end of its strip (closes the
+' showing tab's panel). FALSE = none.
+FUNCTION DOCK_slot_close_rect% (s AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
+    IF s < 1 _ORELSE s > DOCK_MAX_SLOTS THEN EXIT FUNCTION
+    IF DOCK_SLOT(s).used = 0 _ORELSE DOCK_SLOT(s).vis = 0 THEN EXIT FUNCTION
+    IF DOCK_slot_titled%(s) = 0 THEN EXIT FUNCTION
+    IF DOCK_panel_closable%(DOCK_slot_panel%(s)) = 0 THEN EXIT FUNCTION
+    bw = DOCK_TITLE_H: bh = DOCK_TITLE_H - 1
+    IF DOCK_SLOT(s).w < bw + 24 THEN EXIT FUNCTION
+    bx = DOCK_SLOT(s).x + DOCK_SLOT(s).w - bw: by = DOCK_SLOT(s).y
+    DOCK_slot_close_rect% = TRUE
+END FUNCTION
+
+
+''
+' The [x] that closes panel id, wherever it is now (floating frame or the
+' titled strip of its slot, as its showing tab).
+FUNCTION DOCK_close_rect_of% (id AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
+    DIM s AS INTEGER
+    IF DOCK_float_close_rect%(id, bx, by, bw, bh) THEN DOCK_close_rect_of% = TRUE: EXIT FUNCTION
+    s = DPANEL(id).slot
+    IF s < 1 THEN EXIT FUNCTION
+    IF DOCK_slot_panel%(s) <> id THEN EXIT FUNCTION
+    DOCK_close_rect_of% = DOCK_slot_close_rect%(s, bx, by, bw, bh)
+END FUNCTION
+
+
+''
+' Panel whose [x] is under (mx, my), 0 = none: the frontmost floating dock
+' panel's, else a titled docked strip's (with the handles' guards).
+FUNCTION DOCK_close_at% (mx AS INTEGER, my AS INTEGER)
+    DIM id AS INTEGER, s AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    IF DOCK_ui_busy% _ORELSE DOCK_UI.mvActive THEN EXIT FUNCTION
+    id = DOCK_float_window_at%(mx, my)
+    IF id THEN
+        IF DOCK_float_close_rect%(id, bx, by, bw, bh) THEN
+            IF mx >= bx _ANDALSO mx < bx + bw _ANDALSO my >= by _ANDALSO my < by + bh THEN DOCK_close_at% = id
+        END IF
+        EXIT FUNCTION ' (a floating window covers whatever is under it)
+    END IF
+    s = DOCK_handle_at%(mx, my)
+    IF s = 0 THEN EXIT FUNCTION
+    IF DOCK_slot_close_rect%(s, bx, by, bw, bh) THEN
+        IF mx >= bx _ANDALSO mx < bx + bw _ANDALSO my >= by _ANDALSO my < by + bh THEN DOCK_close_at% = DOCK_slot_panel%(s)
+    END IF
+END FUNCTION
+
+
+''
+' The twirl arrow of a docked strip at (x, cy = its middle row): down (7 x 4)
+' when open, right (4 x 7) when collapsed - FPANEL_disclosure's shape.
+SUB DOCK_twirl (x AS INTEGER, cy AS INTEGER, collapsed AS INTEGER, clr AS _UNSIGNED LONG)
+    DIM i AS INTEGER
+    IF collapsed THEN
+        FOR i = 0 TO 3: LINE (x + 1 + i, cy - 3 + i)-(x + 1 + i, cy + 3 - i), clr: NEXT i
+    ELSE
+        FOR i = 0 TO 3: LINE (x + i, cy - 2 + i)-(x + 6 - i, cy - 2 + i), clr: NEXT i
+    END IF
+END SUB
+
+
+''
+' The close cross centred in box (bx, by, bw, bh), arms 2-3 px.
+SUB DOCK_close_cross (bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER, clr AS _UNSIGNED LONG)
+    DIM cx AS INTEGER, cy AS INTEGER, a AS INTEGER
+    cx = bx + bw \ 2: cy = by + bh \ 2
+    IF bh <= DOCK_FLOAT_GRIP_H THEN ' a grip strip: 3x3 on the dot rows, 1 px clear above / below
+        cx = bx + (bw - 1) \ 2: cy = by + (bh + 1) \ 2
+        LINE (cx - 1, cy - 1)-(cx + 1, cy + 1), clr
+        LINE (cx - 1, cy + 1)-(cx + 1, cy - 1), clr
+        EXIT SUB
+    END IF
+    a = (bh - 1) \ 2 - 2: IF a < 2 THEN a = 2
+    IF a > 3 THEN a = 3
+    IF a > (bh - 1) \ 2 THEN a = (bh - 1) \ 2
+    LINE (cx - a, cy - a)-(cx + a, cy + a), clr
+    LINE (cx - a, cy + a)-(cx + a, cy - a), clr
+END SUB
+
+
+
+' =============================================================================
 ' Floating docked panels (P5): float, move, dock back
 ' =============================================================================
 
@@ -3778,6 +3980,7 @@ END FUNCTION
 ' The frame + title bar of floating docked panel id (into SCRN.GUI&).
 SUB DOCK_render_float_frame (id AS INTEGER)
     DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, th AS INTEGER, gx AS INTEGER
+    DIM bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER, gc AS INTEGER, g0 AS INTEGER, g1 AS INTEGER
     DIM oldDest AS LONG, oldFont AS LONG
     oldDest& = _DEST: oldFont& = _FONT
     _DEST SCRN.GUI&
@@ -3790,7 +3993,12 @@ SUB DOCK_render_float_frame (id AS INTEGER)
         ' a thin bar: a grip, no title (drag it; double-click docks it back).
         ' Lock Layout: no grip, no dock mark, no resize corner - plain chrome.
         IF CFG.LAYOUT_LOCKED% = 0 THEN
-            FOR gx = x + w \ 2 - 6 TO x + w \ 2 + 6 STEP 3
+            ' (centred in what the [x] leaves)
+            gc = x + w \ 2: g0 = gc - 6: g1 = gc + 6
+            IF DOCK_float_close_rect%(id, bx, by, bw, bh) THEN
+                gc = x + (w - bw) \ 2: g0 = _MAX(x + 2, gc - 6): g1 = _MIN(bx - 2, gc + 6)
+            END IF
+            FOR gx = g0 TO g1 STEP 3
                 PSET (gx, y + 2), THEME.LAYER_PANEL_header_fg~&
                 PSET (gx, y + 4), THEME.LAYER_PANEL_header_fg~&
             NEXT gx
@@ -3798,10 +4006,15 @@ SUB DOCK_render_float_frame (id AS INTEGER)
     ELSE
         COLOR THEME.LAYER_PANEL_header_fg~&, _RGBA32(0, 0, 0, 0)
         _PRINTMODE _KEEPBACKGROUND
-        _UPRINTSTRING (x + 3, y + 1), DPANEL(id).title
-        ' a "dock" mark at the right: double-click the title to dock back
-        IF CFG.LAYOUT_LOCKED% = 0 THEN _UPRINTSTRING (x + w - 8, y + 1), "#"
+        _UPRINTSTRING (x + 3, y + 1), UCASE$(DPANEL(id).title)
+        ' a "dock" mark at the right (left of the [x]): double-click the title to dock back
+        IF CFG.LAYOUT_LOCKED% = 0 THEN
+            IF DOCK_float_close_rect%(id, bx, by, bw, bh) THEN _UPRINTSTRING (bx - 8, y + 1), "#" ELSE _UPRINTSTRING (x + w - 8, y + 1), "#"
+        END IF
     END IF
+    ' the [x] close box at the right end of the title / grip (red on hover: DOCK_overlay_render)
+    ' (on a grip strip: a small red x on the grip dots' rows - Rick 2026-11-17)
+    IF DOCK_float_close_rect%(id, bx, by, bw, bh) THEN DOCK_close_cross bx, by, bw, bh, THEME.CP_close_hover_bg~&
     IF CFG.LAYOUT_LOCKED% = 0 THEN
         ' resize grip in the bottom-right corner
         PSET (x + w - 3, y + h - 3), THEME.LAYER_PANEL_header_fg~&

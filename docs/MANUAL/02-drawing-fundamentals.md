@@ -92,6 +92,8 @@ Shaky hands, a jittery tablet or a fast flick can make lines wobble. Pen Control
 - **Smooth** evens out the measured speed.
 - The graph plots speed against gain. After each stroke it marks that stroke's **average** speed (dashed) and **top** speed (red). While you draw, a dot shows the live speed. **NOW / AVG / TOP** give the same figures as numbers. Draw a few strokes at your natural pace, then set *Speed* around your top speed.
 
+**Presets.** Right-click the Pen Control panel (anywhere below its title) for **Pen Control Presets**: your saved presets (a tick marks the one your settings are now), then **Save Preset…** (name it; an existing name is replaced), **Rename Preset…** and **Delete Preset…** (they act on the ticked one), and **Open Presets Folder**. A preset holds every Pen Control setting - pressure, smoothing, speed scaling - so you can switch tablets or jobs in one click. They are plain text files (`<name>.pen`) in DRAW's data folder under `PEN-PRESETS`.
+
 All of these are also on the **Pen Control** tab of Settings (`Ctrl+,`), under Position Smoothing, Pressure Processing and Speed Scaling. The command palette has **Pen Control: Toggle Smoothing**, **Next Smoothing Mode**, **More / Less Smoothing** (±5), **Toggle Pressure Smoothing** and **Toggle Speed Scaling**, so you can bind them to keys.
 
 ## Lines, Rectangles & Ellipses

@@ -130,6 +130,9 @@ border colours (`DOCK_seam_color~&`; a right column's line uses
 | Double-click a floating title / Dock Back | `DOCK_dock_back` (`halone` → its own column again) |
 | Drag a floating panel's right / bottom edge or corner | `DOCK_handle_float_resize%` (`DOCK_RZ`, `DOCK_float_edge_at%` — region-guarded like the handles; cursor via `DOCK_float_cursor_edge%` in `POINTER_build`) |
 
+| Click a panel's [x] / handle menu **Close** | `DOCK_close_at%` → `DOCK_panel_close` (the panel's View toggle via `DOCK_panel_toggle_action%`; Organizer / Drawer got View toggles 2472 / 2473 for it). Boxes: `DOCK_float_close_rect%` (floating frame's title or grip strip, right end; 8 px wide on a one-column bar), `DOCK_slot_close_rect%` (titled strip: closes the showing tab; `DOCK_tab_rect%` leaves room). Red hover = `DOCK_UI.closeHover`, drawn in `DOCK_overlay_render`. Native windows draw their own (`FPANEL_title_bar`). Not the text bar (`DOCK_panel_closable%`). Chromeless docked panels (3px grip) have no box: the menu's Close (`DOCK_ACT_CLOSE` 10, last row). Test `dock-close-boxes` |
+| A panel borrowing the handle menu | `WF_MENU_NEXT` (workflow buttons) / `PENPR_MENU_NEXT` (Pen Control presets) set before `DOCK_menu_open`; build / do go to their module. `DOCK_UI.menuJust`: a menu opened from a panel's own input earlier in the frame ignores that press in `DOCK_handle_chrome%` |
+
 Every tree change: `DOCK_change_begin` … `DOCK_change_commit msg` (saves to the
 active workspace via `WSC_save_dock`, else `CONFIG_save`).
 
