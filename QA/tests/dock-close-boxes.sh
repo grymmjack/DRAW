@@ -6,6 +6,8 @@
 #   floating title   float the Drawer, hover its [x] (red), click it -> hidden;
 #                    View: Toggle Drawer (2473) brings it back, still floating
 #   floating grip    float the Edit Bar (a grip strip), click its [x] -> hidden; F5 back
+#   layers header    the docked Layers have no strip: the [x] at their header's
+#                    right end (red on hover) closes them; Ctrl+L brings them back
 #   tabbed strip     tab the Drawer onto the Layers: the strip's [x] closes the
 #                    showing tab only
 #   handle menu      right-click the Organizer's handle: Close (DOCK_ACT_CLOSE 10)
@@ -42,6 +44,20 @@ click $(( P_FX + P_FW - 4 )) $(( P_FY + 3 )); wait_for 0.8 "close edit bar"; dk_
 if shown editbar; then fail "the floating Edit Bar's [x] did not close it"; else pass "the floating Edit Bar's grip [x] closed it"; fi
 key F5; wait_for 0.8 "F5"; dk_park; dk_settle
 if shown editbar; then pass "F5 brought the Edit Bar back"; else fail "F5 did not bring the Edit Bar back"; fi
+
+# --- the docked Layers' own header ---------------------------------------------------
+dk_p layers; dk_slot "$P_SLOT"
+info "layers slot $P_SLOT at $S_X,$S_Y w=$S_W"
+snap_region $(( S_X + S_W - 14 )) "$S_Y" 14 11 "lx-idle"; X0="$SNAP_RESULT"
+hover $(( S_X + S_W - 6 )) $(( S_Y + 5 )); wait_for 0.6 "hover layers [x]"
+snap_region $(( S_X + S_W - 14 )) "$S_Y" 14 11 "lx-hover"; X1="$SNAP_RESULT"
+assert_regions_differ "$X0" "$X1" "the Layers header's [x] lights up under the pointer"
+screenshot "close-layers-header"
+click $(( S_X + S_W - 6 )) $(( S_Y + 5 )); wait_for 0.8 "close layers"; dk_park; dk_settle
+if shown layers; then fail "the Layers header's [x] did not close them"; else pass "the Layers header's [x] closed them"; fi
+key ctrl+l; wait_for 0.8 "Ctrl+L"; dk_park; dk_settle
+if shown layers; then pass "Ctrl+L brought the Layers back"; else fail "Ctrl+L did not bring the Layers back"; fi
+dk_check "after the layers header"
 
 # --- a tabbed strip: Drawer + Layers ------------------------------------------------
 dk_move_expect drawer tab layers
