@@ -9,6 +9,11 @@ $INCLUDEONCE
 CONST PENPR_MAX = 40
 CONST PENPR_EXT = ".pen"
 CONST PENPR_DIRNAME = "PEN-PRESETS"
+' Example presets shipped with DRAW (Rick 2026-11-17: "examples with a guide"):
+' copied into the presets folder the first time it is listed, each name once -
+' an example you delete stays deleted (the names copied are kept in PENPR_SEEDED)
+CONST PENPR_EXAMPLES_DIR = "ASSETS/PRESETS/PEN/"
+CONST PENPR_SEEDED = ".examples-copied"
 ' dock-menu row values (the menu borrows the dock's handle menu: DOCK_UI.menuPen)
 CONST PENPR_ACT_SAVE = 1
 CONST PENPR_ACT_RENAME = 2

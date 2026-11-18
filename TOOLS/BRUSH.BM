@@ -655,7 +655,7 @@ END SUB
 SUB PAINT_on_pressure (sx AS INTEGER, sy AS INTEGER, ex AS INTEGER, ey AS INTEGER, baseSize AS INTEGER)
     DIM x0 AS INTEGER, y0 AS INTEGER, dx AS INTEGER, dy AS INTEGER
     DIM steps AS INTEGER, i AS INTEGER, cx AS INTEGER, cy AS INTEGER, dabSize AS INTEGER, full AS INTEGER
-    DIM t AS SINGLE, p AS SINGLE, sizeOn AS INTEGER
+    DIM t AS SINGLE, p AS SINGLE, sizeOn AS INTEGER, dabF AS SINGLE
     x0% = sx%: y0% = sy%: full% = baseSize%
     sizeOn% = PEN_size_active%
     dx% = ex% - x0%
@@ -668,11 +668,22 @@ SUB PAINT_on_pressure (sx AS INTEGER, sy AS INTEGER, ex AS INTEGER, ey AS INTEGE
         cy% = y0% + INT(dy% * t!)
         p! = PEN_dab_pressure!(t!)
         TABLET.dabP = p!
+        IF TABLET.opStroke THEN
+            IF TABLET.usingPen THEN TABLET.dabOp = PEN_dab_op!(p!) ELSE TABLET.dabOp = PAINT_OPACITY% / 100!
+        END IF
+        IF TABLET.aaPen THEN
+            ' Antialiased pen stroke: a soft disc at the dab's exact (fractional)
+            ' place and size - sizes 1, 2, 3 ... and 1px lines come out smooth,
+            ' where whole-pixel circles only come in odd sizes (1, 3, 5 ...)
+
+            dabF! = full%
+            IF sizeOn% THEN dabF! = PEN_size_frac!(full%, p!)
+            IF dabF! <> full% THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
+            PAINT_draw_disc_aa x0% + dx% * t!, y0% + dy% * t!, dabF! / 2, DRAW_COLOR~&
+            _CONTINUE
+        END IF
         dabSize% = full%
         IF sizeOn% THEN dabSize% = PEN_scaled_size%(full%, p!)
-        IF TABLET.opStroke THEN
-            IF TABLET.usingPen THEN TABLET.dabOp = PEN_opacity_for!(p!) ELSE TABLET.dabOp = PAINT_OPACITY% / 100!
-        END IF
         ' Variable-width strokes can't be replayed as fixed-size brush calls: export as pixels.
         IF dabSize% <> full% THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
         IF BMIX.active THEN BMIX_dab cx%, cy% ' mix brush: smudge pickup before the dab
@@ -739,6 +750,33 @@ SUB PAINT_draw_filled_circle_aa (x AS INTEGER, y AS INTEGER, radius AS INTEGER, 
             IF coverage! > 0.0 THEN PAINT_blend_pixel_sym cx%, cy%, col~&, coverage!
         NEXT cx%
     NEXT cy%
+END SUB
+
+''
+' Antialiased disc at a fractional center (cx, cy) with a fractional radius r
+' (canvas px; a pixel's center is its whole coordinate). Coverage falls off
+' over 1px at the rim: r + 0.5 - distance, clamped to 0..1. r = 0.5 is a 1px dab
+' that spreads over its neighbours when it sits between pixels (a soft 1px
+' line). Through PAINT_blend_pixel_sym: selection, opacity lock, symmetry, and
+' in a masked pen stroke (TABLET.opStroke) the strongest coverage per pixel.
+'
+SUB PAINT_draw_disc_aa (cx AS SINGLE, cy AS SINGLE, r AS SINGLE, col AS _UNSIGNED LONG)
+    DIM x0 AS INTEGER, x1 AS INTEGER, y0 AS INTEGER, y1 AS INTEGER, x AS INTEGER, y AS INTEGER
+    DIM ddx AS SINGLE, ddy AS SINGLE, cov AS SINGLE, ro AS SINGLE, ro2 AS SINGLE
+    ro! = r! + 0.5: ro2! = ro! * ro!
+    x0% = INT(cx! - ro!): x1% = -INT(-(cx! + ro!))
+    y0% = INT(cy! - ro!): y1% = -INT(-(cy! + ro!))
+    FOR y% = y0% TO y1%
+        ddy! = y% - cy!
+        FOR x% = x0% TO x1%
+            ddx! = x% - cx!
+            IF ddx! * ddx! + ddy! * ddy! < ro2! THEN
+                cov! = ro! - SQR(ddx! * ddx! + ddy! * ddy!)
+                IF cov! > 1 THEN cov! = 1
+                IF cov! > 0.004 THEN PAINT_blend_pixel_sym x%, y%, col~&, cov!
+            END IF
+        NEXT x%
+    NEXT y%
 END SUB
 
 ''

@@ -119,7 +119,7 @@ SUB PEN_segment_begin ()
     IF TABLET.segP0 < 0 THEN TABLET.segP0 = TABLET.segP1
     TABLET.dabP = TABLET.segP1
     ' Paths that don't interpolate per dab (pixel perfect) use the segment's end.
-    IF TABLET.opStroke THEN TABLET.dabOp = PEN_opacity_for!(TABLET.segP1)
+    IF TABLET.opStroke THEN TABLET.dabOp = PEN_dab_op!(TABLET.segP1)
 END SUB
 
 ''
@@ -211,9 +211,14 @@ END FUNCTION
 ' opacity live, the plain Opacity setting included).
 '
 SUB PEN_opacity_begin ()
-    DIM img AS LONG
+    DIM img AS LONG, aa AS INTEGER
     PEN_opacity_end
-    IF NOT CFG.PEN_PRESSURE_OPACITY% THEN EXIT SUB
+    ' Antialias on with a round brush (Rick 2026-11-17): the pen stroke's dabs get
+    ' fractional sizes and centers - every size 1, 2, 3 ... and a soft 1px line - and
+    ' go through this per-pixel mask too, so overlapping soft dabs never darken.
+    ' (Not the mix brush: it mixes against the live layer.)
+    aa% = (CFG.ANTIALIAS% <> 0 _ANDALSO BRUSH_SIZE.SHAPE = 0 _ANDALSO (CFG.BRUSH_MIX% = 0 _ORELSE CURRENT_TOOL% <> TOOL_BRUSH))
+    IF CFG.PEN_PRESSURE_OPACITY% = 0 _ANDALSO aa% = 0 THEN EXIT SUB
     IF NOT PEN_active% THEN EXIT SUB
     IF CURRENT_TOOL% <> TOOL_BRUSH AND CURRENT_TOOL% <> TOOL_ERASER THEN EXIT SUB
     IF CUSTOM_BRUSH_is_active% THEN EXIT SUB
@@ -232,6 +237,8 @@ SUB PEN_opacity_begin ()
     TABLET.dabOp    = PAINT_OPACITY% / 100!
     TABLET.opErase  = (_ALPHA32(DRAW_COLOR~&) = 0)
     TABLET.opStroke = TRUE
+    TABLET.opByP    = (CFG.PEN_PRESSURE_OPACITY% <> 0)
+    TABLET.aaPen    = aa%
     ' Per-pixel opacity can't be replayed as fixed brush calls: export as pixels.
     BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
 END SUB
@@ -247,8 +254,30 @@ SUB PEN_opacity_end ()
     END IF
     TABLET.opBakImg = 0
     TABLET.opStroke = FALSE
+    TABLET.opByP    = FALSE
+    TABLET.aaPen    = FALSE
     TABLET.dabOp    = 1
 END SUB
+
+''
+' Opacity 0..1 of a dab at pressure p in a masked stroke: by pressure when that
+' option is on, else the plain Opacity setting (an antialiased pen stroke).
+'
+FUNCTION PEN_dab_op! (p AS SINGLE)
+    IF TABLET.opByP THEN PEN_dab_op! = PEN_opacity_for!(p!) ELSE PEN_dab_op! = PAINT_OPACITY% / 100!
+END FUNCTION
+
+''
+' PEN_scaled_size% without the rounding, for antialiased dabs: a pressure's
+' size in pixels, any fraction, from 1 up to the brush size.
+'
+FUNCTION PEN_size_frac! (baseSize AS INTEGER, p AS SINGLE)
+    DIM s AS SINGLE
+    s! = baseSize% * PEN_range!(p!, CFG.PEN_MIN_SIZE%)
+    IF s! < 1 THEN s! = 1
+    IF s! > baseSize% THEN s! = baseSize%
+    PEN_size_frac! = s!
+END FUNCTION
 
 ''
 ' Opacity 0..1 for a dab at pressure p: Lightest Touch Opacity % .. 100%,

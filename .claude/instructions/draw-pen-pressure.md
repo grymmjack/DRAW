@@ -102,6 +102,28 @@ Never `PEN_PANEL_*`. Current = the preset whose file equals `CONFIG_pen_lines$` 
 `CONFIG_apply_key%` per line, `PENC_sync`, `CONFIG_save`. Names go through `PENPR_clean$`.
 While any dock menu is open `PENP_mouse_input` ignores the mouse. Test `pen-presets`.
 
+**Example presets** (2026-11-17): `ASSETS/PRESETS/PEN/*.pen` (ten, all 24 keys in
+`CONFIG_pen_lines$` order - a key missing or out of order means the tick never matches).
+`PENPR_seed_examples` (first `PENPR_scan` of a session) copies any shipped name not yet
+listed in `<presets>/.examples-copied` and not already present, then appends it there -
+so a deleted / renamed example stays gone and a newly shipped one still arrives. [Linux]
+QB64 `PRINT #` writes CRLF there too: the reader strips CR; tests must `tr -d '\r'`.
+A new pen cfg key: regenerate the examples (every key, same order). "Raw Pen" = the factory
+defaults, so it is ticked on a fresh cfg. User guide: manual Ch. 2 "Pen Control Guide".
+
+## Pen Control tooltips (2026-11-17)
+
+`PENP_tip$(ctl, sg)` is the ONE text per control - "WHAT - does" LF "behaves" LF "TRY: example";
+mode rows / the tab strip have one per segment, and non-control areas use `PENP_TIP_*`
+(40 meter, 41 RESPONSE graph, 42 speed graph, 43 NOW/AVG/TOP readout, 44 hint box).
+`PENP_tip_at%` (only when `REGION_hit_test%` = `REGION_PEN_PANEL`, never on the title bar /
+dock handle, not while dragging) returns `ctl * 10 + sg + 1` -> `TOOLTIP_SRC_PEN_PANEL` (14),
+text in `TOOLTIP.DYNAMIC_TEXT$`, drawn as three lines. Settings > Pen Control sets
+`SW_TOOLTIP$ = PENP_tip$(...)` too (`SW_draw_tooltip` splits on LF; `SW_TIP.text` is a
+variable-length STRING now - it was `* 200` and cut long tips). Settings-only wording where
+the units differ (curve / speed gains x100). `seg` is a QB64 keyword (DEF SEG) - hence `sg`.
+Test `pen-control-tooltips` (TIP dump line: -1 14 idx).
+
 ## Pen Control panel: `GUI/PEN-PANEL.BI/BM` (`PENP`), action 2028
 
 Was "Pen Pressure" until 2026-11-17, when it took on the stroke filters. View →
@@ -255,3 +277,16 @@ it has the background color and looked like "off the canvas" on hover.
 ## Not done yet
 - Pen eraser end → Eraser tool.
 - Pressure for Dot, Spray and custom brushes.
+
+## Antialiased pen strokes (2026-11-17)
+
+Rick: with AA on, pressure sizes jumped 1 -> 3 -> 5 (whole-pixel circles: radius = size \ 2 around a
+pixel center can only be odd) and the 1px tail was a hard PSET line. Now `PEN_opacity_begin` also
+starts the per-pixel mask stroke when `CFG.ANTIALIAS%` and a round brush (not the mix brush):
+`TABLET.aaPen` / `TABLET.opByP` (opacity follows pressure, else `PEN_dab_op!` = plain Opacity).
+`PAINT_on_pressure` then stamps `PAINT_draw_disc_aa` at the dab's fractional center with
+`PEN_size_frac!` (any size >= 1; coverage = r + 0.5 - dist) and the mask keeps max coverage, so
+soft dabs never compound. This also routes a 1px AA pen stroke through `PAINT_on_pressure`
+(the `TABLET.opStroke` branch), which is what makes it soft. Mouse strokes are untouched
+(`PEN_active%` false: no mask). AA off keeps the old crisp odd-size circles.
+

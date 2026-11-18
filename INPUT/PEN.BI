@@ -40,6 +40,8 @@ TYPE PEN_OBJ
     ' Pressure -> opacity (one stroke at a time; see PEN_opacity_begin)
     opStroke  AS INTEGER ' TRUE while this stroke's opacity follows pressure
     opErase   AS INTEGER ' TRUE when that stroke erases (Eraser / transparent paint)
+    opByP     AS INTEGER ' TRUE when that stroke's opacity follows pressure (else the mask only keeps AA dabs from compounding)
+    aaPen     AS INTEGER ' antialiased pen stroke: dabs at fractional sizes and centers (PAINT_draw_disc_aa)
     dabOp     AS SINGLE  ' opacity 0..1 of the dab being drawn (includes PAINT_OPACITY)
     opBakImg  AS LONG    ' layer snapshot at stroke start (buffer coords incl. apron)
     opW       AS LONG

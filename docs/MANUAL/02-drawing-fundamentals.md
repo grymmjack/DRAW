@@ -51,6 +51,8 @@ On the **PRESSURE** tab:
 
 Opacity by pressure shows live as you draw. Going over the same spot again never builds the paint up past the strongest pressure you used there.
 
+With **Antialias** on and a round brush, a pen stroke sizes smoothly through every width - 1, 2, 3, 4 px and the fractions between - instead of jumping between odd sizes, and thin parts of the stroke (down to 1px) stay soft-edged. Overlapping parts of one stroke never darken each other. With Antialias off, pen strokes stay crisp whole-pixel circles.
+
 - **Setup.** Install the tablet maker's driver.
   - **Windows:** leave **Windows Ink** turned on in the driver's pen settings.
   - **macOS:** keep the driver's tablet app running in the menu bar.
@@ -59,8 +61,8 @@ Opacity by pressure shows live as you draw. Going over the same spot again never
   - **Pen Pressure** turns the feature on or off.
   - **Pressure Sets Brush Size** controls whether pressure changes the size. It applies to brushes bigger than 1px; a 1px pencil stays 1px.
   - **Lightest Touch Size %** is the size at the lightest touch (default 20% of the brush).
-  - **Pressure Curve** sets how pressure maps to size, opacity and paint.
-  - **Tip Threshold %** is the pressure the pen needs before it draws (default 3%). 100 is linear, lower makes light touches count more, and higher means you press harder.
+  - **Pressure Curve** sets how pressure maps to size, opacity and paint. 100 is linear, lower makes light touches count more, and higher means you press harder.
+  - **Tip Threshold %** is the pressure the pen needs before it draws (default 3%).
   - **Pressure Sets Opacity** and **Lightest Touch Opacity %** (default 10%): a light touch paints faintly. Off by default.
   - **Pressure Sets Mix Paint** and **Lightest Touch Paint %**: with the mix brush, a light touch smears and full pressure lays paint.
 - **Export.** Pressure-varied strokes export to BAS/QB64 as pixels.
@@ -92,9 +94,39 @@ Shaky hands, a jittery tablet or a fast flick can make lines wobble. Pen Control
 - **Smooth** evens out the measured speed.
 - The graph plots speed against gain. After each stroke it marks that stroke's **average** speed (dashed) and **top** speed (red). While you draw, a dot shows the live speed. **NOW / AVG / TOP** give the same figures as numbers. Draw a few strokes at your natural pace, then set *Speed* around your top speed.
 
+**Tooltips.** Rest the pointer on any control of the Pen Control panel - a checkbox, a slider, each mode chip, the meter or a graph - for a tooltip that says what it does, how it behaves, and a **TRY:** example with values to start from. The same text shows on the Settings → Pen Control tab.
+
 **Presets.** Right-click the Pen Control panel (anywhere below its title) for **Pen Control Presets**: your saved presets (a tick marks the one your settings are now), then **Save Preset…** (name it; an existing name is replaced), **Rename Preset…** and **Delete Preset…** (they act on the ticked one), and **Open Presets Folder**. A preset holds every Pen Control setting - pressure, smoothing, speed scaling - so you can switch tablets or jobs in one click. They are plain text files (`<name>.pen`) in DRAW's data folder under `PEN-PRESETS`.
 
 All of these are also on the **Pen Control** tab of Settings (`Ctrl+,`), under Position Smoothing, Pressure Processing and Speed Scaling. The command palette has **Pen Control: Toggle Smoothing**, **Next Smoothing Mode**, **More / Less Smoothing** (±5), **Toggle Pressure Smoothing** and **Toggle Speed Scaling**, so you can bind them to keys.
+
+### Pen Control Guide: Example Presets
+
+DRAW ships ten example presets. The first time you open the presets menu, they are copied into your `PEN-PRESETS` folder, next to your own. They are ordinary presets: apply one, tweak it, and **Save Preset…** under a new name. Delete or rename one and it stays that way - an example is only ever copied in once.
+
+| Preset | What it sets | Use it for |
+|--------|--------------|------------|
+| **Clean Inking** | String 30, Average pressure 20, Light size 15% | Crisp ink lines with sharp corners and tapered ends |
+| **Smooth Curves** | Average 45 + Catch Up, Average pressure 25 | Soft, even curves that still end where you lift |
+| **Long Sweeps** | EMA 70 + Catch Up, EMA pressure 40, Light size 10% | Hair, rope, long contour lines |
+| **Gesture Sketch** | Inertia 35, curve 0.80, opacity by pressure from 30% | Loose, flowing construction lines |
+| **Flick Strokes** | Speed scaling (slow 0.40, fast 2.20 at 700 px/s), String 12, curve 1.20 | A brush-pen feel: quick flicks swell bold, slow lines stay fine |
+| **Technical Pen** | Fixed pressure 70, String 20 | One even line weight every stroke |
+| **Even Hatching** | Hold pressure 20, Average 20 | Hatching where each line keeps the weight it landed with |
+| **Soft Shading** | Opacity by pressure from 5%, Light size 60%, curve 0.70, EMA 25 | Building up tone stroke by stroke |
+| **Mouse Lines** | String 45 | A mouse: turns a wobbly hand into clean lines |
+| **Raw Pen** | The factory settings, every filter off | Back to plain pen input |
+
+**Try it - a five-minute tour.** Open **View → Pen Control**, pick the Brush (`B`) at about 8px, and on a scratch layer:
+
+1. **Raw Pen**, then draw a slow spiral. That is your hand as the tablet reads it.
+2. **Clean Inking**, the same spiral. The green guide line is the string: the brush only moves once you pull it taut, so the wobble is gone but corners stay sharp.
+3. **Smooth Curves**, then **Long Sweeps**: the same spiral gets rounder and lags further behind. With Catch Up on it still ends where you lift.
+4. **Gesture Sketch**: draw fast loops. The brush carries momentum and swings through the curves.
+5. **Technical Pen**: press lightly, then hard - the width doesn't change. Then **Even Hatching**: each hatch keeps the weight you put it down with.
+6. **Flick Strokes**: draw one slow line and one quick flick. On the **SPEED** tab, read **TOP** after your fastest stroke and move **SPEED** a little under it.
+
+Then make your own: start from the closest example, adjust it (each control's tooltip has a **TRY:** value), and save it as a preset.
 
 ## Lines, Rectangles & Ellipses
 

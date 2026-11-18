@@ -79,7 +79,7 @@ DIM SHARED SW_PATH_OPEN AS INTEGER
 ' --- Tooltip Rendering State -------------------------------------------------
 
 TYPE SW_TOOLTIP_STATE
-    text   AS STRING * 200 ' Current tooltip text to display
+    text   AS STRING ' Current tooltip text to display (variable: the Pen Control tips run past 200)
     x      AS INTEGER      ' Widget x for hit testing
     y      AS INTEGER      ' Widget y for hit testing
     w      AS INTEGER      ' Widget width for hit testing
