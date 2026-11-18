@@ -15,7 +15,7 @@
 source "$DRAW_ROOT/QA/dock-lib.sh"
 info "=== Preview: right-click its whole title bar ==="
 dk_begin
-DP_PREVIEW=9
+DP_PREVIEW=$(awk '$1=="CONST" && $2=="DP_PREVIEW" {print $4; exit}' "$DRAW_ROOT/GUI/DOCK.BI") # (10 since the text bar took 9)
 menu() { read -r _ M_OPEN M_PANEL _ <<< "$(grep -m1 '^DMENU ' "$DK_DUMP")"; }
 rclick() { right_click "$1" "$2"; wait_for 0.6 "$3"; dk_settle; menu; }
 close_menu() { key Escape; wait_for 0.4 "close"; dk_park; dk_settle; }

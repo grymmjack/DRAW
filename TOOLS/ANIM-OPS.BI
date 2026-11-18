@@ -59,6 +59,8 @@ CONST ANIM_ACT_REF_LAYER  = 2530 ' ANIM > Reference Layer (the current layer; 2.
 CONST ANIM_ACT_SAME_LAYER = 2531 ' ANIM > Same on Every Frame (the current layer)
 CONST ANIM_ACT_LINK_CELLS   = 2541 ' ANIM > Link Cells (4.3: the current layer's cells in the selected frames show the first one's drawing; one frame: linked to the frame before)
 CONST ANIM_ACT_UNLINK_CELLS = 2542 ' ANIM > Unlink Cells (the current layer, the selected frames)
+CONST ANIM_ACT_HOLD_CELL     = 2610 ' ANIM > Hold for N Frames... (the current layer's drawing at the current frame shows for N frames: linked cells in a row)
+CONST ANIM_ACT_RELEASE_HOLD  = 2611 ' ANIM > Release Hold (that run back to its first frame; the cells let go are blank)
 CONST ANIM_ACT_TAG_FRAMES   = 2543 ' ANIM > Tag Frames... (4.4: name the selected frames' span; the same name moves the tag)
 CONST ANIM_ACT_DELETE_TAG   = 2544 ' ANIM > Delete Tag (the selected tag, else the one at the current frame)
 CONST ANIM_ACT_FRAME_NOTE   = 2545 ' ANIM > Frame Note... (4.5: the current frame's note; also a double-click on the X-sheet's NOTES row)
@@ -72,5 +74,6 @@ DIM SHARED ANIM_SELBOX_LAST AS INTEGER ' the current frame the watcher last saw 
 DIM SHARED ANIM_FM_ON AS INTEGER
 DIM SHARED ANIM_FM_IMG(1 TO MAX_LAYERS) AS LONG ' each pixel layer before the command (0 = none)
 
+DIM SHARED ANIM_LH_FRAME AS INTEGER ' the frame the X-sheet's cell menu was opened on, for Hold for N Frames... (0 = the current one)
 DIM SHARED ANIM_OPS_LAST_KEY AS LONG    ' the panel press whose undo step is on top (ANIM_OPS_record)
 DIM SHARED ANIM_OPS_LAST_REC AS INTEGER ' and that step's record

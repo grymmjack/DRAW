@@ -124,6 +124,26 @@ check "noise stable", mods$(2, 0, 10, 2, 0, 7, 0, 6), mods$(2, 0, 10, 2, 0, 7, 0
 check "noise seed matters", STR$(mods$(2, 0, 10, 1, 0, 7, 0, 6) <> mods$(2, 0, 10, 1, 0, 8, 0, 6)), STR$(TRUE)
 check "noise in range", STR$(noise_ok%(10, 3, 200)), STR$(TRUE)
 check "noise on the key frames", nkey$(10, 3, 5), "ok"
+' per-key modulator flags (16 off, 32 one-shot, 64 restart) + the envelope
+ks = CLIP_lk$(0, 0, 4 + 32)
+check "flags: ease masked", STR$(CLIP_lk_e%(ks, 1)) + STR$(CLIP_lk_fl%(ks, 1)) + STR$(CLIP_lk_raw%(ks, 1)), " 4 32 36"
+check "flags: set ease keeps flags", STR$(CLIP_lk_raw%(CLIP_lks_ease$(ks, 1, 1), 1)), " 33"
+check "flags: set flags keeps ease", STR$(CLIP_lk_raw%(CLIP_lks_flags$(ks, 1, 16), 1)), " 20"
+check "flags: put on a key keeps them", STR$(CLIP_lk_raw%(CLIP_lks_put$(ks, 0, 5, 0), 1)), " 36"
+check "span: plain = the lane's clock", spans$(CLIP_lk$(3, 0, 0), 1, 0, 10, 4, 0, 0, 0, 0, 100, 0, 0, 4), "0 10 0 -10 0"
+check "span: off from a key", spans$(CLIP_lk$(0, 0, 0) + CLIP_lk$(4, 0, 16), 1, 0, 10, 4, 0, 0, 0, 0, 100, 0, 0, 7), "0 10 0 -10 0 0 0 0"
+check "span: one-shot from frame 2", spans$(CLIP_lk$(2, 0, 32), 1, 0, 10, 4, 0, 0, 0, 0, 100, 0, 0, 8), "0 0 0 10 0 -10 0 0 0"
+check "span: restart at frame 1", spans$(CLIP_lk$(1, 0, 64), 1, 0, 10, 4, 0, 0, 0, 0, 100, 0, 0, 5), "0 0 10 0 -10 0"
+check "span: no keys", spans$("", 1, 0, 10, 4, 0, 0, 0, 0, 100, 0, 0, 2), "0 10 0"
+check "envelope a4 d2 s50 r2 to the next key", spans$(CLIP_lk$(0, 0, 0) + CLIP_lk$(10, 0, 0), 1, 2, 8, 100, 0, 0, 4, 2, 50, 2, 0, 10), "0 2 4 6 8 6 4 4 4 2 0"
+check "envelope: one-shot releases at its end", spans$(CLIP_lk$(0, 0, 32), 1, 2, 8, 6, 0, 0, 0, 0, 100, 2, 0, 7), "8 8 8 -8 -8 -4 0 0"
+check "envelope none = 1", STR$(CLIP_env!(5, 0, 0, 100, 0, 1E9)), STR$(1)
+' the modulator's sub-lanes: AMPLITUDE (amount over time), FREQUENCY (frames per cycle over time)
+check "amp lane ramps the amount", spans2$("", "", CLIP_lk$(0, 0, 0) + CLIP_lk$(4, 8, 0), 1, 2, 3, 100, 0, 0, 0, 4), "0 2 4 6 8"
+check "freq lane = a steady period", spans2$("", CLIP_lk$(0, 4, 0), "", 1, 0, 10, 8, 0, 0, 0, 4), "0 10 0 -10 0"
+check "freq lane slows, the wave stays whole", spans2$("", CLIP_lk$(0, 4, 4) + CLIP_lk$(4, 8, 0), "", 1, 1, 8, 4, 0, 0, 0, 8), "0 8 0 -8 0 4 8 4 0"
+check "one-shot length with a freq lane", STR$(CLIP_cycle_len!(CLIP_lk$(0, 4, 4) + CLIP_lk$(2, 8, 0), 4, 0)), STR$(6)
+check "cycles, steady", STR$(CLIP_cycles#("", 4, 0, 6)), STR$(1.5)
 
 PRINT "clip-unit:"; PASSES; "passed,"; FAILS; "failed"
 IF FAILS THEN SYSTEM 1 ELSE SYSTEM 0
@@ -146,6 +166,18 @@ FUNCTION mods$ (kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS S
     DIM f AS INTEGER, s AS STRING
     FOR f = f0 TO f1: s = s + " " + _TRIM$(STR$(CINT(CLIP_mod!(kind, shape, amount, period, phase, seed, f)))): NEXT f
     mods$ = MID$(s, 2)
+END FUNCTION
+
+FUNCTION spans$ (keys AS STRING, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, a AS INTEGER, d AS INTEGER, s AS INTEGER, r AS INTEGER, f0 AS INTEGER, f1 AS INTEGER)
+    DIM f AS INTEGER, t AS STRING, rel AS SINGLE
+    FOR f = f0 TO f1: rel = f: t = t + " " + _TRIM$(STR$(CINT(CLIP_mod_span!(keys, kind, shape, amount, period, phase, seed, a, d, s, r, rel)))): NEXT f
+    spans$ = MID$(t, 2)
+END FUNCTION
+
+FUNCTION spans2$ (keys AS STRING, fk AS STRING, ak AS STRING, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, f0 AS INTEGER, f1 AS INTEGER)
+    DIM f AS INTEGER, t AS STRING, rel AS SINGLE
+    FOR f = f0 TO f1: rel = f: t = t + " " + _TRIM$(STR$(CINT(CLIP_mod_span2!(keys, fk, ak, kind, shape, amount, period, phase, seed, 0, 0, 100, 0, rel)))): NEXT f
+    spans2$ = MID$(t, 2)
 END FUNCTION
 
 FUNCTION noise_ok% (amount AS SINGLE, period AS SINGLE, n AS INTEGER)

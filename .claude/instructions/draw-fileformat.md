@@ -99,6 +99,25 @@ Names (2026-11-12): after the last slot record, in both DSA1 and drAb, an option
 DRAWs stop reading after the records, so no version bump; `AB_names_from_blob` reads it
 (`animbrush-hold-pickup.sh`).
 
+### drLL Chunk (layer keyframe lanes, branch xsheet-holds-lanes, 2026-11-16)
+
+Keyframe lanes on pixel layers and groups (`TOOLS/LAYER-LANES`) ride in an ancillary `drLL`
+chunk after drCl: `MKL$(raw size)` + `_DEFLATE$(raw)`, raw = `LL_chunk$`: version(2) =
+`LL_CHUNK_VERSION` (1), entry count(2), per layer with lanes: historyId(4), blob length(4),
+then `LL_blob$` - the `CLIP_lanes_blob$` layout: tint colour(4), lane count(2), per lane in
+use: lane(2) (1 X .. 9 PIVOT Y, 12 BLEND - a `BLEND_*` mode, HOLD keys, 13 BLUR, 14 PIXELATE, 15 INVERT, 16 NOISE), keys length(2) + keys (8 bytes: **frame - 1**(2), value
+SINGLE(4), ease(2) - low 4 bits the ease, then the key's modulator flags `CLIP_KF_*`: 16 off,
+32 one-shot, 64 restart, 128 frozen grain (NOISE); 0 on every older key), modulator length(2) + modulator (20 bytes,
+28 with an envelope: + attack(2) decay(2) sustain %(2) release(2) - `CLIP_mod_env`; longer
+with sub-lanes: from byte 29 the FREQUENCY sub-lane's keys length(2) + keys, then the
+AMPLITUDE sub-lane's length(2) + keys, same 8-byte keys - `CLIP_mod_sub$`; or 0).
+The same key / modulator encoding is the clips' (drCl). An older DRAW reads a flagged key's
+ease as an unknown one (linear) and plays a 28+-byte modulator without its envelope or sub-lanes. Read after drCl
+(`LL_read_chunk`, then `LL_prune`). The layers' pixels are never changed by lanes, so an
+older DRAW that skips the chunk opens the layers unmoved; the PNG picture of the .draw is
+`LAYERS_flatten&`, which shows them moved. An older DRAW skips a lane past its own
+`LL_LANES` (`LL_from_blob`), so a BLEND lane (12) loads there as absent.
+
 ### drCl Chunk (clip layers, 2026-11-12)
 
 A clip layer (`LAYER_TYPE_CLIP` = 6, `TOOLS/CLIP`) is written into drAw as a plain IMAGE layer

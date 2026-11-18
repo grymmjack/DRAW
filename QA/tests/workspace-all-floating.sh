@@ -40,6 +40,10 @@ swtaller() { # DY - drag the Swatches bottom edge
     sww; dk_drag $(( WX + WW / 2 )) $(( WY + WH - 1 )) $(( WX + WW / 2 )) $(( WY + WH - 1 + $1 )) 6; dk_settle
 }
 wsa() { awk '$1=="WSA" {print $2}' "$DK_DUMP"; }
+# the tree without the text bar's own row: it shows only with the text tool, so
+# it cannot be grabbed here, and docked it stays (a user floating everything
+# they see leaves it there too)
+tree_nt() { dk_tree | tr ';' '\n' | grep -vE '^ *(TOP|BOTTOM)\.[0-9]+: textbar *$' | tr '\n' ';' | sed 's/;$//'; }
 state() { grep -E '^P |^WIN ' "$DK_DUMP" | grep -v '^P [a-z0-9]* 0 0 '; }
 snap() { dk_park; dk_settle; state > "$WSD/$1.txt"; info "--- $1: WSA $(wsa); TREE [$(dk_tree)]"; }
 same() { # A B LABEL
@@ -65,7 +69,7 @@ if dk_p workflow && (( P_SLOT > 0 )); then dk_move workflow float 400 420; dk_se
 swmove 90 -100; swtaller 40; dk_park; dk_settle; sww
 SAVED_SW="$WX $WY $WW $WH"; info "Swatches at save: $SAVED_SW"
 snap floated
-T=$(dk_tree)
+T=$(tree_nt)
 [[ -z "${T// /}" ]] && pass "every panel floats (no column)" || fail "still docked: [$T]"
 [[ "$(wsa)" == current ]] && pass "stock Default: the change went into CURRENT" || fail "active workspace '$(wsa)' after the floats"
 
@@ -86,7 +90,7 @@ USER_SW="$WX $WY $WW $WH"; info "Swatches moved in Default: $USER_SW"
 
 pal "workspace: panel floats"; snap recalled
 [[ "$(wsa)" == panel-floats ]] && pass "PANEL FLOATS is active again" || fail "active '$(wsa)'"
-T=$(dk_tree)
+T=$(tree_nt)
 [[ -z "${T// /}" ]] && pass "recalled: nothing docked" || fail "recalled docked: [$T]"
 same saved recalled "recalled: every panel where it was saved"
 sww; [[ "$WX $WY $WW $WH" == "$SAVED_SW" ]] && pass "recalled: Swatches where and how big it was saved ($SAVED_SW)" || fail "recalled: Swatches at $WX $WY $WW $WH, saved $SAVED_SW"

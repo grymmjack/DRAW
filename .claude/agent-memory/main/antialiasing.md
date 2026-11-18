@@ -107,3 +107,12 @@ inside the `IF CFG.ANTIALIAS%` branch → AA-off byte-identical. Lesson: a dorma
 the primitive exists and looks correct but nothing calls it — grep for callers, don't trust the SUB.
 
 Related: [[drag-drop-targets]] (same branch-then-fleet-test-then-merge workflow).
+
+**2026-11-17 coverage (see `.claude/instructions/draw-pen-pressure.md` items 5-10 for the
+detail):** curves (ellipse / Bezier / SS arcs), Transform bicubic, rounded smart shapes via
+exact `SS_VFX/SS_VFY` vertices, solid dice + 3D text via `SS_ssaa_begin%/_end` supersampling,
+rect dividers / ellipse spokes / line spokes through `LINE_modifier_brushed%`, zoomed-out
+canvas area-averaged (`RENDER_minify_put` + `native/minify.h`), Advanced Color Picker wheel
+always antialiased (ACP library). Still binary: **selections** - see [[selection-mask-readers]].
+[Linux] `_PUTIMAGE ..., _SMOOTH` on software 32-bit images does no averaging (probe: only
+0 / FFFFFFFF out of a 2:1 stripe shrink) - write the filter yourself (native/ kernel).

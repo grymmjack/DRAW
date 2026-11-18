@@ -111,7 +111,7 @@ dk_ws_state "$OUT/sa0.txt"
 
 strip_pick 0 1                 # Max Rows 2
 pick_scale layers 4 21         # layers 1x
-pick_scale preview 9 21        # preview 1x
+pick_scale preview 10 21       # preview 1x (DP_PREVIEW 10 since the text bar took 9)
 sw_geo
 if [[ -n "$E_X" && "$E_W" -gt 0 ]]; then
     click $(( E_X + E_W / 2 )) $(( E_Y + E_H / 2 )); dk_settle

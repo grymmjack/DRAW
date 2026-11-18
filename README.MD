@@ -9,6 +9,11 @@ Current release: v2.8.0
 
 ![DRAW GUI from v2.5.0](./GUI.png)
 
+## Unreleased (branch `xsheet-holds-lanes`)
+
+- **Per-layer holds** on the X-sheet. Drag a cell's right end and that layer's drawing stays up for as many frames as you cover, while the other layers keep animating. Drag it back and the frames it lets go are blank. Right-click a cell, or use **ANIM → Hold for N Frames... / Release Hold**, to type the length.
+- **Keyframe lanes on every layer**. Click the arrow before a layer's name on the X-sheet to open one row per lane: X, Y, SCALE X / Y, ROTATE, OPACITY, TINT, PIVOT X / Y, plus VOLUME / PAN on clips with sound. Each row plots the value along the frames with its eases: LINEAR, EASE IN / OUT / IN-OUT, HOLD. Drag, double-click or right-click a key to edit it; **+ LANE** adds a lane; modulators add a wobble. Pixel layers and groups now get lanes too: a group's lanes move every layer in it. Lanes never change the pixels: the canvas, lightbox, playback and every export show each frame through them, clipped to the frame. Field guide: `docs/XSHEET-HOLDS-AND-LANES.md`. Examples: `SAMPLES/XSHEET/`.
+
 ## New in 2.8.0
 
 Animation arrives: draw frame-by-frame on the canvas, with a lightbox, an X-sheet, onion skin, animated brushes, clip layers and a soundtrack. Plus an editable Swatches panel, keymap presets, real error-diffusion dithers and a large round of fixes.
@@ -51,7 +56,7 @@ Fixes, plus a Quantize Steps slider in the Advanced Color Picker.
 
 Floating panels and windows now behave like windows on your desktop, plus a round of docking fixes.
 
-- **Floating windows stack.** Click any floating panel or window (toolbox, layers, organizer, drawer, bars, character map, Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Browser, Customize Toolbars) and it comes to the front. The one in front is drawn whole - grip, border and contents - and only it takes clicks where they overlap.
+- **Floating windows stack.** Click any floating panel or window (toolbox, layers, organizer, drawer, bars, character map, Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Browser, Customize Toolbars) and it comes to the front. The one in front is drawn whole - grip, border and contents - and only it takes clicks where they overlap.
 - **Snap Panel Edges** (View → Snap Panel Edges, on by default) makes a dragged floating panel snap to the other floating panels' edges and keeps them from overlapping. Hold a panel still against a snap for about 1.5 seconds and it lets go, so you can drop it on top of another panel. Turn it off to move panels freely.
 - **Panels size to their contents.** A floating drawer stops growing at its widest bin grid and once every bin row shows. A column holding only the organizer or the drawer stops widening once everything in it shows. A floating toolbox's window snaps to its button grid. No more black areas beside or under them.
 - **The toolbox follows the layers' width.** Docked under the layers, a wider column lays the toolbox's buttons out in more columns and fewer rows, leaving the height to the layers.
@@ -74,13 +79,13 @@ A layout release: every panel and window can now be moved, stacked, tabbed, floa
 - **Docking.** Drag a panel by its handle (its title strip, the layers header, or the thin grip on the toolbox, organizer, drawer and bars) and drop it.
   - Drop on an edge or between columns for a new column, on the top or bottom third of a panel to stack, or on its middle to make tabs. Anywhere else floats it. A blue preview and a label show where it will land.
   - Drag the line between two stacked panels to share the height. Collapse a panel to its title with the chevron or a double-click.
-  - The Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure and Browser windows dock too. The Browser can also dock along the top or bottom of the canvas.
+  - The Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control and Browser windows dock too. Any panel can also dock in rows along the top or bottom of the canvas area (side by side, rows stacked; between the side docks or full width - a setting).
   - Right-click a handle for Move to Left / Right Edge, Collapse / Expand, Float / Dock Back and Reset Arrangement.
   - Drag a side panel's inner edge to resize it. The toolbox, edit bar and advanced bar can have 1 to 4 columns.
   - On small windows, the lowest panels collapse and the outermost columns hide to keep the canvas usable.
 - **Lock Layout** (View → Lock Layout, `Ctrl+Shift+L`) freezes the arrangement, so a shaky pen can't drag a panel or window by accident. Clicks, tabs and buttons still work.
 - **Workspaces** are named layouts you switch into and back out of (View → Workspace, `Ctrl+Shift+W`, or the status-bar badge). Leaving one restores your own setup exactly.
-  - Built in: **Default**, **Simple**, **Annotate**, **Animate**, **Sprite**, **Scene**, **Photoshop**, **DPaint**, **Kitchen Sink**, **Max Art**, **Panel Floats**, **GJ** and **Default 2**.
+  - Built in: **Default**, **Simple**, **Annotate**, **Animate**, **Sprite**, **Scene**, **Photoshop**, **DPaint**, **Kitchen Sink**, **Max Art**, **Panel Floats**, **GJ**, **Default 2**, **GRAFX2**, **GRAFX2 Tall**, **Tablet**, **VH** and **Only Menu**.
   - A workspace sets which panels show and where, the toolbox and bar buttons, the menus, a single-key overlay, config options for the session, and the starting tool, color and zoom.
   - Changing the layout in Default puts it in a **CURRENT** workspace, so Default stays stock. When you quit, DRAW offers to keep it under a name.
   - **Configure Workspaces…** edits them. `F11` inside a workspace shows what it hid.
@@ -133,7 +138,7 @@ A color release: 3D color spaces, paint that mixes like real pigment, pen tablet
   - A **tip threshold** keeps a pen that grazes the tablet from leaving stray dots.
   - The ends of each stroke are cleaned up, so there's no blob where the pen lands and no flick where it lifts.
   - A mouse is never affected.
-- **Pen Pressure panel** (View → Pen Pressure): a live pressure meter and a response graph, plus every pen setting. The same settings are also in Settings → General → Pen Tablet.
+- **Pen Control panel** (View → Pen Control): a live pressure meter and a response graph, plus every pen setting. The same settings are also in Settings → General → Pen Tablet.
 - **Color Ops: a swatch is its pixels.**
   - Click a swatch to select it. Any color panel then edits it live, the Color Mixer, Advanced Color Picker, 3D Color Space, the picker or hex input, and every pixel of that color updates with it. Each edit is one undo step.
   - **Shift+click** another swatch to blend a ramp between the two.
@@ -141,7 +146,7 @@ A color release: 3D color spaces, paint that mixes like real pigment, pen tablet
   - **Middle-drag** across swatches to delete a range. **Shift+middle-click** inserts the current foreground color.
   - Reordering and inserting can now be undone, and undo no longer drops you out of Color Ops.
 - **The palette strip only frames a swatch that is your current color**, so picking a color that isn't in the palette no longer leaves the last swatch looking selected.
-- **One look for every floating panel.** The 3D Color Space, Pen Pressure, Advanced Color Picker and Preview windows now use the Color Mixer's font, title bar, close button, buttons and sliders. The color and pen panels share one width.
+- **One look for every floating panel.** The 3D Color Space, Pen Control, Advanced Color Picker and Preview windows now use the Color Mixer's font, title bar, close button, buttons and sliders. The color and pen panels share one width.
 - **Floating panels snap and never overlap.** Drag a panel and its edges snap to the other floating panels and to the toolbars and bars around the canvas, and it won't slide over another panel. Saved overlapping layouts are pulled apart on startup.
 - **Faster menus on 4K screens.** While a menu is open, only the part of the screen that changed is redrawn. At 4× display scale this cut the menu's redraw time from about 25ms to under 1ms per frame.
 - **`--palette FILE.gpl`** loads a GIMP palette at startup.
@@ -377,6 +382,7 @@ groups, transform/move, export, importers, and input handling.
 - 4 brush size presets via the organizer widget and command palette
 - **Mix Colors (Pigment)** - The brush picks up and smears the colors it crosses, mixing like wet paint (*Smudge* / *Smudge Length* / *Smudge Radius*)
 - **Pen tablet pressure** (Windows / macOS / Linux) - Size, opacity and mix-paint by pressure, each with a lightest-touch setting, a pressure curve, and a tip threshold against grazes; a mouse is never affected
+- **Stroke smoothing** (Lazy Nezumi-style) - Pulled String, Moving Average, Exponential MA or Inertia smoothing for Brush / Eraser strokes (mouse or pen), with Catch Up and a guide line; pen pressure smoothing (Fixed / Hold / Average / EMA) and speed scaling (pressure gain from pen speed, with a speed→gain graph)
 - Visual cursor feedback with current color
 
 ### Layer System
@@ -430,18 +436,18 @@ groups, transform/move, export, importers, and input handling.
 - **Color Mixer** - Floating panel for live color mixing with RGB and HSV channel controls and hex input (View → Color Mixer)
 - **Advanced Color Picker** - Krita-style floating picker (View → Advanced Color Picker, `Ctrl+Shift+M`, or middle-click the Color Mixer button): hue **ring** + saturation/value **triangle**; a configurable **shade selector** (Basic / +Warm-Cool / Full line-sets with Value, Saturation, Hue, Hue-Neighbors, Warm, Cool, Rich-Shadow, Fine-Hue rows; linear or exponential spread curve; per-row labels); **draggable hue-neighbor** range markers on the ring; **quantize-to-steps** for limited palettes; **custom selector background**; and a **color-history** strip with right-click **Create Palette** (loads into the palette bar) / **Clear History**. Every option lives in Settings → Panels → Advanced Color Picker. Built as a reusable QB64_GJ_LIB widget
 - **3D Color Space** - Floating panel (View → 3D Color Space) showing the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB: spin, zoom, slice and click to pick; hex / OKLab / OKLCh / CIELAB / XYZ readouts
-- **Pen Pressure panel** - Floating panel (View → Pen Pressure) with a live pressure meter, response graph, and every pen setting
-- **Floating panels** - The color panels, Pen Pressure, Image Browser and Preview share one look and snap edge to edge (and to the surrounding chrome); click one to bring it to the front, like a desktop window
+- **Pen Control panel** - Floating / dockable panel (View → Pen Control) with PRESSURE, SMOOTHING and SPEED tabs: a live pressure meter and response graph, the smoothing modes, and the speed→gain graph with your last stroke's average and top speed
+- **Floating panels** - The color panels, Pen Control, Image Browser and Preview share one look and snap edge to edge (and to the surrounding chrome); click one to bring it to the front, like a desktop window
 - **Image Browser** - Floating, resizable file browser panel (View → Browser) for navigating and loading image files; supports multi-select, drag-and-drop files directly onto the canvas, drawer slots, or layer panel; panel size and position persisted in config
 - **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets (including 1-bit patterns with opaque background support); `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu (including Load Images to batch-import images into slots), middle-click cycles modes, `Shift+Middle Click` clears a slot, `Shift+Right Click` imports into a slot, and drag-and-drop to reorder bins
 - **Character map panel** - Dockable left/right 16×16 glyph grid with dynamic cell count (4-16 per row), mouse wheel scrolling, configurable theme colors, and bitmap font rendering
 - **Preview window** - A floating preview panel with two modes: **Follow** (canvas magnifier following the pointer) and **Floating Image** (display a loaded reference image); supports **Bin Quick Look** (hover drawer slots to preview brush/pattern/gradient), **Color Picking** (Alt+Click to sample colors from preview), and **Recent Preview Images** (up to 10 recently loaded images); pan/zoom, minimize/close buttons, and work-area clamping
 - **Edit bar** - A dockable vertical strip of edit-action icons on the left or right side of the workspace (`F5`); includes Smart Guides toggle, Pixel Perfect toggle, and Flip Canvas H/V buttons; **mouse wheel scrolls** the bar when it overflows the screen height
 - **Advanced bar** - A dockable vertical strip of quick-access toggle buttons for char map, char grid, char snap, preview, edit bar, tile preview, grid cell fill, grid show, fill adjust, brush edges, angle snap, grayscale preview, reference image controls, distribute layers, crosshair, smart guides, and more (`Shift+F5`); **mouse wheel scrolls** the bar when it overflows the screen height
-- **Docking** - Every side panel (toolbox, organizer, drawer, layers, edit bar, advanced bar, character map) and every floating window (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Browser) can be moved to its own column, stacked, tabbed, collapsed, floated and docked back by dragging its handle; drag dividers and inner edges to resize. `Ctrl+Shift+Click` and View → Layout still swap a panel's side
+- **Docking** - Every side panel (toolbox, organizer, drawer, layers, edit bar, advanced bar, character map) and every floating window (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Browser) can be moved to its own column, stacked, tabbed, collapsed, floated and docked back by dragging its handle; drag dividers and inner edges to resize. `Ctrl+Shift+Click` and View → Layout still swap a panel's side
 - **Lock Layout** - View → Lock Layout (`Ctrl+Shift+L`) freezes the panel arrangement so nothing can be dragged by accident
 - **Snap Panel Edges** - View → Snap Panel Edges: floating panels snap together and don't overlap (off: move freely); hold one still against a snap ~1.5 s to drop it on top of another
-- **Workspaces** - Named layouts (Default, Simple, Annotate, Animate, Sprite, Scene, Photoshop, DPaint, Kitchen Sink, Max Art, Panel Floats, GJ, Default 2, and your own) covering panels, toolbar buttons, menus, keys and options; switch with `Ctrl+Shift+W` or View → Workspace, edit with Configure Workspaces…
+- **Workspaces** - Named layouts (Default, Simple, Annotate, Animate, Sprite, Scene, Photoshop, DPaint, Kitchen Sink, Max Art, Panel Floats, GJ, Default 2, GRAFX2, GRAFX2 Tall, Tablet, VH, Only Menu, and your own) covering panels, toolbar buttons, menus, keys and options; switch with `Ctrl+Shift+W` or View → Workspace, edit with Configure Workspaces…
 - **Customize Toolbars** - Put any tool or command on the toolbox, edit bar or advanced bar, in any order (View → Customize Toolbars…)
 - **Screen Capture & Annotate** - `Ctrl+Shift+P` or `DRAW --capture` grabs a screen region into the Annotate workspace (arrow, highlighter, redact, numbered callouts, quick save)
 - **System cursors** - Automatically uses OS native cursors for UI areas (arrow in toolbar/panels), canvas work (crosshair for drawing tools, I-beam for text, resize arrows for handles) and move tool (move pointer); falls back to custom PNG cursors for tools that need them (brush, fill, picker loupe, spray, marquee); configurable via `SYSTEM_CURSORS` in `DRAW.cfg`

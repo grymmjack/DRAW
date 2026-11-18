@@ -999,6 +999,38 @@ END SUB
 
 
 ''
+' Draw src (canvas-sized) shrunk to zw x zh at (dx, dy) on SCRN.CANVAS& by area
+' averaging: each screen pixel is the premultiplied mean of the canvas pixels
+' it covers (box filter), so thin lines and fine detail stay visible, soft,
+' when zoomed out. Only the part on screen is computed (native/minify.h, -O3).
+' Antialias mode only.
+'
+SUB RENDER_minify_put (src AS LONG, dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
+    IF src& >= -1 THEN EXIT SUB
+    DIM sw AS LONG, sh AS LONG, cw AS LONG, ch AS LONG
+    sw& = _WIDTH(src&): sh& = _HEIGHT(src&)
+    cw& = _WIDTH(SCRN.CANVAS&): ch& = _HEIGHT(SCRN.CANVAS&)
+    IF MINIFY_IMG >= -1 _ORELSE _WIDTH(MINIFY_IMG) <> zw& _ORELSE _HEIGHT(MINIFY_IMG) <> zh& THEN
+        IF MINIFY_IMG < -1 THEN _FREEIMAGE MINIFY_IMG
+        MINIFY_IMG = _NEWIMAGE(zw&, zh&, 32)
+        IF MINIFY_IMG >= -1 THEN MINIFY_IMG = 0: EXIT SUB
+    END IF
+    ' the visible output box
+    DIM ox0 AS LONG, oy0 AS LONG, ox1 AS LONG, oy1 AS LONG
+    ox0& = _MAX(0, -dx&): oy0& = _MAX(0, -dy&)
+    ox1& = _MIN(zw& - 1, cw& - 1 - dx&): oy1& = _MIN(zh& - 1, ch& - 1 - dy&)
+    IF ox1& < ox0& OR oy1& < oy0& THEN EXIT SUB
+    DECLARE LIBRARY "../native/minify"
+        SUB gj_minify (BYVAL dst AS _OFFSET, BYVAL zw AS LONG, BYVAL zh AS LONG, BYVAL src AS _OFFSET, BYVAL sw AS LONG, BYVAL sh AS LONG, BYVAL ox0 AS LONG, BYVAL oy0 AS LONG, BYVAL ox1 AS LONG, BYVAL oy1 AS LONG)
+    END DECLARE
+    DIM ms AS _MEM, md AS _MEM
+    ms = _MEMIMAGE(src&): md = _MEMIMAGE(MINIFY_IMG)
+    gj_minify md.OFFSET, zw&, zh&, ms.OFFSET, sw&, sh&, ox0&, oy0&, ox1&, oy1&
+    _MEMFREE ms: _MEMFREE md
+    _PUTIMAGE (dx& + ox0&, dy& + oy0&), MINIFY_IMG, SCRN.CANVAS&, (ox0&, oy0&)-(ox1&, oy1&)
+END SUB
+
+''
 ' Render all visible layers with zoom, compositing bottom-to-top.
 ' Handles blend modes, opacity caching, partial composite cache, and move preview.
 '
@@ -1010,6 +1042,11 @@ END SUB
 SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
     _DEST SCRN.CANVAS&
     _BLEND SCRN.CANVAS&
+    ' Antialias on and zoomed out: composite first, then area-average the
+    ' composite down (a nearest-pixel shrink drops whole rows and columns -
+    ' thin lines and detail vanish or shimmer)
+    DIM smoothMin AS INTEGER
+    smoothMin% = (CFG.ANTIALIAS% <> 0 _ANDALSO zw& < SCRN.canvasW& _ANDALSO zh& < SCRN.canvasH& _ANDALSO zw& > 0 _ANDALSO zh& > 0)
 
     IF LAYER_COUNT% > 0 THEN
         ' Composite layers by zIndex (bottom to top)
@@ -1032,7 +1069,11 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
         IF PCYC_step_only_ok% THEN
             DIM stepImg AS LONG
             stepImg& = PCYC_present_step&
-            _PUTIMAGE (dx&, dy&)-(dx& + zw& - 1, dy& + zh& - 1), stepImg&, SCRN.CANVAS&
+            IF smoothMin% THEN
+                RENDER_minify_put stepImg&, dx&, dy&, zw&, zh&
+            ELSE
+                _PUTIMAGE (dx&, dy&)-(dx& + zw& - 1, dy& + zh& - 1), stepImg&, SCRN.CANVAS&
+            END IF
             CANVAS_CONTENT_SRC& = stepImg&
             EXIT SUB
         END IF
@@ -1073,9 +1114,11 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
             NEXT trivI%
             IF trivialVisibleCount% = 1 THEN
                 useComposite%       = FALSE                                ' Take the fast direct-blit path
-                CANVAS_CONTENT_SRC& = LAYERS(trivialOnlyLayer%).imgHandle& ' Where PREVIEW reads from
+                CANVAS_CONTENT_SRC& = LL_src&(trivialOnlyLayer%)           ' Where PREVIEW reads from (its lanes applied)
             END IF
         END IF
+
+        IF smoothMin% THEN useComposite% = TRUE ' (one shrink of the whole composite)
 
         ' Start index for layer loop (1 = full composite, >1 = partial cache hit)
         DIM compositeStartIdx AS INTEGER
@@ -1393,10 +1436,10 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                         layerRenderSource& = mlPreview&
                         useMoveBuf%        = TRUE
                     ELSE
-                        layerRenderSource& = LAYERS(layerFound%).imgHandle&
+                        layerRenderSource& = LL_src&(layerFound%) ' (its keyframe lanes applied: TOOLS/LAYER-LANES)
                     END IF
                 ELSE
-                    layerRenderSource& = LAYERS(layerFound%).imgHandle&
+                    layerRenderSource& = LL_src&(layerFound%) ' the layer, or its display through its keyframe lanes (TOOLS/LAYER-LANES)
                 END IF
 
                 ' --- APRON: if layer is extended, extract canvas region into a
@@ -1523,7 +1566,10 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                     IF useRegionComposite% AND compositeTarget& = compositeImg& THEN
                         ' --- Region composite path: only update dirty rect ---
                         ' (Region path only applies to main composite, not group buffers)
-                        IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
+                        IF LL_blend_lane%(layerFound%) THEN
+                            ' a BLEND lane: each frame cell with its own mode (TOOLS/LAYER-LANES)
+                            LL_blend_composite compositeTarget&, renderImg&, layerRenderSource&, layerFound%, rcX1%, rcY1%, rcX2%, rcY2%
+                        ELSEIF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
                             ' Blit only the dirty region from this layer
                             _DEST compositeTarget&
                             _PUTIMAGE (rcX1%, rcY1%)-(rcX2%, rcY2%), renderImg&, compositeTarget&, (rcX1%, rcY1%)-(rcX2%, rcY2%)
@@ -1534,7 +1580,9 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                         END IF
                     ELSE
                         ' --- Full composite buffer path (blend modes) ---
-                        IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
+                        IF LL_blend_lane%(layerFound%) THEN
+                            LL_blend_composite compositeTarget&, renderImg&, layerRenderSource&, layerFound%, 0, 0, _WIDTH(compositeTarget&) - 1, _HEIGHT(compositeTarget&) - 1
+                        ELSEIF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
                             _DEST compositeTarget&
                             _PUTIMAGE , renderImg&
                             _DEST SCRN.CANVAS&
@@ -1584,7 +1632,11 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
             ' the composite caches stay uncycled; returns compositeImg& when off).
             DIM shownImg AS LONG
             shownImg& = PCYC_present&(compositeImg&)
-            _PUTIMAGE (dx&, dy&)-(dx& + zw& - 1, dy& + zh& - 1), shownImg&, SCRN.CANVAS&
+            IF smoothMin% THEN
+                RENDER_minify_put shownImg&, dx&, dy&, zw&, zh&
+            ELSE
+                _PUTIMAGE (dx&, dy&)-(dx& + zw& - 1, dy& + zh& - 1), shownImg&, SCRN.CANVAS&
+            END IF
             ' compositeImg& is persistent (COMPOSITE_BUFFER&), do NOT free it
             CANVAS_CONTENT_SRC& = shownImg& ' Where PREVIEW reads from
 
@@ -2028,7 +2080,7 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
             END IF
             ' Line spokes preview
             IF CURRENT_TOOL% = TOOL_LINE AND LINE_TOOL.DRAGGING AND LINE_TOOL.SPOKES > 0 THEN
-                LINE_draw_spokes LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, preview_color~&, LINE_TOOL.SPOKES
+                LINE_draw_spokes LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, preview_color~&, LINE_TOOL.SPOKES, FALSE, 0, 0
             END IF
             ' Line end-cap preview
             IF CURRENT_TOOL% = TOOL_LINE AND LINE_TOOL.DRAGGING THEN
@@ -2306,7 +2358,7 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
             ' Rect division lines preview (drawn after the rect outline/fill)
             IF (CURRENT_TOOL% = TOOL_RECT OR CURRENT_TOOL% = TOOL_RECT_FILLED) AND RECT_TOOL.DRAGGING THEN
                 IF RECT_TOOL.H_DIVISIONS > 0 OR RECT_TOOL.V_DIVISIONS > 0 THEN
-                    RECT_draw_divisions RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, preview_color~&, RECT_TOOL.H_DIVISIONS, RECT_TOOL.V_DIVISIONS
+                    RECT_draw_divisions RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, preview_color~&, RECT_TOOL.H_DIVISIONS, RECT_TOOL.V_DIVISIONS, FALSE
                 END IF
             END IF
 
@@ -2362,7 +2414,7 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                     emod_cy% = (ELLIPSE_TOOL.START_Y + ELLIPSE_TOOL.END_Y) \ 2
                     emod_rx! = ABS(ELLIPSE_TOOL.END_X - ELLIPSE_TOOL.START_X) / 2
                     emod_ry! = ABS(ELLIPSE_TOOL.END_Y - ELLIPSE_TOOL.START_Y) / 2
-                    ELLIPSE_draw_modifiers emod_cx%, emod_cy%, emod_rx!, emod_ry!, preview_color~&, ELLIPSE_TOOL.SLICES, ELLIPSE_TOOL.RINGS
+                    ELLIPSE_draw_modifiers emod_cx%, emod_cy%, emod_rx!, emod_ry!, preview_color~&, ELLIPSE_TOOL.SLICES, ELLIPSE_TOOL.RINGS, FALSE, 0, 0
                 END IF
             END IF
 
@@ -2492,7 +2544,7 @@ FUNCTION SCREEN_mouse_over_work_area% (rawX AS INTEGER, rawY AS INTEGER)
     DIM topY AS INTEGER
     topY% = 0
     IF SCRN.showMenubar% AND MENU_BAR.visible% THEN topY% = MENU_BAR_HEIGHT
-    IF TEXT_BAR.visible% THEN topY% = TEXT_BAR.barY% + TEXT_BAR.barH%
+    topY% = _MAX(topY%, TEXT_BAR_top_edge%)
     IF rawY% < topY% THEN
         SCREEN_mouse_over_work_area% = FALSE
         EXIT FUNCTION
@@ -2621,9 +2673,17 @@ SUB SCREEN_compute_layout ()
             CHARMAP_rebuild_cache
         END IF
     END IF
-    IF textBarWillShow% THEN DOCK_TOPBAR_H = THEME.TEXT_BAR_ROW_HEIGHT% * 2 ELSE DOCK_TOPBAR_H = 0 ' the Browser's top band goes under it
+    DOCK_TOPBAR_H = 0 ' (the text bar is a dock panel now: DP_TEXTBAR, in the rows)
+    ' the colour strip docked on another edge than the bottom (CFG.PALETTE_STRIP_EDGE):
+    ' at the top it lies under the menu bar and the docks start under it; on a
+    ' side the docks lay out inside it (GUI/PALETTE-STRIP)
+    DOCK_WX1 = PALETTE_STRIP_left_w%
+    DOCK_WX2 = SCRN.w& - 1 - PALETTE_STRIP_right_w%
+    barY1% = barY1% + PALETTE_STRIP_top_h%
+    charMapTopY% = charMapTopY% + PALETTE_STRIP_top_h%
     DOCK_layout barY1%, charMapTopY%, dockY2%
-    SCRN.panelShiftY% = DOCK_SHIFT_Y ' the Browser's top / bottom band (0 without one)
+    PALETTE_STRIP_geom
+    SCRN.panelShiftY% = DOCK_SHIFT_Y ' the top / bottom dock rows (0 without any)
     leftX% = DOCK_LX
     rightX% = DOCK_RX
     SCRN.menuBarLeftEdge% = DOCK_MENU_LX
@@ -2638,24 +2698,13 @@ SUB SCREEN_compute_layout ()
     availW%           = rightX% - leftX% + 1
     SCRN.panelShiftX% = leftX% + (availW% - SCRN.w&) \ 2
 
-    ' Text formatting bar — sits below menu bar when text tool active or editing text layer
-    ' Respect toggle-all (F11) — suppress visibility while hidden by toggle-all
-    IF SCRN.textBarHiddenByToggleAll% THEN
-        TEXT_BAR.visible% = FALSE
-    ELSE
-        TEXT_BAR.visible% = (CURRENT_TOOL% = TOOL_TEXT) OR (TEXT_BAR.editingLayerIdx% > 0)
-    END IF
-    IF TEXT_BAR.visible% AND SCRN.showMenubar% THEN
-        TEXT_BAR.barX% = SCRN.uiLeftEdge%
-        TEXT_BAR.barY% = MENU_BAR_HEIGHT
-        TEXT_BAR.barW% = SCRN.uiRightEdge% - SCRN.uiLeftEdge% + 1
-        TEXT_BAR.barH% = THEME.TEXT_BAR_ROW_HEIGHT% * 2
-    ELSEIF TEXT_BAR.visible% THEN
-        TEXT_BAR.barX% = SCRN.uiLeftEdge%
-        TEXT_BAR.barY% = 0
-        TEXT_BAR.barW% = SCRN.uiRightEdge% - SCRN.uiLeftEdge% + 1
-        TEXT_BAR.barH% = THEME.TEXT_BAR_ROW_HEIGHT% * 2
-    END IF
+    ' Text formatting bar — with the text tool or a text layer being edited,
+    ' not while F11 hides the chrome (TEXT_BAR_wanted%)
+    TEXT_BAR.visible% = TEXT_BAR_wanted%
+    ' (its rect comes from the dock: DOCK_apply_rect DP_TEXTBAR - a top row of
+    ' its own by default, where the fixed strip was; hidden when the dock has
+    ' no room for it this frame)
+    IF TEXT_BAR.visible% _ANDALSO DOCK_live%(DP_TEXTBAR) = 0 THEN TEXT_BAR.visible% = FALSE
 END SUB
 
 
@@ -2700,15 +2749,11 @@ SUB RENDER_gui_elements ()
         IF LAYER_PANEL.visible% THEN
             IF DOCK_in_list%(DP_LAYERS) THEN PSURF_render DP_LAYERS ' (its own surface at a Scale: GUI/PANEL-SURFACE)
         END IF
+        ' the text tool's bar: a dock panel (DP_TEXTBAR - a top row by default)
+        IF TEXT_BAR.visible% _ANDALSO DOCK_in_list%(DP_TEXTBAR) THEN PSURF_render DP_TEXTBAR ' (its own surface at a Scale: GUI/PANEL-SURFACE)
         DOCK_render_seams ' the one border line on every dock column's inner edge
         DOCK_render_float_stack ' the floating panels, back to front (GUI/WINZ)
-
-        ' Text formatting bar below menu bar
-        IF TEXT_BAR.visible% THEN
-            TEXT_BAR.needsRedraw% = TRUE ' GUI buffer cleared — always redraw
-            TEXT_BAR_render
-            TEXT_BAR_sync_paint_color
-        END IF
+        TEXT_BAR_render_dropdowns ' its open lists over every panel
 
         ' Menu bar renders LAST so submenus overlay other widgets
         IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
@@ -2790,6 +2835,7 @@ SUB SCREEN_render_windows ()
     ' an open Swatches menu (set list / gear) over everything: it reaches past
     ' its panel, over the dock seams and any window beside it
     IF SWP.visible _ANDALSO SWP.autoHidden = 0 _ANDALSO SWP.menu <> SWP_MENU_NONE THEN SWP_render_menu
+    PICKER_LOUPE_screen_pass ' Alt held: the frame as shown for the eyedropper, its loupe over the windows
 END SUB
 
 
@@ -2955,15 +3001,11 @@ SUB SCREEN_render ()
         IF LAYER_PANEL.visible% THEN
             IF DOCK_in_list%(DP_LAYERS) THEN PSURF_render DP_LAYERS ' (its own surface at a Scale: GUI/PANEL-SURFACE)
         END IF
+        ' the text tool's bar: a dock panel (DP_TEXTBAR - a top row by default)
+        IF TEXT_BAR.visible% _ANDALSO DOCK_in_list%(DP_TEXTBAR) THEN PSURF_render DP_TEXTBAR ' (its own surface at a Scale: GUI/PANEL-SURFACE)
         DOCK_render_seams ' the one border line on every dock column's inner edge
         DOCK_render_float_stack ' the floating panels, back to front (GUI/WINZ)
-
-        ' Text formatting bar below menu bar
-        IF TEXT_BAR.visible% THEN
-            TEXT_BAR.needsRedraw% = TRUE ' GUI buffer cleared — always redraw
-            TEXT_BAR_render
-            TEXT_BAR_sync_paint_color
-        END IF
+        TEXT_BAR_render_dropdowns ' its open lists over every panel
 
         ' Menu bar renders LAST so submenus overlay other widgets
         IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
@@ -3754,6 +3796,32 @@ SUB SCREEN_render ()
     IF lbOv THEN ANIM_LB_overlay_end
     ' (the lightbox's loop / sound menu: with the other popups, POPUP_render_top)
 
+    ' ==== PEN CONTROL SMOOTHING GUIDES (after the scene cache: they move every frame) ====
+    ' a line from the point the stroke draws to (STAB) to the pointer, and a
+    ' ring at that point (Settings / the Pen Control panel: Guides)
+    IF PENC_stab_stroke% _ANDALSO ANIM_LB_showing% = 0 _ANDALSO (CFG.PEN_STAB_GUIDE_LINE% _ORELSE CFG.PEN_STAB_GUIDE_CURSOR%) THEN
+        DIM pcgZW AS LONG, pcgZH AS LONG, pcgX AS SINGLE, pcgY AS SINGLE, pcgDst AS LONG, pcgR AS INTEGER
+        pcgZW& = SCRN.canvasW& * SCRN.zoom!
+        pcgZH& = SCRN.canvasH& * SCRN.zoom!
+        IF SCRN.patternTileMode% THEN
+            pcgX = (SCRN.w& - pcgZW& * 3) \ 2 + SCRN.offsetX% + pcgZW&
+            pcgY = (SCRN.h& - pcgZH& * 3) \ 2 + SCRN.offsetY% + SCRN.panelShiftY% + pcgZH&
+        ELSE
+            pcgX = (SCRN.w& - pcgZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+            pcgY = (SCRN.h& - pcgZH&) \ 2 + SCRN.offsetY% + SCRN.panelShiftY%
+        END IF
+        pcgX = pcgX + STAB.x * SCRN.zoom!: pcgY = pcgY + STAB.y * SCRN.zoom!
+        pcgDst& = _DEST
+        _DEST SCRN.CANVAS&
+        IF CFG.PEN_STAB_GUIDE_LINE% THEN LINE (pcgX, pcgY)-(MOUSE.RAW_X%, MOUSE.RAW_Y%), CFG.PEN_STAB_GUIDE_COLOR~&
+        IF CFG.PEN_STAB_GUIDE_CURSOR% THEN
+            pcgR = 4
+            CIRCLE (pcgX, pcgY), pcgR, CFG.PEN_STAB_GUIDE_COLOR~&
+            CIRCLE (pcgX, pcgY), pcgR + 1, _RGBA32(0, 0, 0, 160)
+        END IF
+        _DEST pcgDst&
+    END IF
+
     ' ==== TEXT LAYER HOVER OUTLINE (after scene cache, moves with mouse) ====
     IF CURRENT_TOOL% = TOOL_TEXT _ANDALSO TEXT.ACTIVE = 0 _ANDALSO ANIM_LB_showing% = 0 THEN
         ' Compute canvas-to-screen offset locally (dx%/dy% from the main
@@ -3903,10 +3971,7 @@ SUB SCREEN_render ()
         ELSE
             grsY1% = 0
         END IF
-        IF TEXT_BAR.visible% THEN
-            DIM grsTbB   AS INTEGER : grsTbB% = TEXT_BAR.barY% + TEXT_BAR.barH%
-            IF grsTbB% > grsY1% THEN grsY1% = grsTbB%
-        END IF
+        grsY1% = _MAX(grsY1%, TEXT_BAR_top_edge%)
         IF SCRN.showStatus% THEN
             grsY2% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% - 1
         ELSE

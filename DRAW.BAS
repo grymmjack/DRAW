@@ -338,7 +338,7 @@ IMAGE_ADJ_init                        ' Initialise image adjustment library (IMG
 COLORMIXER_init                       ' Initialise non-modal color mixer panel
 ADVCP_init                            ' Initialise advanced color picker panel (hue ring + SV triangle)
 CS3D_init                             ' Initialise 3D color space panel (OKLab / CIELAB / XYZ / RGB gamut)
-PENP_init                             ' Initialise Pen Pressure panel (View > Pen Pressure)
+PENP_init                             ' Initialise Pen Control panel (View > Pen Control)
 ANIMP_init                            ' Initialise Animation panel (View / ANIM > Animation Panel)
 SWP_init                              ' Initialise Swatches panel (View > Swatches)
 TBED_init                             ' Customize Toolbars window (View > Customize Toolbars)
@@ -762,6 +762,7 @@ DO
     ANIM_LB_view_pop
     PALETTE_OPS_tick
     SWP_tick ' a selected swatch follows the color panels (live edit)
+    BROWSER_tick ' the Browser's thumbnails load one a frame wherever the pointer is (GUI/BROWSER)
     PALETTE_STRIP_watch_colors ' FG/BG changed elsewhere -> refresh the chip frames
     PERF_stop PERF_MOUSE_INPUT
     PERF_start PERF_KEYBOARD_INPUT
@@ -867,7 +868,7 @@ DO
     ' handlers ran, so their own FRAME_IDLE% = FALSE is lost.)
     IF SCENE_DIRTY% THEN FRAME_IDLE% = FALSE
     IF STATUS_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE
-    IF PENP_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' Pen Pressure panel live meter
+    IF PENP_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' Pen Control panel live meter
     IF ANIMP_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' Animation panel: a held stepper repeats
     IF AB_bin_needs_redraw% THEN FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE ' a hovered AnimBrush bin plays (TOOLS/ANIM-BRUSH)
     IF BROWSER_pv_needs_redraw% THEN FRAME_IDLE% = FALSE ' the Browser's preview plays an animation (GUI/BROWSER)
@@ -962,6 +963,8 @@ DO
     IF ANIM_play_tick% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE: GUI_NEEDS_REDRAW% = TRUE
     ANIM_SND_tick ' the soundtrack follows the frames (L.1, TOOLS/ANIM-SOUND)
     IF CLIP_tick% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE: GUI_NEEDS_REDRAW% = TRUE ' clip layers rebuilt (TOOLS/CLIP)
+    ANIM_XL_rec_tick ' a mouse-held recording ends: one undo step (TOOLS/ANIM-XLANE)
+    IF LL_tick% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE ' laned layers' displays rebuilt (TOOLS/LAYER-LANES)
     IF ANIM_PLAY.playing THEN FRAME_IDLE% = FALSE
     STATUS_flash_tick
     IF PCYC_running% THEN FRAME_IDLE% = FALSE
@@ -1032,6 +1035,7 @@ DO
         lateDrained% = FALSE
         DO WHILE _MOUSEINPUT
             lateDrained% = TRUE
+            MOUSE_smp_add _MOUSEX, _MOUSEY ' (next frame's stroke samples)
         LOOP
         IF lateDrained% THEN
             MOUSE.RAW_X% = _MOUSEX \ SCRN.displayScale%
@@ -1163,6 +1167,7 @@ FatalError:
 ' Runs at the start of the loop before any other code
 ' 
 SUB LOOP_start ()
+    PAINT_aam_end ' (last frame's soft-stamp coverage)
     ' A modal dialog (About, message boxes, pickers, file dialogs...) runs its
     ' own loop and sets its own OS cursor, so the main loop stalls while it is
     ' up. After any such stall, re-apply DRAW's cursor: POINTER_render only

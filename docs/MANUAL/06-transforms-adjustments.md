@@ -32,7 +32,7 @@ Open it with `Edit → TRANSFORM…` (or via the Command Palette). Note that **T
 The overlay supports five modes; switch between them with yhe menu bar items and use the corresponding hotkeys:
 
 1. **Scale** — drag handles. `Shift` locks aspect ratio.
-2. **Rotate** — drag *outside* the bounding box. `Shift` snaps to 15° increments.
+2. **Rotate** — drag *outside* the bounding box. `Shift` snaps to 15° increments; `Ctrl` snaps by the angle snap setup (Settings: **Snap Degrees**, or **Pixel Art Angles** - the same angles `Ctrl+Shift` lines use).
 3. **Shear** — drag the box edges to skew.
 4. **Distort** — drag each corner independently.
 5. **Perspective** — `Shift` enables a special wall / floor projection.

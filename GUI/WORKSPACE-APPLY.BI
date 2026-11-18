@@ -55,7 +55,7 @@ CONST WS_DK_ADVANCED_BAR = 4
 CONST WS_DK_CHARMAP      = 5
 CONST WS_DK_COUNT        = 5
 
-CONST WS_MAX_OPTS = 256 ' [OPTIONS] + [WINDOWS] + every panel / window key (WS_panel_keys$, WS_window_keys$)
+CONST WS_MAX_OPTS = 384 ' [OPTIONS] + [WINDOWS] + every panel / window key (WS_panel_keys$, WS_window_keys$)
 
 DIM SHARED WS_EL_NAME(1 TO WS_EL_COUNT) AS STRING
 DIM SHARED WS_DK_NAME(1 TO WS_DK_COUNT) AS STRING

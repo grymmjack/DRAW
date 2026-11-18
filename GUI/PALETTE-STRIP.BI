@@ -34,6 +34,50 @@ DIM SHARED PALETTE_MENU_SCROLL%
 DIM SHARED PALETTE_MENU_HOVER%
 DIM SHARED PALETTE_MENU_PREV_HOVER%
 
+' Where the strip docks (CFG.PALETTE_STRIP_EDGE, Rick 2026-11-16: "color strip
+' could be docked to top, left, or right, in addition to bottom"). A side strip
+' is the bottom one turned sideways: its rows become columns, the chips fill a
+' column top to bottom, and the palette dropdown sits above them.
+CONST PSTRIP_BOTTOM = 0
+CONST PSTRIP_TOP    = 1
+CONST PSTRIP_LEFT   = 2
+CONST PSTRIP_RIGHT  = 3
+CONST PSTRIP_NAME_H = 12 ' a side strip's dropdown row
+CONST PSTRIP_ARROW_H = 10 ' a side strip's up / down scroll buttons
+
+' The strip's geometry this layout (PALETTE_STRIP_geom, from SCREEN_compute_layout):
+' render, clicks, hit tests and Palette Ops / cycling all read it.
+TYPE PSTRIP_GEO
+    edge    AS INTEGER ' PSTRIP_*
+    vert    AS INTEGER ' TRUE: a side strip (columns of chips)
+    shown   AS INTEGER ' laid out this frame
+    x       AS INTEGER ' the strip
+    y       AS INTEGER
+    w       AS INTEGER
+    h       AS INTEGER
+    sw      AS INTEGER ' a chip
+    sh      AS INTEGER
+    perLine AS INTEGER ' chips per row (a side strip: per column)
+    lines   AS INTEGER ' rows (a side strip: columns)
+    shownN  AS INTEGER ' chips on screen
+    allFit  AS INTEGER ' every colour shows: no scroll buttons
+    cx0     AS INTEGER ' the first chip
+    cy0     AS INTEGER
+    a1x     AS INTEGER ' scroll back (left / up)
+    a1y     AS INTEGER
+    a1w     AS INTEGER
+    a1h     AS INTEGER
+    a2x     AS INTEGER ' scroll on (right / down)
+    a2y     AS INTEGER
+    a2w     AS INTEGER
+    a2h     AS INTEGER
+    nx      AS INTEGER ' the palette name / dropdown
+    ny      AS INTEGER
+    nw      AS INTEGER
+    nh      AS INTEGER
+END TYPE
+DIM SHARED PSG AS PSTRIP_GEO
+
 ' State
 DIM SHARED PALETTE_STRIP_VISIBLE%
 DIM SHARED PALETTE_STRIP_Y%
@@ -65,7 +109,7 @@ TYPE PSM_OBJ
 END TYPE
 DIM SHARED PSM AS PSM_OBJ
 CONST PSM_ITEM_H = 12
-CONST PSM_ROOT_N = 16 ' 4 size rows (flyouts) + divider, "COLOR CYCLING:", divider + 9 cycling actions
-CONST PSM_SIZE_ROWS = 4 ' rows 0..3 open a value flyout; the rest run an action
+CONST PSM_ROOT_N = 17 ' 4 size rows + EDGE (flyouts) + divider, "COLOR CYCLING:", divider + 9 cycling actions
+CONST PSM_SIZE_ROWS = 5 ' rows 0..4 open a value flyout; the rest run an action
 CONST PSM_ACT_BASE = 10000 ' root value of a cycling row = PSM_ACT_BASE + action id
 PSM.subRow = -1: PSM.rHover = -1: PSM.sbHover = -1

@@ -45,7 +45,7 @@ ps_pick() {
     ps_read
     right_click $(( H_X + H_W / 2 )) $(( H_Y + H_H / 2 )); wait_for 0.5 "the title bar's menu"
     ps_read
-    if [[ "$M_OPEN" != -1 || "$M_PANEL" != 15 ]]; then # DP_ANIM (GUI/DOCK.BI)
+    if [[ "$M_OPEN" != -1 || "$M_PANEL" != "$(awk '$1=="CONST" && $2=="DP_ANIM" {print $4; exit}' "$DRAW_ROOT/GUI/DOCK.BI")" ]]; then
         fail "right-click on the Animation title: no menu (DMENU open '$M_OPEN' panel '$M_PANEL')"; return 1
     fi
     read -r ry rh rc <<< "$(ps_row "$1")"

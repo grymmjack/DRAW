@@ -63,6 +63,12 @@ CONST TEXT_BTN_ALIGN_R       = 28 ' Align right
 CONST TEXT_BTN_AA            = 29 ' Antialias toggle
 CONST TEXT_BTN_SYNC          = 30 ' Style sync toggle [SYNC]
 CONST TEXT_BTN_TDF           = 31 ' Open the TheDraw font browser [TDF]
+CONST TEXT_BTN_MAX           = 31
+
+' As a dock panel (DP_TEXTBAR, GUI/DOCK): widths in its units
+CONST TEXT_BAR_MIN_W        = 120 ' narrowest (a column / floating window): the controls wrap into lines
+CONST TEXT_BAR_COL_W        = 220 ' the width it asks of a column
+CONST TEXT_BAR_ROW_BASIS_W  = 640 ' the width it asks of a row (it takes what the row leaves; floating: its window's)
 
 TYPE TEXT_BAR_OBJ
     visible               AS INTEGER        ' TRUE when bar should be shown
@@ -165,6 +171,11 @@ TYPE TEXT_BAR_OBJ
     fontSubScroll         AS INTEGER        ' Scroll offset in subfolder popup
     fontSubHoverRow       AS INTEGER        ' Hovered row in subfolder popup (-1 = none)
     needsRedraw           AS INTEGER        ' Dirty flag — skip render when FALSE (CPU frugality)
+    lines                 AS INTEGER        ' Lines the controls take in the bar's width (2+; TEXT_BAR_wrap)
+    measuring             AS INTEGER        ' render: only counting lines (TEXT_BAR_lines_for%) - draws into a scratch image, keeps nothing
+    mLines                AS INTEGER        ' render: the lines counted while measuring
+    wrapL                 AS INTEGER        ' render: a wrapped line's start x
+    wrapR                 AS INTEGER        ' render: the right edge a control must fit before
     ' --- Row 2 hit zones ---
     outlineBtnX           AS INTEGER
     outlineColorBtnX      AS INTEGER
@@ -210,6 +221,13 @@ TYPE TEXT_BAR_OBJ
 END TYPE
 
 DIM SHARED TEXT_BAR            AS TEXT_BAR_OBJ
+' The open dropdowns' boxes as last drawn (viewport px): POPUP_reblit_to_screen0
+' puts them back over the docked panels, which draw on screen 0 after the GUI
+' layer (Rick 2026-11-16: the font list went under a top dock row).
+CONST TBDD_MAX = 6
+DIM SHARED TBDD_N AS INTEGER
+DIM SHARED TBDD_X(TBDD_MAX - 1) AS INTEGER, TBDD_Y(TBDD_MAX - 1) AS INTEGER
+DIM SHARED TBDD_W(TBDD_MAX - 1) AS INTEGER, TBDD_H(TBDD_MAX - 1) AS INTEGER
 ' Font index whose hover preview card is on screen (-1 = none). A change forces a
 ' scene rebuild so a moved/closed card never ghosts over the canvas.
 DIM SHARED TEXT_BAR_CARD_SHOWN AS INTEGER
@@ -252,3 +270,8 @@ DIM SHARED TEXT_STYLE_COUNT    AS INTEGER
 DIM SHARED TEXT_STYLE_SELECTED AS INTEGER
 
 ' Function declarations
+
+' Each button's line top this render (TEXT_BTN_* -> y): the controls wrap into
+' as many lines as the bar's width needs (TEXT_BAR_wrap / TEXT_BAR_on_line%)
+DIM SHARED TEXT_BAR_BY(0 TO TEXT_BTN_MAX) AS INTEGER
+DIM SHARED TEXT_BAR_MEASURE_GEN AS LONG ' bumped when a drawn bar's lines change: TEXT_BAR_lines_for% measures again

@@ -23,7 +23,9 @@ CONST SETTINGS_TAB_FONTS      = 5
 CONST SETTINGS_TAB_APPEARANCE = 6
 CONST SETTINGS_TAB_DIRS       = 7
 CONST SETTINGS_TAB_BROWSER    = 8
-CONST SETTINGS_TAB_COUNT      = 9
+CONST SETTINGS_TAB_ANIMATION  = 9
+CONST SETTINGS_TAB_PEN        = 10 ' Pen Tablet + Pen Control (moved out of General 2026-11-17)
+CONST SETTINGS_TAB_COUNT      = 11
 
 ' --- Layout Constants --------------------------------------------------------
 
@@ -58,6 +60,8 @@ TYPE SETTINGS_CTX
     tabScrollY6    AS INTEGER    ' Appearance
     tabScrollY7    AS INTEGER    ' Directories
     tabScrollY8    AS INTEGER    ' Browser
+    tabScrollY9    AS INTEGER    ' Animation
+    tabScrollY10   AS INTEGER    ' Pen Control
     contentH       AS INTEGER    ' Total content height for active tab
     viewportH      AS INTEGER    ' Visible content viewport height
     contentX       AS INTEGER    ' Content area left X in dialog coords
@@ -84,6 +88,7 @@ DIM SHARED SETTINGS_JUMP_PENDING AS INTEGER
 DIM SHARED SETTINGS_JUMP_Y       AS INTEGER
 DIM SHARED SETTINGS_QA_SECTION   AS STRING  ' QA: the last section marked, and its y in the view
 DIM SHARED SETTINGS_QA_SECTION_Y AS INTEGER
+DIM SHARED SETTINGS_QA_ANIM      AS STRING  ' QA: the Animation tab's shadow values (SETANIM line)
 
 ' --- Function Declarations ---------------------------------------------------
 

@@ -33,11 +33,16 @@ only remembers *which* workspace you were in, so it reopens there.
 | **Annotate** | Screenshot markup: a 1-column annotation toolbox docked left, a trimmed edit bar, the palette strip, single-key annotation tools, Rect in red, zoomed to fit. Capture Screen lands here. |
 | **Photoshop** | Toolbox, organizer and Drawer on the left with the edit bar; Preview, Swatches and Layers stacked on the right; an 8-row color strip. |
 | **DPaint** | The other way round: toolbox, organizer and Swatches on the right; the workflow buttons, Preview and Layers on the left, the Drawer in a narrow column; an 8-row color strip. |
-| **Kitchen Sink** | Nearly every panel at once: Color Mixer, Advanced Color Picker, Pen Pressure, Animation, Swatches and Preview docked, the Browser in a band along the bottom. |
+| **Kitchen Sink** | Nearly every panel at once: Color Mixer, Advanced Color Picker, Pen Control, Animation, Swatches and Preview docked, the Browser in a row along the bottom. |
 | **Max Art** | The Kitchen Sink arrangement with only the drawing panels showing (toolbox, organizer, Drawer, Layers, both bars), for the most canvas; an 8-row color strip. |
 | **Panel Floats** | Every panel floating: no docks at all. |
 | **GJ** | Toolbox and edit bar on the left, everything else docked on the right in tabbed stacks: color panels (Mixer, Advanced Picker, 3D Color Space), Pen / Animation, Swatches, Drawer, Preview, Layers. |
 | **Default 2** | The classic layout from the dock keys with a 4-column toolbox; a starting point to make your own. |
+| **GRAFX2** | A left column of Color Mixer, Advanced Color Picker and the Browser (thumbnails), the 3D Color Space beside it; Animation, Layers and Preview on the right; the edit / advanced bars and workflow buttons along the bottom over a row of toolbox, organizer, Swatches and Drawer, Pen Control under them; the lightbox in 3 panes with the X-sheet. |
+| **GRAFX2 Tall** | GRAFX2 with taller rows: Animation, Pen Control and the two color pickers (tabbed) on the left with a Browser column and the 3D Color Space; Layers on the right; a tall bottom row of toolbox, organizer, Swatches (VGA), Drawer and Preview; one big lightbox pane with a tall X-sheet. Layout locked. |
+| **Tablet** | Big targets for a pen: the color strip at the top with the toolbox and organizer in a row under it; workflow buttons, Swatches, Advanced Color Picker and Preview on the left; Animation and Layers on the right; Pen Control, the Drawer and the Browser in rows along the bottom. |
+| **VH** | Organizer, toolbox and Swatches in a row along the top; a left column of workflow buttons, Animation, Pen Control, Drawer and 3D Color Space, the advanced bar and a Browser column; Layers and the edit bar on the right; Preview, Advanced Color Picker and Color Mixer in a row along the bottom. Layout locked. |
+| **Only Menu** | The Tablet arrangement (an earlier save of it) with the Scene / DPaint / Photoshop workflow buttons. |
 
 ### Switching
 
@@ -140,16 +145,56 @@ Pressure and Browser windows.
 | **Click a collapsed title** | Opens it again (click one of its tabs to open on that tab) |
 | **Double-click a floating panel's title** | Docks it back where it was |
 | **Drag a floating panel's right or bottom edge, or its corner** | Resizes it; a bar adds icon columns as it gets wider |
-| **Right-click a handle** | Move to Left Edge / Move to Right Edge, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement, and Scale (Auto or 1×–4×) on the Animation, Color Mixer, color picker, 3D Color Space, Pen Pressure and Swatches panels |
+| **Right-click a handle** | Move to Left Edge / Move to Right Edge, Dock Along the Top / Bottom, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement, and Scale (Auto or 1×–8×) on the Animation, Color Mixer, color picker, 3D Color Space, Pen Control, Swatches and Text Bar panels; **Close** on every panel but the Text Bar |
+| **Click a panel's [x]** | Closes it: a floating panel has one at the right end of its title bar or grip, a tabbed or collapsed slot at the end of its title strip (it closes the tab showing). It turns red under the pointer, like the Color Mixer's. The View menu brings any panel back (View → Organizer and View → Drawer are there for that too) |
 
-**The Browser can also dock along the top or bottom** of the canvas area (the one
-exception to left/right docking): drag its title bar to the top or bottom of
-the canvas and a full-width band appears. Drag the band's inner edge to make it
-taller or shorter; the canvas re-centres in the room left. Its right-click menu
-has *Dock Along the Top* / *Dock Along the Bottom*.
+**Top and bottom docks.** Any panel can also dock in a **row** along the top
+of the canvas area (under the menu bar) or along the bottom (above the color
+strip): the toolbox, edit bar, advanced bar, organizer, drawer, layers,
+Swatches, Browser, Preview and the other windows. A row is a column turned
+sideways: its panels sit side by side, the toolbox and bars reflow to the
+row's height (the bars lay their buttons out sideways in one even grid), the
+organizer keeps to the row's height too (when its widget stacks are too tall,
+their bottom widgets move into a little grid to the right; in a row one button
+high it lies flat, with Opacity and Brush Size turned on their side), and the
+drawer's bins run across it. The **Advanced Color Picker** and the **Color
+Mixer** lie sideways in a row: the wheel or color field shrinks to the row's
+height, with the quantize slider still under the wheel; the gear and a small
+triangle that opens VARIATIONS sit just right of the wheel, and the shade rows
+fill even columns beyond it (the Color Mixer's MORE is a small triangle in its
+title bar). A row beside the toolbox stays as tall as the toolbox. Opening
+VARIATIONS or MORE makes the panel wider; short of room, the mixer leaves out
+the rows that don't fit. `Ctrl`+wheel over the picker makes its ring thinner
+(and the triangle inside bigger) or thicker — also Settings → Panels → **Ring
+Thickness %**. The **Character Map** in a row widens its grid into the room
+the row gives it, as many whole cells a line as fit. **Fit to window**
+(double-click the Hand) fits the canvas between the rows.
+
+Panels in a row can be tiny: hold `Alt` over any panel or window to see the
+loupe magnify what's under the pointer, `Alt`+click to pick that color as FG
+(right-click: BG), and keep the button down to drag-pick.
+
+| Do this | And |
+| --- | --- |
+| **Right-click a handle → Dock Along the Top / Dock Along the Bottom** | The panel joins the innermost row on that side (or starts one) |
+| **Drag a handle to the top or bottom edge of the canvas area** | A new row there (*new row along the top / bottom*) |
+| …drop on the **left or right third** of a panel in a row | It goes **beside** that panel |
+| …drop on the **middle** of a panel in a row | It becomes a tab next to it |
+| …drop on a row's **outer or inner edge** | A new row before / after that one: rows stack |
+| **Drag a row's inner edge** (the canvas side) | Makes the row taller or shorter; the canvas re-centres in the room left |
+| **Drag a panel's right edge** in a row | Makes that panel wider or narrower along the row (never narrower than fits the row's height); saved with the arrangement |
+| **Double-click a panel's right edge** in a row | Back to its own width |
+| **`Ctrl`+wheel** over the Drawer's bins in a row | Zooms the bins: more, smaller rows of bins in the row's height, or fewer, bigger ones |
+
+How wide the rows are is a setting: **Settings → Panels → Docks → Top/Bottom
+Docks**: *Between Side Docks* (the default: the rows fill the space between the
+left and right columns) or *Full Width* (the rows span the window and the side
+columns sit between them). Rows are saved with your arrangement and in
+workspaces, like the columns. On a small window the innermost rows hide first
+so the canvas keeps some room.
 
 The floating windows (Preview, Color Mixer, Advanced Color Picker, 3D Color
-Space, Pen Pressure, Browser) keep their own title bar. **Drag the title bar
+Space, Pen Control, Browser) keep their own title bar. **Drag the title bar
 onto a dock target** to dock one; docked, its title bar is the handle, and
 dropping it anywhere off the docks floats it again at its old size.
 
@@ -221,7 +266,7 @@ you use the mouse, a key or the command palette:
 - each panel's Scale and zoom (Ctrl+wheel over the Drawer bins, the Preview,
   the X-sheet, the 3D view, the Browser's thumbnails), its columns or view,
   and the choices in its menus. That includes the color strip's size menu,
-  the Swatches panel's set and options, the Pen Pressure settings, the
+  the Swatches panel's set and options, the Pen Control settings, the
   workflow buttons and the lightbox. Each workspace has its own workflow
   buttons, so the bar can change when you switch.
 

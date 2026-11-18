@@ -164,11 +164,25 @@ END SUB
 ' the hue bar, the hex input and the buffer follow the new geometry.
 ' ---------------------------------------------------------------------------
 SUB COLORMIXER_relayout ()
-    CP_STATE.fitW = COLORMIXER.fitW%: CP_STATE.fitH = COLORMIXER.fitH%
+    ' In a top / bottom dock row (Rick 2026-11-16: "size downward ... to fit
+    ' in bars vertically", "controls flush right"): sideways - the SV field
+    ' takes the row's height, the rows under it go beside it
+    DIM sideNow AS INTEGER
+    sideNow = (COLORMIXER.fitH% > 0 _ANDALSO COLORMIXER.docked% <> 0 _ANDALSO DOCK_in_row%(DP_MIXER) <> 0)
+    IF sideNow THEN
+        CP_STATE.fitW = 0: CP_STATE.fitH = 0
+        CP_STATE.svHFix = COLORMIXER_row_field_h%(COLORMIXER.fitH%)
+    ELSE
+        CP_STATE.fitW = COLORMIXER.fitW%: CP_STATE.fitH = COLORMIXER.fitH%
+        CP_STATE.svHFix = 0
+    END IF
     ' MORE (Rick 2026-11-14): a disclosure row under OLD / NEW; closed, the panel
     ' ends there - the field, the hue bar and the two swatches stay
     CP_STATE.discloseH = COLORMIXER_more_h%
     CP_STATE.collapsed = _IIF(CFG.COLOR_MIXER_MORE% <> 0, FALSE, TRUE)
+    ' a live panel, floating or docked: no OK / Cancel (Rick 2026-11-16: "i don't
+    ' need OK and cancel buttons on it", "same with when it's docked")
+    CP_STATE.noButtons = TRUE
     CP_layout_calculate
     COLORMIXER.natW% = CP_STATE.natW: COLORMIXER.natH% = CP_STATE.natH
 
@@ -196,16 +210,182 @@ SUB COLORMIXER_relayout ()
     CP_STATE.dirty     = -1
     CP_STATE.svDirty   = -1
 
+    ' Sideways: where each strip goes, and its buffer
+    COLORMIXER.side% = sideNow
+    IF COLORMIXER.sideImg& < -1 THEN SAFE_FREEIMAGE COLORMIXER.sideImg&
+    COLORMIXER.sideImg& = 0
+    IF sideNow THEN
+        COLORMIXER.sideW% = COLORMIXER_side_flow%(CP_STATE.previewY, TRUE, COLORMIXER.fitW%)
+        COLORMIXER.sideImg& = _NEWIMAGE(COLORMIXER.sideW%, COLORMIXER.sideH%, 32)
+    END IF
+
     ' Compute display scale to fit work area
     COLORMIXER_compute_display_size
 END SUB
 
 ' ---------------------------------------------------------------------------
+' The sideways layout (a dock row): the left block mainH tall (title bar + SV
+' field), then the stacked rows below it as strips, top to bottom in
+' columns as wide as the picker to its right, a new column when one would end
+' below the left block. Returns the panel's width (native px); place = TRUE
+' keeps the strips (CMX_*) and the height (sideH, sideMainH). maxW > 0: the
+' room the row gave it (COLORMIXER_fit) - a strip whose column would pass it
+' is left out, so an open MORE in a short row never runs off the window.
+' ---------------------------------------------------------------------------
+FUNCTION COLORMIXER_side_flow% (mainH AS INTEGER, place AS INTEGER, maxW AS INTEGER)
+    DIM n AS INTEGER, i AS INTEGER, cw AS INTEGER, top AS INTEGER, x AS INTEGER, y AS INTEGER, h AS INTEGER, mxY AS INTEGER
+    DIM y0(1 TO COLORMIXER_SIDE_MAX) AS INTEGER, y1(1 TO COLORMIXER_SIDE_MAX) AS INTEGER, rowH AS INTEGER
+    ' the strips: the stacked rows' y ranges (heights do not depend on the field)
+    n = 1: y0(n) = CP_STATE.previewY: y1(n) = CP_STATE.discloseY ' OLD / NEW
+    ' MORE: no strip sideways - a little triangle in the title bar instead
+    ' (Rick 2026-11-16: "a little triangle that opens it instead of a big more gap")
+    IF CP_STATE.discloseH > 0 THEN n = n + 1: y0(n) = CP_STATE.discloseY: y1(n) = CP_STATE.discloseY
+    IF CP_STATE.collapsed = 0 THEN
+        rowH = CP_THEME.sliderH% + CP_THEME.sliderGap%
+        n = n + 1: y0(n) = CP_STATE.sliderY: y1(n) = CP_STATE.sliderY + rowH * 3 + CP_THEME.sectionGap% ' RGB
+        n = n + 1: y0(n) = y1(n - 1): y1(n) = CP_STATE.hexY ' HSL
+        n = n + 1: y0(n) = CP_STATE.hexY: y1(n) = CP_STATE.posterizeY
+        n = n + 1: y0(n) = CP_STATE.posterizeY: y1(n) = CP_STATE.histY
+        n = n + 1: y0(n) = CP_STATE.histY: y1(n) = CP_STATE.blenderY
+        n = n + 1: y0(n) = CP_STATE.blenderY: y1(n) = CP_STATE.buttonBarY
+        n = n + 1: y0(n) = CP_STATE.buttonBarY: y1(n) = CP_STATE.dialogH - 1 ' (not the border row)
+    END IF
+    cw = CP_STATE.natW
+    top = CP_THEME.titleBarH%
+    x = cw: y = top: mxY = mainH
+    FOR i = 1 TO n
+        h = y1(i) - y0(i)
+        IF h > 0 _ANDALSO maxW > 0 _ANDALSO i > 1 THEN ' (OLD / NEW always shows)
+            IF (y > top _ANDALSO y + h > mainH _ANDALSO x + 2 * cw > maxW) _ORELSE x + cw > maxW THEN h = 0
+        END IF
+        IF h > 0 THEN
+            IF y > top _ANDALSO y + h > mainH THEN x = x + cw: y = top
+            IF place THEN CMX_SY0(i) = y0(i): CMX_SY1(i) = y1(i): CMX_DX(i) = x: CMX_DY(i) = y
+            y = y + h
+            IF y > mxY THEN mxY = y
+        ELSEIF place THEN
+            CMX_SY0(i) = 0: CMX_SY1(i) = 0
+        END IF
+    NEXT i
+    IF place THEN
+        COLORMIXER.sideN% = n
+        COLORMIXER.sideMainH% = mainH
+        COLORMIXER.sideH% = mxY + 1 ' (+ the bottom border row)
+    END IF
+    COLORMIXER_side_flow% = x + cw
+END FUNCTION
+
+' The SV field's height in a row nh native px tall, and the panel's width there
+FUNCTION COLORMIXER_row_field_h% (nh AS INTEGER)
+    COLORMIXER_row_field_h% = _MAX(COLORMIXER_ROW_FIELD_MIN, nh - 1 - CP_THEME.titleBarH% - CP_THEME.padding% - CP_THEME.sectionGap%)
+END FUNCTION
+
+FUNCTION COLORMIXER_row_min_h% ()
+    COLORMIXER_row_min_h% = 1 + CP_THEME.titleBarH% + CP_THEME.padding% + COLORMIXER_ROW_FIELD_MIN + CP_THEME.sectionGap%
+END FUNCTION
+
+FUNCTION COLORMIXER_row_w% (nh AS INTEGER)
+    COLORMIXER_row_w% = COLORMIXER_side_flow%(CP_THEME.titleBarH% + CP_THEME.padding% + COLORMIXER_row_field_h%(nh) + CP_THEME.sectionGap%, FALSE, 0)
+END FUNCTION
+
+' The panel's native size (sideways or the picker's own)
+FUNCTION COLORMIXER_pw% ()
+    IF COLORMIXER.side% THEN COLORMIXER_pw% = COLORMIXER.sideW% ELSE COLORMIXER_pw% = CP_STATE.dialogW
+END FUNCTION
+
+FUNCTION COLORMIXER_ph% ()
+    IF COLORMIXER.side% THEN COLORMIXER_ph% = COLORMIXER.sideH% ELSE COLORMIXER_ph% = CP_STATE.dialogH
+END FUNCTION
+
+' Panel point (nx, ny) -> the picker's own (cx, cy); off every strip ->
+' far away. Mid-drag a point maps through the strip the press began in.
+SUB COLORMIXER_to_cp (nx AS INTEGER, ny AS INTEGER, cx AS INTEGER, cy AS INTEGER)
+    DIM i AS INTEGER, tb AS INTEGER
+    cx = nx: cy = ny
+    IF COLORMIXER.side% = 0 THEN EXIT SUB
+    tb = CP_THEME.titleBarH%
+    IF ny < tb _ANDALSO ny >= 0 THEN ' the title bar runs the whole width; its close box is at the right end
+        IF nx >= COLORMIXER.sideW% - tb THEN cx = nx - (COLORMIXER.sideW% - CP_STATE.dialogW) ELSE cx = _MIN(nx, CP_STATE.dialogW - tb - 1)
+        EXIT SUB
+    END IF
+    IF COLORMIXER.sideGrab% > 0 _ANDALSO MOUSE.B1% <> 0 THEN
+        i = COLORMIXER.sideGrab%
+        cx = nx - CMX_DX(i): cy = CMX_SY0(i) + ny - CMX_DY(i)
+        EXIT SUB
+    END IF
+    IF nx < CP_STATE.dialogW _ANDALSO ny < COLORMIXER.sideMainH% THEN EXIT SUB
+    FOR i = 1 TO COLORMIXER.sideN%
+        IF CMX_SY1(i) > CMX_SY0(i) _ANDALSO nx >= CMX_DX(i) _ANDALSO nx < CMX_DX(i) + CP_STATE.dialogW _ANDALSO ny >= CMX_DY(i) _ANDALSO ny < CMX_DY(i) + CMX_SY1(i) - CMX_SY0(i) THEN
+            cx = nx - CMX_DX(i): cy = CMX_SY0(i) + ny - CMX_DY(i)
+            EXIT SUB
+        END IF
+    NEXT i
+    cx = -1000: cy = -1000
+END SUB
+
+' The strip panel point (nx, ny) is on (0 = the left block / none)
+FUNCTION COLORMIXER_strip_at% (nx AS INTEGER, ny AS INTEGER)
+    DIM i AS INTEGER
+    IF COLORMIXER.side% = 0 THEN EXIT FUNCTION
+    FOR i = 1 TO COLORMIXER.sideN%
+        IF CMX_SY1(i) > CMX_SY0(i) _ANDALSO nx >= CMX_DX(i) _ANDALSO nx < CMX_DX(i) + CP_STATE.dialogW _ANDALSO ny >= CMX_DY(i) _ANDALSO ny < CMX_DY(i) + CMX_SY1(i) - CMX_SY0(i) THEN COLORMIXER_strip_at% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+' The picker's point (cx, cy) -> the panel's (nx, ny)
+SUB COLORMIXER_from_cp (cx AS INTEGER, cy AS INTEGER, nx AS INTEGER, ny AS INTEGER)
+    DIM i AS INTEGER
+    nx = cx: ny = cy
+    IF COLORMIXER.side% = 0 _ORELSE cy < COLORMIXER.sideMainH% THEN EXIT SUB
+    FOR i = 1 TO COLORMIXER.sideN%
+        IF cy >= CMX_SY0(i) _ANDALSO cy < CMX_SY1(i) THEN nx = CMX_DX(i) + cx: ny = CMX_DY(i) + cy - CMX_SY0(i): EXIT SUB
+    NEXT i
+END SUB
+
+' Compose the sideways panel from the picker's buffer (COLORMIXER_render)
+SUB COLORMIXER_side_compose ()
+    DIM oldDest AS LONG, i AS INTEGER, tb AS INTEGER, dw AS INTEGER
+    IF COLORMIXER.sideImg& >= -1 _ORELSE CP_STATE.imgHandle >= -1 THEN EXIT SUB
+    oldDest& = _DEST
+    _DEST COLORMIXER.sideImg&
+    CLS , CP_THEME.bg~&
+    dw = CP_STATE.dialogW: tb = CP_THEME.titleBarH%
+    _PUTIMAGE (0, 0), CP_STATE.imgHandle, COLORMIXER.sideImg&, (0, 0)-(dw - 1, COLORMIXER.sideMainH% - 1)
+    FOR i = 1 TO COLORMIXER.sideN%
+        IF CMX_SY1(i) > CMX_SY0(i) THEN _PUTIMAGE (CMX_DX(i), CMX_DY(i)), CP_STATE.imgHandle, COLORMIXER.sideImg&, (0, CMX_SY0(i))-(dw - 1, CMX_SY1(i) - 1)
+    NEXT i
+    ' one title bar across: the title, then the close box at the far right
+    LINE (0, 0)-(COLORMIXER.sideW% - 1, tb - 1), CP_THEME.titleBg~&, BF
+    _PUTIMAGE (0, 0), CP_STATE.imgHandle, COLORMIXER.sideImg&, (0, 0)-(dw - tb - 1, tb - 1)
+    _PUTIMAGE (COLORMIXER.sideW% - tb, 0), CP_STATE.imgHandle, COLORMIXER.sideImg&, (dw - tb, 0)-(dw - 1, tb - 1)
+    DIM mx AS INTEGER, my AS INTEGER, mw AS INTEGER, mh AS INTEGER
+    COLORMIXER_side_more_rect mx, my, mw, mh
+    ADVCP_draw_triangle mx, my, CFG.COLOR_MIXER_MORE% <> 0, _IIF(COLORMIXER.moreHover% <> 0, CP_THEME.textBright~&, CP_THEME.titleFg~&)
+    LINE (0, 0)-(COLORMIXER.sideW% - 1, COLORMIXER.sideH% - 1), CP_THEME.border~&, B
+    _DEST oldDest&
+END SUB
+
+' Sideways: MORE's triangle in the title bar, left of the close box (native px)
+SUB COLORMIXER_side_more_rect (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    w = 9: h = 9
+    x = COLORMIXER.sideW% - CP_THEME.titleBarH% - w - 4
+    y = _MAX(0, (CP_THEME.titleBarH% - h) \ 2)
+END SUB
+
+FUNCTION COLORMIXER_over_side_more% (nx AS INTEGER, ny AS INTEGER)
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    IF COLORMIXER.side% = 0 _ORELSE CP_STATE.discloseH < 1 THEN EXIT FUNCTION
+    COLORMIXER_side_more_rect x, y, w, h
+    COLORMIXER_over_side_more% = (nx >= x - 3 _ANDALSO nx < x + w + 3 _ANDALSO ny >= 0 _ANDALSO ny < CP_THEME.titleBarH%)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
 ' COLORMIXER_fit — Docked: lay out to nw x nh native px (0 = natural).
 ' ---------------------------------------------------------------------------
 SUB COLORMIXER_fit (nw AS INTEGER, nh AS INTEGER)
-    IF nw = COLORMIXER.fitW% _ANDALSO nh = COLORMIXER.fitH% THEN EXIT SUB
-    COLORMIXER.fitW% = nw: COLORMIXER.fitH% = nh
+    DIM inRow AS INTEGER: inRow = (COLORMIXER.docked% <> 0 _ANDALSO DOCK_in_row%(DP_MIXER) <> 0)
+    IF nw = COLORMIXER.fitW% _ANDALSO nh = COLORMIXER.fitH% _ANDALSO inRow = COLORMIXER.fitRow% THEN EXIT SUB
+    COLORMIXER.fitW% = nw: COLORMIXER.fitH% = nh: COLORMIXER.fitRow% = inRow
     IF COLORMIXER.initialized% = 0 THEN EXIT SUB ' COLORMIXER_ensure_initialized lays it out
     COLORMIXER_relayout
 END SUB
@@ -230,6 +410,8 @@ SUB COLORMIXER_cleanup ()
             CP_THEME.fontHandle& = 0
         END IF
         CP_cleanup
+        IF COLORMIXER.sideImg& < -1 THEN SAFE_FREEIMAGE COLORMIXER.sideImg&
+        COLORMIXER.sideImg& = 0: COLORMIXER.side% = FALSE
         COLORMIXER.initialized% = FALSE
     END IF
 END SUB
@@ -320,8 +502,8 @@ SUB COLORMIXER_compute_display_size ()
     ds% = SCRN.displayScale% : IF ds% < 1 THEN ds% = 1
 
     COLORMIXER.renderScale! = CSNG(ts%) / CSNG(ds%)
-    COLORMIXER.dispW%       = INT(CSNG(CP_STATE.dialogW) * CSNG(ts%) / CSNG(ds%) + 0.5)
-    COLORMIXER.dispH%       = INT(CSNG(CP_STATE.dialogH) * CSNG(ts%) / CSNG(ds%) + 0.5)
+    COLORMIXER.dispW%       = INT(CSNG(COLORMIXER_pw%) * CSNG(ts%) / CSNG(ds%) + 0.5)
+    COLORMIXER.dispH%       = INT(CSNG(COLORMIXER_ph%) * CSNG(ts%) / CSNG(ds%) + 0.5)
 END SUB
 
 ' ---------------------------------------------------------------------------
@@ -345,11 +527,7 @@ SUB COLORMIXER_clamp_to_work_area ()
     ELSE
         minY% = 0
     END IF
-    IF TEXT_BAR.visible% THEN
-        DIM tbBottom AS INTEGER
-        tbBottom% = TEXT_BAR.barY% + TEXT_BAR.barH%
-        IF tbBottom% > minY% THEN minY% = tbBottom%
-    END IF
+    minY% = _MAX(minY%, TEXT_BAR_top_edge%)
 
     IF SCRN.showStatus% THEN
         maxY% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
@@ -422,7 +600,13 @@ SUB COLORMIXER_render ()
     ' The MORE row's hover: redraw when it changes
     DIM moH AS INTEGER
     IF COLORMIXER_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) _ANDALSO COLORMIXER.renderScale! > 0 THEN
-        moH = COLORMIXER_over_more%(INT((MOUSE.RAW_X% - COLORMIXER.dispX%) / COLORMIXER.renderScale!), INT((MOUSE.RAW_Y% - COLORMIXER.dispY%) / COLORMIXER.renderScale!))
+        DIM moX AS INTEGER, moY AS INTEGER
+        moX = INT((MOUSE.RAW_X% - COLORMIXER.dispX%) / COLORMIXER.renderScale!): moY = INT((MOUSE.RAW_Y% - COLORMIXER.dispY%) / COLORMIXER.renderScale!)
+        IF COLORMIXER.side% THEN
+            moH = COLORMIXER_over_side_more%(moX, moY)
+        ELSE
+            moH = COLORMIXER_over_more%(moX, moY)
+        END IF
     END IF
     IF moH <> COLORMIXER.moreHover% THEN COLORMIXER.moreHover% = moH: CP_STATE.dirty = -1
 
@@ -441,6 +625,7 @@ SUB COLORMIXER_render ()
         ' the row sits inside its slot with COLORMIXER_MORE_PAD above and below
         FPANEL_disclosure CP_THEME.fontHandle&, CP_THEME.padding%, CP_STATE.discloseY + COLORMIXER_MORE_PAD, CP_STATE.dialogW - 2 * CP_THEME.padding%, CP_STATE.discloseH - 2 * COLORMIXER_MORE_PAD, "MORE", CFG.COLOR_MIXER_MORE% <> 0, COLORMIXER.moreHover%
         _DEST moDest&
+        IF COLORMIXER.side% THEN COLORMIXER_side_compose
 
         _DEST oldDest&
     END IF
@@ -458,11 +643,15 @@ SUB COLORMIXER_render ()
         DIM sx       AS LONG, sy AS LONG, sw AS LONG, sh AS LONG
         sx& = CLNG(COLORMIXER.dispX%) * ds%
         sy& = CLNG(COLORMIXER.dispY%) * ds%
-        sw& = CLNG(CP_STATE.dialogW) * ts%
-        sh& = CLNG(CP_STATE.dialogH) * ts%
+        sw& = CLNG(COLORMIXER_pw%) * ts%
+        sh& = CLNG(COLORMIXER_ph%) * ts%
         DIM oldDest2 AS LONG: oldDest2& = _DEST
         _DEST 0
-        _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), CP_STATE.imgHandle, 0
+        IF COLORMIXER.side% _ANDALSO COLORMIXER.sideImg& < -1 THEN
+            _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), COLORMIXER.sideImg&, 0
+        ELSE
+            _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), CP_STATE.imgHandle, 0
+        END IF
         _DEST oldDest2&
     END IF
 END SUB
@@ -500,7 +689,7 @@ SUB COLORMIXER_mouse_input (wheelDelta AS INTEGER)
 
     ' Close button X region (right edge of title bar)
     DIM closeX AS INTEGER
-    closeX% = CP_STATE.dialogW - CP_THEME.titleBarH%
+    closeX% = COLORMIXER_pw% - CP_THEME.titleBarH%
 
     IF COLORMIXER.dragging% THEN
         IF MOUSE.B1% THEN
@@ -531,6 +720,12 @@ SUB COLORMIXER_mouse_input (wheelDelta AS INTEGER)
     ' Detect title-bar click (not on close button) to start drag
     DIM overPanel AS INTEGER
     overPanel% = (localX% >= 0 AND localX% < COLORMIXER.dispW% AND localY% >= 0 AND localY% < COLORMIXER.dispH%)
+    ' sideways: MORE's triangle in the title bar (before the title drag)
+    IF justPressed% AND overPanel% _ANDALSO COLORMIXER_over_side_more%(nativeX%, nativeY%) THEN
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        COLORMIXER_set_more _IIF(CFG.COLOR_MIXER_MORE% <> 0, FALSE, TRUE)
+        EXIT SUB
+    END IF
     IF justPressed% AND overPanel% THEN
         DIM titleBarH AS INTEGER
         ' the title bar CP draws (CP_THEME.titleBarH%, sized to the font), not the
@@ -546,6 +741,15 @@ SUB COLORMIXER_mouse_input (wheelDelta AS INTEGER)
             COLORMIXER.dragStartDY% = COLORMIXER.dispY%
             EXIT SUB
         END IF
+    END IF
+
+    ' Sideways (a dock row): panel point -> the picker's own, through the strip
+    ' it is on (a press remembers the strip, so a drag keeps its mapping)
+    IF COLORMIXER.side% THEN
+        IF justPressed% THEN COLORMIXER.sideGrab% = COLORMIXER_strip_at%(nativeX%, nativeY%)
+        DIM cpX AS INTEGER, cpY AS INTEGER
+        COLORMIXER_to_cp nativeX%, nativeY%, cpX, cpY
+        nativeX% = cpX: nativeY% = cpY
     END IF
 
     ' The MORE row: open / close the rows under OLD / NEW
@@ -689,9 +893,11 @@ END SUB
 FUNCTION COLORMIXER_over_hex% (x AS INTEGER, y AS INTEGER)
     DIM rs AS SINGLE, hx AS INTEGER, hy AS INTEGER
     IF CP_STATE.tiHexId <= 0 THEN EXIT FUNCTION
+    DIM px AS INTEGER, py AS INTEGER
     rs = COLORMIXER.renderScale!: IF rs <= 0 THEN rs = 1
-    hx = COLORMIXER.dispX% + INT(CP_STATE.hexInputX * rs)
-    hy = COLORMIXER.dispY% + INT(CP_STATE.hexY * rs)
+    COLORMIXER_from_cp CP_STATE.hexInputX, CP_STATE.hexY, px, py
+    hx = COLORMIXER.dispX% + INT(px * rs)
+    hy = COLORMIXER.dispY% + INT(py * rs)
     IF x < hx _ORELSE y < hy THEN EXIT FUNCTION
     IF x >= hx + INT(CP_STATE.hexInputW * rs) _ORELSE y >= hy + INT(CP_THEME.hexInputH% * rs) THEN EXIT FUNCTION
     COLORMIXER_over_hex% = TRUE
@@ -819,14 +1025,24 @@ FUNCTION COLORMIXER_dump$ ()
     d = "CMIX"
     d = d + DOCK_n$(ox + INT(CP_STATE.svX * rs)) + DOCK_n$(oy + INT(CP_STATE.svY * rs)) + DOCK_n$(INT(CP_STATE.svW * rs)) + DOCK_n$(INT(CP_STATE.svH * rs))
     d = d + DOCK_n$(ox + INT(CP_STATE.hueBarX * rs)) + DOCK_n$(oy + INT(CP_STATE.hueBarY * rs)) + DOCK_n$(INT(CP_STATE.hueBarW * rs)) + DOCK_n$(INT(CP_STATE.hueBarH * rs))
-    d = d + DOCK_n$(ox + INT(CP_STATE.hexInputX * rs)) + DOCK_n$(oy + INT(CP_STATE.hexY * rs)) + DOCK_n$(INT(CP_STATE.hexInputW * rs)) + DOCK_n$(INT(CP_THEME.hexInputH% * rs))
+    DIM px AS INTEGER, py AS INTEGER
+    COLORMIXER_from_cp CP_STATE.hexInputX, CP_STATE.hexY, px, py
+    d = d + DOCK_n$(ox + INT(px * rs)) + DOCK_n$(oy + INT(py * rs)) + DOCK_n$(INT(CP_STATE.hexInputW * rs)) + DOCK_n$(INT(CP_THEME.hexInputH% * rs))
     d = d + DOCK_n$(CP_STATE.tiHexId > 0 _ANDALSO TI_focusedId = CP_STATE.tiHexId)
     d = d + " " + RIGHT$("00000" + HEX$(PAINT_COLOR~& AND &HFFFFFF~&), 6) + " " + RIGHT$("00000" + HEX$(PAINT_BG_COLOR~& AND &HFFFFFF~&), 6)
     d = d + " " + RIGHT$("00000" + HEX$(_RGB32(CP_STATE.blenderFGR, CP_STATE.blenderFGG, CP_STATE.blenderFGB) AND &HFFFFFF~&), 6)
     d = d + " " + RIGHT$("00000" + HEX$(CP_STATE.bgColorRef AND &HFFFFFF~&), 6)
     IF CP_STATE.tiHexId > 0 THEN d = d + " [" + TI_get_text$(CP_STATE.tiHexId) + "]"
-    ' CMXM x y w h open panelH: the MORE row (viewport px), 1 = open, then the panel's height
-    d = d + CHR$(10) + "CMXM" + DOCK_n$(ox + INT(CP_THEME.padding% * rs)) + DOCK_n$(oy + INT(CP_STATE.discloseY * rs)) + DOCK_n$(INT((CP_STATE.dialogW - 2 * CP_THEME.padding%) * rs))
-    d = d + DOCK_n$(INT(CP_STATE.discloseH * rs)) + DOCK_n$(_IIF(CFG.COLOR_MIXER_MORE% <> 0, 1, 0)) + DOCK_n$(COLORMIXER.dispH%)
+    ' CMXM x y w h open panelH side: the MORE row (viewport px; sideways its
+    ' triangle in the title bar), 1 = open, the panel's height, 1 = sideways
+    DIM mw AS INTEGER, mh AS INTEGER
+    IF COLORMIXER.side% THEN
+        COLORMIXER_side_more_rect px, py, mw, mh
+    ELSE
+        COLORMIXER_from_cp CP_THEME.padding%, CP_STATE.discloseY, px, py
+        mw = CP_STATE.dialogW - 2 * CP_THEME.padding%: mh = CP_STATE.discloseH
+    END IF
+    d = d + CHR$(10) + "CMXM" + DOCK_n$(ox + INT(px * rs)) + DOCK_n$(oy + INT(py * rs)) + DOCK_n$(INT(mw * rs))
+    d = d + DOCK_n$(INT(mh * rs)) + DOCK_n$(_IIF(CFG.COLOR_MIXER_MORE% <> 0, 1, 0)) + DOCK_n$(COLORMIXER.dispH%) + DOCK_n$(_IIF(COLORMIXER.side% <> 0, 1, 0))
     COLORMIXER_dump$ = d + CHR$(10)
 END FUNCTION

@@ -1,0 +1,572 @@
+$INCLUDEONCE
+' =============================================================================
+' ANIM-XWIDGET.BM — the transform widget on an armed layer (see the BI).
+' Maths: a lane-placed drawing maps source point p (cell pixel edges) to
+'   q = O + X + pv + R(rot) S(sx, sy) (p - pv)        (XF_draw, LL_xf, CLIP_draw_cel_xf)
+' with O a clip's place in the cell (0 for a layer), X / Y whole pixels.
+' =============================================================================
+
+''
+' Does the widget show for the current layer now?
+FUNCTION ANIM_XW_wants% ()
+    IF ANIM_PLAY.playing THEN EXIT FUNCTION
+    IF ANIM_XL_rec_slot%(CURRENT_LAYER%) = 0 THEN EXIT FUNCTION
+    ANIM_XW_wants% = TRUE
+END FUNCTION
+
+''
+' Layer slot's box in frame f (source pixel edges) and its origin in the
+' cell: a clip's cel; a layer's drawing in that frame (its bounding box,
+' cached until the slot / frame / undo history changes); a group's whole cell.
+SUB ANIM_XW_box (slot AS INTEGER, f AS INTEGER)
+    DIM k AS INTEGER, s AS INTEGER, bk AS STRING, img AS LONG, m AS _MEM, bw AS LONG
+    DIM fx AS LONG, fy AS LONG, fw AS LONG, fh AS LONG, x AS LONG, y AS LONG, aw AS INTEGER, ah AS INTEGER
+    DIM x0 AS LONG, y0 AS LONG, x1 AS LONG, y1 AS LONG, a AS _UNSIGNED _BYTE
+    ANIM_XW.ox = 0: ANIM_XW.oy = 0
+    k = CLIP_inst_of%(slot)
+    IF k THEN
+        s = CLIP_INST(k).src
+        ANIM_XW.ox = CLIP_INST(k).px: ANIM_XW.oy = CLIP_INST(k).py
+        ANIM_XW.bx0 = 0: ANIM_XW.by0 = 0: ANIM_XW.bx1 = CLIP_SRC(s).cw: ANIM_XW.by1 = CLIP_SRC(s).ch
+        ANIM_XW.bbKey = ""
+        EXIT SUB
+    END IF
+    bk = MKI$(slot) + MKI$(f) + MKL$(LAYERS(slot).historyId&) + MKI$(HISTORY.current%) + MKI$(HISTORY.count%) + MKI$(ANIM.frameW) + MKI$(ANIM.frameH)
+    IF bk = ANIM_XW.bbKey THEN EXIT SUB
+    ANIM_XW.bbKey = bk
+    ANIM_XW.bx0 = 0: ANIM_XW.by0 = 0: ANIM_XW.bx1 = ANIM.frameW: ANIM_XW.by1 = ANIM.frameH
+    IF LAYERS(slot).layerType% = LAYER_TYPE_GROUP THEN EXIT SUB
+    IF ANIM_cell_rect%(f, fx, fy, fw, fh) = 0 THEN EXIT SUB
+    img = LAYERS(slot).imgHandle&
+    IF img >= -1 THEN EXIT SUB
+    aw = LAYERS(slot).apronW%: ah = LAYERS(slot).apronH%
+    IF fx + aw + fw > _WIDTH(img) _ORELSE fy + ah + fh > _HEIGHT(img) THEN EXIT SUB
+    m = _MEMIMAGE(img): bw = _WIDTH(img) * 4
+    x0 = fw: y0 = fh: x1 = -1: y1 = -1
+    FOR y = 0 TO fh - 1
+        FOR x = 0 TO fw - 1
+            a = _MEMGET(m, m.OFFSET + (fy + ah + y) * bw + (fx + aw + x) * 4 + 3, _UNSIGNED _BYTE)
+            IF a THEN
+                IF x < x0 THEN x0 = x
+                IF x > x1 THEN x1 = x
+                IF y < y0 THEN y0 = y
+                IF y > y1 THEN y1 = y
+            END IF
+        NEXT x
+    NEXT y
+    _MEMFREE m
+    IF x1 >= 0 THEN ANIM_XW.bx0 = x0: ANIM_XW.by0 = y0: ANIM_XW.bx1 = x1 + 1: ANIM_XW.by1 = y1 + 1
+END SUB
+
+''
+' Lane L of the widget's layer: at the press (b = TRUE) or now.
+FUNCTION ANIM_XW_v! (L AS INTEGER, b AS INTEGER)
+    IF b THEN ANIM_XW_v! = ANIM_XW_B(L) ELSE ANIM_XW_v! = ANIM_XL_now!(ANIM_XW.slot, L)
+END FUNCTION
+
+''
+' Source point (sx, sy) -> viewport (vx, vy) through the lanes (now, or at the press).
+SUB ANIM_XW_map (sx AS SINGLE, sy AS SINGLE, vx AS SINGLE, vy AS SINGLE, b AS INTEGER)
+    DIM pvx AS SINGLE, pvy AS SINGLE, kx AS SINGLE, ky AS SINGLE, th AS SINGLE, lx AS SINGLE, ly AS SINGLE, cx AS SINGLE, cy AS SINGLE
+    pvx = ANIM_XW_v!(CLIP_LANE_PVX, b): pvy = ANIM_XW_v!(CLIP_LANE_PVY, b)
+    kx = ANIM_XW_v!(CLIP_LANE_SX, b) / 100: ky = ANIM_XW_v!(CLIP_LANE_SY, b) / 100
+    th = ANIM_XW_v!(CLIP_LANE_ROT, b) * _PI / 180
+    lx = (sx - pvx) * kx: ly = (sy - pvy) * ky
+    cx = ANIM_XW.ox + INT(ANIM_XW_v!(CLIP_LANE_X, b) + .5) + pvx + lx * COS(th) - ly * SIN(th)
+    cy = ANIM_XW.oy + INT(ANIM_XW_v!(CLIP_LANE_Y, b) + .5) + pvy + lx * SIN(th) + ly * COS(th)
+    vx = ANIM_XW.px + cx * ANIM_XW.sc: vy = ANIM_XW.py + cy * ANIM_XW.sc
+END SUB
+
+''
+' Every handle's viewport point, from the lanes now.
+SUB ANIM_XW_handles ()
+    DIM i AS INTEGER, mx AS SINGLE, my AS SINGLE, ux AS SINGLE, uy AS SINGLE, d AS SINGLE
+    ANIM_XW_map ANIM_XW.bx0, ANIM_XW.by0, ANIM_XW_HX(XW_H_TL), ANIM_XW_HY(XW_H_TL), FALSE
+    ANIM_XW_map ANIM_XW.bx1, ANIM_XW.by0, ANIM_XW_HX(XW_H_TR), ANIM_XW_HY(XW_H_TR), FALSE
+    ANIM_XW_map ANIM_XW.bx1, ANIM_XW.by1, ANIM_XW_HX(XW_H_BR), ANIM_XW_HY(XW_H_BR), FALSE
+    ANIM_XW_map ANIM_XW.bx0, ANIM_XW.by1, ANIM_XW_HX(XW_H_BL), ANIM_XW_HY(XW_H_BL), FALSE
+    FOR i = 0 TO 3 ' edge middles: T R B L
+        ANIM_XW_HX(XW_H_T + i) = (ANIM_XW_HX(XW_H_TL + i) + ANIM_XW_HX(XW_H_TL + (i + 1) MOD 4)) / 2
+        ANIM_XW_HY(XW_H_T + i) = (ANIM_XW_HY(XW_H_TL + i) + ANIM_XW_HY(XW_H_TL + (i + 1) MOD 4)) / 2
+    NEXT i
+    ' the rotate knob: 16 px out from the top edge's middle, away from the box
+    mx = (ANIM_XW_HX(XW_H_T) + ANIM_XW_HX(XW_H_B)) / 2: my = (ANIM_XW_HY(XW_H_T) + ANIM_XW_HY(XW_H_B)) / 2
+    ux = ANIM_XW_HX(XW_H_T) - mx: uy = ANIM_XW_HY(XW_H_T) - my
+    d = SQR(ux * ux + uy * uy)
+    IF d < .5 THEN ux = 0: uy = -1 ELSE ux = ux / d: uy = uy / d
+    ANIM_XW_HX(XW_H_ROT) = ANIM_XW_HX(XW_H_T) + ux * 16: ANIM_XW_HY(XW_H_ROT) = ANIM_XW_HY(XW_H_T) + uy * 16
+    ' the pivot: source point pv lands on O + X + pv
+    ANIM_XW_HX(XW_H_PIV) = ANIM_XW.px + (ANIM_XW.ox + INT(ANIM_XL_now!(ANIM_XW.slot, CLIP_LANE_X) + .5) + ANIM_XL_now!(ANIM_XW.slot, CLIP_LANE_PVX)) * ANIM_XW.sc
+    ANIM_XW_HY(XW_H_PIV) = ANIM_XW.py + (ANIM_XW.oy + INT(ANIM_XL_now!(ANIM_XW.slot, CLIP_LANE_Y) + .5) + ANIM_XL_now!(ANIM_XW.slot, CLIP_LANE_PVY)) * ANIM_XW.sc
+END SUB
+
+''
+' The widget's opacity out of the box, 0..255 (Settings > Animation: ANIM_WIDGET_OPACITY %).
+FUNCTION ANIM_XW_alpha_dflt% ()
+    IF CFG.ANIM_WIDGET_OPACITY% < 1 THEN ANIM_XW_alpha_dflt% = 255 ELSE ANIM_XW_alpha_dflt% = _MIN(255, CINT(CFG.ANIM_WIDGET_OPACITY% * 255 / 100))
+END FUNCTION
+
+FUNCTION ANIM_XW_a~& (c AS _UNSIGNED LONG) ' c at the widget's opacity
+    ANIM_XW_a~& = (c AND &H00FFFFFF~&) OR _SHL(CLNG(_ALPHA32(c) * ANIM_XW.alpha / 255), 24)
+END FUNCTION
+
+''
+' The lightbox render: the current frame's pane picture is at (dx, dy), dw
+' wide (whole picture, before any cut to the pane). Draws the widget when the
+' current layer is armed; else notes it is not shown.
+SUB ANIM_XW_render (dx AS INTEGER, dy AS INTEGER, dw AS INTEGER, pnX AS INTEGER, pnY AS INTEGER, pnW AS INTEGER, pnH AS INTEGER)
+    DIM i AS INTEGER, j AS INTEGER, cLine AS _UNSIGNED LONG, cFill AS _UNSIGNED LONG, cEdge AS _UNSIGNED LONG, cPiv AS _UNSIGNED LONG
+    DIM hx AS INTEGER, hy AS INTEGER, r AS INTEGER, tw AS INTEGER, tx AS INTEGER, ty AS INTEGER
+    ANIM_XW.shown = FALSE
+    IF ANIM_XW.alpha < 0 THEN ANIM_XW.alpha = ANIM_XW_alpha_dflt% ' (-1: the default, read once the cfg is in)
+    IF ANIM_XW_wants% = 0 _ORELSE ANIM.frameW < 1 THEN ANIM_XW.drag = 0: EXIT SUB
+    ANIM_XW.slot = CURRENT_LAYER%
+    ANIM_XW.px = dx: ANIM_XW.py = dy: ANIM_XW.sc = dw / ANIM.frameW
+    ANIM_XW.paneX = pnX: ANIM_XW.paneY = pnY: ANIM_XW.paneW = pnW: ANIM_XW.paneH = pnH
+    ANIM_XW_box ANIM_XW.slot, ANIM.current
+    ANIM_XW_handles
+    ANIM_XW_bar_layout
+    IF ANIM_XW.alpha < 8 THEN ANIM_XW.shown = TRUE: EXIT SUB ' faded right out: still there to grab
+    cLine = ANIM_XW_a~&(THEME.ANIM_FRAME_current~&)
+    cFill = ANIM_XW_a~&(_RGB32(250, 250, 250)): cEdge = ANIM_XW_a~&(_RGB32(20, 20, 24))
+    cPiv = ANIM_XW_a~&(_RGB32(232, 52, 52))
+    FOR i = 0 TO 3 ' the box
+        j = (i + 1) MOD 4
+        LINE (CINT(ANIM_XW_HX(XW_H_TL + i)), CINT(ANIM_XW_HY(XW_H_TL + i)))-(CINT(ANIM_XW_HX(XW_H_TL + j)), CINT(ANIM_XW_HY(XW_H_TL + j))), cLine
+    NEXT i
+    ' the rotate knob on its stem
+    LINE (CINT(ANIM_XW_HX(XW_H_T)), CINT(ANIM_XW_HY(XW_H_T)))-(CINT(ANIM_XW_HX(XW_H_ROT)), CINT(ANIM_XW_HY(XW_H_ROT))), cLine
+    hx = CINT(ANIM_XW_HX(XW_H_ROT)): hy = CINT(ANIM_XW_HY(XW_H_ROT))
+    FOR j = -3 TO 3: r = INT(SQR(12.5 - j * j)): LINE (hx - r, hy + j)-(hx + r, hy + j), _IIF(ANIM_XW.hover = XW_H_ROT _ORELSE ANIM_XW.drag = XW_H_ROT, cLine, cFill): NEXT j
+    CIRCLE (hx, hy), 4, cEdge
+    ' scale handles
+    FOR i = XW_H_TL TO XW_H_L
+        hx = CINT(ANIM_XW_HX(i)): hy = CINT(ANIM_XW_HY(i))
+        r = _IIF(i <= XW_H_BL, 3, 2)
+        LINE (hx - r, hy - r)-(hx + r, hy + r), _IIF(ANIM_XW.hover = i _ORELSE ANIM_XW.drag = i, cLine, cFill), BF
+        LINE (hx - r, hy - r)-(hx + r, hy + r), cEdge, B
+    NEXT i
+    ' the pivot crosshair
+    hx = CINT(ANIM_XW_HX(XW_H_PIV)): hy = CINT(ANIM_XW_HY(XW_H_PIV))
+    LINE (hx - 6, hy)-(hx - 2, hy), cPiv: LINE (hx + 2, hy)-(hx + 6, hy), cPiv
+    LINE (hx, hy - 6)-(hx, hy - 2), cPiv: LINE (hx, hy + 2)-(hx, hy + 6), cPiv
+    CIRCLE (hx, hy), 3, _IIF(ANIM_XW.hover = XW_H_PIV _ORELSE ANIM_XW.drag = XW_H_PIV, cLine, cPiv)
+    ANIM_XW.shown = TRUE
+    ANIM_XW_bar_draw
+    ' the tip: old -> new while dragging, the value on hover
+    IF LEN(ANIM_XW.tip) _ANDALSO (ANIM_XW.drag <> 0 _ORELSE ANIM_XW.hover <> 0) THEN
+        tw = FPANEL_text_w%(ANIM_XW.tip)
+        tx = MOUSE.RAW_X% + 14: ty = MOUSE.RAW_Y% + 14
+        IF tx + tw + 6 > SCRN.w& THEN tx = MOUSE.RAW_X% - tw - 10
+        LINE (tx - 3, ty - 2)-(tx + tw + 2, ty + FPANEL.fontH% + 1), THEME.CP_button_bg~&, BF
+        LINE (tx - 3, ty - 2)-(tx + tw + 2, ty + FPANEL.fontH% + 1), THEME.CP_border~&, B
+        FPANEL_text tx, ty, ANIM_XW.tip, THEME.CP_text_bright~&
+    END IF
+END SUB
+
+''
+' The handle at viewport (mx, my): XW_H_*, 0 none. The pivot and the knob
+' first (they can sit on the box), then corners, then edge middles.
+FUNCTION ANIM_XW_hit% (mx AS INTEGER, my AS INTEGER)
+    DIM i AS INTEGER, order AS STRING
+    IF ANIM_XW.shown = 0 THEN EXIT FUNCTION
+    order = CHR$(XW_H_PIV) + CHR$(XW_H_ROT) + CHR$(XW_H_TL) + CHR$(XW_H_TR) + CHR$(XW_H_BR) + CHR$(XW_H_BL) + CHR$(XW_H_T) + CHR$(XW_H_R) + CHR$(XW_H_B) + CHR$(XW_H_L)
+    FOR i = 1 TO LEN(order)
+        IF ABS(mx - ANIM_XW_HX(ASC(order, i))) <= XW_GRAB _ANDALSO ABS(my - ANIM_XW_HY(ASC(order, i))) <= XW_GRAB THEN ANIM_XW_hit% = ASC(order, i): EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' What a handle changes, now (the hover tip) - "SCALE 100, 100" etc.
+FUNCTION ANIM_XW_word$ (h AS INTEGER, b AS INTEGER)
+    SELECT CASE h
+        CASE XW_H_OPS: ANIM_XW_word$ = ANIM_XL_num$(ANIM_XW_v!(CLIP_LANE_OP, b))
+        CASE XW_H_TNS: ANIM_XW_word$ = ANIM_XL_num$(ANIM_XW_v!(CLIP_LANE_TINT, b))
+        CASE XW_H_ROT: ANIM_XW_word$ = ANIM_XL_num$(ANIM_XW_v!(CLIP_LANE_ROT, b))
+        CASE XW_H_PIV: ANIM_XW_word$ = ANIM_XL_num$(ANIM_XW_v!(CLIP_LANE_PVX, b)) + ", " + ANIM_XL_num$(ANIM_XW_v!(CLIP_LANE_PVY, b))
+        CASE XW_H_L, XW_H_R: ANIM_XW_word$ = ANIM_XL_num$(ANIM_XW_v!(CLIP_LANE_SX, b))
+        CASE XW_H_T, XW_H_B: ANIM_XW_word$ = ANIM_XL_num$(ANIM_XW_v!(CLIP_LANE_SY, b))
+        CASE ELSE: ANIM_XW_word$ = ANIM_XL_num$(ANIM_XW_v!(CLIP_LANE_SX, b)) + ", " + ANIM_XL_num$(ANIM_XW_v!(CLIP_LANE_SY, b))
+    END SELECT
+END FUNCTION
+
+FUNCTION ANIM_XW_name$ (h AS INTEGER)
+    SELECT CASE h
+        CASE XW_H_OPS: ANIM_XW_name$ = "OPACITY"
+        CASE XW_H_TNS: ANIM_XW_name$ = "TINT"
+        CASE XW_H_ROT: ANIM_XW_name$ = "ROTATE"
+        CASE XW_H_PIV: ANIM_XW_name$ = "PIVOT"
+        CASE XW_H_L, XW_H_R: ANIM_XW_name$ = "SCALE X"
+        CASE XW_H_T, XW_H_B: ANIM_XW_name$ = "SCALE Y"
+        CASE ELSE: ANIM_XW_name$ = "SCALE"
+    END SELECT
+END FUNCTION
+
+''
+' Per frame, before the lightbox's own presses: the hover (its tip; a redraw
+' when it changes). A left press on a handle starts a drag - TRUE (the press
+' is the widget's).
+FUNCTION ANIM_XW_mouse% ()
+    DIM h AS INTEGER, L AS INTEGER
+    IF ANIM_XW.drag THEN ANIM_XW_hold: ANIM_XW_mouse% = TRUE: EXIT FUNCTION
+    IF ANIM_XW_wants% = 0 THEN ANIM_XW.shown = FALSE
+    IF REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = REGION_CANVAS THEN h = ANIM_XW_hit%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    IF h <> ANIM_XW.hover THEN
+        ANIM_XW.hover = h
+        IF h THEN ANIM_XW.tip = ANIM_XW_name$(h) + " " + ANIM_XW_word$(h, FALSE) ELSE ANIM_XW.tip = ""
+        ANIM_LB_changed
+    END IF
+    IF MOUSE.B1% <> 0 _ANDALSO MOUSE.OLD_B1% = 0 _ANDALSO ANIM_XW.shown <> 0 _ANDALSO h = 0 THEN
+        IF REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = REGION_CANVAS THEN
+            IF ANIM_XW_bar_press% THEN ANIM_XW_mouse% = TRUE: EXIT FUNCTION
+        END IF
+    END IF
+    IF h = 0 _ORELSE MOUSE.B1% = 0 _ORELSE MOUSE.OLD_B1% <> 0 THEN EXIT FUNCTION
+    ' a press on handle h: the lanes as they are (the drag's start, its undo step)
+    FOR L = CLIP_LANE_X TO CLIP_LANE_PVY: ANIM_XW_B(L) = ANIM_XL_now!(ANIM_XW.slot, L): NEXT L
+    ANIM_XW.drag = h: ANIM_XW.mx0 = MOUSE.RAW_X%: ANIM_XW.my0 = MOUSE.RAW_Y%
+    ANIM_XW.ang0 = _ATAN2(MOUSE.RAW_Y% - ANIM_XW_HY(XW_H_PIV), MOUSE.RAW_X% - ANIM_XW_HX(XW_H_PIV))
+    ANIM_XW.tip = ANIM_XW_name$(h) + " " + ANIM_XW_word$(h, TRUE)
+    ANIM_XL_rec_begin ANIM_XW.slot
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    ANIM_LB_changed
+    ANIM_XW_mouse% = TRUE
+END FUNCTION
+
+''
+' A handle dragged: the lanes keyed from the press's values and the pointer.
+SUB ANIM_XW_hold ()
+    DIM h AS INTEGER, slot AS INTEGER, mx AS SINGLE, my AS SINGLE, sh AS INTEGER
+    DIM kx AS SINGLE, ky AS SINGLE, th AS SINGLE, pvx AS SINGLE, pvy AS SINGLE, tx AS SINGLE, ty AS SINGLE
+    DIM ax AS SINGLE, ay AS SINGLE, hx AS SINGLE, hy AS SINGLE, qx AS SINGLE, qy AS SINGLE, ux AS SINGLE, uy AS SINGLE
+    DIM nkx AS SINGLE, nky AS SINGLE, k AS SINGLE, a AS SINGLE, d AS SINGLE, lx AS SINGLE, ly AS SINGLE, npx AS SINGLE, npy AS SINGLE
+    h = ANIM_XW.drag: slot = ANIM_XW.slot
+    IF MOUSE.B1% = 0 _ORELSE ANIM_XL_rec_slot%(slot) = 0 THEN ' released: one undo step
+        ANIM_XW.drag = 0: ANIM_XW.hover = 0: ANIM_XW.tip = ""
+        ANIM_XL_rec_end "Widget " + LCASE$(ANIM_XW_name$(h))
+        ANIM_LB_changed
+        EXIT SUB
+    END IF
+    IF h = XW_H_OPS _ORELSE h = XW_H_TNS THEN
+        ANIM_XW_slider_set h
+        ANIM_XW.tip = ANIM_XW_name$(h) + " " + ANIM_XW_word$(h, TRUE) + " -> " + ANIM_XW_word$(h, FALSE)
+        STATUS_flash ANIM_XW.tip + "   (frame" + STR$(ANIM.current) + ")"
+        ANIM_LB_changed
+        EXIT SUB
+    END IF
+    sh = ANIM_LB_shift%
+    ' the pointer in cell pixels
+    mx = (MOUSE.RAW_X% - ANIM_XW.px) / ANIM_XW.sc: my = (MOUSE.RAW_Y% - ANIM_XW.py) / ANIM_XW.sc
+    kx = ANIM_XW_B(CLIP_LANE_SX) / 100: ky = ANIM_XW_B(CLIP_LANE_SY) / 100
+    th = ANIM_XW_B(CLIP_LANE_ROT) * _PI / 180
+    pvx = ANIM_XW_B(CLIP_LANE_PVX): pvy = ANIM_XW_B(CLIP_LANE_PVY)
+    tx = ANIM_XW.ox + ANIM_XW_B(CLIP_LANE_X) + pvx: ty = ANIM_XW.oy + ANIM_XW_B(CLIP_LANE_Y) + pvy ' where the pivot is (cell)
+    SELECT CASE h
+        CASE XW_H_ROT
+            a = _ATAN2(MOUSE.RAW_Y% - ANIM_XW_HY(XW_H_PIV), MOUSE.RAW_X% - ANIM_XW_HX(XW_H_PIV)) - ANIM_XW.ang0
+            DO WHILE a > _PI: a = a - 2 * _PI: LOOP
+            DO WHILE a <= -_PI: a = a + 2 * _PI: LOOP
+            a = ANIM_XW_B(CLIP_LANE_ROT) + a * 180 / _PI
+            IF ANIM_LB_ctrl% THEN ' Ctrl: the program's angle snap (Snap Degrees / Pixel Art Angles); Shift: 15 degrees
+                a = SNAP_rotation!(a)
+            ELSEIF sh THEN
+                a = CINT(a / 15) * 15
+            ELSE
+                a = CINT(a * 10) / 10
+            END IF
+            ANIM_XL_rec_set slot, CLIP_LANE_ROT, a
+        CASE XW_H_PIV ' the pivot moves, the drawing stays: pv' = pv + A^-1 (m - T), X' = m - O - pv'
+            lx = mx - tx: ly = my - ty
+            ux = lx * COS(th) + ly * SIN(th): uy = -lx * SIN(th) + ly * COS(th) ' R^-1
+            IF ABS(kx) > .001 THEN ux = ux / kx
+            IF ABS(ky) > .001 THEN uy = uy / ky
+            npx = CINT((pvx + ux) * 2) / 2: npy = CINT((pvy + uy) * 2) / 2 ' half pixels
+            ANIM_XL_rec_set slot, CLIP_LANE_PVX, npx: ANIM_XL_rec_set slot, CLIP_LANE_PVY, npy
+            ' X' = T + A (pv' - pv) - O - pv'  (the drawing where it was)
+            lx = (npx - pvx) * kx: ly = (npy - pvy) * ky
+            ANIM_XL_rec_set slot, CLIP_LANE_X, CINT(tx + lx * COS(th) - ly * SIN(th) - ANIM_XW.ox - npx)
+            ANIM_XL_rec_set slot, CLIP_LANE_Y, CINT(ty + lx * SIN(th) + ly * COS(th) - ANIM_XW.oy - npy)
+        CASE ELSE ' scale: the opposite corner / edge stays put
+            SELECT CASE h ' the handle's source point and its anchor
+                CASE XW_H_TL: hx = ANIM_XW.bx0: hy = ANIM_XW.by0: ax = ANIM_XW.bx1: ay = ANIM_XW.by1
+                CASE XW_H_TR: hx = ANIM_XW.bx1: hy = ANIM_XW.by0: ax = ANIM_XW.bx0: ay = ANIM_XW.by1
+                CASE XW_H_BR: hx = ANIM_XW.bx1: hy = ANIM_XW.by1: ax = ANIM_XW.bx0: ay = ANIM_XW.by0
+                CASE XW_H_BL: hx = ANIM_XW.bx0: hy = ANIM_XW.by1: ax = ANIM_XW.bx1: ay = ANIM_XW.by0
+                CASE XW_H_T: hx = (ANIM_XW.bx0 + ANIM_XW.bx1) / 2: hy = ANIM_XW.by0: ax = hx: ay = ANIM_XW.by1
+                CASE XW_H_B: hx = (ANIM_XW.bx0 + ANIM_XW.bx1) / 2: hy = ANIM_XW.by1: ax = hx: ay = ANIM_XW.by0
+                CASE XW_H_L: hx = ANIM_XW.bx0: hy = (ANIM_XW.by0 + ANIM_XW.by1) / 2: ax = ANIM_XW.bx1: ay = hy
+                CASE XW_H_R: hx = ANIM_XW.bx1: hy = (ANIM_XW.by0 + ANIM_XW.by1) / 2: ax = ANIM_XW.bx0: ay = hy
+            END SELECT
+            ' the anchor's place (cell), then the pointer from it in the box's own axes
+            lx = (ax - pvx) * kx: ly = (ay - pvy) * ky
+            qx = tx + lx * COS(th) - ly * SIN(th): qy = ty + lx * SIN(th) + ly * COS(th)
+            lx = mx - qx: ly = my - qy
+            ux = lx * COS(th) + ly * SIN(th): uy = -lx * SIN(th) + ly * COS(th)
+            nkx = kx: nky = ky
+            IF h <> XW_H_T _ANDALSO h <> XW_H_B _ANDALSO ABS(hx - ax) > .001 THEN nkx = ux / (hx - ax)
+            IF h <> XW_H_L _ANDALSO h <> XW_H_R _ANDALSO ABS(hy - ay) > .001 THEN nky = uy / (hy - ay)
+            IF sh THEN ' Shift: uniform (the box keeps its shape)
+                SELECT CASE h
+                    CASE XW_H_L, XW_H_R: IF ABS(kx) > .001 THEN nky = ky * nkx / kx
+                    CASE XW_H_T, XW_H_B: IF ABS(ky) > .001 THEN nkx = kx * nky / ky
+                    CASE ELSE
+                        k = 1
+                        IF ABS(kx) > .001 _ANDALSO ABS(ky) > .001 THEN k = (nkx / kx + nky / ky) / 2
+                        nkx = kx * k: nky = ky * k
+                END SELECT
+            END IF
+            nkx = CINT(nkx * 1000) / 10: nky = CINT(nky * 1000) / 10 ' percent, 0.1 steps
+            IF ABS(nkx) < .1 THEN nkx = _IIF(nkx < 0, -.1, .1)
+            IF ABS(nky) < .1 THEN nky = _IIF(nky < 0, -.1, .1)
+            ' the anchor where it was: T' = q(a) - R S' (a - pv), X' = T' - O - pv
+            lx = (ax - pvx) * nkx / 100: ly = (ay - pvy) * nky / 100
+            d = qx - (lx * COS(th) - ly * SIN(th)) - ANIM_XW.ox - pvx
+            a = qy - (lx * SIN(th) + ly * COS(th)) - ANIM_XW.oy - pvy
+            IF nkx <> CINT(ANIM_XL_now!(slot, CLIP_LANE_SX) * 10) / 10 THEN ANIM_XL_rec_set slot, CLIP_LANE_SX, nkx
+            IF nky <> CINT(ANIM_XL_now!(slot, CLIP_LANE_SY) * 10) / 10 THEN ANIM_XL_rec_set slot, CLIP_LANE_SY, nky
+            IF CINT(d) <> CINT(ANIM_XL_now!(slot, CLIP_LANE_X)) THEN ANIM_XL_rec_set slot, CLIP_LANE_X, CINT(d)
+            IF CINT(a) <> CINT(ANIM_XL_now!(slot, CLIP_LANE_Y)) THEN ANIM_XL_rec_set slot, CLIP_LANE_Y, CINT(a)
+    END SELECT
+    ANIM_XW.tip = ANIM_XW_name$(h) + " " + ANIM_XW_word$(h, TRUE) + " -> " + ANIM_XW_word$(h, FALSE)
+    STATUS_flash ANIM_XW.tip + "   (frame" + STR$(ANIM.current) + ")"
+    ANIM_LB_changed
+END SUB
+
+''
+' QA dump: XWG shown slot drag hover alpha, then each handle's viewport x y
+' (TL TR BR BL, T R B L, knob, pivot).
+FUNCTION ANIM_XW_dump$ ()
+    DIM d AS STRING, i AS INTEGER
+    d = "XWG" + DOCK_n$(ANIM_XW.shown) + DOCK_n$(ANIM_XW.slot) + DOCK_n$(ANIM_XW.drag) + DOCK_n$(ANIM_XW.hover) + DOCK_n$(ANIM_XW.alpha)
+    FOR i = 1 TO 10: d = d + DOCK_n$(CINT(ANIM_XW_HX(i))) + DOCK_n$(CINT(ANIM_XW_HY(i))): NEXT i
+    ' XWB linkSlot then the bar's parts x y w h (OPACITY slider, its value, TINT chip, TINT slider, its value)
+    d = d + CHR$(10) + "XWB" + DOCK_n$(ANIM_XW.linkSlot)
+    FOR i = 1 TO 5: d = d + DOCK_n$(ANIM_XW_RX(i)) + DOCK_n$(ANIM_XW_RY(i)) + DOCK_n$(ANIM_XW_RW(i)) + DOCK_n$(ANIM_XW_RH(i)): NEXT i
+    ANIM_XW_dump$ = d + CHR$(10)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' The widget bar: OPACITY slider + value, TINT chip + slider + value
+' ---------------------------------------------------------------------------
+
+''
+' The bar's parts (ANIM_XW_R*): under the box, or over it when the pane has
+' no room below; kept inside the pane. Labels dropped when the pane is narrow.
+SUB ANIM_XW_bar_layout ()
+    DIM fh AS INTEGER, bh AS INTEGER, bw AS INTEGER, x AS INTEGER, y AS INTEGER, i AS INTEGER, lab AS INTEGER
+    DIM lo AS SINGLE, hi AS SINGLE, lft AS SINGLE, vw AS INTEGER, lw1 AS INTEGER, lw2 AS INTEGER
+    fh = FPANEL.fontH%: bh = fh + 6
+    vw = FPANEL_text_w%("100") + 6
+    lw1 = FPANEL_text_w%("OPACITY") + 4: lw2 = FPANEL_text_w%("TINT") + 4
+    lab = TRUE
+    bw = 4 + lw1 + 48 + 3 + vw + 10 + lw2 + 9 + 4 + 40 + 3 + vw + 4
+    IF bw > ANIM_XW.paneW - 4 THEN lab = FALSE: lw1 = 0: lw2 = 0: bw = 4 + 48 + 3 + vw + 10 + 9 + 4 + 40 + 3 + vw + 4
+    lo = 32000: hi = -32000: lft = 32000
+    FOR i = XW_H_TL TO XW_H_ROT
+        IF ANIM_XW_HY(i) < lo THEN lo = ANIM_XW_HY(i)
+        IF ANIM_XW_HY(i) > hi THEN hi = ANIM_XW_HY(i)
+        IF ANIM_XW_HX(i) < lft THEN lft = ANIM_XW_HX(i)
+    NEXT i
+    y = hi + 10
+    IF y + bh > ANIM_XW.paneY + ANIM_XW.paneH - 2 THEN y = lo - 10 - bh
+    IF y + bh > ANIM_XW.paneY + ANIM_XW.paneH - 2 THEN y = ANIM_XW.paneY + ANIM_XW.paneH - 2 - bh
+    IF y < ANIM_XW.paneY + 2 THEN y = ANIM_XW.paneY + 2
+    x = lft
+    IF x + bw > ANIM_XW.paneX + ANIM_XW.paneW - 2 THEN x = ANIM_XW.paneX + ANIM_XW.paneW - 2 - bw
+    IF x < ANIM_XW.paneX + 2 THEN x = ANIM_XW.paneX + 2
+    ANIM_XW_RX(XW_R_BAR) = x: ANIM_XW_RY(XW_R_BAR) = y: ANIM_XW_RW(XW_R_BAR) = bw: ANIM_XW_RH(XW_R_BAR) = bh
+    FOR i = 1 TO 5: ANIM_XW_RY(i) = y + 2: ANIM_XW_RH(i) = bh - 4: NEXT i
+    x = x + 4 + lw1
+    ANIM_XW_RX(XW_R_OPS) = x: ANIM_XW_RW(XW_R_OPS) = 48: x = x + 48 + 3
+    ANIM_XW_RX(XW_R_OPV) = x: ANIM_XW_RW(XW_R_OPV) = vw: x = x + vw + 10 + lw2
+    ANIM_XW_RX(XW_R_CHIP) = x: ANIM_XW_RW(XW_R_CHIP) = 9: ANIM_XW_RY(XW_R_CHIP) = y + (bh - 9) \ 2: ANIM_XW_RH(XW_R_CHIP) = 9: x = x + 9 + 4
+    ANIM_XW_RX(XW_R_TNS) = x: ANIM_XW_RW(XW_R_TNS) = 40: x = x + 40 + 3
+    ANIM_XW_RX(XW_R_TNV) = x: ANIM_XW_RW(XW_R_TNV) = vw
+END SUB
+
+SUB ANIM_XW_bar_draw ()
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, i AS INTEGER, v AS SINGLE, t AS STRING, ty AS INTEGER
+    DIM cBg AS _UNSIGNED LONG, cBd AS _UNSIGNED LONG, cTx AS _UNSIGNED LONG, cTr AS _UNSIGNED LONG, cOn AS _UNSIGNED LONG
+    cBg = ANIM_XW_a~&((THEME.CP_button_bg~& AND &H00FFFFFF~&) OR &HE0000000~&)
+    cBd = ANIM_XW_a~&(THEME.CP_border~&): cTx = ANIM_XW_a~&(THEME.CP_text~&)
+    cTr = ANIM_XW_a~&(THEME.CP_slider_bg~&): cOn = ANIM_XW_a~&(THEME.ANIM_FRAME_current~&)
+    x = ANIM_XW_RX(XW_R_BAR): y = ANIM_XW_RY(XW_R_BAR): w = ANIM_XW_RW(XW_R_BAR): h = ANIM_XW_RH(XW_R_BAR)
+    LINE (x, y)-(x + w - 1, y + h - 1), cBg, BF
+    LINE (x, y)-(x + w - 1, y + h - 1), cBd, B
+    ty = y + (h - FPANEL.fontH%) \ 2
+    IF ANIM_XW_RX(XW_R_OPS) - x > 6 THEN FPANEL_text x + 4, ty, "OPACITY", cTx
+    IF ANIM_XW_RX(XW_R_CHIP) - (ANIM_XW_RX(XW_R_OPV) + ANIM_XW_RW(XW_R_OPV)) > 14 THEN FPANEL_text ANIM_XW_RX(XW_R_CHIP) - FPANEL_text_w%("TINT") - 4, ty, "TINT", cTx
+    FOR i = XW_R_OPS TO XW_R_TNV STEP 3 ' the sliders: OPS (1), TNS (4)
+        v = ANIM_XL_now!(ANIM_XW.slot, _IIF(i = XW_R_OPS, CLIP_LANE_OP, CLIP_LANE_TINT))
+        x = ANIM_XW_RX(i): y = ANIM_XW_RY(i) + ANIM_XW_RH(i) \ 2 - 2: w = ANIM_XW_RW(i)
+        LINE (x, y)-(x + w - 1, y + 3), cTr, BF
+        IF v > 0 THEN LINE (x, y)-(x + CINT((w - 1) * _MIN(100, v) / 100), y + 3), cOn, BF
+        LINE (x + CINT((w - 1) * _MAX(0, _MIN(100, v)) / 100) - 1, y - 2)-STEP(2, 7), ANIM_XW_a~&(THEME.CP_text_bright~&), BF
+        ' its value: click to type
+        t = _TRIM$(STR$(CINT(v)))
+        x = ANIM_XW_RX(i + 1): y = ANIM_XW_RY(i + 1): w = ANIM_XW_RW(i + 1)
+        LINE (x, y)-(x + w - 1, y + ANIM_XW_RH(i + 1) - 1), cTr, BF
+        FPANEL_text x + w - 3 - FPANEL_text_w%(t), ty, t, ANIM_XW_a~&(THEME.CP_text_bright~&)
+    NEXT i
+    ' the TINT chip: its colour; ringed in red while it follows the FG colour
+    x = ANIM_XW_RX(XW_R_CHIP): y = ANIM_XW_RY(XW_R_CHIP)
+    LINE (x, y)-(x + 8, y + 8), ANIM_XW_a~&(ANIM_XW_tint~&(ANIM_XW.slot) OR &HFF000000~&), BF
+    LINE (x, y)-(x + 8, y + 8), cBd, B
+    IF ANIM_XW.linkSlot = ANIM_XW.slot _ANDALSO ANIM_XW.slot <> 0 THEN LINE (x - 2, y - 2)-(x + 10, y + 10), ANIM_XW_a~&(_RGB32(232, 52, 52)), B
+END SUB
+
+''
+' The bar part at (mx, my), 0 none (XW_R_BAR: on the bar, between parts).
+FUNCTION ANIM_XW_part% (mx AS INTEGER, my AS INTEGER)
+    DIM i AS INTEGER
+    IF ANIM_XW.shown = 0 THEN EXIT FUNCTION
+    FOR i = 1 TO 6
+        IF mx >= ANIM_XW_RX(i) - _IIF(i = XW_R_CHIP, 2, 0) _ANDALSO mx < ANIM_XW_RX(i) + ANIM_XW_RW(i) + _IIF(i = XW_R_CHIP, 2, 0) _ANDALSO my >= ANIM_XW_RY(i) - 2 _ANDALSO my < ANIM_XW_RY(i) + ANIM_XW_RH(i) + 2 THEN ANIM_XW_part% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' A left press on the bar: TRUE when it was the bar's.
+FUNCTION ANIM_XW_bar_press% ()
+    DIM pt AS INTEGER, L AS INTEGER, slot AS INTEGER, t AS STRING
+    pt = ANIM_XW_part%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    IF pt = 0 THEN EXIT FUNCTION
+    ANIM_XW_bar_press% = TRUE
+    MOUSE.UI_CHROME_CLICKED% = TRUE
+    slot = ANIM_XW.slot
+    SELECT CASE pt
+        CASE XW_R_OPS, XW_R_TNS ' a slider: dragged until the release - one undo step
+            FOR L = CLIP_LANE_X TO CLIP_LANE_PVY: ANIM_XW_B(L) = ANIM_XL_now!(slot, L): NEXT L
+            ANIM_XW.drag = _IIF(pt = XW_R_OPS, XW_H_OPS, XW_H_TNS)
+            ANIM_XL_rec_begin slot
+            ANIM_XW_slider_set ANIM_XW.drag
+            ANIM_XW.tip = ANIM_XW_name$(ANIM_XW.drag) + " " + ANIM_XW_word$(ANIM_XW.drag, TRUE) + " -> " + ANIM_XW_word$(ANIM_XW.drag, FALSE)
+        CASE XW_R_OPV, XW_R_TNV ' its value typed
+            L = _IIF(pt = XW_R_OPV, CLIP_LANE_OP, CLIP_LANE_TINT)
+            POINTER_hide_for_dialog
+            t = DRAW_input_box_ex$(CLIP_lane_name$(L), CLIP_lane_name$(L) + " on frame" + STR$(ANIM.current) + " (0 - 100):", ANIM_XL_num$(ANIM_XL_now!(slot, L)), "Percent", TRUE)
+            POINTER_show_after_dialog
+            MOUSE_cleanup_after_dialog FALSE
+            IF _TRIM$(t) <> "" THEN ANIM_XL_rec_value slot, L, VAL(t), CLIP_lane_name$(L)
+        CASE XW_R_CHIP
+            IF ANIM_LB_shift% THEN ' Shift+click: the FG colour, now
+                ANIM_XW_tint_fg slot
+            ELSEIF ANIM_XW.linkSlot = slot THEN ' again: stop following
+                ANIM_XW_link_end
+                STATUS_flash "Tint color: no longer follows the FG color"
+            ELSE ' follow the FG colour - the Color Mixer opens to pick it
+                ANIM_XW_link_end
+                ANIM_XW.linkSlot = slot: ANIM_XW.linkFG = PAINT_COLOR~&: ANIM_XW.linkBefore = ""
+                IF COLORMIXER.visible% = 0 THEN COLORMIXER_toggle
+                STATUS_flash "Tint color follows the FG color - pick it in the Color Mixer (click the chip again to stop; Shift+click = the FG color now)"
+            END IF
+    END SELECT
+    ANIM_LB_changed
+END FUNCTION
+
+''
+' A bar slider at the pointer: the lane's key at the current frame.
+SUB ANIM_XW_slider_set (h AS INTEGER)
+    DIM r AS INTEGER, v AS SINGLE
+    r = _IIF(h = XW_H_OPS, XW_R_OPS, XW_R_TNS)
+    v = (MOUSE.RAW_X% - ANIM_XW_RX(r)) * 100 / _MAX(1, ANIM_XW_RW(r) - 1)
+    v = CINT(_MAX(0, _MIN(100, v)))
+    IF v <> CINT(ANIM_XL_now!(ANIM_XW.slot, _IIF(h = XW_H_OPS, CLIP_LANE_OP, CLIP_LANE_TINT))) THEN ANIM_XL_rec_set ANIM_XW.slot, _IIF(h = XW_H_OPS, CLIP_LANE_OP, CLIP_LANE_TINT), v
+END SUB
+
+''
+' Layer slot's tint colour (what the TINT lane goes toward).
+FUNCTION ANIM_XW_tint~& (slot AS INTEGER)
+    DIM k AS INTEGER, e AS INTEGER
+    IF slot < 1 THEN EXIT FUNCTION
+    k = CLIP_inst_of%(slot)
+    IF k THEN ANIM_XW_tint~& = CLIP_INST(k).tint: EXIT FUNCTION
+    e = LL_find%(LAYERS(slot).historyId&, FALSE)
+    IF e THEN ANIM_XW_tint~& = LL_TINT(e)
+END FUNCTION
+
+''
+' Its tint colour = c, shown now (no undo step); a TINT of 0 here gets 50 -
+' a colour nobody can see is no use.
+SUB ANIM_XW_tint_put (slot AS INTEGER, c AS _UNSIGNED LONG)
+    DIM k AS INTEGER, e AS INTEGER
+    k = CLIP_inst_of%(slot)
+    IF k THEN
+        CLIP_INST(k).tint = c: CLIP_rebuild slot
+    ELSE
+        e = LL_find%(LAYERS(slot).historyId&, TRUE)
+        IF e = 0 THEN EXIT SUB
+        LL_TINT(e) = c
+        LL_changed
+    END IF
+    IF ANIM_XL_now!(slot, CLIP_LANE_TINT) < .5 THEN ANIM_XL_rec_set slot, CLIP_LANE_TINT, 50
+    ANIM_LB_changed
+END SUB
+
+''
+' Shift+click on the chip: the tint colour = the FG colour (one undo step).
+SUB ANIM_XW_tint_fg (slot AS INTEGER)
+    DIM before AS STRING
+    IF ANIM_XL_can%(slot) = 0 THEN EXIT SUB
+    before = ANIM_XL_state$(slot)
+    ANIM_XW_tint_put slot, PAINT_COLOR~&
+    ANIM_XL_commit slot, before, ANIM_XL_word$(slot) + " Tint Color"
+    STATUS_flash "Tint color = the FG color"
+END SUB
+
+''
+' Stop the chip following the FG colour (its last change's undo step first).
+SUB ANIM_XW_link_end ()
+    DIM s AS INTEGER
+    s = ANIM_XW.linkSlot
+    ANIM_XW.linkSlot = 0
+    IF s <> 0 _ANDALSO LEN(ANIM_XW.linkBefore) THEN
+        IF ANIM_XL_can%(s) THEN ANIM_XL_commit s, MID$(ANIM_XW.linkBefore, 2), ANIM_XL_word$(s) + " Tint Color"
+    END IF
+    ANIM_XW.linkBefore = ""
+    ANIM_LB_changed
+END SUB
+
+''
+' Per frame (ANIM_XL_rec_tick): the chip following the FG colour - each new
+' FG colour becomes the tint colour, one undo step per mouse release.
+SUB ANIM_XW_tick ()
+    DIM s AS INTEGER
+    s = ANIM_XW.linkSlot
+    IF s = 0 THEN EXIT SUB
+    IF s <> CURRENT_LAYER% _ORELSE ANIM_XL_can%(s) = 0 _ORELSE ANIM_XL_rec_slot%(s) = 0 THEN ANIM_XW_link_end: EXIT SUB
+    IF PAINT_COLOR~& <> ANIM_XW.linkFG THEN
+        IF LEN(ANIM_XW.linkBefore) = 0 THEN ANIM_XW.linkBefore = "S" + ANIM_XL_state$(s) ' ("S": set even when the state is empty)
+        ANIM_XW.linkFG = PAINT_COLOR~&
+        ANIM_XW_tint_put s, PAINT_COLOR~&
+    END IF
+    IF LEN(ANIM_XW.linkBefore) _ANDALSO MOUSE.B1% = 0 THEN
+        ANIM_XL_commit s, MID$(ANIM_XW.linkBefore, 2), ANIM_XL_word$(s) + " Tint Color"
+        ANIM_XW.linkBefore = ""
+    END IF
+END SUB
+
+''
+' Is viewport (mx, my) over the widget (its handles' box, the bar)?
+FUNCTION ANIM_XW_over% (mx AS INTEGER, my AS INTEGER)
+    DIM i AS INTEGER, x1 AS SINGLE, y1 AS SINGLE, x2 AS SINGLE, y2 AS SINGLE
+    IF ANIM_XW.shown = 0 THEN EXIT FUNCTION
+    IF ANIM_XW_part%(mx, my) THEN ANIM_XW_over% = TRUE: EXIT FUNCTION
+    x1 = 32000: y1 = 32000: x2 = -32000: y2 = -32000
+    FOR i = 1 TO 10
+        x1 = _MIN(x1, ANIM_XW_HX(i)): x2 = _MAX(x2, ANIM_XW_HX(i))
+        y1 = _MIN(y1, ANIM_XW_HY(i)): y2 = _MAX(y2, ANIM_XW_HY(i))
+    NEXT i
+    ANIM_XW_over% = (mx >= x1 - 10 _ANDALSO mx <= x2 + 10 _ANDALSO my >= y1 - 10 _ANDALSO my <= y2 + 10)
+END FUNCTION
+
+''
+' Ctrl+Alt+Shift+wheel over the widget: dir > 0 stronger, < 0 fainter
+' (Rick: "ctrl+alt+shift+wheel should adjust that widgets opacity").
+SUB ANIM_XW_fade (dir AS INTEGER)
+    IF ANIM_XW.alpha < 0 THEN ANIM_XW.alpha = ANIM_XW_alpha_dflt%
+    ANIM_XW.alpha = _MAX(0, _MIN(255, ANIM_XW.alpha + SGN(dir) * XW_FADE_STEP))
+    IF dir > 0 _ANDALSO ANIM_XW.alpha > 255 - XW_FADE_STEP \ 2 THEN ANIM_XW.alpha = 255
+    STATUS_flash "Transform widget opacity" + STR$(CINT(ANIM_XW.alpha * 100 / 255)) + "%"
+    ANIM_LB_changed
+END SUB

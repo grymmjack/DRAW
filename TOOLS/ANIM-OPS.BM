@@ -1434,6 +1434,117 @@ SUB ANIM_LK_action (act AS INTEGER)
 END SUB
 
 ''
+' ---------------------------------------------------------------------------
+' Per-layer holds (branch xsheet-holds-lanes, Rick 2026-11-16: "can DRAW
+' support per layer hold times?"). A layer's drawing held for N frames is N
+' linked cells in a row: one link group, frame s to frame e. The X-sheet draws
+' the run as one cell with a hold line; dragging its right end (or ANIM >
+' Hold for N Frames...) stretches it - the cells it covers join (their own
+' drawings are replaced) - or shrinks it, and the cells let go are blank.
+' One undo step each (ANIM_OPS_snapshot$(TRUE)).
+' ---------------------------------------------------------------------------
+
+''
+' The held run of layer slot i that frame f is in: frames s..e, f's link
+' group's cells in a row. Not linked: s = e = f.
+SUB ANIM_LH_run (i AS INTEGER, f AS INTEGER, s AS INTEGER, e AS INTEGER)
+    DIM id AS LONG, g AS INTEGER, a AS INTEGER, b AS INTEGER
+    a = f: b = f
+    IF i >= 1 _ANDALSO i <= MAX_LAYERS _ANDALSO ANIM_LK_N > 0 THEN
+        id = LAYERS(i).historyId&
+        g = ANIM_LK_group%(id, f)
+        IF g <> 0 THEN
+            DO WHILE a > 1
+                IF ANIM_LK_group%(id, a - 1) <> g THEN EXIT DO
+                a = a - 1
+            LOOP
+            DO WHILE b < ANIM.count
+                IF ANIM_LK_group%(id, b + 1) <> g THEN EXIT DO
+                b = b + 1
+            LOOP
+        END IF
+    END IF
+    s = a: e = b
+END SUB
+
+''
+' Layer slot i's held run that frame f is in ends at frame toF (clamped to
+' the run's first frame .. the last frame): longer, the cells after it join
+' its drawing; shorter, the cells let go leave the link and go blank. No undo
+' step of its own. TRUE = something changed.
+FUNCTION ANIM_LH_set% (i AS INTEGER, f AS INTEGER, toF AS INTEGER)
+    DIM s AS INTEGER, e AS INTEGER, n AS INTEGER, j AS INTEGER, id AS LONG
+    DIM cx AS LONG, cy AS LONG, cw AS LONG, ch AS LONG
+    ANIM_LH_run i, f, s, e
+    n = _MAX(s, _MIN(toF, ANIM.count))
+    IF n = e THEN EXIT FUNCTION
+    id = LAYERS(i).historyId&
+    IF n > e THEN
+        FOR j = e + 1 TO n: ANIM_LK_join i, s, j: NEXT j
+    ELSE
+        FOR j = n + 1 TO e
+            ANIM_LK_remove id, j
+            IF ANIM_cell_rect%(j, cx, cy, cw, ch) THEN ANIM_SAME_cell_put i, j, STRING$(cw * ch * 4, 0)
+        NEXT j
+    END IF
+    ANIM_LK_tidy
+    ANIM_LK_touched i
+    ANIM_LH_set% = TRUE
+END FUNCTION
+
+''
+' ANIM > Hold for N Frames... (2610) / Release Hold (2611) on the current
+' layer at frame frame (0: the current one). Hold: asks how many frames the
+' drawing there shows for; Release: just its first frame (the rest go blank).
+SUB ANIM_LH_action (act AS INTEGER, frame AS INTEGER)
+    DIM why AS STRING, i AS INTEGER, f AS INTEGER, s AS INTEGER, e AS INTEGER, n AS INTEGER, t AS STRING, before AS STRING
+    why = ANIM_LK_refusal$
+    IF why = "Links work on a pixel layer" THEN why = "Holds work on a pixel layer"
+    IF why <> "" THEN STATUS_flash why: EXIT SUB
+    i = CURRENT_LAYER%
+    f = frame: IF f < 1 _ORELSE f > ANIM.count THEN f = ANIM.current
+    ANIM_play_stop
+    ANIM_LH_run i, f, s, e
+    IF act = ANIM_ACT_RELEASE_HOLD THEN
+        IF e = s THEN STATUS_flash "Frame" + STR$(f) + " is not held on " + _TRIM$(LAYERS(i).name): EXIT SUB
+        n = 1
+    ELSE
+        POINTER_hide_for_dialog
+        t = DRAW_input_box_ex$("Hold for N Frames", "How many frames " + _TRIM$(LAYERS(i).name) + "'s drawing at frame" + STR$(s) + " shows for (1 to" + STR$(ANIM.count - s + 1) + "). The cells it covers take this drawing; cells it lets go are blank:", _TRIM$(STR$(e - s + 1)), "Frames", TRUE)
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+        IF _TRIM$(t) = "" THEN EXIT SUB ' cancelled
+        n = VAL(t)
+        IF n < 1 THEN STATUS_flash "A hold is at least 1 frame": EXIT SUB
+        n = _MIN(n, ANIM.count - s + 1)
+    END IF
+    before = ANIM_OPS_snapshot$(TRUE)
+    IF ANIM_LH_set%(i, s, s + n - 1) = 0 THEN STATUS_flash "Frame" + STR$(s) + " already holds for" + STR$(n) + _IIF(n = 1, " frame", " frames"): EXIT SUB
+    ANIM_OPS_record before, ANIM_OPS_snapshot$(TRUE), _IIF(act = ANIM_ACT_RELEASE_HOLD, "Release Hold", "Layer Hold"), 0
+    STATUS_flash _TRIM$(LAYERS(i).name) + ": frame" + STR$(s) + " holds for" + STR$(n) + _IIF(n = 1, " frame", " frames")
+    BLEND_invalidate_cache
+    INVALIDATE_canvas
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' QA dump line: ANIMLH s-e ...: the current layer's held runs (2+ frames).
+FUNCTION ANIM_LH_dump$ ()
+    DIM d AS STRING, f AS INTEGER, s AS INTEGER, e AS INTEGER
+    IF ANIM.active = FALSE THEN EXIT FUNCTION
+    d = "ANIMLH"
+    IF CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS THEN
+        f = 1
+        DO WHILE f <= ANIM.count
+            ANIM_LH_run CURRENT_LAYER%, f, s, e
+            IF e > s THEN d = d + " " + _TRIM$(STR$(s)) + "-" + _TRIM$(STR$(e))
+            f = e + 1
+        LOOP
+    END IF
+    ANIM_LH_dump$ = d + " _" + CHR$(10)
+END FUNCTION
+
+''
 ' Links of layers this document no longer has.
 SUB ANIM_LK_prune ()
     DIM k AS INTEGER

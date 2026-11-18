@@ -158,6 +158,29 @@ else
     park_mouse; key ctrl+0; wait_for 0.4 "Ctrl+0"
     lz_read
     [[ "${Z:-}" == 0 && "$P_W" == $(( Z0 * 64 / 100 )) ]] && pass "Ctrl+0: the panes are fitted again" || fail "Ctrl+0: ANIMLBZ '${Z:-}', picture width $P_W"
+
+    # -- below the fit: a margin round the frame (Rick 2026-11-16: "i cannot zoom out when it
+    #    is big frame + x-sheet, only in ... to get the handles to be manageable") --
+    PWF=$P_W
+    # a pixel just inside the fitted picture's corner: the frame now, the pane's background after
+    snap_region $(( P_X + 3 )) $(( P_Y + 3 )) 1 1 lz-corner-fit >/dev/null
+    CF=$(magick "$SNAP_RESULT" -format '%[hex:p{0,0}]' info: 2>/dev/null | cut -c1-6)
+    CX=$(( P_X + 3 )); CY=$(( P_Y + 3 ))
+    park_mouse; key ctrl+minus; wait_for 0.4 "Ctrl+- from fitted"
+    park_mouse; key ctrl+minus; wait_for 0.4 "Ctrl+- again"
+    lz_read
+    [[ "${Z:-0}" -gt 0 && "$P_W" -lt "$PWF" && "$P_W" -gt 0 ]] \
+        && pass "Ctrl+- from fitted: smaller than the fit (picture $PWF -> ${P_W} px wide, ANIMLBZ $Z)" \
+        || fail "zoom out below the fit: ANIMLBZ '${Z:-}', picture width $P_W (fitted $PWF)"
+    screenshot "lbzoom-out-below-fit"
+    snap_region "$CX" "$CY" 1 1 lz-corner-out >/dev/null
+    CO=$(magick "$SNAP_RESULT" -format '%[hex:p{0,0}]' info: 2>/dev/null | cut -c1-6)
+    [[ -n "$CF" && "$CO" != "$CF" ]] && pass "the art is drawn smaller too: the fitted corner shows the pane, not the frame ($CF -> $CO)" \
+        || fail "the art did not shrink with the zoom: the fitted corner still $CO (fitted $CF) - the grid alone zoomed out"
+    [[ "$P_X" -ge "$LB_X1" && $(( P_X + P_W )) -le "$LB_X2" ]] && pass "the smaller picture stays inside the lightbox" || fail "picture at $P_X +$P_W, lightbox $LB_X1-$LB_X2"
+    park_mouse; key ctrl+0; wait_for 0.4 "Ctrl+0"
+    lz_read
+    [[ "${Z:-}" == 0 && "$P_W" == "$PWF" ]] && pass "Ctrl+0 after zooming out: fitted again" || fail "Ctrl+0 after zoom out: ANIMLBZ '${Z:-}', width $P_W (fitted $PWF)"
 fi
 
 # -- the Preview's frame view zooms with the wheel --

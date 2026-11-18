@@ -109,15 +109,46 @@ FUNCTION CLIP_lks_n% (keys AS STRING)
 END FUNCTION
 
 FUNCTION CLIP_lk_f% (keys AS STRING, i AS INTEGER) ' 1-based
+    IF i < 1 _ORELSE i * 8 > LEN(keys) THEN EXIT FUNCTION
     CLIP_lk_f% = CVI(MID$(keys, (i - 1) * 8 + 1, 2))
 END FUNCTION
 
 FUNCTION CLIP_lk_v! (keys AS STRING, i AS INTEGER)
+    IF i < 1 _ORELSE i * 8 > LEN(keys) THEN EXIT FUNCTION
     CLIP_lk_v! = CVS(MID$(keys, (i - 1) * 8 + 3, 4))
 END FUNCTION
 
-FUNCTION CLIP_lk_e% (keys AS STRING, i AS INTEGER)
-    CLIP_lk_e% = CVI(MID$(keys, (i - 1) * 8 + 7, 2))
+FUNCTION CLIP_lk_e% (keys AS STRING, i AS INTEGER) ' the ease (the field's low 4 bits)
+    IF i < 1 _ORELSE i * 8 > LEN(keys) THEN EXIT FUNCTION ' (no such key: 0, never CVI of nothing)
+    CLIP_lk_e% = CVI(MID$(keys, (i - 1) * 8 + 7, 2)) AND 15
+END FUNCTION
+
+FUNCTION CLIP_lk_fl% (keys AS STRING, i AS INTEGER) ' the modulator flags (CLIP_KF_*: 16 off, 32 one-shot, 64 restart)
+    IF i < 1 _ORELSE i * 8 > LEN(keys) THEN EXIT FUNCTION
+    CLIP_lk_fl% = CVI(MID$(keys, (i - 1) * 8 + 7, 2)) AND 240
+END FUNCTION
+
+FUNCTION CLIP_lk_raw% (keys AS STRING, i AS INTEGER) ' the whole field: ease + flags
+    IF i < 1 _ORELSE i * 8 > LEN(keys) THEN EXIT FUNCTION
+    CLIP_lk_raw% = CVI(MID$(keys, (i - 1) * 8 + 7, 2))
+END FUNCTION
+
+''
+' keys with key i's ease set to e (its modulator flags kept).
+FUNCTION CLIP_lks_ease$ (keys AS STRING, i AS INTEGER, e AS INTEGER)
+    DIM r AS STRING
+    r = keys
+    IF i >= 1 _ANDALSO i <= CLIP_lks_n%(keys) THEN MID$(r, (i - 1) * 8 + 7, 2) = MKI$((e AND 15) OR CLIP_lk_fl%(keys, i))
+    CLIP_lks_ease$ = r
+END FUNCTION
+
+''
+' keys with key i's modulator flags set to fl (its ease kept).
+FUNCTION CLIP_lks_flags$ (keys AS STRING, i AS INTEGER, fl AS INTEGER)
+    DIM r AS STRING
+    r = keys
+    IF i >= 1 _ANDALSO i <= CLIP_lks_n%(keys) THEN MID$(r, (i - 1) * 8 + 7, 2) = MKI$(CLIP_lk_e%(keys, i) OR (fl AND 240))
+    CLIP_lks_flags$ = r
 END FUNCTION
 
 ''
@@ -160,7 +191,7 @@ FUNCTION CLIP_lks_put$ (keys AS STRING, rel AS INTEGER, v AS SINGLE, e AS INTEGE
     n = CLIP_lks_n%(keys)
     FOR i = 1 TO n
         f = CLIP_lk_f%(keys, i)
-        IF f = rel THEN CLIP_lks_put$ = LEFT$(keys, (i - 1) * 8) + CLIP_lk$(rel, v, CLIP_lk_e%(keys, i)) + MID$(keys, i * 8 + 1): EXIT FUNCTION
+        IF f = rel THEN CLIP_lks_put$ = LEFT$(keys, (i - 1) * 8) + CLIP_lk$(rel, v, CLIP_lk_raw%(keys, i)) + MID$(keys, i * 8 + 1): EXIT FUNCTION
         IF f > rel THEN CLIP_lks_put$ = LEFT$(keys, (i - 1) * 8) + CLIP_lk$(rel, v, e) + MID$(keys, (i - 1) * 8 + 1): EXIT FUNCTION
     NEXT i
     CLIP_lks_put$ = keys + CLIP_lk$(rel, v, e)
@@ -200,10 +231,26 @@ END FUNCTION
 ' (-1 rising to 1). Noise: a new seeded value every `period` frames, eased
 ' between them. phase shifts the wave (frames).
 FUNCTION CLIP_mod! (kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, rel AS INTEGER)
-    DIM p AS DOUBLE, w AS SINGLE, x AS DOUBLE, i AS LONG, t AS SINGLE, per AS SINGLE
+    DIM r AS SINGLE
+    r = rel
+    CLIP_mod! = CLIP_mod_at!(kind, shape, amount, period, phase, seed, r)
+END FUNCTION
+
+''
+' CLIP_mod! at a fractional frame rel - the X-sheet draws the modulator's real
+' shape between the frames with it (whole frames give CLIP_mod! exactly).
+FUNCTION CLIP_mod_at! (kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, rel AS SINGLE)
+    DIM per AS SINGLE
     IF kind = 0 _ORELSE amount = 0 THEN EXIT FUNCTION
     per = period: IF per < 1 THEN per = 1 ' (a local: the caller's period stays)
-    x = (rel + phase) / per
+    CLIP_mod_at! = amount * CLIP_wave!(kind, shape, seed, (rel + phase) / per)
+END FUNCTION
+
+''
+' A modulator's wave (-1..1) at x cycles: kind 1 LFO (shape 0 sine, 1
+' triangle, 2 square, 3 saw), 2 noise (a seeded value each cycle, eased).
+FUNCTION CLIP_wave! (kind AS INTEGER, shape AS INTEGER, seed AS LONG, x AS DOUBLE)
+    DIM p AS DOUBLE, w AS SINGLE, i AS LONG, t AS SINGLE
     IF kind = 1 THEN
         p = x - INT(x)
         SELECT CASE shape
@@ -219,9 +266,150 @@ FUNCTION CLIP_mod! (kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period 
             CASE 2: w = _IIF(p < .5, 1, -1)
             CASE ELSE: w = 2 * p - 1
         END SELECT
-    ELSE
+    ELSEIF kind = 2 THEN
         i = INT(x): t = x - i
         w = CLIP_hash!(seed, i) + (CLIP_hash!(seed, i + 1) - CLIP_hash!(seed, i)) * CLIP_ease!(3, t)
     END IF
-    CLIP_mod! = amount * w
+    CLIP_wave! = w
+END FUNCTION
+
+''
+' The keyed value at fractional frame rel (CLIP_lane_keyed! between the
+' frames: each ease's curve).
+FUNCTION CLIP_lane_keyed_at! (keys AS STRING, rel AS SINGLE, dflt AS SINGLE)
+    DIM n AS INTEGER, i AS INTEGER, f0 AS INTEGER, f1 AS INTEGER, v0 AS SINGLE, v1 AS SINGLE
+    n = CLIP_lks_n%(keys)
+    IF n = 0 THEN CLIP_lane_keyed_at! = dflt: EXIT FUNCTION
+    IF rel <= CLIP_lk_f%(keys, 1) THEN CLIP_lane_keyed_at! = CLIP_lk_v!(keys, 1): EXIT FUNCTION
+    IF rel >= CLIP_lk_f%(keys, n) THEN CLIP_lane_keyed_at! = CLIP_lk_v!(keys, n): EXIT FUNCTION
+    FOR i = 1 TO n - 1
+        f1 = CLIP_lk_f%(keys, i + 1)
+        IF rel < f1 THEN EXIT FOR
+    NEXT i
+    f0 = CLIP_lk_f%(keys, i): v0 = CLIP_lk_v!(keys, i): v1 = CLIP_lk_v!(keys, i + 1)
+    IF f1 <= f0 THEN CLIP_lane_keyed_at! = v1: EXIT FUNCTION
+    CLIP_lane_keyed_at! = v0 + (v1 - v0) * CLIP_ease!(CLIP_lk_e%(keys, i), (rel - f0) / (f1 - f0))
+END FUNCTION
+
+''
+' The period (frames per cycle, at least 1) a FREQUENCY sub-lane gives over
+' frame j (its keyed value at the whole frame; per0 with no keys).
+FUNCTION CLIP_per_at! (fkeys AS STRING, per0 AS SINGLE, j AS LONG)
+    DIM p AS SINGLE, r AS SINGLE
+    p = per0
+    IF LEN(fkeys) THEN r = j: p = CLIP_lane_keyed_at!(fkeys, r, per0)
+    IF p < 1 THEN p = 1
+    CLIP_per_at! = p
+END FUNCTION
+
+''
+' Cycles of the wave from frame t0 to t1 with the period changing over time
+' (each whole frame at its own period: the wave stays continuous as it speeds
+' up or slows down). Before t0: back at t0's period.
+FUNCTION CLIP_cycles# (fkeys AS STRING, per0 AS SINGLE, t0 AS SINGLE, t1 AS SINGLE)
+    DIM c AS DOUBLE, t AS DOUBLE, nx AS DOUBLE, j AS LONG
+    IF LEN(fkeys) = 0 THEN CLIP_cycles# = (t1 - t0) / _MAX(1, per0): EXIT FUNCTION ' (a steady period: exact, as before)
+    IF t1 <= t0 THEN CLIP_cycles# = (t1 - t0) / CLIP_per_at!(fkeys, per0, INT(t0)): EXIT FUNCTION
+    t = t0
+    DO WHILE t < t1
+        j = INT(t): nx = j + 1
+        IF nx > t1 THEN nx = t1
+        c = c + (nx - t) / CLIP_per_at!(fkeys, per0, j)
+        t = nx
+    LOOP
+    CLIP_cycles# = c
+END FUNCTION
+
+''
+' Frames after t0 until one whole cycle has passed (a one-shot's length).
+FUNCTION CLIP_cycle_len! (fkeys AS STRING, per0 AS SINGLE, t0 AS SINGLE)
+    DIM c AS DOUBLE, t AS DOUBLE, nx AS DOUBLE, j AS LONG, p AS SINGLE, n AS LONG
+    IF LEN(fkeys) = 0 THEN CLIP_cycle_len! = _MAX(1, per0): EXIT FUNCTION
+    t = t0
+    DO
+        j = INT(t): nx = j + 1: p = CLIP_per_at!(fkeys, per0, j)
+        IF c + (nx - t) / p >= 1 THEN CLIP_cycle_len! = (t + (1 - c) * p) - t0: EXIT FUNCTION
+        c = c + (nx - t) / p: t = nx: n = n + 1
+    LOOP UNTIL n > 100000
+    CLIP_cycle_len! = t - t0
+END FUNCTION
+
+''
+' The ADSR envelope (0..1) t frames after its key: up over a (attack), down to
+' s % over d (decay), held; with a release r, down to 0 over the r frames
+' before endT (the next key / a one-shot's end; endT >= 1E8: none). a = d =
+' r = 0, s = 100: 1 throughout (no envelope).
+FUNCTION CLIP_env! (t AS SINGLE, a AS INTEGER, d AS INTEGER, s AS INTEGER, r AS INTEGER, endT AS SINGLE)
+    DIM e AS SINGLE, rf AS SINGLE
+    IF t < 0 THEN EXIT FUNCTION
+    IF a > 0 _ANDALSO t < a THEN
+        e = t / a
+    ELSEIF d > 0 _ANDALSO t < a + d THEN
+        e = 1 - (1 - s / 100) * (t - a) / d
+    ELSE
+        e = s / 100
+    END IF
+    IF r > 0 _ANDALSO endT < 1E8 THEN
+        rf = (endT - t) / r
+        IF rf < 0 THEN rf = 0
+        IF rf < 1 THEN e = e * rf
+    END IF
+    CLIP_env! = e
+END FUNCTION
+
+''
+' The lane's modulator at fractional frame rel, per key span: the key at or
+' before rel says (CLIP_KF_*) whether it runs, one-shot or repeating, on the
+' lane's clock or restarted at the key; the envelope (a, d, s, r) starts at
+' the key and releases into the next. Before the first key only the plain
+' modulator runs (as every lane did before the flags). Whole frames: the
+' value that frame gets.
+FUNCTION CLIP_mod_span! (keys AS STRING, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, a AS INTEGER, d AS INTEGER, s AS INTEGER, r AS INTEGER, rel AS SINGLE)
+    DIM none AS STRING
+    CLIP_mod_span! = CLIP_mod_span2!(keys, none, none, kind, shape, amount, period, phase, seed, a, d, s, r, rel)
+END FUNCTION
+
+''
+' CLIP_mod_span! with the modulator's sub-lanes: fkeys the FREQUENCY lane
+' (frames per cycle over time: the wave speeds up / slows down, staying
+' continuous - CLIP_cycles#), akeys the AMPLITUDE lane (the amount over time).
+' "" = the modulator's own period / amount.
+FUNCTION CLIP_mod_span2! (keys AS STRING, fkeys AS STRING, akeys AS STRING, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, a AS INTEGER, d AS INTEGER, s AS INTEGER, r AS INTEGER, rel AS SINGLE)
+    DIM n AS INTEGER, i AS INTEGER, j AS INTEGER, fl AS INTEGER, kf AS SINGLE, t AS SINGLE, endT AS SINGLE, per AS SINGLE, env AS INTEGER, w AS SINGLE
+    DIM amt AS SINGLE, t0 AS SINGLE, x AS DOUBLE, one AS SINGLE
+    IF kind = 0 THEN EXIT FUNCTION
+    amt = amount
+    IF LEN(akeys) THEN amt = CLIP_lane_keyed_at!(akeys, rel, amount)
+    IF amt = 0 THEN EXIT FUNCTION
+    n = CLIP_lks_n%(keys)
+    env = (a > 0 _ORELSE d > 0 _ORELSE s <> 100 _ORELSE r > 0)
+    per = period: IF per < 1 THEN per = 1
+    FOR j = 1 TO n
+        IF CLIP_lk_f%(keys, j) <= rel THEN i = j ELSE EXIT FOR
+    NEXT j
+    IF i = 0 THEN ' before the first key (or no keys): the plain modulator only
+        IF n > 0 THEN fl = CLIP_lk_fl%(keys, 1)
+        IF fl <> 0 _ORELSE (env <> 0 _ANDALSO n > 0) THEN EXIT FUNCTION
+        x = CLIP_cycles#(fkeys, per, 0, rel) + phase / CLIP_per_at!(fkeys, per, 0)
+        w = amt * CLIP_wave!(kind, shape, seed, x)
+        IF env THEN w = w * CLIP_env!(rel, a, d, s, r, 1E9)
+        CLIP_mod_span2! = w
+        EXIT FUNCTION
+    END IF
+    fl = CLIP_lk_fl%(keys, i)
+    IF fl AND 16 THEN EXIT FUNCTION
+    kf = CLIP_lk_f%(keys, i): t = rel - kf
+    endT = 1E9
+    IF i < n THEN endT = CLIP_lk_f%(keys, i + 1) - kf
+    t0 = 0
+    IF fl AND 96 THEN t0 = kf ' one-shot / restart: the wave from the key
+    IF fl AND 32 THEN
+        one = CLIP_cycle_len!(fkeys, per, kf)
+        IF t >= one THEN EXIT FUNCTION
+        IF one < endT THEN endT = one
+    END IF
+    x = CLIP_cycles#(fkeys, per, t0, rel) + phase / CLIP_per_at!(fkeys, per, INT(t0))
+    w = amt * CLIP_wave!(kind, shape, seed, x)
+    IF env THEN w = w * CLIP_env!(t, a, d, s, r, endT)
+    CLIP_mod_span2! = w
 END FUNCTION

@@ -54,7 +54,7 @@ mr_fx() { local i; for (( i = 1; i + 2 < ${#XF[@]}; i += 3 )); do [[ "${XF[$i]}"
 mr_ry() { echo $(( XS_Y[$1] + XRH / 2 )); }
 mr_drop() { # FILE FRAME TRACK
     mr_read; hover "$(mr_fx "$2")" "$(mr_ry "$3")"; wait_for 0.3 "pointer at frame $2"
-    echo "$1" > "$MR_DUMP.drop"
+    native_path "$1" > "$MR_DUMP.drop"
     wait_for 2.5 "drop $(basename "$1")"
     mr_read
 }

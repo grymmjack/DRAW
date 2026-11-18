@@ -8,7 +8,7 @@
 
 > 🎯 **Goal:** Select, swap, and manage colors.
 
-The palette strip across the bottom of the screen is the fastest way to choose colors. **Left-click a swatch** to set the foreground (FG) color; **right-click a swatch** to set the background (BG) color. The active FG and BG swatches are echoed in the status bar.
+The palette strip (along the bottom of the screen unless you move it) is the fastest way to choose colors. **Left-click a swatch** to set the foreground (FG) color; **right-click a swatch** to set the background (BG) color. The active FG and BG swatches are echoed in the status bar.
 
 | Action | Key / mouse |
 | --- | --- |
@@ -18,8 +18,11 @@ The palette strip across the bottom of the screen is the fastest way to choose c
 | Scroll the palette strip | Mouse wheel over strip |
 | Fast-scroll 32 colors at a time | `Shift` + Mouse wheel |
 | Strip size: max rows, max columns, chip height, chip width | Right-click a blank part of the strip (no color) |
+| Move the strip to the bottom, top, left or right edge | Right-click a blank part of the strip → **Edge** (or *Settings → General → Palette Strip → Strip Edge*) |
 | Temporary FG eyedropper (any tool) | `Alt`+Left-click on canvas |
 | Temporary BG eyedropper (any tool) | `Alt`+Right-click on canvas |
+
+**The strip on another edge.** Along the **top** the strip sits under the menu bar, with the palette name at its right end, and the docks and canvas start below it. On the **left** or **right** it is the bottom strip turned sideways: a column the height of the window (under the menu bar, down to the status bar), the palette dropdown at the top and the chips filling columns from the top down. Its size settings turn with it: *max rows* becomes the number of chip columns, and the up / down buttons scroll it. The side docks lay out beside it. Where the strip sits is saved in DRAW.cfg (`PALETTE_STRIP_EDGE`) and kept per workspace.
 
 **Paint opacity** — the keys `1` through `9` set strokes to 10–90% opacity, and `0` returns to fully opaque 100%. DRAW uses **per-stroke compositing**, which means a 50% stroke that overlaps itself does not get *more* opaque the way Photoshop's brush would; the stroke is rendered once at the end as a single 50% pass. This makes for predictable, pixel-art-friendly results.
 
@@ -56,7 +59,7 @@ The **Color Mixer panel** is a floating, persistent alternative to the modal pic
 - A hex input field — paste any hex value directly.
 - FG and BG swatches — click to apply the mixed color.
 
-Because the mixer is non-modal, you can keep it open while drawing and tweak colors live. Its visibility is persisted in `DRAW.cfg`.
+Because the mixer is non-modal, you can keep it open while drawing and tweak colors live: every change applies at once, so it has no OK / Cancel buttons (floating or docked; those belong to the picker a dialog opens for one color). Its visibility is persisted in `DRAW.cfg`.
 
 ### 3D Color Space — OKLab, CIELAB, XYZ & RGB
 

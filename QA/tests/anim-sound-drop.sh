@@ -73,7 +73,7 @@ sd_fx() { # FRAME -> the middle x of its span on the X-sheet
 sd_ry() { echo $(( XS_Y[$1] + XRH / 2 )); } # TRACK -> its row's middle y
 sd_drop() { # FILE X Y - the pointer at (X, Y), then the stand-in OS drop of FILE
     hover "$2" "$3"; wait_for 0.3 "pointer at the drop point"
-    echo "$1" > "$SD_DUMP.drop"
+    native_path "$1" > "$SD_DUMP.drop"
     wait_for 1.2 "drop $(basename "$1")"
     sd_read
 }

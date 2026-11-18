@@ -1,25 +1,28 @@
 # Ch. 12  ⚙️ UI Customization & Settings
 
-> **What you'll learn:** How to configure DRAW to your taste — the eight-tab settings dialog, theming, panel docking, and the various ways `DRAW.cfg` works under the hood.
+> **What you'll learn:** How to configure DRAW to your taste — the ten-tab settings dialog, theming, panel docking, and the various ways `DRAW.cfg` works under the hood.
 
 ---
 
-## Settings Dialog — All 8 Tabs Explained
+## Settings Dialog — All 11 Tabs Explained
 
 > 🎯 **Goal:** Configure DRAW to your preferences.
 
-Open the settings dialog with `Ctrl+,` (comma) or `Edit → Settings`. The dialog has eight tabs covering every persistent option.
+Open the settings dialog with `Ctrl+,` (comma) or `Edit → Settings`. The dialog has eleven tabs covering every persistent option.
 
 | Tab | What it controls |
 | --- | --- |
 | **General** | Display scale, fullscreen toggle, FPS limit, UI scaling, tooltips and the **Help Card** (on/off, which edge of the canvas area it docks to, hover delay). **Tooltip Delay** and **Help Card Delay** work the same way: 0–5000 ms (0 = instant). The **−**/**+** buttons and the mouse wheel step by 50 ms, and you can click the number to type an exact value, **Enable AI Features**. |
 | **Grid** | Default grid size, geometry, alignment, snap state, crosshair appearance. |
-| **Palette** | Default palette, recent-palettes list size, Lospec UI visibility. |
+| **Palette** | Default palette, recent-palettes list size, Lospec UI visibility; the **Palette Strip**'s size and **Strip Edge** (Bottom / Top / Left / Right — on a side the strip is a column, its rows turned into columns, the palette dropdown above the chips; also the strip's right-click menu → Edge). |
 | **Panels** | Default visibility for Toolbox, Layers, Edit Bar, Advanced Bar, Preview, Character Map, Drawer, Color Mixer; Layers panel options, including **Thumbnails** (Off / Tiny / Small / Medium), **Thumbnail Shows** (Content / Canvas), **Min Crop (px)** and **Layer Bar** (Off / Top / Bottom); the animation **Lightbox Strip**: **Strip Layout** (Tray / Row), **Min Cell (px)** and **Cell Size (px)**, and **X-Sheet Rows** (Text / Tiny / Small / Medium: the layer rows and the SOUND rows, whose waveform grows with them). |
 | **Audio** | SFX and music enable/disable, master volume, mute. |
 | **Fonts** | Default font and size, paths to scan for TTF/OTF. |
 | **Appearance** | Various color scheme configurations. |
 | **Directories** | Where DRAW looks for templates, palettes, music. |
+| **Browser** | The image browser's size, place and default view. |
+| **Animation** | The X-sheet's default zoom (**Default Zoom: Show All Frames** - every frame across, or a thumbnail a tick), the X-sheet's **Contrast** (its grid, guides and dotted lines stronger or softer; also `Ctrl+Alt+Shift+wheel` over the X-sheet, `Ctrl+Alt+Shift+middle-click` resets), the transform widget's **Opacity %** (what it starts at and what `Ctrl+Alt+Shift+middle-click` over it restores), the lane curves' **Line Thickness** (1-4 px), **Lane Thumbnails** (Off / Keyframes / Every Frame: thumbnails drawn through the lanes on a laned layer's main X-sheet row), and **Keyframe Lane Colors** - one colour per lane (X, Y, SCALE X / Y, ROTATE, OPACITY, TINT, PIVOT X / Y, VOLUME, PAN) for its curve on the X-sheet and its swatch on the Animation panel's LANES page; **Default Colors** puts them back. Also **ANIM → Set Up → Animation Settings…**. |
+| **Pen Control** | Everything for a drawing tablet and stroke smoothing, the same settings as the **Pen Control** panel (View → Pen Control). **Pen Tablet**: Pen Pressure on or off; pressure sets brush size, mix paint and opacity, each with its lightest-touch value; the tip threshold and the pressure curve. **Position Smoothing**: Smooth Position on or off, the mode (Pulled String / Moving Average / EMA / Inertia), Amount, Catch Up, the guide line and cursor and their colour. **Pressure Processing**: Smooth Pressure on or off, the mode (Fixed / Hold / Average / EMA) and Amount. **Speed Scaling**: Scale Pressure by Speed on or off, the gain at rest and at speed (×100), Fast Speed in screen px/s and Speed Smoothing. See *Pen Tablets & Pressure* and *Stroke Smoothing* in Ch. 2. |
 
 ### Enable AI Features
 
@@ -89,7 +92,8 @@ Anything you can theme — UI palette, transform-overlay frame, smart-guide colo
 
 - **Display Scale** — 1× through 8×. Suits HiDPI monitors.
 - **Toolbar Scale** — 1× through 4×. Independent of display scale, so you can have small toolbar icons on a HiDPI display.
-- **Panel Scale** — the Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Swatches, Preview and Browser panels, and the docked Toolbox, Organizer, Drawer, Layers, Edit Bar, Advanced Bar, Character Map and Workflow Buttons, each have their own size: **Auto** (the default) follows the UI Scale, or fix one at 1× through 8× — that many screen pixels for each of the panel's pixels, so 1× is as small and sharp as your screen draws. Right-click the panel's title bar (a docked panel's handle) → **Scale**, or Settings → Panels → Panel Scale.
+- **Panel Scale** — the Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches, Preview and Browser panels, and the docked Toolbox, Organizer, Drawer, Layers, Edit Bar, Advanced Bar, Character Map, Workflow Buttons and the text tool's bar, each have their own size: **Auto** (the default) follows the UI Scale, or fix one at 1× through 8× — that many screen pixels for each of the panel's pixels, so 1× is as small and sharp as your screen draws. Right-click the panel's title bar (a docked panel's handle) → **Scale**, or Settings → Panels → Panel Scale.
+- **Top/Bottom Docks** — how wide the rows docked along the top and bottom of the canvas area are: **Between Side Docks** (the default; they fill the space between the left and right columns) or **Full Width** (they span the window, and the side columns sit between them). Saved with the arrangement and in workspaces.
 
 <div class="page-break"></div>
 
@@ -116,11 +120,11 @@ Beyond left and right, panels can be **stacked** in one column, **tabbed**,
 **collapsed** to their title, **floated** in their own window and docked back.
 Drag a panel by its handle (its title strip, the layers header, or the thin
 grip that appears on a panel's top edge), and right-click a handle for Move to
-Left/Right Edge, Collapse, Float, Reset Arrangement and — on the Animation, Color
-Mixer, color picker, 3D Color Space, Pen Pressure and Swatches panels — **Scale** (Auto or 1×–4×). The floating windows
-(Preview, Color Mixer, the color pickers, Pen Pressure, Swatches, Browser) dock by
+Left/Right Edge, Dock Along the Top / Bottom, Collapse, Float, Reset Arrangement and
+**Scale** (Auto or 1×–8×; see Panel Scale above for the panels that have one). The floating windows
+(Preview, Color Mixer, the color pickers, Pen Control, Swatches, Browser) dock by
 dragging their title bar onto a dock target. Docked, the Animation, Color
-Mixer, color picker, 3D Color Space, Pen Pressure and Swatches panels fill their slot:
+Mixer, color picker, 3D Color Space, Pen Control and Swatches panels fill their slot:
 their rows and sliders stretch to the column's width, and in a column with
 room to spare their big area — the color field, the wheel and its shade rows,
 the 3D view, the response graph — grows taller. Floating, they go back to

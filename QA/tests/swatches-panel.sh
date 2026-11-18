@@ -69,6 +69,36 @@ screenshot "swatches-gear"
 key Escape; dk_park; dk_settle; sw_read
 sw_expect "Escape closes the menu" "$SW_MENU" 0
 
+# the "..." chips: a typed CELL / GAP (Rick 2026-11-16: "custom with button [...] - when clicked can
+# set a custom value for columns, cells, and gaps"); the chip then reads "18..." and is the one checked.
+# (18: no preset chip, and under the ~21 px an 8-column grid fits in this panel - a wider cell is drawn
+#  shrunk to fit, by design)
+sw_custom() { # ID VALUE: open the gear, click the row's "..." chip, type VALUE, Enter
+    sw_geo
+    click $(( E_X + E_W / 2 )) $(( E_Y + E_H / 2 )); dk_settle
+    sw_chip "$1" "..."
+    if [[ -z "$K_X" ]]; then fail "no '...' chip in row $1"; return 1; fi
+    click $(( K_X + K_W / 2 )) $(( K_Y + K_H / 2 )); wait_for 0.8 "the input box"
+    key ctrl+a; type_text "$2"; key Return; wait_for 0.8 "typed $2"; dk_park; dk_settle; sw_read
+}
+if sw_custom 11 18; then
+    sw_expect "CELL '...' 18: the menu closed for the box" "$SW_MENU" 0
+    sw_expect "CELL '...' 18: cell width" "$SW_CW" 18
+    sw_geo; click $(( E_X + E_W / 2 )) $(( E_Y + E_H / 2 )); dk_settle
+    sw_chip 11 "18..."
+    [[ -n "$K_X" ]] && pass "the gear again: the CELL chip reads '18...'" || fail "no '18...' chip: $(grep '^SWATMC 11 ' "$DK_DUMP" | awk '{print $8}' | tr '\n' ' ')"
+    sw_chip 11 10; click $(( K_X + K_W / 2 )) $(( K_Y + K_H / 2 )); dk_settle; sw_read
+    sw_expect "CELL 10 chip: back to 10" "$SW_CW" 10
+    key Escape; dk_park; dk_settle
+fi
+if sw_custom 12 6; then
+    sw_expect "GAP '...' 6: the gap" "$SW_GAP" 6
+    sw_geo; click $(( E_X + E_W / 2 )) $(( E_Y + E_H / 2 )); dk_settle
+    sw_chip 12 1; click $(( K_X + K_W / 2 )) $(( K_Y + K_H / 2 )); dk_settle; sw_read
+    sw_expect "GAP 1 chip: back to 1" "$SW_GAP" 1
+    key Escape; dk_park; dk_settle
+fi
+
 # the set list opens (the document palette + the shipped sets) and closes
 sw_geo
 click $(( B_X + B_W / 2 )) $(( B_Y + B_H / 2 )); dk_settle; sw_read

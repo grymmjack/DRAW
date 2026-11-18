@@ -37,5 +37,5 @@ TYPE PSURF_OBJ
     ready AS INTEGER ' drawn since its rect was set
 END TYPE
 
-CONST PSURF_N = 8 ' the dock panels: DP_TOOLBOX .. DP_WORKFLOW
+CONST PSURF_N = 9 ' the dock panels: DP_TOOLBOX .. DP_TEXTBAR
 DIM SHARED PSURF(1 TO PSURF_N) AS PSURF_OBJ

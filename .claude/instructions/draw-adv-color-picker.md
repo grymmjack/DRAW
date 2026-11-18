@@ -147,3 +147,13 @@ all three document-creation paths) for any new stateful field.
   release frame doesn't fire a spurious history save (per project gotcha #5).
 - **Neighbor drag ≠ color change.** `ACP_DRAG_NEIGHBOR` changes only the shade range;
   `ADVCP_mouse_input` force-repaints (`SCENE_DIRTY%`) without touching the paint color.
+
+## Antialiased wheel (2026-11-17)
+
+The ring, triangle and markers are drawn with edge coverage, always (UI chrome):
+`ACP_build_ring` - alpha = (ro - d + 0.5) + (d - ri + 0.5) - 1 from each pixel centre;
+`ACP_build_triangle` - fill alpha = inside distance to the nearest edge + 0.5
+(`ACP_edge_in!`), with the 1px black outline built in (1 - distance to the nearest edge
+segment, `ACP_seg_dist!`) - the old `LINE` outline in `ACP_render_all` is gone; both written
+straight-alpha with `_DONTBLEND` onto their clear images. Markers are `ACP_aa_band` rings
+(source-over via `POINT`) at the exact float spot. Hit tests are unchanged.

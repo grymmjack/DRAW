@@ -25,8 +25,8 @@ $INCLUDEONCE
 OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
-CONST WZ_TBED  = 17 ' Customize Toolbars (no DP_ id: it never docks)
-CONST WZ_COUNT = 17 ' DP_COUNT + 1
+CONST WZ_TBED  = 18 ' Customize Toolbars (no DP_ id: it never docks)
+CONST WZ_COUNT = 18 ' DP_COUNT + 1
 
 DIM SHARED WZ_Z(1 TO WZ_COUNT) AS LONG ' higher = nearer the front
 DIM SHARED WZ_TOP AS LONG               ' the frontmost z handed out so far

@@ -73,5 +73,25 @@ strip; right_click $(( 2 + 12 + 2 + 3 )) $(( ST_Y + 4 )); wait_for 0.6 "a chip";
 # a click elsewhere closes an open menu (and does nothing else)
 open_menu; dk_park; click $(( PM_RX + PM_RW + 80 )) $(( PM_RY - 60 )); wait_for 0.6 "outside"; dk_settle; psm
 [[ -z "$PM_RX" ]] && pass "a click outside closes it" || fail "still open after a click outside"
+# a right-click on a scroll button opens the menu too, and does not scroll
+# (Rick 2026-11-16: "the color strip context menu needs to popup when right
+# clicking the scroll left/right buttons (or ... vertical ...) up/down")
+pick 1 0 "max columns 16 (so the strip scrolls)"
+pgrid() { read -r _ _ _ _ _ _ _ G_OFF _ A1X A1Y A1W A1H A2X A2Y A2W A2H G_FIT <<< "$(grep -m1 '^PSTRIPG' "$DK_DUMP")"; }
+dk_settle; pgrid
+if [[ "$G_FIT" != 0 ]] || (( A1W <= 0 )); then
+    fail "the strip has no scroll buttons with 16 columns in 1 row (allFit $G_FIT, a1w $A1W)"
+else
+    for ab in 1 2; do
+        if (( ab == 1 )); then AX=$(( A1X + A1W / 2 )); AY=$(( A1Y + A1H / 2 )); else AX=$(( A2X + A2W / 2 )); AY=$(( A2Y + A2H / 2 )); fi
+        O0=$G_OFF
+        right_click "$AX" "$AY"; wait_for 0.6 "scroll button $ab"; dk_settle; psm; pgrid
+        [[ -n "$PM_RX" ]] && pass "a right-click on scroll button $ab opens the menu" || fail "no menu after a right-click on scroll button $ab ($AX,$AY)"
+        (( G_OFF == O0 )) && pass "... and does not scroll (offset $G_OFF)" || fail "the right-click scrolled $O0 -> $G_OFF"
+        key Escape; wait_for 0.4 "esc"; dk_settle
+    done
+    click $(( A2X + A2W / 2 )) $(( A2Y + A2H / 2 )); wait_for 0.4 "left click"; dk_settle; pgrid
+    (( G_OFF != O0 )) && pass "a left click on it still scrolls ($O0 -> $G_OFF)" || fail "a left click on the scroll button did not scroll"
+fi
 assert_no_crash
 info "=== Color strip: the size menu: done ==="

@@ -8,6 +8,7 @@
 # 2026-10-08: the layer text went under a docked Preview).
 # Generated with the other dock-native-*.sh (same steps, one window each).
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt ADV_COLOR_PICKER_VISIBLE=1 CHARMAP_VISIBLE=1
+# QA-TIMEOUT: 1500 (Windows: ~2.5x Linux; every check still passing at the old 600 s cut, 2026-11-17)
 # =============================================================================
 source "$DRAW_ROOT/QA/dock-lib.sh"
 info "=== Dock: Advanced Color Picker with every docked panel ==="

@@ -348,8 +348,10 @@ SUB CLIP_lanes_clear (k AS INTEGER)
 END SUB
 
 FUNCTION CLIP_lane_name$ (L AS INTEGER)
-    IF L < 1 _ORELSE L > CLIP_LANES THEN EXIT FUNCTION
-    CLIP_lane_name$ = _TRIM$(MID$("X       Y       SCALE X SCALE Y ROTATE  OPACITY TINT    PIVOT X PIVOT Y VOLUME  PAN     ", (L - 1) * 8 + 1, 8))
+    IF L > CLIP_SUB_FREQ _ANDALSO L <= CLIP_SUB_FREQ + CLIP_LANE_LAST THEN CLIP_lane_name$ = CLIP_lane_name$(L - CLIP_SUB_FREQ) + " ~FREQ": EXIT FUNCTION
+    IF L > CLIP_SUB_AMP _ANDALSO L <= CLIP_SUB_AMP + CLIP_LANE_LAST THEN CLIP_lane_name$ = CLIP_lane_name$(L - CLIP_SUB_AMP) + " ~AMP": EXIT FUNCTION
+    IF L < 1 _ORELSE L > CLIP_LANE_LAST THEN EXIT FUNCTION
+    CLIP_lane_name$ = _TRIM$(MID$("X       Y       SCALE X SCALE Y ROTATE  OPACITY TINT    PIVOT X PIVOT Y VOLUME  PAN     BLEND   BLUR    PIXELATEINVERT  NOISE   ", (L - 1) * 8 + 1, 8))
 END FUNCTION
 
 ''
@@ -373,6 +375,82 @@ FUNCTION CLIP_mod_pack$ (kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, pe
 END FUNCTION
 
 ''
+' A modulator's envelope (bytes 21-28 of the pack: attack, decay, sustain %,
+' release; a 20-byte pack - every one before envelopes - has none: 0 0 100 0).
+' An older DRAW reads the first 20 bytes and plays it without.
+SUB CLIP_mod_env (m AS STRING, a AS INTEGER, d AS INTEGER, s AS INTEGER, r AS INTEGER)
+    a = 0: d = 0: s = 100: r = 0
+    IF LEN(m) < 28 THEN EXIT SUB
+    a = CVI(MID$(m, 21, 2)): d = CVI(MID$(m, 23, 2)): s = CVI(MID$(m, 25, 2)): r = CVI(MID$(m, 27, 2))
+END SUB
+
+''
+' Pack m with the envelope a d s r (none: back to 20 bytes).
+FUNCTION CLIP_mod_with_env$ (m AS STRING, a AS INTEGER, d AS INTEGER, s AS INTEGER, r AS INTEGER)
+    DIM tl AS STRING
+    IF LEN(m) < 20 THEN EXIT FUNCTION
+    tl = MID$(m, 29) ' (the sub-lanes stay)
+    IF a = 0 _ANDALSO d = 0 _ANDALSO s = 100 _ANDALSO r = 0 _ANDALSO LEN(tl) = 0 THEN CLIP_mod_with_env$ = LEFT$(m, 20): EXIT FUNCTION
+    CLIP_mod_with_env$ = LEFT$(m, 20) + MKI$(_MAX(0, a)) + MKI$(_MAX(0, d)) + MKI$(_MAX(0, _MIN(100, s))) + MKI$(_MAX(0, r)) + tl
+END FUNCTION
+
+''
+' Modulator m's sub-lane keys: which 1 = FREQUENCY, 2 = AMPLITUDE (bytes 29+:
+' length(2) + keys, then the same for the other).
+FUNCTION CLIP_mod_sub$ (m AS STRING, which AS INTEGER)
+    DIM p AS LONG, n AS LONG, w AS INTEGER
+    p = 29
+    FOR w = 1 TO 2
+        IF p + 1 > LEN(m) THEN EXIT FUNCTION
+        n = CVI(MID$(m, p, 2))
+        IF n < 0 _ORELSE p + 1 + n > LEN(m) THEN EXIT FUNCTION
+        IF w = which THEN CLIP_mod_sub$ = MID$(m, p + 2, n - (n MOD 8)): EXIT FUNCTION
+        p = p + 2 + n
+    NEXT w
+END FUNCTION
+
+''
+' m with sub-lane which's keys = ks (the envelope bytes made when needed;
+' both sub-lanes gone and no envelope: back to 20 bytes).
+FUNCTION CLIP_mod_with_sub$ (m AS STRING, which AS INTEGER, ks AS STRING)
+    DIM fk AS STRING, ak AS STRING, a AS INTEGER, d AS INTEGER, s AS INTEGER, r AS INTEGER, h AS STRING
+    IF LEN(m) < 20 THEN EXIT FUNCTION
+    fk = CLIP_mod_sub$(m, 1): ak = CLIP_mod_sub$(m, 2)
+    IF which = 1 THEN fk = ks ELSE ak = ks
+    CLIP_mod_env m, a, d, s, r
+    h = LEFT$(m, 20) + MKI$(a) + MKI$(d) + MKI$(s) + MKI$(r)
+    IF LEN(fk) _ORELSE LEN(ak) THEN
+        CLIP_mod_with_sub$ = h + MKI$(LEN(fk)) + fk + MKI$(LEN(ak)) + ak
+    ELSE
+        CLIP_mod_with_sub$ = CLIP_mod_with_env$(h, a, d, s, r)
+    END IF
+END FUNCTION
+
+''
+' CLIP_mod_pack$ keeping old's envelope (the edits that change the wave).
+FUNCTION CLIP_mod_repack$ (old AS STRING, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG)
+    DIM m AS STRING
+    m = CLIP_mod_pack$(kind, shape, amount, period, phase, seed)
+    IF LEN(m) _ANDALSO LEN(old) > 20 THEN m = m + MID$(old, 21)
+    CLIP_mod_repack$ = m
+END FUNCTION
+
+''
+' Modulator m on a lane with keys at fractional frame rel (CLIP_mod_span!).
+FUNCTION CLIP_mod_lane! (keys AS STRING, m AS STRING, rel AS SINGLE)
+    DIM kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    DIM a AS INTEGER, d AS INTEGER, s AS INTEGER, r AS INTEGER
+    IF LEN(m) < 20 THEN EXIT FUNCTION
+    CLIP_mod_unpack m, kind, shape, amount, period, phase, seed
+    CLIP_mod_env m, a, d, s, r
+    IF LEN(m) > 28 THEN
+        CLIP_mod_lane! = CLIP_mod_span2!(keys, CLIP_mod_sub$(m, 1), CLIP_mod_sub$(m, 2), kind, shape, amount, period, phase, seed, a, d, s, r, rel)
+    ELSE
+        CLIP_mod_lane! = CLIP_mod_span!(keys, kind, shape, amount, period, phase, seed, a, d, s, r, rel)
+    END IF
+END FUNCTION
+
+''
 ' Unpack a modulator into the caller's locals (kind 0 = none).
 SUB CLIP_mod_unpack (m AS STRING, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG)
     kind = 0: shape = 0: amount = 0: period = 12: phase = 0: seed = 1
@@ -385,14 +463,11 @@ END SUB
 ' Lane L of instance k at frame f: the keyed value (or the default) plus the
 ' modulator.
 FUNCTION CLIP_lane_value! (k AS INTEGER, L AS INTEGER, f AS INTEGER)
-    DIM rel AS INTEGER, v AS SINGLE, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
+    DIM rel AS INTEGER, v AS SINGLE, r AS SINGLE
     IF k < 1 _ORELSE k > CLIP_INST_MAX _ORELSE L < 1 _ORELSE L > CLIP_LANES THEN EXIT FUNCTION
     rel = f - CLIP_INST(k).inF
     v = CLIP_lane_keyed!(CLIP_LN_KEYS(k, L), rel, CLIP_lane_default!(k, L))
-    IF LEN(CLIP_LN_MOD(k, L)) THEN
-        CLIP_mod_unpack CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed
-        v = v + CLIP_mod!(kind, shape, amount, period, phase, seed, rel)
-    END IF
+    IF LEN(CLIP_LN_MOD(k, L)) THEN r = rel: v = v + CLIP_mod_lane!(CLIP_LN_KEYS(k, L), CLIP_LN_MOD(k, L), r)
     CLIP_lane_value! = v
 END FUNCTION
 
@@ -445,6 +520,7 @@ END FUNCTION
 ' step (the X-sheet's LANES row drag).
 SUB CLIP_keys_shift (slot AS INTEGER, fromRel AS INTEGER, toRel AS INTEGER)
     DIM k AS INTEGER, L AS INTEGER, i AS INTEGER, ks AS STRING, v AS SINGLE, e AS INTEGER, before AS STRING, dst AS INTEGER
+    DIM w AS INTEGER, sk AS STRING
     k = CLIP_inst_of%(slot): dst = _MAX(0, toRel)
     IF k = 0 _ORELSE fromRel = dst THEN EXIT SUB
     before = CLIP_state$(slot)
@@ -452,9 +528,21 @@ SUB CLIP_keys_shift (slot AS INTEGER, fromRel AS INTEGER, toRel AS INTEGER)
         i = CLIP_lk_index%(k, L, fromRel)
         IF i THEN
             ks = CLIP_LN_KEYS(k, L)
-            v = CLIP_lk_v!(ks, i): e = CLIP_lk_e%(ks, i)
+            v = CLIP_lk_v!(ks, i): e = CLIP_lk_raw%(ks, i) ' (its modulator flags too)
             ks = CLIP_lks_del$(CLIP_lks_del$(ks, fromRel), dst)
             CLIP_LN_KEYS(k, L) = CLIP_lks_put$(ks, dst, v, e)
+        END IF
+        ' its modulator's FREQUENCY / AMPLITUDE sub-lanes move with it
+        IF LEN(CLIP_LN_MOD(k, L)) > 28 THEN
+            FOR w = 1 TO 2
+                sk = CLIP_mod_sub$(CLIP_LN_MOD(k, L), w)
+                i = ANIM_XL_index_in%(sk, fromRel)
+                IF i THEN
+                    v = CLIP_lk_v!(sk, i): e = CLIP_lk_raw%(sk, i)
+                    sk = CLIP_lks_put$(CLIP_lks_del$(CLIP_lks_del$(sk, fromRel), dst), dst, v, e)
+                    CLIP_LN_MOD(k, L) = CLIP_mod_with_sub$(CLIP_LN_MOD(k, L), w, sk)
+                END IF
+            NEXT w
         END IF
     NEXT L
     CLIP_rebuild slot
@@ -659,6 +747,7 @@ END FUNCTION
 ' square / saw, 5 noise), 25 the ease of the key at / before this frame (-1 none).
 FUNCTION CLIP_lane_get& (k AS INTEGER, which AS INTEGER)
     DIM L AS INTEGER, rel AS INTEGER, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG, i AS INTEGER
+    IF CLIP_LANE_PICK < 1 _ORELSE CLIP_LANE_PICK > CLIP_LANES THEN CLIP_LANE_PICK = 1 ' (a layer's BLEND lane picked last)
     L = CLIP_LANE_PICK: rel = ANIM.current - CLIP_INST(k).inF
     CLIP_mod_unpack CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed
     SELECT CASE which
@@ -677,11 +766,16 @@ FUNCTION CLIP_lane_clamp! (L AS INTEGER, v AS SINGLE)
     DIM lo AS SINGLE, hi AS SINGLE
     lo = -9999: hi = 9999
     SELECT CASE L
-        CASE CLIP_LANE_SX, CLIP_LANE_SY: lo = 0: hi = 1000
+        CASE CLIP_LANE_SX, CLIP_LANE_SY: lo = -1000: hi = 1000 ' (below 0 = mirrored: Flip on an armed layer keys -100 - Rick 2026-11-16)
         CASE CLIP_LANE_ROT: lo = -3600: hi = 3600
         CASE CLIP_LANE_OP, CLIP_LANE_TINT: lo = 0: hi = 100
         CASE CLIP_LANE_VOL: lo = 0: hi = 200
         CASE CLIP_LANE_PAN: lo = -100: hi = 100
+        CASE CLIP_LANE_BLEND: CLIP_lane_clamp! = _MAX(0, _MIN(BLEND_MODE_COUNT - 1, CINT(v))): EXIT FUNCTION ' a blend mode: whole
+        CASE CLIP_LANE_BLUR: CLIP_lane_clamp! = _MAX(0, _MIN(32, CINT(v))): EXIT FUNCTION ' (whole px)
+        CASE CLIP_LANE_PIXELATE: CLIP_lane_clamp! = _MAX(1, _MIN(64, CINT(v))): EXIT FUNCTION
+        CASE CLIP_LANE_INVERT, CLIP_LANE_NOISE: lo = 0: hi = 100
+        CASE CLIP_SUB_FREQ + 1 TO CLIP_SUB_FREQ + CLIP_LANE_LAST: lo = 1: hi = 999 ' frames per cycle
     END SELECT
     CLIP_lane_clamp! = _MAX(lo, _MIN(hi, v))
 END FUNCTION
@@ -703,6 +797,7 @@ END FUNCTION
 FUNCTION CLIP_lane_set$ (k AS INTEGER, which AS INTEGER, v AS LONG)
     DIM L AS INTEGER, rel AS INTEGER, kind AS INTEGER, shape AS INTEGER, amount AS SINGLE, period AS SINGLE, phase AS SINGLE, seed AS LONG
     DIM ks AS STRING, i AS INTEGER, nm AS STRING
+    IF CLIP_LANE_PICK < 1 _ORELSE CLIP_LANE_PICK > CLIP_LANES THEN CLIP_LANE_PICK = 1
     L = CLIP_LANE_PICK: rel = ANIM.current - CLIP_INST(k).inF: nm = CLIP_lane_name$(L)
     CLIP_mod_unpack CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed
     ks = CLIP_LN_KEYS(k, L)
@@ -717,7 +812,7 @@ FUNCTION CLIP_lane_set$ (k AS INTEGER, which AS INTEGER, v AS LONG)
                 CASE 22: period = _MAX(1, _MIN(999, v))
                 CASE 23: IF kind = 2 THEN seed = v ELSE phase = _MAX(-999, _MIN(999, v))
             END SELECT
-            CLIP_LN_MOD(k, L) = CLIP_mod_pack$(kind, shape, amount, period, phase, seed)
+            CLIP_LN_MOD(k, L) = CLIP_mod_repack$(CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed)
             CLIP_lane_set$ = "Clip Modulator " + nm
         CASE 24
             IF kind = 0 THEN amount = CLIP_mod_default_amount!(L)
@@ -726,11 +821,11 @@ FUNCTION CLIP_lane_set$ (k AS INTEGER, which AS INTEGER, v AS LONG)
                 CASE 5: kind = 2
                 CASE ELSE: kind = 0
             END SELECT
-            CLIP_LN_MOD(k, L) = CLIP_mod_pack$(kind, shape, amount, period, phase, seed)
+            CLIP_LN_MOD(k, L) = CLIP_mod_repack$(CLIP_LN_MOD(k, L), kind, shape, amount, period, phase, seed)
             CLIP_lane_set$ = "Clip Modulator " + nm
         CASE 25
             i = CLIP_lk_at_or_before%(ks, rel)
-            IF i THEN CLIP_LN_KEYS(k, L) = CLIP_lks_put$(LEFT$(ks, (i - 1) * 8) + MID$(ks, i * 8 + 1), CLIP_lk_f%(ks, i), CLIP_lk_v!(ks, i), _MAX(0, _MIN(4, v)))
+            IF i THEN CLIP_LN_KEYS(k, L) = CLIP_lks_ease$(ks, i, _MAX(0, _MIN(4, v)))
             CLIP_lane_set$ = "Clip Key Ease"
         CASE 26: CLIP_LN_KEYS(k, L) = CLIP_lks_put$(ks, rel, CLIP_lane_keyed!(ks, rel, CLIP_lane_default!(k, L)), CLIP_EASE_LINEAR): CLIP_lane_set$ = "Clip Key " + nm
         CASE 27: CLIP_LN_KEYS(k, L) = CLIP_lks_del$(ks, rel): CLIP_lane_set$ = "Clip Delete Key"
@@ -1961,11 +2056,15 @@ FUNCTION CLIP_dump_lanes$ (slot AS INTEGER, k AS INTEGER)
     CLIP_dump_lanes$ = s
 END FUNCTION
 
-FUNCTION CLIP_num$ (v AS SINGLE) ' up to 2 decimals, no trailing zeros
-    DIM s AS STRING
-    s = _TRIM$(STR$(CLNG(v * 100) / 100))
-    IF LEFT$(s, 1) = "." THEN s = "0" + s
-    IF LEFT$(s, 2) = "-." THEN s = "-0" + MID$(s, 2)
+FUNCTION CLIP_num$ (v AS SINGLE) ' up to 2 decimals, no trailing zeros (built from integers: STR$ of a DOUBLE / 100 can print 16 digits)
+    DIM n AS LONG, f AS LONG, s AS STRING
+    n = CLNG(v * 100): f = ABS(n) MOD 100
+    s = _TRIM$(STR$(ABS(n) \ 100))
+    IF f THEN
+        s = s + "." + RIGHT$("0" + _TRIM$(STR$(f)), 2)
+        IF RIGHT$(s, 1) = "0" THEN s = LEFT$(s, LEN(s) - 1)
+    END IF
+    IF n < 0 THEN s = "-" + s
     CLIP_num$ = s
 END FUNCTION
 

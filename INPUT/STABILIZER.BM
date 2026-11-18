@@ -1,0 +1,292 @@
+''
+' DRAW - INPUT/STABILIZER.BM
+' =============================================================================
+' Position smoothing (STAB_), pressure processing (PPROC_) and pressure speed
+' scaling (PSPD_). See STABILIZER.BI. Pure math: canvas coords in, a clock in
+' seconds, the settings copied in by the caller.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' ============================================================================
+' Amount -> the filters' own units
+' ============================================================================
+
+' Moving Average window (s): 0..100 -> 0..0.6 s (30 = 0.18 s)
+FUNCTION STAB_ma_window# (amount AS INTEGER)
+    STAB_ma_window# = 0.006# * _MAX(0, _MIN(100, amount))
+END FUNCTION
+
+' EMA time constant (s): 0..100 -> 0..1 s, squared so the low end is fine-grained
+FUNCTION STAB_ema_tau# (amount AS INTEGER)
+    DIM a AS DOUBLE
+    a = _MAX(0, _MIN(100, amount)) / 100#
+    STAB_ema_tau# = a * a
+END FUNCTION
+
+' Inertia spring frequency (Hz): 0..100 -> 14..0.9 Hz (more Amount = more mass)
+FUNCTION STAB_inertia_hz# (amount AS INTEGER)
+    DIM a AS DOUBLE
+    a = _MAX(0, _MIN(100, amount)) / 100#
+    STAB_inertia_hz# = 14# * (1# - a) ^ 1.6 + 0.9#
+END FUNCTION
+
+' ============================================================================
+' STAB_ - position smoothing
+' ============================================================================
+
+' A stroke starts at x, y (canvas px) at clock t (s)
+SUB STAB_begin (x AS DOUBLE, y AS DOUBLE, t AS DOUBLE)
+    STAB.active = -1
+    STAB.x = x: STAB.y = y
+    STAB.vx = 0: STAB.vy = 0
+    STAB.rawX = x: STAB.rawY = y
+    STAB.lastT = t
+    STAB.hHead = 0: STAB.hCount = 0
+    STAB_push x, y, t
+END SUB
+
+SUB STAB_end
+    STAB.active = 0
+END SUB
+
+' TRUE when the filter changes the stroke at all
+FUNCTION STAB_on% ()
+    STAB_on% = (STAB.mode >= STAB_PULLED _ANDALSO STAB.mode <= STAB_MODE_COUNT _ANDALSO STAB.amount > 0)
+END FUNCTION
+
+SUB STAB_push (x AS DOUBLE, y AS DOUBLE, t AS DOUBLE)
+    STAB_HX(STAB.hHead) = x: STAB_HY(STAB.hHead) = y: STAB_HT(STAB.hHead) = t
+    STAB.hHead = (STAB.hHead + 1) MOD STAB_HIST
+    IF STAB.hCount < STAB_HIST THEN STAB.hCount = STAB.hCount + 1
+END SUB
+
+' The pointer is at x, y (canvas px) at clock t (s). stringLen: Pulled
+' String's length in canvas px (the caller's Amount screen px / zoom).
+' Updates STAB.x / STAB.y.
+SUB STAB_step (x AS DOUBLE, y AS DOUBLE, t AS DOUBLE, stringLen AS DOUBLE)
+    DIM dt AS DOUBLE, moved AS INTEGER, dx AS DOUBLE, dy AS DOUBLE, d AS DOUBLE
+    IF STAB.active = 0 THEN STAB_begin x, y, t: EXIT SUB
+    dt = t - STAB.lastT
+    IF dt < 0 THEN dt = 0
+    IF dt > 0.25 THEN dt = 0.25 ' a stalled frame is not a quarter-second of drift
+    moved = (x <> STAB.rawX _ORELSE y <> STAB.rawY)
+    STAB.rawX = x: STAB.rawY = y
+    STAB.lastT = t
+    IF STAB_on% = 0 THEN STAB.x = x: STAB.y = y: EXIT SUB
+
+    SELECT CASE STAB.mode
+        CASE STAB_PULLED
+            dx = x - STAB.x: dy = y - STAB.y
+            d = SQR(dx * dx + dy * dy)
+            IF d > stringLen THEN
+                STAB.x = x - dx / d * stringLen
+                STAB.y = y - dy / d * stringLen
+            END IF
+
+        CASE STAB_MA
+            ' a sample per move; with Catch Up one per frame too, so a resting
+            ' pointer pulls the mean onto itself
+            IF moved _ORELSE STAB.catchUp THEN STAB_push x, y, t
+            STAB_ma_mean t
+
+        CASE STAB_EMA
+            IF moved _ORELSE STAB.catchUp THEN
+                DIM tau AS DOUBLE, k AS DOUBLE
+                tau = STAB_ema_tau#(STAB.amount)
+                IF tau <= 0 THEN
+                    k = 1
+                ELSE
+                    k = 1# - EXP(-_MAX(dt, 0.004#) / tau) ' a move in the same frame still counts
+                END IF
+                STAB.x = STAB.x + (x - STAB.x) * k
+                STAB.y = STAB.y + (y - STAB.y) * k
+            END IF
+
+        CASE STAB_INERTIA
+            STAB_inertia_run x, y, dt
+    END SELECT
+END SUB
+
+' The mean of the ring's samples within the window of the newest one. The
+' newest, not now: without Catch Up a resting pointer adds no samples, so time
+' stands still and the point stays where it was (with Catch Up the newest
+' sample is now).
+SUB STAB_ma_mean (t AS DOUBLE)
+    DIM i AS INTEGER, j AS INTEGER, n AS INTEGER, sx AS DOUBLE, sy AS DOUBLE, w AS DOUBLE, tNew AS DOUBLE
+    w = STAB_ma_window#(STAB.amount)
+    tNew = t ' (a copy: t is the caller's, by reference)
+    IF STAB.hCount > 0 THEN tNew = STAB_HT((STAB.hHead - 1 + STAB_HIST) MOD STAB_HIST)
+    FOR i = 1 TO STAB.hCount
+        j = (STAB.hHead - i + STAB_HIST) MOD STAB_HIST
+        IF i > 1 _ANDALSO tNew - STAB_HT(j) > w THEN EXIT FOR
+        sx = sx + STAB_HX(j): sy = sy + STAB_HY(j): n = n + 1
+    NEXT i
+    IF n > 0 THEN STAB.x = sx / n: STAB.y = sy / n
+END SUB
+
+' A damped spring toward x, y, sub-stepped (1 ms) so long frames stay stable
+SUB STAB_inertia_run (x AS DOUBLE, y AS DOUBLE, dt AS DOUBLE)
+    DIM w AS DOUBLE, ks AS DOUBLE, c AS DOUBLE, h AS DOUBLE, dtLeft AS DOUBLE
+    w = 6.2831853# * STAB_inertia_hz#(STAB.amount)
+    ks = w * w
+    c = 2# * 0.55# * w ' a little under critical damping: flowy, a slight swing
+    dtLeft = dt
+    DO WHILE dtLeft > 0
+        h = _MIN(0.001#, dtLeft)
+        STAB.vx = STAB.vx + ((x - STAB.x) * ks - STAB.vx * c) * h
+        STAB.vy = STAB.vy + ((y - STAB.y) * ks - STAB.vy * c) * h
+        STAB.x = STAB.x + STAB.vx * h
+        STAB.y = STAB.y + STAB.vy * h
+        dtLeft = dtLeft - h
+    LOOP
+END SUB
+
+' Lift with Catch Up: step the point toward the last pointer position, one
+' virtual frame per call. TRUE while it moved (draw to it); FALSE once it is
+' there (within half a pixel) or the mode doesn't catch up.
+FUNCTION STAB_catch_step% ()
+    STAB_catch_step% = 0
+    IF STAB.active = 0 _ORELSE STAB_on% = 0 _ORELSE STAB.catchUp = 0 THEN EXIT FUNCTION
+    IF STAB.mode <> STAB_MA _ANDALSO STAB.mode <> STAB_EMA THEN EXIT FUNCTION
+    DIM dx AS DOUBLE, dy AS DOUBLE
+    dx = STAB.rawX - STAB.x: dy = STAB.rawY - STAB.y
+    IF dx * dx + dy * dy <= 0.25# THEN
+        STAB.x = STAB.rawX: STAB.y = STAB.rawY
+        EXIT FUNCTION
+    END IF
+    STAB_step STAB.rawX, STAB.rawY, STAB.lastT + STAB_CATCH_DT, 0
+    STAB_catch_step% = -1
+END FUNCTION
+
+' Finish a lift's catch-up at once (no drawing): the point lands on the pointer
+SUB STAB_catch_all
+    DIM i AS INTEGER
+    FOR i = 1 TO STAB_CATCH_MAX
+        IF STAB_catch_step% = 0 THEN EXIT FOR
+    NEXT i
+END SUB
+
+' ============================================================================
+' PPROC_ - pressure processing
+' ============================================================================
+
+SUB PPROC_begin
+    PPROC.n = 0: PPROC.sum = 0: PPROC.held = 0: PPROC.p = 0
+    PPROC.hHead = 0: PPROC.hCount = 0: PPROC.lastT = -1
+END SUB
+
+FUNCTION PPROC_on% ()
+    PPROC_on% = (PPROC.mode >= PPROC_FIXED _ANDALSO PPROC.mode <= PPROC_MODE_COUNT)
+END FUNCTION
+
+' Samples Sample & Hold averages before it locks: 0..100 -> 1..21
+FUNCTION PPROC_hold_samples% (amount AS INTEGER)
+    PPROC_hold_samples% = 1 + _MAX(0, _MIN(100, amount)) \ 5
+END FUNCTION
+
+' The pen read p (0..1) at clock t (s): the processed pressure
+FUNCTION PPROC_step! (p AS SINGLE, t AS DOUBLE)
+    DIM r AS SINGLE, dt AS DOUBLE
+    r = p
+    IF PPROC_on% = 0 THEN PPROC_step! = p: EXIT FUNCTION
+    dt = 0: IF PPROC.lastT >= 0 THEN dt = t - PPROC.lastT
+    IF dt < 0 THEN dt = 0
+    PPROC.lastT = t
+    PPROC.n = PPROC.n + 1
+    SELECT CASE PPROC.mode
+        CASE PPROC_FIXED
+            r = _MAX(1, PPROC.amount) / 100!
+        CASE PPROC_HOLD
+            IF PPROC.held = 0 THEN
+                PPROC.sum = PPROC.sum + p
+                PPROC.p = PPROC.sum / PPROC.n
+                IF PPROC.n >= PPROC_hold_samples%(PPROC.amount) THEN PPROC.held = -1
+            END IF
+            r = PPROC.p
+        CASE PPROC_MA
+            DIM i AS INTEGER, j AS INTEGER, n AS INTEGER, s AS SINGLE, w AS DOUBLE
+            PPROC_HP(PPROC.hHead) = p: PPROC_HT(PPROC.hHead) = t
+            PPROC.hHead = (PPROC.hHead + 1) MOD STAB_HIST
+            IF PPROC.hCount < STAB_HIST THEN PPROC.hCount = PPROC.hCount + 1
+            w = 0.004# * PPROC.amount ' 0..0.4 s
+            FOR i = 1 TO PPROC.hCount
+                j = (PPROC.hHead - i + STAB_HIST) MOD STAB_HIST
+                IF i > 1 _ANDALSO t - PPROC_HT(j) > w THEN EXIT FOR
+                s = s + PPROC_HP(j): n = n + 1
+            NEXT i
+            r = s / n
+            PPROC.p = r
+        CASE PPROC_EMA
+            IF PPROC.n = 1 THEN
+                PPROC.p = p
+            ELSE
+                DIM tau AS DOUBLE, k AS DOUBLE
+                tau = STAB_ema_tau#(PPROC.amount)
+                IF tau <= 0 THEN k = 1 ELSE k = 1# - EXP(-_MAX(dt, 0.004#) / tau)
+                PPROC.p = PPROC.p + (p - PPROC.p) * k
+            END IF
+            r = PPROC.p
+    END SELECT
+    IF r < 0 THEN r = 0
+    IF r > 1 THEN r = 1
+    PPROC_step! = r
+END FUNCTION
+
+' ============================================================================
+' PSPD_ - pressure speed scaling
+' ============================================================================
+
+FUNCTION PSPD_on% ()
+    PSPD_on% = (ABS(PSPD.slowGain - 1!) > 0.001! _ORELSE ABS(PSPD.fastGain - 1!) > 0.001!)
+END FUNCTION
+
+' The gain at a speed (screen px / s): Slow Gain at rest, Fast Gain at Fast
+' Speed and above, a smoothstep between
+FUNCTION PSPD_gain_at! (speed AS SINGLE)
+    DIM u AS SINGLE, fs AS SINGLE
+    fs = PSPD.fastSpeed: IF fs < 1 THEN fs = 1
+    u = speed / fs
+    IF u < 0 THEN u = 0
+    IF u > 1 THEN u = 1
+    u = u * u * (3 - 2 * u)
+    PSPD_gain_at! = PSPD.slowGain + (PSPD.fastGain - PSPD.slowGain) * u
+END FUNCTION
+
+SUB PSPD_begin (x AS DOUBLE, y AS DOUBLE, t AS DOUBLE)
+    PSPD.lastX = x: PSPD.lastY = y: PSPD.lastT = t
+    PSPD.speed = 0: PSPD.started = -1
+    PSPD.sumSpeed = 0: PSPD.nSpeed = 0: PSPD.maxSpeed = 0
+    PSPD.gain = PSPD_gain_at!(0)
+END SUB
+
+' The pointer is at x, y (screen px) at clock t (s): the gain now
+FUNCTION PSPD_step! (x AS DOUBLE, y AS DOUBLE, t AS DOUBLE)
+    DIM dt AS DOUBLE, v AS DOUBLE, tau AS DOUBLE, k AS DOUBLE
+    IF PSPD.started = 0 THEN PSPD_begin x, y, t
+    dt = t - PSPD.lastT
+    IF dt > 0.0005# THEN
+        v = SQR((x - PSPD.lastX) ^ 2 + (y - PSPD.lastY) ^ 2) / dt
+        tau = 0.5# * _MAX(0, _MIN(1, PSPD.smooth)) ' 0..0.5 s
+        IF tau <= 0 THEN k = 1 ELSE k = 1# - EXP(-dt / tau)
+        PSPD.speed = PSPD.speed + (v - PSPD.speed) * k
+        PSPD.lastX = x: PSPD.lastY = y: PSPD.lastT = t
+        PSPD.sumSpeed = PSPD.sumSpeed + PSPD.speed: PSPD.nSpeed = PSPD.nSpeed + 1
+        IF PSPD.speed > PSPD.maxSpeed THEN PSPD.maxSpeed = PSPD.speed
+    END IF
+    PSPD.gain = PSPD_gain_at!(PSPD.speed)
+    PSPD_step! = PSPD.gain
+END FUNCTION
+
+' A stroke ended: keep its average / top speed for the panel's graph
+SUB PSPD_end
+    IF PSPD.started = 0 THEN EXIT SUB
+    PSPD.started = 0
+    IF PSPD.nSpeed > 0 THEN
+        PSPD.avgSpeed = PSPD.sumSpeed / PSPD.nSpeed
+        PSPD.topSpeed = PSPD.maxSpeed
+        PSPD.avgGain = PSPD_gain_at!(PSPD.avgSpeed)
+        PSPD.topGain = PSPD_gain_at!(PSPD.topSpeed)
+    END IF
+END SUB

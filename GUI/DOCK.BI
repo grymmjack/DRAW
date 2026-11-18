@@ -29,16 +29,17 @@ CONST DP_LAYERS    = 4
 CONST DP_EDITBAR   = 5
 CONST DP_ADVBAR    = 6
 CONST DP_CHARMAP   = 7
-CONST DP_WORKFLOW  = 8  ' the workflow buttons (GUI/WORKFLOW) - the last dock panel
-CONST DP_PREVIEW   = 9  ' the first native window: id < DP_PREVIEW = a dock panel
-CONST DP_MIXER     = 10
-CONST DP_ADVCP     = 11
-CONST DP_CS3D      = 12
-CONST DP_PEN       = 13
-CONST DP_BROWSER   = 14
-CONST DP_ANIM      = 15
-CONST DP_SWATCH    = 16
-CONST DP_COUNT     = 16
+CONST DP_WORKFLOW  = 8  ' the workflow buttons (GUI/WORKFLOW)
+CONST DP_TEXTBAR   = 9  ' the text tool's bar (GUI/TEXT-BAR) - the last dock panel
+CONST DP_PREVIEW   = 10 ' the first native window: id < DP_PREVIEW = a dock panel
+CONST DP_MIXER     = 11
+CONST DP_ADVCP     = 12
+CONST DP_CS3D      = 13
+CONST DP_PEN       = 14
+CONST DP_BROWSER   = 15
+CONST DP_ANIM      = 16
+CONST DP_SWATCH    = 17
+CONST DP_COUNT     = 17
 
 ' how a panel's height is decided inside its column
 CONST DP_H_FIXED = 1 ' its own content height (toolbar rows, organizer)
@@ -75,13 +76,21 @@ DIM SHARED DPANEL(1 TO DP_COUNT) AS DOCK_PANEL_OBJ
 ' --- columns ------------------------------------------------------------------
 CONST DOCK_LEFT  = 1
 CONST DOCK_RIGHT = 2
-CONST DOCK_MAX_COLS = 12
+' Rows (Rick 2026-11-16: "allow the toolbox to dock to top/bottom ... multiple
+' things docked to top arrange them above/below each other, side by side"): a
+' TOP / BOTTOM "column" is a row - the columns' rules turned sideways. Its slots
+' lie left to right, it is as tall as its panels want (wpx = a height set by
+' dragging its inner edge), ord 1 = outermost (under the menu bar / above the
+' palette strip). DOCK_place_rows.
+CONST DOCK_TOP    = 3
+CONST DOCK_BOTTOM = 4
+CONST DOCK_MAX_COLS = 16
 
 TYPE DOCK_COL_OBJ
     used  AS INTEGER
-    side  AS INTEGER ' DOCK_LEFT / DOCK_RIGHT
+    side  AS INTEGER ' DOCK_LEFT / DOCK_RIGHT, or a row: DOCK_TOP / DOCK_BOTTOM
     ord   AS INTEGER ' 1 = outermost
-    wpx   AS INTEGER ' width in px set for the column (0 = the panels' own width)
+    wpx   AS INTEGER ' width in px set for the column (0 = the panels' own width); a row: its height
     ' this frame's layout
     vis   AS INTEGER ' has a visible slot
     autoh AS INTEGER ' hidden by the layout this frame (the window is too narrow) - not saved
@@ -142,13 +151,17 @@ CONST DOCK_ACT_FLOAT = 5
 CONST DOCK_ACT_BAND_TOP = 7    ' the Browser only: dock along the top / bottom
 CONST DOCK_ACT_BAND_BOTTOM = 8
 CONST DOCK_ACT_CUSTOMIZE = 9   ' toolbox / bars: open Customize Toolbars on that panel
+CONST DOCK_ACT_CLOSE = 10      ' every panel but the text bar: hide it (its View toggle; DOCK_panel_close)
 CONST DOCK_ACT_SCALE = 20      ' floating-panel family: 20 = follow the UI Scale, 21-28 = 1x-8x (FPANEL_set_scale)
 
 TYPE DOCK_UI_OBJ
     hoverSlot AS INTEGER ' slot whose handle the pointer is over (0 = none)
+    closeHover AS INTEGER ' panel whose [x] close box the pointer is over (0 = none; DOCK_close_at%)
     menuOpen  AS INTEGER
     menuPanel AS INTEGER ' panel the menu acts on
     menuWf    AS INTEGER ' > 0: workflow button n's menu instead (GUI/WORKFLOW)
+    menuPen   AS INTEGER ' TRUE: the Pen Control presets menu instead (GUI/PEN-PRESETS)
+    menuJust  AS INTEGER ' opened this frame: the press that opened it is not a pick
     menuX     AS INTEGER
     menuY     AS INTEGER
     menuW     AS INTEGER
@@ -244,6 +257,28 @@ DIM SHARED DOCK_SHIFT_Y   AS INTEGER ' the canvas centre's vertical shift for th
 DIM SHARED DOCK_TOPBAR_H  AS INTEGER ' height of the text bar under the menu bar this frame (set by SCREEN_compute_layout)
 DIM SHARED DOCK_L_BARY1   AS INTEGER ' the last layout's dock top / bottom (drop targets)
 DIM SHARED DOCK_L_DOCKY2  AS INTEGER
-DIM SHARED DOCK_RZ_BAND   AS INTEGER ' dragging the band's inner edge
+DIM SHARED DOCK_RZ_BAND   AS INTEGER ' dragging a row's inner edge: that row (DOCK_COL index)
 DIM SHARED DOCK_RZ_BY0    AS INTEGER
 DIM SHARED DOCK_RZ_BH0    AS INTEGER
+DIM SHARED DOCK_RZ_SLOT   AS INTEGER ' dragging a row slot's right edge: that slot (its share = width px)
+DIM SHARED DOCK_RZ_SX0    AS INTEGER
+DIM SHARED DOCK_RZ_SW0    AS INTEGER
+DIM SHARED DOCK_RZ_SPARE  AS INTEGER ' the row's free width at the grab
+DIM SHARED DOCK_RZ_N      AS INTEGER ' the slot right of the dragged one (0 = none)
+DIM SHARED DOCK_RZ_NW0    AS INTEGER ' ... its width at the grab
+DIM SHARED DOCK_RZ_LAST   AS DOUBLE  ' TIMER of the last press on a row slot edge (double-click = auto)
+DIM SHARED DOCK_RZ_LASTS  AS INTEGER
+' --- rows (TOP / BOTTOM) -------------------------------------------------------
+' The BAND= key above is read once into a row (DOCK_load_snapshot); the band
+' itself is no longer laid out. How wide the rows are: between the side docks
+' (default) or the whole window (ROWSPAN=FULL in the arrangement, Settings >
+' Layout "Top / Bottom Docks: Full Width"; CFG.DOCK_ROWS_FULL_WIDTH).
+CONST DOCK_ROW_MIN_H = 16 ' a row's inner edge never drags shorter
+' the window's x range the docks lay out in: all of it, or inside a colour
+' strip docked on the left / right (SCREEN_compute_layout sets them each layout)
+DIM SHARED DOCK_WX1 AS INTEGER, DOCK_WX2 AS INTEGER
+DIM SHARED DOCK_ROWS_FULL AS INTEGER ' TRUE = rows span the whole window
+DIM SHARED DOCK_ROWS_Y1   AS INTEGER ' this frame: the first px under the top rows (barY1 + text bar without any)
+DIM SHARED DOCK_ROWS_Y2   AS INTEGER ' the last px above the bottom rows (dockY2 without any)
+DIM SHARED DOCK_ROWS_TOPH AS INTEGER ' the top rows' height (FULL: the text bar goes under them)
+DIM SHARED DOCK_ROWS_BOTH AS INTEGER ' the bottom rows' height

@@ -116,7 +116,7 @@ CONST REGION_FILL_ADJ             = 26
 CONST REGION_DIALOG_GENERIC       = 27              ' generic modal dialogs
 CONST REGION_ADV_COLOR_PICKER     = 28              ' Advanced Color Picker floating panel
 CONST REGION_COLOR_SPACE_3D       = 29              ' 3D Color Space floating panel
-CONST REGION_PEN_PANEL            = 30              ' Pen Pressure floating panel
+CONST REGION_PEN_PANEL            = 30              ' Pen Control floating panel
 CONST REGION_TOOLBAR_EDITOR       = 31              ' Customize Toolbars floating window
 CONST REGION_ANIM_PANEL           = 32              ' Animation floating panel (GUI/ANIM-PANEL)
 CONST REGION_SWATCHES             = 33              ' Swatches floating panel (GUI/SWATCHES)
@@ -438,6 +438,21 @@ DIM SHARED INPUTS_LOG_PATH AS STRING
 ' _MOUSEX (event arrived) from a stalled one (mouseDragged withheld during the
 ' post-launch activation gap).
 DIM SHARED MOUSE_FRAME_EVTS AS INTEGER
+
+' Every pointer position of a frame (Rick 2026-11-17: fast pen strokes came out
+' as straight lines between frames). Both _MOUSEINPUT drains (MOUSE_drain_update_state
+' and DRAW.BAS's late drain) add each event's viewport position to the raw list;
+' MOUSE_smp_map turns them into canvas points (same zoom / pan / snap / clamp as
+' MOUSE.X) for the brush, which draws through them in order (MOUSE_brush_samples).
+CONST MOUSE_SMP_MAX = 160
+DIM SHARED MOUSE_SMP_RX(1 TO MOUSE_SMP_MAX) AS INTEGER ' raw, window px (pending)
+DIM SHARED MOUSE_SMP_RY(1 TO MOUSE_SMP_MAX) AS INTEGER
+DIM SHARED MOUSE_SMP_RN AS INTEGER
+DIM SHARED MOUSE_SMP_X(1 TO MOUSE_SMP_MAX) AS INTEGER  ' this frame's, canvas px (the last = before MOUSE.X)
+DIM SHARED MOUSE_SMP_Y(1 TO MOUSE_SMP_MAX) AS INTEGER
+DIM SHARED MOUSE_SMP_FX(1 TO MOUSE_SMP_MAX) AS DOUBLE  ' ... sub-pixel, for smoothing
+DIM SHARED MOUSE_SMP_FY(1 TO MOUSE_SMP_MAX) AS DOUBLE
+DIM SHARED MOUSE_SMP_N AS INTEGER
 
 ' [macOS] Global-cursor fallback calibration (see DRAW_global_cursor). Maps the
 ' OS global cursor (physical pixels) onto DRAW's viewport coords. SCALE = global

@@ -12,7 +12,7 @@
 #   - Auto: back to the Auto size, 0 saved
 #
 # Dump: WIN <name> x y w h slot, P <name> (... handle hx hy hw hh),
-# DMENU open panel _ x y w, DMENUR _ value y h checked. Panel ids: preview 9,
+# DMENU open panel _ x y w, DMENUR _ value y h checked. Panel ids: preview,
 # browser 14 (GUI/DOCK.BI DP_PREVIEW / DP_BROWSER).
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt PREVIEW_VISIBLE=1 BROWSER_VISIBLE=1 TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE
 # =============================================================================
@@ -73,7 +73,9 @@ ps_panel() { # NAME PANEL_ID KEY
     fi
 }
 
-ps_panel preview 9 PREVIEW_SCALE
-ps_panel browser 14 BROWSER_SCALE
+# the ids from GUI/DOCK.BI (they shift when a panel is added before them)
+dp_id() { awk -v n="$1" '$1=="CONST" && $2==n {print $4; exit}' "$DRAW_ROOT/GUI/DOCK.BI"; }
+ps_panel preview "$(dp_id DP_PREVIEW)" PREVIEW_SCALE
+ps_panel browser "$(dp_id DP_BROWSER)" BROWSER_SCALE
 assert_no_crash
 info "=== Panels: Scale for the Preview and the Browser: done ==="

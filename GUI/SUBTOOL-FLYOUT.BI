@@ -41,6 +41,8 @@ TYPE SUBTOOL_FLYOUT_OBJ
     PAD             AS INTEGER ' Scaled padding between buttons
     ROW1_COUNT      AS INTEGER ' How many children fit in row 1 (rest wrap to row 2)
     EXPAND_RIGHT    AS INTEGER ' TRUE = expand to the right of parent; FALSE = left
+    VERTICAL        AS INTEGER ' TRUE = a column under / over the parent (toolbox in a top / bottom row)
+    BT              AS INTEGER ' hover stroke px (the buttons' own scale)
 END TYPE
 
 DIM SHARED SUBTOOL_GROUPS(SUBTOOL_MAX_GROUPS - 1) AS SUBTOOL_GROUP_TYPE

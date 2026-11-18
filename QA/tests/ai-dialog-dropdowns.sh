@@ -11,7 +11,11 @@ info "=== AI dialog dropdowns Test ==="
 canvas_focus v
 wait_for 0.3 "ready"
 click $(( WORK_LEFT + 12 )) 6; wait_for 0.6 "FILE menu"
-click $(( WORK_LEFT + 40 )) 80; wait_for 1.5 "AI dialog open"
+# NEW FROM AI... is the 7th FILE row (12 px rows): NEW, NEW ANIMATION..., NEW WINDOW,
+# NEW FROM TEMPLATE..., NEW FROM CLIPBOARD, CAPTURE SCREEN..., NEW FROM AI... - y 80 was
+# CAPTURE SCREEN once NEW ANIMATION... came in, which grabbed the REAL desktop
+# (the capture backend is not confined to the test display). 2026-11-17.
+click $(( WORK_LEFT + 40 )) 92; wait_for 1.5 "AI dialog open"
 screenshot "ai-dlg-open"
 # the dialog (338x369 viewport px) is centred in the viewport; its Tool /
 # Style / Preset combos sit 33 / 55 / 77 px below its top, from x + 70

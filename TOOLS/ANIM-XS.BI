@@ -48,11 +48,20 @@ CONST XS_DRAG_FRAMES = 3 ' frame numbers: reorder
 CONST XS_DRAG_SOUND  = 4 ' a sound clip: along its track / to another track (F6)
 CONST XS_DRAG_CLIP   = 5 ' a clip layer's bar: its In end, its Out end or the whole bar (TOOLS/CLIP, phase 2 K5)
 CONST XS_DRAG_LKEY   = 6 ' a clip layer's LANES row: the keys on a frame to another frame (TOOLS/CLIP, phase 3 L7)
+CONST XS_DRAG_LHOLD  = 7 ' a pixel layer's cell / held run by its right end: how long that layer holds it (per-layer holds)
+CONST XS_DRAG_LANEKEY = 8 ' a key on a lane row: along it = its frame, up / down = its value (TOOLS/ANIM-XLANE)
+CONST XS_DRAG_LSEL   = 9 ' empty lane space: a rect over frames x lane rows selects their keys (TOOLS/ANIM-XLANE, ANIM_XL_SEL_*)
+CONST XS_DRAG_LSMOVE = 10 ' inside the key selection: its keys along in time (Alt: a copy), one undo step
+CONST XS_DRAG_LNAME  = 11 ' a layer's name up / down: its place in the stack, into / out of groups (the Layers panel's drop); dTo = target zIndex, dToSlot = the gap's y
+CONST XS_HOLD_GRIP   = 5 ' px at a cell's right end that grab its hold
 CONST XS_ROW_SOUND   = 1 ' (ANIM_XS_RKIND)
 CONST XS_ROW_LANES   = 2
+CONST XS_ROW_LANE    = 3 ' one lane of a layer, its lanes open (ANIM_XS_RLANE: which; TOOLS/ANIM-XLANE)
+CONST XS_ROW_LANEADD = 4 ' the + LANE row under them
 CONST XS_EYE_X  = 2  ' name column: the eye from x1 + 2, the lock from x1 + 13,
-CONST XS_LOCK_X = 13 ' the name from x1 + XS_ICONS_W (F5)
-CONST XS_ICONS_W = 25
+CONST XS_LOCK_X = 13 ' the record dot from x1 + 24, the name from x1 + XS_ICONS_W (F5)
+CONST XS_REC_X = 24  ' the record dot (TOOLS/ANIM-XLANE: red armed, purple keyed; click arms)
+CONST XS_ICONS_W = 34
 CONST XS_TAG_BTN_W = 11 ' the TAGS row's < / > buttons
 DIM SHARED ANIM_LOOP_TICK AS LONG ' main-loop passes (DRAW.BAS): a double-click is two presses within 0.45 s, or seen two passes apart when frames are slow
 DIM SHARED ANIM_XS_BEFORE AS STRING ' ANIM_OPS_snapshot$ at a hold drag's press
@@ -69,6 +78,9 @@ TYPE ANIM_XS_OBJ
     tick     AS SINGLE  ' one tick in px - fractional when zoomed out (XSHEET_ZOOM)
     tickAuto AS SINGLE  ' the tick at the default size: a thumbnail wide
     tickMin  AS SINGLE  ' the smallest zoom: every frame fits across (tickAuto when they already do)
+    tickMax  AS SINGLE  ' the biggest: the frames spread out (room for lane keys)
+    tickFit  AS SINGLE  ' every frame across the grid exactly (within tickMin..tickMax)
+    tickDef  AS SINGLE  ' the default: tickAuto, or tickFit with XSHEET_FIT_ALL
     layH     AS INTEGER ' a layer row's height (XSHEET_ROWS: text / thumbnail sizes) - the SOUND rows' too; the other rows are rowH
     zx1      AS INTEGER ' the zoom slider in the header's name cell (0 = not shown)
     zx2      AS INTEGER
@@ -103,6 +115,9 @@ TYPE ANIM_XS_OBJ
     rSlot    AS INTEGER ' a right press on this layer's row: its menu on the release
     rSound   AS INTEGER ' a right press on this SOUND track's row: the SOUND menu on the release (F6)
     rTag     AS INTEGER ' a right press on the TAGS / NOTES row: their menu on the release (field kit R-13)
+    rCell    AS INTEGER ' a right press on a pixel layer's cell: this frame (the cell menu on the release; 0 none)
+    mCell    AS INTEGER ' the cell menu (ANIM_LB.menuKind 5) is for this frame ...
+    mSlot    AS INTEGER ' ... of this layer
     cEnd     AS INTEGER ' XS_DRAG_CLIP: 1 the In end, 2 the Out end, 3 the whole bar
     cIn0     AS INTEGER ' the clip's In / Out at the press (Out 0 = to the end)
     cOut0    AS INTEGER
@@ -113,5 +128,6 @@ DIM SHARED ANIM_XS AS ANIM_XS_OBJ
 DIM SHARED ANIM_XS_ROW(1 TO 3 * MAX_LAYERS) AS INTEGER
 DIM SHARED ANIM_XS_DEPTH(1 TO 3 * MAX_LAYERS) AS INTEGER ' its group depth (indent)
 DIM SHARED ANIM_XS_RKIND(1 TO 3 * MAX_LAYERS) AS INTEGER ' a clip layer's sub-row (ANIM_XS_ROW = -slot): XS_ROW_SOUND / XS_ROW_LANES
+DIM SHARED ANIM_XS_RLANE(1 TO 3 * MAX_LAYERS) AS INTEGER ' an XS_ROW_LANE row's lane (CLIP_LANE_*)
 DIM SHARED ANIM_XS_FILL(1 TO MAX_LAYERS) AS STRING   ' per layer slot: per frame "1" drawn, "0" empty, " " not known yet
 DIM SHARED ANIM_XS_BOXES(1 TO MAX_LAYERS) AS STRING    ' per layer slot: per frame 16 bytes, MKL$ x y w h of the box round its drawing (buffer coords), set with a "1" in ANIM_XS_FILL

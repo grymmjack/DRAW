@@ -1,7 +1,8 @@
 - [QA build must be in the repo](qa-draw-bin-in-repo.md) — a test build in the scratchpad dies at startup (no ASSETS), QA says window 0x0
 - **[NEVER an error dialog - PERMANENT](feedback-no-error-dialogs.md) — every program traps its errors (ON ERROR); untrappable runtime alerts are prevented by guarding first; never cause them (don't kill a display a run still uses) (2026-10-11)**
-- **[Test scope - HARD RULE](feedback-test-scope.md) — run ONLY tests that might touch the change; FULL suite only overnight while Rick sleeps; >5 files = count + ETA and ASK (told 4x, last 2026-11-06)**
-- [zsh: test list is ONE arg](feedback-zsh-test-list-splitting.md) — unquoted `$FILES` in zsh made draw-qa.sh run all 425 tests; use a bash array, check the ETA count; zsh has no `mapfile` (empty list = full suite) (2026-11-09, 2026-11-11, 2026-11-12: wrap in `bash -c`)
+- **[Test scope - HARD RULE](feedback-test-scope.md) — run ONLY tests that materially touch the change, overnight too (2026-11-17: no full suites unless asked); >5 files = count + ETA and ASK**
+- **[Overnight / at-work QA lanes](feedback-overnight-qa-resources.md) — "going to bed" / "going to work" = his screen + farm: onscreen + offscreen + farm hosts at once; suites sharded 5-6 lanes when asked; queue in background, never idle-wait (2026-11-17)**
+- [zsh: test list is ONE arg](feedback-zsh-test-list-splitting.md) — unquoted `$FILES` in zsh = one arg; the full-suite fallback ran 5 times (11-09 … 11-17); qa-harness runner now aborts on "No such test file"; zsh arrays / `${=VAR}`; how to stop farm runs on mac / thinkpad
 - **[Test with Rick's own profile](feedback-test-with-user-profile.md) — also run bug tests with HIS cfg/workspace/scale: `QA_USER_PROFILE=1 QA_USER_SCREEN=1152x712@3 QA_XVFB_RES=3840x2400` (literal, not via `env $P` in zsh) before saying "can't reproduce" (2026-11-06)**
 - [User background & collaboration style](user_background_and_collaboration.md) — career BASIC programmer, learning-mode, wants visibility not autonomy
 - [DRAW compile convention](feedback_draw_compile_convention.md) — build qb64pe in FOREGROUND, 600000ms timeout, never background
@@ -58,13 +59,15 @@
 - [Farm test builds via DRAW-fstest worktree](farm-test-worktrees-invisible-to-dash.md) — build branches in a `DRAW-fstest` worktree (init submodules!); `remote-dash.py` now shows them in a TEST BUILD column; state exact per-host binary paths
 - [Farm build recipes per host](farm-build-recipes-per-host.md) — exact qb64pe paths (titan=capital QB64pe, case-sensitive!); Windows builds over SSH call `qb64pe.exe -w -x` DIRECTLY (no make); daw needs full-path `/mnt/c/Windows/System32/cmd.exe`; qb64pe link "Permission denied" = stale qb64pe.exe locking itself (taskkill); force submodule to pinned sha or DRAW builds against wrong lib
 - [thinkpad two Windows profiles](thinkpad-two-windows-profiles.md) — SSH login `grymmjack.thinkpad` ≠ desktop login `grymm`; DRAW config resolves to the LOGIN user's `%APPDATA%` (`C:\Users\grymm\...`), so SSH probes see the wrong profile's config
+- [Windows QA test portability](qa-windows-test-portability.md) — [Windows] Git Bash rewrites only args that START with `/`: magick `PNG32:/tmp` (shim), python3 `\r\n` (shim), paths written into files (`native_path`), keypad chars need Num Lock
 - [Linux display-scale detection](linux-display-scale-detection.md) — DPI seam `SCREEN_DPI_DIVISOR`; opt-in `LINUX_HIDPI_SCALE` KDE/Qt/GTK detection, MERGED to main (PR #121); X11 divides physical grid, Wayland pre-scales so detection must return 1; test via `DRAW_HEADLESS=1` (inits+logs then exits), QA `linux-display-scale.sh`; xrdb path untestable on bare Xvfb
 - [Multiple-instance support](multi-instance-support.md) — several isolated windows (`ALLOW_MULTIPLE_INSTANCES`); heartbeat registry; Copy/Paste/Send Layer; CORE/INSTANCE + TOOLS/LAYERXFER
 - [_ACCEPTFILEDROP is cross-platform now](qb64pe-acceptfiledrop-cross-platform.md) — drag-IN works Lin/mac/Win (wiki stale "Windows only"); no drag-OUT on any platform
 - [Drag-and-drop targets](drag-drop-targets.md) — INPUT/DROP.BM routes a drop by region under cursor (no drop coords → MOUSE.RAW + REGION_hit_test); Shift=center
+- [Selection mask readers](selection-mask-readers.md) — how each SELECTION_MASK consumer tests a pixel; map for soft (AA) selections
 - [Anti-aliasing mode](antialiasing.md) — experimental AA (branch `antialiasing`, default OFF); `PAINT_blend_pixel`; AA-off byte-identical; Brush/Dot/Line done
 - [DEV align + PDF tools](dev-align-tool.md) — aligner = `DEV/align-qb64pe.py` (`--no-backup .`, exclude submodule, separate `style:` commit); PDF = `DEV/make-pdf-manual.sh`
-- [Offscreen QA fragile tests (post-v2.0.2)](qa-offscreen-fragile-tests.md) — 1781/13; all 13 are test-fragility (stale coords/thresholds), not product bugs; robust rewrite pending
+- [Offscreen QA fragile tests (post-v2.0.2)](qa-offscreen-fragile-tests.md) — idle DRAW drops fast Ctrl chords (one _KEYHIT a frame, Ctrl live): draw_quit Ctrl+Q becomes Q, cfg not saved (2026-11-16); 1781/13; all 13 are test-fragility (stale coords/thresholds), not product bugs; robust rewrite pending
 - [Apron canvas-coord readers](apron-canvas-coord-readers.md) — reading imgHandle& at RAW canvas coords breaks once apron-promoted (gotcha #14 READERS); crop to a canvas-sized copy
 - [Lint, don't full-build every change](feedback-lint-not-build.md) — LINT after edits (pass=works); full build only for run/screenshot/test/human. Rick pref
 - [Zero-warnings build (always green)](feedback-zero-warnings-build.md) — DRAW compile must be ZERO warnings AND infos/notes; any warning = defect. Rick pref
@@ -75,6 +78,7 @@
 - [DRAW build speed — skip -O for dev](draw-build-speed.md) — `-f:OptimizeCppProgram=false` ~13min→~7min for dev; ship keeps -O; qbx.o rebuilt every build (open)
 - [Driving DRAW's GUI headless via xdotool+Xvfb](driving-draw-gui-headless-xdotool.md) — DRAW polls mouse per-frame: use `mousedown;sleep .2;mouseup`; menus click-hold; launch detached
 - [Browser geometry native-vs-viewport scaling](browser-geometry-native-vs-viewport.md) — Browser dispX/Y in VIEWPORT px, FD_STATE.dialogW/H in NATIVE; don't mix; position last; test at scale>1
+- [Browser long lists + thumbnail loader](browser-fd-long-list-and-thumb-loader.md) — FD scroll math LONG (one-column thumbs pass 32767 px); thumb loader ticks every frame, not from mouse input; scrollbar beats the resize grip
 - [Filled shapes off-canvas on promoted layer (RESOLVED)](qa-splash-startup-state-dependency.md) — filled rect/ellipse/polygon wrote raw coords → off-canvas on an apron-promoted layer (gotcha #14); fixed MOUSE/ELLIPSE/POLY-FILL + apron-fill-after-move test; keep splash ON in QA
 - [Advanced Color Picker feature](adv-color-picker-feature.md) — Krita-style hue-ring+SV-triangle; standalone GJ_LIB widget + DRAW panel; action 2023, Ctrl+Shift+M; ALL config goes in Settings dialog
 - [Save As .draw + FD absolute-path trap](save-as-draw-and-fd-abspath.md) — Save As routes .draw→DRW_save; FD filename field mangles absolute paths (QA: type basenames); file-save-readonly is a false pass
@@ -110,3 +114,8 @@
 - **[Workspace remembers the WHOLE layout](workspace-remember-whole-layout.md) — every panel presence/dock/size/scale/setting via one full-state compare + save; new panels/settings must join WS_panel_keys$ etc. (2026-11-14)**
 - [Panel surfaces cover canvas overlays](panel-surface-covers-canvas-overlays.md) — a docked panel at a set Scale is blitted after the canvas: re-blit overlays (hover grip) in DOCK_reblit_to_screen0 (2026-11-14)
 - **[QB64 hex CONST sign-extends](qb64-hex-literal-sign-extend.md) — unsuffixed `&H...8000` is INTEGER -32768 → FFFFFFFFFFFF8000 as a 64-bit flag; suffix `&&` (CTX_FILL_ACTIVE broke W over the canvas, 2026-11-15)**
+- [QA-OPTIONS pins are never saved](qa-option-override-never-saved.md) — a test asserting a saved cfg key must not pin that key with --option
+- [Dock row share overcommit](dock-row-share-overcommit.md) — [Linux] row @px widths can exceed the row; normalize before editing one (edge drag jumped)
+- [QA: DP ids shift, floating z-order](qa-dp-ids-and-float-zorder.md) — never hardcode DP_ ids in tests (DP_PREVIEW 10 now); dk_grab_point uses the WZ front-to-back line
+- [macOS numpad digits = main-row digits](qb64pe-macos-numpad-digits.md) — [macOS] QB64-PE gives KP_0..9 no own codes (KP_0 = 48), so DRAW numpad frame keys can't work there; KP_+ etc. do; qa-io mac/win had no KP_ keys until 2026-11-17
+- [UI text is UPPERCASE](feedback-ui-text-uppercase.md) — every panel/menu/settings/dialog string in caps; user data keeps case; UCASE$ at draw + measure sites (Rick 2026-11-17)

@@ -217,6 +217,9 @@ IF CMDLINE_RESET_DEFAULTS% THEN
     END IF
 END IF
 
+' Animation: the keyframe lanes' colours out of the box (X Y SCALE X SCALE Y ROTATE OPACITY TINT PIVOT X PIVOT Y VOLUME PAN)
+CONST ANIM_LANE_COLORS_DEFAULT = "E06A6A,6AC46A,E0A050,C8C050,6AA6E6,BEBEBE,D27AD2,50C2C2,8C8CE6,90D890,E69090"
+
 TYPE DRAW_CONFIG
     THEME                           AS STRING         ' Active theme directory name (e.g. "DEFAULT")
     WORKSPACE                       AS STRING         ' Last workspace id (CFG/WORKSPACE); DRAW reopens in it. "default" = no overlay
@@ -290,6 +293,7 @@ TYPE DRAW_CONFIG
     PALETTE_CHIP_HEIGHT             AS INTEGER        ' Height of each color chip in palette strip
     PALETTE_MAX_CHIPS_PER_ROW       AS INTEGER        ' Maximum color chips per row in strip
     PALETTE_MAX_ROWS                AS INTEGER        ' Maximum palette strip rows (1-8)
+    PALETTE_STRIP_EDGE              AS INTEGER        ' where the palette strip docks: 0 bottom, 1 top, 2 left, 3 right (PSTRIP_*)
     PALETTE_MIN_ROWS                AS INTEGER        ' Minimum palette strip rows always shown
     PALETTE_CHIPS_ROW_THRESHOLD     AS INTEGER        ' Start new row every N chips
     PALETTE_DEFAULT_BG_TRANSPARENT  AS INTEGER        ' TRUE = default BG is transparent
@@ -308,6 +312,7 @@ TYPE DRAW_CONFIG
     LAYER_PANEL_BAR                 AS INTEGER        ' The layer bar (blend / show-hide all / lock all / opacity): 0 off, 1 at the top of the Layers panel, 2 at the bottom
     GROUP_DRAW_NOTIFY               AS INTEGER        ' TRUE = alert when a drawing tool is used on a group header layer
     GROUP_DRAW_AUTO_LAYER           AS INTEGER        ' TRUE = auto-create a layer inside the group and draw on that instead
+    DOCK_ROWS_FULL_WIDTH            AS INTEGER        ' (Settings only - never its own key: the arrangement's ROWSPAN, GUI/DOCK DOCK_ROWS_FULL) top / bottom dock rows span the window
     LAYERS_PANEL_DOCK_EDGE          AS STRING         ' "LEFT" or "RIGHT" (default : "LEFT")
     TOOLBOX_DOCK_EDGE               AS STRING         ' "LEFT" or "RIGHT" (default : "RIGHT")
     TOOLBOX_COLUMNS                 AS INTEGER        ' Toolbox button columns (1-8, default 4; more are added when the buttons don't fit the height)
@@ -370,6 +375,12 @@ TYPE DRAW_CONFIG
     LB_STRIP_CELL                   AS INTEGER        ' Animation: the strip's cell height, px (0 = fitted to the band); Ctrl+wheel over the strip
     XSHEET_BAND_PCT                 AS SINGLE         ' Animation: the X-sheet band, % of the height the transport bar leaves (0 = auto); drag its edge
     XSHEET_ROWS                     AS INTEGER        ' Animation: the X-sheet's layer and SOUND rows: 0 text height, 1 / 2 / 3 a tiny / small / medium thumbnail (Ctrl+Shift+wheel)
+    XSHEET_FIT_ALL                  AS INTEGER        ' Animation: the X-sheet's default zoom shows every frame across (Settings > Animation; the slider / Ctrl+wheel still zoom)
+    XSHEET_LANE_THUMBS              AS INTEGER        ' Animation: the X-sheet's main layer row on a layer with lanes: 0 off, 1 a thumbnail at each lane key, 2 at each frame the lanes change the layer (drawn through the lanes)
+    XSHEET_CONTRAST                 AS INTEGER        ' Animation: the X-sheet's grid / guides / faint lines, -80..100 (0 = the theme as is; Ctrl+Alt+Shift+wheel over the X-sheet, Settings > Animation)
+    ANIM_LANE_THICKNESS             AS INTEGER        ' Animation: the X-sheet's keyframe lane curves, in px (1..4; Settings > Animation)
+    ANIM_WIDGET_OPACITY             AS INTEGER        ' Animation: the transform widget's opacity, % (10..100) at start and after Ctrl+Alt+Shift+middle-click (Settings > Animation)
+    ANIM_LANE_COLORS                AS STRING         ' Animation: each keyframe lane's colour (X Y SCALE X SCALE Y ROTATE OPACITY TINT PIVOT X PIVOT Y VOLUME PAN), RRGGBB comma list; empty / 0 = the theme (Settings > Animation)
     XSHEET_ZOOM                     AS SINGLE         ' Animation: the X-sheet's time line, px per tick (0 = the default, a thumbnail a tick); its header slider / Ctrl+wheel
     XSHEET_NAME_W                   AS INTEGER        ' Animation: the X-sheet's layer-name column, px (0 = auto); drag its edge
     CLIP_FRAME_LIGHTBOX             AS INTEGER        ' Animation: a stroke in a lightbox pane stays inside its frame (ANIM > Clip Strokes to the Frame in the Lightbox)
@@ -460,6 +471,7 @@ TYPE DRAW_CONFIG
     ADV_COLOR_PICKER_SHADE_SPREAD_H AS INTEGER        ' Shade hue ramp half-range, degrees (0-180)
     ADV_COLOR_PICKER_QUANTIZE       AS INTEGER        ' Quantize triangle S/V + hue ring to N steps (0=off, 2-32)
     ADV_COLOR_PICKER_QUANTIZE_BAR   AS INTEGER        ' TRUE = show the Quantize Steps slider under the wheel
+    ADV_COLOR_PICKER_RING           AS INTEGER        ' the hue ring's thickness, % (30-100; thinner = a bigger triangle; Ctrl+wheel over it)
     ADV_COLOR_PICKER_BG_CUSTOM      AS INTEGER        ' TRUE = draw the wheel/shades on a custom background color
     ADV_COLOR_PICKER_BG_COLOR       AS _UNSIGNED LONG ' Custom selector background color
     ADV_COLOR_PICKER_SHADE_PRESET   AS INTEGER        ' Shade line-set: 0=Basic, 1=+Warm/Cool, 2=Full
@@ -502,8 +514,24 @@ TYPE DRAW_CONFIG
     PEN_PRESSURE_OPACITY            AS INTEGER        ' Pressure scales the Brush / Eraser opacity (applied live, no compounding)
     PEN_MIN_OPACITY                 AS INTEGER        ' Opacity at the lightest touch, percent (0-100)
     PEN_TIP_THRESHOLD               AS INTEGER        ' Pen draws only once pressure reaches this percent (0-50); ignores grazes that register as clicks
-    PEN_PANEL_VISIBLE               AS INTEGER        ' TRUE = Pen Pressure panel open at startup
-    PEN_PANEL_SCALE                 AS INTEGER        ' Pen Pressure panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
+    PEN_STAB                        AS INTEGER        ' Position smoothing on for Brush / Eraser strokes (pen and mouse)
+    PEN_STAB_MODE                   AS INTEGER        ' Smoothing mode: 1 Pulled String, 2 Moving Average, 3 Exponential MA, 4 Inertia
+    PEN_STAB_AMOUNT                 AS INTEGER        ' Smoothing amount 0-100 (Pulled String: string length, screen px)
+    PEN_STAB_CATCHUP                AS INTEGER        ' Catch Up (MA / EMA): the line catches up when the pointer rests or lifts
+    PEN_STAB_GUIDE_LINE             AS INTEGER        ' Smoothing guide: a line from the drawing point to the pointer
+    PEN_STAB_GUIDE_CURSOR           AS INTEGER        ' Smoothing guide: a ring at the drawing point
+    PEN_STAB_GUIDE_COLOR            AS _UNSIGNED LONG ' Smoothing guide color (RRGGBB)
+    PEN_PROC                        AS INTEGER        ' Pressure processing on
+    PEN_PROC_MODE                   AS INTEGER        ' Pressure processing: 1 Fixed Value, 2 Sample & Hold, 3 Moving Average, 4 Exponential MA
+    PEN_PROC_AMOUNT                 AS INTEGER        ' Pressure processing amount 0-100 (Fixed Value: the pressure %)
+    PEN_SPEED                       AS INTEGER        ' Pressure speed scaling on: pressure gain from how fast the pen moves
+    PEN_SPEED_SLOW                  AS INTEGER        ' Speed scaling: gain at rest x100 (10-100)
+    PEN_SPEED_FAST                  AS INTEGER        ' Speed scaling: gain at Fast Speed x100 (100-500)
+    PEN_SPEED_FAST_AT               AS INTEGER        ' Speed scaling: Fast Speed, screen px per second (50-3000)
+    PEN_SPEED_SMOOTH                AS INTEGER        ' Speed scaling: speed smoothing x100 (0-100)
+    PEN_PANEL_TAB                   AS INTEGER        ' Pen Control panel tab: 0 Pressure, 1 Smoothing, 2 Speed
+    PEN_PANEL_VISIBLE               AS INTEGER        ' TRUE = Pen Control panel open at startup
+    PEN_PANEL_SCALE                 AS INTEGER        ' Pen Control panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     PEN_PANEL_X                     AS INTEGER        ' Last panel X (-1 = auto-position)
     PEN_PANEL_Y                     AS INTEGER        ' Last panel Y (-1 = auto-position)
     ANIM_PANEL_VISIBLE              AS INTEGER        ' TRUE = Animation panel open at startup
@@ -521,6 +549,7 @@ TYPE DRAW_CONFIG
     EDIT_BAR_SCALE                  AS INTEGER        ' Edit bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
     ADV_BAR_SCALE                   AS INTEGER        ' Advanced bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
     CHARMAP_PANEL_SCALE             AS INTEGER        ' Character map scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    TEXT_BAR_SCALE                  AS INTEGER        ' Text bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
     WORKFLOW_PANEL_SCALE            AS INTEGER        ' Workflow buttons scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
     SWATCHES_X                      AS INTEGER        ' Last Swatches panel X (-1 = auto-position)
     SWATCHES_Y                      AS INTEGER        ' Last Swatches panel Y (-1 = auto-position)
@@ -567,6 +596,7 @@ TYPE DRAW_CONFIG
     ADV_BAR_COLUMNS                 AS INTEGER        ' Advanced bar icon columns (1-4, default 1)
     ' Default drawer set files (path to .dset, empty = use built-in samples)
     DRAWER_BIN_COLS                 AS INTEGER        ' bins per row (Ctrl+wheel over the bins; 0 = as many as the theme's bin size fits)
+    DRAWER_ROW_BIN_ROWS             AS INTEGER        ' docked in a top / bottom row: bin rows in its height (Ctrl+wheel there; 0 = 1, bins as tall as the row)
     DRAWER_MINI_PALETTE             AS INTEGER        ' TRUE = the Drawer shows its mini palette beside / under the bins (off = the bins take its space)
     DEFAULT_DSET_BRUSHES_FILE       AS STRING         ' Default brush drawer set (.dset)
     DEFAULT_DSET_PATTERNS_FILE      AS STRING         ' Default pattern drawer set (.dset)

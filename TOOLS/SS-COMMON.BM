@@ -16,9 +16,14 @@ SUB SS_stroke_line (x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, 
 
     ' Anti-aliased thin strokes → Wu. This one branch AA's every smart-shape stroke,
     ' polyline, AND arc, since SS_stroke_polyline and SS_stroke_arc both call here on
-    ' commit. Thick brush (>1px) already AA's via PAINT_stamp_brush. AA off = verbatim.
+    ' commit. AA off = verbatim.
     IF CFG.ANTIALIAS% AND BRUSH_SIZE_pixels% <= 1 THEN
         PAINT_wu_line x0%, y0%, x1%, y1%, col~&
+        EXIT SUB
+    END IF
+    ' ... and thick ones (a round brush) → one soft capsule per segment.
+    IF PAINT_aa_thick_line%(col~&) THEN
+        PAINT_aa_capsule x0%, y0%, x1%, y1%, BRUSH_SIZE_pixels% / 2!, col~&
         EXIT SUB
     END IF
 
@@ -119,8 +124,19 @@ END SUB
 '
 SUB SS_stroke_polyline (px() AS INTEGER, py() AS INTEGER, n AS INTEGER, closed AS INTEGER, col AS _UNSIGNED LONG, commit AS INTEGER)
     DIM i AS INTEGER, j AS INTEGER, last AS INTEGER
+    DIM vfn AS INTEGER: vfn% = SS_VF_N: SS_VF_N = 0
     IF n% < 2 THEN EXIT SUB
     IF closed% THEN last% = n% - 1 ELSE last% = n% - 2
+    ' Antialiased commit of a curved shape: capsules between its exact vertices
+    IF commit% _ANDALSO vfn% = n% _ANDALSO PAINT_aa_curve_ok%(col~&) THEN
+        DIM fr AS SINGLE: fr! = PAINT_aa_radius!
+        FOR i% = 0 TO last%
+            j% = i% + 1
+            IF j% >= n% THEN j% = 0
+            PAINT_aa_capsule SS_VFX(i%), SS_VFY(i%), SS_VFX(j%), SS_VFY(j%), fr!, col~&
+        NEXT i%
+        EXIT SUB
+    END IF
     FOR i% = 0 TO last%
         j% = i% + 1
         IF j% >= n% THEN j% = 0
@@ -192,6 +208,34 @@ SUB SS_fill_polygon (px() AS INTEGER, py() AS INTEGER, n AS INTEGER, col AS _UNS
 END SUB
 
 ''
+' Write vertex idx: the whole pixel into px() / py(), the exact point into
+' SS_VFX / SS_VFY (see SS-COMMON.BI). The builder sets SS_VF_N when done.
+'
+SUB SS_vert (px() AS INTEGER, py() AS INTEGER, idx AS INTEGER, fx AS SINGLE, fy AS SINGLE)
+    px(idx%) = INT(fx! + 0.5): py(idx%) = INT(fy! + 0.5)
+    SS_VFX(idx%) = fx!: SS_VFY(idx%) = fy!
+END SUB
+
+''
+' Samples for one arc of a shape: base, or with Antialias on enough for a
+' point every ~1.5px along it (radius r, sweep radians) - a few straight
+' chords show as flat facets once the edge is smooth. Capped so arcs arcs
+' (+ a few corners) fit SS_MAX_VERTS.
+'
+FUNCTION SS_arc_samples% (baseN AS INTEGER, r AS SINGLE, sweep AS SINGLE, arcs AS INTEGER)
+    DIM n AS INTEGER, m AS LONG, cap AS INTEGER
+    n% = baseN%
+    IF CFG.ANTIALIAS% THEN
+        m& = INT(ABS(r!) * ABS(sweep!) / 1.5)
+        IF m& > 30000 THEN m& = 30000
+        IF m& > n% THEN n% = m&
+    END IF
+    cap% = (SS_MAX_VERTS - 8) \ _MAX(1, arcs%) - 1
+    IF n% > cap% THEN n% = cap%
+    SS_arc_samples% = n%
+END FUNCTION
+
+''
 ' Sample N points along an ellipse arc from ang0 to ang1 (radians).
 ' Writes into px(), py() starting at offset offs. Returns number of points written.
 '
@@ -222,6 +266,23 @@ SUB SS_stroke_arc (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, ang
     DIM lastX AS INTEGER, lastY AS INTEGER
     DIM nx    AS INTEGER, ny AS INTEGER
     DIM i     AS INTEGER, t AS SINGLE
+    ' Antialiased commit: capsules between the arc's exact points (rounding them to
+    ' whole pixels first put steps into the edge)
+    IF commit% _ANDALSO PAINT_aa_curve_ok%(col~&) THEN
+        DIM fx0 AS SINGLE, fy0 AS SINGLE, fx1 AS SINGLE, fy1 AS SINGLE, fr AS SINGLE, fn AS INTEGER
+        fr! = PAINT_aa_radius!
+        fn% = INT(diff! * (ABS(rx!) + ABS(ry!)) / 2 / 1.5): IF fn% < steps% \ 4 THEN fn% = steps% \ 4
+        IF fn% < 4 THEN fn% = 4
+        IF fn% > 4000 THEN fn% = 4000
+        fx0! = cx% + COS(ang0!) * rx!: fy0! = cy% + SIN(ang0!) * ry!
+        FOR i% = 1 TO fn%
+            t! = ang0! + (ang1! - ang0!) * (i% / fn%)
+            fx1! = cx% + COS(t!) * rx!: fy1! = cy% + SIN(t!) * ry!
+            PAINT_aa_capsule fx0!, fy0!, fx1!, fy1!, fr!, col~&
+            fx0! = fx1!: fy0! = fy1!
+        NEXT i%
+        EXIT SUB
+    END IF
     FOR i% = 0 TO steps%
         t!  = ang0! + (ang1! - ang0!) * (i% / steps%)
         nx% = INT(cx% + COS(t!) * rx! + 0.5)
@@ -305,4 +366,86 @@ SUB SS_paint_end (col AS _UNSIGNED LONG)
         _BLEND LAYER_current_image&
     END IF
     GRAD_CTX_clear
+END SUB
+
+''
+' Start a supersampled render of the canvas box (x0,y0)-(x1,y1) when
+' Antialias is on (see SS-COMMON.BI): _DEST becomes the big clear buffer.
+' Returns the scale (1 = not started: draw straight to _DEST as before).
+'
+FUNCTION SS_ssaa_begin% (x0 AS SINGLE, y0 AS SINGLE, x1 AS SINGLE, y1 AS SINGLE)
+    SS_SSAA_S = 1: SS_ssaa_begin% = 1
+    IF CFG.ANTIALIAS% = 0 THEN EXIT FUNCTION
+    DIM bx0 AS LONG, by0 AS LONG, bw AS LONG, bh AS LONG, s AS INTEGER
+    bx0& = INT(_MIN(x0!, x1!)) - 2: by0& = INT(_MIN(y0!, y1!)) - 2
+    bw& = INT(_MAX(x0!, x1!)) + 3 - bx0& + 1: bh& = INT(_MAX(y0!, y1!)) + 3 - by0& + 1
+    IF bw& < 1 OR bh& < 1 THEN EXIT FUNCTION
+    s% = 4
+    DO WHILE s% > 1 _ANDALSO bw& * bh& * s% * s% > 16000000
+        s% = s% - 1
+    LOOP
+    IF s% < 2 THEN EXIT FUNCTION
+    DIM img AS LONG: img& = _NEWIMAGE(bw& * s%, bh& * s%, 32)
+    IF img& >= -1 THEN EXIT FUNCTION
+    SS_SSAA_DEST = _DEST: SS_SSAA_IMG = img&
+    SS_SSAA_OX = bx0&: SS_SSAA_OY = by0&: SS_SSAA_S = s%
+    _DEST img&
+    CLS , _RGBA32(0, 0, 0, 0)
+    SS_ssaa_begin% = s%
+END FUNCTION
+
+''
+' Finish SS_ssaa_begin%: box-filter the buffer down (premultiplied) and lay
+' it over the original _DEST, straight-alpha source-over; _DEST is restored.
+'
+SUB SS_ssaa_end
+    IF SS_SSAA_S <= 1 THEN EXIT SUB
+    DIM s AS INTEGER: s% = SS_SSAA_S
+    DIM hi AS LONG, dst AS LONG: hi& = SS_SSAA_IMG: dst& = SS_SSAA_DEST
+    SS_SSAA_S = 1
+    _DEST dst&
+    DIM hw AS LONG, ow AS LONG, oh AS LONG, dw AS LONG, dh AS LONG
+    hw& = _WIDTH(hi&): ow& = hw& \ s%: oh& = _HEIGHT(hi&) \ s%
+    dw& = _WIDTH(dst&): dh& = _HEIGHT(dst&)
+    DIM mh AS _MEM, md AS _MEM
+    mh = _MEMIMAGE(hi&): md = _MEMIMAGE(dst&)
+    DIM ox AS LONG, oy AS LONG, tx AS LONG, ty AS LONG, sx AS INTEGER, sy AS INTEGER
+    DIM rowOff AS _OFFSET, c AS _UNSIGNED LONG, d AS _UNSIGNED LONG, nc AS _UNSIGNED LONG
+    DIM a AS LONG, sa AS LONG, sr AS SINGLE, sg AS SINGLE, sb AS SINGLE
+    DIM af AS SINGLE, da AS SINGLE, oa AS SINGLE, ka AS SINGLE, kd AS SINGLE
+    DIM n AS SINGLE: n! = s% * s% * 255!
+    FOR oy& = 0 TO oh& - 1
+        ty& = SS_SSAA_OY + oy&
+        IF ty& >= 0 _ANDALSO ty& < dh& THEN
+            FOR ox& = 0 TO ow& - 1
+                tx& = SS_SSAA_OX + ox&
+                IF tx& >= 0 _ANDALSO tx& < dw& THEN
+                    sa& = 0: sr! = 0: sg! = 0: sb! = 0
+                    FOR sy% = 0 TO s% - 1
+                        rowOff = mh.OFFSET + ((oy& * s% + sy%) * hw& + ox& * s%) * 4
+                        FOR sx% = 0 TO s% - 1
+                            c~& = _MEMGET(mh, rowOff + sx% * 4, _UNSIGNED LONG)
+                            a& = _ALPHA32(c~&)
+                            IF a& THEN
+                                sa& = sa& + a&
+                                sr! = sr! + _RED32(c~&) * a&: sg! = sg! + _GREEN32(c~&) * a&: sb! = sb! + _BLUE32(c~&) * a&
+                            END IF
+                        NEXT sx%
+                    NEXT sy%
+                    IF sa& > 0 THEN
+                        af! = sa& / n!
+                        d~& = _MEMGET(md, md.OFFSET + (ty& * dw& + tx&) * 4, _UNSIGNED LONG)
+                        da! = _ALPHA32(d~&) / 255!
+                        oa! = af! + da! * (1 - af!)
+                        ka! = af! / oa! / sa&: kd! = da! * (1 - af!) / oa!
+                        nc~& = _RGBA32(INT(sr! * ka! + _RED32(d~&) * kd! + 0.5), INT(sg! * ka! + _GREEN32(d~&) * kd! + 0.5), INT(sb! * ka! + _BLUE32(d~&) * kd! + 0.5), INT(oa! * 255 + 0.5))
+                        _MEMPUT md, md.OFFSET + (ty& * dw& + tx&) * 4, nc~&
+                    END IF
+                END IF
+            NEXT ox&
+        END IF
+    NEXT oy&
+    _MEMFREE mh: _MEMFREE md
+    _FREEIMAGE hi&
+    SS_SSAA_IMG = 0
 END SUB

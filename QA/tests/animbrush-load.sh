@@ -124,7 +124,7 @@ bin_xy() {
 ld_drop() { # FILE BIN - the QA drop hook: a path in <dump>.drop is an OS drop at the pointer
     bin_xy "$2" || { fail "bin $2 not showing"; return 1; }
     hover "$BX" "$BY"; sleep 0.3; hover $(( BX + 1 )) "$BY"; sleep 0.3
-    echo "$1" > "$DK_DUMP.drop"
+    native_path "$1" > "$DK_DUMP.drop"
     wait_for 1.5 "dropped"
     ld_read
 }

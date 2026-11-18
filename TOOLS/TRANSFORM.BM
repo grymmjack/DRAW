@@ -204,6 +204,73 @@ SUB TRANSFORM_tri_affine (d0x AS SINGLE, d0y AS SINGLE, d1x AS SINGLE, d1y AS SI
 END SUB
 
 ''
+' Catmull-Rom cubic weight at distance d (in kernel units: 1 = one source pixel).
+'
+FUNCTION TRANSFORM_cubic_w! (d AS SINGLE)
+    DIM x AS SINGLE
+    x! = ABS(d!)
+    IF x! < 1 THEN
+        TRANSFORM_cubic_w! = (1.5! * x! - 2.5!) * x! * x! + 1
+    ELSEIF x! < 2 THEN
+        TRANSFORM_cubic_w! = ((-0.5! * x! + 2.5!) * x! - 4) * x! + 2
+    ELSE
+        TRANSFORM_cubic_w! = 0
+    END IF
+END FUNCTION
+
+''
+' Smooth (bicubic) sample of the source at (sx, sy) - source pixel centres are
+' whole coordinates - for Transform with Antialias on (Rick 2026-11-17: "when
+' we do transformations, can it use bicubic or something to preserve the
+' smoothness"). Catmull-Rom in premultiplied alpha (no dark halos around
+' transparent pixels); outside the source is transparent, so the image's edges
+' come out soft. fx / fy >= 1 widen the kernel where the transform shrinks the
+' image (fx source px per output px), so a reduction averages instead of
+' skipping pixels (no shimmer or aliasing).
+'
+FUNCTION TRANSFORM_sample_smooth~& (srcMem AS _MEM, sw AS INTEGER, sh AS INTEGER, sx AS SINGLE, sy AS SINGLE, fx AS SINGLE, fy AS SINGLE)
+    DIM x0 AS LONG, x1 AS LONG, y0 AS LONG, y1 AS LONG, x AS LONG, y AS LONG
+    DIM wy AS SINGLE, w AS SINGLE, wsum AS SINGLE, px AS _UNSIGNED LONG, a AS SINGLE
+    DIM sr AS SINGLE, sg AS SINGLE, sb AS SINGLE, sa AS SINGLE
+    DIM rx AS SINGLE, ry AS SINGLE, ir AS LONG, ig AS LONG, ib AS LONG, ia AS LONG
+    TRANSFORM_sample_smooth~& = 0
+    rx! = 2 * fx!: ry! = 2 * fy!
+    IF sx! < -rx! - 0.5 _ORELSE sy! < -ry! - 0.5 _ORELSE sx! > sw% - 1 + rx! + 0.5 _ORELSE sy! > sh% - 1 + ry! + 0.5 THEN EXIT FUNCTION
+    x0& = -INT(-(sx! - rx!)): x1& = INT(sx! + rx!)
+    y0& = -INT(-(sy! - ry!)): y1& = INT(sy! + ry!)
+    FOR y& = y0& TO y1&
+        wy! = TRANSFORM_cubic_w!((y& - sy!) / fy!)
+        IF wy! <> 0 THEN
+            FOR x& = x0& TO x1&
+                w! = wy! * TRANSFORM_cubic_w!((x& - sx!) / fx!)
+                IF w! <> 0 THEN
+                    wsum! = wsum! + w!
+                    IF x& >= 0 _ANDALSO x& < sw% _ANDALSO y& >= 0 _ANDALSO y& < sh% THEN
+                        _MEMGET srcMem, srcMem.OFFSET + (y& * sw% + x&) * 4, px~&
+                        a! = _ALPHA32(px~&) * w!
+                        sa! = sa! + a!
+                        sr! = sr! + _RED32(px~&) * a!
+                        sg! = sg! + _GREEN32(px~&) * a!
+                        sb! = sb! + _BLUE32(px~&) * a!
+                    END IF
+                END IF
+            NEXT x&
+        END IF
+    NEXT y&
+    IF wsum! <= 0 _ORELSE sa! <= 0 THEN EXIT FUNCTION
+    ia& = INT(sa! / wsum! + 0.5): IF ia& > 255 THEN ia& = 255
+    IF ia& <= 0 THEN EXIT FUNCTION
+    ir& = INT(sr! / sa! + 0.5): ig& = INT(sg! / sa! + 0.5): ib& = INT(sb! / sa! + 0.5)
+    IF ir& < 0 THEN ir& = 0
+    IF ir& > 255 THEN ir& = 255
+    IF ig& < 0 THEN ig& = 0
+    IF ig& > 255 THEN ig& = 255
+    IF ib& < 0 THEN ib& = 0
+    IF ib& > 255 THEN ib& = 255
+    TRANSFORM_sample_smooth~& = _RGBA32(ir&, ig&, ib&, ia&)
+END FUNCTION
+
+''
 ' Compute the warped preview image from current handle positions and store in
 ' TRANSFORM_PREVIEW_IMG.  Bounding-box origin stored in TRANSFORM_PREVIEW_OX/OY.
 '
@@ -271,6 +338,10 @@ SUB TRANSFORM_compute_preview ()
     DIM srcMem      AS _MEM           : srcMem = _MEMIMAGE(TRANSFORM.SRC_IMG)
     DIM dstMem      AS _MEM           : dstMem = _MEMIMAGE(TRANSFORM_PREVIEW_IMG)
     DIM transparent AS _UNSIGNED LONG : transparent = _RGBA32(0, 0, 0, 0)
+    ' Antialias on: a smooth (bicubic) resample once the handles are let go and on
+    ' commit; while a handle is dragged the quick nearest-pixel one keeps up.
+    DIM smooth AS INTEGER
+    smooth% = (CFG.ANTIALIAS% <> 0 _ANDALSO TRANSFORM.GRABBED < 0)
 
     IF TRANSFORM.MODE = TRANSFORM_MODE_PERSPECTIVE THEN
         ' Full projective homography inverse
@@ -293,7 +364,9 @@ SUB TRANSFORM_compute_preview ()
                         hSrcY! = (hArr(3) * hox& + hArr(4) * hoy& + hArr(5)) / hDenom!
                         hSix&  = INT(hSrcX! + 0.5!)
                         hSiy&  = INT(hSrcY! + 0.5!)
-                        IF hSix& >= 0 AND hSix& < sw% AND hSiy& >= 0 AND hSiy& < sh% THEN
+                        IF smooth% THEN
+                            hPx~& = TRANSFORM_sample_smooth~&(srcMem, sw%, sh%, hSrcX!, hSrcY!, 1, 1)
+                        ELSEIF hSix& >= 0 AND hSix& < sw% AND hSiy& >= 0 AND hSiy& < sh% THEN
                             _MEMGET srcMem, srcMem.OFFSET + (hSiy& * sw% + hSix&) * 4, hPx~&
                         ELSE
                             hPx~& = transparent~&
@@ -335,6 +408,10 @@ SUB TRANSFORM_compute_preview ()
 
         DIM aox  AS LONG, aoy AS LONG, aSrcX AS SINGLE, aSrcY AS SINGLE
         DIM aSix AS LONG, aSiy AS LONG, aPx AS _UNSIGNED LONG, inA AS INTEGER, inQuad AS INTEGER
+        ' smooth: source px per output px along each source axis (> 1 = shrinking)
+        DIM sfxA AS SINGLE, sfyA AS SINGLE, sfxB AS SINGLE, sfyB AS SINGLE
+        sfxA! = _MAX(1, SQR(a00A! * a00A! + a01A! * a01A!)): sfyA! = _MAX(1, SQR(a10A! * a10A! + a11A! * a11A!))
+        sfxB! = _MAX(1, SQR(a00B! * a00B! + a01B! * a01B!)): sfyB! = _MAX(1, SQR(a10B! * a10B! + a11B! * a11B!))
         FOR aoy& = 0 TO bbH% - 1
             FOR aox& = 0 TO bbW% - 1
                 inQuad% = 1
@@ -347,7 +424,21 @@ SUB TRANSFORM_compute_preview ()
                     inQuad% = 0
                 END IF
                 aPx~& = transparent~&
-                IF inQuad% = 1 THEN
+                IF smooth% THEN
+                    ' Just outside the quad: the soft edge, where the pixel maps just
+                    ' outside the source (a concave notch maps inside it: stays empty).
+                    IF inQuad% = 0 THEN
+                        aSrcX! = a00A! * aox& + a01A! * aoy& + t0A! : aSrcY! = a10A! * aox& + a11A! * aoy& + t1A!
+                        IF aSrcX! > 0 _ANDALSO aSrcX! < sw% - 1 _ANDALSO aSrcY! > 0 _ANDALSO aSrcY! < sh% - 1 THEN inQuad% = -1
+                    END IF
+                    IF inQuad% >= 0 THEN
+                        IF inA% THEN
+                            aPx~& = TRANSFORM_sample_smooth~&(srcMem, sw%, sh%, aSrcX!, aSrcY!, sfxA!, sfyA!)
+                        ELSE
+                            aPx~& = TRANSFORM_sample_smooth~&(srcMem, sw%, sh%, aSrcX!, aSrcY!, sfxB!, sfyB!)
+                        END IF
+                    END IF
+                ELSEIF inQuad% = 1 THEN
                     aSix& = INT(aSrcX! + 0.5!) : aSiy& = INT(aSrcY! + 0.5!)
                     IF aSix& >= 0 AND aSix& < sw% AND aSiy& >= 0 AND aSiy& < sh% THEN _MEMGET srcMem, srcMem.OFFSET + (aSiy& * sw% + aSix&) * 4, aPx~&
                 END IF
@@ -917,6 +1008,11 @@ SUB TRANSFORM_commit ()
         EXIT SUB
     END IF
 
+    ' An armed layer (TOOLS/ANIM-XLANE): Scale / Rotate become keys on this frame, the pixels stay
+    IF TRANSFORM.MODIFIED THEN
+        IF ANIM_XL_transform_record% THEN TRANSFORM_cancel: EXIT SUB
+    END IF
+
     transform_history_before& = 0
     transform_history_flags&  = 0
     transform_recorded%       = FALSE
@@ -1206,7 +1302,7 @@ SUB TRANSFORM_render_status (canvas AS LONG)
         CASE TRANSFORM_MODE_SCALE
             hint$ = "SCALE  |  SHIFT: lock aspect  |  Drag corners  |  ENTER: Apply  |  ESC: Cancel"
         CASE TRANSFORM_MODE_ROTATE
-            hint$ = "ROTATE  |  SHIFT: 15 deg snap  |  Drag corner  |  ENTER: Apply  |  ESC: Cancel"
+            hint$ = "ROTATE  |  SHIFT: 15 deg snap  |  CTRL: angle snap  |  Drag corner  |  ENTER: Apply  |  ESC: Cancel"
         CASE TRANSFORM_MODE_PERSPECTIVE
             hint$ = "PERSPECTIVE  |  SHIFT: wall projection  |  Drag corners  |  ENTER: Apply  |  ESC: Cancel"
         CASE ELSE
@@ -1218,7 +1314,7 @@ SUB TRANSFORM_render_status (canvas AS LONG)
         _DEST canvas&
         LINE (0, sbY% - 1)-(SCRN.w& - 1, sbY% + THEME.STATUS_height%), _RGBA32(20,20,20,220), BF
         COLOR _RGB32(200, 230, 255), _RGBA32(0,0,0,0)
-        _PRINTSTRING (6, sbY% + 2), hint$
+        _PRINTSTRING (6, sbY% + 2), UCASE$(hint$)
     END IF
 END SUB
 
@@ -1413,9 +1509,13 @@ SUB TRANSFORM_mouse_hold (rawX AS INTEGER, rawY AS INTEGER)
                 origAngle!      = _ATAN2(relOY!, relOX!)
                 newAngle!       = _ATAN2(canY! - TRANSFORM_PY, canX! - TRANSFORM_PX)
                 TRANSFORM.ANGLE = (newAngle! - origAngle!) * 57.295779513!
-                ' SHIFT: snap rotation to 15-degree increments
+                ' CTRL: the program's angle snap (Settings: Snap Degrees / Pixel Art
+                ' Angles, as Ctrl+Shift lines); SHIFT: 15-degree increments
                 DIM deltaAngle AS SINGLE
-                IF MODIFIERS.shift% THEN
+                IF MODIFIERS.ctrl% THEN
+                    TRANSFORM.ANGLE = SNAP_rotation!(TRANSFORM.ANGLE)
+                    deltaAngle!     = TRANSFORM.ANGLE * 0.017453292521!
+                ELSEIF MODIFIERS.shift% THEN
                     TRANSFORM.ANGLE = INT((TRANSFORM.ANGLE / 15.0!) + 0.5!) * 15.0!
                     deltaAngle!     = TRANSFORM.ANGLE * 0.017453292521! ' degrees to radians
                 ELSE
@@ -1461,4 +1561,6 @@ SUB TRANSFORM_mouse_release ()
     IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
     _LOGINFO "TRANSFORM_mouse_release: was grabbed=" + STR$(TRANSFORM.GRABBED)
     TRANSFORM.GRABBED = -1
+    ' Antialias on: the preview sharpens up to the smooth resample now
+    IF CFG.ANTIALIAS% THEN TRANSFORM_PREVIEW_DIRTY = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
 END SUB

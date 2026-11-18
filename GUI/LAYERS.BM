@@ -108,10 +108,52 @@ END SUB
 ' @return LONG - Unique layer history ID (monotonically increasing)
 '
 FUNCTION LAYERS_alloc_history_id& ()
-    IF NEXT_LAYER_HISTORY_ID& < 1 THEN NEXT_LAYER_HISTORY_ID& = 1
+    LAYERS_history_ids_sync
     LAYERS_alloc_history_id& = NEXT_LAYER_HISTORY_ID&
     NEXT_LAYER_HISTORY_ID& = NEXT_LAYER_HISTORY_ID& + 1
 END FUNCTION
+
+''
+' NEXT_LAYER_HISTORY_ID& past every id in use - each live layer's and each
+' keyframe-lane entry's (TOOLS/LAYER-LANES keys lanes by historyId). A loader
+' that reset it too low (Aseprite / PSD set it to LAYER_COUNT + 1 after
+' handing out ids; a .draw saved since kept that) let a new layer take an
+' id already in use - Rick 2026-11-16: a new group took the ball's id, so it
+' shared the ball's lanes (moved with them, and removing one removed the
+' ball's).
+SUB LAYERS_history_ids_sync ()
+    DIM i AS INTEGER
+    IF NEXT_LAYER_HISTORY_ID& < 1 THEN NEXT_LAYER_HISTORY_ID& = 1
+    FOR i = 1 TO MAX_LAYERS
+        IF LAYERS(i).imgHandle& <> 0 _ANDALSO LAYERS(i).historyId& >= NEXT_LAYER_HISTORY_ID& THEN NEXT_LAYER_HISTORY_ID& = LAYERS(i).historyId& + 1
+    NEXT i
+    FOR i = 1 TO LL_N
+        IF LL_ID(i) >= NEXT_LAYER_HISTORY_ID& THEN NEXT_LAYER_HISTORY_ID& = LL_ID(i) + 1
+    NEXT i
+END SUB
+
+''
+' After a load (history cleared): two live layers sharing a historyId get
+' told apart - the group gives its id up when the other is not a group (its
+' lanes / links stay with the drawing that had them), else the later slot.
+' Then the next id past them all.
+SUB LAYERS_history_ids_repair ()
+    DIM i AS INTEGER, j AS INTEGER, k AS INTEGER
+    FOR i = 1 TO MAX_LAYERS
+        IF LAYERS(i).imgHandle& <> 0 THEN
+            FOR j = i + 1 TO MAX_LAYERS
+                IF LAYERS(j).imgHandle& <> 0 _ANDALSO LAYERS(j).historyId& = LAYERS(i).historyId& THEN
+                    k = j
+                    IF LAYERS(i).layerType% = LAYER_TYPE_GROUP _ANDALSO LAYERS(j).layerType% <> LAYER_TYPE_GROUP THEN k = i
+                    _LOGWARN "LAYERS_history_ids_repair: layers " + _TRIM$(STR$(i)) + " and " + _TRIM$(STR$(j)) + " shared id" + STR$(LAYERS(i).historyId&) + " - '" + _TRIM$(LAYERS(k).name) + "' gets a new one"
+                    LAYERS(k).historyId& = LAYERS_alloc_history_id&
+                    IF k = i THEN EXIT FOR ' (i has a new id now; the rest of j check against it later)
+                END IF
+            NEXT j
+        END IF
+    NEXT i
+    LAYERS_history_ids_sync
+END SUB
 
 
 ''
@@ -1011,6 +1053,32 @@ SUB MULTI_SELECT_toggle (layerIndex AS INTEGER)
         MULTI_SELECT_LAYERS(layerIndex%) = TRUE
         MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
     END IF
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Add group g and all its descendants to the multi-select set (Ctrl+click on
+' a group header - the Layers panel and the X-sheet's names). Does NOT clear
+' the existing selection, so a selection can cross groups.
+SUB MULTI_SELECT_add_group (g AS INTEGER)
+    DIM i AS INTEGER, walk AS INTEGER, guard AS INTEGER
+    IF g < 1 _ORELSE g > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(g).imgHandle& = 0 THEN EXIT SUB
+    IF MULTI_SELECT_LAYERS(g) = 0 THEN MULTI_SELECT_LAYERS(g) = TRUE: MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
+    FOR i = 1 TO MAX_LAYERS
+        IF LAYERS(i).imgHandle& <> 0 _ANDALSO i <> g THEN
+            walk = LAYERS(i).parentGroupIdx%: guard = 0
+            DO WHILE walk > 0 _ANDALSO walk <= MAX_LAYERS _ANDALSO guard < MAX_LAYERS
+                IF walk = g THEN
+                    IF MULTI_SELECT_LAYERS(i) = 0 THEN MULTI_SELECT_LAYERS(i) = TRUE: MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
+                    EXIT DO
+                END IF
+                IF LAYERS(walk).imgHandle& = 0 THEN EXIT DO
+                walk = LAYERS(walk).parentGroupIdx%: guard = guard + 1
+            LOOP
+        END IF
+    NEXT i
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -2308,21 +2376,26 @@ FUNCTION LAYERS_flatten& ()
 
                 ' APRON: extract canvas region into a compact temp if layer is extended.
                 apronTmp& = 0
+                DIM llSrc AS LONG
+                llSrc& = LL_flat_src&(i%) ' the layer, or its display through its keyframe lanes (TOOLS/LAYER-LANES)
                 IF LAYERS(i%).apronW% > 0 OR LAYERS(i%).apronH% > 0 THEN
                     apronTmp& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
                     oldSrc&   = _SOURCE
-                    _SOURCE LAYERS(i%).imgHandle&
+                    _SOURCE llSrc&
                     DIM olD AS LONG: olD& = _DEST: _DEST apronTmp&
                     sx% = LAYERS(i%).apronW%
                     sy% = LAYERS(i%).apronH%
-                    _PUTIMAGE (0, 0)-(SCRN.canvasW& - 1, SCRN.canvasH& - 1), LAYERS(i%).imgHandle&, apronTmp&, (sx%, sy%)-(sx% + SCRN.canvasW& - 1, sy% + SCRN.canvasH& - 1)
+                    _PUTIMAGE (0, 0)-(SCRN.canvasW& - 1, SCRN.canvasH& - 1), llSrc&, apronTmp&, (sx%, sy%)-(sx% + SCRN.canvasW& - 1, sy% + SCRN.canvasH& - 1)
                     _DEST olD&
                     _SOURCE oldSrc&
                     srcImg& = apronTmp&
                 ELSE
-                    srcImg& = LAYERS(i%).imgHandle&
+                    srcImg& = llSrc&
                 END IF
-                IF LAYERS(i%).blendMode% <> BLEND_NORMAL THEN
+                IF LL_blend_lane%(i%) THEN
+                    ' a BLEND lane: each frame cell with its own mode (img 0: the kernel applies the opacity)
+                    LL_blend_composite compTarget&, 0, srcImg&, i%, 0, 0, _WIDTH(compTarget&) - 1, _HEIGHT(compTarget&) - 1
+                ELSEIF LAYERS(i%).blendMode% <> BLEND_NORMAL THEN
                     ' Non-Normal blend: use per-pixel blend composite
                     LAYER_blend_composite compTarget&, srcImg&, LAYERS(i%).blendMode%, LAYERS(i%).opacity%
                 ELSE
@@ -2638,10 +2711,22 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
         _UPRINTSTRING (panelX% + 2, panelY% + 3), "L"
     END IF
     
+    ' the [x] close box at the header's right end, docked (a small red x like
+    ' the dock strips'; the dock does its hover + click - DOCK_slot_close_rect%)
+    DIM lpCloseW AS INTEGER: lpCloseW = 0
+    IF DOCK_layers_header_close% THEN
+        lpCloseW = HEADER_HEIGHT
+        DOCK_close_cross panelX% + panelW% - lpCloseW, panelY%, lpCloseW, HEADER_HEIGHT, THEME.CP_close_hover_bg~&
+    END IF
+
     ' Draw layer count in header (only if it won't overlap title)
     IF panelW% >= 60 THEN
         COLOR THEME.LAYER_PANEL_header_fg_dim~&, _RGBA32(0, 0, 0, 0)
-        _UPRINTSTRING (panelX% + panelW% - 20, panelY% + 3), _TRIM$(STR$(LAYER_COUNT%))
+        IF lpCloseW THEN
+            _UPRINTSTRING (panelX% + panelW% - lpCloseW - 2 - _UPRINTWIDTH(_TRIM$(STR$(LAYER_COUNT%))), panelY% + 3), _TRIM$(STR$(LAYER_COUNT%))
+        ELSE
+            _UPRINTSTRING (panelX% + panelW% - 20, panelY% + 3), _TRIM$(STR$(LAYER_COUNT%))
+        END IF
     END IF
     
     ' Draw layer rows (top to bottom = highest zIndex to lowest)
@@ -2847,6 +2932,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         grpAvailW% = panelW% - rowIndent% - 24 - 14
                         IF LEN(grpCountStr$) > 0 THEN grpAvailW% = grpAvailW% - _PRINTWIDTH(grpCountStr$)
                         IF grpShowBlend% THEN grpAvailW% = grpAvailW% - _PRINTWIDTH(grpBlendShort$) - 2
+                        IF LAYER_PANEL_rec_dot%(layerIdx%, panelW%) THEN grpAvailW% = grpAvailW% - LAYER_REC_DOT_W ' the record dot (TOOLS/ANIM-XLANE)
                         IF _PRINTWIDTH(grpName$) > grpAvailW% THEN
                             grpNameTruncated% = TRUE
                             DO WHILE LEN(grpName$) > 0 AND _PRINTWIDTH(grpName$ + "...") > grpAvailW%
@@ -2868,7 +2954,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         ' Right-aligned blend abbreviation
                         IF grpShowBlend% THEN
                             DIM grpBlendX AS INTEGER
-                            grpBlendX% = panelX% + panelW% - 17 - _PRINTWIDTH(grpBlendShort$)
+                            grpBlendX% = panelX% + panelW% - 17 - _PRINTWIDTH(grpBlendShort$) - _IIF(LAYER_PANEL_rec_dot%(layerIdx%, panelW%), LAYER_REC_DOT_W, 0)
                             COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
                             _UPRINTSTRING (grpBlendX%, drawY% + lrOff + 4), grpBlendShort$
                         END IF
@@ -2976,6 +3062,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     IF lrThumb > 0 THEN availW% = availW% - lrThumb - 3 ' the thumbnail before the name
                     IF showBlendInd% THEN availW% = availW% - _PRINTWIDTH(blendShort$) - 2
                     IF showAiTag% THEN availW% = availW% - _PRINTWIDTH(aiTag$) - 2
+                    IF LAYER_PANEL_rec_dot%(layerIdx%, panelW%) THEN availW% = availW% - LAYER_REC_DOT_W ' the record dot (TOOLS/ANIM-XLANE)
 
                     ' Trim from end until it fits the available pixel width.
                     ' If we had to trim (by char-count cap or by pixel width), append an ellipsis.
@@ -3001,7 +3088,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     ' of the opacity bar.  Badge occupies y+12 alone so no overlap is possible.
                     IF showBlendInd% THEN
                         ' Right edge of blend text must sit 2px left of the opacity bar.
-                        blendIndX% = panelX% + panelW% - 17 - _PRINTWIDTH(blendShort$)
+                        blendIndX% = panelX% + panelW% - 17 - _PRINTWIDTH(blendShort$) - _IIF(LAYER_PANEL_rec_dot%(layerIdx%, panelW%), LAYER_REC_DOT_W, 0)
                         COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
                         _UPRINTSTRING (blendIndX%, drawY% + lrOff + 4), blendShort$
                     END IF
@@ -3010,12 +3097,18 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     ' can coexist on the same row without overlapping.
                     IF showAiTag% THEN
                         DIM aiTagX AS INTEGER
-                        aiTagX% = panelX% + panelW% - 17 - _PRINTWIDTH(aiTag$)
+                        aiTagX% = panelX% + panelW% - 17 - _PRINTWIDTH(aiTag$) - _IIF(LAYER_PANEL_rec_dot%(layerIdx%, panelW%), LAYER_REC_DOT_W, 0)
                         IF showBlendInd% THEN aiTagX% = aiTagX% - _PRINTWIDTH(blendShort$) - 2
                         COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
                         _UPRINTSTRING (aiTagX%, drawY% + lrOff + 4), aiTag$
                     END IF
                     END IF ' isGroupHeader% ELSE
+
+                    ' The record dot (Rick 2026-11-16): an animation's layers only - red armed,
+                    ' purple keyed, a faint ring to arm; left of the opacity bar on the name line.
+                    IF LAYER_PANEL_rec_dot%(layerIdx%, panelW%) THEN
+                        ANIM_XL_dot panelX% + panelW% - 17 - LAYER_REC_DOT_W / 2, drawY% + lrOff + 8, 3, LAYER_PANEL_rec_dot%(layerIdx%, panelW%)
+                    END IF
 
                     ' Export mode badge (SUB/TXT/IMG) — always on the left at y+12.
                     ' Blend mode has moved to the right side, so no vertical stacking needed.
@@ -3034,7 +3127,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     ' Fills bottom-to-top: top (drawY%+2) = fully opaque, bottom (drawY%+16) = transparent
                     ' Only show when panel is wide enough (>=80px)
                     IF panelW% >= 80 THEN
-                        opacityFill% = INT((LAYERS(layerIdx%).opacity% / 255.0) * 14)
+                        opacityFill% = INT((ANIM_XL_shown_opacity%(layerIdx%) / 255.0) * 14)
                         ' Track background: 3px wide x 15px tall at panelW%-15 to panelW%-13
                         LINE (panelX% + panelW% - 15, drawY% + lrOff + 2)-(panelX% + panelW% - 13, drawY% + lrOff + 16), THEME.LAYER_PANEL_opacity_bar_bg~&, BF
                         ' Fill from bottom up
@@ -3660,30 +3753,7 @@ FUNCTION LAYER_PANEL_handle_click% (inX AS INTEGER, inY AS INTEGER, button AS IN
                         IF ctrlHeld% AND LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
                             ' Ctrl+Click on group header: add group + all descendants to multi-select
                             ' (Does NOT clear existing multi-select so cross-group selection works)
-                            IF NOT MULTI_SELECT_LAYERS(layerIdx%) THEN
-                                MULTI_SELECT_LAYERS(layerIdx%) = TRUE
-                                MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
-                            END IF
-                            DIM msGrpI AS INTEGER
-                            FOR msGrpI% = 1 TO MAX_LAYERS
-                                IF LAYERS(msGrpI%).imgHandle& <> 0 AND msGrpI% <> layerIdx% THEN
-                                    DIM msWalk AS INTEGER
-                                    msWalk% = LAYERS(msGrpI%).parentGroupIdx%
-                                    DO WHILE msWalk% > 0
-                                        IF msWalk% = layerIdx% THEN
-                                            IF NOT MULTI_SELECT_LAYERS(msGrpI%) THEN
-                                                MULTI_SELECT_LAYERS(msGrpI%) = TRUE
-                                                MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
-                                            END IF
-                                            EXIT DO
-                                        END IF
-                                        IF msWalk% < 1 OR msWalk% > MAX_LAYERS THEN EXIT DO
-                                        IF LAYERS(msWalk%).imgHandle& = 0 THEN EXIT DO
-                                        msWalk% = LAYERS(msWalk%).parentGroupIdx%
-                                    LOOP
-                                END IF
-                            NEXT msGrpI%
-                            GUI_NEEDS_REDRAW% = TRUE
+                            MULTI_SELECT_add_group layerIdx%
                         ELSE
                             ' Toggle this layer in/out of multi-select without changing CURRENT_LAYER%
                             MULTI_SELECT_toggle layerIdx%
@@ -3808,6 +3878,10 @@ FUNCTION LAYER_PANEL_handle_click% (inX AS INTEGER, inY AS INTEGER, button AS IN
                         ELSE
                             LAYERS_toggle_opacity_lock layerIdx%
                         END IF
+                    ' The record dot (left of the opacity bar, un-indented): arm / disarm
+                    ELSEIF LAYER_PANEL_rec_dot%(layerIdx%, panelW%) _ANDALSO localX% + clickIndent% >= panelW% - 17 - LAYER_REC_DOT_W _ANDALSO localX% + clickIndent% < panelW% - 17 THEN
+                        ANIM_XL_arm_toggle layerIdx%
+                        GUI_NEEDS_REDRAW% = TRUE
                     ' Check if clicking vertical opacity bar (3px wide at panelW%-15 to panelW%-13).
                     ' It is drawn at the row's right edge, NOT indented: test the un-indented x.
                     ELSEIF panelW% >= 80 AND localX% + clickIndent% >= panelW% - 17 AND localX% + clickIndent% < = panelW% - 11 THEN
@@ -3821,7 +3895,7 @@ FUNCTION LAYER_PANEL_handle_click% (inX AS INTEGER, inY AS INTEGER, button AS IN
                         initBarY% = rawY% - LAYER_PANEL.opacityDragRowY% - 2
                         IF initBarY% < 0 THEN initBarY% = 0
                         IF initBarY% > 14 THEN initBarY% = 14
-                        LAYERS_set_opacity layerIdx%, 255 - INT((initBarY% / 14.0) * 255)
+                        ANIM_XL_user_opacity layerIdx%, 255 - INT((initBarY% / 14.0) * 255)
                     ELSE
                         ' Plain click on body: make this the current layer and start drag if eligible
                         ' Double-click: rename layer (triangle already handles group collapse)
@@ -3940,7 +4014,7 @@ SUB LAYER_PANEL_handle_opacity_drag (inX AS INTEGER, inY AS INTEGER)
     IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
     IF LAYER_PANEL.opacityDragBar% THEN ' the layer bar's slider: left = transparent, right = opaque
-        LAYERS_set_opacity layerIdx%, LAYER_BAR_x_to_opacity%(rawX%)
+        ANIM_XL_user_opacity layerIdx%, LAYER_BAR_x_to_opacity%(rawX%)
         EXIT SUB
     END IF
     ' Vertical bar: top = fully opaque (255), bottom = transparent (0)
@@ -3948,7 +4022,7 @@ SUB LAYER_PANEL_handle_opacity_drag (inX AS INTEGER, inY AS INTEGER)
     barY% = rawY% - LAYER_PANEL.opacityDragRowY% - 2
     IF barY% < 0 THEN barY% = 0
     IF barY% > 14 THEN barY% = 14
-    LAYERS_set_opacity layerIdx%, 255 - INT((barY% / 14.0) * 255)
+    ANIM_XL_user_opacity layerIdx%, 255 - INT((barY% / 14.0) * 255)
 END SUB
 
 
@@ -4013,10 +4087,10 @@ SUB LAYER_PANEL_handle_wheel (inX AS INTEGER, inY AS INTEGER, delta AS INTEGER)
                     IF drawY% >= listTop% AND drawY% + LAYER_ROW_H% < = listBottom% THEN
                         ' Adjust opacity - wheel up (negative delta) = more opaque
                         DIM newOpacity AS INTEGER
-                        newOpacity% = LAYERS(layerIdx%).opacity% - (delta% * 15) ' 15 per tick
+                        newOpacity% = ANIM_XL_shown_opacity%(layerIdx%) - (delta% * 15) ' 15 per tick
                         IF newOpacity% < 0 THEN newOpacity% = 0
                         IF newOpacity% > 255 THEN newOpacity% = 255
-                        LAYERS_set_opacity layerIdx%, newOpacity%
+                        ANIM_XL_user_opacity layerIdx%, newOpacity%
                         SOUND_play SND_SLIDER
                         EXIT SUB                                                 ' Handled opacity, don't scroll
                     END IF
@@ -5010,7 +5084,10 @@ SUB LAYER_BAR_layout (by AS INTEGER, bx AS INTEGER, bw AS INTEGER, ex AS INTEGER
     bw = rest * 45 \ 100
     IF bw > 64 THEN bw = 64
     IF bw < 22 THEN bw = 22
-    bx = x0 + 2
+    ' 3 in: docked on the right the seam is the panel's first column, and 2 in
+    ' left one column of the bar between it and the dropdown's frame - a second
+    ' line beside the seam (Rick's PHOTOSHOP workspace, workspace-builtins-load)
+    bx = x0 + 3
     ex = bx + bw + 2
     lx = ex + 11
     sx = lx + 11 + 3
@@ -5180,7 +5257,7 @@ SUB LAYER_BAR_click (rawX AS INTEGER, rawY AS INTEGER, button AS INTEGER)
             LAYER_PANEL.opacityDrag%      = TRUE
             LAYER_PANEL.opacityDragBar%   = TRUE
             LAYER_PANEL.opacityDragLayer% = L
-            LAYERS_set_opacity L, LAYER_BAR_x_to_opacity%(rawX)
+            ANIM_XL_user_opacity L, LAYER_BAR_x_to_opacity%(rawX)
     END SELECT
     GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
 END SUB
@@ -5204,7 +5281,7 @@ SUB LAYER_BAR_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER)
             BLEND_invalidate_visibility L
             SOUND_play SND_SLIDER
         CASE 4
-            LAYERS_set_opacity L, LAYERS(L).opacity% - delta * 15
+            ANIM_XL_user_opacity L, _MAX(0, _MIN(255, ANIM_XL_shown_opacity%(L) - delta * 15))
             SOUND_play SND_SLIDER
     END SELECT
     GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
@@ -5279,7 +5356,7 @@ SUB LAYER_BAR_render ()
     ' opacity slider
     LINE (sx, by + 3)-(sx + sw - 1, by + LAYER_BAR_H - 5), THEME.LAYER_PANEL_scrollbar_track~&, BF
     IF ok THEN
-        op = LAYERS(L).opacity%
+        op = ANIM_XL_shown_opacity%(L)
         fw = CLNG(sw) * op \ 255
         IF fw > 0 THEN LINE (sx, by + 3)-(sx + fw - 1, by + LAYER_BAR_H - 5), THEME.LAYER_PANEL_row_master_accent~&, BF ' (the current layer's accent)
         t = _TRIM$(STR$(CINT(op * 100 / 255))) + "%"
@@ -5554,7 +5631,7 @@ FUNCTION BLEND_needs_composite% ()
     FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 THEN
             IF LAYERS(i%).visible% THEN
-                IF LAYERS(i%).blendMode% <> BLEND_NORMAL THEN
+                IF LAYERS(i%).blendMode% <> BLEND_NORMAL _ORELSE LL_blend_lane%(i%) THEN
                     blcNeedsComposite% = TRUE
                 END IF
                 ' Isolated groups require composite path
@@ -7148,6 +7225,13 @@ SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
         POPUP_MENU_set_item itemCount%, "BAKE CLIP TO PIXELS", "", CLIP_ACT_BAKE, 0
         itemCount% = itemCount% + 1
     END IF
+    ' Recording (TOOLS/ANIM-XLANE, Rick 2026-11-16): an animation's layer - its record dot
+    IF ANIM.active <> 0 _ANDALSO ANIM.count > 1 _ANDALSO ANIM_XL_can%(layerIdx%) <> 0 THEN
+        POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+        itemCount% = itemCount% + 1
+        POPUP_MENU_set_item itemCount%, _IIF(ANIM_XL_keyed%(layerIdx%), "ARM FOR RECORDING (KEYED)", "ARM FOR RECORDING"), "Click Dot", ANIM_ACT_ARM, _IIF(ANIM_XL_armed%(layerIdx%), POPUP_MENU_FLAG_CHECKED, 0)
+        itemCount% = itemCount% + 1
+    END IF
 
     ' --- AI layer operations (omitted entirely when AI features are off) ---
     IF CFG.AI_ENABLED% <> 0 AND LAYERS(layerIdx%).layerType% = LAYER_TYPE_AI THEN
@@ -7445,7 +7529,10 @@ END SUB
 
 
 SUB LAYER_PANEL_ctx_menu_activate (actionValue AS INTEGER)
+    DIM ctxL AS INTEGER
+    ctxL = LAYER_PANEL.ctxMenuLayer%
     LAYER_PANEL_ctx_menu_close
+    IF actionValue% = ANIM_ACT_ARM _ANDALSO ctxL > 0 THEN ANIM_XL_arm_toggle ctxL: EXIT SUB ' the layer right-clicked, not just the current one
     IF actionValue% > 0 THEN
         CMD_execute_action actionValue%
     END IF
@@ -7748,4 +7835,13 @@ END FUNCTION
 ' than the layers' own setting, LAYER_PANEL.width, when it holds other panels).
 FUNCTION LAYER_PANEL_w% ()
     IF LAYER_PANEL.slotW% > 0 THEN LAYER_PANEL_w% = LAYER_PANEL.slotW% ELSE LAYER_PANEL_w% = LAYER_PANEL.width%
+END FUNCTION
+
+''
+' Layer slot's record dot in the Layers panel (Rick 2026-11-16: "only show on
+' the main layer panel if there are more than 1 frame"): 0 none, else
+' ANIM_XL_dot_state% (1 ring, 2 purple keyed, 3 red armed). Needs room (80 px).
+FUNCTION LAYER_PANEL_rec_dot% (slot AS INTEGER, panelW AS INTEGER)
+    IF panelW < 80 _ORELSE ANIM.active = 0 _ORELSE ANIM.count < 2 THEN EXIT FUNCTION
+    LAYER_PANEL_rec_dot% = ANIM_XL_dot_state%(slot)
 END FUNCTION

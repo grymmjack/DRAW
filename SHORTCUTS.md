@@ -151,7 +151,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+Shift+M` | Toggle Advanced Color Picker panel |
 | — | Toggle 3D Color Space panel (View menu / command palette) |
 | `F10` | Toggle status bar |
-| `F11` | Toggle ALL UI: hides every panel and window (menu bar, toolbox, layers, bars, status / color strip, Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Animation, Swatches, Browser, Customize Toolbars); F11 again puts back exactly what was showing. Works the same inside a workspace |
+| `F11` | Toggle ALL UI: hides every panel and window (menu bar, toolbox, layers, bars, status / color strip, Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Animation, Swatches, Browser, Customize Toolbars); F11 again puts back exactly what was showing. Works the same inside a workspace |
 | `Shift+F11` | Inside a workspace that hides things: show what it hid / hide it again |
 | `Ctrl+Shift+W` | Workspace switcher (command palette filtered to `Workspace:`) |
 | `L-Drag` a docked panel's inner edge | Resize it: toolbox columns (1–8), edit/advanced bar columns (1–4), layers width (60–400 px). Saved to the active workspace, or `DRAW.cfg` in Default. **View → Workspace → Save Current Layout As…** saves the whole arrangement as a workspace |
@@ -329,7 +329,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `Shift+Tab` | Color cycling on/off (Palette → Cycle Colors; `[CYC]` in the status bar) |
 
 ### Palette strip mouse
-`L-Click swatch` set FG · `R-Click swatch` set BG (the FG/BG frames only mark a swatch that *is* the current color) · `R-Click blank strip area` (no color: the empty chip places, the gap left of the chips) → size menu: Max Rows (1–8) / Max Columns (16–256) / Chip Height / Chip Width (4–32), each a submenu - hover a row, click a value; applies at once, kept per workspace (`Esc` / a click elsewhere closes) · `Wheel` scroll · `Shift+Wheel` fast scroll (32) · `Click ◄/►` scroll · `Click palette name` switch-palette dropdown · letter keys (in picker) jump to palette.
+`L-Click swatch` set FG · `R-Click swatch` set BG (the FG/BG frames only mark a swatch that *is* the current color) · `R-Click blank strip area` (no color: the empty chip places, the gap left of the chips) → size menu: Max Rows (1–8) / Max Columns (16–256) / Chip Height / Chip Width (4–32) / Edge (Bottom / Top / Left / Right: where the strip docks; on a side it is a column, its rows turned into columns, the dropdown above the chips), each a submenu - hover a row, click a value; applies at once, kept per workspace (`Esc` / a click elsewhere closes) · `Wheel` scroll · `Shift+Wheel` fast scroll (32) · `Click ◄/►` (a side strip: ▲/▼) scroll · `Click palette name` switch-palette dropdown · letter keys (in picker) jump to palette.
 
 ### Status-bar swatches
 `Click FG swatch` / `Click BG swatch` → open color picker.
@@ -427,7 +427,8 @@ Middle-click the Text toolbar icon → load TTF/OTF. **TheDraw (TDF)** fonts: `[
 | Keys | Action |
 |------|--------|
 | `[` / `]` | Brush size − / + (fine, ±1) |
-| Pen pressure | With a drawing tablet, pressure sets Brush / Eraser size and (optionally) opacity, and the mix brush's paint. **View → Pen Pressure** panel: live meter, per-target lightest-touch sliders, curve |
+| Pen pressure | With a drawing tablet, pressure sets Brush / Eraser size and (optionally) opacity, and the mix brush's paint. **View → Pen Control** panel, PRESSURE tab: live meter, per-target lightest-touch sliders, curve |
+| Stroke smoothing | **View → Pen Control**, SMOOTHING tab: Smooth Position (String / Average / EMA / Inertia, Amount, Catch Up, guide line + ring) steadies Brush / Eraser strokes, mouse or pen; Smooth Pressure (Fixed / Hold / Average / EMA). SPEED tab: pressure gain from pen speed (Slow / Fast / Speed / Smooth) with a speed→gain graph. Command palette: *Pen Control: Toggle Smoothing / Next Smoothing Mode / More / Less Smoothing / Toggle Pressure Smoothing / Toggle Speed Scaling* (bindable) |
 | `Ctrl+Wheel` | Brush size presets (1/3/5/7) |
 | `` ` `` | Toggle brush preview / cursor visibility |
 | `\` | Toggle brush shape / cursor shape |
@@ -467,7 +468,7 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 `Arrows` move 1px · `Shift+Arrows` 10px · `Ctrl+Arrows` scale 1px · `Ctrl+Shift+Arrows` scale 10px · `Alt` (hold) clone mode · `Shift+Click` select topmost layer at cursor & begin move · `Enter` apply · `Esc` cancel.
 
 ### Edit → Transform overlay (Scale / Rotate / Shear / Distort / Perspective)
-`Drag handle` apply mode · `Enter` apply & restore previous tool · `Esc` cancel. `Shift`: Scale=lock aspect · Rotate=snap 15° · Perspective=mirror opposite corner.
+`Drag handle` apply mode · `Enter` apply & restore previous tool · `Esc` cancel. `Shift`: Scale=lock aspect · Rotate=snap 15° · Perspective=mirror opposite corner. `Ctrl` while rotating: the angle snap (Settings → Snap Degrees, or Pixel Art Angles - as `Ctrl+Shift` lines). With Anti-Aliasing on, the result is resampled smoothly (bicubic) once you let go of a handle; off, it stays pixel-exact.
 
 ---
 
@@ -487,7 +488,9 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 ### Docking
 Panels move by dragging their title / handle into the dock tree (left, right, stacks, tabs, floating). The old `Ctrl+Shift+Click` side swap and View → Layout menu were removed in favor of docking.
 
-**Arranging panels** — the *handle* is a panel's title strip, the layers header, or the thin grip that appears when you hover the top edge of the toolbox, organizer, drawer or a bar.
+**Arranging panels** — the *handle* is a panel's title strip, the layers header, or the thin grip that appears when you hover the top edge of the toolbox, organizer, drawer or a bar (the text tool's bar too).
+
+**The text tool's bar** is a panel like the others: a top row of its own by default (where it always was), shown only with the Text tool or while a text layer is edited. Drag its grip to dock it left / right (its controls wrap into as many lines as the column's width needs), in another top / bottom row (in a bottom row its font / size / style lists open upward), or to float it; `R-Click` its grip for its Scale (`TEXT_BAR_SCALE`, also Settings → Panels).
 
 | Mouse | Action |
 |------|--------|
@@ -495,11 +498,19 @@ Panels move by dragging their title / handle into the dock tree (left, right, st
 | `L-Drag` the line between two stacked panels | Move height between them |
 | `L-Click` a tab | Show that panel |
 | `L-Drag` a tab strip past its tabs | Move the whole tab group |
-| `L-Drag` the Browser's title to the top / bottom of the canvas | Dock it in a band along the top / bottom (drag the band's edge to resize it) |
+| `L-Drag` a handle to the top / bottom edge of the canvas area | Dock it in a new row along the top / bottom (any panel) · in a row: left / right third of a panel = beside it, middle = tab, a row's outer / inner edge = a new row before / after |
+| `L-Drag` a row's inner edge (canvas side) | Make the top / bottom row taller or shorter |
+| `L-Drag` a panel's right edge in a row | Make it wider / narrower along the row (never narrower than fits the row's height; saved as `@px`) · `Dbl-Click` the edge: its own width again |
+| `Ctrl+Wheel` over the Drawer's bins in a row | Zoom the bins: rows of bins in the row's height (1–6, `DRAWER_ROW_BIN_ROWS`) |
+| `Ctrl+Wheel` over the Advanced Color Picker | Ring thickness: down = thinner ring and a bigger triangle, up = thicker (30–100 %, `ADV_COLOR_PICKER_RING`; also Settings → Panels) |
+| `Alt` held over any panel or window | The loupe magnifies what's under the pointer (docked panels and color windows included) · `Alt+L-Click` / `Alt+R-Click` pick it as FG / BG · keep the button down and drag to keep picking |
+| `R-Click` the color strip's scroll buttons | The strip's menu (as on its empty places) |
 | `L-Click` the chevron / `Dbl-Click` a title strip | Collapse the slot to its title / expand it |
 | `L-Click` a collapsed title | Open it (on the tab you clicked) |
-| `R-Click` a handle | Move to Left / Right Edge · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement · Customize Buttons… (toolbox / bars) · Scale: Auto / 1x–4x (Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Swatches: the panel's own size; Auto = the UI Scale; also Settings → Panels → Panel Scale) |
-| `L-Drag` a floating window's title bar onto a dock target | Dock it (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Swatches, Browser) |
+| `R-Click` a handle | Move to Left / Right Edge · Dock Along the Top / Bottom · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement · Close · Customize Buttons… (toolbox / bars) · Scale: Auto / 1x–6x, every panel alike (Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches: the panel's own size; Auto = the UI Scale; also Settings → Panels → Panel Scale) |
+| `L-Click` a panel's [x] | Close it (floating panels: right end of the title / grip; tabbed / collapsed slots: end of the title strip, closes the showing tab; red on hover). The handle menu's **Close** does the same for every panel but the text bar. View → Organizer / Drawer bring those two back |
+| `R-Click` the Pen Control panel (below its title) | Pen Control Presets: your presets (ticked = current), Save Preset… · Rename Preset… · Delete Preset… · Open Presets Folder |
+| `L-Drag` a floating window's title bar onto a dock target | Dock it (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches, Browser) |
 | `Dbl-Click` a floating panel's title | Dock it back where it was |
 | `L-Drag` a floating panel's right / bottom edge or corner | Resize it (a floating bar adds icon columns as it widens). Floating bars have a slim grip strip instead of a title |
 | `R-Click` (while dragging) | Cancel the move |
@@ -531,7 +542,7 @@ Follow / Floating-Image modes (View → Preview Window). `Alt+Click` pick FG (CP
 `F1/F2/F3` Brush/Gradient/Pattern mode · `L-Click slot` select · `Shift+L-Click` store current · `R-Click` context menu · `M-Click` cycle mode · `Shift+M-Click` clear slot · `Shift+R-Click` import into slot · `L/R-Click mini palette` set FG/BG (when it's on: Settings → Panels → Drawer) · `Wheel` over the bins switches `.dset` sets · `Shift+Wheel` over the bins scrolls them when a narrow drawer can't show every row · `Ctrl+Wheel` over the bins zooms them (up = fewer, bigger bins; down = more, smaller; R-Click → Bin Size: Auto resets).
 
 ### Color Mixer / Advanced Color Picker / Image Browser
-View → Color Mixer (RGB/HSV sliders, hex). **View → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. **View → 3D Color Space**: the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB — `L-Click`/drag the solid → set FG · `R-Drag`/`M-Drag` (or `L-Drag` off the solid) spin · `Wheel` zoom · SOLID/CLOUD · SLICE + slider cut at a lightness. **Palette → Generate OKLCh Ramp from FG** makes an even dark→light palette (Settings → Panels → Color Blending + Ramps). **Brush → Mix Colors (Pigment)** makes the brush pick up and smear the colors it crosses, mixing like wet paint (blue through yellow = green; Smudge / Smudge Length / Smudge Radius in Settings); **Palette → Generate Pigment Mix FG > BG** makes a paint-mixed FG→BG palette. View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Back` / `Forward` mouse buttons (pointer on it) back / forward through the folders visited · `Dbl-Click title` maximize. Its preview pane shows `.draw` files and plays animations (an animated GIF / APNG, a PNG or `.draw` with frames — at their own delays, fps and holds): `Click` the play / pause box · `Click` / `Drag` the seek track to jump / scrub (the Open dialog's preview too). **Floating windows** (Color Mixer, Advanced Color Picker, 3D Color Space, Pen Pressure, Swatches, Image Browser, Preview, Customize Toolbars): drag a title bar to move. `Click` any floating window or floating panel to bring it to the front. With View → Snap Panel Edges on (default), edges snap to other floating windows and to the surrounding chrome and windows don't overlap; hold one still against a snap ~1.5 s to drop it on top. Off, they move freely.
+View → Color Mixer (RGB/HSV sliders, hex). **View → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. **View → 3D Color Space**: the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB — `L-Click`/drag the solid → set FG · `R-Drag`/`M-Drag` (or `L-Drag` off the solid) spin · `Wheel` zoom · SOLID/CLOUD · SLICE + slider cut at a lightness. **Palette → Generate OKLCh Ramp from FG** makes an even dark→light palette (Settings → Panels → Color Blending + Ramps). **Brush → Mix Colors (Pigment)** makes the brush pick up and smear the colors it crosses, mixing like wet paint (blue through yellow = green; Smudge / Smudge Length / Smudge Radius in Settings); **Palette → Generate Pigment Mix FG > BG** makes a paint-mixed FG→BG palette. View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Back` / `Forward` mouse buttons (pointer on it) back / forward through the folders visited · `Dbl-Click title` maximize. `Click` the path field and type a folder (`Enter` goes, `Esc` leaves) · `Click` the search box and type to filter the list (`BackSpace` deletes, `Enter` keeps the filter, `Esc` clears it) — while either has the caret, keys go to it, not to DRAW's shortcuts. Drag the splitter beside the folder list down to an icon and one letter. Docked in a left / right column, the preview sits under the folder list (drag the bar between them to size it) and the column's inner edge drags anywhere along the Browser. Its preview pane shows `.draw` files and plays animations (an animated GIF / APNG, a PNG or `.draw` with frames — at their own delays, fps and holds): `Click` the play / pause box · `Click` / `Drag` the seek track to jump / scrub (the Open dialog's preview too). **Floating windows** (Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches, Image Browser, Preview, Customize Toolbars): drag a title bar to move. `Click` any floating window or floating panel to bring it to the front. With View → Snap Panel Edges on (default), edges snap to other floating windows and to the surrounding chrome and windows don't overlap; hold one still against a snap ~1.5 s to drop it on top. Off, they move freely.
 
 ### Swatches panel (View → Swatches)
 A grid of swatches from a swatch set, beside the palette strip (which stays the document palette). `L-Click` a swatch → select it + FG · `Shift+L-Click` → select the range · `Ctrl+L-Click` → toggle it in the selection · `L-Drag` a selected swatch → move the selection there (a bar marks the drop; locked swatches stay) · `Ctrl+L-Drag` → copy it there · `L-Drag` selected swatches onto the palette strip → insert them after the chip under the pointer (past the last chip = at the end; colors the strip has are skipped; `Ctrl+Z` over the canvas undoes) · `Dbl L-Click` a swatch → edit its color (dialog) · one swatch selected: the Color Mixer / Advanced Color Picker / 3D Color Space change it live (gear → Color Panels Edit the Selected) · `L-Drag` from an empty place → box select (`Ctrl+L-Drag` adds; dragging past the grid scrolls) · `Ctrl+A` / `Ctrl+D` or `Esc` with the pointer on the panel → select all / none · `Ins` → add the FG after the selection · `Shift+Ins` → overwrite the selected swatches with the FG in place (nothing moves; an empty cell becomes a color; locked swatches stay) — edit menu ☐ Ins Overwrites swaps the two · `Del` → delete the selected swatches (locked stay) · `L` → lock / unlock the selected (over the canvas `L` stays the Line tool) · `F` → Find FG: select the FG's swatch, else the nearest (OKLab), and scroll to it (over the canvas `F` stays the Fill tool) · `Ctrl+Z` / `Ctrl+Y` → undo / redo swatch edits (the first edit of a set that isn't yours saves a copy in My Swatches; every edit saves) · `R-Click` → BG · `Wheel` scroll · drag the scroll bar · `L-Drag` the corner grip (floating) → resize. `Click` ☰ or `Shift+R-Click` the grid → the edit menu (Steps, Sort Hue / Light / Sat / Luma / Rev, Add FG Color, Overwrite with FG, Ins Overwrites, Delete, Lock / Unlock, Duplicate, Edit Color…, Rename…, Find FG Color, Insert Empty Cell, Insert Row Break, Remove Duplicates, Ramp First > Last, Insert Ramp FG > BG, Insert OKLCh Ramp from FG, Selected (All) to Strip: Replace / Add, Load…, Save As…, New Set from Strip, New Set from Image (Selection), Lospec…, Select All / None, Undo / Redo; Shift+R-Click on an unselected swatch selects it alone) · `Click` the set name → the set list (Document Palette, My Swatches, the shipped swatch sets, every palette) · recent colors row (gear): `L-Click` → FG, `R-Click` → BG · `Click` the gear → View (GRID / LIST: swatch + hex + name rows), Columns (SET / FIT / 8–32), Cell, Gap, Stretch to width, Square cells, Cell borders, Recent colors row, Clear Recent Colors, Black filler = empty cells, Load Swatches…, Open My Swatches Folder · `Esc` closes either list. Load Swatches… reads `.aco` `.ase` `.gpl` `.act` `.pal` `.hex` `.txt` `.png` and saves a `.gpl` copy in My Swatches (the original is never written); Save As… writes `.gpl` `.aco` `.ase` `.act` `.pal` `.hex` `.txt` `.png`. Actions: 2600 toggle · 2601 Load Swatches… · 2602 Open My Swatches Folder · 2603 Save Swatches As… · 2604 Swatches to Palette Strip (Replace) · 2605 Add Swatches to Palette Strip · 2606 New Swatch Set from Palette Strip · 2607 New Swatch Set from Image / Selection · 2608 Swatches from Lospec… · 2609 Clear Recent Colors (Swatches).
@@ -590,7 +601,9 @@ rest in flyouts):
   selected, their cells all show the first selected frame's drawing; with one frame, it links
   to the frame before. Paint any linked cell and the others change with it; linked cells are
   hatched in sheet view and the X-sheet) · Unlink Cells (the selected frames' cells keep their
-  pixels and stop following) | Tag Frames... (name the selected frames; see Tags below) ·
+  pixels and stop following) · Hold for N Frames... (the current layer's drawing at the current
+  frame shows for N frames - the cells it covers take that drawing, cells it lets go are blank)
+  · Release Hold (that layer's drawing back to just its first frame; the rest go blank) | Tag Frames... (name the selected frames; see Tags below) ·
   Delete Tag · Frame Note... (the current frame's note; see Frame notes below) · Clear Frame
   Note.
 - **View ›** Lightbox · Lightbox Panes 1 / 3 / 5 / 7 · X-Sheet · Big Frame + X-Sheet | Onion
@@ -621,6 +634,11 @@ and View → Animation Panel; every item is in the command palette.)
 | `FWD` `REV` `PING` `ONCE` | Loop mode: forward, backward, ping-pong, play once |
 | SCALE `1X` `2X` `4X` | The export scale (the lit one is current; same as ANIM → Export → Export Scale) |
 | EXPORT `GIF` `APNG` `BAS` | Export an animated GIF / animated PNG / BAS player (ANIM → Export ...) |
+| `LANES` (status row, when the current layer can have lanes) | The **LANES page**: every lane of the current layer (pixel, group or clip) with its value on this frame - in place of the frame rows; click again for them |
+| LANES page `<KEY` `<` `>` `KEY>` | The previous / next frame with a key on any lane · the previous / next frame |
+| LANES page: a lane's name / key button | Pick it (EASE and MOD follow; the bar left of it is the lane's colour) / add or remove the key on this frame (the button shows the key's ease shape) |
+| LANES page: a lane's value | Click = type · drag up / down = scrub (`Shift` ×10) · wheel = ±1 (`Shift` ±10) · `M-Click` = its default. Each keys this frame, one undo step |
+| LANES page `EASE` / `MOD` | The next ease for the picked lane's key here / the next modulator (`Shift`: back); AMOUNT / PERIOD: click to type |
 
 The panel docks and floats like the other windows (drag its title bar; F11 hides it).
 
@@ -688,17 +706,21 @@ for its column ends in `~`; hover it for the whole name.
 | Click a cell | That frame and that layer become current (`Ctrl` / `Shift` select frames as in the strip) |
 | Click a frame number or a hold | That frame (`Ctrl` / `Shift` as in the strip) |
 | Click a layer name | That layer |
+| `Ctrl` / `Shift` + click a layer name | Add it to / take it out of the layer selection - the Layers panel's own (shaded on both); `Ctrl` on a group adds it and every layer in it. `Ctrl+Shift+G` groups the selection, `Ctrl+Shift+U` ungroups the current group |
+| Drag a layer name up / down | Its place in the stack, as in the Layers panel: a bar marks the gap; above a group's header or one of its layers = into that group, outside it = out. One undo step |
 | Wheel | Scroll the frames; `Shift+Wheel` (or the wheel over the names) scrolls the layers when they don't all fit |
 | Drag along the hold row | Change that frame's hold, one tick per column dragged (at least 1) |
 | Drag a cell | Move its drawing to the cell you drop it on - another frame, another layer, or both; the drawing there is replaced. Hold `Ctrl` as you let go to copy it instead |
 | Drag a frame number | Move the selected frames (or that one) to where you drop them, as in the strip |
 | `Shift` + drag a cell (same row) | Link the cell you drop it on to the dragged cell's drawing (hatched; painting either changes both) |
+| Drag a cell's **right end** | That layer's hold: the drawing shows for as many frames as you drag across (the cells it covers take it; this layer only - the HOLD row times every layer). Drag a held cell's end back to shorten it: the frames it lets go are blank. One undo step. A held drawing is one cell with a hold line |
+| `R-Click` a cell | Hold for N Frames... · Release Hold · Link Cells · Unlink Cells · Layer Menu... |
 | Drag the name column's right edge | Widen / narrow the layer names (double-click it: automatic) |
 | Drag the X-sheet's bottom edge | More X-sheet, less panes or the other way (double-click it: automatic) |
 | Drag the slider in the header's `LAYER` cell | Zoom the time line: left = every frame fits across, right = the default (a thumbnail per tick). Double-click it for the default. Shown only when the frames don't all fit |
 | `Ctrl+Wheel` over the grid | Zoom the time line in / out around the frame under the pointer |
 | `Ctrl+Shift+Wheel` | Layer rows' size: Text → Tiny → Small → Medium (thumbnails as in the Layers panel) |
-| `R-Click` the header (frame numbers) | Zoom to Fit All Frames, Default Size, Zoom In / Out, Layer Rows: Text / Tiny / Small / Medium |
+| `R-Click` the header (frame numbers) | Zoom to Fit All Frames, Default Size, Zoom In / Out, Layer Rows: Text / Tiny / Small / Medium, Lane Thumbnails: Off / Keyframes / Every Frame (a laned layer's row: a thumbnail through the lanes at each key / each frame they change it) |
 | `<` / `>` on the TAGS row | Go to the previous / next tag (selects its frames) |
 | `R-Click` the TAGS row | Every tag listed at the top (with its frames): pick one to go to it; then Tag / Rename / Delete Tag and the frame notes |
 
@@ -903,7 +925,28 @@ change at any time (stamps are just pixels). Every change is one undo step.
 | ANIM → Clip Sounds → **Sound on This Cel... / When the Clip Starts... / Each Time the Clip Starts Over...** | Add a sound to the clip's source; **Remove the Clip's Sounds** clears them |
 | `L-Drag` an end / the middle of a clip's X-sheet bar | Change IN / OUT, or slide the clip |
 | `L-Drag` a diamond on a clip's X-sheet **LANES** row | Move every lane's key on that frame to another frame (one undo step) |
+| `Click` the ▸ before a layer's X-sheet name (a clip, a pixel layer or a group; dim = no lanes yet) | Open its **lane rows**: one per lane in use (X, Y, SCALE X, ROTATE, OPACITY ...), each plotting the value along the frames with its eases (LINEAR straight, EASE IN / OUT / IN-OUT curved, HOLD a step; with a modulator the line is keys + wave, the bare keys faint under it, a wave icon right of each key it starts from, envelope phases as dots), the value now at the right of the name; then **+ LANE**. ▾ closes them (on a clip, the LANES row again). On a pixel layer / group the lanes are non-destructive (the pixels never change; the canvas, lightbox, playback and every export show each frame through them, clipped to the frame); a group's lanes move every layer in it. Field guide: `docs/XSHEET-HOLDS-AND-LANES.md` |
+| `L-Drag` a key on a lane row | Along the row = its frame, up / down = its value (`Shift`: only the way you moved most); the canvas follows; one undo step |
+| `Dbl-Click` a lane row | Between keys: a key at the value the curve has there · on a key: type its value |
+| `L-Drag` empty space on the lane rows (crosshair) | A box over frames × lane rows (across layers): the keys inside selected · `Click` empty lane space / `Esc` clears it (no undo step) |
+| `L-Drag` inside the key box (move pointer) | Move the selected keys in time, every lane at once (keys landed on are replaced; clamped to the layer's frames) · `Alt` while dragging = a copy · one undo step |
+| `Ctrl+C` / `Ctrl+X` / `Delete` with a key box | Copy (a key baked at each edge: "what you see") / cut / delete its keys - one undo step (ANIM → Copy / Cut / Delete Keys) |
+| `Ctrl+V` after copying keys | Paste them at the current frame: from one layer into the **current** layer's lanes of the same kind (X → X), from several each back to its own layer; the pasted stretch selected (ANIM → Paste Keys). A picture copy makes `Ctrl+V` paste pixels again |
+| `R-Click` a **NOISE** key | Also **From This Key: Frozen Grain** (checked: the grain holds to the next key; else a new grain every frame) |
+| `R-Click` the **BLEND** row | The blend modes (the one on this frame checked): pick one to key it here, held to the next key · Delete Key · Remove Lane |
+| `R-Click` a lane row | On a key: Value... · Hold / Linear / Ease In / Ease Out / Ease In-Out (from this key to the next) · Delete Key. Elsewhere: Add Key Here · Key Here at Value... Then the modulator (No Modulator / LFO Sine / Triangle / Square / Saw / Noise; with one on, Modulator Amount... / Modulator Period... / Modulator Envelope... (A D S R), Add Frequency Lane / Add Amplitude Lane (a ~FREQ / ~AMP row: the period / amount keyed over time; its own menu is Remove Lane), and on a key From This Key: Modulator On / One Cycle (One-Shot) / Restart the Wave), Tint Color = FG Color (TINT), Edit in Animation Panel (clips), Remove Lane |
+| `Click` **+ LANE** | Add a lane (a key at the current frame at its value now); VOLUME / PAN only when the clip has sounds; TINT on a pixel layer / group starts toward the FG colour; BLEND on a pixel layer starts at its own mode; the effect lanes (BLUR / PIXELATE / INVERT / NOISE) are listed after a divider |
+| Hover the lanes arrow, a key, or a cell's right end | A tip: what it is (the key's lane, value, frame and ease; the held run) and what dragging does |
 | Move tool (`V`) drag / arrow keys on a clip with X / Y keys | Key X / Y on the current frame (without X / Y keys: move the whole clip) |
+| `Click` the record dot (X-sheet row after the lock; Layers panel left of the opacity bar, animations only) | **Arm** the layer for recording (red) / disarm. Purple = not armed but keyed; a faint ring = neither. Also the layer's right-click menu (Layers panel / X-sheet cell) **ARM FOR RECORDING**, ANIM → Set Up → **Arm Layer for Recording / Disarm All Layers** |
+| On an **armed** layer: Move drag / arrow nudges · Transform Scale / Rotate commit · `Home` / `End` flip · opacity bar / slider / wheel / `1`-`0` / X-sheet opacity box | Key X / Y · X / Y / SCALE / ROTATE · a negated SCALE X / Y · OPACITY on the current frame - the pixels never change; one undo step per gesture; the changed lane shows a purple dot and its curve moves live |
+| **Transform widget** (armed layer, the current lightbox pane): drag a corner / an edge middle / the knob / the crosshair / inside | Scale W + H (`Shift` uniform) / W or H / rotate (`Shift` 15°; `Ctrl` the angle snap: Snap Degrees or Pixel Art Angles) / move the pivot / move. Past the other side = flip. Tip: value on hover, old → new while dragging; one undo step |
+| Widget bar: OPACITY / TINT slider, its number | Drag / click to type |
+| Widget bar: TINT chip | `Shift+Click` = tint colour = FG now · `Click` = the tint follows the FG colour (Color Mixer opens; red ring; click again to stop) |
+| `Ctrl+Alt+Shift+Wheel` / `Ctrl+Alt+Shift+M-Click` over the widget | Fade it / back to its default opacity (Settings → Animation); elsewhere the grid fade as before |
+| `Ctrl+Alt+Shift+Wheel` / `Ctrl+Alt+Shift+M-Click` over the X-sheet | Its contrast: grid, guides, dotted lines and faint marks stronger / softer · back to the theme as is (saved; Settings → Animation → X-Sheet Contrast) |
+| Lane keys' shapes | ◆ linear · `[>` ease in · `<]` ease out · ● ease in-out · ■ hold |
+| ANIM → Set Up → **Animation Settings...** (Edit → Settings → ANIMATION) | X-sheet default zoom Show All Frames · X-sheet contrast · transform widget opacity · lane line thickness (1-4 px) · each lane's colour |
 | ANIM → Clip Lanes → **Clear This Lane / Clear All Lanes / Copy Lanes / Paste Lanes / Tint Toward the Foreground Colour** | Lane housekeeping; the tint colour is what the TINT lane goes toward |
 
 Animation panel, while a clip layer is current (in place of the frame rows; the

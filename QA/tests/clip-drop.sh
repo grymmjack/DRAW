@@ -27,7 +27,7 @@ cd_nclips() { grep -c '^CLIP ' "$CL_DUMPF"; }
 cd_animc() { cl_line ANIMC | cut -d' ' -f2-; }
 cd_drop() { # FILE CX CY - the pointer on canvas px (CX, CY), then the stand-in drop
     hover "$(cl_cx "$2")" "$(cl_cy "$3")"; wait_for 0.3 "pointer at the drop point"
-    echo "$1" > "$CL_DUMPF.drop"
+    native_path "$1" > "$CL_DUMPF.drop"
     wait_for 1.2 "drop $(basename "$1")"
     cl_read
 }

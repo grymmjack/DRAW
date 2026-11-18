@@ -28,7 +28,7 @@ check_inside() {
 # shrink the band as far as it goes: drag its top edge down to the bottom
 dk_band; dk_scr
 EX=$(( B_X + B_W / 2 ))
-drag "$EX" "$B_Y" "$EX" $(( SCR_H - 4 ))
+drag "$EX" $(( B_Y - 2 )) "$EX" $(( SCR_H - 4 ))   # a bottom row's edge zone: the 3px above it
 wait_for 0.5 "band resized"
 dk_park; dk_settle
 check_inside "shortest bottom band"

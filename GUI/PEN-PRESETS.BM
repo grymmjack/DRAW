@@ -1,0 +1,260 @@
+$INCLUDEONCE
+'
+' PEN-PRESETS.BM — Pen Control presets (see PEN-PRESETS.BI).
+'
+
+''
+' The presets folder (with a trailing separator), made on first use.
+FUNCTION PENPR_dir$ ()
+    DIM d AS STRING
+    d = PATHS_data$(PENPR_DIRNAME)
+    IF _DIREXISTS(d) = 0 THEN PATHS_ensure_dir d
+    PENPR_dir$ = d + PATHS_sep$
+END FUNCTION
+
+
+FUNCTION PENPR_file$ (nm AS STRING)
+    PENPR_file$ = PENPR_dir$ + nm + PENPR_EXT
+END FUNCTION
+
+
+''
+' A name made safe for a file name: no path or shell characters, trimmed.
+FUNCTION PENPR_clean$ (nm AS STRING)
+    DIM i AS INTEGER, ch AS STRING, r AS STRING
+    FOR i = 1 TO LEN(nm)
+        ch = MID$(nm, i, 1)
+        IF INSTR("/\:*?<>|;&`$" + CHR$(34), ch) = 0 _ANDALSO ASC(ch) >= 32 THEN r = r + ch
+    NEXT i
+    r = _TRIM$(r)
+    IF LEN(r) > 40 THEN r = RTRIM$(LEFT$(r, 40))
+    PENPR_clean$ = r
+END FUNCTION
+
+
+''
+' A preset file's Pen Control lines, LF-ended, in CONFIG_pen_lines$ form ("" = unreadable).
+FUNCTION PENPR_read$ (nm AS STRING)
+    DIM fh AS INTEGER, ln AS STRING, r AS STRING, f AS STRING
+    f = PENPR_file$(nm)
+    IF _FILEEXISTS(f) = 0 THEN EXIT FUNCTION
+    fh = FREEFILE
+    OPEN f FOR INPUT AS #fh
+    DO WHILE NOT EOF(fh)
+        LINE INPUT #fh, ln
+        ln = _TRIM$(ln)
+        IF RIGHT$(ln, 1) = CHR$(13) THEN ln = LEFT$(ln, LEN(ln) - 1)
+        IF LEFT$(ln, 4) = "PEN_" _ANDALSO LEFT$(ln, 10) <> "PEN_PANEL_" _ANDALSO INSTR(ln, "=") > 0 THEN r = r + ln + CHR$(10)
+    LOOP
+    CLOSE #fh
+    PENPR_read$ = r
+END FUNCTION
+
+
+''
+' Copy the shipped example presets (PENPR_EXAMPLES_DIR) the user does not have
+' yet into the presets folder - once per name, ever: the names copied go in
+' PENPR_SEEDED there, so deleting or renaming an example sticks, and examples
+' a later DRAW adds still arrive. Once a session.
+SUB PENPR_seed_examples ()
+    STATIC done AS INTEGER
+    DIM d AS STRING, mk AS STRING, seen AS STRING, added AS STRING, entry AS STRING, nm AS STRING
+    DIM fh AS INTEGER, ln AS STRING, lf AS STRING
+    IF done THEN EXIT SUB
+    done = TRUE
+    IF _DIREXISTS(PENPR_EXAMPLES_DIR) = 0 THEN EXIT SUB
+    lf = CHR$(10)
+    d = PENPR_dir$
+    mk = d + PENPR_SEEDED
+    seen = lf
+    IF _FILEEXISTS(mk) THEN
+        fh = FREEFILE
+        OPEN mk FOR INPUT AS #fh
+        DO WHILE NOT EOF(fh)
+            LINE INPUT #fh, ln
+            ln = _TRIM$(ln): IF RIGHT$(ln, 1) = CHR$(13) THEN ln = LEFT$(ln, LEN(ln) - 1)
+            IF LEN(ln) THEN seen = seen + LCASE$(ln) + lf
+        LOOP
+        CLOSE #fh
+    END IF
+    entry = _FILES$(PENPR_EXAMPLES_DIR + "*" + PENPR_EXT)
+    DO WHILE LEN(entry) > 0
+        IF LCASE$(RIGHT$(entry, LEN(PENPR_EXT))) = PENPR_EXT _ANDALSO LEN(entry) > LEN(PENPR_EXT) THEN
+            nm = LEFT$(entry, LEN(entry) - LEN(PENPR_EXT))
+            IF INSTR(seen, lf + LCASE$(nm) + lf) = 0 THEN added = added + nm + lf
+        END IF
+        entry = _FILES$
+    LOOP
+    IF LEN(added) = 0 THEN EXIT SUB
+    DIM p AS LONG, q AS LONG
+    fh = FREEFILE
+    OPEN mk FOR APPEND AS #fh
+    p = 1
+    DO
+        q = INSTR(p, added, lf): IF q = 0 THEN EXIT DO
+        nm = MID$(added, p, q - p): p = q + 1
+        IF _FILEEXISTS(PENPR_file$(nm)) = 0 THEN PATHS_copy_file PENPR_EXAMPLES_DIR + nm + PENPR_EXT, PENPR_file$(nm)
+        PRINT #fh, nm
+    LOOP
+    CLOSE #fh
+END SUB
+
+
+''
+' List the presets (A-Z) and work out which one the settings are now: the one
+' whose file matches CONFIG_pen_lines$ (the last used one first).
+SUB PENPR_scan ()
+    DIM entry AS STRING, nm AS STRING, d AS STRING, i AS INTEGER, j AS INTEGER, t AS STRING, cur AS STRING
+    PENPR_seed_examples
+    PENPR_N = 0: PENPR_CUR = 0
+    d = PENPR_dir$
+    entry = _FILES$(d + "*" + PENPR_EXT)
+    DO WHILE LEN(entry) > 0 _ANDALSO PENPR_N < PENPR_MAX
+        IF LCASE$(RIGHT$(entry, LEN(PENPR_EXT))) = PENPR_EXT _ANDALSO LEN(entry) > LEN(PENPR_EXT) THEN
+            PENPR_N = PENPR_N + 1
+            PENPR_NAMES(PENPR_N) = LEFT$(entry, LEN(entry) - LEN(PENPR_EXT))
+        END IF
+        entry = _FILES$
+    LOOP
+    FOR i = 2 TO PENPR_N ' (insertion sort, case-blind)
+        t = PENPR_NAMES(i): j = i - 1
+        DO WHILE j >= 1
+            IF LCASE$(PENPR_NAMES(j)) <= LCASE$(t) THEN EXIT DO
+            PENPR_NAMES(j + 1) = PENPR_NAMES(j): j = j - 1
+        LOOP
+        PENPR_NAMES(j + 1) = t
+    NEXT i
+    cur = CONFIG_pen_lines$
+    FOR i = 1 TO PENPR_N
+        IF PENPR_read$(PENPR_NAMES(i)) = cur THEN
+            IF PENPR_CUR = 0 _ORELSE LCASE$(PENPR_NAMES(i)) = LCASE$(PENPR_LAST) THEN PENPR_CUR = i
+        END IF
+    NEXT i
+END SUB
+
+
+''
+' Write the current Pen Control settings as preset nm. TRUE on success.
+FUNCTION PENPR_write% (nm AS STRING)
+    DIM fh AS INTEGER
+    fh = FREEFILE
+    OPEN PENPR_file$(nm) FOR OUTPUT AS #fh
+    PRINT #fh, "; DRAW Pen Control preset: " + nm
+    PRINT #fh, "; the Pen Control keys of DRAW.cfg (right-click the Pen Control panel to use it)"
+    CONFIG_print_lines fh, CONFIG_pen_lines$
+    CLOSE #fh
+    PENPR_write% = _FILEEXISTS(PENPR_file$(nm))
+END FUNCTION
+
+
+''
+' Apply preset nm: each of its keys through CONFIG_apply_key%, then save.
+SUB PENPR_apply (nm AS STRING)
+    DIM txt AS STRING, p AS LONG, q AS LONG, ln AS STRING, e AS INTEGER, k AS INTEGER
+    txt = PENPR_read$(nm)
+    IF LEN(txt) = 0 THEN STATUS_flash "Pen preset '" + nm + "' could not be read": EXIT SUB
+    p = 1
+    DO
+        q = INSTR(p, txt, CHR$(10)): IF q = 0 THEN EXIT DO
+        ln = MID$(txt, p, q - p): p = q + 1
+        e = INSTR(ln, "=")
+        k = CONFIG_apply_key%(LEFT$(ln, e - 1), MID$(ln, e + 1))
+    LOOP
+    PENC_sync
+    CONFIG_save
+    PENPR_LAST = nm
+    STATUS_flash "Pen Control preset: " + nm
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Right-click on the Pen Control panel: the presets menu at (mx, my).
+SUB PENPR_menu_open (mx AS INTEGER, my AS INTEGER)
+    PENPR_scan
+    PENPR_MENU_NEXT = TRUE
+    DOCK_menu_open DP_PEN, mx, my
+END SUB
+
+
+''
+' DOCK_menu_build for the presets menu (every frame while open: no disk).
+SUB PENPR_menu_build ()
+    DIM n AS INTEGER, i AS INTEGER, curNm AS STRING, fl AS INTEGER
+    POPUP_MENU_clear_items
+    POPUP_MENU_set_item n, "Pen Control Presets", "", -1, POPUP_MENU_FLAG_DISABLED: n = n + 1
+    POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    IF PENPR_N = 0 THEN
+        POPUP_MENU_set_item n, "(none yet - Save Preset...)", "", -1, POPUP_MENU_FLAG_DISABLED: n = n + 1
+    END IF
+    FOR i = 1 TO PENPR_N
+        IF n >= POPUP_MENU_MAX_ITEMS - 6 THEN EXIT FOR
+        fl = 0: IF i = PENPR_CUR THEN fl = POPUP_MENU_FLAG_CHECKED
+        POPUP_MENU_set_item n, PENPR_NAMES(i), "", PENPR_ACT_PRESET + i, fl: n = n + 1
+    NEXT i
+    POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    POPUP_MENU_set_item n, "Save Preset...", "", PENPR_ACT_SAVE, 0: n = n + 1
+    IF PENPR_CUR THEN curNm = " '" + PENPR_NAMES(PENPR_CUR) + "'"
+    fl = 0: IF PENPR_CUR = 0 THEN fl = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item n, "Rename Preset" + curNm + "...", "", PENPR_ACT_RENAME, fl: n = n + 1
+    POPUP_MENU_set_item n, "Delete Preset" + curNm + "...", "", PENPR_ACT_DELETE, fl: n = n + 1
+    POPUP_MENU_set_item n, "Open Presets Folder", "", PENPR_ACT_OPEN, 0: n = n + 1
+    DOCK_UI.menuN = n
+END SUB
+
+
+''
+' A presets menu row was picked.
+SUB PENPR_menu_do (act AS INTEGER)
+    DIM nm AS STRING, old AS STRING, dflt AS STRING, i AS INTEGER
+    SELECT CASE act
+        CASE PENPR_ACT_PRESET + 1 TO PENPR_ACT_PRESET + PENPR_MAX
+            i = act - PENPR_ACT_PRESET
+            IF i <= PENPR_N THEN PENPR_apply PENPR_NAMES(i)
+        CASE PENPR_ACT_SAVE
+            IF PENPR_CUR THEN dflt = PENPR_NAMES(PENPR_CUR) ELSE dflt = "Preset" + STR$(PENPR_N + 1)
+            nm = PENPR_clean$(PENPR_prompt$("Save Pen Control Preset", "Name (an existing name is replaced):", dflt))
+            IF LEN(nm) = 0 THEN EXIT SUB
+            IF _FILEEXISTS(PENPR_file$(nm)) _ANDALSO LCASE$(nm) <> LCASE$(dflt) THEN
+                IF PENPR_confirm%("Replace Pen Preset", "A preset named '" + nm + "' exists. Replace it?") = 0 THEN EXIT SUB
+            END IF
+            IF PENPR_write%(nm) THEN PENPR_LAST = nm: STATUS_flash "Pen Control preset saved: " + nm ELSE STATUS_flash "Pen preset not saved (can't write " + PENPR_dir$ + ")"
+        CASE PENPR_ACT_RENAME
+            IF PENPR_CUR = 0 THEN EXIT SUB
+            old = PENPR_NAMES(PENPR_CUR)
+            nm = PENPR_clean$(PENPR_prompt$("Rename Pen Control Preset", "New name for '" + old + "':", old))
+            IF LEN(nm) = 0 _ORELSE nm = old THEN EXIT SUB
+            IF LCASE$(nm) <> LCASE$(old) _ANDALSO _FILEEXISTS(PENPR_file$(nm)) THEN STATUS_flash "A pen preset named '" + nm + "' already exists": EXIT SUB
+            NAME PENPR_file$(old) AS PENPR_file$(nm)
+            IF PENPR_write%(nm) THEN PENPR_LAST = nm ' (its header names it too)
+            STATUS_flash "Pen preset renamed: " + old + " -> " + nm
+        CASE PENPR_ACT_DELETE
+            IF PENPR_CUR = 0 THEN EXIT SUB
+            old = PENPR_NAMES(PENPR_CUR)
+            IF PENPR_confirm%("Delete Pen Preset", "Delete the pen preset '" + old + "'? (your current settings stay)") = 0 THEN EXIT SUB
+            KILL PENPR_file$(old)
+            IF LCASE$(PENPR_LAST) = LCASE$(old) THEN PENPR_LAST = ""
+            STATUS_flash "Pen preset deleted: " + old
+        CASE PENPR_ACT_OPEN
+            IF PATHS_open_in_file_manager%(PENPR_dir$) = 0 THEN STATUS_flash "Couldn't open " + PENPR_dir$
+    END SELECT
+    SCENE_DIRTY% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' A name prompt / yes-no, with the pointer and mouse state put back after.
+FUNCTION PENPR_prompt$ (title AS STRING, msg AS STRING, dflt AS STRING)
+    POINTER_hide_for_dialog
+    PENPR_prompt$ = DRAW_input_box_ex$(title, msg, dflt, "Preset name", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+END FUNCTION
+
+
+FUNCTION PENPR_confirm% (title AS STRING, msg AS STRING)
+    POINTER_hide_for_dialog
+    PENPR_confirm% = DRAW_confirm%(title, msg)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+END FUNCTION

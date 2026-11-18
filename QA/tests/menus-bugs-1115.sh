@@ -52,15 +52,15 @@ psmn() { read -r _ PN_N PN_HV <<< "$(grep -m1 '^PSMN ' "$DK_DUMP")"; }
 read -r _ ST_Y _ <<< "$(grep -m1 '^PSTRIP ' "$DK_DUMP")"
 right_click 1 $(( ST_Y + 2 )); wait_for 0.6 "the size menu"; dk_settle; psm; psmn
 [[ -n "$PM_RX" ]] || fail "no size menu after a right-click left of the chips"
-(( PN_N == 16 )) && pass "size menu: 16 rows (4 sizes, divider, COLOR CYCLING:, divider, 9 actions)" || fail "size menu rows: '$PN_N'"
+(( PN_N == 17 )) && pass "size menu: 17 rows (4 sizes + EDGE, divider, COLOR CYCLING:, divider, 9 actions)" || fail "size menu rows: '$PN_N'"
 screenshot "palette-strip-menu-cycling"
-# row 7 (RANGE FROM MARKED CHIPS): 4 rows of 12 + divider 5 + heading 12 + divider 5
-CY=$(( PM_RY + 2 + 4 * 12 + 5 + 12 + 5 + 6 ))
+# row 8 (RANGE FROM MARKED CHIPS): 5 rows of 12 (4 sizes + EDGE) + divider 5 + heading 12 + divider 5
+CY=$(( PM_RY + 2 + 5 * 12 + 5 + 12 + 5 + 6 ))
 hover $(( PM_RX + PM_RW / 2 )) $(( PM_RY + 2 + 6 )); wait_for 0.4 "row 0"; dk_settle; psm
 (( PM_SUB == 0 )) && pass "hovering MAX ROWS opens its submenu" || fail "row 0 submenu '$PM_SUB'"
 hover $(( PM_RX + PM_RW / 2 )) $(( CY + 3 * 12 )); wait_for 0.4 "a cycling row"; dk_settle; psm; psmn
-(( PM_SUB == -1 && PN_HV == 10 )) && pass "hovering CHANGE DIRECTION: highlighted, no submenu" || fail "cycling row: sub '$PM_SUB' hover '$PN_HV'"
-hover $(( PM_RX + PM_RW / 2 )) $(( PM_RY + 2 + 4 * 12 + 5 + 6 )); wait_for 0.3 "the heading"; dk_settle; psmn
+(( PM_SUB == -1 && PN_HV == 11 )) && pass "hovering CHANGE DIRECTION: highlighted, no submenu" || fail "cycling row: sub '$PM_SUB' hover '$PN_HV'"
+hover $(( PM_RX + PM_RW / 2 )) $(( PM_RY + 2 + 5 * 12 + 5 + 6 )); wait_for 0.3 "the heading"; dk_settle; psmn
 (( PN_HV == -1 )) && pass "the COLOR CYCLING: heading is not a hover row" || fail "heading hover '$PN_HV'"
 click $(( PM_RX + PM_RW / 2 )) $(( CY + 8 * 12 )); wait_for 0.6 "CHECK DUPLICATE COLORS"; dk_settle; psm
 [[ -z "$PM_RX" ]] && pass "clicking a cycling row runs it and closes the menu" || fail "the menu stayed open"

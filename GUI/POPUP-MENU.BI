@@ -12,7 +12,7 @@ CONST POPUP_MENU_FLAG_DIVIDER  = 1
 CONST POPUP_MENU_FLAG_DISABLED = 2
 CONST POPUP_MENU_FLAG_CHECKED  = 4
 
-CONST POPUP_MENU_MAX_ITEMS = 40
+CONST POPUP_MENU_MAX_ITEMS = 64 ' (the layer menu passed 40 with the record item - 2026-11-16)
 
 DIM SHARED POPUP_MENU_LABELS(0 TO POPUP_MENU_MAX_ITEMS - 1) AS STRING * 64
 DIM SHARED POPUP_MENU_HOTKEYS(0 TO POPUP_MENU_MAX_ITEMS - 1) AS STRING * 24
@@ -144,7 +144,8 @@ CONST POPUP_K_STRIP_SIZE = 8   ' the color strip's size menu (GUI/PALETTE-STRIP 
 CONST POPUP_K_DOCK_MENU = 9    ' a dock handle / workflow button menu
 CONST POPUP_K_CMD_PALETTE = 10 ' the command palette
 CONST POPUP_K_SWATCHES = 11    ' a Swatches panel menu (on the panel's own image)
-CONST POPUP_K_COUNT = 11
+CONST POPUP_K_TEXT_BAR = 12    ' the text bar's font / size / style dropdowns (TEXT_BAR_render draws them; TBDD_ boxes)
+CONST POPUP_K_COUNT = 12
 CONST POPUP_STAGE_GUI = 1 ' drawn into SCRN.GUI& (composited with the chrome)
 CONST POPUP_STAGE_TOP = 2 ' drawn on SCRN.CANVAS& after the GUI, scroll bars, status hints
 CONST POPUP_STAGE_OWN = 3 ' drawn by its panel on the panel's own window

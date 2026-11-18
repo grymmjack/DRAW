@@ -51,61 +51,96 @@ END SUB
 ' Wraps to a 2nd row if total width exceeds available canvas width.
 '
 SUB SUBTOOL_FLYOUT_compute_geometry (groupIdx AS INTEGER)
-    DIM scale AS INTEGER
-    scale% = USCALE.flyout%
-    IF scale% < 1 THEN scale% = 1
-    IF scale% > 4 THEN scale% = 4
-    SUBTOOL_FLYOUT.BTN_W = TB_BTN_W * scale%
-    SUBTOOL_FLYOUT.BTN_H = TB_BTN_H * scale%
-    SUBTOOL_FLYOUT.PAD   = TB_BTN_PADDING * scale%
-
-    DIM parentTb AS INTEGER
+    ' The parent button's rect in viewport px: a toolbox at its own Scale
+    ' draws into a panel surface, where GUI_TB holds units, not screen px
+    ' (Rick 2026-11-16: the flyout opened at the menu bar, tiny, with the
+    ' toolbox in a top row). The children take the parent's on-screen size.
+    DIM parentTb AS INTEGER, px AS INTEGER, py AS INTEGER, pw AS INTEGER, ph AS INTEGER
+    DIM scale AS INTEGER, side AS INTEGER
     parentTb% = SUBTOOL_GROUPS(groupIdx%).parentTb
-    DIM px       AS INTEGER, py AS INTEGER
-    px% = GUI_TB(parentTb%).x%
-    py% = GUI_TB(parentTb%).y%
-
-    ' Decide expand direction: face the canvas. Toolbox can dock LEFT or RIGHT.
-    DIM expandRight AS INTEGER
-    IF UCASE$(_TRIM$(CFG.TOOLBOX_DOCK_EDGE)) = "RIGHT" THEN
-        expandRight% = FALSE
+    px% = GUI_TB(parentTb%).x%: py% = GUI_TB(parentTb%).y%
+    pw% = GUI_TB(parentTb%).w%: ph% = GUI_TB(parentTb%).h%
+    IF PSURF_on%(DP_TOOLBOX) _ANDALSO pw% > 0 _ANDALSO ph% > 0 THEN
+        PSURF_rect_to_view DP_TOOLBOX, px%, py%, pw%, ph%
+        SUBTOOL_FLYOUT.BTN_W = pw%
+        SUBTOOL_FLYOUT.BTN_H = ph%
+        scale% = pw% \ TB_BTN_W: IF scale% < 1 THEN scale% = 1
+        SUBTOOL_FLYOUT.PAD = (TB_BTN_PADDING * pw%) \ TB_BTN_W
     ELSE
-        expandRight% = TRUE
+        scale% = USCALE.flyout%
+        IF scale% < 1 THEN scale% = 1
+        IF scale% > 4 THEN scale% = 4
+        SUBTOOL_FLYOUT.BTN_W = TB_BTN_W * scale%
+        SUBTOOL_FLYOUT.BTN_H = TB_BTN_H * scale%
+        SUBTOOL_FLYOUT.PAD   = TB_BTN_PADDING * scale%
+        IF pw% <= 0 THEN pw% = SUBTOOL_FLYOUT.BTN_W
+        IF ph% <= 0 THEN ph% = SUBTOOL_FLYOUT.BTN_H
     END IF
-    SUBTOOL_FLYOUT.EXPAND_RIGHT = expandRight%
+    IF SUBTOOL_FLYOUT.PAD < 1 THEN SUBTOOL_FLYOUT.PAD = 1
+    SUBTOOL_FLYOUT.BT = scale%
 
-    DIM totalChildren AS INTEGER
+    ' Expand toward the canvas: right of a left toolbox, left of a right one,
+    ' down from a top row, up from a bottom row.
+    side% = DOCK_side_now%(DP_TOOLBOX)
+    SUBTOOL_FLYOUT.VERTICAL     = (side% = DOCK_TOP _ORELSE side% = DOCK_BOTTOM)
+    SUBTOOL_FLYOUT.EXPAND_RIGHT = (side% <> DOCK_RIGHT)
+
+    DIM totalChildren AS INTEGER, availW AS INTEGER, stride AS INTEGER, row1 AS INTEGER
+    DIM stripW AS INTEGER, stripH AS INTEGER, lines AS INTEGER, scrW AS INTEGER, scrH AS INTEGER
     totalChildren% = SUBTOOL_GROUPS(groupIdx%).childCount
+    scrW% = _WIDTH(SCRN.GUI&): scrH% = _HEIGHT(SCRN.GUI&)
+
+    IF SUBTOOL_FLYOUT.VERTICAL THEN
+        ' A column under (over) the button; wraps to a 2nd column beside it
+        stride% = SUBTOOL_FLYOUT.BTN_H + SUBTOOL_FLYOUT.PAD
+        IF side% = DOCK_TOP THEN
+            availW% = scrH% - (py% + ph% + SUBTOOL_FLYOUT.PAD)
+        ELSE
+            availW% = py% - SUBTOOL_FLYOUT.PAD
+        END IF
+        row1% = (availW% + SUBTOOL_FLYOUT.PAD) \ stride%
+        IF row1% < 1 THEN row1% = 1
+        IF row1% > totalChildren% THEN row1% = totalChildren%
+        SUBTOOL_FLYOUT.ROW1_COUNT = row1%
+        lines% = 1: IF totalChildren% > row1% THEN lines% = 2
+        stripW% = lines% * SUBTOOL_FLYOUT.BTN_W + (lines% - 1) * SUBTOOL_FLYOUT.PAD
+        stripH% = row1% * SUBTOOL_FLYOUT.BTN_H + (row1% - 1) * SUBTOOL_FLYOUT.PAD
+        SUBTOOL_FLYOUT.ANCHOR_X = px% + (pw% - SUBTOOL_FLYOUT.BTN_W) \ 2
+        IF SUBTOOL_FLYOUT.ANCHOR_X + stripW% + SUBTOOL_FLYOUT.PAD > scrW% THEN SUBTOOL_FLYOUT.ANCHOR_X = scrW% - stripW% - SUBTOOL_FLYOUT.PAD
+        IF SUBTOOL_FLYOUT.ANCHOR_X < SUBTOOL_FLYOUT.PAD THEN SUBTOOL_FLYOUT.ANCHOR_X = SUBTOOL_FLYOUT.PAD
+        IF side% = DOCK_TOP THEN
+            SUBTOOL_FLYOUT.ANCHOR_Y = py% + ph% + SUBTOOL_FLYOUT.PAD
+        ELSE
+            SUBTOOL_FLYOUT.ANCHOR_Y = py% - SUBTOOL_FLYOUT.PAD - stripH%
+            IF SUBTOOL_FLYOUT.ANCHOR_Y < SUBTOOL_FLYOUT.PAD THEN SUBTOOL_FLYOUT.ANCHOR_Y = SUBTOOL_FLYOUT.PAD
+        END IF
+        EXIT SUB
+    END IF
 
     ' Available width on the side facing the canvas
-    DIM availW AS INTEGER
-    IF expandRight% THEN
-        availW% = _WIDTH(SCRN.GUI&) - (px% + SUBTOOL_FLYOUT.BTN_W + SUBTOOL_FLYOUT.PAD)
+    IF SUBTOOL_FLYOUT.EXPAND_RIGHT THEN
+        availW% = scrW% - (px% + pw% + SUBTOOL_FLYOUT.PAD)
     ELSE
         availW% = px% - SUBTOOL_FLYOUT.PAD
     END IF
     IF availW% < SUBTOOL_FLYOUT.BTN_W * 2 THEN availW% = SUBTOOL_FLYOUT.BTN_W * 2
-
-    DIM stride AS INTEGER
     stride% = SUBTOOL_FLYOUT.BTN_W + SUBTOOL_FLYOUT.PAD
-
-    DIM row1 AS INTEGER
     row1% = availW% \ stride%
     IF row1% < 1 THEN row1% = 1
     IF row1% > totalChildren% THEN row1% = totalChildren%
     SUBTOOL_FLYOUT.ROW1_COUNT = row1%
 
     ' Anchor: just past the parent button on the canvas side
-    IF expandRight% THEN
-        SUBTOOL_FLYOUT.ANCHOR_X = px% + SUBTOOL_FLYOUT.BTN_W + SUBTOOL_FLYOUT.PAD
+    IF SUBTOOL_FLYOUT.EXPAND_RIGHT THEN
+        SUBTOOL_FLYOUT.ANCHOR_X = px% + pw% + SUBTOOL_FLYOUT.PAD
     ELSE
         ' Right-edge of strip aligned with left of parent button
-        DIM stripW AS INTEGER
         stripW%                 = row1% * SUBTOOL_FLYOUT.BTN_W + (row1% - 1) * SUBTOOL_FLYOUT.PAD
         SUBTOOL_FLYOUT.ANCHOR_X = px% - SUBTOOL_FLYOUT.PAD - stripW%
         IF SUBTOOL_FLYOUT.ANCHOR_X < 0 THEN SUBTOOL_FLYOUT.ANCHOR_X = 0
     END IF
-    SUBTOOL_FLYOUT.ANCHOR_Y = py%
+    SUBTOOL_FLYOUT.ANCHOR_Y = py% + (ph% - SUBTOOL_FLYOUT.BTN_H) \ 2
+    IF SUBTOOL_FLYOUT.ANCHOR_Y < 0 THEN SUBTOOL_FLYOUT.ANCHOR_Y = 0
 END SUB
 
 ''
@@ -140,8 +175,13 @@ FUNCTION SUBTOOL_FLYOUT_child_rect% (childIdx AS INTEGER, outX AS INTEGER, outY 
         row% = 1
         col% = childIdx% - SUBTOOL_FLYOUT.ROW1_COUNT
     END IF
-    outX%                      = SUBTOOL_FLYOUT.ANCHOR_X + col% * stride%
-    outY%                      = SUBTOOL_FLYOUT.ANCHOR_Y + row% * (SUBTOOL_FLYOUT.BTN_H + SUBTOOL_FLYOUT.PAD)
+    IF SUBTOOL_FLYOUT.VERTICAL THEN ' (a column: "row" is the column, "col" the place down it)
+        outX% = SUBTOOL_FLYOUT.ANCHOR_X + row% * (SUBTOOL_FLYOUT.BTN_W + SUBTOOL_FLYOUT.PAD)
+        outY% = SUBTOOL_FLYOUT.ANCHOR_Y + col% * (SUBTOOL_FLYOUT.BTN_H + SUBTOOL_FLYOUT.PAD)
+    ELSE
+        outX% = SUBTOOL_FLYOUT.ANCHOR_X + col% * stride%
+        outY% = SUBTOOL_FLYOUT.ANCHOR_Y + row% * (SUBTOOL_FLYOUT.BTN_H + SUBTOOL_FLYOUT.PAD)
+    END IF
     outW%                      = SUBTOOL_FLYOUT.BTN_W
     outH%                      = SUBTOOL_FLYOUT.BTN_H
     SUBTOOL_FLYOUT_child_rect% = TRUE
@@ -361,7 +401,7 @@ SUB SUBTOOL_FLYOUT_render ()
         ' Highlight hovered child using the same overlay/stroke as toolbar active indicator
         IF i% = SUBTOOL_FLYOUT.HOVER_CHILD_IDX THEN
             DIM bt AS INTEGER
-            bt% = USCALE.flyout%
+            bt% = SUBTOOL_FLYOUT.BT
             IF bt% < 1 THEN bt% = 1
             LINE (cx%, cy%)-(cx% + cw%, cy% + ch%), THEME.TOOLBAR_btn_overlay~&, BF
             LINE (cx%, cy%)-(cx% + cw% - 1, cy% + bt% - 1), THEME.TOOLBAR_btn_stroke~&, BF
@@ -373,4 +413,49 @@ SUB SUBTOOL_FLYOUT_render ()
     NEXT i%
 
     _DEST oldDest&
+END SUB
+
+
+''
+' The open flyout's buttons again on the window (screen 0) at the toolbox's
+' own Scale, when it has one: SUBTOOL_FLYOUT_render draws them into SCRN.GUI&,
+' viewport px, where a toolbox at k screen px a unit gives a button k / ds
+' viewport px a unit - 1.5 at k 3, ds 2 - and the icons came out stretched
+' unevenly (Rick 2026-11-17, screenshot: the shape flyout under a toolbox in a
+' top row, "distorted"; docked normally it is not). Here each icon is k screen
+' px a unit, the parent button's own size. POPUP_reblit_to_screen0, after the
+' flyout's frame is put back.
+SUB SUBTOOL_FLYOUT_blit_screen0 (ds AS INTEGER)
+    DIM g AS INTEGER, i AS INTEGER, k AS INTEGER, parentTb AS INTEGER, uw AS INTEGER, uh AS INTEGER
+    DIM cx AS INTEGER, cy AS INTEGER, cw AS INTEGER, ch AS INTEGER, bt AS LONG
+    DIM sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG, ih AS LONG, oldDest AS LONG
+    IF SUBTOOL_FLYOUT.ACTIVE = 0 _ORELSE PSURF_on%(DP_TOOLBOX) = 0 THEN EXIT SUB
+    g = SUBTOOL_FLYOUT.GROUP_IDX
+    IF g < 0 _ORELSE g >= SUBTOOL_GROUP_COUNT THEN EXIT SUB
+    parentTb = SUBTOOL_GROUPS(g).parentTb
+    uw = GUI_TB(parentTb).w%: uh = GUI_TB(parentTb).h%
+    IF uw < 1 _ORELSE uh < 1 THEN EXIT SUB
+    k = PSURF_k%(DP_TOOLBOX)
+    sw = CLNG(uw) * k: sh = CLNG(uh) * k
+    bt = _MAX(1, uw \ TB_BTN_W) * k
+    oldDest = _DEST
+    _DEST 0
+    FOR i = 0 TO SUBTOOL_GROUPS(g).childCount - 1
+        IF SUBTOOL_FLYOUT_child_rect%(i, cx, cy, cw, ch) = 0 THEN _CONTINUE
+        ih = SUBTOOL_GROUP_CHILDREN(g, i).iconHnd
+        IF ih >= -1 THEN _CONTINUE
+        ' the cell cleared (its viewport-px icon), the icon centred in it
+        LINE (CLNG(cx) * ds, CLNG(cy) * ds)-(CLNG(cx + cw) * ds - 1, CLNG(cy + ch) * ds - 1), THEME.TOOLBAR_bg~&, BF
+        sx = CLNG(cx) * ds + (CLNG(cw) * ds - sw) \ 2
+        sy = CLNG(cy) * ds + (CLNG(ch) * ds - sh) \ 2
+        _PUTIMAGE (sx, sy)-(sx + sw - 1, sy + sh - 1), ih, 0, (0, 0)-(TB_BTN_W - 1, TB_BTN_H - 1)
+        IF i = SUBTOOL_FLYOUT.HOVER_CHILD_IDX THEN
+            LINE (sx, sy)-(sx + sw - 1, sy + sh - 1), THEME.TOOLBAR_btn_overlay~&, BF
+            LINE (sx, sy)-(sx + sw - 1, sy + bt - 1), THEME.TOOLBAR_btn_stroke~&, BF
+            LINE (sx, sy + sh - bt)-(sx + sw - 1, sy + sh - 1), THEME.TOOLBAR_btn_stroke~&, BF
+            LINE (sx, sy + bt)-(sx + bt - 1, sy + sh - bt - 1), THEME.TOOLBAR_btn_stroke~&, BF
+            LINE (sx + sw - bt, sy + bt)-(sx + sw - 1, sy + sh - bt - 1), THEME.TOOLBAR_btn_stroke~&, BF
+        END IF
+    NEXT i
+    _DEST oldDest
 END SUB
