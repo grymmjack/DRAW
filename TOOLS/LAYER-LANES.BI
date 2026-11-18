@@ -12,7 +12,7 @@ $INCLUDEONCE
 ' =============================================================================
 
 CONST LL_MAX = 256       ' layers with lanes (one entry per historyId)
-CONST LL_LANES = 16      ' X .. PIVOT Y (CLIP_LANE_X .. CLIP_LANE_PVY), BLEND (12), BLUR / PIXELATE / INVERT / NOISE (13-16); 10 / 11 (VOLUME / PAN) unused - no sound on a pixel layer.
+CONST LL_LANES = 18      ' X .. PIVOT Y (CLIP_LANE_X .. CLIP_LANE_PVY), BLEND (12), BLUR / PIXELATE / INVERT / NOISE (13-16), BLUR TYPE / BLUR ANGLE (17-18); 10 / 11 (VOLUME / PAN) unused - no sound on a pixel layer.
 '                          An older DRAW skips a lane past its own LL_LANES (LL_from_blob), so new lanes load there as absent
 CONST LL_CHUNK_VERSION = 1
 

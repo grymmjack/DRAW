@@ -88,7 +88,7 @@ DRAW has two flavors of adjustment: **dialog-based** (with live preview, scrolla
 - **Hue / Saturation** — Rotate the colors on the color wheel and make them more or less colorful.
 - **Levels** — Black point, White point, Gamma.
 - **Color Balance** — Shadows / Midtones / Highlights.
-- **Blur** — Gaussian, adjustable radius.
+- **Blur** — five types: **Box**, **Gaussian**, **Motion** (a streak along the angle), **Zoom** (out from the middle) and **Spin** (around the middle). **Radius** is how far it smears in pixels; for Zoom and Spin it is the smear at the corners, less toward the middle. The X-sheet's **BLUR**, **BLUR TYPE** and **BLUR ANGLE** lanes animate the same blurs per frame.
 - **Sharpen** — adjustable intensity.
 
 Hover any slider and use the **mouse wheel** for fine control.

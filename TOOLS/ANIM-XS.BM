@@ -55,13 +55,14 @@ SUB ANIM_XS_rows_build ()
                     END IF
                     IF ANIM_XL_can%(i) _ANDALSO n < 3 * MAX_LAYERS - 1 THEN
                         IF ANIM_XL_is_open%(i) THEN ' its lanes open (TOOLS/ANIM-XLANE): a row per lane in use, then + LANE (clips, pixel layers, groups)
-                            DIM ln AS INTEGER
-                            FOR ln = 1 TO ANIM_XL_nlanes%(i)
+                            DIM ln AS INTEGER, lnI AS INTEGER
+                            FOR lnI = 1 TO ANIM_XL_nlanes%(i)
+                                ln = ANIM_XL_order%(lnI)
                                 IF ANIM_XL_used%(i, ln) _ANDALSO n < 3 * MAX_LAYERS - 1 THEN n = n + 1: ANIM_XS_ROW(n) = -i: ANIM_XS_DEPTH(n) = d + 1: ANIM_XS_RKIND(n) = XS_ROW_LANE: ANIM_XS_RLANE(n) = ln
                                 ' its modulator's FREQUENCY / AMPLITUDE sub-lanes, indented under it
                                 IF ANIM_XL_used%(i, ln + CLIP_SUB_FREQ) _ANDALSO n < 3 * MAX_LAYERS - 1 THEN n = n + 1: ANIM_XS_ROW(n) = -i: ANIM_XS_DEPTH(n) = d + 2: ANIM_XS_RKIND(n) = XS_ROW_LANE: ANIM_XS_RLANE(n) = ln + CLIP_SUB_FREQ
                                 IF ANIM_XL_used%(i, ln + CLIP_SUB_AMP) _ANDALSO n < 3 * MAX_LAYERS - 1 THEN n = n + 1: ANIM_XS_ROW(n) = -i: ANIM_XS_DEPTH(n) = d + 2: ANIM_XS_RKIND(n) = XS_ROW_LANE: ANIM_XS_RLANE(n) = ln + CLIP_SUB_AMP
-                            NEXT ln
+                            NEXT lnI
                             n = n + 1: ANIM_XS_ROW(n) = -i: ANIM_XS_DEPTH(n) = d + 1: ANIM_XS_RKIND(n) = XS_ROW_LANEADD
                         ELSEIF p THEN
                             IF CLIP_has_keys%(p) THEN n = n + 1: ANIM_XS_ROW(n) = -i: ANIM_XS_DEPTH(n) = d + 1: ANIM_XS_RKIND(n) = XS_ROW_LANES
@@ -103,6 +104,19 @@ FUNCTION ANIM_XS_label_fit$ (r AS INTEGER, w AS INTEGER)
             CASE XS_ROW_LANEADD: nm = "+ LANE"
             CASE ELSE: nm = "SOUND"
         END SELECT
+        IF ANIM_XS_RKIND(r) = XS_ROW_LANE _ANDALSO ANIM_XS_op_x% > 0 THEN ' room left of the value now (ANIM_XL_row draws it at the column's right end)
+            DIM lx AS INTEGER, lw AS INTEGER, vt AS STRING
+            ANIM_XS_label_room r, lx, lw
+            vt = ANIM_XL_vtext$(ANIM_XS_RLANE(r), ANIM_XL_value!(-slot, ANIM_XS_RLANE(r), ANIM.current))
+            w = _MIN(w, ANIM_XS.gx - 10 - FPANEL_text_w%(vt) - lx)
+            IF FPANEL_text_w%(nm) > w THEN ' shortened, as a layer's name is
+                n = LEN(nm)
+                DO WHILE n > 0 _ANDALSO FPANEL_text_w%(LEFT$(nm, n) + "~") > w
+                    n = n - 1
+                LOOP
+                IF n > 0 THEN nm = LEFT$(nm, n) + "~"
+            END IF
+        END IF
         ANIM_XS_label_fit$ = _IIF(FPANEL_text_w%(nm) <= w, nm, ""): EXIT FUNCTION
     END IF
     nm = _TRIM$(LAYERS(slot).name): tl = ANIM_XS_label_tail$(slot)
@@ -1169,7 +1183,7 @@ FUNCTION ANIM_XS_tip% (mx AS INTEGER, my AS INTEGER, l1 AS STRING, l2 AS STRING)
                     IF tL = CLIP_LANE_NOISE THEN l1 = l1 + _IIF(CLIP_lk_fl%(tks, ti) AND CLIP_KF_FROZEN, ", the grain held", ", a new grain each frame")
                     l2 = "Drag: when / value - Dbl-click: type - R-click: ease"
                     ' (a lane 1-16, its FREQ sub-lane 17-32, AMP 33-48; 500 frames each: kept under 32767)
-                    ANIM_XS_tip% = 6000 + _IIF(tL > CLIP_SUB_FREQ, CLIP_LANE_LAST * (tL \ 100) + (tL MOD 100), tL) * 500 + (f MOD 500)
+                    ANIM_XS_tip% = 6000 + _IIF(tL > CLIP_SUB_FREQ, CLIP_LANE_LAST * (tL \ 100) + (tL MOD 100), tL) * 400 + (f MOD 400) ' (3 * 18 lanes * 400 + 6000 < 32768)
                     EXIT FUNCTION
                 END IF
             END IF
@@ -1543,7 +1557,9 @@ SUB ANIM_XS_lt_group_row (dest AS LONG, slot AS INTEGER, y AS INTEGER)
                     c = kids(i)
                     IF LAYERS(c).layerType% <> LAYER_TYPE_GROUP _ANDALSO LAYERS(c).visible% _ANDALSO LAYERS_groups_shown%(c) THEN
                         src = LL_src&(c)
+                        _DONTBLEND tmp ' (raw copy: a blend onto the fresh image greys soft / AA pixels - memory qb64-blend-onto-transparent-greys)
                         IF src < -1 THEN _PUTIMAGE (0, 0), src, tmp, (cx + LAYERS(c).apronW%, cy + LAYERS(c).apronH%)-(cx + LAYERS(c).apronW% + cw - 1, cy + LAYERS(c).apronH% + ch - 1)
+                        _BLEND tmp
                     END IF
                 NEXT i
                 ANIM_XS_lt_cell dest, tmp, 0, 0, f, y
@@ -2420,8 +2436,8 @@ FUNCTION ANIM_XS_wheel% (mx AS INTEGER, my AS INTEGER, delta AS INTEGER)
         EXIT FUNCTION
     END IF
     n = ANIM_XS_slot_at%(mx, my)
-    IF n > 0 _ANDALSO mx < ANIM_XS.gx THEN ' over a layer's opacity box: +/- 5 % (Shift 1 %), up = more (F5)
-        IF ANIM_XS_ctl_at%(mx, n) = 3 THEN ANIM_XS_op_set n, ANIM_XS_op_pct%(n) - SGN(delta) * _IIF(ANIM_LB_shift%, 1, 5): EXIT FUNCTION
+    IF n > 0 _ANDALSO mx < ANIM_XS.gx THEN ' over a layer's opacity box: +/- 1 % (Shift 10 %), up = more (F5; the universal value input)
+        IF ANIM_XS_ctl_at%(mx, n) = 3 THEN ANIM_XS_op_set n, ANIM_XS_op_pct%(n) + VAL_wheel_step%(SGN(delta)): EXIT FUNCTION
     END IF
     IF (ANIM_LB_shift% _ORELSE mx < ANIM_XS.gx) _ANDALSO ANIM_XS.nRows > ANIM_XS.rowsShown THEN
         top = ANIM_XS.nRows - ANIM_XS.rowsShown + 1

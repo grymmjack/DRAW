@@ -193,7 +193,7 @@ SUB MARQUEE_update (mouseX AS INTEGER, mouseY AS INTEGER)
             ' Ctrl: from center - the far corner mirrors the mouse around the press point
             DIM gsx AS INTEGER, gsy AS INTEGER
             gsx% = MARQUEE_UNSNAPPED_START_X%: gsy% = MARQUEE_UNSNAPPED_START_Y%
-            IF MODIFIERS.ctrl% THEN gsx% = 2 * gsx% - MOUSE.UNSNAPPED_X%: gsy% = 2 * gsy% - MOUSE.UNSNAPPED_Y%
+            IF SEL_from_center% THEN gsx% = 2 * gsx% - MOUSE.UNSNAPPED_X%: gsy% = 2 * gsy% - MOUSE.UNSNAPPED_Y%
             startCellX% = INT((gsx% - GRID.xPos% + halfGX%) / gw%)
             startCellY% = INT((gsy% - GRID.yPos% + halfGY%) / gh%)
             endCellX%   = INT((MOUSE.UNSNAPPED_X% - GRID.xPos% + halfGX%) / gw%)
@@ -223,15 +223,19 @@ SUB MARQUEE_update (mouseX AS INTEGER, mouseY AS INTEGER)
         ELSE
             ' Normal (un-snapped) mode. Ctrl: from center (the press point), the
             ' start corner mirroring the mouse; let go of Ctrl -> corner again
-            IF MODIFIERS.ctrl% THEN
-                MARQUEE.DRAG_START_X% = 2 * MARQUEE_ANCHOR_X% - mouseX
-                MARQUEE.DRAG_START_Y% = 2 * MARQUEE_ANCHOR_Y% - mouseY
+            ' (the Selection Bar: FROM CENTRE always, a FIXED RATIO / SIZE box)
+            DIM mqx AS INTEGER, mqy AS INTEGER
+            mqx = mouseX: mqy = mouseY
+            SEL_shape_constrain MARQUEE_ANCHOR_X%, MARQUEE_ANCHOR_Y%, mqx, mqy
+            IF SEL_from_center% THEN
+                MARQUEE.DRAG_START_X% = 2 * MARQUEE_ANCHOR_X% - mqx
+                MARQUEE.DRAG_START_Y% = 2 * MARQUEE_ANCHOR_Y% - mqy
             ELSE
                 MARQUEE.DRAG_START_X% = MARQUEE_ANCHOR_X%
                 MARQUEE.DRAG_START_Y% = MARQUEE_ANCHOR_Y%
             END IF
-            MARQUEE.DRAG_END_X% = mouseX
-            MARQUEE.DRAG_END_Y% = mouseY
+            MARQUEE.DRAG_END_X% = mqx
+            MARQUEE.DRAG_END_Y% = mqy
         END IF
         ANIM_CV_marquee_drag ' the lightbox: inside the frame the drag began in
     END IF
@@ -634,7 +638,7 @@ SUB MARQUEE_select_single_grid_cell (clickX AS INTEGER, clickY AS INTEGER, mode 
     _BLEND cellMask&
     _DEST oldDest&
 
-    SELECTION_merge_mask cellMask&, mode%
+    SELECTION_merge_new cellMask&, mode%
 END SUB
 
 
@@ -722,79 +726,20 @@ SUB MARQUEE_finish_drag ()
         DIM useAddSubtractMode AS INTEGER
         useAddSubtractMode% = (MARQUEE.SELECTION_MODE <> SEL_MODE_REPLACE) AND (MARQUEE.ACTIVE% OR MARQUEE.WAND_HAS_SELECTION)
         
-        IF useAddSubtractMode% THEN
-            DIM w          AS INTEGER, h AS INTEGER
-            DIM px         AS INTEGER, py AS INTEGER
-            DIM mask_color AS _UNSIGNED LONG
-            mask_color~& = _RGB32(255, 255, 255)
-            w%           = SCRN.canvasW&
-            h%           = SCRN.canvasH&
-            
-            ' Create mask from existing box selection if we don't have one
-            IF MARQUEE.SELECTION_MASK >= -1 OR NOT MARQUEE.WAND_HAS_SELECTION THEN
-                ' Convert existing box to mask
-                SAFE_FREEIMAGE MARQUEE.SELECTION_MASK
-                MARQUEE.SELECTION_MASK = _NEWIMAGE(w%, h%, 32)
-                IF MARQUEE.SELECTION_MASK < -1 THEN
-                    _DEST MARQUEE.SELECTION_MASK
-                    CLS , _RGBA32(0, 0, 0, 0)
-                    _DONTBLEND MARQUEE.SELECTION_MASK
-                    ' Fill existing box area
-                    IF MARQUEE.ACTIVE% THEN
-                        LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), mask_color~&, BF
-                    END IF
-                    _BLEND MARQUEE.SELECTION_MASK
-                END IF
-            END IF
-            
-            ' Apply the new rectangle to the mask
-            IF MARQUEE.SELECTION_MASK < -1 THEN
-                _DEST MARQUEE.SELECTION_MASK
-                _DONTBLEND MARQUEE.SELECTION_MASK
-                IF MARQUEE.SELECTION_MODE = SEL_MODE_ADD THEN
-                    ' Add: fill the new rectangle
-                    LINE (finalX%, finalY%)-(finalX% + finalW% - 1, finalY% + finalH% - 1), mask_color~&, BF
-                ELSEIF MARQUEE.SELECTION_MODE = SEL_MODE_SUBTRACT THEN
-                    ' Subtract: clear the new rectangle (transparent)
-                    LINE (finalX%, finalY%)-(finalX% + finalW% - 1, finalY% + finalH% - 1), _RGBA32(0, 0, 0, 0), BF
-                END IF
-                _BLEND MARQUEE.SELECTION_MASK
-                
-                ' Recalculate bounding box from mask
-                DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
-                minX% = w%: minY% = h%: maxX% = 0: maxY% = 0
-                _SOURCE MARQUEE.SELECTION_MASK
-                FOR py% = 0 TO h% - 1
-                    FOR px% = 0 TO w% - 1
-                        IF _ALPHA32(POINT(px%, py%)) > 0 THEN
-                            IF px% < minX% THEN minX% = px%
-                            IF px% > maxX% THEN maxX% = px%
-                            IF py% < minY% THEN minY% = py%
-                            IF py% > maxY% THEN maxY% = py%
-                        END IF
-                    NEXT px%
-                NEXT py%
-                
-                ' Check if selection is empty
-                IF minX% > maxX% THEN
-                    ' Empty selection after subtract
-                    MARQUEE_clear
-                    MAGIC_WAND_reset
-                ELSE
-                    ' Update bounding box and wand bounds
-                    MARQUEE.WAND_MIN_X         = minX%
-                    MARQUEE.WAND_MIN_Y         = minY%
-                    MARQUEE.WAND_MAX_X         = maxX%
-                    MARQUEE.WAND_MAX_Y         = maxY%
-                    MARQUEE.BOX.x              = minX%
-                    MARQUEE.BOX.y              = minY%
-                    MARQUEE.BOX.w              = maxX% - minX% + 1
-                    MARQUEE.BOX.h              = maxY% - minY% + 1
-                    MARQUEE.ACTIVE%            = TRUE
-                    MARQUEE.WAND_HAS_SELECTION = TRUE
-                    MARQUEE.WAND_EDGE_DIRTY    = TRUE
-                    MARQUEE.USER_CREATED       = TRUE
-                END IF
+        IF useAddSubtractMode% _ORELSE CFG.SELECTION_FEATHER% > 0 THEN
+            ' the rectangle as a mask, merged like every other selection tool's
+            ' (add / subtract / intersect; feathered by SELECTION_FEATHER)
+            DIM rectMask AS LONG, rectDest AS LONG
+            rectMask& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            IF rectMask& < -1 THEN
+                rectDest& = _DEST
+                _DEST rectMask&
+                _DONTBLEND rectMask&
+                CLS , _RGBA32(0, 0, 0, 0)
+                LINE (finalX%, finalY%)-(finalX% + finalW% - 1, finalY% + finalH% - 1), _RGB32(255, 255, 255), BF
+                _BLEND rectMask&
+                _DEST rectDest&
+                SELECTION_merge_new rectMask&, _IIF(useAddSubtractMode%, MARQUEE.SELECTION_MODE, SEL_MODE_REPLACE)
             END IF
         ELSE
             ' Replace mode - simple box creation
@@ -1156,6 +1101,9 @@ END SUB
 ' @param mode INTEGER Selection mode: SEL_MODE_REPLACE, SEL_MODE_ADD, or SEL_MODE_SUBTRACT
 '
 SUB MAGIC_WAND_select_with_mode (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
+    ' the Selection Bar's wand options (tolerance, not contiguous, sample merged,
+    ' antialias edge, feather, intersect): the native wand
+    IF MAGIC_WAND_custom%(mode) THEN MAGIC_WAND_select_soft x, y, mode, (CFG.WAND_CONTIGUOUS% <> 0), (CFG.WAND_SAMPLE_MERGED% <> 0): EXIT SUB
     DIM old_dest      AS LONG
     DIM old_source    AS LONG
     DIM target_color  AS _UNSIGNED LONG
@@ -1435,6 +1383,68 @@ SUB MAGIC_WAND_select_with_mode (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
     SAFE_FREEIMAGE wandCropped&
     _SOURCE old_source&
     _DEST old_dest&
+END SUB
+
+
+''
+' The wand needs the native path: any Selection Bar wand option away from the plain
+' exact-colour flood (or the intersect mode / a feather, which the old floods don't do).
+FUNCTION MAGIC_WAND_custom% (mode AS INTEGER)
+    MAGIC_WAND_custom% = (CFG.WAND_TOLERANCE% > 0 _ORELSE CFG.WAND_CONTIGUOUS% = 0 _ORELSE CFG.WAND_SAMPLE_MERGED% <> 0 _ORELSE CFG.WAND_ANTIALIAS% <> 0 _ORELSE CFG.SELECTION_FEATHER% > 0 _ORELSE mode = SEL_MODE_INTERSECT)
+END FUNCTION
+
+
+''
+' The magic wand by native/selmask.h gj_sel_wand: pixels within CFG.WAND_TOLERANCE% (0..255,
+' the largest channel difference) of the clicked one, joined to it (contiguous) or anywhere;
+' sampled from the current layer or (merged) every visible layer; with WAND_ANTIALIAS a
+' 1px soft rim; then feathered and merged like the other selection tools.
+SUB MAGIC_WAND_select_soft (x AS INTEGER, y AS INTEGER, mode AS INTEGER, contiguous AS INTEGER, merged AS INTEGER)
+    DECLARE LIBRARY "../native/selmask"
+        FUNCTION gj_sel_wand& (BYVAL mask AS _OFFSET, BYVAL src AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL sx AS LONG, BYVAL sy AS LONG, BYVAL tol AS LONG, BYVAL contiguous AS LONG, BYVAL bL AS LONG, BYVAL bT AS LONG, BYVAL bR AS LONG, BYVAL bB AS LONG)
+    END DECLARE
+    DIM srcImg AS LONG, layerImg AS LONG, maskImg AS LONG, oldDest AS LONG
+    DIM w AS INTEGER, h AS INTEGER, aw AS INTEGER, ah AS INTEGER, n AS LONG, tol AS INTEGER
+    DIM bL AS INTEGER, bT AS INTEGER, bR AS INTEGER, bB AS INTEGER
+    DIM ms AS _MEM, mm AS _MEM
+    w = SCRN.canvasW&: h = SCRN.canvasH&
+    IF x < 0 _ORELSE y < 0 _ORELSE x >= w _ORELSE y >= h THEN EXIT SUB
+    oldDest = _DEST
+    ' the canvas-sized source: the merged image, or the layer (an apron cropped off - gotcha #14)
+    IF merged THEN
+        srcImg = LAYERS_flatten&
+    ELSE
+        layerImg = LAYER_current_image&
+        IF layerImg >= -1 THEN EXIT SUB
+        aw = LAYERS(CURRENT_LAYER%).apronW%: ah = LAYERS(CURRENT_LAYER%).apronH%
+        srcImg = _NEWIMAGE(w, h, 32)
+        IF srcImg < -1 THEN
+            _DEST srcImg: _DONTBLEND srcImg
+            CLS , _RGBA32(0, 0, 0, 0)
+            _PUTIMAGE (0, 0), layerImg, srcImg, (aw, ah)-(aw + w - 1, ah + h - 1)
+            _BLEND srcImg
+        END IF
+    END IF
+    IF srcImg >= -1 THEN _DEST oldDest: EXIT SUB
+    maskImg = _NEWIMAGE(w, h, 32)
+    IF maskImg >= -1 THEN SAFE_FREEIMAGE srcImg: _DEST oldDest: EXIT SUB
+    _DEST maskImg: _DONTBLEND maskImg
+    CLS , _RGBA32(0, 0, 0, 0)
+    _BLEND maskImg
+    _DEST oldDest
+    bL = 0: bT = 0: bR = w - 1: bB = h - 1
+    ANIM_CV_fill_box x, y, bL, bT, bR, bB ' (the lightbox: the clicked frame's cell)
+    tol = CFG.WAND_TOLERANCE%
+    IF tol < 0 THEN tol = 0
+    IF tol > 255 THEN tol = 255
+    ms = _MEMIMAGE(srcImg): mm = _MEMIMAGE(maskImg)
+    n = gj_sel_wand&(mm.OFFSET, ms.OFFSET, w, h, x, y, tol, contiguous, bL, bT, bR, bB)
+    _MEMFREE ms: _MEMFREE mm
+    IF n > 0 _ANDALSO CFG.WAND_ANTIALIAS% THEN SELMASK_soften maskImg
+    SAFE_FREEIMAGE srcImg
+    IF n <= 0 THEN SAFE_FREEIMAGE maskImg: EXIT SUB
+    IF mode = SEL_MODE_REPLACE THEN MAGIC_WAND_reset
+    SELECTION_merge_new maskImg, mode
 END SUB
 
 
@@ -2005,6 +2015,7 @@ END SUB
 ' current layer only (W+click).
 '
 SUB MAGIC_WAND_select_all_color (x AS INTEGER, y AS INTEGER, mode AS INTEGER, onImage AS INTEGER)
+    IF MAGIC_WAND_custom%(mode) THEN MAGIC_WAND_select_soft x, y, mode, FALSE, (onImage <> 0 _ORELSE CFG.WAND_SAMPLE_MERGED% <> 0): EXIT SUB
     DIM old_dest   AS LONG : old_dest& = _DEST
     DIM old_source AS LONG : old_source& = _SOURCE
     DIM targetImg  AS LONG : targetImg& = LAYER_current_image&
@@ -2236,21 +2247,21 @@ SUB MAGIC_WAND_build_edge_cache ()
     FOR y% = cyMin% TO cyMax%
         FOR x% = cxMin% TO cxMax%
             _MEMGET mask_mem, mask_mem.OFFSET + (y% * stride& + x% * 4), pix~&
-            isSelected% = (_ALPHA32(pix~&) > 0)
+            isSelected% = (_ALPHA32(pix~&) >= 128) ' (a soft selection: outlined where it is half selected - SELECTION_is_point_inside%)
             IF isSelected% THEN
                 isEdge% = FALSE
                 IF x% = 0 THEN
                     isEdge% = TRUE
                 ELSE
                     _MEMGET mask_mem, mask_mem.OFFSET + (y% * stride& + (x% - 1) * 4), pix~&
-                    IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                    IF _ALPHA32(pix~&) < 128 THEN isEdge% = TRUE
                 END IF
                 IF NOT isEdge% THEN
                     IF x% = w% - 1 THEN
                         isEdge% = TRUE
                     ELSE
                         _MEMGET mask_mem, mask_mem.OFFSET + (y% * stride& + (x% + 1) * 4), pix~&
-                        IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                        IF _ALPHA32(pix~&) < 128 THEN isEdge% = TRUE
                     END IF
                 END IF
                 IF NOT isEdge% THEN
@@ -2258,7 +2269,7 @@ SUB MAGIC_WAND_build_edge_cache ()
                         isEdge% = TRUE
                     ELSE
                         _MEMGET mask_mem, mask_mem.OFFSET + ((y% - 1) * stride& + x% * 4), pix~&
-                        IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                        IF _ALPHA32(pix~&) < 128 THEN isEdge% = TRUE
                     END IF
                 END IF
                 IF NOT isEdge% THEN
@@ -2266,7 +2277,7 @@ SUB MAGIC_WAND_build_edge_cache ()
                         isEdge% = TRUE
                     ELSE
                         _MEMGET mask_mem, mask_mem.OFFSET + ((y% + 1) * stride& + x% * 4), pix~&
-                        IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                        IF _ALPHA32(pix~&) < 128 THEN isEdge% = TRUE
                     END IF
                 END IF
                 IF isEdge% THEN edgeCount& = edgeCount& + 1
@@ -2290,21 +2301,21 @@ SUB MAGIC_WAND_build_edge_cache ()
     FOR y% = cyMin% TO cyMax%
         FOR x% = cxMin% TO cxMax%
             _MEMGET mask_mem, mask_mem.OFFSET + (y% * stride& + x% * 4), pix~&
-            isSelected% = (_ALPHA32(pix~&) > 0)
+            isSelected% = (_ALPHA32(pix~&) >= 128) ' (a soft selection: outlined where it is half selected - SELECTION_is_point_inside%)
             IF isSelected% THEN
                 isEdge% = FALSE
                 IF x% = 0 THEN
                     isEdge% = TRUE
                 ELSE
                     _MEMGET mask_mem, mask_mem.OFFSET + (y% * stride& + (x% - 1) * 4), pix~&
-                    IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                    IF _ALPHA32(pix~&) < 128 THEN isEdge% = TRUE
                 END IF
                 IF NOT isEdge% THEN
                     IF x% = w% - 1 THEN
                         isEdge% = TRUE
                     ELSE
                         _MEMGET mask_mem, mask_mem.OFFSET + (y% * stride& + (x% + 1) * 4), pix~&
-                        IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                        IF _ALPHA32(pix~&) < 128 THEN isEdge% = TRUE
                     END IF
                 END IF
                 IF NOT isEdge% THEN
@@ -2312,7 +2323,7 @@ SUB MAGIC_WAND_build_edge_cache ()
                         isEdge% = TRUE
                     ELSE
                         _MEMGET mask_mem, mask_mem.OFFSET + ((y% - 1) * stride& + x% * 4), pix~&
-                        IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                        IF _ALPHA32(pix~&) < 128 THEN isEdge% = TRUE
                     END IF
                 END IF
                 IF NOT isEdge% THEN
@@ -2320,7 +2331,7 @@ SUB MAGIC_WAND_build_edge_cache ()
                         isEdge% = TRUE
                     ELSE
                         _MEMGET mask_mem, mask_mem.OFFSET + ((y% + 1) * stride& + x% * 4), pix~&
-                        IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                        IF _ALPHA32(pix~&) < 128 THEN isEdge% = TRUE
                     END IF
                 END IF
                 IF isEdge% THEN
@@ -2551,6 +2562,54 @@ END SUB
 
 
 ''
+' Any of canvas pixel (x, y) selected (a soft selection's faint fringe included) - where a
+' coverage-aware writer (FILL_put) may still touch. Same as SELECTION_is_point_inside% on a
+' hard selection.
+FUNCTION SELECTION_touches% (x AS INTEGER, y AS INTEGER)
+    SELECTION_touches% = (SELECTION_cover%(x, y) > 0)
+END FUNCTION
+
+''
+' src over dst with src's alpha scaled by t / 255 (straight alpha) - a soft selection's
+' share of a write. A fully transparent src erases by t instead (dst keeps its colour).
+FUNCTION SELMASK_over~& (dst AS _UNSIGNED LONG, src AS _UNSIGNED LONG, t AS INTEGER)
+    DIM sa AS LONG, da AS LONG, oa AS LONG, k AS LONG
+    da = _ALPHA32(dst)
+    IF _ALPHA32(src) = 0 THEN
+        SELMASK_over~& = _RGBA32(_RED32(dst), _GREEN32(dst), _BLUE32(dst), (da * (255 - t)) \ 255)
+        EXIT FUNCTION
+    END IF
+    sa = (_ALPHA32(src) * t) \ 255
+    k = (da * (255 - sa)) \ 255 ' dst's weight
+    oa = sa + k
+    IF oa <= 0 THEN SELMASK_over~& = 0: EXIT FUNCTION
+    SELMASK_over~& = _RGBA32((_RED32(src) * sa + _RED32(dst) * k) \ oa, (_GREEN32(src) * sa + _GREEN32(dst) * k) \ oa, (_BLUE32(src) * sa + _BLUE32(dst) * k) \ oa, oa)
+END FUNCTION
+
+''
+' One pixel of a selection-clipped write: colour col at (wx, wy) on _DEST, for canvas pixel
+' (sx, sy) (they differ by a layer's apron / a tool's offset). Fully selected (or no
+' selection): a plain PSET. Partly: col over the old pixel by the coverage, so fills and
+' shapes through a feathered selection come out soft (PLANS/AA-SELECTIONS.md).
+SUB SEL_put_px (sx AS INTEGER, sy AS INTEGER, wx AS INTEGER, wy AS INTEGER, col AS _UNSIGNED LONG)
+    DIM c AS INTEGER, os AS LONG, d AS _UNSIGNED LONG, b AS LONG
+    c = SELECTION_cover%(sx, sy)
+    IF c >= 255 THEN PSET (wx, wy), col: EXIT SUB
+    IF c <= 0 THEN EXIT SUB
+    os = _SOURCE: _SOURCE _DEST: d = POINT(wx, wy): _SOURCE os
+    b = _BLEND(_DEST): _DONTBLEND _DEST
+    PSET (wx, wy), SELMASK_over~&(d, col, c)
+    IF b THEN _BLEND _DEST
+END SUB
+
+''
+' A selection mask pixel at least half selected (white, alpha >= 128) - the yes / no
+' reading of a soft mask; exactly the old "= white" test on a hard one. TRUE = -1.
+FUNCTION SELMASK_on% (c AS _UNSIGNED LONG)
+    SELMASK_on% = ((c AND &HFFFFFF~&) = &HFFFFFF~&) _ANDALSO (c >= &H80000000~&)
+END FUNCTION
+
+''
 ' Check if a point is inside the active selection
 ' Used for clipping drawing operations to selection mask
 ' @param x INTEGER X coordinate to test against the active selection
@@ -2558,52 +2617,39 @@ END SUB
 ' @return INTEGER TRUE if point is inside selection (or no selection active), FALSE if outside
 '
 FUNCTION SELECTION_is_point_inside% (x AS INTEGER, y AS INTEGER)
-    ' If no active selection, all points are valid
-    IF NOT SELECTION_has_active% THEN
-        SELECTION_is_point_inside% = TRUE
-        EXIT FUNCTION
-    END IF
-    
-    ' Check if we have a mask-based selection (magic wand OR combined marquee)
-    ' A mask exists and is valid when WAND_HAS_SELECTION is true
+    ' Soft selections (PLANS/AA-SELECTIONS.md): the mask's alpha is coverage. A yes / no
+    ' asker gets "at least half selected" - exactly the old answer for a hard (0 / 255) mask.
+    SELECTION_is_point_inside% = (SELECTION_cover%(x%, y%) >= 128)
+END FUNCTION
+
+''
+' How much of canvas pixel (x, y) is selected, 0..255 (Rick 2026-11-17: "we need to have
+' antialias be a global thing for selections too"): 255 with no selection or inside a box
+' selection; a mask selection's alpha where its pixel is white (the mask's colour), else 0.
+' Writers scale by it (PAINT_blend_pixel / PAINT_erase_pixel / PAINT_pset_with_symmetry), so a
+' soft-edged selection paints, fills and erases softly; a hard one is unchanged.
+FUNCTION SELECTION_cover% (x AS INTEGER, y AS INTEGER)
+    IF NOT SELECTION_has_active% THEN SELECTION_cover% = 255: EXIT FUNCTION
     IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
-        ' Quick bounds check first
-        IF x% < MARQUEE.WAND_MIN_X OR x% > MARQUEE.WAND_MAX_X THEN
-            SELECTION_is_point_inside% = FALSE
-            EXIT FUNCTION
-        END IF
-        IF y% < MARQUEE.WAND_MIN_Y OR y% > MARQUEE.WAND_MAX_Y THEN
-            SELECTION_is_point_inside% = FALSE
-            EXIT FUNCTION
-        END IF
-        
-        ' Check the mask pixel
-        DIM old_source AS LONG
-        DIM mask_color AS _UNSIGNED LONG
+        IF x% < MARQUEE.WAND_MIN_X OR x% > MARQUEE.WAND_MAX_X THEN EXIT FUNCTION
+        IF y% < MARQUEE.WAND_MIN_Y OR y% > MARQUEE.WAND_MAX_Y THEN EXIT FUNCTION
+        DIM old_source AS LONG, mask_color AS _UNSIGNED LONG
         old_source& = _SOURCE
         _SOURCE MARQUEE.SELECTION_MASK
         mask_color~& = POINT(x%, y%)
         _SOURCE old_source&
-        
-        SELECTION_is_point_inside% = (mask_color~& = _RGB32(255, 255, 255))
+        IF (mask_color~& AND &HFFFFFF~&) = &HFFFFFF~& THEN SELECTION_cover% = _ALPHA32(mask_color~&)
         EXIT FUNCTION
     END IF
-    
-    ' Check regular marquee bounding box (simple rectangular selection)
     IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
         IF x% >= MARQUEE.BOX.x AND x% < MARQUEE.BOX.x + MARQUEE.BOX.w THEN
-            IF y% >= MARQUEE.BOX.y AND y% < MARQUEE.BOX.y + MARQUEE.BOX.h THEN
-                SELECTION_is_point_inside% = TRUE
-                EXIT FUNCTION
-            END IF
+            IF y% >= MARQUEE.BOX.y AND y% < MARQUEE.BOX.y + MARQUEE.BOX.h THEN SELECTION_cover% = 255
         END IF
-        SELECTION_is_point_inside% = FALSE
         EXIT FUNCTION
     END IF
-    
-    ' No selection, allow all
-    SELECTION_is_point_inside% = TRUE
+    SELECTION_cover% = 255
 END FUNCTION
+
 
 
 ''
@@ -2672,56 +2718,10 @@ SUB SELECTION_invert ()
     
     ' Check if we have a mask-based selection (magic wand or combined marquee)
     IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
-        ' Invert the existing mask
-        _DEST MARQUEE.SELECTION_MASK
-        _DONTBLEND MARQUEE.SELECTION_MASK
-        
-        ' XOR-like inversion: toggle each pixel
-        FOR py% = 0 TO h% - 1
-            FOR px% = 0 TO w% - 1
-                _SOURCE MARQUEE.SELECTION_MASK
-                IF _ALPHA32(POINT(px%, py%)) > 0 THEN
-                    ' Was selected, make unselected (transparent)
-                    PSET (px%, py%), _RGBA32(0, 0, 0, 0)
-                ELSE
-                    ' Was not selected, make selected (white)
-                    PSET (px%, py%), mask_color~&
-                END IF
-            NEXT px%
-        NEXT py%
-        
-        _BLEND MARQUEE.SELECTION_MASK
-        
-        ' Recalculate bounding box
-        DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
-        minX% = w%: minY% = h%: maxX% = 0: maxY% = 0
-        _SOURCE MARQUEE.SELECTION_MASK
-        FOR py% = 0 TO h% - 1
-            FOR px% = 0 TO w% - 1
-                IF _ALPHA32(POINT(px%, py%)) > 0 THEN
-                    IF px% < minX% THEN minX% = px%
-                    IF px% > maxX% THEN maxX% = px%
-                    IF py% < minY% THEN minY% = py%
-                    IF py% > maxY% THEN maxY% = py%
-                END IF
-            NEXT px%
-        NEXT py%
-        
-        IF minX% > maxX% THEN
-            ' Empty selection after invert (shouldn't happen normally)
-            MARQUEE_clear
-            MAGIC_WAND_reset
-        ELSE
-            MARQUEE.WAND_MIN_X      = minX%
-            MARQUEE.WAND_MIN_Y      = minY%
-            MARQUEE.WAND_MAX_X      = maxX%
-            MARQUEE.WAND_MAX_Y      = maxY%
-            MARQUEE.BOX.x           = minX%
-            MARQUEE.BOX.y           = minY%
-            MARQUEE.BOX.w           = maxX% - minX% + 1
-            MARQUEE.BOX.h           = maxY% - minY% + 1
-            MARQUEE.WAND_EDGE_DIRTY = TRUE ' BUG-23: rebuild the marching-ants outline for the inverted mask
-        END IF
+        ' Invert the existing mask: coverage -> 255 - coverage (native/selmask.h), then the
+        ' box from what is selected now (BUG-23: the marching ants rebuilt)
+        SELMASK_invert MARQUEE.SELECTION_MASK
+        SELMASK_bounds_apply
     ELSEIF MARQUEE.ACTIVE% AND MARQUEE.USER_CREATED THEN
         ' Convert rectangular marquee to mask and invert
         DIM new_mask AS LONG
@@ -2809,6 +2809,16 @@ SUB SELECTION_expand (n AS INTEGER)
     old_dest&   = _DEST
     old_source& = _SOURCE
 
+    IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+        IF CFG.ANTIALIAS% _ORELSE SELMASK_is_soft%(MARQUEE.SELECTION_MASK) THEN ' a soft selection (or Antialias on): a round, soft-edged grow (native/selmask.h)
+            SELMASK_grow MARQUEE.SELECTION_MASK, n%
+            SELMASK_bounds_apply
+            _SOURCE old_source&
+            _DEST old_dest&
+            GUI_NEEDS_REDRAW% = TRUE
+            EXIT SUB
+        END IF
+    END IF
     IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
         ' ----- Pixel-mask path: n passes of 8-connected dilation -----
         DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
@@ -2932,6 +2942,16 @@ SUB SELECTION_contract (n AS INTEGER)
     old_source& = _SOURCE
 
     IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+        IF CFG.ANTIALIAS% _ORELSE SELMASK_is_soft%(MARQUEE.SELECTION_MASK) THEN ' a soft selection (or Antialias on): a round, soft-edged shrink (native/selmask.h)
+            SELMASK_grow MARQUEE.SELECTION_MASK, -n%
+            SELMASK_bounds_apply
+            _SOURCE old_source&
+            _DEST old_dest&
+            GUI_NEEDS_REDRAW% = TRUE
+            EXIT SUB
+        END IF
+    END IF
+    IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
         ' ----- Pixel-mask path: n passes of 8-connected erosion -----
         FOR pass% = 1 TO n%
             snap& = _COPYIMAGE(MARQUEE.SELECTION_MASK, 32)
@@ -3035,6 +3055,298 @@ END SUB
 ' ============================================================================
 
 ''
+' ---------------------------------------------------------------------------
+' Selection mask kernels (native/selmask.h; PLANS/AA-SELECTIONS.md): the mask's alpha is
+' how much of each pixel is selected.
+' ---------------------------------------------------------------------------
+
+''
+' cur = cur (mode) add: SEL_MODE_ADD max, SEL_MODE_SUBTRACT a * (1 - b), SEL_MODE_INTERSECT min.
+SUB SELMASK_merge (cur AS LONG, addM AS LONG, mode AS INTEGER)
+    DECLARE LIBRARY "../native/selmask"
+        SUB gj_sel_merge (BYVAL cur AS _OFFSET, BYVAL addM AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL mode AS LONG)
+    END DECLARE
+    DIM mc AS _MEM, ma AS _MEM
+    IF cur >= -1 _ORELSE addM >= -1 THEN EXIT SUB
+    IF _WIDTH(cur) <> _WIDTH(addM) _ORELSE _HEIGHT(cur) <> _HEIGHT(addM) THEN EXIT SUB
+    mc = _MEMIMAGE(cur): ma = _MEMIMAGE(addM)
+    gj_sel_merge mc.OFFSET, ma.OFFSET, _WIDTH(cur), _HEIGHT(cur), mode
+    _MEMFREE mc: _MEMFREE ma
+END SUB
+
+''
+' The selection's box and the WAND_ bounds from what MARQUEE.SELECTION_MASK selects at all;
+' nothing selected = no selection (MARQUEE_clear + MAGIC_WAND_reset).
+SUB SELMASK_bounds_apply ()
+    DECLARE LIBRARY "../native/selmask"
+        SUB gj_sel_bounds (BYVAL mask AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL outB AS _OFFSET)
+    END DECLARE
+    DIM m AS _MEM, bb(0 TO 3) AS LONG
+    IF MARQUEE.SELECTION_MASK >= -1 THEN MARQUEE_clear: MAGIC_WAND_reset: EXIT SUB
+    m = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+    gj_sel_bounds m.OFFSET, _WIDTH(MARQUEE.SELECTION_MASK), _HEIGHT(MARQUEE.SELECTION_MASK), _OFFSET(bb(0))
+    _MEMFREE m
+    IF bb(0) > bb(2) THEN
+        MARQUEE_clear
+        MAGIC_WAND_reset
+        EXIT SUB
+    END IF
+    MARQUEE.WAND_MIN_X         = bb(0)
+    MARQUEE.WAND_MIN_Y         = bb(1)
+    MARQUEE.WAND_MAX_X         = bb(2)
+    MARQUEE.WAND_MAX_Y         = bb(3)
+    MARQUEE.BOX.x              = bb(0)
+    MARQUEE.BOX.y              = bb(1)
+    MARQUEE.BOX.w              = bb(2) - bb(0) + 1
+    MARQUEE.BOX.h              = bb(3) - bb(1) + 1
+    MARQUEE.ACTIVE%            = TRUE
+    MARQUEE.INITIALIZED%       = TRUE
+    MARQUEE.USER_CREATED       = TRUE
+    MARQUEE.WAND_HAS_SELECTION = TRUE
+    MARQUEE.WAND_EDGE_DIRTY    = TRUE
+END SUB
+
+''
+' A polygon's coverage (pixel-index vertices, xs(1..n) / ys(1..n)) into mask (cleared by
+' the caller): soft edges - the antialiased lasso / polygon / ellipse selections.
+SUB SELMASK_poly (mask AS LONG, xs() AS SINGLE, ys() AS SINGLE, n AS INTEGER)
+    DECLARE LIBRARY "../native/selmask"
+        SUB gj_sel_poly (BYVAL mask AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL xs AS _OFFSET, BYVAL ys AS _OFFSET, BYVAL n AS LONG)
+    END DECLARE
+    DIM m AS _MEM
+    IF mask >= -1 _ORELSE n < 3 THEN EXIT SUB
+    m = _MEMIMAGE(mask)
+    gj_sel_poly m.OFFSET, _WIDTH(mask), _HEIGHT(mask), _OFFSET(xs(1)), _OFFSET(ys(1)), n
+    _MEMFREE m
+END SUB
+
+''
+' The lasso / polygon points (SEL_POINTS_X / Y, 0..n - 1) filled into mask (cleared by the
+' caller): rounded by CFG.SELECTION_SMOOTH% passes of corner cutting (Chaikin: each corner
+' cut at 1/4 and 3/4 of its sides - the Selection Bar's SMOOTH), then with antialiasing
+' their coverage (soft edges), else the hard scanline fill.
+SUB SELMASK_path_fill (mask AS LONG, n AS INTEGER)
+    DIM i AS LONG, k AS INTEGER, m AS LONG, j AS LONG, passes AS INTEGER
+    IF mask >= -1 _ORELSE n < 3 THEN EXIT SUB
+    m = n
+    REDIM pxs(1 TO m) AS SINGLE, pys(1 TO m) AS SINGLE
+    FOR i = 1 TO m
+        pxs(i) = SEL_POINTS_X(i - 1): pys(i) = SEL_POINTS_Y(i - 1)
+    NEXT i
+    passes = CFG.SELECTION_SMOOTH%
+    IF passes > 4 THEN passes = 4
+    FOR k = 1 TO passes
+        IF m * 2 > 32000 THEN EXIT FOR
+        REDIM qx(1 TO m * 2) AS SINGLE, qy(1 TO m * 2) AS SINGLE
+        FOR i = 1 TO m
+            j = i + 1: IF j > m THEN j = 1
+            qx(i * 2 - 1) = pxs(i) * .75 + pxs(j) * .25: qy(i * 2 - 1) = pys(i) * .75 + pys(j) * .25
+            qx(i * 2) = pxs(i) * .25 + pxs(j) * .75: qy(i * 2) = pys(i) * .25 + pys(j) * .75
+        NEXT i
+        m = m * 2
+        REDIM pxs(1 TO m) AS SINGLE, pys(1 TO m) AS SINGLE
+        FOR i = 1 TO m
+            pxs(i) = qx(i): pys(i) = qy(i)
+        NEXT i
+    NEXT k
+    IF CFG.ANTIALIAS% THEN
+        SELMASK_poly mask, pxs(), pys(), (m)
+    ELSEIF passes = 0 THEN
+        POLY_FILL_scanline SEL_POINTS_X(), SEL_POINTS_Y(), (n), _RGB32(255, 255, 255), mask
+    ELSE
+        REDIM ix(0 TO m - 1) AS INTEGER, iy(0 TO m - 1) AS INTEGER
+        FOR i = 1 TO m
+            ix(i - 1) = CINT(pxs(i)): iy(i - 1) = CINT(pys(i))
+        NEXT i
+        POLY_FILL_scanline ix(), iy(), (m), _RGB32(255, 255, 255), mask
+    END IF
+END SUB
+
+''
+' dst (cleared here) = src from (sx, sy) through the selection mask from canvas (mx, my):
+' copy / Export Selection - a soft selection's pixels come out with their selected share
+' of alpha.
+SUB SELMASK_copy (dst AS LONG, src AS LONG, sx AS LONG, sy AS LONG, mx AS LONG, my AS LONG)
+    DECLARE LIBRARY "../native/selmask"
+        SUB gj_sel_copy (BYVAL dst AS _OFFSET, BYVAL dw AS LONG, BYVAL dh AS LONG, BYVAL src AS _OFFSET, BYVAL sw AS LONG, BYVAL sh AS LONG, BYVAL sx AS LONG, BYVAL sy AS LONG, BYVAL mask AS _OFFSET, BYVAL mw AS LONG, BYVAL mh AS LONG, BYVAL mx AS LONG, BYVAL my AS LONG)
+    END DECLARE
+    DIM md AS _MEM, ms AS _MEM, mm AS _MEM
+    IF dst >= -1 _ORELSE src >= -1 _ORELSE MARQUEE.SELECTION_MASK >= -1 THEN EXIT SUB
+    md = _MEMIMAGE(dst): ms = _MEMIMAGE(src): mm = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+    gj_sel_copy md.OFFSET, _WIDTH(dst), _HEIGHT(dst), ms.OFFSET, _WIDTH(src), _HEIGHT(src), sx, sy, mm.OFFSET, _WIDTH(MARQUEE.SELECTION_MASK), _HEIGHT(MARQUEE.SELECTION_MASK), mx, my
+    _MEMFREE md: _MEMFREE ms: _MEMFREE mm
+END SUB
+
+''
+' Clear the selected pixels of img (canvas pixel (x, y) at (x + ox, y + oy) - an apron),
+' within the selection's bounds: cut / delete / move's lift - a soft selection leaves the
+' unselected share.
+SUB SELMASK_clear (img AS LONG, ox AS INTEGER, oy AS INTEGER)
+    DECLARE LIBRARY "../native/selmask"
+        SUB gj_sel_clear (BYVAL img AS _OFFSET, BYVAL iw AS LONG, BYVAL ih AS LONG, BYVAL ox AS LONG, BYVAL oy AS LONG, BYVAL mask AS _OFFSET, BYVAL mw AS LONG, BYVAL mh AS LONG, BYVAL x0 AS LONG, BYVAL y0 AS LONG, BYVAL x1 AS LONG, BYVAL y1 AS LONG)
+    END DECLARE
+    DIM mi AS _MEM, mm AS _MEM
+    IF img >= -1 _ORELSE MARQUEE.SELECTION_MASK >= -1 THEN EXIT SUB
+    mi = _MEMIMAGE(img): mm = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+    gj_sel_clear mi.OFFSET, _WIDTH(img), _HEIGHT(img), ox, oy, mm.OFFSET, _WIDTH(MARQUEE.SELECTION_MASK), _HEIGHT(MARQUEE.SELECTION_MASK), MARQUEE.WAND_MIN_X, MARQUEE.WAND_MIN_Y, MARQUEE.WAND_MAX_X, MARQUEE.WAND_MAX_Y
+    _MEMFREE mi: _MEMFREE mm
+END SUB
+
+''
+' pix with its alpha scaled by selection coverage c (0..255) - lifting through a soft selection.
+FUNCTION SELMASK_scaled~& (pix AS _UNSIGNED LONG, c AS INTEGER)
+    DIM a AS INTEGER
+    IF c >= 255 THEN SELMASK_scaled~& = pix: EXIT FUNCTION
+    a = (_ALPHA32(pix) * c + 127) \ 255
+    IF a > 0 THEN SELMASK_scaled~& = (pix AND &HFFFFFF~&) + a * &H1000000~&
+END FUNCTION
+
+''
+' old after clearing it to clr through selection coverage c (0..255): all of it at 255;
+' else a transparent clr leaves the unselected share of old's alpha, a colour is laid over
+' old at coverage c (straight-alpha source-over).
+FUNCTION SELMASK_cleared~& (old AS _UNSIGNED LONG, clr AS _UNSIGNED LONG, c AS INTEGER)
+    DIM a AS INTEGER, sa AS SINGLE, da AS SINGLE, oa AS SINGLE, dw AS SINGLE
+    IF c >= 255 THEN SELMASK_cleared~& = clr: EXIT FUNCTION
+    IF c <= 0 THEN SELMASK_cleared~& = old: EXIT FUNCTION
+    IF _ALPHA32(clr) = 0 THEN
+        a = (_ALPHA32(old) * (255 - c) + 127) \ 255
+        IF a > 0 THEN SELMASK_cleared~& = (old AND &HFFFFFF~&) + a * &H1000000~&
+        EXIT FUNCTION
+    END IF
+    sa = (_ALPHA32(clr) / 255!) * (c / 255!): da = _ALPHA32(old) / 255!
+    oa = sa + da * (1 - sa): dw = da * (1 - sa)
+    IF oa <= 0 THEN EXIT FUNCTION
+    SELMASK_cleared~& = _RGBA32(INT((_RED32(clr) * sa + _RED32(old) * dw) / oa + .5), INT((_GREEN32(clr) * sa + _GREEN32(old) * dw) / oa + .5), INT((_BLUE32(clr) * sa + _BLUE32(old) * dw) / oa + .5), INT(oa * 255 + .5))
+END FUNCTION
+
+''
+' Soften mask's edges by r px (a Gaussian of the coverage).
+SUB SELMASK_feather (mask AS LONG, r AS INTEGER)
+    DECLARE LIBRARY "../native/selmask"
+        SUB gj_sel_feather (BYVAL mask AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL radius AS LONG)
+    END DECLARE
+    DIM m AS _MEM
+    IF mask >= -1 _ORELSE r < 1 THEN EXIT SUB
+    m = _MEMIMAGE(mask)
+    gj_sel_feather m.OFFSET, _WIDTH(mask), _HEIGHT(mask), r
+    _MEMFREE m
+END SUB
+
+''
+' Grow (r > 0) / shrink (r < 0) mask by |r| px, round, soft edges kept.
+SUB SELMASK_grow (mask AS LONG, r AS INTEGER)
+    DECLARE LIBRARY "../native/selmask"
+        SUB gj_sel_grow (BYVAL mask AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL r AS LONG)
+    END DECLARE
+    DIM m AS _MEM
+    IF mask >= -1 _ORELSE r = 0 THEN EXIT SUB
+    m = _MEMIMAGE(mask)
+    gj_sel_grow m.OFFSET, _WIDTH(mask), _HEIGHT(mask), r
+    _MEMFREE m
+END SUB
+
+SUB SELMASK_invert (mask AS LONG)
+    DECLARE LIBRARY "../native/selmask"
+        SUB gj_sel_invert (BYVAL mask AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG)
+    END DECLARE
+    DIM m AS _MEM
+    IF mask >= -1 THEN EXIT SUB
+    m = _MEMIMAGE(mask)
+    gj_sel_invert m.OFFSET, _WIDTH(mask), _HEIGHT(mask)
+    _MEMFREE m
+END SUB
+
+''
+' Make mask hard: at least half selected -> selected, the rest not.
+SUB SELMASK_harden (mask AS LONG)
+    DECLARE LIBRARY "../native/selmask"
+        SUB gj_sel_harden (BYVAL mask AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG)
+    END DECLARE
+    DIM m AS _MEM
+    IF mask >= -1 THEN EXIT SUB
+    m = _MEMIMAGE(mask)
+    gj_sel_harden m.OFFSET, _WIDTH(mask), _HEIGHT(mask)
+    _MEMFREE m
+END SUB
+
+''
+' mask has a partly-selected pixel (a soft selection)?
+FUNCTION SELMASK_is_soft% (mask AS LONG)
+    DECLARE LIBRARY "../native/selmask"
+        FUNCTION gj_sel_is_soft& (BYVAL mask AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG)
+    END DECLARE
+    DIM m AS _MEM
+    IF mask >= -1 THEN EXIT FUNCTION
+    m = _MEMIMAGE(mask)
+    SELMASK_is_soft% = (gj_sel_is_soft&(m.OFFSET, _WIDTH(mask), _HEIGHT(mask)) <> 0)
+    _MEMFREE m
+END FUNCTION
+
+''
+' One 3 x 3 average of mask's coverage: a 1px soft rim.
+SUB SELMASK_soften (mask AS LONG)
+    DECLARE LIBRARY "../native/selmask"
+        SUB gj_sel_soften (BYVAL mask AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG)
+    END DECLARE
+    DIM m AS _MEM
+    IF mask >= -1 THEN EXIT SUB
+    m = _MEMIMAGE(mask)
+    gj_sel_soften m.OFFSET, _WIDTH(mask), _HEIGHT(mask)
+    _MEMFREE m
+END SUB
+
+''
+' The selection as a mask (MARQUEE.SELECTION_MASK, canvas-sized): a plain box
+' selection gets one. FALSE when there is no selection (or no memory).
+FUNCTION SELECTION_to_mask% ()
+    DIM m AS LONG, od AS LONG
+    IF MARQUEE.WAND_HAS_SELECTION _ANDALSO MARQUEE.SELECTION_MASK < -1 THEN SELECTION_to_mask% = TRUE: EXIT FUNCTION
+    IF MARQUEE.ACTIVE% = 0 THEN EXIT FUNCTION
+    m = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+    IF m >= -1 THEN EXIT FUNCTION
+    od = _DEST
+    _DEST m: _DONTBLEND m
+    CLS , _RGBA32(0, 0, 0, 0)
+    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), _RGB32(255, 255, 255), BF
+    _BLEND m
+    _DEST od
+    SAFE_FREEIMAGE MARQUEE.SELECTION_MASK
+    MARQUEE.SELECTION_MASK = m
+    MARQUEE.WAND_HAS_SELECTION = TRUE
+    SELECTION_to_mask% = TRUE
+END FUNCTION
+
+''
+' Select > Feather: soften the current selection's edges by r px.
+SUB SELECTION_feather_by (r AS INTEGER)
+    IF r < 1 _ORELSE SELECTION_to_mask% = 0 THEN EXIT SUB
+    SELMASK_feather MARQUEE.SELECTION_MASK, r
+    SELMASK_bounds_apply
+END SUB
+
+''
+' Select > Smooth: round the current selection's corners and drop its specks, r px
+' (blur, then at least half selected = selected; with antialiasing a 1px soft rim).
+SUB SELECTION_smooth_by (r AS INTEGER)
+    IF r < 1 _ORELSE SELECTION_to_mask% = 0 THEN EXIT SUB
+    SELMASK_feather MARQUEE.SELECTION_MASK, r
+    SELMASK_harden MARQUEE.SELECTION_MASK
+    IF CFG.ANTIALIAS% THEN SELMASK_soften MARQUEE.SELECTION_MASK
+    SELMASK_bounds_apply
+END SUB
+
+''
+' A selection tool's new mask (rectangle / ellipse / lasso / polygon / wand / grid cell)
+' merged in: first feathered by CFG.SELECTION_FEATHER% px (the Selection Bar's FEATHER),
+' then SELECTION_merge_mask (which frees it).
+SUB SELECTION_merge_new (new_mask AS LONG, mode AS INTEGER)
+    IF new_mask >= -1 THEN EXIT SUB
+    IF CFG.SELECTION_FEATHER% > 0 THEN SELMASK_feather new_mask, CFG.SELECTION_FEATHER%
+    SELECTION_merge_mask new_mask, mode
+END SUB
+
+''
 ' Merge a newly-generated selection mask with the existing MARQUEE.SELECTION_MASK.
 ' For SEL_MODE_ADD, pixels selected in either mask are selected in result.
 ' For SEL_MODE_SUBTRACT, pixels in old mask but NOT in new mask are selected.
@@ -3047,12 +3359,8 @@ END SUB
 '
 SUB SELECTION_merge_mask (new_mask AS LONG, mode AS INTEGER)
     DIM w          AS INTEGER, h AS INTEGER
-    DIM px         AS INTEGER, py AS INTEGER
-    DIM old_pixel  AS _UNSIGNED LONG, new_pixel AS _UNSIGNED LONG
     DIM mask_color AS _UNSIGNED LONG
     DIM old_dest   AS LONG, old_source AS LONG
-    DIM final_mask AS LONG
-    DIM minX       AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
 
     IF new_mask >= -1 THEN EXIT SUB
 
@@ -3085,46 +3393,20 @@ SUB SELECTION_merge_mask (new_mask AS LONG, mode AS INTEGER)
                 MARQUEE.WAND_EDGE_DIRTY    = TRUE
             END IF
         END IF
-        ' Now merge with existing mask
-        final_mask& = _NEWIMAGE(w%, h%, 32)
-        IF final_mask& < -1 THEN
-            _DEST final_mask&
-            CLS , _RGBA32(0, 0, 0, 0)
-            _DONTBLEND final_mask&
-
-            FOR py% = 0 TO h% - 1
-                FOR px% = 0 TO w% - 1
-                    _SOURCE MARQUEE.SELECTION_MASK
-                    old_pixel~& = POINT(px%, py%)
-                    _SOURCE new_mask&
-                    new_pixel~& = POINT(px%, py%)
-
-                    _DEST final_mask&
-                    IF mode% = SEL_MODE_ADD THEN
-                        IF _ALPHA32(old_pixel~&) > 0 OR _ALPHA32(new_pixel~&) > 0 THEN
-                            PSET (px%, py%), mask_color~&
-                        END IF
-                    ELSEIF mode% = SEL_MODE_SUBTRACT THEN
-                        IF _ALPHA32(old_pixel~&) > 0 AND _ALPHA32(new_pixel~&) = 0 THEN
-                            PSET (px%, py%), mask_color~&
-                        END IF
-                    END IF
-                NEXT px%
-            NEXT py%
-
-            _BLEND final_mask&
-            SAFE_FREEIMAGE MARQUEE.SELECTION_MASK
+        ' Now merge with existing mask (native/selmask.h: add = max, subtract = a * (1 - b),
+        ' intersect = min of the coverages - a hard pair as before)
+        IF MARQUEE.SELECTION_MASK < -1 _ANDALSO _WIDTH(MARQUEE.SELECTION_MASK) = w% _ANDALSO _HEIGHT(MARQUEE.SELECTION_MASK) = h% THEN
+            SELMASK_merge MARQUEE.SELECTION_MASK, new_mask&, mode%
             SAFE_FREEIMAGE new_mask&
-            MARQUEE.SELECTION_MASK = final_mask&
         ELSE
-            ' Failed to create final mask, keep new one
+            ' (no mask to merge into: keep the new one)
             SAFE_FREEIMAGE MARQUEE.SELECTION_MASK
             MARQUEE.SELECTION_MASK = new_mask&
         END IF
     ELSE
         ' No existing selection at all — for add, just use new_mask directly
         ' For subtract with no existing selection, nothing to subtract from
-        IF mode% = SEL_MODE_SUBTRACT THEN
+        IF mode% = SEL_MODE_SUBTRACT _ORELSE mode% = SEL_MODE_INTERSECT THEN
             SAFE_FREEIMAGE new_mask&
             _SOURCE old_source&
             _DEST old_dest&
@@ -3134,41 +3416,7 @@ SUB SELECTION_merge_mask (new_mask AS LONG, mode AS INTEGER)
         MARQUEE.SELECTION_MASK = new_mask&
     END IF
 
-    ' Recalculate bounding box from mask
-    minX% = w%: minY% = h%: maxX% = 0: maxY% = 0
-    IF MARQUEE.SELECTION_MASK < -1 THEN
-        _SOURCE MARQUEE.SELECTION_MASK
-        FOR py% = 0 TO h% - 1
-            FOR px% = 0 TO w% - 1
-                IF _ALPHA32(POINT(px%, py%)) > 0 THEN
-                    IF px% < minX% THEN minX% = px%
-                    IF px% > maxX% THEN maxX% = px%
-                    IF py% < minY% THEN minY% = py%
-                    IF py% > maxY% THEN maxY% = py%
-                END IF
-            NEXT px%
-        NEXT py%
-    END IF
-
-    IF minX% > maxX% THEN
-        ' Empty selection after merge
-        MARQUEE_clear
-        MAGIC_WAND_reset
-    ELSE
-        MARQUEE.WAND_MIN_X         = minX%
-        MARQUEE.WAND_MIN_Y         = minY%
-        MARQUEE.WAND_MAX_X         = maxX%
-        MARQUEE.WAND_MAX_Y         = maxY%
-        MARQUEE.BOX.x              = minX%
-        MARQUEE.BOX.y              = minY%
-        MARQUEE.BOX.w              = maxX% - minX% + 1
-        MARQUEE.BOX.h              = maxY% - minY% + 1
-        MARQUEE.ACTIVE%            = TRUE
-        MARQUEE.INITIALIZED%       = TRUE
-        MARQUEE.USER_CREATED       = TRUE
-        MARQUEE.WAND_HAS_SELECTION = TRUE
-        MARQUEE.WAND_EDGE_DIRTY    = TRUE
-    END IF
+    SELMASK_bounds_apply ' (the box from what is selected; nothing left = no selection)
 
     _SOURCE old_source&
     _DEST old_dest&
@@ -3265,7 +3513,7 @@ SUB FREEHAND_SEL_finish (mode AS INTEGER)
     MARQUEE.ACTIVE%            = FALSE
     MARQUEE.WAND_HAS_SELECTION = FALSE
 
-    POLY_FILL_scanline SEL_POINTS_X(), SEL_POINTS_Y(), MARQUEE.FREE_POINT_COUNT, mask_color~&, new_mask&
+    SELMASK_path_fill new_mask&, MARQUEE.FREE_POINT_COUNT ' (smoothed by SELECTION_SMOOTH; soft edges with antialiasing)
 
     ' Restore selection state before merge
     MARQUEE.ACTIVE%            = saved_active%
@@ -3274,11 +3522,21 @@ SUB FREEHAND_SEL_finish (mode AS INTEGER)
     _BLEND new_mask&
     _DEST old_dest&
 
-    ' Merge with existing selection
-    SELECTION_merge_mask new_mask&, mode%
+    ' Merge with existing selection (feathered by SELECTION_FEATHER)
+    SELECTION_merge_new new_mask&, mode%
 
     FREEHAND_SEL_reset
     GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' A lasso / polygon selection trace segment: col with a 1px black shadow under it, so it
+' shows on light art as well as dark (Rick 2026-11-18: the white trace vanished on white).
+' Ants-style dashes would restart on every short freehand segment, a shadow does not.
+SUB SEL_trace_line (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, col AS _UNSIGNED LONG)
+    LINE (x1 + 1, y1 + 1)-(x2 + 1, y2 + 1), _RGBA32(0, 0, 0, _ALPHA32(col))
+    LINE (x1, y1)-(x2, y2), col
 END SUB
 
 
@@ -3316,7 +3574,7 @@ SUB FREEHAND_SEL_draw_preview ()
         sy1% = dy% + INT(SEL_POINTS_Y(i%) * SCRN.zoom!)
         sx2% = dx% + INT(SEL_POINTS_X(i% + 1) * SCRN.zoom!)
         sy2% = dy% + INT(SEL_POINTS_Y(i% + 1) * SCRN.zoom!)
-        LINE (sx1%, sy1%)-(sx2%, sy2%), _RGB32(255, 255, 255)
+        SEL_trace_line sx1%, sy1%, sx2%, sy2%, _RGB32(255, 255, 255)
     NEXT i%
 
     ' Draw closing line from last point back to first (dashed)
@@ -3325,7 +3583,7 @@ SUB FREEHAND_SEL_draw_preview ()
         sy1% = dy% + INT(SEL_POINTS_Y(MARQUEE.FREE_POINT_COUNT - 1) * SCRN.zoom!)
         sx2% = dx% + INT(SEL_POINTS_X(0) * SCRN.zoom!)
         sy2% = dy% + INT(SEL_POINTS_Y(0) * SCRN.zoom!)
-        LINE (sx1%, sy1%)-(sx2%, sy2%), _RGBA32(255, 255, 255, 128)
+        SEL_trace_line sx1%, sy1%, sx2%, sy2%, _RGBA32(255, 255, 255, 128)
     END IF
 
     ' Draw line from last point to current mouse position
@@ -3333,7 +3591,7 @@ SUB FREEHAND_SEL_draw_preview ()
     sy1% = dy% + INT(SEL_POINTS_Y(MARQUEE.FREE_POINT_COUNT - 1) * SCRN.zoom!)
     sx2% = dx% + INT(MOUSE.UNSNAPPED_X% * SCRN.zoom!)
     sy2% = dy% + INT(MOUSE.UNSNAPPED_Y% * SCRN.zoom!)
-    LINE (sx1%, sy1%)-(sx2%, sy2%), _RGBA32(255, 255, 0, 200)
+    SEL_trace_line sx1%, sy1%, sx2%, sy2%, _RGBA32(255, 255, 0, 200)
 
     _DEST old_dest&
 END SUB
@@ -3433,7 +3691,7 @@ SUB POLY_SEL_close (mode AS INTEGER)
     MARQUEE.ACTIVE%            = FALSE
     MARQUEE.WAND_HAS_SELECTION = FALSE
 
-    POLY_FILL_scanline SEL_POINTS_X(), SEL_POINTS_Y(), MARQUEE.POLY_POINT_COUNT, mask_color~&, new_mask&
+    SELMASK_path_fill new_mask&, MARQUEE.POLY_POINT_COUNT ' (smoothed by SELECTION_SMOOTH; soft edges with antialiasing)
 
     ' Restore selection state before merge
     MARQUEE.ACTIVE%            = saved_active2%
@@ -3442,8 +3700,8 @@ SUB POLY_SEL_close (mode AS INTEGER)
     _BLEND new_mask&
     _DEST old_dest&
 
-    ' Merge with existing selection
-    SELECTION_merge_mask new_mask&, mode%
+    ' Merge with existing selection (feathered by SELECTION_FEATHER)
+    SELECTION_merge_new new_mask&, mode%
 
     POLY_SEL_reset
     GUI_NEEDS_REDRAW% = TRUE
@@ -3494,7 +3752,7 @@ SUB POLY_SEL_draw_preview ()
         sy1% = dy% + INT(SEL_POINTS_Y(i%) * SCRN.zoom!)
         sx2% = dx% + INT(SEL_POINTS_X(i% + 1) * SCRN.zoom!)
         sy2% = dy% + INT(SEL_POINTS_Y(i% + 1) * SCRN.zoom!)
-        LINE (sx1%, sy1%)-(sx2%, sy2%), _RGB32(255, 255, 255)
+        SEL_trace_line sx1%, sy1%, sx2%, sy2%, _RGB32(255, 255, 255)
     NEXT i%
 
     ' Draw rubber band line from last vertex to mouse position (yellow)
@@ -3502,7 +3760,7 @@ SUB POLY_SEL_draw_preview ()
     sy1% = dy% + INT(SEL_POINTS_Y(MARQUEE.POLY_POINT_COUNT - 1) * SCRN.zoom!)
     sx2% = dx% + INT(polyPrvX% * SCRN.zoom!)
     sy2% = dy% + INT(polyPrvY% * SCRN.zoom!)
-    LINE (sx1%, sy1%)-(sx2%, sy2%), _RGBA32(255, 255, 0, 200)
+    SEL_trace_line sx1%, sy1%, sx2%, sy2%, _RGBA32(255, 255, 0, 200)
 
     ' Draw closing line from mouse to first vertex (dim white)
     IF MARQUEE.POLY_POINT_COUNT >= 2 THEN
@@ -3510,7 +3768,7 @@ SUB POLY_SEL_draw_preview ()
         sy1% = dy% + INT(polyPrvY% * SCRN.zoom!)
         sx2% = dx% + INT(SEL_POINTS_X(0) * SCRN.zoom!)
         sy2% = dy% + INT(SEL_POINTS_Y(0) * SCRN.zoom!)
-        LINE (sx1%, sy1%)-(sx2%, sy2%), _RGBA32(255, 255, 255, 80)
+        SEL_trace_line sx1%, sy1%, sx2%, sy2%, _RGBA32(255, 255, 255, 80)
     END IF
 
     ' Draw vertex dots
@@ -3583,15 +3841,57 @@ END SUB
 SUB ELLIPSE_SEL_update (x AS INTEGER, y AS INTEGER)
     IF NOT MARQUEE.ELLIP_DRAGGING THEN EXIT SUB
     ' Ctrl: from center (the press point), as the Ellipse drawing tool does
-    IF MODIFIERS.ctrl% THEN
-        MARQUEE.ELLIP_START_X = 2 * ELLIP_SEL_ANCHOR_X% - x%
-        MARQUEE.ELLIP_START_Y = 2 * ELLIP_SEL_ANCHOR_Y% - y%
+    DIM ex AS INTEGER, ey AS INTEGER
+    ex = x: ey = y
+    SEL_shape_constrain ELLIP_SEL_ANCHOR_X%, ELLIP_SEL_ANCHOR_Y%, ex, ey
+    IF SEL_from_center% THEN
+        MARQUEE.ELLIP_START_X = 2 * ELLIP_SEL_ANCHOR_X% - ex
+        MARQUEE.ELLIP_START_Y = 2 * ELLIP_SEL_ANCHOR_Y% - ey
     ELSE
         MARQUEE.ELLIP_START_X = ELLIP_SEL_ANCHOR_X%
         MARQUEE.ELLIP_START_Y = ELLIP_SEL_ANCHOR_Y%
     END IF
-    MARQUEE.ELLIP_END_X = x%
-    MARQUEE.ELLIP_END_Y = y%
+    MARQUEE.ELLIP_END_X = ex
+    MARQUEE.ELLIP_END_Y = ey
+END SUB
+
+
+''
+' The rectangle / ellipse selection drags from the centre: Ctrl held, or the Selection
+' Bar's FROM CENTRE on (then Ctrl is the corner).
+FUNCTION SEL_from_center% ()
+    SEL_from_center% = ((MODIFIERS.ctrl% <> 0) XOR (CFG.SELECTION_FROM_CENTER% <> 0))
+END FUNCTION
+
+
+''
+' The drag's far corner (mx, my) from anchor (ax, ay) by the Selection Bar's shape:
+' SELECTION_SHAPE 1 = FIXED RATIO (SELECTION_SHAPE_W : _H, the longer side of the drag
+' wins), 2 = FIXED SIZE (W x H px; from the centre, the box is W x H around it), else free.
+SUB SEL_shape_constrain (ax AS INTEGER, ay AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    DIM dx AS LONG, dy AS LONG, sx AS INTEGER, sy AS INTEGER, rw AS LONG, rh AS LONG
+    rw = CFG.SELECTION_SHAPE_W%: rh = CFG.SELECTION_SHAPE_H%
+    IF rw < 1 _ORELSE rh < 1 THEN EXIT SUB
+    dx = mx - ax: dy = my - ay
+    sx = 1: IF dx < 0 THEN sx = -1
+    sy = 1: IF dy < 0 THEN sy = -1
+    SELECT CASE CFG.SELECTION_SHAPE%
+        CASE 1
+            IF ABS(dx) * rh >= ABS(dy) * rw THEN
+                dy = sy * ((ABS(dx) * rh + rw \ 2) \ rw)
+            ELSE
+                dx = sx * ((ABS(dy) * rw + rh \ 2) \ rh)
+            END IF
+        CASE 2
+            IF SEL_from_center% THEN
+                dx = sx * (rw \ 2): dy = sy * (rh \ 2)
+            ELSE
+                dx = sx * (rw - 1): dy = sy * (rh - 1)
+            END IF
+        CASE ELSE
+            EXIT SUB
+    END SELECT
+    mx = ax + dx: my = ay + dy
 END SUB
 
 
@@ -3659,6 +3959,17 @@ SUB ELLIPSE_SEL_finish (mode AS INTEGER)
     y_start% = by%
     y_end%   = by% + bh% - 1
 
+    IF CFG.ANTIALIAS% THEN ' soft edges: the exact ellipse's coverage (a point every ~1px of its edge)
+        DIM en AS INTEGER, ei AS INTEGER, ea AS SINGLE
+        en% = _MAX(24, _MIN(4000, INT(_PI * (rx! + ry!) / 1!)))
+        REDIM exs(1 TO en%) AS SINGLE, eys(1 TO en%) AS SINGLE
+        FOR ei% = 1 TO en%
+            ea! = (ei% - 1) * 2 * _PI / en%
+            exs(ei%) = cx! + rx! * COS(ea!): eys(ei%) = cy! + ry! * SIN(ea!)
+        NEXT ei%
+        SELMASK_poly new_mask&, exs(), eys(), en%
+        y_end% = y_start% - 1 ' (the hard scanlines below: none)
+    END IF
     FOR py% = y_start% TO y_end%
         dy2! = (py% - cy!) / ry!
         IF ABS(dy2!) <= 1.0001 THEN
@@ -3676,8 +3987,8 @@ SUB ELLIPSE_SEL_finish (mode AS INTEGER)
     _BLEND new_mask&
     _DEST old_dest&
 
-    ' Merge with existing selection
-    SELECTION_merge_mask new_mask&, mode%
+    ' Merge with existing selection (feathered by SELECTION_FEATHER)
+    SELECTION_merge_new new_mask&, mode%
 
     ELLIPSE_SEL_reset
     GUI_NEEDS_REDRAW% = TRUE

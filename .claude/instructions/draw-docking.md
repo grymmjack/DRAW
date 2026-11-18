@@ -20,7 +20,7 @@ the status bar and color strip are always at the bottom.
 
 ## Model
 
-- **Panel** (`DP_*`, 16): TOOLBOX, ORGANIZER, DRAWER, LAYERS, EDITBAR, ADVBAR, CHARMAP, WORKFLOW (dock panels, ids 1-8) and PREVIEW, MIXER, ADVCP, CS3D, PEN, BROWSER, ANIM, SWATCH (native floating windows, ids 9-16: `id < DP_PREVIEW` = a dock panel, and loops over the windows run `DP_PREVIEW TO DP_COUNT`). A panel added later is missing from older saved trees: `DOCK_adopt_new_panels` (in `DOCK_layout`) places it - see the workflow buttons in `draw-workspaces.md`. `DPANEL(id)`: name, title, `hmode` (`DP_H_FIXED` own height / `DP_H_FLEX` shares), `tall` (makes its column full height), `bordered`, `floats` (has its own window), `slot` (0 = not docked), float rect, dock-back memory (`hside/hcol/hslot/halone`), and this frame's rect (`rVis, rx..rh`).
+- **Panel** (`DP_*`, 19): TOOLBOX, ORGANIZER, DRAWER, LAYERS, EDITBAR, ADVBAR, CHARMAP, WORKFLOW, TEXTBAR, SELBAR, MYPAINT (dock panels, ids 1-11) and PREVIEW, MIXER, ADVCP, CS3D, PEN, BROWSER, ANIM, SWATCH (native floating windows, ids 12-19: `id < DP_PREVIEW` = a dock panel, and loops over the windows run `DP_PREVIEW TO DP_COUNT`). A panel added later is missing from older saved trees: `DOCK_adopt_new_panels` (in `DOCK_layout`) places it - see the workflow buttons in `draw-workspaces.md`. `DPANEL(id)`: name, title, `hmode` (`DP_H_FIXED` own height / `DP_H_FLEX` shares), `tall` (makes its column full height), `bordered`, `floats` (has its own window), `slot` (0 = not docked), float rect, dock-back memory (`hside/hcol/hslot/halone`), and this frame's rect (`rVis, rx..rh`).
 - **Column** `DOCK_COL`: `side` (`DOCK_LEFT` 1 / `DOCK_RIGHT` 2 / `DOCK_TOP` 3 / `DOCK_BOTTOM` 4 - sides 3 / 4 are ROWS: `DOCK_is_row%(c)`, `DOCK_side_is_row%`, `DOCK_in_row%(id)`), `ord` (1 = outermost), `wpx` (0 = the panels' own width; a row's height). `DOCK_MAX_COLS` = 16 holds both.
 - **Slot** `DOCK_SLOT`: `col`, `ord` (1 = top), `share`, `collapsed`, `ntabs`, `act`. `autoc` = collapsed by the layout this frame (not saved).
 - **Default tree:** while `DOCK_CUSTOM = FALSE`, `DOCK_build_default` rebuilds the tree **every layout** from the old side keys (`TOOLBOX_DOCK_EDGE`, `LAYERS_PANEL_DOCK_EDGE`, edit/adv bar and charmap `dockSide`). Any user arrangement sets `DOCK_CUSTOM` (`DOCK_change_begin`) — otherwise a live drag is undone the next frame.
@@ -167,7 +167,7 @@ joins the end of the innermost row, else a new row).
   mode with top rows the side columns start under them (`colY1 = barY1 + TOPH`, `colY2 = dockY2 - BOTH`)
   -> `DOCK_place_columns` -> `DOCK_place_rows` (x `DOCK_LX..DOCK_RX`, or the window when full width;
   top rows under the menu bar; the text bar is one of the rows now, `DP_TEXTBAR`). Sets `DOCK_ROWS_Y1/Y2/TOPH/BOTH` and
-  `DOCK_SHIFT_Y = (TOPH - BOTH) \ 2` -> **`SCRN.panelShiftY%`** (added to every vertical canvas
+  `DOCK_SHIFT_Y = (TOPH - transient - BOTH) \ 2` (transient = top rows holding only the Selection Bar, `DOCK_row_transient%`: it comes and goes with the selection tools and must not move the canvas under the pointer) -> **`SCRN.panelShiftY%`** (added to every vertical canvas
   position, ~38 sites, the twin of `panelShiftX%`). Scrollbars and `FPANEL_band_trim` read the rows.
 - **Width in a row** (`DOCK_row_panel_box`, at the row's height): toolbox = fewest columns whose height
   fits (`DOCK_row_tb_w%`; it reflows because `DOCK_tb_follows%` includes `DOCK_in_row%`); organizer /
@@ -256,6 +256,17 @@ joins the end of the innermost row, else a new row).
   up as a column (`SUBTOOL_FLYOUT.VERTICAL`). The text bar's font / size / style lists are
   `POPUP_K_TEXT_BAR` (their boxes in `TBDD_X/Y/W/H`, noted as drawn). Dumps `SUBFLY`, `TEXTBAR`.
   Test: `dock-row-popups.sh`.
+- **MyPaint Brushes** (`DP_MYPAINT` = 11, 2026-11-18: the dock panels are now ids 1-11, the native
+  windows 12-19, `DP_COUNT` 19, `WZ_TBED` / `WZ_COUNT` 20, `PSURF_N` 11). `GUI/MYPAINT-PANEL`: shown =
+  `CFG.MYPAINT_PANEL` (not under F11); a flex panel (a grid that scrolls), stretchy width like the
+  Swatches; no slot in an older tree -> `DOCK_mypaint_place` (a column of its own, innermost on the
+  right). See `draw-mypaint.md`.
+- **Selection Bar** (`DP_SELBAR` = 10, 2026-11-18). `GUI/SEL-BAR`: shown =
+  `SELBAR_wanted%` (`CFG.SELECTION_BAR`, a selection tool, not F11). Built like the text bar -
+  `DP_H_FIXED`, height `SELBAR_h_for%(w)` = row height x the lines its control groups wrap into
+  (`SELBAR_layout%`), PSURF member (`CFG.SELECTION_BAR_SCALE`), region `REGION_SEL_BAR`. Old trees
+  adopt it as a new top row just inside the text bar's row (`DOCK_selbar_place`); its row is left
+  out of `DOCK_SHIFT_Y` (above). Dumps `SELBAR` / `SELM` / `SELBARC`. Test: `sel-bar.sh`.
 - **Text bar** (`DP_TEXTBAR` = 9, the last dock panel - the native windows moved up one, `WZ_TBED`
   = 18; Rick 2026-11-16 "scaleable, like the other panels" + "dockable left, right, top, bottom"):
   it used to be a fixed strip (`DOCK_TOPBAR_H`, now always 0). Shown = `TEXT_BAR_wanted%` (text tool

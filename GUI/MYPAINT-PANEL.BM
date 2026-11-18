@@ -1,0 +1,577 @@
+''
+' DRAW - GUI/MYPAINT-PANEL.BM - the MyPaint brush palette (GUI/MYPAINT-PANEL.BI).
+' =============================================================================
+$INCLUDEONCE
+
+''
+' Should it show: View > MyPaint Brushes on, the chrome not hidden by F11.
+FUNCTION MYPP_wanted% ()
+    IF SCRN.textBarHiddenByToggleAll% THEN EXIT FUNCTION ' (F11 holds the panels off)
+    MYPP_wanted% = (CFG.MYPAINT_PANEL% <> 0)
+END FUNCTION
+
+
+FUNCTION MYPP_row_h% ()
+    DIM h AS INTEGER
+    h = THEME.TEXT_BAR_ROW_HEIGHT%
+    IF h < 10 THEN h = 14
+    MYPP_row_h% = h
+END FUNCTION
+
+
+FUNCTION MYPP_tw% (t AS STRING)
+    IF MENU_BAR.fontHandle& > 0 THEN
+        MYPP_tw% = _UPRINTWIDTH(t, 0, MENU_BAR.fontHandle&)
+    ELSE
+        MYPP_tw% = LEN(t) * 8
+    END IF
+END FUNCTION
+
+
+FUNCTION MYPP_cell% ()
+    MYPP_cell% = _MAX(24, _MIN(128, CFG.MYPAINT_CELL%))
+END FUNCTION
+
+
+''
+' Its shortest (its units): the three header rows and one row of cells.
+FUNCTION MYPP_min_h% ()
+    MYPP_min_h% = 3 * MYPP_row_h% + 6 + MYPP_cell%
+END FUNCTION
+
+
+' =============================================================================
+' Groups: order.conf's, the brushes no group names (a group per folder), MY BRUSHES
+' =============================================================================
+
+''
+' Is p already a brush in the list?
+FUNCTION MYPP_has% (p AS STRING)
+    DIM i AS INTEGER, k AS STRING
+    k = LCASE$(p)
+    FOR i = 1 TO MYPP_NB
+        IF LCASE$(MYPP_PATH(i)) = k THEN MYPP_has% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+SUB MYPP_group_start (nm AS STRING)
+    IF MYPP.nGroups > 0 THEN
+        IF MYPP_GN(MYPP.nGroups) = 0 _ANDALSO MYPP_GNAME(MYPP.nGroups) <> MYPAINT_USER_SET THEN MYPP.nGroups = MYPP.nGroups - 1 ' (an empty one: Favorites)
+    END IF
+    IF MYPP.nGroups >= MYPP_MAX_GROUPS THEN EXIT SUB
+    MYPP.nGroups = MYPP.nGroups + 1
+    MYPP_GNAME(MYPP.nGroups) = nm
+    MYPP_GFIRST(MYPP.nGroups) = MYPP_NB + 1
+    MYPP_GN(MYPP.nGroups) = 0
+END SUB
+
+
+SUB MYPP_group_add (p AS STRING)
+    IF MYPP.nGroups = 0 _ORELSE MYPP_NB >= MYPP_MAX_BRUSHES THEN EXIT SUB
+    IF _FILEEXISTS(p) = 0 _ORELSE MYPP_has%(p) THEN EXIT SUB
+    MYPP_NB = MYPP_NB + 1
+    MYPP_PATH(MYPP_NB) = p
+    MYPP_THUMB(MYPP_NB) = 0
+    MYPP_GN(MYPP.nGroups) = MYPP_GN(MYPP.nGroups) + 1
+END SUB
+
+
+SUB MYPP_free_thumbs ()
+    DIM i AS INTEGER
+    FOR i = 1 TO MYPP_NB
+        IF MYPP_THUMB(i) < -1 THEN _FREEIMAGE MYPP_THUMB(i)
+        MYPP_THUMB(i) = 0
+    NEXT i
+    MYPP.thumbsOf = 0
+    MYPP.thumbCell = 0
+END SUB
+
+
+''
+' Read the groups again (first use; after LOAD / SAVE: MY BRUSHES may have changed).
+SUB MYPP_rescan ()
+    DIM fh AS INTEGER, ln AS STRING, e AS STRING, d AS STRING, ud AS STRING, keep AS STRING
+    DIM dirs(1 TO 64) AS STRING, nd AS INTEGER, i AS INTEGER
+    IF MYPP.group >= 1 _ANDALSO MYPP.group <= MYPP.nGroups THEN keep = MYPP_GNAME(MYPP.group)
+    MYPP_free_thumbs
+    MYPP.nGroups = 0: MYPP_NB = 0
+    ' order.conf: "Group: Name" then "folder/brush" lines
+    IF _FILEEXISTS(MYPAINT_ASSET_DIR + "order.conf") THEN
+        fh = FREEFILE
+        OPEN MYPAINT_ASSET_DIR + "order.conf" FOR INPUT AS #fh
+        DO WHILE NOT EOF(fh)
+            LINE INPUT #fh, ln
+            ln = _TRIM$(ln)
+            IF LEN(ln) = 0 _ORELSE LEFT$(ln, 1) = "#" THEN _CONTINUE
+            IF LCASE$(LEFT$(ln, 6)) = "group:" THEN
+                MYPP_group_start _TRIM$(MID$(ln, 7))
+            ELSE
+                MYPP_group_add MYPAINT_ASSET_DIR + ln + ".myb"
+            END IF
+        LOOP
+        CLOSE #fh
+    END IF
+    ' the brushes no group names: a group per folder
+    IF _DIREXISTS(MYPAINT_ASSET_DIR) THEN
+        e = _FILES$(MYPAINT_ASSET_DIR)
+        DO WHILE LEN(e) > 0 _ANDALSO nd < 64
+            IF RIGHT$(e, 1) = "/" _ORELSE RIGHT$(e, 1) = "\" THEN
+                IF e <> "./" _ANDALSO e <> "../" _ANDALSO e <> ".\" _ANDALSO e <> "..\" THEN nd = nd + 1: dirs(nd) = LEFT$(e, LEN(e) - 1)
+            END IF
+            e = _FILES$
+        LOOP
+    END IF
+    FOR i = 1 TO nd
+        d = MYPAINT_ASSET_DIR + dirs(i) + "/"
+        e = _FILES$(d + "*.myb")
+        DO WHILE LEN(e) > 0
+            IF MYPP_has%(d + e) = 0 THEN
+                IF MYPP.nGroups = 0 _ORELSE MYPP_GNAME(MYPP.nGroups) <> dirs(i) THEN MYPP_group_start dirs(i)
+                MYPP_group_add d + e
+            END IF
+            e = _FILES$
+        LOOP
+    NEXT i
+    ' MY BRUSHES (always there: SAVE writes into it)
+    MYPP_group_start MYPAINT_USER_SET
+    ud = MYPAINT_user_dir$
+    IF RIGHT$(ud, 1) <> "/" _ANDALSO RIGHT$(ud, 1) <> "\" THEN ud = ud + "/"
+    IF _DIREXISTS(ud) THEN
+        e = _FILES$(ud + "*.myb")
+        DO WHILE LEN(e) > 0
+            MYPP_group_add ud + e
+            e = _FILES$
+        LOOP
+    END IF
+    MYPP.scanned = TRUE
+    ' the group shown: the one it showed, else CFG.MYPAINT_SET, else the brush's own
+    MYPP.group = 0
+    IF LEN(keep) THEN MYPP.group = MYPP_group_named%(keep)
+    IF MYPP.group = 0 _ANDALSO LEN(CFG.MYPAINT_SET$) THEN MYPP.group = MYPP_group_named%(CFG.MYPAINT_SET$)
+    IF MYPP.group = 0 THEN MYPP.group = MYPP_group_of%(MYPAINT.brushPath)
+    IF MYPP.group = 0 THEN MYPP.group = 1
+    MYPP.scroll = 0
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+FUNCTION MYPP_group_named% (nm AS STRING)
+    DIM g AS INTEGER
+    FOR g = 1 TO MYPP.nGroups
+        IF UCASE$(MYPP_GNAME(g)) = UCASE$(nm) THEN MYPP_group_named% = g: EXIT FUNCTION
+    NEXT g
+END FUNCTION
+
+
+''
+' The group holding brush file p (0 = none), and its index in the whole list.
+FUNCTION MYPP_group_of% (p AS STRING)
+    DIM i AS INTEGER, g AS INTEGER
+    i = MYPP_index_of%(p)
+    IF i = 0 THEN EXIT FUNCTION
+    FOR g = 1 TO MYPP.nGroups
+        IF i >= MYPP_GFIRST(g) _ANDALSO i < MYPP_GFIRST(g) + MYPP_GN(g) THEN MYPP_group_of% = g: EXIT FUNCTION
+    NEXT g
+END FUNCTION
+
+
+FUNCTION MYPP_index_of% (p AS STRING)
+    DIM i AS INTEGER, k AS STRING, n AS STRING
+    IF LEN(p) = 0 THEN EXIT FUNCTION
+    k = LCASE$(p)
+    FOR i = 1 TO MYPP_NB
+        IF LCASE$(MYPP_PATH(i)) = k THEN MYPP_index_of% = i: EXIT FUNCTION
+    NEXT i
+    ' the same file by another spelling (an absolute path from the file dialog): set + name
+    n = LCASE$(MYPAINT_set_of$(p) + "/" + MYPAINT_name_of$(p))
+    FOR i = 1 TO MYPP_NB
+        IF LCASE$(MYPAINT_set_of$(MYPP_PATH(i)) + "/" + MYPAINT_name_of$(MYPP_PATH(i))) = n THEN MYPP_index_of% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' The shown group's thumbnails (<brush>_prev.png): loaded when it is first drawn.
+' Each is shrunk to the cell size once, with an area average (mp_resample_area): a
+' _PUTIMAGE of the 128 px preview into a ~45 px cell picks every 3rd pixel and looks
+' ragged (Rick 2026-11-18). A new cell size (MYPAINT_CELL) redoes them.
+SUB MYPP_load_thumbs ()
+    DIM i AS INTEGER, g AS INTEGER, pf AS STRING, cell AS INTEGER
+    g = MYPP.group
+    cell = MYPP.cell
+    IF g < 1 _ORELSE g > MYPP.nGroups _ORELSE cell < 1 THEN EXIT SUB
+    IF MYPP.thumbsOf = g _ANDALSO MYPP.thumbCell = cell THEN EXIT SUB
+    MYPP_free_thumbs
+    FOR i = MYPP_GFIRST(g) TO MYPP_GFIRST(g) + MYPP_GN(g) - 1
+        pf = LEFT$(MYPP_PATH(i), LEN(MYPP_PATH(i)) - 4) + "_prev.png"
+        IF _FILEEXISTS(pf) THEN MYPP_THUMB(i) = MYPP_thumb_scaled&(pf, cell)
+    NEXT i
+    MYPP.thumbsOf = g
+    MYPP.thumbCell = cell
+END SUB
+
+
+''
+' Preview file pf as a cell x cell image (0 = couldn't be read).
+FUNCTION MYPP_thumb_scaled& (pf AS STRING, cell AS INTEGER)
+    DIM src AS LONG, dst AS LONG, ms AS _MEM, md AS _MEM
+    src = _LOADIMAGE(pf, 32)
+    IF src >= -1 THEN EXIT FUNCTION
+    IF _WIDTH(src) = cell _ANDALSO _HEIGHT(src) = cell THEN MYPP_thumb_scaled& = src: EXIT FUNCTION
+    dst = _NEWIMAGE(cell, cell, 32)
+    IF dst >= -1 THEN _FREEIMAGE src: EXIT FUNCTION
+    ms = _MEMIMAGE(src): md = _MEMIMAGE(dst)
+    mp_resample_area md.OFFSET, cell, cell, ms.OFFSET, _WIDTH(src), _HEIGHT(src)
+    _MEMFREE ms: _MEMFREE md
+    _FREEIMAGE src
+    MYPP_thumb_scaled& = dst
+END FUNCTION
+
+
+SUB MYPP_set_group (g AS INTEGER)
+    DIM n AS INTEGER
+    n = MYPP.nGroups
+    IF n < 1 THEN EXIT SUB
+    IF g < 1 THEN g = n
+    IF g > n THEN g = 1
+    IF g = MYPP.group THEN EXIT SUB
+    MYPP.group = g: MYPP.scroll = 0
+    CFG.MYPAINT_SET$ = MYPP_GNAME(g): CONFIG_save
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+' =============================================================================
+' Layout, render
+' =============================================================================
+
+''
+' Lay out in the rect it was given (MYPP.x / y / w / h, its units): the header
+' controls (MYPP_BX / BW, MYPP_BY = the first row), the grid's metrics.
+SUB MYPP_layout ()
+    DIM rowH AS INTEGER, x AS INTEGER, cell AS INTEGER, gw AS INTEGER, n AS INTEGER, gh AS INTEGER
+    rowH = MYPP_row_h%
+    MYPP_BY = MYPP.y + 2
+    ' row 1: < GROUP (n) >
+    MYPP_BX(MYPPB_PREV) = MYPP.x + 2: MYPP_BW(MYPPB_PREV) = 14
+    MYPP_BX(MYPPB_NEXT) = MYPP.x + MYPP.w - 16: MYPP_BW(MYPPB_NEXT) = 14
+    MYPP_BX(MYPPB_GROUP) = MYPP.x + 18: MYPP_BW(MYPPB_GROUP) = _MAX(8, MYPP.w - 36)
+    ' row 2: LOAD  SAVE  (the size, right)
+    x = MYPP.x + 2
+    MYPP_BX(MYPPB_LOAD) = x: MYPP_BW(MYPPB_LOAD) = MYPP_tw%("LOAD") + 8
+    x = x + MYPP_BW(MYPPB_LOAD) + 3
+    MYPP_BX(MYPPB_SAVE) = x: MYPP_BW(MYPPB_SAVE) = MYPP_tw%("SAVE") + 8
+    ' the grid under row 3 (the brush's name)
+    cell = MYPP_cell%
+    MYPP.cell = cell
+    MYPP.gridX = MYPP.x + 2
+    MYPP.gridY = MYPP.y + 2 + 3 * rowH + 2
+    gw = MYPP.w - 4 - 4 ' (a scroll strip at the right)
+    MYPP.cols = _MAX(1, (gw + MYPP_GAP) \ (cell + MYPP_GAP))
+    gh = MYPP.y + MYPP.h - 2 - MYPP.gridY
+    MYPP.rowsFit = _MAX(1, (gh + MYPP_GAP) \ (cell + MYPP_GAP))
+    n = 0: IF MYPP.group >= 1 _ANDALSO MYPP.group <= MYPP.nGroups THEN n = MYPP_GN(MYPP.group)
+    MYPP.rowsAll = (n + MYPP.cols - 1) \ MYPP.cols
+    IF MYPP.scroll > MYPP.rowsAll - MYPP.rowsFit THEN MYPP.scroll = MYPP.rowsAll - MYPP.rowsFit
+    IF MYPP.scroll < 0 THEN MYPP.scroll = 0
+END SUB
+
+
+''
+' Cell k (0-based in the shown group) on screen (its units): TRUE when it is in view.
+FUNCTION MYPP_cell_xy% (k AS INTEGER, cx AS INTEGER, cy AS INTEGER)
+    DIM r AS INTEGER, c AS INTEGER
+    IF MYPP.cols < 1 THEN EXIT FUNCTION
+    r = k \ MYPP.cols - MYPP.scroll: c = k MOD MYPP.cols
+    IF r < 0 _ORELSE r >= MYPP.rowsFit THEN EXIT FUNCTION
+    cx = MYPP.gridX + c * (MYPP.cell + MYPP_GAP)
+    cy = MYPP.gridY + r * (MYPP.cell + MYPP_GAP)
+    MYPP_cell_xy% = TRUE
+END FUNCTION
+
+
+SUB MYPP_button (id AS INTEGER, t AS STRING, rowY AS INTEGER, centred AS INTEGER)
+    DIM x AS INTEGER, w AS INTEGER, rowH AS INTEGER, bg AS _UNSIGNED LONG, fg AS _UNSIGNED LONG, tx AS INTEGER
+    x = MYPP_BX(id): w = MYPP_BW(id): rowH = MYPP_row_h%
+    IF MYPP.hover = id THEN
+        bg = THEME.TEXT_BAR_BTN_HOVER~&: fg = THEME.TEXT_BAR_FG~&
+    ELSE
+        bg = THEME.TEXT_BAR_BTN_BG~&: fg = THEME.TEXT_BAR_BTN_FG~&
+    END IF
+    LINE (x, rowY + 1)-(x + w - 1, rowY + rowH - 3), bg, BF
+    LINE (x, rowY + 1)-(x + w - 1, rowY + rowH - 3), THEME.TEXT_BAR_BTN_BORDER~&, B
+    COLOR fg, _RGBA32(0, 0, 0, 0)
+    tx = x + 4: IF centred THEN tx = x + (w - MYPP_tw%(t)) \ 2
+    _UPRINTSTRING (tx, rowY + (rowH - _UFONTHEIGHT) \ 2), t
+END SUB
+
+
+''
+' t cut to fit w px (an ellipsis at the end).
+FUNCTION MYPP_fit$ (t AS STRING, w AS INTEGER)
+    DIM s AS STRING
+    s = t
+    IF MYPP_tw%(s) <= w THEN MYPP_fit$ = s: EXIT FUNCTION
+    DO WHILE LEN(s) > 1 _ANDALSO MYPP_tw%(s + "..") > w
+        s = LEFT$(s, LEN(s) - 1)
+    LOOP
+    MYPP_fit$ = s + ".."
+END FUNCTION
+
+
+SUB MYPP_render ()
+    DIM rowH AS INTEGER, oldFont AS LONG, g AS INTEGER, k AS INTEGER, i AS INTEGER, n AS INTEGER
+    DIM cx AS INTEGER, cy AS INTEGER, cell AS INTEGER, cur AS INTEGER, t AS STRING, ty AS INTEGER
+    DIM sx AS INTEGER, sy1 AS INTEGER, sy2 AS INTEGER, th AS INTEGER, thY AS INTEGER, nm AS STRING
+    IF MYPP.visible = 0 _ORELSE MYPP.w <= 0 _ORELSE MYPP.h <= 0 THEN EXIT SUB
+    IF MYPP.scanned = 0 THEN MYPAINT_init: MYPP_rescan
+    ' MYPAINT_SET changed under it (a workspace, --option): show that group
+    IF LEN(CFG.MYPAINT_SET$) _ANDALSO MYPP.group >= 1 _ANDALSO MYPP.group <= MYPP.nGroups THEN
+        IF UCASE$(CFG.MYPAINT_SET$) <> UCASE$(MYPP_GNAME(MYPP.group)) THEN
+            g = MYPP_group_named%(CFG.MYPAINT_SET$)
+            IF g THEN MYPP.group = g: MYPP.scroll = 0
+        END IF
+    END IF
+    LINE (MYPP.x, MYPP.y)-(MYPP.x + MYPP.w - 1, MYPP.y + MYPP.h - 1), THEME.TEXT_BAR_BG~&, BF
+    REGION_set_bounds REGION_MYPAINT, MYPP.x, MYPP.y, MYPP.w, MYPP.h, ZORDER_PANEL ' (its footprint at a Scale: PSURF_render)
+    MYPP_layout
+    MYPP_load_thumbs
+    rowH = MYPP_row_h%
+    oldFont& = _FONT
+    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+    _PRINTMODE _KEEPBACKGROUND
+    ty = (rowH - _UFONTHEIGHT) \ 2
+    g = MYPP.group
+    ' row 1: < GROUP (n) >
+    t = "": n = 0
+    IF g >= 1 _ANDALSO g <= MYPP.nGroups THEN t = MYPP_GNAME(g): n = MYPP_GN(g)
+    MYPP_button MYPPB_PREV, "<", MYPP_BY, TRUE
+    MYPP_button MYPPB_NEXT, ">", MYPP_BY, TRUE
+    MYPP_button MYPPB_GROUP, MYPP_fit$(UCASE$(t) + " (" + _TRIM$(STR$(n)) + ")", MYPP_BW(MYPPB_GROUP) - 20), MYPP_BY, TRUE
+    MYPP_drop_arrow MYPP_BX(MYPPB_GROUP) + MYPP_BW(MYPPB_GROUP) - 9, MYPP_BY + rowH \ 2 - 1
+    ' row 2: LOAD SAVE, the size at the right
+    MYPP_button MYPPB_LOAD, "LOAD", MYPP_BY + rowH, FALSE
+    MYPP_button MYPPB_SAVE, "SAVE", MYPP_BY + rowH, FALSE
+    COLOR THEME.TEXT_BAR_FG~&, _RGBA32(0, 0, 0, 0)
+    t = MYPAINT_size_text$
+    _UPRINTSTRING (MYPP.x + MYPP.w - 4 - MYPP_tw%(t), MYPP_BY + rowH + ty), t
+    ' row 3: the brush under the pointer, else the one in use
+    nm = MYPAINT.brushName
+    IF MYPP.hover >= MYPPB_CELL0 _ANDALSO g >= 1 THEN
+        i = MYPP_GFIRST(g) + MYPP.hover - MYPPB_CELL0
+        IF i >= 1 _ANDALSO i <= MYPP_NB THEN nm = MYPAINT_name_of$(MYPP_PATH(i))
+    END IF
+    IF CURRENT_TOOL% = TOOL_MYPAINT _ANDALSO MYPP.hover < MYPPB_CELL0 THEN COLOR THEME.TEXT_BAR_FG~& ELSE COLOR THEME.TEXT_BAR_BTN_FG~&
+    _UPRINTSTRING (MYPP.x + 4, MYPP_BY + 2 * rowH + ty), MYPP_fit$(UCASE$(nm), MYPP.w - 8)
+    ' the grid
+    cell = MYPP.cell
+    cur = MYPP_index_of%(MYPAINT.brushPath)
+    IF g >= 1 _ANDALSO g <= MYPP.nGroups THEN
+        FOR k = 0 TO MYPP_GN(g) - 1
+            IF MYPP_cell_xy%(k, cx, cy) = 0 THEN _CONTINUE
+            i = MYPP_GFIRST(g) + k
+            IF MYPP_THUMB(i) < -1 THEN
+                _PUTIMAGE (cx, cy)-(cx + cell - 1, cy + cell - 1), MYPP_THUMB(i)
+            ELSE ' no preview: its name's first letters on a plain tile
+                LINE (cx, cy)-(cx + cell - 1, cy + cell - 1), THEME.TEXT_BAR_BTN_BG~&, BF
+                COLOR THEME.TEXT_BAR_BTN_FG~&, _RGBA32(0, 0, 0, 0)
+                _UPRINTSTRING (cx + 3, cy + 3), MYPP_fit$(UCASE$(MYPAINT_name_of$(MYPP_PATH(i))), cell - 6)
+            END IF
+            IF i = cur THEN
+                LINE (cx, cy)-(cx + cell - 1, cy + cell - 1), THEME.TEXT_BAR_BTN_ACTIVE~&, B
+                LINE (cx + 1, cy + 1)-(cx + cell - 2, cy + cell - 2), THEME.TEXT_BAR_BTN_ACTIVE~&, B
+            ELSEIF MYPP.hover = MYPPB_CELL0 + k THEN
+                LINE (cx, cy)-(cx + cell - 1, cy + cell - 1), THEME.TEXT_BAR_FG~&, B
+            ELSE
+                LINE (cx, cy)-(cx + cell - 1, cy + cell - 1), THEME.TEXT_BAR_BTN_BORDER~&, B
+            END IF
+        NEXT k
+    END IF
+    ' the scroll strip: where the rows in view are
+    IF MYPP.rowsAll > MYPP.rowsFit THEN
+        sx = MYPP.x + MYPP.w - 4
+        sy1 = MYPP.gridY: sy2 = MYPP.y + MYPP.h - 3
+        LINE (sx, sy1)-(sx + 1, sy2), THEME.TEXT_BAR_BTN_BG~&, BF
+        th = _MAX(6, (sy2 - sy1 + 1) * MYPP.rowsFit \ MYPP.rowsAll)
+        thY = sy1 + (sy2 - sy1 + 1 - th) * MYPP.scroll \ _MAX(1, MYPP.rowsAll - MYPP.rowsFit)
+        LINE (sx, thY)-(sx + 1, thY + th - 1), THEME.TEXT_BAR_FG~&, BF
+    END IF
+    _FONT oldFont&
+END SUB
+
+
+' =============================================================================
+' Input
+' =============================================================================
+
+''
+' The control or cell at (mx, my) - its units - as last laid out: MYPPB_*, 0 = none.
+FUNCTION MYPP_hit% (mx AS INTEGER, my AS INTEGER)
+    DIM id AS INTEGER, rowH AS INTEGER, rowY AS INTEGER, k AS INTEGER, cx AS INTEGER, cy AS INTEGER, g AS INTEGER
+    rowH = MYPP_row_h%
+    FOR id = 1 TO 5
+        rowY = MYPP_BY: IF id = MYPPB_LOAD _ORELSE id = MYPPB_SAVE THEN rowY = MYPP_BY + rowH
+        IF mx >= MYPP_BX(id) _ANDALSO mx < MYPP_BX(id) + MYPP_BW(id) _ANDALSO my >= rowY _ANDALSO my < rowY + rowH THEN MYPP_hit% = id: EXIT FUNCTION
+    NEXT id
+    g = MYPP.group
+    IF g < 1 _ORELSE g > MYPP.nGroups THEN EXIT FUNCTION
+    FOR k = 0 TO MYPP_GN(g) - 1
+        IF MYPP_cell_xy%(k, cx, cy) THEN
+            IF mx >= cx _ANDALSO mx < cx + MYPP.cell _ANDALSO my >= cy _ANDALSO my < cy + MYPP.cell THEN MYPP_hit% = MYPPB_CELL0 + k: EXIT FUNCTION
+        END IF
+    NEXT k
+END FUNCTION
+
+
+''
+' Is viewport (inX, inY) on the palette? Every click / hover / pan gate asks here.
+FUNCTION MYPP_is_over_area% (inX AS INTEGER, inY AS INTEGER)
+    IF MYPP.visible = 0 _ORELSE MYPP.w <= 0 _ORELSE MYPP.h <= 0 THEN EXIT FUNCTION
+    IF DOCK_live%(DP_MYPAINT) = 0 THEN EXIT FUNCTION
+    IF WZ_blocked%(DP_MYPAINT, inX, inY) THEN EXIT FUNCTION ' a window in front covers it here
+    IF PSURF_on%(DP_MYPAINT) THEN MYPP_is_over_area% = PSURF_in%(DP_MYPAINT, inX, inY): EXIT FUNCTION
+    MYPP_is_over_area% = (inX >= MYPP.x _ANDALSO inX < MYPP.x + MYPP.w _ANDALSO inY >= MYPP.y _ANDALSO inY < MYPP.y + MYPP.h)
+END FUNCTION
+
+
+''
+' Hover (viewport px): redraw when the thing under it changes.
+SUB MYPP_track (inX AS INTEGER, inY AS INTEGER)
+    DIM h AS INTEGER
+    IF MYPP_is_over_area%(inX, inY) THEN h = MYPP_hit%(PSURF_mx%(DP_MYPAINT, inX), PSURF_my%(DP_MYPAINT, inY))
+    IF h <> MYPP.hover THEN MYPP.hover = h: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' A press (viewport px): TRUE when it was on the palette (taken).
+FUNCTION MYPP_click% (inX AS INTEGER, inY AS INTEGER)
+    DIM id AS INTEGER
+    IF MYPP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    MYPP_click% = TRUE
+    id = MYPP_hit%(PSURF_mx%(DP_MYPAINT, inX), PSURF_my%(DP_MYPAINT, inY))
+    SELECT CASE id
+        CASE MYPPB_PREV: MYPP_set_group MYPP.group - 1
+        CASE MYPPB_NEXT: MYPP_set_group MYPP.group + 1
+        CASE MYPPB_GROUP: MYPP_menu_open
+        CASE MYPPB_LOAD: CMD_execute_action MYPAINT_ACT_LOAD
+        CASE MYPPB_SAVE: CMD_execute_action MYPAINT_ACT_SAVE
+        CASE IS >= MYPPB_CELL0: MYPP_pick MYPP_GFIRST(MYPP.group) + id - MYPPB_CELL0
+    END SELECT
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+
+''
+' Use brush i (its index in MYPP_PATH) and pick the tool.
+SUB MYPP_pick (i AS INTEGER)
+    IF i < 1 _ORELSE i > MYPP_NB THEN EXIT SUB
+    MYPAINT_init
+    IF MYPAINT_load%(MYPP_PATH(i), TRUE) THEN
+        MYPAINT_select_tool
+    ELSE
+        STATUS_flash "MYPAINT: " + UCASE$(MYPAINT.err)
+    END IF
+END SUB
+
+
+''
+' The group name's dropdown mark: a small down triangle centred at (cx, cy).
+SUB MYPP_drop_arrow (cx AS INTEGER, cy AS INTEGER)
+    DIM fg AS _UNSIGNED LONG, r AS INTEGER
+    IF MYPP.hover = MYPPB_GROUP THEN fg = THEME.TEXT_BAR_FG~& ELSE fg = THEME.TEXT_BAR_BTN_FG~&
+    FOR r = 0 TO 2
+        LINE (cx - 3 + r, cy - 1 + r)-(cx + 3 - r, cy - 1 + r), fg
+    NEXT r
+END SUB
+
+
+''
+' A click on the group name: every group in a dropdown under it (the dock's popup
+' menu, like the Pen Control presets - DOCK_UI.menuMyp).
+SUB MYPP_menu_open ()
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    IF MYPP.nGroups < 1 THEN EXIT SUB
+    x = MYPP_BX(MYPPB_GROUP): y = MYPP_BY + 1: w = MYPP_BW(MYPPB_GROUP): h = MYPP_row_h% - 3
+    PSURF_rect_to_view DP_MYPAINT, x, y, w, h ' (its units -> the viewport at a Scale)
+    MYPP_MENU_NEXT = TRUE
+    DOCK_menu_open DP_MYPAINT, x, y + h
+END SUB
+
+
+''
+' DOCK_menu_build for the group dropdown (every frame while open: no disk).
+SUB MYPP_menu_build ()
+    DIM n AS INTEGER, g AS INTEGER, fl AS INTEGER
+    POPUP_MENU_clear_items
+    POPUP_MENU_set_item n, "MyPaint Brush Groups", "", -1, POPUP_MENU_FLAG_DISABLED: n = n + 1
+    POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    FOR g = 1 TO MYPP.nGroups
+        IF n >= POPUP_MENU_MAX_ITEMS THEN EXIT FOR
+        fl = 0: IF g = MYPP.group THEN fl = POPUP_MENU_FLAG_CHECKED
+        POPUP_MENU_set_item n, MYPP_GNAME(g) + " (" + _TRIM$(STR$(MYPP_GN(g))) + ")", "", MYPP_ACT_GROUP + g, fl: n = n + 1
+    NEXT g
+    DOCK_UI.menuN = n
+END SUB
+
+
+''
+' A dropdown row was picked.
+SUB MYPP_menu_do (act AS INTEGER)
+    IF act > MYPP_ACT_GROUP _ANDALSO act <= MYPP_ACT_GROUP + MYPP.nGroups THEN MYPP_set_group act - MYPP_ACT_GROUP
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' The wheel: over the header the group, over the grid a row a notch. TRUE when taken.
+FUNCTION MYPP_wheel% (inX AS INTEGER, inY AS INTEGER, delta AS INTEGER)
+    DIM my AS INTEGER
+    IF delta = 0 _ORELSE MYPP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    MYPP_wheel% = TRUE
+    my = PSURF_my%(DP_MYPAINT, inY)
+    IF my < MYPP.gridY - 2 THEN
+        MYPP_set_group MYPP.group + SGN(delta)
+    ELSE
+        MYPP.scroll = MYPP.scroll + SGN(delta)
+        MYPP_layout ' (clamps it)
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+
+''
+' View > MyPaint Brushes.
+SUB MYPP_toggle ()
+    CFG.MYPAINT_PANEL% = _IIF(CFG.MYPAINT_PANEL%, FALSE, TRUE)
+    CONFIG_save
+    IF CFG.MYPAINT_PANEL% _ANDALSO MYPP.scanned = 0 THEN MYPAINT_init: MYPP_rescan
+    STATUS_flash "MYPAINT BRUSHES " + _IIF(CFG.MYPAINT_PANEL%, "ON", "OFF")
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' QA dump: MYPP visible x y w h group nGroups n cell cols rowsFit rowsAll scroll gridX gridY hover cur name
+' then MYPPB id x y w per header control (its units).
+FUNCTION MYPP_dump$ ()
+    DIM d AS STRING, lf AS STRING, g AS INTEGER, n AS INTEGER, cur AS INTEGER, id AS INTEGER, rowY AS INTEGER
+    lf = CHR$(10)
+    g = MYPP.group
+    IF g >= 1 _ANDALSO g <= MYPP.nGroups THEN n = MYPP_GN(g)
+    ' cur = the brush in use: its cell in the shown group, -1 = not in it
+    cur = MYPP_index_of%(MYPAINT.brushPath)
+    IF cur > 0 _ANDALSO g >= 1 THEN cur = cur - MYPP_GFIRST(g) ELSE cur = -1
+    IF cur >= n THEN cur = -1
+    d = "MYPP" + DOCK_n$(MYPP.visible <> 0) + DOCK_n$(MYPP.x) + DOCK_n$(MYPP.y) + DOCK_n$(MYPP.w) + DOCK_n$(MYPP.h)
+    d = d + DOCK_n$(g) + DOCK_n$(MYPP.nGroups) + DOCK_n$(n) + DOCK_n$(MYPP.cell) + DOCK_n$(MYPP.cols) + DOCK_n$(MYPP.rowsFit) + DOCK_n$(MYPP.rowsAll)
+    d = d + DOCK_n$(MYPP.scroll) + DOCK_n$(MYPP.gridX) + DOCK_n$(MYPP.gridY) + DOCK_n$(MYPP.hover) + DOCK_n$(cur) + " "
+    IF g >= 1 _ANDALSO g <= MYPP.nGroups THEN d = d + MYPP_GNAME(g)
+    d = d + lf
+    FOR id = 1 TO 5
+        rowY = MYPP_BY: IF id = MYPPB_LOAD _ORELSE id = MYPPB_SAVE THEN rowY = MYPP_BY + MYPP_row_h%
+        d = d + "MYPPB" + DOCK_n$(id) + DOCK_n$(MYPP_BX(id)) + DOCK_n$(rowY) + DOCK_n$(MYPP_BW(id)) + lf
+    NEXT id
+    MYPP_dump$ = d
+END FUNCTION

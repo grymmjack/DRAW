@@ -28,7 +28,10 @@ dk_expect_tree '^[^+]*$' "no tabs left"
 # a tabbed slot moved by its strip: make drawer+organizer tabs, then grab the strip
 dk_move organizer tab drawer; dk_expect_tabs drawer organizer; dk_check "organizer tab of drawer"
 dk_p drawer; dk_slot "$P_SLOT"
-GX=$(( S_X + S_W - 6 )); GY=$(( S_Y + 5 ))         # the strip, right of the tabs
+# the strip right of the tabs, left of its [x] (the last DOCK_TITLE_H = 11 px: DOCK_slot_close_rect%).
+# Squeezed tabs share the strip up to 2 px before the [x] (DOCK_tab_rect%: avail = w - 2 - 12 - 11),
+# so the free strip is only x + w - 13 .. x + w - 12.
+GX=$(( S_X + S_W - 11 - 1 )); GY=$(( S_Y + 5 ))
 dk_point edge-left
 info "move the tabbed slot by its strip: ($GX,$GY) -> ($TX,$TY)"
 dk_drag "$GX" "$GY" "$TX" "$TY"; dk_park; dk_settle

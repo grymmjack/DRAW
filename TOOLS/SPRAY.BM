@@ -54,6 +54,8 @@ SUB SPRAY_on (cx AS INTEGER, cy AS INTEGER, col AS _UNSIGNED LONG)
             ' Stamp custom brush
             CUSTOM_BRUSH_stamp px%, py%
         NEXT i%
+    ELSEIF CFG.ANTIALIAS% <> 0 _ANDALSO _ALPHA32(col~&) > 0 THEN
+        SPRAY_airbrush cx%, cy%, col~&
     ELSE
         ' Normal spray using brush shape/size for each spray tip
         ' Spray radius scales linearly with brush pixel size
@@ -83,6 +85,102 @@ SUB SPRAY_on (cx AS INTEGER, cy AS INTEGER, col AS _UNSIGNED LONG)
             PAINT_pset_with_symmetry px%, py%, col~&, TRUE
         NEXT i%
     END IF
+END SUB
+
+''
+' The spray with Antialias on: an airbrush (Rick 2026-11-18: "spray like a real
+' airbrush"). A cloud of fine droplets, gaussian around the nozzle (sigma = half
+' the spray radius, none past it; a square brush gives a square cloud), each a
+' faint sub-pixel deposit split over its four pixels. Paint flows per SECOND,
+' not per frame, so holding still builds the colour up at the same rate at any
+' frame rate, and the droplets of a frame spread along the path from the last
+' spray so a fast drag leaves a band, not dots. The droplets gather in a
+' coverage grid first and each pixel is written once (PAINT_blend_pixel_sym:
+' selection, opacity lock, symmetry, gradient colour, straight-alpha over).
+' The density per pixel does not depend on the size: a big airbrush builds up
+' as fast as a small one.
+'
+SUB SPRAY_airbrush (cx AS INTEGER, cy AS INTEGER, col AS _UNSIGNED LONG)
+    CONST AB_FLOW = 0.12      ' one droplet's deposit
+    ' droplets per second per radius^2: the peak density is AB_RATE * 4 / (2 pi) droplets / px / s
+    ' (sigma = r / 2), so 19 is ~12 / px / s - 0.4 a frame at 30 fps, ~0.05 coverage a frame: a
+    ' second of holding builds the middle up to ~0.8. (540 was 30x that: solid in one frame.)
+    CONST AB_RATE = 19
+    DIM r AS SINGLE, sg AS SINGLE, ccx AS SINGLE, ccy AS SINGLE, lx AS SINGLE, ly AS SINGLE
+    DIM now AS DOUBLE, dt AS DOUBLE, n AS LONG, k AS LONG, t AS SINGLE
+    DIM x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, gw AS LONG, gh AS LONG
+    DIM dx AS SINGLE, dy AS SINGLE, rr AS SINGLE, ang AS SINGLE, fx AS SINGLE, fy AS SINGLE
+    DIM ix AS LONG, iy AS LONG, wx AS SINGLE, wy AS SINGLE, sq AS INTEGER
+    DIM x AS INTEGER, y AS INTEGER, g AS SINGLE
+
+    r! = BRUSH_PIXEL_SIZES(BRUSH_SIZE.CURRENT) * 2 + 2
+    IF r! < 4 THEN r! = 4
+    sg! = r! / 2
+    sq% = (BRUSH_SIZE.SHAPE <> 0)
+    ccx! = cx% + 0.5: ccy! = cy% + 0.5
+    now# = TIMER(0.001)
+    IF SPRAY.AB_FRESH THEN
+        dt# = 1 / 30: lx! = ccx!: ly! = ccy!: SPRAY.AB_FRESH = FALSE
+    ELSE
+        dt# = now# - SPRAY.AB_LT
+        IF dt# < 0 THEN dt# = dt# + 86400   ' past midnight
+        lx! = SPRAY.AB_LX: ly! = SPRAY.AB_LY
+    END IF
+    IF dt# < 0.004 THEN dt# = 0.004
+    IF dt# > 0.1 THEN dt# = 0.1
+    SPRAY.AB_LX = ccx!: SPRAY.AB_LY = ccy!: SPRAY.AB_LT = now#
+
+    ' (a big airbrush is capped at 6000 droplets a frame; each one then carries more)
+    DIM nf AS SINGLE, fl AS SINGLE
+    nf! = r! * r! * AB_RATE * dt#
+    n& = INT(nf! + 0.5)
+    IF n& < 4 THEN n& = 4
+    IF n& > 6000 THEN n& = 6000
+    fl! = AB_FLOW: IF nf! > n& THEN fl! = AB_FLOW * nf! / n&
+    IF fl! > 0.5 THEN fl! = 0.5
+
+    x0% = INT(_MIN(lx!, ccx!) - r! - 1): x1% = INT(_MAX(lx!, ccx!) + r! + 1)
+    y0% = INT(_MIN(ly!, ccy!) - r! - 1): y1% = INT(_MAX(ly!, ccy!) + r! + 1)
+    gw& = x1% - x0% + 1: gh& = y1% - y0% + 1
+    IF gw& * gh& > 4000000 THEN lx! = ccx!: ly! = ccy!: x0% = INT(ccx! - r! - 1): y0% = INT(ccy! - r! - 1): x1% = INT(ccx! + r! + 1): y1% = INT(ccy! + r! + 1): gw& = x1% - x0% + 1: gh& = y1% - y0% + 1
+    DIM cov(0 TO gw& * gh& - 1) AS SINGLE
+
+    FOR k& = 1 TO n&
+        IF sq% THEN
+            dx! = sg! * SQR(-2 * LOG(1 - RND)) * COS(6.2831853 * RND)
+            dy! = sg! * SQR(-2 * LOG(1 - RND)) * COS(6.2831853 * RND)
+            IF ABS(dx!) > r! _ORELSE ABS(dy!) > r! THEN _CONTINUE
+        ELSE
+            rr! = sg! * SQR(-2 * LOG(1 - RND))
+            IF rr! > r! THEN _CONTINUE
+            ang! = 6.2831853 * RND
+            dx! = rr! * COS(ang!): dy! = rr! * SIN(ang!)
+        END IF
+        t! = RND
+        fx! = lx! + (ccx! - lx!) * t! + dx! - 0.5 - x0%
+        fy! = ly! + (ccy! - ly!) * t! + dy! - 0.5 - y0%
+        ix& = INT(fx!): iy& = INT(fy!)
+        IF ix& < 0 _ORELSE iy& < 0 _ORELSE ix& >= gw& - 1 _ORELSE iy& >= gh& - 1 THEN _CONTINUE
+        wx! = fx! - ix&: wy! = fy! - iy&
+        SPRAY_ab_add cov(), iy& * gw& + ix&, fl! * (1 - wx!) * (1 - wy!)
+        SPRAY_ab_add cov(), iy& * gw& + ix& + 1, fl! * wx! * (1 - wy!)
+        SPRAY_ab_add cov(), (iy& + 1) * gw& + ix&, fl! * (1 - wx!) * wy!
+        SPRAY_ab_add cov(), (iy& + 1) * gw& + ix& + 1, fl! * wx! * wy!
+    NEXT k&
+
+    FOR y% = 0 TO gh& - 1
+        FOR x% = 0 TO gw& - 1
+            g! = cov(y% * gw& + x%)
+            IF g! > 0.003 THEN PAINT_blend_pixel_sym x0% + x%, y0% + y%, col~&, g!
+        NEXT x%
+    NEXT y%
+END SUB
+
+''
+' One droplet's share c onto the airbrush grid cell i (coverage over coverage).
+'
+SUB SPRAY_ab_add (cov() AS SINGLE, i AS LONG, c AS SINGLE)
+    cov(i&) = cov(i&) + c! * (1 - cov(i&))
 END SUB
 
 ''

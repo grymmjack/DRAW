@@ -200,3 +200,4 @@ DIM SHARED GRID_MODE_IMG_OFF(0 TO 3) AS LONG ' Off images per mode
 DIM SHARED GRID_MODE_IMG_ON(0 TO 3) AS LONG  ' On images per mode
 ' Grid snap align images (2 modes × 2 on/off states = 4 handles)
 DIM SHARED GRID_SNAP_IMG(0 TO 3) AS LONG     ' 0 = edge-off, 1 = edge-on, 2 = center-off, 3 = center-on
+DIM SHARED ORG_OPAC_HOLD AS INTEGER ' a double-click reset the opacity: the drag waits for the release (ORGANIZER_handle_drag%)

@@ -1,0 +1,546 @@
+''
+' DRAW - GUI/BRUSH-PANEL.BM - the brush palette (GUI/BRUSH-PANEL.BI).
+' =============================================================================
+$INCLUDEONCE
+
+''
+' Should it show: View > Brush Palette on, the chrome not hidden by F11.
+FUNCTION BSP_wanted% ()
+    IF SCRN.textBarHiddenByToggleAll% THEN EXIT FUNCTION ' (F11 holds the panels off)
+    BSP_wanted% = (CFG.BRUSH_PANEL% <> 0)
+END FUNCTION
+
+
+FUNCTION BSP_cell% ()
+    BSP_cell% = _MAX(16, _MIN(64, CFG.BRUSH_PANEL_CELL%))
+END FUNCTION
+
+
+''
+' The chip's shape (BRUSH_SHAPE_*).
+FUNCTION BSP_chip_shape% (i AS INTEGER)
+    SELECT CASE i
+        CASE BSPB_ROUND: BSP_chip_shape% = BRUSH_SHAPE_ROUND
+        CASE BSPB_SQUARE: BSP_chip_shape% = BRUSH_SHAPE_SQUARE
+        CASE BSPB_SLASH: BSP_chip_shape% = BRUSH_SHAPE_SLASH
+        CASE BSPB_BACKSLASH: BSP_chip_shape% = BRUSH_SHAPE_BACKSLASH
+    END SELECT
+END FUNCTION
+
+
+''
+' The shape in use as a chip (an unknown shape = square, as the painting code takes it).
+FUNCTION BSP_shape_chip% ()
+    SELECT CASE BRUSH_SIZE.SHAPE
+        CASE BRUSH_SHAPE_ROUND: BSP_shape_chip% = BSPB_ROUND
+        CASE BRUSH_SHAPE_SLASH: BSP_shape_chip% = BSPB_SLASH
+        CASE BRUSH_SHAPE_BACKSLASH: BSP_shape_chip% = BSPB_BACKSLASH
+        CASE ELSE: BSP_shape_chip% = BSPB_SQUARE
+    END SELECT
+END FUNCTION
+
+
+' =============================================================================
+' Thumbnails: the dab as PAINT_shape_dab paints it (TOOLS/BRUSH.BM), sampled 3 x 3
+' a pixel so a shrunk one stays smooth
+' =============================================================================
+
+''
+' Coverage 0..1 of brush-space point (bx, by) (the dab's centre at 0, 0) for a brush
+' of px px, shape shp, softness soft; hard = no soft edge at all (Antialias off, SOFT 0).
+FUNCTION BSP_cover! (bx AS SINGLE, by AS SINGLE, shp AS INTEGER, soft AS INTEGER, px AS INTEGER, hard AS INTEGER)
+    DIM r AS SINGLE, ro AS SINGLE, f AS SINGLE, d AS SINGLE, c AS SINGLE, h AS SINGLE, sg AS INTEGER
+    DIM x0 AS SINGLE, y0 AS SINGLE, x1 AS SINGLE, y1 AS SINGLE, vx AS SINGLE, vy AS SINGLE, l2 AS SINGLE, t AS SINGLE
+    IF shp = BRUSH_SHAPE_SQUARE _ORELSE (shp <> BRUSH_SHAPE_ROUND _ANDALSO shp <> BRUSH_SHAPE_SLASH _ANDALSO shp <> BRUSH_SHAPE_BACKSLASH) THEN
+        IF ABS(bx) <= px / 2! _ANDALSO ABS(by) <= px / 2! THEN BSP_cover! = 1
+        EXIT FUNCTION
+    END IF
+    IF shp = BRUSH_SHAPE_ROUND THEN
+        r = px / 2! - 0.5: IF r < 0.5 THEN r = 0.5
+        d = SQR(bx * bx + by * by)
+    ELSE
+        r = px / 8!: IF r < 0.5 THEN r = 0.5
+        h = (px / 2! - r) * 0.70710678: IF h < 0 THEN h = 0
+        sg = 1: IF shp = BRUSH_SHAPE_BACKSLASH THEN sg = -1
+        x0 = -h: y0 = h * sg: x1 = h: y1 = -h * sg
+        vx = x1 - x0: vy = y1 - y0: l2 = vx * vx + vy * vy
+        t = 0
+        IF l2 > 0 THEN
+            t = ((bx - x0) * vx + (by - y0) * vy) / l2
+            IF t < 0 THEN t = 0
+            IF t > 1 THEN t = 1
+        END IF
+        d = SQR((bx - x0 - t * vx) ^ 2 + (by - y0 - t * vy) ^ 2)
+    END IF
+    ro = r + 0.5
+    IF d >= ro THEN EXIT FUNCTION
+    IF hard THEN
+        IF d <= r + 0.25 THEN BSP_cover! = 1
+        EXIT FUNCTION
+    END IF
+    f = 1: IF soft > 0 THEN f = ro * soft / 100!: IF f < 1 THEN f = 1
+    c = (ro - d) / f
+    IF c > 1 THEN c = 1
+    IF soft > 0 THEN c = c * c * (3 - 2 * c)
+    BSP_cover! = c
+END FUNCTION
+
+
+''
+' A cell x cell picture of a px brush (shape shp, softness soft) in colour col, centred,
+' shrunk to fit when bigger than the cell (3 x 3 samples a pixel).
+FUNCTION BSP_make_thumb& (shp AS INTEGER, soft AS INTEGER, px AS INTEGER, cell AS INTEGER, col AS _UNSIGNED LONG, grow AS INTEGER)
+    DIM img AS LONG, oldD AS LONG, s AS SINGLE, x AS INTEGER, y AS INTEGER, i AS INTEGER, j AS INTEGER
+    DIM bx AS SINGLE, by AS SINGLE, acc AS SINGLE, a AS INTEGER, cc AS SINGLE, hard AS INTEGER, fit AS INTEGER
+    img = _NEWIMAGE(cell, cell, 32)
+    IF img >= -1 THEN EXIT FUNCTION
+    oldD = _DEST: _DEST img: _DONTBLEND img: CLS , _RGBA32(0, 0, 0, 0)
+    fit = cell - 4
+    ' 1:1 up to 60% of the cell (small sizes show their real pixels); past that the shown
+    ' size keeps growing, on a log scale, to the whole cell for the biggest size - so every
+    ' big size still looks bigger than the one before (they were all one full square)
+    DIM t1 AS SINGLE, pmax AS SINGLE, disp AS SINGLE
+    t1 = fit * 0.6: pmax = BRUSH_PIXEL_SIZES(BSP_NSIZES)
+    s = 1
+    IF grow = 0 _ANDALSO px > fit THEN s = fit / px ' (a chip's icon: just fit it)
+    IF grow _ANDALSO px > t1 _ANDALSO pmax > t1 THEN
+        disp = t1 + (fit - t1) * (LOG(px) - LOG(t1)) / (LOG(pmax) - LOG(t1))
+        s = disp / px
+    END IF
+    hard = (soft = 0 _ANDALSO CFG.ANTIALIAS% = 0 _ANDALSO s >= 1) ' (shown 1:1, as it paints: crisp)
+    ' the dab's centre on a pixel's middle (an odd size covers whole pixels)
+    cc = (cell - 1) \ 2
+    FOR y = 0 TO cell - 1
+        FOR x = 0 TO cell - 1
+            IF hard THEN
+                acc = BSP_cover!(x - cc, y - cc, shp, soft, px, TRUE)
+            ELSE
+                acc = 0
+                FOR j = -1 TO 1
+                    FOR i = -1 TO 1
+                        bx = (x - cc + i / 3!) / s: by = (y - cc + j / 3!) / s
+                        acc = acc + BSP_cover!(bx, by, shp, soft, px, FALSE)
+                    NEXT i
+                NEXT j
+                acc = acc / 9
+            END IF
+            IF acc > 0.004 THEN
+                a = CINT(acc * _ALPHA32(col)): IF a > 255 THEN a = 255
+                PSET (x, y), _RGBA32(_RED32(col), _GREEN32(col), _BLUE32(col), a)
+            END IF
+        NEXT x
+    NEXT y
+    _BLEND img
+    _DEST oldD
+    BSP_make_thumb& = img
+END FUNCTION
+
+
+SUB BSP_free_thumbs ()
+    DIM i AS INTEGER
+    FOR i = 1 TO BSP_NSIZES
+        IF BSP_THUMB(i) < -1 THEN _FREEIMAGE BSP_THUMB(i)
+        BSP_THUMB(i) = 0
+    NEXT i
+    BSP.thumbKey = ""
+END SUB
+
+
+''
+' The grid's thumbnails for the shape / softness in use (made again when either, the
+' cell size, Antialias or the theme's colour changes).
+SUB BSP_thumbs ()
+    DIM k AS STRING, i AS INTEGER, col AS _UNSIGNED LONG
+    col = THEME.TEXT_BAR_FG~&
+    k = STR$(BRUSH_SIZE.SHAPE) + STR$(BRUSH_SIZE.SOFT) + STR$(BSP.cell) + STR$(CFG.ANTIALIAS%) + HEX$(col)
+    IF k = BSP.thumbKey THEN EXIT SUB
+    BSP_free_thumbs
+    FOR i = 1 TO BSP_NSIZES
+        BSP_THUMB(i) = BSP_make_thumb&(BRUSH_SIZE.SHAPE, BRUSH_SIZE.SOFT, BRUSH_PIXEL_SIZES(i), BSP.cell, col, TRUE)
+    NEXT i
+    BSP.thumbKey = k
+END SUB
+
+
+''
+' The chips' little shapes (soft as the brush, so SOFT shows on them too).
+SUB BSP_icons (sz AS INTEGER)
+    DIM k AS STRING, i AS INTEGER, col AS _UNSIGNED LONG, px AS INTEGER
+    col = THEME.TEXT_BAR_FG~&
+    k = STR$(sz) + STR$(BRUSH_SIZE.SOFT) + HEX$(col)
+    IF k = BSP_ICON_KEY THEN EXIT SUB
+    FOR i = 1 TO 4
+        IF BSP_ICON(i) < -1 THEN _FREEIMAGE BSP_ICON(i)
+        px = sz - 2: IF (px MOD 2) = 0 THEN px = px - 1
+        BSP_ICON(i) = BSP_make_thumb&(BSP_chip_shape%(i), _IIF(i = BSPB_SQUARE, 0, BRUSH_SIZE.SOFT), _MAX(3, px), sz + 2, col, FALSE)
+    NEXT i
+    BSP_ICON_KEY = k
+END SUB
+
+
+' =============================================================================
+' Layout + render
+' =============================================================================
+
+''
+' Lay it out in the rect it was given (BSP.x / y / w / h, its units): the chips, the
+' sliders (side by side when there is room), the grid's metrics.
+SUB BSP_layout ()
+    DIM rowH AS INTEGER, i AS INTEGER, cw AS INTEGER, x AS INTEGER, y AS INTEGER, sh AS INTEGER
+    DIM gw AS INTEGER, gh AS INTEGER, cell AS INTEGER
+    rowH = PSL_row_h%
+    BSP.chipY = BSP.y + 2
+    cw = (BSP.w - 4 - 3 * 2) \ 4: IF cw < 10 THEN cw = 10
+    x = BSP.x + 2
+    FOR i = 1 TO 4
+        BSP_CX(i) = x: BSP_CW(i) = cw: x = x + cw + 2
+    NEXT i
+    BSP.lw = _MAX(PSL_tw%("SIZE"), PSL_tw%("SOFT")) + 6
+    BSP.vw = PSL_tw%("49 PX") + 6
+    y = BSP.chipY + rowH
+    IF BSP.w - 4 >= 2 * BSP_SLIDER_W + 6 THEN ' side by side
+        BSP.sw = (BSP.w - 4 - 6) \ 2
+        BSP_SX(BSPB_SIZE) = BSP.x + 2: BSP_SY(BSPB_SIZE) = y
+        BSP_SX(BSPB_SOFT) = BSP.x + 2 + BSP.sw + 6: BSP_SY(BSPB_SOFT) = y
+        sh = PSL_h%(BSP.sw, BSP.lw, BSP.vw)
+        y = y + sh + 2
+    ELSE
+        BSP.sw = BSP.w - 4
+        sh = PSL_h%(BSP.sw, BSP.lw, BSP.vw)
+        BSP_SX(BSPB_SIZE) = BSP.x + 2: BSP_SY(BSPB_SIZE) = y
+        y = y + sh + 2
+        BSP_SX(BSPB_SOFT) = BSP.x + 2: BSP_SY(BSPB_SOFT) = y
+        y = y + sh + 2
+    END IF
+    cell = BSP_cell%
+    BSP.cell = cell
+    BSP.gridX = BSP.x + 2
+    BSP.gridY = y + 1
+    gw = BSP.w - 4 - 4 ' (a scroll strip at the right)
+    BSP.cols = _MAX(1, (gw + BSP_GAP) \ (cell + BSP_GAP))
+    gh = BSP.y + BSP.h - 2 - BSP.gridY
+    BSP.rowsFit = _MAX(1, (gh + BSP_GAP) \ (cell + BSP_GAP))
+    BSP.rowsAll = (BSP_NSIZES + BSP.cols - 1) \ BSP.cols
+    IF BSP.scroll > BSP.rowsAll - BSP.rowsFit THEN BSP.scroll = BSP.rowsAll - BSP.rowsFit
+    IF BSP.scroll < 0 THEN BSP.scroll = 0
+END SUB
+
+
+''
+' The shortest it can be (its units): the chips, the sliders, a row of cells.
+FUNCTION BSP_min_h% ()
+    BSP_min_h% = 2 + PSL_row_h% * 5 + 6 + BSP_cell%
+END FUNCTION
+
+
+''
+' Cell k's spot (k = 0 .. BSP_NSIZES - 1) as laid out; FALSE when scrolled out of view.
+FUNCTION BSP_cell_xy% (k AS INTEGER, cx AS INTEGER, cy AS INTEGER)
+    DIM r AS INTEGER, c AS INTEGER
+    IF BSP.cols < 1 THEN EXIT FUNCTION
+    r = k \ BSP.cols - BSP.scroll: c = k MOD BSP.cols
+    IF r < 0 _ORELSE r >= BSP.rowsFit THEN EXIT FUNCTION
+    cx = BSP.gridX + c * (BSP.cell + BSP_GAP)
+    cy = BSP.gridY + r * (BSP.cell + BSP_GAP)
+    BSP_cell_xy% = TRUE
+END FUNCTION
+
+
+FUNCTION BSP_slider_val% (id AS INTEGER)
+    IF id = BSPB_SIZE THEN BSP_slider_val% = BRUSH_SIZE.CURRENT ELSE BSP_slider_val% = BRUSH_SIZE.SOFT
+END FUNCTION
+
+
+FUNCTION BSP_slider_lo% (id AS INTEGER)
+    IF id = BSPB_SIZE THEN BSP_slider_lo% = BRUSH_SIZE.MIN ELSE BSP_slider_lo% = 0
+END FUNCTION
+
+
+FUNCTION BSP_slider_hi% (id AS INTEGER)
+    IF id = BSPB_SIZE THEN BSP_slider_hi% = BRUSH_SIZE.MAX ELSE BSP_slider_hi% = 100
+END FUNCTION
+
+
+SUB BSP_slider_set (id AS INTEGER, v AS INTEGER)
+    IF id = BSPB_SIZE THEN
+        BRUSH_SIZE_set v
+    ELSE
+        BRUSH_SIZE_set_shape BRUSH_SIZE.SHAPE, v
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+SUB BSP_slider_reset (id AS INTEGER)
+    DIM d AS INTEGER
+    IF id = BSPB_SIZE THEN
+        d = CFG.DEFAULT_BRUSH_SIZE%: IF d < 1 _ORELSE d > 25 THEN d = 1
+        BSP_slider_set id, d
+    ELSE
+        BSP_slider_set id, 0
+    END IF
+END SUB
+
+
+SUB BSP_render ()
+    DIM rowH AS INTEGER, oldFont AS LONG, i AS INTEGER, k AS INTEGER, cx AS INTEGER, cy AS INTEGER, cell AS INTEGER
+    DIM bg AS _UNSIGNED LONG, cur AS INTEGER, t AS STRING, isz AS INTEGER, iw AS INTEGER
+    DIM sx AS INTEGER, sy1 AS INTEGER, sy2 AS INTEGER, th AS INTEGER, thY AS INTEGER
+    IF BSP.visible = 0 _ORELSE BSP.w <= 0 _ORELSE BSP.h <= 0 THEN EXIT SUB
+    LINE (BSP.x, BSP.y)-(BSP.x + BSP.w - 1, BSP.y + BSP.h - 1), THEME.TEXT_BAR_BG~&, BF
+    REGION_set_bounds REGION_BRUSHES, BSP.x, BSP.y, BSP.w, BSP.h, ZORDER_PANEL ' (its footprint at a Scale: PSURF_render)
+    BSP_layout
+    BSP_thumbs
+    rowH = PSL_row_h%
+    oldFont& = _FONT
+    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+    _PRINTMODE _KEEPBACKGROUND
+    ' the shape chips
+    isz = _MAX(6, rowH - 6)
+    BSP_icons isz
+    cur = BSP_shape_chip%
+    FOR i = 1 TO 4
+        IF i = cur THEN
+            bg = THEME.TEXT_BAR_BTN_ACTIVE~&
+        ELSEIF BSP.hover = i THEN
+            bg = THEME.TEXT_BAR_BTN_HOVER~&
+        ELSE
+            bg = THEME.TEXT_BAR_BTN_BG~&
+        END IF
+        LINE (BSP_CX(i), BSP.chipY + 1)-(BSP_CX(i) + BSP_CW(i) - 1, BSP.chipY + rowH - 3), bg, BF
+        LINE (BSP_CX(i), BSP.chipY + 1)-(BSP_CX(i) + BSP_CW(i) - 1, BSP.chipY + rowH - 3), THEME.TEXT_BAR_BTN_BORDER~&, B
+        IF BSP_ICON(i) < -1 THEN
+            iw = _WIDTH(BSP_ICON(i))
+            _PUTIMAGE (BSP_CX(i) + (BSP_CW(i) - iw) \ 2, BSP.chipY + (rowH - 2 - iw) \ 2), BSP_ICON(i)
+        END IF
+    NEXT i
+    ' the sliders
+    t = _TRIM$(STR$(BRUSH_PIXEL_SIZES(BRUSH_SIZE.CURRENT))) + " PX"
+    PSL_draw BSP_SX(BSPB_SIZE), BSP_SY(BSPB_SIZE), BSP.sw, BSP.lw, BSP.vw, "SIZE", BRUSH_SIZE.CURRENT, BRUSH_SIZE.MIN, BRUSH_SIZE.MAX, t, (BSP.hover = BSPB_SIZE _ORELSE BSP.drag = BSPB_SIZE)
+    PSL_draw BSP_SX(BSPB_SOFT), BSP_SY(BSPB_SOFT), BSP.sw, BSP.lw, BSP.vw, "SOFT", BRUSH_SIZE.SOFT, 0, 100, _TRIM$(STR$(BRUSH_SIZE.SOFT)) + "%", (BSP.hover = BSPB_SOFT _ORELSE BSP.drag = BSPB_SOFT)
+    ' the grid: a cell per size
+    cell = BSP.cell
+    FOR k = 0 TO BSP_NSIZES - 1
+        IF BSP_cell_xy%(k, cx, cy) = 0 THEN _CONTINUE
+        LINE (cx, cy)-(cx + cell - 1, cy + cell - 1), THEME.TEXT_BAR_BTN_BG~&, BF
+        IF BSP_THUMB(k + 1) < -1 THEN _PUTIMAGE (cx, cy), BSP_THUMB(k + 1)
+        IF k + 1 = BRUSH_SIZE.CURRENT THEN
+            LINE (cx, cy)-(cx + cell - 1, cy + cell - 1), THEME.TEXT_BAR_BTN_ACTIVE~&, B
+            LINE (cx + 1, cy + 1)-(cx + cell - 2, cy + cell - 2), THEME.TEXT_BAR_BTN_ACTIVE~&, B
+        ELSEIF BSP.hover = BSPB_CELL0 + k + 1 THEN
+            LINE (cx, cy)-(cx + cell - 1, cy + cell - 1), THEME.TEXT_BAR_FG~&, B
+        ELSE
+            LINE (cx, cy)-(cx + cell - 1, cy + cell - 1), THEME.TEXT_BAR_BTN_BORDER~&, B
+        END IF
+        ' its px, small, in the corner (big enough cells only)
+        IF cell >= 24 THEN
+            t = _TRIM$(STR$(BRUSH_PIXEL_SIZES(k + 1)))
+            ' (on a backing of the cell's colour: a big dab fills the corner)
+            LINE (cx + cell - 3 - PSL_tw%(t), cy + cell - 2 - _UFONTHEIGHT)-(cx + cell - 2, cy + cell - 2), THEME.TEXT_BAR_BTN_BG~&, BF
+            COLOR THEME.TEXT_BAR_BTN_FG~&, _RGBA32(0, 0, 0, 0)
+            _UPRINTSTRING (cx + cell - 2 - PSL_tw%(t), cy + cell - 1 - _UFONTHEIGHT), t
+        END IF
+    NEXT k
+    ' the scroll strip: where the rows in view are
+    IF BSP.rowsAll > BSP.rowsFit THEN
+        sx = BSP.x + BSP.w - 4
+        sy1 = BSP.gridY: sy2 = BSP.y + BSP.h - 3
+        LINE (sx, sy1)-(sx + 1, sy2), THEME.TEXT_BAR_BTN_BG~&, BF
+        th = _MAX(6, (sy2 - sy1 + 1) * BSP.rowsFit \ BSP.rowsAll)
+        thY = sy1 + (sy2 - sy1 + 1 - th) * BSP.scroll \ _MAX(1, BSP.rowsAll - BSP.rowsFit)
+        LINE (sx, thY)-(sx + 1, thY + th - 1), THEME.TEXT_BAR_FG~&, BF
+    END IF
+    _FONT oldFont&
+END SUB
+
+
+' =============================================================================
+' Input
+' =============================================================================
+
+''
+' The control or cell at (mx, my) - its units - as last laid out: BSPB_*, 0 = none;
+' part = the slider's PSL_PART_*.
+FUNCTION BSP_hit% (mx AS INTEGER, my AS INTEGER, part AS INTEGER)
+    DIM i AS INTEGER, k AS INTEGER, cx AS INTEGER, cy AS INTEGER, rowH AS INTEGER
+    part = 0
+    rowH = PSL_row_h%
+    FOR i = 1 TO 4
+        IF mx >= BSP_CX(i) _ANDALSO mx < BSP_CX(i) + BSP_CW(i) _ANDALSO my >= BSP.chipY _ANDALSO my < BSP.chipY + rowH THEN BSP_hit% = i: EXIT FUNCTION
+    NEXT i
+    FOR i = BSPB_SIZE TO BSPB_SOFT
+        part = PSL_part%(mx, my, BSP_SX(i), BSP_SY(i), BSP.sw, BSP.lw, BSP.vw)
+        IF part THEN BSP_hit% = i: EXIT FUNCTION
+    NEXT i
+    FOR k = 0 TO BSP_NSIZES - 1
+        IF BSP_cell_xy%(k, cx, cy) THEN
+            IF mx >= cx _ANDALSO mx < cx + BSP.cell _ANDALSO my >= cy _ANDALSO my < cy + BSP.cell THEN BSP_hit% = BSPB_CELL0 + k + 1: EXIT FUNCTION
+        END IF
+    NEXT k
+END FUNCTION
+
+
+''
+' Is viewport (inX, inY) on the panel? Every click / hover / pan gate asks here.
+FUNCTION BSP_is_over_area% (inX AS INTEGER, inY AS INTEGER)
+    IF BSP.visible = 0 _ORELSE BSP.w <= 0 _ORELSE BSP.h <= 0 THEN EXIT FUNCTION
+    IF DOCK_live%(DP_BRUSHES) = 0 THEN EXIT FUNCTION
+    IF WZ_blocked%(DP_BRUSHES, inX, inY) THEN EXIT FUNCTION ' a window in front covers it here
+    IF PSURF_on%(DP_BRUSHES) THEN BSP_is_over_area% = PSURF_in%(DP_BRUSHES, inX, inY): EXIT FUNCTION
+    BSP_is_over_area% = (inX >= BSP.x _ANDALSO inX < BSP.x + BSP.w _ANDALSO inY >= BSP.y _ANDALSO inY < BSP.y + BSP.h)
+END FUNCTION
+
+
+''
+' Hover (viewport px): redraw when the control under it changes.
+SUB BSP_track (inX AS INTEGER, inY AS INTEGER)
+    DIM h AS INTEGER, part AS INTEGER
+    IF BSP_is_over_area%(inX, inY) THEN h = BSP_hit%(PSURF_mx%(DP_BRUSHES, inX), PSURF_my%(DP_BRUSHES, inY), part)
+    IF h <> BSP.hover THEN BSP.hover = h: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' A press (viewport px): TRUE when it was on the panel (taken).
+FUNCTION BSP_click% (inX AS INTEGER, inY AS INTEGER)
+    DIM id AS INTEGER, mx AS INTEGER, my AS INTEGER, part AS INTEGER, v AS INTEGER
+    IF BSP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    BSP_click% = TRUE
+    mx = PSURF_mx%(DP_BRUSHES, inX): my = PSURF_my%(DP_BRUSHES, inY)
+    id = BSP_hit%(mx, my, part)
+    SELECT CASE id
+        CASE BSPB_ROUND TO BSPB_BACKSLASH
+            BRUSH_SIZE_set_shape BSP_chip_shape%(id), BRUSH_SIZE.SOFT
+            STATUS_flash "BRUSH: " + _TRIM$(MID$("ROUND    SQUARE   SLANT /  SLANT \  ", (id - 1) * 9 + 1, 9))
+        CASE BSPB_SIZE, BSPB_SOFT
+            IF part = PSL_PART_VALUE THEN
+                IF VAL_dbl%(DP_BRUSHES * 1000& + 100 + id) THEN
+                    v = BSP_slider_val%(id)
+                    IF id = BSPB_SIZE THEN v = BRUSH_PIXEL_SIZES(v)
+                    IF VAL_type%("Brush Palette", _IIF(id = BSPB_SIZE, "Size (px, 1..49)", "Soft (%)"), v, _IIF(id = BSPB_SIZE, 1, 0), _IIF(id = BSPB_SIZE, 49, 100)) THEN
+                        IF id = BSPB_SIZE THEN v = (v - 1) \ 2 + 1 ' (the nearest size: 1, 3, 5 .. 49)
+                        BSP_slider_set id, v
+                    END IF
+                END IF
+            ELSEIF VAL_dbl%(DP_BRUSHES * 1000& + id) THEN
+                BSP_slider_reset id
+            ELSEIF part = PSL_PART_TRACK THEN
+                BSP.drag = id
+                BSP_slider_set id, PSL_value&(mx, BSP_SX(id), BSP_SY(id), BSP.sw, BSP.lw, BSP.vw, BSP_slider_lo%(id), BSP_slider_hi%(id))
+            END IF
+        CASE IS > BSPB_CELL0
+            BRUSH_SIZE_set id - BSPB_CELL0
+            STATUS_flash "BRUSH SIZE: " + _TRIM$(STR$(BRUSH_PIXEL_SIZES(BRUSH_SIZE.CURRENT))) + " PX"
+    END SELECT
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+
+''
+' Each frame while a slider is held (MOUSE.BM): follow the pointer. TRUE while it
+' holds the mouse.
+FUNCTION BSP_drag_frame% (inX AS INTEGER, inY AS INTEGER, held AS INTEGER)
+    DIM id AS INTEGER
+    IF BSP.drag = 0 THEN EXIT FUNCTION
+    BSP_drag_frame% = TRUE
+    id = BSP.drag
+    IF held = 0 _ORELSE BSP.visible = 0 THEN
+        BSP.drag = 0
+        GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        EXIT FUNCTION
+    END IF
+    BSP_slider_set id, PSL_value&(PSURF_mx%(DP_BRUSHES, inX), BSP_SX(id), BSP_SY(id), BSP.sw, BSP.lw, BSP.vw, BSP_slider_lo%(id), BSP_slider_hi%(id))
+END FUNCTION
+
+
+''
+' A middle-click: a slider under it back to its reset value. TRUE when on the panel.
+FUNCTION BSP_middle% (inX AS INTEGER, inY AS INTEGER)
+    DIM id AS INTEGER, part AS INTEGER
+    IF BSP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    BSP_middle% = TRUE
+    id = BSP_hit%(PSURF_mx%(DP_BRUSHES, inX), PSURF_my%(DP_BRUSHES, inY), part)
+    IF id = BSPB_SIZE _ORELSE id = BSPB_SOFT THEN BSP_slider_reset id
+END FUNCTION
+
+
+''
+' The wheel: over a slider one step a notch (Shift: 10); over the chips the next
+' shape; over the grid it scrolls when the cells do not all show, else the size.
+' TRUE when on the panel.
+FUNCTION BSP_wheel% (inX AS INTEGER, inY AS INTEGER, delta AS INTEGER)
+    DIM id AS INTEGER, part AS INTEGER, my AS INTEGER, c AS INTEGER
+    IF delta = 0 _ORELSE BSP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    BSP_wheel% = TRUE
+    my = PSURF_my%(DP_BRUSHES, inY)
+    id = BSP_hit%(PSURF_mx%(DP_BRUSHES, inX), my, part)
+    SELECT CASE id
+        CASE BSPB_SIZE, BSPB_SOFT
+            BSP_slider_set id, BSP_slider_val%(id) + VAL_wheel_step%(SGN(delta))
+        CASE BSPB_ROUND TO BSPB_BACKSLASH
+            c = BSP_shape_chip% + SGN(delta)
+            IF c < BSPB_ROUND THEN c = BSPB_BACKSLASH
+            IF c > BSPB_BACKSLASH THEN c = BSPB_ROUND
+            BRUSH_SIZE_set_shape BSP_chip_shape%(c), BRUSH_SIZE.SOFT
+        CASE ELSE
+            IF my >= BSP.gridY - 1 _ANDALSO BSP.rowsAll > BSP.rowsFit THEN
+                BSP.scroll = BSP.scroll + SGN(delta)
+                BSP_layout ' (clamps it)
+            ELSE
+                BSP_slider_set BSPB_SIZE, BRUSH_SIZE.CURRENT + VAL_wheel_step%(SGN(delta))
+            END IF
+    END SELECT
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+
+''
+' View > Brush Palette.
+SUB BSP_toggle ()
+    CFG.BRUSH_PANEL% = _IIF(CFG.BRUSH_PANEL%, FALSE, TRUE)
+    CONFIG_save
+    STATUS_flash "BRUSH PALETTE " + _IIF(CFG.BRUSH_PANEL%, "ON", "OFF")
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' What the control under the pointer is (tooltips): non-zero id, txt = the text.
+FUNCTION BSP_tip_at% (inX AS INTEGER, inY AS INTEGER, txt AS STRING)
+    DIM id AS INTEGER, part AS INTEGER
+    txt = ""
+    IF BSP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    id = BSP_hit%(PSURF_mx%(DP_BRUSHES, inX), PSURF_my%(DP_BRUSHES, inY), part)
+    SELECT CASE id
+        CASE BSPB_ROUND: txt = "ROUND BRUSH"
+        CASE BSPB_SQUARE: txt = "SQUARE BRUSH (ALWAYS HARD-EDGED)"
+        CASE BSPB_SLASH: txt = "SLANT BRUSH / - A CALLIGRAPHY NIB"
+        CASE BSPB_BACKSLASH: txt = "SLANT BRUSH \ - A CALLIGRAPHY NIB"
+        CASE BSPB_SIZE: txt = "SIZE ([ / ])"
+        CASE BSPB_SOFT: txt = "SOFT: THE EDGE FADES OVER THIS MUCH OF THE RADIUS (ROUND AND SLANT)"
+        CASE IS > BSPB_CELL0: txt = _TRIM$(STR$(BRUSH_PIXEL_SIZES(id - BSPB_CELL0))) + " PX"
+    END SELECT
+    IF id = BSPB_SIZE _ORELSE id = BSPB_SOFT THEN txt = txt + CHR$(10) + "WHEEL +/-1 (SHIFT 10) - MIDDLE / DOUBLE-CLICK RESETS - DOUBLE-CLICK THE VALUE TO TYPE"
+    IF LEN(txt) THEN BSP_tip_at% = 2000 + id
+END FUNCTION
+
+
+''
+' QA dump: BSP visible x y w h cell cols rowsFit rowsAll scroll gridX gridY hover shape soft size,
+' then BSPC id x y w per chip, BSPS id x y w lw vw per slider (its units).
+FUNCTION BSP_dump$ ()
+    DIM d AS STRING, lf AS STRING, i AS INTEGER
+    lf = CHR$(10)
+    d = "BSP" + DOCK_n$(BSP.visible <> 0) + DOCK_n$(BSP.x) + DOCK_n$(BSP.y) + DOCK_n$(BSP.w) + DOCK_n$(BSP.h)
+    d = d + DOCK_n$(BSP.cell) + DOCK_n$(BSP.cols) + DOCK_n$(BSP.rowsFit) + DOCK_n$(BSP.rowsAll) + DOCK_n$(BSP.scroll)
+    d = d + DOCK_n$(BSP.gridX) + DOCK_n$(BSP.gridY) + DOCK_n$(BSP.hover) + DOCK_n$(BRUSH_SIZE.SHAPE) + DOCK_n$(BRUSH_SIZE.SOFT) + DOCK_n$(BRUSH_SIZE.CURRENT) + lf
+    IF BSP.visible THEN
+        FOR i = 1 TO 4
+            d = d + "BSPC" + DOCK_n$(i) + DOCK_n$(BSP_CX(i)) + DOCK_n$(BSP.chipY) + DOCK_n$(BSP_CW(i)) + lf
+        NEXT i
+        FOR i = BSPB_SIZE TO BSPB_SOFT
+            d = d + "BSPS" + DOCK_n$(i) + DOCK_n$(BSP_SX(i)) + DOCK_n$(BSP_SY(i)) + DOCK_n$(BSP.sw) + DOCK_n$(BSP.lw) + DOCK_n$(BSP.vw) + lf
+        NEXT i
+    END IF
+    BSP_dump$ = d
+END FUNCTION

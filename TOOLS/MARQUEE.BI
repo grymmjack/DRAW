@@ -124,6 +124,7 @@ END TYPE
 CONST SEL_MODE_REPLACE  = 0 ' Default   : replace existing selection
 CONST SEL_MODE_ADD      = 1 ' Shift : add to existing selection
 CONST SEL_MODE_SUBTRACT = 2 ' Alt        : subtract from existing selection
+CONST SEL_MODE_INTERSECT = 3 ' Selection Bar: keep only what both select
 
 DIM SHARED MARQUEE AS MARQUEE_OBJ
 ' Export Selection with nothing selected: the marquee is picked and the next

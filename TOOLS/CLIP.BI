@@ -124,11 +124,18 @@ CONST CLIP_LANE_BLEND = 12 ' a pixel layer's blend mode per frame (a BLEND_* val
 ' into a layer's display copy per frame cell after its move (LL_build: pixelate, blur, noise,
 ' invert), added on demand (+ LANE). On pixel layers and groups (a group's apply to each of its
 ' layers), not on a clip.
-CONST CLIP_LANE_BLUR = 13     ' blur radius, px (0..32)
+CONST CLIP_LANE_BLUR = 13     ' blur amount, px (0..64): radius (BOX / GAUSSIAN), length (MOTION / FOLLOW), smear at the far corner (ZOOM / SPIN)
 CONST CLIP_LANE_PIXELATE = 14 ' block size, px (1..64; 1 = none)
 CONST CLIP_LANE_INVERT = 15   ' 0..100 % toward the inverted colours
 CONST CLIP_LANE_NOISE = 16    ' 0..100 grain; a new grain every frame, or held from a key (CLIP_KF_FROZEN)
-CONST CLIP_LANE_LAST = 16     ' the highest lane id (a sub-lane's parent is 1..CLIP_LANE_LAST)
+' The BLUR lane's properties (Rick 2026-11-17: "allow motion blur - and controls for blur amount
+' and blur direction"; "all the blurs we have in draw, and their properties"): the Blur dialog's
+' types (IMAGE_ADJ_blur_typed_at&) plus FOLLOW - a motion blur along the layer's own X / Y move.
+CONST CLIP_LANE_BLURTYPE = 17 ' stepped like BLEND: a CLIP_BLUR_* (no keys = BOX)
+CONST CLIP_LANE_BLURANG = 18  ' MOTION's direction, degrees (0 = right, 90 = up)
+CONST CLIP_LANE_LAST = 18     ' the highest lane id (a sub-lane's parent is 1..CLIP_LANE_LAST)
+CONST CLIP_BLUR_BOX = 0, CLIP_BLUR_GAUSS = 1, CLIP_BLUR_MOTION = 2, CLIP_BLUR_ZOOM = 3, CLIP_BLUR_SPIN = 4, CLIP_BLUR_FOLLOW = 5
+CONST CLIP_BLUR_TYPES = 6
 CONST CLIP_EASE_LINEAR = 0, CLIP_EASE_IN = 1, CLIP_EASE_OUT = 2, CLIP_EASE_INOUT = 3, CLIP_EASE_HOLD = 4
 ' A key's modulator flags, over its ease in the same 2 bytes (CLIP_lk_e% = the
 ' low 4 bits, CLIP_lk_fl% the rest): what the lane's modulator does over the

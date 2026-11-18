@@ -18,7 +18,7 @@ source "$DRAW_ROOT/QA/clip-lib.sh"
 cm_animc() { cl_line ANIMC | cut -d' ' -f2-; }
 cm_nclips() { grep -c '^CLIP ' "$CL_DUMPF"; }
 cm_marquee() { # the square in the current frame's pane
-    cl_key m
+    cl_key m; cl_read # (the selection tools' bar can show and move the panes: read them again)
     mouse_down "$(cl_px 5)" "$(cl_py 5)"; hover "$(cl_px 8)" "$(cl_py 8)"; sleep 0.2; hover "$(cl_px 10)" "$(cl_py 10)"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"; cl_read
 }

@@ -414,6 +414,66 @@ SUB PENP_slider_set (ctl AS INTEGER, frac AS SINGLE)
     END SELECT
 END SUB
 
+''
+' A slider's value through the universal value input (VAL_apply%: op
+' VAL_OP_NUDGE by d units, VAL_OP_RESET to the factory default). TRUE = it changed.
+'
+FUNCTION PENP_slider_val% (ctl AS INTEGER, op AS INTEGER, d AS INTEGER)
+    DIM r AS INTEGER
+    SELECT CASE ctl%
+        CASE PENP_CTL_SIZE:       r = VAL_apply%(CFG.PEN_MIN_SIZE%, op, d, 0, 100)
+        CASE PENP_CTL_OPAC:       r = VAL_apply%(CFG.PEN_MIN_OPACITY%, op, d, 0, 100)
+        CASE PENP_CTL_MIX:        r = VAL_apply%(CFG.PEN_MIX_MIN%, op, d, 0, 100)
+        CASE PENP_CTL_TIP:        r = VAL_apply%(CFG.PEN_TIP_THRESHOLD%, op, d, 0, 50)
+        CASE PENP_CTL_CURVE:      r = VAL_apply%(CFG.PEN_PRESSURE_CURVE%, op, d, 25, 400)
+        CASE PENP_CTL_STAB_AMT:   r = VAL_apply%(CFG.PEN_STAB_AMOUNT%, op, d, 0, 100)
+        CASE PENP_CTL_PROC_AMT:   r = VAL_apply%(CFG.PEN_PROC_AMOUNT%, op, d, 0, 100)
+        CASE PENP_CTL_SPD_SLOW:   r = VAL_apply%(CFG.PEN_SPEED_SLOW%, op, d, 10, 100)
+        CASE PENP_CTL_SPD_FAST:   r = VAL_apply%(CFG.PEN_SPEED_FAST%, op, d, 100, 500)
+        CASE PENP_CTL_SPD_AT:     r = VAL_apply%(CFG.PEN_SPEED_FAST_AT%, op, d * 10, 50, 3000)
+        CASE PENP_CTL_SPD_SMOOTH: r = VAL_apply%(CFG.PEN_SPEED_SMOOTH%, op, d, 0, 100)
+    END SELECT
+    PENP_slider_val% = r
+END FUNCTION
+
+''
+' TRUE for the slider controls (PENP_slider_val% knows them).
+'
+FUNCTION PENP_is_slider% (ctl AS INTEGER)
+    SELECT CASE ctl%
+        CASE PENP_CTL_SIZE, PENP_CTL_OPAC, PENP_CTL_MIX, PENP_CTL_TIP, PENP_CTL_CURVE, PENP_CTL_STAB_AMT, PENP_CTL_PROC_AMT, PENP_CTL_SPD_SLOW, PENP_CTL_SPD_FAST, PENP_CTL_SPD_AT, PENP_CTL_SPD_SMOOTH
+            PENP_is_slider% = TRUE
+    END SELECT
+END FUNCTION
+
+''
+' The control under the pointer (PENP_hit% in its own units), or PENP_CTL_NONE
+' off the panel / on its title.
+'
+FUNCTION PENP_ctl_at_pointer% ()
+    DIM lx AS INTEGER, ly AS INTEGER, nx AS INTEGER, ny AS INTEGER
+    lx = MOUSE.RAW_X% - PENP.dispX%: ly = MOUSE.RAW_Y% - PENP.dispY%
+    IF lx < 0 _ORELSE ly < 0 _ORELSE lx >= PENP.dispW% _ORELSE ly >= PENP.dispH% THEN EXIT FUNCTION
+    IF PENP.renderScale! > 0 THEN nx = INT(lx / PENP.renderScale!): ny = INT(ly / PENP.renderScale!) ELSE nx = lx: ny = ly
+    IF ny < FPANEL.titleH% THEN EXIT FUNCTION
+    PENP_ctl_at_pointer% = PENP_hit%(nx, ny)
+END FUNCTION
+
+''
+' The wheel over the panel: a slider under the pointer steps 1 (Shift 10). TRUE =
+' the wheel was over the panel (used up).
+'
+FUNCTION PENP_wheel% (delta AS INTEGER)
+    DIM ctl AS INTEGER
+    IF delta = 0 _ORELSE PENP.visible% = 0 _ORELSE PENP.autoHidden% _ORELSE PENP.initialized% = 0 THEN EXIT FUNCTION
+    IF PENP_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) = 0 THEN EXIT FUNCTION
+    PENP_wheel% = TRUE
+    ctl = PENP_ctl_at_pointer%
+    IF PENP_is_slider%(ctl) THEN
+        IF PENP_slider_val%(ctl, VAL_OP_NUDGE, VAL_wheel_step%(delta)) THEN CONFIG_save: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+    END IF
+END FUNCTION
+
 FUNCTION PENP_slider_text$ (ctl AS INTEGER)
     SELECT CASE ctl%
         CASE PENP_CTL_SIZE:  PENP_slider_text$ = _TRIM$(STR$(CFG.PEN_MIN_SIZE%)) + "%"
@@ -1172,6 +1232,17 @@ SUB PENP_mouse_input ()
         END IF
     END IF
 
+    ' Middle-click a slider: its default (the universal value input)
+    IF MOUSE.B3% _ANDALSO MOUSE.OLD_B3% = 0 _ANDALSO PENP.dragging% = 0 _ANDALSO PENP.sliding% = PENP_CTL_NONE THEN
+        DIM ppMid AS INTEGER
+        ppMid = PENP_ctl_at_pointer%
+        IF PENP_is_slider%(ppMid) THEN
+            IF PENP_slider_val%(ppMid, VAL_OP_RESET, 0) THEN CONFIG_save
+            SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+            EXIT SUB
+        END IF
+    END IF
+
     ' Active title-bar drag
     IF PENP.dragging% THEN
         IF MOUSE.B1% THEN
@@ -1241,9 +1312,13 @@ SUB PENP_mouse_input ()
         CASE PENP_CTL_STAB_MODE: CFG.PEN_STAB_MODE% = PENP_seg_at%(ctl%, nativeX%) + 1: CONFIG_save
         CASE PENP_CTL_PROC_MODE: CFG.PEN_PROC_MODE% = PENP_seg_at%(ctl%, nativeX%) + 1: CONFIG_save
         CASE PENP_CTL_NONE
-        CASE ELSE ' a slider
-            PENP.sliding% = ctl%
-            PENP_slider_set ctl%, PENP_track_frac!(ctl%, nativeX%)
+        CASE ELSE ' a slider (a double-click: its default)
+            IF VAL_dbl%(DP_PEN * 1000& + ctl%) _ANDALSO PENP_is_slider%(ctl%) THEN
+                IF PENP_slider_val%(ctl%, VAL_OP_RESET, 0) THEN CONFIG_save
+            ELSE
+                PENP.sliding% = ctl%
+                PENP_slider_set ctl%, PENP_track_frac!(ctl%, nativeX%)
+            END IF
     END SELECT
     IF ctl% <> PENP_CTL_NONE THEN SCENE_DIRTY% = TRUE : FRAME_IDLE% = FALSE
 END SUB

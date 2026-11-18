@@ -549,6 +549,7 @@ TYPE DRAW_CONFIG
     EDIT_BAR_SCALE                  AS INTEGER        ' Edit bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
     ADV_BAR_SCALE                   AS INTEGER        ' Advanced bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
     CHARMAP_PANEL_SCALE             AS INTEGER        ' Character map scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    SELECTION_BAR_SCALE             AS INTEGER        ' Selection Bar scale: 0 = Auto, 1-8 (GUI/PANEL-SURFACE)
     TEXT_BAR_SCALE                  AS INTEGER        ' Text bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
     WORKFLOW_PANEL_SCALE            AS INTEGER        ' Workflow buttons scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
     SWATCHES_X                      AS INTEGER        ' Last Swatches panel X (-1 = auto-position)
@@ -674,6 +675,36 @@ TYPE DRAW_CONFIG
     ' Anti-aliasing (experimental) — coverage-weighted edge blending for drawing tools.
     ' Default OFF to protect the hard-edged pixel-art identity; per-document toggle.
     ANTIALIAS                       AS INTEGER        ' TRUE = soft (AA) edges on supported tools
+    ' Selection tools (the Selection Bar, GUI/SEL-BAR)
+    SELECTION_BAR                   AS INTEGER        ' TRUE = the Selection Bar shows with a selection tool (View > Selection Bar)
+    SELECTION_FEATHER               AS INTEGER        ' px each new selection is feathered by (0 = hard)
+    SELECTION_MODE                  AS INTEGER        ' the mode with no modifier held: SEL_MODE_REPLACE / ADD / SUBTRACT / INTERSECT
+    SELECTION_GROW                  AS INTEGER        ' px GROW / SHRINK move the selection's edge
+    SELECTION_SMOOTH                AS INTEGER        ' lasso / polygon corner-cutting passes 0..4
+    SELECTION_SHAPE                 AS INTEGER        ' rectangle / ellipse drag: 0 free, 1 fixed ratio, 2 fixed size
+    SELECTION_SHAPE_W               AS INTEGER        ' the ratio's / size's width
+    SELECTION_SHAPE_H               AS INTEGER        ' the ratio's / size's height
+    SELECTION_FROM_CENTER           AS INTEGER        ' TRUE = rectangle / ellipse drags from the centre (Ctrl = the corner)
+    WAND_TOLERANCE                  AS INTEGER        ' 0..255: largest channel difference the wand takes in
+    WAND_CONTIGUOUS                 AS INTEGER        ' TRUE = only pixels joined to the clicked one
+    WAND_SAMPLE_MERGED              AS INTEGER        ' TRUE = the wand reads every visible layer merged
+    WAND_ANTIALIAS                  AS INTEGER        ' TRUE = the wand's selection gets a 1px soft rim
+    ' MyPaint brushes (TOOLS/MYPAINT, GUI/MYPAINT-PANEL; PLANS/MYPAINT.md)
+    MYPAINT_BRUSH                   AS STRING         ' the .myb in use ("" = the classic pencil)
+    MYPAINT_SIZE                    AS INTEGER        ' radius offset in tenths of a log step (-40..40, 0 = as the brush was made)
+    MYPAINT_PANEL                   AS INTEGER        ' TRUE = the MyPaint Brushes palette shows
+    MYPAINT_SET                     AS STRING         ' the set the palette shows (folder name, "" = all)
+    MYPAINT_CELL                    AS INTEGER        ' palette thumbnail size, px (24..128)
+    MYPAINT_PANEL_SCALE             AS INTEGER        ' the palette's own Scale (0 = the UI Scale)
+    MYPAINT_SETTINGS                AS INTEGER        ' TRUE = the MyPaint Brush Settings panel shows (GUI/MYPAINT-SET)
+    MYPAINT_SETTINGS_SCALE          AS INTEGER        ' its own Scale (0 = the UI Scale)
+    MYPAINT_MOUSE_PRESSURE          AS INTEGER        ' the pressure a mouse paints with, % (0..100; MyPaint's own is 50)
+    MYPAINT_TWIST                   AS INTEGER        ' the pen barrel rotation every stroke gets, degrees (0..359)
+    ' The brush palette (GUI/BRUSH-PANEL): shapes x sizes for the brush / eraser / shapes
+    BRUSH_PANEL                     AS INTEGER        ' TRUE = View > Brush Palette shows
+    BRUSH_PANEL_SCALE               AS INTEGER        ' its own Scale (0 = the UI Scale)
+    BRUSH_PANEL_CELL                AS INTEGER        ' its thumbnail cells, px (16..64)
+    BRUSH_SOFT                      AS INTEGER        ' the brush's edge softness, % (0 = hard .. 100; round and slant brushes)
     ' CRT overlay effect settings (presentation-only, never written to canvas)
     CRT_ENABLED                     AS INTEGER        ' Master on/off
     CRT_INTENSITY                   AS INTEGER        ' Global intensity 0-100 (scales scanlines, phosphor, vignette)

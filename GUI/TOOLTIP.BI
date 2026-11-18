@@ -23,6 +23,7 @@ CONST TOOLTIP_SRC_LAYER_NO_PAINT = 11 ' Pencil-with-slash badge on a group heade
 CONST TOOLTIP_SRC_ACP_HISTORY    = 12 ' Advanced Color Picker — history strip
 CONST TOOLTIP_SRC_ANIM_XS        = 13 ' X-sheet tag / frame note: its whole text (TOOLS/ANIM-XS, F7)
 CONST TOOLTIP_SRC_PEN_PANEL      = 14 ' Pen Control panel control: what it does + an example (PENP_tip$)
+CONST TOOLTIP_SRC_SEL_BAR        = 15 ' Selection Bar control: what it is + how it behaves (SELBAR_tip$)
 
 ' Readability cap on tooltip line length, in CHARACTERS (converted to pixels through
 ' the current font, so it scales correctly whether the tooltip uses the fixed 8px

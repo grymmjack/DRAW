@@ -34,6 +34,7 @@ CONST XL_V_KRETRIG = 31052  ' ... the wave restarts at the key (CLIP_KF_RETRIG)
 CONST XL_V_KFROZEN = 31053  ' the NOISE lane: this key's grain held (CLIP_KF_FROZEN)
 CONST XL_V_ADD = 31100   ' + LANE menu: + lane
 CONST XL_V_BLEND = 31200 ' the BLEND lane's menu: + a BLEND_* mode, keyed on that frame
+CONST XL_V_BTYPE = 31240 ' the BLUR TYPE lane's menu: + a CLIP_BLUR_*, keyed on that frame
 
 TYPE ANIM_XL_OBJ
     ' a key drag (XS_DRAG_LANEKEY)

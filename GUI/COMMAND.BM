@@ -345,6 +345,25 @@ SUB CMD_init ()
     ' ========== SELECT ==========
     CMD_register "Select From Current Layer", "", CMD_CAT_SELECT, 1401
     CMD_register "Select From Selected Layers", "", CMD_CAT_SELECT, 1414
+    CMD_register "View: Selection Bar (show / hide)", "", CMD_CAT_VIEW, SELBAR_ACT_TOGGLE
+    CMD_register "Feather Selection (by the Selection Bar's FEATHER)", "", CMD_CAT_SELECT, SELBAR_ACT_FEATHER
+    CMD_register "Grow Selection (by the Selection Bar's AMOUNT)", "", CMD_CAT_SELECT, SELBAR_ACT_GROW
+    CMD_register "Shrink Selection (by the Selection Bar's AMOUNT)", "", CMD_CAT_SELECT, SELBAR_ACT_SHRINK
+    CMD_register "Smooth Selection (round its corners by AMOUNT)", "", CMD_CAT_SELECT, SELBAR_ACT_SMOOTH
+    CMD_register "Selection Mode: Replace", "", CMD_CAT_SELECT, SELBAR_ACT_MODE0 + SEL_MODE_REPLACE
+    CMD_register "Selection Mode: Add", "", CMD_CAT_SELECT, SELBAR_ACT_MODE0 + SEL_MODE_ADD
+    CMD_register "Selection Mode: Subtract", "", CMD_CAT_SELECT, SELBAR_ACT_MODE0 + SEL_MODE_SUBTRACT
+    CMD_register "Selection Mode: Intersect", "", CMD_CAT_SELECT, SELBAR_ACT_MODE0 + SEL_MODE_INTERSECT
+    CMD_register "MyPaint Brush Tool", "", CMD_CAT_TOOL, MYPAINT_ACT_TOOL
+    CMD_register "View: MyPaint Brushes (show / hide)", "", CMD_CAT_VIEW, MYPAINT_ACT_PANEL
+    CMD_register "Load MyPaint Brush (.myb)...", "", CMD_CAT_TOOL, MYPAINT_ACT_LOAD
+    CMD_register "Save MyPaint Brush (.myb) into My Brushes...", "", CMD_CAT_TOOL, MYPAINT_ACT_SAVE
+    CMD_register "MyPaint Brush: Bigger", "]", CMD_CAT_TOOL, MYPAINT_ACT_BIGGER
+    CMD_register "MyPaint Brush: Smaller", "[", CMD_CAT_TOOL, MYPAINT_ACT_SMALLER
+    CMD_register "MyPaint Brush: Reset Size", "", CMD_CAT_TOOL, MYPAINT_ACT_RESET
+    CMD_register "View: MyPaint Brush Settings (show / hide)", "", CMD_CAT_VIEW, MPS_ACT_PANEL
+    CMD_register "MyPaint Brush Settings: Reset All", "", CMD_CAT_TOOL, MPS_ACT_RESET
+    CMD_register "View: Brush Palette (show / hide)", "", CMD_CAT_VIEW, BSP_ACT_PANEL
     
     ' ========== CANVAS ==========
     CMD_register "Pan Canvas", "Space+Drag or MMB", CMD_CAT_CANVAS, 801
@@ -1381,8 +1400,11 @@ SUB CMD_execute_action (action_id AS INTEGER)
             END IF
             IF clearUsedHistoryGroup% THEN HISTORY_end_group
         CASE 307      ' Deselect
-            ' Commit any pending content nudge (MOVE.ACTIVE from Ctrl+Arrow in marquee)
-            IF MOVE.ACTIVE AND CURRENT_TOOL% = TOOL_MARQUEE THEN MOVE_reset
+            ' Commit any open float first: a Ctrl+Arrow nudge in the marquee, or the Move tool's
+            ' (a drag release bakes into the layer but keeps the float; deselecting under it
+            ' left a stale float with no mask - its next preview / commit cleared a box, and
+            ' the first Ctrl+Z was spent "aborting" it. Rick 2026-11-18)
+            IF MOVE.ACTIVE THEN MOVE_reset
             IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
                 HISTORY_selection_stage
                 MAGIC_WAND_reset
@@ -2177,8 +2199,10 @@ SUB CMD_execute_action (action_id AS INTEGER)
             BRUSH_SIZE_set 1
             IF CURRENT_TOOL% <> TOOL_BRUSH _ANDALSO CURRENT_TOOL% <> TOOL_DOT THEN CMD_execute_action 101
             GUI_NEEDS_REDRAW% = TRUE : FRAME_IDLE% = FALSE
-        CASE 601 : BRUSH_SIZE_decrease
-        CASE 602 : BRUSH_SIZE_increase
+        CASE 601 ' [ : smaller (the MyPaint brush's own radius with that tool)
+            IF CURRENT_TOOL% = TOOL_MYPAINT THEN MYPAINT_size_step -2 ELSE BRUSH_SIZE_decrease
+        CASE 602 ' ]
+            IF CURRENT_TOOL% = TOOL_MYPAINT THEN MYPAINT_size_step 2 ELSE BRUSH_SIZE_increase
         CASE 603 : DRAWER_set_mode DRAWER_MODE_BRUSH
         CASE 604 : DRAWER_set_mode DRAWER_MODE_GRADIENT
         CASE 605 : DRAWER_set_mode DRAWER_MODE_PATTERN
@@ -3086,9 +3110,14 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     FOR fgFillY% = MARQUEE.WAND_MIN_Y TO MARQUEE.WAND_MAX_Y
                         FOR fgFillX% = MARQUEE.WAND_MIN_X TO MARQUEE.WAND_MAX_X
                             _SOURCE MARQUEE.SELECTION_MASK
-                            IF POINT(fgFillX%, fgFillY%) = fgFillMaskColor~& THEN
+                            DIM fgFillM AS _UNSIGNED LONG
+                            fgFillM~& = POINT(fgFillX%, fgFillY%)
+                            IF fgFillM~& = fgFillMaskColor~& THEN
                                 _DEST LAYERS(CURRENT_LAYER%).imgHandle&
                                 PSET (fgFillX% + fgFillAW%, fgFillY% + fgFillAH%), PAINT_COLOR~&
+                            ELSEIF (fgFillM~& AND &HFFFFFF~&) = &HFFFFFF~& _ANDALSO _ALPHA32(fgFillM~&) > 0 THEN ' a soft selection's edge: laid over at its coverage
+                                _DEST LAYERS(CURRENT_LAYER%).imgHandle&
+                                PAINT_cover_over fgFillX% + fgFillAW%, fgFillY% + fgFillAH%, PAINT_COLOR~&, _ALPHA32(fgFillM~&) / 255!, LAYERS(CURRENT_LAYER%).imgHandle&
                             END IF
                         NEXT fgFillX%
                     NEXT fgFillY%
@@ -3161,9 +3190,14 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     FOR bgFillY% = MARQUEE.WAND_MIN_Y TO MARQUEE.WAND_MAX_Y
                         FOR bgFillX% = MARQUEE.WAND_MIN_X TO MARQUEE.WAND_MAX_X
                             _SOURCE MARQUEE.SELECTION_MASK
-                            IF POINT(bgFillX%, bgFillY%) = bgFillMaskColor~& THEN
+                            DIM bgFillM AS _UNSIGNED LONG
+                            bgFillM~& = POINT(bgFillX%, bgFillY%)
+                            IF bgFillM~& = bgFillMaskColor~& THEN
                                 _DEST LAYERS(CURRENT_LAYER%).imgHandle&
                                 PSET (bgFillX% + bgFillAW%, bgFillY% + bgFillAH%), PAINT_BG_COLOR~&
+                            ELSEIF (bgFillM~& AND &HFFFFFF~&) = &HFFFFFF~& _ANDALSO _ALPHA32(bgFillM~&) > 0 THEN ' a soft selection's edge: laid over at its coverage
+                                _DEST LAYERS(CURRENT_LAYER%).imgHandle&
+                                PAINT_cover_over bgFillX% + bgFillAW%, bgFillY% + bgFillAH%, PAINT_BG_COLOR~&, _ALPHA32(bgFillM~&) / 255!, LAYERS(CURRENT_LAYER%).imgHandle&
                             END IF
                         NEXT bgFillX%
                     NEXT bgFillY%
@@ -3259,7 +3293,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 fhMoveH% = _HEIGHT(MOVE.SELECTION_IMAGE)
                 DIM fhMoveTmp                AS LONG
                 fhMoveTmp& = _NEWIMAGE(fhMoveW%, fhMoveH%, 32)
+                _DONTBLEND fhMoveTmp& ' (raw copy: a blend onto the fresh image greys soft / AA pixels - memory qb64-blend-onto-transparent-greys)
                 _PUTIMAGE (fhMoveW% - 1, 0)-(0, fhMoveH% - 1), MOVE.SELECTION_IMAGE, fhMoveTmp&
+                _BLEND fhMoveTmp&
                 _DEST MOVE.SELECTION_IMAGE
                 _DONTBLEND MOVE.SELECTION_IMAGE
                 _PUTIMAGE , fhMoveTmp&, MOVE.SELECTION_IMAGE
@@ -3295,7 +3331,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     fhSelW% = MARQUEE.BOX.w : fhSelH% = MARQUEE.BOX.h
                     DIM fhRegion     AS LONG
                     fhRegion& = _NEWIMAGE(fhSelW%, fhSelH%, 32)
+                    _DONTBLEND fhRegion& ' (raw copy: a blend onto the fresh image greys soft / AA pixels - memory qb64-blend-onto-transparent-greys)
                     _PUTIMAGE (0, 0), flipH_src&, fhRegion&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + fhSelW% - 1, MARQUEE.BOX.y + fhSelH% - 1)
+                    _BLEND fhRegion&
                     DIM oldFHSelDest AS LONG : oldFHSelDest& = _DEST
                     _DEST flipH_src&
                     _DONTBLEND flipH_src&
@@ -3309,7 +3347,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     flipH_h& = _HEIGHT(flipH_src&)
                     DIM flipH_tmp    AS LONG
                     flipH_tmp& = _NEWIMAGE(flipH_w&, flipH_h&, 32)
+                    _DONTBLEND flipH_tmp& ' (raw copy: a blend onto the fresh image greys soft / AA pixels - memory qb64-blend-onto-transparent-greys)
                     _PUTIMAGE (flipH_w& - 1, 0)-(0, flipH_h& - 1), flipH_src&, flipH_tmp&
+                    _BLEND flipH_tmp&
                     DIM oldFlipDest  AS LONG : oldFlipDest& = _DEST
                     _DEST flipH_src&
                     _DONTBLEND flipH_src&
@@ -3368,7 +3408,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 fvMoveH% = _HEIGHT(MOVE.SELECTION_IMAGE)
                 DIM fvMoveTmp                AS LONG
                 fvMoveTmp& = _NEWIMAGE(fvMoveW%, fvMoveH%, 32)
+                _DONTBLEND fvMoveTmp& ' (raw copy: a blend onto the fresh image greys soft / AA pixels - memory qb64-blend-onto-transparent-greys)
                 _PUTIMAGE (0, fvMoveH% - 1)-(fvMoveW% - 1, 0), MOVE.SELECTION_IMAGE, fvMoveTmp&
+                _BLEND fvMoveTmp&
                 _DEST MOVE.SELECTION_IMAGE
                 _DONTBLEND MOVE.SELECTION_IMAGE
                 _PUTIMAGE , fvMoveTmp&, MOVE.SELECTION_IMAGE
@@ -3404,7 +3446,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     fvSelW% = MARQUEE.BOX.w : fvSelH% = MARQUEE.BOX.h
                     DIM fvRegion     AS LONG
                     fvRegion& = _NEWIMAGE(fvSelW%, fvSelH%, 32)
+                    _DONTBLEND fvRegion& ' (raw copy: a blend onto the fresh image greys soft / AA pixels - memory qb64-blend-onto-transparent-greys)
                     _PUTIMAGE (0, 0), flipV_src&, fvRegion&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + fvSelW% - 1, MARQUEE.BOX.y + fvSelH% - 1)
+                    _BLEND fvRegion&
                     DIM oldFVSelDest AS LONG : oldFVSelDest& = _DEST
                     _DEST flipV_src&
                     _DONTBLEND flipV_src&
@@ -3418,7 +3462,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     flipV_h& = _HEIGHT(flipV_src&)
                     DIM flipV_tmp    AS LONG
                     flipV_tmp& = _NEWIMAGE(flipV_w&, flipV_h&, 32)
+                    _DONTBLEND flipV_tmp& ' (raw copy: a blend onto the fresh image greys soft / AA pixels - memory qb64-blend-onto-transparent-greys)
                     _PUTIMAGE (0, flipV_h& - 1)-(flipV_w& - 1, 0), flipV_src&, flipV_tmp&
+                    _BLEND flipV_tmp&
                     DIM oldFlipVDest AS LONG : oldFlipVDest& = _DEST
                     _DEST flipV_src&
                     _DONTBLEND flipV_src&
@@ -5122,6 +5168,52 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 SELECTION_contract CFG.NUDGE_N%
                 INVALIDATE_scene
             END IF
+        CASE MYPAINT_ACT_TOOL ' Tools > MyPaint Brush (TOOLS/MYPAINT): the tool, and the palette with it
+            MYPAINT_select_tool
+            IF CFG.MYPAINT_PANEL% = 0 THEN MYPP_toggle
+        CASE MYPAINT_ACT_PANEL ' View > MyPaint Brushes (GUI/MYPAINT-PANEL)
+            MYPP_toggle
+        CASE MYPAINT_ACT_LOAD
+            MYPAINT_load_dialog
+            IF MYPAINT.ready THEN MYPAINT_select_tool
+        CASE MYPAINT_ACT_SAVE
+            MYPAINT_save_dialog
+        CASE MYPAINT_ACT_BIGGER: MYPAINT_size_step 2: GUI_NEEDS_REDRAW% = TRUE
+        CASE MYPAINT_ACT_SMALLER: MYPAINT_size_step -2: GUI_NEEDS_REDRAW% = TRUE
+        CASE MPS_ACT_PANEL ' View > MyPaint Brush Settings (GUI/MYPAINT-SET)
+            MPS_toggle
+        CASE MPS_ACT_RESET
+            MYPAINT_init: MPS_reset_all
+            GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        CASE BSP_ACT_PANEL ' View > Brush Palette (GUI/BRUSH-PANEL)
+            BSP_toggle
+        CASE MYPAINT_ACT_RESET
+            CFG.MYPAINT_SIZE% = 0: MYPAINT_init: MYPAINT_apply_size: CONFIG_save
+            STATUS_flash "MYPAINT SIZE: " + MYPAINT_size_text$
+            GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        CASE SELBAR_ACT_TOGGLE ' View > Selection Bar (GUI/SEL-BAR)
+            CFG.SELECTION_BAR% = _IIF(CFG.SELECTION_BAR%, FALSE, TRUE)
+            CONFIG_save
+            STATUS_flash "Selection Bar " + _IIF(CFG.SELECTION_BAR%, "on (shows with a selection tool)", "off")
+            GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        CASE SELBAR_ACT_FEATHER, SELBAR_ACT_GROW, SELBAR_ACT_SHRINK, SELBAR_ACT_SMOOTH ' Select > Feather / Grow / Shrink / Smooth (one undo step)
+            IF SELECTION_has_active% THEN
+                SOUND_play SND_SELECTION
+                HISTORY_selection_stage
+                SELECT CASE action_id%
+                    CASE SELBAR_ACT_FEATHER: SELECTION_feather_by _MAX(1, CFG.SELECTION_FEATHER%)
+                    CASE SELBAR_ACT_GROW: SELECTION_expand _MAX(1, CFG.SELECTION_GROW%)
+                    CASE SELBAR_ACT_SHRINK: SELECTION_contract _MAX(1, CFG.SELECTION_GROW%)
+                    CASE SELBAR_ACT_SMOOTH: SELECTION_smooth_by _MAX(1, CFG.SELECTION_GROW%)
+                END SELECT
+                HISTORY_selection_commit
+                INVALIDATE_scene
+                GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+            END IF
+        CASE SELBAR_ACT_MODE0 + SEL_MODE_REPLACE TO SELBAR_ACT_MODE0 + SEL_MODE_INTERSECT ' the Selection Bar's mode chips
+            CFG.SELECTION_MODE% = action_id% - SELBAR_ACT_MODE0
+            CONFIG_save
+            GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
 
         ' ========== PALETTE (menu-only) ==========
         CASE 1510 ' Import palette (GPL)

@@ -98,6 +98,7 @@ else
     # -- symmetry about the frame's centre --
     le_pick 3
     le_key i
+    le_read # (the Selection Bar row hides with a non-selection tool and moves the panes: read them again)
     click "$(le_px 2)" "$(le_py 10)"; wait_for 0.4 "pick the red"
     le_key b
     le_palette "cycle symmetry"

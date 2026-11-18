@@ -375,5 +375,90 @@ extern "C" void gj_edgedetect(intptr_t dst_, intptr_t src_, int32_t w, int32_t h
     delete[] lum;
 }
 
+// ---------------------------------------------------------------------------
+// Directional blurs (Rick 2026-11-17: the X-sheet BLUR lane "to allow motion blur -
+// and controls for blur amount and blur direction"; the Blur dialog's MOTION / ZOOM /
+// SPIN). Premultiplied average of bilinear taps along a path through each pixel:
+//   kind 2 MOTION - a line through the pixel at angleDeg (0 = right, 90 = up),
+//                   +/- amount px (2 * amount + 1 taps, 1px apart)
+//   kind 3 ZOOM   - the ray from (cx, cy) through the pixel: +/- amount px at the
+//                   corner farthest from the centre, less nearer it
+//   kind 4 SPIN   - the circle about (cx, cy): +/- amount px of arc at that corner
+// Taps that land off the image are left out (the average is of the rest), so an
+// image's own border does not fade. dst gets every pixel (alpha 0 = transparent).
+// ---------------------------------------------------------------------------
+extern "C" void gj_blur_dir(intptr_t dst_, intptr_t src_, int32_t w, int32_t h,
+                            int32_t kind, int32_t amount, float angleDeg, float cx, float cy) {
+    uint32_t *dst = (uint32_t *)dst_; const uint32_t *src = (const uint32_t *)src_;
+    if (w <= 0 || h <= 0) return;
+    if (amount < 1) { std::memcpy(dst, src, (size_t)w * h * 4); return; }
+    if (amount > 512) amount = 512;
+    const size_t n = (size_t)w * h;
+    float *pm = new float[n * 4];           // premultiplied r, g, b, a (0..255)
+    for (size_t i = 0; i < n; i++) {
+        uint32_t p = src[i]; float a = (float)gjimgfx::A(p), f = a / 255.0f;
+        pm[i * 4] = gjimgfx::R(p) * f; pm[i * 4 + 1] = gjimgfx::G(p) * f;
+        pm[i * 4 + 2] = gjimgfx::B(p) * f; pm[i * 4 + 3] = a;
+    }
+    const float rad = angleDeg * 3.14159265f / 180.0f;
+    const float mdx = std::cos(rad), mdy = -std::sin(rad);
+    float maxd = 0.0f;
+    {
+        const float cxs[4] = {0.0f, (float)(w - 1), 0.0f, (float)(w - 1)};
+        const float cys[4] = {0.0f, 0.0f, (float)(h - 1), (float)(h - 1)};
+        for (int c = 0; c < 4; c++) {
+            float d = std::sqrt((cxs[c] - cx) * (cxs[c] - cx) + (cys[c] - cy) * (cys[c] - cy));
+            if (d > maxd) maxd = d;
+        }
+        if (maxd < 1.0f) maxd = 1.0f;
+    }
+    const float k = (float)amount / maxd;   // zoom: scale swing; spin: angle swing (rad)
+    for (int32_t y = 0; y < h; y++) {
+        for (int32_t x = 0; x < w; x++) {
+            float sr = 0, sg = 0, sb = 0, sa = 0; int cnt = 0;
+            float vx = x - cx, vy = y - cy;
+            int m; float ux = 0, uy = 0, th = 0;
+            if (kind == 2) { m = amount; ux = mdx; uy = mdy; }
+            else {
+                float L = k * std::sqrt(vx * vx + vy * vy);  // px of smear here
+                m = (int)std::ceil(L); if (m < 1) m = 1; if (m > 512) m = 512;
+                th = k / (float)m;                              // per tap
+            }
+            for (int t = -m; t <= m; t++) {
+                float sx, sy;
+                if (kind == 2) { sx = x + ux * t; sy = y + uy * t; }
+                else if (kind == 3) { float s = 1.0f + th * t; sx = cx + vx * s; sy = cy + vy * s; }
+                else { float a = th * t, cs = std::cos(a), sn = std::sin(a);
+                       sx = cx + vx * cs - vy * sn; sy = cy + vx * sn + vy * cs; }
+                if (sx < -0.5f || sy < -0.5f || sx > w - 0.5f || sy > h - 0.5f) continue;
+                if (sx < 0) sx = 0; if (sy < 0) sy = 0;
+                if (sx > w - 1) sx = (float)(w - 1); if (sy > h - 1) sy = (float)(h - 1);
+                int x0 = (int)sx, y0 = (int)sy; int x1 = x0 + 1 < w ? x0 + 1 : x0, y1 = y0 + 1 < h ? y0 + 1 : y0;
+                float fx = sx - x0, fy = sy - y0;
+                float w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+                const float *p00 = pm + ((size_t)y0 * w + x0) * 4, *p10 = pm + ((size_t)y0 * w + x1) * 4;
+                const float *p01 = pm + ((size_t)y1 * w + x0) * 4, *p11 = pm + ((size_t)y1 * w + x1) * 4;
+                sr += p00[0] * w00 + p10[0] * w10 + p01[0] * w01 + p11[0] * w11;
+                sg += p00[1] * w00 + p10[1] * w10 + p01[1] * w01 + p11[1] * w11;
+                sb += p00[2] * w00 + p10[2] * w10 + p01[2] * w01 + p11[2] * w11;
+                sa += p00[3] * w00 + p10[3] * w10 + p01[3] * w01 + p11[3] * w11;
+                cnt++;
+            }
+            uint32_t o = 0;
+            if (cnt > 0 && sa > 0.0f) {
+                int a = (int)(sa / cnt + 0.5f); if (a > 255) a = 255;
+                if (a > 0) {
+                    float f = 255.0f / sa;
+                    int r = (int)(sr * f + 0.5f), g = (int)(sg * f + 0.5f), b = (int)(sb * f + 0.5f);
+                    if (r > 255) r = 255; if (g > 255) g = 255; if (b > 255) b = 255;
+                    o = gjimgfx::RGBA(r, g, b, a);
+                }
+            }
+            dst[(size_t)y * w + x] = o;
+        }
+    }
+    delete[] pm;
+}
+
 #pragma GCC pop_options
 #endif

@@ -64,8 +64,9 @@
 - [Multiple-instance support](multi-instance-support.md) — several isolated windows (`ALLOW_MULTIPLE_INSTANCES`); heartbeat registry; Copy/Paste/Send Layer; CORE/INSTANCE + TOOLS/LAYERXFER
 - [_ACCEPTFILEDROP is cross-platform now](qb64pe-acceptfiledrop-cross-platform.md) — drag-IN works Lin/mac/Win (wiki stale "Windows only"); no drag-OUT on any platform
 - [Drag-and-drop targets](drag-drop-targets.md) — INPUT/DROP.BM routes a drop by region under cursor (no drop coords → MOUSE.RAW + REGION_hit_test); Shift=center
-- [Selection mask readers](selection-mask-readers.md) — how each SELECTION_MASK consumer tests a pixel; map for soft (AA) selections
+- [Selection mask readers](selection-mask-readers.md) — soft selection masks: SELECTION_cover% / touches / SEL_put_px helpers; never compare a mask pixel to white
 - [Anti-aliasing mode](antialiasing.md) — experimental AA (branch `antialiasing`, default OFF); `PAINT_blend_pixel`; AA-off byte-identical; Brush/Dot/Line done
+- [QB64 blend onto transparent greys](qb64-blend-onto-transparent-greys.md) — _BLEND onto alpha<255 halves the colour (50% white -> 807F7F7F); copy raw with _DONTBLEND, composite with gj_sel_over
 - [DEV align + PDF tools](dev-align-tool.md) — aligner = `DEV/align-qb64pe.py` (`--no-backup .`, exclude submodule, separate `style:` commit); PDF = `DEV/make-pdf-manual.sh`
 - [Offscreen QA fragile tests (post-v2.0.2)](qa-offscreen-fragile-tests.md) — idle DRAW drops fast Ctrl chords (one _KEYHIT a frame, Ctrl live): draw_quit Ctrl+Q becomes Q, cfg not saved (2026-11-16); 1781/13; all 13 are test-fragility (stale coords/thresholds), not product bugs; robust rewrite pending
 - [Apron canvas-coord readers](apron-canvas-coord-readers.md) — reading imgHandle& at RAW canvas coords breaks once apron-promoted (gotcha #14 READERS); crop to a canvas-sized copy
@@ -116,6 +117,6 @@
 - **[QB64 hex CONST sign-extends](qb64-hex-literal-sign-extend.md) — unsuffixed `&H...8000` is INTEGER -32768 → FFFFFFFFFFFF8000 as a 64-bit flag; suffix `&&` (CTX_FILL_ACTIVE broke W over the canvas, 2026-11-15)**
 - [QA-OPTIONS pins are never saved](qa-option-override-never-saved.md) — a test asserting a saved cfg key must not pin that key with --option
 - [Dock row share overcommit](dock-row-share-overcommit.md) — [Linux] row @px widths can exceed the row; normalize before editing one (edge drag jumped)
-- [QA: DP ids shift, floating z-order](qa-dp-ids-and-float-zorder.md) — never hardcode DP_ ids in tests (DP_PREVIEW 10 now); dk_grab_point uses the WZ front-to-back line
+- [QA: DP ids shift, floating z-order](qa-dp-ids-and-float-zorder.md) — never hardcode DP_ ids in tests (DP_PREVIEW 12 now); dk_grab_point uses the WZ front-to-back line
 - [macOS numpad digits = main-row digits](qb64pe-macos-numpad-digits.md) — [macOS] QB64-PE gives KP_0..9 no own codes (KP_0 = 48), so DRAW numpad frame keys can't work there; KP_+ etc. do; qa-io mac/win had no KP_ keys until 2026-11-17
 - [UI text is UPPERCASE](feedback-ui-text-uppercase.md) — every panel/menu/settings/dialog string in caps; user data keeps case; UCASE$ at draw + measure sites (Rick 2026-11-17)
