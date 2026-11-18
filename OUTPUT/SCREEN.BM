@@ -999,6 +999,38 @@ END SUB
 
 
 ''
+' Draw src (canvas-sized) shrunk to zw x zh at (dx, dy) on SCRN.CANVAS& by area
+' averaging: each screen pixel is the premultiplied mean of the canvas pixels
+' it covers (box filter), so thin lines and fine detail stay visible, soft,
+' when zoomed out. Only the part on screen is computed (native/minify.h, -O3).
+' Antialias mode only.
+'
+SUB RENDER_minify_put (src AS LONG, dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
+    IF src& >= -1 THEN EXIT SUB
+    DIM sw AS LONG, sh AS LONG, cw AS LONG, ch AS LONG
+    sw& = _WIDTH(src&): sh& = _HEIGHT(src&)
+    cw& = _WIDTH(SCRN.CANVAS&): ch& = _HEIGHT(SCRN.CANVAS&)
+    IF MINIFY_IMG >= -1 _ORELSE _WIDTH(MINIFY_IMG) <> zw& _ORELSE _HEIGHT(MINIFY_IMG) <> zh& THEN
+        IF MINIFY_IMG < -1 THEN _FREEIMAGE MINIFY_IMG
+        MINIFY_IMG = _NEWIMAGE(zw&, zh&, 32)
+        IF MINIFY_IMG >= -1 THEN MINIFY_IMG = 0: EXIT SUB
+    END IF
+    ' the visible output box
+    DIM ox0 AS LONG, oy0 AS LONG, ox1 AS LONG, oy1 AS LONG
+    ox0& = _MAX(0, -dx&): oy0& = _MAX(0, -dy&)
+    ox1& = _MIN(zw& - 1, cw& - 1 - dx&): oy1& = _MIN(zh& - 1, ch& - 1 - dy&)
+    IF ox1& < ox0& OR oy1& < oy0& THEN EXIT SUB
+    DECLARE LIBRARY "../native/minify"
+        SUB gj_minify (BYVAL dst AS _OFFSET, BYVAL zw AS LONG, BYVAL zh AS LONG, BYVAL src AS _OFFSET, BYVAL sw AS LONG, BYVAL sh AS LONG, BYVAL ox0 AS LONG, BYVAL oy0 AS LONG, BYVAL ox1 AS LONG, BYVAL oy1 AS LONG)
+    END DECLARE
+    DIM ms AS _MEM, md AS _MEM
+    ms = _MEMIMAGE(src&): md = _MEMIMAGE(MINIFY_IMG)
+    gj_minify md.OFFSET, zw&, zh&, ms.OFFSET, sw&, sh&, ox0&, oy0&, ox1&, oy1&
+    _MEMFREE ms: _MEMFREE md
+    _PUTIMAGE (dx& + ox0&, dy& + oy0&), MINIFY_IMG, SCRN.CANVAS&, (ox0&, oy0&)-(ox1&, oy1&)
+END SUB
+
+''
 ' Render all visible layers with zoom, compositing bottom-to-top.
 ' Handles blend modes, opacity caching, partial composite cache, and move preview.
 '
@@ -1010,6 +1042,11 @@ END SUB
 SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
     _DEST SCRN.CANVAS&
     _BLEND SCRN.CANVAS&
+    ' Antialias on and zoomed out: composite first, then area-average the
+    ' composite down (a nearest-pixel shrink drops whole rows and columns -
+    ' thin lines and detail vanish or shimmer)
+    DIM smoothMin AS INTEGER
+    smoothMin% = (CFG.ANTIALIAS% <> 0 _ANDALSO zw& < SCRN.canvasW& _ANDALSO zh& < SCRN.canvasH& _ANDALSO zw& > 0 _ANDALSO zh& > 0)
 
     IF LAYER_COUNT% > 0 THEN
         ' Composite layers by zIndex (bottom to top)
@@ -1032,7 +1069,11 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
         IF PCYC_step_only_ok% THEN
             DIM stepImg AS LONG
             stepImg& = PCYC_present_step&
-            _PUTIMAGE (dx&, dy&)-(dx& + zw& - 1, dy& + zh& - 1), stepImg&, SCRN.CANVAS&
+            IF smoothMin% THEN
+                RENDER_minify_put stepImg&, dx&, dy&, zw&, zh&
+            ELSE
+                _PUTIMAGE (dx&, dy&)-(dx& + zw& - 1, dy& + zh& - 1), stepImg&, SCRN.CANVAS&
+            END IF
             CANVAS_CONTENT_SRC& = stepImg&
             EXIT SUB
         END IF
@@ -1076,6 +1117,8 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                 CANVAS_CONTENT_SRC& = LL_src&(trivialOnlyLayer%)           ' Where PREVIEW reads from (its lanes applied)
             END IF
         END IF
+
+        IF smoothMin% THEN useComposite% = TRUE ' (one shrink of the whole composite)
 
         ' Start index for layer loop (1 = full composite, >1 = partial cache hit)
         DIM compositeStartIdx AS INTEGER
@@ -1589,7 +1632,11 @@ SUB RENDER_layers (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
             ' the composite caches stay uncycled; returns compositeImg& when off).
             DIM shownImg AS LONG
             shownImg& = PCYC_present&(compositeImg&)
-            _PUTIMAGE (dx&, dy&)-(dx& + zw& - 1, dy& + zh& - 1), shownImg&, SCRN.CANVAS&
+            IF smoothMin% THEN
+                RENDER_minify_put shownImg&, dx&, dy&, zw&, zh&
+            ELSE
+                _PUTIMAGE (dx&, dy&)-(dx& + zw& - 1, dy& + zh& - 1), shownImg&, SCRN.CANVAS&
+            END IF
             ' compositeImg& is persistent (COMPOSITE_BUFFER&), do NOT free it
             CANVAS_CONTENT_SRC& = shownImg& ' Where PREVIEW reads from
 
@@ -2033,7 +2080,7 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
             END IF
             ' Line spokes preview
             IF CURRENT_TOOL% = TOOL_LINE AND LINE_TOOL.DRAGGING AND LINE_TOOL.SPOKES > 0 THEN
-                LINE_draw_spokes LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, preview_color~&, LINE_TOOL.SPOKES
+                LINE_draw_spokes LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, preview_color~&, LINE_TOOL.SPOKES, FALSE, 0, 0
             END IF
             ' Line end-cap preview
             IF CURRENT_TOOL% = TOOL_LINE AND LINE_TOOL.DRAGGING THEN
@@ -2311,7 +2358,7 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
             ' Rect division lines preview (drawn after the rect outline/fill)
             IF (CURRENT_TOOL% = TOOL_RECT OR CURRENT_TOOL% = TOOL_RECT_FILLED) AND RECT_TOOL.DRAGGING THEN
                 IF RECT_TOOL.H_DIVISIONS > 0 OR RECT_TOOL.V_DIVISIONS > 0 THEN
-                    RECT_draw_divisions RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, preview_color~&, RECT_TOOL.H_DIVISIONS, RECT_TOOL.V_DIVISIONS
+                    RECT_draw_divisions RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, preview_color~&, RECT_TOOL.H_DIVISIONS, RECT_TOOL.V_DIVISIONS, FALSE
                 END IF
             END IF
 
@@ -2367,7 +2414,7 @@ SUB RENDER_tool_previews (dx AS LONG, dy AS LONG, zw AS LONG, zh AS LONG)
                     emod_cy% = (ELLIPSE_TOOL.START_Y + ELLIPSE_TOOL.END_Y) \ 2
                     emod_rx! = ABS(ELLIPSE_TOOL.END_X - ELLIPSE_TOOL.START_X) / 2
                     emod_ry! = ABS(ELLIPSE_TOOL.END_Y - ELLIPSE_TOOL.START_Y) / 2
-                    ELLIPSE_draw_modifiers emod_cx%, emod_cy%, emod_rx!, emod_ry!, preview_color~&, ELLIPSE_TOOL.SLICES, ELLIPSE_TOOL.RINGS
+                    ELLIPSE_draw_modifiers emod_cx%, emod_cy%, emod_rx!, emod_ry!, preview_color~&, ELLIPSE_TOOL.SLICES, ELLIPSE_TOOL.RINGS, FALSE, 0, 0
                 END IF
             END IF
 

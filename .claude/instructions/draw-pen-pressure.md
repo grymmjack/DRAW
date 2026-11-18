@@ -347,3 +347,42 @@ paint over the checkerboard; the old build's soft-pixel count was a third of the
    coverage mask (`PAINT_AAM_*` in BRUSH.BI, freed by `PAINT_aam_end` at LOOP_start): with m the
    coverage already laid there this frame and e the new, it composites the share
    (e - m) / (1 - m), so a rectangle's sides / a polyline's pieces join without rims adding.
+
+5. **Curves** (Rick: circle, Bezier "steppy"): their points were rounded to whole pixels before
+   joining. `PAINT_aa_curve_ok%(col)` (AA, round or 1px, visible, no custom brush) +
+   `PAINT_aa_radius!` (size / 2, min 0.5): `ELLIPSE_draw_brushed` -> `PAINT_aa_ellipse` (the ellipse
+   through the box's outermost pixel centres, capsules ~1.5px apart; thick only - 1px stays the
+   SDF ring), `BEZIER_draw_cubic` (non-flat: capsules between float Bernstein points; any size),
+   `SS_stroke_arc` commit (capsules between float arc points). Lines / polylines with integer
+   vertices were already right.
+6. **Transform resampling** (Rick: "bicubic or something"): `TRANSFORM_compute_preview` uses
+   `TRANSFORM_sample_smooth~&` (Catmull-Rom, premultiplied alpha, outside = transparent so edges
+   soften; kernel widened by the source px per output px, `sqrt(a00^2+a01^2)` etc., when
+   shrinking) when `CFG.ANTIALIAS%` and no handle is grabbed - nearest while dragging,
+   `TRANSFORM_mouse_release` re-dirties the preview so it sharpens up, commit recomputes.
+   Pixels just outside the quad are sampled for the soft edge unless they map inside the source
+   (a concave notch). Perspective: f = 1. The selection-mask warp stays binary.
+Test: `QA/tests/aa-curves-transform.sh` (circle, Bezier, scaled hard shape).
+7. **Rounded smart shapes** (Rick: pill / tab / pac-man "not round"): the builders sampled 8-12
+   chords per arc into whole-pixel vertices. Now `SS_vert` writes each vertex twice - the rounded
+   `px()/py()` and the exact `SS_VFX/SS_VFY` (SS-COMMON.BI; `SS_VF_N` = count, set by the
+   builder, consumed and cleared by `SS_stroke_polyline`) - and `SS_arc_samples%` gives a point
+   every ~1.5px with Antialias on (`SS_MAX_VERTS` 2048). An AA commit strokes capsules between the
+   exact points. Rounded rect, tab, pill (exact cap centre / half height), pac-man.
+8. **Solid dice + 3D text** (`_MAPTRIANGLE` faces, hard edges): commit renders supersampled -
+   `SS_ssaa_begin%(bbox)` makes a clear buffer at up to 4x (`SS_SSAA_*`, canvas point ->
+   `((x - OX) * S, (y - OY) * S)`), the renderer projects there from its float points, and
+   `SS_ssaa_end` box-filters it down (premultiplied) and lays it over the layer. Dice ink edges
+   are `PAINT_aa_capsule` r 0.5 at the exact points. Preview stays hard.
+9. **Modifier lines with the brush** (Rick: rect dividers / ellipse spokes 1px, not AA):
+   `RECT_draw_divisions` / `ELLIPSE_draw_modifiers` / `LINE_draw_spokes` take `commit%`; on
+   commit `LINE_modifier_brushed%` draws each at the brush (AA capsule, or stamps when thick) with
+   the raw DRAW_COLOR, falling back to the old 1px LINE (opacity applied, apron offset). Ellipse
+   spokes / rings use the exact centre `(START+END)/2`. FILL-ADJ keeps the 1px lines (FALSE).
+10. **Zoomed out** (Rick: "zoom out and detail is lost"): with Antialias on and zw/zh below the
+   canvas size, `RENDER_layers` forces the composite and `RENDER_minify_put` area-averages it
+   (premultiplied box filter, `native/minify.h` -O3, visible part only, buffer `MINIFY_IMG`)
+   instead of a nearest-pixel `_PUTIMAGE` shrink. ~6 ms extra at 1920x1080 / 50%.
+   `_PUTIMAGE ... _SMOOTH` does no averaging on software images (probed) - don't reach for it.
+Tests: `QA/tests/aa-shapes-dividers.sh` (rounded shapes, solid die, dividers / spokes, color
+wheel screenshot), `QA/tests/aa-zoom-minify.sh`.

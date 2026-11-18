@@ -64,6 +64,7 @@
 - [Multiple-instance support](multi-instance-support.md) — several isolated windows (`ALLOW_MULTIPLE_INSTANCES`); heartbeat registry; Copy/Paste/Send Layer; CORE/INSTANCE + TOOLS/LAYERXFER
 - [_ACCEPTFILEDROP is cross-platform now](qb64pe-acceptfiledrop-cross-platform.md) — drag-IN works Lin/mac/Win (wiki stale "Windows only"); no drag-OUT on any platform
 - [Drag-and-drop targets](drag-drop-targets.md) — INPUT/DROP.BM routes a drop by region under cursor (no drop coords → MOUSE.RAW + REGION_hit_test); Shift=center
+- [Selection mask readers](selection-mask-readers.md) — how each SELECTION_MASK consumer tests a pixel; map for soft (AA) selections
 - [Anti-aliasing mode](antialiasing.md) — experimental AA (branch `antialiasing`, default OFF); `PAINT_blend_pixel`; AA-off byte-identical; Brush/Dot/Line done
 - [DEV align + PDF tools](dev-align-tool.md) — aligner = `DEV/align-qb64pe.py` (`--no-backup .`, exclude submodule, separate `style:` commit); PDF = `DEV/make-pdf-manual.sh`
 - [Offscreen QA fragile tests (post-v2.0.2)](qa-offscreen-fragile-tests.md) — idle DRAW drops fast Ctrl chords (one _KEYHIT a frame, Ctrl live): draw_quit Ctrl+Q becomes Q, cfg not saved (2026-11-16); 1781/13; all 13 are test-fragility (stale coords/thresholds), not product bugs; robust rewrite pending

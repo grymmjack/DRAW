@@ -411,7 +411,7 @@ END SUB
 ' Flat-shaded extruded text renderer. Renders directly into _DEST (preview
 ' overlay or LAYER_current_image&).
 '
-SUB SS_TEXT_render_filled (col AS _UNSIGNED LONG)
+SUB SS_TEXT_render_filled (col AS _UNSIGNED LONG, commit AS INTEGER)
     IF NOT SS_TEXT.meshValid THEN EXIT SUB
     IF SS_TEXT.meshVCount < 2 OR SS_TEXT.meshECount < 2 THEN EXIT SUB
     IF SS_TEXT.maskW < 1 OR SS_TEXT.maskH < 1 THEN EXIT SUB
@@ -451,11 +451,14 @@ SUB SS_TEXT_render_filled (col AS _UNSIGNED LONG)
     REDIM vsx(0 TO SS_TEXT.meshVCount - 1) AS INTEGER
     REDIM vsy(0 TO SS_TEXT.meshVCount - 1) AS INTEGER
     REDIM vsz(0 TO SS_TEXT.meshVCount - 1) AS SINGLE
+    REDIM fvx(0 TO SS_TEXT.meshVCount - 1) AS SINGLE ' (exact, for the antialiased commit)
+    REDIM fvy(0 TO SS_TEXT.meshVCount - 1) AS SINGLE
     DIM i AS INTEGER, ox AS SINGLE, oy AS SINGLE, oz AS SINGLE
     FOR i% = 0 TO SS_TEXT.meshVCount - 1
         SS_TEXT_project_one SS_TEXT_VX(i%) * scale!, SS_TEXT_VY(i%) * scale!, (SS_TEXT_VZ(i%) - 0.5) * zScale!, cxA!, sxA!, cyA!, syA!, ox!, oy!, oz!
-        vsx(i%) = INT(cx% + ox! + 0.5)
-        vsy(i%) = INT(cy% + oy! + 0.5)
+        fvx(i%) = cx% + ox!: fvy(i%) = cy% + oy!
+        vsx(i%) = INT(fvx(i%) + 0.5)
+        vsy(i%) = INT(fvy(i%) + 0.5)
         vsz(i%) = oz!
     NEXT i%
 
@@ -464,6 +467,7 @@ SUB SS_TEXT_render_filled (col AS _UNSIGNED LONG)
     hw! = SS_TEXT.maskW / 2.0
     hh! = SS_TEXT.maskH / 2.0
     DIM ffx(0 TO 3) AS INTEGER, ffy(0 TO 3) AS INTEGER
+    DIM ffxF(0 TO 3) AS SINGLE, ffyF(0 TO 3) AS SINGLE
     DIM cornerX(0 TO 3) AS SINGLE, cornerY(0 TO 3) AS SINGLE
     cornerX(0) = -hw! : cornerY(0) = -hh!
     cornerX(1) = hw!  : cornerY(1) = -hh!
@@ -472,8 +476,9 @@ SUB SS_TEXT_render_filled (col AS _UNSIGNED LONG)
     DIM j  AS INTEGER
     FOR j% = 0 TO 3
         SS_TEXT_project_one cornerX(j%) * scale!, cornerY(j%) * scale!, -0.5 * zScale!, cxA!, sxA!, cyA!, syA!, ox!, oy!, oz!
-        ffx(j%) = INT(cx% + ox! + 0.5)
-        ffy(j%) = INT(cy% + oy! + 0.5)
+        ffxF(j%) = cx% + ox!: ffyF(j%) = cy% + oy!
+        ffx(j%) = INT(ffxF(j%) + 0.5)
+        ffy(j%) = INT(ffyF(j%) + 0.5)
     NEXT j%
 
     ' Re-render mask in current FG colour, slightly brightened so the front
@@ -567,6 +572,33 @@ SUB SS_TEXT_render_filled (col AS _UNSIGNED LONG)
         gap% = gap% \ 2
     LOOP
 
+    ' Antialiased commit: render supersampled (SS_ssaa_begin%) at the exact
+    ' projected points, then filter down onto the layer (SS_ssaa_end).
+    DIM ssa AS INTEGER: ssa% = 1
+    IF commit% THEN
+        DIM bx0 AS SINGLE, by0 AS SINGLE, bx1 AS SINGLE, by1 AS SINGLE
+        bx0! = 1E+30: by0! = 1E+30: bx1! = -1E+30: by1! = -1E+30
+        FOR i% = 0 TO SS_TEXT.meshVCount - 1
+            bx0! = _MIN(bx0!, fvx(i%)): bx1! = _MAX(bx1!, fvx(i%))
+            by0! = _MIN(by0!, fvy(i%)): by1! = _MAX(by1!, fvy(i%))
+        NEXT i%
+        FOR j% = 0 TO 3
+            bx0! = _MIN(bx0!, ffxF(j%)): bx1! = _MAX(bx1!, ffxF(j%))
+            by0! = _MIN(by0!, ffyF(j%)): by1! = _MAX(by1!, ffyF(j%))
+        NEXT j%
+        ssa% = SS_ssaa_begin%(bx0!, by0!, bx1!, by1!)
+        IF ssa% > 1 THEN
+            FOR i% = 0 TO SS_TEXT.meshVCount - 1
+                vsx(i%) = INT((fvx(i%) - SS_SSAA_OX) * ssa% + 0.5)
+                vsy(i%) = INT((fvy(i%) - SS_SSAA_OY) * ssa% + 0.5)
+            NEXT i%
+            FOR j% = 0 TO 3
+                ffx(j%) = INT((ffxF(j%) - SS_SSAA_OX) * ssa% + 0.5)
+                ffy(j%) = INT((ffyF(j%) - SS_SSAA_OY) * ssa% + 0.5)
+            NEXT j%
+        END IF
+    END IF
+
     ' Save dest blend state; ribbons want overwrite, mask wants alpha blend.
     DIM prevBlend AS INTEGER: prevBlend% = _BLEND
     _DONTBLEND _DEST
@@ -602,6 +634,10 @@ SUB SS_TEXT_render_filled (col AS _UNSIGNED LONG)
     _MAPTRIANGLE (0, 0)-(mw% - 1, 0)-(mw% - 1, mh% - 1), mask& TO (ffx(0), ffy(0))-(ffx(1), ffy(1))-(ffx(2), ffy(2))
     _MAPTRIANGLE (0, 0)-(mw% - 1, mh% - 1)-(0, mh% - 1), mask& TO (ffx(0), ffy(0))-(ffx(2), ffy(2))-(ffx(3), ffy(3))
 
+    IF ssa% > 1 THEN
+        _BLEND _DEST
+        SS_ssaa_end ' (back on the layer)
+    END IF
     IF NOT prevBlend% THEN _DONTBLEND _DEST
 
     SAFE_FREEIMAGE mask&
@@ -609,7 +645,7 @@ SUB SS_TEXT_render_filled (col AS _UNSIGNED LONG)
 END SUB
 
 SUB SS_TEXT_render_preview (col AS _UNSIGNED LONG)
-    SS_TEXT_render_filled col~&
+    SS_TEXT_render_filled col~&, FALSE
 END SUB
 
 SUB SS_TEXT_commit (col AS _UNSIGNED LONG)
@@ -617,7 +653,7 @@ SUB SS_TEXT_commit (col AS _UNSIGNED LONG)
     DIM beforeImg AS LONG : beforeImg& = SS_history_snapshot&
     DIM oldDest   AS LONG : oldDest& = _DEST
     _DEST LAYER_current_image&
-    SS_TEXT_render_filled col~&
+    SS_TEXT_render_filled col~&, TRUE
     _DEST oldDest&
     SS_history_finalize beforeImg&, col~&, "3D TEXT"
 END SUB

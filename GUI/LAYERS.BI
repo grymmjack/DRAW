@@ -246,6 +246,9 @@ BLEND_COMPOSITE_DIRTY% = TRUE                                      ' Start dirty
 DIM SHARED COMPOSITE_BUFFER   AS LONG
 DIM SHARED COMPOSITE_BUFFER_W AS LONG
 DIM SHARED COMPOSITE_BUFFER_H AS LONG
+' Antialias + zoomed out: the canvas is area-averaged down (RENDER_minify_put)
+' into this zw x zh buffer instead of dropping whole pixels.
+DIM SHARED MINIFY_IMG AS LONG
 
 ' Partial composite cache — skip re-compositing layers below current during painting
 DIM SHARED COMPOSITE_BELOW_CACHE AS LONG                           ' Cached composite of layers below CURRENT_LAYER%

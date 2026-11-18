@@ -468,7 +468,7 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 `Arrows` move 1px · `Shift+Arrows` 10px · `Ctrl+Arrows` scale 1px · `Ctrl+Shift+Arrows` scale 10px · `Alt` (hold) clone mode · `Shift+Click` select topmost layer at cursor & begin move · `Enter` apply · `Esc` cancel.
 
 ### Edit → Transform overlay (Scale / Rotate / Shear / Distort / Perspective)
-`Drag handle` apply mode · `Enter` apply & restore previous tool · `Esc` cancel. `Shift`: Scale=lock aspect · Rotate=snap 15° · Perspective=mirror opposite corner. `Ctrl` while rotating: the angle snap (Settings → Snap Degrees, or Pixel Art Angles - as `Ctrl+Shift` lines).
+`Drag handle` apply mode · `Enter` apply & restore previous tool · `Esc` cancel. `Shift`: Scale=lock aspect · Rotate=snap 15° · Perspective=mirror opposite corner. `Ctrl` while rotating: the angle snap (Settings → Snap Degrees, or Pixel Art Angles - as `Ctrl+Shift` lines). With Anti-Aliasing on, the result is resampled smoothly (bicubic) once you let go of a handle; off, it stays pixel-exact.
 
 ---
 
