@@ -41,7 +41,18 @@ TYPE PEN_OBJ
     opStroke  AS INTEGER ' TRUE while this stroke's opacity follows pressure
     opErase   AS INTEGER ' TRUE when that stroke erases (Eraser / transparent paint)
     opByP     AS INTEGER ' TRUE when that stroke's opacity follows pressure (else the mask only keeps AA dabs from compounding)
-    aaPen     AS INTEGER ' antialiased pen stroke: dabs at fractional sizes and centers (PAINT_draw_disc_aa)
+    aaPen     AS INTEGER ' antialiased stroke (pen or mouse): dabs at fractional sizes and centers (PAINT_draw_disc_aa)
+    ' ... its path (canvas px, a pixel's centre = its whole coordinate): the
+    ' pointer's sub-pixel points, joined by quadratic curves through their
+    ' midpoints (PAINT_aa_segment)
+    aaT       AS INTEGER ' the segment being drawn ends exactly at aaTX / aaTY (PEN_aa_target)
+    aaTX      AS SINGLE
+    aaTY      AS SINGLE
+    aaHas     AS INTEGER ' the stroke has its first point
+    aaPX      AS SINGLE  ' the last point
+    aaPY      AS SINGLE
+    aaMX      AS SINGLE  ' where the drawn path ends (midway to the last point)
+    aaMY      AS SINGLE
     dabOp     AS SINGLE  ' opacity 0..1 of the dab being drawn (includes PAINT_OPACITY)
     opBakImg  AS LONG    ' layer snapshot at stroke start (buffer coords incl. apron)
     opW       AS LONG
@@ -50,6 +61,11 @@ TYPE PEN_OBJ
     stabOn    AS INTEGER ' this stroke's points go through STAB_
     stabDX    AS INTEGER ' the point the stroke last drew to (canvas px)
     stabDY    AS INTEGER
+    stepT     AS DOUBLE  ' TIMER of the last smoothing step (samples are timed between it and now)
+    subN      AS INTEGER ' >0: this frame's stroke is drawn in subN pieces (MOUSE_brush_samples)
+    subK      AS INTEGER ' ... the piece being drawn (1..subN)
+    subFrom   AS SINGLE  ' ... the pressure the frame starts at
+    subTo     AS SINGLE  ' ... and ends at (-1 = not read yet this frame)
     catching  AS INTEGER ' Catch Up on lift: hold the last pressure, skip the tip threshold
     speedOn   AS INTEGER ' this stroke's pressure gets the speed gain
 END TYPE

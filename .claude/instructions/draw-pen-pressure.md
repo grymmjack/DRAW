@@ -287,6 +287,63 @@ starts the per-pixel mask stroke when `CFG.ANTIALIAS%` and a round brush (not th
 `PAINT_on_pressure` then stamps `PAINT_draw_disc_aa` at the dab's fractional center with
 `PEN_size_frac!` (any size >= 1; coverage = r + 0.5 - dist) and the mask keeps max coverage, so
 soft dabs never compound. This also routes a 1px AA pen stroke through `PAINT_on_pressure`
-(the `TABLET.opStroke` branch), which is what makes it soft. Mouse strokes are untouched
-(`PEN_active%` false: no mask). AA off keeps the old crisp odd-size circles.
+(the `TABLET.opStroke` branch), which is what makes it soft. AA off keeps the old crisp
+odd-size circles. (Mouse strokes too since "AA quality" below.)
 
+
+## Every pointer event is a stroke point (2026-11-17)
+
+Rick: fast pen strokes came out polygonal. DRAW read the pointer once a frame (the
+`_MOUSEINPUT` drain kept only the last position), so a stroke faster than the frame rate
+was straight chords between frames - and heavy AA dabs lower the frame rate, making it worse.
+Now both drains (`MOUSE_drain_update_state` and DRAW.BAS's late drain) `MOUSE_smp_add` each
+event's viewport position; `MOUSE_smp_map` (end of the coordinate block, same zoom / pan /
+grid + charmap snap / clamp as `MOUSE.X`; none in pattern-tile or crop) gives the frame's
+canvas points `MOUSE_SMP_X/Y/FX/FY/N`, minus repeats and the final point. `MOUSE_tool_brush`
+calls `MOUSE_brush_samples` before its final segment (cleared on the press frame): each point
+is drawn via `MOUSE_brush_paint_to`; with smoothing on, each goes through `STAB_step` at a time
+spread between `TABLET.stepT` and now. Pressure is read once per frame and shared over the
+pieces (`TABLET.subN / subK / subFrom / subTo` in `PEN_segment_begin`). Brush / Eraser only
+(mouse too). Speed-ups: `PEN_op_write` returns early when the mask already has that coverage
+(most of every overlapping dab); AA pen dabs step 0.63 x sqrt(radius) (>= 0.5px).
+Test `brush-fast-stroke` (a 72-point circle burst at FPS_LIMIT=6: the old build drew a triangle).
+
+
+## AA quality: mouse strokes, sub-pixel path, straight-alpha blend, thick lines (2026-11-17)
+
+Rick: "our anti aliasing algorithm is pretty shitty". Four faults, measured with
+`QA/tests/brush-aa-quality.sh` (coverage map = (after - before) / (1 - before) from white
+paint over the checkerboard; the old build's soft-pixel count was a third of the new one's):
+1. **Mouse AA strokes stacked soft circles** (`PAINT_draw_filled_circle_aa` with `_BLEND` at
+   every pixel along the stroke): rims built up into a hard edge. `PEN_opacity_begin` now starts
+   the mask stroke for AA without a pen (`aa% = 0 _ANDALSO NOT PEN_active%` exits), so mouse
+   strokes take the `aaPen` path too (dabOp = plain Opacity; 1px non-pixel-perfect = soft line).
+2. **Whole-pixel path**: stroke points were `MOUSE.X` integers. Now the exact point rides along:
+   `PEN_aa_target fx, fy` (MOUSE.FX terms; stored minus 0.5 = pixel-centre coords) set before
+   every `MOUSE_brush_paint_to` / `PAINT_on` in the brush hold path, samples and catch-up
+   (`STAB.x` when smoothing, `MOUSE_SMP_FX`, `PENC_fx#`); `PAINT_aa_segment` uses it (cleared
+   on use, in `PEN_segment_end`, on a tip-threshold skip and under CONSTRAIN_X/Y). Samples and
+   `MOUSE.FX` now keep window-pixel precision: `MOUSE_smp_add` takes `_MOUSEX` (window px), and
+   `MOUSE.FX = ((WIN_X + .5) / displayScale - dx) / zoom` when WIN_X \ ds = rawX - at display
+   scale 2 a canvas px at 100% has 2 positions per axis.
+   Path smoothing: midpoint quadratics (`PAINT_aa_segment` -> `PAINT_aa_curve`): last point P,
+   drawn-to point M; a new point Q draws M -> ctrl P -> (P+Q)/2. Stroke start = a single dab;
+   a segment whose start is > 1.5px from P restarts. `PAINT_aa_finish` (MOUSE_release_brush,
+   after catch-up, before PEN_opacity_end) draws the last half M -> P. Dab step uses the curve's
+   max speed 2*max(|C-P0|, |P1-C|).
+   `PAINT_draw_disc_aa` reads the mask before calling `PAINT_blend_pixel_sym` (no symmetry):
+   pixels the stroke already covers as strongly are skipped.
+3. **QB64 `_BLEND` darkens on a transparent pixel**: half-coverage white over (0,0,0,0) gives
+   (127,127,127,128) - every soft edge on an empty layer got a dark fringe (probe, Linux).
+   `PAINT_blend_pixel`'s partial-coverage branch now does straight-alpha source-over in
+   `PAINT_cover_over` (POINT + `_DONTBLEND` PSET). Affects every AA write: Wu lines, ellipse,
+   poly-fill edges, stamps. Full coverage and AA-off stay the verbatim PSET; a transparent
+   color's partial write is unchanged.
+4. **Thick AA shapes** stamped soft circles along Bresenham (stair steps in the edge, rims
+   compounding). `LINE_draw_brushed` and `SS_stroke_line` draw `PAINT_aa_capsule` when
+   `PAINT_aa_thick_line%(col)` (AA, round, size > 1, visible color, no custom brush): exact
+   distance-to-segment coverage, r = size / 2. Soft stamps (`PAINT_AAM_USE`: the capsule and
+   `PAINT_stamp_size` / `PAINT_on`'s AA circles) go through `PAINT_aam_write`, a per-frame
+   coverage mask (`PAINT_AAM_*` in BRUSH.BI, freed by `PAINT_aam_end` at LOOP_start): with m the
+   coverage already laid there this frame and e the new, it composites the share
+   (e - m) / (1 - m), so a rectangle's sides / a polyline's pieces join without rims adding.

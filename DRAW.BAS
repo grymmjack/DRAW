@@ -1035,6 +1035,7 @@ DO
         lateDrained% = FALSE
         DO WHILE _MOUSEINPUT
             lateDrained% = TRUE
+            MOUSE_smp_add _MOUSEX, _MOUSEY ' (next frame's stroke samples)
         LOOP
         IF lateDrained% THEN
             MOUSE.RAW_X% = _MOUSEX \ SCRN.displayScale%
@@ -1166,6 +1167,7 @@ FatalError:
 ' Runs at the start of the loop before any other code
 ' 
 SUB LOOP_start ()
+    PAINT_aam_end ' (last frame's soft-stamp coverage)
     ' A modal dialog (About, message boxes, pickers, file dialogs...) runs its
     ' own loop and sets its own OS cursor, so the main loop stalls while it is
     ' up. After any such stall, re-apply DRAW's cursor: POINTER_render only

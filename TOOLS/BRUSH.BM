@@ -158,11 +158,17 @@ SUB PAINT_blend_pixel (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG, covera
         IF TABLET.opStroke THEN
             ' Pen pressure -> opacity: coverage folds into the per-pixel max opacity.
             PEN_op_write x% + apW%, y% + apH%, resolvedCol~&, cov!
+        ELSEIF PAINT_AAM_USE _ANDALSO NOT is_transparent% THEN
+            ' A soft stamp: the strongest coverage this frame wins (PAINT_aam_write).
+            PAINT_aam_write x% + apW%, y% + apH%, resolvedCol~&, cov!, targetImg&
         ELSEIF cov! >= 1.0 THEN
             ' Full coverage — verbatim original write (byte-identical to PSET path).
             PSET (x% + apW%, y% + apH%), resolvedCol~&
+        ELSEIF NOT is_transparent% THEN
+            ' Partial coverage — straight-alpha source-over (PAINT_cover_over).
+            PAINT_cover_over x% + apW%, y% + apH%, resolvedCol~&, cov!, targetImg&
         ELSE
-            ' Partial coverage — scale source alpha; _BLEND composites over the dest.
+            ' (a transparent color under _DONTBLEND: written as is, as before)
             a% = INT(_ALPHA32(resolvedCol~&) * cov! + 0.5)
             IF a% > 255 THEN a% = 255
             PSET (x% + apW%, y% + apH%), _RGBA32(_RED32(resolvedCol~&), _GREEN32(resolvedCol~&), _BLUE32(resolvedCol~&), a%)
@@ -171,6 +177,78 @@ SUB PAINT_blend_pixel (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG, covera
         IF is_transparent% THEN _BLEND targetImg&
         _DEST oldDest&
     END IF
+END SUB
+
+
+''
+' col at coverage cov (0..1) over buffer pixel (bx, by) of img (the current
+' _DEST), source-over in straight alpha. Not QB64's _BLEND: that mixes the RGB
+' of a transparent pixel (black) into the result, so every soft edge painted on
+' an empty layer came out dark - half-coverage white on an empty pixel became
+' grey (127,127,127 at alpha 128) instead of white at alpha 128. Over an opaque
+' pixel the two agree. Leaves img in _BLEND.
+'
+SUB PAINT_cover_over (bx AS LONG, by AS LONG, col AS _UNSIGNED LONG, cov AS SINGLE, img AS LONG)
+    DIM oldSrc AS LONG, bk AS _UNSIGNED LONG
+    DIM sa AS SINGLE, da AS SINGLE, oa AS SINGLE, dw AS SINGLE
+    IF cov! <= 0 THEN EXIT SUB
+    IF bx& < 0 OR by& < 0 OR bx& >= _WIDTH(img&) OR by& >= _HEIGHT(img&) THEN EXIT SUB
+    sa! = (_ALPHA32(col~&) / 255!) * cov!
+    IF sa! > 1 THEN sa! = 1
+    oldSrc& = _SOURCE
+    _SOURCE img&
+    bk~& = POINT(bx&, by&)
+    _SOURCE oldSrc&
+    da! = _ALPHA32(bk~&) / 255!
+    oa! = sa! + da! * (1 - sa!)
+    IF oa! <= 0 THEN EXIT SUB
+    dw! = da! * (1 - sa!)
+    _DONTBLEND img&
+    PSET (bx&, by&), _RGBA32(INT((_RED32(col~&) * sa! + _RED32(bk~&) * dw!) / oa! + 0.5), _
+                             INT((_GREEN32(col~&) * sa! + _GREEN32(bk~&) * dw!) / oa! + 0.5), _
+                             INT((_BLUE32(col~&) * sa! + _BLUE32(bk~&) * dw!) / oa! + 0.5), _
+                             INT(oa! * 255 + 0.5))
+    _BLEND img&
+END SUB
+
+''
+' A soft stamp's pixel (PAINT_AAM_USE): only what this frame hasn't already
+' covered there. With m the coverage the frame laid at the pixel so far and e
+' this one, compositing the share (e - m) / (1 - m) over it leaves the pixel
+' exactly as one coverage-e write would - so stamps one pixel apart along a
+' thick line no longer pile up their soft rims into a hard edge.
+'
+SUB PAINT_aam_write (bx AS LONG, by AS LONG, col AS _UNSIGNED LONG, cov AS SINGLE, img AS LONG)
+    DIM idx AS LONG, m AS INTEGER, e AS INTEGER
+    IF bx& < 0 OR by& < 0 OR bx& >= _WIDTH(img&) OR by& >= _HEIGHT(img&) THEN EXIT SUB
+    IF PAINT_AAM_IMG <> img& _ORELSE PAINT_AAM_W <> _WIDTH(img&) _ORELSE PAINT_AAM_H <> _HEIGHT(img&) THEN
+        PAINT_aam_end
+        PAINT_AAM_W = _WIDTH(img&): PAINT_AAM_H = _HEIGHT(img&)
+        PAINT_AAM_MEM = _MEMNEW(PAINT_AAM_W * PAINT_AAM_H)
+        _MEMFILL PAINT_AAM_MEM, PAINT_AAM_MEM.OFFSET, PAINT_AAM_MEM.SIZE, 0 AS _UNSIGNED _BYTE
+        PAINT_AAM_IMG = img&
+    END IF
+    idx& = by& * PAINT_AAM_W + bx&
+    m% = _MEMGET(PAINT_AAM_MEM, PAINT_AAM_MEM.OFFSET + idx&, _UNSIGNED _BYTE)
+    e% = INT(cov! * 255 + 0.5): IF e% > 255 THEN e% = 255
+    IF e% <= m% THEN EXIT SUB
+    _MEMPUT PAINT_AAM_MEM, PAINT_AAM_MEM.OFFSET + idx&, e% AS _UNSIGNED _BYTE
+    IF e% >= 255 THEN
+        PSET (bx&, by&), col~&
+    ELSE
+        PAINT_cover_over bx&, by&, col~&, (e% - m%) / (255! - m%), img&
+    END IF
+END SUB
+
+''
+' Forget the soft-stamp mask (top of every frame, and when the stamped image
+' changes).
+'
+SUB PAINT_aam_end ()
+    IF PAINT_AAM_IMG <> 0 THEN
+        IF _MEMEXISTS(PAINT_AAM_MEM) THEN _MEMFREE PAINT_AAM_MEM
+    END IF
+    PAINT_AAM_IMG = 0: PAINT_AAM_W = 0: PAINT_AAM_H = 0
 END SUB
 
 
@@ -481,7 +559,9 @@ SUB PAINT_on ()
     ' Pen pressure (INPUT/PEN): fix the pressure at both ends of this segment;
     ' with pressure size or opacity, every dab gets its own interpolated value.
     PEN_segment_begin
+    IF CONSTRAIN_X% _ORELSE CONSTRAIN_Y% THEN TABLET.aaT = FALSE ' (constrained: the whole pixels)
     IF TABLET.skipSeg THEN ' pen below the tip threshold: a graze, not a stroke
+        TABLET.aaT = FALSE
         _DEST SCRN.CANVAS&
         EXIT SUB
     END IF
@@ -631,7 +711,9 @@ SUB PAINT_on ()
                         ' the full circle via _DONTBLEND, so the soft eraser was dormant.
                         PAINT_erase_circle_aa cx%, cy%, radius%
                     ELSE
+                        PAINT_AAM_USE = TRUE
                         PAINT_draw_filled_circle_aa cx%, cy%, radius%, DRAW_COLOR~&
+                        PAINT_AAM_USE = FALSE
                     END IF
                 ELSE
                     PAINT_draw_filled_circle cx%, cy%, radius%, DRAW_COLOR~&
@@ -660,6 +742,10 @@ SUB PAINT_on_pressure (sx AS INTEGER, sy AS INTEGER, ex AS INTEGER, ey AS INTEGE
     sizeOn% = PEN_size_active%
     dx% = ex% - x0%
     dy% = ey% - y0%
+    IF TABLET.aaPen THEN
+        PAINT_aa_segment x0%, y0%, ex%, ey%, full%, sizeOn%
+        EXIT SUB
+    END IF
     steps% = INT(SQR(dx% * dx% + dy% * dy%)) + 1
     IF steps% < 1 THEN steps% = 1
     FOR i% = 0 TO steps%
@@ -671,17 +757,6 @@ SUB PAINT_on_pressure (sx AS INTEGER, sy AS INTEGER, ex AS INTEGER, ey AS INTEGE
         IF TABLET.opStroke THEN
             IF TABLET.usingPen THEN TABLET.dabOp = PEN_dab_op!(p!) ELSE TABLET.dabOp = PAINT_OPACITY% / 100!
         END IF
-        IF TABLET.aaPen THEN
-            ' Antialiased pen stroke: a soft disc at the dab's exact (fractional)
-            ' place and size - sizes 1, 2, 3 ... and 1px lines come out smooth,
-            ' where whole-pixel circles only come in odd sizes (1, 3, 5 ...)
-
-            dabF! = full%
-            IF sizeOn% THEN dabF! = PEN_size_frac!(full%, p!)
-            IF dabF! <> full% THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
-            PAINT_draw_disc_aa x0% + dx% * t!, y0% + dy% * t!, dabF! / 2, DRAW_COLOR~&
-            _CONTINUE
-        END IF
         dabSize% = full%
         IF sizeOn% THEN dabSize% = PEN_scaled_size%(full%, p!)
         ' Variable-width strokes can't be replayed as fixed-size brush calls: export as pixels.
@@ -689,6 +764,149 @@ SUB PAINT_on_pressure (sx AS INTEGER, sy AS INTEGER, ex AS INTEGER, ey AS INTEGE
         IF BMIX.active THEN BMIX_dab cx%, cy% ' mix brush: smudge pickup before the dab
         PAINT_stamp_size cx%, cy%, dabSize%, DRAW_COLOR~&
     NEXT i%
+END SUB
+
+
+''
+' One segment of an antialiased stroke (TABLET.aaPen, pen or mouse) from the
+' whole pixel (sx, sy) to (ex, ey) - or to the exact point PEN_aa_target gave,
+' the pointer's sub-pixel position. The path runs through the midpoints of the
+' stroke's points, a quadratic curve from one midpoint to the next with the
+' point between as its control: each curve meets the next one smoothly, so the
+' one-pixel steps of a slow mouse or pen round off instead of showing in the
+' edge. The path ends half a segment behind the pointer; PAINT_aa_finish draws
+' that last half on lift.
+'
+SUB PAINT_aa_segment (sx AS INTEGER, sy AS INTEGER, ex AS INTEGER, ey AS INTEGER, full AS INTEGER, sizeOn AS INTEGER)
+    DIM qx AS SINGLE, qy AS SINGLE, nx AS SINGLE, ny AS SINGLE
+    IF TABLET.aaT THEN
+        qx! = TABLET.aaTX: qy! = TABLET.aaTY
+    ELSE
+        qx! = ex%: qy! = ey%
+    END IF
+    TABLET.aaT = FALSE
+    ' a stroke that jumped (this segment doesn't start where the last one ended)
+    IF TABLET.aaHas THEN
+        IF ABS(TABLET.aaPX - sx%) > 1.5 _ORELSE ABS(TABLET.aaPY - sy%) > 1.5 THEN TABLET.aaHas = FALSE
+    END IF
+    IF NOT TABLET.aaHas THEN
+        ' the first point: the press (start and end the same pixel: its exact spot)
+        IF sx% = ex% _ANDALSO sy% = ey% THEN
+            TABLET.aaPX = qx!: TABLET.aaPY = qy!
+        ELSE
+            TABLET.aaPX = sx%: TABLET.aaPY = sy%
+        END IF
+        TABLET.aaMX = TABLET.aaPX: TABLET.aaMY = TABLET.aaPY
+        TABLET.aaHas = TRUE
+        PAINT_aa_curve TABLET.aaMX, TABLET.aaMY, TABLET.aaMX, TABLET.aaMY, TABLET.aaMX, TABLET.aaMY, full%, sizeOn%
+    END IF
+    IF ABS(qx! - TABLET.aaPX) < 0.01 _ANDALSO ABS(qy! - TABLET.aaPY) < 0.01 THEN EXIT SUB
+    nx! = (TABLET.aaPX + qx!) / 2: ny! = (TABLET.aaPY + qy!) / 2
+    PAINT_aa_curve TABLET.aaMX, TABLET.aaMY, TABLET.aaPX, TABLET.aaPY, nx!, ny!, full%, sizeOn%
+    TABLET.aaMX = nx!: TABLET.aaMY = ny!
+    TABLET.aaPX = qx!: TABLET.aaPY = qy!
+END SUB
+
+''
+' A thick antialiased line: the capsule of radius r around the segment
+' (x0, y0)-(x1, y1) (a pixel's centre is its whole coordinate), every pixel at
+' its exact coverage - r + 0.5 minus its distance to the segment, clamped 0..1.
+' One shape, where stamping a soft circle at each pixel of a Bresenham line put
+' the line's stair steps into its edges. Drawn as soft stamps (PAINT_AAM_USE),
+' so lines meeting in one frame - a rectangle's sides, a polyline's or a
+' Bezier's pieces - join without their soft rims adding up.
+'
+SUB PAINT_aa_capsule (x0 AS SINGLE, y0 AS SINGLE, x1 AS SINGLE, y1 AS SINGLE, r AS SINGLE, col AS _UNSIGNED LONG)
+    DIM xa AS INTEGER, xb AS INTEGER, ya AS INTEGER, yb AS INTEGER, x AS INTEGER, y AS INTEGER
+    DIM vx AS SINGLE, vy AS SINGLE, l2 AS SINGLE, ro AS SINGLE, ro2 AS SINGLE
+    DIM wx AS SINGLE, wy AS SINGLE, t AS SINGLE, ddx AS SINGLE, ddy AS SINGLE, d2 AS SINGLE, cov AS SINGLE
+    ro! = r! + 0.5: ro2! = ro! * ro!
+    xa% = INT(_MIN(x0!, x1!) - ro!): xb% = -INT(-(_MAX(x0!, x1!) + ro!))
+    ya% = INT(_MIN(y0!, y1!) - ro!): yb% = -INT(-(_MAX(y0!, y1!) + ro!))
+    vx! = x1! - x0!: vy! = y1! - y0!: l2! = vx! * vx! + vy! * vy!
+    PAINT_AAM_USE = TRUE
+    FOR y% = ya% TO yb%
+        FOR x% = xa% TO xb%
+            wx! = x% - x0!: wy! = y% - y0!
+            t! = 0
+            IF l2! > 0 THEN
+                t! = (wx! * vx! + wy! * vy!) / l2!
+                IF t! < 0 THEN t! = 0
+                IF t! > 1 THEN t! = 1
+            END IF
+            ddx! = wx! - t! * vx!: ddy! = wy! - t! * vy!
+            d2! = ddx! * ddx! + ddy! * ddy!
+            IF d2! < ro2! THEN
+                cov! = ro! - SQR(d2!)
+                IF cov! > 1 THEN cov! = 1
+                IF cov! > 0.004 THEN PAINT_blend_pixel_sym x%, y%, col~&, cov!
+            END IF
+        NEXT x%
+    NEXT y%
+    PAINT_AAM_USE = FALSE
+END SUB
+
+''
+' TRUE when a thick line in col should be drawn as an antialiased capsule
+' (PAINT_aa_capsule): Antialias on, a round brush over 1px, a visible color.
+'
+FUNCTION PAINT_aa_thick_line% (col AS _UNSIGNED LONG)
+    PAINT_aa_thick_line% = (CFG.ANTIALIAS% <> 0 _ANDALSO BRUSH_SIZE.SHAPE = 0 _ANDALSO BRUSH_SIZE_pixels% > 1 _ANDALSO _ALPHA32(col~&) > 0 _ANDALSO CUSTOM_BRUSH_is_active% = 0)
+END FUNCTION
+
+''
+' Lift: the antialiased stroke's last half segment, to the last point, at the
+' last pressure. Call before PEN_opacity_end.
+'
+SUB PAINT_aa_finish ()
+    IF TABLET.aaPen = 0 _ORELSE TABLET.aaHas = 0 THEN EXIT SUB
+    IF ABS(TABLET.aaMX - TABLET.aaPX) < 0.01 _ANDALSO ABS(TABLET.aaMY - TABLET.aaPY) < 0.01 THEN EXIT SUB
+    TABLET.segP0 = TABLET.segP1
+    PAINT_aa_curve TABLET.aaMX, TABLET.aaMY, (TABLET.aaMX + TABLET.aaPX) / 2, (TABLET.aaMY + TABLET.aaPY) / 2, TABLET.aaPX, TABLET.aaPY, BRUSH_SIZE_pixels%, PEN_size_active%
+    TABLET.aaMX = TABLET.aaPX: TABLET.aaMY = TABLET.aaPY
+END SUB
+
+''
+' Soft discs along the quadratic curve (x0, y0) .. control (cx, cy) .. (x1, y1),
+' at the dabs' exact (fractional) places and sizes - sizes 1, 2, 3 ... and soft
+' 1px lines, where whole-pixel circles only come in odd sizes (1, 3, 5 ...).
+' Pressure runs segP0 -> segP1 along it. The discs merge by the strongest
+' coverage (the stroke mask), so dabs need no 1px spacing: each steps
+' 0.63 x sqrt(its radius) on (0.5px at least), which keeps the scallop between
+' dabs under 0.05px (r - sqrt(r^2 - (s/2)^2)). The curve's start is the last
+' curve's end (already drawn) unless it is a single point.
+'
+SUB PAINT_aa_curve (x0 AS SINGLE, y0 AS SINGLE, cx AS SINGLE, cy AS SINGLE, x1 AS SINGLE, y1 AS SINGLE, full AS INTEGER, sizeOn AS INTEGER)
+    DIM ax AS SINGLE, ay AS SINGLE, bx AS SINGLE, vmax AS SINGLE
+    DIM t AS SINGLE, u AS SINGLE, p AS SINGLE, dabF AS SINGLE, dr AS SINGLE
+    ' the curve's speed is between 2|C - P0| and 2|P1 - C|: step by the larger
+    ax! = SQR((cx! - x0!) * (cx! - x0!) + (cy! - y0!) * (cy! - y0!))
+    bx! = SQR((x1! - cx!) * (x1! - cx!) + (y1! - cy!) * (y1! - cy!))
+    vmax! = 2 * ax!: IF 2 * bx! > vmax! THEN vmax! = 2 * bx!
+    IF vmax! < 0.001 THEN t! = 1 ELSE t! = 0
+    DO
+        IF t! > 0 _ORELSE vmax! < 0.001 THEN
+            u! = 1 - t!
+            ax! = u! * u! * x0! + 2 * u! * t! * cx! + t! * t! * x1!
+            ay! = u! * u! * y0! + 2 * u! * t! * cy! + t! * t! * y1!
+            p! = PEN_dab_pressure!(t!)
+            TABLET.dabP = p!
+            IF TABLET.usingPen THEN TABLET.dabOp = PEN_dab_op!(p!) ELSE TABLET.dabOp = PAINT_OPACITY% / 100!
+            dabF! = full%
+            IF sizeOn% THEN dabF! = PEN_size_frac!(full%, p!)
+            ' Variable-width strokes can't be replayed as fixed-size brush calls: export as pixels.
+            IF dabF! <> full% THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
+            PAINT_draw_disc_aa ax!, ay!, dabF! / 2, DRAW_COLOR~&
+        ELSE
+            p! = PEN_dab_pressure!(0)
+            dabF! = full%
+            IF sizeOn% THEN dabF! = PEN_size_frac!(full%, p!)
+        END IF
+        IF t! >= 1 THEN EXIT DO
+        dr! = 0.63 * SQR(dabF! / 2): IF dr! < 0.5 THEN dr! = 0.5
+        t! = t! + dr! / vmax!
+        IF t! > 1 THEN t! = 1
+    LOOP
 END SUB
 
 
@@ -763,17 +981,34 @@ END SUB
 SUB PAINT_draw_disc_aa (cx AS SINGLE, cy AS SINGLE, r AS SINGLE, col AS _UNSIGNED LONG)
     DIM x0 AS INTEGER, x1 AS INTEGER, y0 AS INTEGER, y1 AS INTEGER, x AS INTEGER, y AS INTEGER
     DIM ddx AS SINGLE, ddy AS SINGLE, cov AS SINGLE, ro AS SINGLE, ro2 AS SINGLE
+    DIM fast AS INTEGER, apW AS LONG, apH AS LONG, bx AS LONG, by AS LONG, e AS INTEGER, rowIn AS INTEGER
     ro! = r! + 0.5: ro2! = ro! * ro!
     x0% = INT(cx! - ro!): x1% = -INT(-(cx! + ro!))
     y0% = INT(cy! - ro!): y1% = -INT(-(cy! + ro!))
+    ' In a masked stroke most of every dab lands where the stroke is already as
+    ' strong: look at the mask first and skip those pixels (PEN_op_write would
+    ' leave them alone anyway). Not with symmetry - its mirrored pixels differ.
+    fast% = (TABLET.opStroke <> 0 _ANDALSO SYMMETRY.MODE = 0 _ANDALSO CURRENT_LAYER% >= 1 _ANDALSO CURRENT_LAYER% <= MAX_LAYERS)
+    IF fast% THEN apW& = LAYERS(CURRENT_LAYER%).apronW%: apH& = LAYERS(CURRENT_LAYER%).apronH%
     FOR y% = y0% TO y1%
         ddy! = y% - cy!
+        by& = y% + apH&
+        rowIn% = (by& >= 0 _ANDALSO by& < TABLET.opH)
         FOR x% = x0% TO x1%
             ddx! = x% - cx!
             IF ddx! * ddx! + ddy! * ddy! < ro2! THEN
                 cov! = ro! - SQR(ddx! * ddx! + ddy! * ddy!)
                 IF cov! > 1 THEN cov! = 1
-                IF cov! > 0.004 THEN PAINT_blend_pixel_sym x%, y%, col~&, cov!
+                IF cov! > 0.004 THEN
+                    IF fast% _ANDALSO rowIn% THEN
+                        bx& = x% + apW&
+                        IF bx& >= 0 _ANDALSO bx& < TABLET.opW THEN
+                            e% = INT(TABLET.dabOp * cov! * 255 + 0.5): IF e% > 255 THEN e% = 255
+                            IF e% <= _MEMGET(TABLET_MASK_MEM, TABLET_MASK_MEM.OFFSET + by& * TABLET.opW + bx&, _UNSIGNED _BYTE) THEN _CONTINUE
+                        END IF
+                    END IF
+                    PAINT_blend_pixel_sym x%, y%, col~&, cov!
+                END IF
             END IF
         NEXT x%
     NEXT y%
@@ -850,7 +1085,9 @@ SUB PAINT_stamp_size (x AS INTEGER, y AS INTEGER, size AS INTEGER, col AS _UNSIG
                     ' Soft coverage-subtract erase for a transparent stamp (BUG-7, v2.0.0).
                     PAINT_erase_circle_aa x%, y%, radius%
                 ELSE
+                    PAINT_AAM_USE = TRUE
                     PAINT_draw_filled_circle_aa x%, y%, radius%, col~&
+                    PAINT_AAM_USE = FALSE
                 END IF
             ELSE
                 PAINT_draw_filled_circle x%, y%, radius%, col~&

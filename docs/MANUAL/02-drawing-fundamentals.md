@@ -53,6 +53,8 @@ Opacity by pressure shows live as you draw. Going over the same spot again never
 
 With **Antialias** on and a round brush, a pen stroke sizes smoothly through every width - 1, 2, 3, 4 px and the fractions between - instead of jumping between odd sizes, and thin parts of the stroke (down to 1px) stay soft-edged. Overlapping parts of one stroke never darken each other. With Antialias off, pen strokes stay crisp whole-pixel circles.
 
+Mouse strokes get the same treatment: with **Antialias** on and a round brush, a stroke keeps soft edges however much it overlaps itself. It follows the pointer's exact position between pixels (at a display scale of 2 or more, and when zoomed in), and its path rounds off the one-pixel steps of slow movement. Thick lines from the Line, Rectangle, Polygon, Bezier and smart-shape tools are drawn as one smooth shape, and soft edges on a transparent layer no longer turn dark.
+
 - **Setup.** Install the tablet maker's driver.
   - **Windows:** leave **Windows Ink** turned on in the driver's pen settings.
   - **macOS:** keep the driver's tablet app running in the menu bar.

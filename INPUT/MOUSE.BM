@@ -51,6 +51,62 @@ END FUNCTION
 ' @param rawY INTEGER Raw screen Y coordinate of the mouse cursor (output)
 ' @param wheel_delta INTEGER Mouse wheel scroll delta for this frame (output, accumulated)
 '
+''
+' A pointer event's position (window px - finer than viewport px when the
+' display scale is above 1) for this frame's samples.
+SUB MOUSE_smp_add (rx AS INTEGER, ry AS INTEGER)
+    IF MOUSE_SMP_RN > 0 THEN
+        IF MOUSE_SMP_RX(MOUSE_SMP_RN) = rx _ANDALSO MOUSE_SMP_RY(MOUSE_SMP_RN) = ry THEN EXIT SUB
+    END IF
+    IF MOUSE_SMP_RN >= MOUSE_SMP_MAX THEN EXIT SUB
+    MOUSE_SMP_RN = MOUSE_SMP_RN + 1
+    MOUSE_SMP_RX(MOUSE_SMP_RN) = rx: MOUSE_SMP_RY(MOUSE_SMP_RN) = ry
+END SUB
+
+''
+' The pending raw positions -> this frame's canvas samples (MOUSE_SMP_X / Y / FX /
+' FY / N), mapped as MOUSE.X is (zoom, pan, grid / character-grid snap, clamp),
+' leaving out repeats and the frame's own final point (rawX, rawY). None in
+' pattern-tile mode (the wrap). dx / dy: the canvas's top-left on screen.
+SUB MOUSE_smp_map (dx AS INTEGER, dy AS INTEGER, rawX AS INTEGER, rawY AS INTEGER)
+    DIM i AS INTEGER, ix AS INTEGER, iy AS INTEGER, fx AS DOUBLE, fy AS DOUBLE, z AS SINGLE
+    DIM lx AS INTEGER, ly AS INTEGER, apron AS INTEGER, n AS INTEGER, rn AS INTEGER
+    DIM ds AS INTEGER, vx AS INTEGER, vy AS INTEGER
+    rn = MOUSE_SMP_RN: MOUSE_SMP_RN = 0: MOUSE_SMP_N = 0
+    IF SCRN.patternTileMode% _ORELSE CROP.STATE = CROP_STATE_ACTIVE THEN EXIT SUB
+    z = SCRN.zoom!: IF z <= 0 THEN EXIT SUB
+    ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
+    apron = MOUSE_tool_allowed_in_apron%(CURRENT_TOOL%)
+    lx = MOUSE.X%: ly = MOUSE.Y% ' (never repeat the final point)
+    FOR i = 1 TO rn
+        vx = MOUSE_SMP_RX(i) \ ds: vy = MOUSE_SMP_RY(i) \ ds ' (viewport px)
+        IF vx = rawX _ANDALSO vy = rawY THEN _CONTINUE
+        ix = INT((vx - dx) / z): iy = INT((vy - dy) / z)
+        ' the window pixel's centre: sub-pixel at a display scale above 1
+        fx = ((MOUSE_SMP_RX(i) + 0.5#) / ds - dx) / z: fy = ((MOUSE_SMP_RY(i) + 0.5#) / ds - dy) / z
+        IF NOT MODIFIERS.ctrlShift% THEN
+            IF CHARMAP.charGridSnap% THEN CHARMAP_char_grid_snap_xy ix, iy ELSE GRID_snap_xy ix, iy
+        END IF
+        IF apron THEN
+            ix = _MAX(-APRON_W%, _MIN(SCRN.canvasW& + APRON_W% - 1, ix)): iy = _MAX(-APRON_H%, _MIN(SCRN.canvasH& + APRON_H% - 1, iy))
+        ELSE
+            ix = _MAX(0, _MIN(SCRN.canvasW& - 1, ix)): iy = _MAX(0, _MIN(SCRN.canvasH& - 1, iy))
+        END IF
+        IF INT(fx) <> ix _ORELSE INT(fy) <> iy THEN fx = ix + 0.5#: fy = iy + 0.5# ' (snapped / clamped)
+        IF n > 0 THEN
+            IF MOUSE_SMP_X(n) = ix _ANDALSO MOUSE_SMP_Y(n) = iy THEN _CONTINUE
+        END IF
+        n = n + 1
+        MOUSE_SMP_X(n) = ix: MOUSE_SMP_Y(n) = iy: MOUSE_SMP_FX(n) = fx: MOUSE_SMP_FY(n) = fy
+    NEXT i
+    ' the last sample on the final point adds nothing
+    IF n > 0 THEN
+        IF MOUSE_SMP_X(n) = lx _ANDALSO MOUSE_SMP_Y(n) = ly THEN n = n - 1
+    END IF
+    MOUSE_SMP_N = n
+END SUB
+
+
 SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
     wheel_delta% = 0
 
@@ -93,6 +149,7 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         mac_b1% = FALSE: mac_b2% = FALSE: mac_b3% = FALSE
         DO WHILE _MOUSEINPUT
             MOUSE_FRAME_EVTS% = MOUSE_FRAME_EVTS% + 1
+            MOUSE_smp_add _MOUSEX, _MOUSEY
             wheel_delta% = wheel_delta% + _MOUSEWHEEL
             IF MOUSE_TILT_AXIS% > 0 THEN tilt_accum% = tilt_accum% + _MOUSEWHEEL(MOUSE_TILT_AXIS%)
             ' Capture any button presses during the drain
@@ -105,6 +162,7 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
     $ELSE
         DO WHILE _MOUSEINPUT
             MOUSE_FRAME_EVTS% = MOUSE_FRAME_EVTS% + 1
+            MOUSE_smp_add _MOUSEX, _MOUSEY
             wheel_delta% = wheel_delta% + _MOUSEWHEEL
             IF MOUSE_TILT_AXIS% > 0 THEN tilt_accum% = tilt_accum% + _MOUSEWHEEL(MOUSE_TILT_AXIS%)
             ' a thumb button clicked within one frame (down and up before the drain
@@ -219,6 +277,13 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         ' the pixel's centre at zoom 1; the sub-pixel position zoomed in
         MOUSE.FX = (rawX% - dx% + 0.5#) / SCRN.zoom!
         MOUSE.FY = (rawY% - dy% + 0.5#) / SCRN.zoom!
+        ' finer from the window pixel when the display scale is above 1 (and
+        ' rawX is the window position's, not a reconstructed one)
+        IF SCRN.displayScale% > 1 _ANDALSO MOUSE.WIN_X% \ SCRN.displayScale% = rawX% _ANDALSO MOUSE.WIN_Y% \ SCRN.displayScale% = rawY% THEN
+            MOUSE.FX = ((MOUSE.WIN_X% + 0.5#) / SCRN.displayScale% - dx%) / SCRN.zoom!
+            MOUSE.FY = ((MOUSE.WIN_Y% + 0.5#) / SCRN.displayScale% - dy%) / SCRN.zoom!
+            IF INT(MOUSE.FX) <> MOUSE.X% _ORELSE INT(MOUSE.FY) <> MOUSE.Y% THEN MOUSE.FX = (rawX% - dx% + 0.5#) / SCRN.zoom!: MOUSE.FY = (rawY% - dy% + 0.5#) / SCRN.zoom!
+        END IF
     END IF
 
     ' Store unsnapped coordinates (for fill, picker, and other pixel-exact tools)
@@ -274,6 +339,9 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         IF MOUSE.X% >= SCRN.canvasW& THEN MOUSE.X% = SCRN.canvasW& - 1
         IF MOUSE.Y% >= SCRN.canvasH& THEN MOUSE.Y% = SCRN.canvasH& - 1
     END IF
+
+    ' This frame's in-between pointer positions, as canvas points (the brush draws through them)
+    MOUSE_smp_map dx%, dy%, rawX%, rawY%
 
     ' Update button states from hardware
     $IF MAC THEN
@@ -2921,6 +2989,7 @@ SUB MOUSE_tool_brush ()
         GRAD_CTX_set MOUSE.X%, MOUSE.Y%, MOUSE.X%, MOUSE.Y%
         ' Pen Control: smoothing / pressure processing / speed scaling start here
         PENC_stroke_begin BRUSH_HISTORY_SMART%
+        MOUSE_SMP_N = 0 ' (positions before the press are not the stroke)
     END IF
     ' Draw while LEFT or RIGHT button is held
     ' Right-click with SHIFT is for connecting lines, handled separately in MOUSE_handle_right_click
@@ -2939,12 +3008,16 @@ SUB MOUSE_tool_brush ()
             ' Pen Control: the speed gain, and with smoothing on the stroke
             ' draws to the smoothed point, not the pointer
             DIM bsX AS INTEGER, bsY AS INTEGER
+            MOUSE_brush_samples ' the frame's in-between pointer positions first
             PENC_stroke_step bsX, bsY
             IF PENC_stab_stroke% THEN
+                PEN_aa_target STAB.x, STAB.y
                 MOUSE_brush_paint_to bsX, bsY
             ELSE
+                PEN_aa_target PENC_fx#, PENC_fy#
                 PAINT_on
             END IF
+            TABLET.subN = 0
         END IF
     END IF
 END SUB
@@ -2966,6 +3039,40 @@ SUB MOUSE_brush_paint_to (sx AS INTEGER, sy AS INTEGER)
 END SUB
 
 ''
+' Draw a brush stroke through this frame's in-between pointer positions
+' (MOUSE_SMP_*) - a fast stroke follows the pen instead of cutting straight
+' from frame to frame. Smoothing gets each one at a time spread over the
+' frame; pressure is shared out over the pieces (TABLET.subN / subK, see
+' PEN_segment_begin). Leaves MOUSE.OLD at the last piece's end for the
+' caller's final segment to the pointer.
+SUB MOUSE_brush_samples ()
+    DIM n AS INTEGER, k AS INTEGER, sx AS INTEGER, sy AS INTEGER, t0 AS DOUBLE, t1 AS DOUBLE, z AS SINGLE
+    n = MOUSE_SMP_N: MOUSE_SMP_N = 0
+    TABLET.subN = 0
+    IF n < 1 THEN EXIT SUB
+    IF TABLET.stabOn = 0 THEN TABLET.stabDX = MOUSE.OLD_X%: TABLET.stabDY = MOUSE.OLD_Y%
+    t1 = TIMER(.001): t0 = TABLET.stepT
+    IF t0 <= 0 _ORELSE t0 > t1 THEN t0 = t1
+    z = SCRN.zoom!: IF z <= 0 THEN z = 1
+    TABLET.subN = n + 1: TABLET.subTo = -1
+    FOR k = 1 TO n
+        TABLET.subK = k
+        IF TABLET.stabOn THEN
+            STAB_step MOUSE_SMP_FX(k), MOUSE_SMP_FY(k), t0 + (t1 - t0) * k / (n + 1), STAB.amount / z
+            sx = INT(STAB.x): sy = INT(STAB.y)
+        ELSE
+            sx = MOUSE_SMP_X(k): sy = MOUSE_SMP_Y(k)
+        END IF
+        IF sx <> TABLET.stabDX _ORELSE sy <> TABLET.stabDY THEN
+            IF TABLET.stabOn THEN PEN_aa_target STAB.x, STAB.y ELSE PEN_aa_target MOUSE_SMP_FX(k), MOUSE_SMP_FY(k)
+            MOUSE_brush_paint_to sx, sy
+        END IF
+    NEXT k
+    TABLET.subK = n + 1
+    IF TABLET.stabOn = 0 THEN MOUSE.OLD_X% = TABLET.stabDX: MOUSE.OLD_Y% = TABLET.stabDY
+END SUB
+
+''
 ' Pen Control Catch Up on lift (Moving Average / EMA): the stroke is finished
 ' to where the pointer let go, along the filter's own path - one segment per
 ' virtual frame, holding the last pressure.
@@ -2976,11 +3083,11 @@ SUB MOUSE_brush_catch_up ()
     FOR i = 1 TO STAB_CATCH_MAX
         IF STAB_catch_step% = 0 THEN EXIT FOR
         sx = INT(STAB.x): sy = INT(STAB.y)
-        IF sx <> TABLET.stabDX _ORELSE sy <> TABLET.stabDY THEN MOUSE_brush_paint_to sx, sy
+        IF sx <> TABLET.stabDX _ORELSE sy <> TABLET.stabDY THEN PEN_aa_target STAB.x, STAB.y: MOUSE_brush_paint_to sx, sy
     NEXT i
     ' the last pixel: the pointer's own
     IF MOUSE.X% <> TABLET.stabDX _ORELSE MOUSE.Y% <> TABLET.stabDY THEN
-        IF STAB.catchUp _ANDALSO (STAB.mode = STAB_MA _ORELSE STAB.mode = STAB_EMA) THEN MOUSE_brush_paint_to MOUSE.X%, MOUSE.Y%
+        IF STAB.catchUp _ANDALSO (STAB.mode = STAB_MA _ORELSE STAB.mode = STAB_EMA) THEN PEN_aa_target PENC_fx#, PENC_fy#: MOUSE_brush_paint_to MOUSE.X%, MOUSE.Y%
     END IF
     TABLET.catching = FALSE
 END SUB
@@ -3788,6 +3895,7 @@ SUB MOUSE_release_brush ()
     ' Pen Control: finish a smoothed stroke to the pointer (Catch Up), then
     ' forget it (before the pixel-perfect replay, which draws what it collected)
     MOUSE_brush_catch_up
+    PAINT_aa_finish ' an antialiased stroke's last half segment
     PENC_stroke_end
     IF BRUSH_SIZE.PIXEL_PERFECT AND PP_STROKE_COUNT% > 0 THEN
         BMIX_begin_replay ' mix brush: redraw each pixel in its own stroke color

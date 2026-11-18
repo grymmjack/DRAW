@@ -439,6 +439,21 @@ DIM SHARED INPUTS_LOG_PATH AS STRING
 ' post-launch activation gap).
 DIM SHARED MOUSE_FRAME_EVTS AS INTEGER
 
+' Every pointer position of a frame (Rick 2026-11-17: fast pen strokes came out
+' as straight lines between frames). Both _MOUSEINPUT drains (MOUSE_drain_update_state
+' and DRAW.BAS's late drain) add each event's viewport position to the raw list;
+' MOUSE_smp_map turns them into canvas points (same zoom / pan / snap / clamp as
+' MOUSE.X) for the brush, which draws through them in order (MOUSE_brush_samples).
+CONST MOUSE_SMP_MAX = 160
+DIM SHARED MOUSE_SMP_RX(1 TO MOUSE_SMP_MAX) AS INTEGER ' raw, window px (pending)
+DIM SHARED MOUSE_SMP_RY(1 TO MOUSE_SMP_MAX) AS INTEGER
+DIM SHARED MOUSE_SMP_RN AS INTEGER
+DIM SHARED MOUSE_SMP_X(1 TO MOUSE_SMP_MAX) AS INTEGER  ' this frame's, canvas px (the last = before MOUSE.X)
+DIM SHARED MOUSE_SMP_Y(1 TO MOUSE_SMP_MAX) AS INTEGER
+DIM SHARED MOUSE_SMP_FX(1 TO MOUSE_SMP_MAX) AS DOUBLE  ' ... sub-pixel, for smoothing
+DIM SHARED MOUSE_SMP_FY(1 TO MOUSE_SMP_MAX) AS DOUBLE
+DIM SHARED MOUSE_SMP_N AS INTEGER
+
 ' [macOS] Global-cursor fallback calibration (see DRAW_global_cursor). Maps the
 ' OS global cursor (physical pixels) onto DRAW's viewport coords. SCALE = global
 ' units per viewport pixel = display backing scale / SCRN.displayScale (the backing

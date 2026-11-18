@@ -115,7 +115,18 @@ SUB PEN_segment_begin ()
         EXIT SUB
     END IF
     TABLET.painted = TRUE
-    TABLET.segP1 = PEN_stroke_pressure!
+    IF TABLET.subN > 1 THEN
+        ' a frame drawn in pieces (MOUSE_brush_samples): read the pressure once,
+        ' and give each piece its share of the frame's change
+        IF TABLET.subTo < 0 THEN
+            TABLET.subTo = PEN_stroke_pressure!
+            TABLET.subFrom = TABLET.segP0: IF TABLET.subFrom < 0 THEN TABLET.subFrom = TABLET.subTo
+        END IF
+        TABLET.segP0 = TABLET.subFrom + (TABLET.subTo - TABLET.subFrom) * (TABLET.subK - 1) / TABLET.subN
+        TABLET.segP1 = TABLET.subFrom + (TABLET.subTo - TABLET.subFrom) * TABLET.subK / TABLET.subN
+    ELSE
+        TABLET.segP1 = PEN_stroke_pressure!
+    END IF
     IF TABLET.segP0 < 0 THEN TABLET.segP0 = TABLET.segP1
     TABLET.dabP = TABLET.segP1
     ' Paths that don't interpolate per dab (pixel perfect) use the segment's end.
@@ -133,6 +144,7 @@ END FUNCTION
 
 SUB PEN_segment_end ()
     TABLET.segP0 = TABLET.segP1
+    TABLET.aaT = FALSE
 END SUB
 
 ''
@@ -217,9 +229,12 @@ SUB PEN_opacity_begin ()
     ' fractional sizes and centers - every size 1, 2, 3 ... and a soft 1px line - and
     ' go through this per-pixel mask too, so overlapping soft dabs never darken.
     ' (Not the mix brush: it mixes against the live layer.)
+    ' The mouse too (Rick 2026-11-17, "our anti aliasing algorithm is pretty
+    ' shitty"): its soft circles used to stack up over each other until every
+    ' edge pixel was solid - a hard edge.
     aa% = (CFG.ANTIALIAS% <> 0 _ANDALSO BRUSH_SIZE.SHAPE = 0 _ANDALSO (CFG.BRUSH_MIX% = 0 _ORELSE CURRENT_TOOL% <> TOOL_BRUSH))
     IF CFG.PEN_PRESSURE_OPACITY% = 0 _ANDALSO aa% = 0 THEN EXIT SUB
-    IF NOT PEN_active% THEN EXIT SUB
+    IF aa% = 0 _ANDALSO NOT PEN_active% THEN EXIT SUB
     IF CURRENT_TOOL% <> TOOL_BRUSH AND CURRENT_TOOL% <> TOOL_ERASER THEN EXIT SUB
     IF CUSTOM_BRUSH_is_active% THEN EXIT SUB
     IF BRUSH_HISTORY_SMART% THEN EXIT SUB
@@ -239,6 +254,8 @@ SUB PEN_opacity_begin ()
     TABLET.opStroke = TRUE
     TABLET.opByP    = (CFG.PEN_PRESSURE_OPACITY% <> 0)
     TABLET.aaPen    = aa%
+    TABLET.aaHas    = FALSE
+    TABLET.aaT      = FALSE
     ' Per-pixel opacity can't be replayed as fixed brush calls: export as pixels.
     BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
 END SUB
@@ -256,7 +273,19 @@ SUB PEN_opacity_end ()
     TABLET.opStroke = FALSE
     TABLET.opByP    = FALSE
     TABLET.aaPen    = FALSE
+    TABLET.aaHas    = FALSE
+    TABLET.aaT      = FALSE
     TABLET.dabOp    = 1
+END SUB
+
+''
+' The exact end of the next antialiased stroke segment: a pointer position in
+' MOUSE.FX terms (pixel x spans x..x+1). PAINT_on draws whole pixels; this
+' gives it the sub-pixel point the whole pixel came from.
+SUB PEN_aa_target (fx AS DOUBLE, fy AS DOUBLE)
+    TABLET.aaT = TRUE
+    TABLET.aaTX = fx - 0.5#
+    TABLET.aaTY = fy - 0.5#
 END SUB
 
 ''
@@ -308,10 +337,11 @@ SUB PEN_op_write (bx AS LONG, by AS LONG, col AS _UNSIGNED LONG, coverage AS SIN
     m% = _MEMGET(TABLET_MASK_MEM, TABLET_MASK_MEM.OFFSET + idx&, _UNSIGNED _BYTE)
     e% = INT(TABLET.dabOp * coverage! * 255 + 0.5)
     IF e% > 255 THEN e% = 255
-    IF e% > m% THEN
-        m% = e%
-        _MEMPUT TABLET_MASK_MEM, TABLET_MASK_MEM.OFFSET + idx&, m% AS _UNSIGNED _BYTE
-    END IF
+    ' no stronger than this stroke already put here: the pixel would come out the
+    ' same (overlapping dabs - most of every dab - cost nothing)
+    IF e% <= m% THEN EXIT SUB
+    m% = e%
+    _MEMPUT TABLET_MASK_MEM, TABLET_MASK_MEM.OFFSET + idx&, m% AS _UNSIGNED _BYTE
     bk~& = _MEMGET(TABLET_BAK_MEM, TABLET_BAK_MEM.OFFSET + idx& * 4, _UNSIGNED LONG)
     _DONTBLEND
     IF _ALPHA32(c~&) = 0 THEN
@@ -368,6 +398,7 @@ SUB PENC_stroke_begin (smart AS INTEGER)
     DIM t AS DOUBLE
     PENC_sync
     t = TIMER(.001)
+    TABLET.stepT = t: TABLET.subN = 0
     TABLET.catching = FALSE
     TABLET.stabOn = (STAB_on% <> 0 _ANDALSO smart = 0)
     IF TABLET.stabOn THEN STAB_begin PENC_fx#, PENC_fy#, t ELSE STAB_end
@@ -392,6 +423,7 @@ END FUNCTION
 SUB PENC_stroke_step (sx AS INTEGER, sy AS INTEGER)
     DIM t AS DOUBLE, z AS SINGLE, g AS SINGLE
     t = TIMER(.001)
+    TABLET.stepT = t
     g = PSPD_step!(CDBL(MOUSE.RAW_X%), CDBL(MOUSE.RAW_Y%), t)
     sx = MOUSE.X%: sy = MOUSE.Y%
     IF TABLET.stabOn = 0 THEN EXIT SUB
