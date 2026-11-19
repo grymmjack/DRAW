@@ -102,7 +102,10 @@ else
     scroll_up $(( FS_X + FS_W / 2 )) $(( FS_Y + FS_H / 2 )); fs_read
     [[ "$FS_Z" -gt "$FS_Z1" ]] && pass "wheel up: zoomed in ($FS_Z1% -> $FS_Z%)" || fail "wheel up: $(fs_s)"
     FS_MX=$(( FS_X + FS_W / 2 )); FS_MY=$(( FS_Y + FS_H / 2 ))
-    middle_click "$FS_MX" "$FS_MY"; middle_click "$FS_MX" "$FS_MY"; fs_read
+    # one timed sequence, as the harness's double_click does: two separate middle_click
+    # calls land > 0.4 s apart on Windows (a driver call costs ~70 ms) and on a loaded host
+    read -r FS_SX FS_SY <<< "$(adapter_to_screen "$FS_MX" "$FS_MY")"
+    raw_seq move $(( FS_SX + 1 )) "$FS_SY" sleep 80 down 2 sleep 60 up 2 sleep 70 down 2 sleep 60 up 2; sleep 0.3; fs_read
     [[ "$FS_Z" == 100 && "$FS_W" == 16 ]] && fs_shows 4 && pass "double middle click: 100% (16 px on screen), frame 4 shown" || fail "double middle click: $(fs_s)"
     FS_X0=$FS_X; FS_Y0=$FS_Y
     mouse_down $(( FS_X + 4 )) $(( FS_Y + 4 )) 2

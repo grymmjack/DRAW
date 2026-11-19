@@ -124,8 +124,7 @@ if [[ ! -x "$QB64PE_BIN" ]]; then
     qf_cleanup; return 0 2>/dev/null || exit 0
 fi
 # the program is native: on Windows (Git Bash) it can't open an MSYS path like /tmp/...
-QF_OUT_NATIVE="$QF_WORK/out.png"
-command -v cygpath >/dev/null && QF_OUT_NATIVE="$(cygpath -m "$QF_OUT_NATIVE")"
+QF_OUT_NATIVE="$(native_path "$QF_WORK/out.png")"
 {
     echo '$CONSOLE:ONLY'
     sed -e 's/^SCREEN _NEWIMAGE(CANVAS_W, CANVAS_H, 32)$/DIM SHARED qaScreen AS LONG: qaScreen = _NEWIMAGE(CANVAS_W, CANVAS_H, 32): _DEST qaScreen/' \
