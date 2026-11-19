@@ -92,7 +92,7 @@
 - [Farm: no GUI popups, trap crashes](farm-no-gui-popups-trap-crashes.md) — never pop windows on mac/thinkpad; trap SIGSEGV in-process (sigtrap.h) so no macOS/WER crash dialog; QA runs may take over mac/thinkpad/titan screens (Rick 2026-10-09) - say so before a full suite
 - [Menu fires on press](menu-fires-on-press.md) — modals opened from the menu must swallow the held button (FD wrappers, DIALOG inputArmed)
 - [Document filename invariants](document-filename-invariants.md) — set CURRENT_DRW/CURRENT_FILENAME only via SAVE_set_document_file; sidecar setting, Flatten & Save, Export Again
-- [Test like the user](feedback-test-like-the-user.md) — reproduce the user's steps (overflow/junk/docked), not the happy path; small-region asserts need tolerance ~3, default 1500 passes anything
+- [Test like the user](feedback-test-like-the-user.md) — reproduce the user's steps (overflow/junk/docked); small-region asserts need tolerance ~3; snap where the EFFECT shows, not its cause
 - [QA user-profile window cap](qa-user-profile-placement-race.md) — [Linux] 1152x712@3 user-profile run aborts "3456x1944" on 3840x2160: DRAW caps the startup window at 90% of the desktop; use QA_XVFB_RES=3840x2400
 - [_KEYHIT drained after render](keyhit-drained-after-render.md) — DRAW.BAS k& = _KEYHIT almost never sees keys (post-render drain); hook INKEY$ / _KEYDOWN edges instead; raw xdotool alt+key too fast, use harness key
 - [Animation project](project-animation.md) — branch animation, PLANS/ANIMATION.md; canvas = sprite sheet; requirements via field kit artifact
@@ -121,4 +121,4 @@
 - [QA: DP ids shift, floating z-order](qa-dp-ids-and-float-zorder.md) — never hardcode DP_ ids in tests (DP_PREVIEW 12 now); dk_grab_point uses the WZ front-to-back line
 - [macOS numpad digits = main-row digits](qb64pe-macos-numpad-digits.md) — [macOS] QB64-PE gives KP_0..9 no own codes (KP_0 = 48), so DRAW numpad frame keys can't work there; KP_+ etc. do; qa-io mac/win had no KP_ keys until 2026-11-17
 - [UI text is UPPERCASE](feedback-ui-text-uppercase.md) — every panel/menu/settings/dialog string in caps; user data keeps case; UCASE$ at draw + measure sites (Rick 2026-11-17)
-- [Tests in the background](feedback-tests-in-background.md) — run QA with run_in_background and keep working; never wait on a test run
+- [Tests in the background](feedback-tests-in-background.md) — QA runs AND farm waits/collectors go run_in_background, always; never wait on one (said twice: 11-18, 11-19)

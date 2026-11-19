@@ -14,7 +14,7 @@
 ' Keyboard while dragging:
 '   ↑/↓   Z_DEPTH ±5 (extrusion thickness)
 '   ←/→   ROT_Y ±5
-'   Wheel ROT_X ±5 (Shift = ±15 coarse)
+'   Wheel ROT_X ±5 (Shift = ±25 coarse)
 '
 ' Number keys 1..0 are intentionally NOT consumed so opacity adjustment via
 ' the digit row keeps working during drag.

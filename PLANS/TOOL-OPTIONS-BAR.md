@@ -114,3 +114,25 @@ shared button, action 959 / 960) · `PRESSURE` (on / off, → Pen Control) · `S
   checklist of every control and behavior, plus the existing text / Text Bar QA, must pass before
   and after. Any difference blocks the merge.
 - **Phase 4 dropped** (keep the twins and the bar buttons).
+
+## Build notes (phase 1, 2026-11-19)
+
+- **Start from `GUI/SEL-BAR`.** It is already table-shaped: control ids (`SBC_*`) with a kind
+  (chip / toggle / slider / button), label, on, value / lo / hi / set / reset, press, tooltip and
+  dump, and `SELBAR_layout%` wraps the controls into lines across the width the dock gives, so a
+  column dock already gets a narrow, many-line bar. Phase 1 = a per-tool list in `SELBAR_list%`
+  (switch on `CURRENT_TOOL%`, the marquee keeps its variant switch unchanged), new ids per tool,
+  `SELBAR_wanted%` for every tool with options, and the panel title / dump names. Rename the
+  module to Tool Options (`TOPT_`) only once it has outgrown the selection tools.
+- **Sliders stay the universal value input:** drag or click the track, wheel (Shift ×10),
+  double-click the track to reset, double-click the value to type (`VAL_type%`), middle-click to
+  reset.
+- **Overflow:** today the bar grows a line per wrap (`DP_H_FIXED`, `SELBAR_h_for%`). Add the
+  invisible wheel scroll only for a floating or column bar shorter than its lines.
+- **QA geometry:** a bar shown for every tool moves the canvas down in every test. `QA/DRAW.qa.cfg`
+  should set `SELECTION_BAR=FALSE`, and the Tool Options tests turn it on with
+  `QA-OPTIONS: SELECTION_BAR=TRUE`, as the selection-bar tests already can. Otherwise ~600 tests'
+  canvas coordinates shift.
+- **The transient row** (`DOCK_row_transient%` + `DOCK_SHIFT_Y`) can go once the bar is shown for
+  every tool you stay in. Keep it until then: one-shot buttons and Pan (if Pan shows nothing)
+  would still make the bar come and go.

@@ -20,4 +20,10 @@ shipped as "verified".
   label snap (the old overflow differed by 23-50 px and would have PASSED). Pass an
   explicit tolerance (e.g. 3) for small regions, and look at the snap PNGs once to
   confirm they frame what you mean.
+- Snap the region where the EFFECT should be, apart from its cause. util-symmetry
+  passed for months with "regions differ" over an area holding the stroke itself, so
+  a symmetry centre at the canvas corner (half the apron-sized layer buffer) that put
+  every mirror off the canvas never failed it (2026-11-19). It now snaps the mirror
+  side alone. When a check fails, look at the snaps before theorising: the first
+  "fix" there (a dirty-rect change) rested on a guess and was reverted.
 - Related: [[qa-harness-toolkit]]
