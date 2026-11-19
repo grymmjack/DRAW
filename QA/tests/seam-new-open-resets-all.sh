@@ -46,6 +46,13 @@ click $(( CANVAS_CX + 15 )) $(( CANVAS_CY - 15 ))
 wait_for 0.2 "Vertex 2 (partial polygon)"
 assert_no_crash
 
+# the document as it stands now - the stroke, the select-all ants and the partial polygon's
+# rubber band all stay after a cancelled New, so compare against this, not the bare stroke
+# (comparing to the bare stroke failed on every build since the test was written: 2324-14400 px)
+park_mouse
+snap_region $(( CANVAS_CX - 45 )) $(( CANVAS_CY - 20 )) 90 40 "seam-new-before-new"
+BEFORE_NEW="$SNAP_RESULT"
+
 # -- File>New opens the size dialog; CANCEL it with Escape --
 info "File>New (Ctrl+N) — dialog opens; Escape cancels it"
 key ctrl+n
@@ -58,7 +65,7 @@ assert_no_crash
 park_mouse
 snap_region $(( CANVAS_CX - 45 )) $(( CANVAS_CY - 20 )) 90 40 "seam-new-after-cancel"
 AFTER_CANCEL="$SNAP_RESULT"
-assert_regions_same "$CONTENT" "$AFTER_CANCEL" "Cancelling File>New must leave the original document intact"
+assert_regions_same "$BEFORE_NEW" "$AFTER_CANCEL" "Cancelling File>New must leave the original document intact"
 
 # -- App must be fully usable: switch to brush and draw; the stroke must land --
 info "After cancel: switch to brush and draw — must land (no stuck modal)"
