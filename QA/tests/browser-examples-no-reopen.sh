@@ -62,7 +62,7 @@ VX=$(( WX + (LX + 30) * WW / DW )); VY=$(( WY + FY * WW / DW ))
 (( VY < WY + WH - 4 )) || fail "row $ROW (y $VY) is below the window ($WY + $WH): make the Browser taller"
 double_click "$VX" "$VY"; wait_for 1.5 "the file opens"; dk_park; dk_settle; bs
 FILE1="$BS_DOC"; info "after the double-click: $(bs_s)"
-(( BS_OPENS == 1 )) && [[ "$FILE1" == *SAMPLES/* ]] && pass "double-click: opened $(basename "$FILE1") (one open)" || fail "double-click: $(bs_s)"
+(( BS_OPENS == 1 )) && [[ "$FILE1" == *SAMPLES[/\\]* ]] && pass "double-click: opened $(basename "$FILE1") (one open)" || fail "double-click: $(bs_s)"
 (( BS_VIS == 0 )) && pass "and the Browser hid" || fail "the Browser still shows: $(bs_s)"
 
 # --- 3. Examples again ------------------------------------------------------------
