@@ -183,7 +183,7 @@ if [[ -z "$PX" ]]; then
     fail "no pane for the current frame: $(bn_line ANIM) | $(bn_line ANIMLBP)"
 else
     bn_key KP_1; bn_read; bn_pane
-    bn_key m
+    bn_key m; bn_read; bn_pane # (the selection tools' bar can show and move the panes: read them again)
     mouse_down "$(bn_px 5)" "$(bn_py 5)"; hover "$(bn_px 6)" "$(bn_py 7)"; sleep 0.2; hover "$(bn_px 7)" "$(bn_py 9)"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"
     bn_cmd "animbrush: pick up (the"; bn_read
@@ -205,7 +205,7 @@ else
 
     # -- a plain brush over the AnimBrush bin 2 (drop the AnimBrush first) --
     bn_key ctrl+b
-    bn_key m
+    bn_key m; bn_read; bn_pane # (the selection tools' bar can show and move the panes: read them again)
     mouse_down "$(bn_px 1)" "$(bn_py 1)"; hover "$(bn_px 5)" "$(bn_py 5)"; sleep 0.2; hover "$(bn_px 10)" "$(bn_py 11)"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"
     bn_key ctrl+b; bn_read

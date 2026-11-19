@@ -70,7 +70,7 @@ else
     pass "lightbox shown, 4 frames, current 1"
 
     # -- a rectangle in frame 1 --
-    sf_key m
+    sf_key m; sf_read # (the selection tools' bar can show and move the panes: read them again)
     mouse_down "$(sf_px 3)" "$(sf_py 3)"
     hover "$(sf_px 7)" "$(sf_py 7)"; sleep 0.2
     hover "$(sf_px 11)" "$(sf_py 11)"; sleep 0.3
@@ -114,7 +114,7 @@ else
 
     # -- a magic wand mask follows too --
     sf_key KP_1; sf_read
-    sf_key w
+    sf_key w; sf_read # (the selection tools' bar can show and move the panes: read them again)
     click "$(sf_px 7)" "$(sf_py 7)"; wait_for 0.6 "wand"; sf_read
     SF_WX1=$S_X1; SF_WX2=$S_X2; SF_WY1=$S_Y1
     if [[ "$S_WAND" != -1 || "$S_X1" -lt 0 || "$S_X2" -gt 15 ]]; then

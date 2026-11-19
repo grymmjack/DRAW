@@ -97,7 +97,7 @@ ab_cmd() { # run a command by name through the command palette
     type_text "$1"; wait_for 0.4 "Filtered"; key Return; wait_for 1.0 "$1"
 }
 ab_marquee() { # X1 Y1 X2 Y2 (cell px in the current pane)
-    ab_key m
+    ab_key m; ab_read # (the selection tools' bar can show and move the panes: read them again)
     mouse_down "$(ab_px "$1")" "$(ab_py "$2")"
     hover "$(ab_px $(( ($1 + $3) / 2 )))" "$(ab_py $(( ($2 + $4) / 2 )))"; sleep 0.2
     hover "$(ab_px "$3")" "$(ab_py "$4")"; sleep 0.3

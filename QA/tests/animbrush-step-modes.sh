@@ -99,7 +99,7 @@ else
     #    with nothing selected a pick up takes every frame (animbrush-pickup) --
     sm_key KP_5; sm_key KP_5; sm_read
     sm_strip 6; sm_strip 3 shift; sm_read
-    sm_key m
+    sm_key m; sm_read # (the selection tools' bar can show and move the panes: read them again)
     mouse_down "$(sm_px 6)" "$(sm_py 6)"; hover "$(sm_px 8)" "$(sm_py 8)"; sleep 0.2; hover "$(sm_px 9)" "$(sm_py 9)"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"
     sm_cmd "animbrush: pick up (the"; sm_read

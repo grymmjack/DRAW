@@ -118,7 +118,7 @@ if [[ "$A_COUNT" != 6 || -z "${PX:-}" || -z "${M_ON:-}" || -z "${V_PATH:-}" ]]; 
 else
     P0=$P_VIS
     # -- the brush: frame 1's bar; a new layer for the stamps --
-    m3_key m
+    m3_key m; m3_read # (the selection tools' bar can show and move the panes: read them again)
     mouse_down "$(m3_px 12)" "$(m3_py 14)"; hover "$(m3_px 16)" "$(m3_py 16)"; sleep 0.2; hover "$(m3_px 19)" "$(m3_py 17)"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"
     m3_key ctrl+b; m3_key ctrl+shift+n; m3_read
