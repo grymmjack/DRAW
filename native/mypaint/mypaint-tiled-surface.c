@@ -1,5 +1,4 @@
 /* DRAW: patched by DEV/mypaint/patch.py */
-/* DRAW: patched by DEV/mypaint/patch.py */
 /* libmypaint - The MyPaint Brush Library
  * Copyright (C) 2007-2014 Martin Renold <martinxyz@gmx.ch> et. al.
  *

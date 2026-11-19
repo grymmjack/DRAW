@@ -7,7 +7,7 @@ def edit(name, fn):
     p = D / name
     s = p.read_text()
     t = fn(s)
-    if t != s:
+    if t != s and not t.startswith("/* DRAW: patched by"):
         t = "/* DRAW: patched by DEV/mypaint/patch.py */\n" + t
     p.write_text(t)
 
@@ -69,3 +69,11 @@ rep('mypaint-brush.c', [
 ])
 # C++17: no 'register'
 edit('rng-double.c', lambda s: re.sub(r'\bregister\s+', '', s))
+# clang (macOS + llvm-mingw Windows builds) errors that g++ only warns about (2026-11-19 farm):
+# double -> float narrowing inside a braced initializer
+rep('mypaint-matrix.c', [('2.0 * x * y', '2.0f * x * y')])
+# macOS: <objc/objc.h> #defines YES / NO, so the local enum's names break - rename them
+def painted(s):
+    return '\n'.join(re.sub(r'\b(UNKNOWN|YES|NO)\b', r'PAINTED_\1', l) if 'painted' in l and 'painted_now' not in l else l
+                     for l in s.split('\n'))
+edit('mypaint-brush.c', painted)
