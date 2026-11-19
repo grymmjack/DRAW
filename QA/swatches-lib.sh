@@ -33,7 +33,7 @@ sw_empty_xy() {
 
 # Edits save into My Swatches (PATHS_data$("SWATCHES/")). A normal QA run
 # shares the real ~/.local/share/DRAW, so an editing test relaunches DRAW on a
-# scratch XDG_DATA_HOME first ([Linux]). In a user-profile run the scratch
+# scratch XDG_DATA_HOME first ([Linux]; [Windows] APPDATA, below). In a user-profile run the scratch
 # folder starts as a copy of the profile's data, and the harness's re-copy on
 # every launch is switched off for this test (it would wipe what the test
 # saved before a restart). SW_MINE = the My Swatches folder DRAW now uses.
@@ -44,6 +44,10 @@ sw_isolate() {
     sw_quit_wait
     export XDG_DATA_HOME="${RESULTS_DIR:-/tmp}/sw-data-$RANDOM$RANDOM"
     rm -rf "$XDG_DATA_HOME"; mkdir -p "$XDG_DATA_HOME"
+    # [Windows] DRAW's data folder is %APPDATA%\DRAW (CORE/PATHS), not XDG: point APPDATA at the
+    # same scratch folder, or the test looks in one place and DRAW saves in the real one (farm
+    # 2026-11-19: "no qa-out.gpl in My Swatches"). [macOS] it is $HOME/Library/... - not isolated.
+    case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) export APPDATA="$(cygpath -w "$XDG_DATA_HOME")" ;; esac
     if [[ "${QA_USER_PROFILE:-0}" == 1 ]]; then
         [[ -n "$src" && -n "${RESULTS_DIR:-}" && "$src" == "$RESULTS_DIR"/* && -d "$src/DRAW" ]] && cp -a "$src/DRAW" "$XDG_DATA_HOME/DRAW"
         QA_USER_PROFILE=0 # this test's subshell only
