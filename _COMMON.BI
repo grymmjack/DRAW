@@ -105,6 +105,10 @@ CMDLINE_FIRST_FRAME% = TRUE
 
 ' Tool modes - basic drawing tools (1-20)
 CONST TOOL_NULL           = 0                              ' Internal null tool - does nothing, no toolbar button
+' Brush sizes (TOOLS/BRUSH-SIZE): index 1..BRUSH_SIZE_COUNT = 1, 3, 5 .. 101 px (was 25 = 49 px;
+' Rick 2026-11-18: "we should have bigger brushes than that in the palette, up to 100 at least")
+CONST BRUSH_SIZE_COUNT = 51
+
 CONST TOOL_BRUSH          = 1
 CONST TOOL_FILL           = 2
 CONST TOOL_DOT            = 3

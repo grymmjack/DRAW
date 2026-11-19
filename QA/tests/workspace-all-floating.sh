@@ -43,7 +43,10 @@ wsa() { awk '$1=="WSA" {print $2}' "$DK_DUMP"; }
 # the tree without the text bar's own row: it shows only with the text tool, so
 # it cannot be grabbed here, and docked it stays (a user floating everything
 # they see leaves it there too)
-tree_nt() { dk_tree | tr ';' '\n' | grep -vE '^ *(TOP|BOTTOM)\.[0-9]+: textbar *$' | tr '\n' ';' | sed 's/;$//'; }
+# (2026-11-18: the same for the other panels hidden here - the Selection Bar (a selection
+# tool's), the MyPaint brushes / settings and the brush palette (View menu, off))
+HIDDEN='(textbar|selbar|mypaint|mypaintset|brushes)'
+tree_nt() { dk_tree | tr ';' '\n' | grep -vE "^ *[A-Z]+\.[0-9]+: $HIDDEN( [|] $HIDDEN)* *\$" | tr '\n' ';' | sed 's/;$//'; }
 state() { grep -E '^P |^WIN ' "$DK_DUMP" | grep -v '^P [a-z0-9]* 0 0 '; }
 snap() { dk_park; dk_settle; state > "$WSD/$1.txt"; info "--- $1: WSA $(wsa); TREE [$(dk_tree)]"; }
 same() { # A B LABEL

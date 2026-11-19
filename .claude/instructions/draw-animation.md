@@ -1487,7 +1487,7 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   (what each cell of the display shows). QA: `layer-lanes.sh`, `group-lanes-export.sh`,
   `holds-and-lanes.sh`. Field guide: `docs/XSHEET-HOLDS-AND-LANES.md`.
 - **Effect lanes (`CLIP_LANE_BLUR` 13 / `PIXELATE` 14 / `INVERT` 15 / `NOISE` 16, layer lanes
-  only; `CLIP_LANE_LAST` = 16 bounds every lane id incl. a sub-lane's parent).** Baked by
+  only; `CLIP_LANE_LAST` = 18 bounds every lane id incl. a sub-lane's parent).** Baked by
   `LL_build`: per cell, per chain entry, `LL_xf` (only when `LL_still%` is false) then `LL_fx`
   (in place: `gj_lfx_pixelate` - block average with the alpha averaged too, `IMAGE_ADJ_blur_premul_rgba&`
   - spreads alpha, `gj_lfx_noise` - mono hash grain, seed `LL_noise_seed&` = frame (or the key's
@@ -1496,8 +1496,20 @@ playback and every exporter (`LAYERS_flatten&`) read it unchanged.
   `LL_fx_none%` (values from `LL_fx_vals`, clamped). Pixel layers and groups (`ANIM_XL_lane_ok%`),
   not clips. + LANE lists them after a divider; `ANIMPL_shows%` hides them on the LANES page until
   used. NOISE key menu `XL_V_KFROZEN` 31053. Lane-thumbnail Every Frame counts a grain change.
-  Tooltip ids now `6000 + idx*500 + f MOD 500` (idx 1-16, FREQ 17-32, AMP 33-48). QA:
-  `anim-effect-lanes.sh`.
+  Tooltip ids now `6000 + idx*400 + f MOD 400` (idx 1-18, FREQ 19-36, AMP 37-54 - keep under
+  32768). QA: `anim-effect-lanes.sh`.
+- **BLUR TYPE / BLUR ANGLE (`CLIP_LANE_BLURTYPE` = 17, `CLIP_LANE_BLURANG` = 18; `CLIP_LANE_LAST` /
+  `LL_LANES` = 18, Rick 2026-11-17 "allow motion blur - and controls for blur amount and blur
+  direction").** BLUR's properties: `LL_blur_props` gives the type (`CLIP_BLUR_*`: BOX 0, GAUSS 1,
+  MOTION 2, ZOOM 3, SPIN 4, FOLLOW 5 - motion along the entry's X/Y delta from f-1 to f+1, no blur
+  when still), the angle and the ZOOM/SPIN centre (pivot + the rounded X/Y move); `LL_fx` calls
+  `IMAGE_ADJ_blur_typed_at&` (GUI/IMAGE-ADJ: BOX/GAUSS the premul box passes, the rest
+  `native/imgfx.h gj_blur_dir` - premul bilinear taps, amount px; the Blur dialog uses it too).
+  BLUR is now 0-64. BLUR TYPE is a **stepped** lane like BLEND - `ANIM_XL_stepped%`,
+  `ANIM_XL_step_n%/step_name$/step_v%` (menu `XL_V_BTYPE` 31240+), `ANIM_XL_blend_tidy` holds both,
+  `ANIM_XL_blend_parse%(L, t)`. Display order `ANIM_XL_order%` (1-13, 17, 18, 14-16) drives the
+  X-sheet rows, the panel's LANES rows and + LANE. Older DRAWs skip lanes 17-18 (`LL_from_blob`).
+  QA: `anim-blur-lanes.sh`.
 - **BLEND lane (`CLIP_LANE_BLEND` = 12, layer lanes only).** Pixel layers only
   (`ANIM_XL_lane_ok%`: not a clip, not a group); values are `BLEND_*` ids, keys always HOLD
   (`ANIM_XL_blend_tidy` at every `ANIM_XL_commit`: integer, clamped, HOLD, no modulator). Not

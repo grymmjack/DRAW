@@ -173,7 +173,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+0` | Reset zoom to 100% and center |
 | `Ctrl+=` | Zoom in (1→2→3→5→7.5→10→15→20→25→50→100→200→300…800%; below 25% only for canvases big enough to stay 100px+ on screen) |
 | `Ctrl+-` | Zoom out |
-| `Wheel` | Zoom in/out at cursor |
+| `Wheel` | Zoom in/out at cursor (not while drawing a stroke with Pen Control's MOUSE tab on WHEEL: then it turns the stroke's pressure) |
 | `Hold Z + 1…9` | Zoom preset 100 / 200 / 300 / 400 / 500 / 600 / 700 / 800 / 1600% |
 | `Hold Z + 0` | Zoom 3200% |
 | `Shift+Wheel` | Vertical pan |
@@ -210,6 +210,8 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `Z` | Zoom | Click in / `Alt`+click out / drag region |
 | `T` / `Shift+T` / `Ctrl+T` | Text (VGA / Tiny5 / custom font) | |
 | `?` | Command Palette | |
+
+> **MyPaint Brush** (Tools > MyPaint Brush - no letter yet): MyPaint's natural-media brushes, picked from **View > MyPaint Brushes**. With the tool, `[` / `]` change the brush size as for any brush: the MyPaint brush is DRAW's brush size (1-101 px, its diameter; MYPAINT_SIZE_FROM_BRUSH). The command *MyPaint Brush: Size From Brush Size (on / off)* gives each brush its own radius again, then `[` / `]` step that (MYPAINT_SIZE, about 22% a step); L-Click paints FG, R-Click BG; one undo step per stroke. The palette: click a brush, `<` / `>` or the wheel over its top rows for the group, the wheel over the grid scrolls, LOAD / SAVE `.myb` (saved into MY BRUSHES). See manual chapter 9.
 
 > **Smart Shapes** and **3D Text** are on the toolbar's Smart Shapes flyout (long-press / right-click): Polygon, Pie/Donut, Rounded Rect, Tab, Pill, Pac-Man, 3D Dice, Bevel Rect, Arrow, 3D Text.
 
@@ -261,10 +263,10 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | — | Freehand / Polygon / Ellipse select (toolbar or command palette) |
 
 ### Marquee mouse
-`L-Drag` create · `Shift+Drag` add (union) · `Alt+Drag` subtract · drag corner/edge handle resize · drag inside move · `Click` away (no drag) deselects · hold `Space` while making any selection (rectangle, ellipse, freehand, polygon) to slide it without resizing; let go to carry on.
+`L-Drag` create · `Shift+Drag` add (union) · `Alt+Drag` subtract · `Shift+Alt+Drag` intersect · drag corner/edge handle resize · drag inside move · `Click` away (no drag) deselects · hold `Space` while making any selection (rectangle, ellipse, freehand, polygon) to slide it without resizing; let go to carry on.
 
 ### Magic wand mouse
-`L-Click` select contiguous · `Shift+Click` add · `Alt+Click` subtract · `Hold E + Click` flood-erase to transparent · `Hold F + Click` flood-fill FG · `Hold W + Click` select from merged canvas.
+`L-Click` select contiguous · `Shift+Click` add · `Alt+Click` subtract · `Shift+Alt+Click` intersect · `Hold E + Click` flood-erase to transparent · `Hold F + Click` flood-fill FG · `Hold W + Click` select from merged canvas.
 
 ### Selection keyboard
 | Keys | Action |
@@ -429,6 +431,7 @@ Middle-click the Text toolbar icon → load TTF/OTF. **TheDraw (TDF)** fonts: `[
 | `[` / `]` | Brush size − / + (fine, ±1) |
 | Pen pressure | With a drawing tablet, pressure sets Brush / Eraser size and (optionally) opacity, and the mix brush's paint. **View → Pen Control** panel, PRESSURE tab: live meter, per-target lightest-touch sliders, curve |
 | Stroke smoothing | **View → Pen Control**, SMOOTHING tab: Smooth Position (String / Average / EMA / Inertia, Amount, Catch Up, guide line + ring) steadies Brush / Eraser strokes, mouse or pen; Smooth Pressure (Fixed / Hold / Average / EMA). SPEED tab: pressure gain from pen speed (Slow / Fast / Speed / Smooth) with a speed→gain graph. Command palette: *Pen Control: Toggle Smoothing / Next Smoothing Mode / More / Less Smoothing / Toggle Pressure Smoothing / Toggle Speed Scaling* (bindable) |
+| Mouse pressure | **View → Pen Control**, MOUSE tab: a made-up pressure for mouse strokes - OFF / FIXED (Level) / SPEED (slow = heavy; Light, Fast, Smooth, Fast = Heavy) / WHEEL - plus Taper In / Out (px). `Wheel` **while drawing** in WHEEL mode: up = harder, down = lighter (Step %; `Shift+Wheel` ×4). Command palette: *Pen Control: Next Mouse Expression Mode* (bindable) |
 | `Ctrl+Wheel` | Brush size presets (1/3/5/7) |
 | `` ` `` | Toggle brush preview / cursor visibility |
 | `\` | Toggle brush shape / cursor shape |
@@ -478,7 +481,7 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 - **Effects menu** (Shape / Texture / Render engines): each dialog has a split ORIG/ADJ loupe, wheel-sliders, an angle dial, seed, MIX slider, Reset. Effects can clip to selection or run selection-as-shape.
 - **Last-effect shortcuts:** `Ctrl+F` re-apply last effect · `Ctrl+Alt+F` recall last effect (re-open its dialog) · `Ctrl+Shift+F` blend/fade last effect (blend modes + isolate-to-new-layer).
 - **CRT effect:** `Ctrl+Alt+O` toggle · View → CRT Effect Settings…
-- **Anti-Aliasing** (experimental, off by default): Edit → Anti-Aliasing toggle (status shows **AA**); Edit Bar Edge-Mode button (L-Click toggle, R-Click switch Pixel-Perfect ⟷ AA). Config `ANTIALIAS`.
+- **Anti-Aliasing** (experimental, off by default): Edit → Anti-Aliasing toggle (status shows **AA**); Edge-Mode button, on the Edit Bar, the Advanced Bar or the toolbox (L-Click toggle, R-Click switch Pixel-Perfect ⟷ AA). A toggle command on the toolbox (Toggle Anti-Aliasing, Pixel Perfect, ...) looks pushed while it is on. Config `ANTIALIAS`.
 - **Crop tool:** starts with no box: `Click+Drag` region · `Click` away clears the box · handles resize (drag outward past an edge to *grow* the canvas) · `Arrows` nudge · `Ctrl+Arrows` resize · `Enter` apply · `Esc` cancel · `Double-click` the Crop button trims the canvas to the artwork (visible layers) · **Image > Crop** boxes the whole image, zooming out first so its edges show · every crop undoes with `Ctrl+Z`.
 
 ---
@@ -537,6 +540,25 @@ Edits the toolbox, edit bar and advanced bar: any tool or command, in any order,
 
 ### Preview window (`F4`)
 Follow / Floating-Image modes (View → Preview Window). `Alt+Click` pick FG (CP enabled) · `Alt+R-Click` pick BG · `Wheel` zoom preview · drag title move · drag handle resize.
+
+### Sliders and value boxes (everywhere)
+One way to set a number in every panel, bar and Settings tab that has a slider or a value box (Pen Control, Selection Bar, Layers opacity, Organizer, the lightbox / X-sheet boxes, MyPaint Brush Settings, Brush Palette, Settings):
+
+| Mouse | On a slider | On its value box |
+|------|------|------|
+| `Wheel` | ±1 a notch | ±1 a notch |
+| `Shift+Wheel` | ±10 a notch | ±10 a notch |
+| `M-Click` | Reset to the default | Reset to the default |
+| `Dbl-Click` | Reset to the default | Type a value (`Enter` sets, `Esc` cancels) |
+| `L-Click` / `L-Drag` | Set it where you click / drag | — |
+
+Not yet on: the text bar (its wheel steps its dropdowns), the Color Mixer and 3D Color Space (middle-drag spins the solid), the Advanced Color Picker's quantize bar, the animation widget bar, the Resize and image-adjust dialogs.
+
+### MyPaint Brush Settings (View → MyPaint Brush Settings)
+A dock panel like Pen Control for the MyPaint brush in use: **SIZE** (the brush size; on top of the brush's own radius when Size From Brush Size is off), **OPAQUE**, **SHARP** (hardness), **GAIN** (pressure gain), **PIGMENT** (spectral paint mixing), **SMOOTH** (slow tracking), **PRESSURE** (what the mouse paints with; a pen uses its own) and **TWIST** (barrel rotation, for brushes that read it). OPAQUE…SMOOTH change the loaded brush until another is picked; **RESET** puts every slider back to the brush as made, **SAVE** writes the brush with them as a `.myb` in My Brushes. Docked in a column the sliders stack; in a wide row they sit side by side.
+
+### Brush Palette (View → Brush Palette)
+A dock panel of brush tips: the shape chips (**round**, **square**, **slant /**, **slant \\**), **SIZE** and **SOFT** sliders (SOFT 0 = hard edge, 100 = feathered from the centre), and a thumbnail per size — `L-Click` a thumbnail to use that size, `Wheel` over the grid scrolls it, `Wheel` over a chip cycles the shape. It fits any dock shape: one column (narrow float), two, a tall column or a wide bottom row. Slants paint a slanted stroke (a calligraphy nib) and the pointer shows their outline; `.draw` files keep the shape.
 
 ### Drawer panel
 `F1/F2/F3` Brush/Gradient/Pattern mode · `L-Click slot` select · `Shift+L-Click` store current · `R-Click` context menu · `M-Click` cycle mode · `Shift+M-Click` clear slot · `Shift+R-Click` import into slot · `L/R-Click mini palette` set FG/BG (when it's on: Settings → Panels → Drawer) · `Wheel` over the bins switches `.dset` sets · `Shift+Wheel` over the bins scrolls them when a narrow drawer can't show every row · `Ctrl+Wheel` over the bins zooms them (up = fewer, bigger bins; down = more, smaller; R-Click → Bin Size: Auto resets).
@@ -1050,7 +1072,7 @@ rebinding are not yet exposed.)*
 | Zoom | L-Click in · **R-Click out** · `Alt`+L-Click out (if your WM doesn't grab Alt+click) · L-Drag zoom-to-region |
 | Picker | L/R-Click pick FG/BG · `Alt`+L/R-Click temporary pick (returns tool on Alt release) |
 | Dot | `Shift`+R-Click line from last point |
-| Marquee | drag handles resize · drag inside move · `Shift`/`Alt`+Drag add/subtract |
+| Marquee | drag handles resize · drag inside move · `Shift`/`Alt`/`Shift+Alt`+Drag add/subtract/intersect |
 | Move | drag handles scale · drag inside move · `Shift`+Click pick topmost layer |
 | Bezier | Click corner anchor · Click+Drag smooth anchor · `Backspace` remove last · `Enter` commit · `Esc` cancel · `H` handles |
 

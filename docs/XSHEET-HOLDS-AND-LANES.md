@@ -107,7 +107,9 @@ frame and a value), and the value moves from one key to the next along an **ease
 | **PIVOT X**, **PIVOT Y** | pixels in the frame | the frame's middle | Where scale and rotate turn about |
 | **VOLUME**, **PAN** | percent | 100 / 0 | **Clips with sounds only** |
 | **BLEND** | a blend mode | the layer's own | **Pixel layers only.** Each key is a mode, held to the next key |
-| **BLUR** | radius, pixels (0-32) | 0 | An effect lane (below). Spreads the edges too |
+| **BLUR** | amount, pixels (0-64) | 0 | An effect lane (below). Spreads the edges too |
+| **BLUR TYPE** | a blur type | BOX | **BLUR**'s kind: BOX, GAUSSIAN, MOTION, ZOOM, SPIN, FOLLOW MOVE. Each key is a type, held to the next key |
+| **BLUR ANGLE** | degrees | 0 | **MOTION**'s direction: 0 = right, 90 = up |
 | **PIXELATE** | block size, pixels (1-64) | 1 (none) | An effect lane |
 | **INVERT** | 0-100 % | 0 | An effect lane: how far toward the inverted colours |
 | **NOISE** | 0-100 | 0 | An effect lane: a mono grain, new each frame or held |
@@ -144,6 +146,20 @@ a hit, TV static over a screen.
   blur still softens the blocks.
 - **BLUR** works in whole pixels and spreads the picture's edges (they fade out), so a blurred
   sprite gets a soft outline. It stays inside the frame.
+- **BLUR TYPE** picks the kind of blur, the same ones as **Image > Blur**. **+ LANE** lists it
+  (and **BLUR ANGLE**) right under **BLUR**. Like **BLEND**, its keys never ease: right-click
+  the row on a frame and pick a type, or type a name (`motion`, `gauss`) or 0-5. Without the
+  lane the blur is **BOX**.
+  - **BOX**, **GAUSSIAN**: an even blur, **BLUR** px each way (GAUSSIAN is smoother).
+  - **MOTION**: a streak **BLUR** px each way along **BLUR ANGLE** (0 = right, 90 = up). Key
+    the angle to turn the streak.
+  - **ZOOM**, **SPIN**: a blur out from, or around, the layer's pivot (**PIVOT X / Y**, moved
+    with the layer). **BLUR** px is the smear at the frame's corner farthest from the pivot,
+    less nearer it.
+  - **FOLLOW MOVE**: a motion blur along the layer's own movement (its **X / Y** lanes, from
+    the frame before to the one after), **BLUR** px each way. **BLUR ANGLE** is ignored; a
+    frame where the layer doesn't move isn't blurred. Key **BLUR** on the frames you want
+    streaked, or leave it on and let the move decide.
 - **PIXELATE** blocks start at the frame's top-left corner. A block over an edge takes the
   average of its pixels, so the edge goes see-through, not black.
 - **NOISE** puts a new grain on every frame (static). For a still grain, right-click a key:

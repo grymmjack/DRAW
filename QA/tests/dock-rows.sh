@@ -51,7 +51,8 @@ dk_check "organizer before the toolbox"
 
 # --- the row's height by its inner edge -------------------------------------------
 dk_p toolbox; W0=$P_W
-TC=$(awk '$1=="COL" && $3==3 && $4==1 {print $2; exit}' "$DK_DUMP"); dk_col "$TC"; H0=$C_H
+# the toolbox's row: Dock Along the Top joins the innermost row - TOP.2 when the Selection Bar's row is there
+dk_slot "$P_SLOT"; TC=$S_COL; dk_col "$TC"; H0=$C_H
 EX=$(( C_X + C_W - 30 )); EY=$(( C_Y + C_H - 1 ))
 dk_drag "$EX" "$EY" "$EX" $(( EY + 40 )) 5; dk_park; dk_settle
 dk_col "$TC"; dk_p toolbox
@@ -74,7 +75,7 @@ rm -f "$DK_DUMP"
 draw_launch 15
 dk_begin
 dk_rows; dk_scr
-TC=$(awk '$1=="COL" && $3==3 && $4==1 {print $2; exit}' "$DK_DUMP"); dk_col "$TC"
+dk_p toolbox; dk_slot "$P_SLOT"; TC=$S_COL; dk_col "$TC" # (the toolbox's row)
 if (( R_FULL != 0 && C_X == 0 && C_W == SCR_W )); then pass "full width: the top row spans the window (0..$C_W)"; else fail "full width: ROWS full=$R_FULL, row x $C_X w $C_W (screen $SCR_W)"; fi
 LC=$(awk '$1=="COL" && $3==2 && $9!=0 {print $2; exit}' "$DK_DUMP")
 if [[ -n "$LC" ]]; then

@@ -121,7 +121,11 @@ CONST REGION_TOOLBAR_EDITOR       = 31              ' Customize Toolbars floatin
 CONST REGION_ANIM_PANEL           = 32              ' Animation floating panel (GUI/ANIM-PANEL)
 CONST REGION_SWATCHES             = 33              ' Swatches floating panel (GUI/SWATCHES)
 CONST REGION_WORKFLOW             = 34              ' Workflow buttons dock panel (GUI/WORKFLOW)
-' --- 35-63 reserved ---
+CONST REGION_SEL_BAR              = 35              ' Selection Bar dock panel (GUI/SEL-BAR)
+CONST REGION_MYPAINT              = 36              ' MyPaint brush palette dock panel (GUI/MYPAINT-PANEL)
+CONST REGION_MYPSET               = 37              ' MyPaint Brush Settings dock panel (GUI/MYPAINT-SET)
+CONST REGION_BRUSHES              = 38              ' brush palette dock panel (GUI/BRUSH-PANEL)
+' --- 39-63 reserved ---
 
 CONST REGION_TABLE_SIZE = 64                        ' max regions; bumps require type fitness check
 

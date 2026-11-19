@@ -24,8 +24,24 @@ The shared modifier vocabulary works across **every** selection tool:
 
 - **`Shift`+drag/click** — *add* to the existing selection (union).
 - **`Alt`+drag/click** — *subtract* from the existing selection.
+- **`Shift+Alt`+drag/click** — *intersect*: keep only where the old and new selections overlap.
 
 After a selection exists you get **resize handles** on its edges; **drag inside the marquee** to translate the selection (with `Move` semantics); **arrow keys** nudge by 1 pixel (10 with `Shift`).
+
+### The Selection Bar
+
+Pick any selection tool and the **Selection Bar** appears in a row above the canvas (the canvas stays where it is). It holds the selection tools' options, the way the Text Bar holds the text tool's. Turn it off with **View → Selection Bar**. Like any dock panel you can drag it into a column, where its controls wrap into more lines. Every value is saved in `DRAW.cfg` (`[SELECTION]` section).
+
+| Group | Shown with | Controls |
+| --- | --- | --- |
+| Mode | every selection tool | **REPLACE / ADD / SUBTRACT / INTERSECT** — what a plain drag or click does. `Shift`, `Alt` and `Shift+Alt` still win while you hold them. |
+| Feather | every selection tool | **FEATHER** slider (0–64 px): each new selection comes out with a soft edge that wide. **APPLY** feathers the current selection instead. |
+| Wand | Magic Wand | **TOLERANCE** (0–255, how far a colour may be from the clicked one), **CONTIGUOUS** (off = every matching pixel on the layer), **SAMPLE MERGED** (match the visible image, not the layer), **AA EDGE** (soften the wand's edge). |
+| Shape | Rectangle, Ellipse | **FREE / RATIO / SIZE** with **W** and **H**: RATIO keeps the W:H proportion, SIZE makes a box exactly W×H pixels. **FROM CENTER** draws from the press point outward (`Ctrl` flips it while held). |
+| Path | Freehand, Polygon | **SMOOTH PATH** (0–4): rounds the outline before it becomes a selection. |
+| Modify | every selection tool | **AMOUNT** slider (1–64 px) with **GROW**, **SHRINK** and **SMOOTH**, plus **INVERT** and **DESELECT**. |
+
+**Soft selections.** A feathered (or antialiased) selection is partly selected along its edge. Everything that uses the selection honours that: painting, filling, the shape tools, `Delete`, cut / copy / paste, Move, Transform, image adjustments and effects, and Export Selection fade out across the edge instead of stopping at a hard line. With feather 0 and antialiasing off a selection is hard-edged, exactly as before — the pixel-art default.
 
 <div class="page-break"></div>
 
@@ -45,6 +61,7 @@ After a selection exists you get **resize handles** on its edges; **drag inside 
 | Deselect | `Ctrl+D` |
 | Invert Selection | `Ctrl+Shift+I` |
 | Expand / Contract | Image / Select menu |
+| Grow / Shrink / Feather / Smooth Selection | Select menu (by the Selection Bar's AMOUNT / FEATHER) |
 | Selection from current layer | (non-transparent pixels) |
 | Selection from selected layers | union mask |
 

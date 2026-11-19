@@ -46,7 +46,7 @@ if [[ "$A_COUNT" != 6 || -z "${PX:-}" || -z "${CP_PLACING:-}" ]]; then
 else
     # -- the AnimBrush: frames 3-6 (selected in the strip), the 4x4 square --
     cl_strip 6; cl_strip 3 shift; cl_read
-    cl_key m
+    cl_key m; cl_read # (the selection tools' bar can show and move the panes: read them again)
     mouse_down "$(cl_px 6)" "$(cl_py 6)"; hover "$(cl_px 8)" "$(cl_py 8)"; sleep 0.2; hover "$(cl_px 9)" "$(cl_py 9)"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"
     cl_cmd "animbrush: pick up (the"; cl_read

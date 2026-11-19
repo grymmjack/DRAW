@@ -197,6 +197,18 @@ FUNCTION IMGADJ_sel_coverage& ()
 END FUNCTION
 
 ''
+' a + (b - a) * t / 255, per channel (ARGB): a soft selection's share of an effect.
+FUNCTION IMGADJ_lerp_px~& (a AS _UNSIGNED LONG, b AS _UNSIGNED LONG, t AS _UNSIGNED _BYTE)
+    DIM sh AS INTEGER, ca AS LONG, cb AS LONG, r AS _UNSIGNED LONG, v AS _UNSIGNED LONG
+    FOR sh = 0 TO 24 STEP 8
+        ca = _SHR(a, sh) AND 255: cb = _SHR(b, sh) AND 255
+        v = ca + ((cb - ca) * t) \ 255
+        r = r OR _SHL(v, sh)
+    NEXT sh
+    IMGADJ_lerp_px~& = r
+END FUNCTION
+
+''
 ' Clip an already-applied effect to the active selection: restore the original
 ' pixels everywhere OUTSIDE the selection, so only the selected region keeps the
 ' effect. Layer buffer coords map to canvas coords via the per-layer apron
@@ -215,17 +227,23 @@ SUB IMGADJ_clip_to_selection (layerImg AS LONG, origSnap AS LONG, apW AS INTEGER
     cw& = _WIDTH(cov&)      : ch& = _HEIGHT(cov&)
     DIM lM  AS _MEM, oM AS _MEM, cM AS _MEM
     lM = _MEMIMAGE(layerImg&) : oM = _MEMIMAGE(origSnap&) : cM = _MEMIMAGE(cov&)
-    DIM bx  AS LONG, by AS LONG, cx AS LONG, cy AS LONG, covR AS _UNSIGNED _BYTE, op AS _UNSIGNED LONG
+    DIM bx  AS LONG, by AS LONG, cx AS LONG, cy AS LONG, covR AS _UNSIGNED _BYTE, op AS _UNSIGNED LONG, ep AS _UNSIGNED LONG
     FOR by& = 0 TO lh& - 1
         cy& = by& - apH%
         FOR bx& = 0 TO lw& - 1
             cx& = bx& - apW%
             IF cx& >= 0 AND cy& >= 0 AND cx& < cw& AND cy& < ch& THEN
                 _MEMGET cM, cM.OFFSET + (cy& * cw& + cx&) * 4 + 2, covR~%% ' red channel = coverage
-                IF covR~%% > 127 THEN _CONTINUE                              ' inside -> keep effect
+                IF covR~%% = 255 THEN _CONTINUE                              ' inside -> keep effect
+            ELSE
+                covR~%% = 0
             END IF
-            _MEMGET oM, oM.OFFSET + (by& * lw& + bx&) * 4, op~& ' outside -> restore original
-            _MEMPUT lM, lM.OFFSET + (by& * lw& + bx&) * 4, op~& AS _UNSIGNED LONG
+            _MEMGET oM, oM.OFFSET + (by& * lw& + bx&) * 4, op~&
+            IF covR~%% > 0 THEN ' a soft selection's edge: the effect by its coverage over the original
+                _MEMGET lM, lM.OFFSET + (by& * lw& + bx&) * 4, ep~&
+                op~& = IMGADJ_lerp_px~&(op~&, ep~&, covR~%%)
+            END IF
+            _MEMPUT lM, lM.OFFSET + (by& * lw& + bx&) * 4, op~& AS _UNSIGNED LONG ' outside -> the original
         NEXT bx&
     NEXT by&
     _MEMFREE lM : _MEMFREE oM : _MEMFREE cM
@@ -11118,8 +11136,8 @@ END SUB
 '   Box      - uniform box average (fast, flat).
 '   Gaussian - three successive box passes (smooth bell falloff).
 '   Motion   - directional smear along angleDeg over +/- radius px.
-'   Zoom      - radial blur scaling out from the image centre.
-'   Spin     - rotational blur around the image centre.
+'   Zoom     - radial blur out from the image centre (+/- radius px at the far corner).
+'   Spin     - rotational blur around the image centre (+/- radius px of arc there).
 ' Motion/Zoom/Spin sample-average with premultiplied alpha so transparency stays
 ' clean. angleDeg only affects Motion. Returns a new image; caller frees.
 '
@@ -11138,80 +11156,39 @@ FUNCTION IMAGE_ADJ_blur_typed& (sourceImg AS LONG, blurType AS INTEGER, radius A
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_blur_typed& = 0                : EXIT FUNCTION
     IF radius% < 1 THEN IMAGE_ADJ_blur_typed& = _COPYIMAGE(sourceImg&, 32) : EXIT FUNCTION
 
-    IF blurType% = 0 THEN
-        IMAGE_ADJ_blur_typed& = IMAGE_ADJ_blur_premul_rgba&(sourceImg&, radius%)
-        EXIT FUNCTION
-    ELSEIF blurType% = 1 THEN
-        DIM r3 AS INTEGER : r3% = radius% \ 3 : IF r3% < 1 THEN r3% = 1
-        DIM g1 AS LONG, g2 AS LONG
-        g1&                   = IMAGE_ADJ_blur_premul_rgba&(sourceImg&, r3%)
-        g2&                   = IMAGE_ADJ_blur_premul_rgba&(g1&, r3%)
-        IMAGE_ADJ_blur_typed& = IMAGE_ADJ_blur_premul_rgba&(g2&, r3%)
+    IMAGE_ADJ_blur_typed& = IMAGE_ADJ_blur_typed_at&(sourceImg&, blurType%, radius%, (angleDeg%), _WIDTH(sourceImg&) / 2!, _HEIGHT(sourceImg&) / 2!)
+END FUNCTION
+
+''
+' IMAGE_ADJ_blur_typed& about centre (cx, cy) (ZOOM / SPIN), no lightbox split - the
+' X-sheet BLUR lanes (TOOLS/LAYER-LANES LL_fx) blur one frame cell about the layer's
+' pivot. MOTION / ZOOM / SPIN are native/imgfx.h gj_blur_dir: radius px along the
+' angle (MOTION), or px of smear at the farthest corner (ZOOM / SPIN).
+FUNCTION IMAGE_ADJ_blur_typed_at& (sourceImg AS LONG, blurType AS INTEGER, radius AS INTEGER, angleDeg AS SINGLE, cx AS SINGLE, cy AS SINGLE)
+    DECLARE LIBRARY "../native/imgfx"
+        SUB gj_blur_dir (BYVAL dst AS _OFFSET, BYVAL src AS _OFFSET, BYVAL w AS LONG, BYVAL h AS LONG, BYVAL kind AS LONG, BYVAL amount AS LONG, BYVAL angleDeg AS SINGLE, BYVAL cx AS SINGLE, BYVAL cy AS SINGLE)
+    END DECLARE
+    IF NOT (sourceImg& < -1) THEN EXIT FUNCTION
+    IF radius% < 1 THEN IMAGE_ADJ_blur_typed_at& = _COPYIMAGE(sourceImg&, 32): EXIT FUNCTION
+    IF blurType% = 0 THEN IMAGE_ADJ_blur_typed_at& = IMAGE_ADJ_blur_premul_rgba&(sourceImg&, radius%): EXIT FUNCTION
+    IF blurType% = 1 THEN
+        DIM r3 AS INTEGER, g1 AS LONG, g2 AS LONG
+        r3% = radius% \ 3: IF r3% < 1 THEN r3% = 1
+        g1& = IMAGE_ADJ_blur_premul_rgba&(sourceImg&, r3%)
+        g2& = IMAGE_ADJ_blur_premul_rgba&(g1&, r3%)
+        IMAGE_ADJ_blur_typed_at& = IMAGE_ADJ_blur_premul_rgba&(g2&, r3%)
         IF g1& < -1 THEN _FREEIMAGE g1&
         IF g2& < -1 THEN _FREEIMAGE g2&
         EXIT FUNCTION
     END IF
-
-    DIM bw         AS LONG, bh AS LONG
-    bw& = _WIDTH(sourceImg&) : bh& = _HEIGHT(sourceImg&)
-    DIM result     AS LONG   : result& = _NEWIMAGE(bw&, bh&, 32)
-    DIM sM         AS _MEM, rM AS _MEM
-    sM = _MEMIMAGE(sourceImg&)              : rM = _MEMIMAGE(result&)
-    DIM bcx        AS SINGLE, bcy AS SINGLE : bcx! = bw& / 2.0  : bcy! = bh& / 2.0
-    DIM brad       AS SINGLE                : brad! = angleDeg% * 3.14159265 / 180.0
-    DIM mdx        AS SINGLE, mdy AS SINGLE : mdx! = COS(brad!) : mdy! = -SIN(brad!)
-    DIM bpx        AS LONG, bpy AS LONG, bt AS INTEGER
-    DIM sax        AS SINGLE, say AS SINGLE, bang AS SINGLE, bcs AS SINGLE, bsn AS SINGLE, bsc AS SINGLE
-    DIM ssr        AS SINGLE, ssg AS SINGLE, ssb AS SINGLE, ssa AS SINGLE
-    DIM bcnt       AS INTEGER, smp AS _UNSIGNED LONG, saa AS INTEGER, saf AS SINGLE
-    DIM six        AS LONG, siy AS LONG, oaI AS INTEGER, orI AS INTEGER, ogI AS INTEGER, obI AS INTEGER
-    DIM nsteps     AS INTEGER : nsteps% = radius%
-    DIM tf         AS SINGLE
-    DIM btShowProg AS INTEGER : btShowProg% = (bw& * bh& >= 120000)
-    FOR bpy& = 0 TO bh& - 1
-        IF btShowProg% AND (bpy& AND 15) = 0 THEN IMGADJ_progress_tick "Blurring", bpy& / bh&
-        FOR bpx& = 0 TO bw& - 1
-            ssr! = 0 : ssg! = 0 : ssb! = 0 : ssa! = 0 : bcnt% = 0
-            FOR bt% = -nsteps% TO nsteps%
-                tf! = bt% / (nsteps% + 1.0)
-                IF blurType% = 2 THEN                       ' Motion
-                    sax! = bpx& + mdx! * bt% : say! = bpy& + mdy! * bt%
-                ELSEIF blurType% = 3 THEN                   ' Zoom
-                    bsc! = 1.0 + tf! * 0.6
-                    sax! = bcx! + (bpx& - bcx!) * bsc! : say! = bcy! + (bpy& - bcy!) * bsc!
-                ELSE ' Spin
-                    bang! = tf! * 0.6
-                    bcs!  = COS(bang!) : bsn! = SIN(bang!)
-                    sax!  = bcx! + (bpx& - bcx!) * bcs! - (bpy& - bcy!) * bsn!
-                    say!  = bcy! + (bpx& - bcx!) * bsn! + (bpy& - bcy!) * bcs!
-                END IF
-                six& = INT(sax! + 0.5) : siy& = INT(say! + 0.5)
-                IF six& >= 0 AND siy& >= 0 AND six& < bw& AND siy& < bh& THEN
-                    _MEMGET sM, sM.OFFSET + (siy& * bw& + six&) * 4, smp~&
-                    saa% = _ALPHA32(smp~&) : saf! = saa% / 255.0
-                    ssr! = ssr! + _RED32(smp~&) * saf!
-                    ssg! = ssg! + _GREEN32(smp~&) * saf!
-                    ssb! = ssb! + _BLUE32(smp~&) * saf!
-                    ssa! = ssa! + saa%
-                    bcnt% = bcnt% + 1
-                END IF
-            NEXT bt%
-            IF bcnt% > 0 THEN
-                oaI% = ssa! / bcnt%
-                IF oaI% > 0 THEN
-                    orI% = (ssr! / bcnt%) * 255.0 / oaI%
-                    ogI% = (ssg! / bcnt%) * 255.0 / oaI%
-                    obI% = (ssb! / bcnt%) * 255.0 / oaI%
-                    IF orI% > 255 THEN orI% = 255
-                    IF ogI% > 255 THEN ogI% = 255
-                    IF obI% > 255 THEN obI% = 255
-                    _MEMPUT rM, rM.OFFSET + (bpy& * bw& + bpx&) * 4, _RGBA32(orI%, ogI%, obI%, oaI%) AS _UNSIGNED LONG
-                END IF
-            END IF
-        NEXT bpx&
-    NEXT bpy&
-    _MEMFREE sM : _MEMFREE rM
-    IMAGE_ADJ_blur_typed& = result&
+    DIM bw AS LONG, bh AS LONG, result AS LONG, sM AS _MEM, rM AS _MEM
+    bw& = _WIDTH(sourceImg&): bh& = _HEIGHT(sourceImg&)
+    result& = _NEWIMAGE(bw&, bh&, 32)
+    IF result& >= -1 THEN EXIT FUNCTION
+    sM = _MEMIMAGE(sourceImg&): rM = _MEMIMAGE(result&)
+    gj_blur_dir rM.OFFSET, sM.OFFSET, bw&, bh&, _MIN(4, _MAX(2, blurType%)), radius%, angleDeg!, cx!, cy!
+    _MEMFREE sM: _MEMFREE rM
+    IMAGE_ADJ_blur_typed_at& = result&
 END FUNCTION
 
 SUB IMAGE_ADJ_blur_dialog ()

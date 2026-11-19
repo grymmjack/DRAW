@@ -30,16 +30,20 @@ CONST DP_EDITBAR   = 5
 CONST DP_ADVBAR    = 6
 CONST DP_CHARMAP   = 7
 CONST DP_WORKFLOW  = 8  ' the workflow buttons (GUI/WORKFLOW)
-CONST DP_TEXTBAR   = 9  ' the text tool's bar (GUI/TEXT-BAR) - the last dock panel
-CONST DP_PREVIEW   = 10 ' the first native window: id < DP_PREVIEW = a dock panel
-CONST DP_MIXER     = 11
-CONST DP_ADVCP     = 12
-CONST DP_CS3D      = 13
-CONST DP_PEN       = 14
-CONST DP_BROWSER   = 15
-CONST DP_ANIM      = 16
-CONST DP_SWATCH    = 17
-CONST DP_COUNT     = 17
+CONST DP_TEXTBAR   = 9  ' the text tool's bar (GUI/TEXT-BAR)
+CONST DP_SELBAR    = 10 ' the selection tools' bar (GUI/SEL-BAR)
+CONST DP_MYPAINT   = 11 ' the MyPaint brush palette (GUI/MYPAINT-PANEL)
+CONST DP_MYPSET    = 12 ' the MyPaint Brush Settings (GUI/MYPAINT-SET)
+CONST DP_BRUSHES   = 13 ' the brush palette (GUI/BRUSH-PANEL) - the last dock panel
+CONST DP_PREVIEW   = 14 ' the first native window: id < DP_PREVIEW = a dock panel
+CONST DP_MIXER     = 15
+CONST DP_ADVCP     = 16
+CONST DP_CS3D      = 17
+CONST DP_PEN       = 18
+CONST DP_BROWSER   = 19
+CONST DP_ANIM      = 20
+CONST DP_SWATCH    = 21
+CONST DP_COUNT     = 21
 
 ' how a panel's height is decided inside its column
 CONST DP_H_FIXED = 1 ' its own content height (toolbar rows, organizer)
@@ -153,6 +157,7 @@ CONST DOCK_ACT_BAND_BOTTOM = 8
 CONST DOCK_ACT_CUSTOMIZE = 9   ' toolbox / bars: open Customize Toolbars on that panel
 CONST DOCK_ACT_CLOSE = 10      ' every panel but the text bar: hide it (its View toggle; DOCK_panel_close)
 CONST DOCK_ACT_SCALE = 20      ' floating-panel family: 20 = follow the UI Scale, 21-28 = 1x-8x (FPANEL_set_scale)
+CONST DOCK_ACT_SCALE_HALF = 30 ' 31-37 = 1.5x-7.5x (the panels FPANEL_half_ok% lets: half steps)
 
 TYPE DOCK_UI_OBJ
     hoverSlot AS INTEGER ' slot whose handle the pointer is over (0 = none)
@@ -161,6 +166,7 @@ TYPE DOCK_UI_OBJ
     menuPanel AS INTEGER ' panel the menu acts on
     menuWf    AS INTEGER ' > 0: workflow button n's menu instead (GUI/WORKFLOW)
     menuPen   AS INTEGER ' TRUE: the Pen Control presets menu instead (GUI/PEN-PRESETS)
+    menuMyp   AS INTEGER ' TRUE: the MyPaint palette's group dropdown instead (GUI/MYPAINT-PANEL)
     menuJust  AS INTEGER ' opened this frame: the press that opened it is not a pick
     menuX     AS INTEGER
     menuY     AS INTEGER

@@ -63,13 +63,14 @@ if [[ -f "$GE_DIR/shown.png" && -f "$GE_DIR/hidden.png" && -f "$GE_DIR/again.png
 fi
 
 # -- the group's opacity (a pass-through group) --
-for n in 1 2 3 4 5 6; do scroll_down "$GE_OPX" "$GE_OPY"; done
+# (Shift+wheel: 10% a notch - a plain notch is 1% since the universal wheel steps)
+for n in 1 2 3 4; do shift_scroll_down "$GE_OPX" "$GE_OPY"; done
 wait_for 0.5 "group opacity down"
 ge_pane "groupeye-faded" && cp "$SNAP_RESULT" "$GE_DIR/faded.png"
 if [[ -f "$GE_DIR/shown.png" && -f "$GE_DIR/faded.png" ]]; then
     assert_regions_differ "$GE_DIR/shown.png" "$GE_DIR/faded.png" "the group's opacity turned down: its drawing fades in the pane"
 fi
-for n in 1 2 3 4 5 6; do scroll_up "$GE_OPX" "$GE_OPY"; done
+for n in 1 2 3 4; do shift_scroll_up "$GE_OPX" "$GE_OPY"; done
 wait_for 0.5 "group opacity up"
 ge_pane "groupeye-full" && cp "$SNAP_RESULT" "$GE_DIR/full.png"
 [[ -f "$GE_DIR/full.png" ]] && assert_regions_same "$GE_DIR/shown.png" "$GE_DIR/full.png" "the group's opacity back to 100%: as before" 0

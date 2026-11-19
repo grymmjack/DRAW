@@ -1,6 +1,6 @@
 ---
 name: selection-mask-readers
-description: How every MARQUEE.SELECTION_MASK reader tests a pixel - the scoping map for antialiased (soft) selections
+description: Soft (antialiased) selection masks - how each SELECTION_MASK reader treats partial coverage, and the helpers to use
 metadata:
   type: project
 ---
@@ -10,6 +10,24 @@ anti-aliased - they should be if it's enabled"). The mask is a canvas-sized 32-b
 selected = opaque white `_RGB32(255,255,255)`, else `_RGBA32(0,0,0,0)`; box selections may
 have no mask (MARQUEE.BOX + MARQUEE.ACTIVE%).
 
+**Done 2026-11-18 (branch fx-blurs-soft-selections, PLANS/AA-SELECTIONS.md).** Mask alpha =
+coverage 0..255, RGB white; a hard mask is exactly as before. Helpers in TOOLS/MARQUEE.BM:
+- `SELECTION_cover%(x, y)` 0..255 (255 with no selection / inside a box) - the source of truth.
+- `SELECTION_is_point_inside%` = cover >= 128 (yes / no askers: custom brush, FILL-ADJ, extract...).
+- `SELECTION_touches%` = cover > 0 (where a coverage-aware writer may still write).
+- `SELMASK_on%(maskPixel)` = white and alpha >= 128 (loops that POINT the mask: stroke selection).
+- `SEL_put_px sx, sy, wx, wy, col` - selection-clipped write, soft by coverage (fill, rect,
+  ellipse, line); `SELMASK_over~&(dst, src, t)` the straight-alpha blend behind it.
+- Brush writers (PAINT_*), Delete / cut / copy, move lift, transform lift / commit / warp,
+  image adjust (`IMGADJ_lerp_px~&`), Export Selection (alpha scaled), ANS + swatches (>= 128).
+- New masks go through `SELECTION_merge_new` (feather by CFG.SELECTION_FEATHER, then merge);
+  native kernels in native/selmask.h (feather / grow / shrink / combine / wand / polygon AA).
+- One DECLARE LIBRARY per native function: call `SELMASK_soften`, never re-declare gj_sel_soften.
+
+**How to apply:** a new SELECTION_MASK reader picks one of the helpers above instead of comparing
+POINT to white - an exact `= _RGB32(255,255,255)` treats every soft edge pixel as unselected.
+
+Original audit (2026-11-17, before the change):
 A soft mask (partial alpha at ellipse / lasso / polygon edges) splits the readers:
 - **Exact `= _RGB32(255,255,255)`** (partial = UNselected): `SELECTION_is_point_inside%`
   (MARQUEE.BM ~2588) - the choke point for ALL painting / fill / custom-brush / shape clipping

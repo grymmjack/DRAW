@@ -72,8 +72,13 @@ SUB PAINT_pset_with_symmetry (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG,
     ' For transparent drawing, we need to disable blending
     IF is_transparent% THEN _DONTBLEND targetImg&
     
-    ' Check selection clipping AND opacity lock for master stroke
-    IF SELECTION_is_point_inside%(x%, y%) AND OPACITY_LOCK_allows_draw%(x%, y%) THEN
+    ' Check selection clipping AND opacity lock for master stroke (a soft selection's
+    ' partly-selected pixel: a partial write, PAINT_sel_partial)
+    DIM sc AS INTEGER
+    sc% = SELECTION_cover%(x%, y%)
+    IF sc% > 0 _ANDALSO sc% < 255 THEN
+        PAINT_sel_partial x%, y%, col~&, is_transparent%, targetImg&
+    ELSEIF sc% >= 255 _ANDALSO OPACITY_LOCK_allows_draw%(x%, y%) THEN
         resolvedCol~& = DRAWER_resolve_paint_color~&(x%, y%, col~&)
         ' Draw master stroke at full opacity (pen pressure -> opacity composites instead)
         IF TABLET.opStroke THEN
@@ -90,7 +95,10 @@ SUB PAINT_pset_with_symmetry (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG,
         
         ' Draw mirrored strokes (check selection clipping and opacity lock for each)
         FOR i% = 0 TO count% - 1
-            IF SELECTION_is_point_inside%(mx%(i%), my%(i%)) AND OPACITY_LOCK_allows_draw%(mx%(i%), my%(i%)) THEN
+            sc% = SELECTION_cover%(mx%(i%), my%(i%))
+            IF sc% > 0 _ANDALSO sc% < 255 THEN
+                PAINT_sel_partial mx%(i%), my%(i%), col~&, is_transparent%, targetImg&
+            ELSEIF sc% >= 255 _ANDALSO OPACITY_LOCK_allows_draw%(mx%(i%), my%(i%)) THEN
                 resolvedCol~& = DRAWER_resolve_paint_color~&(mx%(i%), my%(i%), col~&)
                 IF TABLET.opStroke THEN
                     PEN_op_write mx%(i%) + apW%, my%(i%) + apH%, resolvedCol~&, 1
@@ -105,6 +113,23 @@ SUB PAINT_pset_with_symmetry (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG,
     IF is_transparent% THEN _BLEND targetImg&
 
     _DEST oldDest&
+END SUB
+
+''
+' A hard write (PAINT_pset_with_symmetry) on a partly-selected pixel of a soft selection:
+' paint or erase it by the selected share (PAINT_blend_pixel / PAINT_erase_pixel scale by
+' SELECTION_cover% themselves), then put the target's blend state back the way the caller
+' had it (_DONTBLEND for a transparent colour).
+SUB PAINT_sel_partial (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG, isTransparent AS INTEGER, targetImg AS LONG)
+    DIM px AS INTEGER, py AS INTEGER, pc AS _UNSIGNED LONG
+    px% = x%: py% = y%: pc~& = col~& ' (by reference: copies)
+    IF NOT OPACITY_LOCK_allows_draw%(px%, py%) THEN EXIT SUB
+    IF isTransparent% THEN
+        PAINT_erase_pixel px%, py%, 1!
+        _DONTBLEND targetImg&
+    ELSE
+        PAINT_blend_pixel px%, py%, pc~&, 1!
+    END IF
 END SUB
 
 
@@ -136,8 +161,20 @@ SUB PAINT_blend_pixel (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG, covera
     IF cov! <= 0.0 THEN EXIT SUB              ' no coverage — nothing to composite
     IF cov! > 1.0 THEN cov! = 1.0
 
-    ' Same clipping as the hard-edged primitive: selection mask + opacity lock.
-    IF SELECTION_is_point_inside%(x%, y%) AND OPACITY_LOCK_allows_draw%(x%, y%) THEN
+    ' Same clipping as the hard-edged primitive: selection mask + opacity lock. A soft
+    ' selection's partly-selected pixel scales the coverage (a transparent colour erases
+    ' that share instead of clearing the pixel).
+    DIM sc AS INTEGER
+    sc% = SELECTION_cover%(x%, y%)
+    IF sc% <= 0 THEN EXIT SUB
+    IF sc% < 255 THEN
+        IF _ALPHA32(col~&) = 0 THEN
+            IF OPACITY_LOCK_allows_draw%(x%, y%) THEN PAINT_erase_pixel x%, y%, cov!
+            EXIT SUB
+        END IF
+        cov! = cov! * sc% / 255!
+    END IF
+    IF OPACITY_LOCK_allows_draw%(x%, y%) THEN
         targetImg& = LAYER_current_image&
         oldDest&   = _DEST
         _DEST targetImg&
@@ -403,7 +440,12 @@ SUB PAINT_erase_pixel (x AS INTEGER, y AS INTEGER, coverage AS SINGLE)
     IF cov! <= 0.0 THEN EXIT SUB
     IF cov! > 1.0 THEN cov! = 1.0
 
-    IF SELECTION_is_point_inside%(x%, y%) THEN
+    DIM sc AS INTEGER ' a soft selection: erase the selected share
+    sc% = SELECTION_cover%(x%, y%)
+    IF sc% <= 0 THEN EXIT SUB
+    IF sc% < 255 THEN cov! = cov! * sc% / 255!
+
+    IF sc% > 0 THEN
         targetImg& = LAYER_current_image&
         oldDest&   = _DEST
         oldSource& = _SOURCE
@@ -663,7 +705,7 @@ SUB PAINT_on ()
                 END IF
             LOOP
         END IF
-    ELSEIF pixel_size% = 3 AND BRUSH_SIZE.SHAPE = 0 AND NOT CFG.ANTIALIAS% THEN
+    ELSEIF pixel_size% = 3 AND BRUSH_SIZE.SHAPE = 0 AND NOT CFG.ANTIALIAS% AND BRUSH_SIZE.SOFT = 0 THEN
         ' Plus sign for size 3 circle only (crisp mode). With AA on this size falls
         ' through to the ELSE branch below, which stamps the soft AA circle instead.
         dx% = end_x% - start_x%
@@ -703,7 +745,9 @@ SUB PAINT_on ()
             cx% = start_x% + INT(dx% * t!)
             cy% = start_y% + INT(dy% * t!)
             IF BMIX.active THEN BMIX_dab cx%, cy% ' mix brush: smudge pickup before the dab
-            IF BRUSH_SIZE.SHAPE = 0 THEN
+            IF BRUSH_SIZE_special% THEN
+                PAINT_shape_dab cx%, cy%, pixel_size%, DRAW_COLOR~& ' a slant / a soft round (the brush palette)
+            ELSEIF BRUSH_SIZE.SHAPE = 0 THEN
                 IF CFG.ANTIALIAS% THEN
                     IF _ALPHA32(DRAW_COLOR~&) = 0 AND radius% >= 1 THEN
                         ' Erasing with AA on: coverage-SUBTRACT for a soft feathered edge
@@ -759,6 +803,8 @@ SUB PAINT_on_pressure (sx AS INTEGER, sy AS INTEGER, ex AS INTEGER, ey AS INTEGE
         END IF
         dabSize% = full%
         IF sizeOn% THEN dabSize% = PEN_scaled_size%(full%, p!)
+        ' mouse expression tapers: log the dab, grow it from a point
+        IF TABLET.mxTaper THEN dabSize% = INT(PEN_mx_dab!(CSNG(cx%), CSNG(cy%), p!, CSNG(dabSize%), full%, _IIF(sizeOn%, PEN_MXK_SIZE, 0)) + 0.5)
         ' Variable-width strokes can't be replayed as fixed-size brush calls: export as pixels.
         IF dabSize% <> full% THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
         IF BMIX.active THEN BMIX_dab cx%, cy% ' mix brush: smudge pickup before the dab
@@ -933,6 +979,8 @@ SUB PAINT_aa_curve (x0 AS SINGLE, y0 AS SINGLE, cx AS SINGLE, cy AS SINGLE, x1 A
             IF TABLET.usingPen THEN TABLET.dabOp = PEN_dab_op!(p!) ELSE TABLET.dabOp = PAINT_OPACITY% / 100!
             dabF! = full%
             IF sizeOn% THEN dabF! = PEN_size_frac!(full%, p!)
+            ' mouse expression tapers: log the dab, grow it from a point
+            IF TABLET.mxTaper THEN dabF! = PEN_mx_dab!(ax!, ay!, p!, dabF!, full%, PEN_MXK_AA OR _IIF(sizeOn%, PEN_MXK_SIZE, 0))
             ' Variable-width strokes can't be replayed as fixed-size brush calls: export as pixels.
             IF dabF! <> full% THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE
             PAINT_draw_disc_aa ax!, ay!, dabF! / 2, DRAW_COLOR~&
@@ -1088,6 +1136,83 @@ END SUB
 
 
 ''
+' A slant nib for a brush of size px at (x, y): the segment it is drawn along
+' (x0, y0)-(x1, y1) and its half-thickness r. 45 degrees, as long as the size,
+' a quarter of it thick (at least 1 px).
+'
+SUB PAINT_slant_seg (x AS INTEGER, y AS INTEGER, px AS INTEGER, x0 AS SINGLE, y0 AS SINGLE, x1 AS SINGLE, y1 AS SINGLE, r AS SINGLE)
+    DIM h AS SINGLE, sg AS INTEGER
+    r! = px% / 8!: IF r! < 0.5 THEN r! = 0.5
+    h! = (px% / 2! - r!) * 0.70710678: IF h! < 0 THEN h! = 0
+    sg% = 1: IF BRUSH_SIZE.SHAPE = BRUSH_SHAPE_BACKSLASH THEN sg% = -1
+    ' "/" runs from bottom-left (y down) to top-right
+    x0! = x% - h!: y0! = y% + h! * sg%
+    x1! = x% + h!: y1! = y% - h! * sg%
+END SUB
+
+''
+' Distance from pixel (px, py) to the segment (x0, y0)-(x1, y1).
+'
+FUNCTION PAINT_seg_dist! (px AS INTEGER, py AS INTEGER, x0 AS SINGLE, y0 AS SINGLE, x1 AS SINGLE, y1 AS SINGLE)
+    DIM vx AS SINGLE, vy AS SINGLE, l2 AS SINGLE, t AS SINGLE, dx AS SINGLE, dy AS SINGLE
+    vx! = x1! - x0!: vy! = y1! - y0!: l2! = vx! * vx! + vy! * vy!
+    t! = 0
+    IF l2! > 0 THEN
+        t! = ((px% - x0!) * vx! + (py% - y0!) * vy!) / l2!
+        IF t! < 0 THEN t! = 0
+        IF t! > 1 THEN t! = 1
+    END IF
+    dx! = px% - x0! - t! * vx!: dy! = py% - y0! - t! * vy!
+    PAINT_seg_dist! = SQR(dx! * dx! + dy! * dy!)
+END FUNCTION
+
+''
+' One dab of a slant or a soft round brush (BRUSH_SIZE_special%) of size px
+' at (x, y). The coverage of a pixel falls from 1 to 0 over the feather: the
+' outer 1 px with Antialias on and SOFT 0, SOFT % of the radius when soft (a
+' smoothstep), none at all for a hard slant with Antialias off (whole pixels,
+' for pixel art). Soft writes are soft stamps (PAINT_AAM_USE): dabs of one
+' frame keep the strongest coverage instead of piling up, and in a masked
+' stroke (TABLET.opStroke) the whole stroke does. A transparent colour erases
+' that share (PAINT_erase_pixel_sym).
+'
+SUB PAINT_shape_dab (x AS INTEGER, y AS INTEGER, px AS INTEGER, col AS _UNSIGNED LONG)
+    DIM x0 AS SINGLE, y0 AS SINGLE, x1 AS SINGLE, y1 AS SINGLE, r AS SINGLE, ro AS SINGLE, f AS SINGLE
+    DIM d AS SINGLE, c AS SINGLE, b AS INTEGER, ix AS INTEGER, iy AS INTEGER, soft AS INTEGER, hard AS INTEGER, er AS INTEGER
+    IF BRUSH_SIZE.SHAPE = BRUSH_SHAPE_SLASH _ORELSE BRUSH_SIZE.SHAPE = BRUSH_SHAPE_BACKSLASH THEN
+        PAINT_slant_seg x%, y%, px%, x0!, y0!, x1!, y1!, r!
+    ELSE
+        x0! = x%: y0! = y%: x1! = x%: y1! = y%: r! = px% / 2! - 0.5
+        IF r! < 0.5 THEN r! = 0.5
+    END IF
+    soft% = BRUSH_SIZE.SOFT
+    hard% = (soft% = 0 _ANDALSO CFG.ANTIALIAS% = 0)
+    ro! = r! + 0.5
+    f! = 1: IF soft% > 0 THEN f! = ro! * soft% / 100!: IF f! < 1 THEN f! = 1
+    er% = (_ALPHA32(col~&) = 0)
+    b% = INT(ro! + 1)
+    PAINT_AAM_USE = TRUE
+    FOR iy% = y% - b% TO y% + b%
+        FOR ix% = x% - b% TO x% + b%
+            d! = PAINT_seg_dist!(ix%, iy%, x0!, y0!, x1!, y1!)
+            IF d! >= ro! THEN _CONTINUE
+            IF hard% THEN
+                IF d! > r! THEN _CONTINUE
+                IF er% THEN PAINT_erase_pixel_sym ix%, iy%, 1 ELSE PAINT_pset_with_symmetry ix%, iy%, col~&, TRUE
+            ELSE
+                c! = (ro! - d!) / f!
+                IF c! > 1 THEN c! = 1
+                IF soft% > 0 THEN c! = c! * c! * (3 - 2 * c!)
+                IF c! > 0.004 THEN
+                    IF er% THEN PAINT_erase_pixel_sym ix%, iy%, c! ELSE PAINT_blend_pixel_sym ix%, iy%, col~&, c!
+                END IF
+            END IF
+        NEXT ix%
+    NEXT iy%
+    PAINT_AAM_USE = FALSE
+END SUB
+
+''
 ' Stamps the current brush shape at (x, y) at an explicit size in pixels.
 ' PAINT_stamp_brush uses the brush size; the pen-pressure path passes a
 ' pressure-scaled size per dab.
@@ -1105,7 +1230,7 @@ SUB PAINT_stamp_size (x AS INTEGER, y AS INTEGER, size AS INTEGER, col AS _UNSIG
     IF pixel_size% <= 1 THEN
         ' Single pixel
         PAINT_pset_with_symmetry x%, y%, col~&, TRUE
-    ELSEIF pixel_size% = 3 AND BRUSH_SIZE.SHAPE = 0 AND NOT CFG.ANTIALIAS% THEN
+    ELSEIF pixel_size% = 3 AND BRUSH_SIZE.SHAPE = 0 AND NOT CFG.ANTIALIAS% AND BRUSH_SIZE.SOFT = 0 THEN
         ' Plus sign for size 3 circle (crisp mode). With AA on this falls through to
         ' the ELSE branch below, which stamps the soft AA circle instead.
         DIM py AS INTEGER, px AS INTEGER
@@ -1118,7 +1243,9 @@ SUB PAINT_stamp_size (x AS INTEGER, y AS INTEGER, size AS INTEGER, col AS _UNSIG
     ELSE
         ' Larger brush
         radius% = pixel_size% \ 2
-        IF BRUSH_SIZE.SHAPE = 0 THEN
+        IF BRUSH_SIZE_special% THEN
+            PAINT_shape_dab x%, y%, pixel_size%, col~& ' a slant / a soft round (the brush palette)
+        ELSEIF BRUSH_SIZE.SHAPE = 0 THEN
             IF CFG.ANTIALIAS% THEN
                 IF _ALPHA32(col~&) = 0 AND radius% >= 1 THEN
                     ' Soft coverage-subtract erase for a transparent stamp (BUG-7, v2.0.0).
@@ -1498,6 +1625,16 @@ SUB PREVIEW_stamp_brush (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG)
 
     IF pixel_size% <= 1 THEN
         PSET (x%, y%), col~&
+    ELSEIF BRUSH_SIZE.SHAPE = BRUSH_SHAPE_SLASH _ORELSE BRUSH_SIZE.SHAPE = BRUSH_SHAPE_BACKSLASH THEN
+        ' a slant nib: its solid core
+        DIM sx0 AS SINGLE, sy0 AS SINGLE, sx1 AS SINGLE, sy1 AS SINGLE, sr AS SINGLE
+        PAINT_slant_seg x%, y%, pixel_size%, sx0!, sy0!, sx1!, sy1!, sr!
+        half% = INT(pixel_size% / 2 + 1)
+        FOR py% = y% - half% TO y% + half%
+            FOR px% = x% - half% TO x% + half%
+                IF PAINT_seg_dist!(px%, py%, sx0!, sy0!, sx1!, sy1!) <= sr! THEN PSET (px%, py%), col~&
+            NEXT px%
+        NEXT py%
     ELSEIF pixel_size% = 3 AND BRUSH_SIZE.SHAPE = 0 THEN
         ' Plus sign for size 3 circle
         FOR py% = y% - 1 TO y% + 1

@@ -1,0 +1,431 @@
+''
+' DRAW - TOOLS/MYPAINT.BM
+' =============================================================================
+' MyPaint brushes: the tool (TOOL_MYPAINT, from Tools > MyPaint Brush) painting through
+' libmypaint (native/mypaint_draw.h). See TOOLS/MYPAINT.BI and PLANS/MYPAINT.md.
+'
+$INCLUDEONCE
+
+DIM SHARED MYPAINT_MEM AS _MEM, MYPAINT_MASK_MEM AS _MEM
+DIM SHARED MYPAINT_HAS_MEM AS INTEGER, MYPAINT_HAS_MASK AS INTEGER, MYPAINT_TMP_MASK AS LONG
+
+''
+' First use: the setting ids, then the last brush (CFG.MYPAINT_BRUSH) or a pencil.
+SUB MYPAINT_init ()
+    STATIC done AS INTEGER
+    IF done THEN EXIT SUB
+    done = TRUE
+    MYPAINT_ID_RADIUS = mp_setting_id&("radius_logarithmic" + CHR$(0))
+    MYPAINT_ID_OPAQUE = mp_setting_id&("opaque" + CHR$(0))
+    DIM p AS STRING
+    p = CFG.MYPAINT_BRUSH$
+    IF LEN(p) = 0 _ORELSE _FILEEXISTS(p) = 0 THEN p = MYPAINT_ASSET_DIR + "classic/pencil.myb"
+    IF _FILEEXISTS(p) THEN
+        IF MYPAINT_load%(p, FALSE) = 0 THEN mp_defaults
+    ELSE
+        mp_defaults
+        MYPAINT.baseRadius = mp_get_base!(MYPAINT_ID_RADIUS)
+        MYPAINT.baseOpaque = mp_get_base!(MYPAINT_ID_OPAQUE)
+        MPS_capture
+    END IF
+    mp_set_twist CFG.MYPAINT_TWIST% / 360! ' (the MyPaint Brush Settings' TWIST)
+END SUB
+
+''
+' The user's own brushes: <data>/MYPAINT-BRUSHES/ (made on first use).
+FUNCTION MYPAINT_user_dir$ ()
+    DIM d AS STRING
+    d = PATHS_data$(MYPAINT_USER_DIRNAME)
+    IF _DIREXISTS(d) = 0 THEN MKDIR d
+    MYPAINT_user_dir$ = d
+END FUNCTION
+
+''
+' A file's brush name (no folder, no .myb) and its set (the folder's name; the user's own
+' folder = MY BRUSHES).
+FUNCTION MYPAINT_name_of$ (p AS STRING)
+    DIM i AS LONG, n AS STRING
+    n = p
+    FOR i = LEN(n) TO 1 STEP -1
+        IF MID$(n, i, 1) = "/" _ORELSE MID$(n, i, 1) = "\" THEN n = MID$(n, i + 1): EXIT FOR
+    NEXT i
+    IF LCASE$(RIGHT$(n, 4)) = ".myb" THEN n = LEFT$(n, LEN(n) - 4)
+    MYPAINT_name_of$ = n
+END FUNCTION
+
+FUNCTION MYPAINT_set_of$ (p AS STRING)
+    DIM d AS STRING, i AS LONG
+    d = PATHS_parent_dir$(p)
+    DO WHILE LEN(d) > 0 _ANDALSO (RIGHT$(d, 1) = "/" _ORELSE RIGHT$(d, 1) = "\")
+        d = LEFT$(d, LEN(d) - 1)
+    LOOP
+    IF LEN(d) > 0 _ANDALSO INSTR(LCASE$(p), LCASE$(MYPAINT_USER_DIRNAME)) > 0 THEN MYPAINT_set_of$ = MYPAINT_USER_SET: EXIT FUNCTION
+    FOR i = LEN(d) TO 1 STEP -1
+        IF MID$(d, i, 1) = "/" _ORELSE MID$(d, i, 1) = "\" THEN d = MID$(d, i + 1): EXIT FOR
+    NEXT i
+    MYPAINT_set_of$ = d
+END FUNCTION
+
+''
+' Load a .myb as the current brush. remember = save it as CFG.MYPAINT_BRUSH. TRUE = loaded;
+' else MYPAINT.err says why (the brush in use stays as it was - the engine only replaces it
+' when the file parses).
+FUNCTION MYPAINT_load% (p AS STRING, remember AS INTEGER)
+    DIM e AS STRING
+    IF mp_load&(p + CHR$(0)) = 0 THEN
+        e = SPACE$(200): mp_error e, 200
+        e = LEFT$(e, INSTR(e + CHR$(0), CHR$(0)) - 1)
+        MYPAINT.err = e
+        _LOGWARN "MyPaint: cannot load " + p + ": " + e
+        EXIT FUNCTION
+    END IF
+    MYPAINT.ready = TRUE
+    MYPAINT.err = ""
+    MYPAINT.brushPath = p
+    MYPAINT.brushName = MYPAINT_name_of$(p)
+    MYPAINT.setName = MYPAINT_set_of$(p)
+    MYPAINT.baseRadius = mp_get_base!(MYPAINT_ID_RADIUS)
+    MYPAINT.baseOpaque = mp_get_base!(MYPAINT_ID_OPAQUE)
+    MPS_capture ' (the MyPaint Brush Settings: the file's values are their RESET)
+    ' a brush picked (the palette, LOAD) brings its own size: the brush size becomes the
+    ' one nearest it, and any size set after that applies to it (Rick 2026-11-18: "the
+    ' palette brush size should change to whatever those use too, when they are selected").
+    ' Not the brush loaded at first use (remember = FALSE): that keeps the size in use.
+    IF remember _ANDALSO CFG.MYPAINT_SIZE_FROM_BRUSH% THEN BRUSH_SIZE_set MYPAINT_file_size_index%: GUI_NEEDS_REDRAW% = TRUE
+    MYPAINT_apply_size
+    IF remember _ANDALSO CFG.MYPAINT_BRUSH$ <> p THEN CFG.MYPAINT_BRUSH$ = p: CONFIG_save
+    MYPAINT_load% = TRUE
+END FUNCTION
+
+''
+' The brush's radius. CFG.MYPAINT_SIZE_FROM_BRUSH (the default; Rick 2026-11-18: "the brush
+' size should set the mypaint brush size too"): DRAW's brush size is the MyPaint brush's
+' diameter, so [ ], the Brush palette and the edit bar size it as any brush. Else its file's +
+' CFG.MYPAINT_SIZE (tenths of a log step; 0 = as made). Applied again at each stroke's start,
+' so a size set any way is the one it paints with.
+SUB MYPAINT_apply_size ()
+    mp_set_base MYPAINT_ID_RADIUS, MYPAINT_radius_log!
+END SUB
+
+FUNCTION MYPAINT_radius_log! ()
+    IF CFG.MYPAINT_SIZE_FROM_BRUSH% THEN
+        MYPAINT_radius_log! = LOG(BRUSH_SIZE_pixels% / 2!)
+    ELSE
+        MYPAINT_radius_log! = MYPAINT.baseRadius + CFG.MYPAINT_SIZE% / 10!
+    END IF
+END FUNCTION
+
+''
+' [ / ] with the tool, the palette's bigger / smaller: d in tenths of a log step (own size),
+' or one brush size a call when it follows the brush size.
+SUB MYPAINT_size_step (d AS INTEGER)
+    MYPAINT_init
+    IF CFG.MYPAINT_SIZE_FROM_BRUSH% THEN
+        IF d > 0 THEN BRUSH_SIZE_increase ELSE BRUSH_SIZE_decrease
+    ELSE
+        CFG.MYPAINT_SIZE% = _MAX(-40, _MIN(40, CFG.MYPAINT_SIZE% + d))
+        CONFIG_save
+    END IF
+    MYPAINT_apply_size
+    STATUS_flash "MYPAINT SIZE: " + MYPAINT_size_text$
+END SUB
+
+''
+' Back to the brush file's own size (action 2686): following the brush size, the brush size
+' nearest the file's diameter.
+SUB MYPAINT_size_reset ()
+    MYPAINT_init
+    IF CFG.MYPAINT_SIZE_FROM_BRUSH% THEN
+        BRUSH_SIZE_set MYPAINT_file_size_index%
+    ELSE
+        CFG.MYPAINT_SIZE% = 0: CONFIG_save
+    END IF
+    MYPAINT_apply_size
+END SUB
+
+''
+' The brush size (BRUSH_PIXEL_SIZES index) nearest the loaded file's diameter.
+FUNCTION MYPAINT_file_size_index% ()
+    DIM px AS SINGLE
+    px = 2 * EXP(MYPAINT.baseRadius)
+    MYPAINT_file_size_index% = _MAX(BRUSH_SIZE.MIN, _MIN(BRUSH_SIZE.MAX, CINT((px + 1) / 2)))
+END FUNCTION
+
+FUNCTION MYPAINT_size_text$ ()
+    ' the radius in px (the brush's base, before its pressure / speed curves); following the
+    ' brush size, its diameter as the brush size shows it
+    IF CFG.MYPAINT_SIZE_FROM_BRUSH% THEN
+        MYPAINT_size_text$ = _TRIM$(STR$(BRUSH_SIZE_pixels%)) + " PX"
+    ELSE
+        MYPAINT_size_text$ = _TRIM$(STR$(CINT(EXP(MYPAINT_radius_log!) * 10) / 10)) + " PX"
+    END IF
+END FUNCTION
+
+''
+' Pick a .myb with the file dialog and use it.
+SUB MYPAINT_load_dialog ()
+    DIM f AS STRING
+    MYPAINT_init
+    POINTER_hide_for_dialog
+    f = DRAW_open_file$("Load MyPaint Brush", MYPAINT_user_dir$, "MyPaint brushes|*.myb|*.MYB", 0)
+    POINTER_show_after_dialog
+    IF LEN(f) = 0 THEN EXIT SUB
+    IF MYPAINT_load%(f, TRUE) THEN
+        STATUS_flash "MYPAINT BRUSH: " + UCASE$(MYPAINT.brushName)
+        MYPP_rescan
+    ELSE
+        STATUS_flash "MYPAINT: " + UCASE$(MYPAINT.err)
+    END IF
+END SUB
+
+''
+' Save the current brush (its size as now) as a .myb in MY BRUSHES.
+SUB MYPAINT_save_dialog ()
+    DIM f AS STRING
+    MYPAINT_init
+    POINTER_hide_for_dialog
+    f = DRAW_save_file$("Save MyPaint Brush", MYPAINT_user_dir$, "MyPaint brushes|*.myb", 0, MYPAINT.brushName, "myb")
+    POINTER_show_after_dialog
+    IF LEN(f) = 0 THEN EXIT SUB
+    IF LCASE$(RIGHT$(f, 4)) <> ".myb" THEN f = f + ".myb"
+    IF MYPAINT_save%(f) THEN
+        STATUS_flash "SAVED " + UCASE$(MYPAINT_name_of$(f))
+        MYPP_rescan
+    ELSE
+        STATUS_flash "MYPAINT: COULD NOT SAVE " + f
+    END IF
+END SUB
+
+FUNCTION MYPAINT_save% (f AS STRING)
+    IF mp_save&(f + CHR$(0)) = 0 THEN EXIT FUNCTION
+    ' saved with the size in use: that is now the brush's own
+    MYPAINT.brushPath = f: MYPAINT.brushName = MYPAINT_name_of$(f): MYPAINT.setName = MYPAINT_set_of$(f)
+    MYPAINT.baseRadius = mp_get_base!(MYPAINT_ID_RADIUS)
+    CFG.MYPAINT_SIZE% = 0: CFG.MYPAINT_BRUSH$ = f: CONFIG_save
+    MPS_capture ' (what was saved is the brush's own now)
+    MYPAINT_make_preview f
+    MYPAINT_save% = TRUE
+END FUNCTION
+
+''
+' <name>_prev.png beside a saved brush (the palette's thumbnail, as MyPaint's own are):
+' the brush paints a dark S across 128 x 128 white, pressure rising then falling.
+SUB MYPAINT_make_preview (f AS STRING)
+    DIM img AS LONG, m AS _MEM, i AS INTEGER, n AS INTEGER, t AS SINGLE, x AS SINGLE, y AS SINGLE
+    DIM p AS SINGLE, r AS LONG, x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, oldD AS LONG, pf AS STRING
+    IF MYPAINT.active THEN EXIT SUB
+    img = _NEWIMAGE(128, 128, 32)
+    IF img >= -1 THEN EXIT SUB
+    oldD = _DEST: _DEST img: CLS , _RGB32(255, 255, 255): _DEST oldD
+    mp_set_color 32, 32, 40
+    m = _MEMIMAGE(img)
+    mp_stroke_begin m.OFFSET, 128, 128, 0, 0, 0, 0, 0, 0
+    n = 120
+    r = mp_stroke_to&(16, 64, 0, 0, 0, 10, 1) ' (the brush resets at the start: MYPAINT_stroke_step)
+    FOR i = 0 TO n
+        t = i / n
+        x = 16 + 96 * t
+        y = 64 + 34 * SIN(t * 6.2832)
+        p = SIN(t * 3.1416) * 0.9 + 0.05
+        r = mp_stroke_to&(x, y, p, 0, 0, 0.008, 1)
+    NEXT i
+    r = mp_stroke_to&(x, y, 0, 0, 0, 0.008, 1)
+    mp_stroke_end x1, y1, x2, y2
+    _MEMFREE m
+    pf = LEFT$(f, LEN(f) - 4) + "_prev.png"
+    _SAVEIMAGE pf, img
+    _FREEIMAGE img
+END SUB
+
+''
+' Pick the tool (Tools > MyPaint Brush).
+SUB MYPAINT_select_tool ()
+    MYPAINT_init
+    IF CURRENT_TOOL% <> TOOL_MYPAINT THEN
+        PREVIOUS_TOOL% = CURRENT_TOOL%
+        CURRENT_TOOL% = TOOL_MYPAINT
+        ' like every tool key: reset the tools (commits a Transform overlay) but keep the
+        ' selection - MARQUEE_reset would drop a box selection and the stroke would not clip
+        TOOLS_reset_all FALSE
+    END IF
+    STATUS_flash "MYPAINT BRUSH: " + UCASE$(MYPAINT.brushName) + " - " + MYPAINT_size_text$
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Button held over the canvas (MOUSE_dispatch_tool_hold): start or continue a stroke.
+SUB MOUSE_tool_mypaint ()
+    DIM btn AS INTEGER
+    IF MOUSE.B1% THEN btn = 1 ELSE IF MOUSE.B2% THEN btn = 2
+    IF btn = 0 THEN EXIT SUB
+    IF NOT MYPAINT.active THEN
+        IF NOT MYPAINT_stroke_begin%(btn) THEN EXIT SUB
+    END IF
+    MYPAINT_stroke_step
+END SUB
+
+FUNCTION MYPAINT_stroke_begin% (btn AS INTEGER)
+    DIM img AS LONG, c AS _UNSIGNED LONG, w AS LONG, h AS LONG, aw AS INTEGER, ah AS INTEGER, oldD AS LONG
+    MYPAINT_init
+    IF CURRENT_LAYER% < 1 _ORELSE CURRENT_LAYER% > MAX_LAYERS THEN EXIT FUNCTION
+    img = LAYERS(CURRENT_LAYER%).imgHandle&
+    IF img >= -1 THEN EXIT FUNCTION
+    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_GROUP THEN STATUS_flash "MYPAINT: PICK A PIXEL LAYER": EXIT FUNCTION
+    MYPAINT.btn = btn
+    MYPAINT.layerSlot = CURRENT_LAYER%
+    IF btn = 2 THEN c = PAINT_BG_COLOR~& ELSE c = PAINT_COLOR~&
+    mp_set_color _RED32(c), _GREEN32(c), _BLUE32(c)
+    SAFE_FREEIMAGE MYPAINT.beforeImg: MYPAINT.beforeImg = 0
+    IF NOT HISTORY_IN_PROGRESS% _ANDALSO LAYERS(CURRENT_LAYER%).historyId& > 0 THEN MYPAINT.beforeImg = _COPYIMAGE(img, 32)
+    STROKE_begin ' DRAW's paint opacity over the whole stroke
+    PEN_stroke_begin
+    w = _WIDTH(img): h = _HEIGHT(img)
+    aw = LAYERS(CURRENT_LAYER%).apronW%: ah = LAYERS(CURRENT_LAYER%).apronH%
+    MYPAINT_MEM = _MEMIMAGE(img): MYPAINT_HAS_MEM = TRUE
+    ' the selection: its mask, or a box drawn into a mask of our own
+    MYPAINT_HAS_MASK = FALSE
+    IF SELECTION_has_active% THEN
+        IF MARQUEE.WAND_HAS_SELECTION _ANDALSO MARQUEE.SELECTION_MASK < -1 THEN
+            MYPAINT_MASK_MEM = _MEMIMAGE(MARQUEE.SELECTION_MASK): MYPAINT_HAS_MASK = TRUE
+        ELSEIF MARQUEE.ACTIVE _ANDALSO MARQUEE.BOX.w > 0 _ANDALSO MARQUEE.BOX.h > 0 THEN
+            MYPAINT_TMP_MASK = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            IF MYPAINT_TMP_MASK < -1 THEN
+                oldD = _DEST: _DEST MYPAINT_TMP_MASK: _DONTBLEND MYPAINT_TMP_MASK
+                CLS , _RGBA32(0, 0, 0, 0)
+                LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), _RGB32(255, 255, 255), BF
+                _BLEND MYPAINT_TMP_MASK: _DEST oldD
+                MYPAINT_MASK_MEM = _MEMIMAGE(MYPAINT_TMP_MASK): MYPAINT_HAS_MASK = TRUE
+            END IF
+        END IF
+    END IF
+    MYPAINT_apply_size ' (the brush size may have changed since: edit bar, palette, presets)
+    IF MYPAINT_HAS_MASK THEN
+        mp_stroke_begin MYPAINT_MEM.OFFSET, w, h, MYPAINT_MASK_MEM.OFFSET, SCRN.canvasW&, SCRN.canvasH&, aw, ah, LAYERS(CURRENT_LAYER%).opacityLock%
+    ELSE
+        mp_stroke_begin MYPAINT_MEM.OFFSET, w, h, 0, 0, 0, aw, ah, LAYERS(CURRENT_LAYER%).opacityLock%
+    END IF
+    MYPAINT.active = TRUE
+    MYPAINT.fresh = TRUE
+    MYPAINT.lastT = TIMER(.001)
+    MYPAINT_stroke_begin% = TRUE
+END FUNCTION
+
+''
+' One pointer event: the pen's pressure / tilt (the mouse = half pressure, as in MyPaint),
+' the time since the last, the view zoom.
+SUB MYPAINT_stroke_step ()
+    DIM x AS SINGLE, y AS SINGLE, p AS SINGLE, p0 AS SINGLE, tx AS SINGLE, ty AS SINGLE, t AS DOUBLE, dt AS DOUBLE
+    DIM ax AS SINGLE, ay AS SINGLE, n AS INTEGER, k AS INTEGER, f AS SINGLE, r AS LONG
+    IF NOT MYPAINT.active THEN EXIT SUB
+    IF NOT _MEMEXISTS(MYPAINT_MEM) THEN MYPAINT_stroke_abort: EXIT SUB
+    IF MYPAINT_HAS_MASK _ANDALSO NOT _MEMEXISTS(MYPAINT_MASK_MEM) THEN MYPAINT_stroke_abort: EXIT SUB
+    ax = LAYERS(MYPAINT.layerSlot).apronW%: ay = LAYERS(MYPAINT.layerSlot).apronH%
+    ' the pointer's sub-pixel spot (zoomed in / display scale 2+), not its pixel: MyPaint's
+    ' dabs are smooth, a whole-pixel path shows as steps
+    x = MOUSE.FX + ax: y = MOUSE.FY + ay
+    IF ABS(MOUSE.FX - (MOUSE.UNSNAPPED_X% + 0.5)) > 1 _ORELSE ABS(MOUSE.FY - (MOUSE.UNSNAPPED_Y% + 0.5)) > 1 THEN
+        x = MOUSE.UNSNAPPED_X% + 0.5 + ax: y = MOUSE.UNSNAPPED_Y% + 0.5 + ay ' (clamped / wrapped: its pixel)
+    END IF
+    IF PEN_active% THEN
+        p = PEN_stroke_pressure!
+        IF TABLET.mexp THEN
+            ' mouse expression: no tilt; the start taper as pressure (MyPaint's own
+            ' brush settings turn pressure into size / opacity; no end taper here)
+            IF SCRN.zoom! > 0 THEN p = p * MEXP_taper_in!(MEXP_dist! / SCRN.zoom!)
+        ELSE
+            tx = PD_tilt_x!: ty = PD_tilt_y!
+        END IF
+    ELSE
+        p = CFG.MYPAINT_MOUSE_PRESSURE% / 100! ' (the MyPaint Brush Settings' PRESSURE; MyPaint's own mouse is 0.5)
+    END IF
+    t = TIMER(.001)
+    dt = t - MYPAINT.lastT
+    IF dt < 0 THEN dt = dt + 86400 ' midnight
+    IF dt > 0.5 THEN dt = 0.5
+    IF dt < 0.001 THEN dt = 0.001
+    MYPAINT.lastT = t
+    ' the first event: a lift at the start spot with a long gap - the brush resets THERE
+    ' (with none, slow tracking pulls the start from where the last stroke ended / 0,0)
+    IF MYPAINT.fresh THEN
+        r = mp_stroke_to&(x, y, 0, tx, ty, 10, SCRN.zoom!)
+        MYPAINT.fresh = FALSE: MYPAINT.lastP = p
+        MOUSE_SMP_N = 0 ' (positions before the press are not the stroke)
+    END IF
+    ' every pointer event of the frame (MOUSE_SMP_*), each its share of the time and of the
+    ' pressure change: one event a frame draws fast curves as straight chords
+    n = MOUSE_SMP_N: MOUSE_SMP_N = 0
+    p0 = MYPAINT.lastP
+    FOR k = 1 TO n
+        f = k / (n + 1)
+        r = mp_stroke_to&(MOUSE_SMP_FX(k) + ax, MOUSE_SMP_FY(k) + ay, p0 + (p - p0) * f, tx, ty, dt / (n + 1), SCRN.zoom!)
+    NEXT k
+    r = mp_stroke_to&(x, y, p, tx, ty, dt / (n + 1), SCRN.zoom!)
+    MYPAINT.lastX = x: MYPAINT.lastY = y: MYPAINT.lastP = p
+    LAYERS(MYPAINT.layerSlot).contentDirty% = TRUE
+    CANVAS_DIRTY% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Button up (MOUSE_dispatch_tool_release): finish the stroke, one undo step.
+SUB MOUSE_release_mypaint ()
+    IF NOT MYPAINT.active THEN EXIT SUB
+    ' the lift: pressure 0 at the last spot, so the brush ends as MyPaint's do
+    DIM r AS LONG, t AS DOUBLE, dt AS DOUBLE
+    IF _MEMEXISTS(MYPAINT_MEM) THEN
+        t = TIMER(.001): dt = t - MYPAINT.lastT: IF dt < 0.001 _ORELSE dt > 0.5 THEN dt = 0.001
+        r = mp_stroke_to&(MYPAINT.lastX, MYPAINT.lastY, 0, 0, 0, dt, SCRN.zoom!)
+    END IF
+    MYPAINT_stroke_finish
+    STROKE_commit
+    DIM flags AS LONG, slot AS INTEGER
+    slot = MYPAINT.layerSlot
+    IF SELECTION_has_active% _ORELSE LAYERS(slot).opacityLock% THEN flags = flags OR HISTORY_FLAG_CLIPPED
+    IF MYPAINT.beforeImg < -1 THEN
+        IF MYPAINT.bx2 >= MYPAINT.bx1 _ANDALSO HISTORY_image_differs%(MYPAINT.beforeImg, LAYERS(slot).imgHandle&) THEN
+            HISTORY_record_brush LAYERS(slot).historyId&, slot, PAINT_apply_opacity~&(PAINT_COLOR~&), flags, MYPAINT.beforeImg, "MyPaint " + MYPAINT.brushName
+            MYPAINT.beforeImg = 0
+            HISTORY_saved_this_frame% = TRUE
+        ELSE
+            SAFE_FREEIMAGE MYPAINT.beforeImg: MYPAINT.beforeImg = 0
+        END IF
+    END IF
+    MYPAINT.strokes = MYPAINT.strokes + 1
+    LAYERS(slot).contentDirty% = TRUE
+    CANVAS_DIRTY% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+SUB MYPAINT_stroke_finish ()
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG
+    mp_stroke_end x1, y1, x2, y2
+    MEXP_end ' (mouse expression: the made-up pressure ends with the stroke)
+    MYPAINT.bx1 = x1: MYPAINT.by1 = y1: MYPAINT.bx2 = x2: MYPAINT.by2 = y2
+    MYPAINT.steps = mp_stroke_steps&
+    MYPAINT.active = FALSE
+    IF MYPAINT_HAS_MEM THEN
+        IF _MEMEXISTS(MYPAINT_MEM) THEN _MEMFREE MYPAINT_MEM
+        MYPAINT_HAS_MEM = FALSE
+    END IF
+    IF MYPAINT_HAS_MASK THEN
+        IF _MEMEXISTS(MYPAINT_MASK_MEM) THEN _MEMFREE MYPAINT_MASK_MEM
+        MYPAINT_HAS_MASK = FALSE
+    END IF
+    IF MYPAINT_TMP_MASK < -1 THEN SAFE_FREEIMAGE MYPAINT_TMP_MASK
+    MYPAINT_TMP_MASK = 0
+END SUB
+
+''
+' The layer or the mask went away mid-stroke (undo, a document load): drop the stroke.
+SUB MYPAINT_stroke_abort ()
+    IF NOT MYPAINT.active THEN EXIT SUB
+    MYPAINT_stroke_finish
+    STROKE_commit
+    SAFE_FREEIMAGE MYPAINT.beforeImg: MYPAINT.beforeImg = 0
+END SUB
+
+''
+' QA dump line: MYP tool active ready strokes steps x1 y1 x2 y2 size brush|set|path
+' and MYPZ fromBrush brushPx radius*100 fileSizeIndex (the size the brush paints with).
+FUNCTION MYPAINT_dump$ ()
+    MYPAINT_dump$ = "MYP" + DOCK_n$(CURRENT_TOOL% = TOOL_MYPAINT) + DOCK_n$(MYPAINT.active <> 0) + DOCK_n$(MYPAINT.ready <> 0) + DOCK_n$(MYPAINT.strokes) + DOCK_n$(MYPAINT.steps) + DOCK_n$(MYPAINT.bx1) + DOCK_n$(MYPAINT.by1) + DOCK_n$(MYPAINT.bx2) + DOCK_n$(MYPAINT.by2) + DOCK_n$(CFG.MYPAINT_SIZE%) + " " + MYPAINT.brushName + "|" + MYPAINT.setName + "|" + MYPAINT.brushPath + CHR$(10) _
+        + "MYPZ" + DOCK_n$(CFG.MYPAINT_SIZE_FROM_BRUSH% <> 0) + DOCK_n$(BRUSH_SIZE_pixels%) + DOCK_n$(CINT(EXP(MYPAINT_radius_log!) * 100)) + DOCK_n$(MYPAINT_file_size_index%) + CHR$(10)
+END FUNCTION

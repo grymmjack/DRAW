@@ -288,3 +288,5 @@ DIM SHARED BLEND_HAS_ISOLATED_GROUPS AS INTEGER                    ' TRUE when i
 
 ' Note: LAYERS_init is called from SCREEN_init after CONFIG_load
 ' LAYER_PANEL_load_icons is called from DRAW.BAS after CONFIG_apply_startup_defaults
+DIM SHARED LAYER_OP_MID AS INTEGER ' LAYER_PANEL_middle%: the wheel routine looks for an opacity control and sets 100%
+DIM SHARED LAYER_OP_HIT AS INTEGER ' ... and found one

@@ -50,7 +50,32 @@ TYPE DIALOG_CTX
     inputArmed   AS INTEGER ' FALSE until mb1 is seen released once — swallows a button
                             ' still held from the menu click that opened the dialog, so
                             ' it can't drag a control the dialog opened underneath it
+    ' ---- Universal value input (Rick 2026-11-18: wheel +/-1, Shift +/-10, middle-click
+    '      = reset, double-click on a slider = reset, on a value box = type it) ----
+    mb3raw       AS INTEGER ' middle button now (raw)
+    omb3         AS INTEGER ' middle button last frame
+    justMid      AS INTEGER ' middle button went down this frame
+    dblClick     AS INTEGER ' this frame's justClicked is the second click of a double-click
+    lastClickT   AS DOUBLE  ' TIMER of the last click (0 = none pending)
+    lastClickX   AS INTEGER
+    lastClickY   AS INTEGER
 END TYPE
+
+' The value a dialog's slider / spinner had the first time it was seen this dialog
+' (keyed by its position): its reset value when it is not a DRAW.cfg field.
+' Reset by DIALOG_init. (DIALOG_value_default%)
+CONST DLG_VAL_MAX = 96
+CONST VAL_OP_NUDGE = 1 ' VAL_apply%: add d
+CONST VAL_OP_RESET = 2 ' VAL_apply%: the factory default
+DIM SHARED DLG_VAL_N AS INTEGER
+DIM SHARED DLG_VAL_KX(1 TO DLG_VAL_MAX) AS INTEGER, DLG_VAL_KY(1 TO DLG_VAL_MAX) AS INTEGER
+DIM SHARED DLG_VAL_V(1 TO DLG_VAL_MAX) AS INTEGER
+DIM SHARED DLG_DEF_CFG AS DRAW_CONFIG ' factory defaults (DIALOG_cfg_default%; built on first use)
+DIM SHARED DLG_DEF_READY AS INTEGER
+
+' The main loop's value controls (dock panels, floating windows, bars): the
+' double-click tracker (VAL_dbl%) - the last press: its control id, time, place.
+DIM SHARED VAL_LAST_ID AS LONG, VAL_LAST_T AS DOUBLE, VAL_LAST_X AS INTEGER, VAL_LAST_Y AS INTEGER
 
 ' ---- Dropdown (popup select) shared state -----------------------------------
 ' Immediate-mode single-open-at-a-time dropdown. Only one modal dialog runs at a

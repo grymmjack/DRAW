@@ -42,7 +42,7 @@ if (( CL_OK )); then
     # -- a 2-cel AnimBrush from Layer 1 (row 3); Update repoints both clips --
     click 60 "$(cl_row_y 3)"; wait_for 0.5 "Layer 1"
     cl_strip 4; cl_strip 3 shift; cl_read
-    cl_key m
+    cl_key m; cl_read # (the selection tools' bar can show and move the panes: read them again)
     mouse_down "$(cl_px 6)" "$(cl_py 6)"; hover "$(cl_px 8)" "$(cl_py 8)"; sleep 0.2; hover "$(cl_px 9)" "$(cl_py 9)"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"
     cl_cmd "animbrush: pick up (the"; cl_key ctrl+d; cl_read

@@ -28,7 +28,7 @@ pclick() { click "$(vx "$1")" "$(vy "$2")"; wait_for 0.5 "click"; dk_park; dk_se
 seg() { # CTL I N - click segment I (0-based) of N in a tab strip / mode row
     local x0 h
     pc "$1"
-    if (( $1 == 24 )); then x0=$C_X0; h=$PT_TABH; else x0=$(( C_X0 + PT_SUBX - PT_PAD )); h=6; fi
+    if (( $1 == 24 )); then x0=$C_X0; h=$PT_TABH; elif (( $1 == 25 )); then x0=$C_X0; h=6; else x0=$(( C_X0 + PT_SUBX - PT_PAD )); h=6; fi
     pclick $(( x0 + (C_X1 - x0 + 1) * (2 * $2 + 1) / (2 * $3) )) $(( C_Y + h / 2 ))
 }
 box() { pc "$1"; pclick $(( C_X0 + 3 )) $(( C_Y + 4 )); } # a checkbox
@@ -40,7 +40,7 @@ if [[ -z "$PL_W" || -z "$PT_TAB" ]]; then fail "no PENPL / PENPT line (is the Pe
 [[ "$PT_TAB" == 0 ]] && pass "the panel opens on PRESSURE" || fail "PENPT tab=$PT_TAB at start"
 
 # --- 1: SMOOTHING ------------------------------------------------------------------
-seg 24 1 3
+seg 24 1 4
 [[ "$PT_TAB" == 1 ]] && pass "the tab strip switches to SMOOTHING" || fail "tab=$PT_TAB after clicking SMOOTHING"
 [[ "$(cfgv PEN_PANEL_TAB)" == 1 ]] && pass "PEN_PANEL_TAB=1 saved" || fail "PEN_PANEL_TAB=$(cfgv PEN_PANEL_TAB)"
 screenshot "pen-control-smoothing"
@@ -56,7 +56,7 @@ A=$(cfgv PEN_STAB_AMOUNT)
 (( ${A:-0} >= 95 )) && pass "the AMOUNT slider drags to the top ($A)" || fail "PEN_STAB_AMOUNT=$A after a drag to the right end"
 
 # --- 3: SPEED ------------------------------------------------------------------------
-seg 24 2 3
+seg 24 2 4
 [[ "$PT_TAB" == 2 ]] && pass "the tab strip switches to SPEED" || fail "tab=$PT_TAB after clicking SPEED"
 snap_region "$(vx $(( SG_X0 + 2 )))" "$(vy $(( SG_Y0 + 2 )))" $(( (SG_X1 - SG_X0 - 4) * WW / PL_W )) $(( (SG_Y1 - SG_Y0 - 4) * WH / PL_H )) "speed-graph-off"; G0=$SNAP_RESULT
 box 19
@@ -77,5 +77,19 @@ type_text "next smoothing mode"; wait_for 2.0 "filtered"
 key Return; wait_for 1.0 "ran"
 dk_settle
 [[ "$(cfgv PEN_STAB_MODE)" == 4 ]] && pass "Next Smoothing Mode steps EMA -> Inertia" || fail "PEN_STAB_MODE=$(cfgv PEN_STAB_MODE) after Next Smoothing Mode"
+
+# --- 6: MOUSE (mouse expression) -------------------------------------------------------------
+seg 24 3 4
+[[ "$PT_TAB" == 3 ]] && pass "the tab strip switches to MOUSE" || fail "tab=$PT_TAB after clicking MOUSE"
+seg 25 2 4
+[[ "$(cfgv PEN_MOUSE)" == 2 ]] && pass "the SPEED chip picks speed mouse expression" || fail "PEN_MOUSE=$(cfgv PEN_MOUSE)"
+box 30
+[[ "$(cfgv PEN_MOUSE_INVERT)" == TRUE ]] && pass "FAST = HEAVY swaps the speed curve" || fail "PEN_MOUSE_INVERT=$(cfgv PEN_MOUSE_INVERT)"
+screenshot "pen-control-mouse"
+park_mouse; key question; wait_for 1.0 "palette"
+type_text "next mouse expression"; wait_for 2.0 "filtered"
+key Return; wait_for 1.0 "ran"
+dk_settle
+[[ "$(cfgv PEN_MOUSE)" == 3 ]] && pass "Next Mouse Expression Mode steps SPEED -> WHEEL" || fail "PEN_MOUSE=$(cfgv PEN_MOUSE) after Next Mouse Expression Mode"
 assert_no_crash
 info "=== Pen Control panel done ==="

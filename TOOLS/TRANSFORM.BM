@@ -537,7 +537,7 @@ SUB TRANSFORM_warp_selection_mask ()
                             mCanX& = TRANSFORM.SRC_X + mSix& : mCanY& = TRANSFORM.SRC_Y + mSiy&
                             IF mCanX& >= 0 AND mCanX& < mMaskW% AND mCanY& >= 0 AND mCanY& < mMaskH% THEN
                                 _MEMGET mSrcMem, mSrcMem.OFFSET + (mCanY& * mMaskW% + mCanX&) * 4, mPix~&
-                                IF _ALPHA32(mPix~&) > 0 THEN mSelBit% = 1
+                                IF _ALPHA32(mPix~&) > 0 THEN mSelBit% = 1: sel~& = (mPix~& AND &HFF000000~&) + &HFFFFFF~& ' (a soft mask keeps its coverage)
                             END IF
                         END IF
                     END IF
@@ -586,7 +586,7 @@ SUB TRANSFORM_warp_selection_mask ()
                         mCanX& = TRANSFORM.SRC_X + mSix& : mCanY& = TRANSFORM.SRC_Y + mSiy&
                         IF mCanX& >= 0 AND mCanX& < mMaskW% AND mCanY& >= 0 AND mCanY& < mMaskH% THEN
                             _MEMGET mSrcMem, mSrcMem.OFFSET + (mCanY& * mMaskW% + mCanX&) * 4, mPix~&
-                            IF _ALPHA32(mPix~&) > 0 THEN mSelBit% = 1
+                            IF _ALPHA32(mPix~&) > 0 THEN mSelBit% = 1: sel~& = (mPix~& AND &HFF000000~&) + &HFFFFFF~& ' (a soft mask keeps its coverage)
                         END IF
                     END IF
                 END IF
@@ -780,6 +780,10 @@ SUB TRANSFORM_activate (mode AS INTEGER)
                 END IF
                 IF tmSelected% = 0 THEN
                     _MEMPUT tmSrcMem, tmSrcMem.OFFSET + (tmY% * tmSrcStride& + tmX% * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                ELSEIF _ALPHA32(tmMaskPix~&) < 255 THEN ' a soft selection: its selected share
+                    DIM tmPix AS _UNSIGNED LONG
+                    _MEMGET tmSrcMem, tmSrcMem.OFFSET + (tmY% * tmSrcStride& + tmX% * 4), tmPix~&
+                    _MEMPUT tmSrcMem, tmSrcMem.OFFSET + (tmY% * tmSrcStride& + tmX% * 4), SELMASK_scaled~&(tmPix~&, _ALPHA32(tmMaskPix~&)) AS _UNSIGNED LONG
                 END IF
             NEXT tmX%
         NEXT tmY%
@@ -1008,6 +1012,14 @@ SUB TRANSFORM_commit ()
         EXIT SUB
     END IF
 
+    ' Enter with no edit on a soft (feathered / antialiased) selection: the clear + blit
+    ' below would not be a round trip - the edge is cleared to its unselected share and
+    ' the lifted share laid OVER it, so a half-selected opaque pixel would come back at
+    ' 75% alpha (and, with no edit, no undo step records it). Nothing changed: cancel.
+    IF TRANSFORM.MODIFIED = 0 _ANDALSO TRANSFORM.SRC_MASK < -1 THEN
+        IF SELMASK_is_soft%(TRANSFORM.SRC_MASK) THEN TRANSFORM_cancel: EXIT SUB
+    END IF
+
     ' An armed layer (TOOLS/ANIM-XLANE): Scale / Rotate become keys on this frame, the pixels stay
     IF TRANSFORM.MODIFIED THEN
         IF ANIM_XL_transform_record% THEN TRANSFORM_cancel: EXIT SUB
@@ -1079,10 +1091,14 @@ SUB TRANSFORM_commit ()
                 FOR tcX% = TRANSFORM.SRC_X TO TRANSFORM.SRC_X + TRANSFORM.SRC_W - 1
                     IF tcX% >= 0 _ANDALSO tcX% < tcLayW% _ANDALSO tcX% < tcMaskW% THEN
                         _MEMGET tcMaskMem, tcMaskMem.OFFSET + (tcY% * tcMaskStride& + tcX% * 4), tcMaskPix~&
-                        IF _ALPHA32(tcMaskPix~&) > 0 THEN
+                        IF _ALPHA32(tcMaskPix~&) >= 255 THEN
                             ' BUG-12: layImg may now be apron-promoted — offset the write (tcX/tcY
                             ' are canvas coords, bounded to the canvas-sized mask by the guards above).
                             _MEMPUT tcLayMem, tcLayMem.OFFSET + ((tcY% + aY%) * tcLayStride& + (tcX% + aX%) * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                        ELSEIF _ALPHA32(tcMaskPix~&) > 0 THEN ' a soft selection: the unselected share stays
+                            DIM tcOld AS _UNSIGNED LONG
+                            _MEMGET tcLayMem, tcLayMem.OFFSET + ((tcY% + aY%) * tcLayStride& + (tcX% + aX%) * 4), tcOld~&
+                            _MEMPUT tcLayMem, tcLayMem.OFFSET + ((tcY% + aY%) * tcLayStride& + (tcX% + aX%) * 4), SELMASK_cleared~&(tcOld~&, 0, _ALPHA32(tcMaskPix~&)) AS _UNSIGNED LONG
                         END IF
                     END IF
                 NEXT tcX%

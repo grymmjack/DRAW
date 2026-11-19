@@ -38,9 +38,9 @@ The Organizer widget on the left contains **four brush size presets** (1, 3, 5, 
 
 ### Pen Tablets & Pressure
 
-DRAW reads **pen pressure** from a drawing tablet: Wacom, Huion, XP-Pen and Surface Pen are all supported, plus a Force Touch trackpad on a Mac. Pressure can change the Brush and Eraser **size** and **opacity**, and how much paint the mix brush lays down. It changes smoothly within a single stroke. A mouse is never affected.
+DRAW reads **pen pressure** from a drawing tablet: Wacom, Huion, XP-Pen and Surface Pen are all supported, plus a Force Touch trackpad on a Mac. Pressure can change the Brush and Eraser **size** and **opacity**, and how much paint the mix brush lays down. It changes smoothly within a single stroke. A mouse is not affected - unless you turn on **Mouse Pressure** (below), which gives the mouse a made-up pressure.
 
-**View → Pen Control** opens a small panel with everything in one place, on three tabs: **PRESSURE** (below), **SMOOTHING** and **SPEED** (see *Stroke Smoothing* further down). The panel remembers the tab you left it on.
+**View → Pen Control** opens a small panel with everything in one place, on four tabs: **PRESSURE** (below), **SMOOTHING** and **SPEED** (see *Stroke Smoothing* further down), and **MOUSE** (see *Mouse Pressure*). The panel remembers the tab you left it on.
 
 On the **PRESSURE** tab:
 - **Live meter:** shows how hard you're pressing.
@@ -72,6 +72,22 @@ Rounded smart shapes (rounded rectangle, tab, pill, Pac-Man) follow their exact 
   - **Pressure Sets Opacity** and **Lightest Touch Opacity %** (default 10%): a light touch paints faintly. Off by default.
   - **Pressure Sets Mix Paint** and **Lightest Touch Paint %**: with the mix brush, a light touch smears and full pressure lays paint.
 - **Export.** Pressure-varied strokes export to BAS/QB64 as pixels.
+
+### Mouse Pressure (No Tablet Needed)
+
+No tablet? The **MOUSE** tab of Pen Control makes up a pressure from what the mouse is doing, so mouse strokes go thick and thin, fade, or come to a point. The made-up pressure goes through everything a pen's does: Size / Opacity / Mix Paint by pressure and their LIGHT sliders, the curve, and MyPaint brushes. A pen keeps its own pressure. Turn on **Size** (or **Opacity**) on the PRESSURE tab to see it.
+
+Pick a mode:
+- **OFF:** mouse strokes draw at full pressure, as before.
+- **FIXED:** every stroke presses at **LEVEL %**. A light or heavy hand.
+- **SPEED:** slow strokes press hard and quick ones lightly, down to **LIGHT %** at **FAST** px a second. **SMOOTH** evens out the speed so the width doesn't flicker. **FAST = HEAVY** swaps it round. Good for inking: lines thin out where you flick them.
+- **WHEEL:** scroll the mouse wheel **while drawing**. Up presses harder, down lighter, **STEP %** a notch (hold `Shift` for four times that). Each stroke starts where the last one left off. While a stroke is in progress the wheel never zooms.
+
+**TAPER IN / OUT** (px; any mode) make a stroke grow from a point over its first pixels and end in one over its last. The end is redrawn when you let go - DRAW only knows where the stroke ends once the button comes up. MyPaint brushes take the taper in.
+
+The meter under the mode row shows the pressure of the stroke you're drawing. The same settings are on the Settings → Pen Control tab under **Mouse Pressure**, and **Pen Control: Next Mouse Expression Mode** (command palette, bindable) steps through the modes. Try the **Mouse Ink** example preset: speed pressure with tapered ends.
+
+The made-up pressure comes from `MOUSE_PRESSURE` in QB64_GJ_LIB, so other QB64-PE programs can use it too.
 
 ### Stroke Smoothing
 
@@ -108,7 +124,7 @@ All of these are also on the **Pen Control** tab of Settings (`Ctrl+,`), under P
 
 ### Pen Control Guide: Example Presets
 
-DRAW ships ten example presets. The first time you open the presets menu, they are copied into your `PEN-PRESETS` folder, next to your own. They are ordinary presets: apply one, tweak it, and **Save Preset…** under a new name. Delete or rename one and it stays that way - an example is only ever copied in once.
+DRAW ships eleven example presets. The first time you open the presets menu, they are copied into your `PEN-PRESETS` folder, next to your own. They are ordinary presets: apply one, tweak it, and **Save Preset…** under a new name. Delete or rename one and it stays that way - an example is only ever copied in once.
 
 | Preset | What it sets | Use it for |
 |--------|--------------|------------|
@@ -121,6 +137,7 @@ DRAW ships ten example presets. The first time you open the presets menu, they a
 | **Even Hatching** | Hold pressure 20, Average 20 | Hatching where each line keeps the weight it landed with |
 | **Soft Shading** | Opacity by pressure from 5%, Light size 60%, curve 0.70, EMA 25 | Building up tone stroke by stroke |
 | **Mouse Lines** | String 45 | A mouse: turns a wobbly hand into clean lines |
+| **Mouse Ink** | Mouse pressure by speed (light 20% at 1100 px/s), taper in 14 / out 28 px, String 30, Light size 8% | A mouse that inks: thick-and-thin lines with pointed ends |
 | **Raw Pen** | The factory settings, every filter off | Back to plain pen input |
 
 **Try it - a five-minute tour.** Open **View → Pen Control**, pick the Brush (`B`) at about 8px, and on a scratch layer:

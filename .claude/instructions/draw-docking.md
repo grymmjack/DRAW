@@ -20,7 +20,7 @@ the status bar and color strip are always at the bottom.
 
 ## Model
 
-- **Panel** (`DP_*`, 16): TOOLBOX, ORGANIZER, DRAWER, LAYERS, EDITBAR, ADVBAR, CHARMAP, WORKFLOW (dock panels, ids 1-8) and PREVIEW, MIXER, ADVCP, CS3D, PEN, BROWSER, ANIM, SWATCH (native floating windows, ids 9-16: `id < DP_PREVIEW` = a dock panel, and loops over the windows run `DP_PREVIEW TO DP_COUNT`). A panel added later is missing from older saved trees: `DOCK_adopt_new_panels` (in `DOCK_layout`) places it - see the workflow buttons in `draw-workspaces.md`. `DPANEL(id)`: name, title, `hmode` (`DP_H_FIXED` own height / `DP_H_FLEX` shares), `tall` (makes its column full height), `bordered`, `floats` (has its own window), `slot` (0 = not docked), float rect, dock-back memory (`hside/hcol/hslot/halone`), and this frame's rect (`rVis, rx..rh`).
+- **Panel** (`DP_*`, 19): TOOLBOX, ORGANIZER, DRAWER, LAYERS, EDITBAR, ADVBAR, CHARMAP, WORKFLOW, TEXTBAR, SELBAR, MYPAINT (dock panels, ids 1-11) and PREVIEW, MIXER, ADVCP, CS3D, PEN, BROWSER, ANIM, SWATCH (native floating windows, ids 12-19: `id < DP_PREVIEW` = a dock panel, and loops over the windows run `DP_PREVIEW TO DP_COUNT`). A panel added later is missing from older saved trees: `DOCK_adopt_new_panels` (in `DOCK_layout`) places it - see the workflow buttons in `draw-workspaces.md`. `DPANEL(id)`: name, title, `hmode` (`DP_H_FIXED` own height / `DP_H_FLEX` shares), `tall` (makes its column full height), `bordered`, `floats` (has its own window), `slot` (0 = not docked), float rect, dock-back memory (`hside/hcol/hslot/halone`), and this frame's rect (`rVis, rx..rh`).
 - **Column** `DOCK_COL`: `side` (`DOCK_LEFT` 1 / `DOCK_RIGHT` 2 / `DOCK_TOP` 3 / `DOCK_BOTTOM` 4 - sides 3 / 4 are ROWS: `DOCK_is_row%(c)`, `DOCK_side_is_row%`, `DOCK_in_row%(id)`), `ord` (1 = outermost), `wpx` (0 = the panels' own width; a row's height). `DOCK_MAX_COLS` = 16 holds both.
 - **Slot** `DOCK_SLOT`: `col`, `ord` (1 = top), `share`, `collapsed`, `ntabs`, `act`. `autoc` = collapsed by the layout this frame (not saved).
 - **Default tree:** while `DOCK_CUSTOM = FALSE`, `DOCK_build_default` rebuilds the tree **every layout** from the old side keys (`TOOLBOX_DOCK_EDGE`, `LAYERS_PANEL_DOCK_EDGE`, edit/adv bar and charmap `dockSide`). Any user arrangement sets `DOCK_CUSTOM` (`DOCK_change_begin`) — otherwise a live drag is undone the next frame.
@@ -29,7 +29,7 @@ the status bar and color strip are always at the bottom.
 
 Sizes are solved by `QB64_GJ_LIB/LAYOUT` (flexbox-style lines; see `draw-layout.md`): every panel states its sizes in **one** place, `DOCK_panel_box`, and the dock turns them into lines.
 
-1. **The screen row** (`DOCK_row_solve`) is one line: left columns (outermost first), the canvas (at least `DOCK_MIN_CANVAS_W` = 160, takes the rest), right columns. A column's width is `DOCK_col_width%`: the widest of its panels' boxes, or its `WIDTH:` override. **Small windows:** while the line overflows, the outermost column of the wider side is dropped (`autoh`, toolbox column last) by hand and the line solved again. Columns holding a `tall` panel are FULL height; full height **spreads outward** (any column outside a full one is full too). The menu bar spans between the full-height columns (`DOCK_MENU_LX/RX`).
+1. **The screen row** (`DOCK_row_solve`) is one line: left columns (outermost first), the canvas (at least `DOCK_MIN_CANVAS_W` = 160, takes the rest), right columns. A column's width is `DOCK_col_width%`: the widest of its panels' boxes, or its `WIDTH:` override - wider up to `DOCK_col_max_w%`, or **narrower** down to `DOCK_col_min_w%` when every panel in it stretches (Brush Palette, MyPaint, ...: the widest of their minimums; any fixed-width panel pins it at the natural width). A stretching panel floated to a width and dropped into a new column keeps that width (`DOCK_move_to_new_col%` sets `wpx` from `fw`; Rick 2026-11-18: "when i dock it, it's much wider"). QA: `brush-palette-column.sh`, `brush-palette-float.sh`. **Small windows:** while the line overflows, the outermost column of the wider side is dropped (`autoh`, toolbox column last) by hand and the line solved again. Columns holding a `tall` panel are FULL height; full height **spreads outward** (any column outside a full one is full too). The menu bar spans between the full-height columns (`DOCK_MENU_LX/RX`).
 2. **Each column** (`DOCK_stack_column`) is one line in flex mode: fixed panels take their own height, bordered neighbours share a frame row (`lead -1`), flex panels split the rest by `share` and **never go below their minimum: the others give way** (before 2026-10-09 a too-small share was bumped afterwards and the column ran past the dock; test `dock-column-min-share`). Titled slots (tabs, collapsed, docked native window) get an 11px strip (`DOCK_TITLE_H`). Too short even at the minimums: slots collapse to their strips from the bottom, never the first (`autoc`, the line's drop order).
 4. `DOCK_apply_rect` hands each visible panel its rect (the fields its own code reads). `DOCK_live%(id)` gates every panel's render and hit tests.
 5. Canvas edges `DOCK_LX/RX` → `SCRN.uiLeftEdge/uiRightEdge`, `panelShiftX`.
@@ -167,7 +167,7 @@ joins the end of the innermost row, else a new row).
   mode with top rows the side columns start under them (`colY1 = barY1 + TOPH`, `colY2 = dockY2 - BOTH`)
   -> `DOCK_place_columns` -> `DOCK_place_rows` (x `DOCK_LX..DOCK_RX`, or the window when full width;
   top rows under the menu bar; the text bar is one of the rows now, `DP_TEXTBAR`). Sets `DOCK_ROWS_Y1/Y2/TOPH/BOTH` and
-  `DOCK_SHIFT_Y = (TOPH - BOTH) \ 2` -> **`SCRN.panelShiftY%`** (added to every vertical canvas
+  `DOCK_SHIFT_Y = (TOPH - transient - BOTH) \ 2` (transient = top rows holding only the Selection Bar, `DOCK_row_transient%`: it comes and goes with the selection tools and must not move the canvas under the pointer) -> **`SCRN.panelShiftY%`** (added to every vertical canvas
   position, ~38 sites, the twin of `panelShiftX%`). Scrollbars and `FPANEL_band_trim` read the rows.
 - **Width in a row** (`DOCK_row_panel_box`, at the row's height): toolbox = fewest columns whose height
   fits (`DOCK_row_tb_w%`; it reflows because `DOCK_tb_follows%` includes `DOCK_in_row%`); organizer /
@@ -256,6 +256,17 @@ joins the end of the innermost row, else a new row).
   up as a column (`SUBTOOL_FLYOUT.VERTICAL`). The text bar's font / size / style lists are
   `POPUP_K_TEXT_BAR` (their boxes in `TBDD_X/Y/W/H`, noted as drawn). Dumps `SUBFLY`, `TEXTBAR`.
   Test: `dock-row-popups.sh`.
+- **MyPaint Brushes** (`DP_MYPAINT` = 11, 2026-11-18: the dock panels are now ids 1-11, the native
+  windows 12-19, `DP_COUNT` 19, `WZ_TBED` / `WZ_COUNT` 20, `PSURF_N` 11). `GUI/MYPAINT-PANEL`: shown =
+  `CFG.MYPAINT_PANEL` (not under F11); a flex panel (a grid that scrolls), stretchy width like the
+  Swatches; no slot in an older tree -> `DOCK_mypaint_place` (a column of its own, innermost on the
+  right). See `draw-mypaint.md`.
+- **Selection Bar** (`DP_SELBAR` = 10, 2026-11-18). `GUI/SEL-BAR`: shown =
+  `SELBAR_wanted%` (`CFG.SELECTION_BAR`, a selection tool, not F11). Built like the text bar -
+  `DP_H_FIXED`, height `SELBAR_h_for%(w)` = row height x the lines its control groups wrap into
+  (`SELBAR_layout%`), PSURF member (`CFG.SELECTION_BAR_SCALE`), region `REGION_SEL_BAR`. Old trees
+  adopt it as a new top row just inside the text bar's row (`DOCK_selbar_place`); its row is left
+  out of `DOCK_SHIFT_Y` (above). Dumps `SELBAR` / `SELM` / `SELBARC`. Test: `sel-bar.sh`.
 - **Text bar** (`DP_TEXTBAR` = 9, the last dock panel - the native windows moved up one, `WZ_TBED`
   = 18; Rick 2026-11-16 "scaleable, like the other panels" + "dockable left, right, top, bottom"):
   it used to be a fixed strip (`DOCK_TOPBAR_H`, now always 0). Shown = `TEXT_BAR_wanted%` (text tool
@@ -427,5 +438,39 @@ family (`FPANEL_has_scale%` / `_scale_setting%` / `_auto_scale%` /
   goes through `LAYER_PANEL_view_x2%` / `LAYER_PANEL_view_bot%`. The tooltip's
   layer rows map with `PSURF_my%`. Dumps `LPHIT slot` (row under the pointer),
   `LPGEO header row btnbar` (viewport px). Test: `panel-scale-layers.sh`.
+- **Half steps (2026-11-18; MyPaint Brushes first, then every panel).** Rick: "scale in .5
+  amounts? 1.5x 2.5x 3.5x ..." -> "let's do this for all of the panels" -> "preview window has no
+  .5 sizes" / "neither does browser". `FPANEL_half_ok%(dp)` = every `FPANEL_has_scale%` panel.
+  The cfg keys are SINGLE (`CFG.MYPAINT_PANEL_SCALE!`, `CFG.LAYER_PANEL_SCALE!` ..; written `1.5`
+  / `2` by `CONFIG_half_txt$`, parsed to the nearest half by `CONFIG_half!`, 0 < v < 1 -> 1).
+  **`FPANEL_scale_set!` is the one place each panel's setting is read** (`INT` for a panel not
+  half_ok); `FPANEL_scale_f!` = set or auto; `FPANEL_scale_setting%` / `FPANEL_scale%` round down
+  for integer callers. **All PSURF unit math goes through `PSURF_kf!`** (`PSURF_v/u/mx/my`,
+  `rect_to_view`, `PSURF(id).k` SINGLE; `PSURF_k%` is gone from callers - the toolbox flyout and
+  the drawer use kf too). `PSURF_blit` trims `uw` / `uh` until `uw * k` is whole.
+  - **Smoothing: every copy of a panel picture onto screen 0 goes through `HSC_put slot, src,
+    sx, sy, sw, sh, dx, dy, dw, dh, mode`** (PANEL-SURFACE.BM). A plain `_PUTIMAGE` stretch when
+    `CFG.PANEL_HALF_FILTER` = 0 (NEAREST) or the ratio is whole; else `native/halfscale.h`
+    `gj_halfscale` (Catmull-Rom, separable, premultiplied alpha so icon edges don't darken; 1 =
+    BICUBIC default, 2 = SHARP = nearest up to the next whole scale, then bicubic down) into
+    `HSC_IMG(slot)`. Nearest made Tiny5 "crunchy looking" (Rick); bicubic: "1.5x LOOKS STUNNING".
+    Slots: a dock panel's id (PSURF), `HSC_ADVCP_MENU` / `HSC_SWATCH_MENU` for those windows'
+    menus, 0 = no cache (small pieces: flyout icons, text-bar dropdowns). Mode 1 = resample (the
+    PSURF just rendered, `sdirty`), 2 = reuse the cache, 0 = `gj_region_changed` memcmps against
+    `HSC_COPY(slot)` and resamples only on a change (native windows, which redraw their own
+    image every frame). `HSC_free slot` when a surface turns off. (`_PUTIMAGE , _SMOOTH` is
+    bilinear and only for hardware images.) The hit test is unchanged: same geometry, softer.
+  - **Native windows** (Mixer, Adv Picker, 3D Color Space, Pen, Swatches, Animation) map the
+    pointer with `renderScale` = ts / ds, already floating point: `ts` is SINGLE from
+    `FPANEL_scale_f!`, sizes are `CLNG(x * ts)`, the blit is `HSC_put`. **Preview** (`PREVIEW_ts!`)
+    and **Browser** (`BROWSER_ts!`) read `FPANEL_scale_f!` too - `USCALE.preview%` / `.browser%`
+    are only the whole part now. The Preview's canvas area is re-put with a plain `_PUTIMAGE`
+    over the smoothed window at a half step (bicubic would blur the pixel art it shows), and its
+    loupe stays nearest; the Browser is smoothed whole (thumbnails included). The file dialog's
+    own integer scales (`FD_STATE.scale`, the modal dialogs' `bScale`) take the nearest whole.
+  - Menu: `DOCK_ACT_SCALE_HALF` 30 + k = k.5x, after each whole row. Settings -> Panels -> Panel
+    Scale: `SETTINGS_panel_scale_row_half` (SINGLE spinner, step .5, Auto <-> 1). Dump `PSURF`
+    prints k as `1.5`. Tests: `panel-scale-half.sh`, `panel-scale-half-filters.sh` (one launch
+    per filter, header crops).
 - **Grep a panel's render path for `SCRN.GUI&` by name** before putting it on
   a surface: `_DEST SCRN.GUI&`, `_PUTIMAGE ..., SCRN.GUI&`, `_FONT f, SCRN.GUI&`.

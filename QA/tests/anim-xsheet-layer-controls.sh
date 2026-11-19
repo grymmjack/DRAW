@@ -7,7 +7,7 @@
 # way in the XSHEET as it is in layer panel").
 #
 # Name column: eye (show / hide), lock (the alpha lock), then the name, then
-# the opacity box (wheel +/- 5 %, Shift 1 %; drag up / down; click to type).
+# the opacity box (wheel +/- 1 %, Shift 10 % - the universal value input; drag up / down; click to type).
 # The old build had only the name.
 #
 # Dump: ANIMXS, ANIMXSR (row y), ANIMXSL (eyeX lockX opX opW + per row: slot
@@ -60,9 +60,11 @@ else
     [[ "$K1" == 0 ]] && pass "lock again: unlocked" || fail "lock again: lock '${K1:-}', wanted 0"
 
     scroll_down "$OX" "$(xl_y)"; sleep 0.12; scroll_down "$OX" "$(xl_y)"; wait_for 0.4 "wheel"; xl_read
-    [[ "$O1" == 90 ]] && pass "wheel down x2 over the opacity box: 90 %" || fail "wheel over opacity: '${O1:-}', wanted 90"
+    [[ "$O1" == 98 ]] && pass "wheel down x2 over the opacity box: 98 %" || fail "wheel over opacity: '${O1:-}', wanted 98"
+    shift_scroll_down "$OX" "$(xl_y)"; wait_for 0.4 "shift wheel"; xl_read
+    [[ "$O1" == 88 ]] && pass "Shift+wheel down over the opacity box: 88 % (10 a notch)" || fail "Shift+wheel over opacity: '${O1:-}', wanted 88"
     mouse_down "$OX" "$(xl_y)"; hover "$OX" $(( $(xl_y) - 10 )); sleep 0.15; hover "$OX" $(( $(xl_y) + 20 )); sleep 0.2; mouse_up; wait_for 0.4 "drag"; xl_read
-    [[ "$O1" == 70 ]] && pass "drag the opacity box 20 px down: 70 %" || fail "drag opacity down 20 px: '${O1:-}', wanted 70"
+    [[ "$O1" == 68 ]] && pass "drag the opacity box 20 px down: 68 %" || fail "drag opacity down 20 px: '${O1:-}', wanted 68"
     click "$OX" "$(xl_y)"; wait_for 0.8 "input box"; type_text "35"; key Return; wait_for 0.6 "typed"; xl_read
     [[ "$O1" == 35 ]] && pass "click the opacity box, type 35: 35 %" || fail "typed opacity: '${O1:-}', wanted 35"
     screenshot "anim-xsheet-layer-controls"

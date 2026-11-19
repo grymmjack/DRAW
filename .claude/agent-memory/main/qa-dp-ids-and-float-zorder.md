@@ -1,6 +1,6 @@
 ---
 name: qa-dp-ids-and-float-zorder
-description: QA tests must not hardcode DP_ panel ids (text bar shifted natives +1); dk_grab_point uses the WZ line for floating z-order
+description: QA tests must not hardcode DP_ panel ids (text bar then selection bar each shifted natives +1); dk_grab_point uses the WZ line for floating z-order
 metadata:
   type: project
 ---
@@ -8,7 +8,10 @@ metadata:
 
 1. **DP_ ids shift.** DP_TEXTBAR = 9 was inserted before the native windows, so DP_PREVIEW went 9 -> 10
    (MIXER 11 ... SWATCH 17). Tests that hardcoded `DP_PREVIEW=9` / `pick_scale preview 9` failed with
-   "DMENU open '-1' panel '10'" - DRAW was right. Read the id from GUI/DOCK.BI instead:
+   "DMENU open '-1' panel '10'" - DRAW was right. [2026-11-18] DP_SELBAR = 10 shifted them again:
+   PREVIEW 11 ... SWATCH 18, DP_COUNT 18, WZ_TBED / WZ_COUNT 19, PSURF_N 10. [2026-11-18] DP_MYPAINT = 11
+   shifted them once more: PREVIEW 12 ... SWATCH 19, DP_COUNT 19, WZ 20, PSURF_N 11 (workspace-recall-all.sh
+   still had `pick_scale preview 10` - now read from DOCK.BI). Read the id from GUI/DOCK.BI instead:
    `awk '$1=="CONST" && $2=="DP_PREVIEW" {print $4; exit}' "$DRAW_ROOT/GUI/DOCK.BI"`.
 2. **Floating windows at one spot.** Native windows floated to the same default rect (140,12) cover
    each other's title bars; dk_grab_point's coverage check used to count every other window and so

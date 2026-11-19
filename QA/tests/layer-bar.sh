@@ -71,7 +71,10 @@ near "$B_OP" 64 8 && pass "slider click a quarter along: opacity $B_OP (of 255)"
 drag $(( B_SX + B_SW / 4 )) "$(BY)" $(( B_SX + B_SW + 20 )) "$(BY)"; settle "drag past its end"; bar
 [[ "$B_OP" == 255 ]] && pass "slider drag past its end: 255" || fail "slider drag: opacity $B_OP"
 scroll_down $(( B_SX + B_SW / 2 )) "$(BY)"; scroll_down $(( B_SX + B_SW / 2 )) "$(BY)"; settle "wheel down twice"; bar
-[[ "$B_OP" == 225 ]] && pass "wheel down twice on the slider: 225" || fail "slider wheel: opacity $B_OP, want 225"
+# (the universal wheel: 1% a notch, Shift 10% - 255 -> 98% = 250 -> 88% = 224)
+[[ "$B_OP" == 250 ]] && pass "wheel down twice on the slider: 250 (98%)" || fail "slider wheel: opacity $B_OP, want 250"
+shift_scroll_down $(( B_SX + B_SW / 2 )) "$(BY)"; settle "Shift+wheel down"; bar
+[[ "$B_OP" == 224 ]] && pass "Shift+wheel down on the slider: 224 (88%)" || fail "slider Shift+wheel: opacity $B_OP, want 224"
 P0=$(paint_op)
 hover $(( B_SX + B_SW / 2 )) "$(BY)"; wait_for 0.3 "hover"; hover $(( B_SX + B_SW / 2 + 1 )) "$(BY)"; wait_for 0.3 "hover"; dk_settle; bar
 [[ "$B_HOT" == -1 ]] && pass "the pointer on the slider: hot" || fail "hot '$B_HOT' over the slider"

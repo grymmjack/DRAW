@@ -1,0 +1,458 @@
+''
+' DRAW - GUI/MYPAINT-SET.BM - the MyPaint Brush Settings panel (GUI/MYPAINT-SET.BI).
+' =============================================================================
+$INCLUDEONCE
+
+''
+' Should it show: View > MyPaint Brush Settings on, the chrome not hidden by F11.
+FUNCTION MPS_wanted% ()
+    IF SCRN.textBarHiddenByToggleAll% THEN EXIT FUNCTION ' (F11 holds the panels off)
+    MPS_wanted% = (CFG.MYPAINT_SETTINGS% <> 0)
+END FUNCTION
+
+
+''
+' The libmypaint setting ids behind OPAQUE .. SMOOTH (once).
+SUB MPS_ids ()
+    IF MPS.idsOK THEN EXIT SUB
+    MPS_ID(MPS_SIZE) = mp_setting_id&("radius_logarithmic" + CHR$(0))
+    MPS_ID(MPS_OPAQUE) = mp_setting_id&("opaque" + CHR$(0))
+    MPS_ID(MPS_SHARP) = mp_setting_id&("hardness" + CHR$(0))
+    MPS_ID(MPS_GAIN) = mp_setting_id&("pressure_gain_log" + CHR$(0))
+    MPS_ID(MPS_PIGMENT) = mp_setting_id&("paint_mode" + CHR$(0))
+    MPS_ID(MPS_SMOOTH) = mp_setting_id&("slow_tracking" + CHR$(0))
+    MPS.idsOK = TRUE
+END SUB
+
+
+FUNCTION MPS_label$ (k AS INTEGER)
+    MPS_label$ = _TRIM$(MID$("SIZE    OPAQUE  SHARP   GAIN    PIGMENT SMOOTH  PRESSURETWIST   ", (k - 1) * 8 + 1, 8))
+END FUNCTION
+
+
+FUNCTION MPS_lo% (k AS INTEGER)
+    SELECT CASE k
+        CASE MPS_SIZE: MPS_lo% = _IIF(CFG.MYPAINT_SIZE_FROM_BRUSH%, BRUSH_SIZE.MIN, -40)
+        CASE MPS_GAIN: MPS_lo% = -180
+        CASE ELSE: MPS_lo% = 0
+    END SELECT
+END FUNCTION
+
+
+FUNCTION MPS_hi% (k AS INTEGER)
+    SELECT CASE k
+        CASE MPS_SIZE: MPS_hi% = _IIF(CFG.MYPAINT_SIZE_FROM_BRUSH%, BRUSH_SIZE.MAX, 40)
+        CASE MPS_OPAQUE: MPS_hi% = 200
+        CASE MPS_GAIN: MPS_hi% = 180
+        CASE MPS_TWIST: MPS_hi% = 359
+        CASE ELSE: MPS_hi% = 100
+    END SELECT
+END FUNCTION
+
+
+''
+' Slider units per engine unit (OPAQUE .. SMOOTH): the value = base * scale.
+FUNCTION MPS_scale! (k AS INTEGER)
+    IF k = MPS_SMOOTH THEN MPS_scale! = 10 ELSE MPS_scale! = 100
+END FUNCTION
+
+
+''
+' Slider k's value now, in its units.
+FUNCTION MPS_get% (k AS INTEGER)
+    SELECT CASE k
+        CASE MPS_SIZE: MPS_get% = _IIF(CFG.MYPAINT_SIZE_FROM_BRUSH%, BRUSH_SIZE.CURRENT, CFG.MYPAINT_SIZE%)
+        CASE MPS_OPAQUE TO MPS_SMOOTH
+            MPS_ids
+            MPS_get% = CINT(mp_get_base!(MPS_ID(k)) * MPS_scale!(k))
+        CASE MPS_PRESSURE: MPS_get% = CFG.MYPAINT_MOUSE_PRESSURE%
+        CASE MPS_TWIST: MPS_get% = CFG.MYPAINT_TWIST%
+    END SELECT
+END FUNCTION
+
+
+''
+' Its reset value: the brush file's (OPAQUE .. SMOOTH), SIZE 0, PRESSURE 50, TWIST 0.
+FUNCTION MPS_def% (k AS INTEGER)
+    SELECT CASE k
+        CASE MPS_OPAQUE TO MPS_SMOOTH: MPS_def% = MPS_FILEV(k)
+        CASE MPS_PRESSURE: MPS_def% = 50
+        CASE MPS_SIZE: MPS_def% = _IIF(CFG.MYPAINT_SIZE_FROM_BRUSH%, MYPAINT_file_size_index%, 0)
+        CASE ELSE: MPS_def% = 0
+    END SELECT
+END FUNCTION
+
+
+''
+' The brush file's values, just loaded / saved (TOOLS/MYPAINT: MYPAINT_load%, MYPAINT_save%).
+SUB MPS_capture ()
+    DIM k AS INTEGER
+    MPS_ids
+    FOR k = MPS_OPAQUE TO MPS_SMOOTH
+        MPS_FILEV(k) = CINT(mp_get_base!(MPS_ID(k)) * MPS_scale!(k))
+    NEXT k
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Set slider k to v (clamped); save = write DRAW.cfg (its CFG keys) now - a drag saves
+' when the button comes up.
+SUB MPS_set (k AS INTEGER, v AS INTEGER, save AS INTEGER)
+    DIM n AS INTEGER
+    MYPAINT_init
+    n = _MAX(MPS_lo%(k), _MIN(MPS_hi%(k), v))
+    SELECT CASE k
+        CASE MPS_SIZE ' (following the brush size: a BRUSH_PIXEL_SIZES index)
+            IF CFG.MYPAINT_SIZE_FROM_BRUSH% THEN
+                BRUSH_SIZE_set n
+            ELSE
+                CFG.MYPAINT_SIZE% = n
+                IF save THEN CONFIG_save
+            END IF
+            MYPAINT_apply_size
+        CASE MPS_OPAQUE TO MPS_SMOOTH
+            MPS_ids
+            mp_set_base MPS_ID(k), n / MPS_scale!(k)
+        CASE MPS_PRESSURE
+            CFG.MYPAINT_MOUSE_PRESSURE% = n
+            IF save THEN CONFIG_save
+        CASE MPS_TWIST
+            CFG.MYPAINT_TWIST% = n: mp_set_twist n / 360!
+            IF save THEN CONFIG_save
+    END SELECT
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+SUB MPS_reset (k AS INTEGER)
+    MPS_set k, MPS_def%(k), TRUE
+END SUB
+
+
+''
+' RESET: every setting back to the brush file's (and the mouse stand-ins to theirs).
+SUB MPS_reset_all ()
+    DIM k AS INTEGER
+    FOR k = 1 TO MPS_N
+        MPS_set k, MPS_def%(k), FALSE
+    NEXT k
+    CONFIG_save
+    STATUS_flash "MYPAINT BRUSH SETTINGS: AS THE BRUSH WAS MADE"
+END SUB
+
+
+''
+' Its value as shown.
+FUNCTION MPS_text$ (k AS INTEGER)
+    DIM v AS INTEGER
+    v = MPS_get%(k)
+    SELECT CASE k
+        CASE MPS_SIZE: MPS_text$ = MYPAINT_size_text$
+        CASE MPS_OPAQUE TO MPS_PIGMENT: MPS_text$ = MPS_fix$(v / 100!, 2)
+        CASE MPS_SMOOTH: MPS_text$ = MPS_fix$(v / 10!, 1)
+        CASE MPS_PRESSURE: MPS_text$ = _TRIM$(STR$(v)) + "%"
+        CASE MPS_TWIST: MPS_text$ = _TRIM$(STR$(v))
+    END SELECT
+END FUNCTION
+
+
+''
+' v with d decimals ("0.50", "-1.20").
+FUNCTION MPS_fix$ (v AS SINGLE, d AS INTEGER)
+    DIM s AS STRING, n AS LONG, ip AS LONG, fp AS LONG, m AS LONG
+    m = 10 ^ d
+    n = CLNG(ABS(v) * m)
+    ip = n \ m: fp = n MOD m
+    s = _TRIM$(STR$(ip))
+    IF d > 0 THEN s = s + "." + RIGHT$(STRING$(d, "0") + _TRIM$(STR$(fp)), d)
+    IF v < 0 _ANDALSO n > 0 THEN s = "-" + s
+    MPS_fix$ = s
+END FUNCTION
+
+
+''
+' Type slider k's value (a double-click on it): the value as shown, read back in
+' the same units (OPAQUE 0.5, SMOOTH 2.5, TWIST 90 ...).
+SUB MPS_type (k AS INTEGER)
+    DIM t AS STRING, cur AS STRING, f AS SINGLE
+    cur = MPS_text$(k)
+    IF k = MPS_SIZE THEN cur = _TRIM$(STR$(_IIF(CFG.MYPAINT_SIZE_FROM_BRUSH%, BRUSH_SIZE_pixels%, CFG.MYPAINT_SIZE%)))
+    IF k = MPS_PRESSURE THEN cur = _TRIM$(STR$(CFG.MYPAINT_MOUSE_PRESSURE%))
+    POINTER_hide_for_dialog
+    t = DRAW_input_box_ex$("MyPaint Brush Settings", MPS_label$(k) + _IIF(k = MPS_SIZE, _IIF(CFG.MYPAINT_SIZE_FROM_BRUSH%, " (PX):", " (-40..40 tenths):"), ":"), cur, "A number", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    t = _TRIM$(t)
+    IF t = "" THEN EXIT SUB
+    IF INSTR("-.0123456789", LEFT$(t, 1)) = 0 THEN STATUS_flash MPS_label$(k) + ": NOT A NUMBER": EXIT SUB
+    f = VAL(t)
+    SELECT CASE k
+        CASE MPS_OPAQUE TO MPS_SMOOTH: MPS_set k, CINT(f * MPS_scale!(k)), TRUE
+        CASE MPS_SIZE: IF CFG.MYPAINT_SIZE_FROM_BRUSH% THEN MPS_set k, CINT((f + 1) / 2), TRUE ELSE MPS_set k, CINT(f), TRUE
+        CASE ELSE: MPS_set k, CINT(f), TRUE
+    END SELECT
+END SUB
+
+
+' =============================================================================
+' Layout + render
+' =============================================================================
+
+''
+' The label and value columns (its units, the menu font).
+SUB MPS_metrics ()
+    DIM k AS INTEGER, w AS INTEGER
+    FOR k = 1 TO MPS_N
+        w = PSL_tw%(MPS_label$(k))
+        IF w > MPS.lw THEN MPS.lw = w
+    NEXT k
+    MPS.lw = MPS.lw + 6
+    MPS.vw = PSL_tw%("00.0 PX") + 6
+END SUB
+
+
+''
+' Lay the sliders out in w at (ox, oy) - keep = remember the spots (MPS_SX / SY) -
+' and return the height that takes: a header row (the brush, RESET, SAVE), then the
+' sliders in as many columns as fit (one in a dock column; side by side in a row).
+FUNCTION MPS_layout_in% (ox AS INTEGER, oy AS INTEGER, w AS INTEGER, keep AS INTEGER)
+    DIM rowH AS INTEGER, cols AS INTEGER, sw AS INTEGER, sh AS INTEGER, k AS INTEGER, r AS INTEGER, rows AS INTEGER
+    DIM x AS INTEGER
+    rowH = PSL_row_h%
+    MPS.lw = 0: MPS_metrics
+    cols = (w - 4 + 6) \ (MPS_SLIDER_W + 6)
+    IF cols < 1 THEN cols = 1
+    IF cols > MPS_N THEN cols = MPS_N
+    sw = (w - 4 - (cols - 1) * 6) \ cols
+    IF sw < 20 THEN sw = 20
+    sh = PSL_h%(sw, MPS.lw, MPS.vw)
+    rows = (MPS_N + cols - 1) \ cols
+    IF keep THEN
+        MPS.cols = cols: MPS.sw = sw
+        FOR k = 1 TO MPS_N
+            r = (k - 1) \ cols
+            MPS_SX(k) = ox + 2 + ((k - 1) MOD cols) * (sw + 6)
+            MPS_SY(k) = oy + 2 + rowH + r * (sh + 2)
+        NEXT k
+        x = ox + w - 2
+        MPS_BW(MPSB_SAVE) = PSL_tw%("SAVE") + 8: x = x - MPS_BW(MPSB_SAVE): MPS_BX(MPSB_SAVE) = x
+        MPS_BW(MPSB_RESET) = PSL_tw%("RESET") + 8: x = x - 3 - MPS_BW(MPSB_RESET): MPS_BX(MPSB_RESET) = x
+        MPS.footY = oy + 2
+    END IF
+    MPS_layout_in% = 2 + rowH + rows * (sh + 2) + 2
+END FUNCTION
+
+
+''
+' Its height in w (its units) - the dock's fixed height for it (DOCK_fixed_h_units%).
+FUNCTION MPS_h_for% (w AS INTEGER)
+    MPS_h_for% = MPS_layout_in%(0, 0, w, FALSE)
+END FUNCTION
+
+
+SUB MPS_button (id AS INTEGER, t AS STRING)
+    DIM x AS INTEGER, w AS INTEGER, rowH AS INTEGER, y AS INTEGER, bg AS _UNSIGNED LONG, fg AS _UNSIGNED LONG
+    x = MPS_BX(id): w = MPS_BW(id): rowH = PSL_row_h%: y = MPS.footY
+    IF MPS.hover = id THEN
+        bg = THEME.TEXT_BAR_BTN_HOVER~&: fg = THEME.TEXT_BAR_FG~&
+    ELSE
+        bg = THEME.TEXT_BAR_BTN_BG~&: fg = THEME.TEXT_BAR_BTN_FG~&
+    END IF
+    LINE (x, y + 1)-(x + w - 1, y + rowH - 3), bg, BF
+    LINE (x, y + 1)-(x + w - 1, y + rowH - 3), THEME.TEXT_BAR_BTN_BORDER~&, B
+    COLOR fg, _RGBA32(0, 0, 0, 0)
+    _UPRINTSTRING (x + (w - PSL_tw%(t)) \ 2, y + (rowH - _UFONTHEIGHT) \ 2), t
+END SUB
+
+
+SUB MPS_render ()
+    DIM rowH AS INTEGER, oldFont AS LONG, k AS INTEGER, h AS INTEGER, t AS STRING, nmW AS INTEGER
+    IF MPS.visible = 0 _ORELSE MPS.w <= 0 _ORELSE MPS.h <= 0 THEN EXIT SUB
+    MYPAINT_init
+    LINE (MPS.x, MPS.y)-(MPS.x + MPS.w - 1, MPS.y + MPS.h - 1), THEME.TEXT_BAR_BG~&, BF
+    REGION_set_bounds REGION_MYPSET, MPS.x, MPS.y, MPS.w, MPS.h, ZORDER_PANEL ' (its footprint at a Scale: PSURF_render)
+    rowH = PSL_row_h%
+    oldFont& = _FONT
+    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+    _PRINTMODE _KEEPBACKGROUND
+    h = MPS_layout_in%(MPS.x, MPS.y, MPS.w, TRUE)
+    ' the header: the brush in use, RESET, SAVE
+    MPS_button MPSB_RESET, "RESET"
+    MPS_button MPSB_SAVE, "SAVE"
+    nmW = MPS_BX(MPSB_RESET) - MPS.x - 6
+    t = UCASE$(MYPAINT.brushName): IF t = "" THEN t = "(DEFAULTS)"
+    IF nmW > 8 THEN
+        DO WHILE LEN(t) > 1 _ANDALSO PSL_tw%(t) > nmW
+            t = LEFT$(t, LEN(t) - 1)
+        LOOP
+        IF CURRENT_TOOL% = TOOL_MYPAINT THEN COLOR THEME.TEXT_BAR_FG~& ELSE COLOR THEME.TEXT_BAR_BTN_FG~&
+        _UPRINTSTRING (MPS.x + 4, MPS.footY + (rowH - _UFONTHEIGHT) \ 2), t
+    END IF
+    FOR k = 1 TO MPS_N
+        PSL_draw MPS_SX(k), MPS_SY(k), MPS.sw, MPS.lw, MPS.vw, MPS_label$(k), MPS_get%(k), MPS_lo%(k), MPS_hi%(k), MPS_text$(k), (MPS.hover = k _ORELSE MPS.drag = k)
+    NEXT k
+    _FONT oldFont&
+END SUB
+
+
+' =============================================================================
+' Input
+' =============================================================================
+
+''
+' The slider (1..MPS_N) or button (MPSB_*) at (mx, my) - its units; part = PSL_PART_*.
+FUNCTION MPS_hit% (mx AS INTEGER, my AS INTEGER, part AS INTEGER)
+    DIM k AS INTEGER, id AS INTEGER, rowH AS INTEGER
+    part = 0
+    FOR k = 1 TO MPS_N
+        part = PSL_part%(mx, my, MPS_SX(k), MPS_SY(k), MPS.sw, MPS.lw, MPS.vw)
+        IF part THEN MPS_hit% = k: EXIT FUNCTION
+    NEXT k
+    rowH = PSL_row_h%
+    FOR id = MPSB_RESET TO MPSB_SAVE
+        IF mx >= MPS_BX(id) _ANDALSO mx < MPS_BX(id) + MPS_BW(id) _ANDALSO my >= MPS.footY _ANDALSO my < MPS.footY + rowH THEN MPS_hit% = id: EXIT FUNCTION
+    NEXT id
+END FUNCTION
+
+
+''
+' Is viewport (inX, inY) on the panel? Every click / hover / pan gate asks here.
+FUNCTION MPS_is_over_area% (inX AS INTEGER, inY AS INTEGER)
+    IF MPS.visible = 0 _ORELSE MPS.w <= 0 _ORELSE MPS.h <= 0 THEN EXIT FUNCTION
+    IF DOCK_live%(DP_MYPSET) = 0 THEN EXIT FUNCTION
+    IF WZ_blocked%(DP_MYPSET, inX, inY) THEN EXIT FUNCTION ' a window in front covers it here
+    IF PSURF_on%(DP_MYPSET) THEN MPS_is_over_area% = PSURF_in%(DP_MYPSET, inX, inY): EXIT FUNCTION
+    MPS_is_over_area% = (inX >= MPS.x _ANDALSO inX < MPS.x + MPS.w _ANDALSO inY >= MPS.y _ANDALSO inY < MPS.y + MPS.h)
+END FUNCTION
+
+
+''
+' Hover (viewport px): redraw when the control under it changes.
+SUB MPS_track (inX AS INTEGER, inY AS INTEGER)
+    DIM h AS INTEGER, part AS INTEGER
+    IF MPS_is_over_area%(inX, inY) THEN h = MPS_hit%(PSURF_mx%(DP_MYPSET, inX), PSURF_my%(DP_MYPSET, inY), part)
+    IF h <> MPS.hover THEN MPS.hover = h: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' A press (viewport px): TRUE when it was on the panel (taken). A slider's track (or
+' its label) sets it and drags; a double-click there resets it; a double-click on its
+' value types one.
+FUNCTION MPS_click% (inX AS INTEGER, inY AS INTEGER)
+    DIM k AS INTEGER, mx AS INTEGER, my AS INTEGER, part AS INTEGER
+    IF MPS_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    MPS_click% = TRUE
+    mx = PSURF_mx%(DP_MYPSET, inX): my = PSURF_my%(DP_MYPSET, inY)
+    k = MPS_hit%(mx, my, part)
+    SELECT CASE k
+        CASE 1 TO MPS_N
+            IF part = PSL_PART_VALUE THEN
+                IF VAL_dbl%(DP_MYPSET * 1000& + 100 + k) THEN MPS_type k
+            ELSEIF VAL_dbl%(DP_MYPSET * 1000& + k) THEN
+                MPS_reset k
+            ELSEIF part = PSL_PART_TRACK THEN
+                MPS.drag = k
+                MPS_set k, PSL_value&(mx, MPS_SX(k), MPS_SY(k), MPS.sw, MPS.lw, MPS.vw, MPS_lo%(k), MPS_hi%(k)), FALSE
+            END IF
+        CASE MPSB_RESET: MPS_reset_all
+        CASE MPSB_SAVE: CMD_execute_action MYPAINT_ACT_SAVE
+    END SELECT
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+
+''
+' Each frame while a slider is held (MOUSE.BM): follow the pointer; on release save.
+' TRUE while it holds the mouse.
+FUNCTION MPS_drag_frame% (inX AS INTEGER, inY AS INTEGER, held AS INTEGER)
+    DIM k AS INTEGER
+    IF MPS.drag = 0 THEN EXIT FUNCTION
+    MPS_drag_frame% = TRUE
+    k = MPS.drag
+    IF held = 0 _ORELSE MPS.visible = 0 THEN
+        MPS.drag = 0
+        CONFIG_save
+        GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        EXIT FUNCTION
+    END IF
+    MPS_set k, PSL_value&(PSURF_mx%(DP_MYPSET, inX), MPS_SX(k), MPS_SY(k), MPS.sw, MPS.lw, MPS.vw, MPS_lo%(k), MPS_hi%(k)), FALSE
+END FUNCTION
+
+
+''
+' A middle-click: the slider under it back to its reset value. TRUE when on the panel.
+FUNCTION MPS_middle% (inX AS INTEGER, inY AS INTEGER)
+    DIM k AS INTEGER, part AS INTEGER
+    IF MPS_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    MPS_middle% = TRUE
+    k = MPS_hit%(PSURF_mx%(DP_MYPSET, inX), PSURF_my%(DP_MYPSET, inY), part)
+    IF k >= 1 _ANDALSO k <= MPS_N THEN MPS_reset k
+END FUNCTION
+
+
+''
+' The wheel over a slider: one step a notch (Shift: 10). TRUE when on the panel.
+FUNCTION MPS_wheel% (inX AS INTEGER, inY AS INTEGER, delta AS INTEGER)
+    DIM k AS INTEGER, part AS INTEGER
+    IF delta = 0 _ORELSE MPS_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    MPS_wheel% = TRUE
+    k = MPS_hit%(PSURF_mx%(DP_MYPSET, inX), PSURF_my%(DP_MYPSET, inY), part)
+    IF k >= 1 _ANDALSO k <= MPS_N THEN MPS_set k, MPS_get%(k) + VAL_wheel_step%(SGN(delta)), TRUE
+END FUNCTION
+
+
+''
+' View > MyPaint Brush Settings.
+SUB MPS_toggle ()
+    CFG.MYPAINT_SETTINGS% = _IIF(CFG.MYPAINT_SETTINGS%, FALSE, TRUE)
+    CONFIG_save
+    IF CFG.MYPAINT_SETTINGS% THEN MYPAINT_init
+    STATUS_flash "MYPAINT BRUSH SETTINGS " + _IIF(CFG.MYPAINT_SETTINGS%, "ON", "OFF")
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' What the control under the pointer does (tooltips): TRUE-ish id, txt = the text.
+FUNCTION MPS_tip_at% (inX AS INTEGER, inY AS INTEGER, txt AS STRING)
+    DIM k AS INTEGER, part AS INTEGER
+    txt = ""
+    IF MPS_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    k = MPS_hit%(PSURF_mx%(DP_MYPSET, inX), PSURF_my%(DP_MYPSET, inY), part)
+    SELECT CASE k
+        CASE MPS_SIZE: txt = "SIZE: THE BRUSH'S RADIUS OVER ITS OWN ([ / ] WITH THE TOOL)"
+        CASE MPS_OPAQUE: txt = "OPAQUE: HOW MUCH PAINT EACH DAB PUTS DOWN"
+        CASE MPS_SHARP: txt = "SHARP: THE DAB'S EDGE, SOFT (0) TO HARD (1)"
+        CASE MPS_GAIN: txt = "GAIN: HOW STRONGLY PRESSURE ACTS"
+        CASE MPS_PIGMENT: txt = "PIGMENT: MIX LIKE PAINT (1) INSTEAD OF LIGHT (0)"
+        CASE MPS_SMOOTH: txt = "SMOOTH: THE STROKE LAGS BEHIND THE POINTER, EVENING IT OUT"
+        CASE MPS_PRESSURE: txt = "PRESSURE: WHAT THE MOUSE PAINTS WITH (A PEN USES ITS OWN)"
+        CASE MPS_TWIST: txt = "TWIST: THE PEN'S BARREL ROTATION, DEGREES (BRUSHES THAT READ IT)"
+        CASE MPSB_RESET: txt = "RESET: EVERY SETTING AS THE BRUSH WAS MADE"
+        CASE MPSB_SAVE: txt = "SAVE: KEEP THE BRUSH WITH THESE SETTINGS IN MY BRUSHES"
+    END SELECT
+    IF k >= 1 _ANDALSO k <= MPS_N THEN txt = txt + CHR$(10) + "WHEEL +/-1 (SHIFT 10) - MIDDLE / DOUBLE-CLICK RESETS - DOUBLE-CLICK THE VALUE TO TYPE"
+    IF LEN(txt) THEN MPS_tip_at% = 900 + k
+END FUNCTION
+
+
+''
+' QA dump: MPS visible x y w h cols sw lw vw rowH hover drag, then MPSS k x y value reset
+' per slider and MPSB id x y w per button (its units).
+FUNCTION MPS_dump$ ()
+    DIM d AS STRING, lf AS STRING, k AS INTEGER, id AS INTEGER
+    lf = CHR$(10)
+    d = "MPS" + DOCK_n$(MPS.visible <> 0) + DOCK_n$(MPS.x) + DOCK_n$(MPS.y) + DOCK_n$(MPS.w) + DOCK_n$(MPS.h)
+    d = d + DOCK_n$(MPS.cols) + DOCK_n$(MPS.sw) + DOCK_n$(MPS.lw) + DOCK_n$(MPS.vw) + DOCK_n$(PSL_row_h%) + DOCK_n$(MPS.hover) + DOCK_n$(MPS.drag) + lf
+    IF MPS.visible THEN
+        FOR k = 1 TO MPS_N
+            d = d + "MPSS" + DOCK_n$(k) + DOCK_n$(MPS_SX(k)) + DOCK_n$(MPS_SY(k)) + DOCK_n$(MPS_get%(k)) + DOCK_n$(MPS_def%(k)) + lf
+        NEXT k
+        FOR id = MPSB_RESET TO MPSB_SAVE
+            d = d + "MPSB" + DOCK_n$(id) + DOCK_n$(MPS_BX(id)) + DOCK_n$(MPS.footY) + DOCK_n$(MPS_BW(id)) + lf
+        NEXT id
+    END IF
+    MPS_dump$ = d
+END FUNCTION

@@ -18,7 +18,9 @@ dk_check "organizer floating"
 dk_move toolbox float $(( CAN_LX + 450 )) $(( DOCK_TOP + 40 ))
 dk_expect_floating toolbox
 dk_check "toolbox floating (its column is gone)"
-dk_expect_tree '^[^|]*$' "no stacked slots left on the right"
+# (the hidden MyPaint brushes + settings share a column of their own since 2026-11-18: that
+# stack is not the toolbox's)
+dk_expect_tree '^([^|]|mypaint [|] mypaintset)*$' "no stacked slots left on the right"
 screenshot "dock-float-all"
 
 # move a floating window by its title: it stays floating, saved at the new place

@@ -471,6 +471,81 @@ DRAW finds the clips' sounds and the soundtrack there by name.
 
 <div class="page-break"></div>
 
+## MyPaint Brushes — Natural Media
+
+DRAW paints with **MyPaint's brush engine** (libmypaint 1.6.1, built in - nothing to install) and loads MyPaint's own `.myb` brush files: pencils, charcoal, inks, watercolours, smudge and blend brushes, airbrushes, knives. The brushes that come with MyPaint ship with DRAW, all seven sets (196 brushes, CC0 - free for any use): Classic, Deevad, Dieterle, Experimental, Kaerhon, Ramon and Tanda.
+
+### Picking a brush
+
+**Tools > MyPaint Brush** picks the tool and opens the **MyPaint Brushes** palette (also **View > MyPaint Brushes**). It is a dock panel like the others: it docks in a column on the right, floats, tabs, or docks along the top or bottom.
+
+- **`<` / `>`** (or the wheel over the top rows) step through the groups - MyPaint's own grouping, then **MY BRUSHES** (your own).
+- **Click a brush** to use it; that picks the MyPaint tool too. The brush in use has a coloured frame; the row above the grid names the brush under the pointer.
+- **The wheel over the grid** scrolls it.
+- The size shown at the right of the **LOAD / SAVE** row is the brush's base radius (before pressure and speed change it).
+
+### Painting
+
+Paint with the left button in the **FG** colour, the right button in the **BG** colour. It paints into the current layer, one undo step per stroke.
+
+- **A pen** gives the brush its pressure and tilt (after Pen Control's pressure curve). The mouse paints at half pressure, as in MyPaint - or at the **PRESSURE** you set in the MyPaint Brush Settings panel.
+- **`[` / `]`** make the brush smaller / bigger while the MyPaint tool is active (steps of 0.2 in MyPaint's log radius, about 22%). **MyPaint Brush: Reset Size** in the command palette (`?`) goes back to the size the brush was made at.
+- **Smudge and blend brushes** pick up the colours already in the layer.
+- It honours the **selection**: a feathered or antialiased selection fades the paint at its edges. It also honours the layer's **opacity lock** (the alpha stays).
+
+### MyPaint Brush Settings
+
+**View > MyPaint Brush Settings** opens a panel of sliders for the brush in use, the same ones MyPaint's Freehand tool options have. It docks like any panel (under the MyPaint Brushes palette by default). It floats, and it lays its sliders side by side when docked along the top or bottom.
+
+| Slider | What it changes |
+|---|---|
+| **SIZE** | The brush size, the same as `[` / `]` and the Brush Palette (the brush's radius over its own when Size From Brush Size is off) |
+| **OPAQUE** | How much paint each dab puts down (0..2) |
+| **SHARP** | The dab's edge, soft (0) to hard (1) |
+| **GAIN** | How strongly pen pressure acts (-1.8..1.8) |
+| **PIGMENT** | 1 mixes the colours like paint, 0 like light |
+| **SMOOTH** | The stroke lags behind the pointer, evening out shaky lines (0..10) |
+| **PRESSURE** | The pressure the **mouse** paints with, % (a pen uses its own) |
+| **TWIST** | The pen's barrel rotation in degrees, for the brushes that read it |
+
+OPAQUE to SMOOTH change the loaded brush only: picking another brush brings back its own values. **RESET** puts every slider back to the brush as it was made. **SAVE** keeps the brush with your values in **MY BRUSHES**.
+
+Every slider in DRAW takes the same mouse controls: **the wheel** moves it 1 (**Shift**: 10), **a middle-click** or **a double-click** on it resets it, and **a double-click on its value** lets you type one.
+
+### Loading and saving brushes
+
+- **LOAD** (or **Tools > Load MyPaint Brush...**) opens any `.myb` file, for example a brush pack downloaded for MyPaint.
+- **SAVE** (or **Tools > Save MyPaint Brush...**) writes the brush as it is now - its size included - into **MY BRUSHES**. DRAW paints a preview thumbnail for it (`<name>_prev.png` beside it), the way MyPaint's own brushes have one.
+- **Your brushes live in** `MYPAINT-BRUSHES/` in DRAW's data folder (`./DRAW.run --dir-data` prints it). Any `.myb` you copy there shows up in MY BRUSHES.
+
+### Settings (DRAW.cfg `[MYPAINT]`)
+
+| Key | What it does |
+|---|---|
+| `MYPAINT_BRUSH` | The `.myb` in use (empty: Classic / pencil) |
+| `MYPAINT_SIZE_FROM_BRUSH` | `TRUE` (default): the MyPaint brush is DRAW's brush size (its diameter, 1–101 px). `FALSE`: each brush keeps its own size (command *MyPaint Brush: Size From Brush Size*) |
+| `MYPAINT_SIZE` | With `MYPAINT_SIZE_FROM_BRUSH=FALSE`: size offset in tenths of a log step, -40..40 (`[` / `]`) |
+| `MYPAINT_PANEL` | The palette shows |
+| `MYPAINT_SET` | The group the palette shows |
+| `MYPAINT_CELL` | Thumbnail size in px, 24..128 |
+| `MYPAINT_SETTINGS` | The MyPaint Brush Settings panel shows |
+| `MYPAINT_MOUSE_PRESSURE` | The mouse's pressure, % (default 50) |
+| `MYPAINT_TWIST` | The barrel rotation every stroke gets, degrees |
+| `MYPAINT_PANEL_SCALE` | The palette's own Scale (0 = the UI Scale; 1 to 8 in half steps, e.g. `1.5`) |
+
+---
+
+## Brush Palette — Shapes and Sizes
+
+**View > Brush Palette** opens a dock panel for the brush that the **Brush**, **Eraser**, **Line** and shape tools paint with. It works in any dock shape - a narrow column, two columns, along the top or bottom, or floating. The grid of sizes wraps to the width it gets and scrolls in the height.
+
+- **The shape chips** at the top: **ROUND**, **SQUARE**, and two **SLANT** nibs (`/` and `\`), calligraphy pens that make thick and thin lines depending on the stroke's direction.
+- **SIZE** picks the size (1 to 101 px, as `[` / `]`). **SOFT** fades the edge over that much of the radius: 0 is hard, 100 is feathered all the way from the centre. Soft works on round and slant brushes; a square brush stays hard.
+- **The grid** shows every size as it paints, in the current shape and softness. Click one to use it. The wheel over the grid scrolls it, or changes the size when every size already shows.
+- The sliders take the universal mouse controls: the wheel (**Shift** for 10), a middle-click or a double-click to reset, a double-click on the value to type one.
+
+DRAW.cfg `[BRUSH_PALETTE]`: `BRUSH_PANEL` (it shows), `BRUSH_PANEL_SCALE`, `BRUSH_PANEL_CELL` (thumbnail px, 16..64), `BRUSH_SOFT` (the softness, kept between runs). A `.draw` file remembers a slant shape.
+
 ## Drawer Panel — 96 Reusable Slots
 
 > 🎯 **Goal:** Organize and reuse brushes and patterns.

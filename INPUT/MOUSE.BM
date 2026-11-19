@@ -71,16 +71,20 @@ END SUB
 SUB MOUSE_smp_map (dx AS INTEGER, dy AS INTEGER, rawX AS INTEGER, rawY AS INTEGER)
     DIM i AS INTEGER, ix AS INTEGER, iy AS INTEGER, fx AS DOUBLE, fy AS DOUBLE, z AS SINGLE
     DIM lx AS INTEGER, ly AS INTEGER, apron AS INTEGER, n AS INTEGER, rn AS INTEGER
-    DIM ds AS INTEGER, vx AS INTEGER, vy AS INTEGER
+    DIM ds AS INTEGER, vx AS INTEGER, vy AS INTEGER, subPx AS INTEGER
     rn = MOUSE_SMP_RN: MOUSE_SMP_RN = 0: MOUSE_SMP_N = 0
     IF SCRN.patternTileMode% _ORELSE CROP.STATE = CROP_STATE_ACTIVE THEN EXIT SUB
     z = SCRN.zoom!: IF z <= 0 THEN EXIT SUB
     ds = SCRN.displayScale%: IF ds < 1 THEN ds = 1
     apron = MOUSE_tool_allowed_in_apron%(CURRENT_TOOL%)
     lx = MOUSE.X%: ly = MOUSE.Y% ' (never repeat the final point)
+    ' MyPaint wants every sub-pixel step (its dabs are smooth): repeats are dropped by
+    ' the exact position, not the canvas pixel - for the brush, a step inside one
+    ' pixel paints nothing new
+    subPx = (CURRENT_TOOL% = TOOL_MYPAINT)
     FOR i = 1 TO rn
         vx = MOUSE_SMP_RX(i) \ ds: vy = MOUSE_SMP_RY(i) \ ds ' (viewport px)
-        IF vx = rawX _ANDALSO vy = rawY THEN _CONTINUE
+        IF vx = rawX _ANDALSO vy = rawY _ANDALSO subPx = 0 THEN _CONTINUE
         ix = INT((vx - dx) / z): iy = INT((vy - dy) / z)
         ' the window pixel's centre: sub-pixel at a display scale above 1
         fx = ((MOUSE_SMP_RX(i) + 0.5#) / ds - dx) / z: fy = ((MOUSE_SMP_RY(i) + 0.5#) / ds - dy) / z
@@ -94,14 +98,22 @@ SUB MOUSE_smp_map (dx AS INTEGER, dy AS INTEGER, rawX AS INTEGER, rawY AS INTEGE
         END IF
         IF INT(fx) <> ix _ORELSE INT(fy) <> iy THEN fx = ix + 0.5#: fy = iy + 0.5# ' (snapped / clamped)
         IF n > 0 THEN
-            IF MOUSE_SMP_X(n) = ix _ANDALSO MOUSE_SMP_Y(n) = iy THEN _CONTINUE
+            IF subPx THEN
+                IF MOUSE_SMP_FX(n) = fx _ANDALSO MOUSE_SMP_FY(n) = fy THEN _CONTINUE
+            ELSEIF MOUSE_SMP_X(n) = ix _ANDALSO MOUSE_SMP_Y(n) = iy THEN
+                _CONTINUE
+            END IF
         END IF
         n = n + 1
         MOUSE_SMP_X(n) = ix: MOUSE_SMP_Y(n) = iy: MOUSE_SMP_FX(n) = fx: MOUSE_SMP_FY(n) = fy
     NEXT i
     ' the last sample on the final point adds nothing
     IF n > 0 THEN
-        IF MOUSE_SMP_X(n) = lx _ANDALSO MOUSE_SMP_Y(n) = ly THEN n = n - 1
+        IF subPx THEN
+            IF MOUSE_SMP_FX(n) = MOUSE.FX _ANDALSO MOUSE_SMP_FY(n) = MOUSE.FY THEN n = n - 1
+        ELSEIF MOUSE_SMP_X(n) = lx _ANDALSO MOUSE_SMP_Y(n) = ly THEN
+            n = n - 1
+        END IF
     END IF
     MOUSE_SMP_N = n
 END SUB
@@ -937,6 +949,9 @@ SUB MOUSE_autocommit_move_if_click_on_gui (rawX AS INTEGER, rawY AS INTEGER)
     IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF WF_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
+    IF SELBAR_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
+    IF MYPP_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
+    IF MPS_is_over_area%(rawX%, rawY%) _ORELSE BSP_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showEditBar% AND EDITBAR_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showAdvBar% AND ADVBAR_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showCharMap% AND CHARMAP_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
@@ -1233,6 +1248,12 @@ SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
         ' the workflow buttons (GUI/WORKFLOW): a button switches workspace - the
         ' panels relayout, so no later check may see this press
         IF WF_click%(rawX%, rawY%) THEN MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB
+        ' the selection tools' bar (GUI/SEL-BAR): a chip / toggle / button, or a slider's track (dragged: SELBAR_drag_frame%)
+        IF SELBAR_click%(rawX%, rawY%) THEN MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB
+        ' the MyPaint brushes (GUI/MYPAINT-PANEL): a brush, the group arrows, LOAD / SAVE
+        IF MYPP_click%(rawX%, rawY%) THEN MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB
+        IF MPS_click%(rawX%, rawY%) THEN MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB
+        IF BSP_click%(rawX%, rawY%) THEN MOUSE.UI_CHROME_CLICKED% = TRUE: EXIT SUB
         IF SCRN.showToolbar% AND DRAWER_is_over_area%(rawX%, rawY%) THEN
             IF DRAWER_handle_click%(rawX%, rawY%) THEN
                 SOUND_play SND_ORGANIZER
@@ -1318,6 +1339,12 @@ SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
             IF TBED_edit_mode% = 0 THEN EDITBAR_handle_right_click rawX%, rawY%
             MOUSE.UI_CHROME_CLICKED% = TRUE
         END IF
+        ' ... and on the advanced bar, where a workspace may put that button (Rick 2026-11-18:
+        ' "it was right click on PP to get AA to go on and off, but it doesn't work")
+        IF SCRN.showAdvBar% AND ADVBAR_is_over_area%(rawX%, rawY%) THEN
+            IF TBED_edit_mode% = 0 THEN ADVBAR_handle_right_click rawX%, rawY%
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+        END IF
         ' Check for right-click on organizer
         IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN
             IF ORGANIZER_handle_right_click%(rawX%, rawY%) THEN
@@ -1384,6 +1411,9 @@ SUB MOUSE_handle_b3_dblclick_reset_zoom ()
     IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(mx%, my%) THEN EXIT SUB
     IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(mx%, my%) THEN EXIT SUB
     IF WF_is_over_area%(mx%, my%) THEN EXIT SUB
+    IF SELBAR_is_over_area%(mx%, my%) THEN EXIT SUB
+    IF MYPP_is_over_area%(mx%, my%) THEN EXIT SUB
+    IF MPS_is_over_area%(mx%, my%) _ORELSE BSP_is_over_area%(mx%, my%) THEN EXIT SUB
     IF SCRN.showToolbar% AND DRAWER_is_over_area%(mx%, my%) THEN EXIT SUB
     IF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(mx%, my%) THEN EXIT SUB
     IF SCRN.showStatus% AND my% >= (SCRN.h& - THEME.STATUS_height%) THEN EXIT SUB
@@ -1636,6 +1666,9 @@ SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
         IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN allowB3Pan% = FALSE
         IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN allowB3Pan% = FALSE
         IF WF_is_over_area%(rawX%, rawY%) THEN allowB3Pan% = FALSE
+        IF SELBAR_is_over_area%(rawX%, rawY%) THEN allowB3Pan% = FALSE
+        IF MYPP_is_over_area%(rawX%, rawY%) THEN allowB3Pan% = FALSE
+        IF MPS_is_over_area%(rawX%, rawY%) _ORELSE BSP_is_over_area%(rawX%, rawY%) THEN allowB3Pan% = FALSE
         IF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN allowB3Pan% = FALSE
         IF SCRN.showStatus% AND rawY% >= (SCRN.h& - THEME.STATUS_height%) THEN allowB3Pan% = FALSE
         IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN allowB3Pan% = FALSE
@@ -1662,6 +1695,9 @@ SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
         IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         IF WF_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
+        IF SELBAR_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
+        IF MYPP_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
+        IF MPS_is_over_area%(rawX%, rawY%) _ORELSE BSP_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         IF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
         IF SCRN.showStatus% AND rawY% >= (SCRN.h& - THEME.STATUS_height%) THEN allowCanvasPan% = FALSE
         IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
@@ -2092,12 +2128,14 @@ SUB MOUSE_tool_marquee ()
     DIM selIsShift AS INTEGER, selIsAlt AS INTEGER
     selIsShift% = MODIFIERS.shift%
     selIsAlt%   = MODIFIERS.alt%
-    IF selIsShift% THEN
+    IF selIsShift% _ANDALSO selIsAlt% THEN
+        selMode% = SEL_MODE_INTERSECT
+    ELSEIF selIsShift% THEN
         selMode% = SEL_MODE_ADD
     ELSEIF selIsAlt% THEN
         selMode% = SEL_MODE_SUBTRACT
     ELSE
-        selMode% = SEL_MODE_REPLACE
+        selMode% = SELBAR_mode% ' (the Selection Bar's mode chips; REPLACE unless one is picked)
     END IF
 
     SELECT CASE MARQUEE.VARIANT
@@ -3131,6 +3169,7 @@ SUB MOUSE_tool_spray ()
             SAFE_FREEIMAGE SPRAY.HISTORY_BEFORE_IMG
             SPRAY.HISTORY_BEFORE_IMG = 0
             SPRAY.HISTORY_COLOR~&    = DRAW_COLOR~&
+            SPRAY.AB_FRESH = TRUE
             IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
                 SPRAY.HISTORY_BEFORE_IMG = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
             END IF
@@ -3160,6 +3199,7 @@ SUB MOUSE_tool_spray ()
             SAFE_FREEIMAGE SPRAY.HISTORY_BEFORE_IMG
             SPRAY.HISTORY_BEFORE_IMG = 0
             SPRAY.HISTORY_COLOR~&    = PAINT_BG_COLOR~&
+            SPRAY.AB_FRESH = TRUE
             IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
                 SPRAY.HISTORY_BEFORE_IMG = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
             END IF
@@ -3896,6 +3936,7 @@ SUB MOUSE_release_brush ()
     ' forget it (before the pixel-perfect replay, which draws what it collected)
     MOUSE_brush_catch_up
     PAINT_aa_finish ' an antialiased stroke's last half segment
+    PEN_mx_taper_out ' mouse expression: the stroke's end narrows to a point
     PENC_stroke_end
     IF BRUSH_SIZE.PIXEL_PERFECT AND PP_STROKE_COUNT% > 0 THEN
         BMIX_begin_replay ' mix brush: redraw each pixel in its own stroke color
@@ -4063,8 +4104,8 @@ SUB MOUSE_handle_right_click ()
             EXIT SUB
         CASE TOOL_BRUSH, TOOL_DOT, TOOL_ERASER
             IF NOT MODIFIERS.shift% THEN EXIT SUB ' B2 without SHIFT = draw with BG
-        CASE TOOL_SPRAY
-            EXIT SUB ' Spray already handles B2 in tool_spray
+        CASE TOOL_SPRAY, TOOL_MYPAINT
+            EXIT SUB ' Spray / MyPaint handle B2 (paint with BG) in their hold handlers
     END SELECT
 
     ' Right-click on polygon select: close the polygon
@@ -4587,6 +4628,11 @@ SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
         ELSEIF MODIFIERS.ctrl% THEN
             WHEEL_dispatch_canvas WHEEL_action_for%(SGN(MOUSE.SW%), MOD_CTRL)
             MOUSE.SW% = 0    ' Consume — the routed action decides scene dirtiness
+        ' Mouse expression, Wheel mode: the wheel turns the pressure of the stroke
+        ' being drawn (never zooms mid-stroke)
+        ELSEIF TABLET.mexp _ANDALSO MEXP.active _ANDALSO CFG.PEN_MOUSE% = MEXP_WHEEL _ANDALSO (MOUSE.B1% _ORELSE MOUSE.B2%) THEN
+            PEN_mx_wheel MOUSE.SW%
+            MOUSE.SW% = 0
         ' Check if a Smart-Shape sub-tool is currently dragging — consume wheel
         ' so it never falls through to canvas zoom while the user is shaping.
         ' Three shapes have wheel-bound parameters per their tooltips:
@@ -4705,7 +4751,7 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
             END IF
             IF NOT cmToolAllowed% THEN
                 SELECT CASE CURRENT_TOOL%
-                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON, TOOL_SS_PIE_DONUT, TOOL_SS_ROUNDED_RECT, TOOL_SS_TAB, TOOL_SS_PILL, TOOL_SS_PACMAN, TOOL_SS_3D_CUBE, TOOL_SS_BEVEL_RECT, TOOL_SS_ARROW
+                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON, TOOL_SS_PIE_DONUT, TOOL_SS_ROUNDED_RECT, TOOL_SS_TAB, TOOL_SS_PILL, TOOL_SS_PACMAN, TOOL_SS_3D_CUBE, TOOL_SS_BEVEL_RECT, TOOL_SS_ARROW, TOOL_MYPAINT
                         IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
                             POINTER_hide_for_dialog
                             DRAW_alert "Cannot Draw on Text Layer", _
@@ -4724,7 +4770,7 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
         ' --- Guard: block drawing tools on symbol child layers ---
         IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
             SELECT CASE CURRENT_TOOL%
-                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON, TOOL_SS_PIE_DONUT, TOOL_SS_ROUNDED_RECT, TOOL_SS_TAB, TOOL_SS_PILL, TOOL_SS_PACMAN, TOOL_SS_3D_CUBE, TOOL_SS_BEVEL_RECT, TOOL_SS_ARROW
+                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON, TOOL_SS_PIE_DONUT, TOOL_SS_ROUNDED_RECT, TOOL_SS_TAB, TOOL_SS_PILL, TOOL_SS_PACMAN, TOOL_SS_3D_CUBE, TOOL_SS_BEVEL_RECT, TOOL_SS_ARROW, TOOL_MYPAINT
                     IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
                         POINTER_hide_for_dialog
                         DRAW_alert "Cannot Edit Symbol Instance", _
@@ -4743,7 +4789,7 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
         ' --- Guard: painting on a clip layer is refused (TOOLS/CLIP; it is rebuilt from its clip) ---
         IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_CLIP THEN
             SELECT CASE CURRENT_TOOL%
-                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON, TOOL_SS_PIE_DONUT, TOOL_SS_ROUNDED_RECT, TOOL_SS_TAB, TOOL_SS_PILL, TOOL_SS_PACMAN, TOOL_SS_3D_CUBE, TOOL_SS_BEVEL_RECT, TOOL_SS_ARROW
+                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON, TOOL_SS_PIE_DONUT, TOOL_SS_ROUNDED_RECT, TOOL_SS_TAB, TOOL_SS_PILL, TOOL_SS_PACMAN, TOOL_SS_3D_CUBE, TOOL_SS_BEVEL_RECT, TOOL_SS_ARROW, TOOL_MYPAINT
                     IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
                         IF CLIP_refuse%("Paint") THEN GUI_NEEDS_REDRAW% = TRUE
                     END IF
@@ -4772,7 +4818,7 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
         ' the user click twice.
         IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_GROUP THEN
             SELECT CASE CURRENT_TOOL%
-                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON, TOOL_SS_PIE_DONUT, TOOL_SS_ROUNDED_RECT, TOOL_SS_TAB, TOOL_SS_PILL, TOOL_SS_PACMAN, TOOL_SS_3D_CUBE, TOOL_SS_BEVEL_RECT, TOOL_SS_ARROW
+                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON, TOOL_SS_PIE_DONUT, TOOL_SS_ROUNDED_RECT, TOOL_SS_TAB, TOOL_SS_PILL, TOOL_SS_PACMAN, TOOL_SS_3D_CUBE, TOOL_SS_BEVEL_RECT, TOOL_SS_ARROW, TOOL_MYPAINT
                     DIM gdRedirected AS INTEGER
                     gdRedirected% = FALSE
 
@@ -4941,6 +4987,8 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
             MOUSE_tool_dot
         CASE TOOL_SPRAY
             MOUSE_tool_spray
+        CASE TOOL_MYPAINT
+            MOUSE_tool_mypaint
         CASE TOOL_ZOOM
             MOUSE_tool_zoom rawX%, rawY%
     END SELECT
@@ -4967,7 +5015,7 @@ SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
             END IF
             IF NOT cmRelAllowed% THEN
                 SELECT CASE CURRENT_TOOL%
-                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON, TOOL_SS_PIE_DONUT, TOOL_SS_ROUNDED_RECT, TOOL_SS_TAB, TOOL_SS_PILL, TOOL_SS_PACMAN, TOOL_SS_3D_CUBE, TOOL_SS_BEVEL_RECT, TOOL_SS_ARROW
+                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON, TOOL_SS_PIE_DONUT, TOOL_SS_ROUNDED_RECT, TOOL_SS_TAB, TOOL_SS_PILL, TOOL_SS_PACMAN, TOOL_SS_3D_CUBE, TOOL_SS_BEVEL_RECT, TOOL_SS_ARROW, TOOL_MYPAINT
                         EXIT SUB
                 END SELECT
             END IF
@@ -5041,6 +5089,8 @@ SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
                 MOUSE_release_text
             CASE TOOL_SPRAY
                 MOUSE_release_spray
+            CASE TOOL_MYPAINT
+                MOUSE_release_mypaint
             CASE TOOL_BEZIER
                 MOUSE_release_bezier
         END SELECT
@@ -5896,6 +5946,7 @@ SUB MOUSE_handle_gui_panels (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS IN
         IF PENP.dragging% OR PENP.sliding% <> PENP_CTL_NONE OR PENP_hit_window%(rawX%, rawY%) THEN
             PENP_mouse_input
         END IF
+        IF wheel_delta% <> 0 THEN IF PENP_wheel%(wheel_delta%) THEN wheel_delta% = 0 ' a slider (the universal value input)
         IF PENP_hit_window%(rawX%, rawY%) THEN
             IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) OR (MOUSE.B3% AND NOT MOUSE.OLD_B3%) THEN
                 MOUSE.UI_CHROME_CLICKED% = TRUE
@@ -6092,6 +6143,32 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
     ' Handle mousewheel interactions over text bar controls BEFORE gui_early,
     ' because gui_early returns TRUE (blocking) when mouse is over an open dropdown,
     ' which would swallow the wheel event before the scroll handler runs.
+    ' a Selection Bar slider held: it follows the pointer until the button is up
+    IF SELBAR_drag_frame%(rawX%, rawY%, MOUSE.B1%) _ORELSE MPS_drag_frame%(rawX%, rawY%, MOUSE.B1%) _ORELSE BSP_drag_frame%(rawX%, rawY%, MOUSE.B1%) THEN
+        MOUSE.UI_CHROME_CLICKED% = TRUE
+        GUI_NEEDS_REDRAW%        = TRUE
+        FRAME_IDLE%              = FALSE
+        MOUSE_process_frame%     = FALSE
+        EXIT FUNCTION
+    END IF
+    ' a middle-click on a Selection Bar slider: its default (the universal value input)
+    IF MOUSE.B3% _ANDALSO MOUSE.OLD_B3% = 0 THEN
+        IF SELBAR_middle%(rawX%, rawY%) _ORELSE LAYER_PANEL_middle%(rawX%, rawY%) _ORELSE MPS_middle%(rawX%, rawY%) _ORELSE BSP_middle%(rawX%, rawY%) THEN
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            GUI_NEEDS_REDRAW%        = TRUE
+            FRAME_IDLE%              = FALSE
+            MOUSE_process_frame%     = FALSE
+            EXIT FUNCTION
+        END IF
+    END IF
+    IF wheel_delta% <> 0 THEN
+        IF SELBAR_wheel%(rawX%, rawY%, wheel_delta%) _ORELSE MYPP_wheel%(rawX%, rawY%, wheel_delta%) _ORELSE MPS_wheel%(rawX%, rawY%, wheel_delta%) _ORELSE BSP_wheel%(rawX%, rawY%, wheel_delta%) THEN
+            GUI_NEEDS_REDRAW%    = TRUE
+            FRAME_IDLE%          = FALSE
+            MOUSE_process_frame% = FALSE
+            EXIT FUNCTION
+        END IF
+    END IF
     IF TEXT_BAR.visible% AND wheel_delta% <> 0 THEN
         IF TEXT_BAR_handle_wheel%(rawX%, rawY%, wheel_delta%) THEN
             GUI_NEEDS_REDRAW%    = TRUE

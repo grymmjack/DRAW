@@ -37,6 +37,9 @@ SUB DIALOG_init (ctx AS DIALOG_CTX, w AS INTEGER, h AS INTEGER)
     ctx.justClicked = FALSE
     ctx.done        = FALSE
     ctx.result      = FALSE
+    ctx.mb3raw = FALSE: ctx.omb3 = TRUE: ctx.justMid = FALSE ' (omb3 TRUE: a middle button held at open is no click)
+    ctx.dblClick = FALSE: ctx.lastClickT = 0
+    DLG_VAL_N = 0
     ' Preview / split / drag — zero-initialised; caller populates as needed
     ctx.origThumb        = 0
     ctx.previewThumb     = 0
@@ -165,6 +168,19 @@ SUB DIALOG_poll_mouse (ctx AS DIALOG_CTX)
         END IF
     END IF
     ctx.justClicked = ctx.mb1 AND (NOT ctx.omb1)
+    ' middle-click and double-click (the universal value input: DIALOG_value_input%)
+    ctx.mb3raw  = _MOUSEBUTTON(3)
+    ctx.justMid = (ctx.mb3raw <> 0 _ANDALSO ctx.omb3 = 0 _ANDALSO ctx.inputArmed <> 0)
+    ctx.omb3    = ctx.mb3raw
+    ctx.dblClick = FALSE
+    IF ctx.justClicked THEN
+        DIM dlgNow AS DOUBLE: dlgNow = TIMER(0.001)
+        IF ctx.lastClickT > 0 _ANDALSO dlgNow - ctx.lastClickT >= 0 _ANDALSO dlgNow - ctx.lastClickT < DBLCLICK_WINDOW_S + 0.1 _ANDALSO ABS(ctx.mx - ctx.lastClickX) <= 4 _ANDALSO ABS(ctx.my - ctx.lastClickY) <= 4 THEN
+            ctx.dblClick = TRUE: ctx.lastClickT = 0
+        ELSE
+            ctx.lastClickT = dlgNow: ctx.lastClickX = ctx.mx: ctx.lastClickY = ctx.my
+        END IF
+    END IF
 
     ' ---- Start drag on this frame's click? ----
     IF ctx.justClicked THEN
@@ -259,6 +275,8 @@ END FUNCTION
 FUNCTION DIALOG_slider_drag% (ctx AS DIALOG_CTX, sx AS INTEGER, sy AS INTEGER, sw AS INTEGER, sh AS INTEGER, value AS INTEGER, minV AS INTEGER, maxV AS INTEGER)
     DIM newVal AS INTEGER
     newVal = value
+    newVal = DIALOG_value_input%(ctx, sx, sy - 20, sw, sh + 24, sx, sy, value, minV, maxV, TRUE)
+    IF newVal <> value THEN DIALOG_slider_drag% = newVal: EXIT FUNCTION
     IF ctx.mb1 THEN
         IF ctx.my >= sy AND ctx.my <= sy + sh THEN
             IF ctx.mx >= sx AND ctx.mx <= sx + sw THEN
@@ -295,14 +313,176 @@ FUNCTION DIALOG_slider_wheel% (ctx AS DIALOG_CTX, sx AS INTEGER, sy AS INTEGER, 
     IF ctx.mwheel <> 0 THEN
         IF ctx.my >= sy - 20 AND ctx.my <= sy + sh + 4 THEN
             IF ctx.mx >= sx - 4 AND ctx.mx <= sx + sw + 4 THEN
-                newVal = value - ctx.mwheel
+                newVal = value - ctx.mwheel * DIALOG_wheel_mult%
                 IF newVal < minV THEN newVal = minV
                 IF newVal > maxV THEN newVal = maxV
             END IF
         END IF
     END IF
+    IF newVal = value THEN newVal = DIALOG_value_input%(ctx, sx - 4, sy - 20, sw + 8, sh + 24, sx, sy, value, minV, maxV, TRUE)
     DIALOG_slider_wheel% = newVal
 END FUNCTION
+
+''
+' The mouse wheel's step: 10 with Shift held, else 1.
+'
+FUNCTION DIALOG_wheel_mult% ()
+    IF _KEYDOWN(100303) _ORELSE _KEYDOWN(100304) THEN DIALOG_wheel_mult% = 10 ELSE DIALOG_wheel_mult% = 1
+END FUNCTION
+
+''
+' The universal reset / double-click of a value control (Rick 2026-11-18) whose
+' hit area is (hx, hy, hw, hh), keyed by (kx, ky): a middle-click, or a
+' double-click when dblResets (a slider), gives its reset value -
+' DIALOG_value_default%. Returns the value (unchanged when nothing happened).
+' Spinners / value boxes double-click to type instead (their own code).
+'
+FUNCTION DIALOG_value_input% (ctx AS DIALOG_CTX, hx AS INTEGER, hy AS INTEGER, hw AS INTEGER, hh AS INTEGER, kx AS INTEGER, ky AS INTEGER, value AS INTEGER, minV AS INTEGER, maxV AS INTEGER, dblResets AS INTEGER)
+    DIM d AS INTEGER, over AS INTEGER
+    d = DIALOG_value_default%(kx, ky, value) ' (registers the first value seen)
+    DIALOG_value_input% = value
+    over = (ctx.mx >= hx _ANDALSO ctx.mx <= hx + hw _ANDALSO ctx.my >= hy _ANDALSO ctx.my <= hy + hh)
+    IF over = 0 THEN EXIT FUNCTION
+    IF ctx.justMid _ORELSE (dblResets <> 0 _ANDALSO ctx.dblClick <> 0) THEN
+        IF d < minV THEN d = minV
+        IF d > maxV THEN d = maxV
+        DIALOG_value_input% = d
+        ctx.previewDirty = TRUE
+    END IF
+END FUNCTION
+
+''
+' The reset value of the control at (kx, ky) holding value: the factory default
+' when value IS a DRAW.cfg field (Settings' shadow copy or the live config -
+' found by its address: DIALOG_cfg_default%), else the value it had when this
+' dialog first showed it.
+'
+FUNCTION DIALOG_value_default% (kx AS INTEGER, ky AS INTEGER, value AS INTEGER)
+    DIM i AS INTEGER, ok AS INTEGER, d AS INTEGER
+    d = DIALOG_cfg_default%(value, ok)
+    IF ok THEN DIALOG_value_default% = d: EXIT FUNCTION
+    FOR i = 1 TO DLG_VAL_N
+        IF DLG_VAL_KX(i) = kx _ANDALSO DLG_VAL_KY(i) = ky THEN DIALOG_value_default% = DLG_VAL_V(i): EXIT FUNCTION
+    NEXT i
+    IF DLG_VAL_N < DLG_VAL_MAX THEN
+        DLG_VAL_N = DLG_VAL_N + 1
+        DLG_VAL_KX(DLG_VAL_N) = kx: DLG_VAL_KY(DLG_VAL_N) = ky: DLG_VAL_V(DLG_VAL_N) = value
+    END IF
+    DIALOG_value_default% = value
+END FUNCTION
+
+''
+' When v (passed by reference) is an INTEGER field of SETTINGS_CFG or CFG, its
+' factory default (CONFIG_set_defaults, worked out once) and ok = TRUE. The field
+' is found by its offset from the struct's first numeric field
+' (STOCK_DEFAULT_LAYOUT .. CRT_SCANLINE_VERTICAL, the first and last numeric
+' fields of DRAW_CONFIG): QB64 has no LEN / _OFFSET of a struct with
+' variable-length strings, but it has them for fields.
+'
+FUNCTION DIALOG_cfg_default% (v AS INTEGER, ok AS INTEGER)
+    DIM a AS _OFFSET, b0 AS _OFFSET, b1 AS _OFFSET, dlt AS _OFFSET, m AS _MEM
+    ok = FALSE
+    a = _OFFSET(v)
+    b0 = _OFFSET(SETTINGS_CFG.STOCK_DEFAULT_LAYOUT): b1 = _OFFSET(SETTINGS_CFG.CRT_SCANLINE_VERTICAL)
+    IF a >= b0 _ANDALSO a <= b1 THEN
+        dlt = a - b0
+    ELSE
+        b0 = _OFFSET(CFG.STOCK_DEFAULT_LAYOUT): b1 = _OFFSET(CFG.CRT_SCANLINE_VERTICAL)
+        IF a < b0 _ORELSE a > b1 THEN EXIT FUNCTION
+        dlt = a - b0
+    END IF
+    IF DLG_DEF_READY = 0 THEN DIALOG_cfg_defaults_build
+    m = _MEM(_OFFSET(DLG_DEF_CFG.STOCK_DEFAULT_LAYOUT) + dlt, 2)
+    DIALOG_cfg_default% = _MEMGET(m, m.OFFSET, INTEGER)
+    _MEMFREE m
+    ok = TRUE
+END FUNCTION
+
+''
+' =============================================================================
+' Value controls outside modal dialogs (Rick 2026-11-18: "all places that can
+' take a slider or value need to be adjustible with the mousewheel - +/-1 and
+' if shift held +/-10 as well as middle click and double click on slider to
+' reset - middle click on value box to reset, double click to edit")
+' =============================================================================
+
+''
+' A press on control id (a panel's own number for it, unique app-wide - e.g.
+' DP_* * 1000 + its control): TRUE when it is the second press of a
+' double-click on the same control (and the tracker forgets it, so a third
+' press starts over). Call it once per press edge.
+'
+FUNCTION VAL_dbl% (id AS LONG)
+    DIM now AS DOUBLE
+    now = TIMER(0.001)
+    IF id = VAL_LAST_ID _ANDALSO now - VAL_LAST_T >= 0 _ANDALSO now - VAL_LAST_T < DBLCLICK_WINDOW_S + 0.1 _ANDALSO ABS(MOUSE.RAW_X% - VAL_LAST_X) <= 4 _ANDALSO ABS(MOUSE.RAW_Y% - VAL_LAST_Y) <= 4 THEN
+        VAL_dbl% = TRUE: VAL_LAST_ID = 0
+    ELSE
+        VAL_LAST_ID = id: VAL_LAST_T = now: VAL_LAST_X = MOUSE.RAW_X%: VAL_LAST_Y = MOUSE.RAW_Y%
+    END IF
+END FUNCTION
+
+''
+' The wheel's change for a value: delta notches (QB64: negative = up = more),
+' 10 per notch with Shift held, else 1.
+'
+FUNCTION VAL_wheel_step% (delta AS INTEGER)
+    VAL_wheel_step% = -delta * DIALOG_wheel_mult%
+END FUNCTION
+
+''
+' op on the value v (by reference: a DRAW.cfg field resets to its factory default):
+' VAL_OP_NUDGE adds d, VAL_OP_RESET puts the default; both clamp to lo..hi.
+' Returns TRUE when v changed.
+'
+FUNCTION VAL_apply% (v AS INTEGER, op AS INTEGER, d AS INTEGER, lo AS INTEGER, hi AS INTEGER)
+    DIM n AS LONG, ok AS INTEGER, o AS INTEGER
+    o = v
+    IF op = VAL_OP_RESET THEN
+        n = DIALOG_cfg_default%(v, ok)
+        IF ok = 0 THEN EXIT FUNCTION
+    ELSE
+        n = CLNG(v) + d
+    END IF
+    IF n < lo THEN n = lo
+    IF n > hi THEN n = hi
+    v = n
+    VAL_apply% = (v <> o)
+END FUNCTION
+
+''
+' Type a new value for v (a panel's value box double-clicked): a modal number
+' box, clamped to lo..hi. TRUE when v changed. (Main loop only - not inside a
+' modal dialog, which types through its own widgets.)
+'
+FUNCTION VAL_type% (title AS STRING, label AS STRING, v AS INTEGER, lo AS INTEGER, hi AS INTEGER)
+    DIM t AS STRING, n AS LONG
+    POINTER_hide_for_dialog
+    t = DRAW_input_box_ex$(title, label + ":", _TRIM$(STR$(v)), "A number", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+    t = _TRIM$(t)
+    IF t = "" THEN EXIT FUNCTION ' cancelled
+    IF INSTR("-0123456789", LEFT$(t, 1)) = 0 THEN STATUS_flash UCASE$(label) + ": NOT A NUMBER": EXIT FUNCTION
+    n = VAL(t)
+    IF n < lo THEN n = lo
+    IF n > hi THEN n = hi
+    IF n <> v THEN v = n: VAL_type% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+''
+' The factory defaults for DIALOG_cfg_default% (as Settings' RESET ALL: CONFIG_set_defaults
+' writes CFG, so it is saved and put back around it).
+'
+SUB DIALOG_cfg_defaults_build ()
+    DIM sv AS DRAW_CONFIG
+    sv = CFG
+    CONFIG_set_defaults
+    DLG_DEF_CFG = CFG
+    CFG = sv
+    DLG_DEF_READY = TRUE
+END SUB
 
 
 ''

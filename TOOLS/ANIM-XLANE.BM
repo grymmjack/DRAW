@@ -29,6 +29,51 @@ FUNCTION ANIM_XL_nlanes% (slot AS INTEGER)
 END FUNCTION
 
 ''
+' The lane shown i-th (1..ANIM_XL_nlanes%) - the X-sheet's rows, the Animation panel's,
+' the + LANE menu: by id, but the BLUR lane's properties (BLUR TYPE / BLUR ANGLE, 17-18)
+' right under BLUR (13).
+FUNCTION ANIM_XL_order% (i AS INTEGER)
+    SELECT CASE i
+        CASE CLIP_LANE_BLUR + 1 TO CLIP_LANE_BLUR + 2: ANIM_XL_order% = i - CLIP_LANE_BLUR - 1 + CLIP_LANE_BLURTYPE
+        CASE CLIP_LANE_BLUR + 3 TO CLIP_LANE_LAST: ANIM_XL_order% = i - 2
+        CASE ELSE: ANIM_XL_order% = i
+    END SELECT
+END FUNCTION
+
+''
+' A stepped lane (every key a hold, a whole value from a list, no modulator): BLEND
+' (a BLEND_* mode) and BLUR TYPE (a CLIP_BLUR_*).
+FUNCTION ANIM_XL_stepped% (L AS INTEGER)
+    ANIM_XL_stepped% = (L = CLIP_LANE_BLEND _ORELSE L = CLIP_LANE_BLURTYPE)
+END FUNCTION
+
+FUNCTION ANIM_XL_step_n% (L AS INTEGER)
+    IF L = CLIP_LANE_BLURTYPE THEN ANIM_XL_step_n% = CLIP_BLUR_TYPES ELSE ANIM_XL_step_n% = BLEND_MODE_COUNT
+END FUNCTION
+
+''
+' Stepped lane L's value m by name (short: the X-sheet's lane row).
+FUNCTION ANIM_XL_step_name$ (L AS INTEGER, m AS INTEGER, short AS INTEGER)
+    IF L = CLIP_LANE_BLURTYPE THEN
+        IF short THEN
+            ANIM_XL_step_name$ = _TRIM$(MID$("BOX   GAUSS MOTIONZOOM  SPIN  FOLLOW", _MAX(0, _MIN(5, m)) * 6 + 1, 6))
+        ELSE
+            ANIM_XL_step_name$ = _TRIM$(MID$("BOX        GAUSSIAN   MOTION     ZOOM       SPIN       FOLLOW MOVE", _MAX(0, _MIN(5, m)) * 11 + 1, 11))
+        END IF
+    ELSEIF short THEN
+        ANIM_XL_step_name$ = _TRIM$(BLEND_mode_short$(m))
+    ELSE
+        ANIM_XL_step_name$ = _TRIM$(BLEND_mode_name$(m))
+    END IF
+END FUNCTION
+
+''
+' The menu value base of stepped lane L's list (+ the value).
+FUNCTION ANIM_XL_step_v% (L AS INTEGER)
+    IF L = CLIP_LANE_BLURTYPE THEN ANIM_XL_step_v% = XL_V_BTYPE ELSE ANIM_XL_step_v% = XL_V_BLEND
+END FUNCTION
+
+''
 ' Pick lane L (the Animation panel's LANE row, the bright row): a sub-lane
 ' picks the lane it belongs to.
 SUB ANIM_XL_pick (L AS INTEGER)
@@ -201,7 +246,7 @@ FUNCTION ANIM_XL_lane_ok% (slot AS INTEGER, L AS INTEGER)
         IF k THEN ANIM_XL_lane_ok% = (CLIP_cues_of%(CLIP_INST(k).src) > 0)
     ELSEIF L = CLIP_LANE_BLEND THEN ' a pixel layer's (a group composites its own way)
         ANIM_XL_lane_ok% = (CLIP_inst_of%(slot) = 0 _ANDALSO LAYERS(slot).layerType% <> LAYER_TYPE_GROUP)
-    ELSEIF L >= CLIP_LANE_BLUR _ANDALSO L <= CLIP_LANE_NOISE THEN ' the effects: a pixel layer's or a group's (baked by LL_build), not a clip's
+    ELSEIF L >= CLIP_LANE_BLUR _ANDALSO L <= CLIP_LANE_LAST THEN ' the effects: a pixel layer's or a group's (baked by LL_build), not a clip's
         ANIM_XL_lane_ok% = (CLIP_inst_of%(slot) = 0)
     ELSE
         ANIM_XL_lane_ok% = TRUE
@@ -241,6 +286,7 @@ SUB ANIM_XL_range (slot AS INTEGER, L AS INTEGER, lo AS SINGLE, hi AS SINGLE)
         CASE CLIP_LANE_OP, CLIP_LANE_TINT, CLIP_LANE_INVERT, CLIP_LANE_NOISE: lo = 0: hi = 100: EXIT SUB
         CASE CLIP_LANE_PAN: lo = -100: hi = 100: EXIT SUB
         CASE CLIP_LANE_BLEND: lo = -1: hi = BLEND_MODE_COUNT: EXIT SUB
+        CASE CLIP_LANE_BLURTYPE: lo = -1: hi = CLIP_BLUR_TYPES: EXIT SUB
     END SELECT
     a = ANIM_XL_dflt!(slot, L): b = a
     ks = ANIM_XL_keys$(slot, L)
@@ -261,7 +307,7 @@ SUB ANIM_XL_range (slot AS INTEGER, L AS INTEGER, lo AS SINGLE, hi AS SINGLE)
     END IF
     SELECT CASE L
         CASE CLIP_LANE_SX, CLIP_LANE_SY: span = 50
-        CASE CLIP_LANE_ROT: span = 90
+        CASE CLIP_LANE_ROT, CLIP_LANE_BLURANG: span = 90
         CASE CLIP_LANE_VOL: span = 100
         CASE CLIP_LANE_BLUR, CLIP_LANE_PIXELATE: span = 8
         CASE ELSE: span = 4 ' (px: a small move still fills the row)
@@ -344,7 +390,7 @@ END FUNCTION
 ' Lane L's value v as the X-sheet / menus show it: a number, or on the BLEND
 ' lane the mode's short name.
 FUNCTION ANIM_XL_vtext$ (L AS INTEGER, v AS SINGLE)
-    IF L = CLIP_LANE_BLEND THEN ANIM_XL_vtext$ = BLEND_mode_short$(CLIP_lane_clamp!(L, v)) ELSE ANIM_XL_vtext$ = ANIM_XL_num$(v)
+    IF ANIM_XL_stepped%(L) THEN ANIM_XL_vtext$ = ANIM_XL_step_name$(L, CLIP_lane_clamp!(L, v), TRUE) ELSE ANIM_XL_vtext$ = ANIM_XL_num$(v)
 END FUNCTION
 
 ''
@@ -354,30 +400,34 @@ END FUNCTION
 ' value, the key menu).
 SUB ANIM_XL_blend_tidy (slot AS INTEGER)
     DIM ks AS STRING, i AS INTEGER, L AS INTEGER
-    L = CLIP_LANE_BLEND
     IF CLIP_inst_of%(slot) _ORELSE LL_can%(slot) = 0 THEN EXIT SUB
-    ks = ANIM_XL_keys$(slot, L)
-    IF LEN(ANIM_XL_mod$(slot, L)) THEN ANIM_XL_set_mod slot, L, ""
-    IF LEN(ks) = 0 THEN EXIT SUB
-    FOR i = 1 TO CLIP_lks_n%(ks)
-        MID$(ks, (i - 1) * 8 + 3, 4) = MKS$(CLIP_lane_clamp!(L, CLIP_lk_v!(ks, i)))
-        ks = CLIP_lks_ease$(ks, i, CLIP_EASE_HOLD)
-    NEXT i
-    ANIM_XL_set_keys slot, L, ks
+    FOR L = CLIP_LANE_BLEND TO CLIP_LANE_LAST ' (BLEND, BLUR TYPE: the stepped lanes)
+        IF ANIM_XL_stepped%(L) THEN
+            ks = ANIM_XL_keys$(slot, L)
+            IF LEN(ANIM_XL_mod$(slot, L)) THEN ANIM_XL_set_mod slot, L, ""
+            IF LEN(ks) THEN
+                FOR i = 1 TO CLIP_lks_n%(ks)
+                    MID$(ks, (i - 1) * 8 + 3, 4) = MKS$(CLIP_lane_clamp!(L, CLIP_lk_v!(ks, i)))
+                    ks = CLIP_lks_ease$(ks, i, CLIP_EASE_HOLD)
+                NEXT i
+                ANIM_XL_set_keys slot, L, ks
+            END IF
+        END IF
+    NEXT L
 END SUB
 
 ''
 ' A typed BLEND value: a mode's name or short name (any case), or its number; -1 = not one.
-FUNCTION ANIM_XL_blend_parse% (t AS STRING)
+FUNCTION ANIM_XL_blend_parse% (L AS INTEGER, t AS STRING)
     DIM m AS INTEGER, u AS STRING
     u = UCASE$(_TRIM$(t))
     IF LEN(u) = 0 THEN ANIM_XL_blend_parse% = -1: EXIT FUNCTION
-    IF INSTR("0123456789", LEFT$(u, 1)) THEN ANIM_XL_blend_parse% = CLIP_lane_clamp!(CLIP_LANE_BLEND, VAL(u)): EXIT FUNCTION
-    FOR m = 0 TO BLEND_MODE_COUNT - 1
-        IF u = UCASE$(_TRIM$(BLEND_mode_name$(m))) _ORELSE u = UCASE$(_TRIM$(BLEND_mode_short$(m))) THEN ANIM_XL_blend_parse% = m: EXIT FUNCTION
+    IF INSTR("0123456789", LEFT$(u, 1)) THEN ANIM_XL_blend_parse% = CLIP_lane_clamp!(L, VAL(u)): EXIT FUNCTION
+    FOR m = 0 TO ANIM_XL_step_n%(L) - 1
+        IF u = UCASE$(ANIM_XL_step_name$(L, m, FALSE)) _ORELSE u = UCASE$(ANIM_XL_step_name$(L, m, TRUE)) THEN ANIM_XL_blend_parse% = m: EXIT FUNCTION
     NEXT m
-    FOR m = 0 TO BLEND_MODE_COUNT - 1 ' a start of a name will do ("mult")
-        IF LEFT$(UCASE$(_TRIM$(BLEND_mode_name$(m))), LEN(u)) = u THEN ANIM_XL_blend_parse% = m: EXIT FUNCTION
+    FOR m = 0 TO ANIM_XL_step_n%(L) - 1 ' a start of a name will do ("mult")
+        IF LEFT$(UCASE$(ANIM_XL_step_name$(L, m, FALSE)), LEN(u)) = u THEN ANIM_XL_blend_parse% = m: EXIT FUNCTION
     NEXT m
     ANIM_XL_blend_parse% = -1
 END FUNCTION
@@ -519,13 +569,13 @@ SUB ANIM_XL_row (slot AS INTEGER, L AS INTEGER, y AS INTEGER)
             ANIM_XL_aa_curve ANIM_XS.gx + 1, ys(), nc, _IIF(pass = 0 _ANDALSO LEN(m) > 0, cFaint, cLine)
         NEXT pass
     END IF
-    IF L = CLIP_LANE_BLEND THEN ' the mode's name at the start of each span where it holds (where it fits)
+    IF ANIM_XL_stepped%(L) THEN ' the mode's (type's) name at the start of each span where it holds (where it fits)
         DIM bm AS INTEGER, lastM AS INTEGER, tx AS INTEGER, txEnd AS INTEGER
         lastM = -99: txEnd = -32000
         FOR f = _MAX(a, ANIM_XS.firstF) TO _MIN(b, ANIM_XS.lastF)
             bm = CLIP_lane_clamp!(L, ANIM_XL_value!(slot, L, f))
             IF bm <> lastM _ORELSE f = ANIM_XS.firstF THEN
-                t = BLEND_mode_short$(bm)
+                t = ANIM_XL_step_name$(L, bm, TRUE)
                 tx = ANIM_XS_frame_x%(f) + 3
                 IF tx > txEnd + 2 _ANDALSO tx + FPANEL_text_w%(t) <= x2 THEN
                     FPANEL_text tx, y + 1, t, _IIF(picked, THEME.CP_text_bright~&, THEME.CP_text~&)
@@ -811,13 +861,13 @@ SUB ANIM_XL_type_value (slot AS INTEGER, L AS INTEGER, rel AS INTEGER)
     ks = ANIM_XL_keys$(slot, L)
     v = CLIP_lane_keyed!(ks, rel, ANIM_XL_dflt!(slot, L))
     POINTER_hide_for_dialog
-    t = DRAW_input_box_ex$("Lane Value", CLIP_lane_name$(L) + " at frame" + STR$(ANIM_XL_in%(slot) + rel) + _IIF(L = CLIP_LANE_BLEND, " (a blend mode's name or number):", ":"), _IIF(L = CLIP_LANE_BLEND, BLEND_mode_name$(CLIP_lane_clamp!(L, v)), ANIM_XL_num$(v)), "Value", TRUE)
+    t = DRAW_input_box_ex$("Lane Value", CLIP_lane_name$(L) + " at frame" + STR$(ANIM_XL_in%(slot) + rel) + _IIF(L = CLIP_LANE_BLEND, " (a blend mode's name or number):", _IIF(L = CLIP_LANE_BLURTYPE, " (BOX, GAUSSIAN, MOTION, ZOOM, SPIN, FOLLOW MOVE or 0-5):", ":")), _IIF(ANIM_XL_stepped%(L), ANIM_XL_step_name$(L, CLIP_lane_clamp!(L, v), FALSE), ANIM_XL_num$(v)), "Value", TRUE)
     POINTER_show_after_dialog
     MOUSE_cleanup_after_dialog FALSE
     IF _TRIM$(t) = "" THEN EXIT SUB
-    IF L = CLIP_LANE_BLEND THEN
-        IF ANIM_XL_blend_parse%(t) < 0 THEN STATUS_flash "BLEND: no blend mode called " + CHR$(34) + _TRIM$(t) + CHR$(34): EXIT SUB
-        t = _TRIM$(STR$(ANIM_XL_blend_parse%(t)))
+    IF ANIM_XL_stepped%(L) THEN
+        IF ANIM_XL_blend_parse%(L, t) < 0 THEN STATUS_flash CLIP_lane_name$(L) + ": no " + _IIF(L = CLIP_LANE_BLEND, "blend mode", "blur type") + " called " + CHR$(34) + _TRIM$(t) + CHR$(34): EXIT SUB
+        t = _TRIM$(STR$(ANIM_XL_blend_parse%(L, t)))
     END IF
     e = CLIP_EASE_LINEAR
     i = CLIP_lk_at_or_before%(ks, rel)
@@ -1319,13 +1369,14 @@ SUB ANIM_XL_menu_build ()
     slot = ANIM_XL.mSlot
     IF ANIM_XL_can%(slot) = 0 THEN POPUP_MENU_set_item 0, "No Lanes Here", "", -1, POPUP_MENU_FLAG_DISABLED: ANIM_LB.menuN = 1: EXIT SUB
     IF ANIM_LB.menuKind = XL_MENU_ADD THEN
-        FOR L = 1 TO ANIM_XL_nlanes%(slot)
+        FOR i = 1 TO ANIM_XL_nlanes%(slot)
+            L = ANIM_XL_order%(i)
             IF ANIM_XL_used%(slot, L) = 0 _ANDALSO ANIM_XL_lane_ok%(slot, L) THEN
                 IF L >= CLIP_LANE_BLUR _ANDALSO e = 0 _ANDALSO n > 0 THEN POPUP_MENU_set_item n, "", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1 ' (the effects below)
                 IF L >= CLIP_LANE_BLUR THEN e = 1
                 POPUP_MENU_set_item n, CLIP_lane_name$(L), "", XL_V_ADD + L, 0: n = n + 1
             END IF
-        NEXT L
+        NEXT i
         IF n = 0 THEN POPUP_MENU_set_item 0, "Every Lane Is Shown", "", -1, POPUP_MENU_FLAG_DISABLED: n = 1
         ANIM_LB.menuN = n
         EXIT SUB
@@ -1333,10 +1384,10 @@ SUB ANIM_XL_menu_build ()
     L = ANIM_XL.mL
     ks = ANIM_XL_keys$(slot, L)
     i = ANIM_XL_index_in%(ks, ANIM_XL.mRel): ki = i ' (the key right-clicked; i is a loop counter below)
-    IF L = CLIP_LANE_BLEND THEN ' the modes (checked: the one on this frame) - picking one keys it here
+    IF ANIM_XL_stepped%(L) THEN ' the modes / types (checked: the one on this frame) - picking one keys it here
         e = CLIP_lane_clamp!(L, CLIP_lane_keyed!(ks, _MAX(0, ANIM_XL.mRel), ANIM_XL_dflt!(slot, L)))
-        FOR mk = 0 TO BLEND_MODE_COUNT - 1
-            POPUP_MENU_set_item n, BLEND_mode_name$(mk), "", XL_V_BLEND + mk, _IIF(mk = e, POPUP_MENU_FLAG_CHECKED, 0) OR _IIF(ANIM_XL.mRel >= 0, 0, POPUP_MENU_FLAG_DISABLED)
+        FOR mk = 0 TO ANIM_XL_step_n%(L) - 1
+            POPUP_MENU_set_item n, ANIM_XL_step_name$(L, mk, FALSE), "", ANIM_XL_step_v%(L) + mk, _IIF(mk = e, POPUP_MENU_FLAG_CHECKED, 0) OR _IIF(ANIM_XL.mRel >= 0, 0, POPUP_MENU_FLAG_DISABLED)
             n = n + 1
         NEXT mk
         POPUP_MENU_set_item n, "", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
@@ -1425,12 +1476,12 @@ SUB ANIM_XL_menu_pick (v AS INTEGER)
     SELECT CASE v
         CASE XL_V_VALUE: ANIM_XL_type_value slot, L, rel
         CASE XL_V_ADDKEY: ANIM_XL_add_key slot, L, rel
-        CASE XL_V_BLEND TO XL_V_BLEND + BLEND_MODE_COUNT - 1 ' the BLEND lane: this mode from this frame
-            IF rel < 0 THEN EXIT SUB
+        CASE XL_V_BLEND TO XL_V_BLEND + BLEND_MODE_COUNT - 1, XL_V_BTYPE TO XL_V_BTYPE + CLIP_BLUR_TYPES - 1 ' a stepped lane: this mode / type from this frame
+            IF rel < 0 _ORELSE ANIM_XL_stepped%(L) = 0 THEN EXIT SUB
             before = ANIM_XL_state$(slot)
-            ANIM_XL_set_keys slot, L, CLIP_lks_put$(ks, rel, v - XL_V_BLEND, CLIP_EASE_HOLD)
+            ANIM_XL_set_keys slot, L, CLIP_lks_put$(ks, rel, v - ANIM_XL_step_v%(L), CLIP_EASE_HOLD)
             ANIM_XL_commit slot, before, w + " Key " + nm
-            STATUS_flash nm + ": " + BLEND_mode_name$(v - XL_V_BLEND) + " from frame" + STR$(ANIM_XL_in%(slot) + rel)
+            STATUS_flash nm + ": " + ANIM_XL_step_name$(L, v - ANIM_XL_step_v%(L), FALSE) + " from frame" + STR$(ANIM_XL_in%(slot) + rel)
         CASE XL_V_EASE TO XL_V_EASE + 4
             i = ANIM_XL_index_in%(ks, rel)
             IF i = 0 THEN EXIT SUB

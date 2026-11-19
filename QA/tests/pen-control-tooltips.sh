@@ -37,7 +37,7 @@ seg_x() { # CTL I N -> native x of segment I's middle (TABS from the column's le
     if (( $1 == 24 )); then x0=$C_X0; else x0=$(( C_X0 + PT_SUBX - PT_PAD )); fi
     echo $(( x0 + (C_X1 - x0 + 1) * (2 * $2 + 1) / (2 * $3) ))
 }
-tab() { pc 24; click "$(vx "$(seg_x 24 "$1" 3)")" "$(vy $(( C_Y + PT_TABH / 2 )))"; wait_for 0.5 "tab $1"; dk_park; dk_settle; pp_read; }
+tab() { pc 24; click "$(vx "$(seg_x 24 "$1" 4)")" "$(vy $(( C_Y + PT_TABH / 2 )))"; wait_for 0.5 "tab $1"; dk_park; dk_settle; pp_read; }
 
 info "=== Pen Control panel: tooltips ==="
 dk_begin
@@ -46,7 +46,7 @@ if [[ -z "$PL_W" || -z "$WW" ]]; then fail "no PENPL / WIN pen line (is the Pen 
 [[ "$PT_TAB" == 0 ]] || tab 0
 
 # --- PRESSURE ------------------------------------------------------------------------
-pc 24; tip "$(seg_x 24 0 3)" $(( C_Y + PT_TABH / 2 )); want 241 "the PRESSURE tab chip"
+pc 24; tip "$(seg_x 24 0 4)" $(( C_Y + PT_TABH / 2 )); want 241 "the PRESSURE tab chip"
 pc 1;  tip $(( C_X0 + 3 )) $(( C_Y + 3 )); want 11 "USE PEN PRESSURE"
 screenshot "pen-tip-use-pressure"
 pc 8;  tip $(( (C_TX0 + C_TX1) / 2 )) $(( C_Y + 2 )); want 81 "the CURVE slider"
