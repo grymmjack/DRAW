@@ -17,7 +17,7 @@
 #   - View > MyPaint Brushes (command palette) hides the palette
 # Dump: MYPP vis x y w h group nGroups n cell cols rowsFit rowsAll scroll gridX
 # gridY hover cur groupName; MYPPB id x y w; MYP tool active ready strokes steps
-# x1 y1 x2 y2 size name|set|path; MYPZ fromBrush brushPx radius*100 fileSizeIndex
+# x1 y1 x2 y2 size name|set|path; MYPZ fromBrush brushPx radius*100 fileSizeIndex pressure*1000 penActive pdSource
 # (units = viewport px at Auto).
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE MYPAINT_PANEL=TRUE MYPAINT_PANEL_SCALE=0 MYPAINT_BRUSH= MYPAINT_SIZE=0 MYPAINT_SIZE_FROM_BRUSH=TRUE MYPAINT_SET=Classic MYPAINT_CELL=48 ANTIALIAS=FALSE
 # =============================================================================
@@ -25,7 +25,7 @@ source "$DRAW_ROOT/QA/dock-lib.sh"
 
 ROW_H=14
 mp_read()  { read -r _ M_VIS M_X M_Y M_W M_H M_G M_NG M_N M_CELL M_COLS M_RF M_RA M_SC M_GX M_GY M_HOV M_CUR M_GNAME <<< "$(grep -m1 '^MYPP ' "$DK_DUMP")"; }
-myz_read() { read -r _ Z_FOLLOW Z_PX Z_R Z_FILE <<< "$(grep -m1 '^MYPZ ' "$DK_DUMP")"; }
+myz_read() { read -r _ Z_FOLLOW Z_PX Z_R Z_FILE Z_P Z_PEN Z_SRC _ <<< "$(grep -m1 '^MYPZ ' "$DK_DUMP")"; }
 myp_read() { read -r _ T_TOOL T_ACT T_READY T_STROKES T_STEPS T_X1 T_Y1 T_X2 T_Y2 T_SIZE T_REST <<< "$(grep -m1 '^MYP ' "$DK_DUMP")"; T_NAME=${T_REST%%|*}; }
 mpb() { B_ID=""; read -r _ B_ID B_X B_Y B_W <<< "$(grep -m1 "^MYPPB $1 " "$DK_DUMP")"; [[ -n "$B_ID" ]]; }
 mp_btn() { if mpb "$1"; then click $(( B_X + B_W / 2 )) $(( B_Y + ROW_H / 2 )); wait_for 0.5 "$2"; dk_park; dk_settle; else fail "no palette button $1 ($2)"; fi; }
@@ -98,7 +98,7 @@ dk_drag $(( CANVAS_CX - 60 )) $(( CANVAS_CY - 10 )) $(( CANVAS_CX + 60 )) $(( CA
 myp_read
 (( T_STROKES == S0 + 1 )) && pass "one stroke ($T_STEPS events)" || fail "strokes $S0 -> $T_STROKES"
 H_X1=$T_X1 # where a stroke from CANVAS_CX - 60 starts (buffer px)
-(( T_X2 > T_X1 && T_Y2 >= T_Y1 )) && pass "it changed a box ($T_X1,$T_Y1 - $T_X2,$T_Y2)" || fail "no changed box ($T_X1,$T_Y1 - $T_X2,$T_Y2)"
+(( T_X2 > T_X1 && T_Y2 >= T_Y1 )) && pass "it changed a box ($T_X1,$T_Y1 - $T_X2,$T_Y2)" || { myz_read; fail "no changed box ($T_X1,$T_Y1 - $T_X2,$T_Y2) [last pressure x1000 $Z_P, pen $Z_PEN, source $Z_SRC]"; }
 snap_region "$RX" "$RY" "$RW" "$RH" "mp-stroke"; STROKE="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$STROKE" "the stroke shows on the canvas"
 screenshot "mypaint-stroke"

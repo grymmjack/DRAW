@@ -119,16 +119,16 @@ magick "$AG_T/grad.ppm" "PNG32:$AG_T/grad-plain.png"
 python3 "$AG_PY" put "$AG_T/grad-plain.png" "$AG_T/grad.png" drAn "$(ag_blob 0)"
 ag_export "$AG_T/grad.png" "$AG_T/grad.gif"
 if [[ -s "$AG_T/grad.gif" ]]; then
-    AG_WORST=0
+    AG_WORST=0 AG_ES=""
     for k in 0 1 2 3; do
         magick "$AG_T/grad.gif[$k]" "PNG24:$AG_T/got.png"
         magick "$AG_T/grad-plain.png" -crop "16x16+$(( k * 16 ))+0" +repage "PNG24:$AG_T/want.png"
         AG_E=$(magick compare -metric RMSE "$AG_T/got.png" "$AG_T/want.png" null: 2>&1 | sed -n 's/.*(\([0-9.e-]*\)).*/\1/p')
-        AG_WORST=$(python3 -c "print(max($AG_WORST, ${AG_E:-1}))")
+        AG_WORST=$(python3 -c "print(max($AG_WORST, ${AG_E:-1}))"); AG_ES+=" ${AG_E:-?}"
     done
     python3 -c "import sys; sys.exit(0 if $AG_WORST < 0.07 else 1)" \
         && pass "1024 colours: an adaptive 256-colour table, every frame close to its cell (worst RMSE $AG_WORST)" \
-        || fail "1024 colours: worst frame RMSE $AG_WORST (wanted < 0.07: the frames' own colours, not the palette's)"
+        || fail "1024 colours: worst frame RMSE $AG_WORST (wanted < 0.07: the frames' own colours, not the palette's) [frames$AG_ES; $(magick identify "$AG_T/grad.gif" 2>&1 | awk '{print $2, $3, $4}' | tr '\n' ';')]"
     grep -q "the frames' own 256 nearest" "$AG_T/log.txt" && pass "the export says so (the frames' own 256 nearest)" || fail "export message: $(grep -a 'grad.gif' "$AG_T/log.txt" | tail -1)"
 fi
 

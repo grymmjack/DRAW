@@ -18,7 +18,12 @@
 # =============================================================================
 info "=== Instances: stale slots ==="
 
-REG="${XDG_CACHE_HOME:-$HOME/.cache}/DRAW/instances"
+if [[ "${QA_OS:-}" == Windows ]]; then # (the harness points LOCALAPPDATA at the run's cache there)
+    REG="$(cygpath -u "$LOCALAPPDATA")/DRAW/instances"
+else
+    REG="${XDG_CACHE_HOME:-$HOME/.cache}/DRAW/instances"
+fi
+ospid() { if [[ -r /proc/$1/winpid ]]; then cat "/proc/$1/winpid"; else echo "$1"; fi; } # DRAW writes the OS pid; Git Bash's $! is its own
 field() { sed -n "s/^$2=//p" "$1" 2>/dev/null | tr -d '\r'; }
 now_timer() { echo $(( $(date +%s) - $(date -d 00:00 +%s) )); } # QB64 TIMER: seconds since midnight
 plant() { # SLOT PID: a slot file with a fresh heartbeat
@@ -26,7 +31,7 @@ plant() { # SLOT PID: a slot file with a fresh heartbeat
     printf 'id=%s\r\ntoken=1\r\nheartbeat=%s\r\ntitle=DRAW\r\nmailbox=%s/mailbox/%s/\r\npid=%s\r\n' "$1" "$(now_timer)" "$REG" "$1" "$2" > "$REG/$1.instance"
 }
 mine() { # -> the slot whose pid is DRAW's
-    local f; for f in "$REG"/*.instance; do [[ "$(field "$f" pid)" == "$DRAW_PID" ]] && basename "$f" .instance && return; done
+    local f; for f in "$REG"/*.instance; do [[ "$(field "$f" pid)" == "$(ospid "$DRAW_PID")" ]] && basename "$f" .instance && return; done
 }
 relaunch() { draw_quit; draw_settle 2>/dev/null; draw_launch 15; wait_for 2.0 "registered"; }
 
@@ -39,26 +44,26 @@ S=$(mine)
 # --- a second DRAW started here (draw_launch wipes the cache: a planted slot would go) --
 second() { # -> B_PID, B_SLOT: a DRAW beside the harness's one, on the same registry
     ( cd "$DRAW_ROOT" && QB64PE_NOPROMPT=y exec "$DRAW_BIN" --config "$QA_CFG" $DRAW_TEST_OPTIONS ) > /dev/null 2>&1 &
-    B_PID=$!
+    B_PID=$!; B_OS=$(ospid "$B_PID")
     B_SLOT=""
     for _ in $(seq 1 30); do
         sleep 0.5
-        for f in "$REG"/*.instance; do [[ "$(field "$f" pid)" == "$B_PID" ]] && B_SLOT=$(basename "$f" .instance); done
+        for f in "$REG"/*.instance; do [[ "$(field "$f" pid)" == "$B_OS" ]] && B_SLOT=$(basename "$f" .instance); done
         [[ -n "$B_SLOT" ]] && break
     done
 }
 stop_second() { kill "$B_PID" 2>/dev/null; for _ in $(seq 1 20); do kill -0 "$B_PID" 2>/dev/null || break; sleep 0.5; done; kill -9 "$B_PID" 2>/dev/null; wait "$B_PID" 2>/dev/null; rm -f "$REG/$B_SLOT.instance"; }
 
 # --- 2. a dead pid with a fresh heartbeat in slot 2 ---------------------------------------
-true & DEAD=$!; wait "$DEAD" 2>/dev/null
-plant 2 "$DEAD"
+sleep 0.3 & DEAD=$!; DEAD_OS=$(ospid "$DEAD"); wait "$DEAD" 2>/dev/null
+plant 2 "$DEAD_OS"
 second
 [[ "$B_SLOT" == 2 ]] && pass "slot 2 (fresh heartbeat, dead pid) is taken over by a new DRAW" || fail "with a dead pid in slot 2 the new DRAW took slot '$B_SLOT' [$(/bin/ls "$REG")]"
 stop_second
 
 # --- 3. a live pid keeps its slot -------------------------------------------------------------
 sleep 300 & LIVE=$!
-plant 2 "$LIVE"
+plant 2 "$(ospid "$LIVE")"
 second
 [[ "$B_SLOT" == 3 ]] && pass "a live pid keeps slot 2: the new DRAW is slot 3" || fail "with a live pid in slot 2 the new DRAW took slot '$B_SLOT' [$(/bin/ls "$REG")]"
 stop_second
