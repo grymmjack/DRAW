@@ -28,9 +28,9 @@ The shared modifier vocabulary works across **every** selection tool:
 
 After a selection exists you get **resize handles** on its edges; **drag inside the marquee** to translate the selection (with `Move` semantics); **arrow keys** nudge by 1 pixel (10 with `Shift`).
 
-### The Selection Bar
+### Tool Options (the Selection Bar)
 
-Pick any selection tool and the **Selection Bar** appears in a row above the canvas (the canvas stays where it is). It holds the selection tools' options, the way the Text Bar holds the text tool's. Turn it off with **View → Selection Bar**. Like any dock panel you can drag it into a column, where its controls wrap into more lines. Every value is saved in `DRAW.cfg` (`[SELECTION]` section).
+Pick any selection tool and **Tool Options** (the Selection Bar) appears in a row above the canvas (the canvas stays where it is). It holds the selection tools' options, the way the Text Bar holds the text tool's. Turn it off with **View → Tool Options**. Like any dock panel you can drag it into a column, where its controls wrap into more lines. Every value is saved in `DRAW.cfg` (`[SELECTION]` section).
 
 | Group | Shown with | Controls |
 | --- | --- | --- |

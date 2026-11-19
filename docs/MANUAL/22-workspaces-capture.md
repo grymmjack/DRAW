@@ -208,7 +208,7 @@ of another one. Turn it off to move floating panels freely.
 A floating toolbox or drawer stops growing once its buttons or bins all show,
 so no empty space is left beside or under them.
 
-**Lock Workspace** (View → Lock Workspace, `Ctrl+Shift+L`) freezes the whole
+**Lock Workspace** (View → Workspace → Lock Workspace, `Ctrl+Shift+L`) freezes the whole
 arrangement, so a shaky pen can't drag, dock or resize a panel by accident.
 Clicks, tabs and buttons still work.
 
@@ -375,8 +375,8 @@ Close the window and the buttons work normally again.
 
 Switching back to Default puts the stock toolbox and bars back.
 
-**The same buttons in every workspace.** View → **Same Buttons in Every
-Workspace** (also in the command palette) takes the toolbox, edit bar and
+**The same buttons in every workspace.** View → Workspace → **Same Buttons in
+Every Workspace** (also in the command palette) takes the toolbox, edit bar and
 advanced bar buttons on screen now and shows them in every workspace and in
 Default. Only which buttons there are and their order are shared. Each
 workspace keeps its own columns, scale, size and docking. While it is on,
@@ -422,7 +422,7 @@ BUTTONS=move,marquee,rect,|,ellipse,line,text,picker,crop,undo,cmd:701   ; - = e
                           ; bar names and cmd:<action id> put commands in the toolbox
 ICON.crop=my-crop.png     ; theme TOOLBOX folder, a path, or your workspaces folder
 OWN_BUTTONS=TRUE          ; keep this workspace's own toolbox / edit bar / advanced bar buttons
-                          ; even with View > Same Buttons in Every Workspace on
+                          ; even with View > Workspace > Same Buttons in Every Workspace on
 
 [MENUS]
 ROOTS=FILE,EDIT,VIEW,IMAGE,HELP
