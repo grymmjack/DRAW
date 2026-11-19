@@ -67,8 +67,11 @@ if [[ "$FS_OPEN" != -1 || "$FS_N" != 4 ]]; then
 else
     pass "Num .: the full-screen Preview, 4 steps, from frame ${FS_F} ($(fs_s))"
     [[ "$FS_PLAY" == -1 ]] && pass "it starts playing" || fail "not playing on open: $(fs_s)"
-    FS_K0=$FS_K; sleep 0.3; fs_read # (not a whole loop: 4 frames at 4 fps come round every 1 s)
-    [[ "$FS_K" != "$FS_K0" ]] && pass "and plays on (step $FS_K0 -> $FS_K)" || fail "still on step $FS_K0 after 0.55 s at 4 fps"
+    # poll, not one read 0.55 s later: 4 frames at 4 fps come round every 1 s, and on Windows
+    # the read's own process spawns can stretch the gap to a whole loop (farm 2026-11-19)
+    FS_K0=$FS_K; FS_T=0
+    for (( FS_T = 1; FS_T <= 8; FS_T++ )); do fs_read; [[ "$FS_K" != "$FS_K0" ]] && break; done
+    [[ "$FS_K" != "$FS_K0" ]] && pass "and plays on (step $FS_K0 -> $FS_K)" || fail "still on step $FS_K0 after $FS_T reads at 4 fps"
 
     # -- SPACE pauses; what shows is the frame's own colour; steps --
     fs_key space; fs_read; FS_KP=$FS_K
