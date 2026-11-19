@@ -120,8 +120,9 @@ python3 "$AG_PY" put "$AG_T/grad-plain.png" "$AG_T/grad.png" drAn "$(ag_blob 0)"
 ag_export "$AG_T/grad.png" "$AG_T/grad.gif"
 if [[ -s "$AG_T/grad.gif" ]]; then
     AG_WORST=0 AG_ES=""
+    ag_frames_png "$AG_T/grad.gif" # (-coalesce to fr-N.png, as the checks above; Windows ImageMagick read "grad.gif[k]" -> PNG24 as 2 colours, RMSE 0.67, while the same GIF is 0.048 on Linux - 2026-11-19)
     for k in 0 1 2 3; do
-        magick "$AG_T/grad.gif[$k]" "PNG24:$AG_T/got.png"
+        magick "$AG_T/fr-$k.png" -background black -flatten "PNG24:$AG_T/got.png"
         magick "$AG_T/grad-plain.png" -crop "16x16+$(( k * 16 ))+0" +repage "PNG24:$AG_T/want.png"
         AG_E=$(magick compare -metric RMSE "$AG_T/got.png" "$AG_T/want.png" null: 2>&1 | sed -n 's/.*(\([0-9.e-]*\)).*/\1/p')
         AG_WORST=$(python3 -c "print(max($AG_WORST, ${AG_E:-1}))"); AG_ES+=" ${AG_E:-?}"

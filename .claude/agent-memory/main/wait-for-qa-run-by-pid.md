@@ -23,4 +23,10 @@ very shell running it - its args hold the pattern, even inside a sed you ran in 
 same command (the `[q]a-...` trick does not save you then). Better, chain dependent runs in ONE
 background script so the second starts when the first command returns. Check
 `ps -eo pid,etime,args | grep -E 'bin/qa|xvfb-run'` before launching anything locally.
+[Linux] To find one of your own chain scripts, use its process NAME: a `#!/bin/bash`
+script's comm is the script's file name cut to 15 chars, so `pgrep -a -x thinkpad-winre5`
+works and `pgrep -x bash` misses it; `pgrep -f <script>.sh` from the same command line
+returned that command's own shell (2026-11-19, a waiter keyed on a PID that was already gone).
+A script that forks a `( ... ) &` subshell shows twice (same args) - the lower-numbered is not
+always the parent, so wait on the one `$!` / `ps --ppid` says.
 Related: [[feedback-tests-in-background]]
