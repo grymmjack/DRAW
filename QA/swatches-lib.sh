@@ -117,7 +117,13 @@ sw_menu_edit() { sw_geo; click $(( M_X + M_W / 2 )) $(( M_Y + M_H / 2 )); dk_set
 # the hex of every entry in order ("-" = empty cell, "|" = row break), from SWATC
 sw_hexes() { awk '$1=="SWATC" { for (k = p + 1; p && k < $2; k++) printf " |"; printf "%s%s", (n++ ? " " : ""), ($7==1 ? "-" : $8); p = $2 } END {print ""}' "$DK_DUMP"; }
 # SWATD: a swatch drag - on 0/1, the entry it would drop before (0 = none), the pointer's row
-sw_dragstate() { read -r _ SD_ON SD_DROP SD_ROW SD_STRIP <<< "$(grep '^SWATD ' "$DK_DUMP")"; }
+sw_dragstate() {
+    # retry: a read while DRAW rewrites the dump finds no SWATD line (Windows farm 2026-11-19:
+    # the first mid-drag read came back '' while the drop itself was right)
+    local l n
+    for (( n = 0; n < 8; n++ )); do l=$(grep '^SWATD ' "$DK_DUMP"); [[ -n "$l" ]] && break; sleep 0.15; done
+    read -r _ SD_ON SD_DROP SD_ROW SD_STRIP <<< "$l"
+}
 # the palette strip: SP_N colors, SP_FG = the FG chip, SP_HEX = "RRGGBB RRGGBB ..."
 sw_strip() { local l; l=$(grep '^SWATP ' "$DK_DUMP"); read -r _ SP_N SP_FG _ <<< "$l"; SP_HEX=$(cut -d' ' -f4- <<< "$l"); [[ "$SP_N" == 0 ]] && SP_HEX=""; }
 # the viewport point of strip chip $1 (row 0..): TX TY, or the strip past its last chip ($1 = end)
