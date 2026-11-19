@@ -32,9 +32,22 @@ aim() {
     TX=$(( TBX + $1 + GX - P_FX )); TY=$(( TBY + 20 + GY - P_FY ))
 }
 
+# qdrag X1 Y1 X2 Y2 - a QUICK drag, sent as one timed input sequence. dk_drag's separate calls
+# cost ~70 ms each on Windows, so the drag sat snapped past the ~1.5 s hold and the snap let go
+# (thinkpad shard A 2026-11-19: "a quick drop lands on top of the toolbox").
+qdrag() {
+    local x1=$1 y1=$2 x2=$3 y2=$4 i ax ay seq=()
+    read -r ax ay <<< "$(adapter_to_screen "$x1" "$y1")"; seq=(move "$ax" "$ay" sleep 80 down 1 sleep 200)
+    for (( i = 1; i <= 7; i++ )); do
+        read -r ax ay <<< "$(adapter_to_screen $(( x1 + (x2 - x1) * i / 7 )) $(( y1 + (y2 - y1) * i / 7 )))"
+        seq+=(move "$ax" "$ay" sleep 100)
+    done
+    raw_seq "${seq[@]}" sleep 200 up 1; sleep 0.5
+}
+
 # 1) a quick drop onto the toolbox: pushed off it (snap on)
 aim 10
-dk_drag "$GX" "$GY" "$TX" "$TY"
+qdrag "$GX" "$GY" "$TX" "$TY"
 dk_park; dk_settle
 if overlap; then fail "a quick drop lands on top of the toolbox (snap should keep them apart)"; else pass "a quick drop is kept off the toolbox"; fi
 
@@ -52,7 +65,7 @@ screenshot "dock-snap-hold-overlap"
 dk_drag "$TX" "$TY" $(( TX + 300 )) $(( TY + 40 ))
 dk_park; dk_settle
 aim 10
-dk_drag "$GX" "$GY" "$TX" "$TY"
+qdrag "$GX" "$GY" "$TX" "$TY"
 dk_park; dk_settle
 if overlap; then fail "the next quick drag overlaps again (the hold release stuck)"; else pass "the next quick drag snaps again"; fi
 
@@ -62,7 +75,7 @@ type_text "snap panel edges"; wait_for 0.3 "filter"
 key Return; wait_for 0.6 "snap toggled off"
 grep -qE '^SNAP_PANEL_EDGES=(0|FALSE)' "$DRAW_ROOT/QA/DRAW.qa.cfg" && pass "the toggle saves SNAP_PANEL_EDGES off" || fail "SNAP_PANEL_EDGES not saved off [$(grep '^SNAP_PANEL_EDGES' "$DRAW_ROOT/QA/DRAW.qa.cfg")]"
 aim 10
-dk_drag "$GX" "$GY" "$TX" "$TY"
+qdrag "$GX" "$GY" "$TX" "$TY"
 dk_park; dk_settle
 if overlap; then pass "snap off: the drop lands where it was let go (over the toolbox)"; else fail "snap off: the layers were still pushed off the toolbox"; fi
 # and 4 px from an edge stays 4 px (no pull). A drag can lose a px or two to
@@ -75,7 +88,7 @@ dk_park; dk_settle
 dk_p layers; LOSS=$(( P_FX - (FX0 - 40) ))
 info "a free 40 px drag moved the layers $(( FX0 - P_FX )) px (loss $LOSS)"
 aim $(( TBR - TBX + 4 ))
-dk_drag "$GX" "$GY" "$TX" "$TY"
+qdrag "$GX" "$GY" "$TX" "$TY"
 dk_park; dk_settle
 dk_p layers
 WANT=$(( TBR + 4 + LOSS ))
