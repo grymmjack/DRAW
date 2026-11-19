@@ -138,7 +138,7 @@ model as `CS3D`, with these hooks:
 - pan, wheel and double-click exclusions;
 - the `POINTER` arrow over it.
 
-**Tabs** (`CFG.PEN_PANEL_TAB`: 0 PRESSURE, 1 SMOOTHING, 2 SPEED). The tab strip
+**Tabs** (`CFG.PEN_PANEL_TAB`: 0 PRESSURE, 1 SMOOTHING, 2 SPEED, 3 MOUSE). The tab strip
 (`PENP_CTL_TABS`) sits in what was the status row. The backend status moved to
 the title bar, or to the bottom of the response graph when the title bar is too
 narrow. Every control has a tab in `PENP_ctlTab()` (-1 = every tab), and
@@ -162,6 +162,13 @@ tabs never resizes the panel or its dock slot.
   - the speed→gain graph (`PENP_render_speed`). It calls `PENC_sync` to plot
     CFG's gains, and marks the last stroke's avg (dashed) and top (red)
     speeds and the live point.
+- **MOUSE** (2026-11-18, `PENP_render_mouse`): the mode chip row (ctl 25,
+  OFF / FIXED / SPEED / WHEEL, full width), a meter (`PENP_mx_meter!`: the live
+  `MEXP.p` during a mouse stroke, else the level the next one starts at), LEVEL /
+  STEP / LIGHT / FAST / SMOOTH / FAST = HEAVY (ctls 26-31; the ones the mode
+  doesn't use are dimmed), a TAPER heading with IN / OUT (32-33, square-root
+  slider scale over 0-1000 px, OFF at 0) and a hint box (`PENP.mh*`). See
+  *Mouse expression* below.
 
 **Docked in a top / bottom row** (`PENP.inRow`), every tab uses the five group
 columns:
@@ -177,18 +184,19 @@ save on slider release and on checkbox / chip / tab click.
 
 QA dumps (DOCK_DUMP):
 - `PENPL inRow panelW panelH gx0 gx1 yGraph graphH`;
-- `PENPC ctl x0 x1 y tx0 tx1`, for all 24 ctls;
+- `PENPC ctl x0 x1 y tx0 tx1`, for all 33 ctls (`PENP_CTL_COUNT`);
 - `PENPT tab tabH hint(x0 y0 x1 y1) graph(x0 y0 x1 y1) readout(x y x1) subX pad`.
 
-The tests are `pen-control-panel.sh`, `dock-row-pen.sh` and
-`dock-native-pen.sh`.
+The tests are `pen-control-panel.sh` (its section 6 is the MOUSE tab), `dock-row-pen.sh` and
+`dock-native-pen.sh`. The tab strip has 4 segments: tests click `seg 24 I 4`.
 
 Command palette actions 2030-2035 (`PENP_ACT_*`, handled by `PENP_command`):
 - Toggle Smoothing;
 - Next Smoothing Mode (it also turns smoothing on);
 - More / Less Smoothing (±5);
 - Toggle Pressure Smoothing;
-- Toggle Speed Scaling.
+- Toggle Speed Scaling;
+- 2036 Next Mouse Expression Mode (OFF → FIXED → SPEED → WHEEL → OFF).
 
 They save the cfg and `STATUS_flash` the new state.
 
@@ -386,3 +394,54 @@ Test: `QA/tests/aa-curves-transform.sh` (circle, Bezier, scaled hard shape).
    `_PUTIMAGE ... _SMOOTH` does no averaging on software images (probed) - don't reach for it.
 Tests: `QA/tests/aa-shapes-dividers.sh` (rounded shapes, solid die, dividers / spokes, color
 wheel screenshot), `QA/tests/aa-zoom-minify.sh`.
+
+## Mouse expression: `QB64_GJ_LIB/MOUSE_PRESSURE` (`MEXP_`), 2026-11-18
+
+A made-up pressure for **mouse** strokes (Rick: "a way to use pressure with the
+mouse ... for the folks who don't have [tablets]"). It feeds the same pipeline a
+pen uses, so Size / Opacity / Mix by pressure, the curve, PPROC and MyPaint all
+respond. A pen keeps its own pressure.
+
+**Library** (`includes/QB64_GJ_LIB/MOUSE_PRESSURE/`, pure math, own README, unit
+test `MOUSE_PRESSURE-TEST.BAS` 27/27, example): modes `MEXP_OFF / FIXED / SPEED /
+WHEEL`; `MEXP_begin x, y, t` → `MEXP_step!(x, y, t)` per frame → `MEXP_end`;
+SPEED = an EMA speed (tau 0.5·smooth s, midnight wrap) through a smoothstep from 1
+down to `light` at `fastAt` (inverted on request); WHEEL = `MEXP_scroll notches,
+step`, kept between strokes; `MEXP_dist!` = path length; `MEXP_taper!(d, len)` =
+u(2-u). Locals / params are `mx`-prefixed because library names share the host
+program's namespace (a local `s` clashed with a test's `S$`; a SUB `MEXP_wheel`
+clashed with `CONST MEXP_WHEEL`, case-insensitive).
+
+**Config** (`PEN_` prefix because `PENPR_read$` keeps only `PEN_*` lines, so the
+keys ride in presets): `PEN_MOUSE` 0-3, `PEN_MOUSE_LEVEL` 50, `_LIGHT` 15,
+`_FAST_AT` 1200 px/s (screen px), `_SMOOTH` 30, `_INVERT`, `_WHEEL_STEP` 5,
+`_TAPER_IN` / `_TAPER_OUT` 0 (px). `PENPR_matches%` ticks an older preset on the
+keys it has. Example preset `Mouse Ink.pen`.
+
+**Glue** (`INPUT/PEN.BM`):
+- `PEN_stroke_begin` sets `TABLET.mexp` (= `PEN_MOUSE <> 0` and not a tablet
+  stroke; independent of `CFG.PEN_PRESSURE`, the tablet switch) and
+  `TABLET.mxTaper`, copies CFG into `MEXP`, `MEXP_begin` with RAW_X/Y + TIMER.
+- `PEN_active%` = mexp stroke, else `PEN_tablet_active%` (the old test).
+- `PEN_stroke_pressure!` takes `MEXP_step!` for a mexp stroke; no tip threshold.
+- Tapers are a **size factor** (independent of Size by Pressure). Both dab loops
+  (`PAINT_aa_curve`, `PAINT_on_pressure`) call `PEN_mx_dab!(x, y, p, size, full,
+  kind)`: advances the stroke distance, applies taper-in, and logs the dab
+  (`PEN_MX_*` arrays, doubling) when TAPER_OUT > 0.
+- **Taper-out on release** (`PEN_mx_taper_out`, from `MOUSE_release_brush` after
+  `PAINT_aa_finish`): the length is only known now, so restore the tail's bbox
+  from the mask stroke's snapshot (`TABLET_BAK_MEM`), zero the mask there, and
+  replay every logged dab touching the bbox at taper_in(s) × taper_out(total - s).
+  With symmetry: the whole layer. Tapers force the mask stroke
+  (`PEN_opacity_begin`); the mix brush gets taper-in only.
+- WHEEL: `INPUT/MOUSE.BM` wheel chain, after Ctrl+wheel and before zoom:
+  `PEN_mx_wheel` (step `WHEEL_STEP`/100, Shift ×4, `STATUS_flash`).
+- MyPaint (`TOOLS/MYPAINT.BM`): pressure × taper-in, no tilt; no taper-out.
+  A plain mouse gives MyPaint 0.5, so a brush with a weak pressure input
+  (`pen.myb`, +0.5 log radius) barely changes; `pointy_ink.myb` (+3.36) does.
+
+**Settings** → Pen Control → Mouse Pressure (`SETTINGS_render_pen`).
+**QA:** `mouse-pressure.sh` measures stroke widths (changed pixels down one column
+of a before / after snapshot): OFF, FIXED, SPEED slow vs fast, WHEEL mid-stroke,
+TAPER in / out, MyPaint. Open the MyPaint panel up front (`MYPAINT_PANEL=TRUE`):
+it docks on first use and re-centres the canvas mid-test otherwise.

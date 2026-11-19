@@ -35,9 +35,19 @@ END SUB
 '
 FUNCTION PEN_active% ()
     PEN_active% = FALSE
+    ' a mouse stroke with mouse expression: its made-up pressure shapes it the same way
+    IF TABLET.mexp _ANDALSO MEXP.active THEN PEN_active% = TRUE: EXIT FUNCTION
+    PEN_active% = PEN_tablet_active%
+END FUNCTION
+
+''
+' TRUE when the pointer is a real pen (or pressure trackpad) and pen pressure is on.
+'
+FUNCTION PEN_tablet_active% ()
+    PEN_tablet_active% = FALSE
     IF NOT CFG.PEN_PRESSURE% THEN EXIT FUNCTION
     IF NOT TABLET.ready THEN EXIT FUNCTION
-    PEN_active% = (PD_source% <> PD_SRC_MOUSE)
+    PEN_tablet_active% = (PD_source% <> PD_SRC_MOUSE)
 END FUNCTION
 
 ''
@@ -52,6 +62,42 @@ SUB PEN_stroke_begin ()
     TABLET.skipSeg   = FALSE
     TABLET.painted   = FALSE
     TABLET.penSeen   = FALSE
+    ' Mouse expression: a mouse stroke (no pen) gets a made-up pressure
+    TABLET.mexp = (CFG.PEN_MOUSE% <> 0 _ANDALSO PEN_tablet_active% = 0)
+    TABLET.mxTaper = TABLET.mexp _ANDALSO (CFG.PEN_MOUSE_TAPER_IN% > 0 _ORELSE CFG.PEN_MOUSE_TAPER_OUT% > 0)
+    TABLET.mxS = 0: TABLET.mxHas = FALSE: TABLET.mxN = 0
+    MEXP_end
+    IF TABLET.mexp THEN
+        PEN_mx_sync
+        MEXP_begin CDBL(MOUSE.RAW_X%), CDBL(MOUSE.RAW_Y%), TIMER(.001)
+    END IF
+END SUB
+
+''
+' Mouse expression's settings into the library (each stroke).
+'
+SUB PEN_mx_sync ()
+    MEXP.mode = _MAX(MEXP_OFF, _MIN(MEXP_MODE_COUNT, CFG.PEN_MOUSE%))
+    MEXP.level = _MAX(2, _MIN(100, CFG.PEN_MOUSE_LEVEL%)) / 100!
+    MEXP.light = _MAX(2, _MIN(100, CFG.PEN_MOUSE_LIGHT%)) / 100!
+    MEXP.fastAt = _MAX(50, _MIN(5000, CFG.PEN_MOUSE_FAST_AT%))
+    MEXP.smooth = _MAX(0, _MIN(100, CFG.PEN_MOUSE_SMOOTH%)) / 100!
+    MEXP.invert = (CFG.PEN_MOUSE_INVERT% <> 0)
+    MEXP.taperIn = _MAX(0, _MIN(1000, CFG.PEN_MOUSE_TAPER_IN%))
+    MEXP.taperOut = _MAX(0, _MIN(1000, CFG.PEN_MOUSE_TAPER_OUT%))
+END SUB
+
+''
+' Mouse expression, Wheel mode: wheel notches during a stroke (MOUSE.SW%: up is
+' negative) turn its pressure - Wheel Step % a notch, Shift x4.
+'
+SUB PEN_mx_wheel (sw AS INTEGER)
+    DIM st AS SINGLE
+    st = _MAX(1, _MIN(50, CFG.PEN_MOUSE_WHEEL_STEP%)) / 100!
+    IF MODIFIERS.shift% THEN st = st * 4
+    MEXP_scroll -sw, st
+    STATUS_flash "MOUSE PRESSURE " + _TRIM$(STR$(INT(MEXP.p * 100 + 0.5))) + "%"
+    FRAME_IDLE% = FALSE
 END SUB
 
 ''
@@ -62,7 +108,11 @@ END SUB
 '
 FUNCTION PEN_stroke_pressure! ()
     DIM p AS SINGLE
-    p! = PD_pressure!
+    IF TABLET.mexp THEN
+        p! = MEXP_step!(CDBL(MOUSE.RAW_X%), CDBL(MOUSE.RAW_Y%), TIMER(.001)) ' mouse expression
+    ELSE
+        p! = PD_pressure!
+    END IF
     IF p! >= PEN_MIN_VALID THEN
         TABLET.lastValid = p!
     ELSEIF TABLET.lastValid >= 0 THEN
@@ -109,7 +159,7 @@ SUB PEN_segment_begin ()
     TABLET.penSeen = TRUE
     ' Tip threshold: a pen that grazes the tablet can report a click at almost
     ' no pressure. Draw nothing until the pen presses at least this hard.
-    IF CFG.PEN_TIP_THRESHOLD% > 0 _ANDALSO PD_pressure! < CFG.PEN_TIP_THRESHOLD% / 100! THEN
+    IF CFG.PEN_TIP_THRESHOLD% > 0 _ANDALSO TABLET.mexp = 0 _ANDALSO PD_pressure! < CFG.PEN_TIP_THRESHOLD% / 100! THEN
         TABLET.skipSeg = TRUE
         TABLET.segP0   = -1 ' resume from the real pressure, not a stale one
         EXIT SUB
@@ -237,8 +287,12 @@ SUB PEN_opacity_begin ()
     DIM sp AS INTEGER
     sp% = (BRUSH_SIZE_special% <> 0 _ANDALSO BRUSH_SIZE_pixels% > 1 _ANDALSO (CFG.ANTIALIAS% <> 0 _ORELSE BRUSH_SIZE.SOFT > 0))
     aa% = ((CFG.ANTIALIAS% <> 0 _ANDALSO BRUSH_SIZE.SHAPE = 0) _ORELSE sp%) _ANDALSO (CFG.BRUSH_MIX% = 0 _ORELSE CURRENT_TOOL% <> TOOL_BRUSH)
-    IF CFG.PEN_PRESSURE_OPACITY% = 0 _ANDALSO aa% = 0 THEN EXIT SUB
-    IF aa% = 0 _ANDALSO NOT PEN_active% THEN EXIT SUB
+    ' Mouse expression with a taper: the mask stroke too, so the release can redraw
+    ' the stroke's end from the snapshot (PEN_mx_taper_out). Not the mix brush.
+    DIM mx AS INTEGER
+    mx% = TABLET.mxTaper _ANDALSO (CFG.BRUSH_MIX% = 0 _ORELSE CURRENT_TOOL% <> TOOL_BRUSH)
+    IF CFG.PEN_PRESSURE_OPACITY% = 0 _ANDALSO aa% = 0 _ANDALSO mx% = 0 THEN EXIT SUB
+    IF aa% = 0 _ANDALSO mx% = 0 _ANDALSO NOT PEN_active% THEN EXIT SUB
     IF CURRENT_TOOL% <> TOOL_BRUSH AND CURRENT_TOOL% <> TOOL_ERASER THEN EXIT SUB
     IF CUSTOM_BRUSH_is_active% THEN EXIT SUB
     IF BRUSH_HISTORY_SMART% THEN EXIT SUB
@@ -450,8 +504,120 @@ END FUNCTION
 ' Lift (or a document reset): forget the stroke. The release path runs the
 ' Catch Up tail first (MOUSE_brush_catch_up).
 SUB PENC_stroke_end ()
+    MEXP_end
     TABLET.catching = FALSE
     TABLET.stabOn = FALSE
     STAB_end
     PSPD_end
+END SUB
+
+
+' ============================================================================
+' Mouse expression tapers (CFG.PEN_MOUSE_TAPER_IN / _OUT): the stroke grows from
+' a point and shrinks back to one. The dab loops (PAINT_aa_curve,
+' PAINT_on_pressure) hand each dab to PEN_mx_dab!, which logs it and returns its
+' size with the start taper; the release redraws the end (PEN_mx_taper_out).
+' ============================================================================
+
+''
+' A dab at canvas (x, y), pressure p, size sz (after pressure), of a brush full
+' px wide: log it, and return its size with the start taper (at least 0.5 for an
+' antialiased disc, 1 for a stamp). kind = PEN_MXK_* bits.
+'
+FUNCTION PEN_mx_dab! (x AS SINGLE, y AS SINGLE, p AS SINGLE, sz AS SINGLE, full AS INTEGER, kind AS INTEGER)
+    DIM n AS LONG, f AS SINGLE, lo AS SINGLE
+    IF TABLET.mxHas THEN TABLET.mxS = TABLET.mxS + SQR((x - TABLET.mxLX) * (x - TABLET.mxLX) + (y - TABLET.mxLY) * (y - TABLET.mxLY))
+    TABLET.mxLX = x: TABLET.mxLY = y: TABLET.mxHas = TRUE
+    IF CFG.PEN_MOUSE_TAPER_OUT% > 0 THEN
+        n = TABLET.mxN + 1
+        IF n > UBOUND(PEN_MX_X) THEN
+            REDIM _PRESERVE PEN_MX_X(1 TO n * 2) AS SINGLE, PEN_MX_Y(1 TO n * 2) AS SINGLE
+            REDIM _PRESERVE PEN_MX_P(1 TO n * 2) AS SINGLE, PEN_MX_S(1 TO n * 2) AS SINGLE
+            REDIM _PRESERVE PEN_MX_F(1 TO n * 2) AS INTEGER, PEN_MX_K(1 TO n * 2) AS INTEGER
+        END IF
+        PEN_MX_X(n) = x: PEN_MX_Y(n) = y: PEN_MX_P(n) = p: PEN_MX_S(n) = TABLET.mxS
+        PEN_MX_F(n) = full: PEN_MX_K(n) = kind
+        TABLET.mxN = n
+    END IF
+    f = sz * MEXP_taper_in!(TABLET.mxS)
+    IF kind AND PEN_MXK_AA THEN lo = 0.5 ELSE lo = 1
+    IF f < lo THEN f = lo
+    PEN_mx_dab! = f
+END FUNCTION
+
+''
+' Release (after the catch-up and PAINT_aa_finish): redraw the stroke's last
+' Taper Out px narrowing to a point. Its area goes back to the stroke-start
+' snapshot with the stroke mask cleared there, and every logged dab that touches
+' it is drawn again - the end ones smaller. (Dabs reaching outside it write
+' nothing new there: the mask already holds them.) With symmetry the mirrored
+' ends are elsewhere, so the whole layer is redrawn.
+'
+SUB PEN_mx_taper_out ()
+    DIM total AS SINGLE, ln AS SINGLE, k0 AS LONG, i AS LONG, r AS SINGLE
+    DIM x0 AS SINGLE, y0 AS SINGLE, x1 AS SINGLE, y1 AS SINGLE, apW AS LONG, apH AS LONG
+    DIM bx0 AS LONG, by0 AS LONG, bx1 AS LONG, by1 AS LONG, by AS LONG, img AS LONG
+    DIM m AS _MEM, oldDest AS LONG, p AS SINGLE, f AS SINGLE, sz AS SINGLE, k AS INTEGER
+    IF TABLET.mxTaper = 0 _ORELSE CFG.PEN_MOUSE_TAPER_OUT% <= 0 _ORELSE TABLET.mxN < 1 THEN EXIT SUB
+    IF TABLET.opStroke = 0 _ORELSE TABLET.opBakImg >= -1 THEN EXIT SUB
+    IF CURRENT_LAYER% < 1 _ORELSE CURRENT_LAYER% > MAX_LAYERS THEN EXIT SUB
+    img = LAYERS(CURRENT_LAYER%).imgHandle&
+    IF img >= -1 THEN EXIT SUB
+    IF _WIDTH(img) <> TABLET.opW _ORELSE _HEIGHT(img) <> TABLET.opH THEN EXIT SUB ' (the layer changed size mid-stroke)
+    IF _MEMEXISTS(TABLET_BAK_MEM) = 0 _ORELSE _MEMEXISTS(TABLET_MASK_MEM) = 0 THEN EXIT SUB
+    total = PEN_MX_S(TABLET.mxN)
+    ln = CFG.PEN_MOUSE_TAPER_OUT%
+    k0 = TABLET.mxN
+    DO WHILE k0 > 1 _ANDALSO PEN_MX_S(k0 - 1) >= total - ln: k0 = k0 - 1: LOOP
+    ' the end's area (canvas px), its dabs at full size
+    x0 = 1E+30: y0 = 1E+30: x1 = -1E+30: y1 = -1E+30
+    FOR i = k0 TO TABLET.mxN
+        r = PEN_MX_F(i) / 2 + 2
+        IF PEN_MX_X(i) - r < x0 THEN x0 = PEN_MX_X(i) - r
+        IF PEN_MX_Y(i) - r < y0 THEN y0 = PEN_MX_Y(i) - r
+        IF PEN_MX_X(i) + r > x1 THEN x1 = PEN_MX_X(i) + r
+        IF PEN_MX_Y(i) + r > y1 THEN y1 = PEN_MX_Y(i) + r
+    NEXT i
+    apW = LAYERS(CURRENT_LAYER%).apronW%: apH = LAYERS(CURRENT_LAYER%).apronH%
+    IF SYMMETRY.MODE > 0 THEN
+        bx0 = 0: by0 = 0: bx1 = TABLET.opW - 1: by1 = TABLET.opH - 1
+        x0 = -apW: y0 = -apH: x1 = TABLET.opW: y1 = TABLET.opH
+    ELSE
+        bx0 = _MAX(0, INT(x0) + apW): by0 = _MAX(0, INT(y0) + apH)
+        bx1 = _MIN(TABLET.opW - 1, INT(x1) + 1 + apW): by1 = _MIN(TABLET.opH - 1, INT(y1) + 1 + apH)
+    END IF
+    IF bx1 < bx0 _ORELSE by1 < by0 THEN EXIT SUB
+    ' back to the snapshot there, the mask cleared
+    m = _MEMIMAGE(img)
+    FOR by = by0 TO by1
+        _MEMCOPY TABLET_BAK_MEM, TABLET_BAK_MEM.OFFSET + (by * TABLET.opW + bx0) * 4, (bx1 - bx0 + 1) * 4 TO m, m.OFFSET + (by * TABLET.opW + bx0) * 4
+        _MEMFILL TABLET_MASK_MEM, TABLET_MASK_MEM.OFFSET + by * TABLET.opW + bx0, bx1 - bx0 + 1, 0 AS _UNSIGNED _BYTE
+    NEXT by
+    _MEMFREE m
+    ' every dab touching it again, the end ones narrowing
+    oldDest = _DEST
+    _DEST img
+    FOR i = 1 TO TABLET.mxN
+        r = PEN_MX_F(i) / 2 + 1
+        IF PEN_MX_X(i) + r >= x0 _ANDALSO PEN_MX_X(i) - r <= x1 _ANDALSO PEN_MX_Y(i) + r >= y0 _ANDALSO PEN_MX_Y(i) - r <= y1 THEN
+            p = PEN_MX_P(i): k = PEN_MX_K(i)
+            TABLET.dabP = p
+            IF TABLET.usingPen THEN TABLET.dabOp = PEN_dab_op!(p) ELSE TABLET.dabOp = PAINT_OPACITY% / 100!
+            f = MEXP_taper_in!(PEN_MX_S(i)) * MEXP_taper_out!(total - PEN_MX_S(i))
+            IF k AND PEN_MXK_AA THEN
+                sz = PEN_MX_F(i)
+                IF k AND PEN_MXK_SIZE THEN sz = PEN_size_frac!(PEN_MX_F(i), p)
+                sz = sz * f: IF sz < 0.5 THEN sz = 0.5
+                PAINT_draw_disc_aa PEN_MX_X(i), PEN_MX_Y(i), sz / 2, DRAW_COLOR~&
+            ELSE
+                sz = PEN_MX_F(i)
+                IF k AND PEN_MXK_SIZE THEN sz = PEN_scaled_size%(PEN_MX_F(i), p)
+                sz = INT(sz * f + 0.5): IF sz < 1 THEN sz = 1
+                PAINT_stamp_size INT(PEN_MX_X(i)), INT(PEN_MX_Y(i)), INT(sz), DRAW_COLOR~&
+            END IF
+        END IF
+    NEXT i
+    _DEST oldDest
+    BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_PAINT_MODE ' (variable width: export as pixels)
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
 END SUB

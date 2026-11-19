@@ -12,7 +12,7 @@ Plan and checklist: `PLANS/MYPAINT.md`. User docs: manual chapter 9 "MyPaint Bru
 | `native/mypaint_draw.h` | Unity build of the engine + DRAW's surface: lazy 64 px tiles over the layer buffer (fix15 premultiplied), written back per `stroke_to`; an unchanged fix15 pixel keeps its exact 8-bit original; selection coverage lerp + opacity lock on write-back; own tiny JSON reader / writer for `.myb` v3. Entry points `mp_*` (TOOLS/MYPAINT.BI) |
 | `DEV/mypaint/unit.cpp` | Standalone check: `g++ -O2 -std=gnu++17 -Inative -o /tmp/mp-unit DEV/mypaint/unit.cpp` - paints strokes, mask, save / reload, loads every shipped brush |
 | `ASSETS/BRUSHES/MYPAINT/` | All 7 mypaint-brushes sets (**CC0**, 196 brushes + `_prev.png`), `order.conf` (MyPaint's groups), README (authors, upstream commit), COPYING-CC0 |
-| `TOOLS/MYPAINT.BI/BM` | `TOOL_MYPAINT` (45), the brush (`MYPAINT_load%`, `MYPAINT_save%` + `MYPAINT_make_preview`, size = file radius + `CFG.MYPAINT_SIZE` / 10 in log units), the stroke (`MYPAINT_stroke_begin%` / `_step` / `MOUSE_release_mypaint` / `_finish` / `_abort`), dump `MYP` |
+| `TOOLS/MYPAINT.BI/BM` | `TOOL_MYPAINT` (45), the brush (`MYPAINT_load%`, `MYPAINT_save%` + `MYPAINT_make_preview`, size: `MYPAINT_apply_size` / `MYPAINT_radius_log!` - by default (`CFG.MYPAINT_SIZE_FROM_BRUSH`) DRAW's brush size is the diameter, radius_log = LN(px / 2), re-applied at every stroke start; off = file radius + `CFG.MYPAINT_SIZE` / 10 in log units), the stroke (`MYPAINT_stroke_begin%` / `_step` / `MOUSE_release_mypaint` / `_finish` / `_abort`), dump `MYP` |
 | `GUI/MYPAINT-PANEL.BI/BM` | The palette: dock panel `DP_MYPAINT` (11). Groups from order.conf, leftovers per folder, then MY BRUSHES (`<data>/MYPAINT-BRUSHES/`). Thumbnails of the shown group only (`MYPP_load_thumbs`). Dump `MYPP` / `MYPPB` |
 
 ## Rules
@@ -34,7 +34,7 @@ Plan and checklist: `PLANS/MYPAINT.md`. User docs: manual chapter 9 "MyPaint Bru
   mouse; tilt from `PD_tilt_x/y`; dtime from `TIMER(.001)`, clamped 1 ms..0.5 s; view zoom =
   `SCRN.zoom!`. The release sends a pressure-0 event at the last spot.
 - **Colour**: FG (left) / BG (right) into the brush's HSV base values (`mp_set_color`).
-- **`[` / `]`** (actions 601 / 602) step `MYPAINT_SIZE` by 2 when the tool is MyPaint.
+- **`[` / `]`** (actions 601 / 602) with the tool: `MYPAINT_size_step` - one brush size (`BRUSH_SIZE_increase` / `_decrease`) while it follows the brush size (`MYPAINT_SIZE_FROM_BRUSH=TRUE`, the default; Rick 2026-11-18 "the brush size should set the mypaint brush size too"), else `MYPAINT_SIZE` by 2. Reset Size (2686, `MYPAINT_size_reset`) sets the brush size nearest the file's diameter (`MYPAINT_file_size_index%`); the Settings SIZE slider is the brush-size index then. Action 2690 toggles following. Dump `MYPZ fromBrush brushPx radius*100 fileSizeIndex`.
 
 ## Actions (2680-2686, `TOOLS/MYPAINT.BI`)
 
@@ -43,7 +43,7 @@ BIGGER, SMALLER, RESET. Command palette names start "MyPaint" / "View: MyPaint B
 
 ## Config `[MYPAINT]`
 
-`MYPAINT_BRUSH`, `MYPAINT_SIZE` (-40..40), `MYPAINT_PANEL`, `MYPAINT_SET` (group name),
+`MYPAINT_BRUSH`, `MYPAINT_SIZE_FROM_BRUSH` (TRUE), `MYPAINT_SIZE` (-40..40, only when that is FALSE), `MYPAINT_PANEL`, `MYPAINT_SET` (group name),
 `MYPAINT_CELL` (24..128), `MYPAINT_PANEL_SCALE`. The panel / scale / set / cell keys are in
 `WS_panel_keys$` (workspaces remember them).
 

@@ -4,7 +4,8 @@
 # brush size palette now, with slider? with shapes like square, round, slant, soft/hard
 # edge, in various sizes" / "that can be docked down to 1 column, 2 columns, tall, wide,
 # whatever ... with thumbnail for each size").
-#   1. View > Brush Palette shows a docked panel: 4 shape chips, SIZE / SOFT, 25 cells
+#   (5) a shape chip switches MyPaint (and tools that do not paint with the shape) to the Brush
+#   1. View > Brush Palette shows a docked panel: 4 shape chips, SIZE / SOFT, 51 cells (1 .. 101 px)
 #   2. a cell click sets the size; the SIZE slider's wheel steps it (+1, Shift +10)
 #   3. the shape chips set the shape; a slant / dab is the mirror of a slant \ dab,
 #      and neither is the round dab
@@ -50,7 +51,7 @@ dk_begin
 bsp_read
 (( P_VIS != 0 && P_W > 0 )) && pass "the palette shows (${P_W}x$P_H at $P_X,$P_Y)" || fail "the palette is not shown (BSP '$P_VIS')"
 (( $(grep -c '^BSPC ' "$DK_DUMP") == 4 && $(grep -c '^BSPS ' "$DK_DUMP") == 2 )) && pass "4 shape chips, 2 sliders" || fail "chips $(grep -c '^BSPC ' "$DK_DUMP"), sliders $(grep -c '^BSPS ' "$DK_DUMP")"
-(( P_COLS >= 1 && P_COLS * P_RA >= 25 && P_GX + P_COLS * (P_CELL + 2) <= P_X + P_W + 2 )) && pass "25 cells in $P_COLS columns, inside the panel" || fail "grid: $P_COLS cols x $P_RA rows, gridX $P_GX cell $P_CELL, panel $P_X w $P_W"
+(( P_COLS >= 1 && P_COLS * P_RA >= 51 && P_GX + P_COLS * (P_CELL + 2) <= P_X + P_W + 2 )) && pass "51 cells in $P_COLS columns, inside the panel" || fail "grid: $P_COLS cols x $P_RA rows, gridX $P_GX cell $P_CELL, panel $P_X w $P_W"
 screenshot "brush-palette"
 
 # --- 2. size: a cell, the wheel ------------------------------------------------------------
@@ -102,7 +103,17 @@ bsp_track 11 50
 middle_click "$TX" "$TY"; wait_for 0.4 "middle click SOFT"; bsp_read
 (( P_SOFT == 0 )) && pass "a middle-click puts SOFT back to 0" || fail "SOFT after middle-click: $P_SOFT"
 
-# --- 5. hide ----------------------------------------------------------------------------------
+# --- 5. a shape picks the regular Brush (Rick 2026-11-18: "if i select a brush shape in the
+# brush panel switch to the regular brush tool. my paint brushes are separate") ----------------
+pcmd "MyPaint Brush"
+read -r _ T_TOOL _ <<< "$(grep -m1 '^MYP ' "$DK_DUMP")"
+(( T_TOOL != 0 )) && pass "the MyPaint tool is in use" || fail "MyPaint not picked (MYP tool '$T_TOOL')"
+bsp_read
+bsp_chip 2; dk_settle
+read -r _ T_TOOL _ <<< "$(grep -m1 '^MYP ' "$DK_DUMP")"
+(( T_TOOL == 0 )) && pass "the SQUARE chip leaves MyPaint for the Brush" || fail "still MyPaint after the SQUARE chip (MYP tool '$T_TOOL')"
+
+# --- 6. hide ----------------------------------------------------------------------------------
 pcmd "View: Brush Palette"
 bsp_read
 (( P_VIS == 0 )) && pass "the command hides the palette" || fail "still shown (BSP '$P_VIS')"

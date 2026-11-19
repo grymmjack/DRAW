@@ -87,28 +87,78 @@ FUNCTION MYPAINT_load% (p AS STRING, remember AS INTEGER)
     MYPAINT.baseRadius = mp_get_base!(MYPAINT_ID_RADIUS)
     MYPAINT.baseOpaque = mp_get_base!(MYPAINT_ID_OPAQUE)
     MPS_capture ' (the MyPaint Brush Settings: the file's values are their RESET)
+    ' a brush picked (the palette, LOAD) brings its own size: the brush size becomes the
+    ' one nearest it, and any size set after that applies to it (Rick 2026-11-18: "the
+    ' palette brush size should change to whatever those use too, when they are selected").
+    ' Not the brush loaded at first use (remember = FALSE): that keeps the size in use.
+    IF remember _ANDALSO CFG.MYPAINT_SIZE_FROM_BRUSH% THEN BRUSH_SIZE_set MYPAINT_file_size_index%: GUI_NEEDS_REDRAW% = TRUE
     MYPAINT_apply_size
     IF remember _ANDALSO CFG.MYPAINT_BRUSH$ <> p THEN CFG.MYPAINT_BRUSH$ = p: CONFIG_save
     MYPAINT_load% = TRUE
 END FUNCTION
 
 ''
-' The brush's radius = its file's + CFG.MYPAINT_SIZE (tenths of a log step; 0 = as made).
+' The brush's radius. CFG.MYPAINT_SIZE_FROM_BRUSH (the default; Rick 2026-11-18: "the brush
+' size should set the mypaint brush size too"): DRAW's brush size is the MyPaint brush's
+' diameter, so [ ], the Brush palette and the edit bar size it as any brush. Else its file's +
+' CFG.MYPAINT_SIZE (tenths of a log step; 0 = as made). Applied again at each stroke's start,
+' so a size set any way is the one it paints with.
 SUB MYPAINT_apply_size ()
-    mp_set_base MYPAINT_ID_RADIUS, MYPAINT.baseRadius + CFG.MYPAINT_SIZE% / 10!
+    mp_set_base MYPAINT_ID_RADIUS, MYPAINT_radius_log!
 END SUB
 
+FUNCTION MYPAINT_radius_log! ()
+    IF CFG.MYPAINT_SIZE_FROM_BRUSH% THEN
+        MYPAINT_radius_log! = LOG(BRUSH_SIZE_pixels% / 2!)
+    ELSE
+        MYPAINT_radius_log! = MYPAINT.baseRadius + CFG.MYPAINT_SIZE% / 10!
+    END IF
+END FUNCTION
+
+''
+' [ / ] with the tool, the palette's bigger / smaller: d in tenths of a log step (own size),
+' or one brush size a call when it follows the brush size.
 SUB MYPAINT_size_step (d AS INTEGER)
     MYPAINT_init
-    CFG.MYPAINT_SIZE% = _MAX(-40, _MIN(40, CFG.MYPAINT_SIZE% + d))
+    IF CFG.MYPAINT_SIZE_FROM_BRUSH% THEN
+        IF d > 0 THEN BRUSH_SIZE_increase ELSE BRUSH_SIZE_decrease
+    ELSE
+        CFG.MYPAINT_SIZE% = _MAX(-40, _MIN(40, CFG.MYPAINT_SIZE% + d))
+        CONFIG_save
+    END IF
     MYPAINT_apply_size
-    CONFIG_save
     STATUS_flash "MYPAINT SIZE: " + MYPAINT_size_text$
 END SUB
 
+''
+' Back to the brush file's own size (action 2686): following the brush size, the brush size
+' nearest the file's diameter.
+SUB MYPAINT_size_reset ()
+    MYPAINT_init
+    IF CFG.MYPAINT_SIZE_FROM_BRUSH% THEN
+        BRUSH_SIZE_set MYPAINT_file_size_index%
+    ELSE
+        CFG.MYPAINT_SIZE% = 0: CONFIG_save
+    END IF
+    MYPAINT_apply_size
+END SUB
+
+''
+' The brush size (BRUSH_PIXEL_SIZES index) nearest the loaded file's diameter.
+FUNCTION MYPAINT_file_size_index% ()
+    DIM px AS SINGLE
+    px = 2 * EXP(MYPAINT.baseRadius)
+    MYPAINT_file_size_index% = _MAX(BRUSH_SIZE.MIN, _MIN(BRUSH_SIZE.MAX, CINT((px + 1) / 2)))
+END FUNCTION
+
 FUNCTION MYPAINT_size_text$ ()
-    ' the radius in px (the brush's base, before its pressure / speed curves)
-    MYPAINT_size_text$ = _TRIM$(STR$(CINT(EXP(MYPAINT.baseRadius + CFG.MYPAINT_SIZE% / 10!) * 10) / 10)) + " PX"
+    ' the radius in px (the brush's base, before its pressure / speed curves); following the
+    ' brush size, its diameter as the brush size shows it
+    IF CFG.MYPAINT_SIZE_FROM_BRUSH% THEN
+        MYPAINT_size_text$ = _TRIM$(STR$(BRUSH_SIZE_pixels%)) + " PX"
+    ELSE
+        MYPAINT_size_text$ = _TRIM$(STR$(CINT(EXP(MYPAINT_radius_log!) * 10) / 10)) + " PX"
+    END IF
 END FUNCTION
 
 ''
@@ -198,7 +248,7 @@ SUB MYPAINT_select_tool ()
         ' selection - MARQUEE_reset would drop a box selection and the stroke would not clip
         TOOLS_reset_all FALSE
     END IF
-    STATUS_flash "MYPAINT BRUSH: " + UCASE$(MYPAINT.brushName)
+    STATUS_flash "MYPAINT BRUSH: " + UCASE$(MYPAINT.brushName) + " - " + MYPAINT_size_text$
     GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
 END SUB
 
@@ -248,6 +298,7 @@ FUNCTION MYPAINT_stroke_begin% (btn AS INTEGER)
             END IF
         END IF
     END IF
+    MYPAINT_apply_size ' (the brush size may have changed since: edit bar, palette, presets)
     IF MYPAINT_HAS_MASK THEN
         mp_stroke_begin MYPAINT_MEM.OFFSET, w, h, MYPAINT_MASK_MEM.OFFSET, SCRN.canvasW&, SCRN.canvasH&, aw, ah, LAYERS(CURRENT_LAYER%).opacityLock%
     ELSE
@@ -277,7 +328,13 @@ SUB MYPAINT_stroke_step ()
     END IF
     IF PEN_active% THEN
         p = PEN_stroke_pressure!
-        tx = PD_tilt_x!: ty = PD_tilt_y!
+        IF TABLET.mexp THEN
+            ' mouse expression: no tilt; the start taper as pressure (MyPaint's own
+            ' brush settings turn pressure into size / opacity; no end taper here)
+            IF SCRN.zoom! > 0 THEN p = p * MEXP_taper_in!(MEXP_dist! / SCRN.zoom!)
+        ELSE
+            tx = PD_tilt_x!: ty = PD_tilt_y!
+        END IF
     ELSE
         p = CFG.MYPAINT_MOUSE_PRESSURE% / 100! ' (the MyPaint Brush Settings' PRESSURE; MyPaint's own mouse is 0.5)
     END IF
@@ -340,6 +397,7 @@ END SUB
 SUB MYPAINT_stroke_finish ()
     DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG
     mp_stroke_end x1, y1, x2, y2
+    MEXP_end ' (mouse expression: the made-up pressure ends with the stroke)
     MYPAINT.bx1 = x1: MYPAINT.by1 = y1: MYPAINT.bx2 = x2: MYPAINT.by2 = y2
     MYPAINT.steps = mp_stroke_steps&
     MYPAINT.active = FALSE
@@ -366,6 +424,8 @@ END SUB
 
 ''
 ' QA dump line: MYP tool active ready strokes steps x1 y1 x2 y2 size brush|set|path
+' and MYPZ fromBrush brushPx radius*100 fileSizeIndex (the size the brush paints with).
 FUNCTION MYPAINT_dump$ ()
-    MYPAINT_dump$ = "MYP" + DOCK_n$(CURRENT_TOOL% = TOOL_MYPAINT) + DOCK_n$(MYPAINT.active <> 0) + DOCK_n$(MYPAINT.ready <> 0) + DOCK_n$(MYPAINT.strokes) + DOCK_n$(MYPAINT.steps) + DOCK_n$(MYPAINT.bx1) + DOCK_n$(MYPAINT.by1) + DOCK_n$(MYPAINT.bx2) + DOCK_n$(MYPAINT.by2) + DOCK_n$(CFG.MYPAINT_SIZE%) + " " + MYPAINT.brushName + "|" + MYPAINT.setName + "|" + MYPAINT.brushPath + CHR$(10)
+    MYPAINT_dump$ = "MYP" + DOCK_n$(CURRENT_TOOL% = TOOL_MYPAINT) + DOCK_n$(MYPAINT.active <> 0) + DOCK_n$(MYPAINT.ready <> 0) + DOCK_n$(MYPAINT.strokes) + DOCK_n$(MYPAINT.steps) + DOCK_n$(MYPAINT.bx1) + DOCK_n$(MYPAINT.by1) + DOCK_n$(MYPAINT.bx2) + DOCK_n$(MYPAINT.by2) + DOCK_n$(CFG.MYPAINT_SIZE%) + " " + MYPAINT.brushName + "|" + MYPAINT.setName + "|" + MYPAINT.brushPath + CHR$(10) _
+        + "MYPZ" + DOCK_n$(CFG.MYPAINT_SIZE_FROM_BRUSH% <> 0) + DOCK_n$(BRUSH_SIZE_pixels%) + DOCK_n$(CINT(EXP(MYPAINT_radius_log!) * 100)) + DOCK_n$(MYPAINT_file_size_index%) + CHR$(10)
 END FUNCTION

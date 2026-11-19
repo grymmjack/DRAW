@@ -41,6 +41,7 @@ CONST MYPAINT_ACT_SAVE   = 2683 ' save the current brush as .myb into MY BRUSHES
 CONST MYPAINT_ACT_BIGGER = 2684 ' radius up (the brush's own, log steps) - [ / ] with the tool
 CONST MYPAINT_ACT_SMALLER = 2685
 CONST MYPAINT_ACT_RESET  = 2686 ' back to the brush file's own size / opacity
+CONST MYPAINT_ACT_SIZE_FROM_BRUSH = 2690 ' toggle CFG.MYPAINT_SIZE_FROM_BRUSH (free range checked 2026-11-18)
 
 TYPE MYPAINT_OBJ
     ready      AS INTEGER ' a brush is loaded (else the engine's defaults)

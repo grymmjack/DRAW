@@ -8,9 +8,9 @@
 $INCLUDEONCE
 
 TYPE BRUSH_SIZE_TYPE
-    CURRENT       AS INTEGER ' Current brush size index (1-25)
+    CURRENT       AS INTEGER ' Current brush size index (1-BRUSH_SIZE_COUNT)
     MIN           AS INTEGER ' Minimum index (1)
-    MAX           AS INTEGER ' Maximum index (25)
+    MAX           AS INTEGER ' Maximum index (BRUSH_SIZE_COUNT: 101 px)
     PRESET1       AS INTEGER ' F1 preset index
     PRESET2       AS INTEGER ' F2 preset index
     PRESET3       AS INTEGER ' F3 preset index
@@ -29,6 +29,6 @@ CONST BRUSH_SHAPE_SLASH     = 2  ' a nib from bottom-left to top-right
 CONST BRUSH_SHAPE_BACKSLASH = 3  ' a nib from top-left to bottom-right
 
 DIM SHARED BRUSH_SIZE AS BRUSH_SIZE_TYPE
-DIM SHARED BRUSH_PIXEL_SIZES(1 TO 25) AS INTEGER
+DIM SHARED BRUSH_PIXEL_SIZES(1 TO BRUSH_SIZE_COUNT) AS INTEGER
 
 BRUSH_SIZE_init

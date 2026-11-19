@@ -173,7 +173,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+0` | Reset zoom to 100% and center |
 | `Ctrl+=` | Zoom in (1→2→3→5→7.5→10→15→20→25→50→100→200→300…800%; below 25% only for canvases big enough to stay 100px+ on screen) |
 | `Ctrl+-` | Zoom out |
-| `Wheel` | Zoom in/out at cursor |
+| `Wheel` | Zoom in/out at cursor (not while drawing a stroke with Pen Control's MOUSE tab on WHEEL: then it turns the stroke's pressure) |
 | `Hold Z + 1…9` | Zoom preset 100 / 200 / 300 / 400 / 500 / 600 / 700 / 800 / 1600% |
 | `Hold Z + 0` | Zoom 3200% |
 | `Shift+Wheel` | Vertical pan |
@@ -211,7 +211,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `T` / `Shift+T` / `Ctrl+T` | Text (VGA / Tiny5 / custom font) | |
 | `?` | Command Palette | |
 
-> **MyPaint Brush** (Tools > MyPaint Brush - no letter yet): MyPaint's natural-media brushes, picked from **View > MyPaint Brushes**. With the tool, `[` / `]` change the brush's own radius (MYPAINT_SIZE, about 22% a step); L-Click paints FG, R-Click BG; one undo step per stroke. The palette: click a brush, `<` / `>` or the wheel over its top rows for the group, the wheel over the grid scrolls, LOAD / SAVE `.myb` (saved into MY BRUSHES). See manual chapter 9.
+> **MyPaint Brush** (Tools > MyPaint Brush - no letter yet): MyPaint's natural-media brushes, picked from **View > MyPaint Brushes**. With the tool, `[` / `]` change the brush size as for any brush: the MyPaint brush is DRAW's brush size (1-101 px, its diameter; MYPAINT_SIZE_FROM_BRUSH). The command *MyPaint Brush: Size From Brush Size (on / off)* gives each brush its own radius again, then `[` / `]` step that (MYPAINT_SIZE, about 22% a step); L-Click paints FG, R-Click BG; one undo step per stroke. The palette: click a brush, `<` / `>` or the wheel over its top rows for the group, the wheel over the grid scrolls, LOAD / SAVE `.myb` (saved into MY BRUSHES). See manual chapter 9.
 
 > **Smart Shapes** and **3D Text** are on the toolbar's Smart Shapes flyout (long-press / right-click): Polygon, Pie/Donut, Rounded Rect, Tab, Pill, Pac-Man, 3D Dice, Bevel Rect, Arrow, 3D Text.
 
@@ -431,6 +431,7 @@ Middle-click the Text toolbar icon → load TTF/OTF. **TheDraw (TDF)** fonts: `[
 | `[` / `]` | Brush size − / + (fine, ±1) |
 | Pen pressure | With a drawing tablet, pressure sets Brush / Eraser size and (optionally) opacity, and the mix brush's paint. **View → Pen Control** panel, PRESSURE tab: live meter, per-target lightest-touch sliders, curve |
 | Stroke smoothing | **View → Pen Control**, SMOOTHING tab: Smooth Position (String / Average / EMA / Inertia, Amount, Catch Up, guide line + ring) steadies Brush / Eraser strokes, mouse or pen; Smooth Pressure (Fixed / Hold / Average / EMA). SPEED tab: pressure gain from pen speed (Slow / Fast / Speed / Smooth) with a speed→gain graph. Command palette: *Pen Control: Toggle Smoothing / Next Smoothing Mode / More / Less Smoothing / Toggle Pressure Smoothing / Toggle Speed Scaling* (bindable) |
+| Mouse pressure | **View → Pen Control**, MOUSE tab: a made-up pressure for mouse strokes - OFF / FIXED (Level) / SPEED (slow = heavy; Light, Fast, Smooth, Fast = Heavy) / WHEEL - plus Taper In / Out (px). `Wheel` **while drawing** in WHEEL mode: up = harder, down = lighter (Step %; `Shift+Wheel` ×4). Command palette: *Pen Control: Next Mouse Expression Mode* (bindable) |
 | `Ctrl+Wheel` | Brush size presets (1/3/5/7) |
 | `` ` `` | Toggle brush preview / cursor visibility |
 | `\` | Toggle brush shape / cursor shape |
@@ -554,7 +555,7 @@ One way to set a number in every panel, bar and Settings tab that has a slider o
 Not yet on: the text bar (its wheel steps its dropdowns), the Color Mixer and 3D Color Space (middle-drag spins the solid), the Advanced Color Picker's quantize bar, the animation widget bar, the Resize and image-adjust dialogs.
 
 ### MyPaint Brush Settings (View → MyPaint Brush Settings)
-A dock panel like Pen Control for the MyPaint brush in use: **SIZE** (on top of the brush's own radius), **OPAQUE**, **SHARP** (hardness), **GAIN** (pressure gain), **PIGMENT** (spectral paint mixing), **SMOOTH** (slow tracking), **PRESSURE** (what the mouse paints with; a pen uses its own) and **TWIST** (barrel rotation, for brushes that read it). OPAQUE…SMOOTH change the loaded brush until another is picked; **RESET** puts every slider back to the brush as made, **SAVE** writes the brush with them as a `.myb` in My Brushes. Docked in a column the sliders stack; in a wide row they sit side by side.
+A dock panel like Pen Control for the MyPaint brush in use: **SIZE** (the brush size; on top of the brush's own radius when Size From Brush Size is off), **OPAQUE**, **SHARP** (hardness), **GAIN** (pressure gain), **PIGMENT** (spectral paint mixing), **SMOOTH** (slow tracking), **PRESSURE** (what the mouse paints with; a pen uses its own) and **TWIST** (barrel rotation, for brushes that read it). OPAQUE…SMOOTH change the loaded brush until another is picked; **RESET** puts every slider back to the brush as made, **SAVE** writes the brush with them as a `.myb` in My Brushes. Docked in a column the sliders stack; in a wide row they sit side by side.
 
 ### Brush Palette (View → Brush Palette)
 A dock panel of brush tips: the shape chips (**round**, **square**, **slant /**, **slant \\**), **SIZE** and **SOFT** sliders (SOFT 0 = hard edge, 100 = feathered from the centre), and a thumbnail per size — `L-Click` a thumbnail to use that size, `Wheel` over the grid scrolls it, `Wheel` over a chip cycles the shape. It fits any dock shape: one column (narrow float), two, a tall column or a wide bottom row. Slants paint a slanted stroke (a calligraphy nib) and the pointer shows their outline; `.draw` files keep the shape.

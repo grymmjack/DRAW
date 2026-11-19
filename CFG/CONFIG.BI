@@ -411,7 +411,7 @@ TYPE DRAW_CONFIG
     MIDI_SF2_FILE                   AS STRING * 256   ' Optional SoundFont2 path for MIDI playback; empty = built-in OPL3
     ' Default startup settings
     DEFAULT_TOOL                    AS INTEGER        ' Default tool on startup (1 = brush, 2 = fill, 3 = dot, etc.)
-    DEFAULT_BRUSH_SIZE              AS INTEGER        ' Default brush size index (1-25)
+    DEFAULT_BRUSH_SIZE              AS INTEGER        ' Default brush size index (1-BRUSH_SIZE_COUNT = 1..101 px)
     DEFAULT_BRUSH_SHAPE             AS INTEGER        ' Default brush shape (0 = circle, 1 = square)
     DEFAULT_BRUSH_EDGES             AS INTEGER        ' TRUE = show brush edge preview (` toggle); persisted across restarts
     DEFAULT_DRAW_MODE               AS INTEGER        ' Default paint mode on startup (1 = color, 2 = gradient, 3 = pattern)
@@ -529,7 +529,16 @@ TYPE DRAW_CONFIG
     PEN_SPEED_FAST                  AS INTEGER        ' Speed scaling: gain at Fast Speed x100 (100-500)
     PEN_SPEED_FAST_AT               AS INTEGER        ' Speed scaling: Fast Speed, screen px per second (50-3000)
     PEN_SPEED_SMOOTH                AS INTEGER        ' Speed scaling: speed smoothing x100 (0-100)
-    PEN_PANEL_TAB                   AS INTEGER        ' Pen Control panel tab: 0 Pressure, 1 Smoothing, 2 Speed
+    PEN_MOUSE                       AS INTEGER        ' Mouse expression: a made-up pressure for mouse strokes - 0 off, 1 Fixed, 2 Speed, 3 Wheel
+    PEN_MOUSE_LEVEL                 AS INTEGER        ' Mouse expression: Fixed pressure / where Wheel starts, % (2-100)
+    PEN_MOUSE_LIGHT                 AS INTEGER        ' Mouse expression, Speed: the pressure when moving fast, % (2-100)
+    PEN_MOUSE_FAST_AT               AS INTEGER        ' Mouse expression, Speed: the speed that is fast, screen px per second (50-5000)
+    PEN_MOUSE_SMOOTH                AS INTEGER        ' Mouse expression, Speed: speed smoothing x100 (0-100)
+    PEN_MOUSE_INVERT                AS INTEGER        ' Mouse expression, Speed: TRUE = fast is heavy
+    PEN_MOUSE_WHEEL_STEP            AS INTEGER        ' Mouse expression, Wheel: pressure % a wheel notch (1-50; Shift x4)
+    PEN_MOUSE_TAPER_IN              AS INTEGER        ' Mouse expression: canvas px a stroke takes to grow from a point (0 = none, up to 1000)
+    PEN_MOUSE_TAPER_OUT             AS INTEGER        ' Mouse expression: canvas px a stroke takes to shrink to a point (0 = none, up to 1000)
+    PEN_PANEL_TAB                   AS INTEGER        ' Pen Control panel tab: 0 Pressure, 1 Smoothing, 2 Speed, 3 Mouse
     PEN_PANEL_VISIBLE               AS INTEGER        ' TRUE = Pen Control panel open at startup
     PEN_PANEL_SCALE                 AS INTEGER        ' Pen Control panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
     PEN_PANEL_X                     AS INTEGER        ' Last panel X (-1 = auto-position)
@@ -691,7 +700,8 @@ TYPE DRAW_CONFIG
     WAND_ANTIALIAS                  AS INTEGER        ' TRUE = the wand's selection gets a 1px soft rim
     ' MyPaint brushes (TOOLS/MYPAINT, GUI/MYPAINT-PANEL; PLANS/MYPAINT.md)
     MYPAINT_BRUSH                   AS STRING         ' the .myb in use ("" = the classic pencil)
-    MYPAINT_SIZE                    AS INTEGER        ' radius offset in tenths of a log step (-40..40, 0 = as the brush was made)
+    MYPAINT_SIZE                    AS INTEGER        ' radius offset in tenths of a log step (-40..40, 0 = as the brush was made); only when MYPAINT_SIZE_FROM_BRUSH = FALSE
+    MYPAINT_SIZE_FROM_BRUSH         AS INTEGER        ' TRUE = the MyPaint brush is DRAW's brush size (diameter px); FALSE = its file's radius + MYPAINT_SIZE
     MYPAINT_PANEL                   AS INTEGER        ' TRUE = the MyPaint Brushes palette shows
     MYPAINT_SET                     AS STRING         ' the set the palette shows (folder name, "" = all)
     MYPAINT_CELL                    AS INTEGER        ' palette thumbnail size, px (24..128)

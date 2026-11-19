@@ -7,7 +7,7 @@
 # sub-pixel steps for this tool) is a stroke_to with its share of the frame's time.
 #   The same circle as brush-fast-stroke.sh (72 pointer moves in ~0.3 s, DRAW held
 #   to 6 fps) with kabura (opaque, no slow tracking): nearly every painted pixel must lie on the circle.
-# QA-OPTIONS: WORKSPACE=default FPS_LIMIT=6 ANTIALIAS=FALSE TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE MYPAINT_PANEL=TRUE MYPAINT_PANEL_SCALE=0 MYPAINT_BRUSH=ASSETS/BRUSHES/MYPAINT/classic/kabura.myb MYPAINT_SIZE=0 DOCK_DUMP=QA/.dock-dump.txt
+# QA-OPTIONS: WORKSPACE=default FPS_LIMIT=6 ANTIALIAS=FALSE TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE MYPAINT_PANEL=TRUE MYPAINT_PANEL_SCALE=0 MYPAINT_BRUSH=ASSETS/BRUSHES/MYPAINT/classic/kabura.myb MYPAINT_SIZE=0 MYPAINT_SIZE_FROM_BRUSH=TRUE DEFAULT_BRUSH_SIZE=3 DOCK_DUMP=QA/.dock-dump.txt
 # =============================================================================
 source "$DRAW_ROOT/QA/dock-lib.sh"
 info "=== MyPaint: a fast stroke follows the pointer ==="
@@ -43,7 +43,7 @@ read -r _ _ _ _ T_STROKES T_STEPS _ <<< "$(grep -m1 '^MYP ' "$DK_DUMP")"
 info "stroke_to calls in the stroke: $T_STEPS"
 
 # painted pixels = those that changed (any visible change: the pencil is soft); each one's
-# distance from the circle (viewport px). kabura is ~5 px wide at pressure 0.5: its half width + 1, so 4 px (the old build: 32 px off, 9 events).
+# distance from the circle (viewport px). kabura at brush size 5 px (DEFAULT_BRUSH_SIZE=3; it follows the brush size) is ~5 px wide at pressure 0.5: its half width + 1, so 4 px (the old build: 32 px off, 9 events).
 read -r N BAD WORST <<< "$(magick "$B" "$A" -compose difference -composite -colorspace gray -threshold 12% txt:- 2>/dev/null \
     | awk -v sx="$SX" -v m="$M" -v r="$R" -F'[,: ]+' '
         /^#/ { next }

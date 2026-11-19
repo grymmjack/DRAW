@@ -5,6 +5,8 @@
 #   1. in a bottom row its grid goes wide: many columns, few rows, inside the panel
 #   2. its sliders sit side by side, not stacked
 #   3. a cell click still sets the size
+#   4. no blank band under the cells (Rick 2026-11-18: "i can't size the palette downward
+#      any more and all this blank space exists"): the row asks only the rows it needs
 # Dump: BSP vis x y w h cell cols rowsFit rowsAll scroll gridX gridY hover shape soft size;
 # BSPS id x y w lw vw.
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE BRUSH_PANEL=TRUE BRUSH_PANEL_SCALE=0 BRUSH_PANEL_CELL=28 DOCK_CUSTOM=1 DOCK_LEFT_1=AUTO;layers DOCK_LEFT_2=AUTO;editbar DOCK_RIGHT_1=AUTO;toolbox|organizer|drawer DOCK_RIGHT_2=AUTO;advbar DOCK_BOTTOM_1=AUTO;brushes
@@ -22,6 +24,8 @@ info "BSP: ${P_W}x$P_H at $P_X,$P_Y - $P_COLS cols x $P_RA rows ($P_RF fit), cel
 (( P_GX + P_COLS * (P_CELL + 2) <= P_X + P_W + 2 && P_GY + P_RF * (P_CELL + 2) <= P_Y + P_H + 2 )) && pass "the shown cells are inside the panel" || fail "grid at $P_GX,$P_GY ($P_COLS x $P_RF of $P_CELL) leaves the panel $P_X,$P_Y ${P_W}x$P_H"
 read -r _ _ S1X S1Y _ <<< "$(grep -m1 '^BSPS 10 ' "$DK_DUMP")"; read -r _ _ S2X S2Y _ <<< "$(grep -m1 '^BSPS 11 ' "$DK_DUMP")"
 (( S1Y == S2Y && S2X > S1X )) && pass "SIZE and SOFT side by side" || fail "sliders at $S1X,$S1Y and $S2X,$S2Y"
+BLANK=$(( P_Y + P_H - (P_GY + P_RF * (P_CELL + 2)) ))
+(( P_RF <= P_RA && BLANK < P_CELL + 2 )) && pass "no blank band under the cells ($BLANK px under $P_RF of $P_RA rows)" || fail "$BLANK px blank under $P_RF rows (of $P_RA) of $P_CELL"
 screenshot "brush-palette-row"
 key b; wait_for 0.3 "brush tool"
 bsp_read

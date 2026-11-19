@@ -24,6 +24,7 @@
 - [QB64-PE NOT is bitwise](feedback_qb64pe_not_is_bitwise.md) — `NOT 1`=-2 (truthy); use `IF flag = 0` for non-boolean flags
 - [$DYNAMIC + DIM SHARED doesn't allocate](feedback_qb64pe_dynamic_dim_shared.md) — under `$DYNAMIC`, `DIM SHARED arr()` reserves but doesn't allocate; init in `_init` via fill loop, never ERASE
 - [QB64_GJ_LIB submodule isolation](feedback_qb64_gj_lib_no_consumer_helpers.md) — shared submodule; never call DRAW helpers inside it; add lib helpers to `_GJ_LIB_COMMON.BI`
+- [Lib names share the host namespace](qb64-lib-names-share-host-namespace.md) — prefix every lib local/param; a SUB named like a CONST clashes (case-insensitive)
 - [QB64-PE no DECLARE SUB/FUNCTION](feedback_qb64pe_no_declare_sub_function.md) — auto-discovered; only `DECLARE LIBRARY` (FFI) needed; submodule keeps its own
 - [Never leave unused variables](feedback_never_leave_unused_variables.md) — every "Unused variable" warning is a defect; fix signature + all callsites
 - [Anthropic sandbox + qb64pe bug](reference_anthropic_sandbox_qb64pe_bug.md) — sandbox blocks writes to `qb64pe/internal/temp/` (looks like parse error); report via `/bug`
@@ -120,3 +121,4 @@
 - [QA: DP ids shift, floating z-order](qa-dp-ids-and-float-zorder.md) — never hardcode DP_ ids in tests (DP_PREVIEW 12 now); dk_grab_point uses the WZ front-to-back line
 - [macOS numpad digits = main-row digits](qb64pe-macos-numpad-digits.md) — [macOS] QB64-PE gives KP_0..9 no own codes (KP_0 = 48), so DRAW numpad frame keys can't work there; KP_+ etc. do; qa-io mac/win had no KP_ keys until 2026-11-17
 - [UI text is UPPERCASE](feedback-ui-text-uppercase.md) — every panel/menu/settings/dialog string in caps; user data keeps case; UCASE$ at draw + measure sites (Rick 2026-11-17)
+- [Tests in the background](feedback-tests-in-background.md) — run QA with run_in_background and keep working; never wait on a test run

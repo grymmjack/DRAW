@@ -68,9 +68,26 @@ TYPE PEN_OBJ
     subTo     AS SINGLE  ' ... and ends at (-1 = not read yet this frame)
     catching  AS INTEGER ' Catch Up on lift: hold the last pressure, skip the tip threshold
     speedOn   AS INTEGER ' this stroke's pressure gets the speed gain
+    ' Mouse expression (QB64_GJ_LIB MOUSE_PRESSURE, CFG.PEN_MOUSE): a mouse stroke
+    ' gets a made-up pressure and goes through everything a pen stroke does
+    mexp      AS INTEGER ' this stroke is a mouse stroke with mouse expression
+    mxTaper   AS INTEGER ' ... with a taper in / out: its dabs are logged (PEN_MX_*)
+    mxS       AS SINGLE  ' path length of the stroke's dabs so far (canvas px)
+    mxLX      AS SINGLE  ' the last dab's centre
+    mxLY      AS SINGLE
+    mxHas     AS INTEGER ' a dab has been logged
+    mxN       AS LONG    ' dabs logged
 END TYPE
 
 DIM SHARED TABLET AS PEN_OBJ
+' Mouse expression with a taper: every dab of the stroke (centre canvas px, its
+' pressure, its distance along the stroke, its full size and kind - PEN_MXK_*), so
+' the release can redraw the stroke's end narrowing to a point (PEN_mx_taper_out)
+CONST PEN_MXK_AA   = 1 ' an antialiased disc (PAINT_draw_disc_aa), else a stamp (PAINT_stamp_size)
+CONST PEN_MXK_SIZE = 2 ' its size follows pressure
+REDIM SHARED PEN_MX_X(1 TO 1024) AS SINGLE, PEN_MX_Y(1 TO 1024) AS SINGLE
+REDIM SHARED PEN_MX_P(1 TO 1024) AS SINGLE, PEN_MX_S(1 TO 1024) AS SINGLE
+REDIM SHARED PEN_MX_F(1 TO 1024) AS INTEGER, PEN_MX_K(1 TO 1024) AS INTEGER
 DIM SHARED TABLET_BAK_MEM  AS _MEM ' _MEMIMAGE view of TABLET.opBakImg
 DIM SHARED TABLET_MASK_MEM AS _MEM ' 1 byte per buffer pixel: strongest opacity laid this stroke
 TABLET.dabP  = 1

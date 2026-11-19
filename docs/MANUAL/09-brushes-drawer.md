@@ -499,7 +499,7 @@ Paint with the left button in the **FG** colour, the right button in the **BG** 
 
 | Slider | What it changes |
 |---|---|
-| **SIZE** | The brush's radius over its own (the same as `[` / `]`) |
+| **SIZE** | The brush size, the same as `[` / `]` and the Brush Palette (the brush's radius over its own when Size From Brush Size is off) |
 | **OPAQUE** | How much paint each dab puts down (0..2) |
 | **SHARP** | The dab's edge, soft (0) to hard (1) |
 | **GAIN** | How strongly pen pressure acts (-1.8..1.8) |
@@ -523,7 +523,8 @@ Every slider in DRAW takes the same mouse controls: **the wheel** moves it 1 (**
 | Key | What it does |
 |---|---|
 | `MYPAINT_BRUSH` | The `.myb` in use (empty: Classic / pencil) |
-| `MYPAINT_SIZE` | Size offset in tenths of a log step, -40..40 (`[` / `]`) |
+| `MYPAINT_SIZE_FROM_BRUSH` | `TRUE` (default): the MyPaint brush is DRAW's brush size (its diameter, 1–101 px). `FALSE`: each brush keeps its own size (command *MyPaint Brush: Size From Brush Size*) |
+| `MYPAINT_SIZE` | With `MYPAINT_SIZE_FROM_BRUSH=FALSE`: size offset in tenths of a log step, -40..40 (`[` / `]`) |
 | `MYPAINT_PANEL` | The palette shows |
 | `MYPAINT_SET` | The group the palette shows |
 | `MYPAINT_CELL` | Thumbnail size in px, 24..128 |
@@ -539,7 +540,7 @@ Every slider in DRAW takes the same mouse controls: **the wheel** moves it 1 (**
 **View > Brush Palette** opens a dock panel for the brush that the **Brush**, **Eraser**, **Line** and shape tools paint with. It works in any dock shape - a narrow column, two columns, along the top or bottom, or floating. The grid of sizes wraps to the width it gets and scrolls in the height.
 
 - **The shape chips** at the top: **ROUND**, **SQUARE**, and two **SLANT** nibs (`/` and `\`), calligraphy pens that make thick and thin lines depending on the stroke's direction.
-- **SIZE** picks the size (1 to 49 px, as `[` / `]`). **SOFT** fades the edge over that much of the radius: 0 is hard, 100 is feathered all the way from the centre. Soft works on round and slant brushes; a square brush stays hard.
+- **SIZE** picks the size (1 to 101 px, as `[` / `]`). **SOFT** fades the edge over that much of the radius: 0 is hard, 100 is feathered all the way from the centre. Soft works on round and slant brushes; a square brush stays hard.
 - **The grid** shows every size as it paints, in the current shape and softness. Click one to use it. The wheel over the grid scrolls it, or changes the size when every size already shows.
 - The sliders take the universal mouse controls: the wheel (**Shift** for 10), a middle-click or a double-click to reset, a double-click on the value to type one.
 

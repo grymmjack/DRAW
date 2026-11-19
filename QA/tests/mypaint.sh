@@ -7,18 +7,25 @@
 #     the order.conf groups + MY BRUSHES, thumbnails in a grid inside it
 #   - > / < change the group, so does the dropdown on its name; a click on a brush loads it and picks the tool
 #   - a drag on the canvas paints through libmypaint; one Ctrl+Z takes it away
-#   - ] makes the brush bigger (MYPAINT_SIZE), the stroke wider
+#   - picking a brush sets the brush size to the brush's own (its file's diameter, the
+#     nearest size; Rick 2026-11-18 "the palette brush size should change to whatever
+#     those use too, when they are selected")
+#   - ] makes the brush bigger, the stroke wider: by default the MyPaint brush is DRAW's
+#     brush size (MYPAINT_SIZE_FROM_BRUSH; Rick 2026-11-18 "the brush size should set the
+#     mypaint brush size too"); the command turns that off and ] steps MYPAINT_SIZE instead
 #   - inside a selection only the selected part changes
 #   - View > MyPaint Brushes (command palette) hides the palette
 # Dump: MYPP vis x y w h group nGroups n cell cols rowsFit rowsAll scroll gridX
 # gridY hover cur groupName; MYPPB id x y w; MYP tool active ready strokes steps
-# x1 y1 x2 y2 size name|set|path (units = viewport px at Auto).
-# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE MYPAINT_PANEL=TRUE MYPAINT_PANEL_SCALE=0 MYPAINT_BRUSH= MYPAINT_SIZE=0 MYPAINT_SET=Classic MYPAINT_CELL=48 ANTIALIAS=FALSE
+# x1 y1 x2 y2 size name|set|path; MYPZ fromBrush brushPx radius*100 fileSizeIndex
+# (units = viewport px at Auto).
+# QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE MYPAINT_PANEL=TRUE MYPAINT_PANEL_SCALE=0 MYPAINT_BRUSH= MYPAINT_SIZE=0 MYPAINT_SIZE_FROM_BRUSH=TRUE MYPAINT_SET=Classic MYPAINT_CELL=48 ANTIALIAS=FALSE
 # =============================================================================
 source "$DRAW_ROOT/QA/dock-lib.sh"
 
 ROW_H=14
 mp_read()  { read -r _ M_VIS M_X M_Y M_W M_H M_G M_NG M_N M_CELL M_COLS M_RF M_RA M_SC M_GX M_GY M_HOV M_CUR M_GNAME <<< "$(grep -m1 '^MYPP ' "$DK_DUMP")"; }
+myz_read() { read -r _ Z_FOLLOW Z_PX Z_R Z_FILE <<< "$(grep -m1 '^MYPZ ' "$DK_DUMP")"; }
 myp_read() { read -r _ T_TOOL T_ACT T_READY T_STROKES T_STEPS T_X1 T_Y1 T_X2 T_Y2 T_SIZE T_REST <<< "$(grep -m1 '^MYP ' "$DK_DUMP")"; T_NAME=${T_REST%%|*}; }
 mpb() { B_ID=""; read -r _ B_ID B_X B_Y B_W <<< "$(grep -m1 "^MYPPB $1 " "$DK_DUMP")"; [[ -n "$B_ID" ]]; }
 mp_btn() { if mpb "$1"; then click $(( B_X + B_W / 2 )) $(( B_Y + ROW_H / 2 )); wait_for 0.5 "$2"; dk_park; dk_settle; else fail "no palette button $1 ($2)"; fi; }
@@ -75,9 +82,13 @@ mp_cell 1 "pick the 2nd brush"
 mp_read; myp_read
 (( M_CUR == 1 )) && pass "the 2nd brush is the one in use ($T_NAME)" || fail "in use: cell '$M_CUR' ($T_NAME)"
 (( T_TOOL != 0 )) && pass "picking a brush picked the MyPaint tool" || fail "tool not MyPaint (MYP tool '$T_TOOL')"
+key bracketright; wait_for 0.3 "bigger"; key bracketright; wait_for 0.3 "bigger"; key bracketright; wait_for 0.4 "bigger"
+dk_settle; myz_read; PX_UP=$Z_PX
 # back to the 1st (the pencil: a thin hard line, easy to see)
 mp_cell 0 "pick the pencil"; myp_read
 [[ "$T_NAME" == "pencil" ]] && pass "the pencil picked" || info "1st Classic brush: $T_NAME"
+myz_read
+(( Z_PX == 2 * Z_FILE - 1 && Z_PX != PX_UP )) && pass "picking it sets the brush size to its own ($PX_UP -> $Z_PX px, size $Z_FILE)" || fail "brush $PX_UP -> $Z_PX px after the pick (the file's: size $Z_FILE = $(( 2 * Z_FILE - 1 )) px)"
 
 # --- paint ------------------------------------------------------------------------
 RX=$(( CANVAS_CX - 70 )); RY=$(( CANVAS_CY - 30 )); RW=140; RH=60
@@ -95,20 +106,37 @@ key ctrl+z; wait_for 0.8 "undo"; dk_park; dk_settle
 snap_region "$RX" "$RY" "$RW" "$RH" "mp-undone"
 assert_regions_same "$BEFORE" "$SNAP_RESULT" "one Ctrl+Z takes the whole stroke away"
 
-# --- size: ] ----------------------------------------------------------------------
+# --- size: ] (the brush size) -----------------------------------------------------
+dk_settle; myz_read; PX0=$Z_PX
+(( Z_FOLLOW != 0 )) && pass "by default the MyPaint brush follows the brush size ($PX0 px)" || fail "MYPZ fromBrush '$Z_FOLLOW' (want on)"
+(( Z_R == Z_PX * 50 )) && pass "its radius is half the brush size (${Z_R}/100 px for $Z_PX px)" || fail "radius*100 '$Z_R' for brush $Z_PX px (want $(( Z_PX * 50 )))"
 key bracketright; wait_for 0.3 "bigger"; key bracketright; wait_for 0.3 "bigger"; key bracketright; wait_for 0.3 "bigger"; key bracketright; wait_for 0.4 "bigger"
-dk_settle; myp_read
-(( T_SIZE == 8 )) && pass "] x4: MYPAINT_SIZE 8" || fail "MYPAINT_SIZE '$T_SIZE' after ] x4 (want 8)"
+dk_settle; myp_read; myz_read
+(( Z_PX == PX0 + 8 && Z_R == Z_PX * 50 )) && pass "] x4: the brush size and the MyPaint brush grow together ($PX0 -> $Z_PX px)" || fail "] x4: brush $PX0 -> '$Z_PX' px, radius*100 '$Z_R' (want $(( PX0 + 8 )) px)"
+(( T_SIZE == 0 )) && pass "MYPAINT_SIZE is left alone ($T_SIZE)" || fail "MYPAINT_SIZE '$T_SIZE' changed while following the brush size"
 dk_drag $(( CANVAS_CX - 60 )) $(( CANVAS_CY - 10 )) $(( CANVAS_CX + 60 )) $(( CANVAS_CY + 10 )) 10; dk_park; dk_settle
 myp_read; H_BIG=$(( T_Y2 - T_Y1 ))
 key ctrl+z; wait_for 0.6 "undo"
 key bracketleft; wait_for 0.3 "smaller"; key bracketleft; wait_for 0.3 "smaller"; key bracketleft; wait_for 0.3 "smaller"; key bracketleft; wait_for 0.4 "smaller"
-dk_settle; myp_read
-(( T_SIZE == 0 )) && pass "[ x4: back to 0" || fail "MYPAINT_SIZE '$T_SIZE' after [ x4"
+dk_settle; myz_read
+(( Z_PX == PX0 )) && pass "[ x4: back to $PX0 px" || fail "brush '$Z_PX' px after [ x4 (want $PX0)"
 dk_drag $(( CANVAS_CX - 60 )) $(( CANVAS_CY - 10 )) $(( CANVAS_CX + 60 )) $(( CANVAS_CY + 10 )) 10; dk_park; dk_settle
 myp_read; H_SMALL=$(( T_Y2 - T_Y1 ))
 (( H_BIG > H_SMALL )) && pass "the bigger brush paints a taller box ($H_BIG > $H_SMALL px)" || fail "bigger brush box $H_BIG, smaller $H_SMALL"
 key ctrl+z; wait_for 0.6 "undo"; dk_park; dk_settle
+
+# --- size: the brush's own (Size From Brush Size off) --------------------------------
+pcmd "size from brush size"
+myz_read; myp_read
+(( Z_FOLLOW == 0 )) && pass "the command turns following the brush size off" || fail "MYPZ fromBrush '$Z_FOLLOW' after the command (want 0)"
+R_OWN=$Z_R
+key bracketright; wait_for 0.3 "bigger"; key bracketright; wait_for 0.4 "bigger"
+dk_settle; myp_read; myz_read
+(( T_SIZE == 4 && Z_PX == PX0 && Z_R > R_OWN )) && pass "] x2 steps the brush's own size (MYPAINT_SIZE 4, radius $R_OWN -> $Z_R), not the brush size" || fail "] x2: MYPAINT_SIZE '$T_SIZE', brush $Z_PX px, radius $R_OWN -> $Z_R"
+key bracketleft; wait_for 0.3 "smaller"; key bracketleft; wait_for 0.4 "smaller"
+pcmd "size from brush size"
+myz_read
+(( Z_FOLLOW != 0 && Z_R == Z_PX * 50 )) && pass "the command turns it back on" || fail "MYPZ fromBrush '$Z_FOLLOW' radius '$Z_R' after the second command"
 
 # --- a selection clips it ---------------------------------------------------------
 key m; wait_for 0.6 "marquee"

@@ -6,7 +6,7 @@
 ' a dock panel (DP_BRUSHES, View > Brush Palette, CFG.BRUSH_PANEL) for the brush the
 ' brush / eraser / line / shape tools paint with (TOOLS/BRUSH-SIZE):
 '   shape chips   ROUND / SQUARE / SLANT / / SLANT \ (BRUSH_SIZE.SHAPE)
-'   SIZE slider   the size index 1..25 (1, 3, 5 .. 49 px; [ / ])
+'   SIZE slider   the size index 1..BRUSH_SIZE_COUNT (1, 3, 5 .. 101 px; [ / ])
 '   SOFT slider   edge softness 0..100 % (BRUSH_SIZE.SOFT = CFG.BRUSH_SOFT; round + slant)
 '   the grid      a thumbnail per size of the shape as it paints (PAINT_shape_dab's
 '                 coverage, shrunk to the cell), click = that size; it wraps into the
@@ -19,7 +19,7 @@ CONST BSP_MIN_W = 64     ' narrowest (its units): one column of cells
 CONST BSP_COL_W = 160    ' the width it asks of a column
 CONST BSP_SLIDER_W = 150 ' a slider's width when the two sit side by side
 CONST BSP_GAP = 2        ' between cells
-CONST BSP_NSIZES = 25
+CONST BSP_NSIZES = BRUSH_SIZE_COUNT
 
 ' controls (BSP.hover / hit ids; cells are BSPB_CELL0 + size index)
 CONST BSPB_ROUND = 1

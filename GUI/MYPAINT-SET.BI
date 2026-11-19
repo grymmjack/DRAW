@@ -5,7 +5,8 @@
 ' "make it a panel similar to pen control, ok? so it can be docked"): a dock panel
 ' (DP_MYPSET, View > MyPaint Brush Settings, CFG.MYPAINT_SETTINGS) of sliders for the
 ' brush in use, as MyPaint's own:
-'   SIZE     radius (CFG.MYPAINT_SIZE: tenths of a log step over the file's, -40..40)
+'   SIZE     DRAW's brush size (CFG.MYPAINT_SIZE_FROM_BRUSH, the default: a BRUSH_PIXEL_SIZES index)
+'            or the radius over the file's (CFG.MYPAINT_SIZE: tenths of a log step, -40..40)
 '   OPAQUE   opaque            0..2
 '   SHARP    hardness          0..1
 '   GAIN     pressure_gain_log -1.8..1.8

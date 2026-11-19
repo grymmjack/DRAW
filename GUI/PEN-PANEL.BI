@@ -48,7 +48,17 @@ CONST PENP_CTL_SPD_FAST  = 21
 CONST PENP_CTL_SPD_AT    = 22
 CONST PENP_CTL_SPD_SMOOTH = 23
 CONST PENP_CTL_TABS      = 24 ' the tab strip (every tab)
-CONST PENP_CTL_COUNT     = 24
+' MOUSE tab (mouse expression: QB64_GJ_LIB MOUSE_PRESSURE, CFG.PEN_MOUSE*)
+CONST PENP_CTL_MX_MODE   = 25 ' segments: OFF | FIXED | SPEED | WHEEL
+CONST PENP_CTL_MX_LEVEL  = 26
+CONST PENP_CTL_MX_LIGHT  = 27
+CONST PENP_CTL_MX_FAST   = 28
+CONST PENP_CTL_MX_SMOOTH = 29
+CONST PENP_CTL_MX_INVERT = 30 ' checkbox: FAST = HEAVY
+CONST PENP_CTL_MX_STEP   = 31
+CONST PENP_CTL_MX_TIN    = 32
+CONST PENP_CTL_MX_TOUT   = 33
+CONST PENP_CTL_COUNT     = 33
 
 ' Tooltip areas that are not controls (PENP_tip$ / PENP_tip_at%)
 CONST PENP_TIP_METER       = 40
@@ -56,11 +66,14 @@ CONST PENP_TIP_GRAPH       = 41
 CONST PENP_TIP_SPEED_GRAPH = 42
 CONST PENP_TIP_READOUT     = 43
 CONST PENP_TIP_HINT        = 44
+CONST PENP_TIP_MX_METER    = 45 ' MOUSE tab: the made-up pressure meter
+CONST PENP_TIP_MX_HINT     = 46 ' MOUSE tab: the mode hint
 
 CONST PENP_TAB_PRESSURE = 0 ' CFG.PEN_PANEL_TAB
 CONST PENP_TAB_SMOOTH   = 1
 CONST PENP_TAB_SPEED    = 2
-CONST PENP_TAB_COUNT    = 3
+CONST PENP_TAB_MOUSE    = 3 ' mouse expression (2026-11-18)
+CONST PENP_TAB_COUNT    = 4
 
 ' Command palette actions (GUI/COMMAND.BM; 2030-2035 checked free 2026-11-17)
 CONST PENP_ACT_STAB      = 2030 ' Toggle Smoothing
@@ -69,6 +82,7 @@ CONST PENP_ACT_STAB_UP   = 2032 ' Smoothing Amount +5
 CONST PENP_ACT_STAB_DOWN = 2033 ' Smoothing Amount -5
 CONST PENP_ACT_PROC      = 2034 ' Toggle Pressure Smoothing
 CONST PENP_ACT_SPEED     = 2035 ' Toggle Speed Scaling
+CONST PENP_ACT_MOUSE     = 2036 ' Next Mouse Expression Mode (2036 checked free 2026-11-18)
 
 CONST PENP_GRAPH_H   = 44  ' response graph height (native px)
 
@@ -131,6 +145,13 @@ TYPE PEN_PANEL_OBJ
     rdX1 AS INTEGER
     lastSpeed AS SINGLE ' speed shown on the last render (SPEED tab)
     lastTop   AS SINGLE
+    myMeter AS INTEGER ' MOUSE: the made-up pressure meter's top
+    mxTapY  AS INTEGER ' MOUSE: the TAPER heading's top (-1 = none: in a row)
+    mhx0 AS INTEGER ' MOUSE: the mode hint box
+    mhy0 AS INTEGER
+    mhx1 AS INTEGER
+    mhy1 AS INTEGER
+    lastMx AS SINGLE ' MOUSE: the pressure shown on the last render
 END TYPE
 
 DIM SHARED PENP AS PEN_PANEL_OBJ
