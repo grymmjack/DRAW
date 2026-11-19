@@ -26,7 +26,7 @@ AI_DUMP="$DRAW_ROOT/QA/.dock-dump.txt"
 AI_T="$(mktemp -d /tmp/draw-qa-aseimp-XXXXXX)"
 mkdir -p "$AI_T/home" "$AI_T/o" "$AI_T/x"
 python3 - "$AI_T" <<'PY'
-import struct, zlib, os, sys
+import struct, zlib, os, sys, subprocess
 out = sys.argv[1]
 W, H = 12, 10
 def chunk(t, d): return struct.pack('<IH', 6 + len(d), t) + d
@@ -88,7 +88,8 @@ for j in range(3):
 exp = [comp(bg1, inks[0]), comp(bg1, inks[1]), comp(bg1, inks[2]), comp(bg4, i4), comp(bg5, inks[2])]
 for k, e in enumerate(exp):
     raw = os.path.join(out, 'x', f'e{k}.rgba'); open(raw, 'wb').write(bytes(e))
-    os.system(f"magick -size {W}x{H} -depth 8 rgba:'{raw}' 'PNG32:{os.path.join(out, 'x', f'e{k}.png')}'"); os.remove(raw)
+    # an argument list, not os.system: Windows' cmd.exe does not take the single quotes
+    subprocess.run(['magick', '-size', f'{W}x{H}', '-depth', '8', f'rgba:{raw}', 'PNG32:' + os.path.join(out, 'x', f'e{k}.png')]); os.remove(raw)
 PY
 
 ai_line() { grep -m1 "^$1 " "$AI_DUMP" 2>/dev/null; }

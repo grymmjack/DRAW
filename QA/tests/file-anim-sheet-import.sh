@@ -23,11 +23,11 @@ SI_DUMP="$DRAW_ROOT/QA/.dock-dump.txt"
 SI_T="$(mktemp -d /tmp/draw-qa-sheetimp-XXXXXX)"
 mkdir -p "$SI_T/home" "$SI_T/o" "$SI_T/x" "$SI_T/rt" "$SI_T/oth"
 python3 - "$SI_T" <<'PY'
-import json, os, sys
+import json, os, sys, subprocess
 T = sys.argv[1]
 def save(path, w, h, px):
     raw = path + '.rgba'; open(raw, 'wb').write(bytes(px))
-    os.system(f"magick -size {w}x{h} -depth 8 rgba:'{raw}' 'PNG32:{path}'"); os.remove(raw)
+    subprocess.run(['magick', '-size', f'{w}x{h}', '-depth', '8', f'rgba:{raw}', f'PNG32:{path}']); os.remove(raw) # a list: cmd.exe on Windows takes no single quotes
 def blank(w, h): return [0] * (w * h * 4)
 def put(px, w, x, y, rgba): o = (y * w + x) * 4; px[o:o + 4] = rgba
 COL = [(200, 60, 60, 255), (60, 200, 60, 255), (60, 60, 200, 255), (200, 200, 60, 255), (200, 60, 200, 255)]

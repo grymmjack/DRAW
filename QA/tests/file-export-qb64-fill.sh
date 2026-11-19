@@ -123,13 +123,16 @@ if [[ ! -x "$QB64PE_BIN" ]]; then
     info "No QB64-PE compiler at $QB64PE_BIN - skipping the pixel comparison"
     qf_cleanup; return 0 2>/dev/null || exit 0
 fi
+# the program is native: on Windows (Git Bash) it can't open an MSYS path like /tmp/...
+QF_OUT_NATIVE="$QF_WORK/out.png"
+command -v cygpath >/dev/null && QF_OUT_NATIVE="$(cygpath -m "$QF_OUT_NATIVE")"
 {
     echo '$CONSOLE:ONLY'
     sed -e 's/^SCREEN _NEWIMAGE(CANVAS_W, CANVAS_H, 32)$/DIM SHARED qaScreen AS LONG: qaScreen = _NEWIMAGE(CANVAS_W, CANVAS_H, 32): _DEST qaScreen/' \
         -e 's/^_DEST 0$/_DEST qaScreen/' \
         -e 's/^LOOP UNTIL _KEYHIT = 27$/LOOP WHILE 0/' \
         -e 's/^_DISPLAY$//' \
-        -e "s|^Cleanup\$|_SAVEIMAGE \"$QF_WORK/out.png\", qaScreen: Cleanup|" \
+        -e "s|^Cleanup\$|_SAVEIMAGE \"$QF_OUT_NATIVE\", qaScreen: Cleanup|" \
         <(tr -d '\r' < "$QF_BAS")   # QB64 PRINT # writes CRLF
 } > "$QF_WORK/run.bas"
 if ! "$QB64PE_BIN" -w -x -o "$QF_WORK/run" "$QF_WORK/run.bas" > "$QF_WORK/compile.log" 2>&1; then
