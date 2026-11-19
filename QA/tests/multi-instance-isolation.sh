@@ -25,22 +25,26 @@ run_inst() { # $1 = extra CLI args
       DRAW_HEADLESS=1 timeout 20 "$DRAW_BIN" $1 >/dev/null 2>&1 )
 }
 
-run_inst ""             # primary — auto-assigns the lowest free slot (1)
-run_inst "--instance 2" # secondary — explicit slot 2, isolated seeded config
-
 REG="$SB/cache/DRAW/instances"
 
-if [ -f "$REG/1.instance" ] && [ -f "$REG/2.instance" ]; then
+# Each headless run exits and leaves its slot file, but its pid is then gone, so the
+# next DRAW frees that slot at once (stale by pid, 7210c4a2) - check slot 1 before the
+# second run, not after it.
+run_inst ""             # primary — auto-assigns the lowest free slot (1)
+[ -f "$REG/1.instance" ] && S1=1 || S1=0
+if grep -q '^id=1' "$REG/1.instance" 2>/dev/null && grep -q '^heartbeat=' "$REG/1.instance" 2>/dev/null && grep -q '^pid=' "$REG/1.instance" 2>/dev/null; then
+    pass "registry file carries id + heartbeat + pid fields"
+else
+    fail "registry file is malformed (no id/heartbeat/pid): $(tr '\r\n' '  ' < "$REG/1.instance" 2>/dev/null)"
+fi
+run_inst "--instance 2" # secondary — explicit slot 2, isolated seeded config
+
+if (( S1 )) && [ -f "$REG/2.instance" ]; then
     pass "registry files created for both instances"
 else
-    fail "registry files missing (expected 1.instance + 2.instance in $REG)"
+    fail "registry files missing (slot 1 after the first run: $S1; 2.instance now: $([ -f "$REG/2.instance" ] && echo yes || echo no) in $REG)"
 fi
-
-if grep -q '^id=1' "$REG/1.instance" 2>/dev/null && grep -q '^heartbeat=' "$REG/1.instance" 2>/dev/null; then
-    pass "registry file carries id + heartbeat fields"
-else
-    fail "registry file is malformed (no id/heartbeat)"
-fi
+[ -f "$REG/1.instance" ] && fail "slot 1's DRAW is gone but its file stayed (not freed by pid)" || pass "the second DRAW freed slot 1 (its pid is gone)"
 
 # Secondary must get its OWN config, seeded from the base config (not shared).
 if ls "$SB/cfg/DRAW/"*instance-2*.cfg >/dev/null 2>&1; then
