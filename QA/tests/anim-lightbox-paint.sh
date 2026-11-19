@@ -78,7 +78,7 @@ else
 
     # -- Paste in Place: copied in frame 1, pasted in frame 2 at the same spot --
     le_pick 1
-    le_key m
+    le_key m; le_read # (the selection tools' bar can show and move the panes: read them again)
     LE_X=$(le_px 1); LE_Y=$(le_py 1)
     hover "$LE_X" "$LE_Y"; sleep 0.3
     mouse_down "$LE_X" "$LE_Y"

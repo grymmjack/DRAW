@@ -1,3 +1,4 @@
+/* DRAW: patched by DEV/mypaint/patch.py */
 /* libmypaint - The MyPaint Brush Library
  * Copyright (C) 2019 The MyPaint Team
  *
@@ -65,8 +66,8 @@ mypaint_transform_reflect(const MyPaintTransform transform, const float angle_ra
     float x = cos(angle_radians);
     float y = sin(angle_radians);
     MyPaintTransform factor = {{
-        {x * x - y * y, 2.0 * x * y, 0},
-        {2.0 * x * y, y * y - x * x, 0},
+        {x * x - y * y, 2.0f * x * y, 0},
+        {2.0f * x * y, y * y - x * x, 0},
         {0, 0, 1},
     }};
     return mypaint_matrix_multiply(transform, factor);

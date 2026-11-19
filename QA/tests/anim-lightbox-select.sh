@@ -86,7 +86,7 @@ else
     le_is "1 2 3 4" || fail "undo: cells $(le_cells)"
 
     # -- a marquee from (8, 0) dragged out past the pane's right and bottom edges --
-    le_key m
+    le_key m; le_read # (the selection tools' bar can show and move the panes: read them again)
     LE_X=$(le_px 8); LE_Y=$(le_py 0)
     hover "$LE_X" "$LE_Y"; sleep 0.3
     mouse_down "$LE_X" "$LE_Y"

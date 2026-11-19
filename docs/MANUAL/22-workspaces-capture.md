@@ -208,7 +208,7 @@ of another one. Turn it off to move floating panels freely.
 A floating toolbox or drawer stops growing once its buttons or bins all show,
 so no empty space is left beside or under them.
 
-**Lock Workspace** (View → Lock Workspace, `Ctrl+Shift+L`) freezes the whole
+**Lock Workspace** (View → Workspace → Lock Workspace, `Ctrl+Shift+L`) freezes the whole
 arrangement, so a shaky pen can't drag, dock or resize a panel by accident.
 Clicks, tabs and buttons still work.
 
@@ -375,6 +375,25 @@ Close the window and the buttons work normally again.
 
 Switching back to Default puts the stock toolbox and bars back.
 
+**The same buttons in every workspace.** View → Workspace → **Same Buttons in
+Every Workspace** (also in the command palette) takes the toolbox, edit bar and
+advanced bar buttons on screen now and shows them in every workspace and in
+Default. Only which buttons there are and their order are shared. Each
+workspace keeps its own columns, scale, size and docking. While it is on,
+Customize Toolbars shows **SAVES TO: EVERY WORKSPACE**. Your button changes
+are saved into `DRAW.cfg` (`TOOLBOX_BUTTONS`, `EDIT_BAR_ORDER`,
+`ADV_BAR_ORDER`) for all workspaces, and a column change still goes into the
+workspace. Turn it off and each workspace shows its own buttons again. The
+shared lists stay in `DRAW.cfg` for next time, but turning it back on takes
+the buttons on screen at that moment.
+
+A workspace built around special buttons can opt out: View → **Keep This
+Workspace's Own Buttons** (a checkmark; it saves `OWN_BUTTONS=TRUE` into the
+workspace's `[TOOLBOX]`). It then shows its own buttons (or the stock ones if
+it names none) while every other workspace shows the shared set, and
+Customize Toolbars saves into it as usual. Annotate comes opted out, so its
+markup tools stay.
+
 ### Workspace files
 
 Workspaces are plain `.workspace` text files, INI style:
@@ -402,6 +421,8 @@ COLUMNS=2                 ; 1-8; more are added when the buttons don't fit the h
 BUTTONS=move,marquee,rect,|,ellipse,line,text,picker,crop,undo,cmd:701   ; - = empty cell, | = new row,
                           ; bar names and cmd:<action id> put commands in the toolbox
 ICON.crop=my-crop.png     ; theme TOOLBOX folder, a path, or your workspaces folder
+OWN_BUTTONS=TRUE          ; keep this workspace's own toolbox / edit bar / advanced bar buttons
+                          ; even with View > Workspace > Same Buttons in Every Workspace on
 
 [MENUS]
 ROOTS=FILE,EDIT,VIEW,IMAGE,HELP

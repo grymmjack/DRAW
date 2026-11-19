@@ -1,5 +1,4 @@
 /* DRAW: patched by DEV/mypaint/patch.py */
-/* DRAW: patched by DEV/mypaint/patch.py */
 #include "mypaint-symmetry.h"
 #include "helpers.h"
 

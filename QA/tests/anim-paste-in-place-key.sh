@@ -72,7 +72,7 @@ else
     pass "lightbox shown, 4 frames"
     # -- copy frame 1's green block (a marquee round it, clear of the red L) --
     pk_pick 1
-    pk_key m; wait_for 0.4 "Marquee tool"
+    pk_key m; wait_for 0.4 "Marquee tool"; pk_read # (the selection tools' bar can show and move the panes: read them again)
     hover "$(pk_px 5)" "$(pk_py 1)"; sleep 0.5
     mouse_down "$(pk_px 5)" "$(pk_py 1)"; sleep 0.2
     hover "$(pk_px 6)" "$(pk_py 2)"; sleep 0.2

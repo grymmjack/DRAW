@@ -68,7 +68,7 @@ CONST TOOL_ERASER         = 41
 CONST TOOL_EXPORT_SEL     = 42
 CONST TOOL_BEZIER         = 43
 CONST TOOL_SMART_SHAPES   = 44
-CONST TOOL_MYPAINT        = 45 ' MyPaint brushes (Tools > MyPaint Brush; no toolbox button yet - TOOLS/MYPAINT)
+CONST TOOL_MYPAINT        = 45 ' MyPaint brushes (Tools > MyPaint Brush - TOOLS/MYPAINT; in the toolbox as a command button: CMD_tool_on%)
 
 ' ASSISTANT (50 - 59)
 CONST ASSISTANT_CROSSHAIR = 50

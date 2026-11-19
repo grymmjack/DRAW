@@ -121,7 +121,7 @@ tr_brush_ok() { # LABEL - the brush shows its own cel AB_CUR
 }
 tr_pickup() { # marquee the L box in frame 1 and pick it up
     tr_key KP_1; tr_read
-    tr_key m
+    tr_key m; tr_read # (the selection tools' bar can show and move the panes: read them again)
     mouse_down "$(tr_px 5)" "$(tr_py 5)"; hover "$(tr_px 6)" "$(tr_py 7)"; sleep 0.2; hover "$(tr_px 7)" "$(tr_py 9)"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"
     tr_cmd "animbrush: pick up (the"; tr_read

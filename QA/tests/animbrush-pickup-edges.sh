@@ -92,7 +92,7 @@ if [[ "$A_COUNT" != 4 || -z "${PX:-}" ]]; then
     fail "lightbox: $A_COUNT frames, current pane '${PX:-}'"
 else
     # -- a magic-wand selection on frame 1's L --
-    ae_key w
+    ae_key w; ae_read # (the selection tools' bar can show and move the panes: read them again)
     click "$(ae_px 2)" "$(ae_py 5)"; wait_for 0.6 "wand"; ae_read
     if [[ "$S_ON" != -1 || "$S_WAND" != -1 ]]; then
         fail "the wand did not select frame 1's L: sel $S_ON wand $S_WAND box $S_X,$S_Y ${S_W}x$S_H"
@@ -120,7 +120,7 @@ else
         [[ "$AB_N" == 0 && "$AB_ON" == 0 ]] && pass "Ctrl+B drops the AnimBrush" || fail "Ctrl+B: $(ae_s)"
         ae_key F3; ae_key F1; ae_read
         [[ "$AB_N" == 0 && "$AB_ON" == 0 ]] && pass "... and the stash is gone with it (F3 / F1 bring nothing back)" || fail "after Ctrl+B + F3/F1: $(ae_s)"
-        ae_key m
+        ae_key m; ae_read # (the selection tools' bar can show and move the panes: read them again)
         mouse_down "$(ae_px 1)" "$(ae_py 1)"; hover "$(ae_px 5)" "$(ae_py 5)"; sleep 0.2; hover "$(ae_px 10)" "$(ae_py 11)"; sleep 0.3
         mouse_up; wait_for 0.6 "marquee"
         ae_key ctrl+b; ae_read

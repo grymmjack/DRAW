@@ -38,6 +38,28 @@ Non-modal floating window, same frame model as the Pen Pressure panel but drawn 
 - **Saving is always into a workspace** (`TBED_save%`): in a workspace → `WSC_load` + `TBED_store_keys` + `WSC_save%` (a built-in gets a user copy). In Default → a name prompt (`DRAW_input_box_ex$`); a new workspace based on Default (`WSC_capture_layout` + the panel keys), switched to with `WSC_save_and_use`. Cancel → every touched panel is put back from the snapshot.
 - Keys: the search field takes typing (`TBED_keys%` from `KEYBOARD_input_handler`); `TBED_typing%` blocks the central dispatcher, the eraser-hold handler and Space-pan while typing, and the Delete binding while Delete removes an entry.
 
+**The same buttons in every workspace** (2026-11-18, Rick: "the same button content (not the
+same layout/width/height/scale) ... universal for me across all the workspaces"):
+`CFG.BUTTONS_UNIVERSAL` + `CFG.TOOLBOX_BUTTONS` / `EDIT_BAR_ORDER` / `ADV_BAR_ORDER` (DRAW.cfg,
+workspace names). `GUI/WORKSPACE-APPLY` "The same buttons in every workspace" block:
+`WS_apply_toolbox` and `WS_apply_bar_list%` take the universal list over the workspace's
+BUTTONS / ORDER (COLUMNS, ICON.* stay the workspace's); Default gets them from
+`TOOLBAR_layout_restore` (end), `WS_bars_reset` (`WS_buttons_universal_bars`) and
+`WS_startup` (`WS_buttons_universal_default`). Action **2461** `TBED_ACT_UNIVERSAL` (View menu,
+checkbox, palette) = `WS_buttons_universal_toggle`: on captures the live lists, off re-shows
+each workspace's (`WS_buttons_reapply`). While on, `TBED_save%` writes the lists to DRAW.cfg
+(`CONFIG_save`) and only falls through to the workspace path for a column change;
+`TBED_store_keys` then writes COLUMNS only; `TBED_target_name$` = "every workspace". The
+workspace configurator's Bars tab still edits a workspace's own lists (shown only with the
+setting off). **Opt-out per workspace:** `[TOOLBOX] OWN_BUTTONS=TRUE` (in `[TOOLBOX]`, not
+`[WORKSPACE]`: `WSC_save%` only writes NAME / DESCRIPTION there, every key of the other
+sections). `WS_own_buttons%` / `WS_buttons_shared%` (= on and not opted out) gate the lists, the
+editor's save path and its SAVES TO name; an opted-out workspace naming no buttons gets the
+stock ones (`TOOLBAR_layout_stock` - `TOOLBAR_layout_restore` is stock + the shared list - and
+`BL_set_default` in `WS_apply_bars`). Action **2462** `TBED_ACT_OWN` toggles it on the active
+workspace (`WSC_save_key`, then `WS_buttons_reapply`). Annotate ships opted out. QA:
+`toolbar-universal-buttons.sh`.
+
 The workspace configurator's Toolbox and Bars tabs have a **Customize Toolbars…** row (`WSC_editor_button`): it saves pending edits, switches to the selected workspace and opens the editor after the modal loop (`WSC.openEditor`). The Bars tab's checkboxes edit `ORDER=` when the workspace has one (else `BUTTONS=`).
 
 ### Edit mode (while the window is shown)

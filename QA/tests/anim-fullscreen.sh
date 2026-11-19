@@ -67,8 +67,11 @@ if [[ "$FS_OPEN" != -1 || "$FS_N" != 4 ]]; then
 else
     pass "Num .: the full-screen Preview, 4 steps, from frame ${FS_F} ($(fs_s))"
     [[ "$FS_PLAY" == -1 ]] && pass "it starts playing" || fail "not playing on open: $(fs_s)"
-    FS_K0=$FS_K; sleep 0.3; fs_read # (not a whole loop: 4 frames at 4 fps come round every 1 s)
-    [[ "$FS_K" != "$FS_K0" ]] && pass "and plays on (step $FS_K0 -> $FS_K)" || fail "still on step $FS_K0 after 0.55 s at 4 fps"
+    # poll, not one read 0.55 s later: 4 frames at 4 fps come round every 1 s, and on Windows
+    # the read's own process spawns can stretch the gap to a whole loop (farm 2026-11-19)
+    FS_K0=$FS_K; FS_T=0
+    for (( FS_T = 1; FS_T <= 8; FS_T++ )); do fs_read; [[ "$FS_K" != "$FS_K0" ]] && break; done
+    [[ "$FS_K" != "$FS_K0" ]] && pass "and plays on (step $FS_K0 -> $FS_K)" || fail "still on step $FS_K0 after $FS_T reads at 4 fps"
 
     # -- SPACE pauses; what shows is the frame's own colour; steps --
     fs_key space; fs_read; FS_KP=$FS_K
@@ -102,7 +105,10 @@ else
     scroll_up $(( FS_X + FS_W / 2 )) $(( FS_Y + FS_H / 2 )); fs_read
     [[ "$FS_Z" -gt "$FS_Z1" ]] && pass "wheel up: zoomed in ($FS_Z1% -> $FS_Z%)" || fail "wheel up: $(fs_s)"
     FS_MX=$(( FS_X + FS_W / 2 )); FS_MY=$(( FS_Y + FS_H / 2 ))
-    middle_click "$FS_MX" "$FS_MY"; middle_click "$FS_MX" "$FS_MY"; fs_read
+    # one timed sequence, as the harness's double_click does: two separate middle_click
+    # calls land > 0.4 s apart on Windows (a driver call costs ~70 ms) and on a loaded host
+    read -r FS_SX FS_SY <<< "$(adapter_to_screen "$FS_MX" "$FS_MY")"
+    raw_seq move $(( FS_SX + 1 )) "$FS_SY" sleep 80 down 2 sleep 60 up 2 sleep 70 down 2 sleep 60 up 2; sleep 0.3; fs_read
     [[ "$FS_Z" == 100 && "$FS_W" == 16 ]] && fs_shows 4 && pass "double middle click: 100% (16 px on screen), frame 4 shown" || fail "double middle click: $(fs_s)"
     FS_X0=$FS_X; FS_Y0=$FS_Y
     mouse_down $(( FS_X + 4 )) $(( FS_Y + 4 )) 2

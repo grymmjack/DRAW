@@ -160,7 +160,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Ctrl+Shift+Up` | Hide/show menu bar (alt binding) |
 | `Ctrl+Shift+Down` | Hide/show status bar + color strip |
 | `Ctrl+Shift+Left` | Hide/show left-side UI (edit bar, layers) |
-| `Ctrl+Shift+L` | Lock / unlock the workspace (View → Lock Workspace): panels and floating windows can't be dragged, re-docked or resized — for drawing with a shaky tablet pen |
+| `Ctrl+Shift+L` | Lock / unlock the workspace (View → Workspace → Lock Workspace): panels and floating windows can't be dragged, re-docked or resized — for drawing with a shaky tablet pen |
 | `Ctrl+Shift+Right` | Hide/show right-side UI (toolbar, organizer, drawer) |
 | `#` | Toggle canvas border |
 | `Shift` (hold) | Show crosshair while held |

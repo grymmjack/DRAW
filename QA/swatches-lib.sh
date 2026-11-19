@@ -1,7 +1,13 @@
 #!/bin/bash
 # Helpers for the Swatches panel tests (GUI/SWATCHES.BM dump lines: SWAT,
 # SWATS, SWATG, SWATC, SWATM*). Source after dock-lib.sh.
-sw_read() { read -r _ SW_N SW_COLORS SW_COLS SW_CW SW_CH SW_GAP SW_ROWS SW_SCROLL SW_MAXS SW_FG SW_BG SW_MENU SW_MROWS SW_KEY <<< "$(grep '^SWAT ' "$DK_DUMP")"; }
+sw_read() {
+    read -r _ SW_N SW_COLORS SW_COLS SW_CW SW_CH SW_GAP SW_ROWS SW_SCROLL SW_MAXS SW_FG SW_BG SW_MENU SW_MROWS SW_KEY <<< "$(grep '^SWAT ' "$DK_DUMP")"
+    # [Windows] DRAW names the set by its native path (C:\...\DRAW\SWATCHES/x.gpl): the tests
+    # compare it with $SW_MINE and */SWATCHES/* patterns, so give it back in Git Bash form
+    [[ "$SW_KEY" == [A-Za-z]:* ]] && command -v cygpath >/dev/null && SW_KEY="$(cygpath -u "$SW_KEY")"
+    return 0
+}
 sw_geo()  { read -r _ G_X G_Y G_W G_H B_X B_Y B_W B_H E_X E_Y E_W E_H M_X M_Y M_W M_H <<< "$(grep '^SWATG ' "$DK_DUMP")"; }
 sw_cell() { C_X=; read -r _ _ C_X C_Y C_W C_H C_KIND C_HEX C_FLAGS <<< "$(grep "^SWATC $1 " "$DK_DUMP")"; }
 # the selection: SS_N, SS_ANCHOR, SS_LIST ("3 4 5")
@@ -33,7 +39,7 @@ sw_empty_xy() {
 
 # Edits save into My Swatches (PATHS_data$("SWATCHES/")). A normal QA run
 # shares the real ~/.local/share/DRAW, so an editing test relaunches DRAW on a
-# scratch XDG_DATA_HOME first ([Linux]). In a user-profile run the scratch
+# scratch XDG_DATA_HOME first ([Linux]; [Windows] APPDATA, below). In a user-profile run the scratch
 # folder starts as a copy of the profile's data, and the harness's re-copy on
 # every launch is switched off for this test (it would wipe what the test
 # saved before a restart). SW_MINE = the My Swatches folder DRAW now uses.
@@ -44,6 +50,10 @@ sw_isolate() {
     sw_quit_wait
     export XDG_DATA_HOME="${RESULTS_DIR:-/tmp}/sw-data-$RANDOM$RANDOM"
     rm -rf "$XDG_DATA_HOME"; mkdir -p "$XDG_DATA_HOME"
+    # [Windows] DRAW's data folder is %APPDATA%\DRAW (CORE/PATHS), not XDG: point APPDATA at the
+    # same scratch folder, or the test looks in one place and DRAW saves in the real one (farm
+    # 2026-11-19: "no qa-out.gpl in My Swatches"). [macOS] it is $HOME/Library/... - not isolated.
+    case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) export APPDATA="$(cygpath -w "$XDG_DATA_HOME")" ;; esac
     if [[ "${QA_USER_PROFILE:-0}" == 1 ]]; then
         [[ -n "$src" && -n "${RESULTS_DIR:-}" && "$src" == "$RESULTS_DIR"/* && -d "$src/DRAW" ]] && cp -a "$src/DRAW" "$XDG_DATA_HOME/DRAW"
         QA_USER_PROFILE=0 # this test's subshell only
@@ -107,7 +117,13 @@ sw_menu_edit() { sw_geo; click $(( M_X + M_W / 2 )) $(( M_Y + M_H / 2 )); dk_set
 # the hex of every entry in order ("-" = empty cell, "|" = row break), from SWATC
 sw_hexes() { awk '$1=="SWATC" { for (k = p + 1; p && k < $2; k++) printf " |"; printf "%s%s", (n++ ? " " : ""), ($7==1 ? "-" : $8); p = $2 } END {print ""}' "$DK_DUMP"; }
 # SWATD: a swatch drag - on 0/1, the entry it would drop before (0 = none), the pointer's row
-sw_dragstate() { read -r _ SD_ON SD_DROP SD_ROW SD_STRIP <<< "$(grep '^SWATD ' "$DK_DUMP")"; }
+sw_dragstate() {
+    # retry: a read while DRAW rewrites the dump finds no SWATD line (Windows farm 2026-11-19:
+    # the first mid-drag read came back '' while the drop itself was right)
+    local l n
+    for (( n = 0; n < 8; n++ )); do l=$(grep '^SWATD ' "$DK_DUMP"); [[ -n "$l" ]] && break; sleep 0.15; done
+    read -r _ SD_ON SD_DROP SD_ROW SD_STRIP <<< "$l"
+}
 # the palette strip: SP_N colors, SP_FG = the FG chip, SP_HEX = "RRGGBB RRGGBB ..."
 sw_strip() { local l; l=$(grep '^SWATP ' "$DK_DUMP"); read -r _ SP_N SP_FG _ <<< "$l"; SP_HEX=$(cut -d' ' -f4- <<< "$l"); [[ "$SP_N" == 0 ]] && SP_HEX=""; }
 # the viewport point of strip chip $1 (row 0..): TX TY, or the strip past its last chip ($1 = end)

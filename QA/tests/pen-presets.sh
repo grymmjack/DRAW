@@ -17,7 +17,11 @@
 source "$DRAW_ROOT/QA/dock-lib.sh"
 info "=== Pen Control presets ==="
 dk_begin
-PDIR="${XDG_DATA_HOME:-$HOME/.local/share}/DRAW/PEN-PRESETS"
+# DRAW's own data folder (OS-native: ~/.local/share/DRAW, ~/Library/Application Support/DRAW,
+# %APPDATA%...) - the XDG path alone was Linux-only (Windows farm 2026-11-19: "0 of 11 copied")
+PDIR=$("$DRAW_BIN" --dir-data 2>/dev/null | tr -d '\r' | tail -1)
+[[ -n "$PDIR" ]] && command -v cygpath >/dev/null && PDIR=$(cygpath -u "$PDIR")
+PDIR="${PDIR:-${XDG_DATA_HOME:-$HOME/.local/share}/DRAW}/PEN-PRESETS"
 rm -f "$PDIR/QA Pen ZZ.pen" "$PDIR/QA Pen YY.pen"
 
 cfgv() { grep -m1 "^$1=" "$QA_CFG" | cut -d= -f2 | tr -d '\r'; }

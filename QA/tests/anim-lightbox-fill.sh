@@ -92,7 +92,7 @@ else
     le_is "1 2 3 4" || fail "undo the fill: cells $(le_cells)"
 
     # -- the Magic Wand there, then Fill with FG (Backspace) --
-    le_key w
+    le_key w; le_read # (the selection tools' bar can show and move the panes: read them again)
     click "$(le_px 3)" "$(le_py 3)"; wait_for 0.6 "wand the top half"
     le_key BackSpace; le_read
     le_is "3 2 3 4" && pass "Magic Wand in frame 1's top half + Backspace: the selection held only that half (= frame 3)" || fail "wand + fill in frame 1: cells $(le_cells), wanted T0 frames 3 2 3 4 (T0 ${T0[*]:1})"

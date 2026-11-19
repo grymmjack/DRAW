@@ -135,7 +135,7 @@ else
     [[ "$M_ON" == 0 ]] && pass "Start without a brush: the mode stays off" || fail "no brush: $(mv_s)"
 
     # -- a plain brush: frame 1's square --
-    mv_key m
+    mv_key m; mv_read # (the selection tools' bar can show and move the panes: read them again)
     mouse_down "$(mv_px 6)" "$(mv_py 6)"; hover "$(mv_px 8)" "$(mv_py 8)"; sleep 0.2; hover "$(mv_px 9)" "$(mv_py 9)"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"
     mv_key ctrl+b; mv_key ctrl+shift+n; mv_read
@@ -190,7 +190,7 @@ else
     mv_key ctrl+b
     mv_key KP_5; mv_key KP_5; mv_read
     mv_strip 6; mv_strip 3 shift; mv_read # frames 3-6 selected (nothing selected = every frame)
-    mv_key m
+    mv_key m; mv_read # (the selection tools' bar can show and move the panes: read them again)
     mouse_down "$(mv_px 6)" "$(mv_py 6)"; hover "$(mv_px 8)" "$(mv_py 8)"; sleep 0.2; hover "$(mv_px 9)" "$(mv_py 9)"; sleep 0.3
     mouse_up; wait_for 0.6 "marquee"
     mv_cmd "animbrush: pick up merged"; mv_read

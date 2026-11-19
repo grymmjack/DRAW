@@ -1,6 +1,4 @@
 /* DRAW: patched by DEV/mypaint/patch.py */
-/* DRAW: patched by DEV/mypaint/patch.py */
-/* DRAW: patched by DEV/mypaint/patch.py */
 /* libmypaint - The MyPaint Brush Library
  * Copyright (C) 2007-2011 Martin Renold <martinxyz@gmx.ch>
  *
@@ -1416,7 +1414,7 @@ mypaint_brush_stroke_to_internal(
       return TRUE;
     }
 
-    enum { UNKNOWN, YES, NO } painted = UNKNOWN;
+    enum { PAINTED_UNKNOWN, PAINTED_YES, PAINTED_NO } painted = PAINTED_UNKNOWN;
     double dtime_left = dtime;
 
     float step_ddab, step_dx, step_dy, step_dpressure, step_dtime;
@@ -1460,9 +1458,9 @@ mypaint_brush_stroke_to_internal(
       STATE(self, FLIP) *= -1;
       gboolean painted_now = prepare_and_draw_dab (self, surface, legacy, linear);
       if (painted_now) {
-        painted = YES;
-      } else if (painted == UNKNOWN) {
-        painted = NO;
+        painted = PAINTED_YES;
+      } else if (painted == PAINTED_UNKNOWN) {
+        painted = PAINTED_NO;
       }
 
       // update value of random input only when drawing the dab
@@ -1502,17 +1500,17 @@ mypaint_brush_stroke_to_internal(
 
     // stroke separation logic (for undo/redo)
 
-    if (painted == UNKNOWN) {
+    if (painted == PAINTED_UNKNOWN) {
       if (self->stroke_current_idling_time > 0 || self->stroke_total_painting_time == 0) {
         // still idling
-        painted = NO;
+        painted = PAINTED_NO;
       } else {
         // probably still painting (we get more events than brushdabs)
-        painted = YES;
+        painted = PAINTED_YES;
         //if (pressure == 0) g_print ("info: assuming 'still painting' while there is no pressure\n");
       }
     }
-    if (painted == YES) {
+    if (painted == PAINTED_YES) {
       //if (stroke_current_idling_time > 0) g_print ("idling ==> painting\n");
       self->stroke_total_painting_time += dtime;
       self->stroke_current_idling_time = 0;
@@ -1525,7 +1523,7 @@ mypaint_brush_stroke_to_internal(
           return TRUE;
         }
       }
-    } else if (painted == NO) {
+    } else if (painted == PAINTED_NO) {
       //if (stroke_current_idling_time == 0) g_print ("painting ==> idling\n");
       self->stroke_current_idling_time += dtime;
       if (self->stroke_total_painting_time == 0) {
