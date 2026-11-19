@@ -129,6 +129,8 @@ if [[ -s "$AG_T/grad.gif" ]]; then
     python3 -c "import sys; sys.exit(0 if $AG_WORST < 0.07 else 1)" \
         && pass "1024 colours: an adaptive 256-colour table, every frame close to its cell (worst RMSE $AG_WORST)" \
         || fail "1024 colours: worst frame RMSE $AG_WORST (wanted < 0.07: the frames' own colours, not the palette's) [frames$AG_ES; $(magick identify "$AG_T/grad.gif" 2>&1 | awk '{print $2, $3, $4}' | tr '\n' ';')]"
+    python3 -c "import sys; sys.exit(0 if $AG_WORST < 0.07 else 1)" \
+        || cp "$AG_T/grad.gif" "$AG_T/grad-plain.png" "$AG_T/grad.ppm" "$AG_T/got.png" "$AG_T/want.png" "${SCREENSHOTS_DIR:-/tmp}/" 2>/dev/null # (kept to look at: Windows 2026-11-19 RMSE 0.67)
     grep -q "the frames' own 256 nearest" "$AG_T/log.txt" && pass "the export says so (the frames' own 256 nearest)" || fail "export message: $(grep -a 'grad.gif' "$AG_T/log.txt" | tail -1)"
 fi
 

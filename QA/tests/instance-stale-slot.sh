@@ -18,8 +18,8 @@
 # =============================================================================
 info "=== Instances: stale slots ==="
 
-if [[ "${QA_OS:-}" == Windows ]]; then # (the harness points LOCALAPPDATA at the run's cache there)
-    REG="$(cygpath -u "$LOCALAPPDATA")/DRAW/instances"
+if [[ "${QA_OS:-}" == Windows ]]; then # (the harness points LOCALAPPDATA at the run's cache there; CORE/PATHS.BM adds \Cache)
+    REG="$(cygpath -u "$LOCALAPPDATA")/DRAW/Cache/instances"
 else
     REG="${XDG_CACHE_HOME:-$HOME/.cache}/DRAW/instances"
 fi
