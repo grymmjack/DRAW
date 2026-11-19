@@ -52,8 +52,15 @@ as_label() { # ROW -> "x y": the row's label (left end)
 as_wheel() { # ROW up|down N [shift] - wheel over the row's label
     local x y i; read -r x y <<< "$(as_label "$1")"
     [[ "${4:-}" == shift ]] && { driver_input_key_hold down shift; sleep 0.15; }
+    # The first tick moves there; the rest go straight to the driver. A run of ticks is one undo
+    # step only while they come < 0.8 s apart, and on Windows (~70 ms a driver call) a full
+    # scroll_up per tick (position lookup + move + scroll) could stretch one gap past that.
     for (( i = 0; i < $3; i++ )); do
-        if [[ "$2" == up ]]; then scroll_up "$x" "$y"; else scroll_down "$x" "$y"; fi
+        if (( i == 0 )); then
+            if [[ "$2" == up ]]; then scroll_up "$x" "$y"; else scroll_down "$x" "$y"; fi
+        else
+            driver_input_scroll "$2" 1
+        fi
         sleep 0.12
     done
     [[ "${4:-}" == shift ]] && driver_input_key_hold up shift
