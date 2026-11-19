@@ -1,7 +1,13 @@
 #!/bin/bash
 # Helpers for the Swatches panel tests (GUI/SWATCHES.BM dump lines: SWAT,
 # SWATS, SWATG, SWATC, SWATM*). Source after dock-lib.sh.
-sw_read() { read -r _ SW_N SW_COLORS SW_COLS SW_CW SW_CH SW_GAP SW_ROWS SW_SCROLL SW_MAXS SW_FG SW_BG SW_MENU SW_MROWS SW_KEY <<< "$(grep '^SWAT ' "$DK_DUMP")"; }
+sw_read() {
+    read -r _ SW_N SW_COLORS SW_COLS SW_CW SW_CH SW_GAP SW_ROWS SW_SCROLL SW_MAXS SW_FG SW_BG SW_MENU SW_MROWS SW_KEY <<< "$(grep '^SWAT ' "$DK_DUMP")"
+    # [Windows] DRAW names the set by its native path (C:\...\DRAW\SWATCHES/x.gpl): the tests
+    # compare it with $SW_MINE and */SWATCHES/* patterns, so give it back in Git Bash form
+    [[ "$SW_KEY" == [A-Za-z]:* ]] && command -v cygpath >/dev/null && SW_KEY="$(cygpath -u "$SW_KEY")"
+    return 0
+}
 sw_geo()  { read -r _ G_X G_Y G_W G_H B_X B_Y B_W B_H E_X E_Y E_W E_H M_X M_Y M_W M_H <<< "$(grep '^SWATG ' "$DK_DUMP")"; }
 sw_cell() { C_X=; read -r _ _ C_X C_Y C_W C_H C_KIND C_HEX C_FLAGS <<< "$(grep "^SWATC $1 " "$DK_DUMP")"; }
 # the selection: SS_N, SS_ANCHOR, SS_LIST ("3 4 5")
