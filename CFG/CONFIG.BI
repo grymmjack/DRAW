@@ -316,6 +316,10 @@ TYPE DRAW_CONFIG
     LAYERS_PANEL_DOCK_EDGE          AS STRING         ' "LEFT" or "RIGHT" (default : "LEFT")
     TOOLBOX_DOCK_EDGE               AS STRING         ' "LEFT" or "RIGHT" (default : "RIGHT")
     TOOLBOX_COLUMNS                 AS INTEGER        ' Toolbox button columns (1-8, default 4; more are added when the buttons don't fit the height)
+    BUTTONS_UNIVERSAL               AS INTEGER        ' the toolbox / edit bar / advanced bar show the lists below in every workspace (View > Same Buttons in Every Workspace)
+    TOOLBOX_BUTTONS                 AS STRING         ' ... the toolbox's buttons ([TOOLBOX] BUTTONS= names; "" = the stock ones)
+    EDIT_BAR_ORDER                  AS STRING         ' ... the edit bar's ([EDIT_BAR] ORDER= names)
+    ADV_BAR_ORDER                   AS STRING         ' ... the advanced bar's ([ADVANCED_BAR] ORDER= names)
     ' Grid settings
     GRID_COLOR_FG                   AS _UNSIGNED LONG ' Grid foreground color (hex RGB, 0 = use theme)
     GRID_OPACITY                    AS INTEGER        ' Grid line opacity 0-255 (0 = use theme)

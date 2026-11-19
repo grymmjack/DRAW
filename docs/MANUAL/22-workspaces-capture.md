@@ -375,6 +375,19 @@ Close the window and the buttons work normally again.
 
 Switching back to Default puts the stock toolbox and bars back.
 
+**The same buttons in every workspace.** View → **Same Buttons in Every
+Workspace** (also in the command palette) takes the toolbox, edit bar and
+advanced bar buttons on screen now and shows them in every workspace and in
+Default. Only which buttons there are and their order are shared. Each
+workspace keeps its own columns, scale, size and docking. While it is on,
+Customize Toolbars shows **SAVES TO: EVERY WORKSPACE**. Your button changes
+are saved into `DRAW.cfg` (`TOOLBOX_BUTTONS`, `EDIT_BAR_ORDER`,
+`ADV_BAR_ORDER`) for all workspaces, and a column change still goes into the
+workspace. Turn it off and each workspace shows its own buttons again. The
+shared lists stay in `DRAW.cfg` for next time, but turning it back on takes
+the buttons on screen at that moment. A workspace built around special buttons
+(Annotate's markup tools) shows the shared ones too while this is on.
+
 ### Workspace files
 
 Workspaces are plain `.workspace` text files, INI style:
