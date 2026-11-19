@@ -31,6 +31,16 @@ CONST INSTANCE_STALE_SECS = 60    ' a registry file whose heartbeat is older tha
 '                                    collision, dropped Send-Layer, double music. 60s covers typical
 '                                    modal dwell. (Full fix would pump the heartbeat inside modal loops.)
 CONST INSTANCE_HEARTBEAT_SECS = 3 ' rewrite our own registry file this often (updates heartbeat)
+CONST INSTANCE_PID_STALE_SECS = 600 ' a slot whose owner's pid still exists stays live this long without a
+'                                    heartbeat (a long modal dialog freezes it - BUG-34); a pid that is
+'                                    gone frees the slot at once (Rick 2026-11-18: "it is still showing
+'                                    the [2]" / "can we clean these up somehow")
+
+' The owner's pid in each registry file (native/proc_alive.h)
+DECLARE LIBRARY "../native/proc_alive"
+    FUNCTION gj_getpid& ()
+    FUNCTION gj_pid_alive& (BYVAL pid AS LONG)
+END DECLARE
 CONST INSTANCE_MAILPOLL_SECS  = 1 ' poll our mailbox inbox this often (see LAYERXFER handoff)
 
 TYPE INSTANCE_OBJ

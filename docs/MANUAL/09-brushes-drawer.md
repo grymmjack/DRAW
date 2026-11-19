@@ -531,7 +531,7 @@ Every slider in DRAW takes the same mouse controls: **the wheel** moves it 1 (**
 | `MYPAINT_SETTINGS` | The MyPaint Brush Settings panel shows |
 | `MYPAINT_MOUSE_PRESSURE` | The mouse's pressure, % (default 50) |
 | `MYPAINT_TWIST` | The barrel rotation every stroke gets, degrees |
-| `MYPAINT_PANEL_SCALE` | The palette's own Scale (0 = the UI Scale) |
+| `MYPAINT_PANEL_SCALE` | The palette's own Scale (0 = the UI Scale; 1 to 8 in half steps, e.g. `1.5`) |
 
 ---
 

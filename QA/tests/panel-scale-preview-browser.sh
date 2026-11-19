@@ -9,6 +9,7 @@
 # browserAuto, their ratio of the UI Scale), 1-8 fixed. For each window:
 #   - right-click its title: Scale rows, Auto checked
 #   - a fixed scale k: the window is k/auto of its Auto size, the setting saved
+#   - 1.5x (a half step, row 31): 1.5 times the 1x size, 1.5 saved
 #   - Auto: back to the Auto size, 0 saved
 #
 # Dump: WIN <name> x y w h slot, P <name> (... handle hx hy hw hh),
@@ -38,7 +39,7 @@ ps_pick() {
     fi
     read -r ry rh rc <<< "$(ps_row "$3")"
     if [[ -z "$ry" ]]; then fail "the $1 title bar's menu has no Scale row $3"; key Escape; return 1; fi
-    PS_CHECKED_BEFORE=$(awk '$1=="DMENUR" && $3>=20 && $3<=28 && $6==-1 {print $3}' "$PS_DUMP" | head -1)
+    PS_CHECKED_BEFORE=$(awk '$1=="DMENUR" && $3>=20 && $3<=37 && $6==-1 {print $3}' "$PS_DUMP" | head -1)
     click $(( M_X + 12 )) $(( ry + rh / 2 )); wait_for 0.8 "Scale row $3"
     ps_read "$1"
 }
@@ -66,6 +67,12 @@ ps_panel() { # NAME PANEL_ID KEY
         near "$W_W" $(( w1 * 3 )) 3 && pass "$nm: 3x = three times 1x ($w1 -> $W_W)" || fail "$nm: 3x is $W_W wide, 1x was $w1"
         grep -q "^$key=3\b" "$PS_CFG" && pass "$nm: $key=3 saved" || fail "$nm: saved '$(grep "^$key" "$PS_CFG")'"
         screenshot "panel-scale-$nm-3x"
+    fi
+    # 1.5x (half steps, Rick 2026-11-18: "preview window has no .5 sizes" / "neither does browser")
+    if ps_pick "$nm" "$id" 31; then
+        near "$W_W" $(( w1 * 3 / 2 )) 3 && pass "$nm: 1.5x = 1.5 times 1x ($w1 -> $W_W)" || fail "$nm: 1.5x is $W_W wide, 1x was $w1 (want about $(( w1 * 3 / 2 )))"
+        grep -q "^$key=1.5[[:space:]]*\$" "$PS_CFG" && pass "$nm: $key=1.5 saved" || fail "$nm: saved '$(grep "^$key" "$PS_CFG")'"
+        screenshot "panel-scale-$nm-1.5x"
     fi
     if ps_pick "$nm" "$id" 20; then
         near "$W_W" "$w0" 1 && near "$W_H" "$h0" 1 && pass "$nm: Auto again - ${W_W}x$W_H" || fail "$nm: Auto gives ${W_W}x$W_H, was ${w0}x$h0"

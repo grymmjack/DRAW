@@ -33,9 +33,19 @@ TYPE PSURF_OBJ
     vh    AS INTEGER
     uw    AS INTEGER ' the rect in panel units
     uh    AS INTEGER
-    k     AS INTEGER ' screen px a unit, as last drawn
+    k     AS SINGLE  ' screen px a unit, as last drawn (1.5, 2.5 ..: a half-step Scale)
     ready AS INTEGER ' drawn since its rect was set
+    sdirty AS INTEGER ' drawn again since its half-step picture (HSC_IMG) was made
 END TYPE
 
 CONST PSURF_N = 13 ' the dock panels: DP_TOOLBOX .. DP_BRUSHES
 DIM SHARED PSURF(1 TO PSURF_N) AS PSURF_OBJ
+
+' Half-step copies onto the window (HSC_put): a panel or native window at 1.5x, 2.5x ..
+' resampled (CFG.PANEL_HALF_FILTER) into HSC_IMG(slot), and the source as last
+' resampled in HSC_COPY(slot) (skip when nothing changed). Slots: the DP_* ids, then
+' the extra pictures some windows put up (HSC_ADVCP_MENU).
+CONST HSC_N = 24
+CONST HSC_ADVCP_MENU = 22 ' the Advanced Color Picker's context menu
+CONST HSC_SWATCH_MENU = 23 ' the Swatches set list / gear menu
+DIM SHARED HSC_IMG(1 TO HSC_N) AS LONG, HSC_COPY(1 TO HSC_N) AS LONG

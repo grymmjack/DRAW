@@ -157,6 +157,7 @@ CONST DOCK_ACT_BAND_BOTTOM = 8
 CONST DOCK_ACT_CUSTOMIZE = 9   ' toolbox / bars: open Customize Toolbars on that panel
 CONST DOCK_ACT_CLOSE = 10      ' every panel but the text bar: hide it (its View toggle; DOCK_panel_close)
 CONST DOCK_ACT_SCALE = 20      ' floating-panel family: 20 = follow the UI Scale, 21-28 = 1x-8x (FPANEL_set_scale)
+CONST DOCK_ACT_SCALE_HALF = 30 ' 31-37 = 1.5x-7.5x (the panels FPANEL_half_ok% lets: half steps)
 
 TYPE DOCK_UI_OBJ
     hoverSlot AS INTEGER ' slot whose handle the pointer is over (0 = none)

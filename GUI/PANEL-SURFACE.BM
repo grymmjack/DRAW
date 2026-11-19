@@ -8,10 +8,10 @@ $INCLUDEONCE
 ''
 ' Does dock panel id draw into its own surface (a Scale that is not its Auto)?
 FUNCTION PSURF_on% (id AS INTEGER)
-    DIM s AS INTEGER
+    DIM s AS SINGLE
     IF id < 1 _ORELSE id > PSURF_N THEN EXIT FUNCTION
     IF FPANEL_has_scale%(id) = 0 THEN EXIT FUNCTION
-    s = FPANEL_scale_setting%(id)
+    s = FPANEL_scale_set!(id)
     IF s = 0 THEN EXIT FUNCTION
     PSURF_on% = (s <> FPANEL_auto_scale%(id))
 END FUNCTION
@@ -28,10 +28,16 @@ END FUNCTION
 ' Screen px a panel unit of panel id (its Scale over its unit: a unit is one
 ' viewport px of the panel drawn at Auto, which is PSURF_unit_k% screen px).
 FUNCTION PSURF_k% (id AS INTEGER)
-    DIM k AS INTEGER
-    k = FPANEL_scale%(id)
+    PSURF_k% = INT(PSURF_kf!(id))
+END FUNCTION
+
+' ... with a half step (1.5, 2.5 ..: FPANEL_half_ok%) - all the unit math
+' goes through this one
+FUNCTION PSURF_kf! (id AS INTEGER)
+    DIM k AS SINGLE
+    k = FPANEL_scale_f!(id)
     IF k < 1 THEN k = 1
-    PSURF_k% = k
+    PSURF_kf! = k
 END FUNCTION
 
 
@@ -39,7 +45,7 @@ END FUNCTION
 ' Panel units -> viewport px (rounded up: the footprint holds every unit)
 FUNCTION PSURF_v% (id AS INTEGER, u AS INTEGER)
     IF PSURF_on%(id) = 0 THEN PSURF_v% = u: EXIT FUNCTION
-    PSURF_v% = -INT(-(CLNG(u) * PSURF_k%(id)) / PSURF_ds%)
+    PSURF_v% = -INT(-(CLNG(u) * PSURF_kf!(id)) / PSURF_ds%)
 END FUNCTION
 
 
@@ -79,7 +85,7 @@ END FUNCTION
 ' Viewport px -> panel units (rounded down: never past the footprint)
 FUNCTION PSURF_u% (id AS INTEGER, v AS INTEGER)
     IF PSURF_on%(id) = 0 THEN PSURF_u% = v: EXIT FUNCTION
-    PSURF_u% = INT(CLNG(v) * PSURF_ds% / PSURF_k%(id))
+    PSURF_u% = INT(CLNG(v) * PSURF_ds% / PSURF_kf!(id))
 END FUNCTION
 
 
@@ -108,12 +114,12 @@ END FUNCTION
 ' into the viewport).
 FUNCTION PSURF_mx% (id AS INTEGER, rawX AS INTEGER)
     IF PSURF_on%(id) = 0 THEN PSURF_mx% = rawX: EXIT FUNCTION
-    PSURF_mx% = PSURF(id).vx + INT((PSURF_win%(rawX, MOUSE.RAW_X%, MOUSE.WIN_X%) - CLNG(PSURF(id).vx) * PSURF_ds%) / PSURF_k%(id))
+    PSURF_mx% = PSURF(id).vx + INT((PSURF_win%(rawX, MOUSE.RAW_X%, MOUSE.WIN_X%) - CLNG(PSURF(id).vx) * PSURF_ds%) / PSURF_kf!(id))
 END FUNCTION
 
 FUNCTION PSURF_my% (id AS INTEGER, rawY AS INTEGER)
     IF PSURF_on%(id) = 0 THEN PSURF_my% = rawY: EXIT FUNCTION
-    PSURF_my% = PSURF(id).vy + INT((PSURF_win%(rawY, MOUSE.RAW_Y%, MOUSE.WIN_Y%) - CLNG(PSURF(id).vy) * PSURF_ds%) / PSURF_k%(id))
+    PSURF_my% = PSURF(id).vy + INT((PSURF_win%(rawY, MOUSE.RAW_Y%, MOUSE.WIN_Y%) - CLNG(PSURF(id).vy) * PSURF_ds%) / PSURF_kf!(id))
 END FUNCTION
 
 
@@ -121,9 +127,9 @@ END FUNCTION
 ' A rect of panel id in units -> viewport px (tooltips, the toolbar editor's
 ' marks, QA dumps).
 SUB PSURF_rect_to_view (id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
-    DIM k AS INTEGER, ds AS INTEGER, x2 AS LONG, y2 AS LONG
+    DIM k AS SINGLE, ds AS INTEGER, x2 AS LONG, y2 AS LONG
     IF PSURF_on%(id) = 0 _ORELSE w <= 0 _ORELSE h <= 0 THEN EXIT SUB ' (not drawn: left as it is)
-    k = PSURF_k%(id): ds = PSURF_ds%
+    k = PSURF_kf!(id): ds = PSURF_ds%
     x2 = x + w: y2 = y + h
     x = PSURF(id).vx + INT(CLNG(x - PSURF(id).vx) * k / ds)
     y = PSURF(id).vy + INT(CLNG(y - PSURF(id).vy) * k / ds)
@@ -173,7 +179,10 @@ END FUNCTION
 SUB PSURF_render (id AS INTEGER)
     DIM oldDest AS LONG, oldFont AS LONG, needW AS INTEGER, needH AS INTEGER, rg AS INTEGER
     IF PSURF_on%(id) = 0 THEN
-        IF id >= 1 _ANDALSO id <= PSURF_N THEN PSURF(id).ready = FALSE
+        IF id >= 1 _ANDALSO id <= PSURF_N THEN
+            PSURF(id).ready = FALSE
+            HSC_free id
+        END IF
         DOCK_render_panel_content id
         EXIT SUB
     END IF
@@ -196,8 +205,9 @@ SUB PSURF_render (id AS INTEGER)
         REGION_BOUNDS_TABLE(rg).x = PSURF(id).vx: REGION_BOUNDS_TABLE(rg).y = PSURF(id).vy
         REGION_BOUNDS_TABLE(rg).w = PSURF(id).vw: REGION_BOUNDS_TABLE(rg).h = PSURF(id).vh
     END IF
-    PSURF(id).k = PSURF_k%(id)
+    PSURF(id).k = PSURF_kf!(id)
     PSURF(id).ready = TRUE
+    PSURF(id).sdirty = TRUE
 END SUB
 
 
@@ -205,7 +215,7 @@ END SUB
 ' Panel id's surface onto the window (screen 0), over its footprint.
 SUB PSURF_blit (id AS INTEGER)
     DIM sx AS SINGLE, sy AS SINGLE, x0 AS LONG, y0 AS LONG, fw AS LONG, fh AS LONG
-    DIM k AS INTEGER, uw AS INTEGER, uh AS INTEGER, oldDest AS LONG
+    DIM k AS SINGLE, uw AS INTEGER, uh AS INTEGER, oldDest AS LONG
     IF id < 1 _ORELSE id > PSURF_N THEN EXIT SUB
     IF PSURF(id).ready = 0 _ORELSE PSURF(id).img >= -1 THEN EXIT SUB
     IF PSURF_on%(id) = 0 _ORELSE DOCK_live%(id) = 0 THEN EXIT SUB
@@ -215,11 +225,89 @@ SUB PSURF_blit (id AS INTEGER)
     x0 = INT(PSURF(id).vx * sx): y0 = INT(PSURF(id).vy * sy)
     fw = INT((PSURF(id).vx + PSURF(id).vw) * sx) - x0
     fh = INT((PSURF(id).vy + PSURF(id).vh) * sy) - y0
-    uw = _MIN(PSURF(id).uw, fw \ k): uh = _MIN(PSURF(id).uh, fh \ k)
+    uw = _MIN(PSURF(id).uw, INT(fw / k)): uh = _MIN(PSURF(id).uh, INT(fh / k))
+    ' a half step: an even count of units, so they span whole screen px and the
+    ' stretch is exactly k (unit u = screen px INT(u * k) .., as PSURF_mx% reads)
+    IF uw * k <> INT(uw * k) THEN uw = uw - 1
+    IF uh * k <> INT(uh * k) THEN uh = uh - 1
     IF uw < 1 _ORELSE uh < 1 THEN EXIT SUB
     oldDest = _DEST
-    _PUTIMAGE (x0, y0)-(x0 + CLNG(uw) * k - 1, y0 + CLNG(uh) * k - 1), PSURF(id).img, 0, (PSURF(id).vx, PSURF(id).vy)-(PSURF(id).vx + uw - 1, PSURF(id).vy + uh - 1)
+    HSC_put id, PSURF(id).img, PSURF(id).vx, PSURF(id).vy, uw, uh, x0, y0, CLNG(uw * k), CLNG(uh * k), _IIF(PSURF(id).sdirty, 1, 2)
+    PSURF(id).sdirty = FALSE
     _DEST oldDest
+END SUB
+
+
+''
+' Copy the source rect (sx, sy, sw, sh) of src onto the window (screen 0) at (dx, dy),
+' dw x dh screen px - every panel and native window at its own Scale comes through
+' here. A whole step is a plain stretch (as before); a half step (1.5x, 2.5x ..: Rick
+' 2026-11-18, the Tiny5 text "crunchy looking" at nearest - "can we use bicubic scale
+' on .5 sizes?") is resampled by native/halfscale (CFG.PANEL_HALF_FILTER: 1 BICUBIC,
+' 2 SHARP = nearest to the next whole scale, then bicubic down; 0 NEAREST = the plain
+' stretch). The result is kept in HSC_IMG(slot) and redone only when the source
+' changed: mode 0 = compare it with HSC_COPY(slot), 1 = it did change, 2 = it did not
+' (the dock panels know: PSURF(id).sdirty). Slot 0 = no cache (small pieces).
+SUB HSC_put (slot AS INTEGER, src AS LONG, sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG, dx AS LONG, dy AS LONG, dw AS LONG, dh AS LONG, mode AS INTEGER)
+    DIM changed AS INTEGER, pre AS LONG, k AS SINGLE, ms AS _MEM, md AS _MEM
+    DECLARE LIBRARY "../native/halfscale"
+        SUB gj_halfscale (BYVAL dst AS _OFFSET, BYVAL dw AS LONG, BYVAL dh AS LONG, BYVAL src AS _OFFSET, BYVAL sstride AS LONG, BYVAL sx AS LONG, BYVAL sy AS LONG, BYVAL sw AS LONG, BYVAL sh AS LONG, BYVAL pre AS LONG)
+        FUNCTION gj_region_changed& (BYVAL src AS _OFFSET, BYVAL sstride AS LONG, BYVAL sx AS LONG, BYVAL sy AS LONG, BYVAL sw AS LONG, BYVAL sh AS LONG, BYVAL copy AS _OFFSET)
+    END DECLARE
+    IF src >= -1 _ORELSE sw < 1 _ORELSE sh < 1 _ORELSE dw < 1 _ORELSE dh < 1 THEN EXIT SUB
+    IF CFG.PANEL_HALF_FILTER% = 0 _ORELSE slot < 0 _ORELSE slot > HSC_N _ORELSE ((dw MOD sw) = 0 _ANDALSO (dh MOD sh) = 0) THEN
+        _PUTIMAGE (dx, dy)-(dx + dw - 1, dy + dh - 1), src, 0, (sx, sy)-(sx + sw - 1, sy + sh - 1)
+        EXIT SUB
+    END IF
+    pre = 1
+    IF CFG.PANEL_HALF_FILTER% = 2 THEN k = dw / sw: pre = -INT(-k)
+    IF slot = 0 THEN ' small pieces drawn several a frame (flyout icons, dropdown boxes): no cache
+        DIM tmp AS LONG
+        tmp = _NEWIMAGE(dw, dh, 32)
+        IF tmp >= -1 THEN EXIT SUB
+        ms = _MEMIMAGE(src): md = _MEMIMAGE(tmp)
+        gj_halfscale md.OFFSET, dw, dh, ms.OFFSET, _WIDTH(src), sx, sy, sw, sh, pre
+        _MEMFREE ms: _MEMFREE md
+        _PUTIMAGE (dx, dy), tmp, 0
+        _FREEIMAGE tmp
+        EXIT SUB
+    END IF
+    changed = (mode = 1)
+    IF HSC_IMG(slot) < -1 THEN
+        IF _WIDTH(HSC_IMG(slot)) <> dw _ORELSE _HEIGHT(HSC_IMG(slot)) <> dh THEN _FREEIMAGE HSC_IMG(slot): HSC_IMG(slot) = 0
+    END IF
+    IF HSC_IMG(slot) >= -1 THEN
+        HSC_IMG(slot) = _NEWIMAGE(dw, dh, 32)
+        IF HSC_IMG(slot) >= -1 THEN HSC_IMG(slot) = 0: EXIT SUB
+        changed = TRUE
+    END IF
+    IF mode = 0 THEN
+        IF HSC_COPY(slot) < -1 THEN
+            IF _WIDTH(HSC_COPY(slot)) <> sw _ORELSE _HEIGHT(HSC_COPY(slot)) <> sh THEN _FREEIMAGE HSC_COPY(slot): HSC_COPY(slot) = 0
+        END IF
+        IF HSC_COPY(slot) >= -1 THEN
+            HSC_COPY(slot) = _NEWIMAGE(sw, sh, 32)
+            IF HSC_COPY(slot) >= -1 THEN HSC_COPY(slot) = 0: EXIT SUB
+            changed = TRUE
+        END IF
+        ms = _MEMIMAGE(src): md = _MEMIMAGE(HSC_COPY(slot))
+        IF gj_region_changed&(ms.OFFSET, _WIDTH(src), sx, sy, sw, sh, md.OFFSET) THEN changed = TRUE
+        _MEMFREE ms: _MEMFREE md
+    END IF
+    IF changed THEN
+        ms = _MEMIMAGE(src): md = _MEMIMAGE(HSC_IMG(slot))
+        gj_halfscale md.OFFSET, dw, dh, ms.OFFSET, _WIDTH(src), sx, sy, sw, sh, pre
+        _MEMFREE ms: _MEMFREE md
+    END IF
+    _PUTIMAGE (dx, dy), HSC_IMG(slot), 0
+END SUB
+
+' A slot's pictures, freed (its panel back at a whole step / hidden)
+SUB HSC_free (slot AS INTEGER)
+    IF slot < 1 _ORELSE slot > HSC_N THEN EXIT SUB
+    IF HSC_IMG(slot) < -1 THEN _FREEIMAGE HSC_IMG(slot)
+    IF HSC_COPY(slot) < -1 THEN _FREEIMAGE HSC_COPY(slot)
+    HSC_IMG(slot) = 0: HSC_COPY(slot) = 0
 END SUB
 
 

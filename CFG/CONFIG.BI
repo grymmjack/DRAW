@@ -458,11 +458,11 @@ TYPE DRAW_CONFIG
     PREVIEW_FLOAT_LAST_DIR          AS STRING         ' Last directory used for Load Image dialog
     ' Color Mixer settings
     COLOR_MIXER_VISIBLE             AS INTEGER        ' TRUE = color mixer panel open at startup
-    COLOR_MIXER_SCALE               AS INTEGER        ' Color Mixer scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
+    COLOR_MIXER_SCALE               AS SINGLE         ' Color Mixer scale: 0 = the UI Scale, 1-8 in half steps (1.5 ..) = that many screen px a panel px
     COLOR_MIXER_X                   AS INTEGER        ' Last panel X (-1 = auto-position)
     COLOR_MIXER_Y                   AS INTEGER        ' Last panel Y (-1 = auto-position)
     ADV_COLOR_PICKER_VISIBLE        AS INTEGER        ' TRUE = advanced color picker panel open at startup
-    ADV_COLOR_PICKER_SCALE          AS INTEGER        ' Advanced Color Picker scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
+    ADV_COLOR_PICKER_SCALE          AS SINGLE         ' Advanced Color Picker scale: 0 = the UI Scale, 1-8 in half steps (1.5 ..) = that many screen px a panel px
     ADV_COLOR_PICKER_X              AS INTEGER        ' Last panel X (-1 = auto-position)
     ADV_COLOR_PICKER_Y              AS INTEGER        ' Last panel Y (-1 = auto-position)
     ADV_COLOR_PICKER_SHADE_PATCHES  AS INTEGER        ' Shade selector: patches per row (3-15)
@@ -484,7 +484,7 @@ TYPE DRAW_CONFIG
     ADV_COLOR_PICKER_HUE_NEIGHBORS  AS INTEGER        ' Hue-neighbors ± range (deg); draggable on the ring
     ' 3D Color Space picker (GUI/COLOR-SPACE-3D, QB64_GJ_LIB COLOR-3D widget)
     COLOR_SPACE_3D_VISIBLE          AS INTEGER        ' TRUE = 3D color space panel open at startup
-    COLOR_SPACE_3D_SCALE            AS INTEGER        ' 3D Color Space panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
+    COLOR_SPACE_3D_SCALE            AS SINGLE         ' 3D Color Space panel scale: 0 = the UI Scale, 1-8 in half steps (1.5 ..) = that many screen px a panel px
     COLOR_SPACE_3D_X                AS INTEGER        ' Last panel X (-1 = auto-position)
     COLOR_SPACE_3D_Y                AS INTEGER        ' Last panel Y (-1 = auto-position)
     COLOR_SPACE_3D_SPACE            AS INTEGER        ' 0=OKLab, 1=CIELAB, 2=XYZ, 3=RGB
@@ -540,27 +540,27 @@ TYPE DRAW_CONFIG
     PEN_MOUSE_TAPER_OUT             AS INTEGER        ' Mouse expression: canvas px a stroke takes to shrink to a point (0 = none, up to 1000)
     PEN_PANEL_TAB                   AS INTEGER        ' Pen Control panel tab: 0 Pressure, 1 Smoothing, 2 Speed, 3 Mouse
     PEN_PANEL_VISIBLE               AS INTEGER        ' TRUE = Pen Control panel open at startup
-    PEN_PANEL_SCALE                 AS INTEGER        ' Pen Control panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
+    PEN_PANEL_SCALE                 AS SINGLE         ' Pen Control panel scale: 0 = the UI Scale, 1-8 in half steps (1.5 ..) = that many screen px a panel px
     PEN_PANEL_X                     AS INTEGER        ' Last panel X (-1 = auto-position)
     PEN_PANEL_Y                     AS INTEGER        ' Last panel Y (-1 = auto-position)
     ANIM_PANEL_VISIBLE              AS INTEGER        ' TRUE = Animation panel open at startup
-    ANIM_PANEL_SCALE                AS INTEGER        ' Animation panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
+    ANIM_PANEL_SCALE                AS SINGLE         ' Animation panel scale: 0 = the UI Scale, 1-8 in half steps (1.5 ..) = that many screen px a panel px
     ANIM_PANEL_X                    AS INTEGER        ' Last Animation panel X (-1 = auto-position)
     ANIM_PANEL_Y                    AS INTEGER        ' Last Animation panel Y (-1 = auto-position)
     SWATCHES_VISIBLE                AS INTEGER        ' TRUE = Swatches panel open at startup
-    SWATCHES_SCALE                  AS INTEGER        ' Swatches panel scale: 0 = the UI Scale, 1-8 = that many screen px a panel px
-    PREVIEW_SCALE                   AS INTEGER        ' Preview window scale: 0 = auto (the UI Scale ratio), 1-8 = fixed
-    BROWSER_SCALE                   AS INTEGER        ' Browser scale: 0 = auto (the UI Scale ratio), 1-8 = fixed
-    TOOLBOX_PANEL_SCALE             AS INTEGER        ' Toolbox scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
-    ORGANIZER_PANEL_SCALE           AS INTEGER        ' Organizer scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
-    DRAWER_PANEL_SCALE              AS INTEGER        ' Drawer scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
-    LAYER_PANEL_SCALE               AS INTEGER        ' Layers panel scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
-    EDIT_BAR_SCALE                  AS INTEGER        ' Edit bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
-    ADV_BAR_SCALE                   AS INTEGER        ' Advanced bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
-    CHARMAP_PANEL_SCALE             AS INTEGER        ' Character map scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
-    SELECTION_BAR_SCALE             AS INTEGER        ' Selection Bar scale: 0 = Auto, 1-8 (GUI/PANEL-SURFACE)
-    TEXT_BAR_SCALE                  AS INTEGER        ' Text bar scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
-    WORKFLOW_PANEL_SCALE            AS INTEGER        ' Workflow buttons scale: 0 = Auto (drawn in the viewport), 1-8 = that many screen px a panel px (GUI/PANEL-SURFACE)
+    SWATCHES_SCALE                  AS SINGLE         ' Swatches panel scale: 0 = the UI Scale, 1-8 in half steps (1.5 ..) = that many screen px a panel px
+    PREVIEW_SCALE                   AS SINGLE         ' Preview window scale: 0 = auto (the UI Scale ratio), 1-8 in half steps = fixed
+    BROWSER_SCALE                   AS SINGLE         ' Browser scale: 0 = auto (the UI Scale ratio), 1-8 in half steps = fixed
+    TOOLBOX_PANEL_SCALE             AS SINGLE         ' Toolbox scale: 0 = Auto (drawn in the viewport), 1-8 in half steps (1.5 ..) = that many screen px a panel px (GUI/PANEL-SURFACE)
+    ORGANIZER_PANEL_SCALE           AS SINGLE         ' Organizer scale: 0 = Auto (drawn in the viewport), 1-8 in half steps (1.5 ..) = that many screen px a panel px (GUI/PANEL-SURFACE)
+    DRAWER_PANEL_SCALE              AS SINGLE         ' Drawer scale: 0 = Auto (drawn in the viewport), 1-8 in half steps (1.5 ..) = that many screen px a panel px (GUI/PANEL-SURFACE)
+    LAYER_PANEL_SCALE               AS SINGLE         ' Layers panel scale: 0 = Auto (drawn in the viewport), 1-8 in half steps (1.5 ..) = that many screen px a panel px (GUI/PANEL-SURFACE)
+    EDIT_BAR_SCALE                  AS SINGLE         ' Edit bar scale: 0 = Auto (drawn in the viewport), 1-8 in half steps (1.5 ..) = that many screen px a panel px (GUI/PANEL-SURFACE)
+    ADV_BAR_SCALE                   AS SINGLE         ' Advanced bar scale: 0 = Auto (drawn in the viewport), 1-8 in half steps (1.5 ..) = that many screen px a panel px (GUI/PANEL-SURFACE)
+    CHARMAP_PANEL_SCALE             AS SINGLE         ' Character map scale: 0 = Auto (drawn in the viewport), 1-8 in half steps (1.5 ..) = that many screen px a panel px (GUI/PANEL-SURFACE)
+    SELECTION_BAR_SCALE             AS SINGLE         ' Selection Bar scale: 0 = Auto, 1-8 in half steps (GUI/PANEL-SURFACE)
+    TEXT_BAR_SCALE                  AS SINGLE         ' Text bar scale: 0 = Auto (drawn in the viewport), 1-8 in half steps (1.5 ..) = that many screen px a panel px (GUI/PANEL-SURFACE)
+    WORKFLOW_PANEL_SCALE            AS SINGLE         ' Workflow buttons scale: 0 = Auto (drawn in the viewport), 1-8 in half steps (1.5 ..) = that many screen px a panel px (GUI/PANEL-SURFACE)
     SWATCHES_X                      AS INTEGER        ' Last Swatches panel X (-1 = auto-position)
     SWATCHES_Y                      AS INTEGER        ' Last Swatches panel Y (-1 = auto-position)
     SWATCHES_W                      AS INTEGER        ' Floating size, native px (0 = default)
@@ -705,14 +705,15 @@ TYPE DRAW_CONFIG
     MYPAINT_PANEL                   AS INTEGER        ' TRUE = the MyPaint Brushes palette shows
     MYPAINT_SET                     AS STRING         ' the set the palette shows (folder name, "" = all)
     MYPAINT_CELL                    AS INTEGER        ' palette thumbnail size, px (24..128)
-    MYPAINT_PANEL_SCALE             AS INTEGER        ' the palette's own Scale (0 = the UI Scale)
+    PANEL_HALF_FILTER               AS INTEGER        ' a panel at a half-step Scale (1.5x ..): 0 = NEAREST (sharp, uneven pixels), 1 = BICUBIC (smooth), 2 = SHARP (nearest to the next whole scale, then bicubic down)
+    MYPAINT_PANEL_SCALE             AS SINGLE         ' the palette's own Scale (0 = the UI Scale; 1 .. 8 in half steps: 1.5, 2.5 ..)
     MYPAINT_SETTINGS                AS INTEGER        ' TRUE = the MyPaint Brush Settings panel shows (GUI/MYPAINT-SET)
-    MYPAINT_SETTINGS_SCALE          AS INTEGER        ' its own Scale (0 = the UI Scale)
+    MYPAINT_SETTINGS_SCALE          AS SINGLE         ' its own Scale (0 = the UI Scale)
     MYPAINT_MOUSE_PRESSURE          AS INTEGER        ' the pressure a mouse paints with, % (0..100; MyPaint's own is 50)
     MYPAINT_TWIST                   AS INTEGER        ' the pen barrel rotation every stroke gets, degrees (0..359)
     ' The brush palette (GUI/BRUSH-PANEL): shapes x sizes for the brush / eraser / shapes
     BRUSH_PANEL                     AS INTEGER        ' TRUE = View > Brush Palette shows
-    BRUSH_PANEL_SCALE               AS INTEGER        ' its own Scale (0 = the UI Scale)
+    BRUSH_PANEL_SCALE               AS SINGLE         ' its own Scale (0 = the UI Scale)
     BRUSH_PANEL_CELL                AS INTEGER        ' its thumbnail cells, px (16..64)
     BRUSH_SOFT                      AS INTEGER        ' the brush's edge softness, % (0 = hard .. 100; round and slant brushes)
     ' CRT overlay effect settings (presentation-only, never written to canvas)

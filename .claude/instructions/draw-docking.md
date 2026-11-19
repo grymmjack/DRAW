@@ -438,5 +438,39 @@ family (`FPANEL_has_scale%` / `_scale_setting%` / `_auto_scale%` /
   goes through `LAYER_PANEL_view_x2%` / `LAYER_PANEL_view_bot%`. The tooltip's
   layer rows map with `PSURF_my%`. Dumps `LPHIT slot` (row under the pointer),
   `LPGEO header row btnbar` (viewport px). Test: `panel-scale-layers.sh`.
+- **Half steps (2026-11-18; MyPaint Brushes first, then every panel).** Rick: "scale in .5
+  amounts? 1.5x 2.5x 3.5x ..." -> "let's do this for all of the panels" -> "preview window has no
+  .5 sizes" / "neither does browser". `FPANEL_half_ok%(dp)` = every `FPANEL_has_scale%` panel.
+  The cfg keys are SINGLE (`CFG.MYPAINT_PANEL_SCALE!`, `CFG.LAYER_PANEL_SCALE!` ..; written `1.5`
+  / `2` by `CONFIG_half_txt$`, parsed to the nearest half by `CONFIG_half!`, 0 < v < 1 -> 1).
+  **`FPANEL_scale_set!` is the one place each panel's setting is read** (`INT` for a panel not
+  half_ok); `FPANEL_scale_f!` = set or auto; `FPANEL_scale_setting%` / `FPANEL_scale%` round down
+  for integer callers. **All PSURF unit math goes through `PSURF_kf!`** (`PSURF_v/u/mx/my`,
+  `rect_to_view`, `PSURF(id).k` SINGLE; `PSURF_k%` is gone from callers - the toolbox flyout and
+  the drawer use kf too). `PSURF_blit` trims `uw` / `uh` until `uw * k` is whole.
+  - **Smoothing: every copy of a panel picture onto screen 0 goes through `HSC_put slot, src,
+    sx, sy, sw, sh, dx, dy, dw, dh, mode`** (PANEL-SURFACE.BM). A plain `_PUTIMAGE` stretch when
+    `CFG.PANEL_HALF_FILTER` = 0 (NEAREST) or the ratio is whole; else `native/halfscale.h`
+    `gj_halfscale` (Catmull-Rom, separable, premultiplied alpha so icon edges don't darken; 1 =
+    BICUBIC default, 2 = SHARP = nearest up to the next whole scale, then bicubic down) into
+    `HSC_IMG(slot)`. Nearest made Tiny5 "crunchy looking" (Rick); bicubic: "1.5x LOOKS STUNNING".
+    Slots: a dock panel's id (PSURF), `HSC_ADVCP_MENU` / `HSC_SWATCH_MENU` for those windows'
+    menus, 0 = no cache (small pieces: flyout icons, text-bar dropdowns). Mode 1 = resample (the
+    PSURF just rendered, `sdirty`), 2 = reuse the cache, 0 = `gj_region_changed` memcmps against
+    `HSC_COPY(slot)` and resamples only on a change (native windows, which redraw their own
+    image every frame). `HSC_free slot` when a surface turns off. (`_PUTIMAGE , _SMOOTH` is
+    bilinear and only for hardware images.) The hit test is unchanged: same geometry, softer.
+  - **Native windows** (Mixer, Adv Picker, 3D Color Space, Pen, Swatches, Animation) map the
+    pointer with `renderScale` = ts / ds, already floating point: `ts` is SINGLE from
+    `FPANEL_scale_f!`, sizes are `CLNG(x * ts)`, the blit is `HSC_put`. **Preview** (`PREVIEW_ts!`)
+    and **Browser** (`BROWSER_ts!`) read `FPANEL_scale_f!` too - `USCALE.preview%` / `.browser%`
+    are only the whole part now. The Preview's canvas area is re-put with a plain `_PUTIMAGE`
+    over the smoothed window at a half step (bicubic would blur the pixel art it shows), and its
+    loupe stays nearest; the Browser is smoothed whole (thumbnails included). The file dialog's
+    own integer scales (`FD_STATE.scale`, the modal dialogs' `bScale`) take the nearest whole.
+  - Menu: `DOCK_ACT_SCALE_HALF` 30 + k = k.5x, after each whole row. Settings -> Panels -> Panel
+    Scale: `SETTINGS_panel_scale_row_half` (SINGLE spinner, step .5, Auto <-> 1). Dump `PSURF`
+    prints k as `1.5`. Tests: `panel-scale-half.sh`, `panel-scale-half-filters.sh` (one launch
+    per filter, header crops).
 - **Grep a panel's render path for `SCRN.GUI&` by name** before putting it on
   a surface: `_DEST SCRN.GUI&`, `_PUTIMAGE ..., SCRN.GUI&`, `_FONT f, SCRN.GUI&`.
