@@ -385,8 +385,14 @@ are saved into `DRAW.cfg` (`TOOLBOX_BUTTONS`, `EDIT_BAR_ORDER`,
 `ADV_BAR_ORDER`) for all workspaces, and a column change still goes into the
 workspace. Turn it off and each workspace shows its own buttons again. The
 shared lists stay in `DRAW.cfg` for next time, but turning it back on takes
-the buttons on screen at that moment. A workspace built around special buttons
-(Annotate's markup tools) shows the shared ones too while this is on.
+the buttons on screen at that moment.
+
+A workspace built around special buttons can opt out: View → **Keep This
+Workspace's Own Buttons** (a checkmark; it saves `OWN_BUTTONS=TRUE` into the
+workspace's `[TOOLBOX]`). It then shows its own buttons (or the stock ones if
+it names none) while every other workspace shows the shared set, and
+Customize Toolbars saves into it as usual. Annotate comes opted out, so its
+markup tools stay.
 
 ### Workspace files
 
@@ -415,6 +421,8 @@ COLUMNS=2                 ; 1-8; more are added when the buttons don't fit the h
 BUTTONS=move,marquee,rect,|,ellipse,line,text,picker,crop,undo,cmd:701   ; - = empty cell, | = new row,
                           ; bar names and cmd:<action id> put commands in the toolbox
 ICON.crop=my-crop.png     ; theme TOOLBOX folder, a path, or your workspaces folder
+OWN_BUTTONS=TRUE          ; keep this workspace's own toolbox / edit bar / advanced bar buttons
+                          ; even with View > Same Buttons in Every Workspace on
 
 [MENUS]
 ROOTS=FILE,EDIT,VIEW,IMAGE,HELP

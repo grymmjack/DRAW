@@ -27,6 +27,7 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
 CONST TBED_ACTION = 2460 ' View > Customize Toolbars
+CONST TBED_ACT_OWN = 2462 ' View > Keep This Workspace's Own Buttons (on / off; [TOOLBOX] OWN_BUTTONS=TRUE)
 CONST TBED_ACT_UNIVERSAL = 2461 ' View > Same Buttons in Every Workspace (on / off; GUI/WORKSPACE-APPLY WS_buttons_universal_toggle)
 
 ' Controls (TBED_hit% ids)

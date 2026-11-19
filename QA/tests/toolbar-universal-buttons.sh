@@ -11,7 +11,12 @@
 #      A's lists saved into DRAW.cfg (TOOLBOX_BUTTONS / EDIT_BAR_ORDER)
 #   3. switch to UNIV B (its own lists: move marquee picker text / cut clear, 1
 #      column): A's buttons show, in B's single column
-#   4. the setting off again: B's own buttons are back
+#   4. per-workspace opt-out (Rick: "yes add a per workspace opt-out"): View > Keep This
+#      Workspace's Own Buttons in B -> B's own lists, OWN_BUTTONS=TRUE saved into it; A
+#      still shows the shared ones; back in B, its own again; opt-out off -> shared
+#   5. UNIV C (OWN_BUTTONS=TRUE, names no buttons): the stock toolbox / edit bar, not
+#      the shared ones
+#   6. the setting off again: B's own buttons are back
 # Dump: BTN panel idx kind id name x y w h; TBED ... workspace.
 # QA-OPTIONS: WORKSPACE=univa DOCK_DUMP=QA/.dock-dump.txt WORKSPACES_DIR=/tmp/draw-qa-ws-univ TOOLTIPS_DISABLED=TRUE HELP_CARD_ENABLED=FALSE
 # =============================================================================
@@ -44,6 +49,8 @@ A_TB="brush,line,rect,fill,cmd:2680,cmd:958"; A_EB="undo,redo,|,copy,paste"
 B_TB="move,marquee,picker,text";            B_EB="cut,clear"
 mkws univa "UNIV A" 2 "$A_TB" "$A_EB"
 mkws univb "UNIV B" 1 "$B_TB" "$B_EB"
+mkws univc "UNIV C" 1 "" ""
+sed -i '/^BUTTONS=$/d; /^ORDER=$/d; /^\[TOOLBOX\]/a OWN_BUTTONS=TRUE' "$WS_DIR/univc.workspace"
 draw_quit; draw_settle; draw_launch 15; wait_for 1.5 "DRAW up (workspace univa)"
 
 # the names on panel P (toolbox | editbar), in order -> comma list
@@ -78,7 +85,27 @@ C=$(tb_cols)
 (( C == 1 )) && pass "UNIV B: its own 1 toolbox column" || fail "UNIV B toolbox: $C columns, want its own 1"
 screenshot "toolbar-universal-univb"
 
-# --- 4. off ----------------------------------------------------------------------------
+# --- 4. B opts out --------------------------------------------------------------------
+pcmd "Keep This Workspace's Own"
+same "B opted out: its own toolbox" "$(names toolbox)" "$B_TB"
+same "B opted out: its own edit bar" "$(names editbar)" "$B_EB"
+grep -q "^OWN_BUTTONS=TRUE" "$WS_DIR/univb.workspace" && pass "OWN_BUTTONS=TRUE saved into univb.workspace" || fail "univb.workspace: no OWN_BUTTONS=TRUE [$(grep -A3 '^\[TOOLBOX\]' "$WS_DIR/univb.workspace" | tr '\n' ' ')]"
+switch_to "univ a"
+same "UNIV A: still the shared toolbox" "$(names toolbox)" "$A_TB"
+switch_to "univ b"
+same "back in B: its own toolbox (from the file)" "$(names toolbox)" "$B_TB"
+pcmd "Keep This Workspace's Own"
+same "B opt-out off: the shared toolbox again" "$(names toolbox)" "$A_TB"
+
+# --- 5. C: opted out, no lists: stock ----------------------------------------------------
+switch_to "univ c"
+[[ "$(ws_now)" == univc ]] && pass "switched to UNIV C" || fail "workspace is '$(ws_now)', want univc"
+T=$(names toolbox); E=$(names editbar)
+[[ "$T" != "$A_TB" && "$T" == *zoom* ]] && pass "UNIV C: the stock toolbox, not the shared one" || fail "UNIV C toolbox: '$T'"
+[[ "$E" != "$A_EB" && "$E" == *cut* ]] && pass "UNIV C: the stock edit bar" || fail "UNIV C edit bar: '$E'"
+switch_to "univ b"
+
+# --- 6. off ----------------------------------------------------------------------------
 pcmd "Same Toolbar Buttons in Every"
 saved BUTTONS_UNIVERSAL FALSE
 same "off: UNIV B's own toolbox again" "$(names toolbox)" "$B_TB"

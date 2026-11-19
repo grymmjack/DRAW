@@ -51,7 +51,14 @@ each workspace's (`WS_buttons_reapply`). While on, `TBED_save%` writes the lists
 (`CONFIG_save`) and only falls through to the workspace path for a column change;
 `TBED_store_keys` then writes COLUMNS only; `TBED_target_name$` = "every workspace". The
 workspace configurator's Bars tab still edits a workspace's own lists (shown only with the
-setting off). QA: `toolbar-universal-buttons.sh`.
+setting off). **Opt-out per workspace:** `[TOOLBOX] OWN_BUTTONS=TRUE` (in `[TOOLBOX]`, not
+`[WORKSPACE]`: `WSC_save%` only writes NAME / DESCRIPTION there, every key of the other
+sections). `WS_own_buttons%` / `WS_buttons_shared%` (= on and not opted out) gate the lists, the
+editor's save path and its SAVES TO name; an opted-out workspace naming no buttons gets the
+stock ones (`TOOLBAR_layout_stock` - `TOOLBAR_layout_restore` is stock + the shared list - and
+`BL_set_default` in `WS_apply_bars`). Action **2462** `TBED_ACT_OWN` toggles it on the active
+workspace (`WSC_save_key`, then `WS_buttons_reapply`). Annotate ships opted out. QA:
+`toolbar-universal-buttons.sh`.
 
 The workspace configurator's Toolbox and Bars tabs have a **Customize Toolbars…** row (`WSC_editor_button`): it saves pending edits, switches to the selected workspace and opens the editor after the modal loop (`WSC.openEditor`). The Bars tab's checkboxes edit `ORDER=` when the workspace has one (else `BUTTONS=`).
 
