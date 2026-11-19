@@ -23,7 +23,7 @@ Entry kinds: `BL_TOOL` (id = `TB_*` toolbox button), `BL_CMD` (id = action id), 
 
 ### Toolbox codes (`TOOLBAR_BUTTON_ORDER`)
 
-`-1` gap, `TB_DIV_CODE` (-2) divider (ends a row), `TB_CMD_BASE + action` (1000+) a command cell (`TOOLBAR_draw_cmd_cell`), else a `TB_*` tool. `TB_MAX_SLOTS` = 96. Row/col of a slot: `TOOLBAR_slot_rc` (dividers end rows); rows: `TOOLBAR_rows_for%`. **`TB_SLOT_X/Y(i)` is recorded for every slot during render** (gaps too) and every hit loop uses it — never recompute row/col from `i \ cols`.
+`-1` gap, `TB_DIV_CODE` (-2) divider (ends a row), `TB_CMD_BASE + action` (1000+) a command cell (`TOOLBAR_draw_cmd_cell`), else a `TB_*` tool. A command cell that is a toggle and on draws pushed like the current tool (`TOOLBAR_cmd_on%`: 958 / 959 / 609 directly, else its menu item's checkmark from `MENUBAR_update_checkboxes`; `TOOLBAR_draw_pushed`), and a right-click on a toolbox / Edit Bar / Advanced Bar Edge-Mode button (959) switches its target (960). Customize Toolbars draws toolbox-tab command rows through `TOOLBAR_draw_cmd_cell` too (theme cell art, not the 16px bar icon). QA: `toolbox-toggle-pushed.sh`, `edge-mode-button*.sh`. `TB_MAX_SLOTS` = 96. Row/col of a slot: `TOOLBAR_slot_rc` (dividers end rows); rows: `TOOLBAR_rows_for%`. **`TB_SLOT_X/Y(i)` is recorded for every slot during render** (gaps too) and every hit loop uses it — never recompute row/col from `i \ cols`.
 
 ### Names in workspace files
 
