@@ -261,12 +261,15 @@ joins the end of the innermost row, else a new row).
   `CFG.MYPAINT_PANEL` (not under F11); a flex panel (a grid that scrolls), stretchy width like the
   Swatches; no slot in an older tree -> `DOCK_mypaint_place` (a column of its own, innermost on the
   right). See `draw-mypaint.md`.
-- **Selection Bar** (`DP_SELBAR` = 10, 2026-11-18). `GUI/SEL-BAR`: shown =
-  `SELBAR_wanted%` (`CFG.SELECTION_BAR`, a selection tool, not F11). Built like the text bar -
+- **Tool Options** (was the Selection Bar; `DP_SELBAR` = 10, 2026-11-18, grown into Tool Options
+  2026-11-19 - PLANS/TOOL-OPTIONS-BAR.md; cfg keys `SELECTION_BAR*`, dock id `selbar` and the dump
+  names kept). `GUI/SEL-BAR`: shown = `SELBAR_wanted%` (`CFG.SELECTION_BAR`, the current tool has
+  controls - `SELBAR_list%` > 0 -, not F11). The text tool's options are the Text Bar: it follows
+  Tool Options' place (`DOCK_bars_follow`) and shares its Scale. Built like the text bar -
   `DP_H_FIXED`, height `SELBAR_h_for%(w)` = row height x the lines its control groups wrap into
   (`SELBAR_layout%`), PSURF member (`CFG.SELECTION_BAR_SCALE`), region `REGION_SEL_BAR`. Old trees
   adopt it as a new top row just inside the text bar's row (`DOCK_selbar_place`); its row is left
-  out of `DOCK_SHIFT_Y` (above). Dumps `SELBAR` / `SELM` / `SELBARC`. Test: `sel-bar.sh`.
+  out of `DOCK_SHIFT_Y` (above). Dumps `SELBAR` / `SELM` / `SELBARC` / `SELBARP`. Tests: `sel-bar.sh`, `tool-options-*.sh`.
 - **Text bar** (`DP_TEXTBAR` = 9, the last dock panel - the native windows moved up one, `WZ_TBED`
   = 18; Rick 2026-11-16 "scaleable, like the other panels" + "dockable left, right, top, bottom"):
   it used to be a fixed strip (`DOCK_TOPBAR_H`, now always 0). Shown = `TEXT_BAR_wanted%` (text tool

@@ -5,14 +5,49 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.8.0
+Current release: v2.9.0
 
 ![DRAW GUI from v2.5.0](./GUI.png)
 
-## Unreleased (branch `xsheet-holds-lanes`)
+## New in 2.9.0
 
-- **Per-layer holds** on the X-sheet. Drag a cell's right end and that layer's drawing stays up for as many frames as you cover, while the other layers keep animating. Drag it back and the frames it lets go are blank. Right-click a cell, or use **ANIM → Hold for N Frames... / Release Hold**, to type the length.
-- **Keyframe lanes on every layer**. Click the arrow before a layer's name on the X-sheet to open one row per lane: X, Y, SCALE X / Y, ROTATE, OPACITY, TINT, PIVOT X / Y, plus VOLUME / PAN on clips with sound. Each row plots the value along the frames with its eases: LINEAR, EASE IN / OUT / IN-OUT, HOLD. Drag, double-click or right-click a key to edit it; **+ LANE** adds a lane; modulators add a wobble. Pixel layers and groups now get lanes too: a group's lanes move every layer in it. Lanes never change the pixels: the canvas, lightbox, playback and every export show each frame through them, clipped to the frame. Field guide: `docs/XSHEET-HOLDS-AND-LANES.md`. Examples: `SAMPLES/XSHEET/`.
+Tool Options: every tool's settings on one bar. Plus MyPaint brushes, soft selections, X-sheet holds and keyframe lanes, Pen Control stabilization and a large antialiasing overhaul.
+
+- **Tool Options** (View > Tool Options; was the Selection Bar): the current tool's settings in a row above the canvas.
+  - **Painting tools** (brush, dot, eraser, spray, line, rectangle, ellipse, polygon, Bezier): SIZE, SHAPE + SOFT, OPACITY, PIXEL PERFECT / AA, SYMMETRY. Then each tool's own: brush MIX + TILE, eraser ALL LAYERS, spray SPREAD / DENSITY / FLOW, line caps / SPOKES / angle SNAP, rectangle DIVIDE, ellipse SLICES / RINGS, polygon FINISH / CANCEL, Bezier HANDLES / COMMIT / CANCEL.
+  - **Smart shapes**: KIND chips, OUTLINE / FILLED, and every option of every kind. **Fill**: SAMPLE, TOLERANCE, CONTIGUOUS, GRID CELL, ADJUST, BLEND. **Picker**, **MyPaint**, **Move**, **Crop**, **Zoom** / pan and the transform overlay have theirs. **Text**: the Text Bar is the text tool's options.
+  - Values set on the bar stick for the next stroke or shape. Dock it top, bottom, left or right, or float it, with its own Scale.
+- **MyPaint brushes** (libmypaint, CC0 brush sets): a MyPaint palette with brush thumbnails and groups, and a MyPaint Brush Settings panel (size, opaque, sharp, gain, pigment, smooth, pressure, twist). By default it uses DRAW's brush size.
+- **Soft selections**: feather and antialias on every selection. Move, paste, transform and clear respect the soft edge, with no grey rims or dark halos when soft pixels are layered.
+- **X-sheet holds and keyframe lanes**:
+  - **Holds.** Stretch a cell's right end to hold that layer's drawing while the others animate.
+  - **Lanes** on every layer, group and clip: X, Y, SCALE, ROTATE, OPACITY, TINT, PIVOT, BLUR (every Image > Blur kind), VOLUME and PAN. Each lane has eases and modulators.
+  - Field guide `docs/XSHEET-HOLDS-AND-LANES.md`, examples in `SAMPLES/XSHEET/`.
+- **Pen Control** (was Pen Pressure):
+  - Lazy Nezumi-style smoothing: Pulled String / Moving Average / EMA / Inertia, catch up, guides.
+  - Pressure processing and speed scaling.
+  - **Mouse expression**: a made-up pressure for the mouse, from FIXED / SPEED / WHEEL, with taper in / out.
+  - Presets (right-click the panel; eleven examples ship), a tooltip on every control, and a dedicated Settings tab.
+- **Antialiasing**:
+  - Strokes follow every pointer event and the sub-pixel position. Overlapping soft dabs no longer darken.
+  - Thick lines and curves are drawn with exact coverage, and rounded shapes are truly round.
+  - Transforms resample bicubically. Zoomed below 100% the canvas is area-averaged, so thin lines stay visible.
+- **Brush Palette** panel (shapes, SIZE / SOFT, thumbnails); brushes go up to 101 px. Spray with Antialias on works like an airbrush.
+- **One way to set a number everywhere**: on every slider and value box, `Wheel` ±1, `Shift+Wheel` ±10, middle-click or double-click to reset, double-click a value to type.
+- **Panels**:
+  - Half-step Scales from 1.5x to 7.5x, resampled bicubically.
+  - An `[x]` close box on every dock panel, including Layers. UI text is UPPERCASE throughout.
+  - Dock rows, and new stock workspaces: Tablet, GrafX2, GrafX2 Tall, Only Menu, VH.
+- **Toolbars**:
+  - **View > Workspace > Same Buttons in Every Workspace**, with a per-workspace opt-out.
+  - Command buttons that pick a tool, and toggles, look pushed while on.
+  - Command icons for the DEFAULT and DARK themes.
+- **Fixes**:
+  - Symmetry mirrors on the canvas again (its center was off the canvas on promoted layers), and `F8` clears symmetry outside Fill Adjust.
+  - Full-Screen Preview no longer loses quick clicks.
+  - A crashed instance's `[2]` slot is freed at once.
+  - Lane values print cleanly.
+  - MyPaint builds on macOS and Windows.
 
 ## New in 2.8.0
 
