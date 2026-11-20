@@ -4,6 +4,37 @@
 
 ---
 
+## Tool Options
+
+**Tool Options** is the bar of settings for the tool in your hand. It sits in a row above the canvas and changes when you change tools. The space stays reserved, so picking a tool never moves the canvas. Turn it off with **View → Tool Options**.
+
+- **Sliders** take the same input everywhere: **drag** or **click** the track, turn the **wheel** over it (`Shift` = ×10), **double-click the value** to type one, and **middle-click** (or double-click the track) to reset it.
+- **Values stick.** What you set on the bar is what the next stroke or shape starts with. Keys pressed while you drag (arrow keys, digits) change only the shape you are drawing.
+- **Docking.** It is a normal dock panel. Drag its handle to a column on the left or right, a row along the top or bottom, or let it float. In a narrow place its controls wrap into more lines, and the bar is always exactly as tall as its lines. If it is ever given less height than it needs, turn the wheel over it (away from a slider) to scroll it. Right-click the handle for its own **Scale**.
+- **The text tool's options are the Text Bar.** It shows in the same place, moves with Tool Options and shares its Scale.
+
+| Tool | On the bar |
+| --- | --- |
+| Brush, Dot | SIZE (px), SHAPE (round / square / `/` / `\`), SOFT (round and slant nibs), OPACITY, PIXEL PERFECT / AA, SYMMETRY (off / H / V / both). Brush also has **MIX** (the pigment mix brush) with SMUDGE / LENGTH / RADIUS, and **TILE** (pattern tile view, canvases up to 512×512). |
+| Eraser | The painting set, plus **ALL LAYERS**: erase every visible layer under the brush without holding `Shift`. With it on, `Shift` erases the current layer only. |
+| Spray | The painting set (AA reads AIRBRUSH), plus **SPREAD** and **DENSITY** (% of what the size gives), and **FLOW** with the airbrush. |
+| Line | The painting set, START / END caps (none / arrow / cube / dot), SPOKES, angle SNAP 15 / 30 / 45 / 90 / PIXEL (for `Ctrl+Shift`). |
+| Rectangle, Ellipse | The painting set, plus DIVIDE \| / DIVIDE − (rectangle) or SLICES / RINGS (ellipse). |
+| Polygon, Bezier | The painting set, angle SNAP, FINISH / CANCEL (polygon), HANDLES / COMMIT / CANCEL (bezier). |
+| Smart Shapes | The KIND chips (pick any of the ten shapes), **OUTLINE / FILLED** (right-drag draws the other one), then every option of that shape: polygon SIDES / DEPTH / SNAP / LOCK, pie SLICES / HOLE, RADIUS, tab FLAT side, pill ROUND / SEGMENTS, pac-man MOUTH / HOLE, dice D4–D30 with DEPTH / TILT / TURN and the LIGHT angle / height / power, bevel BEVEL / BORDER / INNER / OUTER, arrow STEM / HEAD / FLARE / THICK, 3D text THICK and DEPTH / TILT / TURN. |
+| Fill | SAMPLE: LAYER / MERGED / ALL LAYERS / REPLACE ALL. **TOLERANCE** (0 = exact colour) and **CONTIGUOUS** (off = every matching pixel on the layer). GRID CELL, ADJUST (Fill Adjust), and the gradient BLEND space (SRGB / OKLAB / LINEAR / PIGMENT). |
+| Picker | SAMPLE: MERGED / LAYER / REFERENCE, AREA 1 / 3×3 / 5×5 (the average of the pixels round the point), LOUPE zoom. |
+| MyPaint | SIZE (DRAW's brush size, or the brush's own when **SIZE = BRUSH** is off), OPAQUE, PRESSURE (the mouse's), TWIST, and buttons for the BRUSHES palette and the full SETTINGS panel. |
+| Move | FLIP H / V, ROTATE CCW / CW, SCALE 50% / 2X — the selection, or the layer. While a **transform** is up (any tool): APPLY / CANCEL. |
+| Crop | W / H of the crop box, APPLY / CANCEL, TRIM (to the artwork), WHOLE IMAGE (box the whole canvas). |
+| Zoom, Pan | ZOOM − / +, 100%, FIT, CENTER. |
+| Marquee, Lasso, Polygon Lasso, Magic Wand | The selection options — see Ch. 05, *Tool Options (the Selection Bar)*. |
+| Text | The Text Bar — see Ch. 07. |
+
+The values that belong to your setup (fill sample / tolerance / contiguous, spray spread / density / flow, picker sample / area, the snap angles, the selection options) are saved in `DRAW.cfg`. The shapes' values last for the session.
+
+---
+
 ## Brush, Dot & Freehand Drawing
 
 > 🎯 **Goal:** Master basic freehand pixel drawing.

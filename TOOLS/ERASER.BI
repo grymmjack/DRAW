@@ -22,6 +22,7 @@ ERASER.ACTIVE% = FALSE
 
 ' Tracks which layers were modified by a Shift+Erase smart-erase stroke.
 ' Used in MOUSE_release_brush to save per-layer undo states.
+DIM SHARED ERASER_BAR_SMART AS INTEGER ' Tool Options ALL LAYERS: smart erase without Shift (Shift then erases one layer)
 DIM SHARED ERASER_SMART_DIRTY(1 TO MAX_LAYERS) AS INTEGER
 DIM SHARED ERASER_SMART_BEFORE_IMG(1 TO MAX_LAYERS) AS LONG
 DIM SHARED ERASER_SMART_LAYER_ID(1 TO MAX_LAYERS) AS LONG

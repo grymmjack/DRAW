@@ -29,9 +29,14 @@ done
 magick -size 96x16 xc:none "${NT_DRAW[@]}" "PNG32:$NT_DIR/plain.png"
 python3 "$NT_PY" put "$NT_DIR/plain.png" "$NT_DIR/sheet.png" drAn "$(python3 -c "import struct;print(struct.pack('<10h',1,16,16,0,0,6,1,10,0,0).hex())")"
 
-nt_line() { grep -m1 "^$1 " "$NT_DUMP" 2>/dev/null; }
+# DRAW rewrites the dump as .tmp -> KILL -> NAME, so a read in that gap finds no file, and five
+# separate greps could each see a different frame (Windows shard A 2026-11-19: the note was there,
+# the NOTES row line was not). Copy it once per read, retrying until the copy is whole.
+nt_snap() { local i; for i in 1 2 3 4 5 6 7 8; do cp "$NT_DUMP" "$NT_DIR/dump" 2>/dev/null && grep -q '^ANIM ' "$NT_DIR/dump" && return; sleep 0.15; done; }
+nt_line() { grep -m1 "^$1 " "$NT_DIR/dump" 2>/dev/null; }
 nt_read() { # A_COUNT A_CUR, NT_N NT_LIST, XY1 XRH XTW, XF[], NR_Y
     { hover 300 250; wait_for 0.15 "render"; hover 305 252; wait_for 0.25 "render"; } >&2
+    nt_snap
     read -r _ _ A_COUNT A_CUR _ <<< "$(nt_line ANIM)"
     NT_N=""; NT_LIST=""
     read -r _ NT_N NT_LIST <<< "$(nt_line ANIMNT)"
@@ -42,7 +47,7 @@ nt_read() { # A_COUNT A_CUR, NT_N NT_LIST, XY1 XRH XTW, XF[], NR_Y
 }
 nt_s() { echo "notes ${NT_N:-?} '${NT_LIST:-}' frame ${A_CUR:-?}/${A_COUNT:-?} notes row '${NR_Y:-}'"; }
 nt_key() { park_mouse; key "$1"; wait_for 0.6 "$1"; }
-nt_xsheet() { local on; read -r _ _ on _ <<< "$(nt_line ANIMXS)"; [[ "$on" == -1 ]] || nt_key KP_8; }
+nt_xsheet() { local on; nt_snap; read -r _ _ on _ <<< "$(nt_line ANIMXS)"; [[ "$on" == -1 ]] || nt_key KP_8; }
 nt_palette() {
     park_mouse; key question; wait_for 1.0 "Command palette"
     type_text "$1"; wait_for 0.4 "Filtered"; key Return; wait_for 1.0 "$1"

@@ -100,8 +100,12 @@ AP_R=$(ap_read "$AP_T/fwd.apng" 1)
     && pass "forward: a valid APNG (CRCs, zlib, sequence), 16x16 RGBA, 4 frames 1 2 3 4, delays 1/10 3/10 1/10 1/10 s, loops" || fail "forward APNG reads: '$AP_R'"
 AP_A=$(python3 -c "import sys;d=open(sys.argv[1],'rb').read();print(d[(1*64+1)*4+3])" "$AP_T/plain.rgba")
 [[ "$AP_R" == *"cells 1 "* && "$AP_A" -gt 0 && "$AP_A" -lt 255 ]] && pass "frame 1's half-transparent pixel (alpha $AP_A) kept exactly" || fail "half alpha: fixture alpha '$AP_A', frames '$AP_R'"
-AP_FF=$(ap_ffn "$AP_T/fwd.apng")
-[[ "$AP_FF" == 4 ]] && pass "ffprobe reads 4 frames" || fail "ffprobe frames: '$AP_FF'"
+if command -v ffprobe >/dev/null 2>&1; then # (an outside reader; not on every QA host - thinkpad has none)
+    AP_FF=$(ap_ffn "$AP_T/fwd.apng")
+    [[ "$AP_FF" == 4 ]] && pass "ffprobe reads 4 frames" || fail "ffprobe frames: '$AP_FF'"
+else
+    info "no ffprobe on this host: the outside-reader frame count is skipped (ImageMagick still reads it below)"
+fi
 magick "PNG:$AP_T/fwd.apng" "PNG32:$AP_T/still.png" 2>/dev/null
 magick "$AP_T/plain.png" -crop 16x16+0+0 +repage "PNG32:$AP_T/c1.png"
 AP_AE=$(magick compare -metric AE "$AP_T/still.png" "$AP_T/c1.png" null: 2>&1 | awk '{print $1}')

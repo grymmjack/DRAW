@@ -132,6 +132,8 @@ DIM SHARED DOCK_TAB(1 TO DOCK_MAX_SLOTS, 1 TO DOCK_MAX_TABS) AS INTEGER ' panel 
 DIM SHARED DOCK_READY  AS INTEGER ' the tree has been built (DOCK_build_default)
 DIM SHARED DOCK_ADOPT_SAVE AS INTEGER ' DOCK_adopt_new_panels placed a panel in your own arrangement: DOCK_layout saves it
 DIM SHARED DOCK_PARSE_NOTE AS STRING ' what the last DOCK_parse_col% skipped (unknown / repeated panel names), "" = nothing
+DIM SHARED DOCK_BARS_FIRST AS INTEGER ' DOCK_bars_follow: the first follow after a load - the Text Bar's place wins (it is the older choice)
+DIM SHARED DOCK_BARS_SIG AS STRING ' DOCK_bars_follow: the lead's place at the last follow (no retry until it moves: one that cannot land would save every frame)
 DIM SHARED DOCK_CUSTOM AS INTEGER ' a [DOCK] arrangement is in effect (else the default tree is rebuilt from the dock keys every layout)
 ' DOCK_layout results: the canvas edges and the menu bar's span
 DIM SHARED DOCK_LAID_OUT AS INTEGER ' DOCK_layout has run (DOCK_live% is meaningful)

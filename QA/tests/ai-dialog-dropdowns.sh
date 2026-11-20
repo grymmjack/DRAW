@@ -8,6 +8,16 @@
 # QA-OPTIONS: AI_ENABLED=-1
 # =============================================================================
 info "=== AI dialog dropdowns Test ==="
+# The dialog needs a generator in DRAW.ai.cfg, else File > New from AI asks to write a starter
+# config instead. Linux + macOS tests get a copy of the user's config folder; Windows QA shares
+# the real %APPDATA%\DRAW, which may have none (thinkpad 2026-11-19: the test clicked into that
+# prompt). Never write the user's real config from a test: skip instead.
+CDIR=$("$DRAW_BIN" --dir-cfg 2>/dev/null | tr -d '\r' | tail -1)
+[[ -n "$CDIR" ]] && command -v cygpath >/dev/null && CDIR=$(cygpath -u "$CDIR")
+if [[ -n "$CDIR" && ! -f "$CDIR/DRAW.ai.cfg" ]]; then
+    skip "no DRAW.ai.cfg in $CDIR - the AI dialog would not open (it offers a starter config)"
+    exit 0
+fi
 canvas_focus v
 wait_for 0.3 "ready"
 click $(( WORK_LEFT + 12 )) 6; wait_for 0.6 "FILE menu"

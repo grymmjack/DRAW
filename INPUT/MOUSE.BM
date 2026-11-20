@@ -1797,11 +1797,12 @@ SUB MOUSE_tool_fill ()
             '             Shift + F / G / W + click = replace all matching on all layers
             ' (G and W: the complement of the Magic Wand's hold F; W tapped alone
             ' still picks the wand, on release - FILL_hold_w)
-            DIM fKeyHeld AS INTEGER
+            DIM fKeyHeld AS INTEGER, fSamp AS INTEGER
             fKeyHeld% = (_KEYDOWN(70) OR _KEYDOWN(102) OR _KEYDOWN(71) OR _KEYDOWN(103) OR _KEYDOWN(87) OR _KEYDOWN(119))
             IF fKeyHeld% THEN FILL_W_USED = TRUE
-            IF fKeyHeld% THEN
-                IF MODIFIERS.shift% THEN
+            fSamp% = CFG.FILL_SAMPLE% ' (Tool Options SAMPLE: what a plain click does; the keys still work over LAYER)
+            IF fKeyHeld% _ORELSE fSamp% >= 2 THEN
+                IF MODIFIERS.shift% _ORELSE fSamp% = 3 THEN
                     fill_history_label$ = "Fill Global All"
                     FILL_flood_global MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, TRUE
                 ELSE
@@ -1818,7 +1819,7 @@ SUB MOUSE_tool_fill ()
                 EXIT SUB
             END IF
             ' FILL_ADJ intercept for custom brush / pattern / gradient flood fills
-            IF FILL_ADJ.ENABLED% AND NOT FILL_ADJ.ACTIVE% AND SYMMETRY.MODE% = 0 AND NOT MODIFIERS.shift% AND (CUSTOM_BRUSH_is_active% OR DRAWER_has_paint_mode%) THEN
+            IF FILL_ADJ.ENABLED% AND NOT FILL_ADJ.ACTIVE% AND SYMMETRY.MODE% = 0 AND NOT MODIFIERS.shift% AND fSamp% = 0 AND (CUSTOM_BRUSH_is_active% OR DRAWER_has_paint_mode%) THEN
                 DIM ff_mask AS LONG
                 DIM ff_bx1  AS INTEGER, ff_by1 AS INTEGER
                 DIM ff_bx2  AS INTEGER, ff_by2 AS INTEGER
@@ -1835,11 +1836,19 @@ SUB MOUSE_tool_fill ()
                 END IF
             END IF
             ' SHIFT+fill = sample color from merged canvas, paint onto current layer
-            IF MODIFIERS.shift% THEN
+            ' Tool Options TOLERANCE / CONTIGUOUS away from exact + joined: the wand's flood (FILL_flood_tol)
+            DIM fTol AS INTEGER
+            fTol% = (CFG.FILL_TOLERANCE% > 0 _ORELSE CFG.FILL_CONTIGUOUS% = 0)
+            IF MODIFIERS.shift% _ORELSE fSamp% = 1 THEN
                 fill_history_label$ = "Fill Merged"
-                FILL_flood_merged MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
+                IF fTol% THEN FILL_flood_tol MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, TRUE ELSE FILL_flood_merged MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
             ELSE
-                FILL_flood MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
+                IF fTol% THEN
+                    fill_history_label$ = "Fill Tolerance" ' (not an exact joined flood: the BAS exporter must not write it as PAINT)
+                    FILL_flood_tol MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, FALSE
+                ELSE
+                    FILL_flood MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
+                END IF
             END IF
         END IF
         GRAD_CTX_clear
@@ -2455,7 +2464,7 @@ SUB MOUSE_tool_line ()
         SOUND_play SND_POINT
         STROKE_begin
         LINE_TOOL.DRAGGING = TRUE
-        LINE_TOOL.SPOKES   = 0
+        LINE_TOOL.SPOKES   = LINE_TOOL.BAR_SPOKES ' (the Tool Options bar's; 0 unless set there)
         ' Use unsnapped coords when Ctrl+Shift held so angle snap overrides grid snap
         IF MODIFIERS.ctrlShift% THEN
             LINE_TOOL.START_X = MOUSE.UNSNAPPED_X%
@@ -2847,8 +2856,8 @@ SUB MOUSE_tool_rect ()
         RECT_TOOL.END_X       = MOUSE.X%
         RECT_TOOL.END_Y       = MOUSE.Y%
         RECT_TOOL.FILLED      = (CURRENT_TOOL% = TOOL_RECT_FILLED)
-        RECT_TOOL.H_DIVISIONS = 0
-        RECT_TOOL.V_DIVISIONS = 0
+        RECT_TOOL.H_DIVISIONS = RECT_TOOL.BAR_H_DIV ' (the Tool Options bar's; 0 unless set there)
+        RECT_TOOL.V_DIVISIONS = RECT_TOOL.BAR_V_DIV
     ELSEIF RECT_TOOL.DRAGGING THEN
         ' SPACE held: translate the in-progress rectangle with the cursor
         DIM sdx        AS INTEGER, sdy AS INTEGER
@@ -2924,8 +2933,8 @@ SUB MOUSE_tool_ellip ()
         ELLIPSE_TOOL.END_X    = MOUSE.X%
         ELLIPSE_TOOL.END_Y    = MOUSE.Y%
         ELLIPSE_TOOL.FILLED   = (CURRENT_TOOL% = TOOL_ELLIPSE_FILLED)
-        ELLIPSE_TOOL.SLICES   = 0
-        ELLIPSE_TOOL.RINGS    = 0
+        ELLIPSE_TOOL.SLICES   = ELLIPSE_TOOL.BAR_SLICES ' (the Tool Options bar's; 0 unless set there)
+        ELLIPSE_TOOL.RINGS    = ELLIPSE_TOOL.BAR_RINGS
     ELSEIF ELLIPSE_TOOL.DRAGGING THEN
         ' SPACE held: translate the in-progress ellipse with the cursor
         DIM sdx     AS INTEGER, sdy AS INTEGER
@@ -2997,7 +3006,7 @@ SUB MOUSE_tool_brush ()
         BRUSH_HISTORY_FLAGS&     = 0
         BRUSH_HISTORY_LAYER%     = CURRENT_LAYER%
         BRUSH_HISTORY_LAYER_ID&  = 0
-        BRUSH_HISTORY_SMART%     = (CURRENT_TOOL% = TOOL_ERASER AND MODIFIERS.shift% AND MOUSE.B1%)
+        BRUSH_HISTORY_SMART%     = ERASER_smart_now%
         IF BRUSH_HISTORY_SMART% THEN ERASER_smart_history_reset
         IF CUSTOM_BRUSH_is_active% THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_CUSTOM_BRUSH
         IF BRUSH_SIZE_pixels% > 1 THEN BRUSH_HISTORY_FLAGS& = BRUSH_HISTORY_FLAGS& OR HISTORY_FLAG_THICK_BRUSH
@@ -3040,7 +3049,7 @@ SUB MOUSE_tool_brush ()
         GRAD_CTX_expand MOUSE.X%, MOUSE.Y%
         ' Shift+Erase: smart erase across all layers with non-transparent pixels
         ' at the current brush position. B2+Shift is reserved for connecting lines.
-        IF CURRENT_TOOL% = TOOL_ERASER AND MODIFIERS.shift% AND MOUSE.B1% THEN
+        IF ERASER_smart_now% THEN ' (Tool Options ALL LAYERS makes it the default; Shift flips it)
             ERASER_smart_on
         ELSE
             ' Pen Control: the speed gain, and with smoothing on the stroke
@@ -3520,9 +3529,9 @@ SUB MOUSE_release_line ()
 
         _DEST SCRN.CANVAS&
         LINE_TOOL.DRAGGING  = FALSE
-        LINE_TOOL.SPOKES    = 0
-        LINE_TOOL.START_CAP = LINE_CAP_NONE
-        LINE_TOOL.END_CAP   = LINE_TOOL.STICKY_END_CAP ' the Arrow tool keeps its head for the next line
+        LINE_TOOL.SPOKES    = LINE_TOOL.BAR_SPOKES ' the next line: the Tool Options bar's values
+        LINE_TOOL.START_CAP = LINE_TOOL.BAR_START_CAP
+        LINE_TOOL.END_CAP   = _IIF(LINE_TOOL.STICKY_END_CAP <> LINE_CAP_NONE, LINE_TOOL.STICKY_END_CAP, LINE_TOOL.BAR_END_CAP) ' the Arrow tool keeps its head for the next line
         CANVAS_DIRTY%       = TRUE
         STROKE_commit
         IF line_history_before& < -1 THEN
@@ -3737,8 +3746,8 @@ SUB MOUSE_release_rect ()
         END IF
         _DEST SCRN.CANVAS&
         RECT_TOOL.DRAGGING    = FALSE
-        RECT_TOOL.H_DIVISIONS = 0
-        RECT_TOOL.V_DIVISIONS = 0
+        RECT_TOOL.H_DIVISIONS = RECT_TOOL.BAR_H_DIV ' (the Tool Options bar's; 0 unless set there)
+        RECT_TOOL.V_DIVISIONS = RECT_TOOL.BAR_V_DIV
         CANVAS_DIRTY%         = TRUE
         STROKE_commit
         IF rect_history_before& < -1 THEN
@@ -3908,8 +3917,8 @@ SUB MOUSE_release_ellip ()
         END IF
         _DEST SCRN.CANVAS&
         ELLIPSE_TOOL.DRAGGING = FALSE
-        ELLIPSE_TOOL.SLICES   = 0
-        ELLIPSE_TOOL.RINGS    = 0
+        ELLIPSE_TOOL.SLICES   = ELLIPSE_TOOL.BAR_SLICES ' (the Tool Options bar's; 0 unless set there)
+        ELLIPSE_TOOL.RINGS    = ELLIPSE_TOOL.BAR_RINGS
         CANVAS_DIRTY%         = TRUE
         STROKE_commit
         IF ell_history_before& < -1 THEN
@@ -6414,7 +6423,7 @@ SUB MOUSE_tool_ss_polygon ()
         SS_POLYGON.RY             = 0
         SS_POLYGON.ROTATION       = 0
         SS_POLYGON.HAS_LAST_ANGLE = FALSE
-        SS_POLYGON.FILLED         = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+        SS_POLYGON.FILLED         = ((MOUSE.B2% AND NOT MOUSE.OLD_B2%) <> 0) XOR (SS_BAR_FILLED <> 0) ' (right-drag: the other one of the bar's OUTLINE / FILLED)
         SS_POLYGON.SHIFT_PREV%    = MODIFIERS.shift%
     ELSEIF SS_POLYGON.DRAGGING THEN
         ' SPACE held: translate the in-progress polygon with the cursor
@@ -6544,7 +6553,7 @@ SUB MOUSE_tool_ss_pie_donut ()
         SS_PIE_DONUT.END_Y    = MOUSE.Y%
         SS_PIE_DONUT.RX       = 0
         SS_PIE_DONUT.RY       = 0
-        SS_PIE_DONUT.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+        SS_PIE_DONUT.FILLED   = ((MOUSE.B2% AND NOT MOUSE.OLD_B2%) <> 0) XOR (SS_BAR_FILLED <> 0) ' (right-drag: the other one of the bar's OUTLINE / FILLED)
     ELSEIF SS_PIE_DONUT.DRAGGING THEN
         ' SPACE held: translate the in-progress pie/donut with the cursor
         DIM sdx AS INTEGER, sdy AS INTEGER
@@ -6601,7 +6610,7 @@ SUB MOUSE_tool_ss_rounded_rect ()
         SS_RR.DRAGGING = TRUE
         SS_RR.X0       = MOUSE.X% : SS_RR.Y0 = MOUSE.Y%
         SS_RR.X1       = MOUSE.X% : SS_RR.Y1 = MOUSE.Y%
-        SS_RR.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+        SS_RR.FILLED   = ((MOUSE.B2% AND NOT MOUSE.OLD_B2%) <> 0) XOR (SS_BAR_FILLED <> 0) ' (right-drag: the other one of the bar's OUTLINE / FILLED)
     ELSEIF SS_RR.DRAGGING THEN
         ' SPACE held: translate the in-progress rounded rect with the cursor
         DIM sdx AS INTEGER, sdy AS INTEGER
@@ -6636,7 +6645,7 @@ SUB MOUSE_tool_ss_tab ()
         SS_TAB.DRAGGING = TRUE
         SS_TAB.X0       = MOUSE.X% : SS_TAB.Y0 = MOUSE.Y%
         SS_TAB.X1       = MOUSE.X% : SS_TAB.Y1 = MOUSE.Y%
-        SS_TAB.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+        SS_TAB.FILLED   = ((MOUSE.B2% AND NOT MOUSE.OLD_B2%) <> 0) XOR (SS_BAR_FILLED <> 0) ' (right-drag: the other one of the bar's OUTLINE / FILLED)
     ELSEIF SS_TAB.DRAGGING THEN
         ' SPACE held: translate the in-progress tab shape with the cursor
         DIM sdx AS INTEGER, sdy AS INTEGER
@@ -6671,7 +6680,7 @@ SUB MOUSE_tool_ss_pill ()
         SS_PILL.DRAGGING = TRUE
         SS_PILL.X0       = MOUSE.X% : SS_PILL.Y0 = MOUSE.Y%
         SS_PILL.X1       = MOUSE.X% : SS_PILL.Y1 = MOUSE.Y%
-        SS_PILL.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+        SS_PILL.FILLED   = ((MOUSE.B2% AND NOT MOUSE.OLD_B2%) <> 0) XOR (SS_BAR_FILLED <> 0) ' (right-drag: the other one of the bar's OUTLINE / FILLED)
     ELSEIF SS_PILL.DRAGGING THEN
         ' SPACE held: translate the in-progress pill with the cursor
         DIM sdx AS INTEGER, sdy AS INTEGER
@@ -6702,7 +6711,7 @@ SUB MOUSE_tool_ss_pacman ()
         SS_PACMAN.END_X     = MOUSE.X% : SS_PACMAN.END_Y = MOUSE.Y%
         SS_PACMAN.RX        = 0        : SS_PACMAN.RY = 0
         SS_PACMAN.MOUTH_DIR = 0
-        SS_PACMAN.FILLED    = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+        SS_PACMAN.FILLED    = ((MOUSE.B2% AND NOT MOUSE.OLD_B2%) <> 0) XOR (SS_BAR_FILLED <> 0) ' (right-drag: the other one of the bar's OUTLINE / FILLED)
     ELSEIF SS_PACMAN.DRAGGING THEN
         ' SPACE held: translate the in-progress pacman with the cursor
         ' (MOUTH_DIR is relative to CENTER and is preserved)
@@ -6748,7 +6757,7 @@ SUB MOUSE_tool_ss_3d_cube ()
     IF justPressed% THEN
         SOUND_play SND_POINT: STROKE_begin
         SS_CUBE.DRAGGING = TRUE
-        SS_CUBE.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+        SS_CUBE.FILLED   = ((MOUSE.B2% AND NOT MOUSE.OLD_B2%) <> 0) XOR (SS_BAR_FILLED <> 0) ' (right-drag: the other one of the bar's OUTLINE / FILLED)
         SS_CUBE.X0       = MOUSE.X% : SS_CUBE.Y0 = MOUSE.Y%
         SS_CUBE.X1       = MOUSE.X% : SS_CUBE.Y1 = MOUSE.Y%
     ELSEIF SS_CUBE.DRAGGING THEN
@@ -6790,7 +6799,7 @@ SUB MOUSE_tool_ss_bevel_rect ()
         SS_BEVEL.DRAGGING = TRUE
         SS_BEVEL.X0       = MOUSE.X% : SS_BEVEL.Y0 = MOUSE.Y%
         SS_BEVEL.X1       = MOUSE.X% : SS_BEVEL.Y1 = MOUSE.Y%
-        SS_BEVEL.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+        SS_BEVEL.FILLED   = ((MOUSE.B2% AND NOT MOUSE.OLD_B2%) <> 0) XOR (SS_BAR_FILLED <> 0) ' (right-drag: the other one of the bar's OUTLINE / FILLED)
     ELSEIF SS_BEVEL.DRAGGING THEN
         ' SPACE held: translate the in-progress bevel rect with the cursor
         DIM sdx AS INTEGER, sdy AS INTEGER
@@ -6825,7 +6834,7 @@ SUB MOUSE_tool_ss_arrow ()
         SS_ARROW.DRAGGING = TRUE
         SS_ARROW.START_X  = MOUSE.X% : SS_ARROW.START_Y = MOUSE.Y%
         SS_ARROW.END_X    = MOUSE.X% : SS_ARROW.END_Y = MOUSE.Y%
-        SS_ARROW.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+        SS_ARROW.FILLED   = ((MOUSE.B2% AND NOT MOUSE.OLD_B2%) <> 0) XOR (SS_BAR_FILLED <> 0) ' (right-drag: the other one of the bar's OUTLINE / FILLED)
     ELSEIF SS_ARROW.DRAGGING THEN
         ' SPACE held: translate the in-progress arrow with the cursor
         DIM sdx AS INTEGER, sdy AS INTEGER

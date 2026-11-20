@@ -74,8 +74,13 @@ bwin
 # the picture: the middle of the pane, just above the controls
 MIDX=$(( (PV_BX + PV_TX + PV_TW) / 2 )); PICY=$(( PV_BY - 12 ))
 snap_region $(( $(vx $MIDX) - 8 )) "$(vy $PICY)" 16 4 "pv-a"; SA=$SNAP_RESULT
-wait_for 0.15 "a frame later"
-snap_region $(( $(vx $MIDX) - 8 )) "$(vy $PICY)" 16 4 "pv-b"; SB=$SNAP_RESULT
+# (the GIF loops every 0.4 s and a snap takes ~0.25 s, so 0.15 s + a snap can land on the
+# same frame a loop later: try a second gap before calling it still)
+for gap in 0.15 0.07; do
+    wait_for $gap "a frame later"
+    snap_region $(( $(vx $MIDX) - 8 )) "$(vy $PICY)" 16 4 "pv-b"; SB=$SNAP_RESULT
+    [[ "$(compare -metric AE -fuzz 2% "$SA" "$SB" /dev/null 2>&1 | awk '{print int($1)}')" != 0 ]] && break
+done
 assert_regions_differ "$SA" "$SB" "the pane redraws as it plays"
 screenshot "browser-preview-anim-playing"
 

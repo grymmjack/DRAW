@@ -19,6 +19,8 @@ TYPE RECT_TYPE
     FILLED      AS INTEGER ' TRUE for filled rectangle (BF), FALSE for outline (B)
     H_DIVISIONS AS INTEGER ' Number of vertical divider lines (0=none, 1=center, n=n+1 sections)
     V_DIVISIONS AS INTEGER ' Number of horizontal divider lines (0=none, 1=center, n=n+1 sections)
+    BAR_H_DIV   AS INTEGER ' what each new rectangle starts with (the Tool Options bar; 0 = none)
+    BAR_V_DIV   AS INTEGER
 END TYPE
 
 DIM SHARED RECT_TOOL AS RECT_TYPE

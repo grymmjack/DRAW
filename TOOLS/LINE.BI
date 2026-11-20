@@ -24,6 +24,11 @@ TYPE LINE_TYPE
     START_CAP AS INTEGER ' Cap shape at start point (LINE_CAP_*)
     END_CAP   AS INTEGER ' Cap shape at end point (LINE_CAP_*)
     STICKY_END_CAP AS INTEGER ' End cap LINE_reset keeps (Annotate's Arrow tool: LINE_CAP_ARROW); 0 = none
+    ' what each new line starts with - set on the Tool Options bar (GUI/SEL-BAR), 0 = as
+    ' before; the keys while dragging change only the line being drawn
+    BAR_SPOKES    AS INTEGER
+    BAR_START_CAP AS INTEGER
+    BAR_END_CAP   AS INTEGER
 END TYPE
 
 DIM SHARED LINE_TOOL AS LINE_TYPE

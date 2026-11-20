@@ -5,7 +5,8 @@
 # similar to text properties) where we can have feathering / threshold sliders
 # for magic wand, etc.") and the soft selections behind it
 # (PLANS/AA-SELECTIONS.md):
-#   - shows with a selection tool (a top row of its own), gone with another tool
+#   - shows with a selection tool (a top row of its own), gone with a tool that has
+#     nothing on it
 #   - its controls inside the bar; the wand gets TOLERANCE etc., the marquee the
 #     shape group
 #   - mode chips (ADD / INTERSECT) set the mode with no modifier held
@@ -28,8 +29,8 @@ sbc() { C_ID=""; read -r _ C_ID C_X C_Y C_W C_TX _ <<< "$(grep -m1 "^SELBARC $1 
 sb_click() { # sb_click ID WHAT — the control's middle
     if sbc "$1"; then click $(( C_X + C_W / 2 )) $(( C_Y + ROW_H / 2 )); wait_for 0.4 "$2"; dk_park; dk_settle; else fail "no control $1 ($2) on the bar"; fi
 }
-sb_track() { # sb_track ID DX WHAT — press the slider's track DX px from its left end
-    if sbc "$1"; then click $(( C_TX + $2 )) $(( C_Y + ROW_H / 2 )); wait_for 0.4 "$3"; dk_park; dk_settle; else fail "no slider $1 ($3) on the bar"; fi
+sb_track() { # sb_track ID DX WHAT — press the slider's track DX px from its left end (0 = 1 px left of it, inside the slider's 2 px slack: a Retina click 1-3 px off still means "the left end")
+    if sbc "$1"; then click $(( C_TX + ($2 > 0 ? $2 : -1) )) $(( C_Y + ROW_H / 2 )); wait_for 0.4 "$3"; dk_park; dk_settle; else fail "no slider $1 ($3) on the bar"; fi
 }
 sb_inside() {
     local why="" id x y w tx
@@ -55,8 +56,10 @@ sb_inside "in its row"
 sbc 11 && pass "the marquee gets the shape chips" || fail "no FREE chip with the marquee"
 sbc 7 && fail "TOLERANCE shown with the marquee" || pass "no wand controls with the marquee"
 screenshot "selbar-row"
-key b; wait_for 0.6 "brush"; dk_park; dk_settle; sb_read
-(( S_ON == 0 )) && pass "another tool: the bar is gone" || fail "brush tool: SELBAR on=$S_ON"
+# (every tool you stay in has options now - PLANS/TOOL-OPTIONS-BAR.md phase 3; the text
+# tool's are the Text Bar, in the same place: Tool Options itself is not shown)
+key t; wait_for 0.6 "text tool"; dk_park; dk_settle; sb_read
+(( S_ON == 0 )) && pass "the text tool: the Text Bar instead of the bar" || fail "text tool: SELBAR on=$S_ON"
 key m; wait_for 0.6 "marquee"; dk_park; dk_settle
 dk_check "the selection bar in its row"
 

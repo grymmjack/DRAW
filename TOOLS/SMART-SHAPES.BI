@@ -16,3 +16,7 @@ SMART_SHAPES_GROUP_IDX = -1
 ' file new / file open via DRW_load_binary.
 DIM SHARED SMART_SHAPES_CHOSEN AS INTEGER
 SMART_SHAPES_CHOSEN = 0
+
+' Tool Options OUTLINE / FILLED (GUI/SEL-BAR): what a left-drag draws; a right-drag draws
+' the other. FALSE = outline, as before the bar.
+DIM SHARED SS_BAR_FILLED AS INTEGER

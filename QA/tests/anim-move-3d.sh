@@ -213,10 +213,15 @@ else
     [[ "$M_ON" == -1 && "$V_PATH" == 2 ]] || { m3_cmd "animpaint"; m3_read; }
     [[ "$M_ON" == -1 && "$V_PATH" == 2 ]] && pass "AnimPaint: on, the live path" || fail "AnimPaint start: $(m3_s)"
     m3_read
-    mouse_down "$(m3_px 4)" "$(m3_py 16)"
-    for xx in 8 12 16 20 24 28; do hover "$(m3_px $xx)" "$(m3_py 16)"; sleep 0.05; done
-    sleep 0.6
-    sleep 0.2; mouse_up; wait_for 0.8 "stroke"; m3_read
+    # One timed input sequence: the frames step on with time during the stroke, and on Windows
+    # (~70 ms a driver call) all six went by between the press and the first move, so every
+    # frame was stamped at the start (thinkpad shard A 2026-11-19: "1:0:14 ... 6:0:14").
+    read -r sx sy <<< "$(adapter_to_screen "$(m3_px 4)" "$(m3_py 16)")"
+    stroke=(move "$sx" "$sy" sleep 80 down 1 sleep 120)
+    for xx in 8 12 16 20 24 28; do
+        read -r sx sy <<< "$(adapter_to_screen "$(m3_px $xx)" "$(m3_py 16)")"; stroke+=(move "$sx" "$sy" sleep 120)
+    done
+    raw_seq "${stroke[@]}" sleep 800 up 1; wait_for 0.8 "stroke"; m3_read
     B1=$(m3_field "$M_B" 1); B6=$(m3_field "$M_B" 6)
     IFS=: read -r b1x _ <<< "$B1"; IFS=: read -r b6x _ <<< "$B6"
     [[ "$B1" != "-" && "$B6" != "-" && "$M_ON" == -1 ]] && (( b6x > b1x )) && pass "AnimPaint: stamped in every frame as the stroke went (frame 1 at x $b1x, frame 6 at x $b6x), still on" \

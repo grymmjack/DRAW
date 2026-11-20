@@ -19,6 +19,8 @@ TYPE ELLIPSE_TYPE
     FILLED   AS INTEGER ' TRUE for filled ellipse, FALSE for outline
     SLICES   AS INTEGER ' Radial spoke lines through center (0=none, n=n lines, 2n pie sectors)
     RINGS    AS INTEGER ' Concentric inner ellipses (0=none, n=n equidistant inner ellipses)
+    BAR_SLICES AS INTEGER ' what each new ellipse starts with (the Tool Options bar; 0 = none)
+    BAR_RINGS  AS INTEGER
 END TYPE
 
 DIM SHARED ELLIPSE_TOOL AS ELLIPSE_TYPE
