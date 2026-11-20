@@ -215,6 +215,8 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 
 > **Smart Shapes** and **3D Text** are on the toolbar's Smart Shapes flyout (long-press / right-click): Polygon, Pie/Donut, Rounded Rect, Tab, Pill, Pac-Man, 3D Dice, Bevel Rect, Arrow, 3D Text.
 
+> **Tool Options** (View > Tool Options; manual Ch. 02): the current tool's settings in a row above the canvas - every tool you stay in has some (the text tool's are the Text Bar, in the same place). Sliders: `L-Drag` / `L-Click` the track, `Wheel` (`Shift` ×10), `Double-Click` the value to type, `M-Click` or `Double-Click` the track to reset. `Wheel` off a slider scrolls a bar too short for its lines. Values set there stick for the next stroke / shape; keys while dragging change only that shape. Eraser **ALL LAYERS** makes smart erase the default (`Shift` then erases one layer); smart shapes **OUTLINE / FILLED** sets what a left-drag draws (R-Drag draws the other).
+
 **Left vs right button:** L-Click draws with FG, R-Click draws with BG (Brush, Dot, Line, Rect, Ellipse, Fill, Spray). Exceptions: Picker R-Click picks BG; Polygon R-Click closes shape; Brush/Dot `Shift`+R-Click draws a connecting line from the last point.
 
 ---
@@ -542,7 +544,7 @@ Edits the toolbox, edit bar and advanced bar: any tool or command, in any order,
 Follow / Floating-Image modes (View → Preview Window). `Alt+Click` pick FG (CP enabled) · `Alt+R-Click` pick BG · `Wheel` zoom preview · drag title move · drag handle resize.
 
 ### Sliders and value boxes (everywhere)
-One way to set a number in every panel, bar and Settings tab that has a slider or a value box (Pen Control, Selection Bar, Layers opacity, Organizer, the lightbox / X-sheet boxes, MyPaint Brush Settings, Brush Palette, Settings):
+One way to set a number in every panel, bar and Settings tab that has a slider or a value box (Pen Control, Tool Options, Layers opacity, Organizer, the lightbox / X-sheet boxes, MyPaint Brush Settings, Brush Palette, Settings):
 
 | Mouse | On a slider | On its value box |
 |------|------|------|

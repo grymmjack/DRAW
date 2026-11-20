@@ -411,6 +411,82 @@ END SUB
 
 
 ''
+' Tool Options and the Text Bar are one panel to the user (PLANS/TOOL-OPTIONS-BAR.md
+' phase 2: the text tool's options are the Text Bar, its code as it was). They never
+' show together but for a text layer edited under another tool, so the one hidden
+' follows the one shown: right beside it - the next slot in its column, a column /
+' row of its own next to its own, a tab in its slot, or floating at its spot. A slot,
+' column or row with nothing shown takes no room, so both sit in one place. Runs at
+' each layout; moves only when they have come apart (you moved the shown one).
+SUB DOCK_bars_follow ()
+    DIM lead AS INTEGER, twin AS INTEGER, ls AS INTEGER, lc AS INTEGER, r AS INTEGER, k AS INTEGER, a AS INTEGER
+    DIM sig AS STRING
+    IF TEXT_BAR_wanted% THEN
+        lead = DP_TEXTBAR: twin = DP_SELBAR
+    ELSEIF SELBAR_wanted% THEN
+        lead = DP_SELBAR: twin = DP_TEXTBAR
+    ELSE
+        EXIT SUB
+    END IF
+    ' after a load, the Text Bar's place wins once: an arrangement saved before the two were
+    ' linked keeps where you put the Text Bar, and Tool Options joins it there
+    IF DOCK_BARS_FIRST THEN
+        DOCK_BARS_FIRST = FALSE
+        IF DPANEL(DP_TEXTBAR).fl _ORELSE DPANEL(DP_TEXTBAR).slot > 0 THEN lead = DP_TEXTBAR: twin = DP_SELBAR
+    END IF
+    IF DOCK_bars_together%(lead, twin) THEN DOCK_BARS_SIG = "": EXIT SUB
+    ' once per place of the lead: a follow that could not land (a full tree, a clamped float)
+    ' must not move + save again every layout
+    sig = STR$(lead) + STR$(DPANEL(lead).fl) + STR$(DPANEL(lead).fx) + STR$(DPANEL(lead).fy) + STR$(DPANEL(lead).slot)
+    IF DPANEL(lead).slot > 0 THEN sig = sig + STR$(DOCK_SLOT(DPANEL(lead).slot).col) + STR$(DOCK_SLOT(DPANEL(lead).slot).ord)
+    IF sig = DOCK_BARS_SIG THEN EXIT SUB
+    DOCK_BARS_SIG = sig
+    IF DPANEL(lead).fl THEN
+        DOCK_detach_panel twin
+        DPANEL(twin).fl = TRUE
+        DPANEL(twin).fx = DPANEL(lead).fx: DPANEL(twin).fy = DPANEL(lead).fy: DPANEL(twin).fw = DPANEL(lead).fw
+        DPANEL(twin).hside = DPANEL(lead).hside: DPANEL(twin).hcol = DPANEL(lead).hcol
+        DPANEL(twin).hslot = DPANEL(lead).hslot: DPANEL(twin).halone = DPANEL(lead).halone
+    ELSE
+        IF DPANEL(lead).slot < 1 THEN EXIT SUB
+        DOCK_detach_panel twin ' (first: the tree may renumber)
+        ls = DPANEL(lead).slot: lc = DOCK_SLOT(ls).col
+        IF DOCK_SLOT(ls).ntabs > 1 THEN ' tabbed with others: a tab there too, the lead's still showing
+            FOR k = 1 TO DOCK_SLOT(ls).ntabs
+                IF DOCK_TAB(ls, k) = lead THEN a = k
+            NEXT k
+            r = DOCK_move_to_tab%(twin, ls)
+            IF a THEN DOCK_SLOT(ls).act = a
+        ELSEIF DOCK_slot_at%(lc, 2) = 0 THEN ' a column / row of its own: one of its own beside it
+            r = DOCK_move_to_new_col%(twin, DOCK_COL(lc).side, DOCK_COL(lc).ord + 1)
+        ELSE
+            r = DOCK_move_to_slot%(twin, lc, DOCK_SLOT(ls).ord + 1)
+        END IF
+    END IF
+    IF WS_ACTIVE = 0 _ANDALSO CFG.STOCK_DEFAULT_LAYOUT% = 0 THEN DOCK_ADOPT_SAVE = TRUE ' (DRAW.cfg says what is on screen)
+END SUB
+
+
+''
+' Are bar twin and lead in one place (DOCK_bars_follow)?
+FUNCTION DOCK_bars_together% (lead AS INTEGER, twin AS INTEGER)
+    DIM ls AS INTEGER, ts AS INTEGER, lc AS INTEGER, tc AS INTEGER
+    IF DPANEL(lead).fl THEN
+        DOCK_bars_together% = (DPANEL(twin).fl <> 0 _ANDALSO DPANEL(twin).fx = DPANEL(lead).fx _ANDALSO DPANEL(twin).fy = DPANEL(lead).fy)
+        EXIT FUNCTION
+    END IF
+    ls = DPANEL(lead).slot: ts = DPANEL(twin).slot
+    IF ls < 1 THEN DOCK_bars_together% = TRUE: EXIT FUNCTION ' (not docked, not floating: nothing to follow)
+    IF ts < 1 _ORELSE DPANEL(twin).fl THEN EXIT FUNCTION
+    IF ls = ts THEN DOCK_bars_together% = TRUE: EXIT FUNCTION ' (tabs of one slot)
+    lc = DOCK_SLOT(ls).col: tc = DOCK_SLOT(ts).col
+    IF lc = tc THEN DOCK_bars_together% = (ABS(DOCK_SLOT(ls).ord - DOCK_SLOT(ts).ord) = 1): EXIT FUNCTION
+    IF DOCK_slot_at%(lc, 2) <> 0 _ORELSE DOCK_slot_at%(tc, 2) <> 0 THEN EXIT FUNCTION
+    DOCK_bars_together% = (DOCK_COL(lc).side = DOCK_COL(tc).side _ANDALSO ABS(DOCK_COL(lc).ord - DOCK_COL(tc).ord) = 1)
+END FUNCTION
+
+
+''
 ' The MyPaint brush palette's place when an arrangement has none: a column of its
 ' own, the innermost on the right (a column with nothing shown takes no room).
 SUB DOCK_mypaint_place ()
@@ -995,6 +1071,7 @@ SUB DOCK_layout (barY1 AS INTEGER, charTop AS INTEGER, dockY2 AS INTEGER)
     DIM c AS INTEGER, so AS INTEGER, s AS INTEGER, id AS INTEGER, t AS INTEGER, i AS INTEGER
     IF DOCK_CUSTOM = 0 _ORELSE DOCK_READY = 0 THEN DOCK_build_default
     IF DOCK_CUSTOM THEN DOCK_adopt_new_panels
+    IF DOCK_CUSTOM THEN DOCK_bars_follow ' (Tool Options and the Text Bar: one place)
     FOR i = 1 TO DP_COUNT: DPANEL(i).rVis = FALSE: NEXT i
     DOCK_native_reset_docked
     DOCK_native_init_docked
@@ -1150,12 +1227,14 @@ END FUNCTION
 ' else the tallest its panels want - never below what they need.
 FUNCTION DOCK_row_h% (c AS INTEGER)
     DIM so AS INTEGER, s AS INTEGER, id AS INTEGER, th AS INTEGER, want AS INTEGER, mn AS INTEGER, h AS INTEGER
+    DIM bars AS INTEGER, others AS INTEGER
     FOR so = 1 TO DOCK_MAX_SLOTS
         s = DOCK_slot_at%(c, so)
         IF s = 0 THEN EXIT FOR
         id = DOCK_slot_panel%(s)
         IF id THEN
             th = 0: IF DOCK_slot_titled%(s) THEN th = DOCK_TITLE_H
+            IF (id = DP_SELBAR _ORELSE id = DP_TEXTBAR) _ANDALSO th = 0 _ANDALSO DOCK_SLOT(s).collapsed = 0 THEN bars = TRUE ELSE others = TRUE
             IF DOCK_SLOT(s).collapsed THEN
                 mn = _MAX(mn, th)
             ELSE
@@ -1166,7 +1245,13 @@ FUNCTION DOCK_row_h% (c AS INTEGER)
     NEXT so
     IF DOCK_COL(c).wpx > 0 THEN h = DOCK_COL(c).wpx ELSE h = want
     IF h < mn THEN h = mn
-    IF h < DOCK_ROW_MIN_H THEN h = DOCK_ROW_MIN_H
+    ' a row of Tool Options / the Text Bar alone is as tall as its lines: no dead strip
+    ' under a one-line bar (14 px) and no taller for a dragged edge
+    IF bars _ANDALSO others = 0 THEN
+        h = mn
+    ELSEIF h < DOCK_ROW_MIN_H THEN
+        h = DOCK_ROW_MIN_H
+    END IF
     DOCK_row_h% = h
 END FUNCTION
 
@@ -2357,6 +2442,7 @@ SUB DOCK_change_begin ()
     ' from here the tree is custom: DOCK_layout must stop rebuilding the
     ' default one from the dock keys (a live drag would be undone every frame)
     DOCK_CUSTOM = TRUE
+    DOCK_BARS_FIRST = FALSE ' (you moved something: the bar you moved leads, not the Text Bar's old place)
     DOCK_READY = TRUE
 END SUB
 

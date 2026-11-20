@@ -702,6 +702,15 @@ TYPE DRAW_CONFIG
     WAND_CONTIGUOUS                 AS INTEGER        ' TRUE = only pixels joined to the clicked one
     WAND_SAMPLE_MERGED              AS INTEGER        ' TRUE = the wand reads every visible layer merged
     WAND_ANTIALIAS                  AS INTEGER        ' TRUE = the wand's selection gets a 1px soft rim
+    ' Tool Options (GUI/SEL-BAR): the fill, the spray and the picker
+    FILL_SAMPLE                     AS INTEGER        ' a plain fill click: 0 the layer, 1 merged (as Shift), 2 all layers (as F), 3 replace all (as Shift+F)
+    FILL_TOLERANCE                  AS INTEGER        ' 0..255: largest channel difference a filled pixel may have (layer / merged fills)
+    FILL_CONTIGUOUS                 AS INTEGER        ' TRUE = only pixels joined to the clicked one (FALSE: every match)
+    SPRAY_SPREAD                    AS INTEGER        ' % of the spray's radius (25..400; 100 = from the brush size, as before)
+    SPRAY_DENSITY                   AS INTEGER        ' % of the dots / droplets a frame (10..400; 100 = as before)
+    SPRAY_FLOW                      AS INTEGER        ' % of the paint each airbrush droplet leaves (10..400; 100 = as before)
+    PICKER_SAMPLE                   AS INTEGER        ' 0 every visible layer, 1 the current layer, 2 the reference image (R held: the reference)
+    PICKER_SAMPLE_SIZE              AS INTEGER        ' 1 / 3 / 5: the average of that many px square
     ' MyPaint brushes (TOOLS/MYPAINT, GUI/MYPAINT-PANEL; PLANS/MYPAINT.md)
     MYPAINT_BRUSH                   AS STRING         ' the .myb in use ("" = the classic pencil)
     MYPAINT_SIZE                    AS INTEGER        ' radius offset in tenths of a log step (-40..40, 0 = as the brush was made); only when MYPAINT_SIZE_FROM_BRUSH = FALSE

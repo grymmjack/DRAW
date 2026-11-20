@@ -136,3 +136,71 @@ shared button, action 959 / 960) · `PRESSURE` (on / off, → Pen Control) · `S
 - **The transient row** (`DOCK_row_transient%` + `DOCK_SHIFT_Y`) can go once the bar is shown for
   every tool you stay in. Keep it until then: one-shot buttons and Pan (if Pan shows nothing)
   would still make the bar come and go.
+
+## Status
+
+- **Phase 1a** (branch `tool-options`): `SELBAR_wanted%` = the current tool has a list
+  (`SELBAR_list%` switches on `CURRENT_TOOL%`; the marquee's list is `SELBAR_list_select%`,
+  unchanged). The dump's `SELBAR` line ends with the tool id.
+- **Phase 1b**: the shared painting set, `SELBAR_list_paint%`, for brush / dot (with PIXEL
+  PERFECT), eraser / spray / line / rect / ellipse / polygon / bezier, and the filled shapes without
+  SIZE / SHAPE. Ids 24-38 (`SBC_P_*`, labels `SBC_L_*` = kind 5). SIZE is an index shown and typed
+  in px; SOFT only for a round or slant nib; SIZE / SHAPE hidden with a custom brush up. Symmetry
+  chips reach a mode by cycling (`SELBAR_sym_mode`), so a centre the user set is kept, as F7 does.
+  Dump line `SELBARP size px shape soft opacity pp aa sym`. QA: `tool-options-paint.sh`.
+- **QA**: qa-harness `_qa_cfg_overrides` pins `SELECTION_BAR=FALSE`; the bar tests opt in.
+- **Phase 3, line + shapes**: line START / END cap chips (ids 39-48), SPOKES (49), SNAP chips
+  15 / 30 / 45 / 90 + PIXEL (50-55, they set `CFG.ANGLE_SNAP_*` and save); rectangle DIVIDE | /
+  DIVIDE - (56-57); ellipse SLICES / RINGS (58-59); polygon FINISH / CANCEL (60-61); bezier
+  HANDLES / COMMIT / CANCEL (62-64). Decision 1 as built: `LINE_TOOL.BAR_SPOKES / BAR_START_CAP /
+  BAR_END_CAP`, `RECT_TOOL.BAR_H_DIV / BAR_V_DIV`, `ELLIPSE_TOOL.BAR_SLICES / BAR_RINGS` take the
+  place of the zeros at press, at commit and in the `*_reset` SUBs, so each new shape starts with
+  them; keys pressed while dragging change only that shape. Dump line `SELBARS spokes sc ec deg
+  px hdiv vdiv slices rings`. QA: `tool-options-shapes.sh`.
+- **Phase 3, smart shapes** (ids 65-116): every smart shape shows the KIND chips (one per
+  `TOOL_SS_*`, they call `SMART_SHAPES_choose`, the toolbox twin's child pick), OUTLINE /
+  FILLED (`SS_BAR_FILLED`; the right button still flips it for one shape - press sites read
+  `B2 XOR SS_BAR_FILLED`), then the shape's own options from `SS_*`: polygon SIDES / DEPTH /
+  SNAP / LOCK, pie SLICES / HOLE, rounded / tab RADIUS, tab FLAT corners, pill ROUND, pac-man
+  SEGMENTS / MOUTH / HOLE, dice D0-D6 + DEPTH / TILT / TURN (the cube reads WIRE / SOLID), the
+  LIGHT azimuth / elevation / intensity shared by the 3D shapes, bevel BEVEL / BORDER / INNER /
+  OUTER, arrow STEM / HEAD / FLARE, 3D text THICK + DEPTH / TILT / TURN. Middle-click resets to
+  the shape's default (`SELBAR_ss_def%`). Dump `SELBARSS`. QA: `tool-options-smart.sh`.
+- **Phase 3, fill / spray / picker** (ids 117-141, new cfg keys in `[SELECTION]`):
+  - fill SAMPLE chips LAYER / MERGED / ALL LAYERS / REPLACE ALL (`FILL_SAMPLE`; Shift still does
+    merged / replace for one click), TOLERANCE (`FILL_TOLERANCE`) + CONTIGUOUS
+    (`FILL_CONTIGUOUS`), GRID CELL (908) / ADJUST (909), BLEND chips (`GRADIENT_BLEND_SPACE`).
+    A tolerance above 0 or CONTIGUOUS off fills through `FILL_flood_tol`, which takes the magic
+    wand's mask (`MAGIC_WAND_mask&`, the same native flood and the same largest-channel metric
+    as `WAND_TOLERANCE`) and paints it with the paint colour / drawer / selection / lock rules.
+    **Fill Adjust floods stay exact** (the adjust session owns its own region), and DITHER stays
+    in Fill Adjust (D) - it is a property of the adjust session, not of a click.
+  - spray SPREAD / DENSITY / FLOW % (`SPRAY_SPREAD / DENSITY / FLOW`, 100 = as before), scaled
+    after the caps; FLOW shows with the airbrush (AA on, the chip reads AIRBRUSH).
+  - picker SAMPLE MERGED / LAYER / REFERENCE (`PICKER_SAMPLE`), AREA 1 / 3X3 / 5X5
+    (`PICKER_SAMPLE_SIZE`, the average of the on-canvas pixels), LOUPE zoom (0 = the theme's).
+    `PICKER_sample~&` is the one sampler; the loupe's swatch uses it too.
+  - Dump `SELBARF`. QA: `tool-options-fill.sh`.
+- **Phase 3, brush / eraser / MyPaint / move / crop / view** (ids 142-173):
+  - brush MIX (2026) - with it on SMUDGE / LENGTH / RADIUS (`BRUSH_MIX_*`) - and TILE (440,
+    shown while the canvas allows it); dot keeps the shared set only.
+  - eraser ALL LAYERS (`ERASER_BAR_SMART`, this session): smart erase without Shift; Shift then
+    erases the current layer only (`ERASER_smart_now%` = Shift XOR the toggle).
+  - MyPaint: SIZE (DRAW's, or the brush's own when SIZE = BRUSH is off), SIZE = BRUSH (2690),
+    OPAQUE / PRESSURE / TWIST (the MyPaint Brush Settings' sliders, `MPS_get / MPS_set`),
+    BRUSHES / SETTINGS (the two panels). The settings panel stays for the full list.
+  - move: FLIP H / V, ROTATE CCW / CW, SCALE 50% / 2X (the Edit menu's 315-320). CONSTRAIN /
+    WHOLE LAYER / CLONE from the inventory are not settings DRAW has: not added.
+  - the transform overlay, whatever the tool: APPLY / CANCEL (Enter / Esc).
+  - crop (it runs on the marquee): W / H of the box, APPLY / CANCEL, TRIM, WHOLE IMAGE. An
+    ASPECT lock needs the marquee to keep one while dragging: deferred.
+  - zoom and pan (decision: PAN shows the view controls): ZOOM - / + / 100% / FIT / CENTER.
+  - Dump `SELBARM`. QA: `tool-options-more.sh`.
+- **Docking**: the bar was already a dock panel (`DP_SELBAR`, `DP_H_FIXED`, as the text bar):
+  its height is its lines at the width it gets, in a row, a column or floating, at its own
+  Scale. A bar given less height than its lines scrolls by whole lines with the wheel off a
+  slider, no scrollbar drawn (`SELBAR.scroll`, dump `SELBARV scroll contentH`). QA:
+  `tool-options-dock.sh` (top / left / right / bottom / float / 3x; every control inside, no
+  dead gap, a control works in each place).
+- **Deferred**: the bezier CORNER toggle. `BEZIER.IS_CORNER` is never read, so a chip would do
+  nothing; it waits until corner points are built.
