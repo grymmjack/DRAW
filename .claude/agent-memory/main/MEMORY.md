@@ -125,3 +125,4 @@
 - [Wait for a QA run by PID](wait-for-qa-run-by-pid.md) — [Linux] pgrep "draw-qa.sh" never matches (execs into bin/qa) and \| is literal in ERE: wait on the xvfb-run PID or chain runs in one script
 - [Private build in the DRAW root](private-binary-in-draw-root.md) — [Linux] DRAW chdirs to its exe dir: test builds go to ~/git/DRAW/DRAW-*.run, never the scratchpad
 - [WINZ capture vs drop queries](winz-capture-blocks-own-hit-tests.md) — a capturing window's own drop-target hit tests read FALSE; lift WZ_CAP for the query (TBED fix 11-20)
+- [One local QA run per checkout](one-local-qa-run-per-checkout.md) — two runs share QA/.dock-dump.txt: each reads the other DRAW's state; chain runs, never parallel (11-20)
