@@ -123,3 +123,5 @@
 - [UI text is UPPERCASE](feedback-ui-text-uppercase.md) — every panel/menu/settings/dialog string in caps; user data keeps case; UCASE$ at draw + measure sites (Rick 2026-11-17)
 - [Tests in the background](feedback-tests-in-background.md) — QA runs AND farm waits/collectors go run_in_background, always; never wait on one (said twice: 11-18, 11-19)
 - [Wait for a QA run by PID](wait-for-qa-run-by-pid.md) — [Linux] pgrep "draw-qa.sh" never matches (execs into bin/qa) and \| is literal in ERE: wait on the xvfb-run PID or chain runs in one script
+- [Private build in the DRAW root](private-binary-in-draw-root.md) — [Linux] DRAW chdirs to its exe dir: test builds go to ~/git/DRAW/DRAW-*.run, never the scratchpad
+- [WINZ capture vs drop queries](winz-capture-blocks-own-hit-tests.md) — a capturing window's own drop-target hit tests read FALSE; lift WZ_CAP for the query (TBED fix 11-20)
