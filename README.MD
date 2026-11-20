@@ -9,6 +9,11 @@ Current release: v2.9.0
 
 ![DRAW GUI from v2.5.0](./GUI.png)
 
+## Unreleased
+
+- **Default 2 is now Default**: DRAW starts in it, it is titled **DEFAULT** in the View menu, the workflow buttons and the switcher, and **Leave Workspace** goes back to it. An older `WORKSPACE=default` opens it too. The plain Default (the no-overlay base every workspace builds on) is left out of the lists; `WORKSPACE_HOME=default` in `DRAW.cfg` brings it back as home.
+- **AI command buttons keep their art** when AI is off: a toolbox button for New from AI showed a text tile after `--reset-defaults` (which turns AI off).
+
 ## New in 2.9.0
 
 Tool Options: every tool's settings on one bar. Plus MyPaint brushes, soft selections, X-sheet holds and keyframe lanes, Pen Control stabilization and a large antialiasing overhaul.
@@ -482,7 +487,7 @@ groups, transform/move, export, importers, and input handling.
 - **Docking** - Every side panel (toolbox, organizer, drawer, layers, edit bar, advanced bar, character map) and every floating window (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Browser) can be moved to its own column, stacked, tabbed, collapsed, floated and docked back by dragging its handle; drag dividers and inner edges to resize. `Ctrl+Shift+Click` and View → Layout still swap a panel's side
 - **Lock Layout** - View → Lock Layout (`Ctrl+Shift+L`) freezes the panel arrangement so nothing can be dragged by accident
 - **Snap Panel Edges** - View → Snap Panel Edges: floating panels snap together and don't overlap (off: move freely); hold one still against a snap ~1.5 s to drop it on top of another
-- **Workspaces** - Named layouts (Default, Simple, Annotate, Animate, Sprite, Scene, Photoshop, DPaint, Kitchen Sink, Max Art, Panel Floats, GJ, Default 2, GRAFX2, GRAFX2 Tall, Tablet, VH, Only Menu, and your own) covering panels, toolbar buttons, menus, keys and options; switch with `Ctrl+Shift+W` or View → Workspace, edit with Configure Workspaces…
+- **Workspaces** - Named layouts (Default - the one DRAW starts in -, Simple, Annotate, Animate, Sprite, Scene, Photoshop, DPaint, Kitchen Sink, Max Art, Panel Floats, GJ, GRAFX2, GRAFX2 Tall, Tablet, VH, Only Menu, and your own) covering panels, toolbar buttons, menus, keys and options; switch with `Ctrl+Shift+W` or View → Workspace, edit with Configure Workspaces…
 - **Customize Toolbars** - Put any tool or command on the toolbox, edit bar or advanced bar, in any order (View → Customize Toolbars…)
 - **Screen Capture & Annotate** - `Ctrl+Shift+P` or `DRAW --capture` grabs a screen region into the Annotate workspace (arrow, highlighter, redact, numbered callouts, quick save)
 - **System cursors** - Automatically uses OS native cursors for UI areas (arrow in toolbar/panels), canvas work (crosshair for drawing tools, I-beam for text, resize arrows for handles) and move tool (move pointer); falls back to custom PNG cursors for tools that need them (brush, fill, picker loupe, spray, marquee); configurable via `SYSTEM_CURSORS` in `DRAW.cfg`

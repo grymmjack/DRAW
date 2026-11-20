@@ -223,6 +223,7 @@ CONST ANIM_LANE_COLORS_DEFAULT = "E06A6A,6AC46A,E0A050,C8C050,6AA6E6,BEBEBE,D27A
 TYPE DRAW_CONFIG
     THEME                           AS STRING         ' Active theme directory name (e.g. "DEFAULT")
     WORKSPACE                       AS STRING         ' Last workspace id (CFG/WORKSPACE); DRAW reopens in it. "default" = no overlay
+    WORKSPACE_HOME                  AS STRING         ' Home workspace (Leave Workspace, a missing remembered one); not "default" = the plain Default is left out of the lists
     STOCK_DEFAULT_LAYOUT            AS INTEGER        ' TRUE = Default keeps the stock panel layout: moving / docking / resizing panels there goes into the CURRENT workspace
     WORKSPACE_SAVE_PROMPT           AS INTEGER        ' TRUE = on exit in a modified CURRENT workspace, offer to save it under a name
     WORKFLOW_BAR                    AS INTEGER        ' TRUE = the workflow buttons strip at the top of the toolbox (GUI/WORKFLOW)
