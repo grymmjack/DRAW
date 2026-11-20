@@ -63,7 +63,17 @@ screenshot "saveproj-menu-open"
 for _w in $(seq 1 30); do grep -q '^MENU ' "$DRAW_ROOT/QA/.dock-dump.txt" && break; sleep 0.1; done
 read -r _ MX MY MW MH <<< "$(grep -m1 '^MENU ' "$DRAW_ROOT/QA/.dock-dump.txt")"
 [[ -n "$MH" ]] || warn "no MENU line in the dock dump - falling back to the Linux row"
-click $(( ${MX:-$(( 121 + LP_W - 100 ))} + 30 )) $(( ${MY:-11} + ${MH:-331} - 186 ))   # SAVE PROJECT AS...
+# The row from MENUI (the open menu's action ids in order, 0 = divider): rows start at
+# MENU y + 3 (the dump's y is subY - 1, then 2 px), items 12 px, dividers 5 px
+# (MENU_ITEM_HEIGHT / MENU_DIVIDER_HEIGHT). 2026-11-20: the old fixed "186 px above the
+# bottom" broke whenever a row was added below SAVE PROJECT AS.
+SPY=""; _ry=$(( ${MY:-11} + 3 ))
+for _id in $(grep -m1 '^MENUI' "$DRAW_ROOT/QA/.dock-dump.txt" | cut -d' ' -f2-); do
+    if [[ "$_id" == 203 ]]; then SPY=$(( _ry + 6 )); break; fi
+    if [[ "$_id" == 0 ]]; then _ry=$(( _ry + 5 )); else _ry=$(( _ry + 12 )); fi
+done
+[[ -n "$SPY" ]] || { warn "SAVE PROJECT AS (203) not in MENUI - falling back to the old row"; SPY=$(( ${MY:-11} + ${MH:-331} - 186 )); }
+click $(( ${MX:-$(( 121 + LP_W - 100 ))} + 30 )) "$SPY"   # SAVE PROJECT AS...
 wait_for 1.0 "Project save dialog dispatched"
 assert_no_crash
 screenshot "saveproj-dialog"
