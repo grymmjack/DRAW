@@ -35,7 +35,7 @@ bt_run() { # IN ARGS... -> BT_RC, BT_OUT (stdout)
     BT_RC=$?
 }
 bt_lines() { grep -c "^$1 " <<< "$BT_OUT"; } # wrote | FAILED -> how many such lines
-bt_said() { grep -q "^$1 $BT_T/o/$2\b" <<< "$BT_OUT"; } # wrote|FAILED FILE -> a line for it
+bt_said() { grep -q "^$1 .*/o/$2\b" <<< "$BT_OUT"; } # wrote|FAILED FILE -> a line for it (any path form: Windows prints C:/Users/.../Temp for /tmp)
 
 # -- one run, every animation format from --export-anim --
 bt_run "$BT_T/sheet.png" --export-anim "$BT_T/o/a.gif" --export-anim "$BT_T/o/a.apng" --export-anim "$BT_T/o/seq.png" \
