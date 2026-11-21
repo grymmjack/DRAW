@@ -256,8 +256,6 @@ CONST DOCK_BAND_TOP    = 1
 CONST DOCK_BAND_BOTTOM = 2
 CONST DOCK_BAND_MIN_H  = 80
 DIM SHARED DOCK_BAND_SIDE AS INTEGER ' 0 = the Browser is not in a band
-DIM SHARED DOCK_BAND_H    AS INTEGER ' the band's height (px)
-DIM SHARED DOCK_BAND_X    AS INTEGER ' this frame's band rect (valid while DOCK_BAND_W > 0)
 DIM SHARED DOCK_BAND_Y    AS INTEGER
 DIM SHARED DOCK_BAND_W    AS INTEGER
 DIM SHARED DOCK_BAND_HH   AS INTEGER ' this frame's band height (DOCK_BAND_H clamped to the room)

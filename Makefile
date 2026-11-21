@@ -40,6 +40,8 @@ SRC       := DRAW.BAS
 BASENAME  := DRAW
 LOGFILE   := $(BASENAME).log
 MAKE_LOG  := .claude/make.log
+# this build's compiler output alone, for DEV/check-unused-vars.sh
+BUILD_OUT := .claude/last-build.log
 
 # ---------- Compiler ----------------------------------------------------------
 # Default is the stock main-repo build ($(HOME)/git/qb64pe, QB64-PE v4.6.0+). The
@@ -168,7 +170,10 @@ $(OUT): $(SOURCES)
 	$(QB64PE) $(QB64FLAGS) $(SRC) -o $(OUT) 2>&1 \
 	    | sed -u 's/\x1b\[[0-9;]*[A-Za-z]//g' \
 	    | grep --line-buffered -v '^\[[ .]*\][[:space:]]*[0-9]\+%' \
-	    | tee -a $(MAKE_LOG)
+	    | tee $(BUILD_OUT) | tee -a $(MAKE_LOG)
+	@# No unused variables (Rick 2026-11-21): a build that has one fails and its
+	@# binary goes, so `make run` never starts it and the next `make` rebuilds.
+	@./DEV/check-unused-vars.sh $(BUILD_OUT) || { $(RM) $(OUT); exit 1; }
 
 run: $(OUT)  #: Build then run DRAW (pass DRAW flags via ARGS="...")
 	./$(OUT) $(ARGS)
