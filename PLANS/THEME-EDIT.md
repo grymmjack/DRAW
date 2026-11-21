@@ -242,6 +242,12 @@ the node using it and the status line names it (`text.png - BUTTON TEXT`, or NOT
   inside that region (`THEMEED_node_at%`), its component the node's own - so whatever gets a node
   is pickable, revealed and editable, with no per-panel hit test. The element's box (else the
   region's) is outlined.
+- **Hover previews, the click selects** (Rick 2026-11-21: "not select anything else on my way back
+  over to the inspector"): while picking, hovering only outlines the thing, names it on the PICK
+  line and reveals it in the tree; the properties change on the click. Picking ended without one
+  (INSPECT, Esc) puts the tree back on the selection (`THEMEED.selKey`). The selected element is
+  marked wherever it shows: its ELEMENT rows (the list goes back to its top for a new element), its
+  files in IMAGES and the image properties that name them (`UIPI_row_is_elem%`).
 - **Every part is a node.** Worked out from a panel's data (`THEMEED_kid%`: toolbox / bar
   buttons, menu titles, colour chips, organizer widgets, workflow / selection bar / text bar
   controls, flyout children, layers header / bar / buttons) or said by the draw code as it draws

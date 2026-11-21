@@ -63,6 +63,7 @@ TYPE THEMEED_OBJ
     dlgOB1        AS INTEGER ' the buttons last dialog frame (THEMEED_dialog_input%)
     dlgOB2        AS INTEGER
     openAction    AS INTEGER ' a DIALOGS menu pick: the action that opens it, run at the next tick
+    selKey        AS STRING  ' the node a click picked (or a tree row): picking's hover only previews
 END TYPE
 
 ' The region table as of the last GUI render (REGION_BOUNDS_TABLE is cleared

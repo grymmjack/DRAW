@@ -52,8 +52,10 @@ buttons, layer icons and buttons, organizer widgets, text bar icons, flyout chil
 
 Picking uses the tree (`THEMEED_node_at%`: the smallest node with a box under the pointer - first
 under `OVER` (open menus / popups, drawn over everything), else inside the hovered region's node;
-the node's own `comp` wins over the region's). So to make a part inspectable, give it a node -
-never a per-panel hit test. Two ways:
+the node's own `comp` wins over the region's). Hovering only previews it (outline, PICK line,
+tree); the click selects it - `UIPI_show_comp` / `UIPI_set_element` and `THEMEED.selKey`, which
+the tree goes back to when picking ends without a click (the `PICK 0` event). So to make a part
+inspectable, give it a node - never a per-panel hit test. Two ways:
 
 - **Computed** in `THEMEED_tree_region%` / `THEMEED_tree_extra` from the panel's own data, via
   `THEMEED_kid%(parent, key, label, dp, x, y, w, h, fls)` (dp = its `DP_*` surface: units ->
