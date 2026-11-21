@@ -392,7 +392,7 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 - **Effects menu** (Shape / Texture / Render engines): each dialog has a split ORIG/ADJ loupe, wheel-sliders, an angle dial, seed, MIX slider, Reset. Effects can clip to selection or run selection-as-shape.
 - **Last-effect shortcuts:** `Ctrl+F` re-apply last effect · `Ctrl+Alt+F` recall last effect (re-open its dialog) · `Ctrl+Shift+F` blend/fade last effect (blend modes + isolate-to-new-layer).
 - **CRT effect:** `Ctrl+Alt+O` toggle · View → CRT Effect Settings…
-- **Anti-Aliasing** (experimental, off by default): Edit → Anti-Aliasing toggle (status shows **AA**); Edit Bar Edge-Mode button (L-Click toggle, R-Click switch Pixel-Perfect ⟷ AA). Config `ANTIALIAS`.
+- **Anti-Aliasing** (experimental, off by default): Edit → Anti-Aliasing toggle (status shows **AA**); Toggle Anti-Aliasing on the toolbox (the Edit Bar's button is Pixel-Perfect only). Config `ANTIALIAS`.
 - **Crop tool:** `Click+Drag` region · handles resize (drag outward past an edge to *grow* the canvas) · `Arrows` nudge · `Ctrl+Arrows` resize · `Enter` apply · `Esc` cancel.
 
 ---

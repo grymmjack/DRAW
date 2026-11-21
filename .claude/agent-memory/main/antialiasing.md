@@ -42,13 +42,13 @@ It honors the same gates as `PAINT_pset_with_symmetry`: `SELECTION_is_point_insi
 **Edge Mode — PP/AA are mutually exclusive.** Pixel-Perfect and Anti-Aliasing are
 opposite edge treatments, so DRAW enforces **never both on**: enabling one turns the
 other off, in every path — `BRUSH_SIZE_toggle_pixel_perfect` (covers action 609 + F6)
-forces AA off; COMMAND.BM `CASE 958` forces PP off. A shared **Edit Bar button** (slot 28,
-action **959**) controls whichever is the current *target*: **left-click** toggles that
-target on/off, **right-click** (action **960**, wired via `EDITBAR_handle_right_click` +
-a new B2 branch in MOUSE.BM ~1104) switches the target PP↔AA (live-swapping if active).
-`EDGE_MODE_TARGET` (EDITBAR.BI, `EDGE_TARGET_PP`/`_AA`) only remembers which face shows;
-truth stays in `BRUSH_SIZE.PIXEL_PERFECT` / `CFG.ANTIALIAS%`. The button paints an "AA"
-tag (`EDITBAR_draw_aa_badge`, 8×8 font) when target=AA. Menu lives in **Edit**, not View
+forces AA off; COMMAND.BM `CASE 958` forces PP off. The bars' button (Edit Bar slot 28,
+action **959**, workspace name `edge-mode`) is **Pixel-Perfect only** (959 = 609) since
+2026-11-21 (Rick: "i no longer want PP pixel perfect overlayed with any AA stuff since i
+have a dedicated toolbox button for it"). It used to be a shared PP/AA button - right-click
+(action 960) switched its target and an "AA" tag marked the AA face; 960,
+`EDGE_MODE_TARGET` and `EDITBAR_draw_aa_badge` are gone. AA's button is the toolbox
+command cell for 958. Menu lives in **Edit**, not View
 (AA is a draw-time behavior, not a view overlay like CRT). NOTE: `EDITBAR_action_enabled%`
 uses the `funcname% = expr` return-assignment idiom in a one-line SELECT CASE — the MCP
 linter flags these as "self-reference SIGSEGV" **false positives**; they compile fine.
