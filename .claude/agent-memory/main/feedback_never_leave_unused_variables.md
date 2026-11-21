@@ -7,6 +7,14 @@ metadata:
 ---
 
 **User directive (explicit, 2026-05-28):** "clean up the unused variables. never leave them. i don't want to have to deal with this again."
+**Again, 2026-11-21** (119 had piled up anyway, mostly from private `qb64pe ... -o DRAW-x.run` builds nobody read the warnings of): "remove all the unused variables... do not allow these in the future" / "never be satisfied with unused variables".
+
+## Enforced by the build since 2026-11-21
+
+- `DEV/check-unused-vars.sh BUILD_OUTPUT` exits 1 on any "Unused variable" and lists them.
+- `make` runs it after every compile (output in `.claude/last-build.log`) and **deletes the binary** on a failure, so `make run` can't start it.
+- The release workflow runs it after the Linux, macOS AND Windows compiles: a variable used only inside another OS's `$IF` block is flagged only by that OS's build.
+- **A private build (`qb64pe ... -o DRAW-x.run > log`) bypasses make: run `DEV/check-unused-vars.sh <its log>` yourself before using the binary.** That gap is how the 119 piled up.
 
 ## The rule
 
@@ -28,6 +36,8 @@ After every successful compile, scan the trailing output for `warning: Unused va
 - Note the file:line.
 - If it's a local DIM (`DIM x AS ...`), delete the line.
 - If it's a parameter, edit the SUB/FUNCTION signature AND every callsite (5 callsites is typical for a dialog widget).
+- Before deleting, check the whole SUB/FUNCTION for the name, including `$IF` branches for other OSes - the Linux compiler warns about a DIM that only Windows / macOS code uses. Then move that DIM inside the `$IF` instead of deleting it.
+- A stub kept "for callers" that ignores its parameters (2026-11-21: `DOCK_band_title_at%` always returned FALSE) goes, along with the dead branch that called it.
 - Recompile to confirm the warning is gone before declaring the task done.
 
 Do not announce the build is "successful with warnings" and move on. That sentence is the failure mode this memory exists to prevent.

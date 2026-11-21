@@ -23,6 +23,7 @@ TYPE BROWSER_OBJ
     needReClamp    AS INTEGER       ' TRUE until first render after startup (deferred work-area clamp)
     autoHidden     AS INTEGER
     docked         AS INTEGER       ' in a dock slot (GUI/DOCK): the slot sets dispX/Y/W/H; no clamp, resize or maximize
+    hadMouse       AS INTEGER       ' it had the pointer last frame (BROWSER_mouse_left clears its hover when that ends)
 
     dispW       AS INTEGER
     dispH       AS INTEGER

@@ -458,6 +458,13 @@ FUNCTION WS_apply% (idOrTitle AS STRING)
     WS_capture_option_origs
     FOR i = 1 TO WS_OPT_N
         IF WS_OPT_KIND(i) >= WS_OK_PANEL _ANDALSO LEN(WS_OPT_VAL(i)) = 0 THEN WS_OPT_VAL(i) = WS_OPT_ORIG(i)
+        ' the workspace DRAW starts in leaves a key given with --option at its
+        ' --option value: the command line beats it for this run (its LIGHTBOX=1
+        ' beat --option LIGHTBOX=0 - QA anim-lightbox on a user profile,
+        ' 2026-11-20). A workspace chosen later applies the key as usual.
+        IF WS_AT_STARTUP _ANDALSO WS_OPT_HAD(i) THEN
+            IF CFG_cli_has%(WS_OPT_KEY(i)) THEN WS_OPT_VAL(i) = WS_OPT_ORIG(i)
+        END IF
     NEXT i
 
     ' Keys the overlay does not handle yet are reported once, not silently dropped
@@ -554,7 +561,7 @@ END SUB
 ''
 ' ...and after: the overlay's live values come back.
 SUB WS_cfg_guard_end ()
-    DIM el AS INTEGER, dk AS INTEGER, i AS INTEGER, ok AS INTEGER
+    DIM el AS INTEGER, dk AS INTEGER
     IF WS_GUARD_ON = 0 THEN EXIT SUB
     FOR el = 1 TO WS_EL_COUNT
         IF WS_EL_TOUCHED(el) _ANDALSO WS_el_has_cfg%(el) THEN WS_el_set_cfg el, WS_EL_HOLD_CFG(el)
@@ -677,6 +684,7 @@ SUB WS_startup ()
     DIM ok AS INTEGER, i AS INTEGER
     WS_scan
     WS_buttons_universal_default ' Default's buttons: the same ones as every workspace's, when that is on
+    WS_AT_STARTUP = TRUE ' (--option keys stay as given: WS_apply%)
     ' --workspace NAME: this run only (CFG.WORKSPACE keeps the remembered one)
     FOR i = 1 TO _COMMANDCOUNT - 1
         IF LCASE$(_TRIM$(COMMAND$(i))) = "--workspace" THEN WS_CLI_NAME = _TRIM$(COMMAND$(i + 1))
@@ -685,10 +693,16 @@ SUB WS_startup ()
         WS_NO_REMEMBER = TRUE
         ok = WS_apply%(WS_CLI_NAME)
         WS_NO_REMEMBER = FALSE
-    ELSEIF WS_is_default%(CFG.WORKSPACE$) = 0 THEN
-        ok = WS_apply%(CFG.WORKSPACE$)
+    ELSEIF WS_is_default%(CFG.WORKSPACE$) = 0 _ORELSE WS_home_ws$ <> WS_DEFAULT_ID$ THEN
+        ok = WS_apply%(CFG.WORKSPACE$) ' ("default" finds home while it stands in: WS_find%)
+        ' a remembered workspace that is gone: home (Default 2), else the plain Default
+        IF ok = 0 _ANDALSO WS_home_ws$ <> WS_DEFAULT_ID$ _ANDALSO LCASE$(_TRIM$(CFG.WORKSPACE$)) <> WS_home_ws$ THEN
+            CFG.WORKSPACE$ = WS_home_ws$
+            ok = WS_apply%(CFG.WORKSPACE$)
+        END IF
         IF ok = 0 THEN CFG.WORKSPACE$ = WS_DEFAULT_ID$
     END IF
+    WS_AT_STARTUP = FALSE
     WS_sync_commands
     MENUBAR_rebuild
 END SUB
@@ -708,6 +722,7 @@ SUB WS_sync_commands ()
     NEXT i
     CMD_COUNT = j
     FOR i = 1 TO WS_COUNT
+        IF WS_listed%(i) = 0 THEN _CONTINUE ' (the plain Default while Default 2 stands in)
         IF WS_LIST(i).id = WS_ACTIVE_ID THEN
             CMD_register WS_CMD_PREFIX$ + WS_LIST(i).title, "active", CMD_CAT_VIEW, WS_ACT_SLOT0 + i
         ELSE
@@ -765,7 +780,7 @@ SUB WS_action (act AS INTEGER)
         CASE WS_ACT_RELOAD
             WS_reload
         CASE WS_ACT_LEAVE
-            ok = WS_apply%(WS_DEFAULT_ID$)
+            ok = WS_apply%(WS_home_ws$)
         CASE WS_ACT_SAVE_AS
             WSC_save_layout_as ' GUI/WORKSPACE-CONFIG
         CASE WS_ACT_UPDATE
@@ -1069,7 +1084,7 @@ END SUB
 ' and shows the named buttons, with a divider only between two groups that
 ' each kept a button. TRUE when the section set either.
 FUNCTION WS_apply_bar_list% (panel AS INTEGER, sec AS STRING)
-    DIM lst AS STRING, i AS INTEGER, j AS INTEGER, n AS INTEGER, ok AS INTEGER, groupHas AS INTEGER, anyBefore AS INTEGER, nm AS STRING
+    DIM lst AS STRING, i AS INTEGER, j AS INTEGER, n AS INTEGER, groupHas AS INTEGER, anyBefore AS INTEGER, nm AS STRING
     DIM keep(0 TO BL_MAX - 1) AS INTEGER
     lst = WS_buttons_universal_list$(panel) ' the same buttons everywhere: over the workspace's own
     IF LEN(lst) = 0 THEN lst = WS_get$(sec + ".ORDER", "")
@@ -1109,7 +1124,7 @@ END FUNCTION
 
 
 SUB WS_apply_bars ()
-    DIM lst AS STRING, i AS INTEGER, j AS INTEGER, groupHas AS INTEGER, anyBefore AS INTEGER
+    DIM lst AS STRING, i AS INTEGER
     WS_BARS_TOUCHED = FALSE
     ' opted out of the shared buttons: start from the bars' stock lists, not the shared ones
     IF CFG.BUTTONS_UNIVERSAL% _ANDALSO WS_own_buttons% THEN BL_set_default BL_EDITBAR: BL_set_default BL_ADVBAR: WS_BARS_TOUCHED = TRUE
@@ -1375,7 +1390,7 @@ END SUB
 ' (*_DOCK keys) gets the classic default tree over a custom one, so its sides
 ' apply. Either way WS_restore puts your arrangement back.
 SUB WS_apply_dock ()
-    DIM snap AS STRING, i AS INTEGER, k AS STRING, dk AS INTEGER, anySide AS INTEGER
+    DIM snap AS STRING, i AS INTEGER, dk AS INTEGER, anySide AS INTEGER
     i = 0
     DO
         i = WS_next_in_section%("DOCK", i)

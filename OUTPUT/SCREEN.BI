@@ -115,6 +115,10 @@ DIM SHARED PG_CACHE_OPACITY AS INTEGER
 ' Scene cache — fully rendered canvas (layers+grid+GUI) before cursor
 ' When only cursor position changes, copy from cache instead of full repaint
 DIM SHARED SCENE_CACHE AS LONG                 ' Cached pre-cursor canvas image
+' Where the canvas sat when SCENE_CACHE was last rendered (panelShiftX / Y, the side edges):
+' a dock layout change (a docked column shown / hidden: F4, F5...) that moves the canvas
+' makes the cached scene stale - the GUI-only path re-renders the scene then (2026-11-20)
+DIM SHARED SCENE_LAY_SX AS INTEGER, SCENE_LAY_SY AS INTEGER, SCENE_LAY_L AS INTEGER, SCENE_LAY_R AS INTEGER
 DIM SHARED SCENE_DIRTY AS INTEGER              ' TRUE = must do full repaint
 SCENE_DIRTY% = TRUE                            ' Start dirty
 

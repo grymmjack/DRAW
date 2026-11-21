@@ -451,11 +451,18 @@ click $CANVAS_CX $CANVAS_CY
 wait_for 0.8 "Re-editing text layer"
 assert_no_crash
 
-# Snap after re-edit — cursor should appear again
+# Snap after re-edit — cursor should appear again. The caret BLINKS (TEXT_update_cursor:
+# 0.5 s on / 0.5 s off), so one snap lands in the off half about half the time (this
+# "failed on main too" for months): snap across a whole blink cycle, pass if any shows it.
 park_mouse
-snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-reedit"
-AFTER_REEDIT="$SNAP_RESULT"
-assert_regions_differ "$BEFORE_REEDIT" "$AFTER_REEDIT" "Re-edit should show cursor on text"
+REEDIT_SEEN=0
+for _b in 1 2 3 4 5; do
+    snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-reedit-$_b"
+    AFTER_REEDIT="$SNAP_RESULT"
+    if ! cmp -s "$BEFORE_REEDIT" "$AFTER_REEDIT" && [[ "$(compare -metric AE -fuzz 2% "$BEFORE_REEDIT" "$AFTER_REEDIT" /dev/null 2>&1 | cut -d' ' -f1)" != "0" ]]; then REEDIT_SEEN=1; break; fi
+    sleep 0.25
+done
+if (( REEDIT_SEEN )); then pass "Re-edit shows the caret on the text (snap $_b of 5)"; else fail "Re-edit should show cursor on text - no snap over 1.25 s (a blink cycle) differs"; fi
 pass "Test 15: Re-edit shows cursor on committed text"
 
 # Type additional text to verify editing works

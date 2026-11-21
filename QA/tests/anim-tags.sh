@@ -148,7 +148,7 @@ else
 
     # -- the batch CLI: --tag --
     tg_batch "$TG_DIR/sheet.png" --tag run --export-anim "$TG_DIR/o/r.png" --export-anim "$TG_DIR/o/r.apng"
-    [[ "$TG_RC" == 0 && -s "$TG_DIR/o/r_0003.png" && ! -e "$TG_DIR/o/r_0004.png" ]] && grep -q "^wrote $TG_DIR/o/r.png .*tag run" <<< "$TG_OUT" \
+    [[ "$TG_RC" == 0 && -s "$TG_DIR/o/r_0003.png" && ! -e "$TG_DIR/o/r_0004.png" ]] && grep -q "^wrote .*/o/r\.png .*tag run" <<< "$TG_OUT" \
         && pass "--tag run --export-anim r.png: 3 PNGs (frames 2-4), the line says 'tag run'" || fail "--tag run: exit $TG_RC, '$(ls "$TG_DIR/o" | tr '\n' ' ')', '$(tr '\n' '|' <<< "$TG_OUT")'"
     TG_AE=$(magick compare -metric AE "$TG_DIR/o/r_0001.png" "$TG_DIR/frame2.png" null: 2>&1 | awk '{print $1}')
     [[ "$TG_AE" == 0 ]] && pass "r_0001.png is frame 2, exact pixels" || fail "r_0001.png vs frame 2: '$TG_AE' pixels differ"

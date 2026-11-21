@@ -381,7 +381,13 @@ dk_check() {
         # the old band key is never written again (it loads as a row)
         if grep -q '^DOCK_BAND=' "$QA_CFG"; then bad+=" DOCK_BAND= still saved;"; fi
     fi
-    if [[ -z "$bad" ]]; then pass "$label: invariants hold [$t]"; else fail "$label:$bad"; fi
+    if [[ -z "$bad" ]]; then pass "$label: invariants hold [$t]"
+    else
+        # keep the dump that failed, beside the screenshots
+        local keep="${SCREENSHOTS_DIR:-.}/_inv_$(date +%H%M%S%N | cut -c1-9).dump"
+        cp -f "$DK_DUMP" "$keep" 2>/dev/null
+        fail "$label:$bad [dump $(basename "$keep")]"
+    fi
     # 7: one border line on every column's inner edge (dk_seams)
     dk_seams "$label"
     assert_no_crash
@@ -564,6 +570,10 @@ dk_seams() {
     # DK_SEAM_COLORS="404040 404040" stands in for the SEAM line (a build from
     # before it, to see the check fail on the old code)
     grep -q '^SEAM ' "$DK_DUMP" || [[ -n "${DK_SEAM_COLORS:-}" ]] || { fail "$label: no SEAM line in the dock dump"; return 0; }
+    # the mouse off the panels first: a hover label left where the last drag ended
+    # (the browser's path box over a place row) can reach a column edge and read
+    # as a frame line beside the seam (2026-11-20)
+    dk_park; dk_settle; dk_scr
     DK_SEAM_N=$(( ${DK_SEAM_N:-0} + 1 ))
     snap_region 0 0 "$SCR_W" "$SCR_H" "seams$DK_SEAM_N"
     png="$SNAP_RESULT"

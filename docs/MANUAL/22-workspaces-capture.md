@@ -25,7 +25,8 @@ only remembers *which* workspace you were in, so it reopens there.
 
 | Workspace | What it is |
 | --- | --- |
-| **Default** | The stock panel layout. No overlay. Always there; can't be deleted. Moving or resizing panels in it starts a workspace of your own (see below). |
+| **Default** | The stock layout DRAW starts in (file `default-2.workspace`, once called Default 2): the workflow buttons, a 4-column toolbox (with MyPaint, Capture Screen, New from AI and Anti-Aliasing buttons), organizer and Drawer on the left with the edit bar beside them; Layers and the advanced bar on the right; Tool Options and the Text Bar on top. **Leave Workspace** comes back here. |
+| *(plain Default)* | The no-overlay base every workspace builds on (`BASED_ON=default`), not listed. `WORKSPACE_HOME=default` in `DRAW.cfg` lists it as **Default** again and makes it home (the workspace above is then **Default 2**). Moving or resizing panels in it starts a workspace of your own (see below). |
 | **Simple** | Everyday drawing: a 2-column toolbox of 10 tools, File / Edit / View / Help menus, no advanced bar or power panels. |
 | **Animate** | Frame-by-frame animation: the lightbox (strip, transport bar, the frames before and after side by side) with onion skin and the frame grid, and the Animation panel; the character map, 3D color space and browser are put away. On a picture without frames, `Num +` makes frames and the lightbox opens on them. |
 | **Sprite** | One sprite or a short loop: the Preview (showing the current frame), the Animation panel, the Drawer and Swatches; the frame grid on, no lightbox or onion skin; the Brush; no EFFECTS / AUDIO menus. |
@@ -37,7 +38,6 @@ only remembers *which* workspace you were in, so it reopens there.
 | **Max Art** | The Kitchen Sink arrangement with only the drawing panels showing (toolbox, organizer, Drawer, Layers, both bars), for the most canvas; an 8-row color strip. |
 | **Panel Floats** | Every panel floating: no docks at all. |
 | **GJ** | Toolbox and edit bar on the left, everything else docked on the right in tabbed stacks: color panels (Mixer, Advanced Picker, 3D Color Space), Pen / Animation, Swatches, Drawer, Preview, Layers. |
-| **Default 2** | The classic layout from the dock keys with a 4-column toolbox; a starting point to make your own. |
 | **GRAFX2** | A left column of Color Mixer, Advanced Color Picker and the Browser (thumbnails), the 3D Color Space beside it; Animation, Layers and Preview on the right; the edit / advanced bars and workflow buttons along the bottom over a row of toolbox, organizer, Swatches and Drawer, Pen Control under them; the lightbox in 3 panes with the X-sheet. |
 | **GRAFX2 Tall** | GRAFX2 with taller rows: Animation, Pen Control and the two color pickers (tabbed) on the left with a Browser column and the 3D Color Space; Layers on the right; a tall bottom row of toolbox, organizer, Swatches (VGA), Drawer and Preview; one big lightbox pane with a tall X-sheet. Layout locked. |
 | **Tablet** | Big targets for a pen: the color strip at the top with the toolbox and organizer in a row under it; workflow buttons, Swatches, Advanced Color Picker and Preview on the left; Animation and Layers on the right; Pen Control, the Drawer and the Browser in rows along the bottom. |

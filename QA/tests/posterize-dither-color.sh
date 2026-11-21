@@ -53,10 +53,16 @@ NCOLOURS=$(identify -format %k "$RESULT_IMG" 2>/dev/null)
 info "  [colours] unique colours after posterize+dither: ${NCOLOURS:-?}"
 screenshot "posterize-dither-canvas"
 
-if [[ "${NCOLOURS:-0}" -gt 6 ]] 2>/dev/null; then
-    pass "Posterize+dither preserved colour (${NCOLOURS} unique colours)"
+# Chromatic colours (max - min channel > 40): the old 1-bit dither left none (B/W + the
+# grey checkerboard). 2026-11-20: the "> 6 unique" guard failed on a CORRECT result -
+# cyan and grey land exactly on posterize levels (no dither there), so the strip holds
+# checker 2 + cyan + grey + the dithered purple's 2 = 6.
+NCHROMA=$(magick "$RESULT_IMG" -alpha off -depth 8 -unique-colors txt:- 2>/dev/null | sed -n 's/^[0-9]*,[0-9]*: *(\([0-9]*\),\([0-9]*\),\([0-9]*\).*/\1 \2 \3/p' | awk '{ mx = $1; mn = $1; for (i = 2; i <= 3; i++) { if ($i > mx) mx = $i; if ($i < mn) mn = $i }; if (mx - mn > 40) n++ } END { print n + 0 }')
+info "  [colours] chromatic colours: ${NCHROMA:-?}"
+if [[ "${NCHROMA:-0}" -ge 2 ]] 2>/dev/null; then
+    pass "Posterize+dither preserved colour (${NCHROMA} chromatic of ${NCOLOURS} unique colours)"
 else
-    fail "Posterize+dither collapsed to ~B/W (${NCOLOURS:-?} unique colours, expected > 6)"
+    fail "Posterize+dither collapsed to ~B/W (${NCHROMA:-?} chromatic colours of ${NCOLOURS:-?}, expected >= 2)"
 fi
 
 assert_no_crash

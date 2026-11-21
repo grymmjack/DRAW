@@ -32,6 +32,11 @@ CONST WS_MAX       = 32  ' workspaces listed (built-in + user)
 CONST WS_MAX_KV    = 512 ' resolved SECTION.KEY=VALUE pairs for one workspace
 CONST WS_MAX_DEPTH = 8   ' BASED_ON chain limit (a cycle stops here)
 CONST WS_DEFAULT_ID$ = "default"
+' The workspace DRAW starts in and goes home to (Leave Workspace, a deleted or missing active one).
+' Rick 2026-11-20: "DEFAULT workspace should be replaced with DEFAULT 2". The plain Default stays
+' the no-overlay base (BASED_ON, QA's WORKSPACE=default) but is left out of every list while this
+' one is home - see WS_listed% / WS_home_ws$ (cfg WORKSPACE_HOME; QA pins it to "default").
+CONST WS_HOME_ID$    = "default-2"
 CONST WS_CURRENT_ID$ = "current" ' always listed under Default: where changes made in Default go (no file until the first one)
 CONST WS_EXT$        = ".workspace"
 

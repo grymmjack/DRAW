@@ -107,7 +107,7 @@ PY
     if [[ -x "$AS_QB" ]]; then
         printf "'\$INCLUDE:'ss.bi'\n\$CONSOLE:ONLY\nDIM i AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG, ms AS LONG\nPRINT SS_FRAMES; SS_FRAME_W; SS_FRAME_H; SS_FPS; SS_LOOP\nRESTORE SS_FRAME_DATA\nFOR i = 1 TO SS_FRAMES: READ x, y, w, h, ms: PRINT x; y; w; h; ms: NEXT i\nSYSTEM\n" > "$AS_T/out/use.bas"
         ( cd "$AS_T/out" && "$AS_QB" -x -w use.bas -o use.run >"$AS_T/qb.log" 2>&1 )
-        AS_B=$( ( cd "$AS_T/out" && timeout 10 ./use.run 2>/dev/null ) | tr -s ' \n' ' ' | sed 's/^ //; s/ $//')
+        AS_B=$( ( cd "$AS_T/out" && timeout 10 ./use.run 2>/dev/null ) | tr -s ' \r\n' ' ' | sed 's/^ //; s/ $//')
         [[ "$AS_B" == "4 16 16 10 2 0 0 16 16 100 16 0 16 16 300 32 0 16 16 100 48 0 16 16 100" ]] \
             && pass "ss.bi compiles in a QB64 program and READs the same rects + ms" || fail "ss.bi: program printed '$AS_B' ($(tail -2 "$AS_T/qb.log" | tr '\n' ' '))"
     else

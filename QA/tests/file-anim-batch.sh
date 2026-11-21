@@ -35,7 +35,7 @@ bt_run() { # IN ARGS... -> BT_RC, BT_OUT (stdout)
     BT_RC=$?
 }
 bt_lines() { grep -c "^$1 " <<< "$BT_OUT"; } # wrote | FAILED -> how many such lines
-bt_said() { grep -q "^$1 $BT_T/o/$2\b" <<< "$BT_OUT"; } # wrote|FAILED FILE -> a line for it
+bt_said() { grep -q "^$1 .*/o/$2\b" <<< "$BT_OUT"; } # wrote|FAILED FILE -> a line for it (any path form: Windows prints C:/Users/.../Temp for /tmp)
 
 # -- one run, every animation format from --export-anim --
 bt_run "$BT_T/sheet.png" --export-anim "$BT_T/o/a.gif" --export-anim "$BT_T/o/a.apng" --export-anim "$BT_T/o/seq.png" \
@@ -46,7 +46,7 @@ for f in a.gif a.apng seq_0001.png seq_0010.png s.json s.png s.bi play.bas pl.sh
     || fail "six --export-anim: exit $BT_RC, wrote: $(ls "$BT_T/o" | tr '\n' ' ')"
 [[ "$(bt_lines wrote)" == 6 ]] && bt_said wrote a.gif && bt_said wrote a.apng && bt_said wrote seq.png && bt_said wrote s.json && bt_said wrote play.bas && bt_said wrote pl.sheet.bas \
     && pass "a 'wrote' line for each of the six" || fail "console lines: '$(tr '\n' '|' <<< "$BT_OUT")'"
-grep -q "^wrote $BT_T/o/a.gif  (6 frames" <<< "$BT_OUT" && pass "with its summary ('$(grep "a.gif" <<< "$BT_OUT" | sed 's/.*  //')')" || fail "no summary on the GIF line: '$(grep "a.gif" <<< "$BT_OUT")'"
+grep -q "^wrote .*/o/a\.gif  (6 frames" <<< "$BT_OUT" && pass "with its summary ('$(grep "a.gif" <<< "$BT_OUT" | sed 's/.*  //')')" || fail "no summary on the GIF line: '$(grep "a.gif" <<< "$BT_OUT")'"
 [[ "$BT_OUT" != *$'\e'* ]] && pass "plain text (stdout is not a terminal)" || fail "ANSI colours in piped output"
 
 # -- --export takes the frames-only formats too, and .png flattened --

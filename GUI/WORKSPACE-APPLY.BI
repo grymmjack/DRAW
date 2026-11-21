@@ -85,6 +85,7 @@ WS_DK_NAME(WS_DK_CHARMAP) = "CHARMAP_DOCK"
 
 ' Overlay state
 DIM SHARED WS_ACTIVE       AS INTEGER ' TRUE while a non-default workspace is applied
+DIM SHARED WS_AT_STARTUP   AS INTEGER ' TRUE while WS_startup applies the workspace DRAW starts in
 DIM SHARED WS_ACTIVE_ID    AS STRING  ' its id ("annotate"); "default" when none
 DIM SHARED WS_CURRENT_DIRTY AS INTEGER ' the CURRENT workspace was saved to this session (the exit prompt offers a name)
 DIM SHARED WS_ACTIVE_TITLE AS STRING  ' its display name ("Annotate")

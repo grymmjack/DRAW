@@ -26,7 +26,7 @@
 - [QB64_GJ_LIB submodule isolation](feedback_qb64_gj_lib_no_consumer_helpers.md) — shared submodule; never call DRAW helpers inside it; add lib helpers to `_GJ_LIB_COMMON.BI`
 - [Lib names share the host namespace](qb64-lib-names-share-host-namespace.md) — prefix every lib local/param; a SUB named like a CONST clashes (case-insensitive)
 - [QB64-PE no DECLARE SUB/FUNCTION](feedback_qb64pe_no_declare_sub_function.md) — auto-discovered; only `DECLARE LIBRARY` (FFI) needed; submodule keeps its own
-- [Never leave unused variables](feedback_never_leave_unused_variables.md) — every "Unused variable" warning is a defect; fix signature + all callsites
+- [Never leave unused variables](feedback_never_leave_unused_variables.md) — every "Unused variable" warning is a defect; fix signature + all callsites. Enforced 2026-11-21: make + release CI fail on one (DEV/check-unused-vars.sh); run it on private builds too
 - [Anthropic sandbox + qb64pe bug](reference_anthropic_sandbox_qb64pe_bug.md) — sandbox blocks writes to `qb64pe/internal/temp/` (looks like parse error); report via `/bug`
 - [Render coords must be LONG](feedback_render_coords_must_be_long.md) — render/zoom coords must be LONG; INTEGER overflows `canvasW*zoom` at high zoom
 - [Screenshot timing for xdotool tests](feedback_screenshot_timing.md) — sleep ≥1.0s before capture; compare content/status text, not PNG bytes
@@ -123,3 +123,7 @@
 - [UI text is UPPERCASE](feedback-ui-text-uppercase.md) — every panel/menu/settings/dialog string in caps; user data keeps case; UCASE$ at draw + measure sites (Rick 2026-11-17)
 - [Tests in the background](feedback-tests-in-background.md) — QA runs AND farm waits/collectors go run_in_background, always; never wait on one (said twice: 11-18, 11-19)
 - [Wait for a QA run by PID](wait-for-qa-run-by-pid.md) — [Linux] pgrep "draw-qa.sh" never matches (execs into bin/qa) and \| is literal in ERE: wait on the xvfb-run PID or chain runs in one script
+- [Private build in the DRAW root](private-binary-in-draw-root.md) — [Linux] DRAW chdirs to its exe dir: test builds go to ~/git/DRAW/DRAW-*.run, never the scratchpad
+- [WINZ capture vs drop queries](winz-capture-blocks-own-hit-tests.md) — a capturing window's own drop-target hit tests read FALSE; lift WZ_CAP for the query (TBED fix 11-20)
+- [One local QA run per checkout](one-local-qa-run-per-checkout.md) — two runs share QA/.dock-dump.txt: each reads the other DRAW's state; chain runs, never parallel (11-20)
+- [farm-mac-harness-rsync](farm-mac-harness-rsync.md) — farm-check rsyncs local qa-harness to mac/thinkpad (dirty git status is normal); rebuild drivers with setup.sh; [macOS] key-code driver lessons
