@@ -167,6 +167,10 @@ $(OUT): $(SOURCES)
 	@mkdir -p $(dir $(MAKE_LOG))
 	@printf '\n=== %s  %s %s %s -o %s ===\n' "$$(date '+%Y-%m-%d %H:%M:%S')" "$(QB64PE)" "$(QB64FLAGS)" "$(SRC)" "$(OUT)" | tee -a $(MAKE_LOG)
 	@./DEV/build-info.sh | tee -a $(MAKE_LOG)
+	@# CFG/THEME-PROPS.BM is generated from THEME_apply_kv% (theme editor's property
+	@# table): a stale one fails the build. Skipped where there is no python3.
+	@if command -v python3 >/dev/null 2>&1; then python3 DEV/theme-props-gen.py --check \
+	    || { echo 'CFG/THEME-PROPS.BM is stale - run: python3 DEV/theme-props-gen.py'; exit 1; }; fi
 	$(QB64PE) $(QB64FLAGS) $(SRC) -o $(OUT) 2>&1 \
 	    | sed -u 's/\x1b\[[0-9;]*[A-Za-z]//g' \
 	    | grep --line-buffered -v '^\[[ .]*\][[:space:]]*[0-9]\+%' \

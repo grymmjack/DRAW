@@ -127,3 +127,5 @@
 - [WINZ capture vs drop queries](winz-capture-blocks-own-hit-tests.md) — a capturing window's own drop-target hit tests read FALSE; lift WZ_CAP for the query (TBED fix 11-20)
 - [One local QA run per checkout](one-local-qa-run-per-checkout.md) — two runs share QA/.dock-dump.txt: each reads the other DRAW's state; chain runs, never parallel (11-20)
 - [farm-mac-harness-rsync](farm-mac-harness-rsync.md) — farm-check rsyncs local qa-harness to mac/thinkpad (dirty git status is normal); rebuild drivers with setup.sh; [macOS] key-code driver lessons
+- [Theme Edit = UIKIT seed](theme-edit-uikit.md) — theme editor is phase 1 of a reusable QB64PE UI library; GUI/UIKIT must read no DRAW global (11-21)
+- [Theme Edit: everything editable](theme-edit-everything-editable.md) — Rick's rule: anything on screen must be pickable + editable (custom slots, fallback art too); add tree nodes, EDIT makes missing art (11-21)

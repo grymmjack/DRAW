@@ -65,6 +65,11 @@ GJ_UI_UPPER = TRUE
 '$INCLUDE:'./CFG/WORKSPACE.BI'
 '$INCLUDE:'./CFG/CLI-QUERY.BI'
 '$INCLUDE:'./CFG/CONFIG-THEME.BI'
+' UIKIT (GUI/UIKIT, host-independent) + Theme Edit mode: before OUTPUT/SCREEN.BI, whose
+' SCREEN_init loads the config + theme at include time (--theme-edit picks / creates it there)
+'$INCLUDE:'./GUI/UIKIT/UIP.BI'
+'$INCLUDE:'./GUI/UIKIT/UIP-INSPECTOR.BI'
+'$INCLUDE:'./CFG/THEME-EDIT.BI'
 '$INCLUDE:'./CFG/BINDINGS.BI'
 
 ' GUI -------------------------------------------------------------------------

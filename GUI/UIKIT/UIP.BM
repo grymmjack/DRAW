@@ -1,0 +1,636 @@
+''
+' DRAW - GUI/UIKIT/UIP.BM
+' =============================================================================
+' UIKIT property + component registry, value helpers and theme-file I/O.
+' HOST-INDEPENDENT (see UIP.BI): the host supplies UIP_host_get$ / UIP_host_set%.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' -----------------------------------------------------------------------------
+' Properties
+' -----------------------------------------------------------------------------
+
+''
+' Register a property. A key registered twice keeps its first row.
+' @param key STRING Theme-file key
+' @param ptype INTEGER UIP_T_*
+' @param section STRING Theme-file [SECTION]
+' @param desc STRING One-line description
+'
+SUB UIP_prop_add (pk AS STRING, ptype AS INTEGER, section AS STRING, desc AS STRING)
+    DIM k AS STRING
+    k = UCASE$(_TRIM$(pk))
+    IF LEN(k) = 0 _ORELSE UIP_prop_find%(k) > 0 THEN EXIT SUB
+    UIP_PN = UIP_PN + 1
+    IF UIP_PN > UBOUND(UIP_P) THEN REDIM _PRESERVE UIP_P(1 TO UIP_PN + 255) AS UIP_PROP
+    UIP_P(UIP_PN).pk     = k
+    UIP_P(UIP_PN).ptype   = ptype
+    UIP_P(UIP_PN).section = UCASE$(_TRIM$(section))
+    UIP_P(UIP_PN).desc    = desc
+    UIP_P(UIP_PN).orig    = ""
+    UIP_P(UIP_PN).saved   = ""
+    UIP_P(UIP_PN).pending = FALSE
+END SUB
+
+''
+' Index of a property by key (any case), 0 = none.
+'
+FUNCTION UIP_prop_find% (pk AS STRING)
+    DIM i AS INTEGER, k AS STRING
+    k = UCASE$(_TRIM$(pk))
+    FOR i = 1 TO UIP_PN
+        IF UIP_P(i).pk = k THEN UIP_prop_find% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' Live value of property i, as theme-file text.
+'
+FUNCTION UIP_get$ (i AS INTEGER)
+    IF i < 1 _ORELSE i > UIP_PN THEN EXIT FUNCTION
+    UIP_get$ = UIP_host_get$(UIP_P(i).pk)
+END FUNCTION
+
+''
+' Set property i (validated and normalised first). TRUE when the host took it.
+'
+FUNCTION UIP_set% (i AS INTEGER, v AS STRING)
+    DIM nv AS STRING
+    IF i < 1 _ORELSE i > UIP_PN THEN EXIT FUNCTION
+    nv = UIP_normalize$(UIP_P(i).ptype, v)
+    IF UIP_valid%(UIP_P(i).ptype, nv) = 0 THEN
+        UIP_LAST_ERROR = "NOT A VALID VALUE FOR " + UIP_P(i).pk + ": " + v
+        EXIT FUNCTION
+    END IF
+    IF UIP_host_set%(UIP_P(i).pk, nv) = 0 THEN
+        UIP_LAST_ERROR = "THE HOST DOES NOT KNOW " + UIP_P(i).pk
+        EXIT FUNCTION
+    END IF
+    ' pending = differs from the file: setting a value back to what was saved clears it
+    UIP_P(i).pending = (UIP_get$(i) <> UIP_P(i).saved)
+    UIP_DIRTY = (UIP_pending_count% > 0)
+    UIP_set% = TRUE
+END FUNCTION
+
+''
+' Back to the value it had when the session started. TRUE when it changed.
+'
+FUNCTION UIP_revert% (i AS INTEGER)
+    IF i < 1 _ORELSE i > UIP_PN THEN EXIT FUNCTION
+    IF UIP_get$(i) = UIP_P(i).orig THEN EXIT FUNCTION
+    UIP_revert% = UIP_set%(i, UIP_P(i).orig)
+END FUNCTION
+
+''
+' Has property i changed since the session started?
+'
+FUNCTION UIP_changed% (i AS INTEGER)
+    IF i < 1 _ORELSE i > UIP_PN THEN EXIT FUNCTION
+    UIP_changed% = (UIP_get$(i) <> UIP_P(i).orig)
+END FUNCTION
+
+''
+' Session start: every property's current value becomes its revert target.
+'
+SUB UIP_snapshot ()
+    DIM i AS INTEGER
+    FOR i = 1 TO UIP_PN
+        UIP_P(i).orig    = UIP_get$(i)
+        UIP_P(i).saved   = UIP_P(i).orig
+        UIP_P(i).pending = FALSE
+    NEXT i
+    UIP_DIRTY = FALSE
+END SUB
+
+''
+' After the host reloaded its theme from disk: what it holds now is what the
+' file says, so that becomes every property's saved value; then the unsaved
+' values go back on top (one that now matches the file is no longer pending).
+' @param dump STRING the pending values as "KEY=VALUE" lines (UIP_pending_dump$)
+'
+SUB UIP_reapply (dump AS STRING)
+    DIM ln AS STRING, rest AS STRING, p AS INTEGER, eq AS INTEGER, i AS INTEGER
+    FOR i = 1 TO UIP_PN
+        UIP_P(i).saved = UIP_get$(i)
+        UIP_P(i).pending = FALSE
+    NEXT i
+    rest = dump
+    DO WHILE LEN(rest) > 0
+        p = INSTR(rest, CHR$(10))
+        IF p > 0 THEN ln = LEFT$(rest, p - 1): rest = MID$(rest, p + 1) ELSE ln = rest: rest = ""
+        eq = INSTR(ln, "=")
+        IF eq > 1 THEN
+            i = UIP_prop_find%(LEFT$(ln, eq - 1))
+            IF i > 0 _ANDALSO UIP_host_set%(UIP_P(i).pk, MID$(ln, eq + 1)) THEN
+                UIP_P(i).pending = (UIP_get$(i) <> UIP_P(i).saved)
+            END IF
+        END IF
+    LOOP
+    UIP_DIRTY = (UIP_pending_count% > 0)
+END SUB
+
+''
+' The pending (unsaved) values as "KEY=VALUE" lines, LF-separated.
+'
+FUNCTION UIP_pending_dump$ ()
+    DIM i AS INTEGER, s AS STRING
+    FOR i = 1 TO UIP_PN
+        IF UIP_P(i).pending THEN s = s + UIP_P(i).pk + "=" + UIP_get$(i) + CHR$(10)
+    NEXT i
+    UIP_pending_dump$ = s
+END FUNCTION
+
+''
+' Number of pending (unsaved) properties.
+'
+FUNCTION UIP_pending_count% ()
+    DIM i AS INTEGER, n AS INTEGER
+    FOR i = 1 TO UIP_PN
+        IF UIP_P(i).pending THEN n = n + 1
+    NEXT i
+    UIP_pending_count% = n
+END FUNCTION
+
+''
+' Type name for display / dumps.
+'
+FUNCTION UIP_type_name$ (ptype AS INTEGER)
+    SELECT CASE ptype
+        CASE UIP_T_COLOR: UIP_type_name$ = "COLOR"
+        CASE UIP_T_INT:   UIP_type_name$ = "INT"
+        CASE UIP_T_REAL:  UIP_type_name$ = "REAL"
+        CASE UIP_T_BOOL:  UIP_type_name$ = "BOOL"
+        CASE UIP_T_IMAGE: UIP_type_name$ = "IMAGE"
+        CASE UIP_T_FONT:  UIP_type_name$ = "FONT"
+        CASE UIP_T_SOUND: UIP_type_name$ = "SOUND"
+        CASE ELSE:        UIP_type_name$ = "TEXT"
+    END SELECT
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' Components
+' -----------------------------------------------------------------------------
+
+''
+' Register a component. Returns its index (an existing id returns the old one).
+' @param id STRING Unique id, e.g. "TOOLBOX"
+' @param title STRING Shown in the inspector
+' @param parent INTEGER Parent component index (0 = top level)
+' @param sections STRING Space-separated theme-file sections it owns
+' @param images STRING "|"-separated image folders, relative to the theme root
+'
+FUNCTION UIP_comp_add% (id AS STRING, title AS STRING, parent AS INTEGER, sections AS STRING, images AS STRING)
+    DIM c AS INTEGER
+    c = UIP_comp_find%(id)
+    IF c > 0 THEN UIP_comp_add% = c: EXIT FUNCTION
+    UIP_CN = UIP_CN + 1
+    IF UIP_CN > UBOUND(UIP_C) THEN REDIM _PRESERVE UIP_C(1 TO UIP_CN + 31) AS UIP_COMP
+    UIP_C(UIP_CN).id       = UCASE$(_TRIM$(id))
+    UIP_C(UIP_CN).title    = title
+    UIP_C(UIP_CN).parent   = parent
+    UIP_C(UIP_CN).sections = " " + UCASE$(_TRIM$(sections)) + " "
+    UIP_C(UIP_CN).images   = images
+    UIP_comp_add% = UIP_CN
+END FUNCTION
+
+''
+' Index of a component by id (any case), 0 = none.
+'
+FUNCTION UIP_comp_find% (id AS STRING)
+    DIM i AS INTEGER, k AS STRING
+    k = UCASE$(_TRIM$(id))
+    FOR i = 1 TO UIP_CN
+        IF UIP_C(i).id = k THEN UIP_comp_find% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' Nodes (the on-screen tree)
+' -----------------------------------------------------------------------------
+
+SUB UIP_node_clear ()
+    UIP_NN = 0
+END SUB
+
+''
+' Add a node; returns its index. Add depth-first (see UIP_NODE).
+' @param parent INTEGER parent index, 0 = a root
+' @param nkey STRING stable id (selection / open state follow it across rebuilds)
+' @param x INTEGER on-screen box in host window px (w = 0: none)
+'
+FUNCTION UIP_node_add% (parent AS INTEGER, nkey AS STRING, label AS STRING, comp AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, fls AS STRING)
+    UIP_NN = UIP_NN + 1
+    IF UIP_NN > UBOUND(UIP_N) THEN REDIM _PRESERVE UIP_N(1 TO UIP_NN + 63) AS UIP_NODE
+    UIP_N(UIP_NN).nkey   = nkey
+    UIP_N(UIP_NN).label  = label
+    UIP_N(UIP_NN).parent = 0
+    UIP_N(UIP_NN).depth  = 0
+    IF parent >= 1 _ANDALSO parent < UIP_NN THEN
+        UIP_N(UIP_NN).parent = parent
+        UIP_N(UIP_NN).depth  = UIP_N(parent).depth + 1
+        UIP_N(parent).kids   = UIP_N(parent).kids + 1
+    END IF
+    UIP_N(UIP_NN).kids = 0
+    UIP_N(UIP_NN).comp = comp
+    UIP_N(UIP_NN).x = x: UIP_N(UIP_NN).y = y: UIP_N(UIP_NN).w = w: UIP_N(UIP_NN).h = h
+    UIP_N(UIP_NN).fls = fls
+    UIP_node_add% = UIP_NN
+END FUNCTION
+
+''
+' Index of the node with id nkey, 0 = none.
+'
+''
+' The first node whose own files include path (case-insensitive), 0 = none.
+'
+FUNCTION UIP_node_with_file% (path AS STRING)
+    DIM i AS INTEGER, u AS STRING
+    IF LEN(path) = 0 THEN EXIT FUNCTION
+    u = "|" + UCASE$(path) + "|"
+    FOR i = 1 TO UIP_NN
+        IF LEN(UIP_N(i).fls) THEN
+            IF INSTR("|" + UCASE$(UIP_N(i).fls) + "|", u) THEN UIP_node_with_file% = i: EXIT FUNCTION
+        END IF
+    NEXT i
+END FUNCTION
+
+FUNCTION UIP_node_find% (nkey AS STRING)
+    DIM i AS INTEGER
+    IF LEN(nkey) = 0 THEN EXIT FUNCTION
+    FOR i = 1 TO UIP_NN
+        IF UIP_N(i).nkey = nkey THEN UIP_node_find% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' Everything that would change the tree's look: ids, labels, boxes. A host can
+' rebuild its nodes every so often and tell the inspector only when this differs.
+'
+FUNCTION UIP_node_sig$ ()
+    DIM i AS INTEGER, s AS STRING
+    FOR i = 1 TO UIP_NN
+        s = s + UIP_N(i).nkey + "=" + UIP_N(i).label + MKI$(UIP_N(i).parent) + MKI$(UIP_N(i).x) + MKI$(UIP_N(i).y) + MKI$(UIP_N(i).w) + MKI$(UIP_N(i).h) + ";"
+    NEXT i
+    UIP_node_sig$ = s
+END FUNCTION
+
+''
+' Does component c own property i? (c = 0: every property belongs.)
+'
+FUNCTION UIP_comp_owns% (c AS INTEGER, i AS INTEGER)
+    IF c < 1 _ORELSE c > UIP_CN THEN UIP_comp_owns% = TRUE: EXIT FUNCTION
+    IF i < 1 _ORELSE i > UIP_PN THEN EXIT FUNCTION
+    UIP_comp_owns% = (INSTR(UIP_C(c).sections, " " + UIP_P(i).section + " ") > 0)
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' Values
+' -----------------------------------------------------------------------------
+
+''
+' An RGBA32 colour as theme-file text "R,G,B,A".
+'
+FUNCTION UIP_rgba_str$ (c AS _UNSIGNED LONG)
+    UIP_rgba_str$ = _TRIM$(STR$(_RED32(c))) + "," + _TRIM$(STR$(_GREEN32(c))) + "," + _TRIM$(STR$(_BLUE32(c))) + "," + _TRIM$(STR$(_ALPHA32(c)))
+END FUNCTION
+
+''
+' "R,G,B[,A]" (spaces allowed) as RGBA32. Missing alpha = 255, others = 0.
+'
+FUNCTION UIP_rgba_parse~& (s AS STRING)
+    DIM ch(3) AS INTEGER
+    UIP_rgba_channels s, ch()
+    UIP_rgba_parse~& = _RGBA32(ch(0), ch(1), ch(2), ch(3))
+END FUNCTION
+
+''
+' Split "R,G,B[,A]" into ch(0..3), each clamped to 0-255.
+'
+SUB UIP_rgba_channels (s AS STRING, ch() AS INTEGER)
+    DIM i AS INTEGER, rest AS STRING, p AS INTEGER, tok AS STRING
+    ch(0) = 0: ch(1) = 0: ch(2) = 0: ch(3) = 255
+    rest = _TRIM$(s)
+    FOR i = 0 TO 3
+        p = INSTR(rest, ",")
+        IF p > 0 THEN tok = _TRIM$(LEFT$(rest, p - 1)): rest = MID$(rest, p + 1) ELSE tok = _TRIM$(rest): rest = ""
+        IF LEN(tok) > 0 THEN ch(i) = _MAX(0, _MIN(255, VAL(tok)))
+    NEXT i
+END SUB
+
+''
+' A number as theme-file text: integers plain, fractions with a leading 0.
+'
+FUNCTION UIP_num_str$ (v AS SINGLE)
+    DIM s AS STRING
+    IF v = INT(v) _ANDALSO ABS(v) < 2147483647 THEN
+        s = _TRIM$(STR$(CLNG(v)))
+    ELSE
+        s = _TRIM$(STR$(v))
+        IF LEFT$(s, 1) = "." THEN s = "0" + s
+        IF LEFT$(s, 2) = "-." THEN s = "-0" + MID$(s, 2)
+    END IF
+    UIP_num_str$ = s
+END FUNCTION
+
+''
+' Tidy typed text into the canonical form for its type.
+'
+FUNCTION UIP_normalize$ (ptype AS INTEGER, v AS STRING)
+    DIM s AS STRING
+    s = _TRIM$(v)
+    SELECT CASE ptype
+        CASE UIP_T_COLOR
+            IF LEFT$(s, 1) = "#" _ORELSE (LEN(s) = 6 _ANDALSO INSTR(s, ",") = 0) _ORELSE (LEN(s) = 8 _ANDALSO INSTR(s, ",") = 0) THEN
+                s = UIP_hex_to_rgba$(s)
+            END IF
+            IF LEN(s) THEN s = UIP_rgba_str$(UIP_rgba_parse~&(s))
+        CASE UIP_T_INT
+            IF LEN(s) THEN s = _TRIM$(STR$(CLNG(VAL(s))))
+        CASE UIP_T_REAL
+            IF LEN(s) THEN s = UIP_num_str$(VAL(s))
+        CASE UIP_T_BOOL
+            IF UCASE$(s) = "TRUE" _ORELSE s = "1" _ORELSE s = "-1" _ORELSE UCASE$(s) = "YES" _ORELSE UCASE$(s) = "ON" THEN s = "TRUE" ELSE s = "FALSE"
+    END SELECT
+    UIP_normalize$ = s
+END FUNCTION
+
+''
+' "#RRGGBB" / "RRGGBBAA" -> "R,G,B,A" ("" when not hex).
+'
+FUNCTION UIP_hex_to_rgba$ (h AS STRING)
+    DIM s AS STRING, a AS STRING, i AS INTEGER
+    s = UCASE$(_TRIM$(h))
+    IF LEFT$(s, 1) = "#" THEN s = MID$(s, 2)
+    IF LEN(s) <> 6 _ANDALSO LEN(s) <> 8 THEN EXIT FUNCTION
+    FOR i = 1 TO LEN(s)
+        IF INSTR("0123456789ABCDEF", MID$(s, i, 1)) = 0 THEN EXIT FUNCTION
+    NEXT i
+    a = "255"
+    IF LEN(s) = 8 THEN a = _TRIM$(STR$(VAL("&H" + MID$(s, 7, 2))))
+    UIP_hex_to_rgba$ = _TRIM$(STR$(VAL("&H" + LEFT$(s, 2)))) + "," + _TRIM$(STR$(VAL("&H" + MID$(s, 3, 2)))) + "," + _TRIM$(STR$(VAL("&H" + MID$(s, 5, 2)))) + "," + a
+END FUNCTION
+
+''
+' Is normalised text v acceptable for its type?
+'
+FUNCTION UIP_valid% (ptype AS INTEGER, v AS STRING)
+    DIM i AS INTEGER, c AS STRING, commas AS INTEGER
+    SELECT CASE ptype
+        CASE UIP_T_COLOR
+            IF LEN(v) = 0 THEN EXIT FUNCTION
+            FOR i = 1 TO LEN(v)
+                c = MID$(v, i, 1)
+                IF c = "," THEN
+                    commas = commas + 1
+                ELSEIF INSTR("0123456789 ", c) = 0 THEN
+                    EXIT FUNCTION
+                END IF
+            NEXT i
+            UIP_valid% = (commas >= 2 _ANDALSO commas <= 3)
+        CASE UIP_T_INT, UIP_T_REAL
+            UIP_valid% = (LEN(v) > 0)
+        CASE ELSE
+            UIP_valid% = TRUE
+    END SELECT
+END FUNCTION
+
+''
+' The value nudged by delta: a number +/- delta; a colour channel ch (0-3)
+' +/- delta, clamped 0-255; a BOOL flips. Other types come back unchanged.
+'
+FUNCTION UIP_nudge$ (ptype AS INTEGER, v AS STRING, ch AS INTEGER, delta AS INTEGER)
+    DIM c(3) AS INTEGER, k AS INTEGER
+    SELECT CASE ptype
+        CASE UIP_T_INT
+            UIP_nudge$ = _TRIM$(STR$(CLNG(VAL(v)) + delta))
+        CASE UIP_T_REAL
+            UIP_nudge$ = UIP_num_str$(VAL(v) + delta)
+        CASE UIP_T_COLOR
+            UIP_rgba_channels v, c()
+            k = _MAX(0, _MIN(3, ch))
+            c(k) = _MAX(0, _MIN(255, c(k) + delta))
+            UIP_nudge$ = _TRIM$(STR$(c(0))) + "," + _TRIM$(STR$(c(1))) + "," + _TRIM$(STR$(c(2))) + "," + _TRIM$(STR$(c(3)))
+        CASE UIP_T_BOOL
+            UIP_nudge$ = _IIF(UCASE$(v) = "TRUE", "FALSE", "TRUE")
+        CASE ELSE
+            UIP_nudge$ = v
+    END SELECT
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' Theme files
+' -----------------------------------------------------------------------------
+
+''
+' A sortable local timestamp, yyyymmdd-hhmmss.
+'
+FUNCTION UIP_stamp$ ()
+    DIM d AS STRING, t AS STRING
+    d = DATE$: t = TIME$ ' mm-dd-yyyy, hh:mm:ss
+    UIP_stamp$ = MID$(d, 7, 4) + LEFT$(d, 2) + MID$(d, 4, 2) + "-" + LEFT$(t, 2) + MID$(t, 4, 2) + MID$(t, 7, 2)
+END FUNCTION
+
+''
+' Folder part of a path, with its trailing separator ("" = none).
+'
+FUNCTION UIP_dir_of$ (path AS STRING)
+    DIM i AS INTEGER
+    FOR i = LEN(path) TO 1 STEP -1
+        IF MID$(path, i, 1) = "/" _ORELSE MID$(path, i, 1) = "\" THEN UIP_dir_of$ = LEFT$(path, i): EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' File part of a path.
+'
+FUNCTION UIP_file_of$ (path AS STRING)
+    UIP_file_of$ = MID$(path, LEN(UIP_dir_of$(path)) + 1)
+END FUNCTION
+
+''
+' Copy one file (an empty file is copied too). TRUE on success.
+'
+FUNCTION UIP_file_copy% (src AS STRING, dst AS STRING)
+    DIM a AS INTEGER, b AS INTEGER, n AS LONG, chunk AS STRING, sz AS LONG
+    IF _FILEEXISTS(src) = 0 THEN UIP_LAST_ERROR = "NO SUCH FILE: " + src: EXIT FUNCTION
+    IF _FILEEXISTS(dst) THEN KILL dst
+    a = FREEFILE
+    OPEN src FOR BINARY AS #a
+    b = FREEFILE
+    OPEN dst FOR BINARY AS #b
+    n = LOF(a)
+    DO WHILE n > 0
+        sz = _MIN(n, 65536)
+        chunk = SPACE$(sz)
+        GET #a, , chunk
+        PUT #b, , chunk
+        n = n - sz
+    LOOP
+    CLOSE #b
+    CLOSE #a
+    UIP_file_copy% = TRUE
+END FUNCTION
+
+''
+' Copy a folder tree. Folders named in skip ("|.history|") are left out.
+' Returns the number of files copied, -1 on failure.
+'
+FUNCTION UIP_dir_copy% (src AS STRING, dst AS STRING, skip AS STRING)
+    DIM s AS STRING, d AS STRING, f AS STRING, n AS INTEGER, i AS INTEGER, r AS INTEGER, total AS INTEGER
+    s = src: d = dst
+    IF RIGHT$(s, 1) <> "/" _ANDALSO RIGHT$(s, 1) <> "\" THEN s = s + "/"
+    IF RIGHT$(d, 1) <> "/" _ANDALSO RIGHT$(d, 1) <> "\" THEN d = d + "/"
+    IF _DIREXISTS(s) = 0 THEN UIP_LAST_ERROR = "NO SUCH FOLDER: " + src: UIP_dir_copy% = -1: EXIT FUNCTION
+    IF _DIREXISTS(d) = 0 THEN MKDIR LEFT$(d, LEN(d) - 1)
+    IF _DIREXISTS(d) = 0 THEN UIP_LAST_ERROR = "CANNOT MAKE " + dst: UIP_dir_copy% = -1: EXIT FUNCTION
+    ' _FILES$ keeps one listing state, so read this folder whole before recursing
+    DIM nm(1 TO 64) AS STRING
+    f = _FILES$(s)
+    DO WHILE LEN(f)
+        IF f <> "./" _ANDALSO f <> "../" _ANDALSO f <> ".\" _ANDALSO f <> "..\" THEN
+            n = n + 1
+            IF n > UBOUND(nm) THEN REDIM _PRESERVE nm(1 TO n * 2) AS STRING
+            nm(n) = f
+        END IF
+        f = _FILES$
+    LOOP
+    FOR i = 1 TO n
+        f = nm(i)
+        IF RIGHT$(f, 1) = "/" _ORELSE RIGHT$(f, 1) = "\" THEN
+            IF INSTR(skip, "|" + LEFT$(f, LEN(f) - 1) + "|") = 0 THEN
+                r = UIP_dir_copy%(s + f, d + f, skip)
+                IF r < 0 THEN UIP_dir_copy% = -1: EXIT FUNCTION
+                total = total + r
+            END IF
+        ELSE
+            IF UIP_file_copy%(s + f, d + f) THEN total = total + 1
+        END IF
+    NEXT i
+    UIP_dir_copy% = total
+END FUNCTION
+
+''
+' Copy path into <its folder>/.history/<file>.<stamp>, keeping only the newest
+' keep copies (keep <= 0: no backup, nothing pruned). TRUE when one was made.
+'
+FUNCTION UIP_backup% (path AS STRING, keep AS INTEGER)
+    DIM hist AS STRING, pre AS STRING, f AS STRING, n AS INTEGER, i AS INTEGER, j AS INTEGER, t AS STRING
+    IF keep <= 0 _ORELSE _FILEEXISTS(path) = 0 THEN EXIT FUNCTION
+    hist = UIP_dir_of$(path) + ".history"
+    pre = UIP_file_of$(path) + "."
+    IF _DIREXISTS(hist) = 0 THEN MKDIR hist
+    IF _DIREXISTS(hist) = 0 THEN UIP_LAST_ERROR = "CANNOT MAKE " + hist: EXIT FUNCTION
+    IF UIP_file_copy%(path, hist + "/" + pre + UIP_stamp$) = 0 THEN EXIT FUNCTION
+    UIP_backup% = TRUE
+    ' prune: the stamps sort by time, so the oldest are first
+    DIM nm(1 TO 32) AS STRING
+    f = _FILES$(hist + "/")
+    DO WHILE LEN(f)
+        IF LEFT$(f, LEN(pre)) = pre _ANDALSO RIGHT$(f, 1) <> "/" _ANDALSO RIGHT$(f, 1) <> "\" THEN
+            n = n + 1
+            IF n > UBOUND(nm) THEN REDIM _PRESERVE nm(1 TO n * 2) AS STRING
+            nm(n) = f
+        END IF
+        f = _FILES$
+    LOOP
+    FOR i = 2 TO n
+        t = nm(i): j = i - 1
+        DO WHILE j >= 1
+            IF nm(j) <= t THEN EXIT DO
+            nm(j + 1) = nm(j): j = j - 1
+        LOOP
+        nm(j + 1) = t
+    NEXT i
+    FOR i = 1 TO n - keep
+        KILL hist + "/" + nm(i)
+    NEXT i
+END FUNCTION
+
+''
+' Write every pending property into the INI file at path, in place: a key's line
+' keeps its alignment and gets the new value; a key the file lacks goes at the
+' end of its [SECTION] (a new section at the end of the file). Comments and
+' layout are kept. Clears the pending flags. TRUE on success.
+'
+FUNCTION UIP_cfg_save% (path AS STRING)
+    DIM fh AS INTEGER, n AS INTEGER, i AS INTEGER, j AS INTEGER, p AS INTEGER, ln AS STRING, k AS STRING
+    DIM eq AS INTEGER, at AS INTEGER, sect AS STRING, tmp AS STRING
+    DIM lns(1 TO 256) AS STRING
+    IF _FILEEXISTS(path) THEN
+        fh = FREEFILE
+        OPEN path FOR INPUT AS #fh
+        DO WHILE NOT EOF(fh)
+            LINE INPUT #fh, ln
+            n = n + 1
+            IF n > UBOUND(lns) THEN REDIM _PRESERVE lns(1 TO n * 2) AS STRING
+            lns(n) = ln
+        LOOP
+        CLOSE #fh
+    END IF
+    FOR p = 1 TO UIP_PN
+        IF UIP_P(p).pending THEN
+            ' 1) the key's own line
+            at = 0
+            FOR i = 1 TO n
+                ln = _TRIM$(lns(i))
+                IF LEN(ln) _ANDALSO LEFT$(ln, 1) <> "#" _ANDALSO LEFT$(ln, 1) <> ";" _ANDALSO LEFT$(ln, 1) <> "[" THEN
+                    eq = INSTR(ln, "=")
+                    IF eq > 1 THEN
+                        k = UCASE$(_TRIM$(LEFT$(ln, eq - 1)))
+                        IF k = UIP_P(p).pk THEN at = i: EXIT FOR
+                    END IF
+                END IF
+            NEXT i
+            IF at > 0 THEN
+                eq = INSTR(lns(at), "=")
+                lns(at) = LEFT$(lns(at), eq) + " " + UIP_get$(p)
+            ELSE
+                ' 2) after the last key line of its section, else a new section
+                sect = ""
+                at = 0
+                FOR i = 1 TO n
+                    ln = _TRIM$(lns(i))
+                    IF LEFT$(ln, 1) = "[" _ANDALSO INSTR(ln, "]") > 2 THEN
+                        sect = UCASE$(_TRIM$(MID$(ln, 2, INSTR(ln, "]") - 2)))
+                        IF sect = UIP_P(p).section THEN at = i
+                    ELSEIF sect = UIP_P(p).section _ANDALSO INSTR(ln, "=") > 1 _ANDALSO LEFT$(ln, 1) <> "#" _ANDALSO LEFT$(ln, 1) <> ";" THEN
+                        at = i
+                    END IF
+                NEXT i
+                IF at = 0 THEN
+                    IF n + 3 > UBOUND(lns) THEN REDIM _PRESERVE lns(1 TO n * 2 + 8) AS STRING
+                    lns(n + 1) = ""
+                    lns(n + 2) = "[" + UIP_P(p).section + "]"
+                    lns(n + 3) = UIP_P(p).pk + " = " + UIP_get$(p)
+                    n = n + 3
+                ELSE
+                    n = n + 1
+                    IF n > UBOUND(lns) THEN REDIM _PRESERVE lns(1 TO n * 2) AS STRING
+                    FOR j = n TO at + 2 STEP -1
+                        lns(j) = lns(j - 1)
+                    NEXT j
+                    lns(at + 1) = UIP_P(p).pk + " = " + UIP_get$(p)
+                END IF
+            END IF
+        END IF
+    NEXT p
+    ' write beside, then swap in: a failed write never leaves half a file
+    tmp = path + ".tmp"
+    fh = FREEFILE
+    OPEN tmp FOR OUTPUT AS #fh
+    FOR i = 1 TO n
+        PRINT #fh, lns(i)
+    NEXT i
+    CLOSE #fh
+    IF _FILEEXISTS(path) THEN KILL path
+    NAME tmp AS path
+    IF _FILEEXISTS(path) = 0 THEN UIP_LAST_ERROR = "COULD NOT WRITE " + path: EXIT FUNCTION
+    FOR p = 1 TO UIP_PN
+        IF UIP_P(p).pending THEN UIP_P(p).saved = UIP_get$(p)
+        UIP_P(p).pending = FALSE
+    NEXT p
+    UIP_DIRTY = FALSE
+    UIP_cfg_save% = TRUE
+END FUNCTION

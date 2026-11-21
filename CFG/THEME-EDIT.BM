@@ -1,0 +1,1848 @@
+''
+' DRAW - CFG/THEME-EDIT.BM
+' =============================================================================
+' Theme Edit mode: the DRAW side of the UIKIT inspector. See CFG/THEME-EDIT.BI
+' and PLANS/THEME-EDIT.md.
+'
+' Hooks (each a single call in DRAW's own code):
+'   CFG_cli_collect            THEMEED_cli_collect      --theme-name never saved
+'   CONFIG_apply_cli_overrides THEMEED_cli_apply        pick / create the theme
+'   SCREEN_init (after THEME_load) THEMEED_cli_dump     --theme-edit-inspect, exits
+'   DRAW.BAS (after THEME_load) THEMEED_session_start
+'   main loop                  THEMEED_tick
+'   MOUSE_process_frame%       THEMEED_mouse%
+'   KEYBOARD_input_handler     THEMEED_keys%
+'   INPUT_update_context       THEMEED_typing%         (CTX_TEXT_ACTIVE)
+'   POPUP_blocks_partial%      THEMEED_blocks_partial% (full present while shown)
+'   SCREEN_render (3 paths)    THEMEED_render_screen0
+'   MAIN_shutdown              THEMEED_shutdown
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' -----------------------------------------------------------------------------
+' UIKIT host contract (GUI/UIKIT/UIP.BI)
+' -----------------------------------------------------------------------------
+
+FUNCTION UIP_host_get$ (pk AS STRING)
+    UIP_host_get$ = THEMEP_get$(UCASE$(_TRIM$(pk)))
+END FUNCTION
+
+FUNCTION UIP_host_set% (pk AS STRING, v AS STRING)
+    DIM k AS STRING, i AS INTEGER
+    k = UCASE$(_TRIM$(pk))
+    IF THEME_apply_kv%(k, v) = 0 THEN EXIT FUNCTION
+    UIP_host_set% = TRUE
+    IF THEMEED.applying THEN EXIT FUNCTION
+    ' what has to be redone for the change to show
+    i = UIP_prop_find%(k)
+    IF i > 0 THEN
+        SELECT CASE UIP_P(i).ptype
+            CASE UIP_T_INT, UIP_T_REAL: THEMEED.needLayout = TRUE
+            CASE UIP_T_IMAGE: THEMEED.needReload = TRUE
+            CASE UIP_T_FONT: UIPI_message "FONT CHANGES SHOW AFTER A RESTART (SAVE FIRST)", FALSE
+            CASE UIP_T_TEXT
+                IF LEFT$(k, 7) = "CURSOR_" THEN THEMEED.needReload = TRUE ELSE THEMEED.needLayout = TRUE
+        END SELECT
+    END IF
+    IF THEMEED.dirtySince = 0 THEN THEMEED.dirtySince = TIMER(.001)
+    IF THEMEED.unattended THEN _LOGINFO "THEMEED SET " + k + "=" + v
+    INVALIDATE_scene
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' Command line
+' -----------------------------------------------------------------------------
+
+''
+' Is flag on the command line?
+'
+FUNCTION THEMEED_has% (flag AS STRING)
+    DIM i AS INTEGER
+    FOR i = 1 TO _COMMANDCOUNT
+        IF LCASE$(_TRIM$(COMMAND$(i))) = flag THEN THEMEED_has% = TRUE: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' The value after flag ("" = flag absent, or followed by another flag).
+'
+FUNCTION THEMEED_arg$ (flag AS STRING)
+    DIM i AS INTEGER, v AS STRING
+    FOR i = 1 TO _COMMANDCOUNT - 1
+        IF LCASE$(_TRIM$(COMMAND$(i))) = flag THEN
+            v = _TRIM$(COMMAND$(i + 1))
+            IF LEFT$(v, 2) <> "--" THEN THEMEED_arg$ = v
+            EXIT FUNCTION
+        END IF
+    NEXT i
+END FUNCTION
+
+''
+' Flags that take a value: DRAW.BAS skips both tokens when looking for the file
+' to open, so "--theme-name DARK" never opens a file called DARK.
+'
+FUNCTION THEMEED_flag_takes_value% (flag AS STRING)
+    SELECT CASE LCASE$(_TRIM$(flag))
+        CASE "--theme-name", "--theme-edit-base", "--theme-edit-autosave-mins", "--theme-edit-keep-num-backups", "--theme-edit-inspect"
+            THEMEED_flag_takes_value% = TRUE
+    END SELECT
+END FUNCTION
+
+''
+' A theme name is a folder name: letters, digits, _ and -.
+'
+FUNCTION THEMEED_valid_name% (nm AS STRING)
+    DIM i AS INTEGER, c AS STRING
+    IF LEN(nm) = 0 _ORELSE LEN(nm) > 40 THEN EXIT FUNCTION
+    FOR i = 1 TO LEN(nm)
+        c = UCASE$(MID$(nm, i, 1))
+        IF INSTR("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", c) = 0 THEN EXIT FUNCTION
+    NEXT i
+    THEMEED_valid_name% = TRUE
+END FUNCTION
+
+''
+' CFG_cli_collect: --theme-name acts as --option THEME=<name>, so a CONFIG_save
+' during the session writes the user's own theme back, never the edited one.
+'
+SUB THEMEED_cli_collect ()
+    DIM nm AS STRING
+    IF THEMEED_has%("--theme-edit") = 0 THEN EXIT SUB
+    nm = THEMEED_arg$("--theme-name")
+    IF THEMEED_valid_name%(nm) = 0 _ORELSE CFG_cli_has%("THEME") > 0 _ORELSE CFG_CLI_N >= CFG_CLI_MAX THEN EXIT SUB
+    CFG_CLI_N = CFG_CLI_N + 1
+    CFG_CLI_KEY(CFG_CLI_N) = "THEME"
+    CFG_CLI_VAL(CFG_CLI_N) = UCASE$(nm)
+    CFG_CLI_FILEVAL(CFG_CLI_N) = ""
+    CFG_CLI_INFILE(CFG_CLI_N) = FALSE
+END SUB
+
+''
+' What theme nm was made from: its .theme-base marker (written when Theme Edit
+' creates a theme), else the folder named in its THEME.CFG header (a copy keeps
+' its source's "ASSETS/THEMES/<name>/THEME.CFG" line). "" = not known.
+'
+FUNCTION THEMEED_theme_base$ (nm AS STRING)
+    DIM fh AS INTEGER, ln AS STRING, p AS INTEGER, q AS INTEGER, n AS INTEGER, r AS STRING
+    IF _FILEEXISTS("ASSETS/THEMES/" + nm + "/.theme-base") THEN
+        fh = FREEFILE
+        OPEN "ASSETS/THEMES/" + nm + "/.theme-base" FOR INPUT AS #fh
+        IF NOT EOF(fh) THEN LINE INPUT #fh, ln
+        CLOSE #fh
+        THEMEED_theme_base$ = UCASE$(_TRIM$(ln))
+        EXIT FUNCTION
+    END IF
+    IF _FILEEXISTS("ASSETS/THEMES/" + nm + "/THEME.CFG") = 0 THEN EXIT FUNCTION
+    fh = FREEFILE
+    OPEN "ASSETS/THEMES/" + nm + "/THEME.CFG" FOR INPUT AS #fh
+    DO WHILE NOT EOF(fh) _ANDALSO n < 5
+        LINE INPUT #fh, ln
+        n = n + 1
+        p = INSTR(UCASE$(ln), "ASSETS/THEMES/")
+        IF p THEN
+            q = INSTR(p + 14, ln, "/")
+            IF q > p + 14 THEN r = UCASE$(MID$(ln, p + 14, q - p - 14))
+            EXIT DO
+        END IF
+    LOOP
+    CLOSE #fh
+    IF r <> UCASE$(nm) THEN THEMEED_theme_base$ = r
+END FUNCTION
+
+''
+' Record what a theme Theme Edit just created was made from.
+'
+SUB THEMEED_theme_base_write (nm AS STRING, bs AS STRING)
+    DIM fh AS INTEGER
+    fh = FREEFILE
+    OPEN "ASSETS/THEMES/" + nm + "/.theme-base" FOR OUTPUT AS #fh
+    PRINT #fh, bs
+    CLOSE #fh
+END SUB
+
+''
+' The theme to edit instead of nm, which exists but was not made from bs: the
+' first NAME-2, NAME-3 ... made from bs, else the first such name that is free.
+'
+FUNCTION THEMEED_variant$ (nm AS STRING, bs AS STRING)
+    DIM k AS INTEGER, v AS STRING, free AS STRING
+    FOR k = 2 TO 99
+        v = nm + "-" + _TRIM$(STR$(k))
+        IF LEN(v) > 40 THEN EXIT FOR
+        IF _DIREXISTS("ASSETS/THEMES/" + v) THEN
+            IF THEMEED_theme_base$(v) = bs THEN THEMEED_variant$ = v: EXIT FUNCTION
+        ELSEIF free = "" THEN
+            free = v
+        END IF
+    NEXT k
+    THEMEED_variant$ = free
+END FUNCTION
+
+''
+' Move theme nm out of the way, to ASSETS/THEME-BACKUPS/<nm>-<yyyymmdd>-<hhmmss>
+' (beside THEMES, so the same disk - one rename, nothing copied or deleted - and
+' not in the theme list). Returns the new folder, "" when it could not move.
+'
+FUNCTION THEMEED_theme_move_aside$ (nm AS STRING)
+    DIM d AS STRING, t AS STRING, dst AS STRING, k AS INTEGER
+    IF THEMEED_valid_name%(nm) = 0 _ORELSE _DIREXISTS("ASSETS/THEMES/" + nm) = 0 THEN EXIT FUNCTION
+    IF _DIREXISTS("ASSETS/THEME-BACKUPS") = 0 THEN MKDIR "ASSETS/THEME-BACKUPS"
+    IF _DIREXISTS("ASSETS/THEME-BACKUPS") = 0 THEN EXIT FUNCTION
+    d = DATE$: t = TIME$ ' mm-dd-yyyy, hh:mm:ss
+    dst = "ASSETS/THEME-BACKUPS/" + nm + "-" + MID$(d, 7, 4) + LEFT$(d, 2) + MID$(d, 4, 2) + "-" + LEFT$(t, 2) + MID$(t, 4, 2) + RIGHT$(t, 2)
+    IF _DIREXISTS(dst) THEN
+        k = 2
+        DO WHILE _DIREXISTS(dst + "-" + _TRIM$(STR$(k))): k = k + 1: LOOP
+        dst = dst + "-" + _TRIM$(STR$(k))
+    END IF
+    NAME "ASSETS/THEMES/" + nm AS dst
+    IF _DIREXISTS(dst) _ANDALSO _DIREXISTS("ASSETS/THEMES/" + nm) = 0 THEN THEMEED_theme_move_aside$ = dst
+END FUNCTION
+
+''
+' One line from the terminal (upper case, trimmed); "" at end of input too.
+'
+FUNCTION THEMEED_ask_line$ ()
+    DIM c AS LONG, ln AS STRING
+    DO
+        c = gj_stdin_getc&
+        IF c < 0 _ORELSE c = 10 THEN EXIT DO
+        IF c <> 13 THEN ln = ln + CHR$(c)
+    LOOP
+    THEMEED_ask_line$ = UCASE$(_TRIM$(ln))
+END FUNCTION
+
+''
+' --theme-name nm exists but was made from had (not the asked base bs): ask on
+' the terminal what to do. Returns the theme to edit; "" = quit. R (replace)
+' moves nm aside (THEMEED.replacedTo) and returns nm, which is then created anew.
+'
+FUNCTION THEMEED_ask_theme$ (nm AS STRING, had AS STRING, bs AS STRING, alt AS STRING)
+    DIM oldDest AS LONG, a AS STRING, fromTxt AS STRING, altTxt AS STRING, r AS STRING
+    IF had = "" THEN fromTxt = "not made from " + bs ELSE fromTxt = "made from " + had
+    IF alt = "" THEN
+        altTxt = "type a new theme name to make it from " + bs
+    ELSEIF _DIREXISTS("ASSETS/THEMES/" + alt) THEN
+        altTxt = "edit " + alt + " (made from " + bs + ")"
+    ELSE
+        altTxt = "new theme " + alt + " from " + bs
+    END IF
+    oldDest = _DEST
+    _DEST _CONSOLE
+    PRINT
+    PRINT CLI_c$("1;33") + "DRAW: theme " + nm + " already exists (" + fromTxt + ")." + CLI_reset$
+    IF LEN(alt) THEN PRINT "  " + CLI_c$("1") + "N" + CLI_reset$ + "  " + altTxt + "  (Enter)"
+    PRINT "  " + CLI_c$("1") + "E" + CLI_reset$ + "  edit " + nm + " as it is"
+    PRINT "  " + CLI_c$("1") + "R" + CLI_reset$ + "  replace " + nm + " with a fresh copy of " + bs + " (the old one moves to ASSETS/THEME-BACKUPS)"
+    PRINT "  " + CLI_c$("1") + "Q" + CLI_reset$ + "  quit"
+    PRINT "  or type a name for a new theme from " + bs
+    DO
+        PRINT "Choice: ";
+        a = THEMEED_ask_line$
+        SELECT CASE a
+            CASE "", "N"
+                IF LEN(alt) THEN r = alt: EXIT DO
+            CASE "E"
+                r = nm: EXIT DO
+            CASE "R"
+                PRINT "Replace " + nm + " with " + bs + "? Your edits to " + nm + " go to ASSETS/THEME-BACKUPS. (y/N): ";
+                IF THEMEED_ask_line$ = "Y" THEN
+                    THEMEED.replacedTo = THEMEED_theme_move_aside$(nm)
+                    IF LEN(THEMEED.replacedTo) THEN
+                        PRINT "  moved " + nm + " to " + THEMEED.replacedTo
+                        r = nm: EXIT DO
+                    END IF
+                    PRINT CLI_c$("1;31") + "  could not move ASSETS/THEMES/" + nm + " - nothing changed" + CLI_reset$
+                END IF
+            CASE "Q"
+                r = "": EXIT DO
+            CASE ELSE
+                IF THEMEED_valid_name%(a) = 0 THEN
+                    PRINT "  not a theme name (letters, digits, _ and -, up to 40)"
+                ELSEIF _DIREXISTS("ASSETS/THEMES/" + a) _ANDALSO THEMEED_theme_base$(a) <> bs THEN
+                    PRINT "  " + a + " exists too, and is not made from " + bs + " (E edits " + nm + ")"
+                ELSE
+                    r = a: EXIT DO
+                END IF
+        END SELECT
+    LOOP
+    _DEST oldDest
+    THEMEED_ask_theme$ = r
+END FUNCTION
+
+''
+' CONFIG_apply_cli_overrides (the config file is read): settle the theme to edit,
+' copying it from its base when it does not exist yet, and point CFG.THEME$ at
+' it - all before the first THEME_load, so DRAW opens wearing it. When the named
+' theme exists but was made from another base than --theme-edit-base asks, the
+' terminal is asked (a new NAME-2 from the base / edit it / replace it / quit);
+' with no terminal, or --theme-edit-unattended, NAME-2 is taken without asking
+' (never a replace).
+'
+SUB THEMEED_cli_apply ()
+    DIM cur AS STRING, nm AS STRING, bs AS STRING, src AS STRING, dst AS STRING, n AS INTEGER
+    DIM had AS STRING, alt AS STRING, ci AS INTEGER
+    IF THEMEED.cliDone THEN EXIT SUB
+    THEMEED.cliDone = TRUE
+    IF THEMEED_has%("--theme-edit") = 0 _ANDALSO THEMEED_has%("--theme-edit-inspect") = 0 THEN EXIT SUB
+    THEMEED.active = THEMEED_has%("--theme-edit")
+    cur = UCASE$(_TRIM$(CFG.THEME$))
+    IF cur = "" THEN cur = "DEFAULT"
+    nm = UCASE$(THEMEED_arg$("--theme-name"))
+    IF LEN(nm) _ANDALSO THEMEED_valid_name%(nm) = 0 THEN
+        _LOGWARN "THEMEED: '" + nm + "' is not a usable theme name (letters, digits, _ and -) - editing " + cur
+        nm = ""
+    END IF
+    IF nm = "" THEN nm = cur
+    bs = UCASE$(THEMEED_arg$("--theme-edit-base"))
+    IF THEMEED_valid_name%(bs) = 0 THEN bs = ""
+    THEMEED.autosaveMins = VAL(THEMEED_arg$("--theme-edit-autosave-mins"))
+    IF THEMEED.autosaveMins < 0 THEN THEMEED.autosaveMins = 0
+    IF THEMEED.autosaveMins > 60 THEN THEMEED.autosaveMins = 60
+    THEMEED.keepBackups = VAL(THEMEED_arg$("--theme-edit-keep-num-backups"))
+    IF THEMEED.keepBackups < 0 THEN THEMEED.keepBackups = 0
+    IF THEMEED.keepBackups > 10 THEN THEMEED.keepBackups = 10
+    THEMEED.startInspect = THEMEED_has%("--theme-edit-start-inspector")
+    THEMEED.unattended   = THEMEED_has%("--theme-edit-unattended") _ANDALSO THEMEED_arg$("--theme-edit-unattended") <> "0"
+    ' an existing theme made from another base than the one asked for
+    IF THEMEED.active _ANDALSO LEN(bs) _ANDALSO bs <> nm _ANDALSO _DIREXISTS("ASSETS/THEMES/" + nm) THEN
+        had = THEMEED_theme_base$(nm)
+        IF had <> bs THEN
+            alt = THEMEED_variant$(nm, bs)
+            THEMEED.askedName = nm: THEMEED.askedBase = had
+            IF THEMEED.unattended = 0 _ANDALSO gj_stdin_isatty& <> 0 _ANDALSO gj_stdout_isatty& <> 0 THEN
+                nm = THEMEED_ask_theme$(nm, had, bs, alt)
+                IF nm = "" THEN _LOGINFO "THEMEED: quit at the theme question": SYSTEM 0
+                IF LEN(THEMEED.replacedTo) THEN _LOGINFO "THEMEED: replacing " + nm + " from " + bs + " - the old one moved to " + THEMEED.replacedTo
+            ELSEIF LEN(alt) THEN
+                nm = alt
+            END IF
+            IF nm = THEMEED.askedName THEN
+                THEMEED.askedName = ""
+            ELSE
+                _LOGINFO "THEMEED: " + THEMEED.askedName + " exists (made from " + _IIF(had = "", "?", had) + ") - editing " + nm + " from " + bs
+            END IF
+        END IF
+    END IF
+    IF bs = "" THEN bs = cur
+    THEMEED.themeName = nm
+    THEMEED.baseName  = bs
+    dst = "ASSETS/THEMES/" + nm
+    IF _DIREXISTS(dst) = 0 _ANDALSO THEMEED.active THEN
+        src = "ASSETS/THEMES/" + bs
+        IF _DIREXISTS(src) = 0 THEN
+            _LOGWARN "THEMEED: base theme " + bs + " not found - using DEFAULT"
+            src = "ASSETS/THEMES/DEFAULT": THEMEED.baseName = "DEFAULT"
+        END IF
+        n = UIP_dir_copy%(src, dst, "|.history|") ' a copied .theme-base is rewritten below
+        IF n < 0 _ORELSE _FILEEXISTS(dst + "/THEME.CFG") = 0 THEN
+            _LOGERROR "THEMEED: could not create theme " + nm + " from " + THEMEED.baseName + ": " + UIP_LAST_ERROR + _IIF(LEN(THEMEED.replacedTo), " (the old one is in " + THEMEED.replacedTo + ")", "")
+            nm = cur: THEMEED.themeName = cur: THEMEED.askedName = ""
+        ELSE
+            THEMEED.created = TRUE
+            THEMEED_theme_base_write nm, THEMEED.baseName
+            _LOGINFO "THEMEED: created theme " + nm + " from " + THEMEED.baseName + " (" + _TRIM$(STR$(n)) + " files)"
+        END IF
+    END IF
+    ' THEMEED_cli_collect made --theme-name an --option THEME override: follow the swap
+    ci = CFG_cli_has%("THEME")
+    IF ci > 0 _ANDALSO LEN(THEMEED.askedName) THEN CFG_CLI_VAL(ci) = nm
+    CFG.THEME$      = nm
+    THEMEED.root    = "ASSETS/THEMES/" + nm + "/"
+    THEMEED.cfgPath = THEMEED.root + "THEME.CFG"
+END SUB
+
+' -----------------------------------------------------------------------------
+' Registry: properties + DRAW's components
+' -----------------------------------------------------------------------------
+
+SUB THEMEED_register ()
+    DIM c AS INTEGER
+    IF UIP_PN > 0 THEN EXIT SUB
+    THEMEP_register_all
+    c = UIP_comp_add%("APP", "APPLICATION", 0, "WINDOW FONTS SOUND SPLASH LOSPEC", "")
+    c = UIP_comp_add%("CANVAS", "CANVAS", 0, "CANVAS GRID PIXEL_GRID TRANSPARENCY CROSSHAIR SYMMETRY MARQUEE TRANSFORM TOOL_PREVIEW TEXT_LAYER PICKER_LOUPE SMART_GUIDES ZOOM_BOX CURSOR", "CURSORS")
+    c = UIP_comp_add%("TOOLBOX", "TOOLBOX", 0, "TOOLBAR", "IMAGES/TOOLBOX|IMAGES/COMMANDS/TOOLBOX")
+    c = UIP_comp_add%("TOOLBOX_BUTTON", "BUTTON", UIP_comp_find%("TOOLBOX"), "TOOLBAR", "")
+    c = UIP_comp_add%("MENUBAR", "MENU BAR", 0, "MENU", "")
+    c = UIP_comp_add%("POPUP_MENU", "MENU", 0, "MENU PALETTE_MENU", "")
+    c = UIP_comp_add%("LAYER_PANEL", "LAYERS", 0, "LAYER_PANEL OPACITY_SLIDER", "IMAGES/LAYERS")
+    c = UIP_comp_add%("PALETTE_STRIP", "COLOR STRIP", 0, "PALETTE_STRIP PALETTE_MENU COLOR_CHIP", "IMAGES/PALETTE")
+    c = UIP_comp_add%("EDIT_BAR", "EDIT BAR", 0, "EDIT_BAR", "IMAGES/EDITBAR|IMAGES/COMMANDS")
+    c = UIP_comp_add%("ADV_BAR", "ADVANCED BAR", 0, "ADV_BAR", "IMAGES/ADVANCEDBAR|IMAGES/COMMANDS")
+    c = UIP_comp_add%("STATUS_BAR", "STATUS BAR", 0, "STATUS COLOR_CHIP", "")
+    c = UIP_comp_add%("DRAWER", "DRAWER", 0, "DRAWER_PANEL DRAWER_BIN DRAWER_SCROLLBAR DRAWER_MINI_PALETTE DRAWER_LABEL BINS", "IMAGES/DRAWER|IMAGES/BRUSHES|IMAGES/PATTERNS")
+    c = UIP_comp_add%("PREVIEW", "PREVIEW", 0, "PREVIEW CP", "")
+    c = UIP_comp_add%("COLOR_MIXER", "COLOR MIXER", 0, "CP", "")
+    c = UIP_comp_add%("BROWSER", "BROWSER", 0, "FILE_DIALOG", "IMAGES/FILEDIALOG")
+    c = UIP_comp_add%("CHARMAP", "CHARACTER MAP", 0, "CHARMAP", "")
+    c = UIP_comp_add%("ORGANIZER", "ORGANIZER", 0, "TOOLBAR COLOR_CHIP OPACITY_SLIDER", "IMAGES/DRAWER")
+    c = UIP_comp_add%("COMMAND_PALETTE", "COMMAND PALETTE", 0, "CMD_PALETTE", "IMAGES/COMMANDS")
+    c = UIP_comp_add%("DIALOG", "DIALOG", 0, "DIALOG LOSPEC", "IMAGES/MSGBOX")
+    c = UIP_comp_add%("TOOLTIP", "TOOLTIP", 0, "TOOLTIP", "")
+    c = UIP_comp_add%("TEXT_BAR", "TEXT BAR", 0, "TEXT_BAR", "IMAGES/TEXTBAR")
+    c = UIP_comp_add%("FILL_ADJ", "FILL ADJUST", 0, "FILL_ADJ", "")
+    c = UIP_comp_add%("ANIMATION", "ANIMATION", 0, "ANIMATION CP", "")
+    c = UIP_comp_add%("WORKFLOW", "WORKFLOW BUTTONS", 0, "TOOLBAR EDIT_BAR", "")
+    c = UIP_comp_add%("SEL_BAR", "SELECTION BAR", 0, "TEXT_BAR", "")
+    c = UIP_comp_add%("PEN_PANEL", "PEN CONTROL", 0, "CP", "")
+    c = UIP_comp_add%("SWATCHES", "SWATCHES", 0, "CP", "")
+    c = UIP_comp_add%("BRUSH_PANELS", "BRUSHES", 0, "TEXT_BAR", "")
+    c = UIP_comp_add%("TOOLBAR_EDITOR", "CUSTOMIZE TOOLBARS", 0, "CP", "IMAGES/COMMANDS|IMAGES/COMMANDS/TOOLBOX")
+    c = UIP_comp_add%("PIXEL_COACH", "PIXEL COACH", 0, "DIALOG", "")
+END SUB
+
+''
+' The component for a REGION_* (the APP component for anything unmapped).
+'
+FUNCTION THEMEED_comp_for_region% (region AS INTEGER)
+    DIM id AS STRING
+    SELECT CASE region
+        CASE REGION_CANVAS, REGION_SMART_GUIDES, REGION_TRANSPARENCY_CHECKER: id = "CANVAS"
+        CASE REGION_TOOLBAR, REGION_SUBTOOL_FLYOUT: id = "TOOLBOX"
+        CASE REGION_MENUBAR: id = "MENUBAR"
+        CASE REGION_POPUP_MENU: id = "POPUP_MENU"
+        CASE REGION_LAYER_PANEL: id = "LAYER_PANEL"
+        CASE REGION_PALETTE_STRIP, REGION_PALETTE_PICKER: id = "PALETTE_STRIP"
+        CASE REGION_EDIT_BAR: id = "EDIT_BAR"
+        CASE REGION_ADV_BAR: id = "ADV_BAR"
+        CASE REGION_STATUS_BAR: id = "STATUS_BAR"
+        CASE REGION_DRAWER: id = "DRAWER"
+        CASE REGION_PREVIEW: id = "PREVIEW"
+        CASE REGION_COLOR_MIXER, REGION_ADV_COLOR_PICKER, REGION_COLOR_SPACE_3D: id = "COLOR_MIXER"
+        CASE REGION_IMAGE_BROWSER, REGION_FILE_DIALOG: id = "BROWSER"
+        CASE REGION_CHARMAP: id = "CHARMAP"
+        CASE REGION_ORGANIZER: id = "ORGANIZER"
+        CASE REGION_COMMAND_PALETTE: id = "COMMAND_PALETTE"
+        CASE REGION_SETTINGS_DLG, REGION_DIALOG_GENERIC: id = "DIALOG"
+        CASE REGION_TOOLTIP: id = "TOOLTIP"
+        CASE REGION_TEXT_BAR: id = "TEXT_BAR"
+        CASE REGION_FILL_ADJ: id = "FILL_ADJ"
+        CASE REGION_ANIM_PANEL: id = "ANIMATION"
+        CASE REGION_WORKFLOW: id = "WORKFLOW"
+        CASE REGION_SEL_BAR: id = "SEL_BAR"
+        CASE REGION_PEN_PANEL: id = "PEN_PANEL"
+        CASE REGION_SWATCHES: id = "SWATCHES"
+        CASE REGION_MYPAINT, REGION_MYPSET, REGION_BRUSHES: id = "BRUSH_PANELS"
+        CASE REGION_TOOLBAR_EDITOR: id = "TOOLBAR_EDITOR"
+        CASE REGION_PIXEL_COACH: id = "PIXEL_COACH"
+        CASE ELSE: id = "APP"
+    END SELECT
+    THEMEED_comp_for_region% = UIP_comp_find%(id)
+END FUNCTION
+
+''
+' A REGION_*'s name in the tree.
+'
+FUNCTION THEMEED_region_name$ (rg AS INTEGER)
+    DIM n AS STRING
+    SELECT CASE rg
+        CASE REGION_CANVAS: n = "CANVAS"
+        CASE REGION_TOOLBAR: n = "TOOLBOX"
+        CASE REGION_MENUBAR: n = "MENU BAR"
+        CASE REGION_LAYER_PANEL: n = "LAYERS"
+        CASE REGION_PALETTE_STRIP: n = "COLOR STRIP"
+        CASE REGION_EDIT_BAR: n = "EDIT BAR"
+        CASE REGION_ADV_BAR: n = "ADVANCED BAR"
+        CASE REGION_STATUS_BAR: n = "STATUS BAR"
+        CASE REGION_DRAWER: n = "DRAWER"
+        CASE REGION_PREVIEW: n = "PREVIEW"
+        CASE REGION_COLOR_MIXER: n = "COLOR MIXER"
+        CASE REGION_IMAGE_BROWSER: n = "BROWSER"
+        CASE REGION_CHARMAP: n = "CHARACTER MAP"
+        CASE REGION_ORGANIZER: n = "ORGANIZER"
+        CASE REGION_COMMAND_PALETTE: n = "COMMAND PALETTE"
+        CASE REGION_SETTINGS_DLG: n = "SETTINGS"
+        CASE REGION_FILE_DIALOG: n = "FILE DIALOG"
+        CASE REGION_POPUP_MENU: n = "POPUP MENU"
+        CASE REGION_TOOLTIP: n = "TOOLTIP"
+        CASE REGION_PIXEL_COACH: n = "PIXEL COACH"
+        CASE REGION_TRANSPARENCY_CHECKER: n = "TRANSPARENCY CHECKER"
+        CASE REGION_SMART_GUIDES: n = "SMART GUIDES"
+        CASE REGION_SUBTOOL_FLYOUT: n = "SUBTOOL FLYOUT"
+        CASE REGION_TEXT_BAR: n = "TEXT BAR"
+        CASE REGION_PALETTE_PICKER: n = "PALETTE PICKER"
+        CASE REGION_FILL_ADJ: n = "FILL ADJUST"
+        CASE REGION_DIALOG_GENERIC: n = "DIALOG"
+        CASE REGION_ADV_COLOR_PICKER: n = "ADVANCED COLOR PICKER"
+        CASE REGION_COLOR_SPACE_3D: n = "3D COLOR SPACE"
+        CASE REGION_PEN_PANEL: n = "PEN CONTROL"
+        CASE REGION_TOOLBAR_EDITOR: n = "CUSTOMIZE TOOLBARS"
+        CASE REGION_ANIM_PANEL: n = "ANIMATION"
+        CASE REGION_SWATCHES: n = "SWATCHES"
+        CASE REGION_WORKFLOW: n = "WORKFLOW BUTTONS"
+        CASE REGION_SEL_BAR: n = "SELECTION BAR"
+        CASE REGION_MYPAINT: n = "MYPAINT BRUSHES"
+        CASE REGION_MYPSET: n = "MYPAINT SETTINGS"
+        CASE REGION_BRUSHES: n = "BRUSHES"
+        CASE ELSE: n = "REGION " + _TRIM$(STR$(rg))
+    END SELECT
+    THEMEED_region_name$ = n
+END FUNCTION
+
+''
+' Which tree group a shown region goes in: 0 = placed by hand (window chrome,
+' the canvas), 1 left dock, 2 right dock, 3 floating, 4 overlays; -1 = not shown.
+'
+FUNCTION THEMEED_region_group% (rg AS INTEGER)
+    DIM z AS INTEGER
+    THEMEED_region_group% = -1
+    IF rg <= REGION_GLOBAL _ORELSE rg >= THEMEED_RG_N THEN EXIT FUNCTION
+    IF THEMEED_RG(rg).active = 0 _ORELSE THEMEED_RG(rg).w <= 0 _ORELSE THEMEED_RG(rg).h <= 0 THEN EXIT FUNCTION
+    SELECT CASE rg
+        CASE REGION_CANVAS, REGION_MENUBAR, REGION_STATUS_BAR, REGION_PALETTE_STRIP, REGION_TRANSPARENCY_CHECKER, REGION_SMART_GUIDES
+            THEMEED_region_group% = 0: EXIT FUNCTION
+        CASE REGION_TOOLTIP
+            THEMEED_region_group% = 4: EXIT FUNCTION
+    END SELECT
+    z = THEMEED_RG(rg).z
+    IF z >= ZORDER_FLYOUT THEN
+        THEMEED_region_group% = 4
+    ELSEIF z >= ZORDER_FLOATING THEN
+        THEMEED_region_group% = 3
+    ELSEIF THEMEED_RG(rg).x + THEMEED_RG(rg).w \ 2 < SCRN.w& \ 2 THEN
+        THEMEED_region_group% = 1
+    ELSE
+        THEMEED_region_group% = 2
+    END IF
+END FUNCTION
+
+''
+' Add region rg under parent (and, for the toolbox, its buttons). Returns the
+' node, 0 when rg is not shown.
+'
+FUNCTION THEMEED_tree_region% (parent AS INTEGER, rg AS INTEGER)
+    DIM ds AS INTEGER, n AS INTEGER, i AS INTEGER, b AS INTEGER, sc AS INTEGER, k AS INTEGER
+    DIM bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER, lbl AS STRING, fls AS STRING
+    IF THEMEED_region_group%(rg) < 0 THEN EXIT FUNCTION
+    ds = _MAX(1, SCRN.displayScale%)
+    n = UIP_node_add%(parent, "R:" + _TRIM$(STR$(rg)), THEMEED_region_name$(rg), THEMEED_comp_for_region%(rg), THEMEED_RG(rg).x * ds, THEMEED_RG(rg).y * ds, THEMEED_RG(rg).w * ds, THEMEED_RG(rg).h * ds, "")
+    THEMEED_tree_region% = n
+    SELECT CASE rg
+        CASE REGION_TOOLBAR
+            ' every slot: tools, and the commands Customize Toolbars put there
+            sc = _MAX(1, _MIN(4, TOOLBAR_scale%))
+            FOR i = 0 TO TB_LIVE_COUNT - 1
+                b = TOOLBAR_BUTTON_ORDER(i)
+                bx = TB_SLOT_X(i): by = TB_SLOT_Y(i): bw = TB_BTN_W * sc: bh = TB_BTN_H * sc
+                PSURF_rect_to_view DP_TOOLBOX, bx, by, bw, bh
+                IF b >= TB_CMD_BASE THEN
+                    fls = THEMEED_cmd_art$(b - TB_CMD_BASE, TRUE)
+                    k = UIP_node_add%(n, "TBC:" + _TRIM$(STR$(b - TB_CMD_BASE)), "BUTTON " + THEMEED_cmd_name$(b - TB_CMD_BASE), THEMEED_comp_for_region%(REGION_TOOLBAR), bx * ds, by * ds, bw * ds, bh * ds, fls)
+                ELSEIF b >= 0 _ANDALSO b <= UBOUND(GUI_TB) THEN
+                    lbl = UCASE$(_TRIM$(GUI_TB(b).evt))
+                    IF LEN(lbl) = 0 THEN lbl = UCASE$(GUI_TB(b).iSrc)
+                    lbl = THEMEED_dash_to_space$(lbl)
+                    k = UIP_node_add%(n, "TB:" + _TRIM$(STR$(b)), "BUTTON " + lbl, THEMEED_comp_for_region%(REGION_TOOLBAR), bx * ds, by * ds, bw * ds, bh * ds, THEMEED_tool_art$(b))
+                END IF
+            NEXT i
+        CASE REGION_EDIT_BAR: THEMEED_tree_bar n, BL_EDITBAR, DP_EDITBAR, "EB:", THEMEED_comp_for_region%(rg)
+        CASE REGION_ADV_BAR: THEMEED_tree_bar n, BL_ADVBAR, DP_ADVBAR, "AB:", THEMEED_comp_for_region%(rg)
+        CASE ELSE: THEMEED_tree_extra n, rg
+    END SELECT
+    THEMEED_tree_parts n, rg ' what its draw code said it drew
+END FUNCTION
+
+''
+' The buttons of a bar built from a button list (edit bar, advanced bar) under
+' node parent: tools and commands, as drawn this frame.
+'
+SUB THEMEED_tree_bar (parent AS INTEGER, panel AS INTEGER, dp AS INTEGER, kp AS STRING, comp AS INTEGER)
+    DIM i AS INTEGER, k AS INTEGER, ds AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    ds = _MAX(1, SCRN.displayScale%)
+    FOR i = 0 TO BL_N(panel) - 1
+        IF BL(panel, i).w > 0 _ANDALSO (BL(panel, i).kind = BL_CMD _ORELSE BL(panel, i).kind = BL_TOOL) THEN
+            bx = BL(panel, i).x: by = BL(panel, i).y: bw = BL(panel, i).w: bh = BL(panel, i).h
+            PSURF_rect_to_view dp, bx, by, bw, bh
+            IF BL(panel, i).kind = BL_CMD THEN
+                k = UIP_node_add%(parent, kp + _TRIM$(STR$(i)), "BUTTON " + THEMEED_cmd_name$(BL(panel, i).id), comp, bx * ds, by * ds, bw * ds, bh * ds, THEMEED_cmd_art$(BL(panel, i).id, FALSE))
+            ELSE
+                k = UIP_node_add%(parent, kp + _TRIM$(STR$(i)), "BUTTON " + UCASE$(_TRIM$(GUI_TB(BL(panel, i).id).evt)), comp, bx * ds, by * ds, bw * ds, bh * ds, THEMEED_tool_art$(BL(panel, i).id))
+            END IF
+        END IF
+    NEXT i
+END SUB
+
+''
+' A tool button's art files (main | alternate) in the theme.
+'
+FUNCTION THEMEED_tool_art$ (b AS INTEGER)
+    DIM fls AS STRING
+    IF b < 0 _ORELSE b > UBOUND(GUI_TB) THEN EXIT FUNCTION
+    fls = THEMEED.root + "IMAGES/TOOLBOX/" + GUI_TB(b).iSrc
+    IF LEN(GUI_TB(b).iSrcAlt) THEN fls = fls + "|" + THEMEED.root + "IMAGES/TOOLBOX/" + GUI_TB(b).iSrcAlt
+    THEMEED_tool_art$ = fls
+END FUNCTION
+
+''
+' A command's name for the tree ("CAPTURE SCREEN"; CMD <id> when it has none).
+'
+FUNCTION THEMEED_cmd_name$ (act AS INTEGER)
+    DIM s AS STRING
+    s = UCASE$(BL_cmd_label$(act))
+    ' none registered (the AI commands while AI is off): its art's name, else its id
+    IF LEN(s) = 0 THEN s = UCASE$(BL_cmd_slug$(act))
+    IF LEFT$(s, 4) = "CMD-" THEN s = "CMD " + _TRIM$(STR$(act)) ELSE s = THEMEED_dash_to_space$(s)
+    THEMEED_cmd_name$ = s
+END FUNCTION
+
+''
+' s with every - and _ made a space.
+'
+FUNCTION THEMEED_dash_to_space$ (s AS STRING)
+    DIM i AS INTEGER, r AS STRING
+    r = s
+    FOR i = 1 TO LEN(r)
+        IF MID$(r, i, 1) = "-" _ORELSE MID$(r, i, 1) = "_" THEN MID$(r, i, 1) = " "
+    NEXT i
+    THEMEED_dash_to_space$ = r
+END FUNCTION
+
+''
+' The theme file a command's button art comes from - on the toolbox (tb), the
+' 11x11 IMAGES/COMMANDS/TOOLBOX/<slug>.png; on a bar, the bar's own icon file
+' for it, else IMAGES/COMMANDS/<slug>.png - even when this theme does not have
+' it yet (the button then shows DEFAULT's, a bar icon or a text tile): it is
+' noted for THEMEED_seed_make%, so EDIT makes it.
+'
+FUNCTION THEMEED_cmd_art$ (act AS INTEGER, tb AS INTEGER)
+    DIM i AS INTEGER, p AS STRING
+    IF tb THEN
+        p = THEMEED.root + "IMAGES/COMMANDS/TOOLBOX/" + BL_cmd_slug$(act) + ".png"
+    ELSE
+        FOR i = 0 TO EDITBAR_TOTAL_SLOTS - 1
+            IF EDIT_BAR_ITEMS(i).isDivider% = 0 _ANDALSO EDIT_BAR_ITEMS(i).actionID% = act _ANDALSO LEN(_TRIM$(EDIT_BAR_ITEMS(i).iconFile)) THEN p = THEMEED.root + "IMAGES/EDITBAR/" + _TRIM$(EDIT_BAR_ITEMS(i).iconFile): EXIT FOR
+        NEXT i
+        IF LEN(p) = 0 THEN
+            FOR i = 0 TO ADVBAR_TOTAL_SLOTS - 1
+                IF ADV_BAR_ITEMS(i).isDivider% = 0 _ANDALSO ADV_BAR_ITEMS(i).actionID% = act _ANDALSO LEN(_TRIM$(ADV_BAR_ITEMS(i).iconFile)) THEN p = THEMEED.root + "IMAGES/ADVANCEDBAR/" + _TRIM$(ADV_BAR_ITEMS(i).iconFile): EXIT FOR
+            NEXT i
+        END IF
+        IF LEN(p) = 0 THEN p = THEMEED.root + "IMAGES/COMMANDS/" + BL_cmd_slug$(act) + ".png"
+    END IF
+    IF _FILEEXISTS(p) = 0 _ANDALSO THEMEED_SEED_N < THEMEED_SEED_MAX THEN
+        FOR i = 1 TO THEMEED_SEED_N
+            IF THEMEED_SEED_PATH(i) = p THEN EXIT FOR
+        NEXT i
+        IF i > THEMEED_SEED_N THEN
+            THEMEED_SEED_N = i
+            THEMEED_SEED_PATH(i) = p: THEMEED_SEED_ACT(i) = act: THEMEED_SEED_TB(i) = tb
+        END IF
+    END IF
+    THEMEED_cmd_art$ = p
+END FUNCTION
+
+''
+' mkdir -p for the folder of file path p (relative or absolute, / separated).
+'
+SUB THEMEED_make_dirs (p AS STRING)
+    DIM i AS INTEGER, d AS STRING
+    FOR i = 2 TO LEN(p)
+        IF MID$(p, i, 1) = "/" THEN
+            d = LEFT$(p, i - 1)
+            IF _DIREXISTS(d) = 0 THEN MKDIR d
+        END IF
+    NEXT i
+END SUB
+
+''
+' Make a file EDIT was asked for that the theme does not have yet: DEFAULT's copy
+' when it has one, else the art the button shows now (a bar icon, the 16px
+' command art or its text tile; for the toolbox centred in an 11 x k cell, as a
+' k x toolbox draws it). TRUE when the file exists afterwards.
+'
+FUNCTION THEMEED_seed_make% (p AS STRING)
+    DIM i AS INTEGER, k AS INTEGER, rel AS STRING, act AS INTEGER, img AS LONG, seedImg AS LONG, iw AS INTEGER, ih AS INTEGER, oldDest AS LONG
+    FOR i = 1 TO THEMEED_SEED_N
+        IF THEMEED_SEED_PATH(i) = p THEN EXIT FOR
+    NEXT i
+    IF i > THEMEED_SEED_N THEN EXIT FUNCTION
+    act = THEMEED_SEED_ACT(i)
+    THEMEED_make_dirs p
+    rel = MID$(p, LEN(THEMEED.root) + 1)
+    IF _FILEEXISTS("ASSETS/THEMES/DEFAULT/" + rel) THEN
+        i = UIP_file_copy%("ASSETS/THEMES/DEFAULT/" + rel, p)
+        THEMEED_seed_make% = (_FILEEXISTS(p) <> 0)
+        EXIT FUNCTION
+    END IF
+    img = BL_cmd_icon&(act, FALSE)
+    IF img >= -1 THEN img = BL_cmd_tile&(act, FALSE)
+    IF img >= -1 THEN EXIT FUNCTION
+    iw = _WIDTH(img): ih = _HEIGHT(img)
+    IF THEMEED_SEED_TB(i) THEN
+        ' toolbox art is stretched to the cell: the smallest 11 x k square the icon
+        ' fits with its 1px margin, the icon centred unscaled - as a k x toolbox shows it
+        k = _MAX(1, -INT(-(_MAX(iw, ih) + 2) / TB_BTN_W))
+        seedImg = _NEWIMAGE(TB_BTN_W * k, TB_BTN_H * k, 32)
+        oldDest = _DEST: _DEST seedImg: CLS , _RGBA32(0, 0, 0, 0): _DEST oldDest
+        _PUTIMAGE ((TB_BTN_W * k - iw) \ 2, (TB_BTN_H * k - ih) \ 2), img, seedImg
+    ELSE
+        seedImg = _COPYIMAGE(img, 32)
+    END IF
+    _SAVEIMAGE p, seedImg
+    _FREEIMAGE seedImg
+    THEMEED_seed_make% = (_FILEEXISTS(p) <> 0)
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' Drawn parts: what the draw code says it drew (THEMEED_PART, see THEME-EDIT.BI)
+' -----------------------------------------------------------------------------
+
+''
+' The draw code drew a part: label, its box (x, y, w, h) in image dst, its theme
+' files ("|"-separated, "" = none), under the part / node pkey ("" = the region
+' it lies in). nkey "" = made from the label and the spot. Nothing outside a
+' Theme Edit session.
+'
+SUB THEMEED_seen (dst AS LONG, pkey AS STRING, nkey AS STRING, label AS STRING, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, fls AS STRING)
+    DIM i AS INTEGER, k AS STRING
+    IF THEMEED.started = 0 _ORELSE w <= 0 _ORELSE h <= 0 _ORELSE dst = 0 THEN EXIT SUB
+    ' a panel / window image: the first part drawn into it since a new render
+    ' began drops its old ones (SCRN.GUI& is dropped when the GUI is redrawn -
+    ' parts of it are redrawn alone - and SCRN.CANVAS& every render)
+    IF dst <> SCRN.GUI& _ANDALSO dst <> SCRN.CANVAS& THEN
+        FOR i = 1 TO THEMEED_DG_N
+            IF THEMEED_DG_DST(i) = dst THEN EXIT FOR
+        NEXT i
+        IF i > THEMEED_DG_N THEN
+            IF THEMEED_DG_N >= THEMEED_DG_MAX THEN THEMEED_DG_N = 0 ' (handles come and go: start over)
+            THEMEED_DG_N = THEMEED_DG_N + 1: i = THEMEED_DG_N
+            THEMEED_DG_DST(i) = dst: THEMEED_DG_GEN(i) = THEMEED_GEN - 1
+        END IF
+        IF THEMEED_DG_GEN(i) <> THEMEED_GEN THEN THEMEED_DG_GEN(i) = THEMEED_GEN: THEMEED_seen_drop dst
+    END IF
+    IF LEN(nkey) THEN k = nkey ELSE k = "D:" + label + "@" + _TRIM$(STR$(x)) + "," + _TRIM$(STR$(y))
+    ' drawn again (in the same image): replaced
+    FOR i = 1 TO THEMEED_SN
+        IF THEMEED_PART(i).dst = dst THEN
+            IF THEMEED_PART(i).nkey = k THEN EXIT FOR
+        END IF
+    NEXT i
+    IF i > THEMEED_SN THEN
+        IF THEMEED_SN >= 2000 THEN EXIT SUB
+        THEMEED_SN = THEMEED_SN + 1: i = THEMEED_SN
+        IF i > UBOUND(THEMEED_PART) THEN REDIM _PRESERVE THEMEED_PART(1 TO i + 127) AS THEMEED_SEEN_OBJ
+    END IF
+    THEMEED_PART(i).dst = dst
+    THEMEED_PART(i).pkey = pkey
+    THEMEED_PART(i).nkey = k
+    THEMEED_PART(i).label = label
+    THEMEED_PART(i).x = x: THEMEED_PART(i).y = y
+    THEMEED_PART(i).w = w: THEMEED_PART(i).h = h
+    THEMEED_PART(i).fls = fls
+END SUB
+
+''
+' Part nkey of image dst is not drawn any more.
+'
+SUB THEMEED_seen_forget (dst AS LONG, nkey AS STRING)
+    DIM i AS INTEGER
+    FOR i = 1 TO THEMEED_SN
+        IF THEMEED_PART(i).dst = dst _ANDALSO THEMEED_PART(i).nkey = nkey THEN
+            THEMEED_PART(i) = THEMEED_PART(THEMEED_SN): THEMEED_SN = THEMEED_SN - 1
+            EXIT SUB
+        END IF
+    NEXT i
+END SUB
+
+''
+' RENDER_gui_elements: the GUI is about to be redrawn - what was drawn into it goes.
+'
+SUB THEMEED_seen_gui ()
+    IF THEMEED.started THEN THEMEED_seen_drop SCRN.GUI&
+END SUB
+
+''
+' Forget the parts drawn into dst.
+'
+SUB THEMEED_seen_drop (dst AS LONG)
+    DIM i AS INTEGER, j AS INTEGER
+    FOR i = 1 TO THEMEED_SN
+        IF THEMEED_PART(i).dst <> dst THEN
+            j = j + 1
+            IF j < i THEN THEMEED_PART(j) = THEMEED_PART(i)
+        END IF
+    NEXT i
+    THEMEED_SN = j
+END SUB
+
+''
+' SCREEN_render's start: a new render (the context popups are drawn again in it,
+' or not at all).
+'
+SUB THEMEED_seen_frame ()
+    IF THEMEED.started = 0 THEN EXIT SUB
+    THEMEED_GEN = THEMEED_GEN + 1
+    THEMEED_seen_drop SCRN.CANVAS&
+END SUB
+
+''
+' The REGION_* an HSC_put slot shows (0 = none: where it lands decides).
+'
+FUNCTION THEMEED_hsc_region% (slot AS INTEGER)
+    SELECT CASE slot
+        CASE 1 TO DP_PREVIEW - 1: THEMEED_hsc_region% = DOCK_panel_region%(slot)
+        CASE HSC_ADVCP_MENU: THEMEED_hsc_region% = REGION_ADV_COLOR_PICKER ' (= WZ_TBED: Customize Toolbars blits by itself)
+        CASE HSC_SWATCH_MENU: THEMEED_hsc_region% = REGION_SWATCHES
+        CASE DP_PREVIEW TO WZ_COUNT: THEMEED_hsc_region% = WZ_region%(slot)
+    END SELECT
+END FUNCTION
+
+''
+' HSC_put (and Customize Toolbars' own blit): image src went to the window,
+' (sx, sy, sw, sh) onto (dx, dy, dw, dh) window px, showing region rg (0 = where
+' it lands decides).
+'
+SUB THEMEED_hsc_note (rg AS INTEGER, src AS LONG, sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG, dx AS LONG, dy AS LONG, dw AS LONG, dh AS LONG)
+    DIM i AS INTEGER
+    IF THEMEED.started = 0 _ORELSE sw < 1 _ORELSE sh < 1 THEN EXIT SUB
+    FOR i = 1 TO THEMEED_MAP_N
+        IF THEMEED_MAP(i).src = src THEN EXIT FOR
+    NEXT i
+    IF i > THEMEED_MAP_N THEN
+        IF THEMEED_MAP_N >= THEMEED_MAP_MAX THEN THEMEED_MAP_N = 0
+        THEMEED_MAP_N = THEMEED_MAP_N + 1: i = THEMEED_MAP_N
+    END IF
+    THEMEED_MAP(i).src = src
+    THEMEED_MAP(i).rg = rg
+    THEMEED_MAP(i).sx = sx: THEMEED_MAP(i).sy = sy: THEMEED_MAP(i).sw = sw: THEMEED_MAP(i).sh = sh
+    THEMEED_MAP(i).dx = dx: THEMEED_MAP(i).dy = dy: THEMEED_MAP(i).dw = dw: THEMEED_MAP(i).dh = dh
+END SUB
+
+''
+' The smallest region shown that holds viewport point (vx, vy); 0 = none.
+'
+FUNCTION THEMEED_region_at% (vx AS INTEGER, vy AS INTEGER)
+    DIM rg AS INTEGER, best AS INTEGER, bestA AS LONG, ar AS LONG
+    FOR rg = REGION_GLOBAL + 1 TO THEMEED_RG_N - 1
+        IF THEMEED_region_group%(rg) >= 0 THEN
+            IF vx >= THEMEED_RG(rg).x _ANDALSO vx < THEMEED_RG(rg).x + THEMEED_RG(rg).w _ANDALSO vy >= THEMEED_RG(rg).y _ANDALSO vy < THEMEED_RG(rg).y + THEMEED_RG(rg).h THEN
+                ar = CLNG(THEMEED_RG(rg).w) * THEMEED_RG(rg).h
+                IF best = 0 _ORELSE ar < bestA THEN best = rg: bestA = ar
+            END IF
+        END IF
+    NEXT rg
+    THEMEED_region_at% = best
+END FUNCTION
+
+''
+' Every drawn part's box in window px and where it goes in the tree.
+'
+SUB THEMEED_seen_resolve ()
+    DIM i AS INTEGER, j AS INTEGER, m AS INTEGER, ds AS INTEGER, rg AS INTEGER
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG
+    ds = _MAX(1, SCRN.displayScale%)
+    IF THEMEED_SN > UBOUND(THEMEED_RS_OK) THEN
+        REDIM THEMEED_RS_X(1 TO THEMEED_SN + 127) AS INTEGER, THEMEED_RS_Y(1 TO THEMEED_SN + 127) AS INTEGER
+        REDIM THEMEED_RS_W(1 TO THEMEED_SN + 127) AS INTEGER, THEMEED_RS_H(1 TO THEMEED_SN + 127) AS INTEGER
+        REDIM THEMEED_RS_PAR(1 TO THEMEED_SN + 127) AS INTEGER, THEMEED_RS_RG(1 TO THEMEED_SN + 127) AS INTEGER
+        REDIM THEMEED_RS_OK(1 TO THEMEED_SN + 127) AS INTEGER
+    END IF
+    FOR i = 1 TO THEMEED_SN
+        THEMEED_RS_OK(i) = FALSE: THEMEED_RS_PAR(i) = 0: THEMEED_RS_RG(i) = 0: rg = 0
+        x1 = THEMEED_PART(i).x: y1 = THEMEED_PART(i).y
+        x2 = x1 + THEMEED_PART(i).w: y2 = y1 + THEMEED_PART(i).h
+        IF THEMEED_PART(i).dst = SCRN.GUI& _ORELSE THEMEED_PART(i).dst = SCRN.CANVAS& THEN
+            m = -1
+        ELSE
+            FOR m = 1 TO THEMEED_MAP_N
+                IF THEMEED_MAP(m).src = THEMEED_PART(i).dst THEN EXIT FOR
+            NEXT m
+            IF m > THEMEED_MAP_N THEN m = 0
+        END IF
+        IF m = -1 THEN
+            x1 = x1 * ds: y1 = y1 * ds: x2 = x2 * ds: y2 = y2 * ds
+        ELSEIF m > 0 THEN
+            rg = THEMEED_MAP(m).rg
+            x1 = THEMEED_MAP(m).dx + (x1 - THEMEED_MAP(m).sx) * THEMEED_MAP(m).dw \ THEMEED_MAP(m).sw
+            x2 = THEMEED_MAP(m).dx + (x2 - THEMEED_MAP(m).sx) * THEMEED_MAP(m).dw \ THEMEED_MAP(m).sw
+            y1 = THEMEED_MAP(m).dy + (y1 - THEMEED_MAP(m).sy) * THEMEED_MAP(m).dh \ THEMEED_MAP(m).sh
+            y2 = THEMEED_MAP(m).dy + (y2 - THEMEED_MAP(m).sy) * THEMEED_MAP(m).dh \ THEMEED_MAP(m).sh
+        END IF
+        ' (a window that is gone: its parts too; the menu bar's menu and the palette
+        ' menu are drawn into the GUI, which may not be redrawn when they close)
+        IF LEFT$(THEMEED_PART(i).nkey, 5) = "MENU:" _ANDALSO MENU_BAR.openMenu < 0 THEN m = 0
+        IF LEFT$(THEMEED_PART(i).nkey, 7) = "PALMENU" _ANDALSO PALETTE_MENU_VISIBLE% = 0 THEN m = 0
+        IF m <> 0 _ANDALSO x2 > x1 _ANDALSO y2 > y1 _ANDALSO (rg = 0 _ORELSE THEMEED_region_group%(rg) >= 0) THEN
+            THEMEED_RS_X(i) = x1: THEMEED_RS_Y(i) = y1: THEMEED_RS_W(i) = x2 - x1: THEMEED_RS_H(i) = y2 - y1
+            THEMEED_RS_OK(i) = TRUE
+            IF LEN(THEMEED_PART(i).pkey) THEN
+                ' under another part of the same image (usually drawn just before
+                ' it), else the node it names
+                FOR j = THEMEED_SN TO 1 STEP -1
+                    IF j <> i _ANDALSO THEMEED_PART(j).dst = THEMEED_PART(i).dst THEN
+                        IF THEMEED_PART(j).nkey = THEMEED_PART(i).pkey THEN EXIT FOR
+                    END IF
+                NEXT j
+                IF j >= 1 THEN
+                    THEMEED_RS_PAR(i) = j
+                ELSEIF THEMEED_PART(i).pkey = "OVER" THEN
+                    THEMEED_RS_RG(i) = -1
+                ELSEIF LEFT$(THEMEED_PART(i).pkey, 2) = "R:" THEN
+                    THEMEED_RS_RG(i) = VAL(MID$(THEMEED_PART(i).pkey, 3))
+                ELSE
+                    THEMEED_RS_RG(i) = -2
+                END IF
+            ELSE
+                IF rg = 0 THEN rg = THEMEED_region_at%((x1 + x2) \ 2 \ ds, (y1 + y2) \ 2 \ ds)
+                THEMEED_RS_RG(i) = rg
+                IF rg = 0 THEN THEMEED_RS_OK(i) = FALSE
+            END IF
+        END IF
+    NEXT i
+END SUB
+
+''
+' Add drawn part i under node parent, then its own parts.
+'
+SUB THEMEED_tree_part (parent AS INTEGER, i AS INTEGER)
+    DIM n AS INTEGER, j AS INTEGER, c AS INTEGER
+    THEMEED_RS_OK(i) = FALSE ' (once)
+    c = UIP_N(parent).comp
+    IF LEFT$(THEMEED_PART(i).nkey, 4) = "POP:" _ORELSE LEFT$(THEMEED_PART(i).nkey, 5) = "MENU:" THEN c = UIP_comp_find%("POPUP_MENU")
+    IF LEFT$(THEMEED_PART(i).nkey, 7) = "PALMENU" THEN c = UIP_comp_find%("PALETTE_STRIP")
+    n = UIP_node_add%(parent, THEMEED_PART(i).nkey, THEMEED_PART(i).label, c, THEMEED_RS_X(i), THEMEED_RS_Y(i), THEMEED_RS_W(i), THEMEED_RS_H(i), THEMEED_PART(i).fls)
+    FOR j = 1 TO THEMEED_SN
+        IF THEMEED_RS_OK(j) _ANDALSO THEMEED_RS_PAR(j) = i THEN THEMEED_tree_part n, j
+    NEXT j
+END SUB
+
+''
+' The drawn parts that go straight under node n: those of region rg (rg > 0),
+' the overlays (-1) or those naming n (-2).
+'
+SUB THEMEED_tree_parts (n AS INTEGER, rg AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 1 TO THEMEED_SN
+        IF THEMEED_RS_OK(i) _ANDALSO THEMEED_RS_PAR(i) = 0 _ANDALSO THEMEED_RS_RG(i) = rg THEN
+            IF rg <> -2 _ORELSE THEMEED_PART(i).pkey = UIP_N(n).nkey THEN THEMEED_tree_part n, i
+        END IF
+    NEXT i
+END SUB
+
+''
+' A part worked out from a panel's own data: its box in panel dp's units (dp 0:
+' viewport px), under parent with parent's component. Returns the node (0 = none).
+'
+FUNCTION THEMEED_kid% (parent AS INTEGER, nkey AS STRING, label AS STRING, dp AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, fls AS STRING)
+    DIM bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER, ds AS INTEGER
+    IF parent < 1 _ORELSE w <= 0 _ORELSE h <= 0 THEN EXIT FUNCTION
+    bx = x: by = y: bw = w: bh = h
+    IF dp > 0 THEN PSURF_rect_to_view dp, bx, by, bw, bh
+    ds = _MAX(1, SCRN.displayScale%)
+    THEMEED_kid% = UIP_node_add%(parent, nkey, label, UIP_N(parent).comp, bx * ds, by * ds, bw * ds, bh * ds, fls)
+END FUNCTION
+
+''
+' The parts of region rg (node n) worked out from its panel's own data - the
+' rest it says it drew (THEMEED_seen).
+'
+SUB THEMEED_tree_extra (n AS INTEGER, rg AS INTEGER)
+    DIM i AS INTEGER, k AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, cnt AS INTEGER
+    DIM lbl AS STRING, lp AS STRING, rh AS INTEGER
+    DIM by AS INTEGER, bx AS INTEGER, bw AS INTEGER, ex AS INTEGER, lx AS INTEGER, sx AS INTEGER, sw AS INTEGER
+    SELECT CASE rg
+        CASE REGION_MENUBAR
+            FOR i = 0 TO MENU_ROOT_COUNT - 1
+                IF MENU_CHEVRON_ACTIVE = 0 _ORELSE i < MENU_VISIBLE_COUNT _ORELSE i = MENU_ROOT_COUNT - 1 THEN
+                    lbl = UCASE$(RTRIM$(MENU_ROOT_LABEL(i)))
+                    k = THEMEED_kid%(n, "MR:" + _TRIM$(STR$(i)), "MENU " + lbl, 0, MENU_ROOT_X(i) - 2, MENU_BAR.barY, MENU_ROOT_W(i), MENU_BAR.barH, "")
+                END IF
+            NEXT i
+            IF MENU_CHEVRON_ACTIVE THEN k = THEMEED_kid%(n, "MR:MORE", "MORE MENUS", 0, MENU_CHEVRON_X, MENU_BAR.barY, MENU_CHEVRON_W, MENU_BAR.barH, "")
+        CASE REGION_PALETTE_STRIP
+            IF PSG.shown THEN
+                cnt = PALETTE_LOADER_get_color_count%
+                FOR i = 0 TO PSG.shownN - 1
+                    PALETTE_STRIP_chip_xy i, x, y
+                    IF cnt > 0 THEN lbl = "COLOR " + _TRIM$(STR$((PALETTE_STRIP_SCROLL_OFFSET% + i) MOD cnt)) ELSE lbl = "COLOR"
+                    k = THEMEED_kid%(n, "PC:" + _TRIM$(STR$(i)), lbl, 0, x, y, PSG.sw, PSG.sh, "")
+                NEXT i
+                IF PSG.allFit = 0 THEN
+                    k = THEMEED_kid%(n, "PC:BACK", _IIF(PSG.vert, "SCROLL UP", "SCROLL LEFT"), 0, PSG.a1x, PSG.a1y, PSG.a1w, PSG.a1h, "")
+                    k = THEMEED_kid%(n, "PC:ON", _IIF(PSG.vert, "SCROLL DOWN", "SCROLL RIGHT"), 0, PSG.a2x, PSG.a2y, PSG.a2w, PSG.a2h, "")
+                END IF
+                k = THEMEED_kid%(n, "PC:NAME", "PALETTE " + UCASE$(PALETTE_LOADER_get_name$), 0, PSG.nx - 2, PSG.ny, PSG.nw + 2, PSG.nh, "")
+            END IF
+        CASE REGION_ORGANIZER
+            lp = THEMEED.root + "IMAGES/DRAWER/"
+            FOR i = 0 TO ORG_WIDGET_COUNT - 1
+                IF ORG_WIDGETS(i).w > 0 _ANDALSO ORG_WIDGETS(i).x > -10000 THEN
+                    lbl = UCASE$(_TRIM$(ORG_WIDGETS(i).tip))
+                    IF INSTR(lbl, "(") THEN lbl = _TRIM$(LEFT$(lbl, INSTR(lbl, "(") - 1))
+                    IF INSTR(lbl, ":") THEN lbl = _TRIM$(LEFT$(lbl, INSTR(lbl, ":") - 1))
+                    IF RIGHT$(lbl, 3) = "..." THEN lbl = LEFT$(lbl, LEN(lbl) - 3)
+                    IF i = ORG_CANVAS_OPS THEN lbl = "OPACITY"
+                    IF LEN(lbl) = 0 THEN lbl = "WIDGET " + _TRIM$(STR$(i))
+                    k = THEMEED_kid%(n, "OW:" + _TRIM$(STR$(i)), lbl, DP_ORGANIZER, ORG_WIDGETS(i).x, ORG_WIDGETS(i).y, ORG_WIDGETS(i).w, ORG_WIDGETS(i).h, THEMEED_org_files$(i))
+                END IF
+            NEXT i
+        CASE REGION_WORKFLOW
+            FOR i = 1 TO WF_N
+                IF WF_BW(i) > 0 THEN k = THEMEED_kid%(n, "WF:" + _TRIM$(STR$(i)), "WORKFLOW " + WF_label$(i), DP_WORKFLOW, WF_BX(i), WF_BY(i), WF_BW(i), WF_BH(i), "")
+            NEXT i
+        CASE REGION_SEL_BAR
+            rh = SELBAR_row_h%
+            FOR i = 1 TO SB_N
+                IF SELBAR_shown%(i) _ANDALSO SB_W(i) > 0 THEN k = THEMEED_kid%(n, "SB:" + _TRIM$(STR$(SB_ID(i))), UCASE$(SELBAR_label$(SB_ID(i))), DP_SELBAR, SB_X(i), SB_Y(i), SB_W(i), rh, "")
+            NEXT i
+        CASE REGION_TEXT_BAR
+            THEMEED_tree_textbar n
+        CASE REGION_SUBTOOL_FLYOUT
+            IF SUBTOOL_FLYOUT.ACTIVE _ANDALSO SUBTOOL_FLYOUT.GROUP_IDX >= 0 _ANDALSO SUBTOOL_FLYOUT.GROUP_IDX < SUBTOOL_GROUP_COUNT THEN
+                FOR i = 0 TO SUBTOOL_GROUPS(SUBTOOL_FLYOUT.GROUP_IDX).childCount - 1
+                    IF SUBTOOL_FLYOUT_child_rect%(i, x, y, w, h) THEN
+                        lbl = UCASE$(RTRIM$(SUBTOOL_GROUP_CHILDREN(SUBTOOL_FLYOUT.GROUP_IDX, i).statusName))
+                        lp = RTRIM$(SUBTOOL_GROUP_CHILDREN(SUBTOOL_FLYOUT.GROUP_IDX, i).iSrc)
+                        IF LEN(lp) THEN lp = THEMEED.root + "IMAGES/TOOLBOX/" + lp
+                        k = THEMEED_kid%(n, "ST:" + _TRIM$(STR$(i)), "BUTTON " + lbl, 0, x, y, w, h, lp)
+                    END IF
+                NEXT i
+            END IF
+        CASE REGION_LAYER_PANEL
+            ' header, layer bar, buttons (the rows: drawn parts)
+            x = LAYER_PANEL.panelX1%: w = LAYER_PANEL_w%: y = LAYER_PANEL_top%
+            lp = THEMEED.root + "IMAGES/LAYERS/"
+            k = THEMEED_kid%(n, "LP:HEAD", "HEADER", DP_LAYERS, x, y, w, THEME.LAYER_PANEL_header_height%, "")
+            IF CFG.LAYER_PANEL_BAR% <> 0 THEN
+                LAYER_BAR_layout by, bx, bw, ex, lx, sx, sw
+                k = THEMEED_kid%(n, "LP:BAR", "LAYER BAR", DP_LAYERS, x, by, w, LAYER_BAR_H, "")
+                i = THEMEED_kid%(k, "LP:BLEND", "BLEND MODE", DP_LAYERS, bx, by, bw, LAYER_BAR_H, "")
+                i = THEMEED_kid%(k, "LP:EYES", "SHOW / HIDE ALL", DP_LAYERS, ex, by, 11, LAYER_BAR_H, lp + "layer-icon-visibility-on.png|" + lp + "layer-icon-visibility-off.png")
+                i = THEMEED_kid%(k, "LP:LOCKS", "LOCK OTHERS", DP_LAYERS, lx, by, 11, LAYER_BAR_H, lp + "layer-icon-lock-on.png|" + lp + "layer-icon-lock-off.png")
+                i = THEMEED_kid%(k, "LP:OPACITY", "OPACITY", DP_LAYERS, sx, by, sw, LAYER_BAR_H, "")
+            END IF
+            h = THEME.LAYER_PANEL_btn_bar_height%
+            y = LAYER_PANEL_bot% - h
+            k = THEMEED_kid%(n, "LP:BTNS", "BUTTONS", DP_LAYERS, x, y, w, h, "")
+            bw = (w - 8 - 10) \ 6
+            FOR i = 0 TO 5
+                SELECT CASE i
+                    CASE 0: lbl = "MOVE UP": lp = "up"
+                    CASE 1: lbl = "MOVE DOWN": lp = "down"
+                    CASE 2: lbl = "MERGE DOWN": lp = "merge"
+                    CASE 3: lbl = "DELETE": lp = "delete"
+                    CASE 4: lbl = "NEW LAYER": lp = "add"
+                    CASE 5: lbl = "NEW GROUP": lp = "group"
+                END SELECT
+                ex = THEMEED_kid%(k, "LP:B" + _TRIM$(STR$(i)), "BUTTON " + lbl, DP_LAYERS, x + 4 + i * (bw + 2), y + 1, bw, h - 1, THEMEED.root + "IMAGES/LAYERS/layer-btn-" + lp + ".png")
+            NEXT i
+    END SELECT
+END SUB
+
+''
+' A drawer bin's theme file: a pattern's sample (the brushes and gradients are
+' the user's own / made).
+'
+FUNCTION THEMEED_drawer_bin_file$ (slot AS INTEGER)
+    DIM f AS STRING
+    IF DRAWER.mode% <> DRAWER_MODE_PATTERN THEN EXIT FUNCTION
+    f = "IMAGES/PATTERNS/pattern-" + _TRIM$(STR$(slot - 1)) + ".png"
+    IF _FILEEXISTS(THEMEED.root + f) _ORELSE _FILEEXISTS("ASSETS/THEMES/DEFAULT/" + f) THEN THEMEED_drawer_bin_file$ = THEMEED.root + f
+END FUNCTION
+
+''
+' A layer row icon's files: on | off.
+'
+FUNCTION THEMEED_layer_icon$ (nm AS STRING)
+    DIM p AS STRING
+    p = THEMEED.root + "IMAGES/LAYERS/layer-icon-" + nm
+    THEMEED_layer_icon$ = p + "-on.png|" + p + "-off.png"
+END FUNCTION
+
+''
+' An organizer widget's art files (every state).
+'
+FUNCTION THEMEED_org_files$ (i AS INTEGER)
+    DIM s AS STRING, p AS STRING
+    p = THEMEED.root + "IMAGES/DRAWER/"
+    IF LEN(_TRIM$(ORG_WIDGETS(i).imgSrc)) THEN s = p + _TRIM$(ORG_WIDGETS(i).imgSrc)
+    IF LEN(_TRIM$(ORG_WIDGETS(i).imgSrc2)) THEN s = s + "|" + p + _TRIM$(ORG_WIDGETS(i).imgSrc2)
+    IF LEN(_TRIM$(ORG_WIDGETS(i).imgSrc3)) THEN s = s + "|" + p + _TRIM$(ORG_WIDGETS(i).imgSrc3)
+    IF LEN(_TRIM$(ORG_WIDGETS(i).imgSrc4)) THEN s = s + "|" + p + _TRIM$(ORG_WIDGETS(i).imgSrc4)
+    IF LEFT$(s, 1) = "|" THEN s = MID$(s, 2)
+    THEMEED_org_files$ = s
+END FUNCTION
+
+''
+' The text bar's controls, from the spots its render keeps.
+'
+SUB THEMEED_tree_textbar (n AS INTEGER)
+    DIM k AS INTEGER, bw AS INTEGER, sw AS INTEGER
+    bw = TEXT_BAR.styleBtnW%: sw = THEME.TEXT_BAR_SWATCH_WIDTH%
+    k = THEMEED_tb_kid%(n, TEXT_BTN_FONT, "FONT", TEXT_BAR.fontBtnX%, TEXT_BAR.fontBtnW%, "")
+    k = THEMEED_tb_kid%(n, TEXT_BTN_SIZE, "SIZE", TEXT_BAR.sizeBtnX%, TEXT_BAR.sizeBtnW%, "")
+    k = THEMEED_tb_kid%(n, TEXT_BTN_BOLD, "BOLD", TEXT_BAR.boldBtnX%, bw, RTRIM$(THEME.TEXT_BAR_ICON_BOLD))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_ITALIC, "ITALIC", TEXT_BAR.italicBtnX%, bw, RTRIM$(THEME.TEXT_BAR_ICON_ITALIC))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_UNDERLINE, "UNDERLINE", TEXT_BAR.underlineBtnX%, bw, RTRIM$(THEME.TEXT_BAR_ICON_UNDERLINE))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_STRIKE, "STRIKETHROUGH", TEXT_BAR.strikeBtnX%, bw, RTRIM$(THEME.TEXT_BAR_ICON_STRIKE))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_FG_COLOR, "TEXT COLOR", TEXT_BAR.fgSwatchX%, sw, "")
+    k = THEMEED_tb_kid%(n, TEXT_BTN_BG_COLOR, "BACKGROUND COLOR", TEXT_BAR.bgSwatchX%, sw, "")
+    k = THEMEED_tb_kid%(n, TEXT_BTN_MONO, "MONOSPACE", TEXT_BAR.monoBtnX%, TEXT_BAR.monoBtnW%, RTRIM$(THEME.TEXT_BAR_ICON_MONO))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_LINE_HEIGHT, "LINE HEIGHT", TEXT_BAR.lineHeightBtnX%, TEXT_BAR.lineHeightBtnW%, RTRIM$(THEME.TEXT_BAR_ICON_LINE_HEIGHT))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_AUTO_LH, "AUTO LINE HEIGHT", TEXT_BAR.autoLHBtnX%, TEXT_BAR.autoLHBtnW%, RTRIM$(THEME.TEXT_BAR_ICON_AUTO))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_CHAR, "CHARACTER MAP", TEXT_BAR.charBtnX%, TEXT_BAR.charBtnW%, RTRIM$(THEME.TEXT_BAR_ICON_CHAR))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_TDF, "TDF FONTS", TEXT_BAR.tdfBtnX%, TEXT_BAR.tdfBtnW%, "")
+    k = THEMEED_tb_kid%(n, TEXT_BTN_SYNC, "SYNC", TEXT_BAR.syncBtnX%, TEXT_BAR.syncBtnW%, "")
+    k = THEMEED_tb_kid%(n, TEXT_BTN_STYLE_DD, "STYLE", TEXT_BAR.styleDDBtnX%, TEXT_BAR.styleDDBtnW%, "")
+    k = THEMEED_tb_kid%(n, TEXT_BTN_STYLE_UPDATE, "UPDATE STYLE", TEXT_BAR.styleUpdateBtnX%, bw, RTRIM$(THEME.TEXT_BAR_ICON_STYLE_UPDATE))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_STYLE_SAVE, "SAVE STYLE", TEXT_BAR.styleSaveBtnX%, bw, RTRIM$(THEME.TEXT_BAR_ICON_STYLE_SAVE))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_STYLE_DELETE, "DELETE STYLE", TEXT_BAR.styleDeleteBtnX%, bw, RTRIM$(THEME.TEXT_BAR_ICON_STYLE_DELETE))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_ALIGN_L, "ALIGN LEFT", TEXT_BAR.alignLBtnX%, bw, RTRIM$(THEME.TEXT_BAR_ICON_ALIGN_LEFT))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_ALIGN_C, "ALIGN CENTER", TEXT_BAR.alignCBtnX%, bw, RTRIM$(THEME.TEXT_BAR_ICON_ALIGN_CENTER))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_ALIGN_R, "ALIGN RIGHT", TEXT_BAR.alignRBtnX%, bw, RTRIM$(THEME.TEXT_BAR_ICON_ALIGN_RIGHT))
+    k = THEMEED_tb_kid%(n, TEXT_BTN_SHADOW, "SHADOW", TEXT_BAR.shadowBtnX%, bw, RTRIM$(THEME.TEXT_BAR_ICON_SHADOW))
+    IF TEXT_BAR.shadowActive% THEN
+        k = THEMEED_tb_kid%(n, TEXT_BTN_SHADOW_COLOR, "SHADOW COLOR", TEXT_BAR.shadowColorBtnX%, sw, "")
+        k = THEMEED_tb_kid%(n, TEXT_BTN_SHADOW_X, "SHADOW X", TEXT_BAR.shadowXBtnX%, TEXT_BAR.shadowXBtnW%, "")
+        k = THEMEED_tb_kid%(n, TEXT_BTN_SHADOW_Y, "SHADOW Y", TEXT_BAR.shadowYBtnX%, TEXT_BAR.shadowYBtnW%, "")
+    END IF
+    k = THEMEED_tb_kid%(n, TEXT_BTN_OUTLINE, "OUTLINE", TEXT_BAR.outlineBtnX%, bw, RTRIM$(THEME.TEXT_BAR_ICON_OUTLINE))
+    IF TEXT_BAR.outlineActive% THEN
+        k = THEMEED_tb_kid%(n, TEXT_BTN_OUTLINE_COLOR, "OUTLINE COLOR", TEXT_BAR.outlineColorBtnX%, sw, "")
+        k = THEMEED_tb_kid%(n, TEXT_BTN_OUTLINE_SIZE, "OUTLINE SIZE", TEXT_BAR.outlineSizeBtnX%, TEXT_BAR.outlineSizeBtnW%, "")
+    END IF
+    k = THEMEED_tb_kid%(n, TEXT_BTN_AA, "ANTI-ALIAS", TEXT_BAR.aaBtnX%, TEXT_BAR.aaBtnW%, RTRIM$(THEME.TEXT_BAR_ICON_AA))
+    ' open dropdowns (viewport px)
+    FOR k = 0 TO TBDD_N - 1
+        bw = THEMEED_kid%(n, "TD:" + _TRIM$(STR$(k)), "DROPDOWN", 0, TBDD_X(k), TBDD_Y(k), TBDD_W(k), TBDD_H(k), "")
+    NEXT k
+END SUB
+
+''
+' One text bar control: x / w from its render, its line from TEXT_BAR_BY; ic = its
+' icon file (relative to the theme root, "" = none).
+'
+FUNCTION THEMEED_tb_kid% (n AS INTEGER, id AS INTEGER, label AS STRING, x AS INTEGER, w AS INTEGER, ic AS STRING)
+    DIM f AS STRING
+    IF x <= 0 _ORELSE w <= 0 THEN EXIT FUNCTION
+    f = _TRIM$(ic)
+    IF LEN(f) THEN f = THEMEED.root + f
+    THEMEED_tb_kid% = THEMEED_kid%(n, "TX:" + _TRIM$(STR$(id)), label, DP_TEXTBAR, x, TEXT_BAR_BY(id), w, THEME.TEXT_BAR_ROW_HEIGHT%, f)
+END FUNCTION
+
+''
+' One group of the tree (docks, floating, overlays): its regions, top to bottom,
+' under a node boxing them all. Nothing when the group is empty.
+'
+SUB THEMEED_tree_group (root AS INTEGER, gkey AS STRING, title AS STRING, grp AS INTEGER)
+    DIM rg AS INTEGER, cnt AS INTEGER, i AS INTEGER, j AS INTEGER, t AS INTEGER, g AS INTEGER, n AS INTEGER
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, ds AS INTEGER
+    DIM lst(1 TO THEMEED_RG_N) AS INTEGER
+    FOR rg = 1 TO THEMEED_RG_N - 1
+        IF THEMEED_region_group%(rg) = grp THEN cnt = cnt + 1: lst(cnt) = rg
+    NEXT rg
+    IF grp = 4 THEN ' the overlays: menus and popups are drawn parts, not regions
+        FOR i = 1 TO THEMEED_SN
+            IF THEMEED_RS_OK(i) _ANDALSO THEMEED_RS_PAR(i) = 0 _ANDALSO THEMEED_RS_RG(i) = -1 THEN EXIT FOR
+        NEXT i
+        IF cnt = 0 _ANDALSO i > THEMEED_SN THEN EXIT SUB
+    ELSEIF cnt = 0 THEN
+        EXIT SUB
+    END IF
+    ' top to bottom, then left to right
+    FOR i = 2 TO cnt
+        t = lst(i): j = i - 1
+        DO WHILE j >= 1
+            IF THEMEED_RG(lst(j)).y < THEMEED_RG(t).y THEN EXIT DO
+            IF THEMEED_RG(lst(j)).y = THEMEED_RG(t).y _ANDALSO THEMEED_RG(lst(j)).x <= THEMEED_RG(t).x THEN EXIT DO
+            lst(j + 1) = lst(j): j = j - 1
+        LOOP
+        lst(j + 1) = t
+    NEXT i
+    x1 = 32767: y1 = 32767: x2 = -32768: y2 = -32768
+    FOR i = 1 TO cnt
+        rg = lst(i)
+        x1 = _MIN(x1, THEMEED_RG(rg).x): y1 = _MIN(y1, THEMEED_RG(rg).y)
+        x2 = _MAX(x2, THEMEED_RG(rg).x + THEMEED_RG(rg).w)
+        y2 = _MAX(y2, THEMEED_RG(rg).y + THEMEED_RG(rg).h)
+    NEXT i
+    ds = _MAX(1, SCRN.displayScale%)
+    IF cnt = 0 THEN x1 = 0: y1 = 0: x2 = 0: y2 = 0
+    g = UIP_node_add%(root, gkey, title, 0, x1 * ds, y1 * ds, (x2 - x1) * ds, (y2 - y1) * ds, "")
+    IF grp = 4 THEN THEMEED_tree_parts g, -1
+    FOR i = 1 TO cnt
+        n = THEMEED_tree_region%(g, lst(i))
+    NEXT i
+END SUB
+
+''
+' SCREEN_render, right after the GUI was drawn (both paths): every shown panel
+' has set its bounds by now - keep them for the tree.
+'
+SUB THEMEED_regions_seen ()
+    DIM i AS INTEGER
+    IF THEMEED.started = 0 THEN EXIT SUB
+    FOR i = 0 TO _MIN(THEMEED_RG_N, REGION_TABLE_SIZE) - 1
+        THEMEED_RG(i).active = REGION_BOUNDS_TABLE(i).active
+        THEMEED_RG(i).x = REGION_BOUNDS_TABLE(i).x: THEMEED_RG(i).y = REGION_BOUNDS_TABLE(i).y
+        THEMEED_RG(i).w = REGION_BOUNDS_TABLE(i).w: THEMEED_RG(i).h = REGION_BOUNDS_TABLE(i).h
+        THEMEED_RG(i).z = REGION_BOUNDS_TABLE(i).zOrder
+    NEXT i
+END SUB
+
+''
+' At present time: what was drawn after the GUI (overlays) joins the snapshot.
+'
+SUB THEMEED_regions_merge ()
+    DIM i AS INTEGER
+    FOR i = 1 TO _MIN(THEMEED_RG_N, REGION_TABLE_SIZE) - 1
+        IF REGION_BOUNDS_TABLE(i).active _ANDALSO THEMEED_RG(i).active = 0 THEN
+            THEMEED_RG(i).active = TRUE
+            THEMEED_RG(i).x = REGION_BOUNDS_TABLE(i).x: THEMEED_RG(i).y = REGION_BOUNDS_TABLE(i).y
+            THEMEED_RG(i).w = REGION_BOUNDS_TABLE(i).w: THEMEED_RG(i).h = REGION_BOUNDS_TABLE(i).h
+            THEMEED_RG(i).z = REGION_BOUNDS_TABLE(i).zOrder
+        END IF
+    NEXT i
+END SUB
+
+''
+' Rebuild the ELEMENTS tree from what is on screen now (the region table and
+' the toolbox's buttons); the inspector hears of it only when it changed.
+'
+'   WINDOW > MENU BAR, LEFT DOCK > panels, CANVAS > checker / guides,
+'            RIGHT DOCK > panels (TOOLBOX > buttons), COLOR STRIP, STATUS BAR,
+'            FLOATING > windows, OVERLAYS > menus / dialogs / tooltip
+'
+SUB THEMEED_tree_build ()
+    DIM ds AS INTEGER, root AS INTEGER, n AS INTEGER, k AS INTEGER, sig AS STRING
+    ds = _MAX(1, SCRN.displayScale%)
+    UIP_node_clear
+    THEMEED_SEED_N = 0
+    THEMEED_seen_resolve
+    root = UIP_node_add%(0, "WIN", "WINDOW", UIP_comp_find%("APP"), 0, 0, SCRN.w& * ds, SCRN.h& * ds, "")
+    n = THEMEED_tree_region%(root, REGION_MENUBAR)
+    THEMEED_tree_group root, "DOCK:L", "LEFT DOCK", 1
+    n = THEMEED_tree_region%(root, REGION_CANVAS)
+    IF n > 0 THEN
+        k = THEMEED_tree_region%(n, REGION_TRANSPARENCY_CHECKER)
+        k = THEMEED_tree_region%(n, REGION_SMART_GUIDES)
+    END IF
+    THEMEED_tree_group root, "DOCK:R", "RIGHT DOCK", 2
+    n = THEMEED_tree_region%(root, REGION_PALETTE_STRIP)
+    n = THEMEED_tree_region%(root, REGION_STATUS_BAR)
+    THEMEED_tree_group root, "FLOAT", "FLOATING", 3
+    THEMEED_tree_group root, "OVER", "OVERLAYS", 4
+    sig = UIP_node_sig$
+    IF sig <> THEMEED.treeSig THEN
+        THEMEED.treeSig = sig
+        UIPI_tree_changed
+    END IF
+END SUB
+
+''
+' QA dump lines (DOCK_dump_state$), only in a session with the inspector up:
+'   TESTATE <x> <y> <w> <h> <UIPI_state$>                the inspector on screen (window px), its state
+'   TEN <depth> <x> <y> <w> <h> <files> <nkey> <label>   every tree node, window px
+'   TEPICK <comp id> <x> <y> <w> <h> <label>            what picking points at (viewport px)
+'   TEELEM <files> <label>                              the element the inspector shows
+'
+FUNCTION THEMEED_dump$ ()
+    DIM i AS INTEGER, d AS STRING, lf AS STRING
+    IF THEMEED.started = 0 _ORELSE UIPI.visible = 0 THEN EXIT FUNCTION
+    lf = CHR$(10)
+    d = "TESTATE" + DOCK_n$(UIPI.x) + DOCK_n$(UIPI.y) + DOCK_n$(UIPI.scrW) + DOCK_n$(UIPI.scrH) + " " + UIPI_state$ + lf
+    FOR i = 1 TO UIP_NN
+        d = d + "TEN" + DOCK_n$(UIP_N(i).depth) + DOCK_n$(UIP_N(i).x) + DOCK_n$(UIP_N(i).y) + DOCK_n$(UIP_N(i).w) + DOCK_n$(UIP_N(i).h)
+        d = d + DOCK_n$(THEMEED_count_files%(UIP_N(i).fls)) + " " + UIP_N(i).nkey + " " + UIP_N(i).label + lf
+    NEXT i
+    IF UIPI.picking _ANDALSO THEMEED.pickRegion > 0 THEN
+        d = d + "TEPICK " + UIP_C(_MAX(1, UIPI.hoverComp)).id + DOCK_n$(THEMEED.pickX) + DOCK_n$(THEMEED.pickY) + DOCK_n$(THEMEED.pickW) + DOCK_n$(THEMEED.pickH) + " " + THEMEED.pickLabel + lf
+    END IF
+    IF LEN(UIPI.elemLabel) THEN d = d + "TEELEM" + DOCK_n$(THEMEED_count_files%(UIPI.elemFiles)) + " " + UIPI.elemLabel + lf
+    THEMEED_dump$ = d
+END FUNCTION
+
+''
+' How many files a "|"-separated list names.
+'
+FUNCTION THEMEED_count_files% (fls AS STRING)
+    DIM i AS INTEGER, n AS INTEGER
+    IF LEN(fls) = 0 THEN EXIT FUNCTION
+    n = 1
+    FOR i = 1 TO LEN(fls)
+        IF MID$(fls, i, 1) = "|" THEN n = n + 1
+    NEXT i
+    THEMEED_count_files% = n
+END FUNCTION
+
+''
+' The inspector's saved dock / scale / split ("" = none yet).
+'
+FUNCTION THEMEED_state_read$ ()
+    DIM fh AS INTEGER, ln AS STRING
+    IF LEN(THEMEED.statePath) = 0 _ORELSE _FILEEXISTS(THEMEED.statePath) = 0 THEN EXIT FUNCTION
+    fh = FREEFILE
+    OPEN THEMEED.statePath FOR INPUT AS #fh
+    IF EOF(fh) = 0 THEN LINE INPUT #fh, ln
+    CLOSE #fh
+    THEMEED_state_read$ = ln
+END FUNCTION
+
+SUB THEMEED_state_write ()
+    DIM fh AS INTEGER, s AS STRING
+    IF LEN(THEMEED.statePath) = 0 _ORELSE UIPI.ready = 0 THEN EXIT SUB
+    s = UIPI_state$
+    IF s = THEMEED.stateSaved THEN EXIT SUB
+    fh = FREEFILE
+    OPEN THEMEED.statePath FOR OUTPUT AS #fh
+    PRINT #fh, s
+    CLOSE #fh
+    THEMEED.stateSaved = s
+END SUB
+
+''
+' Where a file-valued property's file is: the theme root, IMAGES/, CURSORS/, or
+' one folder down IMAGES/ ("" = not found).
+'
+FUNCTION THEMEED_resolve_file$ (v AS STRING)
+    DIM f AS STRING, d AS STRING, cand AS STRING, n AS INTEGER, i AS INTEGER
+    IF LEN(_TRIM$(v)) = 0 THEN EXIT FUNCTION
+    IF _FILEEXISTS(v) THEN THEMEED_resolve_file$ = v: EXIT FUNCTION
+    cand = THEMEED.root + v: IF _FILEEXISTS(cand) THEN THEMEED_resolve_file$ = cand: EXIT FUNCTION
+    cand = THEMEED.root + "IMAGES/" + v: IF _FILEEXISTS(cand) THEN THEMEED_resolve_file$ = cand: EXIT FUNCTION
+    cand = THEMEED.root + "CURSORS/" + v: IF _FILEEXISTS(cand) THEN THEMEED_resolve_file$ = cand: EXIT FUNCTION
+    DIM subs(1 TO 32) AS STRING
+    d = THEMEED.root + "IMAGES/"
+    IF _DIREXISTS(d) = 0 THEN EXIT FUNCTION
+    f = _FILES$(d)
+    DO WHILE LEN(f)
+        IF (RIGHT$(f, 1) = "/" _ORELSE RIGHT$(f, 1) = "\") _ANDALSO LEFT$(f, 1) <> "." _ANDALSO n < 32 THEN n = n + 1: subs(n) = f
+        f = _FILES$
+    LOOP
+    FOR i = 1 TO n
+        cand = d + subs(i) + v
+        IF _FILEEXISTS(cand) THEN THEMEED_resolve_file$ = cand: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' --theme-edit-inspect ID (prints and exits; the window is never shown)
+' -----------------------------------------------------------------------------
+
+''
+' SCREEN_init, right after the first THEME_load.
+'
+SUB THEMEED_cli_dump ()
+    DIM id AS STRING, c AS INTEGER, i AS INTEGER, n AS INTEGER, k AS INTEGER
+    IF THEMEED_has%("--theme-edit-inspect") = 0 THEN EXIT SUB
+    id = UCASE$(THEMEED_arg$("--theme-edit-inspect"))
+    IF id = "" THEN id = "ALL"
+    THEMEED_register
+    CLI_begin
+    SELECT CASE id
+        CASE "COMPONENTS"
+            FOR c = 1 TO UIP_CN
+                PRINT UIP_C(c).id + "=" + _TRIM$(UIP_C(c).sections) + _IIF(LEN(UIP_C(c).images), " | " + UIP_C(c).images, "")
+            NEXT c
+            SYSTEM 0
+        CASE "ALL"
+            FOR i = 1 TO UIP_PN
+                PRINT UIP_P(i).pk + "=" + UIP_get$(i)
+            NEXT i
+            SYSTEM 0
+    END SELECT
+    c = UIP_comp_find%(id)
+    IF c > 0 THEN
+        FOR i = 1 TO UIP_PN
+            IF UIP_comp_owns%(c, i) THEN PRINT UIP_P(i).pk + "=" + UIP_get$(i): n = n + 1
+        NEXT i
+        SYSTEM 0
+    END IF
+    k = UIP_prop_find%(id)
+    IF k > 0 THEN PRINT UIP_P(k).pk + "=" + UIP_get$(k): SYSTEM 0
+    FOR i = 1 TO UIP_PN
+        IF UIP_P(i).section = id THEN PRINT UIP_P(i).pk + "=" + UIP_get$(i): n = n + 1
+    NEXT i
+    IF n > 0 THEN SYSTEM 0
+    PRINT "DRAW: no theme component, section or key '" + id + "'. Try --theme-edit-inspect COMPONENTS"
+    SYSTEM 2
+END SUB
+
+' -----------------------------------------------------------------------------
+' Session
+' -----------------------------------------------------------------------------
+
+''
+' DRAW.BAS, after the post-include THEME_load: register, snapshot, set up the
+' inspector.
+'
+SUB THEMEED_session_start ()
+    IF THEMEED.active = 0 _ORELSE THEMEED.started THEN EXIT SUB
+    THEMEED.started = TRUE
+    THEMEED_register
+    UIP_snapshot
+    UIPI_init "ASSETS/FONTS/Tiny5-Regular.ttf", 8
+    UIPI.autoScale = SCRN.displayScale%
+    THEMEED.statePath = CONFIG_FILE_PATH$ + ".theme-edit"
+    UIPI_state_load THEMEED_state_read$
+    THEMEED.stateSaved = UIPI_state$
+    UIPI.root  = THEMEED.root
+    UIPI.title = "THEME EDIT: " + THEMEED.themeName
+    UIPI.visible = THEMEED.startInspect
+    IF THEMEED.startInspect THEN UIPI_set_picking TRUE
+    THEMEED.cfgStamp = gj_file_stamp&&(THEMEED.cfgPath + CHR$(0))
+    THEMEED_info_update
+    IF LEN(THEMEED.replacedTo) _ANDALSO THEMEED.created THEN
+        UIPI_message "REPLACED " + THEMEED.themeName + " FROM " + THEMEED.baseName + " - OLD ONE IN ASSETS/THEME-BACKUPS", FALSE
+    ELSEIF LEN(THEMEED.askedName) THEN
+        ' --theme-name named a theme made from another base: say why this one
+        UIPI_message THEMEED.askedName + _IIF(THEMEED.askedBase = "", " EXISTS", " IS FROM " + THEMEED.askedBase) + " - " + _IIF(THEMEED.created, "CREATED ", "EDITING ") + THEMEED.themeName + " FROM " + THEMEED.baseName, FALSE
+    ELSEIF THEMEED.created THEN
+        UIPI_message "CREATED " + THEMEED.themeName + " FROM " + THEMEED.baseName, FALSE
+    END IF
+    _LOGINFO "THEMEED: editing " + THEMEED.cfgPath + " (" + _TRIM$(STR$(UIP_PN)) + " properties, " + _TRIM$(STR$(UIP_CN)) + " components; Ctrl+Alt+` = inspect)"
+END SUB
+
+SUB THEMEED_info_update ()
+    DIM s AS STRING
+    s = _TRIM$(STR$(UIP_PN)) + " PROPS"
+    s = s + " | AUTOSAVE " + _IIF(THEMEED.autosaveMins > 0, _TRIM$(STR$(THEMEED.autosaveMins)) + " MIN", "OFF")
+    s = s + " | BACKUPS " + _IIF(THEMEED.keepBackups > 0, _TRIM$(STR$(THEMEED.keepBackups)), "OFF")
+    IF LEN(THEMEED.lastSaveTime) THEN s = s + " | SAVED " + THEMEED.lastSaveTime
+    UIPI.info = s
+    UIPI.changed = TRUE
+END SUB
+
+''
+' Back up THEME.CFG and write the pending changes into it.
+'
+FUNCTION THEMEED_save% (why AS STRING)
+    DIM n AS INTEGER, b AS INTEGER
+    n = UIP_pending_count%
+    IF n = 0 THEN UIPI_message "NOTHING TO SAVE", FALSE: EXIT FUNCTION
+    b = UIP_backup%(THEMEED.cfgPath, THEMEED.keepBackups)
+    IF UIP_cfg_save%(THEMEED.cfgPath) = 0 THEN
+        UIPI_message "SAVE FAILED: " + UIP_LAST_ERROR, TRUE
+        _LOGERROR "THEMEED: save failed: " + UIP_LAST_ERROR
+        EXIT FUNCTION
+    END IF
+    THEMEED.cfgStamp     = gj_file_stamp&&(THEMEED.cfgPath + CHR$(0)) ' our own write is not an outside change
+    THEMEED.dirtySince   = 0
+    THEMEED.lastSaveTime = TIME$
+    THEMEED_info_update
+    UIPI_message why + " " + _TRIM$(STR$(n)) + " CHANGE" + _IIF(n = 1, "", "S") + _IIF(b, " (BACKED UP)", ""), FALSE
+    _LOGINFO "THEMEED: " + why + " " + _TRIM$(STR$(n)) + " change(s) to " + THEMEED.cfgPath
+    THEMEED_save% = TRUE
+END FUNCTION
+
+''
+' Reload the theme's images / cursors / icons from disk, keeping unsaved edits.
+'
+SUB THEMEED_reload_assets ()
+    DIM keep AS STRING
+    keep = UIP_pending_dump$
+    THEMEED.applying = TRUE
+    THEME_reload_all            ' re-reads THEME.CFG (the saved values) ...
+    UIP_reapply keep            ' ... so the unsaved ones go back on top
+    THEMEED.applying = FALSE
+    CURSOR_load_all             ' these two loaded at once, from the file's names
+    LAYER_PANEL_load_icons
+    THEMEED.needReload = FALSE
+    THEMEED.needLayout = TRUE
+END SUB
+
+''
+' Open an image in a new DRAW window and watch it for saves.
+'
+SUB THEMEED_edit_image (path AS STRING)
+    DIM i AS INTEGER, p AS STRING
+    p = path
+    IF _FILEEXISTS(p) = 0 THEN
+        ' a file the theme does not have yet (the button shows other art): make it
+        IF THEMEED_seed_make%(p) = 0 THEN UIPI_message "NO SUCH FILE: " + p, TRUE: EXIT SUB
+        _LOGINFO "THEMEED: made " + p
+        UIPI.rebuild = TRUE
+    END IF
+    IF LEFT$(p, 1) <> "/" _ANDALSO MID$(p, 2, 1) <> ":" THEN p = _CWD$ + "/" + p
+    FOR i = 1 TO THEMEED_WATCH_N
+        IF THEMEED_WATCH_PATH(i) = p THEN EXIT FOR
+    NEXT i
+    IF i > THEMEED_WATCH_N _ANDALSO THEMEED_WATCH_N < THEMEED_MAX_WATCH THEN
+        THEMEED_WATCH_N = THEMEED_WATCH_N + 1
+        THEMEED_WATCH_PATH(THEMEED_WATCH_N) = p
+        THEMEED_WATCH_STAMP(THEMEED_WATCH_N) = gj_file_stamp&&(p + CHR$(0))
+    END IF
+    INSTANCE_launch_new_with_file p
+    UIPI_message "OPENED " + UIP_file_of$(p) + " IN A NEW WINDOW - SAVE IT THERE TO UPDATE", FALSE
+    IF THEMEED.unattended THEN _LOGINFO "THEMEED EDITIMG " + p
+END SUB
+
+''
+' Open a file with the desktop's default application (the theme file: a text editor).
+'
+SUB THEMEED_open_file (path AS STRING)
+    DIM q AS STRING
+    q = CHR$(34)
+    $IF WIN THEN
+        SHELL _DONTWAIT _HIDE "start " + q + q + " " + q + path + q
+    $ELSEIF MAC THEN
+        SHELL _DONTWAIT "open " + q + path + q
+    $ELSE
+        SHELL _DONTWAIT "xdg-open " + q + path + q + " >/dev/null 2>&1 &"
+    $END IF
+END SUB
+
+''
+' Act on the inspector's events.
+'
+SUB THEMEED_events ()
+    DIM ev AS STRING, cmd AS STRING, arg AS STRING, p AS INTEGER, k AS INTEGER, f AS STRING, ok AS INTEGER
+    DO
+        ev = UIPI_next_event$
+        IF ev = "" THEN EXIT DO
+        p = INSTR(ev, " ")
+        IF p > 0 THEN cmd = LEFT$(ev, p - 1): arg = MID$(ev, p + 1) ELSE cmd = ev: arg = ""
+        IF THEMEED.unattended _ANDALSO cmd <> "CHANGED" THEN _LOGINFO "THEMEED EVENT " + ev
+        SELECT CASE cmd
+            CASE "SAVE"
+                ok = THEMEED_save%("SAVED")
+            CASE "OPENDIR"
+                IF PATHS_open_in_file_manager%(THEMEED.root) = 0 THEN UIPI_message "COULD NOT OPEN " + THEMEED.root, TRUE
+            CASE "EDITCFG"
+                THEMEED_open_file _CWD$ + "/" + THEMEED.cfgPath
+                UIPI_message "THEME.CFG OPENED - SAVING IT THERE RELOADS IT HERE", FALSE
+            CASE "EDITIMG"
+                THEMEED_edit_image arg
+            CASE "EDITPROP"
+                k = UIP_prop_find%(arg)
+                f = THEMEED_resolve_file$(UIP_get$(k))
+                IF LEN(f) THEN THEMEED_edit_image f ELSE UIPI_message "NO FILE FOR " + arg, TRUE
+            CASE "TAKECOLOR"
+                k = UIP_prop_find%(arg)
+                IF k > 0 _ANDALSO UIP_set%(k, UIP_rgba_str$(PAINT_COLOR~&)) THEN UIPI_message arg + " = FG COLOR", FALSE
+            CASE "GIVECOLOR"
+                k = UIP_prop_find%(arg)
+                IF k > 0 THEN
+                    PAL_FG_IS_TRANSPARENT% = FALSE
+                    PAINT_COLOR~& = UIP_rgba_parse~&(UIP_get$(k)) OR &HFF000000~&
+                    GUI_NEEDS_REDRAW% = TRUE
+                    UIPI_message "FG COLOR = " + arg, FALSE
+                END IF
+            CASE "CLOSE"
+                UIPI_set_picking FALSE
+                UIPI.visible = FALSE
+                INVALIDATE_scene
+            CASE "STATE"
+                THEMEED_state_write
+                INVALIDATE_scene
+            CASE "NODE"
+                INVALIDATE_scene ' its outline
+        END SELECT
+    LOOP
+END SUB
+
+''
+' Main loop, once a frame.
+'
+SUB THEMEED_tick ()
+    DIM i AS INTEGER, st AS _INTEGER64, ok AS INTEGER, reloadCfg AS INTEGER
+    IF THEMEED.started = 0 THEN EXIT SUB
+    THEMEED_events
+    IF THEMEED.needReload THEN THEMEED_reload_assets
+    IF THEMEED.needLayout THEN
+        THEMEED.needLayout = FALSE
+        SCREEN_compute_layout
+        INVALIDATE_scene
+    END IF
+    ' autosave
+    IF THEMEED.autosaveMins > 0 _ANDALSO THEMEED.dirtySince > 0 _ANDALSO UIP_DIRTY THEN
+        IF ABS(TIMER(.001) - THEMEED.dirtySince) >= THEMEED.autosaveMins * 60 THEN ok = THEMEED_save%("AUTOSAVED")
+    END IF
+    IF UIP_DIRTY = 0 THEN THEMEED.dirtySince = 0
+    IF UIPI.dirty <> UIP_DIRTY THEN UIPI.dirty = UIP_DIRTY: UIPI.changed = TRUE
+    ' watched files (twice a second)
+    IF ABS(TIMER(.001) - THEMEED.lastPoll) >= .5 THEN
+        THEMEED.lastPoll = TIMER(.001)
+        IF UIPI.visible THEN THEMEED_tree_build
+        st = gj_file_stamp&&(THEMEED.cfgPath + CHR$(0))
+        IF st <> 0 _ANDALSO st <> THEMEED.cfgStamp THEN
+            THEMEED.cfgStamp = st
+            reloadCfg = TRUE
+        END IF
+        FOR i = 1 TO THEMEED_WATCH_N
+            st = gj_file_stamp&&(THEMEED_WATCH_PATH(i) + CHR$(0))
+            IF st <> 0 _ANDALSO st <> THEMEED_WATCH_STAMP(i) THEN
+                THEMEED_WATCH_STAMP(i) = st
+                THEMEED.needReload = TRUE
+                UIPI_message UIP_file_of$(THEMEED_WATCH_PATH(i)) + " CHANGED - RELOADED", FALSE
+                IF THEMEED.unattended THEN _LOGINFO "THEMEED RELOAD " + THEMEED_WATCH_PATH(i)
+            END IF
+        NEXT i
+        IF reloadCfg THEN
+            THEMEED_reload_assets
+            UIPI_message "THEME.CFG CHANGED ON DISK - RELOADED", FALSE
+            UIPI.changed = TRUE
+        END IF
+    END IF
+    IF UIPI.changed _ANDALSO UIPI.visible THEN GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' MAIN_shutdown: unsaved edits are saved when autosave is on (or unattended).
+'
+SUB THEMEED_shutdown ()
+    DIM ok AS INTEGER
+    IF THEMEED.started = 0 THEN EXIT SUB
+    IF UIP_DIRTY THEN
+        IF THEMEED.autosaveMins > 0 _ORELSE THEMEED.unattended THEN
+            ok = THEMEED_save%("SAVED ON EXIT")
+        ELSE
+            _LOGWARN "THEMEED: " + _TRIM$(STR$(UIP_pending_count%)) + " unsaved theme change(s) dropped (autosave is off)"
+        END IF
+    END IF
+    THEMEED_state_write
+    UIPI_free
+END SUB
+
+' -----------------------------------------------------------------------------
+' Input
+' -----------------------------------------------------------------------------
+
+''
+' TRUE while the inspector is typing (the shortcuts stay off, like text).
+'
+FUNCTION THEMEED_typing% ()
+    IF THEMEED.started = 0 THEN EXIT FUNCTION
+    THEMEED_typing% = (UIPI_typing% <> 0 _ORELSE THEMEED_tree_keys%)
+END FUNCTION
+
+''
+' The ELEMENTS tree has the arrow keys: it was clicked last and the pointer is
+' still on the inspector.
+'
+FUNCTION THEMEED_tree_keys% ()
+    IF UIPI.visible = 0 _ORELSE UIPI.treeFocus = 0 THEN EXIT FUNCTION
+    THEMEED_tree_keys% = (UIPI_hit%(MOUSE.WIN_X%, MOUSE.WIN_Y%) <> 0)
+END FUNCTION
+
+''
+' Show the inspector and pick (or stop picking).
+'
+SUB THEMEED_toggle_inspect ()
+    ' show (straight into picking, like devtools' inspect) / hide; the INSPECT
+    ' button toggles picking while it is shown
+    IF UIPI.visible = 0 THEN
+        UIPI.visible = TRUE
+        UIPI_set_picking TRUE
+    ELSE
+        IF UIPI.editRow > 0 THEN UIPI_edit_end FALSE
+        UIPI_set_picking FALSE
+        UIPI.visible = FALSE
+    END IF
+    UIPI.changed = TRUE
+    INVALIDATE_scene
+END SUB
+
+''
+' The arrow key pressed this frame (its _KEYHIT code, 0 = none), with the
+' keyboard's repeat while held. From _KEYDOWN edges: _KEYHIT is drained before
+' KEYBOARD_input_handler sees arrows.
+'
+FUNCTION THEMEED_arrow_key& ()
+    STATIC held AS LONG, nextT AS DOUBLE
+    DIM k AS LONG, codes(3) AS LONG, i AS INTEGER, now AS DOUBLE
+    codes(0) = 18432: codes(1) = 20480: codes(2) = 19200: codes(3) = 19712 ' up down left right
+    FOR i = 0 TO 3
+        IF _KEYDOWN(codes(i)) THEN k = codes(i): EXIT FOR
+    NEXT i
+    now = TIMER(.001)
+    IF k = 0 THEN held = 0: EXIT FUNCTION
+    IF k <> held THEN
+        held = k: nextT = now + .4
+        THEMEED_arrow_key& = k
+    ELSEIF now >= nextT _ORELSE now < nextT - 1 THEN
+        nextT = now + .06
+        THEMEED_arrow_key& = k
+    END IF
+END FUNCTION
+
+''
+' KEYBOARD_input_handler, first thing. TRUE = the keys were taken.
+'
+FUNCTION THEMEED_keys% ()
+    DIM dn AS INTEGER, esc AS INTEGER
+    IF THEMEED.started = 0 THEN EXIT FUNCTION
+    ' Ctrl+Alt+` (or ~) toggles inspect mode (_KEYDOWN: _KEYHIT is unreliable for
+    ' Ctrl+Alt combos on Linux, gotcha 6)
+    dn = (_KEYDOWN(96) _ORELSE _KEYDOWN(126)) _ANDALSO MODIFIERS.ctrl% _ANDALSO MODIFIERS.alt%
+    IF dn _ANDALSO THEMEED.keyWasDown = 0 THEN THEMEED_toggle_inspect
+    THEMEED.keyWasDown = dn
+    IF dn THEN THEMEED_keys% = TRUE: EXIT FUNCTION
+    IF UIPI_keys%(KEYHIT_CHAR$, _IIF(THEMEED_tree_keys%, THEMEED_arrow_key&, 0)) THEN
+        GUI_NEEDS_REDRAW% = TRUE
+        THEMEED_keys% = TRUE
+        EXIT FUNCTION
+    END IF
+    ' Esc ends picking
+    esc = _KEYDOWN(27)
+    IF esc _ANDALSO THEMEED.escWasDown = 0 _ANDALSO UIPI.picking THEN
+        UIPI_set_picking FALSE
+        INVALIDATE_scene
+        THEMEED.escWasDown = esc
+        THEMEED_keys% = TRUE
+        EXIT FUNCTION
+    END IF
+    THEMEED.escWasDown = esc
+END FUNCTION
+
+''
+' The smallest node with files whose box holds window (wx, wy), under node top
+' (0 = none: no top, nothing found).
+'
+FUNCTION THEMEED_node_at% (wx AS INTEGER, wy AS INTEGER, top AS INTEGER)
+    DIM i AS INTEGER, best AS INTEGER, bestA AS LONG, ar AS LONG
+    IF top < 1 THEN EXIT FUNCTION
+    FOR i = top + 1 TO UIP_NN
+        IF UIP_N(i).depth <= UIP_N(top).depth THEN EXIT FOR ' (depth-first: past top's subtree)
+        IF UIP_N(i).w > 0 THEN
+            IF wx >= UIP_N(i).x _ANDALSO wx < UIP_N(i).x + UIP_N(i).w _ANDALSO wy >= UIP_N(i).y _ANDALSO wy < UIP_N(i).y + UIP_N(i).h THEN
+                ar = CLNG(UIP_N(i).w) * UIP_N(i).h
+                IF best = 0 _ORELSE ar < bestA THEN best = i: bestA = ar
+            END IF
+        END IF
+    NEXT i
+    THEMEED_node_at% = best
+END FUNCTION
+
+''
+' MOUSE_process_frame%, before any panel. TRUE = the inspector took the pointer.
+'
+FUNCTION THEMEED_mouse% (rawX AS INTEGER, rawY AS INTEGER, wheel AS INTEGER)
+    DIM b1 AS INTEGER, b2 AS INTEGER, b3 AS INTEGER, rg AS INTEGER, c AS INTEGER, nd AS INTEGER
+    DIM lbl AS STRING, took AS INTEGER
+    IF THEMEED.started = 0 _ORELSE UIPI.visible = 0 THEN EXIT FUNCTION
+    b1 = MOUSE.B1%: b2 = MOUSE.B2%: b3 = MOUSE.B3%
+    took = UIPI_mouse%(MOUSE.WIN_X%, MOUSE.WIN_Y%, b1, b2, b3, wheel, MODIFIERS.shift%)
+    IF UIPI.treeHover <> THEMEED.lastHover THEN THEMEED.lastHover = UIPI.treeHover: INVALIDATE_scene
+    IF UIPI.changed THEN GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    ' a press the panel took keeps the pointer until every button is up
+    IF took _ANDALSO (b1 _ORELSE b2 _ORELSE b3) THEN THEMEED.capture = TRUE
+    IF THEMEED.capture THEN
+        IF (b1 _ORELSE b2 _ORELSE b3) = 0 THEN THEMEED.capture = FALSE
+        THEMEED_mouse% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF took THEN THEMEED_mouse% = TRUE: EXIT FUNCTION
+
+    IF UIPI.picking THEN
+        ' what is under the pointer: its region, its component, maybe its element
+        rg = REGION_hit_test%(rawX, rawY)
+        c = THEMEED_comp_for_region%(rg)
+        ' the element: the smallest part under the pointer - an open menu / popup
+        ' first (drawn over everything), else in that region
+        THEMEED_tree_build
+        nd = THEMEED_node_at%(MOUSE.WIN_X%, MOUSE.WIN_Y%, UIP_node_find%("OVER"))
+        IF nd = 0 THEN nd = THEMEED_node_at%(MOUSE.WIN_X%, MOUSE.WIN_Y%, UIP_node_find%("R:" + _TRIM$(STR$(rg))))
+        IF nd THEN
+            IF UIP_N(nd).comp > 0 THEN c = UIP_N(nd).comp
+        END IF
+        lbl = UIP_C(c).title
+        IF nd THEN lbl = lbl + " > " + UIP_N(nd).label
+        IF rg <> THEMEED.pickRegion _ORELSE lbl <> THEMEED.pickLabel THEN
+            THEMEED.pickRegion = rg
+            THEMEED.pickLabel  = lbl
+            IF rg >= 0 _ANDALSO rg < REGION_TABLE_SIZE THEN
+                THEMEED.pickX = REGION_BOUNDS_TABLE(rg).x: THEMEED.pickY = REGION_BOUNDS_TABLE(rg).y
+                THEMEED.pickW = REGION_BOUNDS_TABLE(rg).w: THEMEED.pickH = REGION_BOUNDS_TABLE(rg).h
+                IF rg = REGION_GLOBAL _ORELSE REGION_BOUNDS_TABLE(rg).active = 0 THEN THEMEED.pickW = 0
+            END IF
+            IF nd THEN ' outline the element (a button), not its whole panel
+                THEMEED.pickX = UIP_N(nd).x \ _MAX(1, SCRN.displayScale%): THEMEED.pickY = UIP_N(nd).y \ _MAX(1, SCRN.displayScale%)
+                THEMEED.pickW = UIP_N(nd).w \ _MAX(1, SCRN.displayScale%): THEMEED.pickH = UIP_N(nd).h \ _MAX(1, SCRN.displayScale%)
+            END IF
+            ' hovering shows it; clicking keeps it (and ends picking)
+            IF c <> UIPI.comp THEN UIPI_show_comp c
+            IF nd THEN
+                UIPI_set_element UIP_N(nd).label, UIP_N(nd).fls
+            ELSEIF LEN(UIPI.elemLabel) THEN
+                UIPI_set_element "", ""
+            END IF
+            UIPI_set_hover c, lbl
+            ' and show it in the tree, like devtools' inspect
+            IF nd THEN UIPI_tree_reveal UIP_N(nd).nkey ELSE UIPI_tree_reveal "R:" + _TRIM$(STR$(rg))
+            INVALIDATE_scene
+        END IF
+        IF (b1 <> 0 _ANDALSO MOUSE.OLD_B1% = 0) THEN
+            UIPI_set_picking FALSE
+            UIPI_message "INSPECTING " + lbl, FALSE
+            INVALIDATE_scene
+        ELSEIF (b2 <> 0 _ANDALSO MOUSE.OLD_B2% = 0) THEN
+            UIPI_set_picking FALSE ' right-click: stop picking
+            INVALIDATE_scene
+        END IF
+        ' while picking nothing under it is clicked
+        IF b1 _ORELSE b2 _ORELSE b3 THEN THEMEED.capture = TRUE
+        THEMEED_mouse% = TRUE
+    END IF
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' Render
+' -----------------------------------------------------------------------------
+
+''
+' TOOLTIP_update: TRUE while the inspector is under the pointer or picking (the
+' panels under it must not show their tooltips).
+'
+''
+' POINTER_build: the inspector's cursor. -1 = not the inspector's to say, 0 = the
+' arrow (the pointer is on the panel), else the UIPI_RS_* edges to resize.
+'
+FUNCTION THEMEED_pointer_cursor% ()
+    DIM e AS INTEGER
+    THEMEED_pointer_cursor% = -1
+    IF THEMEED.started = 0 _ORELSE UIPI.visible = 0 THEN EXIT FUNCTION
+    e = UIPI_cursor_edges%(MOUSE.WIN_X%, MOUSE.WIN_Y%)
+    IF e THEN
+        THEMEED_pointer_cursor% = e
+    ELSEIF UIPI_hit%(MOUSE.WIN_X%, MOUSE.WIN_Y%) _ORELSE UIPI.dragging _ORELSE UIPI.splitDrag THEN
+        THEMEED_pointer_cursor% = 0
+    END IF
+END FUNCTION
+
+FUNCTION THEMEED_owns_pointer% ()
+    IF THEMEED.started = 0 _ORELSE UIPI.visible = 0 THEN EXIT FUNCTION
+    THEMEED_owns_pointer% = (UIPI.picking <> 0 _ORELSE UIPI_hit%(MOUSE.WIN_X%, MOUSE.WIN_Y%) <> 0)
+END FUNCTION
+
+''
+' POPUP_blocks_partial%: while the inspector is shown every frame presents in
+' full (it, and the pick outline, are drawn on the window after the canvas).
+'
+FUNCTION THEMEED_blocks_partial% ()
+    IF THEMEED.started = 0 THEN EXIT FUNCTION
+    THEMEED_blocks_partial% = (UIPI.visible <> 0)
+END FUNCTION
+
+''
+' The three present paths of SCREEN_render, after POPUP_reblit_to_screen0:
+' the pick outline and the panel go on the window above everything.
+'
+SUB THEMEED_render_screen0 ()
+    DIM ds AS INTEGER, top AS INTEGER, bottom AS INTEGER, n AS INTEGER, big AS INTEGER
+    IF THEMEED.started = 0 _ORELSE UIPI.visible = 0 THEN EXIT SUB
+    ds = SCRN.displayScale%
+    IF ds < 1 THEN ds = 1
+    UIPI.autoScale = ds
+    top = 0
+    IF SCRN.showMenubar% _ANDALSO MENU_BAR.visible% THEN top = MENU_BAR_HEIGHT
+    bottom = SCRN.h&
+    IF SCRN.showStatus% THEN bottom = SCRN.h& - THEME.STATUS_height%
+    THEMEED_regions_merge
+    ' screen 0 is window px: the viewport x the display scale
+    UIPI_layout SCRN.w& * ds, top * ds, bottom * ds
+    UIPI_draw_to 0
+    ' the outline - over everything, the panel too: a tree row under the pointer,
+    ' the thing being picked, or the selected node while the pointer is on the
+    ' panel ("show me where that is")
+    n = UIPI_outline_node%(MOUSE.WIN_X%, MOUSE.WIN_Y%)
+    IF n > 0 THEN
+        big = (CLNG(UIP_N(n).w) * UIP_N(n).h > CLNG(SCRN.w&) * SCRN.h& * ds * ds \ 2)
+        UIPI_draw_outline 0, UIP_N(n).x, UIP_N(n).y, UIP_N(n).w, UIP_N(n).h, UIP_N(n).label, ds, big = 0
+    ELSEIF UIPI.picking _ANDALSO THEMEED.pickW > 0 THEN
+        UIPI_draw_outline 0, THEMEED.pickX * ds, THEMEED.pickY * ds, THEMEED.pickW * ds, THEMEED.pickH * ds, THEMEED.pickLabel, ds, THEMEED.pickRegion <> REGION_CANVAS
+    END IF
+END SUB
