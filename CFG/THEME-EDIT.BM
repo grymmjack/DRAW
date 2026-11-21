@@ -828,6 +828,155 @@ FUNCTION THEMEED_region_at% (vx AS INTEGER, vy AS INTEGER)
 END FUNCTION
 
 ''
+' Image src was pasted into image dst at (ox, oy), cw x ch of it (a scrolled
+' list drawn into a scratch image first, as Settings does): its parts become
+' dst's, cut to what shows.
+'
+SUB THEMEED_seen_rehome (src AS LONG, dst AS LONG, ox AS INTEGER, oy AS INTEGER, cw AS INTEGER, ch AS INTEGER)
+    DIM i AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER
+    IF THEMEED.started = 0 THEN EXIT SUB
+    FOR i = 1 TO THEMEED_SN
+        IF THEMEED_PART(i).dst = src THEN
+            x1 = _MAX(0, THEMEED_PART(i).x): y1 = _MAX(0, THEMEED_PART(i).y)
+            x2 = _MIN(cw, THEMEED_PART(i).x + THEMEED_PART(i).w): y2 = _MIN(ch, THEMEED_PART(i).y + THEMEED_PART(i).h)
+            IF x2 > x1 _ANDALSO y2 > y1 THEN
+                THEMEED_PART(i).dst = dst
+                THEMEED_PART(i).x = ox + x1: THEMEED_PART(i).y = oy + y1
+                THEMEED_PART(i).w = x2 - x1: THEMEED_PART(i).h = y2 - y1
+            END IF
+        END IF
+    NEXT i
+    THEMEED_seen_drop src ' (what was scrolled out of sight)
+END SUB
+
+''
+' Image src is going away: where it was shown goes too.
+'
+SUB THEMEED_map_forget (src AS LONG)
+    DIM i AS INTEGER
+    FOR i = 1 TO THEMEED_MAP_N
+        IF THEMEED_MAP(i).src = src THEN
+            THEMEED_MAP(i) = THEMEED_MAP(THEMEED_MAP_N): THEMEED_MAP_N = THEMEED_MAP_N - 1
+            EXIT SUB
+        END IF
+    NEXT i
+END SUB
+
+' -----------------------------------------------------------------------------
+' Modal dialogs (GUI/DIALOG.BM): each runs its own loop, so the main loop's
+' hooks (tick, mouse, render) do not run while one is up - these do, from the
+' DIALOG_* helpers every dialog goes through. The dialog's parts are drawn parts
+' under "DLG" (DIALOG_draw_frame), in OVERLAYS.
+' -----------------------------------------------------------------------------
+
+''
+' DIALOG_init, before it renders the screen it keeps as its background (the
+' inspector must not be in it: it would stay behind when the panel moves).
+'
+SUB THEMEED_dialog_begin ()
+    IF THEMEED.started = 0 THEN EXIT SUB
+    THEMEED.dlgDepth = THEMEED.dlgDepth + 1
+    UIPI.menuOpen = FALSE
+    THEMEED.dlgOB1 = TRUE: THEMEED.dlgOB2 = TRUE ' (a button still held from the opening click is no press)
+END SUB
+
+''
+' DIALOG_cleanup, before the dialog's image is freed.
+'
+SUB THEMEED_dialog_end (img AS LONG)
+    IF THEMEED.started = 0 THEN EXIT SUB
+    IF THEMEED.dlgDepth > 0 THEN THEMEED.dlgDepth = THEMEED.dlgDepth - 1
+    THEMEED_seen_drop img
+    THEMEED_map_forget img
+    THEMEED.capture = FALSE
+    THEMEED.pickLabel = "" ' (re-pick what is under the pointer)
+    UIPI.changed = TRUE
+    INVALIDATE_scene
+END SUB
+
+''
+' DIALOG_poll_mouse, once a dialog frame after the mouse queue was drained:
+' Ctrl+Alt+`, the inspector's typing, then the pointer. TRUE = the inspector
+' took it (the dialog must not see this frame's mouse).
+'
+FUNCTION THEMEED_dialog_input% (wheel AS INTEGER)
+    DIM dn AS INTEGER, ds AS INTEGER, wx AS INTEGER, wy AS INTEGER, b1 AS INTEGER, b2 AS INTEGER, b3 AS INTEGER
+    DIM ctl AS INTEGER, alt AS INTEGER, sh AS INTEGER, k AS LONG
+    IF THEMEED.started = 0 THEN EXIT FUNCTION
+    THEMEED_GEN = THEMEED_GEN + 1 ' a new frame: what the dialog draws now replaces the last
+    ctl = (_KEYDOWN(100305) _ORELSE _KEYDOWN(100306))
+    alt = (_KEYDOWN(100307) _ORELSE _KEYDOWN(100308))
+    sh = (_KEYDOWN(100303) _ORELSE _KEYDOWN(100304))
+    dn = (_KEYDOWN(96) _ORELSE _KEYDOWN(126)) _ANDALSO ctl _ANDALSO alt
+    THEMEED_dialog_input% = dn ' (held: a frame the dialog draws again - shown / hidden)
+    IF dn _ANDALSO THEMEED.keyWasDown = 0 THEN THEMEED_toggle_inspect
+    THEMEED.keyWasDown = dn
+    IF UIPI.visible = 0 THEN EXIT FUNCTION
+    ' typing into the inspector: its keys, and none for the dialog (Enter / Esc
+    ' would close it)
+    IF UIPI_typing% THEN
+        IF UIPI_keys%("", 0) THEN UIPI.changed = TRUE
+        DO
+            k = _KEYHIT
+        LOOP WHILE k <> 0
+    END IF
+    ds = _MAX(1, SCRN.displayScale%)
+    wx = _MOUSEX: wy = _MOUSEY
+    b1 = _MOUSEBUTTON(1): b2 = _MOUSEBUTTON(2): b3 = _MOUSEBUTTON(3)
+    IF THEMEED_pointer%(wx \ ds, wy \ ds, wx, wy, b1, b2, b3, THEMEED.dlgOB1, THEMEED.dlgOB2, wheel, sh) THEN THEMEED_dialog_input% = TRUE
+    THEMEED.dlgOB1 = b1: THEMEED.dlgOB2 = b2
+END FUNCTION
+
+''
+' DIALOG_blit, after the dialog went on the window and before _DISPLAY: where
+' its image is (dx, dy window px, sc window px per dialog px), the inspector's
+' events, and the inspector + pick outline over it.
+'
+SUB THEMEED_dialog_present (img AS LONG, w AS INTEGER, h AS INTEGER, dx AS INTEGER, dy AS INTEGER, sc AS INTEGER)
+    IF THEMEED.started = 0 THEN EXIT SUB
+    THEMEED_hsc_note 0, img, 0, 0, w, h, dx, dy, CLNG(w) * sc, CLNG(h) * sc
+    THEMEED_events
+    IF UIPI.dirty <> UIP_DIRTY THEN UIPI.dirty = UIP_DIRTY: UIPI.changed = TRUE
+    IF UIPI.visible = 0 THEN EXIT SUB
+    IF ABS(TIMER(.001) - THEMEED.lastPoll) >= .5 THEN
+        THEMEED.lastPoll = TIMER(.001)
+        THEMEED_tree_build
+    END IF
+    THEMEED_draw_panel
+END SUB
+
+''
+' The DIALOGS menu (the inspector's host menu): the dialogs to open and edit.
+' Any dialog opened from DRAW's own menus is editable the same way.
+'
+SUB THEMEED_dialogs_menu ()
+    UIPI.hostBtn = "DIALOGS"
+    UIPI_HOST_N = 0
+    UIPI_host_menu_add "SETTINGS", ACTION_SETTINGS
+    UIPI_host_menu_add "CUSTOMIZE CONTROLS", ACTION_CUSTOMIZE_CONTROLS
+    UIPI_host_menu_add "CONFIGURE WORKSPACES", WS_ACT_CONFIGURE
+    UIPI_host_menu_add "---", 0
+    UIPI_host_menu_add "BRIGHTNESS / CONTRAST", 2001
+    UIPI_host_menu_add "HUE / SATURATION", 2002
+    UIPI_host_menu_add "LEVELS", 2003
+    UIPI_host_menu_add "BLUR", 2005
+    UIPI_host_menu_add "RESIZE IMAGE WITH CONTENT", 1805
+    UIPI_host_menu_add "EXTRACT IMAGES", 214
+    UIPI_host_menu_add "CRT EFFECT", 951
+    UIPI_host_menu_add "---", 0
+    UIPI_host_menu_add "LOAD FROM LOSPEC", 1514
+    UIPI_host_menu_add "PALETTE FROM IMAGE", 1515
+    UIPI_host_menu_add "REMAP TO PALETTE", 1516
+    UIPI_host_menu_add "---", 0
+    UIPI_host_menu_add "THEDRAW FONTS", 1530
+    UIPI_host_menu_add "EXPORT KIT", KIT_ACT_EXPORT
+    IF CFG.AI_ENABLED% THEN
+        UIPI_host_menu_add "AI: NEW LAYER", 1820
+        UIPI_host_menu_add "AI: SETTINGS", 1823
+    END IF
+END SUB
+
+''
 ' Every drawn part's box in window px and where it goes in the tree.
 '
 SUB THEMEED_seen_resolve ()
@@ -903,6 +1052,7 @@ SUB THEMEED_tree_part (parent AS INTEGER, i AS INTEGER)
     c = UIP_N(parent).comp
     IF LEFT$(THEMEED_PART(i).nkey, 4) = "POP:" _ORELSE LEFT$(THEMEED_PART(i).nkey, 5) = "MENU:" THEN c = UIP_comp_find%("POPUP_MENU")
     IF LEFT$(THEMEED_PART(i).nkey, 7) = "PALMENU" THEN c = UIP_comp_find%("PALETTE_STRIP")
+    IF LEFT$(THEMEED_PART(i).nkey, 3) = "DLG" THEN c = UIP_comp_find%("DIALOG")
     n = UIP_node_add%(parent, THEMEED_PART(i).nkey, THEMEED_PART(i).label, c, THEMEED_RS_X(i), THEMEED_RS_Y(i), THEMEED_RS_W(i), THEMEED_RS_H(i), THEMEED_PART(i).fls)
     FOR j = 1 TO THEMEED_SN
         IF THEMEED_RS_OK(j) _ANDALSO THEMEED_RS_PAR(j) = i THEN THEMEED_tree_part n, j
@@ -1383,6 +1533,7 @@ SUB THEMEED_session_start ()
     UIPI.title = "THEME EDIT: " + THEMEED.themeName
     UIPI.visible = THEMEED.startInspect
     IF THEMEED.startInspect THEN UIPI_set_picking TRUE
+    THEMEED_dialogs_menu
     THEMEED.cfgStamp = gj_file_stamp&&(THEMEED.cfgPath + CHR$(0))
     THEMEED_info_update
     IF LEN(THEMEED.replacedTo) _ANDALSO THEMEED.created THEN
@@ -1530,6 +1681,12 @@ SUB THEMEED_events ()
                 INVALIDATE_scene
             CASE "NODE"
                 INVALIDATE_scene ' its outline
+            CASE "HOSTMENU" ' the DIALOGS menu: open that dialog (at the next tick - not inside a modal loop)
+                IF THEMEED.dlgDepth > 0 THEN
+                    UIPI_message "CLOSE THIS DIALOG FIRST", TRUE
+                ELSE
+                    THEMEED.openAction = VAL(arg)
+                END IF
         END SELECT
     LOOP
 END SUB
@@ -1541,6 +1698,18 @@ SUB THEMEED_tick ()
     DIM i AS INTEGER, st AS _INTEGER64, ok AS INTEGER, reloadCfg AS INTEGER
     IF THEMEED.started = 0 THEN EXIT SUB
     THEMEED_events
+    IF THEMEED.openAction > 0 THEN
+        ' the dialog runs its own loop right here; Theme Edit keeps working in it
+        ' through the DIALOG_* hooks (THEMEED_dialog_*). Picking stays on: the
+        ' dialog's parts are what the user wants - INSPECT off to use the dialog.
+        i = THEMEED.openAction: THEMEED.openAction = 0
+        UIPI.menuOpen = FALSE
+        UIPI_set_picking TRUE
+        UIPI_message "PICK THE DIALOG'S PARTS - INSPECT OFF TO USE IT, CLOSE IT TO COME BACK", FALSE
+        CMD_execute_action i
+        UIPI.changed = TRUE
+        INVALIDATE_scene
+    END IF
     IF THEMEED.needReload THEN THEMEED_reload_assets
     IF THEMEED.needLayout THEN
         THEMEED.needLayout = FALSE
@@ -1711,21 +1880,29 @@ END FUNCTION
 ' MOUSE_process_frame%, before any panel. TRUE = the inspector took the pointer.
 '
 FUNCTION THEMEED_mouse% (rawX AS INTEGER, rawY AS INTEGER, wheel AS INTEGER)
-    DIM b1 AS INTEGER, b2 AS INTEGER, b3 AS INTEGER, rg AS INTEGER, c AS INTEGER, nd AS INTEGER
-    DIM lbl AS STRING, took AS INTEGER
     IF THEMEED.started = 0 _ORELSE UIPI.visible = 0 THEN EXIT FUNCTION
-    b1 = MOUSE.B1%: b2 = MOUSE.B2%: b3 = MOUSE.B3%
-    took = UIPI_mouse%(MOUSE.WIN_X%, MOUSE.WIN_Y%, b1, b2, b3, wheel, MODIFIERS.shift%)
+    THEMEED_mouse% = THEMEED_pointer%(rawX, rawY, MOUSE.WIN_X%, MOUSE.WIN_Y%, MOUSE.B1%, MOUSE.B2%, MOUSE.B3%, MOUSE.OLD_B1%, MOUSE.OLD_B2%, wheel, MODIFIERS.shift%)
+END FUNCTION
+
+''
+' The pointer, from the main loop (THEMEED_mouse%) or a modal dialog's
+' (THEMEED_dialog_input%): (rawX, rawY) viewport px, (wx, wy) window px, the
+' buttons now and last frame. TRUE = the inspector took it.
+'
+FUNCTION THEMEED_pointer% (rawX AS INTEGER, rawY AS INTEGER, wx AS INTEGER, wy AS INTEGER, b1 AS INTEGER, b2 AS INTEGER, b3 AS INTEGER, ob1 AS INTEGER, ob2 AS INTEGER, wheel AS INTEGER, shift AS INTEGER)
+    DIM rg AS INTEGER, c AS INTEGER, nd AS INTEGER
+    DIM lbl AS STRING, took AS INTEGER
+    took = UIPI_mouse%(wx, wy, b1, b2, b3, wheel, shift)
     IF UIPI.treeHover <> THEMEED.lastHover THEN THEMEED.lastHover = UIPI.treeHover: INVALIDATE_scene
     IF UIPI.changed THEN GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
     ' a press the panel took keeps the pointer until every button is up
     IF took _ANDALSO (b1 _ORELSE b2 _ORELSE b3) THEN THEMEED.capture = TRUE
     IF THEMEED.capture THEN
         IF (b1 _ORELSE b2 _ORELSE b3) = 0 THEN THEMEED.capture = FALSE
-        THEMEED_mouse% = TRUE
+        THEMEED_pointer% = TRUE
         EXIT FUNCTION
     END IF
-    IF took THEN THEMEED_mouse% = TRUE: EXIT FUNCTION
+    IF took THEN THEMEED_pointer% = TRUE: EXIT FUNCTION
 
     IF UIPI.picking THEN
         ' what is under the pointer: its region, its component, maybe its element
@@ -1734,8 +1911,8 @@ FUNCTION THEMEED_mouse% (rawX AS INTEGER, rawY AS INTEGER, wheel AS INTEGER)
         ' the element: the smallest part under the pointer - an open menu / popup
         ' first (drawn over everything), else in that region
         THEMEED_tree_build
-        nd = THEMEED_node_at%(MOUSE.WIN_X%, MOUSE.WIN_Y%, UIP_node_find%("OVER"))
-        IF nd = 0 THEN nd = THEMEED_node_at%(MOUSE.WIN_X%, MOUSE.WIN_Y%, UIP_node_find%("R:" + _TRIM$(STR$(rg))))
+        nd = THEMEED_node_at%(wx, wy, UIP_node_find%("OVER"))
+        IF nd = 0 THEN nd = THEMEED_node_at%(wx, wy, UIP_node_find%("R:" + _TRIM$(STR$(rg))))
         IF nd THEN
             IF UIP_N(nd).comp > 0 THEN c = UIP_N(nd).comp
         END IF
@@ -1765,17 +1942,17 @@ FUNCTION THEMEED_mouse% (rawX AS INTEGER, rawY AS INTEGER, wheel AS INTEGER)
             IF nd THEN UIPI_tree_reveal UIP_N(nd).nkey ELSE UIPI_tree_reveal "R:" + _TRIM$(STR$(rg))
             INVALIDATE_scene
         END IF
-        IF (b1 <> 0 _ANDALSO MOUSE.OLD_B1% = 0) THEN
+        IF (b1 <> 0 _ANDALSO ob1 = 0) THEN
             UIPI_set_picking FALSE
             UIPI_message "INSPECTING " + lbl, FALSE
             INVALIDATE_scene
-        ELSEIF (b2 <> 0 _ANDALSO MOUSE.OLD_B2% = 0) THEN
+        ELSEIF (b2 <> 0 _ANDALSO ob2 = 0) THEN
             UIPI_set_picking FALSE ' right-click: stop picking
             INVALIDATE_scene
         END IF
         ' while picking nothing under it is clicked
         IF b1 _ORELSE b2 _ORELSE b3 THEN THEMEED.capture = TRUE
-        THEMEED_mouse% = TRUE
+        THEMEED_pointer% = TRUE
     END IF
 END FUNCTION
 
@@ -1822,8 +1999,17 @@ END FUNCTION
 ' the pick outline and the panel go on the window above everything.
 '
 SUB THEMEED_render_screen0 ()
+    ' (a modal dialog draws it itself, over the dialog: THEMEED_dialog_present -
+    ' kept out of the screen copy DIALOG_init takes for its background)
+    IF THEMEED.started = 0 _ORELSE UIPI.visible = 0 _ORELSE THEMEED.dlgDepth > 0 THEN EXIT SUB
+    THEMEED_draw_panel
+END SUB
+
+''
+' The inspector and the pick outline on the window (screen 0).
+'
+SUB THEMEED_draw_panel ()
     DIM ds AS INTEGER, top AS INTEGER, bottom AS INTEGER, n AS INTEGER, big AS INTEGER
-    IF THEMEED.started = 0 _ORELSE UIPI.visible = 0 THEN EXIT SUB
     ds = SCRN.displayScale%
     IF ds < 1 THEN ds = 1
     UIPI.autoScale = ds

@@ -30,6 +30,10 @@
 '   CLOSE           the X button
 '   NODE <nkey>     a tree node was selected
 '   STATE           dock / scale / split / tree / IMAGES order changed (save UIPI_state$ to keep it)
+'   HOSTMENU <id>   an item of the host's menu (UIPI_host_menu_add) was chosen
+'
+' The host menu: UIPI.hostBtn names a toolbar button ("" = none) that opens a
+' menu of the host's own items (UIPI_host_menu_add text, id).
 '
 ' The look is fixed (dark, Tiny5, measured text): it is NOT themed by the theme being
 ' edited, so a broken theme can never make its own editor unreadable.
@@ -62,7 +66,7 @@ CONST UIPI_RS_L = 1 ' resize edges (UIPI_resize_at%, UIPI_cursor_edges%)
 CONST UIPI_RS_R = 2
 CONST UIPI_RS_T = 4
 CONST UIPI_RS_B = 8
-CONST UIPI_MENU_MAX  = 32
+CONST UIPI_MENU_MAX  = 48
 
 ' menu item values
 CONST UIPI_MV_SCALE = 1000 ' + half steps (0 = Auto, 2 = 1x, 3 = 1.5x ...)
@@ -70,6 +74,7 @@ CONST UIPI_MV_DOCK  = 2000 ' + UIPI_EDGE_*
 CONST UIPI_MV_TREE  = 3000
 CONST UIPI_MV_FSORT = 3001 ' IMAGES order: screen / A-Z
 CONST UIPI_MV_CLOSE = 4000
+CONST UIPI_MV_HOST  = 5000 ' + the host item's index
 
 ' Colours (fixed devtools look)
 CONST UIPI_C_BG = &HFF202226~&
@@ -185,6 +190,8 @@ TYPE UIPI_OBJ
     dragDY     AS INTEGER
     changed    AS INTEGER ' needs a repaint
     rebuild    AS INTEGER ' rows need rebuilding
+    hostBtn    AS STRING  ' the host menu's toolbar button ("" = none)
+    menuKind   AS INTEGER ' the open menu: 0 = the panel's, 1 = the host's
 END TYPE
 
 DIM SHARED UIPI AS UIPI_OBJ
@@ -199,3 +206,6 @@ DIM SHARED UIPI_MENU_N AS INTEGER
 DIM SHARED UIPI_MENU_TXT(1 TO UIPI_MENU_MAX) AS STRING ' "---" = a divider
 DIM SHARED UIPI_MENU_VAL(1 TO UIPI_MENU_MAX) AS INTEGER
 DIM SHARED UIPI_MENU_ON(1 TO UIPI_MENU_MAX) AS INTEGER ' checked
+DIM SHARED UIPI_HOST_N AS INTEGER                     ' the host menu (UIPI_host_menu_add)
+DIM SHARED UIPI_HOST_TXT(1 TO UIPI_MENU_MAX) AS STRING ' "---" = a divider
+DIM SHARED UIPI_HOST_ID(1 TO UIPI_MENU_MAX) AS INTEGER

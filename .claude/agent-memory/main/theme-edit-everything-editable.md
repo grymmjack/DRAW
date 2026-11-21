@@ -24,7 +24,8 @@ the customized / fallback cases first.
   on a missing file makes it (`THEMEED_seed_make%`: DEFAULT copy, else what is drawn now).
 - Covered 2026-11-21 (Rick: "status bar and color strip too all of it"): menus + popups and their
   items, status bar parts, colour chips, layer rows + icons, organizer, drawer bins, workflow /
-  selection / text bars, flyouts, floating-panel widgets. Still blind: modal dialogs (own loop -
-  Theme Edit does not run), GJ_LIB-rendered window bodies (Mixer / ACP / 3D / Browser), Swatches
+  selection / text bars, flyouts, floating-panel widgets. Same day (Rick: "a button to EDIT
+  DIALOGS"): every DIALOG_CTX modal, via hooks in the DIALOG_* helpers + the inspector's DIALOGS
+  button. Still blind: GJ_LIB message / input boxes + file dialog, GJ_LIB-rendered window bodies (Mixer / ACP / 3D / Browser), Swatches
   grid, Pen graph, Customize Toolbars rows, dock tabs, command palette rows, menu flyouts.
   See [[theme-edit-uikit]].

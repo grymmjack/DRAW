@@ -86,9 +86,25 @@ never a per-panel hit test. Two ways:
   spans to the bar's end).
 - QA: the dock dump (`DOCK_DUMP=`) carries `TESTATE` (the inspector's box + state), `TEN <depth>
   <x y w h> <nfiles> <nkey> <label>` per node (window px) and `TEPICK` / `TEELEM` while picking.
-- Not reached: **modal dialogs** (Settings, every `DIALOG_CTX` dialog, message / input boxes, the
-  modal file dialog) run their own loop - Theme Edit's tick / mouse / render do not run while
-  one is up; their regions are never bounded. The bodies of the Color Mixer / Advanced Color
+- **Modal dialogs** (every `DIALOG_CTX` dialog - Settings, Image adjustments, Lospec, Kit, AI,
+  ...) run their own loop, so the main loop's hooks do not run; the `DIALOG_*` helpers call
+  Theme Edit's instead: `DIALOG_init` -> `THEMEED_dialog_begin` (depth + 1: `THEMEED_render_screen0`
+  stays out of the background copy), `DIALOG_poll_mouse` -> `THEMEED_dialog_input%` (new GEN,
+  Ctrl+Alt+`, the inspector's typing - `INKEY$`, then `_KEYHIT` drained so Enter / Esc do not
+  close the dialog -, the pointer via `THEMEED_pointer%`; what it takes the dialog does not see:
+  `mb1` / wheel zeroed, `mx` parked off-dialog and flipped -9999 / -10000 each frame so a dialog
+  that skips idle frames (Settings) keeps drawing), `DIALOG_blit` -> `THEMEED_dialog_present`
+  (maps the dialog image, events, tree, draws the inspector), `DIALOG_cleanup` ->
+  `THEMEED_dialog_end` (its parts + map entry go). Parts: `DIALOG_draw_frame` = `DLG` under
+  `OVER` (comp DIALOG) + `DLG:TITLE`; buttons / toggles / sliders / labels / dropdowns and the
+  Settings widgets (`SW_seen`) + tabs go under `DLG`; Settings' scrolled rows are drawn into a
+  scratch image and moved onto the dialog by `THEMEED_seen_rehome`. The inspector's **DIALOGS**
+  button (the UIKIT host menu: `UIPI.hostBtn`, `UIPI_host_menu_add`, event `HOSTMENU <id>`)
+  lists dialogs to open (`THEMEED_dialogs_menu`); the action runs at the next `THEMEED_tick`
+  (never inside a modal loop) with picking on. The dock dump is not written while a dialog is
+  up (main loop only), so QA cannot see dialog nodes yet.
+- Not reached: message / input boxes and the file dialog (QB64_GJ_LIB, their own loops, no
+  `DIALOG_*`). The bodies of the Color Mixer / Advanced Color
   Picker / 3D Color Space / Browser (QB64_GJ_LIB renders), the Swatches grid, the Pen graph,
   Customize Toolbars' rows, dock title strips / tabs, the command palette's rows and the menu
   bar's flyouts are their panel's node only. FPANEL sliders have no label of their own ("SLIDER"). Files a node shows

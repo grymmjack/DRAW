@@ -305,8 +305,11 @@ theme-edit mode. Phase 3 revisits it once UIKIT owns panels too.
 - Font keys apply on the next start (DRAW loads its fonts once); the inspector says so.
 - The overlay covers whatever is under it on its edge; DRAW does not lay out around it (dock it
   on the other side, or float it, to see a panel it covers - the tree outline is drawn over it).
-- Not reached yet: modal dialogs (Settings and every `DIALOG_CTX` dialog, message / input boxes,
-  the modal file dialog) run their own loop, so Theme Edit does not run while one is up. Shown as
+- Modal dialogs: Theme Edit runs inside every `DIALOG_CTX` dialog (Settings, image adjustments,
+  ...) through the `DIALOG_*` helpers - the inspector is drawn over it, picks its frame, title,
+  tabs, buttons, sliders, labels, Settings rows; edits show live. The inspector's DIALOGS button
+  opens a list of them. Not reached yet: message / input boxes and the file dialog (QB64_GJ_LIB,
+  no `DIALOG_*`); the inspector cannot take arrow keys inside a dialog. Shown as
   their panel only: the Color Mixer / Advanced Color Picker / 3D Color Space / Browser bodies, the
   Swatches grid, the Pen graph, Customize Toolbars' rows, dock title strips / tabs, command
   palette rows, menu bar flyouts. Open / closed nodes are not kept between runs.

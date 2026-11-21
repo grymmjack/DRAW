@@ -59,6 +59,10 @@ TYPE THEMEED_OBJ
     statePath     AS STRING  ' the inspector's dock / scale / split, beside the DRAW config
     stateSaved    AS STRING
     lastHover     AS INTEGER ' tree row under the pointer last frame (its outline)
+    dlgDepth      AS INTEGER ' modal dialogs open (DIALOG_init .. DIALOG_cleanup)
+    dlgOB1        AS INTEGER ' the buttons last dialog frame (THEMEED_dialog_input%)
+    dlgOB2        AS INTEGER
+    openAction    AS INTEGER ' a DIALOGS menu pick: the action that opens it, run at the next tick
 END TYPE
 
 ' The region table as of the last GUI render (REGION_BOUNDS_TABLE is cleared
