@@ -73,6 +73,7 @@ CONST UIPI_MV_SCALE = 1000 ' + half steps (0 = Auto, 2 = 1x, 3 = 1.5x ...)
 CONST UIPI_MV_DOCK  = 2000 ' + UIPI_EDGE_*
 CONST UIPI_MV_TREE  = 3000
 CONST UIPI_MV_FSORT = 3001 ' IMAGES order: screen / A-Z
+CONST UIPI_MV_OUTLINE = 3002 ' the outlines on the host's screen: shown / hidden
 CONST UIPI_MV_CLOSE = 4000
 CONST UIPI_MV_HOST  = 5000 ' + the host item's index
 
@@ -193,6 +194,7 @@ TYPE UIPI_OBJ
     rebuild    AS INTEGER ' rows need rebuilding
     hostBtn    AS STRING  ' the host menu's toolbar button ("" = none)
     menuKind   AS INTEGER ' the open menu: 0 = the panel's, 1 = the host's
+    noOutline  AS INTEGER ' the host hides its outlines of the selected / hovered node (not picking's)
 END TYPE
 
 DIM SHARED UIPI AS UIPI_OBJ

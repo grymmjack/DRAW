@@ -159,6 +159,22 @@ create) else the THEME.CFG header path. The `--option THEME` entry `THEMEED_cli_
 rewritten to the chosen name. Test it with a pty (python `pty.fork`, `os.execvp`), never stdin
 redirection - that is the no-tty path.
 
+## Theme sync
+
+`--theme-sync-from A --theme-sync-to B` = `THEMEED_cli_sync%` (CFG/THEME-EDIT.BM), run from the
+include-time loop in `CFG/CLI-QUERY.BI` (also in `CLI_is_query_run%`, so it claims no instance slot).
+`THEMEED_sync_list$` walks A (reads each folder whole before recursing - `_FILES$` has one listing
+state), compares with `_READFILE$`, skips dot names / root THEME.CFG + THEME.BI. Backups of B's
+overwritten files go to `ASSETS/THEME-BACKUPS/B-sync-<stamp>/` and are checked before the overwrite.
+Answers come through `THEMEED_ask_line$` (EOF = "" = no).
+
+## Ctrl+H (outlines)
+
+`THEMEED_hide_key%` (from `THEMEED_keys%` and `THEMEED_dialog_input%`): Ctrl+H edge with the pointer
+on the inspector -> `UIPI_toggle_outlines` (`UIPI.noOutline`; `UIPI_outline_node%` returns 0 unless
+picking). While it is held `THEMEED_hide_held%` adds `CTX_TEXT_ACTIVE` in `INPUT_dispatch_frame`, so
+action 332 (Hide Selection) does not fire too. Off the panel Ctrl+H is Hide Selection as ever.
+
 ## Tests
 
 `QA/tests/theme-edit-inspect.sh` (console dumps, create-from-base) and

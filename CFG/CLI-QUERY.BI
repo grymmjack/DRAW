@@ -8,6 +8,9 @@
 '   DRAW --dirs                  every directory, labeled
 '   cd $(DRAW --dir-data)        one directory, bare path (no trailing slash)
 '   DRAW --workspaces            the workspaces (built-in + yours), remembered one starred
+'   DRAW --theme-sync-from MINE --theme-sync-to DEFAULT
+'                                copy one theme's changed / new files into another
+'                                (lists them, asks y/e/N - CFG/THEME-EDIT.BM)
 '
 ' Runs at include time right after CFG/CONFIG.BI, when CONFIG_FILE_PATH$ is
 ' final (--config, OS-specific cfg, portable mode, per-instance config all
@@ -26,4 +29,5 @@ FOR CLIQ_i% = 1 TO _COMMANDCOUNT
     IF CLIQ_arg$ = "--cfg" OR CLIQ_arg$ = "--dirs" OR CLIQ_arg$ = "--workspaces" OR LEFT$(CLIQ_arg$, 6) = "--dir-" THEN
         SYSTEM CLIQ_run%(CLIQ_arg$)
     END IF
+    IF CLIQ_arg$ = "--theme-sync-from" OR CLIQ_arg$ = "--theme-sync-to" THEN SYSTEM THEMEED_cli_sync%
 NEXT CLIQ_i%

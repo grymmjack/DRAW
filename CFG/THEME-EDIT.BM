@@ -85,7 +85,7 @@ END FUNCTION
 '
 FUNCTION THEMEED_flag_takes_value% (flag AS STRING)
     SELECT CASE LCASE$(_TRIM$(flag))
-        CASE "--theme-name", "--theme-edit-base", "--theme-edit-autosave-mins", "--theme-edit-keep-num-backups", "--theme-edit-inspect"
+        CASE "--theme-name", "--theme-edit-base", "--theme-edit-autosave-mins", "--theme-edit-keep-num-backups", "--theme-edit-inspect", "--theme-sync-from", "--theme-sync-to"
             THEMEED_flag_takes_value% = TRUE
     END SELECT
 END FUNCTION
@@ -212,6 +212,148 @@ FUNCTION THEMEED_ask_line$ ()
         IF c <> 13 THEN ln = ln + CHR$(c)
     LOOP
     THEMEED_ask_line$ = UCASE$(_TRIM$(ln))
+END FUNCTION
+
+''
+' --theme-sync-from A --theme-sync-to B: copy theme A's files that differ from B's
+' (CHANGED) or that B lacks (NEW) into B - after a list and a question on the
+' terminal: y = all, e = ask for each, anything else = nothing (no terminal = no
+' answer = nothing; --theme-sync-yes = copy without asking). Files only B has
+' stay. Never copied: THEME.CFG and THEME.BI at the root (settings / compiled
+' defaults - listed when they differ), dot files, .history folders. B's copies
+' are saved first to ASSETS/THEME-BACKUPS/<B>-sync-<stamp>/. Runs at include
+' time (CFG/CLI-QUERY.BI); returns the exit code: 0 = done or nothing to do,
+' 1 = a copy failed, 2 = bad names.
+'
+FUNCTION THEMEED_cli_sync% ()
+    DIM fromNm AS STRING, toNm AS STRING, fr AS STRING, tr AS STRING, lst AS STRING
+    DIM rel AS STRING, p AS INTEGER, n AS INTEGER, i AS INTEGER, a AS STRING, bk AS STRING
+    DIM copied AS INTEGER, failed AS INTEGER, askEach AS INTEGER, nCh AS INTEGER, nNew AS INTEGER
+    CLI_begin
+    fromNm = UCASE$(THEMEED_arg$("--theme-sync-from"))
+    toNm = UCASE$(THEMEED_arg$("--theme-sync-to"))
+    IF THEMEED_valid_name%(fromNm) = 0 _ORELSE THEMEED_valid_name%(toNm) = 0 THEN
+        PRINT "DRAW: usage: --theme-sync-from NAME --theme-sync-to NAME (theme folder names)"
+        THEMEED_cli_sync% = 2: EXIT FUNCTION
+    END IF
+    IF fromNm = toNm THEN PRINT "DRAW: --theme-sync-from and --theme-sync-to name the same theme": THEMEED_cli_sync% = 2: EXIT FUNCTION
+    fr = "ASSETS/THEMES/" + fromNm + "/": tr = "ASSETS/THEMES/" + toNm + "/"
+    IF _DIREXISTS(fr) = 0 THEN PRINT "DRAW: no theme " + fromNm + " (" + fr + ")": THEMEED_cli_sync% = 2: EXIT FUNCTION
+    IF _DIREXISTS(tr) = 0 THEN PRINT "DRAW: no theme " + toNm + " (" + tr + ")": THEMEED_cli_sync% = 2: EXIT FUNCTION
+    lst = THEMEED_sync_list$(fr, tr, "")
+    PRINT CLI_c$("1") + "Theme sync: " + fromNm + " -> " + toNm + CLI_reset$ + CLI_c$("2") + "  (" + fr + " -> " + tr + ")" + CLI_reset$
+    PRINT
+    p = 1
+    DO WHILE p < LEN(lst)
+        i = INSTR(p, lst, "|")
+        rel = MID$(lst, p + 1, i - p - 1)
+        n = n + 1
+        IF MID$(lst, p, 1) = "N" THEN
+            nNew = nNew + 1
+            PRINT RIGHT$("   " + _TRIM$(STR$(n)), 4) + "  " + CLI_c$("1;32") + "NEW    " + CLI_reset$ + " " + rel
+        ELSE
+            nCh = nCh + 1
+            PRINT RIGHT$("   " + _TRIM$(STR$(n)), 4) + "  " + CLI_c$("1;33") + "CHANGED" + CLI_reset$ + " " + rel
+        END IF
+        p = i + 1
+    LOOP
+    FOR i = 1 TO 2
+        rel = _IIF(i = 1, "THEME.CFG", "THEME.BI")
+        IF _FILEEXISTS(fr + rel) _ANDALSO THEMEED_files_differ%(fr + rel, tr + rel) THEN
+            PRINT "      " + CLI_c$("2") + "(" + rel + " differs - never synced: settings are copied by hand or in Theme Edit)" + CLI_reset$
+        END IF
+    NEXT i
+    IF n = 0 THEN PRINT toNm + " already has every file of " + fromNm + " - nothing to copy.": EXIT FUNCTION
+    PRINT
+    bk = "ASSETS/THEME-BACKUPS/" + toNm + "-sync-" + UIP_stamp$ + "/"
+    IF THEMEED_has%("--theme-sync-yes") THEN
+        a = "Y"
+    ELSE
+        PRINT "Copy " + _TRIM$(STR$(n)) + " file(s) into " + toNm + " (" + _TRIM$(STR$(nCh)) + " changed, " + _TRIM$(STR$(nNew)) + " new)?"
+        IF nCh > 0 THEN PRINT CLI_c$("2") + "  " + toNm + "'s old copies are saved to " + bk + CLI_reset$
+        PRINT "  " + CLI_c$("1") + "y" + CLI_reset$ + " = copy all   " + CLI_c$("1") + "e" + CLI_reset$ + " = ask for each   " + CLI_c$("1") + "n" + CLI_reset$ + " = cancel  (y/e/N): ";
+        a = THEMEED_ask_line$
+    END IF
+    SELECT CASE a
+        CASE "Y", "YES"
+        CASE "E", "EACH": askEach = TRUE
+        CASE ELSE
+            PRINT "Nothing copied."
+            EXIT FUNCTION
+    END SELECT
+    p = 1
+    DO WHILE p < LEN(lst)
+        i = INSTR(p, lst, "|")
+        rel = MID$(lst, p + 1, i - p - 1)
+        p = i + 1
+        IF askEach THEN
+            PRINT "  " + _IIF(_FILEEXISTS(tr + rel), "CHANGED ", "NEW ") + rel + "  copy? (y/N/q): ";
+            a = THEMEED_ask_line$
+            IF a = "Q" THEN EXIT DO
+            IF a <> "Y" _ANDALSO a <> "YES" THEN _CONTINUE
+        END IF
+        IF _FILEEXISTS(tr + rel) THEN
+            THEMEED_make_dirs bk + rel
+            IF UIP_file_copy%(tr + rel, bk + rel) = 0 _ORELSE THEMEED_files_differ%(tr + rel, bk + rel) THEN
+                PRINT CLI_c$("1;31") + "  NOT COPIED (could not back up " + tr + rel + ")" + CLI_reset$
+                failed = failed + 1: _CONTINUE
+            END IF
+        END IF
+        THEMEED_make_dirs tr + rel
+        IF UIP_file_copy%(fr + rel, tr + rel) _ANDALSO THEMEED_files_differ%(fr + rel, tr + rel) = 0 THEN
+            copied = copied + 1
+            PRINT CLI_c$("32") + "  copied " + CLI_reset$ + rel
+        ELSE
+            PRINT CLI_c$("1;31") + "  FAILED " + CLI_reset$ + rel
+            failed = failed + 1
+        END IF
+    LOOP
+    PRINT
+    PRINT _TRIM$(STR$(copied)) + " file(s) copied into " + toNm + _IIF(failed > 0, ", " + _TRIM$(STR$(failed)) + " failed", "") + "."
+    IF _DIREXISTS(bk) THEN PRINT CLI_c$("2") + "Old copies: " + bk + CLI_reset$
+    IF copied > 0 THEN PRINT CLI_c$("2") + "A DRAW already running on " + toNm + " shows them after a restart." + CLI_reset$
+    IF failed > 0 THEN THEMEED_cli_sync% = 1
+END FUNCTION
+
+''
+' The files under fr + rel that differ from (C) or are missing in (N) tr + rel,
+' as "Crel/path|Nrel/path|..." (folders in listing order, depth first). Leaves out
+' what THEMEED_cli_sync% never copies.
+'
+FUNCTION THEMEED_sync_list$ (fr AS STRING, tr AS STRING, rel AS STRING)
+    DIM f AS STRING, n AS INTEGER, i AS INTEGER, acc AS STRING
+    ' _FILES$ keeps one listing state, so read this folder whole before recursing
+    DIM nm(1 TO 64) AS STRING
+    f = _FILES$(fr + rel)
+    DO WHILE LEN(f)
+        IF LEFT$(f, 1) <> "." THEN ' ./ ../ .history/ .theme-base ...
+            n = n + 1
+            IF n > UBOUND(nm) THEN REDIM _PRESERVE nm(1 TO n * 2) AS STRING
+            nm(n) = f
+        END IF
+        f = _FILES$
+    LOOP
+    FOR i = 1 TO n
+        f = nm(i)
+        IF RIGHT$(f, 1) = "/" _ORELSE RIGHT$(f, 1) = "\" THEN
+            acc = acc + THEMEED_sync_list$(fr, tr, rel + LEFT$(f, LEN(f) - 1) + "/")
+        ELSEIF rel = "" _ANDALSO (UCASE$(f) = "THEME.CFG" _ORELSE UCASE$(f) = "THEME.BI") THEN
+            ' settings / compiled defaults: never synced
+        ELSEIF _FILEEXISTS(tr + rel + f) = 0 THEN
+            acc = acc + "N" + rel + f + "|"
+        ELSEIF THEMEED_files_differ%(fr + rel + f, tr + rel + f) THEN
+            acc = acc + "C" + rel + f + "|"
+        END IF
+    NEXT i
+    THEMEED_sync_list$ = acc
+END FUNCTION
+
+''
+' TRUE when files a and b differ (or one is missing).
+'
+FUNCTION THEMEED_files_differ% (a AS STRING, b AS STRING)
+    IF _FILEEXISTS(a) = 0 _ORELSE _FILEEXISTS(b) = 0 THEN THEMEED_files_differ% = TRUE: EXIT FUNCTION
+    THEMEED_files_differ% = (_READFILE$(a) <> _READFILE$(b))
 END FUNCTION
 
 ''
@@ -912,6 +1054,7 @@ FUNCTION THEMEED_dialog_input% (wheel AS INTEGER)
     IF dn _ANDALSO THEMEED.keyWasDown = 0 THEN THEMEED_toggle_inspect
     THEMEED.keyWasDown = dn
     IF UIPI.visible = 0 THEN EXIT FUNCTION
+    IF THEMEED_hide_key%(ctl, alt, sh, _MOUSEX, _MOUSEY) THEN THEMEED_dialog_input% = TRUE ' (Ctrl+H: outlines on / off)
     ' typing into the inspector: its keys, and none for the dialog (Enter / Esc
     ' would close it)
     IF UIPI_typing% THEN
@@ -1843,6 +1986,9 @@ FUNCTION THEMEED_keys% ()
     IF dn _ANDALSO THEMEED.keyWasDown = 0 THEN THEMEED_toggle_inspect
     THEMEED.keyWasDown = dn
     IF dn THEN THEMEED_keys% = TRUE: EXIT FUNCTION
+    ' Ctrl+H with the pointer on the inspector: its outlines on / off (elsewhere
+    ' Ctrl+H stays Hide Selection - INPUT_current_context blocks it while held here)
+    IF THEMEED_hide_key%(MODIFIERS.ctrl%, MODIFIERS.alt%, MODIFIERS.shift%, MOUSE.WIN_X%, MOUSE.WIN_Y%) THEN THEMEED_keys% = TRUE: EXIT FUNCTION
     IF UIPI_keys%(KEYHIT_CHAR$, _IIF(THEMEED_tree_keys%, THEMEED_arrow_key&, 0)) THEN
         GUI_NEEDS_REDRAW% = TRUE
         THEMEED_keys% = TRUE
@@ -1858,6 +2004,27 @@ FUNCTION THEMEED_keys% ()
         EXIT FUNCTION
     END IF
     THEMEED.escWasDown = esc
+END FUNCTION
+
+''
+' Ctrl+H (no Alt / Shift) held with the pointer (window wx, wy) on the inspector:
+' TRUE while held; its press shows / hides the inspector's outlines.
+'
+FUNCTION THEMEED_hide_key% (ctl AS INTEGER, alt AS INTEGER, sh AS INTEGER, wx AS INTEGER, wy AS INTEGER)
+    DIM hk AS INTEGER
+    IF THEMEED.started = 0 _ORELSE UIPI.visible = 0 THEN THEMEED.hideWasDown = FALSE: EXIT FUNCTION
+    hk = (_KEYDOWN(104) _ORELSE _KEYDOWN(72)) _ANDALSO ctl <> 0 _ANDALSO alt = 0 _ANDALSO sh = 0
+    IF hk _ANDALSO THEMEED.hideWasDown = 0 THEN hk = (UIPI_hit%(wx, wy) <> 0) ' (a press off the panel is Hide Selection's)
+    IF hk _ANDALSO THEMEED.hideWasDown = 0 THEN UIPI_toggle_outlines: INVALIDATE_scene
+    THEMEED.hideWasDown = hk
+    THEMEED_hide_key% = hk
+END FUNCTION
+
+''
+' INPUT_current_context: Ctrl+H is the inspector's while it holds it.
+'
+FUNCTION THEMEED_hide_held% ()
+    THEMEED_hide_held% = THEMEED.hideWasDown
 END FUNCTION
 
 ''
@@ -2037,6 +2204,11 @@ SUB THEMEED_draw_panel ()
     n = UIPI_outline_node%(MOUSE.WIN_X%, MOUSE.WIN_Y%)
     IF n > 0 THEN
         big = (CLNG(UIP_N(n).w) * UIP_N(n).h > CLNG(SCRN.w&) * SCRN.h& * ds * ds \ 2)
+        ' the selected thing while its values are being worked on: a frame, no wash
+        ' over its colours (a tree / image row pointed at is washed: "where is that")
+        IF n <> UIPI.treeHover _ANDALSO UIP_N(n).nkey = UIPI.treeSel _ANDALSO UIPI.hoverRow > 0 THEN
+            IF UIPI_ROW_KIND(UIPI.hoverRow) <> UIPI_ROW_FILE THEN big = TRUE
+        END IF
         UIPI_draw_outline 0, UIP_N(n).x, UIP_N(n).y, UIP_N(n).w, UIP_N(n).h, UIP_N(n).label, ds, big = 0
     ELSEIF UIPI.picking _ANDALSO THEMEED.pickW > 0 THEN
         UIPI_draw_outline 0, THEMEED.pickX * ds, THEMEED.pickY * ds, THEMEED.pickW * ds, THEMEED.pickH * ds, THEMEED.pickLabel, ds, THEMEED.pickRegion <> REGION_CANVAS

@@ -276,6 +276,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `Ctrl+A` | Select all |
 | `Ctrl+Shift+I` | Invert selection |
 | `Ctrl+H` | Hide/show marching ants (selection stays active) |
+| `Ctrl+H` (pointer on the Theme Edit inspector) | Hide/show the inspector's outlines of the selected / hovered part |
 | `Hold M + =` / `Hold M + -` | Expand / contract selection 1px |
 | `Hold M + Shift+=` / `Hold M + Shift+-` | Expand / contract selection (large step) |
 | `Ctrl+D` / `Esc` | Deselect (from any tool) |
@@ -483,7 +484,7 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 - **Effects menu** (Shape / Texture / Render engines): each dialog has a split ORIG/ADJ loupe, wheel-sliders, an angle dial, seed, MIX slider, Reset. Effects can clip to selection or run selection-as-shape.
 - **Last-effect shortcuts:** `Ctrl+F` re-apply last effect · `Ctrl+Alt+F` recall last effect (re-open its dialog) · `Ctrl+Shift+F` blend/fade last effect (blend modes + isolate-to-new-layer).
 - **CRT effect:** `Ctrl+Alt+O` toggle · View → CRT Effect Settings…
-- **Anti-Aliasing** (experimental, off by default): Edit → Anti-Aliasing toggle (status shows **AA**); Edge-Mode button, on the Edit Bar, the Advanced Bar or the toolbox (L-Click toggle, R-Click switch Pixel-Perfect ⟷ AA). A toggle command on the toolbox (Toggle Anti-Aliasing, Pixel Perfect, ...) looks pushed while it is on. Config `ANTIALIAS`.
+- **Anti-Aliasing** (experimental, off by default): Edit → Anti-Aliasing toggle (status shows **AA**); Toggle Anti-Aliasing on the toolbox. The bars' Pixel-Perfect button (once a shared PP / AA Edge-Mode button) is Pixel-Perfect only; turning either on turns the other off. A toggle command on the toolbox (Toggle Anti-Aliasing, Pixel Perfect, ...) looks pushed while it is on. Config `ANTIALIAS`.
 - **Crop tool:** starts with no box: `Click+Drag` region · `Click` away clears the box · handles resize (drag outward past an edge to *grow* the canvas) · `Arrows` nudge · `Ctrl+Arrows` resize · `Enter` apply · `Esc` cancel · `Double-click` the Crop button trims the canvas to the artwork (visible layers) · **Image > Crop** boxes the whole image, zooming out first so its edges show · every crop undoes with `Ctrl+Z`.
 
 ---

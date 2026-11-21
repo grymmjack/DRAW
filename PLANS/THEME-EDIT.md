@@ -216,6 +216,16 @@ the node using it and the status line names it (`text.png - BUTTON TEXT`, or NOT
   (window never shown; works headless). `ALL` dumps everything; `COMPONENTS` lists the ids.
 - `--theme-edit-unattended`: no confirmations, autosave on exit, events also logged as
   `THEMEED ...` lines (for an AI or a script driving the edit).
+- `--theme-sync-from A --theme-sync-to B` (`THEMEED_cli_sync%`, called from `CFG/CLI-QUERY.BI`, exits
+  before any window): lists A's files that differ from B's (CHANGED) or that B lacks (NEW), asks
+  `y` (all) / `e` (each, `y/N/q`) / `N`, then copies them in, saving B's old copies first to
+  `ASSETS/THEME-BACKUPS/B-sync-<yyyymmdd>-<hhmmss>/`. Never copied: root `THEME.CFG` / `THEME.BI`
+  (noted when they differ), dot files, `.history`. Files only B has stay. No terminal = no answer =
+  nothing copied; `--theme-sync-yes` copies without asking. Exit 0 / 1 (a copy failed) / 2 (bad names).
+  The use: draw toolbox art in your own theme, then push it into DEFAULT.
+- **Ctrl+H on the inspector** hides / shows its outlines of the selected and hovered node (the
+  colours can be judged without the box over them; picking's outline still shows). Off the panel
+  Ctrl+H stays Hide Selection. Kept in the state file (`OUTLINE=`) and the panel menu.
 - **Hooks into DRAW** (each one line): `RENDER_gui_elements` + the GUI-only path of
   `SCREEN_render` (`THEMEED_regions_seen`), `TOOLTIP_update` (no tooltips under the inspector),
   `MOUSE_process_frame%` (inspector first),
