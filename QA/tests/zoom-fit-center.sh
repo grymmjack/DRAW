@@ -25,6 +25,11 @@ assert_no_crash
 dk_begin
 geo() {
     dk_scr
+    # the view is between the top / bottom dock rows (the Selection Bar's row
+    # included): ROWS full y1 y2 topH botH - DRAW fits the canvas there
+    read -r _ _ RY1 RY2 RTH RBH <<< "$(grep -m1 '^ROWS ' "$DK_DUMP")"
+    (( ${RTH:-0} > 0 && RY1 > DOCK_TOP )) && DOCK_TOP=$RY1
+    (( ${RBH:-0} > 0 && RY2 < DOCK_BOT )) && DOCK_BOT=$RY2
     read -r _ Z _ _ _ <<< "$(grep -m1 '^VIEW ' "$DK_DUMP")"
     read -r _ OX OY <<< "$(grep -m1 '^CVORG ' "$DK_DUMP")"
     ZW=$(( CW * Z / 100 )); ZH=$(( CH * Z / 100 ))
