@@ -59,6 +59,8 @@ sliders survive) and Remap to Palette (DITHER / STRENGTH). Remove Background is 
 picks colours off the image, so a replay of fixed values is not meaningful). Other dialogs
 outside these still open on play.
 History and Actions show a dock title strip (`DOCK_slot_titled%`) even as a lone tab.
+Then Canvas Resize (W / H; skips the input box when silent) and Stroke Selection (COLOR as
+FG / BG / TRANS so it follows the colours at play time, TYPE, WIDTH).
 Not yet: insert stop, a hotkey per action, Batch, tool strokes (phase 3).
 
 Design notes as planned:
@@ -86,6 +88,17 @@ Photoshop's Actions panel: **sets -> actions -> steps**.
 - Later: hotkey per action (bindings), command palette entries, Batch (a folder of files).
 
 ## 3. Canvas recording (time-lapse)
+
+**Phase 1 done 2026-11-22** (`TOOLS/CANVAS-REC`, `CREC_`; see the drRc section of
+`.claude/instructions/draw-fileformat.md`): frames on settled history states (changed rect of
+the flatten, deflated), the REC badge (click pause / resume, right-click the viewer), Edit >
+Record Canvas / Pause / Delete..., Settings > General > Canvas Recording (`CANVAS_RECORDING`,
+`CANVAS_RECORDING_MB` = 64), the drRc chunk (no .draw version change - an own chunk, like drAx),
+thinning by merging the oldest pairs, View > Canvas Recording... (play / scrub / speed, export
+APNG with sub-rect frames, PNG sequence, scale 1-8x). Actions 2710-2713. Save As (and a first save) asks whether to keep it
+in the file (`CREC_ask_keep`; No = this document saves without it). Not yet: GIF export (needs
+quantising), the capture rect from the history step
+instead of a full-canvas diff (fine to 1024px; a 4096px canvas compares 64 MB per step).
 
 Separate from macros. Every committed canvas change saves the changed rect of the composite;
 a viewer plays / scrubs it, export through the animation exporters (GIF / APNG / PNG sequence).

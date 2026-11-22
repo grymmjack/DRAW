@@ -142,6 +142,31 @@ stops before them: the clips play without their moves (drAw still holds the move
 Only sources an instance uses are written; nothing is written without a clip layer. `CLIP_read_chunk` (after `AB_read_drab` in `DRW_load_binary`)
 sets those layers back to CLIP and rebuilds them. Tests: `QA/tests/clip-layers.sh`, `clip-cues.sh`.
 
+### drRc Chunk (canvas recording / time-lapse, 2026-11-22)
+
+`TOOLS/CANVAS-REC` (`CREC_`). Every committed change - a new history state, so a step, an
+undo or a redo - becomes a frame once it settles (`CREC_tick`, after the render, no button
+held, 0.15 s): the rect of `LAYERS_flatten&` that differs from the frame before
+(`CREC_diff%`), deflated. Frame 1 is the whole picture; a canvas size change is a whole
+frame too, so replaying frames 1..N onto one image gives the picture after N (`CREC_step`).
+`CREC.last` always holds that replay of every frame (on open it is rebuilt), so a paused
+stretch becomes one frame on resume. Over `CANVAS_RECORDING_MB` the oldest half's frames
+merge in pairs (`CREC_thin`: the rect around both, as it looked after the second); frame 1
+and size changes stay. Written by `DRW_embed_chunk_in_png` when there are frames (an older
+DRAW skips the chunk; no .draw version change). Not deflated as a whole (the frames are):
+
+```
+version (2, CREC_CHUNK_VERSION = 1), frames (4), paused (2), thinned (4),
+then per frame: canvas w, h, rect x, y, w, h (4 each), name length (2) + name
+(START / UNDO / REDO / the history label), data length (4) + data
+(the rect's BGRA rows, _DEFLATE$)
+```
+
+A reader checks every rect against its canvas (and a new size must be a whole frame);
+damaged data opens the document without a recording. `CREC_reset` is in all four document
+paths beside `ANIM_reset` (gotcha 15). Test: `QA/tests/canvas-recording.sh` (dump line
+`CREC on paused frames bytes thinned pending badgeX1 badgeX2 barY1 barY2 last-name`).
+
 ### Binary Project Data
 
 | Section         | Fields | Version |

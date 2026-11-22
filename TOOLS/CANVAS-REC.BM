@@ -1,0 +1,695 @@
+''
+' DRAW - TOOLS/CANVAS-REC.BM
+' =============================================================================
+' Canvas recording (time-lapse). See CANVAS-REC.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Recording is wanted (the setting) and this document's is not paused.
+FUNCTION CREC_live% ()
+    CREC_live% = (CFG.CANVAS_RECORDING% <> 0 _ANDALSO CREC.paused = 0)
+END FUNCTION
+
+''
+' The size cap in bytes (at least 4 MB).
+FUNCTION CREC_cap& ()
+    DIM mb AS LONG
+    mb = CFG.CANVAS_RECORDING_MB%
+    IF mb < 4 THEN mb = 4
+    IF mb > 1024 THEN mb = 1024
+    CREC_cap& = mb * 1048576
+END FUNCTION
+
+''
+' Room for frame k in the frame arrays.
+SUB CREC_room (k AS LONG)
+    DIM c AS LONG
+    IF k <= CREC_ROOMS THEN EXIT SUB
+    c = CREC_ROOMS * 2: IF c < k THEN c = k
+    IF c < 64 THEN c = 64
+    REDIM _PRESERVE CREC_CW(1 TO c) AS LONG, CREC_CH(1 TO c) AS LONG
+    REDIM _PRESERVE CREC_FX(1 TO c) AS LONG, CREC_FY(1 TO c) AS LONG
+    REDIM _PRESERVE CREC_FW(1 TO c) AS LONG, CREC_FH(1 TO c) AS LONG
+    REDIM _PRESERVE CREC_FD(1 TO c) AS STRING, CREC_LB(1 TO c) AS STRING
+    CREC_ROOMS = c
+END SUB
+
+''
+' No frames (the arrays shrink back). The paused state is kept.
+SUB CREC_clear_frames ()
+    SAFE_FREEIMAGE CREC.last: CREC.last = 0
+    CREC.n = 0: CREC.bytes = 0: CREC.thinned = 0
+    CREC_ROOMS = 1
+    REDIM CREC_CW(1 TO 1) AS LONG, CREC_CH(1 TO 1) AS LONG
+    REDIM CREC_FX(1 TO 1) AS LONG, CREC_FY(1 TO 1) AS LONG
+    REDIM CREC_FW(1 TO 1) AS LONG, CREC_FH(1 TO 1) AS LONG
+    REDIM CREC_FD(1 TO 1) AS STRING, CREC_LB(1 TO 1) AS STRING
+    CREC.pending = TRUE: CREC.pendingT = TIMER(.001) ' the picture as it is now is the new frame 1
+    CREC.prevCur = HISTORY.current: CREC.prevCnt = HISTORY.count
+END SUB
+
+''
+' A new document (gotcha 15: Open / New / New at size all call this): no
+' recording, not paused; its first frame is the picture once it settles.
+SUB CREC_reset ()
+    CREC_clear_frames
+    CREC.paused = FALSE
+    CREC.omit = FALSE
+    CREC_SEEN = ""
+END SUB
+
+''
+' The history state, as HISTP_watch keys it (a step, an undo, a redo, a clear).
+FUNCTION CREC_sig$ ()
+    DIM c AS INTEGER
+    c = HISTORY.count: IF c < 1 THEN c = 1
+    IF c > HISTORY_MAX_RECORDS THEN c = HISTORY_MAX_RECORDS
+    CREC_sig$ = STR$(HISTORY.count) + STR$(HISTORY.current) + STR$(UNDO_SEQ) + STR$(HISTORY_RECORDS(1).sequence) + HISTORY_RECORDS(c).label + STR$(SCRN.canvasW&) + STR$(SCRN.canvasH&)
+END FUNCTION
+
+''
+' The name of the step that made the state now (UNDO / REDO for those).
+FUNCTION CREC_label$ ()
+    DIM c AS INTEGER, lb AS STRING
+    IF CREC.n = 0 THEN CREC_label$ = "START": EXIT FUNCTION
+    IF HISTORY.count = CREC.prevCnt _ANDALSO HISTORY.current < CREC.prevCur THEN CREC_label$ = "UNDO": EXIT FUNCTION
+    IF HISTORY.count = CREC.prevCnt _ANDALSO HISTORY.current > CREC.prevCur THEN CREC_label$ = "REDO": EXIT FUNCTION
+    c = HISTORY.current
+    IF c >= 1 _ANDALSO c <= HISTORY_MAX_RECORDS THEN
+        lb = _TRIM$(HISTORY_RECORDS(c).label)
+        IF LEN(lb) = 0 THEN lb = HISTP_kind_name$(HISTORY_RECORDS(c).kind)
+    END IF
+    CREC_label$ = UCASE$(lb)
+END FUNCTION
+
+''
+' Each frame, after the render (DRAW.BAS): a new history state is captured once
+' it has settled and no button is held - off the frame that made it.
+SUB CREC_tick ()
+    DIM k AS STRING, t AS DOUBLE
+    IF CFG.CANVAS_RECORDING% = 0 THEN EXIT SUB
+    IF HISTORY.recording THEN EXIT SUB ' (a record half made)
+    k = CREC_sig$
+    t = TIMER(.001)
+    IF k <> CREC_SEEN THEN
+        CREC_SEEN = k
+        CREC.pending = TRUE: CREC.pendingT = t
+    END IF
+    IF CREC.pending = 0 _ORELSE CREC.paused THEN EXIT SUB
+    IF MOUSE.B1% _ORELSE MOUSE.B2% _ORELSE MOUSE.B3% THEN EXIT SUB
+    IF t < CREC.pendingT THEN CREC.pendingT = t ' (midnight)
+    IF t - CREC.pendingT < CREC_SETTLE THEN EXIT SUB
+    CREC_capture
+END SUB
+
+''
+' The w x h rect at (x, y) of img as BGRA rows.
+FUNCTION CREC_rect_raw$ (img AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG)
+    DIM m AS _MEM, raw AS STRING, row AS STRING, j AS LONG, iw AS LONG
+    iw = _WIDTH(img)
+    raw = SPACE$(w * h * 4): row = SPACE$(w * 4)
+    m = _MEMIMAGE(img)
+    FOR j = 0 TO h - 1
+        _MEMGET m, m.OFFSET + ((y + j) * iw + x) * 4, row
+        MID$(raw, j * w * 4 + 1, w * 4) = row
+    NEXT j
+    _MEMFREE m
+    CREC_rect_raw$ = raw
+END FUNCTION
+
+''
+' The rect of pixels that differ between two images of one size, FALSE when none.
+FUNCTION CREC_diff% (a AS LONG, b AS LONG, x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG)
+    DIM ma AS _MEM, mb AS _MEM, w AS LONG, h AS LONG, y AS LONG, x AS LONG
+    DIM ra AS STRING, rb AS STRING, pa AS _UNSIGNED LONG, pb AS _UNSIGNED LONG, po AS _OFFSET
+    w = _WIDTH(a): h = _HEIGHT(a)
+    x1 = w: y1 = -1: x2 = -1: y2 = -1
+    ra = SPACE$(w * 4): rb = SPACE$(w * 4)
+    ma = _MEMIMAGE(a): mb = _MEMIMAGE(b)
+    FOR y = 0 TO h - 1
+        _MEMGET ma, ma.OFFSET + y * w * 4, ra
+        _MEMGET mb, mb.OFFSET + y * w * 4, rb
+        IF ra <> rb THEN
+            IF y1 < 0 THEN y1 = y
+            y2 = y
+            x = 0
+            DO WHILE x < x1 ' the first difference, left of the rect so far
+                po = y * w * 4 + x * 4
+                _MEMGET ma, ma.OFFSET + po, pa
+                _MEMGET mb, mb.OFFSET + po, pb
+                IF pa <> pb THEN x1 = x: EXIT DO
+                x = x + 1
+            LOOP
+            x = w - 1
+            DO WHILE x > x2 ' the last, right of it
+                po = y * w * 4 + x * 4
+                _MEMGET ma, ma.OFFSET + po, pa
+                _MEMGET mb, mb.OFFSET + po, pb
+                IF pa <> pb THEN x2 = x: EXIT DO
+                x = x - 1
+            LOOP
+        END IF
+    NEXT y
+    _MEMFREE ma: _MEMFREE mb
+    IF x2 < x1 THEN x2 = x1 ' (a row whose only change sat left of x1 already)
+    CREC_diff% = (y1 >= 0)
+END FUNCTION
+
+''
+' Add a frame: the rect of the picture now that changed since the last frame
+' (all of it for frame 1 or a new canvas size). None when nothing changed.
+SUB CREC_capture ()
+    DIM flat AS LONG, cw AS LONG, ch AS LONG, x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, k AS LONG
+    CREC.pending = FALSE
+    flat = LAYERS_flatten&
+    IF flat >= -1 THEN EXIT SUB
+    cw = _WIDTH(flat): ch = _HEIGHT(flat)
+    IF CREC.n = 0 _ORELSE CREC.last >= -1 THEN
+        x1 = 0: y1 = 0: x2 = cw - 1: y2 = ch - 1
+    ELSEIF _WIDTH(CREC.last) <> cw _ORELSE _HEIGHT(CREC.last) <> ch THEN
+        x1 = 0: y1 = 0: x2 = cw - 1: y2 = ch - 1
+    ELSEIF CREC_diff%(CREC.last, flat, x1, y1, x2, y2) = 0 THEN
+        SAFE_FREEIMAGE flat
+        CREC.prevCur = HISTORY.current: CREC.prevCnt = HISTORY.count
+        EXIT SUB
+    END IF
+    k = CREC.n + 1
+    CREC_room k
+    CREC_CW(k) = cw: CREC_CH(k) = ch
+    CREC_FX(k) = x1: CREC_FY(k) = y1: CREC_FW(k) = x2 - x1 + 1: CREC_FH(k) = y2 - y1 + 1
+    CREC_FD(k) = _DEFLATE$(CREC_rect_raw$(flat, x1, y1, CREC_FW(k), CREC_FH(k)))
+    CREC_LB(k) = CREC_label$
+    CREC.n = k
+    CREC.bytes = CREC.bytes + LEN(CREC_FD(k))
+    SAFE_FREEIMAGE CREC.last
+    CREC.last = flat ' the picture after the last frame
+    CREC.prevCur = HISTORY.current: CREC.prevCnt = HISTORY.count
+    IF CREC.bytes > CREC_cap& _ORELSE CREC.n > CREC_MAX_FRAMES THEN CREC_thin
+    IF LEN(DOCK_DUMP_PATH) THEN GUI_NEEDS_REDRAW% = TRUE ' (QA: the dump line is written with the layout)
+END SUB
+
+''
+' Frame f onto img (img is that frame's canvas size).
+SUB CREC_apply (img AS LONG, f AS LONG)
+    DIM m AS _MEM, raw AS STRING, row AS STRING, j AS LONG, w AS LONG, iw AS LONG
+    w = CREC_FW(f)
+    raw = _INFLATE$(CREC_FD(f), w * CREC_FH(f) * 4)
+    IF LEN(raw) <> w * CREC_FH(f) * 4 THEN EXIT SUB ' (damaged data: the frame is skipped)
+    iw = _WIDTH(img)
+    row = SPACE$(w * 4)
+    m = _MEMIMAGE(img)
+    FOR j = 0 TO CREC_FH(f) - 1
+        row = MID$(raw, j * w * 4 + 1, w * 4)
+        _MEMPUT m, m.OFFSET + ((CREC_FY(f) + j) * iw + CREC_FX(f)) * 4, row
+    NEXT j
+    _MEMFREE m
+END SUB
+
+''
+' img after frame f, from img after frame f - 1: a new image when f has another
+' canvas size (the old one is freed). img = 0 starts one.
+SUB CREC_step (img AS LONG, f AS LONG)
+    DIM od AS LONG
+    IF img >= -1 _ORELSE _WIDTH(img) <> CREC_CW(f) _ORELSE _HEIGHT(img) <> CREC_CH(f) THEN
+        SAFE_FREEIMAGE img
+        img = _NEWIMAGE(CREC_CW(f), CREC_CH(f), 32)
+        od = _DEST: _DEST img: CLS , _RGBA32(0, 0, 0, 0): _DEST od
+    END IF
+    CREC_apply img, f
+END SUB
+
+''
+' Over the size cap (or the frame count): merge the oldest half's frames in
+' pairs - a pair becomes one frame, the rect around both, as it looked after
+' the second. Frame 1 and a canvas size change stay. Runs a few passes.
+SUB CREC_thin ()
+    DIM pass AS INTEGER, i AS LONG, j AS LONG, half AS LONG, img AS LONG, merged AS LONG
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, nb AS LONG
+    FOR pass = 1 TO 6
+        IF CREC.bytes <= CREC_cap& * 0.9 _ANDALSO CREC.n <= CREC_MAX_FRAMES - 100 THEN EXIT FOR
+        IF CREC.n < 4 THEN EXIT FOR
+        half = CREC.n \ 2
+        img = 0: merged = 0
+        CREC_step img, 1
+        j = 1: i = 2
+        DO WHILE i <= CREC.n
+            IF i < half _ANDALSO CREC_CW(i) = CREC_CW(i + 1) _ANDALSO CREC_CH(i) = CREC_CH(i + 1) _ANDALSO CREC_CW(i) = CREC_CW(i - 1) _ANDALSO CREC_CH(i) = CREC_CH(i - 1) THEN
+                CREC_step img, i
+                CREC_step img, i + 1
+                x1 = _MIN(CREC_FX(i), CREC_FX(i + 1)): y1 = _MIN(CREC_FY(i), CREC_FY(i + 1))
+                x2 = _MAX(CREC_FX(i) + CREC_FW(i), CREC_FX(i + 1) + CREC_FW(i + 1)) - 1
+                y2 = _MAX(CREC_FY(i) + CREC_FH(i), CREC_FY(i + 1) + CREC_FH(i + 1)) - 1
+                j = j + 1
+                CREC_CW(j) = CREC_CW(i + 1): CREC_CH(j) = CREC_CH(i + 1)
+                CREC_FX(j) = x1: CREC_FY(j) = y1: CREC_FW(j) = x2 - x1 + 1: CREC_FH(j) = y2 - y1 + 1
+                CREC_FD(j) = _DEFLATE$(CREC_rect_raw$(img, x1, y1, CREC_FW(j), CREC_FH(j)))
+                CREC_LB(j) = CREC_LB(i + 1)
+                merged = merged + 1
+                i = i + 2
+            ELSE
+                CREC_step img, i
+                j = j + 1
+                IF j <> i THEN
+                    CREC_CW(j) = CREC_CW(i): CREC_CH(j) = CREC_CH(i)
+                    CREC_FX(j) = CREC_FX(i): CREC_FY(j) = CREC_FY(i): CREC_FW(j) = CREC_FW(i): CREC_FH(j) = CREC_FH(i)
+                    CREC_FD(j) = CREC_FD(i): CREC_LB(j) = CREC_LB(i)
+                END IF
+                i = i + 1
+            END IF
+        LOOP
+        SAFE_FREEIMAGE img
+        FOR i = j + 1 TO CREC.n: CREC_FD(i) = "": CREC_LB(i) = "": NEXT i
+        CREC.n = j
+        CREC.thinned = CREC.thinned + merged
+        nb = 0
+        FOR i = 1 TO CREC.n: nb = nb + LEN(CREC_FD(i)): NEXT i
+        CREC.bytes = nb
+        _LOGINFO "CREC_thin: merged" + STR$(merged) + " frame pairs -" + STR$(CREC.n) + " frames," + STR$(CREC.bytes \ 1024) + " KB"
+        IF merged = 0 THEN EXIT FOR
+    NEXT pass
+END SUB
+
+' -----------------------------------------------------------------------------
+' The .draw chunk "drRc"
+' -----------------------------------------------------------------------------
+
+''
+' The recording as chunk data ("" = none, or left out of this save):
+' version (2), frames (4), paused (2), thinned (4), then per frame
+' canvas w, h, rect x, y, w, h (4 each), name length (2) + name,
+' data length (4) + data (the rect's deflated BGRA rows).
+FUNCTION CREC_chunk$ ()
+    DIM s AS STRING, f AS LONG, total AS LONG, p AS LONG, piece AS STRING
+    IF CREC.n < 1 _ORELSE CREC.omit THEN EXIT FUNCTION
+    total = 12
+    FOR f = 1 TO CREC.n: total = total + 30 + LEN(CREC_LB(f)) + LEN(CREC_FD(f)): NEXT f
+    s = SPACE$(total)
+    MID$(s, 1, 12) = MKI$(CREC_CHUNK_VERSION) + MKL$(CREC.n) + MKI$(CREC.paused) + MKL$(CREC.thinned)
+    p = 13
+    FOR f = 1 TO CREC.n
+        piece = MKL$(CREC_CW(f)) + MKL$(CREC_CH(f)) + MKL$(CREC_FX(f)) + MKL$(CREC_FY(f)) + MKL$(CREC_FW(f)) + MKL$(CREC_FH(f)) + MKI$(LEN(CREC_LB(f))) + CREC_LB(f) + MKL$(LEN(CREC_FD(f)))
+        MID$(s, p, LEN(piece)) = piece: p = p + LEN(piece)
+        MID$(s, p, LEN(CREC_FD(f))) = CREC_FD(f): p = p + LEN(CREC_FD(f))
+    NEXT f
+    CREC_chunk$ = s
+END FUNCTION
+
+''
+' Read a saved recording (after the document loaded, so after CREC_reset).
+' Damaged data opens the document with no recording.
+SUB CREC_read_chunk (s AS STRING)
+    DIM n AS LONG, f AS LONG, p AS LONG, ln AS LONG, ok AS INTEGER, img AS LONG
+    IF LEN(s) < 12 THEN EXIT SUB
+    IF CVI(MID$(s, 1, 2)) < 1 THEN EXIT SUB
+    n = CVL(MID$(s, 3, 4))
+    IF n < 1 _ORELSE n > CREC_MAX_FRAMES + 1000 THEN EXIT SUB
+    CREC_clear_frames
+    CREC_room n
+    p = 13: ok = TRUE
+    FOR f = 1 TO n
+        IF p + 26 > LEN(s) THEN ok = FALSE: EXIT FOR
+        CREC_CW(f) = CVL(MID$(s, p, 4)): CREC_CH(f) = CVL(MID$(s, p + 4, 4))
+        CREC_FX(f) = CVL(MID$(s, p + 8, 4)): CREC_FY(f) = CVL(MID$(s, p + 12, 4))
+        CREC_FW(f) = CVL(MID$(s, p + 16, 4)): CREC_FH(f) = CVL(MID$(s, p + 20, 4))
+        ln = CVI(MID$(s, p + 24, 2)): p = p + 26
+        IF ln < 0 _ORELSE p + ln + 4 > LEN(s) + 1 THEN ok = FALSE: EXIT FOR
+        CREC_LB(f) = MID$(s, p, ln): p = p + ln
+        ln = CVL(MID$(s, p, 4)): p = p + 4
+        IF ln < 0 _ORELSE p + ln > LEN(s) + 1 THEN ok = FALSE: EXIT FOR
+        CREC_FD(f) = MID$(s, p, ln): p = p + ln
+        IF CREC_CW(f) < 1 _ORELSE CREC_CH(f) < 1 _ORELSE CREC_FW(f) < 1 _ORELSE CREC_FH(f) < 1 THEN ok = FALSE: EXIT FOR
+        IF CREC_FX(f) < 0 _ORELSE CREC_FY(f) < 0 _ORELSE CREC_FX(f) + CREC_FW(f) > CREC_CW(f) _ORELSE CREC_FY(f) + CREC_FH(f) > CREC_CH(f) THEN ok = FALSE: EXIT FOR
+        IF f = 1 _ORELSE CREC_CW(f) <> CREC_CW(f - 1) _ORELSE CREC_CH(f) <> CREC_CH(f - 1) THEN
+            IF CREC_FX(f) <> 0 _ORELSE CREC_FY(f) <> 0 _ORELSE CREC_FW(f) <> CREC_CW(f) _ORELSE CREC_FH(f) <> CREC_CH(f) THEN ok = FALSE: EXIT FOR ' (a new size is a whole frame)
+        END IF
+        CREC.bytes = CREC.bytes + LEN(CREC_FD(f))
+        CREC.n = f
+    NEXT f
+    IF ok = 0 THEN
+        _LOGWARN "CREC_read_chunk: damaged recording at frame" + STR$(f) + " - opened without it"
+        CREC_clear_frames
+        EXIT SUB
+    END IF
+    CREC.paused = CVI(MID$(s, 7, 2)) <> 0
+    CREC.thinned = CVL(MID$(s, 9, 4))
+    img = 0
+    FOR f = 1 TO CREC.n: CREC_step img, f: NEXT f
+    CREC.last = img
+    CREC.prevCur = HISTORY.current: CREC.prevCnt = HISTORY.count
+    _LOGINFO "CREC_read_chunk:" + STR$(CREC.n) + " frames," + STR$(CREC.bytes \ 1024) + " KB" + _IIF(CREC.paused, " (paused)", "")
+END SUB
+
+' -----------------------------------------------------------------------------
+' Commands, status bar badge
+' -----------------------------------------------------------------------------
+
+''
+' The badge text: REC / REC PAUSED / REC OFF.
+FUNCTION CREC_badge$ ()
+    IF CFG.CANVAS_RECORDING% = 0 THEN
+        CREC_badge$ = "REC OFF"
+    ELSEIF CREC.paused THEN
+        CREC_badge$ = "REC PAUSED"
+    ELSE
+        CREC_badge$ = "REC"
+    END IF
+END FUNCTION
+
+''
+' Draw the badge right-aligned before xRight (the status bar, its font and _DEST set).
+' Sets CREC_BADGE_X1 / X2 for the click.
+SUB CREC_badge_draw (xRight AS INTEGER, py AS INTEGER, ph AS INTEGER, fg AS _UNSIGNED LONG)
+    DIM t AS STRING, x AS INTEGER, cy AS INTEGER, dot AS _UNSIGNED LONG
+    t = CREC_badge$
+    x = xRight - _PRINTWIDTH(t) - 8
+    CREC_BADGE_X1 = x - 1: CREC_BADGE_X2 = xRight
+    cy = py + ph \ 2 - 1
+    IF CREC_live% THEN dot = _RGB32(230, 50, 50) ELSE dot = _RGB32(120, 120, 120)
+    CIRCLE (x + 2, cy), 2, dot: PAINT (x + 2, cy), dot, dot
+    COLOR fg, _RGBA32(0, 0, 0, 0)
+    _UPRINTSTRING (x + 7, py), t
+END SUB
+
+''
+' REC ON / OFF (the setting), pause / resume, view, delete (CREC_ACT_*).
+SUB CREC_command (act AS INTEGER)
+    SELECT CASE act
+        CASE CREC_ACT_PAUSE
+            IF CFG.CANVAS_RECORDING% = 0 THEN STATUS_flash "Canvas recording is off (Settings > General, or View > Canvas Recording On / Off)": EXIT SUB
+            CREC.paused = _NEGATE CREC.paused
+            IF CREC.paused = 0 THEN CREC.pending = TRUE: CREC.pendingT = TIMER(.001)
+            STATUS_flash _IIF(CREC.paused, "Canvas recording paused", "Canvas recording resumed")
+        CASE CREC_ACT_TOGGLE
+            CFG.CANVAS_RECORDING% = _NEGATE CFG.CANVAS_RECORDING%
+            IF CFG.CANVAS_RECORDING% THEN CREC.pending = TRUE: CREC.pendingT = TIMER(.001)
+            CONFIG_save
+            STATUS_flash _IIF(CFG.CANVAS_RECORDING%, "Canvas recording on", "Canvas recording off - nothing more is recorded")
+        CASE CREC_ACT_DELETE
+            IF CREC.n < 1 THEN STATUS_flash "This document has no recording": EXIT SUB
+            IF DRAW_confirm%("Delete Recording", "Delete this document's canvas recording (" + _TRIM$(STR$(CREC.n)) + " frames)? It cannot be undone.") THEN
+                CREC_clear_frames
+                IF CFG.CANVAS_RECORDING% = 0 THEN CREC.pending = FALSE
+                STATUS_flash "Canvas recording deleted"
+            END IF
+        CASE CREC_ACT_VIEW
+            IF CREC.pending _ANDALSO CREC_live% THEN CREC_capture ' (a change still settling is in)
+            IF CREC.n < 1 THEN STATUS_flash _IIF(CFG.CANVAS_RECORDING%, "Nothing recorded yet - draw something", "Canvas recording is off"): EXIT SUB
+            CREC_view_dialog
+    END SELECT
+    STATUS_NEEDS_REDRAW% = TRUE: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Save As: keep the recording in the new file, or leave it out (and out of
+' later saves of this document, until the next Save As keeps it). Asked only
+' when there is something recorded past the start.
+SUB CREC_ask_keep ()
+    IF CREC.n < 2 THEN EXIT SUB
+    CREC.omit = _NEGATE DRAW_confirm%("Canvas Recording", "Keep this document's canvas recording (" + _TRIM$(STR$(CREC.n)) + " frames) in the file? No saves it without the recording.")
+END SUB
+
+''
+' QA dump line: CREC on paused frames bytes thinned pending badgeX1 badgeX2 barY1 barY2 last-name.
+FUNCTION CREC_dump$ ()
+    DIM d AS STRING
+    d = "CREC " + _TRIM$(STR$(CFG.CANVAS_RECORDING%)) + " " + _TRIM$(STR$(CREC.paused)) + " " + _TRIM$(STR$(CREC.n)) + " " + _TRIM$(STR$(CREC.bytes)) + " " + _TRIM$(STR$(CREC.thinned)) + " " + _TRIM$(STR$(CREC.pending))
+    d = d + " " + _TRIM$(STR$(CREC_BADGE_X1)) + " " + _TRIM$(STR$(CREC_BADGE_X2)) + " " + _TRIM$(STR$(SCRN.h& - THEME.STATUS_height%)) + " " + _TRIM$(STR$(SCRN.h& - 1))
+    IF CREC.n > 0 THEN d = d + " " + CREC_LB(CREC.n) ELSE d = d + " -"
+    CREC_dump$ = d
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' Export
+' -----------------------------------------------------------------------------
+
+''
+' img scaled sc x, nearest (a new image; sc = 1 copies).
+FUNCTION CREC_scaled& (img AS LONG, sc AS INTEGER)
+    DIM r AS LONG, od AS LONG
+    r = _NEWIMAGE(_WIDTH(img) * sc, _HEIGHT(img) * sc, 32)
+    od = _DEST: _DEST r: CLS , _RGBA32(0, 0, 0, 0): _DEST od
+    _DONTBLEND r
+    _PUTIMAGE (0, 0)-(_WIDTH(r) - 1, _HEIGHT(r) - 1), img, r
+    _BLEND r
+    CREC_scaled& = r
+END FUNCTION
+
+''
+' The recording as an animated PNG: one APNG frame per frame (its changed rect,
+' replacing what was there), fps frames a second, the last held 2 s, played once.
+' Scaled sc x. TRUE on success, else CYCX_LAST_ERROR$.
+FUNCTION CREC_export_apng% (path AS STRING, fps AS INTEGER, sc AS INTEGER)
+    DIM f AS LONG, mw AS LONG, mh AS LONG, sq AS LONG, ff AS INTEGER, img AS LONG, sImg AS LONG, full AS LONG
+    DIM fc AS STRING, z AS STRING, piece AS STRING, x AS LONG, y AS LONG, od AS LONG, m AS _MEM, raw AS STRING, row AS STRING, j AS LONG
+    CREC_export_apng% = FALSE
+    CYCX_LAST_ERROR$ = ""
+    IF CREC.n < 1 THEN CYCX_LAST_ERROR$ = "nothing is recorded": EXIT FUNCTION
+    FOR f = 1 TO CREC.n: mw = _MAX(mw, CREC_CW(f)): mh = _MAX(mh, CREC_CH(f)): NEXT f
+    IF _FILEEXISTS(path) THEN KILL path
+    ff = FREEFILE
+    OPEN path FOR BINARY AS #ff
+    piece = CHR$(137) + "PNG" + CHR$(13) + CHR$(10) + CHR$(26) + CHR$(10)
+    piece = piece + PNG_make_chunk$("IHDR", PNG_uint32_be$(mw * sc) + PNG_uint32_be$(mh * sc) + CHR$(8) + CHR$(6) + CHR$(0) + CHR$(0) + CHR$(0))
+    piece = piece + PNG_make_chunk$("acTL", PNG_uint32_be$(CREC.n) + PNG_uint32_be$(1))
+    PUT #ff, , piece
+    FOR f = 1 TO CREC.n
+        IF f = 1 _ORELSE CREC_CW(f) <> CREC_CW(f - 1) _ORELSE CREC_CH(f) <> CREC_CH(f - 1) THEN
+            ' a whole frame: the APNG canvas (the largest size), this one at the top left
+            full = _NEWIMAGE(mw, mh, 32)
+            od = _DEST: _DEST full: CLS , _RGBA32(0, 0, 0, 0): _DEST od
+            img = full: x = 0: y = 0
+        ELSE
+            img = _NEWIMAGE(CREC_FW(f), CREC_FH(f), 32): full = 0
+            x = CREC_FX(f): y = CREC_FY(f)
+        END IF
+        raw = _INFLATE$(CREC_FD(f), CREC_FW(f) * CREC_FH(f) * 4)
+        IF LEN(raw) = CREC_FW(f) * CREC_FH(f) * 4 THEN
+            m = _MEMIMAGE(img): row = SPACE$(CREC_FW(f) * 4)
+            FOR j = 0 TO CREC_FH(f) - 1
+                row = MID$(raw, j * CREC_FW(f) * 4 + 1, CREC_FW(f) * 4)
+                _MEMPUT m, m.OFFSET + j * _WIDTH(img) * 4, row
+            NEXT j
+            _MEMFREE m
+        END IF
+        IF sc > 1 THEN sImg = CREC_scaled&(img, sc): SAFE_FREEIMAGE img: img = sImg
+        z = ANIM_png_zdata$(img)
+        ' frame control: rect, delay 1 / fps (the last: 2 s), dispose none, blend source
+        fc = PNG_uint32_be$(sq) + PNG_uint32_be$(_WIDTH(img)) + PNG_uint32_be$(_HEIGHT(img)) + PNG_uint32_be$(x * sc) + PNG_uint32_be$(y * sc)
+        IF f = CREC.n THEN fc = fc + ANIM_be16$(2) + ANIM_be16$(1) ELSE fc = fc + ANIM_be16$(1) + ANIM_be16$(fps)
+        fc = fc + CHR$(0) + CHR$(0)
+        piece = PNG_make_chunk$("fcTL", fc): sq = sq + 1
+        IF f = 1 THEN
+            piece = piece + PNG_make_chunk$("IDAT", z)
+        ELSE
+            piece = piece + PNG_make_chunk$("fdAT", PNG_uint32_be$(sq) + z): sq = sq + 1
+        END IF
+        PUT #ff, , piece
+        SAFE_FREEIMAGE img
+    NEXT f
+    piece = PNG_make_chunk$("IEND", "")
+    PUT #ff, , piece
+    CLOSE #ff
+    IF _FILEEXISTS(path) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + path: EXIT FUNCTION
+    _LOGINFO "CREC_export_apng: " + path + " -" + STR$(CREC.n) + " frames at" + STR$(fps) + " fps"
+    CREC_export_apng% = TRUE
+END FUNCTION
+
+''
+' The recording as name_0001.png ... (every frame whole), scaled sc x.
+FUNCTION CREC_export_pngs% (path AS STRING, sc AS INTEGER)
+    DIM f AS LONG, img AS LONG, sImg AS LONG, baseP AS STRING, nm AS STRING, digits AS INTEGER
+    CREC_export_pngs% = FALSE
+    CYCX_LAST_ERROR$ = ""
+    IF CREC.n < 1 THEN CYCX_LAST_ERROR$ = "nothing is recorded": EXIT FUNCTION
+    baseP = ANIM_path_base$(path)
+    digits = _MAX(4, LEN(_TRIM$(STR$(CREC.n))))
+    img = 0
+    FOR f = 1 TO CREC.n
+        CREC_step img, f
+        nm = baseP + "_" + RIGHT$(STRING$(digits, "0") + _TRIM$(STR$(f)), digits) + ".png"
+        IF ANIM_is_document%(nm) THEN CYCX_LAST_ERROR$ = MID$(nm, _INSTRREV(nm, "/") + 1) + " is the open document": EXIT FOR
+        IF sc > 1 THEN
+            sImg = CREC_scaled&(img, sc)
+            IF ANIM_save_png%(sImg, nm) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + nm
+            SAFE_FREEIMAGE sImg
+        ELSE
+            IF ANIM_save_png%(img, nm) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + nm
+        END IF
+        IF CYCX_LAST_ERROR$ <> "" THEN EXIT FOR
+    NEXT f
+    SAFE_FREEIMAGE img
+    IF CYCX_LAST_ERROR$ <> "" THEN EXIT FUNCTION
+    _LOGINFO "CREC_export_pngs: " + baseP + "_*.png -" + STR$(CREC.n) + " files"
+    CREC_export_pngs% = TRUE
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' The viewer (View > Canvas Recording...)
+' -----------------------------------------------------------------------------
+
+''
+' The viewer's picture after frame target: forward from where it is, or from
+' the nearest snapshot before (one is kept every snapK frames as it passes).
+SUB CREC_seek (img AS LONG, cur AS LONG, target AS LONG, snapImg() AS LONG, snapK AS LONG)
+    DIM s AS LONG, f AS LONG
+    IF target < 1 THEN target = 1
+    IF target > CREC.n THEN target = CREC.n
+    IF target = cur _ANDALSO img < -1 THEN EXIT SUB
+    IF target < cur _ORELSE img >= -1 THEN
+        s = target \ snapK
+        DO WHILE s > 0
+            IF snapImg(s) < -1 THEN EXIT DO
+            s = s - 1
+        LOOP
+        SAFE_FREEIMAGE img
+        IF s > 0 THEN
+            img = _COPYIMAGE(snapImg(s), 32): cur = s * snapK
+        ELSE
+            img = 0: cur = 0
+        END IF
+    END IF
+    FOR f = cur + 1 TO target
+        CREC_step img, f
+        IF f MOD snapK = 0 _ANDALSO f \ snapK <= UBOUND(snapImg) THEN
+            IF snapImg(f \ snapK) >= -1 THEN snapImg(f \ snapK) = _COPYIMAGE(img, 32)
+        END IF
+    NEXT f
+    cur = target
+END SUB
+
+''
+' Play / scrub / export the recording (modal).
+SUB CREC_view_dialog ()
+    DIM ctx AS DIALOG_CTX, dw AS INTEGER, pw AS INTEGER, ph AS INTEGER, top AS INTEGER, dh AS INTEGER
+    DIM img AS LONG, cur AS LONG, fi AS INTEGER, k AS LONG, playing AS INTEGER, lastT AS DOUBLE, acc AS DOUBLE, t AS DOUBLE
+    DIM fpsIdx AS INTEGER, fps AS INTEGER, sc AS INTEGER, snapK AS LONG, nSnap AS LONG, per AS DOUBLE
+    DIM fpsList(1 TO 6) AS INTEGER, i AS LONG, s AS SINGLE, iw AS INTEGER, ih AS INTEGER, px AS INTEGER, py AS INTEGER
+    DIM sliderY AS INTEGER, btnY AS INTEGER, btn2Y AS INTEGER, bw AS INTEGER, info AS STRING, fpath AS STRING, ok AS INTEGER
+    DIM cx AS INTEGER, cy AS INTEGER, ckA AS _UNSIGNED LONG, ckB AS _UNSIGNED LONG
+    fpsList(1) = 5: fpsList(2) = 10: fpsList(3) = 20: fpsList(4) = 40: fpsList(5) = 80: fpsList(6) = 160
+    fpsIdx = 2: sc = 1
+
+    ' snapshots for scrubbing back: one every snapK frames, ~96 MB of them at most
+    per = CREC_CW(CREC.n) * CREC_CH(CREC.n) * 4#
+    nSnap = 96# * 1048576# / per: IF nSnap < 4 THEN nSnap = 4
+    IF nSnap > 512 THEN nSnap = 512
+    snapK = -INT(-CREC.n / nSnap): IF snapK < 8 THEN snapK = 8
+    DIM snapImg(1 TO CREC.n \ snapK + 1) AS LONG
+
+    dw = 400: IF dw > SCRN.w& - 16 THEN dw = SCRN.w& - 16
+    pw = dw - 16
+    ph = 240: IF ph > SCRN.h& - 150 THEN ph = SCRN.h& - 150
+    IF ph < 60 THEN ph = 60
+    top = THEME.DIALOG_title_height% + 6
+    sliderY = top + ph + 26
+    btnY = sliderY + 22
+    btn2Y = btnY + 24
+    dh = btn2Y + 30
+    DIALOG_init ctx, dw, dh
+    bw = (dw - 16 - 4 * 4) \ 5
+
+    fi = 1: cur = 0: img = 0
+    CREC_seek img, cur, 1, snapImg(), snapK
+    lastT = TIMER(.001)
+    DO
+        DIALOG_poll_mouse ctx
+        k = _KEYHIT
+        SELECT CASE k
+            CASE 27: ctx.done = TRUE
+            CASE 32: playing = _NEGATE playing: IF playing _ANDALSO fi >= CREC.n THEN fi = 1
+            CASE 19200: playing = FALSE: fi = fi - 1 ' Left
+            CASE 19712: playing = FALSE: fi = fi + 1 ' Right
+            CASE 18176: playing = FALSE: fi = 1 ' Home
+            CASE 20224: playing = FALSE: fi = CREC.n ' End
+        END SELECT
+
+        fi = DIALOG_slider_drag%(ctx, 8, sliderY, pw, 14, fi, 1, CREC.n)
+        fi = DIALOG_slider_wheel%(ctx, 8, sliderY, pw, 14, fi, 1, CREC.n)
+        IF ctx.mb1 _ANDALSO ctx.my >= sliderY _ANDALSO ctx.my <= sliderY + 14 THEN playing = FALSE
+
+        IF DIALOG_hit%(ctx, 8, btnY, bw, 20) THEN playing = FALSE: fi = 1
+        IF DIALOG_hit%(ctx, 8 + (bw + 4), btnY, bw, 20) THEN
+            playing = _NEGATE playing
+            IF playing _ANDALSO fi >= CREC.n THEN fi = 1
+        END IF
+        IF DIALOG_hit%(ctx, 8 + (bw + 4) * 2, btnY, bw, 20) THEN playing = FALSE: fi = CREC.n
+        IF DIALOG_hit%(ctx, 8 + (bw + 4) * 3, btnY, bw, 20) THEN fpsIdx = fpsIdx MOD 6 + 1
+        IF DIALOG_hit%(ctx, 8 + (bw + 4) * 4, btnY, bw, 20) THEN sc = sc * 2: IF sc > 8 THEN sc = 1
+        fps = fpsList(fpsIdx)
+
+        IF DIALOG_hit%(ctx, 8, btn2Y, bw * 2 + 4, 20) THEN
+            playing = FALSE
+            fpath = CYCX_save_dialog$("Export Recording as Animated PNG (APNG)", "APNG (*.png;*.apng)|*.png;*.apng", ".png")
+            IF fpath <> "" THEN
+                ok = CREC_export_apng%(fpath, fps, sc)
+                CYCX_report ok, "recording (" + _TRIM$(STR$(CREC.n)) + " frames, " + _TRIM$(STR$(fps)) + " fps)", fpath
+            END IF
+            lastT = TIMER(.001)
+        END IF
+        IF DIALOG_hit%(ctx, 8 + (bw + 4) * 2, btn2Y, bw * 2 + 4, 20) THEN
+            playing = FALSE
+            fpath = CYCX_save_dialog$("Export Recording as PNG Sequence (name_0001.png ...)", "PNG (*.png)|*.png", ".png")
+            IF fpath <> "" THEN
+                ok = CREC_export_pngs%(fpath, sc)
+                CYCX_report ok, "recording PNG sequence (" + _TRIM$(STR$(CREC.n)) + " files)", fpath
+            END IF
+            lastT = TIMER(.001)
+        END IF
+        IF DIALOG_hit%(ctx, 8 + (bw + 4) * 4, btn2Y, bw, 20) THEN ctx.done = TRUE
+
+        ' playback: fps frames a second; it stops at the last
+        t = TIMER(.001): IF t < lastT THEN lastT = t
+        IF playing THEN
+            acc = acc + (t - lastT) * fps
+            IF acc >= 1 THEN fi = fi + INT(acc): acc = acc - INT(acc)
+            IF fi >= CREC.n THEN fi = CREC.n: playing = FALSE
+        ELSE
+            acc = 0
+        END IF
+        lastT = t
+        IF fi < 1 THEN fi = 1
+        IF fi > CREC.n THEN fi = CREC.n
+        CREC_seek img, cur, CLNG(fi), snapImg(), snapK
+
+        ' ===== RENDER =====
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "CANVAS RECORDING"
+        LINE (8, top)-(8 + pw - 1, top + ph - 1), THEME.DIALOG_preview_bg~&, BF
+        IF img < -1 THEN
+            iw = _WIDTH(img): ih = _HEIGHT(img)
+            s = _MIN(pw / iw, ph / ih)
+            IF s >= 1 THEN s = INT(s)
+            iw = _MAX(1, INT(iw * s)): ih = _MAX(1, INT(ih * s))
+            px = 8 + (pw - iw) \ 2: py = top + (ph - ih) \ 2
+            ckA = _RGB32(204, 204, 204): ckB = _RGB32(153, 153, 153)
+            FOR cy = 0 TO ih - 1 STEP 8
+                FOR cx = 0 TO iw - 1 STEP 8
+                    LINE (px + cx, py + cy)-(px + _MIN(cx + 7, iw - 1), py + _MIN(cy + 7, ih - 1)), _IIF(((cx \ 8) + (cy \ 8)) MOD 2 = 0, ckA, ckB), BF
+                NEXT cx
+            NEXT cy
+            _PUTIMAGE (px, py)-(px + iw - 1, py + ih - 1), img, ctx.imgHandle
+        END IF
+        info = "FRAME " + _TRIM$(STR$(fi)) + " / " + _TRIM$(STR$(CREC.n)) + "  " + UCASE$(CREC_LB(fi))
+        IF CREC.thinned > 0 THEN info = info + "  (" + _TRIM$(STR$(CREC.thinned)) + " MERGED)"
+        DIALOG_draw_label_raw ctx, 8, top + ph + 6, info
+        DIALOG_draw_slider ctx, 8, sliderY, pw, fi, 1, CREC.n, "", ""
+        DIALOG_draw_button_role ctx, 8, btnY, bw, 20, "|<", DLG_BTN_PLAIN
+        DIALOG_draw_button_role ctx, 8 + (bw + 4), btnY, bw, 20, _IIF(playing, "PAUSE", "PLAY"), DLG_BTN_PRIMARY
+        DIALOG_draw_button_role ctx, 8 + (bw + 4) * 2, btnY, bw, 20, ">|", DLG_BTN_PLAIN
+        DIALOG_draw_button_role ctx, 8 + (bw + 4) * 3, btnY, bw, 20, _TRIM$(STR$(fps)) + " FPS", DLG_BTN_PLAIN
+        DIALOG_draw_button_role ctx, 8 + (bw + 4) * 4, btnY, bw, 20, "EXPORT " + _TRIM$(STR$(sc)) + "X", DLG_BTN_PLAIN
+        DIALOG_draw_button_role ctx, 8, btn2Y, bw * 2 + 4, 20, "EXPORT APNG...", DLG_BTN_ACCENT
+        DIALOG_draw_button_role ctx, 8 + (bw + 4) * 2, btn2Y, bw * 2 + 4, 20, "EXPORT PNGS...", DLG_BTN_ACCENT
+        DIALOG_draw_button_role ctx, 8 + (bw + 4) * 4, btn2Y, bw, 20, "CLOSE", DLG_BTN_CANCEL
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done
+
+    SAFE_FREEIMAGE img
+    FOR i = 1 TO UBOUND(snapImg): SAFE_FREEIMAGE snapImg(i): NEXT i
+    DIALOG_cleanup ctx
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB

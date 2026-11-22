@@ -733,6 +733,8 @@ TYPE DRAW_CONFIG
     HISTORY_PANEL_SCALE             AS SINGLE         ' its own Scale (0 = the UI Scale)
     ACTIONS_PANEL                   AS INTEGER        ' TRUE = View > Actions shows (GUI/ACTIONS-PANEL)
     ACTIONS_PANEL_SCALE             AS SINGLE         ' its own Scale (0 = the UI Scale)
+    CANVAS_RECORDING                AS INTEGER        ' TRUE = every committed change adds a time-lapse frame (TOOLS/CANVAS-REC)
+    CANVAS_RECORDING_MB             AS INTEGER        ' a document's recording above this many MB thins its oldest frames
     BRUSH_SOFT                      AS INTEGER        ' the brush's edge softness, % (0 = hard .. 100; round and slant brushes)
     ' CRT overlay effect settings (presentation-only, never written to canvas)
     CRT_ENABLED                     AS INTEGER        ' Master on/off

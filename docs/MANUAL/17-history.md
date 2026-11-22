@@ -41,6 +41,17 @@ It is a dock panel like the others: dock it in any column or row, tab it, float 
 
 Both palettes show a title strip when docked (HISTORY / ACTIONS, with a fold triangle and **[x]**). The Actions palette docks, floats, scales and closes like the History palette; workspaces remember `ACTIONS_PANEL` and `ACTIONS_PANEL_SCALE`.
 
+### Canvas recording — a time-lapse of your work
+
+DRAW records how a picture comes together, so you can play it back as a time-lapse:
+
+- **It is on by default** and costs little: a frame is added only when a change is committed (a step, an undo, a redo), and only the part of the picture that changed is kept.
+- **The REC badge** at the right of the status bar shows it: a red dot and *REC* while recording, *REC PAUSED* (grey) when paused, *REC OFF* when it is turned off. **Click** it to pause or resume recording for this document; **right-click** it to open the viewer. While paused, nothing is recorded; when you resume, everything that changed meanwhile becomes one frame.
+- **The recording is saved inside the `.draw`** (and inside a PNG saved with Ctrl+S), so it travels with the file. Older DRAWs open the file and simply ignore it. **Save As** asks whether to keep the recording in the new file; answer *No* to share a copy without it (later saves of that document leave it out too).
+- **View > Canvas Recording...** plays it: PLAY / PAUSE, step to the first or last frame, drag the bar to scrub, change the speed (5 - 160 frames a second). `Space` plays, `←` / `→` step, `Home` / `End` jump, `Esc` closes. **EXPORT APNG...** writes an animated PNG (each frame shown for the chosen speed, the last held two seconds); **EXPORT PNGS...** writes every frame as `name_0001.png ...`. **EXPORT 1X** cycles the export scale (1x, 2x, 4x, 8x, pixel-sharp).
+- **Edit > Delete Canvas Recording...** removes the document's recording (it asks first); recording then starts again from the picture as it is. **Edit > Pause Canvas Recording** is the same as clicking the badge.
+- **If you don't want any record**, turn off **Edit > Record Canvas** (or Settings > General > Canvas Recording > *Record Canvas*): nothing more is recorded or written. *Recording Limit (MB)* caps a document's recording (default 64 MB); above it the oldest frames are merged in pairs, so the start and the end are always there.
+
 ### Multi-layer awareness
 
 When an operation affects multiple layers (a multi-layer select-and-flip, a Smart Erase across visible layers, a group merge, etc.), DRAW records a single composite history step. Smart Erase additionally tracks per-layer erasure so undo / redo behaves intuitively per layer.

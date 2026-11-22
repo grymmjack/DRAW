@@ -1096,6 +1096,7 @@ DO
     WS_tick ' a workspace's [START] runs once the new chrome has been laid out
     CAP_tick ' DRAW --capture, a few frames after startup
     ANN_tick ' annotate Redact/Callout modes (GUI/ANNOTATE)
+    CREC_tick ' canvas recording: a settled new history state becomes a frame (TOOLS/CANVAS-REC)
     PERF_stop PERF_POST_INPUT
     PERF_stop PERF_MAIN_LOOP_TOTAL
     PERF_frame_end
