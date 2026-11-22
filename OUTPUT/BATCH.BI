@@ -15,6 +15,8 @@
 '   DRAW art.draw --export-anim art.apng   (animated PNG)
 '   DRAW art.draw --export-anim art.bas    (QB64 animation player, frames in DATA)
 '   DRAW art.draw --export-anim art.sheet.bas (the player + art.sheet.png it cuts the frames from)
+'   DRAW art.draw --export-recording art.apng (the canvas recording, a time-lapse: animated PNG;
+'                                          .png = a PNG sequence; --recording-fps N, --recording-scale N)
 '
 ' --export and --export-anim repeat (one run, several files). The formats only
 ' frames have (.apng .json .sheet.bas) work from --export too; .gif and .bas
@@ -39,4 +41,7 @@ DIM SHARED BATCH_EXPORT_PATH      AS STRING ' --export paths, CHR$(0)-separated
 DIM SHARED BATCH_EXPORT_ANIM_PATH AS STRING ' --export-anim paths, CHR$(0)-separated
 DIM SHARED BATCH_CYCLE_SPECS      AS STRING ' --cycle specs, CHR$(0)-separated
 DIM SHARED BATCH_TAG              AS STRING ' --tag NAME: the animated exports write just that tag's frames (4.4)
+DIM SHARED BATCH_EXPORT_REC_PATH  AS STRING ' --export-recording paths, CHR$(0)-separated (TOOLS/CANVAS-REC)
+DIM SHARED BATCH_REC_FPS          AS INTEGER ' --recording-fps N (default 10)
+DIM SHARED BATCH_REC_SCALE        AS INTEGER ' --recording-scale N (1 2 4 8, default 1)
 DIM SHARED BATCH_FAILED           AS INTEGER

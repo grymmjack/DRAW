@@ -20,6 +20,9 @@ SUB BATCH_parse_args ()
             CASE "--export-anim" : BATCH_EXPORT_ANIM_PATH$ = BATCH_EXPORT_ANIM_PATH$ + BATCH_unquote$(COMMAND$(i% + 1)) + CHR$(0)
             CASE "--cycle"       : BATCH_CYCLE_SPECS$      = BATCH_CYCLE_SPECS$ + _TRIM$(COMMAND$(i% + 1)) + CHR$(0)
             CASE "--tag"         : BATCH_TAG$              = BATCH_unquote$(COMMAND$(i% + 1))
+            CASE "--export-recording": BATCH_EXPORT_REC_PATH = BATCH_EXPORT_REC_PATH + BATCH_unquote$(COMMAND$(i% + 1)) + CHR$(0)
+            CASE "--recording-fps"   : BATCH_REC_FPS = VAL(COMMAND$(i% + 1))
+            CASE "--recording-scale" : BATCH_REC_SCALE = VAL(COMMAND$(i% + 1))
         END SELECT
     NEXT i%
 END SUB
@@ -40,7 +43,7 @@ END FUNCTION
 ' TRUE when any batch work is pending (the caller exits after BATCH_run).
 '
 FUNCTION BATCH_pending% ()
-    BATCH_pending% = LEN(BATCH_EXPORT_PATH$) > 0 _ORELSE LEN(BATCH_EXPORT_ANIM_PATH$) > 0 _ORELSE LEN(BATCH_CYCLE_SPECS$) > 0
+    BATCH_pending% = LEN(BATCH_EXPORT_PATH$) > 0 _ORELSE LEN(BATCH_EXPORT_ANIM_PATH$) > 0 _ORELSE LEN(BATCH_CYCLE_SPECS$) > 0 _ORELSE LEN(BATCH_EXPORT_REC_PATH) > 0
 END FUNCTION
 
 
@@ -109,14 +112,22 @@ FUNCTION BATCH_run% ()
         END IF
         ANIM_EXP_A = ANIM_TG_A(tg%): ANIM_EXP_B = ANIM_TG_B(tg%): ANIM_EXPORT_TAG = tg%
     END IF
-    FOR k% = 1 TO 2
-        IF k% = 1 THEN lst$ = BATCH_EXPORT_PATH$ ELSE lst$ = BATCH_EXPORT_ANIM_PATH$
+    FOR k% = 1 TO 3
+        SELECT CASE k%
+            CASE 1: lst$ = BATCH_EXPORT_PATH$
+            CASE 2: lst$ = BATCH_EXPORT_ANIM_PATH$
+            CASE ELSE: lst$ = BATCH_EXPORT_REC_PATH
+        END SELECT
         DO WHILE LEN(lst$) > 0
             p& = INSTR(lst$, CHR$(0))
             IF p& = 0 THEN p& = LEN(lst$) + 1
             IF p& > 1 THEN
-                ok% = BATCH_export%(LEFT$(lst$, p& - 1), k% = 2)
-                IF NOT ok% THEN BATCH_FAILED% = TRUE
+                IF k% = 3 THEN
+                    ok% = BATCH_export_recording%(LEFT$(lst$, p& - 1))
+                ELSE
+                    ok% = BATCH_export%(LEFT$(lst$, p& - 1), k% = 2)
+                END IF
+                IF ok% = 0 THEN BATCH_FAILED% = TRUE
             END IF
             lst$ = MID$(lst$, p& + 1)
         LOOP
@@ -125,6 +136,32 @@ FUNCTION BATCH_run% ()
     IF BATCH_FAILED% THEN BATCH_run% = 1 ELSE BATCH_run% = 0
 END FUNCTION
 
+
+''
+' --export-recording PATH: the document's canvas recording (TOOLS/CANVAS-REC):
+' .apng = animated PNG at --recording-fps (10), .png = a PNG sequence
+' path_0001.png ...; --recording-scale 1 / 2 / 4 / 8. TRUE when written.
+FUNCTION BATCH_export_recording% (path AS STRING)
+    DIM ext AS STRING, d AS INTEGER, fps AS INTEGER, sc AS INTEGER, ok AS INTEGER
+    d = _INSTRREV(path, ".")
+    IF d > 0 THEN ext = LCASE$(MID$(path, d + 1))
+    fps = BATCH_REC_FPS: IF fps < 1 THEN fps = 10
+    IF fps > 1000 THEN fps = 1000
+    SELECT CASE BATCH_REC_SCALE
+        CASE 2, 4, 8: sc = BATCH_REC_SCALE
+        CASE ELSE: sc = 1
+    END SELECT
+    IF CREC.n < 1 THEN BATCH_say FALSE, path, "the document has no canvas recording": EXIT FUNCTION
+    SELECT CASE ext
+        CASE "apng": ok = CREC_export_apng%(path, fps, sc)
+        CASE "png": ok = CREC_export_pngs%(path, sc)
+        CASE ELSE
+            BATCH_say FALSE, path, "unsupported recording export type '." + ext + "' (--export-recording: .apng .png)"
+            EXIT FUNCTION
+    END SELECT
+    BATCH_say ok, path, _IIF(ok, _TRIM$(STR$(CREC.n)) + " frames" + _IIF(ext = "apng", ", " + _TRIM$(STR$(fps)) + " fps", " (PNG sequence)") + _IIF(sc > 1, ", " + _TRIM$(STR$(sc)) + "x", ""), CYCX_LAST_ERROR$)
+    BATCH_export_recording% = ok
+END FUNCTION
 
 ''
 ' One console line for an export: "wrote PATH (what)" / "FAILED PATH: why".

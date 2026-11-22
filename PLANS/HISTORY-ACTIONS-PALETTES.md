@@ -95,7 +95,10 @@ the flatten, deflated), the REC badge (click pause / resume, right-click the vie
 Record Canvas / Pause / Delete..., Settings > General > Canvas Recording (`CANVAS_RECORDING`,
 `CANVAS_RECORDING_MB` = 64), the drRc chunk (no .draw version change - an own chunk, like drAx),
 thinning by merging the oldest pairs, View > Canvas Recording... (play / scrub / speed, export
-APNG with sub-rect frames, PNG sequence, scale 1-8x). Actions 2710-2713. Save As (and a first save) asks whether to keep it
+APNG with sub-rect frames, PNG sequence, scale 1-8x; the same from the CLI: `--export-recording
+X.apng|X.png`, `--recording-fps`, `--recording-scale`, OUTPUT/BATCH). Actions 2710-2713. QA:
+`canvas-recording.sh` (22 checks), `canvas-recording-playback.sh` (draws a 23-step scene, exports
+it from the CLI: the last frame = the saved picture pixel for pixel; keeps the .apng / .gif). Save As (and a first save) asks whether to keep it
 in the file (`CREC_ask_keep`; No = this document saves without it). Not yet: GIF export (needs
 quantising), the capture rect from the history step
 instead of a full-canvas diff (fine to 1024px; a 4096px canvas compares 64 MB per step).

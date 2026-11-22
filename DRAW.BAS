@@ -222,7 +222,7 @@ $IF MAC THEN
                 macArgIdx% = macArgIdx% + 1 ' Defensive: HELP.BI should have exited already
             ELSEIF LCASE$(macArgVal$) = "--option" OR LCASE$(macArgVal$) = "--instance" OR LCASE$(macArgVal$) = "--palette" OR _
                    LCASE$(macArgVal$) = "--export" OR LCASE$(macArgVal$) = "--export-anim" OR LCASE$(macArgVal$) = "--cycle" OR LCASE$(macArgVal$) = "--tag" OR _
-                   LCASE$(macArgVal$) = "--export-qb64" THEN
+                   LCASE$(macArgVal$) = "--export-qb64" OR LCASE$(macArgVal$) = "--export-recording" OR LCASE$(macArgVal$) = "--recording-fps" OR LCASE$(macArgVal$) = "--recording-scale" THEN
                 macArgIdx% = macArgIdx% + 2 ' BUG-53: 2-token flag (flag + value) — skip both
             ELSEIF THEMEED_flag_takes_value%(macArgVal$) THEN
                 macArgIdx% = macArgIdx% + 2 ' --theme-name X etc. (CFG/THEME-EDIT)
@@ -261,7 +261,8 @@ $ELSE
         ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" OR LCASE$(argVal$) = "--palette" OR LCASE$(argVal$) = "--workspace" THEN
             argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
         ELSEIF LCASE$(argVal$) = "--export-qb64" OR LCASE$(argVal$) = "--export" OR _
-               LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" OR LCASE$(argVal$) = "--tag" THEN
+               LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" OR LCASE$(argVal$) = "--tag" OR _
+               LCASE$(argVal$) = "--export-recording" OR LCASE$(argVal$) = "--recording-fps" OR LCASE$(argVal$) = "--recording-scale" THEN
             argIdx% = argIdx% + 2 ' 2-token flag (flag + output path) — skip both so the path is not mistaken for the input file
         ELSEIF THEMEED_flag_takes_value%(argVal$) THEN
             argIdx% = argIdx% + 2 ' --theme-name X etc. (CFG/THEME-EDIT)
