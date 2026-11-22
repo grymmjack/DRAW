@@ -277,6 +277,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `Ctrl+Shift+I` | Invert selection |
 | `Ctrl+H` | Hide/show marching ants (selection stays active) |
 | `Ctrl+H` (pointer on the Theme Edit inspector) | Hide/show the inspector's outlines of the selected / hovered part |
+| `Ctrl+C` / `Ctrl+V` (pointer on the Theme Edit inspector) | Copy the selected row's value / paste it into the selected property |
 | `Hold M + =` / `Hold M + -` | Expand / contract selection 1px |
 | `Hold M + Shift+=` / `Hold M + Shift+-` | Expand / contract selection (large step) |
 | `Ctrl+D` / `Esc` | Deselect (from any tool) |

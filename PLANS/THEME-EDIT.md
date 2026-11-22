@@ -156,7 +156,7 @@ moved. `nkey` is a stable id, so the open / selected state survives rebuilds.
 - Renders into any image the host gives it; input is passed in as local coordinates and button /
   wheel / key state; results come back as an **event queue** (`UIPI_next_event$`: `SAVE`,
   `OPENDIR`, `EDITCFG`, `EDITIMG <path>`, `EDITPROP <key>`, `CHANGED <key>`, `PICK 1|0`,
-  `TAKECOLOR <key>`, `GIVECOLOR <key>`, `CLOSE`) the host acts on. Docking is the widget's own
+  `PICKCOLOR <key>`, `DROPCOLOR <key>`, `TAKECOLOR <key>`, `GIVECOLOR <key>`, `CLOSE`) the host acts on. Docking is the widget's own
   state (`UIPI.edge`), not an event. The widget never launches, saves or reloads anything itself.
 - Fixed dark devtools look, **not themed by the theme being edited** (a broken theme must never
   make the editor unreadable). Font: Tiny5 (proportional; columns are measured with `_PRINTWIDTH`).
@@ -169,8 +169,19 @@ moved. `nkey` is a stable id, so the open / selected state survives rebuilds.
   so scrolling the list never edits what passes under the pointer; middle-click = revert;
   BOOL rows toggle on click. Image rows: [EDIT].
 - Colour rows: swatch + `R G B A`, wheel per channel; values also typed as `#RRGGBB[AA]`.
-  Left-click the swatch = `TAKECOLOR` (DRAW sets it from the FG), right-click = `GIVECOLOR`
+  Left-click the swatch = `PICKCOLOR` (DRAW opens its colour picker, `DRAW_pick_color&`, seeded with
+  the value; the property keeps its own alpha - the picker is RGB; works inside a modal dialog
+  too, `THEMEED_pick_color`), Shift+left-click = `TAKECOLOR` (DRAW sets it from the FG), right-click = `GIVECOLOR`
   (DRAW makes it the FG).
+  The row's eyedropper button (right end) = `DROPCOLOR`: `THEMEED_drop_color` runs `CP_eyedrop%`
+  (QB64_GJ_LIB/COLOR_PICKER) over a copy of page 0 - a magnifier + hex readout follow the pointer,
+  left-click takes the pixel, right-click / Esc cancel; the alpha stays. The colour picker itself
+  (modal and the Color Mixer) has a PICK button beside COPY / PASTE doing the same (a modal over the
+  screen it opened on; the mixer over page 0 as it is), and its PASTE takes `R,G,B[,A]` too.
+- Ctrl+C / Ctrl+V with the pointer on the inspector (nothing being typed): copy the selected row's
+  value (theme-file text; an IMAGES row its path) / paste the clipboard into the selected property
+  when it fits its type (`#RRGGBB` keeps the alpha, a `KEY=VALUE` line pastes its value). Off the
+  panel they stay DRAW's Copy / Paste (`THEMEED_ctl_key%`, held = `CTX_TEXT_ACTIVE`).
 - Row markers: `*` = differs from the theme file (pending save; reverting or setting the saved
   value back clears it); name in amber = changed since the session started.
 

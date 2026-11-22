@@ -25,7 +25,9 @@
 '   EDITIMG <path>  an image file's EDIT button (it may not exist yet - shown NEW: the host makes it)
 '   EDITPROP <key>  an image-valued property's EDIT button (host resolves the file)
 '   CHANGED <key>   a property was changed through the panel
-'   TAKECOLOR <key> left-click on a colour swatch (host sets it, e.g. from its FG)
+'   PICKCOLOR <key> left-click on a colour swatch (host opens its colour picker)
+'   TAKECOLOR <key> Shift+left-click on a colour swatch (host sets it, e.g. from its FG)
+'   DROPCOLOR <key> a colour row's eyedropper button (host takes it off the screen)
 '   GIVECOLOR <key> right-click on a colour swatch (host uses it, e.g. as its FG)
 '   CLOSE           the X button
 '   NODE <nkey>     a tree node was selected

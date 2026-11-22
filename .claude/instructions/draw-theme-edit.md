@@ -168,12 +168,25 @@ state), compares with `_READFILE$`, skips dot names / root THEME.CFG + THEME.BI.
 overwritten files go to `ASSETS/THEME-BACKUPS/B-sync-<stamp>/` and are checked before the overwrite.
 Answers come through `THEMEED_ask_line$` (EOF = "" = no).
 
-## Ctrl+H (outlines)
+## Ctrl+H / C / V on the inspector
 
-`THEMEED_hide_key%` (from `THEMEED_keys%` and `THEMEED_dialog_input%`): Ctrl+H edge with the pointer
-on the inspector -> `UIPI_toggle_outlines` (`UIPI.noOutline`; `UIPI_outline_node%` returns 0 unless
-picking). While it is held `THEMEED_hide_held%` adds `CTX_TEXT_ACTIVE` in `INPUT_dispatch_frame`, so
-action 332 (Hide Selection) does not fire too. Off the panel Ctrl+H is Hide Selection as ever.
+`THEMEED_ctl_key%` (from `THEMEED_keys%` and `THEMEED_dialog_input%`): a Ctrl+H / C / V edge with
+the pointer on the inspector and nothing typed -> `UIPI_toggle_outlines` (`UIPI.noOutline`;
+`UIPI_outline_node%` returns 0 unless picking) / `UIPI_copy_value` / `UIPI_paste_value%`
+(`UIPI_paste_text$` checks the clipboard against the type). While the key is held
+`THEMEED_ctl_held%` adds `CTX_TEXT_ACTIVE` in `INPUT_dispatch_frame`, so Hide Selection / Copy / Paste
+do not fire too. Off the panel they are DRAW's as ever.
+
+## Colour rows: picker, eyedropper
+
+Swatch click = `PICKCOLOR` -> `THEMEED_pick_color` (`DRAW_pick_color&`); the row's pipette button =
+`DROPCOLOR` -> `THEMEED_drop_color` -> `CP_eyedrop%` (QB64_GJ_LIB COLOR_PICKER, CP-API.BM) over
+`_COPYIMAGE(0)`. Both may run inside a modal dialog (events are handled in `DIALOG_blit` there), so
+neither calls `SCREEN_render`; they put `_DEST` / `_SOURCE` back and, outside dialogs, run
+`POINTER_show_after_dialog` + `MOUSE_cleanup_after_dialog`. The picker's own PICK button
+(`CP_INPUT_eyedrop`) uses `CP_STATE.screenShot` when modal, else page 0, and sets
+`CP_STATE.eyedropped` - `COLORMIXER_input` resets DRAW's pointer / mouse on it. Picked colours are
+opaque: theme properties keep their alpha.
 
 ## Tests
 

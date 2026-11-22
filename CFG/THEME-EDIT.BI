@@ -64,7 +64,7 @@ TYPE THEMEED_OBJ
     dlgOB2        AS INTEGER
     openAction    AS INTEGER ' a DIALOGS menu pick: the action that opens it, run at the next tick
     selKey        AS STRING  ' the node a click picked (or a tree row): picking's hover only previews
-    hideWasDown   AS INTEGER ' Ctrl+H held, taken on the inspector (outlines on / off)
+    ctlKeyDown    AS INTEGER ' Ctrl+H / C / V the inspector took, held (72 / 67 / 86; 0 = none)
 END TYPE
 
 ' The region table as of the last GUI render (REGION_BOUNDS_TABLE is cleared

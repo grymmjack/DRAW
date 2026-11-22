@@ -1051,6 +1051,97 @@ SUB UIPI_toggle_outlines ()
 END SUB
 
 ''
+' Ctrl+C: the selected row's value to the clipboard, as theme-file text (a
+' colour "R,G,B,A"); an IMAGES row gives its path.
+'
+SUB UIPI_copy_value ()
+    DIM r AS INTEGER, k AS INTEGER
+    r = UIPI.sel
+    IF r < 1 _ORELSE r > UIPI_RN THEN UIPI_message "CLICK A PROPERTY, THEN CTRL+C COPIES ITS VALUE", TRUE: EXIT SUB
+    SELECT CASE UIPI_ROW_KIND(r)
+        CASE UIPI_ROW_PROP
+            k = UIPI_ROW_PROP(r)
+            _CLIPBOARD$ = UIP_get$(k)
+            UIPI_message "COPIED " + UIP_P(k).pk + " = " + UIP_get$(k), FALSE
+        CASE UIPI_ROW_FILE
+            _CLIPBOARD$ = UIPI_ROW_TEXT(r)
+            UIPI_message "COPIED THE PATH " + UIPI_ROW_TEXT(r), FALSE
+        CASE ELSE
+            UIPI_message "NOTHING TO COPY ON THIS ROW", TRUE
+    END SELECT
+END SUB
+
+''
+' Ctrl+V: the clipboard into the selected property, when it fits its type. A
+' colour takes "R,G,B[,A]", "#RRGGBB[AA]" or a "KEY=R,G,B,A" theme-file line;
+' without an alpha it keeps the property's own. TRUE when the value changed.
+'
+FUNCTION UIPI_paste_value% ()
+    DIM r AS INTEGER, k AS INTEGER, raw AS STRING, v AS STRING, p AS INTEGER
+    r = UIPI.sel
+    IF r < 1 _ORELSE r > UIPI_RN THEN UIPI_message "CLICK A PROPERTY, THEN CTRL+V PASTES INTO IT", TRUE: EXIT FUNCTION
+    IF UIPI_ROW_KIND(r) <> UIPI_ROW_PROP THEN UIPI_message "CTRL+V PASTES INTO A PROPERTY ROW", TRUE: EXIT FUNCTION
+    k = UIPI_ROW_PROP(r)
+    raw = _CLIPBOARD$
+    p = INSTR(raw, CHR$(10)): IF p > 0 THEN raw = LEFT$(raw, p - 1)
+    p = INSTR(raw, CHR$(13)): IF p > 0 THEN raw = LEFT$(raw, p - 1)
+    raw = _TRIM$(raw)
+    p = INSTR(raw, "=")
+    IF p > 1 _ANDALSO UIP_P(k).ptype <> UIP_T_TEXT THEN raw = _TRIM$(MID$(raw, p + 1)) ' a THEME.CFG line
+    IF raw = "" THEN UIPI_message "THE CLIPBOARD IS EMPTY", TRUE: EXIT FUNCTION
+    v = UIPI_paste_text$(UIP_P(k).ptype, raw, UIP_get$(k))
+    IF v = "" THEN UIPI_message "NOT A " + UIP_type_name$(UIP_P(k).ptype) + " VALUE: " + LEFT$(raw, 40), TRUE: EXIT FUNCTION
+    IF UIP_normalize$(UIP_P(k).ptype, v) = UIP_get$(k) THEN UIPI_message UIP_P(k).pk + " ALREADY IS " + UIP_get$(k), FALSE: EXIT FUNCTION
+    IF UIP_set%(k, v) = 0 THEN UIPI_message UIP_LAST_ERROR, TRUE: EXIT FUNCTION
+    UIPI_emit "CHANGED " + UIP_P(k).pk
+    UIPI_message "PASTED " + UIP_P(k).pk + " = " + UIP_get$(k) + " (MIDDLE-CLICK REVERTS)", FALSE
+    UIPI.changed = TRUE
+    UIPI_paste_value% = TRUE
+END FUNCTION
+
+''
+' Clipboard text raw as a value of type ptype ("" = it is not one). cur = the
+' property's value now (a colour's alpha when raw has none).
+'
+FUNCTION UIPI_paste_text$ (ptype AS INTEGER, raw AS STRING, cur AS STRING)
+    DIM s AS STRING, i AS INTEGER, c AS STRING, digits AS INTEGER, ch(3) AS INTEGER, commas AS INTEGER
+    s = raw
+    SELECT CASE ptype
+        CASE UIP_T_COLOR
+            UIP_rgba_channels cur, ch()
+            IF UIP_hex_to_rgba$(s) <> "" THEN
+                c = UIP_hex_to_rgba$(s)
+                digits = LEN(s): IF LEFT$(s, 1) = "#" THEN digits = digits - 1
+                IF digits = 6 THEN c = LEFT$(c, _INSTRREV(c, ",")) + _TRIM$(STR$(ch(3))) ' #RRGGBB: keep the alpha
+                UIPI_paste_text$ = c
+            ELSEIF UIP_valid%(UIP_T_COLOR, s) THEN
+                FOR i = 1 TO LEN(s)
+                    IF MID$(s, i, 1) = "," THEN commas = commas + 1
+                NEXT i
+                IF commas = 2 THEN s = s + "," + _TRIM$(STR$(ch(3)))
+                UIPI_paste_text$ = s
+            END IF
+        CASE UIP_T_INT, UIP_T_REAL
+            FOR i = 1 TO LEN(s)
+                c = MID$(s, i, 1)
+                IF INSTR("0123456789", c) > 0 THEN
+                    digits = digits + 1
+                ELSEIF INSTR(".-+", c) = 0 THEN
+                    EXIT FUNCTION
+                END IF
+            NEXT i
+            IF digits > 0 THEN UIPI_paste_text$ = s
+        CASE UIP_T_BOOL
+            SELECT CASE UCASE$(s)
+                CASE "TRUE", "1", "-1", "YES", "ON": UIPI_paste_text$ = "TRUE"
+                CASE "FALSE", "0", "NO", "OFF": UIPI_paste_text$ = "FALSE"
+            END SELECT
+        CASE ELSE
+            UIPI_paste_text$ = s
+    END SELECT
+END FUNCTION
+
+''
 ' The order button on the IMAGES header: its label and width.
 '
 FUNCTION UIPI_order_label$ ()
@@ -1346,8 +1437,11 @@ FUNCTION UIPI_mouse% (mx AS INTEGER, my AS INTEGER, b1 AS INTEGER, b2 AS INTEGER
                             wasEdit = (UIPI.editRow = r)
                             ' a click on a number / colour value arms the wheel for it
                             IF (pt = UIP_T_INT _ORELSE pt = UIP_T_REAL _ORELSE pt = UIP_T_COLOR) _ANDALSO lx >= UIPI_value_x% THEN UIPI.wheelRow = r
-                            IF pt = UIP_T_COLOR _ANDALSO UIPI_color_part%(lx) = -1 THEN
-                                UIPI_emit "TAKECOLOR " + UIP_P(k).pk
+                            IF pt = UIP_T_COLOR _ANDALSO lx >= lr - UIPI_SB_W - UIPI_drop_btn_w% THEN
+                                UIPI.wheelRow = 0
+                                UIPI_emit "DROPCOLOR " + UIP_P(k).pk
+                            ELSEIF pt = UIP_T_COLOR _ANDALSO UIPI_color_part%(lx) = -1 THEN
+                                IF shift THEN UIPI_emit "TAKECOLOR " + UIP_P(k).pk ELSE UIPI_emit "PICKCOLOR " + UIP_P(k).pk
                             ELSEIF pt = UIP_T_BOOL _ANDALSO lx >= UIPI_value_x% THEN
                                 IF UIP_set%(k, UIP_nudge$(pt, UIP_get$(k), 0, 1)) THEN UIPI_emit "CHANGED " + UIP_P(k).pk
                             ELSEIF pt = UIP_T_IMAGE _ANDALSO lx >= lr - UIPI_SB_W - UIPI_edit_btn_w% THEN
@@ -1483,6 +1577,25 @@ FUNCTION UIPI_short_key$ (i AS INTEGER)
     k = UIP_P(i).pk: s = UIP_P(i).section + "_"
     IF LEFT$(k, LEN(s)) = s _ANDALSO LEN(k) > LEN(s) THEN UIPI_short_key$ = MID$(k, LEN(s) + 1) ELSE UIPI_short_key$ = k
 END FUNCTION
+
+FUNCTION UIPI_drop_btn_w% ()
+    UIPI_drop_btn_w% = UIPI.rowH + 1
+END FUNCTION
+
+''
+' The eyedropper button of a colour row: a pipette, its tip bottom-left.
+'
+SUB UIPI_dropper_btn (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    DIM i AS INTEGER, j AS INTEGER, ox AS INTEGER, oy AS INTEGER, rw AS STRING
+    LINE (x, y)-(x + w - 1, y + h - 1), UIPI_C_BTN, BF
+    ox = x + (w - 7) \ 2: oy = y + (h - 7) \ 2
+    FOR j = 0 TO 6
+        rw = MID$("....###...####...###...#.#...#.#...#.#....##.....", j * 7 + 1, 7)
+        FOR i = 1 TO 7
+            IF MID$(rw, i, 1) = "#" THEN PSET (ox + i - 1, oy + j), UIPI_C_TEXT
+        NEXT i
+    NEXT j
+END SUB
 
 SUB UIPI_button (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, label AS STRING, isOn AS INTEGER)
     LINE (x, y)-(x + w - 1, y + h - 1), _IIF(isOn, UIPI_C_BTN_ON, UIPI_C_BTN), BF
@@ -1680,6 +1793,7 @@ SUB UIPI_render ()
                                 s = _TRIM$(STR$(ch(x)))
                                 UIPI_text vx + 11 + (x + 1) * UIPI_chan_w% - 5 - UIPI_tw%(s), ty, s, _IIF(x = 3, UIPI_C_DIM, UIPI_C_NUM)
                             NEXT x
+                            UIPI_dropper_btn lr - UIPI_SB_W - UIPI_drop_btn_w%, y + 1, UIPI_drop_btn_w% - 1, UIPI.rowH - 2
                         CASE UIP_T_INT, UIP_T_REAL
                             UIPI_text vx, ty, UIPI_fit$(v, lr - vx - UIPI_SB_W - 2), UIPI_C_NUM
                         CASE UIP_T_BOOL
