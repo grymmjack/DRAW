@@ -74,7 +74,8 @@ inspectable, give it a node - never a per-panel hit test. Two ways:
   `THEMEED_hsc_note` with the region it shows - every dock surface and native window passes
   there; Customize Toolbars notes its own `_PUTIMAGE`). `pkey` "" = the region it lands in;
   another part's key (same image) nests it; `"OVER"` = an overlay; `"R:<rg>"` = that region.
-  `nkey` "" = `"D:" + label@x,y`. Hooked: `FPANEL_title_bar` (TITLE BAR + CLOSE), `_chip`,
+  `nkey` "" = `"D:" + label@x,y`. Hooked: `FPANEL_title_bar` (TITLE BAR + CLOSE), the dock's slot titles (`DOCKT:<slot>`) and floating
+  frames (`DOCKF:<id>`), `_chip`,
   `_checkbox`, `_disclosure`, `_track`, `PSL_draw` (so Pen / Swatches / Animation / Customize
   Toolbars / Preview / Brushes / MyPaint settings get theirs for free), `POPUP_MENU_render` (box +
   items, `POP:x:y`), the menu bar dropdown (`MENU:DD` + rows), the palette menu (`PALMENU`), the
@@ -198,6 +199,44 @@ Dialog surface (`[DIALOG]` section; `DIALOG_` prefix):
 | scrollbar | `SCROLLBAR_TRACK/_THUMB` | dialog scrollbars |
 | message | `STATUS_FG`, `WARNING_FG` | status / result lines, warnings and errors |
 | changed mark | `CHANGED_BG/_FG` | a value changed from its default (Controls dialog stripe, legend, key text) |
+
+Panel surface (`[PANEL]` section; `PANEL_` prefix) - every dock panel and floating window
+(Layers, Pen Control, Swatches, Animation, Customize Toolbars, Advanced Color Picker, 3D Color
+Space, Pixel Analyzer, Image Browser's frame) and the dock's own title strips. The shared
+widgets are `FPANEL_chip` / `_checkbox` / `_track` / `_disclosure` / `_title_bar` / `_frame`
+(`GUI/FLOAT-PANEL.BM`); call them rather than drawing a control by hand:
+
+| Kind | Keys | Used by |
+|---|---|---|
+| frame | `BG`, `BORDER` | panel bodies, outline |
+| title bar | `TITLE_BG/_FG/_HINT_FG/_BORDER`, `TAB_FG/_SEL_BG/_SEL_FG`, `CLOSE_FG/_HOVER_BG/_HOVER_FG`, `GRIP` | dock slot titles + tabs (`DOCK_render_titles`), floating frames (`DOCK_render_float_frame`), `FPANEL_title_bar`, the Layers header, the Browser's close |
+| text | `LABEL_FG`, `VALUE_FG` (values, current item), `HINT_FG` (units, secondary), `DISABLED_FG` (a control that is off: text and marks), `WARNING_FG` | all panel text |
+| section | `SECTION_FG/_HOVER_FG`, `DIVIDER` | `FPANEL_disclosure`, headings, rules |
+| button | `BUTTON_BG/_FG/_BORDER/_HOVER_BG/_HOVER_FG/_ON_BG/_ON_FG`; bare icon buttons `ICON_FG/_HOVER_FG` | `FPANEL_chip` (on = chosen chip / active mode), panel push buttons, the gear / menu icons |
+| checkbox | `CHECKBOX_BG/_BORDER/_HOVER_BORDER/_MARK` | `FPANEL_checkbox`, Pixel Analyzer |
+| slider | `SLIDER_BG/_BORDER/_FILL/_THUMB/_DISABLED` | `FPANEL_track`, the layer bar's opacity, the 3D panel's slider |
+| field | `FIELD_BG/_BORDER/_FG/_ACTIVE_BORDER` | value boxes, search boxes, the layer bar's blend dropdown |
+| list | `LIST_BG/_BORDER/_FG/_HOVER_BG/_HOVER_FG/_SEL_BG/_SEL_FG/_HEADER_FG` | pickable rows / item grids (toolbar editor, swatch list view, Pixel Analyzer issues) |
+| scrollbar | `SCROLLBAR_TRACK/_THUMB` | every panel scrollbar (Layers too) |
+| swatch | `SWATCH_BORDER/_HOVER_BORDER/_SEL_BORDER` | colour chips in panels |
+
+Panel-only parts get a component group of their own, in its own section: `[DOCK]` (`DOCK_BG`,
+`DOCK_SEAM`, `DOCK_SEAM_RIGHT`, `DOCK_HANDLE_HOVER_BG/_FG` - the columns, seams, drag handles),
+`[PEN_PANEL]` (`PEN_METER_*`, `PEN_GRAPH_*`, `PEN_HINT_*`), `[SWATCHES]`, `[TOOLBAR_EDITOR]`,
+the Layers rows (`LAYER_PANEL_ROW_*`, `GROUP_*`, `SYMBOL_*`, drag / drop marks - the layer row is
+its own kind), `[ANIM_PANEL]` (`ANIM_SHEET_*` X-sheet, `ANIM_LANE_*`, `ANIM_SOUND_*`,
+`ANIM_SEEK_*` lightbox seek bar, `ANIM_WIDGET_*` the on-canvas transform widget; the canvas
+frame marks stay `[ANIMATION]` `ANIM_FRAME_*`). The file browser (File dialogs + the Image Browser panel,
+`DRAW_FD_apply_theme`) has `FILE_DIALOG_*`; its tooltips are `TOOLTIP_*`. A popup menu a panel
+draws itself reads the popup menu keys (`MENU_SUB_*`, as `POPUP_MENU_render`). `CP_*` is the
+Color Mixer / Color Picker's own (QB64_GJ_LIB COLOR_PICKER's `CP_THEME`) - nothing else reads it.
+
+**A key's alpha always applies** (Rick, 2026-11-21: "we should be able to adjust opacities").
+A part drawn fainter than its key goes through `THEME_fade~&(key, alpha)` (`CFG/CONFIG-THEME.BM`)
+- the code's alpha on top of the key's own, never instead of it - so a theme can fade or hide any
+part by its key's alpha; at 255 it looks as before. Never `(key AND &H00FFFFFF) OR &Hxx000000`
+or `_RGBA32(_RED32(key), ..., n)`. Fade from the key, not from an already faded colour (the two
+would multiply). The X-sheet's `ANIM_XS_ink` does the same (plus its contrast setting).
 
 **Splitting a key off an older shared one:** add it to `THEME_inherit_list$`
 (`CFG/CONFIG-THEME.BM`, `CHILD=PARENT`): a theme file that sets the parent but not the child gives

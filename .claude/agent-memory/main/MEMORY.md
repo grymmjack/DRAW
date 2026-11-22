@@ -129,3 +129,4 @@
 - [farm-mac-harness-rsync](farm-mac-harness-rsync.md) — farm-check rsyncs local qa-harness to mac/thinkpad (dirty git status is normal); rebuild drivers with setup.sh; [macOS] key-code driver lessons
 - [Theme Edit = UIKIT seed](theme-edit-uikit.md) — theme editor is phase 1 of a reusable QB64PE UI library; GUI/UIKIT must read no DRAW global (11-21)
 - [Theme Edit: everything editable](theme-edit-everything-editable.md) — Rick's rule: anything on screen must be pickable + editable (custom slots, fallback art too); add tree nodes, EDIT makes missing art (11-21)
+- [Wait loops must not match themselves](wait-loop-self-match.md) — pgrep -x names + mtime + timeout, or run_in_background; pgrep -f found its own shell

@@ -5,7 +5,7 @@
 ' Pressure): the themed UI font and the Color Mixer's geometry, so every
 ' floating panel shares one title bar, close box, chip, slider and checkbox
 ' style. Metrics are derived from the font height exactly as the Color Picker
-' library does in CP_THEME_scale_geometry (CP-API.BM); colors are THEME.CP_*.
+' library does in CP_THEME_scale_geometry (CP-API.BM); colors are the THEME.PANEL_* keys (one set per kind of control).
 '
 ' Callers draw into their own native-resolution panel image, then blit it at
 ' the integer panel scale (USCALE.mixer - by default the UI Scale) like
