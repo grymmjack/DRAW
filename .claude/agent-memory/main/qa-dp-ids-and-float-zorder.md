@@ -11,7 +11,11 @@ metadata:
    "DMENU open '-1' panel '10'" - DRAW was right. [2026-11-18] DP_SELBAR = 10 shifted them again:
    PREVIEW 11 ... SWATCH 18, DP_COUNT 18, WZ_TBED / WZ_COUNT 19, PSURF_N 10. [2026-11-18] DP_MYPAINT = 11
    shifted them once more: PREVIEW 12 ... SWATCH 19, DP_COUNT 19, WZ 20, PSURF_N 11 (workspace-recall-all.sh
-   still had `pick_scale preview 10` - now read from DOCK.BI). Read the id from GUI/DOCK.BI instead:
+   still had `pick_scale preview 10` - now read from DOCK.BI). [2026-11-22] DP_HISTORY = 14 (History palette) shifted them again:
+   PREVIEW 15 ... SWATCH 22, DP_COUNT 22, WZ_TBED / WZ_COUNT 23, PSURF_N 14, REGION_HISTORY 39. A new dock panel
+   must also be placed in DOCK_build_default (stock layout), not only DOCK_adopt_new_panels (custom trees) - it
+   showed as P shown=-1 slot 0 until it was. Same day DP_ACTIONS = 15 (Actions palette): PREVIEW 16 ... SWATCH 23,
+   DP_COUNT 23, WZ 24, PSURF_N 15, REGION_ACTIONS 40. Read the id from GUI/DOCK.BI instead:
    `awk '$1=="CONST" && $2=="DP_PREVIEW" {print $4; exit}' "$DRAW_ROOT/GUI/DOCK.BI"`.
 2. **Floating windows at one spot.** Native windows floated to the same default rect (140,12) cover
    each other's title bars; dk_grab_point's coverage check used to count every other window and so

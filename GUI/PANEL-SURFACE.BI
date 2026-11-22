@@ -38,7 +38,7 @@ TYPE PSURF_OBJ
     sdirty AS INTEGER ' drawn again since its half-step picture (HSC_IMG) was made
 END TYPE
 
-CONST PSURF_N = 13 ' the dock panels: DP_TOOLBOX .. DP_BRUSHES
+CONST PSURF_N = 15 ' the dock panels: DP_TOOLBOX .. DP_ACTIONS
 DIM SHARED PSURF(1 TO PSURF_N) AS PSURF_OBJ
 
 ' Half-step copies onto the window (HSC_put): a panel or native window at 1.5x, 2.5x ..

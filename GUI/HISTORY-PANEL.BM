@@ -1,0 +1,536 @@
+''
+' DRAW - GUI/HISTORY-PANEL.BM - the History palette (GUI/HISTORY-PANEL.BI).
+' =============================================================================
+$INCLUDEONCE
+
+''
+' Should it show: View > History on, the chrome not hidden by F11.
+FUNCTION HISTP_wanted% ()
+    IF SCRN.textBarHiddenByToggleAll% THEN EXIT FUNCTION ' (F11 holds the panels off)
+    HISTP_wanted% = (CFG.HISTORY_PANEL% <> 0)
+END FUNCTION
+
+
+' =============================================================================
+' The list: a row a step
+' =============================================================================
+
+''
+' A record's name when it has no label: its kind.
+FUNCTION HISTP_kind_name$ (kind AS INTEGER)
+    DIM n AS STRING
+    SELECT CASE kind
+        CASE HISTORY_KIND_LAYER_ADD: n = "New Layer"
+        CASE HISTORY_KIND_LAYER_DELETE: n = "Delete Layer"
+        CASE HISTORY_KIND_LAYER_REORDER: n = "Layer Order"
+        CASE HISTORY_KIND_SELECTION_CHANGE: n = "Selection"
+        CASE HISTORY_KIND_LINE: n = "Line"
+        CASE HISTORY_KIND_RECT: n = "Rectangle"
+        CASE HISTORY_KIND_ELLIPSE: n = "Ellipse"
+        CASE HISTORY_KIND_FILL: n = "Fill"
+        CASE HISTORY_KIND_BRUSH: n = "Brush"
+        CASE HISTORY_KIND_TRANSFORM: n = "Transform"
+        CASE HISTORY_KIND_LAYER_RENAME: n = "Rename Layer"
+        CASE HISTORY_KIND_POLYLINE: n = "Polygon"
+        CASE HISTORY_KIND_LAYER_MERGE: n = "Merge Down"
+        CASE HISTORY_KIND_LAYER_MERGE_VISIBLE: n = "Merge Visible"
+        CASE HISTORY_KIND_RASTERIZE: n = "Rasterize"
+        CASE HISTORY_KIND_GROUP_REPARENT: n = "Move to Group"
+        CASE HISTORY_KIND_MERGE_GROUP: n = "Merge Group"
+        CASE HISTORY_KIND_CANVAS_RESIZE: n = "Resize"
+        CASE HISTORY_KIND_BEZIER: n = "Bezier"
+        CASE HISTORY_KIND_PALETTE: n = "Palette"
+        CASE HISTORY_KIND_ANIM_FRAMES: n = "Frames"
+        CASE HISTORY_KIND_CLIP: n = "Clip Layer"
+        CASE HISTORY_KIND_LAYER_LANES: n = "Keyframes"
+        CASE ELSE: n = "Edit"
+    END SELECT
+    HISTP_kind_name$ = n
+END FUNCTION
+
+
+''
+' The open document's file name (no folder), "" when it has none yet.
+FUNCTION HISTP_doc_name$ ()
+    DIM fn AS STRING, i AS INTEGER
+    IF CURRENT_DRW_FILENAME$ <> "" THEN fn = CURRENT_DRW_FILENAME$ ELSE fn = CURRENT_FILENAME$
+    FOR i = LEN(fn) TO 1 STEP -1
+        IF MID$(fn, i, 1) = "/" _ORELSE MID$(fn, i, 1) = "\" THEN fn = MID$(fn, i + 1): EXIT FOR
+    NEXT i
+    HISTP_doc_name$ = fn
+END FUNCTION
+
+
+''
+' List the history again: HISTP_LAST / HISTP_NAME per row, HISTP.rowsAll, HISTP.cur.
+SUB HISTP_build ()
+    DIM i AS INTEGER, n AS INTEGER, sq AS LONG, lb AS STRING, cnt AS INTEGER
+    cnt = HISTORY.count
+    IF cnt > HISTORY_MAX_RECORDS THEN cnt = HISTORY_MAX_RECORDS
+    HISTP_LAST(0) = 0
+    HISTP_NAME(0) = HISTP_doc_name$
+    n = 0: HISTP.cur = 0
+    i = 1
+    DO WHILE i <= cnt
+        sq = HISTORY_RECORDS(i).sequence
+        n = n + 1
+        lb = ""
+        DO WHILE i <= cnt
+            IF HISTORY_RECORDS(i).sequence <> sq THEN EXIT DO
+            IF LEN(lb) = 0 THEN lb = _TRIM$(HISTORY_RECORDS(i).label)
+            HISTP_LAST(n) = i
+            i = i + 1
+        LOOP
+        IF LEN(lb) = 0 THEN lb = HISTP_kind_name$(HISTORY_RECORDS(HISTP_LAST(n)).kind)
+        HISTP_NAME(n) = lb
+        IF HISTORY.current >= HISTP_LAST(n) THEN HISTP.cur = n
+    LOOP
+    HISTP.rowsAll = n + 1
+END SUB
+
+
+''
+' Each frame while it shows (SCREEN.BM): a changed history is listed again, and the
+' list scrolls to keep the current state in view.
+SUB HISTP_watch ()
+    DIM k AS STRING, c AS INTEGER
+    IF HISTORY.recording THEN EXIT SUB ' (a record half made: next frame)
+    c = HISTORY.count: IF c < 1 THEN c = 1
+    IF c > HISTORY_MAX_RECORDS THEN c = HISTORY_MAX_RECORDS
+    k = STR$(HISTORY.count) + STR$(HISTORY.current) + STR$(UNDO_SEQ) + STR$(HISTORY_RECORDS(1).sequence) + HISTORY_RECORDS(c).label + HISTP_doc_name$
+    IF k = HISTP.seen THEN EXIT SUB
+    HISTP.seen = k
+    HISTP_build
+    HISTP_follow
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Scroll so the current state's row shows.
+SUB HISTP_follow ()
+    IF HISTP.rowsFit < 1 THEN EXIT SUB
+    IF HISTP.cur < HISTP.scroll THEN HISTP.scroll = HISTP.cur
+    IF HISTP.cur >= HISTP.scroll + HISTP.rowsFit THEN HISTP.scroll = HISTP.cur - HISTP.rowsFit + 1
+    HISTP_clamp
+END SUB
+
+
+SUB HISTP_clamp ()
+    IF HISTP.scroll > HISTP.rowsAll - HISTP.rowsFit THEN HISTP.scroll = HISTP.rowsAll - HISTP.rowsFit
+    IF HISTP.scroll < 0 THEN HISTP.scroll = 0
+END SUB
+
+
+' =============================================================================
+' Layout + render
+' =============================================================================
+
+''
+' A row's height (its units): the font's, with room around it.
+FUNCTION HISTP_row_h% ()
+    DIM h AS INTEGER, oldFont AS LONG
+    oldFont = _FONT
+    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+    h = _UFONTHEIGHT + 4
+    _FONT oldFont
+    IF h < 12 THEN h = 12
+    HISTP_row_h% = h
+END FUNCTION
+
+
+''
+' Lay it out in the rect it was given (HISTP.x / y / w / h, its units): the list, the
+' buttons under it.
+SUB HISTP_layout ()
+    DIM i AS INTEGER, bw AS INTEGER, x AS INTEGER
+    HISTP.rowH = HISTP_row_h%
+    HISTP.btnY = HISTP.y + HISTP.h - HISTP.rowH - 2
+    HISTP.listY = HISTP.y + 2
+    HISTP.listH = HISTP.btnY - 2 - HISTP.listY
+    IF HISTP.listH < HISTP.rowH + 2 THEN HISTP.listH = HISTP.rowH + 2
+    HISTP.rowsFit = _MAX(1, (HISTP.listH - 2) \ HISTP.rowH)
+    bw = (HISTP.w - 4 - 2 * 2) \ 3: IF bw < 10 THEN bw = 10
+    x = HISTP.x + 2
+    FOR i = 1 TO 3
+        HISTP_BX(i) = x: HISTP_BW(i) = bw: x = x + bw + 2
+    NEXT i
+    HISTP_clamp
+END SUB
+
+
+''
+' The width it was last laid out at (its units; before the first, a column's).
+FUNCTION HISTP_last_w% ()
+    IF HISTP.w > 0 THEN HISTP_last_w% = HISTP.w ELSE HISTP_last_w% = HISTP_COL_W
+END FUNCTION
+
+
+''
+' The shortest it can be (its units): three rows and the buttons.
+FUNCTION HISTP_min_h% ()
+    HISTP_min_h% = 2 + 3 * HISTP_row_h% + 2 + 2 + HISTP_row_h% + 2
+END FUNCTION
+
+
+''
+' The height it asks of a dock row: ten rows and the buttons.
+FUNCTION HISTP_want_h% ()
+    HISTP_want_h% = 2 + 10 * HISTP_row_h% + 2 + 2 + HISTP_row_h% + 2
+END FUNCTION
+
+
+''
+' Row r's top (its units); FALSE when it is scrolled out of view.
+FUNCTION HISTP_row_y% (r AS INTEGER, ry AS INTEGER)
+    IF r < HISTP.scroll _ORELSE r >= HISTP.scroll + HISTP.rowsFit _ORELSE r >= HISTP.rowsAll THEN EXIT FUNCTION
+    ry = HISTP.listY + 1 + (r - HISTP.scroll) * HISTP.rowH
+    HISTP_row_y% = TRUE
+END FUNCTION
+
+
+''
+' t cut to fit w px, ".." at the end when cut.
+FUNCTION HISTP_fit$ (t AS STRING, w AS INTEGER)
+    DIM s AS STRING
+    s = t
+    IF PSL_tw%(s) <= w THEN HISTP_fit$ = s: EXIT FUNCTION
+    DO WHILE LEN(s) > 0 _ANDALSO PSL_tw%(s + "..") > w
+        s = LEFT$(s, LEN(s) - 1)
+    LOOP
+    HISTP_fit$ = s + ".."
+END FUNCTION
+
+
+''
+' Can button b be pressed now?
+FUNCTION HISTP_btn_on% (b AS INTEGER)
+    SELECT CASE b
+        CASE HISTPB_UNDO: HISTP_btn_on% = (HISTORY.current > 0)
+        CASE HISTPB_REDO: HISTP_btn_on% = (HISTORY.current < HISTORY.count)
+        CASE HISTPB_CLEAR: HISTP_btn_on% = (HISTORY.count > 0)
+    END SELECT
+END FUNCTION
+
+
+FUNCTION HISTP_btn_label$ (b AS INTEGER)
+    SELECT CASE b
+        CASE HISTPB_UNDO: HISTP_btn_label$ = "UNDO"
+        CASE HISTPB_REDO: HISTP_btn_label$ = "REDO"
+        CASE HISTPB_CLEAR: HISTP_btn_label$ = "CLEAR"
+    END SELECT
+END FUNCTION
+
+
+SUB HISTP_render ()
+    DIM oldFont AS LONG, r AS INTEGER, ry AS INTEGER, tx AS INTEGER, tw AS INTEGER, b AS INTEGER
+    DIM fg AS _UNSIGNED LONG, bg AS _UNSIGNED LONG, t AS STRING, lx AS INTEGER, lw AS INTEGER, ty AS INTEGER
+    DIM sx AS INTEGER, sy1 AS INTEGER, sy2 AS INTEGER, th AS INTEGER, thY AS INTEGER, my AS INTEGER, k AS INTEGER
+    IF HISTP.visible = 0 _ORELSE HISTP.w <= 0 _ORELSE HISTP.h <= 0 THEN EXIT SUB
+    LINE (HISTP.x, HISTP.y)-(HISTP.x + HISTP.w - 1, HISTP.y + HISTP.h - 1), THEME.PANEL_bg~&, BF
+    REGION_set_bounds REGION_HISTORY, HISTP.x, HISTP.y, HISTP.w, HISTP.h, ZORDER_PANEL ' (its footprint at a Scale: PSURF_render)
+    HISTP_layout
+    oldFont& = _FONT
+    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+    _PRINTMODE _KEEPBACKGROUND
+    ' the list
+    lx = HISTP.x + 2: lw = HISTP.w - 4
+    LINE (lx, HISTP.listY)-(lx + lw - 1, HISTP.listY + HISTP.listH - 1), THEME.PANEL_list_bg~&, BF
+    LINE (lx, HISTP.listY)-(lx + lw - 1, HISTP.listY + HISTP.listH - 1), THEME.PANEL_list_border~&, B
+    IF THEMEED.started THEN THEMEED_seen _DEST, "", "HISTPL", "HISTORY LIST", lx, HISTP.listY, lw, HISTP.listH, "K:PANEL_LIST_BG|K:PANEL_LIST_BORDER|K:PANEL_LIST_FG|K:PANEL_LIST_HOVER_BG|K:PANEL_LIST_HOVER_FG|K:PANEL_LIST_SEL_BG|K:PANEL_LIST_SEL_FG|K:PANEL_DISABLED_FG|K:PANEL_SCROLLBAR_TRACK|K:PANEL_SCROLLBAR_THUMB" ' Theme Edit (CFG/THEME-EDIT)
+    tx = lx + 10 ' (the current state's marker in the gutter)
+    tw = lx + lw - 1 - HISTP_SB_W - 2 - tx
+    FOR r = HISTP.scroll TO HISTP.scroll + HISTP.rowsFit - 1
+        IF HISTP_row_y%(r, ry) = 0 THEN _CONTINUE
+        IF r = HISTP.cur THEN
+            LINE (lx + 1, ry)-(lx + lw - 2, ry + HISTP.rowH - 1), THEME.PANEL_list_sel_bg~&, BF
+            fg = THEME.PANEL_list_sel_fg~&
+        ELSEIF HISTP.hover = HISTPB_ROW0 + r THEN
+            LINE (lx + 1, ry)-(lx + lw - 2, ry + HISTP.rowH - 1), THEME.PANEL_list_hover_bg~&, BF
+            fg = THEME.PANEL_list_hover_fg~&
+        ELSEIF r > HISTP.cur THEN
+            fg = THEME.PANEL_disabled_fg~& ' (a state redo brings back: dimmed, as Photoshop shows them)
+        ELSE
+            fg = THEME.PANEL_list_fg~&
+        END IF
+        ' the current state: a marker in the gutter
+        IF r = HISTP.cur THEN
+            my = ry + HISTP.rowH \ 2
+            FOR k = 0 TO 3
+                LINE (lx + 3 + k, my - 3 + k)-(lx + 3 + k, my + 3 - k), fg
+            NEXT k
+        END IF
+        IF r = 0 THEN
+            ' the document as opened / created (its file name keeps its case)
+            t = HISTP_doc_name$
+            IF LEN(t) THEN t = "OPEN  " + t ELSE t = "NEW DOCUMENT"
+        ELSE
+            t = UCASE$(HISTP_NAME(r))
+        END IF
+        COLOR fg, _RGBA32(0, 0, 0, 0)
+        ty = ry + (HISTP.rowH - _UFONTHEIGHT) \ 2
+        _UPRINTSTRING (tx, ty), HISTP_fit$(t, tw)
+    NEXT r
+    ' the scroll strip: where the rows in view are
+    IF HISTP.rowsAll > HISTP.rowsFit THEN
+        sx = lx + lw - 1 - HISTP_SB_W
+        sy1 = HISTP.listY + 1: sy2 = HISTP.listY + HISTP.listH - 2
+        LINE (sx, sy1)-(sx + HISTP_SB_W - 2, sy2), THEME.PANEL_scrollbar_track~&, BF
+        th = _MAX(6, (sy2 - sy1 + 1) * HISTP.rowsFit \ HISTP.rowsAll)
+        thY = sy1 + (sy2 - sy1 + 1 - th) * HISTP.scroll \ _MAX(1, HISTP.rowsAll - HISTP.rowsFit)
+        LINE (sx, thY)-(sx + HISTP_SB_W - 2, thY + th - 1), THEME.PANEL_scrollbar_thumb~&, BF
+    END IF
+    ' the buttons
+    FOR b = 1 TO 3
+        IF HISTP_btn_on%(b) = 0 THEN
+            bg = THEME.PANEL_button_disabled_bg~&: fg = THEME.PANEL_disabled_fg~&
+        ELSEIF HISTP.hover = b THEN
+            bg = THEME.PANEL_button_hover_bg~&: fg = THEME.PANEL_button_hover_fg~&
+        ELSE
+            bg = THEME.PANEL_button_bg~&: fg = THEME.PANEL_button_fg~&
+        END IF
+        LINE (HISTP_BX(b), HISTP.btnY + 1)-(HISTP_BX(b) + HISTP_BW(b) - 1, HISTP.btnY + HISTP.rowH), bg, BF
+        LINE (HISTP_BX(b), HISTP.btnY + 1)-(HISTP_BX(b) + HISTP_BW(b) - 1, HISTP.btnY + HISTP.rowH), THEME.PANEL_button_border~&, B
+        IF THEMEED.started THEN THEMEED_seen _DEST, "", "HISTPB:" + _TRIM$(STR$(b)), "HISTORY BUTTON", HISTP_BX(b), HISTP.btnY, HISTP_BW(b), HISTP.rowH + 2, "K:PANEL_BUTTON_BG|K:PANEL_BUTTON_FG|K:PANEL_BUTTON_BORDER|K:PANEL_BUTTON_HOVER_BG|K:PANEL_BUTTON_HOVER_FG|K:PANEL_BUTTON_DISABLED_BG|K:PANEL_DISABLED_FG" ' Theme Edit
+        t = HISTP_fit$(HISTP_btn_label$(b), HISTP_BW(b) - 4)
+        COLOR fg, _RGBA32(0, 0, 0, 0)
+        _UPRINTSTRING (HISTP_BX(b) + (HISTP_BW(b) - PSL_tw%(t)) \ 2, HISTP.btnY + 1 + (HISTP.rowH - _UFONTHEIGHT) \ 2), t
+    NEXT b
+    _FONT oldFont&
+END SUB
+
+
+' =============================================================================
+' Input
+' =============================================================================
+
+''
+' The control or row at (mx, my) - its units - as last laid out: HISTPB_*, 0 = none.
+FUNCTION HISTP_hit% (mx AS INTEGER, my AS INTEGER)
+    DIM b AS INTEGER, r AS INTEGER, lx AS INTEGER, lw AS INTEGER
+    FOR b = 1 TO 3
+        IF mx >= HISTP_BX(b) _ANDALSO mx < HISTP_BX(b) + HISTP_BW(b) _ANDALSO my >= HISTP.btnY _ANDALSO my <= HISTP.btnY + HISTP.rowH THEN HISTP_hit% = b: EXIT FUNCTION
+    NEXT b
+    lx = HISTP.x + 2: lw = HISTP.w - 4
+    IF mx < lx _ORELSE mx >= lx + lw _ORELSE my <= HISTP.listY _ORELSE my >= HISTP.listY + HISTP.listH - 1 THEN EXIT FUNCTION
+    IF HISTP.rowsAll > HISTP.rowsFit _ANDALSO mx >= lx + lw - 2 - HISTP_SB_W THEN HISTP_hit% = HISTPB_SCROLL: EXIT FUNCTION
+    r = HISTP.scroll + (my - HISTP.listY - 1) \ HISTP.rowH
+    IF r >= HISTP.scroll _ANDALSO r < HISTP.scroll + HISTP.rowsFit _ANDALSO r < HISTP.rowsAll THEN HISTP_hit% = HISTPB_ROW0 + r
+END FUNCTION
+
+
+''
+' Is viewport (inX, inY) on the panel? Every click / hover / pan gate asks here.
+FUNCTION HISTP_is_over_area% (inX AS INTEGER, inY AS INTEGER)
+    IF HISTP.visible = 0 _ORELSE HISTP.w <= 0 _ORELSE HISTP.h <= 0 THEN EXIT FUNCTION
+    IF DOCK_live%(DP_HISTORY) = 0 THEN EXIT FUNCTION
+    IF WZ_blocked%(DP_HISTORY, inX, inY) THEN EXIT FUNCTION ' a window in front covers it here
+    IF PSURF_on%(DP_HISTORY) THEN HISTP_is_over_area% = PSURF_in%(DP_HISTORY, inX, inY): EXIT FUNCTION
+    HISTP_is_over_area% = (inX >= HISTP.x _ANDALSO inX < HISTP.x + HISTP.w _ANDALSO inY >= HISTP.y _ANDALSO inY < HISTP.y + HISTP.h)
+END FUNCTION
+
+
+''
+' Hover (viewport px): redraw when the control under it changes.
+SUB HISTP_track (inX AS INTEGER, inY AS INTEGER)
+    DIM h AS INTEGER
+    IF HISTP_is_over_area%(inX, inY) THEN h = HISTP_hit%(PSURF_mx%(DP_HISTORY, inX), PSURF_my%(DP_HISTORY, inY))
+    IF h <> HISTP.hover THEN HISTP.hover = h: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' The scroll strip at viewport-y my (its units): the rows follow the pointer.
+SUB HISTP_scroll_to (my AS INTEGER)
+    DIM sy1 AS INTEGER, sy2 AS INTEGER, span AS INTEGER
+    sy1 = HISTP.listY + 1: sy2 = HISTP.listY + HISTP.listH - 2
+    span = sy2 - sy1: IF span < 1 THEN span = 1
+    HISTP.scroll = CINT((my - sy1) * (HISTP.rowsAll - HISTP.rowsFit) / span)
+    HISTP_clamp
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' A press (viewport px): TRUE when it was on the panel (taken).
+FUNCTION HISTP_click% (inX AS INTEGER, inY AS INTEGER)
+    DIM id AS INTEGER, mx AS INTEGER, my AS INTEGER
+    IF HISTP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    HISTP_click% = TRUE
+    mx = PSURF_mx%(DP_HISTORY, inX): my = PSURF_my%(DP_HISTORY, inY)
+    id = HISTP_hit%(mx, my)
+    SELECT CASE id
+        CASE HISTPB_UNDO: IF HISTP_btn_on%(id) THEN CMD_execute_action 301
+        CASE HISTPB_REDO: IF HISTP_btn_on%(id) THEN CMD_execute_action 302
+        CASE HISTPB_CLEAR: IF HISTP_btn_on%(id) THEN HISTP_clear
+        CASE HISTPB_SCROLL
+            HISTP.drag = TRUE
+            HISTP_scroll_to my
+        CASE IS >= HISTPB_ROW0
+            HISTP_goto id - HISTPB_ROW0
+    END SELECT
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+
+''
+' Each frame while the scroll strip is held (MOUSE.BM): follow the pointer. TRUE while
+' it holds the mouse.
+FUNCTION HISTP_drag_frame% (inY AS INTEGER, held AS INTEGER)
+    IF HISTP.drag = 0 THEN EXIT FUNCTION
+    HISTP_drag_frame% = TRUE
+    IF held = 0 _ORELSE HISTP.visible = 0 THEN
+        HISTP.drag = 0
+        GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        EXIT FUNCTION
+    END IF
+    HISTP_scroll_to PSURF_my%(DP_HISTORY, inY)
+END FUNCTION
+
+
+''
+' The wheel: a row a notch (Shift: 10 - the universal value step). TRUE when on the panel.
+FUNCTION HISTP_wheel% (inX AS INTEGER, inY AS INTEGER, delta AS INTEGER)
+    IF delta = 0 _ORELSE HISTP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    HISTP_wheel% = TRUE
+    HISTP.scroll = HISTP.scroll - VAL_wheel_step%(SGN(delta)) ' (a value step is + for the wheel up: the list goes up)
+    HISTP_clamp
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+
+''
+' A right-click (viewport px): its menu. TRUE when on the panel.
+FUNCTION HISTP_right% (inX AS INTEGER, inY AS INTEGER)
+    IF HISTP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    HISTP_right% = TRUE
+    HISTP_MENU_NEXT = TRUE
+    DOCK_menu_open DP_HISTORY, inX, inY
+END FUNCTION
+
+
+''
+' DOCK_menu_build for the right-click menu.
+SUB HISTP_menu_build ()
+    DIM n AS INTEGER
+    POPUP_MENU_clear_items
+    POPUP_MENU_set_item n, "History", "", -1, POPUP_MENU_FLAG_DISABLED: n = n + 1
+    POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    POPUP_MENU_set_item n, "Step Backward", "Ctrl+Z", HISTP_MV_UNDO, _IIF(HISTP_btn_on%(HISTPB_UNDO), 0, POPUP_MENU_FLAG_DISABLED): n = n + 1
+    POPUP_MENU_set_item n, "Step Forward", "Ctrl+Y", HISTP_MV_REDO, _IIF(HISTP_btn_on%(HISTPB_REDO), 0, POPUP_MENU_FLAG_DISABLED): n = n + 1
+    POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    POPUP_MENU_set_item n, "Clear History...", "", HISTP_MV_CLEAR, _IIF(HISTP_btn_on%(HISTPB_CLEAR), 0, POPUP_MENU_FLAG_DISABLED): n = n + 1
+    DOCK_UI.menuN = n
+END SUB
+
+
+''
+' A right-click menu row was picked.
+SUB HISTP_menu_do (act AS INTEGER)
+    SELECT CASE act
+        CASE HISTP_MV_UNDO: CMD_execute_action 301
+        CASE HISTP_MV_REDO: CMD_execute_action 302
+        CASE HISTP_MV_CLEAR: CMD_execute_action HISTP_ACT_CLEAR
+    END SELECT
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Go to the state of row r: undo / redo (actions 301 / 302, as Ctrl+Z / Ctrl+Y) until
+' the history is there. A press that moves nothing (Undo first cancelling a Move in
+' progress) is allowed once; a second stops it.
+SUB HISTP_goto (r AS INTEGER)
+    DIM target AS INTEGER, before AS INTEGER, stall AS INTEGER, guard AS INTEGER
+    IF r < 0 _ORELSE r >= HISTP.rowsAll THEN EXIT SUB
+    target = HISTP_LAST(r)
+    DO WHILE HISTORY.current <> target _ANDALSO guard < HISTORY_MAX_RECORDS * 2
+        before = HISTORY.current
+        IF HISTORY.current > target THEN CMD_execute_action 301 ELSE CMD_execute_action 302
+        IF HISTORY.current = before THEN
+            stall = stall + 1
+            IF stall > 1 THEN EXIT DO
+        ELSE
+            stall = 0
+        END IF
+        guard = guard + 1
+    LOOP
+    HISTP_watch
+    IF r = 0 THEN STATUS_flash "HISTORY: THE DOCUMENT AS OPENED" ELSE STATUS_flash "HISTORY: " + UCASE$(HISTP_NAME(r))
+END SUB
+
+
+''
+' Edit > Clear History: every undo step goes (asks first). The pictures stay as they are.
+SUB HISTP_clear ()
+    IF HISTORY.count < 1 THEN STATUS_flash "HISTORY IS EMPTY": EXIT SUB
+    IF DRAW_confirm%("Clear History", "Remove all " + _TRIM$(STR$(HISTORY.count)) + " undo steps? The picture stays as it is; this cannot be undone.") = 0 THEN EXIT SUB
+    HISTORY_clear
+    HISTP.scroll = 0
+    STATUS_flash "HISTORY CLEARED"
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' View > History.
+SUB HISTP_toggle ()
+    CFG.HISTORY_PANEL% = _IIF(CFG.HISTORY_PANEL%, FALSE, TRUE)
+    CONFIG_save
+    HISTP.seen = "" ' (listed again when it shows)
+    STATUS_flash "HISTORY " + _IIF(CFG.HISTORY_PANEL%, "ON", "OFF")
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' What the control under the pointer is (tooltips): non-zero id, txt = the text.
+FUNCTION HISTP_tip_at% (inX AS INTEGER, inY AS INTEGER, txt AS STRING)
+    DIM id AS INTEGER, r AS INTEGER
+    txt = ""
+    IF HISTP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    id = HISTP_hit%(PSURF_mx%(DP_HISTORY, inX), PSURF_my%(DP_HISTORY, inY))
+    SELECT CASE id
+        CASE HISTPB_UNDO: txt = "UNDO - STEP BACKWARD (CTRL+Z)"
+        CASE HISTPB_REDO: txt = "REDO - STEP FORWARD (CTRL+Y)"
+        CASE HISTPB_CLEAR: txt = "CLEAR HISTORY: REMOVE EVERY UNDO STEP (ASKS FIRST)"
+        CASE HISTPB_SCROLL: txt = "DRAG TO SCROLL THE HISTORY"
+        CASE IS >= HISTPB_ROW0
+            r = id - HISTPB_ROW0
+            IF r = 0 THEN
+                txt = "THE DOCUMENT AS OPENED OR CREATED"
+            ELSE
+                txt = UCASE$(HISTP_NAME(r))
+                IF HISTP_LAST(r) - HISTP_LAST(r - 1) > 1 THEN txt = txt + " (" + _TRIM$(STR$(HISTP_LAST(r) - HISTP_LAST(r - 1))) + " CHANGES IN ONE STEP)"
+            END IF
+            IF r = HISTP.cur THEN
+                txt = txt + CHR$(10) + "THE CURRENT STATE"
+            ELSEIF r < HISTP.cur THEN
+                txt = txt + CHR$(10) + "CLICK: UNDO BACK TO THIS STATE"
+            ELSE
+                txt = txt + CHR$(10) + "CLICK: REDO FORWARD TO THIS STATE"
+            END IF
+    END SELECT
+    IF LEN(txt) THEN HISTP_tip_at% = 3000 + id ' (rows: 3100 +)
+END FUNCTION
+
+
+''
+' QA dump: HISTP visible x y w h rowH rowsFit rowsAll scroll cur listY listH btnY hover,
+' then HISTPB b x y w per button and HISTPR row last-record name per row (its units).
+FUNCTION HISTP_dump$ ()
+    DIM d AS STRING, lf AS STRING, i AS INTEGER
+    lf = CHR$(10)
+    d = "HISTP" + DOCK_n$(HISTP.visible <> 0) + DOCK_n$(HISTP.x) + DOCK_n$(HISTP.y) + DOCK_n$(HISTP.w) + DOCK_n$(HISTP.h)
+    d = d + DOCK_n$(HISTP.rowH) + DOCK_n$(HISTP.rowsFit) + DOCK_n$(HISTP.rowsAll) + DOCK_n$(HISTP.scroll) + DOCK_n$(HISTP.cur)
+    d = d + DOCK_n$(HISTP.listY) + DOCK_n$(HISTP.listH) + DOCK_n$(HISTP.btnY) + DOCK_n$(HISTP.hover) + lf
+    IF HISTP.visible THEN
+        FOR i = 1 TO 3
+            d = d + "HISTPB" + DOCK_n$(i) + DOCK_n$(HISTP_BX(i)) + DOCK_n$(HISTP.btnY) + DOCK_n$(HISTP_BW(i)) + lf
+        NEXT i
+        FOR i = 0 TO _MIN(HISTP.rowsAll - 1, 200)
+            d = d + "HISTPR" + DOCK_n$(i) + DOCK_n$(HISTP_LAST(i)) + " " + _IIF(i = 0, "(document)", HISTP_NAME(i)) + lf
+        NEXT i
+    END IF
+    HISTP_dump$ = d
+END FUNCTION

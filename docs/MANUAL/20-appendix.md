@@ -112,6 +112,10 @@ The complete, always-up-to-date list of keyboard **and mouse** shortcuts lives i
 | Action | Shortcut |
 | --- | --- |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Y` |
+| History palette (show / hide) | View > History |
+| Clear History | Edit > Clear History... |
+| Actions palette (show / hide) | View > Actions |
+| Record / Stop / Play an action | Actions palette REC / STOP / PLAY (or the command palette: *Actions: ...*) |
 | Clear (selection or layer) | `Delete` or `Ctrl+E` |
 | Fill FG / BG | `Backspace` / `Shift+Backspace` |
 

@@ -729,6 +729,10 @@ TYPE DRAW_CONFIG
     BRUSH_PANEL                     AS INTEGER        ' TRUE = View > Brush Palette shows
     BRUSH_PANEL_SCALE               AS SINGLE         ' its own Scale (0 = the UI Scale)
     BRUSH_PANEL_CELL                AS INTEGER        ' its thumbnail cells, px (16..64)
+    HISTORY_PANEL                   AS INTEGER        ' TRUE = View > History shows (GUI/HISTORY-PANEL)
+    HISTORY_PANEL_SCALE             AS SINGLE         ' its own Scale (0 = the UI Scale)
+    ACTIONS_PANEL                   AS INTEGER        ' TRUE = View > Actions shows (GUI/ACTIONS-PANEL)
+    ACTIONS_PANEL_SCALE             AS SINGLE         ' its own Scale (0 = the UI Scale)
     BRUSH_SOFT                      AS INTEGER        ' the brush's edge softness, % (0 = hard .. 100; round and slant brushes)
     ' CRT overlay effect settings (presentation-only, never written to canvas)
     CRT_ENABLED                     AS INTEGER        ' Master on/off

@@ -132,6 +132,10 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Backspace` | Fill with foreground color |
 | `Shift+Backspace` | Fill with background color |
 
+**History palette** (View → History): `Click` a row = go to that state (undo / redo until there) · `R-Click` Step Backward / Step Forward / Clear History · `Wheel` scroll (`Shift` 10 rows) · UNDO / REDO / CLEAR buttons. Edit → Clear History... removes every undo step (asks).
+
+**Actions palette** (View → Actions): `Click` select · `Double-click` a set / action = rename · its triangle = fold · on box = play / skip · dialog box (steps) · `R-Click` Play / Record / Stop / New Set / New Action / Rename / Duplicate / Delete / Reload · `Wheel` scroll (`Shift` 10 rows) · STOP / REC / PLAY / NEW SET / NEW ACTION / DELETE buttons. Also in the command palette as *Actions: Record*, *Stop Recording*, *Play Selection*, *New Set*, *New Action*, *Delete Selection*.
+
 **Paste workflow:** select (`M`/`W`) → `Ctrl+C`/`Ctrl+X` → `Ctrl+V` (floats centered on the canvas, auto-engages Move) → drag to reposition (`Alt+drag` stamps copies) → `Enter` apply / `Esc` cancel. (`Ctrl+Z` removes a paste.)
 
 ---

@@ -125,7 +125,9 @@ CONST REGION_SEL_BAR              = 35              ' Selection Bar dock panel (
 CONST REGION_MYPAINT              = 36              ' MyPaint brush palette dock panel (GUI/MYPAINT-PANEL)
 CONST REGION_MYPSET               = 37              ' MyPaint Brush Settings dock panel (GUI/MYPAINT-SET)
 CONST REGION_BRUSHES              = 38              ' brush palette dock panel (GUI/BRUSH-PANEL)
-' --- 39-63 reserved ---
+CONST REGION_HISTORY              = 39              ' History palette dock panel (GUI/HISTORY-PANEL)
+CONST REGION_ACTIONS              = 40              ' Actions palette dock panel (GUI/ACTIONS-PANEL)
+' --- 41-63 reserved ---
 
 CONST REGION_TABLE_SIZE = 64                        ' max regions; bumps require type fitness check
 

@@ -131,3 +131,5 @@
 - [Theme Edit: everything editable](theme-edit-everything-editable.md) — Rick's rule: anything on screen must be pickable + editable (custom slots, fallback art too); add tree nodes, EDIT makes missing art (11-21)
 - [Wait loops must not match themselves](wait-loop-self-match.md) — pgrep -x names + mtime + timeout, or run_in_background; pgrep -f found its own shell
 - [QA fresh XDG -> migrate dialog](qa-fresh-xdg-migrate-dialog.md) — [Linux] tests with own XDG_CONFIG_HOME hang on "Migrate settings" (USER/ in repo, no repo-root marker)
+- [Commit Rick's own changed files too](commit-include-ricks-files.md) — "commit and push" means everything changed, incl. his art; never omit them on my own
+- [QB64-PE PRINT # writes CRLF](qb64pe-print-file-crlf.md) — [Linux] DRAW's text files end CRLF; QA greps need tr -d '\r' (11-22)
