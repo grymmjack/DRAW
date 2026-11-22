@@ -53,7 +53,12 @@ Phase 2 started 2026-11-22: the kit in TOOLS/ACTIONS (`ACTS_prm_lng&` / `ACTS_pr
 step) and two dialogs wired - Posterize (LEVELS / DITHER / STRENGTH) and Resize Image with
 Content (typed: W / H; only X2 / /2 pressed: DOUBLE = net presses, so it scales any image).
 A wired dialog: read each value, `DO WHILE ctx.done = 0` (skipped when silent), put / cancel
-after. The other dialogs (IMAGE-ADJ has ~70) open on play as before - wire them as needed.
+after. Then all of IMAGE-ADJ (70 dialogs, wired by a script: each state variable read with
+`ACTS_prm_num#`, put under its own name in upper case; values are DOUBLE so fractional
+sliders survive) and Remap to Palette (DITHER / STRENGTH). Remove Background is left out (it
+picks colours off the image, so a replay of fixed values is not meaningful). Other dialogs
+outside these still open on play.
+History and Actions show a dock title strip (`DOCK_slot_titled%`) even as a lone tab.
 Not yet: insert stop, a hotkey per action, Batch, tool strokes (phase 3).
 
 Design notes as planned:

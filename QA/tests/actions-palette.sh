@@ -179,9 +179,26 @@ ap_btn 3; ap_read
 (( A_RUN == 1 && A_PLAY == 0 )) && pass "PLAY ran it with no dialog (ran $A_RUN)" || fail "PLAY: ran '$A_RUN' playing '$A_PLAY' (a dialog waiting?)"
 screenshot "actions-palette-posterize-played"
 key Escape; dk_park
+# a dialog wired by the IMAGE-ADJ sweep (Pixelate: PIXSIZE) and Remap to Palette (DITHER / STRENGTH)
+ap_find "QA Post" 1; ap_click "$R_ROW" name
+ap_btn 2
+pcmd "Pixelate..."; key Return; wait_for 1.0 "pixelated"; dk_park; dk_settle
+pcmd "Remap to Palette..."; key Return; wait_for 1.0 "remapped"; dk_park; dk_settle
+ap_btn 1
+(( $(steps_of "QA Post") == 3 )) && setf | grep -A1 '^STEP 2010 1 0 Pixelate...$' | grep -q '^PARAM PIXSIZE=[0-9]' \
+    && pass "REC added Pixelate with its value (PIXSIZE)" || fail "after REC: $(steps_of "QA Post") steps; file: $(setf | grep -A8 '^ACTION 1 1 QA Post$' | tr '\n' '|')"
+setf | grep -A2 '^STEP 1516 1 0 Remap to Palette...$' | tr '\n' ' ' | grep -q 'PARAM DITHER=[-0-9]* PARAM STRENGTH=50' \
+    && pass "REC added Remap to Palette with its values (DITHER / STRENGTH)" || fail "file: $(setf | grep -A8 '^ACTION 1 1 QA Post$' | tr '\n' '|')"
+ap_find "QA Post" 1; ap_click "$R_ROW" name
+ap_btn 3; ap_read
+(( A_RUN == 3 && A_PLAY == 0 )) && pass "PLAY ran Posterize + Pixelate + Remap with no dialog" || fail "PLAY: ran '$A_RUN' playing '$A_PLAY'"
+key Escape; dk_park
 
 # --- 6. fold -------------------------------------------------------------------------------------------
-ap_read; RA0=$A_RA
+# the list followed the selection down (10 rows now): wheel it back to the top so row 1 is on screen
+ap_read; for _i in 1 2 3 4 5; do (( A_SC > 0 )) || break; scroll_up "$(vx $(( A_X + 60 )))" "$(vy $(( A_LY + 4 )))"; wait_for 0.3 "list up"; dk_park; ap_read; done
+(( A_SC == 0 )) || fail "list still scrolled ($A_SC) before the fold checks"
+RA0=$A_RA
 ap_find "Default Actions" 0; ap_click "$R_ROW" fold; ap_read
 (( A_RA == 1 )) && pass "the set's triangle folds it (1 row)" || fail "folded: $A_RA rows"
 screenshot "actions-palette-folded"
