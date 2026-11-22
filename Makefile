@@ -174,6 +174,8 @@ $(OUT): $(SOURCES)
 	@# CFG/THEME-USES.BM (which theme keys each routine reads - the inspector's
 	@# COMPUTED properties) follows every source edit, so it is rewritten, not checked.
 	@if command -v python3 >/dev/null 2>&1; then python3 DEV/theme-uses-gen.py; fi
+	@# A theme key read by two kinds of control (DEV/theme-share-audit.py) - reported, not fatal.
+	@if command -v python3 >/dev/null 2>&1; then python3 DEV/theme-share-audit.py || true; fi
 	$(QB64PE) $(QB64FLAGS) $(SRC) -o $(OUT) 2>&1 \
 	    | sed -u 's/\x1b\[[0-9;]*[A-Za-z]//g' \
 	    | grep --line-buffered -v '^\[[ .]*\][[:space:]]*[0-9]\+%' \

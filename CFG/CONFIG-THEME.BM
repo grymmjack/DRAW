@@ -102,6 +102,7 @@ SUB THEME_load_theme (themeName AS STRING)
     DIM section$
     DIM bracketEnd%
     DIM unknownKeys%
+    DIM fileKeys$ ' CHR$(1) KEY CHR$(2) value, per line the file set (THEME_inherit)
 
     themeCfgPath$ = "ASSETS/THEMES/" + _TRIM$(themeName$) + "/THEME.CFG"
     IF NOT _FILEEXISTS(themeCfgPath$) THEN
@@ -110,9 +111,6 @@ SUB THEME_load_theme (themeName AS STRING)
     END IF
 
     section$ = ""
-    ' DIALOG_CHECKBOX_BG came after most themes: one without it keeps its checkboxes
-    ' the dialog's own colour (0 = not in the file, settled after the loop)
-    THEME.DIALOG_checkbox_bg~& = 0
     fh%      = FREEFILE
     OPEN themeCfgPath$ FOR INPUT AS #fh%
     DO WHILE NOT EOF(fh%)
@@ -134,13 +132,73 @@ SUB THEME_load_theme (themeName AS STRING)
                 val$ = _TRIM$(MID$(ln$, eqPos% + 1))
 
                 IF THEME_apply_kv%(key$, val$) = 0 THEN unknownKeys% = unknownKeys% + 1
+                fileKeys$ = fileKeys$ + CHR$(1) + key$ + CHR$(2) + val$
             END IF
         END IF
     LOOP
     CLOSE #fh%
-    IF THEME.DIALOG_checkbox_bg~& = 0 THEN THEME.DIALOG_checkbox_bg~& = THEME.DIALOG_bg~&
+    THEME_inherit fileKeys$
     section$ = "" ' suppress unused-variable warning
     _LOGINFO "THEME_load: loaded " + themeCfgPath$ + _IIF(unknownKeys% > 0, " (" + _TRIM$(STR$(unknownKeys%)) + " unknown keys ignored)", "")
+END SUB
+
+''
+' Theme keys split off an older, shared key: "CHILD=PARENT ..." (parents before their
+' children). A theme file that sets PARENT but not CHILD gives CHILD the parent's value,
+' so a theme made before the split keeps its look (THEME_inherit). A key with no parent
+' here takes its compiled default when the file lacks it.
+'
+FUNCTION THEME_inherit_list$
+    DIM acc AS STRING
+    acc$ = "DIALOG_CHECKBOX_BG=DIALOG_BG DIALOG_BUTTON_BG=DIALOG_TOGGLE_BG DIALOG_BUTTON_HOVER_BG=DIALOG_TOGGLE_SEL_BG DIALOG_BUTTON_BORDER=DIALOG_TOGGLE_BORDER"
+    acc$ = acc$ + " DIALOG_BUTTON_DISABLED_FG=DIALOG_PREVIEW_LABEL_FG DIALOG_BUTTON_PRIMARY_FG=DIALOG_BUTTON_FG DIALOG_BUTTON_CANCEL_FG=DIALOG_BUTTON_FG"
+    acc$ = acc$ + " DIALOG_BUTTON_DANGER_FG=DIALOG_BUTTON_FG DIALOG_BUTTON_WARN_FG=DIALOG_BUTTON_FG DIALOG_BUTTON_ACCENT_FG=DIALOG_BUTTON_FG"
+    acc$ = acc$ + " DIALOG_TOGGLE_HOVER_BG=DIALOG_TITLE_HOVER_BG DIALOG_CHECKBOX_BORDER=DIALOG_TOGGLE_BORDER DIALOG_CHECKBOX_HOVER_BORDER=DIALOG_TOGGLE_SEL_BORDER"
+    acc$ = acc$ + " DIALOG_CHECKBOX_CHECKED_BG=DIALOG_TOGGLE_SEL_BG DIALOG_CHECKBOX_MARK=DIALOG_TOGGLE_SEL_FG DIALOG_FIELD_BG=DIALOG_SLIDER_TRACK_BG"
+    acc$ = acc$ + " DIALOG_FIELD_BORDER=DIALOG_SLIDER_TRACK_BORDER DIALOG_FIELD_FG=DIALOG_SLIDER_VALUE_FG DIALOG_FIELD_HINT_FG=DIALOG_TOGGLE_SEL_BG"
+    acc$ = acc$ + " DIALOG_FIELD_HOVER_BG=DIALOG_TOGGLE_SEL_BG DIALOG_FIELD_ACTIVE_BG=DIALOG_TOGGLE_SEL_BG DIALOG_FIELD_ACTIVE_FG=DIALOG_TOGGLE_SEL_FG"
+    acc$ = acc$ + " DIALOG_FIELD_ACTIVE_BORDER=DIALOG_TOGGLE_SEL_BORDER DIALOG_LIST_BG=DIALOG_BG DIALOG_LIST_BORDER=DIALOG_TOGGLE_BORDER DIALOG_LIST_FG=DIALOG_LABEL_FG"
+    acc$ = acc$ + " DIALOG_LIST_HOVER_BG=DIALOG_TITLE_HOVER_BG DIALOG_LIST_HOVER_FG=DIALOG_LABEL_FG DIALOG_LIST_SEL_BG=DIALOG_TOGGLE_SEL_BG"
+    acc$ = acc$ + " DIALOG_LIST_SEL_FG=DIALOG_TOGGLE_SEL_FG DIALOG_LIST_HEADER_BG=DIALOG_TITLE_BG DIALOG_LIST_HEADER_FG=DIALOG_TITLE_FG DIALOG_TAB_FG=DIALOG_LABEL_FG"
+    acc$ = acc$ + " DIALOG_TAB_HOVER_BG=DIALOG_TOGGLE_BG DIALOG_TAB_HOVER_FG=DIALOG_TOGGLE_FG DIALOG_TAB_SEL_BG=DIALOG_TOGGLE_SEL_BG"
+    acc$ = acc$ + " DIALOG_TAB_SEL_FG=DIALOG_TOGGLE_SEL_FG DIALOG_SECTION_FG=DIALOG_TITLE_FG DIALOG_DIVIDER=DIALOG_BORDER_INNER DIALOG_SWATCH_BORDER=DIALOG_TOGGLE_BORDER"
+    acc$ = acc$ + " DIALOG_SWATCH_HOVER_BORDER=DIALOG_TOGGLE_SEL_BORDER"
+    acc$ = acc$ + " DIALOG_FIELD_SELECTION_BG=DIALOG_TOGGLE_SEL_BG DIALOG_BAR_BG=DIALOG_BG DIALOG_STATUS_FG=DIALOG_TOGGLE_SEL_FG DIALOG_CHANGED_BG=DIALOG_TOGGLE_SEL_BG DIALOG_CHANGED_FG=DIALOG_TOGGLE_SEL_FG"
+    THEME_inherit_list$ = acc$
+END FUNCTION
+
+''
+' After a theme file is read: each CHILD the file did not set takes its PARENT's value
+' from the file (THEME_inherit_list$). fileKeys$ = CHR$(1) KEY CHR$(2) value per line read;
+' keys set here are added to it, so a chain of splits follows through.
+' @param fileKeys$ STRING the keys the file set (grows)
+'
+SUB THEME_inherit (fileKeys AS STRING)
+    DIM lst AS STRING, p AS LONG, q AS LONG, pair AS STRING, eq AS INTEGER
+    DIM child AS STRING, parent AS STRING, at AS LONG, e AS LONG, v AS STRING
+    lst$ = THEME_inherit_list$ + " "
+    p& = 1
+    DO
+        q& = INSTR(p&, lst$, " ")
+        IF q& = 0 THEN EXIT DO
+        pair$ = MID$(lst$, p&, q& - p&)
+        p& = q& + 1
+        eq% = INSTR(pair$, "=")
+        IF eq% > 0 THEN
+            child$ = LEFT$(pair$, eq% - 1)
+            parent$ = MID$(pair$, eq% + 1)
+            IF INSTR(fileKeys$, CHR$(1) + child$ + CHR$(2)) = 0 THEN
+                at& = _INSTRREV(fileKeys$, CHR$(1) + parent$ + CHR$(2))
+                IF at& > 0 THEN
+                    at& = at& + LEN(parent$) + 2
+                    e& = INSTR(at&, fileKeys$, CHR$(1))
+                    IF e& = 0 THEN e& = LEN(fileKeys$) + 1
+                    v$ = MID$(fileKeys$, at&, e& - at&)
+                    IF THEME_apply_kv%(child$, v$) THEN fileKeys$ = fileKeys$ + CHR$(1) + child$ + CHR$(2) + v$
+                END IF
+            END IF
+        END IF
+    LOOP
 END SUB
 
 ''
@@ -662,6 +720,70 @@ FUNCTION THEME_apply_kv% (key$, val$)
         CASE "DIALOG_TOGGLE_FG"           : THEME.DIALOG_toggle_fg~&           = THEME_parse_rgba~&(val$)
         CASE "DIALOG_TOGGLE_BORDER"       : THEME.DIALOG_toggle_border~&       = THEME_parse_rgba~&(val$)
         CASE "DIALOG_CHECKBOX_BG"         : THEME.DIALOG_checkbox_bg~&         = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_BG"               : THEME.DIALOG_button_bg~&                 = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_HOVER_BG"         : THEME.DIALOG_button_hover_bg~&           = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_BORDER"           : THEME.DIALOG_button_border~&             = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_DISABLED_FG"      : THEME.DIALOG_button_disabled_fg~&        = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_PRIMARY_BG"       : THEME.DIALOG_button_primary_bg~&         = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_PRIMARY_HOVER_BG" : THEME.DIALOG_button_primary_hover_bg~&   = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_PRIMARY_BORDER"   : THEME.DIALOG_button_primary_border~&     = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_PRIMARY_FG"       : THEME.DIALOG_button_primary_fg~&         = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_CANCEL_BG"        : THEME.DIALOG_button_cancel_bg~&          = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_CANCEL_HOVER_BG"  : THEME.DIALOG_button_cancel_hover_bg~&    = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_CANCEL_BORDER"    : THEME.DIALOG_button_cancel_border~&      = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_CANCEL_FG"        : THEME.DIALOG_button_cancel_fg~&          = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_DANGER_BG"        : THEME.DIALOG_button_danger_bg~&          = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_DANGER_HOVER_BG"  : THEME.DIALOG_button_danger_hover_bg~&    = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_DANGER_BORDER"    : THEME.DIALOG_button_danger_border~&      = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_DANGER_FG"        : THEME.DIALOG_button_danger_fg~&          = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_WARN_BG"          : THEME.DIALOG_button_warn_bg~&            = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_WARN_HOVER_BG"    : THEME.DIALOG_button_warn_hover_bg~&      = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_WARN_BORDER"      : THEME.DIALOG_button_warn_border~&        = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_WARN_FG"          : THEME.DIALOG_button_warn_fg~&            = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_ACCENT_BG"        : THEME.DIALOG_button_accent_bg~&          = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_ACCENT_HOVER_BG"  : THEME.DIALOG_button_accent_hover_bg~&    = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_ACCENT_BORDER"    : THEME.DIALOG_button_accent_border~&      = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BUTTON_ACCENT_FG"        : THEME.DIALOG_button_accent_fg~&          = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_TOGGLE_HOVER_BG"         : THEME.DIALOG_toggle_hover_bg~&           = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_CHECKBOX_BORDER"         : THEME.DIALOG_checkbox_border~&           = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_CHECKBOX_HOVER_BORDER"   : THEME.DIALOG_checkbox_hover_border~&     = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_CHECKBOX_CHECKED_BG"     : THEME.DIALOG_checkbox_checked_bg~&       = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_CHECKBOX_MARK"           : THEME.DIALOG_checkbox_mark~&             = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_FIELD_BG"                : THEME.DIALOG_field_bg~&                  = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_FIELD_BORDER"            : THEME.DIALOG_field_border~&              = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_FIELD_FG"                : THEME.DIALOG_field_fg~&                  = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_FIELD_HINT_FG"           : THEME.DIALOG_field_hint_fg~&             = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_FIELD_HOVER_BG"          : THEME.DIALOG_field_hover_bg~&            = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_FIELD_ACTIVE_BG"         : THEME.DIALOG_field_active_bg~&           = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_FIELD_ACTIVE_FG"         : THEME.DIALOG_field_active_fg~&           = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_FIELD_ACTIVE_BORDER"     : THEME.DIALOG_field_active_border~&       = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_LIST_BG"                 : THEME.DIALOG_list_bg~&                   = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_LIST_BORDER"             : THEME.DIALOG_list_border~&               = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_LIST_FG"                 : THEME.DIALOG_list_fg~&                   = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_LIST_HOVER_BG"           : THEME.DIALOG_list_hover_bg~&             = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_LIST_HOVER_FG"           : THEME.DIALOG_list_hover_fg~&             = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_LIST_SEL_BG"             : THEME.DIALOG_list_sel_bg~&               = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_LIST_SEL_FG"             : THEME.DIALOG_list_sel_fg~&               = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_LIST_HEADER_BG"          : THEME.DIALOG_list_header_bg~&            = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_LIST_HEADER_FG"          : THEME.DIALOG_list_header_fg~&            = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_TAB_FG"                  : THEME.DIALOG_tab_fg~&                    = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_TAB_HOVER_BG"            : THEME.DIALOG_tab_hover_bg~&              = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_TAB_HOVER_FG"            : THEME.DIALOG_tab_hover_fg~&              = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_TAB_SEL_BG"              : THEME.DIALOG_tab_sel_bg~&                = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_TAB_SEL_FG"              : THEME.DIALOG_tab_sel_fg~&                = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_SECTION_FG"              : THEME.DIALOG_section_fg~&                = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_DIVIDER"                 : THEME.DIALOG_divider~&                   = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_SWATCH_BORDER"           : THEME.DIALOG_swatch_border~&             = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_SWATCH_HOVER_BORDER"     : THEME.DIALOG_swatch_hover_border~&       = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_FIELD_SELECTION_BG"      : THEME.DIALOG_field_selection_bg~&        = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_BAR_BG"                  : THEME.DIALOG_bar_bg~&                    = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_TAB_BAR_BG"              : THEME.DIALOG_tab_bar_bg~&                = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_SCROLLBAR_TRACK"         : THEME.DIALOG_scrollbar_track~&           = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_SCROLLBAR_THUMB"         : THEME.DIALOG_scrollbar_thumb~&           = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_STATUS_FG"               : THEME.DIALOG_status_fg~&                 = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_WARNING_FG"              : THEME.DIALOG_warning_fg~&                = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_CHANGED_BG"              : THEME.DIALOG_changed_bg~&                = THEME_parse_rgba~&(val$)
+        CASE "DIALOG_CHANGED_FG"              : THEME.DIALOG_changed_fg~&                = THEME_parse_rgba~&(val$)
         CASE "DIALOG_LABEL_FG"            : THEME.DIALOG_label_fg~&            = THEME_parse_rgba~&(val$)
         CASE "DIALOG_SLIDER_TRACK_BG"     : THEME.DIALOG_slider_track_bg~&     = THEME_parse_rgba~&(val$)
         CASE "DIALOG_SLIDER_TRACK_BORDER" : THEME.DIALOG_slider_track_border~& = THEME_parse_rgba~&(val$)

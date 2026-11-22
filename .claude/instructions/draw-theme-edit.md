@@ -19,10 +19,8 @@ Spec and plan: `PLANS/THEME-EDIT.md`. This file is the working guide.
    the CASE line (`VAL` -> INT/REAL, `THEME_parse_rgba` -> COLOR, `val$` -> TEXT, re-typed
    IMAGE / FONT / SOUND from the DEFAULT sample value's extension); the section and description
    come from `ASSETS/THEMES/DEFAULT/THEME.CFG` and the `CONFIG-THEME.BI` field comment.
-   A key that splits off an existing one (themes already in the wild lack it) needs a fallback, or
-   those themes get the compiled DEFAULT colour: `DIALOG_CHECKBOX_BG` is zeroed before
-   `THEME_load_theme` reads the file and set from `DIALOG_BG` after when the file did not give it.
-   Add it to DEFAULT + DARK `THEME.CFG` / `THEME.BI` too.
+   A key that splits off an existing shared one: see "One kind of control, one set of keys"
+   below (`THEME_inherit_list$`, so older themes keep their look).
 3. A new panel / section the inspector should map to: `THEMEED_register` (component sections and
    image folders) and `THEMEED_comp_for_region%` (REGION_ -> component).
 
@@ -172,6 +170,41 @@ include-time loop in `CFG/CLI-QUERY.BI` (also in `CLI_is_query_run%`, so it clai
 state), compares with `_READFILE$`, skips dot names / root THEME.CFG + THEME.BI. Backups of B's
 overwritten files go to `ASSETS/THEME-BACKUPS/B-sync-<stamp>/` and are checked before the overwrite.
 Answers come through `THEMEED_ask_line$` (EOF = "" = no).
+
+## One kind of control, one set of keys (Rick, 2026-11-21)
+
+**No theme key is shared by two different kinds of control.** Controls of the same kind share
+their kind's keys (every dialog checkbox reads `DIALOG_CHECKBOX_*`), never another kind's (a
+checkbox must not read `DIALOG_TOGGLE_*`, a field must not read `DIALOG_SLIDER_*`). Kinds are
+per surface (a dialog checkbox and a panel checkbox are different kinds) and grouped logically -
+no per-dialog / per-instance overrides. Each kind is decomposed into the parts it really draws
+(bg / border / fg / hover / selected / active ...). Text is never drawn in a `*_BG` key.
+
+Dialog surface (`[DIALOG]` section; `DIALOG_` prefix):
+
+| Kind | Keys | Used by |
+|---|---|---|
+| frame | `BG`, `BORDER_OUTER`, `BORDER_INNER`, `TITLE_*`, `PREVIEW_*`, `BAR_BG` (footer button bars) | `DIALOG_draw_frame`, dialog bodies, footer bars |
+| label | `LABEL_FG` | static text, row labels, checkbox / radio captions |
+| section / divider | `SECTION_FG`, `DIVIDER` | section headings, their rule, tab / bar / column separators |
+| button | `BUTTON_BG/_HOVER_BG/_BORDER/_FG/_DISABLED_FG`, and per role `BUTTON_<PRIMARY/CANCEL/DANGER/WARN/ACCENT>_BG/_HOVER_BG/_BORDER/_FG` | `DIALOG_draw_button_role ctx, x, y, w, h, label, DLG_BTN_*`; spinner +/-, path / clear / reset / remove buttons and any hand-drawn push button use the plain `BUTTON_*` keys (pressed / hover = `BUTTON_HOVER_BG`). `DIALOG_draw_button` with own colours only for buttons showing the user's colour (and Lospec's own `LOSPEC_BTN_*`) |
+| toggle | `TOGGLE_BG/_FG/_BORDER/_HOVER_BG`, `TOGGLE_SEL_BG/_SEL_FG/_SEL_BORDER` | toggle buttons, segmented button groups, on/off pills |
+| checkbox (+ radio) | `CHECKBOX_BG/_BORDER/_HOVER_BORDER/_CHECKED_BG/_MARK` | every dialog checkbox and radio button (radio dot = `CHECKED_BG`) |
+| field | `FIELD_BG/_BORDER/_FG/_HINT_FG/_HOVER_BG/_ACTIVE_BG/_ACTIVE_FG/_ACTIVE_BORDER/_SELECTION_BG` | text / number entry, spinner value box, closed dropdown box (+ arrow = `FIELD_FG`), path boxes, key-capture boxes, text areas, cyclers showing a value. `HINT_FG` = AUTO / OFF / placeholder text; `ACTIVE_*` = focused / typing / capturing |
+| list | `LIST_BG/_BORDER/_FG/_HOVER_BG/_HOVER_FG/_SEL_BG/_SEL_FG/_HEADER_BG/_HEADER_FG` | open dropdown lists, pickable lists, table rows + column headers |
+| tab | `TAB_BAR_BG`, `TAB_FG/_HOVER_BG/_HOVER_FG/_SEL_BG/_SEL_FG` | Settings tabs and any tab strip in a dialog |
+| slider | `SLIDER_TRACK_BG/_TRACK_BORDER/_FILL/_VALUE_FG/_HEIGHT` | sliders only |
+| swatch | `SWATCH_BORDER/_HOVER_BORDER` | colour chips in dialogs |
+| scrollbar | `SCROLLBAR_TRACK/_THUMB` | dialog scrollbars |
+| message | `STATUS_FG`, `WARNING_FG` | status / result lines, warnings and errors |
+| changed mark | `CHANGED_BG/_FG` | a value changed from its default (Controls dialog stripe, legend, key text) |
+
+**Splitting a key off an older shared one:** add it to `THEME_inherit_list$`
+(`CFG/CONFIG-THEME.BM`, `CHILD=PARENT`): a theme file that sets the parent but not the child gives
+the child the parent's value at load (`THEME_inherit`), so themes made before the split keep
+their look. `DEV/theme-share-audit.py` (run by `make`, report only) lists a key family read
+outside the routines that own it (`OWNERS`) and text drawn in a `*_bg` key. Give DEFAULT + DARK `THEME.CFG` explicit values and the compiled default in
+`ASSETS/THEMES/DEFAULT/THEME.BI`; re-run `DEV/theme-props-gen.py`.
 
 ## COMPUTED properties (the keys an element is drawn with)
 

@@ -229,6 +229,70 @@ TYPE DRAW_THEME
     DIALOG_toggle_fg                      AS _UNSIGNED LONG ' Unselected toggle text
     DIALOG_toggle_border                  AS _UNSIGNED LONG ' Unselected toggle border
     DIALOG_checkbox_bg                    AS _UNSIGNED LONG ' Unchecked checkbox fill (a theme without it: DIALOG_BG)
+    DIALOG_button_bg                      AS _UNSIGNED LONG ' Button background (a theme without it: DIALOG_TOGGLE_BG)
+    DIALOG_button_hover_bg                AS _UNSIGNED LONG ' Button background under the pointer (a theme without it: DIALOG_TOGGLE_SEL_BG)
+    DIALOG_button_border                  AS _UNSIGNED LONG ' Button border (a theme without it: DIALOG_TOGGLE_BORDER)
+    DIALOG_button_disabled_fg             AS _UNSIGNED LONG ' Disabled button text (a theme without it: DIALOG_PREVIEW_LABEL_FG)
+    DIALOG_button_primary_bg              AS _UNSIGNED LONG ' Primary button background (OK / confirm)
+    DIALOG_button_primary_hover_bg        AS _UNSIGNED LONG ' Primary button background under the pointer
+    DIALOG_button_primary_border          AS _UNSIGNED LONG ' Primary button border
+    DIALOG_button_primary_fg              AS _UNSIGNED LONG ' Primary button text (a theme without it: DIALOG_BUTTON_FG)
+    DIALOG_button_cancel_bg               AS _UNSIGNED LONG ' Cancel button background
+    DIALOG_button_cancel_hover_bg         AS _UNSIGNED LONG ' Cancel button background under the pointer
+    DIALOG_button_cancel_border           AS _UNSIGNED LONG ' Cancel button border
+    DIALOG_button_cancel_fg               AS _UNSIGNED LONG ' Cancel button text (a theme without it: DIALOG_BUTTON_FG)
+    DIALOG_button_danger_bg               AS _UNSIGNED LONG ' Danger button background (delete)
+    DIALOG_button_danger_hover_bg         AS _UNSIGNED LONG ' Danger button background under the pointer
+    DIALOG_button_danger_border           AS _UNSIGNED LONG ' Danger button border
+    DIALOG_button_danger_fg               AS _UNSIGNED LONG ' Danger button text (a theme without it: DIALOG_BUTTON_FG)
+    DIALOG_button_warn_bg                 AS _UNSIGNED LONG ' Warn button background (reset / overwrite)
+    DIALOG_button_warn_hover_bg           AS _UNSIGNED LONG ' Warn button background under the pointer
+    DIALOG_button_warn_border             AS _UNSIGNED LONG ' Warn button border
+    DIALOG_button_warn_fg                 AS _UNSIGNED LONG ' Warn button text (a theme without it: DIALOG_BUTTON_FG)
+    DIALOG_button_accent_bg               AS _UNSIGNED LONG ' Accent button background (pick / browse / open)
+    DIALOG_button_accent_hover_bg         AS _UNSIGNED LONG ' Accent button background under the pointer
+    DIALOG_button_accent_border           AS _UNSIGNED LONG ' Accent button border
+    DIALOG_button_accent_fg               AS _UNSIGNED LONG ' Accent button text (a theme without it: DIALOG_BUTTON_FG)
+    DIALOG_toggle_hover_bg                AS _UNSIGNED LONG ' Unselected toggle background under the pointer (a theme without it: DIALOG_TITLE_HOVER_BG)
+    DIALOG_checkbox_border                AS _UNSIGNED LONG ' Checkbox / radio border (a theme without it: DIALOG_TOGGLE_BORDER)
+    DIALOG_checkbox_hover_border          AS _UNSIGNED LONG ' Checkbox / radio border under the pointer (a theme without it: DIALOG_TOGGLE_SEL_BORDER)
+    DIALOG_checkbox_checked_bg            AS _UNSIGNED LONG ' Checked checkbox fill / radio dot (a theme without it: DIALOG_TOGGLE_SEL_BG)
+    DIALOG_checkbox_mark                  AS _UNSIGNED LONG ' Checkbox check mark (a theme without it: DIALOG_TOGGLE_SEL_FG)
+    DIALOG_field_bg                       AS _UNSIGNED LONG ' Field background (a theme without it: DIALOG_SLIDER_TRACK_BG)
+    DIALOG_field_border                   AS _UNSIGNED LONG ' Field border (a theme without it: DIALOG_SLIDER_TRACK_BORDER)
+    DIALOG_field_fg                       AS _UNSIGNED LONG ' Field text (a theme without it: DIALOG_SLIDER_VALUE_FG)
+    DIALOG_field_hint_fg                  AS _UNSIGNED LONG ' Field text for AUTO / OFF / placeholders (a theme without it: DIALOG_TOGGLE_SEL_BG)
+    DIALOG_field_hover_bg                 AS _UNSIGNED LONG ' Field background under the pointer (a theme without it: DIALOG_TOGGLE_SEL_BG)
+    DIALOG_field_active_bg                AS _UNSIGNED LONG ' Field background while typing / capturing (a theme without it: DIALOG_TOGGLE_SEL_BG)
+    DIALOG_field_active_fg                AS _UNSIGNED LONG ' Field text while typing / capturing (a theme without it: DIALOG_TOGGLE_SEL_FG)
+    DIALOG_field_active_border            AS _UNSIGNED LONG ' Field border while typing / capturing (a theme without it: DIALOG_TOGGLE_SEL_BORDER)
+    DIALOG_list_bg                        AS _UNSIGNED LONG ' List background (a theme without it: DIALOG_BG)
+    DIALOG_list_border                    AS _UNSIGNED LONG ' List border (a theme without it: DIALOG_TOGGLE_BORDER)
+    DIALOG_list_fg                        AS _UNSIGNED LONG ' List item text (a theme without it: DIALOG_LABEL_FG)
+    DIALOG_list_hover_bg                  AS _UNSIGNED LONG ' List item background under the pointer (a theme without it: DIALOG_TITLE_HOVER_BG)
+    DIALOG_list_hover_fg                  AS _UNSIGNED LONG ' List item text under the pointer (a theme without it: DIALOG_LABEL_FG)
+    DIALOG_list_sel_bg                    AS _UNSIGNED LONG ' Selected list item background (a theme without it: DIALOG_TOGGLE_SEL_BG)
+    DIALOG_list_sel_fg                    AS _UNSIGNED LONG ' Selected list item text (a theme without it: DIALOG_TOGGLE_SEL_FG)
+    DIALOG_list_header_bg                 AS _UNSIGNED LONG ' List / table column header background (a theme without it: DIALOG_TITLE_BG)
+    DIALOG_list_header_fg                 AS _UNSIGNED LONG ' List / table column header text (a theme without it: DIALOG_TITLE_FG)
+    DIALOG_tab_fg                         AS _UNSIGNED LONG ' Tab text (a theme without it: DIALOG_LABEL_FG)
+    DIALOG_tab_hover_bg                   AS _UNSIGNED LONG ' Tab background under the pointer (a theme without it: DIALOG_TOGGLE_BG)
+    DIALOG_tab_hover_fg                   AS _UNSIGNED LONG ' Tab text under the pointer (a theme without it: DIALOG_TOGGLE_FG)
+    DIALOG_tab_sel_bg                     AS _UNSIGNED LONG ' Current tab background (a theme without it: DIALOG_TOGGLE_SEL_BG)
+    DIALOG_tab_sel_fg                     AS _UNSIGNED LONG ' Current tab text (a theme without it: DIALOG_TOGGLE_SEL_FG)
+    DIALOG_section_fg                     AS _UNSIGNED LONG ' Section heading text (a theme without it: DIALOG_TITLE_FG)
+    DIALOG_divider                        AS _UNSIGNED LONG ' Divider lines (section rules, tab / bar separators) (a theme without it: DIALOG_BORDER_INNER)
+    DIALOG_swatch_border                  AS _UNSIGNED LONG ' Colour swatch border (a theme without it: DIALOG_TOGGLE_BORDER)
+    DIALOG_swatch_hover_border            AS _UNSIGNED LONG ' Colour swatch border under the pointer (a theme without it: DIALOG_TOGGLE_SEL_BORDER)
+    DIALOG_field_selection_bg             AS _UNSIGNED LONG ' Selected text in a field (a theme without it: DIALOG_TOGGLE_SEL_BG)
+    DIALOG_bar_bg                         AS _UNSIGNED LONG ' Footer button bar background (a theme without it: DIALOG_BG)
+    DIALOG_tab_bar_bg                     AS _UNSIGNED LONG ' Tab strip background
+    DIALOG_scrollbar_track                AS _UNSIGNED LONG ' Scrollbar track
+    DIALOG_scrollbar_thumb                AS _UNSIGNED LONG ' Scrollbar thumb
+    DIALOG_status_fg                      AS _UNSIGNED LONG ' Status / result message text (a theme without it: DIALOG_TOGGLE_SEL_FG)
+    DIALOG_warning_fg                     AS _UNSIGNED LONG ' Warning / error message text
+    DIALOG_changed_bg                     AS _UNSIGNED LONG ' Marks a value changed from its default (row stripe, legend) (a theme without it: DIALOG_TOGGLE_SEL_BG)
+    DIALOG_changed_fg                     AS _UNSIGNED LONG ' Text of a value changed from its default (a theme without it: DIALOG_TOGGLE_SEL_FG)
     DIALOG_label_fg                       AS _UNSIGNED LONG ' Dialog label text color
     DIALOG_slider_track_bg                AS _UNSIGNED LONG ' Dialog slider track background
     DIALOG_slider_track_border            AS _UNSIGNED LONG ' Dialog slider track border

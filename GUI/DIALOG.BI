@@ -88,6 +88,16 @@ DIM SHARED DIALOG_DD_SCROLL%           ' first visible row when list is taller t
 DIM SHARED DIALOG_DD_RESULT_ID%        ' dropdown id that was picked THIS frame (0 = none)
 DIM SHARED DIALOG_DD_RESULT_VAL%       ' value picked for DIALOG_DD_RESULT_ID
 REDIM SHARED DIALOG_DD_LABELS$(0 TO 0) ' labels of the open dropdown (snapshot at open)
+' Button roles (DIALOG_draw_button_role): each has its theme keys DIALOG_BUTTON[_<ROLE>]_BG /
+' _HOVER_BG / _BORDER / _FG. A button that shows a colour of the user's (not a role) keeps
+' DIALOG_draw_button with its own colours.
+CONST DLG_BTN_PLAIN = 0   ' DIALOG_BUTTON_*         - most buttons, steppers
+CONST DLG_BTN_PRIMARY = 1 ' DIALOG_BUTTON_PRIMARY_* - OK / Import / Install ...
+CONST DLG_BTN_CANCEL = 2  ' DIALOG_BUTTON_CANCEL_*
+CONST DLG_BTN_DANGER = 3  ' DIALOG_BUTTON_DANGER_*  - delete
+CONST DLG_BTN_WARN = 4    ' DIALOG_BUTTON_WARN_*    - reset / overwrite
+CONST DLG_BTN_ACCENT = 5  ' DIALOG_BUTTON_ACCENT_*  - pick / browse / open / done
+
 CONST DIALOG_DD_BOXH%   = 14           ' closed-box height (matches slider row height)
 CONST DIALOG_DD_ROWH%   = 12           ' open-list row height
 CONST DIALOG_DD_MAXVIS% = 8            ' rows shown before the list scrolls
