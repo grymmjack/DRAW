@@ -57,4 +57,5 @@ DIM SHARED ACTS_FILE(1 TO ACTS_MAX) AS STRING  ' a set: the file it was read fro
 DIM SHARED ACTS_REC_PRM AS STRING  ' recording: the dialog values the command running now gave (a wired dialog sets it)
 DIM SHARED ACTS_PLAY_PRM AS STRING ' playing: the step's dialog values (a wired dialog uses them)
 DIM SHARED ACTS_PLAY_DLG AS INTEGER ' playing: the step's DIALOG toggle (show the dialog, filled with them)
+DIM SHARED ACTS_REC_SKIP AS INTEGER ' recording: the command running now was cancelled (its dialog) - no step
 DIM SHARED ACTS_DIR_OVERRIDE AS STRING ' --option ACTIONS_DIR=<folder>: the sets' folder for this run (QA), never saved

@@ -48,8 +48,13 @@ recording, a play = one undo step labelled `Action: <name>` (HISTORY groups nest
 `CMD_execute_action_run`. Run setting `--option ACTIONS_DIR=<folder>` (QA: never the user's).
 File lines are `SET` / `ACTION <on> <open> <name>`, `STEP <cmd> <on> <dialog> <name>`, `PARAM`.
 The command palette now puts an exact name match first (typing "Invert" ran Invert Selection).
-Not yet: dialog values (phase 2: `ACTS_REC_PRM` / `ACTS_PLAY_PRM` / `ACTS_PLAY_DLG` are ready,
-no dialog writes them yet), insert stop, a hotkey per action, Batch, tool strokes (phase 3).
+Phase 2 started 2026-11-22: the kit in TOOLS/ACTIONS (`ACTS_prm_lng&` / `ACTS_prm_put` /
+`ACTS_dlg_silent%` / `ACTS_dlg_cancel`: KEY=value PARAM lines; a cancelled dialog records no
+step) and two dialogs wired - Posterize (LEVELS / DITHER / STRENGTH) and Resize Image with
+Content (typed: W / H; only X2 / /2 pressed: DOUBLE = net presses, so it scales any image).
+A wired dialog: read each value, `DO WHILE ctx.done = 0` (skipped when silent), put / cancel
+after. The other dialogs (IMAGE-ADJ has ~70) open on play as before - wire them as needed.
+Not yet: insert stop, a hotkey per action, Batch, tool strokes (phase 3).
 
 Design notes as planned:
 

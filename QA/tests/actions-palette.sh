@@ -163,6 +163,23 @@ ap_find "Invert" 2
 setf | grep -q '^STEP 2007 1 1 Invert$' && pass "saved: STEP 2007 1 1" || fail "file: $(setf | grep '^STEP 2007' | tr '\n' '|')"
 ap_find "Invert" 2; ap_click "$R_ROW" dlg
 
+# --- 5b. dialog values (phase 2): Posterize records its values, a cancel records nothing,
+#         play runs it without the dialog ---------------------------------------------------
+ap_find "Default Actions" 0; ap_click "$R_ROW" name
+ap_btn 5; ap_name "QA Post"
+pcmd "Posterize..."; screenshot "actions-palette-posterize-dialog"; key Return; wait_for 1.0 "posterized"; dk_park; dk_settle
+(( $(steps_of "QA Post") == 1 )) && pass "Posterize OK'd: one step" || fail "$(steps_of "QA Post") steps under QA Post"
+setf | grep -A4 '^ACTION 1 1 QA Post$' | tr '\n' ' ' | grep -q 'STEP 2009 1 0 Posterize... PARAM LEVELS=4 PARAM DITHER=[-0-9]* PARAM STRENGTH=50' \
+    && pass "its values are saved (LEVELS / DITHER / STRENGTH)" || fail "file: $(setf | grep -A4 '^ACTION 1 1 QA Post$' | tr '\n' '|')"
+pcmd "Posterize..."; key Escape; wait_for 1.0 "cancelled"; dk_park; dk_settle
+(( $(steps_of "QA Post") == 1 )) && pass "a cancelled dialog records no step" || fail "$(steps_of "QA Post") steps after a cancel"
+ap_btn 1
+ap_find "QA Post" 1; ap_click "$R_ROW" name
+ap_btn 3; ap_read
+(( A_RUN == 1 && A_PLAY == 0 )) && pass "PLAY ran it with no dialog (ran $A_RUN)" || fail "PLAY: ran '$A_RUN' playing '$A_PLAY' (a dialog waiting?)"
+screenshot "actions-palette-posterize-played"
+key Escape; dk_park
+
 # --- 6. fold -------------------------------------------------------------------------------------------
 ap_read; RA0=$A_RA
 ap_find "Default Actions" 0; ap_click "$R_ROW" fold; ap_read
