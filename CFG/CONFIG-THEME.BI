@@ -228,6 +228,7 @@ TYPE DRAW_THEME
     DIALOG_toggle_bg                      AS _UNSIGNED LONG ' Unselected toggle background
     DIALOG_toggle_fg                      AS _UNSIGNED LONG ' Unselected toggle text
     DIALOG_toggle_border                  AS _UNSIGNED LONG ' Unselected toggle border
+    DIALOG_checkbox_bg                    AS _UNSIGNED LONG ' Unchecked checkbox fill (a theme without it: DIALOG_BG)
     DIALOG_label_fg                       AS _UNSIGNED LONG ' Dialog label text color
     DIALOG_slider_track_bg                AS _UNSIGNED LONG ' Dialog slider track background
     DIALOG_slider_track_border            AS _UNSIGNED LONG ' Dialog slider track border

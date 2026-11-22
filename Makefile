@@ -171,6 +171,9 @@ $(OUT): $(SOURCES)
 	@# table): a stale one fails the build. Skipped where there is no python3.
 	@if command -v python3 >/dev/null 2>&1; then python3 DEV/theme-props-gen.py --check \
 	    || { echo 'CFG/THEME-PROPS.BM is stale - run: python3 DEV/theme-props-gen.py'; exit 1; }; fi
+	@# CFG/THEME-USES.BM (which theme keys each routine reads - the inspector's
+	@# COMPUTED properties) follows every source edit, so it is rewritten, not checked.
+	@if command -v python3 >/dev/null 2>&1; then python3 DEV/theme-uses-gen.py; fi
 	$(QB64PE) $(QB64FLAGS) $(SRC) -o $(OUT) 2>&1 \
 	    | sed -u 's/\x1b\[[0-9;]*[A-Za-z]//g' \
 	    | grep --line-buffered -v '^\[[ .]*\][[:space:]]*[0-9]\+%' \

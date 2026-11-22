@@ -8,6 +8,7 @@ Spec and plan: `PLANS/THEME-EDIT.md`. This file is the working guide.
 |---|---|---|
 | UIKIT (library-to-be) | `GUI/UIKIT/UIP.BI/BM` (`UIP_` property + component registry, node tree `UIP_N`, value parse / normalise / nudge, theme-file patch-save, backups, dir copy), `GUI/UIKIT/UIP-INSPECTOR.BI/BM` (`UIPI_` devtools panel: ELEMENTS tree + properties, Scale / dock menu, state string) | **Reads no DRAW global.** Input comes in as parameters, results go out as events (`UIPI_next_event$`). Destined for `QB64_GJ_LIB/UIKIT`. |
 | Generated | `CFG/THEME-PROPS.BM` (`THEMEP_register_all`, `THEMEP_get$`) | Written by `DEV/theme-props-gen.py` from `THEME_apply_kv%`. **Never hand-edit.** `make` fails when stale. |
+| Generated | `CFG/THEME-USES.BM` (`THEMEU_keys$ (routine)`) | Written by `DEV/theme-uses-gen.py`: the theme keys each SUB / FUNCTION reads (the inspector's COMPUTED rows). **Never hand-edit.** `make` rewrites it every build; commit it. |
 | DRAW adapter | `CFG/THEME-EDIT.BI/BM` (`THEMEED_`), `native/file_stamp.h` | Defines the host contract `UIP_host_get$` / `UIP_host_set%`, components, CLI, hooks. |
 
 ## Adding a theme key
@@ -18,6 +19,10 @@ Spec and plan: `PLANS/THEME-EDIT.md`. This file is the working guide.
    the CASE line (`VAL` -> INT/REAL, `THEME_parse_rgba` -> COLOR, `val$` -> TEXT, re-typed
    IMAGE / FONT / SOUND from the DEFAULT sample value's extension); the section and description
    come from `ASSETS/THEMES/DEFAULT/THEME.CFG` and the `CONFIG-THEME.BI` field comment.
+   A key that splits off an existing one (themes already in the wild lack it) needs a fallback, or
+   those themes get the compiled DEFAULT colour: `DIALOG_CHECKBOX_BG` is zeroed before
+   `THEME_load_theme` reads the file and set from `DIALOG_BG` after when the file did not give it.
+   Add it to DEFAULT + DARK `THEME.CFG` / `THEME.BI` too.
 3. A new panel / section the inspector should map to: `THEMEED_register` (component sections and
    image folders) and `THEMEED_comp_for_region%` (REGION_ -> component).
 
@@ -167,6 +172,24 @@ include-time loop in `CFG/CLI-QUERY.BI` (also in `CLI_is_query_run%`, so it clai
 state), compares with `_READFILE$`, skips dot names / root THEME.CFG + THEME.BI. Backups of B's
 overwritten files go to `ASSETS/THEME-BACKUPS/B-sync-<stamp>/` and are checked before the overwrite.
 Answers come through `THEMEED_ask_line$` (EOF = "" = no).
+
+## COMPUTED properties (the keys an element is drawn with)
+
+Selecting an element: `ELEMENT:` + its files, then **COMPUTED** (only its theme keys, editable
+rows), then the fold `+ ALL <COMP> PROPERTIES` (`UIPI.elemAll`). Source: `K:<KEY>` entries in the
+node's files string (`UIPI_rebuild`; `THEMEED_count_files%` skips them, so `TEN` dump counts are
+files only). The host writes tokens, `THEMEED_fls_expand$` expands them at tree build (never per
+frame):
+
+- `"@ROUTINE"` -> `THEMEU_keys$(ROUTINE)` (generated `CFG/THEME-USES.BM`, `DEV/theme-uses-gen.py`).
+  **A new drawn part:** pass `"@<the routine that draws it>"` as `THEMEED_seen`'s fls (plus any
+  files, `|`-separated). If its colours come in as parameters, the routine reads no `THEME.*`
+  itself - add `THEMEED_color_tok$("SECTION", c1, c2, c3)` (matches that section's COLOR keys by
+  value; the `DIALOG_draw_button` case).
+- Regions: `THEMEED_region_rtn$` maps REGION_ -> its render routines; a new panel adds a CASE.
+- Only direct reads count: a routine that draws through a helper lists the helper too
+  (`"@TOOLBAR_render|@TOOLBAR_draw_cmd_cell"`).
+- `out` is a keyword (OUT) - not a variable name.
 
 ## Ctrl+H / C / V on the inspector
 

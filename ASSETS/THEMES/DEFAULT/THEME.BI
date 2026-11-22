@@ -232,6 +232,7 @@ THEME.DIALOG_toggle_sel_border~&   = _RGB32(100, 160, 255)                  ' Se
 THEME.DIALOG_toggle_bg~&           = _RGB32(55, 55, 55)                     ' Unselected toggle background
 THEME.DIALOG_toggle_fg~&           = _RGB32(170, 170, 170)                  ' Unselected toggle text
 THEME.DIALOG_toggle_border~&       = _RGB32(90, 90, 90)                     ' Unselected toggle border
+THEME.DIALOG_checkbox_bg~&         = _RGB32(72, 72, 72)                     ' Unchecked checkbox fill
 THEME.DIALOG_label_fg~&            = _RGB32(200, 200, 200)                  ' Dialog labels
 THEME.DIALOG_slider_track_bg~&     = _RGB32(38, 38, 38)                     ' Dialog slider track
 THEME.DIALOG_slider_track_border~& = _RGB32(90, 90, 90)                     ' Dialog slider track border

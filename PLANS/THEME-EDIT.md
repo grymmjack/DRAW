@@ -184,6 +184,11 @@ moved. `nkey` is a stable id, so the open / selected state survives rebuilds.
   panel they stay DRAW's Copy / Paste (`THEMEED_ctl_key%`, held = `CTX_TEXT_ACTIVE`).
 - Row markers: `*` = differs from the theme file (pending save; reverting or setting the saved
   value back clears it); name in amber = changed since the session started.
+- **COMPUTED** (like devtools' Computed): selecting an element shows `ELEMENT: <label>`, its own
+  files, then COMPUTED - only the theme keys that element is drawn with, as ordinary editable
+  rows - then a fold `+ ALL <COMPONENT> PROPERTIES` (click: `UIPI.elemAll`) with the rest of the
+  component. The keys come from the node's files string: `K:<KEY>` entries (the host expands them
+  - see Computed properties below). A node with no `K:` entries shows its component as before.
 
 ## DRAW adapter
 
@@ -199,6 +204,24 @@ The setter is the loader itself: the `SELECT CASE` moved out of `THEME_load_them
 `THEME_apply_kv% (key, val)`, so file loading and live editing are the same code path. **Re-run
 the generator after adding a theme key** (the only manual step; `make` runs
 `theme-props-gen.py --check` and fails on a stale file).
+
+### Computed properties — `CFG/THEME-USES.BM` (GENERATED)
+
+`DEV/theme-uses-gen.py` scans every `.BM` / `.BAS` (not `includes/`, `QA/`, `DEV/`, ...; comments
+and string literals skipped) and writes `THEMEU_keys$ (routine)` - the theme keys each SUB /
+FUNCTION reads (`THEME.<field>`, mapped to its key through `THEME_apply_kv%`), in first-read order.
+Only direct reads count (a helper's keys are the helper's). `make` **rewrites** it before every
+build (any source edit can change it; it is committed so a plain qb64pe compile works).
+
+A drawn part names what drew it in its files string (`THEMEED_seen ... fls`), and
+`THEMEED_fls_expand$` turns those tokens into `K:<KEY>` entries once per tree build:
+- `@ROUTINE` - every key that routine reads (`"@SW_draw_checkbox"`; several: `"@A|@B"`);
+- `~SECTION=hex,hex,hex` - the COLOR keys of that section whose value is one of those colours,
+  for parts whose colours arrive as parameters (`DIALOG_draw_button`:
+  `THEMEED_color_tok$("DIALOG", colNormal, colHover, colBorder)`).
+
+Region nodes get theirs from `THEMEED_region_rtn$` (REGION_ -> its render routines). Computed
+child nodes (toolbox slots, bar buttons, ...) still carry files only.
 
 ### IMAGES order
 

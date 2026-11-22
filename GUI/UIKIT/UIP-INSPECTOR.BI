@@ -34,6 +34,10 @@
 '   STATE           dock / scale / split / tree / IMAGES order changed (save UIPI_state$ to keep it)
 '   HOSTMENU <id>   an item of the host's menu (UIPI_host_menu_add) was chosen
 '
+' An element's files string may hold "K:KEY" entries: the theme keys it is
+' drawn with, listed as its COMPUTED properties (devtools' Computed pane); the
+' rest of the component then folds under one "+ ALL ... PROPERTIES" row.
+'
 ' The host menu: UIPI.hostBtn names a toolbar button ("" = none) that opens a
 ' menu of the host's own items (UIPI_host_menu_add text, id).
 '
@@ -197,6 +201,7 @@ TYPE UIPI_OBJ
     hostBtn    AS STRING  ' the host menu's toolbar button ("" = none)
     menuKind   AS INTEGER ' the open menu: 0 = the panel's, 1 = the host's
     noOutline  AS INTEGER ' the host hides its outlines of the selected / hovered node (not picking's)
+    elemAll    AS INTEGER ' an element with COMPUTED keys: the component's other properties shown too
 END TYPE
 
 DIM SHARED UIPI AS UIPI_OBJ
