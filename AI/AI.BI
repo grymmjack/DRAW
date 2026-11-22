@@ -175,6 +175,7 @@ DIM SHARED AI_LAST_SEED&
 ' The generate dialog's USE SEED box (remembered in [LAST] as USE_SEED): off =
 ' a fresh random seed on every Generate, on = the seed in the dialog.
 DIM SHARED AI_USE_SEED%
+DIM SHARED AI_MACRO_FOR_SH% ' TRUE while AI_JOB_start expands ARGS for sh -c (Linux / macOS): values escaped for the shell
 DIM SHARED AI_LAST_TOOL%
 DIM SHARED AI_LAST_STYLE_IDX%
 ' Remembered-by-name choices read from [LAST]; resolved to indices after load
