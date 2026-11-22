@@ -130,3 +130,4 @@
 - [Theme Edit = UIKIT seed](theme-edit-uikit.md) — theme editor is phase 1 of a reusable QB64PE UI library; GUI/UIKIT must read no DRAW global (11-21)
 - [Theme Edit: everything editable](theme-edit-everything-editable.md) — Rick's rule: anything on screen must be pickable + editable (custom slots, fallback art too); add tree nodes, EDIT makes missing art (11-21)
 - [Wait loops must not match themselves](wait-loop-self-match.md) — pgrep -x names + mtime + timeout, or run_in_background; pgrep -f found its own shell
+- [QA fresh XDG -> migrate dialog](qa-fresh-xdg-migrate-dialog.md) — [Linux] tests with own XDG_CONFIG_HOME hang on "Migrate settings" (USER/ in repo, no repo-root marker)

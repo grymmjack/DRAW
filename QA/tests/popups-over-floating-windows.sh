@@ -14,6 +14,7 @@
 #   - its 1px frame rows / columns are a single color (no window over it)
 #   - every window it does not touch is identical open and closed
 # QA-OPTIONS: WORKSPACE=default DOCK_DUMP=QA/.dock-dump.txt WORKSPACES_DIR=QA/.tbed-ws COLOR_MIXER_VISIBLE=1 PEN_PANEL_VISIBLE=1 ADV_COLOR_PICKER_VISIBLE=1 COLOR_SPACE_3D_VISIBLE=1 PREVIEW_VISIBLE=1 BROWSER_VISIBLE=1 COLOR_MIXER_X=290 COLOR_MIXER_Y=30 ADV_COLOR_PICKER_X=480 ADV_COLOR_PICKER_Y=30 DOCK_CUSTOM=1 DOCK_LEFT_1=AUTO;layers|preview DOCK_LEFT_2=AUTO;editbar DOCK_RIGHT_1=AUTO;toolbox|organizer|drawer DOCK_RIGHT_2=AUTO;advbar DOCK_BAND=BOTTOM,120
+# QA-TIMEOUT: 1200 (Windows: the thinkpad took ~845 s, every check passing; was cut at 600 s, 2026-11-22)
 # =============================================================================
 
 source "$DRAW_ROOT/QA/popup-lib.sh"
