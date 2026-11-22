@@ -657,6 +657,20 @@ TYPE DRAW_THEME
     EDIT_BAR_RIGHT_BORDER_COLOR           AS _UNSIGNED LONG ' Edit bar right border color
     EDIT_BAR_LEFT_BORDER_WIDTH            AS INTEGER        ' Edit bar left border width in pixels
     EDIT_BAR_RIGHT_BORDER_WIDTH           AS INTEGER        ' Edit bar right border width in pixels
+    ' --- Icon bars: the edit / advanced bar, toolbox and workflow buttons, every button list - a key per kind of control ---
+    ICON_BAR_bg                           AS _UNSIGNED LONG ' Icon bar background (edit / advanced bar), a workflow button's face, a command cell in the toolbox (a theme without it: EDIT_BAR_BG_COLOR)
+    ICON_BAR_button_fg                    AS _UNSIGNED LONG ' Text on an icon button: command text tiles, workflow button labels
+    ICON_BAR_button_on_fg                 AS _UNSIGNED LONG ' Text of an icon button that is on
+    ICON_BAR_button_disabled_fg           AS _UNSIGNED LONG ' Text of an icon button that does nothing now (a workflow button whose workspace is gone)
+    ICON_BAR_button_on_bg                 AS _UNSIGNED LONG ' Overlay on an icon button that is on (the tool in use, a lit toggle) - toolbox, bars, workflow (a theme without it: TOOLBAR_BTN_OVERLAY)
+    ICON_BAR_button_on_border             AS _UNSIGNED LONG ' Outline of an icon button that is on (a theme without it: TOOLBAR_BTN_STROKE)
+    ICON_BAR_button_hover_border          AS _UNSIGNED LONG ' Outline of an icon button under the pointer (a theme without it: EDIT_BAR_ICON_MOUSE_OUTLINE_COLOR)
+    ICON_BAR_button_disabled_alpha        AS INTEGER        ' How much a disabled icon fades (0 = not at all, 255 = gone) (a theme without it: EDIT_BAR_ICON_DISABLED_ALPHA)
+    ICON_BAR_width                        AS INTEGER        ' Width of an icon bar's column in px (a theme without it: EDIT_BAR_WIDTH)
+    ICON_BAR_padding                      AS INTEGER        ' Space around an icon bar's buttons in px (a theme without it: EDIT_BAR_ICON_PADDING)
+    ICON_BAR_divider_margin               AS INTEGER        ' Space a divider entry takes in px (a theme without it: EDIT_BAR_DIVIDER_VERT_MARGIN)
+    ICON_BAR_border_left_width            AS INTEGER        ' Left edge of an icon bar in px (a theme without it: EDIT_BAR_LEFT_BORDER_WIDTH)
+    ICON_BAR_border_right_width           AS INTEGER        ' Right edge of an icon bar in px (a theme without it: EDIT_BAR_RIGHT_BORDER_WIDTH)
     EDIT_BAR_WIDTH                        AS INTEGER        ' Edit bar content width in pixels
     EDIT_BAR_ICON_PADDING                 AS INTEGER        ' Padding around each icon in pixels
     EDIT_BAR_BG_COLOR                     AS _UNSIGNED LONG ' Edit bar background fill color
@@ -749,6 +763,45 @@ TYPE DRAW_THEME
     TEXT_BAR_DROPDOWN_HIGHLIGHT           AS _UNSIGNED LONG ' Dropdown selected item highlight
     TEXT_BAR_DROPDOWN_HOVER_BG            AS _UNSIGNED LONG ' Dropdown hover item background
     TEXT_BAR_DROPDOWN_HOVER_FG            AS _UNSIGNED LONG ' Dropdown hover item text color
+    ' --- Bars: the tool option bars (text, selection, MyPaint, brush) - a key per kind of control ---
+    BAR_bg                                AS _UNSIGNED LONG ' Bar background (a theme without it: TEXT_BAR_BG_COLOR)
+    BAR_border                            AS _UNSIGNED LONG ' Line under a bar (a theme without it: TEXT_BAR_BORDER_COLOR)
+    BAR_divider                           AS _UNSIGNED LONG ' Lines between a bar's rows and groups (a theme without it: TEXT_BAR_BORDER_COLOR)
+    BAR_label_fg                          AS _UNSIGNED LONG ' Labels (SIZE:, LH:, OPACITY) (a theme without it: TEXT_BAR_FG_COLOR)
+    BAR_value_fg                          AS _UNSIGNED LONG ' Values: font name, size, line height, slider readouts (a theme without it: TEXT_BAR_FG_COLOR)
+    BAR_button_bg                         AS _UNSIGNED LONG ' Button background (a theme without it: TEXT_BAR_BUTTON_BG_COLOR)
+    BAR_button_fg                         AS _UNSIGNED LONG ' Button text and icon (a theme without it: TEXT_BAR_BUTTON_FG_COLOR)
+    BAR_button_border                     AS _UNSIGNED LONG ' Button outline (a theme without it: TEXT_BAR_BUTTON_BORDER_COLOR)
+    BAR_button_hover_bg                   AS _UNSIGNED LONG ' Button under the pointer (a theme without it: TEXT_BAR_BTN_HOVER_COLOR)
+    BAR_button_hover_fg                   AS _UNSIGNED LONG ' Button text under the pointer (a theme without it: TEXT_BAR_FG_COLOR)
+    BAR_button_on_bg                      AS _UNSIGNED LONG ' A button that is on (B / I / U / S, align, MONO, AA, the chosen chip) (a theme without it: TEXT_BAR_BTN_ACTIVE_COLOR)
+    BAR_button_on_fg                      AS _UNSIGNED LONG ' Text of a button that is on (a theme without it: TEXT_BAR_FG_COLOR)
+    BAR_dropdown_button_hover_bg          AS _UNSIGNED LONG ' A dropdown box (font, size, style) under the pointer or open (a theme without it: TEXT_BAR_BTN_HOVER_COLOR)
+    BAR_field_border                      AS _UNSIGNED LONG ' Outline of a value box (line height, shadow X / Y, outline size) (a theme without it: TEXT_BAR_BTN_HOVER_COLOR)
+    BAR_swatch_border                     AS _UNSIGNED LONG ' Colour swatch outline (a theme without it: TEXT_BAR_FG_COLOR)
+    BAR_swatch_check_dark                 AS _UNSIGNED LONG ' Transparent swatch: dark checks (a theme without it: TEXT_BAR_TRANSPARENT_CHECK_DARK)
+    BAR_swatch_check_light                AS _UNSIGNED LONG ' Transparent swatch: light checks (a theme without it: TEXT_BAR_TRANSPARENT_CHECK_LIGHT)
+    BAR_slider_bg                         AS _UNSIGNED LONG ' Slider track (a theme without it: TEXT_BAR_BUTTON_BG_COLOR)
+    BAR_slider_border                     AS _UNSIGNED LONG ' Slider track outline (a theme without it: TEXT_BAR_BUTTON_BORDER_COLOR)
+    BAR_slider_hover_border               AS _UNSIGNED LONG ' Slider outline under the pointer or while dragged (a theme without it: TEXT_BAR_FG_COLOR)
+    BAR_slider_fill                       AS _UNSIGNED LONG ' Slider fill (the value) (a theme without it: TEXT_BAR_BTN_ACTIVE_COLOR)
+    BAR_item_bg                           AS _UNSIGNED LONG ' Grid cell background, the cell's badge (a theme without it: TEXT_BAR_BUTTON_BG_COLOR)
+    BAR_item_fg                           AS _UNSIGNED LONG ' Cell text (names, badges) and the brush dab previews (a theme without it: TEXT_BAR_BUTTON_FG_COLOR)
+    BAR_item_border                       AS _UNSIGNED LONG ' Cell outline (a theme without it: TEXT_BAR_BUTTON_BORDER_COLOR)
+    BAR_item_hover_border                 AS _UNSIGNED LONG ' Cell outline under the pointer (a theme without it: TEXT_BAR_FG_COLOR)
+    BAR_item_sel_border                   AS _UNSIGNED LONG ' Outline of the chosen cell (a theme without it: TEXT_BAR_BTN_ACTIVE_COLOR)
+    BAR_scrollbar_track                   AS _UNSIGNED LONG ' Grid scrollbar track (a theme without it: TEXT_BAR_BUTTON_BG_COLOR)
+    BAR_scrollbar_thumb                   AS _UNSIGNED LONG ' Grid scrollbar thumb (a theme without it: TEXT_BAR_FG_COLOR)
+    BAR_dropdown_bg                       AS _UNSIGNED LONG ' List background (a theme without it: TEXT_BAR_DROPDOWN_BG)
+    BAR_dropdown_fg                       AS _UNSIGNED LONG ' Item text, the list's arrows and scroll marks (a theme without it: TEXT_BAR_DROPDOWN_FG)
+    BAR_dropdown_border                   AS _UNSIGNED LONG ' List outline (a theme without it: TEXT_BAR_BORDER_COLOR)
+    BAR_dropdown_divider                  AS _UNSIGNED LONG ' Lines between groups of items (a theme without it: TEXT_BAR_BORDER_COLOR)
+    BAR_dropdown_hover_bg                 AS _UNSIGNED LONG ' Item under the pointer (a theme without it: TEXT_BAR_DROPDOWN_HOVER_BG)
+    BAR_dropdown_hover_fg                 AS _UNSIGNED LONG ' Item text under the pointer (a theme without it: TEXT_BAR_DROPDOWN_HOVER_FG)
+    BAR_dropdown_preview_fg               AS _UNSIGNED LONG ' Font preview strip text in the font list (Settings' FONT_PREVIEW_FG wins when set)
+    BAR_dropdown_preview_bg               AS _UNSIGNED LONG ' Font preview strip background (Settings' FONT_PREVIEW_BG wins when set)
+    BAR_row_height                        AS INTEGER         ' Row height of every bar in px (a theme without it: TEXT_BAR_ROW_HEIGHT)
+    BAR_dropdown_sel_bg                   AS _UNSIGNED LONG ' The current item (a theme without it: TEXT_BAR_DROPDOWN_HIGHLIGHT)
     TEXT_BAR_ICON_BOLD                    AS STRING * 64    ' Bold button icon PNG filename
     TEXT_BAR_ICON_ITALIC                  AS STRING * 64    ' Italic button icon PNG filename
     TEXT_BAR_ICON_UNDERLINE               AS STRING * 64    ' Underline button icon PNG filename

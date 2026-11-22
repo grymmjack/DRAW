@@ -231,6 +231,33 @@ frame marks stay `[ANIMATION]` `ANIM_FRAME_*`). The file browser (File dialogs +
 draws itself reads the popup menu keys (`MENU_SUB_*`, as `POPUP_MENU_render`). `CP_*` is the
 Color Mixer / Color Picker's own (QB64_GJ_LIB COLOR_PICKER's `CP_THEME`) - nothing else reads it.
 
+Bar surface (`[BAR]` section; `BAR_` prefix, 2026-11-22) - the horizontal tool-options bars:
+the text bar, the selection / brush options bar (`GUI/SEL-BAR`), the MyPaint palette + its
+settings, the brush palette and `PSL_draw` sliders. `PSURF_bg~&` gives their dock footprint
+`BAR_BG`.
+
+| Kind | Keys | Used by |
+|---|---|---|
+| frame | `BG`, `BORDER`, `DIVIDER`, `ROW_HEIGHT` | every bar; `DIVIDER` = between rows and groups |
+| text | `LABEL_FG`, `VALUE_FG` | SIZE: / LH: / OPACITY labels; font name, sizes, slider values, readouts |
+| button | `BUTTON_BG/_FG/_BORDER/_HOVER_BG/_HOVER_FG/_ON_BG/_ON_FG`, `DROPDOWN_BUTTON_HOVER_BG` | toggles, action buttons, chips (`TEXT_BAR_btn_fg~&(on, hover)` for the text bar's) ; the closed font / size / style boxes |
+| field | `FIELD_BORDER` | LH / shadow / outline value boxes |
+| swatch | `SWATCH_BORDER`, `SWATCH_CHECK_DARK/_LIGHT` | FG / BG / shadow / outline swatches, transparent checkers |
+| slider | `SLIDER_BG/_BORDER/_HOVER_BORDER/_FILL` | sel bar OPACITY, `PSL_draw` |
+| item grid | `ITEM_BG/_FG/_BORDER/_HOVER_BORDER/_SEL_BORDER`, `SCROLLBAR_TRACK/_THUMB` | MyPaint / brush cells, badges, dab previews, their scroll strips |
+| dropdown list | `DROPDOWN_BG/_FG/_BORDER/_DIVIDER/_HOVER_BG/_HOVER_FG/_SEL_BG`, `DROPDOWN_PREVIEW_FG/_BG` | font / size / style lists, font card, subfolders, FONT-PREVIEW fallbacks |
+
+`TEXT_BAR_*` keeps only the text tool's own parts (icons, icon opacities, row orders, geometry);
+the audit's `OWNERS` holds it to `TEXT_BAR_*` routines. Parents: the old `TEXT_BAR_*` colours.
+
+Icon bar surface (`[ICON_BAR]` section; `ICON_BAR_` prefix) - the vertical icon bars and icon
+buttons: edit bar, advanced bar, toolbox buttons (pushed tool, command cells), workflow
+buttons, button lists (`BL_*`), the subtool flyout. Keys: `BG`, `WIDTH`, `PADDING`,
+`DIVIDER_MARGIN`, `BORDER_LEFT_WIDTH/_RIGHT_WIDTH`, `BUTTON_FG/_ON_FG/_ON_BG/_ON_BORDER/
+_HOVER_BORDER/_DISABLED_FG/_DISABLED_ALPHA`. Parents: `EDIT_BAR_*`, `TOOLBAR_BTN_OVERLAY/_STROKE`.
+`EDIT_BAR_ICON_*` / `ADV_BAR_ICON_*` stay as the icon file names. The toolbox's own frame keys
+are still `TOOLBAR_*` (toolbox round: the flyout frame borrows `BUTTON_ON_BORDER` for now).
+
 **A key's alpha always applies** (Rick, 2026-11-21: "we should be able to adjust opacities").
 A part drawn fainter than its key goes through `THEME_fade~&(key, alpha)` (`CFG/CONFIG-THEME.BM`)
 - the code's alpha on top of the key's own, never instead of it - so a theme can fade or hide any

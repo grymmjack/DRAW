@@ -50,6 +50,13 @@ OWNERS = {
     "TOOLBAR_EDITOR_": r"^TBED_",
     "ANIM_SHEET_": r"^ANIM", "ANIM_LANE_": r"^(ANIM|SETTINGS_RENDER_ANIMATION$)", "ANIM_SOUND_": r"^ANIM",
     "ANIM_SEEK_": r"^ANIM", "ANIM_WIDGET_": r"^ANIM",
+    # bars (text bar, selection bar, MyPaint palette + settings, brush palette, PSL sliders):
+    # one set for every bar's frame / buttons / sliders / item grids / dropdown lists
+    "BAR_": r"^(SELBAR_|MYPP_|MPS_|BSP_|PSL_|TEXT_BAR_|FONT_PREVIEW_|PSURF_BG$|THEMEED_TB_KID$)",
+    # the text tool's own parts (icons, row orders, geometry) - no other bar reads them
+    "TEXT_BAR_": r"^(TEXT_BAR_|THEMEED_TREE_TEXTBAR$)",
+    # icon bars (edit bar, advanced bar, toolbox buttons, workflow buttons, button lists)
+    "ICON_BAR_": r"^(EDITBAR_|ADVBAR_|BL_|TOOLBAR_DRAW_|TOOLBAR_RENDER$|SUBTOOL_FLYOUT_|WF_|DOCK_|PSURF_BG$)",
 }
 # surfaces: a dialog routine never reads a panel key, a panel routine never a dialog key
 SURFACES = {

@@ -689,6 +689,23 @@ THEME.PALETTE_MENU_SEP_fg~&      = _RGB32(110, 110, 120)
 THEME.PALETTE_MENU_SEP_bg~&      = _RGB32(22, 22, 34)
 
 ' =============================================================================
+' ICON BARS - the edit / advanced bar, toolbox and workflow buttons, button lists
+' =============================================================================
+THEME.ICON_BAR_bg~&                        = _RGBA32(0, 0, 0, 255)       ' Icon bar background (edit / advanced bar), a workflow button's face, a command cell in the toolbox
+THEME.ICON_BAR_button_fg~&                 = _RGB32(202, 202, 202)       ' Text on an icon button: command text tiles, workflow button labels
+THEME.ICON_BAR_button_on_fg~&              = _RGB32(255, 255, 255)       ' Text of an icon button that is on
+THEME.ICON_BAR_button_disabled_fg~&        = _RGB32(110, 110, 110)       ' Text of an icon button that does nothing now (a workflow button whose workspace is gone)
+THEME.ICON_BAR_button_on_bg~&              = _RGBA32(0, 0, 0, 128)       ' Overlay on an icon button that is on (the tool in use, a lit toggle) - toolbox, bars, workflow
+THEME.ICON_BAR_button_on_border~&          = _RGBA32(255, 255, 255, 255) ' Outline of an icon button that is on
+THEME.ICON_BAR_button_hover_border~&       = _RGBA32(255, 255, 255, 200) ' Outline of an icon button under the pointer
+THEME.ICON_BAR_button_disabled_alpha%      = 160                         ' How much a disabled icon fades (0 = not at all, 255 = gone)
+THEME.ICON_BAR_width%                      = 18                          ' Width of an icon bar's column in px
+THEME.ICON_BAR_padding%                    = 0                           ' Space around an icon bar's buttons in px
+THEME.ICON_BAR_divider_margin%             = 4                           ' Space a divider entry takes in px
+THEME.ICON_BAR_border_left_width%          = 1                           ' Left edge of an icon bar in px
+THEME.ICON_BAR_border_right_width%         = 1                           ' Right edge of an icon bar in px
+
+' =============================================================================
 ' EDIT BAR - Vertical icon quick-action panel
 ' =============================================================================
 THEME.EDIT_BAR_LEFT_BORDER_COLOR~&        = _RGB32(64, 64, 64)
@@ -797,6 +814,46 @@ THEME.CHARMAP_SCROLLBAR_FG~&     = _RGB32(255, 255, 255)
 THEME.CHARMAP_SCROLLBAR_OPACITY% = 255
 THEME.CHARMAP_SCROLLBAR_WIDTH%   = 2
 THEME.CHAR_GRID_COLOR_FG~&       = _RGBA32(100, 100, 200, 80)
+
+' --- Bars: the tool option bars (text, selection, MyPaint, brush) - a key per kind of control ---
+THEME.BAR_row_height%                    = 14                                      ' Row height of every bar in px
+THEME.BAR_bg~&                           = _RGB32(28, 28, 42)                      ' Bar background
+THEME.BAR_border~&                       = _RGB32(64, 64, 64)                      ' Line under a bar
+THEME.BAR_divider~&                      = _RGB32(64, 64, 64)                      ' Lines between a bar's rows and groups
+THEME.BAR_label_fg~&                     = _RGB32(200, 200, 200)                   ' Labels (SIZE:, LH:, OPACITY)
+THEME.BAR_value_fg~&                     = _RGB32(200, 200, 200)                   ' Values: font name, size, line height, slider readouts
+THEME.BAR_button_bg~&                    = _RGB32(38, 38, 52)                      ' Button background
+THEME.BAR_button_fg~&                    = _RGB32(200, 200, 200)                   ' Button text and icon
+THEME.BAR_button_border~&                = _RGB32(64, 64, 80)                      ' Button outline
+THEME.BAR_button_hover_bg~&              = _RGB32(60, 60, 90)                      ' Button under the pointer
+THEME.BAR_button_hover_fg~&              = _RGB32(200, 200, 200)                   ' Button text under the pointer
+THEME.BAR_button_on_bg~&                 = _RGB32(80, 80, 160)                     ' A button that is on (B / I / U / S, align, MONO, AA, the chosen chip)
+THEME.BAR_button_on_fg~&                 = _RGB32(200, 200, 200)                   ' Text of a button that is on
+THEME.BAR_dropdown_button_hover_bg~&     = _RGB32(60, 60, 90)                      ' A dropdown box (font, size, style) under the pointer or open
+THEME.BAR_field_border~&                 = _RGB32(60, 60, 90)                      ' Outline of a value box (line height, shadow X / Y, outline size)
+THEME.BAR_swatch_border~&                = _RGB32(200, 200, 200)                   ' Colour swatch outline
+THEME.BAR_swatch_check_dark~&            = _RGBA32(192, 192, 192, 255)             ' Transparent swatch: dark checks
+THEME.BAR_swatch_check_light~&           = _RGBA32(255, 255, 255, 255)             ' Transparent swatch: light checks
+THEME.BAR_slider_bg~&                    = _RGB32(38, 38, 52)                      ' Slider track
+THEME.BAR_slider_border~&                = _RGB32(64, 64, 80)                      ' Slider track outline
+THEME.BAR_slider_hover_border~&          = _RGB32(200, 200, 200)                   ' Slider outline under the pointer or while dragged
+THEME.BAR_slider_fill~&                  = _RGB32(80, 80, 160)                     ' Slider fill (the value)
+THEME.BAR_item_bg~&                      = _RGB32(38, 38, 52)                      ' Grid cell background, the cell's badge
+THEME.BAR_item_fg~&                      = _RGB32(200, 200, 200)                   ' Cell text (names, badges) and the brush dab previews
+THEME.BAR_item_border~&                  = _RGB32(64, 64, 80)                      ' Cell outline
+THEME.BAR_item_hover_border~&            = _RGB32(200, 200, 200)                   ' Cell outline under the pointer
+THEME.BAR_item_sel_border~&              = _RGB32(80, 80, 160)                     ' Outline of the chosen cell
+THEME.BAR_scrollbar_track~&              = _RGB32(38, 38, 52)                      ' Grid scrollbar track
+THEME.BAR_scrollbar_thumb~&              = _RGB32(200, 200, 200)                   ' Grid scrollbar thumb
+THEME.BAR_dropdown_bg~&                  = _RGB32(32, 32, 48)                      ' List background
+THEME.BAR_dropdown_fg~&                  = _RGB32(200, 200, 200)                   ' Item text, the list's arrows and scroll marks
+THEME.BAR_dropdown_border~&              = _RGB32(64, 64, 64)                      ' List outline
+THEME.BAR_dropdown_divider~&             = _RGB32(64, 64, 64)                      ' Lines between groups of items
+THEME.BAR_dropdown_hover_bg~&            = _RGB32(45, 55, 110)                     ' Item under the pointer
+THEME.BAR_dropdown_hover_fg~&            = _RGB32(230, 230, 255)                   ' Item text under the pointer
+THEME.BAR_dropdown_preview_fg~&          = _RGB32(235, 238, 245)                   ' Font preview strip text (Settings' FONT_PREVIEW_FG wins when set)
+THEME.BAR_dropdown_preview_bg~&          = _RGB32(22, 24, 30)                      ' Font preview strip background (Settings' FONT_PREVIEW_BG wins when set)
+THEME.BAR_dropdown_sel_bg~&              = _RGB32(60, 80, 160)                     ' The current item
 
 ' =============================================================================
 ' TEXT BAR - Rich text formatting bar (below menu bar when text tool active)
