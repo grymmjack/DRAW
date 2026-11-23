@@ -44,6 +44,9 @@ CONST ACTP_ACT_PLAY = 2705  ' the selection
 CONST ACTP_ACT_NEWSET = 2706
 CONST ACTP_ACT_NEWACT = 2707
 CONST ACTP_ACT_DELETE = 2708
+CONST ACTP_ACT_INSSTOP = 2709 ' Insert Stop... (a step that pauses play with a message)
+CONST ACTP_KEY_SLOTS = 20     ' action keys: 2740-2759 play the action holding key slot k (ACTS_KEY)
+CONST ACTP_ACT_KEY1 = 2740    ' (their keys are binds: INPUTS_register_all, DRAW.bindings)
 CONST ACTP_ACT_LAST = 2729
 
 ' its right-click menu's rows (DOCK_UI.menuActs; 9101+, apart from the History's 9001+ in QA dumps)
@@ -56,6 +59,10 @@ CONST ACTP_MV_RENAME = 9106
 CONST ACTP_MV_DUP = 9107
 CONST ACTP_MV_DELETE = 9108
 CONST ACTP_MV_RELOAD = 9109
+CONST ACTP_MV_INSSTOP = 9110
+CONST ACTP_MV_KEY = 9111
+CONST ACTP_MV_UNKEY = 9112
+CONST ACTP_MV_BATCH = 9113
 
 TYPE ACTP_OBJ
     x       AS INTEGER ' the rect it was given (its units)

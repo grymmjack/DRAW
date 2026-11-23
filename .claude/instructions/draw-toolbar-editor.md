@@ -11,6 +11,18 @@ Each panel is an ordered list of entries `BL(panel, i)` with `BL_N(panel)` entri
 | toolbox | `BL_TOOLBOX` (1) | **`TOOLBAR_BUTTON_ORDER()`** — `BL(BL_TOOLBOX)` is only a working copy (the editor loads it with `TBED_tb_load` and writes it back with `TOOLBAR_layout_apply%`) |
 | edit bar | `BL_EDITBAR` (2) | `BL(BL_EDITBAR)` itself — `BL_bar_draw%` / `BL_bar_hit%` / `BL_bar_click` |
 | advanced bar | `BL_ADVBAR` (3) | `BL(BL_ADVBAR)` itself |
+| PANELS bar | `BL_PANELSBAR` (4) | `BL(BL_PANELSBAR)` itself (`GUI/CMDBARS`, 2026-11-22) |
+| I/O bar | `BL_IOBAR` (5) | `BL(BL_IOBAR)` itself |
+
+`BL_PANELS` (5) is the panel count: every per-panel loop runs `BL_TOOLBOX TO BL_PANELS`.
+
+### The PANELS and I/O bars (`GUI/CMDBARS.BI/BM`, prefix `CBAR_`)
+
+Rick 2026-11-22: two more bars "just like advanced and edit bars" - PANELS (every View panel toggle, lit while that panel shows) and I/O (New / Open / Import / Save / Export). One `CBAR(1 TO CBAR_N)` array, `CBAR_PANELS` = 1 / `CBAR_IO` = 2; map with `CBAR_dp%` (DP_PANELSBAR 16 / DP_IOBAR 17), `CBAR_bl%`, `CBAR_region%` (REGION_PANELS_BAR 41 / REGION_IO_BAR 42), `CBAR_act%` (2770 / 2771, View > PANELS Bar / I/O Bar), `CBAR_section$` (`PANELS_BAR` / `IO_BAR`: cfg section, workspace section, dump name). Off by default (`CFG.PANELS_BAR` / `IO_BAR`); first shown, `DOCK_cbar_place` puts PANELS in a new column beside the advanced bar, I/O beside the edit bar.
+- Lit = `BL_cmd_enabled%` ANDs `CBAR_action_enabled%`, which reads each panel's state directly (the menu checkmarks only update while the menu bar draws).
+- Columns 1-4 (`*_BAR_COLUMNS`, `CBAR_NCOLS` from a workspace); a wider docked column flows more icon columns.
+- Customize Toolbars tabs PANELS / I/O (`TBED_CTL_TAB` = 20, tabs 20..24); prose uses `TBED_panel_name$` ("I/O BAR"). Workspaces: `[PANELS_BAR]` / `[IO_BAR]` `ORDER=` / `COLUMNS=` (the writer's section list in `WSC_save` must name them - it dropped them once); universal: `PANELS_BAR_ORDER` / `IO_BAR_ORDER`.
+- Dump: `CBAR <panels_bar|io_bar> wanted visible x1 y1 x2 y2 hover scroll contentH cols entries`; buttons in `BTN` / `BTNS` as `panelsbar` / `iobar`. QA `cmd-bars.sh`.
 
 Entry kinds: `BL_TOOL` (id = `TB_*` toolbox button), `BL_CMD` (id = action id), `BL_DIV` (divider: ends the row), `BL_GAP` (empty cell).
 
@@ -27,7 +39,7 @@ Entry kinds: `BL_TOOL` (id = `TB_*` toolbox button), `BL_CMD` (id = action id), 
 
 ### Names in workspace files
 
-Existing names stay (`move`, `undo`, `preview`, …); any other command is `cmd:<action id>` (a bare number also works); `|` divider; `-` gap. Bar names (`undo`, …) are valid in `[TOOLBOX] BUTTONS=` too (`BL_bar_cmd_by_name%`). `[EDIT_BAR]/[ADVANCED_BAR] ORDER=` is an ordered list; the legacy `BUTTONS=` is a visibility filter over the default order (`WS_apply_bar_list%`).
+Existing names stay (`move`, `undo`, `preview`, …); any other command is `cmd:<action id>` (a bare number also works); `|` divider; `-` gap. Bar names (`undo`, …) are valid in `[TOOLBOX] BUTTONS=` too (`BL_bar_cmd_by_name%`). `[EDIT_BAR]/[ADVANCED_BAR]/[PANELS_BAR]/[IO_BAR] ORDER=` is an ordered list; the legacy `BUTTONS=` is a visibility filter over the default order (`WS_apply_bar_list%`).
 
 ## Customize Toolbars (`GUI/TOOLBAR-EDITOR.BI/BM`, prefix `TBED_`)
 

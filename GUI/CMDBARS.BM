@@ -1,0 +1,393 @@
+''
+' DRAW - GUI/CMDBARS.BM - the PANELS bar and the I/O bar (GUI/CMDBARS.BI).
+' =============================================================================
+' Both draw, hit-test and click through their button lists (GUI/BUTTON-LIST),
+' exactly as the advanced bar does; only the default lists differ.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+SUB CBAR_init ()
+    DIM i AS INTEGER
+    FOR i = 1 TO CBAR_N
+        CBAR(i).hoverIndex = -1
+        CBAR(i).scrollOffset = 0
+        CBAR(i).contentH = 0
+        CBAR_NCOLS(i) = 0
+    NEXT i
+END SUB
+
+
+' =============================================================================
+' Which bar
+' =============================================================================
+
+FUNCTION CBAR_dp% (i AS INTEGER)
+    IF i = CBAR_IO THEN CBAR_dp% = DP_IOBAR ELSE CBAR_dp% = DP_PANELSBAR
+END FUNCTION
+
+
+FUNCTION CBAR_bl% (i AS INTEGER)
+    IF i = CBAR_IO THEN CBAR_bl% = BL_IOBAR ELSE CBAR_bl% = BL_PANELSBAR
+END FUNCTION
+
+
+FUNCTION CBAR_region% (i AS INTEGER)
+    IF i = CBAR_IO THEN CBAR_region% = REGION_IO_BAR ELSE CBAR_region% = REGION_PANELS_BAR
+END FUNCTION
+
+
+FUNCTION CBAR_act% (i AS INTEGER)
+    IF i = CBAR_IO THEN CBAR_act% = CBAR_ACT_IO ELSE CBAR_act% = CBAR_ACT_PANELS
+END FUNCTION
+
+
+''
+' The bar (CBAR_PANELS / CBAR_IO) of dock panel id, 0 = not one of them.
+FUNCTION CBAR_of_dp% (id AS INTEGER)
+    SELECT CASE id
+        CASE DP_PANELSBAR: CBAR_of_dp% = CBAR_PANELS
+        CASE DP_IOBAR: CBAR_of_dp% = CBAR_IO
+    END SELECT
+END FUNCTION
+
+
+''
+' The bar of button list panel (BL_*), 0 = not one of them.
+FUNCTION CBAR_of_bl% (panel AS INTEGER)
+    SELECT CASE panel
+        CASE BL_PANELSBAR: CBAR_of_bl% = CBAR_PANELS
+        CASE BL_IOBAR: CBAR_of_bl% = CBAR_IO
+    END SELECT
+END FUNCTION
+
+
+''
+' Its name: Customize Toolbars' tab, workspace sections, status messages.
+FUNCTION CBAR_title$ (i AS INTEGER)
+    IF i = CBAR_IO THEN CBAR_title$ = "I/O" ELSE CBAR_title$ = "PANELS"
+END FUNCTION
+
+
+''
+' Its workspace section ([PANELS_BAR] / [IO_BAR] ORDER= BUTTONS= COLUMNS=).
+FUNCTION CBAR_section$ (i AS INTEGER)
+    IF i = CBAR_IO THEN CBAR_section$ = "IO_BAR" ELSE CBAR_section$ = "PANELS_BAR"
+END FUNCTION
+
+
+' =============================================================================
+' Showing
+' =============================================================================
+
+FUNCTION CBAR_cfg_on% (i AS INTEGER)
+    IF i = CBAR_IO THEN CBAR_cfg_on% = (CFG.IO_BAR% <> 0) ELSE CBAR_cfg_on% = (CFG.PANELS_BAR% <> 0)
+END FUNCTION
+
+
+''
+' Should it show: turned on (View), the chrome not hidden by F11.
+FUNCTION CBAR_wanted% (i AS INTEGER)
+    IF SCRN.textBarHiddenByToggleAll% THEN EXIT FUNCTION ' (F11 holds the panels off)
+    CBAR_wanted% = CBAR_cfg_on%(i)
+END FUNCTION
+
+
+''
+' Each frame's layout: drawn when wanted and live in the dock (not a hidden tab,
+' collapsed, or dropped by a small window).
+SUB CBAR_update_visible ()
+    DIM i AS INTEGER
+    FOR i = 1 TO CBAR_N
+        CBAR(i).visible = CBAR_wanted%(i)
+        IF CBAR(i).visible _ANDALSO DOCK_live%(CBAR_dp%(i)) = 0 THEN CBAR(i).visible = FALSE
+        IF CBAR(i).visible = 0 THEN CBAR(i).hoverIndex = -1
+    NEXT i
+END SUB
+
+
+''
+' View > PANELS Bar / I/O Bar.
+SUB CBAR_toggle (i AS INTEGER)
+    IF i = CBAR_IO THEN
+        CFG.IO_BAR% = _IIF(CFG.IO_BAR%, FALSE, TRUE)
+    ELSE
+        CFG.PANELS_BAR% = _IIF(CFG.PANELS_BAR%, FALSE, TRUE)
+    END IF
+    CONFIG_save
+    STATUS_flash CBAR_title$(i) + " BAR " + _IIF(CBAR_cfg_on%(i), "ON", "OFF")
+    GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+' =============================================================================
+' Size
+' =============================================================================
+
+''
+' Icon columns: the live value, else the cfg's (1-4).
+FUNCTION CBAR_cols% (i AS INTEGER)
+    DIM c AS INTEGER
+    c = CBAR_NCOLS(i)
+    IF c = 0 THEN
+        IF i = CBAR_IO THEN c = CFG.IO_BAR_COLUMNS% ELSE c = CFG.PANELS_BAR_COLUMNS%
+    END IF
+    IF c < 1 THEN c = 1
+    IF c > 4 THEN c = 4
+    CBAR_cols% = c
+END FUNCTION
+
+
+''
+' Width for its columns (its units), borders included.
+FUNCTION CBAR_width% (i AS INTEGER)
+    CBAR_width% = CBAR_cols%(i) * THEME.ICON_BAR_width% + THEME.ICON_BAR_border_left_width% + THEME.ICON_BAR_border_right_width%
+END FUNCTION
+
+
+''
+' The widest it can use (its units): four icon columns, or its columns when more.
+FUNCTION CBAR_max_w% (i AS INTEGER)
+    CBAR_max_w% = _MAX(4, CBAR_cols%(i)) * THEME.ICON_BAR_width% + THEME.ICON_BAR_border_left_width% + THEME.ICON_BAR_border_right_width%
+END FUNCTION
+
+
+' =============================================================================
+' The default buttons
+' =============================================================================
+
+''
+' panel's list as it comes: the PANELS bar a button per View panel (the menu's
+' order: chrome, bars, windows, palettes), the I/O bar File's New / Open /
+' Import / Save / Export commands.
+SUB CBAR_set_default (panel AS INTEGER)
+    DIM ok AS INTEGER
+    SELECT CASE panel
+        CASE BL_PANELSBAR
+            ok = BL_add%(panel, BL_CMD, 411) ' Menu Bar
+            ok = BL_add%(panel, BL_CMD, 401) ' Toolbox
+            ok = BL_add%(panel, BL_CMD, 404) ' Layer Panel
+            ok = BL_add%(panel, BL_CMD, 2472) ' Organizer
+            ok = BL_add%(panel, BL_CMD, 2473) ' Drawer
+            ok = BL_add%(panel, BL_CMD, 402) ' Color Strip / Status
+            ok = BL_add%(panel, BL_DIV, 0)
+            ok = BL_add%(panel, BL_CMD, 434) ' Preview Window
+            ok = BL_add%(panel, BL_CMD, 435) ' Edit Bar
+            ok = BL_add%(panel, BL_CMD, 449) ' Advanced Bar
+            ok = BL_add%(panel, BL_CMD, CBAR_ACT_IO) ' I/O Bar
+            ok = BL_add%(panel, BL_CMD, WF_ACT_TOGGLE) ' Workflow Buttons
+            ok = BL_add%(panel, BL_CMD, SELBAR_ACT_TOGGLE) ' Tool Options
+            ok = BL_add%(panel, BL_DIV, 0)
+            ok = BL_add%(panel, BL_CMD, 2050) ' Character Map
+            ok = BL_add%(panel, BL_CMD, 2021) ' Color Mixer
+            ok = BL_add%(panel, BL_CMD, 2023) ' Advanced Color Picker
+            ok = BL_add%(panel, BL_CMD, 2024) ' 3D Color Space
+            ok = BL_add%(panel, BL_CMD, 2028) ' Pen Control
+            ok = BL_add%(panel, BL_CMD, SWP_ACT_TOGGLE) ' Swatches
+            ok = BL_add%(panel, BL_DIV, 0)
+            ok = BL_add%(panel, BL_CMD, ANIMP_ACT_TOGGLE) ' Animation Panel
+            ok = BL_add%(panel, BL_CMD, MYPAINT_ACT_PANEL) ' MyPaint Brushes
+            ok = BL_add%(panel, BL_CMD, MPS_ACT_PANEL) ' MyPaint Brush Settings
+            ok = BL_add%(panel, BL_CMD, BSP_ACT_PANEL) ' Brush Palette
+            ok = BL_add%(panel, BL_CMD, HISTP_ACT_PANEL) ' History
+            ok = BL_add%(panel, BL_CMD, ACTP_ACT_PANEL) ' Actions
+            ok = BL_add%(panel, BL_CMD, 2022) ' Browser
+        CASE BL_IOBAR
+            ok = BL_add%(panel, BL_CMD, 209) ' New
+            ok = BL_add%(panel, BL_CMD, ANIM_ACT_NEW) ' New Animation
+            ok = BL_add%(panel, BL_CMD, 210) ' New from Template
+            ok = BL_add%(panel, BL_CMD, 2058) ' New from Clipboard
+            ok = BL_add%(panel, BL_DIV, 0)
+            ok = BL_add%(panel, BL_CMD, 206) ' Open
+            ok = BL_add%(panel, BL_CMD, 208) ' Import Image
+            ok = BL_add%(panel, BL_CMD, ANS_ACT_IMPORT) ' Import ANSI
+            ok = BL_add%(panel, BL_DIV, 0)
+            ok = BL_add%(panel, BL_CMD, 202) ' Save
+            ok = BL_add%(panel, BL_CMD, 204) ' Save As
+            ok = BL_add%(panel, BL_DIV, 0)
+            ok = BL_add%(panel, BL_CMD, EXPORT_ACT_PNG) ' Export PNG
+            ok = BL_add%(panel, BL_CMD, EXPORT_ACT_REPEAT) ' Export Again
+            ok = BL_add%(panel, BL_CMD, 211) ' Export Layer
+            ok = BL_add%(panel, BL_CMD, 205) ' Export Selection
+            ok = BL_add%(panel, BL_CMD, ANS_ACT_EXPORT) ' Export ANSI
+            ok = BL_add%(panel, BL_CMD, EXPORT_QB64_ACTION) ' Export QB64 Project
+    END SELECT
+END SUB
+
+
+''
+' A PANELS bar button is lit while its panel shows (each panel's own flag, read
+' now: the menu's check marks only update while the menu bar draws). TRUE for
+' every other command (the edit / advanced bars' rules cover theirs).
+FUNCTION CBAR_action_enabled% (act AS INTEGER)
+    DIM r AS INTEGER
+    r = TRUE
+    SELECT CASE act
+        CASE 411: r = (MENU_BAR.visible% <> 0)
+        CASE 401: r = (SCRN.showToolbar% <> 0)
+        CASE 404: r = (LAYER_PANEL.visible% <> 0)
+        CASE 2472: r = (ORGANIZER.visible% <> 0)
+        CASE 2473: r = (DRAWER.visible% <> 0)
+        CASE 402: r = (SCRN.showStatus% <> 0)
+        CASE 449: r = (SCRN.showAdvBar% <> 0)
+        CASE 2021: r = (COLORMIXER.visible% <> 0)
+        CASE 2023: r = (ADVCP.visible% <> 0)
+        CASE 2024: r = (CS3D.visible% <> 0)
+        CASE 2028: r = (PENP.visible% <> 0)
+        CASE 2022: r = (BROWSER.visible% <> 0)
+        CASE ANIMP_ACT_TOGGLE: r = (ANIMP.visible <> 0)
+        CASE SWP_ACT_TOGGLE: r = (SWP.visible <> 0)
+        CASE WF_ACT_TOGGLE: r = (CFG.WORKFLOW_BAR% <> 0)
+        CASE SELBAR_ACT_TOGGLE: r = (CFG.SELECTION_BAR% <> 0)
+        CASE MYPAINT_ACT_PANEL: r = (CFG.MYPAINT_PANEL% <> 0)
+        CASE MPS_ACT_PANEL: r = (CFG.MYPAINT_SETTINGS% <> 0)
+        CASE BSP_ACT_PANEL: r = (CFG.BRUSH_PANEL% <> 0)
+        CASE HISTP_ACT_PANEL: r = (CFG.HISTORY_PANEL% <> 0)
+        CASE ACTP_ACT_PANEL: r = (CFG.ACTIONS_PANEL% <> 0)
+        CASE CBAR_ACT_PANELS: r = (CFG.PANELS_BAR% <> 0)
+        CASE CBAR_ACT_IO: r = (CFG.IO_BAR% <> 0)
+    END SELECT
+    CBAR_action_enabled% = r
+END FUNCTION
+
+
+' =============================================================================
+' Drawing and the mouse
+' =============================================================================
+
+''
+' Draw bar i in the rect the dock gave it (DOCK_apply_rect), as the advanced bar does.
+SUB CBAR_render (i AS INTEGER)
+    DIM w AS INTEGER, x1 AS INTEGER, x2 AS INTEGER, y1 AS INTEGER, y2 AS INTEGER, ix1 AS INTEGER, ix2 AS INTEGER
+    IF i < 1 _ORELSE i > CBAR_N THEN EXIT SUB
+    w = CBAR_width%(i)
+    IF CBAR(i).slotW > 0 THEN w = CBAR(i).slotW ' fill the slot (a wide column)
+    x1 = CBAR(i).x: x2 = x1 + w - 1
+    y1 = CBAR(i).panelY1: y2 = CBAR(i).panelY2
+    CBAR(i).panelX1 = x1: CBAR(i).panelX2 = x2
+    REGION_set_bounds CBAR_region%(i), x1, y1, w, y2 - y1 + 1, ZORDER_PANEL ' (its footprint at a Scale: PSURF_render)
+    LINE (x1, y1)-(x2, y2), THEME.ICON_BAR_bg~&, BF
+    ix1 = x1 + THEME.ICON_BAR_border_left_width%
+    ix2 = x2 - THEME.ICON_BAR_border_right_width%
+    CBAR(i).scrollOffset = BL_scroll_clamp%(CBAR(i).scrollOffset, CBAR(i).contentH, y2 - y1)
+    CBAR(i).contentH = BL_bar_draw%(CBAR_bl%(i), ix1, ix2 - ix1 + 1, y1, y2, CBAR(i).scrollOffset, CBAR_cols%(i), CBAR(i).hoverIndex)
+    IF BL_scroll_clamp%(CBAR(i).scrollOffset, CBAR(i).contentH, y2 - y1) <> CBAR(i).scrollOffset THEN GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Is (mx, my) (window px) over bar i?
+FUNCTION CBAR_is_over% (i AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    DIM dp AS INTEGER
+    IF i < 1 _ORELSE i > CBAR_N THEN EXIT FUNCTION
+    IF CBAR(i).visible = 0 THEN EXIT FUNCTION
+    dp = CBAR_dp%(i)
+    IF DOCK_live%(dp) = 0 THEN EXIT FUNCTION
+    IF WZ_blocked%(dp, mx, my) THEN EXIT FUNCTION ' a window in front covers it here (GUI/WINZ)
+    IF PSURF_on%(dp) THEN CBAR_is_over% = PSURF_in%(dp, mx, my): EXIT FUNCTION ' its footprint (GUI/PANEL-SURFACE)
+    CBAR_is_over% = (mx >= CBAR(i).panelX1 _ANDALSO mx <= CBAR(i).panelX2 _ANDALSO my >= CBAR(i).panelY1 _ANDALSO my <= CBAR(i).panelY2)
+END FUNCTION
+
+
+''
+' The bar under (mx, my), 0 = none.
+FUNCTION CBAR_over% (mx AS INTEGER, my AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 1 TO CBAR_N
+        IF CBAR_is_over%(i, mx, my) THEN CBAR_over% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' The list entry of bar i under (mx, my), -1 = none.
+FUNCTION CBAR_hit% (i AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    CBAR_hit% = BL_bar_hit%(CBAR_bl%(i), PSURF_mx%(CBAR_dp%(i), mx), PSURF_my%(CBAR_dp%(i), my))
+END FUNCTION
+
+
+''
+' A left click on bar i (Customize Toolbars' edit mode is MOUSE.BM's: it picks
+' the button up instead).
+SUB CBAR_click (i AS INTEGER, mx AS INTEGER, my AS INTEGER)
+    BL_bar_click CBAR_bl%(i), CBAR_hit%(i, mx, my)
+END SUB
+
+
+''
+' Hover: the button under the pointer is outlined (a sound when it can be used).
+SUB CBAR_update_hover (mx AS INTEGER, my AS INTEGER)
+    DIM i AS INTEGER, nh AS INTEGER
+    FOR i = 1 TO CBAR_N
+        nh = -1
+        IF CBAR_is_over%(i, mx, my) THEN nh = CBAR_hit%(i, mx, my)
+        IF nh <> CBAR(i).hoverIndex THEN
+            CBAR(i).hoverIndex = nh
+            IF nh >= 0 THEN
+                IF BL_entry_lit%(CBAR_bl%(i), nh) THEN SOUND_play SND_MENU_HOVER
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE% = FALSE
+        END IF
+    NEXT i
+END SUB
+
+
+''
+' The wheel over a bar scrolls it (when its buttons do not fit). TRUE = over one.
+FUNCTION CBAR_wheel% (mx AS INTEGER, my AS INTEGER, delta AS INTEGER)
+    DIM i AS INTEGER, maxOff AS INTEGER, nOff AS INTEGER
+    IF delta = 0 THEN EXIT FUNCTION
+    i = CBAR_over%(mx, my)
+    IF i = 0 THEN EXIT FUNCTION
+    CBAR_wheel% = TRUE
+    maxOff = CBAR(i).contentH - (CBAR(i).panelY2 - CBAR(i).panelY1)
+    IF maxOff <= 0 THEN EXIT FUNCTION
+    nOff = CBAR(i).scrollOffset + delta * 12
+    IF nOff < 0 THEN nOff = 0
+    IF nOff > maxOff THEN nOff = maxOff
+    IF nOff <> CBAR(i).scrollOffset THEN
+        CBAR(i).scrollOffset = nOff
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
+END FUNCTION
+
+
+''
+' Tooltip of the button under the pointer: its bar tooltip / command name and
+' hotkey (BL_cmd_tooltip), lines split by CHR$(10). Non-zero id (30000 +).
+FUNCTION CBAR_tip_at% (mx AS INTEGER, my AS INTEGER, txt AS STRING)
+    DIM i AS INTEGER, k AS INTEGER, bl AS INTEGER, l1 AS STRING, l2 AS STRING, tb AS INTEGER
+    txt = ""
+    i = CBAR_over%(mx, my)
+    IF i = 0 THEN EXIT FUNCTION
+    k = CBAR_hit%(i, mx, my)
+    IF k < 0 THEN EXIT FUNCTION
+    bl = CBAR_bl%(i)
+    IF BL(bl, k).kind = BL_CMD THEN BL_cmd_tooltip BL(bl, k).id, l1, l2
+    IF BL(bl, k).kind = BL_TOOL THEN
+        tb = TOOLBAR_default_slot%(BL(bl, k).id) ' a tool placed on the bar: its toolbox tooltip
+        IF tb >= 0 THEN l1 = TOOLTIP_LINE1$(tb): l2 = TOOLTIP_LINE2$(tb)
+    END IF
+    IF LEN(l1) = 0 THEN EXIT FUNCTION
+    txt = l1
+    IF LEN(l2) THEN txt = txt + CHR$(10) + l2
+    CBAR_tip_at% = 30000 + (i - 1) * 1000 + k
+END FUNCTION
+
+
+''
+' QA dump: CBAR <bar> <wanted> <visible> <x1> <y1> <x2> <y2> <hover> <scroll> <contentH> <cols> <entries>
+' (rect in its units; the BTN lines of Customize Toolbars' dump have every button in window px).
+FUNCTION CBAR_dump$ ()
+    DIM i AS INTEGER, d AS STRING
+    FOR i = 1 TO CBAR_N
+        d = d + "CBAR " + LCASE$(CBAR_section$(i)) + DOCK_n$(CBAR_wanted%(i) <> 0) + DOCK_n$(CBAR(i).visible <> 0)
+        d = d + DOCK_n$(CBAR(i).panelX1) + DOCK_n$(CBAR(i).panelY1) + DOCK_n$(CBAR(i).panelX2) + DOCK_n$(CBAR(i).panelY2)
+        d = d + DOCK_n$(CBAR(i).hoverIndex) + DOCK_n$(CBAR(i).scrollOffset) + DOCK_n$(CBAR(i).contentH) + DOCK_n$(CBAR_cols%(i)) + DOCK_n$(BL_N(CBAR_bl%(i))) + CHR$(10)
+    NEXT i
+    CBAR_dump$ = d
+END FUNCTION

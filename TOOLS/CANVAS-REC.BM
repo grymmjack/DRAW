@@ -163,9 +163,12 @@ END FUNCTION
 ' (all of it for frame 1 or a new canvas size). None when nothing changed.
 SUB CREC_capture ()
     DIM flat AS LONG, cw AS LONG, ch AS LONG, x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG, k AS LONG
+    DIM t0 AS DOUBLE, t1 AS DOUBLE, t2 AS DOUBLE
     CREC.pending = FALSE
+    t0 = TIMER(.001)
     flat = LAYERS_flatten&
     IF flat >= -1 THEN EXIT SUB
+    t1 = TIMER(.001)
     cw = _WIDTH(flat): ch = _HEIGHT(flat)
     IF CREC.n = 0 _ORELSE CREC.last >= -1 THEN
         x1 = 0: y1 = 0: x2 = cw - 1: y2 = ch - 1
@@ -176,6 +179,7 @@ SUB CREC_capture ()
         CREC.prevCur = HISTORY.current: CREC.prevCnt = HISTORY.count
         EXIT SUB
     END IF
+    t2 = TIMER(.001)
     k = CREC.n + 1
     CREC_room k
     CREC_CW(k) = cw: CREC_CH(k) = ch
@@ -188,6 +192,7 @@ SUB CREC_capture ()
     CREC.last = flat ' the picture after the last frame
     CREC.prevCur = HISTORY.current: CREC.prevCnt = HISTORY.count
     IF CREC.bytes > CREC_cap& _ORELSE CREC.n > CREC_MAX_FRAMES THEN CREC_thin
+    CREC.flatMs = CREC_ms&(t0, t1): CREC.diffMs = CREC_ms&(t1, t2): CREC.capMs = CREC_ms&(t0, TIMER(.001))
     IF LEN(DOCK_DUMP_PATH) THEN GUI_NEEDS_REDRAW% = TRUE ' (QA: the dump line is written with the layout)
 END SUB
 
@@ -413,6 +418,39 @@ END SUB
 
 ''
 ' QA dump line: CREC on paused frames bytes thinned pending badgeX1 badgeX2 barY1 barY2 last-name.
+''
+' Milliseconds from TIMER t0 to t1 (past midnight: 0).
+FUNCTION CREC_ms& (t0 AS DOUBLE, t1 AS DOUBLE)
+    IF t1 >= t0 THEN CREC_ms& = CLNG((t1 - t0) * 1000)
+END FUNCTION
+
+
+''
+' QA: "CRECT capMs flatMs diffMs omit" - what the last capture cost; omit = the
+' next save leaves the recording out (Save As was answered No).
+FUNCTION CREC_dump_t$ ()
+    CREC_dump_t$ = "CRECT " + _TRIM$(STR$(CREC.capMs)) + " " + _TRIM$(STR$(CREC.flatMs)) + " " + _TRIM$(STR$(CREC.diffMs)) + " " + _TRIM$(STR$(CREC.omit))
+END FUNCTION
+
+
+''
+' QA: the viewer's geometry (it is modal: the dock dump is not written while it is
+' up) - DOCK_DUMP_PATH + ".crecv": "CRECV x y scale bw b2w btnY btn2Y frame",
+' dialog px from the dialog's top left; the dialog at (x, y) x scale viewport px.
+SUB CREC_view_qa (ctx AS DIALOG_CTX, bw AS INTEGER, b2w AS INTEGER, btnY AS INTEGER, btn2Y AS INTEGER, fi AS INTEGER)
+    DIM ff AS INTEGER, ln AS STRING
+    STATIC lastLn AS STRING
+    IF LEN(DOCK_DUMP_PATH) = 0 THEN EXIT SUB
+    ln = "CRECV" + STR$(ctx.x) + STR$(ctx.y) + STR$(ctx.scale) + STR$(bw) + STR$(b2w) + STR$(btnY) + STR$(btn2Y) + STR$(fi)
+    IF ln = lastLn THEN EXIT SUB
+    lastLn = ln
+    ff = FREEFILE
+    OPEN DOCK_DUMP_PATH + ".crecv" FOR OUTPUT AS #ff
+    PRINT #ff, ln
+    CLOSE #ff
+END SUB
+
+
 FUNCTION CREC_dump$ ()
     DIM d AS STRING
     d = "CREC " + _TRIM$(STR$(CFG.CANVAS_RECORDING%)) + " " + _TRIM$(STR$(CREC.paused)) + " " + _TRIM$(STR$(CREC.n)) + " " + _TRIM$(STR$(CREC.bytes)) + " " + _TRIM$(STR$(CREC.thinned)) + " " + _TRIM$(STR$(CREC.pending))
@@ -498,6 +536,134 @@ FUNCTION CREC_export_apng% (path AS STRING, fps AS INTEGER, sc AS INTEGER)
 END FUNCTION
 
 ''
+' Rect (x, y, w, h) of img as GIF indexes, each pixel sc x sc: alpha < 128 =
+' transIdx, else the exact table entry (exact) or the adaptive one (mcMap).
+FUNCTION CREC_gif_index$ (img AS LONG, x AS LONG, y AS LONG, w AS LONG, h AS LONG, sc AS INTEGER, transIdx AS INTEGER, exact AS INTEGER, mcMap() AS INTEGER)
+    DIM m AS _MEM, j AS LONG, i AS LONG, k AS INTEGER, v AS _UNSIGNED LONG, e AS INTEGER, iw AS LONG
+    DIM row AS STRING, big AS STRING, res AS STRING, p AS LONG
+    iw = _WIDTH(img)
+    res = SPACE$(w * h * sc * sc): row = SPACE$(w): p = 1
+    m = _MEMIMAGE(img)
+    FOR j = 0 TO h - 1
+        FOR i = 0 TO w - 1
+            v = _MEMGET(m, m.OFFSET + ((y + j) * iw + x + i) * 4, _UNSIGNED LONG)
+            IF v < &H80000000~& THEN
+                e = _MAX(transIdx, 0)
+            ELSEIF exact THEN
+                e = ANIM_GH_index%(v AND &HFFFFFF~&, FALSE): IF e < 0 THEN e = 0
+            ELSE
+                e = ANIM_MC_nearest%(ANIM_MC_bucket&(v), mcMap())
+            END IF
+            ASC(row, i + 1) = e
+        NEXT i
+        IF sc = 1 THEN
+            big = row
+        ELSE
+            big = SPACE$(w * sc)
+            FOR i = 0 TO w - 1: MID$(big, i * sc + 1, sc) = STRING$(sc, ASC(row, i + 1)): NEXT i
+        END IF
+        FOR k = 1 TO sc: MID$(res, p, LEN(big)) = big: p = p + LEN(big): NEXT k
+    NEXT j
+    _MEMFREE m
+    CREC_gif_index$ = res
+END FUNCTION
+
+''
+' The recording as an animated GIF: fps frames a second (GIF time is in 1/100 s:
+' at most 50), the last held 2 s, played once - like the APNG. Colours: exact
+' when the recording uses 256 or fewer (255 with transparency), else an adaptive
+' table (the median cut of the animation GIF: ANIM_MC_cut%). Opaque pictures go
+' frame by frame as their changed rects; a picture with transparent pixels goes
+' whole each frame (a GIF rect cannot make a pixel transparent again). Scaled
+' sc x. TRUE on success, else CYCX_LAST_ERROR$.
+FUNCTION CREC_export_gif% (path AS STRING, fps AS INTEGER, sc AS INTEGER)
+    DIM hist(0 TO 32767) AS LONG, sR(0 TO 32767) AS DOUBLE, sG(0 TO 32767) AS DOUBLE, sB(0 TO 32767) AS DOUBLE, mcMap(0 TO 32767) AS INTEGER
+    DIM f AS LONG, mw AS LONG, mh AS LONG, img AS LONG, m AS _MEM, j AS LONG, i AS LONG, v AS _UNSIGNED LONG, b AS LONG
+    DIM hasT AS INTEGER, exact AS INTEGER, nCol AS INTEGER, transIdx AS INTEGER, bits AS INTEGER, minCode AS INTEGER, e AS INTEGER
+    DIM gct AS STRING, piece AS STRING, ff AS INTEGER, cs AS LONG, whole AS INTEGER, x AS LONG, y AS LONG, w AS LONG, h AS LONG
+    CREC_export_gif% = FALSE
+    CYCX_LAST_ERROR$ = ""
+    IF CREC.n < 1 THEN CYCX_LAST_ERROR$ = "nothing is recorded": EXIT FUNCTION
+    FOR f = 1 TO CREC.n: mw = _MAX(mw, CREC_CW(f)): mh = _MAX(mh, CREC_CH(f)): NEXT f
+    IF mw * sc > 65535 _ORELSE mh * sc > 65535 THEN CYCX_LAST_ERROR$ = "too large for GIF at" + STR$(sc) + "x": EXIT FUNCTION
+
+    ' -- the colours: every pixel ever shown is in some frame's rect --
+    ANIM_GH_clear
+    exact = TRUE
+    img = 0
+    FOR f = 1 TO CREC.n
+        CREC_step img, f
+        m = _MEMIMAGE(img)
+        FOR j = CREC_FY(f) TO CREC_FY(f) + CREC_FH(f) - 1
+            FOR i = CREC_FX(f) TO CREC_FX(f) + CREC_FW(f) - 1
+                v = _MEMGET(m, m.OFFSET + (j * _WIDTH(img) + i) * 4, _UNSIGNED LONG)
+                IF v < &H80000000~& THEN
+                    hasT = TRUE
+                ELSE
+                    IF exact THEN
+                        IF ANIM_GH_index%(v AND &HFFFFFF~&, TRUE) < 0 THEN exact = FALSE
+                    END IF
+                    b = ANIM_MC_bucket&(v)
+                    hist(b) = hist(b) + 1
+                    sR(b) = sR(b) + _RED32(v): sG(b) = sG(b) + _GREEN32(v): sB(b) = sB(b) + _BLUE32(v)
+                END IF
+            NEXT i
+        NEXT j
+        _MEMFREE m
+    NEXT f
+    SAFE_FREEIMAGE img
+    IF exact _ANDALSO hasT _ANDALSO ANIM_GH_N >= 256 THEN exact = FALSE ' no room for the transparent entry
+    IF exact THEN
+        nCol = ANIM_GH_N
+    ELSE
+        ANIM_GH_clear ' (the exact pass's hash: the cut rewrites the table under it)
+        nCol = ANIM_MC_cut%(hist(), sR(), sG(), sB(), _IIF(hasT, 255, 256), mcMap())
+    END IF
+    transIdx = -1: IF hasT THEN transIdx = nCol: nCol = nCol + 1
+    IF nCol < 1 THEN nCol = 1
+    bits = GIF_color_bits%(nCol)
+    minCode = bits: IF minCode < 2 THEN minCode = 2
+    gct = STRING$((2 ^ bits) * 3, 0)
+    FOR e = 1 TO ANIM_GH_N
+        ASC(gct, (e - 1) * 3 + 1) = _RED32(ANIM_GH_RGB(e)): ASC(gct, (e - 1) * 3 + 2) = _GREEN32(ANIM_GH_RGB(e)): ASC(gct, (e - 1) * 3 + 3) = _BLUE32(ANIM_GH_RGB(e))
+    NEXT e
+
+    ' -- the frames --
+    IF fps < 1 THEN fps = 1
+    cs = INT(100 / fps + 0.5): IF cs < 2 THEN cs = 2 ' (viewers slow anything under 2/100 s down)
+    IF _FILEEXISTS(path) THEN KILL path
+    ff = FREEFILE
+    OPEN path FOR BINARY AS #ff
+    piece = "GIF89a" + GIF_le16$(mw * sc) + GIF_le16$(mh * sc) + CHR$(&H80 OR &H70 OR (bits - 1)) + CHR$(_MAX(transIdx, 0)) + CHR$(0) + gct
+    PUT #ff, , piece
+    img = 0
+    FOR f = 1 TO CREC.n
+        CREC_step img, f
+        whole = (hasT _ORELSE f = 1)
+        IF f > 1 THEN
+            IF CREC_CW(f) <> CREC_CW(f - 1) _ORELSE CREC_CH(f) <> CREC_CH(f - 1) THEN whole = TRUE
+        END IF
+        IF whole THEN
+            x = 0: y = 0: w = _WIDTH(img): h = _HEIGHT(img)
+        ELSE
+            x = CREC_FX(f): y = CREC_FY(f): w = CREC_FW(f): h = CREC_FH(f)
+        END IF
+        piece = GIF_gce$(_IIF(f = CREC.n, 200, cs), transIdx, _IIF(hasT, 2, 1))
+        piece = piece + CHR$(&H2C) + GIF_le16$(x * sc) + GIF_le16$(y * sc) + GIF_le16$(w * sc) + GIF_le16$(h * sc) + CHR$(0)
+        piece = piece + CHR$(minCode) + GIF_subblocks$(GIF_lzw$(CREC_gif_index$(img, x, y, w, h, sc, transIdx, exact, mcMap()), minCode))
+        PUT #ff, , piece
+    NEXT f
+    SAFE_FREEIMAGE img
+    piece = CHR$(&H3B)
+    PUT #ff, , piece
+    CLOSE #ff
+    IF _FILEEXISTS(path) = 0 THEN CYCX_LAST_ERROR$ = "could not write " + path: EXIT FUNCTION
+    CREC_GIF_INFO = _TRIM$(STR$(nCol)) + " colours" + _IIF(exact, "", " (adaptive)")
+    _LOGINFO "CREC_export_gif: " + path + " -" + STR$(CREC.n) + " frames," + STR$(nCol) + " colours"
+    CREC_export_gif% = TRUE
+END FUNCTION
+
+''
 ' The recording as name_0001.png ... (every frame whole), scaled sc x.
 FUNCTION CREC_export_pngs% (path AS STRING, sc AS INTEGER)
     DIM f AS LONG, img AS LONG, sImg AS LONG, baseP AS STRING, nm AS STRING, digits AS INTEGER
@@ -568,7 +734,7 @@ SUB CREC_view_dialog ()
     DIM fpsIdx AS INTEGER, fps AS INTEGER, sc AS INTEGER, snapK AS LONG, nSnap AS LONG, per AS DOUBLE
     DIM fpsList(1 TO 6) AS INTEGER, i AS LONG, s AS SINGLE, iw AS INTEGER, ih AS INTEGER, px AS INTEGER, py AS INTEGER
     DIM sliderY AS INTEGER, btnY AS INTEGER, btn2Y AS INTEGER, bw AS INTEGER, info AS STRING, fpath AS STRING, ok AS INTEGER
-    DIM cx AS INTEGER, cy AS INTEGER, ckA AS _UNSIGNED LONG, ckB AS _UNSIGNED LONG
+    DIM cx AS INTEGER, cy AS INTEGER, ckA AS _UNSIGNED LONG, ckB AS _UNSIGNED LONG, b2w AS INTEGER
     fpsList(1) = 5: fpsList(2) = 10: fpsList(3) = 20: fpsList(4) = 40: fpsList(5) = 80: fpsList(6) = 160
     fpsIdx = 2: sc = 1
 
@@ -579,7 +745,7 @@ SUB CREC_view_dialog ()
     snapK = -INT(-CREC.n / nSnap): IF snapK < 8 THEN snapK = 8
     DIM snapImg(1 TO CREC.n \ snapK + 1) AS LONG
 
-    dw = 400: IF dw > SCRN.w& - 16 THEN dw = SCRN.w& - 16
+    dw = 440: IF dw > SCRN.w& - 16 THEN dw = SCRN.w& - 16
     pw = dw - 16
     ph = 240: IF ph > SCRN.h& - 150 THEN ph = SCRN.h& - 150
     IF ph < 60 THEN ph = 60
@@ -590,6 +756,7 @@ SUB CREC_view_dialog ()
     dh = btn2Y + 30
     DIALOG_init ctx, dw, dh
     bw = (dw - 16 - 4 * 4) \ 5
+    b2w = (dw - 16 - 3 * 4) \ 4 ' (the second row: APNG / GIF / PNGS / CLOSE)
 
     fi = 1: cur = 0: img = 0
     CREC_seek img, cur, 1, snapImg(), snapK
@@ -620,7 +787,7 @@ SUB CREC_view_dialog ()
         IF DIALOG_hit%(ctx, 8 + (bw + 4) * 4, btnY, bw, 20) THEN sc = sc * 2: IF sc > 8 THEN sc = 1
         fps = fpsList(fpsIdx)
 
-        IF DIALOG_hit%(ctx, 8, btn2Y, bw * 2 + 4, 20) THEN
+        IF DIALOG_hit%(ctx, 8, btn2Y, b2w, 20) THEN
             playing = FALSE
             fpath = CYCX_save_dialog$("Export Recording as Animated PNG (APNG)", "APNG (*.png;*.apng)|*.png;*.apng", ".png")
             IF fpath <> "" THEN
@@ -629,7 +796,16 @@ SUB CREC_view_dialog ()
             END IF
             lastT = TIMER(.001)
         END IF
-        IF DIALOG_hit%(ctx, 8 + (bw + 4) * 2, btn2Y, bw * 2 + 4, 20) THEN
+        IF DIALOG_hit%(ctx, 8 + (b2w + 4), btn2Y, b2w, 20) THEN
+            playing = FALSE
+            fpath = CYCX_save_dialog$("Export Recording as Animated GIF", "GIF (*.gif)|*.gif", ".gif")
+            IF fpath <> "" THEN
+                ok = CREC_export_gif%(fpath, fps, sc)
+                CYCX_report ok, "recording GIF (" + _TRIM$(STR$(CREC.n)) + " frames, " + _TRIM$(STR$(_MIN(fps, 50))) + " fps, " + CREC_GIF_INFO + ")", fpath
+            END IF
+            lastT = TIMER(.001)
+        END IF
+        IF DIALOG_hit%(ctx, 8 + (b2w + 4) * 2, btn2Y, b2w, 20) THEN
             playing = FALSE
             fpath = CYCX_save_dialog$("Export Recording as PNG Sequence (name_0001.png ...)", "PNG (*.png)|*.png", ".png")
             IF fpath <> "" THEN
@@ -638,7 +814,7 @@ SUB CREC_view_dialog ()
             END IF
             lastT = TIMER(.001)
         END IF
-        IF DIALOG_hit%(ctx, 8 + (bw + 4) * 4, btn2Y, bw, 20) THEN ctx.done = TRUE
+        IF DIALOG_hit%(ctx, 8 + (b2w + 4) * 3, btn2Y, b2w, 20) THEN ctx.done = TRUE
 
         ' playback: fps frames a second; it stops at the last
         t = TIMER(.001): IF t < lastT THEN lastT = t
@@ -653,6 +829,7 @@ SUB CREC_view_dialog ()
         IF fi < 1 THEN fi = 1
         IF fi > CREC.n THEN fi = CREC.n
         CREC_seek img, cur, CLNG(fi), snapImg(), snapK
+        CREC_view_qa ctx, bw, b2w, btnY, btn2Y, fi
 
         ' ===== RENDER =====
         _DEST ctx.imgHandle
@@ -681,9 +858,10 @@ SUB CREC_view_dialog ()
         DIALOG_draw_button_role ctx, 8 + (bw + 4) * 2, btnY, bw, 20, ">|", DLG_BTN_PLAIN
         DIALOG_draw_button_role ctx, 8 + (bw + 4) * 3, btnY, bw, 20, _TRIM$(STR$(fps)) + " FPS", DLG_BTN_PLAIN
         DIALOG_draw_button_role ctx, 8 + (bw + 4) * 4, btnY, bw, 20, "EXPORT " + _TRIM$(STR$(sc)) + "X", DLG_BTN_PLAIN
-        DIALOG_draw_button_role ctx, 8, btn2Y, bw * 2 + 4, 20, "EXPORT APNG...", DLG_BTN_ACCENT
-        DIALOG_draw_button_role ctx, 8 + (bw + 4) * 2, btn2Y, bw * 2 + 4, 20, "EXPORT PNGS...", DLG_BTN_ACCENT
-        DIALOG_draw_button_role ctx, 8 + (bw + 4) * 4, btn2Y, bw, 20, "CLOSE", DLG_BTN_CANCEL
+        DIALOG_draw_button_role ctx, 8, btn2Y, b2w, 20, "EXPORT APNG...", DLG_BTN_ACCENT
+        DIALOG_draw_button_role ctx, 8 + (b2w + 4), btn2Y, b2w, 20, "EXPORT GIF...", DLG_BTN_ACCENT
+        DIALOG_draw_button_role ctx, 8 + (b2w + 4) * 2, btn2Y, b2w, 20, "EXPORT PNGS...", DLG_BTN_ACCENT
+        DIALOG_draw_button_role ctx, 8 + (b2w + 4) * 3, btn2Y, b2w, 20, "CLOSE", DLG_BTN_CANCEL
         DIALOG_blit ctx
     LOOP UNTIL ctx.done
 

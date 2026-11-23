@@ -1,7 +1,8 @@
 ''
 ' DRAW - GUI/BUTTON-LIST.BI
 ' =============================================================================
-' Button lists: what the toolbox, the edit bar and the advanced bar show, in
+' Button lists: what the toolbox, the edit bar, the advanced bar and the PANELS /
+' I/O bars (GUI/CMDBARS) show, in
 ' order (plan: PLANS/_/TOOLBAR-EDITOR-PLAN.md). Each panel is an ordered list
 ' of entries:
 '   BL_TOOL  a toolbox tool (id = TB_*)        BL_DIV  a divider (bars: a new row)
@@ -19,7 +20,9 @@ $INCLUDEONCE
 CONST BL_TOOLBOX = 1
 CONST BL_EDITBAR = 2
 CONST BL_ADVBAR  = 3
-CONST BL_PANELS  = 3
+CONST BL_PANELSBAR = 4 ' the PANELS bar (GUI/CMDBARS)
+CONST BL_IOBAR   = 5 ' the I/O bar (GUI/CMDBARS)
+CONST BL_PANELS  = 5
 
 CONST BL_TOOL = 1
 CONST BL_CMD  = 2

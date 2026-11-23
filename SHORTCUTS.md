@@ -134,7 +134,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 
 **History palette** (View → History): `Click` a row = go to that state (undo / redo until there) · `R-Click` Step Backward / Step Forward / Clear History · `Wheel` scroll (`Shift` 10 rows) · UNDO / REDO / CLEAR buttons. Edit → Clear History... removes every undo step (asks).
 
-**Actions palette** (View → Actions): `Click` select · `Double-click` a set / action = rename · its triangle = fold · on box = play / skip · dialog box (steps) · `R-Click` Play / Record / Stop / New Set / New Action / Rename / Duplicate / Delete / Reload · `Wheel` scroll (`Shift` 10 rows) · STOP / REC / PLAY / NEW SET / NEW ACTION / DELETE buttons. Also in the command palette as *Actions: Record*, *Stop Recording*, *Play Selection*, *New Set*, *New Action*, *Delete Selection*.
+**Actions palette** (View → Actions): `Click` select · `Double-click` a set / action = rename · its triangle = fold · on box = play / skip · dialog box (steps) · `R-Click` Play / Record / Stop / New Set / New Action / Insert Stop / Assign Key / Clear Key / Batch / Rename / Duplicate / Delete / Reload (an action's key: its own bind, shown at the row's right and in Customize Controls; 20 action keys, actions 2740-2759) · `Wheel` scroll (`Shift` 10 rows) · STOP / REC / PLAY / NEW SET / NEW ACTION / DELETE buttons. Also in the command palette as *Actions: Record*, *Stop Recording*, *Play Selection*, *New Set*, *New Action*, *Delete Selection*, *Insert Stop...*.
 
 **Paste workflow:** select (`M`/`W`) → `Ctrl+C`/`Ctrl+X` → `Ctrl+V` (floats centered on the canvas, auto-engages Move) → drag to reposition (`Alt+drag` stamps copies) → `Enter` apply / `Esc` cancel. (`Ctrl+Z` removes a paste.)
 
@@ -150,6 +150,8 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `F4` | Toggle preview window |
 | `F5` | Toggle edit bar |
 | `Shift+F5` | Toggle advanced bar |
+| — | Toggle PANELS bar: a button per View panel, lit while it shows (View menu / command palette) |
+| — | Toggle I/O bar: New, Open, Import, Save, Export (View menu / command palette) |
 | `Ctrl+Shift+F5` | Reload theme (hot-reload colors + icons) |
 | `Ctrl+M` | Toggle Character Map panel |
 | `Ctrl+Shift+M` | Toggle Advanced Color Picker panel |
@@ -158,7 +160,7 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `F11` | Toggle ALL UI: hides every panel and window (menu bar, toolbox, layers, bars, status / color strip, Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Animation, Swatches, Browser, Customize Toolbars); F11 again puts back exactly what was showing. Works the same inside a workspace |
 | `Shift+F11` | Inside a workspace that hides things: show what it hid / hide it again |
 | `Ctrl+Shift+W` | Workspace switcher (command palette filtered to `Workspace:`) |
-| `L-Drag` a docked panel's inner edge | Resize it: toolbox columns (1–8), edit/advanced bar columns (1–4), layers width (60–400 px). Saved to the active workspace, or `DRAW.cfg` in Default. **View → Workspace → Save Current Layout As…** saves the whole arrangement as a workspace |
+| `L-Drag` a docked panel's inner edge | Resize it: toolbox columns (1–8), edit / advanced / PANELS / I/O bar columns (1–4), layers width (60–400 px). Saved to the active workspace, or `DRAW.cfg` in Default. **View → Workspace → Save Current Layout As…** saves the whole arrangement as a workspace |
 | `Alt+Enter` | Toggle fullscreen (also **View → Fullscreen** / command palette; live, no restart, persists across launches) |
 | `Ctrl+F11` | Toggle menu bar |
 | `Ctrl+Shift+Up` | Hide/show menu bar (alt binding) |
@@ -518,7 +520,7 @@ Panels move by dragging their title / handle into the dock tree (left, right, st
 | `R-Click` the color strip's scroll buttons | The strip's menu (as on its empty places) |
 | `L-Click` the chevron / `Dbl-Click` a title strip | Collapse the slot to its title / expand it |
 | `L-Click` a collapsed title | Open it (on the tab you clicked) |
-| `R-Click` a handle | Move to Left / Right Edge · Dock Along the Top / Bottom · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement · Close · Customize Buttons… (toolbox / bars) · Scale: Auto / 1x–6x, every panel alike (Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches: the panel's own size; Auto = the UI Scale; also Settings → Panels → Panel Scale) |
+| `R-Click` a handle | Move to Left / Right Edge · Dock Along the Top / Bottom · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement · Close · Customize Buttons… (toolbox / bars) · Scale: Auto / 1x–6x, every panel alike (Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches: the panel's own size; Auto = the UI Scale; also Settings → Panels → Panel Scale, whose **Set All** sets every panel at once - command palette: *Panel Scale Settings*) |
 | `L-Click` a panel's [x] | Close it (floating panels: right end of the title / grip; tabbed / collapsed slots: end of the title strip, closes the showing tab; red on hover). The handle menu's **Close** does the same for every panel but the text bar. View → Organizer / Drawer bring those two back |
 | `R-Click` the Pen Control panel (below its title) | Pen Control Presets: your presets (ticked = current), Save Preset… · Rename Preset… · Delete Preset… · Open Presets Folder |
 | `L-Drag` a floating window's title bar onto a dock target | Dock it (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches, Browser) |
@@ -529,11 +531,11 @@ Panels move by dragging their title / handle into the dock tree (left, right, st
 Arrangements save to the active workspace (or `DRAW.cfg` in Default); a workspace keeps them in `[DOCK]` / `[FLOAT]`.
 
 ### Customize Toolbars (View → Customize Toolbars…)
-Edits the toolbox, edit bar and advanced bar: any tool or command, in any order, on any of them. Changes save into the active workspace (Default asks for a name and makes one).
+Edits the toolbox, edit bar, advanced bar, PANELS bar and I/O bar: any tool or command, in any order, on any of them. Changes save into the active workspace (Default asks for a name and makes one).
 
 | Input | Action |
 | --- | --- |
-| `L-Click` a tab | Edit that panel (Toolbox / Edit Bar / Advanced Bar) |
+| `L-Click` a tab | Edit that panel (Toolbox / Edit Bar / Advanced Bar / PANELS / I/O) |
 | Type in **Search…** | Filter the Available list (`Esc` clears, `Enter` ends) |
 | `Dbl-Click` an Available row / **→** | Add it after the selected button |
 | **←** / `Delete` | Remove the selected button |

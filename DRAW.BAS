@@ -222,7 +222,8 @@ $IF MAC THEN
                 macArgIdx% = macArgIdx% + 1 ' Defensive: HELP.BI should have exited already
             ELSEIF LCASE$(macArgVal$) = "--option" OR LCASE$(macArgVal$) = "--instance" OR LCASE$(macArgVal$) = "--palette" OR _
                    LCASE$(macArgVal$) = "--export" OR LCASE$(macArgVal$) = "--export-anim" OR LCASE$(macArgVal$) = "--cycle" OR LCASE$(macArgVal$) = "--tag" OR _
-                   LCASE$(macArgVal$) = "--export-qb64" OR LCASE$(macArgVal$) = "--export-recording" OR LCASE$(macArgVal$) = "--recording-fps" OR LCASE$(macArgVal$) = "--recording-scale" THEN
+                   LCASE$(macArgVal$) = "--export-qb64" OR LCASE$(macArgVal$) = "--export-recording" OR LCASE$(macArgVal$) = "--recording-fps" OR LCASE$(macArgVal$) = "--recording-scale" OR _
+                   LCASE$(macArgVal$) = "--action" OR LCASE$(macArgVal$) = "--batch-in" OR LCASE$(macArgVal$) = "--batch-out" OR LCASE$(macArgVal$) = "--batch-format" THEN
                 macArgIdx% = macArgIdx% + 2 ' BUG-53: 2-token flag (flag + value) — skip both
             ELSEIF THEMEED_flag_takes_value%(macArgVal$) THEN
                 macArgIdx% = macArgIdx% + 2 ' --theme-name X etc. (CFG/THEME-EDIT)
@@ -262,7 +263,8 @@ $ELSE
             argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
         ELSEIF LCASE$(argVal$) = "--export-qb64" OR LCASE$(argVal$) = "--export" OR _
                LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" OR LCASE$(argVal$) = "--tag" OR _
-               LCASE$(argVal$) = "--export-recording" OR LCASE$(argVal$) = "--recording-fps" OR LCASE$(argVal$) = "--recording-scale" THEN
+               LCASE$(argVal$) = "--export-recording" OR LCASE$(argVal$) = "--recording-fps" OR LCASE$(argVal$) = "--recording-scale" OR _
+               LCASE$(argVal$) = "--action" OR LCASE$(argVal$) = "--batch-in" OR LCASE$(argVal$) = "--batch-out" OR LCASE$(argVal$) = "--batch-format" THEN
             argIdx% = argIdx% + 2 ' 2-token flag (flag + output path) — skip both so the path is not mistaken for the input file
         ELSEIF THEMEED_flag_takes_value%(argVal$) THEN
             argIdx% = argIdx% + 2 ' --theme-name X etc. (CFG/THEME-EDIT)

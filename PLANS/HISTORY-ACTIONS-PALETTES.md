@@ -38,7 +38,7 @@ Photoshop's History panel over DRAW's unified history (`TOOLS/HISTORY`).
 
 ## 2. Actions palette (`GUI/ACTIONS-PANEL` + `TOOLS/ACTIONS`, `DP_ACTIONS`) - phase 1 DONE 2026-11-22
 
-Built (QA `actions-palette.sh`, 42 checks): the tree with ON / DIALOG boxes and fold triangles,
+Built (QA `actions-palette.sh`, 74 checks with phase 2, stops, keys and Batch): the tree with ON / DIALOG boxes and fold triangles,
 STOP / REC / PLAY / NEW SET / NEW ACTION / DELETE, right-click (play, record / stop, new set,
 new action, rename, duplicate, delete, reload), double-click rename, wheel + scroll strip, its
 own Scale, float, [x], View > Actions, workspace keys `ACTIONS_PANEL` / `ACTIONS_PANEL_SCALE`,
@@ -61,7 +61,69 @@ outside these still open on play.
 History and Actions show a dock title strip (`DOCK_slot_titled%`) even as a lone tab.
 Then Canvas Resize (W / H; skips the input box when silent) and Stroke Selection (COLOR as
 FG / BG / TRANS so it follows the colours at play time, TYPE, WIDTH).
-Not yet: insert stop, a hotkey per action, Batch, tool strokes (phase 3).
+Inventory 2026-11-22 (every recordable command - Edit / Layer / Canvas / Select / Image / Color -
+traced to a dialog or input box): all the image dialogs above are wired; the input boxes go
+through `ACTS_ask$(key, ...)` (text values: `ACTS_prm_str$` / `ACTS_prm_put_str`): Rename Layer
+(NAME), Tag Frames... (NAME), Frame Note... (NOTE), Hold for N Frames... (FRAMES), Clip Layer:
+Rename Clip Source (NAME). Not recorded at all (`ACTS_recordable%`) - windows and file pickers,
+an action would stop on them each play: Settings, Customize Controls, Animation Settings, the
+TheDraw font browser, the Pixel Art Analyzer, text style import / export, AnimBrush Load,
+Soundtrack / Add Sound. Left asking on purpose: Remove Background (it picks colours off the
+image), yes / no confirmations (a question, not a value: Delete Set..., the max-layers alert).
+Insert stop (2026-11-22): a step whose command is `ACTS_CMD_STOP` (-1), its name the message
+(`STEP -1 <on> 0 <message>`). Insert Stop... (menu 9110, command 2709 `Actions: Insert Stop...`):
+on an action at its end, on a step after it, while recording at the record point. Play shows
+the message (`DRAW_message_box_ex%`: a message box with its own labels - CONTINUE | STOP);
+STOP sets `ACTS.halted` and ends the play there (a set's later actions too); what ran stays,
+one undo step. No dialog box on its row; double-click edits the message. Dump ACTP ... halted.
+QA actions-palette.sh 5c.
+Action keys (2026-11-22): 20 slots, commands 2740-2759 (`ACTP_ACT_KEY1`; 2710-2713 are canvas
+recording's), each registered in `INPUTS_register_all` as an unbound dispatched key bind, so a
+slot's key is an ordinary user override (`BINDINGS_set_override`, DRAW.bindings) - conflicts,
+steal, Customize Controls all apply. An action holds a slot (`ACTS_KEY`, file line `KEY <slot>`
+after its ACTION); Assign Key... (menu 9111) takes its slot or a free one and opens Controls'
+Rebind Key box (`CTRL_assign_key%`) on that slot's bind, labelled `Action: <name>`
+(`ACTS_keys_sync` on every change); CLEAR + OK or Clear Key (9112) unbinds it; deleting the
+action / set lets its key go (`ACTS_keys_free`); a duplicate gets no key. Controls lists a slot
+only while an action holds it. The key shows dim at the row's right. The box writes
+`DOCK_DUMP.ctrlkey` for QA (modal). A set file moved to another machine keeps its slots but
+the keys live in that machine's DRAW.bindings. Dump `ACTPK node slot key`. QA 5d.
+Batch (2026-11-22): `ACTS_batch%(action, inDir, outDir, ext)` lists the folder first (png bmp jpg
+jpeg gif tga qoi hdr pcx draw; outDir may be inside it), then per image `DRW_load` + `ACTS_play`
+(one undo step; `ACTS.batch` makes stops go on) + `BATCH_export%` (so the formats are --export's).
+GUI Batch... (menu 9113, `ACTP_batch`): two typed folders (remembered this run), PNG | DRAW |
+Cancel; the document open is saved to the cache as a .draw first and loaded back after (file
+names, dirty flag, zoom / pan restored; undo history lost - noted in the manual). CLI
+`--action SET/NAME` (or NAME) plays on the FILE before its exports; with `--batch-in DIR
+[--batch-out OUT] [--batch-format EXT]` the folder instead (exit 1 if any failed or none).
+QA actions-palette.sh 5e (GUI), actions-batch.sh (CLI, 9 checks). Dump ACTP ... batchFail.
+Phase 3, first slice (2026-11-22): tool steps. `STEP -2` (`ACTS_CMD_TOOL`), PARAM TOOL= X1= Y1=
+X2= Y2= (rect / ellipse FILLED=, ellipse SLICES= RINGS=) COLOR= (DRAW_COLOR, the colour it drew
+with - FG or BG by button) SIZE= (BRUSH_SIZE.CURRENT index); a brush stroke PTS="x,y x,y ..." (up
+to `ACTS_PTS_MAX` = 4000 points). Recorded: `MOUSE_dispatch_tool_release` - an undo step saved
+by the release = a step (`ACTS_tool_did CURRENT_TOOL%`); fill at its click (MOUSE.BM, around
+`MOUSE_tool_fill`); brush points by `ACTS_tool_track` before each hold dispatch. Played
+(`ACTS_tool_play%`): colour / size set for the step and put back, sounds off, FILL_ADJ off,
+`HISTORY_saved_this_frame%` cleared; line / rect / ellipse = the tool state + its own release
+(`MOUSE_release_line` / `_rect` / `_ellip`: one undo record each, inside the play's group);
+fill = a made-up press at X1,Y1 into `MOUSE_tool_fill` (the real MOUSE put back); brush =
+`ACTS_brush_play%`: the points as line segments through `MOUSE_release_line` with
+`HISTORY_IN_PROGRESS%` set (no record each), then one `HISTORY_record_brush` "Brush Stroke".
+Panel: no dialog box on a tool step; the tooltip notes it. QA actions-palette.sh 5f.
+Phase 3, the rest (planned):
+- More tools: eraser (the brush path with transparent colour, smart erase across layers),
+  dot, spray (its random dabs: record the dabs, not the seed), polygon / filled polygon (the
+  vertex list), smart shapes (their parameters are tool state like ellipse SLICES), bezier
+  (control points), text (layer + string + font: better as its own step kind), MyPaint (the
+  stroke's points + pressure through `mp_*`), move / transform (their matrices).
+- The brush, faithfully: record pressure / tilt per point (TABLET) and replay through
+  `MOUSE_brush_paint_to` with the pen state fed in, so pressure size / opacity and the
+  stabilizer reproduce; pixel-perfect after.
+- Options per step: the tool bar's values that matter (line caps / spokes, AA, custom brush
+  and drawer paint mode by name), so a played step does not depend on the bar at play time.
+- Relative coordinates (Photoshop-like "allow tool recording" choices): canvas px as now, or
+  fractions of the canvas, so an action recorded on 320x200 scales onto another size in Batch.
+- Edit a tool step's values (double-click: X1..Y2, colour) in the panel.
 
 Design notes as planned:
 
@@ -70,7 +132,7 @@ Photoshop's Actions panel: **sets -> actions -> steps**.
 - Tree rows: set (folder), action, step. Disclosure triangle per set / action. Per row: an
   ENABLED checkbox (off = skipped on play) and a DIALOG toggle (step shows its dialog on play).
 - Bottom buttons: STOP, RECORD, PLAY, NEW SET, NEW ACTION, DELETE. Right-click: rename,
-  duplicate, delete, play from here, insert stop (later), assign key (later).
+  duplicate, delete, play from here, insert stop (done), assign key (done).
 - **Recording** hooks the top level of `CMD_execute_action` (a depth counter: commands that call
   commands record once). Not recorded: undo / redo, the Actions panel's own commands, app chrome
   (panel show / hide, settings, quit). Recording shows a red dot on the RECORD button and in the
@@ -85,7 +147,7 @@ Photoshop's Actions panel: **sets -> actions -> steps**.
   canvas-space pointer input fed back through the tools - Photoshop's "Allow Tool Recording").
 - **Files**: `<data>/ACTIONS/<set name>.dact`, readable text, one step per line, e.g.
   `ACTION 318 ; Scale 2x`. Saved on every change. A starter set (DEFAULT ACTIONS) is seeded once.
-- Later: hotkey per action (bindings), command palette entries, Batch (a folder of files).
+- Later: hotkey per action (bindings), command palette entries, Batch (a folder of files) - all done 2026-11-22.
 
 ## 3. Canvas recording (time-lapse)
 
@@ -98,10 +160,24 @@ thinning by merging the oldest pairs, View > Canvas Recording... (play / scrub /
 APNG with sub-rect frames, PNG sequence, scale 1-8x; the same from the CLI: `--export-recording
 X.apng|X.png`, `--recording-fps`, `--recording-scale`, OUTPUT/BATCH). Actions 2710-2713. QA:
 `canvas-recording.sh` (22 checks), `canvas-recording-playback.sh` (draws a 23-step scene, exports
-it from the CLI: the last frame = the saved picture pixel for pixel; keeps the .apng / .gif). Save As (and a first save) asks whether to keep it
-in the file (`CREC_ask_keep`; No = this document saves without it). Not yet: GIF export (needs
-quantising), the capture rect from the history step
-instead of a full-canvas diff (fine to 1024px; a 4096px canvas compares 64 MB per step).
+it from the CLI: the last frame = the saved picture pixel for pixel; keeps the .apng / .gif). `canvas-recording-save.sh`: Save As Yes /
+No (drRc kept / left out, a later Ctrl+S too: dump `CRECT ... omit`), the viewer's EXPORT APNG / GIF /
+PNGS / CLOSE buttons (modal: geometry in DOCK_DUMP + `.crecv`); it found `name.apng` saving as
+`name.apng.png` (CYCX_save_dialog$ now keeps any type its filter lists - the animation APNG and
+DeluxePaint `.iff` dialogs had it too). `canvas-recording-big.sh`: 4096x4096 timing. Save As (and a first save) asks whether to keep it
+in the file (`CREC_ask_keep`; No = this document saves without it). GIF export (2026-11-22):
+`CREC_export_gif%` - viewer EXPORT GIF... and `--export-recording X.gif`; exact colours when <= 256
+(255 + transparent), else the animation GIF's median cut (`ANIM_MC_cut%`, split out of
+`ANIM_MC_palette%`); opaque = changed-rect frames (dispose none), with transparency = whole
+frames (dispose to background); 1/100 s timing (<= 50 fps), the last 2 s, no loop (like the APNG).
+Cost measured 2026-11-22 (QA `canvas-recording-big.sh`, dump `CRECT capMs flatMs diffMs`, Linux, Xvfb):
+a 4096x4096 picture, one capture after a dab = 34 ms with 3 layers (flatten 28, compare 6),
+~98 ms with 12 layers (flatten 91, compare 6); a 1024 canvas is 1/16 of that. The full-canvas
+compare is not the cost (6 ms at 64 MB); the flatten is, and it grows with the layer count.
+It runs once a step, after 0.15 s with no button held, so it is not felt while drawing. If it
+ever is: a flatten limited to a rect (LAYERS_flatten& clipped - groups, aprons, lanes and blend
+kernels all take a source rect) with the rect from the history records (x1..y2 of the region
+kinds; a whole-layer kind = the full canvas).
 
 Separate from macros. Every committed canvas change saves the changed rect of the composite;
 a viewer plays / scrubs it, export through the animation exporters (GIF / APNG / PNG sequence).

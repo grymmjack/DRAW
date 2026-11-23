@@ -38,6 +38,9 @@ TYPE CREC_OBJ
     omit     AS INTEGER ' the next save leaves the recording out (Save As asked)
     prevCur  AS INTEGER ' HISTORY.current at the last capture (UNDO / REDO labels)
     prevCnt  AS INTEGER ' HISTORY.count at the last capture
+    capMs    AS LONG    ' the last capture took (ms; QA dump CRECT)
+    flatMs   AS LONG    ' ... of it the flatten
+    diffMs   AS LONG    ' ... of it the compare
 END TYPE
 DIM SHARED CREC AS CREC_OBJ
 DIM SHARED CREC_SEEN AS STRING ' the history state last seen (HISTP_watch's key)
@@ -49,6 +52,7 @@ DIM SHARED CREC_FX(1 TO 1) AS LONG, CREC_FY(1 TO 1) AS LONG
 DIM SHARED CREC_FW(1 TO 1) AS LONG, CREC_FH(1 TO 1) AS LONG
 DIM SHARED CREC_FD(1 TO 1) AS STRING, CREC_LB(1 TO 1) AS STRING
 DIM SHARED CREC_ROOMS AS LONG ' the arrays' size
+DIM SHARED CREC_GIF_INFO AS STRING ' the last GIF export's colours ("40 colours", "256 colours (adaptive)")
 
 ' Status bar badge bounds (click = pause / resume); X2 < X1 = none drawn
 DIM SHARED CREC_BADGE_X1 AS INTEGER, CREC_BADGE_X2 AS INTEGER

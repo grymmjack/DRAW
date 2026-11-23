@@ -120,14 +120,14 @@ Everything in the toolbox column follows its width:
 ### Moving, stacking, tabbing and floating panels
 
 Every panel can be arranged by hand, the way Photoshop, GIMP or Krita allow:
-the toolbox, organizer, drawer, layers, edit bar, advanced bar and character
-map, and the Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen
+the toolbox, organizer, drawer, layers, edit bar, advanced bar, PANELS bar, I/O
+bar and character map, and the Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen
 Pressure and Browser windows.
 
 **The handle** is what you grab:
 - a panel with a title strip (a tab, a collapsed slot, a docked window): the strip;
 - the layers panel: its header;
-- a floating edit bar or advanced bar: the slim grip strip on top (they are too narrow for a title);
+- a floating edit bar, advanced bar, PANELS bar or I/O bar: the slim grip strip on top (they are too narrow for a title);
 - the toolbox, organizer, drawer and bars, which have no title: hover the panel's
   **top edge** and a thin grip appears.
 
@@ -150,8 +150,8 @@ Pressure and Browser windows.
 
 **Top and bottom docks.** Any panel can also dock in a **row** along the top
 of the canvas area (under the menu bar) or along the bottom (above the color
-strip): the toolbox, edit bar, advanced bar, organizer, drawer, layers,
-Swatches, Browser, Preview and the other windows. A row is a column turned
+strip): the toolbox, edit bar, advanced bar, PANELS and I/O bars, organizer,
+drawer, layers, Swatches, Browser, Preview and the other windows. A row is a column turned
 sideways: its panels sit side by side, the toolbox and bars reflow to the
 row's height (the bars lay their buttons out sideways in one even grid), the
 organizer keeps to the row's height too (when its widget stacks are too tall,
@@ -323,13 +323,13 @@ since it means "no overlay": DUPLICATE it to start one of your own.
 ### Customizing toolbars
 
 **View → Customize Toolbars…** (also in the command palette, or right-click the
-toolbox / edit bar / advanced bar handle → **Customize Buttons…**) opens a
-floating window for changing what the toolbox and the two bars show, in any
-order:
+toolbox / edit bar / advanced bar / PANELS bar / I/O bar handle → **Customize
+Buttons…**) opens a floating window for changing what the toolbox and the four
+bars show, in any order:
 
 | Part | What it does |
 | --- | --- |
-| **Tabs** | **Toolbox**, **Edit Bar**, **Advanced Bar**: the panel you are editing |
+| **Tabs** | **Toolbox**, **Edit Bar**, **Advanced Bar**, **PANELS**, **I/O**: the panel you are editing |
 | **Available** (left) | Every tool and command not on that panel yet: the toolbox tools, then the commands by category, then menu commands. Type in **Search…** to filter it. |
 | **On the …** (right) | The panel's buttons, in order. Click one to select it. |
 | **→** | Add the selected Available item after the selected button (or at the end) |
@@ -376,13 +376,13 @@ Close the window and the buttons work normally again.
 Switching back to Default puts the stock toolbox and bars back.
 
 **The same buttons in every workspace.** View → Workspace → **Same Buttons in
-Every Workspace** (also in the command palette) takes the toolbox, edit bar and
-advanced bar buttons on screen now and shows them in every workspace and in
+Every Workspace** (also in the command palette) takes the toolbox, edit bar,
+advanced bar, PANELS bar and I/O bar buttons on screen now and shows them in every workspace and in
 Default. Only which buttons there are and their order are shared. Each
 workspace keeps its own columns, scale, size and docking. While it is on,
 Customize Toolbars shows **SAVES TO: EVERY WORKSPACE**. Your button changes
 are saved into `DRAW.cfg` (`TOOLBOX_BUTTONS`, `EDIT_BAR_ORDER`,
-`ADV_BAR_ORDER`) for all workspaces, and a column change still goes into the
+`ADV_BAR_ORDER`, `PANELS_BAR_ORDER`, `IO_BAR_ORDER`) for all workspaces, and a column change still goes into the
 workspace. Turn it off and each workspace shows its own buttons again. The
 shared lists stay in `DRAW.cfg` for next time, but turning it back on takes
 the buttons on screen at that moment.
@@ -435,6 +435,10 @@ COLUMNS=2                 ; icon columns, 1-4
 
 [ADVANCED_BAR]
 BUTTONS=preview,grayscale ; the older form: only these, in the default order
+COLUMNS=1
+
+[PANELS_BAR]              ; the PANELS bar (View > PANELS Bar); [IO_BAR] the I/O bar
+ORDER=cmd:411,cmd:401,|,cmd:2700   ; same names as [EDIT_BAR] ORDER
 COLUMNS=1
 
 [ORGANIZER]

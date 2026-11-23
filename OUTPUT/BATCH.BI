@@ -15,8 +15,13 @@
 '   DRAW art.draw --export-anim art.apng   (animated PNG)
 '   DRAW art.draw --export-anim art.bas    (QB64 animation player, frames in DATA)
 '   DRAW art.draw --export-anim art.sheet.bas (the player + art.sheet.png it cuts the frames from)
-'   DRAW art.draw --export-recording art.apng (the canvas recording, a time-lapse: animated PNG;
+'   DRAW art.draw --export-recording art.apng (the canvas recording, a time-lapse: animated PNG; .gif = GIF;
 '                                          .png = a PNG sequence; --recording-fps N, --recording-scale N)
+'
+'   DRAW art.png --action "Default Actions/Gray Negative" --export out.png
+'                                          (play an Actions palette action first; SET/NAME or NAME)
+'   DRAW --action "My Set/Thumb" --batch-in DIR --batch-out OUT [--batch-format png|draw|gif|bmp...]
+'                                          (the action on every image in DIR, each saved to OUT)
 '
 ' --export and --export-anim repeat (one run, several files). The formats only
 ' frames have (.apng .json .sheet.bas) work from --export too; .gif and .bas
@@ -44,4 +49,8 @@ DIM SHARED BATCH_TAG              AS STRING ' --tag NAME: the animated exports w
 DIM SHARED BATCH_EXPORT_REC_PATH  AS STRING ' --export-recording paths, CHR$(0)-separated (TOOLS/CANVAS-REC)
 DIM SHARED BATCH_REC_FPS          AS INTEGER ' --recording-fps N (default 10)
 DIM SHARED BATCH_REC_SCALE        AS INTEGER ' --recording-scale N (1 2 4 8, default 1)
+DIM SHARED BATCH_ACTION           AS STRING  ' --action SET/NAME (TOOLS/ACTIONS): played before the exports
+DIM SHARED BATCH_IN_DIR           AS STRING  ' --batch-in DIR: the action on every image in it (needs --action)
+DIM SHARED BATCH_OUT_DIR          AS STRING  ' --batch-out DIR (default DIR/batch-out)
+DIM SHARED BATCH_OUT_FMT          AS STRING  ' --batch-format EXT (default png)
 DIM SHARED BATCH_FAILED           AS INTEGER

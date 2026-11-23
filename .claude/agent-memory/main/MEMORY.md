@@ -133,3 +133,5 @@
 - [QA fresh XDG -> migrate dialog](qa-fresh-xdg-migrate-dialog.md) — [Linux] tests with own XDG_CONFIG_HOME hang on "Migrate settings" (USER/ in repo, no repo-root marker)
 - [Commit Rick's own changed files too](commit-include-ricks-files.md) — "commit and push" means everything changed, incl. his art; never omit them on my own
 - [QB64-PE PRINT # writes CRLF](qb64pe-print-file-crlf.md) — [Linux] DRAW's text files end CRLF; QA greps need tr -d '\r' (11-22)
+- [QA screenshot overwrites SNAP_RESULT](qa-screenshot-overwrites-snap-result.md) — `screenshot` resets SNAP_RESULT; copy the snap or assert first (2026-11-22)
+- [QA: Settings OK clears the pinned DISPLAY_SCALE](qa-settings-ok-clears-display-scale.md) — window rescales after OK; click before OK, read dumps after [Linux] (2026-11-22)

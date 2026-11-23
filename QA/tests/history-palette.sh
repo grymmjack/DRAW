@@ -10,7 +10,8 @@
 #   4. UNDO / REDO buttons step one state
 #   5. right-click: its menu (Step Backward / Step Forward / Clear History); Step Backward works
 #   6. the wheel scrolls the list (Shift: 10 rows) once it is longer than the panel
-#   7. Scale 1x from the handle menu: its own surface, saved; a row click still lands
+#   7. Scale 1x from the handle menu: its own surface, saved; a row click still lands; its
+#      title bar (its own header, no dock strip) is smaller at 1x, bigger at 3x
 #   8. floated, it still lists; its [x] closes it; View: History brings it back
 #   9. CLEAR (asks): one row left, the picture as it was
 # Dump: HISTP vis x y w h rowH rowsFit rowsAll scroll cur listY listH btnY hover;
@@ -121,14 +122,22 @@ shift_scroll_up "$(vx $(( H_X + H_W / 2 )))" "$(vy $(( H_LY + H_LH / 2 )))"; wai
 (( H_SC == (SC0 - 11 > 0 ? SC0 - 11 : 0) )) && pass "Shift + the wheel: 10 rows ($H_SC)" || fail "Shift wheel up: $H_SC (want $(( SC0 - 11 > 0 ? SC0 - 11 : 0 )))"
 
 # --- 7. Scale 1x ------------------------------------------------------------------------------------
+# its title bar is its own header, in its surface: it follows the Scale (Rick 2026-11-22:
+# the dock strip it had stayed at the display scale)
+title_h() { dk_p history; (( P_TW == 0 && P_HH > 0 && P_HY == P_Y )); }
+title_h && HH0=$P_HH || fail "at Auto: no own title bar (handle h $P_HH, tab w $P_TW, y $P_HY vs $P_Y)"
 pick_scale 21
 surf "$DP_HISTORY"
 [[ "$S_ON" == -1 && "$S_K" == 1 ]] && pass "Scale 1x: its own surface (k $S_K, ${S_UW}x$S_UH units in ${S_VW}x$S_VH px)" || fail "Scale 1x: PSURF '$(grep "^PSURF $DP_HISTORY " "$DK_DUMP")'"
 grep -q '^HISTORY_PANEL_SCALE=1\b' "$QA_CFG" && pass "HISTORY_PANEL_SCALE=1 saved" || fail "saved '$(grep '^HISTORY_PANEL_SCALE' "$QA_CFG")'"
 screenshot "history-palette-1x"
+title_h && (( P_HH < HH0 )) && pass "Scale 1x: its title bar scales with it ($HH0 -> $P_HH px)" || fail "Scale 1x: title bar $HH0 -> $P_HH px (tab w $P_TW)"
 hp_read; CUR0=$H_CUR
 hp_row $(( H_SC + 1 )); hp_read
 (( H_CUR == H_SC + 1 || H_CUR != CUR0 )) && pass "at 1x a row click lands (current $CUR0 -> $H_CUR)" || fail "at 1x: current stays $H_CUR"
+pick_scale 23
+title_h && (( P_HH > HH0 )) && pass "Scale 3x: so does its title bar ($HH0 -> $P_HH px)" || fail "Scale 3x: title bar $HH0 -> $P_HH px (tab w $P_TW)"
+screenshot "history-palette-3x"
 pick_scale 20
 hp_row $(( H_RA - 1 )); hp_read
 
@@ -138,7 +147,7 @@ hp_read
 (( H_VIS != 0 && H_RA > 1 )) && pass "floating, it still lists ($H_RA rows)" || fail "floating: vis $H_VIS, $H_RA rows"
 screenshot "history-palette-float"
 dk_p history
-click $(( P_FX + P_FW - 6 )) $(( P_FY + 5 )); wait_for 0.8 "close"; dk_park; dk_settle
+click $(( P_FX + P_FW - 6 )) $(( P_FY + 3 )); wait_for 0.8 "close"; dk_park; dk_settle
 dk_p history
 (( P_SHOWN == 0 )) && pass "its [x] closes it" || fail "the [x] did not close it (shown $P_SHOWN)"
 pcmd "View: History"

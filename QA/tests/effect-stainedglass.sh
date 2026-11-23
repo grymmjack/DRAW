@@ -4,7 +4,7 @@
 #
 # EFFECTS > Stained Glass... Voronoi panes with dark leading between them.
 # (Added 2026-08-14.) Crossing green + red strokes, apply, assert the region
-# changed (panes + dark borders).
+# changed (panes + dark borders). BORDER 0 (2026-11-22): the panes alone, no leading.
 #
 # EFFECTS menu index 26 (0-based) -> dropdown item viewport y = 20 + 26*12 = 332.
 # =============================================================================
@@ -43,5 +43,25 @@ screenshot "stainedglass-canvas-after"
 assert_regions_differ "$BEFORE" "$AFTER" \
     "Stained Glass must add panes with dark borders"
 assert_no_crash
+
+# --- BORDER 0 (Rick 2026-11-22: "can we make border have 0 as an option"): the
+# panes alone, no leading (#0C0C10) at all. The BORDER slider is the dialog's
+# second track, at viewport y 341 (the dialog: x 351..606, CELL SIZE at 303,
+# 38 px a row - IMGDLG_track_y%); a click at its left end sets 0.
+sg_lead() { magick "$1" -fill white +opaque '#0C0C10' -fill black -opaque '#0C0C10' -negate -format '%[fx:int(mean*w*h+0.5)]' info: 2>/dev/null; }
+LEAD1=$(sg_lead "$AFTER")
+(( ${LEAD1:-0} > 0 )) && pass "BORDER 2 (the default): dark leading between the panes ($LEAD1 px)" || fail "no leading at the default border ($LEAD1)"
+key ctrl+z ; wait_for 0.6 "Undo the stained glass"
+open_effect 4 1 ; wait_for 0.5 "Stained Glass dialog open (again)"
+click 360 341 ; wait_for 0.4 "BORDER to 0 (the track's left end, x 359)"
+screenshot "stainedglass-dialog-border0"
+key Return ; wait_for 0.7 "Applied with BORDER 0"
+assert_no_crash
+park_mouse
+snap_region "$GX" "$GY" "$GW" "$GH" "stainedglass-border0"
+B0="$SNAP_RESULT"
+LEAD0=$(sg_lead "$B0")
+assert_regions_differ "$BEFORE" "$B0" "BORDER 0 still makes panes"
+[[ "$LEAD0" == 0 ]] && pass "BORDER 0: the panes alone, no leading" || fail "BORDER 0: $LEAD0 px of leading (want 0: the slider stops at 1?)"
 assert_window_exists
 info "=== Effect: Stained Glass Test PASSED ==="

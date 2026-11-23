@@ -26,12 +26,21 @@
 '   ACTION <on> <open> <name>
 '   STEP <command id> <on> <dialog> <name>
 '   PARAM <text>                (the step's dialog values, after its STEP line)
+'   KEY <slot>                  (after its ACTION line: the action plays on action key slot
+'                                1-20 - the key itself is a bind, kept in DRAW.bindings)
+' A tool step is STEP -2 with PARAM TOOL= X1= Y1= X2= Y2= (FILLED= SLICES= RINGS=) COLOR=
+' SIZE= (a brush: PTS=x,y x,y ...): played through the tools' own commit code.
+' A stop is a step with command ACTS_CMD_STOP (-1): play shows its name as a message,
+' CONTINUE goes on, STOP ends the play there (what ran stays, one undo step).
 '
 $INCLUDEONCE
 
 CONST ACTS_MAX = 2000           ' nodes in all
 CONST ACTS_EXT = ".dact"
 CONST ACTS_DIRNAME = "ACTIONS"  ' under the data dir (PATHS_data$)
+CONST ACTS_CMD_STOP = -1       ' a stop step's command (its name is the message)
+CONST ACTS_CMD_TOOL = -2       ' a tool step (phase 3): a line / rectangle / ellipse / fill / brush stroke in canvas space
+CONST ACTS_PTS_MAX = 4000      ' a recorded brush stroke keeps this many points (the rest: its last one)
 CONST ACTS_SEEDED = ".seeded"   ' in that dir once the starter set was written (deleting it does not bring it back)
 
 TYPE ACTS_OBJ
@@ -42,6 +51,9 @@ TYPE ACTS_OBJ
     depth     AS INTEGER ' CMD_execute_action nesting (1 = a top-level command)
     lastRun   AS INTEGER ' steps the last play ran / skipped
     lastSkip  AS INTEGER
+    halted    AS INTEGER ' the last play was ended at a stop (STOP)
+    batch     AS INTEGER ' a batch is playing (stops do not ask: they go on)
+    batchFail AS INTEGER ' the last batch: images that failed (to load or save)
     gen       AS LONG    ' bumped on every change (the palette redraws)
 END TYPE
 DIM SHARED ACTS AS ACTS_OBJ
@@ -53,9 +65,14 @@ DIM SHARED ACTS_DLG(1 TO ACTS_MAX) AS INTEGER  ' a step: show its dialog on play
 DIM SHARED ACTS_OPEN(1 TO ACTS_MAX) AS INTEGER ' a set / action: its children listed
 DIM SHARED ACTS_NM(1 TO ACTS_MAX) AS STRING    ' its name (stored case)
 DIM SHARED ACTS_PRM(1 TO ACTS_MAX) AS STRING   ' a step's dialog values (PARAM lines, CHR$(10) between)
+DIM SHARED ACTS_KEY(1 TO ACTS_MAX) AS INTEGER  ' an action: its action key slot (1 - ACTP_KEY_SLOTS, 0 none)
 DIM SHARED ACTS_FILE(1 TO ACTS_MAX) AS STRING  ' a set: the file it was read from / last saved to
 DIM SHARED ACTS_REC_PRM AS STRING  ' recording: the dialog values the command running now gave (a wired dialog sets it)
 DIM SHARED ACTS_PLAY_PRM AS STRING ' playing: the step's dialog values (a wired dialog uses them)
 DIM SHARED ACTS_PLAY_DLG AS INTEGER ' playing: the step's DIALOG toggle (show the dialog, filled with them)
 DIM SHARED ACTS_REC_SKIP AS INTEGER ' recording: the command running now was cancelled (its dialog) - no step
+DIM SHARED ACTS_TOOL_PTS AS STRING ' recording: the brush stroke being drawn (canvas points "x,y x,y ...")
+DIM SHARED ACTS_TOOL_NPTS AS INTEGER
+DIM SHARED ACTS_BATCH_IN AS STRING  ' Batch...: the folders last used (this run)
+DIM SHARED ACTS_BATCH_OUT AS STRING
 DIM SHARED ACTS_DIR_OVERRIDE AS STRING ' --option ACTIONS_DIR=<folder>: the sets' folder for this run (QA), never saved

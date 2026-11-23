@@ -15,7 +15,10 @@ metadata:
    PREVIEW 15 ... SWATCH 22, DP_COUNT 22, WZ_TBED / WZ_COUNT 23, PSURF_N 14, REGION_HISTORY 39. A new dock panel
    must also be placed in DOCK_build_default (stock layout), not only DOCK_adopt_new_panels (custom trees) - it
    showed as P shown=-1 slot 0 until it was. Same day DP_ACTIONS = 15 (Actions palette): PREVIEW 16 ... SWATCH 23,
-   DP_COUNT 23, WZ 24, PSURF_N 15, REGION_ACTIONS 40. Read the id from GUI/DOCK.BI instead:
+   DP_COUNT 23, WZ 24, PSURF_N 15, REGION_ACTIONS 40. Same day DP_PANELSBAR = 16 / DP_IOBAR = 17 (the PANELS and
+   I/O bars, GUI/CMDBARS): PREVIEW 18 ... SWATCH 25, DP_COUNT 25, WZ 26, PSURF_N 17, REGION_PANELS_BAR 41 /
+   REGION_IO_BAR 42, BL_PANELS 5, SETTINGS_PSCALE_N 25. A new dock panel's workspace section must also be in
+   WSC_save's section list (GUI/WORKSPACE-CONFIG.BM) or its keys are silently dropped from the file. Read the id from GUI/DOCK.BI instead:
    `awk '$1=="CONST" && $2=="DP_PREVIEW" {print $4; exit}' "$DRAW_ROOT/GUI/DOCK.BI"`.
 2. **Floating windows at one spot.** Native windows floated to the same default rect (140,12) cover
    each other's title bars; dk_grab_point's coverage check used to count every other window and so

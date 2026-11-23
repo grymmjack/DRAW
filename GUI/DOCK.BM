@@ -62,6 +62,7 @@ FUNCTION DOCK_panel_shown% (id AS INTEGER)
         CASE DP_BRUSHES: DOCK_panel_shown% = (BSP_wanted% <> 0) ' (View > Brush Palette)
         CASE DP_HISTORY: DOCK_panel_shown% = (HISTP_wanted% <> 0) ' (View > History)
         CASE DP_ACTIONS: DOCK_panel_shown% = (ACTP_wanted% <> 0) ' (View > Actions)
+        CASE DP_PANELSBAR, DP_IOBAR: DOCK_panel_shown% = (CBAR_wanted%(CBAR_of_dp%(id)) <> 0) ' (View > PANELS Bar / I/O Bar: GUI/CMDBARS)
         CASE DP_PREVIEW: DOCK_panel_shown% = (PREVIEW.visible% <> 0 _ANDALSO PREVIEW.autoHidden% = 0)
         CASE DP_MIXER: DOCK_panel_shown% = (COLORMIXER.visible% <> 0 _ANDALSO COLORMIXER.autoHidden% = 0 _ANDALSO COLORMIXER.initialized% <> 0)
         CASE DP_ADVCP: DOCK_panel_shown% = (ADVCP.visible% <> 0 _ANDALSO ADVCP.autoHidden% = 0 _ANDALSO ADVCP.initialized% <> 0)
@@ -111,6 +112,7 @@ FUNCTION DOCK_panel_w_units% (id AS INTEGER)
         CASE DP_BRUSHES: DOCK_panel_w_units% = BSP_COL_W
         CASE DP_HISTORY: DOCK_panel_w_units% = HISTP_COL_W
         CASE DP_ACTIONS: DOCK_panel_w_units% = ACTP_COL_W
+        CASE DP_PANELSBAR, DP_IOBAR: DOCK_panel_w_units% = CBAR_width%(CBAR_of_dp%(id))
         CASE DP_WORKFLOW ' one button column (first letters); the toolbox's width in its column
             DOCK_panel_w_units% = WF_min_w%
             IF DOCK_with_toolbox%(DP_WORKFLOW) THEN DOCK_panel_w_units% = _MAX(PSURF_u_of%(DP_WORKFLOW, DP_TOOLBOX, TOOLBOX_PANEL_W), WF_min_w%)
@@ -294,6 +296,7 @@ FUNCTION DOCK_panel_max_w% (id AS INTEGER)
         CASE DP_SWATCH: DOCK_panel_max_w% = 1200 ' a wide band of swatches is fine
         CASE DP_MYPAINT, DP_BRUSHES: DOCK_panel_max_w% = 1200 ' (a wider grid)
         CASE DP_HISTORY, DP_ACTIONS: DOCK_panel_max_w% = 1200 ' (a wider list)
+        CASE DP_PANELSBAR, DP_IOBAR: DOCK_panel_max_w% = PSURF_v%(id, CBAR_max_w%(CBAR_of_dp%(id))) ' (wider: more icon columns - its column's edge)
         CASE DP_MYPSET: DOCK_panel_max_w% = 4000 ' (any width: its sliders go side by side)
         CASE DP_TEXTBAR, DP_SELBAR: DOCK_panel_max_w% = 4000 ' (any width: its lines follow)
         CASE DP_MIXER, DP_ADVCP, DP_CS3D, DP_PEN, DP_ANIM: DOCK_panel_max_w% = FPANEL_nat_w%(id) * 2 ' they stretch (FPANEL_fit)
@@ -335,6 +338,8 @@ SUB DOCK_build_default ()
     DOCK_brushes_place
     DOCK_history_place ' (under the Layers)
     DOCK_actions_place ' (under the History)
+    DOCK_cbar_place CBAR_PANELS ' (hidden until View turns them on: GUI/CMDBARS)
+    DOCK_cbar_place CBAR_IO
     DOCK_READY = TRUE
 END SUB
 
@@ -384,6 +389,14 @@ SUB DOCK_adopt_new_panels ()
         DOCK_actions_place
         IF WS_ACTIVE = 0 _ANDALSO CFG.STOCK_DEFAULT_LAYOUT% = 0 THEN DOCK_ADOPT_SAVE = TRUE
     END IF
+    ' the PANELS / I/O bars (2026-11-22): beside the advanced / edit bar
+    DIM cb AS INTEGER
+    FOR cb = 1 TO CBAR_N
+        IF DPANEL(CBAR_dp%(cb)).slot = 0 _ANDALSO DPANEL(CBAR_dp%(cb)).fl = 0 THEN
+            DOCK_cbar_place cb
+            IF WS_ACTIVE = 0 _ANDALSO CFG.STOCK_DEFAULT_LAYOUT% = 0 THEN DOCK_ADOPT_SAVE = TRUE
+        END IF
+    NEXT cb
     IF DPANEL(DP_WORKFLOW).slot <> 0 _ORELSE DPANEL(DP_WORKFLOW).fl THEN EXIT SUB
     s = DPANEL(DP_TOOLBOX).slot
     IF s > 0 THEN
@@ -574,6 +587,26 @@ SUB DOCK_actions_place ()
         END IF
     END IF
     c = DOCK_move_to_new_col%(DP_ACTIONS, DOCK_RIGHT, DOCK_MAX_COLS + 1)
+END SUB
+
+
+''
+' The PANELS bar's / I/O bar's place when an arrangement has none (GUI/CMDBARS): a
+' column of its own beside the advanced bar (PANELS) / the edit bar (I/O) - on its
+' side, the next column in towards the canvas - else on the right.
+SUB DOCK_cbar_place (i AS INTEGER)
+    DIM c AS INTEGER, s AS INTEGER, side AS INTEGER, ord AS INTEGER, nextTo AS INTEGER
+    IF i = CBAR_IO THEN nextTo = DP_EDITBAR ELSE nextTo = DP_ADVBAR
+    side = DOCK_RIGHT
+    ord = DOCK_MAX_COLS + 1
+    s = DPANEL(nextTo).slot
+    IF s > 0 THEN
+        c = DOCK_SLOT(s).col
+        IF DOCK_is_row%(c) = 0 THEN side = DOCK_COL(c).side: ord = DOCK_COL(c).ord + 1
+    ELSE
+        side = DOCK_key_side%(nextTo): IF side = 0 THEN side = DOCK_RIGHT
+    END IF
+    c = DOCK_move_to_new_col%(CBAR_dp%(i), side, ord)
 END SUB
 
 
@@ -826,18 +859,73 @@ END FUNCTION
 
 
 ''
-' Does slot s draw a title / tab strip? Tabs, a collapsed slot, a docked
-' floating window (it lost its own title bar), and the palettes that are lists
-' (History, Actions: Rick 2026-11-22 "they have none now and it's not 100% clear
-' what they are for") do; the rest are chromeless.
+' Does slot s draw a title / tab strip? Tabs, a collapsed slot and a docked
+' floating window (it lost its own title bar) do; the rest are chromeless or
+' draw their own header (DOCK_own_header_u%: the layers, History, Actions).
 FUNCTION DOCK_slot_titled% (s AS INTEGER)
-    IF DOCK_SLOT(s).ntabs > 1 _ORELSE DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN DOCK_slot_titled% = TRUE: EXIT FUNCTION
-    IF DOCK_SLOT(s).ntabs = 1 THEN
-        SELECT CASE DOCK_TAB(s, 1)
-            CASE DP_HISTORY, DP_ACTIONS: DOCK_slot_titled% = TRUE
-        END SELECT
-    END IF
+    IF DOCK_SLOT(s).ntabs > 1 _ORELSE DOCK_SLOT(s).collapsed _ORELSE DOCK_SLOT(s).autoc THEN DOCK_slot_titled% = TRUE
 END FUNCTION
+
+
+''
+' The header panel id draws at its own top (its units, 0 = none): the layers
+' always; the palettes that are lists (History, Actions: Rick 2026-11-22 "they
+' have none now and it's not 100% clear what they are for") unless the slot's
+' strip names them (tabbed / collapsed). In the panel's own surface it follows
+' its Scale (Rick 2026-11-22: the dock strip they had did not - it is viewport
+' px, so a Scale below the display scale cannot even be drawn there).
+FUNCTION DOCK_own_header_u% (id AS INTEGER)
+    DIM s AS INTEGER
+    SELECT CASE id
+        CASE DP_LAYERS: DOCK_own_header_u% = THEME.LAYER_PANEL_header_height%: EXIT FUNCTION
+        CASE DP_HISTORY, DP_ACTIONS
+        CASE ELSE: EXIT FUNCTION
+    END SELECT
+    IF DOCK_floating%(id) = 0 THEN
+        s = DPANEL(id).slot
+        IF s >= 1 _ANDALSO s <= DOCK_MAX_SLOTS THEN
+            IF DOCK_slot_titled%(s) THEN EXIT FUNCTION
+        END IF
+    END IF
+    DOCK_own_header_u% = DOCK_TITLE_H
+END FUNCTION
+
+
+''
+' Does panel id's own header have the twirl (click it / double-click the
+' header: collapse, as on a strip)? Docked History / Actions.
+FUNCTION DOCK_header_twirl% (id AS INTEGER)
+    IF id <> DP_HISTORY _ANDALSO id <> DP_ACTIONS THEN EXIT FUNCTION
+    IF DOCK_floating%(id) THEN EXIT FUNCTION
+    DOCK_header_twirl% = (DOCK_own_header_u%(id) > 0)
+END FUNCTION
+
+
+''
+' Panel id's own header (DOCK_own_header_u%), drawn by the panel into its
+' current destination at (x, y), w wide - its units: the title bar, the twirl,
+' the name, the [x] when docked (the dock does its hover + click).
+SUB DOCK_header_draw (id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER)
+    DIM h AS INTEGER, cw AS INTEGER, tx AS INTEGER, lbl AS STRING, oldFont AS LONG
+    h = DOCK_own_header_u%(id)
+    IF h < 1 _ORELSE w < 1 THEN EXIT SUB
+    LINE (x, y)-(x + w - 1, y + h - 1), THEME.PANEL_title_bg~&, BF
+    LINE (x, y + h - 1)-(x + w - 1, y + h - 1), THEME.PANEL_title_border~&
+    IF THEMEED.started THEN THEMEED_seen _DEST, "", "DOCKH:" + _TRIM$(STR$(id)), "PANEL TITLE", x, y, w, h, "@DOCK_header_draw"
+    tx = x + 4
+    IF DOCK_header_twirl%(id) THEN DOCK_twirl x + 2, y + (h - 1) \ 2, FALSE, THEME.PANEL_title_fg~&: tx = x + 12
+    IF DOCK_header_close%(id) THEN
+        cw = h
+        DOCK_close_cross x + w - cw, y, cw, h - 1, THEME.PANEL_close_fg~& ' (a small red x)
+    END IF
+    oldFont& = _FONT
+    IF LAYER_PANEL.fontHandle& > 0 THEN _FONT LAYER_PANEL.fontHandle& ELSE IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+    _PRINTMODE _KEEPBACKGROUND
+    COLOR THEME.PANEL_title_fg~&, _RGBA32(0, 0, 0, 0)
+    lbl = DOCK_fit_text$(UCASE$(DPANEL(id).title), x + w - cw - 2 - tx)
+    IF LEN(lbl) THEN _UPRINTSTRING (tx, y + 1), lbl
+    _FONT oldFont&
+END SUB
 
 
 ''
@@ -979,6 +1067,14 @@ SUB DOCK_apply_rect (id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h 
             PSURF_set_rect id, x, y, w, h
             ACTP.x = x: ACTP.y = y
             ACTP.w = PSURF(id).uw: ACTP.h = PSURF(id).uh
+        CASE DP_PANELSBAR, DP_IOBAR ' (as the advanced bar: GUI/CMDBARS)
+            DIM cbi AS INTEGER
+            cbi = CBAR_of_dp%(id)
+            PSURF_set_rect id, x, y, w, h
+            CBAR(cbi).x = x
+            CBAR(cbi).slotW = PSURF(id).uw
+            BL_HROWS(CBAR_bl%(cbi)) = 0: IF DOCK_in_row%(id) THEN BL_HROWS(CBAR_bl%(cbi)) = BL_hbar_rows_fit%(PSURF(id).uh) ' (a top / bottom row: sideways)
+            CBAR(cbi).panelY1 = y: CBAR(cbi).panelY2 = y + PSURF(id).uh - 1
         CASE DP_ORGANIZER
             PSURF_set_rect id, x, y, w, h
             ORG_RECT_X = x: ORG_RECT_W = PSURF(id).uw
@@ -1261,7 +1357,7 @@ FUNCTION DOCK_row_panel_min_h% (id AS INTEGER)
         CASE DP_ORGANIZER ' (its stack tops, the last widgets beside them: ORGANIZER_layout_in%)
             h = PSURF_v%(id, _MIN(_MIN(ORGANIZER_height_for%(ORGANIZER_max_w%), ORGANIZER_split_h%), ORGANIZER_flat_h%)) ' (down to the flat line: one button high)
         CASE DP_WORKFLOW: h = PSURF_v%(id, WF_height%(WF_max_w%))
-        CASE DP_EDITBAR, DP_ADVBAR: h = PSURF_v%(id, BL_hbar_h%(1))
+        CASE DP_EDITBAR, DP_ADVBAR, DP_PANELSBAR, DP_IOBAR: h = PSURF_v%(id, BL_hbar_h%(1))
         CASE DP_ADVCP: h = FPANEL_disp_of%(id, ADVCP_title_h% + ADVCP_ROW_WHEEL_MIN + _IIF(ACP_STATE.quantBar% <> 0, ACP_QUANT_ROW_H + 1, 0)) ' (laid sideways: the wheel takes the row's height)
         CASE DP_MIXER: h = FPANEL_disp_of%(id, COLORMIXER_row_min_h%) ' (laid sideways: the SV field takes the row's height)
         CASE DP_PEN: h = FPANEL_disp_of%(id, PENP_row_h%) ' (its groups side by side: PENP_layout)
@@ -1283,7 +1379,7 @@ FUNCTION DOCK_row_want_h% (id AS INTEGER)
     DIM h AS INTEGER
     SELECT CASE id
         CASE DP_TOOLBOX: h = DOCK_fixed_h%(id, DOCK_row_tb_w%(2))
-        CASE DP_EDITBAR, DP_ADVBAR: h = PSURF_v%(id, BL_hbar_h%(2))
+        CASE DP_EDITBAR, DP_ADVBAR, DP_PANELSBAR, DP_IOBAR: h = PSURF_v%(id, BL_hbar_h%(2))
         CASE DP_BROWSER: h = 220
         CASE DP_PREVIEW, DP_LAYERS, DP_CHARMAP: h = 160
         CASE DP_DRAWER, DP_SWATCH: h = 96
@@ -1362,6 +1458,8 @@ SUB DOCK_row_panel_box (id AS INTEGER, hh AS INTEGER, minW AS INTEGER, basisW AS
             basisW = PSURF_v%(id, BL_hbar_w%(BL_EDITBAR, BL_hbar_rows_fit%(PSURF_u%(id, hh))))
         CASE DP_ADVBAR
             basisW = PSURF_v%(id, BL_hbar_w%(BL_ADVBAR, BL_hbar_rows_fit%(PSURF_u%(id, hh))))
+        CASE DP_PANELSBAR, DP_IOBAR
+            basisW = PSURF_v%(id, BL_hbar_w%(CBAR_bl%(CBAR_of_dp%(id)), BL_hbar_rows_fit%(PSURF_u%(id, hh))))
         CASE DP_ADVCP ' the wheel as tall as the row, its controls in columns beside it (ADVCP_layout);
             '            short of room it narrows them, down to its width with VARIATIONS closed
             basisW = FPANEL_disp_of%(id, ADVCP_row_w%(FPANEL_native_of%(id, hh)))
@@ -1766,7 +1864,7 @@ FUNCTION DOCK_row_slot_edge_at% (mx AS INTEGER, my AS INTEGER)
     rg = REGION_hit_test%(mx, my)
     SELECT CASE rg
         CASE REGION_GLOBAL, REGION_CANVAS, REGION_TOOLBAR, REGION_ORGANIZER, REGION_DRAWER, _
-             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP, REGION_WORKFLOW, REGION_TEXT_BAR, REGION_SEL_BAR, REGION_MYPAINT, REGION_MYPSET, REGION_BRUSHES, REGION_HISTORY, REGION_ACTIONS
+             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP, REGION_WORKFLOW, REGION_TEXT_BAR, REGION_SEL_BAR, REGION_MYPAINT, REGION_MYPSET, REGION_BRUSHES, REGION_HISTORY, REGION_ACTIONS, REGION_PANELS_BAR, REGION_IO_BAR
         CASE ELSE
             IF DOCK_native_for_region%(rg) = 0 THEN EXIT FUNCTION
     END SELECT
@@ -2249,8 +2347,8 @@ FUNCTION DOCK_handle_rect% (s AS INTEGER, hx AS INTEGER, hy AS INTEGER, hw AS IN
     END IF
     IF DOCK_slot_titled%(s) THEN
         hh = DOCK_TITLE_H
-    ELSEIF id = DP_LAYERS THEN
-        hh = PSURF_v%(id, THEME.LAYER_PANEL_header_height%) ' (its header, viewport px)
+    ELSEIF DOCK_own_header_u%(id) THEN
+        hh = PSURF_v%(id, DOCK_own_header_u%(id)) ' (its own header, viewport px)
     ELSE
         hh = DOCK_GRIP_H
     END IF
@@ -2267,7 +2365,7 @@ FUNCTION DOCK_handle_at% (mx AS INTEGER, my AS INTEGER)
     rg = REGION_hit_test%(mx, my)
     SELECT CASE rg
         CASE REGION_GLOBAL, REGION_CANVAS, REGION_TOOLBAR, REGION_ORGANIZER, REGION_DRAWER, _
-             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP, REGION_WORKFLOW, REGION_TEXT_BAR, REGION_SEL_BAR, REGION_MYPAINT, REGION_MYPSET, REGION_BRUSHES, REGION_HISTORY, REGION_ACTIONS
+             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP, REGION_WORKFLOW, REGION_TEXT_BAR, REGION_SEL_BAR, REGION_MYPAINT, REGION_MYPSET, REGION_BRUSHES, REGION_HISTORY, REGION_ACTIONS, REGION_PANELS_BAR, REGION_IO_BAR
         CASE ELSE
             ' over a native window: only its own handle (when it is docked)
             only = DOCK_native_for_region%(rg)
@@ -2445,7 +2543,7 @@ SUB DOCK_menu_build (id AS INTEGER)
     ELSE
         POPUP_MENU_set_item n, "Float", "", DOCK_ACT_FLOAT, 0: n = n + 1
     END IF
-    IF id = DP_TOOLBOX _ORELSE id = DP_EDITBAR _ORELSE id = DP_ADVBAR THEN
+    IF id = DP_TOOLBOX _ORELSE id = DP_EDITBAR _ORELSE id = DP_ADVBAR _ORELSE id = DP_PANELSBAR _ORELSE id = DP_IOBAR THEN
         POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
         POPUP_MENU_set_item n, "Customize Buttons...", "", DOCK_ACT_CUSTOMIZE, 0: n = n + 1
     END IF
@@ -2600,6 +2698,7 @@ SUB DOCK_menu_do (act AS INTEGER)
             SELECT CASE id
                 CASE DP_EDITBAR: TBED_open BL_EDITBAR
                 CASE DP_ADVBAR: TBED_open BL_ADVBAR
+                CASE DP_PANELSBAR, DP_IOBAR: TBED_open CBAR_bl%(CBAR_of_dp%(id))
                 CASE ELSE: TBED_open BL_TOOLBOX
             END SELECT
         CASE DOCK_ACT_RESET
@@ -3335,6 +3434,7 @@ SUB DOCK_dump_write (barY1 AS INTEGER, dockY2 AS INTEGER)
     d = d + HISTP_dump$ ' HISTP / HISTPB / HISTPR (GUI/HISTORY-PANEL)
     d = d + ACTP_dump$ ' ACTP / ACTPB / ACTPR (GUI/ACTIONS-PANEL)
     d = d + CREC_dump$ + lf ' CREC on paused frames bytes thinned pending (TOOLS/CANVAS-REC)
+    d = d + CREC_dump_t$ + lf ' CRECT capMs flatMs diffMs
     DIM sfx AS INTEGER, sfy AS INTEGER, sfw AS INTEGER, sfh AS INTEGER
     IF SUBTOOL_FLYOUT_frame%(sfx, sfy, sfw, sfh) = 0 THEN sfx = 0: sfy = 0: sfw = 0: sfh = 0
     d = d + "SUBFLY" + DOCK_n$(SUBTOOL_FLYOUT.ACTIVE <> 0) + DOCK_n$(sfx) + DOCK_n$(sfy) + DOCK_n$(sfw) + DOCK_n$(sfh) + DOCK_n$(SUBTOOL_FLYOUT.VERTICAL <> 0) + DOCK_n$(SUBTOOL_FLYOUT.BTN_W) + DOCK_n$(SUBTOOL_FLYOUT.BTN_H) + lf
@@ -3604,6 +3704,7 @@ FUNCTION DOCK_dump_state$ ()
     d = "TIP" + DOCK_n$(TOOLTIP.ACTIVE <> 0) + DOCK_n$(TOOLTIP.HOVER_SOURCE) + DOCK_n$(TOOLTIP.HOVER_BTN_IDX) + lf
     d = d + "CURSOR" + DOCK_n$(POINTER.CURSOR_ID) + DOCK_n$(POINTER.CURSOR_FLIP) + lf
     d = d + "BARS" + DOCK_n$(EDIT_BAR.scrollOffset%) + DOCK_n$(EDIT_BAR.contentH%) + DOCK_n$(ADV_BAR.scrollOffset%) + DOCK_n$(ADV_BAR.contentH%) + lf
+    d = d + CBAR_dump$ ' the PANELS / I/O bars (GUI/CMDBARS)
     d = d + "CMAP" + DOCK_n$(CHARMAP.scrollY%) + DOCK_n$(CHARMAP_max_scroll_y%) + DOCK_n$(CHARMAP_row_count%) + DOCK_n$(CHARMAP_cell_h_effective%)
     d = d + DOCK_n$(CHARMAP_cell_h_effective% + CHARMAP_cell_padding_effective%) + DOCK_n$(CHARMAP.gridY%) + DOCK_n$(CHARMAP.panelY2%) + DOCK_n$(CHARMAP_PAGE_INDICATOR_H) + DOCK_n$(CHARMAP.hoverIdx%) + lf
     ' CMAPC cols cellW pad panelW(units) inRow: the grid's columns (a dock row: as many as fit)
@@ -3800,6 +3901,7 @@ FUNCTION DOCK_dump_state$ ()
         IF LAYERS(i).imgHandle& <> 0 THEN
             d = d + "LAYER" + DOCK_n$(i) + DOCK_n$(LAYERS(i).zIndex%) + DOCK_n$(LAYERS(i).parentGroupIdx%) + DOCK_n$(LAYERS(i).layerType%)
             d = d + DOCK_n$(LAYERS(i).collapsed% <> 0) + DOCK_n$(LAYERS(i).visible% <> 0) + DOCK_n$(LAYERS(i).opacity%) + DOCK_n$(MULTI_SELECT_LAYERS(i) <> 0) + lf
+            d = d + "LAYERN" + DOCK_n$(i) + DOCK_n$(i = CURRENT_LAYER%) + " " + RTRIM$(LAYERS(i).name) + lf ' LAYERN slot current name
         END IF
     NEXT i
     DOCK_dump_state$ = d
@@ -3995,9 +4097,14 @@ END SUB
 ' a tab becomes active, a double-click anywhere on a title collapses /
 ' expands. A click on a hover grip or the layers header does nothing.
 SUB DOCK_title_click (s AS INTEGER, mx AS INTEGER)
-    DIM t AS INTEGER, dbl AS INTEGER
+    DIM t AS INTEGER, dbl AS INTEGER, id AS INTEGER, tw AS INTEGER
     IF s < 1 THEN EXIT SUB
-    IF DOCK_slot_titled%(s) = 0 THEN EXIT SUB
+    id = DOCK_slot_panel%(s)
+    tw = 10
+    IF DOCK_slot_titled%(s) = 0 THEN
+        IF DOCK_header_twirl%(id) = 0 THEN EXIT SUB ' (a hover grip, the layers header)
+        tw = PSURF_v%(id, 10) ' (History / Actions: their own header, at its Scale)
+    END IF
     dbl = (DOCK_UI.lastSlot = s _ANDALSO TIMER - DOCK_UI.lastClick < 0.4 _ANDALSO TIMER >= DOCK_UI.lastClick)
     DOCK_UI.lastSlot = s: DOCK_UI.lastClick = TIMER
     IF DOCK_SLOT(s).collapsed THEN
@@ -4010,7 +4117,7 @@ SUB DOCK_title_click (s AS INTEGER, mx AS INTEGER)
         DOCK_toggle_collapse s
         EXIT SUB
     END IF
-    IF dbl _ORELSE mx < DOCK_SLOT(s).x + 10 THEN
+    IF dbl _ORELSE mx < DOCK_SLOT(s).x + tw THEN
         DOCK_UI.lastSlot = 0
         DOCK_toggle_collapse s
         EXIT SUB
@@ -4059,6 +4166,8 @@ FUNCTION DOCK_panel_toggle_action% (id AS INTEGER)
         CASE DP_LAYERS: DOCK_panel_toggle_action% = 404
         CASE DP_EDITBAR: DOCK_panel_toggle_action% = 435
         CASE DP_ADVBAR: DOCK_panel_toggle_action% = 449
+        CASE DP_PANELSBAR: DOCK_panel_toggle_action% = CBAR_ACT_PANELS
+        CASE DP_IOBAR: DOCK_panel_toggle_action% = CBAR_ACT_IO
         CASE DP_CHARMAP: DOCK_panel_toggle_action% = 2050
         CASE DP_WORKFLOW: DOCK_panel_toggle_action% = WF_ACT_TOGGLE
         CASE DP_PREVIEW: DOCK_panel_toggle_action% = 434
@@ -4105,14 +4214,16 @@ END FUNCTION
 ' The [x] of titled docked slot s: the right end of its strip (closes the
 ' showing tab's panel). FALSE = none.
 FUNCTION DOCK_slot_close_rect% (s AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
+    DIM id AS INTEGER
     IF s < 1 _ORELSE s > DOCK_MAX_SLOTS THEN EXIT FUNCTION
     IF DOCK_SLOT(s).used = 0 _ORELSE DOCK_SLOT(s).vis = 0 THEN EXIT FUNCTION
     IF DOCK_panel_closable%(DOCK_slot_panel%(s)) = 0 THEN EXIT FUNCTION
     IF DOCK_slot_titled%(s) = 0 THEN
-        ' the layers have no strip: their own header is the handle, and its
-        ' right end the [x] (LAYER_PANEL_render draws it - Rick 2026-11-17)
-        IF DOCK_slot_panel%(s) <> DP_LAYERS THEN EXIT FUNCTION
-        bh = PSURF_v%(DP_LAYERS, THEME.LAYER_PANEL_header_height%): bw = bh
+        ' no strip: a panel's own header is the handle, and its right end the
+        ' [x] (the panel draws it - LAYER_PANEL_render, DOCK_header_draw; Rick 2026-11-17)
+        id = DOCK_slot_panel%(s)
+        IF DOCK_own_header_u%(id) = 0 THEN EXIT FUNCTION
+        bh = PSURF_v%(id, DOCK_own_header_u%(id)): bw = bh
         IF DOCK_SLOT(s).w < bw + 60 THEN EXIT FUNCTION
         bx = DOCK_SLOT(s).x + DOCK_SLOT(s).w - bw: by = DOCK_SLOT(s).y
         DOCK_slot_close_rect% = TRUE
@@ -4126,15 +4237,15 @@ END FUNCTION
 
 
 ''
-' Does the docked layers panel show an [x] at the right end of its own header?
+' Does docked panel id show an [x] at the right end of its own header?
 ' (Floating, it is on the grip; in a tabbed / collapsed slot, on the strip.)
-FUNCTION DOCK_layers_header_close% ()
+FUNCTION DOCK_header_close% (id AS INTEGER)
     DIM s AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
-    IF DOCK_floating%(DP_LAYERS) THEN EXIT FUNCTION
-    s = DPANEL(DP_LAYERS).slot
+    IF DOCK_floating%(id) THEN EXIT FUNCTION
+    s = DPANEL(id).slot
     IF s < 1 _ORELSE s > DOCK_MAX_SLOTS THEN EXIT FUNCTION
-    IF DOCK_slot_panel%(s) <> DP_LAYERS _ORELSE DOCK_slot_titled%(s) THEN EXIT FUNCTION
-    DOCK_layers_header_close% = DOCK_slot_close_rect%(s, bx, by, bw, bh)
+    IF DOCK_slot_panel%(s) <> id _ORELSE DOCK_slot_titled%(s) THEN EXIT FUNCTION
+    DOCK_header_close% = DOCK_slot_close_rect%(s, bx, by, bw, bh)
 END FUNCTION
 
 
@@ -4215,7 +4326,7 @@ END SUB
 FUNCTION DOCK_float_title_h% (id AS INTEGER)
     ' the layers float with a grip: their own header names them and is the
     ' rest of the handle (DOCK_float_handle_h%), as it is docked
-    IF id = DP_EDITBAR _ORELSE id = DP_ADVBAR _ORELSE id = DP_LAYERS _ORELSE id = DP_TEXTBAR _ORELSE id = DP_SELBAR _ORELSE DPANEL(id).fw < 64 THEN
+    IF id = DP_EDITBAR _ORELSE id = DP_ADVBAR _ORELSE id = DP_PANELSBAR _ORELSE id = DP_IOBAR _ORELSE id = DP_LAYERS _ORELSE id = DP_HISTORY _ORELSE id = DP_ACTIONS _ORELSE id = DP_TEXTBAR _ORELSE id = DP_SELBAR _ORELSE DPANEL(id).fw < 64 THEN
         DOCK_float_title_h% = DOCK_FLOAT_GRIP_H
     ELSE
         DOCK_float_title_h% = DOCK_TITLE_H
@@ -4229,7 +4340,7 @@ END FUNCTION
 FUNCTION DOCK_float_handle_h% (id AS INTEGER)
     DIM h AS INTEGER
     h = DOCK_float_title_h%(id)
-    IF id = DP_LAYERS THEN h = h + PSURF_v%(id, THEME.LAYER_PANEL_header_height%)
+    h = h + PSURF_v%(id, DOCK_own_header_u%(id)) ' (the layers / History / Actions: their own header under the grip)
     DOCK_float_handle_h% = h
 END FUNCTION
 
@@ -4242,6 +4353,7 @@ FUNCTION DOCK_float_content_h% (id AS INTEGER)
     SELECT CASE id
         CASE DP_EDITBAR: h = PSURF_v%(id, EDIT_BAR.contentH% + THEME.ICON_BAR_padding% + 2)
         CASE DP_ADVBAR: h = PSURF_v%(id, ADV_BAR.contentH% + THEME.ICON_BAR_padding% + 2)
+        CASE DP_PANELSBAR, DP_IOBAR: h = PSURF_v%(id, CBAR(CBAR_of_dp%(id)).contentH + THEME.ICON_BAR_padding% + 2)
         CASE DP_WORKFLOW: DOCK_float_content_h% = DOCK_fixed_h%(id, DPANEL(id).rw): EXIT FUNCTION ' its rows, no more
         CASE DP_TEXTBAR: DOCK_float_content_h% = DOCK_fixed_h%(id, _MAX(DPANEL(id).rw, PSURF_v%(id, TEXT_BAR_ROW_BASIS_W))): EXIT FUNCTION ' its lines, no more
         CASE DP_SELBAR: DOCK_float_content_h% = DOCK_fixed_h%(id, _MAX(DPANEL(id).rw, PSURF_v%(id, SELBAR_ROW_BASIS_W))): EXIT FUNCTION
@@ -4261,7 +4373,7 @@ FUNCTION DOCK_float_edge_at% (mx AS INTEGER, my AS INTEGER, id AS INTEGER)
     IF DOCK_ui_busy% THEN EXIT FUNCTION
     SELECT CASE REGION_hit_test%(mx, my) ' inert under menus, popups and native windows
         CASE REGION_GLOBAL, REGION_CANVAS, REGION_TOOLBAR, REGION_ORGANIZER, REGION_DRAWER, _
-             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP, REGION_WORKFLOW, REGION_TEXT_BAR, REGION_SEL_BAR, REGION_MYPAINT, REGION_MYPSET, REGION_BRUSHES, REGION_HISTORY, REGION_ACTIONS
+             REGION_EDIT_BAR, REGION_ADV_BAR, REGION_LAYER_PANEL, REGION_CHARMAP, REGION_WORKFLOW, REGION_TEXT_BAR, REGION_SEL_BAR, REGION_MYPAINT, REGION_MYPSET, REGION_BRUSHES, REGION_HISTORY, REGION_ACTIONS, REGION_PANELS_BAR, REGION_IO_BAR
         CASE ELSE: EXIT FUNCTION
     END SELECT
     DIM o(1 TO WZ_COUNT) AS INTEGER, k AS INTEGER
@@ -4400,6 +4512,8 @@ SUB DOCK_render_panel_content (id AS INTEGER)
             IF HISTP.visible THEN HISTP_render
         CASE DP_ACTIONS
             IF ACTP.visible THEN ACTP_render
+        CASE DP_PANELSBAR, DP_IOBAR
+            IF CBAR(CBAR_of_dp%(id)).visible THEN CBAR_render CBAR_of_dp%(id)
     END SELECT
 END SUB
 
@@ -4502,7 +4616,7 @@ SUB DOCK_float_panel (id AS INTEGER, x AS INTEGER, y AS INTEGER)
     END IF
     w = DPANEL(id).rw: h = DOCK_float_content_h%(id)
     IF w < DOCK_panel_w%(id) THEN w = DOCK_panel_w%(id)
-    IF id = DP_EDITBAR _ORELSE id = DP_ADVBAR THEN w = DOCK_panel_w%(id) ' its own columns, not the column it shared
+    IF id = DP_EDITBAR _ORELSE id = DP_ADVBAR _ORELSE id = DP_PANELSBAR _ORELSE id = DP_IOBAR THEN w = DOCK_panel_w%(id) ' its own columns, not the column it shared
     DOCK_change_begin
     DOCK_detach_panel id
     DPANEL(id).fl = TRUE
@@ -4574,6 +4688,8 @@ FUNCTION DOCK_panel_region% (id AS INTEGER)
         CASE DP_BRUSHES: DOCK_panel_region% = REGION_BRUSHES
         CASE DP_HISTORY: DOCK_panel_region% = REGION_HISTORY
         CASE DP_ACTIONS: DOCK_panel_region% = REGION_ACTIONS
+        CASE DP_PANELSBAR: DOCK_panel_region% = REGION_PANELS_BAR
+        CASE DP_IOBAR: DOCK_panel_region% = REGION_IO_BAR
     END SELECT
 END FUNCTION
 

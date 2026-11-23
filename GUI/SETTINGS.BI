@@ -89,6 +89,11 @@ DIM SHARED SETTINGS_JUMP_Y       AS INTEGER
 DIM SHARED SETTINGS_QA_SECTION   AS STRING  ' QA: the last section marked, and its y in the view
 DIM SHARED SETTINGS_QA_SECTION_Y AS INTEGER
 DIM SHARED SETTINGS_QA_ANIM      AS STRING  ' QA: the Animation tab's shadow values (SETANIM line)
+DIM SHARED SETTINGS_QA_PSCALE    AS STRING  ' QA: Panel Scale's SET ALL box + every panel's Scale (SETPS line)
+DIM SHARED SETTINGS_QA_CLIPX     AS INTEGER ' QA: the content clip's origin in the window (SETPS box -> window px)
+DIM SHARED SETTINGS_QA_CLIPY     AS INTEGER
+CONST SETTINGS_PSCALE_N = 25                ' Panel Scale's panels (SETTINGS_pscale! / SETTINGS_pscale_put)
+CONST SETTINGS_DD_PSCALE_ALL = 65           ' Panel Scale > SET ALL's dropdown id
 
 ' --- Function Declarations ---------------------------------------------------
 
