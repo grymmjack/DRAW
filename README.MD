@@ -5,14 +5,39 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v2.9.0
+Current release: v2.10.0
 
 ![DRAW GUI from v2.5.0](./GUI.png)
 
-## Unreleased
+## New in 2.10.0
 
-- **Default 2 is now Default**: DRAW starts in it, it is titled **DEFAULT** in the View menu, the workflow buttons and the switcher, and **Leave Workspace** goes back to it. An older `WORKSPACE=default` opens it too. The plain Default (the no-overlay base every workspace builds on) is left out of the lists; `WORKSPACE_HOME=default` in `DRAW.cfg` brings it back as home.
-- **AI command buttons keep their art** when AI is off: a toolbox button for New from AI showed a text tile after `--reset-defaults` (which turns AI off).
+A live theme editor, History and Actions palettes, canvas time-lapse recording, two new icon bars and a tidier View menu.
+
+- **Theme Edit mode** (`--theme-edit`, ``Ctrl+Alt+` ``): edit a theme live with a devtools-style inspector.
+  - ELEMENTS tree and PROPERTIES: hover any part of DRAW to preview it, click to select it, and see the theme keys it is drawn with (COMPUTED).
+  - Colour picker and eyedropper on colour rows, `Ctrl+C` / `Ctrl+V` values, wheel edits, middle-click to revert, image EDIT with file watching, SAVE with backups.
+  - Modal dialogs are editable too (DIALOGS). Panels, bars and dialogs have their own sets of theme keys.
+- **History palette** (View > Panels > History): a row per undo step; click one to go back or forward to it. UNDO / REDO / CLEAR, Edit > Clear History.
+- **Actions palette** (View > Panels > Actions): Photoshop-style macros. Record Edit / Layer / Canvas / Select / Image / Color commands, and every Image / Effects dialog keeps its values in the step. Play is one undo step. `--action` runs one from the command line, over a folder with `--batch-in`.
+- **Canvas recording** (time-lapse): every change becomes a frame, kept inside the PNG. A REC badge in the status bar pauses it. **View > Canvas Recording...** plays it back and exports APNG, GIF or a PNG sequence (1-8x). `--export-recording` does it from the command line. Settings > General turns it off or caps its size.
+- **PANELS bar and I/O bar**: two more icon bars like the edit and advanced bars. PANELS has a button for every panel, lit while it shows; I/O has New, Open, Import, Save and Export. Off by default (View > Panels).
+- **View > Panels**: every panel's show / hide moved into one submenu, so the View menu no longer scrolls.
+- **Customize Toolbars**: a DIVIDER size, SHOW DIVIDERS (a line) and SHOW GAPS (an outline) for each toolbar, saved in the workspace. A bar docked in a top or bottom row breaks at its dividers when they are shown.
+- **Picker loupe shows opacity**: an A: line and the percentage beside the hex, in the loupe and the Preview window.
+- **Antialias on keeps scaling smooth**: Scale 2x / -50%, Scale H / V, Resize Image with Content, Move tool resizes and placed imports resample instead of stretching pixels.
+- **Panel Scale: Set All** sets every panel at once.
+- **AI**: a USE SEED box in the generate dialog. AI buttons are dimmed and explain themselves while AI is off.
+- **Default 2 is now Default**: DRAW starts in it, it is titled **DEFAULT** everywhere, and **Leave Workspace** goes back to it. `WORKSPACE_HOME=default` in `DRAW.cfg` brings the plain Default back as home. Stock workspaces got real descriptions, and Kitchen Sink / Animate their new layouts.
+- **Toolbox art** in DEFAULT and DARK for Capture Screen, New from AI, Toggle Anti-Aliasing and MyPaint. The bars' Pixel-Perfect button is PP only again (the toolbox has its own AA toggle). Stained Glass BORDER goes down to 0.
+- **Fixes**:
+  - The picker reads see-through pixels in their own colour (white at 50% was picked as dark grey) and reads moved (promoted) layers in the right place.
+  - Modal dialogs move, and light their title, only with the pointer over the title bar itself.
+  - An AI prompt with an apostrophe no longer breaks the generate command (Linux / macOS).
+  - Workspaces no longer force the animation view open; `--option` beats the startup workspace.
+  - Fit and region zoom centre correctly between dock rows; showing or hiding a docked column re-centres the canvas.
+  - Customize Toolbars: dragging from AVAILABLE onto a panel adds the button again.
+  - [macOS] keypad digits drive the frame keys, and `Shift+Wheel` pans.
+  - AI command buttons keep their art when AI is off.
 
 ## New in 2.9.0
 

@@ -136,6 +136,8 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 
 **Actions palette** (View → Panels → Actions): `Click` select · `Double-click` a set / action = rename · its triangle = fold · on box = play / skip · dialog box (steps) · `R-Click` Play / Record / Stop / New Set / New Action / Insert Stop / Assign Key / Clear Key / Batch / Rename / Duplicate / Delete / Reload (an action's key: its own bind, shown at the row's right and in Customize Controls; 20 action keys, actions 2740-2759) · `Wheel` scroll (`Shift` 10 rows) · STOP / REC / PLAY / NEW SET / NEW ACTION / DELETE buttons. Also in the command palette as *Actions: Record*, *Stop Recording*, *Play Selection*, *New Set*, *New Action*, *Delete Selection*, *Insert Stop...*.
 
+**Canvas recording** (time-lapse, Edit → Record Canvas): `Click` the REC badge in the status bar = pause / resume · `R-Click` it = the viewer. **View → Canvas Recording...**: `Space` play / pause · `←` / `→` step a frame · `Home` / `End` first / last frame · drag the bar to scrub · the FPS button cycles 5–160 · EXPORT APNG / GIF / PNGS at 1–8x · `Esc` closes. Batch: `DRAW pic.draw --export-recording out.apng|out.gif|out.png [--recording-fps N] [--recording-scale 1|2|4|8]`.
+
 **Paste workflow:** select (`M`/`W`) → `Ctrl+C`/`Ctrl+X` → `Ctrl+V` (floats centered on the canvas, auto-engages Move) → drag to reposition (`Alt+drag` stamps copies) → `Enter` apply / `Esc` cancel. (`Ctrl+Z` removes a paste.)
 
 ---
@@ -284,6 +286,7 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `Ctrl+H` | Hide/show marching ants (selection stays active) |
 | `Ctrl+H` (pointer on the Theme Edit inspector) | Hide/show the inspector's outlines of the selected / hovered part |
 | `Ctrl+C` / `Ctrl+V` (pointer on the Theme Edit inspector) | Copy the selected row's value / paste it into the selected property |
+| ``Ctrl+Alt+` `` (Theme Edit mode, `--theme-edit`) | Inspect mode on / off: hover any part of DRAW to preview it in the inspector, click to select it |
 | `Hold M + =` / `Hold M + -` | Expand / contract selection 1px |
 | `Hold M + Shift+=` / `Hold M + Shift+-` | Expand / contract selection (large step) |
 | `Ctrl+D` / `Esc` | Deselect (from any tool) |
