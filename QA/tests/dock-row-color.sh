@@ -56,7 +56,7 @@ dk_seams "ACP in the row"
 # docked panels) sampling the ring itself, not the dock under it. (Under Xvfb a
 # press made while Alt is down never arrives - memory qa-xvfb-alt-press-lost -
 # so the press / drag pick, which reads the same frame copy, is Rick's to try.)
-loupe() { read -r _ L_OK L_X1 L_Y1 L_X2 L_Y2 L_C <<< "$(grep -m1 '^LOUPE ' "$DK_DUMP")"; }
+loupe() { read -r _ L_OK L_X1 L_Y1 L_X2 L_Y2 L_C L_A <<< "$(grep -m1 '^LOUPE ' "$DK_DUMP")"; }
 sat_of() { local h=$1 r g b mx mn v; r=$((16#${h:0:2})); g=$((16#${h:2:2})); b=$((16#${h:4:2})); mx=$r; mn=$r; for v in $g $b; do (( v > mx )) && mx=$v; (( v < mn )) && mn=$v; done; echo $(( mx - mn )); }
 RX=$(( WX + 2 )); RY=$(( WY + WH / 2 ))
 hover "$RX" "$RY"; sleep 0.3

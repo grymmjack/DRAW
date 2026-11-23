@@ -50,7 +50,7 @@ Use the opacity slider in the organizer of the toolbox to set whatever opacity l
 
 > 🎯 **Goal:** Use the full RGB color picker and the live Color Mixer.
 
-Click either the FG or BG swatch in the status bar to open the **Color Picker**. It supports true 24-bit RGB selection plus a hex input field. The Picker tool (`I`) on the canvas pairs an eyedropper with a **loupe overlay** that magnifies the area under the cursor and prints the RGB and hex values for the pixel you'd sample.
+Click either the FG or BG swatch in the status bar to open the **Color Picker**. It supports true 24-bit RGB selection plus a hex input field. The Picker tool (`I`) on the canvas pairs an eyedropper with a **loupe overlay** that magnifies the area under the cursor and prints the RGB, alpha (**A:** 0–255), position and hex values for the pixel you'd sample. Under the box the hex comes with the pixel's opacity in percent (`#FDFDFD 50%`), so a see-through pixel shows as one: the loupe reads the picture you see, every visible layer merged, and a see-through pixel keeps the colour it was painted in. The Preview window's loupe shows the same.
 
 The **Color Mixer panel** is a floating, persistent alternative to the modal picker. Open it from `View → Color Mixer` (or via the Command Palette). It exposes:
 
