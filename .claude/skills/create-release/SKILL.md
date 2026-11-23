@@ -137,7 +137,9 @@ Run the build to confirm the version bump and all doc changes haven't introduced
 cd /home/grymmjack/git/DRAW && /home/grymmjack/git/qb64pe/qb64pe -w -x DRAW.BAS -o DRAW.run 2>&1 | tail -5
 ```
 
-Confirm `Output: .../DRAW.run` appears. Report any errors and fix before continuing.
+Confirm `Output: .../DRAW.run` appears, then run `DEV/check-unused-vars.sh` on that build output (the
+release CI fails on any unused variable). Report any errors and fix before continuing. This checks the
+**Linux** build only - Step 9 has CI build macOS and Windows before anything is tagged.
 
 ---
 
@@ -182,23 +184,36 @@ Rick trusts this step to the skill (2026-11-06: "that should be part of this rel
 
 1. Save the Step 8 notes to a scratchpad file (e.g. `release-notes-A.B.C.md`).
 2. Commit the release changes (version bump + docs) on `main`:
-   `Release A.B.C: <short summary>`, with the attribution trailer.
-3. Annotated tag + push:
+   `Release A.B.C: <short summary>`, with the attribution trailer. Push `main` - **not the tag yet**.
+3. **Build all three platforms in CI before tagging.** A local build is Linux only: code inside a
+   `$IF WIN` / `$IF MAC` block, or a variable only another OS's code uses, compiles here and fails
+   there. (2.10.0: the macOS and Windows builds failed `check-unused-vars` after the tag was pushed,
+   so the tag had to be deleted and moved to the fix.) Run the release workflow by hand on `main`,
+   without creating a release, and wait for it in the background:
+   ```bash
+   gh workflow run build-release.yml --repo grymmjack/DRAW --ref main -f create_release=false
+   gh run list --repo grymmjack/DRAW --workflow build-release.yml --limit 1   # its run id
+   # poll every 30 s: gh run view <id> --json status,conclusion
+   ```
+   Every job (`build-linux`, `build-macos`, `build-windows`) must be `success`; `Create Release` shows
+   `skipped`. If one fails, read `gh run view <id> --log-failed`, fix it on `main`, commit, push and run
+   this step again. Tag only the commit that passed.
+4. Annotated tag on that commit + push:
    ```bash
    git tag -a vA.B.C -m "DRAW vA.B.C"
-   git push origin main && git push origin vA.B.C
+   git push origin vA.B.C
    ```
-4. **Don't `gh release create`.** The tag push starts `.github/workflows/build-release.yml`, which builds
+5. **Don't `gh release create`.** The tag push starts `.github/workflows/build-release.yml`, which builds
    Linux / Windows / macOS (~5 min) and creates the release itself (assets `DRAW-lnx-x64.tar.gz`,
    `DRAW-osx-x64.tar.gz`, `DRAW-win-x64.zip`) with GitHub's auto-generated notes.
-5. Watch in the background: find the run with
+6. Watch in the background: find the run with
    `gh run list --repo grymmjack/DRAW --workflow build-release.yml --limit 1`, then poll every 30 s
    until `gh release view vA.B.C --json isDraft` says `false` (stop and report if the run concludes
    anything but `success`). Then replace the notes and title:
    ```bash
    gh release edit vA.B.C --repo grymmjack/DRAW --title "DRAW vA.B.C" --notes-file release-notes-A.B.C.md
    ```
-6. Check the result (`gh release view vA.B.C --json name,body,assets,url`) and give the user the URL.
+7. Check the result (`gh release view vA.B.C --json name,body,assets,url`) and give the user the URL.
 
 ---
 
@@ -206,6 +221,7 @@ Rick trusts this step to the skill (2026-11-06: "that should be part of this rel
 
 - **Always ask** before applying a version bump (Step 1). Never assume.
 - **Commit, tag and push only in Step 9**, after the build passes and the notes are shown, never earlier.
+- **Never push the tag before the CI build of all three platforms passed** (Step 9.3).
 - If a step produces no changes (e.g. CHEATSHEET.md is already accurate), state that explicitly and move on.
 - If the git log is empty (no commits since last tag), say so and rely entirely on the conversation history for the change list.
 - Keep release notes **user-facing**: omit internal refactors unless they affect users (file format changes, config key renames, etc.).
