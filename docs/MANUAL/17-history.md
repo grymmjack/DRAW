@@ -16,7 +16,7 @@ History records **on mouse release**, automatically. There is no manual save-sta
 
 ### The History palette
 
-**View > History** shows the whole timeline as a list, one row per undo step:
+**View > Panels > History** shows the whole timeline as a list, one row per undo step:
 
 - The top row is the document as it was opened or created. Below it, one row per step, named after what it did (*BRUSH*, *MERGE DOWN*, *SCALE 2X* ...). Several changes made as one step (a multi-layer flip, an effect on a text layer) are one row.
 - The **current state** is highlighted, with a marker at its left. The rows after it are dimmed — they are the steps `Ctrl+Y` would bring back.
@@ -29,7 +29,7 @@ It is a dock panel like the others: dock it in any column or row, tab it, float 
 
 ### The Actions palette — record and replay
 
-**View > Actions** records what you do and plays it back, like Photoshop's Actions:
+**View > Panels > Actions** records what you do and plays it back, like Photoshop's Actions:
 
 - **Sets** hold **actions**, and actions hold **steps**. Each set is a file in DRAW's data folder (`ACTIONS/<set name>.dact`) and is saved as you change it. The first time, DRAW writes a starter set, *Default Actions*: Mirror Both Ways, Rotate 180 and Gray Negative.
 - **NEW ACTION** asks for a name and starts recording into it. Do what the action should do, then press **STOP**. Commands that change the picture are recorded as steps: Edit, Layer, Canvas, Select, Image and Color commands, from the menus, the command palette or their keys. Undo / redo, View and File commands, picking tools, and the palettes' own buttons are not recorded.

@@ -22,7 +22,7 @@
 | Drag-and-drop file onto window | Windows |
 | Command-line argument | `DRAW path/to/file.draw` |
 
-**The Browser's preview** (View → Browser, and the File → Open dialog) shows the picture of the file you select — `.draw` projects too. An animated GIF or APNG, or a PNG / `.draw` with frames, plays there at its own speed (GIF and APNG delays; a sheet's FPS and holds), with a play / pause box and a seek track under it: click the box to pause or play, click the track to jump to a frame, drag along it to scrub.
+**The Browser's preview** (View → Panels → Browser, and the File → Open dialog) shows the picture of the file you select — `.draw` projects too. An animated GIF or APNG, or a PNG / `.draw` with frames, plays there at its own speed (GIF and APNG delays; a sheet's FPS and holds), with a play / pause box and a seek track under it: click the box to pause or play, click the track to jump to a frame, drag along it to scrub.
 
 ### Save options
 

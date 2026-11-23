@@ -22,7 +22,7 @@ Open the settings dialog with `Ctrl+,` (comma) or `Edit → Settings`. The dialo
 | **Directories** | Where DRAW looks for templates, palettes, music. |
 | **Browser** | The image browser's size, place and default view. |
 | **Animation** | The X-sheet's default zoom (**Default Zoom: Show All Frames** - every frame across, or a thumbnail a tick), the X-sheet's **Contrast** (its grid, guides and dotted lines stronger or softer; also `Ctrl+Alt+Shift+wheel` over the X-sheet, `Ctrl+Alt+Shift+middle-click` resets), the transform widget's **Opacity %** (what it starts at and what `Ctrl+Alt+Shift+middle-click` over it restores), the lane curves' **Line Thickness** (1-4 px), **Lane Thumbnails** (Off / Keyframes / Every Frame: thumbnails drawn through the lanes on a laned layer's main X-sheet row), and **Keyframe Lane Colors** - one colour per lane (X, Y, SCALE X / Y, ROTATE, OPACITY, TINT, PIVOT X / Y, VOLUME, PAN) for its curve on the X-sheet and its swatch on the Animation panel's LANES page; **Default Colors** puts them back. Also **ANIM → Set Up → Animation Settings…**. |
-| **Pen Control** | Everything for a drawing tablet and stroke smoothing, the same settings as the **Pen Control** panel (View → Pen Control). **Pen Tablet**: Pen Pressure on or off; pressure sets brush size, mix paint and opacity, each with its lightest-touch value; the tip threshold and the pressure curve. **Position Smoothing**: Smooth Position on or off, the mode (Pulled String / Moving Average / EMA / Inertia), Amount, Catch Up, the guide line and cursor and their colour. **Pressure Processing**: Smooth Pressure on or off, the mode (Fixed / Hold / Average / EMA) and Amount. **Speed Scaling**: Scale Pressure by Speed on or off, the gain at rest and at speed (×100), Fast Speed in screen px/s and Speed Smoothing. See *Pen Tablets & Pressure* and *Stroke Smoothing* in Ch. 2. |
+| **Pen Control** | Everything for a drawing tablet and stroke smoothing, the same settings as the **Pen Control** panel (View → Panels → Pen Control). **Pen Tablet**: Pen Pressure on or off; pressure sets brush size, mix paint and opacity, each with its lightest-touch value; the tip threshold and the pressure curve. **Position Smoothing**: Smooth Position on or off, the mode (Pulled String / Moving Average / EMA / Inertia), Amount, Catch Up, the guide line and cursor and their colour. **Pressure Processing**: Smooth Pressure on or off, the mode (Fixed / Hold / Average / EMA) and Amount. **Speed Scaling**: Scale Pressure by Speed on or off, the gain at rest and at speed (×100), Fast Speed in screen px/s and Speed Smoothing. See *Pen Tablets & Pressure* and *Stroke Smoothing* in Ch. 2. |
 
 ### Enable AI Features
 
@@ -112,7 +112,7 @@ Anything you can theme — UI palette, transform-overlay frame, smart-guide colo
 | Character Map | `Ctrl+M` |
 | Preview Window | `F4` |
 | Drawer | (Organizer / View menu) |
-| Color Mixer | View → Color Mixer |
+| Color Mixer | View → Panels → Color Mixer |
 
 Each can be docked **left or right** by `Ctrl+Shift`+clicking on the panel itself.
 

@@ -669,6 +669,7 @@ TYPE DRAW_THEME
     ICON_BAR_width                        AS INTEGER        ' Width of an icon bar's column in px (a theme without it: EDIT_BAR_WIDTH)
     ICON_BAR_padding                      AS INTEGER        ' Space around an icon bar's buttons in px (a theme without it: EDIT_BAR_ICON_PADDING)
     ICON_BAR_divider_margin               AS INTEGER        ' Space a divider entry takes in px (a theme without it: EDIT_BAR_DIVIDER_VERT_MARGIN)
+    ICON_BAR_divider_fg                   AS _UNSIGNED LONG ' Line of a shown divider and outline of a shown gap, toolbox and bars (Customize Toolbars SHOW DIVIDERS / SHOW GAPS; a theme without it: PANEL_DIVIDER)
     ICON_BAR_border_left_width            AS INTEGER        ' Left edge of an icon bar in px (a theme without it: EDIT_BAR_LEFT_BORDER_WIDTH)
     ICON_BAR_border_right_width           AS INTEGER        ' Right edge of an icon bar in px (a theme without it: EDIT_BAR_RIGHT_BORDER_WIDTH)
     EDIT_BAR_WIDTH                        AS INTEGER        ' Edit bar content width in pixels

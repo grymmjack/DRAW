@@ -477,7 +477,7 @@ DRAW paints with **MyPaint's brush engine** (libmypaint 1.6.1, built in - nothin
 
 ### Picking a brush
 
-**Tools > MyPaint Brush** picks the tool and opens the **MyPaint Brushes** palette (also **View > MyPaint Brushes**). It is a dock panel like the others: it docks in a column on the right, floats, tabs, or docks along the top or bottom.
+**Tools > MyPaint Brush** picks the tool and opens the **MyPaint Brushes** palette (also **View > Panels > MyPaint Brushes**). It is a dock panel like the others: it docks in a column on the right, floats, tabs, or docks along the top or bottom.
 
 - **`<` / `>`** (or the wheel over the top rows) step through the groups - MyPaint's own grouping, then **MY BRUSHES** (your own).
 - **Click a brush** to use it; that picks the MyPaint tool too. The brush in use has a coloured frame; the row above the grid names the brush under the pointer.
@@ -495,7 +495,7 @@ Paint with the left button in the **FG** colour, the right button in the **BG** 
 
 ### MyPaint Brush Settings
 
-**View > MyPaint Brush Settings** opens a panel of sliders for the brush in use, the same ones MyPaint's Freehand tool options have. It docks like any panel (under the MyPaint Brushes palette by default). It floats, and it lays its sliders side by side when docked along the top or bottom.
+**View > Panels > MyPaint Brush Settings** opens a panel of sliders for the brush in use, the same ones MyPaint's Freehand tool options have. It docks like any panel (under the MyPaint Brushes palette by default). It floats, and it lays its sliders side by side when docked along the top or bottom.
 
 | Slider | What it changes |
 |---|---|
@@ -537,7 +537,7 @@ Every slider in DRAW takes the same mouse controls: **the wheel** moves it 1 (**
 
 ## Brush Palette — Shapes and Sizes
 
-**View > Brush Palette** opens a dock panel for the brush that the **Brush**, **Eraser**, **Line** and shape tools paint with. It works in any dock shape - a narrow column, two columns, along the top or bottom, or floating. The grid of sizes wraps to the width it gets and scrolls in the height.
+**View > Panels > Brush Palette** opens a dock panel for the brush that the **Brush**, **Eraser**, **Line** and shape tools paint with. It works in any dock shape - a narrow column, two columns, along the top or bottom, or floating. The grid of sizes wraps to the width it gets and scrolls in the height.
 
 - **The shape chips** at the top: **ROUND**, **SQUARE**, and two **SLANT** nibs (`/` and `\`), calligraphy pens that make thick and thin lines depending on the stroke's direction.
 - **SIZE** picks the size (1 to 101 px, as `[` / `]`). **SOFT** fades the edge over that much of the radius: 0 is hard, 100 is feathered all the way from the centre. Soft works on round and slant brushes; a square brush stays hard.
@@ -597,7 +597,7 @@ DRAW 2.8 has **96 slots** per mode (earlier versions had 30). Sets and `.draw` f
 
 ### Mini palette
 
-The Drawer can show a **mini palette** beside its bins for quick FG / BG selection (left / right click). It is **off by default**: turn it on in **Settings → Panels → Drawer → Mini Palette**. With it off, the bins take its space (more columns and rows). For a full swatch panel, see **View → Swatches**.
+The Drawer can show a **mini palette** beside its bins for quick FG / BG selection (left / right click). It is **off by default**: turn it on in **Settings → Panels → Drawer → Mini Palette**. With it off, the bins take its space (more columns and rows). For a full swatch panel, see **View → Panels → Swatches**.
 
 ### Narrow and wide toolboxes
 

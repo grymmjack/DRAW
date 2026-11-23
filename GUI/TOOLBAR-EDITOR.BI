@@ -46,6 +46,10 @@ CONST TBED_CTL_RESET   = 14
 CONST TBED_CTL_COLS_DN = 15
 CONST TBED_CTL_COLS_UP = 16
 CONST TBED_CTL_DONE    = 17
+CONST TBED_CTL_DIVSZ_DN = 18 ' DIVIDER - (the dividers / gaps row)
+CONST TBED_CTL_DIVSZ_UP = 19 ' DIVIDER +
+CONST TBED_CTL_SHOWDIV  = 25 ' [x] SHOW DIVIDERS (20 .. 24 are the tabs)
+CONST TBED_CTL_SHOWGAP  = 26 ' [x] SHOW GAPS
 CONST TBED_BTN_FIRST   = 8
 CONST TBED_BTN_LAST    = 14
 
@@ -123,6 +127,7 @@ TYPE TBED_OBJ
     yHead       AS INTEGER ' list captions
     ySearch     AS INTEGER
     yList       AS INTEGER ' top of both lists' rows
+    yStyle      AS INTEGER ' the dividers / gaps row (DIVIDER - n +, SHOW DIVIDERS, SHOW GAPS)
     yBottom     AS INTEGER
     listW       AS INTEGER
     avX         AS INTEGER
@@ -145,3 +150,4 @@ DIM SHARED TBED_AV_ID(0 TO TBED_AV_MAX - 1) AS INTEGER
 DIM SHARED TBED_SEARCH AS STRING
 DIM SHARED TBED_UNDO_CSV(1 TO BL_PANELS) AS STRING ' each panel's list before the change being made (TBED_begin)
 DIM SHARED TBED_UNDO_COLS(1 TO BL_PANELS) AS INTEGER
+DIM SHARED TBED_UNDO_STYLE(1 TO BL_PANELS) AS STRING ' its dividers / gaps (BL_style_key$)

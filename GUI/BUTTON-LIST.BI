@@ -48,6 +48,14 @@ DIM SHARED BL_READY(1 TO BL_PANELS) AS INTEGER ' the list has been built (else B
 ' icon rows, filled top to bottom, then the next column; a divider ends the
 ' column. 0 = the usual flow (left to right, then down). DOCK_apply_rect sets it.
 DIM SHARED BL_HROWS(1 TO BL_PANELS) AS INTEGER
+' How a panel shows its dividers and gaps (Customize Toolbars; workspace DIVIDER_SIZE=,
+' SHOW_DIVIDERS=, SHOW_GAPS= beside COLUMNS=; Rick 2026-11-23). Read through BL_div_size% /
+' BL_div_px%: BL_DIVSZ holds the size + 1, so 0 (the start value) is the default - the
+' theme's ICON_BAR_DIVIDER_MARGIN on a bar, none in the toolbox.
+CONST BL_DIV_MAX = 16 ' the largest divider (px of the panel's own units)
+DIM SHARED BL_DIVSZ(1 TO BL_PANELS) AS INTEGER
+DIM SHARED BL_SHOWDIV(1 TO BL_PANELS) AS INTEGER ' a line across each divider's space
+DIM SHARED BL_SHOWGAP(1 TO BL_PANELS) AS INTEGER ' a dotted outline for each gap's cell
 
 ' Text tiles: a command without an icon shows up to 3 letters of its name
 ' (Tiny5) in an outline the color of the bar icons. Cached per action.

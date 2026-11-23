@@ -146,14 +146,16 @@ Pressure and Browser windows.
 | **Double-click a floating panel's title** | Docks it back where it was |
 | **Drag a floating panel's right or bottom edge, or its corner** | Resizes it; a bar adds icon columns as it gets wider |
 | **Right-click a handle** | Move to Left Edge / Move to Right Edge, Dock Along the Top / Bottom, Collapse to Title / Expand, Float / Dock Back, Reset Arrangement, and Scale (Auto or 1×–8×) on the Animation, Color Mixer, color picker, 3D Color Space, Pen Control, Swatches and Text Bar panels; **Close** on every panel but the Text Bar |
-| **Click a panel's [x]** | Closes it: a floating panel has one at the right end of its title bar or grip, a tabbed or collapsed slot at the end of its title strip (it closes the tab showing). It turns red under the pointer, like the Color Mixer's. The View menu brings any panel back (View → Organizer and View → Drawer are there for that too) |
+| **Click a panel's [x]** | Closes it: a floating panel has one at the right end of its title bar or grip, a tabbed or collapsed slot at the end of its title strip (it closes the tab showing). It turns red under the pointer, like the Color Mixer's. **View → Panels** brings any panel back (Organizer and Drawer are there for that too) |
 
 **Top and bottom docks.** Any panel can also dock in a **row** along the top
 of the canvas area (under the menu bar) or along the bottom (above the color
 strip): the toolbox, edit bar, advanced bar, PANELS and I/O bars, organizer,
 drawer, layers, Swatches, Browser, Preview and the other windows. A row is a column turned
 sideways: its panels sit side by side, the toolbox and bars reflow to the
-row's height (the bars lay their buttons out sideways in one even grid), the
+row's height (the bars lay their buttons out sideways in one even grid -
+unless the bar's **SHOW DIVIDERS** / **SHOW GAPS** is on, see Customize
+Toolbars), the
 organizer keeps to the row's height too (when its widget stacks are too tall,
 their bottom widgets move into a little grid to the right; in a row one button
 high it lies flat, with Opacity and Brush Size turned on their side), and the
@@ -338,6 +340,9 @@ bars show, in any order:
 | **+ DIV** | Insert a divider after the selection: the next button starts a new row |
 | **+ GAP** | Insert an empty cell |
 | **RESET** | Put the panel's default buttons back |
+| **DIVIDER − / +** | The space a divider takes on this panel, 0-16 px. **AUTO** (the start) is the theme's size on a bar; in the toolbox a divider then only starts a new row |
+| **SHOW DIVIDERS** | Draw a line in each divider's space. A bar docked in a top or bottom row then also breaks at its dividers: each group gets its own icon columns with a line between them (off, the row bar is one even grid) |
+| **SHOW GAPS** | Draw a dotted outline round each empty cell (gap), so you can see where they are. In a top or bottom row a bar's gaps then take a cell too (off, they are left out there) |
 | **COLUMNS − / +** | The panel's columns (toolbox 1-8, bars 1-4) |
 | **DONE** | Close the window (changes are already saved) |
 
@@ -432,12 +437,16 @@ HIDE_ITEMS=209,NEW WINDOW ; action ids or labels
 ORDER=undo,redo,|,brush,eraser,cmd:701   ; the buttons in this order: bar names, toolbox
                           ; names (tools), cmd:<action id> (any command), | divider, - gap
 COLUMNS=2                 ; icon columns, 1-4
+DIVIDER_SIZE=6            ; px a divider takes, 0-16 (left out: the theme's size; the toolbox: none)
+SHOW_DIVIDERS=TRUE        ; a line in each divider's space
+SHOW_GAPS=TRUE            ; a dotted outline round each gap
+                          ; (the three work in every toolbar section: [TOOLBOX] too)
 
 [ADVANCED_BAR]
 BUTTONS=preview,grayscale ; the older form: only these, in the default order
 COLUMNS=1
 
-[PANELS_BAR]              ; the PANELS bar (View > PANELS Bar); [IO_BAR] the I/O bar
+[PANELS_BAR]              ; the PANELS bar (View > Panels > PANELS Bar); [IO_BAR] the I/O bar
 ORDER=cmd:411,cmd:401,|,cmd:2700   ; same names as [EDIT_BAR] ORDER
 COLUMNS=1
 

@@ -52,7 +52,7 @@ Use the opacity slider in the organizer of the toolbox to set whatever opacity l
 
 Click either the FG or BG swatch in the status bar to open the **Color Picker**. It supports true 24-bit RGB selection plus a hex input field. The Picker tool (`I`) on the canvas pairs an eyedropper with a **loupe overlay** that magnifies the area under the cursor and prints the RGB, alpha (**A:** 0–255), position and hex values for the pixel you'd sample. Under the box the hex comes with the pixel's opacity in percent (`#FDFDFD 50%`), so a see-through pixel shows as one: the loupe reads the picture you see, every visible layer merged, and a see-through pixel keeps the colour it was painted in. The Preview window's loupe shows the same.
 
-The **Color Mixer panel** is a floating, persistent alternative to the modal picker. Open it from `View → Color Mixer` (or via the Command Palette). It exposes:
+The **Color Mixer panel** is a floating, persistent alternative to the modal picker. Open it from `View → Panels → Color Mixer` (or via the Command Palette). It exposes:
 
 - RGB sliders — adjust Red, Green, Blue independently.
 - HSV sliders — adjust Hue, Saturation, Value.
@@ -63,7 +63,7 @@ Because the mixer is non-modal, you can keep it open while drawing and tweak col
 
 ### 3D Color Space — OKLab, CIELAB, XYZ & RGB
 
-`View → 3D Color Space` opens a floating panel that shows every color your screen can display (the sRGB gamut) as a 3D solid. Different color spaces arrange those same colors differently:
+`View → Panels → 3D Color Space` opens a floating panel that shows every color your screen can display (the sRGB gamut) as a 3D solid. Different color spaces arrange those same colors differently:
 
 - **OKLAB** (default): a perceptual space (Björn Ottosson, 2020). Equal distances look like equal differences to your eye. It looks like a tilted droplet with black at the bottom and white at the top.
 - **LAB**: CIELAB (1976), the classic perceptual space.
@@ -105,7 +105,7 @@ Light mixes additively, so on a screen blue + yellow makes gray. Paint mixes *su
 
 > DRAW's various color widgets and doo-dads
 > ![Color Widgets](images/ch03-color-widgets.png)
-> 1. Color Mixer — `View → Color Mixer`
+> 1. Color Mixer — `View → Panels → Color Mixer`
 > 2. Mini Palette — Always visible as part of Tool Box
 > 3. Color Strip — Can be hidden, shows (4) Palette
 > 4. Palette Picker — Choose a palette for editing
@@ -138,7 +138,7 @@ Palette workflows DRAW supports natively:
 
 > 🎯 **Goal:** Keep your own swatch sets — ramps, gaps and all — one click away, beside the palette strip.
 
-**View → Swatches** opens a panel with a grid of color swatches. It does not replace the palette strip: the strip stays the document's palette, and the Swatches panel shows any swatch set you like next to it.
+**View → Panels → Swatches** opens a panel with a grid of color swatches. It does not replace the palette strip: the strip stays the document's palette, and the Swatches panel shows any swatch set you like next to it.
 
 - **Left-click** a swatch → it becomes the **FG** color. **Right-click** → **BG**.
 - The FG swatch gets a double frame and the BG swatch a single one, so you can see where you are in the set.

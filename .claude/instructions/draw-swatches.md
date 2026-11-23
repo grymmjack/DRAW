@@ -1,4 +1,4 @@
-# Swatches panel (View > Swatches, actions 2600-2602)
+# Swatches panel (View > Panels > Swatches, actions 2600-2602)
 
 A grid of color swatches from a swatch set, beside the palette strip (the strip
 stays the document palette). Two layers:
