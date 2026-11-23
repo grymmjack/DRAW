@@ -1,4 +1,5 @@
 - [QA build must be in the repo](qa-draw-bin-in-repo.md) — a test build in the scratchpad dies at startup (no ASSETS), QA says window 0x0
+- [Work on main](work-on-main.md) — since 2026-11-23 commit / push straight to main; theme-edit retired (PR #161)
 - **[NEVER an error dialog - PERMANENT](feedback-no-error-dialogs.md) — every program traps its errors (ON ERROR); untrappable runtime alerts are prevented by guarding first; never cause them (don't kill a display a run still uses) (2026-10-11)**
 - **[Test scope - HARD RULE](feedback-test-scope.md) — run ONLY tests that materially touch the change, overnight too (2026-11-17: no full suites unless asked); >5 files = count + ETA and ASK**
 - **[Overnight / at-work QA lanes](feedback-overnight-qa-resources.md) — "going to bed" / "going to work" = his screen + farm: onscreen + offscreen + farm hosts at once; suites sharded 5-6 lanes when asked; queue in background, never idle-wait (2026-11-17)**

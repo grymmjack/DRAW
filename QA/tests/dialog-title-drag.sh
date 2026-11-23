@@ -6,7 +6,9 @@
 # dialog, at its title bar's height] but it lets me move the canvas recording dialog as if
 # it was over it". The title grab tested the pointer's y alone, so a press anywhere across
 # the screen at title-bar height dragged every DIALOG_ dialog.
-#   1. View: Canvas Recording opens the viewer (a DIALOG_ dialog)
+#   1. View: Canvas Recording opens the viewer (a DIALOG_ dialog); its title lights only
+#      with the pointer over the title itself, not beside the dialog at that height
+#      ("it still highlights the titlebar as if the mouse is over it"; DIALOG_over_title%)
 #   2. a drag that starts LEFT of the dialog at its title bar's height: the dialog stays
 #   3. ... and RIGHT of it: stays
 #   4. a drag from its title bar moves it by the drag
@@ -37,6 +39,18 @@ else
     pass "the viewer is open at $X0,$Y0 (about ${DW} px wide)"
     TY=$(( Y0 + 6 )) # inside the title bar's height
     screenshot "dialog-title-drag-open"
+
+    # --- 1b. the title's hover colour: only over the title itself -------------------------------------
+    # (Rick 2026-11-23: "while it doesn't move, it still highlights the titlebar as if the
+    # mouse is over it"). A strip of the title bar left of its text, beside the grip dots.
+    tsnap() { hover "$1" "$2"; sleep 0.2; hover $(( $1 + 1 )) "$2"; wait_for 0.4 "$3"; snap_region $(( X0 + 12 )) $(( Y0 + 2 )) 40 8 "$3"; }
+    tsnap $(( X0 + DW / 2 )) $(( Y0 + 150 )) "title-away"; AWAY=$SNAP_RESULT
+    if (( X0 > 30 )); then
+        tsnap $(( X0 / 2 )) "$TY" "title-beside"; BESIDE=$SNAP_RESULT
+        assert_regions_same "$AWAY" "$BESIDE" "the pointer left of the dialog at its title's height: the title is not lit" 20 # (a 40x8 strip: the default tolerance is bigger than it)
+    fi
+    tsnap $(( X0 + DW / 4 )) "$TY" "title-over"; OVER=$SNAP_RESULT
+    assert_regions_differ "$AWAY" "$OVER" "over the title bar itself it lights (hover colour)"
 
     # --- 2. left of the dialog, title-bar height ------------------------------------------------------
     if (( X0 > 30 )); then
