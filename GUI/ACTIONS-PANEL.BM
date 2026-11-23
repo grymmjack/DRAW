@@ -1,0 +1,812 @@
+''
+' DRAW - GUI/ACTIONS-PANEL.BM - the Actions palette (GUI/ACTIONS-PANEL.BI).
+' =============================================================================
+$INCLUDEONCE
+
+''
+' Should it show: View > Actions on, the chrome not hidden by F11.
+FUNCTION ACTP_wanted% ()
+    IF SCRN.textBarHiddenByToggleAll% THEN EXIT FUNCTION ' (F11 holds the panels off)
+    ACTP_wanted% = (CFG.ACTIONS_PANEL% <> 0)
+END FUNCTION
+
+
+' =============================================================================
+' Rows
+' =============================================================================
+
+''
+' The rows: every node whose set / action is open.
+SUB ACTP_rows ()
+    DIM j AS INTEGER, n AS INTEGER, hideBelow AS INTEGER
+    hideBelow = -1 ' (a folded node's depth: deeper nodes after it are not listed)
+    FOR j = 1 TO ACTS_N
+        IF hideBelow >= 0 THEN
+            IF ACTS_D(j) > hideBelow THEN _CONTINUE
+            hideBelow = -1
+        END IF
+        n = n + 1: ACTP_VIS(n) = j
+        IF ACTS_D(j) < 2 _ANDALSO ACTS_OPEN(j) = 0 THEN hideBelow = ACTS_D(j)
+    NEXT j
+    ACTP.rowsAll = n
+END SUB
+
+
+''
+' The row node nd is on (0 = folded away).
+FUNCTION ACTP_row_of% (nd AS INTEGER)
+    DIM r AS INTEGER
+    FOR r = 1 TO ACTP.rowsAll
+        IF ACTP_VIS(r) = nd THEN ACTP_row_of% = r: EXIT FUNCTION
+    NEXT r
+END FUNCTION
+
+
+''
+' Scroll so the selected node shows (its set / action opened when folded).
+SUB ACTP_follow_sel ()
+    DIM r AS INTEGER, a AS INTEGER
+    IF ACTP.sel < 1 _ORELSE ACTP.sel > ACTS_N THEN EXIT SUB
+    a = ACTS_up%(ACTP.sel, 0): IF a > 0 _ANDALSO a <> ACTP.sel THEN ACTS_OPEN(a) = TRUE
+    a = ACTS_up%(ACTP.sel, 1): IF a > 0 _ANDALSO a <> ACTP.sel THEN ACTS_OPEN(a) = TRUE
+    ACTP_rows
+    r = ACTP_row_of%(ACTP.sel)
+    IF r = 0 _ORELSE ACTP.rowsFit < 1 THEN EXIT SUB
+    IF r - 1 < ACTP.scroll THEN ACTP.scroll = r - 1
+    IF r - 1 >= ACTP.scroll + ACTP.rowsFit THEN ACTP.scroll = r - ACTP.rowsFit
+    ACTP_clamp
+END SUB
+
+
+SUB ACTP_clamp ()
+    IF ACTP.scroll > ACTP.rowsAll - ACTP.rowsFit THEN ACTP.scroll = ACTP.rowsAll - ACTP.rowsFit
+    IF ACTP.scroll < 0 THEN ACTP.scroll = 0
+END SUB
+
+
+' =============================================================================
+' Layout + render
+' =============================================================================
+
+SUB ACTP_layout ()
+    DIM i AS INTEGER, bw AS INTEGER, x AS INTEGER
+    ACTP.rowH = HISTP_row_h% ' (the same rows as the History palette)
+    ACTP.btnY = ACTP.y + ACTP.h - 2 * (ACTP.rowH + 2)
+    ACTP.listY = ACTP.y + DOCK_own_header_u%(DP_ACTIONS) + 2 ' (under its header)
+    ACTP.listH = ACTP.btnY - 2 - ACTP.listY
+    IF ACTP.listH < ACTP.rowH + 2 THEN ACTP.listH = ACTP.rowH + 2
+    ACTP.rowsFit = _MAX(1, (ACTP.listH - 2) \ ACTP.rowH)
+    bw = (ACTP.w - 4 - 2 * 2) \ 3: IF bw < 10 THEN bw = 10
+    FOR i = 1 TO 6
+        x = ACTP.x + 2 + ((i - 1) MOD 3) * (bw + 2)
+        ACTP_BX(i) = x: ACTP_BW(i) = bw
+        ACTP_BY(i) = ACTP.btnY + ((i - 1) \ 3) * (ACTP.rowH + 2)
+    NEXT i
+    ACTP_rows
+    ACTP_clamp
+END SUB
+
+
+FUNCTION ACTP_min_h% ()
+    ACTP_min_h% = DOCK_own_header_u%(DP_ACTIONS) + 2 + 3 * HISTP_row_h% + 2 + 2 + 2 * (HISTP_row_h% + 2)
+END FUNCTION
+
+
+FUNCTION ACTP_want_h% ()
+    ACTP_want_h% = DOCK_own_header_u%(DP_ACTIONS) + 2 + 12 * HISTP_row_h% + 2 + 2 + 2 * (HISTP_row_h% + 2)
+END FUNCTION
+
+
+''
+' Row r's top (its units); FALSE when scrolled out of view.
+FUNCTION ACTP_row_y% (r AS INTEGER, ry AS INTEGER)
+    IF r < 1 _ORELSE r > ACTP.rowsAll _ORELSE r - 1 < ACTP.scroll _ORELSE r - 1 >= ACTP.scroll + ACTP.rowsFit THEN EXIT FUNCTION
+    ry = ACTP.listY + 1 + (r - 1 - ACTP.scroll) * ACTP.rowH
+    ACTP_row_y% = TRUE
+END FUNCTION
+
+
+''
+' A row's parts, x (its units): the ENABLED box, the DIALOG box, the fold triangle, the name.
+SUB ACTP_row_x (nd AS INTEGER, xOn AS INTEGER, xDlg AS INTEGER, xFold AS INTEGER, xName AS INTEGER)
+    xOn = ACTP.x + 2 + 3
+    xDlg = xOn + ACTP_BOX + 3
+    xFold = xDlg + ACTP_BOX + 4 + ACTS_D(nd) * ACTP_INDENT
+    xName = xFold + 9
+END SUB
+
+
+''
+' Can button b be pressed now?
+FUNCTION ACTP_btn_on% (b AS INTEGER)
+    SELECT CASE b
+        CASE ACTPB_STOP: ACTP_btn_on% = (ACTS.recording <> 0)
+        CASE ACTPB_REC: ACTP_btn_on% = (ACTS.recording = 0)
+        CASE ACTPB_PLAY: ACTP_btn_on% = (ACTP.sel > 0 _ANDALSO ACTS.recording = 0)
+        CASE ACTPB_NEWSET, ACTPB_NEWACT: ACTP_btn_on% = TRUE
+        CASE ACTPB_DEL: ACTP_btn_on% = (ACTP.sel > 0)
+    END SELECT
+END FUNCTION
+
+
+FUNCTION ACTP_btn_label$ (b AS INTEGER)
+    SELECT CASE b
+        CASE ACTPB_STOP: ACTP_btn_label$ = "STOP"
+        CASE ACTPB_REC: ACTP_btn_label$ = "REC"
+        CASE ACTPB_PLAY: ACTP_btn_label$ = "PLAY"
+        CASE ACTPB_NEWSET: ACTP_btn_label$ = "NEW SET"
+        CASE ACTPB_NEWACT: ACTP_btn_label$ = "NEW ACTION"
+        CASE ACTPB_DEL: ACTP_btn_label$ = "DELETE"
+    END SELECT
+END FUNCTION
+
+
+''
+' A button's label when the full one does not fit.
+FUNCTION ACTP_btn_short$ (b AS INTEGER)
+    SELECT CASE b
+        CASE ACTPB_NEWSET: ACTP_btn_short$ = "+SET"
+        CASE ACTPB_NEWACT: ACTP_btn_short$ = "+ACTION"
+        CASE ACTPB_DEL: ACTP_btn_short$ = "DEL"
+        CASE ELSE: ACTP_btn_short$ = ACTP_btn_label$(b)
+    END SELECT
+END FUNCTION
+
+
+''
+' A small check box at (x, y): isOn = its mark; dlg = drawn as a little dialog (a title bar).
+SUB ACTP_check_box (x AS INTEGER, y AS INTEGER, isOn AS INTEGER, dlg AS INTEGER, hot AS INTEGER)
+    LINE (x, y)-(x + ACTP_BOX - 1, y + ACTP_BOX - 1), THEME.PANEL_checkbox_bg~&, BF
+    LINE (x, y)-(x + ACTP_BOX - 1, y + ACTP_BOX - 1), _IIF(hot, THEME.PANEL_checkbox_hover_border~&, THEME.PANEL_checkbox_border~&), B
+    IF isOn = 0 THEN EXIT SUB
+    IF dlg THEN
+        LINE (x + 2, y + 2)-(x + ACTP_BOX - 3, y + 3), THEME.PANEL_checkbox_mark~&, BF
+        LINE (x + 2, y + 2)-(x + ACTP_BOX - 3, y + ACTP_BOX - 3), THEME.PANEL_checkbox_mark~&, B
+    ELSE
+        ' a 1px check, exact 45-degree steps (Rick 2026-11-22: "less chonky ... clean pixel art angles"):
+        ' . . . . . . .
+        ' . . . . . X .    long arm (3,6)-(6,3)
+        ' . . . . X . .
+        ' . X . X . . .    short arm (2,5)
+        ' . . X . . . .
+        LINE (x + 3, y + 6)-(x + 6, y + 3), THEME.PANEL_checkbox_mark~&
+        PSET (x + 2, y + 5), THEME.PANEL_checkbox_mark~&
+    END IF
+END SUB
+
+
+''
+' A filled dot of radius 3 centred on (cx, cy).
+SUB ACTP_dot (cx AS INTEGER, cy AS INTEGER, c AS _UNSIGNED LONG)
+    DIM dy AS INTEGER, hw AS INTEGER
+    FOR dy = -3 TO 3
+        hw = INT(SQR(10 - dy * dy))
+        LINE (cx - hw, cy + dy)-(cx + hw, cy + dy), c
+    NEXT dy
+END SUB
+
+
+SUB ACTP_render ()
+    DIM oldFont AS LONG, r AS INTEGER, ry AS INTEGER, b AS INTEGER, nd AS INTEGER, k AS INTEGER, cy AS INTEGER
+    DIM fg AS _UNSIGNED LONG, bg AS _UNSIGNED LONG, t AS STRING, lx AS INTEGER, lw AS INTEGER, bx AS INTEGER, by AS INTEGER
+    DIM xOn AS INTEGER, xDlg AS INTEGER, xFold AS INTEGER, xName AS INTEGER, tw AS INTEGER, hp AS INTEGER, hn AS INTEGER
+    DIM sx AS INTEGER, sy1 AS INTEGER, sy2 AS INTEGER, th AS INTEGER, thY AS INTEGER
+    DIM kt AS STRING
+    IF ACTP.visible = 0 _ORELSE ACTP.w <= 0 _ORELSE ACTP.h <= 0 THEN EXIT SUB
+    ACTS_load
+    LINE (ACTP.x, ACTP.y)-(ACTP.x + ACTP.w - 1, ACTP.y + ACTP.h - 1), THEME.PANEL_bg~&, BF
+    REGION_set_bounds REGION_ACTIONS, ACTP.x, ACTP.y, ACTP.w, ACTP.h, ZORDER_PANEL ' (its footprint at a Scale: PSURF_render)
+    ACTP_layout
+    DOCK_header_draw DP_ACTIONS, ACTP.x, ACTP.y, ACTP.w ' (its title, at its Scale)
+    oldFont& = _FONT
+    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+    _PRINTMODE _KEEPBACKGROUND
+    lx = ACTP.x + 2: lw = ACTP.w - 4
+    LINE (lx, ACTP.listY)-(lx + lw - 1, ACTP.listY + ACTP.listH - 1), THEME.PANEL_list_bg~&, BF
+    LINE (lx, ACTP.listY)-(lx + lw - 1, ACTP.listY + ACTP.listH - 1), THEME.PANEL_list_border~&, B
+    IF THEMEED.started THEN THEMEED_seen _DEST, "", "ACTPL", "ACTIONS LIST", lx, ACTP.listY, lw, ACTP.listH, "K:PANEL_LIST_BG|K:PANEL_LIST_BORDER|K:PANEL_LIST_FG|K:PANEL_LIST_HEADER_FG|K:PANEL_LIST_HOVER_BG|K:PANEL_LIST_HOVER_FG|K:PANEL_LIST_SEL_BG|K:PANEL_LIST_SEL_FG|K:PANEL_DISABLED_FG|K:PANEL_WARNING_FG|K:PANEL_CHECKBOX_BG|K:PANEL_CHECKBOX_BORDER|K:PANEL_CHECKBOX_HOVER_BORDER|K:PANEL_CHECKBOX_MARK|K:PANEL_SCROLLBAR_TRACK|K:PANEL_SCROLLBAR_THUMB" ' Theme Edit (CFG/THEME-EDIT)
+    IF ACTP.hover >= ACTPB_ROW THEN hn = (ACTP.hover - ACTPB_ROW) \ 4: hp = (ACTP.hover - ACTPB_ROW) MOD 4
+    IF ACTS_N = 0 THEN
+        COLOR THEME.PANEL_disabled_fg~&, _RGBA32(0, 0, 0, 0)
+        _UPRINTSTRING (lx + 6, ACTP.listY + 4), HISTP_fit$("NO ACTIONS - NEW SET", lw - 10)
+    END IF
+    FOR r = ACTP.scroll + 1 TO ACTP.scroll + ACTP.rowsFit
+        IF ACTP_row_y%(r, ry) = 0 THEN _CONTINUE
+        nd = ACTP_VIS(r)
+        IF nd = ACTP.sel THEN
+            LINE (lx + 1, ry)-(lx + lw - 2, ry + ACTP.rowH - 1), THEME.PANEL_list_sel_bg~&, BF
+            fg = THEME.PANEL_list_sel_fg~&
+        ELSEIF hn = nd _ANDALSO ACTP.hover >= ACTPB_ROW THEN
+            LINE (lx + 1, ry)-(lx + lw - 2, ry + ACTP.rowH - 1), THEME.PANEL_list_hover_bg~&, BF
+            fg = THEME.PANEL_list_hover_fg~&
+        ELSEIF ACTS_D(nd) = 0 THEN
+            fg = THEME.PANEL_list_header_fg~& ' (a set: a heading)
+        ELSE
+            fg = THEME.PANEL_list_fg~&
+        END IF
+        IF ACTS_ON(nd) = 0 _ANDALSO nd <> ACTP.sel THEN fg = THEME.PANEL_disabled_fg~&
+        ACTP_row_x nd, xOn, xDlg, xFold, xName
+        cy = ry + (ACTP.rowH - ACTP_BOX) \ 2
+        ACTP_check_box xOn, cy, ACTS_ON(nd), FALSE, (hn = nd _ANDALSO hp = ACTPP_ON)
+        IF ACTS_D(nd) = 2 _ANDALSO ACTS_CMD(nd) >= 0 THEN ACTP_check_box xDlg, cy, ACTS_DLG(nd), TRUE, (hn = nd _ANDALSO hp = ACTPP_DLG)
+        ' a set / action: its fold triangle (right = folded, down = open)
+        IF ACTS_D(nd) < 2 THEN
+            cy = ry + ACTP.rowH \ 2
+            IF ACTS_OPEN(nd) THEN
+                FOR k = 0 TO 3: LINE (xFold + k, cy - 2 + k)-(xFold + 6 - k, cy - 2 + k), fg: NEXT k
+            ELSE
+                FOR k = 0 TO 3: LINE (xFold + 1 + k, cy - 3 + k)-(xFold + 1 + k, cy + 3 - k), fg: NEXT k
+            END IF
+        END IF
+        ' recording into it: a red dot before the name
+        IF nd = ACTS.recording THEN
+            cy = ry + ACTP.rowH \ 2
+            ACTP_dot xName + 3, cy, THEME.PANEL_warning_fg~&
+            xName = xName + 9
+        END IF
+        t = UCASE$(ACTS_NM(nd))
+        IF ACTS_D(nd) = 2 _ANDALSO ACTS_CMD(nd) = ACTS_CMD_STOP THEN t = "STOP: " + t
+        tw = lx + lw - 1 - ACTP_SB_W - 2 - xName
+        kt = UCASE$(ACTS_key_text$(nd))
+        IF LEN(kt) _ANDALSO PSL_tw%(kt) + 24 < tw THEN ' an action's key, at the right (dim)
+            COLOR THEME.PANEL_disabled_fg~&, _RGBA32(0, 0, 0, 0)
+            _UPRINTSTRING (xName + tw - PSL_tw%(kt), ry + (ACTP.rowH - _UFONTHEIGHT) \ 2), kt
+            tw = tw - PSL_tw%(kt) - 6
+        END IF
+        COLOR fg, _RGBA32(0, 0, 0, 0)
+        _UPRINTSTRING (xName, ry + (ACTP.rowH - _UFONTHEIGHT) \ 2), HISTP_fit$(t, tw)
+    NEXT r
+    IF ACTP.rowsAll > ACTP.rowsFit THEN
+        sx = lx + lw - 1 - ACTP_SB_W
+        sy1 = ACTP.listY + 1: sy2 = ACTP.listY + ACTP.listH - 2
+        LINE (sx, sy1)-(sx + ACTP_SB_W - 2, sy2), THEME.PANEL_scrollbar_track~&, BF
+        th = _MAX(6, (sy2 - sy1 + 1) * ACTP.rowsFit \ ACTP.rowsAll)
+        thY = sy1 + (sy2 - sy1 + 1 - th) * ACTP.scroll \ _MAX(1, ACTP.rowsAll - ACTP.rowsFit)
+        LINE (sx, thY)-(sx + ACTP_SB_W - 2, thY + th - 1), THEME.PANEL_scrollbar_thumb~&, BF
+    END IF
+    ' the buttons
+    FOR b = 1 TO 6
+        bx = ACTP_BX(b): by = ACTP_BY(b)
+        IF ACTP_btn_on%(b) = 0 THEN
+            bg = THEME.PANEL_button_disabled_bg~&: fg = THEME.PANEL_disabled_fg~&
+        ELSEIF ACTP.hover = b THEN
+            bg = THEME.PANEL_button_hover_bg~&: fg = THEME.PANEL_button_hover_fg~&
+        ELSE
+            bg = THEME.PANEL_button_bg~&: fg = THEME.PANEL_button_fg~&
+        END IF
+        IF b = ACTPB_REC _ANDALSO ACTS.recording THEN bg = THEME.PANEL_button_on_bg~&: fg = THEME.PANEL_button_on_fg~&
+        LINE (bx, by + 1)-(bx + ACTP_BW(b) - 1, by + ACTP.rowH), bg, BF
+        LINE (bx, by + 1)-(bx + ACTP_BW(b) - 1, by + ACTP.rowH), THEME.PANEL_button_border~&, B
+        IF THEMEED.started THEN THEMEED_seen _DEST, "", "ACTPB:" + _TRIM$(STR$(b)), "ACTIONS BUTTON", bx, by, ACTP_BW(b), ACTP.rowH + 2, "K:PANEL_BUTTON_BG|K:PANEL_BUTTON_FG|K:PANEL_BUTTON_BORDER|K:PANEL_BUTTON_HOVER_BG|K:PANEL_BUTTON_HOVER_FG|K:PANEL_BUTTON_ON_BG|K:PANEL_BUTTON_ON_FG|K:PANEL_BUTTON_DISABLED_BG|K:PANEL_DISABLED_FG|K:PANEL_WARNING_FG" ' Theme Edit
+        t = ACTP_btn_label$(b)
+        IF PSL_tw%(t) > ACTP_BW(b) - 4 - _IIF(b <= ACTPB_PLAY, 9, 0) THEN t = ACTP_btn_short$(b) ' (a narrow dock: NEW ACTION -> +ACTION)
+        t = HISTP_fit$(t, ACTP_BW(b) - 4 - _IIF(b <= ACTPB_PLAY, 9, 0))
+        tw = PSL_tw%(t) + _IIF(b <= ACTPB_PLAY, 9, 0)
+        xName = bx + (ACTP_BW(b) - tw) \ 2
+        cy = by + 1 + ACTP.rowH \ 2
+        ' STOP / REC / PLAY: their sign before the word (REC red)
+        SELECT CASE b
+            CASE ACTPB_STOP: LINE (xName, cy - 3)-(xName + 5, cy + 2), fg, BF
+            CASE ACTPB_REC: ACTP_dot xName + 3, cy, THEME.PANEL_warning_fg~& ' (red: on, and while recording)
+            CASE ACTPB_PLAY
+                FOR k = 0 TO 3: LINE (xName + 1 + k, cy - 3 + k)-(xName + 1 + k, cy + 3 - k), fg: NEXT k
+        END SELECT
+        IF b <= ACTPB_PLAY THEN xName = xName + 9
+        COLOR fg, _RGBA32(0, 0, 0, 0)
+        _UPRINTSTRING (xName, by + 1 + (ACTP.rowH - _UFONTHEIGHT) \ 2), t
+    NEXT b
+    _FONT oldFont&
+END SUB
+
+
+' =============================================================================
+' Input
+' =============================================================================
+
+''
+' The control or row part at (mx, my) - its units - as last laid out: ACTPB_*, 0 = none.
+FUNCTION ACTP_hit% (mx AS INTEGER, my AS INTEGER)
+    DIM b AS INTEGER, r AS INTEGER, lx AS INTEGER, lw AS INTEGER, nd AS INTEGER
+    DIM xOn AS INTEGER, xDlg AS INTEGER, xFold AS INTEGER, xName AS INTEGER, p AS INTEGER
+    FOR b = 1 TO 6
+        IF mx >= ACTP_BX(b) _ANDALSO mx < ACTP_BX(b) + ACTP_BW(b) _ANDALSO my >= ACTP_BY(b) _ANDALSO my <= ACTP_BY(b) + ACTP.rowH THEN ACTP_hit% = b: EXIT FUNCTION
+    NEXT b
+    lx = ACTP.x + 2: lw = ACTP.w - 4
+    IF mx < lx _ORELSE mx >= lx + lw _ORELSE my <= ACTP.listY _ORELSE my >= ACTP.listY + ACTP.listH - 1 THEN EXIT FUNCTION
+    IF ACTP.rowsAll > ACTP.rowsFit _ANDALSO mx >= lx + lw - 2 - ACTP_SB_W THEN ACTP_hit% = ACTPB_SCROLL: EXIT FUNCTION
+    r = ACTP.scroll + 1 + (my - ACTP.listY - 1) \ ACTP.rowH
+    IF r < 1 _ORELSE r > ACTP.rowsAll _ORELSE r - 1 >= ACTP.scroll + ACTP.rowsFit THEN EXIT FUNCTION
+    nd = ACTP_VIS(r)
+    ACTP_row_x nd, xOn, xDlg, xFold, xName
+    p = ACTPP_NAME
+    IF mx >= xOn - 2 _ANDALSO mx < xOn + ACTP_BOX + 1 THEN p = ACTPP_ON
+    IF ACTS_D(nd) = 2 _ANDALSO mx >= xDlg - 1 _ANDALSO mx < xDlg + ACTP_BOX + 2 THEN p = ACTPP_DLG
+    IF ACTS_D(nd) < 2 _ANDALSO mx >= xFold - 2 _ANDALSO mx < xName THEN p = ACTPP_FOLD
+    ACTP_hit% = ACTPB_ROW + nd * 4 + p
+END FUNCTION
+
+
+FUNCTION ACTP_is_over_area% (inX AS INTEGER, inY AS INTEGER)
+    IF ACTP.visible = 0 _ORELSE ACTP.w <= 0 _ORELSE ACTP.h <= 0 THEN EXIT FUNCTION
+    IF DOCK_live%(DP_ACTIONS) = 0 THEN EXIT FUNCTION
+    IF WZ_blocked%(DP_ACTIONS, inX, inY) THEN EXIT FUNCTION ' a window in front covers it here
+    IF PSURF_on%(DP_ACTIONS) THEN ACTP_is_over_area% = PSURF_in%(DP_ACTIONS, inX, inY): EXIT FUNCTION
+    ACTP_is_over_area% = (inX >= ACTP.x _ANDALSO inX < ACTP.x + ACTP.w _ANDALSO inY >= ACTP.y _ANDALSO inY < ACTP.y + ACTP.h)
+END FUNCTION
+
+
+SUB ACTP_track (inX AS INTEGER, inY AS INTEGER)
+    DIM h AS INTEGER
+    IF ACTP_is_over_area%(inX, inY) THEN h = ACTP_hit%(PSURF_mx%(DP_ACTIONS, inX), PSURF_my%(DP_ACTIONS, inY))
+    IF h <> ACTP.hover THEN ACTP.hover = h: GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+SUB ACTP_scroll_to (my AS INTEGER)
+    DIM sy1 AS INTEGER, sy2 AS INTEGER, span AS INTEGER
+    sy1 = ACTP.listY + 1: sy2 = ACTP.listY + ACTP.listH - 2
+    span = sy2 - sy1: IF span < 1 THEN span = 1
+    ACTP.scroll = CINT((my - sy1) * (ACTP.rowsAll - ACTP.rowsFit) / span)
+    ACTP_clamp
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' A press (viewport px): TRUE when it was on the panel (taken).
+FUNCTION ACTP_click% (inX AS INTEGER, inY AS INTEGER)
+    DIM id AS INTEGER, my AS INTEGER, nd AS INTEGER, p AS INTEGER
+    IF ACTP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    ACTP_click% = TRUE
+    my = PSURF_my%(DP_ACTIONS, inY)
+    id = ACTP_hit%(PSURF_mx%(DP_ACTIONS, inX), my)
+    SELECT CASE id
+        CASE 1 TO 6: IF ACTP_btn_on%(id) THEN ACTP_button id
+        CASE ACTPB_SCROLL
+            ACTP.drag = TRUE
+            ACTP_scroll_to my
+        CASE IS >= ACTPB_ROW
+            nd = (id - ACTPB_ROW) \ 4: p = (id - ACTPB_ROW) MOD 4
+            SELECT CASE p
+                CASE ACTPP_ON
+                    ACTS_ON(nd) = _NEGATE ACTS_ON(nd)
+                    ACTS_save_set ACTS_up%(nd, 0)
+                CASE ACTPP_DLG
+                    IF ACTS_CMD(nd) < 0 THEN EXIT FUNCTION ' (a stop / tool step has no dialog box)
+                    ACTS_DLG(nd) = _NEGATE ACTS_DLG(nd)
+                    ACTS_save_set ACTS_up%(nd, 0)
+                    IF ACTS_DLG(nd) THEN STATUS_flash "ON PLAY THIS STEP SHOWS ITS DIALOG" ELSE STATUS_flash "ON PLAY THIS STEP USES ITS RECORDED VALUES"
+                CASE ACTPP_FOLD
+                    ACTS_OPEN(nd) = _NEGATE ACTS_OPEN(nd)
+                    ACTS_save_set ACTS_up%(nd, 0)
+                    ACTP.sel = nd
+                CASE ELSE
+                    IF VAL_dbl%(DP_ACTIONS * 100000 + nd) _ANDALSO (ACTS_D(nd) < 2 _ORELSE ACTS_CMD(nd) = ACTS_CMD_STOP) THEN
+                        ACTP.sel = nd
+                        ACTP_rename nd
+                    ELSE
+                        ACTP.sel = nd
+                    END IF
+            END SELECT
+            ACTS_touch
+    END SELECT
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+
+SUB ACTP_button (b AS INTEGER)
+    SELECT CASE b
+        CASE ACTPB_STOP: CMD_execute_action ACTP_ACT_STOP
+        CASE ACTPB_REC: CMD_execute_action ACTP_ACT_RECORD
+        CASE ACTPB_PLAY: CMD_execute_action ACTP_ACT_PLAY
+        CASE ACTPB_NEWSET: CMD_execute_action ACTP_ACT_NEWSET
+        CASE ACTPB_NEWACT: CMD_execute_action ACTP_ACT_NEWACT
+        CASE ACTPB_DEL: CMD_execute_action ACTP_ACT_DELETE
+    END SELECT
+END SUB
+
+
+FUNCTION ACTP_drag_frame% (inY AS INTEGER, held AS INTEGER)
+    IF ACTP.drag = 0 THEN EXIT FUNCTION
+    ACTP_drag_frame% = TRUE
+    IF held = 0 _ORELSE ACTP.visible = 0 THEN
+        ACTP.drag = 0
+        GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+        EXIT FUNCTION
+    END IF
+    ACTP_scroll_to PSURF_my%(DP_ACTIONS, inY)
+END FUNCTION
+
+
+''
+' The wheel: a row a notch (Shift: 10). TRUE when on the panel.
+FUNCTION ACTP_wheel% (inX AS INTEGER, inY AS INTEGER, delta AS INTEGER)
+    IF delta = 0 _ORELSE ACTP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    ACTP_wheel% = TRUE
+    ACTP.scroll = ACTP.scroll - VAL_wheel_step%(SGN(delta)) ' (a value step is + for the wheel up: the list goes up)
+    ACTP_clamp
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END FUNCTION
+
+
+''
+' A right-click (viewport px): the row under it selected, its menu. TRUE when on the panel.
+FUNCTION ACTP_right% (inX AS INTEGER, inY AS INTEGER)
+    DIM id AS INTEGER
+    IF ACTP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    ACTP_right% = TRUE
+    id = ACTP_hit%(PSURF_mx%(DP_ACTIONS, inX), PSURF_my%(DP_ACTIONS, inY))
+    IF id >= ACTPB_ROW THEN ACTP.sel = (id - ACTPB_ROW) \ 4
+    ACTP_MENU_NEXT = TRUE
+    DOCK_menu_open DP_ACTIONS, inX, inY
+END FUNCTION
+
+
+SUB ACTP_menu_build ()
+    DIM n AS INTEGER, hasSel AS INTEGER, fl AS INTEGER
+    hasSel = (ACTP.sel > 0 _ANDALSO ACTP.sel <= ACTS_N)
+    fl = _IIF(hasSel, 0, POPUP_MENU_FLAG_DISABLED)
+    POPUP_MENU_clear_items
+    POPUP_MENU_set_item n, "Actions", "", -1, POPUP_MENU_FLAG_DISABLED: n = n + 1
+    POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    POPUP_MENU_set_item n, "Play", "", ACTP_MV_PLAY, _IIF(hasSel _ANDALSO ACTS.recording = 0, 0, POPUP_MENU_FLAG_DISABLED): n = n + 1
+    IF ACTS.recording THEN
+        POPUP_MENU_set_item n, "Stop Recording", "", ACTP_MV_STOP, 0: n = n + 1
+    ELSE
+        POPUP_MENU_set_item n, "Record", "", ACTP_MV_RECORD, _IIF(hasSel, 0, POPUP_MENU_FLAG_DISABLED): n = n + 1
+    END IF
+    POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    POPUP_MENU_set_item n, "New Set...", "", ACTP_MV_NEWSET, 0: n = n + 1
+    POPUP_MENU_set_item n, "New Action...", "", ACTP_MV_NEWACT, 0: n = n + 1
+    POPUP_MENU_set_item n, "Insert Stop...", "", ACTP_MV_INSSTOP, _IIF(ACTS.recording <> 0 _ORELSE (hasSel _ANDALSO ACTS_D(_MAX(1, ACTP.sel)) > 0), 0, POPUP_MENU_FLAG_DISABLED): n = n + 1
+    IF hasSel _ANDALSO ACTS_D(_MAX(1, ACTP.sel)) = 1 THEN
+        POPUP_MENU_set_item n, "Assign Key..." + _IIF(ACTS_KEY(ACTP.sel) > 0, " (" + ACTS_key_text$(ACTP.sel) + ")", ""), "", ACTP_MV_KEY, 0: n = n + 1
+        IF LEN(ACTS_key_text$(ACTP.sel)) THEN POPUP_MENU_set_item n, "Clear Key", "", ACTP_MV_UNKEY, 0: n = n + 1
+        POPUP_MENU_set_item n, "Batch...", "", ACTP_MV_BATCH, _IIF(ACTS.recording, POPUP_MENU_FLAG_DISABLED, 0): n = n + 1
+    END IF
+    POPUP_MENU_set_item n, "Rename...", "", ACTP_MV_RENAME, _IIF(hasSel _ANDALSO ACTP.sel > 0, 0, POPUP_MENU_FLAG_DISABLED): n = n + 1
+    POPUP_MENU_set_item n, "Duplicate", "", ACTP_MV_DUP, fl: n = n + 1
+    POPUP_MENU_set_item n, "Delete...", "", ACTP_MV_DELETE, fl: n = n + 1
+    POPUP_MENU_set_item n, "---", "", -1, POPUP_MENU_FLAG_DIVIDER: n = n + 1
+    POPUP_MENU_set_item n, "Reload Action Sets", "", ACTP_MV_RELOAD, _IIF(ACTS.recording, POPUP_MENU_FLAG_DISABLED, 0): n = n + 1
+    DOCK_UI.menuN = n
+END SUB
+
+
+SUB ACTP_menu_do (act AS INTEGER)
+    SELECT CASE act
+        CASE ACTP_MV_PLAY: CMD_execute_action ACTP_ACT_PLAY
+        CASE ACTP_MV_RECORD: CMD_execute_action ACTP_ACT_RECORD
+        CASE ACTP_MV_STOP: CMD_execute_action ACTP_ACT_STOP
+        CASE ACTP_MV_NEWSET: CMD_execute_action ACTP_ACT_NEWSET
+        CASE ACTP_MV_NEWACT: CMD_execute_action ACTP_ACT_NEWACT
+        CASE ACTP_MV_RENAME: ACTP_rename ACTP.sel
+        CASE ACTP_MV_DUP: ACTP_duplicate ACTP.sel
+        CASE ACTP_MV_DELETE: CMD_execute_action ACTP_ACT_DELETE
+        CASE ACTP_MV_INSSTOP: CMD_execute_action ACTP_ACT_INSSTOP
+        CASE ACTP_MV_KEY: ACTP_key_assign ACTP.sel
+        CASE ACTP_MV_UNKEY: ACTP_key_clear ACTP.sel
+        CASE ACTP_MV_BATCH: ACTP_batch ACTP.sel
+        CASE ACTP_MV_RELOAD: ACTS_reload: STATUS_flash "ACTION SETS RELOADED"
+    END SELECT
+    ACTS_touch
+END SUB
+
+
+' =============================================================================
+' Commands (CMD_execute_action ACTP_ACT_*)
+' =============================================================================
+
+SUB ACTP_command (act AS INTEGER)
+    DIM nm AS STRING, s AS INTEGER, a AS INTEGER
+    ACTS_load
+    SELECT CASE act
+        CASE ACTP_ACT_PANEL: ACTP_toggle
+        CASE ACTP_ACT_STOP: ACTS_record_stop
+        CASE ACTP_ACT_RECORD
+            IF ACTS.recording THEN EXIT SUB
+            IF ACTP.sel > 0 _ANDALSO ACTS_up%(ACTP.sel, 1) > 0 THEN
+                ACTS_record_start ACTP.sel
+            ELSE
+                ACTP_command ACTP_ACT_NEWACT ' (no action picked: a new one, recording)
+            END IF
+        CASE ACTP_ACT_PLAY
+            IF ACTP.sel > 0 THEN ACTS_play ACTP.sel ELSE STATUS_flash "ACTIONS: PICK AN ACTION TO PLAY"
+        CASE ACTP_ACT_NEWSET
+            nm = _TRIM$(DRAW_input_box_ex$("New Set", "Name the new action set:", "Set " + _TRIM$(STR$(ACTP_count%(0) + 1)), "set name", TRUE))
+            IF LEN(nm) = 0 THEN EXIT SUB
+            s = ACTS_new_set%(nm)
+            IF s THEN ACTP.sel = s: ACTP_follow_sel: STATUS_flash "NEW SET " + UCASE$(ACTS_NM(s))
+        CASE ACTP_ACT_NEWACT
+            IF ACTS.recording THEN ACTS_record_stop
+            nm = _TRIM$(DRAW_input_box_ex$("New Action", "Name the new action. Recording starts: do what it should do, then STOP.", "Action " + _TRIM$(STR$(ACTP_count%(1) + 1)), "action name", TRUE))
+            IF LEN(nm) = 0 THEN EXIT SUB
+            s = 0: IF ACTP.sel > 0 THEN s = ACTS_up%(ACTP.sel, 0)
+            IF s = 0 THEN
+                FOR s = 1 TO ACTS_N: IF ACTS_D(s) = 0 THEN EXIT FOR
+                NEXT s
+                IF s > ACTS_N THEN s = ACTS_new_set%("Actions")
+            END IF
+            a = ACTS_new_action%(s, nm)
+            IF a THEN ACTP.sel = a: ACTP_follow_sel: ACTS_record_start a
+        CASE ACTP_ACT_DELETE: ACTP_delete ACTP.sel
+        CASE ACTP_ACT_KEY1 TO ACTP_ACT_KEY1 + ACTP_KEY_SLOTS - 1 ' an action's key
+            a = ACTS_key_node%(act - ACTP_ACT_KEY1 + 1)
+            IF a THEN ACTS_play a ELSE STATUS_flash "ACTIONS: NO ACTION HAS THIS KEY"
+        CASE ACTP_ACT_INSSTOP
+            IF ACTS.recording = 0 _ANDALSO (ACTP.sel < 1 _ORELSE ACTP.sel > ACTS_N) THEN STATUS_flash "ACTIONS: PICK AN ACTION OR A STEP": EXIT SUB
+            IF ACTS.recording = 0 _ANDALSO ACTS_D(ACTP.sel) = 0 THEN STATUS_flash "ACTIONS: PICK AN ACTION OR A STEP": EXIT SUB
+            nm = _TRIM$(DRAW_input_box_ex$("Insert Stop", "Play stops here and shows this message (CONTINUE goes on, STOP ends the play):", "", "message", TRUE))
+            IF LEN(nm) = 0 THEN EXIT SUB
+            s = ACTS_insert_stop%(ACTP.sel, nm)
+            IF s THEN ACTP.sel = s: ACTP_follow_sel: STATUS_flash "STOP INSERTED"
+    END SELECT
+    ACTS_touch
+END SUB
+
+
+''
+' How many nodes of depth dep there are (the next default name).
+FUNCTION ACTP_count% (dep AS INTEGER)
+    DIM j AS INTEGER, n AS INTEGER
+    FOR j = 1 TO ACTS_N
+        IF ACTS_D(j) = dep THEN n = n + 1
+    NEXT j
+    ACTP_count% = n
+END FUNCTION
+
+
+''
+' Assign Key...: action nd gets an action key slot (its own, else a free one) and the
+' Rebind Key box (Customize Controls') sets that slot's key - saved in DRAW.bindings, a
+' key another command has is taken from it (the box says so). CLEAR + OK: no key.
+SUB ACTP_key_assign (nd AS INTEGER)
+    DIM k AS INTEGER, bi AS INTEGER
+    IF nd < 1 _ORELSE nd > ACTS_N THEN EXIT SUB
+    IF ACTS_D(nd) <> 1 THEN STATUS_flash "ACTIONS: PICK AN ACTION": EXIT SUB
+    k = ACTS_KEY(nd)
+    IF k = 0 THEN
+        FOR k = 1 TO ACTP_KEY_SLOTS
+            IF ACTS_key_node%(k) = 0 THEN EXIT FOR
+        NEXT k
+        IF k > ACTP_KEY_SLOTS THEN STATUS_flash "ACTIONS: ALL" + STR$(ACTP_KEY_SLOTS) + " ACTION KEYS ARE IN USE": EXIT SUB
+    END IF
+    bi = ACTS_key_bind%(k)
+    IF bi = 0 THEN EXIT SUB
+    INPUT_BINDS(bi).label = "Action: " + ACTS_NM(nd)
+    IF CTRL_assign_key%(bi) THEN
+        IF INPUT_BINDS(bi).keycode > 0 THEN
+            ACTS_KEY(nd) = k
+            STATUS_flash UCASE$(ACTS_key_text$(nd)) + " PLAYS " + UCASE$(ACTS_NM(nd))
+        ELSE
+            BINDINGS_set_override ACTP_ACT_KEY1 + k - 1, BIND_KEY_NONE, 0, 0
+            ACTS_KEY(nd) = 0
+            STATUS_flash UCASE$(ACTS_NM(nd)) + ": NO KEY"
+        END IF
+        ACTS_save_set ACTS_up%(nd, 0)
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    ACTS_touch
+END SUB
+
+
+''
+' Batch...: action nd on every image in a folder, each saved to another folder as PNG or
+' .draw. The document open now is kept: saved to a scratch .draw first and opened again
+' after (its name, unsaved state and canvas recording with it; its undo history goes).
+SUB ACTP_batch (nd AS INTEGER)
+    DIM iD AS STRING, oD AS STRING, r AS INTEGER, ex AS STRING, keep AS STRING, nOk AS INTEGER
+    DIM fn AS STRING, dfn AS STRING, dirty AS INTEGER, msg AS STRING, zm AS SINGLE, ox AS INTEGER, oy AS INTEGER
+    IF nd < 1 _ORELSE nd > ACTS_N THEN EXIT SUB
+    IF ACTS_D(nd) <> 1 THEN STATUS_flash "ACTIONS: PICK AN ACTION": EXIT SUB
+    iD = ACTS_BATCH_IN
+    IF LEN(iD) = 0 THEN iD = _CWD$
+    iD = _TRIM$(DRAW_input_box_ex$("Batch: " + ACTS_NM(nd), "Play it on every image in this folder (PNG, JPG, BMP, GIF, TGA, QOI, .draw ...):", iD, "folder", TRUE))
+    IF LEN(iD) = 0 THEN EXIT SUB
+    IF _DIREXISTS(iD) = 0 THEN DRAW_error "Batch", "There is no folder " + iD: EXIT SUB
+    oD = ACTS_BATCH_OUT
+    IF LEN(oD) = 0 _ORELSE iD <> ACTS_BATCH_IN THEN oD = iD + PATHS_sep$ + "batch-out"
+    oD = _TRIM$(DRAW_input_box_ex$("Batch: " + ACTS_NM(nd), "Save each result in this folder (made if missing; same names):", oD, "folder", TRUE))
+    IF LEN(oD) = 0 THEN EXIT SUB
+    r = DRAW_message_box_ex%("Batch: " + ACTS_NM(nd), "Save the results as:", MB_BTN_OK_CANCEL, MB_ICON_QUESTION, "PNG|DRAW|Cancel")
+    SELECT CASE r
+        CASE MB_RESULT_1: ex = "png"
+        CASE MB_RESULT_2: ex = "draw"
+        CASE ELSE: EXIT SUB
+    END SELECT
+    ACTS_BATCH_IN = iD: ACTS_BATCH_OUT = oD
+    ' keep the document open now
+    keep = PATHS_cache$("actions-batch-keep.draw")
+    fn = CURRENT_FILENAME$: dfn = CURRENT_DRW_FILENAME$: dirty = CANVAS_DIRTY%
+    zm = SCRN.zoom!: ox = SCRN.offsetX%: oy = SCRN.offsetY% ' (a load fits the view: the view comes back too)
+    DRW_save keep
+    nOk = ACTS_batch%(nd, iD, oD, ex)
+    IF _FILEEXISTS(keep) THEN
+        DRW_load keep
+        KILL keep
+        CURRENT_FILENAME$ = fn: CURRENT_DRW_FILENAME$ = dfn: CANVAS_DIRTY% = dirty
+        SCRN.zoom! = zm: SCRN.offsetX% = ox: SCRN.offsetY% = oy
+    END IF
+    msg = _TRIM$(STR$(nOk)) + " image" + _IIF(nOk = 1, "", "s") + " written to " + oD
+    IF ACTS.batchFail > 0 THEN msg = msg + " - " + _TRIM$(STR$(ACTS.batchFail)) + " failed (the log says which)"
+    IF nOk + ACTS.batchFail = 0 THEN msg = "No images in " + iD
+    STATUS_flash "BATCH " + UCASE$(ACTS_NM(nd)) + ": " + _TRIM$(STR$(nOk)) + " WRITTEN" + _IIF(ACTS.batchFail > 0, ", " + _TRIM$(STR$(ACTS.batchFail)) + " FAILED", "")
+    IF LEN(DOCK_DUMP_PATH) = 0 THEN r = DRAW_message_box%("Batch: " + ACTS_NM(nd), msg, MB_BTN_OK, MB_ICON_INFO) ' (QA reads the dump instead)
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
+    ACTS_touch
+END SUB
+
+
+SUB ACTP_key_clear (nd AS INTEGER)
+    IF nd < 1 _ORELSE nd > ACTS_N THEN EXIT SUB
+    IF ACTS_KEY(nd) = 0 THEN EXIT SUB
+    ACTS_keys_free nd, nd + 1
+    ACTS_save_set ACTS_up%(nd, 0)
+    STATUS_flash UCASE$(ACTS_NM(nd)) + ": NO KEY"
+    ACTS_touch
+END SUB
+
+
+SUB ACTP_rename (nd AS INTEGER)
+    DIM nm AS STRING, s AS INTEGER, what AS STRING
+    IF nd < 1 _ORELSE nd > ACTS_N THEN EXIT SUB
+    what = MID$("Set   ActionStep  ", ACTS_D(nd) * 6 + 1, 6)
+    IF ACTS_D(nd) = 2 _ANDALSO ACTS_CMD(nd) = ACTS_CMD_STOP THEN what = "Stop"
+    nm = _TRIM$(DRAW_input_box_ex$("Rename " + _TRIM$(what), "New name:", ACTS_NM(nd), _TRIM$(what) + " name", TRUE))
+    IF LEN(nm) = 0 _ORELSE nm = ACTS_NM(nd) THEN EXIT SUB
+    IF ACTS_D(nd) = 0 THEN
+        s = ACTS_set_named%(nm)
+        IF s > 0 _ANDALSO s <> nd THEN STATUS_flash "A SET CALLED " + UCASE$(nm) + " EXISTS": EXIT SUB
+    END IF
+    ACTS_NM(nd) = nm
+    ACTS_save_set ACTS_up%(nd, 0)
+    ACTS_touch
+END SUB
+
+
+''
+' A copy of node nd (and its children) after it; a set's copy gets a name of its own.
+SUB ACTP_duplicate (nd AS INTEGER)
+    DIM e AS INTEGER, c AS INTEGER, j AS INTEGER, at AS INTEGER, src AS INTEGER, k AS INTEGER, n AS INTEGER
+    src = nd
+    IF src < 1 _ORELSE src > ACTS_N THEN EXIT SUB
+    e = ACTS_end_of%(src): c = e - src
+    IF ACTS_N + c > ACTS_MAX THEN STATUS_flash "ACTIONS: TOO MANY STEPS": EXIT SUB
+    at = e
+    FOR j = 0 TO c - 1
+        k = src + j ' (the source does not move: the copies go after it)
+        n = ACTS_insert%(at + j, ACTS_D(k), ACTS_NM(k))
+        ACTS_copy_node n, k
+        ACTS_KEY(n) = 0 ' (a key plays one action: the copy has none)
+    NEXT j
+    IF ACTS_D(at) = 0 THEN
+        ACTS_NM(at) = ACTS_NM(at) + " copy": ACTS_FILE(at) = ""
+        DO WHILE ACTS_set_named%(ACTS_NM(at)) <> at: ACTS_NM(at) = ACTS_NM(at) + "+": LOOP
+        ACTS_save_set at
+    ELSE
+        IF ACTS_D(at) = 1 THEN ACTS_NM(at) = ACTS_NM(at) + " copy" ' (a step keeps its command's name)
+        ACTS_save_set ACTS_up%(at, 0)
+    END IF
+    ACTP.sel = at
+    ACTP_follow_sel
+    STATUS_flash "DUPLICATED " + UCASE$(ACTS_NM(at))
+END SUB
+
+
+''
+' DELETE: the selected node (a set / an action asks first; a set's file goes too).
+SUB ACTP_delete (nd AS INTEGER)
+    DIM s AS INTEGER, f AS STRING, nm AS STRING, n AS INTEGER
+    IF nd < 1 _ORELSE nd > ACTS_N THEN STATUS_flash "ACTIONS: NOTHING SELECTED": EXIT SUB
+    nm = ACTS_NM(nd)
+    SELECT CASE ACTS_D(nd)
+        CASE 0
+            n = ACTS_end_of%(nd) - nd - 1
+            IF DRAW_confirm%("Delete Set", "Delete the action set '" + nm + "'" + _IIF(n > 0, " and everything in it", "") + "? Its file is deleted too.") = 0 THEN EXIT SUB
+            f = ACTS_FILE(nd)
+            IF ACTS.recording >= nd _ANDALSO ACTS.recording < ACTS_end_of%(nd) THEN ACTS_record_stop
+            ACTS_keys_free nd, ACTS_end_of%(nd)
+            ACTS_remove nd
+            IF LEN(f) _ANDALSO _FILEEXISTS(f) THEN KILL f
+        CASE 1
+            IF ACTS_end_of%(nd) > nd + 1 THEN
+                IF DRAW_confirm%("Delete Action", "Delete the action '" + nm + "' and its steps?") = 0 THEN EXIT SUB
+            END IF
+            IF ACTS.recording = nd THEN ACTS_record_stop
+            s = ACTS_up%(nd, 0)
+            ACTS_keys_free nd, nd + 1
+            ACTS_remove nd
+            ACTS_save_set s
+        CASE ELSE
+            s = ACTS_up%(nd, 0)
+            ACTS_remove nd
+            ACTS_save_set s
+    END SELECT
+    STATUS_flash "DELETED " + UCASE$(nm)
+    ACTS_touch
+END SUB
+
+
+SUB ACTP_toggle ()
+    CFG.ACTIONS_PANEL% = _IIF(CFG.ACTIONS_PANEL%, FALSE, TRUE)
+    CONFIG_save
+    STATUS_flash "ACTIONS " + _IIF(CFG.ACTIONS_PANEL%, "ON", "OFF")
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' What the control under the pointer is (tooltips): non-zero id, txt = the text.
+FUNCTION ACTP_tip_at% (inX AS INTEGER, inY AS INTEGER, txt AS STRING)
+    DIM id AS INTEGER, nd AS INTEGER, p AS INTEGER
+    txt = ""
+    IF ACTP_is_over_area%(inX, inY) = 0 THEN EXIT FUNCTION
+    id = ACTP_hit%(PSURF_mx%(DP_ACTIONS, inX), PSURF_my%(DP_ACTIONS, inY))
+    SELECT CASE id
+        CASE ACTPB_STOP: txt = "STOP RECORDING"
+        CASE ACTPB_REC: txt = "RECORD INTO THE SELECTED ACTION (AFTER THE SELECTED STEP)" + CHR$(10) + "EDITS, LAYER, CANVAS, SELECT, IMAGE AND COLOR COMMANDS ARE RECORDED"
+        CASE ACTPB_PLAY: txt = "PLAY THE SELECTION: A SET, AN ACTION, OR AN ACTION FROM THE SELECTED STEP" + CHR$(10) + "ONE UNDO STEP"
+        CASE ACTPB_NEWSET: txt = "NEW SET: A FOLDER OF ACTIONS (ONE FILE)"
+        CASE ACTPB_NEWACT: txt = "NEW ACTION: NAME IT, THEN IT RECORDS UNTIL STOP"
+        CASE ACTPB_DEL: txt = "DELETE THE SELECTION (A SET OR AN ACTION ASKS FIRST)"
+        CASE ACTPB_SCROLL: txt = "DRAG TO SCROLL"
+        CASE IS >= ACTPB_ROW
+            nd = (id - ACTPB_ROW) \ 4: p = (id - ACTPB_ROW) MOD 4
+            SELECT CASE p
+                CASE ACTPP_ON: txt = "ON: PLAYED - OFF: SKIPPED"
+                CASE ACTPP_DLG: txt = "DIALOG: ON PLAY SHOW THIS STEP'S DIALOG" + CHR$(10) + "OFF: USE THE VALUES IT WAS RECORDED WITH"
+                CASE ACTPP_FOLD: txt = "SHOW / HIDE WHAT IS IN IT"
+                CASE ELSE
+                    SELECT CASE ACTS_D(nd)
+                        CASE 0: txt = "SET " + UCASE$(ACTS_NM(nd)) + CHR$(10) + "DOUBLE-CLICK TO RENAME - RIGHT-CLICK FOR MORE"
+                        CASE 1: txt = "ACTION " + UCASE$(ACTS_NM(nd)) + " (" + _TRIM$(STR$(ACTS_end_of%(nd) - nd - 1)) + " STEPS)" + _IIF(LEN(ACTS_key_text$(nd)), CHR$(10) + "KEY " + UCASE$(ACTS_key_text$(nd)) + " PLAYS IT", "") + CHR$(10) + "DOUBLE-CLICK TO RENAME - RIGHT-CLICK FOR MORE"
+                        CASE ELSE
+                            txt = UCASE$(ACTS_NM(nd))
+                            IF ACTS_CMD(nd) = ACTS_CMD_STOP THEN txt = "STOP: PLAY SHOWS THIS MESSAGE - CONTINUE OR STOP" + CHR$(10) + txt + CHR$(10) + "DOUBLE-CLICK TO CHANGE THE MESSAGE"
+                            IF LEN(ACTS_PRM(nd)) THEN txt = txt + CHR$(10) + "VALUES: " + ACTP_prm_text$(LEFT$(ACTS_PRM(nd), 160)) + _IIF(LEN(ACTS_PRM(nd)) > 160, "...", "")
+                            IF ACTS_CMD(nd) = ACTS_CMD_TOOL THEN txt = txt + CHR$(10) + "A TOOL STEP: DRAWN AGAIN ON THE CURRENT LAYER, IN ITS RECORDED COLOR + SIZE"
+                            txt = txt + CHR$(10) + "PLAY WITH IT SELECTED: ITS ACTION FROM HERE"
+                    END SELECT
+            END SELECT
+    END SELECT
+    IF LEN(txt) THEN ACTP_tip_at% = 20000 + id ' (History's are 3000 - 4124; rows here up to 29003)
+END FUNCTION
+
+
+''
+' A step's values for a tooltip: KEY=value lines as KEY value, KEY value ...
+FUNCTION ACTP_prm_text$ (prm AS STRING)
+    DIM t AS STRING, i AS INTEGER, c AS STRING
+    FOR i = 1 TO LEN(prm)
+        c = MID$(prm, i, 1)
+        SELECT CASE c
+            CASE CHR$(10): t = t + ", "
+            CASE "=": t = t + " "
+            CASE ELSE: t = t + c
+        END SELECT
+    NEXT i
+    ACTP_prm_text$ = UCASE$(t)
+END FUNCTION
+
+
+''
+' QA dump: ACTP visible x y w h rowH rowsFit rowsAll scroll sel recording playing listY listH,
+' ACTPB b x y w (buttons), ACTPR row node depth on dlg open cmd name (rows) - its units.
+FUNCTION ACTP_dump$ ()
+    DIM d AS STRING, lf AS STRING, i AS INTEGER, nd AS INTEGER
+    lf = CHR$(10)
+    d = "ACTP" + DOCK_n$(ACTP.visible <> 0) + DOCK_n$(ACTP.x) + DOCK_n$(ACTP.y) + DOCK_n$(ACTP.w) + DOCK_n$(ACTP.h)
+    d = d + DOCK_n$(ACTP.rowH) + DOCK_n$(ACTP.rowsFit) + DOCK_n$(ACTP.rowsAll) + DOCK_n$(ACTP.scroll) + DOCK_n$(ACTP.sel)
+    d = d + DOCK_n$(ACTS.recording) + DOCK_n$(ACTS.playing <> 0) + DOCK_n$(ACTP.listY) + DOCK_n$(ACTP.listH) + DOCK_n$(ACTS.lastRun) + DOCK_n$(ACTS.lastSkip) + DOCK_n$(ACTS.halted <> 0) + DOCK_n$(ACTS.batchFail) + lf
+    IF ACTP.visible THEN
+        FOR i = 1 TO 6
+            d = d + "ACTPB" + DOCK_n$(i) + DOCK_n$(ACTP_BX(i)) + DOCK_n$(ACTP_BY(i)) + DOCK_n$(ACTP_BW(i)) + lf
+        NEXT i
+        FOR i = 1 TO _MIN(ACTP.rowsAll, 300)
+            nd = ACTP_VIS(i)
+            IF ACTS_KEY(nd) > 0 THEN d = d + "ACTPK" + DOCK_n$(nd) + DOCK_n$(ACTS_KEY(nd)) + " " + ACTS_key_text$(nd) + lf
+            d = d + "ACTPR" + DOCK_n$(i) + DOCK_n$(nd) + DOCK_n$(ACTS_D(nd)) + DOCK_n$(ACTS_ON(nd) <> 0) + DOCK_n$(ACTS_DLG(nd) <> 0) + DOCK_n$(ACTS_OPEN(nd) <> 0) + DOCK_n$(ACTS_CMD(nd)) + " " + ACTS_NM(nd) + lf
+        NEXT i
+    END IF
+    ACTP_dump$ = d
+END FUNCTION

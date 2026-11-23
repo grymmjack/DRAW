@@ -38,7 +38,7 @@ Plan and checklist: `PLANS/MYPAINT.md`. User docs: manual chapter 9 "MyPaint Bru
 
 ## Actions (2680-2686, `TOOLS/MYPAINT.BI`)
 
-TOOL (Tools > MyPaint Brush, also opens the palette), PANEL (View > MyPaint Brushes), LOAD, SAVE,
+TOOL (Tools > MyPaint Brush, also opens the palette), PANEL (View > Panels > MyPaint Brushes), LOAD, SAVE,
 BIGGER, SMALLER, RESET. Command palette names start "MyPaint" / "View: MyPaint Brushes".
 
 ## Config `[MYPAINT]`
@@ -57,7 +57,7 @@ BIGGER, SMALLER, RESET. Command palette names start "MyPaint" / "View: MyPaint B
 ## The MyPaint Brush Settings panel (2026-11-18)
 
 `GUI/MYPAINT-SET` (`MPS_`, dock panel `DP_MYPSET` = 12, `REGION_MYPSET`, DP_H_FIXED: `MPS_h_for%(w)`),
-View > MyPaint Brush Settings = action 2687 (`MPS_ACT_PANEL`), 2688 = Reset All. Eight sliders:
+View > Panels > MyPaint Brush Settings = action 2687 (`MPS_ACT_PANEL`), 2688 = Reset All. Eight sliders:
 SIZE (`CFG.MYPAINT_SIZE`), OPAQUE / SHARP / GAIN / PIGMENT (`opaque` / `hardness` /
 `pressure_gain_log` / `paint_mode` x 100), SMOOTH (`slow_tracking` x 10) through `mp_set_base`,
 PRESSURE (`CFG.MYPAINT_MOUSE_PRESSURE`, replaces the mouse's fixed 0.5 in `MYPAINT_stroke_step`),

@@ -18,3 +18,13 @@ DRAW polls the mouse once per frame (15 FPS idle, higher when active), so a synt
 - **`--config <path>` makes CONFIG_save write back to THAT path** — point it at a throwaway cfg when testing dialogs that persist (OK/Apply), or you'll dirty the target. `QA/DRAW.qa.cfg` is UNTRACKED (generated), so writing it is harmless to git but still surprising.
 
 Compare with the xdotool-based [[qa-harness-toolkit]] which handles the viewport→screen mapping for scripted tests; the above is for ad-hoc interactive-bug reproduction. For the `-z` lint quirk see [[qb64pe-z-fast-gate]]; for build timing see [[draw-build-speed]].
+
+## [Linux] Dead `$DISPLAY` + live `WAYLAND_DISPLAY` = an alert on Rick's desktop (2026-11-22)
+A test launch with `DISPLAY=:77` before Xvfb was up, from a shell that still had
+`WAYLAND_DISPLAY=wayland-0` (Claude Code's shell inherits the KDE session), printed
+`Runtime error: Failed to initialize window` and put QB64-PE's untrappable **Alert dialog
+on Rick's real desktop**. DRAW's no-display guard (`native/display_probe.h`) did not stop
+it. Any launch script must `unset WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS XDG_SESSION_TYPE`
+and check `xdpyinfo` on the target display before it starts DRAW. Start Xvfb with `setsid`
+and poll `xdpyinfo` until it answers, not a fixed `sleep 1`. Open item: should the guard also treat
+"DISPLAY dead, Wayland live" as no display?

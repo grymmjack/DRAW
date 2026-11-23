@@ -172,6 +172,10 @@ DIM SHARED AI_LAST_PROMPT$
 DIM SHARED AI_LAST_PROMPT_RAW$
 DIM SHARED AI_LAST_STYLE$
 DIM SHARED AI_LAST_SEED&
+' The generate dialog's USE SEED box (remembered in [LAST] as USE_SEED): off =
+' a fresh random seed on every Generate, on = the seed in the dialog.
+DIM SHARED AI_USE_SEED%
+DIM SHARED AI_MACRO_FOR_SH% ' TRUE while AI_JOB_start expands ARGS for sh -c (Linux / macOS): values escaped for the shell
 DIM SHARED AI_LAST_TOOL%
 DIM SHARED AI_LAST_STYLE_IDX%
 ' Remembered-by-name choices read from [LAST]; resolved to indices after load
@@ -191,6 +195,9 @@ DIM SHARED AI_DLG_Y%
 DIM SHARED AI_DLG_SEED&
 DIM SHARED AI_DLG_COUNT%
 DIM SHARED AI_DLG_GROUP$
+' Set by a caller (Regenerate) to open the dialog with USE SEED ticked, so it
+' reproduces by default. Not remembered; the dialog clears it.
+DIM SHARED AI_DLG_REUSE_SEED%
 
 ' Poll interval for the running job, in seconds. Generation takes tens of
 ' seconds to minutes, so checking every frame would be pure syscall waste.

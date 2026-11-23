@@ -10,6 +10,7 @@
 #                                            # (default, offscreen Xvfb), mac or thinkpad (ONSCREEN -
 #                                            # they take over that machine's screen for ~2h)
 #   DEV/farm-check.sh status                 # the recorded states
+#   QA_FARM_ENV='QA_TEST_TIMEOUT=1200' DEV/farm-check.sh qa ...   # extra env for the remote suite
 #
 # REF defaults to origin/<current branch>. Builds happen in each host's DRAW-fstest
 # worktree (created if missing), never in the host's own checkout. Nothing opens a
@@ -129,7 +130,7 @@ do_qa() {
         "${SSH[@]}" mac 'bash -s' <<REMOTE 2>&1 | grep -v 'already awake'
 set -u; export PATH=/opt/homebrew/bin:\$PATH
 cd ${dir}-fstest/QA && rm -rf .farm-results && mkdir -p .farm-results && $(qa_tests "$re") && \
-~/git/qa-harness/drivers/macos/qa-run env QA_HARNESS=\$HOME/git/qa-harness QA_RESULTS_DIR=$rdir ./draw-qa.sh --onscreen --rerun-passed \$T && echo started
+~/git/qa-harness/drivers/macos/qa-run env ${QA_FARM_ENV:-} QA_HARNESS=\$HOME/git/qa-harness QA_RESULTS_DIR=$rdir ./draw-qa.sh --onscreen --rerun-passed \$T && echo started
 REMOTE
         ;;
       thinkpad)
@@ -141,7 +142,7 @@ cd /c/qa-runner/DRAW || exit 1
 git fetch -q origin && git checkout -q --detach "$ref" && git submodule update -q --init --recursive --force || { echo "sync failed"; exit 1; }
 cp "\$(cygpath -u '${dir}')-fstest/DRAW.exe" DRAW.exe || exit 1
 cd QA && rm -rf .farm-results && mkdir -p .farm-results && $(qa_tests "$re") && \
-/c/qa-runner/qa-harness/drivers/windows/qa-run env QA_HARNESS=/c/qa-runner/qa-harness QA_RESULTS_DIR=$rdir ./draw-qa.sh --onscreen --rerun-passed \$T && echo started
+/c/qa-runner/qa-harness/drivers/windows/qa-run env ${QA_FARM_ENV:-} QA_HARNESS=/c/qa-runner/qa-harness QA_RESULTS_DIR=$rdir ./draw-qa.sh --onscreen --rerun-passed \$T && echo started
 REMOTE
         ;;
       *) # (only the nohup is backgrounded: "a && b & echo" backgrounds the whole &&-list,
@@ -149,7 +150,7 @@ REMOTE
         rsync -a --exclude results/ --exclude .git/ "$HOME/git/qa-harness/" "$host:git/qa-harness/" || return 1
         "${SSH[@]}" "$host" "set -u; cd ${dir}-fstest/QA && rm -rf .farm-results && mkdir -p .farm-results && \
             $(qa_tests "$re") && \
-            { nohup env QA_HARNESS=\$HOME/git/qa-harness QA_RESULTS_DIR=$rdir QA_XVFB_RES=3840x2160 setsid ./draw-qa.sh --rerun-passed \$T > .farm-results/runner.out 2>&1 < /dev/null & } && echo started" \
+            { nohup env ${QA_FARM_ENV:-} QA_HARNESS=\$HOME/git/qa-harness QA_RESULTS_DIR=$rdir QA_XVFB_RES=3840x2160 setsid ./draw-qa.sh --rerun-passed \$T > .farm-results/runner.out 2>&1 < /dev/null & } && echo started" \
             2>&1 | grep -v 'already awake\|magic packet\|waiting for .* to boot'
         ;;
     esac

@@ -386,7 +386,14 @@ SUB CUSTOM_BRUSH_render (x AS INTEGER, y AS INTEGER, dest AS LONG)
         NEXT py%
     ELSE
         ' Use _PUTIMAGE to render with transparency support and scaling
-        _PUTIMAGE (rx%, ry%)-(rx% + dest_w% - 1, ry% + dest_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+        DIM aaStamp AS LONG
+        aaStamp& = CUSTOM_BRUSH_aa_scaled&(CUSTOM_BRUSH.IMAGE&)
+        IF aaStamp& < -1 THEN
+            CUSTOM_BRUSH_put_flipped aaStamp&, rx%, ry%, dest&
+            _FREEIMAGE aaStamp&
+        ELSE
+            _PUTIMAGE (rx%, ry%)-(rx% + dest_w% - 1, ry% + dest_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+        END IF
     END IF
     
     _SOURCE old_source&
@@ -773,14 +780,70 @@ SUB CUSTOM_BRUSH_render_scaled (x AS INTEGER, y AS INTEGER, dest AS LONG, zoom A
             CUSTOM_BRUSH.PREVIEW_CACHE_RECOLOR% = CUSTOM_BRUSH.RECOLOR_MODE%
         END IF
 
-        _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), CUSTOM_BRUSH.PREVIEW_CACHE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+        CUSTOM_BRUSH_preview_put CUSTOM_BRUSH.PREVIEW_CACHE&, x%, y%, scaled_w%, scaled_h%, dest&, src_x1%, src_y1%, src_x2%, src_y2%
     ELSE
         ' Normal full-opacity, no recolor: PUTIMAGE directly (fast path)
-        _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+        CUSTOM_BRUSH_preview_put CUSTOM_BRUSH.IMAGE&, x%, y%, scaled_w%, scaled_h%, dest&, src_x1%, src_y1%, src_x2%, src_y2%
     END IF
     
     _SOURCE old_source&
     _DEST old_dest&
+END SUB
+
+
+''
+' The brush image src (ORIG size: the brush or its preview cache) at the brush's
+' current size, smooth - Antialias on and scaled (Rick 2026-11-22: scale ops keep
+' antialiasing; PgUp / PgDn scale the brush). A new, unflipped image the caller
+' frees, or 0 when the plain nearest stretch is right (Antialias off, scale 1).
+'
+FUNCTION CUSTOM_BRUSH_aa_scaled& (src AS LONG)
+    DIM img AS LONG, oldD AS LONG
+    IF CFG.ANTIALIAS% = 0 _ORELSE src >= -1 THEN EXIT FUNCTION
+    IF CUSTOM_BRUSH.WIDTH% < 1 _ORELSE CUSTOM_BRUSH.HEIGHT% < 1 THEN EXIT FUNCTION
+    IF CUSTOM_BRUSH.WIDTH% = _WIDTH(src) _ANDALSO CUSTOM_BRUSH.HEIGHT% = _HEIGHT(src) THEN EXIT FUNCTION
+    img = _NEWIMAGE(CUSTOM_BRUSH.WIDTH%, CUSTOM_BRUSH.HEIGHT%, 32)
+    IF img >= -1 THEN EXIT FUNCTION
+    oldD = _DEST
+    _DONTBLEND img
+    IMG_scale_into src, img
+    _BLEND img
+    _DEST oldD
+    CUSTOM_BRUSH_aa_scaled& = img
+END FUNCTION
+
+
+''
+' Put img (the brush at its current size) at (x, y) on dest, honouring the brush's
+' flips - blended, as the plain stamp is.
+'
+SUB CUSTOM_BRUSH_put_flipped (img AS LONG, x AS INTEGER, y AS INTEGER, dest AS LONG)
+    DIM w AS INTEGER, h AS INTEGER, fx1 AS INTEGER, fx2 AS INTEGER, fy1 AS INTEGER, fy2 AS INTEGER
+    w = _WIDTH(img): h = _HEIGHT(img)
+    fx1 = 0: fx2 = w - 1: fy1 = 0: fy2 = h - 1
+    IF CUSTOM_BRUSH.FLIP_H% THEN SWAP fx1, fx2
+    IF CUSTOM_BRUSH.FLIP_V% THEN SWAP fy1, fy2
+    _PUTIMAGE (x, y)-(x + w - 1, y + h - 1), img, dest, (fx1, fy1)-(fx2, fy2)
+END SUB
+
+
+''
+' The brush preview: src (ORIG size) drawn at (x, y), sw x sh screen px, with the
+' brush's flips in (sx1, sy1)-(sx2, sy2) - through the smooth brush-size copy when
+' Antialias is on, so the preview shows what a stamp will paint.
+'
+SUB CUSTOM_BRUSH_preview_put (src AS LONG, x AS INTEGER, y AS INTEGER, sw AS INTEGER, sh AS INTEGER, dest AS LONG, sx1 AS INTEGER, sy1 AS INTEGER, sx2 AS INTEGER, sy2 AS INTEGER)
+    DIM aa AS LONG, fx1 AS INTEGER, fx2 AS INTEGER, fy1 AS INTEGER, fy2 AS INTEGER
+    aa = CUSTOM_BRUSH_aa_scaled&(src)
+    IF aa < -1 THEN
+        fx1 = 0: fx2 = _WIDTH(aa) - 1: fy1 = 0: fy2 = _HEIGHT(aa) - 1
+        IF CUSTOM_BRUSH.FLIP_H% THEN SWAP fx1, fx2
+        IF CUSTOM_BRUSH.FLIP_V% THEN SWAP fy1, fy2
+        _PUTIMAGE (x, y)-(x + sw - 1, y + sh - 1), aa, dest, (fx1, fy1)-(fx2, fy2)
+        _FREEIMAGE aa
+    ELSE
+        _PUTIMAGE (x, y)-(x + sw - 1, y + sh - 1), src, dest, (sx1, sy1)-(sx2, sy2)
+    END IF
 END SUB
 
 

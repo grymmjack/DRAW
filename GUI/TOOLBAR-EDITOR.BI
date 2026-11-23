@@ -32,7 +32,7 @@ CONST TBED_ACT_UNIVERSAL = 2461 ' View > Same Buttons in Every Workspace (on / o
 
 ' Controls (TBED_hit% ids)
 CONST TBED_CTL_NONE    = 0
-CONST TBED_CTL_TAB     = 1  ' + panel (1..3): TBED_CTL_TAB + BL_TOOLBOX - 1 ...
+CONST TBED_CTL_TAB     = 20 ' + panel - 1 (BL_TOOLBOX .. BL_PANELS): 20 .. 24
 CONST TBED_CTL_SEARCH  = 5
 CONST TBED_CTL_AVAIL   = 6  ' the Available list
 CONST TBED_CTL_LIST    = 7  ' the panel's list
@@ -46,6 +46,10 @@ CONST TBED_CTL_RESET   = 14
 CONST TBED_CTL_COLS_DN = 15
 CONST TBED_CTL_COLS_UP = 16
 CONST TBED_CTL_DONE    = 17
+CONST TBED_CTL_DIVSZ_DN = 18 ' DIVIDER - (the dividers / gaps row)
+CONST TBED_CTL_DIVSZ_UP = 19 ' DIVIDER +
+CONST TBED_CTL_SHOWDIV  = 25 ' [x] SHOW DIVIDERS (20 .. 24 are the tabs)
+CONST TBED_CTL_SHOWGAP  = 26 ' [x] SHOW GAPS
 CONST TBED_BTN_FIRST   = 8
 CONST TBED_BTN_LAST    = 14
 
@@ -75,7 +79,7 @@ TYPE TBED_OBJ
     panelW      AS INTEGER ' native size (TBED_layout)
     panelH      AS INTEGER
 
-    tab         AS INTEGER ' BL_TOOLBOX / BL_EDITBAR / BL_ADVBAR
+    tab         AS INTEGER ' BL_TOOLBOX / BL_EDITBAR / BL_ADVBAR / BL_PANELSBAR / BL_IOBAR
     hoverCtl    AS INTEGER
     hoverRow    AS INTEGER ' row under the pointer in the hovered list (-1 = none)
     closeHover  AS INTEGER
@@ -123,6 +127,7 @@ TYPE TBED_OBJ
     yHead       AS INTEGER ' list captions
     ySearch     AS INTEGER
     yList       AS INTEGER ' top of both lists' rows
+    yStyle      AS INTEGER ' the dividers / gaps row (DIVIDER - n +, SHOW DIVIDERS, SHOW GAPS)
     yBottom     AS INTEGER
     listW       AS INTEGER
     avX         AS INTEGER
@@ -143,5 +148,6 @@ DIM SHARED TBED AS TBED_OBJ
 DIM SHARED TBED_AV_KIND(0 TO TBED_AV_MAX - 1) AS INTEGER ' BL_TOOL / BL_CMD / TBED_AV_HEADER
 DIM SHARED TBED_AV_ID(0 TO TBED_AV_MAX - 1) AS INTEGER
 DIM SHARED TBED_SEARCH AS STRING
-DIM SHARED TBED_UNDO_CSV(1 TO 3) AS STRING ' each panel's list before the change being made (TBED_begin)
-DIM SHARED TBED_UNDO_COLS(1 TO 3) AS INTEGER
+DIM SHARED TBED_UNDO_CSV(1 TO BL_PANELS) AS STRING ' each panel's list before the change being made (TBED_begin)
+DIM SHARED TBED_UNDO_COLS(1 TO BL_PANELS) AS INTEGER
+DIM SHARED TBED_UNDO_STYLE(1 TO BL_PANELS) AS STRING ' its dividers / gaps (BL_style_key$)

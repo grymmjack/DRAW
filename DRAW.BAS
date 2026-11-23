@@ -77,6 +77,8 @@ IF CFG.FULLSCREEN% THEN _FULLSCREEN _STRETCH, _SMOOTH
 ' (which runs from SCREEN.BI, before THEME.BI is included in _ALL.BI).
 ' Re-apply runtime THEME.CFG overrides now that all BI includes are complete.
 THEME_load
+' --theme-edit: register the theme's properties, snapshot them, set up the inspector
+THEMEED_session_start
 
 ' Enforce OS-level window size limits now that the window is shown and THEME is loaded
 ' (min = chrome-safe so controls can't be dragged off-screen; max = configured cap or
@@ -220,8 +222,11 @@ $IF MAC THEN
                 macArgIdx% = macArgIdx% + 1 ' Defensive: HELP.BI should have exited already
             ELSEIF LCASE$(macArgVal$) = "--option" OR LCASE$(macArgVal$) = "--instance" OR LCASE$(macArgVal$) = "--palette" OR _
                    LCASE$(macArgVal$) = "--export" OR LCASE$(macArgVal$) = "--export-anim" OR LCASE$(macArgVal$) = "--cycle" OR LCASE$(macArgVal$) = "--tag" OR _
-                   LCASE$(macArgVal$) = "--export-qb64" THEN
+                   LCASE$(macArgVal$) = "--export-qb64" OR LCASE$(macArgVal$) = "--export-recording" OR LCASE$(macArgVal$) = "--recording-fps" OR LCASE$(macArgVal$) = "--recording-scale" OR _
+                   LCASE$(macArgVal$) = "--action" OR LCASE$(macArgVal$) = "--batch-in" OR LCASE$(macArgVal$) = "--batch-out" OR LCASE$(macArgVal$) = "--batch-format" THEN
                 macArgIdx% = macArgIdx% + 2 ' BUG-53: 2-token flag (flag + value) — skip both
+            ELSEIF THEMEED_flag_takes_value%(macArgVal$) THEN
+                macArgIdx% = macArgIdx% + 2 ' --theme-name X etc. (CFG/THEME-EDIT)
             ELSEIF LEFT$(macArgVal$, 1) = "-" THEN
                 macArgIdx% = macArgIdx% + 1 ' BUG-53: any other unrecognized flag — skip, don't treat as the file
             ELSE
@@ -257,8 +262,12 @@ $ELSE
         ELSEIF LCASE$(argVal$) = "--option" OR LCASE$(argVal$) = "--instance" OR LCASE$(argVal$) = "--palette" OR LCASE$(argVal$) = "--workspace" THEN
             argIdx% = argIdx% + 2 ' BUG-53: 2-token flag (flag + its value) — skip both
         ELSEIF LCASE$(argVal$) = "--export-qb64" OR LCASE$(argVal$) = "--export" OR _
-               LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" OR LCASE$(argVal$) = "--tag" THEN
+               LCASE$(argVal$) = "--export-anim" OR LCASE$(argVal$) = "--cycle" OR LCASE$(argVal$) = "--tag" OR _
+               LCASE$(argVal$) = "--export-recording" OR LCASE$(argVal$) = "--recording-fps" OR LCASE$(argVal$) = "--recording-scale" OR _
+               LCASE$(argVal$) = "--action" OR LCASE$(argVal$) = "--batch-in" OR LCASE$(argVal$) = "--batch-out" OR LCASE$(argVal$) = "--batch-format" THEN
             argIdx% = argIdx% + 2 ' 2-token flag (flag + output path) — skip both so the path is not mistaken for the input file
+        ELSEIF THEMEED_flag_takes_value%(argVal$) THEN
+            argIdx% = argIdx% + 2 ' --theme-name X etc. (CFG/THEME-EDIT)
         ELSEIF LEFT$(argVal$, 1) = "-" THEN
             argIdx% = argIdx% + 1 ' BUG-53: any other unrecognized flag (--developer/--dev/...) — skip it, don't treat it as the file
         ELSE
@@ -724,6 +733,7 @@ DO
     MUSIC_tick
     AI_JOB_tick   ' Poll any in-flight AI generation (self-throttled, no-op when idle)
     INSTANCE_tick ' Multi-instance registry heartbeat (self-throttled, keeps our slot alive)
+    THEMEED_tick  ' Theme Edit mode: inspector events, autosave, watched files (CFG/THEME-EDIT)
     IF LAYERXFER_poll_mailbox% > 0 THEN ' A peer instance sent us a layer — added; refresh
         SOUND_play SND_NEW_LAYER
         CANVAS_DIRTY% = TRUE : SCENE_DIRTY% = TRUE : GUI_NEEDS_REDRAW% = TRUE : FRAME_IDLE% = FALSE
@@ -1089,6 +1099,7 @@ DO
     WS_tick ' a workspace's [START] runs once the new chrome has been laid out
     CAP_tick ' DRAW --capture, a few frames after startup
     ANN_tick ' annotate Redact/Callout modes (GUI/ANNOTATE)
+    CREC_tick ' canvas recording: a settled new history state becomes a frame (TOOLS/CANVAS-REC)
     PERF_stop PERF_POST_INPUT
     PERF_stop PERF_MAIN_LOOP_TOTAL
     PERF_frame_end
@@ -1209,6 +1220,8 @@ END SUB
 ' 
 SUB MAIN_shutdown ()
     DIM i AS INTEGER
+
+    THEMEED_shutdown ' Theme Edit mode: saves unsaved theme edits when autosave is on
 
     WS_panels_poll TRUE ' in a workspace: a panel change not saved yet goes into it (GUI/WORKSPACE-APPLY)
 

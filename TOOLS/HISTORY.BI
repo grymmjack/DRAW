@@ -110,6 +110,7 @@ DIM SHARED HISTORY_PAYLOADS(1 TO HISTORY_MAX_RECORDS) AS STRING
 DIM SHARED HISTORY_IN_PROGRESS      AS INTEGER
 DIM SHARED HISTORY_GROUP_ACTIVE     AS INTEGER
 DIM SHARED HISTORY_GROUP_SEQUENCE   AS LONG
+DIM SHARED HISTORY_GROUP_DEPTH      AS INTEGER ' begin_group calls inside an open group (each end_group takes one off first)
 DIM SHARED HISTORY_saved_this_frame AS INTEGER ' Prevent double-saves in same frame
 DIM SHARED UNDO_SEQ                 AS LONG    ' Monotonic sequence counter for history records
 

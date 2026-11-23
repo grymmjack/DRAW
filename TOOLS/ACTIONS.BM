@@ -1,0 +1,981 @@
+''
+' DRAW - TOOLS/ACTIONS.BM - actions (macros): the tree, recording, playing, files
+' (TOOLS/ACTIONS.BI).
+' =============================================================================
+$INCLUDEONCE
+
+' =============================================================================
+' The tree
+' =============================================================================
+
+''
+' The node after i's last child (ACTS_N + 1 when it runs to the end).
+FUNCTION ACTS_end_of% (i AS INTEGER)
+    DIM j AS INTEGER
+    j = i + 1
+    DO WHILE j <= ACTS_N
+        IF ACTS_D(j) <= ACTS_D(i) THEN EXIT DO
+        j = j + 1
+    LOOP
+    ACTS_end_of% = j
+END FUNCTION
+
+
+''
+' The nearest node at or before i with depth dep (0 = none): its set (0) / action (1).
+FUNCTION ACTS_up% (i AS INTEGER, dep AS INTEGER)
+    DIM j AS INTEGER
+    FOR j = i TO 1 STEP -1
+        IF ACTS_D(j) = dep THEN ACTS_up% = j: EXIT FUNCTION
+        IF ACTS_D(j) < dep THEN EXIT FUNCTION
+    NEXT j
+END FUNCTION
+
+
+''
+' A node index held elsewhere, after nodes at..at+cnt-1 were inserted (cnt > 0) or
+' removed (cnt < 0): moved along, or 0 when it was removed.
+FUNCTION ACTS_moved% (v AS INTEGER, at AS INTEGER, cnt AS INTEGER)
+    IF v < at THEN ACTS_moved% = v: EXIT FUNCTION
+    IF cnt > 0 THEN ACTS_moved% = v + cnt: EXIT FUNCTION
+    IF v < at - cnt THEN EXIT FUNCTION ' (it was one of them)
+    ACTS_moved% = v + cnt
+END FUNCTION
+
+
+SUB ACTS_copy_node (dst AS INTEGER, src AS INTEGER)
+    ACTS_D(dst) = ACTS_D(src): ACTS_CMD(dst) = ACTS_CMD(src): ACTS_ON(dst) = ACTS_ON(src)
+    ACTS_DLG(dst) = ACTS_DLG(src): ACTS_OPEN(dst) = ACTS_OPEN(src)
+    ACTS_NM(dst) = ACTS_NM(src): ACTS_PRM(dst) = ACTS_PRM(src): ACTS_FILE(dst) = ACTS_FILE(src)
+    ACTS_KEY(dst) = ACTS_KEY(src)
+END SUB
+
+
+''
+' A new node at index at (the ones from there move down one), depth dep, named nm.
+' Returns it (0 = the tree is full).
+FUNCTION ACTS_insert% (at AS INTEGER, dep AS INTEGER, nm AS STRING)
+    DIM j AS INTEGER, p AS INTEGER, n AS STRING
+    n = nm: p = at ' (copies: by reference)
+    IF ACTS_N >= ACTS_MAX THEN STATUS_flash "ACTIONS: TOO MANY STEPS": EXIT FUNCTION
+    IF p < 1 THEN p = 1
+    IF p > ACTS_N + 1 THEN p = ACTS_N + 1
+    FOR j = ACTS_N TO p STEP -1
+        ACTS_copy_node j + 1, j
+    NEXT j
+    ACTS_N = ACTS_N + 1
+    ACTS_D(p) = dep: ACTS_CMD(p) = 0: ACTS_ON(p) = TRUE: ACTS_DLG(p) = FALSE: ACTS_OPEN(p) = TRUE
+    ACTS_NM(p) = n: ACTS_PRM(p) = "": ACTS_FILE(p) = "": ACTS_KEY(p) = 0
+    ACTS.recording = ACTS_moved%(ACTS.recording, p, 1)
+    ACTS.recAfter = ACTS_moved%(ACTS.recAfter, p, 1)
+    ACTP.sel = ACTS_moved%(ACTP.sel, p, 1)
+    ACTS_insert% = p
+END FUNCTION
+
+
+''
+' Node i and its children go.
+SUB ACTS_remove (i AS INTEGER)
+    DIM e AS INTEGER, c AS INTEGER, j AS INTEGER, at AS INTEGER
+    at = i
+    IF at < 1 _ORELSE at > ACTS_N THEN EXIT SUB
+    e = ACTS_end_of%(at): c = e - at
+    FOR j = e TO ACTS_N
+        ACTS_copy_node j - c, j
+    NEXT j
+    ACTS_N = ACTS_N - c
+    ACTS.recording = ACTS_moved%(ACTS.recording, at, -c)
+    IF ACTS.recording = 0 THEN ACTS.recAfter = 0 ELSE ACTS.recAfter = ACTS_moved%(ACTS.recAfter, at, -c)
+    IF ACTP.sel >= at _ANDALSO ACTP.sel < e THEN
+        ACTP.sel = _MIN(at, ACTS_N) ' (the node that took its place, else the last)
+    ELSE
+        ACTP.sel = ACTS_moved%(ACTP.sel, at, -c)
+    END IF
+END SUB
+
+
+SUB ACTS_touch ()
+    ACTS.gen = ACTS.gen + 1
+    ACTS_keys_sync
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+END SUB
+
+
+' =============================================================================
+' Commands
+' =============================================================================
+
+''
+' The command palette's entry for action id act (CMD_LIST index, -1 = none).
+FUNCTION ACTS_cmd_idx% (act AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 0 TO CMD_COUNT - 1
+        IF CMD_LIST(i).action_id = act THEN ACTS_cmd_idx% = i: EXIT FUNCTION
+    NEXT i
+    ACTS_cmd_idx% = -1
+END FUNCTION
+
+
+FUNCTION ACTS_cmd_name$ (act AS INTEGER)
+    DIM i AS INTEGER
+    i = ACTS_cmd_idx%(act)
+    IF i >= 0 THEN ACTS_cmd_name$ = _TRIM$(CMD_LIST(i).name) ELSE ACTS_cmd_name$ = "Command " + _TRIM$(STR$(act))
+END FUNCTION
+
+
+''
+' Is command act recorded as a step? The kinds that change the picture (Edit, Layer,
+' Canvas, Select, Image, Color) - not undo / redo, the panels' own, tool picks, View, File,
+' Help. A command the palette does not list is not recorded.
+FUNCTION ACTS_recordable% (act AS INTEGER)
+    DIM i AS INTEGER
+    SELECT CASE act
+        CASE 301, 302, HISTP_ACT_PANEL, HISTP_ACT_CLEAR, ACTP_ACT_FIRST TO ACTP_ACT_LAST, ACTP_ACT_KEY1 TO ACTP_ACT_KEY1 + ACTP_KEY_SLOTS - 1: EXIT FUNCTION
+        ' windows and file pickers, not steps (an action would stop on them each play):
+        ' Settings, Customize Controls, Animation Settings, the TheDraw font browser, the
+        ' Pixel Art Analyzer, text style import / export, AnimBrush Load, Soundtrack / Add Sound
+        CASE 2100, 2360, 2672, 1530, 1609, 1520 TO 1522, 2575, 2549, 2553: EXIT FUNCTION
+    END SELECT
+    i = ACTS_cmd_idx%(act)
+    IF i < 0 THEN EXIT FUNCTION
+    SELECT CASE CMD_LIST(i).category
+        CASE CMD_CAT_EDIT, CMD_CAT_LAYER, CMD_CAT_CANVAS, CMD_CAT_SELECT, CMD_CAT_IMAGE, CMD_CAT_COLOR
+            ACTS_recordable% = TRUE
+    END SELECT
+END FUNCTION
+
+
+''
+' CMD_execute_action calls these around every command. A top-level one (not run by
+' another command) is recorded as a step after it ran.
+SUB ACTS_will_run (act AS INTEGER)
+    IF act = 0 THEN EXIT SUB
+    IF ACTS.depth = 1 THEN ACTS_REC_PRM = "": ACTS_REC_SKIP = FALSE
+END SUB
+
+
+SUB ACTS_did_run (act AS INTEGER)
+    IF ACTS.depth <> 1 _ORELSE ACTS.recording = 0 _ORELSE ACTS.playing THEN EXIT SUB
+    IF ACTS_recordable%(act) = 0 THEN EXIT SUB
+    IF ACTS_REC_SKIP THEN ACTS_REC_SKIP = FALSE: STATUS_flash "CANCELLED - NOT RECORDED": EXIT SUB
+    ACTS_rec_step act, ACTS_cmd_name$(act), ACTS_REC_PRM
+    ACTS_REC_PRM = ""
+END SUB
+
+
+''
+' Recording: a step (command cmd, name nm, values prm) where the next step goes.
+SUB ACTS_rec_step (cmd AS INTEGER, nm AS STRING, prm AS STRING)
+    DIM a AS INTEGER, at AS INTEGER, s AS INTEGER, c AS INTEGER, n AS STRING, p AS STRING
+    c = cmd: n = nm: p = prm ' (copies: by reference)
+    a = ACTS.recording
+    IF a = 0 THEN EXIT SUB
+    IF ACTS.recAfter > a _ANDALSO ACTS.recAfter < ACTS_end_of%(a) THEN at = ACTS.recAfter + 1 ELSE at = ACTS_end_of%(a)
+    s = ACTS_insert%(at, 2, n)
+    IF s = 0 THEN EXIT SUB
+    ACTS_CMD(s) = c
+    ACTS_PRM(s) = p
+    ACTS.recAfter = s
+    ACTS_OPEN(ACTS.recording) = TRUE
+    ACTP.sel = s
+    ACTS_save_set ACTS_up%(s, 0)
+    ACTP_follow_sel
+    STATUS_flash "RECORDED: " + UCASE$(ACTS_NM(s))
+    ACTS_touch
+END SUB
+
+
+' =============================================================================
+' Dialog values (phase 2): a wired dialog reads its values from a step being played and
+' gives the ones it was OK'd with to a step being recorded. A wired dialog:
+'     v = ACTS_prm_num#("KEY", v)                 ' (each value: the step's, else as it was)
+'     IF ACTS_dlg_silent% = 0 THEN DO ... LOOP     ' (played with values: no dialog, as OK)
+'     IF ok THEN ACTS_prm_put "KEY", v ELSE ACTS_dlg_cancel
+' Values are KEY=value lines (PARAM lines in the file).
+' =============================================================================
+
+''
+' Play the step without its dialog: values recorded and its DIALOG box off.
+FUNCTION ACTS_dlg_silent% ()
+    ACTS_dlg_silent% = (ACTS.playing <> 0 _ANDALSO LEN(ACTS_PLAY_PRM) > 0 _ANDALSO ACTS_PLAY_DLG = 0)
+END FUNCTION
+
+
+''
+' Value pk of the step being played; dflt when not playing or the step has none.
+FUNCTION ACTS_prm_num# (pk AS STRING, dflt AS DOUBLE)
+    DIM found AS INTEGER, v AS STRING
+    v = ACTS_prm_raw$(pk, found)
+    IF found THEN ACTS_prm_num# = VAL(v) ELSE ACTS_prm_num# = dflt
+END FUNCTION
+
+
+''
+' Text value pk of the step being played (a name, a note); dflt when not playing
+' or the step has none.
+FUNCTION ACTS_prm_str$ (pk AS STRING, dflt AS STRING)
+    DIM found AS INTEGER, v AS STRING
+    v = ACTS_prm_raw$(pk, found)
+    IF found THEN ACTS_prm_str$ = v ELSE ACTS_prm_str$ = dflt
+END FUNCTION
+
+
+''
+' The text of value pk of the step being played; found = it has one.
+FUNCTION ACTS_prm_raw$ (pk AS STRING, found AS INTEGER)
+    DIM p AS STRING, k AS STRING, i AS LONG, j AS LONG
+    found = FALSE
+    IF ACTS.playing = 0 _ORELSE LEN(ACTS_PLAY_PRM) = 0 THEN EXIT FUNCTION
+    p = CHR$(10) + ACTS_PLAY_PRM + CHR$(10): k = CHR$(10) + UCASE$(pk) + "="
+    i = INSTR(UCASE$(p), k)
+    IF i = 0 THEN EXIT FUNCTION
+    i = i + LEN(k): j = INSTR(i, p, CHR$(10))
+    found = TRUE
+    ACTS_prm_raw$ = MID$(p, i, j - i)
+END FUNCTION
+
+
+''
+' ACTS_prm_num# as a whole number.
+FUNCTION ACTS_prm_lng& (pk AS STRING, dflt AS LONG)
+    ACTS_prm_lng& = CLNG(ACTS_prm_num#(pk, dflt))
+END FUNCTION
+
+
+''
+' Give value pk to the step being recorded (the command running now).
+SUB ACTS_prm_put (pk AS STRING, v AS DOUBLE)
+    IF LEN(ACTS_REC_PRM) THEN ACTS_REC_PRM = ACTS_REC_PRM + CHR$(10)
+    ACTS_REC_PRM = ACTS_REC_PRM + UCASE$(pk) + "=" + _TRIM$(STR$(v))
+END SUB
+
+
+''
+' Give text value pk to the step being recorded (one line: line breaks become spaces).
+SUB ACTS_prm_put_str (pk AS STRING, v AS STRING)
+    DIM t AS STRING, i AS LONG
+    t = v
+    FOR i = 1 TO LEN(t)
+        IF ASC(t, i) = 10 _ORELSE ASC(t, i) = 13 THEN ASC(t, i) = 32
+    NEXT i
+    IF LEN(ACTS_REC_PRM) THEN ACTS_REC_PRM = ACTS_REC_PRM + CHR$(10)
+    ACTS_REC_PRM = ACTS_REC_PRM + UCASE$(pk) + "=" + t
+END SUB
+
+
+''
+' An input box a command asks through (a name, a note, a count), Actions-aware:
+' recorded as value pk; played back silently with the recorded value, or - its
+' DIALOG box on - asking again with it filled in. "" = cancelled (no step recorded).
+FUNCTION ACTS_ask$ (pk AS STRING, title AS STRING, message AS STRING, defaultText AS STRING, placeholder AS STRING)
+    DIM r AS STRING
+    IF ACTS_dlg_silent% THEN
+        r = ACTS_prm_str$(pk, "")
+    ELSE
+        POINTER_hide_for_dialog
+        r = DRAW_input_box_ex$(title, message, ACTS_prm_str$(pk, defaultText), placeholder, TRUE)
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+    END IF
+    IF _TRIM$(r) = "" THEN ACTS_dlg_cancel ELSE ACTS_prm_put_str pk, r
+    ACTS_ask$ = r
+END FUNCTION
+
+
+''
+' The dialog was cancelled: recording keeps no step for it.
+SUB ACTS_dlg_cancel ()
+    ACTS_REC_SKIP = TRUE
+END SUB
+
+
+' =============================================================================
+' Record / play
+' =============================================================================
+
+''
+' Start recording into the action node is in (an action, or a step: after that step).
+SUB ACTS_record_start (node AS INTEGER)
+    DIM a AS INTEGER
+    ACTS_load
+    IF node < 1 _ORELSE node > ACTS_N THEN STATUS_flash "ACTIONS: PICK AN ACTION TO RECORD INTO": EXIT SUB
+    a = ACTS_up%(node, 1)
+    IF a = 0 THEN STATUS_flash "ACTIONS: PICK AN ACTION TO RECORD INTO": EXIT SUB
+    ACTS.recording = a
+    IF ACTS_D(node) = 2 THEN ACTS.recAfter = node ELSE ACTS.recAfter = 0
+    ACTS_OPEN(a) = TRUE
+    STATUS_flash "RECORDING INTO " + UCASE$(ACTS_NM(a)) + " - STOP WHEN DONE"
+    ACTS_touch
+END SUB
+
+
+SUB ACTS_record_stop ()
+    IF ACTS.recording = 0 THEN EXIT SUB
+    STATUS_flash "STOPPED RECORDING " + UCASE$(ACTS_NM(ACTS.recording))
+    ACTS.recording = 0: ACTS.recAfter = 0
+    ACTS_touch
+END SUB
+
+
+''
+' Steps first .. last - 1 of action a (the enabled ones, when the action and its set are).
+SUB ACTS_play_steps (a AS INTEGER, first AS INTEGER, last AS INTEGER)
+    DIM j AS INTEGER, st AS INTEGER, en AS INTEGER, cmd AS INTEGER
+    st = first: en = last ' (copies: a command could reshape the tree... it cannot, but by reference)
+    IF ACTS_ON(a) = 0 THEN EXIT SUB
+    j = ACTS_up%(a, 0): IF j > 0 _ANDALSO ACTS_ON(j) = 0 THEN EXIT SUB
+    IF ACTS.halted THEN EXIT SUB
+    FOR j = st TO en - 1
+        IF ACTS_D(j) <> 2 THEN _CONTINUE
+        IF ACTS_ON(j) = 0 THEN _CONTINUE
+        cmd = ACTS_CMD(j)
+        IF cmd = ACTS_CMD_STOP THEN
+            IF ACTS_stop_asks%(a, j) = 0 THEN ACTS.halted = TRUE: EXIT FOR
+            _CONTINUE
+        END IF
+        IF cmd = ACTS_CMD_TOOL THEN
+            ACTS_PLAY_PRM = ACTS_PRM(j): ACTS_PLAY_DLG = FALSE
+            IF ACTS_tool_play% THEN ACTS.lastRun = ACTS.lastRun + 1 ELSE ACTS.lastSkip = ACTS.lastSkip + 1
+            _CONTINUE
+        END IF
+        IF ACTS_cmd_idx%(cmd) < 0 THEN ACTS.lastSkip = ACTS.lastSkip + 1: _CONTINUE ' (DRAW has no such command now)
+        ACTS_PLAY_PRM = ACTS_PRM(j): ACTS_PLAY_DLG = ACTS_DLG(j)
+        CMD_execute_action cmd
+        ACTS.lastRun = ACTS.lastRun + 1
+    NEXT j
+    ACTS_PLAY_PRM = "": ACTS_PLAY_DLG = FALSE
+END SUB
+
+
+''
+' Action keys: an action holds slot k (ACTS_KEY), command ACTP_ACT_KEY1 + k - 1 plays it,
+' and that command's keyboard bind is the key (Customize Controls / DRAW.bindings).
+FUNCTION ACTS_key_node% (k AS INTEGER)
+    DIM j AS INTEGER
+    IF k < 1 THEN EXIT FUNCTION
+    FOR j = 1 TO ACTS_N
+        IF ACTS_KEY(j) = k _ANDALSO ACTS_D(j) = 1 THEN ACTS_key_node% = j: EXIT FUNCTION
+    NEXT j
+END FUNCTION
+
+
+''
+' The keyboard bind of action key slot k (an INPUT_BINDS index, 0 = none).
+FUNCTION ACTS_key_bind% (k AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i).actionId = ACTP_ACT_KEY1 + k - 1 _ANDALSO INPUT_BINDS(i).device = DEVICE_KEYBOARD THEN ACTS_key_bind% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+
+''
+' Action nd's key as text ("" = none).
+FUNCTION ACTS_key_text$ (nd AS INTEGER)
+    DIM bi AS INTEGER
+    IF nd < 1 _ORELSE nd > ACTS_N THEN EXIT FUNCTION
+    IF ACTS_KEY(nd) = 0 THEN EXIT FUNCTION
+    bi = ACTS_key_bind%(ACTS_KEY(nd))
+    IF bi = 0 THEN EXIT FUNCTION
+    IF INPUT_BINDS(bi).keycode <= 0 THEN EXIT FUNCTION
+    ACTS_key_text$ = CTRL_render_key$(INPUT_BINDS(bi).keycode, INPUT_BINDS(bi).requireMods)
+END FUNCTION
+
+
+''
+' The slot binds are labelled after their actions (Customize Controls, conflicts).
+SUB ACTS_keys_sync ()
+    DIM i AS INTEGER, k AS INTEGER, nd AS INTEGER
+    FOR i = 1 TO INPUT_BIND_COUNT
+        k = INPUT_BINDS(i).actionId - ACTP_ACT_KEY1 + 1
+        IF k >= 1 _ANDALSO k <= ACTP_KEY_SLOTS _ANDALSO INPUT_BINDS(i).device = DEVICE_KEYBOARD THEN
+            nd = ACTS_key_node%(k)
+            IF nd THEN INPUT_BINDS(i).label = "Action: " + ACTS_NM(nd) ELSE INPUT_BINDS(i).label = "Actions: key " + _TRIM$(STR$(k)) + " (no action)"
+        END IF
+    NEXT i
+END SUB
+
+
+''
+' The keys of the actions in nodes first .. last - 1 are let go (deleted: their binds unbound).
+SUB ACTS_keys_free (first AS INTEGER, last AS INTEGER)
+    DIM j AS INTEGER, bi AS INTEGER, st AS INTEGER, en AS INTEGER
+    st = first: en = last
+    FOR j = st TO en - 1
+        IF ACTS_KEY(j) > 0 THEN
+            bi = ACTS_key_bind%(ACTS_KEY(j))
+            IF bi > 0 _ANDALSO INPUT_BINDS(bi).keycode > 0 THEN BINDINGS_set_override ACTP_ACT_KEY1 + ACTS_KEY(j) - 1, BIND_KEY_NONE, 0, 0
+            ACTS_KEY(j) = 0
+        END IF
+    NEXT j
+END SUB
+
+
+''
+' The action named spec: "SET/NAME" (the last / splits) or "NAME" (the first action so
+' named). Case does not matter. 0 = none.
+FUNCTION ACTS_find_action% (spec AS STRING)
+    DIM j AS INTEGER, k AS INTEGER, sn AS STRING, an AS STRING, cs AS STRING
+    ACTS_load
+    an = UCASE$(_TRIM$(spec))
+    k = _INSTRREV(an, "/")
+    IF k > 0 THEN sn = _TRIM$(LEFT$(an, k - 1)): an = _TRIM$(MID$(an, k + 1))
+    FOR j = 1 TO ACTS_N
+        IF ACTS_D(j) = 0 THEN cs = UCASE$(ACTS_NM(j))
+        IF ACTS_D(j) = 1 _ANDALSO UCASE$(ACTS_NM(j)) = an _ANDALSO (LEN(sn) = 0 _ORELSE cs = sn) THEN ACTS_find_action% = j: EXIT FUNCTION
+    NEXT j
+END FUNCTION
+
+
+''
+' Every action as SET/NAME, comma separated (an error message lists them).
+FUNCTION ACTS_names$ ()
+    DIM j AS INTEGER, cs AS STRING, r AS STRING
+    ACTS_load
+    FOR j = 1 TO ACTS_N
+        IF ACTS_D(j) = 0 THEN cs = ACTS_NM(j)
+        IF ACTS_D(j) = 1 THEN r = r + _IIF(LEN(r), ", ", "") + cs + "/" + ACTS_NM(j)
+    NEXT j
+    IF LEN(r) = 0 THEN r = "there are none"
+    ACTS_names$ = r
+END FUNCTION
+
+
+''
+' Can a batch open this file? (by its extension)
+FUNCTION ACTS_batch_ext% (nm AS STRING)
+    DIM d AS INTEGER, e AS STRING
+    d = _INSTRREV(nm, ".")
+    IF d = 0 THEN EXIT FUNCTION
+    e = "," + LCASE$(MID$(nm, d + 1)) + ","
+    ACTS_batch_ext% = (INSTR(",png,bmp,jpg,jpeg,gif,tga,qoi,hdr,pcx,draw,", e) > 0)
+END FUNCTION
+
+
+''
+' BATCH: action node on every image in folder inDir (by name order of the listing), each
+' opened as the document, played (one undo step; stops go on by themselves) and saved
+' as outDir/<its name>.<ext> - ext as --export takes it (png = flattened, draw, gif, ...).
+' outDir is made if missing. Returns the images written; ACTS.batchFail = the ones that
+' failed. The document is replaced: the caller keeps / restores its own (ACTP_batch).
+FUNCTION ACTS_batch% (node AS INTEGER, inDir AS STRING, outDir AS STRING, ext AS STRING)
+    DIM nd AS INTEGER, iD AS STRING, oD AS STRING, ex AS STRING, f AS STRING, lst AS STRING
+    DIM p AS LONG, nm AS STRING, d AS INTEGER, nOk AS INTEGER, sp AS STRING
+    nd = node: iD = inDir: oD = outDir: ex = LCASE$(_TRIM$(ext))
+    IF LEFT$(ex, 1) = "." THEN ex = MID$(ex, 2)
+    ACTS.batchFail = 0
+    IF nd < 1 _ORELSE nd > ACTS_N THEN EXIT FUNCTION
+    sp = PATHS_sep$
+    DO WHILE LEN(iD) > 1 _ANDALSO (RIGHT$(iD, 1) = "/" _ORELSE RIGHT$(iD, 1) = "\"): iD = LEFT$(iD, LEN(iD) - 1): LOOP
+    DO WHILE LEN(oD) > 1 _ANDALSO (RIGHT$(oD, 1) = "/" _ORELSE RIGHT$(oD, 1) = "\"): oD = LEFT$(oD, LEN(oD) - 1): LOOP
+    IF _DIREXISTS(iD) = 0 THEN ACTS.batchFail = 1: EXIT FUNCTION
+    ' the names first (outDir may be inside inDir: what is written is never read back)
+    f = _FILES$(iD + sp + "*")
+    DO WHILE LEN(f)
+        IF ACTS_batch_ext%(f) _ANDALSO RIGHT$(f, 1) <> "/" _ANDALSO RIGHT$(f, 1) <> "\" THEN lst = lst + f + CHR$(0)
+        f = _FILES$
+    LOOP
+    IF LEN(lst) = 0 THEN EXIT FUNCTION
+    IF _DIREXISTS(oD) = 0 THEN PATHS_ensure_dir oD + sp
+    IF _DIREXISTS(oD) = 0 THEN ACTS.batchFail = 1: EXIT FUNCTION
+    ACTS.batch = TRUE
+    DO WHILE LEN(lst)
+        p = INSTR(lst, CHR$(0)): nm = LEFT$(lst, p - 1): lst = MID$(lst, p + 1)
+        _LOGINFO "ACTIONS batch: " + iD + sp + nm
+        DRW_load iD + sp + nm
+        ACTS_play nd
+        d = _INSTRREV(nm, ".")
+        IF BATCH_export%(oD + sp + LEFT$(nm, d - 1) + "." + ex, FALSE) THEN nOk = nOk + 1 ELSE ACTS.batchFail = ACTS.batchFail + 1
+    LOOP
+    ACTS.batch = FALSE
+    CANVAS_DIRTY% = FALSE
+    ACTS_batch% = nOk
+END FUNCTION
+
+
+' =============================================================================
+' Tool steps (phase 3, first slice): a line, rectangle, ellipse, fill or brush stroke drawn
+' while recording is a step with its canvas coordinates, the colour it drew with and the
+' brush size; play draws it again through the tool's own commit code (MOUSE_release_line /
+' _rect / _ellip, MOUSE_tool_fill) on the layer current then - symmetry, selection clipping,
+' the drawer's paint mode and the Tool Options bar as they are at play time. A brush stroke
+' is its points, drawn as brushed line segments (one undo step): the pen's pressure,
+' smoothing and pixel-perfect pass are not kept.
+' =============================================================================
+
+''
+' Recording, the brush held (MOUSE_handle_tools, before the hold dispatch): its points.
+SUB ACTS_tool_track ()
+    STATIC lx AS INTEGER, ly AS INTEGER
+    IF ACTS.playing _ORELSE CURRENT_TOOL% <> TOOL_BRUSH THEN EXIT SUB
+    IF (MOUSE.B1% _ANDALSO MOUSE.OLD_B1% = 0) _ORELSE (MOUSE.B2% _ANDALSO MOUSE.OLD_B2% = 0) THEN
+        ACTS_TOOL_PTS = "": ACTS_TOOL_NPTS = 0: lx = -32768: ly = -32768
+    END IF
+    IF MOUSE.X% = lx _ANDALSO MOUSE.Y% = ly THEN EXIT SUB
+    lx = MOUSE.X%: ly = MOUSE.Y%
+    IF ACTS_TOOL_NPTS >= ACTS_PTS_MAX THEN EXIT SUB
+    ACTS_TOOL_PTS = ACTS_TOOL_PTS + _IIF(ACTS_TOOL_NPTS > 0, " ", "") + _TRIM$(STR$(lx)) + "," + _TRIM$(STR$(ly))
+    ACTS_TOOL_NPTS = ACTS_TOOL_NPTS + 1
+END SUB
+
+
+''
+' Recording: tool tl just committed (an undo step was saved) - a tool step for it.
+SUB ACTS_tool_did (tool AS INTEGER)
+    DIM tl AS INTEGER, p AS STRING, nm AS STRING, lf AS STRING
+    tl = tool
+    IF ACTS.recording = 0 _ORELSE ACTS.playing THEN EXIT SUB
+    lf = CHR$(10)
+    SELECT CASE tl
+        CASE TOOL_LINE
+            nm = "Line": p = ACTS_xy$(LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y)
+        CASE TOOL_RECT, TOOL_RECT_FILLED
+            nm = _IIF(RECT_TOOL.FILLED, "Filled Rectangle", "Rectangle")
+            p = ACTS_xy$(RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y) + lf + "FILLED=" + _IIF(RECT_TOOL.FILLED, "1", "0")
+        CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
+            nm = _IIF(ELLIPSE_TOOL.FILLED, "Filled Ellipse", "Ellipse")
+            p = ACTS_xy$(ELLIPSE_TOOL.START_X, ELLIPSE_TOOL.START_Y, ELLIPSE_TOOL.END_X, ELLIPSE_TOOL.END_Y) + lf + "FILLED=" + _IIF(ELLIPSE_TOOL.FILLED, "1", "0")
+            p = p + lf + "SLICES=" + _TRIM$(STR$(ELLIPSE_TOOL.SLICES)) + lf + "RINGS=" + _TRIM$(STR$(ELLIPSE_TOOL.RINGS))
+        CASE TOOL_FILL
+            nm = "Fill": p = "X1=" + _TRIM$(STR$(MOUSE.UNSNAPPED_X%)) + lf + "Y1=" + _TRIM$(STR$(MOUSE.UNSNAPPED_Y%))
+        CASE TOOL_BRUSH
+            IF ACTS_TOOL_NPTS = 0 THEN EXIT SUB
+            nm = "Brush Stroke (" + _TRIM$(STR$(ACTS_TOOL_NPTS)) + " point" + _IIF(ACTS_TOOL_NPTS = 1, ")", "s)"): p = "PTS=" + ACTS_TOOL_PTS
+            ACTS_TOOL_PTS = "": ACTS_TOOL_NPTS = 0
+        CASE ELSE
+            EXIT SUB
+    END SELECT
+    p = "TOOL=" + _TRIM$(STR$(tl)) + lf + p + lf + "COLOR=" + _TRIM$(STR$(DRAW_COLOR~&)) + lf + "SIZE=" + _TRIM$(STR$(BRUSH_SIZE.CURRENT))
+    SELECT CASE tl
+        CASE TOOL_FILL: nm = nm + " at " + ACTS_prm_raw_of$(p, "X1") + "," + ACTS_prm_raw_of$(p, "Y1")
+        CASE TOOL_BRUSH
+        CASE ELSE: nm = nm + " " + ACTS_prm_raw_of$(p, "X1") + "," + ACTS_prm_raw_of$(p, "Y1") + " - " + ACTS_prm_raw_of$(p, "X2") + "," + ACTS_prm_raw_of$(p, "Y2")
+    END SELECT
+    ACTS_rec_step ACTS_CMD_TOOL, nm, p
+END SUB
+
+
+FUNCTION ACTS_xy$ (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    ACTS_xy$ = "X1=" + _TRIM$(STR$(x1)) + CHR$(10) + "Y1=" + _TRIM$(STR$(y1)) + CHR$(10) + "X2=" + _TRIM$(STR$(x2)) + CHR$(10) + "Y2=" + _TRIM$(STR$(y2))
+END FUNCTION
+
+
+''
+' Value pk in prm (KEY=value lines), "" if none.
+FUNCTION ACTS_prm_raw_of$ (prm AS STRING, pk AS STRING)
+    DIM k AS LONG, e AS LONG, t AS STRING
+    t = CHR$(10) + prm + CHR$(10)
+    k = INSTR(t, CHR$(10) + UCASE$(pk) + "=")
+    IF k = 0 THEN EXIT FUNCTION
+    k = k + LEN(pk) + 2
+    e = INSTR(k, t, CHR$(10))
+    ACTS_prm_raw_of$ = MID$(t, k, e - k)
+END FUNCTION
+
+
+''
+' Playing a tool step (ACTS_PLAY_PRM): TRUE when it drew. Its colour and brush size are set
+' for it and put back after; sounds are off; the fill adjust mode stays out of it.
+FUNCTION ACTS_tool_play% ()
+    DIM tl AS INTEGER, sz AS INTEGER, col AS _UNSIGNED LONG, keepCol AS _UNSIGNED LONG, keepSz AS INTEGER
+    DIM keepFA AS INTEGER, keepSnd AS INTEGER, keepFilled AS INTEGER, keepSl AS INTEGER, keepRg AS INTEGER
+    DIM keepM AS MOUSE_OBJ, keepFill AS INTEGER, ok AS INTEGER
+    tl = ACTS_prm_lng&("TOOL", 0)
+    IF CURRENT_LAYER% < 1 _ORELSE CURRENT_LAYER% > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYER_current_image& >= -1 THEN EXIT FUNCTION
+    col = ACTS_prm_num#("COLOR", DRAW_COLOR~&)
+    sz = ACTS_prm_lng&("SIZE", BRUSH_SIZE.CURRENT)
+    IF sz < 1 _ORELSE sz > BRUSH_SIZE_COUNT THEN sz = BRUSH_SIZE.CURRENT
+    keepCol = DRAW_COLOR~&: keepSz = BRUSH_SIZE.CURRENT: keepFA = FILL_ADJ.ENABLED: keepSnd = CFG.SOUNDS_ENABLED%
+    DRAW_COLOR~& = col: BRUSH_SIZE.CURRENT = sz: FILL_ADJ.ENABLED = FALSE: CFG.SOUNDS_ENABLED% = FALSE
+    HISTORY_saved_this_frame% = FALSE
+    ok = TRUE
+    SELECT CASE tl
+        CASE TOOL_LINE
+            LINE_TOOL.START_X = ACTS_prm_lng&("X1", 0): LINE_TOOL.START_Y = ACTS_prm_lng&("Y1", 0)
+            LINE_TOOL.END_X = ACTS_prm_lng&("X2", 0): LINE_TOOL.END_Y = ACTS_prm_lng&("Y2", 0)
+            LINE_TOOL.SPOKES = 0: LINE_TOOL.START_CAP = LINE_CAP_NONE: LINE_TOOL.END_CAP = LINE_CAP_NONE
+            LINE_TOOL.DRAGGING = TRUE
+            MOUSE_release_line
+        CASE TOOL_RECT, TOOL_RECT_FILLED
+            keepFilled = RECT_TOOL.FILLED
+            RECT_TOOL.START_X = ACTS_prm_lng&("X1", 0): RECT_TOOL.START_Y = ACTS_prm_lng&("Y1", 0)
+            RECT_TOOL.END_X = ACTS_prm_lng&("X2", 0): RECT_TOOL.END_Y = ACTS_prm_lng&("Y2", 0)
+            RECT_TOOL.FILLED = (ACTS_prm_lng&("FILLED", 0) <> 0)
+            RECT_TOOL.DRAGGING = TRUE
+            MOUSE_release_rect
+            RECT_TOOL.DRAGGING = FALSE: RECT_TOOL.FILLED = keepFilled
+        CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
+            keepFilled = ELLIPSE_TOOL.FILLED: keepSl = ELLIPSE_TOOL.SLICES: keepRg = ELLIPSE_TOOL.RINGS
+            ELLIPSE_TOOL.START_X = ACTS_prm_lng&("X1", 0): ELLIPSE_TOOL.START_Y = ACTS_prm_lng&("Y1", 0)
+            ELLIPSE_TOOL.END_X = ACTS_prm_lng&("X2", 0): ELLIPSE_TOOL.END_Y = ACTS_prm_lng&("Y2", 0)
+            ELLIPSE_TOOL.FILLED = (ACTS_prm_lng&("FILLED", 0) <> 0)
+            ELLIPSE_TOOL.SLICES = ACTS_prm_lng&("SLICES", 0): ELLIPSE_TOOL.RINGS = ACTS_prm_lng&("RINGS", 0)
+            ELLIPSE_TOOL.DRAGGING = TRUE
+            MOUSE_release_ellip
+            ELLIPSE_TOOL.DRAGGING = FALSE: ELLIPSE_TOOL.FILLED = keepFilled: ELLIPSE_TOOL.SLICES = keepSl: ELLIPSE_TOOL.RINGS = keepRg
+        CASE TOOL_FILL
+            ' (the fill runs on a click: a made-up press at the point, then the real mouse back)
+            keepM = MOUSE: keepFill = FILL.ACTIVE%
+            MOUSE.B1% = TRUE: MOUSE.OLD_B1% = FALSE: MOUSE.B2% = FALSE: MOUSE.OLD_B2% = FALSE
+            MOUSE.UNSNAPPED_X% = ACTS_prm_lng&("X1", 0): MOUSE.UNSNAPPED_Y% = ACTS_prm_lng&("Y1", 0)
+            MOUSE.X% = MOUSE.UNSNAPPED_X%: MOUSE.Y% = MOUSE.UNSNAPPED_Y%
+            FILL.ACTIVE% = TRUE
+            MOUSE_tool_fill
+            MOUSE = keepM: FILL.ACTIVE% = keepFill
+        CASE TOOL_BRUSH
+            ok = ACTS_brush_play%(ACTS_prm_str$("PTS", ""))
+        CASE ELSE
+            ok = FALSE
+    END SELECT
+    DRAW_COLOR~& = keepCol: BRUSH_SIZE.CURRENT = keepSz: FILL_ADJ.ENABLED = keepFA: CFG.SOUNDS_ENABLED% = keepSnd
+    _DEST SCRN.CANVAS&
+    CANVAS_DIRTY% = TRUE: SCENE_DIRTY% = TRUE
+    ACTS_tool_play% = ok
+END FUNCTION
+
+
+''
+' A brush stroke's points ("x,y x,y ..."), drawn as the line tool's segments with no undo
+' step each, then one Brush Stroke undo step for all of it.
+FUNCTION ACTS_brush_play% (pts AS STRING)
+    DIM t AS STRING, k AS LONG, w AS STRING, c AS INTEGER, x AS INTEGER, y AS INTEGER, px AS INTEGER, py AS INTEGER
+    DIM n AS LONG, before AS LONG, hip AS INTEGER
+    t = _TRIM$(pts)
+    IF LEN(t) = 0 THEN EXIT FUNCTION
+    IF LAYERS(CURRENT_LAYER%).historyId& > 0 THEN before = _COPYIMAGE(LAYER_current_image&, 32)
+    hip = HISTORY_IN_PROGRESS%: HISTORY_IN_PROGRESS% = TRUE ' (the segments record nothing themselves)
+    t = t + " "
+    DO WHILE LEN(t)
+        k = INSTR(t, " "): w = LEFT$(t, k - 1): t = LTRIM$(MID$(t, k + 1))
+        c = INSTR(w, ",")
+        IF c > 0 THEN
+            x = VAL(LEFT$(w, c - 1)): y = VAL(MID$(w, c + 1))
+            IF n = 0 THEN px = x: py = y
+            LINE_TOOL.START_X = px: LINE_TOOL.START_Y = py: LINE_TOOL.END_X = x: LINE_TOOL.END_Y = y
+            LINE_TOOL.SPOKES = 0: LINE_TOOL.START_CAP = LINE_CAP_NONE: LINE_TOOL.END_CAP = LINE_CAP_NONE
+            LINE_TOOL.DRAGGING = TRUE
+            MOUSE_release_line
+            px = x: py = y: n = n + 1
+        END IF
+    LOOP
+    HISTORY_IN_PROGRESS% = hip
+    IF before < -1 THEN
+        HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(DRAW_COLOR~&), 0, before, "Brush Stroke"
+        HISTORY_saved_this_frame% = TRUE
+    END IF
+    ACTS_brush_play% = (n > 0)
+END FUNCTION
+
+
+''
+' A stop step j of action a, played: its message, CONTINUE (TRUE) or STOP.
+FUNCTION ACTS_stop_asks% (a AS INTEGER, j AS INTEGER)
+    DIM r AS INTEGER, msg AS STRING
+    IF ACTS.batch THEN ACTS_stop_asks% = TRUE: EXIT FUNCTION ' (a batch goes on: nobody to ask)
+    msg = ACTS_NM(j): IF LEN(_TRIM$(msg)) = 0 THEN msg = "Stop."
+    r = DRAW_message_box_ex%("Action: " + ACTS_NM(a), msg, MB_BTN_OK_CANCEL, MB_ICON_INFO, "Continue|Stop")
+    ACTS_stop_asks% = (r = MB_RESULT_1)
+END FUNCTION
+
+
+''
+' A stop with message msg after node nd (a step: after it; an action: at its end; while
+' recording: where the next step goes). Returns its node (0 = no action there).
+FUNCTION ACTS_insert_stop% (nd AS INTEGER, msg AS STRING)
+    DIM a AS INTEGER, at AS INTEGER, n AS INTEGER
+    IF ACTS.recording THEN
+        a = ACTS.recording
+        IF ACTS.recAfter > a _ANDALSO ACTS.recAfter < ACTS_end_of%(a) THEN at = ACTS.recAfter + 1 ELSE at = ACTS_end_of%(a)
+    ELSE
+        IF nd < 1 _ORELSE nd > ACTS_N THEN EXIT FUNCTION
+        SELECT CASE ACTS_D(nd)
+            CASE 1: a = nd: at = ACTS_end_of%(nd)
+            CASE 2: a = ACTS_up%(nd, 1): at = nd + 1
+            CASE ELSE: EXIT FUNCTION
+        END SELECT
+    END IF
+    IF a = 0 THEN EXIT FUNCTION
+    n = ACTS_insert%(at, 2, msg)
+    IF n = 0 THEN EXIT FUNCTION
+    ACTS_CMD(n) = ACTS_CMD_STOP
+    ACTS_OPEN(a) = TRUE
+    IF ACTS.recording THEN ACTS.recAfter = n
+    ACTS_save_set ACTS_up%(n, 0)
+    ACTS_touch
+    ACTS_insert_stop% = n
+END FUNCTION
+
+
+''
+' PLAY: node a set (its actions), an action (its steps), or a step (its action from there).
+' One undo step, named after what was played.
+SUB ACTS_play (node AS INTEGER)
+    DIM nd AS INTEGER, a AS INTEGER, e AS INTEGER, seq AS LONG, i AS INTEGER, nm AS STRING, own AS INTEGER
+    ACTS_load
+    nd = node
+    IF nd < 1 _ORELSE nd > ACTS_N THEN STATUS_flash "ACTIONS: PICK AN ACTION TO PLAY": EXIT SUB
+    IF ACTS.playing THEN EXIT SUB
+    IF ACTS.recording THEN ACTS_record_stop
+    nm = ACTS_NM(nd)
+    ACTS.lastRun = 0: ACTS.lastSkip = 0: ACTS.halted = FALSE
+    IF HISTORY_GROUP_ACTIVE% = 0 _ANDALSO HISTORY_IN_PROGRESS% = 0 THEN HISTORY_begin_group: own = TRUE
+    seq = HISTORY_GROUP_SEQUENCE
+    ACTS.playing = TRUE
+    SELECT CASE ACTS_D(nd)
+        CASE 0
+            e = ACTS_end_of%(nd)
+            FOR a = nd + 1 TO e - 1
+                IF ACTS_D(a) = 1 THEN ACTS_play_steps a, a + 1, ACTS_end_of%(a)
+            NEXT a
+        CASE 1
+            ACTS_play_steps nd, nd + 1, ACTS_end_of%(nd)
+        CASE ELSE
+            a = ACTS_up%(nd, 1)
+            IF a > 0 THEN ACTS_play_steps a, nd, ACTS_end_of%(a)
+    END SELECT
+    ACTS.playing = FALSE
+    IF own THEN
+        HISTORY_end_group
+        ' the undo step is named after the action (the History palette shows it)
+        FOR i = 1 TO HISTORY.count
+            IF HISTORY_RECORDS(i).sequence = seq _ANDALSO seq <> 0 THEN HISTORY_RECORDS(i).label = LEFT$("Action: " + nm, 32): EXIT FOR
+        NEXT i
+    END IF
+    IF ACTS.halted THEN
+        STATUS_flash "STOPPED " + UCASE$(nm) + " AFTER " + _TRIM$(STR$(ACTS.lastRun)) + " STEP" + _IIF(ACTS.lastRun = 1, "", "S")
+    ELSE
+        STATUS_flash "PLAYED " + UCASE$(nm) + ": " + _TRIM$(STR$(ACTS.lastRun)) + " STEP" + _IIF(ACTS.lastRun = 1, "", "S") + _IIF(ACTS.lastSkip > 0, " (" + _TRIM$(STR$(ACTS.lastSkip)) + " SKIPPED)", "")
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
+    ACTS_touch
+END SUB
+
+
+' =============================================================================
+' Files
+' =============================================================================
+
+FUNCTION ACTS_dir$ ()
+    DIM d AS STRING
+    IF LEN(ACTS_DIR_OVERRIDE) THEN d = ACTS_DIR_OVERRIDE ELSE d = PATHS_data$(ACTS_DIRNAME)
+    IF _DIREXISTS(d) = 0 THEN PATHS_ensure_dir d
+    ACTS_dir$ = d + PATHS_sep$
+END FUNCTION
+
+
+''
+' nm as a file name: letters, digits, space, - and _ kept, the rest _.
+FUNCTION ACTS_safe$ (nm AS STRING)
+    DIM r AS STRING, i AS INTEGER, c AS STRING
+    FOR i = 1 TO LEN(nm)
+        c = MID$(nm, i, 1)
+        IF (c >= "A" _ANDALSO c <= "Z") _ORELSE (c >= "a" _ANDALSO c <= "z") _ORELSE (c >= "0" _ANDALSO c <= "9") _ORELSE c = " " _ORELSE c = "-" _ORELSE c = "_" THEN r = r + c ELSE r = r + "_"
+    NEXT i
+    r = _TRIM$(r): IF LEN(r) = 0 THEN r = "Set"
+    ACTS_safe$ = r
+END FUNCTION
+
+
+''
+' Word k (1-based, spaces between) of s; rest = what follows it.
+FUNCTION ACTS_word$ (s AS STRING, k AS INTEGER, rest AS STRING)
+    DIM i AS INTEGER, n AS INTEGER, p AS INTEGER, q AS INTEGER
+    p = 1
+    FOR n = 1 TO k
+        DO WHILE p <= LEN(s) _ANDALSO MID$(s, p, 1) = " ": p = p + 1: LOOP
+        q = p
+        DO WHILE q <= LEN(s) _ANDALSO MID$(s, q, 1) <> " ": q = q + 1: LOOP
+        IF n = k THEN
+            ACTS_word$ = MID$(s, p, q - p)
+            i = q: DO WHILE i <= LEN(s) _ANDALSO MID$(s, i, 1) = " ": i = i + 1: LOOP
+            rest = MID$(s, i)
+            EXIT FUNCTION
+        END IF
+        p = q
+    NEXT n
+END FUNCTION
+
+
+''
+' Read one .dact file onto the end of the tree.
+SUB ACTS_read_file (path AS STRING)
+    DIM fh AS INTEGER, ln AS STRING, kw AS STRING, rest AS STRING, s AS INTEGER, n AS INTEGER, dummy AS STRING, k AS INTEGER
+    fh = FREEFILE
+    OPEN path FOR INPUT AS #fh
+    DO WHILE NOT EOF(fh)
+        LINE INPUT #fh, ln
+        ln = _TRIM$(ln)
+        IF LEN(ln) = 0 _ORELSE LEFT$(ln, 1) = "#" THEN _CONTINUE
+        kw = UCASE$(ACTS_word$(ln, 1, rest))
+        SELECT CASE kw
+            CASE "SET"
+                n = ACTS_insert%(ACTS_N + 1, 0, ""): IF n = 0 THEN EXIT DO
+                ACTS_ON(n) = (VAL(ACTS_word$(ln, 2, dummy)) <> 0)
+                ACTS_OPEN(n) = (VAL(ACTS_word$(ln, 3, rest)) <> 0)
+                ACTS_NM(n) = rest: s = n
+                ACTS_FILE(n) = path
+            CASE "ACTION"
+                IF s = 0 THEN s = ACTS_insert%(ACTS_N + 1, 0, "Actions"): ACTS_FILE(s) = path
+                n = ACTS_insert%(ACTS_N + 1, 1, ""): IF n = 0 THEN EXIT DO
+                ACTS_ON(n) = (VAL(ACTS_word$(ln, 2, dummy)) <> 0): ACTS_OPEN(n) = (VAL(ACTS_word$(ln, 3, rest)) <> 0)
+                ACTS_NM(n) = rest
+            CASE "STEP"
+                IF n = 0 _ORELSE ACTS_D(n) = 0 THEN _CONTINUE ' (a step before any action)
+                n = ACTS_insert%(ACTS_N + 1, 2, ""): IF n = 0 THEN EXIT DO
+                ACTS_CMD(n) = VAL(ACTS_word$(ln, 2, dummy))
+                ACTS_ON(n) = (VAL(ACTS_word$(ln, 3, dummy)) <> 0): ACTS_DLG(n) = (VAL(ACTS_word$(ln, 4, rest)) <> 0)
+                ACTS_NM(n) = rest
+            CASE "KEY"
+                IF n > 0 _ANDALSO ACTS_D(n) = 1 THEN
+                    k = VAL(ACTS_word$(ln, 2, dummy))
+                    IF k >= 1 _ANDALSO k <= ACTP_KEY_SLOTS _ANDALSO ACTS_key_node%(k) = 0 THEN ACTS_KEY(n) = k ' (a slot taken already: the first keeps it)
+                END IF
+            CASE "PARAM"
+                IF n > 0 _ANDALSO ACTS_D(n) = 2 THEN
+                    IF LEN(ACTS_PRM(n)) THEN ACTS_PRM(n) = ACTS_PRM(n) + CHR$(10)
+                    ACTS_PRM(n) = ACTS_PRM(n) + MID$(ln, 7)
+                END IF
+        END SELECT
+    LOOP
+    CLOSE #fh
+END SUB
+
+
+''
+' Write set node s to its file (a renamed set: the old file goes).
+SUB ACTS_save_set (s AS INTEGER)
+    DIM fh AS INTEGER, path AS STRING, j AS INTEGER, e AS INTEGER, p AS STRING, k AS INTEGER, ln AS STRING
+    IF s < 1 _ORELSE s > ACTS_N THEN EXIT SUB
+    IF ACTS_D(s) <> 0 THEN EXIT SUB
+    path = ACTS_dir$ + ACTS_safe$(ACTS_NM(s)) + ACTS_EXT
+    IF LEN(ACTS_FILE(s)) _ANDALSO ACTS_FILE(s) <> path _ANDALSO _FILEEXISTS(ACTS_FILE(s)) THEN KILL ACTS_FILE(s)
+    ACTS_FILE(s) = path
+    fh = FREEFILE
+    OPEN path FOR OUTPUT AS #fh
+    PRINT #fh, "# DRAW actions - one set (GUI/ACTIONS-PANEL). SET / ACTION <on> <open> <name>,"
+    PRINT #fh, "# STEP <command id> <on> <dialog> <name>, PARAM <dialog values> after its step,"
+    PRINT #fh, "# KEY <action key slot> after its action (the key is in DRAW.bindings), STEP -1 = a stop."
+    PRINT #fh, "SET " + _IIF(ACTS_ON(s), "1", "0") + " " + _IIF(ACTS_OPEN(s), "1", "0") + " " + ACTS_NM(s)
+    e = ACTS_end_of%(s)
+    FOR j = s + 1 TO e - 1
+        IF ACTS_D(j) = 1 THEN
+            PRINT #fh, "ACTION " + _IIF(ACTS_ON(j), "1", "0") + " " + _IIF(ACTS_OPEN(j), "1", "0") + " " + ACTS_NM(j)
+            IF ACTS_KEY(j) > 0 THEN PRINT #fh, "KEY " + _TRIM$(STR$(ACTS_KEY(j)))
+        ELSE
+            PRINT #fh, "STEP " + _TRIM$(STR$(ACTS_CMD(j))) + " " + _IIF(ACTS_ON(j), "1", "0") + " " + _IIF(ACTS_DLG(j), "1", "0") + " " + ACTS_NM(j)
+            p = ACTS_PRM(j)
+            DO WHILE LEN(p)
+                k = INSTR(p, CHR$(10))
+                IF k = 0 THEN ln = p: p = "" ELSE ln = LEFT$(p, k - 1): p = MID$(p, k + 1)
+                PRINT #fh, "PARAM " + ln
+            LOOP
+        END IF
+    NEXT j
+    CLOSE #fh
+END SUB
+
+
+''
+' A new set at the end, named nm (made unique). Returns its node.
+FUNCTION ACTS_new_set% (nm AS STRING)
+    DIM n AS INTEGER, bnm AS STRING, k AS INTEGER, t AS STRING
+    bnm = _TRIM$(nm): IF LEN(bnm) = 0 THEN bnm = "Set"
+    t = bnm: k = 1
+    DO WHILE ACTS_set_named%(t)
+        k = k + 1: t = bnm + " " + _TRIM$(STR$(k))
+    LOOP
+    n = ACTS_insert%(ACTS_N + 1, 0, t)
+    IF n THEN ACTS_save_set n
+    ACTS_new_set% = n
+END FUNCTION
+
+
+FUNCTION ACTS_set_named% (nm AS STRING)
+    DIM j AS INTEGER
+    FOR j = 1 TO ACTS_N
+        IF ACTS_D(j) = 0 _ANDALSO UCASE$(ACTS_safe$(ACTS_NM(j))) = UCASE$(ACTS_safe$(nm)) THEN ACTS_set_named% = j: EXIT FUNCTION
+    NEXT j
+END FUNCTION
+
+
+''
+' A new action at the end of set s, named nm. Returns its node.
+FUNCTION ACTS_new_action% (s AS INTEGER, nm AS STRING)
+    DIM n AS INTEGER
+    IF s < 1 _ORELSE s > ACTS_N THEN EXIT FUNCTION
+    n = ACTS_insert%(ACTS_end_of%(s), 1, nm)
+    IF n THEN ACTS_OPEN(s) = TRUE: ACTS_save_set ACTS_up%(n, 0)
+    ACTS_new_action% = n
+END FUNCTION
+
+
+''
+' A step for command cmd at the end of action a (the starter set).
+SUB ACTS_add_step (a AS INTEGER, cmd AS INTEGER)
+    DIM n AS INTEGER
+    n = ACTS_insert%(ACTS_end_of%(a), 2, ACTS_cmd_name$(cmd))
+    IF n THEN ACTS_CMD(n) = cmd
+END SUB
+
+
+''
+' The starter set, the first time (a .seeded marker after: deleting it keeps it gone).
+SUB ACTS_seed ()
+    DIM s AS INTEGER, a AS INTEGER, fh AS INTEGER
+    IF _FILEEXISTS(ACTS_dir$ + ACTS_SEEDED) THEN EXIT SUB
+    s = ACTS_insert%(ACTS_N + 1, 0, "Default Actions")
+    IF s = 0 THEN EXIT SUB
+    a = ACTS_insert%(ACTS_end_of%(s), 1, "Mirror Both Ways")
+    ACTS_add_step a, 1803: ACTS_add_step a, 1804 ' Flip Canvas Horizontal, Vertical
+    ACTS_OPEN(a) = FALSE
+    a = ACTS_insert%(ACTS_end_of%(s), 1, "Rotate 180")
+    ACTS_add_step a, 319: ACTS_add_step a, 319 ' Rotate 90 CW, twice
+    ACTS_OPEN(a) = FALSE
+    a = ACTS_insert%(ACTS_end_of%(s), 1, "Gray Negative")
+    ACTS_add_step a, 2008: ACTS_add_step a, 2007 ' Desaturate, Invert
+    ACTS_OPEN(a) = FALSE
+    ACTS_save_set s
+    fh = FREEFILE
+    OPEN ACTS_dir$ + ACTS_SEEDED FOR OUTPUT AS #fh
+    PRINT #fh, "The starter Actions set was written once; delete it and it stays deleted."
+    CLOSE #fh
+END SUB
+
+
+''
+' Read every set file (once; ACTS_reload reads them again).
+SUB ACTS_load ()
+    DIM d AS STRING, f AS STRING, nf AS INTEGER, i AS INTEGER, j AS INTEGER, t AS STRING
+    IF ACTS.loaded THEN EXIT SUB
+    ACTS.loaded = TRUE
+    ACTS_N = 0: ACTS.recording = 0: ACTS.recAfter = 0: ACTP.sel = 0
+    d = ACTS_dir$
+    ' the files, sorted by name
+    REDIM fl(1 TO 1) AS STRING
+    f = _FILES$(d + "*" + ACTS_EXT)
+    DO WHILE LEN(f)
+        IF LCASE$(RIGHT$(f, LEN(ACTS_EXT))) = ACTS_EXT THEN
+            nf = nf + 1
+            IF nf > UBOUND(fl) THEN REDIM _PRESERVE fl(1 TO nf + 15) AS STRING
+            fl(nf) = f
+        END IF
+        f = _FILES$
+    LOOP
+    FOR i = 1 TO nf - 1
+        FOR j = i + 1 TO nf
+            IF UCASE$(fl(j)) < UCASE$(fl(i)) THEN t = fl(i): fl(i) = fl(j): fl(j) = t
+        NEXT j
+    NEXT i
+    FOR i = 1 TO nf
+        ACTS_read_file d + fl(i)
+    NEXT i
+    IF nf = 0 THEN ACTS_seed
+    ACTS_touch
+END SUB
+
+
+SUB ACTS_reload ()
+    ACTS.loaded = FALSE
+    ACTS_load
+END SUB

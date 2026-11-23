@@ -6,12 +6,16 @@
 //                        when piped / captured: `vim $(DRAW --cfg)`, `| grep`)
 //   gj_console_prepare() - Windows: enable ANSI escape processing + UTF-8 output
 //                        on the console; no-op elsewhere. Returns 1 when ANSI is OK.
+//   gj_stdin_isatty()  - 1 when stdin is a terminal (a question can be asked)
+//   gj_stdin_getc()    - next byte of stdin, -1 at end of input (flushes stdout first,
+//                        so a prompt printed just before shows)
 // -----------------------------------------------------------------------------
 #ifdef _WIN32
 #include <io.h>
 #include <stdio.h>
 #include <windows.h>
 extern "C" int gj_stdout_isatty(void) { return _isatty(_fileno(stdout)) ? 1 : 0; }
+extern "C" int gj_stdin_isatty(void) { return _isatty(_fileno(stdin)) ? 1 : 0; }
 extern "C" int gj_console_prepare(void) {
     HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
     DWORD m = 0;
@@ -20,8 +24,15 @@ extern "C" int gj_console_prepare(void) {
     return SetConsoleMode(h, m | 0x0004 /* ENABLE_VIRTUAL_TERMINAL_PROCESSING */) ? 1 : 0;
 }
 #else
+#include <stdio.h>
 #include <unistd.h>
 extern "C" int gj_stdout_isatty(void) { return isatty(1) ? 1 : 0; }
+extern "C" int gj_stdin_isatty(void) { return isatty(0) ? 1 : 0; }
 extern "C" int gj_console_prepare(void) { return 1; }
 #endif
+extern "C" int gj_stdin_getc(void) {
+    fflush(stdout);
+    int c = getchar();
+    return c == EOF ? -1 : c;
+}
 #endif

@@ -45,7 +45,7 @@ When all items are checked off, the manual is fully illustrated.
 ### Chapter 3 — Color & Palette
 
 - [ ] **`images/ch03-color-mixer.png`** — Color Mixer alongside canvas.
-  - Setup: Open `View → Color Mixer`. Drag mixer to right of canvas.
+  - Setup: Open `View → Panels → Color Mixer`. Drag mixer to right of canvas.
   - Action: Adjust H slider mid-range so swatch is vivid blue/purple.
   - Capture: Full window crop.
 

@@ -11,6 +11,19 @@ Each panel is an ordered list of entries `BL(panel, i)` with `BL_N(panel)` entri
 | toolbox | `BL_TOOLBOX` (1) | **`TOOLBAR_BUTTON_ORDER()`** — `BL(BL_TOOLBOX)` is only a working copy (the editor loads it with `TBED_tb_load` and writes it back with `TOOLBAR_layout_apply%`) |
 | edit bar | `BL_EDITBAR` (2) | `BL(BL_EDITBAR)` itself — `BL_bar_draw%` / `BL_bar_hit%` / `BL_bar_click` |
 | advanced bar | `BL_ADVBAR` (3) | `BL(BL_ADVBAR)` itself |
+| PANELS bar | `BL_PANELSBAR` (4) | `BL(BL_PANELSBAR)` itself (`GUI/CMDBARS`, 2026-11-22) |
+| I/O bar | `BL_IOBAR` (5) | `BL(BL_IOBAR)` itself |
+
+`BL_PANELS` (5) is the panel count: every per-panel loop runs `BL_TOOLBOX TO BL_PANELS`.
+
+### The PANELS and I/O bars (`GUI/CMDBARS.BI/BM`, prefix `CBAR_`)
+
+Rick 2026-11-22: two more bars "just like advanced and edit bars" - PANELS (every View panel toggle, lit while that panel shows) and I/O (New / Open / Import / Save / Export). One `CBAR(1 TO CBAR_N)` array, `CBAR_PANELS` = 1 / `CBAR_IO` = 2; map with `CBAR_dp%` (DP_PANELSBAR 16 / DP_IOBAR 17), `CBAR_bl%`, `CBAR_region%` (REGION_PANELS_BAR 41 / REGION_IO_BAR 42), `CBAR_act%` (2770 / 2771, View > Panels > PANELS Bar / I/O Bar), `CBAR_section$` (`PANELS_BAR` / `IO_BAR`: cfg section, workspace section, dump name). Off by default (`CFG.PANELS_BAR` / `IO_BAR`); first shown, `DOCK_cbar_place` puts PANELS in a new column beside the advanced bar, I/O beside the edit bar.
+- Lit = `BL_cmd_enabled%` ANDs `CBAR_action_enabled%`, which reads each panel's state directly (the menu checkmarks only update while the menu bar draws).
+- Columns 1-4 (`*_BAR_COLUMNS`, `CBAR_NCOLS` from a workspace); a wider docked column flows more icon columns.
+- Customize Toolbars tabs PANELS / I/O (`TBED_CTL_TAB` = 20, tabs 20..24); prose uses `TBED_panel_name$` ("I/O BAR"). Workspaces: `[PANELS_BAR]` / `[IO_BAR]` `ORDER=` / `COLUMNS=` (the writer's section list in `WSC_save` must name them - it dropped them once); universal: `PANELS_BAR_ORDER` / `IO_BAR_ORDER`.
+- Dividers / gaps per panel (Rick 2026-11-23): `BL_DIVSZ` (size + 1; 0 = default - read through `BL_div_size%` / `BL_div_px%`: the theme's `ICON_BAR_DIVIDER_MARGIN` on a bar, 0 in the toolbox), `BL_SHOWDIV` (a line, theme `ICON_BAR_DIVIDER_FG`), `BL_SHOWGAP` (a dotted cell outline, `BL_gap_outline`). Editor row `TBED.yStyle` (DIVIDER - n +, SHOW DIVIDERS, SHOW GAPS; controls 18/19/25/26). Workspace `DIVIDER_SIZE=` / `SHOW_DIVIDERS=` / `SHOW_GAPS=` in each section (`TBED_store_style`, also Save Current Layout; read by `WS_apply_bl_style%`, reset by `WS_bars_reset`). Toolbox: slot y adds `TOOLBAR_divs_before%(i) * px * scale`; every toolbox height formula adds `TOOLBAR_divs_h%(scl)` (render, background, is_over_area, `TOOLBAR_rows_h%`, `DOCK_fixed_h_units%`). Sideways bars in a top / bottom row (`BL_bar_draw_h%`, width `BL_hbar_span%` / `BL_hbar_w%`) are one even grid while both are off (Rick 2026-11-16, no breaks); with `BL_SHOWDIV` a divider (not the last entry) ends the icon column, takes `BL_hbar_div_w%` = max(px, 1) and draws a vertical line; with `BL_SHOWGAP` a gap takes an outlined cell (Rick 2026-11-23). QA `tbed-dividers-row.sh`. Dump `TBSTYLE panel size px showDiv showGap`; QA `tbed-dividers-gaps.sh`.
+- Dump: `CBAR <panels_bar|io_bar> wanted visible x1 y1 x2 y2 hover scroll contentH cols entries`; buttons in `BTN` / `BTNS` as `panelsbar` / `iobar`. QA `cmd-bars.sh`.
 
 Entry kinds: `BL_TOOL` (id = `TB_*` toolbox button), `BL_CMD` (id = action id), `BL_DIV` (divider: ends the row), `BL_GAP` (empty cell).
 
@@ -23,11 +36,11 @@ Entry kinds: `BL_TOOL` (id = `TB_*` toolbox button), `BL_CMD` (id = action id), 
 
 ### Toolbox codes (`TOOLBAR_BUTTON_ORDER`)
 
-`-1` gap, `TB_DIV_CODE` (-2) divider (ends a row), `TB_CMD_BASE + action` (1000+) a command cell (`TOOLBAR_draw_cmd_cell`), else a `TB_*` tool. A command cell that is a toggle and on draws pushed like the current tool (`TOOLBAR_cmd_on%`: 958 / 959 / 609 directly, else its menu item's checkmark from `MENUBAR_update_checkboxes`; `TOOLBAR_draw_pushed`), and a right-click on a toolbox / Edit Bar / Advanced Bar Edge-Mode button (959) switches its target (960). Customize Toolbars draws toolbox-tab command rows through `TOOLBAR_draw_cmd_cell` too (theme cell art, not the 16px bar icon). QA: `toolbox-toggle-pushed.sh`, `edge-mode-button*.sh`. `TB_MAX_SLOTS` = 96. Row/col of a slot: `TOOLBAR_slot_rc` (dividers end rows); rows: `TOOLBAR_rows_for%`. **`TB_SLOT_X/Y(i)` is recorded for every slot during render** (gaps too) and every hit loop uses it — never recompute row/col from `i \ cols`.
+`-1` gap, `TB_DIV_CODE` (-2) divider (ends a row), `TB_CMD_BASE + action` (1000+) a command cell (`TOOLBAR_draw_cmd_cell`), else a `TB_*` tool. A command cell that is a toggle and on draws pushed like the current tool (`TOOLBAR_cmd_on%`: 958 / 959 / 609 directly, else its menu item's checkmark from `MENUBAR_update_checkboxes`; `TOOLBAR_draw_pushed`). 959 (the bars' button, once the shared PP / AA Edge-Mode button) is Pixel-Perfect only - no right-click, no AA tag (2026-11-21). Customize Toolbars draws toolbox-tab command rows through `TOOLBAR_draw_cmd_cell` too (theme cell art, not the 16px bar icon). QA: `toolbox-toggle-pushed.sh`, `edge-mode-button*.sh`. `TB_MAX_SLOTS` = 96. Row/col of a slot: `TOOLBAR_slot_rc` (dividers end rows); rows: `TOOLBAR_rows_for%`. **`TB_SLOT_X/Y(i)` is recorded for every slot during render** (gaps too) and every hit loop uses it — never recompute row/col from `i \ cols`.
 
 ### Names in workspace files
 
-Existing names stay (`move`, `undo`, `preview`, …); any other command is `cmd:<action id>` (a bare number also works); `|` divider; `-` gap. Bar names (`undo`, …) are valid in `[TOOLBOX] BUTTONS=` too (`BL_bar_cmd_by_name%`). `[EDIT_BAR]/[ADVANCED_BAR] ORDER=` is an ordered list; the legacy `BUTTONS=` is a visibility filter over the default order (`WS_apply_bar_list%`).
+Existing names stay (`move`, `undo`, `preview`, …); any other command is `cmd:<action id>` (a bare number also works); `|` divider; `-` gap. Bar names (`undo`, …) are valid in `[TOOLBOX] BUTTONS=` too (`BL_bar_cmd_by_name%`). `[EDIT_BAR]/[ADVANCED_BAR]/[PANELS_BAR]/[IO_BAR] ORDER=` is an ordered list; the legacy `BUTTONS=` is a visibility filter over the default order (`WS_apply_bar_list%`).
 
 ## Customize Toolbars (`GUI/TOOLBAR-EDITOR.BI/BM`, prefix `TBED_`)
 

@@ -1,0 +1,1962 @@
+''
+' DRAW - GUI/UIKIT/UIP-INSPECTOR.BM
+' =============================================================================
+' UIKIT inspector widget. HOST-INDEPENDENT (see UIP-INSPECTOR.BI). Needs the
+' UIP registry (UIP.BM) and QB64_GJ_LIB/TEXT_INPUT.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Load the font and set the defaults. Safe to call again (re-inits nothing).
+' Call UIPI_state_load after it to restore a saved dock / scale / split.
+' @param fontPath STRING TTF to use (proportional is fine: text is measured)
+' @param fontSize INTEGER pixel size
+'
+SUB UIPI_init (fontPath AS STRING, fontSize AS INTEGER)
+    IF UIPI.ready THEN EXIT SUB
+    UIPI.fnt = 0
+    IF LEN(fontPath) _ANDALSO _FILEEXISTS(fontPath) THEN UIPI.fnt = _LOADFONT(fontPath, fontSize)
+    IF UIPI.fnt <= 0 THEN UIPI.fnt = 8 ' built-in 8x8
+    UIPI.meas = _NEWIMAGE(4, 4, 32)
+    _FONT UIPI.fnt, UIPI.meas
+    UIPI.fontW = UIPI_tw%("W")
+    UIPI.fontH = _FONTHEIGHT(UIPI.fnt)
+    IF UIPI.fontW < 1 THEN UIPI.fontW = 6
+    IF UIPI.fontH < 1 THEN UIPI.fontH = 8
+    UIPI.rowH = UIPI.fontH + 2
+    IF UIPI.edge = 0 THEN UIPI.edge = UIPI_EDGE_RIGHT
+    IF UIPI.dockW = 0 THEN UIPI.dockW = 230
+    IF UIPI.dockH = 0 THEN UIPI.dockH = 150
+    IF UIPI.fw = 0 THEN UIPI.fx = 80: UIPI.fy = 80: UIPI.fw = 230: UIPI.fh = 300
+    IF UIPI.treeH = 0 THEN UIPI.treeH = 120
+    IF UIPI.treeW = 0 THEN UIPI.treeW = 170
+    IF UIPI.autoScale <= 0 THEN UIPI.autoScale = 1
+    UIPI.showTree = TRUE
+    UIPI.filtTi = TI_create%(2, UIPI_TITLE_H + UIPI_BAR_H + UIPI_COMP_H + 1, 100, UIPI_FILT_H - 2)
+    IF UIPI.filtTi > 0 THEN
+        UIPI_ti_style UIPI.filtTi
+        TI_inputs(UIPI.filtTi).placeholder = "FILTER (KEY OR DESCRIPTION)"
+    END IF
+    UIPI.ready    = TRUE
+    UIPI.rebuild  = TRUE
+    UIPI.treeRows = TRUE
+    UIPI.changed  = TRUE
+END SUB
+
+''
+' Free the images, font and text inputs.
+'
+SUB UIPI_free ()
+    IF UIPI.img < -1 THEN _FREEIMAGE UIPI.img
+    UIPI.img = 0
+    IF UIPI.menuImg < -1 THEN _FREEIMAGE UIPI.menuImg
+    UIPI.menuImg = 0
+    IF UIPI.meas < -1 THEN _FREEIMAGE UIPI.meas
+    UIPI.meas = 0
+    IF UIPI.fnt > 31 THEN _FREEFONT UIPI.fnt
+    UIPI.fnt = 0
+    IF UIPI.editTi > 0 THEN TI_destroy UIPI.editTi
+    IF UIPI.filtTi > 0 THEN TI_destroy UIPI.filtTi
+    UIPI.editTi = 0: UIPI.filtTi = 0
+    UIPI.ready = FALSE
+END SUB
+
+SUB UIPI_ti_style (id AS INTEGER)
+    TI_inputs(id).theme.fontHandle       = UIPI.fnt
+    TI_inputs(id).theme.fontW            = UIPI.fontW
+    TI_inputs(id).theme.fontH            = UIPI.fontH
+    TI_inputs(id).theme.bgColor          = &HFF1B1D21~&
+    TI_inputs(id).theme.focusBgColor     = &HFF111214~&
+    TI_inputs(id).theme.borderColor      = UIPI_C_BORDER
+    TI_inputs(id).theme.focusBorderColor = UIPI_C_PICK
+    TI_inputs(id).theme.textColor        = UIPI_C_TEXT
+    TI_inputs(id).theme.selectionColor   = UIPI_C_SEL
+END SUB
+
+' -----------------------------------------------------------------------------
+' Scale + layout
+' -----------------------------------------------------------------------------
+
+''
+' Window px per panel px: the Scale menu's choice, or Auto (the host's).
+'
+FUNCTION UIPI_scale! ()
+    DIM v AS SINGLE
+    v = UIPI.scaleSet
+    IF v <= 0 THEN v = UIPI.autoScale
+    IF v < 1 THEN v = 1
+    IF v > 8 THEN v = 8
+    UIPI_scale! = v
+END FUNCTION
+
+''
+' "2X", "1.5X"
+'
+FUNCTION UIPI_scale_txt$ (v AS SINGLE)
+    IF v = INT(v) THEN
+        UIPI_scale_txt$ = _TRIM$(STR$(INT(v))) + "X"
+    ELSE
+        UIPI_scale_txt$ = _TRIM$(STR$(INT(v))) + ".5X"
+    END IF
+END FUNCTION
+
+''
+' Place the panel. The host passes its screen width and the band the panel may
+' use vertically (under a menu bar, above a status bar), all in window px.
+' Call it every frame before UIPI_mouse% / UIPI_draw_to.
+'
+SUB UIPI_layout (scrnW AS INTEGER, top AS INTEGER, bottom AS INTEGER)
+    DIM availW AS INTEGER, availH AS INTEGER, sc AS SINGLE, before AS STRING
+    before = UIPI_geom_sig$
+    UIPI.scrnW = scrnW: UIPI.bandTop = top: UIPI.bandBot = bottom
+    sc = UIPI_scale!
+    UIPI.sc = sc
+    availW = INT(scrnW / sc): availH = INT((bottom - top) / sc)
+    SELECT CASE UIPI.edge
+        CASE UIPI_EDGE_LEFT, UIPI_EDGE_RIGHT
+            UIPI.w = _MIN(UIPI.dockW, availW - 20): UIPI.h = availH
+        CASE UIPI_EDGE_TOP, UIPI_EDGE_BOTTOM
+            UIPI.w = availW: UIPI.h = _MIN(UIPI.dockH, availH - 20)
+        CASE ELSE ' float
+            UIPI.fw = _MAX(120, _MIN(UIPI.fw, availW)): UIPI.fh = _MAX(90, _MIN(UIPI.fh, availH))
+            UIPI.w = UIPI.fw: UIPI.h = UIPI.fh
+    END SELECT
+    IF UIPI.w < 80 THEN UIPI.w = 80
+    IF UIPI.h < 70 THEN UIPI.h = 70
+    UIPI.scrW = INT(UIPI.w * sc): UIPI.scrH = INT(UIPI.h * sc)
+    SELECT CASE UIPI.edge
+        CASE UIPI_EDGE_LEFT: UIPI.x = 0: UIPI.y = top
+        CASE UIPI_EDGE_TOP: UIPI.x = 0: UIPI.y = top
+        CASE UIPI_EDGE_BOTTOM: UIPI.x = 0: UIPI.y = bottom - UIPI.scrH
+        CASE UIPI_EDGE_FLOAT
+            UIPI.fx = _MAX(0, _MIN(UIPI.fx, scrnW - UIPI.scrW))
+            UIPI.fy = _MAX(top, _MIN(UIPI.fy, bottom - UIPI.scrH))
+            UIPI.x = UIPI.fx: UIPI.y = UIPI.fy
+        CASE ELSE: UIPI.x = scrnW - UIPI.scrW: UIPI.y = top
+    END SELECT
+    UIPI_areas
+    IF UIPI_geom_sig$ <> before THEN
+        IF UIPI.filtTi > 0 THEN TI_set_geometry UIPI.filtTi, UIPI.ax + 2, UIPI.ay + UIPI_COMP_H + 1, UIPI.aw - 4, UIPI_FILT_H - 2
+        IF UIPI.editRow > 0 THEN UIPI_edit_end TRUE
+        UIPI_clamp_scroll
+        UIPI_tree_clamp
+        UIPI.changed = TRUE
+    END IF
+END SUB
+
+FUNCTION UIPI_geom_sig$ ()
+    UIPI_geom_sig$ = MKI$(UIPI.x) + MKI$(UIPI.y) + MKI$(UIPI.w) + MKI$(UIPI.h) + MKS$(UIPI.sc) + MKI$(UIPI.ax) + MKI$(UIPI.ay) + MKI$(UIPI.aw) + MKI$(UIPI.ab) + MKI$(UIPI.tw) + MKI$(UIPI.th)
+END FUNCTION
+
+''
+' Split the panel into the tree pane and the properties pane: the tree above,
+' or beside when the panel is wide and short (docked top / bottom).
+'
+SUB UIPI_areas ()
+    DIM top0 AS INTEGER, bot0 AS INTEGER, room AS INTEGER
+    top0 = UIPI_TITLE_H + UIPI_BAR_H
+    bot0 = UIPI.h - UIPI_STAT_H
+    UIPI.tw = 0: UIPI.th = 0: UIPI.tx = 0: UIPI.ty = top0
+    UIPI.ax = 0: UIPI.ay = top0: UIPI.aw = UIPI.w: UIPI.ab = bot0
+    UIPI.side = (UIPI.w >= 2 * UIPI.h _ANDALSO UIPI.w >= 320)
+    IF UIPI.showTree = 0 THEN EXIT SUB
+    IF UIPI.side THEN
+        room = UIPI.w - 140 - UIPI_SPLIT
+        IF room < 80 THEN EXIT SUB
+        UIPI.tw = _MAX(80, _MIN(UIPI.treeW, room))
+        UIPI.th = bot0 - top0
+        UIPI.ax = UIPI.tw + UIPI_SPLIT: UIPI.aw = UIPI.w - UIPI.ax
+    ELSE
+        room = bot0 - top0 - UIPI_SPLIT - (UIPI_COMP_H + UIPI_FILT_H + 1 + 3 * UIPI.rowH)
+        IF room < 3 * UIPI.rowH THEN EXIT SUB
+        UIPI.th = _MAX(3 * UIPI.rowH, _MIN(UIPI.treeH, room))
+        UIPI.tw = UIPI.w
+        UIPI.ay = top0 + UIPI.th + UIPI_SPLIT
+    END IF
+END SUB
+
+''
+' Is window (mx, my) on the panel (or its open menu)?
+'
+FUNCTION UIPI_hit% (mx AS INTEGER, my AS INTEGER)
+    IF UIPI.visible = 0 THEN EXIT FUNCTION
+    IF UIPI.menuOpen _ANDALSO UIPI_menu_in%(mx, my) THEN UIPI_hit% = TRUE: EXIT FUNCTION
+    UIPI_hit% = (mx >= UIPI.x _ANDALSO mx < UIPI.x + UIPI.scrW _ANDALSO my >= UIPI.y _ANDALSO my < UIPI.y + UIPI.scrH)
+END FUNCTION
+
+''
+' TRUE while the panel takes the keyboard (a value or the filter is being typed).
+'
+''
+' The resize edges at window (mx, my): UIPI_RS_* bits, 0 = none. A floating
+' panel has all four (corners take two), a docked one its inner edge.
+'
+FUNCTION UIPI_resize_at% (mx AS INTEGER, my AS INTEGER)
+    DIM g AS INTEGER, dl AS INTEGER, dr AS INTEGER, dt AS INTEGER, db AS INTEGER, e AS INTEGER
+    IF UIPI.visible = 0 _ORELSE UIPI.menuOpen _ORELSE UIPI_hit%(mx, my) = 0 THEN EXIT FUNCTION
+    IF mx >= UIPI.x + UIPI.scrW _ORELSE my >= UIPI.y + UIPI.scrH THEN EXIT FUNCTION ' (the open menu)
+    g = _MAX(3, INT(UIPI.sc * 2))
+    dl = mx - UIPI.x: dr = UIPI.x + UIPI.scrW - 1 - mx
+    dt = my - UIPI.y: db = UIPI.y + UIPI.scrH - 1 - my
+    SELECT CASE UIPI.edge
+        CASE UIPI_EDGE_LEFT: IF dr < g THEN e = UIPI_RS_R
+        CASE UIPI_EDGE_RIGHT: IF dl < g THEN e = UIPI_RS_L
+        CASE UIPI_EDGE_TOP: IF db < g THEN e = UIPI_RS_B
+        CASE UIPI_EDGE_BOTTOM: IF dt < g THEN e = UIPI_RS_T
+        CASE ELSE
+            ' an edge within g, then the other direction within 3g makes a corner
+            IF dl < g THEN
+                e = UIPI_RS_L
+            ELSEIF dr < g THEN
+                e = UIPI_RS_R
+            END IF
+            IF dt < _IIF(e, 3 * g, g) THEN
+                e = e OR UIPI_RS_T
+            ELSEIF db < _IIF(e, 3 * g, g) THEN
+                e = e OR UIPI_RS_B
+            END IF
+            IF (e AND (UIPI_RS_L OR UIPI_RS_R)) = 0 _ANDALSO e <> 0 THEN
+                IF dl < 3 * g THEN
+                    e = e OR UIPI_RS_L
+                ELSEIF dr < 3 * g THEN
+                    e = e OR UIPI_RS_R
+                END IF
+            END IF
+    END SELECT
+    UIPI_resize_at% = e
+END FUNCTION
+
+''
+' For the host's pointer: the edges being dragged, else those under the pointer.
+'
+FUNCTION UIPI_cursor_edges% (mx AS INTEGER, my AS INTEGER)
+    IF UIPI.resizing THEN UIPI_cursor_edges% = UIPI.resizing ELSE UIPI_cursor_edges% = UIPI_resize_at%(mx, my)
+END FUNCTION
+
+''
+' Follow a resize drag to window (mx, my).
+'
+SUB UIPI_resize_to (mx AS INTEGER, my AS INTEGER)
+    DIM dx AS INTEGER, dy AS INTEGER, w AS INTEGER, h AS INTEGER, e AS INTEGER
+    e = UIPI.resizing
+    dx = INT((mx - UIPI.rsX) / UIPI.sc): dy = INT((my - UIPI.rsY) / UIPI.sc)
+    SELECT CASE UIPI.edge
+        CASE UIPI_EDGE_LEFT: UIPI.dockW = _MAX(80, UIPI.rsW + dx)
+        CASE UIPI_EDGE_RIGHT: UIPI.dockW = _MAX(80, UIPI.rsW - dx)
+        CASE UIPI_EDGE_TOP: UIPI.dockH = _MAX(70, UIPI.rsH + dy)
+        CASE UIPI_EDGE_BOTTOM: UIPI.dockH = _MAX(70, UIPI.rsH - dy)
+        CASE ELSE
+            w = UIPI.rsW: h = UIPI.rsH
+            IF e AND UIPI_RS_R THEN w = UIPI.rsW + dx
+            IF e AND UIPI_RS_L THEN w = UIPI.rsW - dx
+            IF e AND UIPI_RS_B THEN h = UIPI.rsH + dy
+            IF e AND UIPI_RS_T THEN h = UIPI.rsH - dy
+            w = _MAX(120, _MIN(w, INT(UIPI.scrnW / UIPI.sc)))
+            h = _MAX(90, _MIN(h, INT((UIPI.bandBot - UIPI.bandTop) / UIPI.sc)))
+            ' the far edge stays put
+            IF e AND UIPI_RS_L THEN UIPI.fx = UIPI.rsFX + INT((UIPI.rsW - w) * UIPI.sc)
+            IF e AND UIPI_RS_T THEN UIPI.fy = UIPI.rsFY + INT((UIPI.rsH - h) * UIPI.sc)
+            UIPI.fw = w: UIPI.fh = h
+    END SELECT
+    UIPI.changed = TRUE
+END SUB
+
+FUNCTION UIPI_typing% ()
+    IF UIPI.visible = 0 _ORELSE TI_focusedId = 0 THEN EXIT FUNCTION
+    UIPI_typing% = (TI_focusedId = UIPI.editTi _ORELSE TI_focusedId = UIPI.filtTi)
+END FUNCTION
+
+''
+' The dock / scale / split, to keep between runs ("KEY=N" words).
+'
+FUNCTION UIPI_state$ ()
+    DIM s AS STRING
+    s = "EDGE=" + _TRIM$(STR$(UIPI.edge))
+    s = s + " SCALE=" + _TRIM$(STR$(INT(UIPI.scaleSet * 2)))
+    s = s + " DOCKW=" + _TRIM$(STR$(UIPI.dockW)) + " DOCKH=" + _TRIM$(STR$(UIPI.dockH))
+    s = s + " TREE=" + _TRIM$(STR$(ABS(UIPI.showTree <> 0)))
+    s = s + " TREEH=" + _TRIM$(STR$(UIPI.treeH)) + " TREEW=" + _TRIM$(STR$(UIPI.treeW))
+    s = s + " FILEAZ=" + _TRIM$(STR$(ABS(UIPI.fileAZ <> 0)))
+    s = s + " OUTLINE=" + _TRIM$(STR$(ABS(UIPI.noOutline = 0)))
+    s = s + " FX=" + _TRIM$(STR$(UIPI.fx)) + " FY=" + _TRIM$(STR$(UIPI.fy))
+    s = s + " FW=" + _TRIM$(STR$(UIPI.fw)) + " FH=" + _TRIM$(STR$(UIPI.fh))
+    UIPI_state$ = s
+END FUNCTION
+
+FUNCTION UIPI_state_val% (s AS STRING, nm AS STRING, dflt AS INTEGER)
+    DIM p AS INTEGER, e AS INTEGER
+    UIPI_state_val% = dflt
+    p = INSTR(" " + s + " ", " " + nm + "=")
+    IF p = 0 THEN EXIT FUNCTION
+    p = p + LEN(nm) + 1 ' (the leading space shifts p by one: it is now the value's first char)
+    e = INSTR(p, s + " ", " ")
+    UIPI_state_val% = VAL(MID$(s, p, e - p))
+END FUNCTION
+
+''
+' Restore UIPI_state$ (unknown / missing words keep their values).
+'
+SUB UIPI_state_load (s AS STRING)
+    DIM v AS INTEGER
+    IF LEN(s) = 0 THEN EXIT SUB
+    v = UIPI_state_val%(s, "EDGE", UIPI.edge): IF v >= 1 _ANDALSO v <= 5 THEN UIPI.edge = v
+    v = UIPI_state_val%(s, "SCALE", INT(UIPI.scaleSet * 2)): IF v >= 0 _ANDALSO v <= 16 THEN UIPI.scaleSet = v / 2
+    IF UIPI.scaleSet > 0 _ANDALSO UIPI.scaleSet < 1 THEN UIPI.scaleSet = 1
+    UIPI.dockW = _MAX(80, UIPI_state_val%(s, "DOCKW", UIPI.dockW))
+    UIPI.dockH = _MAX(70, UIPI_state_val%(s, "DOCKH", UIPI.dockH))
+    UIPI.showTree = (UIPI_state_val%(s, "TREE", ABS(UIPI.showTree <> 0)) <> 0)
+    UIPI.treeH = _MAX(20, UIPI_state_val%(s, "TREEH", UIPI.treeH))
+    UIPI.treeW = _MAX(60, UIPI_state_val%(s, "TREEW", UIPI.treeW))
+    UIPI.fileAZ = (UIPI_state_val%(s, "FILEAZ", ABS(UIPI.fileAZ <> 0)) <> 0)
+    UIPI.noOutline = (UIPI_state_val%(s, "OUTLINE", ABS(UIPI.noOutline = 0)) = 0)
+    UIPI.rebuild = TRUE
+    UIPI.fx = UIPI_state_val%(s, "FX", UIPI.fx): UIPI.fy = UIPI_state_val%(s, "FY", UIPI.fy)
+    UIPI.fw = UIPI_state_val%(s, "FW", UIPI.fw): UIPI.fh = UIPI_state_val%(s, "FH", UIPI.fh)
+    UIPI.changed = TRUE
+END SUB
+
+' -----------------------------------------------------------------------------
+' Content
+' -----------------------------------------------------------------------------
+
+''
+' Show component c (0 = everything). Clears the element.
+'
+SUB UIPI_show_comp (c AS INTEGER)
+    IF UIPI.editRow > 0 THEN UIPI_edit_end TRUE
+    UIPI.comp      = c
+    UIPI.elemLabel = ""
+    UIPI.elemFiles = ""
+    UIPI.scroll    = 0
+    UIPI.sel       = 0
+    UIPI.rebuild   = TRUE
+    UIPI.changed   = TRUE
+END SUB
+
+''
+' The specific thing inside the component (a button): label + its files.
+'
+SUB UIPI_set_element (label AS STRING, fls AS STRING)
+    ' another element: back to the top, where its ELEMENT rows are
+    IF label <> UIPI.elemLabel _ORELSE fls <> UIPI.elemFiles THEN UIPI.scroll = 0: UIPI.sel = 0
+    UIPI.elemLabel = label
+    UIPI.elemFiles = fls
+    UIPI.rebuild   = TRUE
+    UIPI.changed   = TRUE
+END SUB
+
+''
+' While picking: what is under the pointer.
+'
+SUB UIPI_set_hover (c AS INTEGER, label AS STRING)
+    IF c = UIPI.hoverComp _ANDALSO label = UIPI.hoverLabel THEN EXIT SUB
+    UIPI.hoverComp  = c
+    UIPI.hoverLabel = label
+    UIPI.changed    = TRUE
+END SUB
+
+SUB UIPI_set_picking (onOff AS INTEGER)
+    IF (onOff <> 0) = (UIPI.picking <> 0) THEN EXIT SUB
+    UIPI.picking = (onOff <> 0)
+    IF UIPI.picking = 0 THEN UIPI.hoverComp = 0: UIPI.hoverLabel = ""
+    UIPI_emit "PICK " + _IIF(UIPI.picking, "1", "0")
+    UIPI.changed = TRUE
+END SUB
+
+''
+' A status-line message for a few seconds.
+'
+SUB UIPI_message (s AS STRING, isErr AS INTEGER)
+    UIPI.msg = s: UIPI.msgErr = isErr: UIPI.msgT = TIMER(.001)
+    UIPI.changed = TRUE
+END SUB
+
+SUB UIPI_emit (ev AS STRING)
+    UIPI_EVENTS = UIPI_EVENTS + ev + CHR$(10)
+END SUB
+
+''
+' The next queued event ("" = none).
+'
+FUNCTION UIPI_next_event$ ()
+    DIM p AS INTEGER
+    p = INSTR(UIPI_EVENTS, CHR$(10))
+    IF p = 0 THEN EXIT FUNCTION
+    UIPI_next_event$ = LEFT$(UIPI_EVENTS, p - 1)
+    UIPI_EVENTS = MID$(UIPI_EVENTS, p + 1)
+END FUNCTION
+
+SUB UIPI_row_add (kind AS INTEGER, prop AS INTEGER, txt AS STRING)
+    UIPI_RN = UIPI_RN + 1
+    IF UIPI_RN > UBOUND(UIPI_ROW_KIND) THEN
+        REDIM _PRESERVE UIPI_ROW_KIND(1 TO UIPI_RN + 255) AS INTEGER
+        REDIM _PRESERVE UIPI_ROW_PROP(1 TO UIPI_RN + 255) AS INTEGER
+        REDIM _PRESERVE UIPI_ROW_TEXT(1 TO UIPI_RN + 255) AS STRING
+    END IF
+    UIPI_ROW_KIND(UIPI_RN) = kind
+    UIPI_ROW_PROP(UIPI_RN) = prop
+    UIPI_ROW_TEXT(UIPI_RN) = txt
+END SUB
+
+FUNCTION UIPI_match% (s AS STRING)
+    IF LEN(UIPI.filter) = 0 THEN UIPI_match% = TRUE: EXIT FUNCTION
+    UIPI_match% = (INSTR(UCASE$(s), UCASE$(UIPI.filter)) > 0)
+END FUNCTION
+
+''
+' The rows of one section, under its header (nothing when no row matches).
+'
+SUB UIPI_add_section (sect AS STRING)
+    DIM i AS INTEGER, first AS INTEGER
+    first = TRUE
+    FOR i = 1 TO UIP_PN
+        IF UIP_P(i).section = sect THEN
+            IF UIPI_match%(UIP_P(i).pk + " " + UIP_P(i).desc) THEN
+                IF first THEN UIPI_row_add UIPI_ROW_SECTION, 0, sect: first = FALSE
+                UIPI_row_add UIPI_ROW_PROP, i, ""
+            END IF
+        END IF
+    NEXT i
+END SUB
+
+''
+' The image files of one folder, as FILE rows: A-Z (UIPI.fileAZ), else in screen
+' order - where the UIP nodes using them sit.
+'
+SUB UIPI_add_folder (folder AS STRING)
+    DIM f AS STRING, n AS INTEGER, i AS INTEGER, j AS INTEGER, t AS STRING, d AS STRING, e AS STRING, nd AS INTEGER
+    d = folder
+    IF RIGHT$(d, 1) <> "/" _ANDALSO RIGHT$(d, 1) <> "\" THEN d = d + "/"
+    IF _DIREXISTS(d) = 0 THEN EXIT SUB
+    DIM nm(1 TO 64) AS STRING
+    f = _FILES$(d)
+    DO WHILE LEN(f) _ANDALSO n < UIPI_MAX_FILES
+        e = LCASE$(RIGHT$(f, 4))
+        IF e = ".png" _ORELSE e = ".bmp" _ORELSE e = ".gif" THEN
+            IF UIPI_match%(f) THEN
+                n = n + 1
+                IF n > UBOUND(nm) THEN REDIM _PRESERVE nm(1 TO n * 2) AS STRING
+                nm(n) = f
+            END IF
+        END IF
+        f = _FILES$
+    LOOP
+    ' A-Z, or screen order: by where the node using the file sits - top to
+    ' bottom, left to right - then the files on no node, A-Z
+    DIM ky(1 TO n + 1) AS STRING, onScr AS INTEGER, tk AS STRING
+    FOR i = 1 TO n
+        nd = 0
+        IF UIPI.fileAZ = 0 THEN nd = UIP_node_with_file%(d + nm(i))
+        IF nd THEN
+            onScr = TRUE
+            ky(i) = "0" + RIGHT$("00000" + _TRIM$(STR$(_MAX(0, UIP_N(nd).y))), 5) + RIGHT$("00000" + _TRIM$(STR$(_MAX(0, UIP_N(nd).x))), 5) + UCASE$(nm(i))
+        ELSE
+            ky(i) = "1" + UCASE$(nm(i))
+        END IF
+    NEXT i
+    FOR i = 2 TO n
+        t = nm(i): tk = ky(i): j = i - 1
+        DO WHILE j >= 1
+            IF ky(j) <= tk THEN EXIT DO
+            nm(j + 1) = nm(j): ky(j + 1) = ky(j): j = j - 1
+        LOOP
+        nm(j + 1) = t: ky(j + 1) = tk
+    NEXT i
+    FOR i = 1 TO n
+        ' FILE rows carry on screen (1) / not (-1) when the folder has any on screen
+        UIPI_row_add UIPI_ROW_FILE, _IIF(onScr, _IIF(LEFT$(ky(i), 1) = "0", 1, -1), 0), d + nm(i)
+    NEXT i
+END SUB
+
+''
+' Is row r the ELEMENT header or one of the element's files (wherever listed)?
+'
+FUNCTION UIPI_row_is_elem% (r AS INTEGER)
+    DIM v AS STRING
+    IF LEN(UIPI.elemLabel) = 0 _ORELSE r < 1 _ORELSE r > UIPI_RN THEN EXIT FUNCTION
+    SELECT CASE UIPI_ROW_KIND(r)
+        CASE UIPI_ROW_HEAD
+            UIPI_row_is_elem% = (LEFT$(UIPI_ROW_TEXT(r), 9) = "ELEMENT: ")
+        CASE UIPI_ROW_FILE
+            IF LEN(UIPI.elemFiles) THEN UIPI_row_is_elem% = (INSTR("|" + UCASE$(UIPI.elemFiles) + "|", "|" + UCASE$(UIPI_ROW_TEXT(r)) + "|") > 0)
+        CASE UIPI_ROW_PROP ' an image property naming one of its files (ICON_FILL_WITH_FG = eb-fill-with-fg-color.png)
+            IF LEN(UIPI.elemFiles) _ANDALSO UIP_P(UIPI_ROW_PROP(r)).ptype = UIP_T_IMAGE THEN
+                v = UCASE$(UIP_get$(UIPI_ROW_PROP(r)))
+                IF LEN(v) THEN UIPI_row_is_elem% = (INSTR("|" + UCASE$(UIPI.elemFiles) + "|", "/" + v + "|") > 0)
+            END IF
+    END SELECT
+END FUNCTION
+
+''
+' Rebuild the property rows from the component, element, filter and ALL toggle.
+'
+SUB UIPI_rebuild ()
+    DIM c AS INTEGER, i AS INTEGER, s AS STRING, rest AS STRING, p AS INTEGER, seen AS STRING, armed AS INTEGER, nk AS INTEGER
+    ' the property a click armed for the wheel stays armed when it is still listed
+    ' (the host's screen changes - so the rows are rebuilt - while the wheel turns)
+    IF UIPI.wheelRow >= 1 _ANDALSO UIPI.wheelRow <= UIPI_RN THEN
+        IF UIPI_ROW_KIND(UIPI.wheelRow) = UIPI_ROW_PROP THEN armed = UIPI_ROW_PROP(UIPI.wheelRow)
+    END IF
+    UIPI_RN = 0
+    c = UIPI.comp
+    IF LEN(UIPI.elemLabel) _ANDALSO UIPI.showAll = 0 THEN
+        UIPI_row_add UIPI_ROW_HEAD, 0, "ELEMENT: " + UIPI.elemLabel
+        rest = UIPI.elemFiles
+        DO WHILE LEN(rest)
+            p = INSTR(rest, "|")
+            IF p > 0 THEN s = LEFT$(rest, p - 1): rest = MID$(rest, p + 1) ELSE s = rest: rest = ""
+            IF LEN(s) _ANDALSO LEFT$(s, 2) <> "K:" THEN UIPI_row_add UIPI_ROW_FILE, 0, s
+        LOOP
+        ' COMPUTED: the keys it is drawn with ("K:KEY" entries), in draw order
+        rest = UIPI.elemFiles
+        DO WHILE LEN(rest)
+            p = INSTR(rest, "|")
+            IF p > 0 THEN s = LEFT$(rest, p - 1): rest = MID$(rest, p + 1) ELSE s = rest: rest = ""
+            IF LEFT$(s, 2) = "K:" THEN
+                i = UIP_prop_find%(MID$(s, 3))
+                IF i > 0 THEN
+                    IF UIPI_match%(UIP_P(i).pk + " " + UIP_P(i).desc) THEN
+                        IF nk = 0 THEN UIPI_row_add UIPI_ROW_HEAD, 0, "COMPUTED"
+                        UIPI_row_add UIPI_ROW_PROP, i, ""
+                        nk = nk + 1
+                    END IF
+                END IF
+            END IF
+        LOOP
+        ' the rest of the component folds away under one row
+        IF nk > 0 _ANDALSO c >= 1 _ANDALSO c <= UIP_CN THEN
+            UIPI_row_add UIPI_ROW_HEAD, 0, _IIF(UIPI.elemAll, "- ", "+ ") + "ALL " + UCASE$(UIP_C(c).title) + " PROPERTIES"
+            IF UIPI.elemAll = 0 THEN UIPI_rebuild_end armed: EXIT SUB
+        END IF
+    END IF
+    IF UIPI.showAll _ORELSE c < 1 _ORELSE c > UIP_CN THEN
+        ' every section, in the order first seen
+        seen = " "
+        FOR i = 1 TO UIP_PN
+            IF INSTR(seen, " " + UIP_P(i).section + " ") = 0 THEN
+                seen = seen + UIP_P(i).section + " "
+                UIPI_add_section UIP_P(i).section
+            END IF
+        NEXT i
+    ELSE
+        rest = _TRIM$(UIP_C(c).sections)
+        DO WHILE LEN(rest)
+            p = INSTR(rest, " ")
+            IF p > 0 THEN s = LEFT$(rest, p - 1): rest = _TRIM$(MID$(rest, p + 1)) ELSE s = rest: rest = ""
+            IF LEN(s) THEN UIPI_add_section s
+        LOOP
+        rest = UIP_C(c).images
+        IF LEN(rest) THEN
+            UIPI_row_add UIPI_ROW_HEAD, 0, "IMAGES"
+            DO WHILE LEN(rest)
+                p = INSTR(rest, "|")
+                IF p > 0 THEN s = LEFT$(rest, p - 1): rest = MID$(rest, p + 1) ELSE s = rest: rest = ""
+                IF LEN(s) THEN UIPI_add_folder UIPI.root + s
+            LOOP
+        END IF
+    END IF
+    UIPI_rebuild_end armed
+END SUB
+
+''
+' UIPI_rebuild's last steps: selection / armed wheel row / scroll kept sane.
+'
+SUB UIPI_rebuild_end (armed AS INTEGER)
+    DIM i AS INTEGER
+    IF UIPI.sel > UIPI_RN THEN UIPI.sel = 0
+    UIPI.wheelRow = 0
+    IF armed THEN
+        FOR i = 1 TO UIPI_RN
+            IF UIPI_ROW_KIND(i) = UIPI_ROW_PROP _ANDALSO UIPI_ROW_PROP(i) = armed THEN UIPI.wheelRow = i: EXIT FOR
+        NEXT i
+    END IF
+    UIPI_clamp_scroll
+    UIPI.rebuild = FALSE
+    UIPI.changed = TRUE
+END SUB
+
+' -----------------------------------------------------------------------------
+' The ELEMENTS tree (UIP nodes)
+' -----------------------------------------------------------------------------
+
+''
+' The host rebuilt its nodes (call when UIP_node_sig$ changed).
+'
+SUB UIPI_tree_changed ()
+    UIPI.treeRows  = TRUE
+    IF UIPI.fileAZ = 0 THEN UIPI.rebuild = TRUE ' IMAGES rows follow the nodes
+    UIPI.treeHover = 0
+    UIPI.changed   = TRUE
+END SUB
+
+''
+' Is node i open? Roots and their children start open, deeper ones closed;
+' treeFlip holds the ones toggled against that.
+'
+FUNCTION UIPI_node_open% (i AS INTEGER)
+    DIM dflt AS INTEGER, flipped AS INTEGER
+    IF i < 1 _ORELSE i > UIP_NN THEN EXIT FUNCTION
+    dflt = (UIP_N(i).depth < 2)
+    flipped = (INSTR(UIPI.treeFlip, " " + UIP_N(i).nkey + " ") > 0)
+    UIPI_node_open% = (dflt <> flipped)
+END FUNCTION
+
+SUB UIPI_tree_flip (i AS INTEGER)
+    DIM t AS STRING, p AS INTEGER
+    IF i < 1 _ORELSE i > UIP_NN THEN EXIT SUB
+    IF UIP_N(i).kids = 0 THEN EXIT SUB
+    IF LEN(UIPI.treeFlip) = 0 THEN UIPI.treeFlip = " "
+    t = " " + UIP_N(i).nkey + " "
+    p = INSTR(UIPI.treeFlip, t)
+    IF p > 0 THEN
+        UIPI.treeFlip = LEFT$(UIPI.treeFlip, p) + MID$(UIPI.treeFlip, p + LEN(t))
+    ELSE
+        UIPI.treeFlip = UIPI.treeFlip + UIP_N(i).nkey + " "
+    END IF
+    UIPI.treeRows = TRUE
+    UIPI.changed  = TRUE
+END SUB
+
+''
+' The visible rows: every node whose ancestors are all open.
+'
+SUB UIPI_tree_rebuild_rows ()
+    DIM i AS INTEGER, closedDepth AS INTEGER
+    UIPI_TRN = 0
+    closedDepth = -1
+    FOR i = 1 TO UIP_NN
+        IF closedDepth >= 0 THEN
+            IF UIP_N(i).depth > closedDepth THEN _CONTINUE
+            closedDepth = -1
+        END IF
+        UIPI_TRN = UIPI_TRN + 1
+        IF UIPI_TRN > UBOUND(UIPI_TROW) THEN REDIM _PRESERVE UIPI_TROW(1 TO UIPI_TRN + 63) AS INTEGER
+        UIPI_TROW(UIPI_TRN) = i
+        IF UIP_N(i).kids > 0 _ANDALSO UIPI_node_open%(i) = 0 THEN closedDepth = UIP_N(i).depth
+    NEXT i
+    UIPI.treeRows = FALSE
+    UIPI_tree_clamp
+END SUB
+
+FUNCTION UIPI_tree_vis% ()
+    UIPI_tree_vis% = _MAX(1, UIPI.th \ UIPI.rowH)
+END FUNCTION
+
+SUB UIPI_tree_clamp ()
+    DIM mx AS INTEGER
+    mx = _MAX(0, UIPI_TRN - UIPI_tree_vis%)
+    IF UIPI.treeScroll > mx THEN UIPI.treeScroll = mx
+    IF UIPI.treeScroll < 0 THEN UIPI.treeScroll = 0
+END SUB
+
+''
+' The tree row (1-based) under panel (lx, ly), 0 = none.
+'
+FUNCTION UIPI_tree_row_at% (lx AS INTEGER, ly AS INTEGER)
+    DIM r AS INTEGER
+    IF UIPI.tw <= 0 THEN EXIT FUNCTION
+    IF lx < UIPI.tx _ORELSE lx >= UIPI.tx + UIPI.tw - UIPI_SB_W _ORELSE ly < UIPI.ty _ORELSE ly >= UIPI.ty + UIPI.th THEN EXIT FUNCTION
+    r = UIPI.treeScroll + (ly - UIPI.ty) \ UIPI.rowH + 1
+    IF r >= 1 _ANDALSO r <= UIPI_TRN _ANDALSO r - UIPI.treeScroll <= UIPI_tree_vis% THEN UIPI_tree_row_at% = r
+END FUNCTION
+
+''
+' The row showing the selected node, 0 = none.
+'
+FUNCTION UIPI_tree_sel_row% ()
+    DIM r AS INTEGER, n AS INTEGER
+    n = UIP_node_find%(UIPI.treeSel)
+    IF n = 0 THEN EXIT FUNCTION
+    FOR r = 1 TO UIPI_TRN
+        IF UIPI_TROW(r) = n THEN UIPI_tree_sel_row% = r: EXIT FUNCTION
+    NEXT r
+END FUNCTION
+
+SUB UIPI_tree_scroll_to (r AS INTEGER)
+    DIM vis AS INTEGER
+    IF r < 1 THEN EXIT SUB
+    vis = UIPI_tree_vis%
+    IF r - 1 < UIPI.treeScroll THEN UIPI.treeScroll = r - 1
+    IF r > UIPI.treeScroll + vis THEN UIPI.treeScroll = r - vis
+    UIPI_tree_clamp
+END SUB
+
+''
+' Select node i: the properties pane shows its component (and its own files).
+'
+SUB UIPI_tree_select (i AS INTEGER)
+    IF i < 1 _ORELSE i > UIP_NN THEN EXIT SUB
+    UIPI.treeSel = UIP_N(i).nkey
+    IF UIPI.picking THEN UIPI_set_picking FALSE
+    IF UIP_N(i).comp > 0 THEN UIPI_show_comp UIP_N(i).comp
+    IF LEN(UIP_N(i).fls) THEN UIPI_set_element UIP_N(i).label, UIP_N(i).fls
+    UIPI_emit "NODE " + UIP_N(i).nkey
+    UIPI.changed = TRUE
+END SUB
+
+''
+' Show node nkey in the tree (open its ancestors, scroll to it, select it) -
+' what picking something on screen does. The properties pane is left alone.
+'
+SUB UIPI_tree_reveal (nkey AS STRING)
+    DIM i AS INTEGER, a AS INTEGER
+    i = UIP_node_find%(nkey)
+    IF i = 0 THEN EXIT SUB
+    a = UIP_N(i).parent
+    DO WHILE a > 0
+        IF UIPI_node_open%(a) = 0 THEN UIPI_tree_flip a
+        a = UIP_N(a).parent
+    LOOP
+    UIPI.treeSel = nkey
+    UIPI_tree_rebuild_rows
+    UIPI_tree_scroll_to UIPI_tree_sel_row%
+    UIPI.changed = TRUE
+END SUB
+
+''
+' The node the host should outline: the tree row under the pointer, else the node
+' using the image row under it, else (while the pointer is on the panel) the
+' selected node. 0 = none.
+'
+FUNCTION UIPI_outline_node% (mx AS INTEGER, my AS INTEGER)
+    DIM n AS INTEGER
+    IF UIPI.visible = 0 _ORELSE (UIPI.noOutline <> 0 _ANDALSO UIPI.picking = 0) THEN EXIT FUNCTION
+    IF UIPI.treeHover > 0 _ANDALSO UIPI.treeHover <= UIP_NN THEN UIPI_outline_node% = UIPI.treeHover: EXIT FUNCTION
+    ' an image row under the pointer: the node that uses the file
+    IF UIPI.hoverRow > 0 _ANDALSO UIPI.hoverRow <= UIPI_RN _ANDALSO UIPI_hit%(mx, my) THEN
+        IF UIPI_ROW_KIND(UIPI.hoverRow) = UIPI_ROW_FILE THEN
+            n = UIP_node_with_file%(UIPI_ROW_TEXT(UIPI.hoverRow))
+            IF n THEN UIPI_outline_node% = n: EXIT FUNCTION
+        END IF
+    END IF
+    IF UIPI.picking = 0 _ANDALSO UIPI_hit%(mx, my) THEN UIPI_outline_node% = UIP_node_find%(UIPI.treeSel)
+END FUNCTION
+
+SUB UIPI_tree_mouse (lx AS INTEGER, ly AS INTEGER, p1 AS INTEGER, b1 AS INTEGER, wheel AS INTEGER, shift AS INTEGER)
+    DIM r AS INTEGER, n AS INTEGER, ax0 AS INTEGER
+    IF wheel <> 0 THEN
+        UIPI.treeScroll = UIPI.treeScroll + SGN(wheel) * _IIF(shift, 10, 3)
+        UIPI_tree_clamp
+        UIPI.changed = TRUE
+    END IF
+    IF lx >= UIPI.tx + UIPI.tw - UIPI_SB_W THEN
+        ' scroll bar: jump there
+        IF b1 _ANDALSO UIPI_TRN > UIPI_tree_vis% THEN
+            UIPI.treeScroll = ((ly - UIPI.ty) * UIPI_TRN) \ _MAX(1, UIPI.th) - UIPI_tree_vis% \ 2
+            UIPI_tree_clamp
+            UIPI.changed = TRUE
+        END IF
+        EXIT SUB
+    END IF
+    IF p1 = 0 THEN EXIT SUB
+    r = UIPI_tree_row_at%(lx, ly)
+    IF r = 0 THEN EXIT SUB
+    n = UIPI_TROW(r)
+    ax0 = UIPI.tx + 2 + UIP_N(n).depth * UIPI_INDENT
+    IF UIP_N(n).kids > 0 _ANDALSO lx >= ax0 - 2 _ANDALSO lx < ax0 + 7 THEN
+        UIPI_tree_flip n ' the arrow
+    ELSEIF UIPI.clickRow = -r _ANDALSO ABS(TIMER(.001) - UIPI.clickT) < .4 THEN
+        UIPI_tree_flip n ' double-click: open / close
+        UIPI.clickRow = 0
+    ELSE
+        UIPI_tree_select n
+        UIPI.clickRow = -r: UIPI.clickT = TIMER(.001)
+    END IF
+END SUB
+
+''
+' Arrow keys while the tree has focus. TRUE = taken.
+' @param k LONG the _KEYHIT code
+'
+FUNCTION UIPI_tree_key% (k AS LONG)
+    DIM r AS INTEGER, n AS INTEGER
+    IF UIPI.treeFocus = 0 _ORELSE UIPI.tw <= 0 _ORELSE UIPI_TRN = 0 THEN EXIT FUNCTION
+    r = UIPI_tree_sel_row%
+    IF r > 0 THEN n = UIPI_TROW(r)
+    SELECT CASE k
+        CASE 18432 ' up
+            r = _MAX(1, r - 1)
+        CASE 20480 ' down
+            r = _MIN(UIPI_TRN, r + 1)
+        CASE 19200 ' left: close, else up to the parent
+            IF n > 0 THEN
+                IF UIP_N(n).kids > 0 _ANDALSO UIPI_node_open%(n) THEN
+                    UIPI_tree_flip n
+                ELSEIF UIP_N(n).parent > 0 THEN
+                    UIPI_tree_rebuild_rows
+                    UIPI.treeSel = UIP_N(UIP_N(n).parent).nkey
+                    r = UIPI_tree_sel_row%
+                END IF
+            END IF
+        CASE 19712 ' right: open, else down to the first child
+            IF n > 0 THEN
+                IF UIP_N(n).kids > 0 _ANDALSO UIPI_node_open%(n) = 0 THEN UIPI_tree_flip n ELSE r = _MIN(UIPI_TRN, r + 1)
+            END IF
+        CASE ELSE
+            EXIT FUNCTION
+    END SELECT
+    UIPI_tree_key% = TRUE
+    IF UIPI.treeRows THEN UIPI_tree_rebuild_rows
+    IF r >= 1 _ANDALSO r <= UIPI_TRN THEN
+        IF UIPI_TROW(r) <> n THEN UIPI_tree_select UIPI_TROW(r)
+        UIPI_tree_scroll_to r
+    END IF
+    UIPI.changed = TRUE
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' Geometry (panel px)
+' -----------------------------------------------------------------------------
+
+FUNCTION UIPI_list_top% ()
+    UIPI_list_top% = UIPI.ay + UIPI_COMP_H + UIPI_FILT_H + 1
+END FUNCTION
+
+FUNCTION UIPI_list_rows% ()
+    UIPI_list_rows% = _MAX(1, (UIPI.ab - UIPI_list_top%) \ UIPI.rowH)
+END FUNCTION
+
+''
+' The properties list's right edge (its scroll bar is just inside).
+'
+FUNCTION UIPI_lr% ()
+    UIPI_lr% = UIPI.ax + UIPI.aw
+END FUNCTION
+
+FUNCTION UIPI_value_x% ()
+    ' 45% of the pane, but no further right than the longest names need when
+    ' it is wide (docked across the top or bottom)
+    UIPI_value_x% = UIPI.ax + _MAX(60, _MIN(140, (UIPI.aw * 45) \ 100))
+END FUNCTION
+
+FUNCTION UIPI_edit_btn_w% ()
+    UIPI_edit_btn_w% = UIPI_tw%("EDIT") + 8
+END FUNCTION
+
+SUB UIPI_clamp_scroll ()
+    DIM mx AS INTEGER
+    mx = _MAX(0, UIPI_RN - UIPI_list_rows%)
+    IF UIPI.scroll > mx THEN UIPI.scroll = mx
+    IF UIPI.scroll < 0 THEN UIPI.scroll = 0
+END SUB
+
+''
+' Property row under panel (lx, ly) (0 = none).
+'
+FUNCTION UIPI_row_at% (lx AS INTEGER, ly AS INTEGER)
+    DIM r AS INTEGER, t AS INTEGER
+    t = UIPI_list_top%
+    IF lx < UIPI.ax _ORELSE lx >= UIPI_lr% _ORELSE ly < t _ORELSE ly >= UIPI.ab THEN EXIT FUNCTION
+    r = UIPI.scroll + (ly - t) \ UIPI.rowH + 1
+    IF r >= 1 _ANDALSO r <= UIPI_RN _ANDALSO r - UIPI.scroll <= UIPI_list_rows% THEN UIPI_row_at% = r
+END FUNCTION
+
+FUNCTION UIPI_row_y% (r AS INTEGER)
+    UIPI_row_y% = UIPI_list_top% + (r - 1 - UIPI.scroll) * UIPI.rowH
+END FUNCTION
+
+FUNCTION UIPI_bar_label$ (i AS INTEGER)
+    SELECT CASE i
+        CASE 1: UIPI_bar_label$ = "INSPECT"
+        CASE 2: UIPI_bar_label$ = "SAVE"
+        CASE 3: UIPI_bar_label$ = "DIR"
+        CASE 4: UIPI_bar_label$ = "CFG"
+        CASE 5: UIPI_bar_label$ = "ALL"
+        CASE 6: UIPI_bar_label$ = "TREE"
+        CASE 7: UIPI_bar_label$ = UIPI.hostBtn
+    END SELECT
+END FUNCTION
+
+''
+' Toolbar buttons: 6, and the host menu's when it has one.
+'
+FUNCTION UIPI_bar_n% ()
+    UIPI_bar_n% = _IIF(LEN(UIPI.hostBtn) > 0 _ANDALSO UIPI_HOST_N > 0, 7, 6)
+END FUNCTION
+
+FUNCTION UIPI_bar_x% (i AS INTEGER)
+    DIM k AS INTEGER, x AS INTEGER
+    x = 2
+    FOR k = 1 TO i - 1
+        x = x + UIPI_bar_w%(k) + 2
+    NEXT k
+    UIPI_bar_x% = x
+END FUNCTION
+
+FUNCTION UIPI_bar_at% (lx AS INTEGER)
+    DIM i AS INTEGER, x AS INTEGER
+    FOR i = 1 TO UIPI_bar_n%
+        x = UIPI_bar_x%(i)
+        IF lx >= x _ANDALSO lx < x + UIPI_bar_w%(i) THEN UIPI_bar_at% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+FUNCTION UIPI_bar_w% (i AS INTEGER)
+    UIPI_bar_w% = UIPI_tw%(UIPI_bar_label$(i)) + 8
+END FUNCTION
+
+''
+' Pixel width of s in the panel's font.
+'
+FUNCTION UIPI_tw% (s AS STRING)
+    IF UIPI.meas >= -1 THEN UIPI_tw% = LEN(s) * 8: EXIT FUNCTION
+    UIPI_tw% = _PRINTWIDTH(s, UIPI.meas)
+END FUNCTION
+
+''
+' Width of one colour channel column ("255" plus a gap).
+'
+FUNCTION UIPI_chan_w% ()
+    UIPI_chan_w% = UIPI_tw%("255") + 5
+END FUNCTION
+
+FUNCTION UIPI_title_btn_w% (i AS INTEGER)
+    IF i = 0 THEN UIPI_title_btn_w% = UIPI_tw%("8.5X") + 6 ELSE UIPI_title_btn_w% = UIPI.fontW + 4
+END FUNCTION
+
+''
+' Title buttons: 0 = the scale (opens the menu), then 1 L, 2 R, 3 T, 4 B, 5 F, 6 X.
+'
+FUNCTION UIPI_title_btn_x% (i AS INTEGER)
+    DIM x AS INTEGER
+    x = UIPI.w - 2 - (7 - _MAX(1, i)) * (UIPI_title_btn_w%(1) + 1)
+    IF i = 0 THEN x = x - UIPI_title_btn_w%(0) - 3
+    UIPI_title_btn_x% = x
+END FUNCTION
+
+''
+' The title button under lx: 0-6, -1 = none.
+'
+FUNCTION UIPI_title_at% (lx AS INTEGER)
+    DIM i AS INTEGER, x AS INTEGER
+    UIPI_title_at% = -1
+    FOR i = 0 TO 6
+        x = UIPI_title_btn_x%(i)
+        IF lx >= x _ANDALSO lx < x + UIPI_title_btn_w%(i) THEN UIPI_title_at% = i: EXIT FUNCTION
+    NEXT i
+END FUNCTION
+
+''
+' Colour channel (0-3) under local x on a colour row, -1 = the swatch, -2 = none.
+'
+FUNCTION UIPI_color_part% (lx AS INTEGER)
+    DIM vx AS INTEGER, c AS INTEGER
+    vx = UIPI_value_x%
+    IF lx < vx THEN UIPI_color_part% = -2: EXIT FUNCTION
+    IF lx < vx + 10 THEN UIPI_color_part% = -1: EXIT FUNCTION
+    c = (lx - (vx + 11)) \ UIPI_chan_w%
+    IF c < 0 THEN c = 0
+    IF c > 3 THEN c = 3
+    UIPI_color_part% = c
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' The panel menu (right-click the title, or its scale button)
+' -----------------------------------------------------------------------------
+
+SUB UIPI_menu_add (txt AS STRING, v AS INTEGER, isOn AS INTEGER)
+    IF UIPI_MENU_N >= UIPI_MENU_MAX THEN EXIT SUB
+    UIPI_MENU_N = UIPI_MENU_N + 1
+    UIPI_MENU_TXT(UIPI_MENU_N) = txt
+    UIPI_MENU_VAL(UIPI_MENU_N) = v
+    UIPI_MENU_ON(UIPI_MENU_N) = isOn
+END SUB
+
+''
+' Scale (Auto, then 1x to 6x in half steps - to 8x when Auto or the setting is
+' larger, like the host's own panels), dock edges, the tree, Close.
+'
+SUB UIPI_menu_build ()
+    DIM k AS INTEGER, topS AS INTEGER, cur AS SINGLE
+    UIPI_MENU_N = 0
+    IF UIPI.menuKind = 1 THEN ' the host's
+        FOR k = 1 TO UIPI_HOST_N
+            UIPI_menu_add UIPI_HOST_TXT(k), _IIF(UIPI_HOST_TXT(k) = "---", 0, UIPI_MV_HOST + k), 0
+        NEXT k
+        EXIT SUB
+    END IF
+    cur = UIPI.scaleSet
+    UIPI_menu_add "SCALE: AUTO (" + UIPI_scale_txt$(_MAX(1, INT(UIPI.autoScale * 2) / 2)) + ")", UIPI_MV_SCALE, (cur <= 0)
+    topS = 6
+    IF -INT(-UIPI.autoScale) > topS THEN topS = -INT(-UIPI.autoScale)
+    IF -INT(-cur) > topS THEN topS = -INT(-cur)
+    IF topS > 8 THEN topS = 8
+    FOR k = 2 TO topS * 2
+        UIPI_menu_add "SCALE: " + UIPI_scale_txt$(k / 2), UIPI_MV_SCALE + k, (cur = k / 2)
+    NEXT k
+    UIPI_menu_add "---", 0, 0
+    UIPI_menu_add "DOCK LEFT", UIPI_MV_DOCK + UIPI_EDGE_LEFT, (UIPI.edge = UIPI_EDGE_LEFT)
+    UIPI_menu_add "DOCK RIGHT", UIPI_MV_DOCK + UIPI_EDGE_RIGHT, (UIPI.edge = UIPI_EDGE_RIGHT)
+    UIPI_menu_add "DOCK TOP", UIPI_MV_DOCK + UIPI_EDGE_TOP, (UIPI.edge = UIPI_EDGE_TOP)
+    UIPI_menu_add "DOCK BOTTOM", UIPI_MV_DOCK + UIPI_EDGE_BOTTOM, (UIPI.edge = UIPI_EDGE_BOTTOM)
+    UIPI_menu_add "FLOAT", UIPI_MV_DOCK + UIPI_EDGE_FLOAT, (UIPI.edge = UIPI_EDGE_FLOAT)
+    UIPI_menu_add "---", 0, 0
+    UIPI_menu_add "ELEMENTS TREE", UIPI_MV_TREE, UIPI.showTree
+    UIPI_menu_add "IMAGES IN SCREEN ORDER", UIPI_MV_FSORT, (UIPI.fileAZ = 0)
+    UIPI_menu_add "SHOW OUTLINES (CTRL+H)", UIPI_MV_OUTLINE, (UIPI.noOutline = 0)
+    UIPI_menu_add "---", 0, 0
+    UIPI_menu_add "CLOSE", UIPI_MV_CLOSE, 0
+END SUB
+
+''
+' The host menu: an item (txt "---" = a divider) chosen -> event HOSTMENU <id>.
+'
+SUB UIPI_host_menu_add (txt AS STRING, id AS INTEGER)
+    IF UIPI_HOST_N >= UIPI_MENU_MAX THEN EXIT SUB
+    UIPI_HOST_N = UIPI_HOST_N + 1
+    UIPI_HOST_TXT(UIPI_HOST_N) = txt
+    UIPI_HOST_ID(UIPI_HOST_N) = id
+END SUB
+
+FUNCTION UIPI_menu_item_h% (i AS INTEGER)
+    IF UIPI_MENU_TXT(i) = "---" THEN UIPI_menu_item_h% = 5 ELSE UIPI_menu_item_h% = UIPI.rowH + 1
+END FUNCTION
+
+''
+' Open the menu with its top-left at window (mx, my), kept on screen.
+'
+SUB UIPI_menu_open (mx AS INTEGER, my AS INTEGER)
+    DIM i AS INTEGER, w AS INTEGER
+    UIPI_menu_build
+    w = 0: UIPI.menuH = 2
+    FOR i = 1 TO UIPI_MENU_N
+        w = _MAX(w, UIPI_tw%(UIPI_MENU_TXT(i)))
+        UIPI.menuH = UIPI.menuH + UIPI_menu_item_h%(i)
+    NEXT i
+    UIPI.menuW = w + 16
+    UIPI.menuX = mx: UIPI.menuY = my
+    IF UIPI.menuX + INT(UIPI.menuW * UIPI.sc) > UIPI.scrnW THEN UIPI.menuX = UIPI.scrnW - INT(UIPI.menuW * UIPI.sc)
+    IF UIPI.menuY + INT(UIPI.menuH * UIPI.sc) > UIPI.bandBot THEN UIPI.menuY = UIPI.bandBot - INT(UIPI.menuH * UIPI.sc)
+    IF UIPI.menuX < 0 THEN UIPI.menuX = 0
+    IF UIPI.menuY < 0 THEN UIPI.menuY = 0
+    UIPI.menuHover = 0
+    UIPI.menuOpen  = TRUE
+    UIPI.changed   = TRUE
+END SUB
+
+FUNCTION UIPI_menu_in% (mx AS INTEGER, my AS INTEGER)
+    UIPI_menu_in% = (mx >= UIPI.menuX _ANDALSO mx < UIPI.menuX + INT(UIPI.menuW * UIPI.sc) _ANDALSO my >= UIPI.menuY _ANDALSO my < UIPI.menuY + INT(UIPI.menuH * UIPI.sc))
+END FUNCTION
+
+''
+' The item under window (mx, my), 0 = none (or a divider).
+'
+FUNCTION UIPI_menu_item_at% (mx AS INTEGER, my AS INTEGER)
+    DIM ly AS INTEGER, i AS INTEGER, y AS INTEGER
+    IF UIPI.menuOpen = 0 _ORELSE UIPI_menu_in%(mx, my) = 0 THEN EXIT FUNCTION
+    ly = INT((my - UIPI.menuY) / UIPI.sc)
+    y = 1
+    FOR i = 1 TO UIPI_MENU_N
+        IF ly >= y _ANDALSO ly < y + UIPI_menu_item_h%(i) THEN
+            IF UIPI_MENU_TXT(i) <> "---" THEN UIPI_menu_item_at% = i
+            EXIT FUNCTION
+        END IF
+        y = y + UIPI_menu_item_h%(i)
+    NEXT i
+END FUNCTION
+
+''
+' IMAGES rows: screen order <-> A-Z.
+'
+SUB UIPI_toggle_file_order ()
+    UIPI.fileAZ = (UIPI.fileAZ = 0)
+    UIPI.rebuild = TRUE
+    UIPI.changed = TRUE
+    UIPI_message _IIF(UIPI.fileAZ, "IMAGES: A-Z", "IMAGES: SCREEN ORDER (TOP TO BOTTOM, LEFT TO RIGHT)"), FALSE
+    UIPI_emit "STATE"
+END SUB
+
+''
+' The host's outlines of the selected / hovered node: shown <-> hidden (to judge
+' colours with nothing over them; picking keeps its outline).
+'
+SUB UIPI_toggle_outlines ()
+    UIPI.noOutline = (UIPI.noOutline = 0)
+    UIPI.changed = TRUE
+    UIPI_message _IIF(UIPI.noOutline, "OUTLINES HIDDEN - CTRL+H SHOWS THEM", "OUTLINES SHOWN - CTRL+H HIDES THEM"), FALSE
+    UIPI_emit "STATE"
+END SUB
+
+''
+' Ctrl+C: the selected row's value to the clipboard, as theme-file text (a
+' colour "R,G,B,A"); an IMAGES row gives its path.
+'
+SUB UIPI_copy_value ()
+    DIM r AS INTEGER, k AS INTEGER
+    r = UIPI.sel
+    IF r < 1 _ORELSE r > UIPI_RN THEN UIPI_message "CLICK A PROPERTY, THEN CTRL+C COPIES ITS VALUE", TRUE: EXIT SUB
+    SELECT CASE UIPI_ROW_KIND(r)
+        CASE UIPI_ROW_PROP
+            k = UIPI_ROW_PROP(r)
+            _CLIPBOARD$ = UIP_get$(k)
+            UIPI_message "COPIED " + UIP_P(k).pk + " = " + UIP_get$(k), FALSE
+        CASE UIPI_ROW_FILE
+            _CLIPBOARD$ = UIPI_ROW_TEXT(r)
+            UIPI_message "COPIED THE PATH " + UIPI_ROW_TEXT(r), FALSE
+        CASE ELSE
+            UIPI_message "NOTHING TO COPY ON THIS ROW", TRUE
+    END SELECT
+END SUB
+
+''
+' Ctrl+V: the clipboard into the selected property, when it fits its type. A
+' colour takes "R,G,B[,A]", "#RRGGBB[AA]" or a "KEY=R,G,B,A" theme-file line;
+' without an alpha it keeps the property's own. TRUE when the value changed.
+'
+FUNCTION UIPI_paste_value% ()
+    DIM r AS INTEGER, k AS INTEGER, raw AS STRING, v AS STRING, p AS INTEGER
+    r = UIPI.sel
+    IF r < 1 _ORELSE r > UIPI_RN THEN UIPI_message "CLICK A PROPERTY, THEN CTRL+V PASTES INTO IT", TRUE: EXIT FUNCTION
+    IF UIPI_ROW_KIND(r) <> UIPI_ROW_PROP THEN UIPI_message "CTRL+V PASTES INTO A PROPERTY ROW", TRUE: EXIT FUNCTION
+    k = UIPI_ROW_PROP(r)
+    raw = _CLIPBOARD$
+    p = INSTR(raw, CHR$(10)): IF p > 0 THEN raw = LEFT$(raw, p - 1)
+    p = INSTR(raw, CHR$(13)): IF p > 0 THEN raw = LEFT$(raw, p - 1)
+    raw = _TRIM$(raw)
+    p = INSTR(raw, "=")
+    IF p > 1 _ANDALSO UIP_P(k).ptype <> UIP_T_TEXT THEN raw = _TRIM$(MID$(raw, p + 1)) ' a THEME.CFG line
+    IF raw = "" THEN UIPI_message "THE CLIPBOARD IS EMPTY", TRUE: EXIT FUNCTION
+    v = UIPI_paste_text$(UIP_P(k).ptype, raw, UIP_get$(k))
+    IF v = "" THEN UIPI_message "NOT A " + UIP_type_name$(UIP_P(k).ptype) + " VALUE: " + LEFT$(raw, 40), TRUE: EXIT FUNCTION
+    IF UIP_normalize$(UIP_P(k).ptype, v) = UIP_get$(k) THEN UIPI_message UIP_P(k).pk + " ALREADY IS " + UIP_get$(k), FALSE: EXIT FUNCTION
+    IF UIP_set%(k, v) = 0 THEN UIPI_message UIP_LAST_ERROR, TRUE: EXIT FUNCTION
+    UIPI_emit "CHANGED " + UIP_P(k).pk
+    UIPI_message "PASTED " + UIP_P(k).pk + " = " + UIP_get$(k) + " (MIDDLE-CLICK REVERTS)", FALSE
+    UIPI.changed = TRUE
+    UIPI_paste_value% = TRUE
+END FUNCTION
+
+''
+' Clipboard text raw as a value of type ptype ("" = it is not one). cur = the
+' property's value now (a colour's alpha when raw has none).
+'
+FUNCTION UIPI_paste_text$ (ptype AS INTEGER, raw AS STRING, cur AS STRING)
+    DIM s AS STRING, i AS INTEGER, c AS STRING, digits AS INTEGER, ch(3) AS INTEGER, commas AS INTEGER
+    s = raw
+    SELECT CASE ptype
+        CASE UIP_T_COLOR
+            UIP_rgba_channels cur, ch()
+            IF UIP_hex_to_rgba$(s) <> "" THEN
+                c = UIP_hex_to_rgba$(s)
+                digits = LEN(s): IF LEFT$(s, 1) = "#" THEN digits = digits - 1
+                IF digits = 6 THEN c = LEFT$(c, _INSTRREV(c, ",")) + _TRIM$(STR$(ch(3))) ' #RRGGBB: keep the alpha
+                UIPI_paste_text$ = c
+            ELSEIF UIP_valid%(UIP_T_COLOR, s) THEN
+                FOR i = 1 TO LEN(s)
+                    IF MID$(s, i, 1) = "," THEN commas = commas + 1
+                NEXT i
+                IF commas = 2 THEN s = s + "," + _TRIM$(STR$(ch(3)))
+                UIPI_paste_text$ = s
+            END IF
+        CASE UIP_T_INT, UIP_T_REAL
+            FOR i = 1 TO LEN(s)
+                c = MID$(s, i, 1)
+                IF INSTR("0123456789", c) > 0 THEN
+                    digits = digits + 1
+                ELSEIF INSTR(".-+", c) = 0 THEN
+                    EXIT FUNCTION
+                END IF
+            NEXT i
+            IF digits > 0 THEN UIPI_paste_text$ = s
+        CASE UIP_T_BOOL
+            SELECT CASE UCASE$(s)
+                CASE "TRUE", "1", "-1", "YES", "ON": UIPI_paste_text$ = "TRUE"
+                CASE "FALSE", "0", "NO", "OFF": UIPI_paste_text$ = "FALSE"
+            END SELECT
+        CASE ELSE
+            UIPI_paste_text$ = s
+    END SELECT
+END FUNCTION
+
+''
+' The order button on the IMAGES header: its label and width.
+'
+FUNCTION UIPI_order_label$ ()
+    UIPI_order_label$ = _IIF(UIPI.fileAZ, "A-Z", "SCREEN")
+END FUNCTION
+
+FUNCTION UIPI_order_btn_w% ()
+    UIPI_order_btn_w% = UIPI_tw%("SCREEN") + 6
+END FUNCTION
+
+SUB UIPI_menu_choose (i AS INTEGER)
+    DIM v AS INTEGER
+    IF i < 1 _ORELSE i > UIPI_MENU_N THEN EXIT SUB
+    v = UIPI_MENU_VAL(i)
+    IF v > UIPI_MV_HOST THEN
+        IF v - UIPI_MV_HOST <= UIPI_HOST_N THEN UIPI_emit "HOSTMENU " + _TRIM$(STR$(UIPI_HOST_ID(v - UIPI_MV_HOST)))
+    ELSEIF v >= UIPI_MV_CLOSE THEN
+        UIPI_emit "CLOSE"
+    ELSEIF v = UIPI_MV_FSORT THEN
+        UIPI_toggle_file_order
+    ELSEIF v = UIPI_MV_OUTLINE THEN
+        UIPI_toggle_outlines
+    ELSEIF v = UIPI_MV_TREE THEN
+        UIPI.showTree = (UIPI.showTree = 0)
+        UIPI_emit "STATE"
+    ELSEIF v >= UIPI_MV_DOCK THEN
+        UIPI.edge = v - UIPI_MV_DOCK
+        UIPI_emit "STATE"
+    ELSEIF v >= UIPI_MV_SCALE THEN
+        UIPI.scaleSet = (v - UIPI_MV_SCALE) / 2
+        UIPI_emit "STATE"
+    END IF
+    UIPI.changed = TRUE
+END SUB
+
+SUB UIPI_menu_render ()
+    DIM oldDest AS LONG, i AS INTEGER, y AS INTEGER, ih AS INTEGER
+    IF UIPI.menuImg < -1 THEN
+        IF _WIDTH(UIPI.menuImg) <> UIPI.menuW _ORELSE _HEIGHT(UIPI.menuImg) <> UIPI.menuH THEN _FREEIMAGE UIPI.menuImg: UIPI.menuImg = 0
+    END IF
+    IF UIPI.menuImg >= -1 THEN UIPI.menuImg = _NEWIMAGE(UIPI.menuW, UIPI.menuH, 32)
+    oldDest = _DEST
+    _DEST UIPI.menuImg
+    _FONT UIPI.fnt
+    _PRINTMODE _KEEPBACKGROUND
+    CLS , UIPI_C_TITLE
+    y = 1
+    FOR i = 1 TO UIPI_MENU_N
+        ih = UIPI_menu_item_h%(i)
+        IF UIPI_MENU_TXT(i) = "---" THEN
+            LINE (3, y + ih \ 2)-(UIPI.menuW - 4, y + ih \ 2), UIPI_C_BORDER
+        ELSE
+            IF i = UIPI.menuHover THEN LINE (1, y)-(UIPI.menuW - 2, y + ih - 1), UIPI_C_SEL, BF
+            IF UIPI_MENU_ON(i) THEN LINE (4, y + ih \ 2 - 1)-(6, y + ih \ 2 + 1), UIPI_C_PICK, BF
+            UIPI_text 10, y + (ih - UIPI.fontH) \ 2, UIPI_MENU_TXT(i), UIPI_C_TEXT
+        END IF
+        y = y + ih
+    NEXT i
+    LINE (0, 0)-(UIPI.menuW - 1, UIPI.menuH - 1), UIPI_C_BORDER, B
+    _DEST oldDest
+END SUB
+
+' -----------------------------------------------------------------------------
+' Input
+' -----------------------------------------------------------------------------
+
+''
+' Feed the pointer (window px). TRUE when the panel took it.
+' @param wheel INTEGER < 0 = up, > 0 = down
+'
+FUNCTION UIPI_mouse% (mx AS INTEGER, my AS INTEGER, b1 AS INTEGER, b2 AS INTEGER, b3 AS INTEGER, wheel AS INTEGER, shift AS INTEGER)
+    DIM p1 AS INTEGER, p2 AS INTEGER, p3 AS INTEGER, lx AS INTEGER, ly AS INTEGER, r AS INTEGER
+    DIM i AS INTEGER, k AS INTEGER, pt AS INTEGER, v AS STRING, part AS INTEGER, step1 AS INTEGER, hr AS INTEGER
+    DIM wasEdit AS INTEGER, inside AS INTEGER, inTree AS INTEGER, inSplit AS INTEGER, th AS INTEGER, lr AS INTEGER
+    IF UIPI.visible = 0 _ORELSE UIPI.ready = 0 THEN EXIT FUNCTION
+    p1 = (b1 <> 0 _ANDALSO UIPI.oldB1 = 0)
+    p2 = (b2 <> 0 _ANDALSO UIPI.oldB2 = 0)
+    p3 = (b3 <> 0 _ANDALSO UIPI.oldB3 = 0)
+    UIPI.oldB1 = (b1 <> 0): UIPI.oldB2 = (b2 <> 0): UIPI.oldB3 = (b3 <> 0)
+    lx = INT((mx - UIPI.x) / UIPI.sc): ly = INT((my - UIPI.y) / UIPI.sc)
+
+    ' ---- drags in progress: the floating panel, the divider
+    IF UIPI.dragging THEN
+        IF b1 THEN
+            UIPI.fx = mx - UIPI.dragDX: UIPI.fy = my - UIPI.dragDY
+            UIPI.changed = TRUE
+        ELSE
+            UIPI.dragging = FALSE
+            UIPI_emit "STATE"
+        END IF
+        UIPI_mouse% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF UIPI.resizing THEN
+        IF b1 THEN
+            UIPI_resize_to mx, my
+        ELSE
+            UIPI.resizing = 0
+            ' keep what the layout allowed, not what the pointer reached
+            IF UIPI.edge = UIPI_EDGE_LEFT _ORELSE UIPI.edge = UIPI_EDGE_RIGHT THEN UIPI.dockW = UIPI.w
+            IF UIPI.edge = UIPI_EDGE_TOP _ORELSE UIPI.edge = UIPI_EDGE_BOTTOM THEN UIPI.dockH = UIPI.h
+            UIPI_emit "STATE"
+        END IF
+        UIPI_mouse% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF UIPI.splitDrag THEN
+        IF b1 THEN
+            IF UIPI.side THEN UIPI.treeW = _MAX(60, lx - UIPI.tx - UIPI_SPLIT \ 2) ELSE UIPI.treeH = _MAX(20, ly - UIPI.ty - UIPI_SPLIT \ 2)
+            UIPI.changed = TRUE
+        ELSE
+            UIPI.splitDrag = FALSE
+            ' keep what the layout allowed, not what the pointer reached
+            IF UIPI.side THEN UIPI.treeW = UIPI.tw ELSE UIPI.treeH = UIPI.th
+            UIPI_emit "STATE"
+        END IF
+        UIPI_mouse% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    ' ---- the menu takes everything while it is open
+    IF UIPI.menuOpen THEN
+        i = UIPI_menu_item_at%(mx, my)
+        IF i <> UIPI.menuHover THEN UIPI.menuHover = i: UIPI.changed = TRUE
+        IF p1 _ORELSE p2 _ORELSE p3 THEN
+            IF p1 _ANDALSO i > 0 THEN UIPI_menu_choose i
+            UIPI.menuOpen = FALSE
+            UIPI.changed = TRUE
+        END IF
+        UIPI_mouse% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    ' ---- the edges: resize
+    i = UIPI_resize_at%(mx, my)
+    IF i <> UIPI.edgeHover THEN UIPI.edgeHover = i: UIPI.changed = TRUE
+    IF i <> 0 _ANDALSO p1 THEN
+        IF UIPI.editRow > 0 THEN UIPI_edit_end TRUE
+        UIPI.resizing = i
+        UIPI.rsX = mx: UIPI.rsY = my: UIPI.rsW = UIPI.w: UIPI.rsH = UIPI.h
+        UIPI.rsFX = UIPI.x: UIPI.rsFY = UIPI.y
+        UIPI_mouse% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    inside = UIPI_hit%(mx, my)
+    inTree = (inside _ANDALSO UIPI.tw > 0 _ANDALSO lx >= UIPI.tx _ANDALSO lx < UIPI.tx + UIPI.tw _ANDALSO ly >= UIPI.ty _ANDALSO ly < UIPI.ty + UIPI.th)
+    IF UIPI.tw > 0 _ANDALSO inside THEN
+        IF UIPI.side THEN
+            inSplit = (lx >= UIPI.tx + UIPI.tw _ANDALSO lx < UIPI.ax _ANDALSO ly >= UIPI.ty _ANDALSO ly < UIPI.ty + UIPI.th)
+        ELSE
+            inSplit = (ly >= UIPI.ty + UIPI.th _ANDALSO ly < UIPI.ay)
+        END IF
+    END IF
+    ' a press anywhere but the field being typed into ends the typing
+    IF (p1 _ORELSE p2 _ORELSE p3) _ANDALSO UIPI.editRow > 0 THEN
+        r = UIPI.editRow
+        IF inside = 0 _ORELSE UIPI_row_at%(lx, ly) <> r _ORELSE lx < UIPI_value_x% THEN UIPI_edit_end TRUE
+    END IF
+    IF (p1 _ORELSE p2 _ORELSE p3) _ANDALSO TI_focusedId = UIPI.filtTi _ANDALSO UIPI.filtTi > 0 THEN
+        IF inside = 0 _ORELSE lx < UIPI.ax _ORELSE ly < UIPI.ay + UIPI_COMP_H _ORELSE ly >= UIPI_list_top% THEN TI_clear_focus: UIPI.changed = TRUE
+    END IF
+    IF p1 _ORELSE p2 _ORELSE p3 THEN
+        IF UIPI.treeFocus <> inTree THEN UIPI.treeFocus = inTree: UIPI.changed = TRUE
+    END IF
+    th = 0
+    IF inTree THEN
+        r = UIPI_tree_row_at%(lx, ly)
+        IF r > 0 THEN th = UIPI_TROW(r)
+    END IF
+    IF th <> UIPI.treeHover THEN UIPI.treeHover = th: UIPI.changed = TRUE
+    IF inside = 0 THEN
+        IF UIPI.hoverRow <> 0 THEN UIPI.hoverRow = 0: UIPI.changed = TRUE
+        IF UIPI.wheelRow <> 0 THEN UIPI.wheelRow = 0: UIPI.changed = TRUE
+        EXIT FUNCTION
+    END IF
+    UIPI_mouse% = TRUE
+
+    hr = UIPI_row_at%(lx, ly)
+    IF hr <> UIPI.hoverRow THEN UIPI.hoverRow = hr: UIPI.changed = TRUE
+    ' the wheel edits a value only after a click on it, while the pointer stays on its row
+    IF UIPI.wheelRow <> 0 _ANDALSO (hr <> UIPI.wheelRow _ORELSE p1 _ORELSE p2 _ORELSE p3) THEN UIPI.wheelRow = 0: UIPI.changed = TRUE
+
+    IF ly < UIPI_TITLE_H THEN
+        ' ---- title: scale / dock / close buttons, menu, drag a floating panel
+        IF p2 THEN
+            UIPI.menuKind = 0
+            UIPI_menu_open mx, my
+        ELSEIF p1 THEN
+            i = UIPI_title_at%(lx)
+            SELECT CASE i
+                CASE 0
+                    UIPI.menuKind = 0
+                    UIPI_menu_open UIPI.x + INT(UIPI_title_btn_x%(0) * UIPI.sc), UIPI.y + INT(UIPI_TITLE_H * UIPI.sc)
+                CASE 1 TO 5
+                    IF UIPI.edge <> i THEN UIPI.edge = i: UIPI_emit "STATE"
+                CASE 6
+                    UIPI_emit "CLOSE"
+                CASE ELSE
+                    IF UIPI.edge = UIPI_EDGE_FLOAT THEN
+                        UIPI.dragging = TRUE: UIPI.dragDX = mx - UIPI.fx: UIPI.dragDY = my - UIPI.fy
+                    END IF
+            END SELECT
+            UIPI.changed = TRUE
+        END IF
+    ELSEIF ly < UIPI_TITLE_H + UIPI_BAR_H THEN
+        ' ---- toolbar
+        IF p1 THEN
+            SELECT CASE UIPI_bar_at%(lx)
+                CASE 1: UIPI_set_picking UIPI.picking = 0
+                CASE 2: UIPI_emit "SAVE"
+                CASE 3: UIPI_emit "OPENDIR"
+                CASE 4: UIPI_emit "EDITCFG"
+                CASE 5: UIPI.showAll = (UIPI.showAll = 0): UIPI.scroll = 0: UIPI.rebuild = TRUE
+                CASE 6: UIPI.showTree = (UIPI.showTree = 0): UIPI_emit "STATE"
+                CASE 7
+                    UIPI.menuKind = 1
+                    UIPI_menu_open UIPI.x + INT(UIPI_bar_x%(7) * UIPI.sc), UIPI.y + INT((UIPI_TITLE_H + UIPI_BAR_H) * UIPI.sc)
+            END SELECT
+            UIPI.changed = TRUE
+        END IF
+    ELSEIF inTree THEN
+        UIPI_tree_mouse lx, ly, p1, b1, wheel, shift
+    ELSEIF inSplit THEN
+        IF p1 THEN UIPI.splitDrag = TRUE
+    ELSEIF lx < UIPI.ax _ORELSE ly < UIPI.ay THEN
+        ' (outside the properties pane)
+    ELSEIF ly < UIPI.ay + UIPI_COMP_H THEN
+        ' ---- component line: click = up to the parent component
+        IF p1 _ANDALSO UIPI.comp > 0 _ANDALSO UIPI.comp <= UIP_CN THEN
+            IF UIP_C(UIPI.comp).parent > 0 THEN UIPI_show_comp UIP_C(UIPI.comp).parent
+        END IF
+    ELSEIF ly < UIPI_list_top% THEN
+        ' ---- filter box
+        IF p1 _ANDALSO UIPI.filtTi > 0 THEN
+            TI_set_focus UIPI.filtTi
+            TI_inputs(UIPI.filtTi).cursorPos = TI_inputs(UIPI.filtTi).textLen
+            TI_inputs(UIPI.filtTi).selStart = -1
+            UIPI.changed = TRUE
+        END IF
+    ELSEIF ly < UIPI.ab THEN
+        ' ---- the property list
+        r = hr
+        lr = UIPI_lr%
+        IF lx >= lr - UIPI_SB_W THEN
+            ' scroll bar: jump there
+            IF b1 _ANDALSO UIPI_RN > UIPI_list_rows% THEN
+                UIPI.scroll = ((ly - UIPI_list_top%) * UIPI_RN) \ _MAX(1, UIPI.ab - UIPI_list_top%) - UIPI_list_rows% \ 2
+                UIPI_clamp_scroll
+                UIPI.changed = TRUE
+            END IF
+        ELSE
+            IF wheel <> 0 THEN
+                step1 = _IIF(shift, 10, 1)
+                pt = 0
+                IF r > 0 THEN
+                    IF UIPI_ROW_KIND(r) = UIPI_ROW_PROP _ANDALSO lx >= UIPI_value_x% THEN pt = UIP_P(UIPI_ROW_PROP(r)).ptype
+                END IF
+                IF (pt = UIP_T_INT _ORELSE pt = UIP_T_REAL _ORELSE pt = UIP_T_COLOR) _ANDALSO r = UIPI.wheelRow THEN
+                    IF UIPI.editRow > 0 THEN UIPI_edit_end TRUE
+                    k = UIPI_ROW_PROP(r)
+                    part = 0
+                    IF pt = UIP_T_COLOR THEN part = _MAX(0, UIPI_color_part%(lx))
+                    v = UIP_nudge$(pt, UIP_get$(k), part, -SGN(wheel) * step1)
+                    IF UIP_set%(k, v) THEN UIPI_emit "CHANGED " + UIP_P(k).pk
+                    UIPI.sel = r
+                ELSE
+                    IF UIPI.editRow > 0 THEN UIPI_edit_end TRUE
+                    UIPI.scroll = UIPI.scroll + SGN(wheel) * _IIF(shift, 10, 3)
+                    UIPI_clamp_scroll
+                END IF
+                UIPI.changed = TRUE
+            END IF
+            IF r > 0 _ANDALSO (p1 _ORELSE p2 _ORELSE p3) THEN
+                UIPI.sel = r
+                UIPI.changed = TRUE
+                SELECT CASE UIPI_ROW_KIND(r)
+                    CASE UIPI_ROW_HEAD
+                        IF p1 _ANDALSO UIPI_ROW_TEXT(r) = "IMAGES" _ANDALSO lx >= lr - UIPI_SB_W - UIPI_order_btn_w% THEN UIPI_toggle_file_order
+                        IF p1 _ANDALSO (LEFT$(UIPI_ROW_TEXT(r), 6) = "+ ALL " _ORELSE LEFT$(UIPI_ROW_TEXT(r), 6) = "- ALL ") THEN
+                            UIPI.elemAll = (UIPI.elemAll = 0): UIPI.rebuild = TRUE
+                        END IF
+                    CASE UIPI_ROW_FILE
+                        IF p1 _ANDALSO lx >= lr - UIPI_SB_W - UIPI_edit_btn_w% THEN UIPI_emit "EDITIMG " + UIPI_ROW_TEXT(r)
+                    CASE UIPI_ROW_PROP
+                        k = UIPI_ROW_PROP(r)
+                        pt = UIP_P(k).ptype
+                        IF p3 THEN
+                            IF UIP_revert%(k) THEN
+                                UIPI_emit "CHANGED " + UIP_P(k).pk
+                                UIPI_message "REVERTED " + UIP_P(k).pk, FALSE
+                            END IF
+                        ELSEIF p2 THEN
+                            IF pt = UIP_T_COLOR _ANDALSO UIPI_color_part%(lx) = -1 THEN UIPI_emit "GIVECOLOR " + UIP_P(k).pk
+                        ELSEIF p1 THEN
+                            wasEdit = (UIPI.editRow = r)
+                            ' a click on a number / colour value arms the wheel for it
+                            IF (pt = UIP_T_INT _ORELSE pt = UIP_T_REAL _ORELSE pt = UIP_T_COLOR) _ANDALSO lx >= UIPI_value_x% THEN UIPI.wheelRow = r
+                            IF pt = UIP_T_COLOR _ANDALSO lx >= lr - UIPI_SB_W - UIPI_drop_btn_w% THEN
+                                UIPI.wheelRow = 0
+                                UIPI_emit "DROPCOLOR " + UIP_P(k).pk
+                            ELSEIF pt = UIP_T_COLOR _ANDALSO UIPI_color_part%(lx) = -1 THEN
+                                IF shift THEN UIPI_emit "TAKECOLOR " + UIP_P(k).pk ELSE UIPI_emit "PICKCOLOR " + UIP_P(k).pk
+                            ELSEIF pt = UIP_T_BOOL _ANDALSO lx >= UIPI_value_x% THEN
+                                IF UIP_set%(k, UIP_nudge$(pt, UIP_get$(k), 0, 1)) THEN UIPI_emit "CHANGED " + UIP_P(k).pk
+                            ELSEIF pt = UIP_T_IMAGE _ANDALSO lx >= lr - UIPI_SB_W - UIPI_edit_btn_w% THEN
+                                UIPI_emit "EDITPROP " + UIP_P(k).pk
+                            ELSEIF r = UIPI.clickRow _ANDALSO ABS(TIMER(.001) - UIPI.clickT) < .4 THEN
+                                IF UIPI.editRow <> r THEN UIPI_edit_begin r
+                                UIPI.clickRow = 0
+                            ELSE
+                                UIPI.clickRow = r: UIPI.clickT = TIMER(.001)
+                            END IF
+                            ' a press inside a field already being typed into moves its caret
+                            ' (not the press that opened it: that one keeps the select-all)
+                            IF wasEdit _ANDALSO UIPI.editRow = r _ANDALSO UIPI.editTi > 0 _ANDALSO lx >= UIPI_value_x% THEN
+                                TI_inputs(UIPI.editTi).cursorPos = TI__col_at_px%(UIPI.editTi, TI_get_text$(UIPI.editTi), lx - TI_inputs(UIPI.editTi).x + TI_inputs(UIPI.editTi).scrollX)
+                                TI_inputs(UIPI.editTi).selStart = -1
+                            END IF
+                        END IF
+                END SELECT
+            END IF
+        END IF
+    END IF
+END FUNCTION
+
+''
+' Start typing into row r's value.
+'
+SUB UIPI_edit_begin (r AS INTEGER)
+    DIM vx AS INTEGER
+    IF r < 1 _ORELSE r > UIPI_RN THEN EXIT SUB
+    IF UIPI_ROW_KIND(r) <> UIPI_ROW_PROP THEN EXIT SUB
+    IF UIPI.editRow > 0 THEN UIPI_edit_end TRUE
+    vx = UIPI_value_x%
+    UIPI.editTi = TI_create%(vx, UIPI_row_y%(r), UIPI_lr% - vx - UIPI_SB_W - 1, UIPI.rowH)
+    IF UIPI.editTi <= 0 THEN UIPI_message "NO FREE TEXT INPUT", TRUE: EXIT SUB
+    UIPI_ti_style UIPI.editTi
+    TI_set_text UIPI.editTi, UIP_get$(UIPI_ROW_PROP(r))
+    TI_inputs(UIPI.editTi).autoSelect = TRUE
+    TI_set_focus UIPI.editTi
+    UIPI.editRow = r
+    UIPI.changed = TRUE
+END SUB
+
+''
+' Stop typing; commit = apply the text.
+'
+SUB UIPI_edit_end (commit AS INTEGER)
+    DIM k AS INTEGER, v AS STRING, id AS INTEGER
+    IF UIPI.editRow < 1 _ORELSE UIPI.editTi < 1 THEN UIPI.editRow = 0: EXIT SUB
+    k = UIPI_ROW_PROP(UIPI.editRow)
+    id = UIPI.editTi
+    v = TI_get_text$(id)
+    UIPI.editRow = 0
+    UIPI.editTi = 0
+    IF TI_focusedId = id THEN TI_clear_focus
+    TI_destroy id
+    IF commit _ANDALSO k > 0 THEN
+        IF v <> UIP_get$(k) THEN
+            IF UIP_set%(k, v) THEN
+                UIPI_emit "CHANGED " + UIP_P(k).pk
+            ELSE
+                UIPI_message UIP_LAST_ERROR, TRUE
+            END IF
+        END IF
+    END IF
+    UIPI.changed = TRUE
+END SUB
+
+''
+' Feed the keyboard. TRUE = the keys were taken: everything while a value or
+' the filter is typed into (through INKEY$; two-byte codes become their _KEYHIT
+' form scan*256), the arrows while the tree has focus.
+' @param fallback STRING the host's own copy of this frame's key ("" = none),
+'                 for hosts that read _KEYHIT first
+' @param rawKey LONG this frame's _KEYHIT code (0 = none)
+'
+FUNCTION UIPI_keys% (fallback AS STRING, rawKey AS LONG)
+    DIM kc AS STRING, k AS LONG, ate AS INTEGER, id AS INTEGER
+    IF UIPI_typing% = 0 THEN
+        IF rawKey <> 0 _ANDALSO UIPI.visible THEN UIPI_keys% = UIPI_tree_key%(rawKey)
+        EXIT FUNCTION
+    END IF
+    UIPI_keys% = TRUE
+    id = TI_focusedId
+    kc = INKEY$
+    IF kc = "" THEN kc = fallback
+    DO WHILE LEN(kc) > 0 _ANDALSO TI_focusedId = id _ANDALSO id > 0
+        IF LEN(kc) = 2 THEN k = ASC(kc, 2) * 256& ELSE k = ASC(kc)
+        ate = TI_process_key%(k)
+        IF id = UIPI.editTi THEN
+            IF TI_inputs(id).submitted THEN
+                UIPI_edit_end TRUE
+            ELSEIF TI_inputs(id).escaped _ORELSE TI_inputs(id).tabbed THEN
+                UIPI_edit_end TI_inputs(id).tabbed
+            END IF
+        ELSEIF id = UIPI.filtTi THEN
+            IF TI_inputs(id).submitted _ORELSE TI_inputs(id).escaped THEN TI_clear_focus
+            IF TI_get_text$(id) <> UIPI.filter THEN
+                UIPI.filter = TI_get_text$(id)
+                UIPI.scroll = 0
+                UIPI.rebuild = TRUE
+            END IF
+        END IF
+        UIPI.changed = TRUE
+        kc = INKEY$
+    LOOP
+END FUNCTION
+
+' -----------------------------------------------------------------------------
+' Render
+' -----------------------------------------------------------------------------
+
+SUB UIPI_text (x AS INTEGER, y AS INTEGER, s AS STRING, c AS _UNSIGNED LONG)
+    COLOR c
+    _PRINTSTRING (x, y), s
+END SUB
+
+FUNCTION UIPI_fit$ (s AS STRING, px AS INTEGER)
+    DIM n AS INTEGER
+    IF px <= 0 THEN EXIT FUNCTION
+    IF UIPI_tw%(s) <= px THEN UIPI_fit$ = s: EXIT FUNCTION
+    n = LEN(s)
+    DO WHILE n > 0 _ANDALSO UIPI_tw%(LEFT$(s, n) + "~") > px
+        n = n - 1
+    LOOP
+    IF n > 0 THEN UIPI_fit$ = LEFT$(s, n) + "~"
+END FUNCTION
+
+''
+' The key without its section prefix (STATUS_BG_COLOR under STATUS = BG_COLOR).
+'
+FUNCTION UIPI_short_key$ (i AS INTEGER)
+    DIM k AS STRING, s AS STRING
+    k = UIP_P(i).pk: s = UIP_P(i).section + "_"
+    IF LEFT$(k, LEN(s)) = s _ANDALSO LEN(k) > LEN(s) THEN UIPI_short_key$ = MID$(k, LEN(s) + 1) ELSE UIPI_short_key$ = k
+END FUNCTION
+
+FUNCTION UIPI_drop_btn_w% ()
+    UIPI_drop_btn_w% = UIPI.rowH + 1
+END FUNCTION
+
+''
+' The eyedropper button of a colour row: a pipette, its tip bottom-left.
+'
+SUB UIPI_dropper_btn (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
+    DIM i AS INTEGER, j AS INTEGER, ox AS INTEGER, oy AS INTEGER, rw AS STRING
+    LINE (x, y)-(x + w - 1, y + h - 1), UIPI_C_BTN, BF
+    ox = x + (w - 7) \ 2: oy = y + (h - 7) \ 2
+    FOR j = 0 TO 6
+        rw = MID$("....###...####...###...#.#...#.#...#.#....##.....", j * 7 + 1, 7)
+        FOR i = 1 TO 7
+            IF MID$(rw, i, 1) = "#" THEN PSET (ox + i - 1, oy + j), UIPI_C_TEXT
+        NEXT i
+    NEXT j
+END SUB
+
+SUB UIPI_button (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, label AS STRING, isOn AS INTEGER)
+    LINE (x, y)-(x + w - 1, y + h - 1), _IIF(isOn, UIPI_C_BTN_ON, UIPI_C_BTN), BF
+    UIPI_text x + (w - UIPI_tw%(label)) \ 2, y + (h - UIPI.fontH) \ 2, label, UIPI_C_TEXT
+END SUB
+
+''
+' The tree pane and its divider.
+'
+SUB UIPI_render_tree ()
+    DIM i AS INTEGER, r AS INTEGER, n AS INTEGER, y AS INTEGER, ty AS INTEGER, x0 AS INTEGER, cy AS INTEGER
+    DIM k AS INTEGER, s AS STRING, c AS _UNSIGNED LONG, rows AS INTEGER, rw AS INTEGER, sb AS INTEGER, hgt AS INTEGER
+    IF UIPI.treeRows THEN UIPI_tree_rebuild_rows
+    rw = UIPI.tx + UIPI.tw - UIPI_SB_W
+    rows = UIPI_tree_vis%
+    FOR i = 0 TO rows - 1
+        r = UIPI.treeScroll + i + 1
+        IF r > UIPI_TRN THEN EXIT FOR
+        n = UIPI_TROW(r)
+        y = UIPI.ty + i * UIPI.rowH
+        ty = y + (UIPI.rowH - UIPI.fontH) \ 2
+        IF UIP_N(n).nkey = UIPI.treeSel THEN
+            LINE (UIPI.tx, y)-(rw - 1, y + UIPI.rowH - 1), _IIF(UIPI.treeFocus, UIPI_C_SEL, UIPI_C_BTN), BF
+        ELSEIF n = UIPI.treeHover THEN
+            LINE (UIPI.tx, y)-(rw - 1, y + UIPI.rowH - 1), UIPI_C_HOVER, BF
+        END IF
+        x0 = UIPI.tx + 2 + UIP_N(n).depth * UIPI_INDENT
+        cy = y + UIPI.rowH \ 2
+        IF UIP_N(n).kids > 0 THEN
+            IF UIPI_node_open%(n) THEN
+                FOR k = 0 TO 2 ' down-pointing
+                    LINE (x0 + k, cy - 1 + k)-(x0 + 4 - k, cy - 1 + k), UIPI_C_DIM
+                NEXT k
+            ELSE
+                FOR k = 0 TO 2 ' right-pointing
+                    LINE (x0 + 1 + k, cy - 2 + k)-(x0 + 1 + k, cy + 2 - k), UIPI_C_DIM
+                NEXT k
+            END IF
+        END IF
+        c = _IIF(UIP_N(n).w > 0, UIPI_C_KEY, UIPI_C_DIM)
+        IF UIP_N(n).depth = 0 _ORELSE (UIP_N(n).kids > 0 _ANDALSO UIP_N(n).comp = 0) THEN c = UIPI_C_SECT
+        s = UIPI_fit$(UIP_N(n).label, rw - (x0 + 8) - 2)
+        UIPI_text x0 + 8, ty, s, c
+        IF UIP_N(n).kids > 0 _ANDALSO UIPI_node_open%(n) = 0 THEN
+            ' a closed node shows how many it hides
+            s = " (" + _TRIM$(STR$(UIP_N(n).kids)) + ")"
+            k = x0 + 8 + UIPI_tw%(UIPI_fit$(UIP_N(n).label, rw - (x0 + 8) - 2))
+            IF k + UIPI_tw%(s) < rw - 2 THEN UIPI_text k, ty, s, UIPI_C_DIM
+        END IF
+    NEXT i
+    ' scroll bar
+    LINE (rw, UIPI.ty)-(UIPI.tx + UIPI.tw - 1, UIPI.ty + UIPI.th - 1), UIPI_C_BAR, BF
+    IF UIPI_TRN > rows _ANDALSO UIPI.th > 4 THEN
+        hgt = _MAX(6, (UIPI.th * rows) \ UIPI_TRN)
+        sb = UIPI.ty + ((UIPI.th - hgt) * UIPI.treeScroll) \ _MAX(1, UIPI_TRN - rows)
+        LINE (rw + 1, sb)-(UIPI.tx + UIPI.tw - 2, sb + hgt - 1), UIPI_C_DIM, BF
+    END IF
+    ' the divider (drag it)
+    IF UIPI.side THEN
+        LINE (UIPI.tx + UIPI.tw, UIPI.ty)-(UIPI.ax - 1, UIPI.ty + UIPI.th - 1), UIPI_C_BAR, BF
+        cy = UIPI.tx + UIPI.tw + UIPI_SPLIT \ 2
+        LINE (cy, UIPI.ty + UIPI.th \ 2 - 8)-(cy, UIPI.ty + UIPI.th \ 2 + 8), _IIF(UIPI.splitDrag, UIPI_C_PICK, UIPI_C_BORDER)
+    ELSE
+        LINE (0, UIPI.ty + UIPI.th)-(UIPI.w - 1, UIPI.ay - 1), UIPI_C_BAR, BF
+        cy = UIPI.ty + UIPI.th + UIPI_SPLIT \ 2
+        LINE (UIPI.w \ 2 - 12, cy)-(UIPI.w \ 2 + 12, cy), _IIF(UIPI.splitDrag, UIPI_C_PICK, UIPI_C_BORDER)
+    END IF
+END SUB
+
+''
+' Draw the panel into its image. Cheap enough to call every rendered frame;
+' returns at once when nothing changed (UIPI.changed is the host's repaint cue).
+'
+SUB UIPI_render ()
+    DIM oldDest AS LONG, i AS INTEGER, r AS INTEGER, y AS INTEGER, x AS INTEGER, vx AS INTEGER
+    DIM k AS INTEGER, v AS STRING, s AS STRING, c AS _UNSIGNED LONG, rows AS INTEGER, ch(3) AS INTEGER
+    DIM th AS INTEGER, ty AS INTEGER, bw AS INTEGER, fcol AS _UNSIGNED LONG, lr AS INTEGER, ax AS INTEGER
+    IF UIPI.visible = 0 _ORELSE UIPI.ready = 0 THEN EXIT SUB
+    IF UIPI.rebuild THEN UIPI_rebuild
+    IF UIPI.treeRows THEN UIPI_tree_rebuild_rows
+    IF UIPI.img < -1 THEN
+        IF _WIDTH(UIPI.img) <> UIPI.w _ORELSE _HEIGHT(UIPI.img) <> UIPI.h THEN _FREEIMAGE UIPI.img: UIPI.img = 0
+    END IF
+    IF UIPI.img >= -1 THEN UIPI.img = _NEWIMAGE(UIPI.w, UIPI.h, 32): UIPI.changed = TRUE
+    IF UIPI.msgT > 0 _ANDALSO ABS(TIMER(.001) - UIPI.msgT) > 4 THEN UIPI.msgT = 0: UIPI.changed = TRUE
+    IF TI_focusedId > 0 _ANDALSO UIPI_typing% THEN TI_tick: UIPI.changed = TRUE ' the caret blinks
+    IF UIPI.changed = 0 THEN EXIT SUB
+    UIPI.changed = FALSE
+
+    oldDest = _DEST
+    _DEST UIPI.img
+    _FONT UIPI.fnt
+    _PRINTMODE _KEEPBACKGROUND
+    _DONTBLEND
+    LINE (0, 0)-(UIPI.w - 1, UIPI.h - 1), UIPI_C_BG, BF
+    _BLEND
+
+    ' ---- title
+    LINE (0, 0)-(UIPI.w - 1, UIPI_TITLE_H - 1), UIPI_C_TITLE, BF
+    s = UIPI.title + _IIF(UIPI.dirty, " *", "")
+    UIPI_text 3, (UIPI_TITLE_H - UIPI.fontH) \ 2, UIPI_fit$(s, UIPI_title_btn_x%(0) - 6), _IIF(UIPI.dirty, UIPI_C_CHANGED, UIPI_C_TEXT)
+    UIPI_button UIPI_title_btn_x%(0), 1, UIPI_title_btn_w%(0), UIPI_TITLE_H - 2, UIPI_scale_txt$(UIPI.sc), UIPI.menuOpen
+    bw = UIPI_title_btn_w%(1)
+    FOR i = 1 TO 6
+        UIPI_button UIPI_title_btn_x%(i), 1, bw, UIPI_TITLE_H - 2, MID$("LRTBFX", i, 1), (i = UIPI.edge)
+    NEXT i
+
+    ' ---- toolbar
+    y = UIPI_TITLE_H
+    LINE (0, y)-(UIPI.w - 1, y + UIPI_BAR_H - 1), UIPI_C_BAR, BF
+    FOR i = 1 TO UIPI_bar_n%
+        x = UIPI_bar_x%(i)
+        IF x + UIPI_bar_w%(i) < UIPI.w THEN
+            UIPI_button x, y + 1, UIPI_bar_w%(i), UIPI_BAR_H - 2, UIPI_bar_label$(i), (i = 1 _ANDALSO UIPI.picking) _ORELSE (i = 5 _ANDALSO UIPI.showAll) _ORELSE (i = 2 _ANDALSO UIPI.dirty) _ORELSE (i = 6 _ANDALSO UIPI.showTree) _ORELSE (i = 7 _ANDALSO UIPI.menuOpen _ANDALSO UIPI.menuKind = 1)
+        END IF
+    NEXT i
+
+    ' ---- the tree
+    IF UIPI.tw > 0 THEN UIPI_render_tree
+
+    ' ---- component / pick line
+    ax = UIPI.ax: lr = UIPI_lr%
+    y = UIPI.ay
+    IF UIPI.picking THEN
+        s = "PICK: " + _IIF(LEN(UIPI.hoverLabel), UIPI.hoverLabel, "(POINT AT ANYTHING, CLICK TO INSPECT)")
+        UIPI_text ax + 3, y + 1, UIPI_fit$(s, UIPI.aw - 6), UIPI_C_PICK
+    ELSEIF UIPI.comp > 0 _ANDALSO UIPI.comp <= UIP_CN THEN
+        s = UIP_C(UIPI.comp).title
+        IF UIP_C(UIPI.comp).parent > 0 THEN s = UIP_C(UIP_C(UIPI.comp).parent).title + " > " + s
+        IF LEN(UIPI.elemLabel) THEN s = s + " > " + UIPI.elemLabel
+        UIPI_text ax + 3, y + 1, UIPI_fit$(s, UIPI.aw - 6), UIPI_C_KEY
+    ELSE
+        UIPI_text ax + 3, y + 1, UIPI_fit$("ALL PROPERTIES - INSPECT (CTRL+ALT+`) TO PICK", UIPI.aw - 6), UIPI_C_DIM
+    END IF
+
+    ' ---- filter
+    IF UIPI.filtTi > 0 THEN TI_render UIPI.filtTi, 0, 0
+    _FONT UIPI.fnt
+    _PRINTMODE _KEEPBACKGROUND
+
+    ' ---- property rows
+    rows = UIPI_list_rows%
+    vx = UIPI_value_x%
+    FOR i = 0 TO rows - 1
+        r = UIPI.scroll + i + 1
+        IF r > UIPI_RN THEN EXIT FOR
+        y = UIPI_list_top% + i * UIPI.rowH
+        ty = y + (UIPI.rowH - UIPI.fontH) \ 2
+        IF r = UIPI.sel THEN
+            LINE (ax, y)-(lr - UIPI_SB_W - 1, y + UIPI.rowH - 1), UIPI_C_SEL, BF
+        ELSEIF r = UIPI.hoverRow THEN
+            LINE (ax, y)-(lr - UIPI_SB_W - 1, y + UIPI.rowH - 1), UIPI_C_HOVER, BF
+        ELSEIF UIPI_row_is_elem%(r) THEN
+            LINE (ax, y)-(lr - UIPI_SB_W - 1, y + UIPI.rowH - 1), UIPI_C_ELEM, BF
+        END IF
+        ' the element shown: its header and its files (in IMAGES too) marked
+        IF UIPI_row_is_elem%(r) THEN LINE (ax, y)-(ax + 2, y + UIPI.rowH - 1), UIPI_C_PICK, BF
+        SELECT CASE UIPI_ROW_KIND(r)
+            CASE UIPI_ROW_SECTION
+                UIPI_text ax + 2, ty, UIPI_fit$("[" + UIPI_ROW_TEXT(r) + "]", UIPI.aw - 8), UIPI_C_SECT
+                LINE (ax, y)-(lr - UIPI_SB_W - 1, y), UIPI_C_BORDER
+            CASE UIPI_ROW_HEAD
+                UIPI_text ax + 2, ty, UIPI_fit$(UIPI_ROW_TEXT(r), UIPI.aw - 8), _IIF(MID$(UIPI_ROW_TEXT(r), 2, 5) = " ALL ", UIPI_C_KEY, UIPI_C_SECT)
+                LINE (ax, y)-(lr - UIPI_SB_W - 1, y), UIPI_C_BORDER
+                IF UIPI_ROW_TEXT(r) = "IMAGES" THEN UIPI_button lr - UIPI_SB_W - UIPI_order_btn_w%, y + 1, UIPI_order_btn_w% - 1, UIPI.rowH - 2, UIPI_order_label$, (UIPI.fileAZ = 0)
+            CASE UIPI_ROW_FILE
+                s = UIPI_ROW_TEXT(r)
+                s = MID$(s, _INSTRREV(s, "/") + 1)
+                ' screen order: the files no node on screen uses come last, dimmed;
+                ' one the theme does not have yet is NEW (the host makes it on EDIT)
+                IF _FILEEXISTS(UIPI_ROW_TEXT(r)) THEN
+                    UIPI_text ax + 8, ty, UIPI_fit$(s, UIPI.aw - UIPI_SB_W - UIPI_edit_btn_w% - 12), _IIF(UIPI_row_is_elem%(r), UIPI_C_TEXT, _IIF(UIPI_ROW_PROP(r) < 0, UIPI_C_DIM, UIPI_C_VAL))
+                ELSE
+                    UIPI_text ax + 8, ty, UIPI_fit$("NEW: " + s, UIPI.aw - UIPI_SB_W - UIPI_edit_btn_w% - 12), UIPI_C_CHANGED
+                END IF
+                UIPI_button lr - UIPI_SB_W - UIPI_edit_btn_w%, y + 1, UIPI_edit_btn_w% - 1, UIPI.rowH - 2, "EDIT", FALSE
+            CASE UIPI_ROW_PROP
+                k = UIPI_ROW_PROP(r)
+                IF UIP_changed%(k) THEN fcol = UIPI_C_CHANGED ELSE fcol = UIPI_C_KEY
+                IF UIP_P(k).pending THEN UIPI_text ax + 1, ty, "*", UIPI_C_CHANGED
+                UIPI_text ax + 6, ty, UIPI_fit$(UIPI_short_key$(k), vx - ax - 10), fcol
+                IF UIPI.editRow <> r THEN
+                    v = UIP_get$(k)
+                    SELECT CASE UIP_P(k).ptype
+                        CASE UIP_T_COLOR
+                            UIP_rgba_channels v, ch()
+                            th = UIPI.rowH - 3
+                            ' checker under the swatch shows its alpha
+                            LINE (vx, y + 1)-(vx + 8, y + 1 + th), &HFF808080~&, BF
+                            LINE (vx, y + 1)-(vx + 3, y + 1 + th \ 2), &HFFC0C0C0~&, BF
+                            LINE (vx + 4, y + 2 + th \ 2)-(vx + 8, y + 1 + th), &HFFC0C0C0~&, BF
+                            LINE (vx, y + 1)-(vx + 8, y + 1 + th), _RGBA32(ch(0), ch(1), ch(2), ch(3)), BF
+                            LINE (vx, y + 1)-(vx + 8, y + 1 + th), UIPI_C_BORDER, B
+                            FOR x = 0 TO 3
+                                s = _TRIM$(STR$(ch(x)))
+                                UIPI_text vx + 11 + (x + 1) * UIPI_chan_w% - 5 - UIPI_tw%(s), ty, s, _IIF(x = 3, UIPI_C_DIM, UIPI_C_NUM)
+                            NEXT x
+                            UIPI_dropper_btn lr - UIPI_SB_W - UIPI_drop_btn_w%, y + 1, UIPI_drop_btn_w% - 1, UIPI.rowH - 2
+                        CASE UIP_T_INT, UIP_T_REAL
+                            UIPI_text vx, ty, UIPI_fit$(v, lr - vx - UIPI_SB_W - 2), UIPI_C_NUM
+                        CASE UIP_T_BOOL
+                            UIPI_text vx, ty, _IIF(UCASE$(v) = "TRUE", "[X] TRUE", "[ ] FALSE"), UIPI_C_NUM
+                        CASE UIP_T_IMAGE
+                            UIPI_text vx, ty, UIPI_fit$(_IIF(LEN(v), v, "(NONE)"), lr - vx - UIPI_SB_W - UIPI_edit_btn_w% - 3), UIPI_C_VAL
+                            UIPI_button lr - UIPI_SB_W - UIPI_edit_btn_w%, y + 1, UIPI_edit_btn_w% - 1, UIPI.rowH - 2, "EDIT", FALSE
+                        CASE ELSE
+                            IF LEN(v) THEN
+                                UIPI_text vx, ty, UIPI_fit$(v, lr - vx - UIPI_SB_W - 2), UIPI_C_VAL
+                            ELSE
+                                UIPI_text vx, ty, "(DEFAULT)", UIPI_C_DIM
+                            END IF
+                    END SELECT
+                END IF
+        END SELECT
+        ' armed for the wheel (a click on the value)
+        IF r = UIPI.wheelRow THEN LINE (vx - 2, y)-(lr - UIPI_SB_W - 1, y + UIPI.rowH - 1), UIPI_C_PICK, B
+    NEXT i
+    IF UIPI.editRow > 0 _ANDALSO UIPI.editTi > 0 THEN
+        ' keep the field on its row (the list may have scrolled)
+        IF UIPI.editRow > UIPI.scroll _ANDALSO UIPI.editRow <= UIPI.scroll + rows THEN
+            TI_set_geometry UIPI.editTi, vx, UIPI_row_y%(UIPI.editRow), lr - vx - UIPI_SB_W - 1, UIPI.rowH
+            TI_render UIPI.editTi, 0, 0
+            _FONT UIPI.fnt
+            _PRINTMODE _KEEPBACKGROUND
+        END IF
+    END IF
+
+    ' ---- property list scroll bar
+    y = UIPI_list_top%
+    th = UIPI.ab - y
+    LINE (lr - UIPI_SB_W, y)-(lr - 1, y + th - 1), UIPI_C_BAR, BF
+    IF UIPI_RN > rows _ANDALSO th > 4 THEN
+        x = _MAX(6, (th * rows) \ UIPI_RN)
+        r = y + ((th - x) * UIPI.scroll) \ _MAX(1, UIPI_RN - rows)
+        LINE (lr - UIPI_SB_W + 1, r)-(lr - 2, r + x - 1), UIPI_C_DIM, BF
+    END IF
+
+    ' ---- status line
+    y = UIPI.h - UIPI_STAT_H
+    LINE (0, y)-(UIPI.w - 1, UIPI.h - 1), UIPI_C_TITLE, BF
+    c = UIPI_C_DIM
+    IF UIPI.msgT > 0 THEN
+        s = UIPI.msg: c = _IIF(UIPI.msgErr, UIPI_C_ERR, UIPI_C_CHANGED)
+    ELSEIF UIPI.treeHover > 0 _ANDALSO UIPI.treeHover <= UIP_NN THEN
+        k = UIPI.treeHover
+        s = UIP_N(k).label
+        IF UIP_N(k).w > 0 THEN s = s + "  " + _TRIM$(STR$(UIP_N(k).w)) + "X" + _TRIM$(STR$(UIP_N(k).h)) + " AT " + _TRIM$(STR$(UIP_N(k).x)) + "," + _TRIM$(STR$(UIP_N(k).y))
+        IF UIP_N(k).comp > 0 THEN s = s + "  [" + UIP_C(UIP_N(k).comp).id + "]"
+        c = UIPI_C_TEXT
+    ELSEIF UIPI.hoverRow > 0 _ANDALSO UIPI.hoverRow <= UIPI_RN THEN
+        IF UIPI_ROW_KIND(UIPI.hoverRow) = UIPI_ROW_PROP THEN
+            k = UIPI_ROW_PROP(UIPI.hoverRow)
+            s = UIP_P(k).pk + " " + UIP_type_name$(UIP_P(k).ptype) + ": " + UIP_P(k).desc
+            c = UIPI_C_TEXT
+            SELECT CASE UIP_P(k).ptype
+                CASE UIP_T_INT, UIP_T_REAL, UIP_T_COLOR
+                    IF UIPI.hoverRow <> UIPI.wheelRow THEN s = "CLICK, THEN WHEEL TO CHANGE - " + s
+            END SELECT
+        ELSEIF UIPI_ROW_KIND(UIPI.hoverRow) = UIPI_ROW_FILE THEN
+            ' the file, and what on screen uses it (outlined there)
+            s = UIPI_ROW_TEXT(UIPI.hoverRow)
+            s = MID$(s, _INSTRREV(s, "/") + 1)
+            k = UIP_node_with_file%(UIPI_ROW_TEXT(UIPI.hoverRow))
+            IF k THEN s = s + " - " + UIP_N(k).label ELSE s = s + " - NOT ON SCREEN"
+            IF _FILEEXISTS(UIPI_ROW_TEXT(UIPI.hoverRow)) = 0 THEN s = s + " - NOT IN THIS THEME YET: EDIT MAKES IT"
+        ELSE
+            s = UIPI_ROW_TEXT(UIPI.hoverRow)
+        END IF
+    ELSE
+        s = UIPI.info
+    END IF
+    UIPI_text 3, y + (UIPI_STAT_H - UIPI.fontH) \ 2, UIPI_fit$(s, UIPI.w - 6), c
+
+    ' ---- frame, its resize edges lit while under the pointer / dragged
+    LINE (0, 0)-(UIPI.w - 1, UIPI.h - 1), UIPI_C_BORDER, B
+    k = UIPI.resizing: IF k = 0 THEN k = UIPI.edgeHover
+    IF k AND UIPI_RS_L THEN LINE (0, 0)-(0, UIPI.h - 1), UIPI_C_PICK
+    IF k AND UIPI_RS_R THEN LINE (UIPI.w - 1, 0)-(UIPI.w - 1, UIPI.h - 1), UIPI_C_PICK
+    IF k AND UIPI_RS_T THEN LINE (0, 0)-(UIPI.w - 1, 0), UIPI_C_PICK
+    IF k AND UIPI_RS_B THEN LINE (0, UIPI.h - 1)-(UIPI.w - 1, UIPI.h - 1), UIPI_C_PICK
+    _DEST oldDest
+END SUB
+
+''
+' Put the panel (and its open menu) on dest, a window-px image (the host's
+' screen). Renders first when something changed.
+'
+SUB UIPI_draw_to (dest AS LONG)
+    UIPI_render
+    IF UIPI.visible = 0 _ORELSE UIPI.img >= -1 THEN EXIT SUB
+    _PUTIMAGE (UIPI.x, UIPI.y)-(UIPI.x + UIPI.scrW - 1, UIPI.y + UIPI.scrH - 1), UIPI.img, dest
+    IF UIPI.menuOpen THEN
+        UIPI_menu_render
+        _PUTIMAGE (UIPI.menuX, UIPI.menuY)-(UIPI.menuX + INT(UIPI.menuW * UIPI.sc) - 1, UIPI.menuY + INT(UIPI.menuH * UIPI.sc) - 1), UIPI.menuImg, dest
+    END IF
+END SUB
+
+''
+' Outline a rectangle (window px) on dest with a label tag: the inspect-mode
+' highlight. thick = border width; tint = also wash it with the pick colour
+' (off for something as big as the whole window). The tag is drawn at the
+' panel's scale.
+'
+SUB UIPI_draw_outline (dest AS LONG, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, label AS STRING, thick AS INTEGER, tint AS INTEGER)
+    DIM oldDest AS LONG, t AS LONG, tw AS INTEGER, tx AS INTEGER, ty AS INTEGER, i AS INTEGER, tagH AS INTEGER
+    IF w <= 0 _ORELSE h <= 0 _ORELSE UIPI.ready = 0 THEN EXIT SUB
+    oldDest = _DEST
+    _DEST dest
+    IF tint THEN LINE (x, y)-(x + w - 1, y + h - 1), &H3000B4FF~&, BF
+    FOR i = 0 TO _MAX(1, thick) - 1
+        LINE (x + i, y + i)-(x + w - 1 - i, y + h - 1 - i), UIPI_C_PICK, B
+    NEXT i
+    IF LEN(label) THEN
+        tw = UIPI_tw%(label) + 4
+        t = _NEWIMAGE(tw, UIPI.fontH + 2, 32)
+        _DEST t
+        CLS , UIPI_C_PICK
+        _FONT UIPI.fnt
+        _PRINTMODE _KEEPBACKGROUND
+        COLOR &HFF000000~&
+        _PRINTSTRING (2, 1), label
+        _DEST dest
+        tagH = INT((UIPI.fontH + 2) * UIPI.sc)
+        ty = y - tagH
+        IF ty < 0 THEN ty = y + h
+        IF ty + tagH > _HEIGHT(dest) THEN ty = _MAX(0, y)
+        tx = _MAX(0, _MIN(x, _WIDTH(dest) - INT(tw * UIPI.sc))) ' (kept on screen)
+        _PUTIMAGE (tx, ty)-(tx + INT(tw * UIPI.sc) - 1, ty + tagH - 1), t, dest
+        _FREEIMAGE t
+    END IF
+    _DEST oldDest
+END SUB

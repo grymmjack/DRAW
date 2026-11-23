@@ -132,6 +132,10 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `Backspace` | Fill with foreground color |
 | `Shift+Backspace` | Fill with background color |
 
+**History palette** (View → Panels → History): `Click` a row = go to that state (undo / redo until there) · `R-Click` Step Backward / Step Forward / Clear History · `Wheel` scroll (`Shift` 10 rows) · UNDO / REDO / CLEAR buttons. Edit → Clear History... removes every undo step (asks).
+
+**Actions palette** (View → Panels → Actions): `Click` select · `Double-click` a set / action = rename · its triangle = fold · on box = play / skip · dialog box (steps) · `R-Click` Play / Record / Stop / New Set / New Action / Insert Stop / Assign Key / Clear Key / Batch / Rename / Duplicate / Delete / Reload (an action's key: its own bind, shown at the row's right and in Customize Controls; 20 action keys, actions 2740-2759) · `Wheel` scroll (`Shift` 10 rows) · STOP / REC / PLAY / NEW SET / NEW ACTION / DELETE buttons. Also in the command palette as *Actions: Record*, *Stop Recording*, *Play Selection*, *New Set*, *New Action*, *Delete Selection*, *Insert Stop...*.
+
 **Paste workflow:** select (`M`/`W`) → `Ctrl+C`/`Ctrl+X` → `Ctrl+V` (floats centered on the canvas, auto-engages Move) → drag to reposition (`Alt+drag` stamps copies) → `Enter` apply / `Esc` cancel. (`Ctrl+Z` removes a paste.)
 
 ---
@@ -146,15 +150,17 @@ Palette-Ops mode, over a specific panel). Context is noted in the row or section
 | `F4` | Toggle preview window |
 | `F5` | Toggle edit bar |
 | `Shift+F5` | Toggle advanced bar |
+| — | Toggle PANELS bar: a button per View panel, lit while it shows (View → Panels / command palette) |
+| — | Toggle I/O bar: New, Open, Import, Save, Export (View → Panels / command palette) |
 | `Ctrl+Shift+F5` | Reload theme (hot-reload colors + icons) |
 | `Ctrl+M` | Toggle Character Map panel |
 | `Ctrl+Shift+M` | Toggle Advanced Color Picker panel |
-| — | Toggle 3D Color Space panel (View menu / command palette) |
+| — | Toggle 3D Color Space panel (View → Panels / command palette) |
 | `F10` | Toggle status bar |
 | `F11` | Toggle ALL UI: hides every panel and window (menu bar, toolbox, layers, bars, status / color strip, Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Animation, Swatches, Browser, Customize Toolbars); F11 again puts back exactly what was showing. Works the same inside a workspace |
 | `Shift+F11` | Inside a workspace that hides things: show what it hid / hide it again |
 | `Ctrl+Shift+W` | Workspace switcher (command palette filtered to `Workspace:`) |
-| `L-Drag` a docked panel's inner edge | Resize it: toolbox columns (1–8), edit/advanced bar columns (1–4), layers width (60–400 px). Saved to the active workspace, or `DRAW.cfg` in Default. **View → Workspace → Save Current Layout As…** saves the whole arrangement as a workspace |
+| `L-Drag` a docked panel's inner edge | Resize it: toolbox columns (1–8), edit / advanced / PANELS / I/O bar columns (1–4), layers width (60–400 px). Saved to the active workspace, or `DRAW.cfg` in Default. **View → Workspace → Save Current Layout As…** saves the whole arrangement as a workspace |
 | `Alt+Enter` | Toggle fullscreen (also **View → Fullscreen** / command palette; live, no restart, persists across launches) |
 | `Ctrl+F11` | Toggle menu bar |
 | `Ctrl+Shift+Up` | Hide/show menu bar (alt binding) |
@@ -211,11 +217,11 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `T` / `Shift+T` / `Ctrl+T` | Text (VGA / Tiny5 / custom font) | |
 | `?` | Command Palette | |
 
-> **MyPaint Brush** (Tools > MyPaint Brush - no letter yet): MyPaint's natural-media brushes, picked from **View > MyPaint Brushes**. With the tool, `[` / `]` change the brush size as for any brush: the MyPaint brush is DRAW's brush size (1-101 px, its diameter; MYPAINT_SIZE_FROM_BRUSH). The command *MyPaint Brush: Size From Brush Size (on / off)* gives each brush its own radius again, then `[` / `]` step that (MYPAINT_SIZE, about 22% a step); L-Click paints FG, R-Click BG; one undo step per stroke. The palette: click a brush, `<` / `>` or the wheel over its top rows for the group, the wheel over the grid scrolls, LOAD / SAVE `.myb` (saved into MY BRUSHES). See manual chapter 9.
+> **MyPaint Brush** (Tools > MyPaint Brush - no letter yet): MyPaint's natural-media brushes, picked from **View > Panels > MyPaint Brushes**. With the tool, `[` / `]` change the brush size as for any brush: the MyPaint brush is DRAW's brush size (1-101 px, its diameter; MYPAINT_SIZE_FROM_BRUSH). The command *MyPaint Brush: Size From Brush Size (on / off)* gives each brush its own radius again, then `[` / `]` step that (MYPAINT_SIZE, about 22% a step); L-Click paints FG, R-Click BG; one undo step per stroke. The palette: click a brush, `<` / `>` or the wheel over its top rows for the group, the wheel over the grid scrolls, LOAD / SAVE `.myb` (saved into MY BRUSHES). See manual chapter 9.
 
 > **Smart Shapes** and **3D Text** are on the toolbar's Smart Shapes flyout (long-press / right-click): Polygon, Pie/Donut, Rounded Rect, Tab, Pill, Pac-Man, 3D Dice, Bevel Rect, Arrow, 3D Text.
 
-> **Tool Options** (View > Tool Options; manual Ch. 02): the current tool's settings in a row above the canvas - every tool you stay in has some (the text tool's are the Text Bar, in the same place). Sliders: `L-Drag` / `L-Click` the track, `Wheel` (`Shift` ×10), `Double-Click` the value to type, `M-Click` or `Double-Click` the track to reset. `Wheel` off a slider scrolls a bar too short for its lines. Values set there stick for the next stroke / shape; keys while dragging change only that shape. Eraser **ALL LAYERS** makes smart erase the default (`Shift` then erases one layer); smart shapes **OUTLINE / FILLED** sets what a left-drag draws (R-Drag draws the other).
+> **Tool Options** (View > Panels > Tool Options; manual Ch. 02): the current tool's settings in a row above the canvas - every tool you stay in has some (the text tool's are the Text Bar, in the same place). Sliders: `L-Drag` / `L-Click` the track, `Wheel` (`Shift` ×10), `Double-Click` the value to type, `M-Click` or `Double-Click` the track to reset. `Wheel` off a slider scrolls a bar too short for its lines. Values set there stick for the next stroke / shape; keys while dragging change only that shape. Eraser **ALL LAYERS** makes smart erase the default (`Shift` then erases one layer); smart shapes **OUTLINE / FILLED** sets what a left-drag draws (R-Drag draws the other).
 
 **Left vs right button:** L-Click draws with FG, R-Click draws with BG (Brush, Dot, Line, Rect, Ellipse, Fill, Spray). Exceptions: Picker R-Click picks BG; Polygon R-Click closes shape; Brush/Dot `Shift`+R-Click draws a connecting line from the last point.
 
@@ -276,6 +282,8 @@ Press a letter to select a tool. `Shift+letter` picks the filled/variant form.
 | `Ctrl+A` | Select all |
 | `Ctrl+Shift+I` | Invert selection |
 | `Ctrl+H` | Hide/show marching ants (selection stays active) |
+| `Ctrl+H` (pointer on the Theme Edit inspector) | Hide/show the inspector's outlines of the selected / hovered part |
+| `Ctrl+C` / `Ctrl+V` (pointer on the Theme Edit inspector) | Copy the selected row's value / paste it into the selected property |
 | `Hold M + =` / `Hold M + -` | Expand / contract selection 1px |
 | `Hold M + Shift+=` / `Hold M + Shift+-` | Expand / contract selection (large step) |
 | `Ctrl+D` / `Esc` | Deselect (from any tool) |
@@ -431,9 +439,9 @@ Middle-click the Text toolbar icon → load TTF/OTF. **TheDraw (TDF)** fonts: `[
 | Keys | Action |
 |------|--------|
 | `[` / `]` | Brush size − / + (fine, ±1) |
-| Pen pressure | With a drawing tablet, pressure sets Brush / Eraser size and (optionally) opacity, and the mix brush's paint. **View → Pen Control** panel, PRESSURE tab: live meter, per-target lightest-touch sliders, curve |
-| Stroke smoothing | **View → Pen Control**, SMOOTHING tab: Smooth Position (String / Average / EMA / Inertia, Amount, Catch Up, guide line + ring) steadies Brush / Eraser strokes, mouse or pen; Smooth Pressure (Fixed / Hold / Average / EMA). SPEED tab: pressure gain from pen speed (Slow / Fast / Speed / Smooth) with a speed→gain graph. Command palette: *Pen Control: Toggle Smoothing / Next Smoothing Mode / More / Less Smoothing / Toggle Pressure Smoothing / Toggle Speed Scaling* (bindable) |
-| Mouse pressure | **View → Pen Control**, MOUSE tab: a made-up pressure for mouse strokes - OFF / FIXED (Level) / SPEED (slow = heavy; Light, Fast, Smooth, Fast = Heavy) / WHEEL - plus Taper In / Out (px). `Wheel` **while drawing** in WHEEL mode: up = harder, down = lighter (Step %; `Shift+Wheel` ×4). Command palette: *Pen Control: Next Mouse Expression Mode* (bindable) |
+| Pen pressure | With a drawing tablet, pressure sets Brush / Eraser size and (optionally) opacity, and the mix brush's paint. **View → Panels → Pen Control** panel, PRESSURE tab: live meter, per-target lightest-touch sliders, curve |
+| Stroke smoothing | **View → Panels → Pen Control**, SMOOTHING tab: Smooth Position (String / Average / EMA / Inertia, Amount, Catch Up, guide line + ring) steadies Brush / Eraser strokes, mouse or pen; Smooth Pressure (Fixed / Hold / Average / EMA). SPEED tab: pressure gain from pen speed (Slow / Fast / Speed / Smooth) with a speed→gain graph. Command palette: *Pen Control: Toggle Smoothing / Next Smoothing Mode / More / Less Smoothing / Toggle Pressure Smoothing / Toggle Speed Scaling* (bindable) |
+| Mouse pressure | **View → Panels → Pen Control**, MOUSE tab: a made-up pressure for mouse strokes - OFF / FIXED (Level) / SPEED (slow = heavy; Light, Fast, Smooth, Fast = Heavy) / WHEEL - plus Taper In / Out (px). `Wheel` **while drawing** in WHEEL mode: up = harder, down = lighter (Step %; `Shift+Wheel` ×4). Command palette: *Pen Control: Next Mouse Expression Mode* (bindable) |
 | `Ctrl+Wheel` | Brush size presets (1/3/5/7) |
 | `` ` `` | Toggle brush preview / cursor visibility |
 | `\` | Toggle brush shape / cursor shape |
@@ -483,7 +491,7 @@ L-Click spray FG · R-Click spray BG · `Shift` constrain axis · brush size set
 - **Effects menu** (Shape / Texture / Render engines): each dialog has a split ORIG/ADJ loupe, wheel-sliders, an angle dial, seed, MIX slider, Reset. Effects can clip to selection or run selection-as-shape.
 - **Last-effect shortcuts:** `Ctrl+F` re-apply last effect · `Ctrl+Alt+F` recall last effect (re-open its dialog) · `Ctrl+Shift+F` blend/fade last effect (blend modes + isolate-to-new-layer).
 - **CRT effect:** `Ctrl+Alt+O` toggle · View → CRT Effect Settings…
-- **Anti-Aliasing** (experimental, off by default): Edit → Anti-Aliasing toggle (status shows **AA**); Edge-Mode button, on the Edit Bar, the Advanced Bar or the toolbox (L-Click toggle, R-Click switch Pixel-Perfect ⟷ AA). A toggle command on the toolbox (Toggle Anti-Aliasing, Pixel Perfect, ...) looks pushed while it is on. Config `ANTIALIAS`.
+- **Anti-Aliasing** (experimental, off by default): Edit → Anti-Aliasing toggle (status shows **AA**); Toggle Anti-Aliasing on the toolbox. The bars' Pixel-Perfect button (once a shared PP / AA Edge-Mode button) is Pixel-Perfect only; turning either on turns the other off. A toggle command on the toolbox (Toggle Anti-Aliasing, Pixel Perfect, ...) looks pushed while it is on. Config `ANTIALIAS`.
 - **Crop tool:** starts with no box: `Click+Drag` region · `Click` away clears the box · handles resize (drag outward past an edge to *grow* the canvas) · `Arrows` nudge · `Ctrl+Arrows` resize · `Enter` apply · `Esc` cancel · `Double-click` the Crop button trims the canvas to the artwork (visible layers) · **Image > Crop** boxes the whole image, zooming out first so its edges show · every crop undoes with `Ctrl+Z`.
 
 ---
@@ -512,8 +520,8 @@ Panels move by dragging their title / handle into the dock tree (left, right, st
 | `R-Click` the color strip's scroll buttons | The strip's menu (as on its empty places) |
 | `L-Click` the chevron / `Dbl-Click` a title strip | Collapse the slot to its title / expand it |
 | `L-Click` a collapsed title | Open it (on the tab you clicked) |
-| `R-Click` a handle | Move to Left / Right Edge · Dock Along the Top / Bottom · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement · Close · Customize Buttons… (toolbox / bars) · Scale: Auto / 1x–6x, every panel alike (Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches: the panel's own size; Auto = the UI Scale; also Settings → Panels → Panel Scale) |
-| `L-Click` a panel's [x] | Close it (floating panels: right end of the title / grip; tabbed / collapsed slots: end of the title strip, closes the showing tab; red on hover). The handle menu's **Close** does the same for every panel but the text bar. View → Organizer / Drawer bring those two back |
+| `R-Click` a handle | Move to Left / Right Edge · Dock Along the Top / Bottom · Collapse to Title / Expand · Float / Dock Back · Reset Arrangement · Close · Customize Buttons… (toolbox / bars) · Scale: Auto / 1x–6x, every panel alike (Animation, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches: the panel's own size; Auto = the UI Scale; also Settings → Panels → Panel Scale, whose **Set All** sets every panel at once - command palette: *Panel Scale Settings*) |
+| `L-Click` a panel's [x] | Close it (floating panels: right end of the title / grip; tabbed / collapsed slots: end of the title strip, closes the showing tab; red on hover). The handle menu's **Close** does the same for every panel but the text bar. View → Panels → Organizer / Drawer bring those two back |
 | `R-Click` the Pen Control panel (below its title) | Pen Control Presets: your presets (ticked = current), Save Preset… · Rename Preset… · Delete Preset… · Open Presets Folder |
 | `L-Drag` a floating window's title bar onto a dock target | Dock it (Preview, Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches, Browser) |
 | `Dbl-Click` a floating panel's title | Dock it back where it was |
@@ -523,17 +531,18 @@ Panels move by dragging their title / handle into the dock tree (left, right, st
 Arrangements save to the active workspace (or `DRAW.cfg` in Default); a workspace keeps them in `[DOCK]` / `[FLOAT]`.
 
 ### Customize Toolbars (View → Customize Toolbars…)
-Edits the toolbox, edit bar and advanced bar: any tool or command, in any order, on any of them. Changes save into the active workspace (Default asks for a name and makes one).
+Edits the toolbox, edit bar, advanced bar, PANELS bar and I/O bar: any tool or command, in any order, on any of them. Changes save into the active workspace (Default asks for a name and makes one).
 
 | Input | Action |
 | --- | --- |
-| `L-Click` a tab | Edit that panel (Toolbox / Edit Bar / Advanced Bar) |
+| `L-Click` a tab | Edit that panel (Toolbox / Edit Bar / Advanced Bar / PANELS / I/O) |
 | Type in **Search…** | Filter the Available list (`Esc` clears, `Enter` ends) |
 | `Dbl-Click` an Available row / **→** | Add it after the selected button |
 | **←** / `Delete` | Remove the selected button |
 | **↑ / ↓** | Move the selected button |
 | **+ DIV** / **+ GAP** | Insert a divider (new row) / an empty cell |
 | **RESET** · **COLUMNS − / +** | The panel's default buttons · its columns |
+| **DIVIDER − / +** · **SHOW DIVIDERS** · **SHOW GAPS** | This panel's divider space (0–16 px; AUTO = the theme's) · a line in each divider · a dotted outline round each gap (each toolbar its own, saved in the workspace; with them on, a bar docked in a top / bottom row breaks at its dividers and keeps its gaps) |
 | `L-Drag` a row in the right list / onto Available | Reorder it / remove it |
 | `L-Drag` an Available row onto the right list or a panel | Add it there |
 | `Wheel` over a list | Scroll it |
@@ -556,19 +565,19 @@ One way to set a number in every panel, bar and Settings tab that has a slider o
 
 Not yet on: the text bar (its wheel steps its dropdowns), the Color Mixer and 3D Color Space (middle-drag spins the solid), the Advanced Color Picker's quantize bar, the animation widget bar, the Resize and image-adjust dialogs.
 
-### MyPaint Brush Settings (View → MyPaint Brush Settings)
+### MyPaint Brush Settings (View → Panels → MyPaint Brush Settings)
 A dock panel like Pen Control for the MyPaint brush in use: **SIZE** (the brush size; on top of the brush's own radius when Size From Brush Size is off), **OPAQUE**, **SHARP** (hardness), **GAIN** (pressure gain), **PIGMENT** (spectral paint mixing), **SMOOTH** (slow tracking), **PRESSURE** (what the mouse paints with; a pen uses its own) and **TWIST** (barrel rotation, for brushes that read it). OPAQUE…SMOOTH change the loaded brush until another is picked; **RESET** puts every slider back to the brush as made, **SAVE** writes the brush with them as a `.myb` in My Brushes. Docked in a column the sliders stack; in a wide row they sit side by side.
 
-### Brush Palette (View → Brush Palette)
+### Brush Palette (View → Panels → Brush Palette)
 A dock panel of brush tips: the shape chips (**round**, **square**, **slant /**, **slant \\**), **SIZE** and **SOFT** sliders (SOFT 0 = hard edge, 100 = feathered from the centre), and a thumbnail per size — `L-Click` a thumbnail to use that size, `Wheel` over the grid scrolls it, `Wheel` over a chip cycles the shape. It fits any dock shape: one column (narrow float), two, a tall column or a wide bottom row. Slants paint a slanted stroke (a calligraphy nib) and the pointer shows their outline; `.draw` files keep the shape.
 
 ### Drawer panel
 `F1/F2/F3` Brush/Gradient/Pattern mode · `L-Click slot` select · `Shift+L-Click` store current · `R-Click` context menu · `M-Click` cycle mode · `Shift+M-Click` clear slot · `Shift+R-Click` import into slot · `L/R-Click mini palette` set FG/BG (when it's on: Settings → Panels → Drawer) · `Wheel` over the bins switches `.dset` sets · `Shift+Wheel` over the bins scrolls them when a narrow drawer can't show every row · `Ctrl+Wheel` over the bins zooms them (up = fewer, bigger bins; down = more, smaller; R-Click → Bin Size: Auto resets).
 
 ### Color Mixer / Advanced Color Picker / Image Browser
-View → Color Mixer (RGB/HSV sliders, hex). **View → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. **View → 3D Color Space**: the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB — `L-Click`/drag the solid → set FG · `R-Drag`/`M-Drag` (or `L-Drag` off the solid) spin · `Wheel` zoom · SOLID/CLOUD · SLICE + slider cut at a lightness. **Palette → Generate OKLCh Ramp from FG** makes an even dark→light palette (Settings → Panels → Color Blending + Ramps). **Brush → Mix Colors (Pigment)** makes the brush pick up and smear the colors it crosses, mixing like wet paint (blue through yellow = green; Smudge / Smudge Length / Smudge Radius in Settings); **Palette → Generate Pigment Mix FG > BG** makes a paint-mixed FG→BG palette. View → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Back` / `Forward` mouse buttons (pointer on it) back / forward through the folders visited · `Dbl-Click title` maximize. `Click` the path field and type a folder (`Enter` goes, `Esc` leaves) · `Click` the search box and type to filter the list (`BackSpace` deletes, `Enter` keeps the filter, `Esc` clears it) — while either has the caret, keys go to it, not to DRAW's shortcuts. Drag the splitter beside the folder list down to an icon and one letter. Docked in a left / right column, the preview sits under the folder list (drag the bar between them to size it) and the column's inner edge drags anywhere along the Browser. Its preview pane shows `.draw` files and plays animations (an animated GIF / APNG, a PNG or `.draw` with frames — at their own delays, fps and holds): `Click` the play / pause box · `Click` / `Drag` the seek track to jump / scrub (the Open dialog's preview too). **Floating windows** (Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches, Image Browser, Preview, Customize Toolbars): drag a title bar to move. `Click` any floating window or floating panel to bring it to the front. With View → Snap Panel Edges on (default), edges snap to other floating windows and to the surrounding chrome and windows don't overlap; hold one still against a snap ~1.5 s to drop it on top. Off, they move freely.
+View → Panels → Color Mixer (RGB/HSV sliders, hex). **View → Panels → Advanced Color Picker** (`Ctrl+Shift+M`, or middle-click the Color Mixer toolbox button): Krita-style hue ring + SV triangle, shade selector rows, and a color-history strip. `L-Click`/drag the wheel/triangle/shades/history → set FG (`X` swaps FG/BG). Drag the small ring markers to resize the hue-neighbors range. `R-Click` the history strip → Create Palette / Clear History. All options in Settings → Panels → Advanced Color Picker. **View → Panels → 3D Color Space**: the sRGB gamut as a 3D solid in OKLab / CIELAB / XYZ / RGB — `L-Click`/drag the solid → set FG · `R-Drag`/`M-Drag` (or `L-Drag` off the solid) spin · `Wheel` zoom · SOLID/CLOUD · SLICE + slider cut at a lightness. **Palette → Generate OKLCh Ramp from FG** makes an even dark→light palette (Settings → Panels → Color Blending + Ramps). **Brush → Mix Colors (Pigment)** makes the brush pick up and smear the colors it crosses, mixing like wet paint (blue through yellow = green; Smudge / Smudge Length / Smudge Radius in Settings); **Palette → Generate Pigment Mix FG > BG** makes a paint-mixed FG→BG palette. View → Panels → Browser: `Click` select · `Ctrl+Click` multi-select · `Dbl-Click` load · drag file → canvas/drawer/layer-panel · `Wheel` scroll · `Back` / `Forward` mouse buttons (pointer on it) back / forward through the folders visited · `Dbl-Click title` maximize. `Click` the path field and type a folder (`Enter` goes, `Esc` leaves) · `Click` the search box and type to filter the list (`BackSpace` deletes, `Enter` keeps the filter, `Esc` clears it) — while either has the caret, keys go to it, not to DRAW's shortcuts. Drag the splitter beside the folder list down to an icon and one letter. Docked in a left / right column, the preview sits under the folder list (drag the bar between them to size it) and the column's inner edge drags anywhere along the Browser. Its preview pane shows `.draw` files and plays animations (an animated GIF / APNG, a PNG or `.draw` with frames — at their own delays, fps and holds): `Click` the play / pause box · `Click` / `Drag` the seek track to jump / scrub (the Open dialog's preview too). **Floating windows** (Color Mixer, Advanced Color Picker, 3D Color Space, Pen Control, Swatches, Image Browser, Preview, Customize Toolbars): drag a title bar to move. `Click` any floating window or floating panel to bring it to the front. With View → Snap Panel Edges on (default), edges snap to other floating windows and to the surrounding chrome and windows don't overlap; hold one still against a snap ~1.5 s to drop it on top. Off, they move freely.
 
-### Swatches panel (View → Swatches)
+### Swatches panel (View → Panels → Swatches)
 A grid of swatches from a swatch set, beside the palette strip (which stays the document palette). `L-Click` a swatch → select it + FG · `Shift+L-Click` → select the range · `Ctrl+L-Click` → toggle it in the selection · `L-Drag` a selected swatch → move the selection there (a bar marks the drop; locked swatches stay) · `Ctrl+L-Drag` → copy it there · `L-Drag` selected swatches onto the palette strip → insert them after the chip under the pointer (past the last chip = at the end; colors the strip has are skipped; `Ctrl+Z` over the canvas undoes) · `Dbl L-Click` a swatch → edit its color (dialog) · one swatch selected: the Color Mixer / Advanced Color Picker / 3D Color Space change it live (gear → Color Panels Edit the Selected) · `L-Drag` from an empty place → box select (`Ctrl+L-Drag` adds; dragging past the grid scrolls) · `Ctrl+A` / `Ctrl+D` or `Esc` with the pointer on the panel → select all / none · `Ins` → add the FG after the selection · `Shift+Ins` → overwrite the selected swatches with the FG in place (nothing moves; an empty cell becomes a color; locked swatches stay) — edit menu ☐ Ins Overwrites swaps the two · `Del` → delete the selected swatches (locked stay) · `L` → lock / unlock the selected (over the canvas `L` stays the Line tool) · `F` → Find FG: select the FG's swatch, else the nearest (OKLab), and scroll to it (over the canvas `F` stays the Fill tool) · `Ctrl+Z` / `Ctrl+Y` → undo / redo swatch edits (the first edit of a set that isn't yours saves a copy in My Swatches; every edit saves) · `R-Click` → BG · `Wheel` scroll · drag the scroll bar · `L-Drag` the corner grip (floating) → resize. `Click` ☰ or `Shift+R-Click` the grid → the edit menu (Steps, Sort Hue / Light / Sat / Luma / Rev, Add FG Color, Overwrite with FG, Ins Overwrites, Delete, Lock / Unlock, Duplicate, Edit Color…, Rename…, Find FG Color, Insert Empty Cell, Insert Row Break, Remove Duplicates, Ramp First > Last, Insert Ramp FG > BG, Insert OKLCh Ramp from FG, Selected (All) to Strip: Replace / Add, Load…, Save As…, New Set from Strip, New Set from Image (Selection), Lospec…, Select All / None, Undo / Redo; Shift+R-Click on an unselected swatch selects it alone) · `Click` the set name → the set list (Document Palette, My Swatches, the shipped swatch sets, every palette) · recent colors row (gear): `L-Click` → FG, `R-Click` → BG · `Click` the gear → View (GRID / LIST: swatch + hex + name rows), Columns (SET / FIT / 8–32), Cell, Gap, Stretch to width, Square cells, Cell borders, Recent colors row, Clear Recent Colors, Black filler = empty cells, Load Swatches…, Open My Swatches Folder · `Esc` closes either list. Load Swatches… reads `.aco` `.ase` `.gpl` `.act` `.pal` `.hex` `.txt` `.png` and saves a `.gpl` copy in My Swatches (the original is never written); Save As… writes `.gpl` `.aco` `.ase` `.act` `.pal` `.hex` `.txt` `.png`. Actions: 2600 toggle · 2601 Load Swatches… · 2602 Open My Swatches Folder · 2603 Save Swatches As… · 2604 Swatches to Palette Strip (Replace) · 2605 Add Swatches to Palette Strip · 2606 New Swatch Set from Palette Strip · 2607 New Swatch Set from Image / Selection · 2608 Swatches from Lospec… · 2609 Clear Recent Colors (Swatches).
 
 ---
@@ -645,7 +654,7 @@ rest in flyouts):
 
 A marquee or wand selection inside the current frame moves with it to the next frame (same
 place in the cell). (Also View → Frame Grid
-and View → Animation Panel; every item is in the command palette.)
+and View → Panels → Animation Panel; every item is in the command palette.)
 
 ### Animation panel (View / ANIM → Animation Panel)
 | Control | Action |

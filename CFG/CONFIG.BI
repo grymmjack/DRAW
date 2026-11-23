@@ -321,6 +321,8 @@ TYPE DRAW_CONFIG
     TOOLBOX_BUTTONS                 AS STRING         ' ... the toolbox's buttons ([TOOLBOX] BUTTONS= names; "" = the stock ones)
     EDIT_BAR_ORDER                  AS STRING         ' ... the edit bar's ([EDIT_BAR] ORDER= names)
     ADV_BAR_ORDER                   AS STRING         ' ... the advanced bar's ([ADVANCED_BAR] ORDER= names)
+    PANELS_BAR_ORDER                AS STRING         ' ... the PANELS bar's ([PANELS_BAR] ORDER= names; GUI/CMDBARS)
+    IO_BAR_ORDER                    AS STRING         ' ... the I/O bar's ([IO_BAR] ORDER= names)
     ' Grid settings
     GRID_COLOR_FG                   AS _UNSIGNED LONG ' Grid foreground color (hex RGB, 0 = use theme)
     GRID_OPACITY                    AS INTEGER        ' Grid line opacity 0-255 (0 = use theme)
@@ -729,6 +731,18 @@ TYPE DRAW_CONFIG
     BRUSH_PANEL                     AS INTEGER        ' TRUE = View > Brush Palette shows
     BRUSH_PANEL_SCALE               AS SINGLE         ' its own Scale (0 = the UI Scale)
     BRUSH_PANEL_CELL                AS INTEGER        ' its thumbnail cells, px (16..64)
+    HISTORY_PANEL                   AS INTEGER        ' TRUE = View > History shows (GUI/HISTORY-PANEL)
+    HISTORY_PANEL_SCALE             AS SINGLE         ' its own Scale (0 = the UI Scale)
+    ACTIONS_PANEL                   AS INTEGER        ' TRUE = View > Actions shows (GUI/ACTIONS-PANEL)
+    ACTIONS_PANEL_SCALE             AS SINGLE         ' its own Scale (0 = the UI Scale)
+    PANELS_BAR                      AS INTEGER        ' TRUE = View > PANELS Bar shows (GUI/CMDBARS: a button per View panel)
+    PANELS_BAR_SCALE                AS SINGLE         ' its own Scale (0 = the UI Scale)
+    PANELS_BAR_COLUMNS              AS INTEGER        ' its icon columns (1-4)
+    IO_BAR                          AS INTEGER        ' TRUE = View > I/O Bar shows (GUI/CMDBARS: New / Open / Import / Save / Export)
+    IO_BAR_SCALE                    AS SINGLE         ' its own Scale (0 = the UI Scale)
+    IO_BAR_COLUMNS                  AS INTEGER        ' its icon columns (1-4)
+    CANVAS_RECORDING                AS INTEGER        ' TRUE = every committed change adds a time-lapse frame (TOOLS/CANVAS-REC)
+    CANVAS_RECORDING_MB             AS INTEGER        ' a document's recording above this many MB thins its oldest frames
     BRUSH_SOFT                      AS INTEGER        ' the brush's edge softness, % (0 = hard .. 100; round and slant brushes)
     ' CRT overlay effect settings (presentation-only, never written to canvas)
     CRT_ENABLED                     AS INTEGER        ' Master on/off

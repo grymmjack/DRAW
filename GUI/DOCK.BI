@@ -34,16 +34,20 @@ CONST DP_TEXTBAR   = 9  ' the text tool's bar (GUI/TEXT-BAR)
 CONST DP_SELBAR    = 10 ' the selection tools' bar (GUI/SEL-BAR)
 CONST DP_MYPAINT   = 11 ' the MyPaint brush palette (GUI/MYPAINT-PANEL)
 CONST DP_MYPSET    = 12 ' the MyPaint Brush Settings (GUI/MYPAINT-SET)
-CONST DP_BRUSHES   = 13 ' the brush palette (GUI/BRUSH-PANEL) - the last dock panel
-CONST DP_PREVIEW   = 14 ' the first native window: id < DP_PREVIEW = a dock panel
-CONST DP_MIXER     = 15
-CONST DP_ADVCP     = 16
-CONST DP_CS3D      = 17
-CONST DP_PEN       = 18
-CONST DP_BROWSER   = 19
-CONST DP_ANIM      = 20
-CONST DP_SWATCH    = 21
-CONST DP_COUNT     = 21
+CONST DP_BRUSHES   = 13 ' the brush palette (GUI/BRUSH-PANEL)
+CONST DP_HISTORY   = 14 ' the History palette (GUI/HISTORY-PANEL)
+CONST DP_ACTIONS   = 15 ' the Actions palette (GUI/ACTIONS-PANEL)
+CONST DP_PANELSBAR = 16 ' the PANELS bar (GUI/CMDBARS)
+CONST DP_IOBAR     = 17 ' the I/O bar (GUI/CMDBARS) - the last dock panel
+CONST DP_PREVIEW   = 18 ' the first native window: id < DP_PREVIEW = a dock panel
+CONST DP_MIXER     = 19
+CONST DP_ADVCP     = 20
+CONST DP_CS3D      = 21
+CONST DP_PEN       = 22
+CONST DP_BROWSER   = 23
+CONST DP_ANIM      = 24
+CONST DP_SWATCH    = 25
+CONST DP_COUNT     = 25
 
 ' how a panel's height is decided inside its column
 CONST DP_H_FIXED = 1 ' its own content height (toolbar rows, organizer)
@@ -169,6 +173,8 @@ TYPE DOCK_UI_OBJ
     menuWf    AS INTEGER ' > 0: workflow button n's menu instead (GUI/WORKFLOW)
     menuPen   AS INTEGER ' TRUE: the Pen Control presets menu instead (GUI/PEN-PRESETS)
     menuMyp   AS INTEGER ' TRUE: the MyPaint palette's group dropdown instead (GUI/MYPAINT-PANEL)
+    menuHist  AS INTEGER ' TRUE: the History palette's right-click menu instead (GUI/HISTORY-PANEL)
+    menuActs  AS INTEGER ' TRUE: the Actions palette's right-click menu instead (GUI/ACTIONS-PANEL)
     menuJust  AS INTEGER ' opened this frame: the press that opened it is not a pick
     menuX     AS INTEGER
     menuY     AS INTEGER

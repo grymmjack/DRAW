@@ -77,7 +77,8 @@ END FUNCTION
 
 ''
 ' Today's fixed layout: the edit / advanced bar tables (dividers kept), the
-' toolbox's default grid (an empty cell stays a gap).
+' toolbox's default grid (an empty cell stays a gap), the PANELS / I/O bars'
+' lists (CBAR_set_default).
 SUB BL_set_default (panel AS INTEGER)
     DIM i AS INTEGER, ok AS INTEGER
     BL_clear panel
@@ -94,6 +95,7 @@ SUB BL_set_default (panel AS INTEGER)
             FOR i = 0 TO TB_TOTAL - 1
                 IF TOOLBAR_DEF_ORDER(i) < 0 THEN ok = BL_add%(panel, BL_GAP, 0) ELSE ok = BL_add%(panel, BL_TOOL, TOOLBAR_DEF_ORDER(i))
             NEXT i
+        CASE BL_PANELSBAR, BL_IOBAR: CBAR_set_default panel ' (GUI/CMDBARS)
     END SELECT
 END SUB
 
@@ -201,24 +203,45 @@ END FUNCTION
 
 ''
 ' The tooltip of command act: its bar tooltip (the tables are keyed by the bar
-' slot it has by default), else its command name and hotkey.
+' slot it has by default), else its command name and hotkey. An AI command
+' while AI features are off says how to turn it on instead of line 2.
 SUB BL_cmd_tooltip (act AS INTEGER, line1 AS STRING, line2 AS STRING)
     DIM i AS INTEGER
     line1 = "": line2 = ""
     FOR i = 0 TO EDITBAR_TOTAL_SLOTS - 1
         IF EDIT_BAR_ITEMS(i).isDivider% = 0 _ANDALSO EDIT_BAR_ITEMS(i).actionID% = act THEN
             line1 = TOOLTIP_EB_LINE1$(i): line2 = TOOLTIP_EB_LINE2$(i)
-            EXIT SUB
+            EXIT FOR
         END IF
     NEXT i
-    FOR i = 0 TO ADVBAR_TOTAL_SLOTS - 1
-        IF ADV_BAR_ITEMS(i).isDivider% = 0 _ANDALSO ADV_BAR_ITEMS(i).actionID% = act THEN
-            line1 = TOOLTIP_AB_LINE1$(i): line2 = TOOLTIP_AB_LINE2$(i)
-            EXIT SUB
+    IF LEN(line1) = 0 THEN
+        FOR i = 0 TO ADVBAR_TOTAL_SLOTS - 1
+            IF ADV_BAR_ITEMS(i).isDivider% = 0 _ANDALSO ADV_BAR_ITEMS(i).actionID% = act THEN
+                line1 = TOOLTIP_AB_LINE1$(i): line2 = TOOLTIP_AB_LINE2$(i)
+                EXIT FOR
+            END IF
+        NEXT i
+    END IF
+    IF LEN(line1) = 0 THEN
+        line1 = UCASE$(BL_cmd_label$(act))
+        IF LEN(BL_cmd_hotkey$(act)) THEN line1 = UCASE$(BL_cmd_hotkey$(act)) + " - " + line1
+    END IF
+    IF act = 1820 THEN line1 = "GENERATE WITH AI" ' the toolbox button (Rick 2026-11-22)
+    IF BL_cmd_ai_off%(act) THEN
+        ' AI off: the AI menu is not built, so the menu lookup finds no name
+        IF LEN(line1) = 0 THEN
+            SELECT CASE act
+                CASE 1821: line1 = "REGENERATE LAYER"
+                CASE 1822: line1 = "CANCEL GENERATION"
+                CASE 1823: line1 = "AI TOOLS"
+                CASE 1825: line1 = "NEW FROM AI"
+                CASE 1826: line1 = "EDIT AI PROMPT"
+                CASE 1827: line1 = "AI STYLE EDITOR"
+                CASE 1828: line1 = "AI PROMPT EDITOR"
+            END SELECT
         END IF
-    NEXT i
-    line1 = UCASE$(BL_cmd_label$(act))
-    IF LEN(BL_cmd_hotkey$(act)) THEN line1 = UCASE$(BL_cmd_hotkey$(act)) + " - " + line1
+        line2 = "TO ENABLE THIS BUTTON, ENABLE AI FEATURES"
+    END IF
 END SUB
 
 
@@ -366,10 +389,23 @@ END FUNCTION
 ' =============================================================================
 
 ''
-' A command button is lit (not dimmed): both bars' availability rules (each is
-' TRUE for the commands it does not know).
+' A command button is lit (not dimmed): the bars' availability rules (each is
+' TRUE for the commands it does not know; the PANELS bar's: its panel shows),
+' and not an AI command while AI features are off.
 FUNCTION BL_cmd_enabled% (act AS INTEGER)
-    BL_cmd_enabled% = (EDITBAR_action_enabled%(act) <> 0) _ANDALSO (ADVBAR_action_enabled%(act) <> 0)
+    BL_cmd_enabled% = (EDITBAR_action_enabled%(act) <> 0) _ANDALSO (ADVBAR_action_enabled%(act) <> 0) _ANDALSO (CBAR_action_enabled%(act) <> 0) _ANDALSO (BL_cmd_ai_off%(act) = 0)
+END FUNCTION
+
+
+''
+' Command act is an AI command (New AI Layer, New from AI, Regenerate, ...) and
+' AI features are off (Settings > ENABLE AI FEATURES), so it does nothing -
+' COMMAND.BM gates each of these on CFG.AI_ENABLED. 1824 (the on/off toggle)
+' always works.
+FUNCTION BL_cmd_ai_off% (act AS INTEGER)
+    SELECT CASE act
+        CASE 1820 TO 1823, 1825 TO 1828: BL_cmd_ai_off% = (CFG.AI_ENABLED% = 0)
+    END SELECT
 END FUNCTION
 
 
@@ -387,6 +423,7 @@ FUNCTION BL_cmd_available% (act AS INTEGER)
         CASE 1503, 1504: BL_cmd_available% = (REFIMG.IMAGE < -1)
         CASE 1907, 1908: BL_cmd_available% = (MULTI_SELECT_COUNT% >= 2)
         CASE 907: BL_cmd_available% = GRID.SHOW%
+        CASE 1820 TO 1823, 1825 TO 1828: BL_cmd_available% = (BL_cmd_ai_off%(act) = 0)
         CASE ELSE: BL_cmd_available% = TRUE
     END SELECT
 END FUNCTION
@@ -414,11 +451,12 @@ FUNCTION BL_bar_draw% (panel AS INTEGER, x1 AS INTEGER, w AS INTEGER, y1 AS INTE
     DIM i AS INTEGER, padding AS INTEGER, curY AS INTEGER, contentH AS INTEGER
     DIM barCols AS INTEGER, barColW AS INTEGER, colK AS INTEGER, rowH AS INTEGER
     DIM img AS LONG, dimg AS LONG, iconW AS INTEGER, iconH AS INTEGER, iconX AS INTEGER, lit AS INTEGER
+    DIM divPx AS INTEGER, lineY AS INTEGER
     IF BL_HROWS(panel) > 0 THEN BL_bar_draw% = BL_bar_draw_h%(panel, x1, w, y1, y2, hoverIdx): EXIT FUNCTION
     BL_ensure panel
-    padding = THEME.EDIT_BAR_ICON_PADDING%
+    padding = THEME.ICON_BAR_padding%
     curY = y1 + 1 + padding - scrollOff ' just below the top edge
-    barColW = THEME.EDIT_BAR_WIDTH%
+    barColW = THEME.ICON_BAR_width%
     barCols = cols
     IF barColW > 0 _ANDALSO w \ barColW > barCols THEN barCols = w \ barColW
     IF barCols < 1 THEN barCols = 1
@@ -429,15 +467,27 @@ FUNCTION BL_bar_draw% (panel AS INTEGER, x1 AS INTEGER, w AS INTEGER, y1 AS INTE
                 curY = curY + rowH + padding: contentH = contentH + rowH + padding
                 colK = 0: rowH = 0
             END IF
-            curY = curY + THEME.EDIT_BAR_DIVIDER_VERT_MARGIN%
-            contentH = contentH + THEME.EDIT_BAR_DIVIDER_VERT_MARGIN%
+            divPx = BL_div_px%(panel) ' (Customize Toolbars: DIVIDER - n +)
+            ' SHOW DIVIDERS: a line in the middle of the space between the rows (padding + divider)
+            IF BL_SHOWDIV(panel) _ANDALSO divPx + padding > 0 THEN
+                lineY = curY - padding + (padding + divPx - 1) \ 2
+                IF lineY >= y1 _ANDALSO lineY <= y2 THEN LINE (x1 + 2, lineY)-(x1 + w - 3, lineY), THEME.ICON_BAR_divider_fg~&
+            END IF
+            curY = curY + divPx
+            contentH = contentH + divPx
             _CONTINUE
         END IF
         BL_entry_icon panel, i, img, dimg, iconW, iconH, lit
         iconX = x1 + colK * barColW + (barColW - iconW) \ 2
         IF iconH > rowH THEN rowH = iconH
         ' only whole icons: a partial one would spill past the panel's rect
-        IF curY >= y1 _ANDALSO curY + iconH - 1 <= y2 _ANDALSO BL(panel, i).kind <> BL_GAP THEN BL_entry_draw panel, i, iconX, curY, img, dimg, iconW, iconH, lit, hoverIdx
+        IF curY >= y1 _ANDALSO curY + iconH - 1 <= y2 THEN
+            IF BL(panel, i).kind <> BL_GAP THEN
+                BL_entry_draw panel, i, iconX, curY, img, dimg, iconW, iconH, lit, hoverIdx
+            ELSEIF BL_SHOWGAP(panel) THEN
+                BL_gap_outline iconX, curY, iconW, iconH, THEME.ICON_BAR_divider_fg~& ' SHOW GAPS
+            END IF
+        END IF
         colK = colK + 1
         IF colK >= barCols THEN
             curY = curY + rowH + padding: contentH = contentH + rowH + padding
@@ -482,37 +532,59 @@ SUB BL_entry_draw (panel AS INTEGER, i AS INTEGER, iconX AS INTEGER, iconY AS IN
     END IF
     ' a command that picks a tool: pushed while that is the tool, like a tool button
     IF BL(panel, i).kind = BL_CMD _ANDALSO CMD_tool_on%(BL(panel, i).id) THEN
-        LINE (iconX, iconY)-(iconX + iconW - 1, iconY + iconH - 1), THEME.TOOLBAR_btn_overlay~&, BF
-        LINE (iconX, iconY)-(iconX + iconW - 1, iconY + iconH - 1), THEME.TOOLBAR_btn_stroke~&, B
+        LINE (iconX, iconY)-(iconX + iconW - 1, iconY + iconH - 1), THEME.ICON_BAR_button_on_bg~&, BF
+        LINE (iconX, iconY)-(iconX + iconW - 1, iconY + iconH - 1), THEME.ICON_BAR_button_on_border~&, B
     END IF
     ' the shared Edge-Mode button shows "AA" when its target is Anti-Aliasing
-    IF BL(panel, i).kind = BL_CMD _ANDALSO BL(panel, i).id = 959 _ANDALSO EDGE_MODE_TARGET = EDGE_TARGET_AA THEN EDITBAR_draw_aa_badge iconX, iconY, iconW, iconH
-    IF i = hoverIdx _ANDALSO BL_entry_lit%(panel, i) THEN LINE (iconX - 1, iconY - 1)-(iconX + iconW, iconY + iconH), THEME.EDIT_BAR_ICON_MOUSE_OUTLINE_COLOR~&, B
+    IF i = hoverIdx _ANDALSO BL_entry_lit%(panel, i) THEN LINE (iconX - 1, iconY - 1)-(iconX + iconW, iconY + iconH), THEME.ICON_BAR_button_hover_border~&, B
 END SUB
 
 
 ''
 ' A bar in a top / bottom dock row (BL_HROWS): its icons sideways - rows of
 ' BL_hbar_cell_h% from the top, a column fills down then the next one starts.
-' One even grid: dividers and gaps take no room here, so every column is full
-' and the icons line up (Rick 2026-11-16: "aligned and stacked horizontally
-' without breaks and weird columns"). Only whole icons are drawn. No scrolling
-' (the dock gives it the width its columns need): returns the rect's height.
+' One even grid by default: dividers and gaps take no room here, so every column
+' is full and the icons line up (Rick 2026-11-16: "aligned and stacked
+' horizontally without breaks and weird columns"). With the panel's SHOW
+' DIVIDERS on (Customize Toolbars) a divider ends the icon column, takes its
+' DIVIDER size and draws a line down it; with SHOW GAPS on a gap takes a cell,
+' outlined (Rick 2026-11-23: they showed no difference in a top row).
+' BL_hbar_span% follows the same rules for the width. Only whole icons are
+' drawn. No scrolling (the dock gives it the width its columns need): returns
+' the rect's height.
 FUNCTION BL_bar_draw_h% (panel AS INTEGER, x1 AS INTEGER, w AS INTEGER, y1 AS INTEGER, y2 AS INTEGER, hoverIdx AS INTEGER)
     DIM i AS INTEGER, k AS INTEGER, rws AS INTEGER, colX AS INTEGER, colW AS INTEGER, cellH AS INTEGER, iconY AS INTEGER
     DIM img AS LONG, dimg AS LONG, iconW AS INTEGER, iconH AS INTEGER, iconX AS INTEGER, lit AS INTEGER
+    DIM sp AS INTEGER, lineX AS INTEGER, topY AS INTEGER, botY AS INTEGER
     BL_ensure panel
     rws = BL_HROWS(panel): IF rws < 1 THEN rws = 1
-    colW = THEME.EDIT_BAR_WIDTH%: IF colW < 1 THEN colW = 20
+    colW = THEME.ICON_BAR_width%: IF colW < 1 THEN colW = 20
     cellH = BL_hbar_cell_h%
+    topY = y1 + 1 + THEME.ICON_BAR_padding%
+    botY = topY + rws * cellH - THEME.ICON_BAR_padding% - 1: IF botY > y2 THEN botY = y2
     colX = x1
     FOR i = 0 TO BL_N(panel) - 1
         BL(panel, i).x = 0: BL(panel, i).y = 0: BL(panel, i).w = 0: BL(panel, i).h = 0
-        IF BL(panel, i).kind = BL_DIV _ORELSE BL(panel, i).kind = BL_GAP THEN _CONTINUE
+        IF BL(panel, i).kind = BL_DIV THEN
+            IF BL_SHOWDIV(panel) = 0 _ORELSE i = BL_N(panel) - 1 THEN _CONTINUE
+            IF k > 0 THEN colX = colX + colW: k = 0
+            sp = BL_hbar_div_w%(panel)
+            lineX = colX + (sp - 1) \ 2
+            IF lineX <= x1 + w - 1 THEN LINE (lineX, topY)-(lineX, botY), THEME.ICON_BAR_divider_fg~&
+            colX = colX + sp
+            _CONTINUE
+        END IF
+        IF BL(panel, i).kind = BL_GAP _ANDALSO BL_SHOWGAP(panel) = 0 THEN _CONTINUE
         BL_entry_icon panel, i, img, dimg, iconW, iconH, lit
         iconX = colX + (colW - iconW) \ 2
-        iconY = y1 + 1 + THEME.EDIT_BAR_ICON_PADDING% + k * cellH
-        IF iconX + iconW - 1 <= x1 + w - 1 _ANDALSO iconY + iconH - 1 <= y2 THEN BL_entry_draw panel, i, iconX, iconY, img, dimg, iconW, iconH, lit, hoverIdx
+        iconY = topY + k * cellH
+        IF iconX + iconW - 1 <= x1 + w - 1 _ANDALSO iconY + iconH - 1 <= y2 THEN
+            IF BL(panel, i).kind = BL_GAP THEN
+                BL_gap_outline iconX, iconY, iconW, iconH, THEME.ICON_BAR_divider_fg~&
+            ELSE
+                BL_entry_draw panel, i, iconX, iconY, img, dimg, iconW, iconH, lit, hoverIdx
+            END IF
+        END IF
         k = k + 1
         IF k >= rws THEN colX = colX + colW: k = 0
     NEXT i
@@ -521,16 +593,50 @@ END FUNCTION
 
 
 ''
+' The room a shown divider takes across a sideways bar: its DIVIDER size, at
+' least 1 px for its line.
+FUNCTION BL_hbar_div_w% (panel AS INTEGER)
+    DIM sp AS INTEGER
+    sp = BL_div_px%(panel): IF sp < 1 THEN sp = 1
+    BL_hbar_div_w% = sp
+END FUNCTION
+
+
+''
+' Width of a sideways bar's content with rws icon rows: its icon columns, and
+' with SHOW DIVIDERS / SHOW GAPS on the dividers' room and the gaps' cells
+' (the rules of BL_bar_draw_h%).
+FUNCTION BL_hbar_span% (panel AS INTEGER, rws AS INTEGER)
+    DIM i AS INTEGER, k AS INTEGER, r AS INTEGER, colW AS INTEGER, tot AS INTEGER
+    r = rws: IF r < 1 THEN r = 1
+    colW = THEME.ICON_BAR_width%: IF colW < 1 THEN colW = 20
+    FOR i = 0 TO BL_N(panel) - 1
+        IF BL(panel, i).kind = BL_DIV THEN
+            IF BL_SHOWDIV(panel) = 0 _ORELSE i = BL_N(panel) - 1 THEN _CONTINUE
+            IF k > 0 THEN tot = tot + colW: k = 0
+            tot = tot + BL_hbar_div_w%(panel)
+            _CONTINUE
+        END IF
+        IF BL(panel, i).kind = BL_GAP _ANDALSO BL_SHOWGAP(panel) = 0 THEN _CONTINUE
+        k = k + 1
+        IF k >= r THEN tot = tot + colW: k = 0
+    NEXT i
+    IF k > 0 THEN tot = tot + colW
+    BL_hbar_span% = tot
+END FUNCTION
+
+
+''
 ' One icon row of a sideways bar (px): an icon and its padding.
 FUNCTION BL_hbar_cell_h% ()
-    BL_hbar_cell_h% = 16 + THEME.EDIT_BAR_ICON_PADDING%
+    BL_hbar_cell_h% = 16 + THEME.ICON_BAR_padding%
 END FUNCTION
 
 
 ''
 ' Height of a sideways bar with rws icon rows (its top / bottom edge rows too).
 FUNCTION BL_hbar_h% (rws AS INTEGER)
-    BL_hbar_h% = 2 + THEME.EDIT_BAR_ICON_PADDING% + rws * BL_hbar_cell_h%
+    BL_hbar_h% = 2 + THEME.ICON_BAR_padding% + rws * BL_hbar_cell_h%
 END FUNCTION
 
 
@@ -538,7 +644,7 @@ END FUNCTION
 ' The icon rows a sideways bar h px tall holds (at least 1).
 FUNCTION BL_hbar_rows_fit% (h AS INTEGER)
     DIM r AS INTEGER
-    r = (h - 2 - THEME.EDIT_BAR_ICON_PADDING%) \ BL_hbar_cell_h%
+    r = (h - 2 - THEME.ICON_BAR_padding%) \ BL_hbar_cell_h%
     IF r < 1 THEN r = 1
     BL_hbar_rows_fit% = r
 END FUNCTION
@@ -546,17 +652,13 @@ END FUNCTION
 
 ''
 ' Width of a sideways bar (borders included) with rws icon rows: the columns
-' BL_bar_draw_h% fills (its buttons only - no divider / gap room).
+' BL_bar_draw_h% fills (BL_hbar_span%: its buttons, plus divider / gap room
+' when the panel shows them).
 FUNCTION BL_hbar_w% (panel AS INTEGER, rws AS INTEGER)
-    DIM i AS INTEGER, n AS INTEGER, r AS INTEGER, colW AS INTEGER, tot AS INTEGER
+    DIM tot AS INTEGER
     BL_ensure panel
-    r = rws: IF r < 1 THEN r = 1
-    colW = THEME.EDIT_BAR_WIDTH%: IF colW < 1 THEN colW = 20
-    FOR i = 0 TO BL_N(panel) - 1
-        IF BL(panel, i).kind <> BL_DIV _ANDALSO BL(panel, i).kind <> BL_GAP THEN n = n + 1
-    NEXT i
-    tot = ((n + r - 1) \ r) * colW
-    BL_hbar_w% = tot + THEME.EDIT_BAR_LEFT_BORDER_WIDTH% + THEME.EDIT_BAR_RIGHT_BORDER_WIDTH%
+    tot = BL_hbar_span%(panel, rws)
+    BL_hbar_w% = tot + THEME.ICON_BAR_border_left_width% + THEME.ICON_BAR_border_right_width%
 END FUNCTION
 
 
@@ -600,15 +702,6 @@ SUB BL_bar_click (panel AS INTEGER, i AS INTEGER)
             END IF
         CASE BL_TOOL: IF TOOLBAR_activate_tool%(BL_tool_of%(BL(panel, i).id)) THEN MOUSE.UI_CHROME_CLICKED% = TRUE
     END SELECT
-END SUB
-
-
-''
-' A right-click on entry i of panel: only the shared Edge-Mode button has one
-' (it switches its target Pixel-Perfect <-> Anti-Aliasing, action 960).
-SUB BL_bar_right_click (panel AS INTEGER, i AS INTEGER)
-    IF i < 0 _ORELSE i >= BL_N(panel) THEN EXIT SUB
-    IF BL(panel, i).kind = BL_CMD _ANDALSO BL(panel, i).id = 959 THEN CMD_execute_action 960
 END SUB
 
 
@@ -670,6 +763,8 @@ END FUNCTION
 FUNCTION BL_cmd_tile& (act AS INTEGER, disabled AS INTEGER)
     DIM i AS INTEGER, img AS LONG, dimg AS LONG, t AS STRING, c AS _UNSIGNED LONG, oldDest AS LONG, oldFont AS LONG
     DIM tw AS INTEGER, th AS INTEGER
+    STATIC tileFg AS _UNSIGNED LONG
+    IF tileFg <> THEME.ICON_BAR_button_fg~& THEN BL_free_tiles: tileFg = THEME.ICON_BAR_button_fg~& ' (a live theme edit: draw them again)
     FOR i = 0 TO BL_TILE_N - 1
         IF BL_TILE_ACT(i) = act THEN
             IF disabled THEN BL_cmd_tile& = BL_TILE_DIM(i) ELSE BL_cmd_tile& = BL_TILE_IMG(i)
@@ -679,8 +774,8 @@ FUNCTION BL_cmd_tile& (act AS INTEGER, disabled AS INTEGER)
     IF BL_TILE_N >= BL_TILE_MAX THEN EXIT FUNCTION
     oldDest& = _DEST: oldFont& = _FONT
     DIM tileW AS INTEGER
-    c = _RGB32(202, 202, 202) ' the bar icons' line color
-    tileW = _MAX(16, THEME.EDIT_BAR_WIDTH%) ' a bar column's full width: room for 3 letters
+    c = THEME.ICON_BAR_button_fg~& ' the text on icon buttons
+    tileW = _MAX(16, THEME.ICON_BAR_width%) ' a bar column's full width: room for 3 letters
     img = _NEWIMAGE(tileW, 16, 32)
     _DEST img
     CLS , _RGBA32(0, 0, 0, 0)
@@ -711,7 +806,7 @@ END FUNCTION
 SUB BL_dim_image (img AS LONG)
     DIM m AS _MEM, offs AS _OFFSET, px AS _UNSIGNED LONG, a AS INTEGER, k AS SINGLE
     IF img >= -1 THEN EXIT SUB
-    k = (255 - THEME.EDIT_BAR_ICON_DISABLED_ALPHA%) / 255!
+    k = (255 - THEME.ICON_BAR_button_disabled_alpha%) / 255!
     IF k < 0 THEN k = 0
     IF k > 1 THEN k = 1
     m = _MEMIMAGE(img)
@@ -780,7 +875,78 @@ SUB BL_draw_tool_button (btn AS INTEGER, x AS INTEGER, y AS INTEGER)
     act = (t >= 0 _ANDALSO t = TOOLBAR_active_tool_id%)
     IF t = TOOL_SMART_SHAPES _ANDALSO SMART_SHAPES_is_active% THEN act = TRUE
     IF act THEN
-        LINE (bx, by)-(bx + TB_BTN_W - 1, by + TB_BTN_H - 1), THEME.TOOLBAR_btn_overlay~&, BF
-        LINE (bx, by)-(bx + TB_BTN_W - 1, by + TB_BTN_H - 1), THEME.TOOLBAR_btn_stroke~&, B
+        LINE (bx, by)-(bx + TB_BTN_W - 1, by + TB_BTN_H - 1), THEME.ICON_BAR_button_on_bg~&, BF
+        LINE (bx, by)-(bx + TB_BTN_W - 1, by + TB_BTN_H - 1), THEME.ICON_BAR_button_on_border~&, B
     END IF
+END SUB
+
+
+' =============================================================================
+' Dividers and gaps: how big a divider is, and whether dividers / gaps show
+' (Customize Toolbars, per panel; workspace DIVIDER_SIZE= / SHOW_DIVIDERS= /
+' SHOW_GAPS= in the panel's section). Rick 2026-11-23: "dividers should be
+' adjustable in the toolbar customizer. and gaps should show up with [x] show
+' gaps [x] show dividers". A bar in a top / bottom row stays one even grid
+' (BL_bar_draw_h%: no divider / gap room there).
+' =============================================================================
+
+''
+' The divider size set for panel: -1 = its default (BL_div_px%), else 0..16.
+FUNCTION BL_div_size% (panel AS INTEGER)
+    BL_div_size% = BL_DIVSZ(panel) - 1
+END FUNCTION
+
+SUB BL_div_size_set (panel AS INTEGER, v AS INTEGER)
+    DIM n AS INTEGER
+    n = v
+    IF n < -1 THEN n = -1
+    IF n > BL_DIV_MAX THEN n = BL_DIV_MAX
+    BL_DIVSZ(panel) = n + 1
+END SUB
+
+''
+' The space a divider takes on panel (px, its units): the size set, else the
+' theme's ICON_BAR_DIVIDER_MARGIN on a bar and none in the toolbox (where a
+' divider only ends the row).
+FUNCTION BL_div_px% (panel AS INTEGER)
+    DIM s AS INTEGER
+    s = BL_div_size%(panel)
+    IF s < 0 THEN
+        IF panel = BL_TOOLBOX THEN s = 0 ELSE s = THEME.ICON_BAR_divider_margin%
+    END IF
+    IF s < 0 THEN s = 0
+    BL_div_px% = s
+END FUNCTION
+
+''
+' Back to the default look: default divider size, no lines, no gap outlines.
+SUB BL_style_reset (panel AS INTEGER)
+    BL_DIVSZ(panel) = 0
+    BL_SHOWDIV(panel) = FALSE
+    BL_SHOWGAP(panel) = FALSE
+END SUB
+
+''
+' The panel's dividers / gaps as one string (Customize Toolbars compares it to
+' see whether a change needs saving).
+FUNCTION BL_style_key$ (panel AS INTEGER)
+    BL_style_key$ = _TRIM$(STR$(BL_div_size%(panel))) + "," + _TRIM$(STR$(BL_SHOWDIV(panel) <> 0)) + "," + _TRIM$(STR$(BL_SHOWGAP(panel) <> 0))
+END FUNCTION
+
+''
+' The panel's section in a workspace file.
+FUNCTION BL_ws_section$ (panel AS INTEGER)
+    SELECT CASE panel
+        CASE BL_TOOLBOX: BL_ws_section$ = "TOOLBOX"
+        CASE BL_EDITBAR: BL_ws_section$ = "EDIT_BAR"
+        CASE BL_ADVBAR: BL_ws_section$ = "ADVANCED_BAR"
+        CASE BL_PANELSBAR, BL_IOBAR: BL_ws_section$ = CBAR_section$(CBAR_of_bl%(panel))
+    END SELECT
+END FUNCTION
+
+''
+' SHOW GAPS: a dotted outline of a gap's cell.
+SUB BL_gap_outline (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, c AS _UNSIGNED LONG)
+    IF w < 2 _ORELSE h < 2 THEN EXIT SUB
+    LINE (x, y)-(x + w - 1, y + h - 1), c, B, &HAAAA
 END SUB

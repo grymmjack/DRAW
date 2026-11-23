@@ -6,7 +6,7 @@
 
 ## Tool Options
 
-**Tool Options** is the bar of settings for the tool in your hand. It sits in a row above the canvas and changes when you change tools. The space stays reserved, so picking a tool never moves the canvas. Turn it off with **View → Tool Options**.
+**Tool Options** is the bar of settings for the tool in your hand. It sits in a row above the canvas and changes when you change tools. The space stays reserved, so picking a tool never moves the canvas. Turn it off with **View → Panels → Tool Options**.
 
 - **Sliders** take the same input everywhere: **drag** or **click** the track, turn the **wheel** over it (`Shift` = ×10), **double-click the value** to type one, and **middle-click** (or double-click the track) to reset it.
 - **Values stick.** What you set on the bar is what the next stroke or shape starts with. Keys pressed while you drag (arrow keys, digits) change only the shape you are drawing.
@@ -71,7 +71,7 @@ The Organizer widget on the left contains **four brush size presets** (1, 3, 5, 
 
 DRAW reads **pen pressure** from a drawing tablet: Wacom, Huion, XP-Pen and Surface Pen are all supported, plus a Force Touch trackpad on a Mac. Pressure can change the Brush and Eraser **size** and **opacity**, and how much paint the mix brush lays down. It changes smoothly within a single stroke. A mouse is not affected - unless you turn on **Mouse Pressure** (below), which gives the mouse a made-up pressure.
 
-**View → Pen Control** opens a small panel with everything in one place, on four tabs: **PRESSURE** (below), **SMOOTHING** and **SPEED** (see *Stroke Smoothing* further down), and **MOUSE** (see *Mouse Pressure*). The panel remembers the tab you left it on.
+**View → Panels → Pen Control** opens a small panel with everything in one place, on four tabs: **PRESSURE** (below), **SMOOTHING** and **SPEED** (see *Stroke Smoothing* further down), and **MOUSE** (see *Mouse Pressure*). The panel remembers the tab you left it on.
 
 On the **PRESSURE** tab:
 - **Live meter:** shows how hard you're pressing.
@@ -171,7 +171,7 @@ DRAW ships eleven example presets. The first time you open the presets menu, the
 | **Mouse Ink** | Mouse pressure by speed (light 20% at 1100 px/s), taper in 14 / out 28 px, String 30, Light size 8% | A mouse that inks: thick-and-thin lines with pointed ends |
 | **Raw Pen** | The factory settings, every filter off | Back to plain pen input |
 
-**Try it - a five-minute tour.** Open **View → Pen Control**, pick the Brush (`B`) at about 8px, and on a scratch layer:
+**Try it - a five-minute tour.** Open **View → Panels → Pen Control**, pick the Brush (`B`) at about 8px, and on a scratch layer:
 
 1. **Raw Pen**, then draw a slow spiral. That is your hand as the tablet reads it.
 2. **Clean Inking**, the same spiral. The green guide line is the string: the brush only moves once you pull it taut, so the wobble is gone but corners stay sharp.

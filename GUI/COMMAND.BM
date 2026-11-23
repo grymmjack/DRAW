@@ -182,6 +182,7 @@ SUB CMD_init ()
     CMD_register "Toggle Color Mixer", "", CMD_CAT_VIEW, 2021
     CMD_register "Toggle Advanced Color Picker", "Ctrl+Shift+M", CMD_CAT_VIEW, 2023
     CMD_register "Advanced Color Picker Settings", "", CMD_CAT_VIEW, 2029
+    CMD_register "Panel Scale Settings (set all panels / each panel)", "", CMD_CAT_VIEW, 2760
     CMD_register "Toggle 3D Color Space", "", CMD_CAT_VIEW, 2024
     CMD_register "Toggle Pen Control Panel", "", CMD_CAT_VIEW, 2028
     CMD_register "Pen Control: Toggle Smoothing", "", CMD_CAT_BRUSH, PENP_ACT_STAB
@@ -230,8 +231,7 @@ SUB CMD_init ()
     CMD_register "Toggle CRT Vertical Scanlines", "", CMD_CAT_VIEW, 955
     CMD_register "Cycle CRT Tint", "", CMD_CAT_VIEW, 957
     CMD_register "Toggle Anti-Aliasing", "", CMD_CAT_EDIT, 958
-    CMD_register "Toggle Edge Mode (PP/AA)", "", CMD_CAT_EDIT, 959
-    CMD_register "Switch Edge Mode Target", "", CMD_CAT_EDIT, 960
+    CMD_register "Toggle Pixel Perfect (Bar Button)", "", CMD_CAT_EDIT, 959
     CMD_register "Toolbox Dock Left", "", CMD_CAT_VIEW, 443
     CMD_register "Toolbox Dock Right", "", CMD_CAT_VIEW, 444
     CMD_register "Layer Panel Dock Left", "", CMD_CAT_VIEW, 445
@@ -368,6 +368,22 @@ SUB CMD_init ()
     CMD_register "View: MyPaint Brush Settings (show / hide)", "", CMD_CAT_VIEW, MPS_ACT_PANEL
     CMD_register "MyPaint Brush Settings: Reset All", "", CMD_CAT_TOOL, MPS_ACT_RESET
     CMD_register "View: Brush Palette (show / hide)", "", CMD_CAT_VIEW, BSP_ACT_PANEL
+    CMD_register "View: History (show / hide)", "", CMD_CAT_VIEW, HISTP_ACT_PANEL
+    CMD_register "Edit: Clear History", "", CMD_CAT_EDIT, HISTP_ACT_CLEAR
+    CMD_register "View: Actions (show / hide)", "", CMD_CAT_VIEW, ACTP_ACT_PANEL
+    CMD_register "View: PANELS Bar (show / hide)", "", CMD_CAT_VIEW, CBAR_ACT_PANELS
+    CMD_register "View: I/O Bar (show / hide)", "", CMD_CAT_VIEW, CBAR_ACT_IO
+    CMD_register "Actions: Record", "", CMD_CAT_EDIT, ACTP_ACT_RECORD
+    CMD_register "Actions: Stop Recording", "", CMD_CAT_EDIT, ACTP_ACT_STOP
+    CMD_register "Actions: Play Selection", "", CMD_CAT_EDIT, ACTP_ACT_PLAY
+    CMD_register "Actions: New Set", "", CMD_CAT_EDIT, ACTP_ACT_NEWSET
+    CMD_register "Actions: New Action (records)", "", CMD_CAT_EDIT, ACTP_ACT_NEWACT
+    CMD_register "Actions: Delete Selection", "", CMD_CAT_EDIT, ACTP_ACT_DELETE
+    CMD_register "Actions: Insert Stop...", "", CMD_CAT_EDIT, ACTP_ACT_INSSTOP
+    CMD_register "View: Canvas Recording (play / export)", "", CMD_CAT_VIEW, CREC_ACT_VIEW
+    CMD_register "Canvas Recording: Pause / Resume", "", CMD_CAT_VIEW, CREC_ACT_PAUSE
+    CMD_register "Canvas Recording: Delete", "", CMD_CAT_VIEW, CREC_ACT_DELETE
+    CMD_register "Canvas Recording: On / Off", "", CMD_CAT_VIEW, CREC_ACT_TOGGLE
     
     ' ========== CANVAS ==========
     CMD_register "Pan Canvas", "Space+Drag or MMB", CMD_CAT_CANVAS, 801
@@ -1058,7 +1074,23 @@ END SUB
 ' Execute a command by action ID
 ' @param action_id INTEGER - Action ID to execute (see Action ID Ranges in COMMAND.BM)
 '
+''
+' Run command action_id. Actions (TOOLS/ACTIONS) see every one: a top-level command
+' (not one another command runs) is recorded as a step while an action records.
 SUB CMD_execute_action (action_id AS INTEGER)
+    DIM act AS INTEGER
+    act = action_id ' (by reference: a command could change the variable it was passed in)
+    ACTS.depth = ACTS.depth + 1
+    ACTS_will_run act
+    CMD_execute_action_run act
+    ACTS_did_run act
+    ACTS.depth = ACTS.depth - 1
+END SUB
+
+
+''
+' The commands themselves (CMD_execute_action).
+SUB CMD_execute_action_run (action_id AS INTEGER)
     ' Crash breadcrumb: every command the user fires, kept in a 32-entry ring so
     ' a crash report can answer "what were you doing?". Two array stores — cheap
     ' enough to sit on the hot dispatch path.
@@ -1477,6 +1509,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 2029     ' Advanced Color Picker Settings (its gear): Settings > Panels
             MENUBAR_close_all
             SETTINGS_open_at SETTINGS_TAB_PANELS, "Advanced Color Picker"
+        CASE 2760     ' Panel Scale Settings: Settings > Panels > Panel Scale (SET ALL + every panel)
+            MENUBAR_close_all
+            SETTINGS_open_at SETTINGS_TAB_PANELS, "Panel Scale"
         CASE 2024     ' Toggle 3D Color Space
             CS3D_toggle
             CONFIG_save
@@ -1917,43 +1952,16 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 958 ' Toggle Anti-Aliasing (experimental, per-document)
             CFG.ANTIALIAS% = NOT CFG.ANTIALIAS%
             ' Edge-mode exclusivity: enabling AA turns Pixel-Perfect off (opposite
-            ' edge treatments) and makes AA the shared button's target.
-            IF CFG.ANTIALIAS% THEN
-                BRUSH_SIZE.PIXEL_PERFECT = FALSE
-                EDGE_MODE_TARGET         = EDGE_TARGET_AA
-            END IF
+            ' edge treatments)
+            IF CFG.ANTIALIAS% THEN BRUSH_SIZE.PIXEL_PERFECT = FALSE
             SCENE_DIRTY%      = TRUE
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE%       = FALSE
             CONFIG_save
-        CASE 959 ' Toggle Edge Mode: toggle the current target (PP or AA) on/off
-            IF EDGE_MODE_TARGET = EDGE_TARGET_AA THEN
-                CMD_execute_action 958 ' toggle AA (forces PP off when enabling)
-            ELSE
-                CMD_execute_action 609 ' toggle Pixel-Perfect (forces AA off when enabling)
-            END IF
-        CASE 960 ' Switch Edge Mode target PP<->AA (live-swap if a mode is active)
-            DIM edgeWasActive AS INTEGER
-            edgeWasActive% = (CFG.ANTIALIAS% OR BRUSH_SIZE.PIXEL_PERFECT)
-            IF EDGE_MODE_TARGET = EDGE_TARGET_AA THEN
-                EDGE_MODE_TARGET = EDGE_TARGET_PP
-            ELSE
-                EDGE_MODE_TARGET = EDGE_TARGET_AA
-            END IF
-            IF edgeWasActive% THEN
-                ' A mode was on — switch it live to the new target (stay mutually exclusive).
-                IF EDGE_MODE_TARGET = EDGE_TARGET_AA THEN
-                    BRUSH_SIZE.PIXEL_PERFECT = FALSE
-                    CFG.ANTIALIAS%           = TRUE
-                ELSE
-                    CFG.ANTIALIAS%           = FALSE
-                    BRUSH_SIZE.PIXEL_PERFECT = TRUE
-                END IF
-                CONFIG_save
-            END IF
-            SCENE_DIRTY%      = TRUE
-            GUI_NEEDS_REDRAW% = TRUE
-            FRAME_IDLE%       = FALSE
+        CASE 959 ' The bars' / toolbox's Pixel-Perfect button (was the shared PP / AA Edge-Mode
+            ' button - Rick 2026-11-21: Anti-Aliasing has its own toolbox button). The
+            ' action stays: workspaces and toolbars name it (cmd:959, "edge-mode").
+            CMD_execute_action 609 ' toggle Pixel-Perfect (forces AA off when enabling)
         CASE 443 ' Toolbox Dock Left
             IF DOCK_side_now%(DP_TOOLBOX) <> DOCK_LEFT THEN
                 CFG.TOOLBOX_DOCK_EDGE = "LEFT"
@@ -3551,7 +3559,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 DIM sdMoveTmp             AS LONG
                 sdMoveTmp& = _NEWIMAGE(sdNewW%, sdNewH%, 32)
                 _DONTBLEND sdMoveTmp&
-                _PUTIMAGE (0, 0)-(sdNewW% - 1, sdNewH% - 1), MOVE.ORIGINAL_IMAGE, sdMoveTmp&
+                IMG_scale_into MOVE.ORIGINAL_IMAGE, sdMoveTmp& ' smooth with Antialias on
                 _BLEND sdMoveTmp&
                 SAFE_FREEIMAGE MOVE.SELECTION_IMAGE
                 MOVE.SELECTION_IMAGE = sdMoveTmp&
@@ -3598,7 +3606,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM sdScl      AS LONG
                     sdScl& = _NEWIMAGE(sdSelNW%, sdSelNH%, 32)
                     _DONTBLEND sdScl&
-                    _PUTIMAGE (0, 0)-(sdSelNW% - 1, sdSelNH% - 1), sdReg&, sdScl&
+                    IMG_scale_into sdReg&, sdScl&
                     ' Clear selection area on layer
                     DIM oldSdDest  AS LONG : oldSdDest& = _DEST
                     _DEST sdSrc&
@@ -3640,7 +3648,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM sdLTmp     AS LONG
                     sdLTmp& = _NEWIMAGE(sdLNW%, sdLNH%, 32)
                     _DONTBLEND sdLTmp&
-                    _PUTIMAGE (0, 0)-(sdLNW% - 1, sdLNH% - 1), SCALE_ORIGINAL_IMAGE, sdLTmp&
+                    IMG_scale_into SCALE_ORIGINAL_IMAGE, sdLTmp&
                     ' Clear layer and center scaled content
                     DIM oldSdLDest AS LONG : oldSdLDest& = _DEST
                     _DEST sdSrc&
@@ -3721,7 +3729,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 DIM suMoveTmp             AS LONG
                 suMoveTmp& = _NEWIMAGE(suNewW%, suNewH%, 32)
                 _DONTBLEND suMoveTmp&
-                _PUTIMAGE (0, 0)-(suNewW% - 1, suNewH% - 1), MOVE.ORIGINAL_IMAGE, suMoveTmp&
+                IMG_scale_into MOVE.ORIGINAL_IMAGE, suMoveTmp& ' smooth with Antialias on
                 _BLEND suMoveTmp&
                 SAFE_FREEIMAGE MOVE.SELECTION_IMAGE
                 MOVE.SELECTION_IMAGE = suMoveTmp&
@@ -3771,7 +3779,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM suScl      AS LONG
                     suScl& = _NEWIMAGE(suSelNW%, suSelNH%, 32)
                     _DONTBLEND suScl&
-                    _PUTIMAGE (0, 0)-(suSelNW% - 1, suSelNH% - 1), suReg&, suScl&
+                    IMG_scale_into suReg&, suScl&
                     ' Clear selection area on layer
                     DIM oldSuDest  AS LONG : oldSuDest& = _DEST
                     _DEST suSrc&
@@ -3828,7 +3836,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM suLTmp     AS LONG
                     suLTmp& = _NEWIMAGE(suLNW%, suLNH%, 32)
                     _DONTBLEND suLTmp&
-                    _PUTIMAGE (0, 0)-(suLNW% - 1, suLNH% - 1), SCALE_ORIGINAL_IMAGE, suLTmp&
+                    IMG_scale_into SCALE_ORIGINAL_IMAGE, suLTmp&
                     ' Clear layer and center scaled content (overflow clips to layer edges)
                     DIM oldSuLDest AS LONG : oldSuLDest& = _DEST
                     _DEST suSrc&
@@ -4024,19 +4032,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 h2hLScl& = _NEWIMAGE(h2hLNW%, h2hLNH%, 32)
                 DIM h2hLOldDst AS LONG, h2hLOldSrc AS LONG
                 h2hLOldDst& = _DEST : h2hLOldSrc& = _SOURCE
-                _DEST h2hLScl&
-                CLS , _RGBA32(0, 0, 0, 0)
                 _SOURCE h2hSnap&
-                _DONTBLEND h2hLScl&
-                DIM h2hLPx     AS INTEGER, h2hLPy AS INTEGER, h2hLPix AS _UNSIGNED LONG
-                FOR h2hLPy% = 0 TO h2hLH% - 1
-                    FOR h2hLPx% = 0 TO h2hLW% - 1
-                        h2hLPix~& = POINT(h2hLPx%, h2hLPy%)
-                        PSET (h2hLPx% * 2,     h2hLPy%), h2hLPix~&
-                        PSET (h2hLPx% * 2 + 1, h2hLPy%), h2hLPix~&
-                    NEXT h2hLPx%
-                NEXT h2hLPy%
-                _BLEND h2hLScl&
+                PIXEL_DOUBLE_AXIS h2hSnap&, h2hLScl&, 0 ' smooth with Antialias on
                 _DEST h2hSrc&
                 _DONTBLEND h2hSrc&
                 CLS , _RGBA32(0, 0, 0, 0)
@@ -4219,19 +4216,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 v2vLScl& = _NEWIMAGE(v2vLNW%, v2vLNH%, 32)
                 DIM v2vLOldDst AS LONG, v2vLOldSrc AS LONG
                 v2vLOldDst& = _DEST : v2vLOldSrc& = _SOURCE
-                _DEST v2vLScl&
-                CLS , _RGBA32(0, 0, 0, 0)
                 _SOURCE v2vSnap&
-                _DONTBLEND v2vLScl&
-                DIM v2vLPx     AS INTEGER, v2vLPy AS INTEGER, v2vLPix AS _UNSIGNED LONG
-                FOR v2vLPy% = 0 TO v2vLH% - 1
-                    FOR v2vLPx% = 0 TO v2vLW% - 1
-                        v2vLPix~& = POINT(v2vLPx%, v2vLPy%)
-                        PSET (v2vLPx%, v2vLPy% * 2),     v2vLPix~&
-                        PSET (v2vLPx%, v2vLPy% * 2 + 1), v2vLPix~&
-                    NEXT v2vLPx%
-                NEXT v2vLPy%
-                _BLEND v2vLScl&
+                PIXEL_DOUBLE_AXIS v2vSnap&, v2vLScl&, 1 ' smooth with Antialias on
                 _DEST v2vSrc&
                 _DONTBLEND v2vSrc&
                 CLS , _RGBA32(0, 0, 0, 0)
@@ -5197,6 +5183,18 @@ SUB CMD_execute_action (action_id AS INTEGER)
             GUI_NEEDS_REDRAW% = TRUE: FRAME_IDLE% = FALSE
         CASE BSP_ACT_PANEL ' View > Brush Palette (GUI/BRUSH-PANEL)
             BSP_toggle
+        CASE HISTP_ACT_PANEL ' View > History (GUI/HISTORY-PANEL)
+            HISTP_toggle
+        CASE CBAR_ACT_PANELS ' View > PANELS Bar (GUI/CMDBARS)
+            CBAR_toggle CBAR_PANELS
+        CASE CBAR_ACT_IO ' View > I/O Bar (GUI/CMDBARS)
+            CBAR_toggle CBAR_IO
+        CASE HISTP_ACT_CLEAR ' Edit > Clear History (asks)
+            HISTP_clear
+        CASE ACTP_ACT_PANEL, ACTP_ACT_RECORD, ACTP_ACT_STOP, ACTP_ACT_PLAY, ACTP_ACT_NEWSET, ACTP_ACT_NEWACT, ACTP_ACT_DELETE, ACTP_ACT_INSSTOP, ACTP_ACT_KEY1 TO ACTP_ACT_KEY1 + ACTP_KEY_SLOTS - 1 ' the Actions palette (+ its action keys) (GUI/ACTIONS-PANEL)
+            ACTP_command action_id%
+        CASE CREC_ACT_VIEW, CREC_ACT_PAUSE, CREC_ACT_DELETE, CREC_ACT_TOGGLE ' canvas recording (TOOLS/CANVAS-REC)
+            CREC_command action_id%
         CASE MYPAINT_ACT_SIZE_FROM_BRUSH
             MYPAINT_init
             CFG.MYPAINT_SIZE_FROM_BRUSH% = _NEGATE CFG.MYPAINT_SIZE_FROM_BRUSH%: CONFIG_save
@@ -6211,6 +6209,22 @@ SUB CMD_update_search ()
     NEXT i%
     NEXT pass%
 
+    ' A name that IS the query goes first (2026-11-22: "Invert" listed Invert Selection,
+    ' registered earlier, above Invert itself - Enter ran the wrong one)
+    DIM exactAt AS INTEGER, exactIdx AS INTEGER
+    IF CMD_PALETTE.search_len > 0 THEN
+        FOR exactAt% = 1 TO CMD_PALETTE.result_count - 1
+            IF UCASE$(RTRIM$(CMD_LIST(CMD_RESULTS(exactAt%)).name)) = UCASE$(search_str$) THEN
+                exactIdx% = CMD_RESULTS(exactAt%)
+                FOR i% = exactAt% TO 1 STEP -1
+                    CMD_RESULTS(i%) = CMD_RESULTS(i% - 1)
+                NEXT i%
+                CMD_RESULTS(0) = exactIdx%
+                EXIT FOR
+            END IF
+        NEXT exactAt%
+    END IF
+
     ' Reset hover and scroll
     CMD_PALETTE.hover  = 0
     CMD_PALETTE.scroll = 0
@@ -6558,7 +6572,7 @@ SUB CMD_ml_scale (layerIdx AS INTEGER, factor AS SINGLE, historyFlags AS LONG, h
     IF mlSNH% < 1 THEN mlSNH% = 1
     DIM mlSTmp    AS LONG : mlSTmp& = _NEWIMAGE(mlSNW%, mlSNH%, 32)
     _DONTBLEND mlSTmp&
-    _PUTIMAGE (0, 0)-(mlSNW% - 1, mlSNH% - 1), SCALE_ORIGINAL_IMAGE_L(layerIdx%), mlSTmp&
+    IMG_scale_into SCALE_ORIGINAL_IMAGE_L(layerIdx%), mlSTmp&
     DIM mlSOD     AS LONG : mlSOD& = _DEST
     _DEST mlSSrc&
     _DONTBLEND mlSSrc&

@@ -75,6 +75,8 @@ A second tier of **hidden panels** can be summoned on demand:
 - **Drawer Panel** — 30 reusable brush / pattern / gradient slots.
 - **Edit Bar** (`F5`) — quick edit actions.
 - **Advanced Bar** (`Shift+F5`) — 26+ toggles.
+- **PANELS Bar** (View → Panels → PANELS Bar) — a button for every panel View shows or hides, lit while that panel is showing.
+- **I/O Bar** (View → Panels → I/O Bar) — New, Open, Import, Save and Export in one strip.
 - **Preview Window** (`F4`) — magnifier or floating image.
 - **Character Map** (`Ctrl+M`) — 16×16 glyph grid for text-mode work.
 

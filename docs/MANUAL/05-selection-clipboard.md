@@ -30,7 +30,7 @@ After a selection exists you get **resize handles** on its edges; **drag inside 
 
 ### Tool Options (the Selection Bar)
 
-Pick any selection tool and **Tool Options** (Ch. 02, *Tool Options*) shows the selection tools' options in its row above the canvas (the canvas stays where it is). Turn it off with **View → Tool Options**. Like any dock panel you can drag it into a column, where its controls wrap into more lines. Every value is saved in `DRAW.cfg` (`[SELECTION]` section).
+Pick any selection tool and **Tool Options** (Ch. 02, *Tool Options*) shows the selection tools' options in its row above the canvas (the canvas stays where it is). Turn it off with **View → Panels → Tool Options**. Like any dock panel you can drag it into a column, where its controls wrap into more lines. Every value is saved in `DRAW.cfg` (`[SELECTION]` section).
 
 | Group | Shown with | Controls |
 | --- | --- | --- |

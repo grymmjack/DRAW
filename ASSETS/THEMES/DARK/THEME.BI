@@ -186,6 +186,7 @@ THEME.LAYER_PANEL_group_header_bg~&   = _RGB32(55, 55, 65)                  ' Gr
 THEME.LAYER_PANEL_group_header_fg~&   = _RGB32(180, 200, 220)               ' Group header name text
 THEME.LAYER_PANEL_group_indent%       = 12                                  ' Child indent pixels
 THEME.LAYER_PANEL_group_collapse_fg~& = _RGB32(160, 180, 200)               ' Collapse triangle color
+THEME.LAYER_PANEL_group_count_fg~&   = _RGB32(150, 150, 150)                   ' A group row's child count
 
 ' --- Marquee selection handles ---
 THEME.MARQUEE_HANDLE_SIZE% = 1                                              ' Handle half-size (screen px)
@@ -232,6 +233,71 @@ THEME.DIALOG_toggle_sel_border~&   = _RGB32(100, 160, 255)                  ' Se
 THEME.DIALOG_toggle_bg~&           = _RGB32(55, 55, 55)                     ' Unselected toggle background
 THEME.DIALOG_toggle_fg~&           = _RGB32(170, 170, 170)                  ' Unselected toggle text
 THEME.DIALOG_toggle_border~&       = _RGB32(90, 90, 90)                     ' Unselected toggle border
+THEME.DIALOG_checkbox_bg~&         = _RGB32(72, 72, 72)                     ' Unchecked checkbox fill
+THEME.DIALOG_button_bg~&           = _RGB32(55, 55, 55)            ' Button background
+THEME.DIALOG_button_hover_bg~&     = _RGB32(40, 80, 160)           ' Button background under the pointer
+THEME.DIALOG_button_border~&       = _RGB32(90, 90, 90)            ' Button border
+THEME.DIALOG_button_disabled_fg~&  = _RGB32(110, 110, 110)         ' Disabled button text
+THEME.DIALOG_button_primary_bg~&   = _RGB32(40, 100, 40)           ' Primary button background (OK / confirm)
+THEME.DIALOG_button_primary_hover_bg~& = _RGB32(60, 150, 60)           ' Primary button background under the pointer
+THEME.DIALOG_button_primary_border~& = _RGB32(80, 200, 80)           ' Primary button border
+THEME.DIALOG_button_primary_fg~&   = _RGB32(255, 255, 255)         ' Primary button text
+THEME.DIALOG_button_cancel_bg~&    = _RGB32(100, 40, 40)           ' Cancel button background
+THEME.DIALOG_button_cancel_hover_bg~& = _RGB32(150, 60, 60)           ' Cancel button background under the pointer
+THEME.DIALOG_button_cancel_border~& = _RGB32(200, 80, 80)           ' Cancel button border
+THEME.DIALOG_button_cancel_fg~&    = _RGB32(255, 255, 255)         ' Cancel button text
+THEME.DIALOG_button_danger_bg~&    = _RGB32(100, 40, 40)           ' Danger button background (delete)
+THEME.DIALOG_button_danger_hover_bg~& = _RGB32(150, 60, 60)           ' Danger button background under the pointer
+THEME.DIALOG_button_danger_border~& = _RGB32(200, 80, 80)           ' Danger button border
+THEME.DIALOG_button_danger_fg~&    = _RGB32(255, 255, 255)         ' Danger button text
+THEME.DIALOG_button_warn_bg~&      = _RGB32(110, 78, 30)           ' Warn button background (reset / overwrite)
+THEME.DIALOG_button_warn_hover_bg~& = _RGB32(160, 116, 50)          ' Warn button background under the pointer
+THEME.DIALOG_button_warn_border~&  = _RGB32(210, 160, 70)          ' Warn button border
+THEME.DIALOG_button_warn_fg~&      = _RGB32(255, 255, 255)         ' Warn button text
+THEME.DIALOG_button_accent_bg~&    = _RGB32(40, 80, 120)           ' Accent button background (pick / browse / open)
+THEME.DIALOG_button_accent_hover_bg~& = _RGB32(60, 120, 180)          ' Accent button background under the pointer
+THEME.DIALOG_button_accent_border~& = _RGB32(80, 160, 220)          ' Accent button border
+THEME.DIALOG_button_accent_fg~&    = _RGB32(255, 255, 255)         ' Accent button text
+THEME.DIALOG_toggle_hover_bg~&     = _RGB32(55, 55, 65)            ' Unselected toggle background under the pointer
+THEME.DIALOG_checkbox_border~&     = _RGB32(90, 90, 90)            ' Checkbox / radio border
+THEME.DIALOG_checkbox_hover_border~& = _RGB32(100, 160, 255)         ' Checkbox / radio border under the pointer
+THEME.DIALOG_checkbox_checked_bg~& = _RGB32(40, 80, 160)           ' Checked checkbox fill / radio dot
+THEME.DIALOG_checkbox_mark~&       = _RGB32(255, 255, 255)         ' Checkbox check mark
+THEME.DIALOG_field_bg~&            = _RGB32(38, 38, 38)            ' Field background
+THEME.DIALOG_field_border~&        = _RGB32(90, 90, 90)            ' Field border
+THEME.DIALOG_field_fg~&            = _RGB32(255, 255, 255)         ' Field text
+THEME.DIALOG_field_hint_fg~&       = _RGB32(80, 80, 160)           ' Field text for AUTO / OFF / placeholders
+THEME.DIALOG_field_hover_bg~&      = _RGB32(40, 80, 160)           ' Field background under the pointer
+THEME.DIALOG_field_active_bg~&     = _RGB32(40, 80, 160)           ' Field background while typing / capturing
+THEME.DIALOG_field_active_fg~&     = _RGB32(255, 255, 255)         ' Field text while typing / capturing
+THEME.DIALOG_field_active_border~& = _RGB32(100, 160, 255)         ' Field border while typing / capturing
+THEME.DIALOG_list_bg~&             = _RGB32(72, 72, 72)            ' List background
+THEME.DIALOG_list_border~&         = _RGB32(90, 90, 90)            ' List border
+THEME.DIALOG_list_fg~&             = _RGB32(200, 200, 200)         ' List item text
+THEME.DIALOG_list_hover_bg~&       = _RGB32(55, 55, 65)            ' List item background under the pointer
+THEME.DIALOG_list_hover_fg~&       = _RGB32(200, 200, 200)         ' List item text under the pointer
+THEME.DIALOG_list_sel_bg~&         = _RGB32(40, 80, 160)           ' Selected list item background
+THEME.DIALOG_list_sel_fg~&         = _RGB32(255, 255, 255)         ' Selected list item text
+THEME.DIALOG_list_header_bg~&      = _RGB32(40, 40, 40)            ' List / table column header background
+THEME.DIALOG_list_header_fg~&      = _RGB32(255, 255, 255)         ' List / table column header text
+THEME.DIALOG_tab_fg~&              = _RGB32(200, 200, 200)         ' Tab text
+THEME.DIALOG_tab_hover_bg~&        = _RGB32(55, 55, 55)            ' Tab background under the pointer
+THEME.DIALOG_tab_hover_fg~&        = _RGB32(170, 170, 170)         ' Tab text under the pointer
+THEME.DIALOG_tab_sel_bg~&          = _RGB32(40, 80, 160)           ' Current tab background
+THEME.DIALOG_tab_sel_fg~&          = _RGB32(255, 255, 255)         ' Current tab text
+THEME.DIALOG_section_fg~&          = _RGB32(255, 255, 255)         ' Section heading text
+THEME.DIALOG_divider~&             = _RGB32(48, 48, 48)            ' Divider lines (section rules, tab / bar separators)
+THEME.DIALOG_swatch_border~&       = _RGB32(90, 90, 90)            ' Colour swatch border
+THEME.DIALOG_swatch_hover_border~& = _RGB32(100, 160, 255)         ' Colour swatch border under the pointer
+THEME.DIALOG_field_selection_bg~&  = _RGB32(40, 80, 160)                   ' Selected text in a field
+THEME.DIALOG_bar_bg~&              = _RGB32(72, 72, 72)                    ' Footer button bar background
+THEME.DIALOG_tab_bar_bg~&          = _RGB32(42, 42, 52)                    ' Tab strip background
+THEME.DIALOG_scrollbar_track~&     = _RGBA32(60, 60, 70, 120)               ' Scrollbar track
+THEME.DIALOG_scrollbar_thumb~&     = _RGBA32(200, 200, 210, 180)            ' Scrollbar thumb
+THEME.DIALOG_status_fg~&           = _RGB32(255, 255, 255)                 ' Status / result message text
+THEME.DIALOG_warning_fg~&          = _RGB32(235, 180, 70)                  ' Warning / error message text
+THEME.DIALOG_changed_bg~&          = _RGB32(40, 80, 160)                   ' Marks a value changed from its default (row stripe, legend)
+THEME.DIALOG_changed_fg~&          = _RGB32(255, 255, 255)                 ' Text of a value changed from its default
 THEME.DIALOG_label_fg~&            = _RGB32(200, 200, 200)                  ' Dialog labels
 THEME.DIALOG_slider_track_bg~&     = _RGB32(38, 38, 38)                     ' Dialog slider track
 THEME.DIALOG_slider_track_border~& = _RGB32(90, 90, 90)                     ' Dialog slider track border
@@ -369,12 +435,184 @@ THEME.CP_overlay~&          = &H80000000~&                                  ' Mo
 THEME.CP_check_a~&          = _RGB32(40, 40, 40)                            ' Checkerboard A
 THEME.CP_check_b~&          = _RGB32(60, 60, 60)                            ' Checkerboard B
 
+' --- Panels (a key per kind of control; values follow the CP_ / LAYER_PANEL_ key each replaced) ---
+THEME.PANEL_bg~&                     = _RGB32(30, 30, 30)                      ' Panel background
+THEME.PANEL_border~&                 = _RGB32(80, 80, 80)                      ' Panel outline
+THEME.PANEL_title_bg~&               = _RGB32(50, 50, 50)                      ' Title bar background
+THEME.PANEL_title_fg~&               = _RGB32(200, 200, 200)                   ' Title text and the collapse arrow
+THEME.PANEL_title_hint_fg~&          = _RGB32(150, 150, 150)                   ' Secondary text in a title bar (the Layers count)
+THEME.PANEL_title_border~&           = _RGB32(60, 60, 60)                      ' Line under a title bar, floating frame outline
+THEME.PANEL_tab_fg~&                 = _RGB32(150, 150, 150)                   ' Title-bar tab text (a tab not shown)
+THEME.PANEL_tab_sel_bg~&             = _RGB32(40, 40, 40)                      ' The shown tab's background
+THEME.PANEL_tab_sel_fg~&             = _RGB32(200, 200, 200)                   ' The shown tab's text
+THEME.PANEL_close_fg~&               = _RGB32(180, 40, 40)                     ' Close cross
+THEME.PANEL_close_hover_bg~&         = _RGB32(180, 40, 40)                     ' Close box under the pointer
+THEME.PANEL_close_hover_fg~&         = _RGB32(220, 80, 80)                     ' Close cross under the pointer
+THEME.PANEL_grip~&                   = _RGB32(200, 200, 200)                   ' Drag grip dots, resize corner
+THEME.PANEL_label_fg~&               = _RGB32(180, 180, 180)                   ' Labels
+THEME.PANEL_value_fg~&               = _RGB32(220, 220, 220)                   ' Values, the current item, emphasis
+THEME.PANEL_hint_fg~&                = _RGB32(100, 100, 100)                   ' Hints, units, secondary information
+THEME.PANEL_disabled_fg~&            = _RGB32(100, 100, 100)                   ' A control that is off: its text and marks
+THEME.PANEL_warning_fg~&             = _RGB32(220, 80, 80)                     ' Warning text and marks
+THEME.PANEL_section_fg~&             = _RGB32(100, 100, 100)                   ' Section heading (a disclosure row)
+THEME.PANEL_section_hover_fg~&       = _RGB32(180, 180, 180)                   ' Section heading under the pointer
+THEME.PANEL_divider~&                = _RGB32(80, 80, 80)                      ' Rules between sections and rows
+THEME.PANEL_button_bg~&              = _RGB32(50, 50, 50)                      ' Button background
+THEME.PANEL_button_fg~&              = _RGB32(180, 180, 180)                   ' Button text and icon
+THEME.PANEL_button_border~&          = _RGB32(70, 70, 70)                      ' Button outline
+THEME.PANEL_button_hover_bg~&        = _RGB32(65, 65, 65)                      ' Button under the pointer
+THEME.PANEL_button_hover_fg~&        = _RGB32(220, 220, 220)                   ' Button text under the pointer
+THEME.PANEL_button_on_bg~&           = _RGB32(60, 60, 60)                      ' A button that is on (chosen chip, active mode)
+THEME.PANEL_button_on_fg~&           = _RGB32(220, 220, 220)                   ' Text of a button that is on
+THEME.PANEL_button_disabled_bg~&     = _RGB32(25, 25, 25)                      ' A button that does nothing now (its text: PANEL_DISABLED_FG)
+THEME.PANEL_icon_fg~&                = _RGB32(100, 100, 100)                   ' Bare icon button
+THEME.PANEL_icon_hover_fg~&          = _RGB32(220, 220, 220)                   ' Bare icon button under the pointer or with its menu open
+THEME.PANEL_checkbox_bg~&            = _RGB32(25, 25, 25)                      ' Checkbox box
+THEME.PANEL_checkbox_border~&        = _RGB32(70, 70, 70)                      ' Checkbox outline
+THEME.PANEL_checkbox_hover_border~&  = _RGB32(180, 180, 180)                   ' Checkbox outline under the pointer
+THEME.PANEL_checkbox_mark~&          = _RGB32(220, 220, 220)                   ' Check mark
+THEME.PANEL_slider_bg~&              = _RGB32(25, 25, 25)                      ' Slider track
+THEME.PANEL_slider_border~&          = _RGB32(70, 70, 70)                      ' Slider track outline
+THEME.PANEL_slider_fill~&            = _RGB32(180, 180, 180)                   ' Slider fill (a value with no colour of its own)
+THEME.PANEL_slider_thumb~&           = _RGB32(220, 220, 220)                   ' Slider thumb
+THEME.PANEL_slider_active_thumb~&    = _RGB32(80, 200, 255)                    ' Slider thumb while it is dragged
+THEME.PANEL_slider_disabled~&        = _RGB32(100, 100, 100)                   ' Fill and thumb of a slider that is off
+THEME.PANEL_field_bg~&               = _RGB32(25, 25, 25)                      ' Field background
+THEME.PANEL_field_border~&           = _RGB32(70, 70, 70)                      ' Field outline
+THEME.PANEL_field_fg~&               = _RGB32(220, 220, 220)                   ' Field text
+THEME.PANEL_field_active_border~&    = _RGB32(220, 220, 220)                   ' Outline of the field being edited / dragged
+THEME.PANEL_field_hover_border~&     = _RGB32(80, 200, 255)                    ' Outline of a field under the pointer
+THEME.PANEL_field_sel_bg~&           = _RGB32(60, 60, 60)                      ' A field's selected text
+THEME.PANEL_field_caret~&            = _RGB32(220, 220, 220)                   ' A field's text caret
+THEME.PANEL_list_fg~&                = _RGB32(180, 180, 180)                   ' Row text
+THEME.PANEL_list_hover_bg~&          = _RGB32(65, 65, 65)                      ' Row under the pointer
+THEME.PANEL_list_sel_bg~&            = _RGB32(60, 60, 60)                      ' Selected row
+THEME.PANEL_list_sel_fg~&            = _RGB32(220, 220, 220)                   ' Selected row text
+THEME.PANEL_list_bg~&                = _RGB32(25, 25, 25)                      ' List / item grid background
+THEME.PANEL_list_border~&            = _RGB32(70, 70, 70)                      ' List outline
+THEME.PANEL_list_hover_fg~&          = _RGB32(220, 220, 220)                   ' Row text under the pointer
+THEME.PANEL_list_header_fg~&         = _RGB32(200, 200, 200)                   ' Group header row text in a list
+THEME.PANEL_scrollbar_track~&        = _RGB32(25, 25, 25)                      ' Scrollbar track
+THEME.PANEL_scrollbar_thumb~&        = _RGB32(100, 100, 100)                   ' Scrollbar thumb
+THEME.PANEL_swatch_border~&          = _RGB32(70, 70, 70)                      ' Swatch outline
+THEME.PANEL_swatch_hover_border~&    = _RGB32(180, 180, 180)                   ' Swatch outline under the pointer
+THEME.PANEL_swatch_sel_border~&      = _RGB32(220, 220, 220)                   ' Selected swatch outline
+
+' --- Dock: the columns panels sit in (titles and tabs are PANEL_ keys) ---
+THEME.DOCK_bg~&                      = _RGBA32(0, 0, 0, 255)                   ' Dock column / row background, behind panels
+THEME.DOCK_seam~&                    = _RGB32(64, 64, 64)                      ' Seam between panels, and between a left / top / bottom dock and the canvas
+THEME.DOCK_seam_right~&              = _RGB32(64, 64, 64)                      ' Seam between the right dock and the canvas
+THEME.DOCK_handle_hover_bg~&         = _RGBA32(255, 255, 255, 200)             ' Drag handle under the pointer
+THEME.DOCK_handle_hover_fg~&         = _RGBA32(0, 0, 0, 255)                   ' Grip dots on a drag handle under the pointer
+
+' --- Pen Control panel parts ---
+THEME.PEN_METER_bg~&                 = _RGB32(25, 25, 25)                      ' Meter well
+THEME.PEN_METER_border~&             = _RGB32(70, 70, 70)                      ' Meter outline
+THEME.PEN_METER_fill~&               = _RGB32(100, 100, 100)                   ' Level fill
+THEME.PEN_METER_fill_active~&        = _RGB32(220, 220, 220)                   ' Mouse meter fill while mouse expression is pressing
+THEME.PEN_METER_value~&              = _RGB32(220, 220, 220)                   ' Tick for the value after the curve
+THEME.PEN_METER_mark~&               = _RGB32(220, 80, 80)                     ' Tip-threshold mark
+THEME.PEN_METER_fg~&                 = _RGB32(180, 180, 180)                   ' The meter's % readout
+THEME.PEN_GRAPH_bg~&                 = _RGB32(25, 25, 25)                      ' Graph background
+THEME.PEN_GRAPH_border~&             = _RGB32(70, 70, 70)                      ' Graph outline
+THEME.PEN_GRAPH_guide~&              = _RGB32(100, 100, 100)                   ' Dashed reference lines
+THEME.PEN_GRAPH_curve~&              = _RGB32(180, 180, 180)                   ' The curve
+THEME.PEN_GRAPH_curve_off~&          = _RGB32(100, 100, 100)                   ' The speed curve while speed scaling is off
+THEME.PEN_GRAPH_point~&              = _RGB32(220, 220, 220)                   ' Live point
+THEME.PEN_GRAPH_avg~&                = _RGB32(220, 220, 220)                   ' Last stroke's average speed (dashed)
+THEME.PEN_GRAPH_top~&                = _RGB32(220, 80, 80)                     ' Last stroke's top speed line
+THEME.PEN_GRAPH_top_fg~&             = _RGB32(220, 80, 80)                     ' TOP readout text, the legend of that line
+THEME.PEN_GRAPH_label~&              = _RGB32(100, 100, 100)                   ' Caption inside a graph
+THEME.PEN_HINT_bg~&                  = _RGB32(25, 25, 25)                      ' Hint box background
+THEME.PEN_HINT_border~&              = _RGB32(70, 70, 70)                      ' Hint box outline
+THEME.PEN_HINT_fg~&                  = _RGB32(100, 100, 100)                   ' Hint text
+
+' --- Swatches panel parts ---
+THEME.SWATCHES_space_border~&        = _RGB32(100, 100, 100)                   ' Outline of an empty slot (hovered or selected; the list view's box)
+THEME.SWATCHES_space_sel_bg~&        = _RGB32(70, 70, 70)                      ' Fill of a selected empty slot
+THEME.SWATCHES_fg_mark~&             = _RGB32(220, 220, 220)                   ' Frame on the FG colour (grid and recent row)
+THEME.SWATCHES_bg_mark~&             = _RGB32(180, 180, 180)                   ' Frame on the BG colour
+THEME.SWATCHES_drag~&                = _RGB32(220, 220, 220)                   ' Rubber-band selection box and the drop mark
+
+' --- Customize Toolbars parts ---
+THEME.TOOLBAR_EDITOR_divider~&       = _RGB32(180, 180, 180)                   ' Icon of a divider entry
+THEME.TOOLBAR_EDITOR_gap~&           = _RGB32(100, 100, 100)                   ' Dotted box of a gap entry
+THEME.TOOLBAR_EDITOR_drop~&          = _RGB32(220, 220, 220)                   ' Where a dragged entry lands (insertion line, target list outline)
+THEME.TOOLBAR_EDITOR_sel_border~&    = _RGB32(220, 220, 220)                   ' Selected entry's outer outline on the real panel
+THEME.TOOLBAR_EDITOR_sel_inner~&     = _RGB32(60, 60, 60)                      ' Selected entry's inner outline
+THEME.TOOLBAR_EDITOR_ghost_bg~&      = _RGB32(30, 30, 30)                      ' Entry following the pointer while dragging
+THEME.TOOLBAR_EDITOR_ghost_border~&  = _RGB32(220, 220, 220)                   ' Its outline
+
+' --- Animation panel parts (X-sheet, lanes, sound, lightbox, canvas widget) ---
+THEME.ANIM_SHEET_grid~&              = _RGB32(80, 80, 80)                      ' Frame boundaries, header line and ticks, name-column edge, row separators, row rules (drawn at several alphas)
+THEME.ANIM_SHEET_names_bg~&          = _RGB32(25, 25, 25)                      ' The layer-name column
+THEME.ANIM_SHEET_multi_bg~&          = _RGB32(50, 75, 110)                     ' Name cell of the other layers in a multi-selection
+THEME.ANIM_SHEET_cur_row~&           = _RGB32(220, 220, 220)                   ' Current layer's row tint across the frames (faint)
+THEME.ANIM_SHEET_hold_bg~&           = _RGB32(180, 180, 180)                   ' Tint behind a held run (faint)
+THEME.ANIM_SHEET_hold~&              = _RGB32(180, 180, 180)                   ' Hold line, its ticks and end handle
+THEME.ANIM_SHEET_hold_cur~&          = _RGB32(220, 220, 220)                   ' Hold line on the current layer
+THEME.ANIM_SHEET_cell_mark~&         = _RGB32(180, 180, 180)                   ' Drawn-cell bar when zoomed out too far for a thumbnail
+THEME.ANIM_SHEET_more~&              = _RGB32(220, 220, 220)                   ' Marks at the names' edge: more rows above / below
+THEME.ANIM_SHEET_dim~&               = _RGB32(30, 30, 30)                      ' Veil over cells a hold drag lets go
+THEME.ANIM_SHEET_contrast~&          = _RGB32(220, 220, 220)                   ' What the grey lines lighten toward as XSHEET_CONTRAST goes up
+THEME.ANIM_SHEET_zoom_notch~&        = _RGB32(180, 180, 180)                   ' The default-zoom notch on the zoom slider
+THEME.ANIM_SHEET_item~&              = _RGB32(80, 200, 255)                    ' Things placed on the sheet: tag bars, sound clips, clip-layer bars + grips, note marks, link hatching (fill = a fainter copy)
+THEME.ANIM_SHEET_item_sel~&          = _RGB32(255, 70, 200)                    ' Outline of the picked sound clip
+THEME.ANIM_SHEET_drop~&              = _RGB32(80, 200, 255)                    ' Drag-drop feedback: drop outlines, a hold drag's new run, the frame-drop marker
+THEME.ANIM_LANE_color~&              = _RGB32(180, 180, 180)                   ' A lane's colour when Settings leaves it unset (label and curve)
+THEME.ANIM_LANE_arrow~&              = _RGB32(100, 100, 100)                   ' Lanes disclosure arrow before a layer name
+THEME.ANIM_LANE_arrow_cur~&          = _RGB32(220, 220, 220)                   ' That arrow on the current layer
+THEME.ANIM_LANE_guide~&              = _RGB32(80, 80, 80)                      ' Dotted default-value guide on a lane row
+THEME.ANIM_LANE_key_cur~&            = _RGB32(220, 220, 220)                   ' Key glyph at the current frame on the picked lane
+THEME.ANIM_LANE_key_bg~&             = _RGB32(30, 30, 30)                      ' Inside of a hollow key glyph
+THEME.ANIM_LANE_key_off~&            = _RGB32(100, 100, 100)                   ' Key button glyph on a frame with no key
+THEME.ANIM_LANE_key~&                = _RGB32(80, 200, 255)                    ' Key glyphs (lane diamonds, the key button on a keyed frame)
+THEME.ANIM_LANE_key_sel~&            = _RGB32(80, 200, 255)                    ' Lane key selection: shade, outline, the keys inside it
+THEME.ANIM_LANE_dot~&                = _RGB32(220, 220, 220)                   ' Centre of an envelope-phase dot on a curve
+THEME.ANIM_LANE_rec_idle~&           = _RGB32(180, 180, 180)                   ' Record dot, not keyed and not armed (faint ring)
+THEME.ANIM_SOUND_wave~&              = _RGB32(180, 180, 180)                   ' Clip waveform
+THEME.ANIM_SOUND_wave_cur~&          = _RGB32(220, 220, 220)                   ' Waveform of the picked clip, or under the current frame
+THEME.ANIM_SEEK_bg~&                 = _RGB32(25, 25, 25)                      ' Track
+THEME.ANIM_SEEK_border~&             = _RGB32(70, 70, 70)                      ' Track outline, the ring round the handle
+THEME.ANIM_SEEK_fill~&               = _RGB32(60, 60, 60)                      ' The part played so far
+THEME.ANIM_SEEK_thumb~&              = _RGB32(220, 220, 220)                   ' Handle
+THEME.ANIM_SEEK_disabled~&           = _RGB32(100, 100, 100)                   ' Fill and handle with one frame or none
+THEME.ANIM_WIDGET_bg~&               = _RGB32(60, 60, 60)                      ' OPACITY / TINT bar and drag-tip box
+THEME.ANIM_WIDGET_border~&           = _RGB32(80, 80, 80)                      ' Outline of the bar and the tip box
+THEME.ANIM_WIDGET_tip_fg~&           = _RGB32(220, 220, 220)                   ' Drag / hover tip text
+THEME.ANIM_WIDGET_line~&             = _RGB32(80, 200, 255)                    ' The widget's box, rotate stem, the hovered / dragged handle
+
 ' --- Fonts ---
 THEME.GLOBAL_FONT_FILE$      = "Tiny5-Regular.ttf"                          ' Primary UI font
 THEME.GLOBAL_FONT_SIZE%      = 8                                            ' Primary UI font size
 THEME.ALT_FONT_FILE$         = "PICO-8.ttf"                                 ' Alternate font (reserved)
 THEME.FILE_DIALOG_FONT_FILE$ = "Tiny5-Regular.ttf"                          ' File dialog font (set to "" to use GLOBAL)
 THEME.FILE_DIALOG_FONT_SIZE% = 8                                            ' File dialog font size
+
+' --- File browser (File dialogs + the Image Browser panel) - QB64_GJ_LIB FILE_DIALOG ---
+THEME.FILE_DIALOG_bg~&               = _RGB32(30, 30, 30)                      ' Background, toolbar
+THEME.FILE_DIALOG_title_bg~&         = _RGB32(45, 45, 45)                      ' Title bar
+THEME.FILE_DIALOG_title_active_bg~&  = _RGB32(35, 35, 100)                     ' Title bar while dragged
+THEME.FILE_DIALOG_places_bg~&        = _RGB32(30, 30, 30)                      ' Places sidebar
+THEME.FILE_DIALOG_list_bg~&          = _RGB32(30, 30, 30)                      ' File list
+THEME.FILE_DIALOG_preview_bg~&       = _RGB32(30, 30, 30)                      ' Preview pane
+THEME.FILE_DIALOG_path_bg~&          = _RGB32(45, 45, 45)                      ' Path bar
+THEME.FILE_DIALOG_header_bg~&        = _RGB32(35, 35, 35)                      ' File list column headers
+THEME.FILE_DIALOG_bar_bg~&           = _RGB32(35, 35, 35)                      ' Status bar and button bar
+THEME.FILE_DIALOG_border~&           = _RGB32(80, 80, 80)                      ' Outlines
+THEME.FILE_DIALOG_focus_border~&     = _RGB32(80, 80, 80)                      ' Outline of the focused pane / field
+THEME.FILE_DIALOG_divider~&          = _RGB32(60, 60, 60)                      ' Pane splitters and divider lines
+THEME.FILE_DIALOG_fg~&               = _RGB32(180, 180, 180)                   ' Text
+THEME.FILE_DIALOG_value_fg~&         = _RGB32(220, 220, 220)                   ' Bright text: the selected file, values
+THEME.FILE_DIALOG_hint_fg~&          = _RGB32(100, 100, 100)                   ' Dim text: sizes, dates, hints
+THEME.FILE_DIALOG_disabled_fg~&      = _RGB32(100, 100, 100)                   ' Text of something that is off
+THEME.FILE_DIALOG_accent_fg~&        = _RGB32(80, 80, 80)                      ' Accent text
+THEME.FILE_DIALOG_hover_bg~&         = _RGB32(75, 75, 75)                      ' Row under the pointer
+THEME.FILE_DIALOG_sel_bg~&           = _RGB32(60, 60, 60)                      ' Selected row
+THEME.FILE_DIALOG_sel_unfocused_bg~& = _RGB32(50, 50, 50)                      ' Selected row of a pane without the focus
+THEME.FILE_DIALOG_button_bg~&        = _RGB32(60, 60, 60)                      ' Button
+THEME.FILE_DIALOG_button_hover_bg~&  = _RGB32(75, 75, 75)                      ' Button under the pointer
+THEME.FILE_DIALOG_button_fg~&        = _RGB32(220, 220, 220)                   ' Button text
 
 ' --- Sounds ---
 THEME.SOUND_MENU_OPEN_FILE$           = "menu-open.wav"                     ' Open root menu
@@ -449,6 +687,23 @@ THEME.LOSPEC_checkbox_dl_fill~&  = _RGB32(40, 120, 60)
 THEME.LOSPEC_downloaded_fg~&     = _RGB32(100, 190, 120)
 THEME.PALETTE_MENU_SEP_fg~&      = _RGB32(110, 110, 120)
 THEME.PALETTE_MENU_SEP_bg~&      = _RGB32(22, 22, 34)
+
+' =============================================================================
+' ICON BARS - the edit / advanced bar, toolbox and workflow buttons, button lists
+' =============================================================================
+THEME.ICON_BAR_bg~&                        = _RGBA32(0, 0, 0, 255)       ' Icon bar background (edit / advanced bar), a workflow button's face, a command cell in the toolbox
+THEME.ICON_BAR_button_fg~&                 = _RGB32(202, 202, 202)       ' Text on an icon button: command text tiles, workflow button labels
+THEME.ICON_BAR_button_on_fg~&              = _RGB32(255, 255, 255)       ' Text of an icon button that is on
+THEME.ICON_BAR_button_disabled_fg~&        = _RGB32(110, 110, 110)       ' Text of an icon button that does nothing now (a workflow button whose workspace is gone)
+THEME.ICON_BAR_button_on_bg~&              = _RGBA32(0, 0, 0, 128)       ' Overlay on an icon button that is on (the tool in use, a lit toggle) - toolbox, bars, workflow
+THEME.ICON_BAR_button_on_border~&          = _RGBA32(255, 255, 255, 255) ' Outline of an icon button that is on
+THEME.ICON_BAR_button_hover_border~&       = _RGBA32(255, 255, 255, 200) ' Outline of an icon button under the pointer
+THEME.ICON_BAR_button_disabled_alpha%      = 160                         ' How much a disabled icon fades (0 = not at all, 255 = gone)
+THEME.ICON_BAR_width%                      = 18                          ' Width of an icon bar's column in px
+THEME.ICON_BAR_padding%                    = 0                           ' Space around an icon bar's buttons in px
+THEME.ICON_BAR_divider_margin%             = 4                           ' Space a divider entry takes in px
+THEME.ICON_BAR_border_left_width%          = 1                           ' Left edge of an icon bar in px
+THEME.ICON_BAR_border_right_width%         = 1                           ' Right edge of an icon bar in px
 
 ' =============================================================================
 ' EDIT BAR - Vertical icon quick-action panel
@@ -559,6 +814,46 @@ THEME.CHARMAP_SCROLLBAR_FG~&     = _RGB32(255, 255, 255)
 THEME.CHARMAP_SCROLLBAR_OPACITY% = 255
 THEME.CHARMAP_SCROLLBAR_WIDTH%   = 2
 THEME.CHAR_GRID_COLOR_FG~&       = _RGBA32(100, 100, 200, 80)
+
+' --- Bars: the tool option bars (text, selection, MyPaint, brush) - a key per kind of control ---
+THEME.BAR_row_height%                    = 14                                      ' Row height of every bar in px
+THEME.BAR_bg~&                           = _RGB32(28, 28, 42)                      ' Bar background
+THEME.BAR_border~&                       = _RGB32(64, 64, 64)                      ' Line under a bar
+THEME.BAR_divider~&                      = _RGB32(64, 64, 64)                      ' Lines between a bar's rows and groups
+THEME.BAR_label_fg~&                     = _RGB32(200, 200, 200)                   ' Labels (SIZE:, LH:, OPACITY)
+THEME.BAR_value_fg~&                     = _RGB32(200, 200, 200)                   ' Values: font name, size, line height, slider readouts
+THEME.BAR_button_bg~&                    = _RGB32(38, 38, 52)                      ' Button background
+THEME.BAR_button_fg~&                    = _RGB32(200, 200, 200)                   ' Button text and icon
+THEME.BAR_button_border~&                = _RGB32(64, 64, 80)                      ' Button outline
+THEME.BAR_button_hover_bg~&              = _RGB32(60, 60, 90)                      ' Button under the pointer
+THEME.BAR_button_hover_fg~&              = _RGB32(200, 200, 200)                   ' Button text under the pointer
+THEME.BAR_button_on_bg~&                 = _RGB32(80, 80, 160)                     ' A button that is on (B / I / U / S, align, MONO, AA, the chosen chip)
+THEME.BAR_button_on_fg~&                 = _RGB32(200, 200, 200)                   ' Text of a button that is on
+THEME.BAR_dropdown_button_hover_bg~&     = _RGB32(60, 60, 90)                      ' A dropdown box (font, size, style) under the pointer or open
+THEME.BAR_field_border~&                 = _RGB32(60, 60, 90)                      ' Outline of a value box (line height, shadow X / Y, outline size)
+THEME.BAR_swatch_border~&                = _RGB32(200, 200, 200)                   ' Colour swatch outline
+THEME.BAR_swatch_check_dark~&            = _RGBA32(192, 192, 192, 255)             ' Transparent swatch: dark checks
+THEME.BAR_swatch_check_light~&           = _RGBA32(255, 255, 255, 255)             ' Transparent swatch: light checks
+THEME.BAR_slider_bg~&                    = _RGB32(38, 38, 52)                      ' Slider track
+THEME.BAR_slider_border~&                = _RGB32(64, 64, 80)                      ' Slider track outline
+THEME.BAR_slider_hover_border~&          = _RGB32(200, 200, 200)                   ' Slider outline under the pointer or while dragged
+THEME.BAR_slider_fill~&                  = _RGB32(80, 80, 160)                     ' Slider fill (the value)
+THEME.BAR_item_bg~&                      = _RGB32(38, 38, 52)                      ' Grid cell background, the cell's badge
+THEME.BAR_item_fg~&                      = _RGB32(200, 200, 200)                   ' Cell text (names, badges) and the brush dab previews
+THEME.BAR_item_border~&                  = _RGB32(64, 64, 80)                      ' Cell outline
+THEME.BAR_item_hover_border~&            = _RGB32(200, 200, 200)                   ' Cell outline under the pointer
+THEME.BAR_item_sel_border~&              = _RGB32(80, 80, 160)                     ' Outline of the chosen cell
+THEME.BAR_scrollbar_track~&              = _RGB32(38, 38, 52)                      ' Grid scrollbar track
+THEME.BAR_scrollbar_thumb~&              = _RGB32(200, 200, 200)                   ' Grid scrollbar thumb
+THEME.BAR_dropdown_bg~&                  = _RGB32(32, 32, 48)                      ' List background
+THEME.BAR_dropdown_fg~&                  = _RGB32(200, 200, 200)                   ' Item text, the list's arrows and scroll marks
+THEME.BAR_dropdown_border~&              = _RGB32(64, 64, 64)                      ' List outline
+THEME.BAR_dropdown_divider~&             = _RGB32(64, 64, 64)                      ' Lines between groups of items
+THEME.BAR_dropdown_hover_bg~&            = _RGB32(45, 55, 110)                     ' Item under the pointer
+THEME.BAR_dropdown_hover_fg~&            = _RGB32(230, 230, 255)                   ' Item text under the pointer
+THEME.BAR_dropdown_preview_fg~&          = _RGB32(235, 238, 245)                   ' Font preview strip text (Settings' FONT_PREVIEW_FG wins when set)
+THEME.BAR_dropdown_preview_bg~&          = _RGB32(22, 24, 30)                      ' Font preview strip background (Settings' FONT_PREVIEW_BG wins when set)
+THEME.BAR_dropdown_sel_bg~&              = _RGB32(60, 80, 160)                     ' The current item
 
 ' =============================================================================
 ' TEXT BAR - Rich text formatting bar (below menu bar when text tool active)

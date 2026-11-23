@@ -22,6 +22,8 @@ END DECLARE
 DECLARE LIBRARY "../native/cli_tty"
     FUNCTION gj_stdout_isatty& ()
     FUNCTION gj_console_prepare& ()
+    FUNCTION gj_stdin_isatty& ()
+    FUNCTION gj_stdin_getc& ()
 END DECLARE
 
 ' [Linux] 1 = $DISPLAY's X server answers, 0 = it doesn't, -1 = can't tell

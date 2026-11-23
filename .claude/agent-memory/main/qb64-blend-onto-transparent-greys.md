@@ -36,3 +36,9 @@ was darker than the commit.
   Check a soft-pixel test's colour count before trusting it.
 - Audit scanner: `_NEWIMAGE` followed by a `_PUTIMAGE` into it with no `_DONTBLEND` between
   (38 sites on 2026-11-18). Related: [[antialiasing]], [[selection-mask-readers]].
+- [Linux, 2026-11-23] The picker's merged read `PICKER_compose_region` (the canvas loupe + a click)
+  was another site: it blended each layer into a cleared scratch image and again into the result,
+  so a 50% white pixel was picked as `#3F3F3F` (Rick: the loupe showed a dark grey over the
+  checkerboard). Now a raw `_DONTBLEND` copy, then `LAYER_blend_composite` (the native layer kernel,
+  which keeps the colour over alpha 0) for every layer. It also ignored the apron offset of a
+  promoted layer (gotcha 14). Test `QA/tests/picker-loupe-alpha.sh` (LOUPE line carries alpha).
