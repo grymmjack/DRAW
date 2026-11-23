@@ -7,7 +7,7 @@ metadata:
 
 Since 2026-11-23, DRAW work goes straight onto `main`. Rick: "just push it into main and stop using theme-edit branch get back on main".
 
-`theme-edit` was merged as PR #161 (d2205a95). The fix that came after it (07b949e4, dialog title-bar drag) was cherry-picked onto main as 03123049. The local `theme-edit` branch still exists but is retired.
+`theme-edit` was merged as PR #161 (d2205a95). The fix that came after it (07b949e4, dialog title-bar drag) was cherry-picked onto main as 03123049. The `theme-edit` branch was deleted locally and on GitHub the same day.
 
 **Why:** Rick wants one line of history, not a long-lived feature branch.
 
