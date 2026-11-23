@@ -33,7 +33,11 @@ CONST NP_N = 16
 DIM SHARED NP_HELD(1 TO NP_N) AS INTEGER  ' held last poll
 DIM SHARED NP_T(1 TO NP_N) AS DOUBLE      ' TIMER of a press not yet used; -1 = none
 DIM SHARED NP_DEVT(1 TO NP_N) AS DOUBLE   ' [Linux] TIMER of the device queue's last press
-DIM SHARED NP_DEVDN(1 TO NP_N) AS INTEGER ' [macOS] the device queue has the key down (_KEYDOWN can't tell keypad digits)
-DIM SHARED NP_READY AS INTEGER            ' _DEVICES enumerated
+$IF WIN THEN
+$ELSE
+    ' [Linux] [macOS] only: NUMPAD_dev reads the device queue there (unused variables on Windows)
+    DIM SHARED NP_DEVDN(1 TO NP_N) AS INTEGER ' [macOS] the device queue has the key down (_KEYDOWN can't tell keypad digits)
+    DIM SHARED NP_READY AS INTEGER            ' _DEVICES enumerated
+$END IF
 DIM SHARED NP_I AS INTEGER
 FOR NP_I = 1 TO NP_N: NP_T(NP_I) = -1: NP_DEVT(NP_I) = -1: NEXT NP_I
